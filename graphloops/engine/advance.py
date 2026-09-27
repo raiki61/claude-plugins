@@ -510,6 +510,8 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         "mode": "runner" if runner else "agent",
         "agent_type": None if runner else agent_type_of(b, n),
         "prompt_file": str(pfile), "prompt_sha": sha(prompt), "item": item, "status": "pending", "emitted_at": emitted,
+        # 出した盤面の版（読んだ版。この保存で 1 つ進む）——区間の重なり（commands._in_interval）を秒でなく保存の順で分ける論理時計
+        "emitted_rev": b.state.get("rev", 0),
         # 返答の置き場（運び手がここへ書けば done は --output 無しで読む）。**本文を返す節（text）は .md**——
         # 拡張子が .json だと、Markdown を返す節で運び手が別名に書き、初回の done が『返答が無い』で必ず落ちた。
         # **起こし直した試行は置き場を分ける**（.a<試行>）——前の試行が遅れて書いても別のファイルに落ち、記録に入らない
@@ -587,10 +589,12 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
             die(f"{iid}: git status が取れない——{n['run_by']} の作業ツリー保護（前後の突合）ができない場所からは回せない（リポジトリの中で next を呼べ）")
         inst["tree_before"] = snap
     if n["run_by"] in b.graph.get("tree_guard_roles", []) or n.get("declared_files"):
-        tree = b.worktree_tree()
+        said = []
+        tree = b.worktree_tree(said)
         if tree is None:
             # 止めずに痕跡を残す——受け付けは木の id の無い instance を状態コードとパスの並びだけで突き合わせ、申告の突合は見送る
-            note_unevaluable(b.state, f"{iid}.tree_before_id", "作業ツリーの木の id が取れない——中身の書き換えと申告の突合は測れない")
+            note_unevaluable(b.state, f"{iid}.tree_before_id", "作業ツリーの木の id が取れない——中身の書き換えと申告の突合は測れない: "
+                             + "; ".join(said))
         else:
             inst["tree_before_id"] = tree
             if n.get("declared_files") and attempt == 1:

@@ -653,8 +653,7 @@ def engine_run_refusal(inst, root):
     if not isinstance(steps, list) or not all(isinstance(s, dict) and isinstance(s.get("name"), str) and isinstance(s.get("argv"), list)
                                               and s["argv"] and all(isinstance(a, str) for a in s["argv"]) for s in steps):
         return "走らせる語（launch.steps）の形が [{name, argv}] でない"
-    heads = [[_norm(a) for a in helper_argv(h)] for h in ENGINE_HELPERS]
-    theirs = [s for s in steps if [_norm(a) for a in s["argv"][:2]] not in heads]
+    theirs = _repo_steps(steps)
     if theirs:
         sha = declared.steps_sha(theirs)
         d = declared.read(root) if root else None
@@ -664,6 +663,12 @@ def engine_run_refusal(inst, root):
     return None
 
 
+def _repo_steps(steps):
+    """走らせる語のうち、engine に同梱の語（ENGINE_HELPERS）でない step——対象リポジトリの宣言の語"""
+    heads = [[_norm(a) for a in helper_argv(h)] for h in ENGINE_HELPERS]
+    return [s for s in steps or [] if not isinstance(s, dict) or [_norm(a) for a in (s.get("argv") or [])[:2]] not in heads]
+
+
 def _engine_fallback(d, iid, reason):
     """engine の組んだ返答を使えないときに、同じ節を任せ先の節として出し直す（新しい試行。理由は instance と記録に残る）。
     拒まれた返答を同じ語で走らせ直しても同じ拒否になるので、出口を任せ先に作る"""
@@ -671,7 +676,8 @@ def _engine_fallback(d, iid, reason):
         prev = pending_instance(b, iid)
         new = emit_instance(b, prev["node"], None, attempt=prev.get("attempts", 1) + 1, engine_fallback=reason)
         new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": reason,
-                                                                  "prev_emitted_at": prev["emitted_at"], "prev_out_path": prev["out_path"]}]
+                                                                  "prev_emitted_at": prev["emitted_at"], "prev_emitted_rev": prev.get("emitted_rev"),
+                                                                  "prev_out_path": prev["out_path"]}]
         b.trace("engine_fallback", instance=iid, reason=reason)
         return new["id"]
     return _board_update(d, fall)
@@ -724,7 +730,6 @@ def launch_engine_run(d, inst):
 
 
 def _own_git_marks():
-    """この作業ツリーだけが持つ git の状態（HEAD と枝）——作業ツリーを書き換える子が動かしてはならない物"""
     return tuple(git(*a) for a in (("rev-parse", "HEAD"), ("symbolic-ref", "-q", "HEAD")))
 
 
@@ -775,10 +780,12 @@ def _note_child_tmp(d, inst, tmp, session_id, why=None):
     行を積むのは、置き場に子の書いた物が在るか、測れていない回だけ。中身が空なら、専用の置き場が効いた印が無い（claude が
     CLAUDE_CODE_TMPDIR を捨てて共有の置き場を使った）——『書いていない』と『測れていない』を同じ 0 にしないため measured=false で残す。
     子の会話の置き場（名前が session_id の段。深さは claude の版に依る）は claude 自身の物なので数えから外す。それ以外にも claude 自身の
-    作業ファイルが混ざりうる（仕分けは実物で未実測）。tmp が None は専用の置き場を使わずに起こした回で、why がその理由。盤面に書けなければ
-    置き場を消さずに残す（数えた物を黙って消さない）"""
+    作業ファイルが混ざりうる（仕分けは実物で未実測）。tmp が None は専用の置き場を使わずに起こした回で、why がその理由。盤面の instance の
+    先に書いた記録（child_tmp）は、同じ置き場を指すときだけ同じ保存で消す。盤面に書けなければ置き場も記録も残す（数えた物を黙って消さない。
+    次の relaunch が拾い直す）。置き場が既に無い（別の手が片付けた）なら数えずに記録だけ消す"""
+    gone = bool(tmp) and not tmp.exists()
     files, size, seen, errs = [], 0, False, []
-    for top, dirs, names in os.walk(tmp, onerror=lambda e: errs.append(str(e))) if tmp else ():
+    for top, dirs, names in os.walk(tmp, onerror=lambda e: errs.append(str(e))) if tmp and not gone else ():
         seen = seen or bool(dirs or names)
         dirs[:] = sorted(x for x in dirs if x != session_id)
         rel = pathlib.Path(top).relative_to(tmp)
@@ -791,30 +798,43 @@ def _note_child_tmp(d, inst, tmp, session_id, why=None):
             except OSError as e:
                 errs.append(str(e))
                 continue
-            files.append((rel / name).as_posix())
+            files.append(_board_name((rel / name).as_posix()))
     measured = seen and not errs
     if not measured:
-        why = why or ("置き場の中を数えられない: " + "; ".join(errs)[:400] if errs else
+        why = why or ("置き場の中を数えられない: " + _board_name("; ".join(errs))[:400] if errs else
                       "専用の一時の置き場が空——CLAUDE_CODE_TMPDIR が効いた印が無く、共有の置き場へ書いた物は測れていない")
-    if files or not measured:
-        row = {"instance": inst["id"], "kind": "outside_tmp", "dir": str(tmp) if tmp else None, "measured": measured, "files": len(files),
-               "bytes": size, "sample": files[:CHILD_TMP_SAMPLE],
+    row = None
+    if not gone and (files or not measured):
+        row = {"instance": inst["id"], "kind": "outside_tmp", "dir": _board_name(str(tmp)) if tmp else None, "measured": measured,
+               "files": len(files), "bytes": size, "sample": files[:CHILD_TMP_SAMPLE],
                "note": why or "作業ツリーの外（子の専用の一時の置き場）に残った物。claude 自身の作業ファイルを含みうる"}
 
-        def put(b):
+    def put(b):
+        cur = b.rd["instances"].get(inst["id"]) or {}
+        if tmp and (cur.get("child_tmp") or {}).get("dir") == _board_name(str(tmp)):
+            cur.pop("child_tmp")
+        if row:
             row["round"] = b.round
             b.state.setdefault("git_mismatches", []).append(row)
-        try:
-            _board_update(d, put, allow_halted=True)
-        except (Reject, SystemExit, BoardConflict) as e:
-            print(f"graphloops: {inst['id']} の一時の置き場の痕跡を盤面に書けない（{e}）——置き場 {tmp} を消さずに残した", file=sys.stderr)
-            return
-    if tmp:
+    try:
+        _board_update(d, put, allow_halted=True)
+    except (Reject, SystemExit, BoardConflict, UnicodeEncodeError) as e:
+        print(f"graphloops: {inst['id']} の一時の置き場の痕跡を盤面に書けない（{e}）——置き場 {_board_name(str(tmp))} を消さずに残した"
+              "（盤面の child_tmp が残っていれば、次の relaunch が拾い直す）", file=sys.stderr)
+        return
+    if tmp and not gone:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _board_name(s):
+    """ファイル名を盤面（UTF-8 の JSON）に書ける字にする——UTF-8 でない名前の孤立サロゲート（PEP 383 の surrogateescape）を \\xNN に
+    逃がす。書けないまま入れると盤面の保存が UnicodeEncodeError で落ちる"""
+    return os.fsencode(s).decode("utf-8", "backslashreplace") if isinstance(s, str) else s
+
+
 # 専用の一時の置き場が sandbox の中で書けるかの確かめ（人の関所の条件 2。anthropics/claude-code#92590: CLAUDE_CODE_TMPDIR を渡すと
-# $TMPDIR が読むだけになる版がある）。run に 1 回、書く子と同じ権限の形で、いちばん安いモデルの子を起こす（人の答え 2026-09-27）
+# $TMPDIR が読むだけになる版がある）。結果が決まるまで run に PROBE_TRIES 回まで、書く子と同じ権限の形で、いちばん安いモデルの子を
+# 起こす（人の答え 2026-09-27）
 PROBE_MODEL = "haiku"
 PROBE_FILE = "gl-probe"
 PROBE_PROMPT = (f"Bash で、環境変数 TMPDIR の指す置き場の直下に {PROBE_FILE} という名前の空のファイルを 1 つ作れ。"
@@ -837,48 +857,85 @@ def _probe_argv(argv):
     return out
 
 
+PROBE_TRIES = 3   # 結果が決まらない確かめ（子が落ちた・起こせない）を run で数える上限（人の答え 2026-09-27 の 3 周目の条件 4）
+
+
 def _child_tmp_writable(d, inst):
-    """専用の一時の置き場が書く子の sandbox の中で書けるか。盤面の state.child_tmp_probe に在ればそれを、無ければ確かめの子を 1 回
-    起こして決め、盤面に残す（同じ launch の並列の書く子は錠で 1 本にまとめる）。書けなければ、測れていないことを痕跡に 1 行残す"""
+    """専用の一時の置き場が書く子の sandbox の中で書けるか——(True・False・None, 書けない理由)。盤面の state.child_tmp_probe に決まった
+    結果（writable が True か False）が在ればそれを、無ければ確かめの子を起こして決め、盤面に残す（同じ launch の並列の書く子は錠で
+    1 本にまとめる）。子が落ちて決まらない回（None）は固めずに試した回数だけ数え、次の launch で確かめ直す。PROBE_TRIES 回決まらなければ
+    writable=None で固める（共有の置き場のまま）。書けない・決まらない回は、測れていないことを痕跡に 1 行残す"""
     with PROBE_LOCK:
         got = Board(d).state.get("child_tmp_probe") or {}
         if "writable" in got:
-            return got["writable"]
+            return got["writable"], _probe_why(got)
         res = _probe_child_tmp(d, inst)
 
         def put(b):
-            b.state.setdefault("child_tmp_probe", res)
-            if not res["writable"]:
-                note_unevaluable(b.state, "child_tmp_probe", "専用の一時の置き場が書く子の sandbox の中で書けない版——書く子は共有の置き場で"
-                                 f"起こした。作業ツリーの外の書き込みは測れていない（{res['why']}）")
+            cur = b.state.get("child_tmp_probe") or {}
+            if "writable" in cur:
+                return
+            tries = cur.get("tries", 0) + 1
+            if res["writable"] is None and tries < PROBE_TRIES:
+                b.state["child_tmp_probe"] = {"tries": tries, "at": res["at"], "why": res["why"]}
+            else:
+                b.state["child_tmp_probe"] = {**res, "tries": tries}
+            if res["writable"] is not True:
+                note_unevaluable(b.state, "child_tmp_probe", f"{_probe_why(res)}——書く子は共有の置き場で起こした。作業ツリーの外の書き込みは"
+                                 f"測れていない（{res['why']}）")
         try:
             _board_update(d, put, allow_halted=True)
         except (Reject, SystemExit, BoardConflict) as e:
             print(f"graphloops: 一時の置き場の確かめを盤面に書けない（{e}）", file=sys.stderr)
-        return res["writable"]
+        return res["writable"], _probe_why(res)
+
+
+def _probe_why(res):
+    return {True: None, False: "専用の一時の置き場が書く子の sandbox の中で書けない版"}.get(
+        res.get("writable"), f"専用の一時の置き場が書けるかを確かめられない（{res.get('why')}）")
 
 
 def _probe_child_tmp(d, inst):
-    """確かめの子を起こし、専用の置き場に PROBE_FILE が出来たかで決める（子の言い分は信じない）——{writable, at, why}。作業ディレクトリは
-    作業ツリーの外の空の置き場（sandbox が書かせるのはそこと一時の置き場だけ——確かめの子は作業ツリーに書けない）"""
-    tmp, work = _child_tmp_dir(), pathlib.Path(tempfile.mkdtemp(prefix="gl-probe-"))
+    """確かめの子を起こし、専用の置き場に PROBE_FILE が出来たかで決める（子の言い分は信じない）——{writable, at, why}。writable は、
+    子が終わってファイルが在れば True、子が終わったのに無ければ False、子が落ちた・起こせない・置き場を作れない（版のせいと言えない）
+    なら None。作業ディレクトリは作業ツリーの外の空の置き場（sandbox が書かせるのはそこと一時の置き場だけ——確かめの子は作業ツリーに書けない）"""
+    tmp = work = None
     try:
+        tmp, work = _child_tmp_dir(), pathlib.Path(tempfile.mkdtemp(prefix="gl-probe-"))
         if tmp is None:
-            return {"writable": False, "at": now(), "why": "専用の置き場を作れない"}
+            return {"writable": None, "at": now(), "why": "専用の置き場を作れない"}
         prompt = work / "probe.md"
         prompt.write_text(PROBE_PROMPT, encoding="utf-8")
         r = run_role(_probe_argv(inst["launch"]["argv"]), str(prompt), str(work / "out.json"), cwd=str(work),
                      env={**os.environ, "CLAUDE_CODE_TMPDIR": str(tmp), "TMPDIR": str(tmp)}, log_path=pathlib.Path(d) / "trace.jsonl",
                      meta={"instance": inst["id"], "node": inst["node"], "probe": "child_tmp"})
-        made = (tmp / PROBE_FILE).is_file()
-        return {"writable": made, "at": now(),
-                "why": None if made else f"確かめの子が専用の置き場に書けなかった（{r.get('why') or '子は終わったがファイルが無い'}）"}
+        if (tmp / PROBE_FILE).is_file():
+            return {"writable": True, "at": now(), "why": None}
+        if r.get("ok"):
+            return {"writable": False, "at": now(), "why": "確かめの子は終わったが、専用の置き場にファイルが無い"}
+        return {"writable": None, "at": now(), "why": f"確かめの子が落ちた（{r.get('why')}）"}
     except OSError as e:
-        return {"writable": False, "at": now(), "why": f"確かめの子を起こせない（{e}）"}
+        return {"writable": None, "at": now(), "why": f"確かめの子を起こせない（{e}）"}
     finally:
-        shutil.rmtree(work, ignore_errors=True)
-        if tmp:
-            shutil.rmtree(tmp, ignore_errors=True)
+        for p in (work, tmp):
+            if p:
+                shutil.rmtree(p, ignore_errors=True)
+
+
+def _record_child_tmp(d, inst, tmp):
+    """専用の置き場の綴りを、子を起こす前に盤面の instance に書く（先に書く記録）——launch が落ちた・盤面に書けなかった回も、
+    relaunch が前の試行の子を止め切った後に拾える。書けなければ False（呼び元は共有の置き場で起こす）"""
+    def put(b):
+        cur = b.rd["instances"].get(inst["id"]) or {}
+        if cur.get("out_path") != inst["out_path"]:
+            raise Reject(SUPERSEDED)
+        cur["child_tmp"] = {"dir": _board_name(str(tmp)), "at": now()}
+    try:
+        _board_update(d, put)
+        return True
+    except (Reject, SystemExit, BoardConflict) as e:
+        print(f"graphloops: {inst['id']} の専用の一時の置き場を盤面に書けない（{e}）——共有の置き場で起こす", file=sys.stderr)
+        return False
 
 
 def launch_one(d, inst, max_resumes, cwd=None):
@@ -904,14 +961,12 @@ def launch_one(d, inst, max_resumes, cwd=None):
         # 任せ先の作業ディレクトリは本物の外に作る写し。TMPDIR も同じ置き場の下に向けるので、任せ先が mktemp -d で作る写しも
         # ここに溜まり、終わったら消える。返答が名指しして後で読まれるファイル（背景の線の patch 等）は GRAPHLOOPS_KEEP の下に
         # 置かせ、そこだけ残す（中身が無ければ置き場ごと消す）——写しと TMPDIR は大きく、線は周ごとに立つので溜めない
-        import tempfile
         work = pathlib.Path(tempfile.mkdtemp(prefix="graphloops-delegate-"))
         (work / "tmp").mkdir()
         (work / "keep").mkdir()
         try:
             run_cwd = copy_worktree(work / "work")
         except Reject as e:
-            import shutil
             shutil.rmtree(work, ignore_errors=True)
             return {**got, "ok": False, "why": str(e)}
         env = {**os.environ, "TMPDIR": str(work / "tmp"), "GRAPHLOOPS_KEEP": str(work / "keep")}
@@ -920,10 +975,14 @@ def launch_one(d, inst, max_resumes, cwd=None):
         # 作業ツリーを書き換える子の sandbox が書ける一時の置き場（Claude Code の利用者ごとの一時の置き場）を、共有の置き場から
         # 子ごとの専用の置き場へ移す（CLAUDE_CODE_TMPDIR）——作業ツリーの外に書いた物を、終わった後に数えて記録に残すため。
         # 専用の置き場が sandbox の中で書けない版なら、共有の置き場のまま起こす（書く子の中の一時ファイルを作るテストを落とさない）
-        if not _child_tmp_writable(d, inst):
-            _note_child_tmp(d, inst, None, None, "専用の一時の置き場が sandbox の中で書けない版——共有の置き場で起こした（state.child_tmp_probe）")
+        writable, why_not = _child_tmp_writable(d, inst)
+        if not writable:
+            _note_child_tmp(d, inst, None, None, f"{why_not}——共有の置き場で起こした（state.child_tmp_probe）")
         elif (child_tmp := _child_tmp_dir()) is None:
             _note_child_tmp(d, inst, None, None, "専用の一時の置き場を作れない——共有の置き場で起こした")
+        elif not _record_child_tmp(d, inst, child_tmp):
+            shutil.rmtree(child_tmp, ignore_errors=True)
+            child_tmp = None
         else:
             env = {**os.environ, "CLAUDE_CODE_TMPDIR": str(child_tmp), "TMPDIR": str(child_tmp)}
     r = None
@@ -935,7 +994,6 @@ def launch_one(d, inst, max_resumes, cwd=None):
                            "attempt": inst.get("attempts", 1), "form": launch.get("form")})
     finally:
         if work:
-            import shutil
             for part in ("work", "tmp"):
                 shutil.rmtree(work / part, ignore_errors=True)
             if not any((work / "keep").iterdir()):
@@ -1258,50 +1316,89 @@ def pending_instance(b, node):
     return inst
 
 
-def _now_tree():
-    tree = worktree_tree()
-    if tree is None:
-        raise Reject("作業ツリーの木の id が取れない——作業ツリーの突合ができない場所から done している（リポジトリの中で呼べ）")
+def _now_tree(accept_tree_change=None, why=None):
+    """今の作業ツリーの木の id。固められなければ拒む（git の言い分を添える）——--accept-tree-change を渡した回だけは None を返し
+    （言い分は why に足す）、呼び元が痕跡を残して通す（人の答え 2026-09-27 の 3 周目の条件 3: どの突合でも、その出口は拒まない）"""
+    why = [] if why is None else why
+    tree = worktree_tree(why)
+    if tree is None and not accept_tree_change:
+        raise Reject("作業ツリーの木の id が取れない——作業ツリーの突合ができない場所から done している（リポジトリの中で呼べ）: "
+                     + "; ".join(why))
     return tree
 
 
+def _interval_start(inst):
+    """inst の区間の始まり——(盤面の版, 時刻)。木の基準（tree_before・tree_before_id）を写す起こし直しの系譜（attempt_log の
+    prev_emitted_*）の最も古い試行を出した時点。版を持たない試行（前の版の engine が出した）が 1 つでも在れば版は None"""
+    log = [x for x in inst.get("attempt_log") or [] if x.get("prev_emitted_at")]
+    revs = [x.get("prev_emitted_rev") for x in log] + [inst.get("emitted_rev")]
+    return (None if None in revs else min(revs)), min([x["prev_emitted_at"] for x in log] + [inst.get("emitted_at") or ""])
+
+
+def _in_interval(x, start):
+    """x が区間に重なるか——待っているか、区間の始まりより後の盤面の版で済んだ。版は盤面の保存ごとに 1 つ進む論理時計なので、
+    秒の粒度の時刻では分けられない前後（同じ秒に済んだ依存の祖先・同じ秒に出た次の波）も分かれる。同じ版で済んで出た物は、
+    その保存の中で済ませてから出している（扇の欠けの出し直し）ので重ならない。版を持たない旧い盤面の行だけ時刻で比べ、
+    同じ秒は重なりに倒す"""
+    if x["status"] == "pending":
+        return True
+    rev, at = start
+    if rev is not None and x.get("done_rev") is not None:
+        return x["done_rev"] > rev
+    return (x.get("done_at") or "") >= at
+
+
+def _writes_tree(b, x):
+    """x が作業ツリーへ書きうる手か——書く権限を渡す節（graph の launch.runner.edits。会話が回す試行も同じ一覧で数える）か、
+    対象リポジトリの宣言の語を走らせる instance（kind=engine_run で、engine に同梱の語でない step を持つ）。読むだけの回す側の節・
+    skill の節・同梱の語だけを走らせる節・写しの中で走る任せ先は書き手に数えない（人の答え 2026-09-27 の 3 周目の条件 5）"""
+    if x["node"] in (((b.graph.get("launch") or {}).get("runner") or {}).get("edits") or []):
+        return True
+    launch = x.get("launch") or {}
+    return launch.get("kind") == "engine_run" and bool(_repo_steps(launch.get("steps")))
+
+
 def _overlapping(b, inst):
-    """inst の区間（最初の試行を出した時点〜今）に重なる、同じ周の他の instance ——(守る役の instance, 作業ツリーへ書きうる instance)。
-    重なるのは、待っているか、区間の始まり以降に済んだ物（秒の粒度なので同じ秒は重なりに倒す）。区間の始まりは、木の基準
-    （tree_before・tree_before_id）を写す起こし直しの系譜（attempt_log の prev_emitted_at）の最も古い時点。書きうる手は engine が
-    走らせる節と回す側の節（graph の runners）。共有の作業ツリーでは、区間の前後差を 1 つの手の書き込みと断定できない"""
-    start = min([x["prev_emitted_at"] for x in inst.get("attempt_log") or [] if x.get("prev_emitted_at")] + [inst.get("emitted_at") or ""])
-    others = {i: x for i, x in b.rd["instances"].items()
-              if i != inst["id"] and (x["status"] == "pending" or (x.get("done_at") or "") >= start)}
-    runners = set(b.graph.get("runners") or [])
+    """inst の区間に重なる、同じ周の他の instance ——(守る役の instance, 作業ツリーへ書きうる instance)。共有の作業ツリーでは、
+    区間の前後差を 1 つの手の書き込みと断定できない"""
+    start = _interval_start(inst)
+    others = {i: x for i, x in b.rd["instances"].items() if i != inst["id"] and _in_interval(x, start)}
     return (sorted(i for i, x in others.items() if "tree_before" in x),
-            sorted(i for i, x in others.items() if (b.nodes.get(x["node"]) or {}).get("engine_run") or x.get("run_by") in runners))
+            sorted(i for i, x in others.items() if _writes_tree(b, x)))
 
 
 def _tree_guard(b, node, inst, accept_tree_change):
     """道具つきの役（graph の tree_guard_roles）の前後の突合。状態コードとパスの並び（porcelain）か、中身の木の id（tree_before_id）の
     どちらかが違えば、役の区間に作業ツリーが変わった。区間に作業ツリーへ書きうる手（_overlapping）が重なるなら、帰属を断定せずに記録だけ
     残して通す——他の手の書き込みで役の受け付けを拒まない（人の答え 2026-09-27 の条件 4・2 周目の条件 1）。木の id を持たない
-    instance（前の版の engine が出した）は並びだけで比べ、痕跡を残す"""
+    instance（前の版の engine が出した）は並びだけで比べ、痕跡を残す。中身が変わったのに木の差の名前が取れない回は、名前を黙って
+    空にせず git の言い分を content_unavailable に残す（重なる手も --accept-tree-change も無ければ、その言い分を添えて拒む）"""
     after = porcelain()
     if after is None:
         raise Reject("git status が取れない——作業ツリーの突合ができない場所から done している（リポジトリの中で呼べ）")
     before_id = inst.get("tree_before_id")
     if before_id is None:
         note_unevaluable(b.state, f"{node}.tree_before_id", "instance に作業ツリーの木の id が無い——状態コードとパスの並びだけで突き合わせた")
-    now_id = None if before_id is None else _now_tree()
+    said = []
+    now_id = None if before_id is None else _now_tree(accept_tree_change, said)
     moved, rewritten = after != inst["tree_before"], now_id != before_id
     if not (moved or rewritten):
         return
     diff = sorted(set(after or []) ^ set(inst["tree_before"] or []))
-    content = tree_names_between(before_id, now_id) or [] if rewritten else []
+    content = tree_names_between(before_id, now_id, why=said) if rewritten else []
+    unavailable = None
+    if content is None:
+        unavailable = ("作業ツリーの今の木の id が取れない" if now_id is None else "木の差の名前が取れない") + ": " + "; ".join(said)
+        content = []
     peers, writers = _overlapping(b, inst)
     if not (accept_tree_change or writers):
         who = f"（区間に保護対象の instance が他に {len(peers)} 件重なる: {peers}——変えたのがこの instance とは限らない）" if peers else ""
-        raise Reject(f"{inst['run_by']} の前後で作業ツリーが変わっている: {diff + [f'中身 {p}' for p in content]}{who}。"
+        raise Reject(f"{inst['run_by']} の前後で作業ツリーが変わっている: {diff + [f'中身 {p}' for p in content]}"
+                     f"{f'（中身の{unavailable}）' if unavailable else ''}{who}。"
                      "戻してから done し直すか、自分の変更なら --accept-tree-change <理由>")
     b.state.setdefault("git_mismatches", []).append({
         "instance": node, "diff": diff, "content": content, "round": b.round, "concurrent_guarded": peers, "concurrent_writers": writers,
+        **({"content_unavailable": unavailable} if unavailable else {}),
         "accepted": accept_tree_change or "区間に作業ツリーへ書きうる手が重なる——帰属は断定しない"})
 
 
@@ -1313,16 +1410,22 @@ def _record_declared(b, node, inst, at, output, accept_tree_change):
     - unwritten: この周にこの節を最初に出した時点から今までに変わっていない申告（申告は周の累計）。改名・削除で今の木に無いファイルは
       変わった側に数える
     木の id を持たない instance（前の版の engine が出した）は測れないので痕跡だけ残す。木の id が在るのに今の木・木の差が取れない回は
-    測れない場所から done している——記録へ倒さず拒む（_tree_guard の porcelain が取れない回と同じ重さ）"""
+    測れない場所から done している——git の言い分を添えて拒む（_tree_guard の porcelain が取れない回と同じ重さ）。--accept-tree-change
+    を渡した回だけは拒まず、測れなかった痕跡に言い分を残して通す"""
     base_inst = inst.get("tree_before_id")
     base_round = (b.rd.get("tree_base") or {}).get(inst["node"]) or base_inst
     if base_inst is None:
         note_unevaluable(b.state, f"{node}.declared_files", "instance に作業ツリーの木の id が無い——申告と作業ツリーの突合は測れない")
         return
-    now_id = _now_tree()
-    wrote, wrote_round = tree_names_between(base_inst, now_id), tree_names_between(base_round, now_id)
+    said = []
+    now_id = _now_tree(accept_tree_change, said)
+    wrote, wrote_round = tree_names_between(base_inst, now_id, why=said), tree_names_between(base_round, now_id, why=said)
     if wrote is None or wrote_round is None:
-        raise Reject("作業ツリーの木の差が取れない——申告と作業ツリーを突き合わせられない（リポジトリの中で呼べ）")
+        why = "作業ツリーの木の差が取れない——申告と作業ツリーを突き合わせられない: " + "; ".join(said)
+        if not accept_tree_change:
+            raise Reject(f"{why}（リポジトリの中で呼べ）")
+        note_unevaluable(b.state, f"{node}.declared_files", f"{why}（--accept-tree-change: {accept_tree_change}）")
+        return
     declared = {p for v in pointers.values_at(output, at) for p in (v if isinstance(v, list) else [v]) if isinstance(p, str)}
     undeclared = sorted(set(wrote) - declared)
     unwritten = sorted(p for p in declared - set(wrote_round) if not _gone_since(base_round, now_id, p))
@@ -1454,7 +1557,7 @@ def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=No
     # 相対の `--dir` で回した run を別の作業ディレクトリから開くと読めない（実測 2026-09-13: 絶対 --dir で開いても
     # cwd=/tmp から ref('raw') が SystemExit 2。最終報告の節でだけ露出した）。盤面からの相対に揃えると、
     # 錨は「いまの呼び出しが渡した --dir」1 つになり、読む側に規約の知識が要らなくなる。
-    inst.update({"status": "done", "done_at": now(), "output_file": str(f.relative_to(b.dir))})
+    inst.update({"status": "done", "done_at": now(), "done_rev": b.state.get("rev", 0), "output_file": str(f.relative_to(b.dir))})
     if agent_id:
         inst["agent_id"] = agent_id
     b.trace("done", instance=node, sha=sha(text))
@@ -1882,6 +1985,10 @@ def cmd_relaunch(a):
     if whys:
         die(f"新しい試行（{new['out_path']}）は作ったが、前の試行の子を止められない（{'; '.join(whys)}）——止まるまで launch するな"
             f"（もう一度 relaunch --node {new['id']} すれば、前の試行の印も止め直す）")
+    if new.get("child_tmp"):
+        # 前の試行の launch が締めずに終わった（落ちた・盤面に書けなかった）置き場——子を止め切った後なので、書き足す者は居ない
+        _note_child_tmp(d, new, pathlib.Path(new.pop("child_tmp")["dir"]), None,
+                        "前の試行の launch が締めずに終わった専用の一時の置き場を、子を止め切った後に数えた（claude 自身の作業ファイルを含みうる）")
     print(dump({"relaunched": {k: v for k, v in new.items() if k != "tree_before"},
                 "how": ("新しい out_path に書かせて起こし直せ（prompt_file は描き直した。前の試行の置き場は読まれない）。"
                         "engine が起こした前の試行の子は止めた。Agent で起こした前の試行は engine が止められないので、回す側が止めてから起こせ")}))
@@ -1895,9 +2002,11 @@ def _refuse_touched(prev, marks):
     whys = stop_marks(marks)
     if whys:
         raise Reject(f"前の試行の子を止め切れない（{'; '.join(whys)}）——新しい試行は作っていない。人が作業ツリーを確かめてから relaunch")
-    tree, head = worktree_tree(), list(_own_git_marks())
+    said = []
+    tree, head = worktree_tree(said), list(_own_git_marks())
     if not prev.get("tree_before_id") or prev.get("launch_head") is None or tree is None:
-        raise Reject("起こした時点の作業ツリーの木か HEAD が盤面に無い・今の木が取れない——触っていないと言えない。新しい試行は作っていない")
+        raise Reject("起こした時点の作業ツリーの木か HEAD が盤面に無い・今の木が取れない——触っていないと言えない。新しい試行は作っていない"
+                     + (f"（{'; '.join(said)}）" if said else ""))
     if (tree, head) != (prev["tree_before_id"], prev["launch_head"]):
         raise Reject("作業ツリーか HEAD・枝が起こした時点と違う（途中まで書いた編集がありうる）——新しい試行は作っていない。"
                      "人が作業ツリーを確かめてから relaunch")
@@ -1925,7 +2034,8 @@ def stop_marks(marks):
 def reissue(b, prev, reason):
     """待っている instance を、同じ節・同じ項目の新しい試行として出し直す（プロンプトを今の盤面で描き直す）——新しい instance を返す。
     relaunch（起こし直し）と add（起こす前の判定役に積んだ依頼を届ける）が呼ぶ。新しい試行は別の out_path（.a<試行>）を持つ。
-    作業ツリーの基準点（tree_before・tree_before_id）は前の試行の物を引き継ぐ。**盤面の外には書かない**（relaunch が _board_update の当て直しの
+    作業ツリーの基準点（tree_before・tree_before_id）と、まだ片付けていない専用の一時の置き場の記録（child_tmp。relaunch が前の試行の
+    子を止め切った後に片付ける）は前の試行の物を引き継ぐ。**盤面の外には書かない**（relaunch が _board_update の当て直しの
     中から呼ぶ）——前の置き場に在った物を .stale-a<試行> へ退けるのは、呼び出し側が retire_out で"""
     old = pathlib.Path(prev["out_path"])
     item = load_item(prev, b.dir)
@@ -1933,13 +2043,13 @@ def reissue(b, prev, reason):
     suffix = prev["id"][len(nid + (f"[{item['key']}]" if item else "")):]
     n = prev.get("attempts", 1)
     new = emit_instance(b, nid, item, suffix=suffix, attempt=n + 1)
-    for k in ("tree_before", "tree_before_id"):   # 前の試行が木の id を持たない（前の版の engine）なら、新しい id も持たせない
+    for k in ("tree_before", "tree_before_id", "child_tmp"):   # 前の試行が木の id を持たない（前の版の engine）なら、新しい id も持たせない
         if k in prev:
             new[k] = prev[k]
         else:
             new.pop(k, None)
-    new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": reason,
-                                                             "prev_emitted_at": prev["emitted_at"], "prev_out_path": str(old)}]
+    new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": reason, "prev_emitted_at": prev["emitted_at"],
+                                                             "prev_emitted_rev": prev.get("emitted_rev"), "prev_out_path": str(old)}]
     return new
 
 

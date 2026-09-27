@@ -333,8 +333,8 @@ def test_engine_run_result_is_dropped_when_relaunched_meanwhile(tmp_path, monkey
 
 
 def test_engine_fallback_keeps_the_attempt_log(tmp_path, monkeypatch):
-    """任せ先に回した新しい試行は、前の試行の起こし直しの記録を引き継いで 1 行足す"""
-    prev = {"id": "p0.x", "node": "p0.x", "status": "pending", "out_path": "o", "emitted_at": "t0", "attempts": 2,
+    """任せ先に回した新しい試行は、前の試行の起こし直しの記録を引き継いで 1 行足す（区間の始まりを決める前の試行の版も）"""
+    prev = {"id": "p0.x", "node": "p0.x", "status": "pending", "out_path": "o", "emitted_at": "t0", "emitted_rev": 7, "attempts": 2,
             "attempt_log": [{"at": "t0", "reason": "前の起こし直し"}]}
     fb = FakeBoard(instances={"p0.x": prev})
     monkeypatch.setattr(commands, "_board_update", lambda d, fn: fn(fb))
@@ -343,6 +343,7 @@ def test_engine_fallback_keeps_the_attempt_log(tmp_path, monkeypatch):
         id=nid, emitted_at="t1", attempts=attempt, engine_fallback=engine_fallback) or made)
     assert commands._engine_fallback(str(tmp_path), "p0.x", "交差が在る") == "p0.x"
     assert [x["reason"] for x in made["attempt_log"]] == ["前の起こし直し", "交差が在る"] and made["attempts"] == 3
+    assert made["attempt_log"][-1]["prev_emitted_rev"] == 7
     assert "engine_fallback" in fb.traced
 
 

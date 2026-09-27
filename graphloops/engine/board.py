@@ -496,12 +496,16 @@ class Board:
             self.__dict__["_porcelain"] = _p()
         return self.__dict__["_porcelain"]
 
-    def worktree_tree(self):
+    def worktree_tree(self, why=None):
         """作業ツリーの中身の木の id（util.worktree_tree）。porcelain と同じく、この盤面＝この 1 プロセスの中では 1 回だけ取る。
-        None = 固められない（呼ぶ側が止める）"""
+        None = 固められない（why に git の言い分を足す。呼ぶたびに同じ言い分）"""
         if "_worktree_tree" not in self.__dict__:
-            self.__dict__["_worktree_tree"] = util.worktree_tree()
-        return self.__dict__["_worktree_tree"]
+            said = []
+            self.__dict__["_worktree_tree"] = (util.worktree_tree(said), said)
+        tree, said = self.__dict__["_worktree_tree"]
+        if why is not None:
+            why.extend(said)
+        return tree
 
     def validator_tables(self):
         """検証器が「プロンプトに貼る用」として宣言した表（`PROMPT_TABLES`）。**写させないための口。**

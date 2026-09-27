@@ -2184,7 +2184,6 @@ def test_graphcheck_review_shapes():
     broken(lambda b: b["nodes"]["p1.local_review"].__setitem__("delegate", {"model": "sonnet", "why": "検査用"}), "skills を持つ節に delegate は書けない",
            "graphcheck: skill を呼ぶ節を任せ先に渡せない（入れ子の委任は完了の知らせが届かない）")
     broken(lambda b: b["launch"].pop("delegate"), "launch.delegate.argv が無い", "graphcheck: 任せ先を縛って起こす語が無い graph は落ちる")
-    # 書き換える節の申告の欄（declared_files）: 書く節の一覧と突合の対象を 1 つの正本にそろえ、綴りは受け付けの読み手と同じ口で引く
     broken(lambda b: b["nodes"]["p3.delta_fix"].pop("declared_files"), "launch.runner.edits の節に declared_files が無い",
            "graphcheck: 作業ツリーを書き換える節の申告の欄が無い")
     broken(lambda b: b["nodes"]["p3.fix"].__setitem__("declared_files", "changes.0.files"), "は回す側の節の schema の文字列の葉を指せ",
@@ -3500,7 +3499,6 @@ def test_claim_mismatch():
     mm = run.record()["process"].get("fix_claim_mismatch") or [{}]
     check(len(mm) == 1 and mm[0].get("round") == 1 and mm[0].get("claimed_not_in_diff") == ["src/zzz.py"],
           f"申告と差分の食い違いは記録の process に周付きで残る（{mm}）")
-    # 受け付けは拒まず（申告の突合は記録だけ）、engine が区間で測った食い違いが同じ行で次の周の判定者に届く
     check(any(r.get("instance") == "p3.fix" and "src/zzz.py" in (r.get("unwritten") or []) for r in mm[0].get("by_instance") or []),
           f"受け付けが残した申告の食い違い（申告したのに変わっていない）が by_instance に載る（{mm}）")
     rm(run.tmp)

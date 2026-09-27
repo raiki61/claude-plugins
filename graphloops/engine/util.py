@@ -209,10 +209,13 @@ def git_bytes(*args, env=None):
 DIFF_FIXED_ARGS = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative")
 
 
-def tree_names_between(frm, to, git_fn=None):
-    """2 つの版（commit か木の id）の差のファイル名——リポジトリの根からの相対の POSIX 形で並べた一覧。None = 取れない。
-    版どうしの差の名前を出す所（engine の作業ツリーの突合・rules の周の差・TDD の段の差）は全部ここを通す"""
-    names = (git_fn or git)("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", frm, to) if frm and to else None
+def tree_names_between(frm, to, git_fn=None, why=None):
+    """2 つの版（commit か木の id）の差のファイル名——リポジトリの根からの相対の POSIX 形で並べた一覧。None = 取れない（why は git の
+    why と同じ口）。版どうしの差の名前を出す所（engine の作業ツリーの突合・rules の周の差・TDD の段の差）は全部ここを通す"""
+    if why is not None and not (frm and to):
+        why.append("比べる版の片方が無い")
+    names = (git_fn or git)("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", frm, to, **({"why": why} if why is not None else {})) \
+        if frm and to else None
     return None if names is None else sorted(x for x in names.split("\0") if x)
 
 

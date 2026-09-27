@@ -1499,7 +1499,8 @@
      }
     },
     "stash": {
-     "type": "string"
+     "type": "string",
+     "description": "旧い出力だけが持つ（今の rules は取らない・比べない）"
     },
     "tree": {
      "type": "string"
@@ -1511,7 +1512,6 @@
    },
    "required": [
     "porcelain",
-    "stash",
     "tree"
    ]
   },
@@ -2412,7 +2412,7 @@
     "spec.freeze"
    ],
    "source": "P1 ＞ 局所（前後の作業ツリー突合）",
-   "does": "この周に採点する版を固め、対象差分（BASE → 版）と前後の突合の基準（git status --porcelain・stash list・版の木の id）を機械が取る。回す側に貼らせない",
+   "does": "この周に採点する版を固め、対象差分（BASE → 版）と前後の突合の基準（git status --porcelain・版の木の id）を機械が取る。回す側に貼らせない",
    "outputs": [
     "out.p1.worktree_before（snapshot・changed_since_prev_round・lane_rows・tree_before）"
    ],
@@ -2434,7 +2434,7 @@
      },
      "tree_before": {
       "$ref": "#/$defs/worktree_baseline",
-      "description": "P1 の前後の突合の基準（git status・stash の一覧・固めた版の木の id）"
+      "description": "P1 の前後の突合の基準（git status・固めた版の木の id）"
      },
      "changed_since_prev_round": {
       "type": "array",
@@ -5270,7 +5270,8 @@
    "prompt_append": [
     "../prompts/policy-path.md",
     "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md"
+    "../prompts/review-loop/test-scope.md",
+    "../prompts/declared-files.md"
    ]
   },
   "p3.fix_delta": {
@@ -5421,7 +5422,8 @@
    "prompt_append": [
     "../prompts/policy-path.md",
     "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md"
+    "../prompts/review-loop/test-scope.md",
+    "../prompts/declared-files.md"
    ]
   },
   "p3.fix_delta2": {
@@ -5572,7 +5574,8 @@
    "prompt_append": [
     "../prompts/policy-path.md",
     "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md"
+    "../prompts/review-loop/test-scope.md",
+    "../prompts/declared-files.md"
    ]
   },
   "p3.gates_cut": {
@@ -7107,6 +7110,9 @@
    "outputs": [],
    "note": "CI の基準（p0.local_checks）を取った後に書く——先に書くと、赤い受け入れ条件のテストが P0 の CI に混ざる",
    "prompt_file": "../prompts/review-loop/spec.write.md",
+   "prompt_append": [
+    "../prompts/declared-files.md"
+   ],
    "reads": [
     "inputs.request",
     "inputs.cwd",
@@ -7279,6 +7285,9 @@
    "does": "審査の穴に key ごとに absorbed / declared で答え、直した仕様の全体を返す",
    "outputs": [],
    "prompt_file": "../prompts/review-loop/spec.revise.md",
+   "prompt_append": [
+    "../prompts/declared-files.md"
+   ],
    "reads": [
     "out.spec.write",
     "out.spec.review",

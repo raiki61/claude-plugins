@@ -17,7 +17,7 @@ import time
 import pytest
 
 from conftest import PLUGIN, REPO
-from engine import filelock, runner
+from engine import commands, filelock, runner
 from engine.util import Reject
 
 LOOP = PLUGIN / "scripts" / "loop.py"
@@ -209,6 +209,30 @@ def test_concurrent_writers_lose_nothing(review, tmp_path):
     assert [rc for rc, _ in outs] == [0, 0, 0], outs
     assert st["rev"] == rev0 + 3
     assert all(st["rounds"][-1]["instances"][i]["status"] == "done" for i in ("p0.base", "p0.premises"))
+
+
+def test_done_and_emit_stamp_the_board_revision_they_read(review, tmp_path):
+    """受け付けと出す時に読んだ盤面の版を instance に残す——依存が済んだ後に出た節の区間に、済んだ節は同じ秒でも重ならない
+    （commands._in_interval）"""
+    repo, d = review
+    assert loop(repo, "run", "--foreground", "--dir", str(d)).returncode == 13
+    base = done_file(tmp_path, "base", {"base_sha": git(repo, "rev-parse", "HEAD").strip(), "method": "4 依頼者の名指し", "commits": 0,
+                                        "merge_commit": False, "intent_to_add": [], "touches_gates": False, "touches_external_seams": False,
+                                        "touches_user_path": False, "touches_security_surface": False,
+                                        "material": {"status": "clean", "checked": "検査"}})
+    prem = done_file(tmp_path, "prem", {"constraints": [{"text": "検査", "measured_how": "検査", "kind": "仮説"}]})
+    rev0 = json.loads((d / "state.json").read_text(encoding="utf-8"))["rev"]
+    for node, f in (("p0.base", base), ("p0.premises", prem)):
+        r = loop(repo, "done", "--node", node, "--output", str(f), "--dir", str(d))
+        assert r.returncode == 0, r.stderr
+    assert loop(repo, "next", "--dir", str(d)).returncode == 0
+    ins = json.loads((d / "state.json").read_text(encoding="utf-8"))["rounds"][-1]["instances"]
+    assert ins["p0.base"]["done_rev"] == rev0 and ins["p0.base"]["emitted_rev"] < rev0
+    after = [x for x in ins.values() if x.get("emitted_rev", -1) > rev0]
+    assert after, sorted(ins)
+    for x in after:
+        same_second = {**ins["p0.base"], "done_at": x["emitted_at"]}
+        assert not commands._in_interval(same_second, commands._interval_start(x)), x["id"]
 
 
 def test_resume_opens_the_next_round_only_for_a_round_limit_halt(review):

@@ -574,15 +574,28 @@ def on_new_round(b):
             rec["process"]["request_history"] = past + cur
             rec["process"]["request_findings"] = []
     stale = sorted(set(claimed) - set(measured)) if measured is not None else []
-    # 書き換える節の受け付けが残した申告の食い違い（engine の state.git_mismatches の kind=declared。両方向と区間に重なった書き手）。
-    # 盤面の行が記録に写るのは報告の時点なので、判定者が読めるよう周の頭でファイルの一覧だけを載せる
-    by_instance = [{k: r.get(k) for k in ("instance", "undeclared", "unwritten", "overlapping")} for r in b.state.get("git_mismatches") or []
-                   if r.get("kind") == "declared" and r.get("round") == b.round - 1]
-    if stale or by_instance:
-        # 申告と差分の食い違い——盤面に置くだけでは誰も読まないので、記録の process に周付きで残す（判定者と報告が読める）
-        rec["process"].setdefault("fix_claim_mismatch", []).append({"round": b.round - 1, "claimed_not_in_diff": stale,
-                                                                    **({"by_instance": by_instance} if by_instance else {})})
+    # 盤面の行が記録に写るのは報告の時点なので、判定者が読めるよう周の頭で載せる
+    traces = _writer_traces(b.state, b.round - 1)
+    if stale or traces:
+        rec["process"].setdefault("fix_claim_mismatch", []).append({"round": b.round - 1, "claimed_not_in_diff": stale, **traces})
     escalate_on_thrash(b)
+
+
+# 書く子の受け付けが盤面に残した痕跡のうち、判定者に届ける欄（行の kind → 写す鍵）
+WRITER_TRACE_KEYS = {"declared": ("instance", "undeclared", "unwritten", "overlapping"),
+                     "outside_tmp": ("instance", "measured", "files", "bytes", "sample", "note")}
+
+
+def _writer_traces(state, rnd):
+    """その周に engine が書く子の受け付けで残した痕跡——by_instance（申告と区間の変化の食い違い・kind=declared）、outside_tmp（作業ツリーの
+    外の専用の一時の置き場に残った物・測れなかった回）、unmeasured（申告の突合と一時の置き場の確かめが測れなかった印）。空の欄は載せない
+    ——載せない欄は『その周に行が無かった』で、測れなかった回は unmeasured か measured=false の行に出る"""
+    rows = [r for r in state.get("git_mismatches") or [] if r.get("round") == rnd]
+    got = {"by_instance": [{k: r.get(k) for k in WRITER_TRACE_KEYS["declared"]} for r in rows if r.get("kind") == "declared"],
+           "outside_tmp": [{k: r.get(k) for k in WRITER_TRACE_KEYS["outside_tmp"]} for r in rows if r.get("kind") == "outside_tmp"],
+           "unmeasured": [{"trigger": u.get("trigger"), "why": u.get("why")} for u in state.get("unevaluable") or []
+                          if u.get("round") == rnd and (str(u.get("trigger")).endswith(".declared_files") or u.get("trigger") == "child_tmp_probe")]}
+    return {k: v for k, v in got.items() if v}
 
 
 def escalate_on_thrash(b):
@@ -2057,14 +2070,11 @@ def fix_delta(b, nid):
 
 
 def worktree_snapshot(b, nid, head=True):
-    """P1 の前: この周に採点する版を固め、対象差分（BASE → 版）と、前後の突合の基準（porcelain・stash・版の木の id）を機械が取る。回す側に貼らせない。
+    """P1 の前: この周に採点する版を固め、対象差分（BASE → 版）と、前後の突合の基準（porcelain・版の木の id）を機械が取る。回す側に貼らせない。
     突合の基準は返り（p1.worktree_before の出力）の tree_before が正本で、読むのは worktree_compare（_baseline）だけ。
     head（周の頭の 1 回目。作業ツリーの変化を受理した撮り直しでは偽）の回だけ、前の周の P3 が触ったファイル（changed_since_prev_round）を
     測り、書き終えた並行の線の結果を判定へ渡す（lane_rows）——どちらも周の境目の出来事で、この節の出力が履歴になる
     （loop.py patch が届くのはこの節の最新の出力だけで、前の周の出力には届かない）"""
-    stash = git("stash", "list")
-    if stash is None:
-        return {"ok": False, "problems": ["git stash list が取れない——作業ツリーの保護（前後の突合）が測れない場所からは回せない"]}
     # **写しを書く前に柵を全部通す。** 統合前はこの順だった——後ろに回すと、git status が取れずに
     # ok:False を返す回でも .patch と changed-*.txt が既に在る
     # （今は worktree_compare が porcelain の None で fail-closed に倒れるので黙る穴には届いていないが、
@@ -2084,7 +2094,7 @@ def worktree_snapshot(b, nid, head=True):
     # 前の周の修正と手直しが足した分岐（前の周の頭 → 周の終わり）を自動の腕で撃つのは、前の周の並行の線（p3.delta_gates）だけ。
     # 以前はここで『--auto <前の周の頭>』を組み、次の周の p1.gate_efficacy が同じ範囲をもう一度撃っていた（撃ち手が 2 つ）
     out = {"ok": True, "snapshot": {**d["snapshot"], "entry": b.cond(ENTRY_BUILTIN)[0]},
-           "tree_before": {"porcelain": snap, "stash": stash.strip(), "tree": tree.strip(), "rev": d["snapshot"]["rev"]}}
+           "tree_before": {"porcelain": snap, "tree": tree.strip(), "rev": d["snapshot"]["rev"]}}
     if head:
         # 柵を全部通った後に測り・渡す——渡した印（線の台帳）を付けた後に ok:False で出力を書き直すと、渡した行が消える
         out["changed_since_prev_round"] = _changed_since_prev_round(b, d["snapshot"]["rev"])
@@ -2158,8 +2168,6 @@ def worktree_compare(b, nid):
     baseline_after = {"tree_before": before, **({"snapshot": cur_snap} if cur_snap else {})} if before else {}
     if snap is None or tree is None or before.get("porcelain") is None:
         return {"ok": False, **baseline_after, "problems": ["git status / 作業ツリーの木が取れない——作業ツリーの前後を突き合わせられない（一致とは言えない）"]}
-    # stash の一覧は比べない——refs/stash は全作業ツリーで共有し（git-worktree の REFS 節）、並行の run も動かす。役が共通の .git に
-    # 書くことは sandbox の denyWrite が止める（engine の _git_state_guard と同じ分け方）
     now = {"porcelain": snap, "tree": tree}
     problems = []
     for k in ("porcelain", "tree"):

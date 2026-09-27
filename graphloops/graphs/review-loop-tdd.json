@@ -191,7 +191,8 @@
    "prompt_append": [
     "../prompts/policy-path.md",
     "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md"
+    "../prompts/review-loop/test-scope.md",
+    "../prompts/declared-files.md"
    ]
   },
   "p3.tdd_red": {
@@ -283,7 +284,8 @@
     "../prompts/review-loop/tdd/p3.fix.md",
     "../prompts/policy-path.md",
     "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md"
+    "../prompts/review-loop/test-scope.md",
+    "../prompts/declared-files.md"
    ]
   },
   "p3.tdd_green": {

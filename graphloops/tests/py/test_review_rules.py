@@ -676,3 +676,54 @@ def test_origin_of_a_kind_without_origin_is_seen_by_presence(tmp_path, origin):
     out = reopened_block()
     out["questions"] = [{"key": "q1", "kind": "field", "status": "held", "origin": origin, "reason": "r"}]
     assert "（field）は origin / depends を持てない" in judge_reject(tmp_path, "p2.diagnose", out)
+
+
+# ---------------------------------------------------------------- P1 の前後の突合（worktree_snapshot・worktree_compare）
+def test_worktree_compare_does_not_compare_the_shared_stash(tmp_path, monkeypatch):
+    """refs/stash は全作業ツリーで共有する（並行の run も動かす）——旧い出力の基準に stash の一覧が残っていても、比べるのは並びと
+    中身の木の id だけ"""
+    snap = ["?? x.py"]
+    b = board(tmp_path, outputs={"p1.worktree_before": {"ok": True, "tree_before": {"porcelain": snap, "stash": "stash@{0}: 並行の run",
+                                                                                     "tree": "t" * 40}}})
+    b.porcelain = lambda: snap
+    monkeypatch.setattr(RULES, "_worktree_tree", lambda: "t" * 40)
+    monkeypatch.setattr(RULES, "fill_materials", lambda b: None)
+    got = RULES.worktree_compare(b, "p1.worktree_after")
+    assert got["ok"] is True, got
+
+
+def test_worktree_snapshot_does_not_read_the_stash_list(tmp_path, monkeypatch):
+    """P1 の前の基準は stash の一覧を取らない——取れない場でも止まらず、基準の出力にも載せない"""
+    asked = []
+
+    def git(*args, env=None):
+        asked.append(args)
+        return None if args[:1] == ("stash",) else "t" * 40
+    monkeypatch.setattr(RULES, "git", git)
+    monkeypatch.setattr(RULES, "_take_diff", lambda b: {"ok": True, "snapshot": {"rev": "r" * 40}})
+    b = board(tmp_path)
+    b.porcelain = lambda: []
+    got = RULES.worktree_snapshot(b, "p1.worktree_before", head=False)
+    assert got["ok"] is True and "stash" not in got["tree_before"] and not [a for a in asked if a[:1] == ("stash",)]
+
+
+# ---------------------------------------------------------------- 書く子の痕跡を判定者へ届ける（on_new_round の fix_claim_mismatch）
+def test_writer_traces_carry_outside_tmp_and_unmeasured_rows_of_the_round():
+    """申告の食い違い（kind=declared）に加えて、作業ツリーの外に残った物（outside_tmp。測れなかった回を含む）と、申告の突合・一時の
+    置き場の確かめが測れなかった印を、その周の分だけ届ける。道具つきの役の並びだけの突合の印（.tree_before_id）は書く子の物でないので
+    載せない"""
+    state = {"git_mismatches": [
+        {"instance": "p3.fix", "kind": "declared", "undeclared": ["a.py"], "unwritten": [], "overlapping": [], "round": 1, "at": "x"},
+        {"instance": "p3.fix", "kind": "outside_tmp", "dir": "/tmp/gl-w-1", "measured": False, "files": 0, "bytes": 0, "sample": [],
+         "note": "空", "round": 1},
+        {"instance": "p3.fix", "kind": "outside_tmp", "measured": True, "files": 1, "bytes": 1, "sample": ["x"], "note": "n", "round": 2},
+        {"where": "P1", "round": 1, "diff": ["porcelain"]}],
+        "unevaluable": [{"trigger": "p3.fix.declared_files", "round": 1, "why": "木が無い"},
+                        {"trigger": "child_tmp_probe", "round": 1, "why": "確かめられない"},
+                        {"trigger": "p1.hygiene.tree_before_id", "round": 1, "why": "並びだけ"},
+                        {"trigger": "p3.delta_fix.declared_files", "round": 2, "why": "次の周"}]}
+    got = RULES._writer_traces(state, 1)
+    assert got["by_instance"] == [{"instance": "p3.fix", "undeclared": ["a.py"], "unwritten": [], "overlapping": []}]
+    assert got["outside_tmp"] == [{"instance": "p3.fix", "measured": False, "files": 0, "bytes": 0, "sample": [], "note": "空"}]
+    assert got["unmeasured"] == [{"trigger": "p3.fix.declared_files", "why": "木が無い"}, {"trigger": "child_tmp_probe", "why": "確かめられない"}]
+    assert RULES._writer_traces({}, 1) == {}

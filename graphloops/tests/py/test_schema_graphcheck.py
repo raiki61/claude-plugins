@@ -98,6 +98,18 @@ def test_init_only_warns_on_a_missing_or_old_declared_files(sandbox, breaks):
     assert any(str(l).startswith("WARN ") and "declared_files" in str(l) for l in lines)
 
 
+@pytest.mark.parametrize("name", ["review-loop", "review-loop-tdd", "research-loop"])
+def test_every_declaring_node_carries_the_declaration_promise(name):
+    """申告の欄（declared_files）を持つ節は、extends を重ねた後の姿で全部、申告の約束の断片を prompt_append に持つ——名前で選んだ節に
+    だけ届き、配列を置き換える継承（review-loop-tdd の p3.fix）で落ちる形を赤にする"""
+    from engine.schema import load_graph
+    g, why = load_graph(PLUGIN / "graphs" / f"{name}.json")
+    assert not why
+    declaring = [k for k, n in g["nodes"].items() if n.get("declared_files")]
+    assert [k for k in declaring if "../prompts/declared-files.md" not in (g["nodes"][k].get("prompt_append") or [])] == []
+    assert (PLUGIN / "prompts" / "declared-files.md").is_file() and (declaring or name == "research-loop")
+
+
 def test_graphcheck_requires_rules_node_keys(tmp_path):
     """rules が節の鍵の宣言を持たないと照らせない——黙って外さず NG（LOOP_KEYS と同じ fail-closed）"""
     (tmp_path / "graphs").mkdir()

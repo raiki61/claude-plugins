@@ -3801,6 +3801,34 @@
    }
   },
   {
+   "id": "OV1",
+   "title": "作業ツリーへ書きうる手は書く権限の一覧で数える（graph の runners の役名で数えない）",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if x[\"node\"] in (((b.graph.get(\"launch\") or {}).get(\"runner\") or {}).get(\"edits\") or []):",
+   "new": "    if x[\"node\"] in (((b.graph.get(\"launch\") or {}).get(\"runner\") or {}).get(\"edits\") or []) or x.get(\"run_by\") in (b.graph.get(\"runners\") or []):",
+   "expect": "investigator の instance の前後で作業ツリーが変わると exit 1",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_rejections"
+    ]
+   }
+  },
+  {
+   "id": "BI1",
+   "title": "書く子の申告の食い違いの行を判定者へ届ける",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    got = {\"by_instance\": [{k: r.get(k) for k in WRITER_TRACE_KEYS[\"declared\"]} for r in rows if r.get(\"kind\") == \"declared\"],",
+   "new": "    got = {\"by_instance\": [],",
+   "expect": "受け付けが残した申告の食い違い（申告したのに変わっていない）が by_instance に載る",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_claim_mismatch"
+    ]
+   }
+  },
+  {
    "id": "SC1",
    "title": "字クラスの閉じは位置で決める",
    "file": "graphloops/engine/schema.py",
