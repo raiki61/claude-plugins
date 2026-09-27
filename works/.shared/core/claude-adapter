@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = []
+# ///
+"""works の Claude の包み。Archon の claudeBinaryPath（設定）か CLAUDE_BIN_PATH（env）にこのファイルを置く。
+
+SDK が組んだ argv に Read のフック・会話の継ぎ・起動ごとの柵（切符が在る時）を足して、本物の claude を子として起こし、
+止める時は Bash の道具の孫まで木ごと止める（何を・なぜは adapter.py の頭）。
+- 本物の claude: env の WORKS_REAL_CLAUDE（絶対パス）、無ければ PATH の実行ファイル `claude`（この包み自身は飛ばす）。
+  見つからなければ 1 行を出して終了コード 127
+- 置き場: env の WORKS_ADAPTER_HOME（無ければ ${XDG_STATE_HOME:-~/.local/state}/works/adapter）。絶対パスでなければ 1 行を出して終了コード 2
+- continue=X の節で X の会話の id が無ければ、子を起こさずに 1 行を出して終了コード 3（fail closed）
+- 名前を .js で終わらせない（Archon は .js の実行ファイルを bun で起こして --no-env-file を足す）
+uv を通さない（Archon が直に起こす）。標準ライブラリだけ。
+"""
+import json
+import os
+import sys
+
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE)
+
+import adapter  # noqa: E402
+
+SELF = os.path.realpath(__file__)
+RECORDER = os.path.join(HERE, "record-read.py")
+
+
+def say(line):
+    sys.stderr.write("works claude-adapter: " + line + "\n")
+    sys.stderr.flush()
+
+
+def real_claude():
+    """本物の claude の絶対パス。包み自身に解けるものは使わない"""
+    want = os.environ.get(adapter.ENV_REAL)
+    if want:
+        cands = [want]
+    else:
+        cands = [os.path.join(d, "claude") for d in os.environ.get("PATH", "").split(os.pathsep) if d]
+    for c in cands:
+        if os.path.isabs(c) and os.path.isfile(c) and os.access(c, os.X_OK) and os.path.realpath(c) != SELF:
+            return c
+    return None
+
+
+def log_launch(home_dir, cwd, p):
+    row = adapter.launch_row(p, cwd, os.getpid(), adapter.now())
+    path = adapter.launches_path(cwd, home_dir)
+    try:
+        os.makedirs(str(path.parent), mode=0o700, exist_ok=True)
+        with open(str(path), "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError as e:
+        say(f"起動の記録を書けない（{path}: {e}）")
+
+
+def protected(cwd, home_dir):
+    """守る場所。切符が無ければ柵を足さない（線の start が切符を書く前の起動・線の外の起動）"""
+    doc = adapter.read_ticket(cwd, home_dir)
+    if doc is None:
+        return []
+    return adapter.protected_now(doc, cwd, os.environ, adapter.live_worktrees(cwd))
+
+
+def write_id(path, sid):
+    """一時ファイルから os.replace（読む側が半端な id を見ない）"""
+    os.makedirs(str(path.parent), mode=0o700, exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(sid + "\n")
+    os.replace(tmp, str(path))
+
+
+def main():
+    argv = sys.argv[1:]
+    real = real_claude()
+    if real is None:
+        where = os.environ.get(adapter.ENV_REAL) or "PATH の claude"
+        say(f"本物の claude が見つからない（{where}。包み自身は使わない）。{adapter.ENV_REAL} に絶対パスを設定する")
+        return 127
+    cwd = os.getcwd()
+    home_dir = adapter.home()
+    if not home_dir.is_absolute():
+        # 相対だと cwd（役が書ける worktree）の下に会話の id と読んだ記録を置いてしまう
+        say(f"{adapter.ENV_HOME} が絶対パスでない（{home_dir}）。役の sandbox から書けない場所の絶対パスを設定する")
+        return 2
+    sink = adapter.reads_dir(cwd, home_dir)
+    p = adapter.plan(argv, cwd, home_dir, adapter.hook_command(sys.executable, RECORDER, sink),
+                     protected=lambda: protected(cwd, home_dir))
+    if p.mode == "refused":
+        log_launch(home_dir, cwd, p)
+        sys.stderr.write(p.why + "\n")
+        return 3
+    for path, sid in p.record:
+        try:
+            write_id(path, sid)
+        except OSError as e:
+            say(f"会話の id を記録できない（{path}: {e}）。この節の続きの節は起こせない")
+    if p.hook:
+        try:
+            os.makedirs(str(sink), mode=0o700, exist_ok=True)
+        except OSError as e:
+            say(f"読んだ記録の置き場を作れない（{sink}: {e}）")
+    log_launch(home_dir, cwd, p)
+    if p.warn:
+        say(f"形が見分けられないので素通しする（{p.why}）")
+    return adapter.supervise([real] + p.argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

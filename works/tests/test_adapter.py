@@ -1,0 +1,1008 @@
+"""Claude の包み（.shared/core/claude-adapter と .shared/core/adapter.py）の検査。本物の AI は起こさない。
+
+Archon は Claude Code の実行ファイルを `assistants.claude.claudeBinaryPath`（設定）か `CLAUDE_BIN_PATH`（env。設定より強い）
+で差し替えられる。包みはそこに置かれ、SDK が組んだ argv を少しだけ直して本物の claude を exec する。
+包みの形は 2 つの有料の試し（scratchpad の claude-adapter-probe.md〔包試〕・resume-probe-summary.md〔継試〕）で
+本物の Archon v0.11.1・SDK 0.3.282・claude 2.1.283 と確かめた物で、ここでは偽の claude（tests/adapter/fake-claude）で縛る。
+
+- 印（works-node）の無い起動（Archon の題の生成＝`--tools ""` など）は argv を 1 バイトも変えない
+- 印のある起動: `--settings` に PostToolUse:Read のフックを足す（SDK の鍵は上書きしない。3 つの綴り・無ければ足す）。
+  `--setting-sources`・`--model` は触らない
+- 見分けられない形（`--settings` が 2 つ・読めない JSON・値の無い旗・崩れた印・`--json-schema` が 2 つ）は
+  足さずに素通しし、stderr に 1 行の警告
+- フックは読んだファイルの sha を包みの家（WORKS_ADAPTER_HOME）の cwd ごとの `reads.jsonl` に書く（graphloops の形のまま）
+- 判定役（`works-node: judge`）: 包みが `--session-id=<uuid>` を足して `sessions/<cwd の hash>/judge.id` に書く。
+  SDK が付けた `--resume`・`--session-id` はそのまま記録する
+- 再審（`works-node: rejudge continue=judge`）: SDK の会話の旗を外して `--resume <judge の id>`。id が無ければ子を起こさず
+  stderr 1 行・終了コード 3（fail closed）
+- 本物の claude が見つからない・包み自身を指す時は 1 行で止まる。名前は .js で終わらない（Archon が --no-env-file を足すため）
+- dev の殻（archon.sh）の WORKS_DEV_ADAPTER=1 が設定の claudeBinaryPath で包みを入れる
+"""
+import hashlib
+import json
+import os
+import pathlib
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+CORE = ROOT / ".shared" / "core"
+ADAPTER = CORE / "claude-adapter"
+RECORDER = CORE / "record-read.py"
+FAKE = ROOT / "tests" / "adapter" / "fake-claude"
+SAMPLES = ROOT / "tests" / "adapter" / "argv"
+DEV = ROOT / "dev"
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
+sys.path.insert(0, str(CORE))
+
+import adapter  # noqa: E402
+
+SANDBOX = '{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"failIfUnavailable":true}}'
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def schema(desc=None):
+    s = {"type": "object", "additionalProperties": False, "required": ["a"], "properties": {"a": {"type": "string"}}}
+    if desc is not None:
+        s["description"] = desc
+    return json.dumps(s)
+
+
+def sdk_argv(desc=None, settings=SANDBOX, tools="", extra=()):
+    """〔継試〕の実物の並び（SDK 0.3.282）。desc=None なら --json-schema を持たない（題の生成の形）"""
+    a = ["--output-format", "stream-json", "--verbose", "--input-format", "stream-json"]
+    if desc is not None:
+        a += ["--max-budget-usd", "0.15"]
+    a += ["--model", "opus"]
+    if desc is not None:
+        a += ["--json-schema", schema(desc if desc != "" else None)]
+    a += ["--tools", tools, "--setting-sources=project,user"]
+    if desc is not None:
+        a += ["--strict-mcp-config"]
+    a += ["--permission-mode", "bypassPermissions", "--allow-dangerously-skip-permissions", "--include-hook-events"]
+    a += list(extra)
+    if desc is not None and settings is not None:
+        a += ["--settings", settings]
+    return a
+
+
+def opt(argv, name):
+    """argv の中の --name の値（--name v と --name=v）の並び"""
+    out = []
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            out.append(argv[i + 1])
+        elif a.startswith(name + "="):
+            out.append(a[len(name) + 1:])
+    return out
+
+
+class Env:
+    """1 つの試験の置き場: 包みの家・run の worktree に見立てた cwd・偽の claude の記録"""
+
+    def __init__(self, case):
+        self._tmp = tempfile.TemporaryDirectory()
+        case.addCleanup(self._tmp.cleanup)
+        self.tmp = pathlib.Path(self._tmp.name).resolve()
+        self.home = self.tmp / "adapter-home"
+        self.cwd = self.tmp / "wt"
+        self.cwd.mkdir()
+        self.log = self.tmp / "fake.jsonl"
+
+    def run(self, argv, cwd=None, stdin="", exit_code=0, **env_over):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("WORKS_")}
+        env.update(WORKS_ADAPTER_HOME=str(self.home), WORKS_REAL_CLAUDE=str(FAKE), FAKE_CLAUDE_LOG=str(self.log),
+                   FAKE_CLAUDE_EXIT=str(exit_code), PYTHONDONTWRITEBYTECODE="1")
+        for k, v in env_over.items():
+            if v is None:
+                env.pop(k, None)
+            else:
+                env[k] = v
+        return subprocess.run([str(ADAPTER), *argv], cwd=str(cwd or self.cwd), env=env, input=stdin,
+                              capture_output=True, text=True)
+
+    def child(self):
+        """偽の claude が受けた最後の起動（起きていなければ None）"""
+        if not self.log.exists():
+            return None
+        return json.loads(self.log.read_text(encoding="utf-8").splitlines()[-1])
+
+    def launches(self, cwd=None):
+        p = adapter.launches_path(cwd or self.cwd, self.home)
+        if not p.exists():
+            return []
+        return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines()]
+
+    def session_id(self, node, cwd=None):
+        p = adapter.session_path(cwd or self.cwd, node, self.home)
+        return p.read_text(encoding="utf-8").strip() if p.exists() else None
+
+
+class MarkerCase(unittest.TestCase):
+    def test_marker_text_round_trip(self):
+        self.assertEqual(adapter.marker_text("judge"), "works-node: judge")
+        self.assertEqual(adapter.marker_text("rejudge", cont="judge"), "works-node: rejudge continue=judge")
+        m = adapter.parse_marker("works-node: rejudge continue=judge")
+        self.assertEqual((m.name, m.cont, m.flags), ("rejudge", "judge", ()))
+        m = adapter.parse_marker("works-node: pr-check no-post")
+        self.assertEqual((m.name, m.cont, m.flags), ("pr-check", None, ("no-post",)))
+
+    def test_not_ours_is_none(self):
+        for d in (None, "", "判定役の返答", 3, "works-nodes: x"):
+            self.assertIsNone(adapter.parse_marker(d), d)
+
+    def test_malformed_marker_is_bad(self):
+        # node_marker.parse（枝 wip/works-a2）が None を返す形は全部 BadMarker（包みは claude を起こさない）
+        for d in ("works-node:", "works-node: ", "works-node:judge", "works-node: a b=c", "works-node: judge continue=",
+                  "works-node: ../x", "works-node: a continue=b continue=c", "works-node: Judge",
+                  "works-node:  judge", "works-node: judge ", "works-node: judge  continue=x", "works-node: judge foo",
+                  "works-node: judge no-post no-post", "works-node: a_b", "works-node: judge continue=Judge",
+                  "works-node: judge\ncontinue=x"):
+            with self.assertRaises(adapter.BadMarker, msg=repr(d)):
+                adapter.parse_marker(d)
+
+    def test_marker_grammar_matches_node_marker(self):
+        """枝 wip/works-a2 の node_marker.parse と、読める・読めないが同じ（引けなければ skip）"""
+        src = subprocess.run(["git", "-C", str(ROOT), "show", "wip/works-a2:works/.shared/core/node_marker.py"],
+                             capture_output=True, text=True)
+        if src.returncode != 0:
+            self.skipTest("wip/works-a2 を引けない: " + src.stderr.strip()[-200:])
+        ns = {}
+        exec(compile(src.stdout, "node_marker.py", "exec"), ns)
+        cases = ["works-node: judge", "works-node: rejudge continue=judge", "works-node: pr-check no-post",
+                 "works-node: x continue=y no-post", "works-node: no-post", "works-node: a-1 continue=b-2",
+                 "works-node:", "works-node: Judge", "works-node:  judge", "works-node: judge foo",
+                 "works-node: judge no-post no-post", "works-node: a_b", "works-node: judge ", "判定"]
+        for d in cases:
+            with self.subTest(d):
+                want = ns["parse"](d)
+                try:
+                    got = adapter.parse_marker(d)
+                except adapter.BadMarker:
+                    got = "bad"
+                if want is None:
+                    self.assertIn(got, (None, "bad"))
+                    self.assertEqual(got is None, not d.startswith("works-node:"))
+                else:
+                    self.assertEqual((got.name, got.cont, frozenset(got.flags)),
+                                     (want["name"], want["cont"], want["flags"]))
+
+    def test_marker_from_argv_both_spellings(self):
+        a = ["--model", "opus", "--json-schema", schema("works-node: judge")]
+        self.assertEqual(adapter.marker_from_argv(a).name, "judge")
+        a = ["--model", "opus", "--json-schema=" + schema("works-node: rejudge continue=judge")]
+        self.assertEqual(adapter.marker_from_argv(a).cont, "judge")
+        self.assertIsNone(adapter.marker_from_argv(["--tools", ""]))
+
+    def test_dangling_settings_is_unrecognised(self):
+        p = adapter.plan(sdk_argv("works-node: fix", settings=None) + ["--settings"], "/x", pathlib.Path("/h"), "H",
+                         new_id=lambda: "u")
+        self.assertEqual((p.mode, p.warn, p.hook), ("passthrough", True, False))
+
+    def test_marker_from_argv_unrecognised_shapes(self):
+        two = ["--json-schema", schema(), "--json-schema", schema()]
+        for a in (two, ["--json-schema", "{not json"], ["--json-schema"], ["--json-schema", "[1]"]):
+            with self.subTest(a):
+                with self.assertRaises(adapter.Unrecognised) as cm:
+                    adapter.marker_from_argv(a)
+                self.assertNotIsInstance(cm.exception, adapter.BadMarker)
+
+    def test_marker_traces_in_odd_shapes_are_bad(self):
+        two = ["--json-schema", schema("works-node: a"), "--json-schema", schema("works-node: b")]
+        for a in (two, ["--json-schema", '{"description": "works-node: judge", '],
+                  ["--json-schema", schema("works-node: judge x")]):
+            with self.subTest(a):
+                with self.assertRaises(adapter.BadMarker):
+                    adapter.marker_from_argv(a)
+
+
+class PathsCase(unittest.TestCase):
+    def test_session_path_per_cwd(self):
+        home = pathlib.Path("/h")
+        a = adapter.session_path("/x/wt1", "judge", home)
+        b = adapter.session_path("/x/wt2", "judge", home)
+        self.assertNotEqual(a.parent, b.parent)
+        self.assertEqual(a.name, "judge.id")
+        self.assertEqual(a.parent.parent, home / "sessions")
+        self.assertEqual(len(a.parent.name), 16)
+        self.assertEqual(adapter.reads_dir("/x/wt1", home).parent.name, "reads")
+        self.assertEqual(adapter.reads_dir("/x/wt1", home).name, a.parent.name)
+
+    def test_cwd_key_follows_symlink(self):
+        with tempfile.TemporaryDirectory() as t:
+            real = pathlib.Path(t, "real")
+            real.mkdir()
+            link = pathlib.Path(t, "link")
+            link.symlink_to(real)
+            self.assertEqual(adapter.cwd_key(link), adapter.cwd_key(real))
+
+    def test_paths_default_to_env_home(self):
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"WORKS_ADAPTER_HOME": "/env/home"}):
+            self.assertEqual(adapter.session_path("/x/wt", "judge"),
+                             pathlib.Path("/env/home/sessions") / adapter.cwd_key("/x/wt") / "judge.id")
+            self.assertEqual(adapter.launches_path("/x/wt"),
+                             pathlib.Path("/env/home/launches") / (adapter.cwd_key("/x/wt") + ".jsonl"))
+            self.assertEqual(adapter.reads_dir("/x/wt").parent, pathlib.Path("/env/home/reads"))
+
+    def test_home_from_env_or_default(self):
+        self.assertEqual(adapter.home({"WORKS_ADAPTER_HOME": "/a/b"}), pathlib.Path("/a/b"))
+        # 切符（ticket.home）と同じ既定
+        self.assertEqual(adapter.home({"HOME": "/u"}), pathlib.Path("/u/.local/state/works/adapter"))
+        self.assertEqual(adapter.home({"HOME": "/u", "XDG_STATE_HOME": "/s"}), pathlib.Path("/s/works/adapter"))
+        self.assertEqual(adapter.home({"HOME": "/u", "WORKS_ADAPTER_HOME": ""}), pathlib.Path("/u/.local/state/works/adapter"))
+
+    def test_spellings_cover_private_aliases(self):
+        self.assertEqual(adapter.spellings("/private/var/folders/x")[:2], ["/private/var/folders/x", "/var/folders/x"])
+        self.assertIn("/private/tmp/y", adapter.spellings("/tmp/y"))
+        self.assertIn("/tmp", adapter.spellings("/private/tmp"))
+        self.assertEqual(adapter.spellings("/Users/u/.gitconfig"), ["/Users/u/.gitconfig"])
+        self.assertNotIn("/var", adapter.spellings("/variable/z")[1:])
+
+    def test_ticket_path_matches_ticket_module_formula(self):
+        # 枝 wip/works-a4 の ticket.ticket_path と同じ式（home()/tickets/<cwd の realpath の sha256 の先頭 16 字>.json）
+        want = hashlib.sha256(os.path.realpath("/x/wt").encode("utf-8")).hexdigest()[:16]
+        self.assertEqual(adapter.ticket_path("/x/wt", "/h"), pathlib.Path("/h/tickets") / f"{want}.json")
+
+
+class MergeCase(unittest.TestCase):
+    def test_merge_never_overrides_sdk_keys(self):
+        sdk = {"sandbox": {"enabled": True, "failIfUnavailable": True},
+               "hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": []}]}, "model": "opus"}
+        ours = {"hooks": {"PostToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": "x"}]}]},
+                "model": "haiku", "sandbox": {"enabled": False, "extra": 1}}
+        got = adapter.merge_settings(json.loads(json.dumps(sdk)), ours)
+        self.assertEqual(got["model"], "opus")
+        self.assertEqual(got["sandbox"], {"enabled": True, "failIfUnavailable": True, "extra": 1})
+        self.assertEqual([m["matcher"] for m in got["hooks"]["PostToolUse"]], ["Bash", "Read"])
+
+
+class AdapterCase(unittest.TestCase):
+    def setUp(self):
+        self.e = Env(self)
+
+    # --- 素通し ---------------------------------------------------------------------------------------------
+    def test_unmarked_title_launch_untouched(self):
+        argv = sdk_argv(None)   # 題の生成（title-generator.ts）: --tools "" で印なし
+        self.assertIn("--tools", argv)
+        r = self.e.run(argv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stderr, "")
+        self.assertEqual(self.e.child()["argv"], argv)
+        self.assertFalse((self.e.home / "sessions").exists())
+        row = self.e.launches()[-1]
+        self.assertEqual((row["mode"], row["why"], row["tools_empty"], row["node"]),
+                         ("passthrough", "unmarked", True, None))
+
+    def test_unmarked_schema_launch_untouched(self):
+        # 印の無い output_format（〔包試〕の --tools Read の節）も触らない
+        argv = sdk_argv("", tools="Read")
+        r = self.e.run(argv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.e.child()["argv"], argv)
+
+    def test_unknown_shapes_pass_through_with_warning(self):
+        broken = [
+            sdk_argv("works-node: judge", extra=["--settings", SANDBOX]),                       # --settings が 2 つ
+            sdk_argv("works-node: judge", settings="{not json"),                                # 読めない JSON
+            sdk_argv("works-node: judge", settings="/no/such/settings.json"),                   # 無いファイル
+            sdk_argv("works-node: judge", settings="[1, 2]"),                                   # 辞書でない
+        ]
+        for argv in broken:
+            with self.subTest(argv=argv[-2:]):
+                r = self.e.run(argv)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                lines = r.stderr.strip().splitlines()
+                self.assertEqual(len(lines), 1, r.stderr)
+                self.assertIn("素通し", lines[0])
+                got = self.e.child()["argv"]
+                # --settings は 1 バイトも変えない。会話の継ぎ（--session-id）だけは行う（継がずに黙って別の目にしない）
+                self.assertEqual(got[:len(argv)], argv)
+                self.assertEqual(len(got), len(argv) + 1)
+                self.assertTrue(got[-1].startswith("--session-id="))
+                row = self.e.launches()[-1]
+                self.assertEqual((row["mode"], row["node"], row["session"]["mode"]), ("passthrough", "judge", "new"))
+                self.assertTrue(row["why"])
+
+    def test_bad_marker_fails_closed(self):
+        # 印の跡が在るのに読めない起動は素通ししない（黙って新しい会話で再審させず、no-post の柵も落とさない）
+        for desc, argv in (("works-node: rejudge continue=", sdk_argv("works-node: rejudge continue=")),
+                           ("works-node: pr-check no-psot", sdk_argv("works-node: pr-check no-psot")),
+                           ("works-node: Rejudge continue=judge", sdk_argv("works-node: Rejudge continue=judge")),
+                           ("--json-schema が 2 つ", sdk_argv("works-node: judge")
+                            + ["--json-schema", schema("works-node: fix")])):
+            with self.subTest(desc):
+                r = self.e.run(argv)
+                self.assertEqual(r.returncode, 3)
+                lines = r.stderr.splitlines()
+                self.assertEqual(len(lines), 1, r.stderr)
+                self.assertIn(desc, lines[0])
+                self.assertIsNone(self.e.child())
+                self.assertFalse((self.e.home / "sessions").exists())
+                row = self.e.launches()[-1]
+                self.assertEqual((row["mode"], row["session"]["mode"]), ("refused", "refused"))
+
+    def test_no_post_denies_gh_writes(self):
+        r = self.e.run(sdk_argv("works-node: pr-check no-post"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s, _ = self._hook_settings(self.e.child()["argv"])
+        for rule in adapter.NO_POST_DENY:
+            self.assertIn(rule, s["permissions"]["deny"])
+        self.assertIn("Bash(gh pr comment:*)", s["permissions"]["deny"])
+        self.assertEqual(self.e.launches()[-1]["fence"]["no_post"], len(adapter.NO_POST_DENY))
+        # 印に no-post の無い起動には足さない
+        self.e.run(sdk_argv("works-node: pr-check"))
+        s, _ = self._hook_settings(self.e.child()["argv"])
+        self.assertNotIn("permissions", s)
+
+    # --- 設定のマージ ----------------------------------------------------------------------------------------
+    def _hook_settings(self, argv):
+        vals = opt(argv, "--settings")
+        self.assertEqual(len(vals), 1, argv)
+        s = json.loads(vals[0])
+        hooks = [h for m in s["hooks"]["PostToolUse"] if m.get("matcher") == "Read" for h in m["hooks"]]
+        self.assertEqual(len(hooks), 1, s)
+        self.assertEqual(hooks[0]["type"], "command")
+        self.assertNotIn("timeout", hooks[0])   # 期限を足さない
+        return s, hooks[0]["command"]
+
+    def test_settings_three_spellings_merged(self):
+        f = self.e.tmp / "sdk-settings.json"
+        f.write_text(SANDBOX, encoding="utf-8")
+        base = sdk_argv("works-node: fix", settings=None)
+        for tail, spelled in ((["--settings", SANDBOX], "split"), (["--settings=" + SANDBOX], "joined"),
+                              (["--settings", str(f)], "file")):
+            with self.subTest(spelled):
+                r = self.e.run(base + tail)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(r.stderr, "")
+                got = self.e.child()["argv"]
+                s, _ = self._hook_settings(got)
+                self.assertEqual(s["sandbox"], json.loads(SANDBOX)["sandbox"])   # SDK の鍵はそのまま
+                if spelled == "joined":
+                    self.assertTrue(any(a.startswith("--settings=") for a in got))
+                # 置き換えたのは --settings の値だけ（あとは --session-id を末尾に足しただけ）
+                self.assertEqual(got[:len(base)], base)
+                row = self.e.launches()[-1]
+                self.assertEqual((row["mode"], row["hook"]), ("merged", True))
+
+    def test_settings_merge_keeps_sdk_hooks_and_keys(self):
+        sdk = {"sandbox": {"enabled": True}, "permissions": {"deny": ["Bash(rm:*)"]},
+               "hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "true"}]}],
+                         "Stop": [{"hooks": [{"type": "command", "command": "true"}]}]}}
+        r = self.e.run(sdk_argv("works-node: fix", settings=json.dumps(sdk)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s, _ = self._hook_settings(self.e.child()["argv"])
+        self.assertEqual(s["sandbox"], sdk["sandbox"])
+        self.assertEqual(s["permissions"], sdk["permissions"])
+        self.assertEqual(s["hooks"]["Stop"], sdk["hooks"]["Stop"])
+        self.assertEqual([m["matcher"] for m in s["hooks"]["PostToolUse"]], ["Bash", "Read"])
+
+    def test_no_settings_gets_hook_only(self):
+        # sandbox の無い節は SDK が --settings を付けない（〔包試〕の (f)）
+        argv = sdk_argv("works-node: fix", settings=None)
+        self.assertEqual(opt(argv, "--settings"), [])
+        r = self.e.run(argv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s, _ = self._hook_settings(self.e.child()["argv"])
+        self.assertEqual(set(s), {"hooks"})
+
+    def test_setting_sources_untouched(self):
+        for spelled in (["--setting-sources=project,user"], ["--setting-sources", ""], ["--setting-sources="]):
+            with self.subTest(spelled):
+                argv = [a for a in sdk_argv("works-node: fix") if not a.startswith("--setting-sources")]
+                argv = argv[:6] + spelled + argv[6:]
+                r = self.e.run(argv)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                got = self.e.child()["argv"]
+                i = got.index(spelled[0])
+                self.assertEqual(got[i:i + len(spelled)], spelled)
+                self.assertEqual(sum(a.startswith("--setting-sources") for a in got), 1)
+
+    def test_model_preserved(self):
+        for desc in (None, "works-node: judge", "works-node: rejudge continue=judge"):
+            with self.subTest(desc):
+                if desc and "continue" in desc:
+                    self.e.run(sdk_argv("works-node: judge"))
+                r = self.e.run(sdk_argv(desc))
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(opt(self.e.child()["argv"], "--model"), ["opus"])
+
+    # --- Read のフック ---------------------------------------------------------------------------------------
+    def test_read_hook_records_file_and_sha(self):
+        r = self.e.run(sdk_argv("works-node: fix"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        _, command = self._hook_settings(self.e.child()["argv"])
+        doc = self.e.cwd / "doc.md"
+        doc.write_text("読む文書\n", encoding="utf-8")
+        event = {"session_id": "s-1", "tool_name": "Read", "tool_input": {"file_path": str(doc)},
+                 "tool_use_id": "toolu_x", "cwd": str(self.e.cwd), "hook_event_name": "PostToolUse"}
+        # claude と同じく、フックのコマンドを sh で起こして出来事を標準入力に渡す（cwd は役の worktree）
+        h = subprocess.run(["sh", "-c", command], cwd=str(self.e.cwd), input=json.dumps(event), text=True,
+                           capture_output=True, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+        self.assertEqual(h.returncode, 0, h.stderr)
+        log = adapter.reads_dir(self.e.cwd, self.e.home) / "reads.jsonl"
+        rows = [json.loads(ln) for ln in log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["path"], str(doc.resolve()))
+        self.assertEqual(rows[0]["file_sha"], hashlib.sha256(doc.read_bytes()).hexdigest())
+        self.assertEqual((rows[0]["session_id"], rows[0]["tool_use_id"], rows[0]["partial"]), ("s-1", "toolu_x", False))
+        # 写しの engine が読む形（hook_evidence）のまま
+        from graphloops.engine import util
+        self.assertEqual(util.hook_evidence(log.parent, str(doc))[0], "read")
+        doc.write_text("書き換えた\n", encoding="utf-8")
+        self.assertEqual(util.hook_evidence(log.parent, str(doc))[0], "stale")
+
+    def test_recorder_writes_nothing_without_sink(self):
+        with tempfile.TemporaryDirectory() as t:
+            doc = pathlib.Path(t, "d.txt")
+            doc.write_text("x", encoding="utf-8")
+            event = {"tool_name": "Read", "tool_input": {"file_path": str(doc)}, "cwd": t}
+            for args in ([], [str(pathlib.Path(t, "missing-dir"))]):
+                h = subprocess.run([sys.executable, str(RECORDER), *args], input=json.dumps(event), text=True,
+                                   capture_output=True, cwd=t)
+                self.assertEqual(h.returncode, 0, h.stderr)
+            self.assertEqual(sorted(p.name for p in pathlib.Path(t).iterdir()), ["d.txt"])
+
+    def test_record_read_copy_differs_only_in_sink(self):
+        """record-read.py は graphloops a1202d0:graphloops/hooks/record-read.py の写しで、書く先を決める boards() だけを替えた"""
+        src = subprocess.run(["git", "-C", str(ROOT), "show", "a1202d0:graphloops/hooks/record-read.py"],
+                             capture_output=True, text=True)
+        if src.returncode != 0:
+            self.skipTest("a1202d0 を引けない（浅い clone か、graphloops の履歴を持たない）: " + src.stderr.strip()[-200:])
+
+        def outside_boards(text):
+            head, rest = text.split("\ndef boards(", 1)
+            return head + rest[rest.index("\nREAD_CAP = "):]
+        self.assertEqual(outside_boards(RECORDER.read_text(encoding="utf-8")), outside_boards(src.stdout))
+
+    # --- 会話の継ぎ -------------------------------------------------------------------------------------------
+    def test_judge_gets_session_id_and_records(self):
+        argv = sdk_argv("works-node: judge")
+        r = self.e.run(argv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = self.e.child()["argv"]
+        added = [a for a in got if a.startswith("--session-id=")]
+        self.assertEqual(len(added), 1)
+        sid = added[0].split("=", 1)[1]
+        self.assertRegex(sid, UUID_RE)
+        self.assertEqual(self.e.session_id("judge"), sid)
+        row = self.e.launches()[-1]
+        self.assertEqual(row["session"], {"mode": "new", "id": sid})
+        self.assertEqual(row["node"], "judge")
+
+    def test_judge_sdk_ids_recorded_as_is(self):
+        # Archon 自身が継いだ回（ブロックの出し直しの 2 周目）: SDK の id をそのまま記録し、argv は変えない
+        for extra, mode, want in ((["--resume=aaaaaaaa-0000-4000-8000-000000000001"], "sdk-resume",
+                                   "aaaaaaaa-0000-4000-8000-000000000001"),
+                                  (["--resume", "aaaaaaaa-0000-4000-8000-000000000002"], "sdk-resume",
+                                   "aaaaaaaa-0000-4000-8000-000000000002"),
+                                  (["--session-id", "aaaaaaaa-0000-4000-8000-000000000003"], "sdk-session",
+                                   "aaaaaaaa-0000-4000-8000-000000000003")):
+            with self.subTest(extra):
+                argv = sdk_argv("works-node: judge", extra=extra)
+                r = self.e.run(argv)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                got = self.e.child()["argv"]
+                self.assertEqual([a for a in got if "session" in a or "resume" in a],
+                                 [a for a in argv if "session" in a or "resume" in a])
+                self.assertEqual(self.e.session_id("judge"), want)
+                expect = {"mode": mode, "id": want}
+                if mode == "sdk-resume":
+                    expect["from"] = want
+                self.assertEqual(self.e.launches()[-1]["session"], expect)
+
+    def test_judge_sdk_fork_gets_new_session_id(self):
+        # 出し直しの 2 周目を Archon が fork で継ぐ時: 新しい会話の id は SDK が知らせないので包みが決めて記録する
+        argv = sdk_argv("works-node: judge", extra=["--resume", "aaaaaaaa-0000-4000-8000-000000000001",
+                                                    "--fork-session"])
+        r = self.e.run(argv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = self.e.child()["argv"]
+        i = argv.index("--settings") + 1   # 変わるのはフックを足した --settings の値だけ
+        self.assertEqual(got[:i] + got[i + 1:len(argv)], argv[:i] + argv[i + 1:])
+        sid = got[-1].split("=", 1)[1]
+        self.assertTrue(got[-1].startswith("--session-id="))
+        self.assertNotEqual(sid, "aaaaaaaa-0000-4000-8000-000000000001")
+        self.assertEqual(self.e.session_id("judge"), sid)
+        # 費用の引き算（fork の会話は元の会話の合計を引き継ぐ）が元を辿れるように from を持つ
+        self.assertEqual(self.e.launches()[-1]["session"],
+                         {"mode": "sdk-fork", "id": sid, "from": "aaaaaaaa-0000-4000-8000-000000000001"})
+
+    def test_continue_strips_sdk_session_flags_and_resumes(self):
+        self.e.run(sdk_argv("works-node: judge"))
+        judge = self.e.session_id("judge")
+        sdk_flags = ["--resume=bbbbbbbb-0000-4000-8000-000000000001", "--fork-session",
+                     "--session-id", "bbbbbbbb-0000-4000-8000-000000000002", "--continue"]
+        argv = sdk_argv("works-node: rejudge continue=judge", extra=sdk_flags)
+        r = self.e.run(argv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stderr, "")
+        got = self.e.child()["argv"]
+        for f in sdk_flags:
+            self.assertNotIn(f, got)
+        self.assertFalse(any(a.startswith(("--session-id", "--resume=")) for a in got), got)
+        self.assertEqual(got[-2:], ["--resume", judge])
+        self.assertEqual(opt(got, "--resume"), [judge])
+        self.assertEqual(self.e.session_id("rejudge"), judge)   # 再審も同じ会話（fork しない）
+        row = self.e.launches()[-1]
+        self.assertEqual(row["session"], {"mode": "continued", "id": judge, "of": "judge", "from": judge})
+
+    def test_continue_keeps_settings_sources_and_model(self):
+        # 〔継試〕の (3): 再開の起動にも sandbox の --settings と --setting-sources が残る
+        self.e.run(sdk_argv("works-node: judge"))
+        argv = sdk_argv("works-node: rejudge continue=judge")
+        r = self.e.run(argv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = self.e.child()["argv"]
+        s, _ = self._hook_settings(got)
+        self.assertEqual(s["sandbox"], json.loads(SANDBOX)["sandbox"])
+        self.assertIn("--setting-sources=project,user", got)
+        self.assertEqual(opt(got, "--model"), ["opus"])
+        self.assertEqual(opt(got, "--json-schema"), opt(argv, "--json-schema"))
+
+    def test_rejudge_chain_resumes_same_session(self):
+        # 本線 3-6 の形（再審 3 回）: どれも同じ判定役の会話を継ぐ
+        self.e.run(sdk_argv("works-node: judge"))
+        judge = self.e.session_id("judge")
+        for name in ("rejudge", "rejudge2", "rejudge3"):
+            r = self.e.run(sdk_argv(f"works-node: {name} continue=judge"))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self.e.child()["argv"][-2:], ["--resume", judge])
+
+    def test_continue_missing_id_fails_closed(self):
+        path = adapter.session_path(self.e.cwd, "judge", self.e.home)
+        for prepare in ("missing", "empty", "broken"):
+            with self.subTest(prepare):
+                if prepare != "missing":
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("" if prepare == "empty" else "two words\n", encoding="utf-8")
+                r = self.e.run(sdk_argv("works-node: rejudge continue=judge"))
+                self.assertEqual(r.returncode, 3)
+                lines = r.stderr.splitlines()
+                self.assertEqual(len(lines), 1, r.stderr)
+                self.assertIn(str(path), lines[0])
+                self.assertIn("judge", lines[0])
+                self.assertIsNone(self.e.child())   # 子を起こさない
+                row = self.e.launches()[-1]
+                self.assertEqual((row["mode"], row["session"]["mode"], row["session"]["of"]),
+                                 ("refused", "refused", "judge"))
+                self.assertFalse(adapter.session_path(self.e.cwd, "rejudge", self.e.home).exists())
+
+    def test_sessions_are_separated_by_cwd(self):
+        other = self.e.tmp / "wt2"
+        other.mkdir()
+        self.e.run(sdk_argv("works-node: judge"))
+        self.e.run(sdk_argv("works-node: judge"), cwd=other)
+        a, b = self.e.session_id("judge"), self.e.session_id("judge", cwd=other)
+        self.assertNotEqual(a, b)
+        self.e.run(sdk_argv("works-node: rejudge continue=judge"), cwd=other)
+        self.assertEqual(self.e.child()["argv"][-1], b)
+        # 同じ cwd の後の判定役は前の id を書き直す（直近の判定役を継ぐ）
+        self.e.run(sdk_argv("works-node: judge"))
+        self.assertNotEqual(self.e.session_id("judge"), a)
+
+    # --- 実物の argv ------------------------------------------------------------------------------------------
+    def test_real_resume_probe_argv(self):
+        """〔継試〕の 13 回の起動: 印の見分けが試しの包みと同じ。題の生成は触らない。再審は judge の id で継ぐ"""
+        launches = json.loads((SAMPLES / "resume-probe.json").read_text(encoding="utf-8"))["launches"]
+        self.assertEqual(len(launches), 13)
+        home, cwd = self.e.home, self.e.cwd
+        for n, s in enumerate(launches):
+            with self.subTest(n=n, marker=s["marker"]):
+                p = adapter.plan(s["argv"], cwd, home, "HOOK", new_id=lambda: "cccccccc-0000-4000-8000-%012d" % n)
+                self.assertEqual((p.node, p.cont), (s["marker"], s["continue"]))
+                if s["marker"] is None:
+                    self.assertEqual((p.argv, p.mode, p.why, p.warn), (s["argv"], "passthrough", "unmarked", False))
+                    continue
+                self.assertEqual((p.mode, p.warn), ("merged", False))
+                if s["continue"]:
+                    self.assertEqual(p.argv[-2:], ["--resume", "cccccccc-0000-4000-8000-%012d" % (n - 2)])
+                    self.assertEqual(p.session["mode"], "continued")
+                else:
+                    self.assertEqual(p.argv[-1], "--session-id=cccccccc-0000-4000-8000-%012d" % n)
+                for path, sid in p.record:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(sid + "\n", encoding="utf-8")
+                # 足したのは --settings の値と会話の旗だけ
+                rest = [a for a in p.argv if not a.startswith(("--session-id=", "cccccccc"))
+                        and a != "--resume"]
+                i = s["argv"].index("--settings")
+                self.assertEqual(rest[:i + 1] + rest[i + 2:], s["argv"][:i + 1] + s["argv"][i + 2:])
+
+    def test_real_wrap_probe_argv_untouched(self):
+        """〔包試〕の 6 回の起動は印を持たないので、どれも 1 バイトも変えない"""
+        for s in json.loads((SAMPLES / "wrap-probe.json").read_text(encoding="utf-8"))["launches"]:
+            p = adapter.plan(s["argv"], self.e.cwd, self.e.home, "HOOK")
+            self.assertEqual((p.argv, p.mode, p.record), (s["argv"], "passthrough", []))
+
+    # --- 起こし方 ---------------------------------------------------------------------------------------------
+    def test_stdio_and_exit_code_pass_through(self):
+        r = self.e.run(sdk_argv("works-node: fix"), stdin="1\n2\n3\n", exit_code=5)
+        self.assertEqual(r.returncode, 5)
+        self.assertEqual(r.stdout, "1\n2\n3\n")
+        self.assertEqual(self.e.child()["stdin"], "1\n2\n3\n")
+
+    def test_child_keeps_env_and_cwd(self):
+        r = self.e.run(sdk_argv(None), CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        c = self.e.child()
+        self.assertEqual(c["cwd"], str(self.e.cwd))
+        self.assertEqual(c["env"]["CLAUDE_CODE_OAUTH_TOKEN"], "dummy-token-for-test")
+        self.assertEqual(c["argv0"], str(FAKE))
+
+    def test_real_claude_from_path_when_env_unset(self):
+        bindir = self.e.tmp / "bin"
+        bindir.mkdir()
+        (bindir / "claude").symlink_to(FAKE)
+        r = self.e.run(sdk_argv(None), WORKS_REAL_CLAUDE=None, PATH=str(bindir) + os.pathsep + os.environ["PATH"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.e.child()["argv"], sdk_argv(None))
+
+    def test_real_claude_missing_or_self_refused(self):
+        emptybin = self.e.tmp / "empty-bin"
+        emptybin.mkdir()
+        (emptybin / "claude").symlink_to(ADAPTER)   # PATH の claude が包み自身（CLAUDE_BIN_PATH で差した時の取り違え）
+        for over in ({"WORKS_REAL_CLAUDE": str(self.e.tmp / "nope")},
+                     {"WORKS_REAL_CLAUDE": str(ADAPTER)},
+                     {"WORKS_REAL_CLAUDE": None, "PATH": str(emptybin) + os.pathsep + "/usr/bin:/bin"}):
+            with self.subTest(over):
+                r = self.e.run(sdk_argv(None), **over)
+                self.assertEqual(r.returncode, 127)
+                self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+                self.assertIsNone(self.e.child())
+
+    def test_launch_rows_carry_time_and_last_judge(self):
+        """再審の前の確かめ（rejudge の session_ready）が使う口: judge.id・最後の judge の行・その行の at"""
+        import datetime
+        before = datetime.datetime.now().astimezone()
+        self.e.run(sdk_argv("works-node: judge"))
+        first = self.e.session_id("judge")
+        self.e.run(sdk_argv("works-node: fix"))
+        self.e.run(sdk_argv("works-node: judge"))
+        self.e.run(sdk_argv("works-node: rejudge continue=judge"))
+        after = datetime.datetime.now().astimezone()
+        rows = adapter.read_launches(self.e.cwd, self.e.home)
+        self.assertEqual([r["node"] for r in rows], ["judge", "fix", "judge", "rejudge"])
+        ats = [datetime.datetime.fromisoformat(r["at"]) for r in rows]
+        for at in ats:
+            self.assertIsNotNone(at.tzinfo)   # 盤面の state.created（時差つき）と比べられる
+            self.assertTrue(before.replace(microsecond=0) <= at <= after, at)
+        self.assertEqual(ats, sorted(ats))
+        last = adapter.last_launch(self.e.cwd, "judge", self.e.home)
+        self.assertEqual(last, rows[2])
+        self.assertEqual(last["session"]["id"], self.e.session_id("judge"))
+        self.assertNotEqual(last["session"]["id"], first)
+        self.assertIsNone(adapter.last_launch(self.e.cwd, "plan", self.e.home))
+        self.assertEqual(rows[3]["session"]["from"], last["session"]["id"])
+        self.assertNotIn("ts", rows[0])
+
+    def test_read_launches_skips_broken_lines(self):
+        path = adapter.launches_path(self.e.cwd, self.e.home)
+        path.parent.mkdir(parents=True)
+        path.write_text('{"node": "judge", "at": "x"}\nnot json\n[1]\n{"node": "fix"}\n', encoding="utf-8")
+        self.assertEqual([r["node"] for r in adapter.read_launches(self.e.cwd, self.e.home)], ["judge", "fix"])
+        self.assertEqual(adapter.read_launches(self.e.tmp / "elsewhere", self.e.home), [])
+
+    def test_relative_home_refused(self):
+        r = self.e.run(sdk_argv("works-node: judge"), WORKS_ADAPTER_HOME="rel/home")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+        self.assertIn("WORKS_ADAPTER_HOME", r.stderr)
+        self.assertIsNone(self.e.child())
+        self.assertFalse((self.e.cwd / "rel").exists())
+
+    def test_name_not_js_and_executable(self):
+        # Archon は .js で終わる実行ファイルを bun で起こして --no-env-file を足す（〔包試〕）
+        for p in (ADAPTER, RECORDER):
+            self.assertFalse(p.name.endswith((".js", ".mjs", ".cjs")), p)
+        self.assertTrue(os.access(ADAPTER, os.X_OK))
+        self.assertEqual(ADAPTER.read_text(encoding="utf-8").splitlines()[0], "#!/usr/bin/env python3")
+
+    def test_no_pycache_in_pack(self):
+        self.e.run(sdk_argv("works-node: fix"))
+        self.assertEqual(list(CORE.rglob("__pycache__")), [])
+
+    def test_state_dirs_are_private(self):
+        self.e.run(sdk_argv("works-node: judge"))
+        for p in (adapter.session_path(self.e.cwd, "judge", self.e.home).parent,
+                  adapter.reads_dir(self.e.cwd, self.e.home)):
+            self.assertEqual(p.stat().st_mode & 0o077, 0, p)
+
+
+def gone(pgid, within):
+    """グループ pgid が within 秒の内に空になれば真（試験の中の待ちの上限。試験の外は縛らない）"""
+    end = time.monotonic() + within
+    while time.monotonic() < end:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            pass
+        time.sleep(0.05)
+    return False
+
+
+class StopCase(unittest.TestCase):
+    """木ごと止める（試し P15）: 偽の claude は本物の Bash の道具と同じく、孫を新しいセッションで起こし、SIGTERM を
+    受けると孫へ TERM だけ送って即抜ける。孫は SIGTERM を無視する。claude のグループへ送るだけの包みでは孫が残る"""
+
+    def setUp(self):
+        self.e = Env(self)
+        self.pidfile = self.e.tmp / "grandchild.pid"
+
+    def start(self, stay):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("WORKS_")}
+        env.update(WORKS_ADAPTER_HOME=str(self.e.home), WORKS_REAL_CLAUDE=str(FAKE), FAKE_CLAUDE_LOG=str(self.e.log),
+                   FAKE_CLAUDE_GRANDCHILD=str(self.pidfile), PYTHONDONTWRITEBYTECODE="1")
+        if stay:
+            env["FAKE_CLAUDE_STAY"] = "1"
+        p = subprocess.Popen([str(ADAPTER), *sdk_argv("works-node: fix")], cwd=str(self.e.cwd), env=env,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(self._reap, p)
+        while not self.pidfile.exists():
+            self.assertIsNone(p.poll(), "包みが孫を起こす前に抜けた")
+            time.sleep(0.05)
+        self.grandchild = int(self.pidfile.read_text())
+        return p
+
+    def _reap(self, p):
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+        if hasattr(self, "grandchild"):
+            try:
+                os.killpg(self.grandchild, signal.SIGKILL)   # 試験が赤の時の後片付け（自分が起こした孫のグループ）
+            except OSError:
+                pass
+
+    def _stopped_by(self, sig, code):
+        p = self.start(stay=True)
+        time.sleep(0.5)   # 包みの見回り（POLL）が 1 回は回る
+        t0 = time.monotonic()
+        p.send_signal(sig)
+        rc = p.wait()
+        took = time.monotonic() - t0
+        self.assertEqual(rc, code, p.stderr.read())
+        self.assertTrue(gone(self.grandchild, 0.5), "SIGTERM を無視する孫（別のセッション）が残った")
+        self.assertLess(took, 5.0)                       # Archon の cancel の猶予より前に抜ける
+        self.assertGreaterEqual(took, adapter.LINGER)    # すぐ死なない（Archon の run が running で固まる穴。試し P17）
+
+    def test_sigterm_kills_grandchild_in_other_session(self):
+        self._stopped_by(signal.SIGTERM, 143)
+
+    def test_sigint_kills_grandchild_in_other_session(self):
+        self._stopped_by(signal.SIGINT, 130)
+
+    def test_leftover_grandchild_killed_after_claude_exits(self):
+        # claude が普通に終わって孫を残した時も止める（見回りで覚えたグループ）
+        p = self.start(stay=False)
+        rc = p.wait()
+        self.assertEqual(rc, 0, p.stderr.read())
+        self.assertTrue(gone(self.grandchild, 0.5), "claude が残した孫が残った")
+
+    def test_constants_come_from_tree_run(self):
+        import tree_run
+        self.assertEqual(adapter.KILL_GRACE, tree_run.KILL_GRACE)
+        self.assertEqual(adapter.KILL_GRACE, 2)
+        self.assertLess(adapter.POLL + adapter.KILL_GRACE + adapter.LINGER, 5)
+
+
+def git(cwd, *args):
+    return subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false",
+                           "-C", str(cwd), *args], capture_output=True, text=True, check=True).stdout
+
+
+class FenceCase(unittest.TestCase):
+    """起動ごとの柵: 切符の protected ＋ 起動の env の CLAUDE_CONFIG_DIR ＋ 切符の後に切られた worktree を、
+    /var と /private/var の両方の綴りで permissions.deny（と sandbox の塊が在れば denyWrite）に足す"""
+
+    def setUp(self):
+        self.e = Env(self)
+        # 元の作業ツリー repo と、役の cwd になる run の worktree（Archon が run ごとに切る物に見立てる）
+        self.repo = self.e.tmp / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q")
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "seed")
+        self.e.cwd.rmdir()
+        git(self.repo, "worktree", "add", "-q", str(self.e.cwd))
+        self.board = self.e.tmp / "board"
+        self.board.mkdir()
+        # 切符（ticket.write の形。protected は start の時点で git から引いた物）
+        self.ticket_protected = [str(self.repo / ".git"), str(self.repo), str(self.board)]
+        t = adapter.ticket_path(self.e.cwd, self.e.home)
+        t.parent.mkdir(parents=True)
+        t.write_text(json.dumps({"run_id": "r1", "board": str(self.board), "cwd": str(self.e.cwd),
+                                 "protected": self.ticket_protected, "written_at": "2026-09-27T00:00:00+09:00"}),
+                     encoding="utf-8")
+
+    def settings(self):
+        return json.loads(opt(self.e.child()["argv"], "--settings")[0])
+
+    def test_ticket_paths_denied_in_both_spellings(self):
+        r = self.e.run(sdk_argv("works-node: fix"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = self.settings()
+        deny = s["permissions"]["deny"]
+        self.assertTrue(str(self.board).startswith("/private/var/"), self.board)   # macOS の一時フォルダの実体
+        pub = "/var/" + str(self.board)[len("/private/var/"):]
+        for p in (str(self.board), pub):
+            for tool in ("Edit", "Write"):
+                self.assertIn(f"{tool}(/{p})", deny)
+                self.assertIn(f"{tool}(/{p}/**)", deny)
+        self.assertIn(f"Edit(//var/{str(self.board)[len('/private/var/'):]}/**)", deny)
+        self.assertIn(f"Edit(//private/var/{str(self.board)[len('/private/var/'):]}/**)", deny)
+        dw = s["sandbox"]["filesystem"]["denyWrite"]
+        self.assertIn(str(self.board), dw)
+        self.assertIn(pub, dw)
+        self.assertEqual({k: v for k, v in s["sandbox"].items() if k != "filesystem"}, json.loads(SANDBOX)["sandbox"])
+        # 役の cwd の worktree 自身は守らない（役はそこに書く）
+        self.assertFalse(any(str(self.e.cwd) in r_ for r_ in deny), deny)
+        row = self.e.launches()[-1]
+        self.assertGreater(row["fence"]["permissions_deny"], 0)
+        self.assertGreater(row["fence"]["deny_write"], 0)
+
+    def test_claude_config_dir_from_launch_env(self):
+        cfg = self.e.tmp / "claude-config"
+        r = self.e.run(sdk_argv("works-node: fix"), CLAUDE_CONFIG_DIR=str(cfg))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = self.settings()
+        self.assertIn(f"Write(/{cfg}/**)", s["permissions"]["deny"])
+        self.assertIn(f"Write(//var/{str(cfg)[len('/private/var/'):]}/**)", s["permissions"]["deny"])
+        self.assertIn(str(cfg), s["sandbox"]["filesystem"]["denyWrite"])
+
+    def test_worktree_added_after_ticket_is_denied(self):
+        late = self.e.tmp / "late-wt"
+        git(self.repo, "worktree", "add", "-q", str(late))   # 切符を書いた後に切られた worktree
+        r = self.e.run(sdk_argv("works-node: fix"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        deny = self.settings()["permissions"]["deny"]
+        self.assertIn(f"Edit(/{late}/**)", deny)
+        self.assertIn(f"Edit(//var/{str(late)[len('/private/var/'):]}/**)", deny)
+
+    def test_sdk_deny_rules_kept(self):
+        sdk = {"sandbox": {"enabled": True, "filesystem": {"denyWrite": ["/sdk/path"]}},
+               "permissions": {"deny": ["Bash(rm:*)"]}}
+        r = self.e.run(sdk_argv("works-node: fix", settings=json.dumps(sdk)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = self.settings()
+        self.assertEqual(s["permissions"]["deny"][0], "Bash(rm:*)")
+        self.assertEqual(s["sandbox"]["filesystem"]["denyWrite"][0], "/sdk/path")
+        self.assertEqual(s["sandbox"]["enabled"], True)
+
+    def test_no_sandbox_block_gets_permissions_only(self):
+        r = self.e.run(sdk_argv("works-node: fix", settings=None))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = self.settings()
+        self.assertNotIn("sandbox", s)   # sandbox の無い節に sandbox の鍵を作らない
+        self.assertIn(f"Edit(/{self.board}/**)", s["permissions"]["deny"])
+        self.assertEqual(self.e.launches()[-1]["fence"]["deny_write"], 0)
+
+    def test_no_ticket_no_fence(self):
+        adapter.ticket_path(self.e.cwd, self.e.home).unlink()
+        r = self.e.run(sdk_argv("works-node: fix"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = self.settings()
+        self.assertNotIn("permissions", s)
+        self.assertNotIn("filesystem", s["sandbox"])
+        self.assertEqual(self.e.launches()[-1]["fence"], {"deny_write": 0, "permissions_deny": 0})
+
+    def test_broken_ticket_no_fence(self):
+        adapter.ticket_path(self.e.cwd, self.e.home).write_text('{"protected": ["relative/path"]}', encoding="utf-8")
+        r = self.e.run(sdk_argv("works-node: fix"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("permissions", self.settings())
+
+    def test_unmarked_launch_gets_no_fence(self):
+        argv = sdk_argv(None)
+        r = self.e.run(argv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.e.child()["argv"], argv)
+
+    def test_continue_launch_also_fenced(self):
+        self.e.run(sdk_argv("works-node: judge"))
+        r = self.e.run(sdk_argv("works-node: rejudge continue=judge"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"Write(/{self.board}/**)", self.settings()["permissions"]["deny"])
+
+
+class DevWiringCase(unittest.TestCase):
+    """dev の殻 archon.sh の WORKS_DEV_ADAPTER=1: 隔離した Archon の設定に claudeBinaryPath（包み）を書き、
+    本物の claude は WORKS_REAL_CLAUDE で包みに渡し、env の CLAUDE_BIN_PATH（設定より強い）を外す"""
+
+    def _exec(self, **overrides):
+        expected = re.search(r'^ARCHON_SHA256="([0-9a-f]{64})"', (DEV / "archon.sh").read_text(), re.M).group(1)
+        with tempfile.TemporaryDirectory() as t:
+            tmp = pathlib.Path(t).resolve()
+            dev_home = tmp / "dev-home"
+            (dev_home / "bin").mkdir(parents=True)
+            seen = tmp / "seen.json"
+            fake_archon = dev_home / "bin" / "archon-darwin-arm64"
+            fake_archon.write_text(
+                "#!/bin/sh\n"
+                "python3 -c 'import json, os, sys; json.dump({k: os.environ.get(k) for k in "
+                "(\"CLAUDE_BIN_PATH\", \"WORKS_REAL_CLAUDE\", \"WORKS_ADAPTER_HOME\")}, open(sys.argv[1], \"w\"))' "
+                f'"{seen}"\n')
+            fake_bin = tmp / "fake-bin"
+            fake_bin.mkdir()
+            (fake_bin / "shasum").write_text(f'#!/bin/sh\necho "{expected}  $3"\n')
+            (fake_bin / "shasum").chmod(0o755)
+            (fake_bin / "claude").symlink_to(FAKE)
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("WORKS_", "CLAUDE_"))}
+            env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""),
+                       CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
+            for k, v in overrides.items():
+                if v is None:
+                    env.pop(k, None)
+                else:
+                    env[k] = v.replace("@TMP", str(tmp))
+            r = subprocess.run(["sh", str(DEV / "archon.sh"), "workflow", "run", "x"], capture_output=True,
+                               text=True, env=env, cwd=str(tmp))
+            config = dev_home / "archon-home" / "config.yaml"
+            self.assertNotIn("dummy-token-for-test", r.stdout + r.stderr)
+            return (r, config.read_text() if config.exists() else None,
+                    json.loads(seen.read_text()) if seen.exists() else None, tmp)
+
+    def test_adapter_enabled_by_config(self):
+        r, config, seen, tmp = self._exec(WORKS_DEV_ADAPTER="1", CLAUDE_BIN_PATH="@TMP/fake-bin/claude")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"    claudeBinaryPath: {ADAPTER}\n", config)
+        self.assertIn("    model: opus\n", config)
+        self.assertIsNone(seen["CLAUDE_BIN_PATH"])   # env は設定より強いので外す
+        self.assertEqual(seen["WORKS_REAL_CLAUDE"], str(tmp / "fake-bin" / "claude"))
+        self.assertEqual(seen["WORKS_ADAPTER_HOME"], str(tmp / "dev-home" / "adapter"))
+
+    def test_adapter_finds_real_claude_on_path(self):
+        r, config, seen, tmp = self._exec(WORKS_DEV_ADAPTER="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(seen["WORKS_REAL_CLAUDE"], str(tmp / "fake-bin" / "claude"))
+        # CLAUDE_BIN_PATH が包み自身を差していても、本物の claude は PATH から引く
+        r, config, seen, tmp = self._exec(WORKS_DEV_ADAPTER="1", CLAUDE_BIN_PATH=str(ADAPTER))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(seen["WORKS_REAL_CLAUDE"], str(tmp / "fake-bin" / "claude"))
+
+    def test_adapter_off_by_default(self):
+        r, config, seen, tmp = self._exec(CLAUDE_BIN_PATH="@TMP/fake-bin/claude")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("claudeBinaryPath", config)
+        self.assertEqual(seen["CLAUDE_BIN_PATH"], str(tmp / "fake-bin" / "claude"))
+        self.assertIsNone(seen["WORKS_REAL_CLAUDE"])
+
+    def test_adapter_home_in_claude_tmp_refused(self):
+        r, config, seen, tmp = self._exec(WORKS_DEV_ADAPTER="1", WORKS_ADAPTER_HOME="/private/tmp/claude-0/x")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("WORKS_ADAPTER_HOME", r.stderr)
+        self.assertIsNone(seen)
+
+    def test_adapter_bad_value_refused(self):
+        r, config, seen, tmp = self._exec(WORKS_DEV_ADAPTER="yes")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("WORKS_DEV_ADAPTER", r.stderr)
+        self.assertIsNone(seen)
+
+    def test_show_run_carries_adapter_switch(self):
+        # 承認・続きのコマンドも包みを通す（archon.sh は認証を使う実行のたびに設定を書き直すので、付け忘れると外れる）
+        with tempfile.TemporaryDirectory() as t:
+            fake = pathlib.Path(t, "archon.sh")
+            fake.write_text("#!/bin/sh\necho '{\"runs\": [{\"workflow_name\": \"darkfactory\", \"id\": \"r1\"}]}'\n")
+            env = dict(os.environ, WORKS_DEV_HOME=t, WORKS_DEV_MODEL="opus", CLAUDE_BIN_PATH="/x/claude",
+                       WORKS_DEV_ADAPTER="1")
+            r = subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh" && works_dev_show_run t "{fake}" "{t}"'],
+                               capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("WORKS_DEV_ADAPTER=1 ", r.stdout)
+            env.pop("WORKS_DEV_ADAPTER")
+            r = subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh" && works_dev_show_run t "{fake}" "{t}"'],
+                               capture_output=True, text=True, env=env)
+            self.assertNotIn("WORKS_DEV_ADAPTER", r.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -35,6 +35,34 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 
 開発の家（`WORKS_DEV_HOME`。既定は `$TMPDIR/works-dev`）・使い捨ての対象・その origin は、Claude Code の一時フォルダ（`/private/tmp/claude-*`・`/tmp/claude-*`）の下に置けない。サンドボックスの中の Bash がそこへ書けるためで、`dev/` の殻はその下に解けるパスを終了コード 2 で拒む（設計書 7 節）。
 
+## Claude の包み
+
+`.shared/core/claude-adapter` は、Archon が起こす Claude Code の実行ファイルの前に挟む薄い殻（芯は `.shared/core/adapter.py`）。役が読んだファイルの記録・再審の役が判定役の会話の続きで起きること・役に書かせない場所の柵・止める時に孫まで止めることを受け持つ。形は本物の Archon v0.11.1・SDK 0.3.282・claude 2.1.283 との有料の試しで確かめ、試験（`tests/test_adapter.py`）は偽の claude で縛る。今のラインの YAML はまだ印を持たないので、入れても何も足さずに素通しする（印を付けるのは線 A の後の作業）。
+
+入れ方:
+
+1. Archon の設定 `assistants.claude.claudeBinaryPath` に包みの絶対パスを書く（これが主。env の `CLAUDE_BIN_PATH` は設定より強いので、一時の上書きに使える）。
+2. 本物の claude を `WORKS_REAL_CLAUDE`（絶対パス）で渡す。無ければ包みは PATH の実行ファイル `claude` を使う（包み自身を指す物は飛ばす）。
+3. 置き場（包みの家）を `WORKS_ADAPTER_HOME` で渡す。既定は `${XDG_STATE_HOME:-~/.local/state}/works/adapter`（切符と同じ）。絶対パスでなければ包みは起動を拒む。役の sandbox の Bash から書けない場所に置く（`/private/tmp/claude-*` は不可）。
+4. 開発の殻では `WORKS_DEV_ADAPTER=1` を付けて `dev/archon.sh`・`dev/real-run.sh`・`dev/dogfood.sh` を打つ。`archon.sh` が隔離した設定に `claudeBinaryPath` を書き、`CLAUDE_BIN_PATH` を `WORKS_REAL_CLAUDE` へ移し、家を `$WORKS_DEV_HOME/adapter` にする。殻が出す承認・続きのコマンドにも同じ札が付く。
+
+包みがすること・しないこと:
+
+- どの節の起動かは、役の `output_format` の一番上の `description` に置く印 `works-node: <節の名>[ continue=<継ぐ節の名>]` で見分ける。SDK がそれを argv の `--json-schema` に載せる。印の無い起動（Archon が run の題を作る `--tools ""` の起動など）は argv を 1 バイトも変えない。
+- 印のある起動には、`--settings` に PostToolUse:Read のフック（`.shared/core/record-read.py`。graphloops の写しで、書く先だけ替えた）を足す。SDK が渡した `--settings`（sandbox）の鍵は上書きしない。`--settings` が無い節にはフックだけの `--settings` を足す。`--setting-sources`・`--model` ほかの旗は触らない（CLAUDE.md を止めるのは YAML の `settingSources: []`）。
+- 読んだ記録は `<家>/reads/<cwd の hash>/reads.jsonl` に、ファイルの sha と部分読みかを 1 行ずつ書く。形は graphloops のままなので engine の `hook_evidence` がそのまま読む。Claude の子の env には `ARTIFACTS_DIR` が来ないので、run は cwd（Archon が run ごとに切る worktree）で分ける。
+- 判定役（`works-node: judge`）は、包みが `--session-id=<uuid>` を足して起こし、id を `<家>/sessions/<cwd の hash>/judge.id` に書く。SDK が自分で `--resume`・`--session-id` を付けた起動はその id を記録する。
+- 再審（`works-node: rejudge continue=judge`。YAML の節は `context: fresh`）は、SDK の会話の旗を外して `--resume <judge の id>` で起こす（fork しない）。id が無ければ子を起こさず、1 行を出して終了コード 3 で止まる。ただし Archon はこれを落ちた起動として約 12 回起こし直すので、先に script の節で id が在るかを見る。再開した節の費用の表示は判定役の分を重ねて数える（SDK の `total_cost_usd` が累積のため）。
+- 見分けられない形（`--settings`・`--json-schema` が 2 つ、読めない JSON）は足さずに素通しし、stderr に警告を 1 行出す。印が読めて `--settings` だけが見分けられない時も、会話の継ぎは行う。
+- 印の跡（`works-node:`）が在るのに読めない起動（知らない旗・大文字・余分な空白・印を持つ `--json-schema` が 2 つ）は素通しせず、claude を起こさずに 1 行を出して終了コード 3 で止まる（黙って新しい会話で再審させず、柵を落とさない）。印の文法は `node_marker.parse` と同じ。
+- 印に `no-post` を持つ起動（並行 PR の任せ先の役）は、`permissions.deny` に `gh` の書き込みの語（`gh pr comment` ほか 10 個）を足す。
+- SDK が `--resume <id> --fork-session` で継ぐ起動（Archon が輪の中の節を続ける形）は、新しい会話の id が argv に出ないので、包みが `--session-id=<uuid>` を足してその id を記録する（元の id を記録すると、後の再審が古い会話を継ぐ）。
+- 柵（線の `start` が切符 `<家>/tickets/<cwd の hash>.json` を書いた run だけ）: 切符の守る場所（共通の `.git`・ほかの worktree・盤面など）に、起動の時に引き直す `CLAUDE_CONFIG_DIR` と `git worktree list` の今の worktree を足し、`/var` と `/private/var`・`/tmp` と `/private/tmp` の両方の綴りで `permissions.deny`（`Edit(//<場所>/**)`・`Write(…)`）に足す。これで Bash・Edit・Write が止まる。SDK が sandbox の塊を渡した起動は `sandbox.filesystem.denyWrite` にも足す（これだけでは Bash しか止まらない）。役の cwd の worktree 自身は守らない。
+- 起動ごとに `<家>/launches/<cwd の hash>.jsonl` に 1 行（時刻 `at`・節の名・足したか・柵の数・会話の id と継ぎ方と元の id `from`）を書く。引数の本文は書かない。再審の前の確かめは `adapter.session_path`・`adapter.last_launch` でこれを読む。
+- 本物の claude は子として新しいセッションで起こす（標準入出力は継がせ、終了コードは子のまま）。走っている間は 0.2 秒ごとに子孫のプロセスグループを覚え、SIGINT・SIGTERM・SIGHUP を受けた時と claude が終わった後に、その全部へ TERM → 2 秒 → KILL を送る（claude の Bash の道具はコマンドを別のグループで走らせるので、claude だけを止めると SIGTERM を無視する孫が残る）。信号で止めた時は 1 秒待ってから抜ける（すぐ抜けると Archon の run が running のまま固まる）。合わせて 5 秒（Archon の cancel の猶予）より前に抜ける。
+- 名前は `.js` で終わらせない（Archon が `.js` の実行ファイルに `--no-env-file` を足すため）。
+- 版上げで壊れうる所（今は壊れていない）: SDK が `--json-schema` の渡し方・`--resume` の綴り・`--settings` の位置を変える、Claude がフックの入力の形を変える。版を上げたら `tests/adapter/argv/` の実物の argv を取り直す。
+
 ## 実走
 
 本物の AI でライン `darkfactory` を 1 回回す殻が `works/dev/real-run.sh`（費用が掛かる。回す前に持ち主の了承を取る）。

@@ -31,9 +31,11 @@ if not runs:
     sys.exit(os.environ["CALLER"] + ": darkfactory の run が見つからない")
 r = runs[0]
 # 承認・続きも AI の節を回すので、認証（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM）を設定した殻で打つ
-go = "cd {} && WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} sh {} workflow".format(
+# 包みを入れた run（WORKS_DEV_ADAPTER=1）は続きのコマンドにも付ける（archon.sh は認証を使う実行のたびに設定を書き直す）
+adapter = "WORKS_DEV_ADAPTER=1 " if os.environ.get("WORKS_DEV_ADAPTER") == "1" else ""
+go = "cd {} && WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}sh {} workflow".format(
     os.environ["DIR"], os.environ["WORKS_DEV_HOME"], os.environ["WORKS_DEV_MODEL"], os.environ["CLAUDE_BIN_PATH"],
-    os.environ["ARCHON_SH"])
+    adapter, os.environ["ARCHON_SH"])
 diff = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board", "fix.diff")
 print("run id:", r.get("id"))
 print("状態:", r.get("status"))
