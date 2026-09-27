@@ -1187,6 +1187,23 @@ class DiskBoard(_EngineBoard):
                               for i in self.rd["instances"].values())]
         return Progress(round=self.round, ready=ready, run_engine=engine, asking=ph, halted=halted, notes=notes)
 
+    def ready(self) -> list:
+        """開いただけの盤面の ready（盤面を書かない。settle の返りの Progress.ready と同じ集合）。_progress は待っている instance
+        と、この入れ物の settle が当たった壁（_walls。記憶だけ）を見るので、表で explicit の機械の節は開き直した入れ物では落ちる。
+        settle の輪と同じく、graph の順で最初の「待ちで依存が済んだ explicit の機械の節」を 1 つ足す（人に聞いている・止めた盤面は
+        空のまま）。ラインの境の節（works の halt.edge）が次のブロックを決めるのに使う"""
+        p = self._progress([])
+        ready = list(p["ready"])
+        if p["asking"] or p["halted"]:
+            return ready
+        for nid in self.nodes:
+            e = self.table.nodes.get(nid)
+            if e is not None and e.by == "builtin" and e.run == "explicit" and self.node_state(nid) == "pending" and self.deps_ok(nid):
+                if nid not in ready:
+                    ready.append(nid)
+                break
+        return ready
+
     def _settle_pass(self) -> bool:
         """engine の advance の輪の 1 段: graph の節の順に、待ちで依存が済んだ節を 1 つずつ評価する（_evaluate）。
         返りは「もう 1 段回すか」——進んだ物が在り、機械の節で止まっていない（engine は止まったらその場で advance を抜ける）。
