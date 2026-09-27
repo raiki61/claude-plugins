@@ -67,9 +67,17 @@ class TestGlMap(unittest.TestCase):
         by = {r["works"]: r for r in load_map()}
         for works in ("accept.snapshot_tree",
                       "blk-premises/scripts/accept.py:check_claims",
-                      "blk-pr/scripts/accept.py:check_no_post"):
+                      "blk-pr/scripts/accept.py:check_no_post",
+                      "blk-fix/scripts/leftovers.py:ignored_files",
+                      "blk-fix/scripts/leftovers.py:record_ignored",
+                      "blk-fix/scripts/leftovers.py:remove_new_ignored"):
             self.assertIn(works, by)
             self.assertEqual(by[works]["status"], "works-only", works)
+
+    def test_no_branch_placeholder_rows(self):
+        """合流を待つ枝の控えの行（works が <枝>:… の形）は残さない。入った関数は置き場の行に分ける。"""
+        for r in load_map():
+            self.assertFalse(r["works"].startswith("wip/"), r["works"])
 
     def test_ready_rows_name_a_gl_port(self):
         """ready の行は gl の口を名指す。note は読んだ本線の sha を持つ。"""
