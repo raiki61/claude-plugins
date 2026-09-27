@@ -6,8 +6,8 @@ import types
 import pytest
 
 from conftest import PLUGIN, REPO
-from engine.board import CondView
-from engine.rules import load_rules, validator_module
+from engine.board import Board
+from engine.rules import load_rules
 from engine.schema import load_graph
 
 GRAPH = PLUGIN / "graphs" / "review-loop-tdd.json"
@@ -145,7 +145,8 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
 UNITS = [{"key": "u-block", "label": "block"}, {"key": "u-donow", "label": "suggest", "disposition": "do-now"}]
 BOARD = types.SimpleNamespace(state={"validator": str(REPO / "scripts" / "review-record.py")},
                               record={"units": UNITS, "questions": []})
-BOARD.view = lambda name, reads: CondView(name, reads, {"record": BOARD.record}, lambda: validator_module(BOARD), copy=True)
+BOARD.ctx = lambda: {"record": BOARD.record}
+BOARD.view = types.MethodType(Board.view, BOARD)   # engine の読み口の組み立てそのもの（ctx に無い頭は見せない）
 OK_FRICTION = {"setup_heavy": False, "reaches_internals": False, "name_unclear": False}
 
 

@@ -6676,6 +6676,7 @@
    "cond": "rejudge_reply_due",
    "prompt_file": "../prompts/review-loop/p3.rejudge_reply.md",
    "prompt_append": [
+    "../prompts/review-loop/rejudge-reply-rules.md",
     "../prompts/policy-path.md",
     "../prompts/policy.md"
    ]
@@ -6866,6 +6867,7 @@
    "cond": "rejudge_reply2_due",
    "prompt_file": "../prompts/review-loop/p3.rejudge_reply2.md",
    "prompt_append": [
+    "../prompts/review-loop/rejudge-reply-rules.md",
     "../prompts/policy-path.md",
     "../prompts/policy.md"
    ]

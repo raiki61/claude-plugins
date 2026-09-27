@@ -25,6 +25,11 @@ def cond_reads(*paths):
     return deco
 
 
+def takes_view(fn):
+    """規則の関数が読み口を受ける新しい形か（cond_reads の印を持つか）——見分けの正本。engine・gl・graphcheck・再生の道具が呼ぶ"""
+    return isinstance(getattr(fn, "reads", None), tuple)
+
+
 def validator_module(b):
     """検証器（init --validator で決まった scripts/<loop>-record.py）を import して定数・述語を読む——rules は写さない。
     以前は review / research の rules がそれぞれ同じ 4 手順を持っていた（差は文言だけ）。loop 名は盤面から来るので

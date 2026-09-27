@@ -145,6 +145,17 @@ def expand_refs(graph):
     return out
 
 
+def strip_notes(x):
+    """schema から注記の語 note（engine の方言。JSON Schema の語ではない）を落とした写し。properties / patternProperties の下の鍵は
+    欄の名前なので、note という名前の欄は残す。外の土台の型（Archon の output_format など）へ節の schema を渡す口（gl exit）が使う"""
+    if isinstance(x, list):
+        return [strip_notes(v) for v in x]
+    if not isinstance(x, dict):
+        return x
+    return {k: ({name: strip_notes(s) for name, s in v.items()} if k in ("properties", "patternProperties") and isinstance(v, dict)
+                else strip_notes(v)) for k, v in x.items() if k != "note"}
+
+
 def merge_patch(target, patch):
     """RFC 7396（JSON Merge Patch）で target に patch を重ねた写し: object は鍵ごとに重ね、null は鍵を消し、それ以外（配列も）は置き換える"""
     if not isinstance(patch, dict):

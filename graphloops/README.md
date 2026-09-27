@@ -77,18 +77,19 @@ Archon の節など engine の外から、同じ規則の関数を呼ぶ口。�
 
 ```bash
 python3 graphloops/scripts/gl.py cond    --dir <盤面> --name <条件>
-python3 graphloops/scripts/gl.py accept  --dir <盤面> --node <節> --reply <返答.json> [--item <項目.json>]
+python3 graphloops/scripts/gl.py accept  --dir <盤面> --node <節か instance の id> --reply <返答.json> [--item <項目.json>]
+python3 graphloops/scripts/gl.py request --dir <盤面> --file <依頼.json> --reason <出どころ>
 python3 graphloops/scripts/gl.py machine --dir <盤面> --node <機械の節>
-python3 graphloops/scripts/gl.py exit    --graph <graph.json> --node <節> [--against <外の型.json>]
+python3 graphloops/scripts/gl.py exit    --graph <graph.json> --node <節> [--against <外の型.json>] [--strip-notes]
 ```
 
-`accept` は done と同じ受け付け（型・番号の名前戻し・節ごとの整合・記録への写しの整合）を盤面の写しの上で当てる。呼べるのは新しい形へ移した関数だけで（review-loop の受け付け 22 本のうち 18 本・機械の節は `delta_owed`）、旧い形の関数は `called: false` を返す（盤面の隣に書く物が在るため）。`exit` は節の出口の型を返し、`--against` で外の土台の型の写し（Archon の `output_format` など）と食い違う path を返す。
+`accept` は done と同じ検査の鎖（engine の `commands.check_reply`。型・空の本文・番号の名前戻し・扇の被覆・段・節ごとの整合・effects・記録への写し・記録の整合）を盤面の写しの上で当てる——done が拒む返答は gl も拒む。done の門は拒否に使わず、`pending` が engine の門（`commands.accept_gate`: 止めた run・待っていない instance・deps の待ち）を通るかを言う（作業ツリーの突合は done の時にしか決まらないので含まない）。扇の節は instance の id で指すか `--item` を渡す。節ごとの整合を呼べるのは新しい形へ移した関数だけで（review-loop の受け付け 22 本のうち 18 本・機械の節は `delta_owed`）、旧い形の関数は `called: false`・`form: legacy` を返す（盤面の隣に書く物が在るため）。`request` は `loop.py add` と同じ rules の `add` を写しに当て、積んだ後の依頼の一覧を返す。`exit` は節の出口の型を返し、`--strip-notes` で注記の語 `note` を落とし（外の土台の `output_format` に貼る形）、`--against` で外の土台の型の写しと食い違う path を返す。
 
 ## ループを足すには
 
 1. `graphs/<loop>.json` に `exec: true` と `rules` を書き、各節に `prompt_file`・`schema`（か `text: true`）・`reads`・`writes` を足す。rules が盤面の loop（`b.loop_state`）に鍵を書くなら、鍵の名前を rules の `LOOP_KEYS` に、形を graph の最上位の `state_schema`（`type: object`・`additionalProperties: false` の JSON Schema。周ごとに名前の変わる鍵は `patternProperties`）に書く——graphcheck が両方をそろえ、loop を読む path を最後の欄まで照らし、engine は保存の時に照らして外れを `state.loop_drift` に残す（止めない）。rules だけが読み書きし、条件・節の `reads`・プロンプトの穴に読ませない鍵には `writeOnly: true` を付ける。鍵ごとの合わせ方 `x-reducer`（`overwrite`・`append`・`merge_by_key`・`set_once`。正本は `engine/effects.py`）を state_schema の最上位の鍵に書いた graph では、rules は loop を直に書かず、effect の口（読み口を受ける新しい形の関数は返りの `effects`、盤面を受ける旧い形の関数は差し込まれる `write_loop`）だけで書く——graphcheck が rules の本文の直の書き込みを落とし、`loop.py patch` の手当ては飛ばした合わせ方を `state.patches` の `bypass` に残す。1 つのブロックの中で閉じる値は loop に置かず、書く節の出力に載せて `cur.<節>.<欄>` で読む。周をまたぐ値のうち履歴（周の記録・周ごとの節の出力）から作れる物は loop に写さず、rules の `HIST` に読む時に作る関数（読む物を `hist_reads` で宣言）として書き、形を graph の最上位の `hist_schema` に書く——条件・`reads`・穴は `hist.<名>` で読み、engine は盤面を保存するたびに控え `hist.json`（正本でない印つき）を盤面の隣に書き出す。機械の節（`run_by: driver`）も返りの形を `schema` に書く——engine が返りを照らし（外れは止める）、graphcheck が出力を読む欄を照らす。写しだけの graph（`exec` 無し）は graphcheck の写しの形の検査だけ通ればよい。
 2. `prompts/<loop>/` に節ごとのプロンプト。散文の手順書の「なぜ」を前書きに残す（指示だけに削ると、規律は守られても判断の質が落ちる）。
-3. `rules/<loop>.py` に `init_record`・`FAN_OUT`・`WRITE_OPS`・`BUILTINS`・`POST_CHECKS`・`check_record`・`finalize`・`on_answer`・`on_unattended`・`on_stop`・`on_thickness`・`add`（要るものだけ）。受け付け（`POST_CHECKS`）と機械の節（`BUILTINS`）は、読む欄を `cond_reads` で宣言すれば読み口（宣言した欄だけ見え、読んだ値は写し）で呼ばれ、受け付けは `{ok, reason, note, reply, effects}`（拒否も例外でなく `ok: false`）、機械の節は出力と `effects` を返す新しい形になる（engine の `Board.rule` が新旧を読み分ける。宣言の無い関数は今までどおり盤面で呼ぶ）。人が途中で止める口（`loop.py stop`）で報告まで届かせるなら、graph の最上位に `stop`（止めた後に『済んだ』と見なす機械の節。下流に報告の節が要る——graphcheck が見る）を書く。
+3. `rules/<loop>.py` に `init_record`・`FAN_OUT`・`WRITE_OPS`・`BUILTINS`・`POST_CHECKS`・`check_record`・`finalize`・`on_answer`・`on_unattended`・`on_stop`・`on_thickness`・`add`（要るものだけ）。受け付け（`POST_CHECKS`）と機械の節（`BUILTINS`）は、読む欄を `cond_reads` で宣言すれば読み口（宣言した欄だけ見え、読んだ値は写し）で呼ばれ、受け付けは `{ok, reason, note, reply, effects}`（拒否も例外でなく `ok: false`）、機械の節は出力と `effects` を返す新しい形になる（engine の `Board.rule` が新旧を読み分ける。宣言の無い関数は今までどおり盤面で呼ぶ）。記録を書く op（`WRITE_OPS`）も宣言すれば読み口で呼ばれ、書く値を返すだけになる——書き先は op の `writes_to`（graph の writes の `to` を `{to}` に埋める記録の path の型。graphcheck が名乗りを見る）で、engine がそこに置く。人が途中で止める口（`loop.py stop`）で報告まで届かせるなら、graph の最上位に `stop`（止めた後に『済んだ』と見なす機械の節。下流に報告の節が要る——graphcheck が見る）を書く。
 4. `tests/simulate.py` に台本を足す（盤面を回す台本の土台はまだそこにしか無い。関数を直に呼ぶ検査なら `tests/py/` に pytest で書く——上の「pytest の置き場」）。
 5. `commands/<loop>-graph.md` は engine の呼び方だけ。
 

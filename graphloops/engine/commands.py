@@ -973,21 +973,15 @@ def post_check(b, nid, output, item):
     return output, [got["note"]] if got.get("note") else [], got.get("effects") or []
 
 
-def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=None):
-    """返答の本文を受け付けて盤面と記録に写す（done の中身。loop.py launch も同じここを呼ぶ）。返すのは回す側に見せる 1 行。
-
-    **返答の中身・形の不備は AnswerReject**（役に返せば直る——launch は同じ会話に続きを頼む）、それ以外の不備は Reject。
-    盤面を書くのは最後の b.save() だけ——拒んだ呼び出しは盤面（state.json / record.json）を変えない。"""
-    inst = pending_instance(b, node)
-    nid = inst["node"]
+def check_reply(b, nid, text, item, pointer_list=None, fence=None, seen=None):
+    """返答の検査の鎖（受け付けの並びの正本）——型・空の本文 → 番号の名前戻し → [fence] → 扇の被覆 → 段 → 節ごとの整合（post_check）
+    → effects を当てる → graph の writes → 記録の整合。返すのは（受け付ける返答, 注記, 答えが欠けた項目の key, 当てた effects）。拒否は AnswerReject か Reject。
+    盤面（b の中の state・record・loop）は書き換えるが保存しない——保存と instance の書き換えは呼び元の仕事。done と launch は
+    accept_output から、外の土台の口（scripts/gl.py accept）は盤面の写しの上でここを呼ぶ（Kubernetes の server-side dry-run と同じく、
+    検査の鎖は 1 本で、保存するかだけを呼び元が分ける）。deps の待ち・待ちの instance の確かめ・作業ツリーの前後突合は『盤面が今この返答を
+    受けてよいか』の門で、返答の中身の検査ではないので鎖に入れない——突合だけは拒否の順を変えないよう fence（呼び元の関数）として
+    名前戻しの後で呼ぶ。seen（dict）を渡すと、post_check まで届いたかを seen["post_check"] に書く"""
     n = b.nodes[nid]
-    # **出した後に graph が変わり、deps が増えた節は、増えた deps を待つ。** 出した時点で揃っていた deps だけを信じると、
-    # run の途中で足した前段（例: 修正の前の事前審査）を飛ばした返答を受け付ける（実測 2026-09-24: 回す側が手で待たせた）
-    if not b.deps_met(nid):
-        wait = [d for d in n.get("deps", []) if b.node_state(d) == "pending"]
-        raise Reject(f"節 '{node}' の deps {wait} がまだ済んでいない（出した後に graph が変わった）——先にそちらを回せ（loop.py next）")
-
-    inst["read_from"] = read_from
     if n.get("schema"):
         output = parse_output(text)
         errs = validate_schema(output, n["schema"])
@@ -998,30 +992,15 @@ def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=No
         # 本文を返す節にも空の検査を当てる（schema 節は minLength が同じ形を落としている）。空を受けると
         # 0 バイトの report.md が残り、『人が決めること』が黙って消える（実測: --output <空> も </dev/null> も exit 0 だった）。
         if not text.strip():
-            raise AnswerReject(f"節 '{nid}' の返答が空——本文を返す節に空は受け付けない（役が何も返していないか、{inst.get('out_path')} に書けていない）")
+            raise AnswerReject(f"節 '{nid}' の返答が空——本文を返す節に空は受け付けない（役が何も返していないか、置き場に書けていない）")
         output = {"text": text}
     # 番号で指した欄を名前に戻す（engine/pointers.py）。以降の検査・記録・報告は名前だけを見る
-    errs = pointers.resolve(output, n.get("pointers"), inst.get("pointers"))
+    errs = pointers.resolve(output, n.get("pointers"), pointer_list)
     if errs:
         # 範囲外の番号も、一覧を固めていない instance への番号も、役が書き直せば直る（番号を直すか名前で書く）
         raise AnswerReject(f"{nid}: " + "; ".join(errs))
-    item = load_item(inst, b.dir)
-    # 作業ツリーの前後突合（書き換えを塞ぐのは定義でも自制でもなくこの突合）
-    if "tree_before" in inst:
-        after = porcelain()
-        if after is None:
-            raise Reject("git status が取れない——作業ツリーの突合ができない場所から done している（リポジトリの中で呼べ）")
-        if after != inst["tree_before"]:
-            diff = sorted(set(after or []) ^ set(inst["tree_before"] or []))
-            # 同じ波に保護対象の instance が複数在ると、誰が汚したかはこの突合では決まらない（基準点は全員ほぼ同時刻の
-            # グローバルな git status で、done を呼んだ順に検出される）。**帰属を断定せず、同じ波の一覧を記録に残す。**
-            peers = sorted(i for i, x in b.rd["instances"].items()
-                           if i != node and "tree_before" in x and x["status"] == "pending")
-            who = f"（同じ波で保護対象の instance が他に {len(peers)} 件走っている: {peers}——変えたのがこの instance とは限らない）" if peers else ""
-            if not accept_tree_change:
-                raise Reject(f"{inst['run_by']} の前後で作業ツリーが変わっている: {diff}{who}。戻してから done し直すか、自分の変更なら --accept-tree-change <理由>")
-            b.state.setdefault("git_mismatches", []).append({"instance": node, "diff": diff, "accepted": accept_tree_change,
-                                                            "round": b.round, "concurrent_guarded": peers})
+    if fence:
+        fence()
     # 扇の被覆（返した答えが項目を全部覆っているか。欠けは『なし』ではない）
     remaining = None
     cover = n.get("fan_out", {}).get("cover")
@@ -1044,15 +1023,65 @@ def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=No
             raise AnswerReject(f"段を {b.state['thickness']} から {want} に下げようとしている。降格は依頼者の指定で init に渡す（回す側の自己判断による降格＝さぼり降格を禁ずる）")
         if b.tiers.index(want) > b.tiers.index(b.state["thickness"]):
             thicken(b, want, output.get(n.get("thickness_reason_from", ""), ""), by=nid)
+    if seen is not None:
+        seen["post_check"] = True
     output, notes, effs = post_check(b, nid, output, item)
     effects.apply_effects(b.loop_state, effs, b.graph.get("state_schema"), f"post_check {n.get('post_check')}")
     apply_writes(b, nid, output, item)
     check = hook(b.rules, "check_record")
     if check:
-        errs = check(b, nid)  # 今 done している節はまだ done の印が無いので名指しで渡す（走った事実との突合に要る）
+        errs = check(b, nid)  # 今受け付けている節はまだ done の印が無いので名指しで渡す（走った事実との突合に要る）
         if errs:
             raise AnswerReject("記録の整合が取れない（役に返させ直す。回す側が補ってはいけない）:\n"
                                + "\n".join(f"  - {e}" for e in errs))
+    return output, notes, remaining, effs
+
+
+def accept_gate(b, node):
+    """盤面が今この instance の返答を受けてよいかの門（作業ツリーの突合を除く）——受け付ける instance を返し、受けないなら Reject。
+    止めた run・待っていない instance（pending_instance）と deps の待ち。done・launch と、外の土台の口（gl accept の pending）が同じ 1 本を通る"""
+    inst = pending_instance(b, node)
+    # **出した後に graph が変わり、deps が増えた節は、増えた deps を待つ。** 出した時点で揃っていた deps だけを信じると、
+    # run の途中で足した前段（例: 修正の前の事前審査）を飛ばした返答を受け付ける（実測 2026-09-24: 回す側が手で待たせた）
+    if not b.deps_met(inst["node"]):
+        wait = [d for d in b.nodes[inst["node"]].get("deps", []) if b.node_state(d) == "pending"]
+        raise Reject(f"節 '{node}' の deps {wait} がまだ済んでいない（出した後に graph が変わった）——先にそちらを回せ（loop.py next）")
+    return inst
+
+
+def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=None):
+    """返答の本文を受け付けて盤面と記録に写す（done の中身。loop.py launch も同じここを呼ぶ）。返すのは回す側に見せる 1 行。
+    検査は check_reply の鎖 1 本で、ここが持つのは門（待ちの instance・deps の待ち・作業ツリーの突合）と保存だけ。
+
+    **返答の中身・形の不備は AnswerReject**（役に返せば直る——launch は同じ会話に続きを頼む）、それ以外の不備は Reject。
+    盤面を書くのは最後の b.save() だけ——拒んだ呼び出しは盤面（state.json / record.json）を変えない。"""
+    inst = accept_gate(b, node)
+    nid = inst["node"]
+    n = b.nodes[nid]
+    inst["read_from"] = read_from
+
+    def tree_fence():
+        # 作業ツリーの前後突合（書き換えを塞ぐのは定義でも自制でもなくこの突合）
+        if "tree_before" not in inst:
+            return
+        after = porcelain()
+        if after is None:
+            raise Reject("git status が取れない——作業ツリーの突合ができない場所から done している（リポジトリの中で呼べ）")
+        if after != inst["tree_before"]:
+            diff = sorted(set(after or []) ^ set(inst["tree_before"] or []))
+            # 同じ波に保護対象の instance が複数在ると、誰が汚したかはこの突合では決まらない（基準点は全員ほぼ同時刻の
+            # グローバルな git status で、done を呼んだ順に検出される）。**帰属を断定せず、同じ波の一覧を記録に残す。**
+            peers = sorted(i for i, x in b.rd["instances"].items()
+                           if i != node and "tree_before" in x and x["status"] == "pending")
+            who = f"（同じ波で保護対象の instance が他に {len(peers)} 件走っている: {peers}——変えたのがこの instance とは限らない）" if peers else ""
+            if not accept_tree_change:
+                raise Reject(f"{inst['run_by']} の前後で作業ツリーが変わっている: {diff}{who}。戻してから done し直すか、自分の変更なら --accept-tree-change <理由>")
+            b.state.setdefault("git_mismatches", []).append({"instance": node, "diff": diff, "accepted": accept_tree_change,
+                                                            "round": b.round, "concurrent_guarded": peers})
+
+    item = load_item(inst, b.dir)
+    output, notes, remaining, _ = check_reply(b, nid, text, item, inst.get("pointers"), fence=tree_fence)
+    cover = n.get("fan_out", {}).get("cover")
     f = b.dir / "out" / f"r{b.round}" / (safe_name(node) + ".json")
     write_json(f, output)
     if n.get("save_text_as"):

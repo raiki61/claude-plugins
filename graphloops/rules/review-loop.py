@@ -225,7 +225,6 @@ RECORD_NODE = "p4.record"
 # 回す側が再異議を書く出口（p3.rejudge_reply・p3.rejudge_reply2）が無かった頃は、往復が 1 回にしかならず第三の目が立たなかった
 REJUDGE_PASSES = {1: ("p3.fix", "p2.rejudge"), 2: ("p3.rejudge_reply", "p2.rejudge2"), 3: ("p3.rejudge_reply2", "p2.rejudge3")}
 REJUDGE_THIRD = "p2.rejudge_third"
-REJUDGE_NODES = (*(j for _, j in REJUDGE_PASSES.values()), REJUDGE_THIRD)
 SETTLED = ("採る", "退ける")   # 擦り合わせが決着した答え（一部採る は決着していない）
 CARRIED_REVIEW = "（round {round} と同じ。持ち越せない値なので今も諮っている記録として書く）"
 _CARRIED_REVIEW_TAIL = re.compile(re.escape(CARRIED_REVIEW).replace(re.escape("{round}"), r"\d+") + "$")
@@ -1580,8 +1579,11 @@ CONDS = {
 
 
 # ---------------------------------------------------------------- 記録の形に固有の書き込み
-def material_from_findings(b, nid, src, w):
-    """役の返答（findings と seen）を素材 1 つに写す。
+# 読み口を受ける新しい形の op は、書く値を返すだけ（記録を直に書かない）。書き先は op が writes_to（graph の writes の to を {to} に
+# 埋める記録の path の型）で名乗り、engine の apply_writes がそこに置く——書き先の正本は graph の writes の宣言のまま
+@cond_reads()
+def material_from_findings(v, nid, src, w):
+    """役の返答（findings と seen）を素材 1 つにする。
 
     以前は割った塊ごとの返答を畳む形だった（merge_material_chunks）。扇を落としたので畳む相手が 1 つに
     なり、「何片に割ったか」を素材に書く欄（split）も意味を失った。
@@ -1591,11 +1593,12 @@ def material_from_findings(b, nid, src, w):
     if findings:
         m["count"] = len(findings)
         m["detail"] = " / ".join(f"{f.get('where', '')}: {f.get('text', '')}" for f in findings)
-    b.record["materials"][w["to"]] = m
+    return m
 
 
-def premise_question(b, nid, src, w):
-    """R2 の premise-invalid を、立った周に judge が検算した結果を台帳に載せる。"""
+@cond_reads("record.questions", "hist.prev_questions")
+def premise_question(v, nid, src, w):
+    """R2 の premise-invalid を、立った周に judge が検算した結果を台帳に載せた、台帳の全体を返す。"""
     q = {"key": src["key"], "kind": "premise", "origin": "R2", "status": src["verdict"], "reason": src["reason"]}
     if src["verdict"] == "resolved":
         # 検証器は「R2 が premise-invalid の周」に未決（held / escalate）の premise の行を要求する——resolved で
@@ -1609,18 +1612,19 @@ def premise_question(b, nid, src, w):
     # 消すのは同じ key の行と、この周に書いた R2 の前提の行だけ。前の周から台帳に残っている行（判定者が再審して引き継いだ物）を消すと、
     # この節は前の周の台帳を読まない別の目なので key が揃う保証が無く、検証器の『前の周の問いが今の周の台帳に無い』
     # （dropped_questions）に周の記録の段で初めて当たる——判定の受け付けで同じ規則を当てても、後の書き手が消せば届かない
-    prev = _hist(b, "prev_questions", [])
-    kept = {x.get("key") for x in prev if x.get("status") in validator_module(b).TRACKED} if prev else set()
-    b.record["questions"] = [x for x in b.record["questions"]
-                             if not (x.get("kind") == "premise" and x.get("origin") == "R2"
-                                     and (x.get("key") not in kept or x.get("key") == q["key"]))]
-    b.record["questions"].append(q)
+    prev = v("hist.prev_questions", None) or []
+    kept = {x.get("key") for x in prev if x.get("status") in v.validator.TRACKED} if prev else set()
+    return [x for x in v("record.questions", []) if not (x.get("kind") == "premise" and x.get("origin") == "R2"
+                                                       and (x.get("key") not in kept or x.get("key") == q["key"]))] + [q]
 
 
-WRITE_OPS = {"material_from_findings": material_from_findings, "premise_question": premise_question}# op ごとに、to を素材の名前として読むか（writes_material）を名乗る。graphcheck は WRITE_OPS の全 op にこの名乗りを求め、
+WRITE_OPS = {"material_from_findings": material_from_findings, "premise_question": premise_question}
+# op ごとに、to を素材の名前として読むか（writes_material）を名乗る。graphcheck は WRITE_OPS の全 op にこの名乗りを求め、
 # 真の op の書き先を節の materials の宣言と照合する——名前の表を別に持つと、op を足した周に表への追記を忘れても黙って通る
 material_from_findings.writes_material = True
 premise_question.writes_material = False
+material_from_findings.writes_to = "materials.{to}"
+premise_question.writes_to = "questions"
 
 
 # ---------------------------------------------------------------- 機械の節

@@ -7,8 +7,8 @@ import types
 import pytest
 
 from conftest import PLUGIN, REPO
-from engine.board import CondView
-from engine.rules import load_rules, validator_module
+from engine.board import Board
+from engine.rules import load_rules
 from engine.schema import load_graph
 from engine.util import Reject
 
@@ -33,7 +33,8 @@ def board(tmp_path, *, outputs=None, latest=None, record=None, loop_state=None, 
     # 読み口（engine の Board.view と同じ入れ物）。新しい形の規則の関数と、旧い形の関数が読み口で呼ぶ補助が読む
     ctx = {"record": rec, "out": latest, "cur": outputs, "prev": {}, "round": rnd, "rd": {}, "loop": b.loop_state,
            "inputs": b.state["inputs"], "hist": dict(hist or {})}
-    b.view = lambda name, reads: CondView(name, reads, ctx, lambda: validator_module(b), None, copy=True)
+    b.ctx = lambda: ctx
+    b.view = types.MethodType(Board.view, b)   # engine の読み口の組み立てそのもの
     return b
 
 

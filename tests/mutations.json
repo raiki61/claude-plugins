@@ -3076,7 +3076,7 @@
    "title": "出した後に増えた deps が済む前の done は拒む",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "    if not b.deps_met(nid):",
+   "old": "    if not b.deps_met(inst[\"node\"]):",
    "new": "    if False:",
    "expect": "engine: 増えた deps が済む前の done は拒む",
    "tests": {

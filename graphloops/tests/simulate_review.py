@@ -1126,15 +1126,22 @@ class _Lazy(dict):
 
 
 def view_of(rules, b, name, reads):
-    """盤面の偽物から、engine の Board.view と同じ入れ物（CondView。宣言した欄だけ・読んだ値は写し）を組む"""
-    from engine.board import CondView
+    """盤面の偽物に頭の値（ctx）を持たせ、engine の Board.view そのもので読み口を組む（組み立ての写しを持たない）"""
+    from engine.board import Board
+    b = types.SimpleNamespace() if b is None else b   # 盤面を読まない関数には盤面なしで渡す台本が在る
+    b.ctx = lambda: _fake_ctx(rules, b)
+    if not hasattr(b, "state"):
+        b.state = {}
+    return Board.view(b, name, reads)
+
+
+def _fake_ctx(rules, b):
     rnd, hist = getattr(b, "round", 1), getattr(b, "hist", None)
-    ctx = {"round": rnd, "record": getattr(b, "record", None) or {}, "loop": getattr(b, "loop_state", None) or {},
+    return {"round": rnd, "record": getattr(b, "record", None) or {}, "loop": getattr(b, "loop_state", None) or {},
            "inputs": (getattr(b, "state", None) or {}).get("inputs") or {}, "prev": {}, "rd": getattr(b, "rd", None) or {},
            "cur": _Lazy(lambda k: b.output_of_round(k, rnd) if hasattr(b, "output_of_round") else None),
            "out": _Lazy(lambda k: b.latest_output(k) if hasattr(b, "latest_output") else None),
            "hist": _Lazy(lambda k: None if hist is None or (x := hist(k)) is rules.HIST_ABSENT else x)}
-    return CondView(name, reads, ctx, lambda: rules.validator_module(b), None, copy=True)
 
 
 def with_view(rules, b):
@@ -4182,8 +4189,9 @@ def test_surviving_branches():
     b = with_hist(rules, types.SimpleNamespace(round=2, loop_state={},
                               record={"questions": [dict(q) for q in keep]
                                       + [{"key": "古い前提", "kind": "premise", "origin": "R2", "status": "held", "reason": "z"}]}))
-    rules.premise_question(b, "stop.premise_check",
-                           {"key": "新しい前提", "verdict": "resolved", "reason": "検算した", "resolution": "仮定は偽", "facts_to_add": []}, None)
+    # 新しい形の op は書く値（台帳の全体）を返し、engine が op の writes_to（questions）に置く
+    b.record["questions"] = rules.premise_question(view_of(rules, b, "premise_question", rules.premise_question.reads), "stop.premise_check",
+                           {"key": "新しい前提", "verdict": "resolved", "reason": "検算した", "resolution": "仮定は偽", "facts_to_add": []}, {})
     got = {q["key"] for q in b.record["questions"]}
     check("古い前提" not in got, f"kind=premise かつ origin=R2 の古い行は外れる（{sorted(got)}）")
     check({q["key"] for q in keep} <= got, f"他の問いは残る（{sorted(got)}）")
@@ -4193,7 +4201,8 @@ def test_surviving_branches():
     b = with_hist(rules, types.SimpleNamespace(round=2, state={"validator": str(VALIDATOR)},
                               loop_state={"prev_questions": [held("引き継いだ前提"), held("差し替える前提")]},
                               record={"questions": [held("引き継いだ前提"), held("差し替える前提"), held("この周の古い前提")]}))
-    rules.premise_question(b, "stop.premise_check", {"key": "差し替える前提", "verdict": "escalate", "reason": "検算した"}, None)
+    b.record["questions"] = rules.premise_question(view_of(rules, b, "premise_question", rules.premise_question.reads), "stop.premise_check",
+                                                   {"key": "差し替える前提", "verdict": "escalate", "reason": "検算した"}, {})
     got = [(q["key"], q["status"]) for q in b.record["questions"]]
     check(sorted(got) == sorted([("引き継いだ前提", "held"), ("差し替える前提", "escalate")]),
           f"前の周から残る前提の行は残り、同じ key は差し替わり、この周の古い行は外れる（{got}）")

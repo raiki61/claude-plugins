@@ -34,9 +34,10 @@ sys.path.insert(0, str(PLUGIN))
 from engine import board as board_mod  # noqa: E402
 from engine.schema import load_graph  # noqa: E402
 from engine.advance import load_item  # noqa: E402
-from engine.rules import load_rules  # noqa: E402
+from engine.rules import load_rules, takes_view  # noqa: E402
 from engine import util  # noqa: E402
-from engine.util import read_json, safe_name  # noqa: E402
+from engine.record import writes_to  # noqa: E402
+from engine.util import get_path, has_path, pick, read_json, safe_name  # noqa: E402
 
 WRITER_OF_RECORD = {"units": ("p2.diagnose",), "questions": ("p2.diagnose",), "scalars": ("p4.scalars",),
                     "reviews": ("r1.minimality", "r2.design", "r2.compare", "r3.coherence", "r4.hidden_scope")}
@@ -227,8 +228,10 @@ def _old_rules(path, graph_path):
     return load_rules(str(graph_path), g)
 
 
-def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None):
-    """盤面が受け付けた返答に、新しい形の受け付けの関数を当て直す ——（当てた数, 食い違い[], 新旧とも拒む[]）。食い違いは、旧い関数と
+def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None, by_fn=None):
+    """盤面が受け付けた返答に、新しい形の受け付けの関数（と機械の節・記録を書く op）を当て直す ——（当てた数, 食い違い[], 新旧とも拒む[]）。
+    by_fn（dict）を渡すと関数ごとの当てた数を足す——稀な枝だけで働く関数は盤面に 1 回も当たらないことがあり、全体の『食い違い 0』は
+    その関数について何も確かめていない（旧い形を消す前に関数ごとの数を見る）。食い違いは、旧い関数と
     受け付けたか注記が違う行（旧い rules を渡さない回は、今の関数が拒む行）と当てられない（例外）の行。新旧とも拒む行は、盤面を作った
     版の graph・rules が今と違う（返答の型や柵がその後に変わった）盤面で起きる——移しの食い違いではないので別に返す"""
     b = ReplayBoard(board_dir, graph_path, repo)
@@ -240,12 +243,12 @@ def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None):
         for inst in (rd.get("instances") or {}).values():
             nid, pc = inst.get("node"), (b.nodes.get(inst.get("node")) or {}).get("post_check")
             fn = checks.get(pc)
-            if inst.get("status") != "done" or not inst.get("output_file") or fn is None or not isinstance(getattr(fn, "reads", None), tuple):
+            if inst.get("status") != "done" or not inst.get("output_file") or fn is None or not takes_view(fn):
                 continue
             row = {"round": n, "node": nid, "post_check": pc}
             def old_says(at, out, item):
                 try:   # 当て直しの前に見え方を組み直す（新しい関数は盤面を書かないが、旧い関数は書く物が在る）
-                    return (True, old.POST_CHECKS[pc](at.at(n, nid), nid, copy.deepcopy(out), item) or None)
+                    return _said(at.at(n, nid).rule(pc, old.POST_CHECKS[pc], nid, copy.deepcopy(out), item))
                 except Exception as e:   # noqa: BLE001 — 旧い関数の拒否（Reject）も受け付けなかった側として比べる
                     return (False, None) if type(e).__name__ in ("Reject", "AnswerReject") else ("例外", type(e).__name__)
             try:
@@ -257,7 +260,7 @@ def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None):
                 continue
             try:
                 _, got = at.rule(pc, fn, nid, copy.deepcopy(out), item)
-                now = (got.get("ok") is True, got.get("note"))
+                now = _said((True, got))
             except Exception as e:   # noqa: BLE001 — 旧い関数も同じ例外で落ちる返答（盤面を作った版の型が今と違う）は新旧とも拒む側
                 if old is not None and old_says(at, out, item) == ("例外", type(e).__name__):
                     both.append({**row, "why": f"新旧とも {type(e).__name__}"})
@@ -266,6 +269,7 @@ def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None):
                 continue
             was = old_says(at, out, item) if old is not None else None
             n_eval += 1
+            _tally(by_fn, f"POST_CHECKS.{pc}")
             if old is not None and was != now:
                 diffs.append({**row, "why": f"旧い関数 {was} と今の関数 {now} が違う（今の拒否: {str(got.get('reason'))[:160]}）"})
             elif old is None and not now[0]:
@@ -280,7 +284,7 @@ def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None):
         for nid, node in b.nodes.items():
             fn = builtins.get(node.get("builtin"))
             f = b.dir / "out" / f"r{n}" / (safe_name(nid) + ".json")
-            if fn is None or not isinstance(getattr(fn, "reads", None), tuple) or nid not in (rd.get("done") or {}) or not f.is_file():
+            if fn is None or not takes_view(fn) or nid not in (rd.get("done") or {}) or not f.is_file():
                 continue
             row = {"round": n, "node": nid, "builtin": node["builtin"]}
             try:
@@ -290,13 +294,64 @@ def replay_accepts(board_dir, graph_path, repo=None, old_rules_path=None):
                 continue
             got = {k: v for k, v in got.items() if k != "effects"}
             n_eval += 1
+            _tally(by_fn, f"BUILTINS.{node['builtin']}")
             if old is not None:
-                was = old.BUILTINS[node["builtin"]](b.at(n, nid), nid)
+                was = b.at(n, nid).rule(node["builtin"], old.BUILTINS[node["builtin"]], nid)[1]
+                was = {k: v for k, v in was.items() if k != "effects"} if isinstance(was, dict) else was
                 if got != was:
                     diffs.append({**row, "why": "旧い関数の出力と今の関数の出力が違う"})
             elif got != read_json(f):
                 diffs.append({**row, "why": "周に記録した出力と今の関数の出力が違う"})
+    # 新しい形へ移した記録を書く op（WRITE_OPS）は、節の受け付けた返答から同じ見え方で書く値を作り、旧い関数が同じ見え方の記録に
+    # 書いた値（op の writes_to の path）と比べる（旧い rules を渡さない回は、当てられるかだけを見る）
+    ops = getattr(b.rules, "WRITE_OPS", {})
+    for rd in b.full["rounds"]:
+        n = rd.get("round")
+        for inst in (rd.get("instances") or {}).values():
+            nid = inst.get("node")
+            if inst.get("status") != "done" or not inst.get("output_file"):
+                continue
+            for w in (b.nodes.get(nid) or {}).get("writes") or []:
+                fn = ops.get(w.get("op"))
+                if fn is None or not takes_view(fn):
+                    continue
+                row = {"round": n, "node": nid, "write_op": w["op"]}
+                try:
+                    at = b.at(n, nid)
+                    out = at.read_out(inst["output_file"], board_relative=True)
+                    frm = w.get("from", "$")
+                    if not has_path(out, frm):
+                        continue
+                    src = out if frm == "$" else get_path(out, frm)
+                    src = pick(src, w["pick"]) if "pick" in w else src
+                    ww = {**w, "_item": load_item(inst, at.dir)}
+                    _, got = at.rule(w["op"], fn, nid, copy.deepcopy(src), ww)
+                except (Exception, SystemExit) as e:   # noqa: BLE001
+                    diffs.append({**row, "why": f"当てられない（{type(e).__name__}: {str(e)[:160]}）"})
+                    continue
+                n_eval += 1
+                _tally(by_fn, f"WRITE_OPS.{w['op']}")
+                if old is not None:
+                    at = b.at(n, nid)
+                    try:   # 旧い形の op は見え方の記録に書き、新しい形の op（移した後の版の rules）は値を返す
+                        new_old, was = at.rule(w["op"], old.WRITE_OPS[w["op"]], nid, copy.deepcopy(src), ww)
+                        was = was if new_old else get_path(at.record, writes_to(fn, w["op"], w))
+                    except (Exception, SystemExit) as e:   # noqa: BLE001
+                        was = ("例外", type(e).__name__)
+                    if was != got:
+                        diffs.append({**row, "why": f"旧い関数が書いた値と今の関数が返した値が違う（旧 {str(was)[:120]} / 今 {str(got)[:120]}）"})
     return n_eval, diffs, both
+
+
+def _said(ran):
+    """受け付けの関数の返り（Board.rule の（新しい形か, 返り））を（受け付けたか, 注記）に揃える——旧い形は注記を返し、拒否は例外"""
+    new, got = ran
+    return (got.get("ok") is True, got.get("note")) if new else (True, got or None)
+
+
+def _tally(by_fn, name):
+    if by_fn is not None:
+        by_fn[name] = by_fn.get(name, 0) + 1
 
 
 def main(argv=None):
@@ -321,11 +376,11 @@ def main(argv=None):
     if not boards:
         print(f"NG 盤面が 1 つも見つからない（{pattern}）——0 件の掃引は何も確かめていない")
         return 1
-    total, accepted, refused_by_both, rows, upcasts = 0, 0, 0, [], {}
+    total, accepted, refused_by_both, rows, upcasts, by_fn = 0, 0, 0, [], {}, {}
     for d in boards:
         try:
             n, diffs, up = replay(d, a.graph, repo)
-            k, adiffs, aboth = replay_accepts(d, a.graph, repo, a.old_rules)
+            k, adiffs, aboth = replay_accepts(d, a.graph, repo, a.old_rules, by_fn)
         except (Exception, SystemExit) as e:   # noqa: BLE001
             rows.append({"board": d, "error": f"{type(e).__name__}: {str(e)[:200]}"})
             continue
@@ -335,7 +390,7 @@ def main(argv=None):
             upcasts[u] = upcasts.get(u, 0) + 1
     summary = {"boards": len(boards), "evaluated": total, "accepts_replayed": accepted, "accepts_refused_by_both": refused_by_both,
                "mismatches": len([r for r in rows if "error" not in r]),
-               "errors": len([r for r in rows if "error" in r]), "upcasts": upcasts}
+               "errors": len([r for r in rows if "error" in r]), "upcasts": upcasts, "replayed_by_fn": dict(sorted(by_fn.items()))}
     print(json.dumps({"summary": summary, "rows": rows} if a.json else summary, ensure_ascii=False, indent=1))
     return 0 if not rows else 2
 

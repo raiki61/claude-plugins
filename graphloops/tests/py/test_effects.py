@@ -11,7 +11,7 @@ import pytest
 
 from conftest import PLUGIN, REVIEW_GRAPH_PATH, REVIEW_VALIDATOR, graphcheck, run_graphcheck
 from engine import commands, effects
-from engine.rules import load_rules
+from engine.rules import load_rules, takes_view
 from engine.util import AnswerReject
 from test_hist import make, rd
 
@@ -107,9 +107,33 @@ def test_effects_from_a_new_form_builtin_are_applied_and_kept_out_of_the_output(
 def test_moved_post_checks_and_builtins_take_the_view():
     """移した受け付け・機械の節は読み口を受け、旧い形のまま残す物は名指しで数える（残りは次の run——移し終えたら表から消す）"""
     rules = load_rules(REVIEW_GRAPH_PATH, GRAPH)
-    legacy = sorted(k for k, fn in rules.POST_CHECKS.items() if not isinstance(getattr(fn, "reads", None), tuple))
+    legacy = sorted(k for k, fn in rules.POST_CHECKS.items() if not takes_view(fn))
     assert legacy == ["fix_covers_open_units", "judge_output", "local_review_covers_lenses", "r2_design"]
     assert isinstance(rules.BUILTINS["delta_owed"].reads, tuple)
+    assert all(takes_view(fn) for fn in rules.WRITE_OPS.values())
+
+
+def test_new_form_write_ops_return_the_value_and_the_engine_puts_it_where_the_op_names(tmp_path):
+    """記録を書く rules の op（新しい形）は値を返すだけで、engine の apply_writes が op の writes_to（graph の writes の to を埋めた
+    path）に置く——記録へ書く口を増やさない"""
+    from engine.record import apply_writes
+    b = make(tmp_path, 1, [rd(1)], record={"materials": {}, "units": [], "questions": [{"key": "他", "kind": "fork"}], "process": {}})
+    apply_writes(b, "p1.hygiene", {"findings": [{"where": "a", "text": "t"}], "seen": "見た"}, None)
+    assert b.record["materials"]["hygiene"] == {"status": "found", "checked": "見た", "count": 1, "detail": "a: t"}
+    apply_writes(b, "stop.premise_check", {"key": "前提", "verdict": "held", "reason": "r"}, None)
+    assert [q["key"] for q in b.record["questions"]] == ["他", "前提"]
+
+
+def test_graphcheck_wants_writes_to_on_new_form_write_ops(tmp_path):
+    shutil.copytree(PLUGIN / "prompts", tmp_path / "prompts")
+    shutil.copytree(PLUGIN / "rules", tmp_path / "rules")
+    (tmp_path / "graphs").mkdir()
+    f = tmp_path / "rules" / "review-loop.py"
+    src = f.read_text(encoding="utf-8")
+    assert src.count('premise_question.writes_to = "questions"\n') == 1
+    f.write_text(src.replace('premise_question.writes_to = "questions"\n', ""), encoding="utf-8")
+    ok, out = run_graphcheck(tmp_path, GRAPH)
+    assert not ok and "'premise_question' は新しい形" in out and "writes_to" in out
 
 
 # ---------------------------------------------------------------- run の状態は effect の口だけで書く（graphcheck）

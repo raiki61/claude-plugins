@@ -7,15 +7,20 @@
 
 使い方:
     gl.py cond    --dir <盤面> --name <条件の名前>                       → {ok, value, why}
-    gl.py accept  --dir <盤面> --node <節> --reply <返答.json> [--item <項目.json>]
-                  → {ok, called, form, reason?, note?, reply?, effects}——done と同じ受け付け（型・番号の名前戻し・節ごとの整合・
-                    記録への写しの整合）を盤面の写しの上で当てる。旧い形の受け付けの関数（盤面を受け取り、中で盤面の隣に書く物が在る）
-                    は呼ばない（called: false）
+    gl.py accept  --dir <盤面> --node <節か instance の id> --reply <返答.json> [--item <項目.json>]
+                  → {ok, called, form, reason?, note?, reply?, effects, remaining?, pending}——done と同じ検査の鎖（engine の
+                    commands.check_reply。型・空の本文・番号の名前戻し・扇の被覆・段・節ごとの整合・effects・記録への写し・記録の整合）を
+                    盤面の写しの上で当てる。done の門は拒否に使わない——pending が、engine の門（commands.accept_gate: 止めた run・
+                    待っていない instance・deps の待ち）を通るかを言う（作業ツリーの突合は done の時にしか決まらないので含まない）。扇の節は instance の id で指すか --item を渡す（節の id だと最後に出した instance の項目で照らす）。
+                    form は節の宣言で決まり（new・legacy・none）、called は節ごとの整合まで届いたか。旧い形の受け付けの関数（盤面を
+                    受け取り、中で盤面の隣に書く物が在る）は呼ばない（called: false・form: legacy）
+    gl.py request --dir <盤面> --file <依頼.json> --reason <出どころ>    → {ok, reason?, note?, request_findings?}
+                    loop.py add と同じ rules の add を盤面の写しの上で当てる（積んだ後の依頼の一覧を返す。盤面には積まない）
     gl.py machine --dir <盤面> --node <機械の節>                         → {ok, called, form, out?, effects?, schema_errors?}
                     新しい形の機械の節だけを呼ぶ（旧い形は作業ツリーや盤面を書くので called: false）
-    gl.py exit    --graph <graph.json> --node <節> [--against <schema.json>] → {ok, schema} / {ok, diffs}
-                    節の出口の型（返答の schema。$ref を展開した形）。--against を渡すと、外の土台の型の写し（Archon の output_format など）
-                    と突き合わせて食い違う path を返す
+    gl.py exit    --graph <graph.json> --node <節> [--against <schema.json>] [--strip-notes] → {ok, schema} / {ok, diffs}
+                    節の出口の型（返答の schema。$ref を展開した形）。--strip-notes で注記の語 note を落とす（外の土台の output_format に
+                    貼る形）。--against を渡すと、外の土台の型の写しと突き合わせて食い違う path を返す
 
 終了コード: 拒否（型に合わない・受け付けない・食い違う）も 0 で JSON を返す。引数・盤面・graph・JSON が読めないときだけ 2。
 """
@@ -29,13 +34,11 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 
-from engine import pointers  # noqa: E402
 from engine.advance import load_item  # noqa: E402
 from engine.board import Board  # noqa: E402
-from engine.commands import parse_output, post_check  # noqa: E402
-from engine.record import apply_writes  # noqa: E402
-from engine.rules import hook, registry  # noqa: E402
-from engine.schema import load_graph, validate_schema  # noqa: E402
+from engine.commands import accept_gate, check_reply  # noqa: E402
+from engine.rules import hook, registry, takes_view  # noqa: E402
+from engine.schema import load_graph, strip_notes, validate_schema  # noqa: E402
 from engine.util import AnswerReject, Reject  # noqa: E402
 
 
@@ -70,15 +73,34 @@ def node_of(b, nid):
     return b.nodes[nid]
 
 
-def instance_of(b, nid):
-    """番号の一覧と項目を持つ instance: 今の周の待ちの物、無ければ最後に出した物（どの周でも）"""
-    rows = [i for rd in b.state["rounds"] for i in rd["instances"].values() if i.get("node") == nid]
+def instance_of(b, name):
+    """--node の宛先 ——（節の id, instance か None）。instance の id（done と同じ宛先）ならその instance。節の id なら今の周の
+    待ちの物、無ければ最後に出した物（どの周でも）——扇の節は同じ節に instance が並ぶので、項目を照らすなら instance の id で指す"""
+    rows = [i for rd in b.state["rounds"] for i in rd["instances"].values()]
+    if name not in b.nodes:
+        mine = [i for i in rows if i.get("id") == name]
+        if not mine:
+            raise Unreadable(f"'{name}' が盤面の graph の節にも instance にも無い")
+        return mine[-1]["node"], mine[-1]
+    rows = [i for i in rows if i.get("node") == name]
     pending = [i for i in rows if i.get("status") == "pending"]
-    return (pending or rows or [None])[-1]
+    return name, (pending or rows or [None])[-1]
 
 
-def is_new(fn):
-    return isinstance(getattr(fn, "reads", None), tuple)
+def would_take(b, inst):
+    """done がこの instance の返答を今受けうるか——engine の門（accept_gate: 止めた run・待っていない instance・deps の待ち）をそのまま
+    当てる。作業ツリーの突合は done の時にしか決まらないので含まない"""
+    if not inst:
+        return False
+    try:
+        accept_gate(b, inst["id"])
+    except Reject:
+        return False
+    return True
+
+
+def form_of(fn):
+    return "none" if fn is None else "new" if takes_view(fn) else "legacy"
 
 
 def cmd_cond(a):
@@ -91,36 +113,42 @@ def cmd_cond(a):
 
 def cmd_accept(a):
     b = board(a.dir)
-    n = node_of(b, a.node)
+    b.held_trace = []   # 段の昇格（thicken）が trace.jsonl に書く行を控えたまま捨てる——盤面の置き場に書かない
+    nid, inst = instance_of(b, a.node)
+    n = b.nodes[nid]
     try:
         text = pathlib.Path(a.reply).read_text(encoding="utf-8")
     except OSError as e:
         raise Unreadable(f"返答 {a.reply} が読めない（{e}）") from e
     fn = registry(b.rules, "POST_CHECKS").get(n.get("post_check")) if n.get("post_check") else None
-    if fn is not None and not is_new(fn):
-        return out({"ok": False, "called": False, "form": "legacy", "effects": [],
-                    "reason": f"節 {a.node} の受け付け '{n['post_check']}' は旧い形（盤面を受け取る）で、gl からは呼ばない——"
+    form = form_of(fn)
+    pending = would_take(b, inst)
+    if form == "legacy":
+        return out({"ok": False, "called": False, "form": form, "effects": [], "pending": pending,
+                    "reason": f"節 {nid} の受け付け '{n['post_check']}' は旧い形（盤面を受け取る）で、gl からは呼ばない——"
                               "新しい形（読み口を受けて JSON と effects を返す）へ移した後に呼べる"})
-    inst = instance_of(b, a.node)
     item = read_json_file(a.item, "項目") if a.item else (load_item(inst, b.dir) if inst else None)
+    seen = {}
     try:
-        output = parse_output(text) if n.get("schema") else {"text": text}
-        errs = validate_schema(output, n["schema"]) if n.get("schema") else []
-        if errs:
-            raise AnswerReject("返答が型に合わない: " + "; ".join(errs[:10]))
-        errs = pointers.resolve(output, n.get("pointers"), (inst or {}).get("pointers"))
-        if errs:
-            raise AnswerReject(f"{a.node}: " + "; ".join(errs))
-        output, notes, effs = post_check(b, a.node, output, item)
-        apply_writes(b, a.node, output, item)   # 盤面の写し（このプロセスの中だけ）に当てる——保存しない
-        check = hook(b.rules, "check_record")
-        errs = check(b, a.node) if check else []
-        if errs:
-            raise AnswerReject("記録の整合が取れない: " + "; ".join(errs))
+        output, notes, remaining, effs = check_reply(b, nid, text, item, (inst or {}).get("pointers"), seen=seen)
     except (AnswerReject, Reject) as e:
-        return out({"ok": False, "called": fn is not None, "form": "new" if fn else "none", "reason": str(e), "effects": []})
-    return out({"ok": True, "called": fn is not None, "form": "new" if fn else "none", "reply": output, "effects": effs,
-                **({"note": " / ".join(notes)} if notes else {})})
+        return out({"ok": False, "called": bool(fn and seen), "form": form, "reason": str(e), "effects": [], "pending": pending})
+    return out({"ok": True, "called": fn is not None, "form": form, "reply": output, "effects": effs, "pending": pending,
+                **({"remaining": remaining} if remaining else {}), **({"note": " / ".join(notes)} if notes else {})})
+
+
+def cmd_request(a):
+    b = board(a.dir)
+    fn = hook(b.rules, "add")
+    if not fn:
+        raise Unreadable("この盤面のループの rules は add（依頼の受け付け）を持たない")
+    items = read_json_file(a.file, "依頼")
+    try:
+        got = fn(b, items, a.reason)   # 盤面の写し（このプロセスの中だけ）に積む——保存しない
+    except Reject as e:
+        return out({"ok": False, "reason": str(e)})
+    msg = got if isinstance(got, str) else got["msg"]
+    return out({"ok": True, "note": msg, "request_findings": (b.record.get("process") or {}).get("request_findings")})
 
 
 def cmd_machine(a):
@@ -129,7 +157,7 @@ def cmd_machine(a):
     fn = registry(b.rules, "BUILTINS").get(n.get("builtin")) if n.get("builtin") else None
     if fn is None:
         raise Unreadable(f"節 '{a.node}' は機械の節（builtin）でない")
-    if not is_new(fn):
+    if form_of(fn) == "legacy":
         return out({"ok": False, "called": False, "form": "legacy",
                     "reason": f"機械の節 '{n['builtin']}' は旧い形（盤面を受け取り、作業ツリーや盤面を書く物が在る）で、gl からは呼ばない"})
     try:
@@ -166,6 +194,8 @@ def cmd_exit(a):
     sch = n.get("schema")
     if not isinstance(sch, dict):
         return out({"ok": False, "reason": f"節 {a.node} は出口の型（schema）を持たない"})
+    if a.strip_notes:
+        sch = strip_notes(sch)
     if not a.against:
         return out({"ok": True, "schema": sch})
     rows = diffs(sch, read_json_file(a.against, "外の型"))
@@ -183,6 +213,10 @@ def main(argv=None):
     s.add_argument("--node", required=True)
     s.add_argument("--reply", required=True)
     s.add_argument("--item")
+    s = sub.add_parser("request")
+    s.add_argument("--dir", required=True)
+    s.add_argument("--file", required=True)
+    s.add_argument("--reason", required=True)
     s = sub.add_parser("machine")
     s.add_argument("--dir", required=True)
     s.add_argument("--node", required=True)
@@ -190,9 +224,10 @@ def main(argv=None):
     s.add_argument("--graph", required=True)
     s.add_argument("--node", required=True)
     s.add_argument("--against")
+    s.add_argument("--strip-notes", action="store_true")
     a = p.parse_args(argv)
     try:
-        return {"cond": cmd_cond, "accept": cmd_accept, "machine": cmd_machine, "exit": cmd_exit}[a.cmd](a)
+        return {"cond": cmd_cond, "accept": cmd_accept, "request": cmd_request, "machine": cmd_machine, "exit": cmd_exit}[a.cmd](a)
     except Unreadable as e:
         print(json.dumps({"ok": False, "unreadable": str(e)}, ensure_ascii=False))
         return 2

@@ -91,7 +91,7 @@ DELEGATE_MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")   # この gra
 # （https://code.claude.com/docs/en/sub-agents）。完全な model ID も Agent ツールは受けるが、版が変わると古くなるので graph には書かない
 from engine.commands import CLI_FLAGS, INPUT_KINDS  # noqa: E402 — 入力の語彙は engine が正本（写さない）
 from engine.render import TOKEN, Renderer, node_prompt, strip_prefix  # noqa: E402
-from engine.rules import HOOKS, load_rules as engine_load_rules, registry  # noqa: E402
+from engine.rules import HOOKS, load_rules as engine_load_rules, registry, takes_view  # noqa: E402
 from engine.validator import ENGINE_ACCEPT_KEYS, agent_def, agent_tools, find_plugin_path  # noqa: E402
 from engine.util import read_json  # noqa: E402
 
@@ -918,6 +918,9 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     rops = registry(rules, "WRITE_OPS")
     errs += [f"rules の WRITE_OPS の op '{k}' が writes_material（to を素材の名前として読むか）を真偽で名乗らない"
              for k, fn in rops.items() if not isinstance(getattr(fn, "writes_material", None), bool)]
+    # 読み口を受ける新しい形の op は値を返すだけで、engine が op の writes_to（記録の path の型）に置く——名乗りの無い op は実行時の die まで待たない
+    errs += [f"rules の WRITE_OPS の op '{k}' は新しい形（読み口を受ける）なのに writes_to（値を置く記録の path の型）を文字列で名乗らない"
+             for k, fn in rops.items() if takes_view(fn) and not (isinstance(getattr(fn, "writes_to", None), str) and fn.writes_to)]
     mat_ops = {k for k, fn in rops.items() if getattr(fn, "writes_material", False) is True}
     for k, v in nodes.items():
         ws = [w for w in v.get("writes") or [] if isinstance(w, dict) and isinstance(w.get("to"), str)]
@@ -948,8 +951,12 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         # 待たない。祖先の検査は当てない（同じ関数が回の違う節に付き、どの回の欄も宣言する——DELTA_PASSES の 2 回ぶん）
         for key, table in (("post_check", post_checks_fns), ("builtin", builtin_fns)):
             fn = table.get(v.get(key)) if isinstance(v.get(key), str) else None
-            if fn is not None and isinstance(getattr(fn, "reads", None), tuple):
+            if fn is not None and takes_view(fn):
                 check_declared_reads(fn, v[key], f"節 {k}.{key}", g, rules, errs)
+        for i, w in enumerate(v.get("writes") or []):   # 記録を書く rules の op も、新しい形なら同じ照らしを通す
+            fn = rops.get(w.get("op")) if isinstance(w, dict) and isinstance(w.get("op"), str) else None
+            if fn is not None and takes_view(fn):
+                check_declared_reads(fn, w["op"], f"節 {k}.writes[{i}]", g, rules, errs)
         # 節の reads と outputs が名指す loop.<…> も、条件と同じ宣言（LOOP_KEYS と state_schema の木）で照らす——穴（{{?loop.X}}）の
         # 綴り違いは ABSENT で黙って埋まり、outputs の loop.<鍵> は宣言の 2 本目として別にずれうる。outputs は書き先の名乗りなので、
         # writeOnly の鍵でも書いてよい

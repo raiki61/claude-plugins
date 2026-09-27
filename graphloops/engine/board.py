@@ -4,7 +4,7 @@ import json
 import os
 import pathlib
 
-from .rules import load_rules, registry, validator_module
+from .rules import load_rules, registry, takes_view, validator_module
 from . import util
 from .util import BoardConflict, Reject, die, get_path, read_json, write_json, now
 from .schema import load_graph, validate_schema
@@ -91,10 +91,9 @@ class CondView:
 def run_cond(name, fn, ctx, validator=None, state=None, overlay=None):
     """条件の関数 fn を、宣言した欄だけが見える入れ物で呼ぶ唯一の口 ——(真偽, 理由の文)。
     Board.cond と台本の真偽表が同じ 1 本を通る（宣言の有無・返りの形の検査を台本の側で写さない）"""
-    reads = getattr(fn, "reads", None)
-    if not isinstance(reads, tuple):
+    if not takes_view(fn):
         die(f"cond '{name}' が読む欄を宣言していない（rules で cond_reads(...) を付けよ）")
-    r = fn(CondView(name, reads, ctx, validator, state, overlay))
+    r = fn(CondView(name, fn.reads, ctx, validator, state, overlay))
     if not (isinstance(r, tuple) and len(r) == 2 and isinstance(r[0], bool) and isinstance(r[1], str) and r[1].strip()):
         die(f"cond '{name}' の返りが（真偽, 理由の文）でない: {r!r}")
     return r
@@ -365,16 +364,16 @@ class Board:
 
     def view(self, name, reads):
         """規則の関数（新しい形——読む欄を cond_reads で宣言した受け付け・機械の節）に渡す読み口。条件と同じ入れ物（CondView）で、
-        宣言した欄だけが見え、読んだ値は写し——関数が中身を書き換えても盤面に届かない。書き込みは返りの effects で頼む"""
+        宣言した欄だけが見え、読んだ値は写し——関数が中身を書き換えても盤面に届かない。書き込みは返りの effects で頼む。
+        テストの偽の盤面も ctx と state を持たせてこれを束ねて呼ぶ（読み口の組み立ての写しを持たない）——ctx に無い頭は見せない"""
         full = self.ctx()
-        return CondView(name, reads, {h: full[h] for h in COND_HEADS}, lambda: validator_module(self), self.state, copy=True)
+        return CondView(name, reads, {h: full[h] for h in COND_HEADS if h in full}, lambda: validator_module(self), self.state, copy=True)
 
     def rule(self, name, fn, *args):
         """規則の関数 fn を呼ぶ唯一の口 ——(新しい形か, 返り)。読む欄の宣言（fn.reads）を持つ関数は読み口で、持たない旧い形の関数は
         盤面そのもので呼ぶ（包みが新旧を読み分ける。移し終えるまで旧い形も通す）"""
-        reads = getattr(fn, "reads", None)
-        if isinstance(reads, tuple):
-            return True, fn(self.view(name, reads), *args)
+        if takes_view(fn):
+            return True, fn(self.view(name, fn.reads), *args)
         return False, fn(self, *args)
 
     # -- プロンプトと条件の文脈
