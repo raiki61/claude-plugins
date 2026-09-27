@@ -8,6 +8,7 @@ engine が差し込む道具は engine/rules.py の INJECT が正本（ここに
 import importlib.util
 import json
 import pathlib
+import posixpath
 import re
 import shutil
 import tempfile
@@ -22,7 +23,9 @@ _pspec.loader.exec_module(policy_input)
 # 当たらない。2026-09-12 にこの環境（macOS・claude 2.1.269）で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも
 # 欠けずに 1 回で届いた（測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、契約ではない）。
 # 入り切らなければ API がエラーを返して**うるさく落ちる**ので、割りは安全柵でもなかった（静かに切る
-# 経路が事故だったのであって、落ちる経路は守るべき性質を既に満たしている）。
+# 経路が事故だったのであって、落ちる経路は守るべき性質を既に満たしている）。ただし落ちた節の審査は抜ける（実測 2026-09-27:
+# 生成データ約 2 MB を足した run で r2.compare が起きて Prompt is too long で落ちた）——割らずに、予算を超えた周だけ節を要約に替え、
+# 要約した節の本文は全文の写しを Read で読ませる（_paste_copy と節の read_file）。
 # 落としたのは 23 片に割れていた実績があるから: 750 KB の差分が hunk 境界で 23 片（平均 33 KB。上限 40,000 バイトの
 # 割り算ではなく実測）に割れ、**読み手の人数が差分の大きさで決まっていた**（誰も「衛生の検査には 23 人要る」と決めていない）。同じものを N 人に
 # 読ませて突き合わせたいなら、それは上限の副作用でなく graph の宣言として書くこと。
@@ -461,6 +464,12 @@ def hist_prev_declared_faces(h):
     return _declared_faces(h.output, h.round - 1) + ((h.output("p1.worktree_before", h.round) or {}).get("lane_rows") or [])
 
 
+def _with_paste(snap):
+    """本文を貼る写し（paste_file）を持たない snapshot（貼る写しを作る前の版の rules が書いた出力）は、全文の写しを貼る——予算を
+    測る前と同じ貼り方"""
+    return snap if "paste_file" in snap else {**snap, "paste_file": snap["diff_file"]}
+
+
 def _upcast_snapshot(out, rnd):
     """旧い版の rules が書いた p1.worktree_before の出力（差分の一式が出力の上の段にあり、snapshot の欄が無い）から snapshot を組む。
     組めなければ None。読み替えた印 from_old_output を付ける（人の決定 2026-09-27: 旧い盤面は警告して通す）"""
@@ -470,7 +479,7 @@ def _upcast_snapshot(out, rnd):
     f = pathlib.Path(out["diff_file"])
     return {"rev": tb.get("rev") or tb.get("tree") or "", "diff_file": out["diff_file"], "changed_files": out.get("changed_files") or [],
             "changed_files_file": str(f.with_name(f.name.replace("diff-", "changed-", 1).replace(".patch", ".txt"))),
-            "stat": out.get("stat") or "", "from_old_output": True}
+            "stat": out.get("stat") or "", "paste_file": out["diff_file"], "from_old_output": True}
 
 
 @hist_reads("out.p1.worktree_before", "out.p1.worktree_after")
@@ -480,7 +489,7 @@ def hist_snapshot(h):
     for node in ("p1.worktree_after", "p1.worktree_before"):
         out = h.output(node, h.round) or {}
         if out.get("snapshot"):
-            return out["snapshot"]
+            return _with_paste(out["snapshot"])
     old = _upcast_snapshot(h.output("p1.worktree_before", h.round) or {}, h.round)
     return HIST_ABSENT if old is None else old
 
@@ -493,7 +502,7 @@ def hist_after_fix(h):
     if not out:
         return HIST_ABSENT
     if out.get("after_fix"):
-        return out["after_fix"]
+        return _with_paste(out["after_fix"])
     f = (out.get("retaken") or {}).get("file")
     if not f:
         return HIST_ABSENT
@@ -501,7 +510,7 @@ def hist_after_fix(h):
     lst = pathlib.Path(f).with_name(pathlib.Path(f).name.replace("diff-", "changed-", 1).replace(".patch", ".txt"))
     files = [x for x in (lst.read_text(encoding="utf-8").splitlines() if lst.is_file() else []) if x.strip()]
     return {"rev": (snap or {}).get("rev", "") if snap is not HIST_ABSENT else "", "diff_file": f, "changed_files": files,
-            "changed_files_file": str(lst), "stat": "", "from_old_output": True}
+            "changed_files_file": str(lst), "stat": "", "paste_file": f, "from_old_output": True}
 
 
 @hist_reads("hist.snapshot", "record.process.request_findings")
@@ -867,9 +876,12 @@ def fix_delta_nonempty(v):
 
 
 def _claimed_closed_from(v, n):
-    """_claimed_closed の条件の側（宣言した欄だけで読む）。式は _closed_keys の 1 本"""
-    src = "cur.p3.fix" if n == 1 else f"cur.{DELTA_PASSES[n - 1].fix}"
-    return _closed_keys(v(src, None), n)
+    """_claimed_closed の条件の側（宣言した欄だけで読む）。切り出しの出力が無い・delta に claimed が無い（旧い版の rules が書いた出力）なら、
+    塞いだと言った返答から引く（検算を落とす側へ倒さない）"""
+    delta = (v("cur." + DELTA_PASSES[n].cut, None) or {}).get("delta")
+    if "claimed" not in (delta or {}):
+        return {r["key"] for r in _closed_rows(v("cur.p3.fix" if n == 1 else f"cur.{DELTA_PASSES[n - 1].fix}", None), n)}
+    return _claimed_key_set(delta)
 
 
 @cond_reads(*fix_delta_nonempty.reads, "cur.p3.fix")
@@ -971,7 +983,7 @@ def gates_cut(b, nid):
         snap = _snapshot(f"graphloops gates r{b.round}")
     except Reject as e:
         return {"ok": False, "problems": [str(e)]}
-    names = git("diff", "--name-only", "-z", frm, snap)
+    names = git("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", frm, snap)
     if names is None:
         return {"ok": False, "problems": [f"git diff {frm[:12]} {snap[:12]} が取れない——線が撃つ範囲を測れない"]}
     files = [x for x in names.split("\0") if x]
@@ -1027,6 +1039,16 @@ def notices(b):
     if md and not md.get("declared") and _mutation_ran(b):
         out.append(f"宣言 {DECL_NAME} に mutation の段が無い——変異の検算の役は対象リポジトリの側を探して撃った。宣言に足せば"
                    "毎回探さずに済む（役が撃った呼び方は、ゲートの検算の素材と記録の process.lanes に在る）")
+    for r in b.loop_state.get("diff_paste_log") or []:
+        got = "、".join(x["path"] for x in r["summarized"][:5]) + ("…" if len(r["summarized"]) > 5 else "")
+        out.append(f"r{r['round']} {r['diff']}: 差分 {r['bytes']} バイトが本文を貼る役の予算 {r['limit']} バイトを超えた——"
+                   + (f"{len(r['summarized'])} 本の節（{got}）を要約に替えて貼った（段: "
+                      + "・".join(f"{PASTE_TIER_WORDS[t]} {n}" for t in PASTE_TIERS
+                                  if (n := sum(1 for x in r["summarized"] if x.get("tier", "base_generated") == t)))
+                      + "）。この写しを貼られた道具ゼロの役——周の頭の写しは p1.hygiene、修正後の写しは r2.compare——は、要約した節の本文を"
+                      "全文の写しから Read で読む（読まなかった節は役の seen・reason に在る）。"
+                      if r["summarized"] else "")
+                   + (r.get("why") or ""))
     if b.loop_state.get("outcome") != "converged":   # 収束した run の最後の線は最後の関門が BASE から撃ち直している
         out += [f"変異の検算の線 r{r['round']}@{r['rev'][:12]} の結果がまだ来ていない（running）——待つか、止めて線の台帳に書くか"
                 for r in lane_summary(b) if r["state"] == "running" and r.get("arms") is None and not r.get("errors")]
@@ -1568,7 +1590,7 @@ def r2_premise_invalid(v):
 # 台本（simulate_review）が rules の書き込みの字面と両向きを確かめる: 書く鍵が全部ここに在り、ここの鍵が全部 rules のどこかで
 # 書かれている——宣言だけ残った古い鍵を default 付きで読む形を残さない
 LOOP_KEYS = frozenset({
-    "escalated", "final_gate_empty_ok", "fix_units", "in_round_answers", "lanes", "lanes_bad_delivered", "mutation_decl",
+    "diff_paste_log", "escalated", "final_gate_empty_ok", "fix_units", "in_round_answers", "lanes", "lanes_bad_delivered", "mutation_decl",
     "outcome", "policy_change", "request_fixed_at", "stop_reason",
 })
 # ブロックの出口の値（振り分け A）を節の出力へ移す前の rules が loop に書いていた鍵。旧い盤面を開いたとき、今の周の間は読まずに置き
@@ -1662,7 +1684,7 @@ def _files_changed_since(b, prev_round):
         now = _worktree_tree()
     except Reject:
         return None
-    names = git("diff", "--name-only", "-z", prev, now)
+    names = git("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", prev, now)
     return None if names is None else sorted(x for x in names.split("\0") if x)
 
 
@@ -1709,6 +1731,136 @@ def numstat_totals(text):
     return names, ins, dels, len(rows)
 
 
+# 指示書のうち差分の外の本文（指示書・目的・独立設計・観点の節・schema の断り）に残す分のバイト。
+# 実測 2026-09-27: golden の run の r2.compare で 12,629 バイト、p1.hygiene の指示書・観点の節・schema で約 5,800 バイト
+PASTE_ROOM = 64_000
+# rules の git diff は全部これを付ける（例外を作らない）。利用者の diff.noprefix・diff.mnemonicPrefix・diff.srcPrefix/dstPrefix で見出しが、
+# color.ui=always・diff.external で本文が、diff.relative で範囲と綴りが変わる（_added_md_links が前置きの設定で 1 件も拾わずに通った実測）
+DIFF_FIXED_ARGS = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative")
+
+
+def _attr_env(base):
+    """本文を撮る git diff の描画（-diff・binary・diff ドライバ）の属性を BASE の版から引かせる環境（GIT_ATTR_SOURCE。git 2.42 から。
+    古い git は読まずに作業ツリーの属性で描く）。審査される差分が自分の .gitattributes で自分の本文を全部の役と検査から消せないように——
+    GitHub がレビューの依頼に土台の側の CODEOWNERS を使うのと同じ向き。本文を読む git diff は全部これを渡す"""
+    return {"GIT_ATTR_SOURCE": base} if base else None
+
+
+def _generated_paths(rev, names):
+    """版 rev の .gitattributes で linguist-generated が立つパスの集合（names はリポジトリの根からの綴り）。引けなければ None
+    （git の『失敗なら None』の契約）。--source は git 2.40 から（古い git では None で返る）。check-attr は名前を git の cwd
+    （inputs.cwd。サブディレクトリでありうる）からの相対で読むので、根からの綴りを cwd からの相対に直して渡し、戻す"""
+    if not names:
+        return set()
+    prefix = git("rev-parse", "--show-prefix")
+    if prefix is None:
+        return None
+    rel = {posixpath.relpath(n, prefix.strip() or "."): n for n in names}
+    out = git("check-attr", f"--source={rev}", "-z", "linguist-generated", "--", *rel)
+    if out is None:
+        return None
+    p = out.split("\0")
+    return {rel.get(p[i], p[i]) for i in range(0, len(p) - 2, 3) if p[i + 2] in ("set", "true")}
+
+
+def _header_tails(path):
+    """差分の見出し（diff --git a/… b/…）の末尾に来る新しい側のパスの綴り。素の綴りと、git が C の書き方でクオートした綴り
+    （core.quotePath の既定で非 ASCII・制御文字・" と \\ を含むパス。実測 2026-09-27: 'gen/日本 語.json' の見出しは素の綴りに当たらなかった）"""
+    raw = path.encode("utf-8")
+    esc = {0x22: b'\\"', 0x5C: b"\\\\", 0x07: b"\\a", 0x08: b"\\b", 0x09: b"\\t", 0x0A: b"\\n", 0x0B: b"\\v", 0x0C: b"\\f", 0x0D: b"\\r"}
+    q = b"".join(esc.get(c) or (b"\\%03o" % c if c < 0x20 or c >= 0x7F else bytes([c])) for c in raw)
+    return (b" b/" + raw, b' "b/' + q + b'"')
+
+
+def _section_counts(sec):
+    """差分の 1 ファイルの節の（追加行・削除行）。最初の hunk の見出しより後だけを数える（+++ / --- の見出しを数えない）"""
+    add = dele = 0
+    in_hunk = False
+    for ln in sec.split(b"\n"):
+        if ln.startswith(b"@@"):
+            in_hunk = True
+        elif in_hunk and ln.startswith(b"+"):
+            add += 1
+        elif in_hunk and ln.startswith(b"-"):
+            dele += 1
+    return add, dele
+
+
+# 要約する順（段）。BASE が宣言した生成データ → この差分が宣言した生成データ → そのほか（人の関所の答え 2026-09-27）
+PASTE_TIERS = ("base_generated", "diff_generated", "other")
+PASTE_TIER_WORDS = {"base_generated": "生成データ（BASE の宣言）", "diff_generated": "生成データ（この差分の宣言）", "other": "差分"}
+PASTE_HEAD_MAX = 600  # 先頭の注の上限（バイト）。収まるかの比べに先に入れる
+
+
+def _paste_copy(b, raw, full, snap, names):
+    """本文を貼る役（道具ゼロの役）に渡す差分の写しの置き場。**普通は全文の写し full をそのまま返す。**
+
+    graph が launch.input_budget_bytes を宣言し、差分がそこから PASTE_ROOM と launch.read_room_bytes（役が Read で読む分と
+    返答の余白）を引いた分を超えた周だけ、節を PASTE_TIERS の順・段の中は大きい順に、収まるまで要約（行数・バイト数・全文の
+    行範囲）に替えた別の写しを書く。役は節の read_file で全文の写しを Read で読める——要約した節の本文もそこに在る。
+    .gitattributes の節は要約しない。全文の写し（差分の一式の diff_file。道具を持つ役と節の read_file が読む）は変えない"""
+    launch = (getattr(b, "graph", None) or {}).get("launch") or {}
+    budget = launch.get("input_budget_bytes")
+    if not budget:
+        return str(full)
+    room = launch.get("read_room_bytes") or 0
+    limit = budget - PASTE_ROOM - room
+    if len(raw) <= limit:
+        return str(full)
+    row = {"round": b.round, "diff": full.name, "bytes": len(raw), "limit": limit, "summarized": [], "still_over": True}
+    b.loop_state.setdefault("diff_paste_log", []).append(row)
+    base = b.record.get("base")
+    base_gen = _generated_paths(base, names) if base else set()
+    new_gen = _generated_paths(snap, names)
+    if base_gen is None or new_gen is None:
+        row["why"] = "git check-attr --source が引けない（git 2.40 未満か、git が落ちた）——生成データの段を飛ばした"
+    base_gen, new_gen = base_gen or set(), (new_gen or set()) - (base_gen or set())
+    secs = re.split(rb"(?m)^(?=diff --git )", raw)
+    starts, line = [], 1
+    for s in secs:
+        starts.append(line)
+        line += s.count(b"\n")
+    cand = []
+    for i, s in enumerate(secs):
+        if not s.startswith(b"diff --git "):
+            continue
+        head = s.split(b"\n", 1)[0]
+        p = next((p for p in names if head.endswith(_header_tails(p))), None)
+        if (pathlib.PurePosixPath(p).name if p is not None else head.rstrip(b'"').decode("utf-8", "replace")).endswith(".gitattributes"):
+            continue   # 宣言の変更は必ず本文で貼る
+        tier = "base_generated" if p in base_gen else "diff_generated" if p in new_gen else "other"
+        cand.append((PASTE_TIERS.index(tier), -len(s), i, p, tier))
+    total = len(raw) + PASTE_HEAD_MAX
+    for _, neg, i, p, tier in sorted(cand):
+        if total <= limit:
+            break
+        sec = secs[i]
+        add, dele = _section_counts(sec)
+        first, last = starts[i], starts[i] + sec.count(b"\n") - 1
+        stub = (sec.split(b"\n", 1)[0].decode("utf-8", "replace")
+                + f"\n［engine の要約: {PASTE_TIER_WORDS[tier]}の節。+{add} -{dele} 行・{-neg} バイト。"
+                  f"本文は Read で読める全文の {first}〜{last} 行目］\n").encode("utf-8")
+        total += len(stub) - len(sec)
+        secs[i] = stub
+        row["summarized"].append({"path": p or _head_path(sec), "added": add, "deleted": dele, "bytes": -neg,
+                                  "lines": [first, last], "tier": tier})
+    head = (f"［engine の注: 差分の全文は {len(raw)} バイトで、本文を貼る予算 {limit} バイトを超えた。"
+            f"{len(row['summarized'])} 本の節を要約に替えた。要約した節の本文は、Read で読める全文の、示した行範囲に在る。"
+            f"Read で読む量は合わせて約 {room} バイトまで］\n").encode("utf-8")
+    out = full.with_name(full.stem + ".paste.patch")
+    body = head + b"".join(secs)
+    out.write_bytes(body)
+    row.update(paste_bytes=len(body), still_over=len(body) > limit, file=str(out))
+    if row["still_over"]:
+        row["why"] = "要約できる節を全部替えても予算を超える——起こすのは止めない"
+    return str(out)
+
+
+def _head_path(sec):
+    """見出しから名前を引けなかった節の、見出しの行そのもの（記録に残すだけ）"""
+    return sec.split(b"\n", 1)[0].decode("utf-8", "replace")[len("diff --git "):]
+
+
 def _take_diff(b, suffix=""):
     """BASE との差分を取り、写しに落とし、差分の一式（$defs.snapshot の形）を返す。**取り方はこの 1 本だけ。** 盤面には書かない——
     値は呼んだ機械の節の出力（周の頭は p1.worktree_before の snapshot、修正後は p4.assemble の after_fix）にだけ載る
@@ -1738,8 +1890,8 @@ def _take_diff(b, suffix=""):
         snap = _freeze_revision(b)
     except Reject as e:
         return {"ok": False, "problems": [str(e)]}
-    raw_diff = git_bytes("diff", base, snap)
-    numstat = git("diff", "--numstat", "-z", base, snap)  # -z: クオートせず、改名を 2 本の名前に割る（開けない綴りを一覧に入れない）
+    raw_diff = git_bytes("diff", *DIFF_FIXED_ARGS, base, snap, env=_attr_env(base))
+    numstat = git("diff", *DIFF_FIXED_ARGS, "--numstat", "-z", base, snap, env=_attr_env(base))  # -z: クオートせず、改名を 2 本の名前に割る（開けない綴りを一覧に入れない）
     missing = sorted(k for k, v in (("diff", raw_diff), ("numstat", numstat)) if v is None)
     if missing:
         return {"ok": False, "problems": [f"git が取れない（{', '.join(missing)}）——BASE={base} の対象差分が測れない場所からは回せない"]}
@@ -1769,7 +1921,8 @@ def _take_diff(b, suffix=""):
     # 差分だけ撮り直すと、R1〜R4 が『修正後の差分』と『修正前の版』を同時に渡された（実測 r8）。
     # changed_files_file: 回す側の節には一覧でなくこのパスを渡す（一覧を 4 本のプロンプトに複製しない）
     return {"ok": True, "raw": raw_diff, "snapshot": {"rev": snap, "diff_file": str(f), "changed_files": changed,
-                                                     "changed_files_file": str(cf), "stat": stat, "diff_lines": ins + dels}}
+                                                     "changed_files_file": str(cf), "stat": stat, "diff_lines": ins + dels,
+                                                     "paste_file": _paste_copy(b, raw_diff, f, snap, changed)}}
 
 
 def _freeze_revision(b):
@@ -1888,13 +2041,16 @@ def fix_delta(b, nid):
         snap = _snapshot(f"graphloops fix r{b.round}")
     except Reject as e:
         return {"ok": False, "problems": [str(e)]}
-    raw = git_bytes("diff", rev, snap)
-    names = git("diff", "--name-only", "-z", rev, snap)
+    raw = git_bytes("diff", *DIFF_FIXED_ARGS, rev, snap, env=_attr_env(b.record.get("base")))
+    names = git("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", rev, snap)
     if raw is None or names is None:
         return {"ok": False, "problems": [f"git diff {rev[:12]} {snap[:12]} が取れない——修正の差分を測れない"]}
     f = b.dir / f"{DELTA_PASSES[n].stem}-r{b.round}.patch"
     f.write_bytes(raw)
-    return {"ok": True, "delta": {"file": str(f), "files": [x for x in names.split("\0") if x], "rev": snap}}
+    files = [x for x in names.split("\0") if x]
+    # 検算させる行（塞いだと言われた行）も同じ値に置く——役に貼る一覧・指せる番号・受け付けと起こす条件が同じここを読む
+    claimed = _closed_rows(b.output_of_round("p3.fix" if n == 1 else DELTA_PASSES[n - 1].fix, b.round), n)
+    return {"ok": True, "delta": {"file": str(f), "files": files, "rev": snap, "claimed": claimed}}
 
 
 def worktree_snapshot(b, nid, head=True):
@@ -1941,7 +2097,7 @@ def _changed_since_prev_round(b, rev):
     if b.round == 1:
         return []
     prev = _hist(b, "head_revs", {}).get(str(b.round - 1))
-    names = git("diff", "--name-only", "-z", prev, rev) if prev else None
+    names = git("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", prev, rev) if prev else None
     if names is not None:
         return sorted(x for x in names.split("\0") if x)
     return sorted({f for c in (b.output_of_round("p3.fix", b.round - 1) or {}).get("changes", []) for f in c.get("files", [])})
@@ -2504,7 +2660,7 @@ def scalars(b, nid):
         got, err = _comment_ratio(b, base, cut["rev"])
         if err:
             why.append(err)
-        ns = git("diff", "--numstat", "-z", base, cut["rev"], "--", "*.md")
+        ns = git("diff", *DIFF_FIXED_ARGS, "--numstat", "-z", base, cut["rev"], "--", "*.md", env=_attr_env(base))
         if ns is None:
             why.append(f"git diff --numstat {base[:12]} {cut['rev'][:12]} が取れない（doc_lines）")
         else:
@@ -3200,10 +3356,9 @@ def _added_md_links(base, root):
     git diff に出ないので、中身の全行を足された行として数える"""
     # core.quotePath を切る——既定のままだと日本語のファイル名が引用符つきの 8 進表記になり、+++ b/ の行で拾えず黙って飛ばす。
     # :(top) で、サブディレクトリから回した run でもリポジトリ全体の .md を見る
-    # 接頭辞は明示する（利用者の diff.noprefix・diff.mnemonicPrefix で +++ b/ が変わると、1 件も拾わずに通った）。
+    # 旗は DIFF_FIXED_ARGS（前置きの設定で +++ b/ が変わると、1 件も拾わずに通った実測はそこ）。
     # ls-files は --full-name でルート相対に（git の cwd はサブディレクトリでありうる）
-    d = git("-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/",
-            base, "--", ":(top)*.md")
+    d = git("-c", "core.quotePath=false", "diff", "-U0", *DIFF_FIXED_ARGS, base, "--", ":(top)*.md", env=_attr_env(base))
     new = git("-c", "core.quotePath=false", "ls-files", "--full-name", "--others", "--exclude-standard", "--", ":(top)*.md")
     if d is None or new is None:
         return None
@@ -3470,15 +3625,24 @@ def _plan_face_errors(b, out):
     return errs
 
 
-def _closed_keys(out, n):
-    """『塞いだ』と言われた穴の key を、その回の返答（1 回目は p3.fix、2 回目は 1 回目の手直し）から引く式の正本"""
+def _closed_rows(out, n):
+    """『塞いだ』と言われた行を、その回の返答（1 回目は p3.fix、2 回目は 1 回目の手直し）から引く式の正本"""
     rows, (field, word) = (out or {}), (("plan_faces", "absorbed") if n == 1 else ("handled", "fixed"))
-    return {r["key"] for r in rows.get(field) or [] if r["handled"] == word}
+    return [r for r in rows.get(field) or [] if r["handled"] == word]
+
+
+def _claimed_key_set(d):
+    """修正差分（切り出しの節の出力の delta。{file, files, rev, claimed}）から、検算する key の集合を引く（条件の側も同じ物を呼ぶ）"""
+    return {r["key"] for r in (d or {}).get("claimed") or []}
 
 
 def _claimed_closed(b, n):
-    """n 回目の差分レビューが検算する『塞いだ』と言われた穴の key——1 回目は修正が absorbed と答えた事前審査の穴、2 回目は手直しが fixed と答えた穴"""
-    return _closed_keys(b.output_of_round("p3.fix" if n == 1 else DELTA_PASSES[n - 1].fix, b.round), n)
+    """n 回目の差分レビューが検算する『塞いだ』と言われた穴の key——fix_delta が今の周に置いた claimed だけ（役に貼り・番号で
+    指させる一覧と同じ値。p3.delta_owed と同じ形）。出力・claimed の無い回は _claimed_closed_from と同じく返答から引く"""
+    d = _delta_of(b, n)
+    if "claimed" not in (d or {}):
+        return {r["key"] for r in _closed_rows(b.output_of_round("p3.fix" if n == 1 else DELTA_PASSES[n - 1].fix, b.round), n)}
+    return _claimed_key_set(d)
 
 
 def delta_review_output(b, nid, out, item):

@@ -163,6 +163,10 @@ def test_snapshot_and_after_fix_are_separate_exits(tmp_path):
     b = make(tmp_path, 2, [rd(1), rd(2)], outs=outs, record=record)
     assert b.hist("snapshot")["rev"] == "h" * 40 and b.hist("after_fix")["rev"] == "f" * 40
     assert b.hist("request_wheres") == ["x.py: f"]
+    # 本文を貼る写し（paste_file）を持たない出力（貼る写しを作る前の版）は全文の写しを貼る。持つ出力はそれを返す
+    assert b.hist("snapshot")["paste_file"] == head["diff_file"] and b.hist("after_fix")["paste_file"] == after["diff_file"]
+    outs[("p4.assemble", 2)] = {"ok": True, "after_fix": {**after, "paste_file": "/d/diff-r2-after-fix.paste.patch"}}
+    assert make(tmp_path / "paste", 2, [rd(1), rd(2)], outs=outs, record=record).hist("after_fix")["paste_file"].endswith(".paste.patch")
     retaken = {**head, "rev": "r" * 40, "entry": False}
     outs[("p1.worktree_after", 2)] = {"ok": True, "snapshot": retaken}
     b = make(tmp_path / "retaken", 2, [rd(1), rd(2)], outs=outs, record=record)
@@ -182,6 +186,7 @@ def test_old_outputs_are_read_as_exits_with_a_mark(tmp_path):
     snap, fixed = b.hist("snapshot"), b.hist("after_fix")
     assert snap["from_old_output"] and snap["rev"] == "h" * 40 and snap["changed_files_file"] == str(d / "changed-r2.txt")
     assert fixed["from_old_output"] and fixed["changed_files"] == ["a.py", "b.py"] and fixed["diff_file"].endswith("-after-fix.patch")
+    assert snap["paste_file"] == snap["diff_file"] and fixed["paste_file"] == fixed["diff_file"]
 
 
 def test_head_revs_prefer_rev_and_read_old_outputs_by_tree(tmp_path):

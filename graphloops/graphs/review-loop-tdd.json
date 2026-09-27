@@ -318,7 +318,7 @@
     "cur.p3.fix_delta.delta.files",
     "inputs.cwd",
     "out.p2.plan_review",
-    "out.p3.fix.plan_faces",
+    "cur.p3.fix_delta.delta.claimed",
     "out.p3.tdd_tests",
     "record.process.policy.path"
    ],

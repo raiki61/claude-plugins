@@ -6,7 +6,7 @@
 役の起こし方・待ち方・続きの頼み方・要約の残し方を写し直さないため（docs の作り直しの設計「手順 1」）。
 
 流れ:
-  1. argv を子プロセスで起こし、材料を標準入力で渡す（貼る上限に当たらない）。
+  1. argv を子プロセスで起こし、材料を標準入力で渡す（Agent ツールの貼る上限に当たらない。モデルの入力の上限は残る）。
   2. **子の終了を直接待つ。** 完了の知らせ（通知・中継の AI の『書いた』）には頼らない——知らせは入れ子や上限落ちで
      消えた（実測 2026-09-24〜25: 局所レビューの入れ子の起動で知らせが届かず 7 時間止まった）。**時間の上限は付けない**
      ——所要時間を実測で決めていない値が上限を兼ねると、長く考える役を途中で打ち切る（2026-09-25 に外した。理由は
@@ -168,6 +168,34 @@ def tooled_permission(tools, cwd=None, board_dir=None):
 # 作業ディレクトリの外に作る写しで、Edit(./**) のように作業ディレクトリに縛った書く道具はそこへ届かない。書くのは Bash だけで、
 # Bash は OS の sandbox の中でだけ走る（delegate_settings）
 DELEGATE_TOOLS = ("Bash", "Read", "Glob", "Grep", "WebFetch", "WebSearch")
+
+
+# 道具ゼロの役に Read で 1 本だけ読ませる写しの名前の末尾。置き場はその instance のプロンプトの隣（read_grant_path）
+READ_GRANT_SUFFIX = ".read"
+# Read の許可規則の中で意味を持つ字（glob・括弧・--allowedTools の区切りのカンマと空白・エスケープ）。含むパスは 1 本に縛れない
+RULE_UNSAFE = frozenset("*?[]{}(),\\ \t\n\r")
+
+
+def read_grant_path(prompt_file):
+    """道具ゼロの役に読ませる写しの置き場——プロンプトの隣の <プロンプトの名前>.read。起こす側（advance.emit）と柵
+    （commands._argv_refusal）が同じここを引く——graph も instance も、読ませる場所を名指せない"""
+    p = pathlib.Path(prompt_file)
+    return p.with_name(p.stem + READ_GRANT_SUFFIX)
+
+
+def read_rule(path):
+    """ファイル 1 本だけを読む Read の許可規則 `Read(//<実パス>)`。読めない形なら None。
+
+    実パス（リンクを解決した綴り）で組む——公式の permissions の文書: allow の規則はリンクの綴りと解決した先の両方に当たるときだけ効き、
+    当たらなければ dontAsk の下では黙って拒まれる（macOS の /tmp → /private/tmp のような祖先のリンクで当たらなくなる）。Windows の
+    綴りは同じ文書の POSIX 形（C:\\Users → /c/Users）に直す。規則の中で意味を持つ字（RULE_UNSAFE）を含むパスは None"""
+    real = os.path.realpath(path)
+    if os.name == "nt":
+        w = pathlib.PureWindowsPath(real)
+        real = "/" + w.drive.rstrip(":").lower() + "/" + "/".join(w.parts[1:])
+    if not real.startswith("/") or RULE_UNSAFE & set(real):
+        return None
+    return "Read(/" + real + ")"
 
 
 def delegate_permission():

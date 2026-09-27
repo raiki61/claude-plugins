@@ -4471,6 +4471,11 @@ def test_delta_conditions():
           "修正差分: 差分が在れば、『塞いだ』申告が無くても 1 回目の差分レビューを起こす")
     check(holds(rules.delta_review_due, {}, {"p3.fix_delta": delta([]), "p3.fix": {"plan_faces": [{"key": "k1", "handled": "absorbed"}]}}),
           "修正差分: 差分が空でも、『塞いだ』申告が在れば 1 回目の差分レビューを起こす（申告を誰も検算しない形を作らない）")
+    claimed = lambda files, rows: {"ok": True, "delta": {"file": "f", "files": files, "rev": "r", "claimed": rows}}   # noqa: E731
+    check(holds(rules.delta_review_due, {}, {"p3.fix_delta": claimed([], [{"key": "k1", "handled": "absorbed"}])})
+          and not holds(rules.delta_review_due, {}, {"p3.fix_delta": claimed([], []),
+                                                     "p3.fix": {"plan_faces": [{"key": "k1", "handled": "absorbed"}]}}),
+          "修正差分: 切り出しの節が置いた claimed を読む（修正の返答は claimed の無い旧い出力のときだけ）")
     check(not holds(rules.delta_review_due, {}) and not holds(rules.fix_delta_nonempty, {"fix_delta": {"round": 2, "files": ["a.py"]}}),
           "修正差分: 差分も申告も無い周は起こさない（盤面の loop に残った旧い値は読まない）")
     check(holds(rules.delta_review2_due, {}, {"p3.fix_delta2": delta(["a.py"])}),
@@ -4478,7 +4483,8 @@ def test_delta_conditions():
     old = {"ok": True, "fix_delta_file": "f", "changed_files": ["a.py"]}   # 旧い版の rules が書いた出力（delta の欄が無い）
     check(holds(rules.fix_delta_nonempty, {}, {"p3.fix_delta": old}) and holds(rules.fix_delta_nonempty, {}, {"p3.fix_delta": {"ok": True}}),
           "修正差分: delta の欄の無い旧い出力は旧い欄から数え、それも無ければ差分が在る側（審査を起こす側）に倒す")
-    check(holds(rules.delta_review2_due, {}, {"p3.delta_fix": {"handled": [{"key": "k1", "handled": "fixed"}]}}),
+    check(holds(rules.delta_review2_due, {}, {"p3.fix_delta2": claimed([], [{"key": "k1", "handled": "fixed"}])})
+          and holds(rules.delta_review2_due, {}, {"p3.delta_fix": {"handled": [{"key": "k1", "handled": "fixed"}]}}),
           "修正差分: 手直しの差分が無くても、手直しが直したと言う穴が在れば 2 回目を起こす")
     check(rules._delta_owed(at({}), 1) == set() and rules._delta_owed(at({"delta_owed": {"round": 2, "rows": [{"key": "k"}]}}), 1) == set(),
           "手直しの義務: 今の周の義務の節の出力が無ければ空（loop に残った旧い版の値は読まない）")
@@ -4497,7 +4503,8 @@ def test_delta_conditions():
     got = rules._files_changed_since(at({"head_revs": {"1": head}}), 1)
     check(got == ["b.py"], f"周をまたぐ変更: 前の周の頭の版と今の木の差に、未追跡の新規ファイルも入る（{got}）")
     real_bytes = rules.git_bytes   # git_bytes は engine の大域の cwd を引く——並列の台本に書き換えられないよう、この repo に固定する
-    rules.git_bytes = lambda *a: (lambda q: q.stdout if q.returncode == 0 else None)(subprocess.run(["git", "-C", str(tmp), *a], capture_output=True))
+    rules.git_bytes = lambda *a, env=None: (lambda q: q.stdout if q.returncode == 0 else None)(
+        subprocess.run(["git", "-C", str(tmp), *a], capture_output=True, env={**os.environ, **env} if env else None))
     try:
         r = rules.fix_delta(at({"snapshot": {"rev": head}}, {"p3.fix_delta": {"ok": True, "fix_delta_file": "f", "changed_files": []}}),
                             "p3.fix_delta2")
@@ -5651,8 +5658,8 @@ def test_big_diff():
     """大きな差分でも hygiene は 1 節のまま、全部を欠けずに受け取る。
 
     以前はバイト上限で割っていて、**読み手の人数が差分の大きさで決まっていた**（実測: 750 KB の差分が hunk 境界で 23 片に割れた）。
-    遮断系を標準入力で受ける CLI 起動に変えたので貼る上限が消え、割る理由も消えた。入り切らなければ
-    API が落とすので、割りは安全柵でもない（静かに切る経路だけが事故だった）。
+    遮断系を標準入力で受ける CLI 起動に変えたので Agent ツールの貼る上限が消え、割る理由も消えた。モデルの入力の上限を
+    超える周は割らずに節を要約に替え、本文は Read で読ませる（rules の _paste_copy。この台本の差分は予算の内なので全文が渡る）。
     """
     print("台本: 1 ファイルが大きい差分——hygiene は割らず、全体を 1 人が受け取る")
     run = Run("big", big=True)
@@ -5837,9 +5844,15 @@ def test_cond_truth_tables():
                                (c(2, loop={"fix_delta": {"round": 2, "files": ["a.py"]}}), False)],
         "delta_review_due": [(c(2, cur={"p3.fix_delta": delta(["a.py"])}), True),
                              (c(2, cur={"p3.fix": {"plan_faces": [{"key": "k", "handled": "absorbed"}]}}), True),
-                             (c(2, cur={"p3.fix": {"plan_faces": [{"key": "k", "handled": "declared"}]}}), False)],
+                             (c(2, cur={"p3.fix": {"plan_faces": [{"key": "k", "handled": "declared"}]}}), False),
+                             (c(2, cur={"p3.fix_delta": {"ok": True, "delta": {"file": "f", "files": [], "rev": "r",
+                                                                                "claimed": [{"key": "k", "handled": "absorbed"}]}}}), True),
+                             (c(2, cur={"p3.fix_delta": {"ok": True, "delta": {"file": "f", "files": [], "rev": "r", "claimed": []}},
+                                        "p3.fix": {"plan_faces": [{"key": "k", "handled": "absorbed"}]}}), False)],
         "delta_review2_due": [(c(2, cur={"p3.fix_delta2": delta(["a.py"])}), True),
-                              (c(2, cur={"p3.delta_fix": {"handled": [{"key": "k", "handled": "fixed"}]}}), True), (c(2), False)],
+                              (c(2, cur={"p3.delta_fix": {"handled": [{"key": "k", "handled": "fixed"}]}}), True), (c(2), False),
+                              (c(2, cur={"p3.fix_delta2": {"ok": True, "delta": {"file": "f", "files": [], "rev": "r",
+                                                                                  "claimed": [{"key": "k", "handled": "fixed"}]}}}), True)],
         "delta_faces_open": [(c(2, cur={"p3.delta_owed": {"rows": [{"key": "k"}]}}), True),
                              (c(2, out={"p3.delta_owed": {"rows": [{"key": "k"}]}}), False),
                              (c(2, cur={"p3.delta_owed": {"rows": []}}), False),

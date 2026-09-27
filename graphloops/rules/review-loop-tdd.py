@@ -170,7 +170,7 @@ def _snap():
 
 
 def _diff_names(frm, to):
-    names = git("diff", "--name-only", "-z", frm, to) if frm and to else None
+    names = git("diff", *base.DIFF_FIXED_ARGS, "--name-only", "-z", frm, to) if frm and to else None
     return None if names is None else [x for x in names.split("\0") if x]
 
 

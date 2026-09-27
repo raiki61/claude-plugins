@@ -461,6 +461,25 @@ def test_delta_review_sends_human_kinds_to_the_gate(tmp_path, kind):
     assert "修正の後の後退" in str(e.value) and "修正が触ったファイルでない" not in str(e.value)
 
 
+@pytest.mark.parametrize("n,src,field,word", [(1, "p3.fix", "plan_faces", "absorbed"), (2, "p3.delta_fix", "handled", "fixed")])
+def test_delta_review_checks_only_the_claimed_rows(tmp_path, n, src, field, word):
+    """修正差分のレビューに貼り・番号で指させる一覧（graph の pointers の from）と、受け付けが求める検算の集合が同じ値
+    （切り出しの節の出力の delta.claimed）——『残す』と答えた行の番号は一覧に無く、受け付けも求めない（前の run で 3 回拒まれた食い違い）"""
+    nid, cut = RULES.DELTA_PASSES[n].review, RULES.DELTA_PASSES[n].cut
+    rows = [{"key": "塞いだ穴", "handled": word, "how": "x"}, {"key": "残す穴", "handled": "declared", "how": "y"}]
+    claimed = RULES._closed_rows({field: rows}, n)
+    assert [r["key"] for r in claimed] == ["塞いだ穴"]
+    ptr = load_graph(GRAPH)[0]["nodes"][nid]["pointers"]
+    assert [f for p in ptr if p["at"] == "checks[].key" for f in p["from"]] == [f"cur.{cut}.delta.claimed"]
+    b = board(tmp_path, outputs={src: {field: rows}, cut: {"ok": True, "delta": {"file": "f", "files": [], "rev": "r", "claimed": claimed}}})
+    with pytest.raises(Reject) as e:
+        RULES.delta_review_output(b, nid, {"faces": [], "faces_none": "差分が無く、検算する申告だけを見た（検査用）",
+                                           "checks": [{"key": "残す穴", "closed": True, "why": "w"}]}, None)
+    assert "塞いだと言われた穴に無い" in str(e.value) and "塞いだ穴" in str(e.value)
+    RULES.delta_review_output(b, nid, {"faces": [], "faces_none": "差分が無く、検算する申告だけを見た（検査用）",
+                                       "checks": [{"key": "塞いだ穴", "closed": True, "why": "w"}]}, None)
+
+
 def test_finalize_writes_the_policy_change_after_the_last_gate(tmp_path, monkeypatch):
     """最後の関所の後に方針の文書が変わった run も、仕上げが変化を記録に書く。変化が無ければ前に書いた欄を消す"""
     b = board(tmp_path, record={"process": {"policy": {"path": "POLICY.md", "sha": "a"}}})

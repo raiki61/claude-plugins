@@ -43,7 +43,7 @@ class ReadsViolation(Exception):
 
 def cap_bytes(text, label, truncated, cap=FILE_CAP):
     """上限を UTF-8 のバイトで測って切る。切ったら truncated に残す（貼る先の上限がバイトだから）。
-    cap=None は切らない——標準入力で流す節には貼る先の上限が無い。"""
+    cap=None は切らない——標準入力で流す節には Agent ツールの貼る先の上限が無い。"""
     if cap is None:
         return text
     raw = text.encode("utf-8")
@@ -172,7 +172,8 @@ class Renderer:
         self.ref = ref      # ref:<path> の解決（盤面が持つ。[(見出し, ファイル, 値)] を返す）
         # cap=None = 切らない。上限は「Agent ツールのプロンプトに貼る」経路にだけ在るもので、
         # 別プロセスの CLI に標準入力で流す節には無い（2026-09-12 にこの環境で観測: 748,883 バイトと
-        # 774,021 バイトが先頭・末尾とも欠けずに届いた。記録は docs/loop-contract.md T 節。上限の保証ではない）。
+        # 774,021 バイトが先頭・末尾とも欠けずに届いた。記録は docs/loop-contract.md T 節。上限の保証ではない——
+        # 2026-09-27 に 2,149,613 バイトがモデルの入力の上限で落ちた。減らすのは切る側でなく材料を作る側で、差分は rules の _paste_copy）。
         # 渡し方が変わったのに切り続けると、見せられる物を捨てる。
         self.cap = cap
         self.truncated = []

@@ -186,6 +186,7 @@
     "changed_files_file": "<RUN>/changed-r2.txt",
     "stat": "1 files changed, 1 insertions(+), 0 deletions(-)",
     "diff_lines": 1,
+    "paste_file": "<RUN>/diff-r2.patch",
     "entry": false
    },
    "tree_before": {

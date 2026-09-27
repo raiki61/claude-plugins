@@ -155,6 +155,16 @@ def material_name_typo(g, sandbox):
                  id="hist-open-top"),
     pytest.param(lambda g, s: g["state_schema"].__setitem__("additionalProperties", True), "additionalProperties: false", id="open-top"),
     pytest.param(lambda g, s: g.pop("state_schema"), "state_schema（盤面の loop の形）が無い", id="missing-standalone"),
+    # 道具ゼロの役に Read で読ませる 1 本（read_file）: 道具を持つ役の節・loop の鍵でない値・起こす語の無い graph・余白が予算を食う
+    pytest.param(lambda g, s: g["nodes"]["p3.delta_review"].__setitem__("read_file", "hist.snapshot.diff_file"), "道具ゼロの役の節だけ",
+                 id="read-file-tooled"),
+    pytest.param(lambda g, s: g["nodes"]["p1.hygiene"].__setitem__("read_file", "hist.snapshot.diff_filee"), "read_file 'hist.snapshot.diff_filee' は",
+                 id="read-file-typo"),
+    pytest.param(lambda g, s: g["nodes"]["p1.hygiene"].__setitem__("read_file", "loop.diff_file"), "read_file 'loop.diff_file' は",
+                 id="read-file-undeclared-loop-key"),
+    pytest.param(lambda g, s: g["launch"].pop("isolated_read"), "launch.isolated_read.argv が無い", id="read-file-no-launch"),
+    pytest.param(lambda g, s: g["launch"].__setitem__("read_room_bytes", g["launch"]["input_budget_bytes"]), "read_room_bytes は",
+                 id="read-room-eats-budget"),
 ])
 def test_graphcheck_rejects_loop_shape(sandbox, breaks, want):
     g = copy.deepcopy(GRAPH)

@@ -2779,8 +2779,8 @@
    "title": "diff の接頭辞を明示する",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "\"--src-prefix=a/\", \"--dst-prefix=b/\",\n",
-   "new": "\n",
+   "old": "\"--src-prefix=a/\", \"--dst-prefix=b/\", ",
+   "new": "",
    "expect": "リンク: 綴りの大小違いと .gitignore の対象は版に無い",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3207,8 +3207,8 @@
    "title": "修正差分は周の頭の版から測る（累積差分にしない）",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    raw = git_bytes(\"diff\", rev, snap)",
-   "new": "    raw = git_bytes(\"diff\", b.record[\"base\"], snap)",
+   "old": "    raw = git_bytes(\"diff\", *DIFF_FIXED_ARGS, rev, snap, env=_attr_env(b.record.get(\"base\")))",
+   "new": "    raw = git_bytes(\"diff\", *DIFF_FIXED_ARGS, b.record[\"base\"], snap, env=_attr_env(b.record.get(\"base\")))",
    "expect": "1 周目の修正だけの差分は",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4289,8 +4289,8 @@
    "title": "同じ役を続ける節は記録した会話の番号で再開する",
    "file": "graphloops/engine/advance.py",
    "suite": "graphloops",
-   "old": "            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get(\"session_id\"))",
-   "new": "            spec = launch_spec(b, inst, role_def, resume_sid=None)",
+   "old": "            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get(\"session_id\"), read_grant=read_grant)",
+   "new": "            spec = launch_spec(b, inst, role_def, resume_sid=None, read_grant=read_grant)",
    "expect": "履歴の突合は、同じ周の判定を起こした会話の番号で",
    "tests": {
     "graphloops/tests/simulate_review.py": [

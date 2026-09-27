@@ -8,7 +8,7 @@ from .render import FILE_CAP, Renderer, node_prompt
 from .rules import hook, registry
 from .schema import graph_text, validate_schema
 from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, die, dump, get_path, now, protected_paths, read_json, safe_name, sha, write_json
-from .role_run import DELEGATE_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, tooled_permission
+from .role_run import DELEGATE_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, read_grant_path, read_rule, tooled_permission
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
@@ -57,7 +57,25 @@ def launch_cwd(b):
     return (b.state.get("inputs") or {}).get("cwd") or os.getcwd()
 
 
-def launch_spec(b, inst, d, resume_sid=None):
+def grant_read(ctx, ref, pfile):
+    """道具ゼロの役に Read で読ませるファイルを、プロンプトの隣（role_run.read_grant_path）へ写す。(写しのパス, None) か (None, 理由)。
+    写す元は節の read_file が名指す盤面の値（ファイルのパス）。名前は engine が instance の id から決める——柵はその 1 本だけを許す"""
+    import shutil
+    try:
+        src = get_path(ctx, ref)
+    except KeyError:
+        src = None
+    if not (isinstance(src, str) and pathlib.Path(src).is_file()):
+        return None, f"read_file {ref} の値 {src!r} が普通のファイルでない"
+    dst = read_grant_path(pfile)
+    shutil.copyfile(src, dst)
+    if read_rule(dst) is None:
+        dst.unlink()
+        return None, f"置き場 {dst} が Read の許可規則に置けない字（空白・glob・括弧・カンマ）を含む"
+    return str(dst), None
+
+
+def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
     """役を engine の中で起こす語（argv・続きの語・材料）。起こせない役なら None（回す側が Agent で起こす）。
 
     **道具ゼロの役（遮断系）**は Agent ツールで起こさない——ハーネスは subagent に CLAUDE.md 階層と git status を注入する。
@@ -83,7 +101,7 @@ def launch_spec(b, inst, d, resume_sid=None):
     宣言しない形なら None（続けられない）。
     """
     isolated = d["tools"] == []
-    kind = "isolated" if isolated else "tooled"
+    kind = ("isolated_read" if read_grant else "isolated") if isolated else "tooled"
     spec = b.graph.get("launch", {}).get(kind)
     if not spec:
         if isolated:
@@ -103,6 +121,9 @@ def launch_spec(b, inst, d, resume_sid=None):
     role_file.write_text(d["body"], encoding="utf-8")
     sub["role_file"] = str(role_file)
     tools, form = [], None
+    if read_grant:
+        # 読ませる 1 本の実パスだけを先に許す（dontAsk。ほかの読みは聞かずに拒まれる）。柵は起こす瞬間に同じ関数で組み直す
+        sub.update(allowed_tools=read_rule(read_grant))
     if not isolated:
         if not tooled_launchable(d):
             return None
@@ -131,6 +152,8 @@ def launch_spec(b, inst, d, resume_sid=None):
     argv, found = resolve(spec["resume"] if resume_sid else spec["argv"])
     launch = {"kind": kind, "argv": argv, "stdin": inst["prompt_file"],
               "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None}
+    if read_grant:
+        launch["read_file"] = read_grant
     if tools:
         launch["tools"] = tools
         launch["form"] = form  # sandbox / read_only / plain（role_run.tooled_permission）。trace の role_run 行にも写る
@@ -343,8 +366,7 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         ctx["validation"] = v
         # 生出力は {{ref:raw}}（Board.ref）だけが渡す——ctx["raw"] は両 graph のどのプロンプトからも読まれておらず、
         # 報告の next で同じ出力を 209 回読み直していた（実測 2026-09-12）
-    # 道具ゼロの役は別プロセスの CLI へ標準入力で流すので、貼る先の上限が無い＝切らない（cap=None）。
-    # 上限は「Agent ツールのプロンプトに貼る」経路の性質で、engine の都合でもモデルの都合でもない。
+    # 道具ゼロの役は別プロセスの CLI へ標準入力で流すので、Agent ツールの貼る先の上限が無い＝切らない（cap=None）。
     atype = None if b.is_runner(n) else agent_type_of(b, n)
     role_def = agent_def(atype) if atype else None
     role_def_missing = None
@@ -362,7 +384,7 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         b.state.setdefault("role_def_missing", []).append({"instance": iid, "round": b.round, "agent_type": atype})
     isolated = role_def is not None and role_def["tools"] == []
     runner = b.is_runner(n)
-    # engine が起こせる役か（launch_spec が語を組める役）。起こせる役の材料は標準入力で子へ流すので、貼る先の上限が無い
+    # engine が起こせる役か（launch_spec が語を組める役）。起こせる役の材料は標準入力で子へ流すので、Agent ツールの貼る先の上限が無い
     launchable = not runner and role_def is not None and (
         isolated or bool(b.graph.get("launch", {}).get("tooled") and tooled_launchable(role_def)))
     # **上限を外す条件は「貼るか（deliver）」で、道具ゼロか（isolated）ではない。** 以前は isolated を見ていたが、
@@ -387,6 +409,16 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
     unseen = sorted(set(offsets) - r.numbered_seen)
     if unseen:
         die(f"{nid}: pointers の from {unseen} を貼る穴がプロンプトに無い——番号が役に見えない（穴はその一覧のパスそのもので書け）")
+    pfile = b.dir / "prompts" / f"r{b.round}" / (safe_name(iid) + ".md")
+    pfile.parent.mkdir(parents=True, exist_ok=True)
+    read_grant = None
+    if isolated and n.get("read_file"):
+        read_grant, why = grant_read(ctx, n["read_file"], pfile)
+        prompt += (f"\n\n---\nこの節に限り、道具 Read を 1 本だけ持つ。読めるのは次のファイルだけ（offset と limit で範囲を指して読め。"
+                   f"ほかのファイル・ディレクトリは読めない）: {read_grant}" if read_grant else
+                   f"\n\n---\nこの節に渡すはずだった Read は渡せなかった（{why}）。貼られた本文だけで判断し、読めなかった範囲はそう書け。")
+        if not read_grant:
+            b.state.setdefault("notes", []).append(f"{iid}: Read を渡せなかった——{why}")
     if n.get("schema"):
         # **引用符の断りを 1 行入れる。** 役の指摘はコード片や設定値をそのまま引くので、文字列値の中に
         # 生の " が入りやすい（実測 2026-09-15: cold-reader の初回の返答が `（"/code-review high" 等）` で
@@ -396,8 +428,6 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
                    "読めずに捨てられる:\n" + dump(n["schema"]))
     if r.truncated:
         b.state.setdefault("truncated", []).extend(f"{iid}: {t}" for t in r.truncated)
-    pfile = b.dir / "prompts" / f"r{b.round}" / (safe_name(iid) + ".md")
-    pfile.parent.mkdir(parents=True, exist_ok=True)
     pfile.write_text(prompt, encoding="utf-8")
     prompt_bytes = len(prompt.encode("utf-8"))
     grew = prompt_growth(b, nid, prompt_bytes)
@@ -457,7 +487,7 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         if isolated:  # 道具ゼロ＝遮断系。Agent ツールでは CLAUDE.md を止められない
             inst["mode"] = "cli"
         if launchable and not (prior and prior.get("agent_id") and not prior.get("session_id")):
-            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get("session_id"))
+            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get("session_id"), read_grant=read_grant)
             if spec:
                 inst["launch"] = spec
     if same:

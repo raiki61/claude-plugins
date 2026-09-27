@@ -199,6 +199,7 @@
     "changed_files_file": "<RUN>/changed-r3.txt",
     "stat": "4 files changed, 11 insertions(+), 2 deletions(-)",
     "diff_lines": 13,
+    "paste_file": "<RUN>/diff-r3.patch",
     "entry": false
    },
    "tree_before": {

@@ -162,7 +162,8 @@
     "diff_file": "<RUN>/diff-r1-after-fix.patch",
     "changed_files": [],
     "changed_files_file": "<RUN>/changed-r1-after-fix.txt",
-    "stat": "0 files changed, 0 insertions(+), 0 deletions(-)"
+    "stat": "0 files changed, 0 insertions(+), 0 deletions(-)",
+    "paste_file": "<RUN>/diff-r1-after-fix.patch"
    },
    "open_units": 0,
    "r1_refire": true,

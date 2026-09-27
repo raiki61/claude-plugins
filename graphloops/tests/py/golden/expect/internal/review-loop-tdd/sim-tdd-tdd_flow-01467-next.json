@@ -175,7 +175,8 @@
      "tests/test_limit.py"
     ],
     "changed_files_file": "<RUN>/changed-r1-after-fix.txt",
-    "stat": "4 files changed, 11 insertions(+), 2 deletions(-)"
+    "stat": "4 files changed, 11 insertions(+), 2 deletions(-)",
+    "paste_file": "<RUN>/diff-r1-after-fix.patch"
    },
    "open_units": 2,
    "r1_refire": true,

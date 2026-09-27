@@ -237,6 +237,73 @@
      }
     },
     "description": "振り分けの候補: B 周の途中の人の答え"
+   },
+   "diff_paste_log": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "diff": {
+       "type": "string"
+      },
+      "bytes": {
+       "type": "integer"
+      },
+      "limit": {
+       "type": "integer"
+      },
+      "summarized": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string"
+         },
+         "added": {
+          "type": "integer"
+         },
+         "deleted": {
+          "type": "integer"
+         },
+         "bytes": {
+          "type": "integer"
+         },
+         "lines": {
+          "type": "array",
+          "items": {
+           "type": "integer"
+          }
+         },
+         "tier": {
+          "type": "string",
+          "enum": [
+           "base_generated",
+           "diff_generated",
+           "other"
+          ]
+         }
+        }
+       }
+      },
+      "still_over": {
+       "type": "boolean"
+      },
+      "paste_bytes": {
+       "type": "integer"
+      },
+      "file": {
+       "type": "string"
+      },
+      "why": {
+       "type": "string"
+      }
+     }
+    },
+    "description": "run 全体の記録: 差分が本文を貼る役の予算を超えた周の行（要約に替えた節と段・全文の行範囲・替えても超えたか・生成データの段を飛ばした理由）。記録の process.notices に出る"
    }
   }
  },
@@ -623,6 +690,59 @@
    ],
    "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層と git status を注入する。CLAUDE.md は役の定義の frontmatter の omitClaudeMd で省けるが（組織管理の分は残る）、git status は止められない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-25 取得: 『Every other built-in and custom subagent loads both, unless its definition sets the omitClaudeMd field to skip the user, project, and local CLAUDE.md files.』『You can't change which subagents receive git status. Only Explore and Plan skip it.』）。役の定義は convergence-loops が配る物で、道具ゼロの役の遮断をその定義の 1 欄に預けない。engine が起こす道具ゼロの子は、Git リポジトリの外の一時ディレクトリを作業ディレクトリにして起こすので git status の写しは入らず（公式: 『Absent outside a Git repository』）、--setting-sources \"\" で CLAUDE.md も読まない。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。起動は via の薄い層（scripts/with-auth.py）を前置して通す——**子は対話の claude の認証を継がない**（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、done が非 JSON として拒んだ。利用者の claude がシェル関数のラッパなら子はそれを通らず、ハーネスも子の環境にトークンを渡さない）。トークンを argv に置かないのは、launch が回す側の文脈と record.json に写るから。mac 以外では Keychain の段が空振りし、CLAUDE_CONFIG_DIR を子へ明示する段だけが効く。 出力は --output-format json の包みで受け、本文（result）だけを out_path に書き、会話の番号・往復数・所要時間・費用・トークンは盤面の trace.jsonl に op=role_run の行で残す。会話は保存する（受け付けに拒まれたら同じ会話に --resume で出し直させるため。以前の --no-session-persistence は外した）。"
   },
+  "isolated_read": {
+   "argv": [
+    "claude",
+    "-p",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "Read",
+    "--allowedTools",
+    "{allowed_tools}",
+    "--permission-mode",
+    "dontAsk",
+    "--permission-prompts",
+    "none",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--output-format",
+    "json"
+   ],
+   "resume": [
+    "claude",
+    "-p",
+    "--resume",
+    "{session_id}",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "Read",
+    "--allowedTools",
+    "{allowed_tools}",
+    "--permission-mode",
+    "dontAsk",
+    "--permission-prompts",
+    "none",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--output-format",
+    "json"
+   ],
+   "via": [
+    "{python}",
+    "{plugin_root}/scripts/with-auth.py"
+   ],
+   "why": "道具ゼロの役に、節の read_file が名指すファイル 1 本だけを読む Read を渡す形。遮断は launch.isolated と同じ（Git の外の空の一時ディレクトリで起こし、--setting-sources \"\" で CLAUDE.md を読まない）で、足すのは Read だけ。読める範囲は engine が決める: 節の read_file の値のファイルを、その instance のプロンプトの隣へ engine が instance の id から決めた名前で写し、その 1 本の実パス（リンクを解決した綴り）だけを Read(//<実パス>) で先に許す。権限は dontAsk（先に許した物と作業ディレクトリ＝空の一時ディレクトリの中の読みだけが通り、ほかは聞かずに拒まれる）で、聞く先は無い（--permission-prompts none）。Grep・Glob は渡さない（公式の permissions の文書: Read の規則は Grep と Glob には best-effort でしか効かない）。{allowed_tools} は engine が埋め、柵（commands._argv_refusal）は起こす瞬間に写しの置き場から組み直して突き合わせる——graph は読める範囲を配れない。"
+  },
   "tooled": {
    "argv": [
     "claude",
@@ -735,7 +855,11 @@
    "why": "任せ先（delegate を持つ回す側の節）も engine が claude -p で起こし、OS の sandbox の中に置く（loop.py launch）。Agent ツールで起こした任せ先は回す側の作業ディレクトリと権限を継ぎ、呼ぶ側が 1 回ごとに sandbox を掛ける口が無い（公式の sandboxing 文書: subagent は親と同じ sandbox の設定を使う）。配布先で、指示書に『作業ツリーのファイルを変えるな』と書いた任せ先が本物の作業ツリーで git checkout と git reset --hard を打ち、回す側の未コミットの修正を消した（2026-09-25）。道具（Bash・Read・Glob・Grep・WebFetch・WebSearch。ファイルを書く道具は渡さない）・先に許す道具（Bash を除く）・権限の形（default と --permission-prompts none——sandbox の外に落ちた Bash は聞く先が無く拒まれる）・sandbox の設定（denyWrite は起こす瞬間に git から引いた本物の作業ツリー・gitdir・共通の .git・他の作業ツリー・利用者の git とシェルの設定・engine 自身）は engine が埋め、launch_refusal が起こす瞬間に組み直して突き合わせる——graph はここで権限を配れない。作業ディレクトリは engine が作る本物の写しで、TMPDIR とともに終わったら消す（返答が名指しするファイルは GRAPHLOOPS_KEEP の置き場にだけ残す）。実測 2026-09-25（claude 2.1.282・haiku・使い捨てのリポジトリ）: 写しの上でテスト一式・台本一式・変異の実行器の字列の検査・gh の読み・localhost の bind が通り、本物の linked worktree への書き込み・git reset --hard・git checkout -- .・update-ref・worktree add・本体の stash・dangerouslyDisableSandbox の再試行は Operation not permitted で止まった。docker は sandbox の中から socket に繋がらない。柵の中でできない仕事が要る run（docker・sandbox の立たない Windows のネイティブ等）は、人が init --unfenced-delegates <理由> で明示したときだけ柵を外す（人の決定 2026-09-25）"
   },
   "resume_on_reject": 2,
-  "resume_note": "受け付けの検査（done の中身）が返答を拒んだとき、同じ会話に理由を渡して出し直させる回数の上限。続きを頼むのは役に返せば直る拒否（読めない・型に合わない・記録の整合・項目の過不足）だけで、作業ツリーが変わった・前段が済んでいない等は続きを頼まずに回す側へ上げる"
+  "resume_note": "受け付けの検査（done の中身）が返答を拒んだとき、同じ会話に理由を渡して出し直させる回数の上限。続きを頼むのは役に返せば直る拒否（読めない・型に合わない・記録の整合・項目の過不足）だけで、作業ツリーが変わった・前段が済んでいない等は続きを頼まずに回す側へ上げる",
+  "input_budget_bytes": 2060000,
+  "input_budget_why": "役の入力の上限（約 100 万トークン）をバイトに直した値。rules が本文を貼る役（道具ゼロの役）に渡す差分をこれと比べ、差分がここから指示書の差分の外の本文の分（rules の PASTE_ROOM）と read_room_bytes を引いた値を超えた周だけ、節を要約に替えた写しを渡す（要約した節の本文は、節の read_file で渡す全文の写しを Read で読める）。予算の内なら全文を貼る。根拠は実測 2026-09-27: wip/golden の run の r2.compare で、標準入力に 1 回だけ渡した 2,149,613 バイトの指示書が『request ~1,041,145 tokens (limit 1,000,000)』で落ちた。約 2.06 バイト/トークンで、上限の 100 万トークンは約 2,064,000 バイト。比は内容で変わるので、上限の手前で落ちる周も、超えても通った周も在りうる——実測で変えるときはこの値を書き換える。予算の単位はバイト（人の決定 2026-09-27。wip/big-diff2 の台帳の問い A・B・C——比がトークンの数え方で変わる件——をバイトのまま今の形で決着。トークンで数える口・予算を下げる形・上限で落ちた試行を縮退で起こし直す口は足していない）。",
+  "read_room_bytes": 400000,
+  "read_room_why": "本文を貼る役が Read で読む本文と返答を入れる余白（バイト）。貼る写しを予算いっぱいまで詰めると、要約した節を Read で読んだ結果と返答が同じ会話の文脈に積まれて上限を超える（事前審査 2026-09-27）。先行例: PR-Agent は最後の要求の後にモデルが足す分を先に予算から引く。要約した節は Read で読めるので、余白のために貼る量を減らしても本文を見られなくなる周は無い（人の関所の答え 2026-09-27）。約 20 万トークン分"
  },
  "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起こした現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役の道具は agents/<役>.md が正本なのでここに写さない。各節の source は手順書の見出し（行番号は腐るので書かない）",
  "record": {
@@ -1366,9 +1490,27 @@
       },
       "rev": {
        "type": "string"
+      },
+      "claimed": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "key": {
+          "type": "string"
+         },
+         "handled": {
+          "type": "string"
+         },
+         "how": {
+          "type": "string"
+         }
+        }
+       },
+       "description": "この回に塞いだと言われた行（1 回目は p3.fix の plan_faces の absorbed、2 回目は p3.delta_fix の handled の fixed）。差分レビューに貼り・番号で指させ・受け付けと起こす条件が読む 1 つの値"
       }
      },
-     "description": "この回の修正差分（修正差分の審査のブロックの出口）: 写しの置き場・触ったファイル・修正後に固めた版"
+     "description": "この回の修正差分（修正差分の審査のブロックの出口）: 写しの置き場・触ったファイル・修正後に固めた版・塞いだと言われた行"
     }
    }
   },
@@ -1433,6 +1575,10 @@
     "from_old_output": {
      "type": "boolean",
      "description": "旧い版の rules が書いた出力から hist が読み替えた値の印"
+    },
+    "paste_file": {
+     "type": "string",
+     "description": "本文を貼る役（p1.hygiene・r2.compare）に渡す差分の写し。普通は diff_file と同じパスで、入力の予算を超えた周だけ節を要約に替えた別の写し（rules の _paste_copy）。旧い出力は hist が diff_file で埋める"
     }
    }
   },
@@ -2649,15 +2795,16 @@
     "タスクの説明",
     "近傍コード"
    ],
-   "does": "言語・フレームワーク一般の衛生違反を、用途を知らない目で拾う。道具を渡して解決しない（道具は path で縛れない）。差分は割らずに全部渡す——遮断系は標準入力で受けるので貼る上限が無い",
+   "does": "言語・フレームワーク一般の衛生違反を、用途を知らない目で拾う。差分は割らずに全部渡す——遮断系は標準入力で受けるので Agent ツールの貼る上限は無い。役の入力の上限（launch.input_budget_bytes）を超える周だけ、rules が節を要約に替えた写し（hist.snapshot.paste_file）を貼り、要約した節の本文は read_file の全文の写しを Read で読ませる",
    "outputs": [
     "materials.hygiene"
    ],
    "prompt_file": "../prompts/review-loop/p1.hygiene.md",
    "reads": [
-    "file:hist.snapshot.diff_file",
+    "file:hist.snapshot.paste_file",
     "section:inputs.review_md#コード衛生観点"
    ],
+   "read_file": "hist.snapshot.diff_file",
    "schema": {
     "type": "object",
     "required": [
@@ -5072,14 +5219,14 @@
     "cur.p3.fix_delta.delta.files",
     "inputs.cwd",
     "out.p2.plan_review",
-    "out.p3.fix.plan_faces",
+    "cur.p3.fix_delta.delta.claimed",
     "record.process.policy.path"
    ],
    "pointers": [
     {
      "at": "checks[].key",
      "from": [
-      "out.p3.fix.plan_faces"
+      "cur.p3.fix_delta.delta.claimed"
      ]
     }
    ],
@@ -5218,14 +5365,14 @@
     "cur.p3.fix_delta2.delta.file",
     "cur.p3.fix_delta2.delta.files",
     "inputs.cwd",
-    "out.p3.delta_fix.handled",
+    "cur.p3.fix_delta2.delta.claimed",
     "record.process.policy.path"
    ],
    "pointers": [
     {
      "at": "checks[].key",
      "from": [
-      "out.p3.delta_fix.handled"
+      "cur.p3.fix_delta2.delta.claimed"
      ]
     }
    ],
@@ -5979,9 +6126,10 @@
    "prompt_file": "../prompts/review-loop/r2.compare.md",
    "reads": [
     "out.r2.design.design",
-    "file:hist.after_fix.diff_file",
+    "file:hist.after_fix.paste_file",
     "out.p0.purpose.purpose_text"
    ],
+   "read_file": "hist.after_fix.diff_file",
    "schema": {
     "type": "object",
     "required": [
