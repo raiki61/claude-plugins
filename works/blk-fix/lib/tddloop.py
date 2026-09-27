@@ -14,6 +14,8 @@
   単位の頭に戻して direct へ、refactor は緑の時の木に戻す。実行器が走らない・回数の上限に届いた時は、残りを全部 direct にして抜ける
   （輪は done の印で抜け、max_iterations に届いて落ちない。R50）
 - fix-accept → frozen_problems: 輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか
+- fix-accept → selected_problems: 版からの変更に当たる試験（impact.select_tests。分からない物が近くに在れば全部）を同じ実行器で
+  走らせ、元で赤でなかった試験の赤を返す（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
 - collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整え・direct の理由）
 赤・緑の判定は写しの rules（review-loop-tdd.py）の関数を呼ぶ（写さない）。版は一時の index（GIT_INDEX_FILE）で木に固める
 （本物の index・HEAD・枝は動かさない。.gitignore に当たる物は載らない）。期限は持たない。
@@ -32,7 +34,9 @@ sys.dont_write_bytecode = True
 import board  # noqa: E402
 import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確かめ）
 import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
+import impact  # noqa: E402  （.shared/core。変更に当たる試験の選び）
 import tree_run  # noqa: E402
+import writes  # noqa: E402  （.shared/core。書き込みの出どころの突き合わせ）
 from leftovers import Unreadable, git, git_names  # noqa: E402
 
 RULES_GRAPH = "review-loop-tdd.json"
@@ -119,16 +123,17 @@ def hashes(repo, files) -> dict:
 
 
 # ---------------------------------------------------------------- 一式を走らせる
-def run_suite(exe: str, repo, work: pathlib.Path, n: int):
+def run_suite(exe: str, repo, work: pathlib.Path, n, args=()):
     """実行器を 1 回走らせる ——（結末の一覧, 終了コード, 問題）。結末が取れなければ一覧は None。
-    .py はこの Python で走らせる（写しの rules の run_suite と同じ）。出力は work/suite-<n>.log に丸ごと"""
+    .py はこの Python で走らせる（写しの rules の run_suite と同じ）。出力は work/suite-<n>.log に丸ごと。
+    args は JUnit の書き先の後ろに足す（受け付けの選んだ試験の -k。works/dev/tdd-suite.sh は pytest にそのまま渡す）"""
     argv = ([sys.executable] if exe.endswith(".py") else []) + [exe]
     junit = work / f"junit-{n}.xml"
     log = work / f"suite-{n}.log"
     env = {**tree_run.outside_env(os.environ), "PYTHONDONTWRITEBYTECODE": "1"}
     with open(log, "wb") as out:
         try:
-            rc = tree_run.run([*argv, str(junit)], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+            rc = tree_run.run([*argv, str(junit), *args], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                               cwd=str(repo), env=env)
         except OSError as e:
             return None, None, [f"テストの実行器を起こせない（{type(e).__name__}: {e}。ログ {log}）"]
@@ -302,8 +307,10 @@ def _cur(st) -> dict:
 
 
 def _next_unit(st, repo) -> None:
+    """次の単位の頭を固める。機械が戻した木（諦め・申し出・direct_why）もここを通るので、前の段の印（handoff）もここで進める"""
     if st["cur"] < len(st["queue"]):
-        st.update(phase="test", tries=0, reason="", unit_head=snapshot(repo), green_tree="")
+        head = snapshot(repo)
+        st.update(phase="test", tries=0, reason="", unit_head=head, handoff=head, green_tree="")
     else:
         st["done"] = True
 
@@ -483,14 +490,24 @@ def _conflict(st, reply, repo) -> tuple:
 
 def step(state_file, reply, repo) -> dict:
     """節 tdd-step。{ok（この返答を受けた）, done（輪を抜ける）, reason, phase（次の段）, conflict（止めた申し出の 1 件か None。
-    節が盤面の控えに積む）}"""
+    節が盤面の控えに積む）, writes（書き込みの出どころの突き合わせの結果。節が盤面の trace に積む）}。
+    申し出でない返答は、前の段の後から変わったファイルを書き込みの記録と欄 bash_writes に突き合わせてから段を確かめる。
+    前の段の印（handoff）は突き合わせを通った時と、機械が木を単位の頭に戻して次の単位へ移った時（申し出・諦め）だけ進める（拒まれた
+    返答の出し直しや、振り分けの段の申し出で、記録の無い書き込みを流さない）"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-step を呼ぶ番でない）")
     phase = st["phase"]
     item = None
+    got = None
+    if isinstance(reply, dict) and reply.get("phase") != "conflict":
+        moved = sorted(set(touched(repo, st["handoff"], snapshot(repo))) - set(st["suite_made"]))
+        got = writes.check(reply, repo, moved, writes.sink(repo))
+        reply = got.pop("reply")
     if not isinstance(reply, dict):
         probs = ["返答が JSON のオブジェクトでない"]
+    elif got and got["problems"]:
+        probs = got["problems"]
     elif reply.get("phase") == "conflict":
         probs, item = _conflict(st, reply, repo)
     elif reply.get("phase") != phase:
@@ -513,10 +530,11 @@ def step(state_file, reply, repo) -> dict:
         _abort(st, repo, f"TDD の輪の回数の上限（{MAX_ITERATIONS} 回）に届いた", "budget")
     if st["done"]:
         _finish(st, repo)
-    st["handoff"] = snapshot(repo)
+    if got and not got["problems"]:   # 突き合わせを通った木だけ（機械が単位の頭に戻した木は _next_unit が進める）
+        st["handoff"] = snapshot(repo)
     _save(state_file, st)
     return {"ok": not probs, "done": st["done"], "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"],
-            "conflict": item}
+            "conflict": item, "writes": got}
 
 
 def _finish(st, repo) -> None:
@@ -549,6 +567,40 @@ def frozen_problems(state_file, repo) -> list:
     now = hashes(repo, st["frozen"])
     moved = [f for f, h in st["frozen"].items() if now[f] != h]
     return [f"TDD の輪で凍ったテストのファイルを書き換えた: {moved}（輪で直した単位のテストは変えない）"] if moved else []
+
+
+def suite_made(state_file) -> list:
+    """実行器を走らせて出来たファイル（書き込みの出どころの突き合わせから外す。状態が無ければ空）"""
+    return _load(state_file).get("suite_made", []) if state_file else []
+
+
+ACCEPT_RUN = "accept"   # 受け付けが走らせた回のログ・JUnit の名（suite-accept.log）
+NO_SELECTED = "変えたファイルに当たる試験が無い"
+
+
+def selected_problems(state_file, repo, rev) -> tuple:
+    """(赤の文の一覧, 知らせ)。実行器の無い run（状態が無い）・当たる試験が無い・実行器が走らない時は赤にせず知らせだけ"""
+    if not state_file:
+        return [], NO_SUITE
+    st = _load(state_file)
+    work = pathlib.Path(st["work"])
+    sel = impact.select_tests(impact.map(repo, rev=rev, diff=True, cache_dir=work / "impact"))
+    if not sel["run_all"] and not sel["modules"]:
+        return [], NO_SELECTED
+    args = [] if sel["run_all"] else ["-k", " or ".join(sel["modules"])]
+    pre = snapshot(repo)
+    cases, code, why = run_suite(st["exe"], repo, work, ACCEPT_RUN, args)
+    st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
+    _save(state_file, st)
+    what = "一式（" + "・".join(sel["reasons"])[:200] + "）" if sel["run_all"] else f"選んだ試験（-k {args[1][:300]}）"
+    if cases is None:
+        return [], f"{what}を走らせられない（{'; '.join(why)}）"
+    red = [_key(c) for c in cases if c["outcome"] in ("failure", "error")
+           and st["baseline"].get(_key(c)) not in ("failure", "error")]
+    if not red:
+        return [], f"{what}: {len(cases)} 件で新しい赤なし"
+    return [f"受け付けが走らせた{what}で、元で赤でなかった試験が赤: {red[:20]}（{len(red)} 件。ログ {work / f'suite-{ACCEPT_RUN}.log'}）"
+            "——直した単位のどこかを直して出し直せ"], ""
 
 
 FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems")

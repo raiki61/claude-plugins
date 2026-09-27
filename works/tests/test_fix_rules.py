@@ -2,7 +2,7 @@
 
 - 決まりの正本は 1 つ: 直す役（fix-prep が組む）と TDD の輪の役（tdd-prep が組む）の両方の指示書が、正本の節をそのまま含む
 - 正本の文は works のほかの置き場に写さない（前から在る写しは KNOWN_COPIES に載せ、減らす方向にだけ変える）
-- 本線から来た決まりの句が正本に在る・「プロジェクトのテストを回せ」の文は今の形のまま（別の線が書き換え中）・
+- 本線から来た決まりの句が正本に在る・「プロジェクトのテストを回せ」の文は RUN_TESTS と一字違わず（直した単位に絞る）・
   変更の種類ごとの直の証拠（決定 C8）が在る
 - 節を機械が選ぶ: 本線の核（直し方・守ること）はいつも、証拠の節は単位のファイルと差分に在る種類だけ、TDD の段の約束は今の段だけ
 - 2 つの形（持ち主 2026-09-28）: full（全部。prompt_file はこの写し）と delta（変わった物と決まりの sha256 の 1 行）を並べて書き、
@@ -35,11 +35,14 @@ SHARED = BLK / "rules" / "common.md"
 # 本線（graphloops の p3.fix.md）から来た決まりの句。正本に在り、両方の指示書に届く
 MAINLINE = ("根本の単位ごとに直せ", "同じ形を全部直せ", "直す前に既製の物で済まないかを確かめろ", "動きを変えたら",
             "テストを消すな・緩めるな", "git commit` するな")
-# 別の線が書き換え中の文（controller がその書き換えを正本に当て直す）。ここでは今の形のまま動かさない
-RUN_TESTS = ("- **プロジェクトのテストを回せ。** 直した後にリポジトリのテスト一式を Bash で回し、緑を確かめてから返答せよ。"
-             "赤が残るなら、どの単位のどこかを直してから出せ。リポジトリに決まった回し方（`run.sh` など）が在ればそれを使い、"
-             "Python は `PYTHONDONTWRITEBYTECODE=1` を立てて回せ。git が無視する生成物（`__pycache__` など）のうち、"
-             "あなたの前に無かった物は後の節が消す（消した物は人に見せる）。")
+# 書く役の試験の回し方（直した単位に絞る。一式は線の最後のテストの段が回す。裁定 c1-1 で書き換えた文）
+RUN_TESTS = ("- **プロジェクトのテストを回せ。** 直した単位に当たる試験だけを絞って回せ（pytest の node id か `-k`、unittest の "
+             "`-k` かモジュール名。絞り方はリポジトリの `run.sh`・テストの置き場から探す）。テストの実行器が在る run では、受け付けが"
+             "版からの変更に当たる試験を機械で選んで回し、元で赤でなかった試験が赤なら理由のファイルで返す——自分で回すなら同じく"
+             "変えたファイルに当たる試験を選べ。リポジトリのテスト一式は線の最後のテストの段が回すので、役は回さない。絞る手が無い時"
+             "だけ、返答の直前に一式を 1 回だけ回せ。赤が残るなら、どの単位のどこかを直してから出せ。Python は "
+             "`PYTHONDONTWRITEBYTECODE=1` を立てて回せ。git が無視する生成物（`__pycache__` など）のうち、あなたの前に無かった物は"
+             "後の節が消す（消した物は人に見せる）。")
 # 前から在る正本の行の写し（減らす方向にだけ変える。直ったのに残っていれば赤）: (置き場, 行の頭)
 KNOWN_COPIES = {
     # 読み替えが同じ行き先の行を持つ（test_sp_skills が同じ行であることを縛る。読み替えは役に届かない読み物）
@@ -186,6 +189,15 @@ class TestSharedSource(unittest.TestCase):
                     hits.add((rel, next((k for f, k in KNOWN_COPIES if f == rel and ln.startswith(k)), ln[:40])))
         self.assertEqual(hits - KNOWN_COPIES, set(), "正本の文を写した。写さずに正本から組む")
         self.assertEqual(KNOWN_COPIES - hits, set(), "写しが消えた。KNOWN_COPIES から行を消す")
+
+    def test_run_tests_sentences_not_copied(self):
+        """「プロジェクトのテストを回せ」の文は、行の頭を変えても文単位で写さない（行の一致だけでは写しを見落とす）"""
+        sents = [s for s in RUN_TESTS.split("。") if len(s) >= MIN_LINE]
+        skip = {ROOT / d for d in ("tests", "docs")}
+        for f in sorted(ROOT.rglob("*.md")):
+            if f != SHARED and not any(s in f.parents for s in skip):
+                text = f.read_text(encoding="utf-8")
+                self.assertEqual([s[:40] for s in sents if s in text], [], f.relative_to(ROOT))
 
 
 class TestCompose(unittest.TestCase):

@@ -8,7 +8,8 @@
 - cut(board, n, repo):       n 回目の審査役を起こす前の支度。盤面の loop.<state_key>（今の周）の差分のファイルと触ったファイルを
                              返し、役に見せる材料（brief）を書き、読むだけの役の前の作業ツリーの写しを撮り、起こした印を置く
 - prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスを brief に書き、印を置く
-- accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる）
+- accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる。手直しは先に書き込みの
+                             記録と突き合わせ、記録の無い変更を盤面の trace に残す）
 - main_accept_review・main_accept_fix: 受け付けのスクリプトの入口（rolekit.main_accept。3 回目の拒否で done・give_up。R50）
 - route(board):              blk-refix の分かれ道 {review2, refix2, owed, owed2}（盤面の待っている節と義務の数）
 - collect_delta・collect_refix: 出口（1 本目の欄を全部残して足す）。役が 3 回とも拒まれて輪を抜けたら、最後の拒否の文で
@@ -43,6 +44,7 @@ import node_marker  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
 import rolekit  # noqa: E402
+import writes  # noqa: E402
 
 PASS_KEYS = ("cut", "review", "owed", "fix", "state_key", "owed_key")
 REVIEW_ROLE = {1: "review", 2: "review2"}   # 審査役の名（印 works-node の名・reads-<役>.json）
@@ -216,8 +218,15 @@ def accept_review(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
 
 
 def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path, *, n: int) -> dict:
-    """n 回目の手直しの役の返答（書く役）。entry.take の返り"""
-    return entry.take(board, _pass(n)["fix"], reply, repo)
+    """n 回目の手直しの役の返答（書く役）。entry.take の返り。先に版 base_rev からの変更を書き込みの記録と突き合わせ、
+    記録の無い変更を盤面の trace に残す（writes.check の strict=False。起点は盤面の review_rev。この役の返答の形は写しの graph の schema のままで
+    申告の欄 bash_writes を持たないので、拒まずに報告に出す）"""
+    rev = writes.base_rev(entry.open_board(board), base_rev)
+    got = writes.check(reply, repo, writes.changed(repo, rev), writes.sink(repo), strict=False)
+    out = entry.take(board, _pass(n)["fix"], got["reply"], repo)
+    if out.get("ok") is True:   # 受けた時だけ（拒否では盤面を前のままにする）
+        writes.trace(entry.open_board(board, allow_halted=True), FIX_ROLE[n], got)
+    return out
 
 
 def main_accept_review(n: int) -> int:
@@ -227,8 +236,10 @@ def main_accept_review(n: int) -> int:
 
 
 def main_accept_fix(n: int) -> int:
-    """手直しの受け付けのスクリプトの入口（rolekit.main_accept）"""
-    return rolekit.main_accept(_pass(n)["fix"])
+    """手直しの受け付けのスクリプトの入口（rolekit.main_accept。3 回目の拒否で done・give_up。R50）。盤面へは accept_fix
+    （書き込みの記録との突き合わせつき）で渡す。版は節の入力 INPUTS_BASE_REV（空なら盤面の review_rev）"""
+    return rolekit.main_accept(_pass(n)["fix"], take=lambda board, reply, repo: accept_fix(
+        reply, board, os.environ.get("INPUTS_BASE_REV", ""), repo, n=n))
 
 
 # ---------------------------------------------------------------- 分かれ道・出口

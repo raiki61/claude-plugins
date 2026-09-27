@@ -3,6 +3,9 @@
 # dependencies = []
 # ///
 """修正役の返答の受け付け（blk-fix の節 fix-accept）。順は
+-3. TDD の輪で凍ったテストのファイル（下の 1b）
+-2. 書き込みの出どころ（check_writes。writes.check）: 版からの変更に、Edit・Write の書き込みの記録か返答の欄 bash_writes の申告が
+   在るか。無ければ拒む。記録の無い run（包みが無い）は通し、受けた時に盤面の trace に 1 行。盤面に渡す返答からは bash_writes を外す
 -1. 食い違いの申し出（欄 conflicts。INPUTS_PASS が first か ruled）: take_conflicts。名指しが現物に無ければ普通の拒否、在れば
    拒否に数えずその単位を止める。1 回目（first）で裁かれていない申し出が在れば盤面に渡さずに {ok: true, parked: true}
    （輪を抜け、裁定の輪 → 2 回目の修正役 fix-ruled が渡す）。盤面に渡す返答からは conflicts を外す（写しの schema に無い欄）
@@ -17,6 +20,8 @@
 1a. check_pack_copy: .archon/ の下（自分食いの run では動いている線の pack の写し）を申告した・変えた返答を拒む（run 26）
 1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
    空・欠けは輪の無い run で見ない）
+1c. check_tests: 版からの変更に当たる試験を、TDD の輪と同じ実行器で機械が走らせ、元で赤でなかった試験の赤を拒む
+   （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
 2. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が判定役の class_query を修正前の版と修正後の
    作業ツリーで数え直す（仕様 3.2）。通れば 1 本目の出口のための changes（unit_key・files・what）を足す
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
@@ -41,11 +46,13 @@ import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控�
 import recount  # noqa: E402
 import tddloop  # noqa: E402
 import entry  # noqa: E402
+import writes  # noqa: E402   書き込みの出どころの突き合わせ（.shared/core）
 from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
 from engine.rules import validator_module  # noqa: E402
 
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS")
 GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
+TESTS_OP = "fix_tests_selected"   # 受け付けが選んだ試験を走らせた盤面の trace の行
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
 NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（判定が defer にした単位・判定に無い単位は直さない。"
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
@@ -161,10 +168,27 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     return reply, None
 
 
+def check_writes(reply: dict, board: Path, base_rev: str, repo: Path, state: str) -> dict:
+    """書き込みの出どころ（writes.check。欄 bash_writes を外した返答は reply に）。盤面は書かない"""
+    made = set(tddloop.suite_made(state))
+    rev = writes.base_rev(entry.open_board(board), base_rev)
+    return writes.check(reply, repo, [p for p in writes.changed(repo, rev) if p not in made], writes.sink(repo))
+
+
+def check_tests(board: Path, base_rev: str, repo: Path, state: str) -> tuple:
+    """版からの変更に当たる試験を機械が走らせた赤（tddloop.selected_problems）。返り (赤の文, 知らせ)。盤面は書かない"""
+    return tddloop.selected_problems(state, repo, writes.base_rev(entry.open_board(board), base_rev))
+
+
 def accept_fix(reply, board, base_rev, repo):
-    frozen = tddloop.frozen_problems(os.environ.get("INPUTS_TDD_STATE", ""), repo)
+    state = os.environ.get("INPUTS_TDD_STATE", "")
+    frozen = tddloop.frozen_problems(state, repo)
     if frozen:
         return _reject(" / ".join(frozen))
+    wrote = check_writes(reply, board, base_rev, repo, state)
+    if wrote["problems"]:
+        return _reject(" / ".join(wrote["problems"]))
+    reply = wrote["reply"]
     pass_ = os.environ.get("INPUTS_PASS") or "first"
     reply, done = take_conflicts(reply, board, repo, pass_)
     if done is not None:
@@ -178,7 +202,15 @@ def accept_fix(reply, board, base_rev, repo):
         for words, bad in ((DUPLICATE, check_unique_units(keys)), (NOT_OPENED, check_opened_units(keys, opened))):
             if bad:
                 return {"ok": False, "reason": words + " / ".join(bad), "changes": []}
-    return recount.accept_fix(reply, board, base_rev, repo)
+    red, note = check_tests(board, base_rev, repo, state)
+    if red:
+        return _reject(" / ".join(red))
+    out = recount.accept_fix(reply, board, base_rev, repo)
+    if out.get("ok") is True:   # 受けた時だけ盤面の trace に積む（拒否・回す側の誤りでは盤面を前のままにする）
+        b = entry.open_board(board, allow_halted=True)
+        writes.trace(b, recount.ROLE, wrote)
+        b.trace(TESTS_OP, node=recount.ROLE, note=note)
+    return out
 
 
 def with_done(out: dict) -> dict:

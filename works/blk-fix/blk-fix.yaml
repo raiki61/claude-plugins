@@ -155,6 +155,16 @@ nodes:
                 items: {type: string}
               why_both_cannot_hold: {type: string}
               which_is_right: {type: string, enum: [request, test, code, unknown]}
+              # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。tdd-step が書き込みの記録と突き合わせる）
+              bash_writes:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [path, why]
+                  properties:
+                    path: {type: string, minLength: 1}
+                    why: {type: string, minLength: 10}
 
         - id: tdd-step
           script: tdd_step
@@ -539,6 +549,16 @@ nodes:
                       items: {type: string, minLength: 3}
                     why_both_cannot_hold: {type: string, minLength: 10}
                     which_is_right: {type: string, enum: [request, test, code, unknown]}
+              # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。受け付けが書き込みの記録と突き合わせ、盤面に渡す前に外す）
+              bash_writes:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [path, why]
+                  properties:
+                    path: {type: string, minLength: 1}
+                    why: {type: string, minLength: 10}
 
         - id: fix-accept
           script: accept
