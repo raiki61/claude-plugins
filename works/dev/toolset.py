@@ -16,9 +16,14 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
   中身が同じで入っていれば CLI を呼ばない。変わっていれば marketplace を update し、入れ直す。CLI が 0 で終わっても
   settings.json の enabledPlugins に載らなければ止まる（フックの効かない役を起こさない）。--no-plugins（認証の要らない道。
   validate・テスト）は CLI を呼ばない。
+- kind "mcp"（Context7。transport・url・licence）: 使用許諾が LICENCES_OK（MIT・Apache-2.0・BSD）の時だけ、<置き場>/works-mcp.json
+  （{"mcpServers": {名: {type, url}}}）に載せる。許諾が外れなら何も写さずに止まる。Archon の役の節は周りの MCP（利用者・
+  プラグインの MCP）を読まない（strictMcpConfig）ので、包み（.shared/core/adapter.py の 10）がこのファイルを web を持つ役の
+  起動に --mcp-config で渡す。
 - 柵（guard）: 一覧の外を名前で並べる。CLAUDE.md・rules/・agents/・commands/・output-styles/・settings.json 以外の
   settings*.json・一覧の外のスキル・settings.json の鍵が {enabledPlugins, extraKnownMarketplaces} の外・一覧の外の有効な
-  プラグイン・入れたプラグイン（plugins/installed_plugins.json）・marketplace（settings.json と plugins/known_marketplaces.json）。
+  プラグイン・入れたプラグイン（plugins/installed_plugins.json）・marketplace（settings.json と plugins/known_marketplaces.json）・
+  works-mcp.json の一覧の外の MCP。
   Claude Code が自分で書く状態（projects/・.claude.json・backups/・remote-settings.json・plugins/cache/ など）は見ない。
   install は組む前と後に柵を当て、当たれば何も写さずに止まる。CLI は 1 行を出して終了コード 2。
 - 記録 <置き場>/.works-toolset.json: {名: {version, source, sha256, loaded}}（Task 21 の版上げ・書き出しが読む）。
@@ -37,6 +42,8 @@ sys.dont_write_bytecode = True
 MARKETPLACE = "works-local"                 # 隔離した設定の中の手元の marketplace の名
 MP_DIR = "works-marketplace"                # その置き場（<設定の置き場>/works-marketplace）
 RECORD = ".works-toolset.json"
+MCP_FILE = "works-mcp.json"                 # 借りる MCP の置き場（包みが --mcp-config で役に渡す）
+LICENCES_OK = frozenset({"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"})   # MCP を借りてよい使用許諾（SPDX の名）
 SETTINGS_KEYS = frozenset({"enabledPlugins", "extraKnownMarketplaces"})
 FOREIGN_FILES = ("CLAUDE.md",)
 FOREIGN_DIRS = ("rules", "agents", "commands", "output-styles")
@@ -84,8 +91,10 @@ def fixed_sources(pack: pathlib.Path, borrow: dict) -> dict:
             if entry is None or not isinstance(entry.get("source"), str):
                 raise ToolsetError(f"{mp_file} に {name} の置き場（source）が無い")
             out[name] = (repo / entry["source"]).resolve()
+        elif item["kind"] == "mcp":
+            out[name] = item["url"]
         else:
-            raise ToolsetError(f"borrow.json の {name} の kind {item['kind']!r} を知らない（skills か plugin）")
+            raise ToolsetError(f"borrow.json の {name} の kind {item['kind']!r} を知らない（skills・plugin・mcp）")
     return out
 
 
@@ -197,6 +206,28 @@ def guard(config_dir: pathlib.Path, borrow: dict) -> list:
         out.append("plugins/known_marketplaces.json（JSON の表として読めない）")
     elif km is not None:
         out += [f"marketplace {k}（plugins/known_marketplaces.json）" for k in sorted(set(km) - {MARKETPLACE})]
+    mf = _read_json(cfg / MCP_FILE)
+    if mf is _BAD or (mf is not None and not isinstance(mf.get("mcpServers"), dict)):
+        out.append(f"{MCP_FILE}（JSON の表として読めない）")
+    elif mf is not None:
+        mcps = {n for n, i in borrow.items() if i["kind"] == "mcp"}
+        out += [f"{MCP_FILE} の MCP {k}" for k in sorted(set(mf["mcpServers"]) - mcps)]
+    return out
+
+
+def _mcp_servers(chosen: dict, borrow: dict) -> dict:
+    """借りる MCP の {名: {type, url}}。使用許諾が LICENCES_OK の外なら ToolsetError（何も書く前に呼ぶ）"""
+    out = {}
+    for name, item in sorted(borrow.items()):
+        if item["kind"] != "mcp":
+            continue
+        lic = item.get("licence")
+        if lic not in LICENCES_OK:
+            raise ToolsetError(f"{name} の使用許諾 {lic!r} は借りてよい物（{'・'.join(sorted(LICENCES_OK))}）でない。"
+                               "隔離した設定に入れない")
+        if item.get("transport") != "http" or not str(chosen.get(name) or "").startswith("https://"):
+            raise ToolsetError(f"{name} は https の http の MCP でない（transport {item.get('transport')!r}・url {chosen.get(name)!r}）")
+        out[name] = {"type": "http", "url": chosen[name]}
     return out
 
 
@@ -258,6 +289,7 @@ def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin,
     bad = guard(cfg, borrow)
     if bad:
         raise ToolsetError(_refusal(cfg, bad))
+    mcp = _mcp_servers(chosen, borrow)
     rec = {}
     for name, item in borrow.items():
         if item["kind"] != "skills":
@@ -289,6 +321,13 @@ def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin,
             version = src.name   # 版を固めた写しの置き場の名（plugin.json に version を持たないプラグイン。pr-review-toolkit）
         rec[name] = {"version": version, "source": str(src),
                      "sha256": _digest([name, _tree(src)]), "loaded": loaded}
+    if mcp:
+        _write_if_changed(cfg / MCP_FILE, json.dumps({"mcpServers": mcp}, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    elif (cfg / MCP_FILE).exists():
+        (cfg / MCP_FILE).unlink()
+    for name, server in mcp.items():
+        rec[name] = {"version": borrow[name].get("version"), "source": server["url"],
+                     "sha256": _digest([name, server]), "loaded": True}
     bad = guard(cfg, borrow)
     if bad:
         raise ToolsetError(_refusal(cfg, bad))
