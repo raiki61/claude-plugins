@@ -37,6 +37,22 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 
 開発の家（`WORKS_DEV_HOME`。既定は `$TMPDIR/works-dev`）・使い捨ての対象・その origin は、Claude Code の一時フォルダ（`/private/tmp/claude-*`・`/tmp/claude-*`）の下に置けない。サンドボックスの中の Bash がそこへ書けるためで、`dev/` の殻はその下に解けるパスを終了コード 2 で拒む（設計書 7 節）。
 
+## 層と依存の向き
+
+正本は試験 `works/tests/test_layers.py`（裁定 R59）。下は要約で、食い違えば試験が正しい。上の層は下の層だけを知ってよい（import も、ライン・include の id・ほかのブロックの名前を文字列で書くことも）。
+
+- L0 写し: `.shared/core/graphloops`・`.shared/core/scripts`。works の物を何も知らない
+- L1 基礎: `tree_run`・`script_io`・`node_marker`
+- L2 包み: `adapter`・`ticket`・`claude-adapter`・`record-read.py`・`no-post-bin/works-gh`
+- L3 盤面と受け付け: `board`・`accept`・`policy`・`entry`（共有の部分）・`halt`（止め札）・`refix`・`recount`
+- L4 ブロックの模块: 使うブロックが 1 つの模块（`ci_role`・`purpose`・`rejudge`・`prcheck`、`<blk>/lib/`）。持ち主のブロックとラインだけが使う
+- L5 ブロック: `blk-*/`。ほかのブロック・ライン・自分に付く include の id を知らない
+- L6 ラインの模块: 使うラインが 1 つの模块（`<line>/lib/`。例: `darkfactory/lib/` の境の節の中身）。持ち主のラインだけが使う
+- L7 ライン: `<line>/`（`nodes.json` を持つフォルダ）。ブロックを名前で include してよい
+- L8 `dev/`・L9 `tests/`: 全部を知ってよい。pack の中からは参照しない
+
+ほかに、輪の無い import・`*/scripts/*.py` は YAML の節だけ（模块は `lib/` か core へ）・動的な import は定数だけ、を縛る。今ある破れは試験の `KNOWN` に載せてあり、減らす方向にだけ変える（直したら行を消す。残すと赤）。`lib/` は Archon が探さない（探すのは `scripts/` など）ので、スクリプトとして拾われない。
+
 ## Claude の包み
 
 `.shared/core/claude-adapter` は、Archon が起こす Claude Code の実行ファイルの前に挟む薄い殻（芯は `.shared/core/adapter.py`）。役が読んだファイルの記録・再審の役が判定役の会話の続きで起きること・役に書かせない場所の柵・止める時に孫まで止めることを受け持つ。形は本物の Archon v0.11.1・SDK 0.3.282・claude 2.1.283 との有料の試しで確かめ、試験（`tests/test_adapter.py`）は偽の claude で縛る。今のラインの YAML はまだ印を持たないので、入れても何も足さずに素通しする（印を付けるのは線 A の後の作業）。
