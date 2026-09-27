@@ -36,6 +36,7 @@ import halt  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
 import plan  # noqa: E402
+import protect  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
@@ -460,6 +461,115 @@ class FinalGateCase(EdgeBase):
                 if name and name.startswith("MID_GATE_"):
                     hits.append(f"{path.relative_to(ROOT)}:{node.lineno} {name}")
         self.assertEqual(hits, [])
+
+
+class ProtectedGateCase(EdgeBase):
+    """守りのファイル（works/.shared/core/protected.json の一覧。ASF の floor.json に倣う）を run が触ったら、最後の人の関所を
+    final_gate が when_needed でも必ず開き、文の頭に「守りのファイルを触った」とファイル・行数・規則を並べ、盤面の
+    process.human_items にも 1 行（報告の冒頭 1 に出る）。通すのは人の continue だけ。関所が開かなかった答え（null）は止める。
+    試験の一覧は種の stats.py を守る物に差し替える（本物の一覧は test_protect が見る）"""
+
+    def setUp(self):
+        super().setUp()
+        doc = {"rules": [{"id": "seed-core", "glob": "stats.py", "why": "種の芯（試験の一覧）"}]}
+        path = self.tmp / "protected.json"
+        path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        patch = mock.patch.object(protect, "MANIFEST", path)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    closed = FinalGateCase.closed   # 直す物の無い周を締めた盤面（FinalGateCase の試験は継がない）
+
+    def touched_closed(self):
+        tests = self.closed()
+        (self.repo / "stats.py").write_text("x = 1\n", encoding="utf-8")
+        return tests
+
+    def protected_rows(self):
+        b = entry.open_board(self.board, allow_halted=True)
+        return [h for h in b.record["process"]["human_items"] if h.get("node") == line_edge.PROTECTED_BY]
+
+    def test_touch_forces_gate_when_needed(self):
+        """when_needed・緑・問い無し・異議無しでも、守りのファイルを触っていれば開き、文の頭に節・ファイル・行数・規則"""
+        tests = self.touched_closed()
+        got = self.edge("final", tests=tests, final_gate="when_needed")
+        self.assertTrue(got["ask"])
+        head = got["gate_text"].split("最後の人の関所")[0]
+        self.assertIn(line_edge.PROTECTED_HEAD, head.splitlines()[0])
+        for want in ("stats.py", "+1 −", "規則 seed-core（stats.py）", "種の芯（試験の一覧）"):
+            self.assertIn(want, head)
+        self.assertLess(got["gate_text"].index(line_edge.PROTECTED_HEAD), got["gate_text"].index("最後の人の関所"))
+        rows = self.protected_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["kinds"], rows[0]["answer"], rows[0]["round"]), ([line_edge.PROTECTED_KIND], None, 1))
+        self.assertTrue(any("stats.py" in a for a in rows[0]["asked"]))
+
+    def test_touch_on_top_with_always(self):
+        tests = self.touched_closed()
+        text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
+        self.assertTrue(text.startswith("## " + line_edge.PROTECTED_HEAD), text[:80])
+
+    def test_untouched_is_unchanged(self):
+        """触っていなければ今までどおり: when_needed・緑は開かず、盤面の行も無い。always の文に節は無い"""
+        tests = self.closed()
+        got = self.edge("final", tests=tests, final_gate="when_needed")
+        self.assertEqual((got["ask"], got["gate_text"]), (False, ""))
+        self.assertEqual(self.protected_rows(), [])
+        self.assertNotIn(line_edge.PROTECTED_HEAD, self.edge("final", tests=tests, final_gate="always")["gate_text"])
+        self.assertEqual(self.protected_rows(), [])
+
+    def test_recall_does_not_add_rows(self):
+        """Archon の再開で h-final を呼び直しても行は 1 本"""
+        tests = self.touched_closed()
+        for _ in range(2):
+            self.edge("final", tests=tests, final_gate="when_needed")
+        self.assertEqual(len(self.protected_rows()), 1)
+
+    def test_continue_passes_and_marks_row(self):
+        tests = self.touched_closed()
+        self.edge("final", tests=tests, final_gate="when_needed")
+        got = self.edge("eyes", gate={"decision": "continue", "text": "試験の直しは正しい"})
+        self.assertEqual(got["stop"], False)
+        self.assertEqual(self.protected_rows()[0]["answer"], "continue")
+
+    def test_stop_keeps_report(self):
+        """stop は止める（報告の節は trigger_rule で走る）。盤面の行の答えは stop・最後の関所の答えのファイルも残る"""
+        tests = self.touched_closed()
+        self.edge("final", tests=tests, final_gate="when_needed")
+        got = self.edge("eyes", gate={"decision": "stop", "text": "試験を緩めている"})
+        self.assertEqual((got["stop"], got["why"]), (True, "試験を緩めている"))
+        self.assertEqual(self.protected_rows()[0]["answer"], "stop")
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertTrue(b.work(line_edge.FINAL_GATE_ANSWER).is_file())
+
+    def test_no_gate_answer_stops(self):
+        """守りのファイルを触ったのに最後の関所の答えが来ない（null。関所が開かなかった）→ 止める（fail closed）"""
+        tests = self.touched_closed()
+        self.edge("final", tests=tests, final_gate="when_needed")
+        got = self.edge("eyes", gate=None)
+        self.assertTrue(got["stop"])
+        self.assertIn(line_edge.PROTECTED_HEAD, got["why"])
+        rows = trace_rows(self.board, line_edge.STOP_AFTER_END_OP)
+        self.assertEqual([r["by"] for r in rows], [line_edge.PROTECTED_BY])
+
+    def test_broken_manifest_forces_gate(self):
+        """一覧が読めない時は確かめられなかったと頭に書いて開く（黙って空にしない）"""
+        tests = self.closed()
+        protect.MANIFEST.write_text("{", encoding="utf-8")
+        got = self.edge("final", tests=tests, final_gate="when_needed")
+        self.assertTrue(got["ask"])
+        self.assertIn(line_edge.PROTECTED_UNKNOWN, got["gate_text"].splitlines()[0])
+
+    def test_real_manifest_protects_itself(self):
+        """本物の一覧で: run の作業ツリーに一覧と同じパスのファイルを置けば、規則 manifest で関所が開く"""
+        tests = self.closed()
+        with mock.patch.object(protect, "MANIFEST", CORE / "protected.json"):
+            target = self.repo / "works" / ".shared" / "core" / "protected.json"
+            target.parent.mkdir(parents=True)
+            target.write_text("{}\n", encoding="utf-8")
+            got = self.edge("final", tests=tests, final_gate="when_needed")
+        self.assertTrue(got["ask"])
+        self.assertIn("works/.shared/core/protected.json（+1 −0）: 規則 manifest", got["gate_text"])
 
 
 class EntryMidCase(EdgeBase):
