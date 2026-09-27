@@ -5,7 +5,9 @@
 周 2 の盤面だけは手本 test_runaway の Run 1（p2.fix_plan を周 2 に受けた手の後）から作る。
 - 関所の答え（policy-gate）: 文字列 null は「開かなかった」（answer を呼ばない）。approve・continue は continue、stop・reject は
   stop（盤面は halted.by == "answer"）。一言は process.human_items に 1 バイトも変わらずに届く
-- 中の関所（mid-gate）: always はいつも、when_needed は中のテストが赤か走れなかった時だけ開く。stop は b.stop（by human:mid-gate）
+- 最後の人の関所（final-gate。計画 P1 Task 26・P1-R3。中の関所は無い）: always はいつも、when_needed は最後のテストが緑でない・
+  盤面の問い・止めずに残った異議の時だけ開く。答えは h-eyes が受け、stop は b.stop（by human:final-gate）。周を締めた盤面
+  （halted.by stop_after_round）では trace の 1 行と final-gate-answer.json に残す
 - 止め札: 次の境の節で b.stop。関所の答えが先。止めた盤面では b.stop を呼ばず trace にだけ
 - go は盤面の ready から（開き直した盤面でも。explicit の機械の節は DiskBoard.ready が足す）
 """
@@ -37,7 +39,9 @@ import plan  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
-OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "why"}
+OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "why", "premises_file",
+            "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note"}
+BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
 FACE = "clamp の上限の意味が変わる"
@@ -119,8 +123,8 @@ class EdgeBase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
-    def judged(self, name="judge_ok"):
-        """start → 並行 PR の任せ先・前提の役 → 判定（name の見本）を受けた盤面（p2.fix_plan が待つ）"""
+    def started(self):
+        """start → 並行 PR の任せ先を受けた盤面（p0.premises が待つ）"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True)
@@ -130,8 +134,42 @@ class EdgeBase(unittest.TestCase):
         raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "", "adapter": "", "policy_md": ""}
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
+
+    def premised(self):
+        """前提の役まで受けた盤面（p2.diagnose が待つ）"""
+        self.started()
         self.take("p0.premises", {"constraints": []})
+
+    def premises_exit(self, reply):
+        """前提のブロックの出口（collect の形）。constraints_file は reply を書いた盤面の外のファイル"""
+        path = self.tmp / "premises-out" / "premises.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(reply, ensure_ascii=False), encoding="utf-8")
+        return {"ok": True, "constraints_file": str(path), "constraints_summary": "x"}
+
+    def launched(self):
+        """この run の worktree に包みの起動の行を 1 本（盤面を作った後。reads.adapter_seen が数える形）"""
+        import adapter
+        p = adapter.launches_path(self.repo)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        row = {"at": adapter.now(), "pid": 1, "cwd": str(self.repo), "node": "premises", "continue": None, "mode": "merged",
+               "why": None, "hook": True, "tools_empty": False, "session": None, "fence": None}
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    def judged(self, name="judge_ok"):
+        """前提の役まで受け、判定（name の見本）を受けた盤面（p2.fix_plan が待つ）"""
+        self.premised()
         return self.take("p2.diagnose", linekit.reply(name))
+
+    def judge_exit(self, name="judge_ok", reply=None):
+        """判定のブロックの出口（collect の形）。judgment_file は見本の返答（か reply）を書いた盤面の外のファイル"""
+        body = linekit.reply(name) if reply is None else reply
+        path = self.tmp / "judge-out" / "judgment.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+        units = [u["key"] for u in body.get("units") or [] if isinstance(u, dict)] if isinstance(body, dict) else []
+        return {"ok": True, "open_units": units, "need_fix": bool(units), "judgment_file": str(path), "one_shot": "x"}
 
     def planned(self, review="plan_review_regression"):
         """判定・修正案・事前審査を受けた盤面。既定の事前審査は regression の穴を持つ（p2.human_gate が人に聞く）"""
@@ -153,8 +191,8 @@ class EdgeBase(unittest.TestCase):
         return self.take("p3.fix", fix_reply(faces=True))
 
     def edge(self, at, **kw):
-        kw.setdefault("mid_gate", "always")
-        kw.setdefault("adapter_mode", "")
+        kw.setdefault("final_gate", "always")
+        kw.setdefault("adapter_mode", "optional")   # 包みの確かめ（at judge）は JudgeEdgeCase が "" で見る
         return line_edge.edge(self.board, at, self.repo, run_id=RUN_ID, **kw)
 
     def state(self):
@@ -231,7 +269,7 @@ class GateCase(EdgeBase):
         self.assertEqual(entry.open_board(self.board, allow_halted=True).record["process"]["human_items"][-1]["answer"], "stop")
         for at in line_edge.AT:
             with self.subTest(at=at):
-                got = self.edge(at, mid={"ok": True, "green": False, "log": "x"} if at == "midgate" else None)
+                got = self.edge(at, tests={"ok": True, "green": False, "log": "x"} if at == "final" else None)
                 self.assertEqual((got["stop"], got["go"], got["ask"]), (True, False, False))
 
     def test_stop_without_text_has_default_reason(self):
@@ -259,75 +297,219 @@ class GateCase(EdgeBase):
         self.assertEqual(len(entry.open_board(self.board).record["process"]["human_items"]), 1)
 
     def test_bad_inputs_are_board_gaps(self):
-        """知らない at・知らない答えの語・形の崩れた答え・場違いの入力・知らない mid_gate は BoardGap（配線の誤り。終了コード 2）"""
+        """知らない at・知らない答えの語・形の崩れた答え・場違いの入力・知らない final_gate は BoardGap（配線の誤り。終了コード 2）"""
         self.judged()
-        cases = [("nowhere", {}), ("fix", {"gate": {"decision": "maybe"}}), ("fix", {"gate": {"text": "x"}}),
+        cases = [("nowhere", {}), ("midgate", {}), ("fix", {"gate": {"decision": "maybe"}}), ("fix", {"gate": {"text": "x"}}),
                  ("fix", {"gate": "continue"}), ("fix", {"gate": {"decision": "continue", "text": 3}}),
-                 ("gate", {"gate": {"decision": "continue"}}), ("fix", {"mid": {"ok": True}}),
-                 ("fix", {"judged": {"judgment_file": "x"}}), ("midgate", {"mid": {"ok": True}, "mid_gate": "sometimes"}),
-                 ("midgate", {"mid": "green"}), ("plan", {"judged": "x"})]
+                 ("gate", {"gate": {"decision": "continue"}}), ("review", {"gate": {"decision": "continue"}}),
+                 ("fix", {"tests": {"ok": True}}), ("tests", {"tests": {"ok": True}}),
+                 ("fix", {"judged": {"judgment_file": "x"}}), ("final", {"tests": {"ok": True}, "final_gate": "sometimes"}),
+                 ("final", {"tests": "green"}), ("plan", {"judged": "x"})]
         for at, kw in cases:
             with self.subTest(at=at, kw=kw):
                 with self.assertRaises(BoardGap):
                     self.edge(at, **kw)
 
 
-class MidGateCase(EdgeBase):
-    def test_midgate_always_and_when_needed(self):
-        """always → 緑でも ask。when_needed → 緑なら ask False、赤か ok False なら ask True、mid None → ask False"""
-        self.fixed()
-        log = str(self.tmp / "mid-tests.log")
-        green = {"ok": True, "green": True, "log": log, "suites": [], "by": "cmd"}
-        red = {**green, "green": False}
-        broken = {"ok": False, "green": False, "log": log, "reason": "宣言が読めない"}
+class FinalGateCase(EdgeBase):
+    """最後の人の関所（計画 P1 Task 26）。h-final が開くかと文、h-eyes が答えを受ける"""
+    GREEN = {"ok": True, "green": True, "log": "/logs/final.log", "suites": [], "by": "engine"}
+
+    def closed(self):
+        """直す物の無い周を最後のテストまで回し、周を締めた盤面（halted.by stop_after_round）。返りは最後のテストの出口"""
+        self.premised()
+        self.edge("plan", judged=self.judge_exit("judge_no_fix"))
         b = entry.open_board(self.board)
-        page = b.work(line_edge.MID_GATE_FILE)
-        got = self.edge("midgate", mid=green, mid_gate="always")
-        self.assertEqual((got["ask"], got["stop"], got["go"]), (True, False, False))
+        ci = entry.run_ci(b, "p4.ci", test_cmd="")
+        b.settle()
+        st = self.state()
+        self.assertEqual((st["halted"]["by"], st.get("stop")), (line_edge.ENDED_BY, None))
+        return {"ok": True, "green": True, "log": ci["log"], "suites": [], "by": ci["by"]}
+
+    def test_final_always_asks(self):
+        """final_gate always・緑 → ask True、文に最後のテストの行と穴の数、b.work(final-gate.md) に同じ文"""
+        tests = self.closed()
+        got = self.edge("final", tests=tests, final_gate="always")
+        self.assertEqual((got["ask"], got["stop"], got["go"]), (True, False, False), got)
         text = got["gate_text"]
-        for want in ("緑", log, str(self.repo), "mean の分母を len(xs) に直した", UNIT_CLAMP,
+        for want in ("テストは緑", tests["log"], str(self.repo), "差分の審査の穴: 0 件", "止めずに残った異議: 無い",
                      f"archon workflow respond {RUN_ID} continue", f"archon workflow respond {RUN_ID} stop"):
             self.assertIn(want, text)
-        self.assertEqual(page.read_text(encoding="utf-8"), text)
-        page.unlink()
-        got = self.edge("midgate", mid=green, mid_gate="when_needed")
-        self.assertEqual((got["ask"], got["gate_text"]), (False, ""))
-        self.assertFalse(page.exists())
-        for mid in (red, broken):
-            with self.subTest(mid=mid):
-                got = self.edge("midgate", mid=mid, mid_gate="when_needed")
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(b.work(line_edge.FINAL_GATE_FILE).read_text(encoding="utf-8"), text)
+
+    def test_final_default_is_always(self):
+        tests = self.closed()
+        self.assertTrue(self.edge("final", tests=tests, final_gate="")["ask"])
+
+    def test_final_when_needed_green_skips(self):
+        """when_needed・緑・問い無し・異議無し → ask False、文を書かない"""
+        tests = self.closed()
+        got = self.edge("final", tests=tests, final_gate="when_needed")
+        self.assertEqual((got["ask"], got["gate_text"], got["stop"]), (False, "", False))
+        self.assertFalse(entry.open_board(self.board, allow_halted=True).work(line_edge.FINAL_GATE_FILE).exists())
+
+    def test_final_when_needed_red_asks(self):
+        """when_needed・赤か走れなかった・走らなかった（出口 null）→ ask True、頭の語がそれぞれ"""
+        tests = self.closed()
+        for exit_, word in (({**tests, "green": False}, "赤"), ({"ok": False, "green": False, "log": "", "reason": "宣言が読めない"},
+                                                                "走れなかった"), (None, "走らなかった")):
+            with self.subTest(word=word):
+                got = self.edge("final", tests=exit_, final_gate="when_needed")
                 self.assertTrue(got["ask"])
-                self.assertIn("赤" if mid["ok"] else "走れなかった", got["gate_text"])
-        self.assertIn("宣言が読めない", got["gate_text"])
-        for mode in ("always", "when_needed"):
-            with self.subTest(mode=mode):
-                self.assertFalse(self.edge("midgate", mid=None, mid_gate=mode)["ask"])
+                self.assertIn(f"テストは{word}", got["gate_text"])
+        self.assertIn("宣言が読めない", self.edge("final", tests={"ok": False, "log": "", "reason": "宣言が読めない"},
+                                                 final_gate="when_needed")["gate_text"])
 
-    def test_mid_gate_stop_is_human_stop(self):
-        """at review・gate stop → state.stop.by == "human:mid-gate"・理由は一言。以後の edge も stop"""
-        self.fixed()
-        got = self.edge("review", gate={"decision": "stop", "text": "z"})
-        self.assertEqual((got["stop"], got["go"], got["why"]), (True, False, "z"))
-        st = self.state()
-        self.assertEqual((st["stop"]["by"], st["stop"]["reason"]), (line_edge.MID_GATE_BY, "z"))
-        self.assertTrue(self.edge("refix")["stop"])
+    def test_final_when_needed_objection_asks(self):
+        """when_needed・緑でも、止めずに残った異議（rejudge.unsettled が未決）が在れば開き、文に異議"""
+        tests = self.closed()
+        with mock.patch.object(line_edge.rejudge, "unsettled", return_value={"text": "判定の単位が粗い", "settled": False}):
+            got = self.edge("final", tests=tests, final_gate="when_needed")
+        self.assertTrue(got["ask"])
+        self.assertIn("止めずに残った異議: 判定の単位が粗い", got["gate_text"])
 
-    def test_mid_gate_reject_without_text(self):
-        self.fixed()
-        got = self.edge("review", gate={"decision": "reject"})
-        self.assertTrue(got["stop"])
-        self.assertEqual(self.state()["stop"]["reason"], line_edge.MID_GATE_STOP_NOTE)
+    def test_final_gate_stop_and_reject(self):
+        """周を締める前の盤面で at eyes・gate stop・reject → state.stop.by "human:final-gate"・理由は一言（無ければ既定）"""
+        for decision, text, why in (("stop", "z", "z"), ("reject", "", line_edge.FINAL_GATE_STOP_NOTE)):
+            with self.subTest(decision=decision):
+                self._tmp.cleanup()
+                self._tmp = tempfile.TemporaryDirectory(dir=linekit.work_home())
+                self.tmp = pathlib.Path(self._tmp.name)
+                self.fixed()
+                got = self.edge("eyes", gate={"decision": decision, "text": text})
+                self.assertEqual((got["stop"], got["go"], got["why"]), (True, False, why))
+                st = self.state()
+                self.assertEqual((st["stop"]["by"], st["stop"]["reason"]), (line_edge.FINAL_GATE_BY, why))
+                b = entry.open_board(self.board, allow_halted=True)
+                doc = json.loads(b.work(line_edge.FINAL_GATE_ANSWER).read_text(encoding="utf-8"))
+                self.assertEqual(doc, {"decision": decision, "text": text})
+                self.assertEqual(b.record["process"]["human_items"][-1]["answer"], "stop")
+                self.assertTrue(self.edge("tests")["stop"])
 
-    def test_mid_gate_continue_goes_to_review(self):
-        """at review・gate continue → mid-gate-answer.json に {decision, text}、go は p3.delta_review の ready"""
+    def test_final_gate_stop_after_round_closed(self):
+        """周を締めた盤面（halted.by stop_after_round）で at eyes・gate stop → b.stop は呼べないので、final-gate-answer.json に
+        decision stop・human_items に stop の行・trace に by human:final-gate の 1 行を残し、stop True（報告がこれを読む）"""
+        tests = self.closed()
+        self.assertFalse(self.edge("final", tests=tests)["stop"], "周を締めた盤面を止めたと読まない")
+        got = self.edge("eyes", gate={"decision": "stop", "text": "直し方が違う"})
+        self.assertEqual((got["stop"], got["go"], got["why"]), (True, False, "直し方が違う"))
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(json.loads(b.work(line_edge.FINAL_GATE_ANSWER).read_text(encoding="utf-8")),
+                         {"decision": "stop", "text": "直し方が違う"})
+        h = b.record["process"]["human_items"][-1]
+        self.assertEqual((h["answer"], h["note"], h["node"], h["kinds"]), ("stop", "直し方が違う", line_edge.FINAL_GATE_BY,
+                                                                          [line_edge.FINAL_GATE_KIND]))
+        rows = trace_rows(self.board, line_edge.STOP_AFTER_END_OP)
+        self.assertEqual([(r["at"], r["reason"], r["by"]) for r in rows], [("eyes", "直し方が違う", line_edge.FINAL_GATE_BY)])
+        self.assertEqual(self.state()["halted"]["by"], line_edge.ENDED_BY)
+
+    def test_final_gate_continue_on_closed_board(self):
+        """周を締めた盤面で at eyes・gate continue → 答えのファイルと human_items の continue の行、stop False・go False（目は枠）。
+        同じ答えで呼び直しても積み増さない"""
+        tests = self.closed()
+        self.edge("final", tests=tests)
+        for _ in range(2):
+            got = self.edge("eyes", gate={"decision": "approve", "text": "x"})
+            self.assertEqual((got["stop"], got["go"]), (False, False))
+        b = entry.open_board(self.board, allow_halted=True)
+        rows = [h for h in b.record["process"]["human_items"] if h.get("node") == line_edge.FINAL_GATE_BY]
+        self.assertEqual([(h["answer"], h["note"]) for h in rows], [("continue", "x")])
+        self.assertEqual(json.loads(b.work(line_edge.FINAL_GATE_ANSWER).read_text(encoding="utf-8")),
+                         {"decision": "approve", "text": "x"})
+
+    def test_final_gate_note_roundtrip(self):
+        """一言に $word・$(x)・"・改行・日本語 → human_items と FINAL_GATE_ANSWER に同じバイト"""
+        tests = self.closed()
+        self.edge("final", tests=tests)
+        self.edge("eyes", gate={"decision": "continue", "text": ODD_NOTE})
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(b.record["process"]["human_items"][-1]["note"].encode("utf-8"), ODD_NOTE.encode("utf-8"))
+        doc = json.loads(b.work(line_edge.FINAL_GATE_ANSWER).read_text(encoding="utf-8"))
+        self.assertEqual(doc["text"].encode("utf-8"), ODD_NOTE.encode("utf-8"))
+
+    def test_final_gate_null_means_not_opened(self):
+        tests = self.closed()
+        got = self.edge("eyes", gate=None)
+        self.assertEqual((got["stop"], got["go"]), (False, False))
+        self.assertFalse(entry.open_board(self.board, allow_halted=True).work(line_edge.FINAL_GATE_ANSWER).exists())
+
+    def test_no_mid_gate_left(self):
+        """AT に midgate が無く、works の Python の中に MID_GATE_ の名が無い（AST。docs は除く）"""
+        import ast
+        self.assertNotIn("midgate", line_edge.AT)
+        hits = []
+        for path in ROOT.rglob("*.py"):
+            if "docs" in path.relative_to(ROOT).parts:
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+                if name and name.startswith("MID_GATE_"):
+                    hits.append(f"{path.relative_to(ROOT)}:{node.lineno} {name}")
+        self.assertEqual(hits, [])
+
+
+class EntryMidCase(EdgeBase):
+    def test_entry_edge_flags(self):
+        """start の後の盤面（ready に p0.parallel_pr・p0.premises）→ go・pr_go・premises_go True、purpose_go・spec_go False"""
+        self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
+        req = self.tmp / "req" / "request.json"
+        req.parent.mkdir(parents=True)
+        req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
+        self.art = self.tmp / "art"
+        self.board = self.art / "board"
+        raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "", "adapter": "", "policy_md": ""}
+        entry.start(self.board, self.repo, raw, run_id=RUN_ID)
+        self.assertTrue({"p0.parallel_pr", "p0.premises"} <= set(entry.open_board(self.board).ready()))
+        got = self.edge("entry")
+        self.assertEqual({k: got[k] for k in ("go", "pr_go", "premises_go", "purpose_go", "spec_go", "stop")},
+                         {"go": True, "pr_go": True, "premises_go": True, "purpose_go": False, "spec_go": False, "stop": False})
+        self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
+        self.take("p0.premises", {"constraints": []})
+        got = self.edge("entry")
+        self.assertEqual((got["pr_go"], got["premises_go"]), (False, False))
+
+    def test_mid_is_slot(self):
+        """役が修正した盤面 → go True、runtime_go・holdout_go False、mid_note"""
         self.fixed()
-        got = self.edge("review", gate={"decision": "approve", "text": ODD_NOTE})
-        self.assertEqual((got["go"], got["stop"]), (True, False))
-        doc = json.loads(entry.open_board(self.board).work(line_edge.MID_GATE_ANSWER).read_text(encoding="utf-8"))
-        self.assertEqual(doc, {"decision": "approve", "text": ODD_NOTE})
+        got = self.edge("mid")
+        self.assertEqual((got["go"], got["runtime_go"], got["holdout_go"]), (True, False, False))
+        self.assertEqual(got["mid_note"], line_edge.MID_NOTE)
+
+    def test_slots_do_not_go(self):
+        """rejudge・eyes は枠（go False。中身は計画 P1 Task 31・33）"""
+        self.fixed()
+        for at in ("rejudge", "eyes"):
+            with self.subTest(at=at):
+                got = self.edge(at)
+                self.assertEqual((got["go"], got["stop"]), (False, False))
 
 
 class StopFlagCase(EdgeBase):
+    def test_stop_flag_each_edge(self):
+        """AT の全部で、止め札を置いた後の境の節 → stop、state.stop.by は "request:<札の by>"、trace にその at"""
+        for at in line_edge.AT:
+            with self.subTest(at=at):
+                self._tmp.cleanup()
+                self._tmp = tempfile.TemporaryDirectory(dir=linekit.work_home())
+                self.tmp = pathlib.Path(self._tmp.name)
+                self.judged()
+                halt.place(self.board, f"{at} で止める", "carol")
+                got = self.edge(at)
+                self.assertEqual((got["stop"], got["go"], got["why"]), (True, False, f"{at} で止める"))
+                st = self.state()
+                self.assertEqual((st["stop"]["reason"], st["stop"]["by"]), (f"{at} で止める", line_edge.FLAG_BY_PREFIX + "carol"))
+                self.assertEqual([r["at"] for r in trace_rows(self.board, line_edge.FLAG_SEEN_OP)], [at])
+
+    def test_stop_flag_after_round_closed(self):
+        """周を締めた盤面で at final に止め札 → b.stop は呼べないので trace の 1 行（by request:<札の by>）で stop"""
+        FinalGateCase.closed(self)
+        halt.place(self.board, "後から止める", "dave")
+        got = self.edge("final", tests=None)
+        self.assertEqual((got["stop"], got["why"]), (True, "後から止める"))
+        rows = trace_rows(self.board, line_edge.STOP_AFTER_END_OP)
+        self.assertEqual([(r["at"], r["by"]) for r in rows], [("final", line_edge.FLAG_BY_PREFIX + "dave")])
+
     def test_stop_flag_stops_at_next_edge(self):
         """STOP を置いた後の edge → stop True、state.stop の理由が STOP の理由、by は札の置き手の印、trace にどの境の節か"""
         self.judged()
@@ -423,7 +605,7 @@ class GoCase(EdgeBase):
             st = json.loads((board_dir / "state.json").read_text(encoding="utf-8"))
             st["works"].update(line=table.line, table_sha=table.sha())
             (board_dir / "state.json").write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            got = line_edge.edge(board_dir, "fix", repo, run_id=RUN_ID, adapter_mode="", mid_gate="always")
+            got = line_edge.edge(board_dir, "fix", repo, run_id=RUN_ID, adapter_mode="", final_gate="always")
         self.assertEqual(entry.open_board(board_dir).round, 2)
         self.assertEqual(got["plan_file"], str(board_dir / "out" / "r2" / "p2.fix_plan.json"))
 
@@ -482,10 +664,160 @@ class GoCase(EdgeBase):
                 got = self.edge(at)
                 self.assertEqual(set(got), OUT_KEYS)
                 self.assertIs(got["ok"], True)
-                for k in ("stop", "go", "ask"):
+                for k in BOOL_KEYS:
                     self.assertIsInstance(got[k], bool)
-                for k in OUT_KEYS - {"ok", "stop", "go", "ask"}:
+                for k in OUT_KEYS - BOOL_KEYS - {"ok"}:
                     self.assertIsInstance(got[k], str)
+
+
+class PlanEdgeCase(EdgeBase):
+    """h-plan（計画 P1 Task 23・〔線A計〕T10b）: 判定の渡し替えと、直す物が無い周の締め"""
+
+    def done_rows(self, nid):
+        return [r for r in trace_rows(self.board, "done") if r.get("instance") == nid]
+
+    def test_plan_goes_when_units_open(self):
+        """判定のブロックの出口を h-plan に渡す → 盤面の p2.diagnose が done（判定の返答そのまま）、go True"""
+        self.premised()
+        judged = self.judge_exit()
+        got = self.edge("plan", judged=judged)
+        self.assertEqual((got["go"], got["stop"]), (True, False), got)
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state("p2.diagnose"), "done")
+        self.assertIn("p2.fix_plan", b.ready())
+        self.assertEqual(len(self.done_rows("p2.diagnose")), 1)
+        self.assertEqual(got["judgment_file"], judged["judgment_file"])
+
+    def test_bridge_skips_when_done(self):
+        """盤面に p2.diagnose が今の周に在る → 2 度受けない（読めない judgment_file でも読まない。trace の done は 1 行）"""
+        self.judged()
+        judged = {**self.judge_exit(), "judgment_file": str(self.tmp / "nowhere.json")}
+        for _ in range(2):
+            got = self.edge("plan", judged=judged)
+            self.assertEqual((got["go"], got["stop"]), (True, False))
+        self.assertEqual(len(self.done_rows("p2.diagnose")), 1)
+
+    def test_bridge_rejected_stops_before_writer(self):
+        """盤面の型に合わない judgment.json → stop True、state.stop.by "works:judge-bridge"、p2.fix_plan は起きない"""
+        self.premised()
+        got = self.edge("plan", judged=self.judge_exit(reply={"units": "壊れた"}))
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], line_edge.JUDGE_BRIDGE_BY)
+        self.assertIn("盤面が判定を受けない", st["stop"]["reason"])
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual((b.node_state("p2.diagnose"), b.ready()), ("stopped", []))   # 受けずに止めた（待ちは stopped）
+
+    def test_bridge_unreadable_or_missing_stops(self):
+        """判定の出口が届かない（None）・judgment_file が読めない → 同じく by works:judge-bridge で止める（fail closed）"""
+        for judged in (None, {"ok": True, "open_units": [], "need_fix": False, "judgment_file": "/nowhere/judgment.json"}):
+            with self.subTest(judged=judged):
+                self._tmp.cleanup()
+                self._tmp = tempfile.TemporaryDirectory(dir=linekit.work_home())
+                self.tmp = pathlib.Path(self._tmp.name)
+                self.premised()
+                got = self.edge("plan", judged=judged)
+                self.assertEqual((got["stop"], got["go"]), (True, False))
+                self.assertEqual(self.state()["stop"]["by"], line_edge.JUDGE_BRIDGE_BY)
+
+    def test_no_fix_closes_round(self):
+        """直す物の無い判定 → go False、p3.fix が空の返答で done、ready に p4.ci、trace に works:empty-fix（TA6）"""
+        self.premised()
+        got = self.edge("plan", judged=self.judge_exit("judge_no_fix"))
+        self.assertEqual((got["go"], got["stop"]), (False, False), got)
+        b = entry.open_board(self.board)
+        self.assertEqual((b.node_state("p2.fix_plan"), b.node_state("p3.fix")), ("na", "done"))
+        self.assertEqual(b.output_of_round("p3.fix", b.round)["changes"], [])
+        self.assertIn("p4.ci", b.ready())
+        rows = [r for r in trace_rows(self.board) if r.get("by") == line_edge.EMPTY_FIX_BY]
+        self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
+        self.assertFalse(self.edge("mid")["go"])
+        again = self.edge("plan", judged=self.judge_exit("judge_no_fix"))   # Archon の再開で呼び直しても 2 度渡さない
+        self.assertEqual((again["go"], again["stop"]), (False, False))
+        self.assertEqual(len(self.done_rows("p3.fix")), 1)
+
+
+class JudgeEdgeCase(EdgeBase):
+    """h-judge（計画 P1 Task 24・P1-R9）: 包みの確かめと、前提の実測が盤面に在るか（前提のブロックの出口の渡し替え）"""
+
+    def test_judge_edge_returns_premises_file(self):
+        """前提を受けた盤面で at judge → go True、premises_file は state.outputs["p0.premises"] の置き場（絶対パス）"""
+        self.premised()
+        got = self.edge("judge")
+        self.assertEqual((got["go"], got["stop"]), (True, False), got)
+        b = entry.open_board(self.board)
+        self.assertEqual(got["premises_file"], str(self.board / b.state["outputs"]["p0.premises"]["file"]))
+        self.assertTrue(pathlib.Path(got["premises_file"]).is_file())
+
+    def test_judge_edge_bridges_premises_exit(self):
+        """前提のブロックの出口（constraints_file）を盤面の p0.premises に渡す → 記録の constraints に行、ready に p2.diagnose。
+        呼び直しても 2 度渡さない"""
+        self.started()
+        premised = self.premises_exit(linekit.reply("premises_ok"))
+        for _ in range(2):
+            got = self.edge("judge", premised=premised)
+            self.assertEqual((got["go"], got["stop"]), (True, False), got)
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state("p0.premises"), "done")
+        self.assertIn("p2.diagnose", b.ready())
+        self.assertEqual(len([r for r in trace_rows(self.board, "done") if r.get("instance") == "p0.premises"]), 1)
+        self.assertEqual(got["premises_file"], str(self.board / b.state["outputs"]["p0.premises"]["file"]))
+
+    def test_judge_edge_stops_without_premises(self):
+        """前提を受けていない盤面・前提のブロックの出口も無い → stop True、by works:premises、判定役は起きない"""
+        self.started()
+        got = self.edge("judge", premised=None)
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], line_edge.PREMISES_BY)
+        self.assertIn("前提の実測が盤面に無い", st["stop"]["reason"])
+
+    def test_judge_edge_bridge_rejected_stops(self):
+        """盤面が前提の出口を受けない（kind 実測に measured_output が無い）→ stop、by works:premises、文に盤面の拒否"""
+        self.started()
+        bad = {"constraints": [{"text": "x", "measured_how": "y", "kind": "実測"}]}
+        got = self.edge("judge", premised=self.premises_exit(bad))
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], line_edge.PREMISES_BY)
+        self.assertIn("measured_output", st["stop"]["reason"])
+
+    def test_adapter_missing_stops_at_judge(self):
+        """この run の起動が包みの起動の記録に無い・adapter "" → at judge で stop（by works:adapter）"""
+        self.premised()
+        got = self.edge("judge", adapter_mode="")
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], line_edge.ADAPTER_BY)
+        self.assertIn("包みが通っていない", st["stop"]["reason"])
+        self.assertIn(RUN_ID, st["stop"]["reason"])
+
+    def test_adapter_seen_passes(self):
+        self.premised()
+        self.launched()
+        got = self.edge("judge", adapter_mode="")
+        self.assertEqual((got["go"], got["stop"]), (True, False), got)
+
+    def test_adapter_optional_passes(self):
+        """同じく起動の行が無くても adapter "optional"（包み無しで回す run）→ stop False"""
+        self.premised()
+        got = self.edge("judge", adapter_mode="optional")
+        self.assertEqual((got["go"], got["stop"]), (True, False))
+
+    def test_plan_does_not_check_adapter(self):
+        """包みの確かめは h-judge だけ（P1-R9）: 起動の行が無く adapter "" でも at plan は止めない"""
+        self.judged()
+        got = self.edge("plan", adapter_mode="", judged=self.judge_exit())
+        self.assertEqual((got["go"], got["stop"]), (True, False))
+
+    def test_premised_only_at_judge(self):
+        self.premised()
+        with self.assertRaises(BoardGap):
+            self.edge("plan", premised={"constraints_file": "x"})
+        with self.assertRaises(BoardGap):
+            self.edge("judge", premised="x")
+        with self.assertRaises(BoardGap):
+            self.edge("judge", adapter_mode="sometimes")
 
 
 class ReadyCase(unittest.TestCase):
@@ -540,8 +872,8 @@ class ReadyCase(unittest.TestCase):
 class EdgeScriptCase(EdgeBase):
     def run_edge(self, **env):
         base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
-        base.update({"INPUTS_AT": "fix", "INPUTS_JUDGED": "null", "INPUTS_GATE": "null", "INPUTS_MID": "null",
-                     "INPUTS_ADAPTER": "", "INPUTS_MID_GATE": "always", "ARTIFACTS_DIR": str(self.art),
+        base.update({"INPUTS_AT": "fix", "INPUTS_JUDGED": "null", "INPUTS_PREMISED": "null", "INPUTS_GATE": "null",
+                     "INPUTS_TESTS": "null", "INPUTS_ADAPTER": "", "INPUTS_FINAL_GATE": "always", "ARTIFACTS_DIR": str(self.art),
                      "WORKFLOW_ID": RUN_ID, "PYTHONDONTWRITEBYTECODE": "1"})
         base.update(env)
         base = {k: v for k, v in base.items() if v is not None}
@@ -565,7 +897,7 @@ class EdgeScriptCase(EdgeBase):
         got = json.loads(r.stdout)
         self.assertEqual((got["go"], got["notes"]), (True, ODD_NOTE))
         # 欠け・崩れ・盤面の誤り: 2（標準出力は空・標準エラーに 1 行）
-        for env in ({"INPUTS_MID": None}, {"ARTIFACTS_DIR": ""}, {"WORKFLOW_ID": None}, {"INPUTS_GATE": "{壊れた"},
+        for env in ({"INPUTS_TESTS": None}, {"INPUTS_FINAL_GATE": "sometimes"}, {"ARTIFACTS_DIR": ""}, {"WORKFLOW_ID": None}, {"INPUTS_GATE": "{壊れた"},
                     {"INPUTS_GATE": "[1]"}, {"INPUTS_AT": "nowhere"}, {"INPUTS_AT": "null"},
                     {"ARTIFACTS_DIR": str(self.tmp / "nowhere")}):
             with self.subTest(env=env):
@@ -576,13 +908,13 @@ class EdgeScriptCase(EdgeBase):
         self.assertFalse([*(ROOT / "darkfactory").rglob("__pycache__")])
 
     def test_edge_script_inputs_constant(self):
-        """edge.py の INPUTS の組が 6 つ（Task 17 の配線の試験が YAML の with: の鍵と突き合わせる）"""
+        """edge.py の INPUTS の組（Task 17 の配線の試験が YAML の with: の鍵と突き合わせる）"""
         import importlib.util
         spec = importlib.util.spec_from_file_location("_works_edge_script", SCRIPT)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        self.assertEqual(mod.INPUTS, ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_GATE", "INPUTS_MID", "INPUTS_ADAPTER",
-                                      "INPUTS_MID_GATE"))
+        self.assertEqual(mod.INPUTS, ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_PREMISED", "INPUTS_GATE", "INPUTS_TESTS",
+                                      "INPUTS_ADAPTER", "INPUTS_FINAL_GATE"))
 
 
 if __name__ == "__main__":

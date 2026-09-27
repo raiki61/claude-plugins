@@ -77,6 +77,7 @@
     "status": "works-only",
     "note": "役を起こす前の tree_state と今の作業ツリーの違いの文（今の姿が引けなければその 1 行）。blk-pr・blk-ci・entry.take・rejudge.take の読むだけの役の確かめの共通の 1 本（裁定 R47）。gl へ移さない。"
   },
+
   {
     "works": "entry.take",
     "gl": "gl accept <節> と effects",

@@ -5,7 +5,8 @@
 """依頼の型の確かめと、作業ツリーの写し。INPUTS_REQUEST が指す JSON のファイル（cwd＝対象リポジトリの根からの相対か絶対）を読み、
 check_request（graphloops の add と同じ規則）に使い捨ての置き場で通す——盤面の request.json には積まない（積むのは判定の
 ブロックの intake だけ。ここで積むと同じ依頼が 2 度積まれる）。続けて、実測役を起こす前の作業ツリーの姿（共通の tree_state。バイトコードは除く）を
-盤面の premises-snapshot.json に置く。受け付け（check_premises）はこれと今の作業ツリーを比べる。
+盤面の premises-snapshot.json に置く。受け付け（check_premises）はこれと今の作業ツリーを比べる。型を確かめた依頼の行は
+premises-request.json に控える（受け付けの check_claims と collect が依頼の measured の行を読む）。
 写しを置くのと同じ所で、盤面に前の呼び出しが残した premises.json を消す——受け付けが 3 回とも拒んだ時に collect が
 古い制約を拾って ok を出さないように（graphloops の once の『凍った出力の再利用』は線 A の b.done から付く。ここでは作らない）。
 
@@ -24,9 +25,10 @@ import tempfile  # noqa: E402
 
 from accept import check_request, tree_state  # noqa: E402
 from engine.util import Reject  # noqa: E402
-from premises import PREMISES_FILE, PREMISES_SNAPSHOT_FILE  # noqa: E402
+from premises import PREMISES_FILE, PREMISES_REQUEST_FILE, PREMISES_SNAPSHOT_FILE  # noqa: E402
 
 REQUEST_ENV = "INPUTS_REQUEST"
+INPUTS = (REQUEST_ENV,)   # 裁定 TA16: 読む INPUTS_* の組
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
 
 
@@ -66,6 +68,7 @@ def main() -> int:
     board.mkdir(parents=True, exist_ok=True)
     (board / PREMISES_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ
     (board / PREMISES_SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
+    (board / PREMISES_REQUEST_FILE).write_text(json.dumps(items, ensure_ascii=False) + "\n", encoding="utf-8")   # 受け付けの check_claims が読む
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({"ok": True, "reason": "", "request": rel}, ensure_ascii=False), flush=True)
     return 0

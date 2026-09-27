@@ -1,0 +1,10 @@
+{
+ "constraints": [
+  {
+   "text": "stats.py の mean は sum(xs) / (len(xs) - 1) を返す（分母が len(xs) - 1）",
+   "measured_how": "grep -n で stats.py の len(xs) - 1 の行を引いた",
+   "kind": "実測",
+   "measured_output": "$ grep -n 'len(xs) - 1' stats.py\n9:    return sum(xs) / (len(xs) - 1)"
+  }
+ ]
+}
