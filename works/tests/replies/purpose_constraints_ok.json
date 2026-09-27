@@ -1,0 +1,15 @@
+{
+ "constraints": [
+  {
+   "text": "test_stats.py のテストは 2 件で、どちらも赤",
+   "measured_how": "python3 -m unittest test_stats を回した",
+   "kind": "実測",
+   "measured_output": "$ python3 -m unittest test_stats\nFAILED (failures=2)"
+  },
+  {
+   "text": "stats.py を読むのは test_stats.py だけ",
+   "measured_how": "git grep で import を数えるつもりで、まだ走らせていない",
+   "kind": "仮説"
+  }
+ ]
+}

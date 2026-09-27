@@ -1,0 +1,100 @@
+name: blk-purpose
+description: |
+  目的の文のブロック（graphloops の graph の節 p0.purpose）。依頼と前提の実測を読ませ、目的の役（読むだけ）に
+  「元の目的」を 1 つの文にさせ、受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回）。ラインから include で使う。
+  目的は最初の修正の前に 1 度だけ固め、以降は変えない（graph の once。盤面に既に在れば intake が止める）。
+  出口は盤面の purpose.json のパスと、目的の文と出典。判定役はこの purpose_file を読む（graph の p2.diagnose の reads の
+  out.p0.purpose.purpose_text。split・fork・resolved の判定に要る——graphloops で渡し忘れ、2 周空転した実測がある）。
+  目的の審査 p0.purpose_review（出典が ③writer の要約 の時に別の会話の inspector が狭めていないかを見る。optional）は
+  このブロックに入れず、線 B の周の線が持つ。条件 purpose_review_due は 1 周目なら出典だけで決まるが、2 周目からの
+  走り直しは前の周の修正が触ったファイル（loop.prev_fix_files）と記録の目的監査（record.process.purpose_review）で決まり、
+  どちらも周の線の盤面にしか無い。once のこのブロックに入れると 1 周目の判定が残りの全周を縛る（写しの rules の
+  purpose_sources_changed の docstring の実測 2026-09-13）。依存の p1.worktree_before も周の線の機械の節。
+
+inputs:
+  request:
+    required: true
+    description: 依頼のファイルのパス（ラインの依頼。対象リポジトリの根からの相対か絶対）。目的の役がまず読む
+  constraints_file:
+    default: ""
+    description: |
+      前提の実測のファイルのパス（blk-premises が盤面に置く p0.premises の返答 {"constraints": [...]}）。
+      空なら前提の実測は無い。在れば intake が写しの p0.premises の型と post_check に通す
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版。空なら受け付けの時の HEAD（Ruling R2）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 目的が凍っていないか・依頼が読めるか・前提の実測が写しの規則に通るかを見て、作業ツリーの写しを盤面に置く。
+  # 通らなければ終了コード 1 で run を止める（AI を起こす前に止める）
+  - id: intake
+    script: intake
+    runtime: uv
+    timeout: 1728000000
+    with:
+      request: $INPUTS.request
+      constraints_file: $INPUTS.constraints_file
+
+  # 目的の役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
+  - id: purpose-loop
+    depends_on: [intake]
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $purpose-accept.output.ok = true
+      nodes:
+        - id: purpose
+          command: purpose
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（JSON だけを返す約束。graphloops の --setting-sources ""）
+          allowed_tools: [Read, Grep, Glob]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # role_schema("p0.purpose") を 1 度出して貼った物（tests/test_blk_purpose.py が一致を見る）
+          output_format:
+            type: object
+            required: [purpose_text, source, known_weaknesses, source_files]
+            additionalProperties: false
+            properties:
+              purpose_text: {type: string, minLength: 1}
+              source:
+                type: string
+                enum: [①PR 説明, ②計画・タスク記述, ③writer の要約, 目的不明]
+              known_weaknesses:
+                type: array
+                items: {type: string}
+              source_files:
+                type: array
+                items: {type: string}
+        - id: purpose-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [purpose]
+          with:
+            reply: {from: "$purpose.output"}
+            base_rev: $INPUTS.base_rev
+          output_format:
+            type: object
+            properties:
+              ok: {type: boolean}
+              reason: {type: string}
+              purpose_file: {type: string}
+            required: [ok, reason, purpose_file]
+
+  # loop_group の出力は型を持てないので、輪の後ろで盤面の purpose.json から出口を組む
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [purpose-loop]
+    output_format:
+      type: object
+      properties:
+        ok: {type: boolean}
+        purpose_file: {type: string}
+        purpose_text: {type: string}
+        source: {type: string}
+      required: [ok, purpose_file, purpose_text, source]

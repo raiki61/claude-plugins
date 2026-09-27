@@ -1,0 +1,8 @@
+{
+ "purpose_text": "stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞い（算術平均・上限を超えた値は上限に収める）に直し、test_stats.py の赤 2 件を緑にする",
+ "source": "②計画・タスク記述",
+ "known_weaknesses": [],
+ "source_files": [
+  "request_ok.json"
+ ]
+}

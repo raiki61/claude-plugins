@@ -1,0 +1,8 @@
+{
+ "purpose_text": "stats.py の mean と clamp を直す",
+ "source": "PR の説明",
+ "known_weaknesses": [],
+ "source_files": [
+  "request_ok.json"
+ ]
+}

@@ -1,0 +1,19 @@
+# 良い目的の返答が 1 回で受け付けを通る筋書き。intake・purpose-accept・collect は本物を回す（exec-code）。
+# 依頼は対象の根の request_ok.json（dev/target-seed に置いた物）。前提の実測は渡さない（constraints_file は既定の空）。
+# purpose の中身は tests/replies/purpose_ok.json と同じ（tests/test_blk_purpose.py が一致を見る）。出典の request_ok.json は種に在る
+fixture:
+  expect: completed
+  reached:
+  - intake
+  - purpose
+  - purpose-accept
+  - collect
+  inputs:
+    request: request_ok.json
+exec-code: true
+purpose:
+  purpose_text: stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞い（算術平均・上限を超えた値は上限に収める）に直し、test_stats.py の赤 2 件を緑にする
+  source: ②計画・タスク記述
+  known_weaknesses: []
+  source_files:
+  - request_ok.json
