@@ -1,0 +1,107 @@
+# 筋書き peer-stop: 同じ波の 2 本の目（根拠の出所検査・ゲートの実効性）のうち、根拠の出所検査の受け付けが包みの柵の確かめで
+# 盤面を止める。ゲートの実効性の支度はその後に走り、盤面が止まっているので stopped: true を返す。役の節は when: で飛び
+# （役の stub を置かない——走れば stub の無い節で落ちる）、受け付けは飛ばした役の返答（if_skipped: null）で止まった旨の done を
+# 出して輪を抜ける。collect は止まった盤面を見て ok: false と止めた理由を返す。
+# 盤面の上の同じ筋は tests/test_blk_material.py の StoppedBoardCase が見る。
+mat-route:
+  ok: true
+  stopped: false
+  why: 'p1.gate_efficacy: 回す・p1.provenance: 回す'
+  snapshot_file: board/r1/material-snapshot.json
+  prior_decisions: false
+  purpose_review: false
+  local_review: false
+  consistency_bypass: false
+  hygiene: false
+  external_standards: false
+  procedure_trace: false
+  gate_efficacy: true
+  test_double_fidelity: false
+  main_path_observation: false
+  provenance: true
+provenance-prep:
+  prompt_file: board/prompts/r1/p1.provenance.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.provenance.json
+  node: p1.provenance
+  already: false
+  stopped: false
+provenance:
+  material:
+    status: clean
+    checked: 差分に『正本は X』の主張は無い
+  claims: []
+provenance-accept:
+  ok: false
+  done: true
+  give_up: false
+  stopped: false
+  reason: '包みの柵が素材集めの役（provenance）の起動に掛かっていない: 起動の記録が無い——返答を受けず盤面を止める'
+  reason_file: board/reject-take_provenance-1.txt
+  node: p1.provenance
+  status: ''
+gate-efficacy-prep:
+  prompt_file: ''
+  prompt_text: ''
+  attempt: 0
+  out_path: ''
+  node: p1.gate_efficacy
+  already: false
+  stopped: true
+gate-efficacy-accept:
+  ok: false
+  done: true
+  give_up: false
+  stopped: true
+  reason: '盤面は止まっている（works:adapter: 包みの柵が素材集めの役（provenance）の起動に掛かっていない）——p1.gate_efficacy の返答は受けない'
+  reason_file: board/reject-take_gate_efficacy-1.txt
+  node: p1.gate_efficacy
+  status: ''
+collect:
+  ok: false
+  reason: '盤面は止まっている（works:adapter: 包みの柵が素材集めの役（provenance）の起動に掛かっていない）'
+  ran: []
+  skipped:
+  - node: p0.prior_decisions
+    why: cond ...
+  - node: p0.purpose_review
+    why: 目的の文と一緒に入る（absent）
+  - node: p1.local_review
+    why: cond ...
+  - node: p1.consistency_bypass
+    why: cond ...
+  - node: p1.hygiene
+    why: cond ...
+  - node: p1.external_standards
+    why: cond ...
+  - node: p1.procedure_trace
+    why: cond ...
+  - node: p1.gate_efficacy
+    why: cond ...
+  - node: p1.test_double_fidelity
+    why: cond ...
+  - node: p1.main_path_observation
+    why: cond ...
+  - node: p1.provenance
+    why: cond ...
+  materials: {}
+  snapshot:
+    rev: 0123456789abcdef0123456789abcdef01234567
+    diff_file: board/diff-r1.patch
+    changed_files:
+    - stats.py
+    changed_files_file: board/changed-r1.txt
+    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
+    request_wheres: []
+  exit_file: board/r1/material-exit.json
+fixture:
+  expect: completed
+  reached:
+  - mat-route
+  - provenance-prep
+  - provenance
+  - provenance-accept
+  - gate-efficacy-prep
+  - gate-efficacy-accept
+  - collect

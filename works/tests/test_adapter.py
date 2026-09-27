@@ -5,7 +5,9 @@ Archon は Claude Code の実行ファイルを `assistants.claude.claudeBinaryP
 包みの形は 2 つの有料の試し（scratchpad の claude-adapter-probe.md〔包試〕・resume-probe-summary.md〔継試〕）で
 本物の Archon v0.11.1・SDK 0.3.282・claude 2.1.283 と確かめた物で、ここでは偽の claude（tests/adapter/fake-claude）で縛る。
 
-- 印（works-node）の無い起動（Archon の題の生成＝`--tools ""` など）は argv を 1 バイトも変えない
+- 印（works-node）の無い起動（Archon の題の生成＝`--tools ""` など）は、網の閉じのほかは argv を 1 バイトも変えない
+- 網の閉じ（印の有無に依らない）: sandbox.network.allowedDomains が `*` を含まない配列なら strictAllowlist: true を足す。
+  `*` の網・網の一覧の無い sandbox は触らない。--settings が読めない起動は起こさない（NetworkCase）
 - 印のある起動: `--settings` に PostToolUse:Read のフックを足す（SDK の鍵は上書きしない。3 つの綴り・無ければ足す）。
   `--setting-sources`・`--model` は触らない
 - 見分けられない形（`--settings` が 2 つ・読めない JSON・値の無い旗・崩れた印・`--json-schema` が 2 つ）は
@@ -1147,6 +1149,119 @@ class FenceCase(unittest.TestCase):
         r = self.e.run(sdk_argv("works-node: rejudge continue=judge"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(f"Write(/{self.board}/**)", self.settings()["permissions"]["deny"])
+
+
+def net_settings(network, **sandbox):
+    """sandbox の塊に network を持つ --settings の本文（Archon の YAML の sandbox を SDK がそのまま渡す形）"""
+    sb = {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True, **sandbox}
+    if network is not None:
+        sb["network"] = network
+    return json.dumps({"sandbox": sb})
+
+
+class NetworkCase(unittest.TestCase):
+    """網の閉じ（option A）。Archon は役を bypassPermissions で起こし、網の型から strictAllowlist を捨てる。bypassPermissions の
+    下の Claude Code 2.1.283 は、allowedDomains に無い宛先への通信の問い合わせを自動で通す（strictAllowlist: true の時だけ拒む）。
+    そこで包みが、網の許可の一覧が `*` でない sandbox の起動に sandbox.network.strictAllowlist: true を足す（印の有無に依らない）。
+    `*` の網（任せ先）は触らない。--settings が読めない・書き換えられない起動は起こさない（fail closed）"""
+
+    def setUp(self):
+        self.e = Env(self)
+
+    def net(self, argv):
+        vals = opt(argv, "--settings")
+        self.assertEqual(len(vals), 1, argv)
+        return json.loads(vals[0])["sandbox"].get("network")
+
+    def test_closed_network_gets_strict_allowlist(self):
+        for allowed in ([], ["github.com", "api.github.com"], ["*.example.com"]):
+            for desc in ("", "works-node: judge", "works-node: probe no-post"):
+                with self.subTest(allowed=allowed, desc=desc):
+                    network = {"allowedDomains": allowed, "allowLocalBinding": False}
+                    r = self.e.run(sdk_argv(desc, settings=net_settings(network, excludedCommands=["works-gh:*"])))
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    got = self.e.child()["argv"]
+                    self.assertEqual(self.net(got), dict(network, strictAllowlist=True))
+                    sb = json.loads(opt(got, "--settings")[0])["sandbox"]
+                    self.assertEqual(sb["excludedCommands"], ["works-gh:*"])   # ほかの鍵はそのまま
+                    self.assertIs(self.e.launches()[-1]["strict_net"], True)
+
+    def test_strict_false_is_forced_true(self):
+        r = self.e.run(sdk_argv("", settings=net_settings({"allowedDomains": [], "strictAllowlist": False})))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIs(self.net(self.e.child()["argv"])["strictAllowlist"], True)
+
+    def test_joined_and_file_spellings(self):
+        text = net_settings({"allowedDomains": []})
+        f = self.e.tmp / "sdk-settings.json"
+        f.write_text(text, encoding="utf-8")
+        base = sdk_argv("", settings=None)
+        for tail, joined in ((["--settings=" + text], True), (["--settings", str(f)], False)):
+            with self.subTest(joined=joined):
+                r = self.e.run(base + tail)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                got = self.e.child()["argv"]
+                self.assertEqual(got[:len(base)], base)
+                self.assertEqual(any(a.startswith("--settings=") for a in got), joined)
+                self.assertIs(self.net(got)["strictAllowlist"], True)
+
+    def test_wildcard_network_untouched(self):
+        # 任せ先（blk-ci・素材集めの任せ先 4 本）は網 `*`。印の無い起動は 1 バイトも変えない
+        for network in ({"allowedDomains": ["*"], "allowLocalBinding": True}, {"allowedDomains": ["github.com", "*"]}):
+            with self.subTest(network=network):
+                argv = sdk_argv("", settings=net_settings(network, enableWeakerNetworkIsolation=True))
+                r = self.e.run(argv)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.e.child()["argv"], argv)
+                self.assertIs(self.e.launches()[-1]["strict_net"], False)
+                r = self.e.run(sdk_argv("works-node: ci", settings=net_settings(network)))
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.net(self.e.child()["argv"]), network)
+
+    def test_no_network_list_untouched(self):
+        # 網の許可の一覧を持たない sandbox（読むだけの役・修正役）と sandbox の無い起動は網の鍵を作らない
+        for settings in (SANDBOX, net_settings({"allowLocalBinding": True}), '{"permissions": {"deny": []}}'):
+            with self.subTest(settings=settings):
+                argv = sdk_argv("", settings=settings)
+                r = self.e.run(argv)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.e.child()["argv"], argv)
+                self.assertIsNone(self.e.launches()[-1]["strict_net"])
+
+    def test_unparseable_settings_refused_even_unmarked(self):
+        # 網を閉じられるかが決まらない起動は、印が無くても起こさない（黙って網を開けたまま起こさない）
+        broken = [
+            sdk_argv("", extra=["--settings", SANDBOX]),                                   # --settings が 2 つ
+            sdk_argv("", settings="{not json"),                                            # 読めない JSON
+            sdk_argv("", settings="/no/such/settings.json"),                               # 無いファイル
+            sdk_argv("", settings="[1, 2]"),                                               # 辞書でない
+            sdk_argv("", settings='{"sandbox": 1}'),                                       # sandbox が object でない
+            sdk_argv("", settings='{"sandbox": {"network": []}}'),                         # network が object でない
+            sdk_argv("", settings='{"sandbox": {"network": {"allowedDomains": "x"}}}'),   # 一覧が配列でない
+            sdk_argv("", settings='{"sandbox": {"network": {"allowedDomains": [1]}}}'),   # 一覧に文字列でない物
+            sdk_argv("", settings=None) + ["--settings"],                                  # 値の無い旗
+            sdk_argv(None) + ["--settings", "{not json"],                                  # 題の生成の形でも
+        ]
+        for argv in broken:
+            with self.subTest(argv=argv[-2:]):
+                r = self.e.run(argv)
+                self.assertEqual(r.returncode, 3, r.stderr)
+                lines = r.stderr.splitlines()
+                self.assertEqual(len(lines), 1, r.stderr)
+                self.assertIn("起こさない", lines[0])
+                self.assertIn("網", lines[0])
+                self.assertIsNone(self.e.child())
+                self.assertEqual(self.e.launches()[-1]["mode"], "refused")
+
+    def test_marked_launch_strict_and_fences_together(self):
+        # 印のある起動: 網の閉じとフック・no-post の柵が同じ --settings に乗る
+        r = self.e.run(sdk_argv("works-node: probe no-post", settings=net_settings({"allowedDomains": []})))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = json.loads(opt(self.e.child()["argv"], "--settings")[0])
+        self.assertIs(s["sandbox"]["network"]["strictAllowlist"], True)
+        self.assertIn("Bash(gh:*)", s["permissions"]["deny"])
+        self.assertTrue(s["hooks"]["PostToolUse"])
+        self.assertEqual(self.e.launches()[-1]["mode"], "merged")
 
 
 class FencedLaunchCase(unittest.TestCase):

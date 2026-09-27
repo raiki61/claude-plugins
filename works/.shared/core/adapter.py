@@ -45,8 +45,16 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    盤面・pack・git の設定の守りは切符にしか無い）。切符の「役の cwd の worktree 自身は除く」はそのまま（書く役の fix のため）
 7. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、
    会話の id を記録できない時は、claude を起こさずに 1 行を出して止まる（fail closed）。
+8. **網を閉じる**（印の有無に依らない。option A）: Archon は役を bypassPermissions で起こし、網の型（sandboxSettingsSchema.network）
+   から strictAllowlist を捨てる。bypassPermissions の下の Claude Code 2.1.283 は、allowedDomains に無い宛先への sandbox の
+   通信の問い合わせを自動で通す（拒むのは strictAllowlist: true の時だけ。この鍵は --settings から効く）。そこで
+   `--settings` の sandbox.network.allowedDomains が配列で `*` を含まない起動に sandbox.network.strictAllowlist: true を足す
+   （Claude Code では狭める側の鍵）。`*` の網（任せ先）・網の一覧を持たない sandbox・sandbox の無い起動は触らない。
+   --settings が読めない・2 つ・sandbox や network や一覧の形が違う起動は、網を閉じられるかが決まらないので、印が無くても
+   claude を起こさずに 1 行を出して止まる（fail closed）。WebFetch・WebSearch はこの鍵の外（Claude Code の説明文どおり）。
 
-印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は argv を 1 バイトも変えない。見分けられない形
+印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
+変えない。見分けられない形
 （印の跡の無い `--json-schema` が 2 つ・読めない JSON・値の無い旗）は足さずに素通しし、警告を 1 行出す。
 印の跡（`works-node:`）が --json-schema のどこかに在るのに一番上の description の印として読めない起動（知らない旗・
 大文字・余分な空白・入れ子の description・印を持つ --json-schema が 2 つ・壊れた JSON）は、JSON として読めても
@@ -125,6 +133,7 @@ class Plan(NamedTuple):
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
     fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?}（フックを足した起動だけ）
     env: Optional[dict] = None      # 子の env に上書きする物（no-post の起動だけ）
+    strict_net: Optional[bool] = None   # 網: True は strictAllowlist で閉じた起動、False は `*` の網、None は網の一覧が無い
 
 
 def marker_text(name: str, cont: Optional[str] = None, flags: Sequence[str] = ()) -> str:
@@ -249,7 +258,7 @@ def launch_row(p: "Plan", cwd, pid: int, at: str) -> dict:
     `from` は既に在る会話を開いた起動（sdk-resume・sdk-fork・continued）の元の会話の id（sdk-fork だけ id と違う）"""
     return {"at": at, "pid": pid, "cwd": os.path.realpath(str(cwd)), "node": p.node, "continue": p.cont,
             "mode": p.mode, "why": p.why, "hook": p.hook, "tools_empty": p.tools_empty, "session": p.session,
-            "fence": p.fence}
+            "fence": p.fence, "strict_net": p.strict_net}
 
 
 def read_launches(cwd, home_dir=None) -> List[dict]:
@@ -361,6 +370,48 @@ def no_post_env(env, gh_paths: Sequence[str]) -> dict:
             "WORKS_GH_ACTIVE": ""}   # 外から漏れた口の輪止めの印で、役の口が全部拒まれないように空にする
 
 
+def _put_settings(argv: List[str], found, doc: dict) -> List[str]:
+    """argv の --settings（find_opt の 1 つ。無ければ None）の値を doc の JSON に差し替える（綴りは元のまま。無ければ後ろに足す）"""
+    text = json.dumps(doc, ensure_ascii=False)
+    if found is None:
+        return argv + ["--settings", text]
+    i, n, _, joined = found
+    return argv[:i] + (["--settings=" + text] if joined else ["--settings", text]) + argv[i + n:]
+
+
+def strict_network(argv: List[str]) -> Tuple[List[str], Optional[bool]]:
+    """8. 網を閉じる。--settings の sandbox.network.allowedDomains が配列で `*` を含まなければ strictAllowlist: true を足した
+    argv と True を返す（もう true なら argv はそのまま）。`*` を含めば (argv, False)、網の一覧が無ければ (argv, None)。
+    --settings が読めない・2 つ・値が無い・sandbox／network／一覧の形が違えば Unrecognised（呼び手は起動を拒む）"""
+    found = find_opt(argv, "--settings")   # 値の無い旗は Unrecognised
+    if not found:
+        return argv, None
+    if len(found) > 1:
+        raise Unrecognised("--settings が 2 つ以上")
+    doc = _load_settings(found[0][2])
+    if "sandbox" not in doc:
+        return argv, None
+    sandbox = doc["sandbox"]
+    if not isinstance(sandbox, dict):
+        raise Unrecognised("--settings の sandbox が object でない")
+    if "network" not in sandbox:
+        return argv, None
+    net = sandbox["network"]
+    if not isinstance(net, dict):
+        raise Unrecognised("--settings の sandbox.network が object でない")
+    if "allowedDomains" not in net:
+        return argv, None
+    allowed = net["allowedDomains"]
+    if not isinstance(allowed, list) or not all(isinstance(d, str) for d in allowed):
+        raise Unrecognised("--settings の sandbox.network.allowedDomains が文字列の配列でない")
+    if "*" in allowed:
+        return argv, False
+    if net.get("strictAllowlist") is True:
+        return argv, True
+    net["strictAllowlist"] = True
+    return _put_settings(argv, found[0], doc), True
+
+
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
                no_post: Optional[Sequence[str]] = None) -> Tuple[List[str], dict]:
     found = find_opt(argv, "--settings")
@@ -371,11 +422,7 @@ def _with_hook(argv: List[str], command: str, protected: Sequence[str],
     fence = {"deny_write": n_write, "permissions_deny": n_deny}
     if no_post is not None:
         fence["no_post"] = add_deny(doc, no_post_rules(no_post))
-    text = json.dumps(doc, ensure_ascii=False)
-    if not found:
-        return argv + ["--settings", text], fence
-    i, n, _, joined = found[0]
-    return argv[:i] + (["--settings=" + text] if joined else ["--settings", text]) + argv[i + n:], fence
+    return _put_settings(argv, found[0] if found else None, doc), fence
 
 
 # --- 起動ごとの柵 ---------------------------------------------------------------------------------------------
@@ -600,15 +647,24 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     env は起動の env（no-post の起動で本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）"""
     argv = list(argv)
     tools_empty = _tools_empty(argv)
+    unknown = None
     try:
         marker = marker_from_argv(argv)
     except BadMarker as e:
         return Plan(argv, "refused", f"works: {e}。claude を起こさない（印を直す）", True, None, None, False,
                     tools_empty, {"mode": "refused", "id": None}, [])
     except Unrecognised as e:
-        return Plan(argv, "passthrough", str(e), True, None, None, False, tools_empty, None, [])
+        marker, unknown = None, e
+    # 8. 網を閉じる（印の有無に依らない）。閉じられるかが決まらない起動は起こさない
+    try:
+        argv, strict = strict_network(argv)
+    except Unrecognised as e:
+        return _refuse(argv, marker.name if marker else None, marker.cont if marker else None, tools_empty,
+                       f"sandbox の網を閉じられない（{e}）")
+    if unknown is not None:
+        return Plan(argv, "passthrough", str(unknown), True, None, None, False, tools_empty, None, [], strict_net=strict)
     if marker is None:
-        return Plan(argv, "passthrough", "unmarked", False, None, None, False, tools_empty, None, [])
+        return Plan(argv, "passthrough", "unmarked", False, None, None, False, tools_empty, None, [], strict_net=strict)
 
     home_dir = _home_or(home_dir)
     node, cont = marker.name, marker.cont
@@ -658,14 +714,16 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     if own:
         fence["no_tree_write"] = own[0]
     child_env = no_post_env(env, gh) if gh is not None else None
-    return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env)
+    return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env,
+                strict_net=strict)
 
 
 def _refuse(argv, node, cont, tools_empty, why) -> Plan:
     session = {"mode": "refused", "id": None}
     if cont:
         session["of"] = cont
-    return Plan(list(argv), "refused", f"works: 節 {node} を起こさない: {why}", True, node, cont, False, tools_empty,
+    who = f"節 {node} " if node else "印の無い起動"
+    return Plan(list(argv), "refused", f"works: {who}を起こさない: {why}", True, node, cont, False, tools_empty,
                 session, [])
 
 

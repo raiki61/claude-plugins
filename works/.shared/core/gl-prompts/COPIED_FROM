@@ -1,8 +1,19 @@
-a1202d0  graphloops 0.21.0 の指示書（同じ周の再審を描く分だけ。rejudge.render が engine の node_prompt に渡す）
+a1202d0  graphloops 0.21.0 の指示書（同じ周の再審と素材集めを描く分だけ。rejudge.render と blk-material の lib が engine の node_prompt に渡す）
 prompts/policy-paste.md
 prompts/policy.md
 prompts/review-loop/p2.rejudge.md
 prompts/review-loop/p2.rejudge_third.md
+prompts/review-loop/p0.prior_decisions.md
+prompts/review-loop/p0.purpose_review.md
+prompts/review-loop/p1.local_review.md
+prompts/review-loop/p1.consistency_bypass.md
+prompts/review-loop/p1.hygiene.md
+prompts/review-loop/p1.external_standards.md
+prompts/review-loop/p1.procedure_trace.md
+prompts/review-loop/p1.gate_efficacy.md
+prompts/review-loop/p1.test_double_fidelity.md
+prompts/review-loop/p1.main_path_observation.md
+prompts/review-loop/p1.provenance.md
 # 置き場は本線の graphloops/ の下の同じパス（git show a1202d0:graphloops/<行>）。1 バイトも変えない（tests/test_rejudge.py が見る）。
 # rejudge.render は指示書ごとに写し（../graphloops/prompts）を先に見る。写しの prompts/ は今 TDD 版の review-loop/tdd/ だけ
 # （../COPIED_FROM）なので、ここの指示書は写しに無い。写しに同じ指示書が入ったら（写し直し）、この置き場を消してよい。

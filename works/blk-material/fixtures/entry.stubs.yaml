@@ -1,0 +1,89 @@
+# 筋書き entry: 判定から入る run（線 A の 1 周の run）の 1 周目。写しの条件（not_request_entry・external_standards_due ほか）で
+# P1 の目 9 本は na、p0.prior_decisions（prior_decisions_due は 1 周目なら真）だけが回る。ブロックは条件を持たない——
+# mat-route は盤面の ready をそのまま写す（tests/test_blk_material.py の test_entry_round_keeps_graph_conditions）。
+mat-route:
+  ok: true
+  stopped: false
+  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: cond ...・p1.consistency_bypass: cond ...・p1.hygiene: cond ...・p1.external_standards: cond ...・p1.procedure_trace: cond ...・p1.gate_efficacy: cond ...・p1.test_double_fidelity: cond ...・p1.main_path_observation: cond ...・p1.provenance: cond ...'
+  snapshot_file: board/r1/material-snapshot.json
+  prior_decisions: true
+  purpose_review: false
+  local_review: false
+  consistency_bypass: false
+  hygiene: false
+  external_standards: false
+  procedure_trace: false
+  gate_efficacy: false
+  test_double_fidelity: false
+  main_path_observation: false
+  provenance: false
+prior-decisions-prep:
+  prompt_file: board/prompts/r1/p0.prior_decisions.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p0.prior_decisions.json
+  node: p0.prior_decisions
+  already: false
+  stopped: false
+prior-decisions:
+  material:
+    status: clean
+    checked: 決定記録（ADR・台帳・issue）はリポジトリに無い
+  checked: true
+  searched:
+  - リポジトリの全部（2 ファイル）
+  settled: []
+prior-decisions-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p0.prior_decisions
+  status: ''
+collect:
+  ok: true
+  reason: ''
+  ran:
+  - p0.prior_decisions
+  skipped:
+  - node: p0.purpose_review
+    why: 目的の文と一緒に入る（absent）
+  - node: p1.local_review
+    why: cond ...
+  - node: p1.consistency_bypass
+    why: cond ...
+  - node: p1.hygiene
+    why: cond ...
+  - node: p1.external_standards
+    why: cond ...
+  - node: p1.procedure_trace
+    why: cond ...
+  - node: p1.gate_efficacy
+    why: cond ...
+  - node: p1.test_double_fidelity
+    why: cond ...
+  - node: p1.main_path_observation
+    why: cond ...
+  - node: p1.provenance
+    why: cond ...
+  materials:
+    prior_decisions: clean
+  snapshot:
+    rev: 0123456789abcdef0123456789abcdef01234567
+    diff_file: board/diff-r1.patch
+    changed_files:
+    - stats.py
+    changed_files_file: board/changed-r1.txt
+    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
+    request_wheres: []
+  exit_file: board/r1/material-exit.json
+fixture:
+  expect: completed
+  reached:
+  - mat-route
+  - prior-decisions-prep
+  - prior-decisions
+  - prior-decisions-accept
+  - collect
