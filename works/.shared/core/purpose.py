@@ -67,20 +67,30 @@ def _tree_unchanged(repo, board):
 
 
 def _source_files_errors(files, repo) -> list:
-    """source_files のうち、リポジトリ相対で作業ツリーに在るファイルでない物（works が足す検査）。
-    写しの purpose_sources_changed は、前の周の修正が触ったファイル（リポジトリ相対）と source_files の積で目的監査を
-    走り直す。絶対パス・リポジトリの外・無い名前はその積に決して当たらず、走り直しが黙って止まる"""
+    """source_files のうち、git が出す形の名前（リポジトリ相対・POSIX・`./` や末尾の `/`・重ねた `/`・`.` の段なし・
+    索引／ディスクの大小文字のまま）で作業ツリーに在るファイルでない物（works が足す検査）。
+    写しの purpose_sources_changed は、前の周の修正が触ったファイル（`git diff --name-only` の名前）と source_files の
+    完全一致の積で目的監査を走り直す。絶対パス・リポジトリの外・無い名前・git の出す形でない名前はその積に決して当たらず、
+    走り直しが黙って止まる（p0.purpose は once なので、通せば run の全周で凍る）。名前の正本は git に問う——
+    pathlib の正規化や is_file（大小文字を区別しない FS では `readme.md` も真）で代えない"""
     root = pathlib.Path(repo).resolve()
-    bad = []
+    bad, cands = [], []
     for f in files:
-        p = pathlib.Path(f)
-        if not f or p.is_absolute() or ".." in p.parts:
+        p = pathlib.PurePosixPath(f)
+        if not f or str(p) != f or p.is_absolute() or ".." in p.parts:
             bad.append(f)
             continue
-        full = (root / p).resolve()
+        full = (root / f).resolve()
         if not (full.is_relative_to(root) and full.is_file()):
             bad.append(f)
-    return bad
+            continue
+        cands.append(f)
+    if cands:
+        # 追跡中と未追跡の新規（_files_changed_since の diff が拾う物と同じ）。パススペックは字のまま・大小文字を区別
+        known = set(_git(repo, "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard",
+                         "-z", "--", *cands).split("\0"))
+        bad += [f for f in cands if f not in known]
+    return [f for f in files if f in bad]
 
 
 def check_purpose(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
@@ -99,9 +109,10 @@ def check_purpose(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
             _post_check(NODE, out, _Board(board_p, rev))
             bad = _source_files_errors(out["source_files"], repo_p)
             if bad:
-                raise Reject(f"source_files にリポジトリ相対で作業ツリーに在るファイルでない物が在る: {bad}"
-                             "——出典にしたリポジトリの中のファイルを、根からの相対パスで書け（依頼のファイルなど"
-                             "リポジトリの外の物は書かない）")
+                raise Reject(f"source_files に git の出す形のリポジトリ相対の名前で作業ツリーに在るファイルでない物が在る: {bad}"
+                             "——出典にしたリポジトリの中のファイルを、git が出す形（根からの相対・`./` や末尾の `/`・"
+                             "重ねた `/`・`.` の段なし・大小文字もリポジトリのまま）で書け（依頼のファイルなど"
+                             "リポジトリの外の物・git が無視するファイルは書かない）")
             path = _write_board(board_p, PURPOSE_FILE, out)
         return {"ok": True, "reason": "", "purpose_file": str(path)}
     return _guard(run, purpose_file="")

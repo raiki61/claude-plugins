@@ -137,6 +137,10 @@ class YamlCase(unittest.TestCase):
         self.assertIn("p0.purpose_review", text)
         self.assertIn("purpose_review_due", text)
         self.assertIn("線 B", text)
+        # 指示書も審査の今の状態（works に無い・線 B が持つ）を役に告げる。線 B が入った時に直し忘れればここで落ちる
+        prompt = (BLK / "commands" / "purpose.md").read_text(encoding="utf-8")
+        self.assertIn("works では今この審査はまだ無い", prompt)
+        self.assertIn("p0.purpose_review` は線 B", prompt)
         ai = [n["id"] for n in self.y["nodes"] + [m for g in self.y["nodes"] if "loop_group" in g
                                                    for m in g["loop_group"]["nodes"]]
               if "command" in n or "prompt" in n]
@@ -334,6 +338,42 @@ class ScriptCase(unittest.TestCase):
                 self.assertIn(repr(bad), got["reason"])
                 self.assertNotIn("'stats.py'", got["reason"].replace(repr(bad), ""))
         self.assertFalse((self.board / purpose.PURPOSE_FILE).exists())
+
+    def test_accept_rejects_source_files_not_in_git_form(self):
+        # 在るファイルを指していても、git の出す形（`git diff --name-only` の名前）でなければ突き合わせで完全一致に
+        # 当たらず、once で凍る。正規化して通さず、拒んで出し直させる
+        self.assertEqual(self.intake().returncode, 0)
+        for bad in ("./stats.py", "stats.py/", ".//stats.py", "././/stats.py", "STATS.py", "Stats.py"):
+            with self.subTest(bad):
+                got = self.accept(dict(load("purpose_ok"), source_files=["stats.py", bad]))
+                self.assertIs(got["ok"], False)
+                self.assertIn("source_files", got["reason"])
+                self.assertIn(repr(bad), got["reason"])
+        self.assertFalse((self.board / purpose.PURPOSE_FILE).exists())
+
+    def test_source_files_errors_nested_and_ignored(self):
+        # a//b・a/./b は形で、git が無視するファイルは ls-files で落ちる。未追跡の新規は git diff が拾うので通す
+        (self.repo / "sub").mkdir()
+        (self.repo / "sub" / "a.md").write_text("x\n", encoding="utf-8")
+        (self.repo / "sub" / "new.md").write_text("x\n", encoding="utf-8")
+        (self.repo / "sub" / "skip.log").write_text("x\n", encoding="utf-8")
+        (self.repo / ".gitignore").write_text("*.log\n", encoding="utf-8")
+        git(self.repo, "add", "sub/a.md", ".gitignore")
+        git(self.repo, "commit", "-q", "-m", "sub")
+        files = ["sub/a.md", "sub//a.md", "sub/./a.md", "sub/new.md", "sub/skip.log"]
+        self.assertEqual(purpose._source_files_errors(files, self.repo), ["sub//a.md", "sub/./a.md", "sub/skip.log"])
+
+    def test_accepted_source_files_match_git_diff_names(self):
+        # 往復: 受け付けを通った source_files は、そのファイルを直した時の `git diff --name-only` の名前と字のまま同じ
+        self.assertEqual(self.intake().returncode, 0)
+        self.assertIs(self.accept(load("purpose_ok"))["ok"], True)
+        srcs = json.loads((self.board / purpose.PURPOSE_FILE).read_text(encoding="utf-8"))["source_files"]
+        self.assertTrue(srcs)
+        for f in srcs:
+            with (self.repo / f).open("a", encoding="utf-8") as fh:
+                fh.write("\n")
+        names = git(self.repo, "diff", "--name-only").split()
+        self.assertEqual(sorted(set(srcs) & set(names)), sorted(set(srcs)))
 
     def test_accept_refuses_to_overwrite_frozen_purpose(self):
         self.assertEqual(self.intake().returncode, 0)
