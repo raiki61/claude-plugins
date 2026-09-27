@@ -30,6 +30,7 @@ sys.path.insert(0, str(CORE))
 from accept import role_schema, snapshot_tree  # noqa: E402
 from board import graph_expanded  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+import premises  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_SNAPSHOT_FILE, check_premises  # noqa: E402
 
 DEADLINE = 1728000000
@@ -85,10 +86,12 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(self.y["returns"], "collect")
         self.assertEqual(self.y["outcome_field"], "ok")
         fmt = find_node(self.y, "collect")["output_format"]
-        self.assertEqual(fmt["properties"], {
-            "ok": {"type": "boolean"}, "constraints_file": {"type": "string"},
-            "constraints_summary": {"type": "string"}})
-        self.assertEqual(sorted(fmt["required"]), ["constraints_file", "constraints_summary", "ok"])
+        v1 = {"ok": {"type": "boolean"}, "constraints_file": {"type": "string"}, "constraints_summary": {"type": "string"}}
+        self.assertEqual({k: fmt["properties"][k] for k in v1}, v1)   # v1 の欄は全部残す（出口の約束）
+        added = {"premises_file": "string", "constraints": "integer", "measured": "integer", "hypotheses": "integer",
+                 "claims": "integer", "claims_hypothesis": "integer", "reads_file": "string"}   # 計画 P1 Task 24 の collect
+        self.assertEqual(fmt["properties"], {**v1, **{k: {"type": t} for k, t in added.items()}})
+        self.assertEqual(set(fmt["required"]), set(v1) | set(added))
 
     def test_nodes_and_loop(self):
         self.assertEqual([n["id"] for n in self.y["nodes"]], ["intake", "premises-loop", "collect"])
@@ -111,8 +114,27 @@ class YamlCase(unittest.TestCase):
         acc = find_node(self.y, "premises-accept")
         self.assertEqual(acc["with"], {"reply": {"from": "$premises.output"}, "base_rev": "$INPUTS.base_rev"})
         self.assertEqual(acc["depends_on"], ["premises"])
-        self.assertEqual(sorted(acc["output_format"]["required"]), ["constraints_file", "ok", "reason"])
+        self.assertEqual(sorted(acc["output_format"]["required"]), ["constraints_file", "ok", "reason", "reason_file"])
         self.assertEqual(find_node(self.y, "collect")["depends_on"], ["premises-loop"])
+
+    def test_prompt_measures_request_claims(self):
+        """依頼の measured の測り直しの段落（where をそのまま text に・測れなければ仮説）と、本線 a1202d0 の指示書の本文を全部含む。
+        拒んだ理由はファイルのパスで届く（R44。$LOOP_PREV で本文を貼らない）"""
+        text = (BLK / "commands" / "premises.md").read_text(encoding="utf-8")
+        for needle in ("`measured`", "`where` をそのまま", "`kind: 仮説`", "$LOOP_PREV.premises-accept.output.reason_file"):
+            with self.subTest(needle):
+                self.assertIn(needle, text)
+        self.assertNotIn("$LOOP_PREV.premises-accept.output.reason\n", text + "\n")
+        self.assertNotRegex(text, r"\$LOOP_PREV\.premises-accept\.output\.reason(?!_file)")
+        src = subprocess.run(["git", "-C", str(ROOT), "show", "a1202d0:graphloops/prompts/review-loop/p0.premises.md"],
+                             capture_output=True, text=True)
+        if src.returncode != 0:
+            self.skipTest("このリポジトリから a1202d0 を引けない（浅い clone か、graphloops の履歴を持たない）")
+        body = [ln for ln in src.stdout.splitlines() if ln.strip() and "{{" not in ln]
+        self.assertTrue(body)
+        for ln in body:
+            with self.subTest(ln[:30]):
+                self.assertIn(ln, text)
 
     def test_prompt_wires_request_retry_and_incidents(self):
         text = (BLK / "commands" / "premises.md").read_text(encoding="utf-8")
@@ -366,6 +388,51 @@ class ScriptCase(RepoCase):
         r = self.run_script("collect")
         self.assertEqual(r.returncode, 1)
         self.assertIn(PREMISES_FILE, r.stderr)
+
+    # ---- 依頼の実測の測り直し（計画 P1 Task 24・仕様 3.6。works だけの検査 check_claims）
+    CLAIM = {"where": "test_stats.py:12", "text": "本番の入力で 3 件に 1 件が赤になる", "measured": "3 件に 1 件が赤"}
+
+    def claim_request(self):
+        """measured の行を 1 本持つ依頼（対象の外のファイル。絶対パス）"""
+        path = self.art.parent / "claims.json"
+        rows = [{"where": "stats.py", "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"}, self.CLAIM]
+        path.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def test_claims_picks_measured_rows(self):
+        items = [{"where": "a.py", "text": "x"}, {"where": "b.py:3", "text": "y", "measured": "5 件"}]
+        self.assertEqual(premises.claims(items), [{"where": "b.py:3", "measured": "5 件"}])
+
+    def test_request_claim_missing_rejected(self):
+        """measured の行が在るのに where を含む制約が無い → ok False、reason（と reason_file）に where と直し方"""
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST=self.claim_request()).returncode, 0)
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("premises_claim_missing")), INPUTS_BASE_REV="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], False)
+        for want in ("依頼の実測を測り直した制約が無い", "test_stats.py:12", "text に where をそのまま入れよ"):
+            self.assertIn(want, got["reason"])
+        self.assertEqual(pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"), got["reason"])
+        self.assertFalse((self.board / PREMISES_FILE).exists())
+
+    def test_request_claim_hypothesis_passes(self):
+        """測り直せず kind 仮説にした行（text に where）→ ok、collect の claims 1・claims_hypothesis 1"""
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST=self.claim_request()).returncode, 0)
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("premises_claim_hypothesis")), INPUTS_BASE_REV="")
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], True, got["reason"])
+        out = json.loads(self.run_script("collect").stdout)
+        self.assertEqual(validate_schema(out, find_node(workflow(), "collect")["output_format"]), [])
+        self.assertEqual({k: out[k] for k in ("constraints", "measured", "hypotheses", "claims", "claims_hypothesis")},
+                         {"constraints": 2, "measured": 1, "hypotheses": 1, "claims": 1, "claims_hypothesis": 1})
+        self.assertEqual(out["premises_file"], str(self.board / PREMISES_FILE))
+
+    def test_accept_without_request_copy_rejected(self):
+        """intake を通らない（依頼の控えが無い）受け付けは、依頼の実測を確かめられないので拒む（fail closed）"""
+        self.board.mkdir(parents=True)
+        got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("premises_ok")), INPUTS_BASE_REV="").stdout)
+        self.assertIs(got["ok"], False)
+        self.assertIn(premises.PREMISES_REQUEST_FILE, got["reason"])
 
     # ---- collect
     def test_collect_builds_exit(self):

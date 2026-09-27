@@ -37,7 +37,7 @@ import plan  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
-OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "why"}
+OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "why", "premises_file"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
 FACE = "clamp の上限の意味が変わる"
@@ -119,8 +119,8 @@ class EdgeBase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
-    def premised(self):
-        """start → 並行 PR の任せ先・前提の役を受けた盤面（p2.diagnose が待つ）"""
+    def started(self):
+        """start → 並行 PR の任せ先を受けた盤面（p0.premises が待つ）"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True)
@@ -130,7 +130,28 @@ class EdgeBase(unittest.TestCase):
         raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "", "adapter": "", "policy_md": ""}
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
+
+    def premised(self):
+        """前提の役まで受けた盤面（p2.diagnose が待つ）"""
+        self.started()
         self.take("p0.premises", {"constraints": []})
+
+    def premises_exit(self, reply):
+        """前提のブロックの出口（collect の形）。constraints_file は reply を書いた盤面の外のファイル"""
+        path = self.tmp / "premises-out" / "premises.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(reply, ensure_ascii=False), encoding="utf-8")
+        return {"ok": True, "constraints_file": str(path), "constraints_summary": "x"}
+
+    def launched(self):
+        """この run の worktree に包みの起動の行を 1 本（盤面を作った後。reads.adapter_seen が数える形）"""
+        import adapter
+        p = adapter.launches_path(self.repo)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        row = {"at": adapter.now(), "pid": 1, "cwd": str(self.repo), "node": "premises", "continue": None, "mode": "merged",
+               "why": None, "hook": True, "tools_empty": False, "session": None, "fence": None}
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     def judged(self, name="judge_ok"):
         """前提の役まで受け、判定（name の見本）を受けた盤面（p2.fix_plan が待つ）"""
@@ -167,7 +188,7 @@ class EdgeBase(unittest.TestCase):
 
     def edge(self, at, **kw):
         kw.setdefault("mid_gate", "always")
-        kw.setdefault("adapter_mode", "")
+        kw.setdefault("adapter_mode", "optional")   # 包みの確かめ（at judge）は JudgeEdgeCase が "" で見る
         return line_edge.edge(self.board, at, self.repo, run_id=RUN_ID, **kw)
 
     def state(self):
@@ -568,6 +589,89 @@ class PlanEdgeCase(EdgeBase):
         self.assertEqual(len(self.done_rows("p3.fix")), 1)
 
 
+class JudgeEdgeCase(EdgeBase):
+    """h-judge（計画 P1 Task 24・P1-R9）: 包みの確かめと、前提の実測が盤面に在るか（前提のブロックの出口の渡し替え）"""
+
+    def test_judge_edge_returns_premises_file(self):
+        """前提を受けた盤面で at judge → go True、premises_file は state.outputs["p0.premises"] の置き場（絶対パス）"""
+        self.premised()
+        got = self.edge("judge")
+        self.assertEqual((got["go"], got["stop"]), (True, False), got)
+        b = entry.open_board(self.board)
+        self.assertEqual(got["premises_file"], str(self.board / b.state["outputs"]["p0.premises"]["file"]))
+        self.assertTrue(pathlib.Path(got["premises_file"]).is_file())
+
+    def test_judge_edge_bridges_premises_exit(self):
+        """前提のブロックの出口（constraints_file）を盤面の p0.premises に渡す → 記録の constraints に行、ready に p2.diagnose。
+        呼び直しても 2 度渡さない"""
+        self.started()
+        premised = self.premises_exit(linekit.reply("premises_ok"))
+        for _ in range(2):
+            got = self.edge("judge", premised=premised)
+            self.assertEqual((got["go"], got["stop"]), (True, False), got)
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state("p0.premises"), "done")
+        self.assertIn("p2.diagnose", b.ready())
+        self.assertEqual(len([r for r in trace_rows(self.board, "done") if r.get("instance") == "p0.premises"]), 1)
+        self.assertEqual(got["premises_file"], str(self.board / b.state["outputs"]["p0.premises"]["file"]))
+
+    def test_judge_edge_stops_without_premises(self):
+        """前提を受けていない盤面・前提のブロックの出口も無い → stop True、by works:premises、判定役は起きない"""
+        self.started()
+        got = self.edge("judge", premised=None)
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], line_edge.PREMISES_BY)
+        self.assertIn("前提の実測が盤面に無い", st["stop"]["reason"])
+
+    def test_judge_edge_bridge_rejected_stops(self):
+        """盤面が前提の出口を受けない（kind 実測に measured_output が無い）→ stop、by works:premises、文に盤面の拒否"""
+        self.started()
+        bad = {"constraints": [{"text": "x", "measured_how": "y", "kind": "実測"}]}
+        got = self.edge("judge", premised=self.premises_exit(bad))
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], line_edge.PREMISES_BY)
+        self.assertIn("measured_output", st["stop"]["reason"])
+
+    def test_adapter_missing_stops_at_judge(self):
+        """この run の起動が包みの起動の記録に無い・adapter "" → at judge で stop（by works:adapter）"""
+        self.premised()
+        got = self.edge("judge", adapter_mode="")
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], line_edge.ADAPTER_BY)
+        self.assertIn("包みが通っていない", st["stop"]["reason"])
+        self.assertIn(RUN_ID, st["stop"]["reason"])
+
+    def test_adapter_seen_passes(self):
+        self.premised()
+        self.launched()
+        got = self.edge("judge", adapter_mode="")
+        self.assertEqual((got["go"], got["stop"]), (True, False), got)
+
+    def test_adapter_optional_passes(self):
+        """同じく起動の行が無くても adapter "optional"（包み無しで回す run）→ stop False"""
+        self.premised()
+        got = self.edge("judge", adapter_mode="optional")
+        self.assertEqual((got["go"], got["stop"]), (True, False))
+
+    def test_plan_does_not_check_adapter(self):
+        """包みの確かめは h-judge だけ（P1-R9）: 起動の行が無く adapter "" でも at plan は止めない"""
+        self.judged()
+        got = self.edge("plan", adapter_mode="", judged=self.judge_exit())
+        self.assertEqual((got["go"], got["stop"]), (True, False))
+
+    def test_premised_only_at_judge(self):
+        self.premised()
+        with self.assertRaises(BoardGap):
+            self.edge("plan", premised={"constraints_file": "x"})
+        with self.assertRaises(BoardGap):
+            self.edge("judge", premised="x")
+        with self.assertRaises(BoardGap):
+            self.edge("judge", adapter_mode="sometimes")
+
+
 class ReadyCase(unittest.TestCase):
     """DiskBoard.ready: 開いただけの盤面の ready（書かない）。表で explicit の機械の節（壁）は settle の記憶にしか無いので、
     開き直した入れ物の Progress では落ちる——ready() は graph の順で最初の待ちで依存が済んだ壁を足す。線 A の表には
@@ -620,7 +724,7 @@ class ReadyCase(unittest.TestCase):
 class EdgeScriptCase(EdgeBase):
     def run_edge(self, **env):
         base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
-        base.update({"INPUTS_AT": "fix", "INPUTS_JUDGED": "null", "INPUTS_GATE": "null", "INPUTS_MID": "null",
+        base.update({"INPUTS_AT": "fix", "INPUTS_JUDGED": "null", "INPUTS_PREMISED": "null", "INPUTS_GATE": "null", "INPUTS_MID": "null",
                      "INPUTS_ADAPTER": "", "INPUTS_MID_GATE": "always", "ARTIFACTS_DIR": str(self.art),
                      "WORKFLOW_ID": RUN_ID, "PYTHONDONTWRITEBYTECODE": "1"})
         base.update(env)
@@ -656,13 +760,13 @@ class EdgeScriptCase(EdgeBase):
         self.assertFalse([*(ROOT / "darkfactory").rglob("__pycache__")])
 
     def test_edge_script_inputs_constant(self):
-        """edge.py の INPUTS の組が 6 つ（Task 17 の配線の試験が YAML の with: の鍵と突き合わせる）"""
+        """edge.py の INPUTS の組（Task 17 の配線の試験が YAML の with: の鍵と突き合わせる）"""
         import importlib.util
         spec = importlib.util.spec_from_file_location("_works_edge_script", SCRIPT)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        self.assertEqual(mod.INPUTS, ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_GATE", "INPUTS_MID", "INPUTS_ADAPTER",
-                                      "INPUTS_MID_GATE"))
+        self.assertEqual(mod.INPUTS, ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_PREMISED", "INPUTS_GATE", "INPUTS_MID",
+                                      "INPUTS_ADAPTER", "INPUTS_MID_GATE"))
 
 
 if __name__ == "__main__":

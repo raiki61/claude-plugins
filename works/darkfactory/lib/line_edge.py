@@ -2,6 +2,7 @@
 使うのは darkfactory/scripts/edge.py だけ。止め札そのもの（置く・読む）は共有の .shared/core/halt.py。
 
 - edge(board_dir, at, repo, …): 境の節（darkfactory/scripts/edge.py の中身）。止め札・関所の答え・次のブロックを盤面から決める
+- judge_edge(b, …): h-judge の固有の仕事（包みの確かめ・前提の実測が盤面に在るか。計画 P1 Task 24・P1-R9）
 - plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 """
@@ -22,11 +23,12 @@ from board import BoardGap  # noqa: E402
 import entry  # noqa: E402
 import halt  # noqa: E402
 import plan  # noqa: E402
+import reads  # noqa: E402
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
 # いつも走る script の節 1 本（darkfactory/scripts/edge.py）を、ラインの中で at を替えて使う。並びはラインの順
 # （T22 が "judge"、T23 が "rejudge" を足す）。when: と関所の文は境の節の欄だけを読み、go は盤面の ready から決める（TA1）
-AT = ("plan", "gate", "fix", "mid", "midgate", "review", "refix", "tests")
+AT = ("judge", "plan", "gate", "fix", "mid", "midgate", "review", "refix", "tests")
 GO_NODE = {"plan": "p2.fix_plan", "fix": "p3.fix", "review": "p3.delta_review", "refix": "p3.delta_fix", "tests": "p4.ci"}
 GATE_AT = ("fix", "review")          # 関所の答えを受ける境の節（fix は policy-gate、review は mid-gate）
 GATE_GO = ("approve", "continue")    # approve は continue と、reject は stop と同じ（台帳 R32）
@@ -40,12 +42,17 @@ AFTER_HALT_OP = "stop_flag_after_halt"       # 止まった後に見た止め札
 EMPTY_FIX_OP = "empty_fix"                   # 直す物の無い周に機械が p3.fix の空の返答を渡した印の trace の行（T10b が書く。TA6）
 EMPTY_FIX_BY = "works:empty-fix"
 JUDGE_BRIDGE_BY = "works:judge-bridge"       # 判定のブロックの出口を盤面が受けなかった時の state.stop.by（h-plan）
+ADAPTER_BY = "works:adapter"                 # 包みが通っていない run を止めた state.stop.by（h-judge。blk-ci の柵と同じ名）
+PREMISES_BY = "works:premises"               # 前提の実測が盤面に無い・盤面が受けない時の state.stop.by（h-judge）
+PREMISES_NODE = "p0.premises"
+ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み（works/.shared/core/claude-adapter）の絶対パスを書くか、"
+                "包み無しで回すなら入力 adapter に optional を渡す（works/README.md の包みの節）")
 JUDGED_FILE = "judged.json"                  # h-plan が受けた判定のブロックの出口の控え（b.work。後ろの境の節が運ぶ。M4）
 GATE_FILE = "gate.md"                        # policy-gate の文（b.work）
 MID_GATE_FILE = "mid-gate.md"                # mid-gate の文（b.work）
 MID_GATE_ANSWER = "mid-gate-answer.json"     # mid-gate の continue・approve の答え {decision, text}（b.work）
 EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", "judgment_file": "", "open_units": "",
-         "plan_file": "", "notes": "", "why": ""}
+         "plan_file": "", "notes": "", "why": "", "premises_file": ""}
 
 
 def _gap(msg):
@@ -79,10 +86,14 @@ def _gate_words(gate) -> tuple:
     return decision, text
 
 
-def _check_args(at, *, mid_gate, judged, gate, mid) -> str:
-    """配線の誤り（知らない at・場違いの入力・形の崩れ）を BoardGap にし、mid_gate の語（空は既定の always）を返す"""
+def _check_args(at, *, mid_gate, judged, gate, mid, premised=None, adapter_mode="") -> str:
+    """配線の誤り（知らない at・場違いの入力・形の崩れ・語の外の adapter）を BoardGap にし、mid_gate の語（空は既定の always）を返す"""
     if at not in AT:
         raise _gap(f"境の節の at {at!r} を知らない（{' / '.join(AT)}）")
+    if (adapter_mode or "") not in entry.ADAPTER_MODES:
+        raise _gap(f"adapter={adapter_mode!r} は知らない値（空か optional）")
+    if premised is not None and (at != "judge" or not isinstance(premised, dict)):
+        raise _gap(f"前提のブロックの出口（premised）を受けるのは at judge の JSON のオブジェクトだけ（at {at}・{type(premised).__name__}）")
     if gate is not None:
         if at not in GATE_AT:
             raise _gap(f"関所の答え（gate）を受けるのは at {' / '.join(GATE_AT)} だけ（at {at}）")
@@ -242,6 +253,50 @@ def _judgment(judged) -> tuple:
     return doc, ""
 
 
+def _premises_reply(premised) -> tuple:
+    """前提のブロックの出口から (実測役の返答, 読めない理由)。読めれば理由は空"""
+    path = premised.get("constraints_file") if isinstance(premised, dict) else None
+    if not isinstance(path, str) or not path:
+        return None, "前提のブロックの出口（constraints_file）が届かない"
+    try:
+        doc = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return None, f"前提のファイル {path} が読めない（{type(e).__name__}: {e}）"
+    if not isinstance(doc, dict):
+        return None, f"前提のファイル {path} が JSON のオブジェクトでない（{type(doc).__name__}）"
+    return doc, ""
+
+
+def judge_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, premised=None) -> dict:
+    """h-judge の固有の仕事（前提の役の後・判定の前。計画 P1 Task 24・P1-R9・〔線A計〕T22）。順:
+    1. 包みの確かめ: reads.adapter_seen（この run の worktree の包みの起動の記録。盤面を作った後の行）が偽で adapter_mode が
+       optional でなければ b.stop("包みが通っていない: …", by=ADAPTER_BY) で stop
+    2. 表で p0.premises が role なのに盤面で今の周に済んでいなければ、前提のブロックの出口 premised の constraints_file を読んで
+       entry.take(p0.premises)（起こした印を置いてから。盤面の写しの schema・measured_needs_output・writes が当たる）。
+       出口が届かない・読めない・盤面が受けないなら b.stop("前提の実測が盤面に無い: …", by=PREMISES_BY) で stop。
+       済んでいれば渡さない（Archon の再開で呼び直しても同じ）
+    3. go True・premises_file は盤面の state.outputs["p0.premises"] の置き場（絶対パス。na・表に無い節なら空）"""
+    board_dir = pathlib.Path(board_dir)
+    if adapter_mode != "optional":
+        seen = reads.adapter_seen(board_dir, run_id, repo=repo)
+        if not seen["seen"]:
+            reason = f"包みが通っていない: {'・'.join(seen['whys'])}。{ADAPTER_HINT}"
+            b.stop(reason, by=ADAPTER_BY)
+            return {"stop": True, "go": False, "why": reason}
+    row = b.table.nodes.get(PREMISES_NODE) if b.table is not None else None
+    if row is not None and row.by == "role" and b.node_state(PREMISES_NODE) != "na" and not _done_this_round(b, PREMISES_NODE):
+        reply, why = _premises_reply(premised)
+        if not why:
+            got = _hand(b, board_dir, PREMISES_NODE, reply, repo)
+            why = "" if got["ok"] else f"盤面が前提の実測を受けない: {got['reason']}"
+        if why:
+            reason = f"前提の実測が盤面に無い: {why}"
+            entry.open_board(board_dir).stop(reason, by=PREMISES_BY)
+            return {"stop": True, "go": False, "why": reason}
+        b = entry.open_board(board_dir)
+    return {"go": True, "premises_file": _out_file(b, PREMISES_NODE)}
+
+
 def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> dict:
     """h-plan の固有の仕事（edge の手順 5。計画 P1 Task 23・裁定 TA3・TA6）。包みの確かめはここに置かない（h-judge。P1-R9）。順:
     1. judged（判定のブロックの出口）を b.work(JUDGED_FILE) に控える（後ろの境の節が judgment_file・open_units を返す。M4）
@@ -275,8 +330,8 @@ def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> 
 
 
 def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, mid_gate: str, judged: dict | None = None,
-         gate: dict | None = None, mid: dict | None = None) -> dict:
-    """境の節（計画 Task 10a）。返り {ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, why}（使わない欄は
+         gate: dict | None = None, mid: dict | None = None, premised: dict | None = None) -> dict:
+    """境の節（計画 Task 10a）。返り {ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, why, premises_file}（使わない欄は
     空の値。judgment_file・open_units はどの at でも h-plan の控え b.work(JUDGED_FILE) から）。盤面を開くのは 1 回。順:
     1. 盤面を allow_halted で開く。もう止まっている（halted・state.stop）なら、止め札の理由は trace にだけ書いて stop（M3）
     2. at fix の gate（policy-gate の出口。None は開かなかった）: approve・continue は b.answer("continue", 一言)、
@@ -285,14 +340,14 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, mid_gate: 
        continue・approve は b.work(MID_GATE_ANSWER) に {decision, text}
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>") して stop
-    5. plan: plan_edge。gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
+    5. judge: judge_edge（包みの確かめ・前提の実測の渡し替え）。plan: plan_edge。gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
        fix: go は p3.fix が ready・notes は今の周の human_items の一言・plan_file は今の周の p2.fix_plan の出力。
        mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で見分ける）。
        midgate: mid（None なら開かない）について ask は mid_gate always か、when_needed で緑でないか走れなかった時。
        文は b.work(MID_GATE_FILE) にも。review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。
     ready は DiskBoard.ready（書かない。開き直した盤面でも explicit の機械の節を落とさない）。
     配線の誤り（知らない at・場違いの入力・形の崩れ・知らない mid_gate）は BoardGap"""
-    mode = _check_args(at, mid_gate=mid_gate, judged=judged, gate=gate, mid=mid)
+    mode = _check_args(at, mid_gate=mid_gate, judged=judged, gate=gate, mid=mid, premised=premised, adapter_mode=adapter_mode)
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     out = {**EMPTY, **_carried(b)}
     flag = halt.seen(board_dir)
@@ -306,6 +361,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, mid_gate: 
         b.trace(FLAG_SEEN_OP, at=at, reason=flag["reason"], by=flag["by"])
         b.stop(flag["reason"], by=FLAG_BY_PREFIX + flag["by"])
         return {**out, "stop": True, "why": flag["reason"]}
+    if at == "judge":
+        return {**out, **judge_edge(b, board_dir, repo, run_id=run_id, adapter_mode=adapter_mode, premised=premised)}
     if at == "plan":
         return {**out, **plan_edge(b, board_dir, repo, run_id=run_id, adapter_mode=adapter_mode, judged=judged)}
     if at == "gate":

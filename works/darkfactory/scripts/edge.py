@@ -7,12 +7,12 @@
 
 読む環境変数（Archon が節の with: から渡す。どれも在ること）:
 - INPUTS_AT（line_edge.AT の語）・INPUTS_ADAPTER（start の adapter）・INPUTS_MID_GATE（start の mid_gate。空は always）
-- INPUTS_JUDGED（h-plan だけ: 判定のブロックの出口）・INPUTS_GATE（h-fix は policy-gate、h-review は mid-gate の出口）・
+- INPUTS_JUDGED（h-plan だけ: 判定のブロックの出口）・INPUTS_PREMISED（h-judge だけ: 前提のブロックの出口）・INPUTS_GATE（h-fix は policy-gate、h-review は mid-gate の出口）・
   INPUTS_MID（h-midgate だけ: blk-tests の mid の出口）。どれも JSON のオブジェクトの文字列で、飛ばされた節は
   `{from: …, if_skipped: null}` の文字列 null（空も同じ）＝「開かなかった・走らなかった」。語の入力の null は空と同じ
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（関所の文の run の id。空も欠け）
 出口:
-- line_edge.edge の結果 {ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, why} を 1 行の JSON で出して 0
+- line_edge.edge の結果 {ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, why, premises_file} を 1 行の JSON で出して 0
 - 環境変数が欠けた・JSON が読めない・オブジェクトでない・盤面の誤り（BoardGap・Reject）・盤面のパスが $ を含む・思わぬ誤り:
   標準出力に何も出さず、標準エラーに 1 行出して 2
 """
@@ -28,8 +28,8 @@ import os  # noqa: E402
 import script_io  # noqa: E402
 
 # 裁定 TA16: 読む INPUTS_* の組（Task 17 の試験が YAML の with: の鍵と突き合わせる）
-INPUTS = ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_GATE", "INPUTS_MID", "INPUTS_ADAPTER", "INPUTS_MID_GATE")
-JSON_INPUTS = {"INPUTS_JUDGED": "judged", "INPUTS_GATE": "gate", "INPUTS_MID": "mid"}
+INPUTS = ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_PREMISED", "INPUTS_GATE", "INPUTS_MID", "INPUTS_ADAPTER", "INPUTS_MID_GATE")
+JSON_INPUTS = {"INPUTS_JUDGED": "judged", "INPUTS_PREMISED": "premised", "INPUTS_GATE": "gate", "INPUTS_MID": "mid"}
 NULL = "null"   # 飛ばされた節の出力（if_skipped: null）が届く字
 RUN_ID_ENV = "WORKFLOW_ID"
 NON_EMPTY = (script_io.ARTIFACTS_ENV, RUN_ID_ENV)
