@@ -6,9 +6,10 @@ fast と heavy は重ならず、合わせるとちょうど全部（tests/test_
 どちらかに書く。書き忘れ・両方に書いた・消したモジュールが残っている、のどれかがあると、段を選んだ実行は
 終了コード 2 で止まり、test_tiers も赤になる（新しい重いテストが黙って fast に入らないように）。
 
-heavy に置く物: git のリポジトリを作る（git init・commit・mktarget・dogfood の clone）・Archon を起こす・
-golden を再生する・プロセスの木を起こす。短くても、これらを使うモジュールは heavy に置く（負荷の高い機械では
-git と子のプロセスが遅れの元になる）。秒は 2026-09-27 に負荷 60〜110 の機械で nice -n 19・`-p <モジュール>` で測った。
+heavy に置く物: 試験ごとに git のリポジトリを作る（git init・commit・mktarget・dogfood の clone）・uv run を起こす・
+Archon を起こす・golden を再生する・プロセスの木を起こす・決まった秒を待つ。短くても、これらを使うモジュールは heavy に置く
+（負荷の高い機械では git と子のプロセスが遅れの元になる）。種の git を tests/gitkit.py の型（プロセスに 1 回だけ作る）の
+写しで配るだけなら、試験ごとに作るに当たらない。秒は 2026-09-27 に nice -n 19 で 1 本ずつ測った（負荷は各行）。
 """
 import os
 import pathlib
@@ -20,6 +21,8 @@ PATTERN = "test_*.py"   # run.sh の discover と同じ
 
 # 秒は 1 本ずつ回した壁時計（負荷は測った時の 1 分平均）
 FAST = frozenset({
+    "test_blk_fix",         # 4 秒（負荷 9）種の git は gitkit の型の写し・スクリプトを子で起こす
+    "test_blk_judge",       # 5 秒（負荷 9〜15）種の git は gitkit の型の写し・スクリプトを子で起こす
     "test_core_copy",       # 1〜3 秒
     "test_script_io",       # 2 秒（python を 1 本起こすだけ。git は使わない）
     "test_tiers",           # 8 秒（偽の uv・枠の台本で run.sh を起こす）
@@ -27,11 +30,9 @@ FAST = frozenset({
 })
 
 HEAVY = frozenset({
-    "test_accept",          # 140 秒（負荷 110）git
-    "test_blk_fix",         # 116 秒（負荷 90）git・修正の後のテストを子で回す
-    "test_blk_judge",       # 67 秒（負荷 87）git
-    "test_blk_tests_delta", # 113 秒（負荷 87）git・プロセスの木
-    "test_dev",             # 195 秒（負荷 60〜80）mktarget・dogfood の clone・偽の Archon
+    "test_accept",          # 15 秒（負荷 8）うち 11.5 秒は受け付けの racy-git の待ち（accept.py。決まった秒）
+    "test_blk_tests_delta", # 13 秒（負荷 15）uv run・プロセスの木・止めた後に 4 秒待つ
+    "test_dev",             # 14 秒（負荷 12）mktarget・dogfood の clone・偽の Archon
     "test_line",            # 5 秒（負荷 64）git init
     "test_script_headers",  # 5 秒（負荷 64）git・uv run
     "test_tree_run",        # 20 秒（負荷 62）プロセスの木
