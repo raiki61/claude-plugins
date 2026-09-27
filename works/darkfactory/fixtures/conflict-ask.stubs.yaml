@@ -1,7 +1,7 @@
-# 筋書き pr-fallback: 並行 PR の engine の helper が交差を見つけて任せ先に落ちた（h-entry の pr_go 真）→ pr-checking
-# （blk-pr）が回り、handed_over 偽の下書きで通る
-# 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
-# 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
+# 筋書き conflict-ask: final_gate when_needed・最後のテストは緑。修正役が mean を食い違いとして申し出（名指しが現物に在る）、
+# 裁定役が ask_human に回した → 2 回目の修正役は clamp だけを返し（mean は直す義務から外れる）、h-final が関所を開き（ask 真）、
+# 報告は needs_human（冒頭 1 に件数、next-request.json に単位）。関所は模擬実行で自動で通る
+# 生成の元: final-when-needed-green の筋書きに食い違いの申し出の節の stub を足した物
 start:
   ok: true
   base_rev: 0123456789abcdef0123456789abcdef01234567
@@ -34,8 +34,8 @@ ci:
   material:
     status: found
     count: 2
-    detail: 'CI の定義が無いので、リポジトリの test_stats.py を python3 -m unittest test_stats で写しの上で走らせた: exit 1。FAIL: test_mean_of_three（2 を期待して 3.0）・test_clamp_above_range（10
-      を期待して 15）'
+    detail: 'CI の定義が無いので、リポジトリの test_stats.py を python3 -m unittest test_stats で写しの上で走らせた: exit 1。FAIL: test_mean_of_three（2
+      を期待して 3.0）・test_clamp_above_range（10 を期待して 15）'
     checked: 写しの上で python3 -m unittest test_stats（終わるまで待った。3 件中 2 件が赤）
 ci-accept:
   ok: true
@@ -66,7 +66,7 @@ h-entry:
   why: ''
   gate_file: ''
   premises_file: ''
-  pr_go: true
+  pr_go: false
   premises_go: true
   purpose_go: false
   spec_go: false
@@ -212,8 +212,9 @@ h-mat:
 gathering__mat-route:
   ok: true
   stopped: false
-  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: 回す・p1.consistency_bypass: 回す・p1.hygiene: 回す・p1.external_standards: 回す・p1.procedure_trace:
-    回す・p1.gate_efficacy: 回す・p1.test_double_fidelity: 回す・p1.main_path_observation: 回す・p1.provenance: 回す'
+  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: 回す・p1.consistency_bypass: 回す・p1.hygiene: 回す・p1.external_standards:
+    回す・p1.procedure_trace: 回す・p1.gate_efficacy: 回す・p1.test_double_fidelity: 回す・p1.main_path_observation: 回す・p1.provenance:
+    回す'
   snapshot_file: board/r1/material-snapshot.json
   prior_decisions: true
   purpose_review: false
@@ -577,8 +578,8 @@ judge:
   - key: 'stats.py mean: 分母が len(xs) - 1 になっている'
     label: block
     disposition: do-now
-    reason: '事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも
-      2 を期待する'
+    reason: '事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と
+      docstring は算術平均で、テストも 2 を期待する'
     origin_analysis: 算術平均と不偏分散の分母の取り違え
     class_query:
       how:
@@ -593,7 +594,8 @@ judge:
   - key: 'stats.py clamp: 上限を超えた値に lo を返す'
     label: block
     disposition: do-now
-    reason: '事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する'
+    reason: '事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名
+      clamp とテストは hi を期待する'
     origin_analysis: 下限の枝を写したときに戻り値を直し忘れた形
     class_query:
       how:
@@ -809,140 +811,6 @@ fix-prep:
   iteration: 1
 fix:
   changes:
-  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
-    what: mean の分母を len(xs) - 1 から len(xs) に直した（算術平均の定義どおり）。python3 -m unittest test_stats で test_mean_of_three が緑
-    files:
-    - stats.py
-    closure:
-      mechanism: mean が総和をデータ点の数より 1 少ない数で割り、算術平均でなく不偏分散の分母で平均を出していた
-      fix_mechanism: 分母をデータ点の数 len(xs) にして、算術平均の定義に揃えた
-      verified_how: 分母を len(xs) - 1 に戻す退行を注入して test_mean_of_three の赤を見て、復元して緑を見た
-      sites:
-      - site: stats.py mean の return 行（分母）
-        red_seen: true
-    precedent:
-      verdict: adopt
-      reason: '判定者の先行例の行（stats.py mean: 分母が len(xs) - 1 になっている）の statistics.mean をそのまま採った'
-      from_judge_row: true
-    root_or_symptom:
-      kind: root
-      why: 分母の取り違えそのものを直した
-    bypass_tried: 修正を残したまま mean([5]) と mean([1.5, 2.5]) と mean([-1, 1]) を呼んだ——どれも算術平均を返した
-    breaks:
-      how: git grep -n 'mean(' -- '*.py'
-      result: mean を呼ぶのは test_stats.py の 1 か所だけで、python3 -m unittest test_stats が 3 件とも緑
-  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
-    what: clamp の x > hi の枝の戻り値を lo から hi に直した。python3 -m unittest test_stats で test_clamp_above_range が緑
-    files:
-    - stats.py
-    closure:
-      mechanism: 下限の枝を写して上限の枝を作ったとき、戻り値を lo のまま残した
-      fix_mechanism: 上限の枝は hi を返し、下限の枝は lo を返す形に揃えた
-      verified_how: 'return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5, 0, 10) が 0 を返すことを見た'
-      sites:
-      - site: stats.py clamp の x > hi の枝
-        red_seen: true
-      - site: stats.py clamp の x < lo の枝（正しく lo を返す。直す必要が無いことを確かめた）
-        red_seen: false
-    precedent:
-      verdict: adopt
-      reason: '判定者の先行例の行（stats.py clamp: 上限を超えた値に lo を返す）の numpy.clip をそのまま採った'
-      from_judge_row: true
-    root_or_symptom:
-      kind: root
-      why: 上限の枝の戻り値の取り違えそのものを直した
-    bypass_tried: 修正を残したまま clamp(10, 0, 10)・clamp(11, 0, 10)・clamp(-1, 0, 10) を呼んだ——境目の値もそれぞれ 10・10・0 を返した
-    breaks:
-      how: git grep -n 'clamp(' -- '*.py'
-      result: clamp を呼ぶのは test_stats.py の 2 か所だけで、python3 -m unittest test_stats が 3 件とも緑
-  not_done: []
-  interactions:
-  - surface: stats.py
-    checked: mean の分母の修正と clamp の上限の枝の修正は別の関数の別の行で、一方が他方を不要にせず、当てる順序でも結果は変わらない
-  fix_closure:
-    status: clean
-    checked: 2 つの単位とも退行を注入して赤を見て、復元して緑を見た
-  mechanism_changed: false
-  premise_drift: false
-  gates_changed: false
-  seams_changed: false
-  security_surface_changed: false
-  path_changed: false
-  wrote_refs: []
-  plan_faces: []
-fix-accept:
-  ok: true
-  done: true
-  reason: ''
-  reason_file: ''
-  changes:
-  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
-    files:
-    - stats.py
-    what: mean の分母を len(xs) に直した
-  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
-    files:
-    - stats.py
-    what: clamp の上限の枝で hi を返すように直した
-# 食い違いの申し出が無い run: conflict-check は go 偽で、裁定の輪と 2 回目の修正の輪は飛ぶ（輪の中の stub は使われない）
-fixing__conflict-check:
-  go: false
-  count: 0
-  file: ''
-rule-prep:
-  prompt_file: board/r1/prompt-rule.md
-  iteration: 1
-rule:
-  rulings:
-  - id: c1-1
-    decision: fix_code_as
-    text: 依頼は算術平均。test_mean_of_three の期待は正しいので、コードの分母を len(xs) に直せ
-    limits:
-    - stats.py:9
-rule-accept:
-  ok: true
-  done: true
-  reason: ''
-  reason_file: ''
-  rulings_file: board/r1/conflict-rulings.md
-  counts:
-    parked: 1
-    unruled: 0
-    fix_test_scope: 0
-    fix_code_as: 1
-    ask_human: 0
-fix-ruled-prep:
-  prompt_file: board/r1/prompt-p3.fix-ruled.md
-  attempt: 1
-  out_path: board/out/r1/p3.fix.json
-  node: p3.fix
-  already: true
-  variants_file: board/r1/prompt-p3.fix-ruled.variants.json
-  iteration: 1
-fix-ruled:
-  changes:
-  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
-    what: mean の分母を len(xs) - 1 から len(xs) に直した（算術平均の定義どおり）。python3 -m unittest test_stats で test_mean_of_three が緑
-    files:
-    - stats.py
-    closure:
-      mechanism: mean が総和をデータ点の数より 1 少ない数で割り、算術平均でなく不偏分散の分母で平均を出していた
-      fix_mechanism: 分母をデータ点の数 len(xs) にして、算術平均の定義に揃えた
-      verified_how: 分母を len(xs) - 1 に戻す退行を注入して test_mean_of_three の赤を見て、復元して緑を見た
-      sites:
-      - site: stats.py mean の return 行（分母）
-        red_seen: true
-    precedent:
-      verdict: adopt
-      reason: '判定者の先行例の行（stats.py mean: 分母が len(xs) - 1 になっている）の statistics.mean をそのまま採った'
-      from_judge_row: true
-    root_or_symptom:
-      kind: root
-      why: 分母の取り違えそのものを直した
-    bypass_tried: 修正を残したまま mean([5]) と mean([1.5, 2.5]) と mean([-1, 1]) を呼んだ——どれも算術平均を返した
-    breaks:
-      how: git grep -n 'mean(' -- '*.py'
-      result: mean を呼ぶのは test_stats.py の 1 か所だけで、python3 -m unittest test_stats が 3 件とも緑
   - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
     what: clamp の x > hi の枝の戻り値を lo から hi に直した。python3 -m unittest test_stats で test_clamp_above_range が緑
     files:
@@ -969,9 +837,94 @@ fix-ruled:
       how: git grep -n 'clamp(' -- '*.py'
       result: clamp を呼ぶのは test_stats.py の 2 か所だけで、python3 -m unittest test_stats が 3 件とも緑
   not_done: []
-  interactions:
-  - surface: stats.py
-    checked: mean の分母の修正と clamp の上限の枝の修正は別の関数の別の行で、一方が他方を不要にせず、当てる順序でも結果は変わらない
+  interactions: []
+  fix_closure:
+    status: clean
+    checked: 2 つの単位とも退行を注入して赤を見て、復元して緑を見た
+  mechanism_changed: false
+  premise_drift: false
+  gates_changed: false
+  seams_changed: false
+  security_surface_changed: false
+  path_changed: false
+  wrote_refs: []
+  plan_faces: []
+  conflicts:
+  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    between:
+    - stats.py:9
+    - test_stats.py:9
+    why_both_cannot_hold: テストは分母 len(xs) - 1 の値を期待しているが、依頼は算術平均を求めている
+    which_is_right: request
+fix-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  changes: []
+  parked: true
+fixing__conflict-check:
+  go: true
+  count: 1
+  file: board/r1/conflicts.json
+rule-prep:
+  prompt_file: board/r1/prompt-rule.md
+  iteration: 1
+rule:
+  rulings:
+  - id: c1-1
+    decision: ask_human
+    text: 依頼とテストのどちらが正しいかは方針の変更で、人が決める
+    limits: []
+rule-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  rulings_file: board/r1/conflict-rulings.md
+  counts:
+    parked: 1
+    unruled: 0
+    fix_test_scope: 0
+    fix_code_as: 0
+    ask_human: 1
+fix-ruled-prep:
+  prompt_file: board/r1/prompt-p3.fix-ruled.md
+  attempt: 1
+  out_path: board/out/r1/p3.fix.json
+  node: p3.fix
+  already: true
+  variants_file: board/r1/prompt-p3.fix-ruled.variants.json
+  iteration: 1
+fix-ruled:
+  changes:
+  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    what: clamp の x > hi の枝の戻り値を lo から hi に直した。python3 -m unittest test_stats で test_clamp_above_range が緑
+    files:
+    - stats.py
+    closure:
+      mechanism: 下限の枝を写して上限の枝を作ったとき、戻り値を lo のまま残した
+      fix_mechanism: 上限の枝は hi を返し、下限の枝は lo を返す形に揃えた
+      verified_how: 'return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5,
+        0, 10) が 0 を返すことを見た'
+      sites:
+      - site: stats.py clamp の x > hi の枝
+        red_seen: true
+      - site: stats.py clamp の x < lo の枝（正しく lo を返す。直す必要が無いことを確かめた）
+        red_seen: false
+    precedent:
+      verdict: adopt
+      reason: '判定者の先行例の行（stats.py clamp: 上限を超えた値に lo を返す）の numpy.clip をそのまま採った'
+      from_judge_row: true
+    root_or_symptom:
+      kind: root
+      why: 上限の枝の戻り値の取り違えそのものを直した
+    bypass_tried: 修正を残したまま clamp(10, 0, 10)・clamp(11, 0, 10)・clamp(-1, 0, 10) を呼んだ——境目の値もそれぞれ 10・10・0 を返した
+    breaks:
+      how: git grep -n 'clamp(' -- '*.py'
+      result: clamp を呼ぶのは test_stats.py の 2 か所だけで、python3 -m unittest test_stats が 3 件とも緑
+  not_done: []
+  interactions: []
   fix_closure:
     status: clean
     checked: 2 つの単位とも退行を注入して赤を見て、復元して緑を見た
@@ -989,10 +942,6 @@ fix-ruled-accept:
   reason: ''
   reason_file: ''
   changes:
-  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
-    files:
-    - stats.py
-    what: mean の分母を len(xs) に直した
   - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
     files:
     - stats.py
@@ -1228,7 +1177,15 @@ h-final:
   stop: false
   go: false
   ask: true
-  gate_text: （文）
+  gate_text: '## 食い違いの申し出（1 件。裁定役か機械が人に回した。単位は直さずに残した。通すのは人の continue だけ）
+
+
+    - stats.py mean: 分母が len(xs) - 1 になっている: 依頼とテストのどちらが正しいかは方針の変更で、人が決める（名指し stats.py:9, test_stats.py:9・正しいと見た側 request・c1-1）
+
+
+    最後の人の関所（最後のテストの後・独立の目の前）: テストは緑
+
+    '
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
@@ -1508,7 +1465,7 @@ eyeing__eyes-collect:
   exit_file: board/r1/eyes-exit.json
 report:
   ok: true
-  outcome: fixed
+  outcome: needs_human
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
@@ -1610,7 +1567,7 @@ reporting__collect:
   record_invalid: false
 result:
   ok: true
-  outcome: fixed
+  outcome: needs_human
   judgment_file: board/judgment.json
   report_file: board/report-ai.md
   next_request_file: board/next-request.json
@@ -1637,13 +1594,31 @@ fixture:
     request: request_ok.json
     test_cmd: python3 -m unittest
     adapter: optional
+    final_gate: when_needed
   reached:
   - start
   - h-entry
-  - pr-checking__collect
   - premising__collect
   - h-judge
+  - purposing__collect
   - h-mat
+  - gathering__collect
+  - judging__collect
+  - h-plan
+  - planning__collect
+  - h-gate
+  - h-fix
+  - fixing__collect
+  - h-mid
+  - h-review
+  - reviewing__collect
+  - h-refix
+  - refixing__collect
+  - h-tests
+  - testing__run
+  - h-final
+  - h-eyes
+  - eyeing__eyes-collect
   - report
   - reporting__collect
   - result

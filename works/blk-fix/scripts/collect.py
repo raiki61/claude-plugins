@@ -6,6 +6,7 @@
 
 読む環境変数:
 - INPUTS_ACCEPTED: 輪（fix-loop）の出力 = 最後の周の fix-accept の出力（{ok, reason, changes, …} の JSON の文字列）
+- INPUTS_RULED: 2 回目の修正の輪（fix-ruled-loop。食い違いの裁定の後）の出力。飛ばされれば文字列 null（在れば ACCEPTED の代わり）
 - INPUTS_CHANGED: assert-changed の出力（{ok, files} の JSON の文字列）
 - INPUTS_CLEANED: clean の出力（{ok, removed} の JSON の文字列。修正役が残した git が無視するファイルのうち消した物）
 - INPUTS_TDD: tdd-start の出力（{go, reason, suite, state_file, summary_file} の JSON の文字列。いつも走る節）
@@ -28,14 +29,15 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "lib"))   #
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
 import entry  # noqa: E402
 import recount  # noqa: E402
+import script_io  # noqa: E402
 import tddloop  # noqa: E402
 from board import BoardGap  # noqa: E402  （BoardMismatch も含む）
 
-INPUTS = ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD")
+INPUTS = ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")   # 最後の 1 つは任意（飛ばされれば null）
 
 
-def env_json(name):
-    raw = os.environ.get(name)
+def env_json(name, raw=None):
+    raw = os.environ.get(name) if raw is None else raw
     if raw is None:
         raise recount.Unreadable(f"環境変数が無い: {name}")
     try:
@@ -48,7 +50,9 @@ def env_json(name):
 
 
 def collect():
-    accepted, changed, cleaned, tdd = (env_json(n) for n in INPUTS)
+    first = os.environ.get(INPUTS[0])   # 2 回目の修正の輪（食い違いの裁定の後）が走っていれば、その受け付けの出力
+    accepted = env_json(INPUTS[0], None if first is None else script_io.later_output(first, os.environ.get(INPUTS[4])))
+    changed, cleaned, tdd = (env_json(n) for n in INPUTS[1:4])
     artifacts = os.environ.get("ARTIFACTS_DIR")
     if not artifacts:
         raise recount.Unreadable("環境変数が無い: ARTIFACTS_DIR")

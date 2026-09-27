@@ -117,6 +117,14 @@ def emit_result(board: pathlib.Path, fn, out: dict) -> int:
     return 0
 
 
+def later_output(first: str, later) -> str:
+    """飛ばされうる後の節の出力（with: の {from: "$x.output", if_skipped: null}。飛ばされれば文字列 null か空）が在ればそれ、
+    無ければ first（どちらも JSON の文字列のまま）。修正の輪の後に 2 回目の修正の輪が走った run の受け付けの出力を選ぶ"""
+    if isinstance(later, str) and later.strip() not in ("", "null"):
+        return later
+    return first
+
+
 def main(fn, reply_env: str = "INPUTS_REPLY", *, finish=None) -> int:
     """環境変数を読み fn(reply, board, base_rev, repo) を呼んで 1 行の JSON を出す。終了コードを返す（0 か 2）。
     finish(out) -> out は出す前に全部の出口（読めない返答の拒否も）に当てる（blk-fix の fix-accept が輪を抜ける旗 done を足す）"""

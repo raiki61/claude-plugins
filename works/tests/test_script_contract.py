@@ -12,6 +12,7 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 - fix-give-up・unchanged-file: 修正の輪が 3 回とも拒まれる・申告したファイルが変わっていない（run 26）→ assert-changed が
   盤面を止め、run は落ちずに報告まで届く（R50）
 - no-fix・policy-stop・stop-flag: 修正の無い周・修正の前の関所の stop・止め札
+- conflict: 修正役が食い違いを申し出て parked → 裁定の輪（1 回目は拒む）→ fix_code_as → 2 回目の修正役が全部を直す
 網羅: 線と線が include する全部のブロックの script の節（output_format を持つ物）を、(ブロック・スクリプト・output_format) の
 組で 1 回は起こす（同じスクリプトと同じ型の節は、役の名だけが違う同じ口——例えば素材集めの P1 の役は判定から入る run の
 周では起きないが、prep・accept は同じスクリプトと同じ型で prior-decisions が通る）。受け付けのスクリプトは通る出口と拒む
@@ -67,6 +68,29 @@ def unchanged_file_fix():
     return r
 
 
+def clamp_only(repo):
+    """修正役の 1 回目の代わり: clamp だけを直す（mean は食い違いとして申し出る）"""
+    p = repo / "stats.py"
+    p.write_text(p.read_text(encoding="utf-8").replace("    if x > hi:\n        return lo", "    if x > hi:\n        return hi"),
+                 encoding="utf-8")
+
+
+def conflict_fix():
+    """修正役の 1 回目: clamp の行だけと、mean の食い違いの申し出（名指しは種の stats.py:9・test_stats.py:9）"""
+    from test_edge import fix_reply
+    r = fix_reply(faces=True)
+    r["changes"] = [c for c in r["changes"] if c["unit_key"] == TT.CLAMP]
+    r["interactions"] = []
+    r["conflicts"] = [{"unit_key": TT.MEAN, "between": ["stats.py:9", "test_stats.py:9"],
+                       "why_both_cannot_hold": "テストは算術平均を期待し、今の式は分母が 1 少ない——どちらかを曲げないと緑にならない",
+                       "which_is_right": "test"}]
+    return r
+
+
+RULING_CODE = {"rulings": [{"id": "c1-1", "decision": "fix_code_as", "text": "依頼とテストが正しい。分母を len(xs) に直せ",
+                            "limits": ["stats.py:9"]}]}
+
+
 def ai_keys():
     """線が include するブロックの役の節の鍵（<ブロック>/<節>）"""
     return {f"{b}/{n['id']}" for b in scriptline.wired_blocks() for n, _ in scriptline.walk(scriptline.flow(b)["nodes"])
@@ -92,10 +116,13 @@ def scenarios(tmp: pathlib.Path) -> dict:
         "no-fix": dict(replies=nofix, edits={}),
         "policy-stop": dict(replies=TL.replies(), edits=edits, gates={"policy-gate": {"decision": "stop", "text": "範囲が広い"}}),
         "stop-flag": dict(replies=TL.replies(), edits=edits, stop_at="h-review"),
+        # 食い違いの申し出: 1 回目の修正役が mean を申し出て parked → 裁定役（1 回目は拒む）が fix_code_as → 2 回目の修正役が全部を直す
+        "conflict": dict(replies={**TL.replies(), "fix": conflict_fix(), "rule": RULING_CODE, "fix-ruled": TL.replies()["fix"]},
+                         edits={"fix": clamp_only, "fix-ruled": TL.fix_tree}, bad_first={"blk-fix/rule"}),
     }
 
 
-OUTCOMES = {"fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
+OUTCOMES = {"conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
             "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request"}
 
 

@@ -101,7 +101,8 @@ class TestYaml(unittest.TestCase):
     def test_node_order(self):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
-                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "clean", "assert-changed", "fix-reads", "collect"])
+                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop",
+                          "clean", "assert-changed", "fix-reads", "collect"])
         start, loop, fix_loop = nodes[1:4]
         self.assertEqual(start["script"], "tdd_start")
         self.assertEqual(start["depends_on"], ["ignored-before"])
@@ -140,7 +141,7 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(of["description"], "works-node: tdd", "包みが会話を節の名で分け、続きの起動で指示書の形を選ぶ")
         self.assertIs(of["additionalProperties"], False)
         self.assertEqual(of["required"], ["phase"])
-        self.assertEqual(of["properties"]["phase"]["enum"], list(tddloop.PHASES))
+        self.assertEqual(of["properties"]["phase"]["enum"], [*tddloop.PHASES, "conflict"], "食い違いの申し出はどの段でも")
 
     def test_accept_and_collect_get_tdd(self):
         nodes = block()["nodes"]
@@ -166,8 +167,8 @@ class TestYaml(unittest.TestCase):
         want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
                                                                                        "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
-                "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION"),
-                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD")}
+                "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS"),
+                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")}
         for name, inputs in want.items():
             with self.subTest(name):
                 src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")

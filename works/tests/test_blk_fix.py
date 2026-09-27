@@ -110,15 +110,17 @@ class TestBlockYaml(unittest.TestCase):
     def test_nodes_and_loop(self):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
-                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "clean", "assert-changed", "fix-reads", "collect"])
-        before, _start, _tdd, loop, clean, changed, reads, collect = nodes   # TDD の輪の節は test_blk_fix_tdd が見る
+                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop",
+                          "clean", "assert-changed", "fix-reads", "collect"])
+        # TDD の輪の節は test_blk_fix_tdd、食い違いの申し出の 3 節は test_blk_fix_conflict が見る
+        before, _start, _tdd, loop, _check, _rule, _ruled, clean, changed, reads, collect = nodes
         self.assertEqual((reads["script"], reads["depends_on"]), ("reads", ["assert-changed"]))
         self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]'})
         self.assertNotIn("depends_on", before)
         self.assertEqual(before["script"], "ignored_before")
         self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop"], "控えは修正役より前（tdd-start が ignored-before の後）")
         self.assertEqual(clean["script"], "clean")
-        self.assertEqual(clean["depends_on"], ["fix-loop"])
+        self.assertEqual(clean["depends_on"], ["fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop"])
         self.assertEqual(collect["with"]["cleaned"], {"from": "$clean.output"})
         g = loop["loop_group"]
         self.assertEqual(g["max_iterations"], 3)
@@ -133,7 +135,8 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(changed["script"], "assert_changed")
         for n in (before, accept, clean, changed, collect):
             self.assertEqual(n["timeout"], DEADLINE)
-        self.assertEqual(changed["with"], {"base_rev": "$INPUTS.base_rev", "accepted": "$fix-loop.output"})
+        self.assertEqual(changed["with"], {"base_rev": "$INPUTS.base_rev", "accepted": "$fix-loop.output",
+                                           "ruled": {"from": "$fix-ruled-loop.output", "if_skipped": None}})
         self.assertEqual(accept["with"]["base_rev"], "$INPUTS.base_rev")
         self.assertEqual(accept["with"]["tdd_state"], "$tdd-start.output.state_file")
         self.assertEqual(accept["with"]["iteration"], "$fix-prep.output.iteration", "輪の何回目か（done を決める）")
@@ -201,9 +204,12 @@ class TestBlockYaml(unittest.TestCase):
     def test_output_format_constant_matches_graph(self):
         """T17 で YAML の fix に貼る値: 印を外すと graph の p3.fix の schema と同じ。印の名は fix。rejudge_requested の欄は
         graph の schema に元から在る（T23 の再審の起点）"""
+        import conflict
         import recount
         self.assertEqual(recount.FIX_NODE, "p3.fix")
-        self.assertEqual(node_marker.strip(recount.FIX_OUTPUT_FORMAT), role_schema("p3.fix"))
+        got = node_marker.strip(recount.FIX_OUTPUT_FORMAT)
+        self.assertEqual(got["properties"].pop("conflicts"), conflict.CONFLICTS_SCHEMA, "食い違いの申し出の欄（受け付けが外して渡す）")
+        self.assertEqual(got, role_schema("p3.fix"))
         mark = node_marker.parse(recount.FIX_OUTPUT_FORMAT["description"])
         self.assertEqual((mark["name"], mark["cont"], mark["flags"]), ("fix", None, frozenset()))
         self.assertIn("rejudge_requested", recount.FIX_OUTPUT_FORMAT["properties"])
@@ -214,10 +220,10 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""
-        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION"),
+        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS"),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
-                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE"),
-                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD"),
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_PASS"),
+                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED"),
                 "reads": ("INPUTS_MUST",)}
         for name, inputs in want.items():
             with self.subTest(name):
@@ -229,7 +235,9 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
-        self.assertEqual(set(fx), {"pass.stubs.yaml", "no-change.stubs.yaml", "tdd.stubs.yaml"})   # tdd は test_blk_fix_tdd が見る
+        # tdd は test_blk_fix_tdd、conflict（食い違いの申し出の筋書き）は test_blk_fix_conflict が見る
+        self.assertEqual(set(fx), {"pass.stubs.yaml", "no-change.stubs.yaml", "tdd.stubs.yaml", "conflict.stubs.yaml"})
+        fx.pop("conflict.stubs.yaml")
         for name, f in fx.items():
             with self.subTest(name):
                 self.assertEqual(f["fix"], load("fix2_ok"))   # 役の output_format は写しの p3.fix の型（〔線A計〕T17）
@@ -594,7 +602,7 @@ class TestFixPrep(BoardCase):
                 "notes_file": "", "summary_file": ""}
 
     def prep(self, **drop):
-        env = {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"],
+        env = {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "first",
                **{f"INPUTS_{k.upper()}": v for k, v in self.values().items()}}
         return run_script("fix_prep", self.repo, {k: v for k, v in env.items() if k not in drop})
 

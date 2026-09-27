@@ -5,7 +5,7 @@
 """修正役の指示書（blk-fix の節 fix-prep。修正の輪の中で役 fix の前。中身は fixrules.prep）。
 
 読む環境変数: ARTIFACTS_DIR（盤面はその下の board/）と run の値 INPUTS_JUDGMENT_FILE・INPUTS_OPEN_UNITS・INPUTS_PLAN_FILE・
-INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）。修正の決まりの正本・直す役の決まり・run の値を組み、
+INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）と INPUTS_PASS（first か、裁定の後の 2 回目の ruled）。修正の決まりの正本・直す役の決まり・run の値を組み、
 盤面の今の周の prompt-p3_fix.md（full の写し）と隣の 2 つの形に書き、起こした印を置いて
 {prompt_file, attempt, out_path, node, already, variants_file} を 1 行出して 0。役はそのパスを Read する。
 出し直しなら前の回の拒否の理由のファイルを指示書の頭で名指す（R44）。cwd（対象の worktree）の差分から変更の種類を選ぶ。
@@ -21,11 +21,12 @@ import fixrules  # noqa: E402
 import rolekit  # noqa: E402
 
 INPUTS = ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE",
-          "INPUTS_SUMMARY_FILE")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_fix.py が見る）
+          "INPUTS_SUMMARY_FILE", "INPUTS_PASS")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_fix.py が見る）
 
 
 def run(board, repo, env):
-    return fixrules.prep(board, repo, {n[len("INPUTS_"):].lower(): env[n] for n in INPUTS})
+    values = {n[len("INPUTS_"):].lower(): env[n] for n in INPUTS if n != "INPUTS_PASS"}
+    return fixrules.prep(board, repo, values, env["INPUTS_PASS"])
 
 
 if __name__ == "__main__":

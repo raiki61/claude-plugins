@@ -7,7 +7,7 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
 - AI の節の allowed_tools は [Read, Grep, Glob] の部分集合（無ければ全部の道具を持つので違反）。sandbox は狭める鍵
   （NARROW_SANDBOX_KEYS: enabled・allowUnsandboxedCommands・failIfUnavailable）だけを持つ。
   外れてよいのは表 EXCEPTIONS の節だけ（どの節が・どの道具と・どの sandbox の形を持ってよいかを 1 つの表に置く）:
-  - blk-fix/blk-fix.yaml の節 fix（書く役）: 道具の決まりの外
+  - blk-fix/blk-fix.yaml の節 fix（書く役）・fix-ruled（食い違いの裁定の後の 2 回目の修正役）: 道具の決まりの外
   - blk-spec/blk-spec.yaml の節 spec-write・spec-revise（仕様の道の writer。受け入れ条件のテストを対象に書く）: 道具の決まりの外
   - blk-ci/blk-ci.yaml の節 ci（CI の任せ先の役。裁定 R52・R56）: 読む道具に Bash だけ（テストを走らせる。Edit・Write は持たない）。
     sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ広い形（allowWrite ['/']・網）そのもので、本物の作業ツリーは
@@ -50,6 +50,7 @@ DEADLINE = 1728000000                     # 20 日（ms）
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob"}
 WRITER = ("blk-fix", "blk-fix.yaml", "fix")   # 書く道具を持ってよい節: (フォルダ, ファイル, 節)
 TDD_WRITER = ("blk-fix", "blk-fix.yaml", "tdd")   # TDD の輪の修正役（テストを書く・直す・整える。設計 4 節）
+RULED_WRITER = ("blk-fix", "blk-fix.yaml", "fix-ruled")   # 食い違いの裁定の後の 2 回目の修正役（修正役の会話の続き。印 continue=fix）
 # max_iterations が 3 でない輪: (フォルダ, ファイル, 輪の節) → 上限（blk-fix/lib/tddloop.py の MAX_ITERATIONS と同じ値）
 LOOP_MAX = {("blk-fix", "blk-fix.yaml", "tdd-loop"): 40}
 CI_ROLE = ("blk-ci", "blk-ci.yaml", "ci")      # CI の任せ先の役（裁定 R52・R56）
@@ -89,6 +90,7 @@ EXCEPTIONS = {
     SPEC_WRITE: {"tools": None},
     SPEC_REVISE: {"tools": None},
     TDD_WRITER: {"tools": None},
+    RULED_WRITER: {"tools": None},
     CI_ROLE: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
     **{("blk-material", "blk-material.yaml", n): row for n, row in _MATERIAL.items()},
     ("blk-eyes", "blk-eyes.yaml", "r1-minimality"): {"tools": JUDGE_WEB_TOOLS},

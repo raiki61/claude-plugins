@@ -8,7 +8,8 @@
 日本語などの名前を git の引用無しのまま申告と突き合わせる）。
 どちらも .archon/ の下は数えない（Archon が run の作業ツリーに写す工程の置き場で、修正役の仕事ではない）。
 .archon/ の下だけを触った修正は通らない（安全側に倒す）。
-申告 = 受け付けた返答の changes[].files（INPUTS_ACCEPTED。輪の出力 = 最後の周の fix-accept の {ok, reason, changes}）。
+申告 = 受け付けた返答の changes[].files（INPUTS_ACCEPTED。輪の出力 = 最後の周の fix-accept の {ok, reason, changes}。
+食い違いの申し出で 2 回目の修正の輪が走った run は、その輪の出力 INPUTS_RULED（飛ばされれば文字列 null）の方）。
 変わった物だけでは見ない: テストを回すと __pycache__ などの未追跡のゴミができ、中身を 1 行も直さずに通ってしまう。
 git が無視するファイルは、ここでは数えない（取り込む差分に載らない物。Ruling R15）。修正役が残したそれは、この前の節
 clean が消す（盤面の fix-ignored-before.json の控えに無かった物だけ。消した物は collect が出口に並べる）。
@@ -30,7 +31,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
-from leftovers import ARCHON_PREFIX, Unreadable, git, git_names  # noqa: E402   .archon/ の決まりと git の呼び方の正本（clean と同じ物。.shared/core の模块）
+from leftovers import ARCHON_PREFIX, Unreadable, git, git_names  # noqa: E402
+from script_io import later_output  # noqa: E402   .archon/ の決まりと git の呼び方の正本（clean と同じ物。.shared/core の模块）
 
 STOP_BY = "works:fix"   # 修正の段が盤面を止めた印（報告の結末は stopped_by_line）
 
@@ -104,7 +106,7 @@ def main():
         return 2
     base_rev = os.environ["INPUTS_BASE_REV"]
     try:
-        declared = declared_files(os.environ["INPUTS_ACCEPTED"])
+        declared = declared_files(later_output(os.environ["INPUTS_ACCEPTED"], os.environ.get("INPUTS_RULED")))
         rev, changed = touched(base_rev)
     except GiveUp as e:
         return give_up(str(e))
