@@ -169,7 +169,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $fix-accept.output.ok = true
+      until_bash: test $fix-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         # 指示書を組み（fixrules.prep: 修正の決まりの正本・直す役の決まり・run の値。prompt_file は full の写しで、隣に .full.md・
         # .delta.md・.variants.json）、起こした印を置く（盤面は印の無い返答を受けない）。
@@ -188,7 +188,7 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file, attempt, out_path, node, already, variants_file]
+            required: [prompt_file, attempt, out_path, node, already, variants_file, iteration]
             properties:
               prompt_file: {type: string}      # full の写し（役の節の 1 行が Read させる。包みの無い起動の既定）
               attempt: {type: integer}
@@ -196,6 +196,7 @@ nodes:
               node: {type: string}
               already: {type: boolean}
               variants_file: {type: string}    # 2 つの形の控え <名>.variants.json {full, delta, rules_sha, iteration, sections}
+              iteration: {type: integer, minimum: 1}   # この周の輪の何回目か（fix-accept が 3 回目の拒否で done を立てる）
 
         - id: fix
           prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
@@ -521,11 +522,13 @@ nodes:
             reply: {from: "$fix.output"}
             base_rev: $INPUTS.base_rev
             tdd_state: $tdd-start.output.state_file   # 輪で凍ったテストのファイルを修正役が変えていないか（空は輪の無い run）
+            iteration: $fix-prep.output.iteration     # 輪の何回目か（3 回目の拒否で done。R50）
           output_format:
             type: object
-            required: [ok, reason, reason_file, changes]
+            required: [ok, reason, reason_file, changes, done]
             properties:
               ok: {type: boolean}
+              done: {type: boolean}           # 輪を抜ける旗（通った時か 3 回目の拒否。諦めた輪は assert-changed が盤面を止める）
               reason: {type: string}
               reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               changes: {type: array}
@@ -553,6 +556,8 @@ nodes:
     with:
       base_rev: $INPUTS.base_rev
       accepted: $fix-loop.output
+    # 通らない（申告が空・申告したのに変わっていない・輪が 3 回とも拒まれて諦めた）時は run を落とさずに盤面を理由つきで止め
+    # （by works:fix。R50）、ok: false と reason を出す。後ろの段は境の節が飛ばし、報告と書き出しは走る（run 26）
     output_format:
       type: object
       required: [ok, files]
@@ -561,6 +566,7 @@ nodes:
         files:
           type: array
           items: {type: string}
+        reason: {type: string}
 
   # 読んだ証拠（受け付けの条件にしない。今の周の reads-fix.json。collect が reads_file で出口に出す）。機械が渡したパスは判定のファイルと、
   # fix-prep が今の周に組んだ指示書（fixrules.reads_more。輪の外の節は輪の中の出力を引けないので盤面の置き場から）
@@ -611,3 +617,4 @@ nodes:
         not_done: {type: integer, minimum: 0}
         coverage: {type: object}
         reads_file: {type: string}
+        reason: {type: string}          # 諦めた出口（ok: false。assert-changed が止めた盤面の理由）

@@ -150,7 +150,7 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(collect["with"]["tdd"], {"from": "$tdd-start.output"})
         out = collect["output_format"]
         self.assertLessEqual(V1, set(out["required"]), "1 本目の欄を全部残す")
-        self.assertEqual(set(out["properties"]), V1 | {"tdd", "fix_file", "not_done", "coverage", "reads_file"})   # 盤面の欄（〔線A計〕T17）
+        self.assertEqual(set(out["properties"]), V1 | {"tdd", "fix_file", "not_done", "coverage", "reads_file", "reason"})   # 盤面の欄（〔線A計〕T17）
         self.assertEqual(out["properties"]["tdd"]["type"], "object")
 
     def test_prompts(self):
@@ -166,7 +166,7 @@ class TestYaml(unittest.TestCase):
         want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
                                                                                        "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
-                "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE"),
+                "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD")}
         for name, inputs in want.items():
             with self.subTest(name):

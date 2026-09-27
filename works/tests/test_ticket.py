@@ -162,6 +162,14 @@ class TicketCase(unittest.TestCase):
         got = ticket.protected_paths(self.main, self.board)
         self.assertIn(self.real(self.main / ".git"), got)
 
+    def test_protected_has_own_archon_dir(self):
+        # 役の worktree の .archon/（自分食いの run では線を動かしている pack の写し .archon/workflows/works/**）。
+        # 修正役が元の works/** と一緒に写しも書き換えた（run 26）。役は書かない（Edit・Write と sandbox の denyWrite）
+        got = ticket.protected_paths(self.wt1, self.board)
+        self.assertIn(os.path.join(self.real(self.wt1), ".archon"), got)
+        self.assertIn(os.path.join(str(self.wt1), ".archon"), got)
+        self.assertNotIn(os.path.join(self.real(self.wt2), ".archon"), got, "ほかの worktree は丸ごと守る（.archon/ の行は足さない）")
+
     def test_protected_follows_config_env(self):
         # 設定の置き場を環境変数で替えている時は、その先も守る
         xdg = self.tmp / "xdg"

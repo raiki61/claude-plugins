@@ -10,7 +10,8 @@
 - git とシェルの設定（`~/.gitconfig`・`~/.config/git`・`~/.bashrc`・`~/.zshrc`・`~/.profile`）と Claude の設定の置き場
   （`~/.claude`）。一覧は HOME_FILES（シェルの起動ファイル・`~/.claude.json`・`~/.config/gh` も入る）。環境変数で置き場を
   替えている時は、その先（`$XDG_CONFIG_HOME/{git,gh}`・`$CLAUDE_CONFIG_DIR`）も足す
-- 役の worktree 自身の `.git`（linked worktree では gitdir を指す 1 行のファイル）
+- 役の worktree 自身の `.git`（linked worktree では gitdir を指す 1 行のファイル）と `.archon`（Archon の置き場。自分食いの run
+  では線を動かしている pack の写し `.archon/workflows/works/**` が在る。run 26 は修正役が元の works/** と一緒に写しも書き換えた）
 - Archon の家（`$ARCHON_HOME`、無ければ `~/.archon`）の設定・DB・env・家の workflows/commands/scripts（ARCHON_FILES。家
   そのものは run の worktree を中に持つので守らない）
 どの場所も綴り（渡された・git が返した形）と realpath の両方、さらに macOS の /var・/tmp・/etc は /private の有る無しの
@@ -106,7 +107,8 @@ def protected_paths(repo_cwd: pathlib.Path, board_dir: pathlib.Path) -> list[str
     own = os.path.realpath(top)
     trees = [line[len("worktree "):] for line in _git(cwd, env, "worktree", "list", "--porcelain").splitlines()
              if line.startswith("worktree ")]
-    places = [os.path.join(cwd, common), gitdir, os.path.join(top, ".git")]   # 最後は役の worktree の .git（ファイル）
+    places = [os.path.join(cwd, common), gitdir, os.path.join(top, ".git"),   # 役の worktree の .git（ファイル）
+              os.path.join(top, ".archon")]                                      # 役の worktree の .archon（pack の写し）
     places += [t for t in trees if os.path.realpath(t) != own]
     places += [os.path.abspath(board_dir), str(home()), str(PACK)]
     user = os.path.expanduser("~")

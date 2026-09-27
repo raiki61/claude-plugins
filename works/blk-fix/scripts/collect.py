@@ -13,7 +13,10 @@
 中身は recount.collect: 受け付けた changes を今の周の changes.json（{"changes": [...]}）に書き、1 本目の欄
 {"ok": true, "files", "changes_file", "removed"} に、盤面から fix_file・not_done・coverage・reads_file を、TDD の輪から tdd
 （tddloop.exit_fields。実行器の無い run は ran: false）を足して 1 行出して 0。
-受け付けが通っていない・入力が読めない・盤面が今の周の p3.fix を受けていないときは、標準エラーに理由を 1 行出して 2（何も書かない）。
+修正の段が諦めた（受け付けか assert-changed の出力が ok: false で、盤面が止まっている——止めるのは assert-changed。R50）ときは、
+1 本目の欄を持つ {"ok": false, "files": [], "changes_file": "", "removed", "tdd", "reason": 盤面が止まった理由} を出して 0。
+受け付けが通っていないのに盤面が止まっていない・入力が読めない・盤面が今の周の p3.fix を受けていないときは、標準エラーに理由を
+1 行出して 2（何も書かない）。
 """
 import json
 import os
@@ -23,6 +26,7 @@ import sys
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "lib"))   # ブロックの模块（lib/ は Archon が探さない）
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
+import entry  # noqa: E402
 import recount  # noqa: E402
 import tddloop  # noqa: E402
 from board import BoardGap  # noqa: E402  （BoardMismatch も含む）
@@ -51,7 +55,14 @@ def collect():
     removed = cleaned.get("removed")
     if cleaned.get("ok") is not True or not isinstance(removed, list) or not all(isinstance(f, str) for f in removed):
         raise recount.Unreadable(f"clean の出力に removed が無い（{cleaned!r}）")
-    out = recount.collect(pathlib.Path(artifacts) / "board", accepted, changed)
+    board = pathlib.Path(artifacts) / "board"
+    if accepted.get("ok") is not True or changed.get("ok") is not True:
+        st = entry.open_board(board, allow_halted=True).state
+        stop = st.get("stop") or st.get("halted")
+        if stop:   # 修正の段が諦めた（assert-changed が止めた）。後ろの段は境の節が飛ばし、報告が走る
+            return {"ok": False, "files": [], "changes_file": "", "removed": removed, "tdd": tddloop.exit_fields(tdd),
+                    "reason": f"盤面は止まっている（{stop.get('by')}）: {stop.get('reason') or ''}"}
+    out = recount.collect(board, accepted, changed)
     return {**out, "removed": removed, "tdd": tddloop.exit_fields(tdd)}
 
 

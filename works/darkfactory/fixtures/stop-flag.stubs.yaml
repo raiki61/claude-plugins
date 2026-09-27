@@ -802,6 +802,7 @@ fix-prep:
   node: p3.fix
   already: false
   variants_file: board/r1/prompt-p3.fix.variants.json
+  iteration: 1
 fix:
   changes:
   - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
@@ -867,6 +868,7 @@ fix:
   plan_faces: []
 fix-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
   changes:

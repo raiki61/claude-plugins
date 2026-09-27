@@ -36,6 +36,12 @@
     "note": "今の周に開いた単位（検証器の is_open）に無い unit_key を書いた修正の返答を拒む（判定が defer にした単位・判定に無い key。1 本目の決まりで、1 本目は check_fix が fix_plan_covers_units の unknown = got - opened で拒んでいた）。写しの fix_covers_open_units は義務の単位の書き落としだけを見て義務に無い key を拒まないので、check_unique_units と同じく盤面の done の前に blk-fix の受け付けのスクリプトが見る（graphloops の上に 1 本目の拒否を足す側。線 A Task 12 の直し。裁定 TA25）。"
   },
   {
+    "works": "blk-fix/scripts/accept.py:check_pack_copy",
+    "gl": "",
+    "status": "works-only",
+    "note": "修正役が .archon/ の下（Archon の置き場。自分食いの run では線を動かしている pack の写し .archon/workflows/works/**）を changes[].files に申告した・修正役の前の控え（節 ignored-before の fix-ignored-before.json の archon）から中身を変えた返答を拒む（run 26: 修正役が元の works/** と写しを同じに直して申告し、assert-changed が落ちた）。本線は pack の写しを対象の作業ツリーに置かないので gl へ移さない。役の起こし方の側は切符（ticket.protected_paths）が役の worktree の .archon を守る"
+  },
+  {
     "works": "accept.check_delta",
     "gl": "gl accept p3.delta_review",
     "status": "ready",

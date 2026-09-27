@@ -9,6 +9,8 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 - full: 全部の役の 1 回目を拒ませ（受け付けの拒否の出口）、TDD の輪（実行器あり・全部 direct）・2 回目の差分の審査を通す
 - ci-final-stop: テストの宣言が無い種（CI の任せ先の役 blk-ci）・最後の関所の stop（AI の報告のブロックが走る）
 - give-up: 修正案の役が 3 回とも拒まれて諦める（盤面が止まり、残りは飛んで報告だけが走る）
+- fix-give-up・unchanged-file: 修正の輪が 3 回とも拒まれる・申告したファイルが変わっていない（run 26）→ assert-changed が
+  盤面を止め、run は落ちずに報告まで届く（R50）
 - no-fix・policy-stop・stop-flag: 修正の無い周・修正の前の関所の stop・止め札
 網羅: 線と線が include する全部のブロックの script の節（output_format を持つ物）を、(ブロック・スクリプト・output_format) の
 組で 1 回は起こす（同じスクリプトと同じ型の節は、役の名だけが違う同じ口——例えば素材集めの P1 の役は判定から入る run の
@@ -57,6 +59,14 @@ TDD_ALL_DIRECT = {"phase": "route", "units": [{"unit_key": TT.MEAN, "route": "di
                                               {"unit_key": TT.CLAMP, "route": "direct", "why": DIRECT}]}
 
 
+def unchanged_file_fix():
+    """修正役が変えていないファイル（test_stats.py）も申告した返答（受け付けは通り、assert-changed が通らない。run 26 の形）"""
+    from test_edge import fix_reply
+    r = fix_reply(faces=True)
+    r["changes"][0]["files"] = [*r["changes"][0]["files"], "test_stats.py"]
+    return r
+
+
 def ai_keys():
     """線が include するブロックの役の節の鍵（<ブロック>/<節>）"""
     return {f"{b}/{n['id']}" for b in scriptline.wired_blocks() for n, _ in scriptline.walk(scriptline.flow(b)["nodes"])
@@ -77,13 +87,15 @@ def scenarios(tmp: pathlib.Path) -> dict:
                               bad_first={"blk-ci/ci", "blk-report/report-items", "blk-report/report-cold", "blk-report/report-write"},
                               gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}}),
         "give-up": dict(replies={**TL.replies(), "plan": lambda n: {}}, edits=edits),
+        "fix-give-up": dict(replies={**TL.replies(), "fix": lambda n: {}}, edits=edits),
+        "unchanged-file": dict(replies={**TL.replies(), "fix": unchanged_file_fix()}, edits=edits),
         "no-fix": dict(replies=nofix, edits={}),
         "policy-stop": dict(replies=TL.replies(), edits=edits, gates={"policy-gate": {"decision": "stop", "text": "範囲が広い"}}),
         "stop-flag": dict(replies=TL.replies(), edits=edits, stop_at="h-review"),
     }
 
 
-OUTCOMES = {"full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
+OUTCOMES = {"fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
             "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request"}
 
 

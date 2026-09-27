@@ -117,8 +117,9 @@ def emit_result(board: pathlib.Path, fn, out: dict) -> int:
     return 0
 
 
-def main(fn, reply_env: str = "INPUTS_REPLY") -> int:
-    """環境変数を読み fn(reply, board, base_rev, repo) を呼んで 1 行の JSON を出す。終了コードを返す（0 か 2）"""
+def main(fn, reply_env: str = "INPUTS_REPLY", *, finish=None) -> int:
+    """環境変数を読み fn(reply, board, base_rev, repo) を呼んで 1 行の JSON を出す。終了コードを返す（0 か 2）。
+    finish(out) -> out は出す前に全部の出口（読めない返答の拒否も）に当てる（blk-fix の fix-accept が輪を抜ける旗 done を足す）"""
     missing = [n for n in (reply_env, BASE_REV_ENV, ARTIFACTS_ENV) if n not in os.environ]
     if ARTIFACTS_ENV not in missing and not os.environ[ARTIFACTS_ENV]:
         missing.append(ARTIFACTS_ENV)
@@ -139,4 +140,6 @@ def main(fn, reply_env: str = "INPUTS_REPLY") -> int:
             out = {"ok": False, "reason": f"返答が JSON のオブジェクトでない（{type(reply).__name__}）"}
         else:
             out = dict(fn(reply, board, os.environ[BASE_REV_ENV], pathlib.Path.cwd()))
+    if finish is not None:
+        out = dict(finish(out))
     return emit_result(board, fn, out)

@@ -367,7 +367,7 @@ def last_reject(board_dir) -> str:
 
 def prep(board_dir, repo, values: dict) -> dict:
     """節 fix-prep: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。返り {prompt_file, attempt, out_path, node,
-    already, variants_file}。同じ試行の出し直し（印が既に在る。通れば輪を抜けるので、前の回の返答は受け付けで拒まれた）なら、
+    already, variants_file, iteration}（iteration はこの周の輪の何回目か。fix-accept が 3 回目の拒否で done を立てる。R50）。同じ試行の出し直し（印が既に在る。通れば輪を抜けるので、前の回の返答は受け付けで拒まれた）なら、
     受け付けが書いた一番新しい拒否の理由のファイルを見出しの次の 1 行で名指す（R44）。盤面が p3.fix を待っていなければ BoardGap"""
     nid = recount.FIX_NODE
     b = entry.open_board(pathlib.Path(board_dir))
@@ -383,7 +383,7 @@ def prep(board_dir, repo, values: dict) -> dict:
     write_variants(path, repo, values, build, n)
     m = b.mark_launched(nid, inst.get("attempts", 1))
     return {"prompt_file": str(path), "attempt": m["attempt"], "out_path": m["out_path"], "node": nid, "already": m["already"],
-            "variants_file": str(beside(path, VARIANTS))}
+            "variants_file": str(beside(path, VARIANTS)), "iteration": n}
 
 
 def reads_more(board_dir) -> list:

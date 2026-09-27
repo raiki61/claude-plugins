@@ -11,13 +11,16 @@
    - check_unique_units: 同じ unit_key を 2 行に分けた返答を拒む
    - check_opened_units: 今の周に開いた単位（検証器の is_open）に無い unit_key を拒む（判定が defer にした単位・判定に
      無い key。1 本目の unknown = got - opened。fork の出どころは開いた単位なので通す）
+1a. check_pack_copy: .archon/ の下（自分食いの run では動いている線の pack の写し）を申告した・変えた返答を拒む（run 26）
 1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
    空・欠けは輪の無い run で見ない）
 2. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が判定役の class_query を修正前の版と修正後の
    作業ツリーで数え直す（仕様 3.2）。通れば 1 本目の出口のための changes（unit_key・files・what）を足す
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
 ここで出口へ運ぶ（collect が今の周の changes.json に書く）。拒んだときの changes は空。
-中身の拒否は終了コード 0 の {"ok": false, "reason", "reason_file", "changes": []} を 1 行。回す側の誤りは 2
+中身の拒否は終了コード 0 の {"ok": false, "reason", "reason_file", "changes": [], "done"} を 1 行。回す側の誤りは 2。
+done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。諦めた輪の後は
+assert-changed が盤面を止め、collect が ok: false の出口を出す
 """
 import copy
 import sys
@@ -27,17 +30,48 @@ sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # ブロックの模块（lib/ は Archon が探さない）
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
 import os  # noqa: E402
+import posixpath  # noqa: E402
 
+import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
 import recount  # noqa: E402
 import tddloop  # noqa: E402
 import entry  # noqa: E402
 from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
 from engine.rules import validator_module  # noqa: E402
 
-INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE")
+INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION")
+GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
 NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（判定が defer にした単位・判定に無い単位は直さない。"
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
+
+
+PACK_COPY = ("修正役は .archon/ の下を変えてはいけない（Archon の置き場で、自分食いの run では .archon/workflows/works/** が"
+             "この run を動かしている線の pack の写し。直すのは元の works/** だけで、写しは次の run が作り直す）: ")
+
+
+def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
+    """.archon/ の下（leftovers.ARCHON_PREFIX）を changes[].files に申告した・修正役の前の控え（節 ignored-before）から
+    .archon/ の下の中身が変わった返答を拒む文（通れば空）。控えが無いのは回す側の誤り（Unreadable → 2）"""
+    declared = set()
+    for c in reply.get("changes") or []:
+        for f in (c.get("files") if isinstance(c, dict) else None) or []:
+            if not isinstance(f, str) or not f.strip():
+                continue
+            f = f.strip()
+            if os.path.isabs(f):
+                f = os.path.relpath(f, repo)
+            f = posixpath.normpath(f)
+            if f == leftovers.ARCHON_PREFIX.rstrip("/") or f.startswith(leftovers.ARCHON_PREFIX):
+                declared.add(f)
+    changed = leftovers.archon_changes(board, repo)
+    parts = []
+    if declared:
+        parts.append(f"changes[].files に申告した {sorted(declared)}（申告から外す）")
+    if changed:
+        parts.append(f"修正役の前の控え（節 ignored-before）から変わった {changed[:20]}（.archon/ の下は元の姿に戻してから"
+                     "出し直す: 追跡している物は git checkout -- <パス>、足した物は消す）")
+    return PACK_COPY + " / ".join(parts) if parts else ""
 
 
 def fix_unit_keys(reply: dict, board: Path):
@@ -81,6 +115,9 @@ def accept_fix(reply, board, base_rev, repo):
         return {"ok": False, "reason": " / ".join(frozen), "changes": []}
     got = fix_unit_keys(reply, board)
     if got is not None:
+        pack = check_pack_copy(reply, board, repo)
+        if pack:
+            return {"ok": False, "reason": pack, "changes": []}
         keys, opened = got
         for words, bad in ((DUPLICATE, check_unique_units(keys)), (NOT_OPENED, check_opened_units(keys, opened))):
             if bad:
@@ -88,5 +125,12 @@ def accept_fix(reply, board, base_rev, repo):
     return recount.accept_fix(reply, board, base_rev, repo)
 
 
+def with_done(out: dict) -> dict:
+    """輪を抜ける旗 done（R50）: 通った時か、この周の輪の 3 回目（fix-prep の iteration。INPUTS_ITERATION）の拒否。
+    iteration が数でなければ ValueError（回す側の誤り。main_accept が 2 にする）"""
+    it = int(os.environ["INPUTS_ITERATION"])
+    return {**out, "done": out.get("ok") is True or it >= GIVE_UP_AFTER}
+
+
 if __name__ == "__main__":
-    sys.exit(recount.main_accept(accept_fix))
+    sys.exit(recount.main_accept(accept_fix, finish=with_done))

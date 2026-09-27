@@ -1,11 +1,14 @@
 """修正役の後始末（blk-fix の節 ignored_before・clean・assert_changed が import する模块。節ではないので scripts/ でなくここに置く）。
 
-- ARCHON_PREFIX:      .archon/ の下は修正役の仕事でない（assert_changed は数えず、clean は消さない。決まりはここの 1 本）
+- ARCHON_PREFIX:      .archon/ の下は修正役の仕事でない（assert_changed は数えず、clean は消さない、fix-accept は変えた返答を拒む。
+                      決まりはここの 1 本。自分食いの run では pack の写し .archon/workflows/works/** が在る——protected.json の copies の pack-copy）
+- archon_digests・archon_changes: .archon/ の下の姿（パスと中身の sha256）と、修正役の前の控えからの違い（fix-accept が拒む）
 - git・git_names:     git を呼ぶ手続き（-z で読むパスの一覧も。Unreadable・GIT_TIMEOUT と合わせて、blk-fix の正本はここの 1 本）
 - record_ignored:     修正役の前の git が無視するファイルと未追跡のフォルダを盤面の fix-ignored-before.json に控える（節 ignored-before）
 - remove_new_ignored: 控えに無かった無視されるファイルだけを消す（節 clean）
 失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリだけ（core の他の模块も読まない。tests/test_blk_fix が縛る）。
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -16,7 +19,7 @@ import sys
 sys.dont_write_bytecode = True
 
 GIT_TIMEOUT = 120
-ARCHON_PREFIX = ".archon/"   # Archon が run の作業ツリーに写す工程の置き場
+ARCHON_PREFIX = ".archon/"   # Archon が run の作業ツリーに写す工程の置き場（自分食いでは線を動かしている pack の写しもここ）
 IGNORED_BEFORE_FILE = "fix-ignored-before.json"   # {"ignored": [str], "dirs": [str]}
 
 
@@ -60,10 +63,33 @@ def _board_path(board) -> pathlib.Path:
     return pathlib.Path(board) / IGNORED_BEFORE_FILE
 
 
+def _is_bytecode(rel: str) -> bool:
+    return rel.endswith(".pyc") or "/__pycache__/" in f"/{rel}"
+
+
+def archon_digests(repo) -> dict:
+    """repo の .archon/ の下の全部のファイルの {リポジトリの根からの相対パス: 中身の sha256}（symlink は辿らず "link:<先>"。
+    バイトコード——__pycache__/ の下と .pyc——は数えない。git の追跡・無視に依らない。.archon/ が無ければ空）"""
+    repo = pathlib.Path(repo)
+    top = repo / ARCHON_PREFIX.rstrip("/")
+    if top.is_symlink():
+        return {ARCHON_PREFIX.rstrip("/"): "link:" + os.readlink(top)}
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(top):
+        here = pathlib.Path(dirpath)
+        for name in filenames + [d for d in dirnames if (here / d).is_symlink()]:
+            p = here / name
+            rel = p.relative_to(repo).as_posix()
+            if _is_bytecode(rel):
+                continue
+            out[rel] = "link:" + os.readlink(p) if p.is_symlink() else hashlib.sha256(p.read_bytes()).hexdigest()
+    return out
+
+
 def record_ignored(board, repo) -> dict:
-    """修正役を起こす前の ignored_files と untracked_dirs を盤面の fix-ignored-before.json に控える。
-    {"ok": True, "count", "file"} を返す（count は無視されるファイルの数）"""
-    before = {"ignored": ignored_files(repo), "dirs": untracked_dirs(repo)}
+    """修正役を起こす前の ignored_files と untracked_dirs と .archon/ の下の姿（archon_digests）を盤面の fix-ignored-before.json に
+    控える。{"ok": True, "count", "file"} を返す（count は無視されるファイルの数）"""
+    before = {"ignored": ignored_files(repo), "dirs": untracked_dirs(repo), "archon": archon_digests(repo)}
     path = _board_path(board)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -85,6 +111,16 @@ def _read_before(board) -> dict:
         if not isinstance(v, list) or not all(isinstance(s, str) for s in v):
             raise Unreadable(f"盤面の {IGNORED_BEFORE_FILE} の型が合わない（{key} が文字列の配列でない）")
     return before
+
+
+def archon_changes(board, repo) -> list:
+    """修正役の前の控え（record_ignored の archon）から .archon/ の下で中身が変わった・足した・消したパス（名前の順）。
+    控えが無い・読めない・archon の欄が無い（古い形）なら Unreadable"""
+    before = _read_before(board).get("archon")
+    if not isinstance(before, dict):
+        raise Unreadable(f"盤面の {IGNORED_BEFORE_FILE} に .archon/ の姿（archon）が無い——修正役の前の控えが古い形")
+    now = archon_digests(repo)
+    return sorted(k for k in set(before) | set(now) if before.get(k) != now.get(k))
 
 
 def remove_new_ignored(board, repo) -> dict:
