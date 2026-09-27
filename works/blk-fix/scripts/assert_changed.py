@@ -21,34 +21,11 @@ base_rev が空ならその場の HEAD（Ruling R2）。cwd が対象リポジ�
 import json
 import os
 import posixpath
-import subprocess
 import sys
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 
-from leftovers import ARCHON_PREFIX  # noqa: E402   .archon/ の決まりの正本（clean と同じ物。同じフォルダの模块）
-
-GIT_TIMEOUT = 120
-
-
-class Unreadable(Exception):
-    pass
-
-
-def git(*args, text=True):
-    try:
-        r = subprocess.run(["git", *args], capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        raise Unreadable(f"git {' '.join(args)} を呼べない（{type(e).__name__}: {e}）")
-    if r.returncode != 0:
-        err = r.stderr.decode("utf-8", "replace").strip().replace("\n", " ")[-300:]
-        raise Unreadable(f"git {' '.join(args)} が失敗した（{err or f'exit {r.returncode}'}）")
-    return r.stdout.decode("utf-8", "replace") if text else r.stdout
-
-
-def names(*args):
-    """git <args> -z が出すパスの一覧（NUL 区切り。日本語などの名前も引用符や \\ の書き換え無しでそのまま。core の accept._names と同じ）"""
-    return [os.fsdecode(n) for n in git(*args[:1], "-z", *args[1:], text=False).split(b"\0") if n]
+from leftovers import ARCHON_PREFIX, Unreadable, git, git_names  # noqa: E402   .archon/ の決まりと git の呼び方の正本（clean と同じ物。同じフォルダの模块）
 
 
 def touched(base_rev):
@@ -56,11 +33,11 @@ def touched(base_rev):
     if name.startswith("-"):
         raise Unreadable(f"base_rev {base_rev!r} は版の名前でない")
     try:
-        rev = git("rev-parse", "--verify", "--quiet", f"{name}^{{commit}}").strip()
+        rev = git(".", "rev-parse", "--verify", "--quiet", f"{name}^{{commit}}").strip()
     except Unreadable:
         raise Unreadable(f"base_rev {base_rev!r} が版として引けない")
-    files = names("diff", "--name-only", "--no-renames", rev, "--", ":/")
-    files += names("ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/")
+    files = git_names(".", "diff", "--name-only", "--no-renames", rev, "--", ":/")
+    files += git_names(".", "ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/")
     return rev, sorted({f for f in files if f and not f.startswith(ARCHON_PREFIX)})
 
 

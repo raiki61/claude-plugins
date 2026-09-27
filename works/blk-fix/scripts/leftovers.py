@@ -5,6 +5,7 @@
 """修正役の後始末（blk-fix だけの物。節ではなく、ignored_before・clean・assert_changed が import する模块）。
 
 - ARCHON_PREFIX:      .archon/ の下は修正役の仕事でない（assert_changed は数えず、clean は消さない。決まりはここの 1 本）
+- git・git_names:     git を呼ぶ手続き（-z で読むパスの一覧も。Unreadable・GIT_TIMEOUT と合わせて、blk-fix の正本はここの 1 本）
 - record_ignored:     修正役の前の git が無視するファイルと未追跡のフォルダを盤面の fix-ignored-before.json に控える（節 ignored-before）
 - remove_new_ignored: 控えに無かった無視されるファイルだけを消す（節 clean）
 失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリだけ（pack の core を読まない）。
@@ -27,17 +28,21 @@ class Unreadable(Exception):
     pass
 
 
-def git_names(repo, *args) -> list:
-    """repo を cwd にして git <args[0]> -z <args[1:]> を呼び、出るパスの一覧（NUL 区切り。日本語などの名前も引用無しのまま）"""
+def git(repo, *args, text=True):
+    """repo を cwd にして git <args> を呼び、標準出力を返す（text なら文字列、でなければ bytes）。呼べない・失敗は Unreadable"""
     try:
-        r = subprocess.run(["git", args[0], "-z", *args[1:]], cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL,
-                           timeout=GIT_TIMEOUT)
+        r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise Unreadable(f"git {' '.join(args)} を呼べない（{type(e).__name__}: {e}）")
     if r.returncode != 0:
         err = r.stderr.decode("utf-8", "replace").strip().replace("\n", " ")[-300:]
         raise Unreadable(f"git {' '.join(args)} が失敗した（{err or f'exit {r.returncode}'}）")
-    return [os.fsdecode(n) for n in r.stdout.split(b"\0") if n]
+    return r.stdout.decode("utf-8", "replace") if text else r.stdout
+
+
+def git_names(repo, *args) -> list:
+    """repo を cwd にして git <args[0]> -z <args[1:]> を呼び、出るパスの一覧（NUL 区切り。日本語などの名前も引用無しのまま）"""
+    return [os.fsdecode(n) for n in git(repo, args[0], "-z", *args[1:], text=False).split(b"\0") if n]
 
 
 def ignored_files(repo) -> list:
