@@ -15,6 +15,8 @@ Archon は Claude Code の実行ファイルを `assistants.claude.claudeBinaryP
   SDK が付けた `--resume`・`--session-id` はそのまま記録する
 - 再審（`works-node: rejudge continue=judge`）: SDK の会話の旗を外して `--resume <judge の id>`。id が無ければ子を起こさず
   stderr 1 行・終了コード 3（fail closed）
+- 旗 no-tree-write（CI の任せ先の役）: 役の cwd の worktree の根を全部の綴りで柵に足す。sandbox の塊・切符が無い起動は
+  起こさない（裁定 R56）
 - 本物の claude が見つからない・包み自身を指す時は 1 行で止まる。名前は .js で終わらない（Archon が --no-env-file を足すため）
 - dev の殻（archon.sh）の WORKS_DEV_ADAPTER=1 が設定の claudeBinaryPath で包みを入れる
 """
@@ -172,6 +174,14 @@ class MarkerCase(unittest.TestCase):
                 else:
                     self.assertEqual((got.name, got.cont, frozenset(got.flags)),
                                      (want["name"], want["cont"], want["flags"]))
+
+    def test_flags_match_node_marker(self):
+        """包みの FLAGS は core の node_marker.FLAGS と同じ（印を作る側と読む側で旗がずれない）"""
+        sys.path.insert(0, str(CORE))
+        import node_marker
+        self.assertEqual(frozenset(adapter.FLAGS), node_marker.FLAGS)
+        m = adapter.parse_marker("works-node: ci no-tree-write")
+        self.assertEqual((m.name, m.flags), ("ci", ("no-tree-write",)))
 
     def test_marker_from_argv_both_spellings(self):
         a = ["--model", "opus", "--json-schema", schema("works-node: judge")]
@@ -1067,6 +1077,58 @@ class FenceCase(unittest.TestCase):
         r = self.e.run(argv)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.e.child()["argv"], argv)
+
+    def test_no_tree_write_denies_own_worktree(self):
+        """旗 no-tree-write（CI の任せ先の役。sandbox は allowWrite ['/']）: 役の cwd の worktree の根を全部の綴りで
+        denyWrite と permissions.deny に足す。切符の protected もそのまま（裁定 R56）"""
+        r = self.e.run(sdk_argv("works-node: ci no-tree-write"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = self.settings()
+        deny, dw = s["permissions"]["deny"], s["sandbox"]["filesystem"]["denyWrite"]
+        pub = "/var/" + str(self.e.cwd)[len("/private/var/"):]
+        for p in (str(self.e.cwd), pub):
+            self.assertIn(p, dw)
+            for tool in ("Edit", "Write"):
+                self.assertIn(f"{tool}(/{p})", deny)
+                self.assertIn(f"{tool}(/{p}/**)", deny)
+        self.assertIn(str(self.board), dw)
+        self.assertEqual(self.e.launches()[-1]["fence"]["no_tree_write"], str(self.e.cwd))
+        # 旗の無い起動は役の cwd を守らない（書く役はそこに書く）
+        self.e.run(sdk_argv("works-node: fix"))
+        self.assertNotIn(str(self.e.cwd), self.settings()["sandbox"]["filesystem"]["denyWrite"])
+
+    def test_no_tree_write_without_sandbox_refused(self):
+        """SDK が sandbox の塊を渡さない（か enabled でない）起動は起こさない: 役の書く道は Bash だけで、守りは denyWrite だけ"""
+        for settings in (None, '{"permissions": {"deny": []}}', '{"sandbox": {"enabled": false}}'):
+            with self.subTest(settings):
+                r = self.e.run(sdk_argv("works-node: ci no-tree-write", settings=settings))
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+                self.assertIn("sandbox", r.stderr)
+                self.assertIsNone(self.e.child())
+                self.assertEqual(self.e.launches()[-1]["mode"], "refused")
+
+    def test_no_tree_write_without_ticket_refused(self):
+        """切符が無い起動も起こさない: allowWrite ['/'] の下で盤面・pack・git の設定を守るのは切符だけ"""
+        adapter.ticket_path(self.e.cwd, self.e.home).unlink()
+        r = self.e.run(sdk_argv("works-node: ci no-tree-write"))
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("切符", r.stderr)
+        self.assertIsNone(self.e.child())
+        # 旗の無い起動は今までどおり柵なしで起こす
+        r = self.e.run(sdk_argv("works-node: fix"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_no_tree_write_outside_git_refused(self):
+        """役の cwd の worktree の根が git から引けなければ、守る場所が決まらないので起こさない"""
+        loose = self.e.tmp / "loose"
+        loose.mkdir()
+        t = adapter.ticket_path(loose, self.e.home)
+        t.write_text(json.dumps({"protected": [str(self.board)]}), encoding="utf-8")
+        r = self.e.run(sdk_argv("works-node: ci no-tree-write"), cwd=loose, GIT_CEILING_DIRECTORIES=str(self.e.tmp))
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("worktree", r.stderr)
+        self.assertIsNone(self.e.child())
 
     def test_unmarked_launch_gets_no_fence(self):
         argv = sdk_argv(None)

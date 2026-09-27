@@ -15,7 +15,9 @@ import json
 import re
 
 PREFIX = "works-node: "
-FLAGS = frozenset({"no-post"})   # no-post: gh の書き込みの語を包みの柵に足す（並行 PR の任せ先の役。仕様 3.8）
+# no-post: gh の書き込みの語を包みの柵に足す（並行 PR の任せ先の役。仕様 3.8）。
+# no-tree-write: 包みが役の cwd の worktree の根を柵に足し、sandbox・切符の無い起動を拒む（CI の任せ先の役。裁定 R56）
+FLAGS = frozenset({"no-post", "no-tree-write"})
 _NAME = re.compile(r"[a-z0-9-]+")
 _CONT = "continue="
 _ARG = "--json-schema"

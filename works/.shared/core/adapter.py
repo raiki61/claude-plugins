@@ -37,7 +37,12 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 5. **印 no-post**（並行 PR の任せ先の役。切符に依らない）: gh は丸ごと拒み（permissions.deny の `Bash(gh:*)`・本物の gh の
    絶対パスの全部の綴り・`Bash(git push:*)`）、読む 4 つの形（pr list・pr view・pr diff を -R 付きで、repo view <OWNER/REPO>）
    だけを通す口 no-post-bin/works-gh を env の WORKS_GH で渡し、PATH の頭に同じ口を gh の名で置く（NO_POST_DENY の注記）。
-6. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、
+6. **旗 no-tree-write**（CI の任せ先の役。裁定 R56）: 役の sandbox は graphloops の任せ先と同じ allowWrite ['/']（依存の
+   置き場・網を今までどおり使う）なので、本物の作業ツリーは包みが守る。役の cwd の worktree の根（`git rev-parse
+   --show-toplevel`。全部の綴り）を 3 の柵（denyWrite・permissions.deny）に足す。SDK が sandbox の塊（enabled: true）を
+   渡していない起動・切符の無い起動・根が git から引けない起動は起こさない（役が書く道は Bash だけで守りは denyWrite だけ。
+   盤面・pack・git の設定の守りは切符にしか無い）。切符の「役の cwd の worktree 自身は除く」はそのまま（書く役の fix のため）
+7. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、
    会話の id を記録できない時は、claude を起こさずに 1 行を出して止まる（fail closed）。
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は argv を 1 バイトも変えない。見分けられない形
@@ -80,7 +85,9 @@ SESSION_VALUE_FLAGS = ("--resume", "-r", "--session-id")
 SESSION_BARE_FLAGS = ("--fork-session", "--continue", "-c")
 
 _NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ
-FLAGS = ("no-post",)                   # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）
+# node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
+FLAGS = ("no-post", "no-tree-write")
+NO_TREE_WRITE = "no-tree-write"
 # 印 no-post（読むだけの役）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
 # 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
 # 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
@@ -432,6 +439,32 @@ def live_worktrees(cwd) -> List[str]:
     return [t for t in trees if os.path.realpath(t) != os.path.realpath(own)]
 
 
+def own_worktree(cwd) -> Optional[str]:
+    """役の cwd の worktree の根（git rev-parse --show-toplevel）。git が引けなければ None"""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
+    try:
+        top = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                             env=env, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return top or None
+
+
+def _no_tree_write_places(argv: Sequence[str], cwd, ticketed: bool) -> List[str]:
+    """旗 no-tree-write の起動で足す守る場所（役の cwd の worktree の根の全部の綴り）。起こせない時は Unrecognised"""
+    found = find_opt(argv, "--settings")
+    sandbox = _load_settings(found[0][2]).get("sandbox") if len(found) == 1 else None
+    if not (isinstance(sandbox, dict) and sandbox.get("enabled") is True):
+        raise Unrecognised("旗 no-tree-write の役に SDK が sandbox の塊（enabled: true）を渡していない——作業ツリーを守る"
+                           "denyWrite を足す先が無い")
+    if not ticketed:
+        raise Unrecognised("旗 no-tree-write の役に切符が無い——allowWrite ['/'] の下で盤面・pack・git の設定を守れない")
+    top = own_worktree(cwd)
+    if top is None:
+        raise Unrecognised(f"旗 no-tree-write の役の cwd の worktree の根が git から引けない（{cwd}）")
+    return spellings(top)
+
+
 def protected_now(ticket_doc: dict, cwd, env, worktrees: Sequence[str]) -> List[str]:
     """この起動で守る場所: 切符の protected ＋ 起動の env の CLAUDE_CONFIG_DIR ＋ 今の worktree。全部の綴りで。
     切符の項はそのまま写す（役の worktree の `<cwd>/.git` のように cwd の中の物も守る。何を守るかは ticket.py が決める）。
@@ -521,7 +554,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
          protected: Optional[Callable[[], Sequence[str]]] = None, env=None) -> Plan:
     """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書かない）。
-    protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ空、在るのに読めなければ BadTicket）。
+    protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
     env は起動の env（no-post の起動で本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）"""
     argv = list(argv)
     tools_empty = _tools_empty(argv)
@@ -575,10 +608,13 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     env = os.environ if env is None else env
     gh = find_gh(env.get("PATH", "")) if "no-post" in marker.flags else None
     try:
-        places = protected() if protected else []
-        out, fence = _with_hook(out, command, places, gh)
+        places = protected() if protected else None
+        own = _no_tree_write_places(argv, cwd, places is not None) if NO_TREE_WRITE in marker.flags else []
+        out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh)
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
+    if own:
+        fence["no_tree_write"] = own[0]
     child_env = no_post_env(env, gh) if gh is not None else None
     return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env)
 

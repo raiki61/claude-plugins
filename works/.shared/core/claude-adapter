@@ -59,11 +59,11 @@ def log_launch(home_dir, cwd, p):
 
 
 def protected(cwd, home_dir):
-    """守る場所。切符が無ければ柵を足さない（線の start が切符を書く前の起動・線の外の起動）。
-    切符のファイルが在るのに読めなければ adapter.BadTicket（plan が起動を拒む）"""
+    """守る場所。切符が無ければ None（柵を足さない。線の start が切符を書く前の起動・線の外の起動。旗 no-tree-write の
+    起動は plan が拒む）。切符のファイルが在るのに読めなければ adapter.BadTicket（plan が起動を拒む）"""
     doc = adapter.read_ticket(cwd, home_dir)
     if doc is None:
-        return []
+        return None
     return adapter.protected_now(doc, cwd, os.environ, adapter.live_worktrees(cwd))
 
 
