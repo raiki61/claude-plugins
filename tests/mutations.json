@@ -6430,6 +6430,24 @@
    "expect": "見送りの拾い手が期待と違う"
   },
   {
+   "id": "VH1",
+   "title": "記録の見出しの柵: 見出しを探さずに通せば赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "    if not _re.search(rf\"^## \\[{_re.escape(version)}\\] - \\d{{4}}-\\d{{2}}-\\d{{2}}(?: \\[YANKED\\])?[ \\t]*$\", text, _re.M):",
+   "new": "    if False and not _re.search(rf\"^## \\[{_re.escape(version)}\\] - \\d{{4}}-\\d{{2}}-\\d{{2}}(?: \\[YANKED\\])?[ \\t]*$\", text, _re.M):",
+   "expect": "marketplace.json / plugin.json が必須の欄を持つ"
+  },
+  {
+   "id": "VH2",
+   "title": "記録の見出しの柵: 行頭に錨を置かなければ赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "rf\"^## \\[{_re.escape(version)}",
+   "new": "rf\"## \\[{_re.escape(version)}",
+   "expect": "marketplace.json / plugin.json が必須の欄を持つ"
+  },
+  {
    "id": "SK4",
    "title": "見送りの許し: Python の見送りの行が能力の名前を持たなければ赤",
    "file": "graphloops/tests/parallel.py",

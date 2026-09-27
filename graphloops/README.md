@@ -4,6 +4,8 @@
 
 実行版は `/research-graph`（`/research-loop` の実行版）と `/review-graph`（`/review-loop` の実行版）の 2 本。既存の 4 コマンドのうち 3 本（`commands/doctor-loop.md`・`research-loop.md`・`review-loop.md`（リポジトリのルート基準。プラグインとして入れた実体には無いので、clone か GitHub で見る: https://github.com/raiki61/claude-plugins））を触った——Read を持つ役には本文を貼らず path を渡す旨の文（doctor 1 行・research 1 行・review 2 行）と、`review-loop.md` の基準点の決め方の 1 行。計 5 行の差し替えで、allowed-tools と `firstread-loop.md` は不変（`git diff <BASE> --stat -- commands/` で確かめられる。以前は「渡し方の 1 行だけ」と書いていて実差分と食い違い、目的監査がそれを根拠に R2 を止めた）。本体は隣に置く。記録の形と検証器（convergence-loops の `scripts/<loop>-record.py`）は共通で、これが新旧の橋——同じ対象で両方を回し、同じ検証器に通した記録を比べるのが受け入れ試験である。
 
+版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（tag の名前と付ける commit・変更の記録を書き足す段）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
+
 ## 3 層
 
 | 層 | 場所 | 持つもの |

@@ -1674,6 +1674,25 @@ for sub in sorted(p2.parent.parent for p2 in root.glob("*/.claude-plugin/plugin.
     why = _bad_version(d)
     assert why is None, f"{sub.name}/.claude-plugin/plugin.json: {why}"
 
+# **graphloops の今の版は、変更の記録に見出しを持つ。** 版を上げて記録を書き忘れると、利用者が手元の版の番号から
+# 中身へ辿れない（手順は docs/releasing.md）。射程は見出しが在ることまで——中身が Unreleased に残った形は見ない。
+def _changelog_gap(version, text):
+    """版 version の見出しが記録の本文 text に無い理由（在れば None）。ファイルが無いときは空の本文を渡す。"""
+    if not _re.search(rf"^## \[{_re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}(?: \[YANKED\])?[ \t]*$", text, _re.M):
+        return f"## [{version}] - YYYY-MM-DD の見出しが無い"
+    return None
+assert _changelog_gap("0.2.0", "") and _changelog_gap("0.2.0", "## [0.2.0]\n") \
+    and _changelog_gap("0.2.0", "## [Unreleased]\n") and _changelog_gap("0.2.0", "## [0.1.0] - 2026-01-01\n") \
+    and _changelog_gap("0.2.0", "## [0x2x0] - 2026-01-01\n") and _changelog_gap("0.2.0", "- ## [0.2.0] - 2026-01-01\n"), \
+    "記録の見出しの柵が、見出しの欠け・日付の欠け・別の版を拾えていない"
+assert _changelog_gap("0.2.0", "# t\n\n## [Unreleased]\n\n## [0.2.0] - 2026-01-01\n") is None \
+    and _changelog_gap("0.2.0", "## [0.2.0] - 2026-01-01 [YANKED]\n") is None, \
+    "記録の見出しの柵が、正しい見出しまで拾っている"
+_cl = root/"graphloops/CHANGELOG.md"
+why = _changelog_gap(json.loads((root/"graphloops/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"],
+                     _cl.read_text(encoding="utf-8") if _cl.is_file() else "")
+assert why is None, f"graphloops/CHANGELOG.md: {why}（版を上げた commit で見出しを足す。手順は docs/releasing.md）"
+
 # 局所レビューの依存は公式の宣言機構で入れる。宣言が消えると pr-review-toolkit が
 # 入らないまま「欠陥の観点が 1 つ静かに欠けたレビュー」が通るので、宣言の実在を検査する。
 deps = [d for d in (pl.get("dependencies") or []) if isinstance(d, dict)]
