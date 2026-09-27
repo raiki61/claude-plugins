@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -304,11 +305,17 @@ class RefixCase(DeltaBoardCase):
         out = refix.collect_refix(self.board)
         self.assertEqual(out["reads_file"], got["reads_files"]["refix"])
         self.assertEqual(out["reads_files"], got["reads_files"])
-        for blk in ("blk-delta", "blk-refix"):   # core に reads.py（Task 6）が無い間は、スクリプト自身を読まずに 2 で止まる
-            with self.subTest(blk):
-                r = self.run_script(blk, "reads", repo, must="[]")
-                self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
-                self.assertIn("reads.py", r.stderr)
+        # スクリプトは core の reads.py（Task 6）を読む（スクリプト自身を読まない。R7）。出来事は ARCHON_CLI_COMMAND が無いので none
+        with mock.patch.dict(os.environ, {"WORKFLOW_ID": "run-7"}):
+            os.environ.pop("ARCHON_CLI_COMMAND", None)
+            delta = self.run_script("blk-delta", "reads", repo, must="[]")
+            again = self.run_script("blk-refix", "reads", repo)
+        self.assertEqual(delta.returncode, 0, delta.stderr)
+        self.assertEqual(pathlib.Path(json.loads(delta.stdout)["reads_file"]).name, "reads-review.json")
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(sorted(json.loads(again.stdout)["reads_files"]), ["refix", "review2"])
+        self.assertEqual(json.loads(pathlib.Path(json.loads(again.stdout)["reads_files"]["refix"]).read_text(
+            encoding="utf-8"))["sources"]["events"], "none")
 
     def test_prep_removes_stale_outputs(self):
         """支度は前の試みの自分の出力（brief・reads-<役>.json）を消してから書く。支度に要る物が無ければ ok False"""
