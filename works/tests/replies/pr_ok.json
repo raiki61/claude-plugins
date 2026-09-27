@@ -10,9 +10,20 @@
  "conflicts": [
   {
    "pr": "7",
-   "files": ["stats.py"],
+   "files": [
+    "stats.py"
+   ],
    "handed_over": false,
    "note": "PR #7 の担当へ: この run（判定から入る run）も stats.py の mean を直します。#7 の hunk @@ -1,3 +1,4 @@ と同じ行です。どちらを先に入れるか決めてください。"
+  }
+ ],
+ "excluded": [
+  {
+   "pr": "7",
+   "file": "stats.py",
+   "start": 1,
+   "end": 2,
+   "why": "PR #7 の hunk @@ -1,3 +1,4 @@ が mean の同じ行を書き換える（この run の依頼 1 件目と同じ所）"
   }
  ]
 }

@@ -6,5 +6,6 @@
  "repo": "o/r",
  "listed": 2,
  "truncated": false,
- "conflicts": []
+ "conflicts": [],
+ "excluded": []
 }

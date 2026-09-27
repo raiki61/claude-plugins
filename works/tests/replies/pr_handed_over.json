@@ -10,9 +10,12 @@
  "conflicts": [
   {
    "pr": "7",
-   "files": ["stats.py"],
+   "files": [
+    "stats.py"
+   ],
    "handed_over": true,
    "note": "gh pr comment 7 -R o/r で申し送った"
   }
- ]
+ ],
+ "excluded": []
 }

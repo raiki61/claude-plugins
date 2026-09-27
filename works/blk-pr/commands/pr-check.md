@@ -1,6 +1,6 @@
 # P0-5 並行 PR 衝突チェック（任せ先の役。6 段を順に。段を飛ばすな）
 
-お前は読むだけの役。ファイルを書く・消す・git の状態を動かすことはしない（受け付けが役を起こす前の作業ツリーと比べ、変わっていれば返答を拒む）。
+お前は読むだけの役。ファイルを書く・消す・git の状態（HEAD・枝・stash）を動かすことはしない。受け付けは、役を起こす前の作業ツリー・HEAD の sha・枝と比べ、変わっていれば返答を拒む。
 
 渡し物: `$pr-snap.output.brief_file`（Read せよ。JSON）
 
@@ -15,9 +15,9 @@
 3. 列挙が打ち切られていないか: 返った件数が --limit と同じなら打ち切られた可能性がある → truncated=true・material は awaiting_human。打ち切られた一覧で「衝突なし」と書くな。
 4. 変更ファイル集合: 渡し物の `changed_files`。**集合が空なら clean と書くな**——空の集合との交差は何も確かめていない。not_run（reason に何が空だったか）で返せ。
 5. 残った PR の変更ファイル: `gh pr view <n> -R <owner/repo> --json files --jq '.files[].path'`。交差するものが「同一ファイルを触る並行 PR」。
-6. 交差した箇所の申し送りは投稿せず、下書きを返す: `gh pr diff <n> -R <owner/repo>` で hunk を見て、衝突・重複が判明した箇所ごとに、その変更を主導している PR の担当へ渡す申し送りの下書き（どの PR の・どのファイルの・どの hunk が・この run のどの変更とぶつかるか・どちらを先に入れるかの問い）を `conflicts[].note` に書き、`handed_over: false` で返せ（このラインは担当の PR へ投稿しない。持ち主の決定 2026-09-27。下書きは報告の冒頭に載り、人が担当の PR へ渡す）。
+6. 交差した箇所を担当の PR に渡す。ただし申し送りは投稿せず、下書きを返す: `gh pr diff <n> -R <owner/repo>` で hunk を見て、衝突・重複が判明した箇所は、その変更を主導している PR の物として本ループのスコープから外し（`excluded` に 1 hunk 1 行）、その PR の担当へ渡す申し送りの下書き（どの PR の・どのファイルの・どの hunk が・この run のどの変更とぶつかるか・どちらを先に入れるかの問い）を `conflicts[].note` に書き、`handed_over: false` で返せ（このラインは担当の PR へ投稿しない。持ち主の決定 2026-09-27。下書きは報告の冒頭に載り、人が担当の PR へ渡す。外した hunk は後の役——判定・修正案・修正——に触らない範囲として渡る）。
 
-**書き込みの gh を打つな**（`gh pr comment`・`gh pr review`・`gh pr edit`・`gh pr create`・`gh pr close`・`gh pr merge`・`gh issue comment`・`gh issue create`・`gh api -X`・`gh api --method`。読むのは `gh pr list`・`gh pr view`・`gh pr diff` だけ）。`handed_over: true` の行を 1 つでも返せば、受け付けが拒む。
+**書き込みの gh と、HEAD・枝を動かす語を打つな**（`gh api`（読むだけの形も含めて丸ごと。graphql の mutation も）・`gh pr comment`・`gh pr review`・`gh pr edit`・`gh pr create`・`gh pr close`・`gh pr merge`・`gh pr ready`・`gh pr reopen`・`gh pr checkout`・`gh issue comment`・`gh issue create`・`gh issue edit`・`gh issue close`・`gh issue reopen`・`gh label`・`gh release create`・`git checkout`・`git switch`・`git stash`・`git reset`。gh で打ってよいのは `gh pr list -R <owner/repo>`・`gh pr view <n> -R <owner/repo>`・`gh pr diff <n> -R <owner/repo>` だけ）。`handed_over: true` の行を 1 つでも返せば、受け付けが拒む。
 
 GitHub 以外のホストでは同等の読むコマンドに読み替えろ（書き込みの語は同じく使わない）。読み替えられないなら awaiting_human。gh の通信が sandbox で拒まれて確かめられないなら、material を not_run（reason に拒まれたコマンドとその出力）で返してよい。**未確認を clean と書くな。**
 
@@ -25,6 +25,7 @@ GitHub 以外のホストでは同等の読むコマンドに読み替えろ（�
 
 - `repo`: 1 段で導いた owner/repo。`listed`: 2 段で返った件数（自分の PR を外す前）。`truncated`: 3 段。
 - `conflicts`: 交差した PR ごとに 1 行 `{pr, files, handed_over: false, note}`。`pr` は PR の番号の文字列、`files` は交差したファイル、`note` は 6 段の下書き。
+- `excluded`: 6 段で本ループのスコープから外す hunk を 1 行ずつ `{pr, file, start, end, why}`。`pr` は `conflicts` に在る PR、`file` はその行の `files` に在るファイル、`start`・`end` は**今の作業ツリーの**そのファイルの行の範囲（1 始まり・両端を含む）、`why` は何とぶつかるか。外す hunk を持つ PR の行には `note`（下書き）が要る。ファイルが同じでも hunk がぶつからない PR は外さない。外す物が無ければ `excluded: []`。
 - 素材（`material`）の書き方: status は found（見つけた。count と detail）／clean（今ラウンドに見たが無かった。checked に何を見たか）／not_applicable（条件に当たらない。reason）／awaiting_human（人の起動待ち。reason）／not_run（やるべきだったが飛ばした。reason）。carried_over（前の周の流用）は走らなかった節に機械が書く——走った役は今の周の判定を書け（流用と書いても拒まれる）。欄と値の正本は review-record.py。
 
 ## 前の返答が拒まれたとき

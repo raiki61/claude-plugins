@@ -13,6 +13,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import pathlib
 import shutil
 import subprocess
@@ -292,9 +293,13 @@ def run_script(name, env):
 
 class AcceptCase(PrCase):
     def test_reply_samples_fit_schema(self):
-        """見本の 3 つは写しの p0.parallel_pr の schema に合う（handed_over true も型は通る。拒むのは works の検査）"""
+        """見本の 3 つは役の output_format に合い、excluded を外せば写しの p0.parallel_pr の schema に合う
+        （handed_over true も型は通る。拒むのは works の検査）"""
+        works = {k: v for k, v in prcheck.OUTPUT_FORMAT.items() if k != "description"}
         for name in ("pr_ok.json", "pr_handed_over.json", "pr_no_conflicts.json"):
-            self.assertEqual(validate_schema(reply(name), role_schema(prcheck.NODE)), [], name)
+            r = reply(name)
+            self.assertEqual(validate_schema(r, works), [], name)
+            self.assertEqual(validate_schema({k: v for k, v in r.items() if k != "excluded"}, role_schema(prcheck.NODE)), [], name)
 
     def test_check_no_post(self):
         acc = load_script("accept")
@@ -334,6 +339,40 @@ class AcceptCase(PrCase):
         self.assertIn("p1.consistency_bypass", b2.rd["na"])
         self.assertEqual(b2.record["process"]["parallel_pr"]["conflicts"][0]["note"], reply("pr_ok.json")["conflicts"][0]["note"])
         self.assertEqual(b2.record["materials"]["parallel_pr"]["status"], "found")
+        self.assertNotIn("excluded", json.loads((b.dir / got["out_file"]).read_text(encoding="utf-8")))
+
+    def test_excluded_hunks_leave_scope(self):
+        """review-graph の 6 段の「本ループのスコープから外す」: 受けた外す hunk は今の周の pr-excluded.json に置かれ、
+        collect の excluded_file が指す（後の役に触らせない範囲として渡す）"""
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        self.assertTrue(prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)["ok"])
+        got = prcheck.collect(b.dir, opener=opener)
+        self.assertEqual((got["ok"], got["excluded"]), (True, 1))
+        self.assertEqual(pathlib.Path(got["excluded_file"]), opener(b.dir).work(prcheck.EXCLUDED))
+        self.assertEqual(json.loads(pathlib.Path(got["excluded_file"]).read_text(encoding="utf-8")),
+                         {"node": prcheck.NODE, "excluded": reply("pr_ok.json")["excluded"]})
+
+    def test_excluded_checked(self):
+        """外す hunk の誤り → ok false（役に返す）、盤面は前のまま: 欄が無い・PR が conflicts に無い・ファイルが交差に無い・
+        start > end・end がファイルの行の数を超える・下書き（note）の無い PR の hunk"""
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        before = board_shas(b.dir)
+        base = reply("pr_ok.json")
+        hunk = base["excluded"][0]
+        cases = {"excluded が無い": {k: v for k, v in base.items() if k != "excluded"},
+                 "conflicts に無い": dict(base, excluded=[dict(hunk, pr="99")]),
+                 "交差したファイル": dict(base, excluded=[dict(hunk, file="other.py")]),
+                 "より大きい": dict(base, excluded=[dict(hunk, start=2, end=1)]),
+                 "行の数 2 を超える": dict(base, excluded=[dict(hunk, end=3)]),
+                 "note": dict(base, conflicts=[{k: v for k, v in base["conflicts"][0].items() if k != "note"}]),
+                 "型": dict(base, excluded=[dict(hunk, start=0)])}
+        for word, bad in cases.items():
+            got = prcheck.take(b.dir, bad, self.repo, opener=opener)
+            self.assertFalse(got["ok"], word)
+            self.assertIn(word, got["reason"], word)
+            self.assertEqual(board_shas(b.dir), before, word)
 
     def test_fallback_role_reads_only(self):
         """pr-snap の後に作業ツリーを変えて受け付け → ok false、文に「作業ツリーを変えた」、盤面は前のまま"""
@@ -348,6 +387,27 @@ class AcceptCase(PrCase):
         (self.repo / "new.txt").write_text("x\n", encoding="utf-8")   # 未追跡のファイルを足すのも同じ
         (self.repo / "stats.py").write_text("def mean(xs):\n    return sum(xs)\n", encoding="utf-8")
         self.assertFalse(prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)["ok"])
+
+    def test_head_move_rejected(self):
+        """pr-snap の後に別の commit へ checkout（gh pr checkout と同じ動き。作業ツリーは綺麗なまま）→ ok false、
+        文に HEAD の動き。枝だけ替える（同じ commit の別の枝・切り離した HEAD）も拒む。元に戻せば通る"""
+        b = self.fallen()
+        main = self.git("symbolic-ref", "--short", "HEAD").strip()
+        self.git("switch", "-q", "-c", "other")
+        self.git("commit", "-q", "--allow-empty", "-m", "other")
+        self.git("switch", "-q", main)
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        before = board_shas(b.dir)
+        for move in (["checkout", "-q", "other"], ["checkout", "-q", "-b", "same-commit", main], ["checkout", "-q", "--detach", main]):
+            self.git(*move)
+            self.assertEqual(self.git("status", "--porcelain"), "")
+            got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+            self.assertFalse(got["ok"], move)
+            self.assertIn("作業ツリーを変えた", got["reason"])
+            self.assertIn("head" if move[2] == "other" else "ref", got["reason"])
+            self.assertEqual(board_shas(b.dir), before, move)
+            self.git("checkout", "-q", main)
+        self.assertTrue(prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)["ok"])
 
     def test_content_reject_leaves_board(self):
         """型の崩れた返答 → ok false（写しの型の文）、盤面は前のまま"""
@@ -421,40 +481,53 @@ class SnapCollectCase(PrCase):
         two = reply("pr_ok.json")
         two["conflicts"].append({"pr": "9", "files": ["stats.py"], "handed_over": False})
         self.assertTrue(prcheck.take(b.dir, two, self.repo, opener=opener)["ok"])
-        got = prcheck.collect(b.dir)
-        self.assertEqual({k: got[k] for k in ("ok", "conflicts", "drafts", "material_status", "reads_file")},
-                         {"ok": True, "conflicts": 2, "drafts": 1, "material_status": "found", "reads_file": ""})
+        got = prcheck.collect(b.dir, opener=opener)
+        self.assertEqual({k: got[k] for k in ("ok", "conflicts", "drafts", "material_status", "excluded", "reads_file")},
+                         {"ok": True, "conflicts": 2, "drafts": 1, "material_status": "found", "excluded": 1, "reads_file": ""})
         self.assertTrue(pathlib.Path(got["pr_file"]).is_file())
-        self.assertEqual(prcheck.drafts(b.dir), [{"pr": "7", "files": ["stats.py"], "note": two["conflicts"][0]["note"]}])
+        self.assertEqual(prcheck.drafts(b.dir, opener=opener),
+                         [{"pr": "7", "files": ["stats.py"], "note": two["conflicts"][0]["note"]}])
         reads = opener(b.dir).work("reads-pr-check.json")
         reads.write_text("{}", encoding="utf-8")
-        self.assertEqual(prcheck.collect(b.dir)["reads_file"], str(reads))
+        self.assertEqual(prcheck.collect(b.dir, opener=opener)["reads_file"], str(reads))
 
-    def test_collect_script(self):
-        """集める節のスクリプト: ARTIFACTS_DIR の board を読んで 1 行、0。受けていない盤面は ok false"""
-        b = self.fallen()
-        r = run_script("collect", {"ARTIFACTS_DIR": str(self.art)})
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertFalse(json.loads(r.stdout)["ok"])
-        prcheck.snapshot(b.dir, self.repo, opener=opener)
-        prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
-        r = run_script("collect", {"ARTIFACTS_DIR": str(self.art)})
-        got = json.loads(r.stdout)
-        self.assertEqual((got["ok"], got["drafts"]), (True, 1))
+    def test_collect_not_taken(self):
+        """受けていない盤面の collect は ok false（件数は 0・パスは空）"""
+        got = prcheck.collect(self.fallen().dir, opener=opener)
+        self.assertEqual((got["ok"], got["conflicts"], got["excluded_file"]), (False, 0, ""))
+
+    def test_collect_script_wiring_errors(self):
+        """集める節のスクリプト: ARTIFACTS_DIR が無い・盤面を開けない → 2、標準出力は空"""
+        r = run_script("collect", {})
+        self.assertEqual((r.returncode, r.stdout), (2, ""))
+        empty = self.tmp / "empty-art"
+        empty.mkdir()
+        r = run_script("collect", {"ARTIFACTS_DIR": str(empty)})
+        self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
 
 
 # ---------------------------------------------------------------- 印・指示書・下げた物の宣言・スクリプトの形
 class DeclaredCase(unittest.TestCase):
     def test_output_format_marked_no_post(self):
-        """役の output_format は写しの schema に印 works-node: pr-check no-post を付けた物（TA20）"""
+        """役の output_format は写しの schema に works だけの欄 excluded（必須）を足し、印 works-node: pr-check no-post を
+        付けた物（TA20）。excluded と印を外せば写しの schema そのもの"""
         fmt = prcheck.OUTPUT_FORMAT
         self.assertEqual(fmt["description"], "works-node: pr-check no-post")
-        self.assertEqual({k: v for k, v in fmt.items() if k != "description"}, role_schema(prcheck.NODE))
+        self.assertIn("excluded", fmt["required"])
+        self.assertEqual(fmt["properties"]["excluded"], prcheck.EXCLUDED_SCHEMA)
+
+        def unworks(f):
+            f = json.loads(json.dumps(f))
+            f.pop("description", None)
+            del f["properties"]["excluded"]
+            f["required"].remove("excluded")
+            return f
+        self.assertEqual(unworks(fmt), role_schema(prcheck.NODE))
         try:
             import node_marker   # 線 A Task 2。入った後は印の読み方でも確かめる
         except ModuleNotFoundError:
             return
-        self.assertEqual(node_marker.strip(fmt), role_schema(prcheck.NODE))
+        self.assertEqual(unworks(node_marker.strip(fmt)), role_schema(prcheck.NODE))
         self.assertEqual(node_marker.parse(fmt["description"])["flags"], frozenset({"no-post"}))
 
     def test_prompt_step6_no_post(self):
@@ -465,11 +538,20 @@ class DeclaredCase(unittest.TestCase):
         six = steps[5]
         for word in ("投稿せず", "note", "`handed_over: false`"):
             self.assertIn(word, six)
-        self.assertIn("-R", text)
+        self.assertIn("スコープから外し", six)
+        self.assertIn("`excluded`", six)
         forbid = [ln for ln in text.splitlines() if "打つな" in ln]
         self.assertEqual(len(forbid), 1, forbid)
-        for word in ("gh pr comment", "gh pr review", "gh api -X"):
-            self.assertIn(word, forbid[0])
+        for word in prcheck.GH_DENY + prcheck.GIT_DENY:
+            self.assertIn(f"`{word}`", forbid[0])
+        self.assertIn("`gh api`（読むだけの形も含めて丸ごと", forbid[0])
+        # 指示書の中の gh のコマンド（`gh …`）は全部、-R <owner/repo> を付けた読む語か、禁じる語か、使うなと名指した gh repo view
+        for cmd in re.findall(r"`(gh [^`]*)`", text):
+            if cmd in prcheck.GH_DENY or cmd == "gh repo view":
+                continue
+            self.assertTrue(cmd.startswith(prcheck.GH_READ), cmd)
+            self.assertIn(" -R <owner/repo>", cmd, cmd)
+        self.assertEqual(len([c for c in re.findall(r"`(gh [^`]*)`", text) if c.startswith(prcheck.GH_READ)]), 6)
         self.assertIn("$pr-snap.output.brief_file", text)
         self.assertIn("$LOOP_PREV.pr-accept.output.reason", text)
 

@@ -5,9 +5,13 @@ parallel-pr.py を走らせる（run_helper）。交差が在る・remote が Gi
 opus の役 pr-check（ブロック blk-pr）が 6 段の全部をする。6 段目だけ替える: 担当の PR へ投稿せず、申し送りの下書きを
 conflicts[].note に書き handed_over を false で返す（真は blk-pr/scripts/accept.py の check_no_post が拒む）。
 投稿しないことは review-graph より下げた所で、<ライン>/downgrades.json に宣言し、報告の冒頭に出す。
+review-graph の 6 段の「衝突した箇所を本ループのスコープから外す」は保つ: 役は外す hunk（PR・ファイル・今の作業ツリーでの行の範囲）を
+excluded に並べ、受け付けが確かめて今の周の pr-excluded.json に置き、collect が excluded_file で渡す（後の役に触らせないため）。
 
 ここに在る物:
-- NODE・ROLE・OUTPUT_FORMAT: 節の名前、役の名前、役の output_format（写しの schema に印 works-node: pr-check no-post）
+- NODE・ROLE・OUTPUT_FORMAT: 節の名前、役の名前、役の output_format（写しの schema に works だけの欄 excluded を足し、
+  印 works-node: pr-check no-post を付けた物。excluded は受け付けが外してから盤面に渡す）
+- GH_READ・GH_DENY: 役が打ってよい gh の語と、打ってはいけない語（指示書が並べ、包みの柵も同じ組を使う）
 - run_helper(b, *, runner=None): start（と線 B の境の節）が呼ぶ。engine で済んだか・役が要るか
 - snapshot・take・collect・drafts: blk-pr の節 pr-snap・pr-accept・collect の中身（main_* はスクリプトの入口）
 - downgrades・head_downgrades: 下げた物の一覧（<ライン>/downgrades.json）と、報告の頭の行の部品
@@ -27,8 +31,10 @@ PACK = CORE.parents[1]
 if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
+import subprocess  # noqa: E402
 from accept import role_schema, snapshot_tree  # noqa: E402
 from board import GRAPH_PATH, BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
+from engine.schema import validate_schema  # noqa: E402
 from engine.util import AnswerReject, Reject  # noqa: E402
 import script_io  # noqa: E402
 
@@ -36,8 +42,33 @@ NODE = "p0.parallel_pr"
 ROLE = "pr-check"
 LINE = "darkfactory"
 MARK = "works-node: pr-check no-post"   # node_marker.mark(role_schema(NODE), "pr-check", flags=("no-post",)) と同じ印（Task 2）
-OUTPUT_FORMAT = {"description": MARK, **role_schema(NODE)}
-SNAPSHOT = "pr-snapshot.json"   # 役を起こす前の作業ツリーの写し（accept.snapshot_tree の形）
+# 本ループのスコープから外す hunk（works だけの欄。写しの schema の conflicts[] は additionalProperties: false で足せないので、
+# 返答の一番上に置き、受け付けが外してから盤面に渡す）。start・end は今の作業ツリーのファイルの行（1 始まり・両端を含む）
+EXCLUDED_SCHEMA = {"type": "array", "items": {
+    "type": "object", "required": ["pr", "file", "start", "end", "why"], "additionalProperties": False,
+    "properties": {"pr": {"type": "string", "minLength": 1}, "file": {"type": "string", "minLength": 1},
+                   "start": {"type": "integer", "minimum": 1}, "end": {"type": "integer", "minimum": 1},
+                   "why": {"type": "string", "minLength": 1}}}}
+
+
+def _output_format():
+    s = role_schema(NODE)
+    s["properties"]["excluded"] = EXCLUDED_SCHEMA
+    s["required"] = [*s["required"], "excluded"]
+    return {"description": MARK, **s}
+
+
+OUTPUT_FORMAT = _output_format()
+SNAPSHOT = "pr-snapshot.json"   # 役を起こす前の作業ツリーの写し（accept.snapshot_tree の形に head・ref を足した物）
+EXCLUDED = "pr-excluded.json"   # 受け付けた外す hunk {node, excluded}（collect の excluded_file）
+# 役が打ってよい gh の語（全部 -R <owner/repo> を付ける）と、打ってはいけない語。gh api は読むだけの形でも丸ごと禁じる
+# （-f・-F・--input で既定が POST になり、-X は道の後ろにも書けるので、語の頭で柵を組めない）
+GH_READ = ("gh pr list", "gh pr view", "gh pr diff")
+GH_DENY = ("gh api", "gh pr comment", "gh pr review", "gh pr edit", "gh pr create", "gh pr close", "gh pr merge",
+           "gh pr ready", "gh pr reopen", "gh pr checkout", "gh issue comment", "gh issue create", "gh issue edit",
+           "gh issue close", "gh issue reopen", "gh label", "gh release create")
+# 役が HEAD・枝を動かす語（作業ツリーの写しと HEAD・枝の比べが拒む。指示書が禁じる）
+GIT_DENY = ("git checkout", "git switch", "git stash", "git reset")
 BRIEF = "pr-brief.json"         # 役への渡し物（落ちた理由・交差を取る集合・版）
 READS = (ROLE, "pr-checking", "pr-loop", ROLE)   # reads.main_for の (役, include, 輪, 節)
 DOWNGRADES = "downgrades.json"
@@ -95,6 +126,54 @@ def run_helper(b, *, runner=None) -> dict:
 
 
 # ---------------------------------------------------------------- blk-pr の節
+def _git_out(repo, *args) -> tuple:
+    r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    return r.returncode, r.stdout.strip()
+
+
+def _tree_state(repo: pathlib.Path) -> dict:
+    """作業ツリーの写し（accept.snapshot_tree）に、HEAD の sha と枝（symbolic-ref。切り離した HEAD は空）を足した物。
+    snapshot_tree は今の HEAD からの差分しか見ないので、枝の切り替え（gh pr checkout・git checkout）が見えない"""
+    code, head = _git_out(repo, "rev-parse", "--verify", "-q", "HEAD")
+    if code != 0:
+        raise Reject(f"git rev-parse HEAD が引けない（{repo}）")
+    code, ref = _git_out(repo, "symbolic-ref", "-q", "HEAD")
+    return {**snapshot_tree(repo), "head": head, "ref": ref if code == 0 else ""}
+
+
+def check_excluded(reply: dict, repo) -> list:
+    """外す hunk（excluded）の誤りの一覧（空なら通す）: 型・start <= end・PR が conflicts に在りファイルがその行の files に在る・
+    ファイルが今の作業ツリーに在り end が行の数を超えない・外す hunk を持つ PR の行に申し送りの下書き（note）が在る"""
+    ex = reply.get("excluded")
+    if ex is None:
+        return ["excluded が無い（外す hunk が無ければ空の配列）"]
+    errs = validate_schema(ex, EXCLUDED_SCHEMA)
+    if errs:
+        return [f"excluded の型: {e}" for e in errs]
+    rows = {c.get("pr"): c for c in reply.get("conflicts") or [] if isinstance(c, dict)}
+    out = []
+    for i, h in enumerate(ex):
+        at = f"excluded[{i}]（PR {h['pr']}・{h['file']}）"
+        c = rows.get(h["pr"])
+        if h["start"] > h["end"]:
+            out.append(f"{at}: start {h['start']} が end {h['end']} より大きい")
+        if c is None:
+            out.append(f"{at}: PR {h['pr']} は conflicts に無い")
+            continue
+        if h["file"] not in (c.get("files") or []):
+            out.append(f"{at}: ファイルは PR {h['pr']} の交差したファイル {c.get('files')} に無い")
+        f = pathlib.Path(repo) / h["file"]
+        if not f.is_file():
+            out.append(f"{at}: ファイルが今の作業ツリーに無い（行の範囲は今の作業ツリーのファイルで書く）")
+        else:
+            n = len(f.read_bytes().splitlines())
+            if h["end"] > n:
+                out.append(f"{at}: end {h['end']} がファイルの行の数 {n} を超える")
+        if not (c.get("note") or "").strip():
+            out.append(f"{at}: 外す hunk を持つ PR {h['pr']} の行に申し送りの下書き（note）が無い")
+    return out
+
+
 def _write(path: pathlib.Path, obj) -> pathlib.Path:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
@@ -115,7 +194,7 @@ def snapshot(board_dir, repo, *, opener=None) -> dict:
     base = b.record.get("base") or (b.record.get("process", {}).get("base") or {}).get("base_sha")
     brief = {"node": NODE, "cwd": str(repo), "base": base, "changed_files": b.rules._pr_files(b),
              "request_wheres": b.rules.request_wheres(b), "fallback": inst["engine_fallback"]}
-    snap = _write(b.work(SNAPSHOT), snapshot_tree(repo))
+    snap = _write(b.work(SNAPSHOT), _tree_state(repo))
     out = _write(b.work(BRIEF), brief)
     return {"ok": True, "snapshot_file": str(snap), "brief_file": str(out)}
 
@@ -131,61 +210,79 @@ def take(board_dir, reply: dict, repo, *, opener=None) -> dict:
         raise BoardGap(f"{snap_p} が無い——pr-snap が走っていない（役を起こす前の写しと比べられない）")
     try:
         snap = json.loads(snap_p.read_text(encoding="utf-8"))
-        before = {k: snap[k] for k in ("porcelain", "diff_sha256")}
+        before = {k: snap[k] for k in ("porcelain", "diff_sha256", "head", "ref")}
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise BoardGap(f"{snap_p} が読めない: {e}") from None
-    now = snapshot_tree(pathlib.Path(repo))
+    repo = pathlib.Path(repo)
+    now = _tree_state(repo)
     if now != before:
-        return {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: 並行 PR の任せ先は読むだけの役で、作業ツリーを変えてはいけない"
-                f"（git status --porcelain: 役を起こす前 {before['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}）"}
+        moved = [f"{k}: 役を起こす前 {before[k] or '（切り離した HEAD）'} / 今 {now[k] or '（切り離した HEAD）'}"
+                 for k in ("head", "ref") if now[k] != before[k]]
+        return {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: 並行 PR の任せ先は読むだけの役で、作業ツリー・HEAD・枝を変えてはいけない"
+                "（checkout・switch・stash・reset・gh pr checkout を打つな）"
+                f"（git status --porcelain: 役を起こす前 {before['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}"
+                + "".join(f"・{m}" for m in moved) + "）"}
+    errs = check_excluded(reply, repo)
+    if errs:
+        return {"ok": False, "reason": "外す hunk（excluded）が合わない: " + "; ".join(errs)}
+    excluded = reply["excluded"]
     try:
-        p = b.done(NODE, reply)
+        p = b.done(NODE, {k: v for k, v in reply.items() if k != "excluded"})
     except AnswerReject as e:
         return {"ok": False, "reason": str(e)}
+    _write(b.work(EXCLUDED), {"node": NODE, "excluded": excluded})
     return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),
             "out_file": b.state["outputs"][NODE]["file"]}
 
 
-def _accepted(board) -> tuple:
-    """(state, 受け付けた返答, 返答のファイル)。受けていなければ返答とファイルは None"""
-    board = pathlib.Path(board)
-    try:
-        state = json.loads((board / "state.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, None, None
-    out = (state.get("outputs") or {}).get(NODE)
+def _accepted(b) -> tuple:
+    """(受け付けた返答, 返答のファイル)。受けていなければ (None, None)"""
+    out = (b.state.get("outputs") or {}).get(NODE)
     if not out:
-        return state, None, None
-    f = board / out["file"]
+        return None, None
+    f = b.dir / out["file"]
     try:
-        return state, json.loads(f.read_text(encoding="utf-8")), f
+        return json.loads(f.read_text(encoding="utf-8")), f
     except (OSError, ValueError):
-        return state, None, None
+        return None, None
 
 
-def drafts(board) -> list:
+def drafts(board, *, opener=None) -> list:
     """受け付けた返答の申し送りの下書き [{pr, files, note}]（note を持つ交差だけ。報告の冒頭 1 が人に渡す）"""
-    _, rep, _ = _accepted(board)
+    rep, _ = _accepted((opener or open_board)(board, allow_halted=True))
     return [{"pr": c["pr"], "files": c["files"], "note": c["note"]}
             for c in (rep or {}).get("conflicts", []) if c.get("note")]
 
 
-def collect(board) -> dict:
-    """集める節: {ok, pr_file, conflicts, drafts, material_status, reads_file}（drafts は note を持つ交差の件数）。
-    reads_file は読んだ証拠の節（pr-reads）が今の周に書いた reads-pr-check.json（無ければ空）。
-    盤面が p0.parallel_pr を受けていない・handed_over が真の行が残る時は ok 偽"""
-    state, rep, f = _accepted(board)
+def collect(board, *, opener=None) -> dict:
+    """集める節: {ok, pr_file, conflicts, drafts, material_status, excluded, excluded_file, reads_file}。
+    drafts は note を持つ交差の件数、excluded は本ループのスコープから外した hunk の数、excluded_file はその一覧
+    （pr-excluded.json。後の役——判定・修正案・修正——に触らせない範囲として渡す）。reads_file は読んだ証拠の節（pr-reads）が
+    今の周に書いた reads-pr-check.json（無ければ空）。盤面が p0.parallel_pr を受けていない・handed_over が真の行が残る・
+    外す hunk の一覧が無い時は ok 偽"""
+    b = (opener or open_board)(board, allow_halted=True)
+    rep, f = _accepted(b)
+    empty = {"pr_file": "", "conflicts": 0, "drafts": 0, "material_status": "", "excluded": 0, "excluded_file": "",
+             "reads_file": ""}
     if rep is None:
-        return {"ok": False, "reason": f"盤面が {NODE} の返答を受けていない", "pr_file": "", "conflicts": 0, "drafts": 0,
-                "material_status": "", "reads_file": ""}
-    reads = pathlib.Path(board) / f"r{state['round']}" / f"reads-{ROLE}.json"   # b.work と同じ置き場（今の周）
+        return {"ok": False, "reason": f"盤面が {NODE} の返答を受けていない", **empty}
+    reads, ex_p = b.work(f"reads-{ROLE}.json"), b.work(EXCLUDED)
+    try:
+        excluded = json.loads(ex_p.read_text(encoding="utf-8"))["excluded"]
+    except (OSError, ValueError, KeyError, TypeError):
+        excluded = None
     posted = [c["pr"] for c in rep["conflicts"] if c.get("handed_over")]
-    return {"ok": not posted, "reason": f"handed_over が真の行が在る: {posted}" if posted else "", "pr_file": str(f),
+    why = ([f"handed_over が真の行が在る: {posted}"] if posted else []) + \
+          ([f"外す hunk の一覧 {ex_p} が読めない"] if excluded is None else [])
+    return {"ok": not why, "reason": "; ".join(why), "pr_file": str(f),
             "conflicts": len(rep["conflicts"]), "drafts": sum(1 for c in rep["conflicts"] if c.get("note")),
-            "material_status": rep["material"]["status"], "reads_file": str(reads) if reads.is_file() else ""}
+            "material_status": rep["material"]["status"], "excluded": len(excluded or []),
+            "excluded_file": str(ex_p) if excluded is not None else "", "reads_file": str(reads) if reads.is_file() else ""}
 
 
 # ---------------------------------------------------------------- スクリプトの入口
+# 1 行の出口は script_io._emit を使う（script_io の公開の口は main(fn) だけで、INPUTS_BASE_REV を要り、回す側の誤りを
+# 終了コード 2 にする道を持たないため。形は script_io と同じ 1 行・ensure_ascii=False）
 def _artifacts():
     d = os.environ.get(ARTIFACTS_ENV)
     if not d:
@@ -240,7 +337,12 @@ def main_collect() -> int:
     board = _artifacts()
     if board is None:
         return 2
-    script_io._emit(collect(board))
+    try:
+        got = collect(board)
+    except (BoardGap, Reject) as e:
+        print(f"{NODE} の出口を組めない: {e}", file=sys.stderr)
+        return 2
+    script_io._emit(got)
     return 0
 
 
