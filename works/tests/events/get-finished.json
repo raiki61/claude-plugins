@@ -1,0 +1,312 @@
+{
+  "id": "5ba53eca-4ac7-4c27-9fcd-6e977e80c3bd",
+  "conversation_id": "821f9971c971d2c74be30fb92a1217e8",
+  "codebase_id": "5391e3d367b20f3f23e4f94efb0a0e64",
+  "workflow_name": "p10",
+  "user_message": "",
+  "status": "completed",
+  "outcome": null,
+  "current_step_index": null,
+  "metadata": {
+    "model_bindings": {
+      "overrides": {},
+      "effective": {
+        "defaultProvider": "claude",
+        "aliases": {
+          "small": {
+            "provider": "claude",
+            "model": "haiku"
+          },
+          "medium": {
+            "provider": "claude",
+            "model": "sonnet"
+          },
+          "large": {
+            "provider": "claude",
+            "model": "opus"
+          }
+        }
+      }
+    },
+    "dispatch": {
+      "base_branch": "main",
+      "source": "project"
+    },
+    "execution_owner": {
+      "host": "host.local",
+      "pid": 85713,
+      "uid": 501
+    },
+    "workflow_source": {
+      "version": 1,
+      "root": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin/workflow-source/runs/5ba53eca-4ac7-4c27-9fcd-6e977e80c3bd",
+      "origin": "/Users/someone/works-probe/target",
+      "captured_at": "2026-09-26T12:10:43.239Z",
+      "digest": "f2200f8fceac0f26affeb23f132982947aca9ef90bfd3ad925b1aa1410b01e96",
+      "source_config": {
+        "load_default_workflows": true,
+        "load_default_commands": true
+      },
+      "file_count": 124,
+      "byte_count": 896470
+    },
+    "terminal_graph": {
+      "node_ids": [
+        "rounds",
+        "report"
+      ]
+    },
+    "approval": {
+      "execution": {
+        "runId": "5ba53eca-4ac7-4c27-9fcd-6e977e80c3bd",
+        "path": "rounds.gate",
+        "node": {
+          "id": "gate",
+          "kind": "gate"
+        },
+        "invocation": {
+          "id": "2871673d-ea05-4c1c-83b9-bdbc09e92dd7",
+          "startedAt": "2026-09-26T12:10:59.726Z",
+          "loopPath": [
+            {
+              "groupId": "rounds",
+              "iteration": 3
+            }
+          ]
+        },
+        "attempt": {
+          "id": "0fd32699-5a66-4e1e-8bf3-5831c53f6ca5",
+          "startedAt": "2026-09-26T12:10:59.727Z"
+        },
+        "binding": {},
+        "timing": {
+          "startedAt": "2026-09-26T12:10:59.727Z",
+          "durationMs": 3
+        },
+        "spend": {
+          "tokens": {
+            "source": "unavailable",
+            "reason": "not_applicable"
+          },
+          "costUsd": {
+            "source": "unavailable",
+            "reason": "not_applicable"
+          },
+          "stopReason": {
+            "source": "unavailable",
+            "reason": "not_applicable"
+          },
+          "numTurns": {
+            "source": "unavailable",
+            "reason": "not_applicable"
+          }
+        },
+        "accounting": "node",
+        "lifecycle": {
+          "status": "suspended",
+          "point": "approval"
+        }
+      },
+      "message": "P10 gate kind=judge. continue | rejudge | stop",
+      "nodeId": "rounds",
+      "type": "approval",
+      "captureResponse": false,
+      "decisions": [
+        {
+          "id": "approve"
+        },
+        {
+          "id": "continue"
+        },
+        {
+          "id": "rejudge"
+        },
+        {
+          "id": "stop"
+        }
+      ],
+      "decisionsAuthored": true,
+      "bodyGateId": "gate",
+      "iteration": 3,
+      "resolved": "approved"
+    },
+    "approval_response": "rejudge",
+    "total_cost_usd": 0,
+    "node_counts": {
+      "completed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "total": 2
+    }
+  },
+  "parent_conversation_id": null,
+  "user_id": "f216f74fe04d711d3c9349a42c726ce8",
+  "parent_run_id": null,
+  "adopted_from_run_id": null,
+  "started_at": "2026-09-26T12:11:07.000Z",
+  "completed_at": "2026-09-26T12:11:16.000Z",
+  "last_activity_at": "2026-09-26T12:11:07.000Z",
+  "working_path": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin/worktrees/archon/task-p10-1790424644760",
+  "output_root": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin",
+  "checkout_baseline": {
+    "kind": "git",
+    "sampledAt": "2026-09-26T12:10:46.175Z",
+    "commit": "468209dd43610e23023c4b88d81b98a2546700b4",
+    "tree": "8dcdc07b14042f5d05eb47f5d1cc29901799030d",
+    "worktree": {
+      "status": "clean"
+    },
+    "cutFromCommit": "468209dd43610e23023c4b88d81b98a2546700b4"
+  },
+  "transcript_path": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin/logs/5ba53eca-4ac7-4c27-9fcd-6e977e80c3bd.jsonl",
+  "terminal_record": {
+    "run_id": "5ba53eca-4ac7-4c27-9fcd-6e977e80c3bd",
+    "status": "completed",
+    "outcome": null,
+    "error": null,
+    "first_failed_node": null,
+    "nodes": [
+      {
+        "node_id": "rounds",
+        "state": "completed"
+      },
+      {
+        "node_id": "report",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.open",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.head",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.judging__ja-redo",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.judging__ja-redo.ja-try",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.judging__ja-done",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.h-fix",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.fixing__fb-redo",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.fixing__fb-done",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.h-tests",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.testing__tc-redo",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.testing__tc-done",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.h-close",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.close",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.gate",
+        "state": "skipped",
+        "reason": "when_condition",
+        "cause": {
+          "kind": "condition",
+          "expr": "$h-close.output == 'ask'"
+        }
+      },
+      {
+        "node_id": "rounds.fixing__fb-redo.fb-try",
+        "state": "completed"
+      },
+      {
+        "node_id": "rounds.testing__tc-redo.tc-try",
+        "state": "completed"
+      }
+    ],
+    "returns": {
+      "availability": "unavailable",
+      "node_id": null,
+      "reason": "not_declared"
+    },
+    "artifacts": {
+      "root": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin/artifacts/runs/5ba53eca-4ac7-4c27-9fcd-6e977e80c3bd",
+      "files": [
+        {
+          "path": "board/finished",
+          "size": 10
+        },
+        {
+          "path": "board/judgecount.1",
+          "size": 2
+        },
+        {
+          "path": "board/judgecount.2",
+          "size": 2
+        },
+        {
+          "path": "board/judgecount.3",
+          "size": 2
+        },
+        {
+          "path": "board/rejudged",
+          "size": 16
+        },
+        {
+          "path": "board/round",
+          "size": 2
+        },
+        {
+          "path": "board/stage",
+          "size": 5
+        },
+        {
+          "path": "board/trace",
+          "size": 1041
+        }
+      ],
+      "limitations": []
+    }
+  },
+  "leave_behind": {
+    "adopted_by": [],
+    "artifactFiles": [
+      "board/finished",
+      "board/judgecount.1",
+      "board/judgecount.2",
+      "board/judgecount.3",
+      "board/rejudged",
+      "board/round",
+      "board/stage",
+      "board/trace"
+    ],
+    "artifactFilesOmitted": {
+      "internalFiles": 77,
+      "truncated": false,
+      "unreadable": []
+    },
+    "worktree": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin/worktrees/archon/task-p10-1790424644760",
+    "worktreeLive": true,
+    "branch": "archon/task-p10-1790424644760"
+  }
+}
