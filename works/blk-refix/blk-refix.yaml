@@ -1,0 +1,384 @@
+name: blk-refix
+description: |
+  差分の審査の後の手直しのブロック（〔線A計〕T13・T17。写しの RL の DELTA_PASSES の 2 往復）。差分の審査（blk-delta）が挙げた穴と
+  塞がっていなかった検算（盤面の機械の節 p3.delta_owed が組んだ義務）に、手直しの役（writer）が同じ周のうちに答える（refix）。
+  fixed と答えた穴が在れば、盤面の機械の節 p3.fix_delta2 が手直しだけの差分を切り、2 回目の審査役（読むだけ）が検算する（review2）。
+  その義務（p3.delta_owed2）が残れば 2 回目の手直し（refix2）。3 往復目は無い（2 回目の手直しの fixed は次の run の依頼の下書きへ）。
+  ラインは境の節 h-refix の go（盤面の p3.delta_fix が待つ）でこのブロックを開く。節の名前は写しの DELTA_PASSES から（refix.passes）。
+  拒否の理由は盤面のファイルに書き、指示書は $LOOP_PREV.<受け付け>.output.reason_file（パス）だけを読む（R44）。
+  出口 collect: {ok, handled_file, review2_file, owed2, fixed2, files, reads_file, reads_files}。
+
+inputs:
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版（受け付けの口を揃える。読む版は盤面の inputs.review_rev）
+  policy_paste:
+    default: ""
+    description: 人の方針の本文（2 回目の審査役の指示書の付録に貼る。空は方針の無い run）
+  policy_path:
+    default: ""
+    description: 人の方針の文書の置き場（手直しの役の指示書が名指す。空は方針の無い run）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 1 回目の手直しの支度: 義務（loop.delta_owed）と差分のパスを refix1-brief.json に書き、起こした印を置く。待っていなければ 2
+  - id: refix-prep
+    script: prep
+    runtime: uv
+    timeout: 1728000000
+    with:
+      pass: "1"
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, owed, diff_file, brief_file, must]
+      properties:
+        ok: {type: boolean}
+        owed: {type: integer, minimum: 0}
+        diff_file: {type: string}
+        brief_file: {type: string}
+        must: {type: array, items: {type: string}}
+
+  - id: refix-loop
+    depends_on: [refix-prep]
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $refix-accept.output.ok = true
+      nodes:
+        - id: refix
+          command: refix
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # refix.output_format("refix")（写しの p3.delta_fix の schema に印 works-node: refix）を貼った物（tests/test_line.py が一致を見る）
+          output_format:
+            description: 'works-node: refix'
+            type: object
+            additionalProperties: false
+            required:
+            - handled
+            properties:
+              handled:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - handled
+                  - how
+                  properties:
+                    key:
+                      type: string
+                      minLength: 8
+                    handled:
+                      type: string
+                      enum:
+                      - fixed
+                      - declared
+                    how:
+                      type: string
+                      minLength: 20
+                    files:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+        - id: refix-accept
+          script: accept_refix
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [refix]
+          with:
+            reply: {from: "$refix.output"}
+            base_rev: $INPUTS.base_rev
+            pass: "1"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [ok, reason, reason_file]
+            properties:
+              ok: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              ready: {type: array, items: {type: string}}
+              asking: {type: boolean}
+              halted: {type: boolean}
+              out_file: {type: string}
+
+  # 2 回目の審査が要るか（手直しが fixed と答えた穴が在れば、settle が p3.delta_review2 を出す）
+  - id: route1
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [refix-loop]
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [review2, refix2, owed, owed2]
+      properties:
+        review2: {type: boolean}
+        refix2: {type: boolean}
+        owed: {type: integer, minimum: 0}
+        owed2: {type: integer, minimum: 0}
+
+  # 2 回目の審査の支度（手直しだけの差分・材料・作業ツリーの写し・起こした印）
+  - id: cut2
+    script: cut2
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [route1]
+    when: "$route1.output.review2 == true"
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, files, diff_file, rev, brief_file, must]
+      properties:
+        ok: {type: boolean}
+        files: {type: array, items: {type: string}}
+        diff_file: {type: string}
+        rev: {type: string}
+        brief_file: {type: string}
+        must: {type: array, items: {type: string}}
+
+  - id: review2-loop
+    depends_on: [cut2]
+    when: "$route1.output.review2 == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $review2-accept.output.ok = true
+      nodes:
+        - id: review2
+          command: review2
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: [Read, Grep, Glob]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # refix.output_format("review2")（写しの p3.delta_review2 の schema に印 works-node: review2）を貼った物
+          output_format:
+            description: 'works-node: review2'
+            type: object
+            additionalProperties: false
+            required:
+            - faces
+            - checks
+            properties:
+              faces:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - kind
+                  - where
+                  - cite
+                  - why
+                  properties:
+                    key:
+                      type: string
+                      minLength: 8
+                    kind:
+                      type: string
+                      enum:
+                      - copy
+                      - entrance
+                      - contract_drift
+                      - dead_path
+                      - scope_creep
+                    where:
+                      type: string
+                      minLength: 1
+                    cite:
+                      type: string
+                      minLength: 4
+                    why:
+                      type: string
+                      minLength: 20
+              faces_none:
+                type: string
+              checks:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - closed
+                  - why
+                  properties:
+                    key:
+                      type: string
+                      minLength: 8
+                    closed:
+                      type: boolean
+                    why:
+                      type: string
+                      minLength: 20
+        - id: review2-accept
+          script: accept_review2
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [review2]
+          with:
+            reply: {from: "$review2.output"}
+            base_rev: $INPUTS.base_rev
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [ok, reason, reason_file]
+            properties:
+              ok: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              ready: {type: array, items: {type: string}}
+              asking: {type: boolean}
+              halted: {type: boolean}
+              out_file: {type: string}
+
+  # 2 回目の手直しが要るか（2 回目の審査の義務 loop.delta_owed2 が残れば、settle が p3.delta_fix2 を出す）
+  - id: route2
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [route1, review2-loop]
+    trigger_rule: none_failed_min_one_success
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [review2, refix2, owed, owed2]
+      properties:
+        review2: {type: boolean}
+        refix2: {type: boolean}
+        owed: {type: integer, minimum: 0}
+        owed2: {type: integer, minimum: 0}
+
+  - id: refix2-prep
+    script: prep
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [route2]
+    when: "$route2.output.refix2 == true"
+    with:
+      pass: "2"
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, owed, diff_file, brief_file, must]
+      properties:
+        ok: {type: boolean}
+        owed: {type: integer, minimum: 0}
+        diff_file: {type: string}
+        brief_file: {type: string}
+        must: {type: array, items: {type: string}}
+
+  - id: refix2-loop
+    depends_on: [refix2-prep]
+    when: "$route2.output.refix2 == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $refix2-accept.output.ok = true
+      nodes:
+        - id: refix2
+          command: refix2
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # refix.output_format("refix2")（写しの p3.delta_fix2 の schema に印 works-node: refix2）を貼った物（tests/test_line.py が一致を見る）
+          output_format:
+            description: 'works-node: refix2'
+            type: object
+            additionalProperties: false
+            required:
+            - handled
+            properties:
+              handled:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - handled
+                  - how
+                  properties:
+                    key:
+                      type: string
+                      minLength: 8
+                    handled:
+                      type: string
+                      enum:
+                      - fixed
+                      - declared
+                    how:
+                      type: string
+                      minLength: 20
+                    files:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+        - id: refix2-accept
+          script: accept_refix
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [refix2]
+          with:
+            reply: {from: "$refix2.output"}
+            base_rev: $INPUTS.base_rev
+            pass: "2"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [ok, reason, reason_file]
+            properties:
+              ok: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              ready: {type: array, items: {type: string}}
+              asking: {type: boolean}
+              halted: {type: boolean}
+              out_file: {type: string}
+
+  # 読んだ証拠（受け付けの条件にしない。回した役ごとの reads-<役>.json）
+  - id: refix-reads
+    script: reads
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [route2, refix2-loop]
+    trigger_rule: none_failed_min_one_success
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, reads_files]
+      properties:
+        ok: {type: boolean}
+        reads_files: {type: object}
+
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [refix-reads]
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, handled_file, review2_file, owed2, fixed2, files, reads_file]
+      properties:
+        ok: {type: boolean}
+        handled_file: {type: string}
+        review2_file: {type: string}
+        owed2: {type: integer, minimum: 0}
+        fixed2: {type: integer, minimum: 0}
+        files: {type: array, items: {type: string}}
+        reads_file: {type: string}
+        reads_files: {type: object}

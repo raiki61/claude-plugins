@@ -57,6 +57,9 @@ MEASURER = ("blk-premises", "blk-premises.yaml", "premises")   # 前提の実測
 MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash"}
 SPEC_WRITE = ("blk-spec", "blk-spec.yaml", "spec-write")     # 仕様の道の writer（本線 R2。受け入れ条件のテストを書く）
 SPEC_REVISE = ("blk-spec", "blk-spec.yaml", "spec-revise")   # 同じ writer が審査の穴に答えて直す
+REFIX_WRITERS = (("blk-refix", "blk-refix.yaml", "refix"), ("blk-refix", "blk-refix.yaml", "refix2"))   # 差分の審査の後の手直し（〔線A計〕T17）
+REVIEW2 = ("blk-refix", "blk-refix.yaml", "review2")   # 手直しの差分の 2 回目の審査役（読むだけ）
+PR_CHECK = ("blk-pr", "blk-pr.yaml", "pr-check")        # 並行 PR の任せ先（読むだけ＋Bash。gh は包みの読む口だけ。印の旗 no-post）
 NARROW_SANDBOX_KEYS = {"enabled", "allowUnsandboxedCommands", "failIfUnavailable"}   # 狭める鍵（書き込み・網を広げない）
 # graphloops の任せ先の sandbox（写しの engine の role_run.delegate_settings）から、起動ごとの denyWrite（包みが足す）と
 # autoAllowBashIfSandboxed（Archon は bypassPermissions で起こすので要らない）を除いた形。tests/test_blk_ci.py が写しの関数と突き合わせる
@@ -91,6 +94,8 @@ EXCEPTIONS = {
     ("blk-eyes", "blk-eyes.yaml", "r1-minimality"): {"tools": JUDGE_WEB_TOOLS},
     ("blk-eyes", "blk-eyes.yaml", "premise-check"): {"tools": JUDGE_WEB_TOOLS},
     MEASURER: {"tools": MEASURE_TOOLS},
+    **{w: {"tools": None} for w in REFIX_WRITERS},
+    PR_CHECK: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": MATERIAL_SANDBOX, "flag": "no-post"},
 }
 # skills: に書いてよいスキル: 許す一覧の superpowers のスキル（dev/toolset.py が隔離した設定の skills/ に写す物と同じ一覧）
 SP_SKILLS = frozenset(json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
@@ -105,7 +110,8 @@ QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種�
 # 役の節: (フォルダ, ファイル, 節)。どれもブロックの最初の AI の節で、輪（loop_group）の 1 周目の新しい会話で起きる
 ROLES = (("blk-judge", "blk-judge.yaml", "judge"), ("blk-fix", "blk-fix.yaml", "fix"), TDD_WRITER,
          ("blk-delta", "blk-delta.yaml", "review"), ("blk-purpose", "blk-purpose.yaml", "purpose"), CI_ROLE, MEASURER,
-         SPEC_WRITE)
+         SPEC_WRITE, *REFIX_WRITERS, REVIEW2, PR_CHECK, ("blk-plan", "blk-plan.yaml", "plan"),
+         ("blk-plan", "blk-plan.yaml", "plan-review"))
 
 
 # 違反の見本（yaml_bad の stem）→ 出るべき違反の文面の一部。狙いの検査が壊れて別の検査が偶然 1 件出しても赤になるように、

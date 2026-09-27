@@ -101,7 +101,7 @@ class TestYaml(unittest.TestCase):
     def test_node_order(self):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
-                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "clean", "assert-changed", "collect"])
+                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "clean", "assert-changed", "fix-reads", "collect"])
         start, loop, fix_loop = nodes[1:4]
         self.assertEqual(start["script"], "tdd_start")
         self.assertEqual(start["depends_on"], ["ignored-before"])
@@ -146,7 +146,7 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(collect["with"]["tdd"], {"from": "$tdd-start.output"})
         out = collect["output_format"]
         self.assertLessEqual(V1, set(out["required"]), "1 本目の欄を全部残す")
-        self.assertEqual(set(out["properties"]), V1 | {"tdd"})
+        self.assertEqual(set(out["properties"]), V1 | {"tdd", "fix_file", "not_done", "coverage", "reads_file"})   # 盤面の欄（〔線A計〕T17）
         self.assertEqual(out["properties"]["tdd"]["type"], "object")
 
     def test_prompts(self):

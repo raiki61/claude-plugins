@@ -13,11 +13,7 @@
   `class_query`（同じ形を全部引く問い）・`prescriptions`（零処方から並ぶ処方）が在る
 - 直す義務の単位の key（JSON の配列）: `$INPUTS.open_units`
 - 修正案: `$INPUTS.plan_file`（空でなければ Read）・人の方針の文書: `$INPUTS.policy_path`（空でなければ Read）
-- 人が関所で答えたこと（空なら聞いていない。一言は通す範囲と条件で、超えて削るな）:
-
-```
-$INPUTS.human_notes
-```
+- 人が関所で答えたことを書いたファイル: `$INPUTS.notes_file`（空なら聞いていない。空でなければ Read。一言は通す範囲と条件で、超えて削るな）
 
 ## 段ごとの約束
 

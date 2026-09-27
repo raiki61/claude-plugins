@@ -77,27 +77,29 @@ def run_script(name, repo, env):
 
 
 class TestBlockYaml(unittest.TestCase):
-    def test_fix_ok_sample_passes_yaml_output_format(self):
+    def test_fix_yaml_output_format_is_the_constant(self):
+        """〔線A計〕T17: 役の output_format は recount.FIX_OUTPUT_FORMAT（写しの p3.fix の schema に印 works-node: fix）を貼った物。
+        見本の 2 本目の返答は通り、欄を足した返答は型で拒む（additionalProperties: false）"""
+        import recount
         fix = find_node(block()["nodes"], "fix")
-        self.assertEqual(validate_schema(load("fix_ok"), fix["output_format"]), [])
-        # 欄を足した返答は型で拒む（additionalProperties: false）
-        extra = load("fix_ok")
-        extra["changes"][0]["note"] = "余分"
-        self.assertNotEqual(validate_schema(extra, fix["output_format"]), [])
-        self.assertNotEqual(validate_schema({**load("fix_ok"), "done": True}, fix["output_format"]), [])
+        self.assertEqual(fix["output_format"], recount.FIX_OUTPUT_FORMAT)
+        self.assertEqual(validate_schema(load("fix2_ok"), fix["output_format"]), [])
+        self.assertNotEqual(validate_schema({**load("fix2_ok"), "done": True}, fix["output_format"]), [])
 
     def test_signature(self):
         y = block()
         self.assertEqual(y["name"], "blk-fix")
-        self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "human_notes", "policy_path",
+        self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "notes_file", "policy_path",
                                             "tdd_suite"})
-        for k in ("base_rev", "plan_file", "human_notes", "policy_path", "tdd_suite"):   # 足した物は空でよい（仕様 3.2・TDD の輪）
+        for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite"):   # 足した物は空でよい（仕様 3.2・TDD の輪）
             self.assertEqual(y["inputs"][k].get("default"), "", k)
             self.assertNotIn("required", y["inputs"][k], k)
         self.assertEqual(y["returns"], "collect")
         self.assertEqual(y["outcome_field"], "ok")
         out = find_node(y["nodes"], "collect")["output_format"]
-        self.assertEqual(set(out["properties"]), {"ok", "files", "changes_file", "removed", "tdd"})   # tdd は TDD の輪の欄
+        # 1 本目の欄と tdd（TDD の輪の欄）は必須のまま、盤面の欄（fix_file・not_done・coverage・reads_file）を任意で足す（〔線A計〕T17）
+        self.assertEqual(set(out["properties"]), {"ok", "files", "changes_file", "removed", "tdd", "fix_file", "not_done",
+                                                  "coverage", "reads_file"})
         self.assertEqual(set(out["required"]), {"ok", "files", "changes_file", "removed", "tdd"})
         self.assertEqual(out["properties"]["removed"], {"type": "array", "items": {"type": "string"}})
         self.assertEqual(out["properties"]["ok"]["type"], "boolean")
@@ -107,8 +109,10 @@ class TestBlockYaml(unittest.TestCase):
     def test_nodes_and_loop(self):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
-                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "clean", "assert-changed", "collect"])
-        before, _start, _tdd, loop, clean, changed, collect = nodes   # TDD の輪の節は test_blk_fix_tdd が見る
+                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "clean", "assert-changed", "fix-reads", "collect"])
+        before, _start, _tdd, loop, clean, changed, reads, collect = nodes   # TDD の輪の節は test_blk_fix_tdd が見る
+        self.assertEqual((reads["script"], reads["depends_on"]), ("reads", ["assert-changed"]))
+        self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]'})
         self.assertNotIn("depends_on", before)
         self.assertEqual(before["script"], "ignored_before")
         self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop"], "控えは修正役より前（tdd-start が ignored-before の後）")
@@ -121,7 +125,7 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(g["until_bash"], "test $fix-accept.output.ok = true")
         self.assertEqual([n["id"] for n in g["nodes"]], ["fix", "fix-accept"])
         self.assertEqual(changed["depends_on"], ["clean"])
-        self.assertEqual(collect["depends_on"], ["assert-changed"])
+        self.assertEqual(collect["depends_on"], ["fix-reads"])
         accept = find_node(nodes, "fix-accept")
         self.assertEqual(accept["script"], "accept")
         self.assertEqual(accept["with"]["reply"], {"from": "$fix.output"})
@@ -140,10 +144,7 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(fix["idle_timeout"], DEADLINE)
         of = fix["output_format"]
         self.assertIs(of["additionalProperties"], False)
-        self.assertEqual(of["required"], ["changes"])
-        item = of["properties"]["changes"]["items"]
-        self.assertIs(item["additionalProperties"], False)
-        self.assertEqual(set(item["required"]), {"unit_key", "files", "what"})
+        self.assertEqual(of["description"], "works-node: fix")
 
     def test_fix_prompt(self):
         body = (BLK / "commands" / "fix.md").read_text(encoding="utf-8")
@@ -166,8 +167,9 @@ class TestBlockYaml(unittest.TestCase):
         reason_file（パス）で読む（裁定 R44。計画の $LOOP_PREV.fix-accept.output.reason はパスの欄 reason_file に替わった）。
         返答の欄は graph の p3.fix の schema の欄を名指し、判定の prescriptions（零処方）を先に採らせる"""
         body = (BLK / "commands" / "fix.md").read_text(encoding="utf-8")
-        for s in ("$INPUTS.plan_file", "$INPUTS.human_notes", "$INPUTS.policy_path", "$LOOP_PREV.fix-accept.output.reason"):
+        for s in ("$INPUTS.plan_file", "$INPUTS.notes_file", "$INPUTS.policy_path", "$LOOP_PREV.fix-accept.output.reason"):
             self.assertIn(s, body)
+        self.assertNotIn("$INPUTS.human_notes", body, "人の一言はファイルのパスで届く（R44。文を貼らない）")
         for field in role_schema("p3.fix")["properties"]:
             if field in ("x_scalars", "decision_records_changed", "premise_drift_note"):
                 continue   # 任意の欄（書く周だけ）。指示書は別の段落で触れる
@@ -212,7 +214,7 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(set(fx), {"pass.stubs.yaml", "no-change.stubs.yaml", "tdd.stubs.yaml"})   # tdd は test_blk_fix_tdd が見る
         for name, f in fx.items():
             with self.subTest(name):
-                self.assertEqual(f["fix"], load("fix_ok"))
+                self.assertEqual(f["fix"], load("fix2_ok"))   # 役の output_format は写しの p3.fix の型（〔線A計〕T17）
                 self.assertIs(f.get("exec-code"), True)
         self.assertEqual(fx["pass.stubs.yaml"]["fixture"]["expect"], "completed")
         self.assertIn("assert-changed", fx["pass.stubs.yaml"])

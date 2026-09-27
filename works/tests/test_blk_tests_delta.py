@@ -94,8 +94,19 @@ class RepoCase(unittest.TestCase):
 # ---------------------------------------------------------------- blk-delta の型
 class TestDeltaSchema(unittest.TestCase):
     def test_delta_output_format_matches_role_schema(self):
+        """〔線A計〕T17: 役の output_format は refix.output_format("review")（写しの p3.delta_review の schema に印 works-node: review）"""
         review = find_node(workflow("blk-delta")["nodes"], "review")
-        self.assertEqual(review["output_format"], role_schema("p3.delta_review"))
+        self.assertEqual(review["output_format"], refix.output_format("review"))
+        self.assertEqual({k: v for k, v in review["output_format"].items() if k != "description"}, role_schema("p3.delta_review"))
+
+    def test_delta_reads_before_collect(self):
+        """読んだ証拠の節 review-reads が collect の前（〔線A計〕T17）。機械が渡したパスは brief と差分"""
+        nodes = workflow("blk-delta")["nodes"]
+        self.assertEqual([n["id"] for n in nodes], ["cut", "delta-loop", "review-reads", "collect"])
+        reads = find_node(nodes, "review-reads")
+        self.assertEqual((reads["script"], reads["depends_on"]), ("reads", ["delta-loop"]))
+        self.assertEqual(reads["with"], {"must": '["$cut.output.brief_file", "$cut.output.diff_file"]'})
+        self.assertEqual(find_node(nodes, "collect")["depends_on"], ["review-reads"])
 
     def test_delta_ok_sample_passes_yaml_output_format(self):
         review = find_node(workflow("blk-delta")["nodes"], "review")

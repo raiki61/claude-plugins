@@ -20,6 +20,9 @@ review-accept:
   ok: false
   reason: "p3.delta_review: faces[0] の cite 'return hi + 1' が stats.py の今の姿に無い——在る字列を写せ"
   reason_file: ''
+review-reads:   # 読んだ証拠の節は盤面を要るので stub（中身は tests/test_reads.py）
+  ok: true
+  reads_file: ""
 fixture:
   expect: failed
   fail-node: collect

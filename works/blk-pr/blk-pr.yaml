@@ -1,0 +1,203 @@
+name: blk-pr
+description: |
+  並行 PR の検査の任せ先のブロック（写しの graph の p0.parallel_pr。〔線A計〕T21・持ち主の答え 2026-09-27 の案 (a)）。
+  start が engine の helper（parallel-pr.py）で 1〜5 段を済ませられなかった・交差が在った時だけ、ラインが開く（h-entry の pr_go）。
+  読むだけの役 pr-check が 6 段の全部をし、担当の PR へは投稿せず申し送りの下書きを conflicts[].note に書く（handed_over が真の
+  行は受け付けが拒む。下げた所は darkfactory/downgrades.json）。衝突した hunk は excluded に並べ、受け付けが確かめて盤面の
+  今の周の pr-excluded.json に置く（後の役——判定・修正案・修正——に触らせない範囲として collect の excluded_file で渡す）。
+  gh は包みの読む口 works-gh だけ（印の旗 no-post。網は閉じ、口だけを sandbox の外で走らせる）。
+  出口 collect: {ok, reason, pr_file, conflicts, drafts, material_status, excluded, excluded_file, reads_file}。
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 役を起こす前の作業ツリーの写しと役への渡し物（盤面の今の周の pr-snapshot.json・pr-brief.json）。起こした印も置く。
+  # 任せ先に落ちていない盤面は 2（配線の誤り: pr_go が偽の run では開かない）
+  - id: pr-snap
+    script: snap
+    runtime: uv
+    timeout: 1728000000
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, snapshot_file, brief_file, attempt, out_path]
+      properties:
+        ok: {type: boolean}
+        snapshot_file: {type: string}
+        brief_file: {type: string}
+        attempt: {type: integer}
+        out_path: {type: string}
+
+  # 役 → 受け付け。拒めば、拒んだ理由を書いたファイル（reason_file）を指示書が $LOOP_PREV で名指し、同じ会話で出し直させる（R44）
+  - id: pr-loop
+    depends_on: [pr-snap]
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $pr-accept.output.ok = true
+      nodes:
+        - id: pr-check
+          command: pr-check
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          # 読むだけ＋Bash（gh の読む口 "$WORKS_GH" と git の読む語）。書く道具は持たない。網は閉じ、口 works-gh だけを sandbox の外で
+          # 走らせる（包みの印 no-post が gh の書き込みの語と本物の gh を permissions.deny で拒む）。作業ツリーを変えれば受け付けが拒む
+          allowed_tools: [Read, Grep, Glob, Bash]
+          sandbox:
+            enabled: true
+            allowUnsandboxedCommands: false
+            failIfUnavailable: true
+            excludedCommands: ["works-gh:*"]
+            network: {allowedDomains: []}
+          idle_timeout: 1728000000
+          # prcheck.OUTPUT_FORMAT（写しの p0.parallel_pr の schema に works だけの欄 excluded と印 works-node: pr-check no-post）を貼った物
+          output_format:
+            description: 'works-node: pr-check no-post'
+            type: object
+            required:
+            - material
+            - repo
+            - listed
+            - truncated
+            - conflicts
+            - excluded
+            additionalProperties: false
+            properties:
+              material:
+                type: object
+                required:
+                - status
+                additionalProperties: false
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - found
+                    - clean
+                    - carried_over
+                    - not_applicable
+                    - awaiting_human
+                    - not_run
+                  count:
+                    type: integer
+                    minimum: 0
+                  detail:
+                    type: string
+                  checked:
+                    type: string
+                  reason:
+                    type: string
+                  from_round:
+                    type: integer
+                    minimum: 1
+              repo:
+                type: string
+              listed:
+                type: integer
+                minimum: 0
+              truncated:
+                type: boolean
+              conflicts:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - pr
+                  - files
+                  - handed_over
+                  additionalProperties: false
+                  properties:
+                    pr:
+                      type: string
+                    files:
+                      type: array
+                      items:
+                        type: string
+                    handed_over:
+                      type: boolean
+                    note:
+                      type: string
+              excluded:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - pr
+                  - file
+                  - start
+                  - end
+                  - why
+                  additionalProperties: false
+                  properties:
+                    pr:
+                      type: string
+                      minLength: 1
+                    file:
+                      type: string
+                      minLength: 1
+                    start:
+                      type: integer
+                      minimum: 1
+                    end:
+                      type: integer
+                      minimum: 1
+                    why:
+                      type: string
+                      minLength: 1
+        - id: pr-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [pr-check]
+          with:
+            reply: {from: "$pr-check.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [ok, reason, reason_file]
+            properties:
+              ok: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              ready: {type: array, items: {type: string}}
+              asking: {type: boolean}
+              halted: {type: boolean}
+              out_file: {type: string}
+
+  # 読んだ証拠（受け付けの条件にしない。今の周の reads-pr-check.json）。機械が渡したパスは渡し物
+  - id: pr-reads
+    script: reads
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [pr-loop]
+    with:
+      must: '["$pr-snap.output.brief_file"]'
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, reads_file]
+      properties:
+        ok: {type: boolean}
+        sources: {type: object}
+        missing: {type: array, items: {type: string}}
+        reads_file: {type: string}
+
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [pr-reads]
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, pr_file, conflicts, drafts, material_status, excluded, excluded_file, reads_file]
+      properties:
+        ok: {type: boolean}
+        reason: {type: string}
+        pr_file: {type: string}
+        conflicts: {type: integer, minimum: 0}
+        drafts: {type: integer, minimum: 0}
+        material_status: {type: string}
+        excluded: {type: integer, minimum: 0}
+        excluded_file: {type: string}
+        reads_file: {type: string}

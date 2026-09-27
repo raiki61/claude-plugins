@@ -283,7 +283,7 @@ class TestLineFixtures(unittest.TestCase):
             f = self.fixtures()[name]
             with self.subTest(name):
                 self.assertEqual(f["judge"], reply("judge_ok"))
-                self.assertEqual(f["fix"], reply("fix_ok"))
+                self.assertEqual(f["fix"], reply("fix2_ok"))
                 self.assertEqual(f["review"], reply("delta_ok"))
                 self.assertIs(f["judging__collect"]["need_fix"], True)
 

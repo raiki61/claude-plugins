@@ -64,10 +64,6 @@ OUTSIDE = frozenset({"dev", "tests", "docs"})        # pack に入らないフ�
 PLANNED_INCLUDE_IDS = frozenset({"refixing", "pr-checking"})
 # 未配線の節のスクリプト（T17 で YAML の script: に入る）。配線したら消す
 PLANNED_SCRIPTS = frozenset({
-    "blk-delta/scripts/reads.py", "blk-fix/scripts/reads.py",
-    "blk-pr/scripts/accept.py", "blk-pr/scripts/collect.py", "blk-pr/scripts/reads.py", "blk-pr/scripts/snap.py",
-    "blk-refix/scripts/accept_refix.py", "blk-refix/scripts/accept_review2.py", "blk-refix/scripts/collect.py",
-    "blk-refix/scripts/cut2.py", "blk-refix/scripts/prep.py", "blk-refix/scripts/reads.py", "blk-refix/scripts/route.py",
     "darkfactory/scripts/edge.py", "darkfactory/scripts/report.py", "darkfactory/scripts/start.py",
 })
 

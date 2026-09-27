@@ -60,8 +60,9 @@ ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み�
                 "包み無しで回すなら入力 adapter に optional を渡す（works/README.md の包みの節）")
 JUDGED_FILE = "judged.json"                  # h-plan が受けた判定のブロックの出口の控え（b.work。後ろの境の節が運ぶ。M4）
 GATE_FILE = "gate.md"                        # policy-gate の文（b.work）
+NOTES_FILE = "human-notes.md"                # 今の周の人の一言（h-fix が書き、修正役がパスで読む。R44: with: に文を貼らない）
 EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", "judgment_file": "", "open_units": "",
-         "plan_file": "", "notes": "", "why": "", "premises_file": "",
+         "plan_file": "", "notes": "", "notes_file": "", "why": "", "premises_file": "",
          "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False,
          "runtime_go": False, "holdout_go": False, "mid_note": ""}
 
@@ -431,7 +432,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
        gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
-       fix: go は p3.fix が ready・notes は今の周の human_items の一言・plan_file は今の周の p2.fix_plan の出力。
+       fix: go は p3.fix が ready・notes は今の周の human_items の一言（notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
        rejudge・eyes: 枠（go False）。mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
        見分ける）・runtime_go・holdout_go は False・mid_note。review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。
        final: final_edge（final_gate と最後のテストの出口 tests から ask と文）。
@@ -474,7 +475,13 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         _write_text(b.work(GATE_FILE), text)
         return {**out, "ask": True, "gate_text": text}
     if at == "fix":
-        return {**out, "go": GO_NODE["fix"] in b.ready(), "notes": _notes(b), "plan_file": _out_file(b, "p2.fix_plan")}
+        notes = _notes(b)
+        notes_file = ""
+        if notes:
+            _write_text(b.work(NOTES_FILE), notes)
+            notes_file = str(b.work(NOTES_FILE))
+        return {**out, "go": GO_NODE["fix"] in b.ready(), "notes": notes, "notes_file": notes_file,
+                "plan_file": _out_file(b, "p2.fix_plan")}
     if at in ("rejudge", "eyes"):
         return out
     if at == "mid":

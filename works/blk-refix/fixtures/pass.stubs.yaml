@@ -1,0 +1,40 @@
+# 筋書き pass: 1 回目の手直しが義務の全部に declared で答え（tests/replies/fix2_delta_fix_ok.json と同じ中身）、2 回目の審査も
+# 2 回目の手直しも要らない（route1・route2 が偽）。支度・受け付け・分かれ道・集める節は盤面（差分の審査まで進んだ物）を開くので、
+# このブロック単体の run では stub する（実物は tests/test_blk_refix.py が本物の盤面で回す）
+refix-prep:
+  ok: true
+  owed: 1
+  diff_file: board/r1/fix-delta.patch
+  brief_file: board/r1/refix1-brief.json
+  must: [board/r1/refix1-brief.json]
+refix: {"handled": [{"key": "stats.py clamp: docstring が下限の枝の約束を書いていない", "handled": "fixed", "how": "clamp の docstring を下限を下回った値は lo を、上限を超えた値は hi を返すに書き直した", "files": ["stats.py"]}, {"key": "stats.py clamp: docstring が上限の枝の約束を書いていない", "handled": "fixed", "how": "同じ docstring の書き直しで、上限と下限の両方の枝の約束を書いた", "files": ["stats.py"]}]}
+refix-accept:
+  ok: true
+  reason: ""
+  reason_file: ""
+route1:
+  review2: false
+  refix2: false
+  owed: 1
+  owed2: 0
+route2:
+  review2: false
+  refix2: false
+  owed: 1
+  owed2: 0
+refix-reads:
+  ok: true
+  reads_files: {}
+collect:
+  ok: true
+  handled_file: board/out/r1/p3.delta_fix.json
+  review2_file: ""
+  owed2: 0
+  fixed2: 0
+  files: []
+  reads_file: ""
+  reads_files: {}
+fixture:
+  expect: completed
+  reached: [refix-prep, refix-loop, route1, route2, collect]
+exec-code: true

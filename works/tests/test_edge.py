@@ -39,7 +39,8 @@ import plan  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
-OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "why", "premises_file",
+OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why",
+            "premises_file",
             "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note"}
 BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
@@ -255,7 +256,7 @@ class GateCase(EdgeBase):
     def test_approve_is_continue(self):
         self.planned()
         got = self.edge("fix", gate={"decision": "approve", "text": ""})
-        self.assertEqual((got["go"], got["notes"]), (True, ""))
+        self.assertEqual((got["go"], got["notes"], got["notes_file"]), (True, "", ""))
         h = entry.open_board(self.board).record["process"]["human_items"][-1]
         self.assertEqual((h["answer"], h["note"]), ("continue", ""))
 
@@ -284,6 +285,8 @@ class GateCase(EdgeBase):
         self.planned()
         got = self.edge("fix", gate={"decision": "continue", "text": ODD_NOTE})
         self.assertEqual(got["notes"], ODD_NOTE)
+        # 修正役へはファイルのパスで届く（R44。with: に文を貼らない）。ファイルの中身も 1 バイトも同じ
+        self.assertEqual(pathlib.Path(got["notes_file"]).read_bytes(), ODD_NOTE.encode("utf-8"))
         h = entry.open_board(self.board).record["process"]["human_items"][-1]
         self.assertEqual(h["note"].encode("utf-8"), ODD_NOTE.encode("utf-8"))
 

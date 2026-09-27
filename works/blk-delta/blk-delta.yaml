@@ -4,7 +4,7 @@ description: |
   作った穴（写し・塞がない入口・宣言と実装のずれ）と、修正が塞いだと言う事前審査の穴の検算を返させ、盤面の受け付けの規則に
   通るまで同じ会話で出し直させる（上限 3 回）。義務の組み立ては盤面の機械の節 p3.delta_owed。
   ラインから include で使う。出口は受け付けた穴の数・審査の返答と修正の差分のパス・手直しが答える義務の数ほか。
-  スクリプトは盤面（線 A Task 13）に替わった。入口・節の組み替えと読んだ証拠の節は Task 17。
+  スクリプトは盤面（線 A Task 13）。役の印と読んだ証拠の節は〔線A計〕T17 で足した。人の方針は支度（cut）が brief に書く。
 
 inputs:
   base_rev:
@@ -55,35 +55,67 @@ nodes:
           # 拒否の理由の本文は reason_file のファイルにだけ置く（本文を $LOOP_PREV で貼ると、中の $… が置き換えに通る）。
           # include は $cut を reviewing__cut に付け替えるが、輪の中の節の id（review-accept）は付け替えない——輪の中で解ける。
           # 宣言していない $INPUTS.<名> は読み込みで拒まれる
-          # role_schema("p3.delta_review") を 1 度出して貼った物（tests/test_blk_tests_delta.py が一致を見る）
+          # refix.output_format("review")（写しの p3.delta_review の schema に印 works-node: review）を貼った物（tests/test_blk_tests_delta.py が一致を見る）
           output_format:
+            description: 'works-node: review'
             type: object
             additionalProperties: false
-            required: [faces, checks]
+            required:
+            - faces
+            - checks
             properties:
               faces:
                 type: array
                 items:
                   type: object
                   additionalProperties: false
-                  required: [key, kind, where, cite, why]
+                  required:
+                  - key
+                  - kind
+                  - where
+                  - cite
+                  - why
                   properties:
-                    key: {type: string, minLength: 8}
-                    kind: {type: string, enum: [copy, entrance, contract_drift, dead_path, scope_creep]}
-                    where: {type: string, minLength: 1}
-                    cite: {type: string, minLength: 4}
-                    why: {type: string, minLength: 20}
-              faces_none: {type: string}
+                    key:
+                      type: string
+                      minLength: 8
+                    kind:
+                      type: string
+                      enum:
+                      - copy
+                      - entrance
+                      - contract_drift
+                      - dead_path
+                      - scope_creep
+                    where:
+                      type: string
+                      minLength: 1
+                    cite:
+                      type: string
+                      minLength: 4
+                    why:
+                      type: string
+                      minLength: 20
+              faces_none:
+                type: string
               checks:
                 type: array
                 items:
                   type: object
                   additionalProperties: false
-                  required: [key, closed, why]
+                  required:
+                  - key
+                  - closed
+                  - why
                   properties:
-                    key: {type: string, minLength: 8}
-                    closed: {type: boolean}
-                    why: {type: string, minLength: 20}
+                    key:
+                      type: string
+                      minLength: 8
+                    closed:
+                      type: boolean
+                    why:
+                      type: string
+                      minLength: 20
         - id: review-accept
           script: accept
           runtime: uv
@@ -102,12 +134,30 @@ nodes:
               reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               review_file: {type: string}
 
+  # 読んだ証拠（受け付けの条件にしない。今の周の reads-review.json）。機械が渡したパスは brief と差分
+  - id: review-reads
+    script: reads
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [delta-loop]
+    with:
+      must: '["$cut.output.brief_file", "$cut.output.diff_file"]'
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, reads_file]
+      properties:
+        ok: {type: boolean}
+        sources: {type: object}
+        missing: {type: array, items: {type: string}}
+        reads_file: {type: string}
+
   # loop_group の出力は型を持てないので、輪の後ろで盤面の今の周の審査の返答から出口を組む
   - id: collect
     script: collect
     runtime: uv
     timeout: 1728000000
-    depends_on: [delta-loop]
+    depends_on: [review-reads]
     output_format:
       type: object
       additionalProperties: false
