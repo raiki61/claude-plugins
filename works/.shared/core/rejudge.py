@@ -8,7 +8,7 @@
                   （by works:rejudge-session）。黙って新しい会話で回す道は無い
 - session_ready:  包みの judge.id が UUID 1 つ・包みの起動の記録の最後の判定役の行が同じ id・その起動が盤面を作った後
 - snap:           役を起こす前の作業ツリーの写し（読むだけの役が変えていないかを take が比べる）
-- render:         engine と同じ描き方（node_prompt → ctx → pointers.snapshot → Renderer）で指示書を $B/prompts/r<N>/<節>.md に
+- render:         engine と同じ描き方（rolekit.render_body）で指示書を $B/prompts/r<N>/<節>.md に
 - prep:           描く → 1 回目の試行の前だけ単位の写し（rejudge-units-before-<役>.json）→ 起こした印（mark_launched）
 - take:           作業ツリーの比べ → 盤面の done（写しの schema・post_check・writes・check_record）。写しの AnswerReject だけを
                   {ok: False, reason} にして返し、他の Reject・BoardGap は投げる（回す側の誤り）。通れば単位の差分を 1 行
@@ -39,13 +39,12 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap, DiskBoard, graph_expanded, rules_module  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
 import engine.util as _util  # noqa: E402
-from engine import pointers as _pointers  # noqa: E402
-from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
 from engine.rules import validator_module  # noqa: E402
-from engine.util import TERMINAL_STATUS, AnswerReject, dump, now, safe_name  # noqa: E402
+from engine.util import TERMINAL_STATUS, AnswerReject, now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import rolekit  # noqa: E402
 import script_io  # noqa: E402
 
 CONT = "judge"   # 再審の役が続きとして起きる会話（包みの印の continue=）
@@ -69,7 +68,7 @@ BEFORE_PREFIX = "rejudge-units-before-"
 GIVE_UP_AFTER = 3
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
 ADAPTER_HOME_ENV = "WORKS_ADAPTER_HOME"
-PROMPTS_COPY = _CORE / "gl-prompts"
+PROMPTS_COPY = rolekit.PROMPTS_COPY
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 # 修正役に貼った番号の書き方（no N・No.N・#N・N 番）。全角の数字も \d に当たる
 _NUMBERS = (re.compile(r"(?<![A-Za-z])no\.?\s*(\d+)", re.IGNORECASE), re.compile(r"[#＃]\s*(\d+)"), re.compile(r"(\d+)\s*番"))
@@ -314,42 +313,15 @@ def snap(board_dir, repo) -> dict:
 
 # ---------------------------------------------------------------- 描く・印
 def prompt_graph_path(b, n) -> pathlib.Path:
-    """node_prompt に渡す graph のパス（指示書は graph の置き場からの相対）。写しが指示書を持てば写しの graph、無ければ
-    同じ commit から写した gl-prompts/（本線の graphloops/ と同じ並び。親が prompts/ でも ../prompts/<…> は同じ所に届く）"""
-    own = pathlib.Path(b.state["graph"])
-    parts = [n["prompt_file"], *(n.get("prompt_append") or [])]
-    if all((own.parent / p).is_file() for p in parts):
-        return own
-    alt = PROMPTS_COPY / "prompts" / own.name
-    missing = [p for p in parts if not (alt.parent / p).is_file()]
-    if missing:
-        raise BoardGap(f"指示書 {missing} が写しにも {PROMPTS_COPY} にも無い")
-    return alt
+    """node_prompt に渡す graph のパス（rolekit.prompt_graph_path。写しが指示書を持てば写しの graph、無ければ gl-prompts/）"""
+    return rolekit.prompt_graph_path(b, n, PROMPTS_COPY)
 
 
 def render(b, nid) -> pathlib.Path:
-    """engine の emit_instance と同じ描き方で指示書を書く（cap なし。指示書は役がファイルで読む）。番号の控え（pointers）が
-    在れば instance に置く。描けない（reads に無い穴・盤面の欄の欠け）は BoardGap"""
-    n = b.nodes[nid]
+    """engine の emit_instance と同じ描き方（rolekit.render_body）で指示書を $B/prompts/r<N>/<節>.md に書く（cap なし。
+    指示書は役がファイルで読む）。番号の控え（pointers）が在れば instance に置く。描けない（reads に無い穴・盤面の欄の欠け）は BoardGap"""
     inst = b.rd["instances"].get(nid)
-    if not inst or inst.get("status") != "pending":
-        raise BoardGap(f"この周に節 {nid} の待っている instance が無い")
-    tpl = node_prompt(prompt_graph_path(b, n), n)
-    ctx = b.ctx()
-    ctx["node"] = {"skills": inst.get("skills") or []}   # engine と同じく、出した時点の applies を持つ写し（settle が置いた物）
-    snap_, offsets = _pointers.snapshot(ctx, n.get("pointers"))
-    r = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None, numbered=offsets)
-    try:
-        prompt = r.render(tpl)
-    except (KeyError, ReadsViolation, ValueError) as e:
-        raise BoardGap(f"{nid} の指示書を描けない: {e}") from None
-    unseen = sorted(set(offsets) - r.numbered_seen)
-    if unseen:
-        raise BoardGap(f"{nid}: pointers の from {unseen} を貼る穴が指示書に無い")
-    if n.get("schema"):
-        prompt += ("\n\n---\n返答はこの JSON Schema に合う JSON だけ（前後に文を付けない）。"
-                   '文字列値の中の " は必ず \\" にエスケープしろ——生のまま入れると返答まるごとが'
-                   "読めずに捨てられる:\n" + dump(n["schema"]))
+    prompt, snap_ = rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY)
     p = b.dir / "prompts" / f"r{b.round}" / (safe_name(nid) + ".md")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(prompt, encoding="utf-8")
@@ -571,25 +543,7 @@ def collect(board_dir) -> dict:
 ARTIFACTS_ENV = script_io.ARTIFACTS_ENV
 
 
-def script_main(fn, inputs=()) -> int:
-    """blk-rejudge のスクリプトの入口。環境変数 ARTIFACTS_DIR（空も欠け）と inputs（INPUTS_* の名前）を読み、
-    fn(盤面の置き場 $ARTIFACTS_DIR/board, repo=cwd, {名前: 値}) の返りを 1 行の JSON で出して 0。予定の状態（拒否・止めた・
-    回す物が無い）は fn が dict で返す。0 でないのは配線の誤りだけ: 環境変数の欠け・BoardGap・写しの Reject（止めた run への
-    書き込み・git が効かない など）は標準エラーに 1 行出して 2（Archon が起こし直す道に乗せない。標準出力には何も出さない）"""
-    missing = [n for n in (ARTIFACTS_ENV, *inputs) if n not in os.environ]
-    if ARTIFACTS_ENV not in missing and not os.environ[ARTIFACTS_ENV]:
-        missing.append(ARTIFACTS_ENV)
-    if missing:
-        print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
-        return 2
-    board_dir = pathlib.Path(os.environ[ARTIFACTS_ENV]) / script_io.BOARD_DIR
-    try:
-        out = fn(board_dir, pathlib.Path.cwd(), {n: os.environ[n] for n in inputs})
-    except (BoardGap, _util.Reject) as e:
-        print(f"{type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
-        return 2
-    script_io._emit(out)   # 1 行の出し方は受け付けのスクリプトと同じ（script_io.main は INPUTS_BASE_REV を要り、BoardGap を 2 にしない）
-    return 0
+script_main = rolekit.script_main   # blk-rejudge のスクリプトの入口（rolekit。環境変数の欠け・BoardGap・写しの Reject は 2）
 
 
 def refuse(board_dir, nid, reason) -> dict:
@@ -597,16 +551,7 @@ def refuse(board_dir, nid, reason) -> dict:
     return _reject(open_board(board_dir), nid, reason)
 
 
-def parse_reply(raw):
-    """役の返答（Archon が $<役>.output を JSON の文字列で渡す）を dict に。読めなければ (None, 理由)。文は script_io.main と同じ
-    （script_io.main は読めない返答を自分で出して終えるが、ここは拒否を rejudge-rejects.json に積んで give_up を数えるので分ける）"""
-    try:
-        reply = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return None, f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）"
-    if not isinstance(reply, dict):
-        return None, f"返答が JSON のオブジェクトでない（{type(reply).__name__}）"
-    return reply, ""
+parse_reply = rolekit.parse_reply   # 読めない返答は (None, 理由)。拒否は rejudge-rejects.json に積んで give_up を数える（refuse）
 
 
 # ---------------------------------------------------------------- 費用
