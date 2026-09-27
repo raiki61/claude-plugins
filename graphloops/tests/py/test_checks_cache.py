@@ -68,7 +68,7 @@ def test_same_tree_reuses_green_with_origin(tmp_path):
     assert second[0]["cache"].startswith("使い回し") and second[0]["exit"] == 0
 
 
-@pytest.mark.parametrize("change", ["tracked", "untracked", "exec_bit", "decl", "path", "tool"])
+@pytest.mark.parametrize("change", ["tracked", "untracked", "exec_bit", "decl", "path", "tool", "env", "kernel"])
 def test_any_input_change_misses(tmp_path, monkeypatch, change):
     tools = tmp_path / "tools"
     tools.mkdir()
@@ -82,7 +82,7 @@ def test_any_input_change_misses(tmp_path, monkeypatch, change):
     def mutate():
         nonlocal steps
         if change == "tracked":
-            (repo / "a.txt").write_text("b\n", encoding="utf-8")   # 1 バイト
+            (repo / "a.txt").write_text("b\n", encoding="utf-8")
         elif change == "untracked":
             (repo / "new.txt").write_text("", encoding="utf-8")
         elif change == "exec_bit":
@@ -94,6 +94,10 @@ def test_any_input_change_misses(tmp_path, monkeypatch, change):
             monkeypatch.setenv("PATH", os.environ["PATH"] + os.pathsep + str(tmp_path))
         elif change == "tool":
             os.utime(tool, ns=(tool.stat().st_atime_ns, tool.stat().st_mtime_ns + 10**9))
+        elif change == "env":
+            monkeypatch.setenv("FAIL_ON_SKIP", "1")   # 子の結果を変えうる変数（IGNORED_ENV に無い物）
+        elif change == "kernel":
+            monkeypatch.setattr(checks_cache.platform, "release", lambda: "other-kernel")
 
     run_steps(steps, str(repo), tmp_path / "log1")
     mutate()
@@ -102,11 +106,28 @@ def test_any_input_change_misses(tmp_path, monkeypatch, change):
 
 
 def test_ignored_file_change_still_reuses(tmp_path):
-    """.gitignore の対象は指紋に入れない（入れない物の側の確かめ）"""
     repo, steps, mark = setup(tmp_path)
     (repo / "ignored").mkdir()
     _first, second = twice(repo, steps, tmp_path, lambda: (repo / "ignored" / "x").write_text("x", encoding="utf-8"))
     assert ran(mark) == 1 and second[0].get("reused")
+
+
+def test_ignored_env_changes_still_reuse(tmp_path, monkeypatch):
+    repo, steps, mark = setup(tmp_path)
+    run_steps(steps, str(repo), tmp_path / "log1")
+    for name in checks_cache.IGNORED_ENV:
+        monkeypatch.setenv(name, "changed-between-launches")
+    second = run_steps(steps, str(repo), tmp_path / "log2")
+    assert ran(mark) == 1 and second[0].get("reused")
+
+
+def test_env_values_are_not_written_in_plain_text(tmp_path, monkeypatch):
+    monkeypatch.setenv("GL_CACHE_SECRET", "s3cret-value-9f2c")
+    repo, steps, _mark = setup(tmp_path)
+    first = run_steps(steps, str(repo), tmp_path / "log1")
+    entry = pathlib.Path(first[0]["cache"].split("書いた: ", 1)[1]) / "entry.json"
+    text = entry.read_text(encoding="utf-8")
+    assert "s3cret-value-9f2c" not in text and "GL_CACHE_SECRET" in json.loads(text)["material"]["env"]
 
 
 def test_red_and_unstartable_suites_are_not_stored(tmp_path):
@@ -189,7 +210,7 @@ def test_superseded_attempt_does_not_return_reused_rows(tmp_path):
 
 
 def test_second_worktree_in_another_process_reuses(tmp_path):
-    """目的の主経路: 同じ中身の別の worktree で、別のプロセスから回すと当たる"""
+    """目的の主経路"""
     repo, steps, mark = setup(tmp_path)
     wt = tmp_path / "wt2"
     git(repo, "worktree", "add", "-q", str(wt))

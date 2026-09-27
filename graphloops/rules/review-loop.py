@@ -1515,8 +1515,7 @@ def _freeze_revision(b):
 
 def _worktree_tree():
     """作業ツリーの今の姿の木の id（未追跡の新規ファイルも含め、追跡していない .gitignore の対象は除く）。固められなければ Reject。
-    中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む。手順の正本は engine の worktree_tree（検査の
-    結果の使い回しの指紋も同じ手順を引く）で、ここは失敗を止める文に包むだけ"""
+    中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む。手順の正本は engine の worktree_tree"""
     why = []   # git が言った失敗の理由（util.git の why）。止める文に添える
     tree, bad = worktree_tree(git, why)
     if tree is None:

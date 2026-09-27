@@ -13,15 +13,22 @@ role_run.run_steps が入口（plan・lookup）と出口（store）で呼ぶ。r
 - 作業ツリーの中身: 一時の index で `git add -A` して `git write-tree` した木の id（worktree_tree）。追跡中のファイルと
   .gitignore に当たらない未追跡のファイルの中身・実行ビット・シンボリックリンク
 - 段の定義: declared.steps_sha
-- 実行の土台: OS と CPU の種類・子に渡る PATH の値・各段の argv[0] を解決した実パスと大きさと更新時刻（ccache の
+- 実行の土台: OS と CPU の種類・カーネルの版・各段の argv[0] を解決した実パスと大きさと更新時刻（ccache の
   compiler_check=mtime の見方——宣言は道具の版を持たないので、道具の同一性をここで見る）
+- 子に渡る環境変数の全部（child_env。PATH も含む）——ただし IGNORED_ENV に在る名前は除く。子は環境の全部を見て走るので
+  （結果を変える変数の例: このリポジトリの tests/run.sh の FAIL_ON_SKIP）、指紋も全部を覆う。Turborepo の既定（Strict Mode）は
+  子の環境を指紋に入れた物と明示のパススルーに絞って同じ不変条件を保つ。ここは子の環境を狭めず（上位互換）、指紋の側を
+  広げる。値は名前ごとの sha256 で持ち、平文では書かない——ただし塩が無いので、短い値（1・true など）は逆引きでき、秘密の
+  保護にはならない（置き場には一式の出力も丸ごと写る）
 
 **指紋に入れない物と理由**:
 - 作業ツリーの絶対パス: 入れると worktree をまたいで当たらず、使い回しの主眼が消える
 - HEAD・枝・refs: 同じ中身なら同じ結果とみなす。履歴を読む検査はこの前提に合わない（下の旗で回す）
-- .gitignore の対象・~/.cache などの外の置き場・段の中で呼ぶ道具（argv[0] 以外）の版・PATH 以外の環境変数・時刻・
-  ネットワークの先・機械の負荷: 全部入れると run ごとに変わる値で当たらなくなる（Bazel が指紋に入れる環境変数も
-  --test_env で名指しした物だけ）。これらだけが変わった差には、使い回しの回は気づかない
+- .gitignore の対象・~/.cache などの外の置き場・段の中で呼ぶ道具（argv[0] 以外）の版・時刻・ネットワークの先・機械の負荷:
+  入れると run ごとに変わる値で当たらなくなる。これらだけが変わった差には、使い回しの回は気づかない
+- IGNORED_ENV の変数: シェルの状態・接続と端末の識別子・起こした会話の識別子で、結果に効かないと分かっている物だけ。
+  迷う変数は入れる側に倒す（偽の緑は偽の赤より悪い）。一覧に無い、起こすごとに変わる変数が在ると当たらなくなる——
+  どの変数で外れたかは、2 つの置き場の entry.json の material.env（名前ごとの sha256）を突き合わせれば分かる
 人の関所（2026-09-27）はこの 4 つ——揺らぐテストの緑が固まる・履歴を読む検査・外の状態に依る検査・argv[0] 以外の道具の
 版——を承知のうえで、既定を使い回しにすると決めた。
 
@@ -46,8 +53,17 @@ import tempfile
 from . import declared
 
 RERUN_ENV = "GRAPHLOOPS_RERUN_CHECKS"
+# 指紋から外す環境変数（上の注記の「入れない物」）。2026-09-27 に同じ機械の loop.py launch 3 本と回す側のシェルの環境を
+# 突き合わせて違った物（_・PWD・OLDPWD・SHLVL・SSH_CLIENT・SSH_CONNECTION）と、会話・端末・接続ごとに変わる識別子
+IGNORED_ENV = frozenset({
+    "_", "PWD", "OLDPWD", "SHLVL",
+    "SSH_CLIENT", "SSH_CONNECTION", "SSH_TTY", "SSH_AUTH_SOCK",
+    "TERM_SESSION_ID", "ITERM_SESSION_ID", "WINDOWID", "TMUX", "TMUX_PANE", "STY", "SESSIONNAME",
+    "VSCODE_GIT_IPC_HANDLE", "VSCODE_IPC_HOOK_CLI",
+    "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
+})
 CACHE_PARTS = ("graphloops", "checks-cache")
-FORMAT = 1
+FORMAT = 2
 
 
 def cwd_git(cwd):
@@ -122,11 +138,11 @@ def _now():
 
 
 def plan(steps, cwd):
-    """使い回しの対象か ——（計画, 対象外の理由）。計画は {key, material, entry}。対象外なら今までどおり回すだけ"""
+    """使い回しの対象か ——（計画, 対象外の理由）。対象外なら今までどおり回すだけ"""
     if any(s.get("keep_background") for s in steps):
         return None, "keep_background の段を含む一式は使い回さない"
-    d = declared.read(cwd)
-    if not d or d.get("sha") != declared.steps_sha(steps):
+    d, sha = declared.read(cwd), declared.steps_sha(steps)
+    if not d or d.get("sha") != sha:
         return None, f"宣言 {declared.DECL_NAME} と一致する一式でない"
     git = cwd_git(cwd)
     common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
@@ -136,10 +152,12 @@ def plan(steps, cwd):
     tree, bad = worktree_tree(git, why)
     if tree is None:
         return None, f"作業ツリーの木の id が取れない（{bad[0]}。git の言い分: {' / '.join(why) or '無し'}）"
-    path = os.environ.get("PATH", "")
-    material = {"format": FORMAT, "tree": tree, "steps_sha": declared.steps_sha(steps),
-                "os": platform.system(), "machine": platform.machine(), "path": path,
-                "tools": [_tool(s["argv"][0], cwd, path) for s in steps]}
+    env = child_env()
+    material = {"format": FORMAT, "tree": tree, "steps_sha": sha,
+                "os": platform.system(), "machine": platform.machine(), "kernel": platform.release(),
+                "env": {k: hashlib.sha256(v.encode("utf-8", "surrogateescape")).hexdigest()
+                        for k, v in sorted(env.items()) if k not in IGNORED_ENV},
+                "tools": [_tool(s["argv"][0], cwd, env.get("PATH", "")) for s in steps]}
     key = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
     return {"key": key, "material": material, "entry": str(pathlib.Path(common.strip()).joinpath(*CACHE_PARTS, key)),
             "cwd": str(cwd)}, None
@@ -149,9 +167,9 @@ def lookup(p, steps, log_dir):
     """同じ指紋の緑を引く ——（段の行, 外れの理由）。当たれば置き場の出力を log_dir に写し、行は log_dir を指す"""
     if os.environ.get(RERUN_ENV):
         return None, f"旗 {RERUN_ENV} が立っている（引かずに回す。書くのは続ける）"
-    started = pathlib.Path(p["entry"])
+    entry_dir = pathlib.Path(p["entry"])
     try:
-        e = json.loads((started / "entry.json").read_text(encoding="utf-8"))
+        e = json.loads((entry_dir / "entry.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
         return None, f"同じ指紋の記録が無い（鍵 {p['key'][:12]}）"
     except (OSError, ValueError) as err:
@@ -168,11 +186,11 @@ def lookup(p, steps, log_dir):
     try:
         for i, (r, s) in enumerate(zip(runs, steps), 1):
             out, err = pathlib.Path(log_dir) / f"{i}.out", pathlib.Path(log_dir) / f"{i}.err"
-            shutil.copyfile(started / f"{i}.out", out)
-            shutil.copyfile(started / f"{i}.err", err)
+            shutil.copyfile(entry_dir / f"{i}.out", out)
+            shutil.copyfile(entry_dir / f"{i}.err", err)
             rows.append({"name": s["name"], "argv": list(s["argv"]), "out": str(out), "err": str(err), "exit": 0,
                          "tail": r.get("tail", ""),
-                         "reused": {"at": e.get("at"), "wall_s": r.get("wall_s"), "key": p["key"], "entry": str(started),
+                         "reused": {"at": e.get("at"), "wall_s": r.get("wall_s"), "key": p["key"], "entry": str(entry_dir),
                                     "from": e.get("from")}})
     except OSError as err:
         return None, f"記録の出力が欠けている（{err}）——回す"

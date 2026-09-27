@@ -28,8 +28,7 @@ cr-filter-pragma・cr-filter-operators・cr-filter-git だけで（how-tos/filte
 入り、--gate-efficacy と --reuse を 1 本で通す。依存を足さない配布方針（issue #6）は配布する実行時の決定で、開発用の CI までは縛らない
 ——だから理由に数えない。
 
-**mutmut との受け持ち**（2026-09-25 から）: pytest が覆うモジュール（今は graphloops/engine/schema.py。置き場は graphloops/tests/py/、
-設定は graphloops/setup.cfg）を丸ごと自動で撃ち、生き残りを pytest 側のテストで殺すのは mutmut で、手元で回す（回し方は
+**mutmut との受け持ち**（2026-09-25 から）: pytest が覆うモジュール（対象は graphloops/setup.cfg の only_mutate。置き場は graphloops/tests/py/）を丸ごと自動で撃ち、生き残りを pytest 側のテストで殺すのは mutmut で、手元で回す（回し方は
 graphloops/README.md の「検査」節）。この実行器は、上に書いた一覧の腕（字列置換・expect と killedBy の突合）と、差分の行に絞った
 自動の腕（--auto。review-loop のゲートの実効性が使う）を受け持ち、週 1 回の CI（mutation.yml）で落とす柵もこちらだけに在る。
 
