@@ -35,6 +35,7 @@ FAST = frozenset({
     "test_node_marker",     # 線 A: 印の文字列を組んで読むだけ
     "test_rolekit",         # P1 Task 13: 役の節の共通の口を偽の盤面と mock で見る（git・子のプロセスなし）
     "test_sp_skills",       # superpowers の写し: 写しと元（プラグインのキャッシュ）を読んで比べる・sh を起こす（git なし）
+    "test_selfcheck",       # 軽い自己点検: 腕の一覧を読むだけ（--check）と、小さな偽の pack で実行器を子で起こす（git なし）
     "test_script_io",       # 2 秒（python を 1 本起こすだけ。git は使わない）
     "test_tiers",           # 8 秒（偽の uv・枠の台本で run.sh を起こす）
     "test_versions",        # run ごとの版の控え: 一時の置き場に書くだけ・start.py を 1 本起こす（git なし）
