@@ -67,29 +67,27 @@ def _tree_unchanged(repo, board):
 
 
 def _source_files_errors(files, repo) -> list:
-    """source_files のうち、git が出す形の名前（リポジトリ相対・POSIX・`./` や末尾の `/`・重ねた `/`・`.` の段なし・
-    索引／ディスクの大小文字のまま）で作業ツリーに在るファイルでない物（works が足す検査）。
-    写しの purpose_sources_changed は、前の周の修正が触ったファイル（`git diff --name-only` の名前）と source_files の
-    完全一致の積で目的監査を走り直す。絶対パス・リポジトリの外・無い名前・git の出す形でない名前はその積に決して当たらず、
-    走り直しが黙って止まる（p0.purpose は once なので、通せば run の全周で凍る）。名前の正本は git に問う——
-    pathlib の正規化や is_file（大小文字を区別しない FS では `readme.md` も真）で代えない"""
-    root = pathlib.Path(repo).resolve()
-    bad, cands = [], []
-    for f in files:
-        p = pathlib.PurePosixPath(f)
-        if not f or str(p) != f or p.is_absolute() or ".." in p.parts:
-            bad.append(f)
-            continue
-        full = (root / f).resolve()
-        if not (full.is_relative_to(root) and full.is_file()):
-            bad.append(f)
-            continue
-        cands.append(f)
-    if cands:
-        # 追跡中と未追跡の新規（_files_changed_since の diff が拾う物と同じ）。パススペックは字のまま・大小文字を区別
-        known = set(_git(repo, "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard",
-                         "-z", "--", *cands).split("\0"))
-        bad += [f for f in cands if f not in known]
+    """source_files のうち、作業ツリーの根からの相対の正規形で、版の一覧に在り、かつ作業ツリーに通常のファイルとして在る
+    物でない名前（works が足す検査）。
+    写しの purpose_sources_changed は、前の周の修正が触ったファイル（_files_changed_since の `git diff --name-only -z`
+    の名前＝根からの相対）と source_files の完全一致の積で目的監査を走り直す。絶対パス・リポジトリの外・無い名前・
+    正規形でない名前はその積に決して当たらず、走り直しが黙って止まる（p0.purpose は once なので、通せば run の全周で凍る）。
+    判定は写しの rules の正本に任せ、ここで組み直さない: 根は _repo_root（repo がサブディレクトリでも作業ツリーの根）、
+    綴りは _resolve_target（正規形と違えば拒む）、在るかは _in_version（`--full-name`・`:(top,literal)`）と is_file の組
+    （rules が指し先を確かめる組と同じ）。git が動かなければ Reject（受け付けは『分からない』を合格に倒さない）"""
+    rules = _rules()
+    with _in_repo(repo):
+        root = rules._repo_root()
+        if root is None:
+            raise Reject(f"source_files を確かめられない（{repo} で作業ツリーの根を git から引けない）")
+        bad, rels = [], []
+        for f in files:
+            rel, _ = rules._resolve_target(f, root) if f else (None, "")
+            (rels if rel is not None else bad).append(f)
+        seen = rules._in_version(rels) if rels else {}
+        if seen is None:
+            raise Reject("source_files を確かめられない（git ls-files が動かない）")
+    bad += [f for f in rels if f not in seen or not (pathlib.Path(root) / f).is_file()]
     return [f for f in files if f in bad]
 
 
@@ -109,10 +107,10 @@ def check_purpose(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
             _post_check(NODE, out, _Board(board_p, rev))
             bad = _source_files_errors(out["source_files"], repo_p)
             if bad:
-                raise Reject(f"source_files に git の出す形のリポジトリ相対の名前で作業ツリーに在るファイルでない物が在る: {bad}"
-                             "——出典にしたリポジトリの中のファイルを、git が出す形（根からの相対・`./` や末尾の `/`・"
-                             "重ねた `/`・`.` の段なし・大小文字もリポジトリのまま）で書け（依頼のファイルなど"
-                             "リポジトリの外の物・git が無視するファイルは書かない）")
+                raise Reject(f"source_files に作業ツリーの根からの相対の正規形で版に在るファイルでない物が在る: {bad}"
+                             "——出典にしたリポジトリの中のファイルを、作業ツリーの根からの相対（サブディレクトリで回していても根から・"
+                             "`./` や末尾の `/`・重ねた `/`・`.` や `..` の段・symlink 経由なし・大小文字もリポジトリのまま）で書け"
+                             "（依頼のファイルなどリポジトリの外の物・git が無視するファイルは書かない）")
             path = _write_board(board_p, PURPOSE_FILE, out)
         return {"ok": True, "reason": "", "purpose_file": str(path)}
     return _guard(run, purpose_file="")

@@ -214,18 +214,18 @@ class ScriptCase(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def run_script(self, name, **env):
+    def run_script(self, name, cwd=None, **env):
         # 外の INPUTS_*（Archon の run の中で回すと、ラインの入口が環境に居る）を持ち込まない。欠けの検査が狂う
         base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         e = dict(base, ARTIFACTS_DIR=str(self.art), **env)
-        return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=self.repo, env=e,
+        return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=cwd or self.repo, env=e,
                               capture_output=True, text=True, timeout=300)
 
-    def intake(self, request="request_ok.json", constraints=""):
-        return self.run_script("intake", INPUTS_REQUEST=request, INPUTS_CONSTRAINTS_FILE=constraints)
+    def intake(self, request="request_ok.json", constraints="", cwd=None):
+        return self.run_script("intake", cwd=cwd, INPUTS_REQUEST=request, INPUTS_CONSTRAINTS_FILE=constraints)
 
-    def accept(self, reply):
-        r = self.run_script("accept", INPUTS_REPLY=json.dumps(reply, ensure_ascii=False), INPUTS_BASE_REV="")
+    def accept(self, reply, cwd=None):
+        r = self.run_script("accept", cwd=cwd, INPUTS_REPLY=json.dumps(reply, ensure_ascii=False), INPUTS_BASE_REV="")
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)
 
@@ -352,7 +352,8 @@ class ScriptCase(unittest.TestCase):
         self.assertFalse((self.board / purpose.PURPOSE_FILE).exists())
 
     def test_source_files_errors_nested_and_ignored(self):
-        # a//b・a/./b は形で、git が無視するファイルは ls-files で落ちる。未追跡の新規は git diff が拾うので通す
+        # a//b・a/./b は綴り（_resolve_target）で、git が無視するファイルは版の一覧（_in_version）で落ちる。未追跡の新規は
+        # _files_changed_since が拾うので通す
         (self.repo / "sub").mkdir()
         (self.repo / "sub" / "a.md").write_text("x\n", encoding="utf-8")
         (self.repo / "sub" / "new.md").write_text("x\n", encoding="utf-8")
@@ -363,17 +364,46 @@ class ScriptCase(unittest.TestCase):
         files = ["sub/a.md", "sub//a.md", "sub/./a.md", "sub/new.md", "sub/skip.log"]
         self.assertEqual(purpose._source_files_errors(files, self.repo), ["sub//a.md", "sub/./a.md", "sub/skip.log"])
 
-    def test_accepted_source_files_match_git_diff_names(self):
-        # 往復: 受け付けを通った source_files は、そのファイルを直した時の `git diff --name-only` の名前と字のまま同じ
-        self.assertEqual(self.intake().returncode, 0)
-        self.assertIs(self.accept(load("purpose_ok"))["ok"], True)
+    def round_trip(self, cwd, names):
+        # 往復: 受け付けを通った source_files を直すと、写しの purpose_sources_changed が突き合わせる
+        # _files_changed_since（前の周の頭の版と今の作業ツリーの木の差）の名前と字のまま同じになる。
+        # 相手は本物の _files_changed_since——試験の中で git diff を組み直すと、自分の写しを測る
+        self.assertEqual(self.intake(cwd=cwd).returncode, 0)
+        self.assertIs(self.accept(dict(load("purpose_ok"), source_files=names), cwd=cwd)["ok"], True)
         srcs = json.loads((self.board / purpose.PURPOSE_FILE).read_text(encoding="utf-8"))["source_files"]
-        self.assertTrue(srcs)
+        self.assertEqual(srcs, names)
+        rules = purpose._rules()
+        with purpose._in_repo(cwd):
+            head = rules._worktree_tree()   # 前の周の頭（intake の時の作業ツリー）
+        top = pathlib.Path(git(cwd, "rev-parse", "--show-toplevel").strip())
         for f in srcs:
-            with (self.repo / f).open("a", encoding="utf-8") as fh:
-                fh.write("\n")
-        names = git(self.repo, "diff", "--name-only").split()
-        self.assertEqual(sorted(set(srcs) & set(names)), sorted(set(srcs)))
+            with (top / f).open("a", encoding="utf-8") as fh:
+                fh.write("直した\n")
+        b = purpose._Board(self.board, "", loop_state={"head_revs": {"1": head}})
+        with purpose._in_repo(cwd):
+            changed = rules._files_changed_since(b, 1)
+        self.assertEqual(changed, sorted(srcs))
+
+    def test_accepted_source_files_match_files_changed_since(self):
+        # 追跡中・未追跡の新規・空白を含む名前・非 ASCII の名前
+        (self.repo / "docs").mkdir()
+        for f in ("docs/空白 と 日本語.md", "new notes.md"):
+            (self.repo / f).write_text("x\n", encoding="utf-8")
+        self.round_trip(self.repo, ["stats.py", "docs/空白 と 日本語.md", "new notes.md"])
+
+    def test_accepted_source_files_match_files_changed_since_from_subdir(self):
+        # repo が作業ツリーの根でない（サブディレクトリで回す）: 受け付けは根からの相対の名前を通し、cwd からの相対の
+        # 名前は拒む。通した名前は _files_changed_since の名前（根からの相対）と字のまま同じ
+        outer = self.tmp / "outer"
+        sub = outer / "pkg"
+        shutil.copytree(SEED, sub)
+        git(outer, "init", "-q")
+        git(outer, "add", "-A")
+        git(outer, "commit", "-q", "-m", "seed")
+        (sub / "新規 メモ.md").write_text("x\n", encoding="utf-8")
+        self.assertEqual(purpose._source_files_errors(["stats.py", "pkg/stats.py", "pkg/新規 メモ.md", "新規 メモ.md"], sub),
+                         ["stats.py", "新規 メモ.md"])
+        self.round_trip(sub, ["pkg/stats.py", "pkg/新規 メモ.md"])
 
     def test_accept_refuses_to_overwrite_frozen_purpose(self):
         self.assertEqual(self.intake().returncode, 0)
