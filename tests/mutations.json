@@ -2032,8 +2032,8 @@
    "title": "指紋に壊すファイル",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "    for f in (a[\"file\"],) + DRIVERS:",
-   "new": "    for f in DRIVERS:",
+   "old": "    for f in (a[\"file\"],) + drivers_of(root, a):",
+   "new": "    for f in drivers_of(root, a):",
    "expect": "持ち越すのは赤で証拠つきの腕だけ"
   },
   {
@@ -2421,7 +2421,7 @@
    "file": "tests/mutate.py",
    "suite": "root",
    "expect": "持ち越すのは赤で証拠つきの腕だけ",
-   "old": "    for f in (a[\"file\"],) + DRIVERS:",
+   "old": "    for f in (a[\"file\"],) + drivers_of(root, a):",
    "new": "    for f in (a[\"file\"],):"
   },
   {

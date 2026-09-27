@@ -10,6 +10,7 @@
 """
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
 import sys
@@ -53,10 +54,27 @@ def run_graphcheck(sandbox, g):
     return ok, "\n".join(map(str, lines))
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 559
+EXPECTED_ITEMS = 560
 # 全件を回したときに台本の check が走るべき件数と、到達すべき値の数（fence.py の 3）。上げるときも下げるときも実測値を書く
 EXPECTED_SIM_CHECKS = 5
 EXPECTED_SIM_REACHED = 2
+
+
+# 変異の実行器（リポジトリの根の tests/mutate.py）の印の写しの pytest の回だけ立つ環境変数。立っていれば、各テストの間その値を
+# テストの node id にする——印は行を通したテストをこの値で名指す（子のプロセスにも環境で届く）。名前の正本は tests/mutate.py の
+# PYTEST_MARK（揃いは test_mutate_mark.py が縛る）
+MUTATE_MARK = "GL_MARK_PYTEST"
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    if MUTATE_MARK not in os.environ:
+        return (yield)
+    os.environ[MUTATE_MARK] = item.nodeid
+    try:
+        return (yield)
+    finally:
+        os.environ[MUTATE_MARK] = "?"
 
 
 def pytest_configure(config):
