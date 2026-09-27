@@ -288,7 +288,7 @@ KNOWN_KEYWORDS = frozenset({"type", "enum", "const", "required", "properties", "
 ENGINE_NODE_KEYS = frozenset({
     "active_in", "agent_type", "applies_cond", "builtin", "cond", "delegate", "deps", "engine_run", "fan_out", "forbidden_inputs",
     "fresh_context", "instance_deps", "once", "optional", "outputs", "pointers", "post_check", "pre", "prompt_append", "prompt_file",
-    "reads", "run_by", "runner_judgment_by_design", "same_context_as", "save_text_as", "schema", "skills", "text", "thickness_from",
+    "read_file", "reads", "run_by", "runner_judgment_by_design", "same_context_as", "save_text_as", "schema", "skills", "text", "thickness_from",
     "thickness_reason_from", "verdict_is_copy", "writes"})
 DOC_NODE_KEYS = frozenset({"note", "does", "source", "stage"})
 

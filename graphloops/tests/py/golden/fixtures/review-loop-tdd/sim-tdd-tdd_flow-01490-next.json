@@ -209,13 +209,13 @@
     "stdout": "6a1a4ba7a4abce993ab7325123c87cf06e730a06\n"
    }
   ],
-  "[[\"diff\", \"f823c7f0d16cc45959771606427e585c6d659e97\", \"6a1a4ba7a4abce993ab7325123c87cf06e730a06\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"f823c7f0d16cc45959771606427e585c6d659e97\", \"6a1a4ba7a4abce993ab7325123c87cf06e730a06\"], {}]": [
    {
     "rc": 0,
     "stdout": ""
    }
   ],
-  "[[\"diff\", \"--name-only\", \"-z\", \"f823c7f0d16cc45959771606427e585c6d659e97\", \"6a1a4ba7a4abce993ab7325123c87cf06e730a06\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"--name-only\", \"-z\", \"f823c7f0d16cc45959771606427e585c6d659e97\", \"6a1a4ba7a4abce993ab7325123c87cf06e730a06\"], {}]": [
    {
     "rc": 0,
     "stdout": ""
@@ -227,7 +227,7 @@
     "stdout": "2b3809ae242cdc1bd995f08dbf4bd9c5a08ae219\n"
    }
   ],
-  "[[\"diff\", \"--name-only\", \"-z\", \"f823c7f0d16cc45959771606427e585c6d659e97\", \"2b3809ae242cdc1bd995f08dbf4bd9c5a08ae219\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"--name-only\", \"-z\", \"f823c7f0d16cc45959771606427e585c6d659e97\", \"2b3809ae242cdc1bd995f08dbf4bd9c5a08ae219\"], {}]": [
    {
     "rc": 0,
     "stdout": ""

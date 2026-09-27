@@ -83,46 +83,110 @@ def test_values_come_from_closed_round_records(tmp_path):
 def test_first_round_has_no_previous_values(tmp_path):
     """1 周目は前の周の値が無い——穴は ABSENT、条件は default で受ける（空の値で埋めない）"""
     b = make(tmp_path, 1, [rd(1)])
-    for name in ("prev_units", "prev_questions", "prev_one_shot", "prev_declared_faces", "prev_rejudge"):
+    for name in ("prev_units", "prev_questions", "prev_one_shot", "prev_declared_faces", "prev_rejudge", "prev_own_precedents"):
         assert b.hist(name) is hist_mod.HIST_ABSENT
         with pytest.raises(KeyError):
             b.ctx()["hist"][name]
     assert b.hist("lines_at_r1") is hist_mod.HIST_ABSENT and b.hist("block_counts") == []
 
 
+def test_own_precedents_carry_over_rounds_that_skipped_history(tmp_path):
+    """修正役が自分で当たった先行例は次の周の p2.history へ渡る。p2.history を省いた周に渡るはずだった行は次の周へ持ち越し、
+    読まれた周より前の行は落とす。判定者の行を採った先行例（from_judge_row）は渡さない"""
+    own = lambda k: {"unit_key": k, "precedent": {"url": f"https://example.org/{k}"}}   # noqa: E731
+    fix = lambda *ks: {"changes": [own(k) for k in ks] + [{"unit_key": "j", "precedent": {"from_judge_row": True}}]}   # noqa: E731
+    outs = {("p3.fix", 1): fix("a"), ("p3.fix", 2): fix("b"), ("p2.history", 3): {"units": []}, ("p3.fix", 3): fix("c"),
+            ("p3.fix", 4): fix("d")}
+    b = make(tmp_path, 5, [rd(n) for n in range(1, 6)], outs=outs)
+    # 周 4 は p2.history を省いた——周 3 の行（c）を持ち越し、周 3 に読まれた周 1・2 の行は落とす
+    assert b.hist("prev_own_precedents") == [own("c"), own("d")]
+    b2 = make(tmp_path / "x", 3, [rd(n) for n in range(1, 4)], outs={("p3.fix", 1): fix("a"), ("p3.fix", 2): fix("b")})
+    assert b2.hist("prev_own_precedents") == [own("a"), own("b")]   # 1 周目は p2.history が無い（p2.diagnose）ので持ち越す
+
+
+FIX_OK = {"changes": [], "fix_closure": {"status": "not_applicable", "reason": "修正なし"}, "gates_changed": False, "interactions": [],
+          "mechanism_changed": False, "not_done": [], "path_changed": False, "plan_faces": [], "premise_drift": False,
+          "seams_changed": False, "security_surface_changed": False, "wrote_refs": []}
+
+
+def _patch(b, path, value, tmp_path):
+    val = tmp_path / "v.json"
+    val.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    return subprocess.run([sys.executable, str(PLUGIN / "scripts" / "loop.py"), "patch", "--path", path, "--file", str(val),
+                           "--reason", "検査", "--dir", str(b.dir)], capture_output=True, text=True, encoding="utf-8")
+
+
 def test_patched_rejudge_reaches_the_next_round(tmp_path):
-    """回す側が loop.py patch で出した異議（loop.rejudge_requested）は、同じ周の擦り合わせで決着しなければ次の周の
-    hist.prev_rejudge に届く（周の境目で異議を降ろさない）。往復の回数は受け付けた擦り合わせの節の数で、周ごと"""
-    ask = {"round": 2, "text": "patch で出した異議"}
-    b = make(tmp_path, 2, [rd(1), rd(2, ["p2.rejudge"])], loop={"rejudge_requested": ask})
-    assert b.hist("rejudge_rounds") == {"round": 2, "n": 1}
+    """回す側が loop.py patch で出した異議（修正の出口 out.p3.fix.rejudge_requested）は、同じ周の擦り合わせを開き、決着しなければ
+    次の周の hist.prev_rejudge に届く。往復の回数は受け付けた擦り合わせの節の数で、周ごと"""
+    b = make(tmp_path, 2, [rd(1), rd(2)], outs={("p3.fix", 2): FIX_OK})
+    r = _patch(b, "out.p3.fix.rejudge_requested", "patch で出した異議", tmp_path)
+    assert r.returncode == 0, r.stderr
+    b = board_mod.Board(b.dir)
     assert b.cond("rejudge_open")[0] is True
+    b.state["rounds"][1]["done"]["p2.rejudge"] = True
+    assert b.hist("rejudge_rounds") == {"round": 2, "n": 1}
     b.state["rounds"].append(rd(3))
     b.state["round"] = 3
-    assert b.hist("prev_rejudge") == ask and b.hist("rejudge_rounds") == {"round": 3, "n": 0}
+    assert b.hist("prev_rejudge") == {"round": 2, "text": "patch で出した異議"} and b.hist("rejudge_rounds") == {"round": 3, "n": 0}
     assert b.cond("rejudge_open")[0] is False   # 前の周の異議では同じ周の往復は開かない
-    b.loop_state.pop("rejudge_requested")    # 採る／退けるで決着した（rejudge_output が降ろす）
-    assert b.hist("prev_rejudge") is None
 
 
-def test_rejudge_from_the_fix_reply_when_the_loop_has_none(tmp_path):
-    """旧い版の rules は周の境目で loop から異議を降ろしていた——その盤面でも、前の周の p3.fix の返答の異議が届く。
-    擦り合わせで採る／退けるに決着していれば届けない"""
+def test_rejudge_from_the_fix_reply_until_settled(tmp_path):
+    """前の周の p3.fix の返答の異議が届く。擦り合わせで採る／退けるに決着していれば届けない。旧い盤面の loop の異議は読まない
+    （保存の時の照らしが state_schema の外の鍵として警告を残す）"""
     outs = {("p3.fix", 1): {"rejudge_requested": "返答で出した異議"}}
-    b = make(tmp_path, 2, [rd(1), rd(2)], outs=outs)
+    b = make(tmp_path, 2, [rd(1), rd(2)], outs=outs, loop={"rejudge_requested": {"round": 1, "text": "旧い loop の異議"}})
     assert b.hist("prev_rejudge") == {"round": 1, "text": "返答で出した異議"}
     outs[("p2.rejudge", 1)] = {"verdict": "退ける"}
     assert make(tmp_path / "settled", 2, [rd(1), rd(2)], outs=outs).hist("prev_rejudge") is None
 
 
-def test_lane_rows_are_read_from_the_ledger_and_old_marks_are_not_counted(tmp_path):
-    """線から渡した行は線の台帳に残した周と行から読む。渡した周を持たない旧い印（delivered: true・版だけの文字列）は
-    どの周の行にも数えない（true == 1 だが、1 周目には前の周の穴が無い）"""
-    lanes = {"a" * 40: {"round": 1, "delivered": True, "delivered_rows": [{"key": "旧い印"}]},
-             "b" * 40: {"round": 1, "delivered": 2, "delivered_rows": [{"key": "線の行"}]}}
-    bad = ["c" * 40, {"rev": "d" * 40, "round": 2, "row": {"key": "読めない行"}}]
-    b = make(tmp_path, 2, [rd(1), rd(2)], loop={"lanes": lanes, "lanes_bad_delivered": bad})
-    assert [r["key"] for r in b.hist("prev_declared_faces")] == ["読めない行", "線の行"]
+def test_lane_rows_are_read_from_the_round_head_output(tmp_path):
+    """線から渡した行は、渡した周の頭の節（p1.worktree_before）の出力の lane_rows から読む。線の台帳（loop.lanes）に旧い版の
+    rules が残した行は読まない——台帳は patch で書き換えられる run の状態で、過去の周の値の元にしない"""
+    lanes = {"b" * 40: {"round": 1, "delivered": 2, "delivered_rows": [{"key": "台帳の旧い行"}]}}
+    outs = {("p1.worktree_before", 2): {"ok": True, "lane_rows": [{"key": "線の行", "from": "p3.delta_gates", "how": "needs_test: x"}]}}
+    b = make(tmp_path, 2, [rd(1), rd(2)], loop={"lanes": lanes}, outs=outs)
+    assert [r["key"] for r in b.hist("prev_declared_faces")] == ["線の行"]
+
+
+def test_snapshot_and_after_fix_are_separate_exits(tmp_path):
+    """周の頭の審査対象（hist.snapshot）と修正後の審査対象（hist.after_fix）は別の節の出力の別の欄——同じ鍵を上書きしない。
+    撮り直した回の p1.worktree_after の snapshot が在ればそちらが効く。入口の周だけ依頼の where が範囲になる"""
+    head = {"rev": "h" * 40, "diff_file": "/d/diff-r2.patch", "changed_files": ["a.py"], "changed_files_file": "/d/changed-r2.txt",
+            "stat": "1 files", "diff_lines": 3, "entry": True}
+    after = {**head, "rev": "f" * 40, "diff_file": "/d/diff-r2-after-fix.patch", "changed_files": ["a.py", "b.py"]}
+    outs = {("p1.worktree_before", 2): {"ok": True, "snapshot": head}, ("p4.assemble", 2): {"ok": True, "after_fix": after}}
+    record = {"materials": {}, "units": [], "questions": [], "process": {"request_findings": [
+        {"round": 2, "origin": "人", "findings": [{"where": "x.py: f", "text": "t"}]}]}}
+    b = make(tmp_path, 2, [rd(1), rd(2)], outs=outs, record=record)
+    assert b.hist("snapshot")["rev"] == "h" * 40 and b.hist("after_fix")["rev"] == "f" * 40
+    assert b.hist("request_wheres") == ["x.py: f"]
+    # 本文を貼る写し（paste_file）を持たない出力（貼る写しを作る前の版）は全文の写しを貼る。持つ出力はそれを返す
+    assert b.hist("snapshot")["paste_file"] == head["diff_file"] and b.hist("after_fix")["paste_file"] == after["diff_file"]
+    outs[("p4.assemble", 2)] = {"ok": True, "after_fix": {**after, "paste_file": "/d/diff-r2-after-fix.paste.patch"}}
+    assert make(tmp_path / "paste", 2, [rd(1), rd(2)], outs=outs, record=record).hist("after_fix")["paste_file"].endswith(".paste.patch")
+    retaken = {**head, "rev": "r" * 40, "entry": False}
+    outs[("p1.worktree_after", 2)] = {"ok": True, "snapshot": retaken}
+    b = make(tmp_path / "retaken", 2, [rd(1), rd(2)], outs=outs, record=record)
+    assert b.hist("snapshot")["rev"] == "r" * 40 and b.hist("request_wheres") == []
+
+
+def test_old_outputs_are_read_as_exits_with_a_mark(tmp_path):
+    """旧い版の rules が書いた出力（差分の一式が出力の上の段・p4.assemble の写しの痕跡だけ）は、印 from_old_output を付けて
+    読み替える（人の決定 2026-09-27: 旧い盤面は警告して通す）。旧い loop の差分の鍵は読まない"""
+    d = tmp_path / "files"
+    d.mkdir()
+    (d / "changed-r2-after-fix.txt").write_text("a.py\nb.py\n", encoding="utf-8")
+    outs = {("p1.worktree_before", 2): {"ok": True, "diff_file": str(d / "diff-r2.patch"), "changed_files": ["a.py"], "stat": "s",
+                                        "tree_before": {"porcelain": [], "stash": "", "tree": "t" * 40, "rev": "h" * 40}},
+            ("p4.assemble", 2): {"ok": True, "retaken": {"file": str(d / "diff-r2-after-fix.patch")}}}
+    b = make(tmp_path, 2, [rd(1), rd(2)], outs=outs, loop={"diff_file": "旧い loop の値"})
+    snap, fixed = b.hist("snapshot"), b.hist("after_fix")
+    assert snap["from_old_output"] and snap["rev"] == "h" * 40 and snap["changed_files_file"] == str(d / "changed-r2.txt")
+    assert fixed["from_old_output"] and fixed["changed_files"] == ["a.py", "b.py"] and fixed["diff_file"].endswith("-after-fix.patch")
+    assert snap["paste_file"] == snap["diff_file"] and fixed["paste_file"] == fixed["diff_file"]
 
 
 def test_head_revs_prefer_rev_and_read_old_outputs_by_tree(tmp_path):
@@ -206,17 +270,25 @@ def test_patch_refuses_hist_values(tmp_path, path):
 
 def test_repair_routes_cover_every_declarable_head():
     """案内は宣言できる頭の全部に 1 行ずつ出る——読む物の宣言から組むので、どの頭を読む値でも案内が空にならない"""
-    fn = hist_mod.hist_reads("rounds", "rd", "out.p3.fix", "loop.lanes", "record.materials", "inputs.cwd", "hist.prev_units")(lambda h: None)
+    fn = hist_mod.hist_reads("rounds", "rd", "out.p3.fix", "record.materials", "inputs.cwd", "hist.prev_units")(lambda h: None)
     routes = hist_mod.repair_routes(fn)
-    assert len(routes) == 7 and "inputs.cwd から作る部分は直す口が無い" in routes
+    assert len(routes) == 6 and "inputs.cwd から作る部分は直す口が無い" in routes
 
 
 def test_patch_still_writes_run_state(tmp_path):
-    """run の状態（B）の鍵は今までどおり手当てできる——異議を patch で出す実運用の口"""
-    b = make(tmp_path, 2, [rd(1), rd(2)])
-    val = tmp_path / "v.json"
-    val.write_text(json.dumps({"round": 2, "text": "異議"}), encoding="utf-8")
-    r = subprocess.run([sys.executable, str(PLUGIN / "scripts" / "loop.py"), "patch", "--path", "state.loop.rejudge_requested",
-                        "--file", str(val), "--reason", "検査", "--dir", str(b.dir)], capture_output=True, text=True, encoding="utf-8")
+    """run の状態（B）の鍵は今までどおり手当てできる（線を止める印）"""
+    b = make(tmp_path, 2, [rd(1), rd(2)], loop={"lanes": {"a" * 40: {"round": 1, "result": "x", "state": "running"}}})
+    r = _patch(b, f"state.loop.lanes.{'a' * 40}.state", "abandoned", tmp_path)
     assert r.returncode == 0, r.stderr
-    assert json.loads((b.dir / "state.json").read_text(encoding="utf-8"))["loop"]["rejudge_requested"]["text"] == "異議"
+    assert json.loads((b.dir / "state.json").read_text(encoding="utf-8"))["loop"]["lanes"]["a" * 40]["state"] == "abandoned"
+
+
+@pytest.mark.parametrize("key", ["rejudge_requested", "diff_file", "prev_fix_files"])
+def test_patch_refuses_keys_moved_to_node_outputs(tmp_path, key):
+    """ブロックの出口の値は節の出力に移った——state_schema に無い鍵への手当ては書いても効かないので、ok と言わずに拒み、
+    節の出力を直す口を案内する（旧い patch の綴りが黙って効かなくなる形を作らない）"""
+    b = make(tmp_path, 2, [rd(1), rd(2)])
+    r = _patch(b, f"state.loop.{key}", {"round": 2, "text": "異議"}, tmp_path)
+    msg = r.stdout + r.stderr
+    assert r.returncode != 0 and "state_schema に無い" in msg and "loop.py patch --path out.<節>.<欄>" in msg
+    assert key not in json.loads((b.dir / "state.json").read_text(encoding="utf-8"))["loop"]

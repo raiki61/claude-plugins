@@ -199,7 +199,7 @@
     "stdout": "e1bcbbe634d30f1e65fb92e61e722c95f2f6034c\n"
    }
   ],
-  "[[\"diff\", \"--name-only\", \"-z\", \"7e4507d6939ad3ca7bfe90bb075983902fd3321b\", \"e1bcbbe634d30f1e65fb92e61e722c95f2f6034c\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"--name-only\", \"-z\", \"7e4507d6939ad3ca7bfe90bb075983902fd3321b\", \"e1bcbbe634d30f1e65fb92e61e722c95f2f6034c\"], {}]": [
    {
     "rc": 0,
     "stdout": "src/a.py\u0000tests/__pycache__/test_limit.cpython-314.pyc\u0000tests/test_limit.py\u0000"

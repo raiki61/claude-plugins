@@ -153,16 +153,7 @@
    "検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"
   ]
  },
- "loop": {
-  "coverage_after": {
-   "round": 1,
-   "items": []
-  },
-  "wrote_refs_reads": {
-   "round": 1,
-   "items": []
-  }
- },
+ "loop": {},
  "outputs": {
   "out/r1/p3.fix.json": {
    "changes": [],
@@ -179,7 +170,15 @@
    "security_surface_changed": false,
    "path_changed": false,
    "wrote_refs": [],
-   "plan_faces": []
+   "plan_faces": [],
+   "wrote_refs_reads": {
+    "round": 1,
+    "items": []
+   },
+   "coverage_after": {
+    "round": 1,
+    "items": []
+   }
   }
  },
  "calls": [

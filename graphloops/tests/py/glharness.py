@@ -243,6 +243,9 @@ def normalize_board(d, roots):
             esc = json.dumps(form)[1:-1]   # JSON の文字列に埋めた綴り（Windows では \ が 2 つずつ。任せ先の sandbox の設定の引数など）
             if esc != form:
                 subs.append((esc, f"<root{i}>"))
+            w = pathlib.PureWindowsPath(form)
+            if w.drive:   # Read の許可規則の POSIX 形（C:\Users → /c/Users。role_run.read_rule と同じ直し方）
+                subs.append(("/" + w.drive.rstrip(":").lower() + "/" + "/".join(w.parts[1:]), f"<root{i}>"))
     subs.sort(key=lambda x: -len(x[0]))   # 長い綴りから（realpath の /private/var が /var の置き換えで崩れない）
 
     def text(s):

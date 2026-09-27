@@ -27,8 +27,7 @@ base = importlib.util.module_from_spec(_spec)
 base.__dict__.update(_INJECTED)
 _spec.loader.exec_module(base)
 # 今の流れの rules の公開名（フック・表・関数）を**全部**そのまま出す——engine はフックと表を名前で引き、出し忘れた名前は
-# 「このループは持たない」に黙って倒れるので、名前を選んで並べない。下で定義し直す名前（record_round・finalize・on_new_round と
-# 4 つの表 CONDS・BUILTINS・POST_CHECKS・HIST）だけが差し替わる（tests/py/test_review_tdd.py が、それ以外が同じ物であることを見る）
+# 「このループは持たない」に黙って倒れるので、名前を選んで並べない。差し替える名前の正本は tests/py/test_review_tdd.py の replaced
 globals().update({k: v for k, v in vars(base).items() if not k.startswith("__") and k not in _INJECTED})
 
 SUITE_INPUT = "tdd_suite"   # init --input tdd_suite=<実行ファイル>。JUnit XML の書き先を第 1 引数に受け、リポジトリのルートで走る
@@ -146,14 +145,21 @@ def green_problems(named, cases, exit_code, baseline=None, baseline_exit=0):
     return probs
 
 
-# ---------------------------------------------------------------- 周ごとの TDD の盤面（loop.tdd）と記録（process.tdd）
+# ---------------------------------------------------------------- 周ごとの TDD の盤面（3 つの機械の節の出力）と記録（process.tdd）
 def _tdd(b):
-    """この周の TDD の盤面（前の周の値は捨てる）"""
-    t = b.loop_state.get("tdd") or {}
-    if t.get("round") != b.round:
-        t = {"round": b.round, "red_tries": 0, "green_tries": 0}
-        b.loop_state["tdd"] = t
-    return t
+    """この周の TDD の盤面——正本は 3 つの機械の節（p3.tdd_start・p3.tdd_red・p3.tdd_green）の今の周の出力で、ここはそれを重ねて
+    読む（前の周の値は読まない）。試行の回数と一式が作ったファイル（suite_made）は、各節が自分の前の試行の出力から累積で運ぶ——
+    差し戻しで出力を書き直しても、前の試行が作ったファイルが数えから落ちない"""
+    start, red, green = (b.output_of_round(f"p3.tdd_{k}", b.round) or {} for k in ("start", "red", "green"))
+    made = set(start.get("suite_made") or []) | set(red.get("suite_made") or []) | set(green.get("suite_made") or [])
+    return {"start": start.get("rev"), "baseline": start.get("baseline"), "baseline_exit": start.get("baseline_exit", 0),
+            "red_tries": red.get("tries", 0), "green_tries": green.get("tries", 0), "suite_made": sorted(made),
+            "red": red.get("red_rev"), "named": red.get("named_tests") or []}
+
+
+def _carry(t, step):
+    """機械の節の出力に載せる累積の欄（この段の試行の回数と、一式が作ったファイル）"""
+    return {"tries": t[f"{step}_tries"], "suite_made": t["suite_made"]}
 
 
 def _snap():
@@ -164,7 +170,7 @@ def _snap():
 
 
 def _diff_names(frm, to):
-    names = git("diff", "--name-only", "-z", frm, to) if frm and to else None
+    names = git("diff", *base.DIFF_FIXED_ARGS, "--name-only", "-z", frm, to) if frm and to else None
     return None if names is None else [x for x in names.split("\0") if x]
 
 
@@ -186,18 +192,17 @@ def _row(b):
 def tdd_start(b, nid):
     """テストを書く前の版を固め、一式を 1 回走らせて元の結末を取る——テストだけを書く段が触ったファイルはこの版からの差で測り、
     『ほかは緑のまま』は元の結末で通っていた物に当てる"""
-    t = _tdd(b)
-    t["start"] = _snap()
+    t = {"start": _snap(), "suite_made": []}
     if t["start"] is None:
         return {"ok": False, "problems": ["テストを書く前の版を固められない（git を確かめよ）"]}
     cases, code, why = _run_and_note(b, t)
     if why:
         return {"ok": False, "problems": [f"元の結末を取れない: {w}" for w in why]}
-    t["baseline"] = {_key(c): c["outcome"] for c in cases}
-    t["baseline_exit"] = code
-    red_before = sorted(k for k, v in t["baseline"].items() if v in ("failure", "error"))
+    baseline = {_key(c): c["outcome"] for c in cases}
+    red_before = sorted(k for k, v in baseline.items() if v in ("failure", "error"))
     _row(b).update(baseline_red=red_before)
-    return {"ok": True, "rev": t["start"], "cases": len(cases), "red_before": red_before[:20]}
+    return {"ok": True, "rev": t["start"], "cases": len(cases), "red_before": red_before[:20], "baseline": baseline,
+            "baseline_exit": code, "suite_made": t["suite_made"]}
 
 
 def _named_in(out):
@@ -216,29 +221,25 @@ def tdd_named(v):
     return bool(n), f"この周のテストだけを書く段が名指ししたテストは {n} 件"
 
 
-@cond_reads("cur.p3.tdd_tests", "loop.tdd", "round")
+@cond_reads("cur.p3.tdd_tests", "cur.p3.tdd_red")
 def tdd_red_passed(v):
     """緑の確認を撃つか（条件の関数）: 名指しのテストがあり、赤の確認が通った（上限で諦めた周は撃たない——実装は今の流れで直した）"""
     ok, why = tdd_named(v)
     if not ok:
         return ok, why
-    t = v("loop.tdd", None) or {}
-    red = t.get("red") if t.get("round") == v("round") else None
-    return red not in (None, "failed"), f"{why}、この周の赤の確認は {red}"
+    red = (v("cur.p3.tdd_red", None) or {}).get("red_rev")
+    return bool(red), f"{why}、この周の赤の確認は {red or '通っていない'}"
 
 
 def _give_up(b, t, step, probs):
     """上限を越えた: TDD を諦めて今の流れで進め、理由を記録と次の周の判定役に残す（止めない——止めると出口が patch しか無い）"""
-    t[step] = "failed"
-    t["problems"] = probs
     _row(b)[step] = "failed"
     _row(b)[f"{step}_problems"] = probs[:10]
-    return {"ok": True, "gave_up": step, "problems": probs}   # 諦めた事実はこの出力が正本（hist.tdd_gave_up が読む）
+    return {"ok": True, "gave_up": step, "problems": probs, **_carry(t, step)}   # 諦めた事実はこの出力が正本（hist.tdd_gave_up が読む）
 
 
 def _retry(b, t, step, back, probs):
     t[f"{step}_tries"] += 1
-    t["problems"] = probs
     if t[f"{step}_tries"] >= RETRY_MAX:
         return _give_up(b, t, step, probs)
     if back == "p3.fix":
@@ -246,12 +247,12 @@ def _retry(b, t, step, back, probs):
         fixes = b.record["process"].get("fixes") or []
         b.record["process"]["fixes"] = [r for r in fixes if not (isinstance(r, dict) and r.get("round") == b.round)]
     b.rewind([back], by=f"p3.tdd_{step}")
-    return {"ok": False, "problems": probs, "rewound": [back]}
+    return {"ok": False, "problems": probs, "rewound": [back], **_carry(t, step)}
 
 
 def tdd_red(b, nid):
     """赤の確認。テストだけを書く段が触ったのは申告したテストのファイルだけで、名指しのテストが failure で落ち、ほかは緑のまま。
-    通らなければテストだけを書く段を差し戻す（理由は loop.tdd.problems でプロンプトに戻る）"""
+    通らなければテストだけを書く段を差し戻す（理由はこの節の出力の problems でプロンプトに戻る）"""
     t = _tdd(b)
     out = b.output_of_round("p3.tdd_tests", b.round) or {}
     named = _named(b)
@@ -268,12 +269,11 @@ def tdd_red(b, nid):
     probs += why or red_problems(named, cases, code, t.get("baseline"))
     if probs:
         return _retry(b, t, "red", "p3.tdd_tests", probs)
-    t.update(red=now, named=named, problems=[])
     units = out.get("units") or []
     _row(b).update(named=named, direct=[u["unit_key"] for u in units if u.get("route") == "direct"],
                    friction=[u["unit_key"] for u in units if any((u.get("friction") or {}).get(k) for k in FRICTION_FLAGS)],
                    red="ok")
-    return {"ok": True, "named": len(named)}
+    return {"ok": True, "named": len(named), "named_tests": named, "red_rev": now, **_carry(t, "red")}
 
 
 def tdd_green(b, nid):
@@ -292,9 +292,8 @@ def tdd_green(b, nid):
     probs += why or green_problems(t.get("named") or [], cases, code, t.get("baseline"), t.get("baseline_exit", 0))
     if probs:
         return _retry(b, t, "green", "p3.fix", probs)
-    t["green"] = "ok"
     _row(b)["green"] = "ok"
-    return {"ok": True}
+    return {"ok": True, **_carry(t, "green")}
 
 
 def tdd_tests_output(b, nid, out, item):
@@ -331,6 +330,18 @@ def hist_tdd_gave_up(h):
     return rows
 
 
+@hist_reads("out.p3.tdd_red", "out.p3.tdd_green")
+def hist_tdd_retry(h):
+    """この周の赤・緑の確認の最後の試行（差し戻した理由 problems と試行の回数 tries）——差し戻されて出し直すテストだけを書く段と
+    実装の段が読む。どちらもまだ走っていない周は無い"""
+    got = {}
+    for step in ("red", "green"):
+        o = h.output(f"p3.tdd_{step}", h.round)
+        if o:
+            got[step] = {"ok": o.get("ok"), "problems": o.get("problems") or [], "tries": o.get("tries", 0)}
+    return got or HIST_ABSENT
+
+
 @hist_reads(*base.hist_prev_declared_faces.hist_reads, "hist.tdd_gave_up")
 def hist_prev_declared_faces_tdd(h):
     """今の流れの宣言の穴に、前の周に TDD を諦めた理由（上限を越えた赤・緑の確認）を足す——次の周の判定役が 1 件ずつ振り分ける"""
@@ -343,9 +354,9 @@ def hist_prev_declared_faces_tdd(h):
 
 
 def on_new_round(b):
-    """今の流れの周の頭。旧い版の rules が loop に積んだ TDD の値の写しも外す（hist が出力から作り直す）"""
+    """今の流れの周の頭。旧い版の rules が loop に積んだ TDD の値の写しと盤面（tdd）も外す（hist と節の出力から読む）"""
     base.on_new_round(b)
-    for k in HIST.keys() - base.HIST.keys():
+    for k in (*(HIST.keys() - base.HIST.keys()), "tdd"):
         b.loop_state.pop(k, None)
 
 
@@ -381,7 +392,6 @@ def finalize(b):
 
 CONDS = {**base.CONDS, "tdd_named": tdd_named, "tdd_red_passed": tdd_red_passed}
 NODE_KEYS, NODE_NOTE_KEYS = base.NODE_KEYS, base.NODE_NOTE_KEYS   # 差し替えの版の節は元の graph の節を含む（検査 15）
-LOOP_KEYS = base.LOOP_KEYS | {"tdd"}   # TDD の節が盤面の loop に足す鍵（graphcheck が条件と節の loop.<鍵> を照らす正本）
-HIST = {**base.HIST, "tdd_gave_up": hist_tdd_gave_up, "prev_declared_faces": hist_prev_declared_faces_tdd}
+HIST = {**base.HIST, "tdd_gave_up": hist_tdd_gave_up, "tdd_retry": hist_tdd_retry, "prev_declared_faces": hist_prev_declared_faces_tdd}
 BUILTINS = {**base.BUILTINS, "tdd_start": tdd_start, "tdd_red": tdd_red, "tdd_green": tdd_green, "record_round": record_round}
 POST_CHECKS = {**base.POST_CHECKS, "tdd_tests_output": tdd_tests_output}

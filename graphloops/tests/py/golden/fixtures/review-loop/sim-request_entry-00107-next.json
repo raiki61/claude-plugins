@@ -460,13 +460,13 @@
     "stdout": "81f52cfa90b3b1e5b976914c6f9ade190594b078\n"
    }
   ],
-  "[[\"diff\", \"06c3de09c489022e075f40c64e4f1c1f8148976e\", \"81f52cfa90b3b1e5b976914c6f9ade190594b078\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"06c3de09c489022e075f40c64e4f1c1f8148976e\", \"81f52cfa90b3b1e5b976914c6f9ade190594b078\"], {}]": [
    {
     "rc": 0,
     "stdout": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
    }
   ],
-  "[[\"diff\", \"--numstat\", \"-z\", \"06c3de09c489022e075f40c64e4f1c1f8148976e\", \"81f52cfa90b3b1e5b976914c6f9ade190594b078\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"--numstat\", \"-z\", \"06c3de09c489022e075f40c64e4f1c1f8148976e\", \"81f52cfa90b3b1e5b976914c6f9ade190594b078\"], {}]": [
    {
     "rc": 0,
     "stdout": "1\t0\tsrc/a.py\u0000"

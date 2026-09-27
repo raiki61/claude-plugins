@@ -21,8 +21,8 @@
    "手直しの差分は 0 ファイル、手直しが直したと言う穴は 0 件"
   ],
   "delta_review_due": [
-   true,
-   "この周の修正の差分は 3 ファイル"
+   false,
+   "この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件"
   ],
   "external_standards_due": [
    true,
@@ -33,8 +33,8 @@
    "検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"
   ],
   "fix_delta_nonempty": [
-   true,
-   "この周の修正の差分は 3 ファイル"
+   false,
+   "この周の修正の差分は 0 ファイル"
   ],
   "gate_efficacy_due": [
    false,
@@ -137,8 +137,8 @@
    "この周のテストだけを書く段が名指ししたテストは 1 件"
   ],
   "tdd_red_passed": [
-   true,
-   "この周のテストだけを書く段が名指ししたテストは 1 件、この周の赤の確認は _s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   false,
+   "この周のテストだけを書く段が名指ししたテストは 1 件、この周の赤の確認は 通っていない"
   ],
   "test_double_fidelity_due": [
    false,
@@ -196,7 +196,7 @@
   [
    "CONDS",
    "delta_review_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -211,7 +211,7 @@
   [
    "CONDS",
    "fix_delta_nonempty",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -341,7 +341,7 @@
   [
    "CONDS",
    "tdd_red_passed",
-   "真"
+   "偽"
   ],
   [
    "CONDS",

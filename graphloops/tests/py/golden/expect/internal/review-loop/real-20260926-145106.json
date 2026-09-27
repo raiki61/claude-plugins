@@ -21,8 +21,8 @@
    "手直しの差分は 0 ファイル、手直しが直したと言う穴は 0 件"
   ],
   "delta_review_due": [
-   true,
-   "この周の修正の差分は 12 ファイル"
+   false,
+   "この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件"
   ],
   "external_standards_due": [
    false,
@@ -33,8 +33,8 @@
    "検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"
   ],
   "fix_delta_nonempty": [
-   true,
-   "この周の修正の差分は 12 ファイル"
+   false,
+   "この周の修正の差分は 0 ファイル"
   ],
   "gate_efficacy_due": [
    false,
@@ -65,8 +65,8 @@
    "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない"
   ],
   "overview_due": [
-   false,
-   "阻害要因が 2 件・前の周の P3 が触ったファイルは 0 件"
+   true,
+   "阻害要因（[block]＋do-now）が 0 件"
   ],
   "parallel_pr_due": [
    true,
@@ -137,8 +137,8 @@
    "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、代役の忠実さの確かめを起こさない"
   ],
   "touches_procedures": [
-   true,
-   "差分に手順書・スクリプト・CI 定義が 4 件"
+   false,
+   "差分に手順書・スクリプト・CI 定義が無い"
   ],
   "units_open": [
    true,
@@ -182,7 +182,7 @@
   [
    "CONDS",
    "delta_review_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -197,7 +197,7 @@
   [
    "CONDS",
    "fix_delta_nonempty",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -237,7 +237,7 @@
   [
    "CONDS",
    "overview_due",
-   "偽"
+   "真"
   ],
   [
    "CONDS",
@@ -327,7 +327,7 @@
   [
    "CONDS",
    "touches_procedures",
-   "真"
+   "偽"
   ],
   [
    "CONDS",

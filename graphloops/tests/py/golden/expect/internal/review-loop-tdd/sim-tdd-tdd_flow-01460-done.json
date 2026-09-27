@@ -137,8 +137,8 @@
    "この周のテストだけを書く段が名指ししたテストは 1 件"
   ],
   "tdd_red_passed": [
-   true,
-   "この周のテストだけを書く段が名指ししたテストは 1 件、この周の赤の確認は _s3_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   false,
+   "この周のテストだけを書く段が名指ししたテストは 1 件、この周の赤の確認は 通っていない"
   ],
   "test_double_fidelity_due": [
    false,
@@ -337,7 +337,7 @@
   [
    "CONDS",
    "tdd_red_passed",
-   "真"
+   "偽"
   ],
   [
    "CONDS",

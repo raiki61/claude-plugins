@@ -249,13 +249,13 @@
     "stdout": "f1eb8d093155cd736d4e0b1913bcb29caa7759ce\n"
    }
   ],
-  "[[\"diff\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"f1eb8d093155cd736d4e0b1913bcb29caa7759ce\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"f1eb8d093155cd736d4e0b1913bcb29caa7759ce\"], {}]": [
    {
     "rc": 0,
     "stdout": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
    }
   ],
-  "[[\"diff\", \"--numstat\", \"-z\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"f1eb8d093155cd736d4e0b1913bcb29caa7759ce\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"--numstat\", \"-z\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"f1eb8d093155cd736d4e0b1913bcb29caa7759ce\"], {}]": [
    {
     "rc": 0,
     "stdout": "4\t2\tsrc/a.py\u00002\t0\tsrc/b.py\u0000-\t-\ttests/__pycache__/test_limit.cpython-314.pyc\u00005\t0\ttests/test_limit.py\u0000"

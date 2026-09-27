@@ -293,3 +293,87 @@ def test_small_marker_refuses_children_and_sleep(inner):
     r = inner(files, 4)
     r.assert_outcomes(passed=1, failed=3)
     r.stdout.fnmatch_lines(["*small のテストが time.sleep を呼んだ（大きさの柵）*"])
+
+
+RMTREE_ROOTS = ("graphloops", "tests", "scripts")   # リポジトリの根から見た、消す口の柵が走査する置き場
+# 消す口に届いてよい所の表: (根から見たファイル, 最上位の関数) → (その関数の中の参照の数, 許す理由)。数が合わなければ赤——
+# 関数の中に消す口が増えた・名前が変わって見つからない（並行の run が熱いファイルの関数を改名した）のどちらも黙って緩まない
+RMTREE_ALLOWED = {
+    ("graphloops/tests/parallel.py", "rm"): (1, "範囲の守り（gettempdir より深い所だけを消す）を持つ台本の正本"),
+    ("graphloops/tests/py/test_harness.py", "_rmtree_refs"): (5, "名前への参照を探すこの柵の本体"),
+    ("graphloops/engine/commands.py", "launch_one"): (3, "同じ関数が mkdtemp で作った任せ先の作業場"),
+    ("graphloops/engine/commands.py", "cmd_init"): (1, "同じ関数が exist_ok=False で作ったばかりの盤面（rules の入口が拒んだ回）"),
+    ("graphloops/rules/review-loop.py", "_worktree_tree"): (1, "同じ関数が mkdtemp で作った一時の置き場"),
+    ("tests/catchup-switch-case.py", "_worktree"): (1, "TemporaryDirectory の下に同じ関数が足した worktree"),
+    # 特徴づけのテストの固定具と期待値を作る台本（0.21.2 の golden。この柵より後に入った）
+    ("graphloops/tests/golden_make.py", "run"): (1, "同じ関数が mkdtemp で作った観察の置き場"),
+    ("graphloops/tests/golden_make.py", "write_expectations"): (1, "同じ関数が mkdtemp で作った作業場"),
+    ("graphloops/tests/golden_make.py", "check"): (1, "同じ関数が mkdtemp で作った作業場"),
+    ("graphloops/tests/golden_make.py", "collect"): (2, "作り直す直前の golden の固定具と期待値の置き場（ga.GOLDEN の下の決まった名前）"),
+    # 変異の実行器の作業場（scratch_dir の mkdtemp と呼び元の finally）と、起動ごとの根（run_root。ロックを握って作る）
+    ("tests/mutate.py", "one"): (1, "同じ関数が copy（scratch_dir の mkdtemp）で作った腕の作業場"),
+    ("tests/mutate.py", "control"): (1, "同じ関数が copy で作った作業場"),
+    ("tests/mutate.py", "marker_run"): (1, "同じ関数が copy で作った作業場"),
+    ("tests/mutate.py", "copy"): (1, "作る途中の例外・止める信号で、同じ関数が scratch_dir で作った作業場"),
+    ("tests/mutate.py", "_drop"): (1, "この起動が run_root で作った根（ロックのファイルは最後に消す）"),
+    ("tests/mutate.py", "sweep_roots"): (1, "前の起動が残した根のうち、ロックを取れた物とロックの無い物だけ"),
+}
+
+
+def _rmtree_refs(root):
+    """根の下の RMTREE_ROOTS を再帰で読み、rmtree への参照を数える ——({(ファイル, 最上位の関数か None): 数}, 読んだ本数の置き場ごと)。
+    呼び出しの形に依らず名前への参照で見る（別名の import・関数を値で渡す形・getattr の文字列も拾う）。シェルの台本（*.sh）は
+    ast にかけられないので、埋め込んだ Python ごと字列で拾う（関数は None）"""
+    import ast
+    import collections
+    counts, scanned = collections.Counter(), collections.Counter()
+    for top in RMTREE_ROOTS:
+        for path in sorted((root / top).rglob("*.py")) + sorted((root / top).rglob("*.sh")):
+            if "__pycache__" in path.parts:
+                continue
+            rel, text = path.relative_to(root).as_posix(), path.read_text(encoding="utf-8")
+            scanned[top] += 1
+            if path.suffix == ".sh":
+                counts[(rel, None)] += text.count("rmtree")
+                continue
+            tree = ast.parse(text)
+            owner = {id(x): f.name for f in tree.body if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                     for x in ast.walk(f)}
+            for n in ast.walk(tree):
+                if ((isinstance(n, ast.Attribute) and n.attr == "rmtree") or (isinstance(n, ast.Name) and n.id == "rmtree")
+                        or (isinstance(n, ast.alias) and n.name == "rmtree") or (isinstance(n, ast.Constant) and n.value == "rmtree")):
+                    counts[(rel, owner.get(id(n)))] += 1
+    return +counts, scanned
+
+
+def _rmtree_violations(counts, allowed):
+    """表と数が合わない所: 表に無い参照・表の関数の中で数が違う・表に在るのに見つからない（名前のずれ）"""
+    return sorted(f"{rel}:{fn}: 参照 {counts.get((rel, fn), 0)} 件（表は {allowed.get((rel, fn), (0,))[0]} 件）"
+                  for rel, fn in set(counts) | set(allowed) if counts.get((rel, fn), 0) != allowed.get((rel, fn), (0,))[0])
+
+
+def test_rmtree_is_reached_only_from_named_sites():
+    """消す口（rmtree）に届いてよいのは、範囲の守りを持つ台本の正本と、同じ関数の中で自分が作った物を消す名指しの所だけ。
+    graphloops・tests・scripts の全部を見る——0.21.0 の事故（既定値から計算した親を消した）の層だけに柵を立てると、
+    新しい消す口が守りを素通りする"""
+    counts, scanned = _rmtree_refs(glharness.PLUGIN.parent)
+    assert all(scanned[top] for top in RMTREE_ROOTS), f"走査した本数が 0 の置き場がある（根の計算がずれた）: {dict(scanned)}"
+    assert _rmtree_violations(counts, RMTREE_ALLOWED) == []
+
+
+@pytest.mark.parametrize("top,rel,body", [
+    pytest.param("graphloops", "graphloops/engine/x.py", "import shutil\n\ndef f(p):\n    shutil.rmtree(p)\n", id="engine"),
+    pytest.param("tests", "tests/x.py", "from shutil import rmtree as r\n", id="tests-alias"),
+    pytest.param("scripts", "scripts/x.py", "import shutil\nf = getattr(shutil, 'rmtree')\n", id="scripts-getattr"),
+    pytest.param("tests", "tests/x.sh", "python3 -c 'import shutil; shutil.rmtree(\"/\")'\n", id="shell-embedded"),
+    pytest.param("graphloops", "graphloops/engine/commands.py", "import shutil\n\ndef renamed(w):\n    shutil.rmtree(w)\n", id="renamed-allowed-function"),
+])
+def test_rmtree_fence_is_red_in_each_root(tmp_path, top, rel, body):
+    """広げた置き場ごとに、表に無い消す口を 1 つ置くと赤になる（名前が変わって表の関数が見つからない形も）"""
+    for t in RMTREE_ROOTS:
+        (tmp_path / t).mkdir()
+    (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / rel).write_text(body, encoding="utf-8")
+    counts, _ = _rmtree_refs(tmp_path)
+    assert _rmtree_violations(counts, {("graphloops/engine/commands.py", "launch_one"): (1, "x")})
+

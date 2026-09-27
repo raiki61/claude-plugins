@@ -21,7 +21,7 @@ from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import graph_text, load_graph, validate_schema
 from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, copy_worktree, die, dump, get_path, git, has_path, now, porcelain, protected_paths, read_json, repo_root, safe_name, set_path, del_path, sha, waiting, write_json
-from .role_run import DELEGATE_TOOLS, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path, probe_group, run_role, run_steps, stop_group, tooled_permission
+from .role_run import DELEGATE_TOOLS, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path, probe_group, read_grant_path, read_rule, run_role, run_steps, stop_group, tooled_permission
 from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
 
@@ -257,7 +257,9 @@ def cmd_next(a):
 #         語を (旗, 値) に読み、形ごとの表に無い語（公式の別名 --allowed-tools・--flag=value の綴り・--add-dir・--mcp-config・
 #         --plugin-dir・--agents・権限を外す旗・余分な位置引数）を拒む。各旗は 1 度きりで、--resume のほかは必須。値は engine が
 #         決めた物と一致すること（_want_values）。以前の拒否リスト（名指しの旗の在否と 2 語の危ない旗）は、別名 1 語で抜けられた
-#   道具ゼロの役: --tools "" と --setting-sources ""——道具が 1 つも無い子は何も実行できないので「権限の外で動く入れ子」にならない
+#   道具ゼロの役: --tools "" と --setting-sources ""——道具が 1 つも無い子は何も実行できないので「権限の外で動く入れ子」にならない。
+#         節が read_file を持つ回だけ、プロンプトの隣の写し 1 本（role_run.read_grant_path）が在り、--tools Read・--permission-mode
+#         dontAsk・--allowedTools がその 1 本の実パスの規則（role_run.read_rule）であること——読める範囲は起こす瞬間に置き場から組み直す
 #   道具つきの役: --setting-sources ""（利用者の設定・CLAUDE.md・プラグインのフックを読まない）・聞く先が無い
 #         （--permission-prompts none）・渡す道具（--tools）が役の定義の道具と一致し、ファイルを書く道具を含まない・権限の形
 #         （--permission-mode）と先に許す道具（--allowedTools）と設定（--settings。sandbox の形）が engine の決めた値
@@ -265,6 +267,7 @@ def cmd_next(a):
 ISOLATED_FLAGS = ("-p", "--resume", "--model", "--effort", "--tools", "--setting-sources", "--append-system-prompt-file",
                   "--output-format")
 TOOLED_FLAGS = ISOLATED_FLAGS + ("--allowedTools", "--permission-mode", "--permission-prompts", "--settings")
+ISOLATED_READ_FLAGS = ISOLATED_FLAGS + ("--allowedTools", "--permission-mode", "--permission-prompts")
 # 任せ先（delegate）の旗: 道具つきの役の旗から --effort を除いた物（任せ先はモデルだけを graph の delegate.model で名指す）
 DELEGATE_FLAGS = tuple(f for f in TOOLED_FLAGS if f != "--effort")
 BARE_FLAGS = ("-p",)          # 値を取らない旗
@@ -342,10 +345,29 @@ def _settings_refusal(value, want):
     return None
 
 
-def _want_values(inst, d, perm, resume):
-    """旗ごとの engine が決めた値。perm は role_run.tooled_permission（道具ゼロなら None）。resume は続きを頼む語か。"""
+def _read_grant_rule(inst, board_dir):
+    """道具ゼロの役に読ませる 1 本の規則（無ければ None）。instance の申告（launch.read_file）でなく、プロンプトの置き場から
+    engine が決める名前（role_run.read_grant_path）で引き直す。プロンプトが盤面の prompts/ の下に無い・写しがリンクか普通の
+    ファイルでない・規則に置けない綴りなら None（Read を渡す argv は拒まれる）"""
+    pf = inst.get("prompt_file")
+    if not pf or board_dir is None:
+        return None
+    prompts = pathlib.Path(os.path.realpath(board_dir)) / "prompts"
+    if pathlib.Path(os.path.realpath(pf)).parent.parent != prompts:
+        return None
+    g = read_grant_path(pf)
+    if g.is_symlink() or not g.is_file():
+        return None
+    return read_rule(g)
+
+
+def _want_values(inst, d, perm, resume, read=None):
+    """旗ごとの engine が決めた値。perm は role_run.tooled_permission（道具ゼロなら None）。resume は続きを頼む語か。
+    read は道具ゼロの役に読ませる 1 本の規則（_read_grant_rule）"""
     want = {**FIXED_VALUES, "--model": d.get("model"), "--effort": d.get("effort")}
-    if perm is None:
+    if perm is None and read:
+        want.update({"--tools": "Read", "--allowedTools": read, "--permission-mode": "dontAsk"})
+    elif perm is None:
         want["--tools"] = ""
     else:
         want.update({"--tools": ",".join(d["tools"]), "--allowedTools": ",".join(perm["allowed_tools"]),
@@ -356,7 +378,7 @@ def _want_values(inst, d, perm, resume):
     return want
 
 
-def _argv_refusal(argv, inst, d, perm, resume=False):
+def _argv_refusal(argv, inst, d, perm, resume=False, read=None):
     """1 本の argv が起こしてよい形か（よければ None）。d は起こす時に読み直した役の定義、perm は engine が決めた権限の形。"""
     want_prefix = launch_prefix()
     if [_norm(a) for a in argv[:len(want_prefix)]] != [_norm(w) for w in want_prefix]:
@@ -365,10 +387,11 @@ def _argv_refusal(argv, inst, d, perm, resume=False):
     role_tools = d["tools"]
     if role_tools and ("*" in role_tools or any(x in WRITE_TOOLS for x in role_tools)):
         return f"全部の道具・ファイルを書く道具を持つ役（{role_tools}）——engine の中からは起こさない"
-    got, why = _parse_flags(argv[len(want_prefix) + 1:], TOOLED_FLAGS if role_tools else ISOLATED_FLAGS)
+    got, why = _parse_flags(argv[len(want_prefix) + 1:],
+                            TOOLED_FLAGS if role_tools else ISOLATED_READ_FLAGS if read else ISOLATED_FLAGS)
     if why:
         return why
-    want = _want_values(inst, d, perm, resume)
+    want = _want_values(inst, d, perm, resume, read)
     for flag, val in got.items():
         if flag in BARE_FLAGS:
             continue
@@ -407,9 +430,10 @@ def launch_refusal(inst, cwd=None, board_dir=None):
     if d is None:
         return f"役 {inst.get('agent_type')!r} の定義が読めない——道具の形が決まらないので engine は起こさない"
     perm = tooled_permission(d["tools"], cwd, board_dir) if d["tools"] else None
+    read = None if d["tools"] else _read_grant_rule(inst, board_dir)
     for words, resume in ((argv, False), (launch.get("resume_argv"), True)):
         if words:
-            why = _argv_refusal(words, inst, d, perm, resume)
+            why = _argv_refusal(words, inst, d, perm, resume, read)
             if why:
                 return why
     if not pathlib.Path(launch.get("stdin") or "").is_file():
@@ -1357,6 +1381,11 @@ def cmd_patch(a):
         routes = "／".join(histmod.repair_routes(fn)) if fn else f"hist.{derived} は rules の HIST に無い"
         raise Reject(f"{a.path} は履歴から作り直す値 hist.{derived}（rules の HIST）で、書いても次に引くとき作り直されて効かない——"
                      f"直すなら値の元を: {routes}（控え {b.dir / 'hist.json'} は正本でなく、書き戻す口も無い）")
+    undeclared = _undeclared_loop_key(b, a.path)
+    if undeclared:
+        raise Reject(f"{a.path}: 鍵 '{undeclared}' は graph の state_schema に無い——今の rules はこの鍵を読まないので、書いても効かない"
+                     "（旧い盤面の鍵か綴り違い）。値の置き場が節の出力に移った鍵なら、その節の出力を loop.py patch --path out.<節>.<欄> で直せ"
+                     "（どの節の出力かは graph の節の outputs が名乗る）")
     if a.path.startswith("out."):
         target, path, shown = None, a.path[len("out."):], a.path   # 節の出力のファイル（_patch_output）
     elif a.path.startswith("state."):
@@ -1384,6 +1413,16 @@ def cmd_patch(a):
     b.trace("patch", path=a.path, **({"delete": True} if a.delete else {}), reason=a.reason)
     b.save()
     print(f"ok {shown} を{'消した' if a.delete else '手当てした'}（痕跡は state.patches と trace に残る）")
+
+
+def _undeclared_loop_key(b, path):
+    if not path.startswith("state.loop."):
+        return None
+    sch = b.graph.get("state_schema")
+    if not isinstance(sch, dict) or sch.get("additionalProperties") is not False:
+        return None
+    key = path[len("state.loop."):].split(".", 1)[0]
+    return None if key in (sch.get("properties") or {}) else key
 
 
 def _derived_patch_target(b, path):

@@ -50,15 +50,15 @@ def prompt_copy(sandbox, name, old, new):
 
 
 def nested_reads(g, sandbox):
-    g["nodes"]["p3.delta_review"]["reads"][0] = "loop.fix_delta.filez"
+    g["nodes"]["p3.delta_review"]["reads"].append("loop.escalated.whyy")
 
 
 def nested_outputs(g, sandbox):
-    g["nodes"]["p3.fix_delta"]["outputs"] = ["loop.fix_delta.revv"]
+    g["nodes"]["p3.fix_delta"]["outputs"] = ["loop.escalated.whyy"]
 
 
 def nested_required_hole(g, sandbox):
-    g["nodes"]["p3.delta_fix"]["prompt_file"] = prompt_copy(sandbox, "p3.delta_fix", "{{loop.fix_delta.file}}", "{{loop.fix_delta.filee}}")
+    g["nodes"]["p2.diagnose"]["prompt_file"] = prompt_copy(sandbox, "p2.diagnose", "{{?loop.escalated}}", "{{loop.escalated.whyyy}}")
 
 
 def output_hole(g, sandbox):
@@ -116,9 +116,9 @@ def material_name_typo(g, sandbox):
 
 
 @pytest.mark.parametrize("breaks,want", [
-    pytest.param(nested_reads, "'loop.fix_delta.filez' を graph の state_schema で辿れない", id="reads-nested"),
-    pytest.param(nested_outputs, "'loop.fix_delta.revv' を graph の state_schema で辿れない", id="outputs-nested"),
-    pytest.param(nested_required_hole, "'loop.fix_delta.filee' を graph の state_schema で辿れない", id="required-hole-nested"),
+    pytest.param(nested_reads, "'loop.escalated.whyy' を graph の state_schema で辿れない", id="reads-nested"),
+    pytest.param(nested_outputs, "'loop.escalated.whyy' を graph の state_schema で辿れない", id="outputs-nested"),
+    pytest.param(nested_required_hole, "'loop.escalated.whyyy' を graph の state_schema で辿れない", id="required-hole-nested"),
     pytest.param(output_hole, "'cur.p3.delta_owed.rowz' の欄 'rowz' が節 p3.delta_owed の schema に無い", id="output-hole-field"),
     pytest.param(output_hole_not_an_ancestor, "cur.p4.assemble.lines_ratio を読むが、その節は前の節", id="output-hole-ancestor"),
     pytest.param(output_cond, "'cur.p4.assemble.r2_refier' の欄 'r2_refier' が節 p4.assemble の schema に無い", id="output-cond-field"),
@@ -155,6 +155,16 @@ def material_name_typo(g, sandbox):
                  id="hist-open-top"),
     pytest.param(lambda g, s: g["state_schema"].__setitem__("additionalProperties", True), "additionalProperties: false", id="open-top"),
     pytest.param(lambda g, s: g.pop("state_schema"), "state_schema（盤面の loop の形）が無い", id="missing-standalone"),
+    # 道具ゼロの役に Read で読ませる 1 本（read_file）: 道具を持つ役の節・loop の鍵でない値・起こす語の無い graph・余白が予算を食う
+    pytest.param(lambda g, s: g["nodes"]["p3.delta_review"].__setitem__("read_file", "hist.snapshot.diff_file"), "道具ゼロの役の節だけ",
+                 id="read-file-tooled"),
+    pytest.param(lambda g, s: g["nodes"]["p1.hygiene"].__setitem__("read_file", "hist.snapshot.diff_filee"), "read_file 'hist.snapshot.diff_filee' は",
+                 id="read-file-typo"),
+    pytest.param(lambda g, s: g["nodes"]["p1.hygiene"].__setitem__("read_file", "loop.diff_file"), "read_file 'loop.diff_file' は",
+                 id="read-file-undeclared-loop-key"),
+    pytest.param(lambda g, s: g["launch"].pop("isolated_read"), "launch.isolated_read.argv が無い", id="read-file-no-launch"),
+    pytest.param(lambda g, s: g["launch"].__setitem__("read_room_bytes", g["launch"]["input_budget_bytes"]), "read_room_bytes は",
+                 id="read-room-eats-budget"),
 ])
 def test_graphcheck_rejects_loop_shape(sandbox, breaks, want):
     g = copy.deepcopy(GRAPH)
@@ -174,13 +184,13 @@ def test_graph_without_state_schema_keeps_the_old_checks_and_warns_on_init(sandb
     """持ち込み・旧い版の graph（state_schema が無い）は init で止めない: loop の読みは鍵の 1 段目だけで照らし、無いことを知らせる"""
     g = copy.deepcopy(GRAPH)
     g.pop("state_schema")
-    g["nodes"]["p3.fix_delta"]["outputs"] = ["loop.fix_delta.revv"]
+    g["nodes"]["p3.fix_delta"]["outputs"] = ["loop.escalated.whyy"]
     path = sandbox / "graphs" / "review-loop.json"
     path.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     lines = []
     ok = graphcheck.check(path, str(REVIEW_VALIDATOR), emit=lines.append, node_keys="warn")
     assert ok and any(str(l).startswith("WARN ") and "state_schema" in str(l) for l in lines), lines[-5:]
-    g["nodes"]["p3.fix_delta"]["outputs"] = ["loop.fix_deltaa"]   # 1 段目の綴り違いは今までどおり落ちる
+    g["nodes"]["p3.fix_delta"]["outputs"] = ["loop.escalatedd"]   # 1 段目の綴り違いは今までどおり落ちる
     path.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     lines = []
     assert not graphcheck.check(path, str(REVIEW_VALIDATOR), emit=lines.append, node_keys="warn")
@@ -205,8 +215,8 @@ def check_at(place, name, g, validator):
 
 
 @pytest.mark.parametrize("breaks,want", [
-    pytest.param(lambda t: t["nodes"]["p3.tdd_tests"]["reads"].append("loop.tdd.redd"), "'loop.tdd.redd' を graph の state_schema で辿れない",
-                 id="tdd-nested"),
+    pytest.param(lambda t: t["nodes"]["p3.tdd_tests"]["reads"].append("loop.escalated.whyy"),
+                 "'loop.escalated.whyy' を graph の state_schema で辿れない", id="tdd-nested"),
     pytest.param(lambda t: t["hist_schema"]["properties"].pop("tdd_gave_up"),
                  "HIST の名前 'tdd_gave_up' が graph の hist_schema.properties に無い", id="tdd-key-not-overlaid"),
 ])
@@ -295,7 +305,9 @@ def test_shipped_state_schema_expands():
         g, why = load_graph(PLUGIN / "graphs" / f"{name}.json")
         assert not why and g["state_schema"]["type"] == "object" and g["state_schema"]["additionalProperties"] is False
     g, _ = load_graph(PLUGIN / "graphs" / "review-loop-tdd.json")
-    assert {"tdd", "fix_delta"} <= set(g["state_schema"]["properties"]) and "tdd_gave_up" not in g["state_schema"]["properties"]
+    # ブロックの出口の値（振り分け A）は節の出力に在り、盤面の loop の形に載らない（TDD の赤・緑の証拠も 3 つの機械の節の出力）
+    assert "escalated" in g["state_schema"]["properties"] and not ({"tdd", "fix_delta", "diff_file", "prev_fix_files"} & set(g["state_schema"]["properties"]))
+    assert "tdd_gave_up" not in g["state_schema"]["properties"]
     assert {"tdd_gave_up", "prev_units", "last_material"} <= set(g["hist_schema"]["properties"])
     # hist_schema の $ref（素材の値の形）も読む入口で展開する——展開しないと控えの照らしと graphcheck の読みの照らしが $ref で止まる
     assert "$ref" not in json.dumps(g["hist_schema"]) and "$ref" not in json.dumps(load_graph(PLUGIN / "graphs" / "review-loop.json")[0]["hist_schema"])

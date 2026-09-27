@@ -7,58 +7,6 @@
    "note": "テスト一式を走らせる実行ファイル。JUnit XML の書き先を第 1 引数に受け、リポジトリのルートで走る（init --input tdd_suite=<パス>）。無ければ init が止まる"
   }
  },
- "state_schema": {
-  "properties": {
-   "tdd": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "red_tries": {
-      "type": "integer"
-     },
-     "green_tries": {
-      "type": "integer"
-     },
-     "start": {
-      "type": [
-       "string",
-       "null"
-      ]
-     },
-     "baseline": {
-      "type": "object"
-     },
-     "baseline_exit": {
-      "type": [
-       "integer",
-       "null"
-      ]
-     },
-     "red": {
-      "type": "string"
-     },
-     "green": {
-      "type": "string"
-     },
-     "named": {
-      "type": "array"
-     },
-     "problems": {
-      "type": "array"
-     },
-     "suite_made": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     }
-    },
-    "description": "振り分けの候補: A 修正の出口（TDD の赤・緑の証拠）"
-   }
-  }
- },
  "hist_schema": {
   "properties": {
    "tdd_gave_up": {
@@ -78,6 +26,47 @@
      }
     },
     "description": "TDD を諦めた周・段・理由（各周の p3.tdd_red・p3.tdd_green の出力の gave_up）"
+   },
+   "tdd_retry": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "red": {
+      "type": "object",
+      "properties": {
+       "ok": {
+        "type": "boolean"
+       },
+       "problems": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "tries": {
+        "type": "integer"
+       }
+      }
+     },
+     "green": {
+      "type": "object",
+      "properties": {
+       "ok": {
+        "type": "boolean"
+       },
+       "problems": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "tries": {
+        "type": "integer"
+       }
+      }
+     }
+    },
+    "description": "この周の赤・緑の確認の最後の試行（p3.tdd_red・p3.tdd_green の出力の ok・problems・tries）"
    }
   }
  },
@@ -97,7 +86,7 @@
    "source": "P3（TDD）＞ テストを書く前の版を固める",
    "does": "テストだけを書く段が触ったファイルをこの版からの差で測るために作業ツリーの今の姿を版に固め、テスト一式を 1 回走らせて元の結末を取る（『ほかは緑のまま』は元の結末で通っていたテストに当てる。元から落ちていたテストは問わない）",
    "outputs": [
-    "loop.tdd"
+    "out.p3.tdd_start（rev・baseline・baseline_exit・suite_made）"
    ],
    "reads": [],
    "schema": {
@@ -121,6 +110,28 @@
       "items": {
        "type": "string"
       }
+     },
+     "baseline": {
+      "type": "object",
+      "patternProperties": {
+       "^": {
+        "type": "string"
+       }
+      },
+      "description": "元の結末（テストの識別子 → 結末）"
+     },
+     "baseline_exit": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "suite_made": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "一式を走らせたことで作業ツリーに出来た・変わったファイル（前の試行の出力から累積）"
      }
     }
    }
@@ -146,7 +157,8 @@
     "out.p2.plan_review",
     "inputs.cwd",
     "inputs.tdd_suite",
-    "loop.tdd"
+    "cur.p3.tdd_start",
+    "hist.tdd_retry"
    ],
    "post_check": "tdd_tests_output",
    "pointers": [
@@ -172,7 +184,7 @@
    "source": "P3（TDD）＞ 赤の確認（機械）",
    "does": "テスト一式を 1 回走らせ、JUnit XML で、名指しのテストが全部 failure で落ち（error・一式に居ない・もう通る・飛ばされたは失格）、元の結末で通っていたテストとこの周に足した名指しの外のテストは通ることを確かめる。テストだけを書く段が申告したテストのファイルの外に触れていないことも確かめる。通らなければテストだけを書く段を差し戻す。3 回通らなければ TDD を諦めて今の流れで進め、理由を記録と次の周の判定役に渡す",
    "outputs": [
-    "loop.tdd"
+    "out.p3.tdd_red（red_rev・named_tests・problems・tries・suite_made）"
    ],
    "reads": [],
    "schema": {
@@ -193,6 +205,27 @@
      },
      "gave_up": {
       "type": "string"
+     },
+     "named_tests": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "red_rev": {
+      "type": "string",
+      "description": "赤を確かめた版（緑の確認がテストのファイルの書き換えをこの版から測る）"
+     },
+     "tries": {
+      "type": "integer",
+      "description": "この段の試行の回数（前の試行の出力から累積）"
+     },
+     "suite_made": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "一式を走らせたことで作業ツリーに出来た・変わったファイル（前の試行の出力から累積）"
      }
     }
    }
@@ -216,9 +249,10 @@
     "prev.r1.minimality",
     "prev.r4.hidden_scope",
     "out.p2.plan_review",
-    "loop.lane_merge",
+    "cur.p3.lane_merge",
     "out.p3.tdd_tests",
-    "loop.tdd",
+    "cur.p3.tdd_red",
+    "hist.tdd_retry",
     "record.process.policy.path",
     "record.process.human_items"
    ],
@@ -239,7 +273,7 @@
    "source": "P3（TDD）＞ 緑の確認（機械）",
    "does": "テスト一式を 1 回走らせ、名指しのテストと、元の結末で通っていたテストが全部通り（元の一式が 0 で終わっていたなら一式も 0 で終わる）、実装の段が申告したテストのファイルを赤の確認の版から書き換えていないことを確かめる。通らなければ実装（p3.fix）を差し戻す。3 回通らなければ諦めて進め、理由を記録と次の周の判定役に渡す",
    "outputs": [
-    "loop.tdd"
+    "out.p3.tdd_green（problems・tries・suite_made）"
    ],
    "reads": [],
    "schema": {
@@ -257,6 +291,17 @@
      },
      "gave_up": {
       "type": "string"
+     },
+     "tries": {
+      "type": "integer",
+      "description": "この段の試行の回数（前の試行の出力から累積）"
+     },
+     "suite_made": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "一式を走らせたことで作業ツリーに出来た・変わったファイル（前の試行の出力から累積）"
      }
     }
    }
@@ -269,11 +314,11 @@
   },
   "p3.delta_review": {
    "reads": [
-    "loop.fix_delta.file",
-    "loop.fix_delta.files",
+    "cur.p3.fix_delta.delta.file",
+    "cur.p3.fix_delta.delta.files",
     "inputs.cwd",
     "out.p2.plan_review",
-    "out.p3.fix.plan_faces",
+    "cur.p3.fix_delta.delta.claimed",
     "out.p3.tdd_tests",
     "record.process.policy.path"
    ],

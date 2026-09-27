@@ -186,8 +186,8 @@
    "title": "次の周のプロンプトに読了の記録が描画される",
    "file": "graphloops/prompts/review-loop/p2.diagnose.md",
    "suite": "graphloops",
-   "old": "{{?loop.wrote_refs_reads}}",
-   "new": "{{?loop.wrote_refs_read}}",
+   "old": "{{?prev.p3.fix.wrote_refs_reads}}",
+   "new": "{{?prev.p3.fix.wrote_refs_read}}",
    "expect": "review-loop.json は第 2 引数なし",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -1216,7 +1216,7 @@
    "title": "修正後の件数を記録に残す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    b.loop_state[\"coverage_after\"] = {\"round\": b.round, \"items\": afters}",
+   "old": "    out[\"coverage_after\"] = {\"round\": b.round, \"items\": afters}",
    "new": "    pass",
    "expect": "修正前の母数 1・修正後に engine が数えた 0 が記録に残る",
    "tests": {
@@ -2132,7 +2132,7 @@
    "title": "印を通らない生存は NoCoverage",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "        if r.get(\"status\") == \"Survived\" and r[\"id\"] in m[\"placed\"] and r[\"id\"] not in m[\"seen\"]:",
+   "old": "        if r.get(\"status\") == \"Survived\" and m.get(\"rc\", 0) == 0 and r[\"id\"] in m[\"placed\"] and r[\"id\"] not in m[\"seen\"]:",
    "new": "        if False:",
    "expect": "expect を宣言した腕は別の検査の赤と印では証拠にならず"
   },
@@ -2380,7 +2380,7 @@
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "修正の件数: 修正役が population と書いても判定者の defects で数え",
-   "old": "coverage（修正前）\", cov[\"how\"], root, rev=b.loop_state.get(\"reviewed_revision\"))",
+   "old": "coverage（修正前）\", cov[\"how\"], root, rev=_head_rev(b))",
    "new": "coverage（修正前）\", cov[\"how\"], root, rev=None)",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -2779,8 +2779,8 @@
    "title": "diff の接頭辞を明示する",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "\"--src-prefix=a/\", \"--dst-prefix=b/\",\n",
-   "new": "\n",
+   "old": "\"--src-prefix=a/\", \"--dst-prefix=b/\", ",
+   "new": "",
    "expect": "リンク: 綴りの大小違いと .gitignore の対象は版に無い",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3207,8 +3207,8 @@
    "title": "修正差分は周の頭の版から測る（累積差分にしない）",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    raw = git_bytes(\"diff\", rev, snap)",
-   "new": "    raw = git_bytes(\"diff\", b.record[\"base\"], snap)",
+   "old": "    raw = git_bytes(\"diff\", *DIFF_FIXED_ARGS, rev, snap, env=_attr_env(b.record.get(\"base\")))",
+   "new": "    raw = git_bytes(\"diff\", *DIFF_FIXED_ARGS, b.record[\"base\"], snap, env=_attr_env(b.record.get(\"base\")))",
    "expect": "1 周目の修正だけの差分は",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3412,8 +3412,8 @@
    "title": "2 回目の差分は 1 回目の修正後の版から測る",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    rev = b.loop_state.get(\"reviewed_revision\") if n == 1 else (_delta_of(b, n - 1) or {}).get(\"rev\")",
-   "new": "    rev = b.loop_state.get(\"reviewed_revision\")",
+   "old": "    rev = (_hist(b, \"snapshot\") or {}).get(\"rev\") if n == 1 else (_delta_of(b, n - 1) or {}).get(\"rev\")",
+   "new": "    rev = (_hist(b, \"snapshot\") or {}).get(\"rev\")",
    "expect": "2 回目の差分は手直しだけ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3875,8 +3875,8 @@
    "title": "一覧の腕と自動の腕の和で 0 本を判定する",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "    sel = pick(arms, a.only, a.files, a.changed_since) + autos",
-   "new": "    sel = (pick(arms, a.only, a.files, a.changed_since) if a.only or a.files or a.changed_since or not a.auto else []) + autos",
+   "old": "    sel = pick(arms, a.only, a.files, a.changed_since, *view) + autos",
+   "new": "    sel = (pick(arms, a.only, a.files, a.changed_since, *view) if a.only or a.files or a.changed_since or not a.auto else []) + autos",
    "expect": "自動の腕の本命"
   },
   {
@@ -4289,8 +4289,8 @@
    "title": "同じ役を続ける節は記録した会話の番号で再開する",
    "file": "graphloops/engine/advance.py",
    "suite": "graphloops",
-   "old": "            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get(\"session_id\"))",
-   "new": "            spec = launch_spec(b, inst, role_def, resume_sid=None)",
+   "old": "            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get(\"session_id\"), read_grant=read_grant)",
+   "new": "            spec = launch_spec(b, inst, role_def, resume_sid=None, read_grant=read_grant)",
    "expect": "履歴の突合は、同じ周の判定を起こした会話の番号で",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4426,11 +4426,11 @@
   },
   {
    "id": "LN10",
-   "title": "線の閉じなかった見逃しは周の頭で判定へ",
+   "title": "線の閉じなかった見逃しは周の頭の節の出力から判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "            rows += lane.get(\"delivered_rows\") or []",
-   "new": "            pass",
+   "old": "    return _declared_faces(h.output, h.round - 1) + ((h.output(\"p1.worktree_before\", h.round) or {}).get(\"lane_rows\") or [])",
+   "new": "    return _declared_faces(h.output, h.round - 1)",
    "expect": "合流: 閉じなかった見逃し（needs_test・defect）は宣言の穴",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -5217,7 +5217,7 @@
    "title": "起こした子のグループの番号を置き場の隣に書く",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "            pathlib.Path(pgid_file).write_text(json.dumps({\"pgid\": p.pid}), encoding=\"utf-8\")",
+   "old": "            pathlib.Path(pgid_file).write_text(json.dumps({\"pgid\": p.pid, \"owner\": os.getpid()}), encoding=\"utf-8\")",
    "new": "            pass",
    "expect": "起こした子のグループの番号を置き場の隣",
    "tests": {
@@ -5231,8 +5231,8 @@
    "title": "番号が印より後に始まったプロセスに再利用されていたら止めない",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    if started > written + REUSE_SLACK:",
-   "new": "    if False:",
+   "old": "        elif not number_reused(started, born):",
+   "new": "        elif True:",
    "expect": "番号が印より後に始まったプロセスに再利用されていれば",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5301,8 +5301,8 @@
    "title": "開始時刻を確かめられない試行は止めない",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    if started is None:\n        return None, None, f\"プロセス",
-   "new": "    if False:\n        return None, None, f\"プロセス",
+   "old": "        if started is None:\n            return [], f\"プロセス",
+   "new": "        if False:\n            return [], f\"プロセス",
    "expect": "開始時刻を確かめられなければ止めずに理由を返す",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -6033,8 +6033,8 @@
    "title": "依頼の入口にも積んだ defect は宣言の穴で同じ 1 件と書く",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "                r[\"how\"] += LANE_SAME_ITEM\n",
-   "new": "                pass\n",
+   "old": "            row[\"how\"] += LANE_SAME_ITEM\n",
+   "new": "            pass\n",
    "expect": "合流: 依頼の入口にも積んだ defect は",
    "tests": {
     "graphloops/tests/simulate_review.py": [

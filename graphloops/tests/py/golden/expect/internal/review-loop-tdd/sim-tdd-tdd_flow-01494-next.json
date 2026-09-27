@@ -25,8 +25,8 @@
    "この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件"
   ],
   "external_standards_due": [
-   true,
-   "初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周——成り立つ（round=2・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
   ],
   "final_gate_due": [
    false,
@@ -37,8 +37,8 @@
    "この周の修正の差分は 0 ファイル"
   ],
   "gate_efficacy_due": [
-   true,
-   "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 0 件）"
   ],
   "gates_cut_nonempty": [
    false,
@@ -57,8 +57,8 @@
    "この周のコードは周の頭から 0 ファイル変わった"
   ],
   "main_path_observation_due": [
-   true,
-   "差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 0 件）"
   ],
   "not_request_entry": [
    true,
@@ -73,24 +73,24 @@
    "入口の印（process.request_entry）が無い——通常の run"
   ],
   "prior_decisions_due": [
-   true,
-   "初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立つ（round=2・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
   ],
   "procedure_trace_due": [
-   true,
-   "差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分に手順書・スクリプト・CI 定義が無い・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分に手順書・スクリプト・CI 定義が無い・前の周の P3 が触ったファイルは 0 件）"
   ],
   "provenance_due": [
-   true,
-   "初回か、前の周の P3 が何かを直した周——成り立つ（round=2・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "初回か、前の周の P3 が何かを直した周——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
   ],
   "purpose_review_due": [
    false,
    "目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ"
   ],
   "r1_refire": [
-   false,
-   "R1 の再発火条件に当たらない（前の周から台帳も差分も変わっていない）"
+   true,
+   "R1 の再発火条件に当たる"
   ],
   "r2_compare_due": [
    false,
@@ -141,8 +141,8 @@
    "この周のテストだけを書く段が名指ししたテストは 0 件"
   ],
   "test_double_fidelity_due": [
-   true,
-   "差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 0 件）"
   ],
   "touches_procedures": [
    false,
@@ -162,15 +162,14 @@
   ]
  },
  "loop": {
-  "changed_files_file": "<RUN>/changed-r3.txt",
-  "diff_file": "<RUN>/diff-r3.patch",
+  "changed_files": "<消えた>",
+  "diff_lines": "<消えた>",
   "open_units": "<消えた>",
-  "prev_fix_files": [],
-  "prev_own_precedents": [],
+  "prev_fix_files": "<消えた>",
   "purpose_known": "<消えた>",
   "purpose_unusable": "<消えた>",
   "r1_refire": "<消えた>",
-  "reviewed_revision": "7417fccf503b07ede7c0b9bb51f1cf31e8ad554b"
+  "request_wheres": "<消えた>"
  },
  "outputs": {
   "out/r2/converge.json": {
@@ -188,14 +187,21 @@
   },
   "out/r3/p1.worktree_before.json": {
    "ok": true,
-   "diff_file": "<RUN>/diff-r3.patch",
-   "changed_files": [
-    "src/a.py",
-    "src/b.py",
-    "tests/__pycache__/test_limit.cpython-314.pyc",
-    "tests/test_limit.py"
-   ],
-   "stat": "4 files changed, 11 insertions(+), 2 deletions(-)",
+   "snapshot": {
+    "rev": "7417fccf503b07ede7c0b9bb51f1cf31e8ad554b",
+    "diff_file": "<RUN>/diff-r3.patch",
+    "changed_files": [
+     "src/a.py",
+     "src/b.py",
+     "tests/__pycache__/test_limit.cpython-314.pyc",
+     "tests/test_limit.py"
+    ],
+    "changed_files_file": "<RUN>/changed-r3.txt",
+    "stat": "4 files changed, 11 insertions(+), 2 deletions(-)",
+    "diff_lines": 13,
+    "paste_file": "<RUN>/diff-r3.patch",
+    "entry": false
+   },
    "tree_before": {
     "porcelain": [
      " M src/a.py",
@@ -204,7 +210,9 @@
     "stash": "",
     "tree": "7d97d0dfbdf5aae4c09af2c19104f208958824be",
     "rev": "7417fccf503b07ede7c0b9bb51f1cf31e8ad554b"
-   }
+   },
+   "changed_since_prev_round": [],
+   "lane_rows": []
   }
  },
  "calls": [
@@ -265,11 +273,6 @@
   ],
   [
    "CONDS",
-   "external_standards_due",
-   "真"
-  ],
-  [
-   "CONDS",
    "final_gate_due",
    "偽"
   ],
@@ -282,11 +285,6 @@
    "CONDS",
    "gate_efficacy_due",
    "偽"
-  ],
-  [
-   "CONDS",
-   "gate_efficacy_due",
-   "真"
   ],
   [
    "CONDS",
@@ -315,11 +313,6 @@
   ],
   [
    "CONDS",
-   "main_path_observation_due",
-   "真"
-  ],
-  [
-   "CONDS",
    "not_request_entry",
    "真"
   ],
@@ -340,28 +333,13 @@
   ],
   [
    "CONDS",
-   "prior_decisions_due",
-   "真"
-  ],
-  [
-   "CONDS",
    "procedure_trace_due",
    "偽"
   ],
   [
    "CONDS",
-   "procedure_trace_due",
-   "真"
-  ],
-  [
-   "CONDS",
    "provenance_due",
    "偽"
-  ],
-  [
-   "CONDS",
-   "provenance_due",
-   "真"
   ],
   [
    "CONDS",
@@ -371,7 +349,7 @@
   [
    "CONDS",
    "r1_refire",
-   "偽"
+   "真"
   ],
   [
    "CONDS",
@@ -437,11 +415,6 @@
    "CONDS",
    "test_double_fidelity_due",
    "偽"
-  ],
-  [
-   "CONDS",
-   "test_double_fidelity_due",
-   "真"
   ],
   [
    "CONDS",

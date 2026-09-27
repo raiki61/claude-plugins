@@ -229,13 +229,13 @@
     "stdout": "a16086e3045e8e37d2c71a1ad653436118a6e7cb\n"
    }
   ],
-  "[[\"diff\", \"a194d956259fb61575c903e4ea842db06c8451a4\", \"a16086e3045e8e37d2c71a1ad653436118a6e7cb\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"a194d956259fb61575c903e4ea842db06c8451a4\", \"a16086e3045e8e37d2c71a1ad653436118a6e7cb\"], {}]": [
    {
     "rc": 0,
     "stdout": ""
    }
   ],
-  "[[\"diff\", \"--numstat\", \"-z\", \"a194d956259fb61575c903e4ea842db06c8451a4\", \"a16086e3045e8e37d2c71a1ad653436118a6e7cb\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"--numstat\", \"-z\", \"a194d956259fb61575c903e4ea842db06c8451a4\", \"a16086e3045e8e37d2c71a1ad653436118a6e7cb\"], {}]": [
    {
     "rc": 0,
     "stdout": ""

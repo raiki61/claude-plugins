@@ -6,13 +6,14 @@
 役の起こし方・待ち方・続きの頼み方・要約の残し方を写し直さないため（docs の作り直しの設計「手順 1」）。
 
 流れ:
-  1. argv を子プロセスで起こし、材料を標準入力で渡す（貼る上限に当たらない）。
+  1. argv を子プロセスで起こし、材料を標準入力で渡す（Agent ツールの貼る上限に当たらない。モデルの入力の上限は残る）。
   2. **子の終了を直接待つ。** 完了の知らせ（通知・中継の AI の『書いた』）には頼らない——知らせは入れ子や上限落ちで
      消えた（実測 2026-09-24〜25: 局所レビューの入れ子の起動で知らせが届かず 7 時間止まった）。**時間の上限は付けない**
      ——所要時間を実測で決めていない値が上限を兼ねると、長く考える役を途中で打ち切る（2026-09-25 に外した。理由は
      docs/graphloops-rearchitecture.md の「期限を外した」）。子を起こすたびに、そのプロセスグループの番号を返答の置き場の
      隣（pgid_path）に書き、試行の終わりに木の残りを止めてから消す——別のプロセスが試行を木ごと止める口
      （前置の層 with-auth.py が子の claude を孫として起こすので、層だけを止めると claude が孤児で走り続ける）。
+     止め切れなかった木は印に書き直して残す（_end_attempt）。受け付けの前は relaunch・stop が、後は loop.py children が引く。
   3. 標準出力が `--output-format json` の包み（result・session_id・num_turns・duration_ms・total_cost_usd・usage）なら
      解いて返答の本文だけを、包みでなければ標準出力の全文を本文として out_path に書く（unwrap）。要約は log_path
      （engine は盤面の trace.jsonl）に JSON Lines で 1 起動 1 行残す。
@@ -167,6 +168,34 @@ def tooled_permission(tools, cwd=None, board_dir=None):
 # 作業ディレクトリの外に作る写しで、Edit(./**) のように作業ディレクトリに縛った書く道具はそこへ届かない。書くのは Bash だけで、
 # Bash は OS の sandbox の中でだけ走る（delegate_settings）
 DELEGATE_TOOLS = ("Bash", "Read", "Glob", "Grep", "WebFetch", "WebSearch")
+
+
+# 道具ゼロの役に Read で 1 本だけ読ませる写しの名前の末尾。置き場はその instance のプロンプトの隣（read_grant_path）
+READ_GRANT_SUFFIX = ".read"
+# Read の許可規則の中で意味を持つ字（glob・括弧・--allowedTools の区切りのカンマと空白・エスケープ）。含むパスは 1 本に縛れない
+RULE_UNSAFE = frozenset("*?[]{}(),\\ \t\n\r")
+
+
+def read_grant_path(prompt_file):
+    """道具ゼロの役に読ませる写しの置き場——プロンプトの隣の <プロンプトの名前>.read。起こす側（advance.emit）と柵
+    （commands._argv_refusal）が同じここを引く——graph も instance も、読ませる場所を名指せない"""
+    p = pathlib.Path(prompt_file)
+    return p.with_name(p.stem + READ_GRANT_SUFFIX)
+
+
+def read_rule(path):
+    """ファイル 1 本だけを読む Read の許可規則 `Read(//<実パス>)`。読めない形なら None。
+
+    実パス（リンクを解決した綴り）で組む——公式の permissions の文書: allow の規則はリンクの綴りと解決した先の両方に当たるときだけ効き、
+    当たらなければ dontAsk の下では黙って拒まれる（macOS の /tmp → /private/tmp のような祖先のリンクで当たらなくなる）。Windows の
+    綴りは同じ文書の POSIX 形（C:\\Users → /c/Users）に直す。規則の中で意味を持つ字（RULE_UNSAFE）を含むパスは None"""
+    real = os.path.realpath(path)
+    if os.name == "nt":
+        w = pathlib.PureWindowsPath(real)
+        real = "/" + w.drive.rstrip(":").lower() + "/" + "/".join(w.parts[1:])
+    if not real.startswith("/") or RULE_UNSAFE & set(real):
+        return None
+    return "Read(/" + real + ")"
 
 
 def delegate_permission():
@@ -324,7 +353,7 @@ def _tree_members(pgid, known=None, born=None):
     while cur in rows and cur not in mine:
         mine.add(cur)
         cur = rows[cur].ppid
-    reused = born is not None and pgid in rows and rows[pgid].started > born + REUSE_SLACK
+    reused = born is not None and pgid in rows and number_reused(rows[pgid].started, born)
     found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid or sessions.get(pid) == pgid}
     found |= {pid for pid, t in (known or {}).items() if pid in rows and abs(rows[pid].started - t) <= REUSE_SLACK}
     children = {}
@@ -515,11 +544,11 @@ def _communicate(p, stdin=None, timeout=None, trees=None):
 
 
 def _reap(trees):
-    """試行の終わりに、正常に終わった長の木の残り（外へ出た背景のプロセス）を止める。返すのは止め切れなかった理由（None なら
-    止まった・居なかった）。長はもう回収してあるので、番号の再利用は起こした時刻（born）で見分ける。セッションを読めない
-    プロセスが居るだけの理由（UNSURE）は止め切れなかったとは数えない——正常に終わった試行の印を、それだけで残し続けない"""
-    whys = [w for w in (_reap_one(pid, born=born) for pid, born in trees) if w]
-    return "; ".join(whys) or None
+    """試行の終わりに、正常に終わった長の木の残り（外へ出た背景のプロセス）を止める。返すのは止め切れなかった木の
+    [(pid, born)]（空なら止まった・居なかった）。長はもう回収してあるので、番号の再利用は起こした時刻（born）で見分ける。
+    セッションを読めないプロセスが居るだけの理由（UNSURE）は止め切れなかったとは数えない——正常に終わった試行の印を、
+    それだけで残し続けない"""
+    return [(pid, born) for pid, born in trees if _reap_one(pid, born=born)]
 
 
 def _reap_one(pid, leader=None, born=None):
@@ -552,7 +581,7 @@ def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=Non
     try:
         if pgid_file:
             # 印の更新時刻が『この子を起こした後』の目印になる（stop_group が番号の再利用を開始時刻で見分ける）
-            pathlib.Path(pgid_file).write_text(json.dumps({"pgid": p.pid}), encoding="utf-8")
+            pathlib.Path(pgid_file).write_text(json.dumps({"pgid": p.pid, "owner": os.getpid()}), encoding="utf-8")
         if still_mine is not None and not still_mine():
             raise Superseded
         out, err = _communicate(p, stdin_bytes, trees=trees)
@@ -569,13 +598,26 @@ def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=Non
 
 
 def _end_attempt(trees, pgid_file):
-    """試行の終わり: 木の残りを止め（_reap）、止まったら印を消す。止め切れなければ印を残す（relaunch・stop が止められる）"""
-    if _reap(trees) is None and pgid_file:
+    """試行の終わり: 木の残りを止め（_reap）、止まったら印を消す。止め切れなかった木が在れば、その木（番号と起こした時刻）を
+    印に書き直して残す——起こした直後の印は最後の往復・段の番号しか持たないので、そのままでは前の往復・段の残りを引けない。
+    残した印を引くのは loop.py children（受け付けの後。受け付けの前なら relaunch・stop も）"""
+    left = _reap(trees)
+    if not pgid_file:
+        return
+    if not left:
         pathlib.Path(pgid_file).unlink(missing_ok=True)
+        return
+    pathlib.Path(pgid_file).write_text(json.dumps({"left": [{"pgid": pid, "born": born} for pid, born in left],
+                                                   "owner": os.getpid()}), encoding="utf-8")
 
 
 GONE = "gone"   # _started_at の『その番号のプロセスは居ない』
-REUSE_SLACK = 2.0   # 開始時刻の読みの誤差（ps の etime は秒の切り捨て）。印より後にこれを超えて始まったプロセスは別物
+REUSE_SLACK = 2.0   # 開始時刻の読みの誤差（ps の etime は秒の切り捨て）
+
+
+def number_reused(started, born):
+    """番号が再利用されたか: その番号のプロセスが born（起こした時刻・印を書いた時刻）より REUSE_SLACK を超えて後に始まった"""
+    return started > born + REUSE_SLACK
 
 
 def _started_at(pid):
@@ -630,57 +672,71 @@ def parse_cim(out):
         return None
 
 
-def probe_group(pgid_file):
-    """印（<out_path>.pgid）が指す試行の子のグループを、**信号を送らずに**確かめる ——(pgid, why)。中身は _probe"""
-    pgid, _written, why = _probe(pgid_file)
-    return pgid, why
-
-
-def _probe(pgid_file):
-    """probe_group の中身 ——(pgid, written, why)。written は印の更新時刻で、stop_group が番号の再利用の目印（born）に
-    同じ読みのまま使う（別の読みにすると、間に印が書き直された回に古い時刻と新しい番号の組になる）。
-    pgid が None なら止める物が無い（印が無い・番号が別のプロセスに再利用されていた——そのときは印を消す）。
-    why は確かめられない理由（印が読めない・開始時刻が取れない）。relaunch は新しい試行を書く前にこれだけを呼ぶ
-    （止められない試行の上に新しい試行を作らない）。
-
-    **番号の再利用は開始時刻で見分ける**: 印は子を起こした直後に書くので、印の更新時刻より後に始まったプロセスは別物
-    （REUSE_SLACK は読みの誤差）。POSIX で長が居ないなら止める側に倒す——グループが在る限りその番号は再利用されないので、
-    残っているのは古い試行の孫である。Windows で長が居ないなら止める物は無い（taskkill /T は親子の鎖で木を辿る）。"""
+def read_mark(pgid_file):
+    """印を読む（信号も消去もしない）——(木の一覧 [(pgid, born)], owner, 印の更新時刻, 読めない理由)。印が無ければ ([], None, None, None)。
+    印の形は 2 つ: 子を起こした直後の {"pgid", "owner"}（born は印の更新時刻——子を起こした後に書くので）と、試行の終わりに
+    止め切れなかった木を書き直した {"left": [{"pgid", "born"}…], "owner"}（_end_attempt）。owner は印を書いたプロセス
+    （launch）の番号で、古い engine の印には無い（None）"""
     path = pathlib.Path(pgid_file)
     try:
         mark = json.loads(path.read_text(encoding="utf-8"))
-        pgid = int(mark["pgid"])
         written = path.stat().st_mtime
+        rows = mark["left"] if "left" in mark else [{"pgid": mark["pgid"]}]
+        trees = [(int(r["pgid"]), written if r.get("born") is None else float(r["born"])) for r in rows]
+        owner = None if mark.get("owner") is None else int(mark["owner"])
     except FileNotFoundError:
-        return None, None, None
-    except (OSError, ValueError, KeyError, TypeError) as e:
-        return None, None, f"{path}: 読めない（{e}）"
-    started = _started_at(pgid)
-    if started is None:
-        return None, None, f"プロセス {pgid} の開始時刻を確かめられない（番号が再利用されていれば無関係な木を止めるので、止めない）"
-    if started == GONE:
-        if os.name != "posix":
-            path.unlink(missing_ok=True)
-            return None, None, None
-        return pgid, written, None
-    if started > written + REUSE_SLACK:
-        path.unlink(missing_ok=True)   # 番号が印より後に始まった別のプロセスに再利用されている——古い試行はもう居ない
-        return None, None, None
-    return pgid, written, None
+        return [], None, None, None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        return [], None, None, f"{path}: 読めない（{e}）"
+    return trees, owner, written, None
+
+
+def probe_group(pgid_file):
+    """印（<out_path>.pgid）が指す試行の子のグループを、**信号を送らずに**確かめる ——(pgid, why)。中身は _probe"""
+    trees, why = _probe(pgid_file)
+    return (trees[0][0] if trees else None), why
+
+
+def _probe(pgid_file):
+    """probe_group の中身 ——(止める木 [(pgid, born)], why)。born は番号の再利用の目印で、stop_group が同じ読みのまま使う
+    （別の読みにすると、間に印が書き直された回に古い時刻と新しい番号の組になる）。
+    止める木が空なら止める物が無い（印が無い・番号が全部別のプロセスに再利用されていた——そのときは印を消す）。
+    why は確かめられない理由（印が読めない・開始時刻が取れない）。relaunch は新しい試行を書く前にこれだけを呼ぶ
+    （止められない試行の上に新しい試行を作らない）。
+
+    **番号の再利用は開始時刻で見分ける**: 印は子を起こした後に書くので、born より後に始まったプロセスは別物
+    （REUSE_SLACK は読みの誤差）。POSIX で長が居ないなら止める側に倒す——グループが在る限りその番号は再利用されないので、
+    残っているのは古い試行の孫である。Windows で長が居ないなら止める物は無い（taskkill /T は親子の鎖で木を辿る）。"""
+    trees, _owner, _written, why = read_mark(pgid_file)
+    if why or not trees:
+        return [], why
+    keep = []
+    for pgid, born in trees:
+        started = _started_at(pgid)
+        if started is None:
+            return [], f"プロセス {pgid} の開始時刻を確かめられない（番号が再利用されていれば無関係な木を止めるので、止めない）"
+        if started == GONE:
+            if os.name == "posix":
+                keep.append((pgid, born))
+        elif not number_reused(started, born):
+            keep.append((pgid, born))
+    if not keep:
+        pathlib.Path(pgid_file).unlink(missing_ok=True)
+    return keep, None
 
 
 def stop_group(pgid_file):
-    """別のプロセスから、試行の子を木ごと止める（loop.py relaunch と loop.py stop が使う）。返すのは止め切れなかった理由（None なら止まった・
-    居なかった）。確かめ方は _probe、止め方は _kill と同じ _stop_tree（Popen を持たないので長の回収はしない）。
-    印は試行が終わると launch の側が消すので、印が無ければ止める物は無い。長の番号の再利用の目印（born）は、_probe が
-    番号と同じ読みで返す印の更新時刻"""
-    pgid, written, why = _probe(pgid_file)
-    if why or pgid is None:
+    """別のプロセスから、試行の子を木ごと止める（loop.py relaunch・stop と、受け付けの後の残りを引く loop.py children が使う）。
+    返すのは止め切れなかった理由（None なら止まった・居なかった）。確かめ方は _probe、止め方は _kill と同じ _stop_tree
+    （Popen を持たないので長の回収はしない）。印は試行が止まり切れば launch の側が消し、止め切れなかった木だけを書き直して残す
+    （_end_attempt）ので、印が無ければ止める物は無い。長の番号の再利用の目印（born）は、_probe が番号と同じ読みで返す値"""
+    trees, why = _probe(pgid_file)
+    if why or not trees:
         return why
-    why = _stop_tree(pgid, born=written)
-    if why is None:
+    whys = [w for w in (_stop_tree(pgid, born=born) for pgid, born in trees) if w]
+    if not whys:
         pathlib.Path(pgid_file).unlink(missing_ok=True)
-    return why
+    return "; ".join(whys) or None
 
 
 def unwrap(stdout):
@@ -739,31 +795,27 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
     log_dir.mkdir(parents=True, exist_ok=True)
     runs, trees = [], []
     try:
-        _run_steps(steps, cwd, log_dir, pgid_file, still_mine, runs, trees)
+        for i, s in enumerate(steps):
+            started = time.time()
+            base = log_dir / f"{i + 1}"
+            row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
+            try:
+                rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, pgid_file=pgid_file, still_mine=still_mine,
+                                      trees=None if s.get("keep_background") else trees)
+            except OSError as e:
+                rc, out, err = None, b"", str(e).encode("utf-8")
+                row["error"] = str(e)
+            pathlib.Path(row["out"]).write_bytes(out)
+            pathlib.Path(row["err"]).write_bytes(err)
+            row.update(exit=rc, wall_s=round(time.time() - started, 1), tail=_tail(out + b"\n" + err))
+            runs.append(row)
     finally:
         _end_attempt(trees, pgid_file)
     return runs
 
 
-def _run_steps(steps, cwd, log_dir, pgid_file, still_mine, runs, trees):
-    for i, s in enumerate(steps):
-        started = time.time()
-        base = log_dir / f"{i + 1}"
-        row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
-        try:
-            rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, pgid_file=pgid_file, still_mine=still_mine,
-                                  trees=None if s.get("keep_background") else trees)
-        except OSError as e:
-            rc, out, err = None, b"", str(e).encode("utf-8")
-            row["error"] = str(e)
-        pathlib.Path(row["out"]).write_bytes(out)
-        pathlib.Path(row["err"]).write_bytes(err)
-        row.update(exit=rc, wall_s=round(time.time() - started, 1), tail=_tail(out + b"\n" + err))
-        runs.append(row)
-
-
 def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_resumes=0,
-             log_path=None, meta=None, cwd=None, env=None, still_mine=None, reap=True):
+             log_path=None, meta=None, cwd=None, env=None, still_mine=None):
     """役を起こし、返答を out_path に書き、受け付けまで済ませる。
 
     argv        起こす語の全部（前置の層・claude・旗）。同じ会話を続ける節ならここが既に --resume を含む
@@ -777,7 +829,8 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
     meta        要約の各行に添える値（instance・周など。呼び出し側の語彙で、この関数は読まない）
     cwd / env   子の作業ディレクトリと環境（None なら呼び出し側のもの）
     still_mine  still_mine() -> bool。子を起こすたびに聞き、偽なら（起こし直された・人が止めた）その子を止めて返る。None なら聞かない
-    reap        真なら、正常に終わった往復の木の残りを試行の終わりに 1 回まとめて止める（偽は止める口だけを確かめる台本の形）
+
+    正常に終わった往復の木の残りは、試行の終わりに 1 回まとめて止める（_end_attempt）
 
     返り値: {"ok", "why", "session_id", "superseded", "accepted", "runs": [要約…], "rejections": [理由…]}
     """
@@ -785,65 +838,60 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
         stdin = fh.read()
     got = {"ok": False, "why": None, "session_id": None, "superseded": False, "accepted": None, "runs": [], "rejections": []}
     cur = list(argv)
-    trees = [] if reap else None
+    trees = []
     try:
-        _role_turns(cur, stdin, out_path, got, accept, resume_argv, max_resumes, log_path, meta, cwd, env, still_mine, trees)
-    finally:
-        if trees is not None:
-            _end_attempt(trees, pgid_path(out_path))
-    return got
-
-
-def _role_turns(cur, stdin, out_path, got, accept, resume_argv, max_resumes, log_path, meta, cwd, env, still_mine, trees):
-    for turn in range(max_resumes + 1):
-        started = time.time()
-        try:
-            rc, out, err = _spawn(cur, stdin, cwd=cwd, env=env, pgid_file=pgid_path(out_path), still_mine=still_mine, trees=trees)
-        except OSError as e:
-            rc, out, err = None, b"", str(e).encode("utf-8")
-        except Superseded:
-            got.update(superseded=True, why=SUPERSEDED)
-            break
-        text, summary, bad = unwrap(out)
-        if summary.get("session_id"):
-            got["session_id"] = summary["session_id"]
-        run = {"turn": turn + 1, "kind": "first" if turn == 0 else "resume", "exit": rc,
-               "wall_s": round(time.time() - started, 1), **summary,
-               "stderr": err.decode("utf-8", "replace").strip()[-600:]}
-        if bad or rc not in (0, None):
-            # 受け付けに回らなかった回（解けなかった・子が exit 0 以外で終わった）は、何が返ったかを後から読めるように
-            # 標準出力の頭を残す。包みでない出力が exit 0 以外と重なる回は、ここにしか残らない（out_path に書かず why にも載らない）
-            run["stdout_head"] = out.decode("utf-8", "replace").strip()[:600]
-        stop = True
-        if rc is None:
-            got["why"] = f"起こせない: {run['stderr']}"
-        elif bad or rc != 0:
-            got["why"] = bad or f"子が exit {rc} で終わった"
-        else:
-            pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-            pathlib.Path(out_path).write_text(text, encoding="utf-8")
-            run["bytes"] = len(text.encode("utf-8"))
+        for turn in range(max_resumes + 1):
+            started = time.time()
             try:
-                reason = accept(text) if accept else None
-            except (Exception, SystemExit) as e:  # 役のせいでない失敗——続きを頼んでも直らない
-                reason, got["why"] = None, f"受け付けの検査が落ちた（{type(e).__name__}: {e}）"
+                rc, out, err = _spawn(cur, stdin, cwd=cwd, env=env, pgid_file=pgid_path(out_path), still_mine=still_mine, trees=trees)
+            except OSError as e:
+                rc, out, err = None, b"", str(e).encode("utf-8")
+            except Superseded:
+                got.update(superseded=True, why=SUPERSEDED)
+                break
+            text, summary, bad = unwrap(out)
+            if summary.get("session_id"):
+                got["session_id"] = summary["session_id"]
+            run = {"turn": turn + 1, "kind": "first" if turn == 0 else "resume", "exit": rc,
+                   "wall_s": round(time.time() - started, 1), **summary,
+                   "stderr": err.decode("utf-8", "replace").strip()[-600:]}
+            if bad or rc not in (0, None):
+                # 受け付けに回らなかった回（解けなかった・子が exit 0 以外で終わった）は、何が返ったかを後から読めるように
+                # 標準出力の頭を残す。包みでない出力が exit 0 以外と重なる回は、ここにしか残らない（out_path に書かず why にも載らない）
+                run["stdout_head"] = out.decode("utf-8", "replace").strip()[:600]
+            stop = True
+            if rc is None:
+                got["why"] = f"起こせない: {run['stderr']}"
+            elif bad or rc != 0:
+                got["why"] = bad or f"子が exit {rc} で終わった"
             else:
-                if reason is None:
-                    got.update(ok=True, why=None, accepted=True)
+                pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+                pathlib.Path(out_path).write_text(text, encoding="utf-8")
+                run["bytes"] = len(text.encode("utf-8"))
+                try:
+                    reason = accept(text) if accept else None
+                except (Exception, SystemExit) as e:  # 役のせいでない失敗——続きを頼んでも直らない
+                    reason, got["why"] = None, f"受け付けの検査が落ちた（{type(e).__name__}: {e}）"
                 else:
-                    got["rejections"].append(reason)
-                    got.update(accepted=False, why=f"受け付けが拒んだ: {reason}")
-                    stop = False
-            run["accepted"] = got["accepted"]
-        run["why"] = got["why"]
-        got["runs"].append(run)
-        if log_path:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"t": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-                                    "op": "role_run", **(meta or {}), **run}, ensure_ascii=False) + "\n")
-        # 続きを頼むのは「役が返したが拒まれた」ときだけ。起動の失敗・受け付けの検査の失敗は、
-        # 同じ会話に頼んでも直らない（続ける会話が無いか、役のせいでない）
-        if stop or not (resume_argv and got["session_id"]) or turn == max_resumes:
-            break
-        cur = [a.replace("{session_id}", got["session_id"]) for a in resume_argv]
-        stdin = RESUME_NOTE.format(why=got["rejections"][-1]).encode("utf-8")
+                    if reason is None:
+                        got.update(ok=True, why=None, accepted=True)
+                    else:
+                        got["rejections"].append(reason)
+                        got.update(accepted=False, why=f"受け付けが拒んだ: {reason}")
+                        stop = False
+                run["accepted"] = got["accepted"]
+            run["why"] = got["why"]
+            got["runs"].append(run)
+            if log_path:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"t": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+                                        "op": "role_run", **(meta or {}), **run}, ensure_ascii=False) + "\n")
+            # 続きを頼むのは「役が返したが拒まれた」ときだけ。起動の失敗・受け付けの検査の失敗は、
+            # 同じ会話に頼んでも直らない（続ける会話が無いか、役のせいでない）
+            if stop or not (resume_argv and got["session_id"]) or turn == max_resumes:
+                break
+            cur = [a.replace("{session_id}", got["session_id"]) for a in resume_argv]
+            stdin = RESUME_NOTE.format(why=got["rejections"][-1]).encode("utf-8")
+    finally:
+        _end_attempt(trees, pgid_path(out_path))
+    return got

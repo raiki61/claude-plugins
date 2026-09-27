@@ -106,6 +106,35 @@ def rm(p):
     shutil.rmtree(p, ignore_errors=True)
 
 
+# 固定具の子の寿命を、起こした台本のプロセスの生存に縛る口（POSIX）。台本が排他ロックを握り、子はその共有ロックを待つだけの
+# 1 行（hold_code）で眠る。台本が終わる・SIGKILL で消える（変異の実行器が failfast・時間切れでグループごと殺す回）とカーネルが
+# ロックを離し、子は取れた所で終わる——台本の後始末（finally・ExitStack）は SIGKILL の下では走らず、グループ・セッションを
+# 抜けた子には実行器の killpg も届かないので、時間で待たせていた頃は抜けた子が寿命いっぱい残った。engine が標準入力を閉じて
+# 起こす子（run_tree・run_steps・run_role の先）は標準入力の EOF で縛れないので、この口を使う（台本が自分で起こす子は
+# stdin=PIPE の EOF で縛る）。番号で信号を送る後始末は足さない（止めた後に再利用された番号へ届く）
+_HELD = []
+
+
+def creator_lock(dir):
+    """dir に排他ロックを作って、このプロセスが終わるまで握る。返すのはロックの置き場（hold_code の子に渡す）。
+    置き場が既に握られていれば待たずに例外（同じ置き場を 2 度握ろうとした台本を、止まらずに赤にする）"""
+    import fcntl
+    path = pathlib.Path(dir) / "creator.lock"
+    f = open(path, "w", encoding="utf-8")
+    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with LOCK:
+        _HELD.append(f)
+    return str(path)
+
+
+def hold_code(secs, first=""):
+    """固定具の子の本文（python -c <本文> <ロックの置き場>）: 起こした台本がロックを離すまで待つ。secs は今までの寿命の上限を
+    そのまま残す——止める側の欠陥で子が止まらない回に、子を待つ検査が赤にならず待ち続けないため（上限を足すのではない）。
+    first は待つ前に呼ぶ文（グループを抜ける os.setpgid(0, 0) など）。引用符を含まないので sh の引用の中にも置ける"""
+    return (f"import fcntl, os, signal, sys; {first}signal.alarm({int(secs)}); "
+            "fcntl.flock(os.open(sys.argv[1], os.O_RDONLY), fcntl.LOCK_SH)")
+
+
 # 走っている台本の名前。変異の実行器（tests/mutate.py の marker_run）が、印を書いた行を『どの台本が通したか』に帰属させる口。
 # 同じプロセスの中はスレッドの名前（TEST_THREAD の接頭辞）で、台本が起こした子のプロセスは作業場の名前の印（TAG）で見分ける
 # ——子の起動の呼び元は、作業場を cwd に渡しさえすれば何も持たなくてよい（env の渡し口を呼び元ごとに足すと、渡さない入口が残る）。

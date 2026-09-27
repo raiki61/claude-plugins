@@ -124,13 +124,13 @@
     "stdout": "dc604fdff28e53cd91da1a967a43dd2c0bf42a2f\n"
    }
   ],
-  "[[\"diff\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"dc604fdff28e53cd91da1a967a43dd2c0bf42a2f\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"dc604fdff28e53cd91da1a967a43dd2c0bf42a2f\"], {}]": [
    {
     "rc": 0,
     "stdout": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
    }
   ],
-  "[[\"diff\", \"--numstat\", \"-z\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"dc604fdff28e53cd91da1a967a43dd2c0bf42a2f\"], {}]": [
+  "[[\"diff\", \"--no-color\", \"--no-ext-diff\", \"--src-prefix=a/\", \"--dst-prefix=b/\", \"--no-relative\", \"--numstat\", \"-z\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"dc604fdff28e53cd91da1a967a43dd2c0bf42a2f\"], {}]": [
    {
     "rc": 0,
     "stdout": "2\t2\tsrc/a.py\u00002\t0\tsrc/b.py\u0000"

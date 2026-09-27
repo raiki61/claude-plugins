@@ -48,82 +48,10 @@
   "p1.worktree_before": []
  },
  "command": {
-  "exit": 0,
-  "out": {
-   "status": "running",
-   "round": 1,
-   "thickness": null,
-   "run_id": "_s24_xxxxxxxxxx",
-   "ready": [
-    {
-     "id": "p2.diagnose",
-     "node": "p2.diagnose",
-     "mode": "agent"
-    }
-   ],
-   "notes": []
-  },
-  "err": ""
+  "exit": 2,
+  "out": "",
+  "err": "NG p2.diagnose: 'プロンプトの穴 {{hist.snapshot.diff_file}} を埋められない'\n"
  },
- "record": {
-  "materials.bypass": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  },
-  "materials.consistency": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  },
-  "materials.external_standards": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  },
-  "materials.fix_closure": {
-   "status": "not_applicable",
-   "reason": "P1 時点。修正は P3 でこれから行う"
-  },
-  "materials.gate_efficacy": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  },
-  "materials.hygiene": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  },
-  "materials.local_review": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  },
-  "materials.main_path_observation": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  },
-  "materials.procedure_trace": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  },
-  "materials.provenance": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  },
-  "materials.test_double_fidelity": {
-   "status": "not_applicable",
-   "reason": "判定から入る run（出どころ: _s27_xxxxxx。この周の判定に届く人の依頼 1 件）のため、P1 の役を起こしていない——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"
-  }
- },
- "board": {
-  "rd.done": [
-   "p0.base",
-   "p0.local_checks",
-   "p0.parallel_pr",
-   "p0.premises",
-   "p0.prior_decisions",
-   "p0.purpose",
-   "p1.worktree_after",
-   "p1.worktree_before"
-  ],
-  "rd.na.p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
-  "rd.na.p1.consistency_bypass": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
-  "rd.na.p1.external_standards": "cond external_standards_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、外部標準の照合を起こさない"
- }
+ "record": {},
+ "board": {}
 }

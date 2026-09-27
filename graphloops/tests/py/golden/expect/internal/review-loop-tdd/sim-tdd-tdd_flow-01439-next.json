@@ -159,31 +159,32 @@
   ]
  },
  "loop": {
-  "changed_files": [
-   "src/a.py",
-   "src/b.py"
-  ],
-  "changed_files_file": "<RUN>/changed-r1.txt",
-  "diff_file": "<RUN>/diff-r1.patch",
-  "diff_lines": 6,
-  "request_wheres": [],
-  "reviewed_revision": "dc604fdff28e53cd91da1a967a43dd2c0bf42a2f"
+  "lanes_bad_delivered": []
  },
  "outputs": {
   "out/r1/p1.worktree_before.json": {
    "ok": true,
-   "diff_file": "<RUN>/diff-r1.patch",
-   "changed_files": [
-    "src/a.py",
-    "src/b.py"
-   ],
-   "stat": "2 files changed, 4 insertions(+), 2 deletions(-)",
+   "snapshot": {
+    "rev": "dc604fdff28e53cd91da1a967a43dd2c0bf42a2f",
+    "diff_file": "<RUN>/diff-r1.patch",
+    "changed_files": [
+     "src/a.py",
+     "src/b.py"
+    ],
+    "changed_files_file": "<RUN>/changed-r1.txt",
+    "stat": "2 files changed, 4 insertions(+), 2 deletions(-)",
+    "diff_lines": 6,
+    "paste_file": "<RUN>/diff-r1.patch",
+    "entry": false
+   },
    "tree_before": {
     "porcelain": [],
     "stash": "",
     "tree": "512e57d057ae65137bc5a9501e949c3e21845e06",
     "rev": "dc604fdff28e53cd91da1a967a43dd2c0bf42a2f"
-   }
+   },
+   "changed_since_prev_round": [],
+   "lane_rows": []
   }
  },
  "calls": [

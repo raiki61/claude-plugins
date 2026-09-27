@@ -66,6 +66,18 @@ def test_purpose_sources_without_prev_fix_files_is_untouched():
     assert (ok, why) == (False, "前の周の P3 は目的の出典を触っていない")
 
 
+def test_prev_fix_touched_reads_the_round_head_exit():
+    """前の周の P3 が触ったファイルは周の頭の節（p1.worktree_before）の出口から読む。欄の無い旧い出力は触った側（再発火する側）に
+    倒し、測れなかった痕跡を残す（人の決定 2026-09-27: 旧い盤面は警告して通す）"""
+    head = lambda files: View({"cur.p1.worktree_before": {"ok": True, "changed_since_prev_round": files}})
+    assert RULES.prev_fix_touched(head(["a.py"]))[0] is True and RULES.prev_fix_touched(head([]))[0] is False
+    v = View({"cur.p1.worktree_before": {"ok": True, "diff_file": "旧い形"}})
+    ok, why = RULES.prev_fix_touched(v)
+    assert ok is True and "旧い版の出力" in why and v.unevaluated == [("prev_fix_touched", v.unevaluated[0][1])]
+    v = View({"out.p0.purpose": {"source_files": ["README.md"]}, "cur.p1.worktree_before": {"ok": True}})
+    assert RULES.purpose_sources_changed(v)[0] is True and v.unevaluated
+
+
 # ---------------------------------------------------------------- 収束（converge）の CI の自己申告
 def test_converge_asks_when_ci_clean_without_any_checks_note(tmp_path):
     b = board(tmp_path, outputs={"p4.record": {"branch": "converged"}},
@@ -165,7 +177,7 @@ def test_parallel_pr_plan_without_head_passes_empty(tmp_path, monkeypatch):
                                                 ("remote", "get-url", "origin"): "git@github.com:o/r.git\n"}))
     monkeypatch.setattr(RULES, "shutil", types.SimpleNamespace(which=lambda name: "/bin/" + name))
     (tmp_path / "changed.txt").write_text("src/a.py\n", encoding="utf-8")
-    b = board(tmp_path, loop_state={"changed_files_file": str(tmp_path / "changed.txt")})
+    b = board(tmp_path, hist={"snapshot": {"changed_files_file": str(tmp_path / "changed.txt")}})
     got = RULES.parallel_pr_plan(b, "p0.parallel_pr")
     assert got["helper"] == "parallel-pr.py" and got["args"][:4] == ["--repo", "o/r", "--head", ""]
 
@@ -447,6 +459,25 @@ def test_delta_review_sends_human_kinds_to_the_gate(tmp_path, kind):
     with pytest.raises(Reject) as e:
         RULES.delta_review_output(board(tmp_path), "p3.delta_review", {"faces": [face]}, None)
     assert "修正の後の後退" in str(e.value) and "修正が触ったファイルでない" not in str(e.value)
+
+
+@pytest.mark.parametrize("n,src,field,word", [(1, "p3.fix", "plan_faces", "absorbed"), (2, "p3.delta_fix", "handled", "fixed")])
+def test_delta_review_checks_only_the_claimed_rows(tmp_path, n, src, field, word):
+    """修正差分のレビューに貼り・番号で指させる一覧（graph の pointers の from）と、受け付けが求める検算の集合が同じ値
+    （切り出しの節の出力の delta.claimed）——『残す』と答えた行の番号は一覧に無く、受け付けも求めない（前の run で 3 回拒まれた食い違い）"""
+    nid, cut = RULES.DELTA_PASSES[n].review, RULES.DELTA_PASSES[n].cut
+    rows = [{"key": "塞いだ穴", "handled": word, "how": "x"}, {"key": "残す穴", "handled": "declared", "how": "y"}]
+    claimed = RULES._closed_rows({field: rows}, n)
+    assert [r["key"] for r in claimed] == ["塞いだ穴"]
+    ptr = load_graph(GRAPH)[0]["nodes"][nid]["pointers"]
+    assert [f for p in ptr if p["at"] == "checks[].key" for f in p["from"]] == [f"cur.{cut}.delta.claimed"]
+    b = board(tmp_path, outputs={src: {field: rows}, cut: {"ok": True, "delta": {"file": "f", "files": [], "rev": "r", "claimed": claimed}}})
+    with pytest.raises(Reject) as e:
+        RULES.delta_review_output(b, nid, {"faces": [], "faces_none": "差分が無く、検算する申告だけを見た（検査用）",
+                                           "checks": [{"key": "残す穴", "closed": True, "why": "w"}]}, None)
+    assert "塞いだと言われた穴に無い" in str(e.value) and "塞いだ穴" in str(e.value)
+    RULES.delta_review_output(b, nid, {"faces": [], "faces_none": "差分が無く、検算する申告だけを見た（検査用）",
+                                       "checks": [{"key": "塞いだ穴", "closed": True, "why": "w"}]}, None)
 
 
 def test_finalize_writes_the_policy_change_after_the_last_gate(tmp_path, monkeypatch):

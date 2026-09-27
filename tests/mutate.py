@@ -23,7 +23,7 @@ MutationVisitor.mutate_path が対象ファイルを開いて上書きし、util
 分散実行で衝突しないのは各 worker が別に用意した複製を持つ前提（公式 tutorials/distributed）。review-loop は P1 の前後で作業ツリーを
 突き合わせ、書き換えを止めるので、写しは結局こちらで作ることになる。(2) 通らない行を撃つ前に外す口が無い: 公式の filter は
 cr-filter-pragma・cr-filter-operators・cr-filter-git だけで（how-tos/filters）、被覆で未到達の変異を除く物は無い。自動の腕は印の写し
-1 回で通らない行を外し（NoCoverage）、撃つ数を減らす。(3) どの検査が落ちたかを残さない: src/cosmic_ray/work_item.py の WorkResult が
+1 回で通らない行を外し（NoCoverage。印の写しが緑の回だけ）、撃つ数を減らす。(3) どの検査が落ちたかを残さない: src/cosmic_ray/work_item.py の WorkResult が
 持つのは test_outcome・worker_outcome・生の output・diff で、落ちた検査の名前（killedBy）を持たない。自動の腕も一覧の腕と同じ --out に
 入り、--gate-efficacy と --reuse を 1 本で通す。依存を足さない配布方針（issue #6）は配布する実行時の決定で、開発用の CI までは縛らない
 ——だから理由に数えない。
@@ -53,14 +53,25 @@ graphloops/README.md の「検査」節）。この実行器は、上に書い�
 --out の形は変異テストの報告の共通形式（mutation-testing-report-schema。Stryker ほかが使う）に寄せる: 腕ごとに
 status（Killed / Survived / NoCoverage / Timeout / RuntimeError / Ignored）と、実際に落ちた検査 killedBy。共通形式の外の欄は
 empty（撃てた腕 0 本の理由）・partial（撃つ途中の版。腕 1 本ごとに書き直す）・pending（期限で撃たずに残った腕）・pruned（1 行 1 本と
-効かない行の規則で作らなかった自動の腕と理由）の 4 つと、腕ごとの cover（印の写しで行を通した台本。? は帰属できない印）と
+効かない行の規則で作らなかった自動の腕と理由）・marker_unhealthy（印の写しが赤で、通らない行を決めなかった理由。そのとき通らなかった
+自動の腕は status が Pending で unrunnable に理由）・worktree_moved（基点を写した後に作業ツリーで変わった、腕の結果を決めるファイル。
+撃った結果は基点の版の物で、終了コードと証拠には使わない）の 6 つと、印の写しの detail（赤の回の検査ごとの本文と出力の末尾）と、腕ごとの cover（印の写しで行を通した台本。? は帰属できない印）と
 attribution（赤の出どころ: narrowed＝絞った台本から / unrelated＝絞った台本は緑で一式の確かめ直しだけ赤 / unattributed＝一式だけで撃った）。
 止める信号（SIGTERM・SIGINT・SIGHUP）を受けたら、起こした子のグループと写しを片付けて 128＋信号の番号で抜ける。
+
+写しの置き場: 1 回の起動が一時ディレクトリの下に根（mutate-run-*）を 1 つ持ち、隣のロックのファイル（<根>.lock）を起動の間握る
+（flock。Windows は msvcrt.locking。どちらも無い OS はロック無しで、前の起動の根を拾わない）。起動の頭で作業ツリーを根の下の基点に
+1 回だけ写し、腕・control・印の写しは全部基点から作る（同じ回の写しが同じ版を見る）。--auto と --changed-since の差分・腕の字列の
+検査も基点から取る（本物の index を写した一時の index と GIT_WORK_TREE で、基点を git の作業ツリーとして読む）。写しの中で
+起こす子には TMPDIR を写しの作業場の下に向けて渡す（入れ子の実行器・台本の一時物も作業場ごと消える）。根は終わるときに消し、
+SIGKILL などで残った根は、次の起動がロックの解けた物だけを消す（期限で死とみなさない。旧形式の mutate-<tag>-* は触らない）。
 
 終了コード: 0 = 撃った腕（1 本以上）が全部、赤・当たりの証拠つきで control が緑（--check なら全腕の字列と証拠の口が在る）
 / 1 = そうでない / 2 = 一覧が読めない。時間切れ・台本が 1 本も当たらなかった腕は赤でなく『走り切らない』
 """
 import argparse
+import atexit
+import collections
 import concurrent.futures as cf
 import copy as copymod
 import datetime
@@ -223,10 +234,11 @@ def anchor_problem(root, a, src=None):
 AUTO_SKIP = ("tests/", "graphloops/tests/")   # 台本は撃たない（tests/mutate.py は腕の実行器そのもので、撃つ）
 
 
-def auto_targets(rev, root=ROOT):
-    """rev からの差分が足した Python の行 ——{相対パス: {行番号}}（未追跡の .py は全行）。git が動かなければ None"""
+def auto_targets(rev, root=ROOT, env=None):
+    """rev からの差分が足した Python の行 ——{相対パス: {行番号}}（未追跡の .py は全行）。git が動かなければ None。
+    基点から取るときは root に基点、env に base_git() を渡す"""
     g = lambda *a: subprocess.run(["git", "-C", str(root), "-c", "core.quotePath=false", *a], capture_output=True, text=True,
-                                  encoding="utf-8", errors="replace")
+                                  encoding="utf-8", errors="replace", env=env)
     d = g("diff", "-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", rev, "--", "*.py")
     new = g("ls-files", "--others", "--exclude-standard", "--", "*.py")
     if d.returncode or new.returncode:
@@ -399,32 +411,215 @@ def mutate(root, a):
         p.write_text(text.replace(a["old"], a["new"]), encoding="utf-8", newline="\n")
 
 
+# 根の生死を期限でなくロックで見るのは、ロックはプロセスの死で必ず解けるから
+ROOT_PREFIX = "mutate-run-"
+_RUN = {"root": None, "lock": None, "fd": None}
+_BASES = {}
+_BASE_GIT = {}
+_SCRATCH = set()          # copy が作った写しの repo。run_group はここで起こす子にだけ、写しの下の TMPDIR を渡す
+_ROOT_LOCK = threading.RLock()
+
+
+def _try_lock(fd):
+    """排他ロックを待たずに取る ——True＝取れた / False＝他が握っている / None＝この OS にロックの口が無い"""
+    try:
+        import fcntl
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            return False
+    except ImportError:
+        pass
+    try:
+        import msvcrt
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            return True
+        except OSError:
+            return False
+    except ImportError:
+        return None
+
+
+def _drop(root, lock, fd):
+    """根を消し、ロックのファイルを最後に消す——途中で殺されても、残り物は次の起動の sweep_roots が見つけられる。
+    Windows は開いたファイルを消せないので、閉じてから消す"""
+    shutil.rmtree(root, ignore_errors=True)
+    if os.name == "nt":
+        os.close(fd)
+        fd = None
+    try:
+        os.unlink(lock)
+    except OSError:
+        pass
+    if fd is not None:
+        os.close(fd)
+
+
+def sweep_roots(tmp):
+    """前の起動が残した根を消す。消すのは (1) ロックを取れた（持ち主が死んだ）根 と (2) ロックのファイルの無い根（作る側はロックを
+    握ってから根を作り、消す側は根を消してからロックを消すので、ロックの無い根は消しかけの残り）だけ。ロックの口が無い OS では (1) を
+    しない（生きた根と見分けられない）。旧形式の写し（mutate-<tag>-*）は持ち主が分からないので触らない"""
+    for lk in sorted(tmp.glob(ROOT_PREFIX + "*.lock")):
+        try:
+            fd = os.open(lk, os.O_RDWR)
+        except OSError:
+            continue
+        try:
+            got = _try_lock(fd)
+            # 開いてからロックを取るまでに持ち主が消して別の起動が同じ名前で作り直した回は、別の物を掴んでいるので触らない
+            mine = got and os.path.samestat(os.fstat(fd), os.stat(lk))
+        except OSError:
+            got = mine = False
+        if not mine:
+            os.close(fd)
+            if got is None:
+                break
+            continue
+        _drop(lk.with_suffix(""), lk, fd)
+    for d in sorted(tmp.glob(ROOT_PREFIX + "*")):
+        if d.is_dir() and not d.with_name(d.name + ".lock").exists():
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def run_root():
+    """この起動の写しの根（初めて呼ばれたときに作る）。ロックのファイル（mkstemp）を作ってロックを握ってから、同じ名前の根を作る。
+    根とロックは終わるときに atexit が消す（正常・例外・止める信号の sys.exit）。SIGKILL などで残った根は次の起動の sweep_roots が拾う"""
+    with _ROOT_LOCK:
+        if _RUN["root"] is None:
+            tmp = pathlib.Path(tempfile.gettempdir())
+            sweep_roots(tmp)
+            while True:
+                fd, lock = tempfile.mkstemp(prefix=ROOT_PREFIX, suffix=".lock")
+                ok = _try_lock(fd)
+                # 作ってからロックを取るまでに、別の起動の sweep_roots に消された回は作り直す
+                if ok is not False and os.path.exists(lock) and os.path.samestat(os.fstat(fd), os.stat(lock)):
+                    root = pathlib.Path(lock[:-len(".lock")])
+                    try:
+                        root.mkdir()
+                        break
+                    except FileExistsError:
+                        os.unlink(lock)
+                os.close(fd)
+            _RUN.update(root=root, lock=lock, fd=fd)
+            atexit.register(release_root)
+        return _RUN["root"]
+
+
+def release_root():
+    with _ROOT_LOCK:
+        if _RUN["root"] is not None:
+            _drop(_RUN["root"], _RUN["lock"], _RUN["fd"])
+            _RUN.update(root=None, lock=None, fd=None)
+            _BASES.clear()
+            _BASE_GIT.clear()
+            _SCRATCH.clear()
+
+
 def scratch_dir(tag):
     """腕ごとの作業場。自動の腕の id（auto:<パス>:<行>:<列>:<種類>）は / と : を含むので、そのまま接頭辞にすると
     mkdtemp が在りもしない親ディレクトリを探して落ちる（実測 2026-09-24: 4 周目の差分の検算が 80 本撃った所で全部失った）"""
-    return pathlib.Path(tempfile.mkdtemp(prefix=f"mutate-{re.sub(r'[^0-9A-Za-z._-]', '_', tag)}-"))
+    return pathlib.Path(tempfile.mkdtemp(prefix=f"mutate-{re.sub(r'[^0-9A-Za-z._-]', '_', tag)}-", dir=run_root()))
+
+
+def base():
+    """基点: 作業ツリーを起動の中で 1 回だけ根の下に写した物。腕・control・印の写しはここから作る——写すたびに生きた作業ツリーを
+    読み直すと、同じ回の写しが別々の時刻の木を見て、control の緑が腕の写しの版の緑にならない。
+    **版に入るファイルだけを写す**（追跡中と、.gitignore に当たらない未追跡）。丸ごと写していた頃は .venv など無視対象まで
+    腕ごとに複製した"""
+    with _ROOT_LOCK:
+        key = str(ROOT)
+        if key not in _BASES:
+            b = pathlib.Path(tempfile.mkdtemp(prefix="base-", dir=run_root())) / "repo"
+            ls = subprocess.run(["git", "-C", str(ROOT), "-c", "core.quotePath=false", "ls-files", "-z", "--cached", "--others",
+                                 "--exclude-standard"], capture_output=True)
+            for rel in sorted({x for x in ls.stdout.decode("utf-8", "replace").split("\0") if x}):
+                src, dst = ROOT / rel, b / rel
+                if not (src.is_file() or src.is_symlink()):
+                    continue   # 消したが index に残る物
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if src.is_symlink():
+                    dst.symlink_to(os.readlink(src))
+                else:
+                    shutil.copy2(src, dst)
+            b.mkdir(parents=True, exist_ok=True)
+            _BASES[key] = b
+        return _BASES[key]
+
+
+def base_git():
+    """基点を git の作業ツリーとして読む環境（GIT_DIR は本物、GIT_WORK_TREE は基点、index は本物を写した一時の物）。組めなければ None。
+    基点は .git を持たないファイルの写しなので、差分を作業ツリーから取ると、写しと差分が別々の時刻の版を指す。
+    本物の index は時刻ごと写す（index の時刻が新しくなると、同じ秒に書き換えたファイルを綺麗と見誤る）。写しに --really-refresh を
+    当てるのは assume-unchanged の印を外すため——印を持ったままだと、git は基点の中身を見ずに古い中身で差分を出す。fsmonitor は本物の
+    作業ツリーの変化を答え、split index は GIT_DIR に共有の index を書くので切る。index を写して refresh する手は
+    graphloops/rules/review-loop.py の _worktree_tree と同じ。あちらと違って add -A・write-tree を打たないので、本物の object の置き場に
+    も書かない（足すなら GIT_OBJECT_DIRECTORY を隔離してから）"""
+    with _ROOT_LOCK:
+        key = str(ROOT)
+        if key not in _BASE_GIT:
+            b = base()
+            g = lambda *a: subprocess.run(["git", "-C", str(ROOT), *a], capture_output=True, text=True, encoding="utf-8",
+                                          errors="replace")
+            gd, ix = g("rev-parse", "--absolute-git-dir"), g("rev-parse", "--path-format=absolute", "--git-path", "index")
+            if gd.returncode or ix.returncode or not gd.stdout.strip():
+                return None
+            idx = b.parent / "index"
+            try:
+                shutil.copy2(ix.stdout.strip(), idx)
+            except FileNotFoundError:
+                pass   # 1 度も add していない repo（追跡中のファイルが無い）
+            try:
+                n = int(os.environ.get("GIT_CONFIG_COUNT") or 0)
+            except ValueError:
+                return None
+            # 呼び手の環境に足す（置き換えると PATH が消える）。設定は呼び手が積んだ GIT_CONFIG_* の後ろに積む
+            env = {**os.environ, "GIT_DIR": gd.stdout.strip(), "GIT_WORK_TREE": str(b), "GIT_INDEX_FILE": str(idx),
+                   "GIT_OPTIONAL_LOCKS": "0", "GIT_CONFIG_COUNT": str(n + 2),
+                   f"GIT_CONFIG_KEY_{n}": "core.fsmonitor", f"GIT_CONFIG_VALUE_{n}": "false",
+                   f"GIT_CONFIG_KEY_{n + 1}": "core.splitIndex", f"GIT_CONFIG_VALUE_{n + 1}": "false"}
+            r = subprocess.run(["git", "-C", str(b), "update-index", "-q", "--really-refresh"], env=env, capture_output=True)
+            if r.returncode:
+                return None
+            _BASE_GIT[key] = env
+        return _BASE_GIT[key]
+
+
+def worktree_moved(sel):
+    """基点を写した後に作業ツリーで変わったファイルのうち、撃った腕の結果を決めるもの（指紋に入るファイル）。記録にだけ使う"""
+    b = base()
+    read = lambda p: p.read_bytes() if p.is_file() else None
+    return [f for f in sorted({f for x in sel for f in (x["file"],) + DRIVERS}) if read(b / f) != read(ROOT / f)]
 
 
 def copy(tag):
+    """基点から腕の写しを作る ——(写しの repo, 作業場)。作る途中の例外・止める信号では作業場を消してから投げ直す（呼び元の
+    try より前で残る窓を閉じる）。作業場の tmp は、写しの中で起こす子の一時の置き場（run_group が TMPDIR に渡す）"""
+    src = base()
     d = scratch_dir(tag)
-    repo = d / "repo"
-    # **版に入るファイルだけを写す**（追跡中と、.gitignore に当たらない未追跡）。丸ごと写していた頃は .venv など無視対象まで
-    # 腕ごとに複製した
-    ls = subprocess.run(["git", "-C", str(ROOT), "-c", "core.quotePath=false", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-                        capture_output=True)
-    for rel in sorted({x for x in ls.stdout.decode("utf-8", "replace").split("\0") if x}):
-        src, dst = ROOT / rel, repo / rel
-        if not (src.is_file() or src.is_symlink()):
-            continue   # 消したが index に残る物
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if src.is_symlink():
-            dst.symlink_to(os.readlink(src))
-        else:
-            shutil.copy2(src, dst)
-    # tests/run.sh は git の中で走る前提の検査を持つ——写しに素の repo を作る（コミットは 1 つ）
-    for c in (["init", "-q"], ["add", "-A"], ["-c", "user.name=m", "-c", "user.email=m@m", "commit", "-qm", "x"]):
-        subprocess.run(["git", *c], cwd=repo, capture_output=True)
-    return repo, d
+    try:
+        repo = d / "repo"
+        shutil.copytree(src, repo, symlinks=True)
+        (d / "tmp").mkdir()
+        # tests/run.sh は git の中で走る前提の検査を持つ——写しに素の repo を作る（コミットは 1 つ）
+        for c in (["init", "-q"], ["add", "-A"], ["-c", "user.name=m", "-c", "user.email=m@m", "commit", "-qm", "x"]):
+            subprocess.run(["git", *c], cwd=repo, capture_output=True)
+        with _ROOT_LOCK:
+            _SCRATCH.add(str(repo))
+        return repo, d
+    except BaseException:
+        shutil.rmtree(d, ignore_errors=True)
+        raise
+
+
+def child_env(cwd, env):
+    """写しの中で起こす子の環境: TMPDIR・TMP・TEMP を写しの作業場の tmp に向ける。写しの中の台本・入れ子の実行器・後片付けを
+    壊した変異体の一時物も、作業場ごと消える。写しでない cwd（台本が直に呼ぶ回）の環境は変えない"""
+    if str(cwd) not in _SCRATCH:
+        return env
+    tmp = str(pathlib.Path(cwd).parent / "tmp")
+    return {**(os.environ if env is None else env), "TMPDIR": tmp, "TMP": tmp, "TEMP": tmp}
 
 
 def run_group(argv, cwd, env=None, failfast=False):
@@ -439,7 +634,7 @@ def run_group(argv, cwd, env=None, failfast=False):
     # 木ごと止める（graphloops/engine/role_run.py の _spawn と _kill と同じ分け方）
     group = ({"process_group": 0} if os.name == "posix"
              else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
-    p = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    p = subprocess.Popen(argv, cwd=cwd, env=child_env(cwd, env), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                          encoding="utf-8", errors="replace", **group)
     with _LOCK:
         _LIVE.add(p)
@@ -483,15 +678,30 @@ def run_group(argv, cwd, env=None, failfast=False):
     return (1 if stopped else p.returncode), "".join(out)
 
 
-def run_suite(repo, suite, failfast=False, env=None):
+def run_suite(repo, suite, failfast=False, env=None, detail=False):
+    """台本一式を走らせる。detail なら赤の回に本文も返す（fails＝FAIL の行ごとに続く行、end＝出力の末尾。graphloops の台本は
+    FAIL を 1 行で出し、例外の本文は最後に投げ直した末尾の標準エラーに出るので、両方が要る）"""
     rc, body = run_group(SUITES[suite], repo, env=env, failfast=failfast)
     if rc == "stopped":
         raise Stopped(0)
     if rc == "timeout":
         return {"rc": "timeout", "failed": [f"{TIMEOUT} 秒で打ち切り"], "tail": []}
-    failed = [l.strip()[5:].strip() for l in body.splitlines() if l.startswith("  FAIL ")]
-    tail = [l for l in body.splitlines() if "件失敗" in l or "件すべて緑" in l or l.startswith("graphloops:")]
-    return {"rc": rc, "failed": failed, "tail": tail}
+    lines = body.splitlines()
+    failed = [l.strip()[5:].strip() for l in lines if l.startswith("  FAIL ")]
+    tail = [l for l in lines if "件失敗" in l or "件すべて緑" in l or l.startswith("graphloops:")]
+    out = {"rc": rc, "failed": failed, "tail": tail}
+    if detail and rc != 0:
+        fails = []
+        for i, l in enumerate(lines):
+            if l.startswith("  FAIL ") and len(fails) < 8:
+                nxt = []
+                for m in lines[i + 1:i + 13]:
+                    if m.startswith(("  ok ", "  FAIL ")):
+                        break
+                    nxt.append(m)
+                fails.append({"line": l.strip(), "after": nxt})
+        out["detail"] = {"fails": fails, "end": lines[-40:]}
+    return out
 
 
 def run_selected(repo, tests, failfast=False):
@@ -515,20 +725,32 @@ def run_selected(repo, tests, failfast=False):
 CONFIRM = False   # --confirm-survivors: 絞った台本が緑の腕を台本一式で確かめ直す（main が立てる）
 
 
-def narrowed(a):
-    """自動の腕を回す台本（台本 → 関数名）。印の写しで行を通した台本が全部分かり、行が関数の本体に在るときだけ——
-    1 つでも帰属できない印が在る・import の時に走る行・台本の一覧（SCRIPTS）の外の台本なら None（台本一式で撃つ）"""
+def narrow_why(a):
+    """自動の腕を回す台本（台本 → 関数名）と、絞れないときの理由 ——(台本 か None, 理由)。絞るのは、印の写しで行を通した台本が全部
+    分かり、行が関数の本体に在るときだけ。理由は、一覧の腕（not_auto）・印が無い（no_cover）・帰属できない印（unknown_owner）・
+    import の時に走る行（import_time）・台本の一覧（SCRIPTS）の外の台本（outside_scripts）。理由の件数は evaluate が数える"""
     cov = a.get("cover")
-    if "auto" not in a or not cov or UNKNOWN in cov or not a["auto"].get("in_function"):
-        return None
+    if "auto" not in a:
+        return None, "not_auto"
+    if not cov:
+        return None, "no_cover"
+    if UNKNOWN in cov:
+        return None, "unknown_owner"
+    if not a["auto"].get("in_function"):
+        return None, "import_time"
     tests = {}
     for o in cov:
         script, _, fn = o.partition("~")
         rel = f"graphloops/tests/{script}"
         if rel not in SCRIPTS or not fn:
-            return None
+            return None, "outside_scripts"
         tests.setdefault(rel, set()).add(fn)
-    return {s: sorted(v) for s, v in sorted(tests.items())}
+    return {s: sorted(v) for s, v in sorted(tests.items())}, ""
+
+
+def narrowed(a):
+    """自動の腕を回す台本（台本 → 関数名）。絞れなければ None（台本一式で撃つ）"""
+    return narrow_why(a)[0]
 
 
 def one(a):
@@ -632,7 +854,7 @@ def marker_run(arms):
         # 印の写しは『守る行を通ったか』だけを見る所なので、写しの一覧は空にする（本物の一覧は触らない）
         (repo / "tests" / "mutations.json").write_text('{"arms": []}\n', encoding="utf-8")
         # GL_MARK_OWNERS: graphloops の台本の土台（parallel.workspace）が作業場の名前に台本の印を挟む（子のプロセスの印を帰属させる）
-        r = run_suite(repo, "root", env={**os.environ, "GL_MARK_OWNERS": "1"})   # tests/run.sh は graphloops の台本も内包する
+        r = run_suite(repo, "root", env={**os.environ, "GL_MARK_OWNERS": "1"}, detail=True)   # tests/run.sh は graphloops の台本も内包する
         seen, cover = read_hits(hits)
         return {**r, "failed": r["failed"][:5], "placed": sorted(placed), "seen": seen, "cover": cover, "skipped": skipped}
     finally:
@@ -672,11 +894,11 @@ def build_map(arms):
     return hit
 
 
-def changed_since(rev, root=ROOT):
-    """その版から変わったファイル（未追跡の新しいファイルも。git diff は未追跡を出さない）"""
+def changed_since(rev, root=ROOT, env=None):
+    """その版から変わったファイル（未追跡の新しいファイルも。git diff は未追跡を出さない）。基点から取るときは root と env を auto_targets と同じに"""
     got = set()
     for args in (["diff", "--name-only", rev], ["ls-files", "--others", "--exclude-standard"]):
-        out = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8")
+        out = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8", env=env)
         if out.returncode != 0:
             print(f"NG 版 {rev} から変わったファイルを引けない（{out.stderr.strip()[:120]}）", file=sys.stderr)
             sys.exit(2)
@@ -702,7 +924,7 @@ def write_empty(out, why):
     write_out(out, {"schemaVersion": "1", "arms": [], "empty": why})
 
 
-def pick(arms, only=None, files=None, since=None):
+def pick(arms, only=None, files=None, since=None, root=ROOT, env=None):
     """一覧の腕を絞る（絞りが無ければ全部）。0 本の判定は呼び元が自動の腕と合わせた後の 1 か所で行う"""
     sel = arms
     if only:
@@ -710,12 +932,13 @@ def pick(arms, only=None, files=None, since=None):
     if files:
         sel = [x for x in sel if x["file"] in set(files.split(","))]
     if since:
-        ch = changed_since(since)
+        ch = changed_since(since, root, env)
         sel = [x for x in sel if x["file"] in ch]
     return sel
 
 
-SURVIVED = ("Survived", "NoCoverage")   # 壊しても台本が赤にならなかった腕（NoCoverage は印の行も通らなかった）。腕の結果の正本は status だけ
+SURVIVED = ("Survived", "NoCoverage")   # 壊しても台本が赤にならなかった腕（NoCoverage は緑の印の写しで印の行も通らなかった）。腕の結果の正本は status だけ
+MARKER_RED = "印の写しが赤（rc={rc}）で、途中までの記録から『通らない行』を決めない——通らなかった自動の腕は撃たず、NoCoverage にもしない"
 
 
 def healthy(res):
@@ -736,9 +959,12 @@ def evaluate(res, sel):
     m = res["marker"]
     fresh = [r for r in res["arms"] if not r.get("carried")]
     exp = {x["id"]: x.get("expect") for x in sel}
+    if m.get("rc", 0) != 0:
+        res["marker_unhealthy"] = MARKER_RED.format(rc=m.get("rc"))
     for r in fresh:
-        if r.get("status") == "Survived" and r["id"] in m["placed"] and r["id"] not in m["seen"]:
-            r["status"] = "NoCoverage"   # 印を差した行を台本が一度も通らない
+        # 印を差した行を台本が一度も通らない。印の写しが赤の回は途中で止まった記録なので、通らなかったとは言えない
+        if r.get("status") == "Survived" and m.get("rc", 0) == 0 and r["id"] in m["placed"] and r["id"] not in m["seen"]:
+            r["status"] = "NoCoverage"
         r["evidence"] = ""
         if r.get("status") == "Killed":
             e = exp.get(r["id"])
@@ -754,6 +980,11 @@ def evaluate(res, sel):
                       "unattributed": [r["id"] for r in fresh if r.get("attribution") == "unattributed"],
                       "narrowed_green": [r["id"] for r in fresh if r.get("status") == "Survived" and r.get("selected")],
                       "pruned": len(res.get("pruned") or []),
+                      # 印の写しで見えない・絞れない腕の内訳: 差せない腕の数（理由は marker.skipped）と、通ったが台本一式で撃つ腕の理由別の数
+                      # （通らない腕は unhit）
+                      "unplaced": len(m.get("skipped") or {}),
+                      "whole_suite_why": dict(sorted(collections.Counter(
+                          narrow_why(x)[1] for x in sel if "auto" in x and x["id"] in m.get("seen", ()) and narrowed(x) is None).items())),
                       "control_ok": all(v["rc"] == 0 for v in res["control"].values())}
     return res["summary"]
 
@@ -862,33 +1093,42 @@ def main():
     global CONFIRM
     CONFIRM = a.confirm_survivors
     autos, pruned = [], []
+    view = (ROOT, None)   # 差分を取る木と git の環境。差分を取る回は基点（写しと差分が同じ版を指す）
+    if a.auto or a.changed_since:
+        view = (base(), base_git())
+        if view[1] is None:
+            print(f"NG 基点を git の作業ツリーとして読めない（{ROOT} の git dir・index を引けないか、一時の index を更新できない）",
+                  file=sys.stderr)
+            sys.exit(2)
     if a.auto:
-        tg = auto_targets(a.auto)
+        b = view[0]
+        tg = auto_targets(a.auto, *view)
         if tg is None:
             print(f"NG --auto {a.auto}: git diff が取れない", file=sys.stderr)
             sys.exit(2)
         for rel, lines in sorted(tg.items()):
-            autos += auto_arms_for(rel, (ROOT / rel).read_text(encoding="utf-8"), lines, every=a.every_node, pruned=pruned)
+            autos += auto_arms_for(rel, (b / rel).read_text(encoding="utf-8"), lines, every=a.every_node, pruned=pruned)
         ids += [x["id"] for x in autos]
         if pruned:
             print(f"自動の腕: 1 行 1 本・効かない行で {len(pruned)} 本を撃たない（--out の pruned に理由つき。--every-node で全部撃つ）", flush=True)
     # **一覧の腕（絞りがあれば絞った物）と自動の腕の和を撃ち、0 本の判定は和の後の 1 か所で行う。** 絞りの中で 0 本を判定して
     # いたとき、一覧に腕の無いファイルだけを直した周は、自動の腕が在っても撃つ前に抜けた。--auto だけのときに一覧の腕を
     # 捨てていたので、次の周の頭で一覧と前の周の差分の自動の腕を 1 回で撃てなかった
-    sel = pick(arms, a.only, a.files, a.changed_since) + autos
+    sel = pick(arms, a.only, a.files, a.changed_since, *view) + autos
     if not sel:
         why = "撃つ腕が 0 本（絞りの条件に当たる腕も、--auto の差分が足した Python の文も無い。0 本を合格と言わない）"
         write_empty(a.out, why)
         print(f"NG {why}", file=sys.stderr)
         sys.exit(1)
-    srcs = {s: suite_source(ROOT, s) for s in {x["suite"] for x in sel}}
-    bad = [(x["id"], why) for x in sel if (why := anchor_problem(ROOT, x, srcs[x["suite"]]))]
+    b = base()   # 字列の検査も、腕を撃つのと同じ基点で
+    srcs = {s: suite_source(b, s) for s in {x["suite"] for x in sel}}
+    bad = [(x["id"], why) for x in sel if (why := anchor_problem(b, x, srcs[x["suite"]]))]
     if bad:
         for i, why in bad:
             print(f"NG 腕 {i}: {why}", file=sys.stderr)
         sys.exit(1)
     prev = reusable(a.reuse) if a.reuse else {}
-    fps = {x["id"]: fingerprint(ROOT, x) for x in sel}
+    fps = {x["id"]: fingerprint(b, x) for x in sel}
     carried = [x for x in sel if (prev.get(x["id"]) or {}).get("fingerprint") == fps[x["id"]]]
     fire = [x for x in sel if x not in carried]
     if fire and not carried and all(ignored(x) for x in fire):
@@ -910,7 +1150,7 @@ def main():
     try:
         skipped_late = shoot(a, res, fire, sel, fps, late, pend)
     except Stopped as e:
-        # 子のグループは信号の口（stop_groups）が止め、写しは腕ごとの finally が消してある（shoot が走っている腕の終わりを待つ）。
+        # 子のグループは信号の口（stop_groups）が止め、写しは腕ごとの finally が、根は atexit が消す（shoot が走っている腕の終わりを待つ）。
         # 撃てた腕までの --out は腕ごとに書いてある
         print(f"NG 止める信号（{e.signum}）を受けた——起こした子のグループと写しを片付けて抜ける（撃てた腕までの --out は残る）",
               file=sys.stderr, flush=True)
@@ -924,7 +1164,9 @@ def main():
     m, green, skipped, unrun, unhit, noev, ctrl_ok = (res["marker"], s["green"], s["skipped"], s["unrunnable"], s["unhit"],
                                                        s["no_evidence"], s["control_ok"])
     fired = len([r for r in res["arms"] if not r.get("carried")]) - len(skipped)
-    print(f"control: {'緑' if ctrl_ok else '赤'} / 印: {len(m['seen'])} / {len(m['placed'])} 本が通った（写しは rc={m['rc']}）")
+    why_n = " ".join(f"{k} {v}" for k, v in s["whole_suite_why"].items())
+    print(f"control: {'緑' if ctrl_ok else '赤'} / 印: {len(m['seen'])} / {len(m['placed'])} 本が通った（写しは rc={m['rc']}）"
+          + (f" / 差せない {s['unplaced']}" if s["unplaced"] else "") + (f" / 通ったが台本一式で撃つ {why_n}" if why_n else ""))
     print(f"赤 {fired - len(green) - len(unrun)} / 緑 {len(green)}: {' '.join(green)}"
           + (f" / 撃てない {len(skipped)}: {' '.join(skipped)}" if skipped else "")
           + (f" / 走り切らない {len(unrun)}: {' '.join(unrun)}" if unrun else "")
@@ -937,6 +1179,10 @@ def main():
         print(f"赤の出どころ: 絞った台本は緑で一式だけ赤 {len(s['unrelated'])}（揺れか台本の関数の外の検査）: {' '.join(s['unrelated'])}"
               f" / 台本一式だけで撃った赤 {len(s['unattributed'])} / 一式で確かめていない緑 {len(s['narrowed_green'])}")
     res["summary"]["carried"] = [x["id"] for x in carried]
+    moved = worktree_moved(sel)
+    if moved:
+        res["worktree_moved"] = moved
+        print(f"基点を写した後に作業ツリーで変わったファイル: {' '.join(moved)}（撃った結果は基点の版の物）", file=sys.stderr)
     write_out(a.out, res)
     shot = [r for r in res["arms"] if r.get("status") != "Ignored"]
     sys.exit(0 if shot and not skipped_late and healthy(res) and all(proven(r) for r in shot) else 1)
@@ -952,21 +1198,25 @@ def shoot(a, res, fire, sel, fps, late, pend):
     pre_marker, unreached, res_pre, skipped_late = None, [], [], []
     if any("auto" in x for x in fire) and not late():
         # **自動の腕は、印の写しで一度も通らない行を撃たない**——壊しても台本が気づけない行なので、撃つまでもなく生き残り
-        # （NoCoverage。腕の無い入口）。撃つのは通った行の腕だけ（全部を台本一式で撃つと 1 周の修正で 2 時間を超えた）
+        # （NoCoverage。腕の無い入口）。撃つのは通った行の腕だけ（全部を台本一式で撃つと 1 周の修正で 2 時間を超えた）。
+        # 印の写しが赤の回は、通らなかったのか途中で止まったのかを決められないので、撃たずに『走り切らない』側に置く（生き残りと言わない。
+        # この回は healthy が偽なので、終了コードも --gate-efficacy も証拠にしない）
         pre_marker = marker_run(fire)
         seen = set(pre_marker["seen"])
+        red = pre_marker["rc"] != 0
         unreached = [x for x in fire if "auto" in x and x["id"] not in seen and x["id"] in pre_marker["placed"]]
         fire = [x for x in fire if x not in unreached]
-        res_pre = [{"id": x["id"], "title": x["title"], "status": "NoCoverage", "own": False, "rc": None, "failed": [], "killedBy": [],
-                    "tail": ["印の写しで一度も通らない行（撃たずに生き残りと数える）"], "file": x["file"], "fingerprint": fps[x["id"]]}
-                   for x in unreached]
+        row = ({"status": "Pending", "unrunnable": MARKER_RED.format(rc=pre_marker["rc"]), "tail": []} if red else
+               {"status": "NoCoverage", "tail": ["印の写しで一度も通らない行（撃たずに生き残りと数える）"]})
+        res_pre = [{"id": x["id"], "title": x["title"], "own": False, "rc": None, "failed": [], "killedBy": [], **row,
+                    "file": x["file"], "fingerprint": fps[x["id"]]} for x in unreached]
         # 行を通した台本（印の写しの記録）を腕に渡す——one がその台本だけを回す（narrowed）
         for x in fire:
             if "auto" in x and x["id"] in pre_marker["cover"]:
                 x["cover"] = pre_marker["cover"][x["id"]]
         nar = [x for x in fire if narrowed(x)]
         print(f"自動の腕: 印の写しで通った {len([x for x in fire if 'auto' in x])} 本を撃つ（うち行を通した台本だけで撃つ {len(nar)} 本）"
-              f"・通らない {len(unreached)} 本は撃たない", flush=True)
+              f"・通らない {len(unreached)} 本は撃たない" + (f"（{MARKER_RED.format(rc=pre_marker['rc'])}）" if red else ""), flush=True)
     if late():
         skipped_late, fire = fire, []
     LATE = object()

@@ -743,7 +743,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         errs.append(f"道具ゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
                     "——Agent ツールで起こすと CLAUDE.md が注入され、遮断が成立しない")
     launch = g.get("launch") or {}
-    for kind in ("isolated", "tooled", "delegate"):
+    for kind in ("isolated", "isolated_read", "tooled", "delegate"):
         spec = launch.get(kind) or {}
         if not spec:
             continue
@@ -773,16 +773,50 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 errs.append(f"launch.{kind}.{part} / via の穴 {sorted(unknown)} を engine は埋められない（埋めるのは {list(LAUNCH_HOLES)}）")
             if part == "resume" and "session_id" not in holes:
                 errs.append(f"launch.{kind}.resume に {{session_id}} が無い——続ける会話を名指ししない語は同じ会話を続けない")
-            if kind == "isolated" and isolated and (used & set(isolated)):
+            if kind in ("isolated", "isolated_read") and isolated and (used & set(isolated)):
                 # model / effort は役の定義から埋めるので定義に無ければ die——実行時にしか出ない不変条件を静的に見る
                 for r in sorted(used & set(isolated)):
                     d = agent_def(f"{g.get('plugin')}:{r}") or {}
                     for k in ("model", "effort"):
                         if k in holes and not d.get(k):
-                            errs.append(f"遮断系の役 {r} の定義に '{k}' が無いが launch.isolated.{part} が {{{k}}} を使う（実行時の die を静的にも見る）")
+                            errs.append(f"遮断系の役 {r} の定義に '{k}' が無いが launch.{kind}.{part} が {{{k}}} を使う（実行時の die を静的にも見る）")
     ror = launch.get("resume_on_reject", 0)
     if not (isinstance(ror, int) and not isinstance(ror, bool) and ror >= 0):
         errs.append(f"launch.resume_on_reject は 0 以上の整数（{ror!r}）")
+    budget = launch.get("input_budget_bytes")
+    if budget is not None and not (isinstance(budget, int) and not isinstance(budget, bool) and budget > 0):
+        errs.append(f"launch.input_budget_bytes は正の整数（役の入力の上限をバイトに直した値。{budget!r}）")
+    room = launch.get("read_room_bytes")
+    if room is not None and not (isinstance(room, int) and not isinstance(room, bool) and room >= 0
+                                 and (not isinstance(budget, int) or room < budget)):
+        errs.append(f"launch.read_room_bytes は 0 以上で input_budget_bytes より小さい整数（Read の結果と返答の余白。{room!r}）")
+    # read_file（道具ゼロの役に Read で 1 本だけ読ませるファイル）: 道具ゼロの役の節だけ・宣言した値だけ・起こす語が要る
+    loop_keys = set(((g.get("state_schema") or {}).get("properties") or {}))
+    hist_props = (g.get("hist_schema") or {}).get("properties") or {}
+
+    def _hist_field(ref):
+        """hist.<名>.<欄>: 名が hist_schema に在り、その形（$defs の参照を 1 段たどる）が欄を宣言している"""
+        parts = ref.split(".")
+        if len(parts) != 3 or parts[0] != "hist" or parts[1] not in hist_props:
+            return False
+        sch = hist_props[parts[1]]
+        ref_ = sch.get("$ref") or ""
+        if ref_.startswith("#/$defs/"):
+            sch = (g.get("$defs") or {}).get(ref_[len("#/$defs/"):]) or {}
+        return parts[2] in (sch.get("properties") or {})
+    for nid, v in nodes.items():
+        rf = v.get("read_file")
+        if rf is None:
+            continue
+        if v.get("run_by") not in isolated:
+            errs.append(f"{nid}: read_file は道具ゼロの役の節だけに書ける（道具を持つ役は自分で読む。run_by {v.get('run_by')!r}）")
+        loop_ok = (isinstance(rf, str) and rf.startswith("loop.") and rf.count(".") == 1
+                   and (rf[5:] in loop_keys or "state_schema" not in g))   # 形の宣言の無い graph は鍵の名前までは照らさない（旧い形）
+        if not (loop_ok or (isinstance(rf, str) and _hist_field(rf))):
+            errs.append(f"{nid}: read_file {rf!r} は盤面の loop の鍵 1 つ（loop.<state_schema の鍵>）か、履歴から作る値の欄 1 つ"
+                        "（hist.<hist_schema の名>.<その形が宣言する欄>）——写すファイルの置き場はそこから引く")
+        if not (launch.get("isolated_read") or {}).get("argv"):
+            errs.append(f"{nid}: read_file を宣言するのに launch.isolated_read.argv が無い")
     rules = load_rules(gpath, g)
     rules_unreadable = isinstance(rules, str)
     if rules_unreadable:

@@ -27,8 +27,8 @@
    },
    "delta_review2_due": {
     "covered": [
-     "偽",
-     "真"
+     "例外 KeyError",
+     "偽"
     ]
    },
    "delta_review_due": {
@@ -50,10 +50,7 @@
     ]
    },
    "fix_delta_nonempty": {
-    "covered": [
-     "偽",
-     "真"
-    ]
+    "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "gate_efficacy_due": {
     "covered": [
@@ -98,10 +95,7 @@
     ]
    },
    "overview_due": {
-    "covered": [
-     "偽",
-     "真"
-    ]
+    "uncovered": "片側だけ（見えた結果: 真）"
    },
    "parallel_pr_due": {
     "covered": [
@@ -131,10 +125,7 @@
     "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "r1_refire": {
-    "covered": [
-     "偽",
-     "真"
-    ]
+    "uncovered": "片側だけ（見えた結果: 真）"
    },
    "r2_compare_due": {
     "covered": [
@@ -158,10 +149,7 @@
     "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "rejudge_open": {
-    "covered": [
-     "偽",
-     "真"
-    ]
+    "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "request_entry": {
     "covered": [
@@ -200,10 +188,7 @@
     ]
    },
    "touches_procedures": {
-    "covered": [
-     "偽",
-     "真"
-    ]
+    "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "units_open": {
     "covered": [
@@ -341,16 +326,16 @@
     ]
    },
    "delta_owed": {
-    "uncovered": "片側だけ（見えた結果: ok=True）"
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
    },
    "fix_delta": {
-    "uncovered": "片側だけ（見えた結果: ok=True）"
+    "uncovered": "片側だけ（見えた結果: ok=False）"
    },
    "fix_units": {
     "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "gates_cut": {
-    "uncovered": "片側だけ（見えた結果: ok=True）"
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
    },
    "human_gate": {
     "covered": [
@@ -365,7 +350,7 @@
     "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "scalars": {
-    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
    },
    "spec_approve": {
     "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
@@ -498,10 +483,7 @@
     "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "delta_review_due": {
-    "covered": [
-     "偽",
-     "真"
-    ]
+    "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "external_standards_due": {
     "covered": [
@@ -516,10 +498,7 @@
     ]
    },
    "fix_delta_nonempty": {
-    "covered": [
-     "偽",
-     "真"
-    ]
+    "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "gate_efficacy_due": {
     "covered": [
@@ -588,10 +567,7 @@
     "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "r1_refire": {
-    "covered": [
-     "偽",
-     "真"
-    ]
+    "uncovered": "片側だけ（見えた結果: 真）"
    },
    "r2_compare_due": {
     "covered": [
@@ -639,10 +615,7 @@
     ]
    },
    "tdd_red_passed": {
-    "covered": [
-     "偽",
-     "真"
-    ]
+    "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "test_double_fidelity_due": {
     "covered": [
@@ -754,7 +727,7 @@
     "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "fix_delta": {
-    "uncovered": "片側だけ（見えた結果: ok=True）"
+    "uncovered": "片側だけ（見えた結果: ok=False）"
    },
    "fix_units": {
     "uncovered": "片側だけ（見えた結果: ok=True）"
@@ -784,7 +757,7 @@
     "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
    },
    "tdd_green": {
-    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
    },
    "tdd_red": {
     "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"

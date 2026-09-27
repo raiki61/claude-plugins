@@ -137,8 +137,8 @@
    "この周のテストだけを書く段が名指ししたテストは 1 件"
   ],
   "tdd_red_passed": [
-   true,
-   "この周のテストだけを書く段が名指ししたテストは 1 件、この周の赤の確認は _s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   false,
+   "この周のテストだけを書く段が名指ししたテストは 1 件、この周の赤の確認は 通っていない"
   ],
   "test_double_fidelity_due": [
    false,
@@ -162,12 +162,19 @@
   ]
  },
  "loop": {},
- "outputs": {},
+ "outputs": {
+  "out/r1/p3.fix_delta.json": {
+   "ok": false,
+   "problems": [
+    "p3.fix_delta: 差分の起点の版が無い（1 回目は P1 の頭で、2 回目は p3.fix_delta で固める）"
+   ]
+  }
+ },
  "calls": [
   [
    "BUILTINS",
-   "tdd_green",
-   "blocked"
+   "fix_delta",
+   "ok=False"
   ],
   [
    "CONDS",
@@ -342,7 +349,7 @@
   [
    "CONDS",
    "tdd_red_passed",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
