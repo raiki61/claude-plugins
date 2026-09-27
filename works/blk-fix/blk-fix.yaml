@@ -102,7 +102,7 @@ nodes:
         - id: tdd
           command: tdd
           depends_on: [tdd-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000

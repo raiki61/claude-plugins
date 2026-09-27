@@ -141,7 +141,7 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(r["command"], f"spec-{role}")
                 self.assertEqual(r["output_format"], self.L.output_format(role))
                 self.assertEqual(r["output_format"], node_marker.mark(role_schema(nid), f"spec-{role}"))
-                self.assertEqual(r["settingSources"], [])
+                self.assertEqual(r["settingSources"], ["user"])
                 self.assertNotIn("context", r)
                 self.assertEqual(r["idle_timeout"], DEADLINE)
                 self.assertEqual(r["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})

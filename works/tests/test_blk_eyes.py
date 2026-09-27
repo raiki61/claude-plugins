@@ -614,7 +614,7 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(ai["command"], role)
                 self.assertEqual(ai["output_format"], eyes.output_format(nid))
                 self.assertEqual(sorted(ai["allowed_tools"]), sorted(eyes.allowed_tools(nid)))
-                self.assertEqual(ai["settingSources"], [])
+                self.assertEqual(ai["settingSources"], ["user"])
                 self.assertEqual(ai["idle_timeout"], DEADLINE)
                 self.assertNotIn("context", ai, "1 回目は輪が新しい会話で起こす（書き手の会話を継がない）")
                 roles[role] = ai

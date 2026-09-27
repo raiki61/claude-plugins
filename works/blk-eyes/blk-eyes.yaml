@@ -128,7 +128,7 @@ nodes:
         - id: r1-comments
           command: r1-comments
           depends_on: [r1-comments-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob"]   # 読むだけ。定義（pr-review-toolkit）は全部の道具を持つが、目は作業ツリーを変えない
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -280,7 +280,7 @@ nodes:
         - id: r1-minimality
           command: r1-minimality
           depends_on: [r1-minimality-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]   # 読むだけ（Read・Grep・Glob）＋web。graphloops の judge の定義の道具から書く道具と shell を除いた物
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -435,7 +435,7 @@ nodes:
         - id: r2-design
           command: r2-design
           depends_on: [r2-design-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。包みが旗 isolated を見て Git の外の置き場で起こす（git status が入らない）
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -565,7 +565,7 @@ nodes:
         - id: r2-compare
           command: r2-compare
           depends_on: [r2-compare-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。包みが旗 isolated を見て Git の外の置き場で起こす（git status が入らない）
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -710,7 +710,7 @@ nodes:
         - id: premise-check
           command: premise-check
           depends_on: [premise-check-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]   # 読むだけ（Read・Grep・Glob）＋web。graphloops の judge の定義の道具から書く道具と shell を除いた物
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -856,7 +856,7 @@ nodes:
         - id: r3-coherence
           command: r3-coherence
           depends_on: [r3-coherence-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob"]   # 読むだけ（graphloops の inspector の定義の道具）
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -983,7 +983,7 @@ nodes:
         - id: r4-scope
           command: r4-scope
           depends_on: [r4-scope-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob"]   # 読むだけ（graphloops の inspector の定義の道具）
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000

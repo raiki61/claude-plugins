@@ -80,7 +80,7 @@ nodes:
         - id: plan
           prompt: 指示書 `$plan-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
           depends_on: [plan-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -236,7 +236,7 @@ nodes:
         - id: plan-review
           prompt: 指示書 `$plan-review-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
           depends_on: [plan-review-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000

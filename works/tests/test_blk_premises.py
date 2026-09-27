@@ -105,7 +105,7 @@ class YamlCase(unittest.TestCase):
         # 測るためにコマンドを走らせる（graphloops では writer が回す節）。書く道具は持たない
         self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Bash"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
-        self.assertEqual(role["settingSources"], [])
+        self.assertEqual(role["settingSources"], ["user"])
         self.assertEqual(role["idle_timeout"], DEADLINE)
         self.assertNotIn("model", role)
         acc = find_node(self.y, "premises-accept")

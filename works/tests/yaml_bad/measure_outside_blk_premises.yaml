@@ -4,7 +4,7 @@ description: 違反の見本
 nodes:
   - id: premises
     prompt: 測れ
-    settingSources: []
+    settingSources: [user]
     allowed_tools: [Read, Grep, Glob, Bash]
     sandbox: {enabled: true, allowUnsandboxedCommands: false}
     idle_timeout: 1728000000

@@ -182,7 +182,7 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(role["command"], role["id"])
                 self.assertTrue((BLK / "commands" / f"{role['id']}.md").is_file())
                 self.assertEqual(role["output_format"], rr.output_format(role["id"]))
-                self.assertEqual(role["settingSources"], [])
+                self.assertEqual(role["settingSources"], ["user"])
                 self.assertEqual(role["idle_timeout"], DEADLINE)
                 self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
                 if role["id"] == "report-cold":

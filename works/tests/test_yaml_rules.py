@@ -26,6 +26,7 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
   そこには許す一覧（.shared/borrow/borrow.json）の物しか無い（dev/toolset.py が組み、柵が一覧の外を拒む）。対象の CLAUDE.md
   （project）は読ませない。書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す。
   skills: は書いてもよく、書くなら名前の空でない一覧で、全部が borrow.json の superpowers.skills（SP_SKILLS）に在る
+  （外れは表 SKILLS_EXTRA の節だけ: blk-material の local-review は Claude Code に同梱の code-review・simplify・security-review も書ける）
 - approval・include・loop_group の節は期限を持たない。書く期限の欄は上の 2 つだけ（AI の節の timeout・bash の節の idle_timeout も違反）
 - loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る。
   3 でない上限は表 LOOP_MAX の輪だけ（blk-fix の TDD の輪: 単位の数が run ごとに違う。抜けるのは until_bash の印で、
@@ -94,6 +95,10 @@ EXCEPTIONS = {
 # skills: に書いてよいスキル: 許す一覧の superpowers のスキル（dev/toolset.py が隔離した設定の skills/ に写す物と同じ一覧）
 SP_SKILLS = frozenset(json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
                       ["superpowers"]["skills"])
+# skills: の外れの表: (フォルダ, ファイル, 節) → SP_SKILLS のほかに書いてよいスキル。Claude Code に同梱のスキルは隔離した設定の
+# 置き場から読む物ではないので、隔離を崩さない。素材集めの局所レビューのレンズ（material.SKILLS）だけ
+BUNDLED_SKILLS = frozenset({"code-review", "simplify", "security-review"})
+SKILLS_EXTRA = {("blk-material", "blk-material.yaml", "local-review"): BUNDLED_SKILLS}
 AI_KEYS = ("prompt", "command")
 TIMED_KEYS = ("bash", "script")
 QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種類
@@ -206,8 +211,9 @@ def _check_node(node, where, place, out):
             skills = node["skills"]
             if not (isinstance(skills, list) and skills and all(isinstance(k, str) for k in skills)):
                 out.append(f"{at}: AI の節の skills: が名前（文字列）の空でない一覧でない（{skills!r}）")
-            elif not set(skills) <= SP_SKILLS:
-                out.append(f"{at}: AI の節の skills: が借りたスキルの一覧の外を持つ（{sorted(set(skills) - SP_SKILLS)}。"
+            elif not set(skills) <= SP_SKILLS | SKILLS_EXTRA.get((*place, nid), frozenset()):
+                extra = SKILLS_EXTRA.get((*place, nid), frozenset())
+                out.append(f"{at}: AI の節の skills: が借りたスキルの一覧の外を持つ（{sorted(set(skills) - SP_SKILLS - extra)}。"
                            "書けるのは .shared/borrow/borrow.json の superpowers.skills だけ）")
     else:
         if has_t or has_it:
@@ -449,6 +455,36 @@ class YamlRulesCase(unittest.TestCase):
             # blk-premises の中でも premises 以外の節は読むだけの道具に限る
             p.write_text(body.replace("id: premises", "id: premises-accept"), encoding="utf-8")
             self.assertOneRule(check_file(p), f"blk-premises.yaml: 節 premises-accept: {read_only}", "premises-accept")
+
+    def test_bundled_skills_only_in_local_review(self):
+        """Claude Code に同梱のスキル（BUNDLED_SKILLS）を skills: に書いてよいのは blk-material の節 local-review だけ（表 SKILLS_EXTRA）"""
+        body = (TESTS / "yaml_good" / "all_kinds.yaml").read_text(encoding="utf-8")
+        doc = yaml.safe_load(body)
+        ai = next(n for n in doc["nodes"] if "command" in n or "prompt" in n)
+        ai["skills"] = ["code-review", "simplify", "security-review", "test-driven-development"]
+        with tempfile.TemporaryDirectory() as tmp:
+            for folder, name, nid, ok in (("blk-material", "blk-material.yaml", "local-review", True),
+                                          ("blk-material", "blk-material.yaml", "hygiene", False),
+                                          ("blk-judge", "blk-material.yaml", "local-review", False),
+                                          ("blk-material", "other.yaml", "local-review", False)):
+                ai["id"] = nid
+                p = pathlib.Path(tmp) / folder / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+                with self.subTest(f"{folder}/{name}/{nid}"):
+                    found = [f for f in check_file(p) if "skills:" in f]
+                    if ok:
+                        self.assertEqual(found, [])
+                    else:
+                        self.assertEqual(len(found), 1, found)
+                        self.assertIn("借りたスキルの一覧の外を持つ（['code-review', 'security-review', 'simplify']", found[0])
+            # 外れの節でも同梱の 3 つと借りた物のほかは外
+            ai["id"], ai["skills"] = "local-review", ["code-review", "brainstorming"]
+            p = pathlib.Path(tmp) / "blk-material" / "blk-material.yaml"
+            p.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+            found = [f for f in check_file(p) if "skills:" in f]
+            self.assertEqual(len(found), 1, found)
+            self.assertIn("外を持つ（['brainstorming']", found[0])
 
     def test_setting_sources_user_only(self):
         base = ("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n"

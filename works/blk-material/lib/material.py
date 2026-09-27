@@ -107,11 +107,11 @@ SANDBOX = {
 FLAGS = {r: ("no-post", "no-tree-write") for r, p in POSTURE.items() if "Bash" in _TOOLS[p]}
 PASTE = frozenset(r for r, p in POSTURE.items() if p == "isolated")   # 指示書の本文を prompt_text で渡す役
 # p1.local_review のレンズ（graph の skills）のうち組み込みの skill（Archon の skills: が SDK に選ばせる）。agent のレンズ
-# （pr-review-toolkit:*）は Agent の道具で起こす。利用者の設定のプラグインを読むには settingSources に user が要るが、線 A の決まり
-# （開発の殻の外の入れ方ができるまで pack の工程は [user] を使わない。README の借りたスキルの節）で今は空。レンズが起きなければ
+# （pr-review-toolkit:*）は Agent の道具で起こす。役はどれも settingSources: [user] で選んだ物だけの隔離した設定（dev/toolset.py）を
+# 読むが、pr-review-toolkit はまだ許す一覧（.shared/borrow/borrow.json）に無いので読めない。レンズが起きなければ
 # その行は failed になり、material は awaiting_human になる（黙って clean にはならない）
 SKILLS = {"local-review": ["code-review", "simplify", "security-review"]}
-SETTING_SOURCES = {}
+SETTING_SOURCES = dict.fromkeys(POSTURE, ("user",))
 
 GIVE_UP_AFTER = 3                        # 輪の max_iterations と同じ数（試験が YAML と突き合わせる）
 STOP_BY = "works:material"

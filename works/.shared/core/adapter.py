@@ -46,7 +46,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    盤面・pack・git の設定の守りは切符にしか無い）。切符の「役の cwd の worktree 自身は除く」はそのまま（書く役の fix のため）
 6b. **旗 isolated**（独立の目の道具ゼロの役 blind-judge）: 子を Git の外の置き場 `<一時の置き場>/works-isolated-<cwd の hash>`
    で起こす（graphloops の commands._isolated_cwd と同じ。claude は cwd が Git のリポジトリの外なら git status の写しを system
-   prompt に入れない——公式 'Absent outside a Git repository'。CLAUDE.md は YAML の settingSources: [] が外す）。置き場は run
+   prompt に入れない——公式 'Absent outside a Git repository'。CLAUDE.md は YAML の settingSources: [user] が外す）。置き場は run
    ごとに同じ（claude の会話の置き場は cwd ごとなので、出し直しの --resume が同じ会話を引ける）。会話の id・起動の記録の鍵は
    Archon の cwd（run の worktree）のまま。道具を持つ起動（`--tools ""` でない）・置き場が Git の中の起動は起こさない
 7. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、

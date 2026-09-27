@@ -67,7 +67,7 @@ nodes:
         - id: spec-write
           command: spec-write
           depends_on: [write-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -194,7 +194,7 @@ nodes:
         - id: spec-review
           command: spec-review
           depends_on: [review-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -303,7 +303,7 @@ nodes:
         - id: spec-revise
           command: spec-revise
           depends_on: [revise-prep]
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000

@@ -47,7 +47,7 @@ nodes:
       nodes:
         - id: premises
           command: premises
-          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（JSON だけを返す約束。graphloops の --setting-sources ""）
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           # 測るためにコマンドを走らせる（graphloops では writer が回す節）。Bash はサンドボックスの中だけで、書く道具
           # （Edit・Write）は持たない。作業ツリーを変えれば受け付けが写しと比べて拒む
           allowed_tools: [Read, Grep, Glob, Bash]

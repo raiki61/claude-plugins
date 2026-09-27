@@ -140,7 +140,7 @@ nodes:
         depends_on:
         - prior-decisions-prep
         when: $prior-decisions-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep
@@ -310,7 +310,7 @@ nodes:
         depends_on:
         - purpose-review-prep
         when: $purpose-review-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep
@@ -394,7 +394,7 @@ nodes:
             status:
               type: string
 
-  # p1.local_review（skill）: 回す側の会話の skill・agent のレンズを起こす。Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。settingSources は []（線 A の決まり: 開発の殻の外の入れ方ができるまで pack の工程は [user] を使わない。利用者の設定のプラグイン pr-review-toolkit の agent のレンズは読めず、起きなければその行は failed で material は awaiting_human になる）。output_format は material.output_format("local-review")（写しの schema に印）を貼った物
+  # p1.local_review（skill）: 回す側の会話の skill・agent のレンズを起こす。Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。settingSources は [user]（選んだ物だけの隔離した設定 dev/toolset.py を読む。skills: の 3 つは Claude Code に同梱の物。pr-review-toolkit の agent のレンズは許す一覧 borrow.json に入るまで読めず、起きなければその行は failed で material は awaiting_human になる）。output_format は material.output_format("local-review")（写しの schema に印）を貼った物
   - id: local-review-loop
     depends_on:
     - mat-route
@@ -443,7 +443,7 @@ nodes:
         depends_on:
         - local-review-prep
         when: $local-review-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep
@@ -627,7 +627,7 @@ nodes:
         depends_on:
         - consistency-bypass-prep
         when: $consistency-bypass-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep
@@ -833,7 +833,7 @@ nodes:
         depends_on:
         - hygiene-prep
         when: $hygiene-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools: []
         sandbox:
           enabled: true
@@ -957,7 +957,7 @@ nodes:
         depends_on:
         - external-standards-prep
         when: $external-standards-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep
@@ -1157,7 +1157,7 @@ nodes:
         depends_on:
         - procedure-trace-prep
         when: $procedure-trace-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep
@@ -1322,7 +1322,7 @@ nodes:
         depends_on:
         - gate-efficacy-prep
         when: $gate-efficacy-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep
@@ -1491,7 +1491,7 @@ nodes:
         depends_on:
         - test-double-fidelity-prep
         when: $test-double-fidelity-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep
@@ -1655,7 +1655,7 @@ nodes:
         depends_on:
         - main-path-observation-prep
         when: $main-path-observation-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep
@@ -1815,7 +1815,7 @@ nodes:
         depends_on:
         - provenance-prep
         when: $provenance-prep.output.stopped == false
-        settingSources: []
+        settingSources: [user]
         allowed_tools:
         - Read
         - Grep

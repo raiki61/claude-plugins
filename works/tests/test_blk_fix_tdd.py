@@ -129,7 +129,7 @@ class TestYaml(unittest.TestCase):
     def test_tdd_role_node(self):
         role = find_node(block()["nodes"], "tdd")
         self.assertEqual(role["command"], "tdd")
-        self.assertEqual(role["settingSources"], [])
+        self.assertEqual(role["settingSources"], ["user"])
         self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["idle_timeout"], DEADLINE)
