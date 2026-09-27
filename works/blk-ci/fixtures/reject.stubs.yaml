@@ -23,8 +23,8 @@ ci-accept:
   ok: false
   done: false
   give_up: false
-  reason: '読むだけの役が作業ツリーを変えた: CI の任せ先はテストを写し /tmp/works-ci/p0.local_checks-abcd1234/work の上で走らせ、対象の作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない（変えた物を元に戻し、写しの上で走らせ直せ）（git status --porcelain: 役を起こす前 [] / 今 []・git が無視するパス:
-    増えた [''__pycache__/''] 消えた []）'
+  reason: '読むだけの役が作業ツリーを変えた: CI の任せ先はテストを写し /tmp/works-ci/p0.local_checks-abcd1234/work の上で走らせ、対象の作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない（変えた物を元に戻し、写しの上で走らせ直せ）（git が無視するパス:
+    増えた [''__pycache__/''] 消えた []・HEAD からの差分・未追跡のファイル・git が無視するパスのどれかの中身が変わった（diff_sha256））'
   node: p0.local_checks
   status: ''
 collect:

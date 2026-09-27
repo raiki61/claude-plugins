@@ -262,10 +262,10 @@ def _ignored_entries(repo) -> list:
     fields = _git(repo, "status", "--porcelain", "-z", "--ignored=matching", "--untracked-files=all", binary=True).split(b"\0")
     out, skip = [], False
     for f in fields:
-        if skip or not f:   # 名前の変わった行（R・C）は、元の名前がもう 1 つの欄で続く
+        if skip or not f:   # 名前の変わった行（X か Y が R・C）は、元の名前がもう 1 つの欄で続く
             skip = False
             continue
-        if f[:1] in (b"R", b"C"):
+        if f[:1] in (b"R", b"C") or f[1:2] in (b"R", b"C"):   # Y が R は intent-to-add を伴う作業ツリーの rename
             skip = True
         elif f.startswith(b"!! "):
             out.append(os.fsdecode(f[3:]))
@@ -327,10 +327,13 @@ def tree_state(repo: pathlib.Path) -> dict:
 
 
 def tree_change(before: dict, now: dict) -> list:
-    """tree_state の 2 つの違いを人に向けた文の一覧で（同じなら空）。porcelain は頭の 5 行、ignored は増えた・消えたパスの頭の 5 本"""
+    """tree_state の 2 つの違いを人に向けた文の一覧で（同じなら空）。porcelain は違う時だけ頭の 5 行、ignored は増えた・
+    消えたパスの頭の 5 本。diff_sha256 が違えば（porcelain の行が同じままの中身の書き換えも）その 1 行を足す"""
     if all(before.get(k) == now.get(k) for k in TREE_KEYS):
         return []
-    out = [f"git status --porcelain: 役を起こす前 {before['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}"]
+    out = []
+    if before["porcelain"] != now["porcelain"]:
+        out.append(f"git status --porcelain: 役を起こす前 {before['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}")
     for k in ("head", "ref"):
         if before[k] != now[k]:
             out.append(f"{k}: 役を起こす前 {before[k] or '（切り離した HEAD）'} / 今 {now[k] or '（切り離した HEAD）'}")
@@ -338,6 +341,8 @@ def tree_change(before: dict, now: dict) -> list:
     gone = sorted(set(before["ignored"]) - set(now["ignored"]))
     if added or gone:
         out.append(f"git が無視するパス: 増えた {added[:5]} 消えた {gone[:5]}")
+    if before["diff_sha256"] != now["diff_sha256"]:
+        out.append("HEAD からの差分・未追跡のファイル・git が無視するパスのどれかの中身が変わった（diff_sha256）")
     return out
 
 

@@ -21,7 +21,7 @@ ci-accept:
   ok: false
   done: true
   give_up: true
-  reason: '読むだけの役が作業ツリーを変えた: CI の任せ先はテストを写しの上で走らせ、対象の作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない（git status --porcelain: 役を起こす前 [] / 今 [''?? .coverage'']）'
+  reason: '読むだけの役が作業ツリーを変えた: CI の任せ先はテストを写しの上で走らせ、対象の作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない（git status --porcelain: 役を起こす前 [] / 今 [''?? .coverage'']・HEAD からの差分・未追跡のファイル・git が無視するパスのどれかの中身が変わった（diff_sha256））'
   node: p0.local_checks
   status: ''
 collect:
