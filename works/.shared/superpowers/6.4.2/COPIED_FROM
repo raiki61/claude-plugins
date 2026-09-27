@@ -1,4 +1,4 @@
-6.4.2  /Users/p03623/.claude-p1/plugins/cache/superpowers-marketplace/superpowers/6.4.2  superpowers（Jesse Vincent。MIT）のプラグインのキャッシュ。写しは直さない（無人の役のための読み替えは ../unattended.md）
+6.4.2  superpowers-marketplace/superpowers/6.4.2  superpowers（Jesse Vincent。MIT）のプラグインのキャッシュ（${CLAUDE_CONFIG_DIR:-~/.claude}/plugins/cache/ からの相対パス）。写しは直さない（無人の役のための読み替えは ../unattended.md）
 # 持ち主が決めた借りる一覧（2026-09-27）の 5 本と LICENSE。writing-plans は参考にするだけで写さない
 LICENSE
 skills/receiving-code-review/SKILL.md

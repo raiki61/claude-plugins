@@ -160,6 +160,8 @@ def _check_node(node, where, place, out):
             if not (isinstance(skills, list) and skills):
                 out.append(f"{at}: AI の節の settingSources が [user] なのに skills: が無い"
                            "（[user] は借りたスキルを読むためだけに許す）")
+            elif not all(isinstance(k, str) for k in skills):
+                out.append(f"{at}: AI の節の skills: の要素が名前（文字列）でない（{skills!r}）")
             elif not set(skills) <= SP_SKILLS:
                 out.append(f"{at}: AI の節の skills: が借りたスキルの写しの外を持つ（{sorted(set(skills) - SP_SKILLS)}。"
                            "[user] で読めるのは .shared/superpowers の写しだけ）")
@@ -234,6 +236,20 @@ class YamlRulesCase(unittest.TestCase):
         for p in files:
             with self.subTest(str(p.relative_to(ROOT))):
                 self.assertEqual(check_file(p), [])
+
+    def test_pack_lines_do_not_use_user_scope_yet(self):
+        """開発の殻の外の入れ方ができるまで、pack の工程は settingSources: [user] を使わない（README の借りたスキルの節）。
+        殻の外では CLAUDE_CONFIG_DIR が利用者の ~/.claude で、利用者の CLAUDE.md・hooks を読ませてしまう"""
+        def user_nodes(nodes):
+            for n in nodes or []:
+                if isinstance(n, dict):
+                    if n.get("settingSources") == ["user"]:
+                        yield n.get("id")
+                    yield from user_nodes((n.get("loop_group") or {}).get("nodes"))
+        for p in sorted(ROOT.glob("*/*.yaml")):
+            with self.subTest(str(p.relative_to(ROOT))):
+                doc = yaml.safe_load(p.read_text(encoding="utf-8"))
+                self.assertEqual(list(user_nodes(doc.get("nodes"))), [])
 
     def test_writer_allowed_only_in_blk_fix(self):
         body = (TESTS / "yaml_bad" / "fix_outside_blk_fix.yaml").read_text(encoding="utf-8")
@@ -344,6 +360,8 @@ class YamlRulesCase(unittest.TestCase):
                                  "w.yaml: 節 judge: AI の節の settingSources が [user] なのに skills: が無い"),
                                 ("    skills: []\n    settingSources: [user]\n",
                                  "w.yaml: 節 judge: AI の節の settingSources が [user] なのに skills: が無い"),
+                                ("    skills: [{name: test-driven-development}]\n    settingSources: [user]\n",
+                                 "w.yaml: 節 judge: AI の節の skills: の要素が名前（文字列）でない"),
                                 ("    skills: [test-driven-development]\n    settingSources: [project, user]\n",
                                  f"{bad}（['project', 'user']。")):
                 p = pathlib.Path(tmp) / "w.yaml"
