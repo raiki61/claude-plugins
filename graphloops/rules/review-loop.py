@@ -10,7 +10,6 @@ import json
 import pathlib
 import re
 import shutil
-import tempfile
 from typing import NamedTuple
 
 _pspec = importlib.util.spec_from_file_location("graphloops_rules_policy_input", pathlib.Path(__file__).with_name("policy_input.py"))
@@ -1516,36 +1515,13 @@ def _freeze_revision(b):
 
 def _worktree_tree():
     """作業ツリーの今の姿の木の id（未追跡の新規ファイルも含め、追跡していない .gitignore の対象は除く）。固められなければ Reject。
-    中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む。
-
-    **本物の index を一時 index に写してから** `add -A` する。空の一時 index から始めていたとき、追跡中だが .gitignore に
-    当たるファイルは `add -A` に拾われず、版から落ちて『削除』に見えた（実測 2026-09-25: 別のリポジトリの run で、判定役が
-    これを根拠に誤った [block] を出した）。写しは stat の情報も持つので、`add -A` は変わったファイルだけをハッシュする。
-    写しの上で `--really-refresh` を打つのは assume-unchanged の印を外すため——印を持ったままだと、git はそのファイルを
-    見ずに古い中身で版を作る。本物の index は読むだけで書かない"""
-    tmp = tempfile.mkdtemp(prefix="graphloops-index-")
-    idx = pathlib.Path(tmp) / "index"
-    env = {"GIT_INDEX_FILE": str(idx)}
+    中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む。手順の正本は engine の worktree_tree（検査の
+    結果の使い回しの指紋も同じ手順を引く）で、ここは失敗を止める文に包むだけ"""
     why = []   # git が言った失敗の理由（util.git の why）。止める文に添える
-    try:
-        real = git("rev-parse", "--path-format=absolute", "--git-path", "index", why=why)
-        if real is None or not real.strip():
-            raise _unfrozen("本物の index の場所を git rev-parse --git-path で引けない", why,
-                            "git 2.31 以上か、リポジトリの中で呼んでいるかを確かめよ")
-        try:
-            shutil.copy2(real.strip(), idx)   # 時刻ごと写す——index の時刻が新しくなると、同じ秒に書き換えたファイル（racy git）を綺麗と見誤る
-        except FileNotFoundError:
-            pass   # index がまだ無い（init の直後で 1 度も add していない）＝追跡中のファイルが無いので、空から始めて落ちる物が無い
-        except OSError as e:
-            raise Reject(f"この周に採点する版を固定できない（本物の index を写せない: {e}）")
-        if git("update-index", "-q", "--really-refresh", env=env, why=why) is None or git("add", "-A", env=env, why=why) is None:
-            raise _unfrozen("一時 index への git update-index / add -A が失敗した", why)
-        tree = git("write-tree", env=env, why=why)
-        if tree is None or not tree.strip():
-            raise _unfrozen("git write-tree が木を返さない", why)
-        return tree.strip()
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    tree, bad = worktree_tree(git, why)
+    if tree is None:
+        raise _unfrozen(bad[0], why, bad[1])
+    return tree
 
 
 def _unfrozen(what, why, hint=None):
@@ -2239,7 +2215,13 @@ def checks_reply(b, nid, launch, runs):
         m = {"status": cant, "reason": launch["blocked"]}
         _checks_note(b, nid, by="engine", blocked=launch["blocked"])
     else:
-        summary = "; ".join(f"{r['name']}: exit {r['exit']}（{r['wall_s']} 秒）" for r in runs)
+        # 使い回した段（engine/checks_cache.py）は、元の結果を作った時刻と run（盤面の置き場）と元の所要を書く——走らせたと偽らない
+        summary = "; ".join(f"{r['name']}: exit {r['exit']}（使い回し: {r['reused'].get('at')} に {r['reused'].get('from')} で緑・"
+                            f"元の所要 {r['reused'].get('wall_s')} 秒・置き場 {r['reused'].get('entry')}）" if r.get("reused")
+                            else f"{r['name']}: exit {r['exit']}（{r['wall_s']} 秒）" for r in runs)
+        reused = [r for r in runs if r.get("reused")]
+        ran = (f"確かめた（使い回し: {len(reused)} 段は同じ指紋の過去の緑で、この周には走らせていない。必ず走らせるなら "
+               f"launch の環境に {CHECKS_RERUN_ENV}=1）" if reused else "走らせた")
         broken = [r for r in runs if r["exit"] is None]
         red = [r for r in runs if r["exit"] not in (0, None)]
         if broken:
@@ -2248,7 +2230,7 @@ def checks_reply(b, nid, launch, runs):
             m = {"status": "found", "count": len(red),
                  "detail": f"engine が宣言 {DECL_NAME} を走らせた: {summary} ／ " + " ／ ".join(f"{r['name']} の末尾: {r['tail'][-600:]}" for r in red)}
         else:
-            m = {"status": "clean", "checked": f"engine が宣言 {DECL_NAME}（sha {launch['sha'][:12]}）の {len(runs)} 段を走らせた: {summary}"}
+            m = {"status": "clean", "checked": f"engine が宣言 {DECL_NAME}（sha {launch['sha'][:12]}）の {len(runs)} 段を{ran}: {summary}"}
         # 宣言に engine の読まない最上位の段が在る: 知っている段は走らせたうえで、判定の前（p0）なら人待ちにする——綴り違い
         # （mutations）を run の頭で捕まえる守りを、段を拒んでいた頃から減らさない（人の決定 2026-09-26）。p4.ci は人待ちを新しく立てない
         root = None if after_judge else _repo_root()
@@ -2256,15 +2238,16 @@ def checks_reply(b, nid, launch, runs):
         if unknown and not broken:
             m = {"status": "awaiting_human",
                  "reason": (f"宣言 {DECL_NAME} にこの engine が読まない最上位の段 {unknown} が在る——綴り違いなら宣言を直す、"
-                            f"意図した段なら続けてよいかを人に確かめる。知っている段は走らせた: {summary}"
+                            f"意図した段なら続けてよいかを人に確かめる。知っている段は{ran}: {summary}"
                             + (f" ／ 赤: {', '.join(r['name'] for r in red)}" if red else ""))[:1500]}
         _checks_note(b, nid, by="engine", sha=launch.get("sha"), **({"unknown": unknown} if unknown else {}),
-                     runs=[{k: r.get(k) for k in ("name", "argv", "exit", "wall_s", "out", "err")} for r in runs])
+                     **({"reused": True} if reused else {}),
+                     runs=[{k: r[k] for k in ("name", "argv", "exit", "wall_s", "out", "err", "reused", "cache") if k in r} for r in runs])
     if after_judge and m["status"] != "awaiting_human":
         V = validator_module(b)
         if _awaiting_origins(V, b.record["questions"], {**b.record["materials"], "local_checks": m}, "questions"):
             m = {"status": "awaiting_human", "reason": ("台帳に local_checks を出どころにする人待ちの問いが在る（閉じるのは次の周の判定者）——"
-                                                       f"engine が走らせた結果: {m.get('checked') or m.get('detail') or m.get('reason')}")[:1500]}
+                                                       f"engine が確かめた結果: {m.get('checked') or m.get('detail') or m.get('reason')}")[:1500]}
     return {"reply": {"material": m}}
 
 

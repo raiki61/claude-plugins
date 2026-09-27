@@ -301,7 +301,8 @@ RMTREE_ALLOWED = {
     ("graphloops/tests/py/test_harness.py", "_rmtree_refs"): (5, "名前への参照を探すこの柵の本体"),
     ("graphloops/engine/commands.py", "launch_one"): (3, "同じ関数が mkdtemp で作った任せ先の作業場"),
     ("graphloops/engine/commands.py", "cmd_init"): (1, "同じ関数が exist_ok=False で作ったばかりの盤面（rules の入口が拒んだ回）"),
-    ("graphloops/rules/review-loop.py", "_worktree_tree"): (1, "同じ関数が mkdtemp で作った一時の置き場"),
+    ("graphloops/engine/checks_cache.py", "worktree_tree"): (1, "同じ関数が mkdtemp で作った一時の置き場"),
+    ("graphloops/engine/checks_cache.py", "store"): (2, "同じ関数が置き場の親の下に mkdtemp で作った書きかけと、脇へ退けた壊れた記録"),
     ("tests/catchup-switch-case.py", "_worktree"): (1, "TemporaryDirectory の下に同じ関数が足した worktree"),
     # 変異の実行器の作業場（scratch_dir の mkdtemp と呼び元の finally）。作業場の作り替えは別の run の持ち分で、ここでは
     # 表に載せるだけ（作り替えたらこの 3 行を消す）

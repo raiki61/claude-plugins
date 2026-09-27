@@ -3620,7 +3620,7 @@
   {
    "id": "WT1",
    "title": "版は本物の index の写しから組む（追跡中の .gitignore 対象を落とさない）",
-   "file": "graphloops/rules/review-loop.py",
+   "file": "graphloops/engine/checks_cache.py",
    "suite": "graphloops",
    "old": "            shutil.copy2(real.strip(), idx)",
    "new": "            pass",
@@ -3634,7 +3634,7 @@
   {
    "id": "WT2",
    "title": "写しの assume-unchanged の印を外す",
-   "file": "graphloops/rules/review-loop.py",
+   "file": "graphloops/engine/checks_cache.py",
    "suite": "graphloops",
    "old": "        if git(\"update-index\", \"-q\", \"--really-refresh\", env=env, why=why) is None or git(\"add\", \"-A\", env=env, why=why) is None:",
    "new": "        if git(\"add\", \"-A\", env=env, why=why) is None:",
@@ -3648,10 +3648,10 @@
   {
    "id": "WT3",
    "title": "index の無いリポジトリは空から始める",
-   "file": "graphloops/rules/review-loop.py",
+   "file": "graphloops/engine/checks_cache.py",
    "suite": "graphloops",
    "old": "            pass   # index がまだ無い",
-   "new": "            raise Reject(\"検査用\")  # index がまだ無い",
+   "new": "            return None, (\"検査用\", None)  # index がまだ無い",
    "expect": "test_freeze_revision_keeps_tracked_ignored が例外で抜けた",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3662,7 +3662,7 @@
   {
    "id": "WT4",
    "title": "本物の index の場所が引けなければ止まる",
-   "file": "graphloops/rules/review-loop.py",
+   "file": "graphloops/engine/checks_cache.py",
    "suite": "graphloops",
    "old": "        if real is None or not real.strip():",
    "new": "        if real is None:",
@@ -5118,8 +5118,8 @@
    "title": "起こした直後に起こし直されていたら自分で止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "        if still_mine is not None and not still_mine():",
-   "new": "        if False:",
+   "old": "        if still_mine is not None and not still_mine():\n            raise Superseded\n        out, err",
+   "new": "        if False:\n            raise Superseded\n        out, err",
    "expect": "起こし直された試行は子を止めて返る",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5808,8 +5808,8 @@
    "title": "宣言の段の木の残りを試行の終わりに止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "        _end_attempt(trees, pgid_file)\n    return runs",
-   "new": "        pass\n    return runs",
+   "old": "        _end_attempt(trees, pgid_file)\n    if cp:",
+   "new": "        pass\n    if cp:",
    "expect": "run_steps: 段の背景",
    "tests": {
     "graphloops/tests/simulate.py": [

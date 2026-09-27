@@ -115,9 +115,9 @@ AWAITING = [{"kind": "awaiting", "status": "held", "origin": "local_checks", "ke
 
 
 @pytest.mark.parametrize("launch,runs,words", [
-    pytest.param({"sha": "a" * 40}, [{"name": "t", "exit": 0, "wall_s": 1}], "走らせた結果: engine が宣言", id="clean-checked"),
+    pytest.param({"sha": "a" * 40}, [{"name": "t", "exit": 0, "wall_s": 1}], "確かめた結果: engine が宣言", id="clean-checked"),
     pytest.param({"sha": "a" * 40}, [{"name": "t", "exit": 1, "wall_s": 1, "tail": "赤の末尾"}], "t の末尾: 赤の末尾", id="found-detail"),
-    pytest.param({"blocked": "承認されていない"}, [], "走らせた結果: 承認されていない", id="blocked-reason"),
+    pytest.param({"blocked": "承認されていない"}, [], "確かめた結果: 承認されていない", id="blocked-reason"),
 ])
 def test_checks_reply_keeps_result_under_awaiting_question(tmp_path, launch, runs, words):
     b = board(tmp_path, record={"questions": AWAITING})

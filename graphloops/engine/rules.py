@@ -6,7 +6,7 @@ rules は engine を import しない。差し込む道具は下の INJECT の�
 import importlib.util
 import pathlib
 
-from . import declared
+from . import checks_cache, declared
 from .schema import validate_schema
 from .role_run import run_tree
 from .util import READ_CAP, Reject, _grep, die, git, git_bytes, hook_evidence, pick, read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, write_json
@@ -49,7 +49,8 @@ INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": r
           "git": git, "git_bytes": git_bytes, "sha": sha, "hook_evidence": hook_evidence, "read_capped": read_capped, "READ_CAP": READ_CAP, "repo_root": repo_root, "grep": _grep, "run_count": run_count, "sum_counts": sum_counts,
           "validator_module": validator_module, "validate_schema": validate_schema, "cond_reads": cond_reads,
           "run_tree": run_tree,
-          "declared_checks": declared.read, "DECL_NAME": declared.DECL_NAME}
+          "declared_checks": declared.read, "DECL_NAME": declared.DECL_NAME, "worktree_tree": checks_cache.worktree_tree,
+          "CHECKS_RERUN_ENV": checks_cache.RERUN_ENV}
 
 
 def load_rules(graph_path, graph):

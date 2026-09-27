@@ -6250,6 +6250,7 @@ def test_spec_default_unchanged():
         text = re.sub(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+\-Z0-9:.]*", "<T>", text)
         # engine が走らせた段（engine_run）の所要時間は実測で、負荷で 0.0 と 0.1 に割れる
         text = re.sub(r"（\d+(?:\.\d+)? 秒）", "（<S> 秒）", text)
+        text = re.sub(r"元の所要 \d+(?:\.\d+)? 秒", "元の所要 <S> 秒", text)   # 使い回した段の元の所要（engine/checks_cache.py）
         text = re.sub(r'"wall_s": \d+(?:\.\d+)?', '"wall_s": <S>', text)
         # 報告の 1 行目の来歴は run の番号（init の時刻）を持ち、2 つの run で秒が違う
         text = re.sub(r"run \d{8}-\d{6}(?:-\d+)?", "run <RUN>", text)

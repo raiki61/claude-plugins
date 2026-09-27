@@ -37,6 +37,8 @@ import sys
 import threading
 import time
 
+from . import checks_cache
+
 RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why}\n\n"
                "理由が返答の形（JSON として読めない・型に合わない）なら、判定も中身も変えずに形だけ直せ。"
                "理由が中身の整合（記録の整合・項目の過不足など）なら、理由が指す所だけを直せ。"
@@ -762,9 +764,24 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
     返すのは段ごとの {name, argv, exit, wall_s, out, err, tail}（exit が None なら起こせなかった——error に理由）。
     もう自分の物でなければ（still_mine が偽——起こし直された・人が止めた）Superseded を上げる。
     正常に終わった段の木の残り（外へ出た背景のプロセス）は、試行（全段）の終わりに 1 回まとめて止める。段の宣言の
-    keep_background（engine/declared.py）が真の段は止めない——試行の外で使う背景のプロセスを残す逃げ道（次の段までは宣言が無くても残る）"""
+    keep_background（engine/declared.py）が真の段は止めない——試行の外で使う背景のプロセスを残す逃げ道（次の段までは宣言が無くても残る）
+
+    宣言と一致する一式は、同じ指紋の緑が在れば段を起こさずに使い回す（engine/checks_cache.py。当たった行は reused を持ち、
+    出力は log_dir に写す）。どの行も使い回しの判断を cache に 1 行で持つ"""
     log_dir = pathlib.Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
+    cp, why = checks_cache.plan(steps, cwd)
+    if cp:
+        hit, why = checks_cache.lookup(cp, steps, log_dir)
+        if hit is not None:
+            if still_mine is not None and not still_mine():
+                raise Superseded
+            for r in hit:
+                r["cache"] = f"使い回し: {r['reused']['at']} の緑（{r['reused']['from']}）"
+            return hit
+        why = f"外れ: {why}"
+    else:
+        why = f"対象外: {why}"
     runs, trees = [], []
     try:
         for i, s in enumerate(steps):
@@ -772,8 +789,8 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
             base = log_dir / f"{i + 1}"
             row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
             try:
-                rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, pgid_file=pgid_file, still_mine=still_mine,
-                                      trees=None if s.get("keep_background") else trees)
+                rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, env=checks_cache.child_env(), pgid_file=pgid_file,
+                                      still_mine=still_mine, trees=None if s.get("keep_background") else trees)
             except OSError as e:
                 rc, out, err = None, b"", str(e).encode("utf-8")
                 row["error"] = str(e)
@@ -783,6 +800,11 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
             runs.append(row)
     finally:
         _end_attempt(trees, pgid_file)
+    if cp:
+        entry, bad = checks_cache.store(cp, steps, runs, log_dir)
+        why += f"／書いた: {entry}" if entry else f"／{bad}"
+    for r in runs:
+        r["cache"] = why
     return runs
 
 
