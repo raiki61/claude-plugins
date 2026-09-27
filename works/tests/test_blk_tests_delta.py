@@ -30,9 +30,8 @@ sys.path.insert(0, str(CORE))
 
 from accept import check_delta, role_schema, snapshot_tree  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
-from gitkit import committed_copy  # noqa: E402
+from gitkit import committed_copy, git  # noqa: E402
 
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
 
 def load(name):
@@ -53,10 +52,6 @@ def find_node(nodes, nid):
         if hit:
             return hit
     return None
-
-
-def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
 class RepoCase(unittest.TestCase):

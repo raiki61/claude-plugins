@@ -20,6 +20,8 @@ import unittest
 
 import yaml
 
+from gitkit import GIT_ID
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 LINE = ROOT / "darkfactory"
 REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
@@ -27,7 +29,6 @@ DEADLINE = 1728000000
 BLOCKS = {"judging": "blk-judge", "fixing": "blk-fix", "testing": "blk-tests", "reviewing": "blk-delta"}
 NEED_FIX = "$judging.output.need_fix == true"
 SKIPPABLE = ("fixing", "testing", "gate", "reviewing")
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
 
 def load_yaml(path):

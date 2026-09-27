@@ -25,10 +25,9 @@ sys.path.insert(0, str(CORE / "graphloops"))
 
 from accept import check_judge  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
-from gitkit import committed_copy  # noqa: E402
+from gitkit import committed_copy, git  # noqa: E402
 
 DEADLINE = 1728000000
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
 
 def load(name):
@@ -49,10 +48,6 @@ def find_node(nodes, nid):
             if found is not None:
                 return found
     return None
-
-
-def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
 def run_script(name, repo, env):

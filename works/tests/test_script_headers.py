@@ -19,6 +19,8 @@ import subprocess
 import tempfile
 import unittest
 
+from gitkit import git
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HEADER = [
     "# /// script",
@@ -26,7 +28,6 @@ HEADER = [
     "# dependencies = []",
     "# ///",
 ]
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
 
 def scripts():
@@ -47,10 +48,6 @@ class HeaderCase(unittest.TestCase):
                 self.assertEqual(lines[:len(HEADER)], HEADER)
                 opens = [ln for ln in lines if ln.startswith("# /// ")]
                 self.assertEqual(opens, ["# /// script"], "PEP 723 の塊はちょうど 1 つ")
-
-
-def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
 
 
 UV_ENV_DROP = ("VIRTUAL_ENV", "UV", "UV_RUN_RECURSION_DEPTH", "UV_NO_PROJECT", "UV_PROJECT", "UV_NO_CONFIG",

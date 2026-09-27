@@ -39,7 +39,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from gitkit import committed_copy
+from gitkit import GIT_ID, committed_copy, git
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
@@ -82,13 +82,6 @@ def tearDownModule():
             BASETEMP_PARENT.rmdir()   # 空の時だけ消える
         except OSError:
             pass
-
-
-def git(cwd, *args):
-    result = subprocess.run(
-        ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True
-    )
-    return result.stdout.strip()
 
 
 def run_tests(cwd):
@@ -480,8 +473,6 @@ class TestDevShell(unittest.TestCase):
                 self.assertIn("workflow test works", args)   # 赤でも残りは回す
 
     # ---- dogfood.sh（works 自身のリポジトリを対象にラインを回す）。AI の要らない所だけを偽の Archon で見る
-    GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
-
     def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root="/out", runs_json=None, **env_kw):
         """TMPDIR の下に works/ を写した git の元（src）を作り、その写しの dogfood.sh を偽の Archon で回す。
         src には commit していない物（根の未追跡・works/ の中の書き換えと未追跡）を残す。
@@ -587,7 +578,7 @@ class TestDevShell(unittest.TestCase):
             subprocess.run(["git", "init", "-q", str(wt)], check=True)
             (wt / ".archon" / "workflows" / "works" / "a.yaml").write_text("x\n")
             subprocess.run(["git", "-C", str(wt), "add", "-A"], check=True)
-            subprocess.run(["git", "-C", str(wt), *self.GIT_ID, "commit", "-q", "-m", "base"], check=True)
+            subprocess.run(["git", "-C", str(wt), *GIT_ID, "commit", "-q", "-m", "base"], check=True)
             board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
             board.mkdir(parents=True)
             cases = {
