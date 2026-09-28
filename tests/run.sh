@@ -4011,7 +4011,7 @@ out.append(f"eval={st} control_ok={s['control_ok']} py_ctl={s['pytest_control_ok
 py_off = [("pytest の段を使っていない" in mutate.gate_efficacy(r)["material"].get("detail", "")) for r in
           ({**res, "pytest_stage": "uv が PATH に無い"}, {**res, "marker": {**res["marker"], "pytest": {"rc": 1, "why": "印の写しの pytest が緑でない"}}}, res)]
 out.append(f"gate_g1={gate['g1']} gate_k2={gate['k2']} py_off={py_off}")
-# 6) 持ち越しの指紋: pytest の置き場と宣言を直すと自動の腕だけ撃ち直す（一覧の腕は pytest を撃たないので持ち越す）
+# 6) 持ち越しの指紋: pytest の置き場と宣言を直すと自動の腕だけ撃ち直す（node id を名指さない一覧の腕は pytest を撃たないので持ち越す）
 fr = pathlib.Path(tempfile.mkdtemp())
 (fr / mutate.PYDIR).mkdir(parents=True)
 (fr / "x.py").write_text("x = 1\n", encoding="utf-8")

@@ -1,50 +1,246 @@
 name: mutation
 
-# 変異の腕（tests/mutations.json）を全部撃つ。手元の撃ち直しは --reuse で前回の結果を持ち越し、腕の定義・壊すファイル・
-# 台本一式が変わった腕だけを撃つので、ほかのファイルの変更で結果が変わる腕は手元では拾えない（StrykerJS の incremental と
-# 同じ割り切り: https://stryker-mutator.io/docs/stryker-js/incremental/）。その取りこぼしを週 1 回の全腕で拾う——ただし拾えるのは
-# schedule が動いている間だけ。60 日間リポジトリに活動が無いと GitHub が schedule を止め（public のリポジトリ）、誰にも通知されない。
-# 戻すのは手で: gh workflow enable mutation.yml。止まっている間の取りこぼしは、手元の全腕（--reuse を付けない tests/mutate.py）でしか拾えない
-# 既製の mutmut（pytest が覆うモジュールを丸ごと自動で撃つ）はここで回さない。生き残りの数で落とす形は作れず（文言だけの変異が
-# 残る）、報告だけのジョブは誰も読まないので、手元で撃って生き残りを pytest 側のテストで殺す道具として使う（回し方は
-# graphloops/README.md の「検査」節）。落とす柵はこの workflow が撃つ手書きの腕の側に在る
-# 実行器は写しを worker ごとに使い回す。それが腕ごとに写しを作り直す形と同じ判定を出すことを、同じジョブの 2 段目で撃ち比べる
-# （既定の段の報告から腕を 4 本まで選び、--fresh-copy で撃って status と当たりの証拠を突き合わせる。結果は fresh-report.json）
+# 変異の関門。人の方針（変異テスト）: 手元の機械では撃たず、この workflow だけで撃つ。pytest を中心にし、3 OS で撃ち、mutmut も載せる。
+# 起こすのは schedule（週 1 回の全腕）と workflow_dispatch（入力で腕の一覧・--auto の基点・--changed-since の基点を渡す）だけで、
+# push では起こさない——test.yml の関門と同時実行の枠（Free: 全体 20・macOS 5。https://docs.github.com/en/actions/reference/limits）を
+# 奪い合わない（人の関所 2026-09-28）。
+# 腕は OS ごとの job で組（tests/mutate.py --shard k/n）に分けて撃ち、OS ごとに組の報告を --merge で和の検算に通して 1 本にまとめる
+# （mutation-report-<OS>。まとめる段の終了コードが関門）。k と n は strategy.job-index・job-total から受ける（手で n を書かないので、
+# 組の一覧と n が食い違わない）。組の数は ubuntu 5・windows 8・macOS 4（Windows が一番遅い。macOS は mutmut と合わせて 5、全部で 20）。
+# 組ごとの秒は未実測——効き目の報告（graphloops/tests/py/MIGRATION.md の「CI の組ごとの秒と CPU 時間」）で取って見直す。
+# 期限（timeout-minutes）は書かない（人の方針: 期限を足さない。土台の job の上限が効く）。
+# 持ち越し（--reuse）は腕の定義・壊すファイル・台本一式が変わった腕だけを撃ち直すので、ほかのファイルの変更で結果が変わる腕は拾えない
+# （StrykerJS の incremental と同じ割り切り: https://stryker-mutator.io/docs/stryker-js/incremental/）。その取りこぼしを週 1 回の全腕で
+# 拾う——ただし schedule は、60 日間リポジトリに活動が無いと GitHub が止め（public のリポジトリ）、誰にも通知されない。戻すのは手で:
+# gh workflow enable mutation.yml。止まっている間の取りこぼしは gh workflow run mutation.yml（入力なし＝全腕）で拾う。
+# 実行器は写しを worker ごとに使い回す。それが腕ごとに写しを作り直す形と同じ判定を出すことを same-as の job で撃ち比べる
+# （ubuntu のまとめた報告から腕を 4 本まで選び、--fresh-copy で撃って status と当たりの証拠を突き合わせる。結果は fresh-report.json）。
 on:
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
+    inputs:
+      only:
+        description: "撃つ腕の id（カンマ区切り。空なら全腕）"
+        required: false
+        default: ""
+      auto:
+        description: "--auto の基点の版（空なら差分から自動の腕を作らない。与えると cosmic-ray の撃ち比べも起こす）"
+        required: false
+        default: ""
+      changed_since:
+        description: "--changed-since の基点の版（空なら絞らない）"
+        required: false
+        default: ""
 
-# checkout と成果物の upload だけなので、GITHUB_TOKEN は読むだけにする
+# checkout と成果物の上げ下ろしだけなので、GITHUB_TOKEN は読むだけにする。secrets は使わない
 permissions:
   contents: read
 
 jobs:
-  mutate:
+  shard-ubuntu:
     runs-on: ubuntu-latest
-    # 手元（24 コア・-j 6）で全腕 21〜35 分。4 コアの runner で数倍かかる見込みに余裕を足した値（未実測）
-    timeout-minutes: 300
+    strategy:
+      # 生き残りで赤になった組が兄弟の組を取り消すと、まとめる job が組の欠けで赤になり結果が読めない
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v5
+      # 基点の commit が要る（--auto・--changed-since の git diff）
+      - &checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       # test.yml と同じ版を測る（README が宣言した下限）
-      - uses: actions/setup-python@v5
+      - &setup_python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: tests/mutate.py
+      # tests/mutate.py の PYTEST（uv run --no-project --with pytest==… ）を起こす。無いと pytest の段が撃てない（no-test）まま台本だけで撃つ
+      - &setup_uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+      # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。python3 は Windows の runner に無いので python で呼ぶ。
+      # 入力は env で受けて形を確かめてから配列で組む（${{ }} を run に直に展開しない——入力がそのままシェルの本文になる）
+      - &shoot
+        name: tests/mutate.py の組
+        # 組の赤（生き残り）は job を止めずに報告へ残し、関門の判定はまとめる job の 1 か所で行う（欠け・撃ち切っていない組はまとめる側の和の検算が赤にする）
+        continue-on-error: true
         shell: bash
-        # --confirm-survivors: 絞った台本（腕の tests）が緑の腕を台本一式で確かめ直す（週 1 回の全腕は、既定で外した確かめ直しを残す）
-        run: python3 tests/mutate.py -j 4 --confirm-survivors --out mutation-report.json
-      - name: 写しの使い回しと腕ごとの作り直しの撃ち比べ
-        if: always()
-        shell: bash
-        # 既定の段が赤でも撃ち比べる（関門の赤と使い回しの食い違いは別の事実）。腕の選び方と比べ方の正本は tests/mutate.py の
-        # same_as_pick・same_as_diff。既定の段の報告が無い・途中の版・使い回していない回は、比べる意味が無いので赤
-        run: python3 tests/mutate.py -j 4 --confirm-survivors --same-as mutation-report.json --out fresh-report.json
-      - name: 結果を残す（次の撃ち直しの --reuse に使える）
+        env:
+          ONLY: ${{ inputs.only }}
+          AUTO: ${{ inputs.auto }}
+          SINCE: ${{ inputs.changed_since }}
+          K: ${{ strategy.job-index }}
+          N: ${{ strategy.job-total }}
+        run: |
+          args=(-j 4 --confirm-survivors --shard "$K/$N" --out shard.json)
+          if [ -n "$ONLY" ]; then
+            [[ "$ONLY" =~ ^[A-Za-z0-9_.:/,-]+$ ]] || { echo "NG only は腕の id のカンマ区切り: $ONLY"; exit 2; }
+            args+=(--only "$ONLY")
+          fi
+          for pair in "auto:$AUTO" "changed-since:$SINCE"; do
+            flag=${pair%%:*} rev=${pair#*:}
+            [ -n "$rev" ] || continue
+            git rev-parse --verify --quiet "$rev^{commit}" >/dev/null || { echo "NG $flag は版でない: $rev"; exit 2; }
+            args+=("--$flag" "$rev")
+          done
+          python tests/mutate.py "${args[@]}"
+      - &upload_shard
+        name: 組の報告を残す
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mutation-report
+          # v4 は同じ名前へ複数の job から上げられない
+          name: mutation-shard-${{ runner.os }}-${{ strategy.job-index }}
+          path: shard.json
+          if-no-files-found: error
+  shard-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps: [*checkout, *setup_python, *setup_uv, *shoot, *upload_shard]
+  shard-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps: [*checkout, *setup_python, *setup_uv, *shoot, *upload_shard]
+
+  merge:
+    needs: [shard-ubuntu, shard-windows, shard-macos]
+    if: always()
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # OS ごとにまとめる（同じ腕でも OS で結果が分かれうる。混ぜると k が OS の数だけ重なって和の検算が赤になる）。名前は runner.os の値
+        os: [Linux, Windows, macOS]
+    steps:
+      - *checkout
+      - *setup_python
+      # 成果物ごとに別のディレクトリへ展開する（merge-multiple は使わない。同じファイル名がぶつかったときの結果が定まっていない）
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutation-shard-${{ matrix.os }}-*
+          path: shards
+      - name: 組をまとめる（和の検算。この段の終了コードが関門）
+        shell: bash
+        run: python tests/mutate.py --merge shards/*/shard.json --out mutation-report.json
+      - name: まとめた報告を残す（次の撃ち直しの --reuse に使える）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report-${{ matrix.os }}
+          path: mutation-report.json
+
+  same-as:
+    needs: merge
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - *checkout
+      - *setup_python
+      # 撃ち比べる腕が pytest の node id を名指していれば pytest も撃つ——組の job と同じ uv を入れる
+      - *setup_uv
+      - uses: actions/download-artifact@v4
+        with:
+          name: mutation-report-Linux
+      - name: 写しの使い回しと腕ごとの作り直しの撃ち比べ
+        # まとめる段が赤でも撃ち比べる（関門の赤と使い回しの食い違いは別の事実）。腕の選び方と比べ方の正本は tests/mutate.py の
+        # same_as_pick・same_as_diff。まとめた報告が無い・途中の版・使い回していない・和の検算が外れた回は、比べる意味が無いので赤
+        if: always()
+        shell: bash
+        run: python tests/mutate.py -j 4 --confirm-survivors --same-as mutation-report.json --out fresh-report.json
+      - name: 撃ち比べの報告を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: same-as-report
+          path: fresh-report.json
+
+  # pytest が覆うモジュールを差分に依らず丸ごと撃つ mutmut（設定は graphloops/setup.cfg）。生き残りの数で落とす形は作れない（文言だけの
+  # 変異が残る）ので job は赤にせず、結果を成果物に残す——生き残りは次の run への依頼として返す（graphloops/README.md の「検査」節）。
+  # Linux と macOS の 2 OS だけ: mutmut は fork を前提にし、Windows では WSL の中でしか動かない（mutmut 3.8.0 の README
+  # https://github.com/boxed/mutmut#readme の "Mutmut must be run on a system with `fork` support. This means that if you want to run on
+  # windows, you must run inside WSL."）。手書きの腕（上の組）は 3 OS で撃つ（人の関所 2026-09-28）
+  mutmut:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - *checkout
+      - *setup_python
+      - name: mutmut
+        shell: bash
+        working-directory: graphloops
+        run: |
+          python -m pip install mutmut==3.8.0 pytest==9.1.1
+          set +e
+          mutmut run --max-children 4
+          echo "mutmut run の終了コード: $?" > ../mutmut-results.txt
+          mutmut results >> ../mutmut-results.txt
+          exit 0
+      - name: mutmut の結果を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutmut-results-${{ runner.os }}
+          path: mutmut-results.txt
+          if-no-files-found: error
+
+  # --auto と既製の cosmic-ray の撃ち比べ（依頼 2026-09-28）: 同じ基点の差分の行だけを cosmic-ray でも撃ち（cr-filter-git）、結果を成果物に
+  # 残す。読むのは親——同じ行で、--auto の腕（組のまとめた報告の auto: の腕）と cosmic-ray の変異がどちらで生き残ったかを突き合わせる。
+  # cosmic-ray が走らせるのは pytest の置き場だけ（台本は走らせない）。設定の鍵と CLI は cosmic-ray 8.7.0 の src/cosmic_ray/config.py・
+  # cli.py・tools/filters/git.py で確かめた。timeout は設定の必須の鍵なので、人の方針の例外の 20 日を書く
+  cosmic-ray:
+    if: github.event_name == 'workflow_dispatch' && inputs.auto != ''
+    runs-on: ubuntu-latest
+    steps:
+      - *checkout
+      - *setup_python
+      - name: cosmic-ray（--auto と同じ基点の差分の行）
+        shell: bash
+        env:
+          AUTO: ${{ inputs.auto }}
+        run: |
+          git rev-parse --verify --quiet "$AUTO^{commit}" >/dev/null || { echo "NG auto は版でない: $AUTO"; exit 2; }
+          base=$(git rev-parse "$AUTO^{commit}")
+          # --auto と同じ対象: 差分が変えた .py のうち台本の置き場（tests/・graphloops/tests/）の外と、tests/mutate.py
+          mapfile -t mods < <(git diff --name-only --diff-filter=AM "$base" HEAD -- '*.py' | grep -v -e '^tests/' -e '^graphloops/tests/'; git diff --name-only --diff-filter=AM "$base" HEAD -- tests/mutate.py)
+          if [ "${#mods[@]}" -eq 0 ]; then echo "差分が変えた .py が無い——撃たない" > cosmic-ray-report.txt; exit 0; fi
+          python -m pip install cosmic-ray==8.7.0 pytest==9.1.1 pytest-xdist==3.8.0
+          python - "$base" "${mods[@]}" > cr.toml <<'PY'
+          import json, sys
+          base, mods = sys.argv[1], sys.argv[2:]
+          print("[cosmic-ray]")
+          print("module-path = " + json.dumps(mods))
+          print("timeout = 1728000.0")
+          print("excluded-modules = []")
+          print('test-command = "python -m pytest -x -q -p no:cacheprovider -n 4 graphloops/tests/py"')
+          print("[cosmic-ray.distributor]")
+          print('name = "local"')
+          print("[cosmic-ray.filters.git-filter]")
+          print("branch = " + json.dumps(base))
+          PY
+          cosmic-ray init cr.toml cr.sqlite
+          cr-filter-git --config cr.toml cr.sqlite
+          cosmic-ray exec cr.toml cr.sqlite
+          cr-report --show-pending cr.sqlite > cosmic-ray-report.txt
+          cosmic-ray dump cr.sqlite > cosmic-ray-dump.jsonl
+      - name: cosmic-ray の結果を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cosmic-ray-report
           path: |
-            mutation-report.json
-            fresh-report.json
+            cr.toml
+            cosmic-ray-report.txt
+            cosmic-ray-dump.jsonl
+          if-no-files-found: warn

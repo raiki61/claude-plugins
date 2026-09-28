@@ -189,18 +189,20 @@
   あれば終了 1 になる。どの 1 件で赤になるかは、旧い側の測りを取った回に決めてここに書く
 - 限り: 測るのは行だけで、枝は測らない。新しい側の同じプロセスの行は 1 つの文脈（`new`）にまとまる
 
-**結果: 包含は未実施。** 旧い側は、人が許した testslot の枠で 1 回回す（問いの台帳の held の問い）か、CI の段（下の「門と CI の段」）で
-回し、結果をここに書く。
+**結果: 包含は未実施。** 撃つ口は CI の手で起こす job（[.github/workflows/cover-moved.yml](../../.github/workflows/cover-moved.yml) の段
+root cover。engine の子の中では tests/run.sh の入口が撃ちを拒むので、手元の子では撃てない）。親が `gh workflow run cover-moved.yml` で
+起こし、成果物 cover-moved の cover-root.txt（道具の出力と終了コードの 1 行）を読んで、結果をここに書く。赤の腕は、その回の
+cover-root/old を置き場に戻して `--only-new` と `-- --deselect` で撃つ（外す 1 件はその回の出力から決める）。
 
 ### 変異の腕（CI で撃つ手順）
 
-人の方針は「変異は CI だけで撃つ・pytest の側の mutmut も CI に載せる」。今は、どちらの腕もこの置き場を撃つ者が居ない。
+人の方針は「変異は CI だけで撃つ・pytest の側の mutmut も CI に載せる」。撃つ workflow は
+[.github/workflows/mutation.yml](../../.github/workflows/mutation.yml)。ただし、どちらの腕もまだこの置き場を撃たない。
 
 - **手書きの腕**: [tests/mutations.json](../mutations.json) で scripts/review-record.py を壊す腕は n01・n02（suite は root。expect は
-  `graphloops: graphcheck`）と OA1（suite は graphloops。graphloops/tests/simulate_review.py の検査が落とす）の 3 本。どれも節の検査で
-  落ちる腕ではないので、台本の節を消しても付け替えは要らない。節の検査を当てにする腕を足すなら、腕の実行器 [tests/mutate.py](../mutate.py)
-  に pytest の口が要る（今は bash の台本しか回せない。[graphloops/README.md の「検査」](../../graphloops/README.md#検査) の
-  「置き場の方針」）
+  `graphloops: graphcheck`）と OA1（suite は graphloops。graphloops/tests/simulate_review.py の検査と、その移し先の層 2 の node id が落とす）の
+  3 本。どれも節の検査で落ちる腕ではないので、台本の節を消しても付け替えは要らない。腕の実行器 [tests/mutate.py](../mutate.py) の手書きの腕が
+  名指せる pytest の置き場は graphloops/tests/py だけで、この置き場（tests/py）の node id を名指す腕を足すなら、その口を広げる変更が要る
 - **mutmut**: この置き場のテストのままでは、pytest の側の mutmut は review-record.py の変異を拾えない。mutmut の trampoline は、
   変異の名前の module と、呼ばれた関数の `__module__` を突き合わせ、違えば元の関数を呼ぶ（mutmut の
   [src/mutmut/mutation/trampoline.py](https://github.com/boxed/mutmut/blob/main/src/mutmut/mutation/trampoline.py)）。検証器は
@@ -209,10 +211,9 @@
   - 本体を import できるモジュールへ移し、scripts/review-record.py を薄い殻にする（scripts/ を触る）
   - テストの側で、検証器を mutmut が付ける module の名前のまま読み込み、`__main__` の段の境界（想定外の例外を 2 に倒す）は子プロセスの
     検査に任せる
-- **既存の記述とのずれ**（どれも tests/py の外なので、この run では直していない）: graphloops/README.md の「検査」節・tests/mutate.py の
-  docstring の「mutmut との受け持ち」・.github/workflows/mutation.yml の冒頭の注記は、どれも「mutmut は手元で撃ち CI では回さない。
-  受け持ちは graphloops/engine/schema.py」と書いている。人の方針とも、ここに足す 2 本目の対象とも食い違う。直すのは、CI の job を
-  足す run か、下の fork が「tests/py の外を触ってよい」と答えた周
+- **mutmut の対象**: mutmut は CI（mutation.yml の mutmut の job。Linux と macOS）で撃つようになったが、対象は graphloops/setup.cfg の
+  only_mutate（graphloops/engine の 2 モジュール）だけで、scripts/review-record.py は入っていない。入れるのは、上の 2 つの道のどちらかを
+  選ぶ run
 
 ### 門と CI の段
 

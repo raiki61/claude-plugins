@@ -1,6 +1,6 @@
 {
   "suite": [
-    {"name": "pytest", "argv": ["uv", "run", "--no-project", "--with", "pytest==9.1.1", "--with", "pytest-xdist==3.8.0", "python", "-m", "pytest", "-n", "auto", "graphloops/tests/py"]},
+    {"name": "pytest", "argv": ["uv", "run", "--no-project", "--with", "pytest==9.1.1", "--with", "pytest-xdist==3.8.0", "python", "-m", "pytest", "-n", "4", "graphloops/tests/py"]},
     {"name": "root pytest", "argv": ["uv", "run", "--no-project", "--with", "pytest==9.1.1", "python", "-m", "pytest", "tests/py"]}
   ],
   "mutation": {"argv": ["python3", "tests/mutate.py"], "arms": "tests/mutations.json"}

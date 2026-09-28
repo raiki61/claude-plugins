@@ -3,7 +3,7 @@
 - 状態: 採用
 - 日付: 2026-09-27
 - 決めた人: 回す側（設計役）の推し。T2 の run の親の方向づけ（2026-09-27）で筋書きの形を確かめた。覆せる
-- 実装: 一部（T1 の否定検査 2 本と、T2 の上限で止まる類・止める・人待ちの 14 関数は作業枝で移した。台本はまだ消していない）
+- 実装: 一部（T1 の否定検査 2 本と、T2 の上限で止まる類・止める・人待ちの 14 関数と、T3 の移す順 (3)(4) のうち 2 関数は作業枝で移した。台本はまだ消していない）
 
 ## 文脈
 
@@ -22,7 +22,7 @@
 
 ### 通しに残す 10 本
 
-次の 10 本は今の形（子プロセスで loop.py を起こす台本）のまま残し、同じ筋書きを cli の回し手でも回して層 2 と突き合わせる相手にする: research の test_converges・review の test_converges・test_tdd_flow・test_spec_flow・test_human_gate の主経路・test_stop_midround・test_stop_signal_stops_test_runner_tree・test_relaunch・test_launch_delegate_fenced・test_isolated_real_launch。
+次の 10 本は今の形（子プロセスで loop.py を起こす台本）のまま残し、同じ筋書きを cli の回し手でも回して層 2 と突き合わせる相手にする: research の test_converges・review の test_converges・test_tdd_flow・test_spec_flow・test_human_gate の主経路・test_stop_midround・test_stop_signal_stops_test_runner_tree・test_relaunch・test_launch_delegate_fenced・test_isolated_real_launch。pytest の置き場に在る物（今は research の test_converges だけ）には印 layer6 を付ける（登録は graphloops/tests/py/glharness.py）。
 
 ### 台本を消す 4 条件
 

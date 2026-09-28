@@ -29,17 +29,7 @@ simulate.py の small 8 本と、research の標準の収束（e2e）1 本を移
 
 ### 変異の腕
 
-移した関数だけを当てにしていた腕 7 本は、tests/mutate.py がまだ pytest を回せないので、腕の中身ごと tests/mutations.json の dropped に移した（理由と戻す条件は各行の why、殺すはずのテストは kill_by）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で arms へ戻す。**この段の変更は、その変更と同じ版か、その後にしか main に入れない。** 旧の側（bash の台本）でも新の側でも撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）。
-
-| 腕 | 殺すはずのテスト |
-|---|---|
-| e13 | graphloops/tests/py/test_schema.py::test_types[maxLength-over] |
-| e14 | graphloops/tests/py/test_schema.py::test_types[maxLength-counts-spaces] |
-| S01 | graphloops/tests/py/test_schema.py::test_pattern_properties_checks_value_type |
-| SC1 | graphloops/tests/py/test_schema.py::test_end_anchored[escaped-open-bracket-then-close] |
-| SC2 | graphloops/tests/py/test_schema.py::test_end_anchored[bracket-first-in-negated-class] |
-| SC3 | graphloops/tests/py/test_schema.py::test_unexpanded_ref_is_rejected |
-| SC4 | graphloops/tests/py/test_schema.py::test_ref_outside_the_two_spellings_is_rejected[engine-defs-engine-name] |
+移した関数だけを当てにしていた腕 7 本（e13・e14・S01・SC1〜SC4）は、tests/mutate.py がまだ pytest を回せなかったので、いったん tests/mutations.json の dropped に移した。手書きの腕が pytest の node id を名指す口が入った（2026-09-28、下の T1 の「変異の腕」）ので arms へ戻した——tests は graphloops/tests/py の鍵に移した先の node id、expect はその node id（名指しの正本は tests/mutations.json）。同じ理由で dropped に居た腕（回し役なしの束の DR3〜DR33 と DR34——元の id DR1 は一覧に別の腕が在るので付け替えた——、q02）も同じ形で戻した。まだどの側でも撃っていない——未撃ち（CI の mutation.yml で撃つ。人の方針: 変異は手元で撃たない）。
 
 移した関数を tests に持つ腕と、expect の頭が消した check の文言に当たる腕は、上の 7 本だけ（tests/mutate.py --check が消した後の版で通ることで確かめた）。
 
@@ -259,35 +249,17 @@ check の数は、末尾の「check ごとの対応（台帳が刷る）」の�
 
 ### 変異の腕
 
-tests/mutations.json で test_rejections を当てにする腕は下の表のとおり。この run では腕を動かしていない（台本は残り、腕は今も台本で撃てる）。**撃つのは CI だけ**（人の方針）。腕の実行器 tests/mutate.py は、差分から機械で作る腕（--auto）では pytest の段を持つが、手書きの腕（tests/mutations.json の一覧）は台本だけを撃ち、pytest の node id を撃つ口を持たない。下の手順は、手書きの腕が pytest を撃つ口が入ってから CI で撃つ:
+tests/mutations.json で test_rejections を当てにする手書きの腕は 21 本（e08・e20・f06・m11・K5a・K5b・K9・P01・R06・R07・R08・R13・O01・NF1・RN2・PD1・PE1・NR1・BR1・DG1・OV1）。どの腕も tests に台本の鍵（simulate_review.py の test_rejections）と、graphloops/tests/py の鍵の移した先の node id の両方を持つ（名指しの正本は tests/mutations.json。2026-09-28 に足した）。**撃つのは CI だけ**（人の方針。手元・engine の子の中では撃たない）。
 
-1. 口が入った版で、下の腕を 1 本ずつ、tests に「移した先」の node id だけを書いて撃つ（台本は tests から外す）
-2. Killed で、落ちたテストが「移した先」の node id なら、その腕の tests を node id に付け替えてよい。expect は腕の中身の文言のままで、新しいテストの失敗の文面に当たるかを見る（当たらなければ expect を新しいテストの assert の文面に替える）
-3. Survived なら付け替えない。台帳の行に理由を書き、台本を消す run の前に新しいテストを足す
-4. 表の腕が全部付け替わり、前の変異の結果で台本 2 本が殺した自動の腕（台本を消す条件の 3）も新しいテストで殺せたら、台本 2 本を消す run の条件がそろう
+腕の実行器（tests/mutate.py）は、node id を名指した手書きの腕を自動の腕の前段と同じ形で撃つ: 名指しの pytest を先に撃ち、赤なら台本を撃たずに Killed（attribution が pytest）で、名指しの node id が落ちたことが当たりの証拠になる。緑・撃てないなら台本を今までどおり撃つ（網は狭めない）。control の pytest が赤の回は pytest の赤だけを証拠から外す。台本を消す条件の 2（ADR 0067 の「新しい層だけで撃ち、全部 Killed のまま expect を付け替えられる」）は、この段の赤で読む——台本を名指しから外さずに、同じ回で新しい層だけの殺しが分かる。失敗の文面は読まない（実行器は落ちたテストの node id だけを取る）ので、当たりは文面でなく名指しの node id で見る。
 
-| 腕 | 撃つファイル | expect（頭） | 殺すはずのテスト（移した先） |
-|---|---|---|---|
-| e08 | review-loop.py | 改行を含む cite は exit 1 | test_rejections_review.py::test_fix_reply_is_rejected[cite-with-newline] |
-| e20 | review-loop.json | wrote_refs を落とした返答は型で拒まれる | test_rejections_review.py::test_fix_reply_is_rejected[wrote-refs-dropped] |
-| f06 | review-loop.py | 改行を含む cite は exit 1 | test_rejections_review.py::test_fix_reply_is_rejected[cite-with-newline] |
-| m11 | review-loop.py | 残した理由を書けば部分的な覆いは通る | test_rejections_review.py::test_fix_reply_is_rejected[partial-coverage-with-remaining] |
-| K5a | review-loop.py | 修正前の母数 1・修正後に engine が数えた 0 が記録に残る | test_rejections_review.py::test_coverage_before_and_after_are_recorded |
-| K5b | review-loop.py | 修正前の母数 1・修正後に engine が数えた 0 が記録に残る | test_rejections_review.py::test_coverage_before_and_after_are_recorded |
-| K9 | review-loop.py | 判定者の書いた件数は engine が数えた件数に置き換わり、置き換えたことが | test_rejections_review.py::test_judge_count_is_replaced_by_the_engine_count |
-| P01 | validator.py | inspector は Read を持っても本文を貼る | test_rejections_review.py::test_inspector_gets_pasted_body_and_investigator_gets_a_path |
-| R06 | review-loop.py | 先行例: 直す単位の行が欠けた judge の返答は exit 1 | test_rejections_review.py::test_judge_reply_is_rejected[precedent-row-missing] |
-| R07 | review-loop.py | 先行例: 人へ回す問いに決まらない理由が無ければ exit 1 | test_rejections_review.py::test_judge_reply_is_rejected[human-question-needs-undecided-because] |
-| R08 | review-loop.py | 先行例: 修正の先行例に出典が無ければ exit 1 | test_rejections_review.py::test_fix_reply_is_rejected[fix-precedent-without-source] |
-| R13 | review-loop.py | リンク: 申告が空でも | test_rejections_review.py::test_fix_reply_is_rejected[markdown-links-added-by-the-diff] |
-| O01 | advance.py | 返答の置き場のディレクトリは engine が作る | test_rejections_review.py::test_out_path_directories_are_made_by_the_engine |
-| NF1 | review-loop.py | 先行例: 見つからないなら何を探したかが要る | test_rejections_review.py::test_judge_reply_is_rejected[not-found-without-searched] |
-| RN2 | review-loop.json | 順位（主経路）: 外部標準照合の done は | test_rejections_review.py::test_external_standards_without_rankings_none_is_rejected |
-| PD1 | review-loop.py | 先行例: 同じ key の行が 2 つある judge の返答は exit 1 | test_rejections_review.py::test_judge_reply_is_rejected[precedent-key-duplicated] |
-| PE1 | review-loop.py | 先行例: 人へ回す問い（escalate）にも先行例の行が要る | test_rejections_review.py::test_judge_reply_is_rejected[escalate-needs-precedent] |
-| NR1 | review-loop.py | 覆い: 判定者の母数より狭い how は理由なしで拒む | test_rejections_review.py::test_fix_reply_is_rejected[how-narrower-than-judge] |
-| BR1 | review-loop.py | 覆い: 空語（『なし』）の remaining は理由に数えない | test_rejections_review.py::test_fix_reply_is_rejected[remaining-empty-word] |
-| DG1 | advance.py | 任せ先: graph が delegate を宣言した回す側の節は | test_rejections_review.py::test_undeclared_repo_falls_back_to_a_delegate |
+条件 2〜4 を撃つ手順（撃つのは親。子は腕の名指しと手順までを commit して周を締める）:
+
+1. **条件 2**: `gh workflow run mutation.yml -f only=<上の腕の id のカンマ区切り>` で撃つ（週 1 回の全腕の回でも同じ行が出る）。成果物 mutation-report-Linux・Windows・macOS（OS ごとにまとめた報告）の腕の行で、attribution が pytest で evidence が「killedBy に名指した node id」なら、その腕は新しい層だけで殺せた（summary.by_pytest に並び、summary.no_evidence に居ない）。条件 2 を満たすのは 3 OS の報告のすべてでこの形の腕だけで、1 OS でも欠ければ満たさない（OS で分かれた腕は、台本がその OS でだけ拾う物を持つ見込みがある。上の cp1252 の腕と同じ）
+2. 3 OS のどれか 1 つでも attribution が narrowed（台本だけが殺した）・Survived・走り切らない腕、報告に行が無い腕は条件 2 を満たさない。台帳の行に理由を書き、台本を消す run の前に新しいテストを足すか、その check を台本に残す
+3. **条件 3**: `gh workflow run mutation.yml -f auto=<前の変異の結果と同じ基点>` で自動の腕を撃つ（基点は前の報告の --auto の基点。親の記録に在る）。台本 2 本が殺した自動の腕の集合 K は、その報告の自動の腕のうち cover（印の写しで行を通した台本）に移した関数が在る腕。K の全部の attribution が pytest（新しい層が先に殺した）なら条件 3 がそろう。同じ入力で起きる cosmic-ray の job の成果物は、同じ差分の行を既製の道具で撃った比べ（読むのは親。関門には使わない）
+4. **条件 4**: `gh workflow run cover-moved.yml`（下の「被覆の包含」）
+5. 4 条件がそろった関数だけを、結果を受けた周に消す。消す周に、条件 2 を満たした腕の tests から台本の鍵を外し、expect を名指しの node id の頭に替える（--check が node id のファイル・関数・parametrize の id の在りかを縛る）
 
 ### check ごとの対応
 
@@ -338,28 +310,46 @@ conftest.py の EXPECTED_ITEMS 1349 → 1532。内訳は、層 2 の 2 ファイ
 
 ### 変異の腕
 
-tests/mutations.json で T2 の台本を当てにする手書きの腕は 12 本。(1) 上限で止まる類の 4 関数（test_runaway・test_ci_red_runaway・test_gate_arms・test_stopped_before_gates_reports）を指す手書きの腕は 0 本で、移した期待の強さの証明は台本を消す条件の 3（自動の腕）だけが担う——条件 4（被覆）は行を通したことしか示さない。手順は T1 の変異の腕の節と同じ（手書きの腕が pytest の node id を撃つ口が入った版で、CI で撃つ）。
-
-| 腕 | 撃つファイル | expect（頭） | 殺すはずのテスト（移した先） |
-|---|---|---|---|
-| R05 | review-loop.py | 書いた時点: 人に諮っている欄を後の工程が clean で上書きすると拒む | test_scenarios_review.py::test_awaiting_origin_guards[ci-overwrite] |
-| J01 | review-loop.json | CI を再実行する節のプロンプトに、この周の問いの台帳が渡る | test_scenarios_review.py::test_awaiting_origin_guards[ci-prompt-has-ledger] |
-| MP1 | review-loop.py | 主経路の観測: 見たと言う状態なのに観測した値が無ければ exit 1 | test_scenarios_review.py::test_awaiting[observed-empty] |
-| OA1 | review-record.py | 書いた時点: 人に諮っている欄を後の工程が | test_scenarios_review.py::test_awaiting_origin_guards[ci-overwrite] |
-| RV2 | review-loop.py | 判定の後の人待ち: 問いの無い awaiting_human を書いた p4.ci は拒む | test_scenarios_review.py::test_no_new_awaiting_after_judge[p4-ci-awaiting-without-question] |
-| NA1 | review-loop.py | 判定の後の人待ち: 問いの無い awaiting_human を書いた p4.ci は拒む | test_scenarios_review.py::test_no_new_awaiting_after_judge[p4-ci-awaiting-without-question] |
-| RC1 | advance.py | 1 周目の締めの後の next が stopped と halted | test_scenarios_review.py::test_stop_after_round[stops-after-round-1] |
-| FG1 | review-loop.py | 撃てた腕が 0 本の関門で収束を言わず人に諮る | test_scenarios_review.py::test_final_gate_empty_asks_human[asks-on-empty-gate] |
-| FG2 | review-loop.py | 人が認めた木なら | test_scenarios_review.py::test_final_gate_empty_asks_human[converges-next-round] |
-| FG3 | review-loop.py | 諮る前に止めた理由（stop_reason）を立てる | test_scenarios_review.py::test_final_gate_empty_asks_human[stop-reason-before-asking] |
-| FG4 | review-loop.py | 上限の周の continue は上限を 1 周だけ延ばし | test_scenarios_review.py::test_final_gate_empty_asks_human[continue-extends-by-one] |
-| CK3 | review-loop.py | 判定の時点: 人待ちの素材を出どころにする問いを台帳に載せない判定は拒む | test_scenarios_review.py::test_awaiting_origin_guards[judge-unlisted] |
+tests/mutations.json で T2 の台本を当てにする手書きの腕は 12 本（R05・J01・MP1・OA1・RV2・NA1・RC1・FG1〜FG4・CK3）。どれも tests に台本の鍵と、graphloops/tests/py の鍵の移した先の node id の両方を持つ（名指しの正本は tests/mutations.json）。(1) 上限で止まる類の 4 関数（test_runaway・test_ci_red_runaway・test_gate_arms・test_stopped_before_gates_reports）を指す手書きの腕は 0 本で、移した期待の強さの証明は台本を消す条件の 3（自動の腕）だけが担う——条件 4（被覆）は行を通したことしか示さない。撃つ手順と読み方は T1 の変異の腕の節と同じ。
 
 ### 被覆の包含
 
 cover_moved.py が名乗るのは実行の包含（台本の関数が通した行を、移した先のテストの和も通したか）だけで、期待の強さは名乗らない。台本ごとの比べ（per_script）は、台本を名乗る node id の本体（run）と、そのテストが使った前置きの作り（T1 の波とその祖先・層 2 の列の接頭辞。fixture が user_properties に積み、--junitxml で読む）だけを数える。被覆の回（--gl-prebuild-waves）は前置きだけを準備の段で作り、各行の when を本体で打つので、どの行も run の文脈を持つ——「名乗る node id が run の文脈に 1 つも無い台本は赤」の規則はそのまま当てる。
 
 **被覆の回は、この run では撃っていない**（手元に coverage と pytest-cov が無く、人の方針で手元では関数を名指しした数件だけを回す）。撃つのは CI の cover-moved の job（.github/workflows/cover-moved.yml。手で起こす）で、台本を消す run の前に撃つ。縛ったのは選ぶ段の純粋な関数（select_new・used_contexts・lineage）と子の数え方で、test_cover_moved.py と test_scenes.py が見る。--no-cov の回（所要・子の数・元の関数の Run との突き合わせ）は上の 3 関数で撃った。T1 の上の測りも土台 aa4cdf6 の版の値のままで、今の版の包含の証明としては読めない。
+
+## T3（2026-09-28）
+
+移す順の (3)（判定から入る入口・修正案の審査）と (4)（線・TDD・仕様）のうち、今の層 2 の出来事（scenes.py の init・until・cmd・write・look と役の表の手直し）だけで書ける 2 関数を移した。**台本はまだ消していない**（消す条件は T1 と同じ 4 つ）。
+
+| 元の台本の関数 | 移した先 |
+|---|---|
+| simulate_review.py の test_deferjudge・test_tdd_gives_up_without_dead_end | test_scenarios_review.py（同じ名前の関数。すべて medium・layer2） |
+
+- **関数の外の check**: test_tdd_gives_up_without_dead_end が呼ぶ loop_shape_held は、T2 と同じく印の無いテスト test_tdd_gives_up_keeps_the_loop_shape に写した
+- **件数の定数**: conftest.py の EXPECTED_ITEMS 1780 → 1840（層 2 の 5 行と関数の外の check の 1 件、変異の実行器の口のテスト test_mutate_arms.py 25 件・test_mutate_shard.py 29 件）。値の正本は conftest.py
+- **移していない 8 関数と理由**（台本に残る。台帳はまだ見張らない）:
+  - test_rejudge_edge・test_lane_rules: Run を作らない規則の検査（rules を直に呼ぶ・盤面を手で組む）で、層 2 でなく層 1 の仕事（T2 の範囲の決め方と同じ）
+  - test_rejudge_path: 異議の patch を p3.fix の done の**後**・次の next の前に打つ。役の表の手直し（before）は答えの前にしか打てない
+  - test_request_entry: p0.base の答えに型のリポジトリの HEAD を重ね、判定役が済んだ直後の手で add を打ち、周ごとに出た節を数える。どれも盤面から値を読んで答えや手を組む出来事が要る
+  - test_lane_end_to_end: 線の結果の置き場を盤面の loop から読んで書く世界の手が要る
+  - test_fix_plan_review: 同じ関数の中で節ごとに拒ませてから通す形が 20 余り続き、盤面から読んだ値で返答を組む
+  - test_spec_stop_and_changes: rules の写しの本文を書き換える init の種と、--dir を渡さない init（current を書く形）の出来事が要る
+  - test_spec_default_unchanged: 2 つの run の盤面を正規化して突き合わせる行（行は 1 つの列の盤面しか見ない）
+  - どれも scenes.py に出来事か種を足す変更で、層 2 の形（ADR 0067）を広げる設計の分かれ目になるので、この段では足していない
+
+### CI の組ごとの秒と CPU 時間（効き目の報告）
+
+- **取り方**: 組ごとの秒は GitHub REST の workflow jobs（`gh api repos/{owner}/{repo}/actions/runs/{run_id}/jobs` の各 job の started_at・completed_at。段の秒は steps の同じ欄）。pytest の CPU 時間は test.yml の pytest の job の 2 段（pytest・root pytest）がログに残す bash の組み込み times の 2 行目（子の user と sys）の前後の差。Windows の Git Bash の times が xdist の worker まで数えるかは確かめていない
+- **比べる元**: main 65482991 の CI run 36351776172（0.22.0 の 36324196492 とほぼ同じ。windows の組 1 が 560 秒・macOS の最大 299 秒・pytest の windows 444 秒——親の記録の値）
+- **この版の値**: 未測（書く子は網も gh も持たない。親が CI を起こして埋める）。この版は台本を 1 本も消していない（消す 4 条件が未取得）ので、台本の組の秒は縮まない向き、pytest の件数と秒は層 2 の行と実行器の口のテストのぶん延びる向き（人の関所 2026-09-28 の条件 1: 二重の確かめは消す周までの一時の措置）
+
+| 物 | 比べる元（36351776172） | この版 |
+|---|---|---|
+| test の組の最大（windows） | 560 秒 | 未測 |
+| test の組の最大（macOS） | 299 秒 | 未測 |
+| pytest の job（windows） | 444 秒 | 未測 |
+| pytest の CPU（user+sys） | 未測 | 未測 |
 
 ## 外した台本
 
@@ -505,6 +495,12 @@ cover_moved.py が名乗るのは実行の包含（台本の関数が通した�
 |---|---|---|---|---|
 | 5646 | CI が赤のままの run は 5 周で止まる（{last['status']} r{run.state()['roun… |  | test_scenarios_review.py::test_ci_red_runaway[stops-at-round-5] |  |
 | 5647 | 停止の理由が上限 |  | test_scenarios_review.py::test_ci_red_runaway[stop-reason-max-rounds] |  |
+
+#### simulate_review.test_deferjudge
+
+| 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
+|---|---|---|---|---|
+| 5672 | 理由付きの defer は受理され defer_ledger に残る（{last['status']}: {list(p… |  | test_scenarios_review.py::test_deferjudge[defer-with-reason-kept] |  |
 
 #### simulate_review.test_final_gate_empty_asks_human
 
@@ -671,4 +667,13 @@ cover_moved.py が名乗るのは実行の包含（台本の関数が通した�
 | 4130 | 止める: 人に聞いている最中なら、答えないまま外した問いを記録（halted と要人間判断の欄）に残す（{r.stder… |  | test_scenarios_review.py::test_stop_midround[stop-while-asking] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
 | 4148 | 止める: 宣言の無い graph は halted（by=stop）で後の節を出さない（{r.stdout[-160:]… |  | test_scenarios_review.py::test_stop_midround[undeclared-graph-halts] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
 | 4151 | 止める: halted の run は『もう止まっている』で拒む（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[halted-run-refuses-stop] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+
+#### simulate_review.test_tdd_gives_up_without_dead_end
+
+| 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
+|---|---|---|---|---|
+| 5142 | 赤の確認が 3 回通らなければ TDD を諦めて今の流れで直し、緑の確認は撃たない（{last['status']}・{… |  | test_scenarios_review.py::test_tdd_gives_up_without_dead_end[gives-up-after-three] |  |
+| 5144 | 周の頭で元から落ちていたテストは記録に残し、赤の確認の『ほか』には数えない（{row.get('baseline_red… |  | test_scenarios_review.py::test_tdd_gives_up_without_dead_end[baseline-red-not-counted] |  |
+| 5148 | 諦めた理由は次の周の判定役に穴の行として届く（{[r['key'] for r in h2.get('declared_… |  | test_scenarios_review.py::test_tdd_gives_up_without_dead_end[reason-reaches-next-judge] |  |
+| 5150 | TDD を諦めた盤面は、諦めた確認の節の出力から hist.tdd_gave_up が作られる（loop には書かない） |  | test_scenarios_review.py::test_tdd_gives_up_without_dead_end[hist-not-loop] |  |
 <!-- ledger:end -->
