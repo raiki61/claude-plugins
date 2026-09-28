@@ -18,7 +18,7 @@
    private: 別の模块から `from X import _名` で私的な名前を借りない（L0 の写しからは除く。`X._名` の属性の形は見ない）
 3. name: L1〜L5 のコードの文字列の定数（docstring を除く。字のまま一致か、パスの形の文字列の 1 区切り。f-string・%・.format の
    破片は穴と端の / を落としてから区切る）に、ラインの名前・ラインの include の id・自分以外の blk-* の名前が現れない
-   （L6・L7 はほかのラインの名前）
+   （L6・L7 はほかのラインの名前）。docstring・コメント・YAML・md の散文の blk-<名> は test_block_blind が見る
 4. cycle: works の模块の import のグラフに輪が無い
 5. script: */scripts/*.py はどれも自分の YAML の `script: <名>` の節で、ほかから import されない。未配線の節は PLANNED_SCRIPTS に載せる
 6. dynamic: importlib.import_module・__import__ の引数は文字列の定数だけ。runpy・exec・eval は使わない

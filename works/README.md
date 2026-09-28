@@ -74,6 +74,8 @@ run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/ve
 
 ほかに、輪の無い import・`*/scripts/*.py` は YAML の節だけ（模块は `lib/` か core へ）・動的な import は定数だけ、を縛る。今ある破れは試験の `KNOWN` に載せてあり、減らす方向にだけ変える（直したら行を消す。残すと赤）。`KNOWN` に置けるのは破れの組だけで、「層が決まっていない」類の印（新しい core の模块の `unassigned` など）は置けない。失敗の文が印ごとに直し方（`MOD` に層を足す・`PLANNED_SCRIPTS` に足す など）を言う。`lib/` は Archon が探さない（探すのは `scripts/` など）ので、スクリプトとして拾われない。
 
+`test_layers` がほかのブロックの名前を見るのはコードの文字列の定数だけ。YAML の説明・docstring・コメント・指示書の散文で自分以外の `blk-<名>` を書いた行（core に置かれたブロックの模块、`MOD` で L4 の物も持ち主のブロックの物として見る）は `works/tests/test_block_blind.py`（中身は `tests/blockblind.py`）が数え、今ある分を `BLOCK_KNOWN`（「ファイル:相手の名 → 行の数と理由」）に固定する。同じ試験が、役の指示書（`blk-*/commands`・`rules`・写しでない `prompts`）でほかの役・段を前提にする語（閉じた一覧 `ROLE_TERMS`: 判定役・修正役・審査役・裁定役・実測役・比較役・関所・前段・後段。自分の役は各ファイルの名乗りの文——最初の「お前は／あなたは」から「。」まで。同じ行でも「。」の後の語は数える——から取って除く。下のフォルダの深さは問わない）を数え、`ROLE_KNOWN` に固定する。増えても・減っても表とずれれば赤。`COPIED_FROM` を持つフォルダ（写し）は見ない。
+
 ## 選んだ物だけの隔離した Claude の設定（借りた superpowers のスキル・coldwrite・pr-review-toolkit）
 
 AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` が隔離した `$WORKS_DEV_HOME/claude-config`（`CLAUDE_CONFIG_DIR`）を読む。そこに置くのは許す一覧 `.shared/borrow/borrow.json` の物だけで、`dev/toolset.py` が実行のたびに組む。対象の CLAUDE.md（project）は読ませない。
