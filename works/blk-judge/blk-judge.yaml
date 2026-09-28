@@ -135,6 +135,14 @@ nodes:
                           enum: [defects, population]
                         total: {type: integer, minimum: 0}
                         note: {type: string}
+                        hits:
+                          type: array
+                          maxItems: 20
+                          items: {type: string, minLength: 1, pattern: '^[^\n\r\x00]+$'}
+                        misses:
+                          type: array
+                          maxItems: 20
+                          items: {type: string, minLength: 1, pattern: '^[^\n\r\x00]+$'}
               questions:
                 type: array
                 items:

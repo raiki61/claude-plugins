@@ -10,7 +10,7 @@
 - snap:           役を起こす前の作業ツリーの写し（読むだけの役が変えていないかを take が比べる）
 - render:         engine と同じ描き方（rolekit.render_body）で指示書を $B/prompts/r<N>/<節>.md に
 - prep:           描く → 1 回目の試行の前だけ単位の写し（rejudge-units-before-<役>.json）→ 起こした印（mark_launched）
-- take:           作業ツリーの比べ → 盤面の done（写しの schema・post_check・writes・check_record）。写しの AnswerReject だけを
+- take:           作業ツリーの比べ → class_query の例で問いを試して例を外す（querytest。例は query-examples.json に足す）→ 盤面の done（写しの schema・post_check・writes・check_record）。写しの AnswerReject だけを
                   {ok: False, reason} にして返し、他の Reject・BoardGap は投げる（回す側の誤り）。通れば単位の差分を 1 行
 - diff_units:     前後の単位を key で比べ、異議に名指されていない変化（unnamed_changed）とラベルを下げた単位（lowered）を出す。柵は足さない
 - unsettled:      決着しなかった異議の文（段 1 は loop.rejudge_requested、段 2 は写しの _rejudge_trail）
@@ -44,6 +44,7 @@ from engine.util import TERMINAL_STATUS, AnswerReject, now, safe_name  # noqa: E
 import accept as _accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import querytest  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
 
@@ -423,10 +424,18 @@ def take(board_dir, nid, reply, repo, *, snapshot_name=SNAPSHOT_NAME) -> dict:
     writes_units = "units" in ((b.nodes[nid].get("schema") or {}).get("properties") or {})
     if writes_units and before_doc is None:
         raise BoardGap(f"{p['role']} の前の単位の写しが無い（prep が先に走る）")
+    examples = {}
+    if nid in querytest.NODES and isinstance(reply, dict):
+        errs = querytest.problems(reply.get("units"), validator_module(b).is_open)
+        if errs:
+            return _reject(b, nid, "class_query の例が問いと合わない: " + "; ".join(errs))
+        reply, examples = querytest.split(reply)   # 写しの型は例の欄を持たない
     try:
         progress = b.done(nid, reply)
     except AnswerReject as e:
         return _reject(b, nid, str(e))   # 記憶の入れ物は汚れうるが、使うのは周の番号と試行の数だけ（受け付けの前から変わらない）
+    if examples:
+        querytest.save(board_dir, examples)
     verdict = reply.get("verdict", "") if isinstance(reply, dict) else ""
     if writes_units:
         row = {"round": b.round, "pass": p["role"], "node": nid, "verdict": verdict,

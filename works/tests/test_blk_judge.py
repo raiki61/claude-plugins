@@ -2,8 +2,11 @@
 
 - YAML の口: 判定役の節の output_format が受け付けの規則の型（role_schema("p2.diagnose")）と同じか、良い返答の見本が
   YAML の output_format を通るか（設計書 5.4 節）。入口・出口・輪の形がブリーフどおりか
-- つなぎのスクリプト: intake（依頼を読んで check_request。拒めば終了コード 1）・accept（check_judge を script_io で包む）・
-  collect（盤面の judgment.json から出口を組む）を別のプロセスで回す
+- つなぎのスクリプト: intake（依頼を読んで check_request。拒めば終了コード 1）・accept（単独の run は core の check_judge を
+  script_io で包み、ラインの盤面は judgetake.take を rolekit.main_accept に渡す）・collect（盤面の judgment.json から出口を組む）を
+  別のプロセスで回す
+- class_query の例（QueryExamplesCase）: 当たるべき hits・当たってはならない misses で問いを試し、合わなければ拒み、通れば
+  例を judgment.json に戻す（querytest。受け付けの口の中で試す）
 - 筋書き（fixtures/）が 3 本在り、期待の形がブリーフどおりか。Archon で回すのは dev/check.sh（workflow test）
 """
 import json
@@ -373,6 +376,77 @@ class ScriptCase(unittest.TestCase):
         r = self.run_script("collect")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("judgment.json", r.stderr)
+
+
+class QueryExamplesCase(unittest.TestCase):
+    """判定役の class_query は、当たるべき例（hits）と当たってはならない例（misses）で問いそのものを試してから受ける
+    （Semgrep の ruleid/ok と同じ形）。defects の問いは直した後の正しい形を misses に 1 行は持つ"""
+
+    setUp = ScriptCase.setUp
+    tearDown = ScriptCase.tearDown
+    run_script = ScriptCase.run_script
+
+    MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
+    CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
+
+    def reply(self, examples):
+        doc = load("judge_ok")
+        for u in doc["units"]:
+            if u["key"] in examples:
+                u["class_query"].update(examples[u["key"]])
+        return doc
+
+    def good(self):
+        return {self.MEAN: {"hits": ["    return sum(xs) / (len(xs) - 1)"], "misses": ["    return sum(xs) / len(xs)"]},
+                self.CLAMP: {"hits": ["        return lo"], "misses": ["        return hi"]}}
+
+    def accept(self, doc):
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(doc, ensure_ascii=False), INPUTS_BASE_REV="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        text = got.get("reason", "")
+        if got.get("reason_file"):
+            text += pathlib.Path(got["reason_file"]).read_text(encoding="utf-8")
+        return got, text
+
+    def test_examples_that_hold_are_accepted_and_kept_in_judgment(self):
+        got, text = self.accept(self.reply(self.good()))
+        self.assertIs(got["ok"], True, text)
+        doc = json.loads((self.board / "judgment.json").read_text(encoding="utf-8"))
+        cq = {u["key"]: u["class_query"] for u in doc["units"]}
+        self.assertEqual(cq[self.MEAN]["misses"], ["    return sum(xs) / len(xs)"])
+        self.assertEqual(cq[self.CLAMP]["hits"], ["        return lo"])
+
+    def test_defects_query_without_misses_is_rejected(self):
+        ex = self.good()
+        del ex[self.MEAN]["misses"]
+        got, text = self.accept(self.reply(ex))
+        self.assertIs(got["ok"], False)
+        self.assertIn(self.MEAN[:20], text)
+        self.assertIn("misses", text)
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_defects_query_matching_fixed_form_is_rejected(self):
+        # 項目 35 の形: 問いが部分一致で、直した後の正しい行も数える
+        ex = self.good()
+        fixed = "    return sum(xs) / (len(xs) - 1)  # 直した"
+        ex[self.MEAN]["misses"] = [fixed]
+        got, text = self.accept(self.reply(ex))
+        self.assertIs(got["ok"], False)
+        self.assertIn(self.MEAN[:20], text)
+        self.assertIn("直した後の正しい形にも当たる", text)
+        self.assertIn(fixed.strip(), text)
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_hit_the_query_does_not_match_is_rejected(self):
+        ex = self.good()
+        ex[self.CLAMP]["hits"] = ["        return lo", "        return floor"]
+        got, text = self.accept(self.reply(ex))
+        self.assertIs(got["ok"], False)
+        self.assertIn(self.CLAMP[:20], text)
+        self.assertIn("return floor", text)
+        self.assertFalse((self.board / "judgment.json").exists())
 
 
 if __name__ == "__main__":

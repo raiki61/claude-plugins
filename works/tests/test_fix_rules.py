@@ -475,5 +475,119 @@ class TestRoleNodes(unittest.TestCase):
         self.assertEqual([n["id"] for n in loop["nodes"]], ["fix-prep", "fix", "fix-accept"])
 
 
+
+class TestCountMismatchParksUnit(unittest.TestCase):
+    """修正の受け付け（blk-fix の fix-accept の accept_fix）: 1 単位の閉鎖の数え合わせ（写しの fix_covers_open_units）が合わない
+    拒否は、輪の 1・2 回目は今までどおり役に返し、3 回目は返答全体を拒んで盤面を止めずに、その単位だけを ask_human に裁いて止め
+    （conflict.park。最後の人の関所へ運ぶ）、残りの単位の直しを受ける。盤面・git は使わない（数え直しと盤面を mock にする）"""
+
+    MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
+    CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
+
+    def setUp(self):
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("blk_fix_accept_script", BLK / "scripts" / "accept.py")
+        self.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.mod)
+        self.parked = []
+        patches = [
+            mock.patch.object(self.mod.tddloop, "frozen_problems", return_value=[]),
+            mock.patch.object(self.mod, "check_writes", side_effect=lambda reply, *a, **k: {"problems": [], "reply": reply}),
+            mock.patch.object(self.mod, "take_conflicts", side_effect=lambda reply, *a, **k: (reply, None)),
+            mock.patch.object(self.mod, "fix_unit_keys", return_value=None),
+            mock.patch.object(self.mod, "check_tests", return_value=([], "")),
+            mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.recount),
+            mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
+            mock.patch.object(self.mod.writes, "trace"),
+            mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
+            mock.patch.object(self.mod.conflict, "write_rulings"),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def recount(self, reply, board, base_rev, repo):
+        """写しの受け付けの代わり: CLAMP の行が在れば、写しと同じ文の形（unit_key の頭 60 字: …）で拒む"""
+        keys = [c["unit_key"] for c in reply["changes"]]
+        if self.CLAMP in keys:
+            return {"ok": False, "changes": [],
+                    "reason": f"{self.CLAMP[:60]}: 母数 2 のうち閉鎖を実証した site が 1 件で、残りが在るのに remaining（残した理由）が無い"
+                              "——残すこと自体は禁じないが、黙って残すのは禁じる"}
+        return {"ok": True, "reason": "", "changes": [{"unit_key": k, "files": ["stats.py"], "what": "直した"} for k in keys]}
+
+    def run_accept(self, iteration):
+        from unittest import mock
+        reply = {"changes": [{"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"},
+                             {"unit_key": self.CLAMP, "files": ["stats.py"], "what": "上限の枝を直した"}]}
+        with mock.patch.dict("os.environ", {"INPUTS_ITERATION": iteration, "INPUTS_TDD_STATE": "", "INPUTS_PASS": "first"}):
+            return self.mod.with_done(self.mod.accept_fix(reply, pathlib.Path("/b"), "", pathlib.Path("/r")))
+
+    def test_first_and_second_mismatch_go_back_to_role(self):
+        for it in ("1", "2"):
+            with self.subTest(iteration=it):
+                got = self.run_accept(it)
+                self.assertEqual((got["ok"], got["done"]), (False, False))
+                self.assertIn(self.CLAMP[:20], got["reason"])
+        self.assertEqual(self.parked, [])
+
+    def test_third_mismatch_parks_only_that_unit(self):
+        got = self.run_accept("3")
+        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        self.assertEqual([c["unit_key"] for c in got["changes"]], [self.MEAN], "止めた単位は changes から外す")
+        rows = [r for rs, _ in self.parked for r in rs]
+        self.assertEqual([r["unit_key"] for r in rows], [self.CLAMP])
+        rulings = [k.get("ruling") or {} for _, k in self.parked]
+        self.assertEqual([r.get("decision") for r in rulings], ["ask_human"])
+        self.assertIn("母数 2", rulings[0].get("text", ""), "人に回す裁定の文に、合わなかった数え合わせの拒否の文を載せる")
+
+    def test_third_mismatch_then_other_reject_undoes_the_park(self):
+        # 止めた後の数え直しが数え合わせでない文で拒めば、食い違いの控えと裁定の文を止める前に戻す（拒否では盤面を前のままにする）
+        from unittest import mock
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        work = pathlib.Path(tmp.name)
+        (work / self.mod.conflict.RULINGS_FILE).write_text("前の裁定\n", encoding="utf-8")
+        b = mock.MagicMock()
+        b.work.side_effect = lambda name: work / name
+
+        def park(b_, rows, **k):
+            (work / self.mod.conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False), encoding="utf-8")
+
+        def recount(reply, *a):
+            if self.CLAMP in [c["unit_key"] for c in reply["changes"]]:
+                return self.recount(reply, *a)
+            return {"ok": False, "changes": [], "reason": "閉鎖の実証で赤を一度も見ていないのに fix_closure=clean"}
+
+        with mock.patch.object(self.mod.entry, "open_board", return_value=b), \
+                mock.patch.object(self.mod.conflict, "park", side_effect=park), \
+                mock.patch.object(self.mod.conflict, "write_rulings",
+                                  side_effect=lambda b_: (work / self.mod.conflict.RULINGS_FILE).write_text("止めた\n", encoding="utf-8")), \
+                mock.patch.object(self.mod.recount, "accept_fix", side_effect=recount):
+            got = self.run_accept("3")
+        self.assertEqual((got["ok"], got["done"]), (False, True), got)
+        self.assertFalse((work / self.mod.conflict.FILE).exists(), "止める前に無かった食い違いの控えは消す")
+        self.assertEqual((work / self.mod.conflict.RULINGS_FILE).read_text(encoding="utf-8"), "前の裁定\n")
+        b.trace.assert_any_call(self.mod.PARK_UNDONE_OP, node=self.mod.recount.ROLE, unit_keys=[self.CLAMP])
+
+    def test_mismatch_words_are_in_the_copy_rule(self):
+        # COUNT_MISMATCH の句と文の頭（unit_key の頭 60 字 + ": "）は、写しの fix_covers_open_units の拒否の文の写し。
+        # 写しを取り直して文が変われば、黙って止めなくなる前にここが赤になる
+        import ast
+        src = (ROOT / ".shared" / "core" / "graphloops" / "rules" / "review-loop.py").read_text(encoding="utf-8")
+        fn = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef) and n.name == "fix_covers_open_units")
+        texts = []
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Raise) and isinstance(n.exc, ast.Call) and n.exc.args and isinstance(n.exc.args[0], ast.JoinedStr):
+                parts = n.exc.args[0].values
+                if len(parts) > 1 and isinstance(parts[0], ast.FormattedValue) \
+                        and ast.unparse(parts[0].value) == "c['unit_key'][:60]" \
+                        and isinstance(parts[1], ast.Constant) and parts[1].value.startswith(": "):
+                    texts.append("".join(p.value if isinstance(p, ast.Constant) else "\0" for p in parts))
+        for w in self.mod.COUNT_MISMATCH:
+            with self.subTest(word=w):
+                self.assertTrue(any(w in t for t in texts), f"写しの fix_covers_open_units の単位の頭の拒否の文に {w!r} が無い")
+
+
 if __name__ == "__main__":
     unittest.main()

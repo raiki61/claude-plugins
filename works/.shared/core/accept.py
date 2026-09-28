@@ -2,7 +2,7 @@
 
 Archon を知らない関数だけを出す。ブロックの script の節がこれを呼び、結果をそのまま出口にする。
 - check_request: 依頼（findings の配列）を rules の add に通し、盤面の request.json に積む
-- check_judge:   判定役（p2.diagnose）の返答。作業ツリーと HEAD → 型 → rules の judge_output。通れば盤面に judgment.json
+- check_judge:   判定役（p2.diagnose）の返答。作業ツリーと HEAD → 型 → class_query の例（querytest）→ rules の judge_output。通れば盤面に judgment.json
                  （check_fix と同じく、番号で指せという案内は名前を写せに戻す。_name_hints）
 - check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units（番号で指せという案内は key を写せに戻す。_name_hints）
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
@@ -22,7 +22,6 @@ check_* は全部 dict を返し、例外で拒まない。拒否は {"ok": Fals
 git は全部 repo を cwd にして呼ぶ。HEAD をその場で読むのは base_rev が空のときだけ（空なら repo の HEAD を版にする）。
 """
 import contextlib
-import copy
 import functools
 import hashlib
 import json
@@ -43,6 +42,7 @@ if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
 import engine.util as _util  # noqa: E402
+import querytest  # noqa: E402
 from engine.rules import load_rules, validator_module  # noqa: E402
 from engine.schema import expand_refs, validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
@@ -51,7 +51,7 @@ from board import DiskBoard  # noqa: E402  （規則に渡す入れ物は盤面�
 GRAPH_PATH = _GL / "graphs" / "review-loop.json"
 VALIDATOR = CORE / "scripts" / "review-record.py"
 REQUEST_FILE = "request.json"        # 依頼のバッチの一覧（rules の REQUEST_SCHEMA の形）
-JUDGMENT_FILE = "judgment.json"      # 受け付けた判定の返答（judge_output が正規化した後の姿）
+JUDGMENT_FILE = "judgment.json"      # 受け付けた判定の返答（judge_output が正規化した後の姿。blk-judge は class_query の例を戻す）
 SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "ignored": [str], "diff_sha256": str}
 DIFF_FILE = "fix.diff"                   # 修正の差分（cut_delta が書き、審査役が読む）
 DELTA_REVIEW_FILE = "delta-review.json"  # 受け付けた審査の返答（集める節が穴の数を数える）
@@ -137,15 +137,18 @@ def _drop_plan_only_kinds(node, schema):
 @functools.lru_cache(maxsize=None)
 def _role_schema_json(node, numbered):
     graph = _graph() if numbered else _unpointed(_graph())
-    schema = _strip_notes(expand_refs(graph)["nodes"][node]["schema"])
-    return json.dumps(_drop_plan_only_kinds(node, schema), ensure_ascii=False)
+    schema = _drop_plan_only_kinds(node, _strip_notes(expand_refs(graph)["nodes"][node]["schema"]))
+    if node in querytest.NODES:
+        schema = _strip_notes(querytest.with_examples(schema))
+    return json.dumps(schema, ensure_ascii=False)
 
 
 def role_schema(node: str, numbered: bool = False) -> dict:
     """graph の節（"p2.diagnose" か "p3.delta_review"）の schema。$ref を開き、注記を落とした写しを返す。
     numbered は番号を貼って控えを固める役（mark_launched(pointers=)。board が番号を名前に戻す）で、pointers の位置を
     engine の widen のまま番号か名前の型に開く。ほかは名前（文字列）の型のまま（_unpointed）。修正差分のレビューは
-    事前審査だけの語を kind から落とす（_drop_plan_only_kinds）"""
+    事前審査だけの語を kind から落とす（_drop_plan_only_kinds）。判定・再審の節（querytest.NODES）は class_query に例の欄
+    （hits・misses）を足す（写しの型は持てない。受け付けが盤面へ渡す前に外す）"""
     return json.loads(_role_schema_json(node, numbered))
 
 
@@ -532,8 +535,8 @@ def _judge_tree_unchanged(repo, board, rev):
 
 def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
     """判定役の返答を受け付ける。作業ツリーか HEAD が変わっていれば拒む（_judge_tree_unchanged。判定役は読むだけ）→ 型（graph の p2.diagnose の
-    schema）→ rules の judge_output（記録の process.request_findings に盤面の request.json を入れて渡す）。
-    通れば盤面の judgment.json に書く。{"ok", "reason", "open_units", "judgment_file"}"""
+    schema）→ class_query の例（querytest）→ rules の judge_output（記録の process.request_findings に盤面の request.json を入れて渡す）。
+    通れば盤面の judgment.json に書く（例は外して judge_output に通し、query-examples.json に置いて戻す）。{"ok", "reason", "open_units", "judgment_file"}"""
     def run():
         repo_p = pathlib.Path(repo)
         pathlib.Path(board).mkdir(parents=True, exist_ok=True)
@@ -547,14 +550,19 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             if req is not None:
                 rec["process"]["request_findings"] = req
             b = DiskBoard.scratch(board, review_rev=rev, record=rec)
-            out = copy.deepcopy(reply)   # judge_output は 1 行の欄と class_query を正規化する（返答の元は触らない）
+            V = validator_module(b)
+            errs = querytest.problems(reply.get("units"), V.is_open)
+            if errs:
+                raise Reject("class_query の例が問いと合わない: " + "; ".join(errs))
+            out, examples = querytest.split(reply)   # judge_output は 1 行の欄と class_query を正規化する（split の写し。返答の元は触らない）
             try:
                 note = rules.POST_CHECKS["judge_output"](b, "p2.diagnose", out, None)
             except Reject as e:
                 raise _name_hints(e)
-            V = validator_module(b)
             opened = [u["key"] for u in out["units"] if V.is_open(u)]
-            path = _write_board(board, JUDGMENT_FILE, out)
+            if examples or (pathlib.Path(board) / querytest.EXAMPLES_FILE).is_file():   # 例の無い判定は前の周の例を消すだけ
+                querytest.save(board, examples, replace=True)
+            path = _write_board(board, JUDGMENT_FILE, querytest.restore(out, board))
         return {"ok": True, "reason": note or "", "open_units": opened, "judgment_file": str(path)}
     return _guard(run, open_units=[], judgment_file="")
 

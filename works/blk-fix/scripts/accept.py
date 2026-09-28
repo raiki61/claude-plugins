@@ -23,11 +23,14 @@
 1c. check_tests: 版からの変更に当たる試験を、TDD の輪と同じ実行器で機械が走らせ、元で赤でなかった試験の赤を拒む
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
 2. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が判定役の class_query を修正前の版と修正後の
-   作業ツリーで数え直す（仕様 3.2）。通れば 1 本目の出口のための changes（unit_key・files・what）を足す
+   作業ツリーで数え直す（仕様 3.2）。通れば 1 本目の出口のための changes（unit_key・files・what）を足す。
+   輪の最後の回（INPUTS_ITERATION が GIVE_UP_AFTER 以上）に 1 単位の数え合わせ（COUNT_MISMATCH）で拒まれたら、返答全体を
+   拒まずにその単位だけを ask_human に裁いて止め（conflict.park）、その行を外して数え直す（park_mismatched_units）。それでも通らなければ止めた単位を戻す（拒否では盤面を前のままにする）
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
 ここで出口へ運ぶ（collect が今の周の changes.json に書く）。拒んだときの changes は空。
 中身の拒否は終了コード 0 の {"ok": false, "reason", "reason_file", "changes": [], "done"} を 1 行。回す側の誤りは 2。
-done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。諦めた輪の後は
+done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目でも数え合わせの
+拒否は上の 2 で単位ごとに止めるので、諦めるのはそれで通らない返答だけ。諦めた輪の後は
 assert-changed が盤面を止め、collect が ok: false の出口を出す
 """
 import copy
@@ -53,12 +56,19 @@ from engine.rules import validator_module  # noqa: E402
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS")
 GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
 TESTS_OP = "fix_tests_selected"   # 受け付けが選んだ試験を走らせた盤面の trace の行
+PARK_UNDONE_OP = "fix_mismatch_park_undone"   # 最後の回に止めた単位を、返答が通らなかったので戻した盤面の trace の行
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
 NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（判定が defer にした単位・判定に無い単位は直さない。"
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
 
 
 CONFLICT_BAD = "食い違いの申し出を受けない（名指した所が現物に無いか、形が違う。直して丸ごと出し直せ）: "
+# 写しの fix_covers_open_units が 1 単位の数え合わせで返答を拒む文の句（closure.sites と母数・remaining の欠け・問いを狭めた・
+# defects の問いが減らない）。輪の最後の回は、この拒否を返答全体でなくその単位だけに当てる（park_mismatched_units）。
+# 句と文の頭（unit_key[:60] + ": "）は tests/test_fix_rules.py の test_mismatch_words_are_in_the_copy_rule が写しの規則と突き合わせる
+COUNT_MISMATCH = ("closure.sites が", "残りが在るのに remaining", "この how は修正前の版で", "を全部塞いだと言う修正の後も")
+MISMATCH_PARKED = ("修正の輪の最後の回も、この単位の数え合わせ（判定者の問いの母数・塞いだ site・remaining）が合わなかった。"
+                   "返答全体を拒んで盤面を止める代わりに、機械がこの単位だけを人に回し、ほかの単位の直しを受けた。拒否の文: ")
 SECOND_CONFLICT = ("裁定の後の出し直しで新しく申し出た食い違い——裁定の輪は 1 周に 1 回だけなので、機械が人に回した"
                    "（最後の人の関所で人が決める）")
 
@@ -180,6 +190,46 @@ def check_tests(board: Path, base_rev: str, repo: Path, state: str) -> tuple:
     return tddloop.selected_problems(state, repo, writes.base_rev(entry.open_board(board), base_rev))
 
 
+def mismatched_unit(reason: str, keys: list):
+    """写しの fix_covers_open_units の 1 単位の数え合わせの拒否（COUNT_MISMATCH）なら、その単位の key（文の頭の unit_key[:60]）。
+    ほかの拒否・単位を 1 つに決められない文は None"""
+    if not any(w in reason for w in COUNT_MISMATCH):
+        return None
+    hit = [k for k in dict.fromkeys(keys) if isinstance(k, str) and reason.startswith(f"{k[:60]}: ")]
+    return hit[0] if len(hit) == 1 else None
+
+
+def park_mismatched_units(reply: dict, out: dict, board: Path, base_rev: str, repo: Path) -> dict:
+    """輪の最後の回の数え合わせの拒否: 返答全体を拒んで盤面を止める代わりに、拒まれた単位だけを機械が ask_human に裁いて止め
+    （conflict.park。直す義務から外れ、最後の人の関所と報告に載る）、その行を changes から外して数え直す。通るか、数え合わせで
+    ない拒否か、changes が尽きるまで繰り返す。返りは最後の recount.accept_fix の返り。通らずに終われば、食い違いの控えと
+    裁定の文を止める前の中身に戻し（拒否では盤面を前のままにする）、trace に戻した単位を 1 行（PARK_UNDONE_OP）"""
+    b = entry.open_board(board)
+    saved = {p: p.read_bytes() if p.is_file() else None for p in (b.work(conflict.FILE), b.work(conflict.RULINGS_FILE))}
+    parked = []
+    while out.get("ok") is not True:
+        rows = [c for c in reply.get("changes") or [] if isinstance(c, dict)]
+        key = mismatched_unit(str(out.get("reason", "")), [c.get("unit_key") for c in rows])
+        if key is None or len(rows) < 2:
+            break
+        conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": str(out["reason"]),
+                           "which_is_right": "unknown"}],
+                      source="fix", ruling={"decision": conflict.ASK, "text": MISMATCH_PARKED + str(out["reason"]),
+                                            "limits": [], "by": "works:fix-accept"})
+        conflict.write_rulings(b)
+        parked.append(key)
+        reply = {**reply, "changes": [c for c in rows if c.get("unit_key") != key]}
+        out = recount.accept_fix(reply, board, base_rev, repo)
+    if parked and out.get("ok") is not True:
+        for p, body in saved.items():
+            if body is None:
+                p.unlink(missing_ok=True)
+            else:
+                p.write_bytes(body)
+        b.trace(PARK_UNDONE_OP, node=recount.ROLE, unit_keys=parked)
+    return out
+
+
 def accept_fix(reply, board, base_rev, repo):
     state = os.environ.get("INPUTS_TDD_STATE", "")
     pass_ = os.environ.get("INPUTS_PASS") or "first"
@@ -207,6 +257,8 @@ def accept_fix(reply, board, base_rev, repo):
     if red:
         return _reject(" / ".join(red))
     out = recount.accept_fix(reply, board, base_rev, repo)
+    if out.get("ok") is not True and int(os.environ.get("INPUTS_ITERATION") or 0) >= GIVE_UP_AFTER:
+        out = park_mismatched_units(reply, out, board, base_rev, repo)
     if out.get("ok") is True:   # 受けた時だけ盤面の trace に積む（拒否・回す側の誤りでは盤面を前のままにする）
         b = entry.open_board(board, allow_halted=True)
         writes.trace(b, recount.ROLE, wrote)

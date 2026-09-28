@@ -55,6 +55,7 @@ MOD = {
     "libdocs": (3, None),     # ライブラリの今の文書（Context7）を支度の節が引いて指示書に貼る（blk-fix・blk-plan が使う）
     "protect": (3, None),
     "writes": (3, None),      # 書き込みの出どころの突き合わせ（blk-fix・blk-refix の受け付けと報告が使う）
+    "querytest": (3, None),   # 判定・再審の class_query の問いを例（hits・misses）で試す（accept の役の型・blk-judge・rejudge・境の節が使う）
     "conflict": (3, None),    # 食い違いの申し出の控え・名指しの確かめ・写しの RL の _owed_units の差し替え（blk-fix と境の節と報告が使う）
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
     "premises": (4, "blk-premises"),

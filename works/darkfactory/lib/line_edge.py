@@ -41,6 +41,7 @@ import plan  # noqa: E402
 import premises  # noqa: E402
 import protect  # noqa: E402
 import purpose  # noqa: E402
+import querytest  # noqa: E402
 import reads  # noqa: E402
 import rejudge  # noqa: E402
 
@@ -490,7 +491,8 @@ def _hand(b, board_dir, nid: str, reply: dict, repo) -> dict:
 
 
 def _judgment(judged) -> tuple:
-    """判定のブロックの出口から (判定の返答, 読めない理由)。読めれば理由は空"""
+    """判定のブロックの出口から (判定の返答, 読めない理由)。読めれば理由は空。judgment.json の class_query の例（hits・misses）は
+    写しの型が持てないので外す（querytest.split）"""
     path = judged.get("judgment_file") if isinstance(judged, dict) else None
     if not isinstance(path, str) or not path:
         return None, "判定のブロックの出口（judgment_file）が届かない"
@@ -500,7 +502,7 @@ def _judgment(judged) -> tuple:
         return None, f"判定のファイル {path} が読めない（{type(e).__name__}: {e}）"
     if not isinstance(doc, dict):
         return None, f"判定のファイル {path} が JSON のオブジェクトでない（{type(doc).__name__}）"
-    return doc, ""
+    return querytest.split(doc)[0], ""
 
 
 def _premises_reply(premised) -> tuple:

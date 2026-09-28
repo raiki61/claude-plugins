@@ -119,5 +119,11 @@
     "gl": "",
     "status": "works-only",
     "note": "控えに無かった無視されるファイルだけを消す（blk-fix の節 clean。.archon/ の下と、前から在ったフォルダは残す）。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移し、V13 で .shared/core/leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
+  },
+  {
+    "works": "querytest.problems",
+    "gl": "",
+    "status": "works-only",
+    "note": "判定・再審の class_query の問いを、役が書いた例（hits＝当たるべき行・misses＝当たってはならない行。defects は直した後の行を misses に要る）に数える時と同じ旗の git grep --no-index で当て、合わなければ拒む（Semgrep の ruleid/ok と同じ形。項目 35: 部分一致の defects の問いが直した後の行も数えた）。写しの class_query は additionalProperties: false で例を持てないので、例は役の型（accept.role_schema）にだけ足し、blk-judge の judgetake・core の check_judge・rejudge.take が試して盤面へ渡す前に外して query-examples.json に置く。本線との違いとして報告に渡す（裁定 TA25）。"
   }
 ]

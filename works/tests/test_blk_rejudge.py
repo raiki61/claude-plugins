@@ -316,6 +316,25 @@ class ScriptCase(unittest.TestCase):
         got = self.ok("accept", role="rejudge", reply="[1]")
         self.assertFalse(got["ok"])
 
+    def test_rejudge_defects_query_matching_fixed_form_is_rejected(self):
+        """再審も class_query を書き換えられる入口なので、判定と同じく例で問いを試す（querytest）"""
+        self.board()
+        self.ok("snap")
+        self.ok("route")
+        self.ok("prep", role="rejudge")
+        reply = load("rejudge_settled")
+        fixed = "    return min(x, cap)  # 上限"
+        reply["units"][0]["class_query"] = {
+            "how": {"patterns": ["min(x"], "paths": ["src/a.py"], "count": "lines", "fixed": True},
+            "counts": "defects", "total": 1, "hits": ["    return min(x, 0)"], "misses": [fixed]}
+        got = self.ok("accept", role="rejudge", reply=json.dumps(reply, ensure_ascii=False))
+        self.assertFalse(got["ok"], got)
+        text = got.get("reason", "")
+        if got.get("reason_file"):
+            text += pathlib.Path(got["reason_file"]).read_text(encoding="utf-8")
+        self.assertIn("直した後の正しい形にも当たる", text)
+        self.assertIn(fixed.strip(), text)
+
     def test_scripts_exit_two_on_wiring(self):
         self.board("none")
         rc, _, err = self.run_script("route", drop=("ARTIFACTS_DIR",))

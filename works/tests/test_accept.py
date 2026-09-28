@@ -104,6 +104,23 @@ class TestJudge(AcceptCase):
         self.assertEqual(r["judgment_file"], str(self.board / "judgment.json"))
         self.assertEqual(sorted(r["open_units"]), sorted(u["key"] for u in load("judge_ok")["units"] if u["label"] == "block"))
 
+    def test_judge_tests_query_examples_itself(self):
+        # core の check_judge を直に呼ぶ入口（script_io の例・golden）も class_query の例を試す。通れば例は judgment.json に戻り、
+        # 外した例は query-examples.json に在る（blk-judge の judgetake を通らない道で、試していない例を盤面に書かない）
+        reply = load("judge_ok")
+        cq = reply["units"][0]["class_query"]
+        cq["misses"] = ["    return sum(xs) / (len(xs) - 1)  # 直した"]
+        r = check_judge(reply, self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("直した後の正しい形にも当たる", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+        cq["misses"] = ["    return sum(xs) / len(xs)"]
+        r = check_judge(reply, self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+        doc = json.loads((self.board / "judgment.json").read_text(encoding="utf-8"))
+        self.assertEqual(doc["units"][0]["class_query"]["misses"], cq["misses"])
+        self.assertIn(reply["units"][0]["key"], json.loads((self.board / "query-examples.json").read_text(encoding="utf-8")))
+
     def test_judge_empty_base_rev_reads_head(self):
         # Ruling R2: base_rev が空なら repo の HEAD をその場で読む
         r = check_judge(load("judge_ok"), self.board, "", self.repo)
