@@ -50,5 +50,7 @@ nodes:
             required: [name, exit]
             properties:
               name: {type: string}
-              exit: {type: integer}
+              exit: {type: [integer, "null"]}   # null は起こせなかった段（関所と報告は環境の失敗としてコードの赤と分けて出す）
         by: {type: string, enum: [mid, engine, role, role_needed]}
+        # final で test_cmd が宣言の段と同じコマンドだった時、その段の名（1 度だけ走らせた）
+        test_cmd_same_as: {type: string}

@@ -323,14 +323,18 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines.append(f"関所で止めた（{by}）: 「{reason}」")
     if by == REJUDGE_SESSION_BY:
         lines.append(f"再審の会話を確かめられずに止めた: 異議を再審するか、新しい run で判定し直すかを決める（{_one_line(reason)}）")
+    # by role_needed で任せ先の CI の役が p4.ci を渡し終えていれば、緑・赤は素材の status（最後の関所の頭と同じ読み）
+    role = entry.role_ci_status(b, tests) if tests is not None else None
+    green = role == "clean" if role is not None else (tests or {}).get("green") is True
     if tests is None:
         lines.append("最後のテスト: 走っていない")
     elif tests.get("ok") is not True:
         lines.append(f"最後のテスト: 走れなかった（{tests.get('reason') or '理由なし'}・ログ {tests.get('log') or '無い'}）")
-    elif tests.get("green") is not True:
-        lines.append(f"最後のテストが赤: ログ {tests.get('log') or '無い'}")
+    elif not green:
+        head = "最後のテスト: 環境で起こせなかった（コードの赤ではない）" if entry.env_only_red(tests) else "最後のテストが赤"
+        lines.append(f"{head}: {entry.suites_line(tests, role_status=role)}・ログ {tests.get('log') or '無い'}")
     else:
-        lines.append(f"最後のテスト: 緑（ログ {tests.get('log') or '無い'}）")
+        lines.append(f"最後のテスト: 緑（{entry.suites_line(tests, role_status=role)}・ログ {tests.get('log') or '無い'}）")
     ph = b.state.get("pending_human")
     if ph:
         lines.append(f"盤面が人に聞いている（{ph.get('node')}）: {ph.get('question') or ''}")

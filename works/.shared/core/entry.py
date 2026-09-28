@@ -10,6 +10,7 @@
 - local_checks_material(repo, test_cmd, log_path): 任せ先に落ちた CI の節（p0.local_checks・p4.ci）に渡す素材を組む公開の口
   （盤面なしで呼べる。線 B の申し送り 2）
 - run_ci(b, nid, *, test_cmd): CI の節を run_engine で走らせ、返りを全部扱う（start と blk-tests の final が使う）
+- suites_line(tests, *, role_status): 最後のテストが走らせた一式と走らせなかった物の 1 行（報告の冒頭と最後の関所が使う）
 - start(board_dir, repo, raw, *, run_id): 入力の確かめ → 盤面を開く → 修正前のテストの記録 → 方針の文 → 切符
 - resume_after_ci(b): 任せ先の CI の役が p0.local_checks を渡した後、ラインが start の輪（run_engine → settle）に戻る口
 - snapshot(board_dir, name, repo): 読むだけの役を起こす前に、作業ツリーの姿（accept.tree_state）を今の周の b.work(name) に
@@ -24,6 +25,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 
@@ -33,6 +35,7 @@ _CORE = pathlib.Path(__file__).resolve().parent
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
+import board  # noqa: E402  （run_ci の既定の runner board.tree_runner を呼ぶ時に引く）
 from board import BoardGap, BoardMismatch, DiskBoard, NodeTable, graph_expanded, graph_path, graph_sha  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import engine.util as _util  # noqa: E402
@@ -337,6 +340,12 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
                                 cwd=str(repo), env=tree_run.outside_env(os.environ))
         except OSError as e:
             return {"material": {"status": "not_run", "reason": f"bash -c でテストのコマンドを起こせない: {e}"}}
+    return _cmd_material(cmd, code, log_path)
+
+
+def _cmd_material(cmd: str, code: int, log_path: pathlib.Path) -> dict:
+    """走らせ終えた test_cmd の終了コードとログから素材を組む（local_checks_material と、engine が既に走らせた test_cmd の段を
+    使い回す _ci_by_cmd の共通）"""
     tail = _tail(log_path.read_bytes())
     ran = f"bash -c {cmd!r} を対象の根で走らせた: exit {code}（ログ {log_path}）"
     if code == 0:
@@ -366,39 +375,121 @@ def _engine_log(b, nid: str, runs: list) -> pathlib.Path:
     return log
 
 
+TEST_CMD_STEP = "test_cmd"
+
+
+def _same_step(steps: list, test_cmd: str) -> str | None:
+    """test_cmd を shell の語に割った argv が宣言の段の argv と同じなら、その段の名（同じコマンドを 2 度走らせない）"""
+    try:
+        argv = shlex.split(test_cmd)
+    except ValueError:
+        return None
+    return next((s.get("name") for s in steps if list(s.get("argv") or []) == argv), None)
+
+
+def _with_test_cmd(runner, test_cmd: str, note: dict):
+    """board.run_engine の runner (steps, cwd, log_dir) -> runs を包み、宣言の段の後に test_cmd の段を 1 つ足す。宣言の sha の
+    照合は runner の前に宣言の steps だけに掛かるので変わらない。runner は steps + [test_cmd の段] で 1 度だけ呼ぶ（ログは段の
+    番号で分かれる）。test_cmd が宣言の段と同じコマンドなら足さず、note["same_as"] にその段の名を置く"""
+    def run(steps, cwd, log_dir):
+        note["same_as"] = _same_step(steps, test_cmd)
+        extra = [] if note["same_as"] else [{"name": TEST_CMD_STEP, "argv": ["bash", "-c", test_cmd]}]
+        return list((runner or board.tree_runner)(list(steps) + extra, cwd, log_dir))
+    return run
+
+
+def env_only_red(tests: dict | None) -> bool:
+    """最後のテストの赤が、全部起こせなかった段（exit None。checks_reply の broken と同じ規則）だけから来ているか"""
+    bad = [s for s in (tests or {}).get("suites") or [] if s.get("exit") != 0]
+    return bool(bad) and all(s.get("exit") is None for s in bad)
+
+
+def role_ci_status(b, tests: dict | None) -> str | None:
+    """最後のテストが by role_needed で、任せ先の CI の役が p4.ci を渡し終えていれば素材 materials.local_checks の status
+    （無ければ ""）、それ以外は None。報告の冒頭と最後の関所が同じ盤面を読む"""
+    if (tests or {}).get("by") != "role_needed" or b.node_state("p4.ci") != "done":
+        return None
+    return ((b.record.get("materials") or {}).get("local_checks") or {}).get("status") or ""
+
+
+def suites_line(tests: dict | None, *, role_status: str | None = None) -> str:
+    """最後のテスト（blk-tests の final の出口 {suites, by, test_cmd_same_as}）が走らせた一式・環境で起こせなかった段・
+    走らせなかった物の 1 行。報告の冒頭と最後の関所が同じ物を出す（何を根拠にした緑かを人に見せる。無い物はログからは読めない）。
+    role_status は role_ci_status の返り。走らせたと書くのは素材が clean・found の時だけ（not_run などは走らせなかった側に）"""
+    tests = tests or {}
+    by = tests.get("by")
+    suites = tests.get("suites") or []
+    same = tests.get("test_cmd_same_as")
+    ran = [f"{s.get('name')}（exit {s.get('exit')}）" for s in suites if s.get("exit") is not None]
+    broken = [f"{s.get('name')}（起こせない）" for s in suites if s.get("exit") is None]
+    if same:
+        ran.append(f"{TEST_CMD_STEP}（宣言の段 {same} と同じコマンドなので 1 度だけ走らせた）")
+    unrun = []
+    if by == "engine" and not suites:
+        unrun.append(f"宣言の段・{TEST_CMD_STEP}（宣言が読めないので engine が走らせなかった）")
+    elif by == "engine" and not same and not any(s.get("name") == TEST_CMD_STEP for s in suites):
+        unrun.append(f"{TEST_CMD_STEP}（渡されていない）")
+    elif by == "role":
+        ran = ran or [TEST_CMD_STEP]
+        unrun.append("宣言の段（宣言が無いか、engine が任せ先に落ちた）")
+    elif by == "role_needed" and role_status in ("clean", "found"):
+        ran = [f"任せ先の CI の役 blk-ci が選んだ一式（素材の status {role_status}）"]
+    elif by == "role_needed" and role_status is not None:
+        unrun.append(f"宣言の段・{TEST_CMD_STEP}（任せ先の CI の役 blk-ci が走らせなかった: 素材の status {role_status or '無い'}）")
+    elif by == "role_needed":
+        unrun.append(f"宣言の段・{TEST_CMD_STEP}（任せ先の CI の役 blk-ci が走らせる）")
+    env = f"／環境で起こせなかった（コードの赤ではない）: {'・'.join(broken)}" if broken else ""
+    return f"走らせた: {'・'.join(ran) or '無い'}{env}／走らせなかった: {'・'.join(unrun) or '無い'}"
+
+
 def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
     """CI の節 nid（p0.local_checks・p4.ci）を b.run_engine で走らせ、返りを全部扱う（start と blk-tests の final が使う）。
     - relaunch（宣言が計画の後に変わった）は 1 度だけ呼び直す。2 度目も同じなら CiRefused（文に why）
-    - ok: engine が受け付けまで済ませた → {by: "engine", log: 全部の段のログ}
+    - test_cmd が在れば、宣言が在っても捨てない: engine が宣言の段を走らせた後に test_cmd の段（TEST_CMD_STEP）を足し
+      （_with_test_cmd）、素材は runs の全部から組まれる——宣言の一式と test_cmd の両方が緑の時だけ clean（AND の合成）。
+      test_cmd が宣言の段と同じコマンドなら 1 度だけ走らせ、返りの same_as にその段の名
+    - ok: engine が受け付けまで済ませた → {by: "engine", log: 全部の段のログ, same_as?}
     - fallback（宣言が無い・engine の返答を受け付けが拒んだ）で任せ先に落ちた: test_cmd が在れば _ci_by_cmd（起こした印 →
-      git の根で test_cmd → done）→ {by: "role", log}
+      git の根で test_cmd → done。engine が既に test_cmd の段を走らせていればその結果を使い、2 度走らせない）→ {by: "role", log}
     - fallback で test_cmd が空 → {by: "role_needed", log: "", why}。意味は「この節の素材はこの呼び出しで何も渡していない。
       呼び手が任せ先の役を回して渡す」だけ——**前の結果（記録に残る p0 の local_checks など）を使ってよい、ではない**。
       節は任せ先に落ちたまま待ち、印も置かない（裁定 R52。役のブロックは blk-ci。役が渡した後の続きは resume_after_ci——blk-ci の collect が呼ぶ）
     - ok: False で relaunch も fallback も無い（why だけ。対象の根が引けない）→ CiRefused"""
+    note = {}
+    if (test_cmd or "").strip():
+        runner = _with_test_cmd(runner, test_cmd, note)
     got = b.run_engine(nid, runner=runner)
     if got.get("relaunch"):
         got = b.run_engine(nid, runner=runner)
         if got.get("relaunch"):
             raise CiRefused(f"{nid}: 宣言が計画の後に 2 度変わった（呼び直しても同じ）: {got.get('why')}")
     if got.get("ok"):
-        return {"by": "engine", "log": str(_engine_log(b, nid, got.get("runs") or []))}
+        same = {"same_as": note["same_as"]} if note.get("same_as") else {}
+        return {"by": "engine", "log": str(_engine_log(b, nid, got.get("runs") or [])), **same}
     if "fallback" not in got:
         raise CiRefused(f"{nid} を engine で走らせられない: {got.get('why')}")
     if not _fell_back(b, nid):
         raise BoardGap(f"{nid} は任せ先に落ちたが待っていない（表の fallback が absent）——CI の節は任せ先を持つ表で回す")
     if not (test_cmd or "").strip():
         return {"by": "role_needed", "log": "", "why": got["fallback"]}
-    return _ci_by_cmd(b, nid, test_cmd)
+    ran = next((r for r in got.get("runs") or [] if r.get("name") in (TEST_CMD_STEP, note.get("same_as"))
+                and r.get("exit") is not None), None)
+    return _ci_by_cmd(b, nid, test_cmd, ran=ran)
 
 
-def _ci_by_cmd(b, nid: str, test_cmd: str) -> dict:
+def _ci_by_cmd(b, nid: str, test_cmd: str, *, ran: dict | None = None) -> dict:
     """任せ先に落ちて待っている CI の節に、test_cmd を走らせた素材を渡す。印（mark_launched）を先に置く（board.py の頭のラインの
     約束 2。同じ試行の 2 度目は前の印を返すので、止められた後の呼び直しでもそのまま走らせ直せる）。走らせる所は engine と同じ
-    git の根（--show-toplevel。引けなければ入力の cwd）"""
+    git の根（--show-toplevel。引けなければ入力の cwd）。ran（engine が同じ呼び出しで走らせた test_cmd の段）が在れば走らせ直さず、
+    その終了コードと標準出力・標準エラーから素材を組む"""
     inst = b.rd["instances"][nid]
     b.mark_launched(nid, inst.get("attempts", 1))
     log = b.work(safe_name(nid) + ".log")
+    if ran:
+        log.write_bytes(b"".join(pathlib.Path(ran[k]).read_bytes() for k in ("out", "err")
+                                 if ran.get(k) and pathlib.Path(ran[k]).is_file()))
+        b.done(nid, _cmd_material(test_cmd.strip(), ran["exit"], log))
+        return {"by": "role", "log": str(log)}
     root = pathlib.Path(_util.repo_root() or b.state["inputs"]["cwd"])
     b.done(nid, local_checks_material(root, test_cmd, log))
     return {"by": "role", "log": str(log)}

@@ -274,18 +274,21 @@ def _fixed_by_role(b) -> bool:
 
 
 def _tests_head(b, tests) -> str:
-    """最後のテストの頭の語: 緑・赤・走れなかった・走らなかった（出口が無い）。任せ先の CI の役が走らせた回（by role_needed）は、
+    """最後のテストの頭の語: 緑・赤・環境で起こせなかった（赤が全部、起こせない段 entry.env_only_red）・走れなかった・
+    走らなかった（出口が無い）。任せ先の CI の役が走らせた回（by role_needed）は、
     盤面の p4.ci が済んでいれば素材 materials.local_checks の status（blk-tests の final と同じ読み）"""
     if tests is None:
         return "走らなかった"
     if tests.get("by") == "role_needed":
-        if b.node_state("p4.ci") != "done":
+        status = entry.role_ci_status(b, tests)
+        if status is None:
             return "走れなかった"
-        green = ((b.record.get("materials") or {}).get("local_checks") or {}).get("status") == "clean"
-        return "緑" if green else "赤"
+        return "緑" if status == "clean" else "赤"
     if tests.get("ok") is not True:
         return "走れなかった"
-    return "緑" if tests.get("green") is True else "赤"
+    if tests.get("green") is True:
+        return "緑"
+    return "環境で起こせなかった（コードの赤ではない）" if entry.env_only_red(tests) else "赤"
 
 
 def _faces(b, nid: str) -> int:
@@ -320,8 +323,10 @@ def _eyes(b) -> tuple:
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
     """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・独立の目の判定・盤面の問いを 1 枚に"""
     tests = tests or {}
-    lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", "",
-             f"- ログ: {tests.get('log') or '（無い）'}"]
+    lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", ""]
+    if tests.get("by"):
+        lines.append(f"- テストの一式: {entry.suites_line(tests, role_status=entry.role_ci_status(b, tests))}")
+    lines.append(f"- ログ: {tests.get('log') or '（無い）'}")
     if tests.get("reason"):
         lines.append(f"- 走れなかった理由: {tests['reason']}")
     lines.append(f"- run の作業ツリー: {pathlib.Path(repo).resolve()}")
@@ -458,8 +463,8 @@ def _guard(b, repo) -> tuple:
 
 
 def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
-    """h-final（最後のテストと独立の目の後）: ask は final_gate always か、when_needed で最後のテストが緑でない（赤・走れなかった・
-    走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
+    """h-final（最後のテストと独立の目の後）: ask は final_gate always か、when_needed で最後のテストが緑でない（赤・環境で起こせなかった・
+    走れなかった・走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
     阻害を返した時。守りのファイルは文の頭の節と process.human_items の 1 行にもなる。文は b.work(FINAL_GATE_FILE) にも"""
     head = _tests_head(b, tests)
     eyes = _eyes(b)

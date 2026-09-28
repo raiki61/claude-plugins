@@ -1279,6 +1279,8 @@ testing__run:
   suites:
   - name: suite
     exit: 0
+  - name: test_cmd
+    exit: 0
   by: engine
 h-look:
   ok: true

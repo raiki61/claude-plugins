@@ -625,6 +625,37 @@ class RunCiCase(StartCaseBase):
             self.assertIn(part, text)
         self.assertEqual(b.record["materials"]["local_checks"]["status"], "found")
 
+    def declared_board(self):
+        """宣言（緑の 1 段）を持つ対象で盤面を始める"""
+        repo = self.seed()
+        decl = {"suite": [{"name": "decl", "argv": ["python3", "-c", "print('decl-ran')"]}]}
+        (repo / ".review-checks.json").write_text(json.dumps(decl), encoding="utf-8")
+        linekit.git(repo, "add", "-A")
+        linekit.git(repo, "commit", "-q", "-m", "decl")
+        b, p = DiskBoard.begin(self.tmp / "board", repo=repo, table=entry.load_table("darkfactory"), items=[{"where": "stats.py", "text": "x"}],
+                               origin="works/darkfactory", base_rev="", request_text="x", stop_after_round=1)
+        self.assertIn("p0.local_checks", p["run_engine"])
+        return repo, b
+
+    def test_declared_and_red_test_cmd_is_found(self):
+        """宣言が在っても test_cmd を黙って捨てない: 宣言の段が緑で test_cmd が赤なら素材は found（AND の合成）"""
+        repo, b = self.declared_board()
+        entry.run_ci(b, "p0.local_checks", test_cmd="echo test-cmd-ran; exit 1")
+        self.assertEqual(b.record["materials"]["local_checks"]["status"], "found")
+
+    def test_declared_and_green_test_cmd_runs_both(self):
+        """宣言と test_cmd の両方が緑なら clean で、test_cmd も走り、その段が runs とログに載る"""
+        repo, b = self.declared_board()
+        mark = self.tmp / "test-cmd-mark"
+        got = entry.run_ci(b, "p0.local_checks", test_cmd=f"echo test-cmd-ran; touch {mark}")
+        self.assertTrue(mark.exists(), "宣言が在ると test_cmd が走っていない")
+        self.assertEqual(b.record["materials"]["local_checks"]["status"], "clean")
+        names = [r.get("name") for r in b.record["process"]["checks"]["p0.local_checks"]["runs"]]
+        self.assertIn("test_cmd", names)
+        text = pathlib.Path(got["log"]).read_text(encoding="utf-8")
+        for part in ("decl-ran", "test-cmd-ran"):
+            self.assertIn(part, text)
+
     def test_fallback_empty_cmd_role_needed_no_material(self):
         """宣言が無く test_cmd も空 → 任せ先に落ちたまま、偽の素材を渡さず role_needed（裁定 R52）。印も置かない"""
         repo = self.seed()

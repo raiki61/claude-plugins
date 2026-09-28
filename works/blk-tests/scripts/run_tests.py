@@ -16,7 +16,9 @@ mid（中の関所のためのテスト。盤面の節には書かない）:
   読めなければ engine と同じく走らせない（cmd にも落とさない）。ログは b.work("mid-tests.log")、結果は
   b.work("mid-tests.json")。走れなかった回（読めない宣言・宣言も cmd も無い）は green: false で理由をログと結果に残す。
 final（最後のテスト。盤面の p4.ci）:
-  entry.run_ci(b, "p4.ci", test_cmd=cmd)（engine が宣言を走らせるか、任せ先に落ちたら cmd を走らせた素材を done）→ settle。
+  entry.run_ci(b, "p4.ci", test_cmd=cmd)（engine が宣言を走らせ、cmd が在れば宣言の段の後に cmd の段も足して両方が緑の時だけ
+  clean。cmd が宣言の段と同じコマンドなら 1 度だけ走らせ、出口の test_cmd_same_as にその段の名。任せ先に落ちたら cmd を
+  走らせた素材を done）→ settle。
   green は p4.ci が置いた素材 materials.local_checks の status が clean か。ログは run_ci の返りの log（周の番号を組み立てない）。
   任せ先に落ちて cmd も空（run_ci の role_needed）なら、素材を読まずに green: false・by: role_needed・log は空——p4.ci は
   任せ先に落ちたまま待ち、ラインが blk-ci（CI の任せ先の役）を回す（裁定 R52）。run_ci が拒んだ（CiRefused）は終了コード 1 で理由を stderr。
@@ -133,7 +135,8 @@ def run_final(b, cmd: str, *, run_ci, refused=()) -> dict:
     check = b.record.get("process", {}).get("checks", {}).get(CI_NODE) or {}
     suites = [{"name": r["name"], "exit": r["exit"]} for r in check.get("runs") or []] if ci["by"] == "engine" else []
     b.settle()
-    return {"ok": True, "green": material.get("status") == "clean", "log": ci["log"], "suites": suites, "by": ci["by"]}
+    same = {"test_cmd_same_as": ci["same_as"]} if ci.get("same_as") else {}
+    return {"ok": True, "green": material.get("status") == "clean", "log": ci["log"], "suites": suites, "by": ci["by"], **same}
 
 
 def main() -> int:

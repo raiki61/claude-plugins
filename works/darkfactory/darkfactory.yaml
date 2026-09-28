@@ -27,7 +27,7 @@ inputs:
     description: PR の番号。gh pr view で base の枝と head を読むだけ（投稿しない）で、head が run の HEAD と違えば止める。差分は base の枝と HEAD の merge-base から（GitHub の PR と同じ）。base と一緒には名指さない
   test_cmd:
     default: ""
-    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）。空なら対象の .review-checks.json の宣言を engine が走らせ、宣言も無ければ CI の任せ先の役（blk-ci）
+    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）。在れば、対象の .review-checks.json の宣言が在っても宣言の一式に加えて走らせ、両方が緑の時だけ緑（宣言の段と同じコマンドなら 1 度だけ）。宣言が無ければ test_cmd だけ。空なら宣言を engine が走らせ、宣言も無ければ CI の任せ先の役（blk-ci）
   thickness:
     default: ""
     description: 手厚さ。空は標準（軽量・重厚は受けない。持ち主の決定 2026-09-27）
