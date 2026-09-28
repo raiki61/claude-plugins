@@ -6,6 +6,7 @@
 # 全部と heavy は、機械全体で重いテストを同時に 4 本までにする枠の台本（testslot.sh。置き場は WORKS_TESTSLOT で差し替え）を
 # 通して回す。枠の置き場は台本の約束 TESTSLOT_DIR（既定は台本と同じ /private/tmp/claude-<uid>/testslots）で、ここで解決して台本へ渡す。
 # 台本が無い・枠の置き場に書けないときは、1 行出して枠を取らずに回す。枠を持つ台本の下から呼ばれたら取り直さない。
+# 走らせる run の env は tests/hermetic.sh で落としてから試験を起こす（dev/tdd-suite.sh と同じ一覧）。
 cd "$(dirname "$0")/.." || exit 2
 DEFAULT_TESTSLOT=/Users/p03623/src/claude-plugins/.git/graphloops/ops/testslot.sh
 
@@ -16,6 +17,7 @@ case $tier in
   *) echo "run.sh: WORKS_TESTS は fast・heavy・空（全部）のどれか（今の値: ${tier}）" >&2; exit 2 ;;
 esac
 set -- uv run --no-project --with pyyaml python3 "$@"
+. tests/hermetic.sh
 PYTHONDONTWRITEBYTECODE=1
 export PYTHONDONTWRITEBYTECODE
 [ "$tier" = fast ] && exec "$@"

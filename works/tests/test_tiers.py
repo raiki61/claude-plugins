@@ -517,5 +517,52 @@ class PortabilityCase(unittest.TestCase):
             self.assertRegex(reason, tiers.SKIP_DECL)
 
 
+# 試験を走らせる run（dogfood.sh・use.sh・包み）が export する変数。試験の子に届くと、既定の振る舞いを見る試験が外の run に左右される
+LEAKY_ENV = {"WORKS_DEV_ADAPTER": "1", "WORKS_CONTEXT7_MCP": "on", "WORKS_CONTEXT7": "off"}
+
+FAKE_UV_ENV = """#!/bin/sh
+for n in WORKS_DEV_ADAPTER WORKS_CONTEXT7_MCP WORKS_CONTEXT7; do
+  eval "v=\\${$n-(unset)}"
+  echo "$n=$v" >> "$FAKE_ENV_LOG"
+done
+"""
+
+
+class RunEnvLeakCase(unittest.TestCase):
+    """試験の入口（run.sh の全部・段、TDD の実行器 dev/tdd-suite.sh）は、走らせる run の env を試験の子に継がせない。
+    置き場と偽の枠の台本は RunShCase と同じ（RunShCase の試験を継がないように、setUp と run_sh だけを借りる）"""
+    run_sh = RunShCase.run_sh
+
+    def setUp(self):
+        RunShCase.setUp(self)
+        uv = pathlib.Path(self.env["PATH"].split(os.pathsep)[0]) / "uv"
+        uv.write_text(FAKE_UV_ENV)
+        self.env_log = pathlib.Path(self._tmp.name) / "env-log"
+        self.env.update(FAKE_ENV_LOG=str(self.env_log), **LEAKY_ENV)
+
+    def seen(self):
+        return set(self.env_log.read_text().splitlines())
+
+    def assert_not_leaked(self):
+        want = {f"{n}=(unset)" for n in LEAKY_ENV}
+        self.assertEqual(self.seen(), want)
+
+    def test_run_sh_does_not_pass_run_env_to_tests(self):
+        for tier in ("", "fast", "heavy"):
+            with self.subTest(tier=tier or "全部"):
+                if self.env_log.exists():
+                    self.env_log.unlink()
+                r = self.run_sh(WORKS_TESTS=tier)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assert_not_leaked()
+
+    def test_tdd_suite_does_not_pass_run_env_to_tests(self):
+        out = pathlib.Path(self._tmp.name) / "junit.xml"
+        r = subprocess.run(["sh", str(TESTS.parent / "dev" / "tdd-suite.sh"), str(out)], env=self.env, capture_output=True,
+                           text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assert_not_leaked()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,8 +10,11 @@
       元にする台帳の commit が揃っているかを見る。書かない。ずれが在れば 1 行ずつ出して 1
   python3 works/dev/core-sync.py sync <rev> --version <graphloops の版> [--skip-goldens]
       graphloops を元にする台帳の写しを <rev> から取り直し、手直しを当て、台帳の 1 行目を <rev> に替え、盤面の手本を
-      board-goldens/make.py で撮り直す。手直しが当たらない・写しの .py の import と graph の $ref・extends がたどる物が
-      台帳に無い、のどちらかなら何も書かずに 1。終わりに、works の中で前の commit を名指しする所を出す（書き換えない）
+      board-goldens/make.py で撮り直す。写しの .py の import と graph の $ref・extends がたどる物が台帳に無ければ、
+      動かなくなるまでたどって同じバイトで写し、頭の当たる最初の台帳に「<版> で足した」の注記つきの行で足し、足した行を出す
+      （go mod vendor が推移閉包を解いて modules.txt に書くのと同じ形）。手直しが当たらない・足す物の写し先に、どの台帳にも
+      載らない works 自身のファイルが在る、のどちらかなら何も書かずに 1。終わりに、works の中で前の commit を名指しする所を
+      出す（書き換えない）
   --works <置き場>（既定はこの道具の在る works）・--upstream <git の置き場>（既定は works を含むリポジトリの根）
 """
 import argparse
@@ -161,11 +164,12 @@ def sync(works, up, rev, version, skip_goldens) -> int:
         print(f"core-sync: {rev} を {up} から引けない", file=sys.stderr)
         return 1
     short = git(up, "rev-parse", "--short=7", full)
-    problems, writes, fetched, heads = [], {}, {}, {}
+    problems, writes, fetched, heads, listed = [], {}, {}, {}, set()
     for name, prefix in LEDGERS:
+        led = copyledger.read(works / name)
+        listed |= {led.base / rel for rel, _ in led.rows}
         if prefix is None:
             continue
-        led = copyledger.read(works / name)
         heads[name] = (led, new_head(led.head, short, version, led.commit))
         for rel, src in led.rows:
             s = source(prefix, rel, src)
@@ -178,10 +182,25 @@ def sync(works, up, rev, version, skip_goldens) -> int:
                 writes[led.base / rel] = copyledger.apply(led, rel, data)
             except copyledger.LedgerError as e:
                 problems.append(f"{name}: {e}（台帳の手直しの行を {short} の中身に合わせて直す）")
-    for s, data in sorted(fetched.items()):
+    added = {}   # 台帳の名 → [足す行]
+    queue = sorted(fetched.items())
+    while queue:
+        s, data = queue.pop(0)
         for n in sorted(needs(s, data)):
-            if n not in fetched and exists(up, full, n):
-                problems.append(f"{s} がたどる {n} が台帳に無い（写しの一覧に足す）")
+            if n in fetched or not exists(up, full, n):
+                continue
+            fetched[n] = copyledger.show(up, full, n)
+            queue.append((n, fetched[n]))
+            name, prefix = next((nm, px) for nm, px in LEDGERS if px is not None and n.startswith(px))
+            led, rel = heads[name][0], n[len(prefix):]
+            p = led.base / rel
+            if p in writes or (p.exists() and p not in listed):
+                problems.append(f"{s} がたどる {n} の写し先 {p.relative_to(works)} に、台帳に無い works のファイルが在る"
+                                f"（ぶつかる。どちらを残すかを決めて台帳か works のファイルを直す）")
+                continue
+            writes[p] = fetched[n]
+            how = "import する" if s.endswith(".py") else "$ref・extends でたどる"
+            added.setdefault(name, []).append(f"{rel}  # {version} で足した: {s} が {how}")
     if problems:
         print("core-sync: 何も書かずに止めた", file=sys.stderr)
         for p in problems:
@@ -195,8 +214,15 @@ def sync(works, up, rev, version, skip_goldens) -> int:
         olds.add(led.commit)
         lines = led.path.read_text(encoding="utf-8").splitlines(keepends=True)
         lines[0] = head + "\n"
+        if lines[-1:] and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines += [a + "\n" for a in added.get(name, ())]
         led.path.write_text("".join(lines), encoding="utf-8")
     print(f"core-sync: {len(writes)} 本を {short}（graphloops {version}）から写した")
+    for name, rows in added.items():
+        print(f"core-sync: 台帳に無い物を {name} に足した:")
+        for a in rows:
+            print(f"  {a}")
     if not skip_goldens:
         make = HERE / "board-goldens" / "make.py"
         r = subprocess.run(["uv", "run", str(make), "--graphloops-rev", short])

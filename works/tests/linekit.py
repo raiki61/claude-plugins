@@ -116,14 +116,16 @@ CLAUDE_TMP = ("/private/tmp/claude-", "/tmp/claude-")   # Claude Code の一時�
 
 
 def work_home() -> pathlib.Path:
-    """${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/single/（作って返す）。Claude Code の一時フォルダの下に解決される置き場は、
-    作る前に BoardGap で拒む（サンドボックスの Bash が書ける所に使い捨ての物を置かない）"""
+    """${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/single/ を解決した字で返す（作って返す）。盤面は解決した字を返すので、
+    解決しない字（macOS の /var → /private/var）を配ると relative_to と文字列比較が割れる。Claude Code の一時フォルダの下に
+    解決される置き場は、作る前に BoardGap で拒む（サンドボックスの Bash が書ける所に使い捨ての物を置かない）"""
     from board import BoardGap   # 盤面の層の誤りの型（.shared/core を sys.path に足してある）
     base = os.environ.get("WORKS_DEV_HOME") or str(pathlib.Path.home() / ".cache" / "works-dev")
-    home = pathlib.Path(base) / "single"
-    for p in (str(home), str(home.resolve())):
+    given = pathlib.Path(base) / "single"
+    home = given.resolve()
+    for p in (str(given), str(home)):
         if p.startswith(CLAUDE_TMP):
-            raise BoardGap(f"work_home: {home} が Claude Code の一時フォルダの下にある（{home.resolve()}）。WORKS_DEV_HOME を別の場所にする")
+            raise BoardGap(f"work_home: {given} が Claude Code の一時フォルダの下にある（{home}）。WORKS_DEV_HOME を別の場所にする")
     home.mkdir(parents=True, exist_ok=True)
     # 盤面の置き場は受け付けが一度だけ resolve する（script_io.board_dir）。macOS の /var → /private/var のリンクの下でも
     # 試験が持つパスと受け付けが返すパスの綴りを揃える

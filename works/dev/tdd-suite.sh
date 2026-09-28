@@ -9,7 +9,7 @@
 # ときは、標準エラーに 1 行出して 2（pytest を起こさない）。.pytest_cache とバイトコードは作らない。
 # 読み込みで落ちるモジュールが在っても一式を止めない（--continue-on-collection-errors。落ちたモジュールは error で載り、
 # 他の試験の結末も書かれる。止まると「元で通っていた他のテストは緑のまま」を確かめられない）。
-# heavy は run.sh と違い、重いテストの枠（testslot）を通さない。
+# heavy は run.sh と違い、重いテストの枠（testslot）を通さない。走らせる run の env は run.sh と同じ tests/hermetic.sh で落とす。
 out=${1-}
 if [ -z "$out" ]; then
   echo "tdd-suite.sh: 第 1 引数に JUnit XML の書き先を渡す" >&2
@@ -26,6 +26,7 @@ case $tier in
   *) echo "tdd-suite.sh: WORKS_TDD_TIER は fast・heavy のどちらか（今の値: ${tier}）" >&2; exit 2 ;;
 esac
 cd "$(dirname "$0")/.." || exit 2
+. tests/hermetic.sh
 PYTHONDONTWRITEBYTECODE=1
 export PYTHONDONTWRITEBYTECODE
 files=$(uv run --no-project python3 tests/tiers.py paths "$tier") || exit 2

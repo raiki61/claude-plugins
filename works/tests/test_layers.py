@@ -500,6 +500,11 @@ class LayersCase(unittest.TestCase):
         msg = report(pack)
         self.assertFalse(msg, "\n" + msg)
 
+    def test_script_io_does_not_reach_up_to_conflict(self):
+        """下の層の script_io は、start の控えの読み手 conflict（上の層）を import しない（KNOWN で許すのでなく依存を移す）"""
+        pack = Pack(ROOT)
+        self.assertEqual([k for k in pack.found if k.startswith("up script_io -> ")], [])
+
     def test_known_rows_name_a_violation_number(self):
         for k, v in KNOWN.items():
             with self.subTest(row=k):

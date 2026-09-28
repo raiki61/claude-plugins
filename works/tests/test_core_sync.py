@@ -5,7 +5,8 @@
 - --check: 写しが台帳の 1 行目の commit と手直し（COPIED_FROM の ! 行）から作ったバイトと同じで、graphloops を元にする
   4 つの台帳の commit が揃っていれば 0。1 バイトの書き換え・台帳の commit の割れは 1。何も書かない
 - sync <rev>: graphloops の 4 つの台帳の写しを <rev> から取り直し、手直しを当て、台帳の 1 行目を替える（changemap の台帳は触らない）。
-  手直しが当たらない・import と graph の $ref がたどる物が台帳に無い、のどちらかなら何も書かずに 1
+  import と graph の $ref がたどる物が台帳に無ければ、動かなくなるまでたどって同じバイトで写し、台帳に注記つきの行で足す。
+  手直しが当たらない・足す物の写し先に台帳に載らない works 自身のファイルが在る、のどちらかなら何も書かずに 1
 """
 import json
 import pathlib
@@ -88,6 +89,10 @@ def setUpModule():
     git(UP, "checkout", "-q", "-b", "e", REV["a"])
     _commit("e", {"graphloops/graphs/g.json": json.dumps({"nodes": {"x": {"$ref": "../blocks/x/block.json"}}}) + "\n",
                   "graphloops/blocks/x/block.json": json.dumps({"id": "x"}) + "\n"})
+    # f: 足す物がさらに台帳に無い物を import する（2 段）
+    git(UP, "checkout", "-q", "-b", "f", REV["a"])
+    _commit("f", {"graphloops/engine/a.py": "from .extra import Y\nX = Y\n",
+                  "graphloops/engine/extra.py": "from .deeper import Z\nY = Z\n", "graphloops/engine/deeper.py": "Z = 4\n"})
     git(UP, "checkout", "-q", REV["a"])
 
 
@@ -210,11 +215,42 @@ class CoreSyncSyncCase(unittest.TestCase):
     def test_sync_stops_when_deviation_does_not_apply(self):
         self._assert_stops("c", "graphloops/rules/r.py")
 
-    def test_sync_stops_on_missing_relative_import(self):
-        self._assert_stops("d", "graphloops/engine/extra.py")
+    def _assert_adds(self, rev, by, added):
+        """sync <rev> が台帳に無い物（added: 元のパス）を同じバイトで写し、.shared/core/COPIED_FROM に by の名と注記つきの行で足し、
+        足した行を出し、--check が 0"""
+        rc, out = run(self.w, "sync", REV[rev], "--version", "0.3.0", "--skip-goldens")
+        self.assertEqual(rc, 0, out)
+        rows = (self.w / ".shared/core/COPIED_FROM").read_text(encoding="utf-8").splitlines()
+        for n in added:
+            with self.subTest(n):
+                want = subprocess.run(["git", "-C", str(UP), "show", f"{REV[rev]}:{n}"], capture_output=True,
+                                      check=True).stdout
+                self.assertEqual((self.w / ".shared/core" / n).read_bytes(), want)
+                line = [r for r in rows if r.split("#", 1)[0].split() == [n]]
+                self.assertEqual(len(line), 1, rows)
+                self.assertIn("#", line[0])
+                self.assertIn("0.3.0", line[0].split("#", 1)[1])
+                self.assertIn(by[n], line[0].split("#", 1)[1])
+                self.assertIn(n, out)
+        rc, out = run(self.w, "--check")
+        self.assertEqual(rc, 0, out)
 
-    def test_sync_stops_on_missing_graph_ref(self):
-        self._assert_stops("e", "graphloops/blocks/x/block.json")
+    def test_sync_adds_missing_relative_import(self):
+        self._assert_adds("d", {"graphloops/engine/extra.py": "a.py"}, ["graphloops/engine/extra.py"])
+
+    def test_sync_adds_missing_graph_ref(self):
+        self._assert_adds("e", {"graphloops/blocks/x/block.json": "g.json"}, ["graphloops/blocks/x/block.json"])
+
+    def test_sync_adds_what_added_files_reach(self):
+        """足した物がさらにたどる物も、動かなくなるまで足す"""
+        self._assert_adds("f", {"graphloops/engine/extra.py": "a.py", "graphloops/engine/deeper.py": "extra.py"},
+                          ["graphloops/engine/extra.py", "graphloops/engine/deeper.py"])
+
+    def test_sync_stops_when_added_file_would_overwrite_unlisted_works_file(self):
+        """足す物の写し先に、どの台帳にも載らない works 自身のファイルが在れば、何も書かずに 1 で止め、その物を名指す"""
+        own = self.w / ".shared/core/graphloops/engine/extra.py"
+        own.write_text("# works 自身のファイル\n", encoding="utf-8")
+        self._assert_stops("d", "graphloops/engine/extra.py")
 
 
 if __name__ == "__main__":

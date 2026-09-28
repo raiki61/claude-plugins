@@ -122,6 +122,12 @@ def request_file(board_dir) -> str:
     return got if isinstance(got, str) else ""
 
 
+def change_only(board_dir) -> bool:
+    """ラインの盤面が、依頼を持たずに変更から入った run か（start の控えの entry が change）。
+    依頼を読むブロックの intake はこの run でだけ空の依頼を受ける（ブロックを単独で回した時・依頼の在る run の空は今までどおり欠け）"""
+    return start_doc(board_dir).get("entry") == "change"
+
+
 def _inside(p: pathlib.Path, root: pathlib.Path) -> bool:
     try:
         p.relative_to(root)

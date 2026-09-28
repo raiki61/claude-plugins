@@ -77,6 +77,7 @@ class TddSuiteCase(unittest.TestCase):
         (self.root / "dev").mkdir(parents=True)
         (self.root / "tests").mkdir()
         shutil.copy2(SUITE_SH, self.root / "dev" / "tdd-suite.sh")
+        shutil.copy2(ROOT / "tests" / "hermetic.sh", self.root / "tests" / "hermetic.sh")   # 殻が . で読む env の隔離
         (self.root / "tests" / "tiers.py").write_text(FAKE_TIERS, encoding="utf-8")
         (self.root / "tests" / "fakekit.py").write_text("VALUE = 1\n", encoding="utf-8")
         (self.root / "tests" / "test_fake.py").write_text(FAKE_TEST, encoding="utf-8")
