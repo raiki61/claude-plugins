@@ -20,6 +20,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Fixed
 
+- 判定役の欠陥を数える問い（class_query）に「当たる例・当たらない例」を添えられるようにし、判定の時点で例を問いに当てて、合わない問いを単位の名指しで拒む（Semgrep の規則の試験と同じ形）。例の無い問いは今までどおり受ける。
+- 修正の返答が輪の最後の回に数え合わせで拒まれた時、その単位だけを人に回して（裁定 ask_human）残りの直しを受ける。今までは 1 単位の食い違いで run 全体が止まった。
 - 借りる道具（superpowers・coldwrite・pr-review-toolkit）を、Claude Code が実際に読み込む scope の `installed_plugins.json` の行から取る。知らない形の `installed_plugins.json` や、勝った scope の置き場が消えている時は、下の scope へ戻らずに名指しで止まる。入れたが無効にした物も今までどおり借り、有効・無効を記録に残す。
 - 修正の受け付けが、裁定 `fix_test_scope` が認めた範囲の中の凍ったテストの変更を拒まなくなった。直す単位が全部人に回った run が、空の申告で止まらずに最後の関所へ進む。
 
