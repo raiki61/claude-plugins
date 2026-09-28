@@ -8,7 +8,13 @@
 - dev/stop.sh <run-id> <理由…>: 盤面の場所を `archon workflow get <run> --json` の output_root + artifacts/runs/<run-id>/board
   で組む（走っている run には $ARTIFACTS_DIR の欄が無い。試し P12）。理由が無い・board/ が無い・別の run が返った・
   終わった run（completed・cancelled）・盤面がもう止まった・終わった・get が失敗した、のどれも何も書かずに 2。Archon は WORKS_DEV_ARCHON の偽物を差す
+- 止めない空の申告: 直す義務の単位が全部 ask_human に裁かれた run の、changes が空の受け付け（正しい返答）を、blk-fix の
+  assert-changed は盤面を止めずに通し、recount.collect も通す（最後の人の関所へ届く）。ask_human が無い・義務が残る空は今どおり止める。
+  盤面は偽物（mock）、種の git は gitkit の型の写し
 """
+import contextlib
+import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -312,6 +318,85 @@ class TestSamples(unittest.TestCase):
         self.assertNotIn("/artifacts/runs/", json.dumps(run))
         self.assertEqual(fin["terminal_record"]["artifacts"]["root"],
                          os.path.join(fin["output_root"], "artifacts", "runs", fin["id"]))
+
+
+class TestAskedOnlyEmptyChanges(unittest.TestCase):
+    """義務の単位が全部 ask_human の空の changes は止めない（conflict.asked_keys が在り、conflict.owed_units_but_asked が空）"""
+
+    def setUp(self):
+        from unittest import mock
+        sys.path.insert(0, str(ROOT / "tests"))
+        from gitkit import committed_copy
+        self.mock = mock
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.repo = self.tmp / "repo"
+        committed_copy(self.repo, ROOT / "dev" / "target-seed")
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        self.b = mock.MagicMock()
+        self.b.state = {}
+        self.b.round = 1
+        self.b.work.side_effect = lambda name: self.tmp / name
+
+    def board(self, asked, owed):
+        import conflict
+        import entry
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(self.mock.patch.object(entry, "open_board", return_value=self.b))
+        stack.enter_context(self.mock.patch.object(conflict, "asked_keys", return_value=set(asked)))
+        stack.enter_context(self.mock.patch.object(conflict, "owed_units_but_asked", return_value=set(owed)))
+
+    def assert_changed(self):
+        spec = importlib.util.spec_from_file_location("assert_changed_under_test",
+                                                      ROOT / "blk-fix" / "scripts" / "assert_changed.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        env = {"INPUTS_BASE_REV": "", "INPUTS_ACCEPTED": json.dumps({"ok": True, "changes": []}),
+               "ARTIFACTS_DIR": str(self.tmp / "art")}
+        out, err = io.TextIOWrapper(io.BytesIO(), encoding="utf-8"), io.StringIO()   # give_up は stdout を reconfigure する
+        with self.mock.patch.dict(os.environ, env), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = mod.main()
+        self.assertEqual(code, 0, err.getvalue())
+        out.flush()
+        return json.loads(out.buffer.getvalue().decode("utf-8"))
+
+    def test_assert_changed_passes_when_all_owed_units_are_asked(self):
+        self.board(asked={"u-asked"}, owed=set())
+        got = self.assert_changed()
+        self.assertIs(got["ok"], True, got)
+        self.assertEqual(got["files"], [])
+        self.b.stop.assert_not_called()
+
+    def test_assert_changed_still_halts_without_ask_human(self):
+        self.board(asked=set(), owed=set())
+        self.assertIs(self.assert_changed()["ok"], False)
+        self.b.stop.assert_called_once()
+
+    def test_assert_changed_still_halts_when_owed_units_remain(self):
+        self.board(asked={"u-asked"}, owed={"u-owed"})
+        self.assertIs(self.assert_changed()["ok"], False)
+        self.b.stop.assert_called_once()
+
+    def test_collect_takes_empty_changes_when_all_owed_units_are_asked(self):
+        import recount
+        self.board(asked={"u-asked"}, owed=set())
+        with self.mock.patch.object(recount, "_fix_output", return_value=({}, self.tmp / "fix.json")):
+            try:
+                got = recount.collect(self.tmp / "art" / "board", {"ok": True, "changes": []}, {"ok": True, "files": []})
+            except recount.Unreadable as e:
+                self.fail(f"collect が ask_human だけの空の changes を拒んだ: {e}")
+        self.assertIs(got["ok"], True)
+        self.assertEqual(json.loads((self.tmp / recount.CHANGES_FILE).read_text(encoding="utf-8")), {"changes": []})
+
+    def test_collect_still_rejects_empty_changes_without_ask_human(self):
+        import recount
+        self.board(asked=set(), owed=set())
+        with self.mock.patch.object(recount, "_fix_output", return_value=({}, self.tmp / "fix.json")):
+            with self.assertRaises(recount.Unreadable):
+                recount.collect(self.tmp / "art" / "board", {"ok": True, "changes": []}, {"ok": True, "files": []})
 
 
 if __name__ == "__main__":

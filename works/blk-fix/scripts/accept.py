@@ -19,7 +19,7 @@
      無い key。1 本目の unknown = got - opened。fork の出どころは開いた単位なので通す）
 1a. check_pack_copy: .archon/ の下（自分食いの run では動いている線の pack の写し）を申告した・変えた返答を拒む（run 26）
 1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
-   空・欠けは輪の無い run で見ない）
+   空・欠けは輪の無い run で見ない）。裁定の後（ruled）は、裁定 fix_test_scope の範囲（conflict.ruled_test_limits）の中の変更を通す
 1c. check_tests: 版からの変更に当たる試験を、TDD の輪と同じ実行器で機械が走らせ、元で赤でなかった試験の赤を拒む
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
 2. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が判定役の class_query を修正前の版と修正後の
@@ -182,14 +182,15 @@ def check_tests(board: Path, base_rev: str, repo: Path, state: str) -> tuple:
 
 def accept_fix(reply, board, base_rev, repo):
     state = os.environ.get("INPUTS_TDD_STATE", "")
-    frozen = tddloop.frozen_problems(state, repo)
+    pass_ = os.environ.get("INPUTS_PASS") or "first"
+    allowed = conflict.ruled_test_limits(entry.open_board(board)) if state and pass_ == "ruled" else []
+    frozen = tddloop.frozen_problems(state, repo, allowed)
     if frozen:
         return _reject(" / ".join(frozen))
     wrote = check_writes(reply, board, base_rev, repo, state)
     if wrote["problems"]:
         return _reject(" / ".join(wrote["problems"]))
     reply = wrote["reply"]
-    pass_ = os.environ.get("INPUTS_PASS") or "first"
     reply, done = take_conflicts(reply, board, repo, pass_)
     if done is not None:
         return done

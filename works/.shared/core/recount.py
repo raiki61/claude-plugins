@@ -98,17 +98,20 @@ def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:
     """集める節の中身。1 本目の {ok, files, changes_file} を全部残し、fix_file（盤面の state.outputs["p3.fix"]["file"] の
     絶対パス）・not_done（件数）・coverage（単位ごとの {before, after}）・reads_file（fix-reads が今の周に書いた
     reads-fix.json。無ければ空）を足す。受け付けた changes を今の周の changes.json（{"changes": [...]}。1 本目の形）に書く。
-    受け付けが通っていない・assert-changed の出力が読めない・盤面が今の周の p3.fix を受けていないときは Unreadable（何も書かない）"""
+    受け付けが通っていない・assert-changed の出力が読めない・盤面が今の周の p3.fix を受けていない・changes が空（直す義務の
+    単位が全部 ask_human に裁かれた盤面 conflict.only_asked_left を除く）ときは Unreadable（何も書かない）"""
     if not isinstance(accepted, dict) or accepted.get("ok") is not True:
         raise Unreadable(f"受け付けが通っていない（{(accepted or {}).get('reason') if isinstance(accepted, dict) else accepted!r}）")
     changes = accepted.get("changes")
-    if not isinstance(changes, list) or not changes:
+    if not isinstance(changes, list):
         raise Unreadable("受け付けの出力に changes が無い")
     files = changed.get("files") if isinstance(changed, dict) else None
     if not isinstance(changed, dict) or changed.get("ok") is not True or not isinstance(files, list) \
             or not all(isinstance(f, str) for f in files):
         raise Unreadable(f"assert-changed の出力に files が無い（{changed!r}）")
     b = entry.open_board(board, allow_halted=True)
+    if not changes and not conflict.only_asked_left(b):
+        raise Unreadable("受け付けの出力に changes が無い")
     out, fix_file = _fix_output(b)
     path = b.work(CHANGES_FILE)
     tmp = path.with_name(path.name + ".tmp")

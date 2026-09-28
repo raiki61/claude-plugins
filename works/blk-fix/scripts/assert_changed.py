@@ -14,7 +14,9 @@
 git が無視するファイルは、ここでは数えない（取り込む差分に載らない物。Ruling R15）。修正役が残したそれは、この前の節
 clean が消す（盤面の fix-ignored-before.json の控えに無かった物だけ。消した物は collect が出口に並べる）。
 - 申告したファイルが全部変わっている: {"ok": true, "files": [申告 ∩ 変わった物]} を 1 行出して 0（ゴミは下流に流さない）
-- 申告が空・申告したのに変わっていないファイルが在る・受け付けが通らないまま輪を抜けた（修正の輪が 3 回とも拒まれて諦めた。
+- 申告が空でも、直す義務の単位が全部 ask_human に裁かれた盤面（conflict.only_asked_left）なら正しい返答:
+  {"ok": true, "files": [], "reason"} を 1 行出して 0、盤面の trace に 1 行（止めずに最後の人の関所へ届ける）
+- 申告が空（上の場合を除く）・申告したのに変わっていないファイルが在る・受け付けが通らないまま輪を抜けた（修正の輪が 3 回とも拒まれて諦めた。
   輪の出力が ok: false）: run を落とさずに盤面（$ARTIFACTS_DIR/board）を理由つきで止め（by works:fix。R50）、
   {"ok": false, "files": [], "reason"} を 1 行出して 0。後ろの段は境の節が飛ばし、報告と書き出しは走る（run 26）。
   盤面が開けない（盤面の無いブロックだけの模擬実行）なら、標準エラーに理由を 1 行出して 1（1 本目のまま）
@@ -35,6 +37,7 @@ from leftovers import ARCHON_PREFIX, Unreadable, git, git_names  # noqa: E402
 from script_io import later_output  # noqa: E402   .archon/ の決まりと git の呼び方の正本（clean と同じ物。.shared/core の模块）
 
 STOP_BY = "works:fix"   # 修正の段が盤面を止めた印（報告の結末は stopped_by_line）
+ASKED_ONLY_OP = "fix_asked_only"   # 空の申告を ask_human だけが残った正しい返答として通した盤面の trace の行
 
 
 class GiveUp(Exception):
@@ -57,6 +60,24 @@ def give_up(reason: str) -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({"ok": False, "files": [], "reason": reason}, ensure_ascii=False))
     return 0
+
+
+def asked_only() -> str:
+    """直す義務の単位が全部 ask_human に裁かれた盤面なら通す理由の文（conflict.only_asked_left。盤面の trace に 1 行）。
+    違う・盤面が開けなければ空（止める側）"""
+    artifacts = os.environ.get("ARTIFACTS_DIR")
+    if not artifacts:
+        return ""
+    try:
+        import conflict
+        import entry
+        b = entry.open_board(Path(artifacts) / "board", allow_halted=True)
+        if not conflict.only_asked_left(b):
+            return ""
+        b.trace(ASKED_ONLY_OP, node="assert-changed", asked=sorted(conflict.asked_keys(b)))
+    except Exception:
+        return ""
+    return conflict.ASKED_ONLY
 
 
 def touched(base_rev):
@@ -114,6 +135,10 @@ def main():
         print(f"assert-changed: {e}".replace("\n", " "), file=sys.stderr)
         return 2
     since = f"{rev[:12]}（base_rev {base_rev or 'HEAD'}）"
+    passed = asked_only() if not declared else ""
+    if passed:
+        print(json.dumps({"ok": True, "files": [], "reason": passed}, ensure_ascii=False))
+        return 0
     if not declared:
         return give_up("修正役は済んだと言ったが、触ったファイルを 1 つも申告していない（changes[].files が空）")
     unchanged = sorted(declared - set(changed))

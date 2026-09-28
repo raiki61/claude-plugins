@@ -15,6 +15,8 @@
 - apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
 - ruled_test_doc(b): fix_test_scope が名指したテストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
+- only_asked_left(b): 直す義務の単位が全部 ask_human（空の changes を止めない。blk-fix の assert-changed と recount.collect）
+- ruled_test_limits(b)・parse_limit(lim): fix_test_scope の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
 - human_lines(b): 最後の関所と報告に載せる ask_human の行
 標準ライブラリだけ。期限は持たない。
 """
@@ -288,6 +290,32 @@ def owed_units_but_asked(b):
         return got
 
 
+ASKED_ONLY = "直す義務の単位は全部 ask_human に裁かれた（changes が空なのが正しい返答。最後の人の関所で人が決める）"
+
+
+def only_asked_left(b) -> bool:
+    """ask_human に裁いた単位が在り、それを除いた直す義務が残っていない（空の changes が正しい返答）。読めなければ偽（止める側）"""
+    try:
+        return bool(asked_keys(b)) and not owed_units_but_asked(b)
+    except Exception:   # 盤面・控え・写しの RL が読めない: 空の申告は今どおり止める
+        return False
+
+
+def parse_limit(lim: str):
+    """裁定の範囲の 1 つ `<パス>` か `<パス>:<行>[-<行>]` → (作業ツリーの根からのパス, (始め, 終わり) か None（ファイル全体）)。
+    根の外・根そのものを指す物は None"""
+    m = CITE.match(lim.strip())
+    path = posixpath.normpath(m["path"] if m else lim.strip())
+    if path.startswith(("/", "..")) or path == ".":
+        return None
+    return path, ((int(m["a"]), int(m["b"] or m["a"])) if m else None)
+
+
+def ruled_test_limits(b) -> list:
+    """fix_test_scope の裁定が直してよいとした範囲（limits の文字列。裁定の順）"""
+    return [lim for r in ruled_fix(b) if r["ruling"]["decision"] == "fix_test_scope" for lim in r["ruling"].get("limits") or []]
+
+
 def ruled_test_doc(b):
     """fix_test_scope の裁定が名指したテストのファイル（範囲の <パス>[:行]）を、守りのファイルの一覧の形 {rules: [...]} に。
     無ければ None"""
@@ -296,9 +324,9 @@ def ruled_test_doc(b):
         if r["ruling"]["decision"] != "fix_test_scope":
             continue
         for lim in r["ruling"].get("limits") or []:
-            m = CITE.match(lim.strip())
-            path = posixpath.normpath(m["path"] if m else lim.strip())
-            if path in seen or path.startswith(("/", "..")) or path == ".":
+            got = parse_limit(lim)
+            path = got[0] if got else None
+            if path is None or path in seen:
                 continue
             seen.add(path)
             rows.append({"id": f"{RULED_TEST_ID}-{r['id']}-{len(rows) + 1}", "glob": path,

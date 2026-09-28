@@ -13,13 +13,15 @@
   拒めば同じ段のまま、理由は次の指示書（と reason_file）に載る。段ごとに RETRY_MAX 回目の拒否で諦める: test・fix は作業ツリーを
   単位の頭に戻して direct へ、refactor は緑の時の木に戻す。実行器が走らない・回数の上限に届いた時は、残りを全部 direct にして抜ける
   （輪は done の印で抜け、max_iterations に届いて落ちない。R50）
-- fix-accept → frozen_problems: 輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか
+- fix-accept → frozen_problems: 輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（裁定 fix_test_scope の
+  範囲の中の変更は、輪が済んだ時の木（frozen_tree）との差分の塊の旧い側の行で見て通す）
 - fix-accept → selected_problems: 版からの変更に当たる試験（impact.select_tests。分からない物が近くに在れば全部）を同じ実行器で
   走らせ、元で赤でなかった試験の赤を返す（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
 - collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整え・direct の理由）
 赤・緑の判定は写しの rules（review-loop-tdd.py）の関数を呼ぶ（写さない）。版は一時の index（GIT_INDEX_FILE）で木に固める
 （本物の index・HEAD・枝は動かさない。.gitignore に当たる物は載らない）。期限は持たない。
 """
+import difflib
 import hashlib
 import json
 import os
@@ -541,10 +543,12 @@ def _finish(st, repo) -> None:
     """輪の後の修正役へ渡す summary.md と、凍ったテストのファイルの控え（frozen）"""
     passed = [st["units"][k] for k in st["order"] if st["units"][k]["route"] == "tdd"]
     st["frozen"] = hashes(repo, sorted({f for u in passed for f in u["test_files"]}))
+    st["frozen_tree"] = snapshot(repo)
     lines = ["# TDD の輪の結果（機械が書いた）", ""]
     if st["note"]:
         lines += [f"輪を途中で抜けた: {st['note']}", ""]
-    lines += ["## 輪で直した単位（直さず、changes に 1 行を書け。テストのファイルは変えるな——受け付けが拒む）", ""]
+    lines += ["## 輪で直した単位（直さず、changes に 1 行を書け。テストのファイルは変えるな——受け付けが拒む。"
+              "食い違いの裁定 fix_test_scope が範囲に並べた所だけは例外）", ""]
     for u in passed:
         lines += [f"- {u['unit_key']}", f"  - 名指しのテスト（機械が赤→緑を確かめた）: {', '.join(u['tests'])}",
                   f"  - テストのファイル: {', '.join(u['test_files'])}", f"  - 直したファイル: {', '.join(u['files'])}",
@@ -559,14 +563,53 @@ def _finish(st, repo) -> None:
 
 
 # ---------------------------------------------------------------- 輪の後
-def frozen_problems(state_file, repo) -> list:
-    """輪で緑になった単位のテストのファイルが、輪が済んだ時から変わっていれば、その文（状態が無ければ空）"""
+def frozen_problems(state_file, repo, allowed=()) -> list:
+    """輪で緑になった単位のテストのファイルが、輪が済んだ時から変わっていれば、その文（状態が無ければ空）。
+    allowed は裁定 fix_test_scope の範囲（conflict.ruled_test_limits）で、その中だけの変更は通す"""
     if not state_file:
         return []
     st = _load(state_file)
     now = hashes(repo, st["frozen"])
     moved = [f for f, h in st["frozen"].items() if now[f] != h]
-    return [f"TDD の輪で凍ったテストのファイルを書き換えた: {moved}（輪で直した単位のテストは変えない）"] if moved else []
+    scope = {}
+    for lim in allowed:
+        got = conflict.parse_limit(lim)
+        if got:
+            scope.setdefault(got[0], []).append(got[1])
+    probs, outside = [], {}
+    for f in moved:
+        spans = scope.get(f)
+        if not spans:
+            probs.append(f)
+        elif None not in spans:
+            bad = _hunks_outside(repo, st.get("frozen_tree") or st.get("handoff"), f, spans)
+            if bad:
+                outside[f] = bad
+    out = [f"TDD の輪で凍ったテストのファイルを書き換えた: {probs}（輪で直した単位のテストは変えない）"] if probs else []
+    out += [f"TDD の輪で凍ったテストのファイル {f} を、裁定 fix_test_scope の範囲の外で書き換えた: 旧い行 {', '.join(bad)}"
+            "（範囲に並べた行だけ直してよい）" for f, bad in outside.items()]
+    return out
+
+
+def _hunks_outside(repo, tree, path, spans) -> list:
+    """輪が済んだ時の木の path と今のファイルの差分の塊のうち、旧い側の行が spans のどれにも収まらない物（`a-b` の文）。
+    木が無い・木に path が無い時はファイル全体を 1 つの外の塊にする"""
+    new = (pathlib.Path(repo) / path).read_text(encoding="utf-8", errors="replace").splitlines() \
+        if (pathlib.Path(repo) / path).is_file() else []
+    try:
+        old = git(repo, "show", f"{tree}:{path}").splitlines() if tree else None
+    except Unreadable:
+        old = None
+    if old is None:
+        return ["（輪が済んだ時の姿が読めない）"]
+    bad = []
+    for tag, i1, i2, _, _ in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        a, b = (i1 + 1, i2) if i2 > i1 else (max(i1, 1), max(i1, 1))   # 足しただけの塊は直前の行（頭なら 1 行目）で見る
+        if not any(s <= a and b <= e for s, e in spans):
+            bad.append(f"{a}-{b}" if b != a else str(a))
+    return bad
 
 
 def suite_made(state_file) -> list:
