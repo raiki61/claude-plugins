@@ -1,6 +1,6 @@
 """盤面の手本（tests/boards/golden-a1202d0/）を DiskBoard に当てる道具（仕様 9.3）。
 
-手本は graphloops 0.21.0（a1202d0）の台本を engine の中で撮った物（作り手は dev/board-goldens/make.py、形は同じ置き場の
+手本は写しの graphloops の commit（MANIFEST の graphloops_rev）の台本を engine の中で撮った物（作り手は dev/board-goldens/make.py、形は同じ置き場の
 README）。ここは手本を読む・手の前後の記憶と目録を組む・一時の場所に戻す・記憶から DiskBoard を組む・比べる、を持つ。
 
 置き場の形（restore の into の下。印はこの形から一意に決まるので、盤面の置き場だけから戻せる）:

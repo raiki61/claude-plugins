@@ -4,36 +4,26 @@
 段は WORKS_TDD_TIER（既定 fast）で選び、段のファイルは tests/tiers.py の `paths` の口から引く（一覧を写さない）。
 
 ここでは本物の works の試験一式は回さない。一時の根に殻の写しと、段の口だけを持つ偽の tests/tiers.py と、小さな偽の
-試験を置いて回す（本物の uv と pytest を起こすので段は heavy）。書かれた XML は、本線の rules（graphloops/rules/
-review-loop-tdd.py、a1202d0）の parse_junit と同じ式で読む。写しがまだ works に無いので、下の parse_junit は本線の関数の
-写し（test_parse_junit_matches_mainline が本線と同じ式かを縛る）。写しの rules を .shared/core に足したら、そちらを import
-するように替え、ここの写しは消す。
+試験を置いて回す（本物の uv と pytest を起こすので段は heavy）。書かれた XML は、写しの rules（.shared/core/graphloops/
+rules/review-loop-tdd.py）の parse_junit で読む（写しが本線と同じかは test_core_verbatim・test_core_copy が縛る）。
 """
-import ast
 import os
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
-import textwrap
 import unittest
-import xml.etree.ElementTree as ET
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SUITE_SH = ROOT / "dev" / "tdd-suite.sh"
-MAINLINE = "a1202d0"
-MAINLINE_RULES = "graphloops/rules/review-loop-tdd.py"
+TDD_GRAPH = ROOT / ".shared" / "core" / "graphloops" / "graphs" / "review-loop-tdd.json"
 
+sys.path.insert(0, str(TDD_GRAPH.parents[1]))
+from engine.rules import load_rules  # noqa: E402
+from engine.schema import load_graph  # noqa: E402
 
-def parse_junit(text):
-    """JUnit XML → [{classname, name, outcome}]。outcome は passed / failure / error / skipped。読めなければ ET.ParseError"""
-    root = ET.fromstring(text)
-    cases = []
-    for tc in root.iter("testcase"):
-        kinds = [c.tag for c in tc if c.tag in ("failure", "error", "skipped")]
-        outcome = "error" if "error" in kinds else "failure" if "failure" in kinds else "skipped" if "skipped" in kinds else "passed"
-        cases.append({"classname": tc.get("classname") or "", "name": tc.get("name") or "", "outcome": outcome})
-    return cases
+parse_junit = load_rules(str(TDD_GRAPH), load_graph(str(TDD_GRAPH))[0]).parse_junit
 
 
 FAKE_TIERS = '''\
@@ -176,18 +166,6 @@ class TddSuiteStaticCase(unittest.TestCase):
         if dash is None:
             self.skipTest("dash が無い")
         self.assertEqual(subprocess.run([dash, "-n", str(SUITE_SH)], capture_output=True).returncode, 0)
-
-    def test_parse_junit_matches_mainline(self):
-        """上の parse_junit は本線の rules の同名の関数と同じ式（写しを足すまでの控え。docstring を含めて AST で比べる）"""
-        r = subprocess.run(["git", "-C", str(ROOT), "show", f"{MAINLINE}:{MAINLINE_RULES}"], capture_output=True)
-        if r.returncode != 0:
-            self.skipTest(f"このリポジトリから {MAINLINE}:{MAINLINE_RULES} を引けない: "
-                          f"{r.stderr.decode('utf-8', 'replace').strip()[-200:]}")
-
-        def fn(src):
-            return next(ast.dump(n) for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "parse_junit")
-        here = textwrap.dedent(pathlib.Path(__file__).read_text(encoding="utf-8"))
-        self.assertEqual(fn(here), fn(r.stdout.decode("utf-8")))
 
 
 if __name__ == "__main__":

@@ -1,14 +1,16 @@
 盤面の手本（works/tests/boards/golden-a1202d0/）の作り手。仕様 works/docs/specs/2026-09-26-board-layer-design.md の 9.2。
 
-作り方（お金 0・AI 0。回したら出力を commit する）:
-    nice -n 19 uv run works/dev/board-goldens/make.py [--graphloops-rev a1202d0] [--out <置き場>] [--work <置き場>] [場面 ...]
+作り方（お金 0・AI 0。回したら出力を commit する。写し直し works/dev/core-sync.py sync は続けてここを呼ぶ）:
+    nice -n 19 uv run works/dev/board-goldens/make.py [--graphloops-rev <commit>] [--out <置き場>] [--work <置き場>] [場面 ...]
+- --graphloops-rev の既定は写しの commit（works/.shared/core/COPIED_FROM の 1 行目）。手本の版の正は MANIFEST の graphloops_rev
+  で、試験が写しの commit と突き合わせる（置き場の名の版は最初に撮った時の名で、今の版を表さない）。
 - 作業場（書き出し・台本の作業場・撮った生の物）は ${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/board-goldens/run-* に作って
   終わったら消す（--work を渡せば残す）。台本の子の TMPDIR も作業場の tmp/ に向ける（gl-review-*・graphloops-isolated-* もそこ）。
   Claude Code の一時フォルダ（/private/tmp/claude-*・/tmp/claude-*）の下に解ける作業場は拒む（works/dev/guard.sh と同じ決まり）。
 - 場面を渡すと、その場面だけを撮り直して差し替え、置き場の他の場面はそのまま残す（中身は指す物だけを残す）。
 
 何をするか:
-- a1202d0 のリポジトリを git archive で使い捨ての場所に書き出す（台本 graphloops/tests/simulate_review.py は写しに無いため）。
+- --graphloops-rev の版のリポジトリを git archive で使い捨ての場所に書き出す（台本 graphloops/tests/simulate_review.py は写しに無いため）。
 - 台本を同じプロセスで import し、場面の関数を 1 つずつ呼ぶ（台本の main() は使わない）。実物の claude を起こしたら
   印を書いて 97 で落ちる偽の claude を PATH の頭に置き、CLAUDE_CONFIG_DIR を空の置き場に向ける（入れた plugin を引かせない）。
 - 子の loop.py に PYTHONPATH=このフォルダ を渡し、sitecustomize.py が engine の中で手の前後を撮る（包み方は sitecustomize.py の頭）。

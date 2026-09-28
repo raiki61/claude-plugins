@@ -1,7 +1,7 @@
 """変更の周りの地図（.shared/core/impact.py）と、その土台の写し（.shared/core/changemap.py）の検査。
 
 - 写し: changemap.py は attention の変更の地図の部品（attention/scripts/lib/changemap.py）のバイト単位の写しで、
-  COPIED_FROM.changemap の 1 行目の commit と同じ（手直しは DEVIATIONS だけ）
+  COPIED_FROM.changemap の 1 行目の commit と同じ（手直しは台帳の ! 行だけ）
 - 地図: 使い捨ての小さなリポジトリ（gitkit の型の写し）で、逆向きの import・テストの見分け・名前の言及・YAML の参照・
   読めない物 → all_tests_required・盤面の置き場の使い回し（当たり・変わった file だけ読み直す）・予算つきの描画が決まって同じ
 - 選ぶ: select_tests が速い段と選んだテストの和を返し、分からない時は全部。miss が JUnit と地図から取りこぼしを出す
@@ -22,11 +22,7 @@ import changemap  # noqa: E402
 import impact  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 
-# 写しの works の手直し。{写しのパス（core から）: [(元のバイト, 写しのバイト)]}。COPIED_FROM.changemap の行の注記にも書く
-DEVIATIONS = {
-    # git の呼び出しの上限 15 秒 → 20 日（works の期限は 20 日だけ。裁定 R4）
-    "changemap.py": [(b"timeout=15, env=None", b"timeout=1728000, env=None")],
-}
+import copyledger  # noqa: E402
 
 # 使い捨てのリポジトリの中身（path → 中身）
 PROJ = {
@@ -88,24 +84,21 @@ class CopyCase(unittest.TestCase):
         lines = (CORE / "COPIED_FROM.changemap").read_text(encoding="utf-8").splitlines()
         commit = lines[0].split()[0]
         self.assertEqual(commit, "742a61d")
-        rows = [ln.split() for ln in lines[1:] if ln.strip() and not ln.startswith("#")]
-        self.assertEqual([(r[0], r[1]) for r in rows], [("changemap.py", "attention/scripts/lib/changemap.py")])
+        self.assertEqual(copyledger.read(CORE / "COPIED_FROM.changemap").rows,
+                         [("changemap.py", "attention/scripts/lib/changemap.py")])
         self.assertIn("works の手直し", lines[1])
 
     def test_copy_is_byte_identical_except_deviations(self):
-        lines = (CORE / "COPIED_FROM.changemap").read_text(encoding="utf-8").splitlines()
-        commit = lines[0].split()[0]
+        led = copyledger.read(CORE / "COPIED_FROM.changemap")
+        commit = led.commit
         r = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{commit}^{{commit}}"], capture_output=True)
         if r.returncode != 0:
             self.skipTest(f"このリポジトリから {commit} を引けない（浅い clone）")
-        for row in (ln.split() for ln in lines[1:] if ln.strip() and not ln.startswith("#")):
-            rel, src_rel = row[0], row[1]
+        self.assertEqual(sorted(led.deviations), ["changemap.py"])
+        for rel, src_rel in led.rows:
             src = subprocess.run(["git", "-C", str(ROOT), "show", f"{commit}:{src_rel}"],
                                  capture_output=True, check=True).stdout
-            for old, new in DEVIATIONS.get(rel, ()):
-                self.assertEqual(src.count(old), 1, f"{rel}: 手直しの元 {old!r} が 1 度だけでない")
-                src = src.replace(old, new)
-            self.assertEqual((CORE / rel).read_bytes(), src, rel)
+            self.assertEqual((CORE / rel).read_bytes(), copyledger.apply(led, rel, src), rel)
 
     def test_copy_has_no_short_deadline(self):
         self.assertNotIn("timeout=15", (CORE / "changemap.py").read_text(encoding="utf-8"))

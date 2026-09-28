@@ -2,12 +2,13 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""盤面の手本の作り手（仕様 9.2）。graphloops の a1202d0 を使い捨ての場所に書き出し、台本 simulate_review.py の場面を
+"""盤面の手本の作り手（仕様 9.2）。graphloops の写しの commit を使い捨ての場所に書き出し、台本 simulate_review.py の場面を
 1 つずつ同じプロセスで呼び、子の loop.py に sitecustomize.py（同じフォルダ）を読ませて engine の中の手を撮り、
 tests/boards/golden-a1202d0/ に置く。お金 0・AI 0（実物の claude を起こしたら印を書いて 97 で落ちる偽の claude を
 PATH の頭に置く）。graphloops の追跡ファイルには触らない。
 
-使い方: uv run works/dev/board-goldens/make.py [--graphloops-rev a1202d0] [--out <置き場>] [--work <置き場>] [場面 ...]
+使い方: uv run works/dev/board-goldens/make.py [--graphloops-rev <commit>] [--out <置き場>] [--work <置き場>] [場面 ...]
+--graphloops-rev の既定は写しの commit（works/.shared/core/COPIED_FROM の 1 行目）。
 作業場（書き出し・台本の作業場・撮った生の物）は ${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/board-goldens/ の下に作って
 終わったら消す。台本の子の TMPDIR もその下に向ける。Claude Code の一時フォルダ（/private/tmp/claude-*・/tmp/claude-*）の
 下に解ける作業場は拒む（works/dev/guard.sh と同じ決まり。サンドボックスの Bash が書けるため）。
@@ -32,6 +33,8 @@ import tempfile
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 DEFAULT_OUT = ROOT / "works" / "tests" / "boards" / "golden-a1202d0"
+sys.path.insert(0, str(ROOT / "works" / ".shared" / "core"))
+import copyledger  # noqa: E402
 
 SCENARIOS = ["test_converges", "test_runaway", "test_awaiting", "test_rejections", "test_request_entry",
              "test_fix_plan_review", "test_human_gate", "test_policy_reaches_roles", "test_stop_midround",
@@ -265,7 +268,7 @@ def prepare_env(work, core, rec):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--graphloops-rev", default="a1202d0")
+    p.add_argument("--graphloops-rev", default=copyledger.core_commit())
     p.add_argument("--out", default=str(DEFAULT_OUT))
     p.add_argument("--work", help="書き出しと撮った生の物の置き場（渡せば消さない。既定は "
                                   "${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/board-goldens/ の下の使い捨て）")

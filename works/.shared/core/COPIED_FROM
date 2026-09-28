@@ -22,7 +22,8 @@ scripts/comment-ratio.sh  # 盤面の層で足した: 検証器の scalars（コ
 REVIEW.md  # 盤面の層で足した: 検証器が審査の決まりとして読む
 graphloops/scripts/parallel-pr.py  # 盤面の層で足した: engine が走らせる節 p0.parallel_pr の helper
 graphloops/graphs/review-loop-tdd.json  # 修正の段の TDD で足した: 盤面の層が節の表の graph で選ぶ TDD 版の graph（review-loop.json を extends）
-graphloops/rules/review-loop-tdd.py  # 修正の段の TDD で足した。works の手直し 1 か所: SUITE_TIMEOUT = 1800 → 1728000（一式 1 回の上限を 20 日に。works の期限は 20 日だけ。tests/test_core_copy.py の DEVIATIONS）
+graphloops/rules/review-loop-tdd.py  # 修正の段の TDD で足した。works の手直し 1 か所: SUITE_TIMEOUT = 1800 → 1728000（一式 1 回の上限を 20 日に。works の期限は 20 日だけ。下の ! 行）
+! {"path": "graphloops/rules/review-loop-tdd.py", "old": "SUITE_TIMEOUT = 1800        #", "new": "SUITE_TIMEOUT = 1728000     #", "why": "一式 1 回の上限 1800 秒 → 20 日（works の期限は 20 日だけ。裁定 R4）"}
 graphloops/prompts/review-loop/tdd/p3.delta_review.md  # 修正の段の TDD で足した: TDD 版の graph の指示書（graph の置き場からの相対 ../prompts/）
 graphloops/prompts/review-loop/tdd/p3.fix.md  # 同上
 graphloops/prompts/review-loop/tdd/p3.tdd_tests.md  # 同上
@@ -31,3 +32,4 @@ agents/blind-judge.md  # 同上
 agents/inspector.md  # 同上
 agents/investigator.md  # 同上
 agents/cold-reader.md  # 同上
+# ! の行は works の手直し（形は copyledger.py）。写しの取り直しと確かめは works/dev/core-sync.py（sync <rev>・--check）

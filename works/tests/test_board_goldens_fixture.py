@@ -1,6 +1,6 @@
 """盤面の手本（tests/boards/golden-a1202d0/）の検査（仕様 9.2）。
 
-手本は graphloops 0.21.0（a1202d0）の台本 simulate_review.py の場面を回し、engine の中で手の前後に記憶の中の
+手本は写しの graphloops の commit（.shared/core/COPIED_FROM の 1 行目。MANIFEST の graphloops_rev）の台本 simulate_review.py の場面を回し、engine の中で手の前後に記憶の中の
 state と record・ディスクの目録・対象リポジトリの目録を撮った物（作り手は dev/board-goldens/make.py）。
 ここでは手本そのものの形を見る: 差分を順に当てると撮った最後の値に戻るか・中身の置き場が揃っているか・
 絶対パスが残っていないか・線 A と B が要る手の種類（周の頭と締め・周の途中の問い・patch・finalize・engine が
@@ -18,6 +18,8 @@ import unittest
 import zlib
 
 GOLD = pathlib.Path(__file__).resolve().parent / "boards" / "golden-a1202d0"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / ".shared" / "core"))
+import copyledger  # noqa: E402
 LIMIT = 30 * 1024 * 1024
 sys.dont_write_bytecode = True
 
@@ -108,7 +110,7 @@ def memory_walk(rows):
 class GoldenFixtureCase(unittest.TestCase):
     def test_manifest_names_source(self):
         m = manifest()
-        self.assertEqual(m["graphloops_rev"], "a1202d0")
+        self.assertEqual(m["graphloops_rev"], copyledger.core_commit(), "手本と写しの版が割れている（写し直したら手本も撮り直す）")
         self.assertEqual(m["graph_sha"], "f9897bb07384")
         self.assertTrue(m["git_env"])
         for k in ("GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE", "GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"):
