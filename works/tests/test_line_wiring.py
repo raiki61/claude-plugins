@@ -171,36 +171,5 @@ class ReportAfterFailureCase(unittest.TestCase):
                     self.assertIsNone(v["if_skipped"])
 
 
-class LangInputCase(unittest.TestCase):
-    """報告の言語を利用者が渡す口（本線 loop.py の --lang の写し）: ラインの入力 lang が start の with に渡り、
-    入口の check_inputs がそれを返す（空は空のまま。盤面の既定 LANG_DEFAULT が効く）"""
-
-    def test_line_passes_lang_to_start(self):
-        doc = line()
-        self.assertIn("lang", doc["inputs"])
-        start = next(n for n in doc["nodes"] if n["id"] == "start")
-        self.assertEqual(start["with"].get("lang"), "$INPUTS.lang")
-
-    def test_start_script_reads_lang(self):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("start_script", LINE / "scripts" / "start.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        self.assertEqual(mod.INPUTS.get("INPUTS_LANG"), "lang")
-
-    def test_check_inputs_returns_lang(self):
-        import sys
-        import tempfile
-        core = str(ROOT / ".shared" / "core")
-        if core not in sys.path:
-            sys.path.insert(0, core)
-        import entry
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = pathlib.Path(tmp)
-            (repo / "req.json").write_text(json.dumps([{"where": "a.py", "text": "直す"}]), encoding="utf-8")
-            got = [entry.check_inputs({"request": "req.json", "lang": given}, repo).get("lang") for given in ("English", "")]
-        self.assertEqual(got, ["English", ""])
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -237,9 +237,10 @@ GATES = frozenset(r["id"] for r in LINE_ORDER if r["kind"] == "approval" and r.g
 
 class LineRun:
     """LINE_ORDER の順に、境の節（line_edge.edge）・ブロックの口（受け付け・支度・出口の関数）・関所の答えを本物の盤面の上で回す。
-    Archon の置き換え（with: → INPUTS_*）は tests/test_line.py の test_script_inputs_match_with が静的に縛り、Archon の配線は
+    Archon の置き換え（with: → INPUTS_*）は tests/test_line_inputs.py の test_script_inputs_match_with が静的に縛り、Archon の配線は
     dev/check.sh の模擬実行が見る。ここは線の順と盤面の約束（境の節が次を決め、関所の答えと止め札が盤面へ届き、報告が結末を
-    出す）を見る。役の返答は replies[役]、役が作業ツリーに当てる変更は edits[役]（repo を受ける関数）、関所の答えは
+    出す）を見る。start へ渡す入力の鍵は LINE_ORDER の start の with から導く（既定は空。adapter だけ optional——この器は
+    包みを通さずに回す）。呼び手の inputs はその上に重ねる。役の返答は replies[役]、役が作業ツリーに当てる変更は edits[役]（repo を受ける関数）、関所の答えは
     gates[関所]（無ければ continue・空の一言）、stop_at の境の節の前に止め札を置く。sessions なら start の後に包みの家へ
     判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run。無ければ包みを通らない run と同じ）"""
 
@@ -247,8 +248,8 @@ class LineRun:
         import entry  # noqa: F401  （.shared/core は頭で sys.path に足してある）
         self.tmp = pathlib.Path(tmp)
         self.replies, self.gates, self.edits = replies, gates or {}, edits or {}
-        self.inputs = {"test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "optional", "policy_md": "",
-                       "lang": "", **(inputs or {})}
+        start_with = next(r for r in LINE_ORDER if r["id"] == "start")["with"]
+        self.inputs = {**{k: "" for k in start_with if k != "request"}, "adapter": "optional", **(inputs or {})}
         self.stop_at = stop_at
         self.sessions = sessions
         self.repo = seed_repo(self.tmp / "repo", declared=True)

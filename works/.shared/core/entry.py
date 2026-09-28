@@ -447,7 +447,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
                                stop_after_round=1, **open_kwargs(LINE, table))
     except Reject as e:
         raise InputRefused(f"盤面が入力を受けない: {e}") from None
-    keep = {k: inp[k] for k in ("request_file", "test_cmd", "thickness", "gates", "final_gate", "adapter", "policy_md", "lang")}
+    keep = {k: v for k, v in inp.items() if k not in ("items", "request_text")}
     work = b.work(START_FILE)
     if work.is_file():
         prev = json.loads(work.read_text(encoding="utf-8"))

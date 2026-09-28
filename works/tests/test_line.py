@@ -2,8 +2,7 @@
 
 - 口（interactive・inputs・returns・outcome_field）と、節の並び・種類・include 先・境の節の at・with: が linekit.LINE_ORDER と
   同じ（test_line_order_matches_linekit。手で 2 か所に書き写したまま放さない。裁定 TA16）
-- script の節の with: の鍵を INPUTS_<鍵> にした集合が、そのスクリプトの定数 INPUTS と同じ（線とブロックの全部。TA16）。
-  既定の在る入力は定数 OPTIONAL_INPUTS に名指した物だけ with: に無くてよい
+- script の節の with: の鍵とスクリプトの定数 INPUTS の突き合わせ（TA16）と入力の名の集合は、速い段の test_line_inputs が見る
 - when: と関所の文言は、いつも走る節（start・境の節）の欄と $INPUTS だけを読む（TA1。〔試P: P7〕）。飛ばされうる節の出力を
   script の with: で読むなら if_skipped を持つ（P16）。when: を持つ節に依る節は trigger_rule を持つ
 - include の id はブロックの中の節の id と重ならない（R17）。輪の中の節の id はライン全体で一意（模擬実行の stub の鍵）
@@ -11,7 +10,6 @@
 - 筋書き（fixtures/）: 本物で回す start の筋書き（standard・start-refused）のほかは、走る script と役の節を全部 stub する。
   判定の stub の鍵は blk-judge.yaml から組む（test_judging_stubs_follow_block）
 """
-import ast
 import pathlib
 import re
 import sys
@@ -28,6 +26,7 @@ sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 import linekit  # noqa: E402
 import line_edge  # noqa: E402
+from test_line_inputs import script_inputs  # noqa: E402
 
 DEADLINE = 1728000000
 # when: で飛ばされない節（start・境の節・機械の報告 report・出口 result）。上流が落ちた後でも走るのは all_done の
@@ -37,8 +36,6 @@ REAL_START = {"standard", "start-refused"}   # start を本物で回す筋書き
 FIXTURES = {"standard", "no-fix", "policy-continue", "policy-stop", "final-when-needed-green", "final-stop", "stop-flag",
             "start-refused", "pr-fallback", "ai-report-fail", "conflict-ask", "rejudge", "rejudge-no-session"}
 # conflict-ask は test_blk_fix_conflict が中身を見る
-# 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}
-OPTIONAL_INPUTS = {}
 
 
 def load(path):
@@ -66,34 +63,6 @@ def walk(nodes):
                 yield m, True
 
 
-def workflows():
-    """(フォルダ, YAML) の全部（ラインとブロック）"""
-    for p in sorted(ROOT.glob("*/*.yaml")):
-        if p.stem == p.parent.name:
-            yield p.parent, load(p)
-
-
-def script_inputs(path: pathlib.Path):
-    """スクリプトの定数 INPUTS（tuple か dict の鍵。モジュールの頭の文字列の定数の名前も解く）。定数が無ければ None"""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    names = {}
-    for n in tree.body:
-        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
-            if isinstance(n.value, ast.Constant) and isinstance(n.value.value, str):
-                names[n.targets[0].id] = n.value.value
-            if n.targets[0].id == "INPUTS":
-                if isinstance(n.value, (ast.Tuple, ast.List)):
-                    return {names[e.id] if isinstance(e, ast.Name) else ast.literal_eval(e) for e in n.value.elts}
-                return set(ast.literal_eval(n.value))
-    return None
-
-
-# 定数 INPUTS をまだ持たないスクリプト（裁定 TA16 の縛りの外。減らす方向にだけ変える。持ったら消す）
-NO_INPUTS_CONSTANT = frozenset({
-    "blk-fix/scripts/ignored_before.py", "blk-fix/scripts/clean.py", "blk-fix/scripts/assert_changed.py",
-    "blk-judge/scripts/intake.py", "blk-judge/scripts/accept.py", "blk-judge/scripts/collect.py",
-    "blk-purpose/scripts/intake.py", "blk-purpose/scripts/accept.py", "blk-purpose/scripts/collect.py",
-})
 # 印（works-node）をまだ持たない役（包みが会話を節の名で分けられない。減らす方向にだけ変える）
 UNMARKED_ROLES = frozenset()
 # 表の置き場のブロックがラインに include されているか（NOT_WIRED_YET）は速い段の test_line_wiring が見る
@@ -177,25 +146,6 @@ class LineShapeCase(unittest.TestCase):
                 self.assertEqual({f"INPUTS_{k.upper()}" for k in n["with"]}, want)
                 self.assertEqual(n["with"]["at"] in line_edge.AT, True)
                 self.assertEqual(set(n["output_format"]["required"]), set(line_edge.EMPTY))
-
-    def test_script_inputs_match_with(self):
-        """線とブロックの全部の script の節で、with: の鍵を INPUTS_<大文字> にした集合 == スクリプトの定数 INPUTS（TA16）"""
-        for folder, y in workflows():
-            for n, _ in walk(y["nodes"]):
-                if "script" not in n:
-                    continue
-                path = folder / "scripts" / f"{n['script']}.py"
-                rel = path.relative_to(ROOT).as_posix()
-                with self.subTest(f"{folder.name}/{n['id']}"):
-                    want = script_inputs(path)
-                    if want is None:
-                        self.assertIn(rel, NO_INPUTS_CONSTANT, f"{rel} に定数 INPUTS が無い")
-                        continue
-                    self.assertNotIn(rel, NO_INPUTS_CONSTANT, f"{rel} は定数 INPUTS を持った。NO_INPUTS_CONSTANT から消す")
-                    got = {f"INPUTS_{k.upper()}" for k in (n.get("with") or {})}
-                    optional = OPTIONAL_INPUTS.get((folder.name, n["script"]), set())
-                    self.assertLessEqual(want - got, optional, f"with: に無い INPUTS: {sorted(want - got)}")
-                    self.assertEqual(got - want, set(), f"スクリプトが読まない with: の鍵: {sorted(got - want)}")
 
     def test_include_with_matches_block_inputs(self):
         """渡す鍵はブロックが宣言した入力だけ、required の入力は全部渡す"""

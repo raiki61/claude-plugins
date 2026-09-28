@@ -114,6 +114,7 @@ class ScriptLine:
     当てる変更（repo を受ける関数。返答の前に毎回当てる）。gates[<関所>] は関所の答え。stop_at の境の節の前に止め札を置く。
     declared が偽なら種にテストの宣言（.review-checks.json）を置かない（CI の任せ先の役 blk-ci が回る）。
     sessions なら start の後に包みの家へ判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run）。
+    inputs に無いラインの入力は yaml の inputs の default に落ちる（adapter だけ optional——この器は包みを通さずに回す）。
     runs は起こした script の節の記録 {block, node, rc, out, errors, stderr}（errors は output_format に当てた食い違い）"""
 
     def __init__(self, tmp, *, replies=None, gates=None, inputs=None, edits=None, bad_first=(), bad=None, stop_at=None,
@@ -127,8 +128,7 @@ class ScriptLine:
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True, exist_ok=True)
         req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
-        self.inputs = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
-                       "adapter": "optional", "policy_md": "", "lang": "", "tdd_suite": "", **(inputs or {})}
+        self.inputs = {"request": str(req), "adapter": "optional", **(inputs or {})}
         self.art = self.tmp / "art"
         self.art.mkdir(parents=True, exist_ok=True)
         self.board = self.art / "board"
