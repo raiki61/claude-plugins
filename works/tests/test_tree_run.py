@@ -324,14 +324,17 @@ class TreeRunCase(unittest.TestCase):
         # 出て（セッションは G のまま）Z を回収せずに眠る。macOS はゾンビだけのグループへの killpg を EPERM で拒むので、
         # グループだけを見ると A に届かず、猶予を使い切っても A が残る。仲間を数え上げて A を止め、猶予を待たずに戻る
         apidf = self.tmp / "apid"
-        body = ("import os, time\n"
+        body = ("import os, subprocess, time\n"
                 "g = os.getpgid(0)\n"
                 "os.setpgid(0, 0)\n"
                 "z = os.fork()\n"
                 "if z == 0:\n"
                 "    os.setpgid(0, g)\n"
                 "    os._exit(0)\n"
-                "os.waitid(os.P_PID, z, os.WEXITED | os.WNOWAIT)\n"   # Z が終わるまで待つ。回収はしない（ゾンビのまま）
+                # Z が終わるまで待つ。回収はしない（ゾンビのまま）。os.waitid（WNOWAIT）は macOS の Python 3.12 以前に無いので ps の状態で見る
+                "while not subprocess.run(['ps', '-o', 'stat=', '-p', str(z)], capture_output=True,\n"
+                "                         text=True).stdout.strip().startswith('Z'):\n"
+                "    time.sleep(0.02)\n"
                 f"open({str(apidf)!r}, 'w').write(str(os.getpid()))\n"
                 "time.sleep(300)\n")
         p = self.start(f"echo $$ > {self.pidf}; {sys.executable} -c {shlex.quote(body)} & "

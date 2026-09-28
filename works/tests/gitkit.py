@@ -17,7 +17,10 @@ import shutil
 import subprocess
 import tempfile
 
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+# commit の後の自動の保守（gc --auto・maintenance --auto）も切る。git 2.55 の CI では、裏で走る保守が散らばった objects を
+# pack にまとめて消し、型を写している copytree が「No such file」で落ちた
+GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+          "-c", "gc.auto=0", "-c", "maintenance.auto=false"]
 
 _made = {}   # (src, sub, ignore) → (型の根, HEAD の版)
 
