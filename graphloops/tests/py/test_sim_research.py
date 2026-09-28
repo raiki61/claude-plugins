@@ -9,6 +9,7 @@ import pytest
 
 
 @pytest.mark.medium
+@pytest.mark.layer6
 def test_converges(gl_script):
     sim = gl_script("research")
     check = sim.check

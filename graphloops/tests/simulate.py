@@ -2887,62 +2887,6 @@ def test_stopped_before_gates_reports():
               f"{th}: 突合の前に止まった rederiver は not_run で、暫定の判定は provisional に残る——{g['rederiver']}")
         rm(run.tmp)
 
-def test_stop_midway():
-    """**人が途中で止める**（loop.py stop）——research-loop でも、人に聞いていない時点で止め、止めた理由が
-    convergence に入り、後始末の節（p5.adapt → report）だけが走って報告まで届く。作る工程より前に止めて空の欄は、
-    仕上げが stopped_gaps に理由を書き、検証器は止まった記録に限ってそれを受ける。途中で打った finalize は記録を書き換えず、未決として落ちる"""
-    print("台本: research の途中で止めて報告まで届く・最初の節の前でも届く・途中の finalize は記録を書き換えず未決で落ちる")
-    run = Run("stop-mid")
-    drive(run, "std", stop_at=lambda nx: any(i["node"] == "p1.checker" for i in nx["ready"]))
-    r = run.cmd("stop", "--reason", "検査: 照合の前で止める")
-    rec = run.record()
-    check(r.returncode == 0 and rec["convergence"]["outcome"] == "stopped" and "検査: 照合の前で止める" in rec["convergence"]["stopped_reason"],
-          f"止める: 止めた時点で convergence に理由が入る（{r.stderr[-160:]}{rec['convergence']}）")
-    nx = run.next()
-    check([i["node"] for i in nx["ready"]] == ["p5.adapt"], f"止める: 次の next は後始末の節だけを出す（{[i['node'] for i in nx['ready']]}）")
-    last = drive(run, "std")
-    rec = run.record()
-    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
-    check(last["status"] == "stopped" and (run.dir / "report.md").is_file() and v.returncode == 0
-          and rec["process"]["halted"]["by"] == "stop" and any(x["node"] == "p1.checker" for x in rec["process"]["stopped_nodes"]),
-          f"止める: 報告まで届き、記録は検証器を通る（exit {v.returncode}: {(v.stdout + v.stderr).strip()[-160:]}）")
-    check(set(rec["process"].get("stopped_gaps") or {}) == {"claims", "clusters"},
-          f"止める: 照合の前に止めたので主張とクラスタは空で、その理由が残る（{sorted(rec['process'].get('stopped_gaps') or {})}）")
-    rm(run.tmp)
-
-    # 最初の節の前に止めても報告まで届く（問い・制約も空）
-    run = Run("stop-first")
-    r = run.cmd("stop", "--reason", "検査: すぐ止める")
-    last = drive(run, "std")
-    rec = run.record()
-    check(r.returncode == 0 and (run.dir / "report.md").is_file()
-          and {"question", "constraints", "clusters", "claims"} <= set(rec["process"].get("stopped_gaps") or {}),
-          f"止める: 最初の節の前に止めても報告まで届き、空の欄に理由が付く（{last.get('status')}・{sorted(rec['process'].get('stopped_gaps') or {})}）")
-    rm(run.tmp)
-
-    # 途中で打った finalize は記録を書き換えず（照合前の主張も外さない。盤面から写し直す痕跡の欄だけは書く）、
-    # 結末が未決として検証器に落とされる。後で本当に止めたら、その事実で畳む
-    run = Run("finalize-early")
-    drive(run, "std", stop_at=lambda nx: any(i["node"] == "p1.checker" for i in nx["ready"]))
-    before = run.record()
-    r = run.cmd("finalize")
-    after = run.record()
-    from engine.validator import TRACES
-    mirrored = {f for f, _ in TRACES} | {"skipped", "stopped_nodes", "launch_missing", "read_through_unchecked"}
-    added = set(after["process"]) - set(before["process"])
-    for k in added & mirrored:
-        after["process"].pop(k)
-    check(r.returncode == 1 and after == before and "未決" in r.stdout,
-          f"途中の finalize: 記録を書き換えず、未決として exit 1（exit {r.returncode}・足された欄 {sorted(added - mirrored)}: {(r.stdout + r.stderr)[:200]}）")
-    h = run.tmp / "halted.json"
-    h.write_text(json.dumps({"node": "converge", "round": 1, "by": "stop_after_round", "reason": "検査: 周の締めの後で止めた"}, ensure_ascii=False), encoding="utf-8")
-    run.cmd("patch", "--path", "state.halted", "--file", str(h), "--reason", "後で止めた盤面を作る")
-    run.cmd("finalize")
-    conv, proc = run.record()["convergence"], run.record()["process"]
-    check(conv["outcome"] == "stopped" and "stop_after_round" in conv["stopped_reason"] and proc.get("unchecked_claims"),
-          f"途中の finalize の後に止めた run は、止めた事実で畳む（{conv}）")
-    rm(run.tmp)
-
 
 def test_graphcheck_sets_derived():
     """**柵が見る鍵の一覧を、engine と rules から組む（手で並べない）。**

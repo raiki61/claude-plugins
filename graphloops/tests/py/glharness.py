@@ -320,8 +320,11 @@ def new_results(before, after):
 
 SIZES = {
     "small": "子プロセス・スリープを使わない（使えば失敗）",
-    "medium": "子プロセス・git・盤面を端から端まで回す（手で撃つ mutmut の選ぶテストから外す——graphloops/setup.cfg）",
+    "medium": "子プロセス・git・盤面を端から端まで回す（mutmut の選ぶテストから外す——graphloops/setup.cfg）",
 }
+# 層の印（大きさと別の軸）。layer2 は scenes.py が登録する
+LAYER6 = ("layer6: 通し（層 6。盤面を子プロセスの loop.py で端から端まで回す docs/adr/0067 の通しに残す 10 本）。手元の反復は "
+          "-m 'not layer6' で外せる。engine が走らせる宣言が外すのは、最後の関門が一式を走らせる口を持った後（理由と出どころは同じ ADR の節）")
 
 
 def pytest_addoption(parser):
@@ -332,6 +335,7 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     for name, why in SIZES.items():
         config.addinivalue_line("markers", f"{name}: {why}")
+    config.addinivalue_line("markers", LAYER6)
 
 
 SMALL_CALLS = pytest.StashKey[list]()

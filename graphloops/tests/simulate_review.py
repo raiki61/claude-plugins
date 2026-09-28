@@ -1486,15 +1486,6 @@ def test_awaiting_origin_guards():
     rm(run.tmp)
 
 
-def test_runaway():
-    print("台本: 毎周新しい [block] → 上限 5 で停止")
-    run = Run("runaway", unattended=True)
-    last = drive(run, "runaway")
-    check(last["status"] == "stopped" and run.state()["round"] == 5, f"5 周で停止（{run.state()['round']}）")
-    check("暴走ガード" in run.record()["process"].get("stop_reason", "") or run.state()["loop"].get("stop_reason") == "max_rounds", "停止の理由が上限")
-    rm(run.tmp)
-
-
 def test_local_review_lens_rows():
     """宣言したレンズ 1 本につき findings の行 1 本。**沈黙では通らない。**
 
@@ -2459,30 +2450,6 @@ def test_judge_output_needs_precedents_schema():
         got = str(e)
     check("schema に precedents が無い" in got, f"判定の口: precedents を宣言しない節の返答は拒む（{got[:80]}）")
     rm(tmp)
-
-
-def test_no_new_awaiting_after_judge():
-    """判定の後の工程は人待ちを新しく立てない——人待ちの問いの無い素材を awaiting_human と書いた返答は、その節の done で拒む
-    （検証器は周の最後に落とすだけで、書いた節に返らなかった。2026-09-24: 任せ先の p4.ci が、緑の CI を field の問いを
-    理由に awaiting_human と書いた）"""
-    print("判定の後の人待ち: 問いの無い awaiting_human は書いた時点で拒む")
-    run = Run("noawait", checks=None)
-    seen = {}
-
-    def hook(run, inst, out):
-        if inst["node"] == "p4.ci" and "rc" not in seen:
-            r = run.done(inst["id"], {"material": M("awaiting_human", reason="runner で確かめる話があるので（検査用の取り違え）")})
-            seen["rc"], seen["err"] = r.returncode, r.stderr
-            if r.returncode == 0:
-                raise RuntimeError("柵が効かなかった")
-        return None
-    try:
-        drive(run, "std", hook=hook, stop_at=lambda nx: nx["round"] >= 2)
-    except RuntimeError:
-        pass
-    check(seen.get("rc") == 1 and "人待ちの問い（kind=awaiting）が無い" in seen.get("err", "") and "not_run" in seen.get("err", ""),
-          f"判定の後の人待ち: 問いの無い awaiting_human を書いた p4.ci は拒む（{seen.get('err', '').strip()[-80:]}）")
-    rm(run.tmp)
 
 
 def test_count_budget():
@@ -5123,36 +5090,6 @@ def test_tdd_flow():
     rm(run.tmp)
 
 
-def test_tdd_gives_up_without_dead_end():
-    """TDD の流れの出口: 周の頭で元から落ちているテストは『ほかは緑のまま』に数えず、赤の確認が上限まで通らなければ
-    TDD を諦めて今の流れで進み（止まらない——止まると出口が patch しか無い）、理由は次の周の判定役に届く"""
-    print("TDD の流れの出口: 元から赤いテストは問わず、上限で諦めても止まらず、理由は次の周の判定へ")
-    run = Run("tdd-giveup", loop="review-loop-tdd", inputs=(f"tdd_suite={TINYJUNIT}",))
-    (run.repo / "tests").mkdir()
-    (run.repo / "tests" / "test_old_red.py").write_text("def test_was_red_before():\n    assert False\n", encoding="utf-8")
-    seen = {"tests": 0}
-
-    def hook(run_, inst, out):
-        if inst["node"] == "p3.tdd_tests":
-            seen["tests"] += 1   # 毎回、読み込みで落ちるテスト——狙いどおりの赤にならない
-            (run_.repo / "tests" / "test_limit.py").write_text("import no_such_module_for_red  # noqa\n\n\ndef test_limit_is_fixed():\n    assert False\n", encoding="utf-8")
-        return out
-    last = drive(run, "std", hook=hook)
-    row = ((run.record()["process"].get("tdd") or {}).get("rounds") or {}).get("1") or {}
-    check(last["status"] == "converged" and seen["tests"] == 3 and row.get("red") == "failed" and "green" not in row,
-          f"赤の確認が 3 回通らなければ TDD を諦めて今の流れで直し、緑の確認は撃たない（{last['status']}・{seen['tests']} 回・{row.get('red')}）")
-    check(row.get("baseline_red") == ["tests.test_old_red::test_was_red_before"]
-          and not any("test_was_red_before" in p for p in row.get("red_problems") or []),
-          f"周の頭で元から落ちていたテストは記録に残し、赤の確認の『ほか』には数えない（{row.get('baseline_red')}・{(row.get('red_problems') or [])[:2]}）")
-    h2 = json.loads((run.dir / "out" / "r2" / "p2.history.json").read_text(encoding="utf-8"))
-    check(any("TDD の赤の確認が上限で通らなかった" in r["key"] for r in h2.get("declared_routed") or []),
-          f"諦めた理由は次の周の判定役に穴の行として届く（{[r['key'] for r in h2.get('declared_routed') or []][:3]}）")
-    check(bool(run.hist().get("tdd_gave_up")) and "tdd_gave_up" not in (run.state().get("loop") or {}),
-          "TDD を諦めた盤面は、諦めた確認の節の出力から hist.tdd_gave_up が作られる（loop には書かない）")
-    loop_shape_held(run, "TDD を諦めた流れ")
-    rm(run.tmp)
-
-
 def test_stuck_routed_at_judge():
     """同じ [block] が 3 周続けて在るのに振り分けた跡（そのユニットを origin に持つ未決の stuck / fork）の無い履歴の再審は、
     判定の節で拒む——周の記録の段（p4.record）で初めて落ちると、その周の判定の節は done 済みで返させ直せない（実測 2026-09-24 の 4 周目）"""
@@ -5664,15 +5601,6 @@ def test_non_utf8_file():
     rm(run.tmp)
 
 
-def test_deferjudge():
-    print("台本: judge が defer を返す筋——理由付きは通り、defer 台帳に載る")
-    run = Run("defer", unattended=True)
-    last = drive(run, "deferjudge")
-    proc = run.record()["process"]
-    check(last["status"] == "converged" and any("定数の重複" in k for k in proc.get("defer_ledger", {})), f"理由付きの defer は受理され defer_ledger に残る（{last['status']}: {list(proc.get('defer_ledger', {}))[:2]}）")
-    rm(run.tmp)
-
-
 def test_nopurpose():
     print("台本: 目的不明 → 機械が R2 unverifiable と台帳の行を書き、周は進む → 次の周の judge が人へ回す → stop → finalize")
     run = Run("nopurpose")
@@ -6049,44 +5977,6 @@ def test_cond_truth_tables():
         got = type(e).__name__
     check(got == "Reject", f"検証器の無い run: 検証器を読む条件は Reject で落ちる（{got}）")
     check(cond_call(rules.CONDS["after_first_round"], c(2), validator=no_validator)[0], "検証器の無い run: 検証器を読まない条件は評価できる")
-
-
-def test_final_gate_empty_asks_human():
-    """最後の関門が撃てた腕 0 本を返したら、収束を言わずに人に諮る。continue の答えで次の周の同じ木の関門が通り、収束する"""
-    print("最後の関門の 0 本: 人に諮り、continue なら同じ木で収束する")
-    run = Run("gate-empty")
-
-    def empty(run_, inst, out):
-        if inst["node"] == "p4.final_gates":
-            return {**out, "arms": [], "handled": []}
-        return None
-    last = drive(run, "std", hook=empty)
-    check(last["status"] == "awaiting_human" and (last.get("ask") or {}).get("kinds") == ["final_gate_empty"],
-          f"撃てた腕が 0 本の関門で収束を言わず人に諮る（{last['status']} {(last.get('ask') or {}).get('kinds')}）")
-    check(run.state()["loop"].get("stop_reason") == "final_gate_empty",
-          f"諮る前に止めた理由（stop_reason）を立てる——stop や無人の停止でも理由が残る（{run.state()['loop'].get('stop_reason')}）")
-    asked_round = run.state()["round"]
-    r = run.cmd("answer", "--text", "continue", "--note", "文書だけの差分と確かめた（検査用）")
-    check(r.returncode == 0, f"continue を返す（{r.stderr[-160:]}）")
-    last = drive(run, "std", hook=empty)
-    check(last["status"] == "converged", f"人が認めた木なら、次の周の 0 本の関門で収束する（{last['status']}）")
-    rm(run.tmp)
-    # 上限の周で 0 本になった: continue は上限を 1 周だけ延ばし、同じ木の関門を撃つ次の周で収束する
-    run = Run("gate-empty-max")
-    mx = run.tmp / "max.json"
-    mx.write_text(json.dumps(asked_round), encoding="utf-8")
-    run.cmd("patch", "--path", "state.max_rounds", "--file", str(mx), "--reason", "台本: 上限の周で 0 本にする")
-    last = drive(run, "std", hook=empty)
-    check(last["status"] == "awaiting_human" and (last.get("ask") or {}).get("kinds") == ["final_gate_empty"],
-          f"上限の周でも 0 本の関門は人に諮る（{(last.get('ask') or {}).get('kinds')}）")
-    run.cmd("answer", "--text", "continue", "--note", "確かめた（検査用）")
-    st = run.state()
-    ans = (run.record()["process"].get("human_answers") or [{}])[-1]
-    check(st["max_rounds"] == asked_round + 1 and ans.get("max_rounds") == {"from": asked_round, "to": asked_round + 1},
-          f"上限の周の continue は上限を 1 周だけ延ばし、答えの記録に延ばした値を書く（{st['max_rounds']} {ans.get('max_rounds')}）")
-    last = drive(run, "std", hook=empty)
-    check(last["status"] == "converged", f"延ばした次の周で、同じ木の 0 本の関門が通って収束する（{last['status']}）")
-    rm(run.tmp)
 
 
 def test_relaunch_delegate():

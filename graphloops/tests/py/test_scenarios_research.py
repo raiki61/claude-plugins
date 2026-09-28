@@ -1,6 +1,6 @@
 """層 2 の筋書き（research）: 上限で止まる類と、止める・人待ちの台本（graphloops/tests/simulate.py）の check の移し先。
 
-列と行の形は test_scenarios_review.py と同じ（scenes.py・docs/adr/0067）。1 行が台本の check 1 件で、行の印 ``moved_from`` が名乗る。
+列と行の形は test_scenarios_review.py と同じ（scenes.py・docs/adr/0067）。1 行が台本の check 1 件で、行の印 ``moved_from`` が名乗る（台本の関数を消した行は印を持たない）。
 """
 import pytest
 from engine.schema import load_graph
@@ -142,7 +142,7 @@ def test_stopped_before_gates_reports(scene, name, at, expect):
 
 # ---- 人が途中で止める ---------------------------------------------------------------------------------------------------
 
-S = "simulate.test_stop_midway"
+S = None
 AT_CHECKER = {"ready": "p1.checker"}
 history("research/stop-mid", init("stop-mid"), until("std", stop=AT_CHECKER), cmd("stop", "--reason", "検査: 照合の前で止める", mark="stop"),
         nxt(mark="next"), until("std", mark="end"), validate(mark="validate"))

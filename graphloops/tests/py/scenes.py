@@ -489,8 +489,11 @@ class Scenes:
 
 def row(script, head, name, at, expect, *, id, kept=None):
     """筋書きの 1 行: 列 name の印 at の出来事を when、その手前の全部を given とし、手で書いた述語 expect（Scene を受ける）で見る。
-    印 moved_from で台本の check 1 件を名乗る"""
+    印 moved_from で台本の check 1 件を名乗る。script が None の行は台本の関数を消した後の行で、印を付けない（消した関数を名乗る
+    印は台帳が赤にする。head は元の check の頭として残す）"""
     ROWS.setdefault(script, set()).add((name, HISTORIES[name].at(at)))
+    if script is None:
+        return pytest.param(name, at, expect, id=id)
     return pytest.param(name, at, expect, id=id, marks=pytest.mark.moved_from(script, head, **({"kept": kept} if kept else {})))
 
 
