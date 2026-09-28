@@ -5,21 +5,27 @@
 - 段の読み込み（TierLoader）: 段ごとの discover のテストを合わせると、ちょうど全部の discover のテスト
 - run.sh: 既定は全部を tiers.py all で、fast・heavy は tiers.py で回し、unittest の引数（-k など）をそのまま渡す。
   知らない値は 1 行で終了コード 2。全部と heavy は枠の台本（WORKS_TESTSLOT）を TESTSLOT_N=4 で通し、fast は通さない。
-  枠の置き場は台本の約束 TESTSLOT_DIR で、run.sh はそこを試し・祖先を探し・台本へ渡す（試験は一時フォルダに向ける）。
+  枠の約束の正本は .shared/core/slotwrap.sh で、run.sh はそこへ渡すだけ。置き場は台本の約束 TESTSLOT_DIR で、slotwrap.sh が
+  そこを試し・祖先を探し・台本へ渡す（試験は一時フォルダに向ける）。
   台本が無い・枠の置き場に書けないときは 1 行出して枠なしで回し、祖先が枠を持っていれば取り直さない。
   uv と枠の台本は偽物に差し替える（本物のテスト一式は回さない）
 - 試験の密閉（HermeticCase）: 親の環境を丸ごと写す 3 つの字面を拒み tests/hermetic.py を通させる・一時フォルダは実体のパス・
   /private の別名はファイルの仕組みから引く（見ない入口は hermetic.py の説明）
+- run の口（RunSlotCase）: engine の既定の runner・test_cmd・blk-tests の _run も枠を通り、test_cmd が run.sh でも枠は 1 回。
+  外の run の盤面（ARTIFACTS_DIR）の印には触れない
+- 枠待ちの見え方（SlotWaitShownCase）: 待つ前の 1 行、印の waiting → held → 消去、状態の表示の 1 行、herdr の集計
 """
 import ast
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -162,7 +168,9 @@ class RunShCase(unittest.TestCase):
         self.slot.write_text(FAKE_SLOT)
         self.slots = tmp / "slots"   # 台本の隣ではない所に置き、run.sh が TESTSLOT_DIR を見なければ外れるようにする
         self.log = tmp / "log"
-        self.env = {k: v for k, v in os.environ.items() if k not in ("WORKS_TESTS", "TESTSLOT_N", "TESTSLOT_DIR")}
+        # 外の run の盤面（ARTIFACTS_DIR）と印（WORKS_SLOT_*）は継がない。継ぐと run の中で走った試験が外の run の印を書き換えて消す
+        self.env = {k: v for k, v in os.environ.items()
+                    if k not in ("WORKS_TESTS", "TESTSLOT_N", "TESTSLOT_DIR", "ARTIFACTS_DIR", "WORKS_SLOT_MARK", "WORKS_SLOT_NOTE")}
         self.env.update(PATH=f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", FAKE_LOG=str(self.log),
                         WORKS_TESTSLOT=str(self.slot), TESTSLOT_DIR=str(self.slots))
 
@@ -562,6 +570,182 @@ class RunEnvLeakCase(unittest.TestCase):
                            text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assert_not_leaked()
+
+
+class RunSlotCase(unittest.TestCase):
+    """run の中で試験を起こす 3 つの口（engine の既定の runner・任せ先の test_cmd・blk-tests の _run）も、run.sh と同じ
+    約束で枠の台本を通る。test_cmd が run.sh の時は、口が取った枠の下で run.sh が取り直さない（枠は 1 回だけ）。
+    偽の uv・枠の台本・置き場は RunShCase の物を使い回す。外の run の中で走った形にし、外の盤面の印に触れないことも見る"""
+
+    calls = RunShCase.calls
+
+    def setUp(self):
+        outer = tempfile.TemporaryDirectory()
+        self.addCleanup(outer.cleanup)
+        mark = pathlib.Path(outer.name) / "board" / "testslot.json"
+        mark.parent.mkdir()
+        mark.write_text('{"state": "held"}')
+        self.addCleanup(lambda: self.assertEqual(mark.read_text() if mark.exists() else None, '{"state": "held"}',
+                                                 "外の run の印を書き換えた・消した"))
+        with mock.patch.dict(os.environ, ARTIFACTS_DIR=outer.name):
+            RunShCase.setUp(self)
+        core = str(TESTS.parent / ".shared" / "core")
+        if core not in sys.path:
+            sys.path.insert(0, core)
+        self.tmp = pathlib.Path(self._tmp.name)
+        patched = mock.patch.dict(os.environ, self.env, clear=True)
+        patched.start()
+        self.addCleanup(patched.stop)
+
+    def assert_one_slot(self, needle):
+        slots = [c for c in self.calls() if c.startswith("slot ")]
+        self.assertEqual(len(slots), 1, self.calls())
+        self.assertTrue(slots[0].startswith("slot N=4 "), slots[0])
+        self.assertIn(needle, slots[0])
+
+    def test_tree_runner_step_takes_slot(self):
+        from board import tree_runner
+        runs = tree_runner([{"name": "suite", "argv": ["sh", "-c", "echo ran-step"]}], self.tmp, self.tmp / "logs")
+        self.assertEqual(runs[0]["exit"], 0, runs)
+        self.assertEqual(runs[0]["argv"], ["sh", "-c", "echo ran-step"])   # 記録は包む前の形
+        self.assert_one_slot("echo ran-step")
+
+    def test_local_checks_material_takes_slot(self):
+        from entry import local_checks_material
+        got = local_checks_material(self.tmp, "echo ran-cmd", self.tmp / "lc.log")
+        self.assertEqual(got["material"]["status"], "clean", got)
+        self.assert_one_slot("echo ran-cmd")
+
+    def test_blk_tests_run_takes_slot(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_tests_run_tests_slot",
+                                                      TESTS.parent / "blk-tests" / "scripts" / "run_tests.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with open(self.tmp / "t.log", "wb") as f:
+            self.assertEqual(mod._run(["sh", "-c", "echo ran-blk"], f, cwd=str(self.tmp)), 0)
+        self.assert_one_slot("echo ran-blk")
+
+    def test_test_cmd_run_sh_takes_slot_once(self):
+        from board import tree_runner
+        os.environ["WORKS_TESTS"] = "heavy"
+        runs = tree_runner([{"name": "test_cmd", "argv": ["sh", str(RUN_SH), "-k", "x"]}], self.tmp, self.tmp / "logs")
+        self.assertEqual(runs[0]["exit"], 0, runs)
+        self.assert_one_slot("run.sh -k x")   # 枠を取るのは口で、中の run.sh は祖先の枠を見て取り直さない
+        self.assertIn(f"uv DWB=1 cwd={TESTS.parent} {UV_ARGS} tests/tiers.py heavy -k x", self.calls())
+
+
+# 枠の台本が走り出した時に、待ちの印（WORKS_SLOT_MARK）の中身を記録へ写す偽物（本物は枠が空くまでここで待つ）
+MARK_SLOT = """#!/bin/sh
+{ cat "${WORKS_SLOT_MARK:?}"; echo; } >> "$FAKE_LOG"
+""" + FAKE_SLOT.split("\n", 1)[1]
+
+# 枠の中で走るコマンドの時点の印の中身を記録へ写す
+MARK_CMD = """#!/bin/sh
+{ cat "${1:?}"; echo; } >> "$FAKE_LOG"
+"""
+
+
+class SlotWaitShownCase(unittest.TestCase):
+    """枠が空くのを期限なしで待つ間、待っていることが見える: 枠の口は待つ前に標準エラーへ 1 行出し、WORKS_SLOT_MARK（run の中では
+    盤面の testslot.json）に待ち（waiting）→ 枠の中（held）を書き、終われば消す。状態の表示（works_dev_show_run）は印から
+    『試験の枠: 待っている（N 分…）』の 1 行を出し、herdr の集計は枠待ちの run を走る run のうちに数える（blocked にしない）"""
+
+    calls = RunShCase.calls
+
+    def setUp(self):
+        RunShCase.setUp(self)
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.slot.write_text(MARK_SLOT)
+        self.mark_cmd = self.tmp / "mark-cmd.sh"
+        self.mark_cmd.write_text(MARK_CMD)
+
+    def marks(self):
+        return [json.loads(c) for c in self.calls() if c.startswith("{")]
+
+    def test_run_sh_says_waiting_before_slot(self):
+        e = dict(self.env, WORKS_TESTS="heavy", WORKS_SLOT_MARK=str(self.tmp / "m.json"))
+        r = subprocess.run(["sh", str(RUN_SH)], env=e, capture_output=True, text=True, encoding="utf-8",
+                           stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stderr.splitlines()
+        self.assertEqual(len(lines), 1, r.stderr)
+        self.assertIn("枠を待つ", lines[0])
+        self.assertIn(str(self.slots), lines[0])
+
+    def test_mark_goes_waiting_then_held_then_is_cleared(self):
+        core = str(TESTS.parent / ".shared" / "core")
+        if core not in sys.path:
+            sys.path.insert(0, core)
+        from board import tree_runner
+        art = self.tmp / "art"
+        mark = art / "board" / "testslot.json"
+        with mock.patch.dict(os.environ, dict(self.env, ARTIFACTS_DIR=str(art)), clear=True):
+            runs = tree_runner([{"name": "suite", "argv": ["sh", str(self.mark_cmd), str(mark)]}], self.tmp,
+                               self.tmp / "logs")
+        self.assertEqual(runs[0]["exit"], 0, runs)
+        got = self.marks()
+        self.assertEqual([m.get("state") for m in got], ["waiting", "held"], self.calls())
+        self.assertEqual(got[0].get("slots"), str(self.slots))
+        self.assertIsInstance(got[0].get("pid"), int)
+        self.assertIsInstance(got[0].get("since"), (int, float))
+        self.assertFalse(mark.exists(), "終わった段の印が残っている")
+
+    def show(self, row):
+        fake = self.tmp / "archon.sh"
+        fake.write_text("#!/bin/sh\necho '{\"events\": []}'\n")
+        env = dict(os.environ, WORKS_DEV_HOME=str(self.tmp), WORKS_DEV_MODEL="opus", CLAUDE_BIN_PATH="/x/claude",
+                   WORKS_RUN_ROW=json.dumps(row))
+        dev = TESTS.parent / "dev"
+        return subprocess.run(["sh", "-c", f'DEV_DIR="{dev}"; . "{dev}/lib.sh" && works_dev_show_run t "{fake}" "{self.tmp}"'],
+                              capture_output=True, text=True, encoding="utf-8", env=env)
+
+    def put_mark(self, rid, **doc):
+        board = self.tmp / "out" / "artifacts" / "runs" / rid / "board"
+        board.mkdir(parents=True, exist_ok=True)
+        (board / "testslot.json").write_text(json.dumps(doc))
+
+    def test_show_run_prints_slot_wait(self):
+        import time
+        row = {"id": "r1", "status": "running", "output_root": str(self.tmp / "out"), "working_path": "/wt/r1"}
+        r = self.show(row)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("試験の枠", r.stdout)   # 印が無ければ出さない
+        self.put_mark("r1", state="waiting", since=time.time() - 180, slots=str(self.slots), pid=os.getpid())
+        r = self.show(row)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        line = [x for x in r.stdout.splitlines() if x.startswith("試験の枠:")]
+        self.assertEqual(len(line), 1, r.stdout)
+        self.assertIn("待っている（3 分", line[0])
+        self.assertIn(str(self.slots), line[0])
+
+    def test_herdr_counts_slot_wait_as_working(self):
+        import time
+        runs_dir = self.tmp / "runs"
+        runs_dir.mkdir()
+        (runs_dir / "r1.json").write_text(json.dumps({"run_id": "r1", "herdr_pane": "pane-7"}))
+        (runs_dir / "r2.json").write_text(json.dumps({"run_id": "r2", "herdr_pane": "pane-7"}))
+        listed = {"runs": [{"id": "r1", "status": "running", "output_root": str(self.tmp / "out")},
+                           {"id": "r2", "status": "running", "output_root": str(self.tmp / "out")}]}
+        fake = self.tmp / "archon.sh"
+        fake.write_text(f"#!/bin/sh\necho '{json.dumps(listed)}'\n")
+        herdr_bin = self.tmp / "herdr-bin"
+        herdr_bin.mkdir()
+        herdr_log = self.tmp / "herdr.txt"
+        (herdr_bin / "herdr").write_text(f'#!/bin/sh\necho "$*" >> "{herdr_log}"\nexit 0\n')
+        (herdr_bin / "herdr").chmod(0o755)
+        self.put_mark("r1", state="waiting", since=time.time() - 60, slots=str(self.slots), pid=os.getpid())
+        env = dict(os.environ, PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", HERDR_ENV="1",
+                   HERDR_PANE_ID="pane-7")
+        dev = TESTS.parent / "dev"
+        r = subprocess.run(["sh", "-c", f'. "{dev}/lib.sh" && works_dev_herdr_sync "{fake}" "{runs_dir}"'],
+                           capture_output=True, text=True, encoding="utf-8", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = herdr_log.read_text().splitlines() if herdr_log.exists() else []
+        reports = [c for c in calls if c.startswith("report-agent")]
+        self.assertEqual(len(reports), 1, calls)
+        self.assertIn("--state working", reports[0])
+        self.assertIn("走る 2（うち枠待ち 1）", reports[0])
 
 
 if __name__ == "__main__":

@@ -329,7 +329,8 @@ def _tail(data: bytes) -> str:
 
 def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path) -> dict:
     """任せ先に落ちた CI の節に渡す素材 {"material": …} を組む（盤面なしで呼べる公開の口。線 B の申し送り 2）。
-    test_cmd を ["bash", "-c", test_cmd] で tree_run に走らせ（対象の根で・標準入力は空・環境は tree_run.outside_env。
+    test_cmd を ["bash", "-c", test_cmd] で tree_run.slotted_run に走らせ（機械全体の試験の枠を通す・対象の根で・標準入力は空・
+    環境は tree_run.outside_env。
     標準出力と標準エラーを log_path に）、終了コード 0 なら clean（写しの RR の規則で checked が要る）、他は found・count 1（126・127 は _cmd_material が起こせなかった疑いを名指す）。
     detail はログの末尾（engine の段の末尾と同じ切り方）。起こせなければ（先頭の語が tree_run.prove_launchable の証明を通らない回も）
     not_run。test_cmd が空なら走らせずに not_run。
@@ -341,8 +342,8 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "wb") as f:
         try:
-            code = tree_run.run(["bash", "-c", cmd], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT,
-                                cwd=str(repo), env=tree_run.outside_env(os.environ))
+            code, _ = tree_run.slotted_run(["bash", "-c", cmd], tree_run.outside_env(os.environ), stdin=subprocess.DEVNULL,
+                                           stdout=f, stderr=subprocess.STDOUT, cwd=str(repo))
         except OSError as e:
             return {"material": {"status": "not_run", "reason": f"bash -c でテストのコマンドを起こせない: {e}"}}
     return _cmd_material(cmd, code, log_path)

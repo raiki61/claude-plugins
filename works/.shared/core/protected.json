@@ -21,6 +21,8 @@
      "why": "試験の段の一覧（床）。モジュールを外す・重い段へ移せば、段 1 で回る試験が減る"},
     {"id": "test-runner", "glob": "works/tests/run.sh",
      "why": "試験の入口。段の選び方・discover の型を変えれば回る試験が減る"},
+    {"id": "test-slot", "glob": "works/.shared/core/[st][lr]*.[ps][hy]",
+     "why": "機械全体の試験の枠の約束の 2 つの口: slotwrap.sh（run.sh から移した sh の正本）と tree_run.py（run の中の試験を枠に通す slotted_run）。緩めれば並べた run の重い試験が枠を通らない。型を 1 つにしたのは、足した slotwrap.sh が git に載る前も行が追跡ファイルに当たるように"},
     {"id": "test-floor-check", "glob": "works/tests/test_tiers.py",
      "why": "段の一覧の書き忘れ・重なり・消えたモジュールを赤にする試験"},
     {"id": "accept", "glob": "works/.shared/core/accept.py",

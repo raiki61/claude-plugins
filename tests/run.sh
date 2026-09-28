@@ -3509,7 +3509,6 @@ EXTERNAL_NAMES = {"SHA", "PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVIC
                   # 定数が在るので接頭辞では外さない）
                   "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_GH", "WORKS_GOLDEN_OUT",
                   "WORKS_KEYCHAIN_ITEM", "WORKS_REAL_CLAUDE", "WORKS_TDD_TIER",
-                  "WORKS_TESTSLOT",
                   # 外の道具（mise）の設定の環境変数
                   "MISE_TRUSTED_CONFIG_PATHS",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
@@ -5208,7 +5207,6 @@ NOT_RATCHET = {
     "LIMIT": "works/tests/test_board_goldens_fixture.py が盤面の見本の圧縮した総量に課す上限（バイト）。件数の突合ではない",
     "MIN_LINE": "works/tests/test_fix_rules.py が写しを探す行・文の長さの下限（字数。短い語の偶然の重なりを除く）。件数の突合ではない",
     "PYTHONDONTWRITEBYTECODE": "works/tests/run.sh が子へ渡す環境変数（.pyc を書かせない印）。件数の突合ではない",
-    "TESTSLOT_N": "works/tests/run.sh が重いテストの枠の数として子へ渡す環境変数（同時に走らせる本数）。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []

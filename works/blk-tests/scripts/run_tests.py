@@ -61,11 +61,11 @@ class Refused(Exception):
 
 
 def _run(argv, log_f, cwd=None) -> int | None:
-    """argv を tree_run で走らせ、標準出力と標準エラーを log_f に。起こせなければ（OSError）ログに『起こせない』を書いて None
-    （engine の tree_runner の exit None と同じ）。止められたら tree_run.Stopped が上がる"""
+    """argv を tree_run.slotted_run（機械全体の試験の枠を通す）で走らせ、標準出力と標準エラーを log_f に。起こせなければ
+    （OSError）ログに『起こせない』を書いて None（engine の tree_runner の exit None と同じ）。止められたら tree_run.Stopped が上がる"""
     try:
-        return tree_run.run(argv, stdin=subprocess.DEVNULL, stdout=log_f, stderr=subprocess.STDOUT, cwd=cwd,
-                            env=tree_run.outside_env(os.environ))
+        return tree_run.slotted_run(argv, tree_run.outside_env(os.environ), stdin=subprocess.DEVNULL, stdout=log_f,
+                                    stderr=subprocess.STDOUT, cwd=cwd)[0]
     except OSError as e:
         log_f.write(f"起こせない: {e}\n".encode("utf-8"))
         log_f.flush()

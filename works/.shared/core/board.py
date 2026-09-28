@@ -353,11 +353,13 @@ def rules_module(graph: pathlib.Path | None = None):
 
 # ---------------------------------------------------------------- engine が走らせる節の既定の runner
 def tree_runner(steps: list, cwd, log_dir) -> list:
-    """run_engine の既定の runner（仕様 4.3）: 段を 1 つずつ works の tree_run で走らせる——shell を通さない・別のプロセス
+    """run_engine の既定の runner（仕様 4.3）: 段を 1 つずつ works の tree_run.slotted_run（機械全体の試験の枠を通す）で走らせる——
+    段の argv は shell を通さない（包むのは枠の台本 slotwrap.sh だけ）・別のプロセス
     グループ・期限なし・標準入力は空・uv run の環境を外す（tree_run.outside_env。blk-tests の run_tests と同じ 1 本）・止められたら
     tree_run.stop_group の数え上げ→送る→数え直しの式で木ごと止め（受けた信号と SIGTERM → KILL_GRACE（2 秒）→ SIGKILL。
     ps を待つ上限 PS_TIMEOUT を含む）、止めた後に LINGER（1 秒）待ってから tree_run.Stopped を投げる（ここでは捕まえない）。標準出力・標準エラーは log_dir/<段の番号>.out・.err に丸ごと。
-    返りの行は engine の run_steps と同じ鍵 {name, argv, out, err, exit, wall_s, tail}（起こせなければ exit None と error）。
+    返りの行は engine の run_steps と同じ鍵 {name, argv, out, err, exit, wall_s, tail}（起こせなければ exit None と error。argv は
+    包む前の宣言の形）。枠を取った段だけ wait_s（枠を待った秒）を足し、wall_s は待ちを除いた実行の時間のまま。
     engine と違う所: 信号で死んだ段の exit は tree_run の 128+信号（engine は負の番号）。どちらも赤に読まれる。
     子の環境は uv run の外の形で、PYTHONDONTWRITEBYTECODE=1 を立てる（works の決まり。engine の run_steps は環境をそのまま継ぐ）"""
     log_dir = pathlib.Path(log_dir)
@@ -368,15 +370,19 @@ def tree_runner(steps: list, cwd, log_dir) -> list:
         started = time.time()
         base = log_dir / f"{i + 1}"
         row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
+        wait = None
         with open(row["out"], "wb") as out, open(row["err"], "wb") as err:
             try:
-                rc = tree_run.run(list(s["argv"]), stdin=subprocess.DEVNULL, stdout=out, stderr=err, cwd=str(cwd), env=env)
+                rc, wait = tree_run.slotted_run(list(s["argv"]), env, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                                                cwd=str(cwd))
             except OSError as e:
                 rc = None
                 row["error"] = str(e)
                 err.write(str(e).encode("utf-8"))
         data = pathlib.Path(row["out"]).read_bytes() + b"\n" + pathlib.Path(row["err"]).read_bytes()
-        row.update(exit=rc, wall_s=round(time.time() - started, 1), tail=_tail(data))
+        row.update(exit=rc, wall_s=round(time.time() - started - (wait or 0), 1), tail=_tail(data))
+        if wait is not None:
+            row["wait_s"] = wait
         runs.append(row)
     return runs
 
@@ -1130,7 +1136,8 @@ class DiskBoard(_EngineBoard):
             log_dir = self._log_dir(nid)
             runs = (runner or tree_runner)(steps, pathlib.Path(root), log_dir)
             self.trace("engine_run", instance=nid, node=nid,
-                       runs=[{k: r.get(k) for k in ("name", "exit", "wall_s", "error")} for r in runs])
+                       runs=[{**{k: r.get(k) for k in ("name", "exit", "wall_s", "error")},
+                              **({"wait_s": r["wait_s"]} if "wait_s" in r else {})} for r in runs])
         reply = er["reply"](self, nid, launch, runs)
         if "fallback" in reply:
             return self._fall_back(nid, er, reply["fallback"], {"runs": runs})

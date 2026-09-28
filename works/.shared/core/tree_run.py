@@ -33,11 +33,13 @@ engine/role_run.py（_tree_members・_stop_tree。本線 9f91687 = graphloops 0.
 import collections
 import errno
 import os
+import pathlib
 import re
 import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 KILL_GRACE = 2    # SIGTERM から SIGKILL までの猶予（秒）。Archon の cancel の猶予（SIGTERM → 5 秒 → SIGKILL）より短くする:
@@ -378,6 +380,44 @@ def run(argv, **popen_kw):
             stop()
         for s, h in old.items():
             signal.signal(s, h)
+
+
+SLOTWRAP = pathlib.Path(__file__).resolve().parent / "slotwrap.sh"
+SLOT_NOTE_ENV = "WORKS_SLOT_NOTE"
+SLOT_MARK_ENV = "WORKS_SLOT_MARK"
+SLOT_MARK = "testslot.json"   # 盤面（$ARTIFACTS_DIR/board。script_io.BOARD_DIR と同じ名）の中の、枠を待つ・中の印
+
+
+def slotted_run(argv, env, **popen_kw):
+    """run の中で重い試験（engine の宣言の段・test_cmd・blk-tests の plain と mid）を起こす唯一の口: argv を機械全体の試験の枠
+    （slotwrap.sh。約束の正本はそこ）を通して run で走らせ、(終了コード, 枠を待った秒か None) を返す。待った秒は枠を取った時で、
+    枠を取らなかった（祖先が持つ・台本が無い・WORKS_TESTSLOT が空）なら None。
+    包むと argv の起こせなさが bash の 126・127 に化けるので、slotwrap.sh が exec の失敗を印に書き、ここで OSError に戻す——
+    呼ぶ側の OSError の道（exit None）と launch_kind の broken がそのまま効く。止められたら Stopped が上がる。
+    env に ARTIFACTS_DIR が在れば（run の中）、盤面の testslot.json を待ちの印として slotwrap.sh に書かせ、書いた時はどの道で抜けても消す"""
+    # 包むと run の証明は外の bash と slotwrap.sh しか見ないので、包む前に中の argv を同じ証明に通す（起こせなければ OSError → broken）
+    prove_launchable(argv, popen_kw.get("cwd"), env)
+    fd, note = tempfile.mkstemp(prefix="works-slot-")
+    os.close(fd)
+    extra = {SLOT_NOTE_ENV: note}
+    if env.get("ARTIFACTS_DIR"):
+        extra[SLOT_MARK_ENV] = os.path.join(env["ARTIFACTS_DIR"], "board", SLOT_MARK)
+    started = time.time()
+    try:
+        rc = run(["bash", str(SLOTWRAP), *argv], env={**env, **extra}, **popen_kw)
+        seen = pathlib.Path(note).read_text(encoding="utf-8").split()
+        if "execfail" in seen:
+            code = errno.EACCES if rc == 126 else errno.ENOENT
+            raise OSError(code, f"{os.strerror(code)}（枠の下で exec が落ちた。exit {rc}）", argv[0])
+        return rc, (max(round(os.stat(note).st_mtime - started, 1), 0.0) if "held" in seen else None)
+    finally:
+        # 印は、この呼び出しの slotwrap.sh が書いた時だけ消す（祖先が枠を持つ入れ子の段は印を書かず、同じ盤面の外の段の印を残す）
+        wrote = SLOT_MARK_ENV in extra and "mark" in pathlib.Path(note).read_text(encoding="utf-8").split()
+        for f in [note] + ([extra[SLOT_MARK_ENV]] if wrote else []):
+            try:
+                os.unlink(f)
+            except FileNotFoundError:
+                pass
 
 
 def main(argv=None) -> int:

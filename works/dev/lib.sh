@@ -79,10 +79,43 @@ for p in sorted(glob.glob(os.path.join(e["RUNS_DIR"], e["RUN_ID"] + ".json"))):
 '
 }
 
+# 試験の枠の印（盤面の testslot.json。書くのは .shared/core/slotwrap.sh、消すのは tree_run.slotted_run）の読み口。
+# works_dev_show_run と works_dev_herdr_sync の python が exec して使う（lib.sh は works/dev の外から . されることがあり、
+# .shared/core を import できるとは限らないので、読み口はここに 1 つ置く）
+WORKS_DEV_SLOT_PY='
+import json as _json, os as _os, time as _time
+def run_board(row):
+    return _os.path.join(row.get("output_root") or "", "artifacts", "runs", row.get("id") or "", "board")
+def slot_mark(board):
+    """印 {state: waiting|held, since, slots, pid} に alive（pid が居るか。読めなければ None）と minutes（since からの分）を足す。
+    無い・読めない・知らない形なら None"""
+    try:
+        with open(_os.path.join(board, "testslot.json"), encoding="utf-8") as f:
+            d = _json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict) or d.get("state") not in ("waiting", "held"):
+        return None
+    pid, alive = d.get("pid"), None
+    if isinstance(pid, int) and pid > 0:
+        try:
+            _os.kill(pid, 0)
+            alive = True
+        except ProcessLookupError:
+            alive = False
+        except PermissionError:
+            alive = True
+    since = d.get("since")
+    minutes = int((_time.time() - since) // 60) if isinstance(since, (int, float)) else None
+    return dict(d, alive=alive, minutes=minutes)
+def slot_waiting(m):
+    return bool(m) and m["state"] == "waiting" and m["alive"] is not False
+'
+
 # works_dev_herdr_sync <archon を呼ぶ殻> <控えの置き場> [<run-id>=<状態>…]: herdr の枠（HERDR_ENV=1 と HERDR_PANE_ID）の中で
 # herdr が在る時だけ、その枠から起こした run（控えの herdr_pane）の集計を 1 つの信号で出す（herdr の公式の口。source works-factory・
 # agent works は 1 つのまま、run ごとに上書きしない）。関所で待つ・落ちた run が 1 つでも在れば blocked、無くて走っている run が
-# 在れば working、全部終わった時だけ release-agent。その枠から起こした run が 0 なら何もしない。状態を渡されなかった run だけ
+# 在れば working（試験の枠を待つ run は走る run のうちに「うち枠待ち k」と数える）、全部終わった時だけ release-agent。その枠から起こした run が 0 なら何もしない。状態を渡されなかった run だけ
 # 一覧を 1 回引く。herdr を呼ぶのはここだけ。枠の外・herdr が無い・失敗した時は何もしない（run を止めない）
 works_dev_herdr_sync() {
   [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1 || return 0
@@ -90,21 +123,25 @@ works_dev_herdr_sync() {
   _runs="$2"
   shift 2
   _mine="$(works_dev_ledgers "$_runs" | awk -F'\t' -v pane="$HERDR_PANE_ID" '$5 == pane { print $1 }')"
-  _sig="$(ARCHON_SH="$_archon" MINE="$_mine" python3 -c '
+  _sig="$(ARCHON_SH="$_archon" MINE="$_mine" SLOT_PY="$WORKS_DEV_SLOT_PY" python3 -c '
 import json, os, subprocess, sys
 e = os.environ
+exec(e["SLOT_PY"])
 mine = e["MINE"].split()
 if not mine:
     sys.exit(0)
 known = dict(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
-if any(r not in known for r in mine):
+rows = None
+def listed():
     got = subprocess.run(["sh", e["ARCHON_SH"], "workflow", "runs", "--json"], env=dict(e, WORKS_DEV_NO_AUTH="1"),
                          capture_output=True, text=True)
     try:
-        listed = {r.get("id"): r.get("status") or "" for r in json.loads(got.stdout).get("runs", [])}
+        return {r.get("id"): r for r in json.loads(got.stdout).get("runs", [])}
     except (ValueError, AttributeError):
         sys.exit(0)
-    known = {**listed, **known}
+if any(r not in known for r in mine):
+    rows = listed()
+    known = {**{k: r.get("status") or "" for k, r in rows.items()}, **known}
 done = ("completed", "cancelled", "")
 states = [known.get(r, "") for r in mine]
 running = sum(s in ("running", "pending") for s in states)
@@ -113,7 +150,12 @@ waiting = len(states) - running - ended
 if waiting:
     print("blocked\tfactory: 人の番 {}・走る {}・終わった {}".format(waiting, running, ended))
 elif running:
-    print("working\tfactory: 走る {}・終わった {}".format(running, ended))
+    # 枠待ちは人の答えが要る待ちではないので working のまま、走る run のうちに数える（印を読むのに一覧の output_root が要る）
+    rows = rows if rows is not None else listed()
+    slot_wait = sum(1 for r, s in zip(mine, states) if s in ("running", "pending")
+                    and slot_waiting(slot_mark(run_board(rows.get(r) or {}))))
+    print("working\tfactory: 走る {}{}・終わった {}".format(running, "（うち枠待ち {}）".format(slot_wait) if slot_wait else "",
+                                                          ended))
 else:
     print("release")
 ' "$@" 2>/dev/null)" || return 0
@@ -231,7 +273,8 @@ works_dev_show_started() {
 # 承認・拒否・続きのコマンドは、呼び手の WORKS_KEYCHAIN_ITEM を sh の直前に載せ、export の無い殻でもそのまま打てる形で出す。
 # 修正は対象ではなく、Archon が run ごとに切った worktree の中にある。関所の文面の「テストのログ」の行が、テストの出力のファイル。
 # 状態の下に launched_min（起こしてからの分）を出し、走っている run は Archon の workflow get の出来事を 1 回引いて、
-# 走っている節・alive（最後の動きから 30 分以内か）・節ごとの費用 cost_usd（report.head_cost。報告の費用の行と同じ）も出す。
+# 走っている節・alive（最後の動きから 30 分以内か）・試験の枠を待っているか（盤面の testslot.json）・節ごとの費用 cost_usd
+# （report.head_cost。報告の費用の行と同じ）も出す。
 # WORKS_DEV_HOME・WORKS_DEV_MODEL・CLAUDE_BIN_PATH を export 済みで、DEV_DIR（works/dev）を置いた殻から呼ぶ。
 works_dev_show_run() {
   _go="$(works_dev_go "$2" "$3")"
@@ -241,12 +284,13 @@ works_dev_show_run() {
   fi
   printf '%s\n' "$_row" |
     CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" DIFF_DIR="${5:-}" GO="$_go" \
-    CORE_DIR="${DEV_DIR:-}/../.shared/core" PYTHONDONTWRITEBYTECODE=1 python3 -c '
+    CORE_DIR="${DEV_DIR:-}/../.shared/core" SLOT_PY="$WORKS_DEV_SLOT_PY" PYTHONDONTWRITEBYTECODE=1 python3 -c '
 import json, os, shlex, subprocess, sys
+exec(os.environ["SLOT_PY"])
 r = json.load(sys.stdin)
 item = os.environ.get("WORKS_KEYCHAIN_ITEM", "")
 go = os.environ["GO"]
-board = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board")
+board = run_board(r)
 wp = r.get("working_path") or ""
 print("run id:", r.get("id"))
 print("状態:", r.get("status"))
@@ -287,6 +331,14 @@ if status in ("running", "pending"):
     running = [k for k, n in open_nodes.items() if n > 0]
     if events:
         print("走っている節:", "・".join(running) if running else "無い（節の合間）")
+    # 試験の枠は期限なしで待つので、待っていることを止まった run と見分けられるように出す（印が無ければ出さない）
+    m = slot_mark(board)
+    if m and m["alive"] is False:
+        print("試験の枠: 古い印（pid {} が居ない。{} の {}）".format(m.get("pid"), os.path.join(board, "testslot.json"), m["state"]))
+    elif m and m["state"] == "waiting":
+        print("試験の枠: 待っている（{} 分・置き場 {}。空くまで期限なしで待つ）".format(m["minutes"], m.get("slots")))
+    elif m:
+        print("試験の枠: 中（{} 分前に取った・置き場 {}）".format(m["minutes"], m.get("slots")))
     # 生きているか: 最後の動き（run の行の last_activity_at か最後の出来事）が STALE_MIN 分より新しい。Archon の行は子の pid を出さない
     STALE_MIN = 30
     seen = [t for t in [when(r.get("last_activity_at"))] + [when(e.get("created_at")) for e in events if isinstance(e, dict)] if t]
