@@ -2182,7 +2182,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=597
+EXPECTED_CHECKS=596
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3955,23 +3955,24 @@ pick = lambda *a, **k: mutate.pytest_pick(arm(*a, **k))
 out.append(f"nodes={pick(['test_a.py::t1', 'test_a.py::t2'])} all_files={pick(['test_a.py::t1', 'test_b.py::u'])[1]}"
            f" long={pick(['test_a.py::t' + 'x' * 9000])} unknown={pick(['test_a.py::t1', '?'])} import={pick(['test_a.py::t1'], in_function=False)}"
            f" none={pick(None)} list={mutate.pytest_pick({'id': 'l1'})}")
-# 3) pytest の赤の読み方と起こし方（node id なら -n 0、-x は failfast の回だけ、印の変数は子に渡さない）
+# 3) pytest の赤の読み方と起こし方（node id なら -n を付けない、-x は failfast の回だけ、印の変数は子に渡さない、子は置き場を cwd に起こす）
 seen = {}
-def fake_group(argv, cwd, env=None, failfast=False):
-    seen.update(argv=argv, env=env)
+def fake_group(argv, cwd, env=None, failfast=False, sub=""):
+    seen.update(argv=argv, env=env, sub=sub)
     return seen["ret"]
 mutate.run_group = fake_group
 os.environ[mutate.PYTEST_MARK] = "?"
 reads = []
-for ret in ((1, "x\nFAILED test_a.py::t1 - AssertionError: y\nERROR test_b.py::u\n"), (1, "件数の柵\n"), (2, "ERROR test_a.py\n"), (2, ""), (5, ""), (4, ""), (0, "")):
+for ret in ((1, "x\nFAILED test_a.py::t1 - AssertionError: y\nERROR test_b.py::u\n"), (1, "件数の柵\n"), (2, "ERROR test_a.py\n"), (2, ""), (5, ""), (4, ""),
+            (4, "ERROR test_a.py\n"), (0, "")):
     seen["ret"] = ret
-    r = mutate.run_pytest(pathlib.Path("."), [mutate.PYDIR + "/test_a.py::t1"], failfast=True)
+    r = mutate.run_pytest(pathlib.Path("."), ["test_a.py::t1"], failfast=True)
     reads.append(f"{r['rc']}:{','.join(r['failed'])}")
 del os.environ[mutate.PYTEST_MARK]
-n_nodes, x_nodes, mark_env = seen["argv"][seen["argv"].index("-n") + 1], "-x" in seen["argv"], mutate.PYTEST_MARK in seen["env"]
-mutate.run_pytest(pathlib.Path("."), [mutate.PYDIR])
+n_nodes, x_nodes, mark_env = "-n" in seen["argv"], "-x" in seen["argv"], mutate.PYTEST_MARK in seen["env"]
+mutate.run_pytest(pathlib.Path("."), [mutate.WHOLE])
 out.append(f"reads={reads} n_nodes={n_nodes} x={x_nodes} n_whole={seen['argv'][seen['argv'].index('-n') + 1]} x_whole={'-x' in seen['argv']}"
-           f" mark_env={mark_env}")
+           f" mark_env={mark_env} sub={seen['sub']}")
 # 4) one の撃ち分け: 台本と pytest の走らせ方を差し替え、呼ばれた順を見る
 d = pathlib.Path(tempfile.mkdtemp())
 (d / "repo").mkdir()
@@ -3979,7 +3980,7 @@ calls, state = [], {}
 mutate.copy = lambda tag: (d / "repo", d)
 mutate.mutate = lambda repo, a: None
 def fake_py(repo, args, failfast=False):
-    whole = args == [mutate.PYDIR]
+    whole = args == [mutate.WHOLE]
     calls.append("pyall" if whole else "py")
     rc = state["pyall" if whole else "py"]
     return {"rc": rc, "failed": ["test_a.py::t1"] if rc == 1 else [], "tail": []}
@@ -4022,7 +4023,7 @@ out.append(f"eval={st} control_ok={s['control_ok']} py_ctl={s['pytest_control_ok
 py_off = [("pytest の段を使っていない" in mutate.gate_efficacy(r)["material"].get("detail", "")) for r in
           ({**res, "pytest_stage": "uv が PATH に無い"}, {**res, "marker": {**res["marker"], "pytest": {"rc": 1, "why": "印の写しの pytest が緑でない"}}}, res)]
 out.append(f"gate_g1={gate['g1']} gate_k2={gate['k2']} py_off={py_off}")
-# 6) 持ち越しの指紋: pytest の置き場と宣言を直すと自動の腕だけ撃ち直す（一覧の腕は pytest を撃たないので持ち越す）
+# 6) 持ち越しの指紋: pytest の置き場と宣言を直すと自動の腕だけ撃ち直す（node id を名指さない一覧の腕は pytest を撃たないので持ち越す）
 fr = pathlib.Path(tempfile.mkdtemp())
 (fr / mutate.PYDIR).mkdir(parents=True)
 (fr / "x.py").write_text("x = 1\n", encoding="utf-8")
@@ -4037,13 +4038,13 @@ out.append(f"fp_list_kept={f0[0] == f1[0] == f2[0]} fp_auto_moved={f0[1] != f1[1
 print("\n".join(out))
 PYPYT
 expect_output 0 "decl_bound=True
-nodes=(['graphloops/tests/py/test_a.py::t1', 'graphloops/tests/py/test_a.py::t2'], 'nodes') all_files=files long=(['graphloops/tests/py/test_a.py'], 'files') unknown=(['graphloops/tests/py'], 'unknown_owner') import=(['graphloops/tests/py'], 'import_time') none=(None, 'no_cover') list=(None, 'not_auto')
-reads=['1:test_a.py::t1,test_b.py::u', '1:pytest の柵（fence）が赤', '2:test_a.py', 'no-test:', 'no-test:', 'no-test:', '0:'] n_nodes=0 x=True n_whole=4 x_whole=False mark_env=False
+nodes=(['test_a.py::t1', 'test_a.py::t2'], 'nodes') all_files=files long=(['test_a.py'], 'files') unknown=(['.'], 'unknown_owner') import=(['.'], 'import_time') none=(None, 'no_cover') list=(None, 'not_auto')
+reads=['1:test_a.py::t1,test_b.py::u', '1:pytest の柵（fence）が赤', '2:test_a.py', 'no-test:', 'no-test:', 'no-test:', '4:test_a.py', '0:'] n_nodes=False x=True n_whole=4 x_whole=False mark_env=False sub=graphloops/tests/py
 one=py:Killed:pytest pyall:Killed:pytest_whole py+sel:Killed:narrowed py+sel:Survived:None py+sel+full+pyall:Killed:pytest_unrelated py:Survived:None py:RuntimeError:None py+sel:Killed:narrowed sel:Killed:narrowed
 flags=sel:True/pysel:True/how:nodes only:True/pysel:True
 eval={'k1': ('Killed', True), 'k2': ('Killed', False), 'g1': ('Survived', False), 'n1': ('NoCoverage', False)} control_ok=True py_ctl=False by_pytest=['k2'] only=['g1', 'k2'] how={'nodes': 1} pysel_green=['g1'] narrowed_green=[]
 gate_g1=Survived（台本は行を通さないので撃っていない。絞った pytest だけで緑。pytest 一式では確かめていない——--confirm-survivors で確かめ直せる） gate_k2=pytest の赤だが、壊していない写しの pytest も赤（control） py_off=[True, True, False]
-fp_list_kept=True fp_auto_moved=True" "pytest の段: 起こし方の頭は宣言の pytest の段と同じ版。行を通したテストの node id で絞り（長すぎる・全ファイルに及ぶならファイル単位、帰属できない・import の時の行は一式）、赤と読むのは rc 1 と ERROR の在る rc 2 だけ。pytest が赤なら打ち切り、緑・撃てないなら今の台本の道を必ず撃つ（台本が通らない行は撃たない）。確かめ直しは pytest 一式も。control の pytest が赤の回は pytest の赤だけを証拠にせず、--gate-efficacy は台本を撃っていない緑と、pytest の段が外れた回をそう言う。pytest の置き場と宣言は自動の腕の指紋にだけ入る" \
+fp_list_kept=True fp_auto_moved=True" "pytest の段: 起こし方の頭は宣言の pytest の段と同じ版で、子は置き場を cwd にして置き場から見た node id で撃つ。行を通したテストの node id で絞り（長すぎる・全ファイルに及ぶならファイル単位、帰属できない・import の時の行は一式）、赤と読むのは rc 1 と、ERROR の行の在る rc 2・rc 4 だけ。自動の腕は pytest が赤なら打ち切り、緑・撃てないなら今の台本の道を必ず撃つ（台本が通らない行は撃たない）。確かめ直しは pytest 一式も。control の pytest が赤の回は pytest の赤だけを証拠にせず、--gate-efficacy は台本を撃っていない緑と、pytest の段が外れた回をそう言う。pytest の置き場と宣言は自動の腕の指紋にだけ入る" \
     "$PY_BIN" "$WORK/mut-pytest.py" "$ROOT/tests" "$ROOT"
 # 腕の写しは版に入るファイルだけで、写しの腕の一覧は空（写しの --check が壊した字列で赤になり、生き残りを Killed と書かない）
 cat > "$WORK/mut-copy.py" <<'PYCOPY'
@@ -4204,15 +4205,6 @@ print(" ".join(out))
 PYSAME
 expect_output 0 "pick=['k1', 'k3', 's1', 'k2'] same=[] status=1 evidence=1 missing=1 none_shot=1 unhealthy_now=1 partial=1 no_reuse=1 old_report=1 unhealthy_prev=1 main_fresh=True fire=['k1', 's1'] codes=[0, 1]" "撃ち比べ: 同じファイルを壊す赤の組・生き残り・赤を 4 本まで選び（持ち越し・撃てない・揺れうる腕・今の一覧に無い腕は選ばない）、status と当たりの証拠の有無が食い違う・腕が欠ける・撃てた腕が 0 本・どちらかが不健全・前の報告が途中か使い回していないなら食い違い。--same-as は腕ごとに作り直して選んだ腕だけを撃ち、一致で 0" \
     "$PY_BIN" "$WORK/mut-sameas.py" "$ROOT/tests"
-expect_output 0 "ok" "週 1 回の変異の CI が、既定の段の後で必ず撃ち比べの段を走らせ、その報告も残す" "$PY_BIN" -c "
-import sys, pathlib
-t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-i = t.index('--same-as mutation-report.json')
-assert t.index('--out mutation-report.json') < i, '撃ち比べが既定の段より前に在る'
-step = t[t.rindex('- name:', 0, i):i]
-assert 'if: always()' in step, '撃ち比べの段が既定の段の赤で飛ばされる'
-assert 'fresh-report.json' in t[t.index('upload-artifact'):], '撃ち比べの報告を残していない'
-print('ok')" "$ROOT/.github/workflows/mutation.yml"
 
 cat > "$WORK/mut-root.py" <<'PYROOT'
 import contextlib, io, json, os, pathlib, subprocess, sys, tempfile, time

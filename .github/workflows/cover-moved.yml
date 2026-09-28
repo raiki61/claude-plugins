@@ -1,8 +1,9 @@
 name: cover-moved
 
 # 層 2 へ移した台本を消す条件の 4（被覆の包含）と、層 2 の効き目（旧い側の cli・inproc の口と層 2 の所要・子の数）・元の関数の
-# Run の盤面との突き合わせを撃つ（graphloops/tests/py/cover_moved.py。規範は docs/adr/0067）。移した台本の関数を全部回すので重く、
-# 手で起こす。手元で撃つのは名指しの数件だけ（人の方針）
+# Run の盤面との突き合わせを撃つ（graphloops/tests/py/cover_moved.py。規範は docs/adr/0067）。ルートの tests/run.sh の review-record.py の
+# 節を tests/py へ移した分の被覆の包含も同じ job で撃つ（tests/py/coverage_proof.py。台本の節を本物の bash で回すので、engine の子の中
+# では撃てない）。移した台本の関数を全部回すので重く、手で起こす（gh workflow run cover-moved.yml）。手元で撃つのは名指しの数件だけ（人の方針）
 on:
   workflow_dispatch:
 
@@ -33,13 +34,31 @@ jobs:
         if: always()
         shell: bash
         run: python graphloops/tests/py/cover_moved.py --no-cov --driver cli --out timing-cli.json
+      # 終了コードの意味は tests/py/coverage_proof.py の docstring。旧い側の測り（cover-root/old。隠しファイルの .coverage を含む）も
+      # 残す——赤の腕（--only-new と -- --deselect）はそれを置いて撃つ
+      - name: root cover
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          python tests/py/coverage_proof.py cover-root > cover-root.txt 2>&1
+          rc=$?
+          cat cover-root.txt
+          echo "coverage_proof.py の終了コード: $rc" >> cover-root.txt
+          exit "$rc"
       - name: upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cover-moved
+          include-hidden-files: true
           path: |
             cover.json
             timing-inproc.json
             timing-cli.json
+            cover-root.txt
+            cover-root/old.log
+            cover-root/new.log
+            cover-root/old.sh
+            cover-root/old
           if-no-files-found: warn

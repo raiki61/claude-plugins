@@ -103,6 +103,9 @@ jobs:
       # -n（pytest-xdist）でプロセス単位に並べる。柵は worker の数えた値を controller が集めて当てる（fence.py）。
       # 台帳の基の版は PR の基か push の直前の版（buf-action の breaking_against の既定と同じ向き。新しい枝の最初の push は 0 の sha で、
       # 台帳は HEAD と main との merge-base に戻る）
+      # **pytest の CPU 時間をログに残す**（効き目の報告。段の秒は REST の jobs の started_at・completed_at で取れるが CPU は取れない）。
+      # bash の組み込み times の 2 行目が子の user と sys の和で、pytest の前後の差が pytest（と xdist の worker）の CPU。
+      # GitHub の bash は -e で起こすので、終了コードは rc に受けてから times を打ち、最後に返す
       - name: pytest
         shell: bash
         env:
@@ -110,14 +113,21 @@ jobs:
           SKIP_ALLOW: ${{ matrix.skip_allow }}
         run: |
           python -m pip install pytest==9.1.1 pytest-xdist==3.8.0
-          python -m pytest -n auto graphloops/tests/py
+          times
+          rc=0; python -m pytest -n auto graphloops/tests/py || rc=$?
+          times
+          exit "$rc"
       # **ルートの pytest の置き場（tests/py/。検証器 scripts/review-record.py の表の検査）は別の起動で回す。** 柵（fence.py）は
       # 1 回の起動に 1 つの置き場しか載せない。件数の柵（tests/py/conftest.py の EXPECTED_ITEMS）が当たるよう置き場を丸ごと渡す
       - name: root pytest
         shell: bash
         env:
           SKIP_ALLOW: ${{ matrix.skip_allow }}
-        run: python -m pytest tests/py
+        run: |
+          times
+          rc=0; python -m pytest tests/py || rc=$?
+          times
+          exit "$rc"
   # **全組を待って和を検算する。** 組は自分の分しか数えないので、件数の柵（EXPECTED_CHECKS・EXPECTED_TESTS）と全台本の和で見る
   # 検査（判定語彙の到達・渡し方の当たり）はここでしか当たらない。--groups は test の matrix の os と同じ並び（CI_LINT_OK が縛る）
   shards:

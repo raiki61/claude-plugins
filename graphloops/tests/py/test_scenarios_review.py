@@ -1,7 +1,8 @@
-"""層 2 の筋書き（review）: 上限で止まる類と、止める・人待ちの台本（graphloops/tests/simulate_review.py）の check の移し先。
+"""層 2 の筋書き（review）: 上限で止まる類と、止める・人待ちの台本（graphloops/tests/simulate_review.py）の check の移し先（T2）と、
+移す順の (3)(4) のうち今の出来事で書ける関数（T3）の移し先。
 
 列（history）は台本の関数の中の Run 1 つが打った出来事を元の順に並べたデータで、行はその列の印を指す（形と規範は scenes.py と
-docs/adr/0067）。1 行が台本の check 1 件で、行の印 ``moved_from`` が名乗る（台帳は ledger.py）。
+docs/adr/0067）。1 行が台本の check 1 件で、行の印 ``moved_from`` が名乗る（台帳は ledger.py。台本の関数を消した行は印を持たない）。
 """
 import json
 import pathlib
@@ -34,7 +35,7 @@ def kinds(reply):
 
 # ---- 上限で止まる類 -----------------------------------------------------------------------------------------------------
 
-S = "simulate_review.test_runaway"
+S = None
 history("review/runaway", init("runaway", unattended=True), until("runaway", mark="end"))
 RUNAWAY = [
     row(S, "5 周で停止", "review/runaway", "end", lambda s: s.reply["status"] == "stopped" and st(s)["round"] == 5, id="stops-at-round-5"),
@@ -67,7 +68,7 @@ def test_ci_red_runaway(scene, name, at, expect):
 
 # ---- 人待ち -------------------------------------------------------------------------------------------------------------
 
-S = "simulate_review.test_no_new_awaiting_after_judge"
+S = None
 roles("noawait", rule("p4.ci", once="rc", before=[
     done("@", {"material": review.M("awaiting_human", reason="runner で確かめる話があるので（検査用の取り違え）")}, mark="rc")]), base="std")
 history("review/noawait", init("noawait", checks=None), until("noawait", stop={"round": 2}, catch=True, mark="end"))
@@ -158,7 +159,7 @@ def test_awaiting_origin_guards(scene, name, at, expect):
     play(scene, name, at, expect)
 
 
-S = "simulate_review.test_final_gate_empty_asks_human"
+S = None
 roles("gate-empty", rule("p4.final_gates", reply=merged({"arms": [], "handled": []})), base="std")
 history("review/gate-empty", init("gate-empty"), until("gate-empty", mark="asked"),
         cmd("answer", "--text", "continue", "--note", "文書だけの差分と確かめた（検査用）", mark="answer"), until("gate-empty", mark="end"))
@@ -476,3 +477,69 @@ HUMAN_GATE = [
 @pytest.mark.parametrize("name, at, expect", HUMAN_GATE)
 def test_human_gate(scene, name, at, expect):
     play(scene, name, at, expect)
+
+
+# ---- 判定から入る入口・修正案の審査・線・TDD・仕様（移す順の (3)(4)） -------------------------------------------------------
+
+S = None
+roles("deferjudge")
+history("review/defer", init("defer", unattended=True), until("deferjudge", mark="end"))
+DEFERJUDGE = [
+    row(S, "理由付きの defer は受理され defer_ledger に残る", "review/defer", "end",
+        lambda s: s.reply["status"] == "converged" and any("定数の重複" in k for k in rec(s)["process"].get("defer_ledger", {})),
+        id="defer-with-reason-kept"),
+]
+
+
+@pytest.mark.parametrize("name, at, expect", DEFERJUDGE)
+def test_deferjudge(scene, name, at, expect):
+    play(scene, name, at, expect)
+
+
+S = None
+# 赤の確認の節の前に毎回、読み込みで落ちるテストを書く——狙いどおりの赤にならない
+roles("tdd-giveup", rule("p3.tdd_tests", before=[write("repo", "tests/test_limit.py",
+                                                       "import no_such_module_for_red  # noqa\n\n\ndef test_limit_is_fixed():\n    assert False\n")]),
+      base="std")
+history("review/tdd-giveup", init("tdd-giveup", loop="review-loop-tdd", inputs=(f"tdd_suite={review.TINYJUNIT}",)),
+        write("repo", "tests/test_old_red.py", "def test_was_red_before():\n    assert False\n"), until("tdd-giveup", mark="end"))
+
+
+def _tdd_row(s):
+    return ((rec(s)["process"].get("tdd") or {}).get("rounds") or {}).get("1") or {}
+
+
+def _tdd_tests_calls(s):
+    """赤の確認の前にテストを書く節（p3.tdd_tests）を答えた回数（trace の done の行）"""
+    return sum(1 for x in s.board.lines("trace.jsonl") if (j := json.loads(x)).get("op") == "done" and j.get("instance") == "p3.tdd_tests")
+
+
+TDD_GIVES_UP = [
+    row(S, "赤の確認が 3 回通らなければ TDD を諦めて今の流れで直し、緑の確認は撃たない", "review/tdd-giveup", "end",
+        lambda s: s.reply["status"] == "converged" and _tdd_tests_calls(s) == 3 and _tdd_row(s).get("red") == "failed" and "green" not in _tdd_row(s),
+        id="gives-up-after-three"),
+    row(S, "周の頭で元から落ちていたテストは記録に残し、赤の確認の『ほか』には数えない", "review/tdd-giveup", "end",
+        lambda s: _tdd_row(s).get("baseline_red") == ["tests.test_old_red::test_was_red_before"]
+        and not any("test_was_red_before" in p for p in _tdd_row(s).get("red_problems") or []), id="baseline-red-not-counted"),
+    row(S, "諦めた理由は次の周の判定役に穴の行として届く", "review/tdd-giveup", "end",
+        lambda s: any("TDD の赤の確認が上限で通らなかった" in r["key"]
+                      for r in json.loads(s.board.read(s.board.dir / "out" / "r2" / "p2.history.json")).get("declared_routed") or []),
+        id="reason-reaches-next-judge"),
+    row(S, "TDD を諦めた盤面は、諦めた確認の節の出力から hist.tdd_gave_up が作られる（loop には書かない）", "review/tdd-giveup", "end",
+        lambda s: bool(json.loads(s.board.read(s.board.dir / "hist.json"))["values"].get("tdd_gave_up"))
+        and "tdd_gave_up" not in (st(s).get("loop") or {}), id="hist-not-loop"),
+]
+
+
+@pytest.mark.parametrize("name, at, expect", TDD_GIVES_UP)
+def test_tdd_gives_up_without_dead_end(scene, name, at, expect):
+    play(scene, name, at, expect)
+
+
+def test_tdd_gives_up_keeps_the_loop_shape(scene):
+    """台本の loop_shape_held（関数の外の check なので台帳には載らない）: TDD を諦めた盤面の loop が state_schema の形に収まる"""
+    from engine.schema import load_graph
+    s = st(scene("review/tdd-giveup", "end"))
+    g, _ = load_graph(s["graph"])
+    keys = set(s.get("loop") or {})
+    assert isinstance((g or {}).get("state_schema"), dict) and not s.get("loop_drift"), (sorted(keys), s.get("loop_drift"))
