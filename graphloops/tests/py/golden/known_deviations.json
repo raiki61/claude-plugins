@@ -1,0 +1,13 @@
+[
+ {
+  "fixtures": [
+   "review-loop/real-*"
+  ],
+  "paths": [
+   "cur.p3.delta_owed.rows",
+   "cur.p3.delta_owed2.rows"
+  ],
+  "reason": "旧い盤面（p3.delta_owed・p3.delta_owed2 の出力に rows が無い版）で、rules/review-loop.py の _owed_keys（delta_faces_open・delta2_faces_open が引く）が die で止まる。人の方針『旧い盤面は警告して通す。止めずに開けて進められること』からのずれ。直すのは rules/review-loop.py（熱いファイル）を触る次の run——直ったらこの行を消し、expect --contract で実在の盤面の期待値を作り直す",
+  "found": "2026-09-27 review-graph run 20260927-071008 の R2・run 20260927-102911 の判定"
+ }
+]

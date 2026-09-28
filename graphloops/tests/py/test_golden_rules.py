@@ -1,13 +1,15 @@
 """規則（rules/*.py）の今の振る舞いを、実在の盤面と筋書きの台本の途中の状態から作った固定具の上で固定する特徴づけのテスト。
 
 手順 3 の作り替え（規則の形を変えるが振る舞いは変えない）の安全網。固定具と期待値は graphloops/tests/golden_make.py が作る
-（期待値を手で書かない）。どの本番の変更で赤くなるか:
+（期待値を手で書かない。人が書くのは既知のずれの台帳 golden/known_deviations.json だけ）。どの本番の変更で赤くなるか:
 - contract（外の約束）: 条件の真偽と理由が変わって節の走らせる判断が変わる・受け付けの可否か拒む理由が変わる・機械の節が別の
   次の節や問いを出す・記録（record.json）に書く値が変わる・周の印（done・na と理由）が変わる。作り替えの run はこれを変えてはならない
+  （台帳に載った方針からのずれだけは、規則を方針どおりに直す run が台帳と一緒に変える）
 - internal（内部の形）: 規則の表の名前ごとの返り・loop の状態の鍵・機械の節の出力の形が変わる。作り替えで作り直してよい
   （`golden_make.py expect`。差分は審査に出る）
-- 形の壊れ（test_no_shape_break_in_observation）: 今の観察に、固定具の盤面が宣言の要る欄を欠くせいの落ち方（想定外の例外・
-  開けない・宣言に在る欄が解決できない die）が出た。contract が同時に赤なら、規則の変化でなく固定具の欠けを先に疑う
+- 観察の落ち方（classify_breaks の札ごと）: 固定具の欠け（宣言に在る欄が固定具に無いための die）・宣言に帰着できない壊れ
+  （想定外の例外・例外 <型>・開けない・欄の解決以外の die）・台帳（known_deviations.json）と合わない方針からのずれ
+- 固定具の形（shape.json）: 固定具を今の宣言で照らした違反の数えが変わった（観察の前に、どの固定具かが出る）
 - 覆いの一覧（golden/expect/coverage.json）: 規則の表とフックの名前が増えた・消えた・覆いが変わったのに一覧が古い
 - 衛生: 固定具・期待値に家のパス・利用者名・秘密が入った、固定具が上限を超えた
 """
@@ -47,12 +49,42 @@ def test_internal(path, observed):
     assert observed(path)["internal"] == _expected("internal", path)
 
 
+# 下の 3 本は赤の名前で原因の見当を分ける。期待値のファイルでなく今の観察を見る（期待値は作り直すまで古い）
 @pytest.mark.parametrize("path", FIXTURES, ids=IDS)
-def test_no_shape_break_in_observation(path, observed):
-    """今の観察に、固定具の盤面の形の欠けから来た壊れが無い——赤の名前で『規則の振る舞いの変化』と『固定具の欠け』を分ける。
-    期待値のファイルでなく今の観察を見る（期待値は作り直すまで古いので、作り直す前の赤を分けられない）"""
-    breaks = ga.shape_breaks(ga.load_fixture(path), observed(path))
-    assert not breaks, f"固定具の形の欠けから来た壊れ（盤面の形の宣言で要る欄が固定具に無い）: {breaks[:3]}"
+def test_no_fixture_gap_in_observation(path, observed):
+    gap = ga.classify_breaks(ga.load_fixture(path), observed(path))["gap"]
+    assert not gap, f"固定具の欠け（宣言に在る欄が固定具に無いための die。固定具を集め直せ）: {gap[:3]}"
+
+
+@pytest.mark.parametrize("path", FIXTURES, ids=IDS)
+def test_no_unattributed_break_in_observation(path, observed):
+    bad = ga.classify_breaks(ga.load_fixture(path), observed(path))["unattributed"]
+    assert not bad, f"宣言に帰着できない壊れ（規則の欠陥か、コードが添字で読む欄・記録の欠け）: {bad[:3]}"
+
+
+def test_known_deviations_match_ledger(observed):
+    """実在の盤面で方針からずれた落ち方は、既知のずれの台帳（known_deviations.json）と両向きで一致する——台帳に無いずれは
+    新しいずれ、観察に出ない台帳の行は規則が直った印（台帳と期待値を作り直す）"""
+    import fnmatch
+    rows = ga.known_deviations()
+    seen, unlisted = set(), []
+    for p in FIXTURES:
+        for path in ga.classify_breaks(ga.load_fixture(p), observed(p))["deviation"]:
+            hit = [i for i, r in enumerate(rows)
+                   if any(fnmatch.fnmatch(ga.fixture_id(p), f) for f in r["fixtures"]) and path in r["paths"]]
+            seen.update(hit)
+            if not hit:
+                unlisted.append((ga.fixture_id(p), path))
+    assert not unlisted, f"台帳に無い方針からのずれ: {sorted(set(unlisted))[:5]}"
+    gone = [r for i, r in enumerate(rows) if i not in seen]
+    assert not gone, f"観察に出ない台帳の行（規則が直ったなら台帳から消し、期待値を作り直せ）: {gone}"
+
+
+def test_fixture_shape_matches_expect():
+    """固定具を今の宣言で照らした違反の数えが、期待値の shape.json と等しい（観察を回さない）。違えば、宣言か固定具が変わった
+    ——どの固定具が古くなったかがここで先に出る（golden_make.py expect で作り直し、差分は審査に出る）"""
+    diff = ga.shape_diff()
+    assert not diff, f"固定具の形が期待値と違う（{len(diff)} 件）: {json.dumps(dict(list(diff.items())[:2]), ensure_ascii=False)[:600]}"
 
 
 def test_every_fixture_has_both_layers_and_no_orphans():

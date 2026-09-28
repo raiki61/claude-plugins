@@ -9,8 +9,9 @@
 - internal（内部の形）: 規則の表の名前ごとの呼ばれ方と返り（calls）・条件の名前ごとの真偽と理由・loop の状態の変化・
   機械の節の出力。作り替えで作り直してよい（差分は審査に出る）
 
-手順 3 の作り替えが呼び方や盤面の形を変えたら、直すのはここ（`upcast` と `observe` の中）と internal の期待値だけにする。
-期待値と固定具は `graphloops/tests/golden_make.py` が作る（手で書かない）。
+手順 3 の作り替えが呼び方や盤面の形を変えたら、直すのはここ（`upcast` と `observe` の中）と、internal の期待値・固定具の形の一覧
+（shape.json）だけにする。期待値と固定具は `graphloops/tests/golden_make.py` が作る（手で書かない。人が書くのは既知のずれの台帳
+golden/known_deviations.json だけ）。
 """
 import contextlib
 import datetime
@@ -615,17 +616,62 @@ def node_of_file(rel, nodes):
     return best
 
 
+def _norm_violation(msg):
+    """違反の文を、縮めで動く所（リストの添字・値の字面・型の名前）を均した形に——縮める前と後で同じ違反を同じ文にする"""
+    msg = re.sub(r"\[\d+\]", "[]", msg)
+    msg = re.sub(r"値 .*? が(語彙| )", r"値 … が\1", msg, flags=re.S)
+    return re.sub(r"（[A-Za-z_]+）$", "", msg)
+
+
+def shape_violations(fx):
+    """固定具の盤面を既存の宣言だけで照らした違反の文の一覧（新しい schema は作らない）: 周の要素を engine.board.empty_round の鍵で、
+    盤面の loop を graph の state_schema で、節の出力（out/r<周>/<名前>.json）をその節の schema で（engine.schema.validate_schema）、
+    盤面の中の参照（state の outputs と instance が指す返答・項目のファイル）は固定具に在るかで。
+    縮め（golden_make の Shrinker）と、固定具の形の一覧（期待値の shape.json）の正本"""
+    from engine.schema import validate_schema
+    files = fx.get("files") or {}
+    g = graph(fx["loop"])
+    nodes = g["nodes"]
+    out = []
+    st = files.get("state.json")
+    if isinstance(st, dict):
+        for rd in st.get("rounds") or []:
+            if isinstance(rd, dict):
+                out += [f"state.rounds[]: 周の欄 '{k}' が無い" for k in empty_round(0) if k not in rd]
+        sch = g.get("state_schema")
+        if isinstance(sch, dict) and isinstance(st.get("loop"), dict):
+            out += validate_schema(st["loop"], sch, "state.loop")
+        refs = [("outputs", o.get("file")) for o in (st.get("outputs") or {}).values() if isinstance(o, dict)]
+        for rd in st.get("rounds") or []:
+            for inst in ((rd.get("instances") or {}) if isinstance(rd, dict) else {}).values():
+                if isinstance(inst, dict):
+                    refs += [(k, inst.get(k)) for k in ("output_file", "item_file")]
+        for kind, ref in refs:
+            if isinstance(ref, str) and ref and ref.removeprefix("<RUN>/") not in files:
+                out.append(f"state の {kind} が指す先が固定具に無い")
+    for rel, v in files.items():
+        nid = node_of_file(rel, nodes)
+        if nid and nodes[nid].get("schema"):
+            out += validate_schema(v, nodes[nid]["schema"], f"out/{nid}")
+    return sorted(_norm_violation(m) for m in out)
+
+
 _UNRESOLVED = re.compile(r"die: cond '[^']+' の欄 '([^']+)' が解決できない")
 _BROKEN = re.compile(r"想定外の例外|例外 [A-Za-z_]\w*|開けない: ")
+BREAK_KINDS = ("gap", "deviation", "unattributed")
 
 
-def shape_breaks(fx, obs):
-    """観察の中の、固定具の盤面の形の欠けから来た壊れ（固定具ごとの一覧。空なら無い）。
+def classify_breaks(fx, obs):
+    """観察の中の落ち方を札に分ける ——{"gap": [...], "deviation": [欄の道...], "unattributed": [...]}。
 
-    規則の振る舞いの変化と見分けるための物で、拾うのは: engine か規則が落ちた（『想定外の例外』・呼ばれ方の『例外 <型>』）、
-    盤面が開けない（『開けない:』）、条件が die した（『die:』）のうち、欄が解決できないのでない物と、解決できない欄が盤面の形の宣言に
-    在るのに固定具に無い物——周の欄（engine.board.empty_round の鍵）か、出力が固定具に在る節の schema の required の欄。
-    まだ誰も書いていない欄（その節がまだ走っていない・周の途中で書かれる欄）は宣言どおりなので拾わない"""
+    - gap（固定具の欠け）: 台本から取った固定具で、条件が解決できない欄が宣言に在るのに固定具に無い（周の欄＝empty_round の鍵か、
+      出力が固定具に在る節の schema の required の欄）
+    - deviation（方針からのずれの候補）: 実在の盤面の固定具で同じ形の die。元の盤面そのものに無い欄（縮めは宣言の違反を増やさない）で、
+      旧い盤面を止めずに通す人の方針からずれた規則の落ち方——既知のずれの台帳（known_deviations.json）と突き合わせる
+    - unattributed（宣言に帰着できない壊れ）: 想定外の例外・例外 <型>・開けない・欄の解決以外の die。規則の欠陥か、宣言の外の欠け
+      （コードが添字で読む欄・記録）のどちらか
+    まだ誰も書いていない欄（出力の無い節・周の途中で書かれる欄）の die は宣言どおりなので数えない。internal.calls は同じ落ち方の
+    写し（道を持たない）なので見ない"""
     nodes = graph(fx["loop"])["nodes"]
     files = fx.get("files") or {}
     outs = {}
@@ -634,14 +680,10 @@ def shape_breaks(fx, obs):
         if nid and isinstance(v, dict):
             outs.setdefault(nid, []).append(v)
     rounds = (files.get("state.json") or {}).get("rounds") or [{}]
-    got = []
+    got = {k: [] for k in BREAK_KINDS}
 
     def declared_missing(path):
-        # 宣言が在ると言う欄そのものが固定具に無いときだけ（在るならその下の、周の途中で書かれる欄が無いだけ）。実在の盤面の
-        # 固定具は縮めが元の盤面より宣言の違反を増やさないので、無い欄は元の旧い盤面に無かった物——固定具の欠けではない
-        # （旧い盤面の読み替えの観察として contract の期待値に残る）
-        if fx.get("origin") == "real":
-            return False
+        # 宣言が在ると言う欄そのものが固定具に無いときだけ（在るならその下の、周の途中で書かれる欄が無いだけ）
         head, _, rest = path.partition(".")
         if head == "rd":
             k = rest.split(".")[0]
@@ -657,20 +699,48 @@ def shape_breaks(fx, obs):
 
     def walk(o):
         if isinstance(o, str):
-            for m in _BROKEN.finditer(o):
-                got.append(m.group(0))
+            got["unattributed"] += [m.group(0) for m in _BROKEN.finditer(o)]
             if "die:" in o:
                 u = _UNRESOLVED.search(o)
-                if u is None or declared_missing(u.group(1)):
-                    got.append(o[:200])
+                if u is None:
+                    got["unattributed"].append(o[:200])
+                elif declared_missing(u.group(1)):
+                    got["deviation" if fx.get("origin") == "real" else "gap"].append(u.group(1))
         elif isinstance(o, list):
             for x in o:
                 walk(x)
         elif isinstance(o, dict):
             for v in o.values():
                 walk(v)
-    walk(obs)
+    walk(obs.get("contract"))
+    walk({k: v for k, v in (obs.get("internal") or {}).items() if k != "calls"})
     return got
+
+
+def fixture_id(path):
+    path = pathlib.Path(path)
+    return f"{path.parent.name}/{path.stem}"
+
+
+def shape_table():
+    """固定具ごとの、今の宣言で照らした違反の数え（{固定具: {違反の文: 件数}}）——期待値の shape.json に expect が書き、テストが
+    今の数えと等しいかで照らす。宣言か固定具が変わると、観察を回す前にどの固定具が変わったかが差として出る"""
+    import collections
+    return {fixture_id(f): dict(sorted(collections.Counter(shape_violations(load_fixture(f))).items()))
+            for f in fixture_paths()}
+
+
+def shape_diff():
+    """期待値の shape.json と今の shape_table の違い ——{固定具: (期待, 今)}（空なら同じ）。テストと golden_make.py check が同じ比べ方を使う"""
+    want = json.loads((GOLDEN / "expect" / "shape.json").read_text(encoding="utf-8"))
+    got = shape_table()
+    return {k: (want.get(k), got.get(k)) for k in sorted(set(want) | set(got)) if want.get(k) != got.get(k)}
+
+
+def known_deviations():
+    """既知のずれの台帳（人の方針からずれた規則の落ち方を、正しい振る舞いと分けて名指す）——[{fixtures, paths, reason}]"""
+    p = GOLDEN / "known_deviations.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else []
 
 
 # ---------------------------------------------------------------- 衛生
