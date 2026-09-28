@@ -72,6 +72,12 @@ board = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id"
 wp = r.get("working_path") or ""
 print("run id:", r.get("id"))
 print("状態:", r.get("status"))
+# 走っている間の費用は Archon の run の行の metadata.total_cost_usd（tests/events/get-running.json・get-finished.json の
+# 記録に在る欄。記録の値はどちらも 0）。報告の費用の行は終わった run の workflow_completed の cost_usd（report.RUN_COST_EVENT）で、
+# 別の欄なので同じ値とは限らない——ここは目安で、正は報告の行
+cost = (r.get("metadata") or {}).get("total_cost_usd")
+print("今までの費用:", "{} USD（Archon の run の metadata.total_cost_usd。目安で、正は報告の費用の行）".format(cost)
+      if isinstance(cost, (int, float)) else "取れない（run に total_cost_usd が無い）")
 print("修正の差分がある worktree:", r.get("working_path"))
 if not item:
     print("認証: 下の 3 つは CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つ（値は出さない。keychain なら WORKS_KEYCHAIN_ITEM=<項目名> を sh の直前に足す）")

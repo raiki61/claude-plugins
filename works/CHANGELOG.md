@@ -6,6 +6,16 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- ラインの入力 `lang`（報告の言語）。AI の報告の指示書が読む `inputs.lang` に渡る（graphloops の `--lang` と同じ）。空なら今までどおり依頼文の言語（利用者の言語）で書く。機械の報告 `report.md` の定型文は日本語のまま（AI の報告が落ちた時の予備）。
+- `use.sh show` が、走っている run の今までの費用（Archon が run に持つ和 `metadata.total_cost_usd`）を出す。
+
+### Changed
+
+- darkfactory の独立の目（R1〜R4）を、最後の人の関所の後から前へ移した（最後のテスト → 独立の目 → 最後の関所 → 報告）。関所の全文に目の判定と、R4 が人に聞く問いが載る。人は審査の結果を見てから答える（graphloops が r4.human_gate で聞くのと同じ順）。`final_gate: when_needed` でも、目が阻害（redesign-needed・unverifiable・premise-invalid）を返せば関所が開く。関所の `continue` は R4 の問いには答えない（問いは今までどおり報告の冒頭と次の run の依頼の下書きへ渡る）。`stop` しても目の費用は戻らない（目はもう回っている）。
+- 報告の費用の行: 節の費用は Archon の `node_completed` の `cost_usd` だけを読む（推測の別名 `costUsd`・`total_cost_usd` は読まない）。合計は節の和でなく Archon の run の和（`workflow_completed` の `cost_usd`）にし、節の和と食い違えば両方を出す（包みの節と子を二重に数えうるため）。run の和がまだ無い run は、節の和を「途中」と添えて出す。
+
 ## [0.2.1] - 2026-09-28
 
 ### Changed

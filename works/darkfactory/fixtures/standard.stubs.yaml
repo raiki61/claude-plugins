@@ -1,5 +1,5 @@
 # 筋書き standard: 全部の段が回る（修正案 → 事前審査が人に聞き policy-gate が continue → 修正 → 差分の審査 → 手直し →
-# 最後のテスト → 最後の関所 → 報告 fixed）。start は stub せず本物で回す（with: の INPUTS_* が模擬実行で start.py に届き、
+# 最後のテスト → 独立の目 → 最後の関所 → 報告 fixed）。start は stub せず本物で回す（with: の INPUTS_* が模擬実行で start.py に届き、
 # 対象（mktarget.sh の種）に本物の盤面を作る。TA16）。後ろの節は全部 stub
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
@@ -1319,6 +1319,29 @@ testing__run:
   - name: suite
     exit: 0
   by: engine
+h-look:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
 h-final:
   ok: true
   stop: false
@@ -1345,7 +1368,7 @@ h-final:
 h-eyes:
   ok: true
   stop: false
-  go: true
+  go: false
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1755,9 +1778,10 @@ fixture:
   - refixing__collect
   - h-tests
   - testing__run
+  - h-look
+  - eyeing__eyes-collect
   - h-final
   - h-eyes
-  - eyeing__eyes-collect
   - report
   - reporting__collect
   - result

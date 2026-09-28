@@ -128,7 +128,7 @@ class ScriptLine:
         req.parent.mkdir(parents=True, exist_ok=True)
         req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
         self.inputs = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
-                       "adapter": "optional", "policy_md": "", "tdd_suite": "", **(inputs or {})}
+                       "adapter": "optional", "policy_md": "", "lang": "", "tdd_suite": "", **(inputs or {})}
         self.art = self.tmp / "art"
         self.art.mkdir(parents=True, exist_ok=True)
         self.board = self.art / "board"

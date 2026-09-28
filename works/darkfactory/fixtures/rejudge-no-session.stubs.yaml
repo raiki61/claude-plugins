@@ -1332,6 +1332,29 @@ testing__run:
   - name: suite
     exit: 0
   by: engine
+h-look:
+  ok: true
+  stop: true
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
 h-final:
   ok: true
   stop: true
@@ -1765,6 +1788,7 @@ fixture:
   - h-review
   - h-refix
   - h-tests
+  - h-look
   - h-final
   - h-eyes
   - report

@@ -6,7 +6,7 @@
 
 読む環境変数（Archon が節の with: から渡す。どれも在ること。値の空は既定の意味）:
 - INPUTS_REQUEST（依頼のファイル。相対なら cwd＝対象の根から）・INPUTS_TEST_CMD・INPUTS_THICKNESS・INPUTS_GATES・
-  INPUTS_FINAL_GATE・INPUTS_ADAPTER・INPUTS_POLICY_MD
+  INPUTS_FINAL_GATE・INPUTS_ADAPTER・INPUTS_POLICY_MD（INPUTS_LANG だけは無くてよい。報告の言語。無いのは空＝依頼文の言語）
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（切符の run_id。空も欠け）
 版の控え: 入力を確かめる前（拒む run でも）に <ARTIFACTS_DIR>/versions.json を書く（versions.snapshot。盤面の外）。
 書けなくても run は止めず、標準エラーに 1 行出す
@@ -30,7 +30,9 @@ import script_io  # noqa: E402
 # 裁定 TA16: 読む INPUTS_* の組と raw の鍵（Task 17 の試験が YAML の with: の鍵と突き合わせる）
 INPUTS = {"INPUTS_REQUEST": "request", "INPUTS_TEST_CMD": "test_cmd", "INPUTS_THICKNESS": "thickness",
           "INPUTS_GATES": "gates", "INPUTS_FINAL_GATE": "final_gate", "INPUTS_ADAPTER": "adapter",
-          "INPUTS_POLICY_MD": "policy_md"}
+          "INPUTS_POLICY_MD": "policy_md", "INPUTS_LANG": "lang"}
+# 無くても欠けに数えない入力（後から足した入力。前の版の with: で再開した run は渡さない。無いのは空と同じ）
+OPTIONAL = frozenset({"INPUTS_LANG"})
 RUN_ID_ENV = "WORKFLOW_ID"
 NON_EMPTY = (script_io.ARTIFACTS_ENV, RUN_ID_ENV)
 
@@ -40,7 +42,7 @@ def _line(text) -> str:
 
 
 def main() -> int:
-    missing = [n for n in (*INPUTS, *NON_EMPTY) if n not in os.environ]
+    missing = [n for n in (*INPUTS, *NON_EMPTY) if n not in os.environ and n not in OPTIONAL]
     missing += [n for n in NON_EMPTY if n in os.environ and not os.environ[n]]
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
@@ -55,7 +57,7 @@ def main() -> int:
     import tree_run
     from board import BoardGap
     from engine.util import Reject
-    raw = {key: os.environ[name] for name, key in INPUTS.items()}
+    raw = {key: os.environ.get(name, "") for name, key in INPUTS.items()}
     board = Path(os.environ[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR
     try:
         out = entry.start(board, Path.cwd(), raw, run_id=os.environ[RUN_ID_ENV])

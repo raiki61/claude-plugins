@@ -152,7 +152,7 @@ LINE_ORDER = [
     {"id": "start", "kind": "script", "script": "start", "depends_on": ["launch"],
      "with": {"request": "$INPUTS.request", "test_cmd": "$INPUTS.test_cmd", "thickness": "$INPUTS.thickness",
               "gates": "$INPUTS.gates", "final_gate": "$INPUTS.final_gate", "adapter": "$INPUTS.adapter",
-              "policy_md": "$INPUTS.policy_md"}},
+              "policy_md": "$INPUTS.policy_md", "lang": "$INPUTS.lang"}},
     {"id": "ci-checking", "kind": "include", "block": "blk-ci", "depends_on": ["start"],
      "when": "$start.output.ci_role_go == true",
      "with": {"node": "p0.local_checks", "base_rev": "$start.output.base_rev"}},
@@ -208,12 +208,13 @@ LINE_ORDER = [
     _edge("h-tests", "tests", ["start", "h-refix", "refixing"]),
     {"id": "testing", "kind": "include", "block": "blk-tests", "depends_on": ["h-tests"],
      "when": "$h-tests.output.go == true", "with": {"cmd": "$start.output.test_cmd", "mode": "final"}},
-    _edge("h-final", "final", ["start", "h-tests", "testing"], tests=_skippable("$testing.output")),
+    _edge("h-look", "look", ["start", "h-tests", "testing"]),
+    {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-look"], "when": "$h-look.output.go == true",
+     "with": {"base_rev": "$start.output.base_rev"}},
+    _edge("h-final", "final", ["start", "h-tests", "testing", "h-look", "eyeing"], tests=_skippable("$testing.output")),
     {"id": "final-gate", "kind": "approval", "depends_on": ["h-final"], "when": "$h-final.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
     _edge("h-eyes", "eyes", ["start", "h-final", "final-gate"], gate=_skippable("$final-gate.output")),
-    {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-eyes"], "when": "$h-eyes.output.go == true",
-     "with": {"base_rev": "$start.output.base_rev"}},
     # 機械の報告は上流の節が落ちた run でも走る（all_done）。start のほかの出力は落ちても飛ばされても null で受ける
     {"id": "report", "kind": "script", "script": "report", "depends_on": ["start", "h-eyes", "eyeing"],
      "trigger_rule": ALL_DONE,
@@ -247,7 +248,7 @@ class LineRun:
         self.tmp = pathlib.Path(tmp)
         self.replies, self.gates, self.edits = replies, gates or {}, edits or {}
         self.inputs = {"test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "optional", "policy_md": "",
-                       **(inputs or {})}
+                       "lang": "", **(inputs or {})}
         self.stop_at = stop_at
         self.sessions = sessions
         self.repo = seed_repo(self.tmp / "repo", declared=True)

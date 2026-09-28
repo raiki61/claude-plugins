@@ -124,7 +124,7 @@ class LineShapeCase(unittest.TestCase):
         self.assertEqual(y["name"], "darkfactory")
         self.assertIs(y["interactive"], True)
         self.assertEqual(set(y["inputs"]), {"request", "test_cmd", "thickness", "gates", "final_gate", "adapter", "policy_md",
-                                            "tdd_suite"})
+                                            "lang", "tdd_suite"})
         self.assertIs(y["inputs"]["request"]["required"], True)
         for k in set(y["inputs"]) - {"request"}:
             self.assertEqual(y["inputs"][k].get("default"), "", k)

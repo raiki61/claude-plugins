@@ -49,5 +49,38 @@ class HeadStopInterruptedCase(unittest.TestCase):
         self.assertIn("Archon の run の状態は cancelled", text)
 
 
+def node_done(step, cost):
+    return {"event_type": "node_completed", "step_name": step, "data": {"cost_usd": cost}}
+
+
+class HeadCostCase(unittest.TestCase):
+    """費用の行（report.head_cost）。節の費用の欄は Archon の実測の cost_usd だけを読む（issue #2334）。run の合計は節の和でなく
+    workflow の終わりの出来事の cost_usd（fan-out の包みと子が両方 cost_usd を持ち、節の和は二重に数える。issue #3508）。
+    包みの起動の記録は空で渡す（盤面を開かない）"""
+
+    def test_guessed_keys_are_not_read(self):
+        """推測の鍵（costUsd・total_cost_usd）だけの出来事は費用に数えない"""
+        events = [{"event_type": "node_completed", "step_name": "a", "data": {"costUsd": 0.5}},
+                  {"event_type": "node_completed", "step_name": "b", "data": {"total_cost_usd": 0.7}}]
+        lines = report.head_cost(None, "run-1", events=events, launches=[])
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("取れない", lines[0])
+
+    def test_run_total_from_workflow_end(self):
+        """workflow の終わりの cost_usd が合計。節の和（0.03）と食い違えば両方を出す"""
+        events = [node_done("a", 0.01), node_done("b", 0.02),
+                  {"event_type": "workflow_completed", "data": {"cost_usd": 0.025}}]
+        lines = report.head_cost(None, "run-1", events=events, launches=[])
+        self.assertIn("費用の合計: 0.025 USD", "\n".join(lines))
+        self.assertTrue(any("節の和" in x and "0.03" in x for x in lines), lines)
+
+    def test_running_total_is_partial(self):
+        """workflow の終わりの出来事がまだ無い（走っている）間の合計は、途中の節の和だと言う"""
+        lines = report.head_cost(None, "run-1", events=[node_done("a", 0.01)], launches=[])
+        total = [x for x in lines if x.startswith("費用の合計")]
+        self.assertEqual(len(total), 1, lines)
+        self.assertIn("途中", total[0])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -552,6 +552,14 @@ class ProtectedGateCase(EdgeBase):
         rows = trace_rows(self.board, line_edge.STOP_AFTER_END_OP)
         self.assertEqual([r["by"] for r in rows], [line_edge.PROTECTED_BY])
 
+    def test_final_skipped_still_stops(self):
+        """独立の目のブロックが落ちて h-final が飛ばされた（行がまだ無い）run でも、h-eyes が確かめ直して止める"""
+        self.touched_closed()
+        got = self.edge("eyes", gate=None)
+        self.assertTrue(got["stop"])
+        self.assertIn(line_edge.PROTECTED_HEAD, got["why"])
+        self.assertEqual(len(self.protected_rows()), 1)
+
     def test_broken_manifest_forces_gate(self):
         """一覧が読めない時は確かめられなかったと頭に書いて開く（黙って空にしない）"""
         tests = self.closed()
@@ -1060,7 +1068,7 @@ class MatEyesEdgeCase(EdgeBase):
         b.settle()
         b = entry.open_board(self.board)
         self.assertTrue({"r1.comment_candidates", "r2.design"} <= set(b.ready()), b.ready())
-        got = self.edge("eyes", gate={"decision": "continue", "text": ""})
+        got = self.edge("look")
         self.assertEqual((got["go"], got["stop"]), (True, False))
         halt.place(self.board, "止め札の試し", "test")
         got = self.edge("eyes")
@@ -1162,6 +1170,50 @@ class EdgeScriptCase(EdgeBase):
         spec.loader.exec_module(mod)
         self.assertEqual(mod.INPUTS, ("INPUTS_AT", "INPUTS_JUDGED", "INPUTS_PREMISED", "INPUTS_GATE", "INPUTS_TESTS",
                                       "INPUTS_ADAPTER", "INPUTS_FINAL_GATE"))
+
+
+class FinalGateEyesCase(EdgeBase):
+    """独立の目は最後の関所の前（本線の r4.human_gate と同じく、人は審査の結果を見てから答える）: h-final の文に R1〜R4 の判定が
+    載り、目が阻害を返せば when_needed でも開く。at look は目を回すか、at eyes は関所の答えを受ける"""
+    closed = FinalGateCase.closed
+
+    def test_gate_text_lists_eye_verdicts(self):
+        tests = self.closed()
+        text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
+        self.assertIn("独立の目の判定（阻害: 無い）", text)
+        for name in ("R1", "R2", "R3", "R4"):
+            self.assertIn(f"  - {name}: ", text)
+        self.assertIn(f'報告へ進める: archon workflow respond {RUN_ID} continue', text)
+
+    def test_when_needed_opens_on_eye_block(self):
+        """when_needed・緑・問い無し・異議無しでも、目が阻害（redesign-needed）を返していれば開き、文に阻害の R"""
+        tests = self.closed()
+        b = entry.open_board(self.board, allow_halted=True)
+        rounded = b.dir / "rounds" / f"round-{b.round}.json"
+        doc = json.loads(rounded.read_text(encoding="utf-8"))
+        doc["reviews"]["R3"] = {"status": "redesign-needed", "reason": "横断で揃っていない"}
+        rounded.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        got = self.edge("final", tests=tests, final_gate="when_needed")
+        self.assertTrue(got["ask"])
+        self.assertIn("独立の目の判定（阻害: R3）", got["gate_text"])
+        self.assertIn("R3: redesign-needed（横断で揃っていない）", got["gate_text"])
+
+    def test_not_run_is_shown_but_not_a_block(self):
+        """not_run は機械が書く欠け（目の判定でない）: 文には出すが、when_needed の関所を開く理由にしない"""
+        tests = self.closed()
+        b = entry.open_board(self.board, allow_halted=True)
+        rounded = b.dir / "rounds" / f"round-{b.round}.json"
+        doc = json.loads(rounded.read_text(encoding="utf-8"))
+        doc["reviews"]["R1"] = {"status": "not_run", "reason": "走らせるべき周に返答が無い"}
+        rounded.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.assertFalse(self.edge("final", tests=tests, final_gate="when_needed")["ask"])
+        self.assertIn("R1: not_run", self.edge("final", tests=tests, final_gate="always")["gate_text"])
+
+    def test_look_does_not_take_gate(self):
+        """関所の答えを受けるのは at eyes（関所の後）だけ。at look（関所の前）に答えを渡すのは配線の誤り"""
+        self.fixed()
+        with self.assertRaises(BoardGap):
+            self.edge("look", gate={"decision": "continue", "text": ""})
 
 
 if __name__ == "__main__":

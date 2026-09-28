@@ -158,14 +158,17 @@ class EyesPurposeCase(LineBase):
         self.assertEqual(b.node_state("p0.purpose"), "done")
         self.assertEqual(got["out"]["h-mat"]["purpose_file"], str(b.dir / b.state["outputs"]["p0.purpose"]["file"]))
 
-    def test_eyes_after_final_gate(self):
-        """最後の関所の後に独立の目（R1・R2 の筋）が回り、返答が盤面に在る。周は目の後に締まり、結末 fixed（締めた盤面にも
-        報告の節が出て AI の報告が回る。R61 の B）"""
+    def test_eyes_before_final_gate(self):
+        """最後のテストの後・最後の関所の前に独立の目（R1・R2 の筋）が回り、返答が盤面に在る。関所の文に目の判定が載る。周は目の後に
+        締まり、結末 fixed（締めた盤面にも報告の節が出て AI の報告が回る。R61 の B）"""
         got = self.run_line()
         self.order_ok(got["trail"])
         t = got["trail"]
-        self.assertLess(t.index("final-gate"), t.index("eyeing"))
-        self.assertEqual(t[-4:], ["eyeing", "report", "reporting", "result"])
+        self.assertLess(t.index("testing"), t.index("eyeing"))
+        self.assertLess(t.index("eyeing"), t.index("final-gate"))
+        self.assertEqual(t[-4:], ["h-eyes", "report", "reporting", "result"])
+        for name in ("R1: pass", "R2: pass"):
+            self.assertIn(name, got["out"]["h-final"]["gate_text"])
         self.assertEqual(set(got["eyes_roles"]), {"r1-comments", "r1-minimality", "r2-design", "r2-compare"})
         b = entry.open_board(got["board_dir"], allow_halted=True)
         for nid in ("r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare"):
@@ -174,17 +177,19 @@ class EyesPurposeCase(LineBase):
         self.assertEqual(got["out"]["eyeing"]["ok"], True)
         self.assertEqual(got["outcome"], "fixed", pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8"))
 
-    def test_final_gate_stop_skips_eyes(self):
-        """最後の関所の stop → 目は回らない（周は開いたまま人が止めた）、結末 stopped_by_human"""
+    def test_final_gate_stop_after_eyes(self):
+        """独立の目の後の最後の関所の stop → 結末 stopped_by_human。周は目の後に締まっているので、止めた事実は by human:final-gate の
+        trace の 1 行（b.stop は周を締めた盤面を拒む）"""
         got = self.run_line(gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}})
-        self.assertNotIn("eyeing", got["trail"])
+        self.assertLess(got["trail"].index("eyeing"), got["trail"].index("final-gate"))
         self.assertEqual(got["outcome"], "stopped_by_human")
-        st = self.state(got)
-        self.assertEqual(st["stop"]["by"], line_edge.FINAL_GATE_BY)
+        rows = [json.loads(x) for x in (got["board_dir"] / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(r["reason"], r["by"]) for r in rows if r.get("op") == line_edge.STOP_AFTER_END_OP],
+                         [("差分を人が読み直す", line_edge.FINAL_GATE_BY)])
 
     def test_eyes_asking_goes_to_next_run(self):
         """R4 が方針とのぶつかりを挙げ r4.human_gate が人に聞く → ブロックは止めずに asking で抜け（計画 Task 33 の (b)）、
-        報告は needs_human。問いは報告の冒頭 1 と次の run の依頼の下書きに載る"""
+        報告は needs_human。問いは最後の関所の文・報告の冒頭 1・次の run の依頼の下書きに載る（関所の continue は問いに答えない）"""
         import test_blk_eyes as TB
         r = replies(review=CLEAN_REVIEW)
         r["judge"] = linekit.reply("judge_no_fix")
@@ -193,6 +198,7 @@ class EyesPurposeCase(LineBase):
         got = self.run_line(replies=r, edits={})
         self.assertIn("r4-scope", got["eyes_roles"])
         self.assertIs(got["out"]["eyeing"]["asking"], True)
+        self.assertIn(conflict, got["out"]["h-final"]["gate_text"])
         self.assertEqual(got["outcome"], "needs_human")
         text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
         self.assertIn(conflict, text)
@@ -456,7 +462,7 @@ class RefixToTestsCase(LineBase):
 
     def test_run28_objection_then_two_refix_rounds(self):
         """run 28 の形: 修正の返答に判定への異議 → h-rejudge が再審を回す（判定役の会話の続き）→ 差分の審査 → 手直し →
-        2 回目の審査 → 2 回目の手直し → h-tests go True → 最後のテスト → 最後の関所 → 独立の目 → 報告 fixed"""
+        2 回目の審査 → 2 回目の手直し → h-tests go True → 最後のテスト → 独立の目 → 最後の関所 → 報告 fixed"""
         r = self.two_rounds()
         r["fix"] = {**r["fix"], "rejudge_requested": OBJECTION}
         got = self.run_line(replies=r, edits={"fix": fix_tree, "refix": refix_tree}, inputs={"test_cmd": TEST_CMD},

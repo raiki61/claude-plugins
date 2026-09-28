@@ -24,7 +24,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 
 この版で持たない物（報告に書く）: 版の一覧の行（P1 Task 18・19 の works_version・書き出しの manifest が無い）、
 第三の目の「方針の岐路」の争点（写し a1202d0 の graph に欄が無い）。費用は書き出し（Task 19）の run_facts の代わりに
-Archon の出来事と包みの起動の記録から組む（COST_FIELD_VERIFIED が偽の間は「欄の形は未確認」を添える）。
+Archon の出来事（節の cost_usd と run の和）と包みの起動の記録から組む（COST_FIELD_VERIFIED が偽の間は「欄の形は未確認」を添える）。
 """
 import datetime
 import json
@@ -49,8 +49,13 @@ import writes  # noqa: E402
 PACK = CORE.parents[1]
 OUTCOMES = ("fixed", "no_fix_needed", "stopped_by_request", "stopped_by_human", "stopped_by_line", "needs_human",
             "record_invalid", "interrupted")
-COST_FIELD_VERIFIED = False   # 出来事に節の費用の欄が載るかを P19 で確かめたら真にする
-COST_KEYS = ("cost_usd", "costUsd", "total_cost_usd")   # 出来事の data の費用の欄（推測。P19 で確かめる）
+COST_FIELD_VERIFIED = False   # この pack の run の出来事の実物で P19 を撃ち、tests/events/ に見本を置いたら真にする
+# 節の費用の欄。Archon（v0.11.1 に固定）の node_completed の鍵は cost_usd と公開の実測に在る
+# （https://github.com/coleam00/Archon/issues/2334）。推測の別名は読まない
+COST_FIELD = "cost_usd"
+# run の和を持つ出来事。fan-out の包みと子が両方 cost_usd を持つので、節の和は二重に数えうる——run の合計はこちらを正にする
+# （https://github.com/coleam00/Archon/issues/3508）
+RUN_COST_EVENT = "workflow_completed"
 REPORT_FILE = "report.md"
 NEXT_REQUEST_FILE = "next-request.json"
 NEXT_ORIGIN = "works:report"   # 次の run に渡す依頼の出どころ（accept.check_request の reason）
@@ -184,8 +189,9 @@ def _trace_rows(b, op: str) -> list:
 def gate_record(b) -> dict:
     """engine の cmd_finalize と同じ順: 止めていない盤面（halted が無い）は先に settle（止め札の後に待ちのまま残る報告の節を
     片付ける。M9）。周を締めて止めた盤面（halted.by stop_after_round）は b.report_after_round で報告の節を出す（R61 の B。
-    AI の報告を毎回回す）→ finalize → run_validator（validator_runner の包みが効く口）。settle の RecordInvalid（報告の節を表で持つ
-    ラインの関所）は捕まえて、同じ検証器を下でもう 1 度回す。
+    AI の報告を毎回回す。報告の節が出るのは、人か止め札で止めた・収束した・周を締めて止めた盤面で、途中で終わった run
+    （interrupted）は build が AI の報告を回さない）→ finalize → run_validator（validator_runner の包みが効く口）。
+    settle の RecordInvalid（報告の節を表で持つラインの関所）は捕まえて、同じ検証器を下でもう 1 度回す。
     返り {exit, accepted: exit ∈ report_accepts(b), tail: 出力の末尾, traces: 記録の痕跡の欄（空でない物）,
     round_closed: 今の周に record_round と converge の機械の節が済んだか（止めた印の converge は数えない）}"""
     halted = b.state.get("halted") or {}
@@ -584,15 +590,21 @@ def _step_name(step) -> str:
 
 def _event_cost(e):
     data = e.get("data") if isinstance(e.get("data"), dict) else {}
-    for k in COST_KEYS:
-        v = data.get(k, e.get(k))
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            return float(v)
+    v = data.get(COST_FIELD, e.get(COST_FIELD))
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
     return None
 
 
+def _run_total(events):
+    """run の和（最後の RUN_COST_EVENT の cost_usd）。まだ無い（走っている・途中で終わった）か欄が無ければ None"""
+    ends = [_event_cost(e) for e in events or [] if isinstance(e, dict) and e.get("event_type") == RUN_COST_EVENT]
+    ends = [v for v in ends if v is not None]
+    return ends[-1] if ends else None
+
+
 def cost_rows(events, launches) -> list:
-    """[{node, reported, actual, continued_from}]。events の node_completed の費用の欄（推測。COST_FIELD_VERIFIED）を節の名で
+    """[{node, reported, actual, continued_from}]。events の node_completed の費用の欄（COST_FIELD）を節の名で
     launches（包みの起動の行。時刻の順に並べ直す。拒んだ起動は除く）と順に結ぶ。session.mode continued の起動は、同じ
     session.id のそれまでの表示（再開した会話の total_cost_usd は累積。〔継試〕）を引いた値を actual にし、continued_from に
     その会話を前に使った節を書く。起動の無い出来事の費用は actual = reported で行にする。events が None か費用の欄が
@@ -632,21 +644,28 @@ def cost_rows(events, launches) -> list:
 
 def head_cost(board_dir, run_id: str, *, events=None, launches=None) -> list:
     """冒頭の後の費用の行（書き出しの run_facts の代わりに、Archon の出来事と包みの起動の記録から）。取れなければ 1 行。
+    合計は run の和（_run_total）で、節の和と食い違えば両方を出す。run の和がまだ無ければ節の和を途中の値として出す。
     launches を渡さなければ盤面の run の作業ツリーの起動の記録（盤面を作った後の行）"""
     if launches is None:
         b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
         launches = _launches(b, (b.state.get("inputs") or {}).get("cwd") or ".")
     rows = cost_rows(events, launches)
     if not rows:
-        why = "出来事を読めない" if events is None else "出来事に節の費用の欄が無い"
+        why = "出来事を読めない" if events is None else f"node_completed に欄 {COST_FIELD} が無い。Archon は v0.11.1 の前提"
         return [f"費用: 取れない（{why}。run {run_id or '（id 無し）'}）"]
     mark = "" if COST_FIELD_VERIFIED else "（欄の形は未確認）"
     lines = []
     for r in rows:
         extra = f"（{r['continued_from']} の会話の累積 {r['base']} を引いた。表示 {r['reported']}）" if r["continued_from"] else ""
         lines.append(f"費用 {r['node']}: {r['actual']} USD{extra}{mark}")
-    total = round(sum(r["actual"] for r in rows if isinstance(r["actual"], (int, float))), 6)
-    lines.append(f"費用の合計: {total} USD{mark}")
+    nodes = round(sum(r["actual"] for r in rows if isinstance(r["actual"], (int, float))), 6)
+    run = _run_total(events)
+    if run is None:
+        lines.append(f"費用の合計: {nodes} USD（途中。run の和がまだ無いので節の和。包みと子を二重に数えうる）{mark}")
+    else:
+        lines.append(f"費用の合計: {run} USD（Archon の run の和）{mark}")
+        if round(run, 6) != nodes:
+            lines.append(f"費用の節の和: {nodes} USD（run の和と食い違う。包みの節と子を二重に数えた分がありうる）{mark}")
     return lines
 
 
@@ -677,8 +696,8 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
     gate = gate_record(b)
-    # 盤面が報告の役の節を出したか（表で role のラインだけ。止めた run・収束した run で出る。周を締めて止めた 1 周の run では
-    # 出ない）。待ちのままでも結末は替えない——報告の役の節の待ちは「終わっていない」ではない（計画 P1 Task 34）
+    # 盤面が報告の役の節を出したか（表で role のラインだけ。いつ出るかは gate_record の docstring。stop_after_round で周を
+    # 締めた 1 周の run でも出る）。待ちのままでも結末は替えない——報告の役の節の待ちは「終わっていない」ではない（計画 P1 Task 34）
     # 途中で終わった run は機械の報告だけ（AI の報告の役は最後まで来た盤面を前提にする）
     ai_go = AI_FIRST_NODE in b.ready() and interrupted is None
     outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged)

@@ -1,5 +1,5 @@
-# 筋書き final-stop: 最後の関所の答え stop を h-eyes が盤面へ渡して止め（周の途中なので b.stop。独立の目は
-# 回らない）、機械の報告は stopped_by_human。止めた盤面は報告の役の節を出すので AI の報告（reporting）が回り、出口の報告は report-ai.md
+# 筋書き final-stop: 独立の目の後に開いた最後の関所の答え stop を h-eyes が盤面へ渡して止め（周を締めた後なので trace の
+# 1 行）、機械の報告は stopped_by_human。止めた盤面は報告の役の節を出すので AI の報告（reporting）が回り、出口の報告は report-ai.md
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
 start:
@@ -1331,6 +1331,29 @@ testing__run:
   - name: suite
     exit: 0
   by: engine
+h-look:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
 h-final:
   ok: true
   stop: false
@@ -1767,6 +1790,8 @@ fixture:
   - refixing__collect
   - h-tests
   - testing__run
+  - h-look
+  - eyeing__eyes-collect
   - h-final
   - h-eyes
   - report

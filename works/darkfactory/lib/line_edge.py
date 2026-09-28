@@ -6,7 +6,8 @@
 - judge_edge(b, …): h-judge の固有の仕事（包みの確かめ・前提の実測が盤面に在るか。計画 P1 Task 24・P1-R9）
 - mat_edge(b, …): h-mat の固有の仕事（目的の文を盤面へ渡し、P1 の目を回すか。計画 P1 Task 32・33）
 - rejudge_edge(board_dir, repo): h-rejudge の固有の仕事（修正役の異議の再審を回すか。判定役の会話が無ければ止める。計画 P1 Task 31）
-- eyes_edge(b): h-eyes の固有の仕事（独立の目を回すか。計画 P1 Task 33）
+- eyes_edge(b): h-look の固有の仕事（独立の目を回すか。計画 P1 Task 33）。h-eyes も同じ go を返す（関所の後にまだ目が待つか——報告が
+  blk-eyes の落ちを見分ける）
 - plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 - 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の差分（record.base から。未追跡を
@@ -30,7 +31,8 @@ for _p in (_LIB, _CORE):   # core を頭に（節のスクリプトと同じ順�
         sys.path.insert(0, str(_p))
 
 from board import BoardGap  # noqa: E402
-from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足した後）
+from engine.rules import validator_module  # noqa: E402  （board が写しの engine を sys.path に足した後）
+from engine.util import Reject  # noqa: E402
 import accept  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
@@ -45,8 +47,9 @@ import rejudge  # noqa: E402
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
 # いつも走る script の節 1 本（darkfactory/scripts/edge.py）を、ラインの中で at を替えて使う。並びは C18 の順（中の関所は無い。
 # 人が止まれる所は最後の人の関所 final-gate。P1-R3）。when: と関所の文は境の節の欄だけを読み、go は盤面の ready から決める（TA1）。
-# rejudge は修正役の異議の再審を回すかを決める（計画 P1 Task 31）。eyes は最後の関所の答えを受け、独立の目を回すかを決める（計画 P1 Task 33）
-AT = ("entry", "judge", "mat", "plan", "gate", "fix", "rejudge", "mid", "review", "refix", "tests", "final", "eyes")
+# rejudge は修正役の異議の再審を回すかを決める（計画 P1 Task 31）。look は最後のテストの後に独立の目を回すかを決め、eyes は
+# 独立の目と最後の関所の後に関所の答えを受ける（人は目の結果を見てから答える。本線の r4.human_gate と同じ順。名 h-eyes は前の並びのまま）
+AT = ("entry", "judge", "mat", "plan", "gate", "fix", "rejudge", "mid", "review", "refix", "tests", "look", "final", "eyes")
 GO_NODE = {"plan": "p2.fix_plan", "fix": "p3.fix", "review": "p3.delta_review", "refix": "p3.delta_fix", "tests": "p4.ci"}
 GATE_AT = ("fix", "eyes")            # 関所の答えを受ける境の節（fix は policy-gate、eyes は final-gate）
 GATE_GO = ("approve", "continue")    # approve は continue と、reject は stop と同じ（台帳 R32）
@@ -59,7 +62,7 @@ FINAL_GATE_BY = "human:final-gate"           # final-gate の stop・reject の 
 FINAL_GATE_STOP_NOTE = "最後の関所で止めた"  # final-gate の stop・reject に一言が無い時の理由
 FINAL_GATE_KIND = "final_gate"               # process.human_items の行の kinds
 ENDED_BY = "stop_after_round"                # 1 周の run が周を締めた後の盤面の halted.by（最後のテストの後の普通の終わり）
-ENDED_AT = ("final", "eyes")                 # 周を締めた後に来る境の節（ENDED_BY の盤面を止めたと読まない）
+ENDED_AT = ("look", "final", "eyes")         # 周を締めた後に来る境の節（ENDED_BY の盤面を止めたと読まない）
 STOP_AFTER_END_OP = "stop_after_round_end"   # 周を締めた盤面に止める答え・止め札が来た印の trace の行（b.stop は拒まれる）
 PROTECTED_BY = "works:protected"              # 守りのファイルの行の node（human_items）と、答えの無いまま止めた by
 PROTECTED_KIND = "protected_files"            # その行の kinds
@@ -288,10 +291,34 @@ def _faces(b, nid: str) -> int:
     return len(out.get("faces") or [])
 
 
-def _final_text(b, head: str, tests, objection: str, repo, run_id: str) -> str:
-    """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・盤面の問いを 1 枚に"""
+def _eyes(b) -> tuple:
+    """独立の目（R1〜R4）の判定の行と、目が阻害を返した R の名。判定は周の記録（rounds/round-<N>.json。目の受け付けの settle が
+    周を締めて書く）か、まだ無ければ盤面の記録から。not_run は目の判定でなく機械が書く欠け（返答が無い・止めた周）なので、行には
+    出すが阻害に数えない"""
+    try:
+        rounded = json.loads((b.dir / "rounds" / f"round-{b.round}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        rounded = b.record
+    reviews = rounded.get("reviews") or {}
+    status = validator_module(b).REVIEW_STATUS
+    lines, blocked = [], []
+    for name in ("R1", "R2", "R3", "R4"):
+        r = reviews.get(name)
+        if not isinstance(r, dict):
+            lines.append(f"  - {name}: 結果が無い")
+            continue
+        st = r.get("status")
+        if st in status and status[st].blocks and st != "not_run":
+            blocked.append(name)
+        reason = " ".join(str(r.get("reason") or "").split())
+        lines.append(f"  - {name}: {st}（{reason}）" if reason else f"  - {name}: {st}")
+    return lines, blocked
+
+
+def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
+    """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・独立の目の判定・盤面の問いを 1 枚に"""
     tests = tests or {}
-    lines = [f"最後の人の関所（最後のテストの後・独立の目の前）: テストは{head}", "",
+    lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", "",
              f"- ログ: {tests.get('log') or '（無い）'}"]
     if tests.get("reason"):
         lines.append(f"- 走れなかった理由: {tests['reason']}")
@@ -301,14 +328,18 @@ def _final_text(b, head: str, tests, objection: str, repo, run_id: str) -> str:
     lines.append(f"- 手直し（p3.delta_fix・{len(handled)} 件）:")
     lines += [f"  - {h.get('key')}: {h.get('handled')}（{h.get('how')}）" for h in handled if isinstance(h, dict)] or ["  - （無い）"]
     lines.append(f"- 止めずに残った異議: {objection or '無い'}")
+    rows, blocked = eyes
+    lines.append(f"- 独立の目の判定（阻害: {'・'.join(blocked) or '無い'}）:")
+    lines += rows
     asking = b.state.get("pending_human")
     if asking:
         lines.append(f"- 盤面の問い（{asking.get('node')}）: {asking.get('question')}")
         lines += [f"  - {x}" for x in asking.get("items") or []]
+        lines.append("  - この関所の答えは盤面の問いに答えない。問いは報告の冒頭と次の run の依頼の下書きへ渡る")
     else:
         lines.append("- 盤面の問い: 無い")
     lines += ["", "答え方（approve は continue と、reject は stop と同じ）:",
-              f'- 独立の目へ進める: archon workflow respond {run_id} continue "<一言>"',
+              f'- 報告へ進める: archon workflow respond {run_id} continue "<一言>"',
               f'- 止める: archon workflow respond {run_id} stop "<理由>"'
               f'（archon workflow reject {run_id} --reason "<理由>" でも止まる。報告は出る）']
     return "\n".join(lines) + "\n"
@@ -408,28 +439,37 @@ def entry_edge(b) -> dict:
             "purpose_go": "p0.purpose" in ready, "spec_go": any(n.startswith("spec.") for n in ready)}
 
 
-def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
-    """h-final（最後のテストの後）: ask は final_gate always か、when_needed で最後のテストが緑でない（赤・走れなかった・
-    走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）時。
-    守りのファイルは文の頭の節と process.human_items の 1 行にもなる。文は b.work(FINAL_GATE_FILE) にも"""
-    head = _tests_head(b, tests)
-    left = rejudge.unsettled(b)
-    objection = "" if left["settled"] else left["text"]
+def _guard(b, repo) -> tuple:
+    """守りのファイルと食い違いの申し出を確かめ、在れば今の周の行（答えは最後の関所まで None）に書く。返り (rows, rev, err, asks)。
+    h-final と、関所の答えの無い h-eyes が呼ぶ（独立の目のブロックが落ちて h-final が飛ばされた run でも、行を見ずに通さない）"""
     rows, rev, err = _protected(b, repo)
-    guarded = bool(rows) or bool(err)
     try:
         asks = conflict.human_lines(b)
     except BoardGap as e:   # 申し出の控えが読めない: 黙って空にせず、人に回す
         asks = [f"申し出の控えが読めない（{e}）"]
-    need = head != "緑" or bool(b.state.get("pending_human")) or bool(objection) or guarded or bool(asks)
-    if mode == "when_needed" and not need:
-        return {}
-    if guarded:
+    if rows or err:
         _record_protected(b, rows, err)
     if asks:
         _record_conflict(b, asks)
+    return rows, rev, err, asks
+
+
+def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
+    """h-final（最後のテストと独立の目の後）: ask は final_gate always か、when_needed で最後のテストが緑でない（赤・走れなかった・
+    走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
+    阻害を返した時。守りのファイルは文の頭の節と process.human_items の 1 行にもなる。文は b.work(FINAL_GATE_FILE) にも"""
+    head = _tests_head(b, tests)
+    eyes = _eyes(b)
+    left = rejudge.unsettled(b)
+    objection = "" if left["settled"] else left["text"]
+    rows, rev, err, asks = _guard(b, repo)
+    guarded = bool(rows) or bool(err)
+    need = (head != "緑" or bool(b.state.get("pending_human")) or bool(objection) or guarded or bool(asks)
+            or bool(eyes[1]))
+    if mode == "when_needed" and not need:
+        return {}
     text = ((_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
-            + _final_text(b, head, tests, objection, repo, run_id))
+            + _final_text(b, head, tests, objection, eyes, repo, run_id))
     _write_text(b.work(FINAL_GATE_FILE), text)
     return {"ask": True, "gate_text": text, "gate_file": str(b.work(FINAL_GATE_FILE))}
 
@@ -555,9 +595,10 @@ def rejudge_edge(board_dir, repo) -> dict:
 
 
 def eyes_edge(b) -> dict:
-    """h-eyes の固有の仕事（最後の関所の答えの後。計画 P1 Task 33）: go は独立の目（表の where が blk-eyes の役の節）が盤面で
-    1 つでも待っているか（p4.assemble が済み、条件に当たった目）。r4.human_gate が人に聞いたら、残りの目は答えるまで出ない——
-    ブロックは止めずに asking で抜け、報告が needs_human と問いを次の run へ渡す（計画 Task 33 の (b)）"""
+    """h-look の固有の仕事（最後のテストの後・最後の関所の前。計画 P1 Task 33）: go は独立の目（表の where が blk-eyes の役の節）が
+    盤面で 1 つでも待っているか（p4.assemble が済み、条件に当たった目）。r4.human_gate が人に聞いたら、残りの目は答えるまで出ない——
+    ブロックは止めずに asking で抜け、最後の関所の文に問いが載り、報告が needs_human と問いを次の run へ渡す（計画 Task 33 の (b)）。
+    h-eyes（関所の後）も同じ go を返し、報告が「目を回すと言ったのに blk-eyes の出口が無い」を見分ける"""
     return {"go": bool(_role_ready(b, EYES_BLOCK))}
 
 
@@ -598,23 +639,24 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
     """境の節（計画 Task 10a。並びは C18 の順・計画 P1 Task 26）。返りは EMPTY の欄の全部（使わない欄は空の値。judgment_file・
     open_units はどの at でも h-plan の控え b.work(JUDGED_FILE) から）。盤面を開くのは 1 回（渡し替えの後は開き直す）。順:
     1. 盤面を allow_halted で開く。もう止まっている（halted・state.stop）なら、止め札の理由は trace にだけ書いて stop（M3）。
-       ただし at final・eyes は、1 周の run が周を締めた盤面（halted.by stop_after_round。最後のテストの後の普通の終わり）を
+       ただし at look・final・eyes は、1 周の run が周を締めた盤面（halted.by stop_after_round。最後のテストの後の普通の終わり）を
        止めたと読まない
     2. at fix の gate（policy-gate の出口。None は開かなかった）: approve・continue は b.answer("continue", 一言)、
        stop・reject は b.answer("stop", 一言 か GATE_STOP_NOTE)（盤面は halted.by == "answer"）
     3. at eyes の gate（final-gate の出口）: どの答えも b.work(FINAL_GATE_ANSWER) に {decision, text} と human_items に 1 行。
        stop・reject は b.stop(一言 か FINAL_GATE_STOP_NOTE, by=FINAL_GATE_BY)——周を締めた盤面では b.stop が拒むので、
        trace に STOP_AFTER_END_OP の 1 行（by FINAL_GATE_BY）を書いて stop。守りのファイルの行（h-final が書いた）にも答えを写す。
-       gate が null（関所が開かなかった）なのに今の周の守りのファイルの行が答えを待っていれば、止める（by PROTECTED_BY）
+       gate が null（関所が開かなかった）なら守りのファイルと食い違いを確かめ直し（_guard。h-final が飛ばされた run でも行を書く）、
+       今の周の行が答えを待っていれば、止める（by PROTECTED_BY・conflict.BY）
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
        gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
        fix: go は p3.fix が ready・notes は今の周の human_items の一言（notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
-       mat: mat_edge（目的の文を盤面へ・mat_go）。eyes: eyes_edge（go は独立の目が待っているか）。rejudge: rejudge_edge
+       mat: mat_edge（目的の文を盤面へ・mat_go）。look・eyes: eyes_edge（go は独立の目が待っているか）。rejudge: rejudge_edge
        （go は再審の節が待っているか。判定役の会話を確かめられなければ止める）。mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
        見分ける）・runtime_go・holdout_go は False・mid_note。review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。
-       final: final_edge（final_gate と最後のテストの出口 tests から ask と文）。
+       final: final_edge（final_gate と最後のテストの出口 tests と独立の目の判定から ask と文）。
     ready は DiskBoard.ready（書かない。開き直した盤面でも explicit の機械の節を落とさない）。
     配線の誤り（知らない at・場違いの入力・形の崩れ・知らない final_gate・adapter）は BoardGap"""
     mode = _check_args(at, final_gate=final_gate, judged=judged, gate=gate, tests=tests, premised=premised,
@@ -637,6 +679,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
                     b.trace(AFTER_HALT_OP, at=at, reason=flag["reason"], by=flag["by"])
                 return {**out, "stop": True, "why": reason}
     if at == "eyes" and gate is None:
+        _guard(b, repo)   # h-final が飛ばされた（独立の目のブロックが落ちた）run では行がまだ無い
         guarded = _protected_row(b)
         if guarded is not None and guarded.get("answer") is None:   # 守りのファイルを触ったのに最後の関所が開かなかった
             reason = f"{PROTECTED_HEAD}のに最後の関所の答えが無い（関所が開かなかった）——通すのは人の continue だけ: {guarded.get('note')}"
@@ -676,7 +719,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         return {**out, **rejudge_edge(board_dir, repo)}
     if at == "mat":
         return {**out, **mat_edge(b, board_dir, repo)}
-    if at == "eyes":
+    if at in ("look", "eyes"):
         return {**out, **eyes_edge(b)}
     if at == "mid":
         return {**out, "go": _fixed_by_role(b), "mid_note": MID_NOTE}

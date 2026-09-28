@@ -15,7 +15,7 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 - no-fix・policy-stop・stop-flag: 修正の無い周・修正の前の関所の stop・止め札
 - conflict: 修正役が食い違いを申し出て parked → 裁定の輪（1 回目は拒む）→ fix_code_as → 2 回目の修正役が全部を直す
 - rejudge（run 28）: 修正役が判定に異議 → 再審の輪（1 回目は拒む。判定役の会話の続き）→ 差分の審査 → 手直し → 2 回目の審査 →
-  2 回目の手直し → 最後のテスト（ラインの test_cmd）→ 最後の関所 → 独立の目 → 報告 fixed
+  2 回目の手直し → 最後のテスト（ラインの test_cmd）→ 独立の目 → 最後の関所 → 報告 fixed
 - rejudge-no-session: 同じ異議で判定役の会話が無い → h-rejudge が盤面を止め、後ろは飛んで報告は stopped_by_line
 - <役>-give-up（GIVE_UPS の役: 並行 PR の任せ先・前提の実測・目的・差分の審査・手直し・2 回目の審査）: 役が 3 回とも拒まれる →
   輪は受け付けの done で 3 周目に抜け（max_iterations に当てない）、出口が盤面を止め、run は落ちずに報告まで届く（R50）。

@@ -49,7 +49,7 @@
    "p4.record":               {"by": "builtin"},
    "p4.final_gates":          {"by": "absent", "reason": "最後の変異の検算はこのラインに無い", "comes_with": "線 C（mutgate）"},
    "converge":                {"by": "builtin"},
-   "report.human_items":      {"by": "role", "where": "blk-report", "reason": "書き手（読むだけ）が報告の頭——平易な 3 行と人が決めること——を書く（本線 R13。台帳 R27）。盤面が報告の節を出す run（人か止め札で止めた・収束した）だけ。周を締めて止めた 1 周の run（stop_after_round）では出ない"},
+   "report.human_items":      {"by": "role", "where": "blk-report", "reason": "書き手（読むだけ）が報告の頭——平易な 3 行と人が決めること——を書く（本線 R13。台帳 R27）。盤面が報告の節を出す run だけ——いつ出るかの正本は report.gate_record の docstring（stop_after_round で周を締めた普通の 1 周の run でも出る。R61 の B）"},
    "report.cold_check":       {"by": "role", "where": "blk-report", "reason": "道具を持たない初見の読み手が、報告の頭の本文だけを貼られて読む（本線 X3。注記であって門ではない）"},
    "report":                  {"by": "role", "where": "blk-report", "reason": "書き手が初見検査の詰まりを直して本文の全部を書く。検証器の関所は盤面の settle が踏み、機械の事実（ラインの機械の報告 report.md）は出口が字のまま付ける"},
    "p2.rejudge":              {"by": "role", "where": "blk-rejudge", "reason": "包みが判定役の会話を継ぐ（本線 3-6 の形。持ち主の答え 2026-09-27）"},

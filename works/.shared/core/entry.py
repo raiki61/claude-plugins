@@ -179,7 +179,7 @@ def _word(raw: dict, key: str) -> str:
 
 
 def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
-    """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md} を返す。
+    """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md, lang} を返す。
     盤面は作らない。拒む物（InputRefused）: 依頼が読めない・JSON の配列でない・依頼の型（写しの RL の REQUEST_SCHEMA）に
     合わない、thickness が軽量・重厚・知らない値、final_gate・adapter・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書が無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
@@ -230,7 +230,8 @@ def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
             raise InputRefused(f"名指した方針の文書 {pol} が無い（policy_md。人の方針の文書を名指すなら先に置く）")
         pol = str(pp)
     return {"request_file": str(path.resolve()), "items": items, "request_text": text, "test_cmd": _word(raw, "test_cmd"),
-            "thickness": thickness, "gates": gates, "final_gate": final_gate, "adapter": adapter, "policy_md": pol}
+            "thickness": thickness, "gates": gates, "final_gate": final_gate, "adapter": adapter, "policy_md": pol,
+            "lang": _word(raw, "lang")}
 
 
 def board_rules():
@@ -425,7 +426,8 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     """ラインの入口。順:
     1. check_inputs（拒めば盤面を作らずに InputRefused）
     2. DiskBoard.begin（判定から入る 1 周の run。origin works/darkfactory・base_rev は空＝HEAD・stop_after_round=1・
-       board_hook.py の overrides・validator_runner）。入口の Reject は InputRefused
+       board_hook.py の overrides・validator_runner）。lang が空でなければ inputs.lang に渡す（本線 loop.py の --lang。空は盤面の
+       既定 LANG_DEFAULT＝依頼文の言語）。入口の Reject は InputRefused
     3. テストを走らせる前に r1/start.json に入力の控えと、宣言が無い時の道 ci_fallback（test_cmd か role）を置く。呼び直し
        （Archon の再開）で前の控えの test_cmd と違えば InputRefused（止められた run を別の道で黙って続けない）
     4. _drain（盤面の約束 1 の輪。CI の節は run_ci、p0.parallel_pr は prcheck.run_helper。止められた test_cmd は走らせ直す）
@@ -440,11 +442,12 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     try:
         b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=inp["items"], origin=ORIGIN, base_rev="",
                                request_text=inp["request_text"],
-                               inputs={"gates": inp["gates"] or None, "policy_md": inp["policy_md"] or None},
+                               inputs={"gates": inp["gates"] or None, "policy_md": inp["policy_md"] or None,
+                                       **({"lang": inp["lang"]} if inp["lang"] else {})},
                                stop_after_round=1, **open_kwargs(LINE, table))
     except Reject as e:
         raise InputRefused(f"盤面が入力を受けない: {e}") from None
-    keep = {k: inp[k] for k in ("request_file", "test_cmd", "thickness", "gates", "final_gate", "adapter", "policy_md")}
+    keep = {k: inp[k] for k in ("request_file", "test_cmd", "thickness", "gates", "final_gate", "adapter", "policy_md", "lang")}
     work = b.work(START_FILE)
     if work.is_file():
         prev = json.loads(work.read_text(encoding="utf-8"))

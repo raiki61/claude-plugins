@@ -1280,6 +1280,29 @@ testing__run:
   - name: suite
     exit: 0
   by: engine
+h-look:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
 h-final:
   ok: true
   stop: false
@@ -1291,7 +1314,7 @@ h-final:
     - stats.py mean: 分母が len(xs) - 1 になっている: 依頼とテストのどちらが正しいかは方針の変更で、人が決める（名指し stats.py:9, test_stats.py:9・正しいと見た側 request・c1-1）
 
 
-    最後の人の関所（最後のテストの後・独立の目の前）: テストは緑
+    最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは緑
 
     '
   judgment_file: board/judgment.json
@@ -1314,7 +1337,7 @@ h-final:
 h-eyes:
   ok: true
   stop: false
-  go: true
+  go: false
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1725,9 +1748,10 @@ fixture:
   - refixing__collect
   - h-tests
   - testing__run
+  - h-look
+  - eyeing__eyes-collect
   - h-final
   - h-eyes
-  - eyeing__eyes-collect
   - report
   - reporting__collect
   - result
