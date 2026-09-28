@@ -6,6 +6,18 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-09-28
+
+### Changed
+
+- （開発）旧い bash の台本を消す条件（docs/adr/0067）を、必須は台帳と被覆の包含（集合の包含で読む）、変異で期待の強さを確かめるのは任意にした。人の決定（2026-09-28、リポジトリの持ち主が運用の会話で「変異CIはしなくていい」と言い、REDESIGN の Q1〜Q4 を「すべてどうぞ」で採った）。
+- （開発）変異の workflow（mutation.yml）は push で起こさず、schedule（週 1 回の全腕）と workflow_dispatch だけで 3 OS の組と mutmut を撃つ。手書きの変異の腕は、移した先の pytest の node id を名指して先に撃つ。
+
+### Removed
+
+- （開発）層 2 へ移した bash の台本 6 関数（simulate.py の test_stop_midway、simulate_review.py の test_deferjudge・test_final_gate_empty_asks_human・test_no_new_awaiting_after_judge・test_runaway・test_tdd_gives_up_without_dead_end）。台帳と被覆の包含がそろった物だけで、同じ筋書きは pytest の層 2 が確かめる。子プロセスで loop.py を起こす第二の網と、変異で期待の強さを確かめることは、この 6 関数の分だけ外れた。
+- 残した物: 通しに残す 10 本の 1 つ（test_stop_midround）、golden の作り直しの口（golden_make.py の SIM_TESTS）が名指す 5 関数、関数ごとの被覆の帰属に欠けが出た 3 関数（simulate.test_attended_stuck_answer・test_gate_arms、simulate_review.test_awaiting。集合の包含では消せるが、関数ごとに測り直してから次の run で消す）、判定語彙の到達の柵の値をそれだけが到達させていた 3 関数（simulate.test_stopped_before_gates_reports、simulate_review.test_awaiting_origin_guards・test_ci_red_runaway。柵の値は下げない）、root の台本の review-record.py の節（第二の網）。理由は graphloops/tests/py/MIGRATION.md の「消す段」。
+
 ## [0.23.0] - 2026-09-28
 
 ### Added
