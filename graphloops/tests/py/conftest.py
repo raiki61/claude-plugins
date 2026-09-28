@@ -6,7 +6,8 @@
 - 柵（飛ばしは失敗・件数の突合・台本の検査の件数と到達）は fence.py。件数の定数はここに置く（tests/run.sh の ratchet.py が
   検査の置き場の大文字の整数の定数を拾い、突合の行が 1 か所で緩んでいないかを見る）
 - 盤面を端から端まで回す台本（graphloops/tests/simulate.py・simulate_review.py）を pytest から回す土台（fixture・選択肢
-  --gl-driver・大きさの印・check の数え方）は glharness.py（pytest_plugins で載せる）
+  --gl-driver・大きさの印・check の数え方）は glharness.py、途中の盤面を控えて 1 手から始める fixture wave は waves.py、
+  台本の check から移した先の印 moved_from と台帳は ledger.py（3 つとも pytest_plugins で載せる）
 """
 import importlib.util
 import json
@@ -24,7 +25,7 @@ REPO = next((p for p in PLUGIN.parents if (p / "scripts" / "review-record.py").i
 if REPO is None:
     raise RuntimeError(f"{PLUGIN} の上に scripts/review-record.py が無い——リポジトリの根が見つからない")
 
-pytest_plugins = ("pytester", "glharness")
+pytest_plugins = ("pytester", "glharness", "waves", "ledger")
 
 # graphcheck を同じプロセスで呼ぶ口（変異の道具 mutmut が差し替えた engine を見るため。別プロセスで走らせる検査は bash 側）
 _spec = importlib.util.spec_from_file_location("graphcheck", PLUGIN / "scripts" / "graphcheck.py")
@@ -53,7 +54,7 @@ def run_graphcheck(sandbox, g):
     return ok, "\n".join(map(str, lines))
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 956
+EXPECTED_ITEMS = 1078
 # 全件を回したときに台本の check が走るべき件数と、到達すべき値の数（fence.py の 3）。上げるときも下げるときも実測値を書く
 EXPECTED_SIM_CHECKS = 28
 EXPECTED_SIM_REACHED = 2
