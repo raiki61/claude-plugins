@@ -62,13 +62,14 @@ findings（指摘）の JSON の配列を 1 つのファイルにする。置き
 前景で打つ（最初の関所で戻る）。
 
 ```
-sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [<対象リポジトリ>] <依頼の JSON> ["<test_cmd>" [<tdd_suite>]]
+sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <版> | --pr <番号>] [--] [<対象リポジトリ>] <依頼の JSON か -> ["<test_cmd>" [<tdd_suite>]]
 ```
 
+- 入口: 依頼の JSON だけなら判定から入る（依頼の指摘を判定して直す）。人が変更（枝・PR）の審査を頼んだ時だけ `--base <版>`（base と HEAD の merge-base から HEAD まで）か `--pr <番号>`（GitHub の PR と同じ差分。`gh pr view` で読むだけで投稿しない。対象の HEAD が PR の head であること）を足し、差分に局所の審査の目を回す（起動の時に「入口: 変更から」の行が出る）。変更だけなら依頼の JSON を `-` にする（ここの `-` は標準入力でなく依頼を省く意味。`--base`・`--pr` が無ければ拒む）。両方を渡すと、差分の目と依頼を一緒に判定へ流す。`--base` と `--pr` はどちらか 1 つ。旗は対象より前に置き、`--` の後は旗として読まない。手元に commit していない変更が在ると、下の「手元の変更」のとおり殻が包んだ commit が run の HEAD になるので、`--pr` は PR の head と違うとして拒まれ（commit してから打つ）、`--base` の差分には包んだ手元の変更も入る。
 - 対象: リポジトリの下のフォルダでもよく、その git の根で回す。省けば今いるフォルダの git の根。`/private/tmp` の下は使えない。
 - 手元の変更: commit していない変更・未追跡のファイルが在っても止めない。殻がそれを一時の commit に包み（`.gitignore` の物は入れない）、run はそこから切る。対象の作業ツリー・index・枝は動かさない（包んだ commit を守る参照を `refs/works/wraps/` にだけ置く。`clean` が消すのは run の控えに `wrap_ref` が在る時だけ。`start` が run を結べなかった時はその場で外す。控えに `wrap_ref` の無い前の run の参照は残るので、要らなければ `git update-ref -d` で外す）。包んだことと commit・ファイルを「包んだ（wrapped）」の行に出す（`show` も出す）。差分はその姿との差なので、今の手元にそのまま当たる。
 - remote の `origin` は無くてもよい（無ければ 1 行で知らせる。Archon が fetch を要ると run は始まらない）。
-- `test_cmd`（省ける）: 修正の前と最後に回すテストのコマンド（例: `python3 -m unittest -q`・`uv run pytest -q`）。省くか空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
+- `test_cmd`（省ける）: 修正の前と最後に回すテストのコマンド（例: `python3 -m unittest -q`・`uv run pytest -q`）。在れば、対象の `.review-checks.json` の宣言が在っても宣言の一式に加えて回し、両方が緑の時だけ緑（宣言の段と同じコマンドなら 1 度だけ回す）。省くか空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
 - `tdd_suite`（省ける）: JUnit XML の書き先を第 1 引数に受ける実行ファイル（対象の根から走る）。在れば修正の段で単位ごとの TDD の輪を回す。省くと、`test_cmd` が pytest の 1 コマンドなら殻がそれに `--junitxml` を足す実行器を書いて渡し、そうでなければ輪を飛ばして直に直す（どちらにしたかを 1 行出す）。
 - 最後の関所は既定で要る時だけ開く（`when_needed`）。いつも開くなら `WORKS_USE_FINAL_GATE=always` を前に付ける。
 - Claude の包み（`claude-adapter`）は既定で通す。外すなら `WORKS_DEV_ADAPTER=0`（起動の 1 行目に「包み無し」と出て、報告にも出る）。

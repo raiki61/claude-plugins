@@ -673,12 +673,15 @@ class RunCiCase(StartCaseBase):
 
 class StartCase(StartCaseBase):
     def test_start_with_declaration_by_engine(self):
+        """宣言が在れば engine が回し、渡した test_cmd も宣言の一式の後に走る（56 件目。AND の合成なので種の赤は赤のまま）"""
         repo = self.seed(declared=True)
-        got = self.start(repo, test_cmd="touch should-not-run")
+        mark = self.tmp / "test-cmd-ran"
+        got = self.start(repo, test_cmd=f"touch {mark}")
         b = entry.open_board(self.board)
         self.assertEqual(b.record["process"]["checks"]["p0.local_checks"]["by"], "engine")
         self.assertEqual(b.record["materials"]["local_checks"]["status"], "found")   # 種は赤
-        self.assertFalse((repo / "should-not-run").exists())
+        self.assertTrue(mark.exists(), "宣言が在ると test_cmd が走っていない")
+        self.assertIn("test_cmd", [r.get("name") for r in b.record["process"]["checks"]["p0.local_checks"]["runs"]])
         ready = b.settle()["ready"]
         self.assertIn("p0.premises", ready)
         self.assertNotIn("p0.local_checks", ready)
@@ -863,6 +866,18 @@ class ChangeEntryCase(StartCaseBase):
         linekit.git(repo, "commit", "-q", "-am", "change")
         return repo, fork
 
+    def p1_deps_done(self, repo):
+        """P1 の na は依存（p0.parallel_pr・p0.purpose）が済んだ後に付く（単一 run の設計:155）。任せ先の役の代わりに
+        並行 PR と前提を渡し、目的の文を渡して、P1 を見られる盤面にする"""
+        for nid, reply in (("p0.parallel_pr", pr_reply()), ("p0.premises", PREMISES_REPLY)):
+            launch(self.board, nid)
+            got = entry.take(self.board, nid, reply, repo)
+            self.assertTrue(got["ok"], got)
+        linekit.pre_judge(self.board, repo, only=("p0.purpose",))
+        b = entry.open_board(self.board)
+        self.assertEqual([d for d in ("p0.parallel_pr", "p0.purpose") if b.node_state(d) == "pending"], [])
+        return b
+
     def test_start_change_only_is_normal_run(self):
         """依頼無し・base だけ → 拒まず、P1 の差分の根（record.base）は merge-base、依頼を積まず入口の印も立てず、P1 の 3 節が
         na にならない。start の出口 base_rev は修正の起点（修正前の HEAD）のまま"""
@@ -878,10 +893,11 @@ class ChangeEntryCase(StartCaseBase):
         self.assertEqual(b.record["base"], fork)
         self.assertIsNone(b.record["process"].get("request_entry"))
         self.assertFalse(b.record["process"].get("request_findings"))
+        b = self.p1_deps_done(repo)
         for nid in self.P1:
             self.assertNotEqual(b.node_state(nid), "na", nid)
-        import script_io
-        self.assertTrue(script_io.change_only(self.board))   # intake の読む印は entry.start が書いた控えから
+        import conflict
+        self.assertTrue(conflict.change_only(self.board))   # intake の読む印は entry.start が書いた控えから
         self.assertIn("入口: 変更から（" + fork[:12] + "..HEAD・base base）", got["head_line"])
 
     def test_start_request_and_change_keeps_p1(self):
@@ -897,6 +913,7 @@ class ChangeEntryCase(StartCaseBase):
         batches = b.record["process"]["request_findings"]
         self.assertEqual([x["origin"] for x in batches], [entry.ORIGIN])
         self.assertEqual(len(batches[0]["findings"]), 2)
+        b = self.p1_deps_done(repo)
         for nid in self.P1:
             self.assertNotEqual(b.node_state(nid), "na", nid)
         self.start(repo, self.raw(base="base"))
@@ -921,16 +938,18 @@ class ChangeEntryCase(StartCaseBase):
         self.assertIsNone(b.record["process"].get("request_entry"))
 
     def test_request_only_keeps_request_entry(self):
-        """依頼だけ → 今までどおり判定から入る run（印が立ち、P1 の 3 節は na）"""
+        """依頼だけ → 今までどおり判定から入る run（印が立ち、依存が済んだ後に P1 の 3 節は na）"""
         repo = self.seed(declared=True)
         got = self.start(repo)
         b = entry.open_board(self.board)
         self.assertEqual(got["entry"], "request")
         self.assertEqual(b.record["process"]["request_entry"]["origin"], entry.ORIGIN)
+        self.assertEqual(b.node_state("p1.consistency_bypass"), "pending")   # p0.parallel_pr・p0.purpose を待つ
+        b = self.p1_deps_done(repo)
         for nid in self.P1:
             self.assertEqual(b.node_state(nid), "na", nid)
-        import script_io
-        self.assertFalse(script_io.change_only(self.board))
+        import conflict
+        self.assertFalse(conflict.change_only(self.board))
 
 
 class ResumeCase(StartCaseBase):

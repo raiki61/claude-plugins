@@ -1,7 +1,9 @@
 #!/bin/sh
 # works/dev/use.sh — ほかのリポジトリを対象に、ライン darkfactory を回す起動の殻（skills/works/SKILL.md が入口）。
 #
-#   use.sh start [<対象リポジトリ>] <依頼の JSON> [<test_cmd> [<tdd_suite>]]   本物の AI で回す（費用が掛かる）。最初の関所で止まって戻る
+#   use.sh start [--base <版> | --pr <番号>] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]]
+#                                                                           本物の AI で回す（費用が掛かる）。最初の関所で止まって戻る。
+#                                                                           --base・--pr は変更から入る（差分に P1 の目を回す。依頼は - で省ける）
 #   use.sh show  <対象リポジトリ> [<run-id>]                                その対象で start が結んだ一番新しい run（か名指しの run）の状態・
 #                                                                           次に打つ行・差分のファイルを出し直す
 #   use.sh wait  <対象リポジトリ> <run-id>                                  裏で回る run を決まった時間（WORKS_USE_WAIT_SECONDS。既定 540 秒）
@@ -23,6 +25,9 @@
 # - pack は対象に置かない。tests/・dev/・docs/ を除いた works/ を <家>/archon-home/workflows/works（Archon の全体の工程の置き場。
 #   Archon v0.11.1 は $ARCHON_HOME/workflows/<pack>/ も探す）に起こすたびに写す。対象の作業ツリーは書かない。
 # - 対象はリポジトリの下のフォルダでもよく、その git の根で回す。start で対象を省けば今いるフォルダの git の根。
+# - start の旗は位置引数より前だけで読み、最初の -- で旗を終える（POSIX の Utility Syntax Guidelines 9・10）。--base と --pr は
+#   どちらか 1 つ。旗を読んだ後の位置引数の数で対象を省いたかを決める。依頼の - は標準入力でなく「依頼を省く」
+#   （--base か --pr が在る時だけ受ける）。
 # - run の worktree は対象の今の姿から切る: 汚れていなければ HEAD、commit していない変更・未追跡のファイル（.gitignore の物は
 #   入れない）が在れば一時の index で包んだ commit（--from）。対象の作業ツリー・index・枝は動かさない。包んだファイルは
 #   <家>/wraps/<commit>.txt に控え、起動と show に出す。origin は要らない（無ければ 1 行で知らせる）。
@@ -45,7 +50,33 @@
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
 
-USAGE="usage: use.sh start [<対象リポジトリ>] <依頼の JSON> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> [--exclude <単位の番号>=<理由>]… | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
+USAGE="usage: use.sh start [--base <版> | --pr <番号>] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> [--exclude <単位の番号>=<理由>]… | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
+CHANGE_INPUT=""   # 変更の入口（ラインの入力 base か pr）。--input にそのまま渡す <鍵>=<値>
+if [ "${1:-}" = start ]; then
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --base | --pr)
+        if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+          echo "$USAGE" >&2
+          exit 2
+        fi
+        if [ -n "$CHANGE_INPUT" ]; then
+          echo "use.sh: --base と --pr はどちらか 1 つだけ名指す" >&2
+          exit 2
+        fi
+        CHANGE_INPUT="${1#--}=$2"
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *) break ;;
+    esac
+  done
+  set -- start "$@"
+fi
 CMD="${1:-}"
 case "$CMD:$#" in
   start:2 | start:3 | start:4 | start:5 | show:2 | show:3 | wait:3 | approve:3 | answer:[5-9] | answer:[1-9][0-9] | stop:4 | apply:3 | clean:3 | check:2) ;;
@@ -152,7 +183,11 @@ if [ "$CMD" = start ] || [ "$CMD" = check ]; then
   if [ -e "$TARGET/.archon/workflows/works" ]; then
     problem "対象に pack の写し（.archon/workflows/works）がある。works 自身の直しは dogfood.sh で回す"
   fi
-  if [ "$CMD" = start ] && [ ! -f "$REQUEST_SRC" ]; then
+  if [ "$CMD" = start ] && [ "$REQUEST_SRC" = - ]; then
+    if [ -z "$CHANGE_INPUT" ]; then
+      problem "依頼も変更も無い（依頼の JSON を - にするなら --base <版> か --pr <番号> を名指す）"
+    fi
+  elif [ "$CMD" = start ] && [ ! -f "$REQUEST_SRC" ]; then
     problem "依頼の JSON が無い（${REQUEST_SRC}）"
   fi
   WORKS_AUTH_FROM="$(auth_from)"
@@ -451,9 +486,12 @@ if [ -n "${WORKS_AUTH_FROM:-}" ]; then
 fi
 
 STAMP="$(date +%Y%m%d-%H%M%S)-$$"
-mkdir -p "$WORKS_USE_HOME/requests"
-REQUEST="$WORKS_USE_HOME/requests/$STAMP.json"
-cp "$REQUEST_SRC" "$REQUEST"   # 依頼の元が後で書き換わっても、回した物が残る
+REQUEST=""
+if [ "$REQUEST_SRC" != - ]; then
+  mkdir -p "$WORKS_USE_HOME/requests"
+  REQUEST="$WORKS_USE_HOME/requests/$STAMP.json"
+  cp "$REQUEST_SRC" "$REQUEST"   # 依頼の元が後で書き換わっても、回した物が残る
+fi
 
 if [ "$#" -ge 5 ]; then
   TDD_SUITE="$5"
@@ -513,9 +551,13 @@ fi
 
 set -- workflow run darkfactory --from "$BASE_REV" --input request="$REQUEST" --input test_cmd="$TEST_CMD" \
   --input tdd_suite="$TDD_SUITE" --input adapter="$ADAPTER_MODE" --input final_gate="${WORKS_USE_FINAL_GATE:-when_needed}"
-if [ -n "$WORKS_USE_POLICY_MD" ]; then set -- "$@" --input policy_md="$WORKS_USE_POLICY_MD"; fi
-if [ -n "$WORKS_USE_GATES" ]; then set -- "$@" --input gates="$WORKS_USE_GATES"; fi
-if [ -n "$WORKS_USE_THICKNESS" ]; then set -- "$@" --input thickness="$WORKS_USE_THICKNESS"; fi
+if [ -n "${WORKS_USE_POLICY_MD:-}" ]; then set -- "$@" --input policy_md="$WORKS_USE_POLICY_MD"; fi
+if [ -n "${WORKS_USE_GATES:-}" ]; then set -- "$@" --input gates="$WORKS_USE_GATES"; fi
+if [ -n "${WORKS_USE_THICKNESS:-}" ]; then set -- "$@" --input thickness="$WORKS_USE_THICKNESS"; fi
+if [ -n "$CHANGE_INPUT" ]; then
+  echo "入口: 変更から（${CHANGE_INPUT}）"
+  set -- "$@" --input "$CHANGE_INPUT"
+fi
 set +e
 sh "$ARCHON" "$@"
 run_status=$?

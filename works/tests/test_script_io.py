@@ -216,5 +216,28 @@ class PreambleCase(unittest.TestCase):
         self.assertEqual(self.pycaches(), [], "前置きの後の import が pack の中に __pycache__ を作った")
 
 
+class ChangeOnlyCase(unittest.TestCase):
+    """変更から入った run かの問いは、控えの読み手と同じ層 3 の conflict に在る（層 1 の script_io は conflict を import しない）"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.board = pathlib.Path(self._tmp.name)
+
+    def write_start(self, doc):
+        (self.board / "r1").mkdir(exist_ok=True)
+        (self.board / "r1" / "start.json").write_text(json.dumps(doc), encoding="utf-8")
+
+    def test_change_only_lives_in_conflict(self):
+        import conflict
+        self.assertFalse(hasattr(script_io, "change_only"), "層 1 の script_io が控えを読む問いを持っている")
+        self.assertTrue(hasattr(conflict, "change_only"), "conflict に change_only が無い")
+        self.assertFalse(conflict.change_only(self.board))   # 控えが無い
+        self.write_start({"entry": "change"})
+        self.assertTrue(conflict.change_only(self.board))
+        self.write_start({"entry": "request"})
+        self.assertFalse(conflict.change_only(self.board))
+
+
 if __name__ == "__main__":
     unittest.main()

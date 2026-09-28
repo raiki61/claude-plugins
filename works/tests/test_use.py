@@ -145,6 +145,51 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.calls()[0][0], str(t))
 
+    def test_start_change_entry_flags(self):
+        """変更から入る口: 先頭の --base <版>・--pr <番号>（と --）を旗として読み、残りの位置引数に対象を省ける決まりを当てる。
+        依頼の - は依頼を省き（request= は空）、Archon へ --input base=・pr= を渡し、『入口: 変更から』を出す。
+        位置引数の後の --base は旗として読まない"""
+        t = self.target()
+        r = self.use("start", "--base", "main", "-", cwd=str(t))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        run = self.calls()[0]
+        self.assertEqual(run[0], str(t))
+        self.assertIn("base=main", run)
+        self.assertIn("request=", run)
+        self.assertIn("入口: 変更から（base=main）", r.stdout)
+        self.assertFalse((self.home / "requests").exists())
+        self.log.unlink()
+        r = self.use("start", "--pr", "7", "--", str(t), "-", "true")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        run = self.calls()[0]
+        self.assertIn("pr=7", run)
+        self.assertIn("test_cmd=true", run)
+        self.assertIn("入口: 変更から（pr=7）", r.stdout)
+        self.log.unlink()
+        r = self.use("start", "--base", "main", str(t), str(self.request))   # 依頼と変更の両方
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        run = self.calls()[0]
+        self.assertIn("base=main", run)
+        self.assertTrue(any(a.startswith("request=" + str(self.home / "requests")) for a in run), run)
+        self.log.unlink()
+        r = self.use("start", str(t), str(self.request), "--base", "main")   # 位置引数の後: test_cmd と tdd_suite
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        run = self.calls()[0]
+        self.assertIn("test_cmd=--base", run)
+        self.assertNotIn("base=main", run)
+        self.assertNotIn("入口: 変更から", r.stdout)
+
+    def test_start_change_entry_refusals(self):
+        """依頼の - は --base か --pr が在る時だけ受け、--base と --pr の両方・値の無い旗は拒む（Archon を呼ばない）"""
+        t = self.target()
+        self.assert_refused(self.use("start", str(t), "-"), "--base", "--pr")
+        self.assert_refused(self.use("start", "--base", "main", "--pr", "7", str(t), "-"), "--base", "--pr")
+        for args in (("start", "--base"), ("start", "--pr", "", str(t), "-"), ("start", "--base", "main")):
+            with self.subTest(args):
+                r = self.use(*args)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertEqual(self.calls(), [])
+
     def test_refuses_target_under_private_tmp(self):
         for t in ("/private/tmp/works-use-test-none", "/tmp/works-use-test-none"):
             with self.subTest(t):

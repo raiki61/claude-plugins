@@ -89,7 +89,7 @@ def blocks(root):
 def tracked(root):
     """ブロックの追跡されたファイルと、core に在るブロックの模块（L4）（works からのパス）"""
     out = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "blk-*", *CORE_OWNER],
-                         capture_output=True, text=True, check=True).stdout
+                         capture_output=True, text=True, encoding="utf-8", check=True).stdout
     return [f for f in out.split("\0") if f]
 
 

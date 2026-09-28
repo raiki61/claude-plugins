@@ -14,7 +14,7 @@
 
 - 通れば {"ok": true, "reason": "", "request": <依頼のパス>, "constraints_file": <前提のパス（無ければ空）>} を 1 行出して 0
 - どれかが通らない: 標準エラーに理由を 1 行出して 1（run を AI の前で止める）
-- ラインが依頼を持たずに変更から入った run（script_io.change_only）では INPUTS_REQUEST の空を受け、依頼を読まない
+- ラインが依頼を持たずに変更から入った run（conflict.change_only）では INPUTS_REQUEST の空を受け、依頼を読まない
 - 環境変数が欠けた（ARTIFACTS_DIR は空も欠け。INPUTS_REQUEST は上の run の外で空も欠け。INPUTS_CONSTRAINTS_FILE は空を「無し」と読む）:
   標準エラーに名前を出して 2
 """
@@ -28,7 +28,7 @@ import os  # noqa: E402
 
 from purpose import NODE, SNAPSHOT_FILE, check_constraints, refuse_if_frozen, tree_state  # noqa: E402
 import rolekit  # noqa: E402
-import script_io  # noqa: E402
+import conflict  # noqa: E402
 from engine.util import Reject  # noqa: E402  purpose の後（purpose を読むと写しの graphloops が sys.path に入る）
 
 REQUEST_ENV = "INPUTS_REQUEST"
@@ -44,7 +44,7 @@ def _stop(reason: str) -> int:
 def main() -> int:
     board = Path(os.environ.get(ARTIFACTS_ENV) or ".") / "board"
     rel = os.environ.get(REQUEST_ENV, "")
-    no_request = REQUEST_ENV in os.environ and not rel and script_io.change_only(board)
+    no_request = REQUEST_ENV in os.environ and not rel and conflict.change_only(board)
     missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n) and not (n == REQUEST_ENV and no_request)]
     missing += [CONSTRAINTS_ENV] if CONSTRAINTS_ENV not in os.environ else []
     if missing:

@@ -10,7 +10,7 @@ check_request（graphloops の add と同じ規則）に通して盤面（$ARTIF
 古い判定を拾って ok を出さないように。
 
 - 通れば {"ok": true, "reason": "", "request": <読んだパス>} を 1 行出して 0
-- ラインが依頼を持たずに変更から入った run（script_io.change_only）では INPUTS_REQUEST の空を受け、依頼を積まずに写しだけを置く
+- ラインが依頼を持たずに変更から入った run（conflict.change_only）では INPUTS_REQUEST の空を受け、依頼を積まずに写しだけを置く
   （request は空。判定役は素材の欄で差分を読む）
 - ファイルが読めない・JSON として読めない・規則が拒む・作業ツリーの写しが取れない: 標準エラーに理由を 1 行出して 1（run を AI の前で止める）
 - 環境変数が欠けた（ARTIFACTS_DIR は空も欠け）: 標準エラーに名前を出して 2
@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import json  # noqa: E402
 import os  # noqa: E402
 
-import script_io  # noqa: E402
+import conflict  # noqa: E402
 
 from accept import JUDGE_SNAPSHOT_FILE, JUDGMENT_FILE, check_request, tree_state  # noqa: E402
 from engine.util import Reject  # noqa: E402
@@ -44,7 +44,7 @@ def _stop(reason: str) -> int:
 def main() -> int:
     board = Path(os.environ.get(ARTIFACTS_ENV) or ".") / "board"
     rel = os.environ.get(REQUEST_ENV, "")
-    no_request = REQUEST_ENV in os.environ and not rel and script_io.change_only(board)
+    no_request = REQUEST_ENV in os.environ and not rel and conflict.change_only(board)
     missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n) and not (n == REQUEST_ENV and no_request)]
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)

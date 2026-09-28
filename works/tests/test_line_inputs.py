@@ -4,7 +4,8 @@ linekit.LineRun を種の git を差し替えて組むだけ（FAST。git・子�
 - yaml の inputs の名 == ラインの節（inputs の外の全部の値）が参照する $INPUTS.<名>（test_yaml_inputs_are_all_referenced）
 - 線とブロックの全部の script の節で、with: の鍵を INPUTS_<大文字> にした集合 == スクリプトの定数 INPUTS（TA16。
   test_script_inputs_match_with）。既定の在る入力は定数 OPTIONAL_INPUTS に名指した物だけ with: に無くてよい
-- start.py の INPUTS の名ごとに、entry.check_inputs が渡した値を同じ名で返す（test_check_inputs_passes_every_start_name）
+- start.py の INPUTS の名ごとに、entry.check_inputs が渡した値を同じ名で返す（test_check_inputs_passes_every_start_name）。
+  変更の入口の base・pr だけは base_rev・change に解いて返す（merge-base は差し替え、pr は番号でない値の拒みで読みを見る）
 - 報告の言語 lang がラインから start の with に渡り、start.py が読み、空は空のまま返る（LangInputCase）
 - 器 linekit.LineRun が start へ渡す入力の鍵は LINE_ORDER の start の with から導く（test_linerun_inputs_follow_line_order_start。
   種の git は作らない）
@@ -41,6 +42,9 @@ NO_INPUTS_CONSTANT = frozenset({
 })
 # check_inputs が start の名のほかに返す欄（依頼のファイルを読んだ結果）
 READ_FROM_REQUEST = {"request_file", "items", "request_text"}
+# 同じ名で返さず、変更の入口として解いて返す start の名と、その返りの欄（解き方の正本の試験は test_entry_inputs.ChangeInputsCase）
+CHANGE_INPUTS = {"base", "pr"}
+FROM_CHANGE = {"base_rev", "change"}
 
 
 def load(path):
@@ -116,8 +120,8 @@ class InputNamesCase(unittest.TestCase):
                     self.assertEqual(got - want, set(), f"スクリプトが読まない with: の鍵: {sorted(got - want)}")
 
     def test_check_inputs_passes_every_start_name(self):
-        """start.py が読む名ごとに、その名だけに既定と違う妥当な値を渡すと、check_inputs が同じ名でその値を返す
-        （_word(raw, <名>) の名の取り違え・返しの足し忘れを、名ごとに赤にする）"""
+        """start.py が読む名ごとに、その名だけに既定と違う妥当な値を渡すと、check_inputs が同じ名でその値を返す（変更の入口の
+        base・pr は base_rev・change に解いて返す）。_word(raw, <名>) の名の取り違え・返しの足し忘れを、名ごとに赤にする"""
         names = set(start_script().INPUTS.values())
         with tempfile.TemporaryDirectory() as tmp:
             repo = pathlib.Path(tmp)
@@ -126,9 +130,9 @@ class InputNamesCase(unittest.TestCase):
             given = {"test_cmd": "x", "thickness": "標準", "gates": "merge", "final_gate": "when_needed", "adapter": "optional",
                      "policy_md": "policy.md", "lang": "English"}
             want = {**given, "policy_md": str(repo / "policy.md")}
-            self.assertEqual(set(given), names - {"request"}, "start.py の名に、渡す値を決めていない名がある")
+            self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"}, "start.py の名に、渡す値を決めていない名がある")
             base = entry.check_inputs({"request": "req.json"}, repo)
-            self.assertEqual(set(base), (names - {"request"}) | READ_FROM_REQUEST)
+            self.assertEqual(set(base), (names - {"request"} - CHANGE_INPUTS) | READ_FROM_REQUEST)
             self.assertEqual(base["request_file"], str((repo / "req.json").resolve()))
             for name, value in given.items():
                 with self.subTest(name):
@@ -139,6 +143,15 @@ class InputNamesCase(unittest.TestCase):
                         self.assertNotEqual(base[name], want[name], "既定と同じ値では素通しを確かめられない")
                     got = entry.check_inputs({"request": "req.json", name: value}, repo)
                     self.assertEqual(got[name], want[name])
+            with self.subTest("base"), mock.patch.object(entry, "_merge_base", lambda r, ref: f"fork-of-{ref}"):
+                got = entry.check_inputs({"request": "req.json", "base": "main"}, repo)
+                self.assertEqual(set(got) - set(base), FROM_CHANGE)
+                self.assertEqual((got["change"]["from"], got["change"]["name"], got["base_rev"]),
+                                 ("base", "main", "fork-of-main"))
+            with self.subTest("pr"):   # 番号でない値の拒みで名を読んでいることを見る（gh を起こさない）
+                with self.assertRaises(entry.InputRefused) as cm:
+                    entry.check_inputs({"request": "req.json", "pr": "main"}, repo)
+                self.assertIn("pr='main'", str(cm.exception))
 
 
 class LangInputCase(unittest.TestCase):

@@ -30,7 +30,7 @@ from accept import check_request, tree_state  # noqa: E402
 from engine.util import Reject  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_REQUEST_FILE, PREMISES_SNAPSHOT_FILE  # noqa: E402
 import rolekit  # noqa: E402
-import script_io  # noqa: E402
+import conflict  # noqa: E402
 
 REQUEST_ENV = "INPUTS_REQUEST"
 INPUTS = (REQUEST_ENV,)   # 裁定 TA16: 読む INPUTS_* の組
@@ -49,7 +49,7 @@ def _stop(reason: str) -> int:
 def main() -> int:
     board = Path(os.environ.get(ARTIFACTS_ENV) or ".") / "board"
     rel = os.environ.get(REQUEST_ENV, "")
-    no_request = REQUEST_ENV in os.environ and not rel and script_io.change_only(board)
+    no_request = REQUEST_ENV in os.environ and not rel and conflict.change_only(board)
     missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n) and not (n == REQUEST_ENV and no_request)]
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
