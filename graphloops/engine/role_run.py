@@ -271,6 +271,9 @@ def pgid_path(out_path):
     return str(out_path) + ".pgid"
 
 
+RUNNER_MARKS = "runner-launch"   # 回し手（loop.py run）が立てた launch の印の置き場（盤面の下。<pid>.json に pgid と ids）
+
+
 def _popen(argv, **kw):
     """子を新しいプロセスグループで起こし、生きている子の集合（LIVE）に載せる。木ごと止めるため（_kill・stop_group）。
     外すのは _forget（待ち終えた後）"""
@@ -676,7 +679,7 @@ def read_mark(pgid_file):
     """印を読む（信号も消去もしない）——(木の一覧 [(pgid, born)], owner, 印の更新時刻, 読めない理由)。印が無ければ ([], None, None, None)。
     印の形は 2 つ: 子を起こした直後の {"pgid", "owner"}（born は印の更新時刻——子を起こした後に書くので）と、試行の終わりに
     止め切れなかった木を書き直した {"left": [{"pgid", "born"}…], "owner"}（_end_attempt）。owner は印を書いたプロセス
-    （launch）の番号で、古い engine の印には無い（None）"""
+    （launch）の番号で、古い engine の印と回し手の launch の印（RUNNER_MARKS。{"pgid", "ids"}）には無い（None）"""
     path = pathlib.Path(pgid_file)
     try:
         mark = json.loads(path.read_text(encoding="utf-8"))

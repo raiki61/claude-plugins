@@ -1,8 +1,12 @@
 """盤面の印から、この run が起こした子のグループを一覧する・止める口（loop.py children）。
 
 **引くのは盤面の置き場の下の印（role_run.pgid_path が名付ける *.pgid）だけ**——プロセスの名前やコマンド行の文字列では
-探さない（同じ機械の別の run に当たる）。印は engine が launch で起こした試行の子にだけ在るので、印を持たない子（台本の
-固定具・変異の実行器の腕）はここに映らない。graph が線の結果の置き場（result_to）を盤面の外に置いた run の印も拾えない。
+探さない（同じ機械の別の run に当たる）。印を持たない子（台本の固定具・変異の実行器の腕）はここに映らない。graph が線の結果の
+置き場（result_to）を盤面の外に置いた run の印も拾えない。
+
+回し手（loop.py run）が立てた launch の印（role_run.RUNNER_MARKS の下の <pid>.json）は一覧に出すだけで、止めない・消さない
+（状態 runner_launch）。その印は次の loop.py run が引き継ぐ——生きていれば待ち、居なくなっていれば印の ids から試行を拾い直す。
+ここで止めると回し手が relaunch で打ち消し、消すと拾い直しの手がかり（ids）が消える。launch が起こした役の子は自分の .pgid の印で映る。
 
 受け付けの前の試行は relaunch・stop が止める（盤面を先に書いてから印を読む順序を守る）。この口の役目は、受け付けの後に
 止め切れずに残った印（_end_attempt が書き直した印）と、launch のプロセスが先に死んで残った印を引くこと。そのため
@@ -25,11 +29,17 @@ from .util import Reject, dump, now, read_json
 RUNNING = "running"        # 印を書いたプロセス（launch）が生きている——いま走っている試行
 LEFT = "left"              # owner がもう居ない——止め残し（受け付けの後の残り・launch が先に死んだ残り）
 UNKNOWN = "owner_unknown"  # owner を確かめられない（古い engine の印・開始時刻が読めない）——走っている側に倒す
+RUNNER_LAUNCH = "runner_launch"   # 回し手が立てた launch の印——次の loop.py run が引き継ぐ。この口は止めない
 
 
 def marks(board_dir):
-    """盤面の置き場の下の印の全部（盤面の外は見ない）"""
+    """盤面の置き場の下の試行の印の全部（盤面の外は見ない）"""
     return sorted(pathlib.Path(board_dir).rglob("*" + role_run.pgid_path("")))
+
+
+def runner_marks(board_dir):
+    """盤面の置き場の下の、回し手が立てた launch の印"""
+    return sorted((pathlib.Path(board_dir) / role_run.RUNNER_MARKS).glob("*.json"))
 
 
 def _instances(board_dir):
@@ -86,6 +96,19 @@ def survey(board_dir):
             row["state"] = "gone"   # 止める物が無い（_probe が印を消した）
         row["trees"] = [_tree_row(pgid, born) for pgid, born in keep]
         rows.append(row)
+    for m in runner_marks(d):
+        row = {"mark": str(m.relative_to(d)), "round": None, "instance": None, "instance_status": None}
+        trees, _owner, _written, why = role_run.read_mark(m)   # _probe は通さない（止める物が無いと読んだ印を消す）
+        if why:
+            rows.append({**row, "state": "unreadable", "why": why})
+            continue
+        if not trees:
+            continue   # 読む間に回し手が消した
+        try:
+            ids = json.loads(m.read_text(encoding="utf-8")).get("ids") or []
+        except (OSError, ValueError):
+            ids = []
+        rows.append({**row, "state": RUNNER_LAUNCH, "ids": ids, "trees": [_tree_row(pgid, born) for pgid, born in trees]})
     return rows
 
 
@@ -106,6 +129,10 @@ def stop(board_dir, reason, include_running=False):
         raise Reject("止める理由が空——--reason に、なぜ止めるかを書け（盤面の trace に残る）")
     rows = survey(board_dir)
     for row in rows:
+        if row["state"] == RUNNER_LAUNCH:
+            row.update(result="skipped", skip_why="回し手の launch の印は次の loop.py run が引き継ぐ（生きていれば待ち、居なければ ids から"
+                                                  "試行を拾い直す）——この口は止めない。launch が起こした役の子は自分の .pgid の行で止まる")
+            continue
         if row["state"] in ("gone", "unreadable") or row.get("why"):
             row["result"] = "skipped"
             continue

@@ -23,6 +23,11 @@ def test_run_tree_kills_the_tree_when_waiting_breaks(tmp_path, monkeypatch):
     seen = []
 
     class Broken(subprocess.Popen):
+        def __init__(self, args, *a, **k):
+            if list(args[:1]) == [sys.executable]:   # 役の子は検査が握る標準入力の管の EOF まで眠る（検査が消えれば終わる）
+                k["stdin"] = subprocess.PIPE
+            super().__init__(args, *a, **k)
+
         def communicate(self, *a, **k):
             if self.args[:1] != [sys.executable]:   # 止める口の子（Windows の taskkill）は素のまま通す——待ちを破るのは役の子だけ
                 return super().communicate(*a, **k)
@@ -33,7 +38,7 @@ def test_run_tree_kills_the_tree_when_waiting_breaks(tmp_path, monkeypatch):
     monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (None, "検査では数えない"))
     try:
         with pytest.raises(KeyboardInterrupt):
-            role_run.run_tree([sys.executable, "-c", "import time; time.sleep(120)"], cwd=tmp_path, timeout=None)
+            role_run.run_tree([sys.executable, "-c", "import sys; sys.stdin.read()"], cwd=tmp_path, timeout=None)
         assert seen and seen[0].poll() is not None   # _kill が止めて wait まで済ませている
     finally:
         for p in seen:

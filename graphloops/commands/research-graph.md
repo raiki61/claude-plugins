@@ -71,7 +71,7 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" stop --reason "<依頼者の止める理由>" --dir <DIR>
    ```
 
-   **run の子の残りを見る・止める**: 受け付けの後に残った子（止め切れなかった木・`launch` が先に死んだ試行の子）は、`loop.py children --dir <DIR>` が盤面の印から一覧し（信号は送らない）、`--stop --reason "<理由>"` で木ごと止める。ps の文字列でプロセスを探して止めるな（同じ機械の別の run に当たる）。既定で止めるのは `launch` が居なくなった後の止め残しだけで、いま走っている試行の子と受け付けの前の instance の子は `--include-running` を付けたときだけ止まる（受け付けの前の試行は relaunch・stop で止める）。印を持たない子（engine が起こしていない物）はこの口に映らない。
+   **run の子の残りを見る・止める**: 受け付けの後に残った子（止め切れなかった木・`launch` が先に死んだ試行の子）は、`loop.py children --dir <DIR>` が盤面の印から一覧し（信号は送らない）、`--stop --reason "<理由>"` で木ごと止める。ps の文字列でプロセスを探して止めるな（同じ機械の別の run に当たる）。既定で止めるのは `launch` が居なくなった後の止め残しだけで、いま走っている試行の子と受け付けの前の instance の子は `--include-running` を付けたときだけ止まる（受け付けの前の試行は relaunch・stop で止める）。回し手（`loop.py run`）が立てた `launch` の印は一覧に `runner_launch` で出るだけで止まらない（次の `loop.py run` が引き継ぐ——生きていれば待ち、居なくなっていれば試行を拾い直す）。印を持たない子（engine が起こしていない物）はこの口に映らない。
 
 4. **ループの外へ出る道**。`p0.claims` の返答に「開いた問い」（地図がまだ無い・選択肢の洗い出しが要る）があれば、`done` がその旨を返す。それは閉じた主張の検証では解けないので、このループの外で deep-research に委ね、持ち帰った事実主張を次の周に入れる:
 

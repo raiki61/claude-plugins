@@ -92,7 +92,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" stop --reason "<依頼者の止める理由>" --dir <DIR>
    ```
 
-   **run の子の残りを見る・止める**: 受け付けの後に残った子（止め切れなかった木・`launch` が先に死んだ試行の子）は、`loop.py children --dir <DIR>` が盤面の印から一覧し（信号は送らない）、`--stop --reason "<理由>"` で木ごと止める。ps の文字列でプロセスを探して止めるな（同じ機械の別の run に当たる）。既定で止めるのは `launch` が居なくなった後の止め残しだけで、いま走っている試行の子と受け付けの前の instance の子は `--include-running` を付けたときだけ止まる（受け付けの前の試行は relaunch・stop で止める）。印を持たない子（engine が起こしていない物）はこの口に映らない。
+   **run の子の残りを見る・止める**: 受け付けの後に残った子（止め切れなかった木・`launch` が先に死んだ試行の子）は、`loop.py children --dir <DIR>` が盤面の印から一覧し（信号は送らない）、`--stop --reason "<理由>"` で木ごと止める。ps の文字列でプロセスを探して止めるな（同じ機械の別の run に当たる）。既定で止めるのは `launch` が居なくなった後の止め残しだけで、いま走っている試行の子と受け付けの前の instance の子は `--include-running` を付けたときだけ止まる（受け付けの前の試行は relaunch・stop で止める）。回し手（`loop.py run`）が立てた `launch` の印は一覧に `runner_launch` で出るだけで止まらない（次の `loop.py run` が引き継ぐ——生きていれば待ち、居なくなっていれば試行を拾い直す）。印を持たない子（engine が起こしていない物）はこの口に映らない。
 
 4. **終わり**。最後の節 `report` の前に engine が記録を仕上げて検証器を回す。`report` の本文は盤面の置き場の `report.md` に保存される。それを依頼者の言語でそのまま出せ。ループが途中で終わったら、基準点の節で `git add -N` したパスを `git reset -- <path>` で戻せ（この手順が index を変える唯一の書き込み）。
 

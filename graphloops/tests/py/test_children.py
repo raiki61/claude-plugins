@@ -159,3 +159,17 @@ def test_stop_leaves_marks_of_pending_instances_to_relaunch_and_stop(tmp_path, m
     assert rows[0]["state"] == children.LEFT and rows[0]["result"] == "skipped" and stopped == []
     assert children.stop(d, "検査", include_running=True)[0]["result"] == "stopped"
 
+
+
+def test_runner_launch_marks_are_listed_but_never_stopped_or_removed(tmp_path, monkeypatch):
+    """回し手（loop.py run）の launch の印は一覧に runner_launch で出る。--include-running でも止めず、印も消さない
+    （次の回し手が印の ids から試行を拾い直す）"""
+    d = board(tmp_path)
+    m = put(d / role_run.RUNNER_MARKS / "4242.json", {"pgid": 4242, "ids": ["p2.diagnose"]})
+    monkeypatch.setattr(role_run, "_started_at", lambda pid: role_run.GONE)
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: ({}, None))
+    monkeypatch.setattr(role_run, "stop_group", lambda *a, **k: pytest.fail("回し手の印を止めた"))
+    rows = children.survey(d)
+    assert [(r["mark"], r["state"], r["ids"]) for r in rows] == [(os.path.join(role_run.RUNNER_MARKS, "4242.json"), children.RUNNER_LAUNCH, ["p2.diagnose"])]
+    rows = children.stop(d, "検査", include_running=True)
+    assert rows[0]["result"] == "skipped" and m.is_file()

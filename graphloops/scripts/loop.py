@@ -135,7 +135,7 @@ def main():
     s.add_argument("--reason", required=True)
     s.set_defaults(fn=c.cmd_stop)
 
-    s = sub.add_parser("children", help="盤面の印（*.pgid）から、この run が起こした子の残りを一覧する（既定・信号なし）・--stop で止める（ps の文字列で探さない）")
+    s = sub.add_parser("children", help="盤面の印（*.pgid）から、この run が起こした子の残りを一覧する（既定・信号なし）・--stop で止める（ps の文字列で探さない）。回し手の launch の印（runner-launch）は一覧だけ")
     s.add_argument("--dir")
     s.add_argument("--stop", action="store_true", help="印の子を木ごと止める（既定は launch が居なくなった後の止め残しで、instance が受け付けの前でない物だけ）")
     s.add_argument("--reason", help="止める理由（--stop のとき必須。盤面の trace に残る）")

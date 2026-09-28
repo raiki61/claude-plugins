@@ -6465,12 +6465,11 @@ def test_stop_signal_stops_test_runner_tree():
     run = Run("spec-signal", init_args=("--input", "flow=spec"))
     drive(run, "spec")
     pidf = run.tmp / "runner-grandchild.pid"
-    hold, lock = parallel.hold_code(120), parallel.creator_lock(run.tmp)   # 実行器と孫の寿命をこの台本に縛る
+    hold, lock = parallel.hold_code(120), parallel.creator_lock(run.tmp)   # 孫の寿命をこの台本に縛る。実行器は孫を待つ
     f = run.repo / SPEC_TESTS["AC1"][0]
     f.write_text(f.read_text(encoding="utf-8").replace("import pathlib, sys\n",
                  f"import pathlib, subprocess, sys, time\nc = subprocess.Popen([sys.executable, '-c', {hold!r}, {lock!r}])\n"
-                 f"open({str(pidf)!r}, 'w').write(str(c.pid))\nimport fcntl, os, signal\nsignal.alarm(120)\n"
-                 f"fcntl.flock(os.open({lock!r}, os.O_RDONLY), fcntl.LOCK_SH)\n", 1), encoding="utf-8")
+                 f"open({str(pidf)!r}, 'w').write(str(c.pid))\nc.wait()\n", 1), encoding="utf-8")
     run.cmd("answer", "--text", "continue")
     proc = subprocess.Popen([PY, str(LOOP), "next", "--dir", str(run.dir)], cwd=run.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     t0 = time.monotonic()

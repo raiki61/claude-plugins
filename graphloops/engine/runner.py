@@ -26,7 +26,7 @@ import sys
 import time
 
 from . import filelock
-from .role_run import pgid_path, probe_group
+from .role_run import RUNNER_MARKS, pgid_path, probe_group
 from .util import Reject, now, waiting
 
 LOOP = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "loop.py"
@@ -35,7 +35,7 @@ POLL_S = 1.0          # 盤面と子を見に行く間隔
 RUN_LOCK = "run.lock"
 RUNNER_JSON = "runner.json"
 RUN_LOG = "run.log"
-MARKS = "runner-launch"   # 回し手が立てた launch の子の印（role_run の .pgid と同じ形に ids を足す）
+MARKS = RUNNER_MARKS   # 回し手が立てた launch の子の印（role_run の .pgid と同じ形に ids を足す）
 TERMINAL = ("converged", "stopped")
 # run だけが返す終了コード（人の決定 2026-09-25 ④）。今の 0/1/2 の意味は run 以外で変えない
 CODES = {"done": 0, "awaiting_human": 10, "round_limit": 11, "stuck": 12, "handoff": 13, "needs_human": 14, "still_running": 20}

@@ -212,11 +212,8 @@ def sim_candidate(d):
 
 # ---------------------------------------------------------------- 観察
 def run(fx, work):
-    tmp = pathlib.Path(tempfile.mkdtemp(dir=work))
-    try:
-        return ga.observe(fx, tmp)
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    with tempfile.TemporaryDirectory(dir=work, ignore_cleanup_errors=True) as tmp:
+        return ga.observe(fx, pathlib.Path(tmp))
 
 
 def clean(fx):
@@ -382,17 +379,16 @@ def forbidden_hits(fx):
 # ---------------------------------------------------------------- 書く
 def write_expectations(contract_too):
     per_loop = {}
-    work = pathlib.Path(tempfile.mkdtemp(prefix="golden-expect-"))
-    for f in ga.fixture_paths():
-        fx = ga.load_fixture(f)
-        obs, _ = run(fx, work)
-        obs = ga.jsonable(obs)
-        for layer in ("internal",) + (("contract",) if contract_too else ()):
-            p = ga.expect_path(layer, f)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(obs[layer], ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        per_loop.setdefault(fx["loop"], []).append(obs["internal"].get("calls", []))
-    shutil.rmtree(work, ignore_errors=True)
+    with tempfile.TemporaryDirectory(prefix="golden-expect-", ignore_cleanup_errors=True) as work:
+        for f in ga.fixture_paths():
+            fx = ga.load_fixture(f)
+            obs, _ = run(fx, work)
+            obs = ga.jsonable(obs)
+            for layer in ("internal",) + (("contract",) if contract_too else ()):
+                p = ga.expect_path(layer, f)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps(obs[layer], ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+            per_loop.setdefault(fx["loop"], []).append(obs["internal"].get("calls", []))
     cov = {loop: ga.coverage(loop, per_loop.get(loop, [])) for loop in ga.LOOPS}
     (ga.GOLDEN / "expect" / "coverage.json").write_text(json.dumps(cov, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     for loop in ga.LOOPS:
@@ -403,16 +399,15 @@ def write_expectations(contract_too):
 
 
 def check():
-    work = pathlib.Path(tempfile.mkdtemp(prefix="golden-check-"))
     bad = 0
-    for f in ga.fixture_paths():
-        obs = ga.jsonable(run(ga.load_fixture(f), work)[0])
-        for layer in ("contract", "internal"):
-            want = json.loads(ga.expect_path(layer, f).read_text(encoding="utf-8"))
-            if obs[layer] != want:
-                bad += 1
-                print(f"違う {f.parent.name}/{f.name} {layer}: {json.dumps(ga.diff(want, obs[layer]), ensure_ascii=False)[:400]}")
-    shutil.rmtree(work, ignore_errors=True)
+    with tempfile.TemporaryDirectory(prefix="golden-check-", ignore_cleanup_errors=True) as work:
+        for f in ga.fixture_paths():
+            obs = ga.jsonable(run(ga.load_fixture(f), work)[0])
+            for layer in ("contract", "internal"):
+                want = json.loads(ga.expect_path(layer, f).read_text(encoding="utf-8"))
+                if obs[layer] != want:
+                    bad += 1
+                    print(f"違う {f.parent.name}/{f.name} {layer}: {json.dumps(ga.diff(want, obs[layer]), ensure_ascii=False)[:400]}")
     print(f"突き合わせ {len(ga.fixture_paths())} 件・違い {bad}")
     return bad
 
