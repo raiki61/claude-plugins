@@ -6390,6 +6390,15 @@
    "old": "        if n is not None and sorted(got) != sorted(shard_of(selected, sh[\"k\"], n)):",
    "new": "        if False:",
    "expect": "組分け: 割り当ては和が全体で重ならず"
+  },
+  {
+   "id": "SH8",
+   "title": "組の --auto の基点の食い違いを検算で拒む",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "SAME = (\"rev\", \"auto\", \"pruned\")",
+   "new": "SAME = (\"rev\", \"pruned\")",
+   "expect": "組分け: 割り当ては和が全体で重ならず"
   }
  ],
  "dropped": [

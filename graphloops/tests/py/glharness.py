@@ -308,7 +308,7 @@ def new_results(before, after):
 
 SIZES = {
     "small": "子プロセス・スリープを使わない（使えば失敗）",
-    "medium": "子プロセス・git・盤面を端から端まで回す（手で撃つ mutmut の選ぶテストから外す——graphloops/setup.cfg）",
+    "medium": "子プロセス・git・盤面を端から端まで回す（撃つ mutmut の選ぶテストから外す——graphloops/setup.cfg）",
 }
 
 

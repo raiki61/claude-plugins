@@ -29,8 +29,8 @@ cr-filter-pragma・cr-filter-operators・cr-filter-git だけで（how-tos/filte
 ——だから理由に数えない。
 
 **mutmut との受け持ち**（2026-09-25 から）: pytest が覆うモジュール（今は graphloops/engine/schema.py。置き場は graphloops/tests/py/、
-設定は graphloops/setup.cfg）を丸ごと自動で撃ち、生き残りを pytest 側のテストで殺すのは mutmut で、手元で回す（回し方は
-graphloops/README.md の「検査」節）——版の後の CI（mutation-shards.yml）でも撃ち、結果を成果物に残す。この実行器は、上に書いた一覧の腕（字列置換・expect と killedBy の突合）と、差分の行に絞った
+設定は graphloops/setup.cfg）を丸ごと自動で撃ち、生き残りを pytest 側のテストで殺すのは mutmut で、版の後の CI（mutation-shards.yml）で撃つ（回し方は
+graphloops/README.md の「検査」節）。この実行器は、上に書いた一覧の腕（字列置換・expect と killedBy の突合）と、差分の行に絞った
 自動の腕（--auto。review-loop のゲートの実効性が使う）を受け持ち、CI で落とす柵（週 1 回の全腕の mutation.yml と、push ごとに
 差分の腕を組に分けて撃つ mutation-shards.yml）もこちらだけに在る。
 
@@ -59,8 +59,8 @@ status（Killed / Survived / NoCoverage / Timeout / RuntimeError / Ignored）と
 empty（撃てた腕 0 本の理由）・partial（撃つ途中の版。腕 1 本ごとに書き直す）・pending（期限で撃たずに残った腕）・pruned（1 行 1 本と
 効かない行の規則で作らなかった自動の腕と理由）・marker_unhealthy（印の写しが赤で、通らない行を決めなかった理由。そのとき通らなかった
 自動の腕は status が Pending で unrunnable に理由）・worktree_moved（基点を写した後に作業ツリーで変わった、腕の結果を決めるファイル。
-撃った結果は基点の版の物で、終了コードと証拠には使わない）・rev と at（撃った版の HEAD と撃ち始めた時刻）・shard（--shard の組の身元:
-k・n・全体の選別 selected）・shards と merge_problems（--merge が書く、組ごとの割り当ての本数と、和の検算で外れた理由）の 11 個と、印の写しの detail（赤の回の検査ごとの本文と出力の末尾）と、腕ごとの cover（印の写しで行を通した台本。? は帰属できない印）と
+撃った結果は基点の版の物で、終了コードと証拠には使わない）・rev と at（撃った版の HEAD と撃ち始めた時刻）・auto（--auto の基点。撃ち直すときに渡す）・shard（--shard の組の身元:
+k・n・全体の選別 selected）・shards と merge_problems（--merge が書く、組ごとの割り当ての本数と、和の検算で外れた理由）と、印の写しの detail（赤の回の検査ごとの本文と出力の末尾）と、腕ごとの cover（印の写しで行を通した台本。? は帰属できない印）と
 attribution（赤の出どころ: narrowed＝絞った台本から / unrelated＝絞った台本は緑で一式の確かめ直しだけ赤 / unattributed＝一式だけで撃った）。
 止める信号（SIGTERM・SIGINT・SIGHUP）を受けたら、起こした子のグループと写しを片付けて 128＋信号の番号で抜ける。
 
@@ -72,7 +72,7 @@ attribution（赤の出どころ: narrowed＝絞った台本から / unrelated�
 SIGKILL などで残った根は、次の起動がロックの解けた物だけを消す（期限で死とみなさない。旧形式の mutate-<tag>-* は触らない）。
 
 終了コード: 0 = 撃った腕（1 本以上）が全部、赤・当たりの証拠つきで control が緑（--check なら全腕の字列と証拠の口が在る）
-/ 1 = そうでない / 2 = 一覧・報告が読めない。時間切れ・台本が 1 本も当たらなかった腕は赤でなく『走り切らない』。
+/ 1 = そうでない / 2 = 引数・入力が読めない。時間切れ・台本が 1 本も当たらなかった腕は赤でなく『走り切らない』。
 --shard で自分の割り当てが 0 本の組は、撃たずに身元だけを書いて 0（全体の選別が 0 本なら 1）。--merge はまとめた報告に同じ規則を当てる。
 --findings は読める報告なら 0、健全でない・撃ち切っていない・組が欠けた報告は何も出さずに 1
 """
@@ -928,7 +928,7 @@ def write_out(out, res):
 def write_empty(out, why, head=None):
     """撃てた腕が 0 本の回も --out を書く——--gate-efficacy がそこから not_run（理由つき）を組める。終了コードは 1 のまま
     （0 本を合格と言わない）。書かずに抜けていた頃は、任せ先が --gate-efficacy を打つと読み込みで落ち、返す形が何も無かった。
-    head は rev・at と、--shard の回の shard（全体の選別が 0 本でも組の身元を書く——書かないと --merge が組の欠けと見分けられない）"""
+    head は --out の頭に置く欄（呼び元が渡す。--shard の回は組の身元を含む——書かないと --merge が組の欠けと見分けられない）"""
     write_out(out, {"schemaVersion": "1", **(head or {}), "arms": [], "empty": why})
 
 
@@ -953,9 +953,13 @@ def _rc0(rcs):
     return next((r for r in rcs if r != 0), 0)
 
 
+# 組の報告どうしで揃うべき頭の欄（違う版・違う基点・違う選別で撃った組を 1 本にまとめない）
+SAME = ("rev", "auto", "pruned")
+
+
 def merge_reports(reports):
     """組（--shard）の報告を 1 つにまとめる——和の検算の唯一の口。reports は (名前, 報告) の並び。
-    検算: 全組が shard を持つ・n が同じ・k が 0..n-1 をちょうど 1 回ずつ・全体の選別 selected・rev・pruned が同じ・
+    検算: 全組が shard を持つ・n が同じ・k が 0..n-1 をちょうど 1 回ずつ・全体の選別 selected と SAME の欄が同じ・
     各組の腕が shard_of の割り当てと一致・撃ち切っている（partial・pending が無い）。外れた理由は merge_problems に積み、
     healthy が偽になる（終了コード・--gate-efficacy・--findings・--reuse の全部が同じ判定を読む）。
     割り当て 0 本の組は control と印の写しを持たないので、その母数から外し、外したことを shards に残す"""
@@ -978,10 +982,10 @@ def merge_reports(reports):
     dupk = sorted(k for k, c in ks.items() if c > 1)
     if dupk:
         probs.append(f"同じ組の報告が 2 つ以上: k={dupk}")
-    for fld in ("selected", "rev", "pruned"):
+    for fld in ("selected",) + SAME:
         vals = {json.dumps(sh[fld] if fld == "selected" else r.get(fld), ensure_ascii=False, sort_keys=True) for _, r, sh in rows}
         if len(vals) > 1:
-            probs.append(f"組ごとの {fld} が揃わない（別の版・別の選別で撃った組が混ざった）")
+            probs.append(f"組ごとの {fld} が揃わない（別の版・別の基点・別の選別で撃った組が混ざった）")
     selected = rows[0][2]["selected"] if rows else []
     arms, control, markers, shards, seen_ids = [], {}, [], [], collections.Counter()
     for name, r, sh in rows:
@@ -1002,7 +1006,7 @@ def merge_reports(reports):
         probs.append(f"2 つ以上の組に在る腕: {' '.join(dup[:10])}")
     order = {x: i for i, x in enumerate(selected)}
     arms.sort(key=lambda a: order.get(a["id"], len(order)))
-    head = {k: v for k, v in (rows[0][1] if rows else {}).items() if k in ("schemaVersion", "rev", "pruned")}
+    head = {k: v for k, v in (rows[0][1] if rows else {}).items() if k in ("schemaVersion",) + SAME}
     ats = sorted(r.get("at") for _, r, _ in rows if r.get("at"))
     res = {"schemaVersion": "1", **head, **({"at": ats[0]} if ats else {}), "arms": arms,
            "shards": sorted(shards, key=lambda x: x["k"])}
@@ -1114,8 +1118,7 @@ def ignored(a):
 def fingerprint(root, a):
     """持ち越してよいかを決める指紋: 腕の定義・壊すファイル・台本一式の本文。どれかが変われば撃ち直す。
     ほかのファイルの変更で結果が変わる腕は拾わない（StrykerJS の incremental と同じ割り切り）——拾うのは週 1 回の全腕
-    （.github/workflows/mutation.yml）で、その schedule が止まっていない間だけ（止まる条件と戻し方はそのファイルの頭）と、
-    台本（DRIVERS）に触れた push で全腕を撃つ .github/workflows/mutation-shards.yml"""
+    （.github/workflows/mutation.yml）で、その schedule が止まっていない間だけ（止まる条件と戻し方はそのファイルの頭）"""
     h = hashlib.sha256(json.dumps(a, ensure_ascii=False, sort_keys=True).encode("utf-8"))
     for f in (a["file"],) + DRIVERS:
         p = root / f
@@ -1178,7 +1181,8 @@ def findings(res):
         return [], None
     if not healthy(res):
         return None, "control か印の写しが赤（撃った回そのものが証拠にならない）"
-    where_run = f"版 {res.get('rev') or '（版が刻まれていない）'}・{res.get('at') or '（時刻が刻まれていない）'} に tests/mutate.py で撃った"
+    where_run = (f"版 {res.get('rev') or '（版が刻まれていない）'}・{res.get('at') or '（時刻が刻まれていない）'} に tests/mutate.py で撃った"
+                 f"（--auto の基点 {res.get('auto') or '無し'}）")
     out = []
     for r in res["arms"]:
         if r.get("status") == "Ignored" or proven(r):
@@ -1220,7 +1224,7 @@ def main():
     ap.add_argument("--arms-file", help="腕の一覧の置き場（既定は tests/mutations.json。台本が壊した一覧で --check の赤を見るため）")
     ap.add_argument("--every-node", action="store_true", help="--auto の腕を 1 行 1 本に畳まず、効かない行の腕も作る（Google 型に絞る前の撃ち方）")
     ap.add_argument("--confirm-survivors", action="store_true", help="絞った台本（腕の tests・自動の腕の行を通した台本）が緑の腕を、"
-                    "台本一式で確かめ直す。版の関門（既定は版の後の CI。手元で版の前にも撃てる）と週 1 回の全腕で付ける")
+                    "台本一式で確かめ直す。版の関門（このリポジトリの運用では版の後の CI）と週 1 回の全腕で付ける")
     ap.add_argument("--shard", metavar="k/n", help="選んだ腕（一覧の腕と --auto の腕の和）を n 組に分け、k 組目（0 始まり）だけを撃つ。"
                     "--out に組の身元（shard）を刻む。組の報告は --merge でまとめてから読む")
     ap.add_argument("--merge", nargs="+", metavar="REPORT", help="--shard の組の報告を和の検算を通して 1 つにまとめ、--out に書く")
@@ -1300,7 +1304,7 @@ def main():
     # いたとき、一覧に腕の無いファイルだけを直した周は、自動の腕が在っても撃つ前に抜けた。--auto だけのときに一覧の腕を
     # 捨てていたので、次の周の頭で一覧と前の周の差分の自動の腕を 1 回で撃てなかった
     sel = pick(arms, a.only, a.files, a.changed_since, *view) + autos
-    head = {"rev": head_rev(), "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")}
+    head = {"rev": head_rev(), "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "auto": a.auto}
     if shard:
         head["shard"] = {"k": shard[0], "n": shard[1], "selected": [x["id"] for x in sel]}
     if not sel:
@@ -1313,7 +1317,6 @@ def main():
         sel = [x for x in sel if x["id"] in mine]
         print(f"組 {shard[0]}/{shard[1]}: 全体 {len(head['shard']['selected'])} 本のうち {len(sel)} 本を撃つ", flush=True)
         if not mine:
-            # 割り当て 0 本は成果物の欠けと違う——身元だけを書いて 0 で抜ける（control も印の写しも走らせない）
             write_out(a.out, {"schemaVersion": "1", **head, "arms": [], "pruned": pruned})
             sys.exit(0)
     b = base()   # 字列の検査も、腕を撃つのと同じ基点で
@@ -1330,7 +1333,7 @@ def main():
     if fire and not carried and all(ignored(x) for x in fire):
         # 撃てる腕が 0 本——写しで control を回す前に止める（pytest が 1 本も集まらなかった回を専用の終了コード 5 で返すのと同じく、0 本を合格と言わない）
         why = f"撃てる腕が 0 本（{len(fire)} 本とも python_max より新しい Python {sys.version_info[0]}.{sys.version_info[1]} では撃てない）"
-        write_empty(a.out, why)
+        write_empty(a.out, why, {**head, "pruned": pruned})
         print(f"NG {why}", file=sys.stderr)
         sys.exit(1)
     # **期限: 新しい仕事（印の写し・腕）を始めてよいのは cutoff まで。** 始めた仕事は TIMEOUT のうちに終わるので、結果は期限の

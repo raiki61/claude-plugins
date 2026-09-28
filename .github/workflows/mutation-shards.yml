@@ -1,15 +1,17 @@
 name: mutation-shards
 
-# 版の関門（2026-09-27 の人の決定: 版を止めない・変異は手元でなく CI で撃つ）。main と版の枝（release/*）への push の後で、
-# 差分の腕を組に分けて 3 OS の並列の job で撃ち（OS ごとの分岐を殺すため）、OS ごとに組の報告を tests/mutate.py --merge で
-# 和を検算してまとめ、証拠にならない腕を --findings で review-graph の loop.py add に渡せる形にして成果物に残す。
-# pytest が覆うモジュールの変異（mutmut）も同じ push で撃ち、結果を成果物に残す。版の前に手元で撃つ関門
-# （python3 tests/mutate.py --confirm-survivors）は選べるまま残る。週 1 回の全腕は mutation.yml。
-# 選ぶ腕は差分の Google 型（--auto の 1 行 1 本・効かない行を外す ＋ --changed-since の一覧の腕）。台本（tests/mutate.py の DRIVERS）に
-# 触れた push は、柵の側を緩めた変更を差分の腕では拾えないので一覧の腕を全部撃つ
+# 版の関門（仕組みと運用の正本は graphloops/README.md の「版の関門」）。
+# 台本（tests/mutate.py の DRIVERS）に触れた push は、柵の側を緩めた変更を差分の腕では拾えないので一覧の腕を全部撃つ
 on:
   push:
     branches: [main, "release/**"]
+  # 見逃しを殺すテストだけを足した push では元の差分の腕が作られないので、元の基点を渡して手で撃ち直す口
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 撃ち直す差分の基点（findings の measured に在る基点。空なら push と同じ決め方）
+        required: false
+        default: ""
 
 # checkout と成果物の上げ下ろしだけなので、GITHUB_TOKEN は読むだけにする。secrets は使わない
 permissions:
@@ -37,13 +39,17 @@ jobs:
       - name: 基点と撃ち方を決める
         id: plan
         shell: bash
+        # 手で打つ入力は run の本文に式で埋めず、中間の環境変数で受けて SHA に直してから出力する
         env:
+          BASE_IN: ${{ inputs.base }}
           BEFORE: ${{ github.event.before }}
           REF: ${{ github.ref_name }}
         run: |
-          # 基点は push の前の版。枝を作った push（before が全 0）か、before が引けない（強制 push）なら、
-          # 1 つ前の版の枝との分岐点、無ければ main との分岐点
-          if [ -n "$BEFORE" ] && ! [[ "$BEFORE" =~ ^0+$ ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+          # 基点: 入力が在ればそれ（引けなければ既定に倒さず赤）、無ければ push の前の版、それも無い・引けない（枝を作った
+          # push・強制 push・手の起動）なら、今の枝を除く版の枝のうち版名が最大の枝との分岐点、無ければ main との分岐点
+          if [ -n "$BASE_IN" ]; then
+            base=$(git rev-parse --verify --quiet "$BASE_IN^{commit}") || { echo "::error::入力の基点 $BASE_IN を引けない"; exit 1; }
+          elif [ -n "$BEFORE" ] && ! [[ "$BEFORE" =~ ^0+$ ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             base="$BEFORE"
           else
             prev=$(git for-each-ref --sort=-v:refname --format='%(refname:short)' 'refs/remotes/origin/release/' | grep -vx "origin/$REF" | head -n 1)
@@ -81,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # OS ごとにまとめる（同じ腕でも OS で結果が分かれうる。混ぜると k が 2 回ずつ在って和の検算が赤になる）
+        # OS ごとにまとめる（同じ腕でも OS で結果が分かれうる。混ぜると同じ k が OS の数だけ重なり、和の検算が赤になる）
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
@@ -126,8 +132,7 @@ jobs:
           exit "${RC:-1}"
 
   # pytest が覆うモジュールの変異（mutmut。設定は graphloops/setup.cfg）。生き残りの数で落とす形は作れない（文言だけの変異が残る）
-  # ので job は赤にせず、結果を成果物に残す——生き残りは次の run に依頼として渡す（graphloops/README.md の「版の関門」）。
-  # mutmut は Windows で動かないので 2 OS
+  # ので job は赤にしない。mutmut は Windows で動かないので 2 OS
   mutmut:
     runs-on: ${{ matrix.os }}
     strategy:

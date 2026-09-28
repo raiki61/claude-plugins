@@ -1,15 +1,13 @@
 name: mutation
 
-# 変異の腕（tests/mutations.json）を全部撃つ。手元の撃ち直しは --reuse で前回の結果を持ち越し、腕の定義・壊すファイル・
-# 台本一式が変わった腕だけを撃つので、ほかのファイルの変更で結果が変わる腕は手元では拾えない（StrykerJS の incremental と
-# 同じ割り切り: https://stryker-mutator.io/docs/stryker-js/incremental/）。その取りこぼしを週 1 回の全腕で拾う——ただし拾えるのは
+# 変異の腕（tests/mutations.json）を全部撃つ。push ごとの関門（mutation-shards.yml）は、腕のファイルが差分に在る腕と差分の行の
+# 自動の腕だけを撃つので、ほかのファイルの変更で結果が変わる腕は拾えない（StrykerJS の incremental と同じ割り切り:
+# https://stryker-mutator.io/docs/stryker-js/incremental/）。その取りこぼしを週 1 回の全腕で拾う——ただし拾えるのは
 # schedule が動いている間だけ。60 日間リポジトリに活動が無いと GitHub が schedule を止め（public のリポジトリ）、誰にも通知されない。
-# 戻すのは手で: gh workflow enable mutation.yml。止まっている間の取りこぼしは、手元の全腕（--reuse を付けない tests/mutate.py）でしか拾えない
+# 戻すのは手で: gh workflow enable mutation.yml。止まっている間の取りこぼしは、その後に gh workflow run mutation.yml で全腕を撃てば拾える
 # 既製の mutmut（pytest が覆うモジュールを丸ごと自動で撃つ）はここで回さない。生き残りの数で落とす形は作れない（文言だけの変異が
 # 残る）ので、push ごとの mutation-shards.yml で撃って結果を成果物に残し（job は赤にしない）、生き残りを次の run への依頼にして
 # pytest 側のテストで殺す（回し方と渡し方は graphloops/README.md の「検査」節）。落とす柵はこの workflow が撃つ手書きの腕の側に在る
-# push ごとの版の関門（差分の腕を 3 OS × 組に分けて並列に撃つ。mutmut もそこで撃ち、結果を成果物に残す）は mutation-shards.yml。
-# こちらはその取りこぼしを拾う週 1 回の全腕
 on:
   schedule:
     - cron: "17 3 * * 1"
@@ -34,7 +32,7 @@ jobs:
         shell: bash
         # --confirm-survivors: 絞った台本（腕の tests）が緑の腕を台本一式で確かめ直す（週 1 回の全腕は、既定で外した確かめ直しを残す）
         run: python3 tests/mutate.py -j 4 --confirm-survivors --out mutation-report.json
-      - name: 結果を残す（次の撃ち直しの --reuse に使える）
+      - name: 結果を残す
         if: always()
         uses: actions/upload-artifact@v4
         with:
