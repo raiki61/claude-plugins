@@ -12,9 +12,8 @@ name: mutation
 # 週 1 回の全腕は、持ち越し（--reuse）が拾えない腕を拾う——ただし schedule は、60 日間リポジトリに活動が無いと GitHub が止め（public の
 # リポジトリ）、誰にも通知されない。戻すのは手で: gh workflow enable mutation.yml。止まっている間の取りこぼしは gh workflow run mutation.yml
 # （入力なし＝全腕）で拾う。
-# **SKIP_ALLOW は全 job の頭の env に置き、値は test.yml の matrix.include の skip_allow と OS ごとに同じにする**（正本は test.yml。
-# YAML の錨はファイルをまたげない）。pytest（graphloops/tests/py の柵 fence.py）は許しに無い宣言つきの見送りを失敗に数えるので、
-# 無いと Windows の control の pytest が変異と無関係に赤になる。揃いは graphloops/tests/py/test_mutate_shard.py が縛る。
+# SKIP_ALLOW の値の正本は test.yml の matrix.include の skip_allow（pytest の柵 fence.py は許しに無い宣言つきの見送りを失敗に数える）。
+# ここは workflow の頭の 1 つと、Windows の組の job の上書き 1 つ（env は狭い所の値が勝つ）。形の検査は graphloops/tests/py/test_mutate_shard.py。
 on:
   schedule:
     - cron: "17 3 * * 1"
@@ -37,11 +36,12 @@ on:
 permissions:
   contents: read
 
+env:
+  SKIP_ALLOW: "version-bump"
+
 jobs:
   shard-ubuntu:
     runs-on: ubuntu-latest
-    env:
-      SKIP_ALLOW: "version-bump"
     strategy:
       # 生き残りで赤になった組が兄弟の組を取り消すと、まとめる job が組の欠けで赤になり結果が読めない
       fail-fast: false
@@ -59,8 +59,9 @@ jobs:
         with:
           python-version: "3.12"
       # tests/mutate.py の PYTEST（uv run --no-project --with pytest==… ）を起こす。無いと pytest の段が撃てない（no-test）まま台本だけで撃つ
+      # v8 から動くメジャーのタグ（@v10）は無い。完全な版で固定する（v10.1.0 から uv のダウンロードを astral-sh/versions のチェックサムで確かめる）
       - &setup_uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "0.11.29"
       # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。python3 は Windows の runner に無いので python で呼ぶ。
@@ -109,8 +110,6 @@ jobs:
     steps: [*checkout, *setup_python, *setup_uv, *shoot, *upload_shard]
   shard-macos:
     runs-on: macos-latest
-    env:
-      SKIP_ALLOW: "version-bump"
     strategy:
       fail-fast: false
       matrix:
@@ -121,8 +120,6 @@ jobs:
     needs: [shard-ubuntu, shard-windows, shard-macos]
     if: always()
     runs-on: ubuntu-latest
-    env:
-      SKIP_ALLOW: "version-bump"
     strategy:
       fail-fast: false
       matrix:
@@ -150,8 +147,6 @@ jobs:
     needs: merge
     if: always()
     runs-on: ubuntu-latest
-    env:
-      SKIP_ALLOW: "version-bump"
     steps:
       - *checkout
       - *setup_python
@@ -182,8 +177,6 @@ jobs:
   # windows, you must run inside WSL."）。手書きの腕（上の組）は 3 OS で撃つ（人の関所 2026-09-28 の条件 6。親の推しで通した）
   mutmut:
     runs-on: ${{ matrix.os }}
-    env:
-      SKIP_ALLOW: "version-bump"
     strategy:
       fail-fast: false
       matrix:
@@ -213,12 +206,13 @@ jobs:
   # cosmic-ray が走らせるのは pytest の置き場だけ（台本は走らせない）。設定の鍵と CLI は cosmic-ray 8.7.0 の src/cosmic_ray/config.py・
   # cli.py・tools/filters/git.py で確かめた。timeout は設定の必須の鍵なので、人の方針の例外の 20 日を書く。
   # exec の前に baseline（変異の無い木でテストが緑か。赤なら 1 で抜ける——cli.py の baseline）を置く: 赤の木では全部の変異が殺したことに
-  # なり、撃ち比べの結論が逆になる（公式の tutorials/intro）。報告は別の段で if: always() に書き、途中で落ちた回も cr.sqlite ごと残す
+  # なり、撃ち比べの結論が逆になる（公式の tutorials/intro）。報告は別の段で if: always() に書き、途中で落ちた回も cr.sqlite ごと残す。
+  # 網は test-command の 1 本（graphloops/tests/py）なので、対象はその網が読むファイル——graphloops/ の下と tests/mutate.py——に絞り、
+  # 外した対象は cosmic-ray-outside.txt に残す（網の届かない変異が生き残りに混ざると cosmic-ray が弱く見える）。絞るのはファイルの
+  # 粒度で、届くファイルの中の網が走らない行は cosmic-ray では生き残りに、--auto では NoCoverage に入る——比べるときはその偏りを読む
   cosmic-ray:
     if: github.event_name == 'workflow_dispatch' && inputs.auto != ''
     runs-on: ubuntu-latest
-    env:
-      SKIP_ALLOW: "version-bump"
     steps:
       - *checkout
       - *setup_python
@@ -232,7 +226,10 @@ jobs:
           # 対象の正本は tests/mutate.py の auto_targets（--auto と同じ差分と除外。改名したファイルも新しい名前で入る）
           # 代入の形で受ける（プロセス置換の終了コードは -e に拾われず、差分が取れない回が『対象なし』の緑に化ける）
           targets=$(python -c 'import sys; sys.path.insert(0, "tests"); import mutate; t = mutate.auto_targets(sys.argv[1]); t is None and sys.exit("NG --auto の差分が取れない"); print("\n".join(sorted(t)))' "$base")
-          if [ -z "$targets" ]; then echo "差分が足した .py の行が無い——撃たない" > cosmic-ray-report.txt; exit 0; fi
+          reach='^(graphloops/|tests/mutate\.py$)'
+          { grep -Ev "$reach" <<< "$targets" || true; } > cosmic-ray-outside.txt
+          targets=$(grep -E "$reach" <<< "$targets" || true)
+          if [ -z "$targets" ]; then echo "網（graphloops/tests/py）の読む対象に差分が足した .py の行が無い——撃たない" > cosmic-ray-report.txt; exit 0; fi
           mapfile -t mods <<< "$targets"
           python -m pip install cosmic-ray==8.7.0 pytest==9.1.1 pytest-xdist==3.8.0
           python - "$base" "${mods[@]}" > cr.toml <<'PY'
@@ -269,4 +266,5 @@ jobs:
             cr.sqlite
             cosmic-ray-report.txt
             cosmic-ray-dump.jsonl
+            cosmic-ray-outside.txt
           if-no-files-found: warn

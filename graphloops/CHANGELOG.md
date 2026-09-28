@@ -41,6 +41,10 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 - `init --no-engine-runners`（回す側の節を会話がこなす道）。人の決定（2026-09-27）で消す予定で、打つと注意を出す。
 
+### Removed
+
+- （開発）層 2 へ移した bash の台本 9 関数（simulate.py の test_stop_midway・test_stopped_before_gates_reports、simulate_review.py の test_awaiting_origin_guards・test_ci_red_runaway・test_deferjudge・test_final_gate_empty_asks_human・test_no_new_awaiting_after_judge・test_runaway・test_tdd_gives_up_without_dead_end）。台帳と被覆の包含がそろった物だけで、同じ筋書きは pytest の層 2 が確かめる。子プロセスで loop.py を起こす第二の網と、変異で期待の強さを確かめることは、この 9 関数の分だけ外れた（人の決定 2026-09-28。docs/adr/0067 の台本を消す条件）。
+
 ## [0.22.0] - 2026-09-27
 
 ### Added

@@ -196,6 +196,8 @@ root cover）だが、回す側の token では起こせない（dispatch が 40
 （道具の出力と終了コードの 1 行）を読んで結果をここに書く。赤の腕は、その回の cover-root/old を置き場に戻して `--only-new` と
 `-- --deselect` で撃つ（外す 1 件はその回の出力から決める）。包含が立つまで台本の review-record.py の節は消さない（台本を消す条件の 4 は必須——
 [docs/adr/0067 の台本を消す条件](../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md#台本を消す条件)）。
+graphloops の台本の 9 関数を消した周（2026-09-28）も、この節は第二の網として残した: coverage_proof.py は本物の bash で台本の節を回すので、
+手元でも書く子の中でも撃たない（人の方針。人の関所 2026-09-28 の round 3）。
 
 ### 変異の腕（CI で撃つ手順）
 
@@ -203,7 +205,7 @@ root cover）だが、回す側の token では起こせない（dispatch が 40
 [.github/workflows/mutation.yml](../../.github/workflows/mutation.yml)。ただし、どちらの腕もまだこの置き場を撃たない。
 
 - **手書きの腕**: [tests/mutations.json](../mutations.json) で scripts/review-record.py を壊す腕は n01・n02（suite は root。expect は
-  `graphloops: graphcheck`）と OA1（suite は graphloops。graphloops/tests/simulate_review.py の検査と、その移し先の層 2 の node id が落とす）の
+  `graphloops: graphcheck`）と OA1（suite は graphloops。層 2 の node id が落とす——落としていた台本の関数は 2026-09-28 に消し、台本の鍵を外した）の
   3 本。どれも節の検査で落ちる腕ではないので、台本の節を消しても付け替えは要らない。腕の実行器 [tests/mutate.py](../mutate.py) の手書きの腕が
   名指せる pytest の置き場は graphloops/tests/py だけで、この置き場（tests/py）の node id を名指す腕を足すなら、その口を広げる変更が要る
 - **mutmut**: この置き場のテストのままでは、pytest の側の mutmut は review-record.py の変異を拾えない。mutmut の trampoline は、

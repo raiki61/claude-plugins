@@ -1,5 +1,5 @@
 {
- "about": "変異の腕の一覧。1 本ずつ写しに当てて台本を走らせ、赤になることを見る（実行器は tests/mutate.py）。old は file の中に 1 か所だけ在る字列で、new に置き換える。json は graph の欄を消す・値を抜く。expect は赤のときに落ちるはずの検査の名前の頭（実際に落ちた検査 killedBy に在ることだけが当たりの証拠。頭の 16 字は台本の本文に字面で在ること。台本の土台が例外で抜けた行（test_… が例外で抜けた）は関数名で見る。:: を含む expect は pytest の node id で、graphloops/tests/py に在り、名指しのどれかに当たること）。tests は撃つ検査の名指し: 台本（graphloops/tests/simulate.py・simulate_review.py）の鍵には関数名、pytest の置き場 graphloops/tests/py の鍵にはそこから見た node id（pytest を先に撃ち、落ちた node id が名指しか expect かその parametrize なら当たりの証拠——tests/mutate.py の node_hit）。marker は守る行を通ったことを見る印の置き場（after＝old の 1 行目の次の行、before＝前の行。cond はその行で真になる式）。python_max はその版より新しい Python では撃てない腕（実行器は撃たずに status を Ignored にし、要約の『撃てない』はその status から引く）。dropped は外した腕と理由",
+ "about": "変異の腕の一覧。1 本ずつ写しに当てて台本を走らせ、赤になることを見る（実行器は tests/mutate.py）。old は file の中に 1 か所だけ在る字列で、new に置き換える。json は graph の欄を消す・値を抜く。expect は赤のときに落ちるはずの検査の名前の頭（実際に落ちた検査 killedBy に在ることだけが当たりの証拠。頭の 16 字は台本の本文に字面で在ること。台本の土台が例外で抜けた行（test_… が例外で抜けた）は関数名で見る。expect は腕が最後に撃つ道の証拠の名前で、台本の名指しを持つ腕は台本の検査名、台本の名指しの無い pytest だけの腕は名指しのどれかに当たる node id（:: を含み、graphloops/tests/py に在る））。tests は撃つ検査の名指し: 台本（graphloops/tests/simulate.py・simulate_review.py）の鍵には台本に在る関数名、pytest の置き場 graphloops/tests/py の鍵にはそこから見た node id（pytest を先に撃ち、落ちたテストが名指しかその parametrize なら当たりの証拠——名指しのファイルの収集の ERROR は証拠の文を分ける。当たらない赤は、台本の名指しが在れば台本の道で決める。規則の正本は tests/mutate.py の docstring）。marker は守る行を通ったことを見る印の置き場（after＝old の 1 行目の次の行、before＝前の行。cond はその行で真になる式）。python_max はその版より新しい Python では撃てない腕（実行器は撃たずに status を Ignored にし、要約の『撃てない』はその status から引く）。dropped は外した腕と理由",
  "dropped": [
   {
    "id": "d02",
@@ -1877,11 +1877,8 @@
    "suite": "graphloops",
    "old": "    errs += _awaiting_origins(V, b.record[\"questions\"], b.record[\"materials\"], \"台帳の questions\")",
    "new": "    pass",
-   "expect": "書いた時点: 人に諮っている欄を後の工程が clean で上書きすると拒む",
+   "expect": "test_scenarios_review.py::test_awaiting_origin_guards[ci-overwrite]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_awaiting_origin_guards"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_awaiting_origin_guards[ci-overwrite]"
     ]
@@ -2155,7 +2152,16 @@
    "suite": "root",
    "old": "    if passed(res):\n        mat = {\"status\": \"clean\"",
    "new": "    if True:\n        mat = {\"status\": \"clean\"",
-   "expect": "--gate-efficacy は赤・control 緑・証拠のそろわない腕を found に数える",
+   "expect": "--gate-efficacy は赤・control 緑・証拠のそろわない腕を found に数える"
+  },
+  {
+   "id": "M11b",
+   "title": "--gate-efficacy は足りない腕を found に（まとめた報告の表）",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "    if passed(res):\n        mat = {\"status\": \"clean\"",
+   "new": "    if True:\n        mat = {\"status\": \"clean\"",
+   "expect": "test_mutate_shard.py::test_merge_exit_and_gate_status_read_the_same_passed[survived]",
    "tests": {
     "graphloops/tests/py": [
      "test_mutate_shard.py::test_merge_exit_and_gate_status_read_the_same_passed[survived]"
@@ -2207,11 +2213,8 @@
     ],
     "remove": "record.questions"
    },
-   "expect": "CI を再実行する節のプロンプトに、この周の問いの台帳が渡る",
+   "expect": "test_scenarios_review.py::test_awaiting_origin_guards[ci-prompt-has-ledger]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_awaiting_origin_guards"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_awaiting_origin_guards[ci-prompt-has-ledger]"
     ]
@@ -2841,11 +2844,8 @@
    "suite": "graphloops",
    "old": "    return bool(m) and m.get(\"status\") != \"awaiting_human\"",
    "new": "    return False",
-   "expect": "書いた時点: 人に諮っている欄を後の工程が",
+   "expect": "test_scenarios_review.py::test_awaiting_origin_guards[ci-overwrite]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_awaiting_origin_guards"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_awaiting_origin_guards[ci-overwrite]"
     ]
@@ -2939,11 +2939,8 @@
    "suite": "graphloops",
    "old": "        if m.get(\"status\") == \"awaiting_human\" and mat not in listed:",
    "new": "        if False:",
-   "expect": "判定の後の人待ち: 問いの無い awaiting_human を書いた p4.ci は拒む",
+   "expect": "test_scenarios_review.py::test_no_new_awaiting_after_judge[p4-ci-awaiting-without-question]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_no_new_awaiting_after_judge"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_no_new_awaiting_after_judge[p4-ci-awaiting-without-question]"
     ]
@@ -3096,11 +3093,8 @@
    "suite": "graphloops",
    "old": "見た結果を found / clean で、走らせられなかったなら not_run（理由つき。収束は止まる）で書け",
    "new": "見た結果を found / clean で書け",
-   "expect": "判定の後の人待ち: 問いの無い awaiting_human を書いた p4.ci は拒む",
+   "expect": "test_scenarios_review.py::test_no_new_awaiting_after_judge[p4-ci-awaiting-without-question]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_no_new_awaiting_after_judge"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_no_new_awaiting_after_judge[p4-ci-awaiting-without-question]"
     ]
@@ -3265,7 +3259,7 @@
    "title": "撃てた腕 0 本の回も --out を書く",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "    write_out(out, {\"schemaVersion\": \"1\", **(head or {}), \"arms\": [], \"empty\": why})",
+   "old": "    write_out(out, report_of(head, [], empty=why))",
    "new": "    pass",
    "expect": "--gate-efficacy の出力は found・clean"
   },
@@ -3898,8 +3892,8 @@
    "title": "期限で残った腕を clean にしない",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "    shot = [r for r in res[\"arms\"] if r.get(\"status\") != \"Ignored\"] + list(res.get(\"pending\") or [])",
-   "new": "    shot = [r for r in res[\"arms\"] if r.get(\"status\") != \"Ignored\"]",
+   "old": "    return [r for r in res.get(\"arms\", []) if r.get(\"status\") != \"Ignored\"] + list(res.get(\"pending\") or [])",
+   "new": "    return [r for r in res.get(\"arms\", []) if r.get(\"status\") != \"Ignored\"]",
    "expect": "自動の腕の本命"
   },
   {
@@ -5660,11 +5654,8 @@
    "suite": "graphloops",
    "old": "    if gate == [FINAL_GATE_EMPTY]:",
    "new": "    if False:",
-   "expect": "撃てた腕が 0 本の関門で収束を言わず人に諮る",
+   "expect": "test_scenarios_review.py::test_final_gate_empty_asks_human[asks-on-empty-gate]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_final_gate_empty_asks_human"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_final_gate_empty_asks_human[asks-on-empty-gate]"
     ]
@@ -5677,11 +5668,8 @@
    "suite": "graphloops",
    "old": "            write_loop(b, \"final_gate_empty_ok\", \"overwrite\", (tree or \"\").strip() or None)",
    "new": "            pass",
-   "expect": "人が認めた木なら",
+   "expect": "test_scenarios_review.py::test_final_gate_empty_asks_human[converges-next-round]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_final_gate_empty_asks_human"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_final_gate_empty_asks_human[converges-next-round]"
     ]
@@ -5979,11 +5967,8 @@
    "suite": "graphloops",
    "old": "        write_loop(b, \"stop_reason\", \"overwrite\", ((out.get(\"ask\") or {}).get(\"kinds\") or [out.get(\"reason\")])[0])",
    "new": "        pass",
-   "expect": "諮る前に止めた理由（stop_reason）を立てる",
+   "expect": "test_scenarios_review.py::test_final_gate_empty_asks_human[stop-reason-before-asking]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_final_gate_empty_asks_human"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_final_gate_empty_asks_human[stop-reason-before-asking]"
     ]
@@ -5996,11 +5981,8 @@
    "suite": "graphloops",
    "old": "            if b.state[\"max_rounds\"] <= b.round:   # 上限の周の答え——同じ木の関門を撃つ次の周を 1 つ開ける\n                _extend_one_round(b, entry)",
    "new": "            pass",
-   "expect": "上限の周の continue は上限を 1 周だけ延ばし",
+   "expect": "test_scenarios_review.py::test_final_gate_empty_asks_human[continue-extends-by-one]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_final_gate_empty_asks_human"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_final_gate_empty_asks_human[continue-extends-by-one]"
     ]
@@ -6660,11 +6642,8 @@
    "suite": "graphloops",
    "old": "    for name in sorted(awaiting - listed):",
    "new": "    for name in sorted(set()):",
-   "expect": "判定の時点: 人待ちの素材を出どころにする問いを台帳に載せない判定は拒む",
+   "expect": "test_scenarios_review.py::test_awaiting_origin_guards[judge-unlisted]",
    "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_awaiting_origin_guards"
-    ],
     "graphloops/tests/py": [
      "test_scenarios_review.py::test_awaiting_origin_guards[judge-unlisted]"
     ]
@@ -7292,8 +7271,8 @@
    "title": "名指しの pytest の赤は、名指しに当たる落ちたテストを当たりの証拠にする",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "                return {**row, \"own\": bool(hit), **({\"hit\": hit} if hit else {})} if nodes else row",
-   "new": "                return row",
+   "old": "                    return {**row, \"own\": bool(hit), **({\"hit\": hit} if hit else {})}",
+   "new": "                    return row",
    "expect": "test_mutate_arms.py::test_named_node_red_kills_first_with_the_named_node_as_evidence",
    "tests": {
     "graphloops/tests/py": [
@@ -7418,7 +7397,7 @@
    "title": "和の検算: 割り当てとの不一致",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "        if n is not None and sorted(got) != sorted(shard_of(selected, sh[\"k\"], n)):",
+   "old": "        if sorted(got) != sorted(mine):",
    "new": "        if False:",
    "expect": "test_mutate_shard.py::test_merge_names_every_broken_sum",
    "tests": {
@@ -7657,8 +7636,8 @@
    "title": "撃てる腕 0 本の組の報告の頭にも pruned が載る",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": ".isoformat(timespec=\"seconds\"), \"pruned\": pruned}",
-   "new": ".isoformat(timespec=\"seconds\")}",
+   "old": ".isoformat(timespec=\"seconds\"), \"pruned\": pruned,",
+   "new": ".isoformat(timespec=\"seconds\"),",
    "expect": "test_mutate_shard.py::test_a_shard_of_only_unshootable_arms_writes_the_same_head",
    "tests": {
     "graphloops/tests/py": [
@@ -7715,10 +7694,10 @@
    "suite": "root",
    "old": "      SKIP_ALLOW: \"posix-mode process-group fifo read-permission version-bump\"\n",
    "new": "",
-   "expect": "test_mutate_shard.py::test_every_mutation_job_passes_the_skip_allow_of_its_os",
+   "expect": "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems",
    "tests": {
     "graphloops/tests/py": [
-     "test_mutate_shard.py::test_every_mutation_job_passes_the_skip_allow_of_its_os"
+     "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems"
     ]
    }
   },
@@ -7729,7 +7708,12 @@
    "suite": "root",
    "old": "  same-as:\n    needs: merge\n    if: always()\n",
    "new": "  same-as:\n    needs: merge\n",
-   "expect": "変異の CI のまとめる・撃ち比べる job が組とまとめる段の赤でも走り"
+   "expect": "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems"
+    ]
+   }
   },
   {
    "id": "MY3",
@@ -7738,7 +7722,250 @@
    "suite": "root",
    "old": "--out mutation-report.json\n      - name: まとめた報告を残す",
    "new": "--out mutation-report.json || true\n      - name: まとめた報告を残す",
-   "expect": "変異の CI のまとめる・撃ち比べる job が組とまとめる段の赤でも走り"
+   "expect": "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems"
+    ]
+   }
+  },
+  {
+   "id": "MY4",
+   "title": "撃ち比べの報告はまとめる段の赤でも残す（upload の段の if: always()）",
+   "file": ".github/workflows/mutation.yml",
+   "suite": "root",
+   "old": "      - name: 撃ち比べの報告を残す\n        if: always()\n",
+   "new": "      - name: 撃ち比べの報告を残す\n",
+   "expect": "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems"
+    ]
+   }
+  },
+  {
+   "id": "MY5",
+   "title": "SKIP_ALLOW は workflow の頭で全 job に渡す",
+   "file": ".github/workflows/mutation.yml",
+   "suite": "root",
+   "old": "permissions:\n  contents: read\n\nenv:\n  SKIP_ALLOW: \"version-bump\"\n",
+   "new": "permissions:\n  contents: read\n",
+   "expect": "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_the_mutation_workflow_has_no_shape_problems"
+    ]
+   }
+  },
+  {
+   "id": "NP1",
+   "title": "台本の名指しの無い腕の、node id でない expect を --check が拒む",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "    if named_nodes(a) and not script_tests(a) and e and \"::\" not in e:",
+   "new": "    if False:",
+   "expect": "test_mutate_arms.py::test_check_reds_every_entrance_of_a_named_node[script-name-expect-on-pytest-only-arm]",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_arms.py::test_check_reds_every_entrance_of_a_named_node[script-name-expect-on-pytest-only-arm]"
+    ]
+   }
+  },
+  {
+   "id": "NP2",
+   "title": "台本の名指しを持つ腕の node id の expect を --check が拒む",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "    if script_tests(a) and \"::\" in e:",
+   "new": "    if False:",
+   "expect": "test_mutate_arms.py::test_check_reds_every_entrance_of_a_named_node[node-expect-on-script-arm]",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_arms.py::test_check_reds_every_entrance_of_a_named_node[node-expect-on-script-arm]"
+    ]
+   }
+  },
+  {
+   "id": "NP3",
+   "title": "台本に無い関数を指す台本の鍵を --check が拒む",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "        if gone:\n            return f\"tests の台本の鍵",
+   "new": "        if False:\n            return f\"tests の台本の鍵",
+   "expect": "test_mutate_arms.py::test_check_reds_every_entrance_of_a_named_node[script-function-gone]",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_arms.py::test_check_reds_every_entrance_of_a_named_node[script-function-gone]"
+    ]
+   }
+  },
+  {
+   "id": "NH7",
+   "title": "名指しのファイルの収集の ERROR も名指しの当たり",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": " or next((f for f in failed if f in files), \"\")",
+   "new": "",
+   "expect": "test_mutate_arms.py::test_collection_error_of_the_named_file_is_evidence_with_its_own_words",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_arms.py::test_collection_error_of_the_named_file_is_evidence_with_its_own_words"
+    ]
+   }
+  },
+  {
+   "id": "NH8",
+   "title": "名指しの外で落ちたテストは当たりにしない",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "    return next((f for f in failed if any(node_hit(n, f) for n in nodes)), \"\")",
+   "new": "    return next((f for f in failed if True), \"\")",
+   "expect": "test_mutate_arms.py::test_named_node_red_is_evidence_only_when_the_named_node_fell[outside-named]",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_arms.py::test_named_node_red_is_evidence_only_when_the_named_node_fell[outside-named]"
+    ]
+   }
+  },
+  {
+   "id": "FT1",
+   "title": "名指しに当たらない pytest の赤は、台本の名指しが在れば台本の道で決める",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "                if hit or not tests:",
+   "new": "                if True:",
+   "expect": "test_mutate_arms.py::test_red_outside_the_named_nodes_falls_through_to_the_scripts[script-red]",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_arms.py::test_red_outside_the_named_nodes_falls_through_to_the_scripts[script-red]"
+    ]
+   }
+  },
+  {
+   "id": "FT2",
+   "title": "台本の道も殺さなければ、当たらない pytest の赤（証拠なし）のまま",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "        if red_py is not None and r[\"rc\"] in (0, \"timeout\", \"no-test\"):",
+   "new": "        if False:",
+   "expect": "test_mutate_arms.py::test_red_outside_the_named_nodes_falls_through_to_the_scripts[script-green]",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_arms.py::test_red_outside_the_named_nodes_falls_through_to_the_scripts[script-green]"
+    ]
+   }
+  },
+  {
+   "id": "EV1",
+   "title": "収集の ERROR の当たりは、node id の当たりと証拠の文を分ける",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "if r[\"own\"] and \"::\" in r.get(\"hit\", \"\") else",
+   "new": "if r[\"own\"] and r.get(\"hit\") else",
+   "expect": "test_mutate_arms.py::test_collection_error_of_the_named_file_is_evidence_with_its_own_words",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_arms.py::test_collection_error_of_the_named_file_is_evidence_with_its_own_words"
+    ]
+   }
+  },
+  {
+   "id": "RP4",
+   "title": "node id を渡した回の収集の失敗（ERROR の行つきの rc 4）を赤と読む",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "    if rc == 1 or (rc in (2, 4) and failed):",
+   "new": "    if rc == 1 or (rc == 2 and failed):",
+   "expect": "test_mutate_arms.py::test_real_pytest_names_a_broken_named_file_as_its_collection_error",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_arms.py::test_real_pytest_names_a_broken_named_file_as_its_collection_error"
+    ]
+   }
+  },
+  {
+   "id": "SH20",
+   "title": "和の検算: 組ごとの pytest_stage も突き合わせる",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "HEAD_FIELDS = (\"rev\", \"pruned\", \"pytest_stage\")",
+   "new": "HEAD_FIELDS = (\"rev\", \"pruned\")",
+   "expect": "test_mutate_shard.py::test_every_head_field_must_agree_across_shards[pytest_stage]",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_every_head_field_must_agree_across_shards[pytest_stage]"
+    ]
+   }
+  },
+  {
+   "id": "SH21",
+   "title": "和の検算: 撃てた腕の無い組の control は合わせる母数から外す",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "        if shot_rows(r):\n            shot.append(r)",
+   "new": "        if r.get(\"arms\"):\n            shot.append(r)",
+   "expect": "test_mutate_shard.py::test_a_shard_of_only_unshootable_arms_merges_healthy_and_keeps_its_skipped",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_a_shard_of_only_unshootable_arms_merges_healthy_and_keeps_its_skipped"
+    ]
+   }
+  },
+  {
+   "id": "SH22",
+   "title": "和の検算: assigned は割り当ての本数",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "\"assigned\": len(mine)",
+   "new": "\"assigned\": len(got)",
+   "expect": "test_mutate_shard.py::test_assigned_is_the_assignment_not_the_rows_received",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_assigned_is_the_assignment_not_the_rows_received"
+    ]
+   }
+  },
+  {
+   "id": "SH23",
+   "title": "和の summary.skipped は腕の status から数え直す",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "                skipped=[a[\"id\"] for a in arms if a.get(\"status\") == \"Ignored\"],\n",
+   "new": "",
+   "expect": "test_mutate_shard.py::test_a_shard_of_only_unshootable_arms_merges_healthy_and_keeps_its_skipped",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_a_shard_of_only_unshootable_arms_merges_healthy_and_keeps_its_skipped"
+    ]
+   }
+  },
+  {
+   "id": "SH24",
+   "title": "撃てない腕だけの組は Ignored の行を書いて 0 で抜ける",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "        if shard:\n            # 組の腕は割り当てと同じ行で書く",
+   "new": "        if False:\n            # 組の腕は割り当てと同じ行で書く",
+   "expect": "test_mutate_shard.py::test_a_shard_of_only_unshootable_arms_writes_the_same_head",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_a_shard_of_only_unshootable_arms_writes_the_same_head"
+    ]
+   }
+  },
+  {
+   "id": "SA1",
+   "title": "--same-as を --shard・--check・--merge と併せない",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "    if a.same_as and (a.shard or a.check or a.merge):",
+   "new": "    if False:",
+   "expect": "test_mutate_shard.py::test_same_as_is_not_combined_with_shard_check_or_merge",
+   "tests": {
+    "graphloops/tests/py": [
+     "test_mutate_shard.py::test_same_as_is_not_combined_with_shard_check_or_merge[check]"
+    ]
+   }
   }
  ]
 }

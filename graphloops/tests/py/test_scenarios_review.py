@@ -2,7 +2,7 @@
 移す順の (3)(4) のうち今の出来事で書ける関数（T3）の移し先。
 
 列（history）は台本の関数の中の Run 1 つが打った出来事を元の順に並べたデータで、行はその列の印を指す（形と規範は scenes.py と
-docs/adr/0067）。1 行が台本の check 1 件で、行の印 ``moved_from`` が名乗る（台帳は ledger.py）。
+docs/adr/0067）。1 行が台本の check 1 件で、行の印 ``moved_from`` が名乗る（台帳は ledger.py。台本の関数を消した行は印を持たない）。
 """
 import json
 import pathlib
@@ -35,7 +35,7 @@ def kinds(reply):
 
 # ---- 上限で止まる類 -----------------------------------------------------------------------------------------------------
 
-S = "simulate_review.test_runaway"
+S = None   # 台本の simulate_review.test_runaway は消した（MIGRATION.md の「外した台本」）
 history("review/runaway", init("runaway", unattended=True), until("runaway", mark="end"))
 RUNAWAY = [
     row(S, "5 周で停止", "review/runaway", "end", lambda s: s.reply["status"] == "stopped" and st(s)["round"] == 5, id="stops-at-round-5"),
@@ -51,7 +51,7 @@ def test_runaway(scene, name, at, expect):
     play(scene, name, at, expect)
 
 
-S = "simulate_review.test_ci_red_runaway"
+S = None   # 台本の simulate_review.test_ci_red_runaway は消した
 CI_RED = [{"name": "suite", "argv": [review.PY, "-c", "import sys; print('1 failed'); sys.exit(1)"]}]   # engine が走らせて毎周赤
 history("review/cired", init("cired", unattended=True, checks=CI_RED), until("cired", mark="end"))
 CI_RED_RUNAWAY = [
@@ -68,7 +68,7 @@ def test_ci_red_runaway(scene, name, at, expect):
 
 # ---- 人待ち -------------------------------------------------------------------------------------------------------------
 
-S = "simulate_review.test_no_new_awaiting_after_judge"
+S = None   # 台本の simulate_review.test_no_new_awaiting_after_judge は消した
 roles("noawait", rule("p4.ci", once="rc", before=[
     done("@", {"material": review.M("awaiting_human", reason="runner で確かめる話があるので（検査用の取り違え）")}, mark="rc")]), base="std")
 history("review/noawait", init("noawait", checks=None), until("noawait", stop={"round": 2}, catch=True, mark="end"))
@@ -116,7 +116,7 @@ def test_awaiting(scene, name, at, expect):
     play(scene, name, at, expect)
 
 
-S = "simulate_review.test_awaiting_origin_guards"
+S = None   # 台本の simulate_review.test_awaiting_origin_guards は消した
 FIELD_Q = {"key": "Windows の実機で動かしたか", "kind": "field", "status": "held", "reason": "手元にも CI にも Windows の実機が無い（検査用）"}
 WAIT_CI = {"key": "CI をどこで走らせるか", "kind": "awaiting", "origin": "local_checks", "status": "held", "reason": "手元で CI を走らせられない（検査用）"}
 roles("awaitorigin",
@@ -159,7 +159,7 @@ def test_awaiting_origin_guards(scene, name, at, expect):
     play(scene, name, at, expect)
 
 
-S = "simulate_review.test_final_gate_empty_asks_human"
+S = None   # 台本の simulate_review.test_final_gate_empty_asks_human は消した
 roles("gate-empty", rule("p4.final_gates", reply=merged({"arms": [], "handled": []})), base="std")
 history("review/gate-empty", init("gate-empty"), until("gate-empty", mark="asked"),
         cmd("answer", "--text", "continue", "--note", "文書だけの差分と確かめた（検査用）", mark="answer"), until("gate-empty", mark="end"))
@@ -481,7 +481,7 @@ def test_human_gate(scene, name, at, expect):
 
 # ---- 判定から入る入口・修正案の審査・線・TDD・仕様（移す順の (3)(4)） -------------------------------------------------------
 
-S = "simulate_review.test_deferjudge"
+S = None   # 台本の simulate_review.test_deferjudge は消した
 roles("deferjudge")
 history("review/defer", init("defer", unattended=True), until("deferjudge", mark="end"))
 DEFERJUDGE = [
@@ -496,7 +496,7 @@ def test_deferjudge(scene, name, at, expect):
     play(scene, name, at, expect)
 
 
-S = "simulate_review.test_tdd_gives_up_without_dead_end"
+S = None   # 台本の simulate_review.test_tdd_gives_up_without_dead_end は消した
 # 赤の確認の節の前に毎回、読み込みで落ちるテストを書く——狙いどおりの赤にならない
 roles("tdd-giveup", rule("p3.tdd_tests", before=[write("repo", "tests/test_limit.py",
                                                        "import no_such_module_for_red  # noqa\n\n\ndef test_limit_is_fixed():\n    assert False\n")]),

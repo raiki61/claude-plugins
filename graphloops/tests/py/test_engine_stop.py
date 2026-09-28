@@ -1,6 +1,6 @@
 """人が途中で止める口（loop.py stop）の部品——後始末の節の選び方・graph の宣言の柵・止めた試行の締め出し・research の結末の畳み方
-（走っている run の途中の仕上げは記録を書き換えない）と、導出の判定が自分で持つ暫定の形・検証器が止まった記録の空の欄を受ける形。盤面を回す端から端までの台本は simulate_review.py の test_stop_midround と
-simulate.py の test_stop_midway"""
+（走っている run の途中の仕上げは記録を書き換えない）と、導出の判定が自分で持つ暫定の形・検証器が止まった記録の空の欄を受ける形。盤面を回す端から端までの台本は simulate_review.py の test_stop_midround、
+層 2 の筋書きは test_scenarios_research.py の test_stop_midway"""
 import argparse
 import copy
 import json

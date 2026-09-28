@@ -10,7 +10,8 @@
 arXiv:2102.11378 §2.1-2.2）。
 **本物の作業ツリーは触らない。** 壊していない写しでも 1 本走らせて緑を確かめ（control）、全腕の印を 1 つの写しに入れて
 走らせ、守る行を実際に通ったかを見る（marker）。赤・control の緑・当たりの証拠の 3 つがそろって、その腕は覆いの証拠になる。
-当たりの証拠は、expect を宣言した腕なら「実際に落ちた検査（killedBy）に expect が在る」こと、宣言しない腕なら印が出たこと。
+当たりの証拠は、pytest の段で殺した一覧の腕なら名指しに当たる落ちたテスト（下の一覧の腕の段）、ほかの expect を宣言した腕なら
+「実際に落ちた検査（killedBy）に expect が在る」こと、宣言しない腕なら印が出たこと。
 expect を宣言したのに別の検査だけで赤になった腕は、宣言が古いか的外れなので証拠にしない。
 
 定番の変異テストの道具を使わない理由（2026-09-24 に一次情報で確かめた）: この一覧の腕は「ファイルの中の字列 1 か所を置き換える」形で、
@@ -40,9 +41,11 @@ core で使えず、子のプロセスにテストの名前を運ばないので
 only_mutate）を差分に依らず丸ごと撃ち、生き残りを pytest 側のテストで殺す道具として残す。撃つのは CI（.github/workflows/mutation.yml の
 mutmut の job）で、手元では撃たない（人の方針。設定と回し方は graphloops/README.md の「検査」節）。
 一覧の腕（字列置換・expect と killedBy の突合）は、tests に台本（SCRIPTS の関数名）と pytest の置き場（PYDIR から見た node id）を
-名指せる。node id を名指した腕は自動の腕の前段と同じく pytest を先に撃ち（赤なら打ち切り、緑・撃てないなら台本の道）、当たりの証拠は
-落ちた node id が名指した node id か node id の expect に当たること（node_hit）。台本を消す条件の 2（新しい層だけで殺す）は、この段の赤（attribution が
-pytest で証拠つき）で読む。CI で落とす柵もこの実行器に在る。
+名指せる。node id を名指した腕は pytest を先に撃つ。打ち切るのは、落ちたテストが名指しの node id に当たる赤（node_hit）か、名指しの
+ファイルの収集の ERROR（証拠の文を分ける）だけ（named_hit）。当たらない赤・緑・撃てない回は、台本の名指しが在れば台本の道で決め、
+無ければ pytest の結果で終わる（当たらない赤は証拠なしの Killed）。expect は腕が最後に撃つ道の証拠の名前——台本の名指しを持つ腕は台本の
+検査名、pytest だけの腕は名指しの node id の 1 つ——で、当たりを広げない（形は named_problem が縛る）。台本を消す条件の 2（新しい層だけで
+殺す）は、この段の node id の当たり（attribution が pytest で証拠つき）で読む。CI で落とす柵もこの実行器に在る。
 
 以前はこの工程を、回す側（LLM）が周ごとに使い捨てのスクリプトで書いていた。置換対象の字列がコードの書き換えで消えた腕は
 黙って外れ（2026-09-23 のレビューでは 1 周目に 25 本、2 周目に 18 本）、印の差し込みで写しを構文エラーにする
@@ -77,7 +80,8 @@ k・n・全体の選別 selected）・shards と merge_problems（--merge が書
 attribution（赤の出どころ: narrowed＝絞った台本から / unrelated＝絞った台本は緑で一式の確かめ直しだけ赤 / unattributed＝一式だけで撃った /
 pytest＝行を通した pytest のテストから / pytest_whole＝pytest 一式だけで撃った / pytest_unrelated＝絞った pytest は緑で pytest 一式の確かめ直しだけ赤）と、
 自動の腕の pytest_cover（印の写しで行を通した pytest のテストの node id）・pytest（pytest の段の結果と撃ち方 how。一覧の腕の名指しも nodes）・
-hit（一覧の腕を pytest の段で殺した、名指した node id か expect に当たる落ちたテスト）・pytest_selected（pytest を
+hit（一覧の腕を pytest の段で殺した、名指しの node id に当たる落ちたテスト。:: の無い値は名指しのファイルの収集の ERROR）・script_rc（名指しに
+当たらない pytest の赤の後に、台本の道も殺さなかった回の台本の rc）・pytest_selected（pytest を
 絞って緑）・pytest_only（印の写しの台本が緑の回に台本が行を通さなかった腕）、印の写しの pytest・pytest_seen・pytest_cover・script_seen（seen は台本と pytest の和）、
 control の pytest（腕が撃つテストのファイルの和。赤なら pytest の赤だけを証拠にしない）、pytest の段を足さなかった理由 pytest_stage（--gate-efficacy の material にも出る）。
 止める信号（SIGTERM・SIGINT・SIGHUP）を受けたら、起こした子のグループと写しを片付けて 128＋信号の番号で抜ける。
@@ -98,9 +102,10 @@ tmp と .pytest_cache を消し、写しの中（.git を除く）の項目の�
 SIGKILL などで残った根は、次の起動がロックの解けた物だけを消す（期限で死とみなさない。旧形式の mutate-<tag>-* は触らない）。
 
 終了コード: 0 = 撃った腕（1 本以上）が全部、赤・当たりの証拠つきで control が緑（--check なら全腕の字列と証拠の口が在る。
---same-as なら撃ち比べが全部一致——生き残りが在っても 0）/ 1 = そうでない / 2 = 一覧・報告が読めない・--shard の k/n が読めない。
+--same-as なら撃ち比べが全部一致——生き残りが在っても 0）/ 1 = そうでない / 2 = 一覧・報告が読めない・--shard の k/n が読めない・
+--same-as を --shard・--check・--merge と併せた（選んだ腕の一部だけを比べて一致と言わない）。
 時間切れ・台本が 1 本も当たらなかった腕は赤でなく『走り切らない』。--shard で自分の割り当てが 0 本の組は、撃たずに身元だけを書いて 0
-（全体の選別が 0 本なら 1）。--merge はまとめた報告に同じ規則を当てる
+（全体の選別が 0 本なら 1）、撃てない腕（python_max）だけの組は Ignored の行を書いて 0——組の合否は --merge が和に同じ規則を当てて決める
 """
 import argparse
 import atexit
@@ -259,6 +264,12 @@ def node_hit(named, got):
     return got == named or got.startswith(named + "[")
 
 
+def named_hit(nodes, failed):
+    """pytest の段の落ちたテスト failed のうち名指し nodes の当たり ——名指しに node_hit で当たる node id、無ければ名指しのファイルの
+    収集の ERROR（pytest の要約はファイル単位で出す）、どちらも無ければ ""。名指しの外の赤・柵の赤は当たりにしない"""
+    files = {n.split("::")[0] for n in nodes}
+    return next((f for f in failed if any(node_hit(n, f) for n in nodes)), "") or next((f for f in failed if f in files), "")
+
 def node_problem(root, node, nodes=None):
     """pytest の node id（PYDIR から見た '<ファイル>::[<class>::]<関数>[<id>]'）が root に在るか ——無ければ理由、在れば ""。
     nodes（pytest --collect-only の node id の集合）を渡せば、そのどれかに node_hit で当たることで見る——在りかの正本は pytest の収集。
@@ -284,7 +295,8 @@ def node_problem(root, node, nodes=None):
 
 
 def named_problem(root, a, nodes=None):
-    """一覧の腕の tests の鍵と、pytest の名指し（node id の expect も）の在りかと噛み合い ——理由か ""。nodes は node_problem と同じ"""
+    """一覧の腕の tests の鍵と、pytest の名指しの在りか、expect と名指しの噛み合い（expect は腕が最後に撃つ道の証拠の名前）——
+    理由か ""。nodes は node_problem と同じ"""
     for key, names in (a.get("tests") or {}).items():
         if key not in SCRIPTS and key != PYDIR:
             return f"tests の鍵 {key} は台本（{' '.join(SCRIPTS)}）でも pytest の置き場 {PYDIR} でもない"
@@ -296,6 +308,13 @@ def named_problem(root, a, nodes=None):
             why = node_problem(root, n, nodes)
             if why:
                 return why
+    e = a.get("expect") or ""
+    if named_nodes(a) and not script_tests(a) and e and "::" not in e:
+        return (f"台本の名指しの無い腕の expect {e[:40]!r} が node id でない（撃つのは名指しの pytest だけで、台本の検査名は当たりえない"
+                "——台本の鍵を外したなら expect を名指しの node id に替えよ）")
+    if script_tests(a) and "::" in e:
+        return (f"台本の名指しを持つ腕の expect が node id（{e!r}）——台本の道の証拠は台本の出力の頭で読むので当たりえない"
+                f"（pytest の証拠は tests の {PYDIR} の名指しが持つ）")
     if a.get("expect") and "::" in a["expect"]:
         e, named = a["expect"], named_nodes(a)
         why = node_problem(root, e, nodes)
@@ -316,8 +335,14 @@ def anchor_problem(root, a, src=None, nodes=None):
     why = named_problem(root, a, nodes)
     if why:
         return why
-    if a.get("expect") and "::" not in a["expect"]:
+    scripts = script_tests(a) or {}
+    if scripts or (a.get("expect") and "::" not in a["expect"]):
         src = suite_source(root, a["suite"]) if src is None else src
+    for s, fns in scripts.items():
+        gone = [f for f in fns if f"def {f}(" not in src]
+        if gone:
+            return f"tests の台本の鍵 {s} の関数 {' '.join(gone)} が台本に無い（消した関数の名指しが残った。撃つと台本が 1 本も当たらない）"
+    if a.get("expect") and "::" not in a["expect"]:
         m = RAISED.match(a["expect"])
         if m:
             if f"def {m.group(1)}(" not in src:
@@ -1139,8 +1164,9 @@ def run_pytest(repo, args, failfast=False):
     """pytest を写しで走らせる（run_suite・run_selected と同じ返りの形）。args は PYDIR から見た node id・ファイルか WHOLE。
     PYDIR（pytest.ini の置き場＝rootdir）を cwd にして起こすので、要約の行（pytest は cwd から見た形で出す）の node id が
     名指し（named_nodes）と印の cover と同じ形になる。failed は落ちたテストの node id。
-    赤と読むのは rc 1（テストが落ちた。件数などの柵の赤も含む）と、ERROR の行の在る rc 2（収集で落ちた）だけ——
-    ほかの終了（使い方の誤り 4・集まらない 5・内部の誤り 3・uv の失敗）は壊した行と無関係なので no-test（撃てない）と言う"""
+    赤と読むのは rc 1（テストが落ちた。件数などの柵の赤も含む）と、要約に ERROR の行の在る rc 2・rc 4（収集で落ちた。node id を
+    渡した回にそのファイルが読み込みで落ちると、pytest 9.1.1 は found no collectors の使い方の誤り 4 で抜ける——実測）だけ——
+    ほかの終了（ERROR の行の無い使い方の誤り 4・集まらない 5・内部の誤り 3・uv の失敗）は壊した行と無関係なので no-test（撃てない）と言う"""
     nodes = any("::" in x for x in args)
     argv = PYTEST + ([] if nodes else ["-n", PYTEST_WORKERS]) + ["-p", "no:cacheprovider"] + (["-x"] if failfast else []) + list(args)
     env = {k: v for k, v in os.environ.items() if k != PYTEST_MARK}
@@ -1152,7 +1178,7 @@ def run_pytest(repo, args, failfast=False):
     lines = body.splitlines()
     failed = [m.group(1) for m in map(PYTEST_RED.match, lines) if m]
     tail = lines[-5:]
-    if rc == 1 or (rc == 2 and failed):
+    if rc == 1 or (rc in (2, 4) and failed):
         return {"rc": rc, "failed": failed or ["pytest の柵（fence）が赤"], "tail": tail}
     if rc != 0:
         return {"rc": "no-test", "failed": [], "tail": tail, "why": f"pytest が赤でない終わり方をした（rc={rc}）"}
@@ -1198,9 +1224,10 @@ def one(a):
         head = {"id": a["id"], "title": a["title"], **({"cover": a["cover"]} if "cover" in a else {}),
                 **({"pytest_cover": a["pytest_cover"]} if "pytest_cover" in a else {})}
         # **pytest の段（前段）**: 印の写しで pytest が行を通した自動の腕は通したテストだけを、一覧の腕は tests に名指した node id を
-        # 先に撃つ。赤なら Killed で打ち切る。緑・撃てない回は、今の道（台本）をそのまま撃つ——pytest を足しても今の網を狭めない
-        # （台本だけが殺す腕も台本で殺す）
-        py = None
+        # 先に撃つ。自動の腕は赤なら Killed で打ち切る。一覧の腕が打ち切るのは名指しの当たり（named_hit）の赤だけで、当たらない赤は
+        # 台本の名指しが在れば台本の道で決める（red_py）。緑・撃てない回は、今の道（台本）をそのまま撃つ——pytest を足しても今の網を
+        # 狭めない（台本だけが殺す腕も台本で殺す）
+        py = red_py = None
         tests = narrowed(a) if auto else script_tests(a)
         args, how = pytest_args(a)
         if args:
@@ -1209,9 +1236,12 @@ def one(a):
             py = {**({"rc": "no-test", "failed": [], "tail": [], "why": why} if why else run_pytest(repo, args, failfast=True)), "how": how}
             if py["rc"] not in (0, "timeout", "no-test"):
                 row = pytest_killed(head, py, "pytest" if how in ("nodes", "files") else "pytest_whole")
-                aims = nodes + ([a["expect"]] if "::" in (a.get("expect") or "") else [])
-                hit = next((f for f in py["failed"] if any(node_hit(n, f) for n in aims)), "")
-                return {**row, "own": bool(hit), **({"hit": hit} if hit else {})} if nodes else row
+                if not nodes:
+                    return row
+                hit = named_hit(nodes, py["failed"])
+                if hit or not tests:
+                    return {**row, "own": bool(hit), **({"hit": hit} if hit else {})}
+                red_py = row
         if py is not None and (("cover" not in a) if auto else not tests):
             only = {"pytest_only": True} if auto else {}   # 自動の腕だけ: 台本が行を通さなかった（印の写しが赤の回は evaluate が Pending に戻す）
             if py["rc"] in ("timeout", "no-test"):
@@ -1228,6 +1258,8 @@ def one(a):
                 r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False, "confirmed": True}
         if r is None:
             r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False}
+        if red_py is not None and r["rc"] in (0, "timeout", "no-test"):
+            return {**red_py, "script_rc": r["rc"]}   # 台本の道も殺さなかった: 当たらない pytest の赤のまま（証拠なし）
         if r["rc"] in ("timeout", "no-test"):
             return {"id": a["id"], "title": a["title"], "status": "Timeout" if r["rc"] == "timeout" else "RuntimeError",
                     "own": False, **r, "killedBy": [], "failed": r["failed"][:3],
@@ -1408,11 +1440,17 @@ def write_out(out, res):
     os.replace(tmp, p)
 
 
-def write_empty(out, why, head=None):
+def report_of(head, arms, **rest):
+    """--out の報告を組む唯一の口: main が 1 回だけ組む頭（rev・at・pruned・pytest_stage、--shard の回は組の身元 shard）と腕の行。
+    撃てた腕 0 本・割り当て 0 本・撃てない腕だけの組・撃った回が同じ頭を書く（--merge は HEAD_FIELDS を組ごとに突き合わせる）"""
+    return {"schemaVersion": "1", **head, "arms": arms, **rest}
+
+
+def write_empty(out, why, head):
     """撃てた腕が 0 本の回も --out を書く——--gate-efficacy がそこから not_run（理由つき）を組める。終了コードは 1 のまま
     （0 本を合格と言わない）。書かずに抜けていた頃は、任せ先が --gate-efficacy を打つと読み込みで落ち、返す形が何も無かった。
-    head は main が 1 回だけ組む報告の頭（--shard の回は、全体の選別が 0 本でも組の身元を書く——書かないと --merge が組の欠けと見分けられない）"""
-    write_out(out, {"schemaVersion": "1", **(head or {}), "arms": [], "empty": why})
+    --shard の回は、全体の選別が 0 本でも組の身元を書く——書かないと --merge が組の欠けと見分けられない"""
+    write_out(out, report_of(head, [], empty=why))
 
 
 def parse_shard(s):
@@ -1455,12 +1493,16 @@ def merge_values(vals, key=None):
     return vals[0]
 
 
+HEAD_FIELDS = ("rev", "pruned", "pytest_stage")   # 報告の頭のうち、全組で同じはずの欄（report_of が書き、merge_reports が突き合わせて写す）
+
+
 def merge_reports(reports):
     """組（--shard）の報告を 1 つにまとめる——和の検算の唯一の口。reports は (名前, 報告) の並び。
-    検算: 全組が shard を持つ・n が同じ・k が 0..n-1 をちょうど 1 回ずつ・全体の選別 selected・rev・pruned が同じ・
+    検算: 全組が shard を持つ・n が同じ・k が 0..n-1 をちょうど 1 回ずつ・全体の選別 selected と HEAD_FIELDS が同じ・
     各組の腕が shard_of の割り当てと一致・撃ち切っている（partial・pending が無い）・2 つの組に同じ腕が無い。外れた理由は
     merge_problems に積み、healthy が偽になる（終了コード・--gate-efficacy・--same-as が同じ判定を読む）。
-    割り当て 0 本の組は control と印の写しを持たないので合わせる母数から外し、外したことを shards に残す"""
+    撃てた腕（Ignored でない腕）の無い組——割り当て 0 本・撃てない腕だけ——は control と印の写しを持たないので合わせる母数から外す。
+    shards[].assigned は shard_of の割り当ての本数"""
     probs, rows = [], []
     for name, r in reports:
         sh = r.get("shard") if isinstance(r, dict) else None
@@ -1480,7 +1522,7 @@ def merge_reports(reports):
     dupk = sorted(k for k, c in ks.items() if c > 1)
     if dupk:
         probs.append(f"同じ組の報告が 2 つ以上: k={dupk}")
-    for fld in ("selected", "rev", "pruned"):
+    for fld in ("selected",) + HEAD_FIELDS:
         vals = {json.dumps(sh[fld] if fld == "selected" else r.get(fld), ensure_ascii=False, sort_keys=True) for _, r, sh in rows}
         if len(vals) > 1:
             probs.append(f"組ごとの {fld} が揃わない（別の版・別の選別で撃った組が混ざった）")
@@ -1488,14 +1530,15 @@ def merge_reports(reports):
     arms, control, shards, seen_ids, shot = [], {}, [], collections.Counter(), []
     for name, r, sh in rows:
         got = [a["id"] for a in r.get("arms", [])]
+        mine = shard_of(selected, sh["k"], n) if n is not None else got
         seen_ids.update(got)
-        if n is not None and sorted(got) != sorted(shard_of(selected, sh["k"], n)):
-            probs.append(f"{name}: 組 k={sh['k']} の腕が割り当てと一致しない（{len(got)} 本・割り当て {len(shard_of(selected, sh['k'], n))} 本）")
+        if sorted(got) != sorted(mine):
+            probs.append(f"{name}: 組 k={sh['k']} の腕が割り当てと一致しない（{len(got)} 本・割り当て {len(mine)} 本）")
         if r.get("partial") or r.get("pending"):
             probs.append(f"{name}: 撃ち切っていない（partial か pending が在る）")
-        shards.append({"k": sh["k"], "n": sh["n"], "assigned": len(got), "report": name})
+        shards.append({"k": sh["k"], "n": sh["n"], "assigned": len(mine), "report": name})
         arms += r.get("arms", [])
-        if got:
+        if shot_rows(r):
             shot.append(r)
             for s, v in (r.get("control") or {"<無い>": {"rc": 1}}).items():
                 control[f"{sh['k']}:{s}"] = v
@@ -1506,7 +1549,7 @@ def merge_reports(reports):
     arms.sort(key=lambda a: order.get(a["id"], len(order)))
     first = rows[0][1] if rows else {}
     ats = sorted(r.get("at") for _, r, _ in rows if r.get("at"))
-    res = {"schemaVersion": "1", **{k: first[k] for k in ("rev", "pruned", "pytest_stage") if k in first},
+    res = {"schemaVersion": "1", **{k: first[k] for k in HEAD_FIELDS if k in first},
            **({"at": ats[0]} if ats else {}), "arms": arms, "shards": sorted(shards, key=lambda x: x["k"])}
     if rows and not selected and not probs:
         res["empty"] = next((r.get("empty") for _, r, _ in rows if r.get("empty")), "全体の選別が 0 本")
@@ -1517,9 +1560,11 @@ def merge_reports(reports):
     res.update({k: v for k, v in (("worktree_moved", moved), ("marker_unhealthy", next(
         (r["marker_unhealthy"] for r in shot if r.get("marker_unhealthy")), None))) if v})
     summ = merge_values([r.get("summary") or {} for r in shot]) if shot else {}
-    # 組ごとに同じ物を持つ欄（pruned は全体の選別の前に作る）と、組をまたいで決まる欄は、まとめた後の物から数え直す
-    # control の pytest の枠は evaluate と同じく control_ok に入れない（赤なら組ごとに pytest の赤だけを証拠から外してある）
+    # 組ごとに同じ物を持つ欄（pruned は全体の選別の前に作る）と、組をまたいで決まる欄は、まとめた後の物から数え直す（skipped は
+    # 撃てない腕だけの組が summary を持たないので腕の status から）。control の pytest の枠は evaluate と同じく control_ok に入れない
+    # （赤なら組ごとに pytest の赤だけを証拠から外してある）
     summ.update(pruned=len(res.get("pruned") or []), unplaced=len((res["marker"].get("skipped") or {})),
+                skipped=[a["id"] for a in arms if a.get("status") == "Ignored"],
                 control_ok=bool(control) and all(v.get("rc") == 0 for k, v in control.items() if not k.endswith(":pytest")) and all(
                     (r.get("summary") or {}).get("control_ok") for r in shot))
     res["summary"] = summ
@@ -1564,15 +1609,22 @@ def proven(r):
     return r.get("status") == "Killed" and bool(r.get("evidence"))
 
 
+def shot_rows(res):
+    """撃てた腕の行: Ignored を除き、期限で撃たずに残った pending を含む（黙って落とすと、残りを撃たないまま通る）。
+    passed・--gate-efficacy・--merge（印字と control を合わせる母数）が読む 1 本の口"""
+    return [r for r in res.get("arms", []) if r.get("status") != "Ignored"] + list(res.get("pending") or [])
+
+
 def passed(res):
-    """撃った回が関門を通るか: 撃てた腕（Ignored を除き、期限で残った pending を含む）が 1 本以上で、回が healthy で、全腕が proven。
+    """撃った回が関門を通るか: 撃てた腕（shot_rows）が 1 本以上で、回が healthy で、全腕が proven。
     main と --merge の終了コードと --gate-efficacy の clean が読む唯一の口"""
-    shot = [r for r in res.get("arms", []) if r.get("status") != "Ignored"] + list(res.get("pending") or [])
+    shot = shot_rows(res)
     return bool(shot) and healthy(res) and all(proven(r) for r in shot)
 
 
 def evaluate(res, sel):
-    """撃った結果に状態と当たりの証拠を付け、summary を組む。**expect を宣言した腕の証拠は、実際に落ちた検査（killedBy）に
+    """撃った結果に状態と当たりの証拠を付け、summary を組む。pytest の段で殺した一覧の腕の証拠は one が決めた名指しの当たり（hit。
+    名指しのファイルの収集の ERROR は証拠の文を分ける）、**ほかの expect を宣言した腕の証拠は、実際に落ちた検査（killedBy）に
     expect が在ることだけ**——宣言した検査と別の検査で赤になった腕を、印が出たことで証拠にすると、古い・的外れの宣言が
     黙って通る（実測 2026-09-23: 台本を書き換えた周に古い字列のまま残った expect が 14 腕）"""
     m = res["marker"]
@@ -1595,7 +1647,8 @@ def evaluate(res, sel):
         r.pop("no_evidence_why", None)
         if r.get("status") == "Killed":
             e = exp.get(r["id"])
-            r["evidence"] = (f"killedBy に名指した node id『{r['hit'][:80]}』" if r["own"] and r.get("hit") else
+            r["evidence"] = (f"killedBy に名指した node id『{r['hit'][:80]}』" if r["own"] and "::" in r.get("hit", "") else
+                             f"名指しのファイルの収集の ERROR『{r['hit'][:80]}』" if r["own"] and r.get("hit") else
                              f"killedBy に expect『{e[:40]}』" if r["own"] else "" if e else
                              (f"印 {r['id']} が写しの出力に現れた" if r["id"] in m["seen"] else ""))
             if str(r.get("attribution", "")).startswith("pytest") and not py_ctl_ok:
@@ -1684,9 +1737,8 @@ def gate_efficacy(res):
     この Python では撃てない腕（Ignored）は腕の行に入れず、名前を material に書く（終了コードも Ignored では落とさない）"""
     res = as_whole(res)
     ok = healthy(res)
-    # 期限で撃たずに残った腕は、撃てた腕と同じ行にして証拠にならない側に数える（黙って落とすと、残りを撃たないまま clean になる）
-    shot = [r for r in res["arms"] if r.get("status") != "Ignored"] + list(res.get("pending") or [])
-    ign = [f"{r['id']}" for r in res["arms"] if r.get("status") == "Ignored"]
+    shot = shot_rows(res)
+    ign =[f"{r['id']}" for r in res["arms"] if r.get("status") == "Ignored"]
     def why(r):
         if r.get("status") == "Survived" and (r.get("selected") or r.get("pytest_selected") or r.get("pytest_only")):
             said = [s for s, on in (("絞った台本だけで緑。台本一式では確かめていない", r.get("selected")),
@@ -1746,6 +1798,9 @@ def main():
                     "--out に組の身元（shard）を刻む。組の報告は --merge でまとめてから読む")
     ap.add_argument("--merge", nargs="+", metavar="REPORT", help="--shard の組の報告を和の検算に通して 1 つにまとめ、--out に書く")
     a = ap.parse_args()
+    if a.same_as and (a.shard or a.check or a.merge):
+        print("NG --same-as は --shard・--check・--merge と併せない（まとめた全体の報告から選んだ腕を 1 回で撃ち比べる）", file=sys.stderr)
+        sys.exit(2)
     if a.gate_efficacy:
         print(json.dumps(gate_efficacy(read_report(a.gate_efficacy)), ensure_ascii=False, indent=1))
         sys.exit(0)
@@ -1754,8 +1809,7 @@ def main():
         write_out(a.out, res)
         for why in res.get("merge_problems", []):
             print(f"NG {why}", file=sys.stderr)
-        shot = [r for r in res["arms"] if r.get("status") != "Ignored"]
-        print(f"{len(a.merge)} 組をまとめた: 腕 {len(res['arms'])} 本・証拠にならない腕 {len([r for r in shot if not proven(r)])} 本"
+        print(f"{len(a.merge)} 組をまとめた: 腕 {len(res['arms'])} 本・証拠にならない腕 {len([r for r in shot_rows(res) if not proven(r)])} 本"
               + (f"・{res['empty']}" if res.get("empty") else ""))
         sys.exit(0 if passed(res) else 1)
     shard = None
@@ -1825,8 +1879,8 @@ def main():
     # いたとき、一覧に腕の無いファイルだけを直した周は、自動の腕が在っても撃つ前に抜けた。--auto だけのときに一覧の腕を
     # 捨てていたので、次の周の頭で一覧と前の周の差分の自動の腕を 1 回で撃てなかった
     sel = pick(arms, a.only, a.files, a.changed_since, *view) + autos
-    # 報告の頭は 1 回だけ組み、撃てた腕 0 本・割り当て 0 本・撃った回の報告が同じ頭を書く（--merge は組ごとの rev・pruned・shard を突き合わせる）
-    head = {"rev": head_rev(), "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "pruned": pruned}
+    head = {"rev": head_rev(), "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "pruned": pruned,
+            **({"pytest_stage": py_off} if py_off else {})}
     if shard:
         head["shard"] = {"k": shard[0], "n": shard[1], "selected": [x["id"] for x in sel]}
     if not sel:
@@ -1840,7 +1894,7 @@ def main():
         print(f"組 {shard[0]}/{shard[1]}: 全体 {len(head['shard']['selected'])} 本のうち {len(sel)} 本を撃つ", flush=True)
         if not mine:
             # 割り当て 0 本は成果物の欠けと違う——身元だけを書いて 0 で抜ける（control も印の写しも走らせない）
-            write_out(a.out, {"schemaVersion": "1", **head, "arms": []})
+            write_out(a.out, report_of(head, []))
             sys.exit(0)
     if any(named_nodes(x) for x in sel) and not PYTEST_STAGE:
         py_named_off = pytest_ready()
@@ -1860,6 +1914,11 @@ def main():
     if fire and not carried and all(ignored(x) for x in fire):
         # 撃てる腕が 0 本——写しで control を回す前に止める（pytest が 1 本も集まらなかった回を専用の終了コード 5 で返すのと同じく、0 本を合格と言わない）
         why = f"撃てる腕が 0 本（{len(fire)} 本とも python_max より新しい Python {sys.version_info[0]}.{sys.version_info[1]} では撃てない）"
+        if shard:
+            # 組の腕は割り当てと同じ行で書く（[] だと --merge が割り当ての食い違いに読む）。合否はまとめる側が決める
+            write_out(a.out, report_of(head, [{**one(x), "file": x["file"], "fingerprint": fps[x["id"]]} for x in fire]))
+            print(why, flush=True)
+            sys.exit(0)
         write_empty(a.out, why, head)
         print(f"NG {why}", file=sys.stderr)
         sys.exit(1)
@@ -1872,8 +1931,7 @@ def main():
     cutoff = (datetime.datetime.fromisoformat(a.deadline_at) - datetime.timedelta(seconds=TIMEOUT * stages + TAIL)) if a.deadline_at else None
     late = lambda: cutoff is not None and now(cutoff.tzinfo) >= cutoff
     print(f"撃つ腕 {len(fire)} 本（全 {len(arms)} 本" + (f"・持ち越し {len(carried)} 本" if carried else "") + "）", flush=True)
-    res = {"schemaVersion": "1", **head, "arms": [{**prev[x["id"]], "carried": True} for x in carried],
-           **({"pytest_stage": py_off} if py_off else {})}
+    res = report_of(head, [{**prev[x["id"]], "carried": True} for x in carried])
     pend = lambda xs: [{"id": x["id"], "title": x["title"], "file": x["file"], "status": "Pending",
                         "unrunnable": "期限で撃たずに残った（同じ --out を --reuse に渡して続きを撃て）"} for x in xs]
     write_out(a.out, {**res, "partial": True, "pending": pend(fire)})
@@ -1906,7 +1964,7 @@ def main():
     for line in coverage_lines(res):
         print(line)
     if noev:
-        print(f"赤だが当たりの証拠が無い腕（expect を宣言した腕は、落ちた検査に expect が無い）: {' '.join(noev)}")
+        print(f"赤だが当たりの証拠が無い腕（expect を宣言した腕は落ちた検査に expect が無く、名指しの腕は名指しに当たる落ちたテストも無い）: {' '.join(noev)}")
     if s["unrelated"] or s["unattributed"] or s["narrowed_green"]:
         print(f"赤の出どころ: 絞った台本は緑で一式だけ赤 {len(s['unrelated'])}（揺れか台本の関数の外の検査）: {' '.join(s['unrelated'])}"
               f" / 台本一式だけで撃った赤 {len(s['unattributed'])} / 一式で確かめていない緑 {len(s['narrowed_green'])}")

@@ -20,7 +20,10 @@ NODE = "test_x.py::test_y[case-a]"
 SCRIPT = "graphloops/tests/simulate_review.py"
 
 
-def _arm(tests, expect="台本の検査の名前"):
+def _arm(tests, expect=None):
+    """腕の既定の expect は named_problem が通す形: 台本の名指しを持つ腕は台本の検査名、pytest だけの腕は名指しの node id"""
+    if expect is None:
+        expect = tests[mutate.PYDIR][0] if tests.get(mutate.PYDIR) and SCRIPT not in tests else "台本の検査の名前"
     return {"id": "L1", "title": "t", "file": "graphloops/engine/x.py", "suite": "graphloops", "old": "a", "new": "b",
             "expect": expect, "tests": tests}
 
@@ -74,19 +77,34 @@ def test_named_node_red_kills_first_with_the_named_node_as_evidence(shoot):
 
 
 @pytest.mark.small
-@pytest.mark.parametrize("failed, own", [(["test_other.py::t"], False), (["pytest の柵（fence）が赤"], False),
-                                         (["test_x.py::test_y[case-a]"], True)])
-def test_named_node_red_is_evidence_only_when_the_named_node_fell(shoot, failed, own):
-    """名指しの外のテスト・柵の赤で落ちた回は証拠にしない（expect が台本の名前の腕は、名指しの node id だけが当たり）"""
-    r, _ = shoot(_arm({mutate.PYDIR: [NODE]}), py=1, failed=failed)
-    assert r["status"] == "Killed" and r["own"] is own
+@pytest.mark.parametrize("expect, failed, own", [
+    (NODE, ["test_other.py::t"], False), (NODE, ["pytest の柵（fence）が赤"], False), (NODE, ["test_x.py::test_y[case-a]"], True),
+    ("test_x.py::test_y", ["test_x.py::test_y[case-b]"], False),
+], ids=["outside-named", "fence", "named", "broader-expect-does-not-widen"])
+def test_named_node_red_is_evidence_only_when_the_named_node_fell(shoot, expect, failed, own):
+    """名指しの外のテスト・柵の赤で落ちた回は証拠にしない。当たりは名指しだけで決め、名指しより広い expect は当たりを広げない"""
+    r, calls = shoot(_arm({mutate.PYDIR: [NODE]}, expect=expect), py=1, failed=failed)
+    assert calls == ["py"] and r["status"] == "Killed" and r["own"] is own
 
 
 @pytest.mark.small
-def test_node_id_expect_is_evidence_too(shoot):
-    """expect を node id で書いた腕は、落ちたテストが expect かその parametrize なら当たり"""
-    r, _ = shoot(_arm({mutate.PYDIR: ["test_x.py::test_y"]}, expect="test_x.py::test_y"), py=1, failed=["test_x.py::test_y[case-b]"])
-    assert r["own"] and r["hit"] == "test_x.py::test_y[case-b]"
+def test_collection_error_of_the_named_file_is_evidence_with_its_own_words(shoot):
+    """名指しのファイルが収集で落ちた（要約はファイル単位の ERROR）回は当たりだが、証拠の文は node id の当たりと分ける（消す条件の 2 に数えない）"""
+    r, calls = shoot(_arm({SCRIPT: ["test_rejections"], mutate.PYDIR: [NODE]}), py=1, failed=["test_x.py"])
+    assert calls == ["py"] and (r["own"], r["hit"]) == (True, "test_x.py")
+    res = {"marker": {"placed": [], "seen": [], "rc": 0}, "control": {"root": {"rc": 0}, "pytest": {"rc": 0}}, "arms": [r]}
+    mutate.evaluate(res, [_arm({})])
+    assert r["evidence"].startswith("名指しのファイルの収集の ERROR")
+
+
+@pytest.mark.small
+@pytest.mark.parametrize("sel, status, own, script_rc", [(1, "Killed", True, None), (0, "Killed", False, 0)], ids=["script-red", "script-green"])
+def test_red_outside_the_named_nodes_falls_through_to_the_scripts(shoot, sel, status, own, script_rc):
+    """名指しに当たらない pytest の赤は打ち切らず、台本の名指しが在れば台本の道で決める（台本が殺せば台本の証拠、殺さなければ
+    証拠なしの pytest の赤のまま、台本の rc を添える）"""
+    r, calls = shoot(_arm({SCRIPT: ["test_rejections"], mutate.PYDIR: [NODE]}), py=1, sel=sel, failed=["test_other.py::t"])
+    assert calls == ["py", "sel"] and (r["status"], r["own"], r.get("script_rc")) == (status, own, script_rc)
+    assert (r["pytest"]["rc"], r["attribution"]) == (1, "narrowed" if sel else "pytest")
 
 
 @pytest.mark.small
@@ -170,24 +188,29 @@ def place(tmp_path):
 
 @pytest.mark.small
 @pytest.mark.parametrize("tests, expect, want", [
-    ({mutate.PYDIR: [NODE]}, "x", ""),
+    ({mutate.PYDIR: [NODE]}, NODE, ""),
     ({mutate.PYDIR: ["test_x.py::test_y"]}, "test_x.py::test_y[case-a]", ""),
     ({"graphloops/tests/other.py": ["test_a"]}, "x", "でも pytest の置き場"),
     ({mutate.PYDIR: ["test_gone.py::test_y"]}, "x", "のファイルが"),
     ({mutate.PYDIR: ["test_x.py::test_gone"]}, "x", "の関数 test_gone が"),
     ({mutate.PYDIR: ["test_x.py::test_y[case-renamed]"]}, "x", "の id 'case-renamed' が"),
     ({mutate.PYDIR: [NODE]}, "test_x.py::test_gone", "expect の pytest の node id"),
-    ({mutate.PYDIR: ["test_x.py::TestK::test_m"]}, "x", ""),
+    ({mutate.PYDIR: ["test_x.py::TestK::test_m"]}, "test_x.py::TestK::test_m", ""),
     ({mutate.PYDIR: ["test_x.py::TestGone::test_m"]}, "x", "の class TestGone が"),
     ({mutate.PYDIR: []}, "x", "の node id が空"),
     ({}, NODE, "の名指しが無い"),
     ({mutate.PYDIR: ["test_x.py::TestK::test_m"]}, "test_x.py::test_y", "のどれにも当たらない"),
+    ({mutate.PYDIR: [NODE]}, "台本の検査の名前", "が node id でない"),
+    ({SCRIPT: ["test_a"], mutate.PYDIR: [NODE]}, NODE, "台本の名指しを持つ腕の expect が node id"),
+    ({SCRIPT: ["test_gone"], mutate.PYDIR: [NODE]}, "x", "の関数 test_gone が台本に無い"),
+    ({SCRIPT: ["test_a"], mutate.PYDIR: [NODE]}, "x", ""),
 ], ids=["named", "node-expect", "unknown-key", "file-gone", "function-gone", "param-id-gone", "expect-gone", "class-method", "class-gone",
-        "empty-named", "expect-without-named", "expect-outside-named"])
+        "empty-named", "expect-without-named", "expect-outside-named", "script-name-expect-on-pytest-only-arm", "node-expect-on-script-arm",
+        "script-function-gone", "script-and-named"])
 def test_check_reds_every_entrance_of_a_named_node(place, tests, expect, want):
     """--check（anchor_problem）は、名指しの鍵・node id のファイル・class・関数・parametrize の id・node id の expect のどれが消えても、
-    名指しが空でも、node id の expect が名指しの外でも赤"""
-    why = mutate.anchor_problem(place, _arm(tests, expect), src="x")
+    名指しが空でも、node id の expect が名指しの外でも、expect が腕の最後に撃つ道の証拠でなくても、台本の鍵の関数が台本に無くても赤"""
+    why = mutate.anchor_problem(place, _arm(tests, expect), src="def test_a():\nx")
     assert (want in why and why) if want else why == ""
 
 
@@ -278,6 +301,17 @@ def test_real_pytest_reports_failures_as_the_named_node_ids(real_place, real_pyt
 
 
 @pytest.mark.medium
+def test_real_pytest_names_a_broken_named_file_as_its_collection_error(real_place, real_pytest):
+    """名指したファイルが読み込みで落ちると、pytest は要約にファイル単位の ERROR を出して使い方の誤り（4）で抜ける。それを赤と読み、
+    名指しのファイルの当たりにする。ERROR の行の無い 4（名指しの node id がファイルに無い）は撃てないのまま"""
+    (real_place / mutate.PYDIR / "test_broken.py").write_text("import no_such_module_for_the_test  # noqa\n\n\ndef test_a():\n    pass\n",
+                                                               encoding="utf-8")
+    r = mutate.run_pytest(real_place, ["test_broken.py::test_a", "test_x.py::TestK::test_m"])
+    assert r["rc"] == 4 and mutate.named_hit(["test_broken.py::test_a"], r["failed"]) == "test_broken.py", r
+    assert mutate.run_pytest(real_place, ["test_x.py::test_nope"])["rc"] == "no-test"
+
+
+@pytest.mark.medium
 @pytest.mark.parametrize("named, status, hit", [
     ("test_x.py::test_y[case-a-2]", "Killed", "test_x.py::test_y[case-a-2]"),
     ("test_x.py::test_y", "Killed", "test_x.py::test_y[case-a-2]"),
@@ -298,9 +332,9 @@ def test_named_arm_is_proven_on_the_real_pytest(real_place, real_pytest, monkeyp
 
 @pytest.mark.medium
 @pytest.mark.parametrize("named, expect, want", [
-    ("test_x.py::test_y[case-a]", "x", ""),
-    ("test_x.py::test_y", "x", ""),
-    ("test_x.py::TestK::test_m", "x", ""),
+    ("test_x.py::test_y[case-a]", "test_x.py::test_y[case-a]", ""),
+    ("test_x.py::test_y", "test_x.py::test_y", ""),
+    ("test_x.py::TestK::test_m", "test_x.py::TestK::test_m", ""),
     ("test_x.py::test_y[case]", "x", "pytest の収集に無い"),
     ("test_x.py::test_y[None]", "x", "pytest の収集に無い"),
     ("test_x.py::test_m", "x", "pytest の収集に無い"),

@@ -1,6 +1,6 @@
 """層 2 の筋書き（research）: 上限で止まる類と、止める・人待ちの台本（graphloops/tests/simulate.py）の check の移し先。
 
-列と行の形は test_scenarios_review.py と同じ（scenes.py・docs/adr/0067）。1 行が台本の check 1 件で、行の印 ``moved_from`` が名乗る。
+列と行の形は test_scenarios_review.py と同じ（scenes.py・docs/adr/0067）。1 行が台本の check 1 件で、行の印 ``moved_from`` が名乗る（台本の関数を消した行は印を持たない）。
 """
 import pytest
 from engine.schema import load_graph
@@ -93,10 +93,10 @@ def test_gate_arms(scene, name, at, expect):
 
 
 # ---- ゲートが走る前に止まった標準・重厚 -------------------------------------------------------------------------------
-# 台本は段ごとのループ（型紙の check）。段の腕は std（標準・人が stop と答える）と heavy（重厚・無人）の 2 本。上限を 1 周にし、
+# 元の台本は段ごとのループ（型紙の check）。段の腕は std（標準・人が stop と答える）と heavy（重厚・無人）の 2 本。上限を 1 周にし、
 # report の前で検証器に落とされても例外で抜けずに赤の 1 件として数える（catch）
 
-S = "simulate.test_stopped_before_gates_reports"
+S = None   # 台本の simulate.test_stopped_before_gates_reports は消した（MIGRATION.md の「外した台本」）
 ONE_ROUND = ("--path", "state.max_rounds", "--file", file("one.json", 1), "--reason", "1 周目で止める筋を作る")
 history("research/early-std", init("stop-early-標準", thickness="標準", unattended=False), cmd("patch", *ONE_ROUND, mark="patch"),
         until("std", catch=True, mark="asked"), cmd("answer", "--text", "stop", mark="answer"), until("std", catch=True, mark="end"),
@@ -142,7 +142,7 @@ def test_stopped_before_gates_reports(scene, name, at, expect):
 
 # ---- 人が途中で止める ---------------------------------------------------------------------------------------------------
 
-S = "simulate.test_stop_midway"
+S = None   # 台本の simulate.test_stop_midway は消した
 AT_CHECKER = {"ready": "p1.checker"}
 history("research/stop-mid", init("stop-mid"), until("std", stop=AT_CHECKER), cmd("stop", "--reason", "検査: 照合の前で止める", mark="stop"),
         nxt(mark="next"), until("std", mark="end"), validate(mark="validate"))

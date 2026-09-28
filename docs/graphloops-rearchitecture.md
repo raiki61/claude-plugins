@@ -290,7 +290,7 @@
 列の外（空きがあれば並行で）:
 - 人の操作を待つもの: 変異テストの CI（.github/workflows/mutation.yml）の初回の手動実行（この環境の gh には権限が無い。人が `gh workflow run mutation.yml --ref main` か GitHub の画面から）。
 - 判定が先送りにした問い 2 件を、別の依頼として判定から流す: 非公開の対象で Web の検索語に固有名を入れない方針／REVIEW.md に待ちの生存の観点を足すか（姉妹プラグインと共有する文書なので、共有先への影響も見る。2026-09-25 の合流で観点の一覧に 1 行足した）。
-- テストを pytest に移す作業（触った所から。bash 側は同じ変更で消す）と、変異テストの道具の既製品への寄せ（pytest がある所は mutmut）。（2026-09-27: 差分の行の変異は `tests/mutate.py` が pytest も撃つ形に変えた。mutmut はモジュールを丸ごと撃つ道具として残し、撃つのは CI。2026-09-28 に `.github/workflows/mutation.yml` の mutmut の job に載せた）
+- テストを pytest に移す作業（触った所から。bash 側は同じ変更で消す）と、変異テストの道具の既製品への寄せ（pytest がある所は mutmut）。今の受け持ちは graphloops/README.md の「変異テスト」節。
 - docs/graphloops-prior-art.md への訂正の記録（乗り換えを決めた後に 1 回で）。
 - writes の宣言を関数に移すかの検討（条件を関数にした後）。
 
