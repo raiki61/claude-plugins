@@ -11,14 +11,14 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - gate_record(b) -> {exit, accepted, out, tail, traces, round_closed}
 - residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
-- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2）・head_stop(b, *, interrupted=None, failed=None)（冒頭 3）・
+- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_cost(board_dir, run_id, *, events, launches)・
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base}]
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
-  failed=None, eyeing=None) -> dict
+  failed=None, retried=None, eyeing=None) -> dict
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
@@ -30,6 +30,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 Archon の出来事（節の data.spend.costUsd）と包みの起動の記録から組む（COST_FIELD_VERIFIED が偽の間は「欄の形は未確認」を添える）。
 報告は run の中で走るので run の和は読まず、合計は節の和を「途中」として出す。
 """
+import collections
 import datetime
 import json
 import math
@@ -77,6 +78,7 @@ COST_FIELD_NAME = "data." + ".".join(COST_FIELD)
 ARCHON_VERSION = "Archon v0.11.1"
 REPORT_FILE = "report.md"
 NEXT_REQUEST_FILE = "next-request.json"
+NO_TURN_FILE = "no-turn-exits.json"   # 包みの終わりの記録の即時の死の行の写し（build が書く。起こし直しの行から辿る）
 NEXT_ORIGIN = "works:report"   # 次の run に渡す依頼の出どころ（accept.check_request の reason）
 TAIL_LINES = 20
 FINAL_GATE_ANSWER = "final-gate-answer.json"   # 最後の関所の答え {decision, text}（境の節 eyes が b.work に書く。P1 Task 26）
@@ -100,6 +102,7 @@ WHERE = (("判定", "p2.diagnose"), ("修正案", "p2.fix_plan"), ("事前審査
 DIFFS = (("修正の差分", "fix_delta"), ("手直しの差分", "fix_delta2"))
 REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
 INTERRUPTED_HEAD = "run が途中で終わった"
+RETRIED_HEAD = "前の試みで落ち、続きで済んだ節"
 AI_FIRST_NODE = "report.human_items"   # 盤面が報告の役の節を出したか（AI の報告を回すか。ai_report_go）
 AI_REPORT_KEYS = ("ok", "reason", "report_file", "cold_check", "record_invalid")   # 最後の出口に写す AI の報告の欄
 
@@ -586,10 +589,11 @@ def absent_lines(b) -> list:
             for r in rows if isinstance(r, dict)]
 
 
-def head_stop(b, *, interrupted: str | None = None, failed: list | None = None) -> list:
+def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, retried: list | None = None) -> list:
     """冒頭 3: 止めたか（止め札・関所の stop・機械の止め。理由と止めた所）。interrupted は Archon の run の状態（線の中は
     分からないので空）、failed は落ちた節 [{node, error}]（reads.failed_nodes）。落ちた節が在れば節ごとに名前と誤りの文の
-    1 行目を出し、無ければ Archon の run の状態を出す"""
+    1 行目を出し、無ければ Archon の run の状態を出す。retried は前の試みで落ち、続き（resume）で済んだ節
+    [{node, failures, error}]（reads.retried_nodes）で、止めた理由でなく試みの記録として出す（結末は替えない）"""
     lines = []
     if interrupted is not None:
         for f in failed or []:
@@ -616,6 +620,9 @@ def head_stop(b, *, interrupted: str | None = None, failed: list | None = None) 
         # 止めた周の記録が検証器を通らない（判定の前に止めた周は、awaiting_human の素材を問いの台帳に載せる判定役が走っていない
         # ——run 30）時、本線の cmd_stop は報告の節を出さずに理由を言う。同じ理由をここに出す（記録を機械が繕わない）
         lines.append(f"報告の節は出ない（本線の止めと同じ）: {info['no_report']}")
+    for r in retried or []:
+        lines.append(f"{RETRIED_HEAD}: {r.get('node')}（落ちた回 {r.get('failures')}。"
+                     f"最後の誤り: {r.get('error') or '（誤りの文が無い）'}）")
     return lines
 
 
@@ -623,7 +630,8 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
     """冒頭 4: 読んだ証拠（各役の reads-<役>.json）と包みの行。出来事が unverified なら「出来事: 未確認（P13）」。
     包み無し（adapter optional）の run は「包み無し」の行の横に CI の役の知らせ（blk の collect.note）。包みを通す run で起動の
     記録が無ければ「包みが通っていない」。書き込みの記録の無い run と拒まずに残した変更（write_lines）。包みの確かめで止めた盤面は
-    止めた理由。会話を継いだ起動の数。盤面を書かない"""
+    止めた理由。会話を継いだ起動の数。起動の即時の失敗（包みの終わりの記録の no_turn。節ごとの回と、build が盤面に写した
+    NO_TURN_FILE）。盤面を書かない"""
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
     lines, unverified = [], False
@@ -658,6 +666,11 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
         lines.append(f"包みの確かめで止めた: {reason}")
     cont = sum(1 for r in _launches(b, repo) if (r.get("session") or {}).get("mode") == "continued")
     lines.append(f"会話を継いだ起動: {cont} 本")
+    dead = collections.Counter(r.get("node") or "—" for r in _no_turn_exits(b, repo))
+    if dead:
+        lines.append("起動の即時の失敗（1 手も進まずに終わり、Archon の起こし直しに任せた）: "
+                     + "・".join(f"節 {n} {k} 回" for n, k in dead.items())
+                     + f"。写さなかった result の全文: {board_dir / NO_TURN_FILE}（元は {adapter.exits_path(repo)}）")
     return lines
 
 
@@ -681,15 +694,29 @@ def _time(s):
     return t if t.tzinfo else None
 
 
-def _launches(b, repo) -> list:
-    """包みの起動の記録のうち、盤面を作った（state.created）後の行（reads.adapter_seen と同じ絞り方）"""
+def _since_created(b, rows) -> list:
+    """盤面を作った（state.created）後の行（reads.adapter_seen と同じ絞り方）"""
     since = _time(b.state.get("created"))
-    rows = []
-    for r in adapter.read_launches(pathlib.Path(repo)):
+    if since is None:
+        return []
+    out = []
+    for r in rows:
         at = _time(r.get("at"))
-        if since is not None and at is not None and at >= since:
-            rows.append(r)
-    return rows
+        if at is not None and at >= since:
+            out.append(r)
+    return out
+
+
+def _no_turn_exits(b, repo) -> list:
+    """包みの終わりの記録のうち、この run の即時の死（1 手も進まずに終わり、Archon の起こし直しに任せた起動）"""
+    return [r for r in _since_created(b, adapter.read_exits(pathlib.Path(repo))) if r.get("kind") == "no_turn"]
+
+
+def _launches(b, repo) -> list:
+    """包みの起動の記録のうち、盤面を作った後の行。即時の死の起動は除く（Archon の node_completed を持たないので、
+    cost_rows の結び付けをずらす）"""
+    dead = {r.get("pid") for r in _no_turn_exits(b, repo)}
+    return [r for r in _since_created(b, adapter.read_launches(pathlib.Path(repo))) if r.get("pid") not in dead]
 
 
 def head_where(b) -> list:
@@ -815,12 +842,13 @@ def _finish_fields(b, judged, outcome) -> dict:
 
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None, mid: dict | None = None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
-          failed: list | None = None, eyeing: dict | None = None) -> dict:
+          failed: list | None = None, retried: list | None = None, eyeing: dict | None = None) -> dict:
     """gate_record → decide_outcome（eyeing＝独立の目のブロックの出口。残りに数える）→ 部品で <盤面>/report.md と
-    <盤面>/next-request.json を書き、1 本目の finish の欄に
+    <盤面>/next-request.json（と、包みが即時の死を記録した run は <盤面>/NO_TURN_FILE）を書き、1 本目の finish の欄に
     report_file・next_request_file・tests_green・validator_exit と、書き出しの節が読む export_input {outcome, report_file,
     board_dir} を足して返す。interrupted（Archon の run の状態の語。空も可）を渡せば結末は interrupted（線の中の報告の節は
-    落ちた節 failed と空、dev の report.sh は run の状態）。
+    落ちた節 failed と空、dev の report.sh は run の状態）。retried（前の試みで落ち、続きで済んだ節）は冒頭 3 の試みの記録で、
+    結末も AI の報告の可否も替えない。
     record_invalid の時は冒頭 1 に検証器の出力の末尾と痕跡。盤面を開けなければ BoardGap"""
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
@@ -834,11 +862,14 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     items = next_request(b, tests=tests, left=left)
     req_p, rep_p = board_dir / NEXT_REQUEST_FILE, board_dir / REPORT_FILE
     _write_json(req_p, items)
+    dead = _no_turn_exits(b, (b.state.get("inputs") or {}).get("cwd") or ".")
+    if dead:   # 即時の死の result は Archon の出来事に載らないので、全文を盤面にも残す（head_reads の行から辿る）
+        _write_json(board_dir / NO_TURN_FILE, dead)
     rid = run_id or _start_doc(b, start).get("run_id") or ""
     body = [f"# 報告（run {rid or '—'}）: {outcome}", ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
-             head_entry(b, start, mid=mid), head_stop(b, interrupted=interrupted, failed=failed), head_reads(board_dir, rid, ci=ci),
-             head_where(b))
+             head_entry(b, start, mid=mid), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
+             head_reads(board_dir, rid, ci=ci), head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]
     body += ["## 費用", "", *[f"- {r}" for r in head_cost(board_dir, rid, events=events, launches=launches)], ""]

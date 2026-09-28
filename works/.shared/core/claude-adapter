@@ -13,6 +13,8 @@ SDK が組んだ argv に Read のフック・会話の継ぎ・起動ごとの�
 - 印のある起動で、continue=X の X の id が無い・印が読めない・--settings を混ぜられない・切符が読めない・会話の id を
   記録できない時は、子を起こさずに 1 行を出して終了コード 3（fail closed）
 - 印のある起動は stdin を中継し、最初の指示文で指示書の全文版か差分版を決めてから子へ渡す（adapter.py の頭の 9）
+- stream-json の起動は stdout を同じバイトで写し、1 手も進まずに終わった子は result を写さずに終了コード 75
+  （adapter.NO_TURN_EXIT。Archon が transient として起こし直す）。result の全文は exits/<cwd の hash>.jsonl に残す（頭の 16）
 - 名前を .js で終わらせない（Archon は .js の実行ファイルを bun で起こして --no-env-file を足す）
 uv を通さない（Archon が直に起こす）。標準ライブラリだけ。
 """
@@ -54,14 +56,34 @@ def log_launch(home_dir, cwd, p):
     write_row(home_dir, cwd, adapter.launch_row(p, cwd, os.getpid(), adapter.now()))
 
 
-def write_row(home_dir, cwd, row):
-    path = adapter.launches_path(cwd, home_dir)
+def append_row(path, row, what):
     try:
         os.makedirs(str(path.parent), mode=0o700, exist_ok=True)
         with open(str(path), "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except OSError as e:
-        say(f"起動の記録を書けない（{path}: {e}）")
+        say(f"{what}を書けない（{path}: {e}）")
+
+
+def write_row(home_dir, cwd, row):
+    append_row(adapter.launches_path(cwd, home_dir), row, "起動の記録")
+
+
+def write_exit(home_dir, cwd, row):
+    append_row(adapter.exits_path(cwd, home_dir), row, "子の終わりの記録")
+
+
+def run(home_dir, cwd, real, p, on_line=None):
+    """本物の claude を起こして待つ（adapter.supervise）。1 手も進まずに終わった子（adapter.py の頭の 16）は、写さなかった
+    result を終わりの記録に残し、1 行を出して NO_TURN_EXIT で返す"""
+    out = adapter.OutWatch() if adapter.watches_out(p.argv) else None
+    rc = adapter.supervise([real] + p.argv, p.env, p.cwd, on_line=on_line, out=out)
+    if out is not None and out.held is not None and rc == adapter.NO_TURN_EXIT:
+        row = adapter.exit_row(p.node, os.getpid(), rc, out.held)
+        write_exit(home_dir, cwd, row)
+        say(f"子が 1 手も進まずに終わった（節 {p.node or '—'}・{row['subtype']}・is_error {row['is_error']}: {row['head']}）。"
+            f"result を写さず、起こし直しを Archon に任せる（終了コード {rc}。全文は {adapter.exits_path(cwd, home_dir)}）")
+    return rc
 
 
 def protected(cwd, home_dir):
@@ -129,7 +151,7 @@ def main():
         log_launch(home_dir, cwd, p)
         if p.warn:
             say(f"形が見分けられないので素通しする（{p.why}）")
-        return adapter.supervise([real] + p.argv, p.env, p.cwd)
+        return run(home_dir, cwd, real, p)
     # 印のある起動: stdin を中継し、最初の user の行（指示文）で指示書の版を決めてから子へ渡す（adapter.py の頭の 9）。
     # 起動の記録は版を決めた時に 1 行で書く（指示文が来ないまま子が終われば、その後に書く）。時刻は起こす前の物
     row = adapter.launch_row(p, cwd, os.getpid(), adapter.now())
@@ -154,7 +176,7 @@ def main():
         return False
 
     try:
-        return adapter.supervise([real] + p.argv, p.env, p.cwd, on_line=on_line)
+        return run(home_dir, cwd, real, p, on_line=on_line)
     finally:
         flush()
 

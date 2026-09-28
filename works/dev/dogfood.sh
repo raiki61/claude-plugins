@@ -1,5 +1,6 @@
 #!/bin/sh
 # works/dev/dogfood.sh <request.json> <test_cmd> [<dir>]
+# works/dev/dogfood.sh --show <dir> <run-id>
 #
 # 自分食い: このリポジトリ自身を対象に、ライン darkfactory を本物の AI で 1 回回す（費用が掛かる。回す前に持ち主の了承を取る）。
 #   1. このリポジトリの今の HEAD（commit 済みの物だけ。手元の変更は入らない）を <dir>/repo に clone し、枝 dogfood-base を切る。
@@ -11,7 +12,11 @@
 #      archon.sh workflow run darkfactory を前景で回す。人の関所で run は止まって戻る。
 #   5. run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）と、run の worktree の差分
 #      （git diff --binary <周の頭の版>。<dir>/run-<id>.diff）をこのリポジトリへ git apply で取り込むコマンドを出す。
+#      差分が空（起動の直後の関所）なら書かない。承認・関所の答え・続きの行は、Archon が戻った後に
+#      dogfood.sh --show <dir> <run-id> で差分を書き直す（lib.sh の WORKS_DEV_SHOW_CMD）。
 #      修正が pack の写し（.archon/）に触れていれば 1 行で注意する。
+# --show <dir> <run-id>: 前に回した <dir> の run の差分を今の worktree で書き直し、5 の行を出し直す。認証も前の回の検査も
+#   しない（問い合わせは認証を読ませない）。続きの行が前置き（WORKS_DEV_HOME・CLAUDE_BIN_PATH など）ごと付けて打つ。
 #   入力: tdd_suite=works/dev/tdd-suite.sh（WORKS_DOGFOOD_TDD_SUITE で替える・空で輪を飛ばす）・adapter は空＝包みを求める
 #   （既定。WORKS_DEV_ADAPTER=0 か空で包みを外すと adapter=optional）・final_gate=always（WORKS_DOGFOOD_FINAL_GATE で when_needed に）。
 # 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
@@ -22,9 +27,15 @@
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_dev.py が偽物を差す）。
 set -eu
 
-if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-  echo "usage: dogfood.sh <request.json> <test_cmd> [<dir>]" >&2
-  exit 2
+if [ "${1:-}" = --show ]; then
+  SHOW=1
+  [ "$#" -eq 3 ] || { echo "usage: dogfood.sh --show <dir> <run-id>" >&2; exit 2; }
+else
+  SHOW=""
+  if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "usage: dogfood.sh <request.json> <test_cmd> [<dir>]（前の回の差分を書き直すのは dogfood.sh --show <dir> <run-id>）" >&2
+    exit 2
+  fi
 fi
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
@@ -32,14 +43,40 @@ WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
 WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 WORKS_DEV_MODEL="${WORKS_DEV_MODEL:-opus}"
-# 包みは既定で通す。WORKS_DEV_ADAPTER=0 か空を明示した時だけ外す（値の検査は archon.sh）
-WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"
+# 包みは既定で通す。WORKS_DEV_ADAPTER=0 か空を明示した時だけ外す（値の検査は archon.sh）。--show は続きの行の前置きが
+# 包みを通した run にだけ WORKS_DEV_ADAPTER=1 を載せるので、無ければ外した run
+if [ -n "$SHOW" ]; then WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-}"; else WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"; fi
 export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER
 
 # 開発の家・置き場が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"
 works_dev_abs_claude_config
 works_dev_refuse_claude_tmp dogfood.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
+
+# works_dev_show_cmd <dir>: 続きの行の後ろに付ける差分の書き直しの口（lib.sh の WORKS_DEV_SHOW_CMD）を export する
+works_dev_show_cmd() {
+  WORKS_DEV_SHOW_CMD="$(python3 -c 'import shlex, sys; print("WORKS_DEV_ARCHON={} {}".format(shlex.quote(sys.argv[1]), shlex.join(["sh", *sys.argv[2:]])))' \
+    "$ARCHON" "$DEV_DIR/dogfood.sh" --show "$1")"
+  export WORKS_DEV_SHOW_CMD
+}
+
+if [ -n "$SHOW" ]; then
+  if [ ! -d "$2/repo" ] || [ -z "${CLAUDE_BIN_PATH:-}" ]; then
+    echo "dogfood.sh: --show は前に回した <dir>（<dir>/repo が在る）と CLAUDE_BIN_PATH が要る（続きの行が付ける口をそのまま打つ）" >&2
+    exit 2
+  fi
+  export CLAUDE_BIN_PATH
+  DIR="$(cd "$2" && pwd -P)"
+  SRC="$(git -C "$WORKS_DIR" rev-parse --show-toplevel)"
+  . "$DEV_DIR/lib.sh"
+  works_dev_show_cmd "$DIR"
+  cd "$DIR/repo"
+  WORKS_RUN_ID="$3"
+  export WORKS_RUN_ID
+  works_dev_show_run dogfood.sh "$ARCHON" "$DIR/repo" "$SRC"
+  exit 0
+fi
+
 if [ "$#" -ge 3 ]; then
   works_dev_refuse_claude_tmp dogfood.sh "置き場" "$3"
   works_dev_refuse_claude_tmp dogfood.sh "clone" "$3/repo"
@@ -134,6 +171,7 @@ echo "workflow run の終了コード: $run_status"
 
 # 起動が落ちても run が在れば続きの行を出す（控えと herdr の枠の集計も lib.sh の同じ口で）。終了コードは起動のまま（起動が 0 の時だけ show の結果）
 show_status=0
+works_dev_show_cmd "$DIR"
 works_dev_show_started dogfood.sh "$ARCHON" "$REPO" "$SRC" || show_status=$?
 [ "$run_status" -ne 0 ] && exit "$run_status"
 exit "$show_status"

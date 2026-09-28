@@ -2,7 +2,7 @@
 
 Archon は Claude Code の実行ファイルを `assistants.claude.claudeBinaryPath`（設定）か `CLAUDE_BIN_PATH`（env）で
 差し替えられる。そこに claude-adapter を置くと、Archon の SDK が組んだ argv がこちらに来る。包みは argv だけを見て
-（標準入出力は中継せずに子へ継がせる）下の 1〜3 と 5 を足し、本物の claude を 4 の形で起こす。形は有料の試しで
+（標準入出力は 9・16 のほかは中継せずに子へ継がせる）下の 1〜3 と 5 を足し、本物の claude を 4 の形で起こす。形は有料の試しで
 本物の Archon v0.11.1・SDK 0.3.282・claude 2.1.283 と確かめた（scratchpad の claude-adapter-probe.md・
 resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の P6e）。
 
@@ -30,7 +30,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    SDK が sandbox の塊を渡した起動だけ `sandbox.filesystem.denyWrite` にも足す（sandbox の無い節に sandbox の鍵を作らない）。
    どちらも SDK の配列の後ろに足し、SDK の項目は消さない。
 
-4. **木ごと止める**: 本物の claude は exec せずに子として新しいセッションで起こし（標準入出力は継ぐ）、走っている間
+4. **木ごと止める**: 本物の claude は exec せずに子として新しいセッションで起こし（標準入出力は 9・16 のほかは継ぐ）、走っている間
    POLL 秒ごとに木の仲間（tree_run._tree_members: グループ・セッションの番号・親子の鎖・前に数えた物。開始時刻で番号の
    再利用を見分ける）を数えて溜める。claude の Bash の道具はコマンドを claude と別のグループで走らせるので、claude の
    グループへ送るだけでは孫に届かない（試し P15: SIGTERM を無視する孫が Ctrl-C でも cancel でも残った）。
@@ -106,8 +106,15 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    本流 role_run が役・任せ先・書く子に立てるのと同じ名で、対象の重い一式（tests/run.sh・変異の撃ち）はこれを見て AI の役
    からの起動を拒める。線の節（board.py の宣言の一式など）は包みを通らないので立たない。包み無しの run にも立たない
 
+16. **子の終わりを種分けする**（印の有無に依らない。`--output-format stream-json` の起動だけ）: 子の stdout を継がせずに
+   行ごとに同じバイトで写し（relay_out）、1 手も進まずに終わった子（assistant の行が無く result の num_turns が 0。no_turn）の
+   result の行だけは Archon へ写さず、木を止めて NO_TURN_EXIT（75）で返す。result を写すと SDK は散文の答えと同じ
+   output_contract に落とし、Archon は起こし直さない（run 43・54）。0 でない終了は transient として Archon が上限まで
+   起こし直す。result の行は届いた時に決め、手が進んだ起動の result はすぐ写す。写さなかった result は全文を包みの終わりの
+   記録 `exits/<key>.jsonl`（claude-adapter の write_exit）に残す
+
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
-変えない（stdin も中継しない）。見分けられない形
+変えない（stdin も中継しない。stdout は 16 のとおり同じバイトで写す）。見分けられない形
 （印の跡の無い `--json-schema` が 2 つ・読めない JSON・値の無い旗）は足さずに素通しし、警告を 1 行出す。
 印の跡（`works-node:`）が --json-schema のどこかに在るのに一番上の description の印として読めない起動（知らない旗・
 大文字・余分な空白・入れ子の description・印を持つ --json-schema が 2 つ・壊れた JSON）は、JSON として読めても
@@ -116,7 +123,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 置き場（包みの家）は env の `WORKS_ADAPTER_HOME`（無ければ `${XDG_STATE_HOME:-~/.local/state}/works/adapter`。切符と同じ）。Claude の子の env には
 ARTIFACTS_DIR が来ないので、run の区別は cwd（Archon が run ごとに切る worktree）の realpath の sha256 の先頭 16 字で付ける:
 `sessions/<key>/<節>.id`・`reads/<key>/reads.jsonl`（graphloops の engine の hook_evidence がそのまま読む形）・
-`launches/<key>.jsonl`（起動ごとの 1 行。引数の本文は書かない。印のある起動は 9 の版を決めた時か子が終わった時に書く）。
+`launches/<key>.jsonl`（起動ごとの 1 行。引数の本文は書かない。印のある起動は 9 の版を決めた時か子が終わった時に書く）・
+`exits/<key>.jsonl`（16 の即時の死の起動ごとの 1 行）。
 家は役の sandbox の Bash から書けない場所に置く。
 
 Python 3.9 でも動く形で書く（`#!/usr/bin/env python3` が macOS の /usr/bin/python3 に当たりうる）。
@@ -320,6 +328,28 @@ def writes_path(cwd, home_dir=None) -> pathlib.Path:
 def launches_path(cwd, home_dir=None) -> pathlib.Path:
     """cwd の起動の記録（1 起動 1 行。launch_row の形）"""
     return _home_or(home_dir) / "launches" / f"{cwd_key(cwd)}.jsonl"
+
+
+def exits_path(cwd, home_dir=None) -> pathlib.Path:
+    """cwd の子の終わりの記録（即時の死の起動だけ 1 行。write の形は claude-adapter の write_exit）"""
+    return _home_or(home_dir) / "exits" / f"{cwd_key(cwd)}.jsonl"
+
+
+def read_exits(cwd, home_dir=None) -> List[dict]:
+    """exits_path の行（読めない行は飛ばす。無ければ []）"""
+    try:
+        text = exits_path(cwd, home_dir).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out = []
+    for ln in text.splitlines():
+        try:
+            row = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            out.append(row)
+    return out
 
 
 def now() -> str:
@@ -1191,6 +1221,91 @@ def relay(src_fd: int, dst_fd: int, on_line: Callable[[bytes], bool]) -> None:
             pass
 
 
+NO_TURN_EXIT = 75   # EX_TEMPFAIL。SDK は 'exited with code 75' と言い、Archon はそれを transient として起こし直す
+
+
+class OutWatch:
+    """relay_out が見た子の stdout（stream-json）。progressed: assistant の行を見た。held: 即時の死と決めて写さなかった
+    result の行（無ければ None）"""
+
+    def __init__(self) -> None:
+        self.progressed = False
+        self.held: Optional[bytes] = None
+
+
+def watches_out(argv: Sequence[str]) -> bool:
+    """16 の見張りを掛ける起動か（`--output-format stream-json` がちょうど 1 つ）。見分けられない形は掛けない"""
+    try:
+        found = find_opt(argv, "--output-format")
+    except Unrecognised:
+        return False
+    return [v for _, _, v, _ in found] == ["stream-json"]
+
+
+def exit_row(node: Optional[str], pid: int, rc: int, held: bytes) -> dict:
+    """exits の 1 行: 写さなかった result の全文（result）と、その型・種・誤りか・本文の 1 行目（head）"""
+    text = held.decode("utf-8", "replace")
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        doc = {}
+    doc = doc if isinstance(doc, dict) else {}
+    head = (str(doc.get("result") or "").strip().splitlines() or [""])[0]
+    return {"at": now(), "pid": pid, "node": node, "kind": "no_turn", "exit": rc, "subtype": doc.get("subtype"),
+            "is_error": doc.get("is_error"), "num_turns": doc.get("num_turns"), "head": head, "result": text}
+
+
+def no_turn(progressed: bool, result: dict) -> bool:
+    """1 手も進まずに終わった子か: assistant の行が無く、result の num_turns が 0（か無い）。費用では決めない（run 43 は
+    tokens 0・numTurns 0 で costUsd 1.15）"""
+    turns = result.get("num_turns")
+    return not progressed and not (isinstance(turns, int) and turns > 0)
+
+
+def relay_out(src_fd: int, dst_fd: int, w: OutWatch) -> None:
+    """子の stdout（src_fd）を行ごとに dst_fd へそのままのバイトで写し、終わったら両方を閉じる。assistant の行で
+    w.progressed を立てる。result の行は届いた時に決める: no_turn なら写さずに w.held に置き、そうでなければすぐ写す
+    （子の終わりまで留めると、result の後に stdin の終わりを待つ子と SDK が互いを待つ）。dst が閉じた（EPIPE）後も読み続ける"""
+    buf = b""
+
+    def put(data: bytes) -> None:
+        try:
+            _write_all(dst_fd, data)
+        except OSError:
+            pass
+
+    try:
+        while True:
+            try:
+                chunk = os.read(src_fd, 65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                try:
+                    doc = json.loads(line)
+                except ValueError:
+                    doc = None
+                kind = doc.get("type") if isinstance(doc, dict) else None
+                if kind == "assistant":
+                    w.progressed = True
+                elif kind == "result" and w.held is None and no_turn(w.progressed, doc):
+                    w.held = line
+                    continue
+                put(line + b"\n")
+        if buf:
+            put(buf)
+    finally:
+        for fd in (src_fd, dst_fd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
 def _write_all(fd: int, data: bytes) -> None:
     view = memoryview(data)
     while view:
@@ -1222,13 +1337,15 @@ def _stop(p, known, born, first=signal.SIGTERM) -> None:
 
 
 def supervise(argv: Sequence[str], env_over: Optional[dict] = None, cwd: Optional[str] = None,
-              on_line: Optional[Callable[[bytes], bool]] = None) -> int:
+              on_line: Optional[Callable[[bytes], bool]] = None, out: Optional[OutWatch] = None) -> int:
     """argv（本物の claude と引数）を新しいセッションで起こして待ち、終了コードを返す（信号で死んだら 128+信号）。
     待つ間は POLL ごとに仲間を数えて溜める。止める信号を受けたか直下の親が替わったら、溜めた仲間ごと木を止め
     （tree_run.stop_group）、LINGER 待って 128+信号（親の替わりは SIGHUP）を返す。claude が自分で終わった後も
     残った仲間を止める。上限の勘定は tree_run と同じ（信号に気づくまで POLL、SIGKILL まで KILL_GRACE + PS_TIMEOUT、
     抜けるまで LINGER）。ただし見回りの ps の最中に届いた信号は、その ps が返るまで気づかない（ps が固まれば +PS_TIMEOUT）。
-    on_line を渡すと stdin を継がせずに中継する（relay。印のある起動の 9）。渡さなければ stdin は子がそのまま継ぐ"""
+    on_line を渡すと stdin を継がせずに中継する（relay。印のある起動の 9）。渡さなければ stdin は子がそのまま継ぐ。
+    out を渡すと stdout も継がせずに relay_out で写し、子が 1 手も進まずに result を出した（out.held）ら木を止めて
+    NO_TURN_EXIT を返す（adapter.py の頭の 16）"""
     got: List[int] = []
     old = {s: signal.signal(s, lambda signum, _f: got.append(signum)) for s in STOP_SIGNALS}
     ppid = os.getppid()
@@ -1236,12 +1353,24 @@ def supervise(argv: Sequence[str], env_over: Optional[dict] = None, cwd: Optiona
     born = time.time()
     env = dict(os.environ, **env_over) if env_over else None
     p = subprocess.Popen(list(argv), start_new_session=True, env=env, cwd=cwd,   # cwd は旗 isolated の起動だけ
-                         stdin=subprocess.PIPE if on_line is not None else None)
+                         stdin=subprocess.PIPE if on_line is not None else None,
+                         stdout=subprocess.PIPE if out is not None else None)
     if on_line is not None:
         # 書く口は fd で渡して Python の stdin・p.stdin の物に触らない（終わりの時に daemon の糸が錠を持ったまま残らないように）
         dst = os.dup(p.stdin.fileno())
         p.stdin.close()
         threading.Thread(target=relay, args=(0, dst, on_line), daemon=True).start()
+    out_thread = None
+    if out is not None:
+        src = os.dup(p.stdout.fileno())
+        p.stdout.close()
+        out_thread = threading.Thread(target=relay_out, args=(src, os.dup(1), out), daemon=True)
+        out_thread.start()
+
+    def drained() -> None:
+        if out_thread is not None:
+            out_thread.join(KILL_GRACE + PS_TIMEOUT + LINGER)
+
     stopped = False
     try:
         while True:
@@ -1249,18 +1378,24 @@ def supervise(argv: Sequence[str], env_over: Optional[dict] = None, cwd: Optiona
                 signum = got[0] if got else signal.SIGHUP
                 _stop(p, known, born, signum)
                 stopped = True
+                drained()
                 time.sleep(LINGER)
                 return 128 + signum
+            if out is not None and out.held is not None:
+                break
             try:
                 rc = p.wait(POLL)
                 break
             except subprocess.TimeoutExpired:
                 watch(p, known, born)
-        _stop(p, known, born)      # claude が残した孫（Bash の道具の別のグループ・別のセッション）
+        _stop(p, known, born)      # claude が残した孫（Bash の道具の別のグループ・別のセッション）。即時の死なら claude ごと
         stopped = True
+        drained()
         if got:
             time.sleep(LINGER)
             return 128 + got[0]
+        if out is not None and out.held is not None:
+            return NO_TURN_EXIT
         return rc if rc >= 0 else 128 - rc
     finally:
         if not stopped:

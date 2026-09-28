@@ -51,6 +51,46 @@ class HeadStopInterruptedCase(unittest.TestCase):
         self.assertIn("Archon の run の状態は cancelled", text)
 
 
+class ResumedRunCase(unittest.TestCase):
+    """resume の後の run（run 43・54 の形）: 1 回目で上流の節と result が落ち、resume で上流の節が済んで report が走る。
+    report より下流の result は今の試みでまだ走れないので、その前の試みの失敗で結末を interrupted にしない。
+    報告の節（darkfactory/scripts/report.py）の main を、出来事と report.build を差し替えて直に呼ぶ（盤面・git・子のプロセスなし）"""
+
+    def test_prior_attempt_failures_do_not_interrupt(self):
+        import importlib.util
+        import os
+        import reads
+        fixing = "fixing__fix-loop.fix"
+
+        def ev(kind, step=None, error=None):
+            return {"event_type": kind, "step_name": step, "data": {"error": error} if error else {}}
+        events = [ev("workflow_started"),
+                  ev("node_started", fixing), ev("node_failed", fixing, "一度目の誤り"),
+                  ev("node_started", "report"), ev("node_completed", "report"),
+                  ev("node_started", "result"), ev("node_failed", "result", "Script node 'result' failed [exit 1]"),
+                  ev("workflow_failed"),
+                  ev("workflow_started"),
+                  ev("node_started", fixing), ev("node_completed", fixing),
+                  ev("node_started", "report")]
+        spec = importlib.util.spec_from_file_location("_report_script_resumed",
+                                                      ROOT / "darkfactory" / "scripts" / "report.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as art:
+            (pathlib.Path(art) / "board").mkdir()
+            (pathlib.Path(art) / "board" / "state.json").write_text("{}", encoding="utf-8")
+            env = {n: "null" for n in mod.INPUTS}
+            env.update({"INPUTS_EYES": json.dumps({"go": False}), "ARTIFACTS_DIR": art, "WORKFLOW_ID": "run-43"})
+            got = {}
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch.object(reads, "events_for", return_value=events), \
+                    mock.patch.object(report, "build", side_effect=lambda *a, **kw: got.update(kw) or {"ok": True}), \
+                    mock.patch("script_io._emit"):
+                self.assertEqual(mod.main(), 0)
+        self.assertIsNone(got["interrupted"], got.get("failed"))
+        self.assertNotIn("result", [f["node"] for f in got["failed"] or []])
+
+
 EVENTS_DIR = pathlib.Path(__file__).resolve().parent / "events"
 
 

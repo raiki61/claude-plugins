@@ -485,6 +485,98 @@ class TestDevShell(unittest.TestCase):
             self.assertNotIn("deleted file", body)
             self.assertNotIn("取り込むと消えるファイル", r.stdout)
 
+    def _show_run(self, tmp, wt, *, redo="", rc="0"):
+        """偽の Archon（run の一覧には run-1、ほかの呼び出しは FAKE_RC で終わる）で works_dev_show_run を回す。差分は tmp/diffs"""
+        (tmp / "runs.json").write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
+                                                             "working_path": str(wt), "output_root": str(tmp / "out")}]}))
+        fake = tmp / "archon.sh"
+        fake.write_text(f'case "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;; *) exit "${{FAKE_RC:-0}}" ;; esac\n')
+        (tmp / "diffs").mkdir(exist_ok=True)
+        env = {**{k: v for k, v in os.environ.items() if k not in ("WORKS_RUN_ID", "HERDR_ENV", "WORKS_DEV_SHOW_CMD")},
+               "WORKS_DEV_HOME": str(tmp / "dev-home"), "WORKS_DEV_MODEL": "opus", "CLAUDE_BIN_PATH": "/usr/bin/true",
+               "FAKE_RC": rc}
+        if redo:
+            env["WORKS_DEV_SHOW_CMD"] = redo
+        return subprocess.run(["sh", "-c", '. "$1"; works_dev_show_run t "$2" "$3" "$3" "$4"', "_",
+                               str(DEV / "lib.sh"), str(fake), str(wt), str(tmp / "diffs")],
+                              capture_output=True, text=True, encoding="utf-8", env=env)
+
+    def test_show_run_empty_diff_leaves_no_file_then_rewrites_cumulative(self):
+        """差分が空（起動の直後の関所）なら run-<id>.diff を書かず、前の同じ名のファイルも消し、取り込む行を出さない。
+        worktree が進んだ後に呼び直すと、差分は周の頭の版からの累積（役の commit・手直し・未追跡）になり、周の頭の版に当てると
+        worktree の今の姿と一致する"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            wt = tmp / "wt"
+            committed_copy(wt, DEV / "target-seed")
+            base = git(wt, "rev-parse", "HEAD")
+            board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board" / "r1"
+            board.mkdir(parents=True)
+            (board / "start.json").write_text(json.dumps({"base_rev": base}))
+            diff = tmp / "diffs" / "run-run-1.diff"
+            (tmp / "diffs").mkdir()
+            diff.write_text("前の回の置き物\n")
+            r = self._show_run(tmp, wt)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(diff.exists())
+            self.assertIn(f"修正の差分: まだ無い（run の worktree と周の頭の版 {base[:12]} の差が空。書く先: {diff}）", r.stdout)
+            self.assertNotIn(" apply ", r.stdout)
+
+            (wt / "stats.py").write_text((wt / "stats.py").read_text() + "# 役が commit した直し\n")
+            git(wt, "commit", "-q", "-am", "役の commit")
+            (wt / "stats.py").write_text((wt / "stats.py").read_text() + "# 手直し\n")
+            (wt / "new.txt").write_text("未追跡\n")
+            r = self._show_run(tmp, wt)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(f"apply {diff}", r.stdout)
+            check = tmp / "check"
+            subprocess.run(["git", "clone", "-q", str(wt), str(check)], check=True)
+            git(check, "checkout", "-q", base)
+            git(check, "apply", str(diff))
+            for name in ("stats.py", "new.txt"):
+                self.assertEqual((check / name).read_text(), (wt / name).read_text(), name)
+
+    def test_show_run_continue_lines_rewrite_diff(self):
+        """WORKS_DEV_SHOW_CMD を渡せば、承認・関所の答え（continue・stop）・続きの行の後ろに同じ前置きでその口と run id を付ける
+        （止める reject・取り消す cancel には付けない）。行の終了は、続きが落ちればその値、通れば書き直しの値。渡さなければ付けない"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            wt = tmp / "wt"
+            wt.mkdir()
+            redo = tmp / "redo.sh"
+            redo.write_text(f'printf "%s|%s\\n" "$1" "$WORKS_DEV_HOME" >> "{tmp / "redo.log"}"\nexit "${{REDO_RC:-0}}"\n')
+            r = self._show_run(tmp, wt, redo=f"sh {redo}")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = {l.split(": ", 1)[0]: l.split(": ", 1)[1] for l in r.stdout.splitlines() if ": " in l}
+            tail = f"; works_rc=$?; cd {wt} && "
+            for label, verb in (("進める（承認するとその場で続きを回す）", "approve run-1"),
+                                ("関所に一言で答えて進める", "respond run-1 continue"),
+                                ("関所で止める（報告は出る）", "respond run-1 stop"),
+                                ("失敗や中断から続ける", "resume run-1")):
+                with self.subTest(verb):
+                    self.assertIn(f"workflow {verb}", lines[label])
+                    self.assertIn(tail, lines[label])
+                    self.assertTrue(lines[label].endswith(f"sh {redo} run-1; (exit $((works_rc ? works_rc : $?)))"),
+                                    lines[label])
+            for label in ("止める", "取り消す（走っている run を Archon の cancel で止める。報告は report.sh で組む）"):
+                self.assertNotIn("works_rc", lines[label])
+            self.assertTrue(lines["差分だけを書き直す（Archon の生のコマンドで続けた後）"].endswith(f"sh {redo} run-1"))
+
+            # 前置きは export の無い殻でも書き直しの口に届く。終了は続きが落ちればその値、通れば書き直しの値
+            clean = {k: v for k, v in os.environ.items() if not k.startswith(("WORKS_", "CLAUDE_"))}
+            for archon_rc, redo_rc, want in (("0", "0", 0), ("3", "0", 3), ("0", "5", 5), ("3", "5", 3)):
+                with self.subTest(archon=archon_rc, redo=redo_rc):
+                    (tmp / "redo.log").unlink(missing_ok=True)
+                    ran = subprocess.run(["sh", "-c", lines["失敗や中断から続ける"]], capture_output=True, text=True,
+                                         encoding="utf-8", env={**clean, "FAKE_RC": archon_rc, "REDO_RC": redo_rc})
+                    self.assertEqual(ran.returncode, want, ran.stderr)
+                    self.assertEqual((tmp / "redo.log").read_text(), f"run-1|{tmp / 'dev-home'}\n")
+
+            r = self._show_run(tmp, wt)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("works_rc", r.stdout)
+            self.assertNotIn("差分だけを書き直す", r.stdout)
+
     def test_archon_sh_installs_borrowed_skills(self):
         """archon.sh は exec の前に、選んだ物だけの設定を隔離した CLAUDE_CONFIG_DIR に組む（dev/toolset.py）。
         superpowers の 5 つのスキルは両方の道で skills/ へ写す（Archon の validate も同じ置き場でスキルを探す）。
@@ -898,14 +990,62 @@ class TestDevShell(unittest.TestCase):
                     for word in words[3:words.index("sh")]:
                         self.assertRegex(word, r"^[A-Z_][A-Z0-9_]*=", found[0])
             self.assertNotIn("export", result.stdout)
-            # 出た行を、認証の変数の無い殻で打つ。偽の Archon は届いた項目名と cwd を書く
+            # 出た行を、認証の変数の無い殻で打つ。偽の Archon は届いた項目名と cwd を書き、run の一覧には run-1（worktree は
+            # <dog>/repo。承認の後に修正が在る）を返す。行の後ろの口が承認の後に差分を書き直す
+            repo = (tmp / "dog" / "repo").resolve()
+            (tmp / "runs.json").write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory",
+                                                                 "status": "paused", "working_path": str(repo),
+                                                                 "output_root": str(tmp / "out")}]}))
+            (repo / "fixed.txt").write_text("承認の後の修正\n")
             (tmp / "fake-archon.sh").write_text(
-                '#!/bin/sh\nprintf "%s|%s|%s\\n" "${WORKS_KEYCHAIN_ITEM:-}" "$(pwd -P)" "$*"\n')
+                f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;;\n'
+                '*) printf "%s|%s|%s\\n" "${WORKS_KEYCHAIN_ITEM:-}" "$(pwd -P)" "$*" ;; esac\n')
             cmd = lines["approve"][0].split(": ", 1)[1]
             ran = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, encoding="utf-8", env=self._env())
             self.assertEqual(ran.returncode, 0, ran.stderr)
-            self.assertEqual(ran.stdout.strip(),
-                             f"item for test|{(tmp / 'dog' / 'repo').resolve()}|workflow approve run-1")
+            self.assertEqual(ran.stdout.splitlines()[0], f"item for test|{repo}|workflow approve run-1")
+            diff = (tmp / "dog").resolve() / "run-run-1.diff"
+            self.assertIn(f"修正の差分（run の worktree と周の頭の版 {git(repo, 'rev-parse', 'HEAD')[:12]} の差", ran.stdout)
+            self.assertIn("+承認の後の修正", diff.read_text())
+
+    def test_dogfood_show_rewrites_diff_in_dir(self):
+        """起動の直後（修正がまだ無い）は <dir>/run-<id>.diff を書かない。出た「差分だけを書き直す」の行を認証も WORKS_* も
+        export していない殻で打つと、dogfood.sh --show が前置きの家・偽の Archon で run を引き、今の worktree の累積の差分を書く"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            wt = tmp / "wt"
+            committed_copy(wt, DEV / "target-seed")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                               working_path=wt, output_root=tmp / "out")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            diff = (tmp / "dog").resolve() / "run-run-1.diff"
+            self.assertFalse(diff.exists())
+            self.assertIn("修正の差分: まだ無い", result.stdout)
+            self.assertNotIn(" apply ", result.stdout)
+            redo = next(l for l in result.stdout.splitlines() if l.startswith("差分だけを書き直す")).split(": ", 1)[1]
+            self.assertIn(f"dogfood.sh --show {(tmp / 'dog').resolve()} run-1", redo)
+
+            (wt / "stats.py").write_text((wt / "stats.py").read_text() + "# 関所の後の直し\n")
+            clean = {k: v for k, v in os.environ.items() if not k.startswith(("WORKS_", "CLAUDE_"))}
+            ran = subprocess.run(["sh", "-c", redo], capture_output=True, text=True, encoding="utf-8", env=clean)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            self.assertIn("+# 関所の後の直し", diff.read_text())
+            self.assertIn(f"git -C {src.resolve()} apply {diff}", ran.stdout)
+            self.assertIn(redo, ran.stdout)   # 出し直した行も同じ口を持つ
+            after = [l.rstrip("\t").split("\t") for l in (tmp / "calls.txt").read_text().splitlines()][len(calls):]
+            self.assertEqual(after, [[str((tmp / "dog" / "repo").resolve()), "1", "workflow", "runs", "--json"]])
+
+    def test_dogfood_show_usage(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            for args in (["--show", str(tmp)], ["--show", str(tmp / "nothing"), "run-1"]):
+                with self.subTest(args=args):
+                    shutil.rmtree(tmp / "src", ignore_errors=True)
+                    result, src, calls = self._dogfood(tmp, *args)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("--show", result.stderr)
+                    self.assertEqual(calls, [])
 
     def test_dogfood_token_only_names_variable_without_value(self):
         """トークンだけで起こしたら、値は出さずに CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つよう案内すること。"""

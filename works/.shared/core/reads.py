@@ -20,7 +20,8 @@
 
 口:
 - events_for(run_id) -> list | None
-- failed_nodes(events) -> [{node, error}]（最後の状態が落ちた節。機械の報告の冒頭 3）
+- failed_nodes(events, *, after=()) -> [{node, error}]（最後の状態が落ちた節。下流の節 after は除く。機械の報告の冒頭 3）
+- retried_nodes(events, *, after=()) -> [{node, failures, error}]（前の試みで落ち、後で済んだ節。冒頭 3 の試みの記録）
 - node_path(include, loop, node) -> str
 - collect(board_dir, role, node_path, must_read, events, *, repo=None) -> {ok: True, sources, missing, reads_file}
 - adapter_seen(board_dir, run_id, *, repo=None) -> {seen, merged, passthrough, whys}
@@ -84,16 +85,43 @@ def events_for(run_id: str):
 NODE_STATES = ("node_started", "node_completed", "node_failed", "node_skipped", "node_skipped_prior_success")
 
 
-def failed_nodes(events) -> list:
-    """最後の状態が node_failed の節 [{node, error}]（出来事の順。出し直しで後に済んだ節は数えない）。行の形（step_name・
-    data.error）は Archon v0.11.1 の run 31（ae78d2fe）の出来事の実物で確かめた。events が None・空なら []"""
+def _node_rows(events, after) -> list:
+    """節の状態の出来事（出来事の順）。after に挙げた節（名前が同じか `<名>__`・`<名>.` で始まる節）は除く"""
+    def later(name):
+        return any(name == a or name.startswith((f"{a}__", f"{a}.")) for a in after)
+    return [e for e in events or [] if isinstance(e, dict) and e.get("event_type") in NODE_STATES
+            and e.get("step_name") and not later(e["step_name"])]
+
+
+def _error(e) -> str:
+    return str((e.get("data") or {}).get("error") or "")
+
+
+def failed_nodes(events, *, after=()) -> list:
+    """最後の状態が node_failed の節 [{node, error}]（出来事の順。出し直し・resume で後に済んだ節は数えない）。行の形（step_name・
+    data.error）は Archon v0.11.1 の run 31（ae78d2fe）の出来事の実物で確かめた。events が None・空なら []。
+    after は呼ぶ節より下流の節: 呼ぶ節が走る時にはまだ今の試みで走れないので、最後の状態はいつも前の試み（resume の前）の物で、
+    今の失敗に数えない（run 43・54: resume の後に result の前の試みの失敗が残った）"""
     last = {}
-    for e in events or []:
-        if isinstance(e, dict) and e.get("event_type") in NODE_STATES and e.get("step_name"):
-            last.pop(e["step_name"], None)
-            last[e["step_name"]] = e
-    return [{"node": name, "error": str((e.get("data") or {}).get("error") or "")}
-            for name, e in last.items() if e.get("event_type") == "node_failed"]
+    for e in _node_rows(events, after):
+        last.pop(e["step_name"], None)
+        last[e["step_name"]] = e
+    return [{"node": name, "error": _error(e)} for name, e in last.items() if e.get("event_type") == "node_failed"]
+
+
+def retried_nodes(events, *, after=()) -> list:
+    """前の試みで落ち、後で済んだ（node_completed・node_skipped_prior_success）節 [{node, failures, error}]（試みの記録。
+    error は最後の誤りの文の 1 行目）。after は failed_nodes と同じ"""
+    fails, done = {}, set()
+    for e in _node_rows(events, after):
+        name, kind = e["step_name"], e["event_type"]
+        if kind == "node_failed":
+            fails.setdefault(name, []).append(_error(e))
+            done.discard(name)
+        elif kind in ("node_completed", "node_skipped_prior_success") and name in fails:
+            done.add(name)
+    return [{"node": name, "failures": len(errs), "error": (errs[-1].strip().splitlines() or [""])[0]}
+            for name, errs in fails.items() if name in done]
 
 
 def node_path(include: str, loop: str, node: str) -> str:

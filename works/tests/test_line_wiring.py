@@ -170,6 +170,27 @@ class ReportAfterFailureCase(unittest.TestCase):
                     self.assertIn("if_skipped", v)
                     self.assertIsNone(v["if_skipped"])
 
+    def test_after_report_matches_line(self):
+        """報告の節の AFTER_REPORT（report より下流の節の写し）が darkfactory.yaml の depends_on から引いた report の子孫と同じ
+        （写しがずれると、その節の前の試みの失敗を今の失敗に数え直す。run 43・54 の形）"""
+        import importlib.util
+        import sys
+        deps = {n["id"]: set(n.get("depends_on") or ()) for n in line()["nodes"]}
+        after, grew = set(), True
+        while grew:
+            more = {i for i, d in deps.items() if d & (after | {"report"})} - after
+            after |= more
+            grew = bool(more)
+        spec = importlib.util.spec_from_file_location("_report_script_wiring", LINE / "scripts" / "report.py")
+        mod = importlib.util.module_from_spec(spec)
+        dont = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True  # exec_module は中身を動かす前に .pyc を書く（pack の中に __pycache__ を作らない）
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            sys.dont_write_bytecode = dont
+        self.assertEqual(set(mod.AFTER_REPORT), after)
+
 
 if __name__ == "__main__":
     unittest.main()

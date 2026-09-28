@@ -16,7 +16,9 @@
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（Archon の出来事を読む run。空なら start の控えの run_id）
 途中で終わった run（上流の節が落ちても報告の節は all_done で走る）: Archon の出来事で最後の状態が落ちた節か、出口の印の欠け
 （h-eyes の出口が無い・h-eyes が目を回すと言ったのに blk-eyes の出口が無い）が在れば、結末 interrupted の報告を組み、冒頭 3 に
-落ちた節を出す（出来事だけに頼らない: 出来事が取れない run でも出口の印で分かる）
+落ちた節を出す（出来事だけに頼らない: 出来事が取れない run でも出口の印で分かる）。report より下流の節（AFTER_REPORT）の
+失敗は前の試みの物なので数えない。resume で前の試みで落ちた節が後で済んだ run は途中で終わった run でなく、その節を冒頭 3 に
+試みの記録として出す
 出口:
 - report.build の結果を 1 行の JSON で出して 0（record_invalid・止めた run・途中で終わった run も 0。結末で知らせる）
 - 盤面が開けない（BoardGap・写しの Reject）: 標準エラーに理由を 1 行出して 1。標準出力には何も出さない
@@ -36,6 +38,9 @@ import script_io  # noqa: E402
 INPUTS = ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI", "INPUTS_EYES", "INPUTS_EYEING")
 NULL = "null"   # 飛ばされた節の出力（if_skipped: null）が届く字
 RUN_ID_ENV = "WORKFLOW_ID"
+# darkfactory.yaml で report に依る節（reporting: [report]・result: [report, reporting]）。この節が走る時には今の試みで
+# まだ走れないので、出来事の上の最後の状態は前の試み（resume の前）の物
+AFTER_REPORT = ("reporting", "result")
 
 
 class Broken(Exception):
@@ -90,9 +95,10 @@ def main() -> int:
         if not (board / "state.json").is_file():
             raise BoardGap(f"盤面 {board} が無い（start の前に落ちた run か、works の run でない）")
         events = reads.events_for(run_id)
-        failed = reads.failed_nodes(events) or unreached(eyes, eyeing)
+        failed = reads.failed_nodes(events, after=AFTER_REPORT) or unreached(eyes, eyeing)
         out = report.build(board.resolve(), judged=judged, tests=tests, start=start, mid=mid, ci=ci, run_id=run_id,
-                           events=events, interrupted="" if failed else None, failed=failed, eyeing=eyeing)
+                           events=events, interrupted="" if failed else None, failed=failed,
+                           retried=reads.retried_nodes(events, after=AFTER_REPORT), eyeing=eyeing)
     except (BoardGap, Reject) as e:
         print(f"報告を組めない（{type(e).__name__}）: {_line(e)}", file=sys.stderr)
         return 1

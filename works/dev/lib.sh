@@ -169,7 +169,8 @@ else:
   esac
 }
 
-# works_dev_go <archon を呼ぶ殻> <対象の dir>: 承認・答え・続きの行の頭（後ろに approve <id> などを足せば打てる）。
+# works_dev_go <archon を呼ぶ殻> <対象の dir> [<前置きの後ろのコマンド>]: 承認・答え・続きの行の頭（後ろに approve <id> などを
+# 足せば打てる）。3 つめ（字句で組んだ 1 行）を渡せば、sh <archon を呼ぶ殻> workflow の代わりに同じ前置きでそれを打つ行にする。
 # 承認・続きも AI の節を回すので認証が要る。変数の代入はその単純コマンドにだけ掛かるので、cd の後・sh の直前に置く。
 # 呼び手が WORKS_KEYCHAIN_ITEM で回したなら項目名（秘密ではない）を載せ、そのまま打てば通るようにする。
 # トークン（CLAUDE_CODE_OAUTH_TOKEN）だけで回したなら値は出さない（show が export した殻で打つよう 1 行で案内する）。
@@ -178,7 +179,7 @@ else:
 # 呼び手が WORKS_ANSWER_CMD を export していれば行に載せる（承認・続きはその場で残りの工程を回し、関所の文の答えの行をこれで組む）。
 # WORKS_ANSWER_WHO（答えた者の穴。use.sh が置く）も在れば一緒に載せる
 works_dev_go() {
-  ARCHON_SH="$1" DIR="$2" python3 -c '
+  ARCHON_SH="$1" DIR="$2" TAIL="${3:-}" python3 -c '
 import os, shlex
 item = os.environ.get("WORKS_KEYCHAIN_ITEM", "")
 auth = "WORKS_KEYCHAIN_ITEM={} ".format(shlex.quote(item)) if item else ""
@@ -187,10 +188,10 @@ answer = os.environ.get("WORKS_ANSWER_CMD", "")
 answer = "WORKS_ANSWER_CMD={} ".format(shlex.quote(answer)) if answer else ""
 who = os.environ.get("WORKS_ANSWER_WHO", "")
 answer += "WORKS_ANSWER_WHO={} ".format(shlex.quote(who)) if answer and who else ""
-print("cd {} && {}WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}{}sh {} workflow".format(
+print("cd {} && {}WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}{}{}".format(
     shlex.quote(os.environ["DIR"]), auth, shlex.quote(os.environ["WORKS_DEV_HOME"]),
     shlex.quote(os.environ["WORKS_DEV_MODEL"]), shlex.quote(os.environ["CLAUDE_BIN_PATH"]),
-    adapter, answer, shlex.quote(os.environ["ARCHON_SH"])))
+    adapter, answer, os.environ["TAIL"] or "sh {} workflow".format(shlex.quote(os.environ["ARCHON_SH"]))))
 '
 }
 
@@ -269,8 +270,12 @@ works_dev_show_started() {
 # 拒否・続き）・報告の置き場（盤面の report.md。report の節まで済んだ後に在る）を出す。
 # 4 つめを渡せば、run の worktree の git diff --binary <周の頭の版>（未追跡も入れる。P1 Task 29）を <差分の置き場>（既定は
 # <対象の dir の親>）/run-<id>.diff に書き、取り込むと消えるファイルを 1 本ずつ名指しし、git apply で取り込むコマンドも出し、対象に pack の写し（.archon/workflows/works）が在って
-# 修正がその .archon/ に触れていれば取り込まないよう 1 行で注意する。
+# 修正がその .archon/ に触れていれば取り込まないよう 1 行で注意する。差分が空（起動の直後の関所など）なら書かず、前に書いた
+# 同じ名のファイルを消し、取り込むコマンドも出さない（0 バイトの差分は「修正なし」に見え、取り込みを誤る）。
 # 承認・拒否・続きのコマンドは、呼び手の WORKS_KEYCHAIN_ITEM を sh の直前に載せ、export の無い殻でもそのまま打てる形で出す。
+# 呼び手が WORKS_DEV_SHOW_CMD（この関数を同じ対象で呼び直す殻の口。字句で組んだ 1 行で、後ろに run id を足して打つ）を export
+# すれば、承認・関所の答え・続きの行の後ろに同じ前置きでそれを付け、Archon が戻った後に差分を書き直す（行の終了は続きが落ちれば
+# その値、続きが通れば書き直しの値）。その口だけを打つ行も出す。
 # 修正は対象ではなく、Archon が run ごとに切った worktree の中にある。関所の文面の「テストのログ」の行が、テストの出力のファイル。
 # 状態の下に launched_min（起こしてからの分）を出し、走っている run は Archon の workflow get の出来事を 1 回引いて、
 # 走っている節・alive（最後の動きから 30 分以内か）・試験の枠を待っているか（盤面の testslot.json）・節ごとの費用 cost_usd
@@ -278,12 +283,15 @@ works_dev_show_started() {
 # WORKS_DEV_HOME・WORKS_DEV_MODEL・CLAUDE_BIN_PATH を export 済みで、DEV_DIR（works/dev）を置いた殻から呼ぶ。
 works_dev_show_run() {
   _go="$(works_dev_go "$2" "$3")"
+  _redo=""
+  [ -n "${WORKS_DEV_SHOW_CMD:-}" ] && _redo="$(works_dev_go "$2" "$3" "$WORKS_DEV_SHOW_CMD")"
   _row="${WORKS_RUN_ROW:-}"
   if [ -z "$_row" ]; then
     _row="$(works_dev_run_json "$1" "$2" "$3" "${WORKS_RUN_ID:-}")" || return $?
   fi
+  # shellcheck disable=SC2016  # python の中の $? は、出す続きの行が打たれる殻で展開する字
   printf '%s\n' "$_row" |
-    CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" DIFF_DIR="${5:-}" GO="$_go" \
+    CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" DIFF_DIR="${5:-}" GO="$_go" REDO="$_redo" \
     CORE_DIR="${DEV_DIR:-}/../.shared/core" SLOT_PY="$WORKS_DEV_SLOT_PY" PYTHONDONTWRITEBYTECODE=1 python3 -c '
 import json, os, shlex, subprocess, sys
 exec(os.environ["SLOT_PY"])
@@ -369,7 +377,12 @@ elif not item:
     print("認証: 下の 3 つは CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つ（値は出さない。keychain なら WORKS_KEYCHAIN_ITEM=<項目名> を sh の直前に足す）")
 # 承認・答えはその場で続きを回す。use.sh からなら、決まった時間で戻って状態を返す wait の行も出す（承認・答えを裏で打った後、
 # これを打ち直して見る）
-print("進める（承認するとその場で続きを回す）:", go, "approve", r.get("id"))
+redo = os.environ["REDO"]
+def then(*words):
+    # 続きの後に差分を書き直す。続きの終了の値は隠さない（落ちればその値、通れば書き直しの値）。exit は子の殻で打つ
+    line = " ".join([go, *words])
+    return line + "; works_rc=$?; {} {}; (exit $((works_rc ? works_rc : $?)))".format(redo, r.get("id")) if redo else line
+print("進める（承認するとその場で続きを回す）:", then("approve", r.get("id")))
 if os.environ.get("WORKS_USE_SH"):
     print("殻で進める（切り離して承認し、すぐ戻る）:", "sh {} approve {} {}".format(
         shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id")))
@@ -378,10 +391,12 @@ if os.environ.get("WORKS_USE_SH"):
 print("取り消す（走っている run を Archon の cancel で止める。報告は report.sh で組む）:", go, "cancel", r.get("id"))
 # use.sh からなら、関所の答えと止めるのは殻の answer・stop だけを出す（生の respond・reject は答えた者の記録と run の控えを通らない）
 if not os.environ.get("WORKS_USE_SH"):
-    print("関所に一言で答えて進める:", go, "respond", r.get("id"), "continue", shlex.quote("<通す範囲と条件>"))
-    print("関所で止める（報告は出る）:", go, "respond", r.get("id"), "stop", shlex.quote("<理由>"))
+    print("関所に一言で答えて進める:", then("respond", r.get("id"), "continue", shlex.quote("<通す範囲と条件>")))
+    print("関所で止める（報告は出る）:", then("respond", r.get("id"), "stop", shlex.quote("<理由>")))
     print("止める:", go, "reject", r.get("id"))
-print("失敗や中断から続ける:", go, "resume", r.get("id"))
+print("失敗や中断から続ける:", then("resume", r.get("id")))
+if redo:
+    print("差分だけを書き直す（Archon の生のコマンドで続けた後）:", redo, r.get("id"))
 if os.environ.get("WORKS_USE_SH"):
     use = "sh {} {{}} {} {}".format(shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id"))
     print("関所に殻で答える（人が決める関所は依頼者に聞き、答えた者を残す）:", use.format("answer"), "continue",
@@ -403,6 +418,7 @@ if os.environ["BRING_BACK"]:
     diff_dir = os.environ["DIFF_DIR"] or os.path.dirname(os.path.abspath(os.environ["DIR"]))
     os.makedirs(diff_dir, exist_ok=True)
     diff = os.path.join(diff_dir, "run-{}.diff".format(r.get("id")))
+    empty = False
     if os.path.isdir(wp):
         base = base or subprocess.run(["git", "-C", wp, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         with tempfile.TemporaryDirectory() as td:
@@ -412,9 +428,15 @@ if os.environ["BRING_BACK"]:
             got = subprocess.run(["git", "-C", wp, "diff", "--cached", "--binary", base], env=env, capture_output=True)
             gone = subprocess.run(["git", "-C", wp, "diff", "--cached", "--diff-filter=D", "--name-only", "-z", base],
                                   env=env, capture_output=True, text=True).stdout.split("\0")
-        with open(diff, "wb") as f:
-            f.write(got.stdout)
-        print("修正の差分（run の worktree と周の頭の版 {} の差。未追跡も入れる）: {}".format(base[:12], diff))
+        empty = not got.stdout
+        if empty:
+            if os.path.isfile(diff):
+                os.remove(diff)
+            print("修正の差分: まだ無い（run の worktree と周の頭の版 {} の差が空。書く先: {}）".format(base[:12], diff))
+        else:
+            with open(diff, "wb") as f:
+                f.write(got.stdout)
+            print("修正の差分（run の worktree と周の頭の版 {} の差。未追跡も入れる）: {}".format(base[:12], diff))
         wrapped = os.path.join(os.environ.get("WORKS_WRAPS_DIR", ""), base + ".txt")
         if os.environ.get("WORKS_WRAPS_DIR") and base and os.path.isfile(wrapped):
             with open(wrapped, encoding="utf-8") as f:
@@ -424,7 +446,8 @@ if os.environ["BRING_BACK"]:
             print("取り込むと消えるファイル:", p)
     else:
         print("修正の差分: run の worktree（{}）が無いので書いていない".format(wp))
-    print("差分を元のリポジトリへ取り込む:", "git -C {} apply {}".format(shlex.quote(os.environ["BRING_BACK"]), shlex.quote(diff)))
+    if not empty:
+        print("差分を元のリポジトリへ取り込む:", "git -C {} apply {}".format(shlex.quote(os.environ["BRING_BACK"]), shlex.quote(diff)))
     if os.environ.get("WORKS_USE_SH"):
         use = "sh {} {{}} {} {}".format(shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id"))
         print("殻で取り込む（当たるかを先に見る・消す行は止まる）:", use.format("apply"))
