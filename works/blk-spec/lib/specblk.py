@@ -50,7 +50,7 @@ from board import BoardGap  # noqa: E402  （board が写しの engine を sys.p
 import engine.util as _util  # noqa: E402
 from engine.util import AnswerReject, Reject, now, safe_name  # noqa: E402
 from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
-import answer  # noqa: E402
+import answer as answer_cmd  # noqa: E402  （下の口 def answer と名前がぶつかるので別名）
 import entry  # noqa: E402
 import halt  # noqa: E402  （止め札の seen だけ。境の節の中身はラインの模块）
 import node_marker  # noqa: E402
@@ -251,8 +251,8 @@ def gate_text(asking: dict, *, run_id: str = RUN_ID_HOLE) -> str:
     lines += [str(asking.get("question") or "（問いの文が無い）"), "", f"項目（{len(items)} 件）:"]
     lines += [f"- {x}" for x in items] or ["- （無し）"]
     lines += ["", "答え方（人が決める関所。依頼者に聞いて、その言葉で答える）:",
-              f"- 通す: {answer.line(rid, 'continue', '<通す範囲と条件>')}（一言は記録の process.spec.approval に残る）",
-              f"- 止める: {answer.line(rid, 'stop', '<理由>')}（報告は出る）"]
+              f"- 通す: {answer_cmd.line(rid, 'continue', '<通す範囲と条件>')}（一言は記録の process.spec.approval に残る）",
+              f"- 止める: {answer_cmd.line(rid, 'stop', '<理由>')}（報告は出る）"]
     return "\n".join(lines) + "\n"
 
 

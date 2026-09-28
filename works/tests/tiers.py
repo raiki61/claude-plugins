@@ -51,6 +51,7 @@ FAST = frozenset({
     "test_protect",         # 守りのファイルの一覧: git ls-files を読む・種の git は gitkit の型の写し
     "test_tdd_frozen",      # TDD の輪の凍結と裁定の範囲: 種の git は gitkit の型の写し・凍った時の木（write-tree）を git show で読む（盤面・子の実行器なし）
     "test_report_head",     # 報告の冒頭 3 の interrupted の行: 偽の盤面で head_stop を直に呼ぶ（盤面・git・子のプロセスなし）
+    "test_blk_spec_gate",   # 仕様の関所の文: gate_text を直に呼ぶ（盤面・git・子のプロセスなし）
 })
 
 HEAVY = frozenset({

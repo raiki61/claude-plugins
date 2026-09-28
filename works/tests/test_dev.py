@@ -37,6 +37,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -879,7 +880,12 @@ class TestDevShell(unittest.TestCase):
             for verb, found in lines.items():
                 with self.subTest(verb):
                     self.assertEqual(len(found), 1, result.stdout)
-                    self.assertRegex(found[0], r"&& WORKS_KEYCHAIN_ITEM='item for test' [^&]* sh ")
+                    # 行は lib.sh の works_dev_go が shlex.quote で組むので、同じ字句の規則で読む（値の中の && は 1 語）
+                    words = shlex.split(found[0].split(": ", 1)[1])
+                    self.assertEqual((words[0], words[2], words[3]), ("cd", "&&", "WORKS_KEYCHAIN_ITEM=item for test"))
+                    self.assertIn("sh", words, found[0])
+                    for word in words[3:words.index("sh")]:
+                        self.assertRegex(word, r"^[A-Z_][A-Z0-9_]*=", found[0])
             self.assertNotIn("export", result.stdout)
             # 出た行を、認証の変数の無い殻で打つ。偽の Archon は届いた項目名と cwd を書く
             (tmp / "fake-archon.sh").write_text(

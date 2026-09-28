@@ -458,7 +458,9 @@ class UseShell(unittest.TestCase):
         (t / "stats.py").write_text((t / "stats.py").read_text() + "# 前の差分を当てた後（清さは求めない）\n")
         r = self.use("show", str(t), CLAUDE_CODE_OAUTH_TOKEN=None)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.calls(), [[str(t), "1", str(self.home), "workflow", "runs", "--json"]])
+        # 問い合わせは 2 本: use.sh の show が控えを引く run_row と、lib.sh の works_dev_show_run。どちらも認証なし
+        query = [str(t), "1", str(self.home), "workflow", "runs", "--json"]
+        self.assertEqual(self.calls(), [query, query])
         diff = self.home / "diffs" / "run-run-1.diff"
         self.assertIn("+# 直した", diff.read_text())
         self.assertIn(f"git -C {t} apply {diff}", r.stdout)
