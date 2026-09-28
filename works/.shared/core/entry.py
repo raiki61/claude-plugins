@@ -4,7 +4,7 @@
 - open_board(dir):    盤面の state.works.line から表を引き、表の sha が state.works.table_sha と合わなければ BoardMismatch。
                       open_kwargs(line, table)（board_hook.py の返りと核の差し替え）を DiskBoard.open に渡す
 - hook_kwargs(line):  board_hook.py の読み込みだけ（無ければ {}）
-- open_kwargs(line):  hook_kwargs に線 A の核の差し替え CORE_OVERRIDES（読んだ記録の置き場）を重ねた物。open_board と start が
+- open_kwargs(line):  hook_kwargs に線 A の核の差し替え CORE_OVERRIDES（読んだ記録の置き場・直す義務・関所の項目の決め手）を重ねた物。open_board と start が
                       同じ物を DiskBoard.open・begin に渡す（開くたびに同じ overrides。BL-R3）
 - check_inputs(raw, repo): ラインの入力を確かめる（線 A の仕様 4 節）。拒めば InputRefused（人に向けた 1 行）
 - local_checks_material(repo, test_cmd, log_path): 任せ先に落ちた CI の節（p0.local_checks・p4.ci）に渡す素材を組む公開の口
@@ -43,6 +43,7 @@ from engine.commands import _refuse_halted  # noqa: E402  （board.py と同じ�
 from engine.util import AnswerReject, Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
 import conflict  # noqa: E402
+import gatemarks  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
 import ticket  # noqa: E402
@@ -121,6 +122,9 @@ CORE_OVERRIDES = {
     "_owed_units": (conflict.owed_units_but_asked,
                     "食い違いの申し出を裁定役か機械が ask_human に裁いた単位は、直す義務から外す（最後の人の関所で人が決める。"
                     "conflict.py）"),
+    "_plan_gate_items": (gatemarks.plan_gate_items,
+                         "決め手の出どころが在り undecided_because が空で柵の印の無い狭め・穴は、修正前の関所で人に聞かずに通し、"
+                         "state.works.gate_passes に残す（持ち主 2026-09-28。gatemarks.py）"),
 }
 
 

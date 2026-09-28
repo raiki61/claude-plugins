@@ -204,16 +204,16 @@ class EdgeBase(unittest.TestCase):
 
 class GateCase(EdgeBase):
     def test_gate_asks_with_text(self):
-        """plan_review_regression を受けた盤面 → ask True、gate_text に項目と respond の 1 行、b.work("gate.md") に同じ文"""
+        """plan_review_regression を受けた盤面 → ask True、gate_text に項目と答えの行（answer.line）、b.work("gate.md") に同じ文"""
         self.assertTrue(self.planned()["asking"])
         got = self.edge("gate")
         self.assertEqual(set(got), OUT_KEYS)
         self.assertEqual((got["ok"], got["stop"], got["ask"]), (True, False, True))
         text = got["gate_text"]
         self.assertIn(f"事前審査の穴 [regression] {FACE}", text)
-        self.assertIn(f'archon workflow respond {RUN_ID} continue "<通す範囲と条件>"', text)
-        self.assertIn(f'archon workflow respond {RUN_ID} stop "<理由>"', text)
-        self.assertIn(f"archon workflow reject {RUN_ID} --reason", text)
+        self.assertIn(line_edge.answer.line(RUN_ID, "continue", "<通す範囲と条件>"), text)
+        self.assertIn(line_edge.answer.line(RUN_ID, "stop", "<理由>"), text)
+        self.assertNotIn("archon workflow", text)   # PATH に無い archon を直に打つ行は書かない
         b = entry.open_board(self.board)
         self.assertEqual(b.work(line_edge.GATE_FILE).read_text(encoding="utf-8"), text)
         self.assertEqual(text, plan.gate_text(b.state["pending_human"], run_id=RUN_ID))
@@ -228,8 +228,17 @@ class GateCase(EdgeBase):
         self.assertFalse(entry.open_board(self.board).work(line_edge.GATE_FILE).exists())
 
     def test_gate_text_without_run_id(self):
-        text = plan.gate_text({"node": "p2.human_gate", "kinds": ["policy"], "question": "問い", "items": ["一"]})
-        self.assertIn('archon workflow respond <id> continue', text)
+        asking = {"node": "p2.human_gate", "kinds": ["policy"], "question": "問い", "items": ["一"]}
+        with mock.patch.dict(os.environ, {"WORKS_ANSWER_CMD": ""}):
+            text = plan.gate_text(asking)   # 殻の外で回した run: 打つ前に置き換える穴で書く
+        self.assertIn(f'{line_edge.answer.HOLE} <id> continue "<通す範囲と条件>"', text)
+        self.assertIn(f'{line_edge.answer.HOLE} <id> stop "<理由>"', text)
+        self.assertNotIn("archon workflow", text)
+        with mock.patch.dict(os.environ, {"WORKS_ANSWER_CMD": "sh /plug/dev/use.sh answer /repo"}):
+            text = plan.gate_text(asking, run_id=RUN_ID)   # 起動の殻が置いた頭で、そのまま打てる行
+        self.assertIn(f'sh /plug/dev/use.sh answer /repo {RUN_ID} continue "<通す範囲と条件>"', text)
+        self.assertIn(f'sh /plug/dev/use.sh answer /repo {RUN_ID} stop "<理由>"', text)
+        self.assertNotIn("archon workflow", text)
         self.assertIn("- 一", text)
         with self.assertRaises(TypeError):
             plan.gate_text("問い")
@@ -341,8 +350,9 @@ class FinalGateCase(EdgeBase):
         self.assertEqual((got["ask"], got["stop"], got["go"]), (True, False, False), got)
         text = got["gate_text"]
         for want in ("テストは緑", tests["log"], str(self.repo), "差分の審査の穴: 0 件", "止めずに残った異議: 無い",
-                     f"archon workflow respond {RUN_ID} continue", f"archon workflow respond {RUN_ID} stop"):
+                     line_edge.answer.line(RUN_ID, "continue", "<一言>"), line_edge.answer.line(RUN_ID, "stop", "<理由>")):
             self.assertIn(want, text)
+        self.assertNotIn("archon workflow", text)
         b = entry.open_board(self.board, allow_halted=True)
         self.assertEqual(b.work(line_edge.FINAL_GATE_FILE).read_text(encoding="utf-8"), text)
         self.assertEqual(got["gate_file"], str(b.work(line_edge.FINAL_GATE_FILE)))
@@ -1183,7 +1193,7 @@ class FinalGateEyesCase(EdgeBase):
         self.assertIn("独立の目の判定（阻害: 無い）", text)
         for name in ("R1", "R2", "R3", "R4"):
             self.assertIn(f"  - {name}: ", text)
-        self.assertIn(f'報告へ進める: archon workflow respond {RUN_ID} continue', text)
+        self.assertIn(f'報告へ進める: {line_edge.answer.line(RUN_ID, "continue", "<一言>")}', text)
 
     def test_when_needed_opens_on_eye_block(self):
         """when_needed・緑・問い無し・異議無しでも、目が阻害（redesign-needed）を返していれば開き、文に阻害の R"""

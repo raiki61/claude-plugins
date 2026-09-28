@@ -3460,10 +3460,14 @@ EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_", "INPUTS_")
 EXTERNAL_NAMES = {"SHA", "PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE",
                   # Archon が節と子に渡す環境変数・Archon の設定の環境変数・Context7 の鍵
                   "ARTIFACTS_DIR", "WORKFLOW_ID", "CLAUDE_BIN_PATH", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
-                  # works が os.environ から読む環境変数（WORKS_ で始まる shell の定数が在るので接頭辞では外さない）
+                  # works の python が os.environ から・shell の殻が環境から読む環境変数（WORKS_ で始まる shell の
+                  # 定数が在るので接頭辞では外さない）
                   "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_GH", "WORKS_GOLDEN_OUT",
                   "WORKS_KEYCHAIN_ITEM", "WORKS_REAL_CLAUDE", "WORKS_TDD_TIER",
-                  "WORKS_TESTSLOT",
+                  "WORKS_TESTSLOT", "WORKS_USE_GATES", "WORKS_USE_POLICY_MD", "WORKS_USE_THICKNESS",
+                  "WORKS_USE_WAIT_SECONDS",
+                  # 外の道具（mise）の設定の環境変数
+                  "MISE_TRUSTED_CONFIG_PATHS",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
                   "COPIED_FROM", "VERSION", "STOP"}
 # INPUTS_ は Archon の節の `with:` が script に渡す環境変数。works の各 script は読む名前を定数 INPUTS の

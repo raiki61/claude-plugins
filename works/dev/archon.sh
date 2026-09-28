@@ -44,24 +44,54 @@ case "${WORKS_DEV_ADAPTER:-}" in
     ;;
 esac
 
-# 認証に既定の口座は無い（Ruling R20）。順は
+# 認証は本線 claude_auth.py の順で、利用者自身の物だけを拾う（どこかの口座で黙って回さない。R20 には拾った出どころの名を
+# 1 行に出して応える。値は出さない）:
 #   1. CLAUDE_CODE_OAUTH_TOKEN があればそれを使う。
-#   2. 無ければ WORKS_KEYCHAIN_ITEM の名の keychain の項目を読む。
-#   3. どちらも無ければ、1 行の案内を出して止まる。
+#   2. 無ければ WORKS_KEYCHAIN_ITEM の名の keychain の項目を読む（名を指したのに空なら止まる）。
+#   3. 無ければ macOS で Claude Code 自身が keychain に置いた項目（guard.sh works_dev_claude_keychain_services）の accessToken。
+#   4. どれも無ければ、1 行の案内を出して止まる（本線の段 3「子自身の保存済み認証」は、隔離した CLAUDE_CONFIG_DIR が空なので無い）。
 # WORKS_DEV_NO_AUTH=1 のときは読まない（テストや validate など、認証が要らないとき用）。
 # keychain は HOME を隔離する前に読む（macOS の security はログイン keychain を
 # $HOME 基準で探すので、後で読むと隔離した偽の HOME の下を探して必ず失敗する）。
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
-  NO_AUTH_HOWTO="archon.sh: 認証が無い。CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する"
-  if [ -z "${WORKS_KEYCHAIN_ITEM:-}" ]; then
-    echo "${NO_AUTH_HOWTO}" >&2
-    exit 2
-  fi
-  CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "$WORKS_KEYCHAIN_ITEM" -w)"
-  # 項目が空の値を返したら、空のトークンを渡さずに止まる（項目名は出すが、値は出さない）
-  if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    echo "${NO_AUTH_HOWTO}（keychain の項目 ${WORKS_KEYCHAIN_ITEM} が空）" >&2
-    exit 2
+  NO_AUTH_HOWTO="archon.sh: 認証が無い。claude にログインするか、CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する"
+  if [ -n "${WORKS_KEYCHAIN_ITEM:-}" ]; then
+    CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "$WORKS_KEYCHAIN_ITEM" -w)"
+    # 項目が空の値を返したら、空のトークンを渡さずに止まる（項目名は出すが、値は出さない）
+    if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+      echo "${NO_AUTH_HOWTO}（keychain の項目 ${WORKS_KEYCHAIN_ITEM} が空）" >&2
+      exit 2
+    fi
+  else
+    CLAUDE_CODE_OAUTH_TOKEN=""
+    if [ "$(uname -s)" = Darwin ]; then
+      _services="$(works_dev_claude_keychain_services)"
+      _ifs=$IFS
+      IFS='
+'
+      for _svc in $_services; do
+        # 値は Claude Code の JSON（claudeAiOauth.accessToken）か、トークンそのもの。sk-ant-oat01- で始まらない物は渡さない
+        CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "$_svc" -w 2>/dev/null | python3 -c '
+import json, sys
+raw = sys.stdin.read().strip()
+try:
+    tok = ((json.loads(raw) or {}).get("claudeAiOauth") or {}).get("accessToken") or ""
+except (ValueError, AttributeError):
+    tok = raw
+if isinstance(tok, str) and tok.startswith("sk-ant-oat01-"):
+    print(tok)
+' || true)"
+        if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+          echo "archon.sh: 認証は Claude Code の keychain の項目 ${_svc} から拾った（値は出さない）" >&2
+          break
+        fi
+      done
+      IFS=$_ifs
+    fi
+    if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+      echo "${NO_AUTH_HOWTO}（Claude Code の keychain の項目 $(works_dev_claude_keychain_services | tr '\n' ' ')にも無い）" >&2
+      exit 2
+    fi
   fi
   export CLAUDE_CODE_OAUTH_TOKEN
 fi
@@ -92,6 +122,16 @@ chmod +x "$BIN_PATH"
 # 打って隔離の置き場そのものになっていれば、toolset.py が名指しで止める
 USER_CLAUDE_CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
+# mise の信頼はパスに結び付き（利用者の家の信頼の控え）、run の worktree は隔離した家の下の新しいパスなので、対象の根で信頼した
+# 設定も run の中のテストでは信頼されず、道具の失敗が偽の赤になる。対象（cwd）の根を利用者の mise が信頼済みの時だけ、それを隔離の
+# 前に読み（mise trust --show の `<dir>: trusted` の行）、下で run の worktree の置き場を mise の公式の設定 MISE_TRUSTED_CONFIG_PATHS
+# に足す。AI の節（とその中の最後のテスト）を回す認証の道だけ
+MISE_TRUST_RUNS=""
+if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ] && command -v mise >/dev/null 2>&1 &&
+  mise trust --show </dev/null 2>/dev/null | grep -Fqx "$(pwd -P): trusted"; then
+  MISE_TRUST_RUNS=1
+fi
+
 # HOME・ARCHON_HOME・Claude の設定・XDG_* を全部 WORKS_DEV_HOME の下へ隔離する
 # （keychain はもう読み終えている）。
 HOME="$WORKS_DEV_HOME/home"
@@ -107,6 +147,14 @@ mkdir -p "$HOME" "$ARCHON_HOME" "$CLAUDE_CONFIG_DIR" \
 
 export HOME ARCHON_HOME CLAUDE_CONFIG_DIR
 export XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
+
+# Archon は run の worktree を $ARCHON_HOME/workspaces の下に切る。mise はこのパスの下の設定を問わずに信頼するので、足すのは
+# 利用者が対象の根を信頼した時だけ（前の値は残す。実体のパスで渡す）
+if [ -n "$MISE_TRUST_RUNS" ]; then
+  mkdir -p "$ARCHON_HOME/workspaces"
+  MISE_TRUSTED_CONFIG_PATHS="${MISE_TRUSTED_CONFIG_PATHS:+$MISE_TRUSTED_CONFIG_PATHS:}$(works_dev_real "$ARCHON_HOME/workspaces")"
+  export MISE_TRUSTED_CONFIG_PATHS
+fi
 
 # 認証を使う（AI を呼びうる）実行は毎回、隔離した Archon の全体設定に既定の模型を書き、run の題を作る
 # 模型も同じにする（TITLE_GENERATION_MODEL。設定済みならそのまま）。書かないと Claude CLI の既定の模型で

@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
 
 import linekit  # noqa: E402
+import answer as core_answer  # noqa: E402
 import entry  # noqa: E402
 import halt  # noqa: E402
 import node_marker  # noqa: E402
@@ -343,7 +344,8 @@ class ScriptCase(unittest.TestCase):
         return entry.open_board(self.board, allow_halted=True)
 
     def run_script(self, name, **inputs):
-        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
+        # 答えの行の頭（起動の殻が置く）も外から継がない: 殻の中でも外でも頭の無い単独の run として回す
+        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != core_answer.ENV}
         env.update({"ARTIFACTS_DIR": str(self.art), "PYTHONDONTWRITEBYTECODE": "1", "WORKFLOW_ID": "run-spec"})
         env.update({f"INPUTS_{k.upper()}": v for k, v in inputs.items()})
         r = subprocess.run([sys.executable, str(self.pack / "blk-spec" / "scripts" / f"{name}.py")], cwd=str(self.repo),
@@ -423,8 +425,11 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(b.state["pending_human"]["node"], "spec.approve")
         self.assertNotIn("spec", b.record["process"])
         ask, got = self.gate("approve", "受け入れ条件 A1 で進めてよい")
-        for part in (ACCEPT_RUN, "spec.approve", "F1", "declared", "respond run-spec continue"):
+        for part in (ACCEPT_RUN, "spec.approve", "F1", "declared",
+                     core_answer.line("run-spec", "continue", "<通す範囲と条件>", env={}),
+                     core_answer.line("run-spec", "stop", "<理由>", env={})):
             self.assertIn(part, ask["gate_text"])
+        self.assertNotIn("archon workflow", ask["gate_text"])   # PATH に無い archon を直に打つ行は書かない
         self.assertIn("process.spec.approval", ask["gate_text"], "仕様の承認の一言の行き先")
         self.assertNotIn("human_items", ask["gate_text"])
         self.assertTrue(pathlib.Path(self.board / "r1" / lib().GATE_FILE).is_file())

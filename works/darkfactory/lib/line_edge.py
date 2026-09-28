@@ -34,8 +34,10 @@ from board import BoardGap  # noqa: E402
 from engine.rules import validator_module  # noqa: E402  （board が写しの engine を sys.path に足した後）
 from engine.util import Reject  # noqa: E402
 import accept  # noqa: E402
+import answer  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
+import gatemarks  # noqa: E402
 import halt  # noqa: E402
 import plan  # noqa: E402
 import premises  # noqa: E402
@@ -335,6 +337,10 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     lines.append(f"- 手直し（p3.delta_fix・{len(handled)} 件）:")
     lines += [f"  - {h.get('key')}: {h.get('handled')}（{h.get('how')}）" for h in handled if isinstance(h, dict)] or ["  - （無い）"]
     lines.append(f"- 止めずに残った異議: {objection or '無い'}")
+    passed = gatemarks.lines(b)
+    if passed:
+        lines.append(f"- 修正前の関所で決め手が在るので聞かずに通した項目（{len(passed)} 件）:")
+        lines += [f"  - {x}" for x in passed]
     rows, blocked = eyes
     lines.append(f"- 独立の目の判定（阻害: {'・'.join(blocked) or '無い'}）:")
     lines += rows
@@ -345,10 +351,9 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
         lines.append("  - この関所の答えは盤面の問いに答えない。問いは報告の冒頭と次の run の依頼の下書きへ渡る")
     else:
         lines.append("- 盤面の問い: 無い")
-    lines += ["", "答え方（approve は continue と、reject は stop と同じ）:",
-              f'- 報告へ進める: archon workflow respond {run_id} continue "<一言>"',
-              f'- 止める: archon workflow respond {run_id} stop "<理由>"'
-              f'（archon workflow reject {run_id} --reason "<理由>" でも止まる。報告は出る）']
+    lines += ["", "答え方（人が決める関所。依頼者に聞いて、その言葉で答える）:",
+              f"- 報告へ進める: {answer.line(run_id, 'continue', '<一言>')}",
+              f"- 止める: {answer.line(run_id, 'stop', '<理由>')}（報告は出る）"]
     return "\n".join(lines) + "\n"
 
 

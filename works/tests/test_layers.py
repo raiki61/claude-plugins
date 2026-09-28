@@ -45,6 +45,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # core の模块の層と持ち主（.shared/core からの相対。.py は除く）。表に無い core の模块は unassigned で赤
 MOD = {
     "tree_run": (1, None), "script_io": (1, None), "node_marker": (1, None), "versions": (1, None),
+    "answer": (1, None),      # 関所の文の答えの行（起動の殻が env に置いた頭で組む。works の物を何も知らない）
     "changemap": (1, None),   # attention の変更の地図の部品の写し（COPIED_FROM.changemap。works の物を何も知らない）
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "record-write": (2, None),   # 包みが足す書き込みの記録のフック（writes が読む記録を書く）
@@ -57,6 +58,7 @@ MOD = {
     "writes": (3, None),      # 書き込みの出どころの突き合わせ（blk-fix・blk-refix の受け付けと報告が使う）
     "querytest": (3, None),   # 判定・再審の class_query の問いを例（hits・misses）で試す（accept の役の型・blk-judge・rejudge・境の節が使う）
     "conflict": (3, None),    # 食い違いの申し出の控え・名指しの確かめ・写しの RL の _owed_units の差し替え（blk-fix と境の節と報告が使う）
+    "gatemarks": (3, None),   # 修正前の関所の項目の決め手・写しの RL の _plan_gate_items の差し替え（accept の役の型・blk-plan・境の節・報告が使う）
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
     "premises": (4, "blk-premises"),
 }

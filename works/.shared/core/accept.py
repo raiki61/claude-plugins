@@ -42,6 +42,7 @@ if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
 import engine.util as _util  # noqa: E402
+import gatemarks  # noqa: E402
 import querytest  # noqa: E402
 from engine.rules import load_rules, validator_module  # noqa: E402
 from engine.schema import expand_refs, validate_schema  # noqa: E402
@@ -140,6 +141,8 @@ def _role_schema_json(node, numbered):
     schema = _drop_plan_only_kinds(node, _strip_notes(expand_refs(graph)["nodes"][node]["schema"]))
     if node in querytest.NODES:
         schema = _strip_notes(querytest.with_examples(schema))
+    if node in gatemarks.NODES:
+        schema = _strip_notes(gatemarks.with_marks(node, schema))
     return json.dumps(schema, ensure_ascii=False)
 
 
@@ -148,7 +151,8 @@ def role_schema(node: str, numbered: bool = False) -> dict:
     numbered は番号を貼って控えを固める役（mark_launched(pointers=)。board が番号を名前に戻す）で、pointers の位置を
     engine の widen のまま番号か名前の型に開く。ほかは名前（文字列）の型のまま（_unpointed）。修正差分のレビューは
     事前審査だけの語を kind から落とす（_drop_plan_only_kinds）。判定・再審の節（querytest.NODES）は class_query に例の欄
-    （hits・misses）を足す（写しの型は持てない。受け付けが盤面へ渡す前に外す）"""
+    （hits・misses）を足す（写しの型は持てない。受け付けが盤面へ渡す前に外す）。修正案と事前審査の節（gatemarks.NODES）は
+    関所の項目の行に決め手の欄を足す（同じく受け付けが外して盤面の gate-marks.json に置く）"""
     return json.loads(_role_schema_json(node, numbered))
 
 

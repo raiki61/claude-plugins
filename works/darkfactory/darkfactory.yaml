@@ -54,12 +54,14 @@ returns: result
 outcome_field: ok
 
 nodes:
-  # 起動の関所。archon workflow approve <id> --detach で越えると、run が背景で続き、cancel で木ごと止められる（線 A 仕様 5.3）
+  # 起動の関所。越えると run が続き、cancel で木ごと止められる（線 A 仕様 5.3）。利用者の PATH に archon は無いので、文は run を
+  # 起こした殻が出す行を指す（Archon の approval の文は $WORKFLOW_ID しか置き換えないので、殻の行はここに組めない。殻ごとに家が違い、
+  # use.sh show は use.sh の家の run しか引けない）
   - id: launch
     approval:
       message: |
-        darkfactory を始める。背景で続けるなら archon workflow approve $WORKFLOW_ID --detach（取り消しは archon workflow cancel $WORKFLOW_ID）。
-        止めるなら archon workflow reject $WORKFLOW_ID --reason "<理由>"。
+        darkfactory を始める（run $WORKFLOW_ID）。進める・止める・取り消す行は、run を起こした殻（use.sh・dogfood.sh・real-run.sh）が起動の後に出した行を使う。
+        use.sh の run は use.sh show <対象リポジトリ> $WORKFLOW_ID で出し直し、進める行を背景で打って use.sh wait <対象リポジトリ> $WORKFLOW_ID で戻る。
 
   # 盤面を作り（DiskBoard.begin）、CI と並行 PR の engine の節を回す（entry.start）。入力を受けなければ 1 で止まる（AI の前）
   - id: start

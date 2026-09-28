@@ -34,6 +34,18 @@ works_dev_abs_claude_config() {
   esac
 }
 
+# works_dev_claude_keychain_services: Claude Code 自身が macOS の keychain に認証を置く項目の名の候補（先に試す物から 1 行ずつ）。
+# CLAUDE_CONFIG_DIR を設定した Claude Code は `Claude Code-credentials-<その値（NFC）の sha256 の頭 8 桁>` に置き、無ければ
+# `Claude Code-credentials`（本線 claude_auth.py の段 2 と同じく CLAUDE_CONFIG_DIR から導く。名の付け方は Claude Code の版で
+# 変わりうるので、どちらにも無ければ認証が無いと言って止まる）。値は archon.sh だけが読む
+works_dev_claude_keychain_services() {
+  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+    printf 'Claude Code-credentials-%s\n' "$(CFG="$CLAUDE_CONFIG_DIR" python3 -c 'import hashlib, os, unicodedata
+print(hashlib.sha256(unicodedata.normalize("NFC", os.environ["CFG"]).encode("utf-8")).hexdigest()[:8])')"
+  fi
+  echo "Claude Code-credentials"
+}
+
 # works_dev_refuse_claude_tmp <呼び手> <何か> <path>: path が Claude Code の一時フォルダの下に解けるなら、
 # 1 行の理由を出して終了コード 2 で止める
 works_dev_refuse_claude_tmp() {

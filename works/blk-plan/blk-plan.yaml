@@ -3,7 +3,8 @@ description: |
   修正案と事前審査のブロック（P1 計画 Task 25。〔線A計〕T11）。判定の後、修正役が直す前に、読むだけの 2 つの役を回す:
   修正案（写しの graph の p2.fix_plan）と、判定をした役とは別の目の事前審査（p2.plan_review）。指示書は本線（graphloops a1202d0）の
   p2.fix_plan.md・p2.plan_review.md そのものを engine と同じ描き方で描いた物（<役>-prep が盤面の今の周の prompt-<節>.md に書く。
-  P1-R10）。人の関所の項目（案の narrows・事前審査の後退と方針の穴・方針の文書の変化）は盤面の p2.human_gate が組み、
+  P1-R10）。人の関所の項目（案の narrows・事前審査の後退と方針の穴・方針の文書の変化）は盤面の p2.human_gate が組み（決め手の出どころが在り
+  undecided_because が空で柵の印の無い行は聞かずに通す。欄は受け付けが外して盤面の gate-marks.json に置く。gatemarks.py）、
   出口の asks_human・gate_kinds に出る（関所そのものはラインが開く）。検査の計画の欄は持たない（Phase 3）。
   受け付けは写しの schema・post_check・記録の検査をそのまま当て、役を起こす前と後で作業ツリー（porcelain・差分・git が無視する
   パス・HEAD・枝）が変わっていれば拒む。拒否の理由は盤面のファイルに書き、次の回の指示書の頭の 1 行がそのパスを名指す
@@ -168,6 +169,21 @@ nodes:
                           why:
                             type: string
                             minLength: 10
+                          decided_by:
+                            type: string
+                          undecided_because:
+                            type: string
+                          fences:
+                            type: array
+                            uniqueItems: true
+                            items:
+                              type: string
+                              enum:
+                              - external_write
+                              - irreversible
+                              - policy_doc
+                              - widen_protection
+                              - web_doubt
         - id: plan-accept
           script: accept
           runtime: uv
@@ -298,6 +314,21 @@ nodes:
                       - suggest
                     no_add:
                       type: string
+                    decided_by:
+                      type: string
+                    undecided_because:
+                      type: string
+                    fences:
+                      type: array
+                      uniqueItems: true
+                      items:
+                        type: string
+                        enum:
+                        - external_write
+                        - irreversible
+                        - policy_doc
+                        - widen_protection
+                        - web_doubt
               shrink:
                 type: array
                 items:

@@ -5,12 +5,16 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
   全部 commit 済みで、仕込んだバグのせいでテストが赤になること。
 - archon.sh が、キャッシュにある実行ファイルの sha256 が違えばネットワークに出ずに拒み、
   そのファイルを消せば取り直すと 1 行で案内すること（消すのは人。archon.sh は消さない）。
-- archon.sh の認証に既定の口座が無いこと: CLAUDE_CODE_OAUTH_TOKEN があればそれ、無ければ
-  WORKS_KEYCHAIN_ITEM の名の keychain の項目（ここでは偽物に差し替える。本物には触らない）を
-  HOME を隔離する前の元の HOME で読み、どちらも無ければ 1 行の案内で止まること（Ruling R20）。
+- archon.sh の認証が利用者自身の物だけを本線 claude_auth.py の順で拾うこと: CLAUDE_CODE_OAUTH_TOKEN があればそれ、無ければ
+  WORKS_KEYCHAIN_ITEM の名の keychain の項目、それも無ければ CLAUDE_CONFIG_DIR から導いた Claude Code 自身の keychain の項目
+  （どれも偽物に差し替える。本物には触らない）を HOME を隔離する前の元の HOME で読み、拾った出どころの名だけを出し（値は出さない）、
+  どれも無ければ 1 行の案内で止まること（Ruling R20 の「黙ってどこかの口座で回さない」）。
 - archon.sh が、認証を使う実行のたびに隔離した Archon の設定へ模型（WORKS_DEV_MODEL。既定 opus）を書き、
   TITLE_GENERATION_MODEL も（設定していなければ）同じにすること。WORKS_DEV_NO_AUTH=1 では書かないこと
   （偽の shasum で確かめを通し、偽の実行ファイルまで exec させて見る）。
+- archon.sh が、認証を使う実行で対象（cwd）の根を利用者の mise が信頼済みの時だけ（偽の mise の trust --show を隔離の前の
+  HOME で読む）、run の worktree の置き場を MISE_TRUSTED_CONFIG_PATHS に足すこと（前の値は残す）。
+- lib.sh works_dev_show_run の差分が、周の中の commit で入った .gitignore に当たる追跡ファイルを足した行として載せること。
 - archon.sh・mktarget.sh・real-run.sh が、WORKS_DEV_HOME・対象・origin が Claude Code の一時フォルダ
   （/private/tmp/claude-* か /tmp/claude-*。サンドボックスの Bash がそこへ書ける穴）の下に解けるとき、
   何も作らずに 1 行の理由で終了コード 2 で止まること（symlink を辿った先で見る）。
@@ -33,6 +37,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -255,16 +260,33 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("sha256", result.stderr)
 
-    def test_archon_sh_has_no_default_account(self):
-        """トークンも keychain の項目名も無ければ、既定の口座を読まずに 1 行の案内で止まること。"""
-        result, home, args = self._run_archon_sh_with_fake_security()
-        self.assertIsNone(args)  # 既定の項目名で keychain を読みに行かない
+    def test_archon_sh_reads_claude_codes_own_keychain_item(self):
+        """トークンも keychain の項目名も無ければ、CLAUDE_CONFIG_DIR から導いた Claude Code 自身の項目だけを隔離の前の HOME で読み
+        （任意の既定の名は読まない）、拾えたら出どころの名だけを出す。それも空なら 1 行の案内で止まること。"""
+        import hashlib
+        cfg = "/tmp/works-dev-test-claude-config"
+        own = "Claude Code-credentials-" + hashlib.sha256(cfg.encode("utf-8")).hexdigest()[:8]
+        login = '{"claudeAiOauth": {"accessToken": "sk-ant-oat01-dummy-token-for-test"}}'
+        result, home, args = self._run_archon_sh_with_fake_security(fake_token=login, CLAUDE_CONFIG_DIR=cfg)
+        self.assertEqual(home, "/tmp/works-dev-test-original-home")
+        self.assertEqual(args, f"find-generic-password -s {own} -w")
+        self.assertEqual(result.returncode, 1)   # 拾えたので、実行ファイルの sha256 の確かめまで進む
+        self.assertIn("sha256", result.stderr)
+        self.assertIn(f"Claude Code の keychain の項目 {own}", result.stderr)
+        result, home, args = self._run_archon_sh_with_fake_security(fake_token=login, CLAUDE_CONFIG_DIR=None)
+        self.assertEqual(args, "find-generic-password -s Claude Code-credentials -w")
+        self.assertIn("sha256", result.stderr)
+        result, home, args = self._run_archon_sh_with_fake_security(fake_token="", CLAUDE_CONFIG_DIR=cfg)
+        self.assertEqual(args, "find-generic-password -s Claude Code-credentials -w")   # 導いた 2 つを試した最後
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("sha256", result.stderr)  # 実行ファイルの確かめより前で止まる
         lines = result.stderr.strip().splitlines()
         self.assertEqual(len(lines), 1, result.stderr)
-        for word in ("CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token", "WORKS_KEYCHAIN_ITEM"):
+        for word in ("CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token", "WORKS_KEYCHAIN_ITEM", own):
             self.assertIn(word, lines[0])
+        result, home, args = self._run_archon_sh_with_fake_security(fake_token="not-a-claude-token", CLAUDE_CONFIG_DIR=cfg)
+        self.assertNotEqual(result.returncode, 0)   # 形の違う値は渡さない
+        self.assertNotIn("sha256", result.stderr)
 
     def test_archon_sh_stops_when_keychain_item_is_empty(self):
         """keychain の項目が空の値を返したら、空のトークンを渡さずに同じ 1 行の案内で止まること。"""
@@ -301,17 +323,28 @@ class TestDevShell(unittest.TestCase):
             skills_seen = tmp / "skills.txt"
             settings_seen = tmp / "settings.txt"
             env_seen = tmp / "env.txt"
+            mise_seen = tmp / "mise.txt"
             fake_archon.write_text(
                 "#!/bin/sh\n"
                 f'printf \'%s\\n\' "${{TITLE_GENERATION_MODEL-(unset)}}" "$*" > "{seen}"\n'
                 f'ls "$CLAUDE_CONFIG_DIR/skills" > "{skills_seen}" 2>&1\n'
                 f'cat "$CLAUDE_CONFIG_DIR/settings.json" > "{settings_seen}" 2>/dev/null || true\n'
                 f'printf \'%s\\n\' "${{WORKS_ARCHON_VERSION-(unset)}}" "${{WORKS_CLAUDE_VERSION-(unset)}}" > "{env_seen}"\n'
+                f'printf \'%s\\n\' "${{MISE_TRUSTED_CONFIG_PATHS-(unset)}}" > "{mise_seen}"\n'
             )
             fake_bin = tmp / "fake-bin"
             # 隔離した設定に coldwrite を入れる claude（dev/toolset.py が PATH から引く）は偽物（本物は起こさない）
             from test_toolset import make_user_config, write_fake_claude
             write_fake_claude(fake_bin)
+            # mise も偽物（本物の利用者の信頼の控えは読まない）。trust --show は実物の mise 2026.9 と同じ
+            # `<dir>: trusted|untrusted` の形で cwd を FAKE_MISE_TRUST の状態として出し（空なら何も出さない）、呼ばれた時の HOME を記録する
+            mise_calls = tmp / "mise-calls.txt"
+            (fake_bin / "mise").write_text(
+                "#!/bin/sh\n"
+                f'printf \'%s|%s\\n\' "$*" "$HOME" >> "{mise_calls}"\n'
+                '[ "$1 $2" = "trust --show" ] && [ -n "${FAKE_MISE_TRUST:-}" ] && printf \'%s: %s\\n\' "$(pwd -P)" "$FAKE_MISE_TRUST"\n'
+                "exit 0\n")
+            (fake_bin / "mise").chmod(0o755)
             # 借りる物を取る利用者の設定（隔離の前の CLAUDE_CONFIG_DIR）も偽物（本物の利用者の設定は読まない）
             user_cfg = make_user_config(tmp / "user-claude-config")
             claude_calls = tmp / "claude-calls.jsonl"
@@ -320,7 +353,7 @@ class TestDevShell(unittest.TestCase):
             env = dict(os.environ)
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH",
                          "WORKS_DEV_MODEL", "TITLE_GENERATION_MODEL", "WORKS_REAL_CLAUDE", "CLAUDE_BIN_PATH",
-                         "WORKS_DEV_ADAPTER"):
+                         "WORKS_DEV_ADAPTER", "MISE_TRUSTED_CONFIG_PATHS", "FAKE_MISE_TRUST"):
                 env.pop(name, None)
             env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""),
                        FAKE_CLAUDE_LOG=str(claude_calls), CLAUDE_CONFIG_DIR=str(user_cfg))
@@ -335,6 +368,9 @@ class TestDevShell(unittest.TestCase):
             self.settings_seen = (json.loads(settings_seen.read_text())
                                   if settings_seen.exists() and settings_seen.read_text() else None)
             self.env_seen = env_seen.read_text().splitlines() if env_seen.exists() else None
+            self.mise_seen = mise_seen.read_text().strip() if mise_seen.exists() else None
+            self.mise_calls = mise_calls.read_text().splitlines() if mise_calls.exists() else []
+            self.workspaces = str((dev_home / "archon-home").resolve() / "workspaces")
             record = dev_home / "claude-config" / ".works-toolset.json"
             self.toolset_rec = json.loads(record.read_text()) if record.exists() else None
             self.user_cfg = user_cfg
@@ -371,6 +407,69 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNone(config)
         self.assertEqual(seen, ["(unset)", "workflow run x"])
+
+    def test_archon_sh_trusts_run_worktrees_for_mise_only_when_target_root_is_trusted(self):
+        """mise の信頼はパスに結び付き、run の worktree は隔離した家の下の新しいパス。対象（cwd）の根を利用者の mise が信頼済みの
+        時だけ、隔離の前の HOME で読んで、run の worktree の置き場（<家>/archon-home/workspaces）を MISE_TRUSTED_CONFIG_PATHS に
+        足す（前の値は残す）。未信頼・mise が何も出さない・認証の要らない道では足さない"""
+        def target(dev_home):
+            (dev_home.parent / "target").mkdir()
+        auth = {"CLAUDE_CODE_OAUTH_TOKEN": "dummy-token-for-test"}
+        result, _, _ = self._exec_archon_sh(prepare=target, cwd_in_tmp="target", FAKE_MISE_TRUST="trusted", **auth)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.mise_seen, self.workspaces)
+        self.assertEqual([c.split("|")[0] for c in self.mise_calls], ["trust --show"])
+        self.assertEqual(self.mise_calls[0].split("|")[1], os.environ.get("HOME", ""))   # 隔離の前の HOME
+        result, _, _ = self._exec_archon_sh(prepare=target, cwd_in_tmp="target", FAKE_MISE_TRUST="trusted",
+                                            MISE_TRUSTED_CONFIG_PATHS="/somewhere", **auth)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.mise_seen, "/somewhere:" + self.workspaces)
+        for trust in ("untrusted", ""):
+            result, _, _ = self._exec_archon_sh(prepare=target, cwd_in_tmp="target", FAKE_MISE_TRUST=trust, **auth)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.mise_seen, "(unset)", trust)
+        result, _, _ = self._exec_archon_sh(prepare=target, cwd_in_tmp="target", FAKE_MISE_TRUST="trusted",
+                                            WORKS_DEV_NO_AUTH="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.mise_seen, "(unset)")
+        self.assertEqual(self.mise_calls, [])
+
+    def test_show_run_diff_keeps_ignored_tracked_file_committed_in_round(self):
+        """lib.sh works_dev_show_run の差分は、一時の index を run の worktree の今の HEAD から組む。周の中の commit（周の頭の版
+        base より後）で入った .gitignore に当たる追跡ファイルも、足した行として差分に載り、消す行にも抜けにもならない
+        （base の木から組むと載らず、空の index から組むと base に在る追跡ファイルが消す行になる）"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            wt = tmp / "wt"
+            committed_copy(wt, DEV / "target-seed")
+            base = git(wt, "rev-parse", "HEAD")
+            (wt / ".gitignore").write_text(".env*\n")
+            (wt / ".env.example").write_text("KEY=\n")
+            git(wt, "add", ".gitignore")
+            git(wt, "add", "-f", ".env.example")
+            git(wt, "commit", "-q", "-m", "周の中の commit")
+            (wt / "stats.py").write_text((wt / "stats.py").read_text() + "# 直した\n")
+            board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board" / "r1"
+            board.mkdir(parents=True)
+            (board / "start.json").write_text(json.dumps({"base_rev": base}))
+            runs = tmp / "runs.json"
+            runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
+                                                  "working_path": str(wt), "output_root": str(tmp / "out")}]}))
+            fake = tmp / "archon.sh"
+            fake.write_text(f'cat "{runs}"\n')
+            diffs = tmp / "diffs"
+            diffs.mkdir()
+            r = subprocess.run(["sh", "-c", '. "$1"; works_dev_show_run t "$2" "$3" "$3" "$4"', "_",
+                                str(DEV / "lib.sh"), str(fake), str(wt), str(diffs)],
+                               capture_output=True, text=True, encoding="utf-8",
+                               env={**{k: v for k, v in os.environ.items() if k not in ("WORKS_RUN_ID", "HERDR_ENV")},
+                                    "WORKS_DEV_MODEL": "opus", "CLAUDE_BIN_PATH": "/usr/bin/true"})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            body = (diffs / "run-run-1.diff").read_text()
+            self.assertIn("+# 直した", body)
+            self.assertIn("+KEY=", body)
+            self.assertNotIn("deleted file", body)
+            self.assertNotIn("取り込むと消えるファイル", r.stdout)
 
     def test_archon_sh_installs_borrowed_skills(self):
         """archon.sh は exec の前に、選んだ物だけの設定を隔離した CLAUDE_CONFIG_DIR に組む（dev/toolset.py）。
@@ -714,6 +813,8 @@ class TestDevShell(unittest.TestCase):
             self.assertIn("WORKS_DEV_MODEL=opus", out)
             for verb in ("approve", "resume"):   # 続きのコマンドも包みを通す（archon.sh は打つたびに設定を書き直す）
                 self.assertRegex(out, rf"WORKS_DEV_ADAPTER=1 sh [^\n]* workflow {verb} run-1")
+                # その場で回る残りの工程が関所の文の答えの行を組めるよう、答えの頭（隔離した archon.sh の respond）を載せる
+                self.assertRegex(out, rf"WORKS_ANSWER_CMD='cd [^'\n]* workflow respond' [^\n]* workflow {verb} run-1")
             # 差分は run の worktree の git diff --binary <周の頭の版>（P1 Task 29）。worktree が無ければ書かずに知らせる
             self.assertIn(f"git -C {src.resolve()} apply {dog / 'run-run-1.diff'}", out)
             self.assertIn("run の worktree（/wt/run-1）が無いので書いていない", out)
@@ -779,7 +880,12 @@ class TestDevShell(unittest.TestCase):
             for verb, found in lines.items():
                 with self.subTest(verb):
                     self.assertEqual(len(found), 1, result.stdout)
-                    self.assertRegex(found[0], r"&& WORKS_KEYCHAIN_ITEM='item for test' [^&]* sh ")
+                    # 行は lib.sh の works_dev_go が shlex.quote で組むので、同じ字句の規則で読む（値の中の && は 1 語）
+                    words = shlex.split(found[0].split(": ", 1)[1])
+                    self.assertEqual((words[0], words[2], words[3]), ("cd", "&&", "WORKS_KEYCHAIN_ITEM=item for test"))
+                    self.assertIn("sh", words, found[0])
+                    for word in words[3:words.index("sh")]:
+                        self.assertRegex(word, r"^[A-Z_][A-Z0-9_]*=", found[0])
             self.assertNotIn("export", result.stdout)
             # 出た行を、認証の変数の無い殻で打つ。偽の Archon は届いた項目名と cwd を書く
             (tmp / "fake-archon.sh").write_text(

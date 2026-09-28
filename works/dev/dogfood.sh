@@ -118,6 +118,10 @@ g -C "$REPO" remote set-head origin dogfood-base >/dev/null
 echo "対象: ${REPO}（${REV} の上に pack を置いた枝 dogfood-base）"
 
 cd "$REPO"
+# 関所の文の答えの行の頭（.shared/core/answer.py）。利用者の PATH に archon は無いので、隔離した archon.sh の respond を置く
+WORKS_ANSWER_CMD="$(WORKS_ANSWER_CMD="" works_dev_go "$ARCHON" "$REPO") respond"
+export WORKS_ANSWER_CMD
+works_dev_herdr working "factory run を起こした（${REPO}）"
 set +e
 # 修正の段の TDD の輪の実行器（この clone の works/dev/tdd-suite.sh。WORKS_DOGFOOD_TDD_SUITE を空にすれば輪を飛ばす）。
 # 包みを外した run（WORKS_DEV_ADAPTER が 1 でない）は adapter=optional で回す（h-judge が包みの無い run を止めないように。報告に出る）
@@ -129,5 +133,8 @@ run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
 
-works_dev_show_run dogfood.sh "$ARCHON" "$REPO" "$SRC"
-exit "$run_status"
+# 起動が落ちても run が在れば続きの行を出す。終了コードは起動のまま（起動が 0 の時だけ show の結果）
+show_status=0
+works_dev_show_run dogfood.sh "$ARCHON" "$REPO" "$SRC" || show_status=$?
+[ "$run_status" -ne 0 ] && exit "$run_status"
+exit "$show_status"

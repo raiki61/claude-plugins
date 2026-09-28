@@ -5,7 +5,7 @@
             （go）を返す。待っていなければ（判定が直す物を出さなかった・修正案が諦めた）輪を飛ばす
 - prep:     rolekit.render_prompt で本線の指示書を描き（頭に役の定義と、並行 PR の外した範囲のパス）、番号の控え（pointer_rows）を
             付けて起こした印（mark_launched）を置く。拒否の後の出し直しは、頭の 1 行が前の拒否の理由のファイルを名指す（R44）
-- accept:   rolekit.main_accept（entry.take・読むだけの役の作業ツリーの比べ・3 回目の拒否で done・give_up。R50）
+- accept:   rolekit.main_accept（take が関所の項目の決め手の欄を外して盤面に置き（gatemarks）、entry.take・読むだけの役の作業ツリーの比べ・3 回目の拒否で done・give_up。R50）
 - reads:    2 つの役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
 - collect:  出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file}。役の節がこの周に
             待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true
@@ -24,6 +24,7 @@ if str(_CORE) not in sys.path:
 import accept  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
+import gatemarks  # noqa: E402
 import libdocs  # noqa: E402
 import node_marker  # noqa: E402
 import reads  # noqa: E402
@@ -73,7 +74,7 @@ def _given(value) -> str:
 
 def head(role: str, excluded_file: str = "", lib_docs: str = "") -> str:
     """指示書の頭（役の定義と、並行 PR の外した範囲のパスと、ライブラリの今の文書の節 libdocs.section）"""
-    text = HEAD[role]
+    text = HEAD[role] + "\n\n" + gatemarks.HEAD[role_node(role)]
     ex = _given(excluded_file)
     if ex:
         text += f"\n\n{EXCLUDED_HEAD}: {ex}（先に Read で読め。そこに挙がった範囲は、ほかの PR が扱う）"
@@ -114,9 +115,22 @@ def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
             "already": m["already"]}
 
 
+def take(role: str):
+    """rolekit.accept_role の take: 関所の項目の行の決め手の欄（gatemarks）を外した返答を entry.take に渡す（写しの型は欄を
+    持たない）。決め手は渡す前に盤面の gate-marks.json に置く（事前審査を受けた settle の中で関所が読む）"""
+    nid = role_node(role)
+
+    def run(board, reply, repo):
+        bare, marks = gatemarks.split(nid, reply)
+        gatemarks.save(board, nid, entry.open_board(pathlib.Path(board)).round, marks)
+        return entry.take(pathlib.Path(board), nid, bare, pathlib.Path(repo), snapshot_name=snapshot_name(role))
+    return run
+
+
 def main_accept(role: str) -> int:
     """<役>-accept の入口（rolekit.main_accept）"""
-    return rolekit.main_accept(role_node(role), snapshot_name=snapshot_name(role), give_up_after=GIVE_UP_AFTER)
+    return rolekit.main_accept(role_node(role), snapshot_name=snapshot_name(role), give_up_after=GIVE_UP_AFTER,
+                               take=take(role))
 
 
 def _write_json(path: pathlib.Path, doc) -> None:

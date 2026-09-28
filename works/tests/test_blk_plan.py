@@ -308,6 +308,57 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual((out["ok"], out["asks_human"]), (True, True))
         self.assertIn("regression", out["gate_kinds"])
 
+    # -- 決め手の在る項目は関所で聞かない（決め手の出どころ decided_by・undecided_because・柵の印 fences）
+    def gate_after(self, narrows, review="plan_review_ok"):
+        """narrows を持つ案 → 事前審査（review）を受けた盤面の (事前審査の受け付けの出口, collect の出口)"""
+        self.judged()
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["narrows"] = narrows
+        self.planned(plan)
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        _, got = self.round_of("plan-review", linekit.reply(review) if isinstance(review, str) else review)
+        self.assertTrue(got["ok"], got)
+        return got, self.ok("collect")
+
+    def test_plan_narrows_decided_passes_gate(self):
+        """決め手の出どころが在り undecided_because が空で柵の印の無い狭めは、人に聞かずに通り、出どころつきで盤面に残る"""
+        decided = [{**NARROWS[0], "decided_by": "依頼の本文: 空の列の mean は今までどおり例外でよい", "undecided_because": "",
+                    "fences": []}]
+        got, out = self.gate_after(decided)
+        self.assertFalse(got["asking"], got)
+        self.assertEqual((out["ok"], out["asks_human"]), (True, False))
+        self.assertIn("p3.fix", entry.open_board(self.board).settle()["ready"])
+        passes = entry.open_board(self.board).state["works"]["gate_passes"]
+        self.assertEqual([(p["node"], p["by"], p["decided_by"]) for p in passes],
+                         [("p2.human_gate", "decided", decided[0]["decided_by"])])
+        self.assertIn(NARROWS[0]["what"], passes[0]["item"])
+
+    def test_plan_narrows_fenced_asks_even_if_decided(self):
+        """決め手が在っても、柵の印（外への書き込みなど）の在る狭めは人に聞く"""
+        fenced = [{**NARROWS[0], "decided_by": "依頼の本文", "undecided_because": "", "fences": ["external_write"]}]
+        got, out = self.gate_after(fenced)
+        self.assertTrue(got["asking"], got)
+        self.assertIn("regression", out["gate_kinds"])
+
+    def test_plan_narrows_undecided_asks(self):
+        """undecided_because の在る狭めは、出どころが在っても人に聞く"""
+        undecided = [{**NARROWS[0], "decided_by": "ADR 0002", "undecided_because": "世界の解が 2 つに割れ、どちらかは持ち主が決める",
+                      "fences": []}]
+        got, out = self.gate_after(undecided)
+        self.assertTrue(got["asking"], got)
+        self.assertIn("regression", out["gate_kinds"])
+
+    def test_plan_review_regression_decided_passes_gate(self):
+        """事前審査の regression の穴も、決め手が在り柵の印が無ければ人に聞かない"""
+        review = linekit.reply("plan_review_regression")
+        review["faces"][0].update({"decided_by": "依頼の本文: clamp は上限を超えたら hi を返す", "undecided_because": "",
+                                   "fences": []})
+        got, out = self.gate_after([], review)
+        self.assertFalse(got["asking"], got)
+        self.assertIs(out["asks_human"], False)
+        passes = entry.open_board(self.board).state["works"]["gate_passes"]
+        self.assertEqual([(p["by"], p["decided_by"]) for p in passes], [("decided", review["faces"][0]["decided_by"])])
+
     # -- 事前審査
     def test_plan_review_ok_passes_gate(self):
         self.judged()
