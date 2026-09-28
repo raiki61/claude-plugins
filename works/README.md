@@ -11,8 +11,8 @@
    - `claude plugin marketplace add obra/superpowers-marketplace` → `claude plugin install superpowers@superpowers-marketplace`
    - `claude plugin install pr-review-toolkit@claude-plugins-official`（marketplace `claude-plugins-official`（GitHub の anthropics/claude-plugins-official）が無ければ先に `claude plugin marketplace add anthropics/claude-plugins-official`）
 2. 起動の殻 `dev/use.sh` と pack は、Claude Code が入れたプラグインの置き場（`~/.claude/plugins/cache/raiki61/works/<版>/`）の中に在る。スキルの行は、Claude Code がスキルを読む時にそこの絶対パスへ置き換える形（プラグインのスキルの置き換え CLAUDE_PLUGIN_ROOT）で書いてあるので、`/works` から打てばその置き場の `use.sh` が起きる。
-3. 対象リポジトリで確かめる（AI を起こさない）: `sh <置き場>/dev/use.sh check <対象>`。最後の行が `Results: 1 valid, 0 with errors, …` なら入っている（Claude Code に組み込みのスキル `code-review`・`simplify`・`security-review` の WARNING の 3 行は出てよい）。借りる物が入っていなければ、足りない物ごとに 1 行の理由と入れるコマンドを出して止まる（`start` も AI を起こす前に同じ所で止まる）。
-4. 回す: `sh <置き場>/dev/use.sh start <対象> <依頼の JSON> "<test_cmd>" [<tdd_suite>]`。関所で止まるたびに次に打つ行が出る。`use.sh show <対象>` で状態・報告の置き場・差分のファイル（`git -C <対象> apply` の行）を出し直す。
+3. 対象リポジトリで確かめる（AI を起こさない）: `sh <置き場>/dev/use.sh check <対象>`。最後の行が `Results: 1 valid, 0 with errors, …` なら入っている（Claude Code に組み込みのスキル `code-review`・`simplify`・`security-review` の WARNING の 3 行は出てよい）。借りる物が入っていなければ、足りない物ごとに 1 行の理由と入れるコマンドを出して止まる（`start` も AI を起こす前に同じ所で止まる）。uv・claude・認証・対象の条件で足りない物も、入れ方つきで全部並べて 0 以外で終わる。
+4. 回す: `sh <置き場>/dev/use.sh start [<対象>] <依頼の JSON> ["<test_cmd>" [<tdd_suite>]]`（対象を省けば今いるフォルダの git の根）。関所で止まるたびに次に打つ行が出る。`use.sh show <対象> [<run-id>]` で、その対象から起こした一番新しい run（か名指しの run）の状態・報告の置き場・差分のファイルを出し直す。裏で打った進める・答える行の後は `use.sh wait <対象> <run-id>` が決まった時間のうちに戻って状態を返す。差分は `use.sh apply <対象> <run-id>` で当て、終わった run の worktree と枝は `use.sh clean <対象> <run-id>` で消す。関所には `use.sh answer <対象> <run-id> continue|stop "<一言>" [<答えた者>]` で答え（関所の文の答えの行もこの形）、止めるのは `use.sh stop <対象> <run-id> "<理由>"` の 1 つ。`start` は run の控え（`<家>/runs/<run-id>.json`。模型・claude の実行ファイル・keychain の項目の名・包み）を書き、別の殻で打つ `answer`・`stop` はその値で Archon を起こし、`show` が出す進める・続きの行もその値で組む。
 
 このリポジトリの clone で works 自身を直している時は、clone の `works/dev/use.sh` をそのまま打ってもよい（同じ殻で、pack はその clone の `works/` から写る）。marketplace の works の行（リポジトリ直下の `.claude-plugin/marketplace.json`）が GitHub に届く前の works を試すなら `claude --plugin-dir <clone>/works`。
 
@@ -20,9 +20,10 @@
 
 - pack は対象に置かず、利用の家（`WORKS_USE_HOME`。既定 `${XDG_STATE_HOME:-~/.local/state}/works/use`）の Archon の全体の工程の置き場 `archon-home/workflows/works` に、起こすたびに写す。Archon v0.11.1 は `$ARCHON_HOME/workflows/<pack>/` も探す（実行ファイルの中の探し方で確かめ、使い捨ての対象で `validate`・`workflow test works` が通った）。
 - Archon と AI の役は `archon.sh` を通してだけ起こす。家は開発の家（`WORKS_DEV_HOME`）を継がない（走っている自分食いの家を書き換えない）。
-- run の worktree は `--from <対象の HEAD>` で切る。対象に commit していない変更・未追跡のファイルがある・`origin` が無い・`/private/tmp` の下・pack の写し `.archon/workflows/works` がある時は、何もせずに 1 行で止まる。
+- run の worktree は `--from <対象の HEAD>` で切る。commit していない変更・未追跡のファイルが在れば、一時の index で包んだ commit（`.gitignore` の物は入れない。対象の作業ツリー・index・枝は動かさない）から切り、包んだことを起動と `show` に出す。対象は下のフォルダでもよく（git の根で回す）、`origin` は無くてもよい。`/private/tmp` の下・git のリポジトリの外は全部の命令が、pack の写し `.archon/workflows/works` が在る・依頼・認証・uv・claude が無い時は `start` が何もせずに 1 行で止まる（`check` は全部並べる）。
+- 最後の関所は既定で要る時だけ（`WORKS_USE_FINAL_GATE=always` で毎回）。Claude の包みは既定で通す（`WORKS_DEV_ADAPTER=0` で外すと `adapter=optional` と「包み無し」）。`WORKS_USE_UNATTENDED=1` は起動の関所を越え、人が決める関所に着いたら止めて報告へ進める。入力 `policy_md`・`gates`・`thickness` は `WORKS_USE_POLICY_MD`・`WORKS_USE_GATES`・`WORKS_USE_THICKNESS`。
 - `tdd_suite` を省くと、`test_cmd` が pytest の 1 コマンドの時だけ `--junitxml` を足す実行器を家の `suites/` に書いて渡し、そうでなければ空（直に直す）にして 1 行で知らせる。
-- 差分は家の `diffs/run-<id>.diff`。当てるのは人。
+- 差分は家の `diffs/run-<id>.diff`。当てるのは人（`apply` は `git apply --check` の後に当て、対象のファイルを消す差分は `WORKS_USE_ALLOW_DELETE=1` の時だけ当てる。commit はしない）。
 - works は自分の置き場（`works/`）の外のリポジトリを読まない。Claude Code はプラグインの置き場だけをキャッシュ（`plugins/cache/raiki61/works/<版>/`）に写し、`.git` も隣のプラグイン（`coldwrite/` など）も写さないため。借りる物は利用者が入れたプラグインから取る（下の「選んだ物だけの隔離した Claude の設定」）。pack に写す時は、Claude Code がキャッシュの版の置き場に置く印（`.in_use/`・`.orphaned_at`）を除く。
 
 `archon plugin install raiki61/claude-plugins/works@<tag>` で入れて Archon を直に打つ形は、tag を打つまで入らず、入れても AI の役が利用者の本物の `~/.claude` を読む（下の「選んだ物だけの隔離した Claude の設定」）ので、まだ使わない。
@@ -31,7 +32,7 @@
 
 - Archon v0.11.1 以上 0.12.0 未満（`archon-plugin.json` の `compatibility.archon` が `>=0.11.1 <0.12.0`。確かめたのは v0.11.1 だけ）。
 - uv（script の節は `runtime: uv` で起きる）と git。節のスクリプトは PEP 723 の塊を持つので、対象が pyproject.toml を持っても uv は対象の project を拾わない（worktree に .venv・uv.lock を作らない）。既知の限界: 対象の uv の設定（`[tool.uv]`・`uv.toml`）は読まれるので、それが壊れているか、手元の uv に合わない `required-version` を持つと、works の script の節は起動時に終了コード 2 で止まる。直すのは対象か uv の設定。`UV_NO_CONFIG=1` を Archon の環境に立てて逃げるのは勧めない: 対象自身の uv の動きも変わり（テストのコマンドや修正役の Bash が私的な index を読まずに公開の PyPI から解決する）、偽の赤と依存の取り違えの口になる。
-- 対象リポジトリに git の remote。Archon は run ごとの worktree を既定で `origin/<既定の枝>` から切るので、remote が無いと run が始まらない。手元の commit していない変更は worktree に入らないので、依頼の JSON は対象の外に置いて絶対パスで渡す（`dev/use.sh` は依頼を利用の家に写して渡し、worktree を対象の HEAD から切る）。
+- 対象リポジトリの git の remote は `dev/use.sh` では求めない（Archon v0.11.1 が origin 無しで worktree を切るかは測っていない。起動が落ちたら `git remote add origin <URL>`）。依頼の JSON は対象の外に置いてよい（`dev/use.sh` は依頼を利用の家に写して渡す）。
 
 ## Claude Code のスキル
 
@@ -45,14 +46,17 @@
 
 TDD の修正の段が使うテストの実行器（ラインの入力 `tdd_suite`）は `works/dev/tdd-suite.sh <JUnit XML の書き先> [pytest の引数]`。同じ試験を既製の pytest で回し、結末を JUnit XML に書く。段は `WORKS_TDD_TIER`（既定 fast・heavy）で、段のファイルは `tiers.py` の `paths` の口から引く。読み込みで落ちるモジュールが在っても一式を止めず（`--continue-on-collection-errors`）、そのモジュールは error の 1 行で載る。heavy でも枠の台本は通さない。unittest と pytest では結末の数え方が一部違う（例外で落ちた試験は unittest では error、pytest では failure。`-k` は unittest では名前の部分一致、pytest では式）。pytest は一番外の `def test_*` も試験として拾うので、試験の道具の関数は `test_` で始めない（`test_tiers` が縛る）。
 
-`works/dev/archon.sh`（固定した版の Archon を隔離して回す殻）の認証に既定の口座は無い。AI を呼ぶ実行（`workflow run`・`workflow approve`・`workflow resume`、`dev/real-run.sh`）の前に、次のどちらかを設定する:
+`works/dev/archon.sh`（固定した版の Archon を隔離して回す殻）の認証は、利用者自身の物だけを本線 `scripts/claude_auth.py` の順で拾う（どこかの口座で黙って回さない。R20）。AI を呼ぶ実行（`workflow run`・`workflow approve`・`workflow resume`、`dev/real-run.sh`）で、上から順に:
 
 1. `CLAUDE_CODE_OAUTH_TOKEN`（`claude setup-token` で作るトークン）
 2. `WORKS_KEYCHAIN_ITEM`（そのトークンを入れた macOS の keychain の項目名。`security find-generic-password -s <名> -w` で読む）
+3. macOS で Claude Code 自身が keychain に置いたログインの項目（`CLAUDE_CONFIG_DIR` を設定していれば `Claude Code-credentials-<その値の sha256 の頭 8 桁>`、次に `Claude Code-credentials`。値の `claudeAiOauth.accessToken`）。拾った項目の名を 1 行出す（値は出さない）。ログインのトークンは数時間で切れるので、長い run には 1 を置く。項目の名の付け方は Claude Code の版で変わりうる
 
-両方あれば 1 を使う。どちらも無ければ、案内を 1 行出して止まる。keychain の項目が空の値を返したときも同じく止まる。`WORKS_DEV_NO_AUTH=1` のときは認証を読まない（テスト・`validate`・`workflow test` 用。`dev/check.sh` は付けて回すので認証が要らない）。
+どれも無ければ、案内を 1 行出して止まる。2 の項目が空の値を返したときも同じく止まる。gh・git の資格は隔離した家の役に渡さない（役ごとに分けて渡せないため。隔離した家の gh は未ログインで、並行 PR の確かめは gh の失敗の理由つきで人に回る）。`WORKS_DEV_NO_AUTH=1` のときは認証を読まない（テスト・`validate`・`workflow test` 用。`dev/check.sh` は付けて回すので認証が要らない）。
 
 認証を使う実行のたびに、`archon.sh` は隔離した Archon の設定（`$WORKS_DEV_HOME/archon-home/config.yaml`）に模型を書く（`WORKS_DEV_MODEL`。既定は opus。run の題を作る模型 `TITLE_GENERATION_MODEL` も、設定していなければ同じにする）。書かないと Claude CLI の既定の模型で黙って回る。`WORKS_DEV_NO_AUTH=1` のときは書かない。
+
+対象（`archon.sh` を打つ cwd）の根の mise の設定を利用者が `mise trust` 済みなら、認証を使う実行のたびに `archon.sh` は隔離の前にそれを `mise trust --show` で読み、run の worktree の置き場（`$WORKS_DEV_HOME/archon-home/workspaces`）を `MISE_TRUSTED_CONFIG_PATHS` に足す（mise の公式の設定。前の値は残す）。mise の信頼はパスに結び付くので、足さないと run の worktree の中のテストで設定が信頼されず、道具の失敗が偽の赤になる。信頼していない対象では足さない。
 
 開発の家（`WORKS_DEV_HOME`。既定は `$TMPDIR/works-dev`）・使い捨ての対象・その origin は、Claude Code の一時フォルダ（`/private/tmp/claude-*`・`/tmp/claude-*`）の下に置けない。サンドボックスの中の Bash がそこへ書けるためで、`dev/` の殻はその下に解けるパスを終了コード 2 で拒む（設計書 7 節）。
 
@@ -98,7 +102,7 @@ AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` �
 1. Archon の設定 `assistants.claude.claudeBinaryPath` に包みの絶対パスを書く（これが主。env の `CLAUDE_BIN_PATH` は設定より強いので、一時の上書きに使える）。
 2. 本物の claude を `WORKS_REAL_CLAUDE`（絶対パス）で渡す。無ければ包みは PATH の実行ファイル `claude` を使う（包み自身を指す物は飛ばす）。
 3. 置き場（包みの家）を `WORKS_ADAPTER_HOME` で渡す。既定は `${XDG_STATE_HOME:-~/.local/state}/works/adapter`（切符と同じ）。絶対パスでなければ包みは起動を拒む。役の sandbox の Bash から書けない場所に置く（`/private/tmp/claude-*` は不可）。
-4. 開発の殻では `WORKS_DEV_ADAPTER=1` を付けて `dev/archon.sh`・`dev/real-run.sh`・`dev/use.sh` を打つ（`dev/dogfood.sh` は付けなくても既定で包みを通す。外すなら `WORKS_DEV_ADAPTER=0`）。`archon.sh` が隔離した設定に `claudeBinaryPath` を書き、`CLAUDE_BIN_PATH` を `WORKS_REAL_CLAUDE` へ移し、家を `$WORKS_DEV_HOME/adapter` にする。殻が出す承認・続きのコマンドにも同じ札が付く。
+4. 開発の殻では `WORKS_DEV_ADAPTER=1` を付けて `dev/archon.sh`・`dev/real-run.sh` を打つ（`dev/dogfood.sh`・`dev/use.sh` は付けなくても既定で包みを通す。外すなら `WORKS_DEV_ADAPTER=0`）。`archon.sh` が隔離した設定に `claudeBinaryPath` を書き、`CLAUDE_BIN_PATH` を `WORKS_REAL_CLAUDE` へ移し、家を `$WORKS_DEV_HOME/adapter` にする。殻が出す承認・続きのコマンドにも同じ札が付く。
 
 包みがすること・しないこと:
 
@@ -157,7 +161,7 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 
 1. 依頼の JSON を書く（形は `skills/works/SKILL.md`）。置き場所はどこでもよい（殻が写して渡す）。
 2. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/dogfood.sh <依頼の JSON> "<テストのコマンド>" [<dir>]` を前景で打つ。殻は、このリポジトリの今の HEAD（commit 済みの物だけ）を `<dir>/repo` に clone し、works を `.archon/workflows/works` に写して枝 `dogfood-base` に commit し、`<dir>/origin.git` を origin にしてラインを回す。`<dir>` の既定は `$TMPDIR` の下の一時フォルダ。人の関所で止まって戻る。
-3. 起動の関所（`launch`）で止まって戻る。殻が出す approve のコマンドで越える。修正の前の関所（要る時だけ）と最後の関所は `archon workflow respond <run-id> continue "<一言>"`（止めるなら `stop "<理由>"`）で答える（`skills/works/SKILL.md` の 3 節）。殻は入力 `tdd_suite=works/dev/tdd-suite.sh`・`adapter=`（空＝包みを求める。既定で包みを通す。`WORKS_DEV_ADAPTER=0` で外すと `adapter=optional`）・`final_gate=always` を渡す。
+3. 起動の関所（`launch`）で止まって戻る。殻が出す approve のコマンドで越える。修正の前の関所（要る時だけ）と最後の関所は、関所の文に載る答えの行（隔離した `archon.sh` の `respond <run-id> continue "<一言>"`。止めるなら `stop "<理由>"`）で答える（`skills/works/SKILL.md` の 3 節）。殻は入力 `tdd_suite=works/dev/tdd-suite.sh`・`adapter=`（空＝包みを求める。既定で包みを通す。`WORKS_DEV_ADAPTER=0` で外すと `adapter=optional`）・`final_gate=always` を渡す。
 4. 報告まで済んだら、殻が出す `git -C <このリポジトリ> apply <dir>/run-<id>.diff` で差分（run の worktree と周の頭の版の差。手直しも未追跡も入る）を取り込み、手元でテストを回してから commit する。殻を打ち直さずに差分だけ作るなら `git -C <working_path> diff --binary <base_rev>`（`base_rev` は盤面の `r1/start.json`）。
    修正が `works/` でなく pack の写し（`.archon/workflows/works`）を書き換えていたら、その部分は取り込まない（殻は「注意:」の 1 行を出す）。`<dir>` に前の回の `repo`・`origin.git`・`request.json` が在ると、殻は何も書かずに止まる。
 

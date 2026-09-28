@@ -12,7 +12,7 @@ darkfactory に回すのは、原因を調べて直し、テストで確かめ�
 
 ## 0. 入れる（1 回だけ）
 
-要る物: macOS（Apple silicon。Archon は固定した版の darwin-arm64 の実行ファイル）・git・uv・gh（初回に Archon の実行ファイルを GitHub の release から落とす）・Claude Code の `claude`・認証（`claude setup-token` で作るトークンを `CLAUDE_CODE_OAUTH_TOKEN` に置くか、それを入れた macOS の keychain の項目名を `WORKS_KEYCHAIN_ITEM` に置く）。
+要る物: macOS（Apple silicon。Archon は固定した版の darwin-arm64 の実行ファイル）・git・uv・gh（初回に Archon の実行ファイルを GitHub の release から落とす）・Claude Code の `claude`・認証（普段の `claude` のログインで足りる。殻は `CLAUDE_CODE_OAUTH_TOKEN` → `WORKS_KEYCHAIN_ITEM` の名の keychain の項目 → Claude Code 自身が macOS の keychain に置いた項目（`CLAUDE_CONFIG_DIR` から導く）の順に、あなた自身の認証だけを拾い、拾った出どころの名を出す。ログインの項目は数時間で切れる短い物なので、長い run には `claude setup-token` で作るトークンを置く）。gh・git の資格は AI の役に渡さない（隔離した家の gh は未ログインで、並行 PR の確かめは人に回る）。
 
 1. プラグインを 4 つ Claude Code に入れる。このスキル（works）と、works の AI の役が借りる 3 つ（superpowers のスキル・coldwrite のフック・pr-review-toolkit の agent）。起動の殻 `dev/use.sh` と pack は works のプラグインの中に在り、Claude Code が入れたプラグインの置き場から使う。借りる 3 つも、あなたが入れた版をそのまま使う。リポジトリの clone は要らない。
 
@@ -28,10 +28,10 @@ darkfactory に回すのは、原因を調べて直し、テストで確かめ�
 2. 対象リポジトリで、AI を起こさずに確かめる（費用なし）。
 
    ```
-   sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" check <対象リポジトリの根>
+   sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" check <対象リポジトリ>
    ```
 
-   最後の行が `Results: 1 valid, 0 with errors, …` なら入っている。その上に出る `WARNING [skills]` の 3 行（`code-review`・`simplify`・`security-review`）は Claude Code に組み込みのスキルで、出てよい。借りる 3 つのどれかが入っていない（か、works が名前で使うスキル・agent・hook が無い）と、`toolset.py: 借りる物が足りない` の下に足りない物ごとの 1 行と入れるコマンドを出して止まる。そのコマンドで入れてから打ち直す（`start` も AI を起こす前に同じ所で止まる）。
+   uv・claude・認証・対象の条件で足りない物があれば、入れ方つきで全部並べて 0 以外で終わる。最後の行が `Results: 1 valid, 0 with errors, …` なら入っている。その上に出る `WARNING [skills]` の 3 行（`code-review`・`simplify`・`security-review`）は Claude Code に組み込みのスキルで、出てよい。借りる 3 つのどれかが入っていない（か、works が名前で使うスキル・agent・hook が無い）と、`toolset.py: 借りる物が足りない` の下に足りない物ごとの 1 行と入れるコマンドを出して止まる。そのコマンドで入れてから打ち直す（`start` も AI を起こす前に同じ所で止まる）。
 
 このスキルの行の `use.sh`・`stop.sh`・`report.sh` のパスは、Claude Code がこのスキルを読む時に、入れたプラグインの置き場の絶対パス（`~/.claude/plugins/cache/raiki61/works/<版>/` の形。設定の置き場を変えていればその下）へ置き換えてある。元の文はプラグインのスキルの置き換え CLAUDE_PLUGIN_ROOT で、Bash の環境変数には無い。手で打つ時は、その置き場のパスで打つ。このリポジトリの clone で works 自身を直している時は、clone の `works/dev/use.sh` をそのまま打ってもよい（同じ殻で、pack はその clone の `works/` から写る）。GitHub に届く前の works を試すなら `claude --plugin-dir <clone>/works` で読む。
 
@@ -59,32 +59,49 @@ findings（指摘）の JSON の配列を 1 つのファイルにする。置き
 
 ## 2. 起動する
 
-前景で打つ。
+前景で打つ（最初の関所で戻る）。
 
 ```
-sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start <対象リポジトリの根> <依頼の JSON> "<test_cmd>" [<tdd_suite>]
+sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [<対象リポジトリ>] <依頼の JSON> ["<test_cmd>" [<tdd_suite>]]
 ```
 
-- 対象の条件: commit していない変更・未追跡のファイルが無い（run は対象の今の HEAD から切り、差分はここへ当てる）。remote の `origin` が在る（Archon が worktree を切る前に fetch する）。`/private/tmp` の下でない。どれかに当たると、何もせずに 1 行で止まる。
-- `test_cmd`: 修正の前と最後に回すテストのコマンド（例: `python3 -m unittest -q`・`uv run pytest -q`）。空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
+- 対象: リポジトリの下のフォルダでもよく、その git の根で回す。省けば今いるフォルダの git の根。`/private/tmp` の下は使えない。
+- 手元の変更: commit していない変更・未追跡のファイルが在っても止めない。殻がそれを一時の commit に包み（`.gitignore` の物は入れない）、run はそこから切る。対象の作業ツリー・index・枝は動かさない。包んだことと commit・ファイルを「包んだ（wrapped）」の行に出す（`show` も出す）。差分はその姿との差なので、今の手元にそのまま当たる。
+- remote の `origin` は無くてもよい（無ければ 1 行で知らせる。Archon が fetch を要ると run は始まらない）。
+- `test_cmd`（省ける）: 修正の前と最後に回すテストのコマンド（例: `python3 -m unittest -q`・`uv run pytest -q`）。省くか空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
 - `tdd_suite`（省ける）: JUnit XML の書き先を第 1 引数に受ける実行ファイル（対象の根から走る）。在れば修正の段で単位ごとの TDD の輪を回す。省くと、`test_cmd` が pytest の 1 コマンドなら殻がそれに `--junitxml` を足す実行器を書いて渡し、そうでなければ輪を飛ばして直に直す（どちらにしたかを 1 行出す）。
-- 最後の関所は既定でいつも開く。要る時だけにするなら `WORKS_USE_FINAL_GATE=when_needed` を前に付ける。
+- 最後の関所は既定で要る時だけ開く（`when_needed`）。いつも開くなら `WORKS_USE_FINAL_GATE=always` を前に付ける。
+- Claude の包み（`claude-adapter`）は既定で通す。外すなら `WORKS_DEV_ADAPTER=0`（起動の 1 行目に「包み無し」と出て、報告にも出る）。
+- ラインの入力 `policy_md`・`gates`・`thickness` は `WORKS_USE_POLICY_MD`・`WORKS_USE_GATES`・`WORKS_USE_THICKNESS` で渡す。
+- 無人で回すなら `WORKS_USE_UNATTENDED=1`: 起動の関所を越え、人が決める関所に着いたら止めて報告へ進める（能力を狭める・方針とぶつかる修正は通さない）。
 - 殻がすること: pack を利用の家（`WORKS_USE_HOME`。既定は `~/.local/state/works/use`）に置き、Archon をその家に隔離して起こす。AI の役はその家に組んだ選んだ物だけの Claude の設定を読み、あなたの `~/.claude` は読まない。対象の作業ツリーには何も書かない。
-- Archon がすること: 対象の `.git` に run の worktree と枝を足す（worktree は利用の家の下）。起動の前に `origin` を fetch し、対象で今いる枝が既定の枝で `origin` より遅れていれば早送りする。
-- 最初に起動の関所（`launch`）で止まって戻り、run id・状態・run の worktree・次に打つ行（進める・答える・止める・続ける）・報告の置き場を出す。
+- Archon がすること: 対象の `.git` に run の worktree と枝を足す（worktree は利用の家の下）。`origin` の fetch と、対象の枝を早送りするかは Archon の版に依る（v0.11.1 で測っていない）。
+- 最初に起動の関所（`launch`）で止まって戻り、run id・状態・run の worktree・次に打つ行（進める・待つ・取り消す・答える・止める・続ける）・報告の置き場を出す。
 
 ## 3. 人の関所で見て答える
 
-関所は 3 つ。どれも文言に「全文のファイルのパス」が載るので、そのファイルを読んで答える。打つ行は殻が出した物をそのまま使う（`use.sh show <対象>` でいつでも出し直せる）。
+関所は 3 つ。どれも文言に「全文のファイルのパス」が載るので、そのファイルを読んで答える。打つ行は殻が出した物をそのまま使う（`use.sh show <対象>` でいつでも出し直せる）。関所の全文の答えの行も、この殻の `answer` の行で書いてある。
+
+**人が決める関所（修正の前の関所と最後の関所）は、あなた（/works を回す Claude）が自分で通さない。** 必ず依頼者に聞く。聞く時は冒頭にまとめる: 何が止まったか・なぜ止まったか・答えごとに何が起きるか（`continue` なら何が通り、`stop` なら報告だけ出る）・あなたの推奨。依頼者の言葉をそのまま一言にして、答えた者の名を最後に付けて打つ（殻が `<利用の家>/answers.jsonl` に残す）。
+
+```
+sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" answer <対象リポジトリ> <run-id> continue "<通す範囲と条件>" "<答えた者>"
+```
 
 1. 起動の関所 `launch`: 「進める」の行（`… workflow approve <run-id>`）で始まる。
 2. 修正の前の関所 `policy-gate`（要る時だけ）: 修正案が能力を狭める・事前審査が後退や方針の穴を挙げた・方針の文書が変わった時に開く。全文は盤面の `r1/gate.md`。
-   - 通す: 「答えて進める」の行（`respond <run-id> continue "<通す範囲と条件>"`）。一言は修正役にファイルで届く。`approve` も通す。
-   - 止める: 「関所で止める」の行（`respond <run-id> stop "<理由>"`）。止めても報告は出る。
-3. 最後の関所 `final-gate`（`final_gate: always` ならいつも。`when_needed` でも、テストが緑でない・独立の目が阻害を返した・問いや異議が残った時は開く）: 最後のテストと独立の目 R1〜R4 の後に開く。テストの緑赤・ログ・差分の置き場・残った異議・目の判定が全文 `r1/final-gate.md` に在る。`continue` でも `stop` でも報告へ進む。
+   - 通す: `answer … continue "<通す範囲と条件>"`。一言は修正役にファイルで届く。
+   - 止める: `answer … stop "<理由>"`。止めても報告は出る。
+3. 最後の関所 `final-gate`（既定の `when_needed` では、テストが緑でない・独立の目が阻害を返した・問いや異議が残った時・守りのファイルが変わった時に開く。`final_gate: always` ならいつも）: 最後のテストと独立の目 R1〜R4 の後に開く。テストの緑赤・ログ・差分の置き場・残った異議・目の判定が全文 `r1/final-gate.md` に在る。`continue` でも `stop` でも報告へ進む。
    - 独立の目の R4 が人に聞く物（消えた能力・方針とのぶつかり）を挙げたら、その問いも関所の全文に載る。関所の `continue` は問いに答えない。問いは報告の冒頭と次の run の依頼の下書きに載り、結末は `needs_human`。
 
-関所で待っている run は `cancel` でなく `respond … stop` で止める。判定が直す物を 1 つも残さなかったときは、修正の段を飛ばして報告へ行く（結末は `no_fix_needed`）。
+進める・答える行は、残りの工程をその場で全部回す（次の関所か終わりまで戻らない）。Claude Code の Bash なら背景（`run_in_background`）で打ち、手番の中では次の行を前景で打って待つ。決まった時間（既定 540 秒。`WORKS_USE_WAIT_SECONDS` で変える）のうちに戻り、状態を 1 行と終了コードで返す（0 = 関所で待つ・3 = まだ走っている・5 = 終わった・1 = 落ちた）。3 なら同じ行を打ち直し、0 なら `show` で関所の文を読んで答える。止めるなら 5 節の `stop` を使う。
+
+```
+sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" wait <対象リポジトリの根> <run-id>
+```
+
+判定が直す物を 1 つも残さなかったときは、修正の段を飛ばして報告へ行く（結末は `no_fix_needed`）。
 
 ## 4. 報告を読み、差分を取り込む
 
@@ -92,18 +109,24 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start <対象リポジトリの根> <依�
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" show <対象リポジトリの根>
 ```
 
-一番新しい run について、状態・報告の置き場・差分のファイルを出す。
+その対象から起こした一番新しい run について、状態・報告の置き場・差分のファイルを出す（run id を後ろに足せば、その run について出す）。
 
 - 報告: 盤面の `report.md`（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）と `next-request.json`（次の run に渡す依頼の下書き）。
 - 結末（run の出口の `outcome`）: `fixed`・`no_fix_needed`・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）・`interrupted`（run が途中で終わった。冒頭 3 に落ちた節）。
-- 差分: run の worktree と周の頭の版の差（手直しと未追跡も入る）を、利用の家の `diffs/run-<id>.diff` に書く。修正は commit されない。取り込むかは人が決め、殻が出す `git -C <対象> apply <diff>` の行で当ててから、手元でテストを回して commit する。
-- 片付け: 取り込んだ後、run の worktree と枝は `git -C <対象> worktree remove <worktree>` と `git -C <対象> branch -D <枝>` で消せる（Archon 自身の片付けは `complete <枝>`）。
+- 差分: run の worktree と周の頭の版の差（手直しと未追跡も入る）を、利用の家の `diffs/run-<id>.diff` に書く。修正は commit されない。取り込むかは人が決め、`sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" apply <対象リポジトリの根> <run-id>` で当ててから、手元でテストを回して commit する。殻は差分を書き直し、`git apply --check` で当たるかを先に見る。対象のファイルを消す差分は、消すファイルを並べて止まる（消してよければ `WORKS_USE_ALLOW_DELETE=1` を前に付けて打ち直す）。
+- 片付け: 取り込んだ後、`sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" clean <対象リポジトリの根> <run-id>` で run の worktree と枝を消す。走っている・関所で待つ run は拒む。
 - `report_file`: 最後の報告。盤面が報告の節を出した run（人か止め札で止めた・収束した）では AI が書いて初見の読み手が確かめた `report-ai.md`（最後に機械の報告が字のまま付く）、そうでなければ機械の `report.md`。機械の報告はいつも `machine_report_file`。
 
 ## 5. 止めて続ける
 
-- 止め札: 対象の根で `WORKS_DEV_HOME="${WORKS_USE_HOME:-$HOME/.local/state/works/use}" sh "${CLAUDE_PLUGIN_ROOT}/dev/stop.sh" <run-id> "<理由>"`。走っている AI の節は最後まで走り、次の境の節で止まる（報告は出る）。
-- 前景の run は Ctrl-C で止まる。関所で待っている run は `respond … stop`。
+止め方は 1 つ:
+
+```
+sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" stop <対象リポジトリ> <run-id> "<理由>"
+```
+
+- 関所で待っている run には `respond … stop` を、走っている run には止め札（中で `sh "${CLAUDE_PLUGIN_ROOT}/dev/stop.sh" <run-id> "<理由>"` を、利用の家を埋めて打つ）を置く。止め札では、走っている AI の節は最後まで走り、次の境の節で止まる。どちらも報告は出る。
+- すぐ止めたい時だけ、`show` が出した「取り消す」の行（`cancel <run-id>`）を使う（報告の節まで届かない。下の report.sh で組む）。
 - 続ける: 殻が出した「続ける」の行（`resume <run-id>`）で、済んだ節の続きから回る。
 - 節が落ちた run（ブロックの中の出し直しが上限（3 回）を超えたときを含む）でも報告の節は走り、結末 `interrupted` の `report.md` と `next-request.json` が盤面に残る。冒頭 3 に落ちた節とその誤りの文が出る。run の出口は報告を書いてから 0 でない終了コードで終わるので、Archon の run の状態は失敗のまま。start で落ちた run は盤面が無く、報告も無い。
 - 取り消し・abandon で止めた run は報告の節まで届かない。対象の根で、止め札と同じ `WORKS_DEV_HOME=…` を前に付けて `sh "${CLAUDE_PLUGIN_ROOT}/dev/report.sh" <run-id>` を打つと、盤面から報告を組む（結末 `interrupted`）。

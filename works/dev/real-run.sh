@@ -74,5 +74,8 @@ echo "workflow run の終了コード: $run_status"
 
 # run id・状態・修正の差分がある worktree・次に打つコマンドを出す（lib.sh）
 . "$DEV_DIR/lib.sh"
-works_dev_show_run real-run.sh "$DEV_DIR/archon.sh" "$DIR"
-exit "$run_status"
+# 起動が落ちても run が在れば続きの行を出す。終了コードは起動のまま（起動が 0 の時だけ show の結果）
+show_status=0
+works_dev_show_run real-run.sh "$DEV_DIR/archon.sh" "$DIR" || show_status=$?
+[ "$run_status" -ne 0 ] && exit "$run_status"
+exit "$show_status"

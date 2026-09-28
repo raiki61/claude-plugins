@@ -34,6 +34,7 @@ from board import BoardGap  # noqa: E402
 from engine.rules import validator_module  # noqa: E402  （board が写しの engine を sys.path に足した後）
 from engine.util import Reject  # noqa: E402
 import accept  # noqa: E402
+import answer  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import halt  # noqa: E402
@@ -339,10 +340,9 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
         lines.append("  - この関所の答えは盤面の問いに答えない。問いは報告の冒頭と次の run の依頼の下書きへ渡る")
     else:
         lines.append("- 盤面の問い: 無い")
-    lines += ["", "答え方（approve は continue と、reject は stop と同じ）:",
-              f'- 報告へ進める: archon workflow respond {run_id} continue "<一言>"',
-              f'- 止める: archon workflow respond {run_id} stop "<理由>"'
-              f'（archon workflow reject {run_id} --reason "<理由>" でも止まる。報告は出る）']
+    lines += ["", "答え方（人が決める関所。依頼者に聞いて、その言葉で答える）:",
+              f"- 報告へ進める: {answer.line(run_id, 'continue', '<一言>')}",
+              f"- 止める: {answer.line(run_id, 'stop', '<理由>')}（報告は出る）"]
     return "\n".join(lines) + "\n"
 
 
