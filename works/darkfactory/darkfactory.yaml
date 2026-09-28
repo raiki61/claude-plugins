@@ -48,7 +48,7 @@ inputs:
     description: 報告の言語（AI の報告の指示書が読む inputs.lang。graphloops の --lang と同じ）。空は依頼文の言語（利用者の言語）
   tdd_suite:
     default: ""
-    description: テストの実行器（JUnit XML の書き先を第 1 引数に受ける実行ファイル。対象の根から）。空なら修正の段の TDD の輪を飛ばす
+    description: テストの実行器（JUnit XML の書き先を第 1 引数に受ける実行ファイル。対象の根から。後ろに試験のファイル・node id（絶対パス）と -k を足して呼ぶことがある）。空なら修正の段の TDD の輪を飛ばす
 
 returns: result
 outcome_field: ok

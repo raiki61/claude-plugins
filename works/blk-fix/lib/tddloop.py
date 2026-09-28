@@ -10,25 +10,31 @@
   - test: 申告したテストのファイルの外に触れていない・写しの red_problems（名指しは failure で落ち、元で通っていた物は緑）
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
+  - test・fix・refactor とも、名指しを絶対パスの node id で実行器の後ろに足して走らせる（段の外に書いたテストも一式の結末に載る）
   拒めば同じ段のまま、理由は次の指示書（と reason_file）に載る。段ごとに RETRY_MAX 回目の拒否で諦める: test・fix は作業ツリーを
   単位の頭に戻して direct へ、refactor は緑の時の木に戻す。実行器が走らない・回数の上限に届いた時は、残りを全部 direct にして抜ける
   （輪は done の印で抜け、max_iterations に届いて落ちない。R50）
 - fix-accept → frozen_problems: 輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（裁定 fix_test_scope の
   範囲の中の変更は、輪が済んだ時の木（frozen_tree）との差分の塊の旧い側の行で見て通す）
 - fix-accept → selected_problems: 版からの変更に当たる試験（impact.select_tests。分からない物が近くに在れば全部）を同じ実行器で
-  走らせ、元で赤でなかった試験の赤を返す（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
+  走らせ（選んだ .py のファイルを一式を回す時も絶対パスで後ろに足し、一式でない時は -k で絞る）、元で赤でなかった試験の赤を返す。元の結末に無い試験の赤は、版を
+  一時の置き場に写して同じ試験を回し、版でも赤なら外す（作業ツリーは動かさない）。1 件も走らなければ「新しい赤なし」にせず
+  知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
 - collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整え・direct の理由）
 赤・緑の判定は写しの rules（review-loop-tdd.py）の関数を呼ぶ（写さない）。版は一時の index（GIT_INDEX_FILE）で木に固める
 （本物の index・HEAD・枝は動かさない。.gitignore に当たる物は載らない）。期限は持たない。
 """
 import difflib
 import hashlib
+import io
 import json
 import os
 import pathlib
 import posixpath
+import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 
 sys.dont_write_bytecode = True
@@ -133,7 +139,8 @@ def hashes(repo, files) -> dict:
 def run_suite(exe: str, repo, work: pathlib.Path, n, args=()):
     """実行器を 1 回走らせる ——（結末の一覧, 終了コード, 問題）。結末が取れなければ一覧は None。
     .py はこの Python で走らせる（写しの rules の run_suite と同じ）。出力は work/suite-<n>.log に丸ごと。
-    args は JUnit の書き先の後ろに足す（受け付けの選んだ試験の -k。works/dev/tdd-suite.sh は pytest にそのまま渡す）"""
+    args は JUnit の書き先の後ろに足す（段の外の試験のファイル・node id を絶対パスで・受け付けの -k。works/dev/tdd-suite.sh は
+    pytest にそのまま渡す）。同じ鍵の行は 1 つにまとめる（段のファイルと足した node id が重なっても 1 件）"""
     argv = ([sys.executable] if exe.endswith(".py") else []) + [exe]
     junit = work / f"junit-{n}.xml"
     log = work / f"suite-{n}.log"
@@ -152,11 +159,29 @@ def run_suite(exe: str, repo, work: pathlib.Path, n, args=()):
         return None, rc, [f"JUnit XML が読めない（{e}。ログ {log}）"]
     finally:
         junit.unlink(missing_ok=True)
-    return cases, rc, []
+    return _unique(cases), rc, []
 
 
 def _key(c) -> str:
     return f"{c['classname']}::{c['name']}"   # 写しの rules の _key と同じ形（元の結末の鍵）
+
+
+def _unique(cases) -> list:
+    """同じ鍵の行を最初の 1 つにまとめる（名指しの写しを red_problems が名指しの外と数えない）"""
+    seen = set()
+    return [c for c in cases if not (_key(c) in seen or seen.add(_key(c)))]
+
+
+def _abs_paths(repo, files) -> list:
+    """根からの相対パス（node id の頭も）を絶対パスにする。実行器は自分の置き場へ cd しうるので、相対では解けない"""
+    root = pathlib.Path(repo).absolute()
+    return [str(root / f) for f in files]
+
+
+def _abs_ids(repo, ids) -> list:
+    """名指し『<相対パス>::…』を『<絶対パス>::…』の node id にする"""
+    parts = [i.partition("::") for i in ids]
+    return [a + sep + rest for a, (_, sep, rest) in zip(_abs_paths(repo, [p[0] for p in parts]), parts)]
 
 
 # ---------------------------------------------------------------- 状態
@@ -272,7 +297,9 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
         if left:
             lines += ["この後の tdd の単位（今は手を付けるな）: " + " / ".join(left), ""]
     lines += ["## テストの回し方", "",
-              f"リポジトリの根で `{st['exe']} <JUnit XML の書き先>`（書き先は /tmp の下など作業ツリーの外に）。", "",
+              f"リポジトリの根で `{st['exe']} <JUnit XML の書き先>`（書き先は /tmp の下など作業ツリーの外に）。"
+              "機械は名指しを実行器の後ろに絶対パスの node id で足して回す（実行器の既定の一覧の外に書いたテストも載る）。"
+              "自分で回す時も同じ形で足せる。", "",
               "## 返す JSON", "", RETURN[phase], "", RETURN_CONFLICT]
     vals = {**{k: "" for k in fixrules.TDD_VALUES}, **(values or {}),
             "open_units": json.dumps(st["open_units"], ensure_ascii=False)}
@@ -303,10 +330,12 @@ def _paths(v, name) -> tuple:
     return out, ([f"{name} はリポジトリの根からの相対パス（{bad}）"] if bad else [])
 
 
-def _run(st, repo):
-    """一式を走らせ、走らせて出来たファイルを suite_made に積む（テストを書く段が触ったファイルの数えから外す）"""
+def _run(st, repo, named=()):
+    """一式を走らせ、走らせて出来たファイルを suite_made に積む（テストを書く段が触ったファイルの数えから外す）。
+    名指しは絶対パスの node id で実行器の後ろに足し、段の外に書いたテストも同じ 1 回で集める（段の中の名指しとの重なりは
+    run_suite が 1 件にまとめる。後ろの引数を解かない実行器なら段の外の名指しは居ないままで、赤・緑の確認が今どおり拒む）"""
     pre = snapshot(repo)
-    cases, code, why = run_suite(st["exe"], repo, pathlib.Path(st["work"]), st["runs"])
+    cases, code, why = run_suite(st["exe"], repo, pathlib.Path(st["work"]), st["runs"], _abs_ids(repo, named))
     st["runs"] += 1
     st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
     if cases is None:
@@ -380,7 +409,7 @@ def _test(st, reply, repo) -> list:
     extra = sorted(set(touched(repo, st["unit_head"], snapshot(repo))) - set(files) - set(st["suite_made"]))
     if extra:
         return [f"申告したテストのファイルの外に触れた: {extra[:5]}——この段はテストだけを書く（実装は次の段）"]
-    cases, code = _run(st, repo)
+    cases, code = _run(st, repo, tests)
     probs = rules().red_problems(tests, cases, code, st["baseline"])
     if probs:
         return probs
@@ -398,7 +427,7 @@ def _green(st, u, repo) -> list:
     moved = _frozen_moved(u, repo)
     if moved:
         return [f"テストのファイルを赤の時から書き換えた: {moved}——テストは凍っている（テストの誤りは what に書け）"]
-    cases, code = _run(st, repo)
+    cases, code = _run(st, repo, u["tests"])
     return rules().green_problems(u["tests"], cases, code, st["baseline"], st["baseline_exit"])
 
 
@@ -633,10 +662,20 @@ def suite_made(state_file) -> list:
 
 ACCEPT_RUN = "accept"   # 受け付けが走らせた回のログ・JUnit の名（suite-accept.log）
 NO_SELECTED = "変えたファイルに当たる試験が無い"
+PYTEST_FILE = re.compile(r"^(test_.*|.*_test)\.py$")   # pytest の既定の python_files（conftest.py・*-suite.py などは試験のモジュールでない）
+
+
+def _args(root, files, kexpr) -> list:
+    """受け付けが実行器に足す引数: 選んだ試験のうち root の中に在る pytest の試験のモジュール（絶対パス。.sh・.bats を渡すと
+    収集器が無く一式ごと止まり、conftest.py・実行器の台本の .py を名指しすると pytest が型に依らず import する）と、段の中を
+    絞る -k（一式を回す時は付けない）"""
+    py = [f for f in files if PYTEST_FILE.match(posixpath.basename(f)) and (pathlib.Path(root) / f).is_file()]
+    return [*_abs_paths(root, py), *(["-k", kexpr] if kexpr else [])]
 
 
 def selected_problems(state_file, repo, rev) -> tuple:
-    """(赤の文の一覧, 知らせ)。実行器の無い run（状態が無い）・当たる試験が無い・実行器が走らない時は赤にせず知らせだけ"""
+    """(赤の文の一覧, 知らせ)。実行器の無い run（状態が無い）・当たる試験が無い・実行器が走らない・選んだ試験が 1 件も
+    走らなかった時は赤にせず知らせだけ。元の結末に無い試験の赤は、版の写しで同じ試験を回して、版でも赤なら外す"""
     if not state_file:
         return [], NO_SUITE
     st = _load(state_file)
@@ -644,20 +683,57 @@ def selected_problems(state_file, repo, rev) -> tuple:
     sel = impact.select_tests(impact.map(repo, rev=rev, diff=True, cache_dir=work / "impact"))
     if not sel["run_all"] and not sel["modules"]:
         return [], NO_SELECTED
-    args = [] if sel["run_all"] else ["-k", " or ".join(sel["modules"])]
+    files = sel["selected"]
+    kexpr = "" if sel["run_all"] else " or ".join(sel["modules"])
     pre = snapshot(repo)
-    cases, code, why = run_suite(st["exe"], repo, work, ACCEPT_RUN, args)
+    cases, code, why = run_suite(st["exe"], repo, work, ACCEPT_RUN, _args(repo, files, kexpr))
     st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
     _save(state_file, st)
-    what = "一式（" + "・".join(sel["reasons"])[:200] + "）" if sel["run_all"] else f"選んだ試験（-k {args[1][:300]}）"
+    what = "一式（" + "・".join(sel["reasons"])[:200] + "）" if sel["run_all"] else \
+        f"選んだ試験（ファイル {', '.join(files)[:300]}・-k {kexpr[:300]}）"
     if cases is None:
         return [], f"{what}を走らせられない（{'; '.join(why)}）"
+    if not cases:
+        return [], (f"{what}が一式の結末に 0 件——選んだ試験が 1 件も走らなかった（-k が何にも当たらない・実行器が足した試験を"
+                    f"拾わない。ログ {work / f'suite-{ACCEPT_RUN}.log'}）。新しい赤が無いことは確かめていない")
     red = [_key(c) for c in cases if c["outcome"] in ("failure", "error")
            and st["baseline"].get(_key(c)) not in ("failure", "error")]
+    fresh = [k for k in red if k not in st["baseline"]]
+    tail = ""
+    if fresh:
+        old, why = _base_reds(st, repo, rev, files, kexpr)
+        if old is None:
+            tail = f"。元の結末に無い {len(fresh)} 件は版の姿で比べられず赤のまま（{'; '.join(why)}）"
+        else:
+            red = [k for k in red if k not in old]
     if not red:
         return [], f"{what}: {len(cases)} 件で新しい赤なし"
-    return [f"受け付けが走らせた{what}で、元で赤でなかった試験が赤: {red[:20]}（{len(red)} 件。ログ {work / f'suite-{ACCEPT_RUN}.log'}）"
-            "——直した単位のどこかを直して出し直せ"], ""
+    return [f"受け付けが走らせた{what}で、元で赤でなかった試験が赤: {red[:20]}（{len(red)} 件。ログ {work / f'suite-{ACCEPT_RUN}.log'}"
+            f"{tail}）——直した単位のどこかを直して出し直せ"], ""
+
+
+def _base_reds(st, repo, rev, files, kexpr) -> tuple:
+    """(版 rev の姿で同じ試験を回して赤だった鍵の集合か None, 問題)。版の姿は一時の置き場に git archive で写して走らせ、
+    作業ツリー・index・枝は動かさない。実行器が repo の中に在れば写しの中の同じ物を走らせる（自分の置き場から根を引く実行器が
+    写しの根で走るように）"""
+    with tempfile.TemporaryDirectory(prefix="works-tdd-rev-") as td:
+        copy = pathlib.Path(td) / "repo"
+        try:
+            tar = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev], capture_output=True, check=True).stdout
+            with tarfile.open(fileobj=io.BytesIO(tar)) as t:
+                t.extractall(copy, **({"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
+        except (OSError, subprocess.CalledProcessError, tarfile.TarError) as e:
+            return None, [f"版 {rev} を写せない（{type(e).__name__}: {e}）"]
+        exe = pathlib.Path(st["exe"])
+        try:
+            inner = copy / exe.absolute().relative_to(pathlib.Path(repo).absolute())
+            exe = inner if inner.is_file() else exe
+        except ValueError:
+            pass
+        cases, _, why = run_suite(str(exe), copy, pathlib.Path(st["work"]), f"{ACCEPT_RUN}-rev", _args(copy, files, kexpr))
+    if cases is None:
+        return None, why
+    return {_key(c) for c in cases if c["outcome"] in ("failure", "error")}, []
 
 
 FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems")

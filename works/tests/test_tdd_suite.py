@@ -66,6 +66,18 @@ class OtherCase(unittest.TestCase):
         pass
 '''
 
+OUT_TEST = '''\
+import unittest
+
+
+class OutCase(unittest.TestCase):
+    def test_a(self):
+        pass
+
+    def test_b(self):
+        self.fail("段の外")
+'''
+
 
 @unittest.skipIf(shutil.which("uv") is None, "SKIP uv: uv が無い（殻は uv run で pytest を起こす）")
 class TddSuiteCase(unittest.TestCase):
@@ -126,6 +138,29 @@ class TddSuiteCase(unittest.TestCase):
         self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_other": "passed"})
 
     def test_extra_args_narrow_the_tier(self):
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, "-k", "test_pass")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_pass": "passed"})
+
+    def test_outside_node_ids_are_added_to_the_tier(self):
+        # 段の外の node id は、呼ぶ側の cwd からの相対でも絶対パスでも段の一覧に足して集め、-k は足した物も含めて絞る
+        (self.caller / "outside").mkdir()
+        (self.caller / "outside" / "test_out.py").write_text(OUT_TEST, encoding="utf-8")
+        other = f"{self.root / 'tests' / 'test_other.py'}::OtherCase::test_other"
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, "outside/test_out.py::OutCase::test_a", other)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()},
+                         {"test_pass": "passed", "test_fail": "failure", "test_error": "failure", "test_skip": "skipped",
+                          "test_a": "passed", "test_other": "passed"})
+        r = self.run_suite(out, "outside/test_out.py", other, "-k", "test_b or test_other")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_b": "failure", "test_other": "passed"})
+
+    def test_k_value_is_not_taken_as_a_path(self):
+        # -k の値が呼ぶ側の cwd に在るファイルの名と同じでも、パスに書き換えない（絞る式のまま）
+        (self.caller / "test_pass").write_text("", encoding="utf-8")
         out = self.caller / "junit.xml"
         r = self.run_suite(out, "-k", "test_pass")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

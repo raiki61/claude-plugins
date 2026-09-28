@@ -4,7 +4,8 @@
 # TDD の実行器（ラインの入力 tdd_suite に渡す殻。仕様 tdd-spec 6 節）。works の試験を既製の pytest で走らせ、テスト 1 件ごとの
 # 結末を pytest の --junitxml で書く（JUnit を自作しない。pytest は今の unittest の試験をそのまま拾う）。
 # 段は WORKS_TDD_TIER（fast が既定・heavy）。段のファイルは tests/tiers.py の paths の口から引く（一覧を写さない）。
-# 後ろの引数は pytest にそのまま足す（-k などで段の中を絞る）。書き先の相対パスは呼ぶ側の cwd から。
+# 後ろの引数は pytest にそのまま足す: 段の外の試験のファイル・node id（`<パス>::<クラス>::<名前>`）は集める先に足し、-k は集めた中を
+# 絞る。書き先と、呼ぶ側の cwd から在るパス（node id は :: の前）の相対パスは呼ぶ側の cwd から解く（pytest は works で起こす）。
 # 終了コードは pytest のまま（0 = 全部通った・1 = 落ちた試験が在る・…）。書き先が無い・段の値が違う・段の一覧が崩れている
 # ときは、標準エラーに 1 行出して 2（pytest を起こさない）。.pytest_cache とバイトコードは作らない。
 # 読み込みで落ちるモジュールが在っても一式を止めない（--continue-on-collection-errors。落ちたモジュールは error で載り、
@@ -21,6 +22,20 @@ case $out in
   /*) ;;
   *) out=$(pwd)/$out ;;
 esac
+here=$(pwd)
+n=$#
+prev=
+while [ "$n" -gt 0 ]; do
+  a=$1
+  shift
+  n=$((n - 1))
+  case $prev:$a in
+    -k:*|*:/*|*:-*) ;;
+    *) if [ -e "$here/${a%%::*}" ]; then a=$here/$a; fi ;;
+  esac
+  prev=$a
+  set -- "$@" "$a"
+done
 tier=${WORKS_TDD_TIER:-fast}
 case $tier in
   fast|heavy) ;;
