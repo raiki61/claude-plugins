@@ -31,6 +31,8 @@ sys.path.insert(0, str(TESTS))
 
 from board import GRAPH_SHA, BoardGap, DiskBoard, NodeTable, graph_expanded  # noqa: E402
 import engine.util as engine_util  # noqa: E402  （board が写しの graphloops を sys.path に足す）
+import accept  # noqa: E402
+import design  # noqa: E402
 import entry  # noqa: E402
 import halt  # noqa: E402
 import line_edge  # noqa: E402
@@ -838,6 +840,7 @@ class GoCase(EdgeBase):
         """線の順に進めた盤面で、各 at の go が盤面の ready の節で決まる（review → p3.delta_review、refix → p3.delta_fix、
         tests → p4.ci、mid → 今の周の p3.fix を役が出した）"""
         self.planned()
+        accept.write_board(self.board, design.DESIGN_FILE, linekit.reply("design_ok"))   # 修正案のブロックが独立設計も作った後
         self.assertEqual([self.edge(at)["go"] for at in ("plan", "fix", "mid", "review", "refix", "tests")], [False] * 6)
         self.fix_after_plan("")
         self.assertEqual({at: self.edge(at)["go"] for at in ("fix", "mid", "review", "refix", "tests")},
@@ -926,10 +929,11 @@ class PlanEdgeCase(EdgeBase):
                 self.assertEqual(self.state()["stop"]["by"], line_edge.JUDGE_BRIDGE_BY)
 
     def test_no_fix_closes_round(self):
-        """直す物の無い判定 → go False、p3.fix が空の返答で done、ready に p4.ci、trace に works:empty-fix（TA6）"""
+        """直す物の無い判定 → p3.fix が空の返答で done、ready に p4.ci、trace に works:empty-fix（TA6）。go は、修正案は無いが
+        最後の R2 が要る独立設計を修正の前に作る周なので True（blk-plan は設計の輪だけを回す）"""
         self.premised()
         got = self.edge("plan", judged=self.judge_exit("judge_no_fix"))
-        self.assertEqual((got["go"], got["stop"]), (False, False), got)
+        self.assertEqual((got["go"], got["stop"]), (True, False), got)
         b = entry.open_board(self.board)
         self.assertEqual((b.node_state("p2.fix_plan"), b.node_state("p3.fix")), ("na", "done"))
         self.assertEqual(b.output_of_round("p3.fix", b.round)["changes"], [])
@@ -938,7 +942,7 @@ class PlanEdgeCase(EdgeBase):
         self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
         self.assertFalse(self.edge("mid")["go"])
         again = self.edge("plan", judged=self.judge_exit("judge_no_fix"))   # Archon の再開で呼び直しても 2 度渡さない
-        self.assertEqual((again["go"], again["stop"]), (False, False))
+        self.assertEqual((again["go"], again["stop"]), (True, False))
         self.assertEqual(len(self.done_rows("p3.fix")), 1)
 
 
@@ -1083,6 +1087,63 @@ class MatEyesEdgeCase(EdgeBase):
         halt.place(self.board, "止め札の試し", "test")
         got = self.edge("eyes")
         self.assertEqual((got["go"], got["stop"]), (False, True))
+
+
+class DesignHandCase(EdgeBase):
+    """修正の前に作る独立設計（core の design）: h-plan は設計を作る周に go、h-look は控えを盤面が r2.design を待った時に渡す"""
+
+    def at_look(self):
+        """直す物の無い周を最後のテストの後（p4.assemble 済み・R の目が待つ）まで回した盤面"""
+        self.premised()
+        self.edge("plan", judged=self.judge_exit("judge_no_fix"))
+        b = entry.open_board(self.board)
+        entry.run_ci(b, "p4.ci", test_cmd="")
+        b.settle()
+        return entry.open_board(self.board)
+
+    def test_plan_go_until_design_is_made(self):
+        """直す物の無い判定でも、設計がまだ無い周は go（blk-plan が設計だけを作る）。設計を控えた後の呼び直しは go False"""
+        self.premised()
+        self.assertTrue(self.edge("plan", judged=self.judge_exit("judge_no_fix"))["go"])
+        accept.write_board(self.board, design.DESIGN_FILE, linekit.reply("design_ok"))
+        self.assertFalse(self.edge("plan", judged=self.judge_exit("judge_no_fix"))["go"])
+
+    def test_look_hands_design_then_compare_waits(self):
+        """h-look: 盤面が r2.design を待っていれば design.json を渡し（trace に印）、r2.compare が待つ。渡した設計は控えと同じ"""
+        b = self.at_look()
+        self.assertEqual(b.node_state("r2.design"), "pending")
+        self.assertIn("r2.design", b.ready())
+        accept.write_board(self.board, design.DESIGN_FILE, linekit.reply("design_ok"))
+        got = self.edge("look")
+        self.assertEqual((got["go"], got["stop"]), (True, False))
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state("r2.design"), "done")
+        self.assertEqual(b.latest_output("r2.design"), linekit.reply("design_ok"))
+        self.assertIn("r2.compare", b.ready())
+        self.assertTrue(any(r.get("op") == design.HANDED_OP for r in trace_rows(self.board)))
+        again = self.edge("look")   # Archon の再開で呼び直しても 2 度渡さない
+        self.assertFalse(again["stop"])
+        self.assertEqual(len([r for r in trace_rows(self.board) if r.get("op") == design.HANDED_OP]), 1)
+
+    def test_look_without_design_leaves_it_waiting(self):
+        """控えが無い（設計の役が諦めた）: h-look は渡さず止めない。盤面の trace に設計が無いことを残し、ほかの目は回る"""
+        b = self.at_look()
+        got = self.edge("look")
+        self.assertEqual((got["go"], got["stop"]), (True, False))
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state("r2.design"), "pending")
+        rows = [r for r in trace_rows(self.board) if r.get("op") == design.MISSING_OP]
+        self.assertTrue(rows and rows[-1]["reason"].startswith(design.MISSING), rows)
+
+    def test_look_with_broken_design_does_not_crash(self):
+        """控えが受け付けの後に書き換わって型に合わない: h-look は落ちず（配線の誤りにしない）、渡さずに理由を trace に残す"""
+        self.at_look()
+        accept.write_board(self.board, design.DESIGN_FILE, {"design": 1})
+        got = self.edge("look")
+        self.assertEqual((got["go"], got["stop"]), (True, False))
+        self.assertEqual(entry.open_board(self.board).node_state("r2.design"), "pending")
+        rows = [r for r in trace_rows(self.board) if r.get("op") == design.MISSING_OP]
+        self.assertIn("型が合わない", rows[-1]["reason"])
 
 
 class ReadyCase(unittest.TestCase):

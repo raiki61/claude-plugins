@@ -36,7 +36,7 @@ _CORE = pathlib.Path(__file__).resolve().parent
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
-from board import BoardGap, rules_module  # noqa: E402
+from board import BoardGap, pending_instance as _pending, rules_module  # noqa: E402
 import engine.util as _util  # noqa: E402
 import accept  # noqa: E402
 import entry  # noqa: E402
@@ -100,10 +100,6 @@ def output_format(role: str) -> dict:
 def _in_round(b, v):
     """周に属する loop 値（{round, …}）を今の周の物だけ（前の周の値は None）"""
     return v if isinstance(v, dict) and v.get("round") == b.round else None
-
-
-def _pending(b, nid):
-    return next((i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
 
 
 def _owed_rows(b, n) -> list:

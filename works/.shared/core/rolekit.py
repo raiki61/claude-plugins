@@ -7,6 +7,8 @@
                   この節の拒否が在れば、最後の拒否の理由のファイルのパスを頭の 1 行で名指す（文は貼らない。裁定 R44）
 - compose:        指示書の部分を繋ぎ、前の拒否の理由のファイルを頭の 1 行で名指す（render_prompt と、本線の写しでない指示書を
                   スクリプトが組むブロックが使う）
+- role_definition: 役の定義の本文を指示書の頭に置くための (本文, ファイル, 無い時の知らせ)。写しの plugin の役が引けなければ BoardGap
+- with_reject:    道具ゼロの役の指示書の頭に前の拒否の文を貼る（ファイルを名指さない。裁定 R44）
 - agent_def:      engine の agent_def（役の定義 agents/<役>.md）を、写しの plugin の役は pack の写し（core/agents/）から引く
 - accept_role:    出し直しの輪の受け付け（entry.take）。拒否は理由の本文を盤面の reject-take_<節>-<連番>.txt に書き
                   （script_io が理由の本文を書く名）、この周の拒否の控え role-rejects.json に積み、give_up_after 回目で done・give_up
@@ -38,6 +40,7 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す。engine より先に）
 from engine import pointers as _pointers  # noqa: E402
+from engine.advance import agent_type_of  # noqa: E402
 from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
 from engine.util import Reject, dump, safe_name  # noqa: E402
 from engine.validator import agent_def as _engine_agent_def, env_root  # noqa: E402
@@ -81,21 +84,24 @@ def prompt_graph_path(b, n, prompts_dir: pathlib.Path = PROMPTS_COPY) -> pathlib
 
 
 def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_only: bool = True,
-                template: str | None = None, ctx_hook=None, schema_note: bool = True, schema_of: str = "") -> tuple:
+                template: str | None = None, ctx_hook=None, schema_note: bool = True, schema_of: str = "",
+                ahead: bool = False) -> tuple:
     """engine の emit_instance と同じ描き方の本文（cap なし。指示書は役がファイルで読む）と番号の控え（pointers.snapshot の
     名前の列。mark_launched の pointers= に渡す形。pointers を持たない節は空の列）。reads_only が偽なら graph の reads で
     穴を絞らない。template は graph の指示書（node_prompt）の代わりに描く本文（ブロックが別の置き場に持つ本線の写し）。
     ctx_hook(ctx) は描く前に ctx を足す口（engine が足す欄——検証器の結果 validation・ラインに無い節の出力の代わり など）。
     schema_note が偽なら本文の後ろに graph の schema を足さない（指示書の一部だけを材料として描く時。返答の型は役の output_format）。
     schema_of は足す schema を別の節の物にする（待っている節の輪の中で、別の節の指示書を描く時）。
-    この周に待っている instance が無い・描けない（reads に無い穴・盤面の欄の欠け・番号の穴の欠け）は BoardGap"""
+    ahead が真なら節がまだ待っていなくても描く（graph の依存より前に先に役を起こす時。skills は空）。
+    この周に待っている instance が無い（ahead でない時）・描けない（reads に無い穴・盤面の欄の欠け・番号の穴の欠け）は BoardGap"""
     n = b.nodes[nid]
     inst = b.rd["instances"].get(nid)
-    if not inst or inst.get("status") != "pending":
+    pending = bool(inst) and inst.get("status") == "pending"
+    if not (pending or ahead):
         raise BoardGap(f"この周に節 {nid} の待っている instance が無い")
     tpl = node_prompt(prompt_graph_path(b, n, prompts_dir), n) if template is None else template
     ctx = b.ctx()
-    ctx["node"] = {"skills": inst.get("skills") or []}   # engine と同じく、出した時点の applies を持つ写し（settle が置いた物）
+    ctx["node"] = {"skills": (inst.get("skills") if pending else None) or []}   # engine と同じく、出した時点の applies を持つ写し（settle が置いた物）
     if ctx_hook is not None:
         ctx_hook(ctx)
     snap, offsets = _pointers.snapshot(ctx, n.get("pointers"))
@@ -150,6 +156,37 @@ def agent_def(agent_type: str):
         return _engine_agent_def(agent_type)
     finally:
         os.environ.pop(key, None)
+
+
+def role_definition(b, nid) -> tuple:
+    """(役の定義の本文, 定義のファイル, 無い時の知らせ)。graph の plugin の役の定義が見つからなければ BoardGap（engine の die と同じ——
+    遮断系かどうかが決まらないので起こさない）。別 plugin の役は止めずに知らせを返す（engine の role_def_missing）"""
+    atype = agent_type_of(b, b.nodes[nid])
+    d = agent_def(atype)   # 写しの plugin の役は pack の写し（core/agents/）から
+    if d is None:
+        if atype.rpartition(":")[0] == b.plugin:
+            raise BoardGap(f"{nid}: 役 {atype!r} の定義（agents/<役>.md）が解決できない——遮断系かどうかが決まらないので起こさない"
+                           "（pack の写し .shared/core/agents/・明示した <PLUGIN>_ROOT を確かめよ）")
+        return "", "", f"{atype} の定義がこの環境に無い（別 plugin）。役の定義なしで起こす"
+    return d["body"], d["file"], ""
+
+
+def with_role_definition(b, nid, prompt: str) -> tuple:
+    """描いた指示書の頭に役の定義を置く。返り (指示書, 定義のファイル, 無い時の知らせ)"""
+    body, def_file, missing = role_definition(b, nid)
+    if body:
+        prompt = f"## お前の役の定義（{agent_type_of(b, b.nodes[nid])}）\n\n{body}\n\n---\n\n{prompt}"
+    return prompt, def_file, missing
+
+
+REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
+
+
+def with_reject(prompt: str, reason: str) -> str:
+    """道具ゼロの役の指示書の頭に、前の拒否の文を貼る（役はファイルを読めない。$LOOP_PREV で貼ると Archon が文の中の $… を
+    置き換え直す。裁定 R44）"""
+    return (f"{REJECT_HEADING}\n\n前の回の返答は受け付けで拒まれた。下の理由のところを直した返答を丸ごと出し直せ"
+            f"（直した所だけを返すな）:\n\n```text\n{reason}\n```\n\n---\n\n{prompt}")
 
 
 # ---------------------------------------------------------------- 受け付け（出し直しの輪）

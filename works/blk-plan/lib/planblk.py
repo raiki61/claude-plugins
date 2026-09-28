@@ -1,5 +1,7 @@
-"""blk-plan の芯（P1 計画 Task 25。〔線A計〕T11 を P1-R10 で書き直した物）。修正案（p2.fix_plan）と事前審査（p2.plan_review）の
-2 つの読むだけの役を、本線の指示書を engine の描き方で描いて回す（rolekit）。人の関所の項目は盤面の p2.human_gate が組む。
+"""blk-plan の芯（P1 計画 Task 25。〔線A計〕T11 を P1-R10 で書き直した物）。独立設計（r2.design）・修正案（p2.fix_plan）・
+事前審査（p2.plan_review）の 3 つの役を、本線の指示書を engine の描き方で描いて回す（rolekit）。人の関所の項目は盤面の p2.human_gate が組む。
+独立設計は盤面の節がまだ待っていない（graph では修正の後）ので、支度・受け付け・控えは core の design に任せる（役 r2-design）。
+事前審査の指示書の頭には、その設計（無ければ無い理由）を貼る（design_section）。
 
 - snap:     役を起こす前の作業ツリーの写し（accept.tree_state。R47）を今の周の <役>-snapshot.json に置き、節が待っているか
             （go）を返す。待っていなければ（判定が直す物を出さなかった・修正案が諦めた）輪を飛ばす
@@ -8,7 +10,8 @@
 - accept:   rolekit.main_accept（take が関所の項目の決め手の欄を外して盤面に置き（gatemarks）、entry.take・読むだけの役の作業ツリーの比べ・3 回目の拒否で done・give_up。R50）
 - reads:    2 つの役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
 - collect:  出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file}。役の節がこの周に
-            待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true
+            待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true。
+            独立設計が 3 回とも拒まれたのは止めず、盤面の trace に設計が無いことを書く（最後の R2 が目の層で言う）
 """
 import json
 import os
@@ -23,6 +26,7 @@ if str(_CORE) not in sys.path:
 
 import accept  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
+import design  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import libdocs  # noqa: E402
@@ -32,11 +36,21 @@ import rolekit  # noqa: E402
 
 NODE_OF = {"plan": "p2.fix_plan", "plan-review": "p2.plan_review"}   # 役（YAML の役の節の id・印の名）→ 写しの graph の節
 ROLES = tuple(NODE_OF)
+DESIGN_ROLE = "r2-design"   # 独立設計の役（盤面の節へは渡さない。core の design）
+ISOLATED_FLAG = "isolated"  # 道具ゼロの役の印の旗（包みが Git の外の置き場で起こす）
 STOP_BY = "works:plan"
 GIVE_UP_AFTER = rolekit.GIVE_UP_AFTER   # 輪の max_iterations と同じ数（tests/test_blk_plan.py が YAML と突き合わせる）
 READS_INDEX = "reads-plan-block.json"
 NONE_WORDS = ("", "null")               # 入口の「無し」（Archon の入力の既定の空と、ラインが渡す文字列 null）
 EXCLUDED_HEAD = "並行 PR の範囲。触らず、単位に入れない"
+DESIGN_HEAD = "## 独立設計（修正案を見ない別の目が、目的と実測した制約だけから作った理想解。機械が貼った）"
+DESIGN_ASK = ("修正案をこの設計と構造で突き合わせよ——何を固定し何を派生と見るか・どこに継ぎ目を置くか・目的の当事者が日常で回す"
+              "動線が閉じるか。構造の本質的な食い違いは faces に kind contract_drift・severity block で挙げ、why を"
+              "『独立設計との構造の食い違い: 』で始めよ。表現の違い・設計が触れていない所は食い違いでない（設計は判定の単位も"
+              "実装の事情も知らない）。")
+DESIGN_NOT_STANDS = ("設計の役は、目的の問いが立たないと返した（{reason}）。問いが立つかは修正の後の独立の目が前提を実態で検算して"
+                     "扱うので、ここでは穴に挙げない。設計との突き合わせはせずに審査せよ。")
+DESIGN_NONE = "独立設計は無い（{why}）。設計との突き合わせはせずに審査せよ。"
 HEAD = {
     "plan": ("お前は修正案の役（読むだけ）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch だけで、作業ツリーを 1 文字も変えてはいけない（受け付けは起こす前の"
              "作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の JSON Schema に合う JSON だけを返せ。"),
@@ -48,8 +62,13 @@ HEAD = {
 
 def role_node(role: str) -> str:
     if role not in NODE_OF:
-        raise BoardGap(f"役 {role!r} は blk-plan の役（{' / '.join(ROLES)}）でない")
+        raise BoardGap(f"役 {role!r} は blk-plan の盤面へ渡す役（{' / '.join(ROLES)}）でない")
     return NODE_OF[role]
+
+
+def known_role(role: str) -> str:
+    """役の写しの graph の節（独立設計の役も含む）。知らない役は BoardGap"""
+    return design.NODE if role == DESIGN_ROLE else role_node(role)
 
 
 def snapshot_name(role: str) -> str:
@@ -59,7 +78,10 @@ def snapshot_name(role: str) -> str:
 
 def output_format(role: str) -> dict:
     """役の output_format: 写しの schema（accept.role_schema）に印 works-node: <役> を付けた物（YAML に貼る値）。
-    prep が番号の一覧を貼って控えを固める（mark_launched(pointers=)）ので、番号の欄は番号でも返せる型に開く"""
+    prep が番号の一覧を貼って控えを固める（mark_launched(pointers=)）ので、番号の欄は番号でも返せる型に開く。
+    独立設計の役は番号の欄を持たず、道具ゼロの旗 isolated を付ける"""
+    if role == DESIGN_ROLE:
+        return node_marker.mark(accept.role_schema(design.NODE), role, flags=(ISOLATED_FLAG,))
     return node_marker.mark(accept.role_schema(role_node(role), numbered=True), role)
 
 
@@ -72,15 +94,29 @@ def _given(value) -> str:
     return "" if value is None or str(value).strip() in NONE_WORDS else str(value)
 
 
-def head(role: str, excluded_file: str = "", lib_docs: str = "") -> str:
-    """指示書の頭（役の定義と、並行 PR の外した範囲のパスと、ライブラリの今の文書の節 libdocs.section）"""
+def head(role: str, excluded_file: str = "", lib_docs: str = "", design_part: str = "") -> str:
+    """指示書の頭（役の定義と、並行 PR の外した範囲のパスと、ライブラリの今の文書の節 libdocs.section と、事前審査なら
+    独立設計の節 design_section）"""
     text = HEAD[role] + "\n\n" + gatemarks.HEAD[role_node(role)]
     ex = _given(excluded_file)
     if ex:
         text += f"\n\n{EXCLUDED_HEAD}: {ex}（先に Read で読め。そこに挙がった範囲は、ほかの PR が扱う）"
     if lib_docs:
         text += "\n\n" + lib_docs
+    if design_part:
+        text += "\n\n" + design_part
     return text
+
+
+def design_section(b) -> str:
+    """事前審査の指示書の頭に貼る独立設計の節。設計が問いは立たないと返した・設計が無い時は、突き合わせない旨と理由"""
+    got, _ = design.made(b.dir)
+    if got is None:
+        return f"{DESIGN_HEAD}\n\n" + DESIGN_NONE.format(why=design.missing(b))
+    if not got["question_stands"]:
+        return f"{DESIGN_HEAD}\n\n" + DESIGN_NOT_STANDS.format(reason=got.get("premise_invalid_reason") or got["reason"])
+    return (f"{DESIGN_HEAD}\n\n{DESIGN_ASK}\n\n設計の役の理由: {got['reason']}\n\n=====独立設計ここから=====\n"
+            f"{got['design']}\n=====独立設計ここまで=====")
 
 
 def lib_section(b, repo) -> str:
@@ -94,7 +130,10 @@ def lib_section(b, repo) -> str:
 
 # ---------------------------------------------------------------- 節
 def snap(board_dir, role: str, repo) -> dict:
-    """<役>-snap: 節が待っていれば作業ツリーの写しを置いて go: true。待っていなければ写しを置かずに go: false"""
+    """<役>-snap: 節が待っていれば作業ツリーの写しを置いて go: true。待っていなければ写しを置かずに go: false。
+    独立設計の役は core の design.snap（起こすかは design.due）"""
+    if role == DESIGN_ROLE:
+        return design.snap(board_dir, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
     if _pending(b, nid) is None:
@@ -104,10 +143,15 @@ def snap(board_dir, role: str, repo) -> dict:
 
 
 def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
-    """<役>-prep: 描く → 番号の控え → 起こした印。返り {prompt_file, attempt, out_path, node, already}"""
+    """<役>-prep: 描く → 番号の控え → 起こした印。返り {prompt_file, attempt, out_path, node, already}。
+    独立設計の役は core の design.prep（返り {prompt, prompt_file, node, attempt, already, role_def, role_def_missing}。
+    道具ゼロなので指示書の本文を返し、commands/r2-design.md が直の参照で貼る）"""
+    if role == DESIGN_ROLE:
+        return design.prep(board_dir, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
-    path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo))))
+    part = design_section(b) if role == "plan-review" else ""
+    path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
     ptrs = b.pointer_rows(nid)["pointers"]
     inst = _pending(b, nid)
     m = b.mark_launched(nid, inst.get("attempts", 1), pointers=ptrs)
@@ -128,7 +172,11 @@ def take(role: str):
 
 
 def main_accept(role: str) -> int:
-    """<役>-accept の入口（rolekit.main_accept）"""
+    """<役>-accept の入口（rolekit.main_accept）。独立設計の役は core の design.accept_reply（盤面の節へ渡さない。拒否の理由は
+    reason_file に書く）"""
+    if role == DESIGN_ROLE:
+        return rolekit.script_main(lambda board, repo, env: design.accept_reply(board, env["INPUTS_REPLY"], repo),
+                                   ("INPUTS_REPLY",), fence=True, take="plan")
     return rolekit.main_accept(role_node(role), snapshot_name=snapshot_name(role), give_up_after=GIVE_UP_AFTER,
                                take=take(role))
 
@@ -188,6 +236,9 @@ def collect(board_dir) -> dict:
         if not b.state.get("halted"):
             b.stop(why, by=STOP_BY)
         break
+    gave = rolekit.given_up_reason(pathlib.Path(board_dir), design.NODE, give_up_after=design.GIVE_UP_AFTER)
+    if gave:   # 止めない（事前審査は設計なしで進んだ）。設計が無いことを記録に残し、最後の R2 が目の層で言う
+        b.trace(design.MISSING_OP, reason=f"{design.MISSING}: {gave}")
     ph = b.state.get("pending_human") or {}
     out["asks_human"] = bool(ph)
     out["gate_kinds"] = list(ph.get("kinds") or [])

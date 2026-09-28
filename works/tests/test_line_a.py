@@ -86,13 +86,19 @@ class LineCase(LineBase):
         self.assertLessEqual({"ok", "outcome", "judgment_file", "review_file", "diff_file", "faces"}, set(got["report"]))
 
     def test_no_fix_path(self):
-        """判定が直す物を残さない → 修正案・修正・審査・手直しは飛び、最後のテストは周を締めるので走る。結末 no_fix_needed"""
+        """判定が直す物を残さない → 修正・審査・手直しは飛び、最後のテストは周を締めるので走る。結末 no_fix_needed。
+        修正案のブロックは、最後の R2 が要る独立設計だけを作りに入る（修正案は盤面で na）"""
         r = replies(review=CLEAN_REVIEW)
         r["judge"] = linekit.reply("judge_no_fix")
         got = self.run_line(replies=r, edits={})
         self.order_ok(got["trail"])
-        for nid in ("planning", "policy-gate", "fixing", "reviewing", "refixing"):
+        for nid in ("policy-gate", "fixing", "reviewing", "refixing"):
             self.assertNotIn(nid, got["trail"])
+        self.assertIn("planning", got["trail"])
+        self.assertEqual(got["out"]["planning"]["plan_file"], "")
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertEqual(b.node_state("p2.fix_plan"), "na")
+        self.assertIn("r2.design", b.state["outputs"], "先に作った設計が最後の R2 の前に盤面へ渡った")
         self.assertIn("testing", got["trail"])
         self.assertEqual(got["outcome"], "no_fix_needed")
 
@@ -169,7 +175,8 @@ class EyesPurposeCase(LineBase):
         self.assertEqual(t[-4:], ["h-eyes", "report", "reporting", "result"])
         for name in ("R1: pass", "R2: pass"):
             self.assertIn(name, got["out"]["h-final"]["gate_text"])
-        self.assertEqual(set(got["eyes_roles"]), {"r1-comments", "r1-minimality", "r2-design", "r2-compare"})
+        # r2.design は目のブロックで起こさない（修正案のブロックで先に作り、h-look が盤面へ渡した）
+        self.assertEqual(set(got["eyes_roles"]), {"r1-comments", "r1-minimality", "r2-compare"})
         b = entry.open_board(got["board_dir"], allow_halted=True)
         for nid in ("r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare"):
             with self.subTest(nid):

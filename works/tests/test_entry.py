@@ -33,13 +33,13 @@ TABLE_PATH = ROOT / "darkfactory" / "nodes.json"
 ROLES = {"p0.premises", "p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix", "p3.delta_review", "p3.delta_fix",
          "p3.delta_review2", "p3.delta_fix2", "p2.rejudge", "p2.rejudge_third", "p0.purpose"}
 # 独立の目（blk-eyes。計画 P1 Task 33）の行（tests/boards/tables/eyes-rows.json の案をそのまま当てた）
-EYES = {"r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare", "r3.coherence", "r4.hidden_scope",
+EYES = {"r1.comment_candidates", "r1.minimality", "r2.compare", "r3.coherence", "r4.hidden_scope",
         "stop.premise_check"}
 # P1 の目と素材集め（blk-material。計画 P1 Task 32）
 MATERIAL = {"p0.prior_decisions", "p0.purpose_review", "p1.local_review", "p1.consistency_bypass", "p1.hygiene",
             "p1.external_standards", "p1.procedure_trace", "p1.gate_efficacy", "p1.test_double_fidelity",
             "p1.main_path_observation", "p1.provenance"}
-ROLES |= EYES | MATERIAL | {"report.human_items", "report.cold_check", "report"}
+ROLES |= EYES | MATERIAL | {"report.human_items", "report.cold_check", "report", "r2.design"}
 
 
 def raw_table() -> dict:
@@ -115,12 +115,14 @@ class TableCase(unittest.TestCase):
                     self.assertIn("1 周目は条件", e.reason)
 
     def test_eyes_rows_follow_block_proposal(self):
-        """独立の目の 7 行は blk-eyes の案（eyes-rows.json）と同じ。r1.comment_candidates だけ skippable"""
+        """独立の目の 6 行は blk-eyes の案（eyes-rows.json）と同じ。r1.comment_candidates だけ skippable。R2 の設計の半分
+        （r2.design）は修正案と同じ blk-plan で修正の前に作る（ほかのブロックが同じ節を拾わない）"""
         rows = json.loads((TESTS / "boards" / "tables" / "eyes-rows.json").read_text(encoding="utf-8"))
         self.assertEqual(set(rows), EYES)
         for nid, row in rows.items():
             with self.subTest(nid):
                 self.assertEqual(raw_table()["nodes"][nid], row)
+        self.assertEqual((self.nodes["r2.design"].by, self.nodes["r2.design"].where), ("role", "blk-plan"))
 
     def test_roles_are_track_a_nodes(self):
         roles = {n for n, e in self.nodes.items() if e.by == "role"}
@@ -767,7 +769,7 @@ class StartCase(StartCaseBase):
         got = self.start(repo)
         absent = len(entry.load_table("darkfactory").absent())
         line = got["head_line"]
-        for part in ("判定から", "依頼 2 件", "標準（既定）", "gates: 空", f"このラインに無い節: {absent} 個", "下げている所: 1 個"):
+        for part in ("判定から", "依頼 2 件", "標準（既定）", "gates: 空", f"このラインに無い節: {absent} 個", "下げている所: 2 個"):
             self.assertIn(part, line)
         self.assertNotIn("\n", line)
 

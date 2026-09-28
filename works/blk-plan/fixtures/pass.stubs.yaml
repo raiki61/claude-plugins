@@ -1,6 +1,30 @@
-# 筋書き pass: 修正案と事前審査が 1 回ずつ受け付けを通り、穴も narrows も無いので人に聞かない。
+# 筋書き pass: 独立設計・修正案・事前審査が 1 回ずつ受け付けを通り、穴も narrows も無いので人に聞かない。
 # 役の返答は tests/replies/plan_ok.json・plan_review_ok.json と同じ中身（tests/test_blk_plan.py が一致を見る）。スクリプトの節は全部 stub
 # （盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_plan.py が子のプロセスで回す）。
+r2-design-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/design-snapshot.json
+r2-design-prep:
+  prompt: （r2.design の描いた指示書）
+  prompt_file: board/r1/prompt-r2.design.md
+  node: r2.design
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-design:
+  question_stands: true
+  reason: 問いは立っている
+  design: 上限は入口 1 箇所で掛ける
+r2-design-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.design
+  reason_file: ''
 plan-snap:
   ok: true
   go: true
@@ -77,6 +101,10 @@ fixture:
     judgment_file: board/judgment.json
   expect: completed
   reached:
+  - r2-design-snap
+  - r2-design-prep
+  - r2-design
+  - r2-design-accept
   - plan-snap
   - plan-prep
   - plan

@@ -451,7 +451,8 @@ def _findings_sha(items) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _pending_instance(b, nid: str) -> dict | None:
+def pending_instance(b, nid: str) -> dict | None:
+    """盤面で待っている nid の試行（instance）。無ければ None。探し方の正本はここ 1 か所（entry・design・refix もこれを呼ぶ）"""
     return next((i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
 
 
@@ -759,9 +760,9 @@ class DiskBoard(_EngineBoard):
         elif items is not None:
             b.add_request(items, origin)
         if b.node_state(BASE_NODE) == "pending":
-            if _pending_instance(b, BASE_NODE) is None:
+            if pending_instance(b, BASE_NODE) is None:
                 b.settle()      # engine の init → add → next と同じ点で、依存の無い節（p0.base・p0.local_checks…）を出す
-            inst = _pending_instance(b, BASE_NODE)
+            inst = pending_instance(b, BASE_NODE)
             if inst is None:
                 raise BoardGap(f"settle が {BASE_NODE} を出さない（{b.node_state(BASE_NODE)}）")
             b.mark_launched(BASE_NODE, inst.get("attempts", 1))
@@ -864,7 +865,7 @@ class DiskBoard(_EngineBoard):
             if nid not in self.nodes:
                 raise BoardGap(f"節 '{nid}' は graph に無い")
             e = self._entry(nid)
-            inst = _pending_instance(self, nid)
+            inst = pending_instance(self, nid)
             fell_back = e.by == "engine_run" and inst is not None and inst.get("engine_fallback") and e.fallback in ("role", "machine")
             if e.by not in ("role", "machine") and not fell_back:
                 raise BoardGap(f"節 '{nid}' は表で {e.by}——起こした印を置くのは役（role・machine）の節と、任せ先に落ちた engine_run の節だけ"

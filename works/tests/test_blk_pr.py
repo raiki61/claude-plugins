@@ -713,14 +713,17 @@ class DeclaredCase(unittest.TestCase):
         self.assertEqual(re.findall(r"\$LOOP_PREV\.[\w.-]*", text), ["$LOOP_PREV.pr-accept.output.reason_file"])
 
     def test_downgrades_declared(self):
-        """darkfactory/downgrades.json はちょうど 1 行（p0.parallel_pr）。頭の行の部品は「下げている所: 1 個」"""
+        """darkfactory/downgrades.json は 2 行（p0.parallel_pr・修正の前に 1 度だけ作る r2.design）。頭の行の部品は「下げている所: 2 個」"""
         rows = json.loads((PACK / "darkfactory" / "downgrades.json").read_text(encoding="utf-8"))
-        self.assertEqual(rows, [{"node": "p0.parallel_pr",
-                                 "what": "担当の PR へ申し送りを投稿しない（下書きを報告の冒頭 1 に載せる）",
-                                 "versus": "review-graph は任せ先の役が gh で投稿する"}])
+        self.assertEqual(rows[0], {"node": "p0.parallel_pr",
+                                   "what": "担当の PR へ申し送りを投稿しない（下書きを報告の冒頭 1 に載せる）",
+                                   "versus": "review-graph は任せ先の役が gh で投稿する"})
+        self.assertEqual([r["node"] for r in rows], ["p0.parallel_pr", "r2.design"])
+        self.assertIn("loop.drift_notes", rows[1]["what"])
         self.assertEqual(prcheck.downgrades(LINE), rows)
-        self.assertEqual(prcheck.head_downgrades(LINE), "下げている所: 1 個")
-        self.assertIn(rows[0]["node"], GRAPH["nodes"])
+        self.assertEqual(prcheck.head_downgrades(LINE), "下げている所: 2 個")
+        for r in rows:
+            self.assertIn(r["node"], GRAPH["nodes"])
 
     def test_downgrades_shape_checked(self):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="blk-pr-dg-"))

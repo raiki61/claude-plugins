@@ -1,7 +1,6 @@
 {
   "r1.comment_candidates": {"by": "role", "where": "blk-eyes", "skippable": true, "reason": "blk-eyes の読むだけの役（comment-analyzer）。3 回とも受け付けで拒まれたら省いて r1.minimality へ進む（graph の does: 取れなくても R1 の verdict を not_run に倒さない。graph で optional）"},
   "r1.minimality": {"by": "role", "where": "blk-eyes", "reason": "blk-eyes の読むだけの役（judge）"},
-  "r2.design": {"by": "role", "where": "blk-eyes", "reason": "blk-eyes の道具ゼロの役（blind-judge）。包みの旗 isolated で Git の外の置き場から起こす"},
   "r2.compare": {"by": "role", "where": "blk-eyes", "reason": "blk-eyes の道具ゼロの役（blind-judge）。包みの旗 isolated で Git の外の置き場から起こす"},
   "r3.coherence": {"by": "role", "where": "blk-eyes", "reason": "blk-eyes の読むだけの役（inspector）"},
   "r4.hidden_scope": {"by": "role", "where": "blk-eyes", "reason": "blk-eyes の読むだけの役（inspector）。消えた能力と方針とのぶつかりは機械の節 r4.human_gate が人に聞く"},

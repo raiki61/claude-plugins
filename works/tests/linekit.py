@@ -86,26 +86,29 @@ def pre_judge(board, repo, only=None) -> list:
 
 
 def close_eyes(board, repo, replies=None) -> list:
-    """最後のテストの後に盤面が待つ独立の目（R1〜R4・前提の検め直し）を、待っている物が無くなるまで見本の返答で渡す（起こした印を
-    置いてから entry.take）。最後の目の受け付けの settle が周の記録と収束まで回し、1 周の run は周を締める。返答は replies[節]
-    （無ければ test_blk_eyes の見本）。返りは渡した節の順"""
+    """最後のテストの後に盤面が待つ独立の目（R1〜R4・前提の検め直し）と、修正の前に作る独立設計（r2.design。ラインでは境の節
+    h-look が控えを渡す）を、待っている物が無くなるまで見本の返答で渡す（起こした印を置いてから entry.take）。最後の目の受け付けの
+    settle が周の記録と収束まで回し、1 周の run は周を締める。返答は replies[節]（無ければ test_blk_eyes の見本と design_ok）。
+    返りは渡した節の順"""
+    import design
     import entry
     if str(ROOT / "blk-eyes" / "lib") not in sys.path:
         sys.path.insert(0, str(ROOT / "blk-eyes" / "lib"))
     import eyes
     import test_blk_eyes as TB
+    samples = {**{n: TB.REPLY[r] for n, r in eyes.ROLE_OF.items()}, design.NODE: reply("design_ok")}
     done = []
     while True:
         b = entry.open_board(pathlib.Path(board), allow_halted=True)
         if b.state.get("halted") or b.state.get("pending_human"):
             return done
-        todo = [n for n in eyes.ROLE_OF if eyes._pending(b, n)]
+        todo = [n for n in samples if eyes._pending(b, n)]
         if not todo:
             return done
         for nid in todo:
             b = entry.open_board(pathlib.Path(board))
             b.mark_launched(nid, eyes._pending(b, nid).get("attempts", 1))
-            body = (replies or {}).get(nid, TB.REPLY[eyes.ROLE_OF[nid]])
+            body = (replies or {}).get(nid, samples[nid])
             got = entry.take(pathlib.Path(board), nid, body, pathlib.Path(repo))
             if not got["ok"]:
                 raise AssertionError(f"{nid} の見本を盤面が受けない: {got['reason']}")
@@ -400,7 +403,19 @@ class LineRun:
         return judgetake.collect(self.board)
 
     def blk_plan(self):
+        """blk-plan の中の節の順（独立設計の輪 → 修正案 → 事前審査）。独立設計は core の design の口で盤面の根に控える（返答は
+        replies["r2-design"]、無ければ design_ok）。修正案が待たない周（直す物の無い判定）は設計だけを作る"""
+        import design
         import entry
+        if design.snap(self.board, self.repo)["go"]:
+            design.prep(self.board, self.repo)
+            got = design.accept_reply(self.board, json.dumps(self.replies.get("r2-design", reply("design_ok")),
+                                                             ensure_ascii=False), self.repo)
+            if not got["ok"]:
+                raise AssertionError(f"r2-design: {got['reason']}")
+        b = entry.open_board(self.board)
+        if b.node_state("p2.fix_plan") == "na":
+            return {"ok": True, "plan_file": "", "asks_human": False}
         self.take("p2.fix_plan", self.replies["plan"])
         got = self.take("p2.plan_review", self.replies["plan-review"])
         b = entry.open_board(self.board)

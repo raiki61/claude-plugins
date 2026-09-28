@@ -335,7 +335,10 @@ class LineFixturesCase(unittest.TestCase):
         self.assertEqual(f["ai-report-fail"]["result"]["report_file"], "board/report.md")
         self.assertEqual(f["ai-report-fail"]["fixture"]["reached"][-2:], ["reporting__collect", "result"])
         self.assertIs(f["no-fix"]["judging__collect"]["need_fix"], False)
-        self.assertIs(f["no-fix"]["h-plan"]["go"], False)
+        # 直す物の無い判定でも、最後の R2 が要る独立設計を作りに修正案のブロックへ入る（修正案の輪は plan-snap で飛ぶ）
+        self.assertIs(f["no-fix"]["h-plan"]["go"], True)
+        self.assertIs(f["no-fix"]["planning__plan-snap"]["go"], False)
+        self.assertIs(f["no-fix"]["planning__r2-design-snap"]["go"], True)
         self.assertIs(f["pr-fallback"]["h-entry"]["pr_go"], True)
         self.assertIn("pr-checking__collect", f["pr-fallback"]["fixture"]["reached"])
         self.assertIs(f["final-when-needed-green"]["h-final"]["ask"], False)

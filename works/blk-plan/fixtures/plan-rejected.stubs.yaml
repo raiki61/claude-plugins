@@ -2,6 +2,30 @@
 # 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1。線 C の MG25）。だから輪の後ろの stub は、
 # 出し直した返答が通った後の姿。拒否の後に輪が回り直す式と 3 回目の諦めは tests/test_blk_plan.py の test_give_up_ends_loop が、
 # Archon と同じ順でスクリプトを回し、until_bash の式を sh で評価して見る。
+r2-design-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/design-snapshot.json
+r2-design-prep:
+  prompt: （r2.design の描いた指示書）
+  prompt_file: board/r1/prompt-r2.design.md
+  node: r2.design
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-design:
+  question_stands: true
+  reason: 問いは立っている
+  design: 上限は入口 1 箇所で掛ける
+r2-design-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.design
+  reason_file: ''
 plan-snap:
   ok: true
   go: true
@@ -73,6 +97,10 @@ fixture:
     judgment_file: board/judgment.json
   expect: completed
   reached:
+  - r2-design-snap
+  - r2-design-prep
+  - r2-design
+  - r2-design-accept
   - plan-snap
   - plan-prep
   - plan

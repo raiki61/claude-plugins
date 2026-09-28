@@ -1,6 +1,30 @@
 # 筋書き give-up: 修正案の受け付けが 3 回目の拒否で諦めの印（done: true・give_up: true）を出し、輪が抜ける。p2.plan_review は
 # 待たないので plan-review-snap が go: false を返し、事前審査の輪は when: で飛ぶ（役の stub を置かない）。collect は最後の拒否の
 # 理由で盤面を止め ok: false・gave_up: true。dry-run は until_bash を回さないので、この筋書きは輪が抜けた後の配線だけを見る。
+r2-design-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/design-snapshot.json
+r2-design-prep:
+  prompt: （r2.design の描いた指示書）
+  prompt_file: board/r1/prompt-r2.design.md
+  node: r2.design
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-design:
+  question_stands: true
+  reason: 問いは立っている
+  design: 上限は入口 1 箇所で掛ける
+r2-design-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.design
+  reason_file: ''
 plan-snap:
   ok: true
   go: true
@@ -48,6 +72,10 @@ fixture:
     judgment_file: board/judgment.json
   expect: completed
   reached:
+  - r2-design-snap
+  - r2-design-prep
+  - r2-design
+  - r2-design-accept
   - plan-snap
   - plan-prep
   - plan

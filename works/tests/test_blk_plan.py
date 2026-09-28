@@ -1,5 +1,9 @@
 """修正案と事前審査のブロック（blk-plan。P1 計画 Task 25・〔線A計〕T11・裁定 P1-R10・R44・R50）の検査。
 
+- 独立設計（r2.design）: 修正案より前に道具ゼロの役で作り、盤面の根の design.json に控える（core の design）。事前審査の指示書の
+  頭にその設計が載る。3 回とも拒まれても止めず、事前審査は「設計が無い」と読んで進む（人の条件 (2)）。目的の出典が R2 に使えない
+  run は起こさない（写しの p4.assemble と同じ式を、p4.assemble より前に元の出典から出す）
+
 - YAML の形: 役の output_format が planblk.output_format（写しの schema に印）と同じ・輪の中の id が全部のブロックをまたいで一意・
   輪は fresh_context で AI の節は 1 つ・諦めの数と max_iterations が同じ・until_bash は同じ輪の受け付けの done・スクリプトが読む
   INPUTS_* と with: の鍵が同じ・役に届く文に $LOOP_PREV が無い・筋書き 3 本
@@ -29,6 +33,8 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
 import accept  # noqa: E402
+import board as board_mod  # noqa: E402
+import design  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import entry  # noqa: E402
@@ -69,7 +75,8 @@ class YamlCase(unittest.TestCase):
         self.top = {n["id"]: n for n in self.y["nodes"]}
 
     def loops(self):
-        return [n for n in self.y["nodes"] if "loop_group" in n]
+        """修正案と事前審査の輪（盤面の節へ渡す役。独立設計の輪は別に見る）"""
+        return [n for n in self.y["nodes"] if "loop_group" in n and n["id"] != f"{planblk.DESIGN_ROLE}-loop"]
 
     def test_inputs_and_exit(self):
         self.assertEqual(set(self.y["inputs"]), {"judgment_file", "base_rev", "policy_paste", "policy_path", "excluded_file",
@@ -81,17 +88,43 @@ class YamlCase(unittest.TestCase):
                          {"ok", "plan_file", "review_file", "asks_human", "gate_kinds", "reads_file", "gave_up", "reason_file"})
 
     def test_output_format_matches_graph(self):
-        """役の output_format を strip した値 == 写しの role_schema、印の名は plan・plan-review"""
+        """役の output_format を strip した値 == 写しの role_schema、印の名は plan・plan-review・r2-design（道具ゼロの旗 isolated）"""
         got = {}
-        for grp in self.loops():
+        for grp in (n for n in self.y["nodes"] if "loop_group" in n):
             ai = [m for m in grp["loop_group"]["nodes"] if "prompt" in m or "command" in m]
             got[ai[0]["id"]] = ai[0]["output_format"]
-        self.assertEqual(set(got), {"plan", "plan-review"})
+        self.assertEqual(set(got), {"plan", "plan-review", planblk.DESIGN_ROLE})
+        of = got.pop(planblk.DESIGN_ROLE)
+        self.assertEqual(of, planblk.output_format(planblk.DESIGN_ROLE))
+        self.assertEqual(node_marker.strip(of), accept.role_schema(design.NODE))
+        self.assertEqual(of["description"], f"works-node: {planblk.DESIGN_ROLE} isolated")
         for role, of in got.items():
             with self.subTest(role):
                 self.assertEqual(of, planblk.output_format(role))
                 self.assertEqual(node_marker.strip(of), accept.role_schema(planblk.NODE_OF[role], numbered=True))
                 self.assertEqual(of["description"], f"works-node: {role}")
+
+    def test_design_loop_first_and_tool_less(self):
+        """独立設計の輪は修正案より前（plan-snap がその後を待つ）。道具ゼロで印に旗 isolated、指示書の本文は commands/r2-design.md が
+        直の参照 1 つで貼る。出し直しは同じ会話（本線の --resume と同じ）。3 回目の拒否で done"""
+        role = planblk.DESIGN_ROLE
+        ids = [n["id"] for n in self.y["nodes"]]
+        self.assertLess(ids.index(f"{role}-loop"), ids.index("plan-snap"))
+        self.assertEqual(self.top["plan-snap"]["depends_on"], [f"{role}-snap", f"{role}-loop"])
+        self.assertEqual(self.top["plan-snap"]["trigger_rule"], "none_failed_min_one_success")
+        loop = self.top[f"{role}-loop"]
+        self.assertEqual(loop["when"], f"${role}-snap.output.go == true")
+        g = loop["loop_group"]
+        self.assertEqual(g["max_iterations"], design.GIVE_UP_AFTER)
+        self.assertEqual(g["until_bash"], f"test ${role}-accept.output.done = true")
+        self.assertIs(g["fresh_context"], False)
+        self.assertEqual([m["id"] for m in g["nodes"]], [f"{role}-prep", role, f"{role}-accept"])
+        ai = g["nodes"][1]
+        self.assertEqual((ai["command"], ai["allowed_tools"]), (role, []))
+        self.assertEqual(node_marker.parse(ai["output_format"]["description"])["flags"], frozenset({"isolated"}))
+        text = (BLK / "commands" / f"{role}.md").read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"\$[A-Za-z_][A-Za-z0-9_-]*\.output\.[A-Za-z_]+", text), [f"${role}-prep.output.prompt"])
+        self.assertNotIn("{{", text)
 
     def test_loops_fresh_single_ai_and_give_up(self):
         for grp in self.loops():
@@ -123,13 +156,15 @@ class YamlCase(unittest.TestCase):
                     self.assertEqual(n["id"].rsplit("-", 1)[0], n["with"]["role"])
 
     def test_no_loop_prev_reaches_a_prompt(self):
-        """役に届く文に $LOOP_PREV が無い（理由はファイルで。R44）。手で書いた commands も置かない（P1-R10）"""
+        """役に届く文に $LOOP_PREV が無い（理由はファイルで。R44）。手で書いた commands は、ファイルを読めない道具ゼロの独立設計の
+        役が描いた本文を貼るための 1 本だけ（P1-R10）"""
         for n, _ in walk(self.y["nodes"]):
             self.assertNotIn("$LOOP_PREV", str(n.get("prompt", "")), n["id"])
-        self.assertFalse((BLK / "commands").exists())
+        self.assertEqual({p.name for p in (BLK / "commands").iterdir()}, {f"{planblk.DESIGN_ROLE}.md"})
+        self.assertNotIn("$LOOP_PREV", (BLK / "commands" / f"{planblk.DESIGN_ROLE}.md").read_text(encoding="utf-8"))
 
     def test_after_loop_nodes_join(self):
-        for nid in ("plan-review-snap", "plan-reads"):
+        for nid in ("plan-snap", "plan-review-snap", "plan-reads"):
             self.assertEqual(self.top[nid]["trigger_rule"], "none_failed_min_one_success", nid)
             self.assertNotIn("when", self.top[nid])
 
@@ -163,7 +198,8 @@ class YamlCase(unittest.TestCase):
         self.assertNotIn("plan-review", g, "輪が飛ぶ（役の stub を置かない）")
         self.assertEqual((g["collect"]["ok"], g["collect"]["gave_up"]), (False, True))
         for name, f in fx.items():
-            for role in ("plan", "plan-review"):
+            self.assertIn("r2-design-snap", f["fixture"]["reached"], name)
+            for role in ("plan", "plan-review", planblk.DESIGN_ROLE):
                 if role in f:
                     with self.subTest(f"{name}:{role}"):
                         self.assertEqual(validate_schema(f[role], planblk.output_format(role)), [])
@@ -530,6 +566,109 @@ class ScriptCase(unittest.TestCase):
         self.assertIs(self.ok("snap", role="plan-review")["go"], False)
         out = self.ok("collect")
         self.assertEqual((out["ok"], out["plan_file"], out["gave_up"]), (True, "", False))
+
+    # -- 独立設計（修正案より前に作る）
+    def designed(self, reply=None):
+        """独立設計の輪を 1 回（snap → prep → accept）"""
+        self.assertIs(self.ok("snap", role=planblk.DESIGN_ROLE)["go"], True)
+        prep, got = self.round_of(planblk.DESIGN_ROLE, reply or linekit.reply("design_ok"))
+        return prep, got
+
+    def test_design_before_plan_reaches_plan_review(self):
+        """独立設計を修正案より前に作り（盤面の r2.design はまだ待っていない）、design.json に控える。事前審査の指示書の頭に
+        その設計と、構造の食い違いを contract_drift・block で挙げる指示が載る。修正案の指示書には載らない（修正案は設計に依らない）"""
+        self.judged()
+        b = entry.open_board(self.board)
+        self.assertNotIn(design.NODE, b.ready(), "graph では r2.design は修正の後にしか待たない")
+        prep, got = self.designed()
+        self.assertEqual((got["ok"], got["done"], got["reason_file"]), (True, True, ""), got)
+        self.assertEqual(prep["node"], design.NODE)
+        self.assertIn(linekit.reply("purpose_ok")["purpose_text"][:20], prep["prompt"], "目的の文は届く")
+        for leak in (str(self.repo), "p2.fix_plan", UNIT_MEAN):
+            self.assertNotIn(leak, prep["prompt"], f"道具ゼロの設計の役に {leak!r} が届いた")
+        self.assertEqual(design.read_design(self.board), linekit.reply("design_ok"))
+        self.assertIs(self.ok("snap", role=planblk.DESIGN_ROLE)["go"], False, "設計を 2 度作らない")
+        self.assertTrue(self.ok("snap", role="plan")["go"])
+        prep, got = self.round_of("plan", linekit.reply("plan_ok"))
+        self.assertTrue(got["ok"], got)
+        self.assertNotIn(planblk.DESIGN_HEAD, pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"))
+        self.ok("snap", role="plan-review")
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        head = text.split("# P2-11")[0] if "# P2-11" in text else text
+        self.assertIn(planblk.DESIGN_HEAD, head)
+        self.assertIn(planblk.DESIGN_ASK, head)
+        self.assertIn(linekit.reply("design_ok")["design"], head)
+        self.assertIn("contract_drift", planblk.DESIGN_ASK)
+
+    def test_design_not_stands_is_not_a_face(self):
+        """設計の役が問いは立たないと返した: 事前審査には設計を突き合わせず、穴にも挙げさせない（先行例の穴に載せない。問いが立つかは
+        修正の後の目の層が前提を検算する）"""
+        self.judged()
+        self.designed({"question_stands": False, "reason": "問いが立たない", "premise_invalid_reason": "識別子は既にある",
+                       "design": ""})
+        self.planned()
+        self.ok("snap", role="plan-review")
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(planblk.DESIGN_NOT_STANDS.format(reason="識別子は既にある"), text)
+        self.assertNotIn(planblk.DESIGN_ASK, text)
+        self.assertNotIn("precedent の穴", text)
+
+    def test_design_gave_up_does_not_stop_plan_review(self):
+        """人の条件 (2): 独立設計が 3 回とも拒まれても、輪は 3 回目の done で抜け、修正案と事前審査は止まらずに進む。事前審査の指示書は
+        設計が無いこと（最後の拒否の文）を言い、collect は ok のまま、盤面の trace に設計が無いことを残す"""
+        self.judged()
+        self.ok("snap", role=planblk.DESIGN_ROLE)
+        exited, rounds = self.run_loop(planblk.DESIGN_ROLE, {"reason": "型に合わない"})
+        self.assertEqual(exited, design.GIVE_UP_AFTER)
+        self.assertEqual([(a["ok"], a["give_up"]) for _, a in rounds],
+                         [(False, False)] * (design.GIVE_UP_AFTER - 1) + [(False, True)])
+        self.assertTrue(rounds[1][0]["prompt"].startswith(design.REJECT_HEADING), "道具ゼロの役には拒否の文を本文の頭に貼る")
+        for _, a in rounds:
+            self.assertTrue(pathlib.Path(a["reason_file"]).is_file())
+        self.assertIsNone(design.read_design(self.board))
+        self.assertIs(self.ok("snap", role=planblk.DESIGN_ROLE)["go"], False, "諦めた設計は起こし直さない")
+        self.planned()
+        self.ok("snap", role="plan-review")
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(f"独立設計は無い（{design.MISSING}: ", text)
+        self.assertIn("question_stands", text, "最後の拒否の文を運ぶ")
+        self.round_of("plan-review", linekit.reply("plan_review_ok"))
+        self.ok("reads", include_id="planning")
+        out = self.ok("collect")
+        self.assertEqual((out["ok"], out["gave_up"]), (True, False))
+        self.assertNotIn("stop", self.state())
+        rows = [json.loads(ln) for ln in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertTrue(any(r.get("op") == design.MISSING_OP and design.MISSING in r.get("reason", "") for r in rows))
+
+    def test_design_tree_change_rejected(self):
+        """道具ゼロの役でも、起こす前の作業ツリーの写しと比べ、変わっていれば拒む"""
+        self.judged()
+        self.ok("snap", role=planblk.DESIGN_ROLE)
+        self.ok("prep", role=planblk.DESIGN_ROLE, excluded_file="")
+        (self.repo / "stats.py").write_text("# 変えた\n", encoding="utf-8")
+        got = self.ok("accept", role=planblk.DESIGN_ROLE, reply=json.dumps(linekit.reply("design_ok"), ensure_ascii=False))
+        self.assertFalse(got["ok"])
+        self.assertTrue(self.reason_of(got).startswith(entry.READONLY_MOVED))
+        self.assertIsNone(design.read_design(self.board))
+
+    def test_design_skipped_when_purpose_unusable(self):
+        """目的の出典が R2 に使えない run（目的不明・裏取りを通った『狭めている』）は設計を起こさない。式は写しの p4.assemble と同じ
+        で、p4.assemble が置く loop.purpose_known（まだ無い）を既定の真で読まない"""
+        from types import SimpleNamespace
+        rules = board_mod.rules_module()
+        vetted = {"verdict": "狭めている", "reason": "r", "findings": [{"text": "t", "cite": "c", "hits": 1}]}
+        unvetted = {"verdict": "狭めている", "reason": "r", "findings": ["素の文字列"]}
+        for src, pr, want in (("目的不明", {}, "目的不明"), ("①依頼", vetted, "狭めている"), ("①依頼", unvetted, None),
+                              ("①依頼", {"verdict": "問題なし", "reason": "r", "findings": []}, None)):
+            with self.subTest(src=src, pr=pr):
+                b = SimpleNamespace(rules=rules, record={"process": {"purpose_review": pr}},
+                                    latest_output=lambda nid, src=src: {"source": src})
+                self.assertEqual(design.unusable(b), want)
+        self.judged()
+        with mock.patch.object(design, "unusable", return_value="狭めている"):
+            b = entry.open_board(self.board)
+            self.assertEqual(design.due(b), (False, design.UNUSABLE["狭めている"]))
+            self.assertIn(design.UNUSABLE["狭めている"], planblk.design_section(b))
 
     def test_scripts_exit_two_on_wiring(self):
         self.judged()

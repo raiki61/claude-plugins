@@ -16,6 +16,7 @@
 - snapshot(board_dir, name, repo): 読むだけの役を起こす前に、作業ツリーの姿（accept.tree_state）を今の周の b.work(name) に
 - take(board_dir, nid, reply, repo, *, snapshot_name): 各ブロックの受け付けが使う 1 つの口。役の返答を盤面の done に渡す
   （写しの AnswerReject だけを {ok: False} で役に返す。裁定 TA19）
+- hand(b, board_dir, nid, reply, repo): 機械が返答を渡す 1 つの口（待っている試行 board.pending_instance に起こした印を置いてから take）
 - empty_fix_reply(): 直す義務 0 件の周に機械が渡す p3.fix の空の返答（裁定 TA6）
 
 ブロックのスクリプトは open_board で盤面を開く。線 B のライン（darkfactory-rounds）でも同じブロックが同じ口で動く。
@@ -748,6 +749,9 @@ def _tree_moved(b, name: str, repo: pathlib.Path) -> str:
     return "この役は読むだけの役で、作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない（" + "・".join(moved) + "）"
 
 
+tree_moved_since = _tree_moved   # 盤面の節へ渡さない受け付け（先に起こす役）が同じ比べを使う公開の名（層の決まり private）
+
+
 def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, snapshot_name: str | None = None) -> dict:
     """役の返答を盤面に渡す（各ブロックの受け付けが使う 1 つの口）。順:
     1. 盤面を開く（open_board）。止めた run はここで Reject（役に返さない。作業ツリーの比べより先）
@@ -771,6 +775,16 @@ def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, 
         return {"ok": False, "reason": str(e)}
     return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),
             "out_file": b.state["outputs"][nid]["file"]}
+
+
+def hand(b, board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path) -> dict:
+    """機械が役の返答を盤面へ渡す 1 つの口（判定のブロックが受けた判定・直す物が無い周の空の修正・先に作った独立設計）。待っている
+    試行に起こした印を置いてから take（盤面の決まり 2）。待っている試行が無ければ BoardGap（呼ぶ側の順の誤り）"""
+    inst = board.pending_instance(b, nid)
+    if inst is None:
+        raise BoardGap(f"{nid} が盤面で待っていない（線の順の誤り。state: {b.node_state(nid)}）")
+    b.mark_launched(nid, inst.get("attempts", 1))
+    return take(board_dir, nid, reply, repo)
 
 
 EMPTY_FIX_REASON = "直す義務 0 件の周（p2.fix_plan が条件で na）——修正の役を起こさず、機械が空の返答を渡した"

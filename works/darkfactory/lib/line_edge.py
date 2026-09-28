@@ -7,8 +7,10 @@
 - mat_edge(b, …): h-mat の固有の仕事（目的の文を盤面へ渡し、P1 の目を回すか。計画 P1 Task 32・33）
 - rejudge_edge(board_dir, repo): h-rejudge の固有の仕事（修正役の異議の再審を回すか。判定役の会話が無ければ止める。計画 P1 Task 31）
 - eyes_edge(b): h-look の固有の仕事（独立の目を回すか。計画 P1 Task 33）。h-eyes も同じ go を返す（関所の後にまだ目が待つか——報告が
-  blk-eyes の落ちを見分ける）
-- plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）
+  blk-eyes の落ちを見分ける）。h-look は先に、blk-plan が修正の前に控えた独立設計（core の design。design.json）を、盤面が r2.design を
+  待っていれば渡す（目的の文を h-mat が渡すのと同じ形）
+- plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）。go は修正案か
+  独立設計（design.due）のどちらかを blk-plan で起こす周
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 - 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の修正の差分（修正前の版
   state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を final_gate に関わらず開き、文の頭に並べ、process.human_items に 1 行。h-eyes は答えを
@@ -36,6 +38,7 @@ from engine.util import Reject  # noqa: E402
 import accept  # noqa: E402
 import answer  # noqa: E402
 import conflict  # noqa: E402
+import design  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import halt  # noqa: E402
@@ -513,13 +516,9 @@ def _done_this_round(b, nid: str) -> bool:
 
 
 def _hand(b, board_dir, nid: str, reply: dict, repo) -> dict:
-    """機械が役の返答を盤面へ渡す（判定のブロックが受けた判定・直す物が無い周の空の修正）。待っている試行に起こした印を置いてから
-    entry.take（盤面の決まり 2）。待っている instance が無ければ BoardGap（線の順の誤り）"""
-    inst = next((i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
-    if inst is None:
-        raise _gap(f"{nid} が盤面で待っていない（線の順の誤り。state: {b.node_state(nid)}）")
-    b.mark_launched(nid, inst.get("attempts", 1))
-    return entry.take(board_dir, nid, reply, repo)
+    """機械が役の返答を盤面へ渡す（判定のブロックが受けた判定・直す物が無い周の空の修正）。手順は entry.hand の 1 か所（待っている
+    instance が無ければ BoardGap——線の順の誤り）"""
+    return entry.hand(b, board_dir, nid, reply, repo)
 
 
 def _judgment(judged) -> tuple:
@@ -649,7 +648,8 @@ def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> 
        読めない・盤面が受けない（ok False）なら b.stop("盤面が判定を受けない: …", by=JUDGE_BRIDGE_BY) で stop。済んでいれば
        渡さない（Archon の再開・盤面で判定を受けた後も同じ）
     3. p2.fix_plan が ready なら go。p3.fix が ready で p2.fix_plan が na（直す物が無い周）なら、機械が空の返答
-       （entry.empty_fix_reply）を渡して trace_empty_fix、go False"""
+       （entry.empty_fix_reply）を渡して trace_empty_fix
+    4. 修正案が無くても、独立設計を修正の前に作る周（design.due）なら go（最後の R2 の比較が設計を要る。blk-plan は設計の輪だけを回す）"""
     if judged is not None:
         _write_json(b.work(JUDGED_FILE), judged)
     carried = _carried(b)
@@ -671,7 +671,7 @@ def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> 
         if not got["ok"]:
             raise _gap(f"盤面が直す物の無い周の空の修正を受けない: {got['reason']}")
         trace_empty_fix(entry.open_board(pathlib.Path(board_dir)))
-    return {"go": False, **carried}
+    return {"go": design.due(entry.open_board(pathlib.Path(board_dir)))[0], **carried}
 
 
 def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate: str, judged: dict | None = None,
@@ -693,7 +693,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
        gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
        fix: go は p3.fix が ready・notes は今の周の human_items の一言（notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
-       mat: mat_edge（目的の文を盤面へ・mat_go）。look・eyes: eyes_edge（go は独立の目が待っているか）。rejudge: rejudge_edge
+       mat: mat_edge（目的の文を盤面へ・mat_go）。look・eyes: eyes_edge（go は独立の目が待っているか。look は先に design.hand で
+       修正の前に控えた独立設計を盤面へ渡す）。rejudge: rejudge_edge
        （go は再審の節が待っているか。判定役の会話を確かめられなければ止める）。mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
        見分ける）・runtime_go・holdout_go は False・mid_note。review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。
        final: final_edge（final_gate と最後のテストの出口 tests と独立の目の判定から ask と文）。
@@ -759,6 +760,9 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         return {**out, **rejudge_edge(board_dir, repo)}
     if at == "mat":
         return {**out, **mat_edge(b, board_dir, repo)}
+    if at == "look":
+        design.hand(b, pathlib.Path(board_dir), repo)   # 渡せなければ（設計が無い）目のブロックの出口が理由を言う
+        b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     if at in ("look", "eyes"):
         return {**out, **eyes_edge(b)}
     if at == "mid":

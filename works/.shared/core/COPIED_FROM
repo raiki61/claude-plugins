@@ -13,7 +13,11 @@ graphloops/engine/rules.py
 graphloops/engine/schema.py
 graphloops/engine/util.py
 graphloops/engine/validator.py
-graphloops/rules/review-loop.py
+graphloops/rules/review-loop.py  # works の手直し: 目的の出典が R2 に使えない理由の式を purpose_unusable の 1 本にする（下の ! 行 4 つ）
+! {"path": "graphloops/rules/review-loop.py", "old": "    return _findings_vetted(((b.record.get(\"process\", {}).get(\"purpose_review\", {}) or {}).get(\"findings\")) or [])\n", "new": "    return _findings_vetted(((b.record.get(\"process\", {}).get(\"purpose_review\", {}) or {}).get(\"findings\")) or [])\n\n\ndef purpose_unusable(b):\n    \"\"\"目的の出典が R2 に使えない理由（None／目的不明／狭めている）。式の正本はここ 1 か所（assemble と、assemble より前に\n    設計を起こす works の core の design が呼ぶ）\"\"\"\n    if (b.latest_output(\"p0.purpose\") or {}).get(\"source\") == \"目的不明\":\n        return \"目的不明\"\n    pr = b.record.get(\"process\", {}).get(\"purpose_review\", {}) or {}\n    return \"狭めている\" if pr.get(\"verdict\") == \"狭めている\" and purpose_findings_vetted(b) else None\n", "why": "目的の出典が R2 に使えない理由の式を 1 本（purpose_unusable）にし、assemble と works の core の design.unusable が同じ 1 本を呼ぶ（p4.assemble より前に設計を起こすため）"}
+! {"path": "graphloops/rules/review-loop.py", "old": "    src = (b.latest_output(\"p0.purpose\") or {}).get(\"source\")\n    # **裏取り", "new": "    # **裏取り", "why": "同上（src は purpose_unusable が読む）"}
+! {"path": "graphloops/rules/review-loop.py", "old": "    vetted = purpose_findings_vetted(b)   # 式の正本は 1 か所（条件の purpose_review_unvetted と同じ _findings_vetted を呼ぶ）\n    narrowed = pr.get(\"verdict\") == \"狭めている\" and vetted\n    if pr.get(\"verdict\") == \"狭めている\" and not vetted:", "new": "    if pr.get(\"verdict\") == \"狭めている\" and not purpose_findings_vetted(b):", "why": "同上（narrowed は purpose_unusable が出す）"}
+! {"path": "graphloops/rules/review-loop.py", "old": "    ls[\"purpose_unusable\"] = \"目的不明\" if src == \"目的不明\" else (\"狭めている\" if narrowed else None)", "new": "    ls[\"purpose_unusable\"] = purpose_unusable(b)   # 式の正本は 1 か所（works の core の design.unusable も同じ 1 本を呼ぶ）", "why": "同上"}
 graphloops/rules/policy_input.py  # 0.21.0 で足した: rules/review-loop.py が読み込む（方針の入力。後の作業でも使う）
 graphloops/graphs/review-loop.json
 scripts/review-record.py

@@ -71,7 +71,7 @@ ROLE_NODES = {
     "p4.ci": ("blk-ci", "ci"),
     "r1.comment_candidates": ("blk-eyes", "r1-comments"),
     "r1.minimality": ("blk-eyes", "r1-minimality"),
-    "r2.design": ("blk-eyes", "r2-design"),
+    "r2.design": ("blk-plan", "r2-design"),
     "r2.compare": ("blk-eyes", "r2-compare"),
     "r3.coherence": ("blk-eyes", "r3-coherence"),
     "r4.hidden_scope": ("blk-eyes", "r4-scope"),

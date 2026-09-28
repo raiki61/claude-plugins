@@ -400,6 +400,15 @@ def purpose_findings_vetted(b):
     return _findings_vetted(((b.record.get("process", {}).get("purpose_review", {}) or {}).get("findings")) or [])
 
 
+def purpose_unusable(b):
+    """目的の出典が R2 に使えない理由（None／目的不明／狭めている）。式の正本はここ 1 か所（assemble と、assemble より前に
+    設計を起こす works の core の design が呼ぶ）"""
+    if (b.latest_output("p0.purpose") or {}).get("source") == "目的不明":
+        return "目的不明"
+    pr = b.record.get("process", {}).get("purpose_review", {}) or {}
+    return "狭めている" if pr.get("verdict") == "狭めている" and purpose_findings_vetted(b) else None
+
+
 @cond_reads("record.process.purpose_review")
 def purpose_review_unvetted(v):
     """記録の目的監査が、裏取りの柵より前の形で凍っているか（条件の部品）。
@@ -1822,21 +1831,18 @@ def assemble(b, nid):
     ls["r1_refire"] = ls["r2_refire"] or ls["ledger_changed"]
     # 目的が取れない（目的不明）のと、writer の要約を inspector が「狭めている」と判定したのは、R2 にとって同じ——
     # 独立の出典として使えない（以前は判定を誰も読まず、狭められた目的で R2 が回った。実測 2026-09-12）
-    src = (b.latest_output("p0.purpose") or {}).get("source")
     # **裏取りを通っていない判定は使わない。** 監査は 1 周目にしか走らない（cond）ので、裏取りの柵が入る前に
     # 書かれた判定は**一度も数え直されないまま毎周の判定材料に載り続ける**（実測 r9: findings が素の文字列 5 件で、
     # うち 4 件は現物に 0 件の字列を根拠にしていた——r2 から 6 周同じ指摘が再燃した原因がここ）。
     # 根拠が今の形（text / cite / hits）で書かれた判定だけを使い、旧形は『判定なし』として扱う。
     pr = b.record.get("process", {}).get("purpose_review", {}) or {}
-    vetted = purpose_findings_vetted(b)   # 式の正本は 1 か所（条件の purpose_review_unvetted と同じ _findings_vetted を呼ぶ）
-    narrowed = pr.get("verdict") == "狭めている" and vetted
-    if pr.get("verdict") == "狭めている" and not vetted:
+    if pr.get("verdict") == "狭めている" and not purpose_findings_vetted(b):
         ls.setdefault("purpose_review_stale", []).append(
             {"round": b.round, "why": "裏取りを通っていない形の findings（旧形の素の文字列、または cite 無し）"
                                       "に乗った『狭めている』なので、R2 を止める根拠には使わない"})
     # 原因を運ぶ 1 値（None／目的不明／狭めている）——bool に畳むと record_round が定数文で説明するしかなく、理由が事実と逆になる
     # （実測 2026-09-13: 狭めている周の R2 の reason が『P0-4 で目的不明』）
-    ls["purpose_unusable"] = "目的不明" if src == "目的不明" else ("狭めている" if narrowed else None)
+    ls["purpose_unusable"] = purpose_unusable(b)   # 式の正本は 1 か所（works の core の design.unusable も同じ 1 本を呼ぶ）
     ls["purpose_known"] = ls["purpose_unusable"] is None
     if fix.get("premise_drift"):
         ls.setdefault("drift_notes", []).append({"round": b.round, "text": fix.get("premise_drift_note", "")})

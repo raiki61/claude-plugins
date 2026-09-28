@@ -1,7 +1,10 @@
 name: blk-plan
 description: |
-  修正案と事前審査のブロック（P1 計画 Task 25。〔線A計〕T11）。判定の後、修正役が直す前に、読むだけの 2 つの役を回す:
-  修正案（写しの graph の p2.fix_plan）と、判定をした役とは別の目の事前審査（p2.plan_review）。指示書は本線（graphloops a1202d0）の
+  修正案と事前審査のブロック（P1 計画 Task 25。〔線A計〕T11）。判定の後、修正役が直す前に、役を 3 つ縦に回す:
+  独立設計（写しの graph の r2.design。道具ゼロの blind-judge が目的と実測した制約だけから理想解を作る。修正案を見ない）・
+  修正案（p2.fix_plan）・判定をした役とは別の目の事前審査（p2.plan_review。指示書の頭に独立設計を貼り、案と設計の構造の
+  食い違いを穴に挙げさせる）。独立設計は盤面の節がまだ待っていない（graph では修正の後）ので、受け付けた返答を盤面の根の
+  design.json に控える（core の design）。設計が 3 回とも拒まれても止めず、事前審査は「設計が無い」と読んで進む。指示書は本線（graphloops a1202d0）の
   p2.fix_plan.md・p2.plan_review.md そのものを engine と同じ描き方で描いた物（<役>-prep が盤面の今の周の prompt-<節>.md に書く。
   P1-R10）。人の関所の項目（案の narrows・事前審査の後退と方針の穴・方針の文書の変化）は盤面の p2.human_gate が組み（決め手の出どころが在り
   undecided_because が空で柵の印の無い行は聞かずに通す。欄は受け付けが外して盤面の gate-marks.json に置く。gatemarks.py）、
@@ -35,11 +38,133 @@ returns: collect
 outcome_field: ok
 
 nodes:
+  # 独立設計（写しの graph の r2.design。役 blind-judge）を修正案より前に作る。盤面の節はまだ待っていない（graph の依存は p4.assemble の
+  # 後）ので、受け付けた返答は盤面の根の design.json に控え、盤面が節を待った時にラインが渡す（core の design）。目的の出典が使えない・
+  # もう控えが在る・諦めた run は go: false で輪を飛ばす。3 回とも拒まれても止めない（事前審査は設計なしで進む）
+  - id: r2-design-snap
+    script: snap
+    runtime: uv
+    timeout: 1728000000
+    with:
+      role: r2-design
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, go, snapshot_file]
+      properties:
+        ok: {type: boolean}
+        go: {type: boolean}
+        snapshot_file: {type: string}
+
+  - id: r2-design-loop
+    depends_on: [r2-design-snap]
+    when: "$r2-design-snap.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $r2-design-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: r2-design-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: r2-design
+            excluded_file: $INPUTS.excluded_file
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - prompt
+            - prompt_file
+            - node
+            - attempt
+            - already
+            - role_def
+            - role_def_missing
+            properties:
+              prompt:
+                type: string
+              prompt_file:
+                type: string
+              node:
+                type: string
+              attempt:
+                type: integer
+              already:
+                type: boolean
+              role_def:
+                type: string
+              role_def_missing:
+                type: string
+        - id: r2-design
+          command: r2-design
+          depends_on: [r2-design-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。包みが旗 isolated を見て Git の外の置き場で起こす（git status が入らない）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # planblk.output_format("r2-design")（写しの r2.design の schema に印 works-node: r2-design isolated）を貼った物（tests/test_blk_plan.py が一致を見る）
+          output_format:
+            description: 'works-node: r2-design isolated'
+            type: object
+            required:
+            - question_stands
+            - reason
+            - design
+            additionalProperties: false
+            properties:
+              question_stands:
+                type: boolean
+              reason:
+                type: string
+                minLength: 1
+              premise_invalid_reason:
+                type: string
+              design:
+                type: string
+        - id: r2-design-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [r2-design]
+          with:
+            role: r2-design
+            reply: {from: "$r2-design.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - ok
+            - done
+            - give_up
+            - skipped
+            - reason
+            - node
+            - reason_file
+            properties:
+              ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
+                type: boolean
+              skipped:
+                type: boolean
+              reason:
+                type: string
+              node:
+                type: string
+              reason_file:
+                type: string
+
   # 役を起こす前の作業ツリーの写し。p2.fix_plan が待っていなければ（直す物の無い判定）go: false で輪を飛ばす
   - id: plan-snap
     script: snap
     runtime: uv
     timeout: 1728000000
+    depends_on: [r2-design-snap, r2-design-loop]
+    trigger_rule: none_failed_min_one_success
     with:
       role: plan
     output_format:

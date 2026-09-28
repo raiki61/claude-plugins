@@ -2,8 +2,9 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""役の返答を受け付ける（planblk.main_accept → rolekit.main_accept → entry.take）。拒否（読めない返答・写しの規則・
-作業ツリーの変化）は {ok: false, reason_file} で 0、3 回目の拒否で done・give_up（輪を抜ける）。出口 {ok, done, give_up, reason, reason_file, node, …}"""
+"""役の返答を受け付ける（planblk.main_accept → rolekit.main_accept → entry.take。独立設計の役は core の design.accept_reply で
+盤面の根の design.json へ）。拒否（読めない返答・写しの規則・作業ツリーの変化）は {ok: false, reason_file} で 0、3 回目の拒否で
+done・give_up（輪を抜ける）。出口 {ok, done, give_up, reason, reason_file, node, …}"""
 import os
 import sys
 from pathlib import Path
@@ -24,7 +25,7 @@ if __name__ == "__main__":
         print("環境変数が無い: INPUTS_ROLE", file=sys.stderr)
         sys.exit(2)
     try:
-        planblk.role_node(os.environ["INPUTS_ROLE"])
+        planblk.known_role(os.environ["INPUTS_ROLE"])
     except planblk.BoardGap as e:
         print(str(e), file=sys.stderr)
         sys.exit(2)

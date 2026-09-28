@@ -1,9 +1,9 @@
-# 筋書き give-up: r2.design の返答が 3 回とも受け付けで拒まれ、3 回目に諦めの印（done: true・give_up: true）を出す。
-# r2.design は省けない（表で skippable でない）ので r2.compare・stop.premise_check は待たない。collect は目が待ちのまま残った盤面を
-# 見て、最後の拒否の文で盤面を止め（by works:eyes）、ok: false を返す（輪は max_iterations で落ちないので、collect まで届く）。
-# 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1）。だからこの筋書きは、輪が抜けた後の配線
-# （後ろの route → collect）しか見ない。3 回目の拒否で輪が抜ける式（until_bash の done）は tests/test_blk_eyes.py の
-# test_loop_gives_up_after_three_rejections が、Archon と同じ順でスクリプトを回し、until_bash の式を sh で評価して見る。
+# 筋書き give-up: 修正の前に作る独立設計（r2.design）の役が 3 回とも拒まれ、設計が盤面へ渡っていない（設計の輪は止めずに先へ進む）。
+# r2.compare は設計を待ったまま出ず、stop.premise_check も待たない。collect は目が待ちのまま残った盤面を見て、『独立設計が
+# 取れなかった』と設計の最後の拒否の文で盤面を止め（by works:eyes）、ok: false を返す（今までと同じく目の層で止まる）。
+# 目の輪が 3 回目の拒否で抜ける式（until_bash の done）は、dry-run は until_bash を回さず輪を 1 回で済んだとみなす（Archon 0.11.1）
+# ので、tests/test_blk_eyes.py の test_loop_gives_up_after_three_rejections が、Archon と同じ順でスクリプトを回し、until_bash の
+# 式を sh で評価して見る。
 eyes-enter:
   ok: true
   round: 1
@@ -11,7 +11,6 @@ eyes-enter:
   asking: false
   ready:
   - r1-comments
-  - r2-design
   snapshot_file: board/r1/eyes-snapshot.json
   why: ''
 r1-comments-route:
@@ -65,31 +64,6 @@ r1-minimality-accept:
   reason: ''
   node: r1.minimality
   reason_file: ''
-r2-design-route:
-  go: true
-  node: r2.design
-  why: r2.design が待っている
-  stopped: false
-r2-design-prep:
-  prompt: （r2.design の描いた指示書）
-  prompt_file: board/prompts/r1/r2.design.md
-  node: r2.design
-  attempt: 1
-  already: false
-  role_def: ''
-  role_def_missing: ''
-r2-design:
-  question_stands: true
-  reason: 問いは立っている
-  design: ''
-r2-design-accept:
-  ok: false
-  done: true
-  give_up: true
-  skipped: false
-  reason: '記録の整合が取れない（役に返させ直す。回す側が補ってはいけない）: R2 の独立設計が空'
-  node: r2.design
-  reason_file: board/reject-eyes_r2_design-3.txt
 r2-compare-route:
   go: false
   node: r2.compare
@@ -112,20 +86,18 @@ r4-scope-route:
   stopped: false
 eyes-collect:
   ok: false
-  reason: '独立の目 r2-design の返答が 3 回とも受け付けで拒まれた（最後の拒否: 記録の整合が取れない…）'
+  reason: '独立の目 R2: 独立設計が取れなかった: r2.design の返答が 3 回とも受け付けで拒まれた（最後の拒否: 独立設計の返答の型が合わない…）'
   complete: false
   asking: false
   stopped: true
   eyes:
     r1-comments: done
     r1-minimality: done
-    r2-design: pending
     r2-compare: waiting
     r3-coherence: na
     r4-scope: na
     premise-check: waiting
-  gave_up:
-  - r2-design
+  gave_up: []
   after_fix:
     rev: acc5e6c2327b89f81356f7b71020f3347cdded0c
     diff_file: board/diff-r1-after-fix.patch
@@ -161,10 +133,6 @@ fixture:
   - r1-minimality-prep
   - r1-minimality
   - r1-minimality-accept
-  - r2-design-route
-  - r2-design-prep
-  - r2-design
-  - r2-design-accept
   - r2-compare-route
   - premise-check-route
   - r3-coherence-route

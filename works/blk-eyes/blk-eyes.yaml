@@ -1,8 +1,11 @@
 name: blk-eyes
 description: |
   独立の目のブロック（BLOCKS.md の R11 `gl.eyes.in` → `gl.eyes.out`）。修正の後に、書き手の文脈を持たない別の目が変更全体を見る:
-  R1 冗長と最小性（comment-analyzer の削除候補 → judge）・R2 ゼロベース再導出（道具ゼロの blind-judge が目的だけから設計 →
-  別の blind-judge が差分と突き合わせ。問いが立たなければ judge が前提を実態で検算）・R3 全体整合・R4 見えてないスコープ（inspector）。
+  R1 冗長と最小性（comment-analyzer の削除候補 → judge）・R2 の比較の半分（道具ゼロの blind-judge が、修正の前に目的だけから
+  作られて盤面に渡っている独立設計と差分を突き合わせる。設計の後に申告された前提のずれと記録の制約も貼り、それが設計の前提を
+  崩していれば『設計の前提が変わった』と言わせる。問いが立たなければ judge が前提を実態で検算）・R3 全体整合・R4 見えてないスコープ（inspector）。
+  設計の半分（r2.design）はこのブロックで起こさない。盤面に渡っていなければ比較の目は待ちのまま残り、出口が
+  『独立設計が取れなかった』を理由に盤面を止める。
   中の節は写しの graph のまま。入口の機械の節 p4.assemble（修正後の撮り直しと再発火の数え）はこのブロックの前に盤面の settle が
   回し、eyes-enter はそれが今の周に済んだことを確かめる。どの目を回すか（条件と依存。stop.premise_check の引き金 r2_premise_invalid を
   含む）は盤面だけが決め、ブロックは盤面の ready の目を起こす。関所の機械の節 r4.human_gate は r4.hidden_scope の受け付けの settle が
@@ -364,142 +367,12 @@ nodes:
               reason_file:
                 type: string
 
-  # r2.design（P-R ＞ R2 ゼロベース再導出（独立設計の半分。完全隔離）。役 blind-judge）
-  - id: r2-design-route
-    script: route
-    runtime: uv
-    timeout: 1728000000
-    depends_on: [eyes-enter]
-    with:
-      role: r2-design
-      round: $eyes-enter.output.round
-    output_format:
-      type: object
-      additionalProperties: false
-      required:
-      - go
-      - node
-      - why
-      - stopped
-      properties:
-        go:
-          type: boolean
-        node:
-          type: string
-        why:
-          type: string
-        stopped:
-          type: boolean
-
-  - id: r2-design-loop
-    depends_on: [r2-design-route]
-    when: "$r2-design-route.output.go == true"
-    loop_group:
-      max_iterations: 3
-      fresh_context: false
-      until_bash: test $r2-design-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
-      nodes:
-        - id: r2-design-prep
-          script: prep
-          runtime: uv
-          timeout: 1728000000
-          with:
-            role: r2-design
-            round: $eyes-enter.output.round
-          output_format:
-            type: object
-            additionalProperties: false
-            required:
-            - prompt
-            - prompt_file
-            - node
-            - attempt
-            - already
-            - role_def
-            - role_def_missing
-            properties:
-              prompt:
-                type: string
-              prompt_file:
-                type: string
-              node:
-                type: string
-              attempt:
-                type: integer
-              already:
-                type: boolean
-              role_def:
-                type: string
-              role_def_missing:
-                type: string
-        - id: r2-design
-          command: r2-design
-          depends_on: [r2-design-prep]
-          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。包みが旗 isolated を見て Git の外の置き場で起こす（git status が入らない）
-          sandbox: {enabled: true, allowUnsandboxedCommands: false}
-          idle_timeout: 1728000000
-          # eyes.output_format("r2.design")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
-          output_format:
-            description: 'works-node: r2-design isolated'
-            type: object
-            required:
-            - question_stands
-            - reason
-            - design
-            additionalProperties: false
-            properties:
-              question_stands:
-                type: boolean
-              reason:
-                type: string
-                minLength: 1
-              premise_invalid_reason:
-                type: string
-              design:
-                type: string
-        - id: r2-design-accept
-          script: accept
-          runtime: uv
-          timeout: 1728000000
-          depends_on: [r2-design]
-          with:
-            role: r2-design
-            reply: {from: "$r2-design.output"}
-          output_format:
-            type: object
-            additionalProperties: false
-            required:
-            - ok
-            - done
-            - give_up
-            - skipped
-            - reason
-            - node
-            - reason_file
-            properties:
-              ok:
-                type: boolean
-              done:
-                type: boolean
-              give_up:
-                type: boolean
-              skipped:
-                type: boolean
-              reason:
-                type: string
-              node:
-                type: string
-              reason_file:
-                type: string
-
   # r2.compare（P-R ＞ R2（比較役の半分。verdict を確定するのは比較役で writer ではない）。役 blind-judge）
   - id: r2-compare-route
     script: route
     runtime: uv
     timeout: 1728000000
-    depends_on: [r2-design-route, r2-design-loop]
-    trigger_rule: none_failed_min_one_success   # 前の輪は飛ばされうる（条件で na の目）
+    depends_on: [eyes-enter]
     with:
       role: r2-compare
       round: $eyes-enter.output.round

@@ -287,7 +287,7 @@ def default_reply(block, nid):
         stubs = yaml.safe_load((ROOT / "blk-report" / "fixtures" / "pass.stubs.yaml").read_text(encoding="utf-8"))
         return stubs[nid]
     fixed = {("blk-pr", "pr-check"): "pr_no_conflicts", ("blk-premises", "premises"): "premises_ok",
-             ("blk-purpose", "purpose"): "purpose_ok", ("blk-judge", "judge"): "judge_ok"}
+             ("blk-purpose", "purpose"): "purpose_ok", ("blk-judge", "judge"): "judge_ok", ("blk-plan", "r2-design"): "design_ok"}
     if (block, nid) in fixed:
         return linekit.reply(fixed[(block, nid)])
     raise KeyError(f"{block}/{nid} の返答が replies に無い")

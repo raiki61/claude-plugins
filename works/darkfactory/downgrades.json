@@ -1,1 +1,2 @@
-[{"node": "p0.parallel_pr", "what": "担当の PR へ申し送りを投稿しない（下書きを報告の冒頭 1 に載せる）", "versus": "review-graph は任せ先の役が gh で投稿する"}]
+[{"node": "p0.parallel_pr", "what": "担当の PR へ申し送りを投稿しない（下書きを報告の冒頭 1 に載せる）", "versus": "review-graph は任せ先の役が gh で投稿する"},
+ {"node": "r2.design", "what": "独立設計を修正の前に 1 度だけ作る（作り直さない）。修正の中で申告された前提のずれ（loop.drift_notes）と、裏取りを通っていない目的の判定の控え（loop.purpose_review_stale）は設計の入力に載らない。前提のずれと記録の制約は最後の比較（r2.compare）の頭に貼り、設計の前提を崩していれば『設計の前提が変わった』と理由つきで出させる", "versus": "review-graph は r2.design を p4.assemble の後に起こし、前提のドリフトの周に作り直す（その周の drift_notes を読む）"}]

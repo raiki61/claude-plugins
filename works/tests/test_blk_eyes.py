@@ -1,14 +1,17 @@
 """独立の目のブロック（blk-eyes。BLOCKS.md の R11）の検査。
 
-中の節は写しの graph のまま: 入口の機械の節 p4.assemble・目 7 つ（r1.comment_candidates → r1.minimality・r2.design →
+中の節は写しの graph のまま: 入口の機械の節 p4.assemble・目 6 つ（r1.comment_candidates → r1.minimality・
 r2.compare → stop.premise_check・r3.coherence・r4.hidden_scope）・関所の機械の節 r4.human_gate。どの目を回すか（条件・依存）は
-盤面の settle だけが決め、ブロックは ready の目を起こして返答を盤面に渡し、出口を組むだけ。
+盤面の settle だけが決め、ブロックは ready の目を起こして返答を盤面に渡し、出口を組むだけ。R2 の設計の半分（r2.design）は修正の前に
+先に作られ（core の design）、ラインの境の節がこのブロックの前に盤面へ渡す——試験の盤面も同じ口（design.hand）で渡してから入る。
 
-- 表: 7 つの目を absent から role（where blk-eyes）へ替える行（tests/boards/tables/eyes-rows.json。ラインの nodes.json に写す案）が
+- 表: 6 つの目を absent から role（where blk-eyes）へ替える行（tests/boards/tables/eyes-rows.json。ラインの nodes.json に写す案）が
   表の縛りを通る。r1.comment_candidates だけ skippable（graph で optional。3 回とも拒まれたら省いて R1 の本体へ進む）
 - 盤面: 手本（graphloops 0.21.0 の台本を engine の中で撮った物）の p4.assemble の後から、上の行に替えた表で作る。表の置き場は
   一時の pack（.shared と blk-eyes の写しと、試験のライン eyes-line/nodes.json）
-- 描画: 指示書は engine と同じ描き方（写しの graph の reads だけ）で、道具ゼロの r2.design には差分・リポジトリの置き場が届かない
+- 描画: 指示書は engine と同じ描き方（写しの graph の reads だけ）。先に作る道具ゼロの r2.design には差分・リポジトリの置き場が
+  届かない。r2.compare の頭には設計の後に分かった前提（前提のずれ・記録の制約）と『設計の前提が変わった』の指示が載る
+- 設計が無い: 設計の役が 3 回とも拒まれた盤面では比較の目が残り、出口が『独立設計が取れなかった』を理由に止める
 - 受け付け: 起こす前の作業ツリーの写しと比べ、盤面の done（schema・post_check・writes・記録の整合）。3 回拒まれたら諦めの印
 - 並び: 目は並んで走る（Archon の同じ層の輪）。盤面の書き込みは 1 本の錠（board.lock）で順に並べる
 - 出口: 入口の周の箱だけを見る（最後の目の受け付けの settle が周を進めても読み違えない）。欄は固定（EXIT_FIELDS）
@@ -37,7 +40,9 @@ for _p in (str(HERE), str(CORE), str(BLK / "lib")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import accept  # noqa: E402
 import boardreplay as br  # noqa: E402
+import design  # noqa: E402
 import entry  # noqa: E402
 import eyes  # noqa: E402
 from accept import role_schema  # noqa: E402
@@ -62,12 +67,12 @@ SCOPE_OK = {"status": "pass", "reason": "導入・露呈した横断リスクな
 PREMISE_ESCALATE = {"key": "識別子を別に持つか", "assumption": "1 デプロイ＝1 リポジトリ", "assumption_false": False,
                     "evidence": "README に複数デプロイの記述が無い", "verdict": "escalate", "reason": "実測で反証できない"}
 BAD = {"candidates": "一覧でない", "kept": []}   # r1-comments の schema に合わない
-REPLY = {"r1-comments": COMMENTS_OK, "r1-minimality": MINIMALITY_OK, "r2-design": DESIGN_OK, "r2-compare": COMPARE_OK,
+REPLY = {"r1-comments": COMMENTS_OK, "r1-minimality": MINIMALITY_OK, "r2-compare": COMPARE_OK,
          "r3-coherence": COHERENCE_OK, "r4-scope": SCOPE_OK, "premise-check": PREMISE_ESCALATE}
 
 
 def table_doc():
-    """1 本目のラインの表の 7 行を eyes-rows.json に替えた表（試験のライン eyes-line）"""
+    """1 本目のラインの表の目の 6 行を eyes-rows.json に替えた表（試験のライン eyes-line）"""
     doc = json.loads((ROOT / "darkfactory" / "nodes.json").read_text(encoding="utf-8"))
     doc["line"] = LINE
     doc["nodes"].update(ROWS)
@@ -99,6 +104,7 @@ def _open_units_zero(mem):
 # 盤面の種類 → (手本の台本, 手, 記憶の手当て, settle するか)
 KINDS = {
     "r1r2": ("test_converges", 49, None, True),     # p4.assemble の後。r1.comment_candidates・r2.design が出る（r3・r4 は na）
+                                                    # r2.design は board() が先に作った設計として渡す（r2.compare が出る）
     "all4": ("test_converges", 49, _open_units_zero, True),   # 目 4 つが同時に出る
     "asking": ("test_human_gate", 51, None, True),  # r4.human_gate が人に聞く（出た目の後ろは答えるまで出ない）
     "before": ("test_converges", 48, None, False),  # p4.ci を受けた後・p4.assemble の前
@@ -198,8 +204,13 @@ class _Case(unittest.TestCase):
             else:
                 os.environ[k] = v
 
-    def board(self, kind="r1r2"):
+    def board(self, kind="r1r2", made=DESIGN_OK):
+        """盤面を作り、修正の前に先に作った設計 made を、ラインの境の節と同じ口（design.hand）で渡す（None なら渡さない）"""
         self.bd, self.repo = BOARDS.fresh(kind)
+        if made is not None:
+            accept.write_board(self.bd, design.DESIGN_FILE, made)
+            got = design.hand(entry.open_board(self.bd), self.bd, self.repo)
+            self.assertTrue(got["handed"], got)
         return self.bd
 
     def enter(self):
@@ -216,7 +227,7 @@ class _Case(unittest.TestCase):
 
 class TableCase(unittest.TestCase):
     def test_rows_turn_absent_eyes_into_roles(self):
-        """案の行は 7 つの目を role（where blk-eyes）にし、表の縛りを通る。ラインの表はこの行をそのまま当てた（計画 P1 Task 33）。
+        """案の行は 6 つの目を role（where blk-eyes）にし、表の縛りを通る。ラインの表はこの行をそのまま当てた（計画 P1 Task 33）。
         入口と関所は機械の節のまま"""
         now = json.loads((ROOT / "darkfactory" / "nodes.json").read_text(encoding="utf-8"))["nodes"]
         self.assertEqual(set(ROWS), set(eyes.ROLE_OF))
@@ -225,6 +236,7 @@ class TableCase(unittest.TestCase):
                 self.assertEqual(now[nid], ROWS[nid], "ラインの表は案の行と同じ")
                 self.assertEqual((ROWS[nid]["by"], ROWS[nid]["where"]), ("role", "blk-eyes"))
         self.assertEqual({nid for nid, r in ROWS.items() if r.get("skippable")}, {"r1.comment_candidates"})
+        self.assertNotEqual(now[design.NODE]["where"], "blk-eyes", "設計の半分は修正の前に作る（目のブロックで起こさない）")
         for nid in (eyes.ENTRY_NODE, eyes.GATE_NODE):
             self.assertEqual(now[nid]["by"], "builtin")
         doc = table_doc()
@@ -235,11 +247,11 @@ class TableCase(unittest.TestCase):
         self.assertEqual(t.check(graph_expanded(), GRAPH_SHA), [])
 
     def test_block_nodes_match_blocks_md(self):
-        """R11 の中の節（BLOCKS.md 3.3）: 入口 p4.assemble・目 7 つ・関所 r4.human_gate。目の依存は写しの graph のまま"""
+        """R11 の中の節（BLOCKS.md 3.3）: 入口 p4.assemble・目 6 つ・関所 r4.human_gate。目の依存は写しの graph のまま"""
         g = graph_expanded()["nodes"]
         self.assertEqual(eyes.ENTRY_NODE, "p4.assemble")
         self.assertEqual(eyes.GATE_NODE, "r4.human_gate")
-        self.assertEqual(set(eyes.ROLE_OF), {"r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare",
+        self.assertEqual(set(eyes.ROLE_OF), {"r1.comment_candidates", "r1.minimality", "r2.compare",
                                              "r3.coherence", "r4.hidden_scope", "stop.premise_check"})
         inside = set(eyes.ROLE_OF) | {eyes.ENTRY_NODE, eyes.GATE_NODE}
 
@@ -249,8 +261,8 @@ class TableCase(unittest.TestCase):
         for nid in eyes.ROLE_OF:
             with self.subTest(nid):
                 self.assertIn(eyes.ENTRY_NODE, reach(nid), "目は入口の後")
-                # ブロックの外から読むのは目的（R1 の出口）だけ
-                self.assertLessEqual(set(g[nid]["deps"]) - inside, {"p0.purpose", "p0.purpose_review"})
+                # ブロックの外から読むのは目的（R1 の出口）と、修正の前に作って渡された設計だけ
+                self.assertLessEqual(set(g[nid]["deps"]) - inside, {"p0.purpose", "p0.purpose_review", design.NODE})
         self.assertEqual(g[eyes.GATE_NODE]["deps"], ["r4.hidden_scope"])
 
     def test_lanes_follow_graph_deps(self):
@@ -269,13 +281,13 @@ class EnterRouteCase(_Case):
         got = self.enter()
         self.assertEqual((got["ok"], got["stopped"], got["asking"]), (True, False, False), got)
         self.assertEqual(got["round"], 1)
-        self.assertEqual(sorted(got["ready"]), ["r1-comments", "r2-design"])
+        self.assertEqual(sorted(got["ready"]), ["r1-comments", "r2-compare"])
         snap = json.loads(pathlib.Path(got["snapshot_file"]).read_text(encoding="utf-8"))
         self.assertTrue({"porcelain", "diff_sha256", "ignored", "head", "ref"} <= set(snap))
 
     def test_enter_refuses_before_assemble(self):
         """入口の機械の節が今の周に済んでいない盤面は配線の誤り（目を起こさない）"""
-        self.board("before")
+        self.board("before", made=None)
         with self.assertRaises(BoardGap) as cm:
             eyes.enter(self.bd, self.repo)
         self.assertIn("p4.assemble", str(cm.exception))
@@ -312,10 +324,11 @@ class PrepCase(_Case):
         self.assertIn("pr-review-toolkit:comment-analyzer", got["role_def_missing"])
 
     def test_prep_blind_role_sees_only_its_reads(self):
-        """道具ゼロの r2.design の指示書には、graph の reads（目的・制約・方針）だけが載る。差分・変更ファイル・リポジトリの置き場は載らない"""
-        self.board("r1r2")
-        self.enter()
-        got = eyes.prep(self.bd, "r2-design", self.rnd, self.repo)
+        """先に作る道具ゼロの r2.design の指示書（core の design.prep）には、graph の reads（目的・制約・方針）だけが載る。
+        差分・変更ファイル・リポジトリの置き場は載らない"""
+        self.board("r1r2", made=None)
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        got = design.prep(self.bd, self.repo)
         text = got["prompt"]
         st = state(self.bd)
         self.assertIn("ROLE-blind-judge", text, "役の定義（graph の plugin の agents/<役>.md）を頭に置く")
@@ -325,6 +338,26 @@ class PrepCase(_Case):
         # 変更ファイルの名前は、graph の reads の制約（実測の出力）が運ぶことがあるので見ない（本線と同じ）
         for leak in (st["loop"]["diff_file"], str(self.repo), st["inputs"]["cwd"], "diff-r1"):
             self.assertNotIn(leak, text, f"遮断の役に {leak!r} が届いた")
+
+    def test_compare_prompt_carries_premises_found_after_design(self):
+        """人の条件 (1): 設計は修正の前に作るので、r2.compare の頭に修正の中の前提のずれ（loop.drift_notes）と記録の制約を貼り、
+        それが設計の前提を崩していれば『設計の前提が変わった』と理由つきで言わせる（古い設計と黙って比べさせない）"""
+        self.board("r1r2")
+        p = pathlib.Path(self.bd) / "state.json"
+        st = json.loads(p.read_text(encoding="utf-8"))
+        st["loop"]["drift_notes"] = [{"round": 1, "text": "上限は呼び手ごとに違うと分かった"}]
+        p.write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        self.enter()
+        text = eyes.prep(self.bd, "r2-compare", self.rnd, self.repo)["prompt"]
+        self.assertIn(eyes.PREMISE_HEAD, text)
+        self.assertIn("周 1: 上限は呼び手ごとに違うと分かった", text)
+        self.assertIn(f"『{eyes.PREMISE_CHANGED}: 』", text)
+        cons = record(self.bd)["process"].get("constraints") or []
+        for c in cons:
+            self.assertIn(c["text"], text)
+        self.assertLess(text.index(eyes.PREMISE_HEAD), text.index("独立設計（目的だけから別の目が導いたもの）"),
+                        "比較の指示書の本文の前に置く")
+        self.assertIn(DESIGN_OK["design"], text, "比較の本文には先に作った設計が載る")
 
     def test_prep_refuses_eye_not_waiting(self):
         self.board("r1r2")
@@ -338,7 +371,7 @@ class PrepCase(_Case):
         self.enter()
         os.environ["CONVERGENCE_LOOPS_ROOT"] = str(pathlib.Path(self._plug.name) / "no-such")
         with self.assertRaises(BoardGap) as cm:
-            eyes.prep(self.bd, "r2-design", self.rnd, self.repo)
+            eyes.prep(self.bd, "r2-compare", self.rnd, self.repo)
         self.assertIn("convergence-loops:blind-judge", str(cm.exception))
 
 
@@ -373,13 +406,36 @@ class AcceptCase(_Case):
         self.board("r1r2")
         self.enter()
         for _ in range(eyes.GIVE_UP_AFTER):
-            _, got = self.run_eye("r2-design", {"reason": "型に合わない"})
+            _, got = self.run_eye("r2-compare", {"reason": "型に合わない"})
         self.assertEqual((got["done"], got["give_up"], got["skipped"]), (True, True, False))
-        self.assertIn("r2.design", state(self.bd)["rounds"][-1]["instances"])
+        self.assertIn("r2.compare", state(self.bd)["rounds"][-1]["instances"])
         out = eyes.collect(self.bd, self.rnd)
         self.assertFalse(out["ok"])
         self.assertIn("3 回とも", out["reason"])
-        self.assertEqual(out["gave_up"], ["r2-design"])
+        self.assertEqual(out["gave_up"], ["r2-compare"])
+        self.assertEqual(state(self.bd)["stop"]["by"], eyes.STOP_BY)
+
+    def test_design_gave_up_before_fix_stops_at_eyes_with_reason(self):
+        """修正の前の設計が 3 回とも拒まれた run（人の条件 (2)）: 設計は盤面へ渡らず、ほかの目は回り、比較の目が残る。出口は
+        『独立設計が取れなかった』と設計の最後の拒否を理由に盤面を止める（今までと同じく目の層で止まる）"""
+        self.board("r1r2", made=None)
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        for _ in range(design.GIVE_UP_AFTER):
+            got = design.accept_reply(self.bd, json.dumps({"reason": "型に合わない"}, ensure_ascii=False), self.repo)
+        self.assertEqual((got["ok"], got["done"], got["give_up"]), (False, True, True))
+        self.assertFalse(design.due(entry.open_board(self.bd))[0], "諦めた設計は起こし直さない（設計を 2 度作らない）")
+        self.assertFalse(design.hand(entry.open_board(self.bd), self.bd, self.repo)["handed"])
+        self.enter()
+        for role in ("r1-comments", "r1-minimality"):
+            self.assertTrue(eyes.route(self.bd, role, self.rnd)["go"], role)
+            self.run_eye(role, REPLY[role])
+        self.assertFalse(eyes.route(self.bd, "r2-compare", self.rnd)["go"])
+        out = eyes.collect(self.bd, self.rnd)
+        self.assertFalse(out["ok"])
+        self.assertTrue(out["reason"].startswith(f"独立の目 R2: {design.MISSING}"), out["reason"])
+        self.assertIn("3 回とも受け付けで拒まれた", out["reason"])
+        self.assertIn("question_stands", out["reason"], "設計の最後の拒否の文を運ぶ")
+        self.assertEqual(out["eyes"]["r2-compare"], "waiting")
         self.assertEqual(state(self.bd)["stop"]["by"], eyes.STOP_BY)
 
     def test_tree_change_is_rejected(self):
@@ -407,10 +463,8 @@ class AcceptCase(_Case):
 class PathCase(_Case):
     def test_premise_invalid_runs_premise_check(self):
         """R2 が premise-invalid（question_stands 偽）: r2.compare は条件で na、stop.premise_check が出る（条件は盤面の r2_premise_invalid）"""
-        self.board("r1r2")
+        self.board("r1r2", made=DESIGN_INVALID)
         self.enter()
-        _, got = self.run_eye("r2-design", DESIGN_INVALID)
-        self.assertTrue(got["ok"], got)
         self.assertFalse(eyes.route(self.bd, "r2-compare", self.rnd)["go"])
         self.assertTrue(eyes.route(self.bd, "premise-check", self.rnd)["go"])
         _, got = self.run_eye("premise-check", PREMISE_ESCALATE)
@@ -421,7 +475,7 @@ class PathCase(_Case):
     def test_all_eyes_then_collect(self):
         self.board("r1r2")
         self.enter()
-        for role in ("r1-comments", "r2-design", "r1-minimality", "r2-compare"):
+        for role in ("r1-comments", "r1-minimality", "r2-compare"):
             self.assertTrue(eyes.route(self.bd, role, self.rnd)["go"], role)
             _, got = self.run_eye(role, REPLY[role])
             self.assertTrue(got["ok"], got)
@@ -429,7 +483,7 @@ class PathCase(_Case):
         out = eyes.collect(self.bd, self.rnd)
         self.assertEqual(tuple(out), eyes.EXIT_FIELDS, "出口の欄は固定")
         self.assertEqual((out["ok"], out["complete"], out["asking"], out["stopped"]), (True, True, False, False), out)
-        self.assertEqual(out["eyes"], {"r1-comments": "done", "r1-minimality": "done", "r2-design": "done",
+        self.assertEqual(out["eyes"], {"r1-comments": "done", "r1-minimality": "done",
                                        "r2-compare": "done", "r3-coherence": "na", "r4-scope": "na",
                                        "premise-check": "na"})
         self.assertEqual(out["reviews"]["R1"]["status"], "pass")
@@ -445,7 +499,7 @@ class PathCase(_Case):
         """同じ層の目 4 つの受け付けを別のプロセスで同時に走らせても、盤面は 4 つとも受ける（錠が書き込みを並べる）"""
         self.board("all4")
         self.enter()
-        roles = ["r1-comments", "r2-design", "r3-coherence", "r4-scope"]
+        roles = ["r1-comments", "r2-compare", "r3-coherence", "r4-scope"]
         for role in roles:
             self.assertTrue(eyes.route(self.bd, role, self.rnd)["go"], role)
             eyes.prep(self.bd, role, self.rnd, self.repo)
@@ -465,7 +519,7 @@ class PathCase(_Case):
         self.board("asking")
         got = self.enter()
         self.assertTrue(got["asking"])
-        for role in ("r1-comments", "r2-design"):
+        for role in ("r1-comments",):
             self.assertTrue(eyes.route(self.bd, role, self.rnd)["go"], role)
             _, a = self.run_eye(role, REPLY[role])
             self.assertTrue(a["ok"], a)
@@ -526,7 +580,7 @@ class ScriptCase(_Case):
         self.board("r1r2")
         ent = self.ok("enter")
         rnd = ent["round"]
-        for role in ("r1-comments", "r2-design", "r1-minimality", "r2-compare"):
+        for role in ("r1-comments", "r1-minimality", "r2-compare"):
             self.assertTrue(self.ok("route", role=role, round=rnd)["go"], role)
             exited, rounds = self.run_loop(role, REPLY[role], rnd)
             self.assertEqual(exited, 1, rounds)
@@ -538,7 +592,7 @@ class ScriptCase(_Case):
     def test_loop_gives_up_after_three_rejections(self):
         self.board("r1r2")
         rnd = self.ok("enter")["round"]
-        exited, rounds = self.run_loop("r2-design", {"reason": "型に合わない"}, rnd)
+        exited, rounds = self.run_loop("r2-compare", {"reason": "型に合わない"}, rnd)
         self.assertEqual(exited, eyes.GIVE_UP_AFTER, "輪が上限まで抜けない（Archon は run を落とす）")
         for _, a in rounds:
             self.assertTrue(pathlib.Path(a["reason_file"]).is_file(), "拒否の理由の本文は reason_file に（裁定 R44）")
@@ -546,7 +600,7 @@ class ScriptCase(_Case):
         self.assertFalse(out["ok"])
 
     def test_prep_every_eye_without_plugins(self):
-        """dogfood の隔離（plugin の無い CLAUDE_CONFIG_DIR・<PLUGIN>_ROOT なし）でも、7 つの目の支度（prep のスクリプト）が
+        """dogfood の隔離（plugin の無い CLAUDE_CONFIG_DIR・<PLUGIN>_ROOT なし）でも、6 つの目の支度（prep のスクリプト）が
         全部通る。graph の plugin の役の定義は pack の写し（core/agents/）から引いて頭に置く（run 31: r2.design・r1.minimality が
         BoardGap の exit 2 で落ちた）。別 plugin の r1.comment_candidates は engine と同じく止めずに無いことを残す"""
         os.environ.pop("CONVERGENCE_LOOPS_ROOT", None)
@@ -554,7 +608,7 @@ class ScriptCase(_Case):
         empty.mkdir()
         os.environ["CLAUDE_CONFIG_DIR"] = str(empty)
         agents = PACK.root / ".shared" / "core" / "agents"
-        own = {"r1-minimality": "judge", "r2-design": "blind-judge", "r2-compare": "blind-judge", "r3-coherence": "inspector",
+        own = {"r1-minimality": "judge", "r2-compare": "blind-judge", "r3-coherence": "inspector",
                "r4-scope": "inspector", "premise-check": "judge"}
         seen = set()
 
@@ -572,20 +626,18 @@ class ScriptCase(_Case):
                 self.assertIn("pr-review-toolkit:comment-analyzer", got["role_def_missing"])
             return got
 
-        # 目 4 つが同時に出る盤面: 先頭の 4 つ → 受けた後の r1.minimality・r2.compare
+        # 目 4 つが同時に出る盤面: 先頭の 4 つ → 受けた後の r1.minimality
         self.board("all4")
         rnd = self.ok("enter")["round"]
-        for role in ("r1-comments", "r2-design", "r3-coherence", "r4-scope"):
+        for role in ("r1-comments", "r2-compare", "r3-coherence", "r4-scope"):
             prep(role, rnd)
             self.ok("accept", role=role, reply=json.dumps(REPLY[role], ensure_ascii=False))
-        for role in ("r1-minimality", "r2-compare"):
+        for role in ("r1-minimality",):
             self.assertTrue(self.ok("route", role=role, round=rnd)["go"], role)
             prep(role, rnd)
-        # R2 が premise-invalid の盤面: stop.premise_check
-        self.board("r1r2")
+        # R2 が premise-invalid の盤面（設計が問いは立たないと返した）: stop.premise_check
+        self.board("r1r2", made=DESIGN_INVALID)
         rnd = self.ok("enter")["round"]
-        prep("r2-design", rnd)
-        self.ok("accept", role="r2-design", reply=json.dumps(DESIGN_INVALID, ensure_ascii=False))
         self.assertTrue(self.ok("route", role="premise-check", round=rnd)["go"])
         prep("premise-check", rnd)
         self.assertEqual(seen, set(eyes.NODE_OF), "目の全部を支度した")
@@ -664,9 +716,8 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(ai["idle_timeout"], DEADLINE)
                 self.assertNotIn("context", ai, "1 回目は輪が新しい会話で起こす（書き手の会話を継がない）")
                 roles[role] = ai
-        self.assertEqual(node_marker.parse(roles["r2-design"]["output_format"]["description"])["flags"],
+        self.assertEqual(node_marker.parse(roles["r2-compare"]["output_format"]["description"])["flags"],
                          frozenset({"isolated"}))
-        self.assertEqual(roles["r2-design"]["allowed_tools"], [])
         self.assertEqual(roles["r2-compare"]["allowed_tools"], [])
         self.assertEqual(node_marker.parse(roles["r3-coherence"]["output_format"]["description"])["flags"], frozenset())
 

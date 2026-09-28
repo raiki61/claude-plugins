@@ -1,5 +1,6 @@
-# 筋書き no-fix: 判定が直す物を残さない（need_fix: false）。h-plan が修正を機械の空の返答で埋め（go 偽）、修正案・修正・
-# 差分の審査・手直しは when: で飛ぶ。最後のテストは周を締めるので回り、報告は no_fix_needed
+# 筋書き no-fix: 判定が直す物を残さない（need_fix: false）。h-plan が修正を機械の空の返答で埋め、修正案の輪は plan-snap の
+# go 偽で飛ぶ。最後の R2 が要る独立設計だけは修正案のブロックで先に作る（h-plan の go 真）。修正・差分の審査・手直しは when: で
+# 飛ぶ。最後のテストは周を締めるので回り、報告は no_fix_needed
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
 start:
@@ -647,7 +648,7 @@ judging__collect:
 h-plan:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -667,10 +668,34 @@ h-plan:
   mid_note: ''
   purpose_file: ''
   mat_go: false
-planning__plan-snap:
+planning__r2-design-snap:
   ok: true
   go: true
-  snapshot_file: board/r1/plan-snapshot.json
+  snapshot_file: board/r1/design-snapshot.json
+r2-design-prep:
+  prompt: （r2.design の描いた指示書）
+  prompt_file: board/r1/prompt-r2.design.md
+  node: r2.design
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-design:
+  question_stands: true
+  reason: 問いは立っている
+  design: 上限は入口 1 箇所で掛ける
+r2-design-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.design
+  reason_file: ''
+planning__plan-snap:
+  ok: true
+  go: false
+  snapshot_file: ''
 plan-prep:
   prompt_file: board/r1/prompt-p2.fix_plan.md
   attempt: 1
@@ -701,8 +726,8 @@ plan-accept:
   out_file: out/r1/p2.fix_plan.json
 planning__plan-review-snap:
   ok: true
-  go: true
-  snapshot_file: board/r1/plan-review-snapshot.json
+  go: false
+  snapshot_file: ''
 plan-review-prep:
   prompt_file: board/r1/prompt-p2.plan_review.md
   attempt: 1
@@ -731,8 +756,8 @@ planning__plan-reads:
   reads_file: board/r1/reads-plan-block.json
 planning__collect:
   ok: true
-  plan_file: board/out/r1/p2.fix_plan.json
-  review_file: board/out/r1/p2.plan_review.json
+  plan_file: ''
+  review_file: ''
   asks_human: false
   gate_kinds: []
   reads_file: board/r1/reads-plan-block.json
@@ -1407,7 +1432,6 @@ eyeing__eyes-enter:
   asking: false
   ready:
   - r1-comments
-  - r2-design
   - r3-coherence
   - r4-scope
   snapshot_file: board/r1/eyes-snapshot.json
@@ -1462,31 +1486,6 @@ r1-minimality-accept:
   skipped: false
   reason: ''
   node: r1.minimality
-  reason_file: ''
-eyeing__r2-design-route:
-  go: true
-  node: r2.design
-  why: r2.design が待っている
-  stopped: false
-r2-design-prep:
-  prompt: （r2.design の描いた指示書）
-  prompt_file: board/prompts/r1/r2.design.md
-  node: r2.design
-  attempt: 1
-  already: false
-  role_def: ''
-  role_def_missing: ''
-r2-design:
-  question_stands: true
-  reason: 問いは立っている
-  design: 上限は入口 1 箇所で掛ける
-r2-design-accept:
-  ok: true
-  done: true
-  give_up: false
-  skipped: false
-  reason: ''
-  node: r2.design
   reason_file: ''
 eyeing__r2-compare-route:
   go: true
@@ -1602,7 +1601,6 @@ eyeing__eyes-collect:
   eyes:
     r1-comments: done
     r1-minimality: done
-    r2-design: done
     r2-compare: done
     r3-coherence: done
     r4-scope: done
@@ -1786,6 +1784,7 @@ fixture:
   - gathering__collect
   - judging__collect
   - h-plan
+  - planning__collect
   - h-gate
   - h-fix
   - h-rejudge

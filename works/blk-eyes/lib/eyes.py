@@ -1,14 +1,19 @@
 """独立の目のブロック（blk-eyes。BLOCKS.md の R11 `gl.eyes.in` → `gl.eyes.out`）の芯。
 
-中の節は写しの graph のまま: 入口の機械の節 p4.assemble（修正後の撮り直しと再発火の数え）・目 7 つ・関所の機械の節
-r4.human_gate。どの目を回すか（条件 r1_refire・r2_design_due・r2_compare_due・overview_due・r2_premise_invalid と依存）は
+中の節は写しの graph のまま: 入口の機械の節 p4.assemble（修正後の撮り直しと再発火の数え）・目 6 つ・関所の機械の節
+r4.human_gate。どの目を回すか（条件 r1_refire・r2_compare_due・overview_due・r2_premise_invalid と依存）は
 盤面の settle だけが決める。ここは ready の目を起こす支度をし、返答を盤面に渡し、入口の周の箱から出口を組むだけ
 （条件を写さない。stop.premise_check の引き金も盤面の r2_premise_invalid のまま）。
+R2 の設計の半分（r2.design）はここで起こさない: 修正の前に先に作った設計（core の design。盤面の根の design.json）が、この
+ブロックの前に盤面へ渡っている。渡っていなければ（設計の役が諦めた・目的が使えない）比較の目は待ちのまま残り、出口が
+設計が取れなかったことを理由にして止める。
 
 - enter:   入口。p4.assemble が今の周に済んでいるかを確かめ（済んでいなければ配線の誤り）、目を起こす前の作業ツリーの写しを撮る
 - route:   目 1 つを今起こすか（入口の周に、その目の待っている instance が在るか）
 - prep:    engine と同じ描き方（写しの graph の reads だけ・cap なし）で指示書を描き、役の定義（graph の plugin の agents/<役>.md）を
-           頭に置き、前の拒否の文を先頭に置き、起こした印を置く。本文は出口の prompt で返し、指示書（commands/）が直の参照で貼る
+           頭に置き、前の拒否の文を先頭に置き、起こした印を置く。本文は出口の prompt で返し、指示書（commands/）が直の参照で貼る。
+           r2.compare には、設計を作った後に分かった前提（修正の中の前提のずれ loop.drift_notes と記録の制約）を頭に貼る
+           （設計は修正の前に作るので、それらを知らない。崩れていれば『設計の前提が変わった』と理由つきで言わせる）
 - accept:  返答を盤面に渡す（entry.take。入口の写しと今の作業ツリーを比べる）。拒否は数え、GIVE_UP_AFTER 回で諦めの印（done）。
            表で skippable の目（r1.comment_candidates）は諦めたら省いて（board.skip）後ろの目を出す
 - collect: 出口。入口の周の箱だけを見る（最後の目の受け付けの settle が p4.record・converge を回して周を進めても読み違えない）。
@@ -38,9 +43,9 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 from board import BoardGap  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
-from engine.advance import agent_type_of  # noqa: E402
 from engine.util import now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
+import design  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
 import rolekit  # noqa: E402
@@ -48,12 +53,12 @@ import rolekit  # noqa: E402
 ENTRY_NODE = "p4.assemble"
 GATE_NODE = "r4.human_gate"
 # 写しの目の節 → 役の名（YAML の節 id・commands の名・包みの印の名）
-ROLE_OF = {"r1.comment_candidates": "r1-comments", "r1.minimality": "r1-minimality", "r2.design": "r2-design",
-           "r2.compare": "r2-compare", "r3.coherence": "r3-coherence", "r4.hidden_scope": "r4-scope",
+ROLE_OF = {"r1.comment_candidates": "r1-comments", "r1.minimality": "r1-minimality", "r2.compare": "r2-compare", "r3.coherence": "r3-coherence", "r4.hidden_scope": "r4-scope",
            "stop.premise_check": "premise-check"}
 NODE_OF = {r: n for n, r in ROLE_OF.items()}
-# YAML で縦に並べる筋（graph の依存の順。筋をまたぐ依存は無い——tests/test_blk_eyes.py が graph と突き合わせる）
-LANES = (("r1.comment_candidates", "r1.minimality"), ("r2.design", "r2.compare", "stop.premise_check"),
+# YAML で縦に並べる筋（graph の依存の順。筋をまたぐ依存は無い——tests/test_blk_eyes.py が graph と突き合わせる）。
+# r2.compare の依存の r2.design は目の外（修正の前に作った設計がこのブロックの前に盤面へ渡る）
+LANES = (("r1.comment_candidates", "r1.minimality"), ("r2.compare", "stop.premise_check"),
          ("r3.coherence",), ("r4.hidden_scope",))
 # 役の道具（graph の run_by → Archon の allowed_tools）。graphloops の役の定義（convergence-loops 0.40.0 の agents/<役>.md）の
 # 道具から、書く道具と shell を除いた物。comment-analyzer（別 plugin）は定義が全部の道具を持つが、目は読むだけなので同じく書く道具と
@@ -64,7 +69,14 @@ TOOLS = {"judge": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"], "inspector"
 ISOLATED_RUN_BY = frozenset({"blind-judge"})
 ISOLATED_FLAG = "isolated"
 GIVE_UP_AFTER = 3        # 輪の max_iterations と同じ数。この数だけ拒んだら done を出し、輪を失敗で抜けさせない（裁定 R50）
-REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
+REJECT_HEADING = rolekit.REJECT_HEADING
+PREMISE_NODE = "r2.compare"   # 設計を作った後に分かった前提を頭に貼る目
+PREMISE_HEAD = "## 独立設計を作った後に分かった前提（機械が貼った）"
+PREMISE_CHANGED = "設計の前提が変わった"
+PREMISE_ASK = ("独立設計はこの run の修正の前に、目的と実測した制約だけから作られた。下の前提のずれ（修正の中で申告された物）と、"
+               "今の記録の制約のどれかが、設計の置いた前提を崩していれば、構造の突き合わせに進まず status を redesign-needed にし、"
+               f"reason を『{PREMISE_CHANGED}: 』で始めて、どの前提が何で崩れたかを書け（古い前提の設計と差分を黙って比べない）。"
+               "崩していなければ、下の指示書のとおり構造で突き合わせよ。")
 LOCK_NAME = "board.lock"
 SNAPSHOT_NAME = "eyes-snapshot.json"
 REJECTS_NAME = "eyes-rejects.json"
@@ -245,17 +257,17 @@ def render(b, nid) -> str:
     return rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY)[0]
 
 
-def role_definition(b, nid) -> tuple:
-    """(役の定義の本文, 定義のファイル, 無い時の知らせ)。graph の plugin の役の定義が見つからなければ BoardGap（engine の die と同じ——
-    遮断系かどうかが決まらないので起こさない）。別 plugin の役は止めずに知らせを返す（engine の role_def_missing）"""
-    atype = agent_type_of(b, b.nodes[nid])
-    d = rolekit.agent_def(atype)   # 写しの plugin の役は pack の写し（core/agents/）から
-    if d is None:
-        if atype.rpartition(":")[0] == b.plugin:
-            raise BoardGap(f"{nid}: 役 {atype!r} の定義（agents/<役>.md）が解決できない——遮断系かどうかが決まらないので起こさない"
-                           "（pack の写し .shared/core/agents/・明示した <PLUGIN>_ROOT を確かめよ）")
-        return "", "", f"{atype} の定義がこの環境に無い（別 plugin）。役の定義なしで起こす"
-    return d["body"], d["file"], ""
+def _lines(rows) -> str:
+    return "\n".join(f"- {r}" for r in rows) if rows else "（無い）"
+
+
+def premise_section(b) -> str:
+    """r2.compare の頭に貼る節: 修正の中の前提のずれ（loop.drift_notes）と記録の制約（record.process.constraints）"""
+    drift = [f"周 {r.get('round')}: {r.get('text') or '（申告の文なし）'}" for r in b.loop_state.get("drift_notes") or []]
+    cons = [f"（{c.get('kind')}）{c.get('text')}" if isinstance(c, dict) else str(c)
+            for c in (b.record.get("process") or {}).get("constraints") or []]
+    return (f"{PREMISE_HEAD}\n\n{PREMISE_ASK}\n\n### 前提のずれ（修正の中の申告）\n\n{_lines(drift)}\n\n"
+            f"### 記録の制約\n\n{_lines(cons)}")
 
 
 def _rejects(b, rnd, nid):
@@ -273,15 +285,13 @@ def prep(board_dir, role, rnd, repo) -> dict:
         inst = _pending(b, nid)
         if inst is None:
             raise BoardGap(f"この周に {nid} の待っている instance が無い（route が go の目だけを起こす）")
-        body, def_file, missing = role_definition(b, nid)
         prompt = render(b, nid)
-        if body:
-            prompt = f"## お前の役の定義（{agent_type_of(b, b.nodes[nid])}）\n\n{body}\n\n---\n\n{prompt}"
+        if nid == PREMISE_NODE:
+            prompt = f"{premise_section(b)}\n\n---\n\n{prompt}"
+        prompt, def_file, missing = rolekit.with_role_definition(b, nid, prompt)
         last = _rejects(b, rnd, nid)[-1:]
-        if last:
-            # 拒否の文は本文に入れて渡す（$LOOP_PREV で貼ると Archon が文の中の $… を置き換え直す。裁定 R44）
-            prompt = (f"{REJECT_HEADING}\n\n前の回の返答は受け付けで拒まれた。下の理由のところを直した返答を丸ごと出し直せ"
-                      f"（直した所だけを返すな）:\n\n```text\n{last[0]['reason']}\n```\n\n---\n\n{prompt}")
+        if last:   # 拒否の文は本文に入れて渡す
+            prompt = rolekit.with_reject(prompt, last[0]["reason"])
         p = b.dir / "prompts" / f"r{b.round}" / (safe_name(nid) + ".md")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(prompt, encoding="utf-8")
@@ -346,6 +356,9 @@ def collect(board_dir, rnd) -> dict:
                 last = [x for x in rejects if x.get("node") == NODE_OF[stuck[0]]][-1]
                 reason = (f"独立の目 {stuck[0]} の返答が {GIVE_UP_AFTER} 回とも受け付けで拒まれた"
                           f"（最後の拒否: {last['reason']}）")
+            elif _node_state(b, rnd, design.NODE) in ("pending", "waiting"):
+                # 修正の前の設計が盤面へ渡っていない（設計の役が諦めた・控えを盤面が受けない）。今までどおり目の層で止める
+                reason = f"独立の目 R2: {design.missing(b) or design.MISSING + '（控えは在るが盤面が受けていない）'}"
             else:
                 reason = f"回した後も目 {left} が残った（盤面の順とブロックの筋がずれた——写し直しで増えた依存を筋に足す）"
             b.stop(reason, by=STOP_BY)

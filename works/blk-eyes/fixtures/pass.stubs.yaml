@@ -1,5 +1,6 @@
-# 筋書き pass: 目 4 つ（r1.comment_candidates・r2.design・r3.coherence・r4.hidden_scope）が同じ層で並んで走り、R1・R2 の本体が
-# 続き、R2 の問いが立つので stop.premise_check は条件で na（premise-check-route が go: false で輪が飛ぶ）。collect が ok: true。
+# 筋書き pass: 目 4 つ（r1.comment_candidates・r2.compare・r3.coherence・r4.hidden_scope）が同じ層で並んで走り、R1 の本体が
+# 続く。R2 の設計の半分（r2.design）は修正の前に作られてブロックの前に盤面へ渡っているので、比較の目は入口で待っている。R2 の問いが
+# 立つので stop.premise_check は条件で na（premise-check-route が go: false で輪が飛ぶ）。collect が ok: true。
 # 受け付け・出口・分かれ道は盤面（$ARTIFACTS_DIR/board。ラインの前のブロックが作る）を要るので、このブロック単体の run では
 # 全部 stub で置く（中身は tests/test_blk_eyes.py が手本の盤面の上で見る）。役の返答は写しの schema に合う形（試験が見る）
 eyes-enter:
@@ -9,7 +10,7 @@ eyes-enter:
   asking: false
   ready:
   - r1-comments
-  - r2-design
+  - r2-compare
   - r3-coherence
   - r4-scope
   snapshot_file: board/r1/eyes-snapshot.json
@@ -64,31 +65,6 @@ r1-minimality-accept:
   skipped: false
   reason: ''
   node: r1.minimality
-  reason_file: ''
-r2-design-route:
-  go: true
-  node: r2.design
-  why: r2.design が待っている
-  stopped: false
-r2-design-prep:
-  prompt: （r2.design の描いた指示書）
-  prompt_file: board/prompts/r1/r2.design.md
-  node: r2.design
-  attempt: 1
-  already: false
-  role_def: ''
-  role_def_missing: ''
-r2-design:
-  question_stands: true
-  reason: 問いは立っている
-  design: 上限は入口 1 箇所で掛ける
-r2-design-accept:
-  ok: true
-  done: true
-  give_up: false
-  skipped: false
-  reason: ''
-  node: r2.design
   reason_file: ''
 r2-compare-route:
   go: true
@@ -181,7 +157,6 @@ eyes-collect:
   eyes:
     r1-comments: done
     r1-minimality: done
-    r2-design: done
     r2-compare: done
     r3-coherence: done
     r4-scope: done
@@ -228,10 +203,6 @@ fixture:
   - r1-minimality-prep
   - r1-minimality
   - r1-minimality-accept
-  - r2-design-route
-  - r2-design-prep
-  - r2-design
-  - r2-design-accept
   - r2-compare-route
   - r2-compare-prep
   - r2-compare
