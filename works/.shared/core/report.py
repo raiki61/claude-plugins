@@ -40,6 +40,7 @@ if str(CORE) not in sys.path:
 
 import adapter  # noqa: E402
 import conflict  # noqa: E402
+import gatemarks  # noqa: E402
 from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
@@ -312,6 +313,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     for h in proc.get("human_items") or []:
         if isinstance(h, dict):
             lines.append(f"関所 {h.get('node')} の答え: {h.get('answer')}「{h.get('note') or ''}」")
+    lines += gatemarks.lines(b)
     ans = _latest(b.dir, FINAL_GATE_ANSWER)
     if ans is not None:
         doc = _read_json(ans, {}) or {}

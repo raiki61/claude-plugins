@@ -471,13 +471,25 @@ def _check_table(table: "NodeTable") -> None:
 
 def _captured(rules) -> dict:
     """RL の BUILTINS・CONDS・POST_CHECKS・ENGINE_RUNS が値として掴んでいる関数 {id: 表の名前}。
-    これらは読み込みの時に関数を掴むので、大域の名前を差し替えても効かない"""
+    これらは読み込みの時に関数を掴み、_rebind_tables も替えないので、大域の名前を差し替えても効かない"""
     out = {}
     for reg in ("BUILTINS", "CONDS", "POST_CHECKS", "ENGINE_RUNS"):
         for v in registry(rules, reg).values():
             for fn in (v.values() if isinstance(v, dict) else (v,)):
                 out.setdefault(id(fn), reg)
     return out
+
+
+def _rebind_tables(rules, old, new) -> None:
+    """RL の大域の表（HUMAN_GATES のような、_captured の外の dict）が値として掴む old を new に替える。大域の名前だけを
+    差し替えると、表から引く呼び元（human_gate が HUMAN_GATES[nid] を引く）には効かない"""
+    regs = ("BUILTINS", "CONDS", "POST_CHECKS", "ENGINE_RUNS")
+    for name, table in vars(rules).items():
+        if name in regs or not isinstance(table, dict):
+            continue
+        for k, v in list(table.items()):
+            if v is old:
+                table[k] = new
 
 
 class DiskBoard(_EngineBoard):
@@ -528,8 +540,10 @@ class DiskBoard(_EngineBoard):
                 inputs["review_md"] = str(CORE_DIR / "REVIEW.md")
 
     def _apply_overrides(self, overrides):
-        """RL の module の大域の名前を差し替え、state.works.overrides に名前と理由を足す（前に開いた時の分は消さない）。
-        RL は開くたびに新しく読むので、差し替えは他の盤面に漏れない"""
+        """RL の module の大域の名前と、RL の大域の表（HUMAN_GATES など、BUILTINS・CONDS・POST_CHECKS・ENGINE_RUNS の外の dict）
+        が値として掴む元の関数を差し替え（_rebind_tables。既存の差し替えにも効く）、state.works.overrides に名前と理由を足す
+        （前に開いた時の分は消さない）。BUILTINS などの 4 つの表が掴む関数は替えないので拒む。RL は開くたびに新しく読むので、
+        差し替えは他の盤面に漏れない"""
         if not overrides:
             return
         captured = _captured(self.rules)
@@ -546,9 +560,10 @@ class DiskBoard(_EngineBoard):
                 raise BoardGap(f"overrides の {name} は RL の大域の名前に無い（綴り違いの差し替えは効かない）")
             reg = captured.get(id(getattr(self.rules, name)))
             if reg:
-                raise BoardGap(f"overrides の {name} は RL の {reg} が値として掴んでいる関数で、大域の名前を差し替えても効かない")
+                raise BoardGap(f"overrides の {name} は RL の {reg} が値として掴んでいる関数で、大域の名前を差し替えても効かない（この表は替えない）")
             rows.append({"name": name, "reason": reason})
         for name, (fn, _) in overrides.items():
+            _rebind_tables(self.rules, getattr(self.rules, name), fn)
             setattr(self.rules, name, fn)
         kept = self.state.setdefault("works", {}).setdefault("overrides", [])
         kept.extend(r for r in rows if r not in kept)

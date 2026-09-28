@@ -37,6 +37,7 @@ import accept  # noqa: E402
 import answer  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
+import gatemarks  # noqa: E402
 import halt  # noqa: E402
 import plan  # noqa: E402
 import premises  # noqa: E402
@@ -330,6 +331,10 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     lines.append(f"- 手直し（p3.delta_fix・{len(handled)} 件）:")
     lines += [f"  - {h.get('key')}: {h.get('handled')}（{h.get('how')}）" for h in handled if isinstance(h, dict)] or ["  - （無い）"]
     lines.append(f"- 止めずに残った異議: {objection or '無い'}")
+    passed = gatemarks.lines(b)
+    if passed:
+        lines.append(f"- 修正前の関所で決め手が在るので聞かずに通した項目（{len(passed)} 件）:")
+        lines += [f"  - {x}" for x in passed]
     rows, blocked = eyes
     lines.append(f"- 独立の目の判定（阻害: {'・'.join(blocked) or '無い'}）:")
     lines += rows
