@@ -30,6 +30,7 @@ from accept import check_request, tree_state  # noqa: E402
 from engine.util import Reject  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_REQUEST_FILE, PREMISES_SNAPSHOT_FILE  # noqa: E402
 import rolekit  # noqa: E402
+import script_io  # noqa: E402
 
 REQUEST_ENV = "INPUTS_REQUEST"
 INPUTS = (REQUEST_ENV,)   # 裁定 TA16: 読む INPUTS_* の組
@@ -46,12 +47,13 @@ def _stop(reason: str) -> int:
 
 
 def main() -> int:
-    missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n)]
+    board = Path(os.environ.get(ARTIFACTS_ENV) or ".") / "board"
+    rel = os.environ.get(REQUEST_ENV, "")
+    no_request = REQUEST_ENV in os.environ and not rel and script_io.change_only(board)
+    missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n) and not (n == REQUEST_ENV and no_request)]
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
-    rel = os.environ[REQUEST_ENV]
-    board = Path(os.environ[ARTIFACTS_ENV]) / "board"
     board.mkdir(parents=True, exist_ok=True)
     (board / PREMISES_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ（止まった盤面でも）
     rolekit.clear_rejects(board, PREMISES_NODE)
@@ -59,19 +61,21 @@ def main() -> int:
     if stopped:
         return _emit({"ok": True, "reason": f"盤面が止まっている（{_one_line(stopped)}）——実測役を起こさない", "request": rel,
                       "go": False})
-    path = Path.cwd() / rel
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as e:
-        return _stop(f"依頼のファイル {rel} が読めない（{type(e).__name__}: {e}）")
-    try:
-        items = json.loads(text)
-    except json.JSONDecodeError as e:
-        return _stop(f"依頼のファイル {rel} が JSON として読めない（{e}）")
-    with tempfile.TemporaryDirectory() as scratch:   # 規則に通すだけ。積んだ request.json は捨てる
-        r = check_request(items, Path(scratch), f"人の依頼（{rel}）")
-    if not r["ok"]:
-        return _stop(f"{rel}: {r['reason']}")
+    items = []   # 変更から入った run の空の依頼（実測する依頼の行が無い）
+    if not no_request:
+        path = Path.cwd() / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            return _stop(f"依頼のファイル {rel} が読めない（{type(e).__name__}: {e}）")
+        try:
+            items = json.loads(text)
+        except json.JSONDecodeError as e:
+            return _stop(f"依頼のファイル {rel} が JSON として読めない（{e}）")
+        with tempfile.TemporaryDirectory() as scratch:   # 規則に通すだけ。積んだ request.json は捨てる
+            r = check_request(items, Path(scratch), f"人の依頼（{rel}）")
+        if not r["ok"]:
+            return _stop(f"{rel}: {r['reason']}")
     try:
         snap = tree_state(Path.cwd(), bytecode=False)
     except (Reject, OSError) as e:

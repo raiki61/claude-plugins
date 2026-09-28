@@ -79,13 +79,18 @@ RULING_SCHEMA = {
 
 
 # ---------------------------------------------------------------- 名指しの確かめ
-def request_file(board_dir) -> str:
-    """run の依頼のファイル（盤面の start の控えの request_file。無ければ空）"""
+def start_doc(board_dir) -> dict:
+    """盤面の start の控え（読めない・dict でなければ空の dict）"""
     try:
         doc = json.loads((pathlib.Path(board_dir) / START_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return ""
-    got = doc.get("request_file") if isinstance(doc, dict) else None
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def request_file(board_dir) -> str:
+    """run の依頼のファイル（盤面の start の控えの request_file。無ければ空）"""
+    got = start_doc(board_dir).get("request_file")
     return got if isinstance(got, str) else ""
 
 

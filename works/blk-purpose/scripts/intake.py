@@ -14,7 +14,8 @@
 
 - 通れば {"ok": true, "reason": "", "request": <依頼のパス>, "constraints_file": <前提のパス（無ければ空）>} を 1 行出して 0
 - どれかが通らない: 標準エラーに理由を 1 行出して 1（run を AI の前で止める）
-- 環境変数が欠けた（ARTIFACTS_DIR・INPUTS_REQUEST は空も欠け。INPUTS_CONSTRAINTS_FILE は空を「無し」と読む）:
+- ラインが依頼を持たずに変更から入った run（script_io.change_only）では INPUTS_REQUEST の空を受け、依頼を読まない
+- 環境変数が欠けた（ARTIFACTS_DIR は空も欠け。INPUTS_REQUEST は上の run の外で空も欠け。INPUTS_CONSTRAINTS_FILE は空を「無し」と読む）:
   標準エラーに名前を出して 2
 """
 import sys
@@ -27,6 +28,7 @@ import os  # noqa: E402
 
 from purpose import NODE, SNAPSHOT_FILE, check_constraints, refuse_if_frozen, tree_state  # noqa: E402
 import rolekit  # noqa: E402
+import script_io  # noqa: E402
 from engine.util import Reject  # noqa: E402  purpose の後（purpose を読むと写しの graphloops が sys.path に入る）
 
 REQUEST_ENV = "INPUTS_REQUEST"
@@ -40,19 +42,21 @@ def _stop(reason: str) -> int:
 
 
 def main() -> int:
-    missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n)]
+    board = Path(os.environ.get(ARTIFACTS_ENV) or ".") / "board"
+    rel = os.environ.get(REQUEST_ENV, "")
+    no_request = REQUEST_ENV in os.environ and not rel and script_io.change_only(board)
+    missing = [n for n in (REQUEST_ENV, ARTIFACTS_ENV) if not os.environ.get(n) and not (n == REQUEST_ENV and no_request)]
     missing += [CONSTRAINTS_ENV] if CONSTRAINTS_ENV not in os.environ else []
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
-    board = Path(os.environ[ARTIFACTS_ENV]) / "board"
     try:
         refuse_if_frozen(board)
     except Reject as e:
         return _stop(str(e))
-    rel = os.environ[REQUEST_ENV]
     try:
-        (Path.cwd() / rel).read_text(encoding="utf-8")
+        if not no_request:
+            (Path.cwd() / rel).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
         return _stop(f"依頼のファイル {rel} が読めない（{type(e).__name__}: {e}）")
     cf = os.environ[CONSTRAINTS_ENV]

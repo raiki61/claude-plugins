@@ -13,8 +13,8 @@ description: |
 
 inputs:
   request:
-    required: true
-    description: 依頼のファイルのパス（ラインの依頼。対象リポジトリの根からの相対か絶対）。目的の役がまず読む
+    default: ""
+    description: 依頼のファイルのパス（ラインの依頼。対象リポジトリの根からの相対か絶対）。目的の役がまず読む。空を受けるのはラインが依頼を持たずに変更から入った run だけ（intake が盤面の start の控えで確かめる）
   constraints_file:
     default: ""
     description: |

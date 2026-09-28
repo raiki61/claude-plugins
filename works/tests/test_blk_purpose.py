@@ -102,7 +102,7 @@ class YamlCase(unittest.TestCase):
     def test_signature(self):
         self.assertEqual(self.y["name"], "blk-purpose")
         self.assertEqual(set(self.y["inputs"]), {"request", "constraints_file", "base_rev"})
-        self.assertIs(self.y["inputs"]["request"].get("required"), True)
+        self.assertEqual((self.y["inputs"]["request"].get("required"), self.y["inputs"]["request"].get("default")), (None, ""))
         self.assertEqual(self.y["inputs"]["constraints_file"].get("default"), "")   # 前提の実測は任意
         self.assertEqual(self.y["inputs"]["base_rev"].get("default"), "")          # Ruling R2
         self.assertEqual(self.y["returns"], "collect")

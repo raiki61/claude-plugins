@@ -17,8 +17,14 @@ interactive: true
 
 inputs:
   request:
-    required: true
-    description: 人の修正依頼（findings の JSON の配列）のファイルの絶対パス（対象の外でよい）。相対なら run の worktree の根から
+    default: ""
+    description: 人の修正依頼（findings の JSON の配列）のファイルの絶対パス（対象の外でよい）。相対なら run の worktree の根から。request・base・pr の少なくとも 1 つが要る。依頼だけなら判定から入る run
+  base:
+    default: ""
+    description: 変更の根の版（枝・タグ・commit）。base と HEAD の merge-base から HEAD までを差分にし、依頼を積まない通常の run で P1 の目を差分に回す（依頼も在れば 1 周目の版が固まった後に積む）。pr と一緒には名指さない
+  pr:
+    default: ""
+    description: PR の番号。gh pr view で base の枝と head を読むだけ（投稿しない）で、head が run の HEAD と違えば止める。差分は base の枝と HEAD の merge-base から（GitHub の PR と同じ）。base と一緒には名指さない
   test_cmd:
     default: ""
     description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）。空なら対象の .review-checks.json の宣言を engine が走らせ、宣言も無ければ CI の任せ先の役（blk-ci）
@@ -63,6 +69,8 @@ nodes:
     depends_on: [launch]
     with:
       request: $INPUTS.request
+      base: $INPUTS.base
+      pr: $INPUTS.pr
       test_cmd: $INPUTS.test_cmd
       thickness: $INPUTS.thickness
       gates: $INPUTS.gates
@@ -75,6 +83,7 @@ nodes:
       required: [ok, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, ci_role_go, head_line]
       properties:
         ok: {type: boolean}
+        entry: {type: string, enum: [request, change, both]}
         base_rev: {type: string}
         test_cmd: {type: string}
         policy_paste: {type: string}

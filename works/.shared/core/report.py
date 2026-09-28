@@ -431,7 +431,9 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None) -> list:
     if reqs is None:
         reqs = sum(len(x.get("findings") or []) for x in (b.record.get("process") or {}).get("request_findings") or []
                    if isinstance(x, dict))
-    parts = [f"入口: 判定から（依頼 {reqs} 件）", f"段: {s.get('thickness') or '（控えが無い）'}", f"gates: {s.get('gates') or '空'}"]
+    # 入口の文は start が控えに書く（渡された出口には無い。控えにも無いのは入口が判定の 1 本だった版の run）
+    words = s.get("entry_words") or _start_doc(b, None).get("entry_words") or f"判定から（依頼 {reqs} 件）"
+    parts = [f"入口: {words}", f"段: {s.get('thickness') or '（控えが無い）'}", f"gates: {s.get('gates') or '空'}"]
     if s.get("final_gate"):
         parts.append(f"最後の関所: {s['final_gate']}")
     parts.append(f"包み: {'optional（包み無し）' if s.get('adapter') == 'optional' else '通す'}")

@@ -92,7 +92,7 @@ class YamlCase(unittest.TestCase):
     def test_signature(self):
         self.assertEqual(self.y["name"], "blk-premises")
         self.assertEqual(set(self.y["inputs"]), {"request", "base_rev"})
-        self.assertIs(self.y["inputs"]["request"].get("required"), True)
+        self.assertEqual((self.y["inputs"]["request"].get("required"), self.y["inputs"]["request"].get("default")), (None, ""))
         self.assertEqual(self.y["inputs"]["base_rev"].get("default"), "")   # Ruling R2
         self.assertEqual(self.y["returns"], "collect")
         self.assertEqual(self.y["outcome_field"], "ok")

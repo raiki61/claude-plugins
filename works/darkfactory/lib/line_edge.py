@@ -10,8 +10,8 @@
   blk-eyes の落ちを見分ける）
 - plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
-- 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の差分（record.base から。未追跡を
-  含む）が一覧に当たれば最後の関所を final_gate に関わらず開き、文の頭に並べ、process.human_items に 1 行。h-eyes は答えを
+- 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の修正の差分（修正前の版
+  state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を final_gate に関わらず開き、文の頭に並べ、process.human_items に 1 行。h-eyes は答えを
   その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ。食い違いの申し出の裁定（core の conflict）
   が許したテストの変更（fix_test_scope の範囲）も守りのファイルの行として並ぶ
 - 食い違いの申し出（core の conflict）: 裁定役か機械が ask_human に裁いた単位が在れば、h-final は最後の関所を final_gate に関わらず
@@ -80,6 +80,7 @@ ADAPTER_BY = "works:adapter"                 # 包みが通っていない run �
 PREMISES_BY = premises.STOP_BY                # 前提の実測が盤面に無い・盤面が受けない時の state.stop.by（h-judge）
 PREMISES_NODE = "p0.premises"
 PURPOSE_NODE = "p0.purpose"
+PENDING_REQUEST_BY = "works:pending-request"  # 依頼と変更の両方の run で、判定の前に依頼を積めなかった時の state.stop.by（h-mat）
 PURPOSE_BY = purpose.STOP_BY                 # 目的の文が盤面に無い・盤面が受けない時の state.stop.by（h-mat）
 MAT_BLOCK = "blk-material"                   # 表の where がこれの節が P1 の目（素材集め）。h-mat の mat_go
 EYES_BLOCK = "blk-eyes"                      # 表の where がこれの節が独立の目。h-eyes の go
@@ -347,12 +348,13 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
 
 
 def _protected(b, repo) -> tuple:
-    """run の差分（record.base＝p0.base が固めた版から今の作業ツリーまで。commit・消した物・未追跡を含む）のうち守りのファイルに
-    当たる物と、食い違いの裁定（fix_test_scope）が直してよいと許したテストの物。返り (rows, rev, 確かめられなかった理由)。
-    一覧・版・git・申し出の控えが読めなければ rows は空で理由を返す（fail closed）"""
+    """run の修正の差分（修正前の版＝state.inputs.review_rev。固まる前は record.base＝p0.base が固めた版。そこから今の作業ツリー
+    まで。commit・消した物・未追跡を含む）のうち守りのファイルに当たる物と、食い違いの裁定（fix_test_scope）が直してよいと
+    許したテストの物。変更から入る run の record.base は merge-base で、PR にもとからある変更まで数えてしまうので起点にしない。
+    返り (rows, rev, 確かめられなかった理由)。一覧・版・git・申し出の控えが読めなければ rows は空で理由を返す（fail closed）"""
     rev = ""
     try:
-        rev = accept.resolve_rev(repo, b.record.get("base") or "")
+        rev = accept.resolve_rev(repo, (b.state.get("inputs") or {}).get("review_rev") or b.record.get("base") or "")
         ruled = conflict.ruled_test_doc(b)
         return protect.touched(repo, rev) + (protect.touched(repo, rev, ruled) if ruled else []), rev, ""
     except (protect.Broken, Reject, BoardGap) as e:
@@ -562,7 +564,9 @@ def mat_edge(b, board_dir, repo) -> dict:
        （core の purpose.read_purpose。blk-purpose の受け付けが書く）を読んで entry.take(p0.purpose)（起こした印を置いてから。
        盤面の写しの schema が当たる）。無い・読めない・盤面が受けないなら b.stop("目的の文が盤面に無い: …", by=PURPOSE_BY) で
        stop。済んでいれば渡さない（Archon の再開で呼び直しても同じ）。na（条件）なら渡さない
-    2. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか・
+    2. 依頼と変更の両方で始めた run の依頼がまだ積まれていなければ entry.add_pending_request で積む（CI の役の後の run でも、
+       判定の前に必ず届ける）。版がまだ固まっていない（積むと入口の印が立つ）なら b.stop(…, by=PENDING_REQUEST_BY) で stop
+    3. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか・
        purpose_file は盤面の state.outputs["p0.purpose"] の置き場（無ければ空）"""
     board_dir = pathlib.Path(board_dir)
     row = b.table.nodes.get(PURPOSE_NODE) if b.table is not None else None
@@ -580,6 +584,10 @@ def mat_edge(b, board_dir, repo) -> dict:
             entry.open_board(board_dir).stop(reason, by=PURPOSE_BY)
             return {"stop": True, "go": False, "why": reason}
         b = entry.open_board(board_dir)
+    if entry.add_pending_request(b) == "waiting":
+        reason = f"依頼を判定の前に積めない: {entry.PENDING_WAIT_NODE} がまだ済んでいない（今積むと入口の印が立ち P1 の目が外れる）"
+        b.stop(reason, by=PENDING_REQUEST_BY)
+        return {"stop": True, "go": False, "why": reason}
     return {"go": True, "mat_go": bool(_role_ready(b, MAT_BLOCK)), "purpose_file": _out_file(b, PURPOSE_NODE)}
 
 

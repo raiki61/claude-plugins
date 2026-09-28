@@ -92,10 +92,10 @@ class LineShapeCase(unittest.TestCase):
         y = line()
         self.assertEqual(y["name"], "darkfactory")
         self.assertIs(y["interactive"], True)
-        self.assertEqual(set(y["inputs"]), {"request", "test_cmd", "thickness", "gates", "final_gate", "adapter", "policy_md",
-                                            "lang", "tdd_suite"})
-        self.assertIs(y["inputs"]["request"]["required"], True)
-        for k in set(y["inputs"]) - {"request"}:
+        self.assertEqual(set(y["inputs"]), {"request", "base", "pr", "test_cmd", "thickness", "gates", "final_gate", "adapter",
+                                            "policy_md", "lang", "tdd_suite"})
+        self.assertIsNot(y["inputs"]["request"].get("required"), True)   # 依頼・base・pr の少なくとも 1 つは check_inputs が要る
+        for k in set(y["inputs"]):
             self.assertEqual(y["inputs"][k].get("default"), "", k)
         self.assertEqual((y["returns"], y["outcome_field"]), ("result", "ok"))
         # 出口 result は機械の報告 report の欄を全部持ち、最後の報告を選んだ欄を足す（計画 P1 Task 34）

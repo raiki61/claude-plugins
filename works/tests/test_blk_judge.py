@@ -75,7 +75,7 @@ class YamlCase(unittest.TestCase):
     def test_signature(self):
         self.assertEqual(self.y["name"], "blk-judge")
         self.assertEqual(set(self.y["inputs"]), {"request", "base_rev", "policy_paste", "premises_file"})   # 後の 2 つは tests/test_policy.py が見る
-        self.assertIs(self.y["inputs"]["request"].get("required"), True)
+        self.assertEqual((self.y["inputs"]["request"].get("required"), self.y["inputs"]["request"].get("default")), (None, ""))
         self.assertEqual(self.y["inputs"]["base_rev"].get("default"), "")   # Ruling R2
         self.assertEqual(self.y["returns"], "collect")
         self.assertEqual(self.y["outcome_field"], "ok")

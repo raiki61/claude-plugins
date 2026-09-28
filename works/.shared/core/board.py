@@ -679,12 +679,13 @@ class DiskBoard(_EngineBoard):
     def begin(cls, d, *, repo, table, items, origin, base_rev, request_text, inputs=None, max_rounds=None,
               stop_after_round=None, overrides=None, validator_runner=None) -> tuple["DiskBoard", Progress]:
         """線 A・B の start が共通に使う入口（仕様 5 節）: create → add_request(items, origin) → p0.base を base_output で受ける →
-        settle。返り (盤面, Progress)。判定から入る run になる（RL の add が 1 周目の P1 より前の最初の依頼で入口の印を立て、
-        settle が P1 の役の節を engine と同じ理由の na にする）。1 周の run（線 A）は stop_after_round=1。
+        settle。返り (盤面, Progress)。items を渡せば判定から入る run になる（RL の add が 1 周目の P1 より前の最初の依頼で入口の
+        印を立て、settle が P1 の役の節を engine と同じ理由の na にする）。items が None なら add せずに始める通常の run（engine の
+        init だけの run。入口の印が立たず、P1 の役は差分に回る）。1 周の run（線 A）は stop_after_round=1。
         - p0.base は engine と同じく settle が出した instance に起こした印を置いてから受ける（machine の節。表で machine でなければ
           作る前に BoardGap）
-        - 冪等: 置き場に盤面が既に在れば作らずに開き、同じ run の呼び直し——記録の最初の依頼のバッチの findings が items と同じ
-          （sha256）・表が同じ（state.works.table_sha）・repo・base_rev・request_text・stop_after_round・max_rounds・inputs が作った時
+        - 冪等: 置き場に盤面が既に在れば作らずに開き、同じ run の呼び直し——items を渡した run なら記録の最初の依頼のバッチの
+          findings が items と同じ（sha256。None の run は後から積んだ依頼を見ない）・表が同じ（state.works.table_sha）・repo・base_rev・request_text・stop_after_round・max_rounds・inputs が作った時
           （state.works.begin）と同じ——なら、済んでいない所（依頼・p0.base）だけを続けて settle して返す。どれかが違えば BoardGap
           （盤面は書かない）。依頼の形の誤りなどで途中で止まった begin は置き場を残す（engine の init と add と同じ）ので、直して
           呼び直せば続きから
@@ -699,7 +700,7 @@ class DiskBoard(_EngineBoard):
         if e is None or e.by != "machine":
             raise BoardGap(f"begin は {BASE_NODE} を機械の返答（base_output）で受ける——表で machine の節にせよ"
                            f"（今は {e.by if e else '表に無い'}）")
-        want = _findings_sha(items)
+        want = None if items is None else _findings_sha(items)
         base = base_output(repo, base_rev)   # base_rev の誤りは作る前に拒む（置き場を残さない）
         try:
             args = json.loads(json.dumps({"repo": str(pathlib.Path(repo).resolve()), "base_rev": (base_rev or "").strip(),
@@ -729,12 +730,12 @@ class DiskBoard(_EngineBoard):
             b.state["works"]["begin"] = args   # 呼び直しの見分け（依頼は記録の最初のバッチの sha256 で見る）
             b.save()
         batches = (b.record.get("process") or {}).get("request_findings") or []
-        if batches:
+        if items is not None and batches:
             got = _findings_sha(batches[0].get("findings"))
             if got != want:
                 raise BoardGap(f"盤面 {d} は別の依頼で始めた（記録の最初の依頼の sha256 {got[:12]} ／ 渡した依頼 {want[:12]}）"
                                "——同じ置き場で別の依頼の run を始めない")
-        else:
+        elif items is not None:
             b.add_request(items, origin)
         if b.node_state(BASE_NODE) == "pending":
             if _pending_instance(b, BASE_NODE) is None:

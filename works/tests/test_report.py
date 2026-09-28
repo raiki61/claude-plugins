@@ -449,6 +449,19 @@ class HeadCase(ReportBase):
         self.assertTrue(any(x.startswith(f"下げている所: {len(downs)} 個") for x in lines))
         self.assertTrue(any(x.strip().startswith("- p0.parallel_pr:") and "review-graph" in x for x in lines))
 
+    def test_entry_words_from_start_doc(self):
+        """冒頭 2 の入口は start の控えの entry_words（変更から入った run を判定からと書かない）。渡された出口に無くても控えから"""
+        self.judged()
+        b = entry.open_board(self.board)
+        self.assertTrue(report.head_entry(b, {})[0].startswith("入口: 判定から（依頼 "))
+        self.assertIn("・段: ", report.head_entry(b, {})[0])   # entry.start の頭の行と同じ字
+        words = "変更から（0123456789ab..HEAD・PR #7）"
+        self.assertTrue(report.head_entry(b, {"entry_words": words})[0].startswith(f"入口: {words}・"))
+        p = self.board / "r1" / entry.START_FILE
+        doc = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        p.write_text(json.dumps({**doc, "entry_words": words}, ensure_ascii=False), encoding="utf-8")
+        self.assertTrue(report.head_entry(b, {"entry": "change"})[0].startswith(f"入口: {words}・"))
+
     def test_mid_note_line(self):
         """境の節 h-mid の出口の mid_note → 冒頭 2 に。出口が無ければ届いていないの行"""
         self.judged()

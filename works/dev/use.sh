@@ -1,7 +1,9 @@
 #!/bin/sh
 # works/dev/use.sh — ほかのリポジトリを対象に、ライン darkfactory を回す起動の殻（skills/works/SKILL.md が入口）。
 #
-#   use.sh start <対象リポジトリ> <依頼の JSON> <test_cmd> [<tdd_suite>]   本物の AI で回す（費用が掛かる）。最初の関所で止まって戻る
+#   use.sh start [--base <版> | --pr <番号>] <対象リポジトリ> <依頼の JSON か -> <test_cmd> [<tdd_suite>]
+#                                                                          本物の AI で回す（費用が掛かる）。最初の関所で止まって戻る
+#                                                                          --base・--pr は変更から入る（差分に P1 の目を回す。依頼は - で省ける）
 #   use.sh show  <対象リポジトリ>                                           一番新しい run の状態・次に打つ行・差分のファイルを出し直す
 #   use.sh check <対象リポジトリ>                                           AI を起こさずに、pack を置いて Archon の validate だけを回す
 #
@@ -14,7 +16,7 @@
 # - run の worktree は対象の今の HEAD から切る（--from <HEAD の版>）。Archon は worktree を切る前に origin を fetch するので origin が要る。
 # - 拒む（Archon を呼ばず・何も写さずに 1 行で終了コード 2）: /private/tmp の下の対象・リポジトリの根でない・commit していない変更か
 #   未追跡のファイルが在る（show は除く）・origin が無い・対象に pack の写し .archon/workflows/works が在る（dogfood.sh の形）・
-#   依頼が無い・認証が無い（start）。
+#   依頼が無い（- なら変更も無い）・認証が無い（start）。
 # - tdd_suite: 第 4 引数が在ればそのまま（空は輪を飛ばす）。無ければ test_cmd が pytest の 1 コマンド（前に uv run・poetry run・
 #   python3 -m を許す。; & | < > $ ` を含まない）の時だけ、その末尾に JUnit XML の書き先を足す実行器を <家>/suites/ に書いて渡す。
 #   それ以外は空（全部の単位を直に直す）にして 1 行で知らせる。
@@ -24,7 +26,21 @@
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
 
-USAGE="usage: use.sh start <対象リポジトリ> <依頼の JSON> <test_cmd> [<tdd_suite>] | use.sh show <対象リポジトリ> | use.sh check <対象リポジトリ>"
+USAGE="usage: use.sh start [--base <版> | --pr <番号>] <対象リポジトリ> <依頼の JSON か -> <test_cmd> [<tdd_suite>] | use.sh show <対象リポジトリ> | use.sh check <対象リポジトリ>"
+CHANGE_INPUT=""   # 変更の入口（ラインの入力 base か pr）。--input にそのまま渡す <鍵>=<値>
+if [ "${1:-}" = start ]; then
+  case "${2:-}" in
+    --base | --pr)
+      if [ "$#" -lt 3 ] || [ -z "$3" ]; then
+        echo "$USAGE" >&2
+        exit 2
+      fi
+      CHANGE_INPUT="${2#--}=$3"
+      shift 3
+      set -- start "$@"
+      ;;
+  esac
+fi
 CMD="${1:-}"
 case "$CMD:$#" in
   start:4 | start:5 | show:2 | check:2) ;;
@@ -119,15 +135,22 @@ TEST_CMD="$4"
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -z "${WORKS_KEYCHAIN_ITEM:-}" ]; then
   refuse "認証が無い。CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する"
 fi
-if [ ! -f "$REQUEST_SRC" ]; then
+if [ "$REQUEST_SRC" = - ]; then
+  if [ -z "$CHANGE_INPUT" ]; then
+    refuse "依頼も変更も無い（依頼の JSON を - にするなら --base <版> か --pr <番号> を名指す）"
+  fi
+elif [ ! -f "$REQUEST_SRC" ]; then
   refuse "依頼の JSON が無い（${REQUEST_SRC}）"
 fi
 resolve_claude
 
 STAMP="$(date +%Y%m%d-%H%M%S)-$$"
-mkdir -p "$WORKS_USE_HOME/requests"
-REQUEST="$WORKS_USE_HOME/requests/$STAMP.json"
-cp "$REQUEST_SRC" "$REQUEST"   # 依頼の元が後で書き換わっても、回した物が残る
+REQUEST=""
+if [ "$REQUEST_SRC" != - ]; then
+  mkdir -p "$WORKS_USE_HOME/requests"
+  REQUEST="$WORKS_USE_HOME/requests/$STAMP.json"
+  cp "$REQUEST_SRC" "$REQUEST"   # 依頼の元が後で書き換わっても、回した物が残る
+fi
 
 if [ "$#" -ge 5 ]; then
   TDD_SUITE="$5"
@@ -158,8 +181,14 @@ echo "対象: ${TARGET}（run の worktree は HEAD ${HEAD_REV} から切る）"
 
 if [ "${WORKS_DEV_ADAPTER:-}" = 1 ]; then ADAPTER_MODE=""; else ADAPTER_MODE="optional"; fi
 set +e
+if [ -n "$CHANGE_INPUT" ]; then
+  echo "入口: 変更から（${CHANGE_INPUT}）"
+  set -- --input "$CHANGE_INPUT"
+else
+  set --
+fi
 sh "$ARCHON" workflow run darkfactory --from "$HEAD_REV" --input request="$REQUEST" --input test_cmd="$TEST_CMD" \
-  --input tdd_suite="$TDD_SUITE" --input adapter="$ADAPTER_MODE" --input final_gate="${WORKS_USE_FINAL_GATE:-always}"
+  --input tdd_suite="$TDD_SUITE" --input adapter="$ADAPTER_MODE" --input final_gate="${WORKS_USE_FINAL_GATE:-always}" "$@"
 run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"

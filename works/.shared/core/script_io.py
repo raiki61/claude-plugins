@@ -63,6 +63,13 @@ BOARD_DIR = "board"
 REJECT_PREFIX = "reject-"
 
 
+def change_only(board) -> bool:
+    """ラインの盤面が、依頼を持たずに変更から入った run か（start の控えの entry が change。控えの読み手は conflict.start_doc）。
+    依頼を読むブロックの intake はこの run でだけ空の依頼を受ける（ブロックを単独で回した時・依頼の在る run の空は今までどおり欠け）"""
+    import conflict   # 使う時だけ（conflict は盤面の物を読み込む。script_io だけを使う台本に負わせない）
+    return conflict.start_doc(board).get("entry") == "change"
+
+
 def _emit(obj) -> None:
     line = json.dumps(obj, ensure_ascii=False) + "\n"   # json.dumps は改行を \n に書くので必ず 1 行
     out = sys.stdout

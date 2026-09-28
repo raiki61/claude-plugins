@@ -8,8 +8,8 @@ description: |
 
 inputs:
   request:
-    required: true
-    description: 人の修正依頼（findings の JSON の配列）のファイルのパス。対象リポジトリの根からの相対か絶対
+    default: ""
+    description: 人の修正依頼（findings の JSON の配列）のファイルのパス。対象リポジトリの根からの相対か絶対。空を受けるのはラインが依頼を持たずに変更から入った run だけ（intake が盤面の start の控えで確かめる）
   base_rev:
     default: ""
     description: 周の頭で固めた版。空なら受け付けの時の HEAD（Ruling R2）

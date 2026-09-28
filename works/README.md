@@ -12,7 +12,7 @@
    - `claude plugin install pr-review-toolkit@claude-plugins-official`（marketplace `claude-plugins-official`（GitHub の anthropics/claude-plugins-official）が無ければ先に `claude plugin marketplace add anthropics/claude-plugins-official`）
 2. 起動の殻 `dev/use.sh` と pack は、Claude Code が入れたプラグインの置き場（`~/.claude/plugins/cache/raiki61/works/<版>/`）の中に在る。スキルの行は、Claude Code がスキルを読む時にそこの絶対パスへ置き換える形（プラグインのスキルの置き換え CLAUDE_PLUGIN_ROOT）で書いてあるので、`/works` から打てばその置き場の `use.sh` が起きる。
 3. 対象リポジトリで確かめる（AI を起こさない）: `sh <置き場>/dev/use.sh check <対象>`。最後の行が `Results: 1 valid, 0 with errors, …` なら入っている（Claude Code に組み込みのスキル `code-review`・`simplify`・`security-review` の WARNING の 3 行は出てよい）。借りる物が入っていなければ、足りない物ごとに 1 行の理由と入れるコマンドを出して止まる（`start` も AI を起こす前に同じ所で止まる）。
-4. 回す: `sh <置き場>/dev/use.sh start <対象> <依頼の JSON> "<test_cmd>" [<tdd_suite>]`。関所で止まるたびに次に打つ行が出る。`use.sh show <対象>` で状態・報告の置き場・差分のファイル（`git -C <対象> apply` の行）を出し直す。
+4. 回す: `sh <置き場>/dev/use.sh start [--base <版> | --pr <番号>] <対象> <依頼の JSON か -> "<test_cmd>" [<tdd_suite>]`（`--base`・`--pr` は変更の差分から入る。変更だけなら依頼の JSON を `-`）。関所で止まるたびに次に打つ行が出る。`use.sh show <対象>` で状態・報告の置き場・差分のファイル（`git -C <対象> apply` の行）を出し直す。
 
 このリポジトリの clone で works 自身を直している時は、clone の `works/dev/use.sh` をそのまま打ってもよい（同じ殻で、pack はその clone の `works/` から写る）。marketplace の works の行（リポジトリ直下の `.claude-plugin/marketplace.json`）が GitHub に届く前の works を試すなら `claude --plugin-dir <clone>/works`。
 

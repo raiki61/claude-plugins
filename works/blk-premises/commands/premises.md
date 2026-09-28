@@ -12,7 +12,7 @@
 
 ## 入力
 
-- 人の修正依頼: `$INPUTS.request`（絶対パスか、対象リポジトリの根からの相対パス。対象の外に在ることもある。**まず Read せよ**）。findings の JSON の配列で、各行は `where`・`text` と、任意の `mechanism`・`measured`・`false_positive_if`。
+- 人の修正依頼: `$INPUTS.request`（絶対パスか、対象リポジトリの根からの相対パス。対象の外に在ることもある。**まず Read せよ**）。findings の JSON の配列で、各行は `where`・`text` と、任意の `mechanism`・`measured`・`false_positive_if`。空なら人の依頼の無い run（ラインが変更 base・pr から入った）で、測る主張は無い——`constraints` は空の配列にせよ。
 - 対象リポジトリ: 今の作業ディレクトリ（run の作業ツリー）。
 - 前の回の受け付けが拒んだ理由のファイル（1 回目は空）: $LOOP_PREV.premises-accept.output.reason_file
   - 空でなければ、お前は同じ会話の続きで起きている。**そのファイルを Read せよ。** 前の返答のどこが規則に通らなかったかが書いてあるので、**そこを直した返答を丸ごと出し直せ**（直した所だけを返すな）。

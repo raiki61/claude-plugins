@@ -817,6 +817,91 @@ class StartCase(StartCaseBase):
                          {k: again[k] for k in ("base_rev", "ci_role_go", "pr_go", "head_line")})
 
 
+class ChangeEntryCase(StartCaseBase):
+    """変更（base の版）から入る入口。本線の既定の入口（add しない通常の run）と同じく入口の印を立てず、差分の根は
+    base と HEAD の merge-base（GitHub の PR の three-dot と同じ）"""
+
+    P1 = ("p1.local_review", "p1.consistency_bypass", "p1.hygiene")
+
+    def changed_repo(self, declared=True):
+        repo = self.seed(declared=declared)
+        linekit.git(repo, "branch", "base")
+        fork = linekit.git(repo, "rev-parse", "HEAD")
+        with (repo / "stats.py").open("a", encoding="utf-8") as f:
+            f.write("\n# 変更\n")
+        linekit.git(repo, "commit", "-q", "-am", "change")
+        return repo, fork
+
+    def test_start_change_only_is_normal_run(self):
+        """依頼無し・base だけ → 拒まず、P1 の差分の根（record.base）は merge-base、依頼を積まず入口の印も立てず、P1 の 3 節が
+        na にならない。start の出口 base_rev は修正の起点（修正前の HEAD）のまま"""
+        repo, fork = self.changed_repo()
+        head = linekit.git(repo, "rev-parse", "HEAD")
+        try:
+            got = self.start(repo, self.raw(request="", base="base"))
+        except entry.InputRefused as e:
+            self.fail(f"変更だけの入口を拒んだ: {e}")
+        self.assertTrue(got["ok"])
+        self.assertEqual((got["entry"], got["base_rev"]), ("change", head))
+        b = entry.open_board(self.board)
+        self.assertEqual(b.record["base"], fork)
+        self.assertIsNone(b.record["process"].get("request_entry"))
+        self.assertFalse(b.record["process"].get("request_findings"))
+        for nid in self.P1:
+            self.assertNotEqual(b.node_state(nid), "na", nid)
+        import script_io
+        self.assertTrue(script_io.change_only(self.board))   # intake の読む印は entry.start が書いた控えから
+        self.assertIn("入口: 変更から（" + fork[:12] + "..HEAD・base base）", got["head_line"])
+
+    def test_start_request_and_change_keeps_p1(self):
+        """依頼と base の両方 → 版が固まった後に依頼を origin のバッチで 1 本積み、入口の印を立てない（P1 を外さない）。
+        呼び直しても 2 度積まない"""
+        repo, fork = self.changed_repo()
+        head = linekit.git(repo, "rev-parse", "HEAD")
+        got = self.start(repo, self.raw(base="base"))
+        self.assertEqual((got["entry"], got["base_rev"]), ("both", head))
+        b = entry.open_board(self.board)
+        self.assertEqual(b.record["base"], fork)
+        self.assertIsNone(b.record["process"].get("request_entry"))
+        batches = b.record["process"]["request_findings"]
+        self.assertEqual([x["origin"] for x in batches], [entry.ORIGIN])
+        self.assertEqual(len(batches[0]["findings"]), 2)
+        for nid in self.P1:
+            self.assertNotEqual(b.node_state(nid), "na", nid)
+        self.start(repo, self.raw(base="base"))
+        self.assertEqual(len(entry.open_board(self.board).record["process"]["request_findings"]), 1)
+        self.assertEqual(entry.add_pending_request(entry.open_board(self.board)), "none")
+
+    def test_both_waits_for_frozen_revision_then_adds(self):
+        """版が固まる前（CI の任せ先の役を待つ）は依頼を積まずに待ち、役が渡した後の resume_after_ci で積む（印は立てない）"""
+        repo, _ = self.changed_repo(declared=False)
+        got = self.start(repo, self.raw(base="base"))
+        self.assertTrue(got["ci_role_go"])
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state(entry.PENDING_WAIT_NODE), "pending")
+        self.assertFalse(b.record["process"].get("request_findings"))
+        self.assertEqual(entry.add_pending_request(b), "waiting")
+        inst = pending_inst(b, "p0.local_checks")
+        b.mark_launched("p0.local_checks", inst.get("attempts", 1))
+        b.done("p0.local_checks", {"material": {"status": "clean", "count": 0, "checked": "試験の役の代わり"}})
+        entry.resume_after_ci(entry.open_board(self.board))
+        b = entry.open_board(self.board)
+        self.assertEqual([x["origin"] for x in b.record["process"]["request_findings"]], [entry.ORIGIN])
+        self.assertIsNone(b.record["process"].get("request_entry"))
+
+    def test_request_only_keeps_request_entry(self):
+        """依頼だけ → 今までどおり判定から入る run（印が立ち、P1 の 3 節は na）"""
+        repo = self.seed(declared=True)
+        got = self.start(repo)
+        b = entry.open_board(self.board)
+        self.assertEqual(got["entry"], "request")
+        self.assertEqual(b.record["process"]["request_entry"]["origin"], entry.ORIGIN)
+        for nid in self.P1:
+            self.assertEqual(b.node_state(nid), "na", nid)
+        import script_io
+        self.assertFalse(script_io.change_only(self.board))
+
+
 class ResumeCase(StartCaseBase):
     def ci_role_done(self, material):
         """任せ先の CI の役（後の Task のブロック）の代わり: 印を置いて素材を done"""

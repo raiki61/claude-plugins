@@ -180,7 +180,10 @@ def _word(raw: dict, key: str) -> str:
 
 def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
     """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md, lang} を返す。
-    盤面は作らない。拒む物（InputRefused）: 依頼が読めない・JSON の配列でない・依頼の型（写しの RL の REQUEST_SCHEMA）に
+    変更（base の版か pr の番号）を名指せば {base_rev, change} も足す（base_rev は base と HEAD の merge-base）。依頼と変更は
+    少なくとも 1 つが要り、依頼が無ければ request_file・request_text は空・items は []。
+    盤面は作らない。拒む物（InputRefused）: 依頼も変更も無い・base と pr の両方・版や PR が引けない・PR の head が HEAD でない、
+    依頼が読めない・JSON の配列でない・依頼の型（写しの RL の REQUEST_SCHEMA）に
     合わない、thickness が軽量・重厚・知らない値、final_gate・adapter・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書が無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
     p0.local_checks・p4.ci が任せ先の役に落ち、役がリポジトリを読んでテストの走らせ方を探す）。
@@ -205,9 +208,83 @@ def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
         rules.check_inputs({"gates": gates} if gates else {})
     except Reject as e:
         raise InputRefused(f"gates: {e}") from None
+    change = _change_base(raw, repo)
     rel = _word(raw, "request")
     if not rel:
-        raise InputRefused("依頼のファイルが名指されていない（request が空）")
+        if change is None:
+            raise InputRefused("依頼（request）も変更（base・pr）も名指されていない——少なくとも 1 つを名指す")
+        path, text, items = None, "", []
+    else:
+        path, text, items = _read_request(rel, repo, rules)
+    pol = _word(raw, "policy_md")
+    if pol:
+        pp = pathlib.Path(pol) if pathlib.Path(pol).is_absolute() else repo / pol
+        if not pp.is_file():
+            raise InputRefused(f"名指した方針の文書 {pol} が無い（policy_md。人の方針の文書を名指すなら先に置く）")
+        pol = str(pp)
+    out = {"request_file": str(path.resolve()) if path else "", "items": items, "request_text": text,
+           "test_cmd": _word(raw, "test_cmd"), "thickness": thickness, "gates": gates, "final_gate": final_gate,
+           "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang")}
+    if change is not None:
+        out.update(change)
+    return out
+
+
+def _git(repo: pathlib.Path, *args) -> str:
+    """repo で git を読むだけ呼ぶ。引けなければ InputRefused（1 行）"""
+    got = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8")
+    if got.returncode != 0:
+        raise InputRefused(f"git {' '.join(args)} が引けない: {got.stderr.strip() or got.returncode}")
+    return got.stdout.strip()
+
+
+def _merge_base(repo: pathlib.Path, ref: str) -> str:
+    """ref と HEAD の merge-base（GitHub の PR の three-dot と同じ差分の根）"""
+    rev = _git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    return _git(repo, "merge-base", rev, "HEAD")
+
+
+PR_FIELDS = "baseRefOid,headRefOid,title,body"   # gh pr view --json で読む欄（1 回だけ。投稿しない）
+
+
+def _change_base(raw: dict, repo: pathlib.Path):
+    """変更の入口（base か pr）を解いて {base_rev, change} を返す。どちらも無ければ None。両方は拒む。
+    pr は gh pr view を 1 回読むだけ（投稿しない）で、head が今の HEAD と違えば拒む（別の版を黙って見ない）。差分の根は
+    GitHub が持つ base の版（baseRefOid）と HEAD の merge-base——fetch しないローカルの枝は古いことがあるので名前では引かない。
+    change.text は PR の題と本文（目的の文の出典の PR 説明として盤面の依頼の文に渡す）"""
+    base, pr = _word(raw, "base"), _word(raw, "pr")
+    if base and pr:
+        raise InputRefused(f"base={base!r} と pr={pr!r} を両方名指した——どちらの差分か決まらない（片方だけ）")
+    if base:
+        return {"base_rev": _merge_base(repo, base), "change": {"from": "base", "name": base, "text": ""}}
+    if not pr:
+        return None
+    if not pr.isdigit():
+        raise InputRefused(f"pr={pr!r} は PR の番号でない")
+    try:
+        got = subprocess.run(["gh", "pr", "view", pr, "--json", PR_FIELDS], cwd=repo, capture_output=True,
+                             text=True, encoding="utf-8")
+    except OSError as e:
+        raise InputRefused(f"PR #{pr} を読めない（gh が起きない: {e}）") from None
+    try:
+        doc = json.loads(got.stdout) if got.returncode == 0 else None
+    except json.JSONDecodeError:
+        doc = None
+    if not isinstance(doc, dict) or not doc.get("baseRefOid") or not doc.get("headRefOid"):
+        raise InputRefused(f"PR #{pr} を読めない（gh pr view: {got.stderr.strip() or got.stdout.strip()[:200]}）")
+    head = _git(repo, "rev-parse", "HEAD")
+    if doc["headRefOid"] != head:
+        raise InputRefused(f"PR #{pr} の head {doc['headRefOid'][:12]} が対象の HEAD {head[:12]} と違う——PR の head を"
+                           "取り出した所で始める")
+    oid = doc["baseRefOid"]
+    if subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{oid}^{{commit}}"], capture_output=True).returncode:
+        raise InputRefused(f"PR #{pr} の base の版 {oid[:12]} が対象に無い——fetch してから始める")
+    text = "\n\n".join(s for s in (str(doc.get("title") or "").strip(), str(doc.get("body") or "").strip()) if s)
+    return {"base_rev": _merge_base(repo, oid), "change": {"from": "pr", "name": pr, "text": text}}
+
+
+def _read_request(rel: str, repo: pathlib.Path, rules):
+    """依頼のファイルを読んで (path, text, items)。読めない・JSON の配列でない・依頼の型に合わない は InputRefused"""
     path = pathlib.Path(rel) if pathlib.Path(rel).is_absolute() else repo / rel
     try:
         text = path.read_text(encoding="utf-8")
@@ -223,15 +300,7 @@ def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
     if errs:
         raise InputRefused(f"依頼のファイル {rel} の形: [{{where, text, mechanism?, measured?, false_positive_if?}}] の配列（空でない）: "
                            + "; ".join(errs))
-    pol = _word(raw, "policy_md")
-    if pol:
-        pp = pathlib.Path(pol) if pathlib.Path(pol).is_absolute() else repo / pol
-        if not pp.is_file():
-            raise InputRefused(f"名指した方針の文書 {pol} が無い（policy_md。人の方針の文書を名指すなら先に置く）")
-        pol = str(pp)
-    return {"request_file": str(path.resolve()), "items": items, "request_text": text, "test_cmd": _word(raw, "test_cmd"),
-            "thickness": thickness, "gates": gates, "final_gate": final_gate, "adapter": adapter, "policy_md": pol,
-            "lang": _word(raw, "lang")}
+    return path, text, items
 
 
 def board_rules():
@@ -387,7 +456,31 @@ def _drain(b, p, *, test_cmd: str, runner=None) -> dict:
             pr = prcheck.run_helper(b, runner=runner)
     except prcheck.Refused as e:
         raise InputRefused(str(e)) from None
+    add_pending_request(b)
     return {"ci_role_go": any(_is_ci(b, n) and _fell_back(b, n) for n in p["ready"]), "pr_go": _pr_go(b, pr)}
+
+
+PENDING_WAIT_NODE = "p1.worktree_before"   # これが済む前の add は入口の印を立てる（写しの RL の entry_opens）
+
+
+def add_pending_request(b) -> str:
+    """依頼と変更の両方で始めた run の依頼を、1 周目の版が固まった後（入口の印を立てない所）に RL の add で積む。
+    本線で通常の run の途中に add するのと同じで、P1 の目は外れず、依頼は origin 付きのバッチで判定に届く。
+    返り: "none"（積む依頼が無い・もう積んだ）・"added"（今積んだ）・"waiting"（版がまだ固まっていない）。
+    積んだかは記録の request_findings（origin のバッチ）だけで見る（呼び直しても 2 度積まない）"""
+    try:
+        doc = json.loads(b.work(START_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "none"
+    if doc.get("entry") != "both":
+        return "none"
+    batches = (b.record.get("process") or {}).get("request_findings") or []
+    if any(x.get("origin") == ORIGIN for x in batches):
+        return "none"
+    if b.node_state(PENDING_WAIT_NODE) == "pending":
+        return "waiting"
+    b.add_request(json.loads(pathlib.Path(doc["request_file"]).read_text(encoding="utf-8")), ORIGIN)
+    return "added"
 
 
 def resume_after_ci(b, *, test_cmd: str = "", runner=None) -> dict:
@@ -422,26 +515,49 @@ def _write_json(path: pathlib.Path, doc: dict) -> None:
     os.replace(tmp, path)
 
 
+ENTRIES = ("request", "change", "both")
+
+
+def _entry_words(kind: str, inp: dict) -> str:
+    """頭の行の入口の文"""
+    if kind == "request":
+        return f"判定から（依頼 {len(inp['items'])} 件）"
+    ch = inp["change"]
+    what = f"変更から（{inp['base_rev'][:12]}..HEAD・{'PR #' if ch['from'] == 'pr' else 'base '}{ch['name']}）"
+    return what if kind == "change" else f"{what}と依頼 {len(inp['items'])} 件（版が固まった後に積む）"
+
+
 def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str, runner=None) -> dict:
     """ラインの入口。順:
     1. check_inputs（拒めば盤面を作らずに InputRefused）
-    2. DiskBoard.begin（判定から入る 1 周の run。origin works/darkfactory・base_rev は空＝HEAD・stop_after_round=1・
-       board_hook.py の overrides・validator_runner）。lang が空でなければ inputs.lang に渡す（本線 loop.py の --lang。空は盤面の
+    2. DiskBoard.begin（1 周の run。origin works/darkfactory・stop_after_round=1・board_hook.py の overrides・validator_runner）。
+       入口は本線の engine の分かれ方に揃える: 依頼だけ → 依頼を積んで判定から入る run（base_rev は空＝HEAD）。変更（base・pr）
+       が在る → base_rev＝解いた merge-base で依頼を積まずに始める通常の run（入口の印が立たず、P1 の目が差分に回る）。依頼も
+       在れば、1 周目の版が固まった後に add_pending_request が積む（途中の add は P1 を外さない）。
+       lang が空でなければ inputs.lang に渡す（本線 loop.py の --lang。空は盤面の
        既定 LANG_DEFAULT＝依頼文の言語）。入口の Reject は InputRefused
     3. テストを走らせる前に r1/start.json に入力の控えと、宣言が無い時の道 ci_fallback（test_cmd か role）を置く。呼び直し
        （Archon の再開）で前の控えの test_cmd と違えば InputRefused（止められた run を別の道で黙って続けない）
     4. _drain（盤面の約束 1 の輪。CI の節は run_ci、p0.parallel_pr は prcheck.run_helper。止められた test_cmd は走らせ直す）
     5. 切符（ticket.write）を書き、r1/start.json を結果つきで書き直す
-    返り {ok, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, thickness, gates, ci_role_go, pr_go, head_line}。
+    返り {ok, entry, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, thickness, gates, ci_role_go, pr_go,
+    head_line}。entry は ENTRIES の語（依頼だけ・変更だけ・両方）。base_rev は修正の起点（修正前の HEAD）で、下流の差分・
+    受け付けが「修正が触った物」を切る版。変更から入る run の P1 の差分の根（merge-base）は盤面の record.base にだけ置き、
+    ここには出さない（PR にもとからある変更を修正の変更と取り違えない）。
     ci_role_go は CI の節（p0.local_checks）が任せ先に落ちたまま待っている（test_cmd も宣言も無い。裁定 R52）。pr_go は _pr_go の
     3 値——"pending" の run は、CI の役の後に resume_after_ci が測る"""
     repo = pathlib.Path(repo).resolve()
     board_dir = pathlib.Path(board_dir)
     inp = check_inputs(raw, repo)
+    change = inp.get("change")
+    kind = "both" if change and inp["items"] else "change" if change else "request"
     table = load_table(LINE)
+    head_rev = _git(repo, "rev-parse", "HEAD") if change else ""
     try:
-        b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=inp["items"], origin=ORIGIN, base_rev="",
-                               request_text=inp["request_text"],
+        b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=None if change else inp["items"], origin=ORIGIN,
+                               base_rev=inp.get("base_rev", ""),
+                               request_text=inp["request_text"] or change["text"]
+                               or f"変更（{change['from']} {change['name']}）の審査",
                                inputs={"gates": inp["gates"] or None, "policy_md": inp["policy_md"] or None,
                                        **({"lang": inp["lang"]} if inp["lang"] else {})},
                                stop_after_round=1, **open_kwargs(LINE, table))
@@ -449,13 +565,16 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
         raise InputRefused(f"盤面が入力を受けない: {e}") from None
     keep = {k: v for k, v in inp.items() if k not in ("items", "request_text")}
     work = b.work(START_FILE)
+    prev = {}
     if work.is_file():
         prev = json.loads(work.read_text(encoding="utf-8"))
         if prev.get("test_cmd") != inp["test_cmd"]:
             raise InputRefused(f"この盤面は test_cmd={prev.get('test_cmd')!r}（宣言が無い時の道: {prev.get('ci_fallback')}）で"
                                f"始めた——呼び直しの test_cmd={inp['test_cmd']!r} で道を替えない（同じ入力で呼び直す）")
-    base_rev = (b.record.get("base") or "")
-    doc = {**keep, "run_id": run_id, "requests": len(inp["items"]), "base_rev": base_rev,
+    # 呼び直し（Archon の再開）では、修正が HEAD を進めていても最初の控えの起点を使う
+    base_rev = prev.get("base_rev") or head_rev or (b.record.get("base") or "")
+    doc = {**keep, "run_id": run_id, "requests": len(inp["items"]), "base_rev": base_rev, "entry": kind,
+           "entry_words": _entry_words(kind, inp), "change": change,
            "ci_fallback": "test_cmd" if inp["test_cmd"] else "role"}
     _write_json(work, doc)
     go = _drain(b, p, test_cmd=inp["test_cmd"], runner=runner)
@@ -466,11 +585,11 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     pol = policy.brief(b)
     absent = len(b.state["works"].get("not_in_line") or [])
     thick = inp["thickness"] + ("（既定）" if not _word(raw, "thickness") else "")
-    head = (f"入口: 判定から（依頼 {len(inp['items'])} 件）・段: {thick}・gates: {inp['gates'] or '空'}・"
+    head = (f"入口: {doc['entry_words']}・段: {thick}・gates: {inp['gates'] or '空'}・"
             f"このラインに無い節: {absent} 個・{prcheck.head_downgrades(LINE)}")
     if go["ci_role_go"]:
         head += "・修正前のテスト: 宣言も test_cmd も無い——任せ先の役がリポジトリから走らせ方を探す"
-    out = {"ok": True, "base_rev": base_rev, "test_cmd": inp["test_cmd"], "policy_paste": pol["paste"],
+    out = {"ok": True, "entry": kind, "base_rev": base_rev, "test_cmd": inp["test_cmd"], "policy_paste": pol["paste"],
            "policy_path": pol["path"], "final_gate": inp["final_gate"], "adapter": inp["adapter"], "thickness": inp["thickness"],
            "gates": inp["gates"], **go, "head_line": head}
     _write_json(work, {**doc, **go, "head_line": head})
