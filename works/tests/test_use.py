@@ -192,6 +192,40 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.calls(), [[str(t), "1", str(self.home), "validate", "workflows", "darkfactory"]])
 
+    def test_wrapped_base_is_kept_by_ref_until_clean(self):
+        """包んだ commit（commit-tree で作り、どの枝にも無い run の基）は refs/works/ の下の参照で守り、git gc で消えない。
+        対象の枝（refs/heads）・タグは動かさない。clean がその run と一緒に参照を消す"""
+        t = self.target()
+        heads = git(t, "for-each-ref", "refs/heads", "refs/tags")
+        (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
+        r = self.use("start", str(t), str(self.request), "true", "")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        run = self.calls()[0]
+        base = run[run.index("--from") + 1]
+        refs = git(t, "for-each-ref", "--format=%(objectname) %(refname)", "refs/works/").splitlines()
+        self.assertIn(base, [ln.split()[0] for ln in refs], refs)
+        self.assertEqual(git(t, "for-each-ref", "refs/heads", "refs/tags"), heads)
+        git(t, "gc", "-q", "--prune=now")
+        self.assertEqual(git(t, "cat-file", "-t", base), "commit")
+        wt = self.tmp / "run-wt"
+        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt), base)
+        self.set_runs(status="completed", working_path=str(wt), output_root=str(self.tmp / "out"))
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
+
+    def test_unbound_start_drops_wrap_ref(self):
+        """start が run を結べず控えを書けない時は、clean が参照を知る口が無いので、包んだ基の参照をその場で外す"""
+        t = self.target()
+        (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
+        self.runs.write_text(json.dumps({"runs": []}))
+        r = self.use("start", str(t), str(self.request), "true", "")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("結べなかった", r.stdout)
+        self.assertIn("包んだ（wrapped）", r.stdout)
+        self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
+        self.assertFalse((self.home / "runs").exists() and os.listdir(self.home / "runs"))
+
     def test_start_without_origin(self):
         """origin の無い対象も拒まずに起こし、対象の remote は書き換えない"""
         t = self.target(origin=False)
@@ -277,6 +311,74 @@ class UseShell(unittest.TestCase):
         r = self.use("answer", str(t), "run-1", "stop", "x")
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("paused", r.stderr)
+
+    def test_answer_requires_who(self):
+        """人が決める関所の答えは、答えた者を省いても空白でも拒む（殻を打った者 $USER に落とさない）。Archon を起こさず、記録も残さない"""
+        t = self.target()
+        for who in ((), ("  ",)):
+            with self.subTest(who=who):
+                r = self.use("answer", str(t), "run-1", "continue", "stats.py だけ", *who, USER="someone-else")
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("答えた者", r.stderr)
+                self.assertNotIn(["workflow", "respond"], [c[3:5] for c in self.calls()])
+                self.assertFalse((self.home / "answers.jsonl").exists())
+
+    def test_answer_excludes_units_with_reason(self):
+        """continue に --exclude <単位の番号>=<理由> を何度でも添えられ、{"exclude": [{unit, why}]} を run の盤面の
+        answer-detail.json（同梱の graphloops 0.21.0 の線はまだ読まない置き場。answer が注意を出す）と answers.jsonl の行に残してから respond する。stop には添えられない"""
+        t = self.target()
+        board = self.tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
+        board.mkdir(parents=True)
+        self.set_runs(working_path="/wt/run-1", output_root=str(self.tmp / "out"))
+        r = self.use("answer", str(t), "run-1", "continue", "残りは直す", "依頼者",
+                     "--exclude", "2=別の依頼で直す", "--exclude", "3=方針が決まってから")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        want = [{"unit": 2, "why": "別の依頼で直す"}, {"unit": 3, "why": "方針が決まってから"}]
+        self.assertEqual(json.loads((board / "answer-detail.json").read_text()), {"exclude": want})
+        rows = [json.loads(ln) for ln in (self.home / "answers.jsonl").read_text().splitlines()]
+        self.assertEqual((rows[-1]["by"], rows[-1]["exclude"]), ("依頼者", want))
+        self.assertEqual(self.calls()[-1][3:], ["workflow", "respond", "run-1", "continue", "残りは直す"])
+        self.log.unlink()
+        (board / "answer-detail.json").unlink()
+        r = self.use("answer", str(t), "run-1", "stop", "やめる", "依頼者", "--exclude", "2=別の依頼で直す")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("--exclude", r.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((board / "answer-detail.json").exists())
+
+    def test_gate_answer_line_shows_who_hole(self):
+        """関所の文の答えの行（answer.line）は、殻が WORKS_ANSWER_WHO を置いていれば末尾に答えた者の穴を見せる
+        （答えた者を必須にしたので、穴の無い行を写して打つと拒まれる）"""
+        import sys
+        sys.path.insert(0, str(ROOT / ".shared" / "core"))
+        import answer
+        env = {"WORKS_ANSWER_CMD": "sh /plug/dev/use.sh answer /repo", "WORKS_ANSWER_WHO": "<答えた者>"}
+        self.assertEqual(answer.line("run-9", "continue", "<通す範囲と条件>", env=env),
+                         'sh /plug/dev/use.sh answer /repo run-9 continue "<通す範囲と条件>" "<答えた者>"')
+        self.assertEqual(answer.line("run-9", "stop", "<理由>", env={"WORKS_ANSWER_CMD": "x respond"}),
+                         'x respond run-9 stop "<理由>"')
+
+    def test_answer_and_approve_return_without_waiting_for_rest(self):
+        """答え・承認は残りの工程をその場で回すので、殻が Archon の respond・approve を切り離して起こし、終わりを待たずに返る
+        （成否は wait で見る）。残りの工程の出力は利用の家の下のログのファイルに残る"""
+        import time
+        t = self.target()
+        self.fake.write_text(
+            "#!/bin/sh\n"
+            f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "${{WORKS_DEV_HOME:-}}" "$@"; echo; }} >> "{self.log}"\n'
+            f'case "$*" in "workflow runs --json") cat "{self.runs}" ;; esac\n'
+            'case "$1 $2" in "workflow respond" | "workflow approve") echo "残りの工程を回している: $2"; sleep 20 ;; esac\n'
+            "exit 0\n")
+        for args, verb in ((("answer", str(t), "run-1", "continue", "stats.py だけ", "依頼者"), "respond"),
+                           (("approve", str(t), "run-1"), "approve")):
+            with self.subTest(verb):
+                started = time.monotonic()
+                r = self.use(*args)
+                self.assertLess(time.monotonic() - started, 10, r.stdout + r.stderr)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertIn(f"wait {t} run-1", r.stdout)
+                logs = [p for p in self.home.rglob("*.log") if f"残りの工程を回している: {verb}" in p.read_text()]
+                self.assertTrue(logs, sorted(str(p) for p in self.home.rglob("*")))
 
     def test_stop_chooses_respond_or_stop_card(self):
         """止め方は 1 つ: 関所で待つ run は respond stop、走っている run は止め札（stop.sh。家は殻が埋める）"""
@@ -426,6 +528,71 @@ class UseShell(unittest.TestCase):
         calls = herdr_log.read_text().splitlines()
         self.assertTrue(any("pane-7" in c and "works" in c for c in calls), calls)
 
+    def test_herdr_shows_pane_aggregate_and_releases_only_when_all_done(self):
+        """herdr の枠の信号は、その枠から起こした run（控え）の集計の 1 つ。1 つの run が終わっても、同じ枠の別の run が走って
+        いれば release せず working のまま。全部終わった時だけ release。その枠から起こした run が 0 なら herdr に何もしない"""
+        t = self.target()
+        out = self.tmp / "out"
+        self.runs.write_text(json.dumps({"runs": []}))
+        self.fake.write_text(
+            "#!/bin/sh\n"
+            f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "${{WORKS_DEV_HOME:-}}" "$@"; echo; }} >> "{self.log}"\n'
+            f'case "$*" in "workflow runs --json") cat "{self.runs}"; exit 0 ;; esac\n'
+            'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
+            f'RUNS="{self.runs}" OUT="{out}" ORIGIN="{t}" python3 - "$@" <<\'EOF\'\n'
+            "import json, os, pathlib, sys\n"
+            "e = os.environ\n"
+            "req = next(a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('request='))\n"
+            "rows = json.loads(pathlib.Path(e['RUNS']).read_text())['runs']\n"
+            "rid = 'run-{}'.format(len(rows) + 1)\n"
+            "board = pathlib.Path(e['OUT'], 'artifacts', 'runs', rid, 'board', 'r1')\n"
+            "board.mkdir(parents=True)\n"
+            "(board / 'start.json').write_text(json.dumps({'request_file': req}))\n"
+            "rows.insert(0, {'id': rid, 'workflow_name': 'darkfactory', 'status': 'paused', 'working_path': '/wt/' + rid,\n"
+            "                'output_root': e['OUT'], 'metadata': {'workflow_source': {'origin': e['ORIGIN']}}})\n"
+            "pathlib.Path(e['RUNS']).write_text(json.dumps({'runs': rows}))\n"
+            "EOF\n"
+            "exit 0\n")
+        fake_bin = self.tmp / "herdr-bin"
+        fake_bin.mkdir()
+        herdr_log = self.tmp / "herdr.txt"
+        (fake_bin / "herdr").write_text(f'#!/bin/sh\necho "$*" >> "{herdr_log}"\nexit 0\n')
+        (fake_bin / "herdr").chmod(0o755)
+        pane = dict(PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""), HERDR_ENV="1", HERDR_PANE_ID="pane-7")
+        for _ in range(2):
+            r = self.use("start", str(t), str(self.request), "true", "", **pane)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(sorted(p.name for p in (self.home / "runs").glob("run-*.json")), ["run-1.json", "run-2.json"])
+
+        def set_status(**by_id):
+            doc = json.loads(self.runs.read_text())
+            for row in doc["runs"]:
+                row["status"] = by_id.get(row["id"], row["status"])
+            self.runs.write_text(json.dumps(doc))
+
+        # run-1 は終わったが、同じ枠の run-2 はまだ走っている: release せず working
+        set_status(**{"run-1": "completed", "run-2": "running"})
+        herdr_log.unlink(missing_ok=True)
+        r = self.use("wait", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1", **pane)
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        calls = herdr_log.read_text().splitlines() if herdr_log.exists() else []
+        self.assertFalse(any(c.startswith("release-agent") for c in calls), calls)
+        reports = [c for c in calls if c.startswith("report-agent")]
+        self.assertTrue(reports and "--state working" in reports[-1] and "pane-7" in reports[-1], calls)
+        # 全部終わった: その時だけ release
+        set_status(**{"run-2": "completed"})
+        herdr_log.unlink(missing_ok=True)
+        r = self.use("wait", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1", **pane)
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        calls = herdr_log.read_text().splitlines() if herdr_log.exists() else []
+        self.assertTrue(any(c.startswith("release-agent pane-7") for c in calls), calls)
+        # この枠から起こした run が無い枠: herdr に何もしない
+        herdr_log.unlink(missing_ok=True)
+        r = self.use("wait", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1",
+                     **dict(pane, HERDR_PANE_ID="pane-9"))
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertFalse(herdr_log.exists(), herdr_log.read_text() if herdr_log.exists() else "")
+
     def test_wait_returns_state_within_time(self):
         t = self.target()
         # 関所で待つ run: すぐ戻り、状態を 1 行で返す
@@ -501,6 +668,96 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("run id: run-mine", r.stdout)
         self.assertNotIn("run-other", r.stdout)
+
+    def fake_archon_with_concurrent_start(self, t):
+        """workflow run のたびに、この起動の run（run-mine）と、同じ家から並べて起こした別の start の run（run-other。
+        一覧の先頭＝一番新しい）を足す偽の Archon。どちらも盤面 r1/start.json と state.json の inputs に自分の依頼のパスを持つ"""
+        out = self.tmp / "out"
+        self.runs.write_text(json.dumps({"runs": []}))
+        other_req = self.home / "requests" / "other-start.json"
+        self.fake.write_text(
+            "#!/bin/sh\n"
+            f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "${{WORKS_DEV_HOME:-}}" "$@"; echo; }} >> "{self.log}"\n'
+            f'case "$*" in "workflow runs --json") cat "{self.runs}"; exit 0 ;; esac\n'
+            'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
+            f'RUNS="{self.runs}" OUT="{out}" ORIGIN="{t}" OTHER_REQ="{other_req}" python3 - "$@" <<\'EOF\'\n'
+            "import json, os, pathlib, sys\n"
+            "args = sys.argv[1:]\n"
+            "mine = next(a.split('=', 1)[1] for a in args if a.startswith('request='))\n"
+            "e = os.environ\n"
+            "rows = []\n"
+            "for rid, req in (('run-other', e['OTHER_REQ']), ('run-mine', mine)):\n"
+            "    board = pathlib.Path(e['OUT'], 'artifacts', 'runs', rid, 'board')\n"
+            "    (board / 'r1').mkdir(parents=True, exist_ok=True)\n"
+            "    (board / 'r1' / 'start.json').write_text(json.dumps({'request_file': req}))\n"
+            "    (board / 'state.json').write_text(json.dumps({'inputs': {'request': req}}))\n"
+            "    rows.append({'id': rid, 'workflow_name': 'darkfactory', 'status': 'paused', 'working_path': '/wt/' + rid,\n"
+            "                 'output_root': e['OUT'], 'metadata': {'workflow_source': {'origin': e['ORIGIN']}}})\n"
+            "pathlib.Path(e['RUNS']).write_text(json.dumps({'runs': rows}))\n"
+            "EOF\n"
+            "exit 0\n")
+
+    def test_start_binds_its_own_run_not_newest_in_list(self):
+        """start は一覧の先頭（一番新しい run）を推定で採らず、この起動の依頼（<家>/requests/<印>.json）で自分の run を 1 つに
+        結ぶ。同じ家から並べて起こした別の start の run が先頭に在っても、控え・続きの行・run-id 無しの show は自分の run"""
+        t = self.target()
+        self.fake_archon_with_concurrent_start(t)
+        r = self.use("start", str(t), str(self.request), "true", "")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("run id: run-mine", r.stdout)
+        self.assertNotIn("run id: run-other", r.stdout)
+        self.assertTrue((self.home / "runs" / "run-mine.json").is_file(), sorted(os.listdir(self.home / "runs")))
+        self.assertFalse((self.home / "runs" / "run-other.json").exists())
+        r = self.use("show", str(t), CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("run id: run-mine", r.stdout)
+
+    def test_wait_does_not_find_run_of_other_target(self):
+        """wait も show・answer と同じ選び方（darkfactory・この対象）で引く。別の対象の run id を渡しても見つからない"""
+        t = self.target()
+        other = self.target("other")
+        self.runs.write_text(json.dumps({"runs": [
+            {"id": "run-other", "workflow_name": "darkfactory", "status": "paused", "working_path": "/wt/other",
+             "output_root": "/out", "metadata": {"workflow_source": {"origin": str(other)}}}]}))
+        r = self.use("wait", str(t), "run-other", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("見つからない", r.stdout + r.stderr)
+        self.assertNotIn("paused", r.stdout)
+
+    def test_show_running_node_elapsed_alive_and_node_costs(self):
+        """走っている run の show は、合計の費用の 1 行だけでなく、今走っている節・起こしてからの分（launched_min）・
+        生きているか（alive）・節ごとの費用（cost_usd）を本流 graphloops の status と同じ欄名で出す。材料は Archon の
+        `workflow get <id> --verbose --events --json` の出来事（node_started・node_completed の data.cost_usd）"""
+        import datetime
+        t = self.target()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        started = (now - datetime.timedelta(minutes=12)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        recent = (now - datetime.timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
+        self.set_runs(status="running", working_path="/wt/run-1", output_root=str(self.tmp / "out"), started_at=started,
+                      last_activity_at=(now - datetime.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S.000Z"))
+
+        def ev(kind, step, **data):
+            return {"workflow_run_id": "run-1", "event_type": kind, "step_name": step, "data": data, "created_at": recent}
+        got = dict(json.loads(self.runs.read_text())["runs"][0], events=[
+            ev("workflow_started", None),
+            ev("node_started", "p1.material"),
+            ev("node_completed", "p1.material", cost_usd=0.42),
+            ev("node_started", "p2.diagnose"),
+        ])
+        get_json = self.tmp / "get.json"
+        get_json.write_text(json.dumps(got))
+        self.fake.write_text(
+            "#!/bin/sh\n"
+            f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "${{WORKS_DEV_HOME:-}}" "$@"; echo; }} >> "{self.log}"\n'
+            f'case "$*" in "workflow runs --json") cat "{self.runs}" ;; "workflow get run-1"*) cat "{get_json}" ;; esac\n'
+            "exit 0\n")
+        r = self.use("show", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = r.stdout
+        self.assertTrue(any("diagnose" in l for l in out.splitlines()), out)   # 走っている節
+        self.assertRegex(out, r"launched_min\D{0,12}1[123]\b")
+        self.assertRegex(out, r"(?i)alive\W{0,12}true")
+        self.assertTrue(any("material" in l and "cost_usd" in l and "0.42" in l for l in out.splitlines()), out)
 
     def test_apply_brings_run_diff_into_target(self):
         t = self.target()

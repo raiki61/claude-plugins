@@ -45,31 +45,29 @@ case "${WORKS_DEV_ADAPTER:-}" in
 esac
 
 # 認証は本線 claude_auth.py の順で、利用者自身の物だけを拾う（どこかの口座で黙って回さない。R20 には拾った出どころの名を
-# 1 行に出して応える。値は出さない）:
-#   1. CLAUDE_CODE_OAUTH_TOKEN があればそれを使う。
-#   2. 無ければ WORKS_KEYCHAIN_ITEM の名の keychain の項目を読む（名を指したのに空なら止まる）。
-#   3. 無ければ macOS で Claude Code 自身が keychain に置いた項目（guard.sh works_dev_claude_keychain_services）の accessToken。
-#   4. どれも無ければ、1 行の案内を出して止まる（本線の段 3「子自身の保存済み認証」は、隔離した CLAUDE_CONFIG_DIR が空なので無い）。
+# 1 行に出して応える。値は出さない）。順と案内の文の正本は guard.sh works_dev_auth_candidates・works_dev_no_auth_howto で、
+# どれも無ければ 1 行の案内を出して止まる（本線の段 3「子自身の保存済み認証」は、隔離した CLAUDE_CONFIG_DIR が空なので無い）。
 # WORKS_DEV_NO_AUTH=1 のときは読まない（テストや validate など、認証が要らないとき用）。
 # keychain は HOME を隔離する前に読む（macOS の security はログイン keychain を
 # $HOME 基準で探すので、後で読むと隔離した偽の HOME の下を探して必ず失敗する）。
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
-  NO_AUTH_HOWTO="archon.sh: 認証が無い。claude にログインするか、CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する"
-  if [ -n "${WORKS_KEYCHAIN_ITEM:-}" ]; then
-    CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "$WORKS_KEYCHAIN_ITEM" -w)"
-    # 項目が空の値を返したら、空のトークンを渡さずに止まる（項目名は出すが、値は出さない）
-    if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-      echo "${NO_AUTH_HOWTO}（keychain の項目 ${WORKS_KEYCHAIN_ITEM} が空）" >&2
-      exit 2
-    fi
-  else
-    CLAUDE_CODE_OAUTH_TOKEN=""
-    if [ "$(uname -s)" = Darwin ]; then
-      _services="$(works_dev_claude_keychain_services)"
-      _ifs=$IFS
-      IFS='
+  _candidates="$(works_dev_auth_candidates)"
+  _ifs=$IFS
+  IFS='
 '
-      for _svc in $_services; do
+  for _c in $_candidates; do
+    case $_c in
+      "item "*)
+        CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "${_c#item }" -w)"
+        # 項目が空の値を返したら、空のトークンを渡さずに止まる（項目名は出すが、値は出さない）
+        if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+          echo "archon.sh: $(works_dev_no_auth_howto)（keychain の項目 ${_c#item } が空）" >&2
+          exit 2
+        fi
+        break
+        ;;
+      "claude "*)
+        _svc=${_c#claude }
         # 値は Claude Code の JSON（claudeAiOauth.accessToken）か、トークンそのもの。sk-ant-oat01- で始まらない物は渡さない
         CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "$_svc" -w 2>/dev/null | python3 -c '
 import json, sys
@@ -85,13 +83,13 @@ if isinstance(tok, str) and tok.startswith("sk-ant-oat01-"):
           echo "archon.sh: 認証は Claude Code の keychain の項目 ${_svc} から拾った（値は出さない）" >&2
           break
         fi
-      done
-      IFS=$_ifs
-    fi
-    if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-      echo "${NO_AUTH_HOWTO}（Claude Code の keychain の項目 $(works_dev_claude_keychain_services | tr '\n' ' ')にも無い）" >&2
-      exit 2
-    fi
+        ;;
+    esac
+  done
+  IFS=$_ifs
+  if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+    echo "archon.sh: $(works_dev_no_auth_howto)（Claude Code の keychain の項目 $(works_dev_claude_keychain_services | tr '\n' ' ')にも無い）" >&2
+    exit 2
   fi
   export CLAUDE_CODE_OAUTH_TOKEN
 fi

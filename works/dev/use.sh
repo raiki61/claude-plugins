@@ -2,12 +2,13 @@
 # works/dev/use.sh — ほかのリポジトリを対象に、ライン darkfactory を回す起動の殻（skills/works/SKILL.md が入口）。
 #
 #   use.sh start [<対象リポジトリ>] <依頼の JSON> [<test_cmd> [<tdd_suite>]]   本物の AI で回す（費用が掛かる）。最初の関所で止まって戻る
-#   use.sh show  <対象リポジトリ> [<run-id>]                                その対象から起こした一番新しい run（か名指しの run）の状態・
+#   use.sh show  <対象リポジトリ> [<run-id>]                                その対象で start が結んだ一番新しい run（か名指しの run）の状態・
 #                                                                           次に打つ行・差分のファイルを出し直す
 #   use.sh wait  <対象リポジトリ> <run-id>                                  裏で回る run を決まった時間（WORKS_USE_WAIT_SECONDS。既定 540 秒）
 #                                                                           まで待ち、状態を 1 行で返す（0 = 関所で待つ・3 = まだ走っている・
 #                                                                           5 = 終わった・1 = 落ちた・見つからない）。AI を起こさない
-#   use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> [<答えた者>] 関所で待つ run に答える（答えた者を <家>/answers.jsonl に残す）
+#   use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> [--exclude <単位の番号>=<理由>]… 関所で待つ run に答える（答えた者を <家>/answers.jsonl に残す）。残りの工程は切り離して回し、wait の行で返る
+#   use.sh approve <対象リポジトリ> <run-id>                               起動の関所を越える（切り離して回し、wait の行で返る）
 #   use.sh stop  <対象リポジトリ> <run-id> <理由>                           止める（関所で待つ run は respond stop、走っている run は止め札）
 #   use.sh apply <対象リポジトリ> <run-id>                                  その run の差分を書き直し、git apply --check の後に対象へ当てる
 #                                                                           （commit しない。消す行は WORKS_USE_ALLOW_DELETE=1 の時だけ）
@@ -36,17 +37,18 @@
 #   WORKS_USE_THICKNESS（空なら渡さない）。WORKS_USE_UNATTENDED=1 は無人の run: 起動の関所を越え、人が決める関所に着いたら
 #   止めて報告へ進める。
 # - 関所の文の答えの行は、この殻の answer の行（env WORKS_ANSWER_CMD。.shared/core/answer.py）。
-# - herdr の枠の中（HERDR_ENV=1・HERDR_PANE_ID）なら、起動と show のたびに run の状態をその枠へ出す（lib.sh works_dev_herdr）。
+# - herdr の枠の中（HERDR_ENV=1・HERDR_PANE_ID）なら、起動・show・wait のたびに、その枠から起こした run（控えの herdr_pane）の
+#   集計を 1 つの信号で出し、全部終わった時だけ外す（lib.sh works_dev_herdr_sync）。
 # - 差分（run の worktree と周の頭の版の差）は <家>/diffs/run-<id>.diff に書き、対象へ当てる apply の行を出す。当てるのは人。
-# 認証は archon.sh と同じ順（CLAUDE_CODE_OAUTH_TOKEN・WORKS_KEYCHAIN_ITEM・Claude Code 自身の keychain の項目）。ここは在るかだけを
+# 認証は archon.sh と同じ順（guard.sh works_dev_auth_candidates: CLAUDE_CODE_OAUTH_TOKEN・WORKS_KEYCHAIN_ITEM・Claude Code 自身の keychain の項目）。ここは在るかだけを
 # 見て、値は読まない。模型は WORKS_DEV_MODEL（既定 opus）。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
 
-USAGE="usage: use.sh start [<対象リポジトリ>] <依頼の JSON> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> [<答えた者>] | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
+USAGE="usage: use.sh start [<対象リポジトリ>] <依頼の JSON> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> [--exclude <単位の番号>=<理由>]… | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
 CMD="${1:-}"
 case "$CMD:$#" in
-  start:2 | start:3 | start:4 | start:5 | show:2 | show:3 | wait:3 | answer:5 | answer:6 | stop:4 | apply:3 | clean:3 | check:2) ;;
+  start:2 | start:3 | start:4 | start:5 | show:2 | show:3 | wait:3 | approve:3 | answer:[5-9] | answer:[1-9][0-9] | stop:4 | apply:3 | clean:3 | check:2) ;;
   *)
     echo "$USAGE" >&2
     exit 2
@@ -63,6 +65,11 @@ WORKS_DEV_MODEL="${WORKS_DEV_MODEL:-opus}"
 WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"
 WORKS_USE_SH="$DEV_DIR/use.sh"
 WORKS_WRAPS_DIR="$WORKS_USE_HOME/wraps"
+# 文書が名指す窓口は代入の行で持つ（名指しの柵 doc-symbols が定義として見る。除外表で黙らせない）
+WORKS_USE_GATES="${WORKS_USE_GATES:-}"
+WORKS_USE_POLICY_MD="${WORKS_USE_POLICY_MD:-}"
+WORKS_USE_THICKNESS="${WORKS_USE_THICKNESS:-}"
+WORKS_USE_WAIT_SECONDS="${WORKS_USE_WAIT_SECONDS:-540}"
 export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER WORKS_USE_SH WORKS_WRAPS_DIR
 
 refuse() {
@@ -101,6 +108,9 @@ fi
 WORKS_ANSWER_CMD="$(A="$WORKS_USE_SH" T="$TARGET" python3 -c 'import os, shlex
 print("sh {} answer {}".format(shlex.quote(os.environ["A"]), shlex.quote(os.environ["T"])))')"
 export WORKS_ANSWER_CMD
+# answer は答えた者を必須にするので、関所の文の答えの行の末尾に埋める穴を見せる（.shared/core/answer.py WHO_ENV）
+WORKS_ANSWER_WHO="<答えた者>"
+export WORKS_ANSWER_WHO
 
 # start の前に足りない物。start は 1 つ目で止まり、check は全部並べてから終了コードを決める
 PROBLEMS=""
@@ -113,20 +123,20 @@ problem() {
   fi
 }
 
-# 認証の出どころの名（無ければ空）。archon.sh と同じ順で、在るかだけを見る（keychain の値は読まない）
+# 認証の出どころの名（無ければ空）。在るかだけを見る（keychain の値は読まない）
 auth_from() {
-  if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-    echo "CLAUDE_CODE_OAUTH_TOKEN"
-  elif [ -n "${WORKS_KEYCHAIN_ITEM:-}" ]; then
-    echo "keychain の項目 ${WORKS_KEYCHAIN_ITEM}"
-  elif [ "$(uname -s)" = Darwin ]; then
-    works_dev_claude_keychain_services | while IFS= read -r _svc; do
-      if security find-generic-password -s "$_svc" >/dev/null 2>&1; then
-        echo "Claude Code の keychain の項目 ${_svc}"
-        break
-      fi
-    done
-  fi
+  works_dev_auth_candidates | while IFS= read -r _c; do
+    case $_c in
+      "env "*) echo "${_c#env }"; break ;;
+      "item "*) echo "keychain の項目 ${_c#item }"; break ;;
+      "claude "*)
+        if security find-generic-password -s "${_c#claude }" >/dev/null 2>&1; then
+          echo "Claude Code の keychain の項目 ${_c#claude }"
+          break
+        fi
+        ;;
+    esac
+  done
 }
 
 # 本物の claude（隔離の前に解く。関数・別名は実行ファイルでない）。show・check も次の行に載せる
@@ -148,7 +158,7 @@ if [ "$CMD" = start ] || [ "$CMD" = check ]; then
   WORKS_AUTH_FROM="$(auth_from)"
   export WORKS_AUTH_FROM
   if [ -z "$WORKS_AUTH_FROM" ]; then
-    problem "認証が無い。claude にログインするか、CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する"
+    problem "$(works_dev_no_auth_howto)"
   fi
   if ! command -v uv >/dev/null 2>&1; then
     problem "uv が PATH に無い（ラインの節は uv run で回る）。入れる: curl -LsSf https://astral.sh/uv/install.sh | sh"
@@ -170,38 +180,54 @@ place_pack() {
 }
 
 # run_row <run-id か空>: この対象の run（空なら一番新しい物）の「id<TAB>status<TAB>working_path」。見つからない・一覧が
-# 読めなければ 1 行の理由で 1（呼び手は ROW="$(run_row …)" || exit 2）。選び方は lib.sh works_dev_show_run と同じ
+# 読めなければ 1 行の理由で 1（呼び手は ROW="$(run_row …)" || exit 2）。選ぶのは lib.sh works_dev_run_json
 run_row() {
-  WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow runs --json 2>/dev/null | RUN_ID="$1" DIR="$TARGET" python3 -c '
-import json, os, sys
-try:
-    listed = json.load(sys.stdin)
-except ValueError as e:
-    sys.exit("use.sh: archon workflow runs --json の出力が JSON として読めない（{}）".format(e))
-def origin(r):
-    o = ((r.get("metadata") or {}).get("workflow_source") or {}).get("origin")
-    return os.path.realpath(o) if isinstance(o, str) and o else None
-here, rid = os.path.realpath(os.environ["DIR"]), os.environ["RUN_ID"]
-runs = [r for r in listed.get("runs", []) if r.get("workflow_name") == "darkfactory" and origin(r) in (None, here)]
-runs = [r for r in runs if r.get("id") == rid] if rid else runs
-if not runs:
-    sys.exit("use.sh: darkfactory の run が見つからない（対象 {}{}）".format(here, "・run id " + rid if rid else ""))
-r = runs[0]
+  _json="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "$1")" || return 1
+  printf '%s\n' "$_json" | python3 -c '
+import json, sys
+r = json.load(sys.stdin)
 print("\t".join([r.get("id") or "", r.get("status") or "", r.get("working_path") or ""]))
 '
 }
 
 # run の控え <家>/runs/<run-id>.json: start で選んだ模型・claude の実行ファイル・keychain の項目の名（値でなく名）・包みを残し、
-# 別の殻で打つ answer・stop がそれで Archon を起こし、show が出す進める・続きの行もそれで組む（無ければ今の殻の値のまま）
+# 別の殻で打つ answer・stop がそれで Archon を起こし、show が出す進める・続きの行もそれで組む（無ければ今の殻の値のまま）。
+# 書く口は lib.sh works_dev_save_ledger（dogfood.sh・real-run.sh と同じ）
 save_ledger() {
-  mkdir -p "$WORKS_USE_HOME/runs"
-  RUN_ID="$1" DIR="$TARGET" python3 -c '
-import json, os
-e = os.environ
-print(json.dumps({"run_id": e["RUN_ID"], "target": e["DIR"], "model": e.get("WORKS_DEV_MODEL", ""),
-                  "claude_bin": e.get("CLAUDE_BIN_PATH", ""), "keychain_item": e.get("WORKS_KEYCHAIN_ITEM", ""),
-                  "adapter": e.get("WORKS_DEV_ADAPTER", "")}, ensure_ascii=False))
-' >"$WORKS_USE_HOME/runs/$1.json"
+  works_dev_save_ledger "$WORKS_USE_HOME/runs" "$1" "$TARGET"
+}
+# herdr_sync [<run-id>=<状態>…]: この家の控えから、今の herdr の枠の run の集計を出す（lib.sh works_dev_herdr_sync）
+herdr_sync() {
+  works_dev_herdr_sync "$ARCHON" "$WORKS_USE_HOME/runs" "$@"
+}
+# detach_archon <run-id> <archon の引数…>（殻を終える）: 残りの工程をその場で回す Archon の呼び出し（respond・approve）を切り離して起こし、
+# 出力を <家>/logs/<run-id>-<時刻>.log に書いて、終わりを待たずに wait の行を出して返る（成否は wait と show で見る）。
+# 呼び手の殻の終了コードは起こせたかだけ（人の答え (9)(10)）。1 秒のうちに 0 以外で終わった時だけ、ログの末尾を出してその終了コードで返る
+detach_archon() {
+  _rid="$1"
+  shift
+  mkdir -p "$WORKS_USE_HOME/logs"
+  _log="$WORKS_USE_HOME/logs/${_rid}-$(date +%Y%m%d-%H%M%S)-$$.log"
+  nohup sh "$ARCHON" "$@" >"$_log" 2>&1 </dev/null &
+  _pid=$!
+  sleep 1
+  if ! kill -0 "$_pid" 2>/dev/null; then
+    _st=0
+    wait "$_pid" || _st=$?
+    if [ "$_st" -ne 0 ]; then
+      tail -n 20 "$_log" >&2
+      echo "use.sh: archon workflow $2 が終了コード ${_st} で落ちた（全文: ${_log}）" >&2
+      exit "$_st"
+    fi
+  fi
+  echo "run ${_rid}: archon workflow $2 を切り離して起こした（pid ${_pid}。出力は ${_log}）"
+  echo "状態を見る（決まった時間で戻る。まだ走っていれば打ち直す）: sh $WORKS_USE_SH wait $TARGET ${_rid}"
+  exit 0
+}
+# ledger_latest: この対象の控えのうち一番新しく結んだ run の id（控えが無ければ空）。run-id を省いた show が一覧の先頭でなくこれを引く
+ledger_latest() {
+  works_dev_ledgers "$WORKS_USE_HOME/runs" |
+    awk -F'\t' -v here="$(cd "$TARGET" && pwd -P)" '$2 == here && (id == "" || $3 + 0 >= at) { at = $3 + 0; id = $1 } END { print id }'
 }
 # 2 つ目の引数は控えで何をするかの文（既定は answer・stop の『Archon を起こす』。show は起こさないので行を組むと言う）
 load_ledger() {
@@ -236,77 +262,119 @@ case "$CMD" in
   show)
     resolve_claude
     cd "$TARGET"
+    # run-id を省けば、この対象で start が結んだ一番新しい run（控えが無い時だけ一覧の一番新しい run）
+    RID="${3:-$(ledger_latest)}"
     # 出す進める・続きの行も、start の控えの模型・claude・包みで組む（別の殻の値で黙って替えない）。run が見つからなければ下が言う
-    if ROW="$(run_row "${3:-}" 2>/dev/null)"; then
+    if ROW="$(run_row "$RID" 2>/dev/null)"; then
       load_ledger "$(printf '%s' "$ROW" | cut -f1)" "進める・続きの行を組む（Archon は起こさない）"
     fi
-    WORKS_RUN_ID="${3:-}"
+    WORKS_RUN_ID="$RID"
     export WORKS_RUN_ID
-    works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs"
-    exit $?
+    show_status=0
+    works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" || show_status=$?
+    if [ -n "${ROW:-}" ]; then herdr_sync "$(printf '%s' "$ROW" | cut -f1)=$(printf '%s' "$ROW" | cut -f2)"; fi
+    exit "$show_status"
     ;;
   wait)
     cd "$TARGET"
-    set +e
-    ARCHON_SH="$ARCHON" RUN_ID="$3" WAIT_SECONDS="${WORKS_USE_WAIT_SECONDS:-540}" python3 -c '
-import json, os, subprocess, sys, time
-rid, limit = os.environ["RUN_ID"], float(os.environ["WAIT_SECONDS"])
-deadline = time.monotonic() + limit
-env = dict(os.environ, WORKS_DEV_NO_AUTH="1")
-while True:
-    got = subprocess.run(["sh", os.environ["ARCHON_SH"], "workflow", "runs", "--json"], env=env, capture_output=True, text=True)
-    try:
-        runs = json.loads(got.stdout).get("runs", [])
-    except ValueError:
-        sys.exit("use.sh: archon workflow runs --json の出力が JSON として読めない（終了コード {}）".format(got.returncode))
-    r = next((x for x in runs if x.get("id") == rid), None)
-    if r is None:
-        print("run {}: 見つからない".format(rid))
-        sys.exit(1)
-    status = r.get("status") or ""
-    if status == "paused":
-        print("run {}: paused（関所で人の答えを待つ。use.sh show {} {} で関所の文と答えの行を出す）".format(rid, os.getcwd(), rid))
-        sys.exit(0)
-    if status in ("completed", "cancelled"):
-        print("run {}: {}（終わった。報告と差分は use.sh show で出す）".format(rid, status))
-        sys.exit(5)
-    if status not in ("running", "pending"):
-        print("run {}: {}（落ちた。use.sh show で続ける行を出す）".format(rid, status))
-        sys.exit(1)
-    left = deadline - time.monotonic()
-    if left <= 0:
-        print("run {}: {}（{:g} 秒のうちに関所にも終わりにも着かなかった。待つなら同じ行を打ち直す。止めるなら use.sh stop）".format(rid, status, limit))
-        sys.exit(3)
-    time.sleep(min(10.0, left))
-'
-    wait_status=$?
-    set -e
-    case $wait_status in
-      0 | 1) works_dev_herdr blocked "factory run $3" ;;
-      3) works_dev_herdr working "factory run $3" ;;
-      5) works_dev_herdr release ;;
-    esac
+    # 選び方は show・answer と同じ run_row（この対象の darkfactory の run だけ）
+    limit="$WORKS_USE_WAIT_SECONDS"
+    case $limit in '' | *[!0-9]*) refuse "WORKS_USE_WAIT_SECONDS は秒の整数（受けた値: $limit）" ;; esac
+    deadline=$(($(date +%s) + limit))
+    while :; do
+      if ! ROW="$(run_row "$3")"; then
+        wait_status=1
+        break
+      fi
+      STATUS="$(printf '%s' "$ROW" | cut -f2)"
+      case $STATUS in
+        paused)
+          echo "run $3: paused（関所で人の答えを待つ。use.sh show $TARGET $3 で関所の文と答えの行を出す）"
+          wait_status=0
+          break
+          ;;
+        completed | cancelled)
+          echo "run $3: ${STATUS}（終わった。報告と差分は use.sh show で出す）"
+          wait_status=5
+          break
+          ;;
+        running | pending) ;;
+        *)
+          echo "run $3: ${STATUS}（落ちた。use.sh show で続ける行を出す）"
+          wait_status=1
+          break
+          ;;
+      esac
+      left=$((deadline - $(date +%s)))
+      if [ "$left" -le 0 ]; then
+        echo "run $3: ${STATUS}（${limit} 秒のうちに関所にも終わりにも着かなかった。待つなら同じ行を打ち直す。止めるなら use.sh stop）"
+        wait_status=3
+        break
+      fi
+      [ "$left" -gt 10 ] && left=10
+      sleep "$left"
+    done
+    if [ -n "${STATUS:-}" ]; then herdr_sync "$3=$STATUS"; fi
     exit "$wait_status"
     ;;
   answer)
-    # 関所で待つ run に continue か stop で答える。人が決める関所なので、答えた者（第 6 引数。無ければ $USER）と一言を
-    # <家>/answers.jsonl に残してから Archon へ渡す（残りの工程をその場で回すので、Claude Code なら背景で打ち wait で戻る）
+    # 関所で待つ run に continue か stop で答える。人が決める関所なので、答えた者（第 6 引数。必須で、殻を打った者に落とさない）・
+    # 一言・外す単位（continue の --exclude <単位の番号>=<理由>。形は本流 graphloops の answer --detail {exclude: [{unit, why}]}）を
+    # <家>/answers.jsonl に残してから Archon へ渡す（残りの工程は切り離して回し、wait の行で返る）
     case "$4" in continue | stop) ;; *) refuse "答えは continue か stop（受けた値: $4）" ;; esac
+    DETAIL="$(VERB="$4" python3 -c '
+import json, os, sys
+args, rows = sys.argv[7:], []   # 第 7 引数から（"$@" を全部渡す）
+if args and os.environ["VERB"] != "continue":
+    sys.exit("--exclude を添えられるのは continue だけ（受けた答え: {}）".format(os.environ["VERB"]))
+while args:
+    flag, val = args[0], (args[1] if len(args) > 1 else "")
+    unit, _, why = val.partition("=")
+    if flag != "--exclude" or not unit.strip().isdigit() or int(unit) < 1 or len(why.strip()) < 4:
+        sys.exit("第 7 引数からは --exclude <単位の番号>=<理由（4 字以上）> の組だけ（受けた値: {} {}）".format(flag, val))
+    rows.append({"unit": int(unit), "why": " ".join(why.split())})
+    args = args[2:]
+print(json.dumps({"exclude": rows}, ensure_ascii=False) if rows else "")
+' "$@" 2>&1)" || refuse "$DETAIL"
     resolve_claude
     cd "$TARGET"
     ROW="$(run_row "$3")" || exit 2
     STATUS="$(printf '%s' "$ROW" | cut -f2)"
     [ "$STATUS" = paused ] || refuse "run $3 は ${STATUS}。答えられるのは関所で待つ（paused）run だけ"
+    BY="$(printf '%s' "${6:-}" | tr -d '[:space:]')"
+    [ -n "$BY" ] || refuse "答えた者（第 6 引数）が無い。人が決める関所なので、決めた人の名を渡す（殻を打った者には落とさない）"
     mkdir -p "$WORKS_USE_HOME"
-    RUN_ID="$3" VERB="$4" TEXT="$5" BY="${6:-${USER:-$(id -un)}}" DIR="$TARGET" python3 -c '
+    if [ -n "$DETAIL" ]; then
+      # 外す単位は Archon の respond が運べない構造の値なので、run の盤面に置く（本流 0.21.1 の answer_detail が読む置き場。同梱の graphloops 0.21.0 の線はまだ読まない）
+      BOARD="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "$3" | python3 -c '
+import json, os, sys
+r = json.load(sys.stdin)
+print(os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board"))')" || exit 2
+      [ -d "$BOARD" ] || refuse "run $3 の盤面（${BOARD}）が無いので、外す単位を置けない"
+      printf '%s\n' "$DETAIL" >"$BOARD/answer-detail.json"
+      echo "外す単位を ${BOARD}/answer-detail.json に置いた（注意: 同梱の graphloops の写しは 0.21.0 で answer_detail を持たないので、この版の線はまだ読まず、修正の輪は外した単位も直す義務に数える）"
+    fi
+    RUN_ID="$3" VERB="$4" TEXT="$5" BY="$6" DIR="$TARGET" DETAIL="$DETAIL" python3 -c '
 import datetime, json, os
 e = os.environ
 row = {"at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "run_id": e["RUN_ID"],
        "target": e["DIR"], "answer": e["VERB"], "text": e["TEXT"], "by": e["BY"]}
+if e["DETAIL"]:
+    row["exclude"] = json.loads(e["DETAIL"])["exclude"]
 print(json.dumps(row, ensure_ascii=False))
 ' >>"$WORKS_USE_HOME/answers.jsonl"
     load_ledger "$3"
-    exec sh "$ARCHON" workflow respond "$3" "$4" "$5"
+    detach_archon "$3" workflow respond "$3" "$4" "$5"
+    ;;
+  approve)
+    # 起動の関所を越える。承認も残りの工程をその場で回すので、answer と同じく切り離して起こし、wait の行で返る
+    resolve_claude
+    cd "$TARGET"
+    ROW="$(run_row "$3")" || exit 2
+    STATUS="$(printf '%s' "$ROW" | cut -f2)"
+    [ "$STATUS" = paused ] || refuse "run $3 は ${STATUS}。承認できるのは関所で待つ（paused）run だけ"
+    load_ledger "$3"
+    detach_archon "$3" workflow approve "$3"
     ;;
   stop)
     # 止め方を 1 つにする: 関所で待つ run は respond stop（報告へ進む）、走っている・落ちた run は止め札（stop.sh。家は殻が埋める）
@@ -317,7 +385,7 @@ print(json.dumps(row, ensure_ascii=False))
     case "$STATUS" in
       paused)
         load_ledger "$3"
-        exec sh "$ARCHON" workflow respond "$3" stop "$4"
+        detach_archon "$3" workflow respond "$3" stop "$4"
         ;;
       completed | cancelled) refuse "run $3 は既に ${STATUS}——止める物が無い" ;;
       *) WORKS_DEV_ARCHON="$ARCHON" exec sh "$DEV_DIR/stop.sh" "$3" "$4" ;;
@@ -350,6 +418,12 @@ print(json.dumps(row, ensure_ascii=False))
     case "$STATUS" in
       running | pending | paused) refuse "run $3 は ${STATUS}。止めるか終わってから片付ける" ;;
     esac
+    # start が包んだ run の基を守った参照（控えの wrap_ref）も一緒に消す
+    WRAP_REF="$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$3" | cut -f4)"
+    if [ -n "$WRAP_REF" ] && git show-ref --verify --quiet "$WRAP_REF"; then
+      git update-ref -d "$WRAP_REF"
+      echo "run $3 の基を守った参照を消した: ${WRAP_REF}"
+    fi
     if [ -z "$GOT" ] || [ ! -d "$GOT" ]; then
       echo "run $3 の worktree（${GOT:-無し}）はもう無い"
       exit 0
@@ -413,8 +487,11 @@ if ! git remote get-url origin >/dev/null 2>&1; then
 fi
 
 # run の基: 汚れていなければ HEAD。commit していない変更・未追跡が在れば、一時の index（HEAD の木から add -A。.gitignore の物は
-# 入らない）で包んだ commit にする（git の plumbing。対象の作業ツリー・index・枝・参照は動かさない）
+# 入らない）で包んだ commit にする（git の plumbing。対象の作業ツリー・index・枝・タグは動かさない）。包んだ commit はどの枝にも
+# 無いので、git gc に消されないよう refs/works/wraps/<commit> で守る（refs/heads・refs/tags の外。控えの wrap_ref に残し、
+# clean が run と一緒に消す。run を結べず控えを書けない時は、下の結べなかった所で外す）
 BASE_REV="$(git rev-parse HEAD)"
+WRAP_REF=""
 if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
   mkdir -p "$WORKS_WRAPS_DIR"
   _idx="$WORKS_WRAPS_DIR/.index.$$"
@@ -425,6 +502,8 @@ if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
   rm -f "$_idx"
   BASE_REV="$(GIT_AUTHOR_NAME=works GIT_AUTHOR_EMAIL=works@localhost GIT_COMMITTER_NAME=works GIT_COMMITTER_EMAIL=works@localhost \
     git commit-tree "$_tree" -p HEAD -m "works: use.sh start が包んだ対象の手元の姿（run の基）")"
+  WRAP_REF="refs/works/wraps/$BASE_REV"
+  git update-ref "$WRAP_REF" "$BASE_REV"
   git diff --name-status HEAD "$BASE_REV" | tr '\t' ' ' >"$WORKS_WRAPS_DIR/$BASE_REV.txt"
   echo "包んだ（wrapped）: 対象の commit していない変更・未追跡のファイルを commit ${BASE_REV} に包み、run はそこから切る（対象は動かさない）: $(tr '\n' ' ' <"$WORKS_WRAPS_DIR/$BASE_REV.txt")"
   echo "対象: ${TARGET}（run の worktree は包んだ commit ${BASE_REV} から切る）"
@@ -434,20 +513,34 @@ fi
 
 set -- workflow run darkfactory --from "$BASE_REV" --input request="$REQUEST" --input test_cmd="$TEST_CMD" \
   --input tdd_suite="$TDD_SUITE" --input adapter="$ADAPTER_MODE" --input final_gate="${WORKS_USE_FINAL_GATE:-when_needed}"
-if [ -n "${WORKS_USE_POLICY_MD:-}" ]; then set -- "$@" --input policy_md="$WORKS_USE_POLICY_MD"; fi
-if [ -n "${WORKS_USE_GATES:-}" ]; then set -- "$@" --input gates="$WORKS_USE_GATES"; fi
-if [ -n "${WORKS_USE_THICKNESS:-}" ]; then set -- "$@" --input thickness="$WORKS_USE_THICKNESS"; fi
-works_dev_herdr working "factory run を起こした（${TARGET}）"
+if [ -n "$WORKS_USE_POLICY_MD" ]; then set -- "$@" --input policy_md="$WORKS_USE_POLICY_MD"; fi
+if [ -n "$WORKS_USE_GATES" ]; then set -- "$@" --input gates="$WORKS_USE_GATES"; fi
+if [ -n "$WORKS_USE_THICKNESS" ]; then set -- "$@" --input thickness="$WORKS_USE_THICKNESS"; fi
 set +e
 sh "$ARCHON" "$@"
 run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
 
+# 起動の直後に、この起動の依頼（<家>/requests/<印>.json）を盤面に持つ run を 1 つに結ぶ（一覧の先頭を推定で採らない。
+# 同じ家から並べた start の run と混ざらない）。結べなければ候補と show の行だけを出し、続きの行は出さない
+if ! BOUND="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "" "$REQUEST")"; then
+  echo "この起動の run を結べなかった（続きの行は出さない。候補が在れば上の show の行で run id を名指しして出す）"
+  # 控えを書けないので clean は包んだ基の参照を知らない。ここで外す（run が切った worktree の枝が在ればその基はそこから届く）
+  if [ -n "$WRAP_REF" ]; then
+    git update-ref -d "$WRAP_REF"
+    echo "包んだ基を守った参照を外した（どの run の控えにも結べないので）: ${WRAP_REF}"
+  fi
+  [ "$run_status" -ne 0 ] && exit "$run_status"
+  exit 1
+fi
+RID="$(printf '%s\n' "$BOUND" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id") or "")')"
+save_ledger "$RID"
+
 # 無人の run: 起動の関所を越え（残りをその場で回す）、次に人が決める関所で待っていれば止めて報告へ進める（本線の --unattended）
 if [ "${WORKS_USE_UNATTENDED:-}" = 1 ] && [ "$run_status" -eq 0 ]; then
-  ROW="$(run_row "")" || exit 2
-  RID="$(printf '%s' "$ROW" | cut -f1)"
+  BOUND=""   # 状態が動くので、下の show は run id で引き直す
+  ROW="$(run_row "$RID")" || exit 2
   if [ "$(printf '%s' "$ROW" | cut -f2)" = paused ]; then
     echo "無人の run（WORKS_USE_UNATTENDED=1）: 起動の関所を越える（run ${RID}）"
     set +e
@@ -465,13 +558,15 @@ if [ "${WORKS_USE_UNATTENDED:-}" = 1 ] && [ "$run_status" -eq 0 ]; then
   fi
 fi
 
-# 起動が落ちても run が在れば続きの行を出す。終了コードは起動のまま（起動が 0 の時だけ show の結果）
+# 起動が落ちても結んだ run の続きの行を出す。終了コードは起動のまま（起動が 0 の時だけ show の結果）
 show_status=0
-SHOWN="$(works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs")" || show_status=$?
-printf '%s\n' "$SHOWN"
-RID="$(printf '%s\n' "$SHOWN" | sed -n 's/^run id: //p' | head -n 1)"
-if [ -n "$RID" ]; then
-  save_ledger "$RID"
+WORKS_RUN_ID="$RID" WORKS_RUN_ROW="$BOUND" works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" ||
+  show_status=$?
+# herdr の枠の集計（結んだ行の状態が在ればそれを使い、一覧を引き直さない）
+if [ -n "$BOUND" ]; then
+  herdr_sync "$RID=$(printf '%s\n' "$BOUND" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("status") or "")')"
+else
+  herdr_sync
 fi
 [ "$run_status" -ne 0 ] && exit "$run_status"
 exit "$show_status"

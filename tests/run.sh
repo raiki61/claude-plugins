@@ -1756,12 +1756,29 @@ for name, sub in sorted(_dist.items()):
 deps = [d for d in (pl.get("dependencies") or []) if isinstance(d, dict)]
 assert any(d.get("name") == "pr-review-toolkit" for d in deps), \
     "plugin.json が pr-review-toolkit を dependencies で宣言していない"
-# 別 marketplace への依存は、ルート marketplace の許可リストが無いと install が
-# cross-marketplace エラーで落ちる。
-needed = {d["marketplace"] for d in deps if d.get("marketplace")}
+# **配る plugin 全部の、別 marketplace への依存は、根の marketplace の許可リストに要る。** 効くのは根の一覧だけで、無いと
+# marketplace の項目の宣言なら install が拒まれ、plugin.json の宣言なら install は通って plugin が黙って読み込まれない
+# （https://code.claude.com/docs/en/plugins/dependencies「Depend on a plugin from another marketplace」）。
+# 依存の項は dict（marketplace 欄）と文字列 "name@marketplace" の両方の形を取る。自分の marketplace は許可が要らない。
+def _cross_needed(deps, own):
+    """依存の項の並び deps が要る、own でない marketplace の名の集合。"""
+    out = set()
+    for d in deps or []:
+        m = d.get("marketplace") if isinstance(d, dict) else (d.rsplit("@", 1)[1] if isinstance(d, str) and "@" in d else None)
+        if m and m != own:
+            out.add(m)
+    return out
+assert _cross_needed([{"name": "a", "marketplace": "x"}, "b@y", {"name": "c", "marketplace": "own"}, "d@own", "e", {"name": "f"}],
+                     "own") == {"x", "y"}, \
+    "依存の許可の柵が、dict と name@marketplace の形の別 marketplace を拾えていないか、自分の marketplace・欄無しまで拾っている"
 allowed = set(mk.get("allowCrossMarketplaceDependenciesOn") or [])
-assert needed <= allowed, \
-    f"marketplace.json の allowCrossMarketplaceDependenciesOn に {sorted(needed - allowed)} が無い"
+for name, sub in sorted(_dist.items()):
+    miss = _cross_needed(json.loads((sub/".claude-plugin/plugin.json").read_text(encoding="utf-8")).get("dependencies"),
+                         mk["name"]) - allowed
+    assert not miss, f"{name} の plugin.json の依存の {sorted(miss)} が marketplace.json の allowCrossMarketplaceDependenciesOn に無い"
+for p in mk["plugins"]:
+    miss = _cross_needed(p.get("dependencies"), mk["name"]) - allowed
+    assert not miss, f"marketplace.json の {p['name']} の項目の依存の {sorted(miss)} が allowCrossMarketplaceDependenciesOn に無い"
 # 宣言に移した以上、手順書側に導入コマンドを戻すな（宣言と自作導入は排他——宣言が
 # 解決できない環境ではプラグイン自体がロードされず、導入コマンドに到達しない）。
 # **語の間の空白は緩めて見る**——`claude plugin \`＋改行＋`  install` のように整形を
@@ -3464,8 +3481,7 @@ EXTERNAL_NAMES = {"SHA", "PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVIC
                   # 定数が在るので接頭辞では外さない）
                   "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_GH", "WORKS_GOLDEN_OUT",
                   "WORKS_KEYCHAIN_ITEM", "WORKS_REAL_CLAUDE", "WORKS_TDD_TIER",
-                  "WORKS_TESTSLOT", "WORKS_USE_GATES", "WORKS_USE_POLICY_MD", "WORKS_USE_THICKNESS",
-                  "WORKS_USE_WAIT_SECONDS",
+                  "WORKS_TESTSLOT",
                   # 外の道具（mise）の設定の環境変数
                   "MISE_TRUSTED_CONFIG_PATHS",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
