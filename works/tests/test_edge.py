@@ -204,7 +204,7 @@ class EdgeBase(unittest.TestCase):
 
 class GateCase(EdgeBase):
     def test_gate_asks_with_text(self):
-        """plan_review_regression を受けた盤面 → ask True、gate_text に項目と respond の 1 行、b.work("gate.md") に同じ文"""
+        """plan_review_regression を受けた盤面 → ask True、gate_text に項目と答えの行（answer.line）、b.work("gate.md") に同じ文"""
         self.assertTrue(self.planned()["asking"])
         got = self.edge("gate")
         self.assertEqual(set(got), OUT_KEYS)
