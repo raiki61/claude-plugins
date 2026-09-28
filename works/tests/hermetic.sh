@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # 試験の入口（tests/run.sh・dev/tdd-suite.sh）が . で読む。試験を走らせる run（dev の殻 dogfood.sh・use.sh・archon.sh・
 # real-run.sh と包み）が export する変数を、試験の子に継がせない（tox が既定で env を隔離するのと同じ考え）。
 # 継がせると、既定の振る舞いを見る試験が外の run の値（包みの札・Context7 の口・claude の版など）で割れる。
