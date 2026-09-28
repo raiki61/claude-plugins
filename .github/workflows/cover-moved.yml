@@ -34,8 +34,8 @@ jobs:
         if: always()
         shell: bash
         run: python graphloops/tests/py/cover_moved.py --no-cov --driver cli --out timing-cli.json
-      # 終了 0＝含まれる・1＝はみ出た行がある・2＝空振りか道具の不備（正本は tests/py/coverage_proof.py の docstring）。旧い側の測り
-      # （cover-root/old。隠しファイルの .coverage を含む）も残す——赤の腕（--only-new と -- --deselect）はそれを置いて撃つ
+      # 終了コードの意味は tests/py/coverage_proof.py の docstring。旧い側の測り（cover-root/old。隠しファイルの .coverage を含む）も
+      # 残す——赤の腕（--only-new と -- --deselect）はそれを置いて撃つ
       - name: root cover
         if: always()
         shell: bash

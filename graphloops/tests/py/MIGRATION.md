@@ -205,7 +205,7 @@ simulate.py の small 8 本と、research の標準の収束（e2e）1 本を移
 
 ## T1（2026-09-27）
 
-否定検査 2 本（simulate_review.py と simulate.py の test_rejections）の check を、控えた波・1 手・手で書いた期待の pytest に移した。**台本はまだ消していない**——台本を消すのは、下の変異の腕の証明が CI で済んだ後の run（[ADR 0067 の台本を消す 4 条件](../../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md#台本を消す-4-条件)）。それまでは同じ検査が両方に在り、片方を直したらもう片方も直す。台帳（下の test_ledger.py）は、台本の check が増える・減る・説明の頭が変わるずれを赤にするが、説明はそのままで条件だけが変わったずれは捕まえない（waves.py の前半の手順の写しも見張りは無い）。
+否定検査 2 本（simulate_review.py と simulate.py の test_rejections）の check を、控えた波・1 手・手で書いた期待の pytest に移した。**台本はまだ消していない**——台本を消すのは、台帳と被覆の包含を今の版で示せた run（[ADR 0067 の台本を消す条件](../../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md#台本を消す条件)）。それまでは同じ検査が両方に在り、片方を直したらもう片方も直す。台帳（下の test_ledger.py）は、台本の check が増える・減る・説明の頭が変わるずれを赤にするが、説明はそのままで条件だけが変わったずれは捕まえない（waves.py の前半の手順の写しも見張りは無い）。
 
 | 元の台本の関数 | 移した先 |
 |---|---|
@@ -251,15 +251,14 @@ check の数は、末尾の「check ごとの対応（台帳が刷る）」の�
 
 tests/mutations.json で test_rejections を当てにする手書きの腕は 21 本（e08・e20・f06・m11・K5a・K5b・K9・P01・R06・R07・R08・R13・O01・NF1・RN2・PD1・PE1・NR1・BR1・DG1・OV1）。どの腕も tests に台本の鍵（simulate_review.py の test_rejections）と、graphloops/tests/py の鍵の移した先の node id の両方を持つ（名指しの正本は tests/mutations.json。2026-09-28 に足した）。**撃つのは CI だけ**（人の方針。手元・engine の子の中では撃たない）。
 
-腕の実行器（tests/mutate.py）は、node id を名指した手書きの腕を自動の腕の前段と同じ形で撃つ: 名指しの pytest を先に撃ち、赤なら台本を撃たずに Killed（attribution が pytest）で、名指しの node id が落ちたことが当たりの証拠になる。緑・撃てないなら台本を今までどおり撃つ（網は狭めない）。control の pytest が赤の回は pytest の赤だけを証拠から外す。台本を消す条件の 2（ADR 0067 の「新しい層だけで撃ち、全部 Killed のまま expect を付け替えられる」）は、この段の赤で読む——台本を名指しから外さずに、同じ回で新しい層だけの殺しが分かる。失敗の文面は読まない（実行器は落ちたテストの node id だけを取る）ので、当たりは文面でなく名指しの node id で見る。
+名指しの腕の撃ち方と当たりの証拠の正本は tests/mutate.py の docstring（mutmut との受け持ちの節）。台本を消す条件の 2（ADR 0067 の「新しい層だけで撃ち、全部 Killed のまま expect を付け替えられる」）は、名指しの pytest の段の赤で読む——台本を名指しから外さずに、同じ回で新しい層だけの殺しが分かる。
 
-条件 2〜4 を撃つ手順（撃つのは親。子は腕の名指しと手順までを commit して周を締める）:
+消す条件の取り方（必須は 1 と 4。2・3 は変異の CI を撃った回だけの任意の証拠——ADR 0067 の台本を消す条件）:
 
-1. **条件 2**: `gh workflow run mutation.yml -f only=<上の腕の id のカンマ区切り>` で撃つ（週 1 回の全腕の回でも同じ行が出る）。成果物 mutation-report-Linux・Windows・macOS（OS ごとにまとめた報告）の腕の行で、attribution が pytest で evidence が「killedBy に名指した node id」なら、その腕は新しい層だけで殺せた（summary.by_pytest に並び、summary.no_evidence に居ない）。条件 2 を満たすのは 3 OS の報告のすべてでこの形の腕だけで、1 OS でも欠ければ満たさない（OS で分かれた腕は、台本がその OS でだけ拾う物を持つ見込みがある。上の cp1252 の腕と同じ）
-2. 3 OS のどれか 1 つでも attribution が narrowed（台本だけが殺した）・Survived・走り切らない腕、報告に行が無い腕は条件 2 を満たさない。台帳の行に理由を書き、台本を消す run の前に新しいテストを足すか、その check を台本に残す
-3. **条件 3**: `gh workflow run mutation.yml -f auto=<前の変異の結果と同じ基点>` で自動の腕を撃つ（基点は前の報告の --auto の基点。親の記録に在る）。台本 2 本が殺した自動の腕の集合 K は、その報告の自動の腕のうち cover（印の写しで行を通した台本）に移した関数が在る腕。K の全部の attribution が pytest（新しい層が先に殺した）なら条件 3 がそろう。同じ入力で起きる cosmic-ray の job の成果物は、同じ差分の行を既製の道具で撃った比べ（読むのは親。関門には使わない）
-4. **条件 4**: `gh workflow run cover-moved.yml`（下の「被覆の包含」）
-5. 4 条件がそろった関数だけを、結果を受けた周に消す。消す周に、条件 2 を満たした腕の tests から台本の鍵を外し、expect を名指しの node id の頭に替える（--check が node id のファイル・関数・parametrize の id の在りかを縛る）
+1. **条件 4（必須）**: 消す前に今の版で取る。回す側の token では cover-moved.yml を起こせない（dispatch が 403）ので、testslot の枠の中で消す関数を名指して 1 本ずつ cover_moved.py で測る（coverage.py と pytest-cov の在る手元で。書く子の手元に無ければ、測った回の値を親が渡す）。示せなかった関数は台本に残し、理由を下の「消す段」に書く
+2. **条件 2（任意）**: `gh workflow run mutation.yml -f only=<上の腕の id のカンマ区切り>` を撃てた回は、成果物 mutation-report-Linux・Windows・macOS（OS ごとにまとめた報告）の腕の行で、attribution が pytest で evidence が「killedBy に名指した node id」なら、その腕は新しい層だけで殺せた（summary.by_pytest に並び、summary.no_evidence に居ない）。3 OS のどれか 1 つでも attribution が narrowed（台本だけが殺した）・Survived・走り切らない腕、報告に行が無い腕は、消す前に新しいテストを足すか、その check を台本に残す
+3. **条件 3（任意）**: `gh workflow run mutation.yml -f auto=<前の変異の結果と同じ基点>` を撃てた回は、台本 2 本が殺した自動の腕の集合 K（その報告の自動の腕のうち cover に移した関数が在る腕）の全部の attribution が pytest なら満たす。同じ入力で起きる cosmic-ray の job の成果物は、同じ差分の行を既製の道具で撃った比べ（読むのは親。関門には使わない）
+4. 必須の 2 つがそろった関数を消す。消す周に、消した関数を指す腕の tests から台本の鍵を外し、expect を名指しの node id に替える（外した腕の一覧は「消す段」に残す）。名指しの在りかは --check が字面で見て、pytest の置き場の test_mutate_arms.py の medium のテストが実物の収集で照らす
 
 ### check ごとの対応
 
@@ -342,7 +341,7 @@ cover_moved.py が名乗るのは実行の包含（台本の関数が通した�
 
 - **取り方**: 組ごとの秒は GitHub REST の workflow jobs（`gh api repos/{owner}/{repo}/actions/runs/{run_id}/jobs` の各 job の started_at・completed_at。段の秒は steps の同じ欄）。pytest の CPU 時間は test.yml の pytest の job の 2 段（pytest・root pytest）がログに残す bash の組み込み times の 2 行目（子の user と sys）の前後の差。Windows の Git Bash の times が xdist の worker まで数えるかは確かめていない
 - **比べる元**: main 65482991 の CI run 36351776172（0.22.0 の 36324196492 とほぼ同じ。windows の組 1 が 560 秒・macOS の最大 299 秒・pytest の windows 444 秒——親の記録の値）
-- **この版の値**: 未測（書く子は網も gh も持たない。親が CI を起こして埋める）。この版は台本を 1 本も消していない（消す 4 条件が未取得）ので、台本の組の秒は縮まない向き、pytest の件数と秒は層 2 の行と実行器の口のテストのぶん延びる向き（人の関所 2026-09-28 の条件 1: 二重の確かめは消す周までの一時の措置）
+- **この版の値**: 未測（書く子は網も gh も持たず、pytest の一式を宣言の形——uv run と -n 4——で起こす権限も無い。親が CI を起こして埋める）。この版は台本を 1 本も消していない（下の「消す段」）ので、台本の組の秒は縮まない向き、pytest の件数と秒は層 2 の行と実行器の口のテストのぶん延びる向き（人の関所 2026-09-28 の条件 1: 二重の確かめは消す周までの一時の措置）。置き場の件数は 1878（pytest --collect-only の実測）
 
 | 物 | 比べる元（36351776172） | この版 |
 |---|---|---|
@@ -350,6 +349,16 @@ cover_moved.py が名乗るのは実行の包含（台本の関数が通した�
 | test の組の最大（macOS） | 299 秒 | 未測 |
 | pytest の job（windows） | 444 秒 | 未測 |
 | pytest の CPU（user+sys） | 未測 | 未測 |
+
+## 消す段（2026-09-28）
+
+台帳の 18 関数（T1 の 2・T2 の 14・T3 の 2）は、この周も消していない。必須の条件のうち台帳（1）はそろっているが、被覆の包含（4）を今の版で示せていない:
+
+- 条件 4 を測る cover_moved.py は coverage.py と pytest-cov を要る。この周の書く子の手元では、宣言の起こし方（uv run --with …）が子の権限で拒まれ、系の python に coverage が無い。cover-moved.yml は回す側の token で起こせない（403）
+- 到達の柵（simulate_review.py の VOCAB_REACHED・simulate.py の VOCAB_REACHED と DELIVERY_SEEN）について、消す関数だけが到達させていた値が在るかは、残る台本を全部回した和と比べないと分からない（台本一式は手元で回さない——人の方針）。消す周の前に、CI の組の名簿（graphloops/tests/parallel.py の merge が読む物）か、測る手元の回で、関数ごとの到達を取る
+- 消す周に外す手書きの腕（tests の台本の鍵）は、上の T1・T2 の「変異の腕」の節の 33 本（名指しの正本は tests/mutations.json）
+
+この周に変えた件数の定数: conftest.py の EXPECTED_ITEMS 1840 → 1878（test_mutate_arms.py 22 件——実物の pytest を起こす medium 13・small 9——と test_mutate_shard.py 16 件。pytest --collect-only の実測）。
 
 ## 外した台本
 

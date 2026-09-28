@@ -189,10 +189,13 @@
   あれば終了 1 になる。どの 1 件で赤になるかは、旧い側の測りを取った回に決めてここに書く
 - 限り: 測るのは行だけで、枝は測らない。新しい側の同じプロセスの行は 1 つの文脈（`new`）にまとまる
 
-**結果: 包含は未実施。** 撃つ口は CI の手で起こす job（[.github/workflows/cover-moved.yml](../../.github/workflows/cover-moved.yml) の段
-root cover。engine の子の中では tests/run.sh の入口が撃ちを拒むので、手元の子では撃てない）。親が `gh workflow run cover-moved.yml` で
-起こし、成果物 cover-moved の cover-root.txt（道具の出力と終了コードの 1 行）を読んで、結果をここに書く。赤の腕は、その回の
-cover-root/old を置き場に戻して `--only-new` と `-- --deselect` で撃つ（外す 1 件はその回の出力から決める）。
+**結果: 包含は未実施（2026-09-28 の周も）。** 撃つ口は CI の手で起こす job（[.github/workflows/cover-moved.yml](../../.github/workflows/cover-moved.yml) の段
+root cover）だが、回す側の token では起こせない（dispatch が 403）。engine の子の中では tests/run.sh の入口が旧い側の節の回しを拒み、
+この周の書く子の手元には coverage.py も無いので、書く子は測れない。測るのは coverage.py の在る手元の testslot の枠の中で 1 回
+（`python3 tests/py/coverage_proof.py <置き場>`）か、起こせる人の `gh workflow run cover-moved.yml` で、成果物 cover-moved の cover-root.txt
+（道具の出力と終了コードの 1 行）を読んで結果をここに書く。赤の腕は、その回の cover-root/old を置き場に戻して `--only-new` と
+`-- --deselect` で撃つ（外す 1 件はその回の出力から決める）。包含が立つまで台本の review-record.py の節は消さない（台本を消す条件の 4 は必須——
+[docs/adr/0067 の台本を消す条件](../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md#台本を消す条件)）。
 
 ### 変異の腕（CI で撃つ手順）
 
@@ -223,7 +226,8 @@ pytest の job の段 root pytest（3 OS）と、[.review-checks.json](../../.re
 
 ### 台本の側を消す run でやること
 
-- ledger.py・coverage_proof.py と、それを見る検査（`test_ledger_*`・`test_coverage_proof_*`）を同じ変更で消す
+- ledger.py と、それを見る検査（`test_ledger_*`）を同じ変更で消す。coverage_proof.py とその検査（`test_coverage_proof_*`）は消さない——
+  以後の削除で包含を測り直す道具（人の関所 2026-09-28 の round 2 の条件 4。親の推しで通した）
 - **生成の正本の向きを逆にする。** 今は壊した記録の作り方の正本が台本の `write_broken_records` に在り、broken_records.py がそれを読む。
   台本の review-record.py の節を消しても、research-record.py・doctor-record.py の節が同じ記録を使うので、生成は残る。その run
   （か、fork が「tests/py の外を触ってよい」と答えた周）で、heredoc の本文を broken_records.py へ移し、台本の `write_broken_records` が

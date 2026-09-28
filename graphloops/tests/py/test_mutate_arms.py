@@ -1,8 +1,13 @@
 """変異の実行器（リポジトリの根の tests/mutate.py）の一覧の腕が、tests に pytest の置き場（PYDIR）の node id を名指す口。
 台本を消す条件の 2（新しい層だけで殺す）はこの口の赤で読むので、撃ち分け・証拠・control・--check の入口・--map の結び直しを縛る。
-撃つのは CI だけ（人の方針）——ここは子を起こさず、台本と pytest の走らせ方を差し替えて見る"""
+撃つのは CI だけ（人の方針）——small は子を起こさず、台本と pytest の走らせ方を差し替えて見る。medium は一時の置き場で実物の
+pytest を起こし、要約の行と収集の node id の形を見る（差し替えは主張どおりの形を返すので、形の食い違いを見られない）"""
 import contextlib
 import importlib.util
+import json
+import os
+import subprocess
+import sys
 
 import conftest
 import pytest
@@ -30,7 +35,7 @@ def shoot(tmp_path, monkeypatch):
         yield tmp_path, tmp_path
 
     def run_pytest(repo, args, failfast=False):
-        whole = args == [mutate.PYDIR]
+        whole = args == [mutate.WHOLE]
         calls.append(("pyall" if whole else "py", tuple(args)))
         rc = state["pyall" if whole else "py"]
         return {"rc": rc, "failed": state.get("failed", [NODE]) if rc == 1 else [], "tail": [],
@@ -61,7 +66,7 @@ def shoot(tmp_path, monkeypatch):
 def test_named_node_red_kills_first_with_the_named_node_as_evidence(shoot):
     """名指した node id が落ちれば台本を撃たずに Killed（attribution pytest）で、名指しに当たる落ちたテストが証拠"""
     r, calls = shoot(_arm({SCRIPT: ["test_rejections"], mutate.PYDIR: [NODE]}), py=1)
-    assert calls == ["py"] and shoot.calls[0][1] == (f"{mutate.PYDIR}/{NODE}",)
+    assert calls == ["py"] and shoot.calls[0][1] == (NODE,)
     assert (r["status"], r["attribution"], r["own"], r["hit"]) == ("Killed", "pytest", True, NODE)
     res = {"marker": {"placed": [], "seen": [], "rc": 0}, "control": {"root": {"rc": 0}, "pytest": {"rc": 0}}, "arms": [r]}
     s = mutate.evaluate(res, [_arm({})])
@@ -79,7 +84,7 @@ def test_named_node_red_is_evidence_only_when_the_named_node_fell(shoot, failed,
 
 @pytest.mark.small
 def test_node_id_expect_is_evidence_too(shoot):
-    """expect を node id の頭で書いた腕は、落ちたテストが expect で始まれば当たり"""
+    """expect を node id で書いた腕は、落ちたテストが expect かその parametrize なら当たり"""
     r, _ = shoot(_arm({mutate.PYDIR: ["test_x.py::test_y"]}, expect="test_x.py::test_y"), py=1, failed=["test_x.py::test_y[case-b]"])
     assert r["own"] and r["hit"] == "test_x.py::test_y[case-b]"
 
@@ -136,7 +141,6 @@ def test_red_control_pytest_drops_only_the_pytest_evidence():
 
 @pytest.mark.small
 def test_control_runs_named_node_files_as_pytest_not_as_scripts(monkeypatch):
-    """control は名指しの node id のファイルを pytest の枠で確かめ、台本の絞り（selected）には入れない"""
     got = {}
 
     def control(suites, selected=None, pytest=None):
@@ -150,7 +154,7 @@ def test_control_runs_named_node_files_as_pytest_not_as_scripts(monkeypatch):
     arm = _arm({SCRIPT: ["test_rejections"], mutate.PYDIR: [NODE, "test_z.py::t"]})
     mutate.shoot(type("A", (), {"j": 1, "out": None})(), {"arms": []}, [arm], [arm], {"L1": "f"}, lambda: False, lambda xs: [])
     assert got["selected"] == {SCRIPT: ["test_rejections"]}
-    assert got["pytest"] == [f"{mutate.PYDIR}/test_x.py", f"{mutate.PYDIR}/test_z.py"]
+    assert got["pytest"] == ["test_x.py", "test_z.py"]
 
 
 @pytest.fixture
@@ -176,13 +180,30 @@ def place(tmp_path):
     ({mutate.PYDIR: ["test_x.py::TestK::test_m"]}, "x", ""),
     ({mutate.PYDIR: ["test_x.py::TestGone::test_m"]}, "x", "の class TestGone が"),
     ({mutate.PYDIR: []}, "x", "の node id が空"),
+    ({}, NODE, "の名指しが無い"),
+    ({mutate.PYDIR: ["test_x.py::TestK::test_m"]}, "test_x.py::test_y", "のどれにも当たらない"),
 ], ids=["named", "node-expect", "unknown-key", "file-gone", "function-gone", "param-id-gone", "expect-gone", "class-method", "class-gone",
-        "empty-named"])
+        "empty-named", "expect-without-named", "expect-outside-named"])
 def test_check_reds_every_entrance_of_a_named_node(place, tests, expect, want):
     """--check（anchor_problem）は、名指しの鍵・node id のファイル・class・関数・parametrize の id・node id の expect のどれが消えても、
-    名指しが空でも赤"""
+    名指しが空でも、node id の expect が名指しの外でも赤"""
     why = mutate.anchor_problem(place, _arm(tests, expect), src="x")
     assert (want in why and why) if want else why == ""
+
+
+@pytest.mark.small
+def test_check_reds_a_script_key_on_a_root_arm(place):
+    arm = {**_arm({SCRIPT: ["test_rejections"]}), "suite": "root"}
+    assert "root の腕は台本の鍵" in mutate.anchor_problem(place, arm, src="台本の検査の名前")
+
+
+@pytest.mark.small
+@pytest.mark.parametrize("named, got, want", [
+    ("f.py::t", "f.py::t", True), ("f.py::t", "f.py::t[a]", True), ("f.py::t[a]", "f.py::t[a]", True),
+    ("f.py::t", "f.py::tt", False), ("f.py::t[case-a]", "f.py::t[case-a-2]", False), ("f.py::t[a]", "f.py::t", False),
+])
+def test_node_hit_takes_only_the_node_or_its_parameters(named, got, want):
+    assert mutate.node_hit(named, got) is want
 
 
 @pytest.mark.small
@@ -202,9 +223,98 @@ def test_map_keeps_the_pytest_place_and_leaves_node_id_expects(monkeypatch, tmp_
 
 @pytest.mark.small
 def test_named_node_arms_carry_the_pytest_files_in_their_fingerprint(place):
-    """名指しの腕の持ち越しの指紋には pytest の置き場のファイルが入る（移した先のテストを弱めたら撃ち直す）。名指しの無い腕は入れない"""
     named, plain = _arm({mutate.PYDIR: [NODE]}), {**_arm({}), "tests": {}}
     before = (mutate.fingerprint(place, named), mutate.fingerprint(place, plain))
     (place / mutate.PYDIR / "test_x.py").write_text("def test_y():\n    assert False\n", encoding="utf-8")
     after = (mutate.fingerprint(place, named), mutate.fingerprint(place, plain))
     assert before[0] != after[0] and before[1] == after[1]
+
+
+REAL_TESTS = '''import pytest
+
+
+@pytest.mark.parametrize("c", ["case-a", "case-a-2"])
+def test_y(c):
+    assert c != "case-a-2"
+
+
+@pytest.mark.parametrize("v", [None, 1])
+def test_v(v):
+    pass
+
+
+class TestK:
+    def test_m(self):
+        assert False
+'''
+
+
+@pytest.fixture
+def real_place(tmp_path):
+    d = tmp_path / mutate.PYDIR
+    d.mkdir(parents=True)
+    (d / "pytest.ini").write_text("[pytest]\ntestpaths = .\naddopts = -ra\n", encoding="utf-8")
+    (d / "test_x.py").write_text(REAL_TESTS, encoding="utf-8")
+    return tmp_path
+
+
+def _collected(d):
+    """d（pytest.ini の置き場）を実物の pytest --collect-only で集めた node id の集合"""
+    r = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"], cwd=d, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+    return {ln for ln in r.stdout.splitlines() if "::" in ln}
+
+
+@pytest.fixture
+def real_pytest(monkeypatch):
+    monkeypatch.setattr(mutate, "PYTEST", [sys.executable, "-m", "pytest"])
+
+
+@pytest.mark.medium
+def test_real_pytest_reports_failures_as_the_named_node_ids(real_place, real_pytest):
+    r = mutate.run_pytest(real_place, ["test_x.py::test_y", "test_x.py::TestK::test_m"])
+    assert r["rc"] == 1 and sorted(r["failed"]) == ["test_x.py::TestK::test_m", "test_x.py::test_y[case-a-2]"]
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("named, status, hit", [
+    ("test_x.py::test_y[case-a-2]", "Killed", "test_x.py::test_y[case-a-2]"),
+    ("test_x.py::test_y", "Killed", "test_x.py::test_y[case-a-2]"),
+    ("test_x.py::TestK::test_m", "Killed", "test_x.py::TestK::test_m"),
+    ("test_x.py::test_y[case-a]", "Survived", None),
+], ids=["param", "function", "class-method", "green-param"])
+def test_named_arm_is_proven_on_the_real_pytest(real_place, real_pytest, monkeypatch, named, status, hit):
+    """実物の pytest を 1 回起こし、名指しの腕の赤が名指しの node id を当たりの証拠にすること（形が食い違えば own が偽になる）"""
+    @contextlib.contextmanager
+    def lease(tag, a=None):
+        yield real_place, real_place
+    for name, fn in (("lease", lease), ("mutate", lambda repo, a: None), ("pytest_ready", lambda: "")):
+        monkeypatch.setattr(mutate, name, fn)
+    monkeypatch.setattr(mutate, "CONFIRM", False)
+    r = mutate.one(_arm({mutate.PYDIR: [named]}))
+    assert (r["status"], r.get("hit"), r["own"]) == (status, hit, hit is not None)
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("named, expect, want", [
+    ("test_x.py::test_y[case-a]", "x", ""),
+    ("test_x.py::test_y", "x", ""),
+    ("test_x.py::TestK::test_m", "x", ""),
+    ("test_x.py::test_y[case]", "x", "pytest の収集に無い"),
+    ("test_x.py::test_y[None]", "x", "pytest の収集に無い"),
+    ("test_x.py::test_m", "x", "pytest の収集に無い"),
+    ("test_x.py::TestK::test_m", "test_x.py::test_y", "のどれにも当たらない"),
+], ids=["param", "function", "class-method", "short-id", "id-elsewhere-in-file", "method-outside-its-class", "expect-outside-named"])
+def test_collection_reds_the_names_the_text_lets_through(real_place, named, expect, want):
+    why = mutate.named_problem(real_place, _arm({mutate.PYDIR: [named]}, expect), _collected(real_place / mutate.PYDIR))
+    assert (want in why and why) if want else why == ""
+
+
+@pytest.mark.medium
+def test_every_named_node_of_the_arms_is_collected():
+    """tests/mutations.json の名指し（node id の expect も）が、この置き場の実物の収集に在る（--check は子を起こさず字面で見る）"""
+    nodes = _collected(conftest.HERE)
+    arms = json.loads((conftest.REPO / "tests" / "mutations.json").read_text(encoding="utf-8"))["arms"]
+    bad = [f"{a['id']}: {why}" for a in arms if "auto" not in a and (why := mutate.named_problem(conftest.REPO, a, nodes))]
+    assert not bad, bad
