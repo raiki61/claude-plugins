@@ -92,7 +92,7 @@ def main() -> int:
         events = reads.events_for(run_id)
         failed = reads.failed_nodes(events) or unreached(eyes, eyeing)
         out = report.build(board.resolve(), judged=judged, tests=tests, start=start, mid=mid, ci=ci, run_id=run_id,
-                           events=events, interrupted="" if failed else None, failed=failed)
+                           events=events, interrupted="" if failed else None, failed=failed, eyeing=eyeing)
     except (BoardGap, Reject) as e:
         print(f"報告を組めない（{type(e).__name__}）: {_line(e)}", file=sys.stderr)
         return 1

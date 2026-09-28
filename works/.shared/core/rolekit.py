@@ -81,12 +81,13 @@ def prompt_graph_path(b, n, prompts_dir: pathlib.Path = PROMPTS_COPY) -> pathlib
 
 
 def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_only: bool = True,
-                template: str | None = None, ctx_hook=None, schema_note: bool = True) -> tuple:
+                template: str | None = None, ctx_hook=None, schema_note: bool = True, schema_of: str = "") -> tuple:
     """engine の emit_instance と同じ描き方の本文（cap なし。指示書は役がファイルで読む）と番号の控え（pointers.snapshot の
     名前の列。mark_launched の pointers= に渡す形。pointers を持たない節は空の列）。reads_only が偽なら graph の reads で
     穴を絞らない。template は graph の指示書（node_prompt）の代わりに描く本文（ブロックが別の置き場に持つ本線の写し）。
     ctx_hook(ctx) は描く前に ctx を足す口（engine が足す欄——検証器の結果 validation・ラインに無い節の出力の代わり など）。
     schema_note が偽なら本文の後ろに graph の schema を足さない（指示書の一部だけを材料として描く時。返答の型は役の output_format）。
+    schema_of は足す schema を別の節の物にする（待っている節の輪の中で、別の節の指示書を描く時）。
     この周に待っている instance が無い・描けない（reads に無い穴・盤面の欄の欠け・番号の穴の欠け）は BoardGap"""
     n = b.nodes[nid]
     inst = b.rd["instances"].get(nid)
@@ -106,8 +107,9 @@ def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_
     unseen = sorted(set(offsets) - r.numbered_seen)
     if unseen:
         raise BoardGap(f"{nid}: pointers の from {unseen} を貼る穴が指示書に無い")
-    if schema_note and n.get("schema"):
-        text += SCHEMA_NOTE + dump(n["schema"])
+    schema = b.nodes[schema_of or nid].get("schema")
+    if schema_note and schema:
+        text += SCHEMA_NOTE + dump(schema)
     return text, snap
 
 

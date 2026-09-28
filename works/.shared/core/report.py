@@ -3,19 +3,22 @@
 **記録が検証器を通らない run に fixed・no_fix_needed を出す道を作らない**（審査 I3）: build は必ず gate_record で
 settle → finalize → run_validator を 1 度踏み、受理集合（report_accepts）の外か、今の周の記録（record_round と converge）が
 済んでいなければ record_invalid にする。検証器は validator_runner の包み（board_hook.py）が効く b.run_validator で回す。
+**残り（検証器の阻害・最後のテストの赤・独立の目の block）が在る run に fixed を出さない**: 直した周で residue が 1 行でも
+返せば round_limit にし、冒頭 1 と次の run の依頼に残りの行を字のまま出す（直す物が無い周は no_fix_needed のまま。赤は冒頭 1 に出る）。
 
 口（線 B の報告も呼ぶ。線 B の申し送り 3・TA18。どの head_* も盤面を書かない）:
-- OUTCOMES・COST_FIELD_VERIFIED
-- gate_record(b) -> {exit, accepted, tail, traces, round_closed}
-- decide_outcome(b, gate, *, tests=None, judged=None) -> OUTCOMES の 1 つ
+- OUTCOMES・COST_FIELD_VERIFIED・FIRST_ROUND_LINE
+- gate_record(b) -> {exit, accepted, out, tail, traces, round_closed}
+- residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
+- decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
 - head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2）・head_stop(b, *, interrupted=None, failed=None)（冒頭 3）・
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_cost(board_dir, run_id, *, events, launches)・
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
-- cost_rows(events, launches) -> [{node, reported, actual, continued_from}]
-- next_request(b, *, tests=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
+- cost_rows(events, launches) -> [{node, reported, actual, continued_from, base}]
+- next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
-  failed=None) -> dict
+  failed=None, eyeing=None) -> dict
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
@@ -24,13 +27,17 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 
 この版で持たない物（報告に書く）: 版の一覧の行（P1 Task 18・19 の works_version・書き出しの manifest が無い）、
 第三の目の「方針の岐路」の争点（写し a1202d0 の graph に欄が無い）。費用は書き出し（Task 19）の run_facts の代わりに
-Archon の出来事（節の cost_usd と run の和）と包みの起動の記録から組む（COST_FIELD_VERIFIED が偽の間は「欄の形は未確認」を添える）。
+Archon の出来事（節の data.spend.costUsd）と包みの起動の記録から組む（COST_FIELD_VERIFIED が偽の間は「欄の形は未確認」を添える）。
+報告は run の中で走るので run の和は読まず、合計は節の和を「途中」として出す。
 """
 import datetime
 import json
+import math
 import os
 import pathlib
+import re
 import sys
+import types
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
 
@@ -42,21 +49,31 @@ import adapter  # noqa: E402
 import conflict  # noqa: E402
 import gatemarks  # noqa: E402
 from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
+from engine.rules import validator_module  # noqa: E402
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
 import reads  # noqa: E402
 import writes  # noqa: E402
 
 PACK = CORE.parents[1]
-OUTCOMES = ("fixed", "no_fix_needed", "stopped_by_request", "stopped_by_human", "stopped_by_line", "needs_human",
-            "record_invalid", "interrupted")
+OUTCOMES = ("fixed", "no_fix_needed", "round_limit", "stopped_by_request", "stopped_by_human", "stopped_by_line",
+            "needs_human", "record_invalid", "interrupted")
+# 1 周で止める run で写しの検証器（scripts/review-record.py）が必ず出す帳尻の行。exit 1 の箇条からこの行だけを字の一致で
+# 除き、残りを阻害と読む（前の周が在る run の「前ラウンドに阻害要因が N 件あった」は除かない）。写しと字が揃うことは試験が見る
+FIRST_ROUND_LINE = "前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）"
+BLOCKERS_HEAD = re.compile(r"^収束を妨げるもの (\d+) 件:$")
+BULLET = "  - "
+UNIT_ROW_HEADS = ("[block] 未解消", "[suggest] do-now 未対応")   # 写しの検証器の blockers が単位の行に付ける頭
+EYES = ("R1", "R2", "R3", "R4")
+VALIDATOR_WHERE = "検証器の阻害"   # residue の行の where（次の run の依頼にも同じ字で渡す）
+EYES_WHERE = "独立の目"
 COST_FIELD_VERIFIED = False   # この pack の run の出来事の実物で P19 を撃ち、tests/events/ に見本を置いたら真にする
-# 節の費用の欄。Archon（v0.11.1 に固定）の node_completed の鍵は cost_usd と公開の実測に在る
-# （https://github.com/coleam00/Archon/issues/2334）。推測の別名は読まない
-COST_FIELD = "cost_usd"
-# run の和を持つ出来事。fan-out の包みと子が両方 cost_usd を持つので、節の和は二重に数えうる——run の合計はこちらを正にする
-# （https://github.com/coleam00/Archon/issues/3508）
-RUN_COST_EVENT = "workflow_completed"
+# 節の費用の欄（node_completed の data の下の道）。録った Archon v0.11.1 の実物（tests/events/verbose-*.json）に在る形。
+# 報告されなかった費用は {source: unavailable, reason} で、0 と混ぜない（Archon #3295・#3420）。報告された費用は Archon の
+# executionSpendSchema（packages/workflows/src/schemas/node-execution.ts）で {source: provider, value}。数が入る実物は録っていない
+COST_FIELD = ("spend", "costUsd")
+COST_FIELD_NAME = "data." + ".".join(COST_FIELD)
+ARCHON_VERSION = "Archon v0.11.1"
 REPORT_FILE = "report.md"
 NEXT_REQUEST_FILE = "next-request.json"
 NEXT_ORIGIN = "works:report"   # 次の run に渡す依頼の出どころ（accept.check_request の reason）
@@ -193,7 +210,8 @@ def gate_record(b) -> dict:
     AI の報告を毎回回す。報告の節が出るのは、人か止め札で止めた・収束した・周を締めて止めた盤面で、途中で終わった run
     （interrupted）は build が AI の報告を回さない）→ finalize → run_validator（validator_runner の包みが効く口）。
     settle の RecordInvalid（報告の節を表で持つラインの関所）は捕まえて、同じ検証器を下でもう 1 度回す。
-    返り {exit, accepted: exit ∈ report_accepts(b), tail: 出力の末尾, traces: 記録の痕跡の欄（空でない物）,
+    返り {exit, accepted: exit ∈ report_accepts(b), out: 出力の全文（residue が阻害の箇条を読む）, tail: 出力の末尾,
+    traces: 記録の痕跡の欄（空でない物）,
     round_closed: 今の周に record_round と converge の機械の節が済んだか（止めた印の converge は数えない）}"""
     halted = b.state.get("halted") or {}
     try:
@@ -212,8 +230,8 @@ def gate_record(b) -> dict:
     done = b.rd.get("done") or {}
     closers = [nid for nid, n in b.nodes.items() if n.get("builtin") in ("record_round", "converge")]
     closed = bool(closers) and all(nid in done and (done[nid] or {}).get("builtin") != "stop" for nid in closers)
-    return {"exit": code, "accepted": code in report_accepts(b), "tail": "\n".join(out.rstrip().splitlines()[-TAIL_LINES:]),
-            "traces": traces, "round_closed": closed}
+    return {"exit": code, "accepted": code in report_accepts(b), "out": out,
+            "tail": "\n".join(out.rstrip().splitlines()[-TAIL_LINES:]), "traces": traces, "round_closed": closed}
 
 
 def _no_fix(b, judged) -> bool:
@@ -224,13 +242,92 @@ def _no_fix(b, judged) -> bool:
     return isinstance(fix, dict) and not fix.get("changes")
 
 
-def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | None = None) -> str:
+def _validator_blockers(out: str) -> list | None:
+    """検証器の exit 1 の出力の『収束を妨げるもの N 件:』の下の箇条（bullet の 2 行目以降は字下げの続き）。見出しが無い・
+    N と箇条の数が合わなければ None"""
+    lines = out.splitlines()
+    for i, line in enumerate(lines):
+        m = BLOCKERS_HEAD.match(line)
+        if not m:
+            continue
+        items = []
+        for x in lines[i + 1:]:
+            if x.startswith(BULLET):
+                items.append(x[len(BULLET):])
+            elif x.startswith(" ") and items:
+                items[-1] += "\n" + x.strip()
+            else:
+                break
+        return items if len(items) == int(m.group(1)) else None
+    return None
+
+
+def _closed_units(b) -> set:
+    """この周の修正が盤面の受け付け（写しの fix_covers_open_units: 閉鎖の実証と数え直し）を通って閉じた単位の key。
+    記録の units は判定の時のラベルのままで、1 周で止める run では次の周の判定が閉じを書かないため、検証器はこれらをいつも
+    『未解消』と出す"""
+    fix = _output(b, "p3.fix") or {}
+    return {c["unit_key"] for c in fix.get("changes") or [] if isinstance(c, dict) and isinstance(c.get("unit_key"), str)}
+
+
+def _unit_row_of(row: str, key: str) -> bool:
+    """検証器の単位の行（blockers の『[block] 未解消…: <key>』か『[suggest] do-now 未対応…: <key>』）が key の物か。
+    問いが付いた行（末尾に帰属や今ラウンドの問いの印）は key で終わらないので数えない"""
+    return row.startswith(UNIT_ROW_HEADS) and row.endswith(f": {key}")
+
+
+def _review_status(b) -> dict:
+    """写しの検証器の俯瞰の判定の表（status → blocks を持つ行）。盤面が検証器を持たなければ pack の写しから引く"""
+    holder = b if (getattr(b, "state", None) or {}).get("validator") else \
+        types.SimpleNamespace(state={"validator": str(CORE / "scripts" / "review-record.py")})
+    return validator_module(holder).REVIEW_STATUS
+
+
+def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = None) -> list:
+    """fixed を名乗らせない残りの行（字のまま冒頭 1 と次の run の依頼に出す）: 検証器の阻害（exit 1 の箇条から名指しの帳尻の行
+    FIRST_ROUND_LINE と、この周の受け付けを通った修正で閉じた単位の行だけを除いた物。読めなければ fail-closed で 1 行）・
+    最後のテストの赤か走れなかった（tests が None＝飛ばされた時は数えない）・独立の目（blk-eyes の出口）が ok でない・目の status が blocks（表に無い status も数える）。返りは [{where, text}]"""
+    rows = []
+    if gate.get("exit") == 1:
+        found = _validator_blockers(str(gate.get("out") or ""))
+        if found is None:
+            rows.append({"where": VALIDATOR_WHERE, "text": "検証器の出力を読めない（exit 1。見出しか箇条の数が合わない）"})
+        else:
+            closed = _closed_units(b)
+            rows += [{"where": VALIDATOR_WHERE, "text": x} for x in found
+                     if x != FIRST_ROUND_LINE and not any(_unit_row_of(x, k) for k in closed)]
+    if isinstance(tests, dict) and not (tests.get("ok") is True and tests.get("green") is True):
+        head = "赤" if tests.get("ok") is True else "走れなかった"
+        rows.append({"where": str(tests.get("log") or "最後のテスト"), "text": f"最後のテストが{head}"})
+    if isinstance(eyeing, dict):
+        if eyeing.get("ok") is not True:
+            rows.append({"where": EYES_WHERE, "text": f"独立の目のブロックが ok でない: {_one_line(eyeing.get('reason') or '理由なし')}"})
+        table = _review_status(b)
+        for r in EYES:
+            rv = (eyeing.get("reviews") or {}).get(r)
+            if not isinstance(rv, dict):
+                continue
+            rule = table.get(rv.get("status"))
+            said = f"{r} が {rv.get('status')}"   # 検証器の blockers が同じ周の記録から既に出した目の行は二重に数えない
+            if any(x["where"] == VALIDATOR_WHERE and x["text"].startswith(said) for x in rows):
+                continue
+            if rule is None or rule.blocks:
+                rows.append({"where": f"{EYES_WHERE} {r}",
+                             "text": f"{r} が {rv.get('status')}: {_one_line(rv.get('reason') or '')}"})
+    return rows
+
+
+def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | None = None,
+                   eyeing: dict | None = None) -> str:
     """結末。順: 止め札（by request:）→ stopped_by_request、関所の stop・reject（halted.by answer か by human:）→ stopped_by_human、
     機械の止め（by works:）→ stopped_by_line、人に聞いたまま（pending_human）か食い違いの申し出を人に回した → needs_human、関所が通らない（accepted か
-    round_closed が偽）→ record_invalid、直す物が無い周 → no_fix_needed、他 → fixed。
-    **fixed・no_fix_needed は accepted と round_closed が真の時だけ**。needs_human を record_invalid の前に置くのは、人に聞いて
+    round_closed が偽）→ record_invalid、直す物が無い周 → no_fix_needed、残り（residue: 検証器の阻害・最後のテストの赤・
+    独立の目の block）が在る → round_limit、他 → fixed。
+    **fixed・no_fix_needed は accepted と round_closed が真の時だけ、fixed はさらに残りが無い時だけ**。直す物が無い周の赤は
+    直しが起こした物でないので no_fix_needed のまま冒頭 1 に出す。report_accepts が 1 を受けるのは 1 周で止める
+    run の帳尻の行を通すためで、1 の中身は residue が見る。needs_human を record_invalid の前に置くのは、人に聞いて
     いる盤面は周の記録がまだ無く（検証器が 2）、record_invalid の後ろでは needs_human に届かないため（〔線A計〕T15 の並びから
-    替えた。どちらも成功の結末ではない）。tests（最後のテストの出口）は結末を替えない（冒頭 1 に赤を出す）"""
+    替えた。どちらも成功の結末ではない）"""
     by, _, info = _stop_info(b)
     if by.startswith(REQUEST_BY):
         return "stopped_by_request"
@@ -244,13 +341,17 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
         return "record_invalid"
     if _no_fix(b, judged):
         return "no_fix_needed"
+    if residue(b, gate, tests=tests, eyeing=eyeing):
+        return "round_limit"
     return "fixed"
 
 
 # ---------------------------------------------------------------- 次の run に渡す依頼
-def next_request(b, *, tests: dict | None = None) -> list:
+def next_request(b, *, tests: dict | None = None, left: list | None = None) -> list:
     """次の run に渡す依頼（1 本目の依頼の型 [{where, text}]。key・一言は字のまま）:
     手直し 2 回目が fixed と言った穴（検算が要る）・declared で残した穴・修正の not_done・最後のテストの赤・
+    残り（left＝residue の返り）のうち検証器の阻害と独立の目の block（テストの赤は上の行が持つ。not_done と人に回した単位の
+    検証器の単位の行は、その単位の行が持つので渡さない）・
     再審されずに残った異議（loop.rejudge_requested。写し直しの前で再審の節が無い run と、会話が無くて止めた run）・
     盤面が人に聞いたままの問い（独立の目の r4.human_gate など。この run では答えを受けないので次の run へ渡す。計画 P1 Task 33 の (b)）・
     食い違いの申し出を人に回して直さずに残した単位（conflict の ask_human）"""
@@ -274,10 +375,16 @@ def next_request(b, *, tests: dict | None = None) -> list:
         head = "赤" if tests.get("ok") is True else "走れなかった"
         items.append({"where": str(tests.get("log") or "最後のテスト"),
                       "text": f"最後のテストが{head}（{tests.get('reason') or 'ログを読む'}）"})
+    asked = _asked(b)
+    # 単位の行（not_done・人に回した単位）を下で自分の字で持つ単位は、検証器の『[block] 未解消: <key>』を二重に渡さない
+    owned = {nd["unit_key"] for nd in fix.get("not_done") or [] if isinstance(nd, dict) and isinstance(nd.get("unit_key"), str)} \
+        | {r["unit_key"] for r in asked}
+    items += [r for r in left or [] if r["where"].startswith((VALIDATOR_WHERE, EYES_WHERE))
+              and not any(_unit_row_of(r["text"], k) for k in owned)]
     req = (b.loop_state or {}).get("rejudge_requested") or {}
     if isinstance(req, dict) and isinstance(req.get("text"), str) and req["text"]:
         items.append({"where": "判定（再審されずに残った異議）", "text": req["text"]})
-    for r in _asked(b):
+    for r in asked:
         items.append({"where": r["unit_key"],
                       "text": f"{r['unit_key']}（{conflict.HEAD}を人に回した——直さずに残した: {_one_line(r['ruling']['text'])}。"
                               f"名指し {', '.join(r['between'])}）"})
@@ -297,8 +404,9 @@ def next_request(b, *, tests: dict | None = None) -> list:
 
 # ---------------------------------------------------------------- 冒頭 1〜5
 def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "", next_items: list | None = None,
-                   next_file: str = "") -> list:
-    """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・関所の答え（事前審査の関所と最後の関所）・
+                   next_file: str = "", left: list | None = None) -> list:
+    """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
+    関所の答え（事前審査の関所と最後の関所）・
     人が止めた一言・最後のテスト・盤面の問い・再審の問いと争点でない単位の変化・前提で測り直せなかった依頼・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数"""
     lines = []
@@ -309,6 +417,9 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
             lines += ["検証器の出力の末尾:", *[f"    {x}" for x in gate["tail"].splitlines()]]
         for field, val in (gate.get("traces") or {}).items():
             lines.append(f"記録の痕跡 {field}: {json.dumps(val, ensure_ascii=False)[:400]}")
+    if outcome == "round_limit":
+        lines.append("残り（fixed を名乗らない）:")
+        lines += [f"  - {r['where']}: {r['text']}" for r in left or []]
     proc = b.record.get("process") or {}
     for h in proc.get("human_items") or []:
         if isinstance(h, dict):
@@ -596,31 +707,33 @@ def _step_name(step) -> str:
     return s.rsplit(".", 1)[-1].rsplit("__", 1)[-1]
 
 
-def _event_cost(e):
-    data = e.get("data") if isinstance(e.get("data"), dict) else {}
-    v = data.get(COST_FIELD, e.get(COST_FIELD))
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        return float(v)
-    return None
+def _event_cost(e) -> tuple:
+    """(費用, 取れない理由)。data.spend.costUsd が {source: provider, value: 有限の数}（か有限の数）ならその値と ""。
+    報告されなかった（source unavailable）か形が違えば None と、見た欄・版を添えた理由"""
+    v = e.get("data")
+    for k in COST_FIELD:
+        v = v.get(k) if isinstance(v, dict) else None
+    n = v.get("value") if isinstance(v, dict) and v.get("source") == "provider" else v
+    if isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n):
+        return float(n), ""
+    if isinstance(v, dict) and v.get("source") == "unavailable":
+        return None, f"{COST_FIELD_NAME} は source unavailable・reason {v.get('reason') or '無し'}。{ARCHON_VERSION}"
+    seen = "欄が無い" if v is None else f"形が違う（{json.dumps(v, ensure_ascii=False)[:120]}）"
+    return None, f"{COST_FIELD_NAME} が{seen}。{ARCHON_VERSION} の前提"
 
 
-def _run_total(events):
-    """run の和（最後の RUN_COST_EVENT の cost_usd）。まだ無い（走っている・途中で終わった）か欄が無ければ None"""
-    ends = [_event_cost(e) for e in events or [] if isinstance(e, dict) and e.get("event_type") == RUN_COST_EVENT]
-    ends = [v for v in ends if v is not None]
-    return ends[-1] if ends else None
+def _completed(events) -> list:
+    return [e for e in events or [] if isinstance(e, dict) and e.get("event_type") == "node_completed"]
 
 
 def cost_rows(events, launches) -> list:
-    """[{node, reported, actual, continued_from}]。events の node_completed の費用の欄（COST_FIELD）を節の名で
-    launches（包みの起動の行。時刻の順に並べ直す。拒んだ起動は除く）と順に結ぶ。session.mode continued の起動は、同じ
-    session.id のそれまでの表示（再開した会話の total_cost_usd は累積。〔継試〕）を引いた値を actual にし、continued_from に
-    その会話を前に使った節を書く。起動の無い出来事の費用は actual = reported で行にする。events が None か費用の欄が
-    1 つも無ければ []"""
+    """[{node, reported, actual, continued_from, base}]。events の node_completed の費用の欄（COST_FIELD）を節の名で
+    launches（包みの起動の行。時刻の順に並べ直す。拒んだ起動は除く）と順に結ぶ。session.mode continued の起動は、continued_from に
+    その会話を前に使った節、base にその時の表示を書く。costUsd が累積か 1 回分かは測れていないので引かず、actual = reported。
+    events が None か費用が 1 つも取れなければ []"""
     if not events:
         return []
-    shown = [(_step_name(e.get("step_name")), _event_cost(e)) for e in events
-             if isinstance(e, dict) and e.get("event_type") == "node_completed"]
+    shown = [(_step_name(e.get("step_name")), _event_cost(e)[0]) for e in _completed(events)]
     shown = [(n, v) for n, v in shown if v is not None]
     if not shown:
         return []
@@ -639,8 +752,7 @@ def cost_rows(events, launches) -> list:
         s = r.get("session") or {}
         sid, mode = s.get("id"), s.get("mode")
         if mode == "continued" and sid in totals:
-            out.append({"node": node, "reported": v, "actual": round(v - totals[sid], 6), "continued_from": last_node[sid],
-                        "base": totals[sid]})
+            out.append({"node": node, "reported": v, "actual": v, "continued_from": last_node[sid], "base": totals[sid]})
         else:
             out.append({"node": node, "reported": v, "actual": v, "continued_from": None, "base": None})
         if sid:
@@ -651,29 +763,28 @@ def cost_rows(events, launches) -> list:
 
 
 def head_cost(board_dir, run_id: str, *, events=None, launches=None) -> list:
-    """冒頭の後の費用の行（書き出しの run_facts の代わりに、Archon の出来事と包みの起動の記録から）。取れなければ 1 行。
-    合計は run の和（_run_total）で、節の和と食い違えば両方を出す。run の和がまだ無ければ節の和を途中の値として出す。
+    """冒頭の後の費用の行（書き出しの run_facts の代わりに、Archon の出来事と包みの起動の記録から）。1 つも取れなければ、
+    最初の理由と件数の 1 行。取れない節は 0 と数えず、件数と理由を別の行に出す。報告は run の中で走り、run の和
+    （metadata.total_cost_usd）は走っている間の値なので読まない——合計は節の和を途中の値として出す。
     launches を渡さなければ盤面の run の作業ツリーの起動の記録（盤面を作った後の行）"""
     if launches is None:
         b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
         launches = _launches(b, (b.state.get("inputs") or {}).get("cwd") or ".")
     rows = cost_rows(events, launches)
+    whys = [w for _, w in map(_event_cost, _completed(events)) if w]
+    missing = f"{whys[0]}。取れない節 {len(whys)} 件" if whys else f"node_completed が無い。{ARCHON_VERSION} の前提"
     if not rows:
-        why = "出来事を読めない" if events is None else f"node_completed に欄 {COST_FIELD} が無い。Archon は v0.11.1 の前提"
+        why = "出来事を読めない" if events is None else missing
         return [f"費用: 取れない（{why}。run {run_id or '（id 無し）'}）"]
     mark = "" if COST_FIELD_VERIFIED else "（欄の形は未確認）"
     lines = []
     for r in rows:
-        extra = f"（{r['continued_from']} の会話の累積 {r['base']} を引いた。表示 {r['reported']}）" if r["continued_from"] else ""
+        extra = f"（{r['continued_from']} の会話を継いだ。costUsd が累積かどうか未確認で引いていない）" if r["continued_from"] else ""
         lines.append(f"費用 {r['node']}: {r['actual']} USD{extra}{mark}")
-    nodes = round(sum(r["actual"] for r in rows if isinstance(r["actual"], (int, float))), 6)
-    run = _run_total(events)
-    if run is None:
-        lines.append(f"費用の合計: {nodes} USD（途中。run の和がまだ無いので節の和。包みと子を二重に数えうる）{mark}")
-    else:
-        lines.append(f"費用の合計: {run} USD（Archon の run の和）{mark}")
-        if round(run, 6) != nodes:
-            lines.append(f"費用の節の和: {nodes} USD（run の和と食い違う。包みの節と子を二重に数えた分がありうる）{mark}")
+    if whys:
+        lines.append(f"費用の取れない節: {missing}（合計に数えない）")
+    nodes = round(sum(r["actual"] for r in rows), 6)
+    lines.append(f"費用の合計: {nodes} USD（途中。報告は run の中で走るので run の和は読まず節の和。包みと子を二重に数えうる）{mark}")
     return lines
 
 
@@ -695,8 +806,9 @@ def _finish_fields(b, judged, outcome) -> dict:
 
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None, mid: dict | None = None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
-          failed: list | None = None) -> dict:
-    """gate_record → decide_outcome → 部品で <盤面>/report.md と <盤面>/next-request.json を書き、1 本目の finish の欄に
+          failed: list | None = None, eyeing: dict | None = None) -> dict:
+    """gate_record → decide_outcome（eyeing＝独立の目のブロックの出口。残りに数える）→ 部品で <盤面>/report.md と
+    <盤面>/next-request.json を書き、1 本目の finish の欄に
     report_file・next_request_file・tests_green・validator_exit と、書き出しの節が読む export_input {outcome, report_file,
     board_dir} を足して返す。interrupted（Archon の run の状態の語。空も可）を渡せば結末は interrupted（線の中の報告の節は
     落ちた節 failed と空、dev の report.sh は run の状態）。
@@ -708,13 +820,14 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     # 締めた 1 周の run でも出る）。待ちのままでも結末は替えない——報告の役の節の待ちは「終わっていない」ではない（計画 P1 Task 34）
     # 途中で終わった run は機械の報告だけ（AI の報告の役は最後まで来た盤面を前提にする）
     ai_go = AI_FIRST_NODE in b.ready() and interrupted is None
-    outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged)
-    items = next_request(b, tests=tests)
+    outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged, eyeing=eyeing)
+    left = residue(b, gate, tests=tests, eyeing=eyeing)
+    items = next_request(b, tests=tests, left=left)
     req_p, rep_p = board_dir / NEXT_REQUEST_FILE, board_dir / REPORT_FILE
     _write_json(req_p, items)
     rid = run_id or _start_doc(b, start).get("run_id") or ""
     body = [f"# 報告（run {rid or '—'}）: {outcome}", ""]
-    parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p)),
+    parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
              head_entry(b, start, mid=mid), head_stop(b, interrupted=interrupted, failed=failed), head_reads(board_dir, rid, ci=ci),
              head_where(b))
     for title, rows in zip(HEADINGS, parts):

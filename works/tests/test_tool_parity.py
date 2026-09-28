@@ -86,8 +86,10 @@ ROLE_NODES = {
 
 
 # 本線の graph に無い works だけの役の節 → 本線のどの役に当たるか（食い違いの申し出の出口。持ち主 2026-09-28）:
-# 2 回目の修正役は p3.fix の続き（writer）、裁定役は読むだけで裁く目（judge）
-EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge"}
+# 2 回目の修正役は p3.fix の続き（writer）、裁定役は読むだけで裁く目（judge）、報告の書き手の出した物を確かめる初見の読み手は
+# report.cold_check と同じ cold-reader（道具なし）
+EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge",
+               ("blk-report", "report-write-cold"): "cold-reader"}
 
 
 def graph_run_by() -> dict:

@@ -114,7 +114,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" show <対象リポジトリの根>
 その対象で start が結んだ（控え `<家>/runs/<run-id>.json` の在る）一番新しい run について、状態・報告の置き場・差分のファイルを出す（run id を後ろに足せば、その run について出す）。start は起動の直後に、この起動の依頼を盤面に持つ run を 1 つに結ぶ。結べなければ候補の run id と show の行だけを出すので、その run id を名指しして show する。状態の下には `launched_min`（起こしてからの分）が出る。走っている run なら、今走っている節・`alive`（最後の動きから 30 分以内なら true）・節ごとの費用 `cost_usd` も出る（止まって見えるのか走っているのかはこれで見分ける）。
 
 - 報告: 盤面の `report.md`（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）と `next-request.json`（次の run に渡す依頼の下書き）。
-- 結末（run の出口の `outcome`）: `fixed`・`no_fix_needed`・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）・`interrupted`（run が途中で終わった。冒頭 3 に落ちた節）。
+- 結末（run の出口の `outcome`）: `fixed`・`no_fix_needed`・`round_limit`（直しは受け付けを通ったが、検証器の阻害・最後のテストの赤・独立の目の block が残った。冒頭 1 に残りの各行。本線 graphloops の runner の `round_limit`＝`--stop-after-round` の周で止めた、とは別の意味）・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）・`interrupted`（run が途中で終わった。冒頭 3 に落ちた節）。
 - 差分: run の worktree と周の頭の版の差（手直しと未追跡も入る）を、利用の家の `diffs/run-<id>.diff` に書く。修正は commit されない。取り込むかは人が決め、`sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" apply <対象リポジトリの根> <run-id>` で当ててから、手元でテストを回して commit する。殻は差分を書き直し、`git apply --check` で当たるかを先に見る。対象のファイルを消す差分は、消すファイルを並べて止まる（消してよければ `WORKS_USE_ALLOW_DELETE=1` を前に付けて打ち直す）。
 - 片付け: 取り込んだ後、`sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" clean <対象リポジトリの根> <run-id>` で run の worktree と枝を消す。走っている・関所で待つ run は拒む。
 - `report_file`: 最後の報告。盤面が報告の節を出した run（人か止め札で止めた・収束した）では AI が書いて初見の読み手が確かめた `report-ai.md`（最後に機械の報告が字のまま付く）、そうでなければ機械の `report.md`。機械の報告はいつも `machine_report_file`。

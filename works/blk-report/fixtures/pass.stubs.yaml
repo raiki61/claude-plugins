@@ -59,6 +59,14 @@ report-write-prep:
   already: false
 report-write:
   text: "レビューは 3 周で収束し、直す物は残っていない。\n直した欠陥は 1 件で、テストは緑。\n次の周に回した物は無い。\n\n## 各周の記録\n\n- 周 1: 欠陥 1 件を判定し、直した"
+report-write-cold-prep:
+  prompt_file: board/prompts/r3/report-write-cold.md
+  prompt: "お前は cold-reader。……（書き手の返答の頭を描いた本文）"
+report-write-cold:
+  verdict: pass
+  stops: []
+  guessed: []
+  decidable: true
 report-write-accept:
   ok: true
   done: true
@@ -94,5 +102,7 @@ fixture:
   - rp-route3
   - report-write-prep
   - report-write
+  - report-write-cold-prep
+  - report-write-cold
   - report-write-accept
   - collect

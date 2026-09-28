@@ -1677,6 +1677,14 @@ report-write:
 
 
     - 周 1: 欠陥 1 件を判定し、直した'
+report-write-cold-prep:
+  prompt_file: board/prompts/r3/report-write-cold.md
+  prompt: "お前は cold-reader。……（書き手の返答の頭を描いた本文）"
+report-write-cold:
+  verdict: pass
+  stops: []
+  guessed: []
+  decidable: true
 report-write-accept:
   ok: true
   done: true

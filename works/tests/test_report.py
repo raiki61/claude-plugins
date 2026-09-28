@@ -405,6 +405,102 @@ class OutcomeCase(ReportBase):
         self.assertIn(ph["items"][0], h[H1])
 
 
+# 写しの検証器（.shared/core/scripts/review-record.py）が 1 周目にいつも出す帳尻の行
+FIRST_ROUND = "前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）"
+REAL_BLOCKER = "R3 が redesign-needed（理由: 見本の阻害）"
+EYES_PASS = {"R1": {"status": "pass", "reason": "見本"}, "R2": {"status": "pass", "reason": "見本"},
+             "R3": {"status": "pass", "reason": "見本"}, "R4": {"status": "pass", "reason": "見本"}}
+
+
+def validator_out(*lines, count=None) -> str:
+    """review-record.py の exit 1 の出力の形（見出し『収束を妨げるもの N 件:』と bullet の箇条）"""
+    n = len(lines) if count is None else count
+    return "\n".join([f"収束を妨げるもの {n} 件:", *(f"  - {x}" for x in lines)])
+
+
+class ResidueCase(ReportBase):
+    """残り（名指しの帳尻の行を除いた検証器の阻害・最後のテストの赤・独立の目の block）が在れば fixed を名乗らない"""
+
+    def build_with(self, exit_code, out, **kw):
+        fake = mock.Mock(return_value={"exit": exit_code, "out": out})
+        with mock.patch.object(entry, "hook_kwargs", return_value={"validator_runner": fake}):
+            return self.build(**kw)
+
+    def build_eyeing(self, eyeing, **kw):
+        try:
+            return self.build_with(0, "", eyeing=eyeing, **kw)
+        except TypeError as e:
+            self.fail(f"build が独立の目の出口 eyeing を受けない: {e}")
+
+    def test_round_limit_is_an_outcome(self):
+        self.assertIn("round_limit", report.OUTCOMES)
+
+    def test_first_round_line_only_is_fixed(self):
+        """1 周で止める run の帳尻の行だけ（exit 1）→ fixed に届く"""
+        self.full()
+        out, _, _ = self.build_with(1, validator_out(FIRST_ROUND))
+        self.assertEqual(out["outcome"], "fixed")
+
+    def test_real_blocker_with_first_round_line_is_round_limit(self):
+        """帳尻の行＋本物の阻害 1 → round_limit、冒頭 1 に阻害の行が字のまま"""
+        self.full()
+        out, _, h = self.build_with(1, validator_out(REAL_BLOCKER, FIRST_ROUND))
+        self.assertEqual(out["outcome"], "round_limit")
+        self.assertIn(REAL_BLOCKER, h[H1])
+
+    def test_prev_round_line_is_not_suppressed(self):
+        """『前ラウンドに阻害要因が N 件あった』は名指しの帳尻の行ではない → round_limit"""
+        self.full()
+        prev = "前ラウンドに阻害要因が 2 件あった（連続 2 ラウンドの 1 ラウンド目。今ラウンドが阻害なしでも収束は次ラウンド）"
+        out, _, _ = self.build_with(1, validator_out(prev))
+        self.assertEqual(out["outcome"], "round_limit")
+
+    def test_count_mismatch_is_round_limit(self):
+        """見出しの N と箇条の数が合わない exit 1 → fail-closed で round_limit"""
+        self.full()
+        out, _, _ = self.build_with(1, validator_out(FIRST_ROUND, count=2))
+        self.assertEqual(out["outcome"], "round_limit")
+
+    def test_no_heading_is_round_limit(self):
+        """見出しが無い exit 1 → fail-closed で round_limit"""
+        self.full()
+        out, _, _ = self.build_with(1, "読めない出力")
+        self.assertEqual(out["outcome"], "round_limit")
+
+    def test_red_final_tests_is_round_limit(self):
+        """最後のテストが赤 → fixed を名乗らない"""
+        self.full()
+        out, _, _ = self.build_with(0, "", tests=RED)
+        self.assertEqual(out["outcome"], "round_limit")
+
+    def test_eye_block_is_round_limit(self):
+        """独立の目の R3 が redesign-needed → round_limit、冒頭 1 に目の名"""
+        self.full()
+        eyeing = {"ok": True, "reason": "", "reviews": {**EYES_PASS, "R3": {"status": "redesign-needed", "reason": "目の見本"}}}
+        out, _, h = self.build_eyeing(eyeing)
+        self.assertEqual(out["outcome"], "round_limit")
+        self.assertIn("R3", h[H1])
+
+    def test_eyeing_not_ok_is_round_limit(self):
+        """独立の目のブロックが ok でない → round_limit"""
+        self.full()
+        out, _, _ = self.build_eyeing({"ok": False, "reason": "目が 3 回とも拒まれた", "reviews": EYES_PASS})
+        self.assertEqual(out["outcome"], "round_limit")
+
+    def test_eyes_all_pass_is_fixed(self):
+        self.full()
+        out, _, _ = self.build_eyeing({"ok": True, "reason": "", "reviews": EYES_PASS})
+        self.assertEqual(out["outcome"], "fixed")
+
+    def test_first_round_constant_matches_validator(self):
+        """除く帳尻の行の定数は、写しの検証器の本文に字のまま在る（写しが変われば赤になり、黙って除かない）"""
+        const = getattr(report, "FIRST_ROUND_LINE", None)
+        self.assertIsNotNone(const, "report.FIRST_ROUND_LINE が無い")
+        src = (CORE / "scripts" / "review-record.py").read_text(encoding="utf-8")
+        self.assertIn(f'"{const}"', src)
+        self.assertEqual(const, FIRST_ROUND)
+
+
 # ---------------------------------------------------------------- 冒頭の部品
 class HeadCase(ReportBase):
     def test_head_parts_callable(self):
@@ -585,23 +681,25 @@ class NextRequestCase(ReportBase):
 
 # ---------------------------------------------------------------- 費用
 class CostCase(unittest.TestCase):
-    EVENTS = [{"event_type": "node_completed", "step_name": "judging__judge-loop.judge", "data": {"cost_usd": 0.0284}},
-              {"event_type": "node_completed", "step_name": "rejudging__rj-loop.rejudge", "data": {"cost_usd": 0.0615}},
-              {"event_type": "node_started", "step_name": "x", "data": {"cost_usd": 9}}]
+    # 節の費用は data.spend.costUsd（Archon v0.11.1）。**推測**: 数が入る時の形は録った実物（tests/events）に 0 件で、有限の数と置いた
+    EVENTS = [{"event_type": "node_completed", "step_name": "judging__judge-loop.judge", "data": {"spend": {"costUsd": 0.0284}}},
+              {"event_type": "node_completed", "step_name": "rejudging__rj-loop.rejudge", "data": {"spend": {"costUsd": 0.0615}}},
+              {"event_type": "node_started", "step_name": "x", "data": {"spend": {"costUsd": 9}}}]
     LAUNCHES = [{"at": "2026-09-27T10:00:00+09:00", "node": "judge", "session": {"mode": "new", "id": "S1"}},
                 {"at": "2026-09-27T10:05:00+09:00", "node": "rejudge",
                  "session": {"mode": "continued", "id": "S1", "of": "judge", "from": "S1"}}]
 
-    def test_cost_subtracts_continued(self):
-        """出来事の見本（judge 0.0284・rejudge 0.0615）と launches（rejudge が continued of judge・同じ id）→ rejudge の actual が
-        約 0.0331、行に「judge の会話の累積 … を引いた」"""
+    def test_cost_continued_not_subtracted(self):
+        """出来事の見本（judge 0.0284・rejudge 0.0615）と launches（rejudge が continued of judge・同じ id）→ rejudge の actual は
+        表示のまま 0.0615（costUsd が累積か 1 回分かは測れていない）、行に「judge の会話を継いだ」と「累積かどうか未確認」"""
         rows = {r["node"]: r for r in report.cost_rows(self.EVENTS, self.LAUNCHES)}
-        self.assertAlmostEqual(rows["rejudge"]["actual"], 0.0331, places=6)
+        self.assertEqual(rows["rejudge"]["actual"], 0.0615)
         self.assertEqual((rows["rejudge"]["continued_from"], rows["judge"]["actual"]), ("judge", 0.0284))
         lines = report.head_cost(None, RUN_ID, events=self.EVENTS, launches=self.LAUNCHES)
         hit = [x for x in lines if x.startswith("費用 rejudge:")]
         self.assertEqual(len(hit), 1, lines)
-        self.assertIn("judge の会話の累積 0.0284 を引いた", hit[0])
+        self.assertIn("judge の会話を継いだ", hit[0])
+        self.assertIn("累積かどうか未確認", hit[0])
         self.assertIn("欄の形は未確認", hit[0])   # COST_FIELD_VERIFIED が偽の間
         self.assertFalse(report.COST_FIELD_VERIFIED)
 

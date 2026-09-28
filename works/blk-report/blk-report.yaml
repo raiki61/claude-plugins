@@ -5,7 +5,9 @@ description: |
   1. report-items（書き手。読むだけ）: 報告の頭——平易な 3 行と、人が決めること——だけを書く
   2. report-cold（初見の読み手。道具を一切持たない）: 1 の本文だけを貼られて読み、止まった所・推測で埋めた所・この本文だけで
      決められるかを返す。盤面・記録・差分の置き場は渡さない（本線の X3。注記であって門ではない——写しの cold_check_note）
-  3. report-write（書き手。読むだけ）: 初見検査の詰まりを直した頭と、記録から写す本文の全部を書く。数の出どころは盤面から
+  3. report-write（書き手。読むだけ）: 初見検査の詰まりを直した頭と、記録から写す本文の全部を書く。書いた物の頭を、道具を
+     持たない初見の読み手（report-write-cold）がもう一度読み、redesign-needed なら受け付けが書き手に返す（上限の回は受け取り、
+     報告の冒頭に「初見の確かめを通っていない」と出す）。数の出どころは盤面から
      機械が組んだ事実（線 A の機械の報告を machine_report で渡せばそれ）で、出口の報告の最後に機械がそのまま付ける
   どの役を回すかは盤面の ready だけで決まる（rp-route<k>）。report を出す前の検証器の関所（pre: finalize）は盤面の settle が
   踏み、通らなければ report の役は起きない。指示書は本線 a1202d0 の写し（prompts/）を盤面の値で描いた物で、持ち主の書式の
@@ -89,6 +91,7 @@ nodes:
           with:
             role: report-items
             reply: {from: "$report-items.output"}
+            cold: ""                        # 書き手の輪だけが初見の読み手の返答を渡す
           output_format:
             type: object
             required: [ok, done, give_up, reason, reason_file, node, record_invalid]
@@ -177,6 +180,7 @@ nodes:
           with:
             role: report-cold
             reply: {from: "$report-cold.output"}
+            cold: ""                        # 書き手の輪だけが初見の読み手の返答を渡す
           output_format:
             type: object
             required: [ok, done, give_up, reason, reason_file, node, record_invalid]
@@ -248,14 +252,56 @@ nodes:
             additionalProperties: false
             properties:
               text: {type: string, minLength: 1}
-        - id: report-write-accept
-          script: accept
+        # 書き手の出した物の頭を、道具を持たない初見の読み手が読む。redesign-needed なら受け付けが書き手に返す（上限の回は
+        # 受け取り、報告の冒頭に「初見の確かめを通っていない」と出す）
+        - id: report-write-cold-prep
+          script: cold_prep
           runtime: uv
           timeout: 1728000000
           depends_on: [report-write]
           with:
+            writer: {from: "$report-write.output"}   # reply の鍵は受け付けの節だけが持つ（受け付けではない）
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, prompt]
+            properties:
+              prompt_file: {type: string}
+              prompt: {type: string}
+        - id: report-write-cold
+          # 指示は commands/report-cold.md（初見の読み手の決まり）に書き手の頭を描いた本文を入れた物（支度が組む。写しを持たない）
+          prompt: $report-write-cold-prep.output.prompt
+          depends_on: [report-write, report-write-cold-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: []           # 道具を一切持たない（本線の cold-reader の tools: []。貼られた本文だけを読む）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # report_roles.output_format("report-write-cold")（写しの report.cold_check の schema に印）を貼った物（tests/test_blk_report.py が一致を見る）
+          output_format:
+            description: 'works-node: report-write-cold'
+            type: object
+            required: [verdict, stops, guessed, decidable]
+            additionalProperties: false
+            properties:
+              verdict:
+                type: string
+                enum: [pass, redesign-needed]
+              stops:
+                type: array
+                items: {type: string}
+              guessed:
+                type: array
+                items: {type: string}
+              decidable: {type: boolean}
+        - id: report-write-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [report-write, report-write-cold]
+          with:
             role: report-write
             reply: {from: "$report-write.output"}
+            cold: {from: "$report-write-cold.output"}
           output_format:
             type: object
             required: [ok, done, give_up, reason, reason_file, node, record_invalid]

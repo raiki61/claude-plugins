@@ -7,10 +7,13 @@ works の盤面（DiskBoard）の上で役として回す。どの節をいつ�
            → 拒否の後なら前の拒否の文を頭に → 書き手は作業ツリーの写し → 起こした印（mark_launched）。
            初見の読み手は道具を持たないので、描いた本文そのものを出口の prompt で返す（指示が貼る。盤面の置き場を渡さない）。
            report の書き手には、数の出どころ（盤面から機械が組んだ事実。線 A の機械の報告が在ればそれ）のファイルを渡す
-- accept:  返答を読み、書き手の本文は表のセルの書式を機械で見て（持ち主の決まり。works だけの検査）、entry.take で盤面へ。
+- write_cold_prep: 書き手の返答の頭（平易な冒頭と人が決めること）だけを、初見の読み手の指示書に入れて描く（書き手の輪の中）
+- accept:  返答を読み、書き手の本文は表のセルの書式を機械で見て（持ち主の決まり。works だけの検査）、書き手の輪では書き手の
+           頭を読んだ初見の読み手が pass でなければ書き手に返し（上限の回は受け取って印を残す）、entry.take で盤面へ。
            拒否は GIVE_UP_AFTER 回目で諦めの印（done）。初見検査を受けた後の settle が検証器の関所で止まったら（RecordInvalid）、
            初見検査は受けた扱いにして、その事実を作業ファイルに残す（report の節は出ない）
-- collect: 出口。report を受けていれば 来歴の 1 行＋書き手の本文＋機械の事実（書き換えずに最後に付ける）を盤面の REPORT_NAME に。
+- collect: 出口。report を受けていれば 来歴の 1 行＋（初見の確かめを通らずに受け取った時はその 1 行）＋書き手の本文＋機械の事実
+           （書き換えずに最後に付ける）を盤面の REPORT_NAME に。
            受けていなければ、なぜ無いか・受けた分の本文・検証器の出力の末尾・機械の事実を付けた報告を書いて ok: false（黙らない）
 
 指示書は本線 a1202d0 の写し（blk-report/prompts/。バイト単位で同じ）。描き方は engine と同じ（rolekit.render_body。reads の柵・cap なし）。
@@ -42,6 +45,12 @@ ROLES = ("report-items", "report-cold", "report-write")
 NODE_OF = dict(zip(ROLES, ("report.human_items", "report.cold_check", "report")))
 COLD = "report-cold"
 WRITE = "report-write"
+# 書き手の出した物を確かめる初見の読み手（盤面の節ではない。書き手の輪の中で、書き手の返答の頭だけを読む）
+WRITE_COLD = "report-write-cold"
+COMMANDS = _BLK / "commands"
+COLD_PASTE = f"${COLD}-prep.output.prompt"   # commands/report-cold.md の描いた本文を貼る所
+DECISIONS_HEAD = "人が決めること"
+NOT_PASSED = "初見の確かめを通っていない"
 PROMPTS = _BLK / "prompts"
 # 本文を返す節（graph の text: true）の返答の型。盤面は本文の節の返答を {text} だけで受ける
 TEXT_SCHEMA = {"type": "object", "required": ["text"], "additionalProperties": False,
@@ -56,6 +65,7 @@ REPORT_NAME = "report-ai.md"            # 盤面の根。線 A の機械の報�
 FACTS_NAME = "report-facts.md"          # 今の周の作業ファイル: 書き手に渡した数の出どころ
 REJECTS_NAME = "report-rejects.json"    # 今の周の作業ファイル: 拒否の文の控え（輪の数え・次の指示書の頭）
 INVALID_NAME = "report-record-invalid.json"   # 今の周の作業ファイル: 検証器の関所が通らなかった事実
+COLD_MARK_NAME = "report-cold-unpassed.json"  # 今の周の作業ファイル: 上限の回に初見の確かめを通らないまま受け取った事実
 SNAPSHOT_PREFIX = "report-snapshot-"    # 書き手を起こす前の作業ツリーの写し（読むだけの役の比べ）
 CELL_REASON = ("表のセルに説明の文を入れない（持ち主の決まり: 表は状態・件数・日付など数語の値の一覧だけ。端末の表は列ごとに"
                f"幅を割るので、長いセルは細切れに折り返されて読めない）。「。」を含むか {CELL_LIMIT} 字を超えるセルが在る——"
@@ -75,7 +85,10 @@ def _node(role) -> str:
 
 
 def output_format(role) -> dict:
-    """役の output_format: 写しの schema（report.cold_check）か本文の型（report.human_items・report）に印 works-node: <役>"""
+    """役の output_format: 写しの schema（report.cold_check と、書き手を確かめる初見の読み手）か本文の型（report.human_items・
+    report）に印 works-node: <役>"""
+    if role == WRITE_COLD:
+        return node_marker.mark(_accept.role_schema(NODE_OF[COLD]), role)
     nid = _node(role)
     schema = _accept.role_schema(nid) if nid == NODE_OF[COLD] else TEXT_SCHEMA
     return node_marker.mark(schema, role)
@@ -240,7 +253,61 @@ def prep(board_dir, role, repo, machine_report="") -> dict:
             "facts_file": facts_file, "already": m["already"]}
 
 
+def head_of(text) -> str:
+    """報告の頭: 最初の見出し（## ）より前の冒頭と、見出しに『人が決めること』を持つ節。見出しが無ければ全文"""
+    head, keep, found = [], True, False
+    for line in str(text or "").splitlines():
+        if line.startswith("## "):
+            found = True
+            keep = DECISIONS_HEAD in line
+        if keep:
+            head.append(line)
+    return "\n".join(head).strip() if found else str(text or "").strip()
+
+
+def write_cold_prep(board_dir, raw) -> dict:
+    """書き手の返答の頭（head_of）を、初見の読み手の指示書（report.cold_check の写し）で描き、初見の読み手の決まり
+    （commands/report-cold.md。Archon が prep の本文を貼る所 COLD_PASTE に描いた本文）で包む。{prompt, prompt_file}。
+    描き方は report.cold_check の読み手と同じ rolekit.render_body（ctx・schema の断りは report.cold_check の物）で、
+    読み手の材料の穴（report.human_items の本文）だけを書き手の頭に差し替える。待っている節は report（書き手の輪の中）。
+    全文は渡さない（読み手が確かめるのは報告の頭。全文を読ませると出し直しの枠を使い切る）。書き手の返答が読めなければ、
+    読めない事実を本文にする。貼る所が決まりに無ければ BoardGap（黙って貼らない物を出さない）"""
+    b = open_board(board_dir, allow_halted=True)
+    reply, why = rolekit.parse_reply(raw)
+    text = reply.get("text") if isinstance(reply, dict) else None
+    body = head_of(text) if isinstance(text, str) and text.strip() else f"（書き手の返答を読めない: {why or '本文が無い'}）"
+    cold = b.nodes[NODE_OF[COLD]]
+    template = rolekit.node_prompt(rolekit.prompt_graph_path(b, cold, _BLK), cold)
+    drawn = rolekit.render_body(b, NODE_OF[WRITE], prompts_dir=_BLK, template=template, schema_of=NODE_OF[COLD],
+                                ctx_hook=lambda ctx: ctx["out"].update({NODE_OF["report-items"]: {"text": body}}))[0]
+    command = (COMMANDS / f"{COLD}.md").read_text(encoding="utf-8")
+    if COLD_PASTE not in command:
+        raise BoardGap(f"commands/{COLD}.md に描いた本文を貼る所 {COLD_PASTE} が無い")
+    prompt = command.replace(COLD_PASTE, drawn)
+    path = b.dir / "prompts" / f"r{b.round}" / f"{WRITE_COLD}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(prompt, encoding="utf-8")
+    return {"prompt_file": str(path), "prompt": prompt}
+
+
 # ---------------------------------------------------------------- 受け付け
+def _cold_block(cold) -> dict | None:
+    """書き手を確かめた初見の読み手の返答（JSON の文字列）が pass でなければ {verdict, stops, guessed, reason}。pass なら None。
+    読めない・形が違う返答は確かめを通っていない扱い（fail-closed）"""
+    got, why = rolekit.parse_reply(cold)
+    if got is None or got.get("verdict") not in ("pass", "redesign-needed"):
+        return {"verdict": "", "stops": [], "guessed": [],
+                "reason": f"初見の読み手の返答を読めない（{why or '判定の語が無い'}）"}
+    if got["verdict"] == "pass":
+        return None
+    stops, guessed = list(got.get("stops") or []), list(got.get("guessed") or [])
+    lines = [f"- 止まった所: {s}" for s in stops] + [f"- 推測で埋めた所: {g}" for g in guessed]
+    return {"verdict": got["verdict"], "stops": stops, "guessed": guessed,
+            "reason": "初見の読み手（道具なし・報告の頭だけを読む）が redesign-needed を返した。次の所を、頭だけで意味が取れるように"
+                      "直した本文を丸ごと出し直せ:\n" + ("\n".join(lines) or "- （止まった所・推測の欄が空）")}
+
+
+
 def format_problems(text) -> list:
     """表のセルの書式の破れ（「。」を含むか CELL_LIMIT 字を超えるセル。`コード` の部分とコードの囲みの中は数えない）。
     1 行につき 1 つの文"""
@@ -278,10 +345,13 @@ def _reject(board_dir, nid, reason) -> dict:
     return {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "node": nid, "record_invalid": False}
 
 
-def accept(board_dir, role, raw, repo) -> dict:
+def accept(board_dir, role, raw, repo, cold=None) -> dict:
     """役の返答（Archon の $<役>.output の JSON の文字列）を受け付ける。{ok, done, give_up, reason, node, record_invalid}。
-    順: 読む → 書き手の本文のセルの書式（works だけの検査）→ entry.take（書き手は作業ツリーの写しと比べる → 盤面の done）。
-    写しの AnswerReject と読むだけの役の変化は拒否（役に返す）。ほかの Reject・BoardGap は投げる（回す側の誤り）"""
+    順: 読む → 書き手の本文のセルの書式（works だけの検査）→ 書き手の頭を読んだ初見の読み手の返答 cold（書き手の輪だけ。
+    None は配線しない直の呼び出しで確かめない。scripts/accept.py はいつも文字列を渡し、空は読めない返答として通さない）→ entry.take（書き手は作業ツリーの写しと比べる → 盤面の done）。初見の読み手が pass でなければ書き手に
+    返す。上限の回（この周のこの節の拒否が GIVE_UP_AFTER - 1 回）は受け取り、COLD_MARK_NAME に通っていない事実を残す
+    （受け取らないと collect が報告を出せない）。写しの AnswerReject と読むだけの役の変化は拒否（役に返す）。ほかの Reject・
+    BoardGap は投げる（回す側の誤り）"""
     nid = _node(role)
     reply, why = rolekit.parse_reply(raw)
     if reply is None:
@@ -290,6 +360,9 @@ def accept(board_dir, role, raw, repo) -> dict:
         bad = format_problems(reply["text"])
         if bad:
             return _reject(board_dir, nid, CELL_REASON + "\n".join(f"- {x}" for x in bad))
+    blocked = _cold_block(cold) if role == WRITE and cold is not None else None
+    if blocked and len(_rejects(open_board(board_dir, allow_halted=True), nid)) < GIVE_UP_AFTER - 1:
+        return _reject(board_dir, nid, blocked["reason"])
     try:
         got = entry.take(pathlib.Path(board_dir), nid, reply, pathlib.Path(repo),
                          snapshot_name=None if role == COLD else _snap_name(role))
@@ -300,6 +373,10 @@ def accept(board_dir, role, raw, repo) -> dict:
                 "reason": f"受け付けた。ただし記録が検証器を通らない（exit {e.exit}）ので {e.node} は出ない"}
     if not got["ok"]:
         return _reject(board_dir, nid, got["reason"])
+    if blocked:
+        _write_json(open_board(board_dir, allow_halted=True).work(COLD_MARK_NAME), {**blocked, "at": now()})
+        return {"ok": True, "done": True, "give_up": False, "node": nid, "record_invalid": False,
+                "reason": f"上限の回なので受け取った。ただし{NOT_PASSED}（報告の冒頭に出す）"}
     return {"ok": True, "done": True, "give_up": False, "reason": "", "node": nid, "record_invalid": False}
 
 
@@ -374,6 +451,9 @@ def collect(board_dir, machine_report="") -> dict:
             tail = "\n".join(str(invalid.get("out") or "").splitlines()[-30:])
             parts.append(f"## 検証器の出力の末尾（exit {invalid.get('exit')}）\n\n```text\n{tail}\n```")
         body = "\n\n".join(parts)
+    mark = _read_json(b.work(COLD_MARK_NAME))
+    if out["ok"] and mark:
+        body = f"{NOT_PASSED}: {' '.join(str(mark.get('reason') or '').split())}\n\n{body}"
     report = f"{stamp(b)}\n\n{body}\n\n---\n\n{MACHINE_HEADING}\n\n{facts}"
     p = b.dir / REPORT_NAME
     p.write_text(report, encoding="utf-8")

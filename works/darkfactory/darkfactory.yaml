@@ -10,7 +10,7 @@ description: |
   止め札を盤面へ渡す。when: と関所の文言は、いつも走る節（start・境の節）の欄だけを読む。
   仕様から入る道はこの版のラインに無い
   （nodes.json の absent。報告の「このラインに無い節」に出る）。
-  出口は result（機械の報告 report の欄の全部）: 結末（fixed・no_fix_needed・stopped_by_*・needs_human・record_invalid）と最後の報告のパス。
+  出口は result（機械の報告 report の欄の全部）: 結末（fixed・no_fix_needed・round_limit・stopped_by_*・needs_human・record_invalid）と最後の報告のパス。
   人の関所があるので interactive。
 
 interactive: true
@@ -882,7 +882,7 @@ nodes:
       required: [ok, outcome, judgment_file, report_file, next_request_file, tests_green, validator_exit]
       properties:
         ok: {type: boolean}
-        outcome: {type: string, enum: [fixed, no_fix_needed, stopped_by_request, stopped_by_human, stopped_by_line, needs_human, record_invalid, interrupted]}
+        outcome: {type: string, enum: [fixed, no_fix_needed, round_limit, stopped_by_request, stopped_by_human, stopped_by_line, needs_human, record_invalid, interrupted]}
         judgment_file: {type: string}
         review_file: {type: string}
         diff_file: {type: string}
@@ -918,7 +918,7 @@ nodes:
       required: [ok, outcome, judgment_file, report_file, next_request_file, tests_green, validator_exit]
       properties:
         ok: {type: boolean}
-        outcome: {type: string, enum: [fixed, no_fix_needed, stopped_by_request, stopped_by_human, stopped_by_line, needs_human, record_invalid, interrupted]}
+        outcome: {type: string, enum: [fixed, no_fix_needed, round_limit, stopped_by_request, stopped_by_human, stopped_by_line, needs_human, record_invalid, interrupted]}
         judgment_file: {type: string}
         review_file: {type: string}
         diff_file: {type: string}

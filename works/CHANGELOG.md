@@ -16,6 +16,12 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 - Claude の包みが、対象リポジトリの `.claude/settings.json`・`.claude/settings.local.json` の `permissions.deny` を役の `--settings` に写す。今までは役が隔離した設定で起きるため持ち主の禁止（例: e2e の一式を手元で回さない）が役に効かなかった。ファイルが読めない・形が違う時は、そのファイルを名指して役を起こさない。包み無しの run には載らない。
 - Claude の包みが、AI の役の子の env に `GRAPHLOOPS_ENGINE_CHILD=1`（graphloops の engine と同じ目印）を立てる。今までは works の役に目印が無く、対象の重い一式（e2e・変異の撃ち）が AI の役からの起動を見分けて拒めなかった。線の節が走らせる最後のテストと、包み無しの run には立たない。
 
+### Fixed
+
+- 報告が、周の記録の検証器の阻害（1 周目にいつも出る帳尻の行「前ラウンドの記録が無い…」を除く）・最後のテストの赤・独立の目の block が残った run にも `fixed` を出していた。残りが 1 つでも在れば新しい結末 `round_limit` にし、報告の冒頭 1 と次の run の依頼の下書きに残りの各行を出す。
+- 報告の費用の行がいつも「取れない」だった（Archon v0.11.1 の実物に無い平らな `cost_usd` と `workflow_completed` を読んでいた）。節の費用は実物の `data.spend.costUsd` を読み（報告された費用は Archon の `executionSpendSchema` の `{source: provider, value}`）、報告されなかった費用（`source: unavailable`）は 0 と混ぜずに見た欄・`reason`・版を添えて「取れない」と出す。報告は run の中で走るので run の和は読まず、合計は節の和を「途中」として出す。会話を継いだ起動の費用は、`costUsd` が累積か 1 回分かを測れていないので引かず、「累積かどうか未確認」と添える。0.2.2 の「`cost_usd` だけを読む」決定を上書きした。
+- AI の報告の初見の読み手が「作り直しが要る」（redesign-needed）と言っても、書き手に戻らずにそのまま報告が出ていた。書き手が本文を書くたびに、道具を持たない初見の読み手がその頭（平易な冒頭と人が決めること）だけを読み直し、redesign-needed なら止まった所・推測で埋めた所を理由にして書き手に書き直させる。出し直しの上限の回は受け取り、報告の冒頭（来歴の行の直後）に「初見の確かめを通っていない: <理由>」と出す。
+
 ## [0.2.2] - 2026-09-28
 
 ### Added

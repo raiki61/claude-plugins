@@ -165,27 +165,35 @@ class YamlCase(unittest.TestCase):
     def test_loops_exit_on_done_flag(self):
         for grp in self.loops():
             g = grp["loop_group"]
-            ai = [m for m in g["nodes"] if "command" in m or "prompt" in m]
+            # 書き手の輪だけは、書き手の出した物の頭を初見の読み手（道具なし）が読み、その返答を受け付けが見る（書き手に戻す輪）。
+            # 返答を受け付けに出す役は輪 1 つに 1 つのまま
+            ai = [m for m in g["nodes"] if ("command" in m or "prompt" in m) and m["id"] != rr.WRITE_COLD]
             with self.subTest(grp["id"]):
                 self.assertEqual(len(ai), 1)
                 role = ai[0]["id"]
                 self.assertEqual(g["max_iterations"], rr.GIVE_UP_AFTER, "諦めの数は輪の上限と同じ（上限で輪を落とさない。R50）")
                 self.assertEqual(g["until_bash"], f"test ${role}-accept.output.done = true")
-                self.assertEqual([m["id"] for m in g["nodes"]], [f"{role}-prep", role, f"{role}-accept"])
+                cold = [f"{rr.WRITE_COLD}-prep", rr.WRITE_COLD] if role == rr.WRITE else []
+                self.assertEqual([m["id"] for m in g["nodes"]], [f"{role}-prep", role, *cold, f"{role}-accept"])
                 # 初見の読み手は毎回新しい会話（本線の fresh_context）。書き手は同じ会話で出し直す（本線の writer）
                 self.assertIs(g["fresh_context"], role == "report-cold")
 
     def test_role_nodes(self):
-        for grp in self.loops():
-            role = next(m for m in grp["loop_group"]["nodes"] if "command" in m)
+        # 役の節は command: の役と、書き手の輪の初見の読み手（prompt: に支度が描いた本文。commands/ の決まりで包んだ物）
+        roles = [m for grp in self.loops() for m in grp["loop_group"]["nodes"] if "command" in m or "prompt" in m]
+        self.assertIn(rr.WRITE_COLD, [m["id"] for m in roles])
+        for role in roles:
             with self.subTest(role["id"]):
-                self.assertEqual(role["command"], role["id"])
-                self.assertTrue((BLK / "commands" / f"{role['id']}.md").is_file())
+                if role["id"] == rr.WRITE_COLD:
+                    self.assertEqual(role["prompt"], f"${role['id']}-prep.output.prompt")
+                else:
+                    self.assertEqual(role["command"], role["id"])
+                    self.assertTrue((BLK / "commands" / f"{role['id']}.md").is_file())
                 self.assertEqual(role["output_format"], rr.output_format(role["id"]))
                 self.assertEqual(role["settingSources"], ["user"])
                 self.assertEqual(role["idle_timeout"], DEADLINE)
                 self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
-                if role["id"] == "report-cold":
+                if role["id"] in ("report-cold", rr.WRITE_COLD):
                     self.assertEqual(role["allowed_tools"], [], "初見の読み手は道具を持たない（本文だけを読む。X3）")
                 else:
                     self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
@@ -565,7 +573,17 @@ class ScriptCase(_Case):
         rounds = []
         for i in range(1, g["max_iterations"] + 1):
             prep = self.ok("prep", role=role, machine_report="")
-            got = self.ok("accept", role=role, reply=json.dumps(reply, ensure_ascii=False))
+            cold = ""
+            if role == rr.WRITE:   # 書き手の輪: 書き手の頭を描いて初見の読み手（ここでは pass の見本）の返答を受け付けに渡す
+                drawn = self.ok("cold_prep", writer=json.dumps(reply, ensure_ascii=False))["prompt"]
+                self.assertIn(reply["text"].strip().splitlines()[0], drawn)
+                # 描き方は report.cold_check の読み手と同じ（render_body: 穴を残さず、report.cold_check の schema の断りが付く）
+                self.assertIn(rr.rolekit.SCHEMA_NOTE, drawn)
+                self.assertIn('"redesign-needed"', drawn)
+                self.assertNotIn("{{", drawn)
+                self.assertNotIn(rr.COLD_PASTE, drawn)
+                cold =json.dumps(golden_reply("report.cold_check"), ensure_ascii=False)
+            got = self.ok("accept", role=role, reply=json.dumps(reply, ensure_ascii=False), cold=cold)
             rounds.append((prep, got))
 
             def value(m):
