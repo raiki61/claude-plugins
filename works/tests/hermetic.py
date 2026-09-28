@@ -42,7 +42,7 @@ def alias(case, path) -> str:
     top = "/" + p.split("/")[2] if p.startswith("/private/") else ""
     if top and os.path.islink(top) and os.path.realpath(top) == "/private" + top:
         return p[len("/private"):]
-    case.skipTest(f"{p} に /private の別名の綴りが無い")
+    case.skipTest(f"SKIP private-symlink: {p} に /private の別名の綴りが無い")
 
 
 def tmpdir(case, **kw) -> pathlib.Path:

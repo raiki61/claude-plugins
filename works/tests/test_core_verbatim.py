@@ -27,7 +27,7 @@ class CoreVerbatimCase(unittest.TestCase):
         commit = led.commit
         r = _git("cat-file", "-e", f"{commit}^{{commit}}")
         if r.returncode != 0:
-            self.skipTest(f"このリポジトリから {commit} を引けない（浅い clone か、graphloops の履歴を持たない）: "
+            self.skipTest(f"SKIP git-history: このリポジトリから {commit} を引けない（浅い clone か、graphloops の履歴を持たない）: "
                           f"{r.stderr.decode('utf-8', 'replace').strip()[-200:]}")
         listed = [rel for rel, _ in led.rows]
         self.assertGreaterEqual(len(listed), 20)

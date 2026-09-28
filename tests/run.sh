@@ -3315,7 +3315,7 @@ ran=$((ran + 1))
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。どの job の頭にも if: と continue-on-error: が無い" \
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が works/tests/run.sh の全段を、全履歴・同じ python・版を固定した依存と mutation.yml と同じ uv で、FAIL_ON_SKIP=1 と自前の許しの一覧を渡して回す。どの job の頭にも if: と continue-on-error: が無い" \
     "$PY_BIN" - "$ROOT" <<'PYCI'
 import pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -3399,6 +3399,34 @@ assert not any(x.startswith("continue-on-error:") for s in steps for x in s), f"
 ps = step("pytest")
 assert "env:" in ps and "SKIP_ALLOW: ${{ matrix.skip_allow }}" in ps, (f"{wf}: pytest の段が OS ごとの許しの一覧"
     f"（SKIP_ALLOW: ${{{{ matrix.skip_allow }}}}）を渡していない——Windows の宣言つきの見送りが失敗に数えられる／固定の値だと他の OS で許しすぎる: {ps}")
+# **works の試験の全段を回す job。** 入口（works/tests/run.sh）はそのまま起こし、手元の前提（uv・3.12・依存の版・全履歴）は CI の段で揃える。
+# 段の並びまで丸ごと見る——どれか 1 つが欠けると、job は起きないか、別の版で回るか、見送りが黙って緑になる
+assert "works" in jobs, f"{wf}: works の試験の全段を回す job works が無い（{sorted(jobs)}）"
+wk = jobs["works"]
+wos = [x for x in wk["head"] if x.startswith("os:")]
+assert len(wos) == 1 and re.fullmatch(r"os: \[[^\]]+\]", wos[0]), f"{wf}: works の job の os が一覧でない: {wk['head']}"
+wos = [x.strip() for x in wos[0][len("os: ["):-1].split(",")]
+assert set(wos) <= set(oses), f"{wf}: works の job の os {wos} が test の os（{oses}）の外に在る"
+assert "runs-on: ${{ matrix.os }}" in wk["head"], f"{wf}: works の job が matrix の os で起きていない: {wk['head']}"
+# 許しの一覧は works の job が自前で持つ——共有の錨を引くと works が出さない名前（version-bump など）まで許す
+assert not any("*skip_allow" in x for x in wk["head"]), f"{wf}: works の job が共有の許しの一覧（*skip_allow）を引いている: {wk['head']}"
+pyv = [x for s in jobs["test"]["steps"] for x in s if x.startswith("python-version:")]
+pt = [m.group(1) for x in ps for m in [re.search(r"pytest==([0-9][0-9.]*)", x)] if m]
+assert len(pyv) == 1 and len(pt) == 1, f"{wf}: test の python-version（{pyv}）か pytest の段の pytest の版（{pt}）を 1 つに読めない"
+mu = (pathlib.Path(sys.argv[1]) / ".github" / "workflows" / "mutation.yml").read_text(encoding="utf-8")
+uvm = re.search(r"uses: (astral-sh/setup-uv@\S+)\n\s+with:\n\s+(version: \"[^\"]+\")", mu)
+assert uvm, "mutation.yml に setup-uv の版の固定（uses: astral-sh/setup-uv@<版> と with: version:）が無い"
+deps = [s for s in wk["steps"] if s[0] == "- name: install works test deps"]
+assert len(deps) == 1 and re.fullmatch(rf"run: python -m pip install pyyaml==[0-9][0-9.]* pytest=={re.escape(pt[0])}", deps[0][-1]), (
+    f"{wf}: works の依存を版を固定して入れる段（pyyaml==<版> と pytest の段と同じ pytest=={pt[0]}）が無い: {deps}")
+want_works = [["- uses: actions/checkout@v5", "with:", "fetch-depth: 0"],
+              ["- uses: actions/setup-python@v5", "id: python", "with:", pyv[0]],
+              deps[0],
+              [f"- uses: {uvm.group(1)}", "with:", uvm.group(2)],
+              ["- name: works/tests/run.sh", "shell: bash", "env:", "UV_PYTHON: ${{ steps.python.outputs.python-path }}",
+               "UV_PYTHON_DOWNLOADS: never", "SKIP_ALLOW: ${{ matrix.works_skip_allow }}", 'FAIL_ON_SKIP: "1"', "run: sh works/tests/run.sh"]]
+assert wk["steps"] == want_works, (f"{wf}: works の job の段が、全履歴・{pyv[0]}・版を固定した依存・mutation.yml と同じ uv を用意して"
+    f" works/tests/run.sh の全段を FAIL_ON_SKIP=1 と OS ごとの許しの一覧で回す形（{want_works}）と違う: {wk['steps']}")
 # **engine が走らせる宣言は CI の段の写し**（手元は pytest を uv で入れ、CI は pip で入れるので語は揃わない）。名前だけ突き合わせる
 # ——宣言に在って CI に無い段は、CI が回していない物を engine だけが回している。逆向き（CI の段を宣言が持たない）は許す:
 # shellcheck は CI だけが段として回し、手元では tests/run.sh が在れば回す任意の道具

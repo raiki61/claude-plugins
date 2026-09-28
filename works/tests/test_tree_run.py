@@ -76,6 +76,12 @@ def read_int(path, within=10):
 
 
 class TreeRunCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # 木ごと止める殻はプロセスのグループ（os.killpg・os.setsid。Python の公式文書で Availability: Unix）で孫を見る
+        if not (hasattr(os, "killpg") and hasattr(os, "setsid")):
+            raise unittest.SkipTest("SKIP process-group: この OS の os に killpg・setsid が無い")
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = pathlib.Path(self._tmp.name)

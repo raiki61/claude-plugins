@@ -1,6 +1,8 @@
 #!/bin/sh
 # works のテストの入口。sh works/tests/run.sh [unittest の引数（-k など）]
 # WORKS_TESTS で段を選ぶ: 空（既定）= 全部・fast = 速い段・heavy = 重い段。段の一覧は tests/tiers.py。
+# どの段も終わりに見送りを一覧に出す。FAIL_ON_SKIP=1 なら SKIP_ALLOW に無い能力と名前の無い見送りを失敗に数える
+# （見送りの理由は『SKIP <能力>: <理由>』。約束は tests/tiers.py の頭）。
 # 全部と heavy は、機械全体で重いテストを同時に 4 本までにする枠の台本（testslot.sh。置き場は WORKS_TESTSLOT で差し替え）を
 # 通して回す。枠の置き場は台本の約束 TESTSLOT_DIR（既定は台本と同じ /private/tmp/claude-<uid>/testslots）で、ここで解決して台本へ渡す。
 # 台本が無い・枠の置き場に書けないときは、1 行出して枠を取らずに回す。枠を持つ台本の下から呼ばれたら取り直さない。
@@ -9,7 +11,7 @@ DEFAULT_TESTSLOT=/Users/p03623/src/claude-plugins/.git/graphloops/ops/testslot.s
 
 tier=${WORKS_TESTS-}
 case $tier in
-  "") set -- -m unittest discover -s tests -p 'test_*.py' "$@" ;;
+  "") set -- tests/tiers.py all "$@" ;;
   fast|heavy) set -- tests/tiers.py "$tier" "$@" ;;
   *) echo "run.sh: WORKS_TESTS は fast・heavy・空（全部）のどれか（今の値: ${tier}）" >&2; exit 2 ;;
 esac

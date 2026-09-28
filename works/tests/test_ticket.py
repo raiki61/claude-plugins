@@ -226,7 +226,7 @@ class TicketCase(unittest.TestCase):
     def test_spellings_private_prefix(self):
         # macOS の /var・/tmp・/etc は /private の下への symlink。どちらの綴りも同じ場所なら両方を返す
         if os.path.realpath("/var") != "/private/var":
-            self.skipTest("/var が /private/var への symlink でない")
+            self.skipTest("SKIP private-symlink: /var が /private/var への symlink でない")
         for spelled in ("/private/var/folders/x/y", "/var/folders/x/y", "/private/tmp/z", "/tmp/z"):
             with self.subTest(spelled=spelled):
                 got = ticket._spellings(spelled)
@@ -238,7 +238,7 @@ class TicketCase(unittest.TestCase):
     def test_git_derived_paths_have_both_spellings(self):
         # git は realpath（/private/var/...）で返すが、/var/... の綴りも入る
         if not str(self.repo_tmp).startswith(("/var/", "/tmp/")) or self.real(self.repo_tmp) == str(self.repo_tmp):
-            self.skipTest("使い捨てのリポジトリが /var・/tmp の綴りの下にない")
+            self.skipTest("SKIP private-symlink: 使い捨てのリポジトリが /var・/tmp の綴りの下にない")
         got = ticket.protected_paths(self.wt1, self.board)
         for p in (self.wt2, self.main, self.main / ".git", self.main / ".git" / "worktrees" / "wt1", self.wt1 / ".git"):
             with self.subTest(p=str(p)):

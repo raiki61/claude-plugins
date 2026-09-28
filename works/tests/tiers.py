@@ -1,7 +1,11 @@
 """works のテストの段（fast・heavy）の一覧と、段を 1 つ選んで回す入口。
 
-run.sh が WORKS_TESTS=fast|heavy のときに `python3 tests/tiers.py <段> [unittest の引数]` で起こす
-（WORKS_TESTS が空なら run.sh は従来どおり全部を unittest discover で回し、ここを通らない）。
+run.sh が `python3 tests/tiers.py <段> [unittest の引数]` で起こす（WORKS_TESTS が空なら段 all＝discover の全部。
+fast・heavy と違い、段の一覧の食い違いでも止めず、一覧に書き忘れたモジュールも回す）。
+どの段も終わりに見送りの門（SkipGateRunner）を通す: 見送りの理由は root の約束『SKIP <能力>: <理由>』で書き、
+環境変数 FAIL_ON_SKIP=1 のとき、能力が SKIP_ALLOW（空白かカンマ区切り）に無い見送りと名前の無い見送りを失敗に数える
+（約束の正本は tests/run.sh の report_skips と graphloops/tests/py/fence.py。works は graphloops を持たない pack として
+対象へ写されるので、判定は写しで持つ）。FAIL_ON_SKIP が無ければ見送りの一覧を出すだけ。
 TDD の実行器 dev/tdd-suite.sh（pytest で回す）は `python3 tests/tiers.py paths <段>` で段のファイルの一覧を引く。
 fast と heavy は重ならず、合わせるとちょうど全部（tests/test_*.py）になる。どのモジュールも FAST か HEAVY の
 どちらかに書く。書き忘れ・両方に書いた・消したモジュールが残っている、のどれかがあると、段を選んだ実行は
@@ -17,6 +21,7 @@ gitkit に替えた後の値（前と続けて回した組。計測の shim 込�
 """
 import os
 import pathlib
+import re
 import sys
 import unittest
 
@@ -145,6 +150,49 @@ class TierLoader(unittest.TestLoader):
         return super().loadTestsFromModule(module, *args, **kwargs)
 
 
+SKIP_DECL = re.compile(r"^SKIP ([a-z0-9][a-z0-9-]*): ")
+
+
+class SkipGateResult(unittest.TextTestResult):
+    """走りの終わりに見送り（self.skipped。setUpClass・setUpModule の SkipTest も入る）を一覧に出し、門を当てる"""
+
+    skip_gate_failed = 0
+
+    def printErrors(self):
+        super().printErrors()
+        # 環境は走りの中で 1 回だけ読む（wasSuccessful は走りの後にも呼ばれる）
+        allow = set(re.split(r"[\s,]+", os.environ.get("SKIP_ALLOW", ""))) - {""}
+        strict = os.environ.get("FAIL_ON_SKIP") == "1"
+        bad = 0
+        if self.skipped:
+            self.stream.writeln(f"見送り（{len(self.skipped)} 件）:")
+        for test, reason in self.skipped:
+            m = SKIP_DECL.match(reason)
+            if m and m.group(1) in allow:
+                why = "（SKIP_ALLOW で許した）"
+            else:
+                bad += 1
+                why = "（SKIP_ALLOW に無い）" if m else "（名前の無い見送り。『SKIP <能力>: <理由>』で書く）"
+            self.stream.writeln(f"  {test.id()}: {reason} {why}")
+        if strict and bad:
+            self.skip_gate_failed = bad
+            self.stream.writeln(f"見送りを失敗に数えた: {bad} 件（FAIL_ON_SKIP=1）")
+        self.stream.flush()
+
+    def wasSuccessful(self):
+        return super().wasSuccessful() and not self.skip_gate_failed
+
+
+class SkipGateRunner(unittest.TextTestRunner):
+    resultclass = SkipGateResult
+
+    def run(self, test):
+        # TestSuite は回した試験を自分の一覧から外す（_cleanup）。渡された一覧は写しで回し、呼んだ側の物を空にしない
+        if isinstance(test, unittest.TestSuite):
+            test = unittest.TestSuite(list(test))
+        return super().run(test)
+
+
 def paths(tier):
     """段のモジュールのファイル（works の根から。名前の順）。dev/tdd-suite.sh が pytest に渡す"""
     return sorted(f"{TESTS.name}/{m}.py" for m in TIERS[tier])
@@ -161,16 +209,20 @@ def main(argv):
             return 2
         print("\n".join(paths(argv[2])))
         return 0
-    if len(argv) < 2 or argv[1] not in TIERS:
-        print("tiers: 段は fast か heavy（使い方: python3 tests/tiers.py <段> [unittest の引数]）", file=sys.stderr)
+    if len(argv) < 2 or argv[1] not in (*TIERS, "all"):
+        print("tiers: 段は fast・heavy・all（使い方: python3 tests/tiers.py <段> [unittest の引数]）", file=sys.stderr)
         return 2
-    bad = problems()
-    if bad:
-        print("tiers: " + " / ".join(bad), file=sys.stderr)
-        return 2
+    if argv[1] == "all":
+        loader = unittest.TestLoader()
+    else:
+        bad = problems()
+        if bad:
+            print("tiers: " + " / ".join(bad), file=sys.stderr)
+            return 2
+        loader = TierLoader(TIERS[argv[1]])
     # `python3 -m unittest` と同じ sys.path の頭（作業フォルダ）にする。tests/ は discover が頭に足す
     sys.path[0] = os.getcwd()
-    unittest.main(module=None, testLoader=TierLoader(TIERS[argv[1]]),
+    unittest.main(module=None, testLoader=loader, testRunner=SkipGateRunner,
                   argv=["python -m unittest", "discover", "-s", str(TESTS), "-p", PATTERN, *argv[2:]])
     return 0  # unittest.main が終了コードで抜けるので、ここには来ない
 

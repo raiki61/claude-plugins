@@ -64,6 +64,18 @@ def in_claude_tmp(path):
     return r.returncode == 2
 
 
+def claude_tmp_dir(prefix):
+    """Claude Code の一時フォルダの綴り（/private/tmp/claude-・/tmp/claude-）のうち、この OS で作れる方に試しのフォルダを作る。
+    /private/tmp は macOS にしか無い"""
+    errs = []
+    for base in ("/private/tmp", "/tmp"):
+        try:
+            return tempfile.mkdtemp(prefix=prefix, dir=base)
+        except OSError as e:
+            errs.append(f"{base}: {e}")
+    raise unittest.SkipTest(f"SKIP claude-tmp: Claude Code の一時フォルダの下に試しのフォルダを作れない（{'; '.join(errs)}）")
+
+
 def setUpModule():
     """試験の一時フォルダ（TemporaryDirectory() の既定と、子へ渡す TMPDIR）を Claude Code の一時フォルダの外に置く。"""
     _saved["tempdir"] = tempfile.tempdir
@@ -604,10 +616,7 @@ class TestDevShell(unittest.TestCase):
             self.assert_guarded(r, "/private/tmp/claude-works-guard-test-0")
 
     def test_archon_sh_refuses_cwd_in_claude_tmp(self):
-        try:
-            cwd = tempfile.mkdtemp(prefix="claude-works-guard-", dir="/private/tmp")
-        except OSError as e:
-            self.skipTest(f"/private/tmp に試しのフォルダを作れない（{e}）")
+        cwd = claude_tmp_dir("claude-works-guard-")
         try:
             with tempfile.TemporaryDirectory() as tmp_str:
                 r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True, encoding="utf-8", cwd=cwd,
@@ -994,13 +1003,13 @@ class TestDevShell(unittest.TestCase):
     def test_positive_path_reaches_shell_when_tmpdir_in_claude_tmp(self):
         """TMPDIR が Claude Code の一時フォルダの下でも、正の道の試験が guard.sh に拒まれず緑になる。"""
         origin = _saved["origin"]
-        try:
-            if in_claude_tmp(origin):
+        if in_claude_tmp(origin):
+            try:
                 hole = tempfile.mkdtemp(prefix="works-tmpdir-", dir=origin)
-            else:
-                hole = tempfile.mkdtemp(prefix="claude-works-tmpdir-", dir="/private/tmp")
-        except OSError as e:
-            self.skipTest(f"Claude Code の一時フォルダの下に試しのフォルダを作れない（{e}）")
+            except OSError as e:
+                self.skipTest(f"SKIP claude-tmp: Claude Code の一時フォルダの下に試しのフォルダを作れない（{e}）")
+        else:
+            hole = claude_tmp_dir("claude-works-tmpdir-")
         try:
             self.assertTrue(in_claude_tmp(hole), hole)
             r = subprocess.run(

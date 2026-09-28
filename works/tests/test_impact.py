@@ -93,7 +93,7 @@ class CopyCase(unittest.TestCase):
         commit = led.commit
         r = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{commit}^{{commit}}"], capture_output=True)
         if r.returncode != 0:
-            self.skipTest(f"このリポジトリから {commit} を引けない（浅い clone）")
+            self.skipTest(f"SKIP git-history: このリポジトリから {commit} を引けない（浅い clone）")
         self.assertEqual(sorted(led.deviations), ["changemap.py"])
         for rel, src_rel in led.rows:
             src = subprocess.run(["git", "-C", str(ROOT), "show", f"{commit}:{src_rel}"],

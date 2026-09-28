@@ -122,7 +122,7 @@ class TestPlace(unittest.TestCase):
         stop.chmod(0)
         self.addCleanup(stop.chmod, 0o644)
         if os.access(stop, os.R_OK):   # root で回すと読めてしまう
-            self.skipTest("権限を外しても読める（root）")
+            self.skipTest("SKIP read-permission: 権限を外しても読める（root）")
         got = halt.seen(self.board)
         self.assertTrue(got["unreadable"])
         self.assertIn("PermissionError", got["reason"])

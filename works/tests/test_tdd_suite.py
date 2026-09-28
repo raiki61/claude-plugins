@@ -67,7 +67,7 @@ class OtherCase(unittest.TestCase):
 '''
 
 
-@unittest.skipIf(shutil.which("uv") is None, "uv が無い（殻は uv run で pytest を起こす）")
+@unittest.skipIf(shutil.which("uv") is None, "SKIP uv: uv が無い（殻は uv run で pytest を起こす）")
 class TddSuiteCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -164,7 +164,7 @@ class TddSuiteStaticCase(unittest.TestCase):
     def test_script_is_posix_sh(self):
         dash = shutil.which("dash")
         if dash is None:
-            self.skipTest("dash が無い")
+            self.skipTest("SKIP dash: dash が無い")
         self.assertEqual(subprocess.run([dash, "-n", str(SUITE_SH)], capture_output=True).returncode, 0)
 
 

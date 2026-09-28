@@ -310,6 +310,8 @@ class TestTestsBlock(RepoCase):
 
     def test_stop_stops_the_test_tree(self):
         # run を止めた（節のスクリプトが SIGTERM を受けた）ら、テストが背景に起こした孫まで止まり、後から作業ツリーに書かない
+        if not hasattr(os, "killpg"):
+            self.skipTest("SKIP process-group: この OS の os に killpg が無い（孫をプロセスのグループで見る）")
         pidf, marker = self.artifacts / "pgid", self.repo / "late.txt"
         cmd = f"echo $$ > {pidf}; sleep 300 & (sleep 3; echo late > {marker}) & wait"
         p = subprocess.Popen([sys.executable, str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo),

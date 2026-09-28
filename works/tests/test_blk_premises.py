@@ -142,7 +142,7 @@ class YamlCase(unittest.TestCase):
         src = subprocess.run(["git", "-C", str(ROOT), "show", "a1202d0:graphloops/prompts/review-loop/p0.premises.md"],
                              capture_output=True, text=True, encoding="utf-8")
         if src.returncode != 0:
-            self.skipTest("このリポジトリから a1202d0 を引けない（浅い clone か、graphloops の履歴を持たない）")
+            self.skipTest("SKIP git-history: このリポジトリから a1202d0 を引けない（浅い clone か、graphloops の履歴を持たない）")
         body = [ln for ln in src.stdout.splitlines() if ln.strip() and "{{" not in ln]
         self.assertTrue(body)
         for ln in body:

@@ -54,7 +54,7 @@ UV_ENV_DROP = ("VIRTUAL_ENV", "UV", "UV_RUN_RECURSION_DEPTH", "UV_NO_PROJECT", "
                "UV_CONFIG_FILE")
 
 
-@unittest.skipIf(shutil.which("uv") is None, "uv が無い（Archon の script の節と同じ形で回せない）")
+@unittest.skipIf(shutil.which("uv") is None, "SKIP uv: uv が無い（Archon の script の節と同じ形で回せない）")
 class UvRunCase(unittest.TestCase):
     """Archon と同じ形（`uv run <絶対パス>`、cwd は対象）で、pyproject.toml を持つ対象を汚さないこと。
     塊は対象の project（依存・.venv・uv.lock）を拾わせないだけで、対象の uv の設定（[tool.uv]・uv.toml）は読む（既知の限界）"""
@@ -67,7 +67,7 @@ class UvRunCase(unittest.TestCase):
         found = subprocess.run([self.uv, "python", "find", ">=3.10"], env=self.env, capture_output=True, text=True, encoding="utf-8",
                                timeout=60)
         if found.returncode != 0:
-            self.skipTest("uv が 3.10 以上の python を手元に見つけられない（網に出ずには塊の requires-python を満たせない）: "
+            self.skipTest("SKIP uv: uv が 3.10 以上の python を手元に見つけられない（網に出ずには塊の requires-python を満たせない）: "
                           + " ".join(found.stderr.split()))
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)

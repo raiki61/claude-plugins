@@ -37,7 +37,7 @@ from engine.util import Reject  # noqa: E402
 GRAPH = json.loads(GRAPH_PATH.read_text(encoding="utf-8"))
 TABLE = NodeTable.everything(GRAPH, GRAPH_SHA)
 FULL = os.environ.get("WORKS_BOARD_REPLAY") == "full"
-full_only = unittest.skipUnless(FULL, "通しの再生の全部の Run は WORKS_BOARD_REPLAY=full の時だけ（既定は速い見本。test_replay_sample）")
+full_only = unittest.skipUnless(FULL, "SKIP board-replay-full: 通しの再生の全部の Run は WORKS_BOARD_REPLAY=full の時だけ（既定は速い見本。test_replay_sample）")
 SAMPLE = (("test_rejudge_path", "1"), ("test_rejections", "2"), ("test_human_gate", "3"))
 
 

@@ -160,7 +160,7 @@ class MarkerCase(unittest.TestCase):
         src = subprocess.run(["git", "-C", str(ROOT), "show", "wip/works-a2:works/.shared/core/node_marker.py"],
                              capture_output=True, text=True, encoding="utf-8")
         if src.returncode != 0:
-            self.skipTest("wip/works-a2 を引けない: " + src.stderr.strip()[-200:])
+            self.skipTest("SKIP local-branch: wip/works-a2 を引けない: " + src.stderr.strip()[-200:])
         ns = {}
         exec(compile(src.stdout, "node_marker.py", "exec"), ns)
         cases = ["works-node: judge", "works-node: rejudge continue=judge", "works-node: pr-check no-post",
@@ -600,7 +600,7 @@ class AdapterCase(unittest.TestCase):
         src = subprocess.run(["git", "-C", str(ROOT), "show", "a1202d0:graphloops/hooks/record-read.py"],
                              capture_output=True, text=True, encoding="utf-8")
         if src.returncode != 0:
-            self.skipTest("a1202d0 を引けない（浅い clone か、graphloops の履歴を持たない）: " + src.stderr.strip()[-200:])
+            self.skipTest("SKIP git-history: a1202d0 を引けない（浅い clone か、graphloops の履歴を持たない）: " + src.stderr.strip()[-200:])
 
         def outside_boards(text):
             head, rest = text.split("\ndef boards(", 1)
@@ -871,6 +871,11 @@ def gone(pid):
 class StopCase(unittest.TestCase):
     """木ごと止める（試し P15）: 偽の claude は本物の Bash の道具と同じく、孫を新しいセッションで起こし、SIGTERM を
     受けると孫へ TERM だけ送って即抜ける。孫は SIGTERM を無視する。claude のグループへ送るだけの包みでは孫が残る"""
+
+    @classmethod
+    def setUpClass(cls):
+        if not hasattr(os, "killpg"):
+            raise unittest.SkipTest("SKIP process-group: この OS の os に killpg が無い（包みは孫をプロセスのグループで止める）")
 
     def setUp(self):
         self.e = Env(self)

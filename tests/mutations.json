@@ -6433,8 +6433,8 @@
    "title": "CI の突合: tests/run.sh の段が見送りを失敗に数えなければ赤",
    "file": ".github/workflows/test.yml",
    "suite": "root",
-   "old": "          FAIL_ON_SKIP: \"1\"",
-   "new": "          FAIL_ON_SKIP: \"0\"",
+   "old": "/gl-shard\n          FAIL_ON_SKIP: \"1\"",
+   "new": "/gl-shard\n          FAIL_ON_SKIP: \"0\"",
    "expect": "CI の設定が shellcheck を回す"
   },
   {
@@ -6642,6 +6642,96 @@
    "suite": "root",
    "old": "        os: *os\n",
    "new": "        os: [ubuntu-latest, macos-latest, windows-latest]\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW1",
+   "title": "CI の突合: works の job が消えれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "  works:\n    strategy:\n",
+   "new": "  works-off:\n    strategy:\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW2",
+   "title": "CI の突合: works の job が浅い履歴で取れば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "      - uses: actions/checkout@v5\n        with:\n          fetch-depth: 0\n      - uses: actions/setup-python@v5\n        id: python\n",
+   "new": "      - uses: actions/checkout@v5\n      - uses: actions/setup-python@v5\n        id: python\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW3",
+   "title": "CI の突合: works の全段が見送りを失敗に数えなければ赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          FAIL_ON_SKIP: \"1\"\n        run: sh works/tests/run.sh",
+   "new": "          FAIL_ON_SKIP: \"0\"\n        run: sh works/tests/run.sh",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW4",
+   "title": "CI の突合: works の job が共有の許しの一覧を引けば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "        os: [macos-latest]\n",
+   "new": "        os: [macos-latest]\n        include: *skip_allow\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW5",
+   "title": "CI の突合: works の job が uv の版を固定しなければ赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "      - uses: astral-sh/setup-uv@v10.2.0\n        with:\n          version: \"0.11.29\"\n",
+   "new": "      - uses: astral-sh/setup-uv@v10.2.0\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW6",
+   "title": "CI の突合: works の job の uv が起こす python を決めなければ赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          UV_PYTHON: ${{ steps.python.outputs.python-path }}\n",
+   "new": "",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW7",
+   "title": "CI の突合: works の依存の pytest が pytest の job と割れれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "pyyaml==6.0.3 pytest==9.1.1",
+   "new": "pyyaml==6.0.3 pytest==9.0.0",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW8",
+   "title": "CI の突合: works の job が段を絞れば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "        run: sh works/tests/run.sh",
+   "new": "        run: WORKS_TESTS=fast sh works/tests/run.sh",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW9",
+   "title": "CI の突合: works の job の os が test の一覧の外なら赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "        os: [macos-latest]\n",
+   "new": "        os: [macos-13]\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW10",
+   "title": "CI の突合: works の job の uv の版が mutation.yml と割れれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          version: \"0.11.29\"\n",
+   "new": "          version: \"0.11.28\"\n",
    "expect": "CI の設定が shellcheck を回す"
   },
   {

@@ -209,7 +209,7 @@ nodes:
 4. **筋書き**: Archon の `fixtures/*.stubs.yaml`（AI の返答を差し替えた筋書き）で `--dry-run`。ブロックごとと、ライン全体。お金を使わない。拒否 → 出し直し → 通過の筋書きを含める。
 5. **実走**: 試作と同じくバグを仕込んだ使い捨てのリポジトリで回す（1 回約 0.5 ドル）。節目にだけ手で撃つ。
 
-- 1〜2 は `works/tests/run.sh` 1 本で回す。3〜4 は `works/dev/check.sh`（使い捨ての対象を作り、works の工程を 1 本ずつ `validate` し、`workflow test works` で筋書きを全部回す。認証は読まない）。このリポジトリの CI（`.github/workflows/test.yml`）へのつなぎ込みは共有のファイルを触るので、持ち主に聞いてから。
+- 1〜2 は `works/tests/run.sh` 1 本で回す。3〜4 は `works/dev/check.sh`（使い捨ての対象を作り、works の工程を 1 本ずつ `validate` し、`workflow test works` で筋書きを全部回す。認証は読まない）。このリポジトリの CI（`.github/workflows/test.yml`）では job `works` が 1〜2 の全段を push・PR で回す（2026-09-29 に持ち主が通した。今は macOS だけで、ubuntu と windows は試験の側の macOS／POSIX の前提を直してから足す）。
 - テストは `nice -n 19` で前景で回す。プロセスを止めるときは pid と cwd を確かめてから止める（`pkill -f` の広い形を使わない）。
 
 ## 11. 配布と版

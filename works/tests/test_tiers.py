@@ -3,7 +3,7 @@
 - 段の一覧: fast と heavy は重ならず、合わせると discover が拾う全部のモジュール。どのモジュールも明示で
   どちらかに書く（書き忘れた新しいモジュールは名前を挙げて赤。重いテストが黙って fast に入らない）
 - 段の読み込み（TierLoader）: 段ごとの discover のテストを合わせると、ちょうど全部の discover のテスト
-- run.sh: 既定は全部を従来の discover で、fast・heavy は tiers.py で回し、unittest の引数（-k など）をそのまま渡す。
+- run.sh: 既定は全部を tiers.py all で、fast・heavy は tiers.py で回し、unittest の引数（-k など）をそのまま渡す。
   知らない値は 1 行で終了コード 2。全部と heavy は枠の台本（WORKS_TESTSLOT）を TESTSLOT_N=4 で通し、fast は通さない。
   枠の置き場は台本の約束 TESTSLOT_DIR で、run.sh はそこを試し・祖先を探し・台本へ渡す（試験は一時フォルダに向ける）。
   台本が無い・枠の置き場に書けないときは 1 行出して枠なしで回し、祖先が枠を持っていれば取り直さない。
@@ -13,9 +13,11 @@
 """
 import ast
 import contextlib
+import importlib.util
 import io
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -199,13 +201,14 @@ class RunShCase(unittest.TestCase):
         self.assertTrue(calls[0].startswith(f"slot N=4 uv {UV_ARGS} tests/tiers.py heavy -k fix"), calls[0])
         self.assert_uv(calls[1], "tests/tiers.py heavy -k fix")
 
-    def test_default_is_full_discover_through_slot(self):
+    def test_default_is_all_tier_through_slot(self):
+        # 全部も段を選ぶ時と同じ入口（tiers.py）を通し、見送りの門（SkipGateRunner）に掛ける
         r = self.run_sh("-k", "x", TESTSLOT_N="9")
         self.assertEqual(r.returncode, 0, r.stderr)
         calls = self.calls()
         self.assertEqual(len(calls), 2, calls)
         self.assertTrue(calls[0].startswith("slot N=4 "), calls[0])   # 呼ぶ側の TESTSLOT_N に関わらず 4
-        self.assert_uv(calls[1], "-m unittest discover -s tests -p test_*.py -k x")
+        self.assert_uv(calls[1], "tests/tiers.py all -k x")
 
     def test_exit_code_passes_through(self):
         for tier in ("", "fast", "heavy"):
@@ -221,8 +224,10 @@ class RunShCase(unittest.TestCase):
         self.assertEqual(len(calls), 1, calls)
         self.assert_uv(calls[0], "tests/tiers.py heavy")
 
-    @unittest.skipIf(os.geteuid() == 0, "root は書けない置き場を作れない")
-    def test_unwritable_slot_dir_runs_without_slot(self):
+    def test_unwritable_slot_dir_runs_all_tier_without_slot(self):
+        geteuid = getattr(os, "geteuid", None)
+        if geteuid is None or geteuid() == 0:
+            self.skipTest("SKIP read-permission: root か geteuid の無い OS では書けない置き場を作れない")
         slots = self.slots
         slots.mkdir()
         slots.chmod(0o500)
@@ -233,7 +238,7 @@ class RunShCase(unittest.TestCase):
         self.assertIn("書けない", r.stderr)
         calls = self.calls()
         self.assertEqual(len(calls), 1, calls)
-        self.assert_uv(calls[0], "-m unittest discover -s tests -p test_*.py")
+        self.assert_uv(calls[0], "tests/tiers.py all")
         self.assertEqual(list(slots.iterdir()), [])   # 試しの跡を残さない
 
     def test_under_slot_holder_does_not_take_another(self):
@@ -250,7 +255,7 @@ class RunShCase(unittest.TestCase):
     def test_script_is_posix_sh(self):
         dash = shutil.which("dash")
         if dash is None:
-            self.skipTest("dash が無い")
+            self.skipTest("SKIP dash: dash が無い")
         self.assertEqual(subprocess.run([dash, "-n", str(RUN_SH)], capture_output=True).returncode, 0)
 
 
@@ -306,6 +311,210 @@ class HermeticCase(unittest.TestCase):
             pub = hermetic.alias(self, d)
             self.assertNotEqual(pub, str(d))
             self.assertEqual(os.path.realpath(pub), str(d))
+
+
+SKIP_CALLS = {"skipTest": 0, "skip": 0, "SkipTest": 0, "skipIf": 1, "skipUnless": 1}
+
+
+def reason_head(node):
+    """見送りの理由の式の頭の文字列（組み立てた理由は左端の定数。読めなければ None）"""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr) and node.values:
+        return reason_head(node.values[0])
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return reason_head(node.left)
+    return None
+
+
+# 門を試すために名前の無い見送りをわざと起こす見本（この中は見ない）
+SKIP_FIXTURES = {("test_tiers.py", "skipping_suite"), ("test_tiers.py", "test_class_level_skip_is_counted")}
+
+
+def walk_outside_fixtures(fname, tree):
+    todo = [tree]
+    while todo:
+        node = todo.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (fname, node.name) in SKIP_FIXTURES:
+            continue
+        yield node
+        todo.extend(ast.iter_child_nodes(node))
+
+
+class SkipNamesCase(unittest.TestCase):
+    """works の見送りは root の約束『SKIP <能力>: <理由>』で書く（SKIP_ALLOW で名前を許せるように）"""
+
+    def test_every_skip_reason_names_a_capability(self):
+        bad = []
+        seen = 0
+        for f in sorted(TESTS.glob("*.py")):
+            for node in walk_outside_fixtures(f.name, ast.parse(f.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                fn = node.func
+                name = fn.attr if isinstance(fn, ast.Attribute) else fn.id if isinstance(fn, ast.Name) else None
+                if name not in SKIP_CALLS:
+                    continue
+                if name == "skip" and not (isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name)
+                                           and fn.value.id == "unittest"):
+                    continue   # 盤面の skip など unittest の外の同じ名前
+                seen += 1
+                i = SKIP_CALLS[name]
+                head = reason_head(node.args[i]) if len(node.args) > i else None
+                if head is None or not tiers.SKIP_DECL.match(head):
+                    bad.append(f"{f.name}:{node.lineno} {head!r}")
+        self.assertGreater(seen, 0)   # 引き間違いで空を見て緑にならないように
+        self.assertEqual(bad, [], "『SKIP <能力>: 』で始まらない見送りの理由")
+
+
+def skipping_suite():
+    class Skips(unittest.TestCase):
+        def test_named(self):
+            self.skipTest("SKIP dash: dash が無い")
+
+        def test_other(self):
+            self.skipTest("SKIP uv: uv が無い")
+
+        def test_unnamed(self):
+            self.skipTest("名前の無い見送り")
+
+        def test_pass(self):
+            pass
+
+    return unittest.defaultTestLoader.loadTestsFromTestCase(Skips)
+
+
+class SkipGateCase(unittest.TestCase):
+    """全段の終わりの見送りの門（tiers.SkipGateRunner）: FAIL_ON_SKIP=1 のとき、SKIP_ALLOW に無い能力と名前の無い見送りを失敗に数える"""
+
+    def run_gate(self, suite, **env):
+        runner_cls = getattr(tiers, "SkipGateRunner", None)
+        self.assertIsNotNone(runner_cls, "tiers に見送りの門 SkipGateRunner が無い")
+        out = io.StringIO()
+        clean = {k: v for k, v in os.environ.items() if k not in ("FAIL_ON_SKIP", "SKIP_ALLOW")}
+        clean.update(env)
+        with mock.patch.dict(os.environ, clean, clear=True):
+            result = runner_cls(stream=out, verbosity=0).run(suite)
+        return result, out.getvalue()
+
+    def test_unnamed_skip_fails_when_fail_on_skip(self):
+        result, out = self.run_gate(skipping_suite(), FAIL_ON_SKIP="1", SKIP_ALLOW="dash uv")
+        self.assertFalse(result.wasSuccessful(), out)
+        self.assertIn("名前の無い見送り", out)
+
+    def test_skip_not_in_allow_fails_when_fail_on_skip(self):
+        suite = unittest.TestSuite(t for t in skipping_suite() if not t.id().endswith("test_unnamed"))
+        result, out = self.run_gate(suite, FAIL_ON_SKIP="1", SKIP_ALLOW="dash")
+        self.assertFalse(result.wasSuccessful(), out)
+        self.assertIn("SKIP uv", out)
+
+    def test_allowed_skips_pass_and_are_listed(self):
+        suite = unittest.TestSuite(t for t in skipping_suite() if not t.id().endswith("test_unnamed"))
+        for allow in ("dash uv", "dash,uv"):
+            with self.subTest(allow=allow):
+                result, out = self.run_gate(suite, FAIL_ON_SKIP="1", SKIP_ALLOW=allow)
+                self.assertTrue(result.wasSuccessful(), out)
+                self.assertIn("SKIP dash", out)
+                self.assertIn("SKIP uv", out)
+
+    def test_without_fail_on_skip_lists_but_passes(self):
+        result, out = self.run_gate(skipping_suite())
+        self.assertTrue(result.wasSuccessful(), out)
+        self.assertIn("名前の無い見送り", out)
+
+    def test_class_level_skip_is_counted(self):
+        class Whole(unittest.TestCase):
+            @classmethod
+            def setUpClass(cls):
+                raise unittest.SkipTest("クラスごとの名前の無い見送り")
+
+            def test_x(self):
+                pass
+
+        suite = unittest.defaultTestLoader.loadTestsFromTestCase(Whole)
+        result, out = self.run_gate(unittest.TestSuite([suite]), FAIL_ON_SKIP="1", SKIP_ALLOW="dash")
+        self.assertFalse(result.wasSuccessful(), out)
+
+    def test_main_runs_tiers_through_gate_including_all(self):
+        runner_cls = getattr(tiers, "SkipGateRunner", None)
+        self.assertIsNotNone(runner_cls, "tiers に見送りの門 SkipGateRunner が無い")
+        for tier in ("fast", "all"):
+            with self.subTest(tier=tier), mock.patch.object(tiers.unittest, "main") as um, \
+                    mock.patch.object(tiers.sys, "path", list(tiers.sys.path)):
+                self.assertEqual(tiers.main(["tiers.py", tier, "-k", "x"]), 0)
+                self.assertEqual(um.call_count, 1)
+                self.assertIs(um.call_args.kwargs.get("testRunner"), runner_cls)
+
+
+# Windows の os に無い POSIX のプロセスの API（Python の公式文書で Availability: Unix）
+POSIX_ONLY = ("geteuid", "killpg", "setsid", "getpgid", "getsid")
+
+
+@contextlib.contextmanager
+def without_posix_process_api():
+    """os から POSIX だけの API を外した間（Windows の os を模す）"""
+    saved = {n: getattr(os, n) for n in POSIX_ONLY if hasattr(os, n)}
+    for n in saved:
+        delattr(os, n)
+    try:
+        yield
+    finally:
+        for n, f in saved.items():
+            setattr(os, n, f)
+
+
+def load_fresh(name):
+    """tests/<name>.py を別の名前で読み込み直す（sys.modules の物を使わずに、モジュールの頭とクラスの定義を今の os で評価する）"""
+    spec = importlib.util.spec_from_file_location(f"_portability_{name}", TESTS / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class PortabilityCase(unittest.TestCase):
+    """macOS／POSIX の前提が無い OS（Linux・Windows）で、works の試験が読み込みで落ちず、できない物は能力の名前で見送る。
+    段の全部を 3 OS で回す前に、手元の macOS で os の API と /private/tmp の綴りを外して確かめる（読み込むだけで、木は起こさない）"""
+
+    def test_modules_load_without_posix_process_api(self):
+        bad = []
+        with without_posix_process_api():
+            for name in ("test_tiers", "test_tree_run", "test_adapter", "test_blk_tests_delta"):
+                try:
+                    load_fresh(name)
+                except Exception as e:   # noqa: BLE001 — 読み込みの失敗を全部集めて名指す
+                    bad.append(f"{name}: {type(e).__name__}: {e}")
+        self.assertEqual(bad, [], "POSIX のプロセスの API が無いと読み込みで落ちる")
+
+    def test_tree_run_cases_skip_as_process_group_without_killpg(self):
+        with without_posix_process_api():
+            cls = load_fresh("test_tree_run").TreeRunCase
+            if getattr(cls, "__unittest_skip__", False):
+                reason = cls.__unittest_skip_why__
+            else:
+                try:
+                    cls.setUpClass()
+                except unittest.SkipTest as e:
+                    reason = str(e)
+                else:
+                    self.fail("os.killpg が無くても TreeRunCase が見送られない（木を起こして落ちる）")
+        self.assertRegex(reason, r"^SKIP process-group: ")
+
+    def test_cwd_in_claude_tmp_does_not_skip_unnamed_without_private_tmp(self):
+        real = tempfile.mkdtemp
+
+        def mkdtemp(*args, **kwargs):
+            d = kwargs.get("dir", args[2] if len(args) > 2 else None)
+            if d is not None and str(d).startswith("/private/"):
+                raise FileNotFoundError(2, "No such file or directory", str(d))
+            return real(*args, **kwargs)
+
+        test_dev = load_fresh("test_dev")
+        result = unittest.TestResult()
+        with mock.patch.object(tempfile, "mkdtemp", mkdtemp):
+            test_dev.TestDevShell("test_archon_sh_refuses_cwd_in_claude_tmp").run(result)
+        self.assertEqual((result.errors, result.failures), ([], []))
+        for _, reason in result.skipped:
+            self.assertRegex(reason, tiers.SKIP_DECL)
 
 
 if __name__ == "__main__":
