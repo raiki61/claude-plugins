@@ -8,7 +8,6 @@
   手直しが当たらない・import と graph の $ref がたどる物が台帳に無い、のどちらかなら何も書かずに 1
 """
 import json
-import os
 import pathlib
 import shutil
 import subprocess
@@ -16,6 +15,7 @@ import sys
 import tempfile
 import unittest
 
+import hermetic
 from gitkit import git
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -126,7 +126,7 @@ def snapshot(d):
 
 def run(works, *args):
     r = subprocess.run([sys.executable, str(TOOL), "--works", str(works), "--upstream", str(UP), *args],
-                       capture_output=True, text=True, encoding="utf-8", env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                       capture_output=True, text=True, encoding="utf-8", env=hermetic.child_env(PYTHONDONTWRITEBYTECODE="1"))
     return r.returncode, r.stdout + r.stderr
 
 
