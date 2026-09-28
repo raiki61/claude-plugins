@@ -104,5 +104,46 @@ class MarkerCase(unittest.TestCase):
         self.assertIsNone(from_argv(["claude", "--json-schema", json.dumps(SCHEMA)]))
 
 
+class EngineChildCase(unittest.TestCase):
+    """印のある起動の子（役の claude。その Bash の子へ継がれる）の env に、本流の engine の子の目印（role_run.ENGINE_CHILD_ENV
+    ＝1）を立てる。対象の重い一式（tests/run.sh・変異の撃ち）はこれを見て AI の役から拒む。名は読む側が既に読む本流の名"""
+
+    REPO = ROOT.parent
+    TOOLS = "Read,Grep,Glob,Edit,Write,Bash"
+
+    def setUp(self):
+        import re
+        import tempfile
+        import adapter
+        self.adapter = adapter
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = pathlib.Path(tmp.name).resolve()
+        (self.tmp / "wt").mkdir()
+        role_run = self.REPO / "graphloops" / "engine" / "role_run.py"
+        found = re.search(r'^ENGINE_CHILD_ENV = "([A-Z_]+)"', role_run.read_text(encoding="utf-8"), re.M) \
+            if role_run.is_file() else None
+        self.name = found.group(1) if found else "GRAPHLOOPS_ENGINE_CHILD"
+
+    def plan(self, desc):
+        schema = json.dumps(mark(SCHEMA, *desc.split(" ", 1)[:1],
+                                 flags=tuple(desc.split(" ")[1:])), ensure_ascii=False)
+        argv = ["--output-format", "stream-json", "--json-schema", schema, "--tools", self.TOOLS,
+                "--setting-sources=project,user"]
+        return self.adapter.plan(argv, self.tmp / "wt", self.tmp / "home", "true", env={"PATH": "/usr/bin:/bin"})
+
+    def test_marked_launch_child_gets_engine_child_marker(self):
+        p = self.plan("fix")
+        self.assertEqual(p.mode, "merged", p.why)
+        self.assertEqual((p.env or {}).get(self.name), "1")
+
+    def test_no_post_env_keeps_engine_child_marker(self):
+        p = self.plan("pr-check no-post")
+        self.assertEqual(p.mode, "merged", p.why)
+        env = p.env or {}
+        self.assertIn("WORKS_GH", env, "no-post の口は残る")
+        self.assertEqual(env.get(self.name), "1")
+
+
 if __name__ == "__main__":
     unittest.main()

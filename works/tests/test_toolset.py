@@ -642,6 +642,81 @@ class CliCase(Base):
                 self.assertIn("toolset.py", r.stderr)
 
 
+class RepoDenyCase(unittest.TestCase):
+    """対象の持ち主の禁止: 役は settingSources: [user] とこの隔離した設定で起きるので、対象リポジトリの .claude/settings.json・
+    settings.local.json を読まない。包み（.shared/core/adapter.plan）は印のある起動で、役の cwd の worktree の根の 2 つの
+    ファイルの permissions.deny だけを --settings の permissions.deny に足す（本流 role_run.repo_deny と同じ読み方）。
+    読めない・形が違えば claude を起こさず、ファイルを名指しする（fail closed）"""
+
+    SANDBOX = '{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"failIfUnavailable":true}}'
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / ".shared" / "core"))
+        self.addCleanup(sys.path.remove, str(ROOT / ".shared" / "core"))
+        import adapter
+        self.adapter = adapter
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = pathlib.Path(tmp.name).resolve()
+        self.wt = self.tmp / "wt"
+        self.wt.mkdir()
+        subprocess.run(["git", "-C", str(self.wt), "init", "-q"], check=True)
+        (self.wt / ".claude").mkdir()
+        self.guarded = str(self.tmp / "board")
+
+    def write(self, name, doc):
+        (self.wt / ".claude" / name).write_text(doc if isinstance(doc, str) else json.dumps(doc), encoding="utf-8")
+
+    def plan(self, cwd=None):
+        schema = json.dumps({"type": "object", "description": "works-node: fix", "properties": {}})
+        argv = ["--output-format", "stream-json", "--json-schema", schema, "--tools", "Read,Edit,Bash",
+                "--setting-sources=project,user", "--settings", self.SANDBOX]
+        return self.adapter.plan(argv, cwd or self.wt, self.tmp / "home", "true", protected=lambda: [self.guarded],
+                                 env={"PATH": "/usr/bin:/bin"})
+
+    @staticmethod
+    def deny(p):
+        vals = [p.argv[i + 1] for i, a in enumerate(p.argv) if a == "--settings"]
+        return json.loads(vals[0])["permissions"]["deny"]
+
+    def test_both_files_deny_copied_beside_own_fences(self):
+        self.write("settings.json", {"permissions": {"deny": ["Bash(bash tests/run.sh:*)"], "allow": ["Bash(ls:*)"]}})
+        self.write("settings.local.json", {"permissions": {"deny": ["Bash(./tests/run.sh:*)"]}})
+        p = self.plan()
+        self.assertEqual(p.mode, "merged", p.why)
+        deny = self.deny(p)
+        self.assertIn("Bash(bash tests/run.sh:*)", deny)
+        self.assertIn("Bash(./tests/run.sh:*)", deny)
+        self.assertNotIn("Bash(ls:*)", deny)
+        for r in self.adapter.deny_rules([self.guarded]):
+            self.assertIn(r, deny, "包み自身の柵と並ぶ")
+
+    def test_read_from_worktree_root_when_cwd_is_below(self):
+        self.write("settings.json", {"permissions": {"deny": ["Bash(sh tests/run.sh:*)"]}})
+        (self.wt / "sub").mkdir()
+        p = self.plan(self.wt / "sub")
+        self.assertEqual(p.mode, "merged", p.why)
+        self.assertIn("Bash(sh tests/run.sh:*)", self.deny(p))
+
+    def test_broken_json_refused_naming_the_file(self):
+        for name in ("settings.json", "settings.local.json"):
+            with self.subTest(name):
+                for n in ("settings.json", "settings.local.json"):
+                    (self.wt / ".claude" / n).unlink(missing_ok=True)
+                self.write(name, "{")
+                p = self.plan()
+                self.assertEqual(p.mode, "refused")
+                self.assertIn(name, p.why or "")
+
+    def test_deny_not_a_string_list_refused(self):
+        for doc in ({"permissions": {"deny": "Bash(x)"}}, {"permissions": {"deny": [1]}}, {"permissions": []}, []):
+            with self.subTest(doc=doc):
+                self.write("settings.json", doc)
+                p = self.plan()
+                self.assertEqual(p.mode, "refused")
+                self.assertIn("settings.json", p.why or "")
+
+
 if __name__ == "__main__":
     unittest.main()
 

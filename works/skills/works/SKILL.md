@@ -75,6 +75,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [<対象リポジトリ>] <依頼の
 - ラインの入力 `policy_md`・`gates`・`thickness` は `WORKS_USE_POLICY_MD`・`WORKS_USE_GATES`・`WORKS_USE_THICKNESS` で渡す。
 - 無人で回すなら `WORKS_USE_UNATTENDED=1`: 起動の関所を越え、人が決める関所に着いたら止めて報告へ進める（関所に出た、能力を狭める・方針とぶつかる修正は通さない。関所に出ずに決め手で通る行は 3 節の `policy-gate` の項）。
 - 殻がすること: pack を利用の家（`WORKS_USE_HOME`。既定は `~/.local/state/works/use`）に置き、Archon をその家に隔離して起こす。AI の役はその家に組んだ選んだ物だけの Claude の設定を読み、あなたの `~/.claude` は読まない。対象の作業ツリーには何も書かない。
+- AI の役の子には `GRAPHLOOPS_ENGINE_CHILD=1` が立つ（役の Bash から起こすコマンドにも継がれる）。対象の重い一式（e2e・変異の撃ち）は、これを見て AI の役からの起動を拒める。名は graphloops の engine と同じにしてある。線の節が走らせる最後のテストには立たない。Claude の包みを通さない run（包み無し）でも立たない。
 - Archon がすること: 対象の `.git` に run の worktree と枝を足す（worktree は利用の家の下）。`origin` の fetch と、対象の枝を早送りするかは Archon の版に依る（v0.11.1 で測っていない）。
 - 最初に起動の関所（`launch`）で止まって戻り、run id・状態・run の worktree・次に打つ行（進める・待つ・取り消す・答える・止める・続ける）・報告の置き場を出す。
 

@@ -109,11 +109,23 @@ PASTE = frozenset(r for r, p in POSTURE.items() if p == "isolated")   # 指示�
 # p1.local_review のレンズ（graph の skills）のうち組み込みの skill（Archon の skills: が SDK に選ばせる）。agent のレンズ
 # （pr-review-toolkit:*）は Agent の道具で起こす。役はどれも settingSources: [user] で選んだ物だけの隔離した設定（dev/toolset.py）を
 # 読む。pr-review-toolkit は利用者が入れた物（許す一覧 .shared/borrow/borrow.json）から入る。レンズが起きなければ
-# その行は failed になり、material は awaiting_human になる（黙って clean にはならない）
+# その行は受け付けが拒んで同じ会話で起こし直させ、上限（GIVE_UP_AFTER 回）に届いた時だけ material は awaiting_human で人に渡る
+# （プラグインが隔離した設定に無い時は出し直さずにすぐ渡す。_lens_gap）
 SKILLS = {"local-review": ["code-review", "simplify", "security-review"]}
+SIMPLIFY_LENS = "/simplify"   # 指示書が持ち越しを許すレンズ（返答の simplify_carried）。本流 review-loop.py と同じ
 SETTING_SOURCES = dict.fromkeys(POSTURE, ("user",))
 
 GIVE_UP_AFTER = 3                        # 輪の max_iterations と同じ数（試験が YAML と突き合わせる）
+# 写しの指示書（書き換えない）は呼び出しの失敗を awaiting_human にせよと言い、受け付け（_lens_gap）はそれを必須のレンズで拒む
+LENS_RETRY_NOTE = ("## 必須のレンズの呼び出しの失敗（works の受け付けより。上の指示書の読み替え）\n\n"
+                   "上の『skill の呼び出し自体が失敗したら…material を awaiting_human にして理由を書け』は、`required` が false の"
+                   "レンズにだけ当てる。`required` が true のレンズの呼び出しが失敗したら、この回のうちに起こし直して "
+                   "`invoked: true` を書け。起こせないまま返すなら `failed` に理由を書き、material を awaiting_human にするな——"
+                   f"受け付けが拒んで同じ会話で起こし直させ、拒みが {GIVE_UP_AFTER} 回に届いた時と、レンズのプラグインが隔離した"
+                   "設定に無い時だけ人に渡す。\n\n"
+                   "上の『直前の周から対象差分にロジック変更が無いなら /simplify の再実行は持ち越してよい』は狭めて読め: "
+                   "`simplify_carried: true` を受けるのは、この周の頭に固めた版が前の周の頭の版と 1 ファイルも違わない周だけ。"
+                   "どれかのファイルが変わった周（ロジックでない変更でも）と 1 周目は `/simplify` を起こして `invoked: true` を書け。")
 STOP_BY = "works:material"
 FENCE_BY = "works:adapter"               # 包みの確かめが通らない時の止め札（blk-ci・線の境の節と同じ by）
 ADAPTER_MODES = ("", "optional")         # 入力 adapter の語（線の start の出口 adapter と同じ語）
@@ -311,6 +323,8 @@ def prep(board_dir, role: str, repo, purpose_file: str = "") -> dict:
                     f"（直した所だけを返すな）:\n\n```text\n{last[0]['reason']}\n```\n\n---\n\n" + text)
         if "Skill" in TOOLS[role]:
             text = text.rstrip("\n") + "\n\n---\n\n" + rolekit.skill_overlay()   # 借りたスキルを読める役だけに無人の読み替え
+        if nid == ROLES["local-review"]:
+            text = text.rstrip("\n") + "\n\n---\n\n" + LENS_RETRY_NOTE
         path = b.dir / "prompts" / f"r{b.round}" / (safe_name(nid) + ".md")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
@@ -325,13 +339,67 @@ def _rejects(b, nid: str) -> list:
     return [r for r in _read_json(b.work(REJECTS), []) if r.get("node") == nid]
 
 
-def _reject(b, nid: str, reason: str) -> dict:
+def _reject(b, nid: str, reason: str, give_up: bool = False) -> dict:
+    """拒みを積む。give_up が偽なら GIVE_UP_AFTER 回目で人に渡す（真なら上限を待たずに渡す）"""
     rows = _read_json(b.work(REJECTS), [])
     inst = b.rd["instances"].get(nid) or {}
     rows.append({"node": nid, "attempt": inst.get("attempts", 1), "at": now(), "reason": reason})
     _write_json(b.work(REJECTS), rows)
-    give_up = sum(1 for r in rows if r.get("node") == nid) >= GIVE_UP_AFTER
+    give_up = give_up or sum(1 for r in rows if r.get("node") == nid) >= GIVE_UP_AFTER
     return {"ok": False, "done": give_up, "give_up": give_up, "stopped": False, "reason": reason, "node": nid, "status": ""}
+
+
+def _simplify_carry_ok(b) -> bool:
+    """本流 graphloops/rules/review-loop.py の _simplify_carry_ok と同じ条件（前の周から 1 ファイルも変わっていない周で、
+    周の途中で撮り直していない）。写しの周の頭の節は本流の changed_since_prev_round を出さないので、写しが周ごとに残す
+    周の頭の版（loop_state.head_revs）の前の周と今の周の木を比べる。版が無い・git が引けなければ偽（起こし直させる）"""
+    if b.round < 2 or b.output_of_round("p1.worktree_after", b.round):
+        return False
+    revs = b.loop_state.get("head_revs") or {}
+    prev, cur = revs.get(str(b.round - 1)), revs.get(str(b.round))
+    trees = _util.git("rev-parse", f"{prev}^{{tree}}", f"{cur}^{{tree}}") if prev and cur else None
+    trees = (trees or "").split()
+    return len(trees) == 2 and trees[0] == trees[1]
+
+
+def _installed_plugins() -> set | None:
+    """役が読む隔離した設定（env の CLAUDE_CONFIG_DIR）に入っているプラグインの名。置き場・ファイルが読めなければ None（分からない）"""
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    doc = _read_json(pathlib.Path(cfg) / "plugins" / "installed_plugins.json") if cfg else None
+    plugins = doc.get("plugins") if isinstance(doc, dict) else None
+    return {k.split("@", 1)[0] for k in plugins} if isinstance(plugins, dict) else None
+
+
+def _lens_gap(b, nid: str, reply: dict) -> tuple[str, bool] | None:
+    """p1.local_review の返答が必須のレンズを起こしていない・material を awaiting_human にした時の (拒みの文, 出し直さないか)。
+    本流 0.23.0 の local_review_covers_lenses の engine の子の枝と同じ条件を、写し（0.21.0）の規則の前に当てる。レンズの
+    プラグインが隔離した設定に無い時は起こし直しても毎回落ちるので、出し直さずに人に渡す。条件付きのレンズだけの
+    呼び出しの失敗（必須のレンズは全部起きた返答の awaiting_human）は写しの規則のまま受ける"""
+    inst = next((i for i in reversed(list(b.rd["instances"].values())) if i.get("node") == nid and i.get("status") != "done"), None)
+    skills = (inst or {}).get("skills") or b.graph["nodes"][nid].get("skills") or []
+    rows = {r.get("skill"): r for r in reply.get("findings") or [] if isinstance(r, dict)}
+    carry_ok = _simplify_carry_ok(b)
+    carried = reply.get("simplify_carried") is True and carry_ok
+    missing = [e["skill"] for e in skills if e.get("required", True) and (rows.get(e["skill"]) or {}).get("invoked") is not True
+               and not (e["skill"] == SIMPLIFY_LENS and carried)]
+    if not missing:
+        return None
+    errs = [f"'{s}' は必須のレンズなのに invoked が true でない——必須のレンズを起こした行だけを受け付ける。/ で始まるレンズは Skill で、"
+            "<plugin>:<役> は定義の置き場を Read で読ませた汎用の子（Agent）で起こし直せ"
+            + ("（simplify_carried: true の持ち越しは、この周の頭の版が前の周の頭の版と 1 ファイルも違わない周だけ受ける。"
+               + ("この周は当たる——持ち越すなら simplify_carried: true を書け）" if carry_ok else "この周は当たらない）")
+               if s == SIMPLIFY_LENS else "")
+            for s in missing]
+    if _status(reply) == "awaiting_human":
+        errs.append("必須のレンズが起きていない返答は material を awaiting_human にできない——起こし直して invoked: true を書け"
+                    "（拒みが上限に届けば人に渡る）")
+    installed = _installed_plugins()
+    absent = sorted({s.split(":", 1)[0] for s in missing if ":" in s and not s.startswith("/")} - installed) \
+        if installed is not None else []
+    if absent:
+        errs.append(f"隔離した設定（{os.environ.get('CLAUDE_CONFIG_DIR')}）にプラグイン {'・'.join(absent)} が入っていない——"
+                    "起こし直しても毎回落ちるので出し直さずに人に渡す（dev/toolset.py で入れ直してから続ける）")
+    return "宣言したレンズと findings の行が合わない:\n" + "\n".join("  - " + e for e in errs), bool(absent)
 
 
 def _peers(b, nid: str) -> list:
@@ -378,6 +446,9 @@ def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
                    if peers else "")
             return _reject(b, nid, f"{READONLY_MOVED}素材集めの役は対象の作業ツリー・HEAD・枝・git が無視するファイルを"
                                    f"変えてはいけない（{'・'.join(moved)}）{who}")
+        gap = _lens_gap(b, nid, reply) if nid == ROLES["local-review"] else None
+        if gap:
+            return _reject(b, nid, *gap)
         try:
             b.done(nid, reply)
         except AnswerReject as e:

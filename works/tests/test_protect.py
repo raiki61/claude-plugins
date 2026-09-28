@@ -8,6 +8,7 @@ ASF の .factory/locks/floor.json に倣う: 工場（darkfactory の自分食�
 - 形の崩れた一覧（id の重なり・理由の無い行・絶対パス・.. ・空）は読み込みで拒む
 - 差分の確かめ（touched）は数える版からの変更・消した物・未追跡を拾い、行数と当たった行を返す。触っていなければ空
 """
+import hashlib
 import json
 import pathlib
 import subprocess
@@ -188,6 +189,74 @@ class TouchedCase(unittest.TestCase):
             (self.repo / "stats.py").write_text("x\n", encoding="utf-8")
             with mock.patch.object(protect, "MANIFEST", p):
                 self.assertEqual([r["id"] for r in protect.touched(self.repo, self.rev)], ["stats"])
+
+
+QUERY_RULE_FIRST = "検索語に対象の名前を載せるな"            # 塊の頭の行（judge.md の 16 行目）に在る字
+QUERY_RULE_LAST = "対象を既に預かっている所への問い合わせ"   # 塊の終わりの行（judge.md の 22 行目。6 つ目の下位の箇条）
+
+
+def query_rule_block() -> str:
+    """写しの agents/judge.md の検索語の規律の塊を、頭の行と終わりの行の字で縛って取る（adapter.query_rule の切り出しの
+    手続きを写さない——同じ手続きで作った期待値は、切り出しの範囲の誤りを捉えない）"""
+    lines = (CORE / "agents" / "judge.md").read_text(encoding="utf-8").splitlines()
+    start = next(i for i, ln in enumerate(lines) if QUERY_RULE_FIRST in ln)
+    last = next(i for i, ln in enumerate(lines) if QUERY_RULE_LAST in ln)
+    assert last - start == 6, (start, last)   # 頭の行と下位の箇条 6 つ（judge.md の 16〜22 行）
+    return "\n".join(lines[start:last + 1])
+
+
+class QueryRuleCase(unittest.TestCase):
+    """検索語の規律: 包み（adapter.plan）が印のある道具を持つ起動の system prompt に、写しの agents/judge.md の
+    『検索語に対象の名前を載せるな』の塊を字のまま重ね書きする（works の役は agents/*.md を読まないので、規律が役に届く道が
+    包みの 1 か所しか無い）"""
+
+    WEB = "Read,Grep,Glob,WebSearch,WebFetch"
+
+    def setUp(self):
+        import adapter
+        self.adapter = adapter
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = pathlib.Path(tmp.name).resolve()
+        (self.tmp / "wt").mkdir()
+        self.block = query_rule_block()
+
+    def plan(self, extra=()):
+        schema = json.dumps({"type": "object", "description": "works-node: judge", "properties": {}})
+        argv = ["--output-format", "stream-json", "--json-schema", schema, "--tools", self.WEB,
+                "--setting-sources=project,user", *extra]
+        return self.adapter.plan(argv, self.tmp / "wt", self.tmp / "home", "true", env={"PATH": "/usr/bin:/bin"})
+
+    @staticmethod
+    def values(argv, name):
+        return [argv[i + 1] for i, a in enumerate(argv) if a == name and i + 1 < len(argv)] + \
+            [a[len(name) + 1:] for a in argv if a.startswith(name + "=")]
+
+    def test_web_role_gets_the_rule_in_system_prompt(self):
+        p = self.plan()
+        self.assertEqual(p.mode, "merged", p.why)
+        vals = self.values(p.argv, "--append-system-prompt")
+        self.assertEqual(len(vals), 1, vals)
+        self.assertTrue(vals[0].endswith("\n" + self.block), vals[0][-80:])   # 塊の後ろに judge.md の他の行を運ばない
+
+    def test_sdk_append_kept_and_rule_joined(self):
+        p = self.plan(["--append-system-prompt", "SDK の本文"])
+        self.assertEqual(p.mode, "merged", p.why)
+        vals = self.values(p.argv, "--append-system-prompt")
+        self.assertEqual(len(vals), 1, "旗を 2 つにしない")
+        self.assertTrue(vals[0].startswith("SDK の本文"), vals[0][:40])
+        self.assertIn(self.block, vals[0])
+
+    def test_sdk_append_file_refused(self):
+        f = self.tmp / "sp.md"
+        f.write_text("x", encoding="utf-8")
+        p = self.plan(["--append-system-prompt-file", str(f)])
+        self.assertEqual(p.mode, "refused")
+
+    def test_fence_records_rule_digest(self):
+        p = self.plan()
+        want = hashlib.sha256(self.block.encode("utf-8")).hexdigest()[:16]
+        self.assertEqual((p.fence or {}).get("query_rule"), want)
 
 
 if __name__ == "__main__":

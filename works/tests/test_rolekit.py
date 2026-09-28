@@ -14,6 +14,7 @@ import io
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -306,6 +307,156 @@ class NoCopiesCase(unittest.TestCase):
                 if isinstance(n, ast.Call) and getattr(n.func, "id", getattr(n.func, "attr", "")) == "Renderer":
                     hits.append(f"{p.relative_to(ROOT)}: Renderer(")
         self.assertEqual(hits, [])
+
+
+LENSES = [{"skill": "/code-review", "required": True}, {"skill": "pr-review-toolkit:code-reviewer", "required": True},
+          {"skill": "/simplify", "required": True},
+          {"skill": "/security-review", "required": False, "applies_cond": "security_surface_touched"}]
+
+
+class MatBoard:
+    """material.take が触る欄だけを持つ盤面の偽物（節 p1.local_review が待っている周 1）。done は写しの規則の受け付け
+    （awaiting_human も必須のレンズの未起動も通す 0.21.0 の local_review_covers_lenses）の代わりに、受けた返答を積むだけ"""
+
+    def __init__(self, root: pathlib.Path):
+        self.dir = root / "board"
+        self.round = 1
+        self.graph = {"nodes": {"p1.local_review": {"skills": LENSES}}}
+        self.rd = {"instances": {"p1.local_review": {"node": "p1.local_review", "status": "pending", "attempts": 1,
+                                                     "skills": LENSES}}}
+        self.loop_state = {}
+        self.taken = []
+
+    def work(self, name):
+        p = self.dir / f"r{self.round}" / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def output_of_round(self, nid, rnd):
+        return None
+
+    def done(self, nid, reply):
+        self.taken.append((nid, reply))
+
+
+class LocalReviewRetryCase(Base):
+    """p1.local_review の受け付け: 必須のレンズを起こさなかった返答と material が awaiting_human の返答は、上限
+    （material.GIVE_UP_AFTER 回目）に届く前は拒み、同じ会話で起こし直させる（本流 0.23.0 の local_review_covers_lenses の
+    engine の子の枝。Step Functions の Retry と同じ形）。拒みが上限に届いた時だけ人に渡す。隔離した設定にレンズの
+    プラグインが無い（毎回落ちる環境の失敗）は出し直さずに名指しで人に渡す（人の関所の答え (6)）"""
+
+    def setUp(self):
+        super().setUp()
+        sys.path.insert(0, str(ROOT / "blk-material" / "lib"))
+        self.addCleanup(sys.path.remove, str(ROOT / "blk-material" / "lib"))
+        import material
+        self.material = material
+        self.b = MatBoard(self.tmp)
+        self.b.work(material.SNAPSHOT).write_text(json.dumps({k: None for k in material.TREE_KEYS}), encoding="utf-8")
+        for name, value in (("_locked", lambda *a, **k: contextlib.nullcontext()), ("_open", lambda *a, **k: self.b),
+                            ("_stopped", lambda b: None), ("_refuse_halted", lambda b: None),
+                            ("_waiting", lambda b, nid: None), ("tree_moved", lambda *a, **k: [])):
+            p = mock.patch.object(material, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def config(self, plugins):
+        cfg = self.tmp / "claude-config"
+        (cfg / "plugins").mkdir(parents=True, exist_ok=True)
+        (cfg / "plugins" / "installed_plugins.json").write_text(json.dumps(
+            {"version": 2, "plugins": {f"{p}@works-local": [{"scope": "user", "installPath": str(cfg / p), "version": "1"}]
+                                       for p in plugins}}), encoding="utf-8")
+        return str(cfg)
+
+    @staticmethod
+    def reply(skip=None, why="Agent の呼び出しが時間切れで落ちた", status="clean"):
+        rows = [{"skill": e["skill"], "items": [], "failed": "起こしたが所見なし（差分を見た）", "invoked": True} for e in LENSES]
+        for r in rows:
+            if r["skill"] == skip:
+                r.update(invoked=False, failed=why)
+        material = {"status": status, "checked": "差分を見た"}
+        if status == "awaiting_human":
+            material["reason"] = why
+        return {"material": material, "simplify_carried": False, "findings": rows}
+
+    def take(self, reply, cfg):
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": cfg}):
+            return self.material.take(self.b.dir, "local-review", reply, self.tmp / "repo", "optional")
+
+    def test_required_lens_not_invoked_rejected_for_retry(self):
+        out = self.take(self.reply(skip="pr-review-toolkit:code-reviewer"), self.config(["pr-review-toolkit", "coldwrite"]))
+        self.assertFalse(out["ok"], out)
+        self.assertFalse(out["done"], "上限の前は同じ会話で起こし直させる")
+        self.assertFalse(out["give_up"])
+        self.assertIn("pr-review-toolkit:code-reviewer", out["reason"])
+
+    def test_awaiting_human_rejected_before_limit(self):
+        out = self.take(self.reply(skip="/code-review", status="awaiting_human"), self.config(["pr-review-toolkit"]))
+        self.assertFalse(out["ok"], out)
+        self.assertFalse(out["done"])
+        self.assertIn("awaiting_human", out["reason"])
+
+    def test_gives_up_to_human_at_the_limit(self):
+        cfg = self.config(["pr-review-toolkit"])
+        outs = [self.take(self.reply(skip="/simplify"), cfg) for _ in range(self.material.GIVE_UP_AFTER)]
+        self.assertEqual([o["give_up"] for o in outs], [False] * (self.material.GIVE_UP_AFTER - 1) + [True], outs)
+        self.assertTrue(outs[-1]["done"])
+
+    def test_missing_plugin_goes_to_human_without_retry(self):
+        out = self.take(self.reply(skip="pr-review-toolkit:code-reviewer", why="pr-review-toolkit の agent が無い"),
+                        self.config(["coldwrite"]))
+        self.assertFalse(out["ok"], out)
+        self.assertTrue(out["done"], "毎回落ちる環境の失敗は出し直さない")
+        self.assertTrue(out["give_up"])
+        self.assertIn("pr-review-toolkit", out["reason"])
+
+    def carry_round(self, same: bool, claim: bool = True) -> dict:
+        """周 2 の /simplify の持ち越し。周の頭の版（写しの loop_state.head_revs）を本物の git の版で置き、前の周と木が
+        同じ（same）か 1 ファイル違うかを作って、持ち越しの返答（claim が偽なら simplify_carried の無い返答）を受け付けに通す"""
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*a):
+            return subprocess.run(["git", "-C", str(repo), *a], env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+        git("init", "-q")
+        (repo / "a.txt").write_text("1\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "r1")
+        r1 = git("rev-parse", "HEAD")
+        if not same:
+            (repo / "a.txt").write_text("2\n", encoding="utf-8")
+            git("add", "-A")
+        git("commit", "-q", "--allow-empty", "-m", "r2")   # 版の commit は周ごとに別（木だけが同じになりうる）
+        self.b.round = 2
+        self.b.loop_state = {"head_revs": {"1": r1, "2": git("rev-parse", "HEAD")}}
+        self.b.work(self.material.SNAPSHOT).write_text(json.dumps({k: None for k in self.material.TREE_KEYS}),
+                                                       encoding="utf-8")
+        reply = self.reply(skip="/simplify", why="持ち越し（前の周から変わっていない）")
+        if claim:
+            reply["simplify_carried"] = True
+        with mock.patch.object(self.material._util, "GIT_CWD", str(repo)):   # 本物の _open が入れる対象（ここは偽の _open）
+            return self.take(reply, self.config(["pr-review-toolkit"]))
+
+    def test_simplify_carry_taken_when_round_head_unchanged(self):
+        out = self.carry_round(same=True)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(len(self.b.taken), 1)
+
+    def test_simplify_carry_rejected_when_a_file_changed(self):
+        out = self.carry_round(same=False)
+        self.assertFalse(out["ok"], out)
+        self.assertFalse(out["done"])
+        self.assertIn("/simplify", out["reason"])
+        self.assertIn("この周は当たらない", out["reason"])
+
+    def test_simplify_reject_says_round_qualifies_when_carry_unclaimed(self):
+        out = self.carry_round(same=True, claim=False)   # 当たる周なのに simplify_carried を書き落とした返答
+        self.assertFalse(out["ok"], out)
+        self.assertIn("この周は当たる", out["reason"])
+        self.assertNotIn("この周は当たらない", out["reason"])
 
 
 if __name__ == "__main__":

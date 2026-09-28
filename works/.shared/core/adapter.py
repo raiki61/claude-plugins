@@ -81,6 +81,31 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    道具ゼロ・web を持たない役には渡さない）。SDK が自分の `--mcp-config` を渡した起動は触らない。ファイルが読めない時は
    渡さずに起動の記録の fence.mcp に理由を書く（足す物なので、渡せなくても役は起こす）
 
+13. **検索語の規律を重ね書きする**（印のある道具を持つ起動だけ）: works の役は本流の役の定義（agents/*.md）を読まないので、
+   本流が定義に置く『検索語に対象の名前を載せるな』の規律が役に届かない。包みと同じ置き場の写し agents/judge.md から、頭の行
+   QUERY_RULE_HEAD と続く 2 字下げの下位の箇条を字のまま切り出し（字を写さない）、`--append-system-prompt` で足す（本流が役の
+   定義を system prompt に足すのと同じ位置）。SDK が `--append-system-prompt` を渡していれば、その値の後ろに空行 1 つで繋ぐ。
+   道具ゼロの役（外へ問い合わせられない）には足さない。SDK が `--append-system-prompt-file` を渡した起動と、塊を引けない起動は
+   claude を起こさない（fail closed）。塊の sha256 の先頭 16 字を起動の記録の fence.query_rule に残す。包み無しの run には
+   載らない（ほかの柵と同じ制約）。経路は argv: SDK 0.3.282 は system prompt を stdin の initialize で渡すが、Claude Code
+   2.1.283 は initialize が appendSystemPrompt を持つ時だけ argv の値を置き換え、systemPrompt の置き換え（SDK の既定は []）
+   とは別に append を末尾に足す（本体の initialize の受けと system prompt の組み立てで確かめた）。works の YAML は
+   systemPrompt を持たないので、initialize に appendSystemPrompt は来ない。役が Agent で起こす子は自分の system prompt で
+   起きて塊が届かないので、QUERY_RULE_LEAD が子への指示に塊を含めさせる
+
+14. **対象の持ち主の禁止を写す**（印のある起動だけ）: 役は settingSources: [user] と隔離した設定で起きるので、対象リポジトリの
+   project の段を読まず、持ち主が `.claude/settings.json`・`settings.local.json` に置いた permissions.deny が役に効かない。
+   project の段を読ませると CLAUDE.md・フックも入るので、役の cwd の worktree の根の 2 つのファイルの permissions.deny だけを
+   `--settings` の permissions.deny の後ろに足す（本流 graphloops/engine/role_run.repo_deny と同じ読み方。Claude Code の
+   permissions の配列は段をまたいで足し合わされるので、同じ意味になる）。足した数を fence.repo_deny に残す。根を引けない・
+   読めない・形が違えば、ファイルを名指して claude を起こさない（fail closed）。Bash の規則は置き場に依らず同じ意味だが、
+   `/` 始まりの Read・Edit の規則は設定の出所の置き場から引かれ、`!` の打ち消しは同じ出所の規則にしか効かないので、
+   --settings に写した後は対象の意図と指す所・効き方が変わりうる（本流も同じ写し方）
+
+15. **engine の子の目印**（印のある起動だけ）: 子の env に ENGINE_CHILD_ENV=1 を立てる（役の claude の Bash の子へ継がれる）。
+   本流 role_run が役・任せ先・書く子に立てるのと同じ名で、対象の重い一式（tests/run.sh・変異の撃ち）はこれを見て AI の役
+   からの起動を拒める。線の節（board.py の宣言の一式など）は包みを通らないので立たない。包み無しの run にも立たない
+
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
 変えない（stdin も中継しない）。見分けられない形
 （印の跡の無い `--json-schema` が 2 つ・読めない JSON・値の無い旗）は足さずに素通しし、警告を 1 行出す。
@@ -134,6 +159,13 @@ ISOLATED_PREFIX = "works-isolated-"
 MCP_FILE = "works-mcp.json"        # dev/toolset.py の MCP_FILE と同じ（隔離した設定の置き場の下）
 WEB_TOOL = "WebFetch"              # これを持つ起動にだけ借りる MCP を渡す
 ENV_MCP = "WORKS_CONTEXT7_MCP"     # on の時だけ借りる MCP を渡す（既定は渡さない）
+QUERY_RULE_SOURCE = pathlib.Path(__file__).resolve().parent / "agents" / "judge.md"   # 検索語の規律の正本（写し）
+QUERY_RULE_HEAD = "- **検索語に対象の名前を載せるな。**"
+QUERY_RULE_LEAD = ("外のサービスへ問い合わせる時の決まり（works の包みより。役への直の指示。Agent で子を起こすなら、子への指示に"
+                   "下の塊をそのまま含めよ——子にはこの決まりが届かない）:")
+REPO_SETTINGS = (pathlib.Path(".claude") / "settings.json", pathlib.Path(".claude") / "settings.local.json")   # role_run と同じ
+# 本流 graphloops/engine/role_run.ENGINE_CHILD_ENV と同じ名（対象の入口が既にこの名を読むので、読む側を 2 つにしない）
+ENGINE_CHILD_ENV = "GRAPHLOOPS_ENGINE_CHILD"
 # 印 no-post（読むだけの役）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
 # 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
 # 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
@@ -168,8 +200,8 @@ class Plan(NamedTuple):
     tools_empty: bool               # `--tools ""`（題の生成か、道具を持たない役）
     session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?}
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
-    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?}（フックを足した起動だけ）
-    env: Optional[dict] = None      # 子の env に上書きする物（no-post の起動だけ）
+    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, mcp?, query_rule?, repo_deny?}（フックを足した起動だけ）
+    env: Optional[dict] = None      # 子の env に上書きする物（印のある起動。ENGINE_CHILD_ENV と、no-post の口）
     strict_net: Optional[bool] = None   # 網: True は strictAllowlist で閉じた起動、False は `*` の網、None は網の一覧が無い
     cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
 
@@ -459,7 +491,8 @@ def strict_network(argv: List[str]) -> Tuple[List[str], Optional[bool]]:
 
 
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
-               no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None) -> Tuple[List[str], dict]:
+               no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None,
+               repo: Sequence[str] = ()) -> Tuple[List[str], dict]:
     found = find_opt(argv, "--settings")
     if len(found) > 1:
         raise Unrecognised("--settings が 2 つ以上")
@@ -467,6 +500,8 @@ def _with_hook(argv: List[str], command: str, protected: Sequence[str],
     doc = merge_settings(_load_settings(found[0][2]), ours) if found else ours
     n_write, n_deny = add_fences(doc, protected) if protected else (0, 0)
     fence = {"deny_write": n_write, "permissions_deny": n_deny}
+    if repo:
+        fence["repo_deny"] = add_deny(doc, repo)
     if no_post is not None:
         fence["no_post"] = add_deny(doc, no_post_rules(no_post))
     return _put_settings(argv, found[0] if found else None, doc), fence
@@ -543,6 +578,38 @@ def own_worktree(cwd) -> Optional[str]:
     except (OSError, subprocess.CalledProcessError):
         return None
     return top or None
+
+
+def repo_deny(cwd) -> List[str]:
+    """14. 役の cwd の worktree の根の REPO_SETTINGS が宣言した permissions.deny（置き場の順・重なりを除く）。本流
+    graphloops/engine/role_run.repo_deny と同じ読み方で、allow・ask・ほかの鍵は読まない。置き場が無い・Git の作業ツリーで
+    ない cwd は空。根を引けない・どれかの置き場が読めない・形が違えば、そのファイルを名指して Unrecognised（黙って落とさない）"""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
+    try:
+        r = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                           encoding="utf-8", env=env)
+    except OSError as e:
+        raise Unrecognised(f"対象リポジトリの根を引けない（{e}）——{REPO_SETTINGS[0]} の permissions.deny を写せない") from None
+    if r.returncode != 0 or not r.stdout.strip():
+        if "not a git repository" in r.stderr:
+            return []
+        raise Unrecognised(f"対象リポジトリの根を引けない（{r.stderr.strip()[:200]}）——"
+                           f"{REPO_SETTINGS[0]} の permissions.deny を写せない")
+    out: List[str] = []
+    for rel in REPO_SETTINGS:
+        p = pathlib.Path(r.stdout.strip()) / rel
+        if not p.exists():
+            continue
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise Unrecognised(f"{p} が読めない（{e}）——このファイルを直せ（permissions.deny を役に写せない）") from None
+        perms = data.get("permissions", {}) if isinstance(data, dict) else None
+        deny = perms.get("deny", []) if isinstance(perms, dict) else None
+        if not (isinstance(deny, list) and all(isinstance(x, str) and x for x in deny)):
+            raise Unrecognised(f"{p} の permissions.deny が空でない文字列の一覧でない——このファイルを直せ")
+        out += [x for x in dict.fromkeys(deny) if x not in out]
+    return out
 
 
 def _no_tree_write_places(argv: Sequence[str], cwd, ticketed: bool) -> List[str]:
@@ -711,7 +778,8 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書かない）。
     protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
     write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。
-    env は起動の env（no-post の起動で本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）"""
+    env は起動の env（no-post の起動で本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）。
+    子の env の上書き（Plan.env）は印のある起動の全部に付く（15 の目印。no-post なら 5 の口も）"""
     argv = list(argv)
     tools_empty = _tools_empty(argv)
     unknown = None
@@ -776,7 +844,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         places = protected() if protected else None
         own = _no_tree_write_places(argv, cwd, places is not None) if NO_TREE_WRITE in marker.flags else []
         out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh,
-                                write_command)
+                                write_command, repo_deny(cwd))
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     if own:
@@ -797,7 +865,12 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     mcp = mcp_config(out, env, tools_empty or ISOLATED in marker.flags)
     if mcp is not None:
         out, fence["mcp"] = mcp
-    child_env = no_post_env(env, gh) if gh is not None else None
+    if not tools_empty:   # 道具ゼロの役は外へ問い合わせられない
+        try:
+            out, fence["query_rule"] = with_query_rule(out)
+        except Unrecognised as e:
+            return _refuse(argv, node, cont, tools_empty, f"検索語の規律を足せない（{e}）")
+    child_env = {**(no_post_env(env, gh) if gh is not None else {}), ENGINE_CHILD_ENV: "1"}
     return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env,
                 strict_net=strict, cwd=child_cwd)
 
@@ -831,6 +904,41 @@ def mcp_config(argv: List[str], env, no_tools: bool) -> Optional[Tuple[List[str]
     except (OSError, ValueError, TypeError, KeyError) as e:
         return argv, {"skipped": f"{path} が読めない（{type(e).__name__}）"}
     return list(argv) + ["--mcp-config=" + str(path)], {"file": str(path), "servers": servers}
+
+
+def query_rule(path: pathlib.Path = QUERY_RULE_SOURCE) -> str:
+    """13. 写しの agents/judge.md から検索語の規律の塊（頭の行 QUERY_RULE_HEAD と、続く 2 字下げの下位の箇条）を字のまま切り出す。
+    ファイルが読めない・頭の行が無ければ Unrecognised（呼び手は起動を拒む）"""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as e:
+        raise Unrecognised(f"検索語の規律の正本 {path} が読めない（{type(e).__name__}）") from None
+    start = next((i for i, ln in enumerate(lines) if ln.startswith(QUERY_RULE_HEAD)), None)
+    if start is None:
+        raise Unrecognised(f"検索語の規律の正本 {path} に頭の行が無い")
+    end = start + 1
+    while end < len(lines) and lines[end].startswith("  - "):
+        end += 1
+    return "\n".join(lines[start:end])
+
+
+def with_query_rule(argv: List[str]) -> Tuple[List[str], str]:
+    """13. --append-system-prompt に検索語の規律を足した argv と、塊の sha256 の先頭 16 字。SDK の値が在れば後ろに空行 1 つで
+    繋ぐ（旗を 2 つにしない）。SDK が --append-system-prompt-file を渡した・--append-system-prompt が 2 つ・塊を引けなければ
+    Unrecognised"""
+    if find_opt(argv, "--append-system-prompt-file"):
+        raise Unrecognised("SDK が --append-system-prompt-file を渡した（検索語の規律を繋げない）")
+    found = find_opt(argv, "--append-system-prompt")
+    if len(found) > 1:
+        raise Unrecognised("--append-system-prompt が 2 つ以上")
+    block = query_rule()
+    text = QUERY_RULE_LEAD + "\n" + block
+    digest = hashlib.sha256(block.encode("utf-8")).hexdigest()[:16]
+    if not found:
+        return argv + ["--append-system-prompt", text], digest
+    i, n, value, joined = found[0]
+    value = value + "\n\n" + text
+    return argv[:i] + (["--append-system-prompt=" + value] if joined else ["--append-system-prompt", value]) + argv[i + n:], digest
 
 
 def _refuse(argv, node, cont, tools_empty, why) -> Plan:

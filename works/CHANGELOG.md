@@ -6,6 +6,16 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 素材集めの p1.local_review の受け付けが、必須のレンズを起こさなかった返答と、そのまま material を awaiting_human にした返答を拒み、同じ会話で起こし直させる。拒みが 3 回目に届いた時だけ人に渡す。今までは最初の失敗で run が人待ちに止まっていた。レンズのプラグインが隔離した設定に入っていない時は、起こし直しても毎回落ちるので、プラグインを名指してすぐ人に渡す。`/simplify` の持ち越し（`simplify_carried: true`）は、本流と同じ条件（前の周から 1 ファイルも変わっていない周）の時だけ認める。写しは本流の `changed_since_prev_round` を出さないので、写しが周ごとに残す周の頭の版の木を前の周と比べて決める。写しの指示書の「ロジック変更が無いなら持ち越してよい」より狭く、どれかのファイルが変わった周と 1 周目は `/simplify` を起こし直させる（役への読み替えの文にもそう書く）。条件付きのレンズ（`/security-review`）の失敗は今までどおり受ける。
+
+### Security
+
+- Claude の包みが、道具を持つ役の system prompt に「検索語に対象の名前を載せるな」の規律（写しの `agents/judge.md` の塊を字のまま）を足す。今までは works の役の指示書にこの規律が無く、WebSearch・WebFetch の問い合わせに対象のリポジトリ名・本文が載りえた。SDK が `--append-system-prompt-file` を渡す起動と、規律の正本を読めない起動は起こさない。包み無しの run には載らない。
+- Claude の包みが、対象リポジトリの `.claude/settings.json`・`.claude/settings.local.json` の `permissions.deny` を役の `--settings` に写す。今までは役が隔離した設定で起きるため持ち主の禁止（例: e2e の一式を手元で回さない）が役に効かなかった。ファイルが読めない・形が違う時は、そのファイルを名指して役を起こさない。包み無しの run には載らない。
+- Claude の包みが、AI の役の子の env に `GRAPHLOOPS_ENGINE_CHILD=1`（graphloops の engine と同じ目印）を立てる。今までは works の役に目印が無く、対象の重い一式（e2e・変異の撃ち）が AI の役からの起動を見分けて拒めなかった。線の節が走らせる最後のテストと、包み無しの run には立たない。
+
 ## [0.2.2] - 2026-09-28
 
 ### Added
