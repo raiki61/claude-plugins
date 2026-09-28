@@ -421,7 +421,7 @@ class LocalReviewRetryCase(Base):
 
         def git(*a):
             return subprocess.run(["git", "-C", str(repo), *a], env=env, check=True, capture_output=True,
-                                  text=True).stdout.strip()
+                                  text=True, encoding="utf-8").stdout.strip()
         git("init", "-q")
         (repo / "a.txt").write_text("1\n", encoding="utf-8")
         git("add", "-A")

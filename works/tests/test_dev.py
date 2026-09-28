@@ -354,7 +354,8 @@ class TestDevShell(unittest.TestCase):
             env = hermetic.child_env()
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH",
                          "WORKS_DEV_MODEL", "TITLE_GENERATION_MODEL", "WORKS_REAL_CLAUDE", "CLAUDE_BIN_PATH",
-                         "WORKS_DEV_ADAPTER", "MISE_TRUSTED_CONFIG_PATHS", "FAKE_MISE_TRUST"):
+                         "WORKS_DEV_ADAPTER", "MISE_TRUSTED_CONFIG_PATHS", "FAKE_MISE_TRUST",
+                         "WORKS_CLAUDE_VERSION", "WORKS_ARCHON_VERSION"):
                 env.pop(name, None)
             env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""),
                        FAKE_CLAUDE_LOG=str(claude_calls), CLAUDE_CONFIG_DIR=str(user_cfg))

@@ -102,8 +102,11 @@ class Env:
 
     def run(self, argv, cwd=None, stdin="", exit_code=0, **env_over):
         env = {k: v for k, v in hermetic.child_env().items() if not k.startswith("WORKS_")}
+        # 設定の置き場は既定で空の使い捨て（外の run の CLAUDE_CONFIG_DIR も、無い時に包みが落ちる本物の ~/.claude も読ませない）
+        empty_config = self.tmp / "empty-claude-config"
+        empty_config.mkdir(exist_ok=True)
         env.update(WORKS_ADAPTER_HOME=str(self.home), WORKS_REAL_CLAUDE=str(FAKE), FAKE_CLAUDE_LOG=str(self.log),
-                   FAKE_CLAUDE_EXIT=str(exit_code), PYTHONDONTWRITEBYTECODE="1")
+                   FAKE_CLAUDE_EXIT=str(exit_code), PYTHONDONTWRITEBYTECODE="1", CLAUDE_CONFIG_DIR=str(empty_config))
         for k, v in env_over.items():
             if v is None:
                 env.pop(k, None)

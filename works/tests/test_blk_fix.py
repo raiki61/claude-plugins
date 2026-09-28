@@ -609,12 +609,17 @@ class TestFixPrep(BoardCase):
         return run_script("fix_prep", self.repo, {k: v for k, v in env.items() if k not in drop})
 
     def reject_by_script(self):
-        full = {"INPUTS_REPLY": json.dumps(load("fix2_ok"), ensure_ascii=False), "INPUTS_BASE_REV": "", "INPUTS_TDD_STATE": "",
+        # 申告と数え直しの食い違いは拒まず記録する（49 件目）ので、今も拒まれる同じ unit_key の 2 行で拒ませる
+        self.edit_tree(FIXED)
+        reply = load("fix2_ok")
+        reply["changes"].append(reply["changes"][0])
+        full = {"INPUTS_REPLY": json.dumps(reply, ensure_ascii=False), "INPUTS_BASE_REV": "", "INPUTS_TDD_STATE": "",
                 "INPUTS_ITERATION": "1", "ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]}
-        code, out, err = run_script("accept", self.repo, full)   # 直していない作業ツリー → 数え直しで拒む
+        code, out, err = run_script("accept", self.repo, full)
         self.assertEqual(code, 0, err)
         r = json.loads(out)
         self.assertFalse(r["ok"], r)
+        self.assertIn("同じ unit_key", r["reason"])
         return r["reason_file"]
 
     def test_first_prep_writes_full_and_launches(self):

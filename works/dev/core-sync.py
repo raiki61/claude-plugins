@@ -46,7 +46,7 @@ def git(repo, *args) -> str:
 
 def resolve(repo, rev):
     r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8")
     return r.stdout.strip() if r.returncode == 0 else None
 
 
@@ -206,7 +206,8 @@ def sync(works, up, rev, version, skip_goldens) -> int:
             return 1
     olds.discard(short)
     for old in sorted(olds):
-        r = subprocess.run(["git", "-C", str(works), "grep", "-n", "-F", old, "--", "."], capture_output=True, text=True)
+        r = subprocess.run(["git", "-C", str(works), "grep", "-n", "-F", old, "--", "."], capture_output=True, text=True,
+                           encoding="utf-8")
         if r.stdout.strip():
             print(f"core-sync: 前の commit {old} を名指しする所（手で直すか、履歴なら残す）:")
             print(r.stdout.rstrip())

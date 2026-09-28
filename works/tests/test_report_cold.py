@@ -30,7 +30,7 @@ import report_roles as rr  # noqa: E402
 
 WRITE_NODE = rr.NODE_OF[rr.WRITE]
 COLD_NODE = rr.NODE_OF[rr.COLD]
-STOP = "冒頭 3 行で何の話かが言えない（『さっきの件』が何を指すか本文に無い）"
+UNSAID_OPENING = "冒頭 3 行で何の話かが言えない（『さっきの件』が何を指すか本文に無い）"
 GUESS = "『R3』が何かを推測で埋めた"
 NOT_PASSED = "初見の確かめを通っていない"
 WRITER_TEXT = "結論: 直した。\n\n人が決めること: 無い。\n"
@@ -88,7 +88,7 @@ class WriteAcceptColdCase(unittest.TestCase):
     def accept(self, verdict):
         try:
             return rr.accept(self._tmp.name, rr.WRITE, json.dumps({"text": WRITER_TEXT}, ensure_ascii=False), self._tmp.name,
-                             cold=cold(verdict, [STOP], [GUESS]))
+                             cold=cold(verdict, [UNSAID_OPENING], [GUESS]))
         except TypeError as e:
             self.fail(f"書き手の受け付けが初見の読み手の返答を受けない: {e}")
 
@@ -104,7 +104,7 @@ class WriteAcceptColdCase(unittest.TestCase):
         got = self.accept("redesign-needed")
         self.assertIs(got["ok"], False, got)
         self.assertIs(got["done"], False)
-        self.assertIn(STOP, got["reason"])
+        self.assertIn(UNSAID_OPENING, got["reason"])
         self.assertIn(GUESS, got["reason"])
         self.take.assert_not_called()
 
@@ -136,7 +136,7 @@ class WriteAcceptColdCase(unittest.TestCase):
         got = self.accept("redesign-needed")
         self.assertEqual((got["ok"], got["done"]), (True, True), got)
         self.take.assert_called_once()
-        self.assertIn(STOP, self.marked())
+        self.assertIn(UNSAID_OPENING, self.marked())
 
     def test_collect_heads_report_with_mark(self):
         """印が在れば、出口の報告の来歴の 1 行の直後に『初見の確かめを通っていない: <理由>』"""
@@ -145,13 +145,13 @@ class WriteAcceptColdCase(unittest.TestCase):
         self.b.rd["done"][WRITE_NODE] = {}
         self.b.state["outputs"][WRITE_NODE] = {"round": 1, "file": "out/r1/report.json"}
         self.b.output_of_round = lambda nid, rnd: ({"text": WRITER_TEXT} if nid == WRITE_NODE else
-                                                   json.loads(cold("redesign-needed", [STOP], [GUESS])))
+                                                   json.loads(cold("redesign-needed", [UNSAID_OPENING], [GUESS])))
         self.b.work(rr.FACTS_NAME).write_text("- 周: 1\n", encoding="utf-8")
         out = rr.collect(self._tmp.name)
         lines = [x for x in pathlib.Path(out["report_file"]).read_text(encoding="utf-8").splitlines() if x.strip()]
         self.assertEqual(lines[0], rr.stamp(self.b))
         self.assertTrue(lines[1].startswith(NOT_PASSED), lines[:3])
-        self.assertIn(STOP, lines[1])
+        self.assertIn(UNSAID_OPENING, lines[1])
 
 
 if __name__ == "__main__":

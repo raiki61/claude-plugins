@@ -773,7 +773,7 @@ class UseShell(unittest.TestCase):
     def test_show_running_node_elapsed_alive_and_node_costs(self):
         """走っている run の show は、合計の費用の 1 行だけでなく、今走っている節・起こしてからの分（launched_min）・
         生きているか（alive）・節ごとの費用（cost_usd）を本流 graphloops の status と同じ欄名で出す。材料は Archon の
-        `workflow get <id> --verbose --events --json` の出来事（node_started・node_completed の data.cost_usd）"""
+        `workflow get <id> --verbose --events --json` の出来事（node_started・node_completed の data.spend.costUsd）"""
         import datetime
         t = self.target()
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -787,7 +787,9 @@ class UseShell(unittest.TestCase):
         got = dict(json.loads(self.runs.read_text())["runs"][0], events=[
             ev("workflow_started", None),
             ev("node_started", "p1.material"),
-            ev("node_completed", "p1.material", cost_usd=0.42),
+            ev("node_completed", "p1.material", spend={"costUsd": {"source": "provider", "value": 0.42}}),
+            ev("node_started", "p1.intake"),
+            ev("node_completed", "p1.intake", spend={"costUsd": {"source": "unavailable", "reason": "no-usage"}}),
             ev("node_started", "p2.diagnose"),
         ])
         get_json = self.tmp / "get.json"
@@ -803,7 +805,11 @@ class UseShell(unittest.TestCase):
         self.assertTrue(any("diagnose" in l for l in out.splitlines()), out)   # 走っている節
         self.assertRegex(out, r"launched_min\D{0,12}1[123]\b")
         self.assertRegex(out, r"(?i)alive\W{0,12}true")
+        self.assertNotIn("report を読めない", out)
         self.assertTrue(any("material" in l and "cost_usd" in l and "0.42" in l for l in out.splitlines()), out)
+        # 報告されなかった節は黙って落とさず、報告の費用の行と同じく件数と理由を出す（合計に数えない）
+        self.assertTrue(any("cost_usd" in l and "取れない節" in l and "no-usage" in l for l in out.splitlines()), out)
+        self.assertTrue(any("cost_usd" in l and "合計" in l and "0.42" in l and "途中" in l for l in out.splitlines()), out)
 
     def test_apply_brings_run_diff_into_target(self):
         t = self.target()

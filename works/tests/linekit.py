@@ -125,7 +125,9 @@ def work_home() -> pathlib.Path:
         if p.startswith(CLAUDE_TMP):
             raise BoardGap(f"work_home: {home} が Claude Code の一時フォルダの下にある（{home.resolve()}）。WORKS_DEV_HOME を別の場所にする")
     home.mkdir(parents=True, exist_ok=True)
-    return home
+    # 盤面の置き場は受け付けが一度だけ resolve する（script_io.board_dir）。macOS の /var → /private/var のリンクの下でも
+    # 試験が持つパスと受け付けが返すパスの綴りを揃える
+    return home.resolve()
 
 
 # ---------------------------------------------------------------- 線の節の並び（P1 計画 Task 28・〔線A計〕T16。C18 の順）

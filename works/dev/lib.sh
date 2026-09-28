@@ -231,7 +231,7 @@ works_dev_show_started() {
 # 承認・拒否・続きのコマンドは、呼び手の WORKS_KEYCHAIN_ITEM を sh の直前に載せ、export の無い殻でもそのまま打てる形で出す。
 # 修正は対象ではなく、Archon が run ごとに切った worktree の中にある。関所の文面の「テストのログ」の行が、テストの出力のファイル。
 # 状態の下に launched_min（起こしてからの分）を出し、走っている run は Archon の workflow get の出来事を 1 回引いて、
-# 走っている節・alive（最後の動きから 30 分以内か）・節ごとの費用 cost_usd（report.cost_rows。報告と同じ数え方）も出す。
+# 走っている節・alive（最後の動きから 30 分以内か）・節ごとの費用 cost_usd（report.head_cost。報告の費用の行と同じ）も出す。
 # WORKS_DEV_HOME・WORKS_DEV_MODEL・CLAUDE_BIN_PATH を export 済みで、DEV_DIR（works/dev）を置いた殻から呼ぶ。
 works_dev_show_run() {
   _go="$(works_dev_go "$2" "$3")"
@@ -296,20 +296,16 @@ if status in ("running", "pending"):
             "true" if quiet <= STALE_MIN else "false", quiet, STALE_MIN))
     else:
         print("alive: 取れない（run に動きの時刻が無い）")
-    # 節ごとの費用は報告と同じ数え方（report.cost_rows・_run_total を import する。写さない）
-    try:
-        sys.path.insert(0, os.environ["CORE_DIR"])
-        import report
-        rows, total = report.cost_rows(events, []), report._run_total(events)
-    except Exception as err:
-        rows, total = None, None
-        print("cost_usd: 取れない（report を読めない: {}）".format(err))
-    for c in rows or []:
-        print("cost_usd {}: {} USD".format(c["node"], c["actual"]))
-    if rows:
-        print("cost_usd の合計: {} USD（{}）".format(
-            total if total is not None else round(sum(c["actual"] for c in rows), 6),
-            "Archon の run の和" if total is not None else "途中。節の和"))
+    # 節ごとの費用は報告の費用の行そのもの（report.head_cost を import する。写さない）: 取れない節の件数と理由・
+    # 1 つも取れない時の「取れない」・欄の形が未確認の印・合計は途中の節の和（run の和は読まない）まで報告と同じ
+    if events:
+        try:
+            sys.path.insert(0, os.environ["CORE_DIR"])
+            import report
+            for line in report.head_cost(None, r.get("id") or "", events=events, launches=[]):
+                print("cost_usd", line)
+        except Exception as err:
+            print("cost_usd: 取れない（report を読めない: {}）".format(err))
 else:
     cost = (r.get("metadata") or {}).get("total_cost_usd")
     print("今までの費用:", "{} USD（Archon の run の metadata.total_cost_usd。目安で、正は報告の費用の行）".format(cost)

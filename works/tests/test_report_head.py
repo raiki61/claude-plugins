@@ -209,6 +209,14 @@ class HeadCostCase(unittest.TestCase):
         self.assertEqual(len(total), 1, lines)
         self.assertIn("途中", total[0])
 
+    def test_use_show_calls_only_existing_report_names(self):
+        """use.sh show（dev/lib.sh）は節ごとの費用を報告の費用の行（report.head_cost）から import して出す。呼ぶ名前が report に
+        無いと、show は例外を飲んで『取れない』とだけ出し、節ごとの費用が黙って消える"""
+        import re
+        called = set(re.findall(r"\breport\.(\w+)\(", (ROOT / "dev" / "lib.sh").read_text(encoding="utf-8")))
+        self.assertIn("head_cost", called)
+        self.assertEqual(sorted(n for n in called if not hasattr(report, n)), [])
+
     def test_continued_is_not_subtracted(self):
         """継いだ会話の起動の費用は引かない（costUsd が累積か 1 回分かは測れていない）。行に『累積かどうか未確認』"""
         events = [node_done("judging__judge-loop.judge", 0.0284), node_done("rejudging__rj-loop.rejudge", 0.0615)]
