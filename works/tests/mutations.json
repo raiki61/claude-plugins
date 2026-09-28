@@ -50,6 +50,30 @@
    }
   },
   {
+   "id": "qe1",
+   "title": "判定の受け付けが例の無い開いた単位に「例で証明できない」印を付けて query-examples.json に書く（49 件目の意図）",
+   "file": ".shared/core/accept.py",
+   "old": "querytest.split(reply, V.is_open)",
+   "new": "querytest.split(reply)",
+   "tests": {
+    "tests/test_accept.py": [
+     "TestJudge.test_judge_marks_open_units_without_examples"
+    ]
+   }
+  },
+  {
+   "id": "qe2",
+   "title": "判定の受け付けは query-examples.json の前の周の例と印を捨てて置き換える",
+   "file": ".shared/core/accept.py",
+   "old": "querytest.save(board, examples, replace=True)",
+   "new": "querytest.save(board, examples)",
+   "tests": {
+    "tests/test_accept.py": [
+     "TestJudge.test_judge_replace_drops_previous_round"
+    ]
+   }
+  },
+  {
    "id": "fx1",
    "title": "修正の受け付けが同じ unit_key を 2 行に分けた返答を拒む",
    "file": "blk-fix/scripts/accept.py",

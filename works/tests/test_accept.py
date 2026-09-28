@@ -21,6 +21,7 @@ sys.path.insert(0, str(CORE))
 from accept import (_ignored_entries, check_delta, check_fix, check_judge, check_request, role_schema,  # noqa: E402
                     snapshot_tree, tree_change, tree_state)
 from gitkit import committed_copy, git  # noqa: E402
+import querytest  # noqa: E402
 
 FIXED_STATS = '''"""直した後の姿。"""
 
@@ -120,6 +121,50 @@ class TestJudge(AcceptCase):
         doc = json.loads((self.board / "judgment.json").read_text(encoding="utf-8"))
         self.assertEqual(doc["units"][0]["class_query"]["misses"], cq["misses"])
         self.assertIn(reply["units"][0]["key"], json.loads((self.board / "query-examples.json").read_text(encoding="utf-8")))
+
+    def saved_examples(self):
+        p = self.board / querytest.EXAMPLES_FILE
+        self.assertTrue(p.is_file(), f"盤面に {querytest.EXAMPLES_FILE} が無い")
+        return json.loads(p.read_text(encoding="utf-8"))
+
+    def test_judge_marks_open_units_without_examples(self):
+        # 49 件目（6fd8266f）の意図: 例の無い開いた単位は拒まず、印だけを盤面に書く（報告と最後の関所が unproven_lines で読む）
+        reply = load("judge_ok")
+        r = check_judge(reply, self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+        keys = [u["key"] for u in reply["units"]]
+        self.assertEqual(self.saved_examples(), {k: {querytest.UNPROVEN: querytest.NO_EXAMPLES} for k in keys})
+        doc = json.loads((self.board / "judgment.json").read_text(encoding="utf-8"))
+        self.assertEqual([u["class_query"] for u in doc["units"]], [u["class_query"] for u in reply["units"]])
+        self.assertEqual(querytest.unproven_lines(self.board), [f"{k}: {querytest.NO_EXAMPLES}" for k in keys])
+
+    def test_judge_mixes_examples_and_marks(self):
+        reply = load("judge_ok")
+        cq = reply["units"][0]["class_query"]
+        cq["hits"], cq["misses"] = ["    return sum(xs) / (len(xs) - 1)"], ["    return sum(xs) / len(xs)"]
+        r = check_judge(reply, self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+        first, second = (u["key"] for u in reply["units"])
+        self.assertEqual(self.saved_examples(), {first: {"hits": cq["hits"], "misses": cq["misses"]},
+                                                 second: {querytest.UNPROVEN: querytest.NO_EXAMPLES}})
+        doc = json.loads((self.board / "judgment.json").read_text(encoding="utf-8"))
+        self.assertEqual(doc["units"][0]["class_query"], cq)
+        self.assertNotIn(querytest.UNPROVEN, doc["units"][1]["class_query"])
+
+    def test_judge_replace_drops_previous_round(self):
+        # 2 度目の判定は前の周の例も印も捨てる。例も印も無い判定は、ファイルが在れば空に置き換え、無ければ作らない
+        reply = load("judge_ok")
+        cq = reply["units"][0]["class_query"]
+        cq["hits"], cq["misses"] = ["    return sum(xs) / (len(xs) - 1)"], ["    return sum(xs) / len(xs)"]
+        self.assertTrue(check_judge(reply, self.board, self.base, self.repo)["ok"])
+        self.assertTrue(check_judge(load("judge_ok"), self.board, self.base, self.repo)["ok"])
+        self.assertEqual(self.saved_examples(), {u["key"]: {querytest.UNPROVEN: querytest.NO_EXAMPLES}
+                                                 for u in reply["units"]})
+        self.assertTrue(check_judge(load("judge_no_fix"), self.board, self.base, self.repo)["ok"])
+        self.assertEqual(self.saved_examples(), {})
+        (self.board / querytest.EXAMPLES_FILE).unlink()
+        self.assertTrue(check_judge(load("judge_no_fix"), self.board, self.base, self.repo)["ok"])
+        self.assertFalse((self.board / querytest.EXAMPLES_FILE).exists())
 
     def test_judge_empty_base_rev_reads_head(self):
         # Ruling R2: base_rev が空なら repo の HEAD をその場で読む

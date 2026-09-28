@@ -28,6 +28,7 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 WORKS = HERE.parent
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 sys.path.insert(0, str(WORKS / ".shared" / "core"))
 import copyledger  # noqa: E402
 

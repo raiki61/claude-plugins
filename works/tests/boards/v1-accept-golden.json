@@ -136,6 +136,7 @@
    "count-budget.json",
    "count-cache.json",
    "judgment.json",
+   "query-examples.json",
    "request.json"
   ],
   "written": {
@@ -248,7 +249,8 @@
   "files": [
    "count-budget.json",
    "count-cache.json",
-   "judgment.json"
+   "judgment.json",
+   "query-examples.json"
   ],
   "written": {
    "judgment.json": {
@@ -344,7 +346,8 @@
   "files": [
    "count-budget.json",
    "count-cache.json",
-   "judgment.json"
+   "judgment.json",
+   "query-examples.json"
   ],
   "written": {
    "judgment.json": {
@@ -623,6 +626,7 @@
    "count-cache.json",
    "judge-snapshot.json",
    "judgment.json",
+   "query-examples.json",
    "request.json"
   ],
   "written": {
@@ -779,6 +783,7 @@
    "count-budget.json",
    "count-cache.json",
    "judgment.json",
+   "query-examples.json",
    "request.json"
   ],
   "written": {
@@ -913,6 +918,7 @@
    "count-budget.json",
    "count-cache.json",
    "judgment.json",
+   "query-examples.json",
    "request.json"
   ],
   "written": {
@@ -1024,6 +1030,7 @@
    "count-budget.json",
    "count-cache.json",
    "judgment.json",
+   "query-examples.json",
    "request.json"
   ],
   "written": {
@@ -1135,6 +1142,7 @@
    "count-budget.json",
    "count-cache.json",
    "judgment.json",
+   "query-examples.json",
    "request.json"
   ],
   "written": {
@@ -1320,6 +1328,7 @@
    "count-budget.json",
    "count-cache.json",
    "judgment.json",
+   "query-examples.json",
    "request.json"
   ],
   "written": {
@@ -1702,6 +1711,7 @@
    "count-cache.json",
    "delta-review.json",
    "judgment.json",
+   "query-examples.json",
    "request.json"
   ],
   "written": {

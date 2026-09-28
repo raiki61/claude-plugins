@@ -33,6 +33,7 @@ import tempfile
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 DEFAULT_OUT = ROOT / "works" / "tests" / "boards" / "golden-a1202d0"
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 sys.path.insert(0, str(ROOT / "works" / ".shared" / "core"))
 import copyledger  # noqa: E402
 
@@ -286,7 +287,6 @@ def main():
     if not shutil.which(NEUTRAL_PY):
         print(f"{NEUTRAL_PY} が PATH に無い（台本のリポジトリの宣言の語の頭に使う）", file=sys.stderr)
         return 2
-    sys.dont_write_bytecode = True
     keep = bool(a.work)
     if a.work:
         work = pathlib.Path(a.work).resolve()
