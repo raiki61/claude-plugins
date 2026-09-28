@@ -25,7 +25,7 @@
 - 「プロジェクトのテストを回せ」の赤が残るなら直してから出す決まりは、fix・refactor の段にだけ当たる。test の段は名指しの
   テストが落ちるのが正しい姿で、段ごとに機械が一式を走らせて赤・緑を決める
 - テストを自分で回すときは `PYTHONDONTWRITEBYTECODE=1` を立て、JUnit XML の書き先は作業ツリーの外に置く
-- 食い違いの申し出は、どの段でも `{"phase": "conflict", "unit_key", "between", "why_both_cannot_hold", "which_is_right"}` で
+- 食い違いの申し出は、どの段でも `{"phase": "conflict", "unit_key", "between", "why_both_cannot_hold", "which_is_right"}`（query なら `correct_lines` も）で
   返す（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）。申し出た単位は輪から外れ（作業ツリーは単位の頭に戻る）、
   輪の後に裁定が届く
 

@@ -233,6 +233,12 @@ nodes:
                             type: string
                             minLength: 1
                             pattern: ^[^\n\r\x00]+$
+                        examples_unavailable:
+                          type: string
+                          minLength: 10
+                        misses_omitted_why:
+                          type: string
+                          minLength: 10
         - id: rejudge-accept
           script: accept
           runtime: uv
@@ -459,6 +465,12 @@ nodes:
                             type: string
                             minLength: 1
                             pattern: ^[^\n\r\x00]+$
+                        examples_unavailable:
+                          type: string
+                          minLength: 10
+                        misses_omitted_why:
+                          type: string
+                          minLength: 10
         - id: rejudge-third-accept
           script: accept
           runtime: uv

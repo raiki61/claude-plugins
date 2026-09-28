@@ -13,7 +13,7 @@ description: |
   run が落ちる）、出口に集める（collect。消したパスも並べる）。
   食い違いの申し出（持ち主 2026-09-28）: 修正役と TDD の輪の役は、緑にするためにテスト・依頼・コードのどれかを曲げる代わりに、
   名指しつき（<パス>:<行>）の食い違いを返してよい。名指しが現物に在れば拒否に数えずその単位を止め（conflict-check）、読むだけの
-  裁定役（rule-loop。持ち主の決まり rules/principles.md）が fix_test_scope・fix_code_as・ask_human に裁き、2 回目の修正役
+  裁定役（rule-loop。持ち主の決まり rules/principles.md）が fix_test_scope・fix_code_as・ask_human・replace_query に裁き、2 回目の修正役
   （fix-ruled-loop。修正役の会話の続き）が裁定の文のファイルを読んで直して盤面に渡す。ask_human の単位は直す義務から外れ、
   最後の人の関所に届く（.shared/core/conflict.py）。
 
@@ -154,7 +154,10 @@ nodes:
                 type: array
                 items: {type: string}
               why_both_cannot_hold: {type: string}
-              which_is_right: {type: string, enum: [request, test, code, unknown]}
+              which_is_right: {type: string, enum: [request, test, code, unknown, query]}
+              correct_lines:
+                type: array
+                items: {type: string}
               # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。tdd-step が書き込みの記録と突き合わせる）
               bash_writes:
                 type: array
@@ -548,7 +551,12 @@ nodes:
                       minItems: 2
                       items: {type: string, minLength: 3}
                     why_both_cannot_hold: {type: string, minLength: 10}
-                    which_is_right: {type: string, enum: [request, test, code, unknown]}
+                    which_is_right: {type: string, enum: [request, test, code, unknown, query]}
+                    correct_lines:
+                      type: array
+                      minItems: 1
+                      maxItems: 20
+                      items: {type: string, minLength: 1}
               # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。受け付けが書き込みの記録と突き合わせ、盤面に渡す前に外す）
               bash_writes:
                 type: array
@@ -599,7 +607,7 @@ nodes:
         file: {type: string}
 
   # 裁定の輪（持ち主 2026-09-28「おしで」）。役 rule は輪のただ 1 つの AI の節（TA13）で読むだけ。持ち主の決まり
-  # （rules/principles.md）で fix_test_scope・fix_code_as・ask_human のどれかに裁く。3 回目の拒否で裁かれていない申し出を人へ回し、
+  # （rules/principles.md）で fix_test_scope・fix_code_as・ask_human・replace_query（置き換えた問いは機械が例で試す）のどれかに裁く。3 回目の拒否で裁かれていない申し出を人へ回し、
   # done で抜ける（max_iterations で落とさない。R50）。理由の文は rule-prep が次の指示書の 1 行目でパスを名指す（R44）
   - id: rule-loop
     depends_on: [conflict-check]
@@ -647,11 +655,31 @@ nodes:
                   required: [id, decision, text, limits]
                   properties:
                     id: {type: string, minLength: 1}
-                    decision: {type: string, enum: [fix_test_scope, fix_code_as, ask_human]}
+                    decision: {type: string, enum: [fix_test_scope, fix_code_as, ask_human, replace_query]}
                     text: {type: string, minLength: 10}
                     limits:
                       type: array
                       items: {type: string, minLength: 1}
+                    grounds:                       # 裁きの出どころ（<パス>:<行>。依頼の行・判定・テスト・コード。機械が現物に在るかを見る）
+                      type: array
+                      items: {type: string, minLength: 3}
+                    request_searched: {type: string, minLength: 10}   # 依頼で何を探して答えが無かったか（依頼の在る run の ask_human）
+                    query:
+                      type: object
+                      additionalProperties: false
+                      required: [how, counts, hits, misses]
+                      properties:
+                        how: {type: object}
+                        counts: {type: string, enum: [defects, population]}
+                        hits:
+                          type: array
+                          maxItems: 20
+                          items: {type: string, minLength: 1}
+                          minItems: 1
+                        misses:
+                          type: array
+                          maxItems: 20
+                          items: {type: string, minLength: 1}
 
         - id: rule-accept
           script: rule_accept
@@ -671,7 +699,7 @@ nodes:
               reason: {type: string}
               reason_file: {type: string}
               rulings_file: {type: string}   # 裁定の文（2 回目の修正役の指示書の 1 行目が名指す）
-              counts: {type: object}         # {parked, unruled, fix_test_scope, fix_code_as, ask_human}
+              counts: {type: object}         # {parked, unruled, fix_test_scope, fix_code_as, ask_human[, replace_query]}
 
   # 裁定の後の 2 回目の修正役（印 continue=fix: 包みが修正役の会話を継ぐ）。1 回目は裁定の文のファイルを名指し、ask_human の単位は
   # 直す義務から外れる（conflict.owed_units_but_asked）。盤面の p3.fix に渡すのはここ（1 回目は申し出で止めて渡していない）

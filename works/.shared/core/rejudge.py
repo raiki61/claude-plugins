@@ -426,10 +426,11 @@ def take(board_dir, nid, reply, repo, *, snapshot_name=SNAPSHOT_NAME) -> dict:
         raise BoardGap(f"{p['role']} の前の単位の写しが無い（prep が先に走る）")
     examples = {}
     if nid in querytest.NODES and isinstance(reply, dict):
-        errs = querytest.problems(reply.get("units"), validator_module(b).is_open)
+        is_open = validator_module(b).is_open
+        errs = querytest.problems(reply.get("units"), is_open)
         if errs:
             return _reject(b, nid, "class_query の例が問いと合わない: " + "; ".join(errs))
-        reply, examples = querytest.split(reply)   # 写しの型は例の欄を持たない
+        reply, examples = querytest.split(reply, is_open)   # 写しの型は例と理由の欄を持たない
     try:
         progress = b.done(nid, reply)
     except AnswerReject as e:

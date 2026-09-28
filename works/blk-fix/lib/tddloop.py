@@ -98,7 +98,12 @@ def touched(repo, a: str, b: str) -> list:
 
 def restore(repo, tree: str) -> list:
     """作業ツリーを木 tree の姿に戻す（その後に変わった・足した・消したファイルだけ）。戻したパスを返す"""
-    paths = touched(repo, tree, snapshot(repo))
+    return restore_paths(repo, tree, touched(repo, tree, snapshot(repo)))
+
+
+def restore_paths(repo, tree: str, paths) -> list:
+    """作業ツリーの paths だけを木 tree の姿に戻す（tree に無いパスは消す）。戻したパスを返す"""
+    paths = sorted(set(paths))
     if not paths:
         return []
     keep = set(paths) & set(git_names(repo, "ls-tree", "-r", "--name-only", tree))
@@ -155,6 +160,11 @@ def _key(c) -> str:
 
 
 # ---------------------------------------------------------------- 状態
+def load_state(state_file) -> dict:
+    """輪の状態（frozen・frozen_tree など）を読む口（受け付けが止めた単位の直しを戻す先を決める）"""
+    return _load(state_file)
+
+
 def _load(state_file) -> dict:
     try:
         return json.loads(pathlib.Path(state_file).read_text(encoding="utf-8"))
@@ -225,7 +235,7 @@ RETURN = {
 }
 RETURN_CONFLICT = ('どの段でも、緑にするためにテスト・依頼・コードのどれかを曲げるしかないと分かった単位は '
                    '{"phase": "conflict", "unit_key": "<単位>", "between": ["<パス>:<行>", "<パス>:<行>"], '
-                   '"why_both_cannot_hold": "<なぜ両方は成り立たないか>", "which_is_right": "request か test か code か unknown"}'
+                   '"why_both_cannot_hold": "<なぜ両方は成り立たないか>", "which_is_right": "request か test か code か unknown か query"}（query なら "correct_lines": ["<問いが当たる直した後の正しい行>"] も）'
                    '（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）')
 DO = {
     "route": "直す義務の単位を全部、ちょうど 1 度ずつ振り分けよ。tdd＝直す前に落ち、直した後に通るテストをリポジトリのテスト一式に"
@@ -460,19 +470,23 @@ def _abort(st, repo, why, stage) -> None:
     st["done"] = True
 
 
-def _conflict(st, reply, repo) -> tuple:
+def _conflict(st, reply, repo, try_query=None) -> tuple:
     """phase conflict（どの段でも）: 名指しが現物に在れば拒否に数えず、その単位を止める（振り分けの段は義務から外し、ほかの段は
-    作業ツリーを単位の頭に戻して次の単位へ）。返り (問題, 申し出の 1 件)。盤面の控えに積むのは節 tdd-step（盤面を開く口）"""
-    extra = sorted(set(reply) - {"phase", *conflict.FIELDS})
+    作業ツリーを単位の頭に戻して次の単位へ）。try_query は conflict.problems に渡す（query の申し出の correct_lines に判定者の
+    問いを当てる。節 tdd-step が盤面から作る）。返り (問題, 申し出の 1 件)。盤面の控えに積むのは節 tdd-step（盤面を開く口）"""
+    extra = sorted(set(reply) - {"phase", *conflict.FIELDS, conflict.CORRECT})
     if extra:
-        return [f"食い違いの申し出の欄は phase と {list(conflict.FIELDS)} だけ（{extra}）"], None
+        return [f"食い違いの申し出の欄は phase と {list(conflict.FIELDS)}（query なら {conflict.CORRECT} も）だけ（{extra}）"], None
     item = {k: reply.get(k) for k in conflict.FIELDS}
+    if conflict.CORRECT in reply:
+        item[conflict.CORRECT] = reply[conflict.CORRECT]
     parked = st.setdefault("parked", [])
     if st["phase"] == "route":
         owed = {k for k in st["open_units"] if k not in parked}
     else:
         owed = {st["queue"][st["cur"]]}
-    probs = conflict.problems([item], repo=repo, board_dir=pathlib.Path(st["work"]).parent, owed=owed)
+    probs = conflict.problems([item], repo=repo, board_dir=pathlib.Path(st["work"]).parent, owed=owed,
+                              try_query=try_query)
     if probs:
         return probs, None
     parked.append(item["unit_key"])
@@ -490,7 +504,7 @@ def _conflict(st, reply, repo) -> tuple:
     return [], item
 
 
-def step(state_file, reply, repo) -> dict:
+def step(state_file, reply, repo, try_query=None) -> dict:
     """節 tdd-step。{ok（この返答を受けた）, done（輪を抜ける）, reason, phase（次の段）, conflict（止めた申し出の 1 件か None。
     節が盤面の控えに積む）, writes（書き込みの出どころの突き合わせの結果。節が盤面の trace に積む）}。
     申し出でない返答は、前の段の後から変わったファイルを書き込みの記録と欄 bash_writes に突き合わせてから段を確かめる。
@@ -511,7 +525,7 @@ def step(state_file, reply, repo) -> dict:
     elif got and got["problems"]:
         probs = got["problems"]
     elif reply.get("phase") == "conflict":
-        probs, item = _conflict(st, reply, repo)
+        probs, item = _conflict(st, reply, repo, try_query)
     elif reply.get("phase") != phase:
         probs = [f"今の段は {phase}（返答の phase は {reply.get('phase')!r}）"]
     elif phase != "route" and reply.get("unit_key") != st["queue"][st["cur"]]:

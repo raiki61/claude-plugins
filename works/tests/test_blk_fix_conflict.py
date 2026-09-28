@@ -220,7 +220,7 @@ class TestAskHuman(ConflictBoardCase):
         self.parked()
         cid = self.items()[0]["id"]
         _, r = self.rule([{"id": cid, "decision": "ask_human", "text": "依頼とテストのどちらが正しいかは方針の変更で、人が決める",
-                           "limits": []}])
+                           "limits": [], "request_searched": "依頼に分母と期待値のどちらを正とするかの答えを探したが無い"}])
         self.assertTrue(r["ok"], r)
         r = self.accept_script(only_clamp_reply(), pass_="ruled")
         self.assertTrue(r["ok"], r)
@@ -234,11 +234,31 @@ class TestAskHuman(ConflictBoardCase):
     def test_fixing_an_asked_unit_is_rejected(self):
         self.parked()
         cid = self.items()[0]["id"]
-        self.rule([{"id": cid, "decision": "ask_human", "text": "方針の変更で、人が決める——直さない", "limits": []}])
+        self.rule([{"id": cid, "decision": "ask_human", "text": "方針の変更で、人が決める——直さない", "limits": [],
+                    "request_searched": "依頼に分母と期待値のどちらを正とするかの答えを探したが無い"}])
         self.edit_tree(MEAN_FIX)
         r = self.accept_script(load("fix2_ok"), pass_="ruled")
         self.assertFalse(r["ok"])
         self.assertIn("ask_human", r["reason"])
+
+    def test_ask_human_without_request_citation_is_rejected(self):
+        """依頼のファイルが在る run の ask_human は、依頼の行（grounds）か request_searched が無ければ拒み、在る名指しは現物で引く"""
+        import conflict
+        self.parked()
+        cid = self.items()[0]["id"]
+        request = conflict.request_file(self.board)
+        self.assertTrue(request, "この盤面は依頼のファイルを持つ")
+        _, r = self.rule([{"id": cid, "decision": "ask_human", "text": "方針の変更で、人が決める——直さない", "limits": []}])
+        self.assertEqual((r["ok"], r["done"]), (False, False), r)
+        self.assertIn("request_searched", r["reason"])
+        self.assertIsNone(self.items()[0]["ruling"])
+        _, r = self.rule([{"id": cid, "decision": "ask_human", "text": "方針の変更で、人が決める——直さない", "limits": [],
+                           "grounds": [f"{request}:99999"]}], iteration="2")
+        self.assertFalse(r["ok"], "依頼の外の行を名指した grounds は拒む")
+        _, r = self.rule([{"id": cid, "decision": "ask_human", "text": "方針の変更で、人が決める——直さない", "limits": [],
+                           "grounds": [f"{request}:1"]}], iteration="2")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.items()[0]["ruling"]["grounds"], [f"{request}:1"])
 
     def test_forces_final_gate_report_and_next_request(self):
         import conflict
@@ -302,6 +322,44 @@ class TestTddConflict(LoopCase):
         self.assertFalse(got["ok"])
         self.assertIn("行がファイルに無い", got["reason"])
         self.assertEqual(self.st()["tries"], 1)
+
+
+    def test_query_conflict_tries_judge_query_on_correct_lines(self):
+        # TDD の輪の申し出も、修正役の受け付けと同じく判定者の問いを correct_lines に当てる（当たらなければ拒否）
+        import querytest
+        import tddloop
+        how = {"patterns": ["len(xs) - 1"], "fixed": True, "paths": ["stats.py"], "count": "lines"}
+        hits = querytest.judge_hits([{"key": MEAN, "class_query": {"how": how, "counts": "defects"}}])
+        item = {"phase": "conflict", **conflict_on_mean(), "which_is_right": "query"}
+        got = tddloop.step(self.state, {**item, "correct_lines": ["    return sum(xs) / len(xs)"]}, self.repo, try_query=hits)
+        self.assertFalse(got["ok"], got)
+        self.assertIn("どの行にも当たらない", got["reason"])
+        got = tddloop.step(self.state, {**item, "correct_lines": ["    return sum(xs) / (len(xs) - 1)"]}, self.repo,
+                           try_query=hits)
+        self.assertTrue(got["ok"], got)
+
+    def test_step_script_passes_judge_query(self):
+        # 節 tdd-step は盤面の判定の単位から try_query を作って tddloop.step に渡す
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("blk_fix_tdd_step", BLK / "scripts" / "tdd_step.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        seen = {}
+
+        def step(state_file, reply, repo, try_query=None):
+            seen["err"] = try_query(MEAN, ["    return sum(xs) / len(xs)"])
+            return {"ok": False, "done": False, "reason": "x", "phase": "route"}
+        b = mock.MagicMock()
+        b.record = {"units": [{"key": MEAN, "class_query": {"how": {"patterns": ["len(xs) - 1"], "fixed": True,
+                                                                     "paths": ["stats.py"], "count": "lines"}}}]}
+        with mock.patch.object(mod.tddloop, "step", side_effect=step), \
+                mock.patch.object(mod.entry, "open_board", return_value=b), \
+                mock.patch.object(mod.script_io, "emit_result", return_value=0), \
+                mock.patch.dict("os.environ", {"INPUTS_REPLY": "{}", "INPUTS_STATE_FILE": self.state,
+                                               "ARTIFACTS_DIR": str(self.board.parent)}):
+            self.assertEqual(mod.main(), 0)
+        self.assertIn("どの行にも当たらない", seen["err"])
 
 
 def tddloop_step(case, reply):

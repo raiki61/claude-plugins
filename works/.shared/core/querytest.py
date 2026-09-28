@@ -4,12 +4,17 @@
 受け付けは盤面へ渡す前に例を外して query-examples.json に置く。項目 35: 部分一致の defects の問いが、直した後の正しい行も
 数えたまま判定の基準になり、修正役が何をしても件数が減らなかった。
 
-- NODES・EXAMPLE_FIELDS・with_examples(schema): 例を持てる節と、例の欄（hits＝当たるべき 1 行・misses＝当たってはならない 1 行）と、units[].class_query に
-  それを足した役の型
+- NODES・EXAMPLE_FIELDS・REASON_FIELDS・with_examples(schema): 例を持てる節と、例の欄（hits＝当たるべき 1 行・misses＝当たってはならない
+  1 行）と理由の欄（examples_unavailable＝例を出せない理由・misses_omitted_why＝defects の misses を書けない理由）と、
+  units[].class_query にそれを足した役の型
 - run_examples(how, lines): 例を 1 行 1 ファイルに書き、数える本体と同じ旗（engine の count_argv）の git grep --no-index で当てる
-- problems(units, is_open): 今の周に直す単位の例の誤り（当たらない hits・当たる misses・defects の misses の欠け・走らない問い）
-- split(reply): 例を外した返答の写しと {単位の key: {hits, misses}}
-- save(board, examples, replace)・restore(doc, board): 盤面の query-examples.json に置く・判定の写しの class_query に戻す
+- judge_hits(units): 食い違いの申し出の correct_lines に判定者の問いを当てる口（conflict.problems の try_query）
+- problems(units, is_open): 今の周に直す単位の例の誤り（当たらない hits・当たる misses・理由の無い defects の misses の欠け・
+  例を出せない理由と例の同時の記入・走らない問い）。例の無い単位は拒まない
+- unproven(units, is_open)・unproven_lines(board): 例の無い開いた単位（「例で証明できない」印）と、最後の関所と報告に載せるその行
+- split(reply, is_open): 例と理由を外した返答の写しと {単位の key: {例・理由・unproven}}
+- save(board, examples, replace)・restore(doc, board): 盤面の query-examples.json に置く・判定の写しの class_query に戻す（印は戻さない）
+- save_closure(b, rows)・closure_lines(b): 修正の受け付けが問いを数え直した単位ごとの閉鎖の表を置く・最後の関所と報告の行
 """
 import copy
 import json
@@ -29,11 +34,23 @@ from engine.schema import validate_schema  # noqa: E402
 EXAMPLES_FILE = "query-examples.json"
 NODES = ("p2.diagnose", "p2.rejudge", "p2.rejudge_third")   # 役の型に例の欄を足し、受け付けが例を外して試す節（blk-judge・blk-rejudge）
 EXAMPLE_FIELDS = ("hits", "misses")
+UNAVAILABLE, MISSES_OMITTED = "examples_unavailable", "misses_omitted_why"
+REASON_FIELDS = (UNAVAILABLE, MISSES_OMITTED)   # 例を出せない・misses を書けない理由（例の欄と同じく盤面へ渡す前に外す）
+FIELDS = EXAMPLE_FIELDS + REASON_FIELDS
+MIN_WHY = 10
+NO_EXAMPLES = "例が無い（当たるべき行・当たってはならない行で問いを試していない）"
+UNPROVEN = "unproven"                          # query-examples.json の行の印（例で証明できない理由）
+UNPROVEN_HEAD = "例で証明できない判定の問い"      # 最後の関所の文の節の見出し・報告の行の頭
+CLOSURE_FILE = "fix-unit-rows.json"              # 修正の受け付けが問いを数え直した単位ごとの表（盤面の置き場。周の番号つき）
+CLOSURE_HEAD = "閉鎖の数え直し（機械）が申告と合わない・閉じていない単位"   # 最後の関所の文の節の見出し・報告の行の頭
 TIMEOUT = 60
 _LINES = {"type": "array", "maxItems": 20, "items": _util._TEXT}
+_WHY = {"type": "string", "minLength": MIN_WHY}
 EXAMPLES_SCHEMA = {
     "hits": {**_LINES, "note": "この問いが当たるべき 1 行（今の版に在る欠陥・母数の行の写し）"},
     "misses": {**_LINES, "note": "この問いが当たってはならない 1 行。counts が defects なら、正しく直した後の行を 1 つは入れる"},
+    UNAVAILABLE: {**_WHY, "note": "例を 1 行も出せない理由（hits・misses と一緒に書かない）。例の無い単位は「例で証明できない」印で人に見せる"},
+    MISSES_OMITTED: {**_WHY, "note": "counts が defects なのに misses を書けない理由（在るべき物が無い型など、直した後を 1 行に書けない時）"},
 }
 
 
@@ -88,23 +105,57 @@ def run_examples(how, lines) -> tuple:
     return got, ""
 
 
+def judge_hits(units):
+    """食い違いの申し出の確かめ（conflict.problems）の try_query: which_is_right: query の申し出の correct_lines に、判定者の
+    class_query の how を run_examples で当てる（どれかに当たれば空。問いの無い単位は見ない）。修正役の受け付けと TDD の輪が使う"""
+    hows = {u.get("key"): u["class_query"].get("how") for u in units
+            if isinstance(u, dict) and isinstance(u.get("class_query"), dict)}
+
+    def hits(key, lines):
+        how = hows.get(key)
+        if not how:
+            return ""
+        got, why = run_examples(how, lines)
+        if why:
+            return f"判定者の問いを correct_lines に当てられない（{why}）"
+        return "" if got else "判定者の問いは correct_lines のどの行にも当たらない（問いが正しい形に当たる、の証拠にならない）"
+    return hits
+
+
+def unproven(units, is_open) -> list:
+    """今の周に直す単位（is_open）のうち、class_query に例（hits・misses）の無い物 [{key, why}]。拒まずに「例で証明できない」
+    印として人に見せる。why は examples_unavailable の理由か NO_EXAMPLES"""
+    out = []
+    for u in units or []:
+        cq = u.get("class_query") if isinstance(u, dict) else None
+        if is_open(u) and isinstance(cq, dict) and not any(k in cq for k in EXAMPLE_FIELDS):
+            why = cq.get(UNAVAILABLE)
+            out.append({"key": str(u.get("key")), "why": why if isinstance(why, str) and why.strip() else NO_EXAMPLES})
+    return out
+
+
 def problems(units, is_open) -> list:
-    """今の周に直す単位（is_open）のうち、class_query に例を持つ物の誤りの文。例の無い単位は見ない"""
+    """今の周に直す単位（is_open）のうち、class_query に例か理由の欄を持つ物の誤りの文。例の無い単位は拒まない（unproven の印）"""
     errs = []
     for u in units or []:
         cq = u.get("class_query") if isinstance(u, dict) else None
-        if not is_open(u) or not isinstance(cq, dict) or not any(k in cq for k in EXAMPLE_FIELDS):
+        if not is_open(u) or not isinstance(cq, dict) or not any(k in cq for k in FIELDS):
             continue
         key = str(u.get("key"))
-        bad = validate_schema({k: cq[k] for k in EXAMPLE_FIELDS if k in cq},
+        bad = validate_schema({k: cq[k] for k in FIELDS if k in cq},
                               {"type": "object", "properties": EXAMPLES_SCHEMA}, "class_query")
         if bad:
             errs.append(f"{key}: class_query の例の型が合わない（{'; '.join(bad[:3])}）")
             continue
+        if UNAVAILABLE in cq:
+            if any(k in cq for k in EXAMPLE_FIELDS):
+                errs.append(f"{key}: class_query に {UNAVAILABLE}（例を出せない理由）と例（hits・misses）を一緒に書いた——"
+                            "例を出せるなら理由を消し、出せないなら例を消せ")
+            continue
         hits, misses = list(cq.get("hits") or []), list(cq.get("misses") or [])
-        if cq.get("counts") == "defects" and not misses:
+        if cq.get("counts") == "defects" and not misses and MISSES_OMITTED not in cq:
             errs.append(f"{key}: 欠陥の形を数える問い（counts: defects）に misses が無い——正しく直した後の行を misses に 1 つは書け"
-                        "（直した後も当たる問いは、修正が何をしても件数が減らない）")
+                        f"（直した後も当たる問いは、修正が何をしても件数が減らない。直した後を 1 行に書けないなら {MISSES_OMITTED} に理由）")
         got, why = run_examples(cq.get("how"), hits + misses)
         if why:
             errs.append(f"{key}: class_query の例を当てられない（{why}）")
@@ -120,38 +171,80 @@ def problems(units, is_open) -> list:
     return errs
 
 
-def split(reply: dict) -> tuple:
-    """（例を外した返答の写し, {単位の key: {hits, misses}}）。例を持つ単位だけを載せる"""
+def split(reply: dict, is_open=None) -> tuple:
+    """（例と理由の欄を外した返答の写し, {単位の key: {hits, misses, examples_unavailable, misses_omitted_why, unproven}}）。
+    例か理由を持つ単位と、is_open が渡れば例の無い開いた単位（unproven: 印の理由）を載せる"""
     out = copy.deepcopy(reply)
+    units = out.get("units") or [] if isinstance(out, dict) else []
+    marks = {r["key"]: r["why"] for r in unproven(units, is_open)} if is_open else {}
     examples = {}
-    for u in out.get("units") or [] if isinstance(out, dict) else []:
+    for u in units:
         cq = u.get("class_query") if isinstance(u, dict) else None
-        if isinstance(cq, dict) and any(k in cq for k in EXAMPLE_FIELDS):
-            examples[str(u.get("key"))] = {k: cq.pop(k) for k in EXAMPLE_FIELDS if k in cq}
+        if isinstance(cq, dict) and any(k in cq for k in FIELDS):
+            examples[str(u.get("key"))] = {k: cq.pop(k) for k in FIELDS if k in cq}
+    for key, why in marks.items():
+        examples.setdefault(key, {})[UNPROVEN] = why
     return out, examples
 
 
 def save(board, examples: dict, *, replace: bool = False) -> pathlib.Path:
     """盤面の query-examples.json に足す（同じ key は新しい方）。replace は前の中身を捨てる（判定が単位を全部出し直した時）"""
     p = pathlib.Path(board) / EXAMPLES_FILE
-    try:
-        doc = json.loads(p.read_text(encoding="utf-8")) if p.is_file() and not replace else {}
-    except (OSError, ValueError):
-        doc = {}
-    doc = {**(doc if isinstance(doc, dict) else {}), **examples}
+    doc = {**({} if replace else _saved(board)), **examples}
     p.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return p
 
 
-def restore(doc: dict, board) -> dict:
-    """判定の写し doc の units[].class_query に、盤面の query-examples.json の例を戻す（doc を書き換えて返す）"""
+def _saved(board) -> dict:
     p = pathlib.Path(board) / EXAMPLES_FILE
     try:
-        examples = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        doc = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
     except (OSError, ValueError):
-        examples = {}
+        doc = {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def restore(doc: dict, board) -> dict:
+    """判定の写し doc の units[].class_query に、盤面の query-examples.json の例と理由を戻す（doc を書き換えて返す。
+    印 unproven は戻さない）"""
+    examples = _saved(board)
     for u in doc.get("units") or []:
-        ex = examples.get(str(u.get("key"))) if isinstance(examples, dict) else None
+        ex = examples.get(str(u.get("key")))
         if isinstance(ex, dict) and isinstance(u.get("class_query"), dict):
-            u["class_query"].update({k: ex[k] for k in EXAMPLE_FIELDS if k in ex})
+            u["class_query"].update({k: ex[k] for k in FIELDS if k in ex})
     return doc
+
+
+def unproven_lines(board) -> list:
+    """最後の関所と報告に載せる「例で証明できない」単位の行（1 件 1 行。盤面の query-examples.json の印 unproven から）"""
+    return [f"{key}: {ex[UNPROVEN]}" for key, ex in _saved(board).items()
+            if isinstance(ex, dict) and isinstance(ex.get(UNPROVEN), str)]
+
+
+def save_closure(b, rows: list) -> pathlib.Path:
+    """単位ごとの閉鎖の表 {round, rows: [{unit_key, how_from, counts, total, after, claimed, closed, discrepancies}]} を
+    盤面の置き場に置く（受けた返答の分で上書きする。読む側は今の周の表だけを読む）"""
+    p = pathlib.Path(b.dir) / CLOSURE_FILE
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps({"round": b.round, "rows": rows}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(p)
+    return p
+
+
+def closure_lines(b, *, mismatched_only: bool = False) -> list:
+    """最後の関所と報告に載せる今の周の表の行（1 件 1 行）: 申告と数え直しが合わない単位と、数え直しで閉じていない単位。
+    mismatched_only は合わない単位だけ（前は返答全体を拒んだ形で、関所を開ける理由になる）"""
+    try:
+        doc = json.loads((pathlib.Path(b.dir) / CLOSURE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(doc, dict) or doc.get("round") != getattr(b, "round", None):
+        return []
+    out = []
+    for r in doc.get("rows") or []:
+        bad = r.get("discrepancies") or []
+        if bad or (not mismatched_only and r.get("closed") is False):
+            state = "閉じた" if r.get("closed") else "閉じていない"
+            out.append(f"{r.get('unit_key')}: {state}（{r.get('counts')}・修正前 {r.get('total')}・修正後 {r.get('after')}・"
+                       f"申告の site {r.get('claimed')}・問い {r.get('how_from')}）" + (f"——合わない: {' / '.join(bad)}" if bad else ""))
+    return out

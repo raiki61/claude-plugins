@@ -143,6 +143,8 @@ nodes:
                           type: array
                           maxItems: 20
                           items: {type: string, minLength: 1, pattern: '^[^\n\r\x00]+$'}
+                        examples_unavailable: {type: string, minLength: 10}
+                        misses_omitted_why: {type: string, minLength: 10}
               questions:
                 type: array
                 items:

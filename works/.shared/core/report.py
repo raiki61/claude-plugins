@@ -48,6 +48,7 @@ if str(CORE) not in sys.path:
 import adapter  # noqa: E402
 import conflict  # noqa: E402
 import gatemarks  # noqa: E402
+import querytest  # noqa: E402
 from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.rules import validator_module  # noqa: E402
 from engine.validator import TRACES, report_accepts  # noqa: E402
@@ -453,6 +454,14 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines.append(f"盤面が人に聞いている（{ph.get('node')}）: {ph.get('question') or ''}")
         lines += [f"  - {x}" for x in ph.get("items") or []]
     lines.append(_conflict_line(b))
+    unproven = querytest.unproven_lines(b.dir)
+    if unproven:
+        lines.append(f"{querytest.UNPROVEN_HEAD}: {len(unproven)} 件")
+        lines += [f"  - {x}" for x in unproven]
+    closure = querytest.closure_lines(b)
+    if closure:
+        lines.append(f"{querytest.CLOSURE_HEAD}: {len(closure)} 件")
+        lines += [f"  - {x}" for x in closure]
     lines += _rejudge_changes(b)
     lines += _premise_hypotheses(b)
     lines += _pr_lines(b)

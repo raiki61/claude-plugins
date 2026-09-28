@@ -476,10 +476,12 @@ class TestRoleNodes(unittest.TestCase):
 
 
 
-class TestCountMismatchParksUnit(unittest.TestCase):
-    """修正の受け付け（blk-fix の fix-accept の accept_fix）: 1 単位の閉鎖の数え合わせ（写しの fix_covers_open_units）が合わない
-    拒否は、輪の 1・2 回目は今までどおり役に返し、3 回目は返答全体を拒んで盤面を止めずに、その単位だけを ask_human に裁いて止め
-    （conflict.park。最後の人の関所へ運ぶ）、残りの単位の直しを受ける。盤面・git は使わない（数え直しと盤面を mock にする）"""
+class TestCopyRejectOfOneUnit(unittest.TestCase):
+    """修正の受け付け（blk-fix の fix-accept の accept_fix）: 閉鎖の数え合わせの食い違いは前段の表（unitrows.take）が記録し、
+    写しの 4 つの拒否が発火しないように返答を揃えるので、役に返らない。それでも写しの受け付け（recount.accept_fix）が 1 単位を
+    名指して拒めば（数え合わせの外の閉鎖の柵など）、輪の 1・2 回目は役に返し、3 回目は返答全体を拒んで盤面を止めずに、その単位
+    だけを ask_human に裁いて止め（conflict.park。最後の人の関所へ運ぶ）、残りの単位の直しを受ける。盤面・git は使わない
+    （写しの受け付けと盤面を mock にする）"""
 
     MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
     CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
@@ -508,12 +510,15 @@ class TestCountMismatchParksUnit(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def recount(self, reply, board, base_rev, repo):
-        """写しの受け付けの代わり: CLAMP の行が在れば、写しと同じ文の形（unit_key の頭 60 字: …）で拒む"""
+        """写しの受け付けの代わり: CLAMP の行が在れば、写しと同じ文の形（unit_key の頭 60 字: …）で閉鎖の柵（数え合わせの外）で拒む。
+        申告の sites が 1 件を超える行は、写しの数え合わせ（母数 1）と同じく拒む（前段が揃えていれば発火しない）"""
         keys = [c["unit_key"] for c in reply["changes"]]
+        over = [c["unit_key"] for c in reply["changes"] if len((c.get("closure") or {}).get("sites") or []) > 1]
+        if over:
+            return {"ok": False, "changes": [], "reason": f"{over[0][:60]}: 申告の site が母数 1 を超える"}
         if self.CLAMP in keys:
             return {"ok": False, "changes": [],
-                    "reason": f"{self.CLAMP[:60]}: 母数 2 のうち閉鎖を実証した site が 1 件で、残りが在るのに remaining（残した理由）が無い"
-                              "——残すこと自体は禁じないが、黙って残すのは禁じる"}
+                    "reason": f"{self.CLAMP[:60]}: 閉鎖の実証で赤を一度も見ていないのに fix_closure=clean"}
         return {"ok": True, "reason": "", "changes": [{"unit_key": k, "files": ["stats.py"], "what": "直した"} for k in keys]}
 
     def run_accept(self, iteration):
@@ -523,7 +528,29 @@ class TestCountMismatchParksUnit(unittest.TestCase):
         with mock.patch.dict("os.environ", {"INPUTS_ITERATION": iteration, "INPUTS_TDD_STATE": "", "INPUTS_PASS": "first"}):
             return self.mod.with_done(self.mod.accept_fix(reply, pathlib.Path("/b"), "", pathlib.Path("/r")))
 
-    def test_first_and_second_mismatch_go_back_to_role(self):
+    def test_count_mismatch_is_recorded_not_sent_back(self):
+        # 申告の sites が母数を超える食い違いは、前段（unitrows.take の本体 build）が表に記録して sites を切るので、写しは拒まない
+        from unittest import mock
+        how = {"patterns": ["return lo"], "paths": ["stats.py"], "count": "lines", "fixed": True}
+        rows = []
+
+        def take(reply, b, repo):
+            out, got = self.mod.unitrows.build(reply["changes"], {self.MEAN: {"how": how, "counts": "defects"}},
+                                               count=lambda h, at_rev: (1, "") if at_rev else (0, ""),
+                                               blank=lambda s, n: len((s or "").strip()) < n)
+            rows.extend(got)
+            return {**reply, "changes": out}, got
+        reply = {"changes": [{"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した",
+                              "closure": {"sites": [{"site": "a", "red_seen": True}, {"site": "b"}]}}]}
+        with mock.patch.object(self.mod.unitrows, "take", side_effect=take), \
+                mock.patch.object(self.mod.querytest, "save_closure", return_value="/b/r1/fix-unit-rows.json"), \
+                mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": "", "INPUTS_PASS": "first"}):
+            got = self.mod.with_done(self.mod.accept_fix(reply, pathlib.Path("/b"), "", pathlib.Path("/r")))
+        self.assertIs(got["ok"], True, got)
+        self.assertTrue(any("超える" in d for d in rows[0]["discrepancies"]), rows)
+        self.assertEqual(self.parked, [])
+
+    def test_first_and_second_copy_reject_go_back_to_role(self):
         for it in ("1", "2"):
             with self.subTest(iteration=it):
                 got = self.run_accept(it)
@@ -531,18 +558,36 @@ class TestCountMismatchParksUnit(unittest.TestCase):
                 self.assertIn(self.CLAMP[:20], got["reason"])
         self.assertEqual(self.parked, [])
 
-    def test_third_mismatch_parks_only_that_unit(self):
-        got = self.run_accept("3")
+    def split_reply(self):
+        """2 つの単位が別のファイルを触った返答（共有のファイルが在ると単位に結べず、返答全体を拒む）"""
+        return {"changes": [{"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"},
+                            {"unit_key": self.CLAMP, "files": ["clamp.py"], "what": "上限の枝を直した"}]}
+
+    def accept_split(self, iteration):
+        from unittest import mock
+        with mock.patch.dict("os.environ", {"INPUTS_ITERATION": iteration, "INPUTS_TDD_STATE": "", "INPUTS_PASS": "first"}):
+            return self.mod.with_done(self.mod.accept_fix(self.split_reply(), pathlib.Path("/b"), "", pathlib.Path("/r")))
+
+    def test_third_reject_of_one_unit_parks_it_by_the_bound_path(self):
+        # 申告と数え直しの食い違いは前段の表（unitrows）に記録して拒否にしない。それでも写しの受け付けが 1 単位を名指して拒めば、
+        # 3 回目はほかの拒否と同じ道（changes[].files か unit_key で単位に結ぶ）でその単位だけを戻して止める
+        from unittest import mock
+        with mock.patch.object(self.mod, "revert_units", return_value="/b/r1/fix-parked-1.patch") as revert:
+            got = self.accept_split("3")
         self.assertEqual((got["ok"], got["done"]), (True, True), got)
         self.assertEqual([c["unit_key"] for c in got["changes"]], [self.MEAN], "止めた単位は changes から外す")
         rows = [r for rs, _ in self.parked for r in rs]
         self.assertEqual([r["unit_key"] for r in rows], [self.CLAMP])
         rulings = [k.get("ruling") or {} for _, k in self.parked]
         self.assertEqual([r.get("decision") for r in rulings], ["ask_human"])
-        self.assertIn("母数 2", rulings[0].get("text", ""), "人に回す裁定の文に、合わなかった数え合わせの拒否の文を載せる")
+        self.assertIn("fix_closure=clean", rulings[0].get("text", ""), "人に回す裁定の文に、単位に結んだ拒否の文を載せる")
+        revert.assert_called_once()
+        self.assertIn(self.CLAMP, repr(revert.call_args), "止めた単位の直しを作業ツリーから戻す")
+        self.assertNotIn(self.MEAN, repr(revert.call_args), "通した単位の直しは戻さない")
 
-    def test_third_mismatch_then_other_reject_undoes_the_park(self):
-        # 止めた後の数え直しが数え合わせでない文で拒めば、食い違いの控えと裁定の文を止める前に戻す（拒否では盤面を前のままにする）
+    def test_third_park_then_other_reject_undoes_the_park(self):
+        # 止めた後の通し直しがどの単位にも結べない文で拒めば、止めた単位の直し・食い違いの控え・裁定の文を止める前に戻す
+        # （拒否では盤面を前のままにする）
         from unittest import mock
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -563,30 +608,165 @@ class TestCountMismatchParksUnit(unittest.TestCase):
                 mock.patch.object(self.mod.conflict, "park", side_effect=park), \
                 mock.patch.object(self.mod.conflict, "write_rulings",
                                   side_effect=lambda b_: (work / self.mod.conflict.RULINGS_FILE).write_text("止めた\n", encoding="utf-8")), \
-                mock.patch.object(self.mod.recount, "accept_fix", side_effect=recount):
-            got = self.run_accept("3")
+                mock.patch.object(self.mod.recount, "accept_fix", side_effect=recount), \
+                mock.patch.object(self.mod, "revert_units", return_value="/b/r1/fix-parked-1.patch"), \
+                mock.patch.object(self.mod, "unrevert_units") as unrevert:
+            got = self.accept_split("3")
         self.assertEqual((got["ok"], got["done"]), (False, True), got)
         self.assertFalse((work / self.mod.conflict.FILE).exists(), "止める前に無かった食い違いの控えは消す")
         self.assertEqual((work / self.mod.conflict.RULINGS_FILE).read_text(encoding="utf-8"), "前の裁定\n")
         b.trace.assert_any_call(self.mod.PARK_UNDONE_OP, node=self.mod.recount.ROLE, unit_keys=[self.CLAMP])
+        unrevert.assert_called_once()
+        self.assertIn(self.CLAMP, repr(unrevert.call_args), "戻した単位の直しを作業ツリーに戻す")
 
-    def test_mismatch_words_are_in_the_copy_rule(self):
-        # COUNT_MISMATCH の句と文の頭（unit_key の頭 60 字 + ": "）は、写しの fix_covers_open_units の拒否の文の写し。
-        # 写しを取り直して文が変われば、黙って止めなくなる前にここが赤になる
-        import ast
-        src = (ROOT / ".shared" / "core" / "graphloops" / "rules" / "review-loop.py").read_text(encoding="utf-8")
-        fn = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef) and n.name == "fix_covers_open_units")
-        texts = []
-        for n in ast.walk(fn):
-            if isinstance(n, ast.Raise) and isinstance(n.exc, ast.Call) and n.exc.args and isinstance(n.exc.args[0], ast.JoinedStr):
-                parts = n.exc.args[0].values
-                if len(parts) > 1 and isinstance(parts[0], ast.FormattedValue) \
-                        and ast.unparse(parts[0].value) == "c['unit_key'][:60]" \
-                        and isinstance(parts[1], ast.Constant) and parts[1].value.startswith(": "):
-                    texts.append("".join(p.value if isinstance(p, ast.Constant) else "\0" for p in parts))
-        for w in self.mod.COUNT_MISMATCH:
-            with self.subTest(word=w):
-                self.assertTrue(any(w in t for t in texts), f"写しの fix_covers_open_units の単位の頭の拒否の文に {w!r} が無い")
+    def test_count_mismatch_phrase_matching_is_gone(self):
+        # 閉鎖は前段の表（unitrows）が数え直しで決め、写しの拒否の文の句を照らして後から単位を外す継ぎ目は持たない
+        src = (BLK / "scripts" / "accept.py").read_text(encoding="utf-8")
+        for name in ("COUNT_MISMATCH", "mismatched_unit", "park_mismatched_units", "MISMATCH_PARKED"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(self.mod, name))
+                self.assertNotIn(name, src)
+
+
+class TestQueryConflictExit(unittest.TestCase):
+    """判定者の問い（class_query）が直した後の正しい形にも当たる、と申し出る出口（which_is_right: query。直した後の正しい行を
+    correct_lines に写す）と、問いを置き換える裁定（replace_query。新しい問いを hits・misses と申し出の correct_lines で機械が試す）。
+    盤面は使わない（conflict.problems と ruling.problems を直に呼ぶ）"""
+
+    KEY = "stats.py clamp: 上限を超えた値に lo を返す"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.repo = pathlib.Path(tmp.name)
+        (self.repo / "stats.py").write_text("def clamp(x, lo, hi):\n    if x > hi:\n        return lo\n    return x\n",
+                                            encoding="utf-8")
+        (self.repo / "test_stats.py").write_text("def test_clamp():\n    assert clamp(11, 0, 10) == 10\n", encoding="utf-8")
+
+    def item(self, **extra):
+        return {"unit_key": self.KEY, "between": ["stats.py:3", "test_stats.py:2"],
+                "why_both_cannot_hold": "判定者の問い return lo は下限の枝の正しい return lo にも当たり、直しても件数が減らない",
+                "which_is_right": "query", **extra}
+
+    def test_query_conflict_needs_correct_lines(self):
+        import conflict
+        self.assertIn("query", conflict.WHICH)
+        errs = conflict.problems([self.item()], repo=self.repo, board_dir=self.repo, owed={self.KEY})
+        self.assertTrue(any("correct_lines" in e for e in errs), errs)
+
+    def test_replace_query_ruling_is_tried_on_examples(self):
+        import conflict
+        import ruling
+        self.assertIn("replace_query", conflict.DECISIONS)
+        todo = {"c1-1": {"id": "c1-1", **self.item(correct_lines=["        return lo"])}}
+
+        def reply(how, hits, misses):
+            return {"rulings": [{"id": "c1-1", "decision": "replace_query", "limits": [],
+                                 "text": "上限の枝だけに当たる問いに置き換える（下限の枝の return lo は正しい形）",
+                                 "query": {"how": how, "counts": "defects", "hits": hits, "misses": misses}}]}
+
+        good = {"patterns": ["return lo  # hi"], "fixed": True, "paths": ["stats.py"], "count": "lines"}
+        broad = {"patterns": ["return lo"], "fixed": True, "paths": ["stats.py"], "count": "lines"}
+        self.assertEqual(ruling.problems(reply(good, ["        return lo  # hi"], ["        return hi"]), todo, self.repo), [],
+                         "hits に当たり、misses と申し出の correct_lines に当たらない問いは通す")
+        errs = ruling.problems(reply(broad, ["        return lo"], ["        return hi"]), todo, self.repo)
+        self.assertTrue(any("correct_lines" in e for e in errs), f"申し出の正しい行にも当たる問いは拒む: {errs}")
+        errs = ruling.problems(reply(good, ["        return lo  # hi"], ["        return lo  # hi"]), todo, self.repo)
+        self.assertTrue(any("misses" in e for e in errs), f"misses に当たる問いは拒む: {errs}")
+
+
+class TestThirdRejectParksBoundUnit(unittest.TestCase):
+    """修正の受け付けの輪の 3 回目: 数え合わせ以外の拒否（凍ったテストの書き換え・元で赤でなかった試験の赤）も、changes[].files で
+    ちょうど 1 単位に結べれば、その単位だけを ask_human に止め（conflict.park）、その単位の直しを作業ツリーから戻し（revert_units）、
+    残りの単位で受け付けを通し直す。どの単位にも結べない拒否は今までどおり返答全体を拒んで輪を抜ける（assert-changed が止める）。
+    盤面・git は使わない（検査・数え直し・戻しを mock にする）"""
+
+    MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
+    CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
+    RED = ("受け付けが走らせた選んだ試験（-k clamp）で、元で赤でなかった試験が赤: ['test_clamp.py::test_clamp_above_range']"
+           "（1 件。ログ /b/suite.log）")
+    FROZEN = "TDD の輪で凍ったテストのファイルを書き換えた: ['test_clamp.py']（輪で直した単位のテストは変えない）"
+
+    def setUp(self):
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("blk_fix_accept_script", BLK / "scripts" / "accept.py")
+        self.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.mod)
+        self.parked = []
+        self.frozen = [[]]
+        self.tests = [([], "")]
+        self.revert = mock.MagicMock(return_value="/b/r1/fix-parked-1.patch")
+        patches = [
+            mock.patch.object(self.mod.tddloop, "frozen_problems", side_effect=lambda *a, **k: self.frozen.pop(0)
+                              if len(self.frozen) > 1 else self.frozen[0]),
+            mock.patch.object(self.mod, "check_writes", side_effect=lambda reply, *a, **k: {"problems": [], "reply": reply}),
+            mock.patch.object(self.mod, "take_conflicts", side_effect=lambda reply, *a, **k: (reply, None)),
+            mock.patch.object(self.mod, "fix_unit_keys", return_value=None),
+            mock.patch.object(self.mod, "check_tests", side_effect=lambda *a, **k: self.tests.pop(0)
+                              if len(self.tests) > 1 else self.tests[0]),
+            mock.patch.object(self.mod.recount, "accept_fix",
+                              side_effect=lambda reply, *a: {"ok": True, "reason": "", "changes": [
+                                  {k: c[k] for k in ("unit_key", "files", "what")} for c in reply["changes"]]}),
+            mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
+            mock.patch.object(self.mod.writes, "trace"),
+            mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
+            mock.patch.object(self.mod.conflict, "write_rulings"),
+            mock.patch.object(self.mod, "revert_units", self.revert, create=True),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def run_accept(self, iteration):
+        from unittest import mock
+        reply = {"changes": [{"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"},
+                             {"unit_key": self.CLAMP, "files": ["clamp.py", "test_clamp.py"], "what": "上限の枝を直した"}]}
+        with mock.patch.dict("os.environ", {"INPUTS_ITERATION": iteration, "INPUTS_TDD_STATE": "/b/tdd.json",
+                                            "INPUTS_PASS": "first"}):
+            return self.mod.with_done(self.mod.accept_fix(reply, pathlib.Path("/b"), "", pathlib.Path("/r")))
+
+    def assert_parked_clamp(self, got):
+        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        self.assertEqual([c["unit_key"] for c in got["changes"]], [self.MEAN], "止めた単位は changes から外し、ほかの単位は通す")
+        rows = [r for rs, _ in self.parked for r in rs]
+        self.assertEqual([r["unit_key"] for r in rows], [self.CLAMP])
+        self.assertEqual([(k.get("ruling") or {}).get("decision") for _, k in self.parked], ["ask_human"])
+        self.revert.assert_called_once()
+        self.assertIn(self.CLAMP, repr(self.revert.call_args), "止めた単位の直しを作業ツリーから戻す")
+        self.assertNotIn(self.MEAN, repr(self.revert.call_args), "通した単位の直しは戻さない")
+
+    def test_third_red_test_bound_to_one_unit_parks_only_that_unit(self):
+        self.tests = [([self.RED], ""), ([], "")]
+        self.assert_parked_clamp(self.run_accept("3"))
+
+    def test_third_frozen_edit_bound_to_one_unit_parks_only_that_unit(self):
+        self.frozen = [[self.FROZEN], []]
+        self.assert_parked_clamp(self.run_accept("3"))
+
+    def test_unbound_third_reject_still_gives_up(self):
+        self.tests = [(["受け付けが走らせた一式（環境）で、元で赤でなかった試験が赤: ['test_env.py::test_x']（1 件）"], "")]
+        got = self.run_accept("3")
+        self.assertEqual((got["ok"], got["done"]), (False, True), got)
+        self.assertEqual(self.parked, [])
+        self.revert.assert_not_called()
+
+    def test_third_not_opened_key_is_not_parked(self):
+        # 今の周に開いていない unit_key は、3 回目でも ask_human に積まず返答全体を拒む（直す義務の外の単位を人に回さない）
+        from unittest import mock
+        with mock.patch.object(self.mod, "fix_unit_keys", return_value=([self.MEAN, self.CLAMP], {self.MEAN})), \
+                mock.patch.object(self.mod, "check_pack_copy", return_value=""):
+            got = self.run_accept("3")
+        self.assertEqual((got["ok"], got["done"]), (False, True), got)
+        self.assertIn(self.CLAMP, got["reason"])
+        self.assertEqual(self.parked, [])
+        self.revert.assert_not_called()
+
+    def test_first_bound_red_still_goes_back_to_role(self):
+        self.tests = [([self.RED], "")]
+        got = self.run_accept("1")
+        self.assertEqual((got["ok"], got["done"]), (False, False), got)
+        self.assertEqual(self.parked, [])
 
 
 if __name__ == "__main__":

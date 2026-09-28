@@ -16,8 +16,8 @@ clean が消す（盤面の fix-ignored-before.json の控えに無かった物�
 - 申告したファイルが全部変わっている: {"ok": true, "files": [申告 ∩ 変わった物]} を 1 行出して 0（ゴミは下流に流さない）
 - 申告が空でも、直す義務の単位が全部 ask_human に裁かれた盤面（conflict.only_asked_left）なら正しい返答:
   {"ok": true, "files": [], "reason"} を 1 行出して 0、盤面の trace に 1 行（止めずに最後の人の関所へ届ける）
-- 申告が空（上の場合を除く）・申告したのに変わっていないファイルが在る・受け付けが通らないまま輪を抜けた（修正の輪が 3 回とも拒まれて諦めた。
-  輪の出力が ok: false）: run を落とさずに盤面（$ARTIFACTS_DIR/board）を理由つきで止め（by works:fix。R50）、
+- 申告が空（上の場合を除く）・申告したのに変わっていないファイルが在る・受け付けが通らないまま輪を抜けた（修正の輪が 3 回とも拒まれ、
+  3 回目の拒否がどの単位にも結べなかった——結べた単位は受け付けがその単位だけを止めて残りを通す。輪の出力が ok: false）: run を落とさずに盤面（$ARTIFACTS_DIR/board）を理由つきで止め（by works:fix。R50）、
   {"ok": false, "files": [], "reason"} を 1 行出して 0。後ろの段は境の節が飛ばし、報告と書き出しは走る（run 26）。
   盤面が開けない（盤面の無いブロックだけの模擬実行）なら、標準エラーに理由を 1 行出して 1（1 本目のまま）
 - 環境変数が無い・INPUTS_ACCEPTED が読めない・changes[].files の形が違う・版として引けない・git が効かない:
@@ -103,7 +103,7 @@ def declared_files(raw):
         raise Unreadable(f"INPUTS_ACCEPTED が JSON のオブジェクトでない（{str(accepted)[:200]!r}）")
     if accepted.get("ok") is False:
         last = accepted.get("reason_file") or ""
-        raise GiveUp("修正役の返答が受け付けを通らないまま修正の輪を抜けた（3 回拒まれて諦めた）。最後の理由: "
+        raise GiveUp("修正役の返答が受け付けを通らないまま修正の輪を抜けた（3 回拒まれ、どの単位にも結べない拒否で諦めた）。最後の理由: "
                      + (" ".join(str(accepted.get("reason") or "").split())[:300] or "（無し）")
                      + (f"（全文 {last}）" if last else ""))
     if accepted.get("ok") is not True:

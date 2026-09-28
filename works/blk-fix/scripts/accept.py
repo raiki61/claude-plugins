@@ -22,16 +22,22 @@
    空・欠けは輪の無い run で見ない）。裁定の後（ruled）は、裁定 fix_test_scope の範囲（conflict.ruled_test_limits）の中の変更を通す
 1c. check_tests: 版からの変更に当たる試験を、TDD の輪と同じ実行器で機械が走らせ、元で赤でなかった試験の赤を拒む
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
-2. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が判定役の class_query を修正前の版と修正後の
-   作業ツリーで数え直す（仕様 3.2）。通れば 1 本目の出口のための changes（unit_key・files・what）を足す。
-   輪の最後の回（INPUTS_ITERATION が GIVE_UP_AFTER 以上）に 1 単位の数え合わせ（COUNT_MISMATCH）で拒まれたら、返答全体を
-   拒まずにその単位だけを ask_human に裁いて止め（conflict.park）、その行を外して数え直す（park_mismatched_units）。それでも通らなければ止めた単位を戻す（拒否では盤面を前のままにする）
+2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
+   修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告
+   （closure.sites の件数・remaining・作り直した how）との食い違いを記録する。食い違いは拒否でなく記録で、写しに渡す返答は
+   写しの数え合わせの拒否が発火しないように揃える
+3. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が同じ問いで数え直す（仕様 3.2）。通れば 1 本目の
+   出口のための changes（unit_key・files・what）を足し、表を盤面に置く
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
 ここで出口へ運ぶ（collect が今の周の changes.json に書く）。拒んだときの changes は空。
 中身の拒否は終了コード 0 の {"ok": false, "reason", "reason_file", "changes": [], "done"} を 1 行。回す側の誤りは 2。
-done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目でも数え合わせの
-拒否は上の 2 で単位ごとに止めるので、諦めるのはそれで通らない返答だけ。諦めた輪の後は
-assert-changed が盤面を止め、collect が ok: false の出口を出す
+done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目は、-2・1b・1c・
+写しの受け付けの拒否の文が changes[].files か unit_key（写しの文の頭の unit_key[:60] も）でちょうど
+1 単位に結べれば、その単位の直しを戻して（控えの patch を盤面に置く）ask_human に止め、残りの単位で受け付けを頭から通し直す
+（park_bound_units。fail-fast: false）。通し直しが通らなければ、止めた単位の直し・食い違いの控え・裁定の文を止める前に戻す
+（拒否では盤面を前のままにする）。諦めるのは、どの単位にも結べない拒否か、止める単位のファイルをほかの単位と共有する
+返答か、1a と works だけの 2 つの検査の拒否（key の形の拒否は 3 回目でも単位に結んで止めない。開いた単位を 2 行に分けた
+返答も丸ごと諦める）。諦めた輪の後は assert-changed が盤面を止め、collect が ok: false の出口を出す
 """
 import copy
 import json
@@ -43,13 +49,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # ブロ�
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
 import os  # noqa: E402
 import posixpath  # noqa: E402
+import re  # noqa: E402
 
 import conflict  # noqa: E402   食い違いの申し出（.shared/core）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
+import querytest  # noqa: E402   判定者の問いを例に当てる（.shared/core）
 import recount  # noqa: E402
 import tddloop  # noqa: E402
+import unitrows  # noqa: E402   閉鎖の数え直しの前段（blk-fix/lib）
 import entry  # noqa: E402
 import writes  # noqa: E402   書き込みの出どころの突き合わせ（.shared/core）
+from leftovers import git  # noqa: E402
 from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
 from engine.rules import validator_module  # noqa: E402
 
@@ -63,12 +73,12 @@ NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書い�
 
 
 CONFLICT_BAD = "食い違いの申し出を受けない（名指した所が現物に無いか、形が違う。直して丸ごと出し直せ）: "
-# 写しの fix_covers_open_units が 1 単位の数え合わせで返答を拒む文の句（closure.sites と母数・remaining の欠け・問いを狭めた・
-# defects の問いが減らない）。輪の最後の回は、この拒否を返答全体でなくその単位だけに当てる（park_mismatched_units）。
-# 句と文の頭（unit_key[:60] + ": "）は tests/test_fix_rules.py の test_mismatch_words_are_in_the_copy_rule が写しの規則と突き合わせる
-COUNT_MISMATCH = ("closure.sites が", "残りが在るのに remaining", "この how は修正前の版で", "を全部塞いだと言う修正の後も")
-MISMATCH_PARKED = ("修正の輪の最後の回も、この単位の数え合わせ（判定者の問いの母数・塞いだ site・remaining）が合わなかった。"
-                   "返答全体を拒んで盤面を止める代わりに、機械がこの単位だけを人に回し、ほかの単位の直しを受けた。拒否の文: ")
+CLOSURE_OP = "fix_unit_rows"   # 受けた返答の単位ごとの閉鎖の表（querytest.CLOSURE_FILE）を置いた盤面の trace の行
+BOUND_PARKED = ("修正の輪の最後の回も、この単位に結べる拒否（凍ったテストの書き換え・書き込みの出どころ・元で赤でなかった試験の赤・"
+                "写しの受け付けの拒否）が残った。返答全体を拒んで盤面を止める代わりに、機械がこの単位の直しを作業ツリーから戻して"
+                "人に回し、ほかの単位の直しを受けた。拒否の文: ")
+BOUND_PARKED_OP = "fix_bound_parked"   # 最後の回に単位に結べた拒否でその単位を止めた盤面の trace の行（止めた単位と控えの patch）
+PARKED_PATCH = "fix-parked"            # 止めた単位の戻した直しの控え（盤面の今の周の fix-parked-<n>.patch）
 SECOND_CONFLICT = ("裁定の後の出し直しで新しく申し出た食い違い——裁定の輪は 1 周に 1 回だけなので、機械が人に回した"
                    "（最後の人の関所で人が決める）")
 
@@ -152,7 +162,7 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     V = validator_module(b)
     owed = {u["key"] for u in b.record["units"] if V.is_open(u)} - conflict.asked_keys(b)
     if items:
-        bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed)
+        bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed, try_query=querytest.judge_hits(b.record["units"]))
         both = sorted({i.get("unit_key") for i in items if isinstance(i, dict)}
                       & {c.get("unit_key") for c in reply.get("changes") or [] if isinstance(c, dict)})
         if both:
@@ -190,56 +200,129 @@ def check_tests(board: Path, base_rev: str, repo: Path, state: str) -> tuple:
     return tddloop.selected_problems(state, repo, writes.base_rev(entry.open_board(board), base_rev))
 
 
-def mismatched_unit(reason: str, keys: list):
-    """写しの fix_covers_open_units の 1 単位の数え合わせの拒否（COUNT_MISMATCH）なら、その単位の key（文の頭の unit_key[:60]）。
-    ほかの拒否・単位を 1 つに決められない文は None"""
-    if not any(w in reason for w in COUNT_MISMATCH):
+def _files(rows, repo) -> set:
+    """changes の行の files を、リポジトリの根からの相対パスに揃えた集合"""
+    out = set()
+    for c in rows:
+        for f in c.get("files") or []:
+            if isinstance(f, str) and f.strip():
+                f = f.strip()
+                out.add(posixpath.normpath(os.path.relpath(f, repo) if os.path.isabs(f) else f))
+    return out
+
+
+def bind_problems(problems: list, rows: list, repo) -> tuple:
+    """拒否の文を単位に結ぶ: 文が名指す unit_key（写しの受け付けが文の頭に置く unit_key[:60] も）か、それが無ければパス
+    （changes[].files。前後がパスの字でない所）が、ちょうど 1 つの単位に当たれば結べた。unit_key を先に見るのは、key の頭の
+    パスがほかの単位の files にも在りうるから。返り ({unit_key: [文]}, [どの単位にも結べない文])"""
+    bound, unbound = {}, []
+    for text in problems:
+        hit = [c.get("unit_key") for c in rows
+               if isinstance(c.get("unit_key"), str) and (c["unit_key"] in text or c["unit_key"][:60] in text)]
+        if not hit:
+            hit = [c.get("unit_key") for c in rows
+                   if any(re.search(rf"(?<![\w./-]){re.escape(f)}(?![\w/-])", text) for f in _files([c], repo))]
+        if len(set(hit)) == 1 and isinstance(hit[0], str):
+            bound.setdefault(hit[0], []).append(text)
+        else:
+            unbound.append(text)
+    return bound, unbound
+
+
+def revert_units(board, base_rev, repo, state, rows) -> str:
+    """止めた単位（rows）の直しを作業ツリーから戻す。先に、その単位のファイルの版からの差分（未追跡の新しいファイルも。一時の
+    index で固めた木と比べる）を盤面の fix-parked-<n>.patch に控える。戻す先は、TDD の輪が凍らせたファイルは凍った時の木
+    （輪が作って緑にしたテストを消さない）、ほかは修正前の版。返りは控えのパス"""
+    b = entry.open_board(board, allow_halted=True)
+    rev = writes.base_rev(b, base_rev)
+    files = sorted(_files(rows, repo))
+    now = tddloop.snapshot(repo)
+    n = 1
+    while b.work(f"{PARKED_PATCH}-{n}.patch").exists():
+        n += 1
+    patch = b.work(f"{PARKED_PATCH}-{n}.patch")
+    patch.write_bytes(git(repo, "diff", "--binary", "--no-renames", f"{rev}^{{tree}}", now, "--", *files, text=False))
+    st = tddloop.load_state(state) if state else {}
+    frozen = set(st.get("frozen") or {}) if st.get("frozen_tree") else set()
+    tddloop.restore_paths(repo, st.get("frozen_tree"), [f for f in files if f in frozen])
+    tddloop.restore_paths(repo, f"{rev}^{{tree}}", [f for f in files if f not in frozen])
+    return str(patch)
+
+
+def unrevert_units(board, base_rev, repo, patch: str, rows) -> None:
+    """revert_units の取り消し: その単位のファイルを修正前の版に揃えてから控えの patch を当て、戻す前の姿にする"""
+    rev = writes.base_rev(entry.open_board(board, allow_halted=True), base_rev)
+    tddloop.restore_paths(repo, f"{rev}^{{tree}}", sorted(_files(rows, repo)))
+    if Path(patch).stat().st_size:
+        git(repo, "apply", "--binary", "--whitespace=nowarn", patch)
+
+
+def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
+    """輪の最後の回の拒否: 文が全部どれかの単位に結べ、止める単位のファイルをほかの単位と共有していなければ、その単位の直しを
+    戻して（revert_units）ask_human に裁いて止め（conflict.park）、その行（と bash_writes の申告）を外した返答と、止める前に
+    戻す手（undo: 直し・食い違いの控え・裁定の文を戻し、trace に PARK_UNDONE_OP）を返す。結べない文が在る・共有のファイルが
+    在る時は None（今までどおり返答全体を拒む）"""
+    rows = [c for c in reply.get("changes") or [] if isinstance(c, dict)]
+    bound, unbound = bind_problems(problems, rows, repo)
+    if unbound or not bound:
         return None
-    hit = [k for k in dict.fromkeys(keys) if isinstance(k, str) and reason.startswith(f"{k[:60]}: ")]
-    return hit[0] if len(hit) == 1 else None
-
-
-def park_mismatched_units(reply: dict, out: dict, board: Path, base_rev: str, repo: Path) -> dict:
-    """輪の最後の回の数え合わせの拒否: 返答全体を拒んで盤面を止める代わりに、拒まれた単位だけを機械が ask_human に裁いて止め
-    （conflict.park。直す義務から外れ、最後の人の関所と報告に載る）、その行を changes から外して数え直す。通るか、数え合わせで
-    ない拒否か、changes が尽きるまで繰り返す。返りは最後の recount.accept_fix の返り。通らずに終われば、食い違いの控えと
-    裁定の文を止める前の中身に戻し（拒否では盤面を前のままにする）、trace に戻した単位を 1 行（PARK_UNDONE_OP）"""
+    parked = [c for c in rows if c.get("unit_key") in bound]
+    rest = [c for c in rows if c.get("unit_key") not in bound]
+    mine = _files(parked, repo)
+    if mine & _files(rest, repo):
+        return None
     b = entry.open_board(board)
     saved = {p: p.read_bytes() if p.is_file() else None for p in (b.work(conflict.FILE), b.work(conflict.RULINGS_FILE))}
-    parked = []
-    while out.get("ok") is not True:
-        rows = [c for c in reply.get("changes") or [] if isinstance(c, dict)]
-        key = mismatched_unit(str(out.get("reason", "")), [c.get("unit_key") for c in rows])
-        if key is None or len(rows) < 2:
-            break
-        conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": str(out["reason"]),
-                           "which_is_right": "unknown"}],
-                      source="fix", ruling={"decision": conflict.ASK, "text": MISMATCH_PARKED + str(out["reason"]),
+    patch = revert_units(board, base_rev, repo, state, parked)
+    for key in bound:
+        why = " / ".join(bound[key])
+        conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": why, "which_is_right": "unknown"}],
+                      source="fix", ruling={"decision": conflict.ASK, "text": f"{BOUND_PARKED}{why}（戻した直しの控え {patch}）",
                                             "limits": [], "by": "works:fix-accept"})
-        conflict.write_rulings(b)
-        parked.append(key)
-        reply = {**reply, "changes": [c for c in rows if c.get("unit_key") != key]}
-        out = recount.accept_fix(reply, board, base_rev, repo)
-    if parked and out.get("ok") is not True:
+    conflict.write_rulings(b)
+    b.trace(BOUND_PARKED_OP, node=recount.ROLE, unit_keys=list(bound), patch=patch)
+    out = {**reply, "changes": rest}
+    if isinstance(reply.get(writes.FIELD), list):
+        out[writes.FIELD] = [w for w in reply[writes.FIELD]
+                             if not (isinstance(w, dict) and _files([{"files": [w.get("path")]}], repo) & mine)]
+
+    def undo():
+        unrevert_units(board, base_rev, repo, patch, parked)
         for p, body in saved.items():
             if body is None:
                 p.unlink(missing_ok=True)
             else:
                 p.write_bytes(body)
-        b.trace(PARK_UNDONE_OP, node=recount.ROLE, unit_keys=parked)
-    return out
+        b.trace(PARK_UNDONE_OP, node=recount.ROLE, unit_keys=list(bound))
+    return out, undo
 
 
 def accept_fix(reply, board, base_rev, repo):
     state = os.environ.get("INPUTS_TDD_STATE", "")
     pass_ = os.environ.get("INPUTS_PASS") or "first"
+    last = int(os.environ.get("INPUTS_ITERATION") or 0) >= GIVE_UP_AFTER
+    whole = reply
+
+    def refuse(problems):
+        """拒否。輪の最後の回は、単位に結べる拒否ならその単位だけを止めて残りで受け付けを通し直し、通らなければ止めた単位を
+        戻す（fail-fast: false）"""
+        if last and isinstance(whole, dict):
+            got = park_bound_units(whole, problems, board, base_rev, repo, state)
+            if got is not None:
+                rest, undo = got
+                out = accept_fix(rest, board, base_rev, repo)
+                if out.get("ok") is not True:
+                    undo()
+                return out
+        return _reject(" / ".join(problems))
+
     allowed = conflict.ruled_test_limits(entry.open_board(board)) if state and pass_ == "ruled" else []
     frozen = tddloop.frozen_problems(state, repo, allowed)
     if frozen:
-        return _reject(" / ".join(frozen))
+        return refuse(frozen)
     wrote = check_writes(reply, board, base_rev, repo, state)
     if wrote["problems"]:
-        return _reject(" / ".join(wrote["problems"]))
+        return refuse(wrote["problems"])
     reply = wrote["reply"]
     reply, done = take_conflicts(reply, board, repo, pass_)
     if done is not None:
@@ -251,18 +334,22 @@ def accept_fix(reply, board, base_rev, repo):
             return {"ok": False, "reason": pack, "changes": []}
         keys, opened = got
         for words, bad in ((DUPLICATE, check_unique_units(keys)), (NOT_OPENED, check_opened_units(keys, opened))):
-            if bad:
-                return {"ok": False, "reason": words + " / ".join(bad), "changes": []}
+            if bad:   # key の形の拒否は単位に結んで止めない（開いていない単位を ask_human に積まない）
+                return _reject(" / ".join(words + k for k in bad))
     red, note = check_tests(board, base_rev, repo, state)
     if red:
-        return _reject(" / ".join(red))
+        return refuse(red)
+    b = entry.open_board(board)
+    reply, rows = unitrows.take(reply, b, repo)
     out = recount.accept_fix(reply, board, base_rev, repo)
-    if out.get("ok") is not True and int(os.environ.get("INPUTS_ITERATION") or 0) >= GIVE_UP_AFTER:
-        out = park_mismatched_units(reply, out, board, base_rev, repo)
-    if out.get("ok") is True:   # 受けた時だけ盤面の trace に積む（拒否・回す側の誤りでは盤面を前のままにする）
+    if out.get("ok") is not True and last:
+        return refuse([str(out.get("reason") or "")])
+    if out.get("ok") is True:   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
         b = entry.open_board(board, allow_halted=True)
         writes.trace(b, recount.ROLE, wrote)
         b.trace(TESTS_OP, node=recount.ROLE, note=note)
+        if rows:
+            b.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(b, rows)))
     return out
 
 

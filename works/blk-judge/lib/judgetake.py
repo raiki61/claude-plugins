@@ -60,10 +60,11 @@ def finish(board, out: dict) -> dict:
 def take(board, reply: dict, repo) -> dict:
     """rolekit.accept_role の take: 例で問いを試し、例を外した返答を entry.take に渡す（写しの型は例の欄を持たない）。
     通れば例を盤面の query-examples.json に置く（finish が judgment.json に戻す）"""
-    errs = querytest.problems(reply.get("units"), validator_module(_Validator).is_open)
+    is_open = validator_module(_Validator).is_open
+    errs = querytest.problems(reply.get("units"), is_open)
     if errs:
         return {"ok": False, "reason": "class_query の例が問いと合わない: " + "; ".join(errs)}
-    bare, examples = querytest.split(reply)
+    bare, examples = querytest.split(reply, is_open)
     out = entry.take(pathlib.Path(board), NODE, bare, pathlib.Path(repo), snapshot_name=TREE_FILE)
     if out.get("ok") is True:
         querytest.save(board, examples, replace=True)

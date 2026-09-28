@@ -3,15 +3,18 @@
 緑にするためにテスト・依頼・コードのどれかを曲げる代わりに、役は「どちらも同時には成り立たない」を証拠つきで返してよい
 （ImpossibleBench arXiv 2510.20270: 食い違いを申し出る道を明示すると、テストを曲げる不正が 54% から 9% に減った）。
 申し出は拒否に数えず、その単位だけを止め（parked）、ほかの単位は進む。止めた単位は読むだけの裁定役が、持ち主の決まり
-（principles）で fix_test_scope・fix_code_as・ask_human のどれかに裁き、ask_human だけが最後の人の関所に届く。
+（principles）で fix_test_scope・fix_code_as・ask_human・replace_query のどれかに裁き、ask_human だけが最後の人の関所に届く。
+判定者の問い（class_query）が直した後の正しい形にも当たる時は、which_is_right: query と正しい行（correct_lines）で申し出て、
+裁定 replace_query が新しい問いを例（hits・misses と correct_lines）で機械に試させてから置き換える（Semgrep の規則の試験の ruleid・ok）。
 
 この模块が持つ物（盤面の今の周の作業ファイル b.work(FILE) {"items": [...]} と trace の行。どのブロック・ラインの名も書かない）:
-- ITEM_SCHEMA・CONFLICTS_SCHEMA: 1 件の形（unit_key・between・why_both_cannot_hold・which_is_right）と、修正役の返答の欄 conflicts
-- problems(items, repo=, board_dir=, owed=): 機械の確かめ。形・義務の単位か・重なり・名指した所が在るか（<パス>:<行>。依頼の行・
-  テストの行・コードの行が現物に在る）。文の一覧（空なら通る）
+- ITEM_SCHEMA・CONFLICTS_SCHEMA: 1 件の形（unit_key・between・why_both_cannot_hold・which_is_right。query なら correct_lines も）と、
+  修正役の返答の欄 conflicts
+- problems(items, repo=, board_dir=, owed=, try_query=): 機械の確かめ。形・義務の単位か・重なり・名指した所が在るか（<パス>:<行>。
+  依頼の行・テストの行・コードの行が現物に在る）・query の申し出の correct_lines に判定者の問いが当たるか。文の一覧（空なら通る）
 - cite_problem(cite, repo, roots): 1 つの名指しの確かめ
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
-- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・counts(b): 読む口
+- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b): 読む口
 - apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
 - ruled_test_doc(b): fix_test_scope が名指したテストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
@@ -40,12 +43,16 @@ RULINGS_FILE = "conflict-rulings.md"    # 裁定の文（修正役が 2 回目�
 PARKED_REPLY = "fix-parked-reply.json"  # 申し出を返した回の修正役の返答（裁定の後の出し直しで読む）
 START_FILE = "r1/start.json"            # 盤面の start の控え（依頼のファイル request_file を読む。書き手は entry.start）
 FIELDS = ("unit_key", "between", "why_both_cannot_hold", "which_is_right")
-WHICH = ("request", "test", "code", "unknown")
-DECISIONS = ("fix_test_scope", "fix_code_as", "ask_human")
-FIX_DECISIONS = DECISIONS[:2]
-ASK = DECISIONS[2]
+CORRECT = "correct_lines"               # which_is_right: query の時だけ要る欄（直した後の正しい行の写し）
+QUERY = "query"                         # 判定者の class_query が直した後の正しい形にも当たる
+WHICH = ("request", "test", "code", "unknown", QUERY)
+REPLACE = "replace_query"               # 問いを置き換える裁定（新しい問いを hits・misses と申し出の correct_lines で試す）
+ASK = "ask_human"
+DECISIONS = ("fix_test_scope", "fix_code_as", ASK, REPLACE)
+FIX_DECISIONS = ("fix_test_scope", "fix_code_as", REPLACE)
 MIN_WHY = 10
 MIN_CITES = 2
+MAX_LINES = 20
 KIND = "conflict"                       # process.human_items の行の kinds
 BY = "works:conflict"                   # その行の node と、答えの無いまま止めた by
 HEAD = "食い違いの申し出"                # 最後の関所の文の節の見出し・報告の行の頭
@@ -62,9 +69,11 @@ ITEM_SCHEMA = {
         "between": {"type": "array", "minItems": MIN_CITES, "items": {"type": "string", "minLength": 3}},
         "why_both_cannot_hold": {"type": "string", "minLength": MIN_WHY},
         "which_is_right": {"type": "string", "enum": list(WHICH)},
+        CORRECT: {"type": "array", "minItems": 1, "maxItems": MAX_LINES, "items": {"type": "string", "minLength": 1}},
     },
 }
 CONFLICTS_SCHEMA = {"type": "array", "items": ITEM_SCHEMA}
+_LINES = {"type": "array", "maxItems": MAX_LINES, "items": {"type": "string", "minLength": 1}}
 RULING_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -74,6 +83,19 @@ RULING_SCHEMA = {
         "decision": {"type": "string", "enum": list(DECISIONS)},
         "text": {"type": "string", "minLength": MIN_WHY},
         "limits": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "grounds": {"type": "array", "items": {"type": "string", "minLength": 3}},
+        "request_searched": {"type": "string", "minLength": MIN_WHY},
+        "query": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["how", "counts", "hits", "misses"],
+            "properties": {
+                "how": {"type": "object"},
+                "counts": {"type": "string", "enum": ["defects", "population"]},
+                "hits": {**_LINES, "minItems": 1},
+                "misses": _LINES,
+            },
+        },
     },
 }
 
@@ -136,16 +158,30 @@ def cite_problem(cite, repo, roots=()) -> str:
     return ""
 
 
-def problems(items, *, repo, board_dir, owed) -> list:
-    """申し出の一覧の機械の確かめ（受け付けの前）。文の一覧（空なら全部通る）"""
+def _correct_problem(it, try_query) -> str:
+    """which_is_right: query の申し出の correct_lines の確かめ（通れば空）。try_query(unit_key, lines) が渡れば、判定者の問いを
+    その行に当てた結果の文（当たれば空）を足す"""
+    lines = it.get(CORRECT)
+    if it["which_is_right"] != QUERY:
+        return f"{CORRECT} は which_is_right が {QUERY} の時だけ書く" if CORRECT in it else ""
+    if not isinstance(lines, list) or not lines or len(lines) > MAX_LINES \
+            or not all(isinstance(x, str) and x.strip() for x in lines):
+        return (f"which_is_right が {QUERY} なら {CORRECT} に、判定者の問いが当たってしまう直した後の正しい行を 1〜{MAX_LINES} 行"
+                "写す（機械が問いを当てて確かめる）")
+    return try_query(it["unit_key"], lines) if try_query else ""
+
+
+def problems(items, *, repo, board_dir, owed, try_query=None) -> list:
+    """申し出の一覧の機械の確かめ（受け付けの前）。文の一覧（空なら全部通る）。try_query(unit_key, lines) は which_is_right: query
+    の申し出の correct_lines に判定者の問いを当てる口（呼ぶ側が渡す。当たれば空・外れれば文）"""
     if not isinstance(items, list) or not items:
         return ["食い違いの申し出は 1 件以上の配列"]
     roots = [request_file(board_dir), str(board_dir)]
     out, seen = [], set()
     for i, it in enumerate(items):
         at = f"食い違い[{i}]"
-        if not isinstance(it, dict) or set(it) - set(FIELDS) or any(k not in it for k in FIELDS):
-            out.append(f"{at} の欄は {list(FIELDS)} ちょうど")
+        if not isinstance(it, dict) or set(it) - {*FIELDS, CORRECT} or any(k not in it for k in FIELDS):
+            out.append(f"{at} の欄は {list(FIELDS)}（which_is_right が {QUERY} の時は {CORRECT} も）")
             continue
         k = it["unit_key"]
         if k not in owed:
@@ -157,6 +193,10 @@ def problems(items, *, repo, board_dir, owed) -> list:
             out.append(f"{at} の why_both_cannot_hold が {MIN_WHY} 字に足りない（なぜ両方は同時に成り立たないか）")
         if it["which_is_right"] not in WHICH:
             out.append(f"{at} の which_is_right は {' / '.join(WHICH)} のどれか（{it['which_is_right']!r}）")
+        else:
+            bad = _correct_problem(it, try_query)
+            if bad:
+                out.append(f"{at}: {bad}")
         cites = it["between"]
         if not isinstance(cites, list) or len(cites) < MIN_CITES:
             out.append(f"{at} の between は食い違う所を {MIN_CITES} つ以上（依頼の行・テストのファイル:行・コードのファイル:行）")
@@ -212,12 +252,20 @@ def asked_keys(b) -> set:
     return {i["unit_key"] for i in asked(b)}
 
 
+def replaced_queries(b) -> dict:
+    """裁定 replace_query が置き換えた問い {unit_key: {id, how, counts, hits, misses}}（閉鎖の数え直しが判定者の問いの代わりに使う）"""
+    return {i["unit_key"]: {"id": i["id"], **i["ruling"]["query"]} for i in items(b)
+            if (i.get("ruling") or {}).get("decision") == REPLACE and isinstance(i["ruling"].get("query"), dict)}
+
+
 def counts(b) -> dict:
-    """{parked（申し出の件数）, fix_test_scope, fix_code_as, ask_human, unruled}"""
+    """{parked（申し出の件数）, fix_test_scope, fix_code_as, ask_human, unruled}。replace_query は裁いた物が在る時だけ足す"""
     rows = items(b)
     out = {"parked": len(rows), "unruled": sum(1 for i in rows if i.get("ruling") is None)}
     for d in DECISIONS:
-        out[d] = sum(1 for i in rows if (i.get("ruling") or {}).get("decision") == d)
+        n = sum(1 for i in rows if (i.get("ruling") or {}).get("decision") == d)
+        if n or d != REPLACE:
+            out[d] = n
     return out
 
 
@@ -233,6 +281,7 @@ def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
             ids.append(same["id"])
             continue
         row = {"id": f"c{b.round}-{len(doc['items']) + 1}", "round": b.round, "source": source, **body,
+               **({CORRECT: list(it[CORRECT])} if it.get(CORRECT) else {}),
                "status": "ruled" if ruling else "parked", "ruling": ruling}
         doc["items"].append(row)
         ids.append(row["id"])
@@ -243,7 +292,7 @@ def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
 
 
 def apply_rulings(b, rulings: dict, *, by: str) -> pathlib.Path:
-    """裁定 {id: {decision, text, limits}} を今の周の申し出に積み（裁かれていない物だけ）、trace に 1 行ずつ、
+    """裁定 {id: {decision, text, limits[, grounds, request_searched, query]}} を今の周の申し出に積み（裁かれていない物だけ）、trace に 1 行ずつ、
     裁定の文のファイル（RULINGS_FILE）を書き直してパスを返す。知らない id は BoardGap（回す側が確かめてから渡す）"""
     doc = _load(b)
     by_id = {r["id"]: r for r in doc["items"]}
@@ -269,6 +318,9 @@ def write_rulings(b) -> pathlib.Path:
                           "最後の人の関所に守りのファイルとして並ぶ。範囲の外のテストは変えるな・緩めるな。この単位も changes に 1 行を書け",
         "fix_code_as": "コードを「裁定」の文のとおりに直せ。テストは変えるな。この単位も changes に 1 行を書け",
         "ask_human": "この単位は直すな（機械が直す義務から外した。最後の人の関所で人が決める）。changes に書くな",
+        REPLACE: "判定者の問いが直した後の正しい形にも当たると裁き、問いを「置き換えた問い」に替えた（機械が hits・misses と申し出の"
+                 "正しい行で試した）。閉鎖の数え直しは機械がこの問いで数える（coverage.how は書かなくてよい）。テストは変えるな。"
+                 "この単位も changes に 1 行を書け",
     }
     for r in rows:
         ru = r["ruling"]
@@ -276,6 +328,10 @@ def write_rulings(b) -> pathlib.Path:
                   f"- 裁定: {ru['decision']}（{ru.get('by') or ''}）——{promise[ru['decision']]}",
                   f"- 裁定の文: {ru['text']}",
                   f"- 範囲: {', '.join(ru.get('limits') or []) or '（無い）'}",
+                  *([f"- 裁きの出どころ: {', '.join(ru['grounds'])}"] if ru.get("grounds") else []),
+                  *([f"- 依頼で探して答えが無かったこと: {ru['request_searched']}"] if ru.get("request_searched") else []),
+                  *([f"- 置き換えた問い: {json.dumps(ru['query'], ensure_ascii=False)}"] if ru.get("query") else []),
+                  *([f"- 申し出の正しい行: {json.dumps(r[CORRECT], ensure_ascii=False)}"] if r.get(CORRECT) else []),
                   f"- 申し出の名指し: {', '.join(r['between'])}",
                   f"- 申し出の理由: {r['why_both_cannot_hold']}（正しいと見た側: {r['which_is_right']}）", ""]
     parked = b.work(PARKED_REPLY)
@@ -348,4 +404,5 @@ def ruled_test_doc(b):
 def human_lines(b) -> list:
     """最後の関所と報告に載せる ask_human の行（1 件 1 行）"""
     return [f"{r['unit_key']}: {r['ruling']['text']}（名指し {', '.join(r['between'])}・正しいと見た側 {r['which_is_right']}・"
-            f"{r['id']}）" for r in asked(b)]
+            + (f"依頼で探したこと {r['ruling']['request_searched']}・" if r["ruling"].get("request_searched") else "")
+            + f"{r['id']}）" for r in asked(b)]

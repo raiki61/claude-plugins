@@ -23,6 +23,7 @@ import os  # noqa: E402
 from board import BoardGap  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
+import querytest  # noqa: E402
 import script_io  # noqa: E402
 import tddloop  # noqa: E402
 from leftovers import Unreadable  # noqa: E402
@@ -43,7 +44,8 @@ def main() -> int:
     except ValueError:
         reply = None   # 読めない返答は step が拒む（出し直しの回数に数える）
     try:
-        out = tddloop.step(os.environ["INPUTS_STATE_FILE"], reply, Path.cwd())
+        out = tddloop.step(os.environ["INPUTS_STATE_FILE"], reply, Path.cwd(),   # query の申し出は判定者の問いを当てて確かめる
+                           try_query=lambda k, lines: querytest.judge_hits(entry.open_board(board).record["units"])(k, lines))
         item = out.pop("conflict", None)
         if item is not None:   # 止めた申し出を盤面の控えと trace に積む（裁定の輪が読む）
             conflict.park(entry.open_board(board), [item], source="tdd")

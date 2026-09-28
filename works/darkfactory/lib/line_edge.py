@@ -424,6 +424,20 @@ def _conflict_text(asks: list) -> str:
     return "\n".join(lines + ["", ""])
 
 
+def _unproven_text(unproven: list) -> str:
+    """最後の関所の文の節（判定者の問いを例で試していない単位。閉鎖の数え直しはその問いのまま）"""
+    lines = [f"## {querytest.UNPROVEN_HEAD}（{len(unproven)} 件。閉鎖の数え直しは例で試していない問いのまま）", ""]
+    lines += [f"- {x}" for x in unproven]
+    return "\n".join(lines + ["", ""])
+
+
+def _closure_text(closure: list) -> str:
+    """最後の関所の文の節（修正の受け付けが判定者の問いで数え直した単位ごとの表のうち、申告と合わない・閉じていない単位）"""
+    lines = [f"## {querytest.CLOSURE_HEAD}（{len(closure)} 件）", ""]
+    lines += [f"- {x}" for x in closure]
+    return "\n".join(lines + ["", ""])
+
+
 def _record_protected(b, rows, err: str) -> None:
     """process.human_items に今の周の 1 行（kinds protected_files・answer は最後の関所の答えまで None・note に一覧）。
     呼び直し（Archon の再開）では積み増さず、答えの前なら中身だけを今の差分に合わせる"""
@@ -470,18 +484,24 @@ def _guard(b, repo) -> tuple:
 def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     """h-final（最後のテストと独立の目の後）: ask は final_gate always か、when_needed で最後のテストが緑でない（赤・環境で起こせなかった・
     走れなかった・走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
-    阻害を返した時。守りのファイルは文の頭の節と process.human_items の 1 行にもなる。文は b.work(FINAL_GATE_FILE) にも"""
+    阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る時。守りのファイルは文の頭の節と process.human_items の 1 行にもなる。文は b.work(FINAL_GATE_FILE) にも"""
     head = _tests_head(b, tests)
     eyes = _eyes(b)
     left = rejudge.unsettled(b)
     objection = "" if left["settled"] else left["text"]
     rows, rev, err, asks = _guard(b, repo)
     guarded = bool(rows) or bool(err)
+    # 申告と数え直しが合わない単位は、前は返答全体を拒んだ形なので関所を開ける。閉じていないだけの単位（修正役が remaining で
+    # 残した）は前も通っていたので、見せるだけ
+    mismatched = querytest.closure_lines(b, mismatched_only=True)
     need = (head != "緑" or bool(b.state.get("pending_human")) or bool(objection) or guarded or bool(asks)
-            or bool(eyes[1]))
+            or bool(eyes[1]) or bool(mismatched))
     if mode == "when_needed" and not need:
         return {}
+    unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（need）には数えない
+    closure = querytest.closure_lines(b)
     text = ((_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
+            + (_unproven_text(unproven) if unproven else "") + (_closure_text(closure) if closure else "")
             + _final_text(b, head, tests, objection, eyes, repo, run_id))
     _write_text(b.work(FINAL_GATE_FILE), text)
     return {"ask": True, "gate_text": text, "gate_file": str(b.work(FINAL_GATE_FILE))}
