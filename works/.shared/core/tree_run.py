@@ -83,6 +83,23 @@ def outside_env(environ):
     return env
 
 
+SHELL_LAUNCH_CODES = (126, 127)   # シェルの予約値（POSIX.1-2024 2.8.2: 127 は見つからない・126 は見つかったが実行できない）
+
+
+def launch_kind(code, argv) -> str:
+    """argv で起こした段の終了コードの分類: "clean"（0）・"red"（走って落ちた）・"broken"（起こせない。exit None）・"suspect"
+    （argv が bash -c のシェル越しで SHELL_LAUNCH_CODES。中のコマンドの起こせなさはシェルの戻り値でしか見えないので、起こせなかった
+    疑いとして赤と分ける。直に起こした段の 126・127 はその段自身の戻り値なので赤）。
+    broken は engine の checks_reply の broken（exit is None）と同じ規則"""
+    if code is None:
+        return "broken"
+    if code == 0:
+        return "clean"
+    if list(argv[:2]) == ["bash", "-c"] and code in SHELL_LAUNCH_CODES:
+        return "suspect"
+    return "red"
+
+
 def _answers(send, target):
     """信号 0 の問い: 相手が居る（届く・EPERM）なら真、居なければ偽。ほかの誤りは上げる（本線 role_run._answers と同じ）"""
     try:

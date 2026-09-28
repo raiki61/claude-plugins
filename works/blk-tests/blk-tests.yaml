@@ -41,6 +41,8 @@ nodes:
         ok: {type: boolean}
         green: {type: boolean}
         log: {type: string}
+        # plain で起こせない（broken）・シェルの予約値 126・127（suspect）の時だけ（tree_run.launch_kind）
+        launch: {type: string, enum: [broken, suspect]}
         # mid・final だけが足す欄（plain は出さない。1 本目の必須の欄は変えない）
         suites:
           type: array
@@ -51,6 +53,7 @@ nodes:
             properties:
               name: {type: string}
               exit: {type: [integer, "null"]}   # null は起こせなかった段（関所と報告は環境の失敗としてコードの赤と分けて出す）
+              launch: {type: string, enum: [broken, suspect]}   # 段の argv で見た tree_run.launch_kind（clean・red の段には無い）
         by: {type: string, enum: [mid, engine, role, role_needed]}
         # final で test_cmd が宣言の段と同じコマンドだった時、その段の名（1 度だけ走らせた）
         test_cmd_same_as: {type: string}

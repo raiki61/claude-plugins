@@ -136,5 +136,133 @@ class EnvFailureLineCase(unittest.TestCase):
         self.assertIn("pytest（exit 1）", entry.suites_line(tests))
 
 
+def _load_run_tests():
+    """blk-tests の節のスクリプトを module として読む（main は __main__ の時だけ走る）"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("blk_tests_run_tests_launch", ROOT / "blk-tests" / "scripts" / "run_tests.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _WorkBoard:
+    """run_mid が読む b.work だけを持つ盤面"""
+
+    def __init__(self, d):
+        self.d = pathlib.Path(d)
+
+    def work(self, name):
+        return self.d / name
+
+
+class LaunchKindCase(unittest.TestCase):
+    """起こせなかった（exit None・シェル越しの 126・127）を落ちた（found・green false）と同じ値に畳まず、結果の型に残す"""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, ignore_errors=True)
+        self.log = self.tmp / "t.log"
+        self.log.write_text("末尾\n", encoding="utf-8")
+
+    def test_material_of_unlaunched_cmd_is_not_run(self):
+        m = entry._cmd_material("pytest", None, self.log)["material"]
+        self.assertEqual(m["status"], "not_run")
+
+    def test_material_of_shell_reserved_exit_names_launch_suspect(self):
+        for code in (126, 127):
+            with self.subTest(code=code):
+                m = entry._cmd_material("pytest", code, self.log)["material"]
+                self.assertIn("起こせなかった疑い", m.get("detail", "") + m.get("reason", ""))
+
+    def test_material_of_code_red_does_not_name_launch_suspect(self):
+        m = entry._cmd_material("pytest", 1, self.log)["material"]
+        self.assertEqual(m["status"], "found")
+        self.assertNotIn("起こせなかった疑い", m["detail"])
+
+    def test_suites_line_names_shell_reserved_exit_as_launch_suspect(self):
+        tests = {"ok": True, "green": False, "by": "engine",
+                 "suites": [{"name": "pytest", "exit": 0}, {"name": entry.TEST_CMD_STEP, "exit": 127, "launch": "suspect"}]}
+        self.assertIn("起こせなかった疑い", entry.suites_line(tests))
+
+    def test_suites_line_does_not_judge_shell_by_step_name(self):
+        # シェル越しかは段の名でなく run_tests._suite が argv で付けた launch で決まる（直に起こした段が偶々 cmd・test_cmd の名でも赤）
+        for name in ("cmd", entry.TEST_CMD_STEP):
+            with self.subTest(name=name):
+                tests = {"ok": True, "green": False, "by": "engine", "suites": [{"name": name, "exit": 127}]}
+                self.assertNotIn("起こせなかった疑い", entry.suites_line(tests))
+
+    def test_material_of_direct_same_as_step_127_is_code_red(self):
+        # test_cmd が宣言の段と同じ（same_as）なら engine はその段を shell を通さずに起こした: 127 はそのテスト自身の赤
+        m = entry._cmd_material("pytest -q", 127, self.log, ["pytest", "-q"])["material"]
+        self.assertEqual(m["status"], "found")
+        self.assertNotIn("起こせなかった疑い", m["detail"])
+        self.assertNotIn("bash -c", m["detail"])
+
+    def test_fallback_reusing_same_as_step_passes_its_argv(self):
+        # run_ci が任せ先に落ちて same_as の段の結果を使い回す時、_cmd_material はその段の argv（shell なし）で分ける
+        calls = []
+        b = mock.Mock()
+        b.rd = {"instances": {"p4.ci": {}}}
+        b.work.return_value = self.tmp / "p4.ci.log"
+        run = {"name": "pytest", "argv": ["pytest", "-q"], "exit": 127, "out": str(self.log)}
+        with mock.patch.object(entry, "_cmd_material", side_effect=lambda *a: calls.append(a) or {"material": {}}):
+            entry._ci_by_cmd(b, "p4.ci", "pytest -q", ran=run)
+        self.assertEqual(calls[0][3], ["pytest", "-q"])
+
+    def test_final_suites_carry_launch_from_argv(self):
+        # final の段も mid と同じく argv で launch を付ける（bash -c の 127 は suspect・直の 127 は付けない）
+        mod = _load_run_tests()
+        b = mock.Mock()
+        b.record = {"materials": {"local_checks": {"status": "found"}}, "process": {"checks": {"p4.ci": {"runs": [
+            {"name": "cmd", "argv": ["cmd"], "exit": 127},
+            {"name": entry.TEST_CMD_STEP, "argv": ["bash", "-c", "x"], "exit": 127}]}}}}
+        out = mod.run_final(b, "x", run_ci=lambda *a, **k: {"by": "engine", "log": "l"})
+        self.assertEqual(out["suites"], [{"name": "cmd", "exit": 127},
+                                         {"name": entry.TEST_CMD_STEP, "exit": 127, "launch": "suspect"}])
+
+    def _plain(self, run):
+        mod = _load_run_tests()
+        with mock.patch.object(mod.tree_run, "run", run):
+            try:
+                return mod.run_plain("pytest", self.tmp)
+            except OSError as e:
+                self.fail(f"bash を起こせない時に run_plain が例外で落ちた: {e!r}")
+
+    def test_plain_without_bash_returns_launch_broken(self):
+        out = self._plain(mock.Mock(side_effect=FileNotFoundError("bash")))
+        self.assertEqual((out["ok"], out["green"], out.get("launch")), (True, False, "broken"))
+
+    def test_plain_shell_reserved_exit_returns_launch_suspect(self):
+        for code in (126, 127):
+            with self.subTest(code=code):
+                out = self._plain(mock.Mock(return_value=code))
+                self.assertEqual((out["green"], out.get("launch")), (False, "suspect"))
+
+    def test_plain_code_red_keeps_mutgate_keys(self):
+        out = self._plain(mock.Mock(return_value=1))
+        self.assertEqual(set(out), {"ok", "green", "log"})
+
+    def _mid(self, run):
+        mod = _load_run_tests()
+        from engine import declared
+        with mock.patch.object(mod.tree_run, "run", run), mock.patch.object(declared, "read", return_value=None), \
+                mock.patch.object(mod, "_repo_root", return_value=self.tmp):
+            try:
+                return mod.run_mid(_WorkBoard(self.tmp), "pytest")
+            except OSError as e:
+                self.fail(f"bash を起こせない時に run_mid の cmd の道が例外で落ちた: {e!r}")
+
+    def test_mid_cmd_without_bash_is_exit_none(self):
+        out = self._mid(mock.Mock(side_effect=FileNotFoundError("bash")))
+        self.assertFalse(out["green"])
+        self.assertEqual(out["suites"][0]["exit"], None)
+        self.assertEqual(out["suites"][0].get("launch"), "broken")
+
+    def test_mid_cmd_shell_reserved_exit_names_launch_suspect(self):
+        out = self._mid(mock.Mock(return_value=127))
+        self.assertFalse(out["green"])
+        self.assertEqual(out["suites"][0].get("launch"), "suspect")
+
+
 if __name__ == "__main__":
     unittest.main()

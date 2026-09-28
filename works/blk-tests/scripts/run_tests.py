@@ -8,8 +8,9 @@ plain（既定。1 本目と線 C の mutgate の約束のまま。INPUTS_MODE �
   INPUTS_CMD（節の with: の cmd）を対象リポジトリの根（cwd）で `bash -c` に渡し、標準出力と標準エラーを
   $ARTIFACTS_DIR/board/tests.log に置き、標準入力は閉じる（入力待ちで止まらない）。盤面は開かない。コマンドは本文に
   差し込まず環境変数のまま渡すので、値がシェルの記号を含んでもデータのまま届く。
-  出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。コマンドが空・空白だけなら何も
-  走らせずに 1（緑と言わない）。
+  出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。bash を起こせない（exit None）・
+  シェルの予約値 126・127（起こせなかった疑い）の時だけ launch に tree_run.launch_kind の "broken"・"suspect" を足す（どちらも
+  green: false。普通の赤・緑の鍵は ok・green・log のまま）。コマンドが空・空白だけなら何も走らせずに 1（緑と言わない）。
 mid（中の関所のためのテスト。盤面の節には書かない）:
   盤面（$ARTIFACTS_DIR/board）を entry.open_board で開き、対象の根の宣言 .review-checks.json（写しの engine/declared.py の
   読み方）の suite が読めれば段を 1 つずつ shell を通さずに、宣言が無ければ cmd を `bash -c` で走らせる。宣言が在るのに
@@ -22,7 +23,8 @@ final（最後のテスト。盤面の p4.ci）:
   green は p4.ci が置いた素材 materials.local_checks の status が clean か。ログは run_ci の返りの log（周の番号を組み立てない）。
   任せ先に落ちて cmd も空（run_ci の role_needed）なら、素材を読まずに green: false・by: role_needed・log は空——p4.ci は
   任せ先に落ちたまま待ち、ラインが blk-ci（CI の任せ先の役）を回す（裁定 R52）。run_ci が拒んだ（CiRefused）は終了コード 1 で理由を stderr。
-mid・final の出口は plain の欄に suites（段ごとの {name, exit}）と by（mid・engine・role・role_needed）を足す。どの形も赤で止めない
+mid・final の出口は plain の欄に suites（段ごとの {name, exit}。起こせない（exit None）・起こせなかった疑いの段には段の
+argv で見た launch も）と by（mid・engine・role・role_needed）を足す。どの形も赤で止めない
 （ok: true・green: false）——赤を人の関所に見せるのがこの段の仕事。
 
 どの形も走らせるのは tree_run（.shared/core）——自分のプロセスグループで起こし、run が止められたら（SIGINT・SIGTERM・
@@ -58,19 +60,37 @@ class Refused(Exception):
     """final が走らせられない（終了コード 1。文は人に向けた 1 行）"""
 
 
-def _run(argv, log_f, cwd=None) -> int:
-    """argv を tree_run で走らせ、標準出力と標準エラーを log_f に。止められたら tree_run.Stopped が上がる"""
-    return tree_run.run(argv, stdin=subprocess.DEVNULL, stdout=log_f, stderr=subprocess.STDOUT, cwd=cwd,
-                        env=tree_run.outside_env(os.environ))
+def _run(argv, log_f, cwd=None) -> int | None:
+    """argv を tree_run で走らせ、標準出力と標準エラーを log_f に。起こせなければ（OSError）ログに『起こせない』を書いて None
+    （engine の tree_runner の exit None と同じ）。止められたら tree_run.Stopped が上がる"""
+    try:
+        return tree_run.run(argv, stdin=subprocess.DEVNULL, stdout=log_f, stderr=subprocess.STDOUT, cwd=cwd,
+                            env=tree_run.outside_env(os.environ))
+    except OSError as e:
+        log_f.write(f"起こせない: {e}\n".encode("utf-8"))
+        log_f.flush()
+        return None
+
+
+def _suite(name, argv, code) -> dict:
+    """mid・final の段 {name, exit}。clean・red 以外（起こせない・起こせなかった疑い）の時だけ launch に argv で見た
+    tree_run.launch_kind（entry の suites_line・env_only_red は名で決めずにこれを読む）"""
+    kind = tree_run.launch_kind(code, argv)
+    return {"name": name, "exit": code, **({"launch": kind} if kind in ("broken", "suspect") else {})}
 
 
 def run_plain(cmd: str, artifacts: Path) -> dict:
     board = artifacts / script_io.BOARD_DIR
     board.mkdir(parents=True, exist_ok=True)
     log = board / LOG_NAME
+    argv = ["bash", "-c", cmd]
     with open(log, "wb") as f:
-        code = _run(["bash", "-c", cmd], f)
-    return {"ok": True, "green": code == 0, "log": str(log)}
+        code = _run(argv, f)
+    kind = tree_run.launch_kind(code, argv)
+    out = {"ok": True, "green": kind == "clean", "log": str(log)}
+    if kind in ("broken", "suspect"):
+        out["launch"] = kind
+    return out
 
 
 def _repo_root(b) -> Path:
@@ -98,17 +118,13 @@ def run_mid(b, cmd: str) -> dict:
             doc.update(source="declared", sha=d["sha"])
             for s in d["steps"]:
                 note(f"== {s['name']}: {json.dumps(s['argv'], ensure_ascii=False)}")
-                try:
-                    code = _run(list(s["argv"]), f, cwd=str(root))
-                except OSError as e:   # 起こせない語（無いコマンドなど）は赤（engine の tree_runner は exit None）
-                    note(f"起こせない: {e}")
-                    code = None
+                code = _run(list(s["argv"]), f, cwd=str(root))
                 note(f"== {s['name']}: exit {code}")
-                suites.append({"name": s["name"], "exit": code})
+                suites.append(_suite(s["name"], s["argv"], code))
         elif cmd.strip():
             doc["source"] = "cmd"
-            code = _run(["bash", "-c", cmd], f, cwd=str(root))
-            suites.append({"name": "cmd", "exit": code})
+            argv = ["bash", "-c", cmd]
+            suites.append(_suite("cmd", argv, _run(argv, f, cwd=str(root))))
         else:
             doc.update(source="none", reason=f"走らせる物が無い: 対象の根に {declared.DECL_NAME} が無く、テストのコマンドも空")
             note(doc["reason"])
@@ -133,7 +149,7 @@ def run_final(b, cmd: str, *, run_ci, refused=()) -> dict:
         return {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"}
     material = b.record.get("materials", {}).get("local_checks") or {}
     check = b.record.get("process", {}).get("checks", {}).get(CI_NODE) or {}
-    suites = [{"name": r["name"], "exit": r["exit"]} for r in check.get("runs") or []] if ci["by"] == "engine" else []
+    suites = [_suite(r["name"], r.get("argv") or (), r["exit"]) for r in check.get("runs") or []] if ci["by"] == "engine" else []
     b.settle()
     same = {"test_cmd_same_as": ci["same_as"]} if ci.get("same_as") else {}
     return {"ok": True, "green": material.get("status") == "clean", "log": ci["log"], "suites": suites, "by": ci["by"], **same}

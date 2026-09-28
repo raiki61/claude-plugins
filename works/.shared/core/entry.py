@@ -330,7 +330,7 @@ def _tail(data: bytes) -> str:
 def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path) -> dict:
     """任せ先に落ちた CI の節に渡す素材 {"material": …} を組む（盤面なしで呼べる公開の口。線 B の申し送り 2）。
     test_cmd を ["bash", "-c", test_cmd] で tree_run に走らせ（対象の根で・標準入力は空・環境は tree_run.outside_env。
-    標準出力と標準エラーを log_path に）、終了コード 0 なら clean（写しの RR の規則で checked が要る）、他は found・count 1。
+    標準出力と標準エラーを log_path に）、終了コード 0 なら clean（写しの RR の規則で checked が要る）、他は found・count 1（126・127 は _cmd_material が起こせなかった疑いを名指す）。
     detail はログの末尾（engine の段の末尾と同じ切り方）。起こせなければ not_run。test_cmd が空なら走らせずに not_run。
     止められたら（tree_run.Stopped）捕まえない"""
     cmd = (test_cmd or "").strip()
@@ -347,14 +347,25 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
     return _cmd_material(cmd, code, log_path)
 
 
-def _cmd_material(cmd: str, code: int, log_path: pathlib.Path) -> dict:
+LAUNCH_SUSPECT = "シェルの予約値 exit 126・127（POSIX 2.8.2: 見つからない・実行できない）——起こせなかった疑い"
+
+
+def _cmd_material(cmd: str, code: int | None, log_path: pathlib.Path, argv=None) -> dict:
     """走らせ終えた test_cmd の終了コードとログから素材を組む（local_checks_material と、engine が既に走らせた test_cmd の段を
-    使い回す _ci_by_cmd の共通）"""
+    使い回す _ci_by_cmd の共通）。argv は起こした形（既定は bash -c cmd。宣言の段と同じコマンドの時はその段の argv）。
+    分け方は tree_run.launch_kind: 起こせない（exit None）は not_run、起こせなかった疑い（シェル越しの 126・127）は found のまま
+    detail の頭に名指す"""
+    argv = list(argv or ["bash", "-c", cmd])
+    how = f"bash -c {cmd!r}" if argv[:2] == ["bash", "-c"] else shlex.join(argv)
     tail = _tail(log_path.read_bytes())
-    ran = f"bash -c {cmd!r} を対象の根で走らせた: exit {code}（ログ {log_path}）"
-    if code == 0:
+    kind = tree_run.launch_kind(code, argv)
+    if kind == "broken":
+        return {"material": {"status": "not_run", "reason": f"{how} でテストのコマンドを起こせない（exit None。ログ {log_path}）"}}
+    ran = f"{how} を対象の根で走らせた: exit {code}（ログ {log_path}）"
+    if kind == "clean":
         return {"material": {"status": "clean", "count": 0, "checked": ran, "detail": tail}}
-    return {"material": {"status": "found", "count": 1, "detail": f"{ran} ／ 末尾: {tail}"}}
+    head = f"{LAUNCH_SUSPECT} ／ " if kind == "suspect" else ""
+    return {"material": {"status": "found", "count": 1, "detail": f"{head}{ran} ／ 末尾: {tail}"}}
 
 
 def _engine_log(b, nid: str, runs: list) -> pathlib.Path:
@@ -403,9 +414,17 @@ def _with_test_cmd(runner, test_cmd: str, note: dict):
 
 
 def env_only_red(tests: dict | None) -> bool:
-    """最後のテストの赤が、全部起こせなかった段（exit None。checks_reply の broken と同じ規則）だけから来ているか"""
-    bad = [s for s in (tests or {}).get("suites") or [] if s.get("exit") != 0]
-    return bool(bad) and all(s.get("exit") is None for s in bad)
+    """最後のテストの赤が、全部起こせなかった段（tree_run.launch_kind の broken）だけから来ているか。起こせなかった疑い
+    （suspect）は起こせたかが分からないので数えない"""
+    kinds = [_suite_kind(s) for s in (tests or {}).get("suites") or []]
+    bad = [k for k in kinds if k != "clean"]
+    return bool(bad) and all(k == "broken" for k in bad)
+
+
+def _suite_kind(s: dict) -> str:
+    """段 {name, exit, launch?} の分類。シェル越しかは段の名では決めず、blk-tests の run_tests._suite が argv から付けた launch
+    （broken・suspect）を読む。launch の無い段は argv を持たない形（exit None は broken、他は clean・red）"""
+    return s.get("launch") or tree_run.launch_kind(s.get("exit"), ())
 
 
 def role_ci_status(b, tests: dict | None) -> str | None:
@@ -418,14 +437,16 @@ def role_ci_status(b, tests: dict | None) -> str | None:
 
 def suites_line(tests: dict | None, *, role_status: str | None = None) -> str:
     """最後のテスト（blk-tests の final の出口 {suites, by, test_cmd_same_as}）が走らせた一式・環境で起こせなかった段・
-    走らせなかった物の 1 行。報告の冒頭と最後の関所が同じ物を出す（何を根拠にした緑かを人に見せる。無い物はログからは読めない）。
+    起こせなかった疑いの段（シェル越しの 126・127）・走らせなかった物の 1 行。報告の冒頭と最後の関所が同じ物を出す（何を根拠にした緑かを人に見せる。無い物はログからは読めない）。
     role_status は role_ci_status の返り。走らせたと書くのは素材が clean・found の時だけ（not_run などは走らせなかった側に）"""
     tests = tests or {}
     by = tests.get("by")
     suites = tests.get("suites") or []
     same = tests.get("test_cmd_same_as")
-    ran = [f"{s.get('name')}（exit {s.get('exit')}）" for s in suites if s.get("exit") is not None]
-    broken = [f"{s.get('name')}（起こせない）" for s in suites if s.get("exit") is None]
+    kinds = [_suite_kind(s) for s in suites]
+    ran = [f"{s.get('name')}（exit {s.get('exit')}）" for s, k in zip(suites, kinds) if k != "broken"]
+    broken = [f"{s.get('name')}（起こせない）" for s, k in zip(suites, kinds) if k == "broken"]
+    suspect = [f"{s.get('name')}（exit {s.get('exit')}）" for s, k in zip(suites, kinds) if k == "suspect"]
     if same:
         ran.append(f"{TEST_CMD_STEP}（宣言の段 {same} と同じコマンドなので 1 度だけ走らせた）")
     unrun = []
@@ -443,6 +464,8 @@ def suites_line(tests: dict | None, *, role_status: str | None = None) -> str:
     elif by == "role_needed":
         unrun.append(f"宣言の段・{TEST_CMD_STEP}（任せ先の CI の役 blk-ci が走らせる）")
     env = f"／環境で起こせなかった（コードの赤ではない）: {'・'.join(broken)}" if broken else ""
+    if suspect:
+        env += f"／{LAUNCH_SUSPECT}: {'・'.join(suspect)}"
     return f"走らせた: {'・'.join(ran) or '無い'}{env}／走らせなかった: {'・'.join(unrun) or '無い'}"
 
 
@@ -492,7 +515,7 @@ def _ci_by_cmd(b, nid: str, test_cmd: str, *, ran: dict | None = None) -> dict:
     if ran:
         log.write_bytes(b"".join(pathlib.Path(ran[k]).read_bytes() for k in ("out", "err")
                                  if ran.get(k) and pathlib.Path(ran[k]).is_file()))
-        b.done(nid, _cmd_material(test_cmd.strip(), ran["exit"], log))
+        b.done(nid, _cmd_material(test_cmd.strip(), ran["exit"], log, ran.get("argv")))
         return {"by": "role", "log": str(log)}
     root = pathlib.Path(_util.repo_root() or b.state["inputs"]["cwd"])
     b.done(nid, local_checks_material(root, test_cmd, log))
