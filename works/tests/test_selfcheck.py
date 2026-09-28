@@ -25,6 +25,7 @@ SELFCHECK = DEV / "selfcheck.py"
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(DEV))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
+import hermetic  # noqa: E402
 import linekit  # noqa: E402
 import selfcheck  # noqa: E402
 
@@ -88,7 +89,7 @@ class Fake(unittest.TestCase):
         self.arms.write_text(json.dumps({"about": "試験", "arms": arms, "dropped": []}, ensure_ascii=False), encoding="utf-8")
 
     def run_selfcheck(self, *args, home=None):
-        env = dict(os.environ, WORKS_DEV_HOME=str(home or self.home), PYTHONDONTWRITEBYTECODE="1")
+        env = hermetic.child_env(WORKS_DEV_HOME=str(home or self.home), PYTHONDONTWRITEBYTECODE="1")
         env.pop("WORKS_TESTS", None)
         return subprocess.run([sys.executable, str(SELFCHECK), "--root", str(self.pack), "--arms", str(self.arms), *args],
                               capture_output=True, text=True, encoding="utf-8", env=env, check=False)
@@ -103,7 +104,7 @@ class RegistryCase(unittest.TestCase):
 
     def test_cli_check_runs_nothing(self):
         r = subprocess.run([sys.executable, str(SELFCHECK), "--check"], capture_output=True, text=True, encoding="utf-8",
-                           env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"), check=False)
+                           env=hermetic.child_env(PYTHONDONTWRITEBYTECODE="1"), check=False)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("SELFCHECK_CHECK_OK", r.stdout)
 

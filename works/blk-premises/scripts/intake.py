@@ -29,6 +29,7 @@ import tempfile  # noqa: E402
 from accept import check_request, tree_state  # noqa: E402
 from engine.util import Reject  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_REQUEST_FILE, PREMISES_SNAPSHOT_FILE  # noqa: E402
+import conflict  # noqa: E402
 import rolekit  # noqa: E402
 import conflict  # noqa: E402
 

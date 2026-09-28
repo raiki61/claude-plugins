@@ -11,6 +11,7 @@ linekit.LineRun を種の git を差し替えて組むだけ（FAST。git・子�
   種の git は作らない）
 """
 import ast
+import contextlib
 import copy
 import importlib.util
 import json
@@ -45,6 +46,15 @@ READ_FROM_REQUEST = {"request_file", "items", "request_text"}
 # 同じ名で返さず、変更の入口として解いて返す start の名と、その返りの欄（解き方の正本の試験は test_entry_inputs.ChangeInputsCase）
 CHANGE_INPUTS = {"base", "pr"}
 FROM_CHANGE = {"base_rev", "change"}
+
+
+def _fake_git_and_gh():
+    """entry の git を読む口と gh pr view を偽物にする（FAST の段は git も子のプロセスも起こさない）。HEAD と PR の head は同じ版"""
+    doc = json.dumps({"baseRefOid": "b" * 40, "headRefOid": "h" * 40, "title": "", "body": ""})
+    stack = contextlib.ExitStack()
+    stack.enter_context(mock.patch.object(entry, "_git", return_value="h" * 40))
+    stack.enter_context(mock.patch.object(entry.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=doc, stderr="")))
+    return stack
 
 
 def load(path):
@@ -128,7 +138,7 @@ class InputNamesCase(unittest.TestCase):
             (repo / "req.json").write_text(json.dumps([{"where": "a.py", "text": "直す"}]), encoding="utf-8")
             (repo / "policy.md").write_text("方針\n", encoding="utf-8")
             given = {"test_cmd": "x", "thickness": "標準", "gates": "merge", "final_gate": "when_needed", "adapter": "optional",
-                     "policy_md": "policy.md", "lang": "English"}
+                     "policy_md": "policy.md", "lang": "English", "base": "main", "pr": "7"}
             want = {**given, "policy_md": str(repo / "policy.md")}
             self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"}, "start.py の名に、渡す値を決めていない名がある")
             base = entry.check_inputs({"request": "req.json"}, repo)
@@ -136,6 +146,12 @@ class InputNamesCase(unittest.TestCase):
             self.assertEqual(base["request_file"], str((repo / "req.json").resolve()))
             for name, value in given.items():
                 with self.subTest(name):
+                    if name in CHANGE_INPUTS:   # 同じ名でなく change の name に返る（git と gh は偽物）
+                        with _fake_git_and_gh():
+                            got = entry.check_inputs({"request": "req.json", name: value}, repo)
+                        self.assertEqual(got["change"]["from"], name)
+                        self.assertEqual(got["change"]["name"], want[name])
+                        continue
                     if name == "thickness":   # 受ける値が既定の 標準 だけなので、拒む値で名を読んでいることを見る
                         with self.assertRaises(entry.InputRefused):
                             entry.check_inputs({"request": "req.json", name: "軽量"}, repo)

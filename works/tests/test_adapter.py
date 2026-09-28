@@ -48,6 +48,7 @@ sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ 
 sys.path.insert(0, str(CORE))
 
 import adapter  # noqa: E402
+import hermetic  # noqa: E402
 
 SANDBOX = '{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"failIfUnavailable":true}}'
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -93,16 +94,14 @@ class Env:
     """1 つの試験の置き場: 包みの家・run の worktree に見立てた cwd・偽の claude の記録"""
 
     def __init__(self, case):
-        self._tmp = tempfile.TemporaryDirectory()
-        case.addCleanup(self._tmp.cleanup)
-        self.tmp = pathlib.Path(self._tmp.name).resolve()
+        self.tmp = hermetic.tmpdir(case)
         self.home = self.tmp / "adapter-home"
         self.cwd = self.tmp / "wt"
         self.cwd.mkdir()
         self.log = self.tmp / "fake.jsonl"
 
     def run(self, argv, cwd=None, stdin="", exit_code=0, **env_over):
-        env = {k: v for k, v in os.environ.items() if not k.startswith("WORKS_")}
+        env = {k: v for k, v in hermetic.child_env().items() if not k.startswith("WORKS_")}
         env.update(WORKS_ADAPTER_HOME=str(self.home), WORKS_REAL_CLAUDE=str(FAKE), FAKE_CLAUDE_LOG=str(self.log),
                    FAKE_CLAUDE_EXIT=str(exit_code), PYTHONDONTWRITEBYTECODE="1")
         for k, v in env_over.items():
@@ -405,7 +404,8 @@ class AdapterCase(unittest.TestCase):
         self.assertIn("Bash(gh:*)", deny)
         self.assertIn("Bash(git push:*)", deny)
         self.assertIn(f"Bash({gh}:*)", deny)                                           # 本物の gh の絶対パス
-        self.assertIn(f"Bash(/var/{str(gh)[len('/private/var/'):]}:*)", deny)          # /private の別名の綴りも
+        with self.subTest("/private の別名の綴り"):
+            self.assertIn(f"Bash({hermetic.alias(self, gh)}:*)", deny)
         self.assertFalse([x for x in s.get("permissions", {}).get("allow", []) if "gh" in x], "allow では一部を許せない")
         # 子の env: PATH の頭に口、WORKS_GH は口、WORKS_REAL_GH は本物の gh
         env = child["env"]
@@ -427,7 +427,7 @@ class AdapterCase(unittest.TestCase):
     def test_works_gh_passes_only_read_forms(self):
         bindir, gh = self._fake_gh_bin()
         log = self.e.tmp / "gh.log"
-        env = dict(os.environ, WORKS_REAL_GH=str(gh), FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
+        env = hermetic.child_env(WORKS_REAL_GH=str(gh), FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
         allowed = [["pr", "list", "-R", "o/r"], ["pr", "list", "--repo=o/r", "--json", "number"],
                    ["pr", "view", "12", "-R", "o/r", "--comments"], ["pr", "diff", "12", "--repo", "github.com/o/r"],
                    ["repo", "view", "o/r", "--json", "name"]]
@@ -455,7 +455,7 @@ class AdapterCase(unittest.TestCase):
     def test_works_gh_refuses_without_real_gh(self):
         for real in ("", "/no/such/gh", str(adapter.NO_POST_BIN / "works-gh"), str(adapter.NO_POST_BIN / "gh")):
             with self.subTest(real):
-                env = dict(os.environ, WORKS_REAL_GH=real)
+                env = hermetic.child_env(WORKS_REAL_GH=real)
                 r = subprocess.run([str(adapter.NO_POST_BIN / "works-gh"), "pr", "list", "-R", "o/r"], env=env,
                                    capture_output=True, text=True, encoding="utf-8")
                 self.assertEqual(r.returncode, 2, r.stderr)
@@ -470,7 +470,7 @@ class AdapterCase(unittest.TestCase):
                        "[ \"$(wc -l < \"$COUNT\")\" -ge 4 ] && exit 99\n"
                        f'exec "{adapter.NO_POST_BIN / "gh"}" "$@"\n')
         fwd.chmod(0o755)
-        env = dict(os.environ, WORKS_REAL_GH=str(fwd), COUNT=str(count))
+        env = hermetic.child_env(WORKS_REAL_GH=str(fwd), COUNT=str(count))
         env.pop("WORKS_GH_ACTIVE", None)
         r = subprocess.run([str(adapter.NO_POST_BIN / "gh"), "pr", "list", "-R", "o/r"], env=env,
                            capture_output=True, text=True, encoding="utf-8")
@@ -567,7 +567,7 @@ class AdapterCase(unittest.TestCase):
                  "tool_use_id": "toolu_x", "cwd": str(self.e.cwd), "hook_event_name": "PostToolUse"}
         # claude と同じく、フックのコマンドを sh で起こして出来事を標準入力に渡す（cwd は役の worktree）
         h = subprocess.run(["sh", "-c", command], cwd=str(self.e.cwd), input=json.dumps(event), text=True, encoding="utf-8",
-                           capture_output=True, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+                           capture_output=True, env=hermetic.child_env(PYTHONDONTWRITEBYTECODE="1"))
         self.assertEqual(h.returncode, 0, h.stderr)
         log = adapter.reads_dir(self.e.cwd, self.e.home) / "reads.jsonl"
         rows = [json.loads(ln) for ln in log.read_text(encoding="utf-8").splitlines()]
@@ -874,7 +874,7 @@ class StopCase(unittest.TestCase):
         self.pidfile = self.e.tmp / "grandchild.pid"
 
     def start(self, stay, orphan=False):
-        env = {k: v for k, v in os.environ.items() if not k.startswith("WORKS_")}
+        env = {k: v for k, v in hermetic.child_env().items() if not k.startswith("WORKS_")}
         env.update(WORKS_ADAPTER_HOME=str(self.e.home), WORKS_REAL_CLAUDE=str(FAKE), FAKE_CLAUDE_LOG=str(self.e.log),
                    FAKE_CLAUDE_GRANDCHILD=str(self.pidfile), PYTHONDONTWRITEBYTECODE="1")
         if stay:
@@ -998,23 +998,23 @@ class FenceCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         s = self.settings()
         deny = s["permissions"]["deny"]
-        self.assertTrue(str(self.board).startswith("/private/var/"), self.board)   # macOS の一時フォルダの実体
-        pub = "/var/" + str(self.board)[len("/private/var/"):]
-        for p in (str(self.board), pub):
-            for tool in ("Edit", "Write"):
-                self.assertIn(f"{tool}(/{p})", deny)
-                self.assertIn(f"{tool}(/{p}/**)", deny)
-        self.assertIn(f"Edit(//var/{str(self.board)[len('/private/var/'):]}/**)", deny)
-        self.assertIn(f"Edit(//private/var/{str(self.board)[len('/private/var/'):]}/**)", deny)
         dw = s["sandbox"]["filesystem"]["denyWrite"]
+        for tool in ("Edit", "Write"):
+            self.assertIn(f"{tool}(/{self.board})", deny)
+            self.assertIn(f"{tool}(/{self.board}/**)", deny)
         self.assertIn(str(self.board), dw)
-        self.assertIn(pub, dw)
+        with self.subTest("/private の別名の綴り"):
+            pub = hermetic.alias(self, self.board)   # macOS の一時フォルダの実体（/private の下）の別名
+            for tool in ("Edit", "Write"):
+                self.assertIn(f"{tool}(/{pub})", deny)
+                self.assertIn(f"{tool}(/{pub}/**)", deny)
+            self.assertIn(pub, dw)
+            self.assertIn(f"Edit(/{hermetic.alias(self, self.e.cwd)}/.git/**)", deny)
         self.assertEqual({k: v for k, v in s["sandbox"].items() if k != "filesystem"}, json.loads(SANDBOX)["sandbox"])
         # 役の cwd の worktree 自身は守らない（役はそこに書く）。切符に在る cwd の中の `.git` は守る（I1）
         self.assertNotIn(f"Edit(/{self.e.cwd})", deny)
         self.assertNotIn(f"Edit(/{self.e.cwd}/**)", deny)
         self.assertIn(f"Write(/{self.e.cwd}/.git)", deny)
-        self.assertIn(f"Edit(//var/{str(self.e.cwd)[len('/private/var/'):]}/.git/**)", deny)
         self.assertIn(str(self.e.cwd / ".git"), dw)
         row = self.e.launches()[-1]
         self.assertGreater(row["fence"]["permissions_deny"], 0)
@@ -1026,8 +1026,9 @@ class FenceCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         s = self.settings()
         self.assertIn(f"Write(/{cfg}/**)", s["permissions"]["deny"])
-        self.assertIn(f"Write(//var/{str(cfg)[len('/private/var/'):]}/**)", s["permissions"]["deny"])
         self.assertIn(str(cfg), s["sandbox"]["filesystem"]["denyWrite"])
+        with self.subTest("/private の別名の綴り"):
+            self.assertIn(f"Write(/{hermetic.alias(self, cfg)}/**)", s["permissions"]["deny"])
 
     def test_worktree_added_after_ticket_is_denied(self):
         late = self.e.tmp / "late-wt"
@@ -1036,7 +1037,8 @@ class FenceCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         deny = self.settings()["permissions"]["deny"]
         self.assertIn(f"Edit(/{late}/**)", deny)
-        self.assertIn(f"Edit(//var/{str(late)[len('/private/var/'):]}/**)", deny)
+        with self.subTest("/private の別名の綴り"):
+            self.assertIn(f"Edit(/{hermetic.alias(self, late)}/**)", deny)
 
     def test_sdk_deny_rules_kept(self):
         sdk = {"sandbox": {"enabled": True, "filesystem": {"denyWrite": ["/sdk/path"]}},
@@ -1089,12 +1091,14 @@ class FenceCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         s = self.settings()
         deny, dw = s["permissions"]["deny"], s["sandbox"]["filesystem"]["denyWrite"]
-        pub = "/var/" + str(self.e.cwd)[len("/private/var/"):]
-        for p in (str(self.e.cwd), pub):
+        def spelled(p):
             self.assertIn(p, dw)
             for tool in ("Edit", "Write"):
                 self.assertIn(f"{tool}(/{p})", deny)
                 self.assertIn(f"{tool}(/{p}/**)", deny)
+        spelled(str(self.e.cwd))
+        with self.subTest("/private の別名の綴り"):
+            spelled(hermetic.alias(self, self.e.cwd))
         self.assertIn(str(self.board), dw)
         self.assertEqual(self.e.launches()[-1]["fence"]["no_tree_write"], str(self.e.cwd))
         # 旗の無い起動は役の cwd を守らない（書く役はそこに書く）
@@ -1704,7 +1708,7 @@ class DevWiringCase(unittest.TestCase):
             # 借りる物を取る利用者の設定（隔離の前の CLAUDE_CONFIG_DIR）も偽物
             from test_toolset import make_user_config, write_fake_claude
             write_fake_claude(fake_bin)
-            env = {k: v for k, v in os.environ.items() if not k.startswith(("WORKS_", "CLAUDE_"))}
+            env = {k: v for k, v in hermetic.child_env().items() if not k.startswith("WORKS_")}
             env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""),
                        CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", FAKE_CLAUDE_LOG=str(tmp / "claude-calls.jsonl"),
                        CLAUDE_CONFIG_DIR=str(make_user_config(tmp / "user-claude-config")))
@@ -1768,7 +1772,7 @@ class DevWiringCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             fake = pathlib.Path(t, "archon.sh")
             fake.write_text("#!/bin/sh\necho '{\"runs\": [{\"workflow_name\": \"darkfactory\", \"id\": \"r1\"}]}'\n")
-            env = dict(os.environ, WORKS_DEV_HOME=t, WORKS_DEV_MODEL="opus", CLAUDE_BIN_PATH="/x/claude",
+            env = hermetic.child_env(WORKS_DEV_HOME=t, WORKS_DEV_MODEL="opus", CLAUDE_BIN_PATH="/x/claude",
                        WORKS_DEV_ADAPTER="1")
             r = subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh" && works_dev_show_run t "{fake}" "{t}"'],
                                capture_output=True, text=True, encoding="utf-8", env=env)

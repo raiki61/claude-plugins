@@ -18,7 +18,8 @@ engine/role_run.py（_tree_members・_stop_tree。本線 9f91687 = graphloops 0.
   run を failed と書いてから抜けるが、節がすぐ死ぬとその書き込みが確定する前に CLI が抜け、run が running のまま固まって
   resume できず abandon しか残らなかった（試し P17: すぐ死ぬ節で 3/3、1 秒以上残る節で 5/5 が failed になり resume できた）。
   上限の勘定: 信号に気づくまで POLL、SIGKILL まで KILL_GRACE + PS_TIMEOUT、抜けるまで LINGER で 0.2 + 2 + 1 + 1 = 4.2 秒。
-  Archon の cancel の猶予 5 秒より前に抜ける。コマンドが自分で終わった回は待たない
+  Archon の cancel の猶予 5 秒より前に抜ける。コマンドが自分で終わった回は待たない。起こす前の証明（prove_launchable）の間に
+  届いた信号は POLL の内に証明を捨て、コマンドを起こさずに LINGER 待って抜ける（PROOF_TIMEOUT は勘定に入らない）
 - コマンドが自分で終わった後も、背景に残した孫を同じ手順で止める（節が終わった後に作業ツリーを書く物を残さない）
 抜け道: 数える前に親が消えて親子の鎖が切れ、かつ setsid でセッションも抜けた子孫（二重 fork の daemon 化。コマンドが
 終わった後の `setsid … &` もこの形）は拾えない（本線と同じ限界）。止め切れなかった仲間は標準エラーに名指しする。
@@ -30,7 +31,10 @@ engine/role_run.py（_tree_members・_stop_tree。本線 9f91687 = graphloops 0.
 決まりを 1 か所に置くのは、線の CI と engine_run の CI で同じ宣言が片方だけ偽の赤になるのを防ぐため）。
 """
 import collections
+import errno
 import os
+import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -84,12 +88,73 @@ def outside_env(environ):
 
 
 SHELL_LAUNCH_CODES = (126, 127)   # シェルの予約値（POSIX.1-2024 2.8.2: 127 は見つからない・126 は見つかったが実行できない）
+PROOF_TIMEOUT = 5.0   # 起こす前の証明（command -v）を待つ上限（秒）。超えたら証明できない回として起こす
+_ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_UNPROVABLE = set("$`*?[{~")   # 展開される語は字面から引けない
+
+
+def _first_word(cmd: str):
+    """シェルのコマンド cmd の先頭の語と、その前の代入の前置き {名: 値}。字面から引けない（割れない・展開を含む・語でなく記号か
+    向け直しで始まる）なら None"""
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    try:
+        words = list(lex)
+    except ValueError:
+        return None
+    assigns = {}
+    while words and _ASSIGN.match(words[0]):
+        name, _, value = words.pop(0).partition("=")
+        if _UNPROVABLE & set(value):
+            return None
+        assigns[name] = value
+    if not words or not words[0] or words[0][0] in lex.punctuation_chars or _UNPROVABLE & set(words[0]):
+        return None
+    if words[0].isdigit() and words[1:2] and words[1][0] in "<>":   # 2>log のような番号つきの向け直しで始まる
+        return None
+    return words[0], assigns
+
+
+def prove_launchable(argv, cwd=None, env=None, halted=lambda: False):
+    """bash -c の argv を起こす前に、中のコマンドの先頭の語を bash の command -v（POSIX: 見つからなければ >0 で何も起こさない）で
+    引き、引けなければ起こさずに FileNotFoundError（パスの語でファイルは在る時は PermissionError）を上げる。呼ぶ側の OSError の道
+    （exit None → broken → not_run）にそのまま乗る。bash -c でない argv は Popen 自身が起こせなさを OSError で上げるので見ない。
+    引く間は POLL 秒ごとに halted() を見て、真なら引くのをやめて戻る（止める判断は呼ぶ側。run は証明の待ちを cancel の勘定に足さない）。
+    限界: 見るのは先頭の語だけ（パイプの後ろ・&& の後ろ・sh に渡したスクリプトの有無は見ない）。展開を含む語は引かずに起こす"""
+    if list(argv[:2]) != ["bash", "-c"] or len(argv) < 3:
+        return
+    got = _first_word(argv[2])
+    if got is None:
+        return
+    word, assigns = got
+    q = subprocess.Popen(["bash", "-c", 'command -v -- "$1" >/dev/null', "_", word], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=cwd, start_new_session=True,
+                         env={**(os.environ if env is None else env), **assigns})
+    deadline = time.monotonic() + PROOF_TIMEOUT
+    while True:
+        try:
+            rc = q.wait(POLL)
+            break
+        except subprocess.TimeoutExpired:
+            if halted() or time.monotonic() >= deadline:
+                try:
+                    os.killpg(q.pid, signal.SIGKILL)   # BASH_ENV が起こした子も残さない
+                except OSError:
+                    pass
+                q.wait()
+                return
+    if rc == 0:
+        return
+    if "/" in word and os.path.exists(os.path.join(cwd or os.getcwd(), word)):
+        raise PermissionError(errno.EACCES, "起こす前の証明（command -v）: 実行できない", word)
+    raise FileNotFoundError(errno.ENOENT, "起こす前の証明（command -v）: 見つからない", word)
 
 
 def launch_kind(code, argv) -> str:
-    """argv で起こした段の終了コードの分類: "clean"（0）・"red"（走って落ちた）・"broken"（起こせない。exit None）・"suspect"
-    （argv が bash -c のシェル越しで SHELL_LAUNCH_CODES。中のコマンドの起こせなさはシェルの戻り値でしか見えないので、起こせなかった
-    疑いとして赤と分ける。直に起こした段の 126・127 はその段自身の戻り値なので赤）。
+    """argv で起こした段の終了コードの分類: "clean"（0）・"red"（走って落ちた）・"broken"（起こせない。exit None。bash -c の先頭の語が
+    prove_launchable の証明を通らなかった回もここ）・"suspect"（argv が bash -c のシェル越しで SHELL_LAUNCH_CODES。先頭の語は証明を
+    通ったのに、後ろの語・スクリプトの中など証明の見ない所の起こせなさはシェルの戻り値でしか見えないので、起こせなかった疑いとして
+    赤と分ける。直に起こした段の 126・127 はその段自身の戻り値なので赤）。
     broken は engine の checks_reply の broken（exit is None）と同じ規則"""
     if code is None:
         return "broken"
@@ -263,7 +328,8 @@ def stop_group(p, first=signal.SIGTERM, born=None, known=None):
 
 
 def run(argv, **popen_kw):
-    """argv を新しいプロセスグループで起こして終わりを待ち、終了コード（信号で死んだら 128+信号）を返す。
+    """argv を新しいプロセスグループで起こして終わりを待ち、終了コード（信号で死んだら 128+信号）を返す。bash -c の argv は起こす前に
+    prove_launchable で中の先頭の語を引き、引けなければ起こさずに OSError。
     待つ間（後始末の間も）に STOP_SIGNALS を受けたか直下の親が替わったら、木ごと止め、LINGER 秒待ってから Stopped を投げる。
     起きた時に既に孤児（親が 1）なら起こさずに Stopped(SIGHUP)。どの道で抜けても木を止めに行き、止め切れなければ
     標準エラーに名指しする（抜け道はモジュールの説明）"""
@@ -288,6 +354,9 @@ def run(argv, **popen_kw):
     try:
         if ppid == 1:
             raise Stopped(signal.SIGHUP)
+        prove_launchable(argv, popen_kw.get("cwd"), popen_kw.get("env"), lambda: bool(got) or os.getppid() != ppid)
+        if got or os.getppid() != ppid:   # 証明の間に止められたら起こさない
+            raise stopped_by(got[0] if got else signal.SIGHUP)
         born = time.time()   # 長の番号の再利用の目印（_tree_members の born）
         p = subprocess.Popen(argv, start_new_session=True, **popen_kw)
         while True:

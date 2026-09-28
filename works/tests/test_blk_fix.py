@@ -42,6 +42,7 @@ import entry  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 import linekit  # noqa: E402
 import node_marker  # noqa: E402
+import hermetic  # noqa: E402
 
 DEADLINE = 1728000000
 # 実行器の無い run の tdd-start の出口（tddloop.start の go: false。test_blk_fix_tdd が実物で見る）
@@ -577,7 +578,7 @@ class TestRecount(BoardCase):
             payload = {"tool_name": "Read", "tool_input": {"file_path": str(target)}, "cwd": str(self.repo),
                        "session_id": "s-12", "tool_use_id": "toolu_12"}
             subprocess.run([sys.executable, str(CORE / "record-read.py"), str(sink)], input=json.dumps(payload),
-                           text=True, encoding="utf-8", check=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                           text=True, encoding="utf-8", check=True, env=hermetic.child_env(**{"PYTHONDONTWRITEBYTECODE": "1"}))
         self.assertEqual(self.wrote_refs_state(hook), [("test_stats.py", "read")])
 
     def test_wrote_refs_reads_ignores_board_log(self):

@@ -11,6 +11,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import hermetic  # noqa: E402
 
 TESTS = pathlib.Path(__file__).resolve().parent
 ROOT = TESTS.parent
@@ -30,7 +31,7 @@ def git_env() -> dict:
     fixed = {"GIT_AUTHOR_NAME": "works-test", "GIT_AUTHOR_EMAIL": "works-test@example.invalid",
              "GIT_COMMITTER_NAME": "works-test", "GIT_COMMITTER_EMAIL": "works-test@example.invalid",
              "GIT_AUTHOR_DATE": "2026-01-01T00:00:00+0000", "GIT_COMMITTER_DATE": "2026-01-01T00:00:00+0000"}
-    return {**os.environ, **fixed}
+    return hermetic.child_env(**fixed)
 
 
 def git(repo, *args) -> str:

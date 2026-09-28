@@ -27,6 +27,7 @@ import json  # noqa: E402
 import os  # noqa: E402
 
 from purpose import NODE, SNAPSHOT_FILE, check_constraints, refuse_if_frozen, tree_state  # noqa: E402
+import conflict  # noqa: E402
 import rolekit  # noqa: E402
 import conflict  # noqa: E402
 from engine.util import Reject  # noqa: E402  purpose の後（purpose を読むと写しの graphloops が sys.path に入る）

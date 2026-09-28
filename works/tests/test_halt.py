@@ -31,6 +31,7 @@ STOP_SH = ROOT / "dev" / "stop.sh"
 sys.path.insert(0, str(CORE))
 
 import halt  # noqa: E402
+import hermetic  # noqa: E402
 
 RUN_ID = json.loads((EVENTS / "get-running.json").read_text(encoding="utf-8"))["id"]
 
@@ -150,7 +151,7 @@ class TestPlace(unittest.TestCase):
                 "while not go.exists():\n"
                 "    time.sleep(0.001)\n"
                 f"print(json.dumps(halt.place({str(self.board)!r}, sys.argv[1], 'p' + sys.argv[1])))\n")
-        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        env = hermetic.child_env(PYTHONDONTWRITEBYTECODE="1")
         procs = [subprocess.Popen([sys.executable, "-c", code, f"理由{i}"], stdout=subprocess.PIPE, text=True, encoding="utf-8", env=env)
                  for i in range(8)]
         go.touch()
@@ -200,7 +201,7 @@ class TestStopSh(unittest.TestCase):
         return fake
 
     def run_stop(self, *args, fake=None, user="alice"):
-        env = dict(os.environ, WORKS_DEV_ARCHON=str(fake or self.fake_archon()), USER=user, PYTHONDONTWRITEBYTECODE="1")
+        env = hermetic.child_env(WORKS_DEV_ARCHON=str(fake or self.fake_archon()), USER=user, PYTHONDONTWRITEBYTECODE="1")
         return subprocess.run(["sh", str(STOP_SH), *args], capture_output=True, text=True, encoding="utf-8", env=env)
 
     def calls_made(self):

@@ -34,6 +34,7 @@ import entry  # noqa: E402
 import linekit  # noqa: E402
 import reads  # noqa: E402
 import refix  # noqa: E402
+import hermetic  # noqa: E402
 
 PLAN = reads.node_path("planning", "plan-loop", "plan")
 FIX = reads.node_path("fixing", "fix-loop", "fix")
@@ -95,7 +96,7 @@ class BoardCase(unittest.TestCase):
         payload = {"tool_name": "Read", "tool_input": {"file_path": path, **extra}, "cwd": str(self.repo),
                    "session_id": "s-1", "tool_use_id": "toolu_x"}
         subprocess.run([sys.executable, str(RECORDER), str(sink)], input=json.dumps(payload), text=True, encoding="utf-8", check=True,
-                       env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                       env=hermetic.child_env(**{"PYTHONDONTWRITEBYTECODE": "1"}))
 
     def collect(self, role, node, must, events):
         return reads.collect(self.board, role, node, must, events, repo=self.repo)

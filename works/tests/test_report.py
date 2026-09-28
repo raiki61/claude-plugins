@@ -36,6 +36,7 @@ import rejudge  # noqa: E402
 import report  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
 import test_entry as TE  # noqa: E402
+import hermetic  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "report.py"
 REPORT_SH = ROOT / "dev" / "report.sh"
@@ -194,8 +195,8 @@ class OutcomeCase(ReportBase):
         script = ROOT / "darkfactory" / "scripts" / "result.py"
         for ai, want in (("null", None), ("{壊れた", "読めない")):
             with self.subTest(ai=ai):
-                env = {**os.environ, "INPUTS_MACHINE": json.dumps(machine, ensure_ascii=False), "INPUTS_AI": ai,
-                       "PYTHONDONTWRITEBYTECODE": "1"}
+                env = hermetic.child_env(INPUTS_MACHINE=json.dumps(machine, ensure_ascii=False), INPUTS_AI=ai,
+                                         PYTHONDONTWRITEBYTECODE="1")
                 r = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 out = json.loads(r.stdout)
@@ -815,7 +816,7 @@ class ReportShCase(ReportBase):
         root = self.tmp / "archon-out"
         self.begin(board=root / "artifacts" / "runs" / self.RUN / "board")
         self.assertFalse(json.loads((self.board / "state.json").read_text(encoding="utf-8")).get("halted"))
-        env = dict(os.environ, WORKS_DEV_ARCHON=str(self.fake_archon(root, "cancelled")), PYTHONDONTWRITEBYTECODE="1")
+        env = hermetic.child_env(WORKS_DEV_ARCHON=str(self.fake_archon(root, "cancelled")), PYTHONDONTWRITEBYTECODE="1")
         r = subprocess.run(["sh", str(REPORT_SH), self.RUN], capture_output=True, text=True, encoding="utf-8", env=env, stdin=subprocess.DEVNULL)
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout.strip().splitlines()[-1])
@@ -828,7 +829,7 @@ class ReportShCase(ReportBase):
 
     def test_report_sh_refuses(self):
         """run id が無い・盤面が無い → 2、何も書かない"""
-        env = dict(os.environ, WORKS_DEV_ARCHON=str(self.fake_archon(self.tmp / "nowhere", "cancelled")))
+        env = hermetic.child_env(WORKS_DEV_ARCHON=str(self.fake_archon(self.tmp / "nowhere", "cancelled")))
         for args in ((), (self.RUN,)):
             with self.subTest(args=args):
                 r = subprocess.run(["sh", str(REPORT_SH), *args], capture_output=True, text=True, encoding="utf-8", env=env,

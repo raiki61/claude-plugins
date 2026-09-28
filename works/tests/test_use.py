@@ -27,6 +27,7 @@ import unittest
 from unittest import mock
 
 from gitkit import committed_copy, git
+import hermetic  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
@@ -91,7 +92,7 @@ class UseShell(unittest.TestCase):
         return t
 
     def use(self, *args, cwd=None, script=USE, **env_kw):
-        env = dict(os.environ)
+        env = hermetic.child_env()
         for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH", "WORKS_DEV_ADAPTER",
                      "WORKS_USE_FINAL_GATE"):
             env.pop(name, None)

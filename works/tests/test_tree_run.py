@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -247,6 +248,30 @@ class TreeRunCase(unittest.TestCase):
                 tree_run.run(["/bin/sh", "-c", "exit 0"])
         self.assertEqual(cm.exception.signum, signal.SIGTERM)
 
+    def test_signal_during_launch_proof_stops_without_launching(self):
+        # 起こす前の証明（bash の command -v。BASH_ENV を読む）が遅くても、その間に届いた SIGTERM で証明を捨て、コマンドを
+        # 起こさずに Stopped にする（証明の待ちが Archon の cancel の猶予の勘定に足されない）
+        slow = self.tmp / "slow-env.sh"
+        slow.write_text("sleep 4\n")
+        env = {**self.env, "BASH_ENV": str(slow)}
+        argv = ["bash", "-c", f"touch {self.marker}"]
+        launched = []
+
+        class Seen(subprocess.Popen):
+            def __init__(self, args, *a, **kw):
+                launched.append(list(args))
+                super().__init__(args, *a, **kw)
+
+        timer = threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGTERM))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        t0 = time.monotonic()
+        with mock.patch.object(tree_run.subprocess, "Popen", Seen), self.assertRaises(tree_run.Stopped) as cm:
+            tree_run.run(argv, env=env, cwd=str(self.tmp))
+        self.assertEqual(cm.exception.signum, signal.SIGTERM)
+        self.assertLess(time.monotonic() - t0, tree_run.POLL + tree_run.LINGER + 1.5, "証明を待ち切ってから止めた")
+        self.assertNotIn(argv, launched, "止められたのにコマンドを起こした")
+
     # ------------------------------------------------ グループの外へ出た孫
     def setsid_sleeper(self, pidf, ignore_term=False):
         """setsid で新しいセッションへ出て、自分の pid を pidf に書いて眠る孫（python。macOS に setsid の道具は無い）"""
@@ -405,6 +430,17 @@ class OutsideEnvCase(unittest.TestCase):
         src = {"UV_RUN_RECURSION_DEPTH": "1", "PATH": ""}
         tree_run.outside_env(src)
         self.assertEqual(src, {"UV_RUN_RECURSION_DEPTH": "1", "PATH": ""})
+
+
+class LaunchProofShapeCase(unittest.TestCase):
+    """起こす前の証明（tree_run.prove_launchable）が、bash では走るコマンドを見つからないと読まないこと"""
+
+    def test_runnable_shapes_pass_the_proof(self):
+        for cmd in ("true; echo done", "true|cat", "true&&true", "# note\ntrue", "FOO=1 true", "2>/dev/null true",
+                    "2>&1 true", "10<&0 true", ">/dev/null true", "time true"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(subprocess.run(["bash", "-c", cmd], stdout=subprocess.DEVNULL).returncode, 0)
+                tree_run.prove_launchable(["bash", "-c", cmd])
 
 
 if __name__ == "__main__":

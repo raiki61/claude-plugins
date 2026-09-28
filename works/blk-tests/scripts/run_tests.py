@@ -8,8 +8,8 @@ plain（既定。1 本目と線 C の mutgate の約束のまま。INPUTS_MODE �
   INPUTS_CMD（節の with: の cmd）を対象リポジトリの根（cwd）で `bash -c` に渡し、標準出力と標準エラーを
   $ARTIFACTS_DIR/board/tests.log に置き、標準入力は閉じる（入力待ちで止まらない）。盤面は開かない。コマンドは本文に
   差し込まず環境変数のまま渡すので、値がシェルの記号を含んでもデータのまま届く。
-  出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。bash を起こせない（exit None）・
-  シェルの予約値 126・127（起こせなかった疑い）の時だけ launch に tree_run.launch_kind の "broken"・"suspect" を足す（どちらも
+  出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。bash か、コマンドの先頭の語を起こせない
+  （exit None。先頭の語は tree_run.prove_launchable が起こす前に引く）・シェルの予約値 126・127（起こせなかった疑い）の時だけ launch に tree_run.launch_kind の "broken"・"suspect" を足す（どちらも
   green: false。普通の赤・緑の鍵は ok・green・log のまま）。コマンドが空・空白だけなら何も走らせずに 1（緑と言わない）。
 mid（中の関所のためのテスト。盤面の節には書かない）:
   盤面（$ARTIFACTS_DIR/board）を entry.open_board で開き、対象の根の宣言 .review-checks.json（写しの engine/declared.py の

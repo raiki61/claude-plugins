@@ -8,6 +8,8 @@
   枠の置き場は台本の約束 TESTSLOT_DIR で、run.sh はそこを試し・祖先を探し・台本へ渡す（試験は一時フォルダに向ける）。
   台本が無い・枠の置き場に書けないときは 1 行出して枠なしで回し、祖先が枠を持っていれば取り直さない。
   uv と枠の台本は偽物に差し替える（本物のテスト一式は回さない）
+- 試験の密閉（HermeticCase）: 親の環境を丸ごと写す 3 つの字面を拒み tests/hermetic.py を通させる・一時フォルダは実体のパス・
+  /private の別名はファイルの仕組みから引く（見ない入口は hermetic.py の説明）
 """
 import ast
 import contextlib
@@ -250,6 +252,60 @@ class RunShCase(unittest.TestCase):
         if dash is None:
             self.skipTest("dash が無い")
         self.assertEqual(subprocess.run([dash, "-n", str(RUN_SH)], capture_output=True).returncode, 0)
+
+
+BARE_ENVIRON = __import__("re").compile(r"(?<![\w.])dict\(os\.environ\b|os\.environ\.copy\(\)|\{\*\*os\.environ\b")
+
+
+class HermeticCase(unittest.TestCase):
+    """試験の子の環境と一時フォルダは、走らせた場（run の中の親が立てた名・macOS の /var→/private/var）に左右されない。
+    外す名の一覧は試験の足場 tests/hermetic.py の 1 か所に置き、意図して継がせる名は child_env の overrides で名指しする"""
+
+    def _hermetic(self):
+        try:
+            import hermetic
+        except ImportError as e:
+            self.fail(f"試験の足場 tests/hermetic.py が無い: {e}")
+        return hermetic
+
+    def test_no_bare_environ_copy_outside_hermetic(self):
+        own = {"hermetic.py", pathlib.Path(__file__).name}
+        found = [f"{p.name}:{i}" for p in sorted(TESTS.glob("*.py")) if p.name not in own
+                 for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if BARE_ENVIRON.search(line)]
+        self.assertEqual(found, [], "親の環境を丸ごと子へ渡す（hermetic.child_env を使う）")
+
+    def test_child_env_drops_names_set_by_the_run(self):
+        hermetic = self._hermetic()
+        leaked = {"WORKS_DEV_ADAPTER": "x", "WORKS_DEV_CLAUDE_VERSION": "9.9.9", "CLAUDE_CODE_ENTRYPOINT": "cli",
+                  "GRAPHLOOPS_ENGINE_CHILD": "1"}
+        with mock.patch.dict(os.environ, leaked):
+            env = hermetic.child_env()
+        self.assertEqual(sorted(set(leaked) & set(env)), [])
+        self.assertEqual(env.get("PATH"), os.environ.get("PATH"))
+
+    def test_child_env_keeps_named_overrides(self):
+        hermetic = self._hermetic()
+        with mock.patch.dict(os.environ, {"WORKS_DEV_ADAPTER": "parent"}):
+            env = hermetic.child_env(WORKS_DEV_ADAPTER="given", PYTHONDONTWRITEBYTECODE="1")
+        self.assertEqual((env["WORKS_DEV_ADAPTER"], env["PYTHONDONTWRITEBYTECODE"]), ("given", "1"))
+
+    def test_tmpdir_is_real_path(self):
+        hermetic = self._hermetic()
+        d = hermetic.tmpdir(self)
+        self.assertEqual(pathlib.Path(d), pathlib.Path(os.path.realpath(d)))
+        self.assertTrue(pathlib.Path(d).is_dir())
+
+    def test_alias_is_same_place_or_skips(self):
+        hermetic = self._hermetic()
+        d = hermetic.tmpdir(self)
+        with self.subTest("別名が無い綴りは skip"), self.assertRaises(unittest.SkipTest):
+            hermetic.alias(self, "/nonexistent-top/x")
+        with self.assertRaises(AssertionError):   # subTest の外では呼ばせない（skip が試験の残りを黙らせる）
+            hermetic.alias(self, d)
+        with self.subTest("別名は同じ場所"):
+            pub = hermetic.alias(self, d)
+            self.assertNotEqual(pub, str(d))
+            self.assertEqual(os.path.realpath(pub), str(d))
 
 
 if __name__ == "__main__":

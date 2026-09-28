@@ -35,6 +35,7 @@ TOOLSET = DEV / "toolset.py"
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(DEV))
 import toolset  # noqa: E402
+import hermetic  # noqa: E402
 
 BORROW_SKILLS = ["test-driven-development", "systematic-debugging", "verification-before-completion",
                  "receiving-code-review", "requesting-code-review"]
@@ -191,7 +192,7 @@ class Base(unittest.TestCase):
     def cli(self, *args, **env):
         """CLI を子で起こす。利用者の設定の置き場は env の CLAUDE_CONFIG_DIR（既定は偽の利用者の設定）"""
         return subprocess.run([sys.executable, str(TOOLSET), *args], capture_output=True, text=True, encoding="utf-8",
-                              env=dict(os.environ, **{"CLAUDE_CONFIG_DIR": str(self.user), **env}))
+                              env=hermetic.child_env(**{"CLAUDE_CONFIG_DIR": str(self.user), **env}))
 
 
 
@@ -615,7 +616,7 @@ class CliCase(Base):
             with self.subTest(args=args, env=env):
                 r = subprocess.run([sys.executable, str(TOOLSET), "install", "--no-plugins", *args, str(self.cfg)],
                                    capture_output=True, text=True, encoding="utf-8", cwd=self.tmp,
-                                   env=dict(os.environ, **{"CLAUDE_CONFIG_DIR": str(self.user), **env}))
+                                   env=hermetic.child_env(**{"CLAUDE_CONFIG_DIR": str(self.user), **env}))
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("絶対", r.stderr)
                 self.assertEqual(files_under(self.cfg), [])

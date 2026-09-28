@@ -28,6 +28,7 @@ sys.path.insert(0, str(CORE))
 from board import BoardGap  # noqa: E402
 from engine.util import AnswerReject, Reject, dump  # noqa: E402
 import rolekit  # noqa: E402
+import hermetic  # noqa: E402
 
 REASON = '読めない: $ARTIFACTS_DIR と $plan-accept.output.reason と "引用" と\n改行'
 TPL = "単位: {{record.units | pick key}}\n方針: {{?inputs.policy_md}}\n"
@@ -415,8 +416,8 @@ class LocalReviewRetryCase(Base):
         同じ（same）か 1 ファイル違うかを作って、持ち越しの返答（claim が偽なら simplify_carried の無い返答）を受け付けに通す"""
         repo = self.tmp / "repo"
         repo.mkdir()
-        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-               "GIT_COMMITTER_EMAIL": "t@t"}
+        env = hermetic.child_env(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                                 GIT_COMMITTER_EMAIL="t@t")
 
         def git(*a):
             return subprocess.run(["git", "-C", str(repo), *a], env=env, check=True, capture_output=True,

@@ -27,6 +27,7 @@ import engine.util as engine_util  # noqa: E402
 from engine.board import Board as EngineBoard  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
+import hermetic  # noqa: E402
 
 TABLES = HERE / "boards" / "tables"
 ENTRY = NodeTable.load(TABLES / "entry-line.json")
@@ -206,7 +207,7 @@ class BeginCase(unittest.TestCase):
         self.assertEqual(rev, b.loop_state["head_revs"]["1"])
         idx = self.tmp / "index"
         shutil.copy2(self.repo / ".git" / "index", idx)
-        env = {**os.environ, "GIT_INDEX_FILE": str(idx)}
+        env = hermetic.child_env(**{"GIT_INDEX_FILE": str(idx)})
         subprocess.run(["git", "-C", str(self.repo), "add", "-A"], env=env, check=True)
         tree = subprocess.run(["git", "-C", str(self.repo), "write-tree"], env=env, capture_output=True, text=True, encoding="utf-8",
                               check=True).stdout.strip()

@@ -45,6 +45,7 @@ import unittest
 from unittest import mock
 
 from gitkit import GIT_ID, committed_copy, git
+import hermetic  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
@@ -91,7 +92,7 @@ def tearDownModule():
 
 def run_tests(cwd):
     """対象リポジトリの中身（target-seed の写し）を unittest discover で回す。"""
-    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    env = hermetic.child_env(PYTHONDONTWRITEBYTECODE="1")
     return subprocess.run(
         ["python3", "-m", "unittest", "discover", "-s", ".", "-p", "test_*.py"],
         cwd=str(cwd),
@@ -172,7 +173,7 @@ class TestDevShell(unittest.TestCase):
             cached = bin_dir / "archon-darwin-arm64"
             cached.write_bytes(b"not the real archon binary")
 
-            env = dict(os.environ)
+            env = hermetic.child_env()
             env["WORKS_DEV_HOME"] = str(dev_home)
             env["WORKS_DEV_NO_AUTH"] = "1"
 
@@ -219,7 +220,7 @@ class TestDevShell(unittest.TestCase):
             )
             security_script.chmod(0o755)
 
-            env = dict(os.environ)
+            env = hermetic.child_env()
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
                 env.pop(name, None)
             env["HOME"] = "/tmp/works-dev-test-original-home"  # 実在しなくてよい、印の値
@@ -350,7 +351,7 @@ class TestDevShell(unittest.TestCase):
             claude_calls = tmp / "claude-calls.jsonl"
             (fake_bin / "shasum").write_text(f'#!/bin/sh\necho "{expected}  $3"\n')
             (fake_bin / "shasum").chmod(0o755)
-            env = dict(os.environ)
+            env = hermetic.child_env()
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH",
                          "WORKS_DEV_MODEL", "TITLE_GENERATION_MODEL", "WORKS_REAL_CLAUDE", "CLAUDE_BIN_PATH",
                          "WORKS_DEV_ADAPTER", "MISE_TRUSTED_CONFIG_PATHS", "FAKE_MISE_TRUST"):
@@ -553,7 +554,7 @@ class TestDevShell(unittest.TestCase):
         """real-run.sh（費用の掛かる実走）は、認証が無ければ対象を作る前に 1 行の案内で止まること。"""
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
-            env = dict(os.environ, WORKS_DEV_HOME=str(tmp / "dev-home"))
+            env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"))
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
                 env.pop(name, None)
             result = subprocess.run(
@@ -579,7 +580,7 @@ class TestDevShell(unittest.TestCase):
             self.assertFalse(pathlib.Path(p).exists(), p)
 
     def _env(self, **kw):
-        env = dict(os.environ)
+        env = hermetic.child_env()
         for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM"):
             env.pop(name, None)
         env.update(kw)
@@ -679,7 +680,7 @@ class TestDevShell(unittest.TestCase):
             dev_home = tmp / "dev-home"
             (dev_home / "bin").mkdir(parents=True)
             (dev_home / "bin" / "archon-darwin-arm64").write_bytes(b"not the real archon binary")
-            env = dict(os.environ, WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp), WORKS_DEV_HOME=str(dev_home))
+            env = hermetic.child_env(WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp), WORKS_DEV_HOME=str(dev_home))
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
                 env.pop(name, None)   # 認証が無くても回ること
             result = subprocess.run(["sh", str(check)], capture_output=True, text=True, encoding="utf-8", env=env)
@@ -1005,7 +1006,7 @@ class TestDevShell(unittest.TestCase):
                 ["python3", "-m", "unittest", "test_dev.TestDevShell.test_mktarget_places_pack_without_dev_files",
                  "test_dev.TestDevShell.test_inherited_tmpdir_is_outside_claude_tmp"],
                 cwd=str(pathlib.Path(__file__).resolve().parent), capture_output=True, text=True, encoding="utf-8",
-                env=dict(os.environ, TMPDIR=hole, PYTHONDONTWRITEBYTECODE="1"))
+                env=hermetic.child_env(TMPDIR=hole, PYTHONDONTWRITEBYTECODE="1"))
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("OK", r.stderr)
         finally:

@@ -264,5 +264,47 @@ class LaunchKindCase(unittest.TestCase):
         self.assertEqual(out["suites"][0].get("launch"), "suspect")
 
 
+MISSING = "works-no-such-command-4f1c"
+
+
+class LaunchProofCase(unittest.TestCase):
+    """test_cmd を起こせない（先頭の語が見つからない・実行できない）ことは起こす前に確かめ、found・赤でなく not_run（環境）にする
+    （子のプロセスを本当に起こす）"""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, ignore_errors=True)
+
+    def _material(self, cmd):
+        return entry.local_checks_material(self.tmp, cmd, self.tmp / "logs" / "t.log")["material"]
+
+    def test_material_of_missing_command_is_not_run(self):
+        self.assertEqual(self._material(f"{MISSING} -q")["status"], "not_run")
+
+    def test_material_of_missing_command_behind_env_prefix_is_not_run(self):
+        self.assertEqual(self._material(f"FOO=1 {MISSING} -q")["status"], "not_run")
+
+    def test_material_of_missing_command_in_pipeline_is_not_run(self):
+        # シェルが要る形（パイプ）でも先頭の語を起こす前に引く。引かないと後ろの cat の 0 で clean に化ける
+        self.assertEqual(self._material(f"{MISSING} -q | cat")["status"], "not_run")
+
+    def test_material_of_non_executable_file_is_not_run(self):
+        script = self.tmp / "t.sh"
+        script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        script.chmod(0o644)
+        self.assertEqual(self._material("./t.sh")["status"], "not_run")
+
+    def test_plain_missing_command_returns_launch_broken(self):
+        out = _load_run_tests().run_plain(f"{MISSING} -q", self.tmp)
+        self.assertEqual((out["green"], out.get("launch")), (False, "broken"))
+
+    def test_mid_missing_command_returns_launch_broken(self):
+        mod = _load_run_tests()
+        from engine import declared
+        with mock.patch.object(declared, "read", return_value=None), mock.patch.object(mod, "_repo_root", return_value=self.tmp):
+            out = mod.run_mid(_WorkBoard(self.tmp), f"{MISSING} -q")
+        self.assertEqual(out["suites"][0].get("launch"), "broken")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -42,6 +42,7 @@ import linekit  # noqa: E402
 import material  # noqa: E402
 import node_marker  # noqa: E402
 import test_entry as TE  # noqa: E402
+import hermetic  # noqa: E402
 
 LINE = "darkfactory"
 WHERE = "blk-material"
@@ -382,7 +383,7 @@ class ShapeCase(unittest.TestCase):
         gh, log = bindir / "gh", bindir / "gh.log"
         gh.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$FAKE_GH_LOG\"\n")
         gh.chmod(0o755)
-        env = dict(os.environ, WORKS_REAL_GH=str(gh), FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
+        env = hermetic.child_env(WORKS_REAL_GH=str(gh), FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
         env.pop("WORKS_GH_ACTIVE", None)
         shim = adapter.NO_POST_BIN / "works-gh"
         self.assertEqual({r for r in material.ROLES if "excludedCommands" in material.SANDBOX[material.POSTURE[r]]},
@@ -645,7 +646,7 @@ class TakeCase(_Case):
                "with mock.patch.object(entry, 'load_table', T._patched_table):\n"
                "    got = material.take(sys.argv[2], role, T.good_reply(material.ROLES[role]), sys.argv[3], 'optional')\n"
                "print(json.dumps(got, ensure_ascii=False))\n")
-        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        env = hermetic.child_env(**{"PYTHONDONTWRITEBYTECODE": "1"})
         procs = [subprocess.Popen([sys.executable, "-c", drv, role, str(bd), str(repo)], stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env, cwd=str(repo)) for role in roles]
         for role, p in zip(roles, procs):
@@ -750,7 +751,7 @@ class StoppedBoardCase(_Case):
                "with mock.patch.object(entry, 'load_table', T._patched_table):\n"
                "    got = material.take(sys.argv[2], role, T.good_reply(material.ROLES[role]), sys.argv[3], '')\n"
                "print(json.dumps(got, ensure_ascii=False))\n")
-        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        env = hermetic.child_env(**{"PYTHONDONTWRITEBYTECODE": "1"})
         procs = [subprocess.Popen([sys.executable, "-c", drv, role, str(bd), str(repo)], stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env, cwd=str(repo)) for role in roles]
         outs = []

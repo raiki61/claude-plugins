@@ -34,6 +34,7 @@ import adapter  # noqa: E402
 import tddloop  # noqa: E402
 import writes  # noqa: E402
 from test_blk_fix_tdd import CLAMP, MEAN, NEW_TEST, OPEN, SEED, SUITE  # noqa: E402
+import hermetic  # noqa: E402
 
 RECORDER = CORE / "record-write.py"
 WHY = "整形の道具で 40 ファイルを一度に書き換えた"
@@ -61,7 +62,7 @@ class TestHook(unittest.TestCase):
 
     def run_recorder(self, sink, event):
         return subprocess.run([sys.executable, str(RECORDER), str(sink)], input=json.dumps(event), text=True, encoding="utf-8",
-                              capture_output=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                              capture_output=True, env=hermetic.child_env(**{"PYTHONDONTWRITEBYTECODE": "1"}))
 
     def test_recorder_writes_path_and_sha_after_write(self):
         with tempfile.TemporaryDirectory() as td:
