@@ -52,6 +52,7 @@ FAST = frozenset({
     "test_libdocs",         # Context7 の文書を機械が引く: 一時の置き場と偽の HTTP の口・偽の盤面（網・git・子のプロセスなし）
     "test_tool_parity",     # 役の道具が本線の run_by の定義より少なくないか: YAML と写しの graph を読むだけ
     "test_adapter_no_turn", # 包みの子の終わりの種分け: 包みを子で起こし、偽の claude（一時の置き場の python）が決めた行を出す（git・Archon・決まった秒の待ちなし）
+    "test_auth_launch",     # 殻の認証の起こし役: 偽の runner で順を見る・起こし役を python3 -I で 1 本起こす（git・keychain なし）
     "test_toolset",         # 隔離した Claude の設定の組み立てと柵: 一時の置き場に写す・偽の claude（python）を子で起こす（git なし）
     "test_yaml_rules",      # 3 秒
     "test_line_wiring",     # ラインの配線（表の置き場の include）と筋書きの stub の鍵の揃い: YAML と JSON を読むだけ（git・子のプロセスなし）

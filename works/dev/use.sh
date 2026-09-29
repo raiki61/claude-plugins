@@ -46,8 +46,8 @@
 # - herdr の枠の中（HERDR_ENV=1・HERDR_PANE_ID）なら、起動・show・wait のたびに、その枠から起こした run（控えの herdr_pane）の
 #   集計を 1 つの信号で出し、全部終わった時だけ外す（lib.sh works_dev_herdr_sync）。
 # - 差分（run の worktree と周の頭の版の差）は <家>/diffs/run-<id>.diff に書き、対象へ当てる apply の行を出す。当てるのは人。
-# 認証は archon.sh と同じ順（guard.sh works_dev_auth_candidates: CLAUDE_CODE_OAUTH_TOKEN・WORKS_KEYCHAIN_ITEM・Claude Code 自身の keychain の項目）。ここは在るかだけを
-# 見て、値は読まない。模型は WORKS_DEV_MODEL（ここでは埋めない。未設定なら archon.sh が既定を解く。YAML の段に
+# 認証の順は起こし役 .shared/core/auth_launch.py（WORKS_KEYCHAIN_ITEM → 本流 claude_auth.py の写しの auth_env → Claude Code 自身の
+# keychain の項目）。ここは出どころの名だけを受け、値は受けない。模型は WORKS_DEV_MODEL（ここでは埋めない。未設定なら archon.sh が既定を解く。YAML の段に
 # model: を書いた役の段は、段の値が先に効く）。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
@@ -157,20 +157,9 @@ problem() {
   fi
 }
 
-# 認証の出どころの名（無ければ空）。在るかだけを見る（keychain の値は読まない）
+# 認証の出どころの名（無ければ空）。順は起こし役 auth_launch.py が持つ（値はその中で読んで捨て、名だけを受ける）
 auth_from() {
-  works_dev_auth_candidates | while IFS= read -r _c; do
-    case $_c in
-      "env "*) echo "${_c#env }"; break ;;
-      "item "*) echo "keychain の項目 ${_c#item }"; break ;;
-      "claude "*)
-        if security find-generic-password -s "${_c#claude }" >/dev/null 2>&1; then
-          echo "Claude Code の keychain の項目 ${_c#claude }"
-          break
-        fi
-        ;;
-    esac
-  done
+  python3 -I "$WORKS_DIR/.shared/core/auth_launch.py" check --user-home "$HOME" --user-config "${CLAUDE_CONFIG_DIR:-}" 2>/dev/null || true
 }
 
 # 本物の claude（隔離の前に解く。関数・別名は実行ファイルでない）。show・check も次の行に載せる
@@ -199,7 +188,7 @@ if [ "$CMD" = start ] || [ "$CMD" = check ]; then
   WORKS_AUTH_FROM="$(auth_from)"
   export WORKS_AUTH_FROM
   if [ -z "$WORKS_AUTH_FROM" ]; then
-    problem "$(works_dev_no_auth_howto)"
+    problem "$(python3 -I "$WORKS_DIR/.shared/core/auth_launch.py" howto)"
   fi
   if ! command -v uv >/dev/null 2>&1; then
     problem "uv が PATH に無い（ラインの節は uv run で回る）。入れる: curl -LsSf https://astral.sh/uv/install.sh | sh"

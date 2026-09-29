@@ -5,10 +5,11 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
   全部 commit 済みで、仕込んだバグのせいでテストが赤になること。
 - archon.sh が、キャッシュにある実行ファイルの sha256 が違えばネットワークに出ずに拒み、
   そのファイルを消せば取り直すと 1 行で案内すること（消すのは人。archon.sh は消さない）。
-- archon.sh の認証が利用者自身の物だけを本線 claude_auth.py の順で拾うこと: CLAUDE_CODE_OAUTH_TOKEN があればそれ、無ければ
-  WORKS_KEYCHAIN_ITEM の名の keychain の項目、それも無ければ CLAUDE_CONFIG_DIR から導いた Claude Code 自身の keychain の項目
-  （どれも偽物に差し替える。本物には触らない）を HOME を隔離する前の元の HOME で読み、拾った出どころの名だけを出し（値は出さない）、
-  どれも無ければ 1 行の案内で止まること（Ruling R20 の「黙ってどこかの口座で回さない」）。
+- archon.sh の認証が利用者自身の物だけを拾うこと（順は起こし役 .shared/core/auth_launch.py の 1 か所）: 名指しの
+  WORKS_KEYCHAIN_ITEM の keychain の項目があればそれ、無ければ本流の claude_auth.auth_env の順（受け継いだ認証・
+  CLAUDE_KEYCHAIN_SERVICE・設定の置き場から導いた claude-code-oauth-<名>）、それでも足せなければ CLAUDE_CONFIG_DIR から導いた
+  Claude Code 自身の keychain の項目（どれも偽物に差し替える。本物には触らない）を HOME を隔離する前の元の HOME で読み、
+  拾った出どころの名だけを出し（値は出さない）、どれも無ければ 1 行の案内で止まること（Ruling R20 の「黙ってどこかの口座で回さない」）。
 - archon.sh が、認証を使う実行のたびに隔離した Archon の設定へ模型（WORKS_DEV_MODEL。既定 opus）を書き、
   TITLE_GENERATION_MODEL も（設定していなければ）同じにすること。WORKS_DEV_NO_AUTH=1 では書かないこと
   （偽の shasum で確かめを通し、偽の実行ファイルまで exec させて見る）。
@@ -258,24 +259,30 @@ class TestDevShell(unittest.TestCase):
 
     def test_archon_sh_reads_named_keychain_item_before_home_is_isolated(self):
         """WORKS_KEYCHAIN_ITEM の名の keychain の項目（偽物）を、HOME を隔離する前の元の HOME で読むこと。"""
-        result, home, args = self._run_archon_sh_with_fake_security(WORKS_KEYCHAIN_ITEM="some-item-for-test")
+        result, home, args = self._run_archon_sh_with_fake_security(
+            fake_token="sk-ant-oat01-dummy-token-for-test", WORKS_KEYCHAIN_ITEM="some-item-for-test")
         self.assertEqual(home, "/tmp/works-dev-test-original-home")
         self.assertEqual(args, "find-generic-password -s some-item-for-test -w")
         # 中身の違う実行ファイルなので、keychain を読んだ後の sha256 の確かめで落ちる。
         self.assertEqual(result.returncode, 1)
         self.assertIn("sha256", result.stderr)
 
-    def test_archon_sh_prefers_token_env_over_keychain(self):
+    def test_archon_sh_named_keychain_item_beats_token_env(self):
+        """名指し（WORKS_KEYCHAIN_ITEM）はその起動で利用者が明示した物なので、受け継いだ CLAUDE_CODE_OAUTH_TOKEN より先に
+        読む（設計 2.6 順の形 1）。元の HOME で名指しの項目を読んでから sha256 の確かめへ進む"""
         result, home, args = self._run_archon_sh_with_fake_security(
+            fake_token="sk-ant-oat01-dummy-token-for-test",
             CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", WORKS_KEYCHAIN_ITEM="some-item-for-test"
         )
-        self.assertIsNone(args)  # keychain は読まない
+        self.assertEqual(home, "/tmp/works-dev-test-original-home")
+        self.assertEqual(args, "find-generic-password -s some-item-for-test -w")
+        self.assertIn("WORKS_KEYCHAIN_ITEM", result.stderr)
         self.assertEqual(result.returncode, 1)
         self.assertIn("sha256", result.stderr)
 
     def test_archon_sh_reads_claude_codes_own_keychain_item(self):
-        """トークンも keychain の項目名も無ければ、CLAUDE_CONFIG_DIR から導いた Claude Code 自身の項目だけを隔離の前の HOME で読み
-        （任意の既定の名は読まない）、拾えたら出どころの名だけを出す。それも空なら 1 行の案内で止まること。"""
+        """トークンも名指しの項目も無く、本流の段（導いた claude-code-oauth-<名>）でも足せなければ、CLAUDE_CONFIG_DIR から導いた
+        Claude Code 自身の項目を隔離の前の HOME で読み、拾えたら出どころの名だけを出す。それも空なら 1 行の案内で止まること。"""
         import hashlib
         cfg = "/tmp/works-dev-test-claude-config"
         own = "Claude Code-credentials-" + hashlib.sha256(cfg.encode("utf-8")).hexdigest()[:8]
@@ -313,6 +320,19 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(len(lines), 1, result.stderr)
         for word in ("CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token", "WORKS_KEYCHAIN_ITEM"):
             self.assertIn(word, lines[0])
+
+    def test_no_auth_howto_names_existing_items_before_new_token(self):
+        """認証が無い時の 1 行の案内は、keychain に既に在る項目を名指す口（WORKS_KEYCHAIN_ITEM・CLAUDE_KEYCHAIN_SERVICE）を、
+        トークンを新しく作る案内（claude setup-token）より先に出す"""
+        result, home, args = self._run_archon_sh_with_fake_security(fake_token="", CLAUDE_CONFIG_DIR=None)
+        self.assertNotEqual(result.returncode, 0)
+        lines = result.stderr.strip().splitlines()
+        self.assertEqual(len(lines), 1, result.stderr)
+        line = lines[0]
+        for word in ("WORKS_KEYCHAIN_ITEM", "CLAUDE_KEYCHAIN_SERVICE", "claude setup-token"):
+            self.assertIn(word, line)
+        self.assertLess(line.index("WORKS_KEYCHAIN_ITEM"), line.index("claude setup-token"), line)
+        self.assertLess(line.index("CLAUDE_KEYCHAIN_SERVICE"), line.index("claude setup-token"), line)
 
     def test_archon_sh_no_auth_skips_auth(self):
         result, home, args = self._run_archon_sh_with_fake_security(WORKS_DEV_NO_AUTH="1")

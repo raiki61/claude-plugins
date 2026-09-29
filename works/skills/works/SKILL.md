@@ -12,7 +12,7 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
 
 ## 0. 入れる（1 回だけ）
 
-要る物: macOS（Apple silicon。Archon は固定した版の darwin-arm64 の実行ファイル）・git・uv・gh（初回に Archon の実行ファイルを GitHub の release から落とす）・Claude Code の `claude`・認証（普段の `claude` のログインで足りる。殻は `CLAUDE_CODE_OAUTH_TOKEN` → `WORKS_KEYCHAIN_ITEM` の名の keychain の項目 → Claude Code 自身が macOS の keychain に置いた項目（`CLAUDE_CONFIG_DIR` から導く）の順に、あなた自身の認証だけを拾い、拾った出どころの名を出す。ログインの項目は数時間で切れる短い物なので、長い run には `claude setup-token` で作るトークンを置く）。gh・git の資格は AI の役に渡さない（隔離した家の gh は未ログインで、並行 PR の確かめは人に回る）。
+要る物: macOS（Apple silicon。Archon は固定した版の darwin-arm64 の実行ファイル）・git・uv・gh（初回に Archon の実行ファイルを GitHub の release から落とす）・Claude Code の `claude`・認証（普段の `claude` のログインで足りる。殻は `WORKS_KEYCHAIN_ITEM` の名の keychain の項目 → 本流 `claude_auth.py` の段（受け継いだ `CLAUDE_CODE_OAUTH_TOKEN` など・`CLAUDE_KEYCHAIN_SERVICE` の項目・設定の置き場から導く `claude-code-oauth-<名>`）→ Claude Code 自身が macOS の keychain に置いた項目（`CLAUDE_CONFIG_DIR` から導く）の順に、あなた自身の認証だけを拾い、拾った出どころの名を出す。ログインの項目は数時間で切れる短い物なので、長い run には `claude setup-token` で作るトークンを置く）。gh・git の資格は AI の役に渡さない（隔離した家の gh は未ログインで、並行 PR の確かめは人に回る）。
 
 1. プラグインを 4 つ Claude Code に入れる。このスキル（works）と、works の AI の役が借りる 3 つ（superpowers のスキル・coldwrite のフック・pr-review-toolkit の agent）。起動の殻 `dev/use.sh` と pack は works のプラグインの中に在り、Claude Code が入れたプラグインの置き場から使う。借りる 3 つも、あなたが入れた版をそのまま使う。リポジトリの clone は要らない。
 

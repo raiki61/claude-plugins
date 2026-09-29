@@ -312,6 +312,33 @@ class UseShell(unittest.TestCase):
         (fake_bin / "security").chmod(0o755)
         return str(fake_bin) + os.pathsep + os.environ.get("PATH", "")
 
+    def keychain_with(self, service):
+        """service の名の項目だけが在る偽の security を頭に置いた PATH（本物の keychain は読まない）"""
+        fake_bin = self.tmp / "keychain-bin"
+        fake_bin.mkdir(exist_ok=True)
+        (fake_bin / "security").write_text(
+            '#!/bin/sh\necho "$*" >> "$0.calls"\n'
+            'prev=\nfor a in "$@"; do\n'
+            f'  if [ "$prev" = -s ] && [ "$a" = "{service}" ]; then echo sk-ant-oat01-fake-for-test; exit 0; fi\n'
+            '  prev=$a\ndone\nexit 44\n')
+        (fake_bin / "security").chmod(0o755)
+        return str(fake_bin) + os.pathsep + os.environ.get("PATH", "")
+
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "SKIP macos: keychain の段は macOS だけ")
+    def test_check_finds_keychain_item_of_main_auth_order(self):
+        """認証の順は本流 claude_auth.py の keychain_service に従う: CLAUDE_KEYCHAIN_SERVICE の名の項目、無ければ
+        CLAUDE_CONFIG_DIR の末尾から導いた claude-code-oauth-<名>（~/.claude なら default）。そこにだけ項目が在れば check は通る"""
+        t = self.target()
+        cases = (("CLAUDE_KEYCHAIN_SERVICE", "svc-for-test", {"CLAUDE_KEYCHAIN_SERVICE": "svc-for-test"}),
+                 ("CLAUDE_CONFIG_DIR", "claude-code-oauth-p3", {"CLAUDE_CONFIG_DIR": str(self.tmp / ".claude-p3")}))
+        for label, service, env_kw in cases:
+            with self.subTest(label):
+                if self.log.exists():
+                    self.log.unlink()
+                r = self.use("check", str(t), CLAUDE_CODE_OAUTH_TOKEN=None, PATH=self.keychain_with(service), **env_kw)
+                self.assertNotIn("sk-ant-oat01-fake-for-test", r.stdout + r.stderr)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_start_adapter_default_and_explicit_off(self):
         """包みは既定で入れる（adapter= と続きの行の WORKS_DEV_ADAPTER=1）。0 か空を明示した時だけ adapter=optional と『包み無し』"""
         t = self.target()

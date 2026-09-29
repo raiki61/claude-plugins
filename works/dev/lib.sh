@@ -378,10 +378,14 @@ else:
     print("今までの費用:", "{} USD（Archon の run の metadata.total_cost_usd。目安で、正は報告の費用の行）".format(cost)
           if isinstance(cost, (int, float)) else "取れない（run に total_cost_usd が無い）")
 print("修正の差分がある worktree:", r.get("working_path"))
-if os.environ.get("WORKS_AUTH_FROM", "").startswith("Claude Code"):
-    print("認証: 下の行は archon.sh が {} から拾う（値は出さない）".format(os.environ["WORKS_AUTH_FROM"]))
+# 出どころの名は起こし役 auth_launch.py の check の出力: keychain の段なら archon.sh が同じ順で拾い直し、受け継いだ変数の段なら
+# その変数の名（殻に export が要る）
+auth_from = os.environ.get("WORKS_AUTH_FROM", "")
+if "keychain の項目" in auth_from and not item:
+    print("認証: 下の行は archon.sh が {} から拾う（値は出さない）".format(auth_from))
 elif not item:
-    print("認証: 下の 3 つは CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つ（値は出さない。keychain なら WORKS_KEYCHAIN_ITEM=<項目名> を sh の直前に足す）")
+    print("認証: 下の 3 つは {} を export した殻で打つ（値は出さない。keychain なら WORKS_KEYCHAIN_ITEM=<項目名> を sh の直前に足す）".format(
+        auth_from or "CLAUDE_CODE_OAUTH_TOKEN"))
 # 承認・答えはその場で続きを回す。use.sh からなら、決まった時間で戻って状態を返す wait の行も出す（承認・答えを裏で打った後、
 # これを打ち直して見る）
 redo = os.environ["REDO"]

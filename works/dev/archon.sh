@@ -45,54 +45,19 @@ case "${WORKS_DEV_ADAPTER:-}" in
     ;;
 esac
 
-# 認証は本線 claude_auth.py の順で、利用者自身の物だけを拾う（どこかの口座で黙って回さない。R20 には拾った出どころの名を
-# 1 行に出して応える。値は出さない）。順と案内の文の正本は guard.sh works_dev_auth_candidates・works_dev_no_auth_howto で、
-# どれも無ければ 1 行の案内を出して止まる（本線の段 3「子自身の保存済み認証」は、隔離した CLAUDE_CONFIG_DIR が空なので無い）。
-# WORKS_DEV_NO_AUTH=1 のときは読まない（テストや validate など、認証が要らないとき用）。
-# keychain は HOME を隔離する前に読む（macOS の security はログイン keychain を
-# $HOME 基準で探すので、後で読むと隔離した偽の HOME の下を探して必ず失敗する）。
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
-  _candidates="$(works_dev_auth_candidates)"
-  _ifs=$IFS
-  IFS='
-'
-  for _c in $_candidates; do
-    case $_c in
-      "item "*)
-        CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "${_c#item }" -w)"
-        # 項目が空の値を返したら、空のトークンを渡さずに止まる（項目名は出すが、値は出さない）
-        if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-          echo "archon.sh: $(works_dev_no_auth_howto)（keychain の項目 ${_c#item } が空）" >&2
-          exit 2
-        fi
-        break
-        ;;
-      "claude "*)
-        _svc=${_c#claude }
-        # 値は Claude Code の JSON（claudeAiOauth.accessToken）か、トークンそのもの。sk-ant-oat01- で始まらない物は渡さない
-        CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "$_svc" -w 2>/dev/null | python3 -c '
-import json, sys
-raw = sys.stdin.read().strip()
-try:
-    tok = ((json.loads(raw) or {}).get("claudeAiOauth") or {}).get("accessToken") or ""
-except (ValueError, AttributeError):
-    tok = raw
-if isinstance(tok, str) and tok.startswith("sk-ant-oat01-"):
-    print(tok)
-' || true)"
-        if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-          echo "archon.sh: 認証は Claude Code の keychain の項目 ${_svc} から拾った（値は出さない）" >&2
-          break
-        fi
-        ;;
-    esac
-  done
-  IFS=$_ifs
-  if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-    echo "archon.sh: $(works_dev_no_auth_howto)（Claude Code の keychain の項目 $(works_dev_claude_keychain_services | tr '\n' ' ')にも無い）" >&2
-    exit 2
-  fi
-  export CLAUDE_CODE_OAUTH_TOKEN
+# 認証は起こし役 .shared/core/auth_launch.py が持つ（WORKS_KEYCHAIN_ITEM → 本流 claude_auth.py の写しの auth_env → Claude Code
+# 自身の keychain の項目。利用者自身の物だけを拾い、R20 には拾った出どころの名を 1 行に出して応える）。トークンは殻の変数・
+# 標準出力を通さない: ここでは実行ファイルに触る前に読んで捨てて名だけを受け（無ければ起こし役の 1 行の案内で止まる）、
+# 最後の exec で起こし役がもう一度読んで同じプロセスから Archon を起こす。use.sh が確かめて WORKS_AUTH_FROM を渡した時は
+# ここの確かめを飛ばす（exec で必ず読み直すので、値の無い起動は止まる）。WORKS_DEV_NO_AUTH=1 のときは読まない。
+# keychain は隔離の前の利用者の HOME で読む（macOS の security はログイン keychain を $HOME 基準で探す）ので、その HOME と
+# 利用者の CLAUDE_CONFIG_DIR を隔離の前に取っておく
+AUTH_LAUNCH="$(cd "$(dirname "$0")/.." && pwd -P)/.shared/core/auth_launch.py"
+USER_HOME="$HOME"
+USER_CONFIG_RAW="${CLAUDE_CONFIG_DIR:-}"
+if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ] && [ -z "${WORKS_AUTH_FROM:-}" ]; then
+  _auth_from="$(python3 -I "$AUTH_LAUNCH" check --for archon.sh --user-home "$USER_HOME" --user-config "$USER_CONFIG_RAW")" || exit $?
+  echo "archon.sh: 認証は ${_auth_from} から拾う（値は出さない）" >&2
 fi
 
 BIN_DIR="$WORKS_DEV_HOME/bin"
@@ -132,7 +97,7 @@ if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ] && command -v mise >/dev/null 2>&1 &&
 fi
 
 # HOME・ARCHON_HOME・Claude の設定・XDG_* を全部 WORKS_DEV_HOME の下へ隔離する
-# （keychain はもう読み終えている）。
+# （keychain は起こし役が USER_HOME で読む）。
 HOME="$WORKS_DEV_HOME/home"
 ARCHON_HOME="$WORKS_DEV_HOME/archon-home"
 CLAUDE_CONFIG_DIR="$WORKS_DEV_HOME/claude-config"
@@ -228,4 +193,4 @@ ARCHON_TELEMETRY_DISABLED=1
 DO_NOT_TRACK=1
 export ARCHON_TELEMETRY_DISABLED DO_NOT_TRACK
 
-exec "$BIN_PATH" "$@"
+exec python3 -I "$AUTH_LAUNCH" exec --for archon.sh --user-home "$USER_HOME" --user-config "$USER_CONFIG_RAW" -- "$BIN_PATH" "$@"

@@ -55,35 +55,6 @@ works_dev_abs_claude_config() {
   esac
 }
 
-# works_dev_claude_keychain_services: Claude Code 自身が macOS の keychain に認証を置く項目の名の候補（先に試す物から 1 行ずつ）。
-# CLAUDE_CONFIG_DIR を設定した Claude Code は `Claude Code-credentials-<その値（NFC）の sha256 の頭 8 桁>` に置き、無ければ
-# `Claude Code-credentials`（本線 claude_auth.py の段 2 と同じく CLAUDE_CONFIG_DIR から導く。名の付け方は Claude Code の版で
-# 変わりうるので、どちらにも無ければ認証が無いと言って止まる）。値は archon.sh だけが読む
-works_dev_claude_keychain_services() {
-  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
-    printf 'Claude Code-credentials-%s\n' "$(CFG="$CLAUDE_CONFIG_DIR" python3 -c 'import hashlib, os, unicodedata
-print(hashlib.sha256(unicodedata.normalize("NFC", os.environ["CFG"]).encode("utf-8")).hexdigest()[:8])')"
-  fi
-  echo "Claude Code-credentials"
-}
-
-# 認証の順の正本（archon.sh は値を読み、use.sh は在るかだけを見る。片方だけ変えると check が通るのに起動が落ちるので 1 か所に置く）。
-# 本線 claude_auth.py の順で、効く段の候補だけを先に試す物から 1 行ずつ出す: CLAUDE_CODE_OAUTH_TOKEN が在れば `env`、
-# 無くて WORKS_KEYCHAIN_ITEM が在れば `item <項目名>`（名を指したのに空なら次へ進まず止まる）、どちらも無ければ macOS でだけ
-# `claude <項目名>`（works_dev_claude_keychain_services の順）。値は出さない
-works_dev_auth_candidates() {
-  if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-    echo "env CLAUDE_CODE_OAUTH_TOKEN"
-  elif [ -n "${WORKS_KEYCHAIN_ITEM:-}" ]; then
-    echo "item ${WORKS_KEYCHAIN_ITEM}"
-  elif [ "$(uname -s)" = Darwin ]; then
-    works_dev_claude_keychain_services | sed 's/^/claude /'
-  fi
-}
-works_dev_no_auth_howto() {
-  echo "認証が無い。claude にログインするか、CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する"
-}
-
 # works_dev_refuse_claude_tmp <呼び手> <何か> <path>: path が Claude Code の一時フォルダの下に解けるなら、
 # 1 行の理由を出して終了コード 2 で止める
 works_dev_refuse_claude_tmp() {

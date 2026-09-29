@@ -14,8 +14,9 @@ import shutil
 import tempfile
 
 # dogfood の run が立てる名（works の開発の殻 dev/archon.sh・Archon・Claude Code・graphloops の engine の子の目印）。
-# WORKS_ADAPTER_HOME は試験が mock.patch.dict で os.environ に立てて子へ継がせるので外さない
-DROPPED_PREFIXES = ("WORKS_DEV_", "CLAUDE_", "ARCHON_")
+# WORKS_ADAPTER_HOME は試験が mock.patch.dict で os.environ に立てて子へ継がせるので外さない。
+# ANTHROPIC_ は起こし役（.shared/core/auth_launch.py）が受け継いだ認証として先に拾い、keychain の段の試験を素通りさせる
+DROPPED_PREFIXES = ("WORKS_DEV_", "CLAUDE_", "ARCHON_", "ANTHROPIC_")
 DROPPED = frozenset({"CLAUDECODE", "GRAPHLOOPS_ENGINE_CHILD", "WORKS_CLAUDE_VERSION", "WORKS_ARCHON_VERSION",
                      "WORKS_REAL_CLAUDE", "WORKS_ANSWER_CMD", "WORKS_KEYCHAIN_ITEM"})
 

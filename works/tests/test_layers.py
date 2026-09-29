@@ -48,6 +48,8 @@ MOD = {
     "answer": (1, None),      # 関所の文の答えの行（起動の殻が env に置いた頭で組む。works の物を何も知らない）
     "changemap": (1, None),   # attention の変更の地図の部品の写し（COPIED_FROM.changemap。works の物を何も知らない）
     "copyledger": (1, None),  # 写しの台帳の読み口（写し直しの道具と写しの一致の試験が読む。works の物を何も知らない）
+    "claude_auth": (1, None),  # 本流 scripts/claude_auth.py の写し（shared-copies.py が同一を縛る。works の物を何も知らない）
+    "auth_launch": (1, None),  # 殻の認証の起こし役（claude_auth の写しだけを import する。works の物を何も知らない）
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "record-write": (2, None),   # 包みが足す書き込みの記録のフック（writes が読む記録を書く）
     "no-post-bin/works-gh": (2, None),

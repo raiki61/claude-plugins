@@ -2,7 +2,7 @@
 """別プロセスの claude を起こすときに、**認証だけ**を子の環境へ足す。起動そのものは呼ぶ側が持つ。
 
 **この本文は複数のプラグインに写しで在る**。**正本はリポジトリ直下の `scripts/claude_auth.py`**で、
-写しは `gates/hooks/` と `graphloops/scripts/`（2026-09-15 時点）。
+写しは `gates/hooks/` と `graphloops/scripts/` と `works/.shared/core/`（2026-09-29 時点）。
 
 実行時に跨いで読む道は在る——`convergence-loops` はリポジトリ全体が配られるので、キャッシュ越しに
 1 本を共有できる（実測 2026-09-15: `~/.claude/plugins/cache/raiki61/convergence-loops/<版>/` に

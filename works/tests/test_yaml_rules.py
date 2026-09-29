@@ -329,7 +329,9 @@ class YamlRulesCase(unittest.TestCase):
                  if ln.strip() and not ln.strip().startswith("#")]
         self.assertIn("set -eu", lines)
         execs = [i for i, ln in enumerate(lines) if ln.startswith("exec ")]
-        self.assertEqual([lines[i] for i in execs], ['exec "$BIN_PATH" "$@"'])
+        self.assertEqual([lines[i] for i in execs], [
+            'exec python3 -I "$AUTH_LAUNCH" exec --for archon.sh --user-home "$USER_HOME" --user-config "$USER_CONFIG_RAW" '
+            '-- "$BIN_PATH" "$@"'])
         fixed = [i for i, ln in enumerate(lines) if ln == 'CLAUDE_CONFIG_DIR="$WORKS_DEV_HOME/claude-config"']
         installs = [i for i, ln in enumerate(lines) if ln.startswith('python3 "$TOOLSET" install ')]
         self.assertEqual(len(fixed), 1, "CLAUDE_CONFIG_DIR を殻の中の置き場に固定していない")

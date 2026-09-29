@@ -152,6 +152,16 @@ class TestCoreCopy(unittest.TestCase):
                                      capture_output=True, check=True).stdout
                 self.assertEqual((CORE / rel).read_bytes(), expected_copy(rel, src))
 
+    def test_main_auth_copy_names_works_core_as_a_copy(self):
+        """本流の認証の写し（.shared/core/claude_auth.py）が在り、その本文（正本と同じバイト）の写し先の一覧が works/.shared/core/ を名指す。
+        一覧に無い写しは、正本を直す人が配り先に気づかない"""
+        copy = CORE / "claude_auth.py"
+        self.assertTrue(copy.is_file(), copy)
+        import ast
+        doc = ast.get_docstring(ast.parse(copy.read_text(encoding="utf-8"))) or ""
+        listed = next((l for l in doc.splitlines() if l.startswith("写しは")), "")
+        self.assertIn("`works/.shared/core/`", listed, doc[:400])
+
     def test_manifest(self):
         m = json.loads((ROOT / "archon-plugin.json").read_text())
         self.assertEqual(m["name"], "works")
