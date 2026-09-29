@@ -478,7 +478,8 @@ def _check_table(table: "NodeTable") -> None:
 
 def _captured(rules) -> dict:
     """RL の BUILTINS・CONDS・POST_CHECKS・ENGINE_RUNS が値として掴んでいる関数 {id: 表の名前}。
-    これらは読み込みの時に関数を掴み、_rebind_tables も替えないので、大域の名前を差し替えても効かない"""
+    これらは読み込みの時に関数を掴み、_rebind_tables も替えないので、大域の名前を差し替えても効かない
+    （CONDS だけは _apply_overrides が表の値ごと替える）"""
     out = {}
     for reg in ("BUILTINS", "CONDS", "POST_CHECKS", "ENGINE_RUNS"):
         for v in registry(rules, reg).values():
@@ -549,12 +550,14 @@ class DiskBoard(_EngineBoard):
     def _apply_overrides(self, overrides):
         """RL の module の大域の名前と、RL の大域の表（HUMAN_GATES など、BUILTINS・CONDS・POST_CHECKS・ENGINE_RUNS の外の dict）
         が値として掴む元の関数を差し替え（_rebind_tables。既存の差し替えにも効く）、state.works.overrides に名前と理由を足す
-        （前に開いた時の分は消さない）。BUILTINS などの 4 つの表が掴む関数は替えないので拒む。RL は開くたびに新しく読むので、
+        （前に開いた時の分は消さない）。CONDS が掴む名前は、spec の関数を組み手として RL の module で呼び、返った条件の関数
+        （cond_reads の reads が要る）で CONDS の値も替える（engine は CONDS の表から引くので）。組み手は元の条件を RL から
+        引いて包める。BUILTINS・POST_CHECKS・ENGINE_RUNS が掴む関数は替えないので拒む。RL は開くたびに新しく読むので、
         差し替えは他の盤面に漏れない"""
         if not overrides:
             return
         captured = _captured(self.rules)
-        rows = []
+        rows, fns, conds = [], {}, []
         for name, spec in overrides.items():
             if not (isinstance(spec, tuple) and len(spec) == 2):
                 raise BoardGap(f"overrides の {name} が (関数, 理由) でない: {spec!r}")
@@ -566,11 +569,26 @@ class DiskBoard(_EngineBoard):
             if not isinstance(name, str) or not hasattr(self.rules, name):
                 raise BoardGap(f"overrides の {name} は RL の大域の名前に無い（綴り違いの差し替えは効かない）")
             reg = captured.get(id(getattr(self.rules, name)))
-            if reg:
+            if reg == "CONDS":
+                try:
+                    fn = fn(self.rules)
+                except Exception as e:
+                    raise BoardGap(f"overrides の {name} は CONDS の条件で、組み手 fn(RL) が落ちた: {e!r}") from e
+                if not (callable(fn) and isinstance(getattr(fn, "reads", None), tuple)):
+                    raise BoardGap(f"overrides の {name} は CONDS の条件で、組み手 fn(RL) の返りが cond_reads の付いた条件の関数でない: {fn!r}")
+                conds.append(name)
+            elif reg:
                 raise BoardGap(f"overrides の {name} は RL の {reg} が値として掴んでいる関数で、大域の名前を差し替えても効かない（この表は替えない）")
+            fns[name] = fn
             rows.append({"name": name, "reason": reason})
-        for name, (fn, _) in overrides.items():
-            _rebind_tables(self.rules, getattr(self.rules, name), fn)
+        table = registry(self.rules, "CONDS")
+        for name, fn in fns.items():
+            old = getattr(self.rules, name)
+            if name in conds:
+                for k, v in list(table.items()):
+                    if v is old:
+                        table[k] = fn
+            _rebind_tables(self.rules, old, fn)
             setattr(self.rules, name, fn)
         kept = self.state.setdefault("works", {}).setdefault("overrides", [])
         kept.extend(r for r in rows if r not in kept)

@@ -13,6 +13,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
+- 独立の目 R3（前提と全体の筋）・R4（依頼の範囲の外）が、works の 1 周の run でも回るようになった。本線の条件は『阻害要因が 0 件の周か、前の周の修正がファイルを触った周』で、修正の後に同じ周で目を 1 回だけ回す works ではほぼ当たらなかった（2 日の 44 本中 43 本が対象外）。works の側の差し替え口で、この周の修正が差分を作った時も当たるようにした（写しの本線の規則は書き換えていない）。R3・R4 の役が 1 回ずつ増える分、費用が増える。
 - `use.sh` の既定の利用の家（`WORKS_USE_HOME` を名指さない時）を、対象の clone ごとに `${XDG_STATE_HOME:-~/.local/state}/works/use-<clone の実際のパスの sha256 の頭 8 字>` へ分けた。同じリポジトリの別の clone から起こしても、Archon の 1 家 1 clone の登録で止まらない。前の既定の家（`works/use`）に残っている run は `WORKS_USE_HOME=${XDG_STATE_HOME:-~/.local/state}/works/use` と名指せば続けられる。
 - 別の clone で初めて起こす時は、その clone の家に Archon の実行ファイル（約 74 MB）を取り直し、隔離した設定を作り直す（初回だけ）。家には、その家を作った clone の実際のパスを 1 行書いた目印 `target` を置く（どの家がどの clone の物かを後から辿れる。答えの記録 `answers.jsonl` は家ごとに分かれる）。
 - herdr の枠の集計は、今の家だけでなく既定の家の全部（前の `works/use` と clone ごとの `works/use-<印>`）の控えから、その枠から起こした run を数える。1 つの枠から別の clone の run を起こしても、ある clone の人の番の合図が別の clone の終わりで消えない。

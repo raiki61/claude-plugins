@@ -32,6 +32,7 @@ from board import (BOARD_VERSION, CORE_DIR, GRAPH_PATH, VALIDATOR_PATH, BoardGap
 import engine.board as engine_board  # noqa: E402  （board が写しの graphloops を sys.path に足す）
 import engine.util as engine_util  # noqa: E402
 from engine import commands as engine_commands  # noqa: E402
+from engine.rules import cond_reads, registry  # noqa: E402
 from engine.schema import graph_text  # noqa: E402
 from engine.util import BoardConflict, Reject, sha  # noqa: E402
 
@@ -460,7 +461,7 @@ class SavedBoardCase(TmpCase):
         # 後で差し替え無しで開いても、差し替えた事実は残る
         b = self.open(d)
         self.assertEqual(len(b.state["works"]["overrides"]), 1)
-        for name in ("converge", "judge_output", "spec_flow", "checks_plan"):
+        for name in ("converge", "judge_output", "checks_plan"):
             with self.subTest(name):
                 with self.assertRaises(BoardGap) as cm:
                     self.open(d, overrides={name: (probe, "効かない")})
@@ -469,6 +470,37 @@ class SavedBoardCase(TmpCase):
             self.open(d, overrides={"no_such_name": (probe, "綴り違い")})
         with self.assertRaises(BoardGap):
             self.open(d, overrides={"_final_gate_problems": (probe, "")})
+
+    def test_overrides_conds_value(self):
+        """CONDS が掴む条件は組み手 fn(RL) の返りで大域の名前と CONDS の値の両方が替わる。組み手が条件の関数そのもの・
+        reads の無い関数を返す・落ちる時は名前つきの BoardGap。別の盤面には漏れない"""
+        d = self.fresh()
+
+        def build(rl):
+            base = rl.spec_flow
+
+            @cond_reads(*base.reads)
+            def spec_flow(v):
+                return base(v)
+            return spec_flow
+
+        b = self.open(d, overrides={"spec_flow": (build, "条件の差し替え（試験）")})
+        new = b.rules.spec_flow
+        self.assertTrue(hasattr(new, "reads"))
+        self.assertIs(registry(b.rules, "CONDS")["spec_flow"], new)
+        self.assertIsNot(registry(self.open(d).rules, "CONDS")["spec_flow"], new)
+
+        def plain(rl):
+            return lambda v: (True, "reads が無い")
+
+        def boom(rl):
+            raise RuntimeError("組み手が落ちた")
+
+        for fn in (plain, boom, lambda v: (True, "条件の関数そのもの")):
+            with self.subTest(fn=fn):
+                with self.assertRaises(BoardGap) as cm:
+                    self.open(d, overrides={"spec_flow": (fn, "効かない")})
+                self.assertIn("spec_flow", str(cm.exception))
 
     def test_overrides_isolated(self):
         d = self.fresh()

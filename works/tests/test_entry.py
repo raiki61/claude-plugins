@@ -294,6 +294,23 @@ class BoardCase(unittest.TestCase):
         self.assertFalse(entry.open_board(d).allow_halted)
         self.assertTrue(entry.open_board(d, allow_halted=True).allow_halted)
 
+    def test_overview_due_fires_on_this_round_fix_delta(self):
+        """works の run は同じ周で修正して R3・R4 を回す: 阻害要因が残り前の周の P3 が無くても、この周の p3.fix_delta
+        （実測の差分）が 1 ファイル以上なら overview_due は真。差分が空・前の周の物なら元の条件のまま偽"""
+        b = entry.open_board(self.create())
+        rnd = b.round
+        b.loop_state.update({"open_units": 2, "prev_fix_files": []})
+        b.loop_state["fix_delta"] = {"round": rnd, "file": "d.patch", "files": ["a.py"], "rev": "x"}
+        ok, why = b.cond("overview_due")
+        self.assertTrue(ok, why)
+        for delta in ({"round": rnd, "file": "d.patch", "files": [], "rev": "x"},
+                      {"round": rnd - 1, "file": "d.patch", "files": ["a.py"], "rev": "x"}, None):
+            with self.subTest(delta=delta):
+                b.loop_state["fix_delta"] = delta
+                self.assertFalse(b.cond("overview_due")[0])
+        # 核の差し替えとして理由が残る
+        self.assertIn("overview_due", [r["name"] for r in b.state["works"]["overrides"]])
+
     def test_open_board_applies_board_hook(self):
         """ラインの置き場の board_hook.py の board_kwargs(table) の返りを DiskBoard.open に渡す（毎回新しく読む）"""
         pack = self.tmp / "pack"

@@ -4,7 +4,7 @@
 - open_board(dir):    盤面の state.works.line から表を引き、表の sha が state.works.table_sha と合わなければ BoardMismatch。
                       open_kwargs(line, table)（board_hook.py の返りと核の差し替え）を DiskBoard.open に渡す
 - hook_kwargs(line):  board_hook.py の読み込みだけ（無ければ {}）
-- open_kwargs(line):  hook_kwargs に線 A の核の差し替え CORE_OVERRIDES（読んだ記録の置き場・直す義務・関所の項目の決め手）を重ねた物。open_board と start が
+- open_kwargs(line):  hook_kwargs に線 A の核の差し替え CORE_OVERRIDES（読んだ記録の置き場・直す義務・関所の項目の決め手・R3・R4 の起動条件）を重ねた物。open_board と start が
                       同じ物を DiskBoard.open・begin に渡す（開くたびに同じ overrides。BL-R3）
 - check_inputs(raw, repo): ラインの入力を確かめる（線 A の仕様 4 節）。拒めば InputRefused（人に向けた 1 行）
 - local_checks_material(repo, test_cmd, log_path): 任せ先に落ちた CI の節（p0.local_checks・p4.ci）に渡す素材を組む公開の口
@@ -41,6 +41,7 @@ from board import BoardGap, BoardMismatch, DiskBoard, NodeTable, graph_expanded,
 from engine.schema import validate_schema  # noqa: E402
 import engine.util as _util  # noqa: E402
 from engine.commands import _refuse_halted  # noqa: E402  （board.py と同じ入口の拒み。写しの engine の関数）
+from engine.rules import cond_reads  # noqa: E402
 from engine.util import AnswerReject, Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
 import conflict  # noqa: E402
@@ -116,6 +117,21 @@ def _hook_evidence_at_adapter(board_dir, doc, cache=None, data=None):
     return _util.hook_evidence(adapter.reads_dir(_util.GIT_CWD or os.getcwd()), doc, cache, data)
 
 
+def _overview_due_after_fix(rl):
+    """写しの RL の overview_due の組み手（CONDS の差し替え。DiskBoard._apply_overrides が開いた RL を渡す）。元の条件が偽でも、
+    この周の p3.fix_delta が測った修正の差分が 1 ファイル以上なら真。式は写さず、RL の overview_due と fix_delta_nonempty を呼ぶ"""
+    base, delta = rl.overview_due, rl.fix_delta_nonempty
+
+    @cond_reads(*dict.fromkeys(base.reads + delta.reads))
+    def overview_due(v):
+        ok, why = base(v)
+        if ok:
+            return ok, why
+        ok, fixed = delta(v)
+        return ok, f"{why}・{fixed}"
+    return overview_due
+
+
 # 線 A の核が写しの RL に当てる差し替え（名前 → (関数, 理由)）。ラインの board_hook.py の overrides が同じ名前を持てば、そちらが勝つ
 CORE_OVERRIDES = {
     "hook_evidence": (_hook_evidence_at_adapter,
@@ -127,6 +143,10 @@ CORE_OVERRIDES = {
                          "決め手の出どころが在り undecided_because が空で柵の印の無い狭め・穴は、修正前の関所で人に聞かずに通し、"
                          "state.works.gate_passes に残す（持ち主 2026-09-28。gatemarks.py）。問いの台帳で人に聞く状態の fork・"
                          "escalate は、無人の run でなければ項目に載せる（持ち主 2026-09-29）"),
+    "overview_due": (_overview_due_after_fix,
+                     "works の run は同じ周で修正してから R3・R4 を回すので、前の周の P3 だけを引き金にすると 1 周の run では目が"
+                     "起きない。この周の修正の差分（p3.fix_delta が差分から測った実測。自己申告でない）が空でない周も起こす。"
+                     "p4.assemble が修正の後の差分を取り直してから R3・R4 に渡す"),
 }
 
 

@@ -222,7 +222,7 @@ b.run_engine(nid, *, runner=None, plan=None) -> dict   # 返り {ok, node, fallb
   3. 表の縛り（4.2）を当てる。
   4. 記憶の中だけで読み替える: `state.graph`（写しの graph）・`state.validator`（写しの RR）・`inputs.scripts_dir`（写しの `scripts/`）・`inputs.review_md`（写しの `REVIEW.md`）。
   5. `overrides` を当てる。
-- `overrides`（`{名前: (関数, 理由)}`）は、読み込んだ RL の module の**大域の名前**を差し替え、`state.works.overrides` に名前と理由を書く。RL の `BUILTINS`・`CONDS`・`POST_CHECKS`・`ENGINE_RUNS` の dict は読み込み時に関数を掴むので、その dict の値になっている関数の名前を渡したら `BoardGap`（差し替えても効かないため〔審 M5〕）。RL は開くたびに新しく読むので、差し替えは他の盤面に漏れない。土台自身は差し替えを 1 つも持たない。
+- `overrides`（`{名前: (関数, 理由)}`）は、読み込んだ RL の module の**大域の名前**を差し替え、`state.works.overrides` に名前と理由を書く。RL の `BUILTINS`・`CONDS`・`POST_CHECKS`・`ENGINE_RUNS` の dict は読み込み時に関数を掴むので、大域の名前を替えるだけでは効かない〔審 M5〕。`CONDS` の値になっている条件の名前だけは、渡した関数を組み手として開いた RL の module で呼び、返った条件の関数（`cond_reads` の宣言が要る。無ければ `BoardGap`）で大域の名前と `CONDS` の値の両方を替える（engine は `CONDS` の表から引くので、表の値を替えれば効く。組み手は元の条件を RL から引いて包める）。ほかの 3 つの dict の値になっている関数の名前を渡したら `BoardGap`。RL は開くたびに新しく読むので、差し替えは他の盤面に漏れない。土台自身は差し替えを 1 つも持たない。
 - 実物の盤面（`state.works` を持たない）を試験で開くときは、一時の写しに `state.works = {board_version: 1, …}` を足してから開く（ディスクの見本は変えない）。
 
 ### 4.5 「このラインに無い」を毎周の記録の隣に出す〔審 I5・C2〕
@@ -356,7 +356,7 @@ base_output(repo: Path, base_rev: str) -> dict      # p0.base の返答を機械
 7. `settle`: 人に聞いている間の `done` が `p2.human_gate` を走らせ直さない〔審 I3〕。`p4.record` を explicit にしても、`converge` 以降の `na` の付け方が auto と同じ〔審 I8〕。
 8. `run_engine`: 宣言の在る使い捨てのリポジトリで `process.checks["p4.ci"].by == "engine"`。撮った計画の後に宣言を書き換えて当てると `{ok: false, relaunch: true}` で盤面が変わらない。宣言が無ければ `by: "role"` と `engine_fallback`。受け付けが拒んだ時は、読み直した盤面に `by: "role"` が書かれ、他の欄はディスクの前と同じ〔再審 N3〕。`helper` の計画（`p0.parallel_pr`。偽の `gh` と偽の remote）で写しの `parallel-pr.py` が走り、交差が在れば `reply` の `fallback` で任せ先へ落ちる〔再審 N2〕。`Stopped` で盤面を書かない。
 9. 周の添え書き: 表の absent の全部が `rounds/works/round-<N>.json` の `not_in_line` に在る（条件で `na` の周も）。`na` でない absent は `process.skipped` にも在る。
-10. `overrides`: 大域の名前だけが差し替わり、`state.works.overrides` に理由つきで残る。dict の値の関数の名前は `BoardGap`。別の盤面には効かない。
+10. `overrides`: 大域の名前だけが差し替わり、`state.works.overrides` に理由つきで残る。`BUILTINS`・`POST_CHECKS`・`ENGINE_RUNS` の値の関数の名前は `BoardGap`。`CONDS` の値の条件は組み手の返りで大域の名前と `CONDS` の値が替わり、組み手が落ちる・返りに `cond_reads` の宣言が無ければ名前つきの `BoardGap`。別の盤面には効かない。
 11. 写しを変えない: `COPIED_FROM` の各行のファイルが `git show a1202d0:<元のパス>` と同じバイト（行の読み方は `tests/test_core_copy.py` と同じ式——2 行目から、空行と `#` の行を除き、`ln.split()[0]`——を使う〔審 M12〕。a1202d0 が引けなければ理由を出して飛ばす）。
 
 ### 9.2 手本の撮り方（`works/dev/board-goldens/`。お金 0、AI 0、graphloops には触らない）〔審 C3・再審 N4〜N6・m1・m3・m4〕
@@ -493,7 +493,7 @@ base_output(repo: Path, base_rev: str) -> dict      # p0.base の返答を機械
 - **M2**: `settle` の頭で読んだ物の控えを消す（4.1 の 2）。
 - **M3**: `create` が `check_inputs`・`choice_input_errors`・パスの絶対化・`request`/`document`/`lang` の既定を行う。`required_inputs_missing` を呼ばない理由を書いた（4.1）。`check_graph` は graph_sha の照合で代える。
 - **M4**: 置き場に `runs/`・`*-after-fix` を足した（3 節）。
-- **M5**: `overrides` は大域の名前だけ、dict の値の名前は `BoardGap`（4.4）。
+- **M5**: `overrides` は大域の名前だけ、dict の値の名前は `BoardGap`（4.4）。後に、`CONDS` だけは表の値ごと替える形に広げた（engine は `CONDS` の表から引くので、表の値を替えれば「差し替えても効かない」は当たらない。works の 1 周の run で R3・R4 の起動条件 `overview_due` を差し替えるため）。
 - **M6**: 属性の鍵は「engine の鍵を全部含む」（9.1 の 2）。
 - **M7**: `sitecustomize.py` は PEP 723 の決まりの例外と計画に書き、包み方を 9.2 に書いた。
 - **M8**: `state.works.core`（4.1）。
