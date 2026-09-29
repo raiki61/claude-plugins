@@ -1,5 +1,5 @@
 """境の節の中身（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4。並びは C18 の順: 計画 P1 Task 26・P1-R3・P1-R4）。
-ライン darkfactory の模块（層 L6。裁定 R59）で、使うのは darkfactory/scripts/edge.py だけ。止め札そのもの（置く・読む）は共有の
+ライン darkfactory の模块（層 L6。裁定 R59）で、使うのは darkfactory/scripts/edge.py と structure.py だけ。止め札そのもの（置く・読む）は共有の
 .shared/core/halt.py。
 
 - edge(board_dir, at, repo, …): 境の節（darkfactory/scripts/edge.py の中身）。止め札・関所の答え・次のブロックを盤面から決める
@@ -11,6 +11,8 @@
   待っていれば渡す（目的の文を h-mat が渡すのと同じ形）
 - plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）。go は修正案か
   独立設計（design.due）のどちらかを blk-plan で起こす周
+- structure_edge(board_dir, structured): h-structure（構造の境の節。darkfactory/scripts/structure.py の中身）。構造のブロックの出口を
+  確かめ、盤面の根の控え（core の structmark）を書く。planning はこの節を待つ
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 - 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の修正の差分（修正前の版
   state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を final_gate に関わらず開き、冒頭 3 行で名指して直後の最初の節に並べ、process.human_items に 1 行。h-eyes は答えを
@@ -51,6 +53,7 @@ import querytest  # noqa: E402
 import reads  # noqa: E402
 import rejudge  # noqa: E402
 import report  # noqa: E402
+import structmark  # noqa: E402
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
 # いつも走る script の節 1 本（darkfactory/scripts/edge.py）を、ラインの中で at を替えて使う。並びは C18 の順（中の関所は無い。
@@ -316,6 +319,44 @@ def structure_units(b, carried: dict, repo) -> str:
     return str(b.work(STRUCTURE_UNITS_FILE))
 
 
+def _structure_failed(structured) -> str:
+    """構造のブロックの出口が、構造の目の行なしで計画する周か（理由の 1 文。行を受けてよい周は ""）"""
+    if not isinstance(structured, dict):
+        return "構造のブロックの節が落ちたか走らなかった（出口が無い）"
+    if structured.get("status") == "ok":
+        return ""
+    why = structured.get("reason") or ""
+    if not why:
+        try:
+            doc = json.loads(pathlib.Path(structured.get("structure_file") or "").read_text(encoding="utf-8"))
+            why = (doc.get("reason") or "") if isinstance(doc, dict) else ""
+        except (OSError, UnicodeDecodeError, ValueError):
+            pass
+    return f"構造のブロックが status: {structured.get('status') or '無し'} で抜けた" + (f"（{why}）" if why else "")
+
+
+def structure_edge(board_dir, structured, plan_go=True) -> dict:
+    """h-structure: 構造のブロックの出口 structured（飛ばされた・落ちた周は None）を確かめ、盤面の根の控え（structmark）を書く。
+    自分の読み書きの失敗（設計の行が読めない・控えを書けない）も節の失敗にせず、status failed と理由で返す（計画は行なしで進む）。
+    計画を起こさない周（plan_go が偽）は控えを書かずに status skipped（落ちの印を出さない）"""
+    if plan_go is False:
+        return {"ok": True, "status": "skipped", "reason": "計画を起こさない周（h-plan の go が偽）", "design_file": "", "wall_s": 0}
+    why = _structure_failed(structured)
+    got = structured if isinstance(structured, dict) else {}
+    design_file, wall = str(got.get("design_file") or ""), got.get("wall_s", 0)
+    if not why:
+        try:
+            structmark.rows(design_file)
+        except ValueError as e:
+            why = str(e)
+    status = "failed" if why else "ok"
+    try:
+        structmark.write(board_dir, status=status, reason=why, design_file=design_file, wall_s=wall)
+    except OSError as e:
+        status, why = "failed", (why + "。" if why else "") + f"構造のブロックの控えを書けない: {e}"
+    return {"ok": True, "status": status, "reason": why, "design_file": design_file, "wall_s": wall}
+
+
 def _fixed_by_role(b) -> bool:
     """今の周の p3.fix を役が出した（done で、今の周の出力が在り、機械の空の返答の印が無い）"""
     info = b.state["outputs"].get("p3.fix")
@@ -410,8 +451,8 @@ def _r2_inputs(b) -> list:
 
 
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
-    """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・独立の目の判定・盤面の問い・判定の役が
-    保留にしたままの問い（gatemarks.held_lines）を 1 枚に。「盤面の問い: 無い」は両方とも無い時だけ。行の主語は平易な名で、
+    """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・構造のブロックが落ちた周の印
+    （structmark.note）・独立の目の判定・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）を 1 枚に。「盤面の問い: 無い」は両方とも無い時だけ。行の主語は平易な名で、
     盤面の節・目の名・状態の語は括弧に回す（gatemarks.named・eye_named）"""
     tests = tests or {}
     lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", ""]
@@ -431,6 +472,9 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     lines += [f"  - {h.get('key')}: {gatemarks.HANDLED_WORDS.get(h.get('handled'), '')}（{h.get('handled')}）——{h.get('how')}"
               for h in handled if isinstance(h, dict)] or ["  - （無い）"]
     lines.append(f"- 止めずに残った異議: {objection or '無い'}")
+    missing = structmark.note(structmark.read(b.dir))
+    if missing:
+        lines.append(f"- 構造のブロック: {missing}")
     passed = gatemarks.lines(b)
     if passed:
         lines.append(f"- 直す前の関所で通した項目（決め手が在るので聞かずに通した行と、人が通したので後の関所で聞き直さなかった行。{len(passed)} 件）:")

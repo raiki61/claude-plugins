@@ -649,6 +649,44 @@ class HeadCase(ReportBase):
 
 
 # ---------------------------------------------------------------- 次の run に渡す依頼
+STRUCTURE_STATE = "structure-state.json"   # 構造の境の節が盤面の根に書く控え {status, reason, design_file, wall_s}
+STRUCTURE_HEAD = "## 構造の目"
+STRUCTURE_MISSING = "構造の目の行なしで計画した"
+DESIGN_ROW = {"unit_id": "stats.py mean: 分母が len(xs) - 1 になっている", "verdict": "汚れる", "faces": [2],
+              "evidence": ["/units/0/measure"], "reason": "責務を 2 か所に割る", "chosen": "分母の決めを 1 か所に固める",
+              "chosen_reason": "読み直しを割らない", "route": "自分で決める", "route_reason": "形の番号で決まる"}
+
+
+class StructureCase(ReportBase):
+    """報告の「構造の目」の節: 単位ごとの判定・形の番号・根拠・理由（汚れると見た行は避け方）と、構造のブロックで増えた時間の
+    1 行。構造のブロックが落ちた周は、盤面の根の控えの印「構造の目の行なしで計画した（理由）」"""
+
+    def put_state(self, status, reason="", design_file=""):
+        doc = {"status": status, "reason": reason, "design_file": str(design_file), "wall_s": 12.5}
+        (self.board / STRUCTURE_STATE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+    def test_rows_and_time_in_report(self):
+        self.full()
+        design = self.tmp / "design.jsonl"
+        design.write_text(json.dumps(DESIGN_ROW, ensure_ascii=False) + "\n", encoding="utf-8")
+        self.put_state("ok", design_file=design)
+        _, text, hs = self.build()
+        self.assertIn(STRUCTURE_HEAD, hs)
+        body = hs[STRUCTURE_HEAD]
+        for want in (DESIGN_ROW["unit_id"], "汚れる", "/units/0/measure", DESIGN_ROW["reason"], DESIGN_ROW["chosen"], "12.5"):
+            self.assertIn(want, body)
+        self.assertNotIn(STRUCTURE_MISSING, text)
+
+    def test_failed_structure_marked_in_report(self):
+        self.full()
+        self.put_state("failed", "構造のブロックの節が落ちた（実測の落ち）")
+        _, text, hs = self.build()
+        self.assertIn(STRUCTURE_HEAD, hs)
+        body = hs[STRUCTURE_HEAD]
+        self.assertIn(STRUCTURE_MISSING, body)
+        self.assertIn("構造のブロックの節が落ちた（実測の落ち）", body)
+
+
 class NextRequestCase(ReportBase):
     def declared_board(self, key=None):
         """差分の審査の穴（key）と事前審査の穴を、手直しが両方 declared で残した盤面"""

@@ -148,7 +148,12 @@ class ScriptLine:
                 break
         if n == 1 and ({f"{block}/{nid}", nid} & self.bad_first):
             return self.bad.get(f"{block}/{nid}", self.bad.get(nid, {}))
-        got = self.replies[key] if key else default_reply(block, nid)
+        if key:
+            got = self.replies[key]
+        elif (block, nid) == ("blk-structure", "structure-eye"):   # 単位の id は run ごとに決まるので、実測から組む
+            got = linekit.structure_eye_reply(self.art / "structure" / "structure.json")
+        else:
+            got = default_reply(block, nid)
         return got(n) if callable(got) else got
 
     # -- 節

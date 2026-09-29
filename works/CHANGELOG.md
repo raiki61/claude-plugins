@@ -6,6 +6,11 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- 構造のブロックに構造の目を足した（設計書 `docs/specs/2026-09-29-structure-block-design.md` の 4 節・10 節の S2b）。段 A の後の輪（`structure-eye-prep` → 道具ゼロの役 `structure-eye`（前付けは blind-judge、段は `effort: high`）→ `structure-eye-accept`。最大 3 回で、拒否の後は同じ会話で出し直させる）が、実測できた単位ごとに「汚れる・汚れない」の判定・形の番号・根拠の欄（`structure.json` を指す JSON Pointer）・理由を受け、確かめた行を `design.jsonl` に書く（行き先は「自分で決める」だけ）。目の会話が落ちた・3 回とも拒まれた周は、ブロックの出口 `collect` が `status: failed` と `reason` に残し、線は止めない。出口の `wall_s` は段 A と目の和。
+- darkfactory の planning が構造のブロックを待つようになった。間に線の側の境の節 `h-structure`（`trigger_rule: all_done`）が入り、ブロックの出口を盤面の根の `structure-state.json` に 1 回だけ書く。修正案の指示書の頭・報告の「## 構造の目」の節・最後の関所の文の 3 か所がこのファイルだけを読み、判定の行と、ブロックが落ちた周の「構造の目の行なしで計画した（理由）」を出す。報告には増えた時間の 1 行も出る。境の中の失敗（設計の行が読めない・控えを書けない）は節の失敗にせず、行なしで計画に進む。境の節そのものが落ちた周は、h-plan が落ちた周と同じく planning と h-gate が走らず、計画なしで修正へ進まない。
+
 ### Changed
 
 - 包みの既定（`WORKS_DEV_ADAPTER`。`use.sh`・`dogfood.sh` は未設定の時だけ 1、`dogfood.sh --show` は未設定なら空）と、ラインの入力 adapter の値（包みが 1 なら空、それ以外は optional）も、殻 3 本の写しをやめて `dev/launch.py` の `env` の表に寄せた（env の後半）。空・0 の明示で包みを外す振る舞いと、値の検査を `archon.sh` が持つことは変えない。殻が包みの既定や入力の値を自分で組む行を書き戻すと、試験 `works/tests/test_launch.py` が赤になる。

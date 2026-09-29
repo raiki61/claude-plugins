@@ -60,6 +60,13 @@ def reply(name: str) -> dict:
     return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
 
 
+def structure_eye_reply(structure_file) -> dict:
+    """構造の目の見本の返答: structure.json の実測できた単位ごとに、根拠つきの汚れないの 1 行（単位の id は run ごとに決まる）"""
+    doc = json.loads(pathlib.Path(structure_file).read_text(encoding="utf-8"))
+    return {"rows": [{"unit_id": u["id"], "verdict": "汚れない", "faces": [], "evidence": [f"/units/{i}/measure"],
+                      "reason": "足す形が増えない"} for i, u in enumerate(doc.get("units") or []) if u.get("status") == "measured"]}
+
+
 # 判定の前に盤面が待つ役の節（前提の後。目的の文・判定から入る 1 周目の素材集め）と見本の返答。p2.diagnose はこれらが済むまで待ちにならない
 PRE_JUDGE = (("p0.purpose", "purpose_ok"), ("p0.prior_decisions", "prior_decisions_ok"),
              ("p0.purpose_review", "purpose_review_ok"))
@@ -190,12 +197,15 @@ LINE_ORDER = [
     {"id": "structuring", "kind": "include", "block": "blk-structure", "depends_on": ["h-plan"],
      "when": "$h-plan.output.go == true",
      "with": {"units": "$h-plan.output.structure_units_file", "policy_path": "$start.output.policy_path"}},
-    {"id": "planning", "kind": "include", "block": "blk-plan", "depends_on": ["h-plan"],
+    {"id": "h-structure", "kind": "script", "script": "structure", "depends_on": ["h-plan", "structuring"],
+     "trigger_rule": ALL_DONE,
+     "with": {"structured": _skippable("$structuring.output"), "plan_go": "$h-plan.output.go"}},
+    {"id": "planning", "kind": "include", "block": "blk-plan", "depends_on": ["h-plan", "h-structure"],
      "when": "$h-plan.output.go == true",
      "with": {"judgment_file": "$h-plan.output.judgment_file", "base_rev": "$start.output.base_rev",
               "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path",
               "include_id": "planning"}},
-    _edge("h-gate", "gate", ["start", "h-plan", "planning"]),
+    _edge("h-gate", "gate", ["start", "h-plan", "h-structure", "planning"]),
     {"id": "policy-gate", "kind": "approval", "depends_on": ["h-gate"], "when": "$h-gate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
     _edge("h-fix", "fix", ["start", "h-gate", "policy-gate"], gate=_skippable("$policy-gate.output")),
@@ -426,21 +436,28 @@ class LineRun:
         return {"ok": True, "plan_file": str(b.dir / b.state["outputs"]["p2.fix_plan"]["file"]), "asks_human": got["asking"]}
 
     def blk_structure(self):
-        """blk-structure の節の順（stage-a → collect）。AI の役が無いので本物のスクリプトを子のプロセスで回す（ARTIFACTS_DIR は
-        盤面の置き場の親。cwd は対象）"""
+        """blk-structure の節の順（stage-a → 目を起こす周なら eye_prep・目の返答・eye_accept → collect）。本物のスクリプトを子の
+        プロセスで回す（ARTIFACTS_DIR は盤面の置き場の親。cwd は対象）。目の返答は replies["structure-eye"] か、実測できた単位
+        ごとの汚れないの 1 行（structure_eye_reply）"""
         env = hermetic.child_env(ARTIFACTS_DIR=str(self.board.parent), PYTHONDONTWRITEBYTECODE="1",
                                  INPUTS_UNITS=self.out["h-plan"]["structure_units_file"], INPUTS_ROOT="",
                                  INPUTS_POLICY_PATH=self.out["start"].get("policy_path") or "")
-        out = {}
-        for script in ("stage_a", "collect"):
+
+        def run(script, **inputs):
             p = subprocess.run([sys.executable, str(ROOT / "blk-structure" / "scripts" / f"{script}.py")], cwd=str(self.repo),
-                               env={**env, "INPUTS_STRUCTURE_FILE": out.get("structure_file", ""),
-                                    "INPUTS_DESIGN_FILE": out.get("design_file", "")},
+                               env={**env, **{f"INPUTS_{k.upper()}": v for k, v in inputs.items()}},
                                capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
             if p.returncode != 0:
                 raise AssertionError(f"blk-structure {script}: {p.stderr}")
-            out = json.loads(p.stdout)
-        return out
+            return json.loads(p.stdout)
+        a = run("stage_a")
+        files = {"structure_file": a["structure_file"], "design_file": a["design_file"]}
+        eye = "null"
+        if a["eye"]:
+            run("eye_prep", structure_file=a["structure_file"])
+            reply = (self.replies or {}).get("structure-eye") or structure_eye_reply(a["structure_file"])
+            eye = json.dumps(run("eye_accept", **files, reply=json.dumps(reply, ensure_ascii=False)), ensure_ascii=False)
+        return run("collect", **files, eye_due=json.dumps(a["eye"]), eye=eye)
 
     def blk_fix(self):
         self._edit("fix")
@@ -549,6 +566,10 @@ class LineRun:
                 self.out[nid] = line_edge.edge(self.board, row["at"], self.repo, run_id=RUN_ID,
                                                adapter_mode=self.out["start"]["adapter"],
                                                final_gate=self.inputs["final_gate"], **kw)
+                self.trail.append(nid)
+            elif nid == "h-structure":
+                self.out[nid] = line_edge.structure_edge(self.board, self._src(row["with"]["structured"]),
+                                                         self.out["h-plan"].get("go") is not False)
                 self.trail.append(nid)
             elif row["kind"] == "approval":
                 if self._when(row):

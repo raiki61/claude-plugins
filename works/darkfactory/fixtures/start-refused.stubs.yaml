@@ -664,11 +664,37 @@ h-plan:
 structuring__stage-a:
   structure_file: structure/structure.json
   design_file: structure/design.jsonl
+  eye: true
+structure-eye-prep:
+  prompt: （構造の目の描いた指示書）
+  prompt_file: structure/eye-prompt-1.md
+  attempt: 1
+structure-eye:
+  rows:
+  - unit_id: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    verdict: 汚れない
+    faces: []
+    evidence:
+    - /units/0/measure
+    reason: 足す形が増えない
+structure-eye-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  attempt: 1
 structuring__collect:
   ok: true
   structure_file: structure/structure.json
   design_file: structure/design.jsonl
   status: ok
+  reason: ''
+  wall_s: 0.1
+h-structure:
+  ok: true
+  status: ok
+  reason: ''
+  design_file: structure/design.jsonl
   wall_s: 0.1
 planning__r2-design-snap:
   ok: true

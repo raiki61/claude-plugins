@@ -409,9 +409,11 @@ class BlockCase(unittest.TestCase):
         import yaml
         return yaml.safe_load(BLOCK_YAML.read_text(encoding="utf-8"))
 
-    def run_block(self, units, root):
-        """Archon と同じ形で script の節を並びの順に子で起こす（with: → INPUTS_<大文字>・ARTIFACTS_DIR・cwd は対象の根）。
-        どの節も終了コード 0 で、標準出力の JSON が output_format に合うことを確かめ、returns の節の出力を返す"""
+    def run_block(self, units, root, reply=None):
+        """Archon と同じ形で節を並びの順に回す（scriptline と同じ読み方: trigger_rule・when・loop_group の until_bash と
+        max_iterations）。script の節は子で起こし（with: → INPUTS_<大文字>・ARTIFACTS_DIR・cwd は対象の根）、終了コード 0 と
+        標準出力の JSON が output_format に合うことを確かめる。AI の節は構造の目の輪の中のちょうど 1 つだけで、目のほかの節は
+        script だけ。目の返答は reply（既定は実測できた単位ごとに根拠つきの 1 行）。returns の節の出力を返す"""
         import scriptline
         from engine.schema import validate_schema
         doc = self.doc()
@@ -421,8 +423,22 @@ class BlockCase(unittest.TestCase):
         scope = scriptline.Scope("blk-structure", inputs)
         env = {k: v for k, v in child_env().items() if not k.startswith("INPUTS_")}
         env.update(ARTIFACTS_DIR=str(art), WORKFLOW_ID="run-structure", PYTHONDONTWRITEBYTECODE="1")
-        for n in doc["nodes"]:
-            self.assertIn("script", n, f"S2a の骨は AI を起こさない（script の節だけ）: {n.get('id')}")
+        loops = [n for n in doc["nodes"] if "loop_group" in n]
+        inner = [m for lp in loops for m in lp["loop_group"]["nodes"]]
+        ai = [m for m in inner if any(k in m for k in scriptline.AI_KEYS)]
+        self.assertEqual(len(ai), 1, "AI の節は構造の目の輪の中のちょうど 1 つだけ")
+        for n in doc["nodes"] + inner:
+            if n is not ai[0] and "loop_group" not in n:
+                self.assertIn("script", n, f"構造の目のほかの節は script だけ: {n.get('id')}")
+
+        def eye_reply():
+            if reply is not None:
+                return reply
+            got = json.loads(pathlib.Path(scope.out["stage-a"]["structure_file"]).read_text(encoding="utf-8"))
+            return {"rows": [{"unit_id": u["id"], "verdict": "汚れない", "faces": [], "evidence": [f"/units/{i}/measure"],
+                              "reason": "足す形が増えない"} for i, u in enumerate(got["units"]) if u["status"] == "measured"]}
+
+        def script(n):
             e = dict(env)
             e.update({f"INPUTS_{k.upper()}": scope.value(v) for k, v in (n.get("with") or {}).items()})
             p = subprocess.run([sys.executable, str(BLOCK_DIR / "scripts" / f"{n['script']}.py")], cwd=str(root), env=e,
@@ -431,7 +447,27 @@ class BlockCase(unittest.TestCase):
             out = json.loads(p.stdout)
             if "output_format" in n:
                 self.assertEqual(validate_schema(out, n["output_format"]), [], n["id"])
-            scope.out[n["id"]], scope.status[n["id"]] = out, "ok"
+            return out
+
+        def walk(nodes):
+            for n in nodes:
+                if not scriptline.ScriptLine._runs(None, scope, n, False):
+                    scope.status[n["id"]] = "skipped"
+                    continue
+                if "loop_group" in n:
+                    lg = n["loop_group"]
+                    nid, field, want = scriptline.UNTIL.match(lg["until_bash"].split("#")[0].strip()).groups()
+                    for _ in range(lg["max_iterations"]):
+                        walk(lg["nodes"])
+                        if scope.status.get(nid) == "ok" and scriptline._text(scope.out[nid].get(field)) == want:
+                            break
+                    else:
+                        self.fail(f"輪 {n['id']} が max_iterations {lg['max_iterations']} に当たった")
+                    out = scope.out[lg["nodes"][-1]["id"]]
+                else:
+                    out = eye_reply() if n is ai[0] else script(n)
+                scope.out[n["id"]], scope.status[n["id"]] = out, "ok"
+        walk(doc["nodes"])
         return scope.out[doc["returns"]]
 
     def repo(self):
@@ -463,9 +499,13 @@ class BlockCase(unittest.TestCase):
         self.assertIn("ok", ret["output_format"].get("required", []))
         self.assertEqual({k for k in props if k.endswith("_file")}, OUTPUT_FILES)
 
-    def test_measures_units_and_leaves_empty_design_and_timing(self):
-        out = self.run_block(self.units([{"id": "u-7", "paths": ["a.txt"], "summary": "直す所"}]), self.repo())
+    def test_measures_units_and_writes_design_rows_and_timing(self):
+        from engine.schema import validate_schema
+        reply = {"rows": [{"unit_id": "u-7", "verdict": "汚れる", "faces": [5], "evidence": ["/units/0/measure", "/timing/wall_s"],
+                           "reason": "骨組みの無い口が増える", "chosen": "既存の口に寄せる", "chosen_reason": "骨組みが在る"}]}
+        out = self.run_block(self.units([{"id": "u-7", "paths": ["a.txt"], "summary": "直す所"}]), self.repo(), reply=reply)
         self.assertIs(out["ok"], True)
+        self.assertEqual(out["status"], "ok", out)
         structure = json.loads(pathlib.Path(out["structure_file"]).read_text(encoding="utf-8"))
         self.assertIn("u-7", json.dumps(structure, ensure_ascii=False))
         self.assertIn("a.txt", json.dumps(structure, ensure_ascii=False))
@@ -473,7 +513,11 @@ class BlockCase(unittest.TestCase):
         self.assertTrue(walls and all(isinstance(w, (int, float)) for w in walls), structure)
         design = pathlib.Path(out["design_file"])
         self.assertTrue(design.is_file())
-        self.assertEqual(design.stat().st_size, 0)   # JSON Lines は空行を許さない。改行も書かない
+        rows = [json.loads(x) for x in design.read_text(encoding="utf-8").splitlines()]   # JSON Lines は空行を許さない
+        schema = json.loads((BLOCK_DIR / "design-row.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual([validate_schema(r, schema) for r in rows], [[]], rows)
+        self.assertEqual([(r["unit_id"], r["verdict"], r["evidence"]) for r in rows],
+                         [(x["unit_id"], x["verdict"], x["evidence"]) for x in reply["rows"]])
 
     def test_measure_failure_does_not_stop_the_line(self):
         plain = self.tmp / "not-git"
@@ -499,6 +543,94 @@ class BlockCase(unittest.TestCase):
         s = json.loads(schemas[0].read_text(encoding="utf-8"))
         self.assertEqual(s.get("type"), "object")
         self.assertTrue(s.get("properties"))
+
+
+class EyeCase(unittest.TestCase):
+    """構造の目（設計書 10 節の S2b）: 段 A の後の輪（prep → 道具ゼロの役 → 受け付け）が判定を確かめ、design.jsonl に行を書く。
+    evidence の各行は structure.json の欄を指す JSON Pointer（RFC 6901）"""
+
+    setUp, tearDown, doc, repo, units = BlockCase.setUp, BlockCase.tearDown, BlockCase.doc, BlockCase.repo, BlockCase.units
+
+    def eye_loop(self):
+        doc = self.doc()
+        loops = [n for n in doc["nodes"] if "loop_group" in n]
+        self.assertEqual(len(loops), 1, "段 A の後に構造の目の輪が 1 つ要る")
+        return doc, loops[0]
+
+    def ai_node(self, loop):
+        ai = [m for m in loop["loop_group"]["nodes"] if "prompt" in m or "command" in m]
+        self.assertEqual(len(ai), 1, "輪の AI の節は構造の目の 1 つだけ")
+        return ai[0]
+
+    def test_eye_loop_follows_stage_a_and_feeds_collect(self):
+        doc, loop = self.eye_loop()
+        self.assertIn("stage-a", loop.get("depends_on") or [])
+        g = loop["loop_group"]
+        self.assertEqual((g.get("max_iterations"), g.get("fresh_context")), (3, False))
+        self.assertIn(".output.done", g.get("until_bash", ""))
+        ai = self.ai_node(loop)
+        self.assertEqual(ai.get("allowed_tools"), [], "見せるのは structure.json と単位の要約だけ（道具ゼロ）")
+        self.assertEqual(ai.get("effort"), "high")
+        self.assertNotIn("model", ai, "前付けが opus の役の段は model: を書かない")
+        after = [m for m in g["nodes"] if "script" in m and ai["id"] in (m.get("depends_on") or [])]
+        self.assertEqual(len(after), 1, "役の後に受け付けの script の節が 1 つ要る")
+        collect = next(n for n in doc["nodes"] if n["id"] == doc["returns"])
+        self.assertIn(loop["id"], collect.get("depends_on") or [])
+
+    def run_eye(self, reply):
+        """段 A を走らせ、輪の script の節を並びの順に起こす（AI の節は reply を出力に置く）。受け付けの出力と design.jsonl を返す"""
+        import scriptline
+        doc, loop = self.eye_loop()
+        ai = self.ai_node(loop)
+        repo = self.repo()
+        units = self.units([{"id": "u-7", "paths": ["a.txt"], "summary": "直す所"}])
+        art = self.tmp / "art"
+        art.mkdir(exist_ok=True)
+        scope = scriptline.Scope("blk-structure", {"units": str(units), "root": str(repo), "policy_path": ""})
+        env = {k: v for k, v in child_env().items() if not k.startswith("INPUTS_")}
+        env.update(ARTIFACTS_DIR=str(art), WORKFLOW_ID="run-structure", PYTHONDONTWRITEBYTECODE="1")
+        stage = next(n for n in doc["nodes"] if n["id"] == "stage-a")
+        last = None
+        for n in [stage, *loop["loop_group"]["nodes"]]:
+            if n is ai:
+                scope.out[n["id"]], scope.status[n["id"]] = reply, "ok"
+                continue
+            e = dict(env)
+            e.update({f"INPUTS_{k.upper()}": scope.value(v) for k, v in (n.get("with") or {}).items()})
+            p = subprocess.run([sys.executable, str(BLOCK_DIR / "scripts" / f"{n['script']}.py")], cwd=str(repo), env=e,
+                               capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+            self.assertEqual(p.returncode, 0, f"節 {n['id']} が落ちた: {p.stderr[-1500:]}")
+            last = scope.out[n["id"]] = json.loads(p.stdout)
+            scope.status[n["id"]] = "ok"
+        design = pathlib.Path(scope.out["stage-a"]["design_file"])
+        return last, design
+
+    def test_accepted_reply_becomes_design_row(self):
+        from engine.schema import validate_schema
+        reply = {"rows": [{"unit_id": "u-7", "verdict": "汚れる", "faces": [2], "evidence": ["/units/0/measure"],
+                           "reason": "責務を 2 か所に割る", "chosen": "1 か所に固める", "chosen_reason": "読み直しを割らない"}]}
+        _, loop = self.eye_loop()
+        self.assertEqual(validate_schema(reply, self.ai_node(loop).get("output_format") or {}), [])
+        out, design = self.run_eye(reply)
+        self.assertEqual((out["ok"], out["done"]), (True, True), out)
+        rows = [json.loads(x) for x in design.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(rows), 1, rows)
+        schema = json.loads((BLOCK_DIR / "design-row.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(validate_schema(rows[0], schema), [], rows[0])
+        self.assertEqual((rows[0]["unit_id"], rows[0]["route"], rows[0]["chosen"]), ("u-7", "自分で決める", "1 か所に固める"))
+
+    def test_bad_reply_is_rejected_and_writes_no_row(self):
+        good = {"unit_id": "u-7", "verdict": "汚れない", "faces": [1], "evidence": ["/timing/wall_s"], "reason": "形が増えない"}
+        for name, bad in (("無い単位", {"unit_id": "u-99"}), ("形の番号の外", {"faces": [7]}),
+                          ("無い欄", {"evidence": ["/units/0/measure/no_such_field"]}),
+                          ("汚れないで根拠が空", {"evidence": [], "reason": ""})):
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                out, design = self.run_eye({"rows": [{**good, **bad}]})
+                self.assertEqual((out["ok"], out["done"]), (False, False), out)
+                self.assertTrue(out["reason"].strip(), out)
+                self.assertEqual(design.stat().st_size, 0)
 
 
 if __name__ == "__main__":

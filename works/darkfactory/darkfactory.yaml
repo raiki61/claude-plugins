@@ -338,8 +338,7 @@ nodes:
         mat_go: {type: boolean}
         structure_units_file: {type: string}
 
-  # 判定の単位が名指すファイルを機械で実測する（構造のブロックの段 A）。h-plan が契約の形に写した単位のファイルを受ける。
-  # 出力（structure.json・design.jsonl）を読む節はまだ無いので、planning はこの節を待たない（待たせるのは構造の目を入れる時）
+  # 判定の単位が名指すファイルを機械で実測する（構造のブロック）。h-plan が契約の形に写した単位のファイルを受ける
   - id: structuring
     include: blk-structure
     depends_on: [h-plan]
@@ -348,11 +347,36 @@ nodes:
       units: $h-plan.output.structure_units_file
       policy_path: $start.output.policy_path
 
+  # 構造の境。構造のブロックが落ちても走り（all_done。Airflow の teardown と同じ）、出口を盤面の根の控えにする。落ちた周は
+  # status failed で、planning は構造の目の行なしで走る。この節そのものが落ちた周は h-gate が飛び、計画なしで修正へ進まない。
+  # when を持たない（planning がこの節に依るので、持つと planning の trigger_rule を変えることになる）。計画を起こさない周
+  # （h-plan の go が偽）は控えを書かずに status skipped で抜ける
+  - id: h-structure
+    script: structure
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [h-plan, structuring]
+    trigger_rule: all_done
+    with:
+      structured: {from: $structuring.output, if_skipped: null}
+      plan_go: $h-plan.output.go
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, status, reason, design_file, wall_s]
+      properties:
+        ok: {type: boolean}
+        status: {type: string, enum: [ok, failed, skipped]}
+        reason: {type: string}
+        design_file: {type: string}
+        wall_s: {type: number}
+
   # 独立設計と修正案と事前審査。独立設計（r2.design）は修正の前にここで作って盤面の根に控え、h-look が盤面へ渡す（最後の R2 は
-  # 比較だけを回す）。直す物の無い判定でも、設計を作りに入る（h-plan の go）
+  # 比較だけを回す）。直す物の無い判定でも、設計を作りに入る（h-plan の go）。構造の境を待ち、修正案の指示書の頭がその控えから
+  # 構造の目の行（落ちた周は行なしで計画した印）を貼る
   - id: planning
     include: blk-plan
-    depends_on: [h-plan]
+    depends_on: [h-plan, h-structure]
     when: "$h-plan.output.go == true"
     with:
       judgment_file: $h-plan.output.judgment_file
@@ -366,7 +390,7 @@ nodes:
     script: edge
     runtime: uv
     timeout: 1728000000
-    depends_on: [start, h-plan, planning]
+    depends_on: [start, h-plan, h-structure, planning]
     trigger_rule: none_failed_min_one_success
     with:
       at: "gate"

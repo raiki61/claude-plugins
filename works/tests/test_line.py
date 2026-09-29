@@ -184,12 +184,13 @@ class LineShapeCase(unittest.TestCase):
 
     def test_join_after_skippable_has_trigger_rule(self):
         """when: を持つ節に依る節は trigger_rule: none_failed_min_one_success（前の段が飛ばされても走る）。機械の報告 report と
-        出口 result だけは all_done（上流の節が落ちた run でも報告を残し、AI の報告のブロックが落ちても機械の報告で出口を出す）"""
+        出口 result だけは all_done（上流の節が落ちた run でも報告を残し、AI の報告のブロックが落ちても機械の報告で出口を出す）。
+        構造の境 h-structure も all_done（任意の上流の構造のブロックの落ちを受けて印を書く）"""
         skippable = {n["id"] for n in line()["nodes"] if "when" in n}
         for n in line()["nodes"]:
             if set(n.get("depends_on") or []) & skippable:
                 with self.subTest(n["id"]):
-                    want = linekit.ALL_DONE if n["id"] in ("report", "result") else linekit.NFMOS
+                    want = linekit.ALL_DONE if n["id"] in ("report", "result", "h-structure") else linekit.NFMOS
                     self.assertEqual(n.get("trigger_rule"), want)
 
     def test_gates_have_reject_and_text_by_path(self):
@@ -262,16 +263,28 @@ class LineShapeCase(unittest.TestCase):
         self.assertEqual(node("planning")["with"]["include_id"], "planning")
 
     def test_structure_block_wired_between_plan_and_planning(self):
-        """構造のブロック（blk-structure）は h-plan の直後・planning の前に include 1 つで入り、h-plan が写した判定の単位の
-        ファイルを units に受ける。planning の depends_on は [h-plan] のまま（設計書 8 節 98 行の形 (c)）"""
+        """構造のブロック（blk-structure）は h-plan の直後に include 1 つで入り、h-plan が写した判定の単位のファイルを units に
+        受ける。その後の境の節 h-structure（script・all_done・飛ばされた構造のブロックは null で受ける）を planning が待つ。
+        planning は既定の trigger_rule と h-plan の when のままで、h-plan の落ち・go が偽の周は飛ぶ。h-structure の節そのものが
+        落ちた周は、h-gate が h-plan の落ちと同じく飛び、計画なしで修正へ進まない"""
         ids = [n["id"] for n in line()["nodes"]]
         got = next((n for n in line()["nodes"] if n.get("include") == "blk-structure"), None)
         self.assertIsNotNone(got, "darkfactory.yaml に blk-structure の include が無い")
         self.assertEqual(ids.index(got["id"]), ids.index("h-plan") + 1)
-        self.assertEqual(ids.index("planning"), ids.index(got["id"]) + 1)
         self.assertEqual(got.get("depends_on"), ["h-plan"])
         self.assertEqual(got["with"]["units"], "$h-plan.output.structure_units_file")
-        self.assertEqual(node("planning")["depends_on"], ["h-plan"])
+        self.assertIn("h-structure", ids, "構造の境の節 h-structure が無い")
+        edge = node("h-structure")
+        self.assertIn("script", edge)
+        self.assertEqual(set(edge.get("depends_on") or []), {"h-plan", got["id"]})
+        self.assertEqual(edge.get("trigger_rule"), "all_done")
+        self.assertIn({"from": f"${got['id']}.output", "if_skipped": None}, list((edge.get("with") or {}).values()))
+        self.assertLess(ids.index("h-structure"), ids.index("planning"))
+        planning = node("planning")
+        self.assertEqual(planning["depends_on"], ["h-plan", "h-structure"])
+        self.assertNotIn("trigger_rule", planning)
+        self.assertEqual(planning["when"], "$h-plan.output.go == true")
+        self.assertIn("h-structure", node("h-gate")["depends_on"])
 
 
 class LineFixturesCase(unittest.TestCase):

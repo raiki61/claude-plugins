@@ -56,6 +56,7 @@ from engine.rules import validator_module  # noqa: E402
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
 import reads  # noqa: E402
+import structmark  # noqa: E402
 import writes  # noqa: E402
 
 PACK = CORE.parents[1]
@@ -953,6 +954,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     body += ["## 費用", "", *[f"- {r}" for r in head_cost(board_dir, rid, events=events, launches=launches)], ""]
     body += ["## 周の記録の検証器", "", f"- 終了コード: {gate['exit']}（受理 {report_accepts(b)}）",
              f"- 今の周の記録: {'済んだ' if gate['round_closed'] else '済んでいない'}", ""]
+    structure = structmark.report_lines(board_dir)
+    if structure:
+        body += ["## 構造の目", "", *[f"- {r}" for r in structure], ""]
     body += ["## このラインに無い節", "", *[f"- {r}" for r in absent_lines(b)], ""]
     _write_text(rep_p, "\n".join(body))
     green = isinstance(tests, dict) and tests.get("ok") is True and tests.get("green") is True

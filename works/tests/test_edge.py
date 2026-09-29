@@ -1331,5 +1331,32 @@ class FinalGateEyesCase(EdgeBase):
             self.edge("look", gate={"decision": "continue", "text": ""})
 
 
+STRUCTURE_STATE = "structure-state.json"   # 構造の境の節が盤面の根に書く控え {status, reason, design_file, wall_s}
+STRUCTURE_MISSING = "構造の目の行なしで計画した"
+
+
+class FinalGateStructureCase(EdgeBase):
+    """構造のブロックが落ちた周は、盤面の根の控えの印「構造の目の行なしで計画した（理由）」が最後の関所の文に出る"""
+    closed = FinalGateCase.closed
+
+    def put_state(self, status, reason=""):
+        doc = {"status": status, "reason": reason, "design_file": "", "wall_s": 2.5}
+        (self.board / STRUCTURE_STATE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+    def test_failed_structure_is_marked_in_final_gate(self):
+        tests = self.closed()
+        self.put_state("failed", "構造のブロックの節が落ちた（実測の落ち）")
+        text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
+        self.assertIn(STRUCTURE_MISSING, text)
+        self.assertIn("構造のブロックの節が落ちた（実測の落ち）", text)
+
+    def test_ok_structure_is_not_marked(self):
+        tests = self.closed()
+        self.put_state("failed", "落ちた")
+        self.assertIn(STRUCTURE_MISSING, self.edge("final", tests=tests, final_gate="always")["gate_text"])
+        self.put_state("ok")
+        self.assertNotIn(STRUCTURE_MISSING, self.edge("final", tests=tests, final_gate="always")["gate_text"])
+
+
 if __name__ == "__main__":
     unittest.main()

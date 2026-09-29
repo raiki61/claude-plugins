@@ -5,7 +5,7 @@
 """段 A の実測（設計書 structure-block-design の 2 節・8 節）。入力の契約の単位のファイル（INPUTS_UNITS。JSON の配列で、各行は
 {id, paths, summary}）を読み、単位ごとに paths を同じフォルダの measure.py に子のプロセスで渡し（コマンド 1 つの口。import しない）、
 結果を $ARTIFACTS_DIR/structure/structure.json に書く。設計の行のファイル design.jsonl は 0 バイトで置き直す（JSON Lines は空行を
-許さないので改行も書かない。行を書くのは構造の目）。
+許さないので改行も書かない。行を書くのは構造の目の受け付け）。前の周の構造の目の控え eye.json は消す。
 
 structure.json: {status: ok|failed, reason, root, policy_path, units: [{id, summary, paths, status, reason, measure}],
 timing: {started_at, finished_at, wall_s}}。単位の status は measured か failed（failed なら reason に measure.py の標準エラーの末尾）。
@@ -13,7 +13,7 @@ timing: {started_at, finished_at, wall_s}}。単位の status は measured か f
 - 対象の根（INPUTS_ROOT）は空なら cwd。相対なら cwd から解く。方針の文書（INPUTS_POLICY_PATH）は任意で、パスを控えるだけ
 - 単位のファイルが読めない・形が違う・measure.py が落ちた時も、structure.json の status: failed と reason に残して 0 で終える
   （実測が落ちても線を止めない。GitHub Actions の continue-on-error と同じ分け方で、節の結末は成功のまま）
-- {"structure_file", "design_file"} を 1 行出して 0。ARTIFACTS_DIR が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2
+- {"structure_file", "design_file", "eye"} を 1 行出して 0（eye は構造の目を起こす周か。lib/eye.due）。ARTIFACTS_DIR が欠けた（空も欠け）時だけ、標準エラーに名前を出して 2
 """
 import json
 import os
@@ -23,7 +23,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import eye  # noqa: E402
 
 UNITS_ENV = "INPUTS_UNITS"
 ROOT_ENV = "INPUTS_ROOT"
@@ -83,6 +85,7 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     design = out_dir / DESIGN_FILE
     design.write_bytes(b"")
+    (out_dir / eye.EYE_FILE).unlink(missing_ok=True)
     root = Path(os.environ.get(ROOT_ENV) or ".").resolve()
     doc = {"status": "ok", "reason": "", "root": str(root), "policy_path": os.environ.get(POLICY_ENV, ""), "units": []}
     try:
@@ -98,7 +101,8 @@ def main() -> int:
     structure = out_dir / STRUCTURE_FILE
     structure.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps({"structure_file": str(structure), "design_file": str(design)}, ensure_ascii=False), flush=True)
+    print(json.dumps({"structure_file": str(structure), "design_file": str(design), "eye": eye.due(doc)}, ensure_ascii=False),
+          flush=True)
     return 0
 
 

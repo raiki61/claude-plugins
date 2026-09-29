@@ -1,9 +1,10 @@
 name: blk-structure
 description: |
-  構造のブロックの骨（設計書 structure-block-design の 1 節・2 節・8 節、10 節の S2a）。判定の単位が名指すファイルを
-  機械で実測し（段 A。AI なし）、出力を 2 本だけ宣言する: 実測の structure.json と、設計の行の design.jsonl（S2a では
-  0 バイト。行を書くのは後の構造の目）。後段が読んでよいのはこの 2 本だけ。実測が落ちても線を止めない
-  （structure.json の status: failed と reason に残し、ok は true）。段の時間は structure.json の timing に残す。
+  構造のブロック（設計書 structure-block-design の 1 節・2 節・4 節・8 節、10 節の S2a・S2b）。判定の単位が名指すファイルを
+  機械で実測し（段 A。AI なし）、構造の目（道具ゼロの独立の会話）がその実測を読んで単位ごとに汚れるかを判定し、受け付けが
+  確かめた判定を設計の行にする。出力は 2 本だけ宣言する: 実測の structure.json と、設計の行の design.jsonl（目を起こさない周・
+  目が落ちた周は 0 バイト）。後段が読んでよいのはこの 2 本だけ。実測や目が落ちても線を止めない（出口の status: failed と
+  reason に残し、ok は true）。段の時間は structure.json の timing と、目の控え eye.json に残す。
   入力の契約は 3 つだけで、この契約を満たすラインなら include で差し込める。
 
 inputs:
@@ -15,7 +16,7 @@ inputs:
     description: 対象の根。空なら節の cwd
   policy_path:
     default: ""
-    description: 方針の文書のパス（任意。空を許す）。S2a では控えるだけ
+    description: 方針の文書のパス（任意。空を許す）。控えるだけ
 
 returns: collect
 outcome_field: ok
@@ -35,16 +36,103 @@ nodes:
       properties:
         structure_file: {type: string}
         design_file: {type: string}
-      required: [structure_file, design_file]
+        eye: {type: boolean}
+      required: [structure_file, design_file, eye]
 
+  # 構造の目の輪。実測が済み、測れた単位が在る周だけ起こす。拒否の後は同じ会話で出し直させ、
+  # 3 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（max_iterations で落とさない。裁定 R50）
+  - id: structure-eye-loop
+    depends_on: [stage-a]
+    when: "$stage-a.output.eye == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $structure-eye-accept.output.done = true
+      nodes:
+        - id: structure-eye-prep
+          script: eye_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            structure_file: $stage-a.output.structure_file
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt, prompt_file, attempt]
+            properties:
+              prompt: {type: string}
+              prompt_file: {type: string}
+              attempt: {type: integer}
+        - id: structure-eye
+          command: structure-eye
+          depends_on: [structure-eye-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。見せるのは prep が貼る実測と単位の要約だけ
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          effort: high        # 役の前付け（core/agents/blind-judge.md）と同じ値。段は前付けを読まない（tests/test_tool_parity.py が一致を見る）
+          idle_timeout: 1728000000
+          # 行の形は design-row.schema.json から route・route_reason を除いた物（受け付けが「自分で決める」を足す）
+          output_format:
+            description: 'works-node: structure-eye isolated'
+            type: object
+            required: [rows]
+            additionalProperties: false
+            properties:
+              rows:
+                type: array
+                items:
+                  type: object
+                  required: [unit_id, verdict, faces, evidence, reason]
+                  additionalProperties: false
+                  properties:
+                    unit_id: {type: string, minLength: 1}
+                    verdict: {type: string, enum: [汚れる, 汚れない]}
+                    faces: {type: array, items: {type: integer, minimum: 1, maximum: 6}}
+                    evidence: {type: array, items: {type: string}}
+                    reason: {type: string, minLength: 1}
+                    chosen: {type: string}
+                    rejected:
+                      type: array
+                      items:
+                        type: object
+                        required: [option, cost]
+                        additionalProperties: false
+                        properties:
+                          option: {type: string}
+                          cost: {type: string}
+                    chosen_reason: {type: string}
+        - id: structure-eye-accept
+          script: eye_accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [structure-eye]
+          with:
+            structure_file: $stage-a.output.structure_file
+            design_file: $stage-a.output.design_file
+            reply: {from: "$structure-eye.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [ok, done, give_up, reason, attempt]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              reason: {type: string}
+              attempt: {type: integer}
+
+  # 出口。目の輪が飛ばされた・落ちた周も走り（all_done）、落ちの理由を status と reason に残す
   - id: collect
     script: collect
     runtime: uv
     timeout: 1728000000
-    depends_on: [stage-a]
+    depends_on: [stage-a, structure-eye-loop]
+    trigger_rule: all_done
     with:
       structure_file: $stage-a.output.structure_file
       design_file: $stage-a.output.design_file
+      eye_due: $stage-a.output.eye
+      eye: {from: "$structure-eye-loop.output", if_skipped: null}
     output_format:
       type: object
       properties:
@@ -52,5 +140,6 @@ nodes:
         structure_file: {type: string}
         design_file: {type: string}
         status: {type: string, enum: [ok, failed]}
+        reason: {type: string}
         wall_s: {type: number}
-      required: [ok, structure_file, design_file, status, wall_s]
+      required: [ok, structure_file, design_file, status, reason, wall_s]

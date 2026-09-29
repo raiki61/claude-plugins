@@ -695,5 +695,88 @@ class ScriptCase(unittest.TestCase):
         self.assertIn("JSON", self.reason_of(got))
 
 
+STRUCTURE_MISSING = "構造の目の行なしで計画した"
+DESIGN_ROW = {"unit_id": UNIT_MEAN, "verdict": "汚れる", "faces": [2], "evidence": ["/units/0/measure"],
+              "reason": "責務を 2 か所に割る", "chosen": "分母の決めを 1 か所に固める", "chosen_reason": "読み直しを割らない",
+              "route": "自分で決める", "route_reason": "形の番号で決まる"}
+
+
+class StructureHeadCase(unittest.TestCase):
+    """線の構造の境の節 h-structure（darkfactory.yaml）が構造のブロックの出口を受け、修正案の指示書の頭に design.jsonl の行か、
+    落ちの印「構造の目の行なしで計画した（理由）」が載る。h-structure は自分の読み書きの失敗を節の失敗にしない（人の条件 (1)）"""
+
+    setUp, take, judged, state, run_script, ok = (ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state,
+                                                  ScriptCase.run_script, ScriptCase.ok)
+
+    def structured(self, exit_):
+        """darkfactory.yaml の h-structure を Archon と同じ形（with: → INPUTS_*・ARTIFACTS_DIR・cwd は対象）で起こし、出口を返す。
+        exit_ は構造のブロックの出口（None は飛ばされた・落ちた）"""
+        import scriptline
+        doc = yaml.safe_load((ROOT / "darkfactory" / "darkfactory.yaml").read_text(encoding="utf-8"))
+        n = next((m for m in doc["nodes"] if m.get("id") == "h-structure"), None)
+        self.assertIsNotNone(n, "darkfactory.yaml に h-structure が無い")
+        inc = next(m["id"] for m in doc["nodes"] if m.get("include") == "blk-structure")
+        scope = scriptline.Scope("darkfactory", {})
+        if exit_ is not None:
+            scope.out[inc], scope.status[inc] = exit_, "ok"
+        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
+        env.update({"WORKS_ADAPTER_HOME": str(self.home), "ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": RUN_ID,
+                    "PYTHONDONTWRITEBYTECODE": "1"})
+        env.update({f"INPUTS_{k.upper()}": scope.value(v) for k, v in (n.get("with") or {}).items()})
+        r = subprocess.run([sys.executable, str(ROOT / "darkfactory" / "scripts" / f"{n['script']}.py")], cwd=str(self.repo),
+                           env=env, capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 0, r.stderr[-1500:])
+        return json.loads(r.stdout.splitlines()[-1])
+
+    def plan_head(self):
+        self.ok("snap", role="plan")
+        text = pathlib.Path(self.ok("prep", role="plan", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        return text.split("\n\n# P2-10")[0]
+
+    def block_exit(self, design_file, status="ok"):
+        structure = self.tmp / "structure.json"
+        structure.write_text('{"status": "%s", "reason": "", "units": [], "timing": {"wall_s": 1.5}}\n' % status,
+                             encoding="utf-8")
+        return {"ok": True, "structure_file": str(structure), "design_file": str(design_file), "status": status,
+                "wall_s": 1.5}
+
+    def test_design_rows_reach_plan_head(self):
+        self.judged()
+        design_file = self.tmp / "design.jsonl"
+        design_file.write_text(json.dumps(DESIGN_ROW, ensure_ascii=False) + "\n", encoding="utf-8")
+        got = self.structured(self.block_exit(design_file))
+        self.assertEqual(got["status"], "ok", got)
+        head = self.plan_head()
+        self.assertIn(DESIGN_ROW["chosen"], head)
+        self.assertIn(UNIT_MEAN, head)
+        self.assertNotIn(STRUCTURE_MISSING, head)
+
+    def test_skipped_block_marks_plan_head(self):
+        self.judged()
+        got = self.structured(None)
+        self.assertEqual(got["status"], "failed", got)
+        self.assertTrue(got["reason"].strip(), got)
+        self.assertIn(STRUCTURE_MISSING, self.plan_head())
+
+    def test_unreadable_design_does_not_fail_node(self):
+        """h-structure の中の失敗（design.jsonl が読めない）は節の失敗にせず、行なしで計画に進む印を出す"""
+        self.judged()
+        got = self.structured(self.block_exit(self.tmp / "no-such" / "design.jsonl"))
+        self.assertEqual(got["status"], "failed", got)
+        self.assertTrue(got["reason"].strip(), got)
+        head = self.plan_head()
+        self.assertIn(STRUCTURE_MISSING, head)
+        self.assertNotIn(DESIGN_ROW["chosen"], head)
+
+    def test_block_failure_marks_plan_head(self):
+        """構造のブロックが status: failed で抜けた（実測か目が落ちた）周も、行なしで計画した印が載る"""
+        self.judged()
+        design_file = self.tmp / "design.jsonl"
+        design_file.write_bytes(b"")
+        got = self.structured(self.block_exit(design_file, status="failed"))
+        self.assertEqual(got["status"], "failed", got)
+        self.assertIn(STRUCTURE_MISSING, self.plan_head())
+
+
 if __name__ == "__main__":
     unittest.main()
