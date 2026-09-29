@@ -1752,6 +1752,10 @@ reporting__collect:
     guessed: []
     decidable: true
   record_invalid: false
+  rejects:
+    report.human_items: {cold: 0, format: 0, answer: 0}
+    report.cold_check: {cold: 0, format: 0, answer: 0}
+    report: {cold: 0, format: 0, answer: 0}
 result:
   ok: true
   outcome: no_fix_needed

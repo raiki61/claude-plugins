@@ -25,6 +25,10 @@ collect:
     guessed: []
     decidable: false
   record_invalid: false
+  rejects:
+    report.human_items: {cold: 0, format: 0, answer: 0}
+    report.cold_check: {cold: 0, format: 0, answer: 0}
+    report: {cold: 0, format: 0, answer: 0}
 fixture:
   expect: completed
   reached:

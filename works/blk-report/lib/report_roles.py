@@ -6,14 +6,17 @@ works の盤面（DiskBoard）の上で役として回す。どの節をいつ�
 - prep:    本線の指示書を盤面の今の値で描く（engine の emit_instance と同じ ctx。report には検証器の結果 validation を足す）
            → 拒否の後なら前の拒否の文を頭に → 書き手は作業ツリーの写し → 起こした印（mark_launched）。
            初見の読み手は道具を持たないので、描いた本文そのものを出口の prompt で返す（指示が貼る。盤面の置き場を渡さない）。
+           初見の読み手に渡す報告の頭の後ろには、語の定義の節（glossary_section）を機械が付ける。
            report の書き手には、数の出どころ（盤面から機械が組んだ事実。線 A の機械の報告が在ればそれ）のファイルを渡す
-- write_cold_prep: 書き手の返答の頭（平易な冒頭と人が決めること）だけを、初見の読み手の指示書に入れて描く（書き手の輪の中）
-- accept:  返答を読み、書き手の本文は表のセルの書式を機械で見て（持ち主の決まり。works だけの検査）、書き手の輪では書き手の
+- write_cold_prep: 書き手の返答の頭（平易な冒頭と人が決めること）と、その後ろに機械が付けた語の定義の節だけを、
+           初見の読み手の指示書に入れて描く（書き手の輪の中）
+- accept:  返答を読み、書き手の run ごとの語（terms）は型を見て作業ファイルに控えて外し（盤面には {text} だけ。語の定義の節は
+           pack の一覧とこの控えから描く）、書き手の本文は表のセルの書式を機械で見て（持ち主の決まり。works だけの検査）、書き手の輪では書き手の
            頭を読んだ初見の読み手が pass でなければ書き手に返し（上限の回は受け取って印を残す）、entry.take で盤面へ。
            拒否は GIVE_UP_AFTER 回目で諦めの印（done）。初見検査を受けた後の settle が検証器の関所で止まったら（RecordInvalid）、
            初見検査は受けた扱いにして、その事実を作業ファイルに残す（report の節は出ない）
-- collect: 出口。report を受けていれば 来歴の 1 行＋（初見の確かめを通らずに受け取った時はその 1 行）＋書き手の本文＋機械の事実
-           （書き換えずに最後に付ける）を盤面の REPORT_NAME に。
+- collect: 出口。report を受けていれば 来歴の 1 行＋（初見の確かめを通らずに受け取った時はその 1 行）＋書き手の本文＋
+           語の定義の節（本文と機械の事実に現れる語）＋機械の事実（書き換えずに最後に付ける）を盤面の REPORT_NAME に。
            受けていなければ、なぜ無いか・受けた分の本文・検証器の出力の末尾・機械の事実を付けた報告を書いて ok: false（黙らない）
 
 指示書は本線 a1202d0 の写し（blk-report/prompts/。バイト単位で同じ）。描き方は engine と同じ（rolekit.render_body。reads の柵・cap なし）。
@@ -34,6 +37,7 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap, RecordInvalid  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
 from engine.rules import validator_module  # noqa: E402
+from engine.schema import validate_schema  # noqa: E402
 from engine.util import now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
 import entry  # noqa: E402
@@ -52,9 +56,13 @@ COLD_PASTE = f"${COLD}-prep.output.prompt"   # commands/report-cold.md の描い
 DECISIONS_HEAD = "人が決めること"
 NOT_PASSED = "初見の確かめを通っていない"
 PROMPTS = _BLK / "prompts"
-# 本文を返す節（graph の text: true）の返答の型。盤面は本文の節の返答を {text} だけで受ける
+# 本文を返す節（graph の text: true）の返答の型。盤面は本文の節の返答を {text} だけで受けるので、run ごとの語 terms は
+# 受け付けが外して TERMS_NAME に控える
+TERM_SCHEMA = {"type": "object", "required": ["term", "definition"], "additionalProperties": False,
+               "properties": {"term": {"type": "string", "minLength": 1}, "definition": {"type": "string", "minLength": 1}}}
 TEXT_SCHEMA = {"type": "object", "required": ["text"], "additionalProperties": False,
-               "properties": {"text": {"type": "string", "minLength": 1}}}
+               "properties": {"text": {"type": "string", "minLength": 1},
+                              "terms": {"type": "array", "items": TERM_SCHEMA}}}
 # 輪（loop_group）の max_iterations と同じ数。受け付けがこの数だけ拒んだら諦めの印（done）を出し、輪を失敗で抜けさせずに
 # 後ろへ渡す（裁定 R50）。tests/test_blk_report.py が YAML の max_iterations と同じかを見る
 GIVE_UP_AFTER = 3
@@ -63,10 +71,18 @@ MACHINE_HEADING = "## 機械が盤面から組んだ事実（AI は書き換え�
 CELL_LIMIT = 50   # 表のセルの字数の上限（`コード` の部分を除く）。持ち主の決まり「セルには数語だけ」
 REPORT_NAME = "report-ai.md"            # 盤面の根。線 A の機械の報告（report.md）とは別の名前
 FACTS_NAME = "report-facts.md"          # 今の周の作業ファイル: 書き手に渡した数の出どころ
-REJECTS_NAME = "report-rejects.json"    # 今の周の作業ファイル: 拒否の文の控え（輪の数え・次の指示書の頭）
+REJECTS_NAME = "report-rejects.json"    # 今の周の作業ファイル: 拒否の文の控え（輪の数え・次の指示書の頭・種類ごとの回数）
+# 拒否の種類: cold＝書き手の頭を読んだ初見の読み手が pass でない（redesign-needed・読めない返答）／format＝表のセル／
+# answer＝返答の型・take の拒否
+REJECT_KINDS = ("cold", "format", "answer")
+COLD_REJECTS_LINE = "- 初見の読み手の拒否（この周）:"
 INVALID_NAME = "report-record-invalid.json"   # 今の周の作業ファイル: 検証器の関所が通らなかった事実
 COLD_MARK_NAME = "report-cold-unpassed.json"  # 今の周の作業ファイル: 上限の回に初見の確かめを通らないまま受け取った事実
+TERMS_NAME = "report-terms.json"        # 今の周の作業ファイル: 書き手が返した run ごとの語（{節: [{term, definition}]}）
 SNAPSHOT_PREFIX = "report-snapshot-"    # 書き手を起こす前の作業ツリーの写し（読むだけの役の比べ）
+# pack の語の定義の一覧（terms: [{term, definition}]）。reviewed は固定の行ごとに出る語の承認（tests/test_blk_report.py だけが読む）
+GLOSSARY = _BLK / "glossary.json"
+GLOSSARY_HEADING = "## 語の定義（機械が付けた。本文の外）"
 CELL_REASON = ("表のセルに説明の文を入れない（持ち主の決まり: 表は状態・件数・日付など数語の値の一覧だけ。端末の表は列ごとに"
                f"幅を割るので、長いセルは細切れに折り返されて読めない）。「。」を含むか {CELL_LIMIT} 字を超えるセルが在る——"
                "表をやめて箇条書きか散文にするか、セルを数語に縮めて説明は表の外に書け:\n")
@@ -205,15 +221,66 @@ def facts_text(b, machine_report="", validation=None) -> str:
     return board_facts(b, validation)
 
 
+# ---------------------------------------------------------------- 語の定義
+def _pack_terms() -> list:
+    return list(_read_json(GLOSSARY, {}).get("terms") or [])
+
+
+def glossary_section(text, terms=()) -> str:
+    """pack の一覧と terms（同じ語は pack を採る）のうち text に現れる語だけを並べた語の定義の節。現れる語が無ければ空文字"""
+    seen, rows = set(), []
+    for t in _pack_terms() + list(terms or []):
+        term = t.get("term") if isinstance(t, dict) else None
+        if not term or term in seen:
+            continue
+        seen.add(term)
+        if term in str(text or ""):
+            rows.append(f"- {term}: {t.get('definition')}")
+    return f"{GLOSSARY_HEADING}\n\n" + "\n".join(rows) + "\n" if rows else ""
+
+
+def _with_glossary(text, terms=()) -> str:
+    sec = glossary_section(text, terms)
+    return f"{text.rstrip()}\n\n{sec}" if sec else text
+
+
 # ---------------------------------------------------------------- 描く・印
-def render(b, nid, extra=None) -> str:
+def render(b, nid, extra=None, hook=None) -> str:
     """engine の emit_instance と同じ描き方（rolekit.render_body: ctx・節の skills・reads の柵・ref・cap なし・schema の断り）。
-    指示書は写しの prompts/ から（prompt_append・pointers を持つ節は描けない）。extra は ctx に足す欄（report の validation）。
-    描けない（待っていない・reads に無い穴・盤面の欄の欠け）は BoardGap"""
+    指示書は写しの prompts/ から（prompt_append・pointers を持つ節は描けない）。extra は ctx に足す欄（report の validation）、
+    hook は足した後の ctx を差し替える口。描けない（待っていない・reads に無い穴・盤面の欄の欠け）は BoardGap"""
     n = b.nodes[nid]
     if n.get("prompt_append") or n.get("pointers"):
         raise BoardGap(f"{nid}: prompt_append・pointers を持つ節は blk-report の描き方の外（写し直しで増えた？）")
-    return rolekit.render_body(b, nid, prompts_dir=_BLK, ctx_hook=lambda ctx: ctx.update(extra or {}), lang=False)[0]
+
+    def ctx_hook(ctx):
+        ctx.update(extra or {})
+        if hook:
+            hook(ctx)
+    return rolekit.render_body(b, nid, prompts_dir=_BLK, ctx_hook=ctx_hook, lang=False)[0]
+
+
+def _terms_problems(reply) -> list:
+    """書き手の返答の terms の欄の型の破れ（欄が無ければ空）"""
+    if "terms" not in reply:
+        return []
+    return validate_schema(reply["terms"], TEXT_SCHEMA["properties"]["terms"], "$.terms")
+
+
+def _run_terms(b, *nids) -> list:
+    kept = _read_json(b.work(TERMS_NAME), {})
+    return [t for nid in nids for t in kept.get(nid) or []]
+
+
+def _items_with_glossary(b):
+    """初見の読み手に渡す報告の頭（report.human_items の本文）の後ろに語の定義の節を付ける ctx の差し替え"""
+    items = NODE_OF["report-items"]
+
+    def hook(ctx):
+        got = ctx["out"].get(items)
+        if isinstance(got, dict) and isinstance(got.get("text"), str):
+            ctx["out"][items] = {**got, "text": _with_glossary(got["text"], _run_terms(b, items))}
+    return hook
 
 
 def _snap_name(role) -> str:
@@ -235,7 +302,7 @@ def prep(board_dir, role, repo, machine_report="") -> dict:
         fp = b.work(FACTS_NAME)
         fp.write_text(facts_text(b, machine_report, v), encoding="utf-8")
         facts_file = str(fp)
-    prompt = render(b, nid, extra)
+    prompt = render(b, nid, extra, _items_with_glossary(b) if role == COLD else None)
     if facts_file:
         prompt += WRITE_NOTE.format(path=facts_file)
     last = _rejects(b, nid)[-1:]
@@ -270,12 +337,15 @@ def write_cold_prep(board_dir, raw) -> dict:
     （commands/report-cold.md。Archon が prep の本文を貼る所 COLD_PASTE に描いた本文）で包む。{prompt, prompt_file}。
     描き方は report.cold_check の読み手と同じ rolekit.render_body（ctx・schema の断りは report.cold_check の物）で、
     読み手の材料の穴（report.human_items の本文）だけを書き手の頭に差し替える。待っている節は report（書き手の輪の中）。
-    全文は渡さない（読み手が確かめるのは報告の頭。全文を読ませると出し直しの枠を使い切る）。書き手の返答が読めなければ、
+    全文は渡さない（読み手が確かめるのは報告の頭。全文を読ませると出し直しの枠を使い切る）。頭の後ろに語の定義の節を
+    付ける（head_of は見出しの付いた節を落とすので、書き手が本文に書いた定義は届かない）。書き手の返答が読めなければ、
     読めない事実を本文にする。貼る所が決まりに無ければ BoardGap（黙って貼らない物を出さない）"""
     b = open_board(board_dir, allow_halted=True)
     reply, why = rolekit.parse_reply(raw)
     text = reply.get("text") if isinstance(reply, dict) else None
-    body = head_of(text) if isinstance(text, str) and text.strip() else f"（書き手の返答を読めない: {why or '本文が無い'}）"
+    terms = reply.get("terms") if isinstance(reply, dict) and not _terms_problems(reply) else []
+    body = (_with_glossary(head_of(text), terms) if isinstance(text, str) and text.strip()
+            else f"（書き手の返答を読めない: {why or '本文が無い'}）")
     cold = b.nodes[NODE_OF[COLD]]
     template = rolekit.node_prompt(rolekit.prompt_graph_path(b, cold, _BLK), cold)
     drawn = rolekit.render_body(b, NODE_OF[WRITE], prompts_dir=_BLK, template=template, schema_of=NODE_OF[COLD],
@@ -333,13 +403,15 @@ def _rejects(b, nid):
     return [r for r in _read_json(b.work(REJECTS_NAME), []) if r.get("node") == nid]
 
 
-def _reject(board_dir, nid, reason) -> dict:
-    """拒否の文を REJECTS_NAME に積み {ok: False, done, give_up, reason} を返す。この周のこの節の拒否が GIVE_UP_AFTER 回に
-    達したら諦めの印（done）。盤面の層のファイルは書かない"""
+def _reject(board_dir, nid, reason, kind) -> dict:
+    """拒否の文を種類 kind（REJECT_KINDS のどれか）と共に REJECTS_NAME に積み {ok: False, done, give_up, reason} を返す。
+    この周のこの節の拒否が GIVE_UP_AFTER 回に達したら諦めの印（done。種類を問わず数える）。盤面の層のファイルは書かない"""
+    if kind not in REJECT_KINDS:
+        raise BoardGap(f"拒否の種類 {kind!r} は {' / '.join(REJECT_KINDS)} のどれでもない")
     b = open_board(board_dir, allow_halted=True)
     rows = _read_json(b.work(REJECTS_NAME), [])
     inst = b.rd["instances"].get(nid) or {}
-    rows.append({"node": nid, "attempt": inst.get("attempts", 1), "at": now(), "reason": reason})
+    rows.append({"node": nid, "attempt": inst.get("attempts", 1), "at": now(), "kind": kind, "reason": reason})
     _write_json(b.work(REJECTS_NAME), rows)
     give_up = sum(1 for r in rows if r.get("node") == nid) >= GIVE_UP_AFTER
     return {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "node": nid, "record_invalid": False}
@@ -347,7 +419,8 @@ def _reject(board_dir, nid, reason) -> dict:
 
 def accept(board_dir, role, raw, repo, cold=None) -> dict:
     """役の返答（Archon の $<役>.output の JSON の文字列）を受け付ける。{ok, done, give_up, reason, node, record_invalid}。
-    順: 読む → 書き手の本文のセルの書式（works だけの検査）→ 書き手の頭を読んだ初見の読み手の返答 cold（書き手の輪だけ。
+    順: 読む → 書き手の terms の型（崩れていれば拒否。通れば TERMS_NAME に控えて返答から外す——盤面は {text} だけを受ける）
+    → 書き手の本文のセルの書式（works だけの検査）→ 書き手の頭を読んだ初見の読み手の返答 cold（書き手の輪だけ。
     None は配線しない直の呼び出しで確かめない。scripts/accept.py はいつも文字列を渡し、空は読めない返答として通さない）→ entry.take（書き手は作業ツリーの写しと比べる → 盤面の done）。初見の読み手が pass でなければ書き手に
     返す。上限の回（この周のこの節の拒否が GIVE_UP_AFTER - 1 回）は受け取り、COLD_MARK_NAME に通っていない事実を残す
     （受け取らないと collect が報告を出せない）。写しの AnswerReject と読むだけの役の変化は拒否（役に返す）。ほかの Reject・
@@ -355,14 +428,24 @@ def accept(board_dir, role, raw, repo, cold=None) -> dict:
     nid = _node(role)
     reply, why = rolekit.parse_reply(raw)
     if reply is None:
-        return _reject(board_dir, nid, why)
+        return _reject(board_dir, nid, why, "answer")
+    if role != COLD:
+        bad = _terms_problems(reply)
+        if bad:
+            return _reject(board_dir, nid, "返答の terms の欄が型に合わない（各要素は空でない term と definition の 2 つだけ）:\n"
+                           + "\n".join(f"- {x}" for x in bad), "answer")
+        b = open_board(board_dir, allow_halted=True)
+        kept = _read_json(b.work(TERMS_NAME), {})
+        kept[nid] = reply.get("terms") or []
+        _write_json(b.work(TERMS_NAME), kept)
+        reply = {k: v for k, v in reply.items() if k != "terms"}
     if role != COLD and isinstance(reply.get("text"), str):
         bad = format_problems(reply["text"])
         if bad:
-            return _reject(board_dir, nid, CELL_REASON + "\n".join(f"- {x}" for x in bad))
+            return _reject(board_dir, nid, CELL_REASON + "\n".join(f"- {x}" for x in bad), "format")
     blocked = _cold_block(cold) if role == WRITE and cold is not None else None
     if blocked and len(_rejects(open_board(board_dir, allow_halted=True), nid)) < GIVE_UP_AFTER - 1:
-        return _reject(board_dir, nid, blocked["reason"])
+        return _reject(board_dir, nid, blocked["reason"], "cold")
     try:
         got = entry.take(pathlib.Path(board_dir), nid, reply, pathlib.Path(repo),
                          snapshot_name=None if role == COLD else _snap_name(role))
@@ -372,7 +455,7 @@ def accept(board_dir, role, raw, repo, cold=None) -> dict:
         return {"ok": True, "done": True, "give_up": False, "node": nid, "record_invalid": True,
                 "reason": f"受け付けた。ただし記録が検証器を通らない（exit {e.exit}）ので {e.node} は出ない"}
     if not got["ok"]:
-        return _reject(board_dir, nid, got["reason"])
+        return _reject(board_dir, nid, got["reason"], "answer")
     if blocked:
         _write_json(open_board(board_dir, allow_halted=True).work(COLD_MARK_NAME), {**blocked, "at": now()})
         return {"ok": True, "done": True, "give_up": False, "node": nid, "record_invalid": False,
@@ -415,9 +498,19 @@ def _missing_reason(b, invalid):
     return ""
 
 
+def _reject_counts(b) -> dict:
+    """この周の拒否の回数 {節: {種類: 回数}}（REJECTS_NAME の kind を数える。文は読まない）"""
+    got = {nid: dict.fromkeys(REJECT_KINDS, 0) for nid in NODE_OF.values()}
+    for r in _read_json(b.work(REJECTS_NAME), []):
+        if r.get("node") in got and r.get("kind") in REJECT_KINDS:
+            got[r["node"]][r["kind"]] += 1
+    return got
+
+
 def collect(board_dir, machine_report="") -> dict:
-    """出口 {ok, reason, report_file, text_file, human_items_file, facts_file, cold_check, record_invalid}。
-    report を受けていれば 来歴＋本文＋機械の事実 を REPORT_NAME に書いて ok。受けていなければ、報告の節が 1 つも出ていない
+    """出口 {ok, reason, report_file, text_file, human_items_file, facts_file, cold_check, record_invalid, rejects}。
+    rejects は節ごと・種類ごとの拒否の回数。report を受けていれば 来歴＋本文＋語の定義の節＋機械の事実（見出しの直後に
+    初見の読み手の拒否の回数の 1 行）を REPORT_NAME に書いて ok。受けていなければ、報告の節が 1 つも出ていない
     （ready でない）ときは書かずに ok: false、出ていれば受けた分と理由と機械の事実を付けた報告を書いて ok: false"""
     b = open_board(board_dir, allow_halted=True)
     invalid = _read_json(b.work(INVALID_NAME))
@@ -427,7 +520,7 @@ def collect(board_dir, machine_report="") -> dict:
            "human_items_file": _file_of(b, NODE_OF["report-items"]), "facts_file": "",
            "cold_check": {"verdict": cold.get("verdict", ""), "stops": cold.get("stops", []), "guessed": cold.get("guessed", []),
                           "decidable": bool(cold.get("decidable", False))},
-           "record_invalid": bool(invalid)}
+           "record_invalid": bool(invalid), "rejects": _reject_counts(b)}
     if not out["ok"]:
         out["reason"] = _missing_reason(b, invalid)
         if not any(nid in b.rd["instances"] for nid in NODE_OF.values()):
@@ -454,7 +547,11 @@ def collect(board_dir, machine_report="") -> dict:
     mark = _read_json(b.work(COLD_MARK_NAME))
     if out["ok"] and mark:
         body = f"{NOT_PASSED}: {' '.join(str(mark.get('reason') or '').split())}\n\n{body}"
-    report = f"{stamp(b)}\n\n{body}\n\n---\n\n{MACHINE_HEADING}\n\n{facts}"
+    # 機械の事実の固定の行の語も拾う
+    sec = glossary_section(f"{body}\n{facts}", _run_terms(b, NODE_OF["report-items"], NODE_OF[WRITE]))
+    sec = f"{sec}\n" if sec else ""
+    colds = sum(c["cold"] for c in out["rejects"].values())
+    report = f"{stamp(b)}\n\n{body}\n\n{sec}---\n\n{MACHINE_HEADING}\n\n{COLD_REJECTS_LINE} {colds} 回\n\n{facts}"
     p = b.dir / REPORT_NAME
     p.write_text(report, encoding="utf-8")
     out["report_file"] = str(p)

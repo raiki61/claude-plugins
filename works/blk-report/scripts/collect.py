@@ -2,9 +2,9 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""ブロックの出口（report_roles.collect）。report を受けていれば 来歴の 1 行＋書き手の本文＋機械の事実 を盤面の report-ai.md に
-書いて ok。受けていなければ、なぜ無いか・受けた分・機械の事実を付けた報告を書いて ok: false（報告の節が 1 つも出ていなければ書かない）。
-出口 {ok, reason, report_file, text_file, human_items_file, facts_file, cold_check, record_invalid}"""
+"""ブロックの出口（report_roles.collect）。report を受けていれば 来歴の 1 行＋書き手の本文＋語の定義の節＋機械の事実 を盤面の
+report-ai.md に書いて ok。受けていなければ、なぜ無いか・受けた分・機械の事実を付けた報告を書いて ok: false（報告の節が 1 つも出ていなければ書かない）。
+出口 {ok, reason, report_file, text_file, human_items_file, facts_file, cold_check, record_invalid, rejects}"""
 import sys
 from pathlib import Path
 

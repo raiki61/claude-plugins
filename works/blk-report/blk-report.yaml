@@ -12,7 +12,8 @@ description: |
   どの役を回すかは盤面の ready だけで決まる（rp-route<k>）。report を出す前の検証器の関所（pre: finalize）は盤面の settle が
   踏み、通らなければ report の役は起きない。指示書は本線 a1202d0 の写し（prompts/）を盤面の値で描いた物で、持ち主の書式の
   決まり（冒頭 3 行・セルに文を入れない など）は commands/ の側に足す。ラインから include で使う（まだどのラインにも配線していない）。
-  出口 collect: 盤面の report-ai.md（来歴の 1 行＋本文＋機械の事実）と、初見検査の結果。AI の報告を作れなかった時も、理由と
+  出口 collect: 盤面の report-ai.md（来歴の 1 行＋本文＋語の定義の節＋機械の事実）と、初見検査の結果と、節ごと・種類ごとの
+  拒否の回数（rejects）。AI の報告を作れなかった時も、理由と
   受けた分と機械の事実を付けた報告を書いて ok: false。
 
 inputs:
@@ -83,6 +84,15 @@ nodes:
             additionalProperties: false
             properties:
               text: {type: string, minLength: 1}
+              terms:
+                type: array
+                items:
+                  type: object
+                  required: [term, definition]
+                  additionalProperties: false
+                  properties:
+                    term: {type: string, minLength: 1}
+                    definition: {type: string, minLength: 1}
         - id: report-items-accept
           script: accept
           runtime: uv
@@ -253,6 +263,15 @@ nodes:
             additionalProperties: false
             properties:
               text: {type: string, minLength: 1}
+              terms:
+                type: array
+                items:
+                  type: object
+                  required: [term, definition]
+                  additionalProperties: false
+                  properties:
+                    term: {type: string, minLength: 1}
+                    definition: {type: string, minLength: 1}
         # 書き手の出した物の頭を、道具を持たない初見の読み手が読む。redesign-needed なら受け付けが書き手に返す（上限の回は
         # 受け取り、報告の冒頭に「初見の確かめを通っていない」と出す）
         - id: report-write-cold-prep
@@ -327,7 +346,7 @@ nodes:
       machine_report: $INPUTS.machine_report
     output_format:
       type: object
-      required: [ok, reason, report_file, text_file, human_items_file, facts_file, cold_check, record_invalid]
+      required: [ok, reason, report_file, text_file, human_items_file, facts_file, cold_check, record_invalid, rejects]
       properties:
         ok: {type: boolean}
         reason: {type: string}
@@ -348,3 +367,14 @@ nodes:
               items: {type: string}
             decidable: {type: boolean}
         record_invalid: {type: boolean}
+        # この周の拒否の回数 {節: {cold（書き手の輪の中で頭を読んだ初見の読み手。report.cold_check の判定は cold_check 欄）,
+        # format（表のセル）, answer（返答の型・take）}}
+        rejects:
+          type: object
+          additionalProperties:
+            type: object
+            required: [cold, format, answer]
+            properties:
+              cold: {type: integer}
+              format: {type: integer}
+              answer: {type: integer}

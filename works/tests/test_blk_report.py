@@ -8,6 +8,7 @@
 - スクリプト: 子のプロセスで Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）に回し、輪の抜け方を until_bash の式で見る
 提案の表は pack の外の一時の置き場に置き、entry.PACK をそこへ向けて開く（本物の darkfactory/nodes.json は変えない。配線は後）。
 """
+import ast
 import contextlib
 import importlib.util
 import json
@@ -508,6 +509,277 @@ class PathCase(_Case):
         got = rr.accept(self.bd, "report-items", "{JSON でない", self.repo)
         self.assertFalse(got["ok"])
         self.assertIn("JSON", got["reason"])
+
+
+GLOSSARY = BLK / "glossary.json"
+GLOSSARY_HEAD = "## 語の定義"
+PACK_TERM = "取り込みの前"   # 線 A の機械の報告の固定の行（line_edge.py）に在る語
+
+
+def pack_definition(case, term):
+    case.assertTrue(GLOSSARY.is_file(), "pack の語の定義の一覧 glossary.json が無い")
+    terms = json.loads(GLOSSARY.read_text(encoding="utf-8"))["terms"]
+    got = [t["definition"] for t in terms if t["term"] == term]
+    case.assertEqual(len(got), 1, f"{term} が一覧に 1 つだけ在る")
+    return got[0]
+
+
+class GlossaryCase(unittest.TestCase):
+    def test_section_lists_only_terms_in_text(self):
+        self.assertTrue(callable(getattr(rr, "glossary_section", None)), "語の定義の節を描く glossary_section が無い")
+        terms = [{"term": "語エー", "definition": "定義エー"}, {"term": "語ビー", "definition": "定義ビー"}]
+        got = rr.glossary_section("本文は語エーだけを使う", terms)
+        self.assertIn(GLOSSARY_HEAD, got)
+        self.assertIn("語エー", got)
+        self.assertIn("定義エー", got)
+        self.assertNotIn("定義ビー", got, "本文に出ない語は並べない")
+        self.assertEqual(rr.glossary_section("x", terms), "", "現れる語が無ければ節を付けない")
+
+    def test_pack_list_has_fixed_line_term(self):
+        self.assertTrue(pack_definition(self, PACK_TERM))
+
+
+class GlossaryPortCase(_Case):
+    ITEMS = f"## 人が決めること\n\n{PACK_TERM}に人が PR の CI を見るかを決める\n"
+
+    def test_cold_prep_and_writer_cold_get_section_outside_body(self):
+        """初見の読み手に渡す 2 つの口（report-cold の prep・書き手の頭の write_cold_prep）に、本文の後ろへ機械が節を付ける"""
+        self.board()
+        definition = pack_definition(self, PACK_TERM)
+        self.run_role("report-items", {"text": self.ITEMS})
+        cprep = rr.prep(self.bd, "report-cold", self.repo)
+        self.assertIn(GLOSSARY_HEAD, cprep["prompt"])
+        self.assertIn(definition, cprep["prompt"])
+        self.assertGreater(cprep["prompt"].index(GLOSSARY_HEAD), cprep["prompt"].index(self.ITEMS.strip()),
+                           "本文の中に差し込まない")
+        rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
+        rr.prep(self.bd, "report-write", self.repo)
+        drawn = rr.write_cold_prep(self.bd, json.dumps({"text": self.ITEMS + "\n## 詳しく\n\n本文の続き\n"}, ensure_ascii=False))
+        self.assertIn(GLOSSARY_HEAD, drawn["prompt"], "head_of が落とさない所に機械が付ける")
+        self.assertIn(definition, drawn["prompt"])
+
+    def test_collect_adds_section_for_terms_in_facts(self):
+        """人に渡す report-ai.md: 本文と機械の事実の間に節。語は機械の事実の固定の行からも拾う"""
+        self.board()
+        definition = pack_definition(self, PACK_TERM)
+        mr = self.root / "machine-report-glossary.md"
+        body = f"# 機械の報告\n\n- {PACK_TERM}に人が PR の CI を見る\n"
+        mr.write_text(body, encoding="utf-8")
+        self.run_role("report-items", golden_reply("report.human_items"))
+        rr.prep(self.bd, "report-cold", self.repo)
+        rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
+        _, got = self.run_role("report-write", golden_reply("report"), machine_report=str(mr))
+        self.assertTrue(got["ok"], got)
+        rep = pathlib.Path(rr.collect(self.bd, machine_report=str(mr))["report_file"]).read_text(encoding="utf-8")
+        self.assertIn(GLOSSARY_HEAD, rep)
+        self.assertIn(definition, rep)
+        self.assertLess(rep.index(GLOSSARY_HEAD), rep.index(rr.MACHINE_HEADING), "節は本文と機械の事実の間")
+        self.assertGreater(rep.index(GLOSSARY_HEAD), rep.index(golden_reply("report")["text"].strip()[:40]))
+        self.assertTrue(rep.endswith(body), "機械の事実は書き換えずに最後に付ける")
+
+
+LINE_EDGE = ROOT / "darkfactory" / "lib" / "line_edge.py"
+REPORT_ROLES = BLK / "lib" / "report_roles.py"
+# 人に渡る固定の文を、リストへの積み上げの外（return・名前への代入）で組む関数と、固定の文の定数
+FIXED_FUNCS = {LINE_EDGE: ("_final_head", "_protected_text", "_r2_inputs"), REPORT_ROLES: ("stamp", "_missing_reason")}
+FIXED_CONSTS = {LINE_EDGE: ("PROTECTED_HEAD", "PROTECTED_UNKNOWN"),
+                REPORT_ROLES: ("NOT_PASSED", "MACHINE_HEADING", "COLD_REJECTS_LINE", "GLOSSARY_HEADING")}
+
+
+def _pieces(node):
+    """文字列の式の定数の部分（f 文字列は JoinedStr の Constant の部分）。辞書の鍵など式の中の文字列は拾わない"""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        yield node.value
+    elif isinstance(node, ast.JoinedStr):
+        for v in node.values:
+            yield from _pieces(v)
+    elif isinstance(node, (ast.List, ast.Tuple)):
+        for e in node.elts:
+            yield from _pieces(e)
+    elif isinstance(node, ast.BinOp):
+        yield from _pieces(node.left)
+        yield from _pieces(node.right)
+    elif isinstance(node, ast.IfExp):
+        yield from _pieces(node.body)
+        yield from _pieces(node.orelse)
+    elif isinstance(node, ast.BoolOp):
+        for v in node.values:
+            yield from _pieces(v)
+    elif isinstance(node, ast.ListComp):
+        yield from _pieces(node.elt)
+
+
+def _named(n) -> bool:
+    return isinstance(n, ast.Name)
+
+
+def fixed_lines() -> set:
+    """機械が報告に書く固定の行の文字列: line_edge.py と report_roles.py の関数の中のリストへの積み上げ（変数名を問わず
+    x.append / x += / x = [..]）と、FIXED_FUNCS の return・名前への代入と、FIXED_CONSTS。字・数字を含まない断片は除く"""
+    vals = []
+    for path in (LINE_EDGE, REPORT_ROLES):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for f in tree.body:
+            if isinstance(f, ast.Assign) and any(getattr(t, "id", None) in FIXED_CONSTS[path] for t in f.targets):
+                vals.append(f.value)
+            if not isinstance(f, ast.FunctionDef):
+                continue
+            fixed = f.name in FIXED_FUNCS[path]
+            for n in ast.walk(f):
+                if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "append"
+                        and _named(n.func.value)):
+                    vals += n.args
+                elif isinstance(n, ast.AugAssign) and _named(n.target):
+                    vals.append(n.value)
+                elif (isinstance(n, ast.Assign) and any(_named(t) for t in n.targets)
+                      and (fixed or isinstance(n.value, (ast.List, ast.ListComp)))):
+                    vals.append(n.value)
+                elif fixed and isinstance(n, ast.Return) and n.value is not None:
+                    vals.append(n.value)
+    return {s.strip() for v in vals for s in _pieces(v) if any(c.isalnum() for c in s)}
+
+
+class FixedLineGlossaryCase(unittest.TestCase):
+    """承認試験: 機械が書く固定の行を足す・変えると、glossary.json の reviewed に『その行に出る語』を足すまで赤。
+    reviewed に書いた語は語の定義の一覧に在ること"""
+
+    def glossary(self):
+        self.assertTrue(GLOSSARY.is_file(), "pack の語の定義の一覧 glossary.json が無い")
+        return json.loads(GLOSSARY.read_text(encoding="utf-8"))
+
+    def test_every_fixed_line_is_reviewed(self):
+        reviewed = self.glossary().get("reviewed") or {}
+        got = fixed_lines()
+        self.assertEqual(sorted(got - set(reviewed)), [], "reviewed に無い固定の行（語を見て reviewed に足せ）")
+        self.assertEqual(sorted(set(reviewed) - got), [], "もう無い固定の行が reviewed に残っている")
+
+    def test_reviewed_terms_are_defined(self):
+        doc = self.glossary()
+        reviewed = doc.get("reviewed") or {}
+        line = next((s for s in fixed_lines() if PACK_TERM in s), None)
+        self.assertIsNotNone(line)
+        self.assertIn(PACK_TERM, reviewed.get(line) or [], "固定の行に出る語を reviewed に並べる")
+        defined = {t["term"] for t in doc.get("terms") or []}
+        for s, terms in reviewed.items():
+            for term in terms:
+                with self.subTest(line=s, term=term):
+                    self.assertIn(term, s, "reviewed の語はその行に現れる")
+                    self.assertIn(term, defined, "固定の行の語が語の定義の一覧から漏れている")
+
+    def test_defined_terms_in_line_are_reviewed(self):
+        """一覧の語が行に現れるなら reviewed のその行に並べる（[] で行だけ足して語の承認を飛ばせない）"""
+        doc = self.glossary()
+        defined = [t["term"] for t in doc.get("terms") or []]
+        for s, terms in (doc.get("reviewed") or {}).items():
+            with self.subTest(line=s):
+                self.assertEqual(sorted(t for t in defined if t in s and t not in terms), [],
+                                 "行に現れる一覧の語が reviewed のその行に無い")
+
+
+RUN_TERM = {"term": "次の版の枝", "definition": "この run が直した物を載せて PR に出す作業用の枝"}
+
+
+class RunTermsCase(_Case):
+    """書き手 2 役は本文と別に run ごとの語（terms）を返せる。盤面には {text} だけを渡し、語は 3 つの口の節に出す"""
+
+    def assert_terms_accepted_by_schema(self):
+        for role in ("report-items", "report-write"):
+            self.assertEqual(validate_schema({"text": "本文", "terms": [RUN_TERM]}, rr.output_format(role)), [],
+                             f"{role} の型が任意の terms を受けない")
+
+    def test_schema_takes_optional_terms_and_rejects_broken(self):
+        self.assert_terms_accepted_by_schema()
+        for role in ("report-items", "report-write"):
+            with self.subTest(role):
+                self.assertEqual(validate_schema({"text": "本文"}, rr.output_format(role)), [], "terms は任意")
+                for bad in ([{"term": "語"}], [{"term": "", "definition": "定義"}], [{"term": "語", "definition": "定義", "x": 1}], "語"):
+                    self.assertTrue(validate_schema({"text": "本文", "terms": bad}, rr.output_format(role)), bad)
+
+    def test_items_terms_kept_off_board_and_shown_to_cold_reader(self):
+        self.assert_terms_accepted_by_schema()
+        self.board()
+        text = f"## 人が決めること\n\n{RUN_TERM['term']}を消すかを決める\n"
+        _, got = self.run_role("report-items", {"text": text, "terms": [RUN_TERM]})
+        self.assertTrue(got["ok"], got)
+        saved = entry.open_board(self.bd).output_of_round("report.human_items", entry.open_board(self.bd).round)
+        self.assertEqual(saved, {"text": text}, "盤面には本文だけを渡す")
+        cprep = rr.prep(self.bd, "report-cold", self.repo)
+        self.assertIn(RUN_TERM["definition"], cprep["prompt"])
+
+    def test_broken_terms_returned_to_writer(self):
+        self.assert_terms_accepted_by_schema()
+        self.board()
+        _, got = self.run_role("report-items", {"text": "頭", "terms": [{"term": "語"}]})
+        self.assertEqual((got["ok"], got["done"]), (False, False), got)
+        self.assertIn("terms", got["reason"])
+        self.assertEqual(state(self.bd)["rounds"][-1]["instances"]["report.human_items"]["status"], "pending")
+
+    def test_writer_terms_reach_writer_cold_and_report(self):
+        self.board()
+        self.run_role("report-items", golden_reply("report.human_items"))
+        rr.prep(self.bd, "report-cold", self.repo)
+        rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
+        rr.prep(self.bd, "report-write", self.repo)
+        reply = {"text": f"{RUN_TERM['term']}は残した\n\n## 人が決めること\n\n無し\n", "terms": [RUN_TERM]}
+        drawn = rr.write_cold_prep(self.bd, json.dumps(reply, ensure_ascii=False))
+        self.assertIn(RUN_TERM["definition"], drawn["prompt"], "書き手の頭を読む初見の読み手に run の語の定義が届く")
+        got = rr.accept(self.bd, "report-write", json.dumps(reply, ensure_ascii=False), self.repo)
+        self.assertTrue(got["ok"], got)
+        rep = pathlib.Path(rr.collect(self.bd)["report_file"]).read_text(encoding="utf-8")
+        self.assertIn(RUN_TERM["definition"], rep)
+        self.assertLess(rep.index(RUN_TERM["definition"]), rep.index(rr.MACHINE_HEADING))
+
+    def test_pack_definition_wins_over_run_term(self):
+        self.assertEqual(validate_schema({"text": "本文", "terms": [RUN_TERM]}, rr.output_format("report-items")), [])
+        got = rr.glossary_section(f"{PACK_TERM}に見る", [{"term": PACK_TERM, "definition": "run の別の定義"}])
+        self.assertNotIn("run の別の定義", got)
+        self.assertEqual(got.count(PACK_TERM), 1, "同じ語を重ねて並べない")
+
+
+COLD_LINE = "- 初見の読み手の拒否（この周）:"
+
+
+class RejectCountCase(_Case):
+    """拒否の行に種類（cold＝初見の読み手・format＝表のセル・answer＝返答の型や take）を持ち、collect が節ごと・種類ごとの
+    回数を出口の rejects と報告の 1 行に出す（文を読まずに数えられる）"""
+
+    def rejected_flow(self):
+        self.board()
+        self.run_role("report-items", {"text": "| A |\n|---|\n| 説明の文。 |\n"})          # format
+        self.run_role("report-items", golden_reply("report.human_items"))
+        rr.prep(self.bd, "report-cold", self.repo)
+        rr.accept(self.bd, "report-cold", json.dumps(golden_reply("report.cold_check")), self.repo)
+        redesign = json.dumps({"verdict": "redesign-needed", "stops": ["冒頭"], "guessed": [], "decidable": False})
+        passed = json.dumps(golden_reply("report.cold_check"))
+        reply = json.dumps(golden_reply("report"), ensure_ascii=False)
+        rr.prep(self.bd, "report-write", self.repo)
+        got = rr.accept(self.bd, "report-write", reply, self.repo, cold=redesign)                  # cold
+        self.assertFalse(got["ok"], got)
+        rr.prep(self.bd, "report-write", self.repo)
+        got = rr.accept(self.bd, "report-write", "{JSON でない", self.repo, cold=passed)           # answer
+        self.assertFalse(got["ok"], got)
+        rr.prep(self.bd, "report-write", self.repo)
+        got = rr.accept(self.bd, "report-write", reply, self.repo, cold=passed)
+        self.assertTrue(got["ok"], got)
+        return rr.collect(self.bd)
+
+    def test_reject_rows_have_kind(self):
+        self.rejected_flow()
+        rows = json.loads(entry.open_board(self.bd).work(rr.REJECTS_NAME).read_text(encoding="utf-8"))
+        self.assertEqual([(r["node"], r.get("kind")) for r in rows],
+                         [("report.human_items", "format"), ("report", "cold"), ("report", "answer")])
+
+    def test_collect_counts_rejects_by_kind(self):
+        out = self.rejected_flow()
+        self.assertTrue(out["ok"], out)
+        rejects = out.get("rejects") or {}
+        self.assertEqual(rejects.get("report.human_items"), {"cold": 0, "format": 1, "answer": 0})
+        self.assertEqual(rejects.get("report"), {"cold": 1, "format": 0, "answer": 1})
+        rep = pathlib.Path(out["report_file"]).read_text(encoding="utf-8")
+        self.assertIn(f"{COLD_LINE} 1 回", rep, "報告の行は出口の rejects の cold の合計と同じ値")
+        self.assertLess(rep.index(rr.MACHINE_HEADING), rep.index(COLD_LINE), "機械の事実の見出しの直後に置く")
+        facts = pathlib.Path(out["facts_file"]).read_text(encoding="utf-8")
+        self.assertTrue(rep.endswith(facts), "報告の最後は機械の事実のまま")
 
 
 class RecordInvalidCase(_Case):

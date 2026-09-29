@@ -103,7 +103,7 @@ REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
 INTERRUPTED_HEAD = "run が途中で終わった"
 RETRIED_HEAD = "前の試みで落ち、続きで済んだ節"
 AI_FIRST_NODE = "report.human_items"   # 盤面が報告の役の節を出したか（AI の報告を回すか。ai_report_go）
-AI_REPORT_KEYS = ("ok", "reason", "report_file", "cold_check", "record_invalid")   # 最後の出口に写す AI の報告の欄
+AI_REPORT_KEYS = ("ok", "reason", "report_file", "cold_check", "record_invalid", "rejects")   # 最後の出口に写す AI の報告の欄
 
 
 # ---------------------------------------------------------------- 小道具

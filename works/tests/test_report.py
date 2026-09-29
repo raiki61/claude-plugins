@@ -185,8 +185,9 @@ class OutcomeCase(ReportBase):
         self.full()
         machine, _, _ = self.build()
         ai = {"ok": True, "reason": "", "report_file": "/b/report-ai.md", "cold_check": {"verdict": "pass"},
-              "record_invalid": False, "text_file": "x"}
+              "record_invalid": False, "text_file": "x", "rejects": {"report": {"cold": 2, "format": 0, "answer": 1}}}
         got = report.final_result(machine, ai)
+        self.assertEqual(got["ai_report"]["rejects"], ai["rejects"], "拒否の回数は run の最後の出口に残る（run をまたいで数える）")
         self.assertLessEqual(set(machine), set(got))
         self.assertEqual((got["report_file"], got["machine_report_file"]), ("/b/report-ai.md", machine["report_file"]))
         self.assertEqual(got["export_input"]["report_file"], "/b/report-ai.md")
