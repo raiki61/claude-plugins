@@ -50,6 +50,7 @@ from engine.util import now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
 import design  # noqa: E402
 import entry  # noqa: E402
+import gatemarks  # noqa: E402
 import node_marker  # noqa: E402
 import rolekit  # noqa: E402
 
@@ -59,10 +60,14 @@ GATE_NODE = "r4.human_gate"
 ROLE_OF = {"r1.comment_candidates": "r1-comments", "r1.minimality": "r1-minimality", "r2.compare": "r2-compare", "r3.coherence": "r3-coherence", "r4.hidden_scope": "r4-scope",
            "stop.premise_check": "premise-check"}
 NODE_OF = {r: n for n, r in ROLE_OF.items()}
-# YAML で縦に並べる筋（graph の依存の順。筋をまたぐ依存は無い——tests/test_blk_eyes.py が graph と突き合わせる）。
+# YAML で縦に並べる筋（graph の依存の順。graph の上で筋をまたぐ依存は無い——tests/test_blk_eyes.py が graph と突き合わせる）。
 # r2.compare の依存の r2.design は目の外（修正の前に作った設計がこのブロックの前に盤面へ渡る）
 LANES = (("r1.comment_candidates", "r1.minimality"), ("r2.compare", "stop.premise_check"),
          ("r3.coherence",), ("r4.hidden_scope",))
+LANE_NAMES = dict(zip(LANES, ("R1", "R2", "R3", "R4")))
+# 筋の頭が YAML で待つ筋（graph の依存ではない）。r4.human_gate の問いは盤面を止め、答える場は最後の関所なので、問いより先に
+# R1・R2 の目を出し切る。前の筋が落ちても R4 を飛ばさない（YAML の trigger_rule: all_done）
+LANE_AFTER = {"r4.hidden_scope": (LANES[0], LANES[1])}
 # 役の道具（graph の run_by → Archon の allowed_tools）。graphloops の役の定義（convergence-loops 0.40.0 の agents/<役>.md）の
 # 道具から、書く道具と shell を除いた物。comment-analyzer（別 plugin）は定義が全部の道具を持つが、目は読むだけなので同じく書く道具と
 # shell を除いた Read・Grep・Glob・WebSearch・WebFetch（tests/test_tool_parity.py の NARROWED）
@@ -73,6 +78,7 @@ ISOLATED_RUN_BY = frozenset({"blind-judge"})
 ISOLATED_FLAG = "isolated"
 GIVE_UP_AFTER = 3        # 輪の max_iterations と同じ数。この数だけ拒んだら done を出し、輪を失敗で抜けさせない（裁定 R50）
 REJECT_HEADING = rolekit.REJECT_HEADING
+R4_NODE = "r4.hidden_scope"   # 直す前の関所で人が通した狭まりを頭に貼る目（gatemarks.carried_section）
 PREMISE_NODE = "r2.compare"   # 設計を作った後に分かった前提を頭に貼る目
 PREMISE_HEAD = "## 独立設計を作った後に分かった前提（機械が貼った）"
 PREMISE_CHANGED = "設計の前提が変わった"
@@ -89,6 +95,9 @@ REJECTS_NAME = "eyes-rejects.json"
 ENTER_NAME = "eyes-enter.json"
 EXIT_NAME = "eyes-exit.json"
 PREMISES_NAME = "eyes-premises.json"   # r2.compare に渡した前提の入力の控え（入口の周の作業ファイル）
+# route が起きた目と go（入口の周の作業ファイル）。Archon の節が落ちた筋を、盤面の順のずれ・設計待ちと見分ける
+ROUTES_NAME = "eyes-routes.json"
+LANES_NAME = gatemarks.LANES_NAME      # 落ちた筋と、その文（最後の関所の目の行の下に並ぶ。読み手は gatemarks.fell_lanes）
 STOP_BY = "works:eyes"
 PROMPTS_COPY = rolekit.PROMPTS_COPY
 # 出口の欄（BLOCKS.md 3.3 の R11 の出口に、ブロックの回り方の欄を足した物。並びも固定）
@@ -238,17 +247,56 @@ def enter(board_dir, repo) -> dict:
         return out
 
 
+def _gave_up(rejects) -> list:
+    return [ROLE_OF[n] for n in ROLE_OF if sum(1 for r in rejects if r.get("node") == n) >= GIVE_UP_AFTER]
+
+
+def fallen(b, rnd, lanes=LANES) -> list:
+    """Archon の節が落ちた筋 [{lane, eye, state}]。目が残った筋のうち、最後の route が起きていない（前の節が落ちて飛ばされた）か、
+    go を返した目が残った（輪が落ちた。3 回拒まれた諦めは除く）物。route が go: false を返して残った目（盤面の順のずれ・設計待ち）は
+    数えない"""
+    routes = _read_json(_work(b, rnd, ROUTES_NAME), {})
+    gave = set(_gave_up(_read_json(_work(b, rnd, REJECTS_NAME), [])))
+    out = []
+    for lane in lanes:
+        left = [n for n in lane if _node_state(b, rnd, n) in ("pending", "waiting")]
+        went = [n for n in left if routes.get(ROLE_OF[n]) is True and ROLE_OF[n] not in gave]
+        if left and (ROLE_OF[lane[-1]] not in routes or went):
+            n = (went or left)[0]
+            out.append({"lane": LANE_NAMES[lane], "eye": ROLE_OF[n], "state": _node_state(b, rnd, n)})
+    return out
+
+
+def fell_text(fell, ran="") -> str:
+    names = "・".join(f["lane"] for f in fell)
+    head = f"{names} の筋が落ちたまま {ran} を回した" if ran else f"{names} の筋が落ちた"
+    return head + "（" + "・".join(f"{f['eye']}: {f['state']}" for f in fell) + "。Archon の節が落ちた）"
+
+
 def route(board_dir, role, rnd) -> dict:
-    """目 role を今起こすか。{go, node, why, stopped}。入口の周（rnd）でない周・止まった盤面・待っている instance の無い目は go: false"""
-    nid, rnd = node_of(role), _round_of(rnd)
+    """目 role を今起こすか。{go, node, why, stopped}。入口の周（rnd）でない周・止まった盤面・待っている instance の無い目は go: false。
+    入口が落ちた周（周が空）は起こさない。LANE_AFTER の筋が落ちていても待っている目は起こし、why と入口の周の LANES_NAME に残す"""
+    nid = node_of(role)
+    if str(rnd).strip() in ("", "null", "None"):
+        return {"go": False, "node": nid, "why": "入口 eyes-enter の周が無い（入口が済んでいない）", "stopped": False}
+    rnd = _round_of(rnd)
     with locked(board_dir):
         b = entry.open_board(board_dir, allow_halted=True)
         if _stopped(b):
             return {"go": False, "node": nid, "why": "盤面は止まっている", "stopped": True}
         if b.round != rnd:
             return {"go": False, "node": nid, "why": f"盤面の周が {b.round}（入口は {rnd}）", "stopped": False}
+        routes = _work(b, rnd, ROUTES_NAME)
+        went = _read_json(routes, {})
         if _pending(b, nid):
-            return {"go": True, "node": nid, "why": f"{nid} が待っている", "stopped": False}
+            why = f"{nid} が待っている"
+            fell = fallen(b, rnd, LANE_AFTER.get(nid, ()))
+            if fell:
+                why += "——" + fell_text(fell, LANE_NAMES[next(lane for lane in LANES if nid in lane)])
+                _write_json(_work(b, rnd, LANES_NAME), {"fell": fell, "why": why})
+            _write_json(routes, {**went, role: True})
+            return {"go": True, "node": nid, "why": why, "stopped": False}
+        _write_json(routes, {**went, role: False})
         st = _node_state(b, rnd, nid)
         why = b.rd["na"].get(nid) if st == "na" else st
         if st == "waiting" and b.state.get("pending_human"):
@@ -312,6 +360,8 @@ def prep(board_dir, role, rnd, repo) -> dict:
             head, ledger = premise_section(b, repo)
             _write_json(_work(b, rnd, PREMISES_NAME), ledger)
             prompt = f"{head}\n\n---\n\n{prompt}"
+        elif nid == R4_NODE and (carried := gatemarks.carried_section(b)):
+            prompt = f"{carried}\n\n---\n\n{prompt}"
         prompt, def_file, missing = rolekit.with_role_definition(b, nid, prompt)
         last = _rejects(b, rnd, nid)[-1:]
         if last:   # 拒否の文は本文に入れて渡す
@@ -363,19 +413,24 @@ def accept(board_dir, role, raw, repo) -> dict:
 # ---------------------------------------------------------------- 出口
 def collect(board_dir, rnd) -> dict:
     """ブロックの出口（EXIT_FIELDS の並び）。入口の周の箱で目の状態を見る。人に聞いていれば止めずに asking。聞いていない・止まって
-    いないのに目が残っていれば盤面を止めて（by works:eyes）ok: false。同じ物を入口の周の eyes-exit.json に書く"""
+    いないのに目が残っていれば盤面を止めて（by works:eyes）ok: false。ただし Archon の節が落ちて目が残った筋（fallen）だけなら
+    止めずに理由を返し、入口の周の LANES_NAME に残す（最後の関所に出す。YAML は all_done で出口を走らせる）。同じ物を入口の周の
+    eyes-exit.json に書く"""
+    if str(rnd).strip() in ("", "null", "None"):
+        raise BoardGap("入口 eyes-enter の周が無い（入口が落ちた。入口の失敗を先に見る）")
     rnd = _round_of(rnd)
     with locked(board_dir):
         b = entry.open_board(board_dir, allow_halted=True)
         states = {ROLE_OF[n]: _node_state(b, rnd, n) for n in ROLE_OF}
         rejects = _read_json(_work(b, rnd, REJECTS_NAME), [])
-        gave_up = [ROLE_OF[n] for n in ROLE_OF if sum(1 for r in rejects if r.get("node") == n) >= GIVE_UP_AFTER]
+        gave_up = _gave_up(rejects)
         asking = bool(b.state.get("pending_human")) and b.round == rnd
         left = [r for r, s in states.items() if s in ("pending", "waiting")]
         ok, reason = True, ""
         if not _stopped(b) and left and not asking:
-            ok = False
             stuck = [r for r in left if r in gave_up]
+            fell, stop = fallen(b, rnd), True
+            in_fell = {ROLE_OF[n] for lane in LANES if LANE_NAMES[lane] in {f["lane"] for f in fell} for n in lane}
             if stuck:
                 last = [x for x in rejects if x.get("node") == NODE_OF[stuck[0]]][-1]
                 reason = (f"独立の目 {stuck[0]} の返答が {GIVE_UP_AFTER} 回とも受け付けで拒まれた"
@@ -383,9 +438,15 @@ def collect(board_dir, rnd) -> dict:
             elif _node_state(b, rnd, design.NODE) in ("pending", "waiting"):
                 # 修正の前の設計が盤面へ渡っていない（設計の役が諦めた・控えを盤面が受けない）。今までどおり目の層で止める
                 reason = f"独立の目 R2: {design.missing(b) or design.MISSING + '（控えは在るが盤面が受けていない）'}"
+            elif fell and set(left) <= in_fell:
+                ran = (_read_json(_work(b, rnd, LANES_NAME), {}) or {}).get("why")
+                reason, stop = "; ".join(x for x in (ran, fell_text(fell)) if x), False
+                _write_json(_work(b, rnd, LANES_NAME), {"fell": fell, "why": reason})
             else:
                 reason = f"回した後も目 {left} が残った（盤面の順とブロックの筋がずれた——写し直しで増えた依存を筋に足す）"
-            b.stop(reason, by=STOP_BY)
+            if stop:
+                ok = False
+                b.stop(reason, by=STOP_BY)
         at = _read_json(_work(b, rnd, ENTER_NAME), None)
         if at is None:
             raise BoardGap(f"入口の控え r{rnd}/{ENTER_NAME} が無い（eyes-enter が先に走る）")

@@ -350,5 +350,39 @@ class QuotedQuestionCase(GateBase):
         self.assertTrue(any(x.lstrip().startswith(">") for x in text.splitlines()), text)
 
 
+class R4GateCase(GateBase):
+    """修正の後の関所（r4.human_gate）が、修正前の関所で人が continue で通した狭まりと種類も本文も同じ行を聞き直さない。
+    行の頭は関所ごとに違う（写しの R4_ROWS と修正案の狭めの行）ので、頭を除いた本文で照らす。種類が違えば聞き直す"""
+
+    def r4_gate(self, answer="continue", lost=(), policy=()):
+        """修正前の関所で狭め NARROW を聞かれて answer で答えた盤面で、R4 が lost・policy を返した周の r4.human_gate を回す"""
+        got, b = self.gate(narrows=[NARROW])
+        self.assertEqual(got.get("decision"), "ask", got)
+        b.record["process"]["human_items"].append({"round": 1, "kinds": got["ask"]["kinds"], "asked": got["ask"]["items"],
+                                                   "answer": answer, "note": "", "node": "p2.human_gate"})
+        before = b.output_of_round
+        r4 = {"capability_inventory": {"fired": True, "lost": list(lost)}, "policy_conflicts": list(policy)}
+        b.output_of_round = lambda nid, rnd: r4 if nid == "r4.hidden_scope" else before(nid, rnd)
+        return registry(b.rules, "BUILTINS")["human_gate"](b, "r4.human_gate"), b
+
+    def test_r4_does_not_reask_narrow_the_human_passed(self):
+        body = f"{NARROW['what']}——{NARROW['why']}"
+        got, b = self.r4_gate(lost=[body])
+        self.assertEqual(got, {"ok": True})
+        passes = [p for p in b.state["works"].get("gate_passes") or [] if p["node"] == "r4.human_gate"]
+        self.assertEqual([p["by"] for p in passes], ["human"])
+        self.assertIn(body, passes[0]["item"])
+        self.assertEqual(passes[0]["passed_at"], {"node": "p2.human_gate", "round": 1})
+        self.assertTrue(any("人が通した" in x and body in x for x in gatemarks.lines(b)), gatemarks.lines(b))
+
+    def test_r4_reasks_other_kind_or_unpassed(self):
+        body = f"{NARROW['what']}——{NARROW['why']}"
+        for label, kw in (("種類が違う", {"policy": [body]}), ("stop で答えた", {"answer": "stop", "lost": [body]}),
+                          ("本文が違う", {"lost": [f"{NARROW['what']}——別の理由"]})):
+            with self.subTest(label):
+                got, _ = self.r4_gate(**kw)
+                self.assertEqual(got.get("decision"), "ask", got)
+
+
 if __name__ == "__main__":
     unittest.main()

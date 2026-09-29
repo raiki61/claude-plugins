@@ -988,7 +988,8 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(node_marker.parse(roles["r3-coherence"]["output_format"]["description"])["flags"], frozenset())
 
     def test_lanes_in_yaml(self):
-        """筋ごとに route → 輪 を縦に並べ、筋の頭の route は入口の後。collect は全部の筋の最後を待つ"""
+        """筋ごとに route → 輪 を縦に並べ、筋の頭の route は入口と、その筋が待つ筋（eyes.LANE_AFTER）の最後の route・輪の後。
+        collect は全部の筋の最後を待つ"""
         for lane in eyes.LANES:
             prev = None
             for nid in lane:
@@ -996,7 +997,10 @@ class YamlCase(unittest.TestCase):
                 r = self.top[f"{role}-route"]
                 with self.subTest(role):
                     if prev is None:
-                        self.assertEqual(r["depends_on"], ["eyes-enter"])
+                        after = eyes.LANE_AFTER.get(nid, ())
+                        self.assertEqual(r["depends_on"], ["eyes-enter"] + [f"{eyes.ROLE_OF[w[-1]]}-{k}" for w in after
+                                                                            for k in ("route", "loop")])
+                        self.assertEqual(r.get("trigger_rule"), "all_done" if after else None)
                     else:
                         # 前の輪は飛ばされうる（条件で na の目）。いつも走る前の route も待てば「1 つは成功」が満ちる
                         self.assertEqual(r["depends_on"], [f"{prev}-route", f"{prev}-loop"])
@@ -1006,7 +1010,7 @@ class YamlCase(unittest.TestCase):
         c = self.top["eyes-collect"]
         want = {f"{eyes.ROLE_OF[lane[-1]]}-{k}" for lane in eyes.LANES for k in ("route", "loop")}
         self.assertEqual(set(c["depends_on"]), want)
-        self.assertEqual(c["trigger_rule"], "none_failed_min_one_success")
+        self.assertEqual(c["trigger_rule"], "all_done")
 
     def test_with_matches_script_inputs(self):
         for n, _ in walk(self.y["nodes"]):

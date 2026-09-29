@@ -37,6 +37,7 @@ FAST = frozenset({
     "test_core_sync",       # 写し直しの道具: 偽の正本の git はモジュールに 1 回だけ作り、試験は道具を子で起こして git show で読むだけ
     "test_gl_map",          # 線 A: 対応表の JSON と accept.py を読むだけ
     "test_gitkit",          # 1 秒未満（gitkit の型を 1 回作って 2 回写す）
+    "test_blk_eyes_lanes",  # 独立の目の筋の順: YAML と Archon の trigger_rule の写しで節を回す（盤面の fixture を読むだけ。git・子のプロセスを使わない）
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
     "test_block_blind",     # ブロックの散文のほかのブロックの名指しの柵と、役の指示書のほかの役・段の語の柵: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
     "test_impact",          # 変更の周りの地図: 種の git は gitkit の型の写し・git ls-files と diff を読む（子のプロセスは git だけ）

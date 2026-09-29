@@ -143,6 +143,10 @@ CORE_OVERRIDES = {
                          "決め手の出どころが在り undecided_because が空で柵の印の無い狭め・穴は、修正前の関所で人に聞かずに通し、"
                          "state.works.gate_passes に残す（持ち主 2026-09-28。gatemarks.py）。問いの台帳で人に聞く状態の fork・"
                          "escalate は、無人の run でなければ項目に載せる（持ち主 2026-09-29）"),
+    "_r4_gate_items": (board.rl_builder(gatemarks.r4_gate_items),
+                       "写しの元は人が通した行を頭込みの文で照らし、修正前の関所の行（修正案 N が狭める能力: …）と R4 の行"
+                       "（R4 が BASE から消えたと見た能力: …）は頭が違うので、人が continue で通した同じ狭めを聞き直す。頭を除いた本文と"
+                       "種類で照らして外し、gate_passes に by human で残す（gatemarks.py）"),
     "overview_due": (_overview_due_after_fix,
                      "works の run は同じ周で修正してから R3・R4 を回すので、前の周の P3 だけを引き金にすると 1 周の run では目が"
                      "起きない。この周の修正の差分（p3.fix_delta が差分から測った実測。自己申告でない）が空でない周も起こす。"

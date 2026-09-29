@@ -476,6 +476,15 @@ def _check_table(table: "NodeTable") -> None:
         raise BoardGap("節の表が graph と合わない: " + "; ".join(errs))
 
 
+RL_BUILDER = "takes_rl"
+
+
+def rl_builder(fn):
+    """overrides の spec の関数に、組み手 fn(RL) の印を付ける（_apply_overrides が開いた RL を渡して呼び、返りで差し替える）"""
+    setattr(fn, RL_BUILDER, True)
+    return fn
+
+
 def _captured(rules) -> dict:
     """RL の BUILTINS・CONDS・POST_CHECKS・ENGINE_RUNS が値として掴んでいる関数 {id: 表の名前}。
     これらは読み込みの時に関数を掴み、_rebind_tables も替えないので、大域の名前を差し替えても効かない
@@ -552,7 +561,8 @@ class DiskBoard(_EngineBoard):
         が値として掴む元の関数を差し替え（_rebind_tables。既存の差し替えにも効く）、state.works.overrides に名前と理由を足す
         （前に開いた時の分は消さない）。CONDS が掴む名前は、spec の関数を組み手として RL の module で呼び、返った条件の関数
         （cond_reads の reads が要る）で CONDS の値も替える（engine は CONDS の表から引くので）。組み手は元の条件を RL から
-        引いて包める。BUILTINS・POST_CHECKS・ENGINE_RUNS が掴む関数は替えないので拒む。RL は開くたびに新しく読むので、
+        引いて包める。CONDS の外の名前も、rl_builder の印の付いた spec は同じく組み手として呼び、返りの関数で差し替える（元の関数を
+        包む差し替え）。BUILTINS・POST_CHECKS・ENGINE_RUNS が掴む関数は替えないので拒む。RL は開くたびに新しく読むので、
         差し替えは他の盤面に漏れない"""
         if not overrides:
             return
@@ -579,6 +589,13 @@ class DiskBoard(_EngineBoard):
                 conds.append(name)
             elif reg:
                 raise BoardGap(f"overrides の {name} は RL の {reg} が値として掴んでいる関数で、大域の名前を差し替えても効かない（この表は替えない）")
+            elif getattr(fn, RL_BUILDER, False):
+                try:
+                    fn = fn(self.rules)
+                except Exception as e:
+                    raise BoardGap(f"overrides の {name} の組み手 fn(RL) が落ちた: {e!r}") from e
+                if not callable(fn):
+                    raise BoardGap(f"overrides の {name} の組み手 fn(RL) の返りが呼べない: {fn!r}")
             fns[name] = fn
             rows.append({"name": name, "reason": reason})
         table = registry(self.rules, "CONDS")

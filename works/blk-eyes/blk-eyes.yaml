@@ -10,7 +10,8 @@ description: |
   回し、eyes-enter はそれが今の周に済んだことを確かめる。どの目を回すか（条件と依存。stop.premise_check の引き金 r2_premise_invalid を
   含む）は盤面だけが決め、ブロックは盤面の ready の目を起こす。関所の機械の節 r4.human_gate は r4.hidden_scope の受け付けの settle が
   回し、人に聞いていれば出口は止めずに asking（答えた後にラインがこのブロックへ入り直すと残りの目が回る）。
-  目は筋ごとに縦に並べ、筋どうしは Archon の同じ層で並んで走る。盤面の書き込みはスクリプトが錠（board.lock）で順に並べる。
+  目は筋ごとに縦に並べ、筋どうしは Archon の同じ層で並んで走る。ただし R4 の筋は R1・R2 の筋の後（r4.human_gate の問いより先に
+  R1・R2 の目を出し切る。lib/eyes.py の LANE_AFTER）。盤面の書き込みはスクリプトが錠（board.lock）で順に並べる。
   役は毎回新しい会話で起き（輪の 1 回目）、出し直しは同じ会話（graphloops の --resume と同じ）。3 回とも拒まれたら諦めの印で
   輪を抜け（裁定 R50）、r1.comment_candidates は省いて R1 の本体へ進み（表で skippable。graph: 取れなくても R1 を not_run に倒さない）、
   ほかの目は collect が盤面を止める。
@@ -787,11 +788,14 @@ nodes:
                 type: string
 
   # r4.hidden_scope（P-R ＞ R4 見えてないスコープ（横断リスク・BASE 能力インベントリ）。役 inspector）
+  # R1・R2 の筋の後（eyes.LANE_AFTER）: r4.human_gate の問いは盤面を止めるので、問いより先に R1・R2 の目を出し切る。
+  # 前の筋が落ちても飛ばさない（all_done。route が入口の落ちを見分け、落ちた筋を why に書く）
   - id: r4-scope-route
     script: route
     runtime: uv
     timeout: 1728000000
-    depends_on: [eyes-enter]
+    depends_on: [eyes-enter, r1-minimality-route, r1-minimality-loop, premise-check-route, premise-check-loop]
+    trigger_rule: all_done
     with:
       role: r4-scope
       round: $eyes-enter.output.round
@@ -956,13 +960,14 @@ nodes:
               reason_file:
                 type: string
 
-  # 出口。入口の周の箱で目の状態を見る。人に聞いていれば止めずに asking。目が残れば（3 回とも拒まれた）盤面を止めて ok: false
+  # 出口。入口の周の箱で目の状態を見る。人に聞いていれば止めずに asking。目が残れば（3 回とも拒まれた）盤面を止めて ok: false。
+  # 筋が落ちても走る（all_done）: 落ちた筋だけが残った周は止めずに理由を返し、最後の関所に出す
   - id: eyes-collect
     script: collect
     runtime: uv
     timeout: 1728000000
     depends_on: [r1-minimality-route, r1-minimality-loop, premise-check-route, premise-check-loop, r3-coherence-route, r3-coherence-loop, r4-scope-route, r4-scope-loop]
-    trigger_rule: none_failed_min_one_success
+    trigger_rule: all_done
     with:
       round: $eyes-enter.output.round
     output_format:

@@ -11,6 +11,8 @@ undecided_because の規律（本流 p2.diagnose.md 8 項）を関所の項目�
 
 - with_marks(node, schema)・split(node, reply)・save(board, node, round, marks): 役の型・受け付け
 - plan_gate_items(b): 写しの _plan_gate_items の差し替え
+- r4_gate_items(rl): 写しの _r4_gate_items の組み手。修正前の関所で人が continue で通した行と種類も本文も同じ行を、修正の後の
+  関所（r4.human_gate）で聞き直さず、gate_passes に by human で残す（ADR 0043 の文脈と同じ向き: 答え済みの人の決定を聞き直さない）
 - passes(b)・lines(b): 通した行と、最後の関所の文・報告の行
 
 問いの台帳（record.questions）のうち人に聞く状態（検証器の ASKING）の問いも、修正前の関所の項目に 1 件 1 行で載せる（持ち主
@@ -22,6 +24,7 @@ undecided_because の規律（本流 p2.diagnose.md 8 項）を関所の項目�
 - held_lines(b)・returned_lines(b): 最後の関所の文と報告に並べる聞いたままの問い・修正役に渡す義務に戻った単位
 - unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
 - PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
+- LANES_NAME・fell_lanes(b): 独立の目の筋が落ちた文の置き場と読み手（blk-eyes が書き、最後の関所の目の行の下に並ぶ）
 - quote(question)・QUOTE_NOTE: 盤面の問いの文を引用として載せる行と、関所で添える答え方の読み替えの 1 行
 - head3(happened, decide, push)・pushes(texts)・push_of(texts): 関所の文と報告の冒頭 3 行（起きたこと・決めてほしいこと・推し）と、推しを記録から拾う口
 - gate_text(asking, *, run_id, node, record_name): 答えを受ける関所の文（修正前の関所と仕様の関所が呼ぶ 1 つの組み立て）
@@ -58,7 +61,16 @@ _RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ
 HEAD = {"p2.fix_plan": "関所の項目の決め手: plan[].narrows の各行" + _RULE,
         "p2.plan_review": "関所の項目の決め手: faces のうち kind が regression・policy の各行" + _RULE}
 PASSED_BY = "decided"
+PASSED_BY_HUMAN = "human"               # 修正の後の関所で、修正前の関所で人が通した行と同じなので聞き直さなかった
 GATE_NODE = "p2.human_gate"
+R4_GATE_NODE = "r4.human_gate"
+# 修正前の関所の行の頭（plan_gate_items と写しの _plan_gate_items が組む形）。r4_gate_items が種類と本文に分ける
+NARROW_HEAD = re.compile(r"修正案 \d+ が狭める能力: ")
+FACE_HEAD = re.compile(r"事前審査の穴 \[([^\]]+)\] [^\n]*?: ")
+CARRIED_HEAD = "## 直す前の関所で人が通した狭まり（機械が貼った）"
+CARRIED_ASK = ("下の行は、直す前の関所で人が通すと答えた（continue）。同じ能力の消えを capability_inventory.lost に、同じ方針との"
+               "ぶつかりを policy_conflicts に書くなら、[ ] の種類（regression は lost・policy は policy_conflicts）に合わせ、本文を"
+               "一字も変えずに写せ。通した条件を超える消え・別の能力は自分の言葉で書け")
 ASK_HEAD = "問いの台帳の問い"          # 関所の項目の頭。答えの突き合わせもこの頭と key で引く
 ASK_KINDS = ("fork", "escalate")       # 関所の項目の kinds（fork の問いと、status が escalate の問い）
 HOLD = re.compile(r"保留\s*[:：]\s*([^。；;\n）)」]+)")   # 一言の「保留: <key>」（文の終わりまで。key を並べてよい）
@@ -82,6 +94,9 @@ REVIEW_WORDS = {"pass": "通った", "redesign-needed": "作り直しが要る",
                 "premise-invalid": "前提が崩れている", "carried_over": "前の周から持ち越した", "not_applicable": "当てはまらない",
                 "not_run": "走っていない"}
 HANDLED_WORDS = {"fixed": "直した", "declared": "直さずに残すと申告した"}   # 手直しの行の handled の語（写しの graph の enum）
+# 独立の目のブロックが Archon の節が落ちた筋とその文を置く作業ファイル（入口の周の箱 r<N>/。書き手は blk-eyes の route・collect、
+# 読み手は fell_lanes）。ブロックとラインが名前を写し合わないよう、正本はここ
+LANES_NAME = "eyes-lanes.json"
 
 
 # 盤面の問いの文は写しの規則が本線の道具の書き方（continue --note・--detail）で作り、写しは本線とバイト一致で縛られて直せない。
@@ -113,6 +128,14 @@ def named(node) -> str:
 def eye_named(name: str, status) -> str:
     """独立の目の 1 行の頭: 「何を見る目（R<n>）: 平易な状態（状態の語）」"""
     return f"{EYES.get(name, '独立の目')}（{name}）: {REVIEW_WORDS.get(str(status), '')}（{status}）"
+
+
+def fell_lanes(b) -> str:
+    """今の周の箱の LANES_NAME の文（独立の目の筋が落ちた理由）。無ければ空"""
+    try:
+        return str(json.loads((b.dir / f"r{b.round}" / LANES_NAME).read_text(encoding="utf-8")).get("why") or "")
+    except (OSError, ValueError, AttributeError):
+        return ""
 
 
 def pushes(texts) -> str:
@@ -353,19 +376,70 @@ def held_lines(b) -> list:
     return out
 
 
-def _record(b, passed) -> None:
+def _keep(b, row: dict) -> None:
     kept = b.state.setdefault("works", {}).setdefault("gate_passes", [])
+    if row not in kept:
+        kept.append(row)
+
+
+def _record(b, passed) -> None:
     for text, m in passed:
-        row = {"node": "p2.human_gate", "round": b.round, "by": PASSED_BY, "item": text, "decided_by": m["decided_by"]}
-        if row not in kept:
-            kept.append(row)
+        _keep(b, {"node": GATE_NODE, "round": b.round, "by": PASSED_BY, "item": text, "decided_by": m["decided_by"]})
+
+
+def _human_passed(b) -> dict:
+    """修正前の関所で人が continue で通した行 {(種類, 頭を除いた本文): 答えた周}（台帳の問いの行は数えない）"""
+    out = {}
+    for h in (b.record.get("process") or {}).get("human_items") or []:
+        if not (isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "continue"):
+            continue
+        for a in h.get("asked") or []:
+            m = NARROW_HEAD.match(a) if isinstance(a, str) else None
+            f = FACE_HEAD.match(a) if isinstance(a, str) and not m else None
+            if m or f:
+                out.setdefault(("regression" if m else f.group(1), a[(m or f).end():]), h.get("round"))
+    return out
+
+
+def carried_section(b) -> str:
+    """R4（r4.hidden_scope）の指示書の頭に貼る節: 修正前の関所で人が continue で通した行（種類と頭を除いた本文）と、同じ物を書く
+    なら本文をそのまま写せという頼み。r4_gate_items は本文の完全一致で照らすので、別の役の自由文を揃える口。無ければ空"""
+    rows = [f"- [{kind}] {body}" for kind, body in _human_passed(b)]
+    return f"{CARRIED_HEAD}\n\n{CARRIED_ASK}\n\n" + "\n".join(rows) if rows else ""
+
+
+def r4_gate_items(rl):
+    """写しの RL の _r4_gate_items の組み手（board.rl_builder の印で _apply_overrides が開いた RL を渡す）。元の関数の行のうち、
+    修正前の関所で人が continue で通した行と種類も頭を除いた本文も同じ物を外し、state.works.gate_passes に by human で残す。
+    写しの元は頭込みの文で照らすので、関所ごとに頭の違う同じ狭めを外せない"""
+    base, heads = rl._r4_gate_items, {kind: head for kind, _, head in rl.R4_ROWS}
+
+    def items(b):
+        passed, out = _human_passed(b), []
+        for kind, row in base(b):
+            head = heads.get(kind, "")
+            key = (kind, row[len(head):]) if row.startswith(head) else None
+            if key not in passed:
+                out.append((kind, row))
+                continue
+            _keep(b, {"node": R4_GATE_NODE, "round": b.round, "by": PASSED_BY_HUMAN, "item": row,
+                      "passed_at": {"node": GATE_NODE, "round": passed[key]}})
+        return out
+    return items
 
 
 def passes(b) -> list:
     return list((b.state.get("works") or {}).get("gate_passes") or [])
 
 
+def _pass_line(p) -> str:
+    if p.get("by") == PASSED_BY_HUMAN:
+        at = p.get("passed_at") or {}
+        return (f"{named(p['node'])}（周 {p['round']}）で聞き直さなかった——人が通した（周 {at.get('round')}・"
+                f"{PLAIN.get(str(at.get('node')), at.get('node'))}）狭まりと同じ: {p['item']}")
+    return f"{named(p['node'])}（周 {p['round']}）で決め手が在るので聞かずに通した: {p['item']}（決め手: {p['decided_by']}）"
+
+
 def lines(b) -> list:
-    """最後の関所の文と報告に載せる、決め手で通した行（1 件 1 行）"""
-    return [f"{named(p['node'])}（周 {p['round']}）で決め手が在るので聞かずに通した: {p['item']}（決め手: {p['decided_by']}）"
-            for p in passes(b)]
+    """最後の関所の文と報告に載せる、決め手で通した行と、修正前の関所で人が通したので聞き直さなかった行（1 件 1 行）"""
+    return [_pass_line(p) for p in passes(b)]

@@ -1,5 +1,5 @@
-# 筋書き pass: 目 4 つ（r1.comment_candidates・r2.compare・r3.coherence・r4.hidden_scope）が同じ層で並んで走り、R1 の本体が
-# 続く。R2 の設計の半分（r2.design）は修正の前に作られてブロックの前に盤面へ渡っているので、比較の目は入口で待っている。R2 の問いが
+# 筋書き pass: 目 3 つ（r1.comment_candidates・r2.compare・r3.coherence）が同じ層で並んで走り、R1 の本体が続く。
+# r4.hidden_scope は R1・R2 の筋の後（lib/eyes.py の LANE_AFTER）。R2 の設計の半分（r2.design）は修正の前に作られてブロックの前に盤面へ渡っているので、比較の目は入口で待っている。R2 の問いが
 # 立つので stop.premise_check は条件で na（premise-check-route が go: false で輪が飛ぶ）。collect が ok: true。
 # 受け付け・出口・分かれ道は盤面（$ARTIFACTS_DIR/board。ラインの前のブロックが作る）を要るので、このブロック単体の run では
 # 全部 stub で置く（中身は tests/test_blk_eyes.py が手本の盤面の上で見る）。役の返答は写しの schema に合う形（試験が見る）
@@ -218,9 +218,9 @@ fixture:
   - r3-coherence-prep
   - r3-coherence
   - r3-coherence-accept
+  - premise-check-route
   - r4-scope-route
   - r4-scope-prep
   - r4-scope
   - r4-scope-accept
-  - premise-check-route
   - eyes-collect

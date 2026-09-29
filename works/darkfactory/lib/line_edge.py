@@ -369,6 +369,9 @@ def _eyes(b) -> tuple:
         lines.append(f"  - {gatemarks.eye_named(name, st)}" + (f"——理由: {reason}" if reason else ""))
         if name == "R2":
             lines += _r2_inputs(b)
+    fell = gatemarks.fell_lanes(b)
+    if fell:
+        lines.append(f"  - 落ちた筋: {fell}")
     return lines, blocked
 
 
@@ -430,7 +433,7 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     lines.append(f"- 止めずに残った異議: {objection or '無い'}")
     passed = gatemarks.lines(b)
     if passed:
-        lines.append(f"- 直す前の関所で決め手が在るので聞かずに通した項目（{len(passed)} 件）:")
+        lines.append(f"- 直す前の関所で通した項目（決め手が在るので聞かずに通した行と、人が通したので後の関所で聞き直さなかった行。{len(passed)} 件）:")
         lines += [f"  - {x}" for x in passed]
     rows, blocked = eyes
     lines.append(f"- 独立の目の判定（阻害: {'・'.join(blocked) or '無い'}）:")
