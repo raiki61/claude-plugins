@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-29
+
 ### Added
 
 - `use.sh` に、関所で待つ run を進める・答える・止める口と、終わった run を片付ける口を足した: `approve <対象> <run-id>`（起動の関所を越える）・`answer <対象> <run-id> continue|stop "<一言>" "<答えた者>"`・`stop <対象> <run-id> "<理由>"`（関所で待つ run は答えの stop、走っている run は止め札）・`wait <対象> <run-id>`（決まった時間 `WORKS_USE_WAIT_SECONDS`、既定 540 秒のうちに戻り、状態を 1 行と終了コード（0 = 関所で待つ・3 = まだ走っている・5 = 終わった・1 = 落ちた）で返す）・`apply <対象> <run-id>`（差分を書き直し、`git apply --check` の後に当てる。commit はしない。ファイルを消す差分は `WORKS_USE_ALLOW_DELETE=1` の時だけ当てる）・`clean <対象> <run-id>`（終わった run の worktree と枝を消す。走っている・関所で待つ run は拒む）。`approve`・`answer`・関所で待つ run の `stop` は残りの工程を切り離して回してすぐ戻り、出力は `<利用の家>/logs/` に書く。今までは答え・止め方・差分の取り込み・片付けを、利用者の PATH に無い `archon workflow respond` や `git apply`・`git worktree remove` を手で打つ形でしか書いていなかった。
