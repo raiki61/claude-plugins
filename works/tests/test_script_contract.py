@@ -47,8 +47,6 @@ from test_edge import CLEAN_REVIEW, DELTA_FACE  # noqa: E402
 # 線に include されていないブロック（線の run では起きない。自分の試験が口の関数を見る）。線に入れたらここから消す
 UNWIRED = {
     "blk-spec": "仕様から入る道（flow: spec）はまだ線に配線していない（P1-R2）。test_blk_spec が口の関数を見る",
-    "blk-structure": "線への差し込み（判定の単位を契約の形に写して include に渡す道）は人が決める（設計書 10 節の S2a）。"
-                     "test_blk_structure が節を見る",
 }
 
 

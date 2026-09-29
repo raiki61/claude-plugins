@@ -261,6 +261,18 @@ class LineShapeCase(unittest.TestCase):
             self.assertEqual(ids[inc], "blk-delta" if role == "review" else "blk-refix", role)
         self.assertEqual(node("planning")["with"]["include_id"], "planning")
 
+    def test_structure_block_wired_between_plan_and_planning(self):
+        """構造のブロック（blk-structure）は h-plan の直後・planning の前に include 1 つで入り、h-plan が写した判定の単位の
+        ファイルを units に受ける。planning の depends_on は [h-plan] のまま（設計書 8 節 98 行の形 (c)）"""
+        ids = [n["id"] for n in line()["nodes"]]
+        got = next((n for n in line()["nodes"] if n.get("include") == "blk-structure"), None)
+        self.assertIsNotNone(got, "darkfactory.yaml に blk-structure の include が無い")
+        self.assertEqual(ids.index(got["id"]), ids.index("h-plan") + 1)
+        self.assertEqual(ids.index("planning"), ids.index(got["id"]) + 1)
+        self.assertEqual(got.get("depends_on"), ["h-plan"])
+        self.assertEqual(got["with"]["units"], "$h-plan.output.structure_units_file")
+        self.assertEqual(node("planning")["depends_on"], ["h-plan"])
+
 
 class LineFixturesCase(unittest.TestCase):
     def fixtures(self):

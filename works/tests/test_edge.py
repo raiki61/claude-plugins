@@ -45,7 +45,8 @@ SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
 OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
-            "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note", "purpose_file", "mat_go"}
+            "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note", "purpose_file", "mat_go",
+            "structure_units_file"}
 BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mat_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
@@ -924,6 +925,20 @@ class PlanEdgeCase(EdgeBase):
         self.assertIn("p2.fix_plan", b.ready())
         self.assertEqual(len(self.done_rows("p2.diagnose")), 1)
         self.assertEqual(got["judgment_file"], judged["judgment_file"])
+
+    def test_plan_hands_structure_units(self):
+        """go の h-plan は判定の単位を blk-structure の入力の契約 {id, paths, summary} に写したファイルを structure_units_file で返す
+        （id は単位の key、paths は class_query.how.paths）"""
+        self.premised()
+        got = self.edge("plan", judged=self.judge_exit())
+        self.assertEqual((got["go"], got["stop"]), (True, False), got)
+        path = got.get("structure_units_file") or ""
+        self.assertTrue(path, "h-plan が structure_units_file を返さない")
+        rows = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+        self.assertEqual([(r["id"], r["paths"]) for r in rows], [(UNIT_MEAN, ["stats.py"]), (UNIT_CLAMP, ["stats.py"])])
+        for r in rows:
+            self.assertEqual(set(r), {"id", "paths", "summary"})
+            self.assertIsInstance(r["summary"], str)
 
     def test_bridge_skips_when_done(self):
         """盤面に p2.diagnose が今の周に在る → 2 度受けない（読めない judgment_file でも読まない。trace の done は 1 行）"""

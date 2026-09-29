@@ -32,6 +32,7 @@ PATTERN = "test_*.py"   # run.sh の discover と同じ
 FAST = frozenset({
     "test_blk_judge",       # 3.8 秒（負荷 15）種の git は gitkit の型の写し・スクリプトを子で起こす
     "test_core_copy",       # 1〜3 秒
+    "test_structure_units", # 判定の単位を契約の形に写す関数（一時の置き場のファイルだけ。git・子のプロセスを使わない）
     "test_core_verbatim",   # 写しと元の commit のバイト一致（git show で読むだけ。リポジトリを作らない）
     "test_core_sync",       # 写し直しの道具: 偽の正本の git はモジュールに 1 回だけ作り、試験は道具を子で起こして git show で読むだけ
     "test_gl_map",          # 線 A: 対応表の JSON と accept.py を読むだけ

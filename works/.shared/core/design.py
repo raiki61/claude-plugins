@@ -80,7 +80,8 @@ UNPASSED = re.compile(r"渡されていない|渡っていない")
 CLAIM_WORDS = {"human_answer": ("人の答え", "関所")}
 PREMISES_FILE = "design-premises.json"   # r2.design に渡した前提の入力の控え（盤面の根。design.json と同じく run に 1 つ）
 # 独立設計の指示書の頭に機械が貼ってよい前提の種類（premises の控えの kind の許す一覧）。一覧の外（ほかのブロックの出力など）を
-# 貼る口は作らない（独立設計の隔て。設計書 structure-block-design 7 節）。graph の reads で描く本文はこの柵の外（graph の reads が縛る）
+# 貼る口は作らない（独立設計の隔て。設計書 structure-block-design 7 節）。graph の reads で描く本文はこの柵の外（graph の reads が縛り、
+# その reads と prompt_append などの入口は tests/test_blk_eyes.py の test_r2_design_inputs_are_exactly_the_allowlist が許可の一覧の等式で縛る）
 PREMISE_KINDS = ("human_answer", "named_section")
 
 

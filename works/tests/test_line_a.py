@@ -175,8 +175,9 @@ class EyesPurposeCase(LineBase):
         self.assertEqual(t[-4:], ["h-eyes", "report", "reporting", "result"])
         for name in ("（R1）: 通った（pass）", "（R2）: 通った（pass）"):
             self.assertIn(name, got["out"]["h-final"]["gate_text"])
-        # r2.design は目のブロックで起こさない（修正案のブロックで先に作り、h-look が盤面へ渡した）
-        self.assertEqual(set(got["eyes_roles"]), {"r1-comments", "r1-minimality", "r2-compare"})
+        # r2.design は目のブロックで起こさない（修正案のブロックで先に作り、h-look が盤面へ渡した）。この周の修正が差分を作ったので
+        # R3・R4 も回る（133 件目の差し替え。works の 1 周の run では修正と同じ周に目を回す）
+        self.assertEqual(set(got["eyes_roles"]), {"r1-comments", "r1-minimality", "r2-compare", "r3-coherence", "r4-scope"})
         b = entry.open_board(got["board_dir"], allow_halted=True)
         for nid in ("r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare"):
             with self.subTest(nid):

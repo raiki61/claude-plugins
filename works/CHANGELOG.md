@@ -8,8 +8,9 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Added
 
+- darkfactory に構造のブロックを差し込んだ（設計書 8 節の形 (c)・10 節の S2a）。節 `structuring`（`include: blk-structure`）が h-plan の後・planning の前に入り、計画に進む run では毎回、判定の単位が名指すファイルを測って `structure/structure.json` に残す。単位を入力の契約 `[{id, paths, summary}]` に写すのは h-plan（境の節の出口に `structure_units_file` を 1 欄足した）。paths は判定の `class_query.how.paths`（無ければ key の頭の語）のうち、対象の根の中に在るファイルだけで、捨てたパスと写せなかった単位は trace の `structure_units_dropped` の行に残る。出力を読む節はまだ無いので、planning はこの節を待たない。
 - 構造の実測に差分の形 `--diff FILE` を足した（設計書 3 節の差分の形・10 節の S1b）。案の patch なら、作業ツリーの今の中身を同じ作り方で写した一時の木を 2 つ作り（記号のリンクと実行の印もそのまま）、一方を前の像、もう一方に `git apply` で当てた物を後の像にし（対象の作業ツリー・index・枝は動かさない。当てられなければ理由つきで 1 で止まる）、行数・写し・入口・環境変数と設定の口の前後と増減を出す。新しい名ごとに、現れる場所（ファイルと行）と、既に複数のファイルから使われているファイルを通って読む場所（`via_readers`）と、実行できるファイルが直に読む場所（`shell_sites`）を並べる（試験と文書の中の場所は後の 2 つに載せない）。名の一覧なら場所だけを出す。`--diff` 無しの出力は今のまま。
-- 構造のブロックの骨 `blk-structure/blk-structure.yaml` を足した（設計書 1 節・8 節・10 節の S2a。AI なし）。入力は判定の単位のファイル（`[{id, paths, summary}]`）・対象の根・方針の文書のパス（任意）の 3 つだけ。段 A が単位ごとに `measure.py` を子のプロセスで回して `structure.json` に書き（段の始まり・終わり・`wall_s` も残す）、設計の行の `design.jsonl` を 0 バイトで置く。出口は `ok`・`structure_file`・`design_file` と `status`・`wall_s`。実測が落ちても・単位のファイルが読めなくても `ok: true` のまま、`structure.json` の `status: failed` と `reason` に残して線を止めない。行の形は `blk-structure/design-row.schema.json`（行を書くのは後の構造の目）。まだ darkfactory には差し込んでいない（未配線。run の振る舞いは変わらない）。
+- 構造のブロックの骨 `blk-structure/blk-structure.yaml` を足した（設計書 1 節・8 節・10 節の S2a。AI なし）。入力は判定の単位のファイル（`[{id, paths, summary}]`）・対象の根・方針の文書のパス（任意）の 3 つだけ。段 A が単位ごとに `measure.py` を子のプロセスで回して `structure.json` に書き（段の始まり・終わり・`wall_s` も残す）、設計の行の `design.jsonl` を 0 バイトで置く。出口は `ok`・`structure_file`・`design_file` と `status`・`wall_s`。実測が落ちても・単位のファイルが読めなくても `ok: true` のまま、`structure.json` の `status: failed` と `reason` に残して線を止めない。行の形は `blk-structure/design-row.schema.json`（行を書くのは後の構造の目）。
 
 ### Changed
 

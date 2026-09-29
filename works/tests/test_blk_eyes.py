@@ -507,6 +507,25 @@ class PrepCase(_Case):
             self.assertNotIn(leak, text, f"独立設計の役に {leak!r} が届いた")
             self.assertNotIn(leak, dumped, f"控えに {leak!r} が載った")
 
+    R2_DESIGN_INPUTS = {
+        "reads": ["out.p0.purpose.purpose_text", "record.process.constraints", "loop.drift_notes",
+                  "loop.purpose_review_stale", "inputs.policy_md"],
+        "prompt_file": "../prompts/review-loop/r2.design.md",
+        "prompt_append": ["../prompts/policy-paste.md", "../prompts/policy.md"],
+        "fresh_context": True,
+        "cond": "r2_design_due",
+    }
+
+    def test_r2_design_inputs_are_exactly_the_allowlist(self):
+        """写しの graph の r2.design に本文が入る欄（reads・prompt_file・prompt_append・fresh_context・cond）は許可の一覧と等しい。
+        graphloops の版の差し替えで入口が増えれば、名前が構造のブロックの出力と違っても赤になる（design.PREMISE_KINDS の柵の外の半分）"""
+        graph = json.loads((CORE / "graphloops" / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+        node = graph["nodes"]["r2.design"]
+        self.assertEqual({k: node.get(k) for k in self.R2_DESIGN_INPUTS}, self.R2_DESIGN_INPUTS)
+        for leak in ("structure", "design_file", "design.jsonl"):
+            for v in (*node["reads"], node["prompt_file"], *node["prompt_append"]):
+                self.assertNotIn(leak, v, f"独立設計の役の入力 {v!r} が構造のブロックの出力を名指す")
+
     def test_prep_refuses_eye_not_waiting(self):
         self.board("r1r2")
         self.enter()

@@ -96,10 +96,15 @@ ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み�
 JUDGED_FILE = "judged.json"                  # h-plan が受けた判定のブロックの出口の控え（b.work。後ろの境の節が運ぶ。M4）
 GATE_FILE = "gate.md"                        # policy-gate の文（b.work）
 NOTES_FILE = "human-notes.md"                # 今の周の人の一言（h-fix が書き、修正役がパスで読む。R44: with: に文を貼らない）
+# 判定の単位を blk-structure の入力の契約 {id, paths, summary} に写したファイル（b.work。h-plan が書き、include の with: units が読む。
+# 写すのは線の側のここ 1 か所で、ブロックは判定役の返答の形を読まない。設計書 structure-block-design 8 節）
+STRUCTURE_UNITS_FILE = "structure-units.json"
+STRUCTURE_UNITS_OP = "structure_units_dropped"   # 対象の根からの相対のパスが 1 本も取れず写さなかった単位・捨てたパスの trace の行
 EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", "judgment_file": "", "open_units": "",
          "plan_file": "", "notes": "", "notes_file": "", "why": "", "gate_file": "", "premises_file": "",
          "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False,
-         "runtime_go": False, "holdout_go": False, "mid_note": "", "purpose_file": "", "mat_go": False}
+         "runtime_go": False, "holdout_go": False, "mid_note": "", "purpose_file": "", "mat_go": False,
+         "structure_units_file": ""}
 
 
 def _gap(msg):
@@ -265,6 +270,50 @@ def trace_empty_fix(b) -> None:
     """直す物の無い周に機械が p3.fix の空の返答を渡した印を trace に 1 行（T10b の h-plan が take の後に呼ぶ。TA6）。
     at mid は、この印の在る周の p3.fix を「役が出した修正」と数えない"""
     b.trace(EMPTY_FIX_OP, node="p3.fix", by=EMPTY_FIX_BY, round=b.round)
+
+
+def _unit_file_paths(u: dict, repo) -> tuple:
+    """単位 1 つが名指すファイル（class_query.how.paths。無ければ key の頭の語）のうち、対象の根からの相対で在るファイルの
+    パスと、捨てたパス。how.paths は git の pathspec（ディレクトリ・glob・絶対パスも来る）で、measure.py は根の中の
+    ファイルしか測らないので、ここで捨てて数を残す（黙って空の実測にしない）"""
+    how = (u.get("class_query") or {}).get("how") or {}
+    raw = [p for p in how.get("paths") or [] if isinstance(p, str) and p]
+    if not raw and isinstance(u.get("key"), str) and u["key"].split():
+        raw = [u["key"].split()[0]]
+    root = pathlib.Path(repo).resolve()
+    kept, dropped = [], []
+    for p in raw:
+        q = pathlib.PurePosixPath(p[2:] if p.startswith("./") else p)
+        ok = (not q.is_absolute() and ".." not in q.parts and not any(c in p for c in "*?[:")
+              and (root / q).is_file())
+        (kept if ok else dropped).append(str(q) if ok else p)
+    return list(dict.fromkeys(kept)), list(dict.fromkeys(dropped))
+
+
+def structure_units(b, carried: dict, repo) -> str:
+    """判定の直す義務の単位（carried の judgment_file・open_units）を blk-structure の入力の契約 {id, paths, summary} に写して
+    b.work(STRUCTURE_UNITS_FILE) に書き、そのパスを返す。paths が 1 本も残らない単位は写さない（stage_a.read_units は 1 行でも
+    paths が空ならファイル全体を落とす）。写さなかった単位と捨てたパスは trace の STRUCTURE_UNITS_OP の 1 行に残す"""
+    try:
+        doc = json.loads(pathlib.Path(carried["judgment_file"]).read_text(encoding="utf-8"))
+        keys = set(json.loads(carried["open_units"] or "[]"))
+    except (OSError, ValueError, TypeError):
+        doc, keys = {}, set()
+    rows, skipped, dropped = [], [], []
+    for u in (doc.get("units") if isinstance(doc, dict) else None) or []:
+        if not isinstance(u, dict) or u.get("key") not in keys:
+            continue
+        paths, bad = _unit_file_paths(u, repo)
+        dropped += bad
+        if not paths:
+            skipped.append(u["key"])
+            continue
+        reason = u.get("reason")
+        rows.append({"id": u["key"], "paths": paths, "summary": reason if isinstance(reason, str) else ""})
+    if skipped or dropped:
+        b.trace(STRUCTURE_UNITS_OP, units=skipped, paths=dropped, round=b.round)
+    _write_json(b.work(STRUCTURE_UNITS_FILE), rows)
+    return str(b.work(STRUCTURE_UNITS_FILE))
 
 
 def _fixed_by_role(b) -> bool:
@@ -732,7 +781,8 @@ def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> 
        渡さない（Archon の再開・盤面で判定を受けた後も同じ）
     3. p2.fix_plan が ready なら go。p3.fix が ready で p2.fix_plan が na（直す物が無い周）なら、機械が空の返答
        （entry.empty_fix_reply）を渡して trace_empty_fix
-    4. 修正案が無くても、独立設計を修正の前に作る周（design.due）なら go（最後の R2 の比較が設計を要る。blk-plan は設計の輪だけを回す）"""
+    4. 修正案が無くても、独立設計を修正の前に作る周（design.due）なら go（最後の R2 の比較が設計を要る。blk-plan は設計の輪だけを回す）
+    5. go なら判定の単位を構造のブロックの入力の契約に写し（structure_units）、structure_units_file で返す"""
     if judged is not None:
         _write_json(b.work(JUDGED_FILE), judged)
     carried = _carried(b)
@@ -747,14 +797,16 @@ def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> 
             return {"stop": True, "go": False, "why": reason, **carried}
         b = entry.open_board(pathlib.Path(board_dir))
     ready = b.ready()
-    if GO_NODE["plan"] in ready:
-        return {"go": True, **carried}
-    if GO_NODE["fix"] in ready and b.node_state("p2.fix_plan") == "na":
-        got = _hand(b, board_dir, GO_NODE["fix"], entry.empty_fix_reply(), repo)
-        if not got["ok"]:
-            raise _gap(f"盤面が直す物の無い周の空の修正を受けない: {got['reason']}")
-        trace_empty_fix(entry.open_board(pathlib.Path(board_dir)))
-    return {"go": design.due(entry.open_board(pathlib.Path(board_dir)))[0], **carried}
+    if GO_NODE["plan"] not in ready:
+        if GO_NODE["fix"] in ready and b.node_state("p2.fix_plan") == "na":
+            got = _hand(b, board_dir, GO_NODE["fix"], entry.empty_fix_reply(), repo)
+            if not got["ok"]:
+                raise _gap(f"盤面が直す物の無い周の空の修正を受けない: {got['reason']}")
+            trace_empty_fix(entry.open_board(pathlib.Path(board_dir)))
+        b = entry.open_board(pathlib.Path(board_dir))
+        if not design.due(b)[0]:
+            return {"go": False, **carried}
+    return {"go": True, **carried, "structure_units_file": structure_units(b, carried, repo)}
 
 
 def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate: str, judged: dict | None = None,

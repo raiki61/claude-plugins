@@ -75,6 +75,7 @@ h-entry:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 pr-checking__pr-snap:
   ok: true
   snapshot_file: board/r1/pr-snapshot.json
@@ -175,6 +176,7 @@ h-judge:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 purposing__intake: {}
 purpose:
   purpose_text: stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞い（算術平均・上限を超えた値は上限に収める）に直し、test_stats.py の赤 2 件を緑にする
@@ -216,6 +218,7 @@ h-mat:
   mid_note: ''
   purpose_file: board/out/r1/p0.purpose.json
   mat_go: true
+  structure_units_file: ''
 gathering__mat-route:
   ok: true
   stopped: false
@@ -669,6 +672,16 @@ h-plan:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: board/r1/structure-units.json
+structuring__stage-a:
+  structure_file: structure/structure.json
+  design_file: structure/design.jsonl
+structuring__collect:
+  ok: true
+  structure_file: structure/structure.json
+  design_file: structure/design.jsonl
+  status: ok
+  wall_s: 0.1
 planning__r2-design-snap:
   ok: true
   go: true
@@ -787,6 +800,7 @@ h-gate:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 h-fix:
   ok: true
   stop: true
@@ -810,6 +824,7 @@ h-fix:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 fixing__ignored-before:
   ok: true
   count: 0
@@ -1075,6 +1090,7 @@ h-rejudge:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 rejudging__rj-snap:
   ok: true
   snapshot_file: board/r1/rejudge-snapshot.json
@@ -1171,6 +1187,7 @@ h-mid:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 h-review:
   ok: true
   stop: true
@@ -1194,6 +1211,7 @@ h-review:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 reviewing__cut:
   ok: true
   files:
@@ -1240,6 +1258,7 @@ h-refix:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 refixing__refix-prep:
   ok: true
   owed: 1
@@ -1347,6 +1366,7 @@ h-tests:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 testing__run:
   ok: true
   green: true
@@ -1380,6 +1400,7 @@ h-look:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 h-final:
   ok: true
   stop: true
@@ -1403,6 +1424,7 @@ h-final:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 h-eyes:
   ok: true
   stop: true
@@ -1426,6 +1448,7 @@ h-eyes:
   mid_note: ''
   purpose_file: ''
   mat_go: false
+  structure_units_file: ''
 eyeing__eyes-enter:
   ok: true
   round: 1

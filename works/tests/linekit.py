@@ -186,6 +186,9 @@ LINE_ORDER = [
      "with": {"request": "$INPUTS.request", "base_rev": "$start.output.base_rev",
               "policy_paste": "$start.output.policy_paste", "premises_file": "$h-judge.output.premises_file"}},
     _edge("h-plan", "plan", ["start", "h-mat", "judging"], judged=_skippable("$judging.output")),
+    {"id": "structuring", "kind": "include", "block": "blk-structure", "depends_on": ["h-plan"],
+     "when": "$h-plan.output.go == true",
+     "with": {"units": "$h-plan.output.structure_units_file", "policy_path": "$start.output.policy_path"}},
     {"id": "planning", "kind": "include", "block": "blk-plan", "depends_on": ["h-plan"],
      "when": "$h-plan.output.go == true",
      "with": {"judgment_file": "$h-plan.output.judgment_file", "base_rev": "$start.output.base_rev",
@@ -421,6 +424,23 @@ class LineRun:
         b = entry.open_board(self.board)
         return {"ok": True, "plan_file": str(b.dir / b.state["outputs"]["p2.fix_plan"]["file"]), "asks_human": got["asking"]}
 
+    def blk_structure(self):
+        """blk-structure の節の順（stage-a → collect）。AI の役が無いので本物のスクリプトを子のプロセスで回す（ARTIFACTS_DIR は
+        盤面の置き場の親。cwd は対象）"""
+        env = hermetic.child_env(ARTIFACTS_DIR=str(self.board.parent), PYTHONDONTWRITEBYTECODE="1",
+                                 INPUTS_UNITS=self.out["h-plan"]["structure_units_file"], INPUTS_ROOT="",
+                                 INPUTS_POLICY_PATH=self.out["start"].get("policy_path") or "")
+        out = {}
+        for script in ("stage_a", "collect"):
+            p = subprocess.run([sys.executable, str(ROOT / "blk-structure" / "scripts" / f"{script}.py")], cwd=str(self.repo),
+                               env={**env, "INPUTS_STRUCTURE_FILE": out.get("structure_file", ""),
+                                    "INPUTS_DESIGN_FILE": out.get("design_file", "")},
+                               capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+            if p.returncode != 0:
+                raise AssertionError(f"blk-structure {script}: {p.stderr}")
+            out = json.loads(p.stdout)
+        return out
+
     def blk_fix(self):
         self._edit("fix")
         self.take("p3.fix", self.replies["fix"])
@@ -508,7 +528,8 @@ class LineRun:
         blocks = {"blk-pr": self.blk_pr, "blk-premises": self.blk_premises, "blk-purpose": self.blk_purpose,
                   "blk-judge": self.blk_judge, "blk-plan": self.blk_plan, "blk-fix": self.blk_fix, "blk-delta": self.blk_delta,
                   "blk-refix": self.blk_refix, "blk-tests": self.blk_tests, "blk-eyes": self.blk_eyes,
-                  "blk-report": self.blk_report, "blk-material": self.blk_material, "blk-rejudge": self.blk_rejudge}
+                  "blk-report": self.blk_report, "blk-material": self.blk_material, "blk-rejudge": self.blk_rejudge,
+                  "blk-structure": self.blk_structure}
         for row in LINE_ORDER:
             nid = row["id"]
             if nid == "launch":
