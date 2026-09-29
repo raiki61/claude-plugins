@@ -20,7 +20,7 @@
 - 写しと食い違い:
   - 認証の順の正本は guard.sh の `works_dev_auth_candidates`（token の env → `WORKS_KEYCHAIN_ITEM` → Claude Code 自身の keychain）。dogfood.sh:90 と real-run.sh:35 は古い 2 段の規則のままで、Claude Code 自身の keychain だけの人は use.sh では通り、この 2 本では止まる。
   - claude の実行ファイルの解決が 4 か所（archon.sh・dogfood.sh・real-run.sh・use.sh）。
-  - 包みの有無（`ADAPTER_MODE`）を決める行が 3 か所。`unset WORKS_MODEL_PINNED` が 4 か所。
+  - 包みの有無（ラインの入力 adapter の値）を決める行が 3 か所。`unset WORKS_MODEL_PINNED` が 4 か所。
   - 開発の家の既定が 2 種類（`$TMPDIR/works-dev` と、試験の道具・手本の道具の `$HOME/.cache/works-dev`）。
   - ラインの入力: 最後の関所の既定が dogfood.sh は `always`（`WORKS_DOGFOOD_FINAL_GATE`）、use.sh は `when_needed`（`WORKS_USE_FINAL_GATE`）、real-run.sh は渡さない。`policy_md`・`gates`・`thickness` は use.sh だけが渡す。
   - run の控えの JSON は、書くのが lib.sh、読むのが lib.sh と use.sh の 2 か所で、欄を別々に読む。
