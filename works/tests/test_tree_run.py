@@ -452,5 +452,41 @@ class LaunchProofShapeCase(unittest.TestCase):
                 tree_run.prove_launchable(["bash", "-c", cmd])
 
 
+class CommandArgvCase(unittest.TestCase):
+    """tree_run.command_argv: シェルが要る 1 行だけを bash -c で、ほかは shlex で割った argv を直に起こす"""
+
+    def test_simple_words_are_direct(self):
+        for cmd, argv in (("pytest", ["pytest"]), ("pytest -q tests", ["pytest", "-q", "tests"]),
+                          ("  python3 -m pytest --x=1 ", ["python3", "-m", "pytest", "--x=1"]),
+                          ("uv run pytest -k a-b", ["uv", "run", "pytest", "-k", "a-b"])):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(tree_run.command_argv(cmd), (argv, "direct"))
+
+    def test_shell_forms_go_through_bash(self):
+        for cmd in ("a && b", "a || b", "a | b", "a; b", "a &", "a > log", "2>&1 a", "a < in", "(a)", "a $HOME", "a `b`",
+                    "a *.py", "a ?", "a [x]", "a {1,2}", "~/bin/a", "a 'q r'", 'a "q"', "a\\ b", "a#b", "a # note",
+                    "a\nb", "a\rb", "! a", "a ^ b", "FOO=1 a", "cd x", ". env", "source env", "command -v a", "exec a",
+                    "export A=1", "if true", "for x", "while true", "time a", "echo x", "test -f x", "[ -f x ]",
+                    "'unterminated", ""):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(tree_run.command_argv(cmd), (["bash", "-c", cmd], "shell"))
+
+    def test_direct_argv_means_what_bash_means(self):
+        # direct に選んだ形は bash -c が割る語と同じ argv になる（シェルを外しても意味を変えない）
+        for cmd in ("printf-x a b", "x -q  --y=z", "a:b c,d e@f g+h %i"):
+            argv, how = tree_run.command_argv(cmd)
+            self.assertEqual(how, "direct")
+            seen = subprocess.run(["bash", "-c", 'printf "%s\\n" "$@"', "_", *shlex.split(cmd)],
+                                  capture_output=True, text=True).stdout.splitlines()
+            words = subprocess.run(["bash", "-c", f'set -- {cmd}; printf "%s\\n" "$@"'],
+                                   capture_output=True, text=True).stdout.splitlines()
+            self.assertEqual(argv, words)
+            self.assertEqual(seen, words)
+
+    def test_launch_kind_reads_126_127_as_red(self):
+        self.assertEqual([tree_run.launch_kind(c) for c in (None, 0, 1, 126, 127)],
+                         ["broken", "clean", "red", "red", "red"])
+
+
 if __name__ == "__main__":
     unittest.main()

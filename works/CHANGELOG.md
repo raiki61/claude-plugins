@@ -10,6 +10,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 - 開発の殻の全体の模型 `WORKS_DEV_MODEL` の既定を埋めるのは `dev/archon.sh` だけになった（既定の値は `dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT`。環境では替わらない）。`use.sh`・`dogfood.sh`・`real-run.sh` は未設定のまま渡し、`archon.sh` は明示か既定かを `WORKS_MODEL_FROM` に残して下へ渡し、解いた値を `WORKS_DEV_MODEL` に書き戻さず `WORKS_MODEL_RESOLVED` で渡す。模型を明示せずに起こした run の控えの `model` は空で、start の時に解いた値と出どころを `model_resolved` に残す。続き・答えの行は空の指定にその既定を別の名 `WORKS_MODEL_PINNED` で添えて起こし、run の途中で既定を解き直さない（`archon.sh` は出どころにその名を残し、Archon には継がせない。入口の殻 `use.sh`・`dogfood.sh`・`real-run.sh` は起動の時にその名を外し、控えから来た値だけを受ける）。今までは入口ごとに opus を埋めていたので、既定と利用者が opus を明示した run が見分けられず、再開では既定が明示に化けていた。
 - 差分の審査の後の手直しの役（`blk-refix` の refix・refix2）にも、修正の決まりの正本（根本の単位ごとに直す・同じ形を全部直す・既製の物を先に確かめる・動きを変えたら文を直す・証拠・食い違いの申し出）が届くようになった。正本を `blk-fix/rules/common.md` から共有の置き場 `.shared/core/writerules/common.md` に移し、組み立ての口 `.shared/core/rulebook.py` を `blk-fix` と `blk-refix` が同じように通す。手書きの `blk-refix/commands/refix.md`・`refix2.md` は消した。手直しの役の指示書は正本の全節を載せるので長くなる。今までは手直しの役の指示書が手書きで、修正の決まりの句が 1 つも入っていなかった。
+- テストのコマンド（`test_cmd`・blk-tests の `cmd`）は、シェルが要る形の時だけ `bash -c` で起こし、ほかは語に割って直に起こす。シェルに渡すのは、割れない・展開や区切りや向け直しや引用や注釈や改行の字を含む・代入で始まる・先頭の語が bash の組み込みか予約語、のどれかに当たる時。どちらで起こしたか（`direct`・`shell`）を素材の文・最後のテストの出口 `test_cmd_how`・mid の結果とログ・報告の「走らせた」の行に出す。直に起こして見つからなかった時は、`BASH_ENV` や `export -f` のシェルの関数に頼るなら `bash -c '…'` で包んで書く、と添える（`bash -c` の非対話では alias はもともと展開されない）。今までは単純なコマンドも毎回 `bash -c` で起こし、どちらで起こしたかが記録に無かった。
+- 0.2.3 の Fixed の「`bash -c` 越しの終了コード 126・127 は起こせなかった疑いと名指して、普通の赤と分ける」をやめた。126・127 はプログラム自身の終了コードとして、普通の赤と同じに読む。起こせないのが確かな時（起こす前の証明で落ちた・直に起こして見つからない）は今までどおり「環境で起こせなかった」（not_run）になる。
 
 ## [0.2.3] - 2026-09-29
 

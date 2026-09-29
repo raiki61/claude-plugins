@@ -109,7 +109,7 @@ launch(関所) → start → pr-checking(blk-pr。任せ先に落ちた時だけ
 
 ### 3.5 blk-tests（変える。2 つの形。0.21.0 の engine が走らせるテストに揃える）
 
-- 入力 `mode`（`plain`・`mid`・`final`。**既定 `plain`**）と `cmd`（必須のまま）。`plain` は 1 本目と同じ（盤面なし・`bash -c` で `cmd`・ログは `board/tests.log`・出口 `{ok, green, log}`）で、線 C の `mutgate` の `control` がこの形で include している（〔計〕審査 I1）。線 A のラインは `mid`・`final` を明示で渡す（`cmd` は空でよい）。ラインの入力 `test_cmd` は任意になる。宣言も `test_cmd` も無ければ `start` が起動の前に止める（テストを飛ばさない）。
+- 入力 `mode`（`plain`・`mid`・`final`。**既定 `plain`**）と `cmd`（必須のまま）。`plain` は 1 本目と同じ（盤面なし・`cmd` はシェルが要る形の時だけ `bash -c`、ほかは直に起こす——決まりの正本は `.shared/core/tree_run.py` の `command_argv`・ログは `board/tests.log`・出口 `{ok, green, log}`）で、線 C の `mutgate` の `control` がこの形で include している（〔計〕審査 I1）。線 A のラインは `mid`・`final` を明示で渡す（`cmd` は空でよい）。ラインの入力 `test_cmd` は任意になる。宣言も `test_cmd` も無ければ `start` が起動の前に止める（テストを飛ばさない）。
 - `final`（最後のテスト。〔計〕TA5）: 盤面の `run_engine("p4.ci")`（〔盤〕4.3）。対象の根の宣言 `.review-checks.json` が在れば engine と同じ読み方で段を走らせ、`process.checks["p4.ci"] = {by: "engine", …}` を残す（宣言が計画の後に変われば走らせずに計画し直す）。宣言が無く任せ先に落ちたら、`cmd` を走らせた結果を `done("p4.ci", {"material": …})` で渡す（`by: "role"`。表の `fallback: machine`）。受けた後の `settle` が周の記録と検証器・収束まで回し、`stop_after_round=1` で止まる。
 - `mid`（中の関所のためのテスト。〔計〕TA4）: 宣言の `suite` の段を shell を通さずに `tree_run` で、無ければ `cmd` を 1 本目と同じく走らせる。盤面の節には書かず、`r1/mid-tests.log`・`r1/mid-tests.json` に置く。
 - 0.21.0 は宣言の語を走らせる前の人の承認を外した（持ち主の決定 2026-09-25）。works では宣言をそのまま走らせる（engine と同じ）。**他人のリポジトリの宣言は人が先に読む**、という 0.21.0 の注意をスキルに写す。

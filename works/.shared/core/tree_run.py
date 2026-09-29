@@ -89,10 +89,40 @@ def outside_env(environ):
     return env
 
 
-SHELL_LAUNCH_CODES = (126, 127)   # シェルの予約値（POSIX.1-2024 2.8.2: 127 は見つからない・126 は見つかったが実行できない）
 PROOF_TIMEOUT = 5.0   # 起こす前の証明（command -v）を待つ上限（秒）。超えたら証明できない回として起こす
 _ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 _UNPROVABLE = set("$`*?[{~")   # 展開される語は字面から引けない
+# シェルを通す字: 展開（_UNPROVABLE。証明が引けない字と同じ表から作る）に、区切り・向け直し・引用・注釈・履歴と、shlex が bash と
+# 違って読む字（改行はコマンドの区切り・# は語の途中でもただの字・\r は普通の字）を足す。GNU make の job.c の sh_chars にならう
+_SHELL_CHARS = _UNPROVABLE | set("|&;<>()]}\\\"'#!^\n\r")
+# 先頭に来たらシェルを通す語。出どころは bash のマニュアルの節 Reserved Words・Bourne Shell Builtins・Bash Builtin Commands・
+# Job Control Builtins・Directory Stack Builtins・Bash History Builtins・Programmable Completion Builtins・The Set Builtin・
+# The Shopt Builtin（GNU make の sh_cmds と同じ理由: 外のプログラムとして在るとは限らないか、在っても意味が違う）
+_SHELL_WORDS = frozenset((
+    "!", "case", "coproc", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in", "select", "then",
+    "time", "until", "while", "{", "}", "[[", "]]",
+    ":", ".", "break", "cd", "continue", "eval", "exec", "exit", "export", "getopts", "hash", "pwd", "readonly", "return",
+    "shift", "test", "[", "times", "trap", "umask", "unset",
+    "alias", "bind", "builtin", "caller", "command", "declare", "echo", "enable", "help", "let", "local", "logout",
+    "mapfile", "printf", "read", "readarray", "source", "type", "typeset", "ulimit", "unalias",
+    "bg", "fg", "jobs", "kill", "wait", "disown", "suspend", "dirs", "pushd", "popd", "history", "fc",
+    "compgen", "complete", "compopt", "set", "shopt",
+))
+DIRECT_HINT = ("直に起こした（シェルを通さない）。BASH_ENV や export -f のシェルの関数に頼るなら bash -c '…' で包んで書く"
+               "（bash -c の非対話では alias はもともと展開されない）")
+
+
+def command_argv(cmd: str) -> tuple[list, str]:
+    """コマンドの 1 行 cmd を起こす形 (argv, how)。how は "shell"（["bash", "-c", cmd]）か "direct"（shlex で割った argv を
+    シェルを通さずに起こす）。shell にするのは、割れない・語が無い・_SHELL_CHARS の字を含む・代入の前置きで始まる・先頭の語が
+    _SHELL_WORDS に在る、のどれかの時。ほかは全部 direct"""
+    try:
+        words = shlex.split(cmd)
+    except ValueError:
+        words = []
+    if not words or _SHELL_CHARS & set(cmd) or _ASSIGN.match(words[0]) or words[0] in _SHELL_WORDS:
+        return ["bash", "-c", cmd], "shell"
+    return words, "direct"
 
 
 def _first_word(cmd: str):
@@ -152,18 +182,14 @@ def prove_launchable(argv, cwd=None, env=None, halted=lambda: False):
     raise FileNotFoundError(errno.ENOENT, "起こす前の証明（command -v）: 見つからない", word)
 
 
-def launch_kind(code, argv) -> str:
-    """argv で起こした段の終了コードの分類: "clean"（0）・"red"（走って落ちた）・"broken"（起こせない。exit None。bash -c の先頭の語が
-    prove_launchable の証明を通らなかった回もここ）・"suspect"（argv が bash -c のシェル越しで SHELL_LAUNCH_CODES。先頭の語は証明を
-    通ったのに、後ろの語・スクリプトの中など証明の見ない所の起こせなさはシェルの戻り値でしか見えないので、起こせなかった疑いとして
-    赤と分ける。直に起こした段の 126・127 はその段自身の戻り値なので赤）。
+def launch_kind(code) -> str:
+    """段の終了コードの分類: "clean"（0）・"red"（走って落ちた。126・127 もプログラム自身の終了コードとして読む）・"broken"（起こせない。
+    exit None。bash -c の先頭の語が prove_launchable の証明を通らなかった回もここ）。
     broken は engine の checks_reply の broken（exit is None）と同じ規則"""
     if code is None:
         return "broken"
     if code == 0:
         return "clean"
-    if list(argv[:2]) == ["bash", "-c"] and code in SHELL_LAUNCH_CODES:
-        return "suspect"
     return "red"
 
 
@@ -407,7 +433,7 @@ def slotted_run(argv, env, **popen_kw):
         rc = run(["bash", str(SLOTWRAP), *argv], env={**env, **extra}, **popen_kw)
         seen = pathlib.Path(note).read_text(encoding="utf-8").split()
         if "execfail" in seen:
-            code = errno.EACCES if rc == 126 else errno.ENOENT
+            code = errno.EACCES if rc == 126 else errno.ENOENT   # POSIX.1-2024 2.8.2: 126 は実行できない・127 は見つからない
             raise OSError(code, f"{os.strerror(code)}（枠の下で exec が落ちた。exit {rc}）", argv[0])
         return rc, (max(round(os.stat(note).st_mtime - started, 1), 0.0) if "held" in seen else None)
     finally:

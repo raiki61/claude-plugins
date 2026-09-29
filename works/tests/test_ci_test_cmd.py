@@ -156,7 +156,8 @@ class _WorkBoard:
 
 
 class LaunchKindCase(unittest.TestCase):
-    """起こせなかった（exit None・シェル越しの 126・127）を落ちた（found・green false）と同じ値に畳まず、結果の型に残す"""
+    """起こせなかった（exit None）を落ちた（found・green false）と同じ値に畳まず、結果の型に残す。126・127 は直でもシェル越しでも
+    プログラム自身の終了コードとして赤と読む（tree_run.launch_kind）"""
 
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
@@ -168,24 +169,58 @@ class LaunchKindCase(unittest.TestCase):
         m = entry._cmd_material("pytest", None, self.log)["material"]
         self.assertEqual(m["status"], "not_run")
 
-    def test_material_of_shell_reserved_exit_names_launch_suspect(self):
-        for code in (126, 127):
-            with self.subTest(code=code):
-                m = entry._cmd_material("pytest", code, self.log)["material"]
-                self.assertIn("起こせなかった疑い", m.get("detail", "") + m.get("reason", ""))
+    def test_material_of_exit_126_127_is_code_red(self):
+        for cmd in ("pytest", "pytest | tee out"):
+            for code in (126, 127):
+                with self.subTest(cmd=cmd, code=code):
+                    m = entry._cmd_material(cmd, code, self.log)["material"]
+                    self.assertEqual((m["status"], m["count"]), ("found", 1))
+                    self.assertNotIn("起こせなかった疑い", m["detail"])
 
     def test_material_of_code_red_does_not_name_launch_suspect(self):
         m = entry._cmd_material("pytest", 1, self.log)["material"]
         self.assertEqual(m["status"], "found")
         self.assertNotIn("起こせなかった疑い", m["detail"])
 
-    def test_suites_line_names_shell_reserved_exit_as_launch_suspect(self):
+    def test_suites_line_reads_shell_exit_127_as_code_red(self):
+        # 前の版の記録に残る launch: suspect も、終了コードだけで赤と読む
+        for launch in ({}, {"launch": "suspect"}):
+            with self.subTest(launch=launch):
+                tests = {"ok": True, "green": False, "by": "engine", "test_cmd_how": "shell",
+                         "suites": [{"name": "pytest", "exit": 0}, {"name": entry.TEST_CMD_STEP, "exit": 127, **launch}]}
+                line = entry.suites_line(tests)
+                self.assertIn(f"{entry.TEST_CMD_STEP}（exit 127・shell）", line)
+                self.assertNotIn("起こせなかった疑い", line)
+                self.assertNotIn("環境で起こせなかった", line)
+                self.assertFalse(entry.env_only_red(tests))
+
+    def test_unlaunched_direct_step_names_how_to_wrap_in_bash(self):
+        # 直に起こして見つからなかった段は、シェルの関数・BASH_ENV に頼るなら bash -c で包む、と報告と素材に出す
         tests = {"ok": True, "green": False, "by": "engine",
-                 "suites": [{"name": "pytest", "exit": 0}, {"name": entry.TEST_CMD_STEP, "exit": 127, "launch": "suspect"}]}
-        self.assertIn("起こせなかった疑い", entry.suites_line(tests))
+                 "suites": [{"name": entry.TEST_CMD_STEP, "exit": None, "how": "direct", "launch": "broken"}]}
+        line = entry.suites_line(tests)
+        self.assertIn(f"{entry.TEST_CMD_STEP}（起こせない・direct）", line)
+        self.assertIn(entry.tree_run.DIRECT_HINT, line)
+        m = entry._cmd_material("pytest", None, self.log)["material"]
+        self.assertIn(entry.tree_run.DIRECT_HINT, m["reason"])
+        shell = entry._cmd_material("pytest | tee x", None, self.log)["material"]
+        self.assertNotIn(entry.tree_run.DIRECT_HINT, shell["reason"])
+
+    def test_test_cmd_callers_launch_by_command_argv(self):
+        # test_cmd を起こす口（local_checks_material・_with_test_cmd）は単純な形を直に、シェルの形だけ bash -c で起こす
+        for cmd, argv in (("pytest -q tests", ["pytest", "-q", "tests"]),
+                          ("pytest && ruff", ["bash", "-c", "pytest && ruff"])):
+            with self.subTest(cmd=cmd):
+                seen = []
+                with mock.patch.object(entry.tree_run, "slotted_run", lambda a, *_, **__: seen.append(a) or (0, None)):
+                    m = entry.local_checks_material(self.tmp, cmd, self.log)["material"]
+                self.assertEqual((seen, m["status"]), ([argv], "clean"))
+                steps = []
+                entry._with_test_cmd(lambda s, *_: steps.extend(s) or [], cmd, {})([], self.tmp, self.tmp)
+                self.assertEqual(steps, [{"name": entry.TEST_CMD_STEP, "argv": argv}])
 
     def test_suites_line_does_not_judge_shell_by_step_name(self):
-        # シェル越しかは段の名でなく run_tests._suite が argv で付けた launch で決まる（直に起こした段が偶々 cmd・test_cmd の名でも赤）
+        # 段の分類は段の名でなく終了コードだけで決まる（entry._suite_kind。段が偶々 cmd・test_cmd の名でも 127 は赤）
         for name in ("cmd", entry.TEST_CMD_STEP):
             with self.subTest(name=name):
                 tests = {"ok": True, "green": False, "by": "engine", "suites": [{"name": name, "exit": 127}]}
@@ -209,34 +244,41 @@ class LaunchKindCase(unittest.TestCase):
             entry._ci_by_cmd(b, "p4.ci", "pytest -q", ran=run)
         self.assertEqual(calls[0][3], ["pytest", "-q"])
 
-    def test_final_suites_carry_launch_from_argv(self):
-        # final の段も mid と同じく argv で launch を付ける（bash -c の 127 は suspect・直の 127 は付けない）
+    def test_final_suites_carry_how_and_read_127_as_red(self):
+        # final の段も mid と同じく起こし方を載せ、127 は直でもシェル越しでも launch を付けない（赤）
         mod = _load_run_tests()
-        b = mock.Mock()
-        b.record = {"materials": {"local_checks": {"status": "found"}}, "process": {"checks": {"p4.ci": {"runs": [
-            {"name": "cmd", "argv": ["cmd"], "exit": 127},
-            {"name": entry.TEST_CMD_STEP, "argv": ["bash", "-c", "x"], "exit": 127}]}}}}
-        out = mod.run_final(b, "x", run_ci=lambda *a, **k: {"by": "engine", "log": "l"})
-        self.assertEqual(out["suites"], [{"name": "cmd", "exit": 127},
-                                         {"name": entry.TEST_CMD_STEP, "exit": 127, "launch": "suspect"}])
+        for cmd, argv, how in (("x", ["x"], "direct"), ("x && y", ["bash", "-c", "x && y"], "shell")):
+            with self.subTest(cmd=cmd):
+                b = mock.Mock()
+                b.record = {"materials": {"local_checks": {"status": "found"}}, "process": {"checks": {"p4.ci": {"runs": [
+                    {"name": "cmd", "argv": ["cmd"], "exit": 127},
+                    {"name": entry.TEST_CMD_STEP, "argv": argv, "exit": 127}]}}}}
+                out = mod.run_final(b, cmd, run_ci=lambda *a, **k: {"by": "engine", "log": "l"})
+                self.assertFalse(out["green"])
+                self.assertEqual(out["suites"], [{"name": "cmd", "exit": 127}, {"name": entry.TEST_CMD_STEP, "exit": 127}])
+                self.assertEqual(out["test_cmd_how"], how)
 
-    def _plain(self, run):
+    def _plain(self, run, cmd="pytest"):
         mod = _load_run_tests()
         with mock.patch.object(mod.tree_run, "run", run):
             try:
-                return mod.run_plain("pytest", self.tmp)
+                return mod.run_plain(cmd, self.tmp)
             except OSError as e:
-                self.fail(f"bash を起こせない時に run_plain が例外で落ちた: {e!r}")
+                self.fail(f"コマンドを起こせない時に run_plain が例外で落ちた: {e!r}")
 
-    def test_plain_without_bash_returns_launch_broken(self):
-        out = self._plain(mock.Mock(side_effect=FileNotFoundError("bash")))
-        self.assertEqual((out["ok"], out["green"], out.get("launch")), (True, False, "broken"))
+    def test_plain_unlaunchable_direct_cmd_returns_launch_broken(self):
+        # 単純な形の cmd は pytest を直に起こす（how direct）: 起こせなければ launch broken と、bash -c で包む手引きをログに
+        out = self._plain(mock.Mock(side_effect=FileNotFoundError("pytest")))
+        self.assertEqual((out["ok"], out["green"], out.get("launch"), out.get("how")), (True, False, "broken", "direct"))
+        self.assertIn(entry.tree_run.DIRECT_HINT, pathlib.Path(out["log"]).read_text(encoding="utf-8"))
 
-    def test_plain_shell_reserved_exit_returns_launch_suspect(self):
-        for code in (126, 127):
-            with self.subTest(code=code):
-                out = self._plain(mock.Mock(return_value=code))
-                self.assertEqual((out["green"], out.get("launch")), (False, "suspect"))
+    def test_plain_exit_126_127_is_code_red_with_mutgate_keys(self):
+        for cmd in ("pytest", "pytest | tee out"):
+            for code in (126, 127):
+                with self.subTest(cmd=cmd, code=code):
+                    out = self._plain(mock.Mock(return_value=code), cmd)
+                    self.assertEqual((out["ok"], out["green"]), (True, False))
+                    self.assertEqual(set(out), {"ok", "green", "log"})
 
     def test_plain_code_red_keeps_mutgate_keys(self):
         out = self._plain(mock.Mock(return_value=1))
@@ -250,18 +292,21 @@ class LaunchKindCase(unittest.TestCase):
             try:
                 return mod.run_mid(_WorkBoard(self.tmp), "pytest")
             except OSError as e:
-                self.fail(f"bash を起こせない時に run_mid の cmd の道が例外で落ちた: {e!r}")
+                self.fail(f"コマンドを起こせない時に run_mid の cmd の道が例外で落ちた: {e!r}")
 
-    def test_mid_cmd_without_bash_is_exit_none(self):
-        out = self._mid(mock.Mock(side_effect=FileNotFoundError("bash")))
+    def test_mid_unlaunchable_direct_cmd_is_exit_none(self):
+        # 単純な形の cmd は pytest を直に起こす（how direct）: 起こせなければ exit None・launch broken
+        out = self._mid(mock.Mock(side_effect=FileNotFoundError("pytest")))
         self.assertFalse(out["green"])
         self.assertEqual(out["suites"][0]["exit"], None)
         self.assertEqual(out["suites"][0].get("launch"), "broken")
+        self.assertEqual(__import__("json").loads((self.tmp / "mid-tests.json").read_text(encoding="utf-8"))["how"], "direct")
 
-    def test_mid_cmd_shell_reserved_exit_names_launch_suspect(self):
+    def test_mid_cmd_exit_127_is_code_red(self):
         out = self._mid(mock.Mock(return_value=127))
         self.assertFalse(out["green"])
-        self.assertEqual(out["suites"][0].get("launch"), "suspect")
+        self.assertEqual(out["suites"], [{"name": "cmd", "exit": 127}])
+        self.assertEqual(__import__("json").loads((self.tmp / "mid-tests.json").read_text(encoding="utf-8"))["how"], "direct")
 
 
 MISSING = "works-no-such-command-4f1c"
