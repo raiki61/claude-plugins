@@ -2,12 +2,14 @@
 
 - 順の真ん中は本流の写し claude_auth.auth_env を丸ごと呼ぶ（部品を並べ直すと写しの柵はバイト同一のまま緑なので、ここで縛る）
 - 名指し（WORKS_KEYCHAIN_ITEM）は受け継いだ認証より先に効き、取れなければ次へ進まない（設計 2.6 順の形 1）
-- python3 -I で起こしても import しても pack に __pycache__ を作らない（-I は PYTHONDONTWRITEBYTECODE を見ず、
-  __pycache__ は .gitignore に隠れて git status に出ない）
+- python3 -I で起こした check は起こし役のフォルダ（試験の持つ写し）に __pycache__ を作らない（-I は PYTHONDONTWRITEBYTECODE を
+  見ず、__pycache__ は .gitignore に隠れて git status に出ない）。import の分と works/ 全体の清潔さは test_tree_run.py と
+  test_blk_tests_delta.py が見る
 security は偽の runner に差し替え、本物の keychain には触らない。
 """
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import types
@@ -168,14 +170,20 @@ class IsolatedLaunch(unittest.TestCase):
 
     def test_check_prints_only_the_name_and_leaves_no_pycache(self):
         """python3 -I で check を起こす（殻と同じ起こし方）。標準出力は出どころの名だけでトークンを出さず、
-        終わった後に pack の下に __pycache__ が無い"""
+        終わった後に起こし役のフォルダの写しの下に __pycache__ が無い"""
         tmp = hermetic.tmpdir(self)
-        env = hermetic.child_env(CLAUDE_CODE_OAUTH_TOKEN=TOKEN, HOME=str(tmp))
-        r = subprocess.run([sys.executable, "-I", str(CORE / "auth_launch.py"), "check", "--user-home", str(tmp)],
+        # 共有の作業ツリーを見ると別の実行が残した __pycache__ を拾うので、この試験だけが持つ写しで起こす。
+        # symlink は不可（auth_launch.py は __file__.resolve() の親を sys.path に入れ、本物の CORE に書く）
+        core = tmp / "core"
+        shutil.copytree(CORE, core, ignore=shutil.ignore_patterns("__pycache__"))
+        home = tmp / "home"
+        home.mkdir()
+        env = hermetic.child_env(CLAUDE_CODE_OAUTH_TOKEN=TOKEN, HOME=str(home))
+        r = subprocess.run([sys.executable, "-I", str(core / "auth_launch.py"), "check", "--user-home", str(home)],
                            env=env, capture_output=True, text=True, encoding="utf-8", timeout=60)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "CLAUDE_CODE_OAUTH_TOKEN"), r.stderr)
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
-        self.assertEqual(list(ROOT.rglob("__pycache__")), [])
+        self.assertEqual(list(core.rglob("__pycache__")), [])
 
 
 if __name__ == "__main__":

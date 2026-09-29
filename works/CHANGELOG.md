@@ -26,6 +26,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Fixed
 
+- 試験 `test_auth_launch` の `test_check_prints_only_the_name_and_leaves_no_pycache` が、`works/` 全体に `__pycache__` が 1 つも無いことを見ていたため、並行の試験や別の実行が残したバイトコードで関係のない run の受け付けを落としていた。`.shared/core` を一時の置き場へ写してそこで `check` を起こし、写しの下だけを見る。
 - 独立の目のブロックで、R4（依頼の範囲の外を見る目）の人への問いが盤面を止めると、R1（直しが最小か）が最後の関所までに出なかった。R4 の筋を R1・R2 の筋の後に置き（`all_done` で繋ぐ。筋の並びは `eyes.LANE_AFTER`）、R1・R2 の筋の節が Archon で落ちた時も R4 と出口は走って、落ちた筋を最後の関所に出す（盤面の順とのずれ・設計待ちは今どおり止める）。修正の後の R4 の関所は、直す前の関所で人が通した狭まりと同じ本文を聞き直さず、通した行は `gate_passes` に `by: carried` で残して最後の関所と報告に並べる。
 - 開発の殻 `dev/dogfood.sh`・`dev/real-run.sh` の認証の前検が、環境変数（`CLAUDE_CODE_OAUTH_TOKEN`・`WORKS_KEYCHAIN_ITEM`）の 2 段だけを見て、keychain の項目だけを持つ人を『認証が無い』で止めていた。前検を `use.sh`・`archon.sh` と同じ起こし役 `auth_launch.py check` に替え、本流と同じ順（名指しの項目 → 受け継いだ変数と導く項目 → Claude Code 自身の項目）で拾う。殻が出す文言は変えない（出どころの名の行は今どおり `archon.sh` が標準エラーに出す 1 行）。
 - 人が関所で答えたこと（`record.process.human_items` の round・kinds・answer・note。聞いた項目の本文 asked と、answer の無い機械の行は貼らない）が、R2 の独立設計（`r2.design`）と突き合わせ（`r2.compare`）の指示書の頭に載るようになった。関所で取り下げた要求が R2 で固定の契約として扱われ、偽の redesign-needed が出ることがなくなった。答えの無い盤面の指示書は前と同じ。
