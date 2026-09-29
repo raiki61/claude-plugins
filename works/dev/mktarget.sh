@@ -27,6 +27,10 @@ DIR="$(cd "$1" && pwd -P)"
 git init -q "$DIR"
 git -C "$DIR" config user.email "works-dev@example.invalid"
 git -C "$DIR" config user.name "works-dev"
+# 使い捨てなので、commit の後に裏で走る自動の保守（gc --auto・maintenance --auto）を切る。git 2.55 では裏の保守が
+# .git に書いている最中に呼び手（check.sh の trap）が消しにかかり、rm が「Directory not empty」で落ちた
+git -C "$DIR" config gc.auto 0
+git -C "$DIR" config maintenance.auto false
 
 # 種（バグ入りの stats.py・test_stats.py）を対象の根に置く。Python のバイトコードキャッシュや
 # OS のゴミファイルは種に残さない（.git の中は触らない。pack の分は works_dev_copy_pack が消す）。
