@@ -42,17 +42,15 @@ fi
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
-# 包みは既定で通す。WORKS_DEV_ADAPTER=0 か空を明示した時だけ外す（値の検査は archon.sh）。--show は続きの行の前置きが
-# 包みを通した run にだけ WORKS_DEV_ADAPTER=1 を載せるので、無ければ外した run
-if [ -n "$SHOW" ]; then WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-}"; else WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"; fi
 export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER
 # 起こすのは start だけなので、start の時の既定の釘（続きの行だけが置く）は利用者の殻に残っていても受けない
 unset WORKS_MODEL_PINNED
 
 # 開発の家・置き場が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"
-# 家の既定と claude の解決は launch.py env が持つ（--show は claude を埋めない。下の CLAUDE_BIN_PATH の要求を残す）
-if [ -n "$SHOW" ]; then works_dev_launch_env dogfood.sh; else works_dev_launch_env dogfood.sh --claude; fi
+# 家の既定・claude の解決・包みの既定（WORKS_DEV_ADAPTER。0 か空を明示した時だけ外す。値の検査は archon.sh）とラインの入力
+# adapter の値は launch.py env が持つ（--show は claude を埋めない。下の CLAUDE_BIN_PATH の要求を残す）
+if [ -n "$SHOW" ]; then works_dev_launch_env dogfood.sh --show; else works_dev_launch_env dogfood.sh --claude; fi
 works_dev_abs_claude_config
 works_dev_refuse_claude_tmp dogfood.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
 
@@ -159,11 +157,10 @@ WORKS_ANSWER_CMD="$(WORKS_ANSWER_CMD="" works_dev_go "$ARCHON" "$REPO") respond"
 export WORKS_ANSWER_CMD
 set +e
 # 修正の段の TDD の輪の実行器（この clone の works/dev/tdd-suite.sh。WORKS_DOGFOOD_TDD_SUITE を空にすれば輪を飛ばす）。
-# 包みを外した run（WORKS_DEV_ADAPTER が 1 でない）は adapter=optional で回す（h-judge が包みの無い run を止めないように。報告に出る）
+# 包みを外した run は adapter=optional（launch.py env の WORKS_LAUNCH_ADAPTER_MODE）で回す（h-judge が包みの無い run を止めないように。報告に出る）
 TDD_SUITE="${WORKS_DOGFOOD_TDD_SUITE-works/dev/tdd-suite.sh}"
-if [ "${WORKS_DEV_ADAPTER:-}" = 1 ]; then ADAPTER_MODE=""; else ADAPTER_MODE="optional"; fi
 set -- workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2" \
-  --input tdd_suite="$TDD_SUITE" --input adapter="$ADAPTER_MODE" --input final_gate="${WORKS_DOGFOOD_FINAL_GATE:-always}"
+  --input tdd_suite="$TDD_SUITE" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE" --input final_gate="${WORKS_DOGFOOD_FINAL_GATE:-always}"
 if [ "${WORKS_DESIGN_ONLY:-}" = 1 ]; then set -- "$@" --input design_only=true; fi
 sh "$ARCHON" "$@"
 run_status=$?

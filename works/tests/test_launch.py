@@ -1,6 +1,7 @@
 """起動の殻の共通の口 works/dev/launch.py の動詞 env と、殻が受ける口（guard.sh works_dev_launch_env）の柵（設計書 2.2・2.3・3 節）。
 
-- 家の既定と claude の解決は部品の 1 つの表が持ち、殻 4 本（use.sh・dogfood.sh・real-run.sh・archon.sh）に写しを戻したら赤
+- 家の既定・claude の解決・包みの既定と入力 adapter の値は部品の 1 つの表が持ち、殻 4 本（use.sh・dogfood.sh・real-run.sh・archon.sh）に写しを戻したら赤
+- 殻 4 本と lib.sh の埋め込みの Python（python3 に -c を渡す行）の数が今の上限を超えたら赤
 - 部品は env の dict を渡して直に呼ぶ（子のプロセスを起こさない）。受け方だけは偽の部品を置いて sh で起こす
 - 期待の字は殻の今の ${X:-…} の字から写す（空は未設定と同じ・TMPDIR の末尾の / を残して連ねる）
 """
@@ -97,9 +98,51 @@ class HomeDefaults(unittest.TestCase):
 
     def test_only_allowed_names_per_shell(self):
         got = assigned(self, ["--for=dogfood.sh"], {"HOME": "/h"})
-        self.assertEqual(set(got), {"WORKS_DEV_HOME"})
+        self.assertEqual(set(got), {"WORKS_DEV_HOME", "WORKS_DEV_ADAPTER", "WORKS_LAUNCH_ADAPTER_MODE"})
         got = assigned(self, ["--for=use.sh", "--target", "/t"], {"HOME": "/h"})
-        self.assertEqual(set(got), {"WORKS_STATE_ROOT", "WORKS_USE_HOME", "WORKS_DEV_HOME"})
+        self.assertEqual(set(got), {"WORKS_STATE_ROOT", "WORKS_USE_HOME", "WORKS_DEV_HOME", "WORKS_DEV_ADAPTER",
+                                    "WORKS_LAUNCH_ADAPTER_MODE"})
+
+
+class AdapterDefaults(unittest.TestCase):
+    """包みの既定: 期待の字は殻の前の ${WORKS_DEV_ADAPTER-1}（空の明示は残す）と ${WORKS_DEV_ADAPTER:-} = 1 から写す"""
+    ARGS = {"use.sh": ["--for=use.sh", "--target", "/t"], "dogfood.sh": ["--for=dogfood.sh"],
+            "real-run.sh": ["--for=real-run.sh"], "archon.sh": ["--for=archon.sh"]}
+
+    def adapter(self, args, **named):
+        got = assigned(self, args, {"HOME": "/h", **named})
+        return got.get("WORKS_DEV_ADAPTER"), got.get("WORKS_LAUNCH_ADAPTER_MODE")
+
+    def test_use_and_dogfood_default_on_only_when_unset(self):
+        for shell in ("use.sh", "dogfood.sh"):
+            with self.subTest(shell=shell):
+                args = self.ARGS[shell]
+                self.assertEqual(self.adapter(args), ("1", ""))
+                self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER="1"), ("1", ""))
+                self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER=""), ("", "optional"))
+                self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER="0"), ("0", "optional"))
+                self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER="yes"), ("yes", "optional"))
+
+    def test_dogfood_show_defaults_off(self):
+        args = ["--for=dogfood.sh", "--show"]
+        self.assertEqual(self.adapter(args), ("", "optional"))
+        self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER="1"), ("1", ""))
+
+    def test_real_run_only_reads_and_archon_emits_nothing(self):
+        args = self.ARGS["real-run.sh"]
+        self.assertEqual(self.adapter(args), (None, "optional"))
+        self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER="1"), (None, ""))
+        self.assertEqual(self.adapter(args, WORKS_DEV_ADAPTER="0"), (None, "optional"))
+        for value in (None, "1", "0"):
+            named = {} if value is None else {"WORKS_DEV_ADAPTER": value}
+            self.assertEqual(self.adapter(self.ARGS["archon.sh"], **named), (None, None))
+
+    def test_show_is_refused_for_other_shells(self):
+        for shell in ("use.sh", "real-run.sh", "archon.sh"):
+            with self.subTest(shell=shell):
+                rc, out, err = run_env(self, [*self.ARGS[shell], "--show"], {"HOME": "/h"})
+                self.assertEqual((rc, out), (2, ""))
+                self.assertEqual(len(err.strip().splitlines()), 1, err)
 
 
 class ClaudeResolution(unittest.TestCase):
@@ -191,6 +234,44 @@ class CopiesFence(unittest.TestCase):
             for no, line in enumerate((DEV / name).read_text().splitlines(), 1):
                 hits += [f"{name}:{no}: {line.strip()}" for p in self.PATTERNS if p in line]
         self.assertEqual(hits, [])
+
+    # 設計書 3 節: 殻に埋めた Python は部品へ移す途中なので、数が増えたら赤（減っても赤にしない）
+    INLINE_PYTHON = re.compile(r"\bpython3(\s+-[A-Za-z]+)*\s+-[A-Za-z]*c\b")
+    INLINE_PYTHON_CAPS = {"use.sh": 8, "dogfood.sh": 1, "real-run.sh": 0, "archon.sh": 0, "lib.sh": 9}
+
+    def test_inline_python_in_shells_does_not_grow(self):
+        for name, cap in self.INLINE_PYTHON_CAPS.items():
+            lines = [line for line in (DEV / name).read_text().splitlines() if self.INLINE_PYTHON.search(line)]
+            with self.subTest(shell=name):
+                self.assertLessEqual(len(lines), cap, "\n".join(lines))
+
+    def test_inline_python_pattern_catches_joined_flags(self):
+        for line in ("python3 -c 'x'", "x=$(python3 -I -c 'x')", "python3 -Ic 'x'", "python3 -S  -c \"x\""):
+            self.assertRegex(line, self.INLINE_PYTHON)
+        for line in ("python3 -I \"$D/auth_launch.py\" check", "python3 -m pytest", "python3 - <<'EOF'"):
+            self.assertNotRegex(line, self.INLINE_PYTHON)
+
+    # 包みの既定と adapter の入力の値は部品が決める。殻が包みの既定を入れる・入力の値を自分で組む行は赤
+    ADAPTER_DEFAULT = re.compile(r"(?:^|[\s;])WORKS_DEV_ADAPTER=\"?\$\{WORKS_DEV_ADAPTER:?-")
+    ADAPTER_INPUT = re.compile(r"--input adapter=|\bADAPTER_MODE=")
+
+    def test_shells_do_not_decide_adapter_default_or_input(self):
+        hits = []
+        for name in (*SHELLS, "lib.sh"):
+            for no, line in enumerate((DEV / name).read_text().splitlines(), 1):
+                if self.ADAPTER_DEFAULT.search(line) or (
+                        self.ADAPTER_INPUT.search(line) and 'adapter="$WORKS_LAUNCH_ADAPTER_MODE"' not in line):
+                    hits.append(f"{name}:{no}: {line.strip()}")
+        self.assertEqual(hits, [])
+
+    def test_adapter_fence_patterns_catch_old_and_variant_forms(self):
+        for line in ('WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"', "WORKS_DEV_ADAPTER=${WORKS_DEV_ADAPTER:-1}",
+                     'then WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-}"; fi'):
+            self.assertRegex(line, self.ADAPTER_DEFAULT)
+        self.assertNotRegex('echo "包み無し（WORKS_DEV_ADAPTER=${WORKS_DEV_ADAPTER:-空}）"', self.ADAPTER_DEFAULT)
+        for line in ('then ADAPTER_MODE=""; else ADAPTER_MODE="optional"; fi', "  ADAPTER_MODE=optional",
+                     '--input adapter="$ADAPTER_MODE"', "--input adapter=optional"):
+            self.assertRegex(line, self.ADAPTER_INPUT)
 
     def test_every_shell_receives_through_the_guard_function_only(self):
         for name in SHELLS:

@@ -92,8 +92,6 @@ esac
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
-# 包みは既定で入れる（dogfood.sh と同じ。0 か空を明示した時だけ外す。値の検査は archon.sh）
-WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"
 WORKS_USE_SH="$DEV_DIR/use.sh"
 # 文書が名指す窓口は代入の行で持つ（名指しの柵 doc-symbols が定義として見る。除外表で黙らせない）
 WORKS_USE_GATES="${WORKS_USE_GATES:-}"
@@ -139,7 +137,8 @@ fi
 
 # 既定の家は clone ごとに分ける（Archon v0.11.1 は 1 つの家に同じリポジトリの clone を 1 か所しか登録できない）。
 # 印は解いた根のパスから作る（symlink 越し・下のフォルダでも同じ家）。名指した家はそのまま使う。家の根 WORKS_STATE_ROOT・
-# WORKS_USE_HOME・WORKS_DEV_HOME（= WORKS_USE_HOME）と claude の解決は launch.py env が持つ
+# WORKS_USE_HOME・WORKS_DEV_HOME（= WORKS_USE_HOME）と claude の解決、包みの既定（WORKS_DEV_ADAPTER。0 か空を明示した時だけ
+# 外す。値の検査は archon.sh）とラインの入力 adapter の値（WORKS_LAUNCH_ADAPTER_MODE）は launch.py env が持つ
 works_dev_launch_env use.sh --claude --target "$TARGET"
 WORKS_WRAPS_DIR="$WORKS_USE_HOME/wraps"
 export WORKS_DEV_HOME WORKS_WRAPS_DIR
@@ -481,11 +480,8 @@ print(json.dumps(row, ensure_ascii=False))
 esac
 
 # ---- start
-if [ "$WORKS_DEV_ADAPTER" != 1 ]; then
-  ADAPTER_MODE="optional"
+if [ -n "$WORKS_LAUNCH_ADAPTER_MODE" ]; then
   echo "包み無し（WORKS_DEV_ADAPTER=${WORKS_DEV_ADAPTER:-空}）: adapter=optional で回し、報告に出る"
-else
-  ADAPTER_MODE=""
 fi
 if [ -n "${WORKS_AUTH_FROM:-}" ]; then
   echo "認証: ${WORKS_AUTH_FROM}（値は出さない）"
@@ -553,7 +549,7 @@ else
 fi
 
 set -- workflow run darkfactory --from "$BASE_REV" --input request="$REQUEST" --input test_cmd="$TEST_CMD" \
-  --input tdd_suite="$TDD_SUITE" --input adapter="$ADAPTER_MODE" --input final_gate="${WORKS_USE_FINAL_GATE:-when_needed}"
+  --input tdd_suite="$TDD_SUITE" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE" --input final_gate="${WORKS_USE_FINAL_GATE:-when_needed}"
 if [ -n "${WORKS_USE_POLICY_MD:-}" ]; then set -- "$@" --input policy_md="$WORKS_USE_POLICY_MD"; fi
 if [ -n "${WORKS_USE_GATES:-}" ]; then set -- "$@" --input gates="$WORKS_USE_GATES"; fi
 if [ -n "${WORKS_USE_THICKNESS:-}" ]; then set -- "$@" --input thickness="$WORKS_USE_THICKNESS"; fi

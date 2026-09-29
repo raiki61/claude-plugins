@@ -67,7 +67,7 @@ works_dev_refuse_claude_tmp() {
   esac
 }
 
-# works_dev_launch_env <殻の名> [launch.py env の旗…]: 家の既定と claude の解決を部品 launch.py から代入で受ける（設計書 2.2）。
+# works_dev_launch_env <殻の名> [launch.py env の旗…]: 家の既定・claude の解決・包みの既定を部品 launch.py から代入で受ける（設計書 2.2）。
 # 2 段で受ける: 代入だけの行の終了コードは置換の物なので、部品が失敗すれば代入を 1 つも効かせずにその終了コードで止まる
 # （1 段の eval "$(…)" は eval の 0 になる）。1 行目の版が合わなければ 1 行を出して 2 で止まる
 works_dev_launch_env() {

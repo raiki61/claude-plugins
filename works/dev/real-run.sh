@@ -11,7 +11,7 @@
 #      テストの緑赤とログのパスは、止まる直前に出る関所の文面にある。
 # 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。
 # 隔離した HOME からは ~/.local/bin/claude を自動で見つけられないので、CLAUDE_BIN_PATH を
-# 隔離の前に解いて渡す（設定済みならそのまま）。開発の家の既定と claude の解決は launch.py env が持つ。
+# 隔離の前に解いて渡す（設定済みならそのまま）。開発の家の既定・claude の解決・入力 adapter の値は launch.py env が持つ。
 set -eu
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
@@ -61,10 +61,9 @@ git -C "$DIR" remote set-head origin -a >/dev/null
 
 cd "$DIR"
 set +e
-# 包みを入れない run（WORKS_DEV_ADAPTER が 1 でない）は adapter=optional（h-judge が包みの無い run を止めないように。報告に出る）
-if [ "${WORKS_DEV_ADAPTER:-}" = 1 ]; then ADAPTER_MODE=""; else ADAPTER_MODE="optional"; fi
+# 包みを入れない run は adapter=optional（launch.py env の WORKS_LAUNCH_ADAPTER_MODE。h-judge が包みの無い run を止めないように。報告に出る）
 sh "$DEV_DIR/archon.sh" workflow run darkfactory \
-  --input request=request_ok.json --input test_cmd="python3 -m unittest -q" --input adapter="$ADAPTER_MODE"
+  --input request=request_ok.json --input test_cmd="python3 -m unittest -q" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE"
 run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
