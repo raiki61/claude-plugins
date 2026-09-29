@@ -690,7 +690,6 @@ class YamlCase(unittest.TestCase):
     def test_exit_and_inputs(self):
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("eyes-collect", "ok"))
         self.assertEqual(set(self.y.get("inputs") or {}), {"base_rev"})
-        self.assertNotIn("model", yaml.safe_dump(self.y))
         of = self.top["eyes-collect"]["output_format"]
         self.assertEqual(of["required"], list(eyes.EXIT_FIELDS))
         self.assertEqual(set(of["properties"]), set(eyes.EXIT_FIELDS))

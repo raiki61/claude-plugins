@@ -83,7 +83,6 @@ class YamlCase(unittest.TestCase):
                                                  "include_id"})
         self.assertIs(self.y["inputs"]["judgment_file"]["required"], True)
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
-        self.assertNotIn("model", yaml.safe_dump(self.y))
         self.assertEqual(set(self.top["collect"]["output_format"]["required"]),
                          {"ok", "plan_file", "review_file", "asks_human", "gate_kinds", "reads_file", "gave_up", "reason_file"})
 

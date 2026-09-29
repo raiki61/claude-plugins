@@ -68,7 +68,7 @@ TDD の修正の段が使うテストの実行器（ラインの入力 `tdd_suit
 
 どれも無ければ、案内を 1 行出して止まる。2 の項目が空の値を返したときも同じく止まる。gh・git の資格は隔離した家の役に渡さない（役ごとに分けて渡せないため。隔離した家の gh は未ログインで、並行 PR の確かめは gh の失敗の理由つきで人に回る）。`WORKS_DEV_NO_AUTH=1` のときは認証を読まない（テスト・`validate`・`workflow test` 用。`dev/check.sh` は付けて回すので認証が要らない）。
 
-認証を使う実行のたびに、`archon.sh` は隔離した Archon の設定（`$WORKS_DEV_HOME/archon-home/config.yaml`）に模型を書く（`WORKS_DEV_MODEL`。空か未設定なら `dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT`（環境では替わらない）。既定を埋めるのは `archon.sh` だけで、入口の殻は埋めない。明示か既定かは `WORKS_MODEL_FROM` に残して下へ渡す。明示せずに起こした run の続き・答えの行は、start の時の既定を `WORKS_MODEL_PINNED` に添えて起こす（`archon.sh` はそれで解いて出どころに名を残し、Archon には継がせない）。run の題を作る模型 `TITLE_GENERATION_MODEL` も、設定していなければ同じにする）。書かないと Claude CLI の既定の模型で黙って回る。`WORKS_DEV_NO_AUTH=1` のときは書かない。
+認証を使う実行のたびに、`archon.sh` は隔離した Archon の設定（`$WORKS_DEV_HOME/archon-home/config.yaml`）に模型を書く（`WORKS_DEV_MODEL`。空か未設定なら `dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT`（環境では替わらない）。既定を埋めるのは `archon.sh` だけで、入口の殻は埋めない。明示か既定かは `WORKS_MODEL_FROM` に残して下へ渡す。明示せずに起こした run の続き・答えの行は、start の時の既定を `WORKS_MODEL_PINNED` に添えて起こす（`archon.sh` はそれで解いて出どころに名を残し、Archon には継がせない）。run の題を作る模型 `TITLE_GENERATION_MODEL` も、設定していなければ同じにする）。書かないと Claude CLI の既定の模型で黙って回る。`WORKS_DEV_NO_AUTH=1` のときは書かない。この設定の模型は全体の既定で、Archon は段の `model:`・工程の `model:`・この設定の順に先のものを使う。works の YAML は、役の前付け（`.shared/core/agents/<役>.md` の `model`）が全体の既定と違う役（今は inspector・investigator・cold-reader）の段だけに前付けと同じ `model:` を書くので、その段では `WORKS_DEV_MODEL` が効かない。段の `model:` は Archon 自身が読んで Claude に渡すので、包み（`WORKS_DEV_ADAPTER`）を外した run でも同じに効く。
 
 対象（`archon.sh` を打つ cwd）の根の mise の設定を利用者が `mise trust` 済みなら、認証を使う実行のたびに `archon.sh` は隔離の前にそれを `mise trust --show` で読み、run の worktree の置き場（`$WORKS_DEV_HOME/archon-home/workspaces`）を `MISE_TRUSTED_CONFIG_PATHS` に足す（mise の公式の設定。前の値は残す）。mise の信頼はパスに結び付くので、足さないと run の worktree の中のテストで設定が信頼されず、道具の失敗が偽の赤になる。信頼していない対象では足さない。
 
@@ -150,7 +150,7 @@ AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` �
 
 本物の AI でライン `darkfactory` を 1 回回す殻が `works/dev/real-run.sh`（費用が掛かる。回す前に持ち主の了承を取る）。
 
-1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/real-run.sh [<dir>]` を前景で打つ。使い捨ての対象を作り、ライン（模型は `WORKS_DEV_MODEL`、未設定なら `archon.sh` が `dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT` を解く）を回し、人の関所で止まって戻る。
+1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/real-run.sh [<dir>]` を前景で打つ。使い捨ての対象を作り、ライン（模型は `WORKS_DEV_MODEL`、未設定なら `archon.sh` が `dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT` を解く。YAML の段に `model:` を書いた役の段を除く）を回し、人の関所で止まって戻る。
 2. 関所の文面の「テストが緑か」「テストのログ」と、殻が出す「修正の差分がある worktree」を見る。修正は対象ではなく、Archon が run ごとに切った worktree の中にある。
 3. 殻が出す approve のコマンドを打つ。承認はその場で続き（差分の審査）を回して終わる。`WORKS_KEYCHAIN_ITEM` で起こしたなら、出た行に項目名が載っているので、export していない殻でもそのまま打てる。`CLAUDE_CODE_OAUTH_TOKEN` だけで起こしたなら、値は出さないので、それを export した殻で打つ。`resume` は失敗・中断から続けるときだけ要る。
 

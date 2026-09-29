@@ -146,7 +146,6 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(set(self.y["inputs"]), {"machine_report"})
         self.assertEqual(self.y["inputs"]["machine_report"].get("default"), "")
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
-        self.assertNotIn("model", yaml.safe_dump(self.y))
         self.assertNotIn("effort", yaml.safe_dump(self.y), "effort はまだ置かない（報告の表で提案するだけ）")
 
     def test_roles_follow_graph_order(self):

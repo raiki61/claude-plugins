@@ -46,7 +46,8 @@
 #   集計を 1 つの信号で出し、全部終わった時だけ外す（lib.sh works_dev_herdr_sync）。
 # - 差分（run の worktree と周の頭の版の差）は <家>/diffs/run-<id>.diff に書き、対象へ当てる apply の行を出す。当てるのは人。
 # 認証は archon.sh と同じ順（guard.sh works_dev_auth_candidates: CLAUDE_CODE_OAUTH_TOKEN・WORKS_KEYCHAIN_ITEM・Claude Code 自身の keychain の項目）。ここは在るかだけを
-# 見て、値は読まない。模型は WORKS_DEV_MODEL（ここでは埋めない。未設定なら archon.sh が既定を解く）。
+# 見て、値は読まない。模型は WORKS_DEV_MODEL（ここでは埋めない。未設定なら archon.sh が既定を解く。YAML の段に
+# model: を書いた役の段は、段の値が先に効く）。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
 
@@ -281,7 +282,7 @@ for k, v in (("WORKS_DEV_MODEL", d.get("model")), ("WORKS_MODEL_PINNED", pinned)
     if isinstance(v, str) and (v or k in ("WORKS_DEV_ADAPTER", "WORKS_DEV_MODEL")):
         print("{}={}; export {}".format(k, shlex.quote(v), k))
 ' "$WORKS_USE_HOME/runs/$1.json")"
-  echo "run $1 の控え（模型 ${WORKS_DEV_MODEL:-既定 $(works_dev_model_value)}・包み ${WORKS_DEV_ADAPTER:-無し}）で${2:- Archon を起こす}"
+  echo "run $1 の控え（模型 ${WORKS_DEV_MODEL:-既定 $(works_dev_model_value)}・包み ${WORKS_DEV_ADAPTER:-無し}）で${2:- Archon を起こす}（YAML の段に model: を書いた役の段は段の値）"
 }
 
 . "$DEV_DIR/lib.sh"

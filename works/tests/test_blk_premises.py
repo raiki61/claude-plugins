@@ -121,7 +121,6 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["settingSources"], ["user"])
         self.assertEqual(role["idle_timeout"], DEADLINE)
-        self.assertNotIn("model", role)
         acc = find_node(self.y, "premises-accept")
         self.assertEqual(acc["with"], {"reply": {"from": "$premises.output"}, "base_rev": "$INPUTS.base_rev"})
         self.assertEqual(acc["depends_on"], ["premises"])

@@ -727,6 +727,7 @@ nodes:
               role_def_missing:
                 type: string
         - id: r3-coherence
+          model: sonnet               # 役 inspector の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           command: r3-coherence
           depends_on: [r3-coherence-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
@@ -854,6 +855,7 @@ nodes:
               role_def_missing:
                 type: string
         - id: r4-scope
+          model: sonnet               # 役 inspector の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           command: r4-scope
           depends_on: [r4-scope-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）

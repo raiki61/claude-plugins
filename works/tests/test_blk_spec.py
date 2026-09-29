@@ -101,7 +101,6 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(set(self.y["inputs"]), {"base_rev"})
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
         self.assertIs(self.y["interactive"], True, "関所（approval）を持つ工程は interactive を宣言する")
-        self.assertNotIn("model", yaml.safe_dump(self.y))
         self.assertEqual(list(self.top), ["write-route", "write-loop", "review-route", "review-loop", "revise-route",
                                           "revise-loop", "spec-ask", "spec-gate", "spec-answer", "collect"])
         fmt = self.top["collect"]["output_format"]

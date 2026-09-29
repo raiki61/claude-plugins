@@ -73,7 +73,6 @@ class YamlCase(unittest.TestCase):
     def test_inputs_and_exit(self):
         self.assertEqual(set(self.y["inputs"]), {"base_rev", "policy_paste"})
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
-        self.assertNotIn("model", yaml.safe_dump(self.y))
 
     def test_yaml_output_formats_match(self):
         for grp in self.loops():

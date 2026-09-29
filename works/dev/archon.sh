@@ -5,6 +5,7 @@
 # 確かめてから、HOME・ARCHON_HOME・CLAUDE_CONFIG_DIR・XDG_* を全部そこへ向けて隔離した
 # 状態で実行ファイルを exec する。works/ のパックには入らない（77MB 級のため）。
 # 認証を使う実行では、隔離した Archon の設定に模型（WORKS_DEV_MODEL。既定は guard.sh の WORKS_DEV_MODEL_DEFAULT）を毎回書く。
+# YAML の段に model: を書いた段（役の前付けの model が既定と違う役の段）には、この値は効かない。
 set -eu
 
 ARCHON_VERSION="v0.11.1"
@@ -157,7 +158,10 @@ fi
 # 認証を使う（AI を呼びうる）実行は毎回、隔離した Archon の全体設定に既定の模型を書き、run の題を作る
 # 模型も同じにする（TITLE_GENERATION_MODEL。設定済みならそのまま）。書かないと Claude CLI の既定の模型で
 # 黙って回る。模型は WORKS_DEV_MODEL（空か未設定なら guard.sh の WORKS_DEV_MODEL_DEFAULT。既定を埋めるのはここだけ）で、
-# 明示か既定かを WORKS_MODEL_FROM に残して下へ渡す。works の YAML には model: を書かない——利用者の選択を残すため。
+# 明示か既定かを WORKS_MODEL_FROM に残して下へ渡す。works の YAML は、役の前付け（.shared/core/agents/<役>.md）の
+# model が既定と違う役（inspector・investigator・cold-reader）の段だけ、前付けと同じ model: を書く（持ち主の決定
+# 2026-09-29）。Archon は段の値をこの設定より先に使うので、その段にはここで書く値が効かない。ほかの段は利用者の
+# 選択を残すため書かない。
 # 解いた値は WORKS_DEV_MODEL に書き戻さず（書き戻すと Archon の下で起こす殻に既定が明示として届く）、別の名
 # WORKS_MODEL_RESOLVED で渡す（run の版の控え versions.json の model が読む）。
 # 認証の要らない道（WORKS_DEV_NO_AUTH=1。テスト・validate・workflow test）は変えない（書かない・模型も要らない）。

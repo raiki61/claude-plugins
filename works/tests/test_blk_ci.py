@@ -94,7 +94,6 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(set(self.y["inputs"]), {"node", "base_rev"})
         self.assertTrue(self.y["inputs"]["node"].get("required"))
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
-        self.assertNotIn("model", yaml.safe_dump(self.y))
         self.assertEqual(list(self.top), ["ci-fence", "ci-snap", "ci-loop", "collect"])
 
     def test_fence_first(self):
