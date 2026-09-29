@@ -46,7 +46,7 @@
 #   集計を 1 つの信号で出し、全部終わった時だけ外す（lib.sh works_dev_herdr_sync）。
 # - 差分（run の worktree と周の頭の版の差）は <家>/diffs/run-<id>.diff に書き、対象へ当てる apply の行を出す。当てるのは人。
 # 認証は archon.sh と同じ順（guard.sh works_dev_auth_candidates: CLAUDE_CODE_OAUTH_TOKEN・WORKS_KEYCHAIN_ITEM・Claude Code 自身の keychain の項目）。ここは在るかだけを
-# 見て、値は読まない。模型は WORKS_DEV_MODEL（既定 opus）。
+# 見て、値は読まない。模型は WORKS_DEV_MODEL（ここでは埋めない。未設定なら archon.sh が既定を解く）。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
 
@@ -91,7 +91,6 @@ WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
 WORKS_USE_HOME="${WORKS_USE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/works/use}"
 WORKS_DEV_HOME="$WORKS_USE_HOME"
-WORKS_DEV_MODEL="${WORKS_DEV_MODEL:-opus}"
 # 包みは既定で入れる（dogfood.sh と同じ。0 か空を明示した時だけ外す。値の検査は archon.sh）
 WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"
 WORKS_USE_SH="$DEV_DIR/use.sh"
@@ -102,6 +101,8 @@ WORKS_USE_POLICY_MD="${WORKS_USE_POLICY_MD:-}"
 WORKS_USE_THICKNESS="${WORKS_USE_THICKNESS:-}"
 WORKS_USE_WAIT_SECONDS="${WORKS_USE_WAIT_SECONDS:-540}"
 export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER WORKS_USE_SH WORKS_WRAPS_DIR
+# start の時の既定の釘は控えからだけ受ける（load_ledger が置く）。利用者の殻に残った値で既定を替えさせない
+unset WORKS_MODEL_PINNED
 
 refuse() {
   echo "use.sh: $*" >&2
@@ -225,7 +226,7 @@ print("\t".join([r.get("id") or "", r.get("status") or "", r.get("working_path")
 '
 }
 
-# run の控え <家>/runs/<run-id>.json: start で選んだ模型・claude の実行ファイル・keychain の項目の名（値でなく名）・包みを残し、
+# run の控え <家>/runs/<run-id>.json: start で選んだ模型（明示しなければ start の時の既定）・claude の実行ファイル・keychain の項目の名（値でなく名）・包みを残し、
 # 別の殻で打つ answer・stop がそれで Archon を起こし、show が出す進める・続きの行もそれで組む（無ければ今の殻の値のまま）。
 # 書く口は lib.sh works_dev_save_ledger（dogfood.sh・real-run.sh と同じ）
 save_ledger() {
@@ -270,12 +271,17 @@ load_ledger() {
   eval "$(python3 -c '
 import json, shlex, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
-for k, v in (("WORKS_DEV_MODEL", d.get("model")), ("CLAUDE_BIN_PATH", d.get("claude_bin")),
+resolved = d.get("model_resolved") if isinstance(d.get("model_resolved"), dict) else {}
+pinned = resolved.get("value") if d.get("model") == "" else None
+for k, v in (("WORKS_DEV_MODEL", d.get("model")), ("WORKS_MODEL_PINNED", pinned),
+             ("CLAUDE_BIN_PATH", d.get("claude_bin")),
              ("WORKS_KEYCHAIN_ITEM", d.get("keychain_item")), ("WORKS_DEV_ADAPTER", d.get("adapter"))):
-    if isinstance(v, str) and (v or k == "WORKS_DEV_ADAPTER"):
+    # 模型の空は「start で明示しなかった」の控え。この殻の値で埋めず、空のまま渡して archon.sh に start の時に解いた
+    # 既定（model_resolved の value）で解かせる
+    if isinstance(v, str) and (v or k in ("WORKS_DEV_ADAPTER", "WORKS_DEV_MODEL")):
         print("{}={}; export {}".format(k, shlex.quote(v), k))
 ' "$WORKS_USE_HOME/runs/$1.json")"
-  echo "run $1 の控え（模型 ${WORKS_DEV_MODEL}・包み ${WORKS_DEV_ADAPTER:-無し}）で${2:- Archon を起こす}"
+  echo "run $1 の控え（模型 ${WORKS_DEV_MODEL:-既定 $(works_dev_model_value)}・包み ${WORKS_DEV_ADAPTER:-無し}）で${2:- Archon を起こす}"
 }
 
 . "$DEV_DIR/lib.sh"

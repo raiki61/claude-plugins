@@ -54,13 +54,13 @@ TDD の修正の段が使うテストの実行器（ラインの入力 `tdd_suit
 
 どれも無ければ、案内を 1 行出して止まる。2 の項目が空の値を返したときも同じく止まる。gh・git の資格は隔離した家の役に渡さない（役ごとに分けて渡せないため。隔離した家の gh は未ログインで、並行 PR の確かめは gh の失敗の理由つきで人に回る）。`WORKS_DEV_NO_AUTH=1` のときは認証を読まない（テスト・`validate`・`workflow test` 用。`dev/check.sh` は付けて回すので認証が要らない）。
 
-認証を使う実行のたびに、`archon.sh` は隔離した Archon の設定（`$WORKS_DEV_HOME/archon-home/config.yaml`）に模型を書く（`WORKS_DEV_MODEL`。既定は opus。run の題を作る模型 `TITLE_GENERATION_MODEL` も、設定していなければ同じにする）。書かないと Claude CLI の既定の模型で黙って回る。`WORKS_DEV_NO_AUTH=1` のときは書かない。
+認証を使う実行のたびに、`archon.sh` は隔離した Archon の設定（`$WORKS_DEV_HOME/archon-home/config.yaml`）に模型を書く（`WORKS_DEV_MODEL`。空か未設定なら `dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT`（環境では替わらない）。既定を埋めるのは `archon.sh` だけで、入口の殻は埋めない。明示か既定かは `WORKS_MODEL_FROM` に残して下へ渡す。明示せずに起こした run の続き・答えの行は、start の時の既定を `WORKS_MODEL_PINNED` に添えて起こす（`archon.sh` はそれで解いて出どころに名を残し、Archon には継がせない）。run の題を作る模型 `TITLE_GENERATION_MODEL` も、設定していなければ同じにする）。書かないと Claude CLI の既定の模型で黙って回る。`WORKS_DEV_NO_AUTH=1` のときは書かない。
 
 対象（`archon.sh` を打つ cwd）の根の mise の設定を利用者が `mise trust` 済みなら、認証を使う実行のたびに `archon.sh` は隔離の前にそれを `mise trust --show` で読み、run の worktree の置き場（`$WORKS_DEV_HOME/archon-home/workspaces`）を `MISE_TRUSTED_CONFIG_PATHS` に足す（mise の公式の設定。前の値は残す）。mise の信頼はパスに結び付くので、足さないと run の worktree の中のテストで設定が信頼されず、道具の失敗が偽の赤になる。信頼していない対象では足さない。
 
 開発の家（`WORKS_DEV_HOME`。既定は `$TMPDIR/works-dev`）・使い捨ての対象・その origin は、Claude Code の一時フォルダ（`/private/tmp/claude-*`・`/tmp/claude-*`）の下に置けない。サンドボックスの中の Bash がそこへ書けるためで、`dev/` の殻はその下に解けるパスを終了コード 2 で拒む（設計書 7 節）。
 
-run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/versions.json` に書く（`.shared/core/versions.py`。入力を拒む run でも書く）: pack の中身の sha256・写した元の works の commit と手元の書き換えの有無と works の版（`dev/lib.sh` が pack の写しに置く `.works-source.json`。元の works が git で追跡されていない時（プラグインのキャッシュから起こした時）は commit と書き換えの有無が null で、版は `.claude-plugin/plugin.json` の version）・`VERSION`・graphloops の写しの行・借りた物の版（`$CLAUDE_CONFIG_DIR/.works-toolset.json`）・Archon の版と Claude Code の `--version`（`archon.sh` が env の `WORKS_ARCHON_VERSION`・`WORKS_CLAUDE_VERSION` で渡す）。分からない値は null にして、`unknown` に理由を書く。模型は Archon が run の `metadata.model_bindings` に残す。
+run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/versions.json` に書く（`.shared/core/versions.py`。入力を拒む run でも書く）: pack の中身の sha256・写した元の works の commit と手元の書き換えの有無と works の版（`dev/lib.sh` が pack の写しに置く `.works-source.json`。元の works が git で追跡されていない時（プラグインのキャッシュから起こした時）は commit と書き換えの有無が null で、版は `.claude-plugin/plugin.json` の version）・`VERSION`・graphloops の写しの行・借りた物の版（`$CLAUDE_CONFIG_DIR/.works-toolset.json`）・Archon の版と Claude Code の `--version`（`archon.sh` が env の `WORKS_ARCHON_VERSION`・`WORKS_CLAUDE_VERSION` で渡す）。全体の模型の要求と出どころ（`model`。`archon.sh` が渡す `WORKS_DEV_MODEL` か `WORKS_MODEL_RESOLVED` と `WORKS_MODEL_FROM`）も載る。分からない値は null にして、`unknown` に理由を書く。節ごとの模型は、包みが起動の記録に Archon が節に渡した `--model` を残し（読むだけで変えない）、報告の「## 模型」の節が全体の値と節ごとの値（run の途中で替われば全部）を出す。Archon の `metadata.model_bindings` は応答から推した名で、works の記録の元にしない。
 
 ## 層と依存の向き
 
@@ -136,7 +136,7 @@ AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` �
 
 本物の AI でライン `darkfactory` を 1 回回す殻が `works/dev/real-run.sh`（費用が掛かる。回す前に持ち主の了承を取る）。
 
-1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/real-run.sh [<dir>]` を前景で打つ。使い捨ての対象を作り、ライン（模型は `WORKS_DEV_MODEL`、既定は opus）を回し、人の関所で止まって戻る。
+1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/real-run.sh [<dir>]` を前景で打つ。使い捨ての対象を作り、ライン（模型は `WORKS_DEV_MODEL`、未設定なら `archon.sh` が `dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT` を解く）を回し、人の関所で止まって戻る。
 2. 関所の文面の「テストが緑か」「テストのログ」と、殻が出す「修正の差分がある worktree」を見る。修正は対象ではなく、Archon が run ごとに切った worktree の中にある。
 3. 殻が出す approve のコマンドを打つ。承認はその場で続き（差分の審査）を回して終わる。`WORKS_KEYCHAIN_ITEM` で起こしたなら、出た行に項目名が載っているので、export していない殻でもそのまま打てる。`CLAUDE_CODE_OAUTH_TOKEN` だけで起こしたなら、値は出さないので、それを export した殻で打つ。`resume` は失敗・中断から続けるときだけ要る。
 

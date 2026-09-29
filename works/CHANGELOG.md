@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 開発の殻の全体の模型 `WORKS_DEV_MODEL` の既定を埋めるのは `dev/archon.sh` だけになった（既定の値は `dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT`。環境では替わらない）。`use.sh`・`dogfood.sh`・`real-run.sh` は未設定のまま渡し、`archon.sh` は明示か既定かを `WORKS_MODEL_FROM` に残して下へ渡し、解いた値を `WORKS_DEV_MODEL` に書き戻さず `WORKS_MODEL_RESOLVED` で渡す。模型を明示せずに起こした run の控えの `model` は空で、start の時に解いた値と出どころを `model_resolved` に残す。続き・答えの行は空の指定にその既定を別の名 `WORKS_MODEL_PINNED` で添えて起こし、run の途中で既定を解き直さない（`archon.sh` は出どころにその名を残し、Archon には継がせない。入口の殻 `use.sh`・`dogfood.sh`・`real-run.sh` は起動の時にその名を外し、控えから来た値だけを受ける）。今までは入口ごとに opus を埋めていたので、既定と利用者が opus を明示した run が見分けられず、再開では既定が明示に化けていた。
+
 ## [0.2.3] - 2026-09-29
 
 ### Added

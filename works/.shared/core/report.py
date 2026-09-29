@@ -12,7 +12,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
 - head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
-  head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_cost(board_dir, run_id, *, events, launches)・
+  head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)・
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base}]
@@ -719,6 +719,16 @@ def _launches(b, repo) -> list:
     return [r for r in _since_created(b, adapter.read_launches(pathlib.Path(repo))) if r.get("pid") not in dead]
 
 
+def _live_launches(board_dir, launches, b=None) -> list:
+    """費用と模型が数える起動（どれを数えるかはここだけ）。launches を渡さなければ盤面（b。無ければ board_dir を開く）の
+    run の作業ツリーの起動の記録。拒んだ起動は除き、時刻の順に並べ直す"""
+    if launches is None:
+        b = b or entry.open_board(pathlib.Path(board_dir), allow_halted=True)
+        launches = _launches(b, (b.state.get("inputs") or {}).get("cwd") or ".")
+    return sorted((r for r in launches if isinstance(r, dict) and (r.get("session") or {}).get("mode") != "refused"),
+                  key=lambda r: str(r.get("at") or ""))
+
+
 def head_where(b) -> list:
     """冒頭 5: 見る所（判定・修正案・事前審査・修正・審査・手直し・差分のファイルと run の作業ツリー）。ファイルは
     state.outputs[節]["file"] と loop の差分の欄から（周を仮定しない）。盤面を書かない"""
@@ -776,10 +786,8 @@ def cost_rows(events, launches) -> list:
     queues = {}
     for n, v in shown:
         queues.setdefault(n, []).append(v)
-    rows_in = sorted((r for r in launches or [] if isinstance(r, dict) and (r.get("session") or {}).get("mode") != "refused"),
-                     key=lambda r: str(r.get("at") or ""))
     totals, last_node, out = {}, {}, []
-    for r in rows_in:
+    for r in _live_launches(None, launches or []):
         node = r.get("node")
         q = queues.get(node) or []
         if not q:
@@ -803,10 +811,7 @@ def head_cost(board_dir, run_id: str, *, events=None, launches=None) -> list:
     最初の理由と件数の 1 行。取れない節は 0 と数えず、件数と理由を別の行に出す。報告は run の中で走り、run の和
     （metadata.total_cost_usd）は走っている間の値なので読まない——合計は節の和を途中の値として出す。
     launches を渡さなければ盤面の run の作業ツリーの起動の記録（盤面を作った後の行）"""
-    if launches is None:
-        b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
-        launches = _launches(b, (b.state.get("inputs") or {}).get("cwd") or ".")
-    rows = cost_rows(events, launches)
+    rows = cost_rows(events, _live_launches(board_dir, launches))
     whys = [w for _, w in map(_event_cost, _completed(events)) if w]
     missing = f"{whys[0]}。取れない節 {len(whys)} 件" if whys else f"node_completed が無い。{ARCHON_VERSION} の前提"
     if not rows:
@@ -821,6 +826,36 @@ def head_cost(board_dir, run_id: str, *, events=None, launches=None) -> list:
         lines.append(f"費用の取れない節: {missing}（合計に数えない）")
     nodes = round(sum(r["actual"] for r in rows), 6)
     lines.append(f"費用の合計: {nodes} USD（途中。報告は run の中で走るので run の和は読まず節の和。包みと子を二重に数えうる）{mark}")
+    return lines
+
+
+# ---------------------------------------------------------------- 模型
+def head_models(board_dir, launches=None) -> list:
+    """費用の前の模型の行。全体は <盤面の親＝ARTIFACTS_DIR>/versions.json の model（start の時に archon.sh が渡した要求と
+    出どころ）、節ごとは包みの起動の記録の model（Archon が節に渡した --model。応答が名乗る模型は読まない）。同じ節で値が
+    替われば順に全部並べる。取れない値は理由を書き、全体の値で埋めない。launches を渡さなければ head_cost と同じ起動の記録"""
+    path = pathlib.Path(board_dir).parent / "versions.json"
+    try:
+        glob = json.loads(path.read_text(encoding="utf-8")).get("model")
+    except (OSError, ValueError, AttributeError) as e:
+        glob, why = None, f"{path} を読めない（{type(e).__name__}）"
+    else:
+        why = f"{path} に model が無い（開発の殻 archon.sh を通さずに起こした run）"
+    if isinstance(glob, dict) and glob.get("value"):
+        lines = [f"模型（全体・start の時）: {glob['value']}（出どころ {glob.get('from') or '記録が無い'}）"]
+    else:
+        lines = [f"模型（全体）: 取れない（{why}）"]
+    per = {}
+    for r in _live_launches(board_dir, launches):
+        seen = per.setdefault(r.get("node") or "（印の無い起動）", [])
+        m = r.get("model") if "model" in r else "（記録の無い版の包み）"
+        if not seen or seen[-1] != m:
+            seen.append(m)
+    if not per:
+        return lines + ["模型（節ごと）: 取れない（包みの起動の記録が無い。包みを通さない run か、まだ起動が無い）"]
+    for node, ms in per.items():
+        shown = " → ".join(m or "--model 無し（Archon が渡さず CLI の既定。値は取れない）" for m in ms)
+        lines.append(f"模型 {node}: {shown}{'（run の途中で替わった）' if len(ms) > 1 else ''}")
     return lines
 
 
@@ -872,6 +907,8 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
              head_reads(board_dir, rid, ci=ci), head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]
+    launches = _live_launches(board_dir, launches, b)
+    body += ["## 模型", "", *[f"- {r}" for r in head_models(board_dir, launches)], ""]
     body += ["## 費用", "", *[f"- {r}" for r in head_cost(board_dir, rid, events=events, launches=launches)], ""]
     body += ["## 周の記録の検証器", "", f"- 終了コード: {gate['exit']}（受理 {report_accepts(b)}）",
              f"- 今の周の記録: {'済んだ' if gate['round_closed'] else '済んでいない'}", ""]

@@ -21,7 +21,7 @@
 #   （既定。WORKS_DEV_ADAPTER=0 か空で包みを外すと adapter=optional）・final_gate=always（WORKS_DOGFOOD_FINAL_GATE で when_needed に）。
 # 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
 # <dir> に前の回の repo・origin.git・request.json が在れば、何も書かずに止まる（前の回の依頼を上書きしない）。
-# <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（既定は opus。書くのは archon.sh）。
+# <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（ここでは埋めない。既定を解いて書くのは archon.sh）。
 # 認証は archon.sh と同じ（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM。既定の口座は無い）。
 # CLAUDE_BIN_PATH は real-run.sh と同じく隔離の前に解いて渡す。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_dev.py が偽物を差す）。
@@ -42,11 +42,12 @@ DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
 WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
-WORKS_DEV_MODEL="${WORKS_DEV_MODEL:-opus}"
 # 包みは既定で通す。WORKS_DEV_ADAPTER=0 か空を明示した時だけ外す（値の検査は archon.sh）。--show は続きの行の前置きが
 # 包みを通した run にだけ WORKS_DEV_ADAPTER=1 を載せるので、無ければ外した run
 if [ -n "$SHOW" ]; then WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-}"; else WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"; fi
 export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER
+# 起こすのは start だけなので、start の時の既定の釘（続きの行だけが置く）は利用者の殻に残っていても受けない
+unset WORKS_MODEL_PINNED
 
 # 開発の家・置き場が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"

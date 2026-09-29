@@ -41,15 +41,18 @@ sys.stdout.write(json.dumps(doc, ensure_ascii=False) + "\n")
 }
 
 # works_dev_save_ledger <控えの置き場> <run-id> <対象の dir>: run の控え <置き場>/<run-id>.json を書く（use.sh・dogfood.sh・
-# real-run.sh の同じ口）。模型・claude の実行ファイル・keychain の項目の名（値でなく名）・包み・結んだ時刻・包んだ基の参照
+# real-run.sh の同じ口）。模型（model は明示された全体の指定で、明示しなければ空。model_resolved は start の時に解いた
+# {value, from}）・claude の実行ファイル・keychain の項目の名（値でなく名）・包み・結んだ時刻・包んだ基の参照
 # （WRAP_REF）と、herdr の枠の中で起こしたならその枠（herdr_pane。works_dev_herdr_sync が枠ごとに数える元）を残す
 works_dev_save_ledger() {
   mkdir -p "$1"
-  RUN_ID="$2" DIR="$3" WRAP_REF="${WRAP_REF:-}" python3 -c '
+  RUN_ID="$2" DIR="$3" WRAP_REF="${WRAP_REF:-}" MODEL_VALUE="$(works_dev_model_value)" \
+    MODEL_FROM="$(works_dev_model_from)" python3 -c '
 import json, os, time
 e = os.environ
 pane = e.get("HERDR_PANE_ID", "") if e.get("HERDR_ENV") == "1" else ""
 print(json.dumps({"run_id": e["RUN_ID"], "target": e["DIR"], "model": e.get("WORKS_DEV_MODEL", ""),
+                  "model_resolved": {"value": e["MODEL_VALUE"], "from": e["MODEL_FROM"]},
                   "claude_bin": e.get("CLAUDE_BIN_PATH", ""), "keychain_item": e.get("WORKS_KEYCHAIN_ITEM", ""),
                   "adapter": e.get("WORKS_DEV_ADAPTER", ""), "started_at": time.time(),
                   "wrap_ref": e.get("WRAP_REF", ""), "herdr_pane": pane}, ensure_ascii=False))
@@ -177,10 +180,14 @@ else:
 # 包みを入れた run（WORKS_DEV_ADAPTER=1）は続きのコマンドにも付ける（archon.sh は認証を使う実行のたびに設定を書き直す）。
 # dogfood.sh はこれに respond を足して関所の文の答えの行の頭（WORKS_ANSWER_CMD）にする。
 # 呼び手が WORKS_ANSWER_CMD を export していれば行に載せる（承認・続きはその場で残りの工程を回し、関所の文の答えの行をこれで組む）。
-# WORKS_ANSWER_WHO（答えた者の穴。use.sh が置く）も在れば一緒に載せる
+# WORKS_ANSWER_WHO（答えた者の穴。use.sh が置く）も在れば一緒に載せる。
+# 模型を明示しなかった run は空の指定に start の時の既定を WORKS_MODEL_PINNED で添え、続きで既定を解き直さない
 works_dev_go() {
-  ARCHON_SH="$1" DIR="$2" TAIL="${3:-}" python3 -c '
+  ARCHON_SH="$1" DIR="$2" TAIL="${3:-}" MODEL_PINNED="$(works_dev_model_value)" python3 -c '
 import os, shlex
+model = os.environ.get("WORKS_DEV_MODEL", "")
+# 空は引用符なしで書く（行は WORKS_ANSWER_CMD の中に引用符ごと包まれるので、'' だと引用が入れ子になる）
+model = shlex.quote(model) if model else " WORKS_MODEL_PINNED=" + shlex.quote(os.environ["MODEL_PINNED"])
 item = os.environ.get("WORKS_KEYCHAIN_ITEM", "")
 auth = "WORKS_KEYCHAIN_ITEM={} ".format(shlex.quote(item)) if item else ""
 adapter = "WORKS_DEV_ADAPTER=1 " if os.environ.get("WORKS_DEV_ADAPTER") == "1" else ""
@@ -190,7 +197,7 @@ who = os.environ.get("WORKS_ANSWER_WHO", "")
 answer += "WORKS_ANSWER_WHO={} ".format(shlex.quote(who)) if answer and who else ""
 print("cd {} && {}WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}{}{}".format(
     shlex.quote(os.environ["DIR"]), auth, shlex.quote(os.environ["WORKS_DEV_HOME"]),
-    shlex.quote(os.environ["WORKS_DEV_MODEL"]), shlex.quote(os.environ["CLAUDE_BIN_PATH"]),
+    model, shlex.quote(os.environ["CLAUDE_BIN_PATH"]),
     adapter, answer, os.environ["TAIL"] or "sh {} workflow".format(shlex.quote(os.environ["ARCHON_SH"]))))
 '
 }
@@ -280,7 +287,7 @@ works_dev_show_started() {
 # 状態の下に launched_min（起こしてからの分）を出し、走っている run は Archon の workflow get の出来事を 1 回引いて、
 # 走っている節・alive（最後の動きから 30 分以内か）・試験の枠を待っているか（盤面の testslot.json）・節ごとの費用 cost_usd
 # （report.head_cost。報告の費用の行と同じ）も出す。
-# WORKS_DEV_HOME・WORKS_DEV_MODEL・CLAUDE_BIN_PATH を export 済みで、DEV_DIR（works/dev）を置いた殻から呼ぶ。
+# WORKS_DEV_HOME・CLAUDE_BIN_PATH を export 済み（WORKS_DEV_MODEL は明示した時だけ）で、guard.sh を読み DEV_DIR（works/dev）を置いた殻から呼ぶ。
 works_dev_show_run() {
   _go="$(works_dev_go "$2" "$3")"
   _redo=""

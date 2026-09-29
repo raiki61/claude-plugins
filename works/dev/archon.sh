@@ -4,7 +4,7 @@
 # 固定した版の Archon の実行ファイルを WORKS_DEV_HOME の下にキャッシュし、sha256 を
 # 確かめてから、HOME・ARCHON_HOME・CLAUDE_CONFIG_DIR・XDG_* を全部そこへ向けて隔離した
 # 状態で実行ファイルを exec する。works/ のパックには入らない（77MB 級のため）。
-# 認証を使う実行では、隔離した Archon の設定に模型（WORKS_DEV_MODEL。既定は opus）を毎回書く。
+# 認証を使う実行では、隔離した Archon の設定に模型（WORKS_DEV_MODEL。既定は guard.sh の WORKS_DEV_MODEL_DEFAULT）を毎回書く。
 set -eu
 
 ARCHON_VERSION="v0.11.1"
@@ -156,17 +156,24 @@ fi
 
 # 認証を使う（AI を呼びうる）実行は毎回、隔離した Archon の全体設定に既定の模型を書き、run の題を作る
 # 模型も同じにする（TITLE_GENERATION_MODEL。設定済みならそのまま）。書かないと Claude CLI の既定の模型で
-# 黙って回る。模型は WORKS_DEV_MODEL（既定は opus）。works の YAML には model: を書かない——利用者の選択を残すため。
+# 黙って回る。模型は WORKS_DEV_MODEL（空か未設定なら guard.sh の WORKS_DEV_MODEL_DEFAULT。既定を埋めるのはここだけ）で、
+# 明示か既定かを WORKS_MODEL_FROM に残して下へ渡す。works の YAML には model: を書かない——利用者の選択を残すため。
+# 解いた値は WORKS_DEV_MODEL に書き戻さず（書き戻すと Archon の下で起こす殻に既定が明示として届く）、別の名
+# WORKS_MODEL_RESOLVED で渡す（run の版の控え versions.json の model が読む）。
 # 認証の要らない道（WORKS_DEV_NO_AUTH=1。テスト・validate・workflow test）は変えない（書かない・模型も要らない）。
+WORKS_MODEL_FROM="$(works_dev_model_from)"
+WORKS_MODEL_RESOLVED="$(works_dev_model_value)"
+# start の時の既定の釘は、この起動の模型を解くのにだけ使う（Archon の下の殻・入れ子の run に既定として継がせない）
+unset WORKS_MODEL_PINNED
 if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
-  WORKS_DEV_MODEL="${WORKS_DEV_MODEL:-opus}"
+  export WORKS_MODEL_FROM WORKS_MODEL_RESOLVED
   cat >"$ARCHON_HOME/config.yaml" <<EOF
 # works/dev/archon.sh が認証を使う実行のたびに書く、隔離した開発用の Archon の全体設定
 assistants:
   claude:
-    model: $WORKS_DEV_MODEL
+    model: $WORKS_MODEL_RESOLVED
 EOF
-  TITLE_GENERATION_MODEL="${TITLE_GENERATION_MODEL:-$WORKS_DEV_MODEL}"
+  TITLE_GENERATION_MODEL="${TITLE_GENERATION_MODEL:-$WORKS_MODEL_RESOLVED}"
   export TITLE_GENERATION_MODEL
   # 本物の claude: WORKS_REAL_CLAUDE、CLAUDE_BIN_PATH（包み自身を差していれば使わない）、PATH の順（関数・別名は飛ばす）。
   # 隔離した設定にプラグインを入れる（下の toolset.py）のにも、包みが起こすのにも使う

@@ -44,7 +44,7 @@ class VersionsCase(unittest.TestCase):
         self.cfg.mkdir()
         (self.cfg / versions.TOOLSET_RECORD).write_text(json.dumps(TOOLSET), encoding="utf-8")
         self.env = {"WORKS_ARCHON_VERSION": "v0.11.1", "WORKS_CLAUDE_VERSION": "2.1.0 (Claude Code)",
-                    "CLAUDE_CONFIG_DIR": str(self.cfg)}
+                    "CLAUDE_CONFIG_DIR": str(self.cfg), "WORKS_DEV_MODEL": "sonnet", "WORKS_MODEL_FROM": "env WORKS_DEV_MODEL"}
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -61,6 +61,7 @@ class VersionsCase(unittest.TestCase):
         self.assertEqual(doc["borrowed"], TOOLSET)
         self.assertEqual(doc["archon"], "v0.11.1")
         self.assertEqual(doc["claude_code"], "2.1.0 (Claude Code)")
+        self.assertEqual(doc["model"], {"value": "sonnet", "from": "env WORKS_DEV_MODEL"})
         self.assertTrue(doc["python"])
         self.assertTrue(doc["at"].endswith("Z"))
         self.assertEqual(doc["unknown"], {})
@@ -78,7 +79,7 @@ class VersionsCase(unittest.TestCase):
                 self.assertIsNone(got)
                 self.assertTrue(doc["unknown"].get(key), doc["unknown"])
         self.assertEqual(set(doc["unknown"]), {"works.source", "works.version", "graphloops_copy", "borrowed",
-                                               "archon", "claude_code"})
+                                               "archon", "claude_code", "model"})
         self.assertEqual(doc["works"]["files"], 1)
 
     def test_broken_side_files_are_unknown_not_errors(self):
@@ -132,6 +133,32 @@ class StartWritesVersionsCase(unittest.TestCase):
             self.assertEqual(doc["run_id"], "run-v-1")
             self.assertEqual(doc["archon"], "v0.11.1")
             self.assertEqual(doc["works"]["pack_sha256"], versions.pack_digest(ROOT))
+
+
+class SnapshotModelCase(unittest.TestCase):
+    """全体の模型の要求と出どころ（archon.sh が渡す）。archon.sh を通さない run は推測で埋めない"""
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.pack = pathlib.Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_snapshot_records_global_model_and_source(self):
+        doc = versions.snapshot(self.pack, {"WORKS_DEV_MODEL": "opus", "WORKS_MODEL_FROM": "既定（WORKS_DEV_MODEL_DEFAULT）"})
+        self.assertIn("model", doc)
+        self.assertEqual(doc["model"], {"value": "opus", "from": "既定（WORKS_DEV_MODEL_DEFAULT）"})
+        self.assertNotIn("model", doc["unknown"])
+
+    def test_snapshot_reads_resolved_default_without_explicit_model(self):
+        """archon.sh は既定を WORKS_DEV_MODEL に書き戻さず WORKS_MODEL_RESOLVED で渡す"""
+        doc = versions.snapshot(self.pack, {"WORKS_MODEL_RESOLVED": "opus", "WORKS_MODEL_FROM": "既定（WORKS_DEV_MODEL_DEFAULT）"})
+        self.assertEqual(doc["model"], {"value": "opus", "from": "既定（WORKS_DEV_MODEL_DEFAULT）"})
+
+    def test_snapshot_marks_model_unknown_without_dev_shell(self):
+        doc = versions.snapshot(self.pack, {})
+        self.assertIsNone(doc.get("model", "absent"))
+        self.assertIn("model", doc["unknown"])
 
 
 if __name__ == "__main__":

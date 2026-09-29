@@ -10,7 +10,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    PostToolUse:Edit|Write|NotebookEdit のフック（record-write.py。書いた後の中身の sha を writes_path に残し、書く役の受け付けが
    版からの変更と突き合わせる。.shared/core/writes.py）を足す。
    SDK は sandbox を持つ節にだけ `--settings {"sandbox":{…}}` を付けるので、在ればマージ（SDK の鍵は上書きしない）、
-   無ければフックだけの `--settings` を足す。`--setting-sources`（SDK は `=` でつないで必ず渡す）と `--model` は触らない。
+   無ければフックだけの `--settings` を足す。`--setting-sources`（SDK は `=` でつないで必ず渡す）と `--model` は触らない
+   （`--model` は読んで起動の記録に残すだけ。launch_row）。
    CLAUDE.md を止めるのは YAML の `settingSources: [user]` と、開発の殻が組む隔離した設定の柵（dev/toolset.py）の役目
    （Archon の検証と実際を食い違わせない）。
 2. **会話の継ぎ**: 役の節の output_format（JSON Schema）の一番上の `description` に置いた印
@@ -360,10 +361,20 @@ def now() -> str:
 def launch_row(p: "Plan", cwd, pid: int, at: str) -> dict:
     """launches の 1 行。引数の本文は書かない。
     `session` は {mode, id, of?, from?}: mode は new・sdk-resume・sdk-session・sdk-fork・continued・refused。
-    `from` は既に在る会話を開いた起動（sdk-resume・sdk-fork・continued）の元の会話の id（sdk-fork だけ id と違う）"""
+    `from` は既に在る会話を開いた起動（sdk-resume・sdk-fork・continued）の元の会話の id（sdk-fork だけ id と違う）。
+    `model` は Archon がこの起動に渡した `--model`（要求した模型。応答が名乗る模型ではない。無ければ None＝CLI の既定）"""
     return {"at": at, "pid": pid, "cwd": os.path.realpath(str(cwd)), "node": p.node, "continue": p.cont,
             "mode": p.mode, "why": p.why, "hook": p.hook, "tools_empty": p.tools_empty, "session": p.session,
-            "fence": p.fence, "strict_net": p.strict_net}
+            "fence": p.fence, "strict_net": p.strict_net, "model": requested_model(p.argv)}
+
+
+def requested_model(argv: Sequence[str]) -> Optional[str]:
+    """argv の最後の `--model`（CLI は後の指定が勝つ）。無い・値の無い旗は None"""
+    try:
+        found = find_opt(argv, "--model")
+    except Unrecognised:
+        return None
+    return found[-1][2] if found else None
 
 
 def read_launches(cwd, home_dir=None) -> List[dict]:

@@ -913,7 +913,9 @@ class TestDevShell(unittest.TestCase):
             self.assertIn("/wt/run-1", out)
             for verb in ("approve", "reject", "resume"):
                 self.assertIn(f"workflow {verb} run-1", out)
-            self.assertIn("WORKS_DEV_MODEL=opus", out)
+            # 模型を明示しなかった run の続きは空の指定で起こす（既定の opus を明示にしない。解くのは archon.sh）
+            self.assertIn("WORKS_DEV_MODEL= WORKS_MODEL_PINNED=", out)
+            self.assertNotIn("WORKS_DEV_MODEL=opus", out)
             for verb in ("approve", "resume"):   # 続きのコマンドも包みを通す（archon.sh は打つたびに設定を書き直す）
                 self.assertRegex(out, rf"WORKS_DEV_ADAPTER=1 sh [^\n]* workflow {verb} run-1")
                 # その場で回る残りの工程が関所の文の答えの行を組めるよう、答えの頭（隔離した archon.sh の respond）を載せる
@@ -1161,6 +1163,45 @@ class TestDevShell(unittest.TestCase):
             self.assertIn("OK", r.stderr)
         finally:
             shutil.rmtree(hole, ignore_errors=True)
+
+
+class TestDevModelPin(unittest.TestCase):
+    def sh(self, script, **env_kw):
+        env = hermetic.child_env()
+        for name in ("WORKS_DEV_MODEL", "WORKS_MODEL_PINNED", "WORKS_MODEL_FROM", "WORKS_KEYCHAIN_ITEM",
+                     "WORKS_DEV_ADAPTER", "WORKS_ANSWER_CMD", "HERDR_ENV"):
+            env.pop(name, None)
+        env.update(WORKS_DEV_HOME="/h", CLAUDE_BIN_PATH="/c", **env_kw)
+        r = subprocess.run(["sh", "-c", f'set -eu; . "{DEV}/guard.sh"; . "{DEV}/lib.sh"; {script}'],
+                           capture_output=True, text=True, encoding="utf-8", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_default_run_continues_with_start_default(self):
+        """既定で start した run の続きは、答える殻の模型や既定に替えず、控えの start の時の既定で起こす"""
+        runs = hermetic.tmpdir(self)
+        self.sh(f'works_dev_save_ledger "{runs}" run-1 /x')
+        led = json.loads((runs / "run-1.json").read_text(encoding="utf-8"))
+        self.assertEqual((led["model"], led["model_resolved"]["value"]), ("", "opus"))
+        self.assertIn("既定", led["model_resolved"]["from"])
+        # 控えの既定を釘の名で渡した殻（load_ledger が export する形）では、続きの行も guard.sh を読んだ archon.sh も
+        # その値で解き、出どころに釘の名を残す（既定の定数は環境で替えさせない）
+        for pinned in (led["model_resolved"]["value"], "haiku"):
+            out = self.sh('works_dev_go /a.sh /x; works_dev_model_value; works_dev_model_from',
+                          WORKS_DEV_MODEL="", WORKS_MODEL_PINNED=pinned)
+            self.assertIn(f"WORKS_DEV_MODEL= WORKS_MODEL_PINNED={pinned} ", out)
+            self.assertEqual(out.splitlines()[-2:], [pinned, "start の時の既定（WORKS_MODEL_PINNED）"])
+        self.assertEqual(self.sh("works_dev_model_value", WORKS_DEV_MODEL_DEFAULT="sonnet").strip(), "opus")
+        # 明示した run の控えも start の時に解いた値を持ち、出どころで既定と見分ける
+        explicit = hermetic.tmpdir(self)
+        self.sh(f'works_dev_save_ledger "{explicit}" run-1 /x', WORKS_DEV_MODEL="opus")
+        exp = json.loads((explicit / "run-1.json").read_text(encoding="utf-8"))
+        self.assertEqual((exp["model"], exp["model_resolved"]["value"]), ("opus", "opus"))
+        self.assertNotEqual(exp["model_resolved"]["from"], led["model_resolved"]["from"])
+        # 明示した run の行は明示の値だけを載せる（既定は添えない）
+        out = self.sh("works_dev_go /a.sh /x", WORKS_DEV_MODEL="sonnet")
+        self.assertIn("WORKS_DEV_MODEL=sonnet CLAUDE_BIN_PATH=/c ", out)
+        self.assertNotIn("WORKS_MODEL_PINNED", out)
 
 
 if __name__ == "__main__":

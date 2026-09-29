@@ -1627,7 +1627,7 @@ class PromptVariantCase(unittest.TestCase):
         child, row = self.launch("works-node: judge", prompt)
         self.assertNotIn("prompt", row)
         self.assertEqual(set(row), {"at", "pid", "cwd", "node", "continue", "mode", "why", "hook", "tools_empty",
-                                    "session", "fence", "strict_net"})
+                                    "session", "fence", "strict_net", "model"})
         self.assertEqual(child["read"], "そのままの指示書\n")
         after = os.stat(prompt)
         self.assertEqual((before.st_ino, before.st_mtime_ns), (after.st_ino, after.st_mtime_ns))
@@ -1790,6 +1790,22 @@ class DevWiringCase(unittest.TestCase):
             r = subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh" && works_dev_show_run t "{fake}" "{t}"'],
                                capture_output=True, text=True, encoding="utf-8", env=env)
             self.assertNotIn("WORKS_DEV_ADAPTER", r.stdout)
+
+
+class LaunchRowModelCase(unittest.TestCase):
+    def test_launch_row_carries_requested_model_from_argv(self):
+        """起動の行の model は Archon が渡した --model（CLI と同じく後の指定が勝つ。無ければ None）。argv は読むだけ"""
+        for argv, want in ((["-p", "--model", "sonnet", "--output-format", "json"], "sonnet"),
+                           (["-p", "--model=opus"], "opus"),
+                           (["-p", "--model", "haiku", "--model=opus"], "opus"),
+                           (["-p", "--output-format", "json"], None)):
+            with self.subTest(argv=argv):
+                p = adapter.Plan(argv=list(argv), mode="merged", why=None, warn=False, node="judge", cont=None,
+                                 hook=True, tools_empty=False, session={"mode": "new", "id": "s-1"}, record=[])
+                row = adapter.launch_row(p, "/", 1, "2026-09-29T00:00:00+00:00")
+                self.assertIn("model", row)
+                self.assertEqual(row["model"], want)
+                self.assertEqual(p.argv, list(argv))
 
 
 if __name__ == "__main__":

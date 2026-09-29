@@ -2,8 +2,8 @@
 # works/dev/real-run.sh [<dir>]
 #
 # ライン darkfactory を本物の AI で 1 回回す（費用が掛かる。回す前に持ち主の了承を取る）。
-#   1. 模型は WORKS_DEV_MODEL（既定は opus）。隔離した Archon の設定（$WORKS_DEV_HOME/archon-home/config.yaml）に
-#      書くのは archon.sh（認証を使う実行のたび）。承認・続きのコマンドにも同じ模型を付けて出す。
+#   1. 模型は WORKS_DEV_MODEL（ここでは埋めない）。既定を解いて隔離した Archon の設定（$WORKS_DEV_HOME/archon-home/config.yaml）に
+#      書くのは archon.sh（認証を使う実行のたび）。承認・続きのコマンドにも同じ指定（未設定なら空と、start の時の既定）を付けて出す。
 #   2. mktarget.sh で <dir>（省略時は一時フォルダ）に使い捨ての対象を作り、<dir>.origin.git を origin に付ける
 #      （Archon は run ごとに切る worktree の元を remote から取るため）。
 #   3. その中で archon.sh workflow run darkfactory を前景で回す。人の関所で run は止まって戻る。
@@ -16,8 +16,9 @@ set -eu
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
-WORKS_DEV_MODEL="${WORKS_DEV_MODEL:-opus}"
 export WORKS_DEV_HOME WORKS_DEV_MODEL
+# 起こすのは start だけなので、start の時の既定の釘（続きの行だけが置く）は利用者の殻に残っていても受けない
+unset WORKS_MODEL_PINNED
 
 # 開発の家・対象・origin が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"

@@ -3507,8 +3507,8 @@ EXTERNAL_NAMES = {"SHA", "PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVIC
                   "ARTIFACTS_DIR", "WORKFLOW_ID", "CLAUDE_BIN_PATH", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
                   # works の python が os.environ から・shell の殻が環境から読む環境変数（WORKS_ で始まる shell の
                   # 定数が在るので接頭辞では外さない）
-                  "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_GH", "WORKS_GOLDEN_OUT",
-                  "WORKS_KEYCHAIN_ITEM", "WORKS_REAL_CLAUDE", "WORKS_TDD_TIER",
+                  "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_DEV_MODEL", "WORKS_GH", "WORKS_GOLDEN_OUT",
+                  "WORKS_KEYCHAIN_ITEM", "WORKS_MODEL_PINNED", "WORKS_REAL_CLAUDE", "WORKS_TDD_TIER",
                   # 外の道具（mise）の設定の環境変数
                   "MISE_TRUSTED_CONFIG_PATHS",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）

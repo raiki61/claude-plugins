@@ -5,6 +5,27 @@
 # symlink）への書き込みを Bash に許す。そこに開発の家（WORKS_DEV_HOME）・対象・origin を置くと、サンドボックスの中の
 # 役の Bash がそれらを書き換えられる。pack にはこの穴を塞げないので、その下に解ける場所を使わせない（設計書 7 節）。
 
+# 全体の模型の既定。入口の殻は埋めず、埋めるのは archon.sh だけ（埋めると明示と既定が見分けられない）。
+# 環境から上書きさせない。続き（answer・show の行）は start の時に解いた既定を別の名 WORKS_MODEL_PINNED で渡し
+# （use.sh load_ledger・lib.sh works_dev_go だけが置く。入口の殻 use.sh・dogfood.sh・real-run.sh は起動の時に外し、
+# 利用者の殻に残った値を受けない）、archon.sh が読んで外す（run の途中で既定を解き直さない）
+WORKS_DEV_MODEL_DEFAULT=opus
+
+# works_dev_model_value / works_dev_model_from: 全体の模型の値と出どころ。空でなければ明示、次に start の時の既定
+# （WORKS_MODEL_PINNED）、無ければ今の既定
+works_dev_model_value() {
+  echo "${WORKS_DEV_MODEL:-${WORKS_MODEL_PINNED:-$WORKS_DEV_MODEL_DEFAULT}}"
+}
+works_dev_model_from() {
+  if [ -n "${WORKS_DEV_MODEL:-}" ]; then
+    echo "env WORKS_DEV_MODEL"
+  elif [ -n "${WORKS_MODEL_PINNED:-}" ]; then
+    echo "start の時の既定（WORKS_MODEL_PINNED）"
+  else
+    echo "既定（WORKS_DEV_MODEL_DEFAULT）"
+  fi
+}
+
 # works_dev_real <path>: symlink を辿った絶対パス。まだ無い部分は、在る一番近い祖先を pwd -P で解いた後ろに足す。
 # 先の無い symlink（mkdir や git init がその先を作る）も readlink で先を辿る（辿るのは 40 回まで。輪の symlink で回り続けない）
 works_dev_real() {

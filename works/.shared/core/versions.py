@@ -3,7 +3,7 @@ run と同じ置き場 <ARTIFACTS_DIR>/versions.json に 1 つ書き、Archon �
 
 - snapshot(pack, env=os.environ, *, run_id="") -> dict:
   {schema, run_id, at, works: {source, version, pack_sha256, files}, graphloops_copy, borrowed, archon, claude_code,
-   python, platform, unknown}
+   model, python, platform, unknown}
   - works.source: dev の殻が pack の写しに置く出どころの控え <pack>/.works-source.json（{rev, dirty, from, version}。
     元の works が git で追跡されていなければ rev・dirty は null で、version は元の .claude-plugin/plugin.json の version）
   - works.version: <pack>/VERSION の 1 行目（まだ無い版もある）
@@ -12,6 +12,8 @@ run と同じ置き場 <ARTIFACTS_DIR>/versions.json に 1 つ書き、Archon �
   - graphloops_copy: <pack>/.shared/core/COPIED_FROM の 1 行目
   - borrowed: $CLAUDE_CONFIG_DIR/.works-toolset.json（借りた物の版と sha256。dev/toolset.py が書く）
   - archon・claude_code: env の WORKS_ARCHON_VERSION・WORKS_CLAUDE_VERSION（開発の殻 archon.sh が隔離の前に決めて渡す）
+  - model: 全体の模型の要求 {value, from}。value は env の WORKS_DEV_MODEL（明示）か WORKS_MODEL_RESOLVED（archon.sh が
+    既定を解いた値）、from は archon.sh が渡す出どころ WORKS_MODEL_FROM。節ごとの模型は包みの起動の記録（adapter.launch_row）
   - 分からない値は null にし、unknown[鍵] に理由を書く（推測で埋めない・黙って落とさない）
 - write(artifacts_dir, doc) -> Path: <artifacts_dir>/versions.json に一時ファイルから os.replace で書く
 """
@@ -30,6 +32,8 @@ SOURCE_FILE = ".works-source.json"
 TOOLSET_RECORD = ".works-toolset.json"
 ENV_ARCHON = "WORKS_ARCHON_VERSION"
 ENV_CLAUDE = "WORKS_CLAUDE_VERSION"
+ENV_MODEL = ("WORKS_DEV_MODEL", "WORKS_MODEL_RESOLVED")
+ENV_MODEL_FROM = "WORKS_MODEL_FROM"
 _SKIP_NAMES = frozenset({"__pycache__", ".DS_Store", SOURCE_FILE})
 
 
@@ -85,6 +89,18 @@ def _env(env: Mapping[str, str], name: str, unknown: dict, key: str):
     return value
 
 
+def _model(env: Mapping[str, str], unknown: dict):
+    value = next((v for v in ((env.get(n) or "").strip() for n in ENV_MODEL) if v), "")
+    if not value:
+        unknown["model"] = (f"env の {'・'.join(ENV_MODEL)} が空か無い（開発の殻 archon.sh を通さずに起こした run。"
+                            "模型は Archon の設定か CLI の既定）")
+        return None
+    source = (env.get(ENV_MODEL_FROM) or "").strip()
+    if not source:
+        unknown["model.from"] = f"env の {ENV_MODEL_FROM} が空か無い（明示か既定かが分からない）"
+    return {"value": value, "from": source or None}
+
+
 def snapshot(pack: Path, env: Mapping[str, str] = os.environ, *, run_id: str = "") -> dict:
     pack = Path(pack)
     unknown: dict = {}
@@ -108,6 +124,7 @@ def snapshot(pack: Path, env: Mapping[str, str] = os.environ, *, run_id: str = "
         "borrowed": borrowed,
         "archon": _env(env, ENV_ARCHON, unknown, "archon"),
         "claude_code": _env(env, ENV_CLAUDE, unknown, "claude_code"),
+        "model": _model(env, unknown),
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "unknown": unknown,

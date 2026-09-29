@@ -374,5 +374,48 @@ class NextRequestUnitRowsCase(unittest.TestCase):
         self.assertIn(left[2], items)
 
 
+class HeadModelsCase(unittest.TestCase):
+    """報告の模型の行: 全体（<ARTIFACTS_DIR>/versions.json）と節ごと（包みの起動の記録）。取れない値は全体で埋めない"""
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        art = pathlib.Path(self._tmp.name)
+        self.board = art / "board"
+        self.board.mkdir()
+        self.versions = art / "versions.json"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_global_and_per_node_models_with_change_visible(self):
+        self.versions.write_text(json.dumps({"model": {"value": "opus", "from": "既定（WORKS_DEV_MODEL_DEFAULT）"}}))
+        lines = report.head_models(self.board, [{"node": "judge", "model": "opus", "at": "1"},
+                                                {"node": "fix", "model": "sonnet", "at": "2"},
+                                                {"node": "fix", "model": "opus", "at": "3"}])
+        self.assertIn("既定（WORKS_DEV_MODEL_DEFAULT）", "\n".join(lines))
+        judge = [l for l in lines if "judge" in l]
+        fix = [l for l in lines if "fix" in l]
+        self.assertTrue(judge and "opus" in judge[0], lines)
+        self.assertTrue(fix and "sonnet" in fix[0] and "opus" in fix[0], lines)
+
+    def test_missing_records_are_named_not_guessed(self):
+        lines = report.head_models(self.board, [{"node": "eyes", "model": None, "at": "1"}])
+        self.assertIn("取れない", "\n".join(lines))   # versions.json が無い
+        eyes = [l for l in lines if "eyes" in l]
+        self.assertTrue(eyes, lines)
+        self.assertNotIn("opus", eyes[0])
+        self.assertIn("取れない", "\n".join(report.head_models(self.board, [])))
+
+    def test_models_count_the_same_launches_as_cost(self):
+        """模型と費用は同じ起動を数える（拒んだ起動は除き、時刻の順）"""
+        launches = [{"node": "fix", "model": "opus", "at": "3"},
+                    {"node": "fix", "model": "haiku", "at": "1", "session": {"mode": "refused"}},
+                    {"node": "fix", "model": "sonnet", "at": "2"}]
+        fix = [l for l in report.head_models(self.board, launches) if "fix" in l]
+        self.assertEqual(len(fix), 1, fix)
+        self.assertNotIn("haiku", fix[0])
+        self.assertLess(fix[0].index("sonnet"), fix[0].index("opus"))
+        self.assertEqual(report._live_launches(None, launches), [launches[2], launches[0]])
+
+
 if __name__ == "__main__":
     unittest.main()
