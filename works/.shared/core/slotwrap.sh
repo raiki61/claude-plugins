@@ -1,8 +1,9 @@
 #!/bin/bash
 # 機械全体で重いテストを同時に 4 本までにする枠の台本（testslot.sh）を通して、コマンドを起こす。bash slotwrap.sh <argv…>
 # 呼ぶのは works/tests/run.sh（全部・heavy）と、run の中で試験を起こす口 tree_run.slotted_run（engine の宣言の段・test_cmd・
-# blk-tests の plain と mid）。枠の約束の正本はここ 1 か所（写しを作ると数え方が割れる）。
-# 台本は WORKS_TESTSLOT（既定は mainline の台本）。空なら枠を取らない（速い段・TDD の実行器が立てる。機械の枠を取らない決まり）。
+# blk-tests の plain と mid・TDD の輪と修正の受け付けの実行器）。枠の約束の正本はここ 1 か所（写しを作ると数え方が割れる）。
+# 台本は WORKS_TESTSLOT（既定は mainline の台本）。空なら枠を取らない（速い段と、TDD の実行器の中が立てる。TDD の実行器は外の
+# tddloop.run_suite が枠を取るので、中の試験には取り直させない）。
 # 枠の置き場は台本の約束 TESTSLOT_DIR（既定は台本と同じ /private/tmp/claude-<uid>/testslots）で、ここで解決して台本へ渡す。
 # 台本が無い・枠の置き場に書けないときは、1 行出して枠を取らずに回す（子孫にも取らせない）。枠を持つ台本の下から呼ばれたら取り直さない
 # （test_cmd が run.sh の時、口が取った枠の下の run.sh は取り直さない。GNU make の jobserver と同じ考え）。

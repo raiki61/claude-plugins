@@ -498,5 +498,28 @@ class TestUnitLoop(LoopCase):
         self.assertIn("INPUTS_NOTES_FILE", err)
 
 
+class TestRunSuiteSlot(unittest.TestCase):
+    def test_runner_goes_through_machine_slot_with_nice(self):
+        # ADR 0071 の 3 の 1: 手元の試験（TDD の輪と受け付け）は nice -n 19 と機械の枠（slotwrap.sh）を通す
+        from unittest import mock
+        seen = []
+
+        def fake_run(argv, **kw):
+            seen.append(list(argv))
+            return 0
+
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(tddloop.tree_run, "run", fake_run):
+            work = pathlib.Path(td)
+            exe = work / "suite.sh"
+            exe.write_text("#!/bin/sh\n", encoding="utf-8")
+            exe.chmod(0o755)
+            tddloop.run_suite(str(exe), work, work, "slot")
+        self.assertEqual(len(seen), 1, seen)
+        argv = seen[0]
+        self.assertEqual(argv[:2], ["bash", str(tddloop.tree_run.SLOTWRAP)], f"実行器が機械の枠を通らない: {argv}")
+        self.assertEqual(argv[2:5], ["nice", "-n", "19"], f"実行器が nice -n 19 で起こされない: {argv}")
+        self.assertEqual(argv[5], str(exe), argv)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -56,6 +56,7 @@ import changemap
 
 SCHEMA = "works-impact/1"
 MISS_SCHEMA = "works-impact-miss/1"
+ACCEPT_TRACE_OP = "fix_tests_selected"   # 修正の受け付けが選んだ試験を走らせた盤面の trace の行（書くのは blk-fix、読むのは最後の関所）
 
 # 数で言う上限（not_seen と limits に同じ数を書く）
 MAX_BYTES = 2_000_000    # これより大きい file は字を切り分けない（too-large）

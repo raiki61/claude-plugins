@@ -10,8 +10,8 @@
 # ときは、標準エラーに 1 行出して 2（pytest を起こさない）。.pytest_cache とバイトコードは作らない。
 # 読み込みで落ちるモジュールが在っても一式を止めない（--continue-on-collection-errors。落ちたモジュールは error で載り、
 # 他の試験の結末も書かれる。止まると「元で通っていた他のテストは緑のまま」を確かめられない）。
-# heavy は run.sh と違い、重いテストの枠（testslot）を通さない。中の試験が起こす試験（tree_run.slotted_run）にも取らせない
-# （WORKS_TESTSLOT を空にする。約束は .shared/core/slotwrap.sh）。走らせる run の env は run.sh と同じ tests/hermetic.sh で落とす。
+# 重いテストの枠（testslot）と nice -n 19 は、この殻を起こす外の tddloop.run_suite が付ける。中の試験が起こす試験
+# （tree_run.slotted_run）には取らせない（WORKS_TESTSLOT を空にする。外で取った枠と二重に数えない。約束は .shared/core/slotwrap.sh）。走らせる run の env は run.sh と同じ tests/hermetic.sh で落とす。
 out=${1-}
 if [ -z "$out" ]; then
   echo "tdd-suite.sh: 第 1 引数に JUnit XML の書き先を渡す" >&2

@@ -52,6 +52,7 @@ import posixpath  # noqa: E402
 import re  # noqa: E402
 
 import conflict  # noqa: E402   食い違いの申し出（.shared/core）
+import impact  # noqa: E402   変更に当たる試験の選び（.shared/core）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
 import querytest  # noqa: E402   判定者の問いを例に当てる（.shared/core）
 import recount  # noqa: E402
@@ -65,7 +66,7 @@ from engine.rules import validator_module  # noqa: E402
 
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS")
 GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
-TESTS_OP = "fix_tests_selected"   # 受け付けが選んだ試験を走らせた盤面の trace の行
+TESTS_OP = impact.ACCEPT_TRACE_OP   # 受け付けが選んだ試験を走らせた盤面の trace の行（ci_left を最後の関所が読む）
 PARK_UNDONE_OP = "fix_mismatch_park_undone"   # 最後の回に止めた単位を、返答が通らなかったので戻した盤面の trace の行
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
 NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（判定が defer にした単位・判定に無い単位は直さない。"
@@ -347,7 +348,7 @@ def accept_fix(reply, board, base_rev, repo):
     if out.get("ok") is True:   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
         b = entry.open_board(board, allow_halted=True)
         writes.trace(b, recount.ROLE, wrote)
-        b.trace(TESTS_OP, node=recount.ROLE, note=note)
+        b.trace(TESTS_OP, node=recount.ROLE, note=note, ci_left=tddloop.ci_left(state))
         if rows:
             b.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(b, rows)))
     return out

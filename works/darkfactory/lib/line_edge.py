@@ -42,6 +42,7 @@ import design  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import halt  # noqa: E402
+import impact  # noqa: E402
 import plan  # noqa: E402
 import premises  # noqa: E402
 import protect  # noqa: E402
@@ -49,6 +50,7 @@ import purpose  # noqa: E402
 import querytest  # noqa: E402
 import reads  # noqa: E402
 import rejudge  # noqa: E402
+import report  # noqa: E402
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
 # いつも走る script の節 1 本（darkfactory/scripts/edge.py）を、ラインの中で at を替えて使う。並びは C18 の順（中の関所は無い。
@@ -191,18 +193,12 @@ def _stop_board(b, at: str, reason: str, by: str) -> None:
 
 
 def _traced(b, op: str, **kw) -> bool:
-    try:
-        lines = (b.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return False
-    for line in lines:
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(row, dict) and row.get("op") == op and all(row.get(k) == v for k, v in kw.items()):
-            return True
-    return False
+    return any(all(row.get(k) == v for k, v in kw.items()) for row in report.trace_rows(b, op))
+
+
+def _ci_left(b) -> list:
+    """修正の受け付けが周をまたいで手元で回さず CI に任せた試験（重ねずに、出た順）"""
+    return list(dict.fromkeys(t for row in report.trace_rows(b, impact.ACCEPT_TRACE_OP) for t in row.get("ci_left") or []))
 
 
 def _halted_out(b, out: dict, flag, at: str) -> dict:
@@ -363,6 +359,10 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", ""]
     if tests.get("by"):
         lines.append(f"- テストの一式: {entry.suites_line(tests, role_status=entry.role_ci_status(b, tests))}")
+    left = _ci_left(b)
+    if left:
+        lines.append(f"- 修正の受け付けが手元で回さず CI に任せた試験（{len(left)} 件。ADR 0071 の 3 の 1。run はその緑を確かめない——取り込みの前に人が PR の CI を見る）:")
+        lines += [f"  - {t}" for t in left]
     lines.append(f"- ログ: {tests.get('log') or '（無い）'}")
     if tests.get("reason"):
         lines.append(f"- 走れなかった理由: {tests['reason']}")

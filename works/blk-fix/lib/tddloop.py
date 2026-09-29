@@ -17,7 +17,9 @@
 - fix-accept → frozen_problems: 輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（裁定 fix_test_scope の
   範囲の中の変更は、輪が済んだ時の木（frozen_tree）との差分の塊の旧い側の行で見て通す）
 - fix-accept → selected_problems: 版からの変更に当たる試験（impact.select_tests。分からない物が近くに在れば全部）を同じ実行器で
-  走らせ（選んだ .py のファイルを一式を回す時も絶対パスで後ろに足し、一式でない時は -k で絞る）、元で赤でなかった試験の赤を返す。元の結末に無い試験の赤は、版を
+  走らせ（選んだ .py のうち変えた・足したファイルだけを一式を回す時も絶対パスで後ろに足し、一式でない時は -k で絞る。届いただけの
+  段の外の試験は手元で走らせない。ADR 0071 の 3 の 1）、元で赤でなかった試験の赤を返す。走らせなかった試験は『CI に任せた』として
+  知らせと状態（ci_left。受け付けが盤面の trace に載せ、最後の関所が並べる）に名前で残す。元の結末に無い試験の赤は、版を
   一時の置き場に写して同じ試験を回し、版でも赤なら外す（作業ツリーは動かさない）。1 件も走らなければ「新しい赤なし」にせず
   知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
 - collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整え・direct の理由）
@@ -140,17 +142,21 @@ def run_suite(exe: str, repo, work: pathlib.Path, n, args=()):
     """実行器を 1 回走らせる ——（結末の一覧, 終了コード, 問題）。結末が取れなければ一覧は None。
     .py はこの Python で走らせる（写しの rules の run_suite と同じ）。出力は work/suite-<n>.log に丸ごと。
     args は JUnit の書き先の後ろに足す（段の外の試験のファイル・node id を絶対パスで・受け付けの -k。works/dev/tdd-suite.sh は
-    pytest にそのまま渡す）。同じ鍵の行は 1 つにまとめる（段のファイルと足した node id が重なっても 1 件）"""
-    argv = ([sys.executable] if exe.endswith(".py") else []) + [exe]
+    pytest にそのまま渡す）。同じ鍵の行は 1 つにまとめる（段のファイルと足した node id が重なっても 1 件）。
+    輪の元の結末・各段・受け付け・版の写しの全部がここを通るので、nice -n 19 と機械の試験の枠（tree_run.slotted_run）を
+    ここで付ける（ADR 0071 の 3 の 1）。枠を待った秒はログの末尾に書く（走った時間と分けて見る）"""
+    argv = ["nice", "-n", "19"] + ([sys.executable] if exe.endswith(".py") else []) + [exe]
     junit = work / f"junit-{n}.xml"
     log = work / f"suite-{n}.log"
     env = {**tree_run.outside_env(os.environ), "PYTHONDONTWRITEBYTECODE": "1"}
     with open(log, "wb") as out:
         try:
-            rc = tree_run.run([*argv, str(junit), *args], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
-                              cwd=str(repo), env=env)
+            rc, wait = tree_run.slotted_run([*argv, str(junit), *args], env, stdin=subprocess.DEVNULL, stdout=out,
+                                            stderr=subprocess.STDOUT, cwd=str(repo))
         except OSError as e:
             return None, None, [f"テストの実行器を起こせない（{type(e).__name__}: {e}。ログ {log}）"]
+        if wait is not None:
+            out.write(f"\n（試験の枠を待った秒: {wait}）\n".encode("utf-8"))
     if not junit.is_file():
         return None, rc, [f"テストの実行器が JUnit XML を書かなかった（exit {rc}。ログ {log}）"]
     try:
@@ -675,28 +681,34 @@ def _args(root, files, kexpr) -> list:
 
 
 def selected_problems(state_file, repo, rev) -> tuple:
-    """(赤の文の一覧, 知らせ)。実行器の無い run（状態が無い）・当たる試験が無い・実行器が走らない・選んだ試験が 1 件も
-    走らなかった時は赤にせず知らせだけ。元の結末に無い試験の赤は、版の写しで同じ試験を回して、版でも赤なら外す"""
+    """(赤の文の一覧, 知らせ)。実行器の後ろに足すのは、選んだ試験のうちこの run で変えた・足したファイルだけ（ADR 0071 の
+    3 の 1。届いただけの段の外の試験は手元で走らせない）。実行器の既定の一式の中は -k で選んだ全部のモジュールに絞る。
+    実行器の無い run（状態が無い）・当たる試験が無い・実行器が走らない・選んだ試験が 1 件も走らなかった時は赤にせず知らせだけ。
+    元の結末に無い試験の赤は、版の写しで同じ試験を回して、版でも赤なら外す"""
     if not state_file:
         return [], NO_SUITE
     st = _load(state_file)
     work = pathlib.Path(st["work"])
-    sel = impact.select_tests(impact.map(repo, rev=rev, diff=True, cache_dir=work / "impact"))
+    m = impact.map(repo, rev=rev, diff=True, cache_dir=work / "impact")
+    sel = impact.select_tests(m)
     if not sel["run_all"] and not sel["modules"]:
         return [], NO_SELECTED
-    files = sel["selected"]
+    changed = set(m["seeds"]["from_diff"])
+    files = [f for f in sel["selected"] if f in changed]
     kexpr = "" if sel["run_all"] else " or ".join(sel["modules"])
     pre = snapshot(repo)
     cases, code, why = run_suite(st["exe"], repo, work, ACCEPT_RUN, _args(repo, files, kexpr))
     st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
+    st["ci_left"] = _left_to_ci(sel["selected"], files, cases)
     _save(state_file, st)
     what = "一式（" + "・".join(sel["reasons"])[:200] + "）" if sel["run_all"] else \
         f"選んだ試験（ファイル {', '.join(files)[:300]}・-k {kexpr[:300]}）"
+    ci = f"。手元で回さず CI に任せた {len(st['ci_left'])} 件: {', '.join(st['ci_left'])[:300]}" if st["ci_left"] else ""
     if cases is None:
-        return [], f"{what}を走らせられない（{'; '.join(why)}）"
+        return [], f"{what}を走らせられない（{'; '.join(why)}）{ci}"
     if not cases:
         return [], (f"{what}が一式の結末に 0 件——選んだ試験が 1 件も走らなかった（-k が何にも当たらない・実行器が足した試験を"
-                    f"拾わない。ログ {work / f'suite-{ACCEPT_RUN}.log'}）。新しい赤が無いことは確かめていない")
+                    f"拾わない。ログ {work / f'suite-{ACCEPT_RUN}.log'}）。新しい赤が無いことは確かめていない{ci}")
     red = [_key(c) for c in cases if c["outcome"] in ("failure", "error")
            and st["baseline"].get(_key(c)) not in ("failure", "error")]
     fresh = [k for k in red if k not in st["baseline"]]
@@ -708,9 +720,22 @@ def selected_problems(state_file, repo, rev) -> tuple:
         else:
             red = [k for k in red if k not in old]
     if not red:
-        return [], f"{what}: {len(cases)} 件で新しい赤なし"
+        return [], f"{what}: {len(cases)} 件で新しい赤なし{ci}"
     return [f"受け付けが走らせた{what}で、元で赤でなかった試験が赤: {red[:20]}（{len(red)} 件。ログ {work / f'suite-{ACCEPT_RUN}.log'}"
             f"{tail}）——直した単位のどこかを直して出し直せ"], ""
+
+
+def _left_to_ci(selected, run_files, cases) -> list:
+    """選んだ試験のうち、手元で名指さず（run_files に無く）結末にもモジュールが 1 件も出なかった物（CI に任せた）。実行器の
+    既定の段は対象ごとに違うので、段の一覧を写さず結末から決める。結末が無ければ名指さなかった物は全部"""
+    ran = {impact._junit_module(c) for c in cases or []}
+    return [t for t in selected if t not in run_files and impact._mod(t) not in ran]
+
+
+def ci_left(state_file) -> list:
+    """受け付けが手元で回さず CI に任せた試験（状態が無い・まだ選んでいなければ空）。見せるだけの読み口なので、状態のファイルが
+    無ければ空（受け付けの知らせの文にも同じ名が載る）"""
+    return _load(state_file).get("ci_left", []) if state_file and pathlib.Path(state_file).is_file() else []
 
 
 def _base_reds(st, repo, rev, files, kexpr) -> tuple:

@@ -178,7 +178,7 @@ def _stop_info(b) -> tuple:
         return str(stop.get("by") or ""), str(stop.get("reason") or ""), stop
     if halted and halted.get("by") != "stop_after_round":
         return str(halted.get("by") or ""), str(halted.get("reason") or ""), halted
-    ended = _trace_rows(b, STOP_AFTER_END_OP)
+    ended = trace_rows(b, STOP_AFTER_END_OP)
     if halted and ended:
         return str(ended[-1].get("by") or ""), str(ended[-1].get("reason") or ""), ended[-1]
     return "", "", {}
@@ -190,7 +190,8 @@ def _halted(b) -> dict:
     return b.state.get("halted") or (b.state.get("works") or {}).get(DiskBoard.AFTER_ROUND) or {}
 
 
-def _trace_rows(b, op: str) -> list:
+def trace_rows(b, op: str) -> list:
+    """盤面の trace.jsonl のうち op の行（読めない・壊れた行は飛ばす）"""
     try:
         lines = (b.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -634,7 +635,7 @@ def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, 
             lines.append(f"{INTERRUPTED_HEAD}。Archon の run の状態は {interrupted or '（不明）'}")
     by, reason, info = _stop_info(b)
     if by.startswith(REQUEST_BY):
-        seen = _trace_rows(b, FLAG_SEEN_OP)
+        seen = trace_rows(b, FLAG_SEEN_OP)
         at = seen[-1].get("at") if seen else None
         lines.append(f"止め札で止めた（置いた人 {by[len(REQUEST_BY):]}）: {reason}。止めた境の節: {at or '（trace に無い）'}")
     elif by == ANSWER_BY and info is b.state.get("halted"):
@@ -707,7 +708,7 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
 
 def write_lines(b) -> list:
     """書き込みの出どころの行（writes.trace が盤面の trace に積んだ物）: 記録の無い run と、拒まずに残した記録の無い変更"""
-    none, left = _trace_rows(b, writes.NO_RECORD_OP), _trace_rows(b, writes.LEFT_OP)
+    none, left = trace_rows(b, writes.NO_RECORD_OP), trace_rows(b, writes.LEFT_OP)
     lines = []
     if none:
         lines.append(f"書き込みの記録が無い run（包みが無い起動）: 受け付け {len(none)} 回が書き込みの出どころを突き合わせずに通した")

@@ -155,6 +155,38 @@ class TestAcceptOutsideTier(OutsideCase):
         self.assertNotIn("新しい赤なし", note, "選んだ試験が 1 件も走らないのを緑に見せる（fail-open）")
         self.assertIn("0 件", " ".join(probs) + note)
 
+    def test_unchanged_test_outside_tier_is_left_out_of_local_run(self):
+        # ADR 0071 の 3 の 1: 手元は速い段と変えた・足した試験だけ。届いただけで変えていない段の外の試験は走らせない
+        self.write(OUTSIDE, OUTSIDE_TEST)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "段の外の試験（stats に届く）")
+        argv_log = self.tmp / "argv.jsonl"
+        state = self.begin("import json, sys\nopen(%r, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n" % str(argv_log)
+                           + RUNNER)
+        p = self.repo / "stats.py"
+        p.write_text(p.read_text(encoding="utf-8").replace("(len(xs) - 1)", "len(xs)"), encoding="utf-8")
+        tddloop.selected_problems(state, self.repo, "HEAD")
+        runs = [json.loads(line) for line in argv_log.read_text(encoding="utf-8").splitlines()][1:]   # 頭は元の結末の回
+        self.assertTrue(runs, "受け付けが実行器を走らせていない")
+        for argv in runs:
+            self.assertFalse([a for a in argv if a.endswith(OUTSIDE)],
+                             f"変えていない段の外の試験のファイルを受け付けが実行器の後ろに足した: {argv}")
+
+    def test_tests_left_out_are_named_as_left_to_ci(self):
+        # 手元で回さなかった試験は黙って減らさず、知らせと状態のファイルに『CI に任せた』として名前で残す
+        self.write(OUTSIDE, OUTSIDE_TEST)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "段の外の試験（stats に届く）")
+        state = self.begin()
+        p = self.repo / "stats.py"
+        p.write_text(p.read_text(encoding="utf-8").replace("(len(xs) - 1)", "len(xs)"), encoding="utf-8")
+        probs, note = tddloop.selected_problems(state, self.repo, "HEAD")
+        self.assertEqual(probs, [], note)
+        self.assertIn("CI に任せた", note)
+        self.assertIn(OUTSIDE, note)
+        self.assertNotIn("test_stats.py", note.split("CI に任せた", 1)[1], "手元で走った試験を CI に任せたと言う")
+        self.assertEqual(tddloop.load_state(state).get("ci_left"), [OUTSIDE])
+
     def test_accept_args_name_only_pytest_modules(self):
         # impact がテストと呼ぶ物のうち、pytest の試験のモジュールでない物（conftest・実行器の台本・シェルの試験）は足さない
         names = ["t/test_a.py", "t/b_test.py", "t/conftest.py", "t/run-suite.py", "t/x-case.py", "t/y.bats", "t/gone_test.py"]

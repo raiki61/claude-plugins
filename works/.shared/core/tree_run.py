@@ -415,7 +415,7 @@ SLOT_MARK = "testslot.json"   # 盤面（$ARTIFACTS_DIR/board。script_io.BOARD_
 
 
 def slotted_run(argv, env, **popen_kw):
-    """run の中で重い試験（engine の宣言の段・test_cmd・blk-tests の plain と mid）を起こす唯一の口: argv を機械全体の試験の枠
+    """run の中で重い試験（engine の宣言の段・test_cmd・blk-tests の plain と mid・TDD の輪と修正の受け付けの実行器）を起こす唯一の口: argv を機械全体の試験の枠
     （slotwrap.sh。約束の正本はそこ）を通して run で走らせ、(終了コード, 枠を待った秒か None) を返す。待った秒は枠を取った時で、
     枠を取らなかった（祖先が持つ・台本が無い・WORKS_TESTSLOT が空）なら None。
     包むと argv の起こせなさが bash の 126・127 に化けるので、slotwrap.sh が exec の失敗を印に書き、ここで OSError に戻す——
