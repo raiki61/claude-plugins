@@ -4,7 +4,7 @@
 # ///
 """構造の実測（AI なし・名前にも言語にも依らない）。パスの一覧を git の公式の口だけで測り、JSON 1 つを標準出力に出して 0。
 
-    measure.py --paths P [P ...] [--repo DIR] [--since YYYY-MM-DD | --window-days N] [--max-bytes N]
+    measure.py --paths P [P ...] [--repo DIR] [--since YYYY-MM-DD | --window-days N] [--max-bytes N] [--diff FILE]
 
 - 行数と伸び: 今の行数と、窓の始まりの commit（`git rev-list -1 --before=<since> HEAD`）の行数とその差。窓の始まりの行数は
   `git log --follow --name-status` の改名の行をたどった、その時の名前で数える
@@ -17,14 +17,17 @@
 - 環境変数と設定の口: 大文字とアンダースコアの名を集め、一番多い接頭辞を割り出し（同数は辞書順で先の物）、3 つの数え方と
   消す・上書きする所の数を並べる
 - 読めない・大きすぎる・追跡されていないパスは、skipped に理由つきで並べて続ける。閾値では止めない（値だけ返す）
+- 差分の形（--diff）: 案の patch を一時の後の像に当てて前後の増減を出し、新しい名の現れる場所を並べる。名の一覧なら場所だけ
 """
 import argparse
 import datetime
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 SCHEMA = "measure/1"
@@ -33,10 +36,8 @@ WINDOW_DAYS = 90
 BLOCK_LINES = 6
 UNMEASURABLE = "測れない"
 NAME_RE = re.compile(r"(?<![A-Za-z0-9_])[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+(?![A-Za-z0-9_])")
-# 試験と文書と見なす物: この名のフォルダの下か、この拡張子
 TEST_DOC_DIRS = frozenset({"test", "tests", "doc", "docs"})
 DOC_SUFFIXES = frozenset({".md", ".rst", ".adoc"})
-# 読み書きの形（{n} に名が入る）
 ACCESS_FORMS = (
     r"\$\{{?{n}(?![A-Za-z0-9_])",
     r"environ\s*\[\s*['\"]{n}['\"]",
@@ -47,7 +48,6 @@ ACCESS_FORMS = (
     r"(?m)^\s*(?:export\s+)?{n}=",
     r"\bunset\s+(?:-v\s+)?{n}(?![A-Za-z0-9_])",
 )
-# 消す・上書きする形（出現の数を数える）
 WRITE_FORMS = (
     r"(?m)^\s*(?:export\s+)?{n}=",
     r"\bunset\s+(?:-v\s+)?{n}(?![A-Za-z0-9_])",
@@ -80,6 +80,17 @@ RULES = {
     "skipped": "追跡されていない（untracked）・utf-8 で読めないか NUL を含む（unreadable）・max_bytes を超える（too_large）パスは"
                "測らずに理由つきで並べる。写しと環境変数の数えでは、同じ理由の追跡ファイルを黙って読み飛ばす",
 }
+DIFF_RULE = ("--diff のファイルは、diff --git で始まる行が在るか、--- の行の次の行が +++ なら patch、そうでなければ名の一覧"
+             "（1 行 1 名。前後の空白を落とし、空行と重複を捨てる）。patch の後の像は、追跡ファイルのうち mode 100644・100755 の物を"
+             "作業ツリーの今の中身のまま一時の場所に写し、git init・git add -A -f・git apply・git add -A -f で作る"
+             "（対象のリポジトリには何も当てない。当てられなければ git apply の理由で止まる）。touched は git apply --numstat のパス。"
+             "paths は --paths と touched の各パスの lines・duplicates の件数・entrypoints を前の像と後の像で同じ数え方で数え、"
+             "before・after・delta を並べる（無い側は null、delta も null）。env は測るパスの名と新しい名について env の数え方を前後の像に"
+             "1 度ずつ掛けた物。frequency・growth・union は履歴に依るので測り直さない。新しい名は patch の + の行（+++ の行を除く）の"
+             "名のうち前の像のどの追跡ファイルにも語として現れない物、名の一覧なら一覧の名そのもの。sites は後の像（名の一覧なら今の木）の"
+             "追跡ファイルで名が語として現れる行で、access はその行が読み書きの形に当たるか。access_files は access の在るファイル。"
+             "prefix_readers は前の像で同じ接頭辞の別の名を読み書きの形で読むファイル。prior_readers は access_files のうち prefix_readers に"
+             "在る物。名の一覧の時は kind と names だけを出す")
 
 
 class GitError(Exception):
@@ -99,7 +110,6 @@ def count_lines(text: str) -> int:
 
 
 def read_text(path: Path, max_bytes: int):
-    """(本文, None) か (None, 理由)"""
     try:
         size = path.stat().st_size
         if size > max_bytes:
@@ -136,7 +146,6 @@ def commits(repo: Path, since: str, paths, *opts: str) -> list:
 
 
 def name_at(repo: Path, path: str, base: str) -> str:
-    """base の時の path の名前。base より後の改名（と写し）を新しい方からたどる"""
     name = path
     out = git(repo, "log", "--follow", "--name-status", "--format=", f"{base}..HEAD", "--", path)
     for line in out.splitlines():
@@ -167,7 +176,6 @@ def frequency(repo: Path, path: str, since: str) -> tuple:
 
 
 def blocks(text: str) -> list:
-    """(始まりの行番号, 塊のハッシュ) の一覧。空行を落とし、各行の空白を詰める"""
     rows = [(i, " ".join(ln.split())) for i, ln in enumerate(text.splitlines(), 1)]
     rows = [(i, s) for i, s in rows if s]
     out = []
@@ -198,6 +206,14 @@ def is_test_or_doc(path: str) -> bool:
     return bool(set(p.parts[:-1]) & TEST_DOC_DIRS) or p.suffix.lower() in DOC_SUFFIXES
 
 
+def word_re(name: str):
+    return re.compile(r"(?<![A-Za-z0-9_])" + re.escape(name) + r"(?![A-Za-z0-9_])")
+
+
+def access_res(name: str) -> list:
+    return [re.compile(f.format(n=re.escape(name))) for f in ACCESS_FORMS]
+
+
 def env(names: set, texts: dict) -> dict:
     by_prefix = {}
     for n in names:
@@ -206,8 +222,7 @@ def env(names: set, texts: dict) -> dict:
     tied = sorted(p for p, v in by_prefix.items() if len(v) == top)
     report = {}
     for n in sorted(names):
-        word = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(n) + r"(?![A-Za-z0-9_])")
-        access = [re.compile(f.format(n=re.escape(n))) for f in ACCESS_FORMS]
+        word, access = word_re(n), access_res(n)
         writes = [re.compile(f.format(n=re.escape(n))) for f in WRITE_FORMS]
         hit = [f for f, t in texts.items() if word.search(t)]
         report[n] = {
@@ -218,9 +233,7 @@ def env(names: set, texts: dict) -> dict:
     return {"prefix": {"top": tied[0] if tied else None, "tied": tied}, "names": report}
 
 
-def measure(repo: Path, paths: list, since: str, max_bytes: int) -> dict:
-    shallow = is_shallow(repo)
-    base = window_base(repo, since)
+def scan_tree(repo: Path, max_bytes: int) -> dict:
     modes = {}
     for row in git(repo, "ls-files", "-s", "-z").split("\0"):
         if row:
@@ -236,20 +249,135 @@ def measure(repo: Path, paths: list, since: str, max_bytes: int) -> dict:
     for f, text in texts.items():
         for line, h in blocks(text):
             index.setdefault(h, []).append((f, line))
+    return {"modes": modes, "texts": texts, "index": index}
+
+
+def static_entry(repo: Path, path: str, tree: dict, max_bytes: int) -> tuple:
+    if path not in tree["modes"]:
+        return None, "untracked"
+    text, why = read_text(repo / path, max_bytes)
+    if text is None:
+        return None, why
+    return {"lines": count_lines(text), "duplicates": duplicates(path, blocks(text), tree["index"]),
+            "entrypoints": entrypoints(repo, path, tree["modes"])}, text
+
+
+def read_diff_input(text: str) -> tuple:
+    rows = text.splitlines()
+    if any(r.startswith("diff --git ") for r in rows) or any(
+            a.startswith("--- ") and b.startswith("+++ ") for a, b in zip(rows, rows[1:])):
+        return "patch", None
+    return "names", list(dict.fromkeys(r.strip() for r in rows if r.strip()))
+
+
+def after_image(repo: Path, modes: dict, patch_path: Path, tmp: Path) -> list:
+    git(tmp, "init", "-q")
+    for f, mode in modes.items():
+        src = repo / f
+        if mode in ("100644", "100755") and src.is_file():
+            dst = tmp / f
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+            if mode == "100755":
+                dst.chmod(0o755)
+    git(tmp, "add", "-A", "-f")
+    touched = []
+    rows = git(tmp, "apply", "--numstat", "-z", str(patch_path)).split("\0")
+    i = 0
+    while i < len(rows):
+        cols = rows[i].split("\t")
+        if len(cols) == 3 and cols[2]:
+            touched.append(cols[2])
+        elif len(cols) == 3 and i + 2 < len(rows):
+            touched += [rows[i + 1], rows[i + 2]]
+            i += 2
+        i += 1
+    git(tmp, "apply", str(patch_path))
+    git(tmp, "add", "-A", "-f")
+    return list(dict.fromkeys(touched))
+
+
+def new_names(patch_text: str, before_texts: dict) -> list:
+    added = "\n".join(r[1:] for r in patch_text.splitlines() if r.startswith("+") and not r.startswith("+++ "))
+    fresh = []
+    for n in dict.fromkeys(NAME_RE.findall(added)):
+        word = word_re(n)
+        if not any(word.search(t) for t in before_texts.values()):
+            fresh.append(n)
+    return fresh
+
+
+def name_sites(name: str, texts: dict, before_texts: dict) -> dict:
+    word, access = word_re(name), access_res(name)
+    sites = []
+    for f in sorted(texts):
+        for i, row in enumerate(texts[f].splitlines(), 1):
+            if word.search(row):
+                sites.append({"path": f, "line": i, "access": any(a.search(row) for a in access)})
+    access_files = sorted({s["path"] for s in sites if s["access"]})
+    prefix = name.split("_", 1)[0] + "_"
+    readers = []
+    for f in sorted(before_texts):
+        others = {n for n in NAME_RE.findall(before_texts[f]) if n.startswith(prefix) and n != name}
+        if any(a.search(before_texts[f]) for n in sorted(others) for a in access_res(n)):
+            readers.append(f)
+    return {"name": name, "sites": sites, "access_files": access_files, "prefix_readers": readers,
+            "prior_readers": [f for f in access_files if f in readers]}
+
+
+def pair(before, after) -> dict:
+    return {"before": before, "after": after,
+            "delta": None if before is None or after is None else after - before}
+
+
+def counts(entry) -> dict:
+    if entry is None:
+        return {}
+    return {"lines": entry["lines"], "duplicates": len(entry["duplicates"]), **entry["entrypoints"]}
+
+
+def diff_entry(path: str, before, after) -> dict:
+    b, a = counts(before), counts(after)
+    return {"path": path, "lines": pair(b.get("lines"), a.get("lines")),
+            "duplicates": pair(b.get("duplicates"), a.get("duplicates")),
+            "entrypoints": {k: pair(b.get(k), a.get(k)) for k in ("named_by", "executable")}}
+
+
+def diff_section(repo: Path, paths: list, tree: dict, diff: tuple, max_bytes: int) -> dict:
+    kind, payload = diff
+    if kind == "names":
+        return {"kind": "names", "names": [name_sites(n, tree["texts"], tree["texts"]) for n in payload]}
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        touched = after_image(repo, tree["modes"], payload, tmp)
+        after = scan_tree(tmp, max_bytes)
+        entries, names = [], set()
+        for p in dict.fromkeys([*paths, *touched]):
+            b, _ = static_entry(repo, p, tree, max_bytes)
+            a, _ = static_entry(tmp, p, after, max_bytes)
+            entries.append(diff_entry(p, b, a))
+            for texts in (tree["texts"], after["texts"]):
+                names |= set(NAME_RE.findall(texts.get(p, "")))
+    fresh = new_names(payload.read_text(encoding="utf-8"), tree["texts"])
+    names |= set(fresh)
+    return {"kind": "patch", "touched": touched, "paths": entries,
+            "env": {"before": env(names, tree["texts"]), "after": env(names, after["texts"])},
+            "names": [name_sites(n, after["texts"], tree["texts"]) for n in fresh]}
+
+
+def measure(repo: Path, paths: list, since: str, max_bytes: int, diff=None) -> dict:
+    shallow = is_shallow(repo)
+    base = window_base(repo, since)
+    tree = scan_tree(repo, max_bytes)
 
     measured, skipped, names = [], [], set()
     union_follow = set()
     for p in dict.fromkeys(paths):
-        if p not in modes:
-            skipped.append({"path": p, "reason": "untracked"})
+        static, text = static_entry(repo, p, tree, max_bytes)
+        if static is None:
+            skipped.append({"path": p, "reason": text})
             continue
-        text, why = read_text(repo / p, max_bytes)
-        if text is None:
-            skipped.append({"path": p, "reason": why})
-            continue
-        lines = count_lines(text)
-        entry = {"path": p, "lines": lines, "growth": growth(repo, p, lines, base, shallow),
-                 "duplicates": duplicates(p, blocks(text), index), "entrypoints": entrypoints(repo, p, modes)}
+        entry = {"path": p, "growth": growth(repo, p, static["lines"], base, shallow), **static}
         if shallow:
             entry["frequency"] = {"status": UNMEASURABLE, "reason": "shallow"}
         else:
@@ -266,7 +394,7 @@ def measure(repo: Path, paths: list, since: str, max_bytes: int) -> dict:
                  "no_merges": len(commits(repo, since, kept, "--no-merges"))}
     else:
         union = {"follow": 0, "raw": 0, "no_merges": 0}
-    return {
+    out = {
         "schema": SCHEMA,
         "rules": dict(RULES, max_bytes=max_bytes, block_lines=BLOCK_LINES),
         "repo_head": git(repo, "rev-parse", "HEAD").strip(),
@@ -274,9 +402,13 @@ def measure(repo: Path, paths: list, since: str, max_bytes: int) -> dict:
         "window": {"since": since, "base": base},
         "paths": measured,
         "union": union,
-        "env": env(names, texts),
+        "env": env(names, tree["texts"]),
         "skipped": skipped,
     }
+    if diff is not None:
+        out["rules"]["diff"] = DIFF_RULE
+        out["diff"] = diff_section(repo, list(dict.fromkeys(paths)), tree, diff, max_bytes)
+    return out
 
 
 def main(argv=None) -> int:
@@ -287,10 +419,20 @@ def main(argv=None) -> int:
     win.add_argument("--since", help="窓の始まりの日付（YYYY-MM-DD）")
     win.add_argument("--window-days", type=int, default=WINDOW_DAYS, help="HEAD の日時から遡る窓の日数（既定 90）")
     ap.add_argument("--max-bytes", type=int, default=MAX_BYTES, help="これを超えるファイルは測らない（skipped の too_large）")
+    ap.add_argument("--diff", help="案の patch（git の unified diff）か、新しく足す名の一覧（1 行 1 名）のファイル")
     a = ap.parse_args(argv)
+    diff = None
+    if a.diff:
+        patch = Path(a.diff).resolve()
+        try:
+            kind, names = read_diff_input(patch.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"measure.py: --diff: {e}", file=sys.stderr)
+            return 1
+        diff = (kind, patch if kind == "patch" else names)
     try:
         repo = Path(git(Path(a.repo), "rev-parse", "--show-toplevel").strip())
-        out = measure(repo, a.paths, window_since(repo, a.since, a.window_days), a.max_bytes)
+        out = measure(repo, a.paths, window_since(repo, a.since, a.window_days), a.max_bytes, diff)
     except GitError as e:
         print(f"measure.py: {e}", file=sys.stderr)
         return 1

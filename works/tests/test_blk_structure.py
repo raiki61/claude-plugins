@@ -20,7 +20,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "blk-structure" / "scripts" / "measure.py"
 SINCE = "2020-06-01"
 
-# 6 行の写し（空行と空白の揺れは正規化で消える）
 BLOCK = ["alpha = compute(1)", "beta = compute(2)", "gamma = alpha + beta", "delta = gamma * 2",
          "emit(delta)", "close()"]
 
@@ -88,8 +87,60 @@ def build_fixture(repo):
     _write(repo, "a.txt", "merged\n")
     _git(repo, "add", "a.txt")
     _git(repo, "commit", "-q", "--no-edit", date="2020-07-05")
-    _write(repo, "loose.txt", "not tracked\n")   # 追跡されていないパス
+    _write(repo, "loose.txt", "not tracked\n")
     return base
+
+
+GROW_PATCH = """diff --git a/a.txt b/a.txt
+--- a/a.txt
++++ b/a.txt
+@@ -1 +1,3 @@
+ merged
++x
++y
+diff --git a/bin/go b/bin/go
+new file mode 100755
+--- /dev/null
++++ b/bin/go
+@@ -0,0 +1,2 @@
++#!/bin/sh
++exec sh ./tool.sh
+diff --git a/src/dup3.txt b/src/dup3.txt
+new file mode 100644
+--- /dev/null
++++ b/src/dup3.txt
+@@ -0,0 +1,6 @@
+""" + "".join("+" + ln + "\n" for ln in BLOCK)
+
+BAD_PATCH = """diff --git a/a.txt b/a.txt
+--- a/a.txt
++++ b/a.txt
+@@ -1 +1,2 @@
+ not the current line
++x
+"""
+
+NAMES_PATCH = """diff --git a/src/env.sh b/src/env.sh
+--- a/src/env.sh
++++ b/src/env.sh
+@@ -4 +4,2 @@
+ unset AAA_X
++echo "$AAA_NEW"
+""" + "".join("""diff --git a/src/k%d.sh b/src/k%d.sh
+new file mode 100644
+--- /dev/null
++++ b/src/k%d.sh
+@@ -0,0 +1,2 @@
++#!/bin/sh
++echo "${ZZZ_NEW}"
+""" % (i, i, i) for i in (1, 2, 3))
+
+PLAIN_PATCH = """--- a/a.txt
++++ b/a.txt
+@@ -1 +1,2 @@
+ merged
++x
+"""
 
 
 class MeasureCase(unittest.TestCase):
@@ -139,7 +190,6 @@ class MeasureCase(unittest.TestCase):
         self.assertEqual(self.entry(out, "new.txt")["frequency"], {"follow": 3, "raw": 2, "no_merges": 2})
 
     def test_union_follow_is_sum_of_single_file_sets(self):
-        # --follow は 1 本のパスにしか効かないので、和集合は 1 本ずつ集めた commit の和（改名前の c0b を含む）
         out = self.measure("--paths", "a.txt", "new.txt")
         self.assertEqual(out["union"], {"follow": 5, "raw": 5, "no_merges": 4})
 
@@ -205,6 +255,76 @@ class MeasureCase(unittest.TestCase):
                          [("big.txt", "too_large"), ("bin.dat", "unreadable"), ("loose.txt", "untracked")])
         self.assertEqual([p["path"] for p in out["paths"]], ["a.txt"])
         self.assertEqual(out["rules"]["max_bytes"], 100)
+
+    def diff_file(self, name, text):
+        p = pathlib.Path(self._tmp.name) / name
+        p.write_text(text, encoding="utf-8")
+        return str(p)
+
+    @staticmethod
+    def diff_entry(out, path):
+        return next(p for p in out["diff"]["paths"] if p["path"] == path)
+
+    def snapshot(self):
+        return {args: _git(self.repo, *args) for args in
+                (("status", "--porcelain"), ("rev-parse", "HEAD"), ("symbolic-ref", "HEAD"), ("ls-files", "-s"))}
+
+    def test_patch_before_after_delta(self):
+        out = self.measure("--paths", "a.txt", "src/dup1.txt", "tool.sh",
+                           "--diff", self.diff_file("grow.patch", GROW_PATCH))
+        self.assertEqual(out["diff"]["kind"], "patch")
+        self.assertEqual(self.diff_entry(out, "a.txt")["lines"], {"before": 1, "after": 3, "delta": 2})
+        self.assertEqual(self.diff_entry(out, "src/dup1.txt")["duplicates"], {"before": 1, "after": 2, "delta": 1})
+        self.assertEqual(self.diff_entry(out, "tool.sh")["entrypoints"],
+                         {"named_by": {"before": 2, "after": 3, "delta": 1},
+                          "executable": {"before": 1, "after": 2, "delta": 1}})
+        self.assertEqual(self.diff_entry(out, "src/dup3.txt")["lines"], {"before": None, "after": 6, "delta": None})
+        self.assertEqual(sorted(out["diff"]["touched"]), ["a.txt", "bin/go", "src/dup3.txt"])
+        self.assertIn("diff", out["rules"])
+
+    def test_without_diff_output_has_no_diff_rule_or_section(self):
+        out = self.measure("--paths", "a.txt")
+        self.assertNotIn("diff", out)
+        self.assertNotIn("diff", out["rules"])
+
+    def test_patch_that_does_not_apply_stops_with_reason(self):
+        r = self.run_measure("--paths", "a.txt", "--diff", self.diff_file("bad.patch", BAD_PATCH))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("git apply", r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_names_list_has_only_names(self):
+        out = self.measure("--paths", "src/env.sh", "--diff", self.diff_file("names.txt", "NEW_ONE\n\n  NEW_TWO  \n"))
+        self.assertEqual(out["diff"]["kind"], "names")
+        self.assertEqual(sorted(out["diff"]), ["kind", "names"])
+        self.assertEqual(sorted(n["name"] for n in out["diff"]["names"]), ["NEW_ONE", "NEW_TWO"])
+
+    def test_new_name_through_reader_vs_scattered_over_shells(self):
+        out = self.measure("--paths", "src/env.sh", "--diff", self.diff_file("names.patch", NAMES_PATCH))
+        names = {n["name"]: n for n in out["diff"]["names"]}
+        self.assertEqual(sorted(names), ["AAA_NEW", "ZZZ_NEW"])
+        through = names["AAA_NEW"]
+        self.assertEqual(through["sites"], [{"path": "src/env.sh", "line": 5, "access": True}])
+        self.assertEqual(through["access_files"], ["src/env.sh"])
+        self.assertEqual(through["prior_readers"], ["src/env.sh"])
+        scattered = names["ZZZ_NEW"]
+        self.assertEqual(scattered["sites"], [{"path": "src/k%d.sh" % i, "line": 2, "access": True} for i in (1, 2, 3)])
+        self.assertEqual(scattered["access_files"], ["src/k1.sh", "src/k2.sh", "src/k3.sh"])
+        self.assertEqual(scattered["prior_readers"], [])
+
+    def test_target_repo_does_not_move(self):
+        before = self.snapshot()
+        index = (self.repo / ".git" / "index").read_bytes()
+        self.measure("--paths", "a.txt", "--diff", self.diff_file("grow2.patch", GROW_PATCH))
+        self.run_measure("--paths", "a.txt", "--diff", self.diff_file("bad2.patch", BAD_PATCH))
+        self.assertEqual((self.repo / ".git" / "index").read_bytes(), index)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_patch_without_git_header_is_patch(self):
+        out = self.measure("--paths", "a.txt", "--diff", self.diff_file("plain.patch", PLAIN_PATCH))
+        self.assertEqual(out["diff"]["kind"], "patch")
+        self.assertEqual(self.diff_entry(out, "a.txt")["lines"], {"before": 1, "after": 2, "delta": 1})
+
 
 
 if __name__ == "__main__":
