@@ -170,9 +170,9 @@ class TestTestsBlock(RepoCase):
             env["INPUTS_MODE"] = mode
         return env
 
-    def run_tests(self, cmd, rc=0, mode=None):
+    def run_tests(self, cmd, rc=0, mode=None, script=ROOT / "blk-tests" / "scripts" / "run_tests.py"):
         node = find_node(workflow("blk-tests")["nodes"], "run")
-        r = subprocess.run([sys.executable, str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo),
+        r = subprocess.run([sys.executable, str(script)], cwd=str(self.repo),
                            env=self.cmd_env(cmd, mode), capture_output=True, text=True, encoding="utf-8", timeout=120)
         if rc:
             self.assertEqual(r.returncode, rc, r.stderr)
@@ -252,10 +252,15 @@ class TestTestsBlock(RepoCase):
     def test_tests_leave_no_bytecode(self):
         # 種の .gitignore が無くても、テストが作業ツリーに __pycache__ を作らない（修正の差分に紛れ込まない）
         (self.repo / ".gitignore").unlink()
-        out = self.run_tests("python3 -m unittest -q test_stats")
+        # pack の中は、共有の作業ツリーを見ると別の実行が残した __pycache__ を拾うので、この試験だけが持つ写しで起こして見る。
+        # run_tests.py は parents[2] / .shared / core を import するので、pack の並びを保って写す
+        pack = pathlib.Path(self._tmp.name) / "pack"
+        shutil.copytree(CORE, pack / ".shared" / "core", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(ROOT / "blk-tests", pack / "blk-tests", ignore=shutil.ignore_patterns("__pycache__"))
+        out = self.run_tests("python3 -m unittest -q test_stats", script=pack / "blk-tests" / "scripts" / "run_tests.py")
         self.assertEqual((out["ok"], out["green"]), (True, False))   # 種はバグ入りで赤
         self.assertEqual(list(self.repo.rglob("__pycache__")), [])
-        self.assertEqual(list(ROOT.rglob("__pycache__")), [])         # pack の中にも作らない
+        self.assertEqual(list(pack.rglob("__pycache__")), [])         # pack の写しの中にも作らない
 
     def test_red_command_is_still_ok(self):
         # 赤を人の関所に見せるのがこの段の仕事なので、赤でも節は通る。信号で死んだテストも赤

@@ -3,8 +3,9 @@
 - 順の真ん中は本流の写し claude_auth.auth_env を丸ごと呼ぶ（部品を並べ直すと写しの柵はバイト同一のまま緑なので、ここで縛る）
 - 名指し（WORKS_KEYCHAIN_ITEM）は受け継いだ認証より先に効き、取れなければ次へ進まない（設計 2.6 順の形 1）
 - python3 -I で起こした check は起こし役のフォルダ（試験の持つ写し）に __pycache__ を作らない（-I は PYTHONDONTWRITEBYTECODE を
-  見ず、__pycache__ は .gitignore に隠れて git status に出ない）。import の分と works/ 全体の清潔さは test_tree_run.py と
-  test_blk_tests_delta.py が見る
+  見ず、__pycache__ は .gitignore に隠れて git status に出ない）。tree_run.py の CLI と run_tests.py（とその import）の分は
+  test_tree_run.py と test_blk_tests_delta.py が各々の写しで見る。共有の works/ はどの試験も見ない（別の実行の残り物で揺れる）。
+  試験自身の import の分は各試験の頭の sys.dont_write_bytecode に任せ、試験では縛らない
 security は偽の runner に差し替え、本物の keychain には触らない。
 """
 import os
