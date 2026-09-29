@@ -6,6 +6,12 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-09-29
+
+### Changed
+
+- 認証の段（`claude_auth.py`）の冒頭の写し先の一覧に、works の写し（`works/.shared/core/`）を足した。説明の 1 行だけで、動きは変わらない。
+
 ## [0.24.0] - 2026-09-28
 
 ### Changed

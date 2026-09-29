@@ -6,6 +6,12 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-09-29
+
+### Changed
+
+- 認証の段（`claude_auth.py`）の冒頭の写し先の一覧に、works の写し（`works/.shared/core/`）を足した。説明の 1 行だけで、動きは変わらない。
+
 ## [0.41.0] - 2026-09-27
 
 ### Added
