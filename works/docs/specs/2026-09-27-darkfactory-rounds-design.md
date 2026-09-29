@@ -55,7 +55,7 @@
 - **止め札・Claude の包み・読んだ証拠・修正の後の数え直しは線 A が作る**（BL13）。線 B は使う側。
 - **止める意味は土台の `stop()`、人の答えは土台の `answer()`**（BL10・BL11）。`rejudge` は engine に無い語なので線 B が持つ。
 - **最後の関門は mutgate の記録を読む**（〔台帳〕R30: 変異は版を出す時にまとめて撃つ持ち主の決定に沿い、収束との連動は線 B が mutgate の記録を読むときに戻る）。
-- **下請けは既定の opus**（〔台帳〕R22・R28）。YAML の段には、役の前付け（`.shared/core/agents/<役>.md`）の `model` が既定と違う役（inspector・investigator・cold-reader。前付けは sonnet）の段だけ、前付けと同じ `model:` を書く。ほかの段は書かない（利用者の選択を残す。開発の殻の既定が opus）。2026-09-29 の持ち主の決定で「YAML には `model:` を一切書かない」から改めた。
+- **下請けは既定の opus**（〔台帳〕R22・R28）。YAML の段には、役の前付け（`.shared/core/agents/<役>.md`）の `model` が sonnet の役（inspector・investigator・cold-reader。試験の宣言 `PINNED`、[test_tool_parity.py](../../tests/test_tool_parity.py)）の段だけ、前付けと同じ `model:` を書く。ほかの段は書かない（利用者の選択を残す。開発の殻の既定が opus）。2026-09-29 の持ち主の決定で「YAML には `model:` を一切書かない」から改めた。
 - **包みの無い環境**: 既定は run を止め、入力 `adapter: optional` のときだけ包み無しで回して報告の冒頭に出す（〔台帳〕2026-09-26 の決定。作るのは線 A）。
 - **線 A は 1 本目の中間の関所を入力で残す**（〔台帳〕R26。`always`・`when_needed`、既定 `always`）。線 B は持ち主の決定 1.1 の 3 のとおり置かない（周の輪は別の入口なので両立する）。
 
@@ -448,7 +448,7 @@ $ARTIFACTS_DIR/board/
 - 盤面は run の作業ツリーの外（`$ARTIFACTS_DIR`）。盤面に書くのはつなぎ（script の節）と線 A の包みだけ。役は盤面に書かない。
 - 写しは 1 バイトも変えない。線 B が写しの関数を呼ぶ所（`_stopped_round_record`・`open_next_round`・`STOPPED_BY`・`fill_materials`・`report_accepts`・RR の `main`、土台の私的な `_write_round_note`）は、写し直しで名前が変わっても 1 か所で直せるよう、`rounds.py`・`close.py`・`rounds_validator.py` の中の薄い関数 1 つずつから呼ぶ。
 - 期限は 1 本目と同じ（AI の節の `idle_timeout`・script の節の `timeout` は `1728000000`〔台帳 R4〕）。新しい期限は足さない。`max_iterations` は有限（判定の内の輪 6・周の輪 20）。
-- AI の節は `settingSources: []`・sandbox `{enabled: true, allowUnsandboxedCommands: false}`〔台帳 R12〕・`model:` は、役の前付けの `model` が既定と違う役の段だけに前付けと同じ値で書き、ほかの段には書かない（2026-09-29 の持ち主の決定で改めた）。
+- AI の節は `settingSources: []`・sandbox `{enabled: true, allowUnsandboxedCommands: false}`〔台帳 R12〕・`model:` は、役の前付けの `model` が sonnet の役（試験の宣言 `PINNED`）の段だけに前付けと同じ値で書き、ほかの段には書かない（2026-09-29 の持ち主の決定で改めた）。
 - 節のスクリプトは全部 PEP 723 の頭を持ち、標準ライブラリだけ。bash の節で `&` を使わない〔試P: P9〕。
 - 対象・開発の家・切符の置き場を `/private/tmp/claude-*` の下に置かない（開発の殻が拒む〔66b1543〕）。
 
@@ -512,7 +512,7 @@ $ARTIFACTS_DIR/board/
 
 ### 10.4 共有のファイルの検査（線 B の最後の commit）
 
-- `test_yaml_rules.py` に足す決まり（1 本 1 違反の悪い見本つき）: 輪の中の関所は唯一の末端・`decisions` を持つ関所は `reject` を持つ・until_bash は盤面のファイルだけ・関所の文面と bash の本文は飛ばされうる節の欄を読まない・script の節の `with:` の `from:` は `if_skipped` つき・bash の本文に `&` を書かない・AI の節は出し直しの輪の中のただ 1 つの AI の節か `context: fresh`・`max_iterations` は 3・6・20 のどれか・AI の節の `model:` は役の前付けと縛る（前付けの `model` が既定と違う役の段は前付けと同じ `model:` を持ち、ほかの段は持たない。2026-09-29 の持ち主の決定で「AI の節に `model:` を置かない」から改めた）。線 A が同じ決まりを先に足していれば、線 B は足りない分だけ足す。
+- `test_yaml_rules.py` に足す決まり（1 本 1 違反の悪い見本つき）: 輪の中の関所は唯一の末端・`decisions` を持つ関所は `reject` を持つ・until_bash は盤面のファイルだけ・関所の文面と bash の本文は飛ばされうる節の欄を読まない・script の節の `with:` の `from:` は `if_skipped` つき・bash の本文に `&` を書かない・AI の節は出し直しの輪の中のただ 1 つの AI の節か `context: fresh`・`max_iterations` は 3・6・20 のどれか・AI の節の `model:` は役の前付けと縛る（前付けの `model` が sonnet の役（試験の宣言 `PINNED`）の段は前付けと同じ `model:` を持ち、ほかの段は持たない。2026-09-29 の持ち主の決定で「AI の節に `model:` を置かない」から改めた）。線 A が同じ決まりを先に足していれば、線 B は足りない分だけ足す。
 
 ### 10.5 実走（持ち主の費用の了承を取ってから）
 

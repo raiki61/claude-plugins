@@ -11,7 +11,6 @@ works の役の節（YAML の AI の節）の allowed_tools は、その run_by 
 対応（graph の節 → YAML の節）は表 ROLE_NODES。nodes.json の役の節（by: role か fallback: role）と、pack の全部の AI の節が
 表に載っていることも見る（表から漏れた役が本線より少ない道具のまま残らないように）。
 """
-import ast
 import json
 import pathlib
 import re
@@ -189,12 +188,8 @@ def frontmatter_model(run_by: str):
     return yaml.safe_load(p.read_text(encoding="utf-8").split("---", 2)[1]).get("model")
 
 
-def default_model() -> str:
-    """guard.sh の WORKS_DEV_MODEL_DEFAULT（全体の既定。env では替わらない定数）"""
-    for ln in (ROOT / "dev" / "guard.sh").read_text(encoding="utf-8").splitlines():
-        if ln.startswith("WORKS_DEV_MODEL_DEFAULT="):
-            return ln.split("=", 1)[1].strip().strip("'\"")
-    raise AssertionError("guard.sh に WORKS_DEV_MODEL_DEFAULT= の行が無い")
+# 段に model: を書く模型の集合（持ち主 2026-09-29）。殻の環境変数 WORKS_MODEL_PINNED とは別物
+PINNED = {"sonnet"}
 
 
 def stage_roles() -> dict:
@@ -205,58 +200,37 @@ def stage_roles() -> dict:
     return out
 
 
-def expected_model(run_by: str, default: str):
-    """段に書くべき model:。前付けが全体の既定と違う役だけ前付けの値、ほかは None（書かない）"""
+def expected_model(run_by: str):
+    """段に書くべき model:。前付けの model が PINNED に在る役だけ前付けの値、ほかは None（書かない）"""
     want = frontmatter_model(run_by)
-    return want if want not in (None, default) else None
+    return want if want in PINNED else None
 
 
-def model_mismatches(nodes: dict, roles: dict, default: str) -> list:
+def model_mismatches(nodes: dict, roles: dict) -> list:
     """段の model: が役の前付けから決まる値と食い違う段を名指す。役に引き当てられない AI の段も名指す"""
     out = []
     for place, node in sorted(nodes.items()):
         if place not in roles:
             out.append(f"{place[0]} の段 {place[1]}: 役に引き当てられない（表 ROLE_NODES・EXTRA_ROLES に無い）")
             continue
-        want, have = expected_model(roles[place], default), node.get("model")
+        want, have = expected_model(roles[place]), node.get("model")
         if have != want:
             out.append(f"{place[0]} の段 {place[1]}（役 {roles[place]}）: model: {have!r}（期待 {want!r}）")
     return out
 
 
-# 逆向きの柵の形: 字 model（引用は ' か "、YAML の生の字の model: も）が無いことを見る否定の assert。何に当てたかは問わない。
-# 呼び出しと assert 文を ast.unparse で 1 行に均した本文に当てる（折り返しに依らない）
-MODEL_WORD = r"""['"]model:?['"]"""
-REVERSE_FENCE = re.compile(
-    rf"assertNotIn\(\s*{MODEL_WORD}"                              # assertNotIn("model", 何でも)
-    rf"|assertNotRegex\(.*{MODEL_WORD}"                            # 生の字に当てる否定の正規表現
-    rf"|{MODEL_WORD}\s+not\s+in\b"                                 # "model" not in 何でも
-    rf"|(assertFalse\(|assert\s+not\b).*{MODEL_WORD}\s+in\b"       # assertFalse("model" in …)・assert not "model" in …
-    rf"|assertIsNone\(.*\.get\(\s*{MODEL_WORD}")                   # assertIsNone(節.get("model"))
-# 当たるが工程の段の柵ではない呼び出し（ファイル名, 呼び出しの本文）→ 理由。消えたら表からも消す（test_allowed_hits_still_exist）
-NOT_A_STAGE_FENCE = {
-    ("test_versions.py", 'self.assertNotIn("model", doc["unknown"])'): "版の控え versions.json の unknown の欄",
-    ("test_versions.py", 'self.assertIsNone(doc.get("model", "absent"))'): "版の控え versions.json の model の欄",
-    ("test_tool_parity.py", 'self.assertNotIn("model", yaml.safe_load(p.read_text(encoding="utf-8")))'):
-        "工程の頭の柵（test_no_workflow_level_model）",
-}
-
-
-def asserted_calls(src: str) -> list:
-    """[(行, 本文)]。呼び出しと assert 文を ast.unparse で 1 行に均す（折り返し・引用の違いが消える）"""
-    return [(n.lineno, ast.unparse(n)) for n in ast.walk(ast.parse(src)) if isinstance(n, (ast.Call, ast.Assert))]
+# 118 件目（302ece35）で外した段の字の禁止 2 形（段の節を safe_dump した字・役の節）。この 2 形の再発だけを縛る
+REVERSE_FENCE = re.compile(r"""assertNotIn\(\s*['"]model['"],\s*(yaml\.safe_dump\(|role\))""")
 
 
 def reverse_fence_hits(files) -> list:
-    """REVERSE_FENCE に当たり NOT_A_STAGE_FENCE に無い呼び出しを「ファイル名:行」で名指す"""
-    allowed = {(name, ast.unparse(ast.parse(src))) for name, src in NOT_A_STAGE_FENCE}
-    hits = {(p.name, i) for p in files for i, s in asserted_calls(p.read_text(encoding="utf-8"))
-            if REVERSE_FENCE.search(s) and (p.name, s) not in allowed}
-    return [f"{name}:{i}" for name, i in sorted(hits)]
+    """REVERSE_FENCE に当たる行を「ファイル名:行」で名指す"""
+    return [f"{p.name}:{i}" for p in files
+            for i, ln in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if REVERSE_FENCE.search(ln)]
 
 
 class RoleModelCase(unittest.TestCase):
-    """Archon の段は役の前付けを読まない。前付けの model が全体の既定と違う役の段だけ段の model: に同じ値を書き、
+    """Archon の段は役の前付けを読まない。前付けの model が PINNED に在る役の段だけ段の model: に同じ値を書き、
     ほかの段と工程の頭には書かない（持ち主 2026-09-29）。
     graph の節の delegate.model は本線の主のセッションが下請けを起こす時の模型で、正本に数えない（works の段は Archon が
     run_by の役として起こすので、役の前付けだけが正本）"""
@@ -264,15 +238,9 @@ class RoleModelCase(unittest.TestCase):
     def setUp(self):
         self.nodes = ai_nodes()
         self.roles = stage_roles()
-        self.default = default_model()
 
     def test_stage_model_matches_role_frontmatter(self):
-        self.assertEqual(model_mismatches(self.nodes, self.roles, self.default), [])
-
-    def test_stages_without_a_distinct_role_model_have_none(self):
-        plain = {p: n for p, n in self.nodes.items()
-                 if p not in self.roles or expected_model(self.roles[p], self.default) is None}
-        self.assertEqual(model_mismatches(plain, self.roles, self.default), [])
+        self.assertEqual(model_mismatches(self.nodes, self.roles), [])
 
     def test_no_workflow_level_model(self):
         for p in workflow_files():
@@ -281,39 +249,29 @@ class RoleModelCase(unittest.TestCase):
 
     def test_bad_examples_are_caught(self):
         """前付けどおりに直した写しは 0 件。3 役の段から model: を抜く・judge の段に model: opus を足すと 1 件ずつ名指す"""
-        fixed = {place: dict(n, **({"model": w} if (w := expected_model(self.roles[place], self.default)) else {}))
+        fixed = {place: dict(n, **({"model": w} if (w := expected_model(self.roles[place])) else {}))
                  for place, n in self.nodes.items() if place in self.roles}
-        self.assertEqual(model_mismatches(fixed, self.roles, self.default), [])
-        three = next(p for p in sorted(fixed) if expected_model(self.roles[p], self.default))
+        self.assertEqual(model_mismatches(fixed, self.roles), [])
+        three = next(p for p in sorted(fixed) if expected_model(self.roles[p]))
         dropped = {**fixed, three: {k: v for k, v in fixed[three].items() if k != "model"}}
-        self.assertEqual(len(model_mismatches(dropped, self.roles, self.default)), 1)
+        self.assertEqual(len(model_mismatches(dropped, self.roles)), 1)
         judge = next(p for p in sorted(fixed) if self.roles[p] == "judge")
         added = {**fixed, judge: dict(fixed[judge], model="opus")}
-        self.assertEqual(len(model_mismatches(added, self.roles, self.default)), 1)
+        self.assertEqual(len(model_mismatches(added, self.roles)), 1)
 
     def test_no_reverse_fence_on_the_model_word(self):
-        """段の model: は上の柵が前付けと縛る。字 model が無いことを見る否定の assert（REVERSE_FENCE の形）を試験に残さない"""
+        """段の model: は上の柵が前付けと縛る。118 件目で外した段の字の禁止（REVERSE_FENCE の 2 形）を試験に戻さない"""
         hits = reverse_fence_hits(sorted(pathlib.Path(__file__).parent.glob("*.py")))
         self.assertEqual(hits, [], "model の字を禁じる柵が残っている（段に model: を書くと赤になる）")
 
     def test_reverse_fence_bad_examples(self):
-        """引用・変数名・書き方・折り返しを変えた逆向きの柵も当たり、字 model を肯定で見る呼び出しは当たらない"""
-        bad = ["self.assertNotIn('model', node)", 'self.assertNotIn("model", self.top["review"])',
-               'self.assertNotIn("model:", text)', "self.assertFalse('model' in n)", 'assert not "model" in n',
-               'self.assertTrue("model" not in yaml.safe_dump(self.y))', 'self.assertNotRegex(text, "model:")',
-               'self.assertIsNone(n.get("model"))', 'self.assertNotIn(\n    "model", node)',
-               'self.assertIsNone(\n    n.get("model"))', 'assert (\n    "model"\n    not in n)']
-        good = ['self.assertEqual(n["model"], "sonnet")', 'self.assertIn("model", row)',
-                'self.assertEqual(n.get("model"), want)', 'bad = ["self.assertNotIn(\'model\', node)"]']
-        fenced = lambda src: any(REVERSE_FENCE.search(s) for _, s in asserted_calls(src))
-        self.assertEqual([s for s in bad if not fenced(s)], [])
-        self.assertEqual([s for s in good if fenced(s)], [])
-
-    def test_allowed_hits_still_exist(self):
-        here = pathlib.Path(__file__).parent
-        gone = [k for k in NOT_A_STAGE_FENCE if ast.unparse(ast.parse(k[1]))
-                not in {s for _, s in asserted_calls((here / k[0]).read_text(encoding="utf-8"))}]
-        self.assertEqual(gone, [])
+        """外した 2 形は引用を変えても当たり、段の柵でない否定（版の控えの欄・工程の頭）と肯定の呼び出しは当たらない"""
+        call = "self.assertNotIn("  # 見本は字を分けて組む（この行が上の走査に当たらないように）
+        bad = [call + '"model", yaml.safe_dump(self.y))', call + "'model', role)", call + "'model', yaml.safe_dump(n))"]
+        good = [call + '"model", doc["unknown"])', call + '"model", yaml.safe_load(p.read_text(encoding="utf-8")))',
+                'self.assertIn("model", role)', 'self.assertEqual(n["model"], "sonnet")']
+        self.assertEqual([s for s in bad if not REVERSE_FENCE.search(s)], [])
+        self.assertEqual([s for s in good if REVERSE_FENCE.search(s)], [])
 
 
 if __name__ == "__main__":
