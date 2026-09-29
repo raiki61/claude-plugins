@@ -204,7 +204,7 @@ LINE_ORDER = [
      "when": "$h-plan.output.go == true",
      "with": {"judgment_file": "$h-plan.output.judgment_file", "base_rev": "$start.output.base_rev",
               "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path",
-              "include_id": "planning"}},
+              "structure_state_file": "$h-structure.output.state_file", "include_id": "planning"}},
     _edge("h-gate", "gate", ["start", "h-plan", "h-structure", "planning"]),
     {"id": "policy-gate", "kind": "approval", "depends_on": ["h-gate"], "when": "$h-gate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},

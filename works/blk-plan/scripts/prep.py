@@ -13,11 +13,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import planblk  # noqa: E402
 import rolekit  # noqa: E402
 
-INPUTS = ("INPUTS_ROLE", "INPUTS_EXCLUDED_FILE")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_plan.py が見る）
+INPUTS = ("INPUTS_ROLE", "INPUTS_EXCLUDED_FILE", "INPUTS_STRUCTURE_STATE_FILE")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_plan.py が見る）
 
 
 def run(board, repo, env):
-    return planblk.prep(board, env["INPUTS_ROLE"], repo, env["INPUTS_EXCLUDED_FILE"])
+    return planblk.prep(board, env["INPUTS_ROLE"], repo, env["INPUTS_EXCLUDED_FILE"], env["INPUTS_STRUCTURE_STATE_FILE"])
 
 
 if __name__ == "__main__":

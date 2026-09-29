@@ -42,6 +42,7 @@ import linekit  # noqa: E402
 import node_marker  # noqa: E402
 import libdocs  # noqa: E402
 import planblk  # noqa: E402
+import structmark  # noqa: E402
 import rolekit  # noqa: E402
 
 DEADLINE = 1728000000
@@ -80,7 +81,7 @@ class YamlCase(unittest.TestCase):
 
     def test_inputs_and_exit(self):
         self.assertEqual(set(self.y["inputs"]), {"judgment_file", "base_rev", "policy_paste", "policy_path", "excluded_file",
-                                                 "include_id"})
+                                                 "structure_state_file", "include_id"})
         self.assertIs(self.y["inputs"]["judgment_file"]["required"], True)
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
         self.assertEqual(set(self.top["collect"]["output_format"]["required"]),
@@ -248,6 +249,8 @@ class ScriptCase(unittest.TestCase):
     def run_script(self, name, drop=(), **inputs):
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k not in ("WORKFLOW_ID", "ARCHON_CLI_COMMAND")}
         env.update({"WORKS_ADAPTER_HOME": str(self.home), "ARTIFACTS_DIR": str(self.art), "PYTHONDONTWRITEBYTECODE": "1"})
+        if name in ("prep", "accept"):
+            inputs.setdefault("structure_state_file", "")   # 線の構造の境の出口（空＝構造の目の行を貼らない・突き合わせない）
         env.update({f"INPUTS_{k.upper()}": v for k, v in inputs.items()})
         for k in drop:
             env.pop(k, None)
@@ -705,8 +708,9 @@ class StructureHeadCase(unittest.TestCase):
     """線の構造の境の節 h-structure（darkfactory.yaml）が構造のブロックの出口を受け、修正案の指示書の頭に design.jsonl の行か、
     落ちの印「構造の目の行なしで計画した（理由）」が載る。h-structure は自分の読み書きの失敗を節の失敗にしない（人の条件 (1)）"""
 
-    setUp, take, judged, state, run_script, ok = (ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state,
-                                                  ScriptCase.run_script, ScriptCase.ok)
+    setUp, take, judged, state, run_script, ok, reason_of = (ScriptCase.setUp, ScriptCase.take, ScriptCase.judged,
+                                                             ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+                                                             ScriptCase.reason_of)
 
     def structured(self, exit_):
         """darkfactory.yaml の h-structure を Archon と同じ形（with: → INPUTS_*・ARTIFACTS_DIR・cwd は対象）で起こし、出口を返す。
@@ -728,9 +732,11 @@ class StructureHeadCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr[-1500:])
         return json.loads(r.stdout.splitlines()[-1])
 
-    def plan_head(self):
+    def plan_head(self, state_file):
+        """修正案の指示書の頭。構造の控えは線の出口 state_file を blk-plan の明示の入力 structure_state_file で受ける"""
         self.ok("snap", role="plan")
-        text = pathlib.Path(self.ok("prep", role="plan", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        text = pathlib.Path(self.ok("prep", role="plan", excluded_file="", structure_state_file=state_file)["prompt_file"]
+                            ).read_text(encoding="utf-8")
         return text.split("\n\n# P2-10")[0]
 
     def block_exit(self, design_file, status="ok"):
@@ -746,7 +752,7 @@ class StructureHeadCase(unittest.TestCase):
         design_file.write_text(json.dumps(DESIGN_ROW, ensure_ascii=False) + "\n", encoding="utf-8")
         got = self.structured(self.block_exit(design_file))
         self.assertEqual(got["status"], "ok", got)
-        head = self.plan_head()
+        head = self.plan_head(got["state_file"])
         self.assertIn(DESIGN_ROW["chosen"], head)
         self.assertIn(UNIT_MEAN, head)
         self.assertNotIn(STRUCTURE_MISSING, head)
@@ -756,7 +762,7 @@ class StructureHeadCase(unittest.TestCase):
         got = self.structured(None)
         self.assertEqual(got["status"], "failed", got)
         self.assertTrue(got["reason"].strip(), got)
-        self.assertIn(STRUCTURE_MISSING, self.plan_head())
+        self.assertIn(STRUCTURE_MISSING, self.plan_head(got["state_file"]))
 
     def test_unreadable_design_does_not_fail_node(self):
         """h-structure の中の失敗（design.jsonl が読めない）は節の失敗にせず、行なしで計画に進む印を出す"""
@@ -764,7 +770,7 @@ class StructureHeadCase(unittest.TestCase):
         got = self.structured(self.block_exit(self.tmp / "no-such" / "design.jsonl"))
         self.assertEqual(got["status"], "failed", got)
         self.assertTrue(got["reason"].strip(), got)
-        head = self.plan_head()
+        head = self.plan_head(got["state_file"])
         self.assertIn(STRUCTURE_MISSING, head)
         self.assertNotIn(DESIGN_ROW["chosen"], head)
 
@@ -775,7 +781,53 @@ class StructureHeadCase(unittest.TestCase):
         design_file.write_bytes(b"")
         got = self.structured(self.block_exit(design_file, status="failed"))
         self.assertEqual(got["status"], "failed", got)
-        self.assertIn(STRUCTURE_MISSING, self.plan_head())
+        self.assertIn(STRUCTURE_MISSING, self.plan_head(got["state_file"]))
+
+    def test_plan_head_reads_only_the_named_input(self):
+        """盤面の根に控えが在っても、入力 structure_state_file が空なら貼らない（暗に読まない。入力を外せば元に戻る）"""
+        self.judged()
+        design_file = self.tmp / "design.jsonl"
+        design_file.write_text(json.dumps(DESIGN_ROW, ensure_ascii=False) + "\n", encoding="utf-8")
+        got = self.structured(self.block_exit(design_file))
+        self.assertTrue(got["state_file"], got)
+        head = self.plan_head("")
+        self.assertNotIn(DESIGN_ROW["chosen"], head)
+        self.assertNotIn(STRUCTURE_MISSING, head)
+
+    def kept_accept(self, state_file, kept):
+        reply = linekit.reply("plan_ok")
+        if kept is not None:
+            reply = {**reply, structmark.KEPT_FIELD: kept}
+        return self.ok("accept", role="plan", reply=json.dumps(reply, ensure_ascii=False), structure_state_file=state_file)
+
+    def test_plan_must_say_whether_it_kept_each_row(self):
+        """避け方の在る行ごとに structure_kept が要る。無い・守らないのに理由が無い・行に無い unit_id は拒み、合えば控えに残して
+        報告と最後の関所の 1 行に出す"""
+        self.judged()
+        design_file = self.tmp / "design.jsonl"
+        design_file.write_text(json.dumps(DESIGN_ROW, ensure_ascii=False) + "\n", encoding="utf-8")
+        state = self.structured(self.block_exit(design_file))["state_file"]
+        self.plan_head(state)
+        for kept, word in ((None, "structure_kept の行が無い"),
+                           ([{"unit_id": UNIT_MEAN, "kept": False, "why": " "}], "理由（why）が無い"),
+                           ([{"unit_id": UNIT_MEAN, "kept": True, "why": ""}, {"unit_id": "無い単位", "kept": True, "why": ""}],
+                            "行に無い unit_id")):
+            with self.subTest(word=word):
+                got = self.kept_accept(state, kept)
+                self.assertFalse(got["ok"], got)
+                self.assertIn(word, self.reason_of(got))
+        got = self.kept_accept(state, [{"unit_id": UNIT_MEAN, "kept": False, "why": "分母は呼び手ごとに違う"}])
+        self.assertTrue(got["ok"], got)
+        line = structmark.kept_line(self.board)
+        self.assertIn("守らない 1 件", line)
+        self.assertIn("分母は呼び手ごとに違う", line)
+        self.assertIn(line, structmark.report_lines(self.board))
+
+    def test_no_rows_asks_nothing(self):
+        """入力が空の run（構造の目の無い線）は structure_kept を求めない"""
+        self.judged()
+        self.plan_head("")
+        self.assertTrue(self.kept_accept("", None)["ok"])
 
 
 if __name__ == "__main__":

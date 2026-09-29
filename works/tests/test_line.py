@@ -31,7 +31,8 @@ from test_line_inputs import script_inputs  # noqa: E402
 DEADLINE = 1728000000
 # when: で飛ばされない節（start・境の節・機械の報告 report・出口 result）。上流が落ちた後でも走るのは all_done の
 # report・result だけで、境の節は none_failed_min_one_success なので飛ばされる（落ちた run の読み手は if_skipped で受ける）
-ALWAYS = {"start", "report", "result"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") == "edge"}
+# 構造の境 h-structure（script structure・all_done・when なし）も飛ばされない（planning は出口 state_file を入力で受ける）
+ALWAYS = {"start", "report", "result", "h-structure"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") == "edge"}
 REAL_START = {"standard", "start-refused"}   # start を本物で回す筋書き（TA16）
 FIXTURES = {"standard", "no-fix", "policy-continue", "policy-stop", "final-when-needed-green", "final-stop", "stop-flag",
             "start-refused", "pr-fallback", "ai-report-fail", "conflict-ask", "rejudge", "rejudge-no-session"}
