@@ -782,6 +782,45 @@ class RejectCountCase(_Case):
         self.assertTrue(rep.endswith(facts), "報告の最後は機械の事実のまま")
 
 
+class RejectCountRowsCase(unittest.TestCase):
+    """拒否の行の配列を数える純粋な関数 count_rejects。kind の無い行（kind が入る前の run の行）・知らない kind の行は
+    捨てずに unknown へ数える（無い欄を既定値で読む）。node が NODE_OF の値に無い行は数えない"""
+
+    def test_rows_without_kind_count_as_unknown(self):
+        count = getattr(rr, "count_rejects", None)
+        self.assertIsNotNone(count, "report_roles に拒否の行の配列を数える count_rejects が無い")
+        rows = [{"node": "report", "reason": "kind が入る前の行"},
+                {"node": "report.human_items", "reason": "kind が入る前の行"},
+                {"node": "report", "kind": "cold"},
+                {"node": "report", "kind": "answer"},
+                {"node": "report.human_items", "kind": "format"},
+                {"node": "report", "kind": "何か"},
+                {"node": "よその節", "kind": "cold"}]
+        got = count(rows)
+        self.assertEqual(got["report"], {"cold": 1, "format": 0, "answer": 1, "unknown": 2})
+        self.assertEqual(got["report.human_items"], {"cold": 0, "format": 1, "answer": 0, "unknown": 1})
+        self.assertEqual(got["report.cold_check"], {"cold": 0, "format": 0, "answer": 0, "unknown": 0})
+        self.assertNotIn("よその節", got)
+        self.assertEqual(rr.REJECT_KINDS, ("cold", "format", "answer"), "unknown は読むときだけの種類で、書ける種類は 3 つのまま")
+
+    def test_round_counts_cold_unpassed_beside_rejects(self):
+        """盤面の周のディレクトリ r<N> を数える count_round_rejects は、拒否の回数に並べて、書き手の節（report）に
+        上限の回に初見の確かめを通らず受け取った件数（COLD_MARK_NAME の有無で 0 か 1）を出す"""
+        count = getattr(rr, "count_round_rejects", None)
+        self.assertIsNotNone(count, "report_roles に周のディレクトリを数える count_round_rejects が無い")
+        with tempfile.TemporaryDirectory() as td:
+            rd = pathlib.Path(td) / "r1"
+            rd.mkdir()
+            (rd / rr.REJECTS_NAME).write_text(json.dumps([{"node": "report", "kind": "cold"}, {"node": "report"}]),
+                                              encoding="utf-8")
+            got = count(rd)
+            self.assertEqual(got["report"], {"cold": 1, "format": 0, "answer": 0, "unknown": 1, "cold_unpassed": 0})
+            (rd / rr.COLD_MARK_NAME).write_text(json.dumps({"reason": "冒頭で止まった"}), encoding="utf-8")
+            got = count(rd)
+            self.assertEqual(got["report"], {"cold": 1, "format": 0, "answer": 0, "unknown": 1, "cold_unpassed": 1})
+            self.assertNotIn("cold_unpassed", got["report.human_items"], "上限の受け取りは書き手の節だけの値")
+
+
 class RecordInvalidCase(_Case):
     hook = BAD_VALIDATOR_HOOK
 

@@ -75,9 +75,12 @@ REJECTS_NAME = "report-rejects.json"    # 今の周の作業ファイル: 拒否
 # 拒否の種類: cold＝書き手の頭を読んだ初見の読み手が pass でない（redesign-needed・読めない返答）／format＝表のセル／
 # answer＝返答の型・take の拒否
 REJECT_KINDS = ("cold", "format", "answer")
+# 読むときだけの種類: kind の無い行（kind が入る前の run）・知らない kind の行を捨てずに数える先。_reject は書かない
+UNKNOWN_KIND = "unknown"
 COLD_REJECTS_LINE = "- 初見の読み手の拒否（この周）:"
 INVALID_NAME = "report-record-invalid.json"   # 今の周の作業ファイル: 検証器の関所が通らなかった事実
 COLD_MARK_NAME = "report-cold-unpassed.json"  # 今の周の作業ファイル: 上限の回に初見の確かめを通らないまま受け取った事実
+COLD_UNPASSED = "cold_unpassed"         # count_round_rejects が書き手の節に並べる COLD_MARK_NAME の件数の鍵
 TERMS_NAME = "report-terms.json"        # 今の周の作業ファイル: 書き手が返した run ごとの語（{節: [{term, definition}]}）
 SNAPSHOT_PREFIX = "report-snapshot-"    # 書き手を起こす前の作業ツリーの写し（読むだけの役の比べ）
 # pack の語の定義の一覧（terms: [{term, definition}]）。reviewed は固定の行ごとに出る語の承認（tests/test_blk_report.py だけが読む）
@@ -498,13 +501,31 @@ def _missing_reason(b, invalid):
     return ""
 
 
-def _reject_counts(b) -> dict:
-    """この周の拒否の回数 {節: {種類: 回数}}（REJECTS_NAME の kind を数える。文は読まない）"""
-    got = {nid: dict.fromkeys(REJECT_KINDS, 0) for nid in NODE_OF.values()}
-    for r in _read_json(b.work(REJECTS_NAME), []):
-        if r.get("node") in got and r.get("kind") in REJECT_KINDS:
-            got[r["node"]][r["kind"]] += 1
+def count_rejects(rows) -> dict:
+    """拒否の行の回数 {節: {種類: 回数}}（kind を数える。文は読まない）。kind の無い行・知らない kind の行は UNKNOWN_KIND に
+    数え、NODE_OF の節でない行は数えない"""
+    got = {nid: dict.fromkeys((*REJECT_KINDS, UNKNOWN_KIND), 0) for nid in NODE_OF.values()}
+    for r in rows:
+        if r.get("node") in got:
+            kind = r.get("kind") if r.get("kind") in REJECT_KINDS else UNKNOWN_KIND
+            got[r["node"]][kind] += 1
     return got
+
+
+def count_round_rejects(round_dir) -> dict:
+    """盤面の周のディレクトリ r<N> の拒否の回数（count_rejects）に、書き手の節の COLD_UNPASSED（上限の回に初見の確かめを
+    通らないまま受け取った件数。COLD_MARK_NAME の有無で 0 か 1）を並べる"""
+    round_dir = pathlib.Path(round_dir)
+    got = count_rejects(_read_json(round_dir / REJECTS_NAME, []))
+    got[NODE_OF[WRITE]][COLD_UNPASSED] = int((round_dir / COLD_MARK_NAME).is_file())
+    return got
+
+
+def _reject_counts(b) -> dict:
+    """この周の拒否の回数 {節: {種類: 回数}}。種類は REJECT_KINDS だけを写す（_reject は不明な kind を書かないので、
+    この周の UNKNOWN_KIND はいつも 0）"""
+    return {nid: {k: n[k] for k in REJECT_KINDS}
+            for nid, n in count_rejects(_read_json(b.work(REJECTS_NAME), [])).items()}
 
 
 def collect(board_dir, machine_report="") -> dict:
