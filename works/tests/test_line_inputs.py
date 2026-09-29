@@ -138,7 +138,7 @@ class InputNamesCase(unittest.TestCase):
             (repo / "req.json").write_text(json.dumps([{"where": "a.py", "text": "直す"}]), encoding="utf-8")
             (repo / "policy.md").write_text("方針\n", encoding="utf-8")
             given = {"test_cmd": "x", "thickness": "標準", "gates": "merge", "final_gate": "when_needed", "adapter": "optional",
-                     "policy_md": "policy.md", "lang": "English", "base": "main", "pr": "7"}
+                     "policy_md": "policy.md", "lang": "English", "base": "main", "pr": "7", "unattended": "true"}
             want = {**given, "policy_md": str(repo / "policy.md")}
             self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"}, "start.py の名に、渡す値を決めていない名がある")
             base = entry.check_inputs({"request": "req.json"}, repo)

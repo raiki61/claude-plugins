@@ -39,8 +39,8 @@
 #   それ以外は空（全部の単位を直に直す）にして 1 行で知らせる。test_cmd を省けば空（ラインの既定: 対象の宣言か CI）。
 # - 最後の関所は WORKS_USE_FINAL_GATE（既定 when_needed・always）。包みは既定で入れる（WORKS_DEV_ADAPTER=0 か空の明示で外し、
 #   adapter=optional と「包み無し」を出す）。入力 policy_md・gates・thickness は WORKS_USE_POLICY_MD・WORKS_USE_GATES・
-#   WORKS_USE_THICKNESS（空なら渡さない）。WORKS_USE_UNATTENDED=1 は無人の run: 起動の関所を越え、人が決める関所に着いたら
-#   止めて報告へ進める。
+#   WORKS_USE_THICKNESS（空なら渡さない）。WORKS_USE_UNATTENDED=1 は無人の run: 入力 unattended=true を渡し（判定の保留の
+#   問いだけでは修正前の関所を開かない）、起動の関所を越え、人が決める関所に着いたら止めて報告へ進める。
 # - 関所の文の答えの行は、この殻の answer の行（env WORKS_ANSWER_CMD。.shared/core/answer.py）。
 # - herdr の枠の中（HERDR_ENV=1・HERDR_PANE_ID）なら、起動・show・wait のたびに、その枠から起こした run（控えの herdr_pane）の
 #   集計を 1 つの信号で出し、全部終わった時だけ外す（lib.sh works_dev_herdr_sync）。
@@ -561,6 +561,8 @@ set -- workflow run darkfactory --from "$BASE_REV" --input request="$REQUEST" --
 if [ -n "${WORKS_USE_POLICY_MD:-}" ]; then set -- "$@" --input policy_md="$WORKS_USE_POLICY_MD"; fi
 if [ -n "${WORKS_USE_GATES:-}" ]; then set -- "$@" --input gates="$WORKS_USE_GATES"; fi
 if [ -n "${WORKS_USE_THICKNESS:-}" ]; then set -- "$@" --input thickness="$WORKS_USE_THICKNESS"; fi
+# 無人の run は線にも知らせる（判定の保留の問いだけでは修正前の関所を開かず、問いを報告の冒頭へ。下の stop で修正を飛ばさない）
+if [ "${WORKS_USE_UNATTENDED:-}" = 1 ]; then set -- "$@" --input unattended=true; fi
 if [ -n "$CHANGE_INPUT" ]; then
   echo "入口: 変更から（${CHANGE_INPUT}）"
   set -- "$@" --input "$CHANGE_INPUT"

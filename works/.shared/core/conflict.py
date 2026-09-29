@@ -16,7 +16,8 @@
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
 - items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b): 読む口
 - apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く
-- owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
+- owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（修正前の関所で答えた fork の出どころを直す義務に戻し、ask_human に
+  裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
 - ruled_test_doc(b): fix_test_scope が名指したテストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
 - only_asked_left(b): 直す義務の単位が全部 ask_human（空の changes を止めない。blk-fix の assert-changed と recount.collect）
 - ruled_test_limits(b)・parse_limit(lim): fix_test_scope の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
@@ -37,11 +38,11 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 import board as _board  # noqa: E402
+import gatemarks  # noqa: E402
 
 FILE = "conflicts.json"                 # 盤面の今の周の作業ファイル {"items": [...]}
 RULINGS_FILE = "conflict-rulings.md"    # 裁定の文（修正役が 2 回目の起動の 1 行目で Read する。R44）
 PARKED_REPLY = "fix-parked-reply.json"  # 申し出を返した回の修正役の返答（裁定の後の出し直しで読む）
-START_FILE = "r1/start.json"            # 盤面の start の控え（依頼のファイル request_file を読む。書き手は entry.start）
 FIELDS = ("unit_key", "between", "why_both_cannot_hold", "which_is_right")
 CORRECT = "correct_lines"               # which_is_right: query の時だけ要る欄（直した後の正しい行の写し）
 QUERY = "query"                         # 判定者の class_query が直した後の正しい形にも当たる
@@ -101,13 +102,7 @@ RULING_SCHEMA = {
 
 
 # ---------------------------------------------------------------- 名指しの確かめ
-def start_doc(board_dir) -> dict:
-    """盤面の start の控え（読めない・dict でなければ空の dict）"""
-    try:
-        doc = json.loads((pathlib.Path(board_dir) / START_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return doc if isinstance(doc, dict) else {}
+start_doc = gatemarks.start_doc   # 盤面の start の控えの読み手は 1 つ（gatemarks も無人の run かを読む。conflict ⇄ gatemarks の輪を作らない）
 
 
 def change_only(board_dir) -> bool:
@@ -352,11 +347,13 @@ def write_rulings(b) -> pathlib.Path:
 
 # ---------------------------------------------------------------- 写しの RL の差し替え・最後の関所
 def owed_units_but_asked(b):
-    """写しの RL の _owed_units（開いた単位から、人に諮っている fork の出どころ・depends を除いた物）から、さらに裁定役か機械が
-    ask_human に裁いた単位を除く（最後の人の関所で人が決める。直す義務から外すのは裁定の後だけ）。元の関数は盤面の graph の
-    RL を新しく読み込んで呼ぶ（差し替えた大域の名前を読まない）"""
+    """写しの RL の _owed_units（開いた単位から、人に諮っている fork の出どころ・depends を除いた物）に、修正前の関所で人が
+    答えた fork の出どころ・depends（gatemarks.returned。問いの status は判定の節しか書けず held のまま残るので、関所の答えで見る）
+    を戻し、裁定役か機械が ask_human に裁いた単位を除く（最後の人の関所で人が決める。直す義務から外すのは裁定の後だけ）。元の
+    関数は盤面の graph の RL を新しく読み込んで呼ぶ（差し替えた大域の名前を読まない）"""
     fresh = _board.rules_module(pathlib.Path(b.state["graph"]))
-    got = fresh._owed_units(b)
+    V = fresh.validator_module(b)
+    got = fresh._owed_units(b) | (gatemarks.returned(b) & {u["key"] for u in b.record["units"] if V.is_open(u)})
     try:
         return got - asked_keys(b)
     except _board.BoardGap:   # 控えが読めない盤面は外さない（義務を減らさない側）

@@ -12,11 +12,21 @@ undecided_because の規律（本流 p2.diagnose.md 8 項）を関所の項目�
 - with_marks(node, schema)・split(node, reply)・save(board, node, round, marks): 役の型・受け付け
 - plan_gate_items(b): 写しの _plan_gate_items の差し替え
 - passes(b)・lines(b): 通した行と、最後の関所の文・報告の行
+
+問いの台帳（record.questions）のうち人に聞く状態（検証器の ASKING）の問いも、修正前の関所の項目に 1 件 1 行で載せる（持ち主
+2026-09-29。run 119 の人の答え）。人に聞くと名乗る問いが人の口に繋がらないまま、出どころの免除（写しの _owed_units）だけが効いて
+いたため。この行は決め手の濾しに掛けない。関所の continue はその問いへの答えで、一言が問いに触れなければ修正役は問いの理由の推しで
+直す。一言で「保留: <key>」と名指した問いは答えに数えない。無人の run（入力 unattended）では問いの行を項目に載せない——関所を
+開けば無人の殻が stop を返し、問いと関係の無い単位の修正まで飛ぶので、出どころだけを今どおり飛ばして報告の冒頭に並べる。
+- asks(b)・answered(b, q)・returned(b): 関所に載せる問い・関所で答えたか・答えで直す義務に戻る単位
+- held_lines(b)・returned_lines(b): 最後の関所の文と報告に並べる聞いたままの問い・修正役に渡す義務に戻った単位
+- unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
 標準ライブラリだけ。
 """
 import copy
 import json
 import pathlib
+import re
 
 MARKS_FILE = "gate-marks.json"
 FIELDS = ("decided_by", "undecided_because", "fences")
@@ -42,6 +52,16 @@ _RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ
 HEAD = {"p2.fix_plan": "関所の項目の決め手: plan[].narrows の各行" + _RULE,
         "p2.plan_review": "関所の項目の決め手: faces のうち kind が regression・policy の各行" + _RULE}
 PASSED_BY = "decided"
+GATE_NODE = "p2.human_gate"
+ASK_HEAD = "問いの台帳の問い"          # 関所の項目の頭。答えの突き合わせもこの頭と key で引く
+ASK_KINDS = ("fork", "escalate")       # 関所の項目の kinds（fork の問いと、status が escalate の問い）
+HOLD = re.compile(r"保留\s*[:：]\s*([^。；;\n）)」]+)")   # 一言の「保留: <key>」（文の終わりまで。key を並べてよい）
+HOLD_SEP = re.compile(r"[\s、，,・/／]+")   # 並べた key の区切り（関所の文も「・」で並べる）。key は区切りの間の全体で突き合わせる
+START_FILE = "r1/start.json"           # 盤面の start の控え（書き手は entry.start。conflict・report も start_doc で読む）
+UNATTENDED = "true"                   # 入力 unattended の無人の語（entry.UNATTENDED_WORDS）
+ASK_GATE_HEAD = ("判定の役が人に聞くと保留にした問い（問いの台帳）が在る。continue の一言に問いごとに選んだ選択肢を書け。"
+                 "一言が問いに触れなければ、修正役はその問いの理由の推しで直す（continue でその問いの出どころ・depends は直す義務に戻る）。"
+                 "保留を続けたい問いは一言に「保留: <問いの key>」と書け（複数は「・」で並べてよい。その出どころはこの run では直さず、報告の冒頭に並ぶ）")
 
 
 def _row_props(node: str, schema: dict):
@@ -146,7 +166,94 @@ def plan_gate_items(b) -> list:
              for j, f in enumerate((b.output_of_round("p2.plan_review", b.round) or {}).get("faces") or [])
              if f["kind"] in b.rules.HUMAN_FACE_KINDS]
     _record(b, [(text, m) for _, text, m in rows if decided(m)])
-    return [(kind, text) for kind, text, m in rows if not decided(m)]
+    items = [(kind, text) for kind, text, m in rows if not decided(m)]
+    if not unattended(b):
+        items += [(_ask_kind(q), ask_text(q)) for q in asks(b) if not answered(b, q)]
+    return items
+
+
+def unattended(b) -> bool:
+    """run が無人で回っている（start の控えの unattended。読めなければ人の居る run）"""
+    return start_doc(b.dir).get("unattended") == UNATTENDED
+
+
+def start_doc(board_dir) -> dict:
+    """盤面の start の控え（読めない・dict でなければ空の dict）"""
+    try:
+        doc = json.loads((pathlib.Path(board_dir) / START_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _asking(b) -> list:
+    qs = [q for q in (b.record.get("questions") or []) if isinstance(q, dict)]
+    if not qs:
+        return []
+    states = b.rules.validator_module(b).ASKING
+    return [q for q in qs if q.get("status") in states]
+
+
+def asks(b) -> list:
+    """関所に載せる問い: 人に聞く状態の fork と、status が escalate の問い（写しの _owed_units・_precedent_errors と同じ選び方）"""
+    return [q for q in _asking(b) if q.get("kind") == "fork" or q.get("status") == "escalate"]
+
+
+def _ask_kind(q) -> str:
+    return ASK_KINDS[0] if q.get("kind") == "fork" else ASK_KINDS[1]
+
+
+def _skips(q) -> list:
+    return [k for k in [q.get("origin"), *(q.get("depends") or [])] if isinstance(k, str) and k]
+
+
+def _prefix(q) -> str:
+    return f"{ASK_HEAD} {q.get('key')}（"
+
+
+def ask_text(q) -> str:
+    """関所の項目の 1 行: 問い・選択肢・推し（判定の役が reason に書く）・答えが無いと直さない単位"""
+    reason = str(q.get("reason") or "")
+    return (f"{_prefix(q)}{q.get('kind')}・{q.get('status')}）: {reason}"
+            + ("" if "推し" in reason else "／推し: 判定の役が書いていない")
+            + f"／選択肢: {'・'.join(str(o) for o in q.get('options') or []) or '（無し）'}"
+            + f"／答えが無いと直さない単位: {'・'.join(_skips(q)) or '（無し）'}")
+
+
+def answered(b, q) -> bool:
+    """修正前の関所の continue がこの問いの行を聞いていて、一言が「保留: <key>」と名指していない"""
+    key = str(q.get("key") or "")
+    for h in (b.record.get("process") or {}).get("human_items") or []:
+        if not (isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "continue"):
+            continue
+        if not any(isinstance(a, str) and a.startswith(_prefix(q)) for a in h.get("asked") or []):
+            continue
+        note = str(h.get("note") or "")
+        if key not in {k for m in HOLD.findall(note) for k in HOLD_SEP.split(m)}:
+            return True
+    return False
+
+
+def returned(b) -> set:
+    """関所で答えた fork の出どころ・depends（写しの _owed_units が外した単位のうち、直す義務に戻す物）"""
+    return {k for q in asks(b) if q.get("kind") == "fork" and answered(b, q) for k in _skips(q)}
+
+
+def returned_lines(b) -> list:
+    """修正役に渡す行: 関所で答えた問いと、それで直す義務に戻った単位（1 問 1 行）"""
+    return [f"関所で答えた{ASK_HEAD} {q.get('key')} の出どころ・depends は直す義務に戻った（fork の出どころとして飛ばさない）: "
+            f"{'・'.join(_skips(q))}——一言に案が無ければ問いの理由の推しで直す（問いの理由: {q.get('reason') or ''}）"
+            for q in asks(b) if q.get("kind") == "fork" and answered(b, q) and _skips(q)]
+
+
+def held_lines(b) -> list:
+    """最後の関所の文と報告の冒頭に並べる、台帳で人に聞く状態のままの問い（kind を問わず。1 件 1 行）"""
+    out = []
+    for q in _asking(b):
+        mark = "・関所で continue を受けた" if q in asks(b) and answered(b, q) else ""
+        out.append(f"{_prefix(q)}{q.get('kind')}・{q.get('status')}{mark}）: {q.get('reason') or ''}"
+                   + (f"／答えが無いと直さない単位: {'・'.join(_skips(q))}" if _skips(q) else ""))
+    return out
 
 
 def _record(b, passed) -> None:

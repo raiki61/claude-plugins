@@ -161,7 +161,7 @@ LINE_ORDER = [
      "with": {"request": "$INPUTS.request", "base": "$INPUTS.base", "pr": "$INPUTS.pr",
               "test_cmd": "$INPUTS.test_cmd", "thickness": "$INPUTS.thickness",
               "gates": "$INPUTS.gates", "final_gate": "$INPUTS.final_gate", "adapter": "$INPUTS.adapter",
-              "policy_md": "$INPUTS.policy_md", "lang": "$INPUTS.lang"}},
+              "policy_md": "$INPUTS.policy_md", "lang": "$INPUTS.lang", "unattended": "$INPUTS.unattended"}},
     {"id": "ci-checking", "kind": "include", "block": "blk-ci", "depends_on": ["start"],
      "when": "$start.output.ci_role_go == true",
      "with": {"node": "p0.local_checks", "base_rev": "$start.output.base_rev"}},

@@ -163,7 +163,7 @@ def _start_doc(b, start) -> dict:
     """start の出口（渡されなければ盤面の r1 の start の控え）"""
     if isinstance(start, dict):
         return start
-    return _read_json(b.dir / "r1" / entry.START_FILE, {}) or {}
+    return gatemarks.start_doc(b.dir)
 
 
 STOP_AFTER_END_OP = "stop_after_round_end"   # 周を締めた後の止め（最後の関所の stop・止め札）を境の節が trace に書く op（line_edge と同じ語）
@@ -411,7 +411,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
     関所の答え（事前審査の関所と最後の関所）・
-    人が止めた一言・最後のテスト・盤面の問い・再審の問いと争点でない単位の変化・前提で測り直せなかった依頼・並行 PR の
+    人が止めた一言・最後のテスト・盤面の問い・問いの台帳で人に聞く状態のままの問い（gatemarks.held_lines）・再審の問いと争点でない単位の変化・前提で測り直せなかった依頼・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数"""
     lines = []
     if outcome == "record_invalid":
@@ -456,6 +456,10 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     if ph:
         lines.append(f"盤面が人に聞いている（{ph.get('node')}）: {ph.get('question') or ''}")
         lines += [f"  - {x}" for x in ph.get("items") or []]
+    held = gatemarks.held_lines(b)
+    if held:
+        lines.append(f"問いの台帳が人に聞く状態のまま（{len(held)} 件）:")
+        lines += [f"  - {x}" for x in held]
     lines.append(_conflict_line(b))
     unproven = querytest.unproven_lines(b.dir)
     if unproven:

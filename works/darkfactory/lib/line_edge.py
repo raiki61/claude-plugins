@@ -326,7 +326,8 @@ def _eyes(b) -> tuple:
 
 
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
-    """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・独立の目の判定・盤面の問いを 1 枚に"""
+    """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・独立の目の判定・盤面の問い・問いの台帳で
+    人に聞く状態のままの問い（gatemarks.held_lines）を 1 枚に。「盤面の問い: 無い」は両方とも無い時だけ"""
     tests = tests or {}
     lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", ""]
     if tests.get("by"):
@@ -352,7 +353,11 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
         lines.append(f"- 盤面の問い（{asking.get('node')}）: {asking.get('question')}")
         lines += [f"  - {x}" for x in asking.get("items") or []]
         lines.append("  - この関所の答えは盤面の問いに答えない。問いは報告の冒頭と次の run の依頼の下書きへ渡る")
-    else:
+    held = gatemarks.held_lines(b)
+    if held:
+        lines.append(f"- 問いの台帳で人に聞く状態のままの問い（{len(held)} 件。この関所の答えは問いに答えない。問いは報告の冒頭に並ぶ）:")
+        lines += [f"  - {x}" for x in held]
+    if not asking and not held:
         lines.append("- 盤面の問い: 無い")
     lines += ["", "答え方（人が決める関所。依頼者に聞いて、その言葉で答える）:",
               f"- 報告へ進める: {answer.line(run_id, 'continue', '<一言>')}",
@@ -692,7 +697,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
        gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
-       fix: go は p3.fix が ready・notes は今の周の human_items の一言（notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
+       fix: go は p3.fix が ready・notes は今の周の human_items の一言と、関所で答えた問いで直す義務に戻った単位の行
+       （gatemarks.returned_lines。notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
        mat: mat_edge（目的の文を盤面へ・mat_go）。look・eyes: eyes_edge（go は独立の目が待っているか。look は先に design.hand で
        修正の前に控えた独立設計を盤面へ渡す）。rejudge: rejudge_edge
        （go は再審の節が待っているか。判定役の会話を確かめられなければ止める）。mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
@@ -749,7 +755,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         _write_text(b.work(GATE_FILE), text)
         return {**out, "ask": True, "gate_text": text, "gate_file": str(b.work(GATE_FILE))}
     if at == "fix":
-        notes = _notes(b)
+        notes = "\n".join(x for x in (_notes(b), *gatemarks.returned_lines(b)) if x)
         notes_file = ""
         if notes:
             _write_text(b.work(NOTES_FILE), notes)

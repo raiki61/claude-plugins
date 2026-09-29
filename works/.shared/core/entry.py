@@ -122,10 +122,11 @@ CORE_OVERRIDES = {
                       "読んだ記録は盤面の隣でなく包みの置き場 adapter.reads_dir(run の worktree)/reads.jsonl に在る（Task 6 の直し 1）"),
     "_owed_units": (conflict.owed_units_but_asked,
                     "食い違いの申し出を裁定役か機械が ask_human に裁いた単位は、直す義務から外す（最後の人の関所で人が決める。"
-                    "conflict.py）"),
+                    "conflict.py）。修正前の関所で答えた fork の出どころ・depends は直す義務に戻す（gatemarks.returned）"),
     "_plan_gate_items": (gatemarks.plan_gate_items,
                          "決め手の出どころが在り undecided_because が空で柵の印の無い狭め・穴は、修正前の関所で人に聞かずに通し、"
-                         "state.works.gate_passes に残す（持ち主 2026-09-28。gatemarks.py）"),
+                         "state.works.gate_passes に残す（持ち主 2026-09-28。gatemarks.py）。問いの台帳で人に聞く状態の fork・"
+                         "escalate は、無人の run でなければ項目に載せる（持ち主 2026-09-29）"),
 }
 
 
@@ -164,6 +165,7 @@ THICKNESS = ("軽量", "標準", "重厚")
 THICKNESS_DEFAULT = "標準"
 FINAL_GATES = ("always", "when_needed")   # 最後の人の関所の開き方（C18・P1-R3。line_edge.FINAL_GATES と同じ語）
 ADAPTER_MODES = ("", "optional")
+UNATTENDED_WORDS = ("", gatemarks.UNATTENDED)   # 入力 unattended（空は人の居る run。true は無人の殻 use.sh の WORKS_USE_UNATTENDED=1）
 GATES = ("", "merge")
 LIGHT_REFUSED = "軽量は受けない: graph で省けない節を省くことになる（持ち主の決定 2026-09-27）"
 HEAVY_REFUSED = "重厚で足す工程がまだ無い"
@@ -187,12 +189,13 @@ def _word(raw: dict, key: str) -> str:
 
 
 def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
-    """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md, lang} を返す。
+    """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md, lang,
+    unattended} を返す（unattended は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む）。
     変更（base の版か pr の番号）を名指せば {base_rev, change} も足す（base_rev は base と HEAD の merge-base）。依頼と変更は
     少なくとも 1 つが要り、依頼が無ければ request_file・request_text は空・items は []。
     盤面は作らない。拒む物（InputRefused）: 依頼も変更も無い・base と pr の両方・版や PR が引けない・PR の head が HEAD でない、
     依頼が読めない・JSON の配列でない・依頼の型（写しの RL の REQUEST_SCHEMA）に
-    合わない、thickness が軽量・重厚・知らない値、final_gate・adapter・gates が語の外（gates の文は写しの RL の check_inputs）、
+    合わない、thickness が軽量・重厚・知らない値、final_gate・adapter・unattended・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書が無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
     p0.local_checks・p4.ci が任せ先の役に落ち、役がリポジトリを読んでテストの走らせ方を探す）。
     相対のパス（依頼・方針の文書）は対象の根 repo から"""
@@ -210,6 +213,9 @@ def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
     adapter = _word(raw, "adapter")
     if adapter not in ADAPTER_MODES:
         raise InputRefused(f"adapter={adapter!r} は知らない値（空か optional）")
+    unattended = _word(raw, "unattended")
+    if unattended not in UNATTENDED_WORDS:
+        raise InputRefused(f"unattended={unattended!r} は知らない値（空か {gatemarks.UNATTENDED}）")
     gates = _word(raw, "gates")
     rules = board_rules()
     try:
@@ -232,7 +238,7 @@ def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
         pol = str(pp)
     out = {"request_file": str(path.resolve()) if path else "", "items": items, "request_text": text,
            "test_cmd": _word(raw, "test_cmd"), "thickness": thickness, "gates": gates, "final_gate": final_gate,
-           "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang")}
+           "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang"), "unattended": unattended}
     if change is not None:
         out.update(change)
     return out

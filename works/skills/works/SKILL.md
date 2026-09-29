@@ -74,7 +74,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <版> | --pr <番号>] [--] 
 - 最後の関所は既定で要る時だけ開く（`when_needed`）。いつも開くなら `WORKS_USE_FINAL_GATE=always` を前に付ける。
 - Claude の包み（`claude-adapter`）は既定で通す。外すなら `WORKS_DEV_ADAPTER=0`（起動の 1 行目に「包み無し」と出て、報告にも出る）。
 - ラインの入力 `policy_md`・`gates`・`thickness` は `WORKS_USE_POLICY_MD`・`WORKS_USE_GATES`・`WORKS_USE_THICKNESS` で渡す。
-- 無人で回すなら `WORKS_USE_UNATTENDED=1`: 起動の関所を越え、人が決める関所に着いたら止めて報告へ進める（関所に出た、能力を狭める・方針とぶつかる修正は通さない。関所に出ずに決め手で通る行は 3 節の `policy-gate` の項）。
+- 無人で回すなら `WORKS_USE_UNATTENDED=1`: 起動の関所を越え、人が決める関所に着いたら止めて報告へ進める（関所に出た、能力を狭める・方針とぶつかる修正は通さない。関所に出ずに決め手で通る行は 3 節の `policy-gate` の項。判定の保留の問いだけでは関所を開かず、問いの出どころだけを飛ばして直し、問いを報告の冒頭に並べる）。
 - 殻がすること: pack を利用の家（`WORKS_USE_HOME`。既定は `~/.local/state/works/use`）に置き、Archon をその家に隔離して起こす。AI の役はその家に組んだ選んだ物だけの Claude の設定を読み、あなたの `~/.claude` は読まない。対象の作業ツリーには何も書かない。
 - AI の役の子には `GRAPHLOOPS_ENGINE_CHILD=1` が立つ（役の Bash から起こすコマンドにも継がれる）。対象の重い一式（e2e・変異の撃ち）は、これを見て AI の役からの起動を拒める。名は graphloops の engine と同じにしてある。線の節が走らせる最後のテストには立たない。Claude の包みを通さない run（包み無し）でも立たない。
 - Archon がすること: 対象の `.git` に run の worktree と枝を足す（worktree は利用の家の下）。`origin` の fetch と、対象の枝を早送りするかは Archon の版に依る（v0.11.1 で測っていない）。
@@ -91,7 +91,8 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" answer <対象リポジトリ> <run-id> co
 ```
 
 1. 起動の関所 `launch`: 「殻で進める」の行（`use.sh approve <対象リポジトリ> <run-id>`）で始まる。
-2. 修正の前の関所 `policy-gate`（要る時だけ）: 修正案が能力を狭める・事前審査が後退や方針の穴を挙げた・方針の文書が変わった時に開く。全文は盤面の `r1/gate.md`。
+2. 修正の前の関所 `policy-gate`（要る時だけ）: 修正案が能力を狭める・事前審査が後退や方針の穴を挙げた・方針の文書が変わった・判定の役が問いの台帳に人に聞く問い（held・escalate の fork・escalate）を残した時に開く。全文は盤面の `r1/gate.md`。
+   - 問いの行には選択肢と判定の役の推しが載る。`continue` の一言に問いごとに選んだ選択肢を書く。一言が問いに触れなければ、修正役は推しで直す（`continue` でその問いの出どころは直す義務に戻る）。保留を続ける問いは一言に `保留: <問いの key>` と書く（その出どころはこの run では直さず、報告の冒頭に並ぶ）。
    - 狭めと穴の行のうち、役が決め手の出どころを書き、決め手を当たっても答えが割れず、柵（外への書き込み・取り消せない操作・方針の文書の変更・守り（資格・sandbox）を広げる・web の結果が新しい疑いを出した）に当たらない行は、関所に出さずに通す。通した行は出どころつきで報告の冒頭にいつも並び、最後の関所が開いた時はその文にも並ぶ（通した行だけでは既定の `when_needed` の最後の関所は開かない。関所で必ず見るなら `WORKS_USE_FINAL_GATE=always`）。
    - 通す: `answer … continue "<通す範囲と条件>" "<答えた者>"`。一言は修正役にファイルで届く。依頼者がこの周で直さない単位を名指ししたら、`--exclude <単位の番号>=<理由>` を後ろに何度でも足す（continue だけ。`answers.jsonl` と盤面の `answer-detail.json` に残る）。ただし、今の同梱の graphloops の写し（0.21.0）の線はまだそれを読まない。
    - 止める: `answer … stop "<理由>"`。止めても報告は出る。
