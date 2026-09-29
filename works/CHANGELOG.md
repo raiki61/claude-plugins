@@ -10,6 +10,12 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 - 構造の実測に差分の形 `--diff FILE` を足した（設計書 3 節の差分の形・10 節の S1b）。案の patch なら、作業ツリーの今の中身を同じ作り方で写した一時の木を 2 つ作り（記号のリンクと実行の印もそのまま）、一方を前の像、もう一方に `git apply` で当てた物を後の像にし（対象の作業ツリー・index・枝は動かさない。当てられなければ理由つきで 1 で止まる）、行数・写し・入口・環境変数と設定の口の前後と増減を出す。新しい名ごとに、現れる場所（ファイルと行）と、既に複数のファイルから使われているファイルを通って読む場所（`via_readers`）と、実行できるファイルが直に読む場所（`shell_sites`）を並べる（試験と文書の中の場所は後の 2 つに載せない）。名の一覧なら場所だけを出す。`--diff` 無しの出力は今のまま。
 
+### Changed
+
+- `use.sh` の既定の利用の家（`WORKS_USE_HOME` を名指さない時）を、対象の clone ごとに `${XDG_STATE_HOME:-~/.local/state}/works/use-<clone の実際のパスの sha256 の頭 8 字>` へ分けた。同じリポジトリの別の clone から起こしても、Archon の 1 家 1 clone の登録で止まらない。前の既定の家（`works/use`）に残っている run は `WORKS_USE_HOME=${XDG_STATE_HOME:-~/.local/state}/works/use` と名指せば続けられる。
+- 別の clone で初めて起こす時は、その clone の家に Archon の実行ファイル（約 74 MB）を取り直し、隔離した設定を作り直す（初回だけ）。家には、その家を作った clone の実際のパスを 1 行書いた目印 `target` を置く（どの家がどの clone の物かを後から辿れる。答えの記録 `answers.jsonl` は家ごとに分かれる）。
+- herdr の枠の集計は、今の家だけでなく既定の家の全部（前の `works/use` と clone ごとの `works/use-<印>`）の控えから、その枠から起こした run を数える。1 つの枠から別の clone の run を起こしても、ある clone の人の番の合図が別の clone の終わりで消えない。
+
 ### Fixed
 
 - 人が関所で答えたこと（`record.process.human_items` の round・kinds・answer・note。聞いた項目の本文 asked と、answer の無い機械の行は貼らない）が、R2 の独立設計（`r2.design`）と突き合わせ（`r2.compare`）の指示書の頭に載るようになった。関所で取り下げた要求が R2 で固定の契約として扱われ、偽の redesign-needed が出ることがなくなった。答えの無い盤面の指示書は前と同じ。

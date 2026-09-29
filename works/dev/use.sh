@@ -20,7 +20,7 @@
 #
 # - AI の役は開発の殻 archon.sh を通してだけ起こす（HOME・ARCHON_HOME・CLAUDE_CONFIG_DIR を利用の家の下へ隔離し、役は toolset.py が
 #   組む選んだ物だけの設定を読む。利用者の本物の ~/.claude は読ませない）。
-# - 利用の家は WORKS_USE_HOME（既定は ${XDG_STATE_HOME:-$HOME/.local/state}/works/use）。WORKS_DEV_HOME は継がない
+# - 利用の家は WORKS_USE_HOME（既定は ${XDG_STATE_HOME:-$HOME/.local/state}/works/use-<対象の clone の実際のパスの sha256 の頭 8 字>）。WORKS_DEV_HOME は継がない
 #   （自分食い・実走の家と分け、走っている run の家を書き換えない）。
 # - pack は対象に置かない。tests/・dev/・docs/ を除いた works/ を <家>/archon-home/workflows/works（Archon の全体の工程の置き場。
 #   Archon v0.11.1 は $ARCHON_HOME/workflows/<pack>/ も探す）に起こすたびに写す。対象の作業ツリーは書かない。
@@ -44,7 +44,7 @@
 #   問いだけでは修正前の関所を開かない）、起動の関所を越え、人が決める関所に着いたら止めて報告へ進める。
 # - 関所の文の答えの行は、この殻の answer の行（env WORKS_ANSWER_CMD。.shared/core/answer.py）。
 # - herdr の枠の中（HERDR_ENV=1・HERDR_PANE_ID）なら、起動・show・wait のたびに、その枠から起こした run（控えの herdr_pane）の
-#   集計を 1 つの信号で出し、全部終わった時だけ外す（lib.sh works_dev_herdr_sync）。
+#   集計を 1 つの信号で出し、全部終わった時だけ外す（lib.sh works_dev_herdr_sync）。数える控えは今の家と既定の家の全部の物。
 # - 差分（run の worktree と周の頭の版の差）は <家>/diffs/run-<id>.diff に書き、対象へ当てる apply の行を出す。当てるのは人。
 # 認証の順は起こし役 .shared/core/auth_launch.py（WORKS_KEYCHAIN_ITEM → 本流 claude_auth.py の写しの auth_env → Claude Code 自身の
 # keychain の項目）。ここは出どころの名だけを受け、値は受けない。模型は WORKS_DEV_MODEL（ここでは埋めない。未設定なら archon.sh が既定を解く。YAML の段に
@@ -91,18 +91,15 @@ esac
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
-WORKS_USE_HOME="${WORKS_USE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/works/use}"
-WORKS_DEV_HOME="$WORKS_USE_HOME"
 # 包みは既定で入れる（dogfood.sh と同じ。0 か空を明示した時だけ外す。値の検査は archon.sh）
 WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"
 WORKS_USE_SH="$DEV_DIR/use.sh"
-WORKS_WRAPS_DIR="$WORKS_USE_HOME/wraps"
 # 文書が名指す窓口は代入の行で持つ（名指しの柵 doc-symbols が定義として見る。除外表で黙らせない）
 WORKS_USE_GATES="${WORKS_USE_GATES:-}"
 WORKS_USE_POLICY_MD="${WORKS_USE_POLICY_MD:-}"
 WORKS_USE_THICKNESS="${WORKS_USE_THICKNESS:-}"
 WORKS_USE_WAIT_SECONDS="${WORKS_USE_WAIT_SECONDS:-540}"
-export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER WORKS_USE_SH WORKS_WRAPS_DIR
+export WORKS_DEV_MODEL WORKS_DEV_ADAPTER WORKS_USE_SH
 # start の時の既定の釘は控えからだけ受ける（load_ledger が置く）。利用者の殻に残った値で既定を替えさせない
 unset WORKS_MODEL_PINNED
 
@@ -113,7 +110,6 @@ refuse() {
 
 . "$DEV_DIR/guard.sh"
 works_dev_abs_claude_config
-works_dev_refuse_claude_tmp use.sh "WORKS_USE_HOME" "$WORKS_USE_HOME"
 
 # start の引数（対象と test_cmd は省ける）
 if [ "$CMD" = start ]; then
@@ -139,6 +135,19 @@ TARGET="$(works_dev_real "$TOP")"
 if [ "$TARGET" != "$TARGET_REAL" ]; then
   echo "対象: 下のフォルダ（${TARGET_REAL}）を渡したので、git のリポジトリの根（${TARGET}）で回す"
 fi
+
+# 既定の家は clone ごとに分ける（Archon v0.11.1 は 1 つの家に同じリポジトリの clone を 1 か所しか登録できない）。
+# 印は解いた根のパスから作る（symlink 越し・下のフォルダでも同じ家）。名指した家はそのまま使う
+use_home_default() {
+  T="$TARGET" python3 -I -c 'import hashlib, os
+print(hashlib.sha256(os.environ["T"].encode()).hexdigest()[:8])'
+}
+WORKS_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/works"   # 既定の家の根（家の名の決め方はこの 2 行だけ）
+WORKS_USE_HOME="${WORKS_USE_HOME:-$WORKS_STATE_ROOT/use-$(use_home_default)}"
+WORKS_DEV_HOME="$WORKS_USE_HOME"
+WORKS_WRAPS_DIR="$WORKS_USE_HOME/wraps"
+export WORKS_DEV_HOME WORKS_WRAPS_DIR
+works_dev_refuse_claude_tmp use.sh "WORKS_USE_HOME" "$WORKS_USE_HOME"
 WORKS_ANSWER_CMD="$(A="$WORKS_USE_SH" T="$TARGET" python3 -c 'import os, shlex
 print("sh {} answer {}".format(shlex.quote(os.environ["A"]), shlex.quote(os.environ["T"])))')"
 export WORKS_ANSWER_CMD
@@ -203,6 +212,8 @@ fi
 place_pack() {
   _wf="$WORKS_USE_HOME/archon-home/workflows"
   mkdir -p "$_wf"
+  # 家の目印: どの家がどの clone の物かを後から辿れるよう、家を作った clone の実際のパスを 1 行残す（書き直さない）
+  [ -e "$WORKS_USE_HOME/target" ] || printf '%s\n' "$TARGET" >"$WORKS_USE_HOME/target"
   rm -rf "$_wf/.works.new.$$"
   works_dev_copy_pack "$WORKS_DIR" "$_wf/.works.new.$$"
   rm -rf "$_wf/works"
@@ -226,9 +237,11 @@ print("\t".join([r.get("id") or "", r.get("status") or "", r.get("working_path")
 save_ledger() {
   works_dev_save_ledger "$WORKS_USE_HOME/runs" "$1" "$TARGET"
 }
-# herdr_sync [<run-id>=<状態>…]: この家の控えから、今の herdr の枠の run の集計を出す（lib.sh works_dev_herdr_sync）
+# herdr_sync [<run-id>=<状態>…]: この家と既定の家の全部（前の既定の家 works/use と clone ごとの works/use-<印>）の控えから、
+# 今の herdr の枠の run の集計を出す（lib.sh works_dev_herdr_sync）。1 つの枠から別の clone の run を起こしても、ある clone の
+# 人の番の合図が別の clone の終わりで消えない
 herdr_sync() {
-  works_dev_herdr_sync "$ARCHON" "$WORKS_USE_HOME/runs" "$@"
+  works_dev_herdr_sync "$ARCHON" "$(printf '%s\n' "$WORKS_USE_HOME/runs" "$WORKS_STATE_ROOT/use/runs" "$WORKS_STATE_ROOT"/use-*/runs)" "$@"
 }
 # detach_archon <run-id> <archon の引数…>（殻を終える）: 残りの工程をその場で回す Archon の呼び出し（respond・approve）を切り離して起こし、
 # 出力を <家>/logs/<run-id>-<時刻>.log に書いて、終わりを待たずに wait の行を出して返る（成否は wait と show で見る）。

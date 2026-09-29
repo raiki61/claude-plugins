@@ -115,33 +115,39 @@ def slot_waiting(m):
     return bool(m) and m["state"] == "waiting" and m["alive"] is not False
 '
 
-# works_dev_herdr_sync <archon を呼ぶ殻> <控えの置き場> [<run-id>=<状態>…]: herdr の枠（HERDR_ENV=1 と HERDR_PANE_ID）の中で
+# works_dev_herdr_sync <archon を呼ぶ殻> <控えの置き場…（改行で区切る）> [<run-id>=<状態>…]: herdr の枠（HERDR_ENV=1 と HERDR_PANE_ID）の中で
 # herdr が在る時だけ、その枠から起こした run（控えの herdr_pane）の集計を 1 つの信号で出す（herdr の公式の口。source works-factory・
 # agent works は 1 つのまま、run ごとに上書きしない）。関所で待つ・落ちた run が 1 つでも在れば blocked、無くて走っている run が
-# 在れば working（試験の枠を待つ run は走る run のうちに「うち枠待ち k」と数える）、全部終わった時だけ release-agent。その枠から起こした run が 0 なら何もしない。状態を渡されなかった run だけ
-# 一覧を 1 回引く。herdr を呼ぶのはここだけ。枠の外・herdr が無い・失敗した時は何もしない（run を止めない）
+# 在れば working（試験の枠を待つ run は走る run のうちに「うち枠待ち k」と数える）、全部終わった時だけ release-agent。その枠から起こした run が 0 なら何もしない。状態を渡されなかった run が
+# 在る時だけ、控えの在る家（控えの置き場の親）ごとに一覧を 1 回引く。herdr を呼ぶのはここだけ。枠の外・herdr が無い・失敗した時は何もしない（run を止めない）
 works_dev_herdr_sync() {
   [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1 || return 0
   _archon="$1"
   _runs="$2"
   shift 2
-  _mine="$(works_dev_ledgers "$_runs" | awk -F'\t' -v pane="$HERDR_PANE_ID" '$5 == pane { print $1 }')"
+  _mine="$(printf '%s\n' "$_runs" | while IFS= read -r _d; do
+    works_dev_ledgers "$_d" | awk -F'\t' -v pane="$HERDR_PANE_ID" -v home="${_d%/runs}" '$5 == pane { print home "\t" $1 }'
+  done)"
   _sig="$(ARCHON_SH="$_archon" MINE="$_mine" SLOT_PY="$WORKS_DEV_SLOT_PY" python3 -c '
 import json, os, subprocess, sys
 e = os.environ
 exec(e["SLOT_PY"])
-mine = e["MINE"].split()
+home_of = dict(reversed(l.split("\t", 1)) for l in e["MINE"].splitlines() if "\t" in l)
+mine = list(home_of)
 if not mine:
     sys.exit(0)
 known = dict(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
 rows = None
 def listed():
-    got = subprocess.run(["sh", e["ARCHON_SH"], "workflow", "runs", "--json"], env=dict(e, WORKS_DEV_NO_AUTH="1"),
-                         capture_output=True, text=True)
-    try:
-        return {r.get("id"): r for r in json.loads(got.stdout).get("runs", [])}
-    except (ValueError, AttributeError):
-        sys.exit(0)
+    got_rows = {}
+    for home in sorted(set(home_of.values())):
+        got = subprocess.run(["sh", e["ARCHON_SH"], "workflow", "runs", "--json"],
+                             env=dict(e, WORKS_DEV_NO_AUTH="1", WORKS_DEV_HOME=home), capture_output=True, text=True)
+        try:
+            got_rows.update({r.get("id"): r for r in json.loads(got.stdout).get("runs", [])})
+        except (ValueError, AttributeError):
+            sys.exit(0)
+    return got_rows
 if any(r not in known for r in mine):
     rows = listed()
     known = {**{k: r.get("status") or "" for k, r in rows.items()}, **known}
@@ -220,7 +226,7 @@ try:
     listed = json.load(sys.stdin)
 except ValueError as err:
     sys.exit("{}: archon workflow runs --json の出力が JSON として読めない（{}）".format(caller, err))
-# 利用の家は対象をまたいで 1 つなので、起動した対象（Archon の run の行の metadata.workflow_source.origin）が
+# 名指しの家（WORKS_USE_HOME・前の既定の家 works/use）は対象をまたいで 1 つなので、起動した対象（Archon の run の行の metadata.workflow_source.origin）が
 # この対象と違う run は採らない（origin の無い行は見分けられないので残す）
 def origin(r):
     o = ((r.get("metadata") or {}).get("workflow_source") or {}).get("origin")

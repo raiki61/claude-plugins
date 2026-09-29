@@ -96,8 +96,11 @@ class UseShell(unittest.TestCase):
         for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH", "WORKS_DEV_ADAPTER",
                      "WORKS_USE_FINAL_GATE"):
             env.pop(name, None)
+        # 既定の家の根（XDG_STATE_HOME）も試験の一時の置き場に向ける。herdr の枠の集計は既定の家の全部を数えるので、向けないと
+        # 利用者の本物の ~/.local/state/works の控えを読んで Archon を起こす（2026-09-29、121 件目の取り込みで実測）
         env.update(WORKS_USE_HOME=str(self.home), WORKS_DEV_HOME=str(self.dev_home), WORKS_DEV_ARCHON=str(self.fake),
-                   CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true")
+                   CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
+                   XDG_STATE_HOME=str(self.home.parent / "xdg-state"))
         for k, v in env_kw.items():
             if v is None:
                 env.pop(k, None)
@@ -494,6 +497,30 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("/private/tmp/claude-", r.stderr)
         self.assertEqual(self.calls(), [])
+
+    def test_default_use_home_is_per_clone(self):
+        """WORKS_USE_HOME を名指さない既定の家は clone ごとに分かれ（Archon は 1 つの家に同じリポジトリの clone を 1 か所しか
+        登録できない）、同じ clone なら symlink 越しでも下のフォルダからでも同じ家。名指せばその値のまま"""
+        a, b = self.target("a"), self.target("b")
+        (a / "sub").mkdir()
+        (self.tmp / "link").symlink_to(a)
+        state = self.tmp / "state"
+
+        def home_of(target, **env_kw):
+            self.log.unlink(missing_ok=True)
+            env_kw.setdefault("WORKS_USE_HOME", None)
+            r = self.use("check", str(target), XDG_STATE_HOME=str(state), **env_kw)
+            calls = self.calls()
+            self.assertEqual(len(calls), 1, r.stdout + r.stderr)
+            return calls[0][2]
+
+        home_a = home_of(a)
+        self.assertRegex(home_a, "^" + re.escape(str(state / "works" / "use-")) + "[0-9a-f]{8}$")
+        self.assertEqual(home_of(a), home_a)
+        self.assertNotEqual(home_of(b), home_a)
+        self.assertEqual(home_of(self.tmp / "link"), home_a)
+        self.assertEqual(home_of(a / "sub"), home_a)
+        self.assertEqual(home_of(a, WORKS_USE_HOME=str(self.home)), str(self.home))
 
     # ---- start
     def test_start_copies_pack_to_use_home_and_runs_from_target_head(self):
