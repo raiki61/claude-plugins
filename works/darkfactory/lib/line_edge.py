@@ -327,8 +327,8 @@ ROLE_WORDS = {"design": "独立の設計を作る役", "compare": "独立の設�
 
 
 def _r2_inputs(b) -> list:
-    """R2 の行の下に、R2 が『渡されていない』と書いた文と、支度の時に R2 の 2 つの役へ渡した前提の入力の控え（独立の目の出口の
-    premise_inputs。一番新しい周の eyes-exit.json）を並べる。人が同じ枚で突き合わせる（受け付けは拒まない）"""
+    """R2 の行の下に、R2 が『渡されていない』と書いた文と、そのうち渡していた物（compare の claims_given）と、支度の時に R2 の 2 つの役へ渡した前提の入力の控え（独立の目の出口の
+    premise_inputs。一番新しい周の eyes-exit.json）と、独立設計の後に来た人の答え（compare の after_design）を並べる。人が同じ枚で突き合わせる（受け付けは拒まない）"""
     exits = sorted(b.dir.glob("r*/eyes-exit.json"), key=lambda p: int(p.parent.name[1:]) if p.parent.name[1:].isdigit() else -1)
     try:
         pi = json.loads(exits[-1].read_text(encoding="utf-8")).get("premise_inputs") if exits else None
@@ -337,6 +337,12 @@ def _r2_inputs(b) -> list:
     if not isinstance(pi, dict):
         return ["    - 独立の設計と比べる目に渡した入力の控えが無い（R2）"]
     out = [f"    - 独立の設計と比べる目が渡されていないと書いた（R2）: {c}" for c in pi.get("claims") or []]
+    led = pi["compare"] if isinstance(pi.get("compare"), dict) else {}
+    out += [f"    - 独立の設計と比べる目が渡されていないと書いたが、渡していた（R2）: {m.get('claim')} ← {m.get('kind')}: {m.get('what')}"
+            for m in led.get("claims_given") or []]
+    late = led.get("after_design")
+    if late:
+        out.append(f"    - 独立設計の後に来た人の答え（{ROLE_WORDS['compare']}にだけ渡った）: " + "／".join(late))
     for role in ("design", "compare"):
         led = pi.get(role)
         if not isinstance(led, dict):

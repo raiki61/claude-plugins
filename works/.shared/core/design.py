@@ -5,7 +5,7 @@ Archon を知らない関数だけを出す。
 そこで出た作り直しの要否（R2 の redesign-needed）を拾う周が無い。graph は写しのまま（graph_sha を固めた手本と実物の盤面が
 それに乗る）にして、設計の役だけを修正の前に先に起こし、受け付けた返答を盤面の根の design.json に控える。盤面が r2.design を
 待った時（p4.assemble の後）に、線がその控えを渡す（目的の文の purpose.json と同じ形）。設計の役の入力は目的の文と実測した
-制約・人の方針だけなので、先に起こしても独立は崩れない（修正案・差分を読む口が無い）。
+制約・人の方針・人の関所の答え・依頼が名指した設計書の節なので、先に起こしても独立は崩れない（修正案・差分を読む口が無い）。
 
 - unusable(b):   目的の出典が R2 に使えない理由（目的不明・狭めている。無ければ None）。式は写しの rules の purpose_unusable
                  （p4.assemble と同じ 1 本）を呼ぶ
@@ -14,10 +14,12 @@ Archon を知らない関数だけを出す。
 - prep:          r2.design の指示書を engine と同じ描き方で描き（節はまだ待っていない。rolekit.render_body の ahead）、役の定義を
                  頭に置く。人が決めた前提（premises）と前の拒否の文は頭に貼る（役は道具を持たないのでファイルを読めない）。
                  貼った入力の控えを盤面の根の design-premises.json に書く
-- premises:      R2 の 2 つの役（r2.design・r2.compare）に共通して貼る節の並びと、貼った入力の控え {given, withheld}。
-                 human_answers（人の関所の答え。asked は写さず、answer の無い機械の行は withheld）と named_sections（依頼が
-                 名指した設計書の節の本文。リンク・`<path>.md#<見出し>`・`<path>.md` N 節 の名指しを、固めた版 HEAD のファイルから
-                 見出しで抜く。引けなかった名指しは理由の 1 行で withheld。1 節は SECTION_CAP バイトまで）
+- premises:      R2 の 2 つの役（r2.design・r2.compare）に共通して貼る節の並びと、貼った入力の控え {given, withheld, seen}。
+                 human_answers（人の関所の答え。asked は写さず、answer の無い機械の行は withheld。seen は貼った答えの数と
+                 最後の round の印で、突き合わせの側が独立設計の後に来た答えを分けて並べる）と named_sections（依頼が
+                 名指した設計書の節の本文。リンク・`<path>.md#<見出し>`・`<path>.md` N 節・パスの無い N 節（依頼が名指した設計書が
+                 ただ 1 本の時だけそれに結び付ける）の名指しを、固めた版 HEAD のファイルから見出しで抜く。引けなかった・結び付け
+                 られなかった名指しは理由の 1 行で withheld。1 節は engine が役に貼る本文の上限 FILE_CAP バイトまで）
 - claims_unpassed: R2 の返答のうち『渡されていない』『渡っていない』と書いた文（独立の目の出口が控えと並べる）
 - accept:        返答を型（写しの schema）と作業ツリーの比べに通し、通れば design.json。拒否は盤面の根の控えに積み、
                  GIVE_UP_AFTER 回目で done（輪を抜ける。諦めても線は止めない——事前審査は設計なしで進み、最後の R2 が言う）
@@ -38,6 +40,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 from board import BoardGap, pending_instance  # noqa: E402  （board が写しの engine を sys.path に足す。engine より先に）
+from engine.render import FILE_CAP, cap_bytes  # noqa: E402
 from engine.util import Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
 import entry  # noqa: E402
@@ -59,22 +62,30 @@ HUMAN_ASK = ("人が関所で答えた前提（run の中で人が決めた物�
              "取り下げ・変えた後の要求を前提にせよ（取り下げた要求を固定の契約にしない）。設計が取り下げた要求を置いていても、"
              "そのことだけでは差にも前提の崩れにも数えず、答えに照らした目的で突き合わせよ。")
 DESIGN_PREMISE_HEAD = "## 人が決めた前提（機械が貼った）"
+# 写しの指示書は 1 バイトも変えない（gl-prompts/COPIED_FROM）ので、入力を言う写しの文をこの節で読み替える
+DESIGN_PREMISE_REREAD = ("下の指示書の「渡すのは元の目的と実測した制約だけである」は、この run では、この節（人の関所の答え・"
+                         "依頼が名指した設計書の節）も渡していると読み替えよ。")
 NAMED_HEAD = "### 依頼が名指した設計書の節"
 NAMED_ASK = "依頼が名指した設計書の節の本文（依頼を固めた版のファイルから機械が抜いた）。目的の文と同じく依頼の一部として読め。"
-SECTION_CAP = 8000   # 名指しの節 1 本の上限バイト（道具ゼロの役の指示書が際限なく膨らまないように）
 CODE_SPAN_MD = re.compile(r"`([^`\s]+\.md#[^`\s]+)`")
 # 持ち主の地の文の名指し: 「`<path>.md` 3 節」「`<path>.md` の §3」（見出しの頭の番号で引く）
 CODE_SPAN_NUM = re.compile(r"`([^`\s#]+\.md)`\s*(?:の\s*)?(?:§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節)")
+# パスの無い「§3」「8 節」（依頼が別の所で名指した設計書がただ 1 本の時だけ、それの節に結び付ける）
+BARE_NUM = re.compile(r"§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節")
 HEADING = re.compile(r"^\s{0,3}(#{1,6})\s")
 UNPASSED = re.compile(r"渡されていない|渡っていない")
+# 『渡されていない』の文が控えの given の kind を指す語。制約・前提のずれは「目的と実測した制約しか渡されていない」のような
+# 地の文によく出て無関係の行まで当たるので語では当てず、what そのものが文に在る時だけ当てる。設計書の節も「設計書」の語は
+# 別の設計書の文にも出るので語では当てず、what のパスか節番号が文に在る時だけ当てる（_named_hit）
+CLAIM_WORDS = {"human_answer": ("人の答え", "関所")}
 PREMISES_FILE = "design-premises.json"   # r2.design に渡した前提の入力の控え（盤面の根。design.json と同じく run に 1 つ）
 
 
 def human_answers(b) -> tuple:
-    """(R2 の 2 つの役に貼る人の関所の答え（record.process.human_items）の節 か 空, 貼った行)。
+    """(R2 の 2 つの役に貼る人の関所の答え（record.process.human_items）の節 か 空, 貼った行, 機械の行, 見た印 {count, last_round})。
     聞いた項目の本文（asked）は判定の一覧・決着済み論点に当たるので写さず、round・node・kinds・answer・note だけを取る。
     answer の無い行（守りのファイル・食い違い・無人の停止で機械が積んだ行）は人の答えでないので貼らず、控えの withheld に回す"""
-    rows, machine = [], []
+    rows, machine, last = [], [], None
     for h in (b.record.get("process") or {}).get("human_items") or []:
         if not isinstance(h, dict):
             continue
@@ -85,24 +96,40 @@ def human_answers(b) -> tuple:
             continue
         note = h.get("note") or "（一言なし）"
         rows.append(f"{at}（{kinds}）: {h['answer']}（一言: {note}）")
+        last = h.get("round")
     text = (f"{HUMAN_HEAD}\n\n{HUMAN_ASK}\n\n" + "\n".join(f"- {r}" for r in rows)) if rows else ""
-    return text, rows, machine
+    return text, rows, machine, {"count": len(rows), "last_round": last}
 
 
-def _named_targets(b, text) -> list:
-    """依頼の文が .md の見出しを名指す相対の指し先（Markdown のリンク・コードスパンの `<path>.md#<見出し>` と、
-    コードスパンの後の「N 節」「§N」。後者は `<path>.md N 節` の形で返す）。出た順・重複なし"""
+def _named_targets(b, text) -> tuple:
+    """(依頼の文が .md の見出しを名指す相対の指し先, 結び付けられなかった名指しの [(元の文字列, 理由)])。指し先は
+    Markdown のリンク・コードスパンの `<path>.md#<見出し>` と、コードスパンの後の「N 節」「§N」とパスの無い「N 節」「§N」。
+    番号の名指しは `<path>.md N 節` の形で返す。パスの無い名指しは、依頼が名指した設計書のパスがただ 1 本の時だけそれに
+    結び付け、0 本か 2 本以上なら推測せずに理由と返す（_head_file が末尾の一致が複数の時に決めないのと同じ）。出た順・重複なし"""
     found = [m.group(1) or m.group(2) for m in b.rules.MD_LINK.finditer(text)] + CODE_SPAN_MD.findall(text)
-    out = []
+    out, docs = [], []
+
+    def add(t, path):
+        if path not in docs:
+            docs.append(path)
+        if t and t not in out:
+            out.append(t)
+
     for t in found:
         path, _, anchor = t.partition("#")
-        if path.endswith(".md") and anchor and "://" not in path and t not in out:
-            out.append(t)
+        if path.endswith(".md") and "://" not in path:
+            add(t if anchor else "", path)
     for m in CODE_SPAN_NUM.finditer(text):
-        t = f"{m.group(1)} {m.group(2) or m.group(3)} 節"
-        if "://" not in m.group(1) and t not in out:
-            out.append(t)
-    return out
+        if "://" not in m.group(1):
+            add(f"{m.group(1)} {m.group(2) or m.group(3)} 節", m.group(1))
+    bare = list(BARE_NUM.finditer(CODE_SPAN_NUM.sub("", b.rules.MD_LINK.sub("", text))))
+    if len(docs) == 1:
+        for m in bare:
+            add(f"{docs[0]} {m.group(1) or m.group(2)} 節", docs[0])
+        return out, []
+    why = (f"依頼が名指した設計書のパスが {len(docs)} 本あって決められない" if docs else
+           "結び付けられる形の設計書のパスの名指しが依頼に無い（リンク・`<path>.md#<見出し>`・`<path>.md` N 節 の形だけを数える）")
+    return out, [(w, why) for w in dict.fromkeys(m.group(0) for m in bare)]
 
 
 def _head_file(repo, path) -> str:
@@ -122,7 +149,7 @@ def _head_file(repo, path) -> str:
 
 
 def _section(b, repo, target) -> tuple:
-    """(名指し 1 つの節の本文（依頼を固めた版 HEAD のファイルから）, SECTION_CAP で切ったか)。引けなければ ValueError（理由）"""
+    """(名指し 1 つの節の本文（依頼を固めた版 HEAD のファイルから）, engine の FILE_CAP で切ったか)。引けなければ ValueError（理由）"""
     num = re.fullmatch(r"(.+\.md) (\S+) 節", target)
     path, _, anchor = (num.group(1), "", "") if num else target.partition("#")
     got = subprocess.run(["git", "-C", str(repo), "show", f"HEAD:{_head_file(repo, path)}"],
@@ -141,10 +168,8 @@ def _section(b, repo, target) -> tuple:
                 slug in b.rules._md_slugs(before + "\n" + line) - b.rules._md_slugs(before)):
             end = next((j for j, lv, _ in heads[k + 1:] if lv <= level), len(lines) + 1)
             body = "\n".join(lines[i - 1:end - 1]).strip()
-            data = body.encode("utf-8")
-            if len(data) <= SECTION_CAP:
-                return body, False
-            return data[:SECTION_CAP].decode("utf-8", "ignore") + f"\n\n（{SECTION_CAP} バイトで切った。残りは渡していない）", True
+            cut = []
+            return cap_bytes(body, target, cut), bool(cut)
     raise ValueError("見出しが無い")
 
 
@@ -152,7 +177,11 @@ def named_sections(b, repo) -> tuple:
     """(R2 の 2 つの役に貼る、依頼（盤面の inputs.request）が名指した設計書の節の本文 か 空, 控えの given, 控えの withheld)。
     引けなかった名指しは本文を貼らずに理由の 1 行にする"""
     parts, given, withheld = [], [], []
-    for t in _named_targets(b, (b.state.get("inputs") or {}).get("request") or ""):
+    targets, unbound = _named_targets(b, (b.state.get("inputs") or {}).get("request") or "")
+    for t, why in unbound:
+        parts.append(f"- 依頼が名指したが引けなかった: {t}（{why}）")
+        withheld.append({"kind": "named_section", "what": t, "why": why})
+    for t in targets:
         try:
             body, cut = _section(b, repo, t)
         except ValueError as e:
@@ -162,19 +191,19 @@ def named_sections(b, repo) -> tuple:
         parts.append(f"#### {t}\n\n{body}")
         given.append({"kind": "named_section", "what": t})
         if cut:
-            withheld.append({"kind": "named_section", "what": t, "why": f"{SECTION_CAP} バイトを超えた残り"})
+            withheld.append({"kind": "named_section", "what": t, "why": f"{FILE_CAP} バイトを超えた残り"})
     text = (f"{NAMED_HEAD}\n\n{NAMED_ASK}\n\n" + "\n\n".join(parts)) if parts else ""
     return text, given, withheld
 
 
 def premises(b, repo) -> tuple:
     """(R2 の 2 つの役に共通して貼る、人が決めた前提の節の並び（人の関所の答え・依頼が名指した設計書の節。空の節は除く）,
-    控え {given, withheld})。控えは貼った本文と同じ呼び出しから作る（別の源から組み直さない）"""
-    human, rows, machine = human_answers(b)
+    控え {given, withheld, seen})。控えは貼った本文と同じ呼び出しから作る（別の源から組み直さない）"""
+    human, rows, machine, seen = human_answers(b)
     named, given, withheld = named_sections(b, repo)
     given = [{"kind": "human_answer", "what": r} for r in rows] + given
     withheld = [{"kind": "human_item", "what": m, "why": "answer の無い行（機械が積んだ。人の答えでない）"} for m in machine] + withheld
-    return [s for s in (human, named) if s], {"given": given, "withheld": withheld}
+    return [s for s in (human, named) if s], {"given": given, "withheld": withheld, "seen": seen}
 
 
 def claims_unpassed(reply) -> list:
@@ -182,6 +211,22 @@ def claims_unpassed(reply) -> list:
     texts = [str((reply or {}).get("reason") or "")] + [str(d.get("text") or "") for d in (reply or {}).get("differences") or []
                                                          if isinstance(d, dict)]
     return [s.strip() for t in texts for s in re.split(r"[。\n]", t) if UNPASSED.search(s)]
+
+
+def claims_given(claims, given) -> list:
+    """claims_unpassed の文のうち、控えの given（渡した前提の入力）に当たる物の [{claim, kind, what}]。claim が what そのもの
+    （設計書の節は what のパスか節番号）か given の kind の語（CLAIM_WORDS）を含めば当たる。判定はせず、並べて人に突き合わせさせる"""
+    return [{"claim": c, "kind": g.get("kind"), "what": g.get("what")} for c in claims for g in given or []
+            if isinstance(g, dict) and (str(g.get("what")) in c or any(w in c for w in CLAIM_WORDS.get(g.get("kind"), ()))
+                                        or g.get("kind") == "named_section" and _named_hit(str(g.get("what")), c))]
+
+
+def _named_hit(what, claim) -> bool:
+    """設計書の節の what（`<path>.md#<見出し>` か `<path>.md N 節`）のパスか節番号（見出しの頭の番号）が claim に在るか"""
+    num = re.fullmatch(r"(.+\.md) (\S+) 節", what)
+    path, _, anchor = (num.group(1), "", "") if num else what.partition("#")
+    n = num.group(2) if num else (re.match(r"\d+", anchor) or [""])[0]
+    return path in claim or bool(n and re.search(rf"§\s*{re.escape(n)}(?![\d.])|(?<![\d.]){re.escape(n)}\s*節", claim))
 
 
 def unusable(b):
@@ -252,7 +297,7 @@ def prep(board_dir, repo) -> dict:
     parts, ledger = premises(b, repo)
     accept.write_board(board_dir, PREMISES_FILE, {"node": NODE, **ledger})
     if parts:   # graph の reads は関所の答えも依頼の名指しも持たない。写しの graph は変えずに頭に貼る
-        body = f"{DESIGN_PREMISE_HEAD}\n\n" + "\n\n".join(parts) + f"\n\n---\n\n{body}"
+        body = f"{DESIGN_PREMISE_HEAD}\n\n{DESIGN_PREMISE_REREAD}\n\n" + "\n\n".join(parts) + f"\n\n---\n\n{body}"
     prompt, def_file, missing = rolekit.with_role_definition(b, NODE, body)
     rows = _rejects(board_dir)
     if rows:   # 役は道具を持たないので、理由のファイルでなく文を貼る

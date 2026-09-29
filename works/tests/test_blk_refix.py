@@ -341,7 +341,7 @@ class RefixCase(DeltaBoardCase):
             seen.append((n, values))
             return f"指示書 {values['brief_file']} {values['policy_path']}\n"
         got = refix.prep_fix(self.board, 1, repo, prompt=build, values={"policy_path": "/p.md"})
-        lang = refix.rolekit.lang_line(entry.open_board(self.board).state.get("inputs"))   # 役の文の言語の 1 行（盤面の inputs.lang）
+        lang = refix.rolekit.lang_line(entry.open_board(self.board).state.get("inputs"))
         self.assertEqual(seen, [(1, {"policy_path": "/p.md", "brief_file": got["brief_file"], "diff_file": got["diff_file"],
                                      "lang": lang})])
         self.assertEqual(pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8"), f"指示書 {got['brief_file']} /p.md\n")

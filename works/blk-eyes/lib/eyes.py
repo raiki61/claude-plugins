@@ -19,8 +19,9 @@ R2 の設計の半分（r2.design）はここで起こさない: 修正の前に
 - collect: 出口。入口の周の箱だけを見る（最後の目の受け付けの settle が p4.record・converge を回して周を進めても読み違えない）。
            人に聞いている（r4.human_gate の ask）なら止めずに asking（答えた後にブロックへ入り直すと残りの目が回る）。
            聞いていないのに目が待ちのまま残れば（3 回とも拒まれた）盤面を止めて ok: false。premise_inputs に、R2 の 2 つの役へ
-           渡した前提の入力の控え（design-premises.json・eyes-premises.json）と、r2.compare の返答の『渡されていない』の文を並べる
-           （拒まない・verdict を書き換えない。最後の関所の文が R2 の行の下に出す）
+           渡した前提の入力の控え（design-premises.json・eyes-premises.json。後者の after_design に独立設計の後に来た人の答え）と、
+           r2.compare の返答の『渡されていない』の文と、そのうち r2.compare の given に当たる物（compare の claims_given。
+           design.claims_given）を並べる（拒まない・verdict を書き換えない。最後の関所の文が R2 の行の下に出す）
 
 並び: 目は Archon の同じ層の輪で並んで走る。盤面（state.json・record.json）は版の突き合わせで守られているが、並んだ受け付けは
 BoardConflict（SystemExit）で落ちるので、このブロックの盤面の読み書きは全部、盤面の置き場の錠（LOCK_NAME。fcntl.flock）の中で行う。
@@ -75,10 +76,13 @@ REJECT_HEADING = rolekit.REJECT_HEADING
 PREMISE_NODE = "r2.compare"   # 設計を作った後に分かった前提を頭に貼る目
 PREMISE_HEAD = "## 独立設計を作った後に分かった前提（機械が貼った）"
 PREMISE_CHANGED = "設計の前提が変わった"
-PREMISE_ASK = ("独立設計はこの run の修正の前に、目的と実測した制約だけから作られた。下の前提のずれ（修正の中で申告された物）と、"
+PREMISE_ASK = ("独立設計はこの run の修正の前に、目的と実測した制約・人の関所の答え・依頼が名指した設計書の節から作られた。下の前提のずれ（修正の中で申告された物）と、"
                "今の記録の制約のどれかが、設計の置いた前提を崩していれば、構造の突き合わせに進まず status を redesign-needed にし、"
                f"reason を『{PREMISE_CHANGED}: 』で始めて、どの前提が何で崩れたかを書け（古い前提の設計と差分を黙って比べない）。"
                "崩していなければ、下の指示書のとおり構造で突き合わせよ。")
+LATE_HEAD = "### 独立設計の後に来た人の答え（独立設計は見ていない）"
+LATE_ASK = ("上の人の関所の答えのうち、次の物は独立設計を作った後に来た。設計がこれを置いていないことを設計の漏れに数えず、"
+            "答えに照らした目的で突き合わせよ。")
 LOCK_NAME = "board.lock"
 SNAPSHOT_NAME = "eyes-snapshot.json"
 REJECTS_NAME = "eyes-rejects.json"
@@ -266,14 +270,22 @@ def _lines(rows) -> str:
 
 
 def premise_section(b, repo) -> tuple:
-    """(r2.compare の頭に貼る節, 貼った入力の控え {node, given, withheld})。節は人が決めた前提（design.premises の関所の答え・
-    依頼が名指した設計書の節。在る時だけ、先に読ませる）・修正の中の前提のずれ（loop.drift_notes）・記録の制約
-    （record.process.constraints）"""
+    """(r2.compare の頭に貼る節, 貼った入力の控え {node, given, withheld, seen, after_design})。節は人が決めた前提
+    （design.premises の関所の答え・依頼が名指した設計書の節。在る時だけ、先に読ませる）・修正の中の前提のずれ
+    （loop.drift_notes）・記録の制約（record.process.constraints）。after_design は、独立設計の控え（design-premises.json）の
+    seen の数より後に来た人の答えで、比べる時点の答えまで読むので compare にだけ渡った物（独立設計の控えが在る時だけ。
+    節にも LATE_HEAD で分けて貼る）"""
     drift = [f"周 {r.get('round')}: {r.get('text') or '（申告の文なし）'}" for r in b.loop_state.get("drift_notes") or []]
     cons = [f"（{c.get('kind')}）{c.get('text')}" if isinstance(c, dict) else str(c)
             for c in (b.record.get("process") or {}).get("constraints") or []]
     parts, ledger = design.premises(b, repo)
+    seen = (_read_json(b.dir / design.PREMISES_FILE, None) or {}).get("seen")
+    if isinstance(seen, dict):
+        answers = [g["what"] for g in ledger["given"] if g.get("kind") == "human_answer"]
+        ledger["after_design"] = answers[seen.get("count") or 0:]
     decided = "".join(f"{s}\n\n" for s in parts)
+    if ledger.get("after_design"):
+        decided += f"{LATE_HEAD}\n\n{LATE_ASK}\n\n{_lines(ledger['after_design'])}\n\n"
     ledger["given"] += [{"kind": "drift", "what": d} for d in drift] + [{"kind": "constraint", "what": c} for c in cons]
     return (f"{PREMISE_HEAD}\n\n{PREMISE_ASK}\n\n{decided}"
             + f"### 前提のずれ（修正の中の申告）\n\n{_lines(drift)}\n\n"
@@ -380,6 +392,10 @@ def collect(board_dir, rnd) -> dict:
         rounded = _read_json(b.dir / "rounds" / f"round-{rnd}.json", None)
         reviews = (rounded if rounded is not None else b.record).get("reviews") or {}
         pc = b.output_of_round("stop.premise_check", rnd) or {}
+        compare = _read_json(_work(b, rnd, PREMISES_NAME), None)
+        claims = design.claims_unpassed(b.output_of_round(PREMISE_NODE, rnd))
+        if isinstance(compare, dict):   # 『渡されていない』は r2.compare の文なので、r2.compare に渡した given と突き合わせる
+            compare["claims_given"] = design.claims_given(claims, compare.get("given"))
         out = {"ok": ok, "reason": reason, "complete": not left, "asking": asking, "stopped": _stopped(b), "eyes": states,
                "gave_up": gave_up, "after_fix": at["after_fix"], "open_units": at["open_units"],
                "r1_refire": at["r1_refire"], "r2_refire": at["r2_refire"], "purpose_known": at["purpose_known"],
@@ -387,8 +403,7 @@ def collect(board_dir, rnd) -> dict:
                "reviews": {k: reviews.get(k) for k in ("R1", "R2", "R3", "R4")},
                "premise": {"facts_to_add": list(pc.get("facts_to_add") or []) if pc.get("verdict") == "resolved" else []},
                "premise_inputs": {"design": _read_json(b.dir / design.PREMISES_FILE, None),
-                                  "compare": _read_json(_work(b, rnd, PREMISES_NAME), None),
-                                  "claims": design.claims_unpassed(b.output_of_round(PREMISE_NODE, rnd))},
+                                  "compare": compare, "claims": claims},
                "retaken_for_reviews": at["retaken_for_reviews"]}
         path = _work(b, rnd, EXIT_NAME)
         out["exit_file"] = str(path)

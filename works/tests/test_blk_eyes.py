@@ -425,6 +425,59 @@ class PrepCase(_Case):
         entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
         self._assert_only_named_section(design.prep(self.bd, self.repo)["prompt"])
 
+    def test_named_section_cap_is_engine_file_cap(self):
+        """名指しの節 1 本の上限は engine が役に貼る本文の上限 FILE_CAP と同じ（独自の上限を置かない）。
+        FILE_CAP 以内の節は切らずに全部貼り、withheld にも載せない"""
+        from engine.render import FILE_CAP
+        long = "長い本文の行。" * 1000   # 21000 バイト（FILE_CAP 以内）
+        self.assertLess(len(long.encode("utf-8")) + 1000, FILE_CAP)
+        self.SPEC = f"# 設計書\n\n## 1 目的\n\nSECTION-1-BODY\n\n## 2 上限\n\n{long}TAIL-OF-SECTION-2\n\n## 3 撤収\n\nSECTION-3-BODY\n"
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        text, given, withheld = design.named_sections(entry.open_board(self.bd), self.repo)
+        self.assertIn("TAIL-OF-SECTION-2", text, "FILE_CAP 以内の節は末尾まで貼る")
+        self.assertEqual([g["kind"] for g in given], ["named_section"])
+        self.assertEqual(withheld, [], "FILE_CAP 以内の節を渡していない物に数えない")
+
+    def test_design_head_rereads_copy_inputs_sentence(self):
+        """人の答えを貼る run では、写しの指示書の『渡すのは元の目的と実測した制約だけ』を、貼った節も渡していると読み替える
+        1 文を頭の節に置く（写しは 1 バイトも変えない）。比べる役・事前審査が読む前置きも、渡した物を『制約だけ』と言わない"""
+        self.board("r1r2", made=None)
+        self._with_human_item()
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        text = design.prep(self.bd, self.repo)["prompt"]
+        start = text.index(design.DESIGN_PREMISE_HEAD)
+        head = text[start:text.index("\n\n---\n\n", start)]
+        self.assertIn("渡すのは元の目的と実測した制約だけ", head, "写しの文を名指して読み替える")
+        self.assertIn("読み替え", head)
+        lib = str(ROOT / "blk-plan" / "lib")
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        import planblk
+        for said in (eyes.PREMISE_ASK, planblk.DESIGN_HEAD):
+            self.assertNotIn("実測した制約だけ", said)
+
+    def test_bare_section_number_binds_to_the_one_named_doc(self):
+        """パスの無い「§N」「N 節」は、依頼が別の所で名指した設計書のパスがただ 1 本ならそれに結び付けて節の本文を貼る"""
+        self.NAMED_REQUEST = "[docs/spec.md の 2 節](docs/spec.md#2-上限) のとおりに直し、§3 の撤収も合わせる"
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        text, given, withheld = design.named_sections(entry.open_board(self.bd), self.repo)
+        self.assertIn("SECTION-3-BODY", text, "パスの無い §3 が名指した設計書の 3 節に結び付く")
+        self.assertIn("docs/spec.md 3 節", [g["what"] for g in given])
+        self.assertEqual(withheld, [])
+
+    def test_bare_section_number_without_doc_is_withheld(self):
+        """結び付ける設計書のパスが依頼に無ければ、パスの無い「N 節」は推測で貼らず、理由つきで withheld に載せる（黙って落とさない）"""
+        self.NAMED_REQUEST = "設計書の 3 節のとおりに直す"
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        text, given, withheld = design.named_sections(entry.open_board(self.bd), self.repo)
+        self.assertNotIn("SECTION-3-BODY", text)
+        self.assertEqual(given, [])
+        self.assertTrue([w for w in withheld if w["kind"] == "named_section" and "3 節" in w["what"] and w["why"]],
+                        withheld)
+
     def test_prep_refuses_eye_not_waiting(self):
         self.board("r1r2")
         self.enter()
@@ -559,10 +612,73 @@ class PathCase(_Case):
                         "r2.compare の控えに、貼った人の関所の答えが載る")
         self.assertEqual(out["reviews"]["R2"]["status"], "redesign-needed", "verdict は書き換えない")
 
+    def test_unpassed_claim_is_matched_with_given_inputs(self):
+        """R2 が『渡されていない』と書いた文を控えの given と機械で突き合わせ、実は渡していた行を最後の関所に並べる。
+        当たらない文（渡していない設計書の節）は並べない。拒まず、verdict も書き換えない"""
+        got, out = self._compare_with({"status": "redesign-needed", "reason": f"{self.UNPASSED}。古い縛りのまま比べた",
+                                       "differences": [{"kind": "構造", "text": self.UNPASSED_DIFF}]})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(out["reviews"]["R2"]["status"], "redesign-needed", "verdict は書き換えない")
+        lib = str(ROOT / "darkfactory" / "lib")
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        import line_edge
+        lines = [s for s in line_edge._r2_inputs(entry.open_board(self.bd)) if "渡していた" in s]
+        self.assertTrue([s for s in lines if self.UNPASSED in s and self.GATE_NOTE in s],
+                        f"渡されていないと書いた文と、実は渡していた人の関所の答えが 1 行に並ぶ: {lines}")
+        self.assertFalse([s for s in lines if self.UNPASSED_DIFF in s], "渡していない物の文は突き合わせに当たらない")
+
+    def test_named_section_claim_matches_only_by_path_or_number(self):
+        """貼った設計書の節には、『渡されていない』の文がそのパスか節番号を含む時だけ当てる。「設計書」の一般語だけの文
+        （別の設計書の節のことかもしれない）や、番号の違う節の文は当てない"""
+        given = [{"kind": "named_section", "what": "docs/spec.md#2-上限"},
+                 {"kind": "named_section", "what": "docs/spec.md 3 節"}]
+        hit = ["docs/spec.md の本文が渡されていない", "§3 の撤収が渡っていない", "2 節の上限が渡されていない"]
+        miss = ["別の設計書の節が渡されていない", "設計書が渡っていない", "12 節が渡されていない", "§3.1 が渡っていない"]
+        got = {c for c in hit + miss if design.claims_given([c], given)}
+        self.assertEqual(got, set(hit))
+
     def test_no_unpassed_claim_leaves_claims_empty(self):
         _, out = self._compare_with(COMPARE_OK)
         self.assertIn("premise_inputs", out)
         self.assertEqual(out["premise_inputs"]["claims"], [])
+
+    def test_answers_after_design_are_listed_apart(self):
+        """独立設計が見た人の答えの境目を控えに印し、その後に来た答え（比べる時点の答えまで読むので compare にだけ渡る）を
+        突き合わせの控えと最後の関所に分けて並べる。拒まず、verdict も変えない"""
+        early, late = "EARLY-設計の前の答え", "LATE-設計の後の答え"
+        self.board("r1r2", made=None)
+        rp = pathlib.Path(self.bd) / "record.json"
+
+        def add(rnd, note):
+            rec = json.loads(rp.read_text(encoding="utf-8"))
+            rec.setdefault("process", {}).setdefault("human_items", []).append(
+                {"round": rnd, "kinds": ["policy"], "asked": ["ASKED-本文"], "answer": "continue", "note": note})
+            rp.write_text(json.dumps(rec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        add(1, early)
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        design.prep(self.bd, self.repo)
+        self.assertTrue(design.accept_reply(self.bd, json.dumps(DESIGN_OK, ensure_ascii=False), self.repo)["ok"])
+        self.assertTrue(design.hand(entry.open_board(self.bd), self.bd, self.repo)["handed"])
+        add(2, late)
+        self.enter()
+        for role in ("r1-comments", "r1-minimality"):
+            self.run_eye(role, REPLY[role])
+        self.run_eye("r2-compare", COMPARE_OK)
+        pi = eyes.collect(self.bd, self.rnd)["premise_inputs"]
+        self.assertTrue(set(pi["design"]) - {"node", "given", "withheld"},
+                        f"独立設計の控えに、見た人の答えの境目の印が在る: {pi['design']}")
+        after = json.dumps({k: v for k, v in pi["compare"].items() if k not in ("node", "given", "withheld")},
+                           ensure_ascii=False)
+        self.assertIn(late, after, "突き合わせの控えに、独立設計の後に来た答えが別の欄で載る")
+        self.assertNotIn(early, after, "独立設計が見た答えは後から来た答えに数えない")
+        lib = str(ROOT / "darkfactory" / "lib")
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        import line_edge
+        lines = [s for s in line_edge._r2_inputs(entry.open_board(self.bd)) if "独立設計の後に来た人の答え" in s]
+        self.assertTrue(lines and late in lines[0] and early not in lines[0], lines)
 
     def test_premise_invalid_runs_premise_check(self):
         """R2 が premise-invalid（question_stands 偽）: r2.compare は条件で na、stop.premise_check が出る（条件は盤面の r2_premise_invalid）"""
