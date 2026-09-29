@@ -478,6 +478,35 @@ class PrepCase(_Case):
         self.assertTrue([w for w in withheld if w["kind"] == "named_section" and "3 節" in w["what"] and w["why"]],
                         withheld)
 
+    STRUCTURE_MARK = "STRUCTURE-MARK-u-417"
+    DESIGN_ROW_MARK = "DESIGN-ROW-MARK-u-417"
+
+    def test_design_prompt_is_built_only_from_allowed_kinds_without_structure_outputs(self):
+        """独立設計に貼る前提は明示の一覧（design.PREMISE_KINDS）の種類だけで組み、構造のブロックの出力（structure.json・design.jsonl）の
+        パスも中身も渡さない（設計書 structure-block-design 7 節の隔て）。名指しの節の本文に名が出るのは赤にしない"""
+        self.board("r1r2", made=None)
+        self._with_human_item()
+        planted = []
+        for d in (pathlib.Path(self.bd), pathlib.Path(self.bd) / "structure", pathlib.Path(self.bd).parent / "structure"):
+            d.mkdir(parents=True, exist_ok=True)
+            s, j = d / "structure.json", d / "design.jsonl"
+            s.write_text(json.dumps({"status": "ok", "units": [{"id": self.STRUCTURE_MARK, "paths": ["a.py"]}]}),
+                         encoding="utf-8")
+            j.write_text(json.dumps({"unit_id": self.DESIGN_ROW_MARK, "verdict": "汚れる"}) + "\n", encoding="utf-8")
+            planted += [str(s), str(j)]
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        text = design.prep(self.bd, self.repo)["prompt"]
+        ledger = json.loads((pathlib.Path(self.bd) / design.PREMISES_FILE).read_text(encoding="utf-8"))
+        kinds = getattr(design, "PREMISE_KINDS", None)
+        self.assertIsNotNone(kinds, "独立設計に渡す入力の種類の一覧（design.PREMISE_KINDS）が無い")
+        self.assertEqual(set(kinds), {"human_answer", "named_section"})
+        self.assertLessEqual({g["kind"] for g in ledger["given"]}, set(kinds))
+        self.assertIn(self.HUMAN_ITEM["note"], text, "一覧の中の種類（人の答え）は届く")
+        dumped = json.dumps(ledger, ensure_ascii=False)
+        for leak in (self.STRUCTURE_MARK, self.DESIGN_ROW_MARK, *planted):
+            self.assertNotIn(leak, text, f"独立設計の役に {leak!r} が届いた")
+            self.assertNotIn(leak, dumped, f"控えに {leak!r} が載った")
+
     def test_prep_refuses_eye_not_waiting(self):
         self.board("r1r2")
         self.enter()

@@ -1,0 +1,29 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "design.jsonl の 1 行（設計書 structure-block-design の 4 節・5 節・6 節）",
+ "type": "object",
+ "required": ["unit_id", "verdict", "faces", "evidence", "reason", "route", "route_reason"],
+ "additionalProperties": false,
+ "properties": {
+  "unit_id": {"type": "string", "minLength": 1, "description": "判定の単位の id"},
+  "verdict": {"type": "string", "enum": ["汚れる", "汚れない"]},
+  "faces": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 6}, "description": "当たった形の番号（4 節の 1〜6）"},
+  "evidence": {"type": "array", "items": {"type": "string"}, "description": "根拠にした structure.json の欄"},
+  "reason": {"type": "string", "minLength": 1},
+  "chosen": {"type": "string", "description": "推しの案"},
+  "rejected": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["option", "cost"],
+    "additionalProperties": false,
+    "properties": {"option": {"type": "string"}, "cost": {"type": "string"}}
+   },
+   "description": "捨てた案とその代償"
+  },
+  "chosen_reason": {"type": "string", "description": "推しの理由"},
+  "precedents": {"type": "array", "items": {"type": "string"}, "description": "先例の出典"},
+  "route": {"type": "string", "enum": ["自分で決める", "人に上げる"]},
+  "route_reason": {"type": "string", "minLength": 1}
+ }
+}

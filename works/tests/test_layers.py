@@ -78,7 +78,7 @@ OUTSIDE = frozenset({"dev", "tests", "docs"})        # pack に入らないフ�
 # ラインが配線する予定の include の id（線 A の仕様 2 節。T17 で darkfactory.yaml に入る）。YAML に入ったら消す
 PLANNED_INCLUDE_IDS = frozenset()
 # 未配線の節のスクリプト（T17 で YAML の script: に入る）。配線したら消す
-PLANNED_SCRIPTS = frozenset({"blk-structure/scripts/measure.py"})   # 実測の単体 CLI（S1a）。ブロックの YAML は S2
+PLANNED_SCRIPTS = frozenset({"blk-structure/scripts/measure.py"})   # 実測の単体 CLI（段 B の口）。段 A は blk-structure.yaml の節が子で起こす
 
 # 破れ（元と先の組）の語と、直し方の案内。KNOWN に置けるのはこの語の行だけ
 VIOLATIONS = {

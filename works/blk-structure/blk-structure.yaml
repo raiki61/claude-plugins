@@ -1,0 +1,56 @@
+name: blk-structure
+description: |
+  構造のブロックの骨（設計書 structure-block-design の 1 節・2 節・8 節、10 節の S2a）。判定の単位が名指すファイルを
+  機械で実測し（段 A。AI なし）、出力を 2 本だけ宣言する: 実測の structure.json と、設計の行の design.jsonl（S2a では
+  0 バイト。行を書くのは後の構造の目）。後段が読んでよいのはこの 2 本だけ。実測が落ちても線を止めない
+  （structure.json の status: failed と reason に残し、ok は true）。段の時間は structure.json の timing に残す。
+  入力の契約は 3 つだけで、この契約を満たすラインなら include で差し込める。
+
+inputs:
+  units:
+    default: ""
+    description: 判定の単位のファイルのパス。JSON の配列で、各行は {id, paths, summary}（paths は単位が名指すファイルのパスの配列。対象の根からの相対）
+  root:
+    default: ""
+    description: 対象の根。空なら節の cwd
+  policy_path:
+    default: ""
+    description: 方針の文書のパス（任意。空を許す）。S2a では控えるだけ
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 段 A: 単位ごとに paths を measure.py（コマンド 1 つの口）で測り、structure.json を書き、design.jsonl を 0 バイトで置き直す
+  - id: stage-a
+    script: stage_a
+    runtime: uv
+    timeout: 1728000000
+    with:
+      units: $INPUTS.units
+      root: $INPUTS.root
+      policy_path: $INPUTS.policy_path
+    output_format:
+      type: object
+      properties:
+        structure_file: {type: string}
+        design_file: {type: string}
+      required: [structure_file, design_file]
+
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [stage-a]
+    with:
+      structure_file: $stage-a.output.structure_file
+      design_file: $stage-a.output.design_file
+    output_format:
+      type: object
+      properties:
+        ok: {type: boolean}
+        structure_file: {type: string}
+        design_file: {type: string}
+        status: {type: string, enum: [ok, failed]}
+        wall_s: {type: number}
+      required: [ok, structure_file, design_file, status, wall_s]

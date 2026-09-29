@@ -375,6 +375,131 @@ class MeasureCase(unittest.TestCase):
         self.assertEqual(self.diff_entry(out, "a.txt")["lines"], {"before": 1, "after": 2, "delta": 1})
 
 
+BLOCK_DIR = ROOT / "blk-structure"
+BLOCK_YAML = BLOCK_DIR / "blk-structure.yaml"
+CONTRACT = {"units", "root", "policy_path"}
+OUTPUT_FILES = {"structure_file", "design_file"}
+
+
+def _found(v, key):
+    """入れ子の JSON の中の key の値を全部"""
+    if isinstance(v, dict):
+        for k, x in v.items():
+            if k == key:
+                yield x
+            yield from _found(x, key)
+    elif isinstance(v, list):
+        for x in v:
+            yield from _found(x, key)
+
+
+class BlockCase(unittest.TestCase):
+    """ブロックの骨（設計書 1 節・8 節・10 節の S2a）: 入力の契約 3 つ・段 A の実測・出力 2 本・節の時間・落ちても止めない"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def doc(self):
+        if not BLOCK_YAML.is_file():
+            self.fail(f"ブロックの YAML が無い: {BLOCK_YAML.relative_to(ROOT)}")
+        import yaml
+        return yaml.safe_load(BLOCK_YAML.read_text(encoding="utf-8"))
+
+    def run_block(self, units, root):
+        """Archon と同じ形で script の節を並びの順に子で起こす（with: → INPUTS_<大文字>・ARTIFACTS_DIR・cwd は対象の根）。
+        どの節も終了コード 0 で、標準出力の JSON が output_format に合うことを確かめ、returns の節の出力を返す"""
+        import scriptline
+        from engine.schema import validate_schema
+        doc = self.doc()
+        art = self.tmp / "art"
+        art.mkdir(exist_ok=True)
+        inputs = {"units": str(units), "root": str(root), "policy_path": ""}
+        scope = scriptline.Scope("blk-structure", inputs)
+        env = {k: v for k, v in child_env().items() if not k.startswith("INPUTS_")}
+        env.update(ARTIFACTS_DIR=str(art), WORKFLOW_ID="run-structure", PYTHONDONTWRITEBYTECODE="1")
+        for n in doc["nodes"]:
+            self.assertIn("script", n, f"S2a の骨は AI を起こさない（script の節だけ）: {n.get('id')}")
+            e = dict(env)
+            e.update({f"INPUTS_{k.upper()}": scope.value(v) for k, v in (n.get("with") or {}).items()})
+            p = subprocess.run([sys.executable, str(BLOCK_DIR / "scripts" / f"{n['script']}.py")], cwd=str(root), env=e,
+                               capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+            self.assertEqual(p.returncode, 0, f"節 {n['id']} が落ちた: {p.stderr[-1500:]}")
+            out = json.loads(p.stdout)
+            if "output_format" in n:
+                self.assertEqual(validate_schema(out, n["output_format"]), [], n["id"])
+            scope.out[n["id"]], scope.status[n["id"]] = out, "ok"
+        return scope.out[doc["returns"]]
+
+    def repo(self):
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        _git(repo, "init", "-q")
+        _write(repo, "a.txt", "one\ntwo\n")
+        _write(repo, "b.txt", "b\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "c0", date="2020-01-01")
+        return repo
+
+    def units(self, rows):
+        f = self.tmp / "units.json"
+        f.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+        return f
+
+    def test_inputs_are_the_three_of_the_contract(self):
+        inputs = self.doc().get("inputs") or {}
+        self.assertEqual(set(inputs), CONTRACT)
+        self.assertEqual((inputs["policy_path"] or {}).get("default"), "")
+
+    def test_declares_only_two_output_files(self):
+        doc = self.doc()
+        self.assertEqual(doc.get("returns"), "collect")
+        self.assertEqual(doc.get("outcome_field"), "ok")
+        ret = next(n for n in doc["nodes"] if n["id"] == doc["returns"])
+        props = ret["output_format"]["properties"]
+        self.assertIn("ok", ret["output_format"].get("required", []))
+        self.assertEqual({k for k in props if k.endswith("_file")}, OUTPUT_FILES)
+
+    def test_measures_units_and_leaves_empty_design_and_timing(self):
+        out = self.run_block(self.units([{"id": "u-7", "paths": ["a.txt"], "summary": "直す所"}]), self.repo())
+        self.assertIs(out["ok"], True)
+        structure = json.loads(pathlib.Path(out["structure_file"]).read_text(encoding="utf-8"))
+        self.assertIn("u-7", json.dumps(structure, ensure_ascii=False))
+        self.assertIn("a.txt", json.dumps(structure, ensure_ascii=False))
+        walls = list(_found(structure, "wall_s"))
+        self.assertTrue(walls and all(isinstance(w, (int, float)) for w in walls), structure)
+        design = pathlib.Path(out["design_file"])
+        self.assertTrue(design.is_file())
+        self.assertEqual(design.stat().st_size, 0)   # JSON Lines は空行を許さない。改行も書かない
+
+    def test_measure_failure_does_not_stop_the_line(self):
+        plain = self.tmp / "not-git"
+        plain.mkdir()
+        _write(plain, "a.txt", "x\n")
+        out = self.run_block(self.units([{"id": "u-1", "paths": ["a.txt"], "summary": "s"}]), plain)
+        self.assertIs(out["ok"], True)
+        structure = json.loads(pathlib.Path(out["structure_file"]).read_text(encoding="utf-8"))
+        reasons = [r for r in _found(structure, "reason") if isinstance(r, str) and r.strip()]
+        self.assertTrue(reasons, structure)
+        self.assertEqual(pathlib.Path(out["design_file"]).stat().st_size, 0)
+
+    def test_unreadable_units_does_not_stop_the_line(self):
+        out = self.run_block(self.tmp / "missing-units.json", self.repo())
+        self.assertIs(out["ok"], True)
+        structure = json.loads(pathlib.Path(out["structure_file"]).read_text(encoding="utf-8"))
+        self.assertTrue([r for r in _found(structure, "reason") if isinstance(r, str) and r.strip()], structure)
+
+    def test_design_row_schema_is_readable(self):
+        self.doc()
+        schemas = sorted(BLOCK_DIR.rglob("*.schema.json"))
+        self.assertEqual(len(schemas), 1, schemas)
+        s = json.loads(schemas[0].read_text(encoding="utf-8"))
+        self.assertEqual(s.get("type"), "object")
+        self.assertTrue(s.get("properties"))
+
 
 if __name__ == "__main__":
     unittest.main()

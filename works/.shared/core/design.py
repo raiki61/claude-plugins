@@ -14,7 +14,7 @@ Archon を知らない関数だけを出す。
 - prep:          r2.design の指示書を engine と同じ描き方で描き（節はまだ待っていない。rolekit.render_body の ahead）、役の定義を
                  頭に置く。人が決めた前提（premises）と前の拒否の文は頭に貼る（役は道具を持たないのでファイルを読めない）。
                  貼った入力の控えを盤面の根の design-premises.json に書く
-- premises:      R2 の 2 つの役（r2.design・r2.compare）に共通して貼る節の並びと、貼った入力の控え {given, withheld, seen}。
+- premises:      R2 の 2 つの役（r2.design・r2.compare）に共通して貼る節の並びと、貼った入力の控え {given, withheld, seen}（kind は PREMISE_KINDS の中だけ）。
                  human_answers（人の関所の答え。asked は写さず、answer の無い機械の行は withheld。seen は貼った答えの数と
                  最後の round の印で、突き合わせの側が独立設計の後に来た答えを分けて並べる）と named_sections（依頼が
                  名指した設計書の節の本文。リンク・`<path>.md#<見出し>`・`<path>.md` N 節・パスの無い N 節（依頼が名指した設計書が
@@ -79,6 +79,9 @@ UNPASSED = re.compile(r"渡されていない|渡っていない")
 # 別の設計書の文にも出るので語では当てず、what のパスか節番号が文に在る時だけ当てる（_named_hit）
 CLAIM_WORDS = {"human_answer": ("人の答え", "関所")}
 PREMISES_FILE = "design-premises.json"   # r2.design に渡した前提の入力の控え（盤面の根。design.json と同じく run に 1 つ）
+# 独立設計の指示書の頭に機械が貼ってよい前提の種類（premises の控えの kind の許す一覧）。一覧の外（ほかのブロックの出力など）を
+# 貼る口は作らない（独立設計の隔て。設計書 structure-block-design 7 節）。graph の reads で描く本文はこの柵の外（graph の reads が縛る）
+PREMISE_KINDS = ("human_answer", "named_section")
 
 
 def human_answers(b) -> tuple:
@@ -202,6 +205,9 @@ def premises(b, repo) -> tuple:
     human, rows, machine, seen = human_answers(b)
     named, given, withheld = named_sections(b, repo)
     given = [{"kind": "human_answer", "what": r} for r in rows] + given
+    outside = sorted({g["kind"] for g in given} - set(PREMISE_KINDS))
+    if outside:   # 一覧の外の源（ほかのブロックの出力など）から貼る口を作らない
+        raise BoardGap(f"独立設計に渡す入力の種類が許す一覧（{' / '.join(PREMISE_KINDS)}）の外: {', '.join(outside)}")
     withheld = [{"kind": "human_item", "what": m, "why": "answer の無い行（機械が積んだ。人の答えでない）"} for m in machine] + withheld
     return [s for s in (human, named) if s], {"given": given, "withheld": withheld, "seen": seen}
 
