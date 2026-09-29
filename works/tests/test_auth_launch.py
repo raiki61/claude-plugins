@@ -138,7 +138,7 @@ class IsolatedLaunch(unittest.TestCase):
         env = hermetic.child_env(HOME=str(tmp / "iso"), PATH=str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
                                  WORKS_KEYCHAIN_ITEM="named", ANTHROPIC_API_KEY="k", CLAUDE_CODE_OAUTH_TOKEN="inherited")
         r = subprocess.run([sys.executable, "-I", str(CORE / "auth_launch.py"), "exec", "--user-home", str(tmp / "user"),
-                            "--", sys.executable, "-I", "-c", probe], env=env, capture_output=True, text=True, timeout=60)
+                            "--", sys.executable, "-I", "-c", probe], env=env, capture_output=True, text=True, encoding="utf-8", timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
         self.assertEqual(r.stdout.strip(), '{"CLAUDE_CODE_OAUTH_TOKEN": true, "ANTHROPIC_API_KEY": null, "HOME": "%s"}'
@@ -152,7 +152,7 @@ class IsolatedLaunch(unittest.TestCase):
         env = hermetic.child_env(HOME=str(tmp), PATH=str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
         r = subprocess.run([sys.executable, "-I", str(CORE / "auth_launch.py"), "exec", "--for", "archon.sh",
                             "--user-home", str(tmp), "--", sys.executable, "-c", "print('started')"],
-                           env=env, capture_output=True, text=True, timeout=60)
+                           env=env, capture_output=True, text=True, encoding="utf-8", timeout=60)
         self.assertEqual(r.returncode, 2)
         self.assertEqual(r.stdout, "")
         self.assertEqual(len(r.stderr.strip().splitlines()), 1, r.stderr)
@@ -172,7 +172,7 @@ class IsolatedLaunch(unittest.TestCase):
         tmp = hermetic.tmpdir(self)
         env = hermetic.child_env(CLAUDE_CODE_OAUTH_TOKEN=TOKEN, HOME=str(tmp))
         r = subprocess.run([sys.executable, "-I", str(CORE / "auth_launch.py"), "check", "--user-home", str(tmp)],
-                           env=env, capture_output=True, text=True, timeout=60)
+                           env=env, capture_output=True, text=True, encoding="utf-8", timeout=60)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "CLAUDE_CODE_OAUTH_TOKEN"), r.stderr)
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
         self.assertEqual(list(ROOT.rglob("__pycache__")), [])
