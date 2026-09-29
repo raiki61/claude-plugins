@@ -92,6 +92,7 @@ HEAVY = frozenset({
     "test_blk_premises",    # 前提の実測: 試験ごとの git のリポジトリ（git init・commit）・スクリプトを子で起こす
     "test_line_a",          # P1 Task 28: 線を種の git と本物の盤面で通す（linekit.run_line）
     "test_blk_material",    # 素材集め（R3）: 種の git（linekit.seed_repo）で盤面を 2 種類作る（クラスに 1 回）・スクリプトを子で起こす
+    "test_blk_structure",   # 実測の script: 日時を固定した git のリポジトリ（git init・commit・マージ・浅い clone。クラスに 1 回）・スクリプトを子で起こす
     "test_blk_purpose",     # 試験ごとの git のリポジトリ（git init）・スクリプトを子で起こす
     "test_blk_refix",       # 線 A: 試験ごとの種の git（linekit.seed_repo）で盤面を差分の審査まで進める・スクリプトを子で起こす
     "test_blk_rejudge",     # 線 A: golden の盤面の再生（rejudgekit）・スクリプトを子で起こす
