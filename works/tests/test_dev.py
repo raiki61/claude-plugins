@@ -41,6 +41,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -113,6 +114,35 @@ def run_tests(cwd):
         text=True, encoding="utf-8",
         env=env,
     )
+
+
+MARK_HOME = "/tmp/works-dev-test-original-home"   # 隔離の前の利用者の HOME の印（実在しなくてよい）
+OWN_LOGIN = '{"claudeAiOauth": {"accessToken": "sk-ant-oat01-dummy-token-for-test"}}'   # Claude Code 自身の項目の中身
+
+
+def fake_security(tmp, items=None, default=""):
+    """偽の `security` を tmp/fake-bin に置き、殻の env に被せる上書き（PATH の先頭と印の HOME）と、呼ばれた時の
+    `$HOME<TAB>引数` を 1 行ずつ足す記録のパスを返す。`-s <項目>` が items に在ればその値、無ければ default を返し、
+    どちらも空なら項目の無い keychain と同じく 44 で終わる。偽物を置かない殻の試験は利用者の本物の keychain に届くので、
+    認証の前検を通る殻（archon.sh・dogfood.sh・real-run.sh）の試験はこれを通す"""
+    fake_bin = tmp / "fake-bin"
+    fake_bin.mkdir(parents=True, exist_ok=True)
+    log = tmp / "security-calls.txt"
+    arms = "".join(f'  *"-s {service} -w") printf \'%s\\n\' {shlex.quote(value)}; exit 0 ;;\n'
+                   for service, value in (items or {}).items())
+    tail = f"printf '%s\\n' {shlex.quote(default)}; exit 0\n" if default else "exit 44\n"
+    (fake_bin / "security").write_text(
+        "#!/bin/sh\n"
+        f'printf \'%s\\t%s\\n\' "$HOME" "$*" >> "{log}"\n'
+        f'case "$*" in\n{arms}esac\n' + tail
+    )
+    (fake_bin / "security").chmod(0o755)
+    return {"PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""), "HOME": MARK_HOME}, log
+
+
+def security_calls(log):
+    """fake_security の記録を (HOME, 引数) の並びで読む（呼ばれていなければ空）"""
+    return [tuple(line.split("\t", 1)) for line in log.read_text().splitlines()] if log.exists() else []
 
 
 class TestDevShell(unittest.TestCase):
@@ -220,25 +250,12 @@ class TestDevShell(unittest.TestCase):
             (dev_home / "bin").mkdir(parents=True)
             (dev_home / "bin" / "archon-darwin-arm64").write_bytes(b"not the real archon binary")
 
-            fake_bin = tmp / "fake-bin"
-            fake_bin.mkdir()
-            home_file = tmp / "security-home.txt"
-            args_file = tmp / "security-args.txt"
-            security_script = fake_bin / "security"
-            security_script.write_text(
-                "#!/bin/sh\n"
-                f'echo "$HOME" > "{home_file}"\n'
-                f'echo "$*" > "{args_file}"\n'
-                f"echo '{fake_token}'\n"
-            )
-            security_script.chmod(0o755)
+            fake, log = fake_security(tmp, default=fake_token)
 
-            env = hermetic.child_env()
+            env = hermetic.child_env(**fake)
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
                 env.pop(name, None)
-            env["HOME"] = "/tmp/works-dev-test-original-home"  # 実在しなくてよい、印の値
             env["WORKS_DEV_HOME"] = str(dev_home)
-            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
             for name, value in overrides.items():
                 if value is None:
                     env.pop(name, None)
@@ -251,8 +268,8 @@ class TestDevShell(unittest.TestCase):
                 text=True, encoding="utf-8",
                 env=env,
             )
-            home = home_file.read_text().strip() if home_file.exists() else None
-            args = args_file.read_text().strip() if args_file.exists() else None
+            calls = security_calls(log)
+            home, args = calls[-1] if calls else (None, None)   # 最後に呼ばれた時
             # トークンは画面にも記録にも出さない。
             self.assertNotIn("dummy-token-for-test", result.stdout + result.stderr)
             return result, home, args
@@ -679,7 +696,7 @@ class TestDevShell(unittest.TestCase):
         """real-run.sh（費用の掛かる実走）は、認証が無ければ対象を作る前に 1 行の案内で止まること。"""
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
-            env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"))
+            env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), **fake_security(tmp)[0])
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
                 env.pop(name, None)
             result = subprocess.run(
@@ -838,8 +855,9 @@ class TestDevShell(unittest.TestCase):
                 self.assertIn("workflow test works", args)   # 赤でも残りは回す
 
     # ---- dogfood.sh（works 自身のリポジトリを対象にラインを回す）。AI の要らない所だけを偽の Archon で見る
-    def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root="/out", runs_json=None, **env_kw):
-        """TMPDIR の下に works/ を写した git の元（src）を作り、その写しの dogfood.sh を偽の Archon で回す。
+    def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root="/out", runs_json=None, keychain=None, **env_kw):
+        """TMPDIR の下に works/ を写した git の元（src）を作り、その写しの dogfood.sh を偽の Archon と偽の security
+        （keychain の項目名→値。既定は項目の無い keychain。fake_security）で回す。
         src には commit していない物（根の未追跡・works/ の中の書き換えと未追跡）を残す。
         偽の Archon は cwd・WORKS_DEV_NO_AUTH・引数（1 つずつ）をタブ区切りで記録し、`workflow runs --json` には
         runs_json（省略時は working_path・output_root の止まった run を 1 本）を返す。
@@ -865,8 +883,9 @@ class TestDevShell(unittest.TestCase):
             f'case "$*" in "workflow runs --json") cat "{tmp / 'runs.json'}" ;; esac\n'
             "exit 0\n"
         )
+        security, self.security_log = fake_security(tmp, keychain)
         env = self._env(TMPDIR=str(tmp), WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
-                        CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true")
+                        CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true", **security)
         env.pop("WORKS_DEV_NO_AUTH", None)
         env.pop("WORKS_DEV_ADAPTER", None)   # 既定（包みを通す）を見る。試験ごとに env_kw で渡す
         for name, value in env_kw.items():
@@ -998,7 +1017,8 @@ class TestDevShell(unittest.TestCase):
             tmp = pathlib.Path(tmp_str)
             (tmp / "req.json").write_text("[]\n")
             result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
-                                               CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_KEYCHAIN_ITEM="item for test")
+                                               CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_KEYCHAIN_ITEM="item for test",
+                                               keychain={"item for test": "sk-ant-oat01-dummy-token-for-test"})
             self.assertEqual(result.returncode, 0, result.stderr)
             lines = {verb: [l for l in result.stdout.splitlines() if f"workflow {verb} run-1" in l]
                      for verb in ("approve", "reject", "resume")}
@@ -1132,6 +1152,60 @@ class TestDevShell(unittest.TestCase):
             self.assertIn("WORKS_KEYCHAIN_ITEM", result.stderr)
             self.assertFalse((tmp / "dog").exists())
             self.assertEqual(calls, [])
+
+    # keychain だけの人（トークンも WORKS_KEYCHAIN_ITEM も無い）も、殻の前検を起こし役の check で通ること。
+    # 本流の段が設定の置き場から導く項目（~/.claude → claude-code-oauth-default）と、Claude Code 自身の項目の 2 通り
+    KEYCHAIN_ONLY = {
+        "derived": ("claude-code-oauth-default", "sk-ant-oat01-dummy-token-for-test",
+                    "keychain の項目 claude-code-oauth-default"),
+        "own": ("Claude Code-credentials", OWN_LOGIN, "Claude Code の keychain の項目 Claude Code-credentials"),
+    }
+
+    def _dogfood_keychain_only(self, which):
+        service, value, _ = self.KEYCHAIN_ONLY[which]
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                               keychain={service: value}, CLAUDE_CODE_OAUTH_TOKEN=None)
+            self.assertNotIn("認証が無い", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn((MARK_HOME, f"find-generic-password -s {service} -w"), security_calls(self.security_log))
+            self.assertTrue(any(c[2:4] == ["workflow", "run"] for c in calls), calls)   # Archon まで届いた
+
+    def _real_run_keychain_only(self, which):
+        service, value, source = self.KEYCHAIN_ONLY[which]
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            dev_home = tmp / "dev-home"
+            (dev_home / "bin").mkdir(parents=True)
+            (dev_home / "bin" / "archon-darwin-arm64").write_bytes(b"not the real archon binary")
+            fake, log = fake_security(tmp, {service: value})
+            env = hermetic.child_env(WORKS_DEV_HOME=str(dev_home), CLAUDE_BIN_PATH="/usr/bin/true", **fake)
+            result = subprocess.run(["sh", str(DEV / "real-run.sh"), str(tmp / "target")],
+                                    capture_output=True, text=True, encoding="utf-8", env=env)
+            self.assertNotIn("認証が無い", result.stderr)
+            self.assertIn((MARK_HOME, f"find-generic-password -s {service} -w"), security_calls(log))
+            # 前検を抜けて archon.sh まで届き、出どころの名の 1 行の後、中身の違う実行ファイルの sha256 の確かめで止まる
+            self.assertIn(f"認証は {source}", result.stderr)
+            self.assertIn("sha256", result.stderr)
+            self.assertNotIn("sk-ant-oat01-dummy-token-for-test", result.stdout + result.stderr)
+
+    @unittest.skipUnless(sys.platform == "darwin", "SKIP macos: keychain の段は macOS だけ（auth_launch.py）")
+    def test_dogfood_runs_with_derived_keychain_item_only(self):
+        self._dogfood_keychain_only("derived")
+
+    @unittest.skipUnless(sys.platform == "darwin", "SKIP macos: keychain の段は macOS だけ（auth_launch.py）")
+    def test_dogfood_runs_with_claude_code_keychain_only(self):
+        self._dogfood_keychain_only("own")
+
+    @unittest.skipUnless(sys.platform == "darwin", "SKIP macos: keychain の段は macOS だけ（auth_launch.py）")
+    def test_real_run_passes_precheck_with_derived_keychain_item_only(self):
+        self._real_run_keychain_only("derived")
+
+    @unittest.skipUnless(sys.platform == "darwin", "SKIP macos: keychain の段は macOS だけ（auth_launch.py）")
+    def test_real_run_passes_precheck_with_claude_code_keychain_only(self):
+        self._real_run_keychain_only("own")
 
     def test_dogfood_refuses_claude_tmp(self):
         with tempfile.TemporaryDirectory() as tmp_str:

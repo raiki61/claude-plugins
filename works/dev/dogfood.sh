@@ -22,7 +22,7 @@
 # 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
 # <dir> に前の回の repo・origin.git・request.json が在れば、何も書かずに止まる（前の回の依頼を上書きしない）。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（ここでは埋めない。既定を解いて書くのは archon.sh）。
-# 認証は archon.sh と同じ（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM。既定の口座は無い）。
+# 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。
 # CLAUDE_BIN_PATH は real-run.sh と同じく隔離の前に解いて渡す。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_dev.py が偽物を差す）。
 set -eu
@@ -86,11 +86,10 @@ else
   works_dev_refuse_claude_tmp dogfood.sh "置き場（TMPDIR）" "${TMPDIR:-/tmp}/works-dogfood.x"
 fi
 
-# 何かを作る前に、認証が無いことを 1 行で知らせて止まる（archon.sh と同じ規則）。
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -z "${WORKS_KEYCHAIN_ITEM:-}" ]; then
-  echo "dogfood.sh: 認証が無い。CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する" >&2
-  exit 2
-fi
+# 何かを作る前に、起こし役の check で認証を確かめ、無ければその 1 行の案内で止まる。拾った出どころの名は捨てる
+# （名の行は archon.sh が出す）
+python3 -I "$WORKS_DIR/.shared/core/auth_launch.py" check --for dogfood.sh \
+  --user-home "$HOME" --user-config "${CLAUDE_CONFIG_DIR:-}" >/dev/null || exit $?
 
 if [ ! -f "$1" ]; then
   echo "dogfood.sh: 依頼の JSON が無い（$1）" >&2

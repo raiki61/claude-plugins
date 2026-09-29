@@ -9,7 +9,7 @@
 #   3. その中で archon.sh workflow run darkfactory を前景で回す。人の関所で run は止まって戻る。
 #   4. run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）を出す。
 #      テストの緑赤とログのパスは、止まる直前に出る関所の文面にある。
-# 認証は archon.sh と同じ（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM。既定の口座は無い）。
+# 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。
 # 隔離した HOME からは ~/.local/bin/claude を自動で見つけられないので、CLAUDE_BIN_PATH を
 # 隔離の前に解いて渡す（設定済みならそのまま）。
 set -eu
@@ -31,11 +31,10 @@ else
   works_dev_refuse_claude_tmp real-run.sh "対象の置き場（TMPDIR）" "${TMPDIR:-/tmp}/works-real.x"
 fi
 
-# 対象を作る前に、認証が無いことを 1 行で知らせて止まる（archon.sh と同じ規則）。
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -z "${WORKS_KEYCHAIN_ITEM:-}" ]; then
-  echo "real-run.sh: 認証が無い。CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する" >&2
-  exit 2
-fi
+# 対象を作る前に、起こし役の check で認証を確かめ、無ければその 1 行の案内で止まる。拾った出どころの名は捨てる
+# （名の行は archon.sh が出す）
+python3 -I "$(cd "$DEV_DIR/.." && pwd -P)/.shared/core/auth_launch.py" check --for real-run.sh \
+  --user-home "$HOME" --user-config "${CLAUDE_CONFIG_DIR:-}" >/dev/null || exit $?
 
 if [ -z "${CLAUDE_BIN_PATH:-}" ]; then
   CLAUDE_BIN_PATH="$(command -v claude || true)"
