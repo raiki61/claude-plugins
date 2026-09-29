@@ -48,6 +48,7 @@ if str(CORE) not in sys.path:
 
 import adapter  # noqa: E402
 import conflict  # noqa: E402
+import design  # noqa: E402
 import gatemarks  # noqa: E402
 import querytest  # noqa: E402
 from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
@@ -766,14 +767,18 @@ def _live_launches(board_dir, launches, b=None) -> list:
 
 
 def head_where(b) -> list:
-    """冒頭 5: 見る所（判定・修正案・事前審査・修正・審査・手直し・差分のファイルと run の作業ツリー）。ファイルは
-    state.outputs[節]["file"] と loop の差分の欄から（周を仮定しない）。盤面を書かない"""
+    """冒頭 5: 見る所（判定・修正案・事前審査・修正・審査・手直し・独立設計・差分のファイルと run の作業ツリー）。ファイルは
+    state.outputs[節]["file"] と loop の差分の欄から（周を仮定しない）。独立設計は graph の外で修正の前に盤面の根へ控える
+    （design.DESIGN_FILE）ので、在る時だけ並べる。盤面を書かない"""
     lines = []
     outs = b.state.get("outputs") or {}
     for label, nid in WHERE:
         info = outs.get(nid)
         if info and info.get("file"):
             lines.append(f"{label}: {b.dir / info['file']}")
+    designed = pathlib.Path(b.dir) / design.DESIGN_FILE
+    if designed.is_file():
+        lines.append(f"{gatemarks.PLAIN['r2.design']}: {designed}")
     for label, key in DIFFS:
         f = ((b.loop_state or {}).get(key) or {}).get("file")
         if f:

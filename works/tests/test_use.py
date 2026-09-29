@@ -491,6 +491,19 @@ class UseShell(unittest.TestCase):
         run = next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
         self.assertIn("unattended=true", run)
 
+    def test_design_only_passes_input_only_when_asked(self):
+        """WORKS_DESIGN_ONLY=1 だけが線に design_only=true を渡す（修正前の関所を必ず開ける。gatemarks.design_only）。
+        未設定・1 の外では run の行に design_only が載らない"""
+        for value, want in ((None, False), ("", False), ("on", False), ("1", True)):
+            with self.subTest(value=value):
+                self.setUp()
+                t = self.target()
+                r = self.use("start", str(t), str(self.request), "true", "", WORKS_DESIGN_ONLY=value)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                run = next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
+                self.assertEqual("design_only=true" in run, want, run)
+                self.assertFalse(any(a.startswith("design_only=") and a != "design_only=true" for a in run), run)
+
     def test_refuses_use_home_in_claude_tmp(self):
         t = self.target()
         r = self.use("start", str(t), str(self.request), "true", WORKS_USE_HOME="/private/tmp/claude-works-use-test-0/h")

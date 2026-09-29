@@ -979,6 +979,20 @@ class TestDevShell(unittest.TestCase):
                 self.assertEqual((tmp / "adapter-env.txt").read_text(), want_env + "\n")
                 self.assertEqual("WORKS_DEV_ADAPTER=1 " in result.stdout, value == "1")
 
+    def test_dogfood_design_only_appends_input_only_when_asked(self):
+        """WORKS_DESIGN_ONLY=1 だけがラインの引数の最後に design_only=true を足す（設計だけの run）。
+        未設定・1 の外では引数は今と同じ"""
+        base = ["--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=optional",
+                "--input", "final_gate=always"]
+        for value, extra in ((None, []), ("", []), ("on", []), ("1", ["--input", "design_only=true"])):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                (tmp / "req.json").write_text("[]\n")
+                result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                                   WORKS_DEV_ADAPTER="0", WORKS_DESIGN_ONLY=value)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[0][-(len(base) + len(extra)):], base + extra)
+
     def test_dogfood_warns_when_fix_touches_pack_copy(self):
         """修正が works/ でなく pack の写し（.archon/workflows/works）を書き換えたら、取り込まないよう 1 行で注意する。
         差分は run の worktree と周の頭の版（盤面の r1/start.json の base_rev）の差で、役が commit した変更も未追跡も入る。"""

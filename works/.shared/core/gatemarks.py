@@ -20,8 +20,14 @@ undecided_because の規律（本流 p2.diagnose.md 8 項）を関所の項目�
 いたため。この行は決め手の濾しに掛けない。関所の continue はその問いへの答えで、一言が問いに触れなければ修正役は問いの理由の推しで
 直す。一言で「保留: <key>」と名指した問いは答えに数えない。無人の run（入力 unattended）では問いの行を項目に載せない——関所を
 開けば無人の殻が stop を返し、問いと関係の無い単位の修正まで飛ぶので、出どころだけを今どおり飛ばして報告の冒頭に並べる。
+
+設計だけの run（入力 design_only）では、修正前の関所を項目の有無に関わらず開け、設計だけの行を 1 行載せる（持ち主 2026-09-30。
+調べた改造の案を、直す前の判定・修正案・事前審査・独立設計だけに流して見る）。continue で今どおり修正へ進み、stop で報告へ進む。
+この行は決め手の濾しにも無人の濾しにも掛けない（無人の殻は関所で stop を返すので、無人の設計だけの run も止まって報告へ進む）。
+直す義務が 0 件の周は関所の節が走らず、修正もしない。
 - asks(b)・answered(b, q)・returned(b): 関所に載せる問い・関所で答えたか・答えで直す義務に戻る単位
 - held_lines(b)・returned_lines(b): 最後の関所の文と報告に並べる聞いたままの問い・修正役に渡す義務に戻った単位
+- design_only(b): 設計だけの run か
 - unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
 - PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
 - LANES_NAME・fell_lanes(b): 独立の目の筋が落ちた文の置き場と読み手（blk-eyes が書き、最後の関所の目の行の下に並ぶ）
@@ -77,6 +83,10 @@ HOLD = re.compile(r"保留\s*[:：]\s*([^。；;\n）)」]+)")   # 一言の「�
 HOLD_SEP = re.compile(r"[\s、，,・/／]+")   # 並べた key の区切り（関所の文も「・」で並べる）。key は区切りの間の全体で突き合わせる
 START_FILE = "r1/start.json"           # 盤面の start の控え（書き手は entry.start。conflict・report も start_doc で読む）
 UNATTENDED = "true"                   # 入力 unattended の無人の語（entry.UNATTENDED_WORDS）
+DESIGN_ONLY = "true"                  # 入力 design_only の設計だけの語（entry.DESIGN_ONLY_WORDS）
+DESIGN_ONLY_KIND = "design_only"      # 関所の項目の kinds（設計だけの行）
+DESIGN_ONLY_ITEM = ("設計だけの run: 修正に進まない（continue で修正へ進む・stop で報告へ。判定・修正案・事前審査・独立設計は"
+                    "報告の見る所に並ぶ）")
 ASK_GATE_HEAD = ("判定の役が人に聞くと保留にした問い（問いの台帳）が在る。continue の一言に問いごとに選んだ選択肢を書け。"
                  "一言が問いに触れなければ、修正役はその問いの理由の推しで直す（continue でその問いの出どころ・depends は直す義務に戻る）。"
                  "保留を続けたい問いは一言に「保留: <問いの key>」と書け（複数は「・」で並べてよい。その出どころはこの run では直さず、報告の冒頭に並ぶ）")
@@ -86,7 +96,7 @@ ASK_GATE_HEAD = ("判定の役が人に聞くと保留にした問い（問い�
 PLAIN = {"p2.diagnose": "判定", "p2.fix_plan": "修正案", "p2.plan_review": "事前審査", GATE_NODE: "直す前の関所",
          "p3.fix": "修正", "p3.delta_review": "差分の審査", "p3.delta_fix": "手直し", "p3.delta_review2": "2 回目の審査",
          "p3.delta_fix2": "手直し 2 回目", "p4.ci": "最後のテスト", "r4.human_gate": "独立の目が人に回した問い",
-         "spec.approve": "仕様の承認の関所"}
+         "spec.approve": "仕様の承認の関所", "r2.design": "独立設計"}
 # 独立の目の名 → 何を見る目か（流れの図の 17 項）と、目の判定の状態の語 → 平易な言い方（語は写しの検証器の REVIEW_STATUS）
 EYES = {"R1": "直しが最小か・注記が正しいかを見る目", "R2": "独立の設計と構造が合うかを見る目",
         "R3": "前提と全体の筋を見る目", "R4": "依頼の範囲を超えていないかを見る目"}
@@ -112,7 +122,7 @@ PUSH_IN = re.compile(r"推し\s*[:：]\s*([^／\n]+)")
 # 関所の項目の種類（写しの RL の human_gate と gatemarks の問いの kinds）→ 平易な言い方
 KIND_WORDS = {"regression": "今ある能力を減らす・狭める変更", "policy": "人の方針とぶつかる変更",
               "policy_changed": "人の方針の文書が変わった", ASK_KINDS[0]: "判定の役が人に聞くと保留にした問い",
-              ASK_KINDS[1]: "人でないと決められない問い"}
+              ASK_KINDS[1]: "人でないと決められない問い", DESIGN_ONLY_KIND: "設計だけの run の見せ場"}
 
 
 def quote(question) -> list:
@@ -289,7 +299,21 @@ def plan_gate_items(b) -> list:
     items = [(kind, text) for kind, text, m in rows if not decided(m)]
     if not unattended(b):
         items += [(_ask_kind(q), ask_text(q)) for q in asks(b) if not answered(b, q)]
+    if design_only(b) and not _design_only_answered(b):
+        items.append((DESIGN_ONLY_KIND, DESIGN_ONLY_ITEM))
     return items
+
+
+def design_only(b) -> bool:
+    """run が設計だけの run（start の控えの design_only。読めなければ今どおりの run）"""
+    return start_doc(b.dir).get("design_only") == DESIGN_ONLY
+
+
+def _design_only_answered(b) -> bool:
+    """修正前の関所が設計だけの行に continue を受けた（同じ周で関所を評価し直しても 2 度聞かない）"""
+    return any(isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "continue"
+               and DESIGN_ONLY_ITEM in (h.get("asked") or [])
+               for h in (b.record.get("process") or {}).get("human_items") or [])
 
 
 def unattended(b) -> bool:

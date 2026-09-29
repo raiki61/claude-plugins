@@ -694,6 +694,31 @@ class NextRequestCase(ReportBase):
 
 
 # ---------------------------------------------------------------- 費用
+class HeadWhereDesignCase(unittest.TestCase):
+    """止めた run（修正前の関所で stop）の見る所: 判定・修正案・事前審査と並んで、盤面の根の独立設計（design.json）が載る。
+    design.json の無い盤面ではそのパスを出さない"""
+
+    def board(self, tmp):
+        import types
+        outs = {n: {"file": f"out/r1/{n}.json"} for n in ("p2.diagnose", "p2.fix_plan", "p2.plan_review")}
+        return types.SimpleNamespace(dir=tmp, loop_state={}, state={"outputs": outs, "inputs": {"cwd": str(tmp)}})
+
+    def test_stopped_run_lists_the_independent_design(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = pathlib.Path(t)
+            (tmp / "design.json").write_text("{}", encoding="utf-8")
+            where = report.head_where(self.board(tmp))
+            for label in ("判定: ", "修正案: ", "事前審査: "):
+                self.assertTrue(any(x.startswith(label) for x in where), (label, where))
+            self.assertIn(f"独立設計: {tmp / 'design.json'}", where)
+
+    def test_no_design_file_no_design_path(self):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = pathlib.Path(t)
+            where = report.head_where(self.board(tmp))
+            self.assertFalse(any(str(tmp / "design.json") in x for x in where), where)
+
+
 class CostCase(unittest.TestCase):
     # 節の費用は data.spend.costUsd（Archon v0.11.1）。**推測**: 数が入る時の形は録った実物（tests/events）に 0 件で、有限の数と置いた
     EVENTS = [{"event_type": "node_completed", "step_name": "judging__judge-loop.judge", "data": {"spend": {"costUsd": 0.0284}}},

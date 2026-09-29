@@ -210,6 +210,37 @@ class LedgerAsksCase(GateBase):
         self.assertNotIn(gatemarks.ASK_HEAD, self.head(empty))
 
 
+class DesignOnlyCase(GateBase):
+    """設計だけの run（start の控えの design_only）: 修正前の関所を項目の有無に関わらず開け、無人の run でも開け、
+    その行に continue を受けた後は 2 度聞かない。design_only の無い・空の run は今どおり項目だけで開く"""
+
+    def start(self, **doc):
+        (self.tmp / "r1").mkdir(exist_ok=True)
+        (self.tmp / "r1" / "start.json").write_text(json.dumps(doc), encoding="utf-8")
+
+    def test_design_only_run_opens_the_gate_without_items(self):
+        for doc in ({}, {"design_only": ""}):
+            with self.subTest(doc=doc):
+                self.start(**doc)
+                got, _ = self.gate()
+                self.assertEqual(got, {"ok": True})
+        self.start(design_only="true")
+        got, b = self.gate()
+        self.assertEqual(got.get("decision"), "ask", got)
+        self.assertEqual((got["ask"]["kinds"], len(got["ask"]["items"])), (["design_only"], 1))
+        self.assertIn("design_only", gatemarks.KIND_WORDS)   # 関所の文が『人が決める項目』と書かない
+        b.record["process"]["human_items"].append({"round": 1, "kinds": got["ask"]["kinds"], "asked": got["ask"]["items"],
+                                                   "answer": "continue", "note": "", "node": "p2.human_gate"})
+        self.assertEqual(gatemarks.plan_gate_items(b), [])   # continue を受けた設計だけの行は 2 度聞かない
+
+    def test_design_only_opens_even_when_unattended(self):
+        """無人の run でも設計だけの行は載り（無人の殻が stop を返して報告へ進む）、問いの行は今どおり載せない"""
+        self.start(unattended="true", design_only="true")
+        got, _ = self.gate(questions=[FORK], units=UNITS)
+        self.assertEqual(got.get("decision"), "ask", got)
+        self.assertEqual(got["ask"]["kinds"], ["design_only"])
+
+
 RECORD_NAME = re.compile(r"(?<![A-Za-z0-9_.])(?:(?:p\d|spec|report)\.[a-z0-9_]+|process\.[a-z_.]+[a-z]|fix_test_scope|fix_code_as|ask_human)")
 EYE_OR_STATE = re.compile(r"(?<![A-Za-z0-9_-])(?:R[1-4]|pass|redesign-needed|unverifiable|premise-invalid|carried_over|not_applicable"
                           r"|not_run)(?![A-Za-z0-9_-])")

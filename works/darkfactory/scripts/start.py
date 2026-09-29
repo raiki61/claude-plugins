@@ -32,9 +32,9 @@ import script_io  # noqa: E402
 INPUTS = {"INPUTS_REQUEST": "request", "INPUTS_BASE": "base", "INPUTS_PR": "pr", "INPUTS_TEST_CMD": "test_cmd",
           "INPUTS_THICKNESS": "thickness", "INPUTS_GATES": "gates", "INPUTS_FINAL_GATE": "final_gate",
           "INPUTS_ADAPTER": "adapter", "INPUTS_POLICY_MD": "policy_md", "INPUTS_LANG": "lang",
-          "INPUTS_UNATTENDED": "unattended"}
+          "INPUTS_UNATTENDED": "unattended", "INPUTS_DESIGN_ONLY": "design_only"}
 # 無くても欠けに数えない入力（後から足した入力。前の版の with: で再開した run は渡さない。無いのは空と同じ）
-OPTIONAL = frozenset({"INPUTS_LANG", "INPUTS_BASE", "INPUTS_PR", "INPUTS_UNATTENDED"})
+OPTIONAL = frozenset({"INPUTS_LANG", "INPUTS_BASE", "INPUTS_PR", "INPUTS_UNATTENDED", "INPUTS_DESIGN_ONLY"})
 RUN_ID_ENV = "WORKFLOW_ID"
 NON_EMPTY = (script_io.ARTIFACTS_ENV, RUN_ID_ENV)
 

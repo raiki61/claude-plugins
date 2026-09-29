@@ -463,10 +463,10 @@ class CheckInputsCase(StartCaseBase):
         repo = self.seed()
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
-                                    "final_gate", "adapter", "policy_md", "lang", "unattended"})
+                                    "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only"})
         self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"],
-                          got["lang"], got["unattended"]),
-                         ("標準", "", "always", "", "", "", "", ""))
+                          got["lang"], got["unattended"], got["design_only"]),
+                         ("標準", "", "always", "", "", "", "", "", ""))
         self.assertEqual(len(got["items"]), 2)
         self.assertEqual(got["request_file"], str((self.tmp / "r.json").resolve()))
         self.assertIn("mean", got["request_text"])
@@ -496,7 +496,7 @@ class CheckInputsCase(StartCaseBase):
 
     def test_unknown_words_refused(self):
         repo = self.seed()
-        for key in ("thickness", "final_gate", "adapter", "unattended", "gates"):
+        for key in ("thickness", "final_gate", "adapter", "unattended", "design_only", "gates"):
             with self.subTest(key):
                 with self.assertRaises(entry.InputRefused) as cm:
                     entry.check_inputs(self.raw(**{key: "x"}), repo)

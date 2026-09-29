@@ -48,7 +48,10 @@ inputs:
     description: 報告と、関所・報告に載る役の文の言語（AI の報告の指示書と、ほかの役の指示書の末尾の言語の 1 行が読む inputs.lang。graphloops の --lang と同じ）。空は依頼文の言語（利用者の言語）
   unattended:
     default: ""
-    description: 無人の run か。空は人の居る run。true は人が答えない run（use.sh の WORKS_USE_UNATTENDED=1）で、判定の保留の問いだけでは修正前の関所を開かず、問いの出どころを飛ばして修正へ進み、問いを報告の冒頭に並べる
+    description: 無人の run か。空は人の居る run。true は人が答えない run（use.sh の WORKS_USE_UNATTENDED=1）で、判定の保留の問いだけでは修正前の関所を開かず、問いの出どころを飛ばして修正へ進み、問いを報告の冒頭に並べる（design_only=true と組めば関所は開き、use.sh が stop で報告へ進める）
+  design_only:
+    default: ""
+    description: 設計だけの run か。空は今どおり。true は修正前の関所を項目の有無に関わらず開けて止める（dogfood.sh・use.sh の WORKS_DESIGN_ONLY=1）。continue で今どおり修正へ進み、stop で報告へ進む（判定・修正案・事前審査・独立設計が報告の見る所に並ぶ）。直す義務が 0 件の周は関所が走らず、修正もしない
   tdd_suite:
     default: ""
     description: テストの実行器（JUnit XML の書き先を第 1 引数に受ける実行ファイル。対象の根から。後ろに試験のファイル・node id（絶対パス）と -k を足して呼ぶことがある）。空なら修正の段の TDD の輪を飛ばす
@@ -84,6 +87,7 @@ nodes:
       policy_md: $INPUTS.policy_md
       lang: $INPUTS.lang
       unattended: $INPUTS.unattended
+      design_only: $INPUTS.design_only
     output_format:
       type: object
       required: [ok, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, ci_role_go, head_line]
@@ -407,7 +411,7 @@ nodes:
     when: "$h-gate.output.ask == true"
     approval:
       message: |
-        修正の前に人に聞くことがある（狭める能力・事前審査の後退と方針の穴・方針の文書の変化・判定の保留の問い）。
+        修正の前に人に聞くことがある（狭める能力・事前審査の後退と方針の穴・方針の文書の変化・判定の保留の問い・設計だけの run）。
         全文と答え方: $h-gate.output.gate_file（Read して答える）。
         continue "<通す範囲と条件>" で修正へ、stop "<理由>" で止めて報告へ。approve は continue、reject は stop と同じ。
       decisions:

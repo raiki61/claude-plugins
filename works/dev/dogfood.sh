@@ -19,6 +19,7 @@
 #   しない（問い合わせは認証を読ませない）。続きの行が前置き（WORKS_DEV_HOME・CLAUDE_BIN_PATH など）ごと付けて打つ。
 #   入力: tdd_suite=works/dev/tdd-suite.sh（WORKS_DOGFOOD_TDD_SUITE で替える・空で輪を飛ばす）・adapter は空＝包みを求める
 #   （既定。WORKS_DEV_ADAPTER=0 か空で包みを外すと adapter=optional）・final_gate=always（WORKS_DOGFOOD_FINAL_GATE で when_needed に）。
+#   WORKS_DESIGN_ONLY=1 は設計だけの run: 入力 design_only=true を渡し、修正前の関所を項目の有無に関わらず開けて止める。
 # 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
 # <dir> に前の回の repo・origin.git・request.json が在れば、何も書かずに止まる（前の回の依頼を上書きしない）。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（ここでは埋めない。既定を解いて書くのは archon.sh）。
@@ -161,8 +162,10 @@ set +e
 # 包みを外した run（WORKS_DEV_ADAPTER が 1 でない）は adapter=optional で回す（h-judge が包みの無い run を止めないように。報告に出る）
 TDD_SUITE="${WORKS_DOGFOOD_TDD_SUITE-works/dev/tdd-suite.sh}"
 if [ "${WORKS_DEV_ADAPTER:-}" = 1 ]; then ADAPTER_MODE=""; else ADAPTER_MODE="optional"; fi
-sh "$ARCHON" workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2" \
+set -- workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2" \
   --input tdd_suite="$TDD_SUITE" --input adapter="$ADAPTER_MODE" --input final_gate="${WORKS_DOGFOOD_FINAL_GATE:-always}"
+if [ "${WORKS_DESIGN_ONLY:-}" = 1 ]; then set -- "$@" --input design_only=true; fi
+sh "$ARCHON" "$@"
 run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
