@@ -477,9 +477,9 @@ class CommandArgvCase(unittest.TestCase):
             argv, how = tree_run.command_argv(cmd)
             self.assertEqual(how, "direct")
             seen = subprocess.run(["bash", "-c", 'printf "%s\\n" "$@"', "_", *shlex.split(cmd)],
-                                  capture_output=True, text=True).stdout.splitlines()
+                                  capture_output=True, text=True, encoding="utf-8").stdout.splitlines()
             words = subprocess.run(["bash", "-c", f'set -- {cmd}; printf "%s\\n" "$@"'],
-                                   capture_output=True, text=True).stdout.splitlines()
+                                   capture_output=True, text=True, encoding="utf-8").stdout.splitlines()
             self.assertEqual(argv, words)
             self.assertEqual(seen, words)
 
