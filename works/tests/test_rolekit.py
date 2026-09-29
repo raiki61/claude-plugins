@@ -115,6 +115,23 @@ class RenderCase(Base):
         self.assertTrue(text.startswith("検証: exit 0\n"), text)
         self.assertTrue(text.endswith(rolekit.SCHEMA_NOTE + dump(b.schema)))
 
+    def test_render_body_ends_with_lang_line_before_schema(self):
+        """役の文は関所と報告に字のまま載るので、本文の末尾（schema の断りの前）に盤面の inputs.lang の 1 行を置く。
+        空の lang は既定（依頼文の言語）。指示書が自分で inputs.lang を描く役（報告）は lang=False で置かない"""
+        b = FakeBoard(self.tmp)
+        text, _ = rolekit.render_body(b, "p9.role", prompts_dir=self.tmp / "gl")
+        head, _, tail = text.partition(rolekit.SCHEMA_NOTE)
+        self.assertTrue(head.endswith("\n\n" + rolekit.lang_line({}) + "\n"), head)
+        self.assertIn(rolekit.LANG_DEFAULT, rolekit.lang_line({"lang": ""}))
+        self.assertEqual(tail, dump(b.schema))
+        b.ctx = lambda: {"record": {"units": [{"key": "u1"}]}, "inputs": {"policy_md": "", "lang": "English"}}
+        text, _ = rolekit.render_body(b, "p9.role", prompts_dir=self.tmp / "gl")
+        self.assertIn(rolekit.LANG_RULE.format(lang="English"), text)
+        self.assertNotIn(rolekit.LANG_DEFAULT, text)
+        off, _ = rolekit.render_body(b, "p9.role", prompts_dir=self.tmp / "gl", lang=False)
+        self.assertNotIn(rolekit.LANG_RULE.format(lang="English"), off)
+        self.assertTrue(text.startswith(off.partition(rolekit.SCHEMA_NOTE)[0].rstrip("\n")), "言語の行は足すだけ（本文は同じ）")
+
     def test_render_needs_pending_instance(self):
         with self.assertRaises(BoardGap):
             rolekit.render_prompt(FakeBoard(self.tmp, pending=False), "p9.role", prompts_dir=self.tmp / "gl")

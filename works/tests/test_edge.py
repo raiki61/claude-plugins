@@ -34,6 +34,7 @@ import engine.util as engine_util  # noqa: E402  （board が写しの graphloop
 import accept  # noqa: E402
 import design  # noqa: E402
 import entry  # noqa: E402
+import gatemarks  # noqa: E402
 import halt  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
@@ -359,6 +360,19 @@ class FinalGateCase(EdgeBase):
         self.assertEqual(b.work(line_edge.FINAL_GATE_FILE).read_text(encoding="utf-8"), text)
         self.assertEqual(got["gate_file"], str(b.work(line_edge.FINAL_GATE_FILE)))
 
+    def test_final_gate_starts_with_three_lines(self):
+        """最後の関所の文は冒頭 3 行（起きたこと・決めてほしいこと・推し）で始まり、今の中身（テスト・ログ・作業ツリー・答え方）は
+        その後ろに残る。記録に推しが無ければ機械は推さない"""
+        tests = self.closed()
+        text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
+        lines = text.splitlines()
+        self.assertEqual([x.split(": ", 1)[0] + ": " for x in lines[:3]], [gatemarks.HAPPENED, gatemarks.DECIDE, gatemarks.PUSH])
+        self.assertIn("テストは緑", lines[0])
+        self.assertEqual(lines[2], gatemarks.PUSH + gatemarks.NO_PUSH)
+        rest = "\n".join(lines[3:])
+        for want in (tests["log"], str(self.repo), "差分の審査の穴: 0 件", line_edge.answer.line(RUN_ID, "continue", "<一言>")):
+            self.assertIn(want, rest)
+
     def test_final_gate_words_match_entry(self):
         """ラインの入力 final_gate の語は、start（entry.check_inputs）が受ける語と境の節が読む語で同じ（C18。mid_gate は無い）"""
         self.assertEqual(entry.FINAL_GATES, line_edge.FINAL_GATES)
@@ -477,8 +491,8 @@ class FinalGateCase(EdgeBase):
 
 class ProtectedGateCase(EdgeBase):
     """守りのファイル（works/.shared/core/protected.json の一覧。ASF の floor.json に倣う）を run が触ったら、最後の人の関所を
-    final_gate が when_needed でも必ず開き、文の頭に「守りのファイルを触った」とファイル・行数・規則を並べ、盤面の
-    process.human_items にも 1 行（報告の冒頭 1 に出る）。通すのは人の continue だけ。関所が開かなかった答え（null）は止める。
+    final_gate が when_needed でも必ず開き、文の冒頭 3 行の 1 行目で「守りのファイルを触った」と名指し、3 行の直後の最初の節に
+    ファイル・行数・規則を並べ、盤面の process.human_items にも 1 行（報告の冒頭 1 に出る）。通すのは人の continue だけ。関所が開かなかった答え（null）は止める。
     試験の一覧は種の stats.py を守る物に差し替える（本物の一覧は test_protect が見る）"""
 
     def setUp(self):
@@ -502,7 +516,8 @@ class ProtectedGateCase(EdgeBase):
         return [h for h in b.record["process"]["human_items"] if h.get("node") == line_edge.PROTECTED_BY]
 
     def test_touch_forces_gate_when_needed(self):
-        """when_needed・緑・問い無し・異議無しでも、守りのファイルを触っていれば開き、文の頭に節・ファイル・行数・規則"""
+        """when_needed・緑・問い無し・異議無しでも、守りのファイルを触っていれば開き、1 行目で名指し、本文の前の節に
+        ファイル・行数・規則"""
         tests = self.touched_closed()
         got = self.edge("final", tests=tests, final_gate="when_needed")
         self.assertTrue(got["ask"])
@@ -519,7 +534,21 @@ class ProtectedGateCase(EdgeBase):
     def test_touch_on_top_with_always(self):
         tests = self.touched_closed()
         text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
-        self.assertTrue(text.startswith("## " + line_edge.PROTECTED_HEAD), text[:80])
+        lines = text.splitlines()
+        self.assertTrue(any(line_edge.PROTECTED_HEAD in x for x in lines[:3])
+                        and next(x for x in lines if x.startswith("## ")).startswith("## " + line_edge.PROTECTED_HEAD),
+                        text[:300])
+
+    def test_touch_named_in_three_lines_and_first_heading(self):
+        """守りのファイルを触った run の最後の関所の文: 1 行目が「起きたこと: 」で守りのファイルを名指し、2・3 行目が決めてほしい
+        こと・推し、最初の見出しが守りのファイルの節（持ち主 2026-09-29: 冒頭 3 行の直後に置く）"""
+        tests = self.touched_closed()
+        lines = self.edge("final", tests=tests, final_gate="always")["gate_text"].splitlines()
+        self.assertTrue(lines[0].startswith(gatemarks.HAPPENED), lines[0])
+        self.assertIn(line_edge.PROTECTED_HEAD, lines[0])
+        self.assertTrue(lines[1].startswith(gatemarks.DECIDE), lines[1])
+        self.assertTrue(lines[2].startswith(gatemarks.PUSH), lines[2])
+        self.assertTrue(next(x for x in lines if x.startswith("## ")).startswith("## " + line_edge.PROTECTED_HEAD))
 
     def test_untouched_is_unchanged(self):
         """触っていなければ今までどおり: when_needed・緑は開かず、盤面の行も無い。always の文に節は無い"""
@@ -1253,7 +1282,7 @@ class FinalGateEyesCase(EdgeBase):
         text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
         self.assertIn("独立の目の判定（阻害: 無い）", text)
         for name in ("R1", "R2", "R3", "R4"):
-            self.assertIn(f"  - {name}: ", text)
+            self.assertIn(f"（{name}）: ", text)
         self.assertIn(f'報告へ進める: {line_edge.answer.line(RUN_ID, "continue", "<一言>")}', text)
 
     def test_when_needed_opens_on_eye_block(self):
@@ -1267,7 +1296,7 @@ class FinalGateEyesCase(EdgeBase):
         got = self.edge("final", tests=tests, final_gate="when_needed")
         self.assertTrue(got["ask"])
         self.assertIn("独立の目の判定（阻害: R3）", got["gate_text"])
-        self.assertIn("R3: redesign-needed（横断で揃っていない）", got["gate_text"])
+        self.assertIn("前提と全体の筋を見る目（R3）: 作り直しが要る（redesign-needed）——理由: 横断で揃っていない", got["gate_text"])
 
     def test_not_run_is_shown_but_not_a_block(self):
         """not_run は機械が書く欠け（目の判定でない）: 文には出すが、when_needed の関所を開く理由にしない"""
@@ -1278,7 +1307,7 @@ class FinalGateEyesCase(EdgeBase):
         doc["reviews"]["R1"] = {"status": "not_run", "reason": "走らせるべき周に返答が無い"}
         rounded.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
         self.assertFalse(self.edge("final", tests=tests, final_gate="when_needed")["ask"])
-        self.assertIn("R1: not_run", self.edge("final", tests=tests, final_gate="always")["gate_text"])
+        self.assertIn("（R1）: 走っていない（not_run）", self.edge("final", tests=tests, final_gate="always")["gate_text"])
 
     def test_look_does_not_take_gate(self):
         """関所の答えを受けるのは at eyes（関所の後）だけ。at look（関所の前）に答えを渡すのは配線の誤り"""

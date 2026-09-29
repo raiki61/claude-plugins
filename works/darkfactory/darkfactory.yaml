@@ -45,7 +45,7 @@ inputs:
     description: 人の方針の文書のパス（空なら既定の置き場。graphloops の policy_md と同じ）
   lang:
     default: ""
-    description: 報告の言語（AI の報告の指示書が読む inputs.lang。graphloops の --lang と同じ）。空は依頼文の言語（利用者の言語）
+    description: 報告と、関所・報告に載る役の文の言語（AI の報告の指示書と、ほかの役の指示書の末尾の言語の 1 行が読む inputs.lang。graphloops の --lang と同じ）。空は依頼文の言語（利用者の言語）
   unattended:
     default: ""
     description: 無人の run か。空は人の居る run。true は人が答えない run（use.sh の WORKS_USE_UNATTENDED=1）で、判定の保留の問いだけでは修正前の関所を開かず、問いの出どころを飛ばして修正へ進み、問いを報告の冒頭に並べる

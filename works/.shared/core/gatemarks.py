@@ -21,12 +21,18 @@ undecided_because の規律（本流 p2.diagnose.md 8 項）を関所の項目�
 - asks(b)・answered(b, q)・returned(b): 関所に載せる問い・関所で答えたか・答えで直す義務に戻る単位
 - held_lines(b)・returned_lines(b): 最後の関所の文と報告に並べる聞いたままの問い・修正役に渡す義務に戻った単位
 - unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
-標準ライブラリだけ。
+- PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
+- quote(question)・QUOTE_NOTE: 盤面の問いの文を引用として載せる行と、関所で添える答え方の読み替えの 1 行
+- head3(happened, decide, push)・pushes(texts)・push_of(texts): 関所の文と報告の冒頭 3 行（起きたこと・決めてほしいこと・推し）と、推しを記録から拾う口
+- gate_text(asking, *, run_id, node, record_name): 答えを受ける関所の文（修正前の関所と仕様の関所が呼ぶ 1 つの組み立て）
+標準ライブラリと core の answer（L1。答えの行）だけ。
 """
 import copy
 import json
 import pathlib
 import re
+
+import answer
 
 MARKS_FILE = "gate-marks.json"
 FIELDS = ("decided_by", "undecided_because", "fences")
@@ -62,6 +68,97 @@ UNATTENDED = "true"                   # 入力 unattended の無人の語（entr
 ASK_GATE_HEAD = ("判定の役が人に聞くと保留にした問い（問いの台帳）が在る。continue の一言に問いごとに選んだ選択肢を書け。"
                  "一言が問いに触れなければ、修正役はその問いの理由の推しで直す（continue でその問いの出どころ・depends は直す義務に戻る）。"
                  "保留を続けたい問いは一言に「保留: <問いの key>」と書け（複数は「・」で並べてよい。その出どころはこの run では直さず、報告の冒頭に並ぶ）")
+# 関所の文と報告が主語にする平易な名（盤面の節 → 流れの図 docs/darkfactory-flow.md の工程の日本語の名）。初めて読む人は盤面の
+# 節の名を解けないので、平易な名を主語にし、記録と照らす内部の名は named() が括弧に回す。報告の「見る所」の表もここから引く。
+# 図の英語の工程の名はラインの節の id で、層の決まり（下の層はラインの名を書かない）により持たない
+PLAIN = {"p2.diagnose": "判定", "p2.fix_plan": "修正案", "p2.plan_review": "事前審査", GATE_NODE: "直す前の関所",
+         "p3.fix": "修正", "p3.delta_review": "差分の審査", "p3.delta_fix": "手直し", "p3.delta_review2": "2 回目の審査",
+         "p3.delta_fix2": "手直し 2 回目", "p4.ci": "最後のテスト", "r4.human_gate": "独立の目が人に回した問い",
+         "spec.approve": "仕様の承認の関所"}
+# 独立の目の名 → 何を見る目か（流れの図の 17 項）と、目の判定の状態の語 → 平易な言い方（語は写しの検証器の REVIEW_STATUS）
+EYES = {"R1": "直しが最小か・注記が正しいかを見る目", "R2": "独立の設計と構造が合うかを見る目",
+        "R3": "前提と全体の筋を見る目", "R4": "依頼の範囲を超えていないかを見る目"}
+REVIEW_WORDS = {"pass": "通った", "redesign-needed": "作り直しが要る", "unverifiable": "確かめられない",
+                "premise-invalid": "前提が崩れている", "carried_over": "前の周から持ち越した", "not_applicable": "当てはまらない",
+                "not_run": "走っていない"}
+HANDLED_WORDS = {"fixed": "直した", "declared": "直さずに残すと申告した"}   # 手直しの行の handled の語（写しの graph の enum）
+
+
+# 盤面の問いの文は写しの規則が本線の道具の書き方（continue --note・--detail）で作り、写しは本線とバイト一致で縛られて直せない。
+# 関所の文ではそれを引用として置き、この 1 行で読み替える（--detail は答えの行に口が無い。--exclude は盤面に残るが線は読まない）
+QUOTE_NOTE = ("（引用の中の continue --note <…> は本線の道具の書き方。この関所では下の continue の行の一言で答える。"
+              "--detail（単位を外す）はこの関所に無い——外したい単位と理由を一言に書けば修正役に届くが、直す義務の数からは外れない）")
+
+# 人が読む関所の文と報告の冒頭 3 行の頭（依頼の「冒頭 3 行で完結」。形は BLUF と本線 report-items.md の冒頭 3 行）
+HAPPENED, DECIDE, PUSH = "起きたこと: ", "決めてほしいこと: ", "推し: "
+# 推しは機械が作らない: 判定の役が問いの reason に書いた推しだけを拾い、無ければこの言い方（ask_text の項目と同じ）
+NO_PUSH = "判定の役が書いていない"
+PUSH_IN = re.compile(r"推し\s*[:：]\s*([^／\n]+)")
+# 関所の項目の種類（写しの RL の human_gate と gatemarks の問いの kinds）→ 平易な言い方
+KIND_WORDS = {"regression": "今ある能力を減らす・狭める変更", "policy": "人の方針とぶつかる変更",
+              "policy_changed": "人の方針の文書が変わった", ASK_KINDS[0]: "判定の役が人に聞くと保留にした問い",
+              ASK_KINDS[1]: "人でないと決められない問い"}
+
+
+def quote(question) -> list:
+    """盤面の問いの文を引用の行（> ）に。文が無ければそう書く"""
+    return [f"> {x}".rstrip() for x in str(question or "").splitlines()] or ["> （問いの文が無い）"]
+
+
+def named(node) -> str:
+    """盤面の節を人が読む名に: 「平易な名（記録の名 <節>）」。表に無い節は「盤面の節（記録の名 <節>）」"""
+    return f"{PLAIN.get(str(node), '盤面の節')}（記録の名 {node}）"
+
+
+def eye_named(name: str, status) -> str:
+    """独立の目の 1 行の頭: 「何を見る目（R<n>）: 平易な状態（状態の語）」"""
+    return f"{EYES.get(name, '独立の目')}（{name}）: {REVIEW_WORDS.get(str(status), '')}（{status}）"
+
+
+def pushes(texts) -> str:
+    """文の列（問いの理由・関所の項目）に判定の役が書いた推しを「；」で繋ぐ。1 つも無ければ NO_PUSH（機械は推しを作らない）"""
+    got = [m.strip() for t in texts for m in PUSH_IN.findall(str(t or "")) if m.strip() and m.strip() != NO_PUSH]
+    return "；".join(dict.fromkeys(got)) or NO_PUSH
+
+
+def head3(happened: str, decide: str, push: str, *, other: str = "") -> list:
+    """冒頭 3 行: 起きたこと・決めてほしいこと・推し。決めることが無ければ 2 行目に other（次に大事な事実）を置く
+    （「無い」と断る決まり文句は書かない。本線 report-items.md の冒頭 3 行の決まり）"""
+    return [HAPPENED + happened, DECIDE + decide if decide else other, PUSH + push]
+
+
+def push_of(texts) -> str:
+    """pushes に、推しの無い項目が混じる時の断り（推しの在る項目の推しを全部の項目の推しと読ませない）"""
+    got = pushes(texts)
+    lacking = [t for t in texts if not PUSH_IN.search(str(t or "")) or PUSH + NO_PUSH in str(t or "")]
+    return got + ("（ほかの項目の推しは判定の役が書いていない）" if got != NO_PUSH and lacking else "")
+
+
+def gate_text(asking: dict, *, run_id: str, node: str, record_name: str) -> str:
+    """盤面の問い {node, kinds, question, items, …} を答えを受ける関所の文にする（修正前の関所の plan.gate_text と仕様の関所の
+    specblk.gate_text が呼ぶ 1 つの組み立て）。冒頭 3 行（起きたこと＝どの関所に何の項目が何件・決めてほしいこと＝通すか
+    止めるか・推し＝項目の問いの理由に判定の役が書いた推し）→ 台帳の問いへの答え方（ASK_GATE_HEAD）→ 問いの文の引用と読み替えの
+    1 行（QUOTE_NOTE）→ 項目 1 行ずつ → 答え方（answer.line。一言は record_name の記録に残る）。頭は平易な名で、盤面の節の
+    名と種類の語は括弧に回す（named）"""
+    if not isinstance(asking, dict):
+        raise TypeError(f"盤面の問いが dict でない: {type(asking).__name__}")
+    kinds = [str(k) for k in asking.get("kinds") or []]
+    items = [str(x) for x in asking.get("items") or []]
+    what = "・".join(f"{KIND_WORDS.get(k, '人が決める項目')}（{k}）" for k in kinds) or "人が決める項目"
+    ask = bool(set(kinds) & set(ASK_KINDS))   # 写しの問いの文は狭め・後退・方針しか名乗らない
+    lines = head3(f"{named(asking.get('node') or node)}が開いた。人が決める項目が {len(items)} 件ある——{what}",
+                  "下の項目をこのまま通して直しへ進めるか、止めるか（通すなら通す範囲と条件を一言に書く"
+                  + ("。台帳の問いには選ぶ選択肢も一言に書く" if ask else "") + "。打つ行は末尾の答え方）",
+                  push_of(items)) + [""]
+    if ask:
+        lines += [ASK_GATE_HEAD, ""]
+    lines += ["問いの文（記録のまま引く）:", *quote(asking.get("question")), QUOTE_NOTE, "", f"項目（{len(items)} 件）:"]
+    lines += [f"- {x}" for x in items] or ["- （無し）"]
+    lines += ["", "答え方（人が決める関所。依頼者に聞いて、その言葉で答える）:",
+              f"- 通す: {answer.line(run_id, 'continue', '<通す範囲と条件>')}（一言は run の記録（記録の名 {record_name}）に残り、"
+              "修正役に届く）",
+              f"- 止める: {answer.line(run_id, 'stop', '<理由>')}（報告は出る）"]
+    return "\n".join(lines) + "\n"
 
 
 def _row_props(node: str, schema: dict):
@@ -270,5 +367,5 @@ def passes(b) -> list:
 
 def lines(b) -> list:
     """最後の関所の文と報告に載せる、決め手で通した行（1 件 1 行）"""
-    return [f"{p['node']}（周 {p['round']}）で決め手が在るので聞かずに通した: {p['item']}（決め手: {p['decided_by']}）"
+    return [f"{named(p['node'])}（周 {p['round']}）で決め手が在るので聞かずに通した: {p['item']}（決め手: {p['decided_by']}）"
             for p in passes(b)]

@@ -5,6 +5,7 @@
                   reads だけ・ref・schema の断り）で本文を描き、(本文, 番号の控え) を返す。描けなければ BoardGap
 - render_prompt:  render_body の本文の頭に head（役の定義など）を置き、今の周の作業ファイル prompt-<節>.md に書く。この周に
                   この節の拒否が在れば、最後の拒否の理由のファイルのパスを頭の 1 行で名指す（文は貼らない。裁定 R44）
+- lang_line:      役に言語を縛る 1 行（LANG_RULE に盤面の inputs.lang）。render_body と rulebook.render の呼び手が指示書に置く
 - compose:        指示書の部分を繋ぎ、前の拒否の理由のファイルを頭の 1 行で名指す（render_prompt と、本線の写しでない指示書を
                   スクリプトが組むブロックが使う）
 - role_definition: 役の定義の本文を指示書の頭に置くための (本文, ファイル, 無い時の知らせ)。写しの plugin の役が引けなければ BoardGap
@@ -38,7 +39,7 @@ _CORE = pathlib.Path(__file__).resolve().parent
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
-from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す。engine より先に）
+from board import LANG_DEFAULT, BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す。engine より先に）
 from engine import pointers as _pointers  # noqa: E402
 from engine.advance import agent_type_of  # noqa: E402
 from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
@@ -57,6 +58,9 @@ REJECTS_NAME = "role-rejects.json"      # accept_role が積むこの周の拒�
 GIVE_UP_AFTER = 3                       # 輪の max_iterations と同じ数（ブロックの試験が YAML と突き合わせる）
 REJECT_LINE = ("前の回の返答は受け付けで拒まれた。理由はファイル {path} に在る。先に Read で読み、そこを直した返答を丸ごと"
                "出し直せ（直した所だけを返すな）。")
+# 役の文は関所と報告に機械が字のまま載せるので、書き手に言語を縛る（本線 blk-report の report.md:12 と同じ形。機械で訳さない）
+LANG_RULE = ("人が読む文の欄（reason・how・what・why・異議・所見・申し出の文など、関所と報告に載る文）は {lang} で書け。"
+             "key・enum の値・コード識別子・パス・コマンド・エラー文はそのまま（key は周をまたいで突き合わせるので訳さない）。")
 OVERLAY_FILE = _CORE.parent / "borrow" / "unattended.md"   # 借りたスキルを無人の役で読むときの読み替え（正本）
 OVERLAY_HEAD = ("借りたスキル（superpowers）を読む時は、下の読み替えに従え。これは役への直の指示で、スキルの文より勝つ。"
                 "Agent で下請けを起こすなら、その prompt に、このファイル {path} を Read せよと書け。")
@@ -85,7 +89,7 @@ def prompt_graph_path(b, n, prompts_dir: pathlib.Path = PROMPTS_COPY) -> pathlib
 
 def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_only: bool = True,
                 template: str | None = None, ctx_hook=None, schema_note: bool = True, schema_of: str = "",
-                ahead: bool = False) -> tuple:
+                ahead: bool = False, lang: bool = True) -> tuple:
     """engine の emit_instance と同じ描き方の本文（cap なし。指示書は役がファイルで読む）と番号の控え（pointers.snapshot の
     名前の列。mark_launched の pointers= に渡す形。pointers を持たない節は空の列）。reads_only が偽なら graph の reads で
     穴を絞らない。template は graph の指示書（node_prompt）の代わりに描く本文（ブロックが別の置き場に持つ本線の写し）。
@@ -93,6 +97,7 @@ def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_
     schema_note が偽なら本文の後ろに graph の schema を足さない（指示書の一部だけを材料として描く時。返答の型は役の output_format）。
     schema_of は足す schema を別の節の物にする（待っている節の輪の中で、別の節の指示書を描く時）。
     ahead が真なら節がまだ待っていなくても描く（graph の依存より前に先に役を起こす時。skills は空）。
+    lang が真なら本文の末尾（schema の前）に言語の 1 行（lang_line）を置く（指示書が自分で inputs.lang を描く役は偽）。
     この周に待っている instance が無い（ahead でない時）・描けない（reads に無い穴・盤面の欄の欠け・番号の穴の欠け）は BoardGap"""
     n = b.nodes[nid]
     inst = b.rd["instances"].get(nid)
@@ -113,10 +118,18 @@ def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_
     unseen = sorted(set(offsets) - r.numbered_seen)
     if unseen:
         raise BoardGap(f"{nid}: pointers の from {unseen} を貼る穴が指示書に無い")
+    if lang:
+        text = text.rstrip("\n") + "\n\n" + lang_line(ctx.get("inputs")) + "\n"
     schema = b.nodes[schema_of or nid].get("schema")
     if schema_note and schema:
         text += SCHEMA_NOTE + dump(schema)
     return text, snap
+
+
+def lang_line(inputs) -> str:
+    """役に言語を縛る 1 行（LANG_RULE）。言語は盤面の inputs.lang（空なら board.LANG_DEFAULT＝依頼文の言語）"""
+    got = (inputs or {}).get("lang") if isinstance(inputs, dict) else None
+    return LANG_RULE.format(lang=str(got or "").strip() or LANG_DEFAULT)
 
 
 def prompt_name(nid: str) -> str:

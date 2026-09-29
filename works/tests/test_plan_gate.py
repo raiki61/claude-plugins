@@ -2,7 +2,9 @@
 （entry.CORE_OVERRIDES）を盤面と同じ口（DiskBoard._apply_overrides）で当て、機械の節 human_gate を偽の盤面で直に呼ぶ（FAST。
 盤面・git・子のプロセスなし）。決め手の出どころ decided_by が在り undecided_because が空で柵の印 fences が無い行は通して
 state.works.gate_passes に出どころつきで残し、柵の印か undecided_because の在る行・欄の無い行は今までどおり聞く"""
+import json
 import pathlib
+import re
 import sys
 import tempfile
 import types
@@ -206,6 +208,146 @@ class LedgerAsksCase(GateBase):
         _, empty = self.gate(units=UNITS)
         self.assertIn("盤面の問い: 無い", self.final_text(empty))
         self.assertNotIn(gatemarks.ASK_HEAD, self.head(empty))
+
+
+RECORD_NAME = re.compile(r"(?<![A-Za-z0-9_.])(?:(?:p\d|spec|report)\.[a-z0-9_]+|process\.[a-z_.]+[a-z]|fix_test_scope|fix_code_as|ask_human)")
+EYE_OR_STATE = re.compile(r"(?<![A-Za-z0-9_-])(?:R[1-4]|pass|redesign-needed|unverifiable|premise-invalid|carried_over|not_applicable"
+                          r"|not_run)(?![A-Za-z0-9_-])")
+
+
+def _spans(line: str) -> list:
+    """行の外側の括弧（（）と ()）の (始め, 終わり)"""
+    out, depth, start = [], 0, 0
+    for i, ch in enumerate(line):
+        if ch in "（(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch in "）)" and depth:
+            depth -= 1
+            if depth == 0:
+                out.append((start, i))
+    return out
+
+
+def internal_subjects(text: str) -> list:
+    """人が読む文の行のうち、盤面の内部の名が主語になっている行。記録の名（節の名・記録の欄・裁定の語）は括弧の中の『記録の名』の
+    後ろにだけ、目の名と状態の語は括弧の中にだけ置いてよい（平易な名が主語で、内部の名は括弧に回す）"""
+    bad = []
+    for line in text.splitlines():
+        spans = _spans(line)
+        inside = lambda m: next(((s, e) for s, e in spans if s < m.start() < e), None)  # noqa: E731
+        for m in EYE_OR_STATE.finditer(line):
+            if inside(m) is None:
+                bad.append(line)
+        for m in RECORD_NAME.finditer(line):
+            span = inside(m)
+            if span is None or "記録の名" not in line[span[0]:m.start()]:
+                bad.append(line)
+    return list(dict.fromkeys(bad))
+
+
+class PlainSubjectCase(GateBase):
+    """関所の文と報告の頭は平易な名を主語にし、盤面の内部の名（節の名・記録の欄・目の名・状態の語）は括弧に回す"""
+
+    def test_plan_gate_text_subjects_are_plain(self):
+        text = plan.gate_text({"node": "p2.human_gate", "kinds": ["regression"], "question": "狭まる能力を代償に採るか",
+                               "items": ["項目 A"]}, run_id="run-1")
+        self.assertEqual(internal_subjects(text), [])
+
+    def test_final_gate_text_subjects_are_plain(self):
+        rounds = self.tmp / "rounds"
+        rounds.mkdir()
+        (rounds / "round-1.json").write_text(json.dumps({"reviews": {
+            "R1": {"status": "pass"}, "R2": {"status": "pass"}, "R3": {"status": "not_applicable", "reason": "範囲の外"},
+            "R4": {"status": "not_run"}}}), encoding="utf-8")
+        _, b = self.gate()
+        outs = {"p3.delta_fix": {"handled": [{"key": "単位 A", "handled": "直した", "how": "境の値を足した"}]}}
+        b.output_of_round = lambda nid, rnd: outs.get(nid)
+        b.state["pending_human"] = {"node": "p2.human_gate", "question": "狭まる能力を代償に採るか", "items": ["項目 A"]}
+        text = line_edge._final_text(b, "緑", {}, "", line_edge._eyes(b), self.tmp, "run-1")
+        self.assertEqual(internal_subjects(text), [])
+
+    def test_report_head_subjects_are_plain(self):
+        _, b = self.gate()
+        b.record["process"]["human_items"].append({"round": 1, "kinds": ["regression"], "asked": ["項目 A"],
+                                                   "answer": "continue", "note": "通す", "node": "p2.human_gate"})
+        b.state["pending_human"] = {"node": "p2.human_gate", "question": "狭まる能力を代償に採るか", "items": ["項目 A"]}
+        counts = {"parked": 1, "fix_test_scope": 1, "fix_code_as": 0, "ask_human": 0, "unruled": 0}
+        with mock.patch.object(report, "_stop_info", return_value=("", "", None)), \
+                mock.patch.object(report, "_latest", return_value=None), \
+                mock.patch.object(report.conflict, "counts", return_value=counts), \
+                mock.patch.object(report, "_rejudge_changes", return_value=[]), \
+                mock.patch.object(report, "_premise_hypotheses", return_value=[]), \
+                mock.patch.object(report, "_pr_lines", return_value=[]), \
+                mock.patch.object(report.querytest, "unproven_lines", return_value=[]), \
+                mock.patch.object(report.querytest, "closure_lines", return_value=["単位 A: 閉じていない"]):
+            text = "\n".join(report.head_decisions(b, {}, tests=None, outcome="round_limit",
+                                                   left=[{"where": "判定", "text": "直していない単位が残った"}]))
+        self.assertEqual(internal_subjects(text), [])
+
+    def test_closure_head_subject_is_plain(self):
+        """閉鎖の数え直しは内部の語なので、見出しの主語にせず括弧に回す"""
+        import querytest
+        bare = querytest.CLOSURE_HEAD
+        for s, e in reversed(_spans(bare)):
+            bare = bare[:s] + bare[e + 1:]
+        self.assertNotIn("閉鎖の数え直し", bare)
+
+
+# 写しの規則が本線の答え方で書く問いの文（本線 graphloops の human_gate の question と同じ形）
+MAINLINE_Q = ("今ある能力を減らす変更が挙がった。通すなら continue --note <通す範囲と条件>。\n"
+              "単位を外すなら --detail <JSON のファイル>。通さないなら stop")
+
+
+def unquoted_mainline(text: str) -> list:
+    """引用（> の行）の外で、問いの文の行がそのまま載っている行"""
+    parts = [x.strip() for x in MAINLINE_Q.splitlines()]
+    return [line for line in text.splitlines() if not line.lstrip().startswith(">") and any(p in line for p in parts)]
+
+
+class QuotedQuestionCase(GateBase):
+    """盤面の問いの文は本線の答え方（continue --note・--detail）で書かれているので、関所の文と報告には引用（> の行）として載せ、
+    関所では引用の後に読み替えの 1 行（--note・--detail がこのラインでどう読まれるか）を添え、答え方は answer.line の 1 通りだけ"""
+
+    def asking(self):
+        return {"node": "p2.human_gate", "kinds": ["regression"], "question": MAINLINE_Q, "items": ["項目 A"]}
+
+    def check_gate(self, text, continue_line):
+        self.assertEqual(unquoted_mainline(text), [])
+        quoted = [x.lstrip()[1:].strip() for x in text.splitlines() if x.lstrip().startswith(">")]
+        self.assertEqual(quoted, [x.strip() for x in MAINLINE_Q.splitlines()])
+        after = text.split(quoted[-1], 1)[1].split("答え方", 1)[0]
+        note = [x for x in after.splitlines() if "--note" in x and "--detail" in x]
+        self.assertEqual(len(note), 1, after)
+        self.assertEqual(text.count(continue_line), 1, "答え方の continue は 1 通りだけ")
+
+    def test_plan_gate_quotes_mainline_question(self):
+        self.check_gate(plan.gate_text(self.asking(), run_id="run-1"),
+                        plan.answer.line("run-1", "continue", "<通す範囲と条件>"))
+
+    def test_final_gate_quotes_board_question(self):
+        _, b = self.gate()
+        b.state["pending_human"] = self.asking()
+        b.output_of_round = lambda nid, rnd: None
+        text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        self.assertEqual(unquoted_mainline(text), [])
+        self.assertTrue(any(x.lstrip().startswith(">") for x in text.splitlines()), text)
+
+    def test_report_head_quotes_board_question(self):
+        _, b = self.gate()
+        b.state["pending_human"] = self.asking()
+        with mock.patch.object(report, "_stop_info", return_value=("", "", None)), \
+                mock.patch.object(report, "_latest", return_value=None), \
+                mock.patch.object(report, "_conflict_line", return_value=""), \
+                mock.patch.object(report, "_rejudge_changes", return_value=[]), \
+                mock.patch.object(report, "_premise_hypotheses", return_value=[]), \
+                mock.patch.object(report, "_pr_lines", return_value=[]), \
+                mock.patch.object(report.querytest, "unproven_lines", return_value=[]), \
+                mock.patch.object(report.querytest, "closure_lines", return_value=[]):
+            text = "\n".join(report.head_decisions(b, {}, tests=None))
+        self.assertEqual(unquoted_mainline(text), [])
+        self.assertTrue(any(x.lstrip().startswith(">") for x in text.splitlines()), text)
 
 
 if __name__ == "__main__":

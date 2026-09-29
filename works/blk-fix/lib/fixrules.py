@@ -203,9 +203,9 @@ def ruler_parts(values: dict) -> list:
             ("principles", pr["principles"], ALWAYS + "（持ち主の決まり）"), ("ruler-reply", r["ruler-reply"], ALWAYS + "（返答の欄）")]
 
 
-def ruler_prompt(values: dict, *, reject_file: str = "", iteration: int = 1) -> str:
-    """裁定役の指示書（純粋。いつも全部——輪は 3 回までで、出し直しは同じ会話）"""
-    return render("rule", iteration, ruler_parts(values), reject_file=reject_file)["text"]
+def ruler_prompt(values: dict, *, reject_file: str = "", iteration: int = 1, lang: str = "") -> str:
+    """裁定役の指示書（純粋。いつも全部——輪は 3 回までで、出し直しは同じ会話）。lang は言語の 1 行（lang_at）"""
+    return render("rule", iteration, ruler_parts(values), reject_file=reject_file, lang=lang)["text"]
 
 
 def fix_prompt(values: dict, *, kinds: dict | None = None, reject_file: str = "", prior=None, iteration: int = 1,
@@ -222,13 +222,16 @@ def tdd_prompt(values: dict, phase: str, phase_text: str, *, title: str, reason:
                       rules_file=rules_file)["text"]
 
 
-def tdd_render(values, phase, phase_text, *, title, reason="", kinds=None, prior=None, iteration=1, rules_file="") -> dict:
-    """tdd_prompt の形 {text, delivered, rules_text, head}。並び: 題 → [拒んだ理由] → 決まり → 今の段の約束 → 今の段（tddloop が書く）→ 結び"""
+def tdd_render(values, phase, phase_text, *, title, reason="", kinds=None, prior=None, iteration=1, rules_file="",
+               lang="") -> dict:
+    """tdd_prompt の形 {text, delivered, rules_text, head}。並び: 題 → [拒んだ理由] → 決まり → 今の段の約束 → 今の段（tddloop が書く）→ 結び
+    → [言語の 1 行（lang_at）]"""
     before = [title]
     if reason:
         before.append("## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）\n\n" + reason.rstrip("\n"))
     after = [tdd_phase_rules(phase), phase_text.rstrip("\n"), sections(TDD)["tdd-end"]]
-    return render("tdd", iteration, tdd_parts(values, kinds), prior=prior, rules_file=rules_file, before=before, after=after)
+    return render("tdd", iteration, tdd_parts(values, kinds), prior=prior, rules_file=rules_file, before=before, after=after,
+                  lang=lang)
 
 
 # ---------------------------------------------------------------- 2 つの形を並べて書く（支度の節）
@@ -344,14 +347,24 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
             rulings = conflict.write_rulings(b)
         reject, before = "", (RULINGS_LINE.format(path=rulings),)
     docs = lib_section(b, repo, values)
+    lang = rolekit.lang_line(b.state.get("inputs"))
 
     def build(kinds, prior, rules_file):
         return render("fix", n, fix_parts(values, kinds, docs), prior=prior, rules_file=rules_file, reject_file=reject,
-                      before=before)
+                      before=before, lang=lang)
     write_variants(path, repo, values, build, n)
     m = b.mark_launched(nid, inst.get("attempts", 1))
     return {"prompt_file": str(path), "attempt": m["attempt"], "out_path": m["out_path"], "node": nid, "already": m["already"],
             "variants_file": str(beside(path, VARIANTS)), "iteration": n}
+
+
+def lang_at(board_dir) -> str:
+    """盤面の言語の 1 行（rolekit.lang_line）。盤面が開けなければ空（盤面の外で組む指示書には置かない）"""
+    try:
+        b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
+    except BoardGap:
+        return ""
+    return rolekit.lang_line(b.state.get("inputs"))
 
 
 def reads_more(board_dir) -> list:

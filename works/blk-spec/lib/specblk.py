@@ -50,8 +50,8 @@ from board import BoardGap  # noqa: E402  （board が写しの engine を sys.p
 import engine.util as _util  # noqa: E402
 from engine.util import AnswerReject, Reject, now, safe_name  # noqa: E402
 from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
-import answer as answer_cmd  # noqa: E402  （下の口 def answer と名前がぶつかるので別名）
 import entry  # noqa: E402
+import gatemarks  # noqa: E402
 import halt  # noqa: E402  （止め札の seen だけ。境の節の中身はラインの模块）
 import node_marker  # noqa: E402
 import rolekit  # noqa: E402
@@ -242,18 +242,9 @@ parse_reply = rolekit.parse_reply   # 役の返答を dict に。読めなけれ
 
 # ---------------------------------------------------------------- 関所（線 A の policy-gate と同じ仕組み）
 def gate_text(asking: dict, *, run_id: str = RUN_ID_HOLE) -> str:
-    """盤面の問い {node, kinds, question, items, …} を仕様の関所の文にする（線 A の plan.gate_text の写し。答え方の行だけ
-    仕様の承認に合わせる: 一言は記録の process.spec.approval に残る）。項目は 1 行ずつ、問いの文と種類はそのまま"""
-    kinds = [str(k) for k in asking.get("kinds") or []]
-    items = [str(x) for x in asking.get("items") or []]
-    rid = run_id or RUN_ID_HOLE
-    lines = [f"仕様の承認の関所（盤面の問い {asking.get('node') or '（節の名が無い）'}・種類: {'・'.join(kinds) or '（無し）'}）", ""]
-    lines += [str(asking.get("question") or "（問いの文が無い）"), "", f"項目（{len(items)} 件）:"]
-    lines += [f"- {x}" for x in items] or ["- （無し）"]
-    lines += ["", "答え方（人が決める関所。依頼者に聞いて、その言葉で答える）:",
-              f"- 通す: {answer_cmd.line(rid, 'continue', '<通す範囲と条件>')}（一言は記録の process.spec.approval に残る）",
-              f"- 止める: {answer_cmd.line(rid, 'stop', '<理由>')}（報告は出る）"]
-    return "\n".join(lines) + "\n"
+    """盤面の問い {node, kinds, question, items, …} を仕様の関所の文にする（線 A の修正前の関所と同じ組み立て gatemarks.gate_text。
+    一言は run の記録の仕様の承認に残る）"""
+    return gatemarks.gate_text(asking, run_id=run_id or RUN_ID_HOLE, node=APPROVE, record_name="process.spec.approval")
 
 
 def ask(board_dir, repo, run_id: str) -> dict:

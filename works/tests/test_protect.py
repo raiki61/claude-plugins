@@ -1,7 +1,7 @@
 """守りのファイルの一覧（works/.shared/core/protected.json）と、その確かめ（works/.shared/core/protect.py）の検査。
 
 ASF の .factory/locks/floor.json に倣う: 工場（darkfactory の自分食い）は自分の試験・柵・受け付けの口を緩めない。一覧に当たる
-ファイルを run が触ったら、最後の人の関所を必ず開いて頭に並べる（関所そのものは test_edge の ProtectedGateCase）。
+ファイルを run が触ったら、最後の人の関所を必ず開いて冒頭 3 行で名指し、直後の最初の節に並べる（関所そのものは test_edge の ProtectedGateCase）。
 - 一覧の行はどれも、このリポジトリで追跡しているファイルに 1 本以上当たる（当たらない行は古い行で赤。KNOWN の表と同じ扱い）
 - 一覧の読み（match）は git の :(glob) と同じ当たり方をする（行ごとに git ls-files と突き合わせる）
 - 一覧そのもの・確かめの模块・この試験は一覧に入っている

@@ -787,6 +787,43 @@ def refixrules():
     return mod
 
 
+class TestLangLine(unittest.TestCase):
+    """書く役（修正・TDD の輪・裁定・手直し）の文は関所と報告に字のまま載るので、支度が盤面から取った言語の 1 行
+    （rolekit.lang_line）を、どの形でも指示書の末尾に置く。見出しの次の 1 行（拒否・裁定のファイル・題）は動かさない"""
+    LINE = rolekit.LANG_RULE.format(lang="English")
+
+    def test_every_writer_prompt_ends_with_the_lang_line(self):
+        fix = rulebook.render("fix", 1, fixrules.fix_parts(VALUES), reject_file="/b/r-1.txt", lang=self.LINE)["text"]
+        delta = rulebook.render("fix", 2, fixrules.fix_parts(VALUES), prior={"delivered": {}}, lang=self.LINE)["text"]
+        tdd = fixrules.tdd_render(tdd_values(), "fix", PHASE_TEXT, title=TITLE, lang=self.LINE)["text"]
+        rule = fixrules.ruler_prompt({k: "/b/x" for k in fixrules.RULER_VALUES}, lang=self.LINE)
+        refix = refixrules().build(1, {**REFIX_VALUES, "lang": self.LINE})
+        for name, text in (("fix", fix), ("delta", delta), ("tdd", tdd), ("rule", rule), ("refix", refix)):
+            with self.subTest(name):
+                self.assertTrue(text.endswith(self.LINE + "\n"), text[-200:])
+        self.assertEqual(fix.split("\n")[1], rolekit.REJECT_LINE.format(path="/b/r-1.txt"))
+        self.assertEqual(tdd.split("\n")[1], TITLE)
+
+    def test_no_lang_no_line(self):
+        """盤面の外で組む（lang が空）なら置かない。置いても本文はそのまま"""
+        plain = fixrules.fix_prompt(VALUES)
+        self.assertNotIn(rolekit.LANG_RULE.split("{lang}")[0], plain)
+        got = rulebook.render("fix", 1, fixrules.fix_parts(VALUES), lang=self.LINE)["text"]
+        self.assertEqual(got, plain.rstrip("\n") + "\n\n" + self.LINE + "\n")
+
+    def test_preps_take_the_lang_from_the_board(self):
+        """支度（fixrules.prep・tddloop.prep・ruling.prep・refix.prep_fix）は盤面から言語の 1 行を取って渡す"""
+        srcs = {"fix": (BLK / "lib" / "fixrules.py", "before=before, lang=lang)"),
+                "tdd": (BLK / "lib" / "tddloop.py", "rules_file=rules_file, lang=lang)"),
+                "rule": (BLK / "lib" / "ruling.py", "lang=fixrules.lang_at(board_dir)"),
+                "refix": (CORE / "refix.py", '"lang": rolekit.lang_line(b.state.get("inputs"))')}
+        for name, (path, needle) in srcs.items():
+            with self.subTest(name):
+                self.assertIn(needle, path.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(fixrules.lang_at(d), "", "盤面でない置き場では置かない")
+
+
 class TestRefixCarriesCanon(unittest.TestCase):
     """手直しの役（blk-refix の refix・refix2）も書く役なので、同じ正本の節を全部受け取る。正本はブロックの境を越えて読める
     .shared/core の下に 1 つだけ置き、手書きの commands/refix*.md は無い"""

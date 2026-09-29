@@ -37,6 +37,6 @@ def parts(n: int, values: dict) -> list:
 
 
 def build(n: int, values: dict) -> str:
-    """n 回目の手直しの役の指示書（純粋）"""
+    """n 回目の手直しの役の指示書（純粋）。values の lang（言語の 1 行。refix.prep_fix が盤面から置く）は末尾に"""
     got = parts(n, values)
-    return rulebook.render(ROLES[n], 1, got)["text"]
+    return rulebook.render(ROLES[n], 1, got, lang=values.get("lang") or "")["text"]

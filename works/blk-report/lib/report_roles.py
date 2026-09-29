@@ -213,7 +213,7 @@ def render(b, nid, extra=None) -> str:
     n = b.nodes[nid]
     if n.get("prompt_append") or n.get("pointers"):
         raise BoardGap(f"{nid}: prompt_append・pointers を持つ節は blk-report の描き方の外（写し直しで増えた？）")
-    return rolekit.render_body(b, nid, prompts_dir=_BLK, ctx_hook=lambda ctx: ctx.update(extra or {}))[0]
+    return rolekit.render_body(b, nid, prompts_dir=_BLK, ctx_hook=lambda ctx: ctx.update(extra or {}), lang=False)[0]
 
 
 def _snap_name(role) -> str:

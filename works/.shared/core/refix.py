@@ -189,7 +189,7 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
     """n 回目の手直しの役を起こす前の支度。手直しの節が待っていない・義務が今の周に無いなら {ok: False, reason}
     （配線の誤り）。在れば前の試みの自分の出力を消し、義務と差分のパスを refix<n>-brief.json に書き、起こした印を置いて
     {ok: True, owed, diff_file, brief_file, must} を返す。prompt（呼び手のブロックの組み立て prompt(n, 値) -> 指示書の字）を
-    渡せば、{brief_file, diff_file} と values（run の値）で組んだ指示書を今の周の prompt-<節>.md に書き、prompt_file を足す
+    渡せば、{brief_file, diff_file, lang（言語の 1 行。rolekit.lang_line）} と values（run の値）で組んだ指示書を今の周の prompt-<節>.md に書き、prompt_file を足す
     （must にも。core は決まりの中身を知らない）"""
     p = _pass(n)
     b = entry.open_board(board)
@@ -209,7 +209,8 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
     out = {"ok": True, "owed": len(rows), "diff_file": d.get("file") or "", "brief_file": str(brief),
            "must": [str(brief)] + ([d["file"]] if d.get("file") else [])}
     if prompt is not None:
-        text = prompt(n, {**(values or {}), "brief_file": str(brief), "diff_file": out["diff_file"]})
+        text = prompt(n, {**(values or {}), "brief_file": str(brief), "diff_file": out["diff_file"],
+                          "lang": rolekit.lang_line(b.state.get("inputs"))})
         tmp = prompt_file.with_name(prompt_file.name + ".tmp")
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, prompt_file)

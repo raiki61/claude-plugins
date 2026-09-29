@@ -305,11 +305,12 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
             "open_units": json.dumps(st["open_units"], ensure_ascii=False)}
     path = pathlib.Path(st["work"]) / PROMPT
     n = st["iterations"] + 1
+    lang = fixrules.lang_at(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
 
     def build(kinds, prior, rules_file):
         try:
             return fixrules.tdd_render(vals, phase, "\n".join(lines), title=title, reason=st["reason"], kinds=kinds,
-                                       prior=prior, iteration=n, rules_file=rules_file)
+                                       prior=prior, iteration=n, rules_file=rules_file, lang=lang)
         except fixrules.Unfilled as e:
             raise Broken(f"TDD の輪の指示書を組めない: {e}")
     fixrules.write_variants(path, repo, vals, build, n)

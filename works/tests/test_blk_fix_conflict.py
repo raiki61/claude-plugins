@@ -280,7 +280,7 @@ class TestAskHuman(ConflictBoardCase):
         lines = report.head_decisions(b, {"accepted": True, "round_closed": True})
         hit = [x for x in lines if x.startswith(conflict.HEAD)]
         self.assertEqual(len(hit), 1, lines)
-        self.assertIn("ask_human 1", hit[0])
+        self.assertIn("人に回す（ask_human）1", hit[0])
 
     def test_final_gate_answer_copied_and_missing_answer_stops(self):
         """関所の答えを食い違いの行に写す。関所が開かなかった（答えが無い）のに行が答えを待っていれば止める"""

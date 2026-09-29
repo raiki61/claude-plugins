@@ -42,7 +42,8 @@ NO_EXAMPLES = "例が無い（当たるべき行・当たってはならない�
 UNPROVEN = "unproven"                          # query-examples.json の行の印（例で証明できない理由）
 UNPROVEN_HEAD = "例で証明できない判定の問い"      # 最後の関所の文の節の見出し・報告の行の頭
 CLOSURE_FILE = "fix-unit-rows.json"              # 修正の受け付けが問いを数え直した単位ごとの表（盤面の置き場。周の番号つき）
-CLOSURE_HEAD = "閉鎖の数え直し（機械）が申告と合わない・閉じていない単位"   # 最後の関所の文の節の見出し・報告の行の頭
+# 最後の関所の文の節の見出し・報告の行の頭。主語は平易に、記録の語（閉鎖の数え直し）は括弧に回す
+CLOSURE_HEAD = "機械が判定の問いで数え直すと、直したという申告と合わない・まだ閉じていない単位（閉鎖の数え直し）"
 TIMEOUT = 60
 _LINES = {"type": "array", "maxItems": 20, "items": _util._TEXT}
 _WHY = {"type": "string", "minLength": MIN_WHY}

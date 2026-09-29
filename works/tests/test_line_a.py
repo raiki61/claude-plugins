@@ -173,7 +173,7 @@ class EyesPurposeCase(LineBase):
         self.assertLess(t.index("testing"), t.index("eyeing"))
         self.assertLess(t.index("eyeing"), t.index("final-gate"))
         self.assertEqual(t[-4:], ["h-eyes", "report", "reporting", "result"])
-        for name in ("R1: pass", "R2: pass"):
+        for name in ("（R1）: 通った（pass）", "（R2）: 通った（pass）"):
             self.assertIn(name, got["out"]["h-final"]["gate_text"])
         # r2.design は目のブロックで起こさない（修正案のブロックで先に作り、h-look が盤面へ渡した）
         self.assertEqual(set(got["eyes_roles"]), {"r1-comments", "r1-minimality", "r2-compare"})

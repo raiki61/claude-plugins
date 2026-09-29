@@ -319,6 +319,18 @@ class RenderPrepCase(_Case):
         self.assertIn("$rj-route1.output.next と $LOOP_PREV.x", got)
         self.assertTrue(got.endswith(first), "拒否の節の後ろは描き直した指示書そのまま（拒否の節を積み重ねない）")
 
+    def test_prep_ends_with_the_lang_line(self):
+        """再審・第三の目の文（異議への答えの reason）は関所と報告に載るので、prep は engine と同じ本文の末尾に盤面の inputs.lang の
+        1 行を足す（出し直しでも 1 つだけ）"""
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        b = rejudge.open_board(self.bd, repo=self.repo)
+        line = rejudge.rolekit.lang_line(b.state.get("inputs"))
+        for _ in range(2):
+            got = pathlib.Path(rejudge.prep(self.bd, "rejudge", self.repo)["prompt_file"]).read_text(encoding="utf-8")
+            self.assertTrue(got.endswith("\n\n" + line + "\n"), got[-300:])
+            self.assertEqual(got.count(line), 1)
+
     def test_prep_marks_the_drawn_attempt(self):
         """prep は描いた instance の試行の番号で起こした印を置く（盤面は mark_launched(節, 試行) を求め、印の無い返答を受けない）"""
         self.board("objection")

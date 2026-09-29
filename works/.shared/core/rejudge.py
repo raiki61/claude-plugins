@@ -320,9 +320,10 @@ def prompt_graph_path(b, n) -> pathlib.Path:
 
 def render(b, nid) -> pathlib.Path:
     """engine の emit_instance と同じ描き方（rolekit.render_body）で指示書を $B/prompts/r<N>/<節>.md に書く（cap なし。
-    指示書は役がファイルで読む）。番号の控え（pointers）が在れば instance に置く。描けない（reads に無い穴・盤面の欄の欠け）は BoardGap"""
+    指示書は役がファイルで読む）。番号の控え（pointers）が在れば instance に置く。描けない（reads に無い穴・盤面の欄の欠け）は BoardGap。
+    言語の 1 行は置かない（engine と同じ本文のまま。prep が末尾に足す）"""
     inst = b.rd["instances"].get(nid)
-    prompt, snap_ = rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY)
+    prompt, snap_ = rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY, lang=False)
     p = b.dir / "prompts" / f"r{b.round}" / (safe_name(nid) + ".md")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(prompt, encoding="utf-8")
@@ -369,10 +370,12 @@ def numbered_keys(b) -> list:
 def prep(board_dir, role, repo) -> dict:
     """役を起こす前の支度: 指示書を描き、1 回目の試行の前だけ単位の写し（と異議の文・番号の並び）を置き、起こした印を置く。
     返り {prompt_file, attempt, out_path, node, already}。拒否の後の出し直しは同じ試行なので印は前の物（already: true）。
-    この周にこの節の拒否が在れば、最後の拒否の文を指示書の頭に置く（REJECT_HEADING の節）"""
+    この周にこの節の拒否が在れば、最後の拒否の文を指示書の頭に置く（REJECT_HEADING の節）。末尾に言語の 1 行（rolekit.lang_line）"""
     b = open_board(board_dir, repo=repo)
     nid = node_of(role, b.rules, b.graph)
     path = render(b, nid)
+    path.write_text(path.read_text(encoding="utf-8").rstrip("\n") + "\n\n" + rolekit.lang_line(b.state.get("inputs")) + "\n",
+                    encoding="utf-8")
     last = _rejects(b, nid)[-1:]
     if last:
         # 拒否の文は指示書のファイルに書く（役は Read で読む）。$LOOP_PREV で指示に貼ると、文の中の $<節>.output.<欄> を

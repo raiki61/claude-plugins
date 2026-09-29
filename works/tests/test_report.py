@@ -167,6 +167,18 @@ class OutcomeCase(ReportBase):
         self.assertIn(out["validator_exit"], report.report_accepts(b))
         self.assertTrue(out["tests_green"])
 
+    def test_report_starts_with_three_lines(self):
+        """report.md は題の直後に冒頭 3 行（起きたこと＝平易な結末と結末の語・人が決める物が無ければ次の run に渡す物の件数・推し）で
+        始まり、冒頭 5 節はその後ろに今の順で残る"""
+        self.full()
+        out, text, _ = self.build()
+        lines = [x for x in text.splitlines() if x]
+        self.assertTrue(lines[0].startswith("# 報告（run "), lines[0])
+        self.assertEqual(lines[1], report.gatemarks.HAPPENED + report.OUTCOME_WORDS["fixed"] + "（fixed）")
+        self.assertTrue(lines[2].startswith("次の run に渡す物: "), lines[2])
+        self.assertEqual(lines[3], report.gatemarks.PUSH + report.gatemarks.NO_PUSH)
+        self.assertEqual(lines[4], report.HEADINGS[0])
+
     def test_final_result_picks_report(self):
         """出口 result: AI の報告が ok なら report-ai.md、そうでなければ（回らない・諦めた・形が違う）機械の report.md。
         機械の報告の欄は全部残り、結末は替えない。export_input の report_file も選んだ方"""

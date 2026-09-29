@@ -13,7 +13,7 @@
   独立設計（design.due）のどちらかを blk-plan で起こす周
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 - 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の修正の差分（修正前の版
-  state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を final_gate に関わらず開き、文の頭に並べ、process.human_items に 1 行。h-eyes は答えを
+  state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を final_gate に関わらず開き、冒頭 3 行で名指して直後の最初の節に並べ、process.human_items に 1 行。h-eyes は答えを
   その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ。食い違いの申し出の裁定（core の conflict）
   が許したテストの変更（fix_test_scope の範囲）も守りのファイルの行として並ぶ
 - 食い違いの申し出（core の conflict）: 裁定役か機械が ask_human に裁いた単位が在れば、h-final は最後の関所を final_gate に関わらず
@@ -72,7 +72,7 @@ ENDED_AT = ("look", "final", "eyes")         # 周を締めた後に来る境の
 STOP_AFTER_END_OP = "stop_after_round_end"   # 周を締めた盤面に止める答え・止め札が来た印の trace の行（b.stop は拒まれる）
 PROTECTED_BY = "works:protected"              # 守りのファイルの行の node（human_items）と、答えの無いまま止めた by
 PROTECTED_KIND = "protected_files"            # その行の kinds
-PROTECTED_HEAD = "守りのファイルを触った"      # 最後の関所の文の頭の節の見出し
+PROTECTED_HEAD = "守りのファイルを触った"      # 最後の関所の冒頭 3 行の直後の節の見出し（1 行目でも名指す）
 PROTECTED_UNKNOWN = "守りのファイルを確かめられなかった"   # 一覧か git が読めない時の見出し（黙って空にしない）
 MID_NOTE = "中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）"
 FLAG_BY_PREFIX = "request:"                  # 止め札で止めた盤面の state.stop.by は "request:<札の by>"（報告の stopped_by_request）
@@ -315,16 +315,19 @@ def _eyes(b) -> tuple:
     for name in ("R1", "R2", "R3", "R4"):
         r = reviews.get(name)
         if not isinstance(r, dict):
-            lines.append(f"  - {name}: 結果が無い")
+            lines.append(f"  - {gatemarks.EYES[name]}（{name}）: 結果が無い")
             continue
         st = r.get("status")
         if st in status and status[st].blocks and st != "not_run":
             blocked.append(name)
         reason = " ".join(str(r.get("reason") or "").split())
-        lines.append(f"  - {name}: {st}（{reason}）" if reason else f"  - {name}: {st}")
+        lines.append(f"  - {gatemarks.eye_named(name, st)}" + (f"——理由: {reason}" if reason else ""))
         if name == "R2":
             lines += _r2_inputs(b)
     return lines, blocked
+
+
+ROLE_WORDS = {"design": "独立の設計を作る役", "compare": "独立の設計と差分を比べる役"}   # R2 の 2 つの役の平易な名（記録の名は括弧に回す）
 
 
 def _r2_inputs(b) -> list:
@@ -336,15 +339,15 @@ def _r2_inputs(b) -> list:
     except (OSError, ValueError):
         pi = None
     if not isinstance(pi, dict):
-        return ["    - R2 に渡した入力の控えが無い"]
-    out = [f"    - R2 が渡されていないと書いた: {c}" for c in pi.get("claims") or []]
+        return ["    - 独立の設計と比べる目に渡した入力の控えが無い（R2）"]
+    out = [f"    - 独立の設計と比べる目が渡されていないと書いた（R2）: {c}" for c in pi.get("claims") or []]
     for role in ("design", "compare"):
         led = pi.get(role)
         if not isinstance(led, dict):
-            out.append(f"    - {role} の役に渡した入力の控えが無い")
+            out.append(f"    - {ROLE_WORDS[role]}に渡した入力の控えが無い（{role}）")
             continue
         given = "／".join(f"{g.get('kind')}: {g.get('what')}" for g in led.get("given") or []) or "（前提の入力は無い）"
-        out.append(f"    - {role} の役に渡した前提の入力: {given}")
+        out.append(f"    - {ROLE_WORDS[role]}に渡した前提の入力（{role}）: {given}")
         held = led.get("withheld") or []
         if held:
             out.append("    - run に在ったが渡していない: "
@@ -353,8 +356,9 @@ def _r2_inputs(b) -> list:
 
 
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
-    """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・独立の目の判定・盤面の問い・問いの台帳で
-    人に聞く状態のままの問い（gatemarks.held_lines）を 1 枚に。「盤面の問い: 無い」は両方とも無い時だけ"""
+    """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・独立の目の判定・盤面の問い・判定の役が
+    保留にしたままの問い（gatemarks.held_lines）を 1 枚に。「盤面の問い: 無い」は両方とも無い時だけ。行の主語は平易な名で、
+    盤面の節・目の名・状態の語は括弧に回す（gatemarks.named・eye_named）"""
     tests = tests or {}
     lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", ""]
     if tests.get("by"):
@@ -365,24 +369,27 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     lines.append(f"- run の作業ツリー: {pathlib.Path(repo).resolve()}")
     lines.append(f"- 差分の審査の穴: {_faces(b, 'p3.delta_review')} 件（2 回目の審査: {_faces(b, 'p3.delta_review2')} 件）")
     handled = (b.output_of_round("p3.delta_fix", b.round) or {}).get("handled") or []
-    lines.append(f"- 手直し（p3.delta_fix・{len(handled)} 件）:")
-    lines += [f"  - {h.get('key')}: {h.get('handled')}（{h.get('how')}）" for h in handled if isinstance(h, dict)] or ["  - （無い）"]
+    lines.append(f"- {gatemarks.named('p3.delta_fix')}の結果（{len(handled)} 件）:")
+    lines += [f"  - {h.get('key')}: {gatemarks.HANDLED_WORDS.get(h.get('handled'), '')}（{h.get('handled')}）——{h.get('how')}"
+              for h in handled if isinstance(h, dict)] or ["  - （無い）"]
     lines.append(f"- 止めずに残った異議: {objection or '無い'}")
     passed = gatemarks.lines(b)
     if passed:
-        lines.append(f"- 修正前の関所で決め手が在るので聞かずに通した項目（{len(passed)} 件）:")
+        lines.append(f"- 直す前の関所で決め手が在るので聞かずに通した項目（{len(passed)} 件）:")
         lines += [f"  - {x}" for x in passed]
     rows, blocked = eyes
     lines.append(f"- 独立の目の判定（阻害: {'・'.join(blocked) or '無い'}）:")
     lines += rows
     asking = b.state.get("pending_human")
     if asking:
-        lines.append(f"- 盤面の問い（{asking.get('node')}）: {asking.get('question')}")
+        lines.append(f"- {gatemarks.named(asking.get('node'))}が人に聞いている問い（記録のまま引く）:")
+        lines += [f"  {x}" for x in gatemarks.quote(asking.get("question"))]
         lines += [f"  - {x}" for x in asking.get("items") or []]
-        lines.append("  - この関所の答えは盤面の問いに答えない。問いは報告の冒頭と次の run の依頼の下書きへ渡る")
+        lines.append("  - この関所の答えはこの問いに答えない。問いは報告の冒頭と次の run の依頼の下書きへ渡る")
     held = gatemarks.held_lines(b)
     if held:
-        lines.append(f"- 問いの台帳で人に聞く状態のままの問い（{len(held)} 件。この関所の答えは問いに答えない。問いは報告の冒頭に並ぶ）:")
+        lines.append(f"- 判定の役が人に聞くと保留にしたままの問い（問いの台帳・{len(held)} 件。この関所の答えは問いに答えない。"
+                     "問いは報告の冒頭に並ぶ）:")
         lines += [f"  - {x}" for x in held]
     if not asking and not held:
         lines.append("- 盤面の問い: 無い")
@@ -411,7 +418,7 @@ def _stat(r) -> str:
 
 
 def _protected_text(rows, rev: str, err: str, repo) -> str:
-    """最後の関所の文の頭の節（触った守りのファイル・行数・規則・差分の見方。確かめられなければその理由）"""
+    """最後の関所の文の冒頭 3 行の直後の節（触った守りのファイル・行数・規則・差分の見方。確かめられなければその理由）"""
     if err:
         return (f"## {PROTECTED_UNKNOWN}（差分が一覧に触れていないとは言えない）\n\n- 理由: {err}\n"
                 f"- 一覧: {protect.MANIFEST}\n\n")
@@ -516,10 +523,48 @@ def _guard(b, repo) -> tuple:
     return rows, rev, err, asks
 
 
+def _final_needs(b, head: str, objection: str, eyes: tuple, rows, err: str, asks: list, mismatched: list) -> list:
+    """最後の関所を開ける理由（1 件 1 句）。when_needed で開くかはこの列の空でなさだけで決め、_final_head の 1 行目もこの列を
+    並べる（理由を足すのはここだけ）"""
+    why = []
+    if err:
+        why.append(f"{PROTECTED_UNKNOWN}（人の確かめが要る）")
+    elif rows:
+        why.append(f"{PROTECTED_HEAD}（{len(rows)} 件。人の確かめが要る）")
+    if head != "緑":
+        why.append(f"最後のテストが{head}")
+    if asks:
+        why.append(f"食い違いの申し出を人に回した（{len(asks)} 件）")
+    if eyes[1]:
+        why.append(f"独立の目が阻害を返した（{'・'.join(eyes[1])}）")
+    if mismatched:
+        why.append(f"直したという申告と機械の数え直しが合わない単位が在る（{len(mismatched)} 件）")
+    if b.state.get("pending_human"):
+        why.append("人に聞いている問いが盤面に在る")
+    if objection:
+        why.append("止めずに残った異議が在る")
+    return why
+
+
+def _final_head(b, head: str, why: list, guarded: bool) -> list:
+    """最後の関所の冒頭 3 行（gatemarks.head3）。起きたこと＝関所を開けた理由（_final_needs。守りのファイルはこの行で名指す）・
+    決めてほしいこと＝報告へ進めるか止めるか・推し＝判定の役が問いの理由に書いた推し（機械は作らない）"""
+    held = gatemarks.held_lines(b)
+    happened = (f"最後のテストと独立の目が済み、報告の前で止まった。テストは{head}。"
+                + ("開けた理由: " + "・".join(why) if why else "関所はいつも開く設定（final_gate always）で、ほかに開けた理由は無い")
+                + (f"。判定の役が人に聞くと保留にしたままの問いも在る（{len(held)} 件。関所を開ける理由には数えない）" if held else ""))
+    decide = ("報告へ進めて run を終えるか、止めるか（打つ行は末尾の答え方）"
+              + ("。守りのファイルの変更は下の最初の節を確かめてから通す" if guarded else ""))
+    asking = b.state.get("pending_human") or {}
+    return gatemarks.head3(happened, decide, gatemarks.pushes([*held, *(asking.get("items") or [])]))
+
+
 def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     """h-final（最後のテストと独立の目の後）: ask は final_gate always か、when_needed で最後のテストが緑でない（赤・環境で起こせなかった・
     走れなかった・走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
-    阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る時。守りのファイルは文の頭の節と process.human_items の 1 行にもなる。文は b.work(FINAL_GATE_FILE) にも"""
+    阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る時。文は冒頭 3 行（_final_head。開けた理由・決めて
+    ほしいこと・推し）で始まり、守りのファイルはその 1 行目で名指し、3 行の直後の最初の節と process.human_items の 1 行にもなる。
+    文は b.work(FINAL_GATE_FILE) にも"""
     head = _tests_head(b, tests)
     eyes = _eyes(b)
     left = rejudge.unsettled(b)
@@ -529,13 +574,13 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     # 申告と数え直しが合わない単位は、前は返答全体を拒んだ形なので関所を開ける。閉じていないだけの単位（修正役が remaining で
     # 残した）は前も通っていたので、見せるだけ
     mismatched = querytest.closure_lines(b, mismatched_only=True)
-    need = (head != "緑" or bool(b.state.get("pending_human")) or bool(objection) or guarded or bool(asks)
-            or bool(eyes[1]) or bool(mismatched))
-    if mode == "when_needed" and not need:
+    why = _final_needs(b, head, objection, eyes, rows, err, asks, mismatched)
+    if mode == "when_needed" and not why:
         return {}
-    unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（need）には数えない
+    unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
     closure = querytest.closure_lines(b)
-    text = ((_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
+    text = ("\n".join(_final_head(b, head, why, guarded)) + "\n\n"
+            + (_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
             + (_unproven_text(unproven) if unproven else "") + (_closure_text(closure) if closure else "")
             + _final_text(b, head, tests, objection, eyes, repo, run_id))
     _write_text(b.work(FINAL_GATE_FILE), text)

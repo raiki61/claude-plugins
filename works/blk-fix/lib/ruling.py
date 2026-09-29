@@ -83,7 +83,8 @@ def prep(board_dir, repo, values: dict) -> dict:
     entry.snapshot(board_dir, TREE, pathlib.Path(repo))
     vals = {**values, "conflicts_file": str(b.work(conflict.FILE)), "ids": ", ".join(i["id"] for i in todo),
             "request_file": conflict.request_file(board_dir)}
-    text = fixrules.ruler_prompt(vals, reject_file=_last_reject(board_dir) if n > 1 else "", iteration=n)
+    text = fixrules.ruler_prompt(vals, reject_file=_last_reject(board_dir) if n > 1 else "", iteration=n,
+                                 lang=fixrules.lang_at(board_dir))
     path = b.work(PROMPT)
     path.write_text(text, encoding="utf-8")
     ledger.write_text(json.dumps({"iterations": n}) + "\n", encoding="utf-8")

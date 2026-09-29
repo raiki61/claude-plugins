@@ -5,7 +5,8 @@
   直しの証拠）・core-conflict（食い違いの申し出）・core-keep（守ること）
 - sections(path): `<!-- 節 <id> -->` の行で切った {id: 本文}（印の行は指示書に入れない）
 - fill: 型の穴 <<名>> を `値`（空は EMPTY）で埋める。穴に値が無い時は Unfilled
-- render: 節の並び [(id, 本文, 理由)] から指示書の 1 つの形。1 行目（HEADER）に、どの節を載せたか・なぜかを機械の事実として書く
+- render: 節の並び [(id, 本文, 理由)] から指示書の 1 つの形。1 行目（HEADER）に、どの節を載せたか・なぜかを機械の事実として書く。
+  呼び手が盤面から取った言語の 1 行（rolekit.lang_line）を渡せば末尾に置く
 
 同じ入力からはバイト単位で同じ指示書になる（時刻を書かない）。層は L3。どの役の道・どのブロックの決まりかは呼び手が持つ。
 """
@@ -105,10 +106,11 @@ def pick(values: dict, names: tuple) -> dict:
 
 # ---------------------------------------------------------------- 組み立て（純粋）
 def render(role: str, iteration: int, parts: list, *, prior=None, rules_file: str = "", before=(), after=(),
-           reject_file: str = "") -> dict:
+           reject_file: str = "", lang: str = "") -> dict:
     """1 つの形 {text, delivered, rules_text, head}。prior が None なら決まりの節を全部（full）、{delivered: {id: sha}} なら
     まだ渡していない・中身が替わった節だけと RULES_SAME / RULES_ADDED の 1 行（delta）。delivered は渡した後の {id: sha}。
-    並び: HEADER → [拒否の理由のファイルの 1 行] → before → 決まり → after"""
+    lang は言語の 1 行（rolekit.lang_line。空なら置かない）で、どの形にも末尾に置く。
+    並び: HEADER → [拒否の理由のファイルの 1 行] → before → 決まり → after → [言語の 1 行]"""
     shas = {pid: sha(text) for pid, text, _ in parts}
     rules_text = join(text for _, text, _ in parts)
     rules_sha = sha(rules_text)
@@ -121,6 +123,6 @@ def render(role: str, iteration: int, parts: list, *, prior=None, rules_file: st
         body, mode, why = [line, join(text for pid, text, _ in parts if pid in sent)], "delta", WHY_DELTA
     head = {"role": role, "iteration": iteration, "mode": mode, "why": why, "rules_sha": rules_sha, "rules_file": rules_file,
             "sections": [{"id": pid, "why": w, "sent": pid in sent} for pid, _, w in parts]}
-    text = rolekit.compose([*before, *body, *after], reject_file=reject_file)
+    text = rolekit.compose([*before, *body, *after, lang], reject_file=reject_file)
     text = HEADER.format(json.dumps(head, ensure_ascii=False)) + "\n" + text.rstrip("\n") + "\n"
     return {"text": text, "delivered": {**(old or {}), **shas}, "rules_text": rules_text, "head": head}

@@ -96,9 +96,8 @@ REJUDGE_DIFF = "rejudge-diff.json"             # 再審の単位の差分の行�
 DOWNGRADES = "downgrades.json"
 DOWNGRADE_KEYS = ("node", "what", "versus")
 HEADINGS = ("## 1. 人が決めること", "## 2. 入口・段・決めた人", "## 3. 止めたか", "## 4. 読んだ証拠と包み", "## 5. 見る所")
-WHERE = (("判定", "p2.diagnose"), ("修正案", "p2.fix_plan"), ("事前審査", "p2.plan_review"), ("修正", "p3.fix"),
-         ("差分の審査", "p3.delta_review"), ("手直し", "p3.delta_fix"), ("2 回目の審査", "p3.delta_review2"),
-         ("手直し 2 回目", "p3.delta_fix2"), ("最後のテスト", "p4.ci"))
+WHERE = tuple((gatemarks.PLAIN[n], n) for n in ("p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix", "p3.delta_review",
+                                                   "p3.delta_fix", "p3.delta_review2", "p3.delta_fix2", "p4.ci"))
 DIFFS = (("修正の差分", "fix_delta"), ("手直しの差分", "fix_delta2"))
 REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
 INTERRUPTED_HEAD = "run が途中で終わった"
@@ -406,13 +405,39 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     return out
 
 
-# ---------------------------------------------------------------- 冒頭 1〜5
+# ---------------------------------------------------------------- 冒頭 3 行と 1〜5
+# 結末の語（decide_outcome の返り）→ 平易な言い方（冒頭 3 行の 1 行目。語は括弧に残す）
+OUTCOME_WORDS = {"fixed": "直して、最後のテストまで通った", "no_fix_needed": "直す物が無かった",
+                 "round_limit": "決めた周の数のうちに直しきれずに止まった", "stopped_by_request": "止め札で止めた",
+                 "stopped_by_human": "人が関所で止めた", "stopped_by_line": "ラインが途中で止めた",
+                 "needs_human": "人の判断を待ったまま止まった", "record_invalid": "記録が検証器を通らない（結果を名乗れない）",
+                 "interrupted": "run が途中で終わった"}
+
+
+def head3(b, outcome: str, *, left: list | None = None, next_items: list | None = None) -> list:
+    """報告の冒頭 3 行（gatemarks.head3）: 起きたこと＝結末・決めてほしいこと＝冒頭 1 に並ぶ人が決める物の件数（盤面の問い・保留の
+    問い・人に回した食い違い・直しきれずに残った物・記録が通らないこと。無ければ 2 行目は次の run に渡す物の件数）・推し＝判定の役が
+    問いの理由に書いた推し（機械は作らない）"""
+    ph = b.state.get("pending_human") or {}
+    held = gatemarks.held_lines(b)
+    parts = [("人に聞いている問い", 1 if ph else 0), ("保留にしたままの問い", len(held)),
+             ("人に回した食い違いの申し出", len(_asked(b))),
+             ("直しきれずに残った物", len(left or []) if outcome == "round_limit" else 0),
+             ("記録が検証器を通らないこと", 1 if outcome == "record_invalid" else 0)]
+    parts = [(w, n) for w, n in parts if n]
+    decide = (f"{sum(n for _, n in parts)} 件——" + "・".join(f"{w} {n} 件" for w, n in parts) + "（下の「1. 人が決めること」）"
+              if parts else "")
+    return gatemarks.head3(f"{OUTCOME_WORDS.get(outcome, '結末が決まらない')}（{outcome}）", decide,
+                           gatemarks.pushes([*held, *(ph.get("items") or [])]),
+                           other=f"次の run に渡す物: {len(next_items or [])} 件")
+
+
 def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "", next_items: list | None = None,
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
     関所の答え（事前審査の関所と最後の関所）・
-    人が止めた一言・最後のテスト・盤面の問い・問いの台帳で人に聞く状態のままの問い（gatemarks.held_lines）・再審の問いと争点でない単位の変化・前提で測り直せなかった依頼・並行 PR の
-    申し送りの下書きと外した範囲・次の run に渡す物の件数"""
+    人が止めた一言・最後のテスト・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・再審の問いと争点でない単位の変化・前提で測り直せなかった依頼・並行 PR の
+    申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
         lines.append(f"記録が検証器を通らない（exit {gate.get('exit')}・受理 {report_accepts(b)}・今の周の記録が"
@@ -422,12 +447,12 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         for field, val in (gate.get("traces") or {}).items():
             lines.append(f"記録の痕跡 {field}: {json.dumps(val, ensure_ascii=False)[:400]}")
     if outcome == "round_limit":
-        lines.append("残り（fixed を名乗らない）:")
+        lines.append("直しきれずに残った物（結末を「直した」と名乗らない）:")
         lines += [f"  - {r['where']}: {r['text']}" for r in left or []]
     proc = b.record.get("process") or {}
     for h in proc.get("human_items") or []:
         if isinstance(h, dict):
-            lines.append(f"関所 {h.get('node')} の答え: {h.get('answer')}「{h.get('note') or ''}」")
+            lines.append(f"{gatemarks.named(h.get('node'))}の答え: {h.get('answer')}「{h.get('note') or ''}」")
     lines += gatemarks.lines(b)
     ans = _latest(b.dir, FINAL_GATE_ANSWER)
     if ans is not None:
@@ -454,11 +479,12 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines.append(f"最後のテスト: 緑（{entry.suites_line(tests, role_status=role)}・ログ {tests.get('log') or '無い'}）")
     ph = b.state.get("pending_human")
     if ph:
-        lines.append(f"盤面が人に聞いている（{ph.get('node')}）: {ph.get('question') or ''}")
+        lines.append(f"{gatemarks.named(ph.get('node'))}が人に聞いている問い（記録のまま引く）:")
+        lines += [f"  {x}" for x in gatemarks.quote(ph.get("question"))]
         lines += [f"  - {x}" for x in ph.get("items") or []]
     held = gatemarks.held_lines(b)
     if held:
-        lines.append(f"問いの台帳が人に聞く状態のまま（{len(held)} 件）:")
+        lines.append(f"判定の役が人に聞くと保留にしたままの問い（問いの台帳・{len(held)} 件）:")
         lines += [f"  - {x}" for x in held]
     lines.append(_conflict_line(b))
     unproven = querytest.unproven_lines(b.dir)
@@ -491,8 +517,9 @@ def _conflict_line(b) -> str:
         c = conflict.counts(b)
     except BoardGap as e:
         return f"{conflict.HEAD}: 控えが読めない（{_one_line(str(e))}）"
-    return (f"{conflict.HEAD}: {c['parked']} 件（裁定 fix_test_scope {c['fix_test_scope']}・fix_code_as {c['fix_code_as']}・"
-            f"ask_human {c['ask_human']}・裁定なし {c['unruled']}）")
+    return (f"{conflict.HEAD}: {c['parked']} 件（裁定の内訳。括弧は記録の名: テストの直しを許す（fix_test_scope）"
+            f"{c['fix_test_scope']}・コードをこう直す（fix_code_as）{c['fix_code_as']}・人に回す（ask_human）{c['ask_human']}・"
+            f"裁定なし {c['unruled']}）")
 
 
 def _rejudge_changes(b) -> list:
@@ -905,7 +932,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     if dead:   # 即時の死の result は Archon の出来事に載らないので、全文を盤面にも残す（head_reads の行から辿る）
         _write_json(board_dir / NO_TURN_FILE, dead)
     rid = run_id or _start_doc(b, start).get("run_id") or ""
-    body = [f"# 報告（run {rid or '—'}）: {outcome}", ""]
+    body = [f"# 報告（run {rid or '—'}）", "", *head3(b, outcome, left=left, next_items=items), ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
              head_entry(b, start, mid=mid), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
              head_reads(board_dir, rid, ci=ci), head_where(b))
