@@ -203,7 +203,7 @@ class TestTestsBlock(RepoCase):
 
     def test_green_command(self):
         out = self.run_tests("python3 -c 'print(\"走った\")' && test -f stats.py")   # cwd は対象リポジトリ
-        self.assertEqual(out, {"ok": True, "green": True, "log": str(self.board / "tests.log")})
+        self.assertEqual(out, {"ok": True, "green": True, "log": str(self.board / "tests.log"), "how": "shell"})
         self.assertIn("走った", (self.board / "tests.log").read_text(encoding="utf-8"))
 
     def test_command_runs_in_bash(self):
@@ -221,16 +221,16 @@ class TestTestsBlock(RepoCase):
     def test_plain_mode_is_mutgate_contract(self):
         # 線 C の mutgate は `include: blk-tests`・`with: {cmd}` だけで使う（盤面なし・INPUTS_MODE なし）。既定の形 plain は
         # 1 本目のまま: 盤面を作らず（state.json が無い）、ログは <ARTIFACTS_DIR>/board/tests.log（線 C の筋書きの log の形）、
-        # 出口の鍵は ok・green・log だけ（裁定 TA4・審査 I1）。INPUTS_MODE に plain を明示しても、空でも同じ
+        # 出口の必須の鍵は ok・green・log（裁定 TA4・審査 I1）で、任意の how は赤・緑とも載る。INPUTS_MODE に plain を明示しても、空でも同じ
         for mode in (None, "plain", ""):
             with self.subTest(mode=mode):
                 shutil.rmtree(self.board, ignore_errors=True)
                 out = self.run_tests("test -f stats.py", mode=mode)
-                self.assertEqual(out, {"ok": True, "green": True, "log": str(self.artifacts / "board" / "tests.log")})
+                self.assertEqual(out, {"ok": True, "green": True, "log": str(self.artifacts / "board" / "tests.log"), "how": "shell"})
                 self.assertEqual(sorted(p.name for p in self.board.iterdir()), ["tests.log"])
                 self.assertFalse((self.board / "state.json").exists())
                 out = self.run_tests("exit 1", mode=mode)
-                self.assertEqual(set(out), {"ok", "green", "log"})
+                self.assertEqual(set(out), {"ok", "green", "log", "how"})
                 self.assertEqual((out["ok"], out["green"]), (True, False))
 
     def test_plain_mode_empty_cmd_fails(self):
@@ -282,7 +282,9 @@ class TestTestsBlock(RepoCase):
                            capture_output=True, text=True, encoding="utf-8", timeout=300)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["green"], True)
-        seen = dict(line.split("=", 1) for line in (self.board / "tests.log").read_text().splitlines())
+        lines = (self.board / "tests.log").read_text().splitlines()
+        self.assertEqual([i for i, line in enumerate(lines) if line.startswith("== 起こし方 ")], [0])
+        seen = dict(line.split("=", 1) for line in lines[1:])
         return seen, outside
 
     def test_command_sees_outside_python_not_uvs(self):
@@ -377,7 +379,8 @@ def ref_run_ci(b, nid, *, test_cmd, runner=None):
             raise CiRefused(got["why"])
     if got["ok"]:
         runs = got.get("runs") or []
-        return {"by": "engine", "log": runs[0]["out"] if runs else ""}
+        return {"by": "engine", "log": runs[0]["out"] if runs else "",
+                "runs": [{"name": r["name"], "exit": r["exit"], "how": "direct"} for r in runs]}   # 宣言の段だけ（shell なし）
     if "fallback" not in got:
         raise CiRefused(got["why"])
     log = b.work("tests.log")
@@ -470,7 +473,8 @@ class TestTestsModes(ER.EngineRunCase):
         self.assertEqual(rc, 0, err)
         log, res = b.work("mid-tests.log"), b.work("mid-tests.json")
         self.assertEqual(out, {"ok": True, "green": False, "log": str(log),
-                               "suites": [{"name": "unit", "exit": 0}, {"name": "lint", "exit": 4}], "by": "mid"})
+                               "suites": [{"name": "unit", "exit": 0, "how": "direct"}, {"name": "lint", "exit": 4, "how": "direct"}],
+                               "by": "mid"})
         self.assertIn("['$HOME;', '|x']", log.read_text(encoding="utf-8"))
         self.assertFalse(marker.exists())
         got = json.loads(res.read_text(encoding="utf-8"))
@@ -484,7 +488,7 @@ class TestTestsModes(ER.EngineRunCase):
         b = self.mode_board(decl=ER.GREEN)
         rc, out, err = self.call(b, "mid", "")
         self.assertEqual(rc, 0, err)
-        self.assertEqual((out["ok"], out["green"], out["suites"]), (True, True, [{"name": "suite", "exit": 0}]))
+        self.assertEqual((out["ok"], out["green"], out["suites"]), (True, True, [{"name": "suite", "exit": 0, "how": "direct"}]))
 
     def test_mid_runs_cmd_when_no_declaration(self):
         # 宣言が無ければ cmd を 1 本目と同じく bash で走らせる。赤でも ok: true
@@ -493,7 +497,7 @@ class TestTestsModes(ER.EngineRunCase):
         rc, out, err = self.call(b, "mid", "[[ -d . ]] && echo 赤 >&2; exit 3")
         self.assertEqual(rc, 0, err)
         log = b.work("mid-tests.log")
-        self.assertEqual(out, {"ok": True, "green": False, "log": str(log), "suites": [{"name": "cmd", "exit": 3}],
+        self.assertEqual(out, {"ok": True, "green": False, "log": str(log), "suites": [{"name": "cmd", "exit": 3, "how": "shell"}],
                                "by": "mid"})
         self.assertIn("赤", log.read_text(encoding="utf-8"))
         self.assertEqual(json.loads(b.work("mid-tests.json").read_text(encoding="utf-8"))["source"], "cmd")
@@ -535,7 +539,7 @@ class TestTestsModes(ER.EngineRunCase):
         b = self.mode_board(decl=ER.GREEN)
         rc, out, err = self.call(b, "final", "")
         self.assertEqual(rc, 0, err)
-        self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, True, "engine", [{"name": "suite", "exit": 0}]))
+        self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, True, "engine", [{"name": "suite", "exit": 0, "how": "direct"}]))
         after = self.reopen(b)
         self.assertEqual(after.record["process"]["checks"]["p4.ci"]["by"], "engine")
         self.assertEqual(after.record["materials"]["local_checks"]["status"], "clean")
@@ -544,7 +548,7 @@ class TestTestsModes(ER.EngineRunCase):
         b = self.mode_board(decl=ER.RED)
         rc, out, err = self.call(b, "final", "")
         self.assertEqual(rc, 0, err)
-        self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, False, "engine", [{"name": "suite", "exit": 3}]))
+        self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, False, "engine", [{"name": "suite", "exit": 3, "how": "direct"}]))
 
     def test_final_log_from_run_engine(self):
         # engine が走らせた時の log は run_engine の返りの runs[0].out（runs/r<N>/ を組み立てない）
@@ -654,7 +658,7 @@ class TestTestsModes(ER.EngineRunCase):
                 rc, out, err = self.call(b, mode, "")
                 self.assertEqual(rc, 0, err)
                 self.assertEqual(set(out), {"ok", "green", "log", "suites", "by"})
-                self.assertTrue(all(set(s) == {"name", "exit"} for s in out["suites"]))
+                self.assertTrue(all(set(s) == {"name", "exit", "how"} for s in out["suites"]))
 
     def test_modes_need_entry(self):
         # mid・final は盤面の口（entry）が要る。読めなければ回す側の誤り（終了コード 2）で、盤面を書かない

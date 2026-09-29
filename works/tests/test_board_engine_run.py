@@ -432,7 +432,9 @@ class TreeRunnerCase(StepCase):
         r = subprocess.run([sys.executable, str(HERE.parent / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.tmp),
                            env=env, capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stderr)
-        theirs = (art / "board" / "tests.log").read_text(encoding="utf-8")
+        lines = (art / "board" / "tests.log").read_text(encoding="utf-8").splitlines()
+        self.assertEqual([i for i, ln in enumerate(lines) if ln.startswith("== 起こし方 ")], [0])
+        theirs = "\n".join(lines[1:])
         with mock.patch.dict(os.environ, env, clear=True):
             rows = tree_runner([{"name": "env", "argv": ["bash", "-c", "exec env"]}], self.tmp, self.tmp / "logs")
         mine = pathlib.Path(rows[0]["out"]).read_text(encoding="utf-8")

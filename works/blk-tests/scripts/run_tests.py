@@ -9,23 +9,24 @@ plain（既定。1 本目と線 C の mutgate の約束のまま。INPUTS_MODE �
   ほかは直に）で起こし、標準出力と標準エラーを
   $ARTIFACTS_DIR/board/tests.log に置き、標準入力は閉じる（入力待ちで止まらない）。盤面は開かない。コマンドは本文に
   差し込まず環境変数のまま渡すので、値がシェルの記号を含んでもデータのまま届く。
-  出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。コマンドを起こせない（exit None。shell の
-  先頭の語は tree_run.prove_launchable が起こす前に引く）時だけ launch に tree_run.launch_kind の "broken" と how に起こし方を
-  足す（green: false。普通の赤・緑の鍵は ok・green・log のまま。126・127 も普通の赤）。コマンドが空・空白だけなら何も走らせずに 1（緑と言わない）。
+  起こす前にログの頭へ起こし方の行（『== 起こし方 {how}: {argv の JSON}』）を書く。
+  出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>, "how": <起こし方>} を 1 行。コマンドを起こせない
+  （exit None。shell の先頭の語は tree_run.prove_launchable が起こす前に引く）時だけ launch に tree_run.launch_kind の "broken" を
+  足す（green: false。126・127 は普通の赤）。コマンドが空・空白だけなら何も走らせずに 1（緑と言わない）。
 mid（中の関所のためのテスト。盤面の節には書かない）:
   盤面（$ARTIFACTS_DIR/board）を entry.open_board で開き、対象の根の宣言 .review-checks.json（写しの engine/declared.py の
   読み方）の suite が読めれば段を 1 つずつ shell を通さずに、宣言が無ければ cmd を tree_run.command_argv の形で走らせる。宣言が在るのに
   読めなければ engine と同じく走らせない（cmd にも落とさない）。ログは b.work("mid-tests.log")、結果は
-  b.work("mid-tests.json")（cmd の道は起こし方 how もログと結果に）。走れなかった回（読めない宣言・宣言も cmd も無い）は
+  b.work("mid-tests.json")（段ごとの起こし方 how もログと結果に。宣言の段は direct）。走れなかった回（読めない宣言・宣言も cmd も無い）は
   green: false で理由をログと結果に残す。
 final（最後のテスト。盤面の p4.ci）:
   entry.run_ci(b, "p4.ci", test_cmd=cmd)（engine が宣言を走らせ、cmd が在れば宣言の段の後に cmd の段も足して両方が緑の時だけ
   clean。cmd が宣言の段と同じコマンドなら 1 度だけ走らせ、出口の test_cmd_same_as にその段の名。任せ先に落ちたら cmd を
-  走らせた素材を done）→ settle。cmd を宣言の段と別に走らせた回は、出口の test_cmd_how にその起こし方（宣言の段はいつも direct）。
+  走らせた素材を done）→ settle。cmd を宣言の段と別に走らせた回は、出口の test_cmd_how に走った時の起こし方（run_ci の返り）。
   green は p4.ci が置いた素材 materials.local_checks の status が clean か。ログは run_ci の返りの log（周の番号を組み立てない）。
   任せ先に落ちて cmd も空（run_ci の role_needed）なら、素材を読まずに green: false・by: role_needed・log は空——p4.ci は
   任せ先に落ちたまま待ち、ラインが blk-ci（CI の任せ先の役）を回す（裁定 R52）。run_ci が拒んだ（CiRefused）は終了コード 1 で理由を stderr。
-mid・final の出口は plain の欄に suites（段ごとの {name, exit}。起こせない（exit None）段には launch と how も）と
+mid・final の出口は plain の欄に suites（段ごとの {name, exit, how}。起こせない（exit None）段には launch も）と
 by（mid・engine・role・role_needed）を足す。どの形も赤で止めない
 （ok: true・green: false）——赤を人の関所に見せるのがこの段の仕事。
 
@@ -77,9 +78,8 @@ def _run(argv, log_f, cwd=None, how="direct") -> int | None:
 
 
 def _suite(name, how, code) -> dict:
-    """mid・final の段 {name, exit}。起こせない（tree_run.launch_kind の broken）時だけ launch と起こし方 how も（plain の出口と同じ）"""
     kind = tree_run.launch_kind(code)
-    return {"name": name, "exit": code, **({"launch": kind, "how": how} if kind == "broken" else {})}
+    return {"name": name, "exit": code, **({"how": how} if how else {}), **({"launch": kind} if kind == "broken" else {})}
 
 
 def run_plain(cmd: str, artifacts: Path) -> dict:
@@ -88,11 +88,13 @@ def run_plain(cmd: str, artifacts: Path) -> dict:
     log = board / LOG_NAME
     argv, how = tree_run.command_argv(cmd)
     with open(log, "wb") as f:
+        f.write(f"== 起こし方 {how}: {json.dumps(argv, ensure_ascii=False)}\n".encode("utf-8"))
+        f.flush()   # 子が同じファイルに書く前に
         code = _run(argv, f, how=how)
     kind = tree_run.launch_kind(code)
-    out = {"ok": True, "green": kind == "clean", "log": str(log)}
+    out = {"ok": True, "green": kind == "clean", "log": str(log), "how": how}
     if kind == "broken":
-        out.update(launch=kind, how=how)
+        out.update(launch=kind)
     return out
 
 
@@ -120,7 +122,7 @@ def run_mid(b, cmd: str) -> dict:
         elif d is not None:
             doc.update(source="declared", sha=d["sha"])
             for s in d["steps"]:
-                note(f"== {s['name']}: {json.dumps(s['argv'], ensure_ascii=False)}")
+                note(f"== {s['name']}（起こし方 direct）: {json.dumps(s['argv'], ensure_ascii=False)}")
                 code = _run(list(s["argv"]), f, cwd=str(root))
                 note(f"== {s['name']}: exit {code}")
                 suites.append(_suite(s["name"], "direct", code))
@@ -152,15 +154,13 @@ def run_final(b, cmd: str, *, run_ci, refused=()) -> dict:
     if ci["by"] == "role_needed":
         return {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"}
     material = b.record.get("materials", {}).get("local_checks") or {}
-    check = b.record.get("process", {}).get("checks", {}).get(CI_NODE) or {}
     from entry import TEST_CMD_STEP
-    # engine は宣言の段をシェルを通さずに起こす。足した test_cmd の段だけが tree_run.command_argv の形
-    cmd_how = tree_run.command_argv(cmd)[1] if cmd.strip() else "direct"
-    suites = [_suite(r["name"], cmd_how if r["name"] == TEST_CMD_STEP else "direct", r["exit"])
-              for r in check.get("runs") or []] if ci["by"] == "engine" else []
+    runs = (ci.get("runs") or []) if ci["by"] == "engine" else []
+    suites = [_suite(r["name"], r.get("how"), r["exit"]) for r in runs]
     b.settle()
     same = {"test_cmd_same_as": ci["same_as"]} if ci.get("same_as") else {}
-    how = {"test_cmd_how": cmd_how} if cmd.strip() and not same else {}
+    cmd_how = next((r.get("how") for r in runs if r["name"] == TEST_CMD_STEP), None) if ci["by"] == "engine" else ci.get("how")
+    how = {"test_cmd_how": cmd_how} if cmd_how and not same else {}
     return {"ok": True, "green": material.get("status") == "clean", "log": ci["log"], "suites": suites, "by": ci["by"],
             **same, **how}
 

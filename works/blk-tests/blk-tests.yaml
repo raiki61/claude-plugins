@@ -41,8 +41,9 @@ nodes:
         ok: {type: boolean}
         green: {type: boolean}
         log: {type: string}
-        # plain で起こせない（broken）時だけ（tree_run.launch_kind）。起こし方（tree_run.command_argv）も同じ時だけ添える
+        # plain で起こせない（broken）時だけ（tree_run.launch_kind）
         launch: {type: string, enum: [broken]}
+        # plain の起こし方（起こす前に tree_run.command_argv で決めた値）。赤・緑とも載る
         how: {type: string, enum: [direct, shell]}
         # mid・final だけが足す欄（plain は出さない。1 本目の必須の欄は変えない）
         suites:
@@ -55,9 +56,9 @@ nodes:
               name: {type: string}
               exit: {type: [integer, "null"]}   # null は起こせなかった段（関所と報告は環境の失敗としてコードの赤と分けて出す）
               launch: {type: string, enum: [broken]}   # tree_run.launch_kind（clean・red の段には無い）
-              how: {type: string, enum: [direct, shell]}   # launch と同じ段だけ。起こし方（宣言の段は direct。cmd・test_cmd の段は tree_run.command_argv）
+              how: {type: string, enum: [direct, shell]}   # 走った時の起こし方（宣言の段は direct。cmd・test_cmd の段は起こす前に tree_run.command_argv で決めた値）
         by: {type: string, enum: [mid, engine, role, role_needed]}
         # final で test_cmd が宣言の段と同じコマンドだった時、その段の名（1 度だけ走らせた）
         test_cmd_same_as: {type: string}
-        # final で test_cmd を宣言の段と別に走らせた時、その起こし方（tree_run.command_argv）
+        # final で test_cmd を宣言の段と別に走らせた時、走った時の起こし方（run_ci の返り。読む時に規則で作り直さない）
         test_cmd_how: {type: string, enum: [direct, shell]}

@@ -354,39 +354,41 @@ def _tail(data: bytes) -> str:
     return "\n".join(text.splitlines()[-TAIL_LINES:])[-TAIL_BYTES:]
 
 
-def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path) -> dict:
+def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path, *, launched: dict | None = None) -> dict:
     """任せ先に落ちた CI の節に渡す素材 {"material": …} を組む（盤面なしで呼べる公開の口。線 B の申し送り 2）。
     test_cmd を tree_run.command_argv の形（direct か shell）で tree_run.slotted_run に走らせ（機械全体の試験の枠を通す・対象の根で・
     標準入力は空・環境は tree_run.outside_env。
     標準出力と標準エラーを log_path に）、終了コード 0 なら clean（写しの RR の規則で checked が要る）、他は found・count 1。
     detail はログの末尾（engine の段の末尾と同じ切り方）。起こせなければ（shell の先頭の語が tree_run.prove_launchable の証明を
     通らない回も）not_run。test_cmd が空なら走らせずに not_run。
-    止められたら（tree_run.Stopped）捕まえない"""
+    止められたら（tree_run.Stopped）捕まえない。launched（dict）を渡せば、起こす前に決めた起こし方を launched["how"] に置く
+    （返りの素材の形は変えない）"""
     cmd = (test_cmd or "").strip()
     if not cmd:
         return {"material": {"status": "not_run", "reason": "テストのコマンド（test_cmd）が空で、走らせる物が無い"}}
     log_path = pathlib.Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     argv, how = tree_run.command_argv(cmd)
+    if launched is not None:
+        launched["how"] = how
     with open(log_path, "wb") as f:
         try:
             code, _ = tree_run.slotted_run(argv, tree_run.outside_env(os.environ), stdin=subprocess.DEVNULL,
                                            stdout=f, stderr=subprocess.STDOUT, cwd=str(repo))
         except OSError as e:
             return {"material": {"status": "not_run", "reason": f"{_launched(argv, how)} でテストのコマンドを起こせない: {e}"}}
-    return _cmd_material(cmd, code, log_path)
+    return _cmd_material(code, log_path, argv, how)
 
 
 def _launched(argv: list, how: str) -> str:
-    """起こした形の 1 句（起こし方 direct・shell を値のまま出す。direct なら tree_run.DIRECT_HINT も）"""
     return f"{shlex.join(argv)}（起こし方 {how}{'。' + tree_run.DIRECT_HINT if how == 'direct' else ''}）"
 
 
-def _cmd_material(cmd: str, code: int | None, log_path: pathlib.Path, argv=None) -> dict:
+def _cmd_material(code: int | None, log_path: pathlib.Path, argv: list, how: str) -> dict:
     """走らせ終えた test_cmd の終了コードとログから素材を組む（local_checks_material と、engine が既に走らせた test_cmd の段を
-    使い回す _ci_by_cmd の共通）。argv は宣言の段と同じコマンドの時のその段の argv（engine は宣言の段をシェルを通さずに起こすので
-    direct）。無ければ tree_run.command_argv(cmd) の形。分け方は tree_run.launch_kind: 起こせない（exit None）は not_run"""
-    argv, how = (list(argv), "direct") if argv else tree_run.command_argv(cmd)
+    使い回す _ci_by_cmd の共通）。argv・how は起こした時に決めた値（読む時に規則で作り直さない）。
+    分け方は tree_run.launch_kind: 起こせない（exit None）は not_run"""
+    argv = list(argv)
     tail = _tail(log_path.read_bytes())
     kind = tree_run.launch_kind(code)
     if kind == "broken":
@@ -404,7 +406,8 @@ def _engine_log(b, nid: str, runs: list) -> pathlib.Path:
     log = b.work(safe_name(nid) + ".log")
     parts = []
     for i, r in enumerate(runs, 1):
-        parts.append(f"== 段 {i} {r.get('name')}: {json.dumps(r.get('argv'), ensure_ascii=False)} → exit {r.get('exit')}\n")
+        how = f"（起こし方 {r['how']}）" if r.get("how") else ""
+        parts.append(f"== 段 {i} {r.get('name')}{how}: {json.dumps(r.get('argv'), ensure_ascii=False)} → exit {r.get('exit')}\n")
         if r.get("error"):
             parts.append(f"起こせない: {r['error']}\n")
         for key in ("out", "err"):
@@ -423,10 +426,9 @@ def _engine_log(b, nid: str, runs: list) -> pathlib.Path:
 TEST_CMD_STEP = "test_cmd"
 
 
-def _same_step(steps: list, test_cmd: str) -> str | None:
-    """test_cmd を直に起こす形（tree_run.command_argv の direct）の argv が宣言の段の argv と同じなら、その段の名（同じコマンドを
+def _same_step(steps: list, argv: list, how: str) -> str | None:
+    """test_cmd を直に起こす形（how が direct）の argv が宣言の段の argv と同じなら、その段の名（同じコマンドを
     2 度走らせない）。シェルを通す test_cmd は宣言の段（シェルを通さない）と同じにならない"""
-    argv, how = tree_run.command_argv(test_cmd)
     if how != "direct":
         return None
     return next((s.get("name") for s in steps if list(s.get("argv") or []) == argv), None)
@@ -435,11 +437,18 @@ def _same_step(steps: list, test_cmd: str) -> str | None:
 def _with_test_cmd(runner, test_cmd: str, note: dict):
     """board.run_engine の runner (steps, cwd, log_dir) -> runs を包み、宣言の段の後に test_cmd の段を 1 つ足す。宣言の sha の
     照合は runner の前に宣言の steps だけに掛かるので変わらない。runner は steps + [test_cmd の段] で 1 度だけ呼ぶ（ログは段の
-    番号で分かれる）。test_cmd が宣言の段と同じコマンドなら足さず、note["same_as"] にその段の名を置く"""
+    番号で分かれる）。test_cmd が宣言の段と同じコマンドなら足さず、note["same_as"] にその段の名を置く。test_cmd が空なら足さない。
+    段の起こし方 how は起こす前に決め（足す段は tree_run.command_argv の値、宣言の段は engine が shell を通さないので direct）、
+    走った行に写す（runner の行の形は engine の run_steps と同じに保つので、写すのはこの包みの側）"""
+    cmd = (test_cmd or "").strip()
+    argv, how = tree_run.command_argv(cmd) if cmd else (None, None)
+
     def run(steps, cwd, log_dir):
-        note["same_as"] = _same_step(steps, test_cmd)
-        extra = [] if note["same_as"] else [{"name": TEST_CMD_STEP, "argv": tree_run.command_argv(test_cmd)[0]}]
-        return list((runner or board.tree_runner)(list(steps) + extra, cwd, log_dir))
+        note["same_as"] = _same_step(steps, argv, how) if cmd else None
+        extra = [{"name": TEST_CMD_STEP, "argv": argv, "how": how}] if cmd and not note["same_as"] else []
+        hows = ["direct"] * len(steps) + [s["how"] for s in extra]
+        rows = (runner or board.tree_runner)(list(steps) + extra, cwd, log_dir)
+        return [{**r, "how": h} for r, h in zip(rows, hows)]
     return run
 
 
@@ -509,16 +518,16 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
     - test_cmd が在れば、宣言が在っても捨てない: engine が宣言の段を走らせた後に test_cmd の段（TEST_CMD_STEP）を足し
       （_with_test_cmd）、素材は runs の全部から組まれる——宣言の一式と test_cmd の両方が緑の時だけ clean（AND の合成）。
       test_cmd が宣言の段と同じコマンドなら 1 度だけ走らせ、返りの same_as にその段の名
-    - ok: engine が受け付けまで済ませた → {by: "engine", log: 全部の段のログ, same_as?}
+    - ok: engine が受け付けまで済ませた → {by: "engine", log: 全部の段のログ, runs: 段ごとの {name, exit, how}, same_as?}。
+      how は _with_test_cmd が起こす前に決めて走った行に写した値のまま
     - fallback（宣言が無い・engine の返答を受け付けが拒んだ）で任せ先に落ちた: test_cmd が在れば _ci_by_cmd（起こした印 →
-      git の根で test_cmd → done。engine が既に test_cmd の段を走らせていればその結果を使い、2 度走らせない）→ {by: "role", log}
+      git の根で test_cmd → done。engine が既に test_cmd の段を走らせていればその結果を使い、2 度走らせない）→ {by: "role", log, how?}
     - fallback で test_cmd が空 → {by: "role_needed", log: "", why}。意味は「この節の素材はこの呼び出しで何も渡していない。
       呼び手が任せ先の役を回して渡す」だけ——**前の結果（記録に残る p0 の local_checks など）を使ってよい、ではない**。
       節は任せ先に落ちたまま待ち、印も置かない（裁定 R52。役のブロックは blk-ci。役が渡した後の続きは resume_after_ci——blk-ci の collect が呼ぶ）
     - ok: False で relaunch も fallback も無い（why だけ。対象の根が引けない）→ CiRefused"""
     note = {}
-    if (test_cmd or "").strip():
-        runner = _with_test_cmd(runner, test_cmd, note)
+    runner = _with_test_cmd(runner, test_cmd, note)
     got = b.run_engine(nid, runner=runner)
     if got.get("relaunch"):
         got = b.run_engine(nid, runner=runner)
@@ -526,7 +535,9 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
             raise CiRefused(f"{nid}: 宣言が計画の後に 2 度変わった（呼び直しても同じ）: {got.get('why')}")
     if got.get("ok"):
         same = {"same_as": note["same_as"]} if note.get("same_as") else {}
-        return {"by": "engine", "log": str(_engine_log(b, nid, got.get("runs") or [])), **same}
+        runs = got.get("runs") or []
+        rows = [{k: r.get(k) for k in ("name", "exit", "how")} for r in runs]
+        return {"by": "engine", "log": str(_engine_log(b, nid, runs)), "runs": rows, **same}
     if "fallback" not in got:
         raise CiRefused(f"{nid} を engine で走らせられない: {got.get('why')}")
     if not _fell_back(b, nid):
@@ -542,19 +553,20 @@ def _ci_by_cmd(b, nid: str, test_cmd: str, *, ran: dict | None = None) -> dict:
     """任せ先に落ちて待っている CI の節に、test_cmd を走らせた素材を渡す。印（mark_launched）を先に置く（board.py の頭のラインの
     約束 2。同じ試行の 2 度目は前の印を返すので、止められた後の呼び直しでもそのまま走らせ直せる）。走らせる所は engine と同じ
     git の根（--show-toplevel。引けなければ入力の cwd）。ran（engine が同じ呼び出しで走らせた test_cmd の段）が在れば走らせ直さず、
-    その終了コードと標準出力・標準エラーから素材を組む"""
+    その終了コードと標準出力・標準エラーと、走った行の argv・how から素材を組む。返りの how は走った時の起こし方"""
     inst = b.rd["instances"][nid]
     b.mark_launched(nid, inst.get("attempts", 1))
     log = b.work(safe_name(nid) + ".log")
     if ran:
         log.write_bytes(b"".join(pathlib.Path(ran[k]).read_bytes() for k in ("out", "err")
                                  if ran.get(k) and pathlib.Path(ran[k]).is_file()))
-        same = ran.get("name") != TEST_CMD_STEP   # 宣言の段（same_as）なら、その段の argv で起こした
-        b.done(nid, _cmd_material(test_cmd.strip(), ran["exit"], log, ran.get("argv") if same else None))
-        return {"by": "role", "log": str(log)}
-    root = pathlib.Path(_util.repo_root() or b.state["inputs"]["cwd"])
-    b.done(nid, local_checks_material(root, test_cmd, log))
-    return {"by": "role", "log": str(log)}
+        launched = {"how": ran.get("how")}
+        b.done(nid, _cmd_material(ran["exit"], log, ran["argv"], launched["how"]))
+    else:
+        root = pathlib.Path(_util.repo_root() or b.state["inputs"]["cwd"])
+        launched = {}
+        b.done(nid, local_checks_material(root, test_cmd, log, launched=launched))
+    return {"by": "role", "log": str(log), **({"how": launched["how"]} if launched.get("how") else {})}
 
 
 def _is_ci(b, nid: str) -> bool:
