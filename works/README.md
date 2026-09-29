@@ -34,7 +34,7 @@ works は、AI に修正の仕事を任せるための Claude Code のプラグ�
 
 - pack は対象に置かず、利用の家（`WORKS_USE_HOME`。既定 `${XDG_STATE_HOME:-~/.local/state}/works/use`）の Archon の全体の工程の置き場 `archon-home/workflows/works` に、起こすたびに写す。Archon v0.11.1 は `$ARCHON_HOME/workflows/<pack>/` も探す（実行ファイルの中の探し方で確かめ、使い捨ての対象で `validate`・`workflow test works` が通った）。
 - Archon と AI の役は `archon.sh` を通してだけ起こす。家は開発の家（`WORKS_DEV_HOME`）を継がない（走っている自分食いの家を書き換えない）。
-- run の worktree は `--from <対象の HEAD>` で切る。commit していない変更・未追跡のファイルが在れば、一時の index で包んだ commit（`.gitignore` の物は入れない。対象の作業ツリー・index・枝は動かさない。包んだ commit は `git gc` に消されないよう `refs/works/wraps/<commit>` にだけ参照を置く。参照は run の控え `<家>/runs/<run-id>.json` の `wrap_ref` に残し、`clean` がその控えの在る run と一緒に消す。`start` が run を結べず控えを書けない時は、その場で外す。控えに `wrap_ref` の無い run（この仕組みの前に起こした run）の参照は `clean` が知らないので残り、`git update-ref -d refs/works/wraps/<commit>` で外す）から切り、包んだことを起動と `show` に出す。対象は下のフォルダでもよく（git の根で回す）、`origin` は無くてもよい。`/private/tmp` の下・git のリポジトリの外は全部の命令が、pack の写し `.archon/workflows/works` が在る・依頼・認証・uv・claude が無い時は `start` が何もせずに 1 行で止まる（`check` は全部並べる）。
+- run の worktree は `--from <対象の HEAD>` で切る。commit していない変更・未追跡のファイルが在れば、一時の index で包んだ commit（`.gitignore` の物は入れない。対象の作業ツリー・index・枝は動かさない。包んだ commit は `git gc` に消されないよう `refs/works/wraps/<commit>` にだけ参照を置く。参照は run の控え `<家>/runs/<run-id>.json` の `wrap_ref` に残し、`clean` がその控えの在る run と一緒に消す。`start` が run を結べず控えを書けない時は、その場で外す。控えに `wrap_ref` の無い run（この仕組みの前に起こした run）の参照は `clean` が知らないので残り、`git update-ref -d refs/works/wraps/<commit>` で外す）から切り、包んだことを起動と `show` に出す。対象は下のフォルダでもよい（git の根で回す）。`/private/tmp` の下・git のリポジトリの外は全部の命令が、pack の写し `.archon/workflows/works` が在る・remote の `origin` が無い・依頼・認証・uv・claude が無い時は `start` が何もせずに 1 行で止まる（`check` は全部並べる）。
 - 最後の関所は既定で要る時だけ（`WORKS_USE_FINAL_GATE=always` で毎回）。Claude の包みは既定で通す（`WORKS_DEV_ADAPTER=0` で外すと `adapter=optional` と「包み無し」）。`WORKS_USE_UNATTENDED=1` は起動の関所を越え、人が決める関所に着いたら止めて報告へ進める（判定の保留の問いだけでは修正前の関所を開かず、問いの出どころだけを飛ばして直し、問いを報告の冒頭に並べる）。入力 `policy_md`・`gates`・`thickness` は `WORKS_USE_POLICY_MD`・`WORKS_USE_GATES`・`WORKS_USE_THICKNESS`。
 - `tdd_suite` を省くと、`test_cmd` が pytest の 1 コマンドの時だけ `--junitxml` を足す実行器を家の `suites/` に書いて渡し、そうでなければ空（直に直す）にして 1 行で知らせる。
 - 差分は家の `diffs/run-<id>.diff`。当てるのは人（`apply` は `git apply --check` の後に当て、対象のファイルを消す差分は `WORKS_USE_ALLOW_DELETE=1` の時だけ当てる。commit はしない）。
@@ -46,7 +46,7 @@ works は、AI に修正の仕事を任せるための Claude Code のプラグ�
 
 - Archon v0.11.1 以上 0.12.0 未満（`archon-plugin.json` の `compatibility.archon` が `>=0.11.1 <0.12.0`。確かめたのは v0.11.1 だけ）。
 - uv（script の節は `runtime: uv` で起きる）と git。節のスクリプトは PEP 723 の塊を持つので、対象が pyproject.toml を持っても uv は対象の project を拾わない（worktree に .venv・uv.lock を作らない）。既知の限界: 対象の uv の設定（`[tool.uv]`・`uv.toml`）は読まれるので、それが壊れているか、手元の uv に合わない `required-version` を持つと、works の script の節は起動時に終了コード 2 で止まる。直すのは対象か uv の設定。`UV_NO_CONFIG=1` を Archon の環境に立てて逃げるのは勧めない: 対象自身の uv の動きも変わり（テストのコマンドや修正役の Bash が私的な index を読まずに公開の PyPI から解決する）、偽の赤と依存の取り違えの口になる。
-- 対象リポジトリの git の remote は `dev/use.sh` では求めない（Archon v0.11.1 が origin 無しで worktree を切るかは測っていない。起動が落ちたら `git remote add origin <URL>`）。依頼の JSON は対象の外に置いてよい（`dev/use.sh` は依頼を利用の家に写して渡す）。
+- 対象リポジトリには git の remote の `origin` が要る（Archon v0.11.1 は `--from` を渡しても、origin の無い対象では run の worktree を切れずに終了コード 1 で落ちる）。無ければ `dev/use.sh` の `check` が並べ、`start` は Archon を起こす前に止まる。入れ方は `git remote add origin <URL>`。預ける先が無く手元だけで回すなら、対象の外に `git init --bare <対象>.origin.git` を作って origin にし、`git push origin HEAD`（`dev/real-run.sh` と同じ形）。殻は対象の remote を書き換えない。依頼の JSON は対象の外に置いてよい（`dev/use.sh` は依頼を利用の家に写して渡す）。
 
 ## Claude Code のスキル
 

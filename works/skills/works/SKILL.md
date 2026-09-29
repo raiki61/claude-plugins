@@ -68,7 +68,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <版> | --pr <番号>] [--] 
 - 入口: 依頼の JSON だけなら判定から入る（依頼の指摘を判定して直す）。人が変更（枝・PR）の審査を頼んだ時だけ `--base <版>`（base と HEAD の merge-base から HEAD まで）か `--pr <番号>`（GitHub の PR と同じ差分。`gh pr view` で読むだけで投稿しない。対象の HEAD が PR の head であること）を足し、差分に局所の審査の目を回す（起動の時に「入口: 変更から」の行が出る）。変更だけなら依頼の JSON を `-` にする（ここの `-` は標準入力でなく依頼を省く意味。`--base`・`--pr` が無ければ拒む）。両方を渡すと、差分の目と依頼を一緒に判定へ流す。`--base` と `--pr` はどちらか 1 つ。旗は対象より前に置き、`--` の後は旗として読まない。手元に commit していない変更が在ると、下の「手元の変更」のとおり殻が包んだ commit が run の HEAD になるので、`--pr` は PR の head と違うとして拒まれ（commit してから打つ）、`--base` の差分には包んだ手元の変更も入る。
 - 対象: リポジトリの下のフォルダでもよく、その git の根で回す。省けば今いるフォルダの git の根。`/private/tmp` の下は使えない。
 - 手元の変更: commit していない変更・未追跡のファイルが在っても止めない。殻がそれを一時の commit に包み（`.gitignore` の物は入れない）、run はそこから切る。対象の作業ツリー・index・枝は動かさない（包んだ commit を守る参照を `refs/works/wraps/` にだけ置く。`clean` が消すのは run の控えに `wrap_ref` が在る時だけ。`start` が run を結べなかった時はその場で外す。控えに `wrap_ref` の無い前の run の参照は残るので、要らなければ `git update-ref -d` で外す）。包んだことと commit・ファイルを「包んだ（wrapped）」の行に出す（`show` も出す）。差分はその姿との差なので、今の手元にそのまま当たる。
-- remote の `origin` は無くてもよい（無ければ 1 行で知らせる。Archon が fetch を要ると run は始まらない）。
+- remote の `origin` が要る（Archon v0.11.1 は `--from` を渡しても、origin の無い対象では run の worktree を切れずに終了コード 1 で落ちる）。無ければ `check` が並べ、`start` は Archon を起こす前に 1 行で止まり、入れ方（`git remote add origin <URL>`。手元だけなら対象の外に `git init --bare <対象>.origin.git` を作って origin にし、`git push origin HEAD`）を出す。殻は remote を足さない。あなた（Claude）も自分で remote を足さず、預ける先の URL か手元の裸のリポジトリかを依頼者に尋ねて、依頼者に決めてもらう。
 - `test_cmd`（省ける）: 修正の前と最後に回すテストのコマンド（例: `python3 -m unittest -q`・`uv run pytest -q`）。在れば、対象の `.review-checks.json` の宣言が在っても宣言の一式に加えて回し、両方が緑の時だけ緑（宣言の段と同じコマンドなら 1 度だけ回す）。省くか空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
 - `tdd_suite`（省ける）: JUnit XML の書き先を第 1 引数に受ける実行ファイル（対象の根から走る）。機械は後ろに試験のファイル・node id（絶対パス）と `-k` を足して呼ぶことがある（既定の一式に足して集める。解けない実行器は無視してよい）。在れば修正の段で単位ごとの TDD の輪を回す。省くと、`test_cmd` が pytest の 1 コマンドなら殻がそれに `--junitxml` を足す実行器を書いて渡し、そうでなければ輪を飛ばして直に直す（どちらにしたかを 1 行出す）。
 - 最後の関所は既定で要る時だけ開く（`when_needed`）。いつも開くなら `WORKS_USE_FINAL_GATE=always` を前に付ける。
@@ -77,7 +77,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <版> | --pr <番号>] [--] 
 - 無人で回すなら `WORKS_USE_UNATTENDED=1`: 起動の関所を越え、人が決める関所に着いたら止めて報告へ進める（関所に出た、能力を狭める・方針とぶつかる修正は通さない。関所に出ずに決め手で通る行は 3 節の `policy-gate` の項。判定の保留の問いだけでは関所を開かず、問いの出どころだけを飛ばして直し、問いを報告の冒頭に並べる）。
 - 殻がすること: pack を利用の家（`WORKS_USE_HOME`。既定は `~/.local/state/works/use`）に置き、Archon をその家に隔離して起こす。AI の役はその家に組んだ選んだ物だけの Claude の設定を読み、あなたの `~/.claude` は読まない。対象の作業ツリーには何も書かない。
 - AI の役の子には `GRAPHLOOPS_ENGINE_CHILD=1` が立つ（役の Bash から起こすコマンドにも継がれる）。対象の重い一式（e2e・変異の撃ち）は、これを見て AI の役からの起動を拒める。名は graphloops の engine と同じにしてある。線の節が走らせる最後のテストには立たない。Claude の包みを通さない run（包み無し）でも立たない。
-- Archon がすること: 対象の `.git` に run の worktree と枝を足す（worktree は利用の家の下）。`origin` の fetch と、対象の枝を早送りするかは Archon の版に依る（v0.11.1 で測っていない）。
+- Archon がすること: 対象の `.git` に run の worktree と枝を足す（worktree は利用の家の下）。worktree は `origin` の在る対象でだけ切れる（v0.11.1 で測った）。対象の枝を早送りするかは Archon の版に依る（v0.11.1 で測っていない）。
 - 最初に起動の関所（`launch`）で止まって戻り、run id・状態・run の worktree・次に打つ行（進める・待つ・取り消す・答える・止める・続ける）・報告の置き場を出す。
 
 ## 3. 人の関所で見て答える

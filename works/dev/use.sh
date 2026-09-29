@@ -30,9 +30,10 @@
 #   （--base か --pr が在る時だけ受ける）。
 # - run の worktree は対象の今の姿から切る: 汚れていなければ HEAD、commit していない変更・未追跡のファイル（.gitignore の物は
 #   入れない）が在れば一時の index で包んだ commit（--from）。対象の作業ツリー・index・枝は動かさない。包んだファイルは
-#   <家>/wraps/<commit>.txt に控え、起動と show に出す。origin は要らない（無ければ 1 行で知らせる）。
+#   <家>/wraps/<commit>.txt に控え、起動と show に出す。origin が要る（Archon v0.11.1 は --from を渡しても
+#   origin の無い対象で run の worktree を切れずに落ちる）。殻は対象の remote を書き換えない。
 # - 拒む（Archon を呼ばず・何も写さずに 1 行で終了コード 2）: /private/tmp の下の対象・git のリポジトリの中でない（ここまで全部）・
-#   対象に pack の写し .archon/workflows/works が在る（dogfood.sh の形）・依頼が無い・認証が無い・uv か claude が無い（start。
+#   対象に pack の写し .archon/workflows/works が在る（dogfood.sh の形）・対象に remote の origin が無い・依頼が無い・認証が無い・uv か claude が無い（start。
 #   check は拒まずに全部並べて 2）。
 # - tdd_suite: 第 4 引数が在ればそのまま（空は輪を飛ばす）。無ければ test_cmd が pytest の 1 コマンド（前に uv run・poetry run・
 #   python3 -m を許す。; & | < > $ ` を含まない）の時だけ、その末尾に JUnit XML の書き先を足す実行器を <家>/suites/ に書いて渡す。
@@ -184,6 +185,9 @@ resolve_claude() {
 if [ "$CMD" = start ] || [ "$CMD" = check ]; then
   if [ -e "$TARGET/.archon/workflows/works" ]; then
     problem "対象に pack の写し（.archon/workflows/works）がある。works 自身の直しは dogfood.sh で回す"
+  fi
+  if ! git -C "$TARGET" remote get-url origin >/dev/null 2>&1; then
+    problem "対象に remote の origin が無い（Archon v0.11.1 は --from を渡しても run の worktree を切れずに落ちる）。対象（${TARGET}）で入れる: git remote add origin <URL>（手元だけなら対象の外に git init --bare <対象>.origin.git を作って origin にし、git push origin HEAD）"
   fi
   if [ "$CMD" = start ] && [ "$REQUEST_SRC" = - ]; then
     if [ -z "$CHANGE_INPUT" ]; then
@@ -527,9 +531,6 @@ fi
 
 place_pack
 cd "$TARGET"
-if ! git remote get-url origin >/dev/null 2>&1; then
-  echo "対象に remote の origin が無い。Archon が worktree を切る前に origin を fetch するなら run は始まらない（その時は git remote add origin <URL>）"
-fi
 
 # run の基: 汚れていなければ HEAD。commit していない変更・未追跡が在れば、一時の index（HEAD の木から add -A。.gitignore の物は
 # 入らない）で包んだ commit にする（git の plumbing。対象の作業ツリー・index・枝・タグは動かさない）。包んだ commit はどの枝にも

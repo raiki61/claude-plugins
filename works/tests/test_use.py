@@ -2,8 +2,8 @@
 
 見る物:
 - 拒む形（どれも Archon を呼ばず、pack も写さず、終了コード 2 と 1 行の理由）: 使い方の誤り・/private/tmp の下の対象・git の
-  リポジトリの中でない・対象に pack の写し（.archon/workflows/works）が在る・依頼のファイルが無い・認証が無い（keychain は偽物）。
-  commit していない変更・未追跡のファイル（包んで回す）・origin が無いこと・下のフォルダ（git の根で回す）・test_cmd を省くことは拒まない。
+  リポジトリの中でない・対象に pack の写し（.archon/workflows/works）が在る・対象に remote の origin が無い・依頼のファイルが無い・
+  認証が無い（keychain は偽物）。commit していない変更・未追跡のファイル（包んで回す）・下のフォルダ（git の根で回す）・test_cmd を省くことは拒まない。
 - start: pack（tests/・dev/・docs/ 抜き）を利用の家の Archon の全体の工程の置き場（<家>/archon-home/workflows/works）に写し、
   対象の中で `workflow run darkfactory --from <対象の HEAD>` を、写した依頼の絶対パス・test_cmd・tdd_suite・adapter=（包みを入れる既定。archon.sh に WORKS_DEV_ADAPTER=1）・final_gate=when_needed（既定）で呼び、WORKS_USE_FINAL_GATE=always を付けた時だけ
   final_gate=always で呼ぶ。開発の家（WORKS_DEV_HOME）は継がない（走っている自分食いの家を書き換えない）。
@@ -272,13 +272,22 @@ class UseShell(unittest.TestCase):
         self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
         self.assertFalse((self.home / "runs").exists() and os.listdir(self.home / "runs"))
 
-    def test_start_without_origin(self):
-        """origin の無い対象も拒まずに起こし、対象の remote は書き換えない"""
+    def test_refuses_target_without_origin(self):
+        """origin の無い対象は Archon を呼ばずに 1 行で拒み、対象の remote は書き換えない"""
         t = self.target(origin=False)
-        r = self.use("start", str(t), str(self.request), "true")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.calls()[0][3:6], ["workflow", "run", "darkfactory"])
-        self.assertIn("origin が無い", r.stdout)
+        self.assert_refused(self.use("start", str(t), str(self.request), "true"), "origin", "git remote add origin")
+        self.assertEqual(git(t, "remote"), "")
+
+    def test_check_lists_missing_origin(self):
+        """check は origin の無い対象を入れ方の行つきで並べ、validate は呼んだ上で 0 以外で終わる"""
+        t = self.target(origin=False)
+        r = self.use("check", str(t))
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertEqual(self.calls(), [[str(t), "1", str(self.home), "validate", "workflows", "darkfactory"]])
+        lines = r.stderr.strip().splitlines()
+        self.assertEqual(len(lines), 1, r.stderr)
+        for word in ("origin", "git remote add origin"):
+            self.assertIn(word, lines[0])
         self.assertEqual(git(t, "remote"), "")
 
     def test_refuses_target_with_pack_copy(self):

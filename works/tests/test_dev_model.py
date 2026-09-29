@@ -17,7 +17,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from gitkit import committed_copy
+from gitkit import committed_copy, git
 import hermetic  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -149,10 +149,16 @@ class UseShDefaultModel(unittest.TestCase):
         env.update(env_kw)
         return subprocess.run(["sh", str(DEV / "use.sh"), *args], capture_output=True, text=True, encoding="utf-8", env=env)
 
-    def test_start_without_model_keeps_it_unset_through_ledger(self):
-        """既定を解くのは archon.sh。控えの model は空で、別の殻の show の続きの行もその殻の値や既定の opus を明示にしない"""
+    def target(self):
+        """use.sh は remote の origin の無い対象を拒むので、origin を持つ対象を作る"""
         t = self.tmp / "target"
         committed_copy(t, DEV / "target-seed")
+        git(t, "remote", "add", "origin", str(self.tmp / "origin.git"))
+        return t
+
+    def test_start_without_model_keeps_it_unset_through_ledger(self):
+        """既定を解くのは archon.sh。控えの model は空で、別の殻の show の続きの行もその殻の値や既定の opus を明示にしない"""
+        t = self.target()
         r = self.use("start", str(t), str(self.request), "true", "")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("run\t(unset)", self.models.read_text().splitlines())
@@ -167,8 +173,7 @@ class UseShDefaultModel(unittest.TestCase):
     def test_stray_pin_in_caller_shell_does_not_change_default(self):
         """start の時の既定の釘は控えからだけ受ける。利用者の殻に残った WORKS_MODEL_PINNED は start にも、既定の控えの無い
         古い控えの show の続きの行にも届かない"""
-        t = self.tmp / "target"
-        committed_copy(t, DEV / "target-seed")
+        t = self.target()
         r = self.use("start", str(t), str(self.request), "true", "", WORKS_MODEL_PINNED="sonnet")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         led_path = self.home / "runs" / "run-1.json"
