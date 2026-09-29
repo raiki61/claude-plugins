@@ -120,21 +120,6 @@ BAD_PATCH = """diff --git a/a.txt b/a.txt
 +x
 """
 
-NAMES_PATCH = """diff --git a/src/env.sh b/src/env.sh
---- a/src/env.sh
-+++ b/src/env.sh
-@@ -4 +4,2 @@
- unset AAA_X
-+echo "$AAA_NEW"
-""" + "".join("""diff --git a/src/k%d.sh b/src/k%d.sh
-new file mode 100644
---- /dev/null
-+++ b/src/k%d.sh
-@@ -0,0 +1,2 @@
-+#!/bin/sh
-+echo "${ZZZ_NEW}"
-""" % (i, i, i) for i in (1, 2, 3))
-
 PLAIN_PATCH = """--- a/a.txt
 +++ b/a.txt
 @@ -1 +1,2 @@
@@ -300,17 +285,81 @@ class MeasureCase(unittest.TestCase):
         self.assertEqual(sorted(n["name"] for n in out["diff"]["names"]), ["NEW_ONE", "NEW_TWO"])
 
     def test_new_name_through_reader_vs_scattered_over_shells(self):
-        out = self.measure("--paths", "src/env.sh", "--diff", self.diff_file("names.patch", NAMES_PATCH))
+        # lib/conf.sh は殻 2 本から名指される共通の読み手、lib/solo.sh は殻 1 本（と文書）からだけ名指される
+        repo = pathlib.Path(self._tmp.name) / "readers"
+        repo.mkdir()
+        _git(repo, "init", "-q")
+        _write(repo, "lib/conf.sh", 'OLD_A="${OLD_A:-1}"\n')
+        _write(repo, "lib/solo.sh", "echo solo\n")
+        _write(repo, "bin/one", "#!/bin/sh\n. ./lib/conf.sh\n. ./lib/solo.sh\n", mode=0o755)
+        _write(repo, "bin/two", "#!/bin/sh\n. ./lib/conf.sh\n", mode=0o755)
+        _write(repo, "tests/t.sh", ". ./lib/conf.sh\n")
+        _write(repo, "docs/usage.md", "Source lib/conf.sh or lib/solo.sh.\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "r0", date="2020-07-01")
+        for rel, row in (("lib/conf.sh", 'echo "$NEW_VIA"'), ("lib/solo.sh", 'echo "$NEW_VIA"'),
+                         ("bin/one", 'echo "$NEW_SHELL"'), ("bin/two", 'echo "$NEW_SHELL"'),
+                         ("tests/t.sh", 'echo "$NEW_VIA $NEW_SHELL"')):
+            with (repo / rel).open("a", encoding="utf-8") as f:
+                f.write(row + "\n")
+        patch = _git(repo, "diff") + "\n"
+        _git(repo, "checkout", "-q", "--", ".")
+        out = self.measure("--paths", "lib/conf.sh", "--diff", self.diff_file("readers.patch", patch), cwd=repo)
         names = {n["name"]: n for n in out["diff"]["names"]}
-        self.assertEqual(sorted(names), ["AAA_NEW", "ZZZ_NEW"])
-        through = names["AAA_NEW"]
-        self.assertEqual(through["sites"], [{"path": "src/env.sh", "line": 5, "access": True}])
-        self.assertEqual(through["access_files"], ["src/env.sh"])
-        self.assertEqual(through["prior_readers"], ["src/env.sh"])
-        scattered = names["ZZZ_NEW"]
-        self.assertEqual(scattered["sites"], [{"path": "src/k%d.sh" % i, "line": 2, "access": True} for i in (1, 2, 3)])
-        self.assertEqual(scattered["access_files"], ["src/k1.sh", "src/k2.sh", "src/k3.sh"])
-        self.assertEqual(scattered["prior_readers"], [])
+        self.assertEqual(sorted(names), ["NEW_SHELL", "NEW_VIA"])
+        for n in names.values():
+            self.assertEqual(sorted(n), ["name", "shell_sites", "sites", "via_readers"])
+        through = names["NEW_VIA"]
+        self.assertEqual(through["via_readers"], [{"path": "lib/conf.sh", "line": 2}])
+        self.assertEqual(through["shell_sites"], [])
+        scattered = names["NEW_SHELL"]
+        self.assertEqual(scattered["via_readers"], [])
+        self.assertEqual(scattered["shell_sites"], [{"path": "bin/one", "line": 4}, {"path": "bin/two", "line": 3}])
+
+    def test_before_and_after_images_keep_symlinks_alike(self):
+        repo = pathlib.Path(self._tmp.name) / "links"
+        repo.mkdir()
+        _git(repo, "init", "-q")
+        _write(repo, "tool.sh", "echo tool\n")
+        _write(repo, "other.sh", "echo other\n")
+        _write(repo, "bin/run", "#!/bin/sh\nexec sh ./tool.sh\n", mode=0o755)
+        _write(repo, "a.txt", "a\n")
+        (repo / "alias").symlink_to("tool.sh")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "l0", date="2020-07-01")
+        with (repo / "a.txt").open("a", encoding="utf-8") as f:
+            f.write("b\n")
+        plain = _git(repo, "diff") + "\n"
+        _git(repo, "checkout", "-q", "--", ".")
+        (repo / "alias").unlink()
+        (repo / "alias").symlink_to("other.sh")
+        relink = _git(repo, "diff") + "\n"
+        _git(repo, "checkout", "-q", "--", ".")
+        out = self.measure("--paths", "alias", "tool.sh", "--diff", self.diff_file("links.patch", plain), cwd=repo)
+        self.assertEqual(self.diff_entry(out, "alias")["lines"]["delta"], 0)
+        out = self.measure("--paths", "tool.sh", "--diff", self.diff_file("relink.patch", relink), cwd=repo)
+        self.assertEqual(out["diff"]["touched"], ["alias"])
+
+    def test_tracked_file_turned_symlink_is_copied_as_content(self):
+        repo = pathlib.Path(self._tmp.name) / "turned"
+        repo.mkdir()
+        _git(repo, "init", "-q")
+        _write(repo, "bin/go", "#!/bin/sh\n", mode=0o755)
+        _write(repo, "note.txt", "n\n")
+        _write(repo, "a.txt", "a\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "t0", date="2020-07-01")
+        with (repo / "a.txt").open("a", encoding="utf-8") as f:
+            f.write("b\n")
+        plain = _git(repo, "diff") + "\n"
+        _git(repo, "checkout", "-q", "--", ".")
+        _write(repo, "untracked/real.sh", "#!/bin/sh\necho real\n")
+        for rel, target in (("bin/go", "../untracked/real.sh"), ("note.txt", "untracked/real.sh")):
+            (repo / rel).unlink()
+            (repo / rel).symlink_to(target)
+        out = self.measure("--paths", "bin/go", "note.txt", "--diff", self.diff_file("turned.patch", plain), cwd=repo)
+        for rel in ("bin/go", "note.txt"):
+            self.assertEqual(self.diff_entry(out, rel)["lines"], {"before": 2, "after": 2, "delta": 0})
 
     def test_target_repo_does_not_move(self):
         before = self.snapshot()
