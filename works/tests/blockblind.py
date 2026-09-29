@@ -5,7 +5,8 @@ test_layers の決まり 3（name）はコードの文字列の定数だけを�
 ブロックの模块（test_layers の MOD で L4）も持ち主のブロックの部品として数える。行で読むのでコードの文字列の定数も数え、
 決まり 3 と重なりうる（当座に許すなら両方の表に載せる）。
 COPIED_FROM を持つフォルダはバイト単位の写しで直せないので外す（test_layers が L0 の写しに文字列の決まりを当てないのと同じ）。
-役の指示書（commands・rules・写しでない prompts。下のフォルダの深さは問わない）は、ほかの役・段の語（ROLE_TERMS）を
+役の指示書（commands・rules・写しでない prompts。下のフォルダの深さは問わない）と、ブロックの外に 1 つだけ置いて
+どのブロックの書く役にも組まれる決まりの正本（SHARED_RULES）は、ほかの役・段の語（ROLE_TERMS）を
 「ファイル:語 → 行の数」で数える。自分の役は各ファイルの名乗りの文（最初の「お前は／あなたは」から「。」まで。
 行ではない）から取って除く（手で表を持たない。名乗りの無いファイルは全部を数える）。
 lib の Python が組んで指示書に入れる文（blk-fix/lib/fixrules.py など）は、依頼の目的の文が commands・rules に限るので見ない。
@@ -51,6 +52,7 @@ FIX = ("ブロックはほかのブロック・役・段を知らない。入力
 # 「〜役」を全部拾うと「代役」のような役割でない語まで拾うため（Vale の existence の tokens と同じ形）
 ROLE_TERMS = ("判定役", "修正役", "審査役", "裁定役", "実測役", "比較役", "関所", "前段", "後段")
 ROLE_DIRS = frozenset({"commands", "rules", "prompts"})
+SHARED_RULES = ".shared/core/writerules/"
 SELF_LINE = re.compile(r"(?:お前|あなた)は([^。]*)")
 
 ROLE_LATER = "2026-09-28 の依頼で固定。別の run で、前後の役・段を所与にせず入力と出口の約束で書き直す"
@@ -59,9 +61,10 @@ ROLE_LATER = "2026-09-28 の依頼で固定。別の run で、前後の役・�
 ROLE_KNOWN = {
     "blk-delta/commands/delta-review.md:修正役": (2, "審査の相手を修正役として述べる。" + ROLE_LATER),
     "blk-delta/commands/delta-review.md:関所": (1, "後に人の関所が在る前提で述べる。" + ROLE_LATER),
-    "blk-fix/rules/common.md:判定役": (3, "名乗りの無い共通の決まりが判定役の判定を所与にする。" + ROLE_LATER),
-    "blk-fix/rules/common.md:裁定役": (2, "食い違いの申し出の先を裁定役として述べる。" + ROLE_LATER),
-    "blk-fix/rules/common.md:関所": (1, "最後の人の関所が在る前提で述べる。" + ROLE_LATER),
+    # 決まりの正本はどの書く役（修正・TDD の輪・手直し）にも組まれる。手直しの役には判定役・裁定役・関所が無く、読み替えの節が勝つ
+    ".shared/core/writerules/common.md:判定役": (3, "名乗りの無い共通の決まりが判定役の判定を所与にする。" + ROLE_LATER),
+    ".shared/core/writerules/common.md:裁定役": (2, "食い違いの申し出の先を裁定役として述べる。" + ROLE_LATER),
+    ".shared/core/writerules/common.md:関所": (1, "最後の人の関所が在る前提で述べる。" + ROLE_LATER),
     "blk-fix/rules/direct.md:判定役": (3, "判定役が切った単位を所与にする。" + ROLE_LATER),
     "blk-fix/rules/direct.md:後段": (1, "後段が在る前提で述べる。" + ROLE_LATER),
     "blk-fix/rules/direct.md:関所": (1, "人の関所が在る前提で述べる。" + ROLE_LATER),
@@ -72,8 +75,6 @@ ROLE_KNOWN = {
     "blk-judge/commands/diagnose.md:修正役": (2, "判定の読み手を修正役として述べる。" + ROLE_LATER),
     "blk-premises/commands/premises.md:判定役": (2, "実測の読み手を判定役として述べる。" + ROLE_LATER),
     "blk-purpose/commands/purpose.md:判定役": (1, "目的の文の読み手を判定役として述べる。" + ROLE_LATER),
-    "blk-refix/commands/refix.md:修正役": (1, "手直しの前を修正役として述べる。" + ROLE_LATER),
-    "blk-refix/commands/refix2.md:判定役": (1, "次の run の判定役を所与にする。" + ROLE_LATER),
     "blk-refix/commands/review2.md:判定役": (1, "次の run の判定役を所与にする。" + ROLE_LATER),
     "blk-refix/commands/review2.md:関所": (1, "最後の人の関所が在る前提で述べる。" + ROLE_LATER),
     "blk-rejudge/commands/rejudge-third.md:修正役": (1, "往復の相手を修正役として述べる。" + ROLE_LATER),
@@ -87,19 +88,22 @@ def blocks(root):
 
 
 def tracked(root):
-    """ブロックの追跡されたファイルと、core に在るブロックの模块（L4）（works からのパス）"""
-    out = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "blk-*", *CORE_OWNER],
+    """ブロックのファイルと、core に在るブロックの模块（L4）と決まりの正本（works からのパス）。追跡された物と、まだ追跡されて
+    いない .gitignore に当たらない物（足したファイルを commit の前から数える）"""
+    out = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
+                          "blk-*", *CORE_OWNER, SHARED_RULES],
                          capture_output=True, text=True, encoding="utf-8", check=True).stdout
-    return [f for f in out.split("\0") if f]
+    return list(dict.fromkeys(f for f in out.split("\0") if f))
 
 
 def block_refs(root, files):
-    """"<パス>:<相手の名>" → 自分以外のブロックの名を含む行の数。写しのフォルダ・ブロックの外・テキストでない物は見ない"""
+    """"<パス>:<相手の名>" → 自分以外のブロックの名を含む行の数。写しのフォルダ・ブロックの外・テキストでない物は見ない。
+    決まりの正本はどのブロックの書く役にも組まれるので持ち主を持たず（空の名）、どのブロックの名も数える"""
     names = set(blocks(root))
     found = {}
     for f, text in _texts(root, files):
-        own = CORE_OWNER.get(f, f.split("/", 1)[0])
-        if own not in names:
+        own = "" if f.startswith(SHARED_RULES) else CORE_OWNER.get(f, f.split("/", 1)[0])
+        if own not in names | {""}:
             continue
         for line in text.splitlines():
             for other in set(NAME.findall(line)) & names - {own}:
@@ -115,11 +119,12 @@ def self_roles(text):
 
 
 def role_refs(root, files):
-    """"<パス>:<語>" → 役の指示書でほかの役・段の語を含む行の数（自分の名乗りの語は除く）"""
+    """"<パス>:<語>" → 役の指示書と決まりの正本でほかの役・段の語を含む行の数（自分の名乗りの語は除く）"""
     found = {}
     for f, text in _texts(root, files):
         parts = f.split("/")
-        if len(parts) < 3 or not parts[0].startswith("blk-") or parts[1] not in ROLE_DIRS:
+        in_block = len(parts) >= 3 and parts[0].startswith("blk-") and parts[1] in ROLE_DIRS
+        if not in_block and not f.startswith(SHARED_RULES):
             continue
         own = self_roles(text)
         others = [t for t in ROLE_TERMS if t not in own]

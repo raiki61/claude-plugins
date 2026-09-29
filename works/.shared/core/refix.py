@@ -7,20 +7,21 @@
 - passes():                  {n: {cut, review, owed, fix, state_key, owed_key}}（写しの DELTA_PASSES から）
 - cut(board, n, repo):       n 回目の審査役を起こす前の支度。盤面の loop.<state_key>（今の周）の差分のファイルと触ったファイルを
                              返し、役に見せる材料（brief）を書き、読むだけの役の前の作業ツリーの写しを撮り、起こした印を置く
-- prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスを brief に書き、印を置く
+- prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスを brief に書き、呼び手の
+                             組み立て（prompt）で指示書を書き、印を置く
 - accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる。手直しは先に書き込みの
                              記録と突き合わせ、記録の無い変更を盤面の trace に残す）
 - main_accept_review・main_accept_fix: 受け付けのスクリプトの入口（rolekit.main_accept。3 回目の拒否で done・give_up。R50）
 - route(board):              blk-refix の分かれ道 {review2, refix2, owed, owed2}（盤面の待っている節と義務の数）
 - collect_delta・collect_refix: 出口（1 本目の欄を全部残して足す）。役が 3 回とも拒まれて輪を抜けたら、最後の拒否の文で
                              盤面を止めて ok: false（rolekit.gave_up。by は DELTA_BY・REFIX_BY）
-- must(board, role):         読んだ証拠（reads）に渡す「機械が渡したパス」（brief と差分のファイル）
+- must(board, role):         読んだ証拠（reads）に渡す「機械が渡したパス」（brief と差分のファイルと、組んだ指示書）
 - script_main(fn, inputs):   ブロックのスクリプトの入口（配線の誤りは標準エラーに 1 行で 2。TA19）
 
 作業ファイル（b.work。今の周の r<N>/。周の番号を仮定しない。TA17）: review<n>-snapshot.json（計画の予約の名）・
 review<n>-brief.json・refix<n>-brief.json（役に見せる材料: graph がその節に読ませる盤面の値と、人の方針 policy.brief の
-{paste, path}。審査役の brief には、変わったファイルのうち守りのファイル（protect.hits）の protected_files も。1 本目の blk-delta の YAML は入口 policy_paste を持たないので、審査役へは方針の本文をこの brief で届ける）。
-支度は前の試みの自分の出力（brief・reads-<役>.json・1 本目の blk-delta が盤面の根に書いた delta-review.json・fix.diff・
+{paste, path}。審査役の brief には、変わったファイルのうち守りのファイル（protect.hits）の protected_files も。1 本目の blk-delta の YAML は入口 policy_paste を持たないので、審査役へは方針の本文をこの brief で届ける）・手直しの役の指示書 prompt-<節>.md（呼び手のブロックが組む）。
+支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 本目の blk-delta が盤面の根に書いた delta-review.json・fix.diff・
 delta-snapshot.json）を先に消す——新しい審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が
 踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
 """
@@ -184,10 +185,12 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
             "brief_file": str(brief), "must": [str(brief), d["file"]]}
 
 
-def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
+def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, values=None) -> dict:
     """n 回目の手直しの役を起こす前の支度。手直しの節が待っていない・義務が今の周に無いなら {ok: False, reason}
     （配線の誤り）。在れば前の試みの自分の出力を消し、義務と差分のパスを refix<n>-brief.json に書き、起こした印を置いて
-    {ok: True, owed, diff_file, brief_file, must} を返す"""
+    {ok: True, owed, diff_file, brief_file, must} を返す。prompt（呼び手のブロックの組み立て prompt(n, 値) -> 指示書の字）を
+    渡せば、{brief_file, diff_file} と values（run の値）で組んだ指示書を今の周の prompt-<節>.md に書き、prompt_file を足す
+    （must にも。core は決まりの中身を知らない）"""
     p = _pass(n)
     b = entry.open_board(board)
     inst = _pending(b, p["fix"])
@@ -199,12 +202,21 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
     d = _in_round(b, b.loop_state.get(p["state_key"])) or {}
     role = FIX_ROLE[n]
     brief_name = f"refix{n}-brief.json"
-    _drop_stale(b, brief_name, f"reads-{role}.json")
+    prompt_file = b.work(rolekit.prompt_name(p["fix"]))
+    _drop_stale(b, brief_name, f"reads-{role}.json", prompt_file.name)
     brief = _write_json(b.work(brief_name), {"node": p["fix"], "diff_file": d.get("file") or "", "owed": rows,
                                              "reads": _brief(b, p["fix"]), "policy": policy.brief(b)})
+    out = {"ok": True, "owed": len(rows), "diff_file": d.get("file") or "", "brief_file": str(brief),
+           "must": [str(brief)] + ([d["file"]] if d.get("file") else [])}
+    if prompt is not None:
+        text = prompt(n, {**(values or {}), "brief_file": str(brief), "diff_file": out["diff_file"]})
+        tmp = prompt_file.with_name(prompt_file.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, prompt_file)
+        out["prompt_file"] = str(prompt_file)
+        out["must"].append(str(prompt_file))
     b.mark_launched(p["fix"], inst.get("attempts", 1))
-    return {"ok": True, "owed": len(rows), "diff_file": d.get("file") or "", "brief_file": str(brief),
-            "must": [str(brief)] + ([d["file"]] if d.get("file") else [])}
+    return out
 
 
 # ---------------------------------------------------------------- 受け付け
@@ -297,7 +309,7 @@ def collect_refix(board: pathlib.Path) -> dict:
 
 
 def must(board: pathlib.Path, role: str) -> list:
-    """役 role に機械が渡したパス（支度が書いた brief と、その差分のファイル）。支度が走っていなければ空"""
+    """役 role に機械が渡したパス（支度が書いた brief と、その差分のファイルと、組んだ指示書が在ればそれ）。支度が走っていなければ空"""
     b = entry.open_board(board, allow_halted=True)
     name = next((f"review{n}-brief.json" for n, r in REVIEW_ROLE.items() if r == role), None) \
         or next((f"refix{n}-brief.json" for n, r in FIX_ROLE.items() if r == role), None)
@@ -307,7 +319,9 @@ def must(board: pathlib.Path, role: str) -> list:
     if not p.is_file():
         return []
     diff = json.loads(p.read_text(encoding="utf-8")).get("diff_file") or ""
-    return [str(p)] + ([diff] if diff else [])
+    fix = next((_pass(n)["fix"] for n, r in FIX_ROLE.items() if r == role), None)
+    composed = b.work(rolekit.prompt_name(fix)) if fix else None
+    return [str(p)] + ([diff] if diff else []) + ([str(composed)] if composed and composed.is_file() else [])
 
 
 def reads_all(board: pathlib.Path, reads_mod, run_id: str) -> dict:

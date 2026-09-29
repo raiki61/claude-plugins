@@ -1,0 +1,42 @@
+"""手直しの役（refix・refix2）の指示書の組み立て。AI を通さず、機械が書く役の決まりの正本（rulebook.CANON）の全部の節を
+字のまま載せ、手直しの決まり（rules/refix.md）と run の値を繋ぐ。同じ入力からはバイト単位で同じ。
+
+並び: 役の頭（refix-head-<n>）→ 正本の全節（ファイルの順）→ 読み替え（refix-remap。正本より勝つ）→ 手直しだけの決まり
+（refix-keep）→ 返答（refix-reply。どの回も同じ）→ 返答の後に当たる物（refix-tail-<n>）。支度は輪の外で 1 度だけ組むので、形は full だけ（拒否の理由のファイルは役の節の
+prompt が $LOOP_PREV で名指す）。
+"""
+import pathlib
+import sys
+
+sys.dont_write_bytecode = True
+
+_CORE = pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"
+if str(_CORE) not in sys.path:
+    sys.path.insert(0, str(_CORE))
+
+import rulebook  # noqa: E402
+
+RULES = pathlib.Path(__file__).resolve().parents[1] / "rules" / "refix.md"
+VALUES = ("brief_file", "diff_file", "policy_path")
+ROLES = {1: "refix", 2: "refix2"}
+ALWAYS = "いつも"
+
+
+def parts(n: int, values: dict) -> list:
+    """n 回目の手直しの役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）"""
+    if n not in ROLES:
+        raise rulebook.Unfilled(f"手直しの往復 {n!r} は {sorted(ROLES)} のどれでもない")
+    r = rulebook.sections(RULES)
+    canon = [(sid, text, ALWAYS + "（書く役の決まりの正本）") for sid, text in rulebook.sections(rulebook.CANON).items()]
+    return [("refix-head", rulebook.fill(r[f"refix-head-{n}"], rulebook.pick(values, VALUES)), ALWAYS + "（役・材料・run の値）"),
+            *canon,
+            ("refix-remap", r["refix-remap"], ALWAYS + "（この役での読み替え）"),
+            ("refix-keep", r["refix-keep"], ALWAYS + "（手直しだけの決まり）"),
+            ("refix-reply", r["refix-reply"], ALWAYS + "（返答の欄）"),
+            ("refix-tail", r[f"refix-tail-{n}"], ALWAYS + "（返答の後に当たる物）")]
+
+
+def build(n: int, values: dict) -> str:
+    """n 回目の手直しの役の指示書（純粋）"""
+    got = parts(n, values)
+    return rulebook.render(ROLES[n], 1, got)["text"]

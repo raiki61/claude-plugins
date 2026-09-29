@@ -1,12 +1,13 @@
 """修正役の指示書の組み立て（blk-fix。裁定 R65）。AI を通さず、機械が決まりの正本と道ごとの決まりと run の値を繋いで書く。
+節に切る・穴を埋める・形を描く口は .shared/core/rulebook（ほかのブロックの書く役も同じ正本から組む）。
 
-置き場（blk-fix/rules/）。どれも `<!-- 節 <id> -->` の行で節に切り、組むときに節を選ぶ（印の行は指示書に入れない）:
-- common.md: 修正の決まりの正本。core-fix（直し方）・core-keep（守ること）は本線の核でいつも載せる。evidence・evidence-<種類>
-  （テストで赤→緑を示せない直しの証拠。決定 C8）は、単位のファイルと差分に在る変更の種類（KINDS）の物だけを載せる。
-  本線（p3.fix.md）から書き直した文は 1 本目の commands/fix.md から字のまま移した。ほかの置き場に写さない（tests/test_fix_rules.py）
-- direct.md: 直す役（節 fix）の道。fix-head（役・読む物。run の値の穴 <<名>>）・fix-keep・fix-reply（返答の欄の書き方）
-- tdd.md: TDD の輪の役（節 tdd）の道。tdd-head・tdd-remap（この輪での読み替え）・tdd-phase-<段>（今の段の約束だけ）・tdd-end
-- ruler.md・principles.md: 食い違いの申し出の裁定役（節 rule。読むだけ）の道と、持ち主の決まり（裁定の拠り所）。
+置き場。どれも `<!-- 節 <id> -->` の行で節に切り、組むときに節を選ぶ（印の行は指示書に入れない）:
+- 修正の決まりの正本（SHARED = rulebook.CANON。.shared/core/writerules/common.md）: core-fix（直し方）・core-keep（守ること）は
+  本線の核でいつも載せる。evidence・evidence-<種類>（テストで赤→緑を示せない直しの証拠。決定 C8）は、単位のファイルと差分に在る
+  変更の種類（KINDS）の物だけを載せる
+- rules/direct.md: 直す役（節 fix）の道。fix-head（役・読む物。run の値の穴 <<名>>）・fix-keep・fix-reply（返答の欄の書き方）
+- rules/tdd.md: TDD の輪の役（節 tdd）の道。tdd-head・tdd-remap（この輪での読み替え）・tdd-phase-<段>（今の段の約束だけ）・tdd-end
+- rules/ruler.md・principles.md: 食い違いの申し出の裁定役（節 rule。読むだけ）の道と、持ち主の決まり（裁定の拠り所）。
   修正役と TDD の輪の役の両方に、正本の core-conflict（緑にするために曲げず、食い違いとして返す）をいつも載せる
 
 量を減らす 2 つの形（持ち主 2026-09-28）: 役は輪の周をまたいで 1 つの会話で起きる（fresh_context: false）。支度の節は毎回
@@ -27,7 +28,6 @@
 - ruler_prompt: 裁定役の指示書（ruling.prep が書く）
 - reads_more: 節 fix-reads が読んだ証拠を集めるパスに足す物（今の周に組んだ指示書）
 """
-import hashlib
 import json
 import pathlib
 import posixpath
@@ -48,10 +48,13 @@ from leftovers import Unreadable, git_names  # noqa: E402
 import libdocs  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
+import rulebook  # noqa: E402
+from rulebook import EMPTY, MARK, RULES_SAME, WHY_DELTA, Unfilled, fill, join, render, shared  # noqa: E402,F401
 import script_io  # noqa: E402
 
 RULES_DIR = pathlib.Path(__file__).resolve().parents[1] / "rules"
-SHARED, DIRECT, TDD = "common.md", "direct.md", "tdd.md"
+SHARED = rulebook.CANON
+DIRECT, TDD = "direct.md", "tdd.md"
 RULER, PRINCIPLES = "ruler.md", "principles.md"   # 裁定役の道と、持ち主の決まり（裁定の拠り所）
 FIX_VALUES = ("judgment_file", "open_units", "plan_file", "policy_path", "notes_file", "summary_file")
 TDD_VALUES = ("judgment_file", "open_units", "plan_file", "policy_path", "notes_file")
@@ -61,14 +64,10 @@ PASSES = ("first", "ruled")   # 修正役の 1 回目と、裁定の後の 2 回
 RULED_TAIL = "-ruled.md"      # 2 回目の指示書の名の尾（1 回目の <名>.md の隣。輪の控えを分ける）
 RULINGS_LINE = ("食い違いの申し出への裁定を書いたファイル {path} を、先に Read で全部読め。裁定に従って直し、返答を丸ごと出し直せ"
                 "（裁定の文そのものはここに貼らない）")
-EMPTY = "（空）"
-HOLE = re.compile(r"<<([a-z_]+)>>")
-MARK = re.compile(r"^<!-- 節 ([a-z0-9-]+) -->$")
-HEADER = "<!-- works-prompt {} -->"
 KINDS = ("docs", "prompts", "config", "code")   # 変更の種類 → 節 evidence-<種類>
 PHASES = ("route", "test", "fix", "refactor")
 # 種類の見分け（パスの形だけで決める。当たらない物は種類なし）
-PROMPT_DIRS = frozenset({"commands", "prompts", "agents", "skills", "rules"})
+PROMPT_DIRS = frozenset({"commands", "prompts", "agents", "skills", "rules", rulebook.CANON.parent.name})
 PROMPT_NAMES = frozenset({"CLAUDE.md", "AGENTS.md", "SKILL.md", "GEMINI.md"})
 DOC_SUFFIXES = frozenset({".md", ".markdown", ".rst", ".txt", ".adoc"})
 CONFIG_SUFFIXES = frozenset({".yaml", ".yml", ".toml", ".json", ".ini", ".cfg", ".conf"})
@@ -80,78 +79,15 @@ PATH_TOKEN = re.compile(r"[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z][A-Za-z0-9]*")
 REJECT_GLOB = f"{script_io.REJECT_PREFIX}accept_fix-*.txt"
 # 並べて書く形の名の尾（<名>.md の隣）
 FULL, DELTA, RULES, VARIANTS, DELIVERED = ".full.md", ".delta.md", ".rules.md", ".variants.json", ".delivered.json"
-WHY_FULL = "全部（包みが会話の続きと見ない起動の既定）"
-WHY_DELTA = "変わった物だけ（会話の続きの起動で包みが差し替える）"
 WHY_FIRST = "1 回目（この輪でまだ決まりを渡していない。delta は full と同じ）"
-RULES_SAME = ("決まりは、この会話で前の回までに渡した物（sha256 {sha}）から変わっていない。この会話でまだ読んでいなければ、"
-              "先に {path} を Read で全部読め。")
-RULES_ADDED = ("決まりに下の節を足した（足した後の全体は sha256 {sha}。{path}）。ほかは、この会話で前の回までに渡した物から"
-               "変わっていない（この会話でまだ読んでいなければ、先に {path} を Read で全部読め）。")
-
-
-class Unfilled(ValueError):
-    """型の穴に値が無い・値の名が要る物と違う（回す側の誤り）"""
+_sha = rulebook.sha
+_pick = rulebook.pick
 
 
 # ---------------------------------------------------------------- 節
-def sections(name: str) -> dict:
-    """rules/<name> の節 {id: 本文}（ファイルの順。本文の前後の空行は落とす。印の行は入れない）"""
-    out, cur = {}, None
-    for line in (RULES_DIR / name).read_text(encoding="utf-8").split("\n"):
-        m = MARK.match(line)
-        if m:
-            cur = m.group(1)
-            if cur in out:
-                raise Unfilled(f"{name}: 節 {cur} が 2 つ在る")
-            out[cur] = []
-        elif cur is not None:
-            out[cur].append(line)
-        elif line.strip():
-            raise Unfilled(f"{name}: 節の印より前に文が在る: {line[:60]!r}")
-    return {k: "\n".join(v).strip("\n") for k, v in out.items()}
-
-
-def join(texts) -> str:
-    """節を繋ぐ: 箇条の行の後に箇条で始まる節が来れば改行 1 つ（同じ箇条を続ける）、ほかは空行 1 つ"""
-    out = ""
-    for t in texts:
-        if not t:
-            continue
-        if out:
-            last = out.rsplit("\n", 1)[-1]
-            out += "\n" if t.startswith("- ") and (last.startswith("- ") or last.startswith("  ")) else "\n\n"
-        out += t
-    return out
-
-
-def shared() -> str:
-    """修正の決まりの正本の全文（全部の節。印の行を除いた字）"""
-    return join(sections(SHARED).values())
-
-
-def _sha(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-# ---------------------------------------------------------------- 値の穴
-def _value(v) -> str:
-    v = "" if v is None else str(v)
-    return f"`{v}`" if v else EMPTY
-
-
-def fill(template: str, values: dict) -> str:
-    """型の穴 <<名>> を `値`（空は EMPTY）で埋める。1 回の置き換え（埋めた字を読み直さない）"""
-    lack = sorted(set(HOLE.findall(template)) - set(values))
-    if lack:
-        raise Unfilled(f"型の穴に値が無い: {lack}")
-    return HOLE.sub(lambda m: _value(values[m.group(1)]), template)
-
-
-def _pick(values: dict, names: tuple) -> dict:
-    lack = [k for k in names if k not in values]
-    if lack:
-        raise Unfilled(f"run の値が無い: {lack}")
-    return {k: values[k] for k in names}
+def sections(name) -> dict:
+    """rules/<name> の節 {id: 本文}。SHARED は .shared/core の正本（rulebook.sections）"""
+    return rulebook.sections(SHARED if name == SHARED else RULES_DIR / name)
 
 
 # ---------------------------------------------------------------- 変更の種類
@@ -270,28 +206,6 @@ def ruler_parts(values: dict) -> list:
 def ruler_prompt(values: dict, *, reject_file: str = "", iteration: int = 1) -> str:
     """裁定役の指示書（純粋。いつも全部——輪は 3 回までで、出し直しは同じ会話）"""
     return render("rule", iteration, ruler_parts(values), reject_file=reject_file)["text"]
-
-
-def render(role: str, iteration: int, parts: list, *, prior=None, rules_file: str = "", before=(), after=(),
-           reject_file: str = "") -> dict:
-    """1 つの形 {text, delivered, rules_text, head}。prior が None なら決まりの節を全部（full）、{delivered: {id: sha}} なら
-    まだ渡していない・中身が替わった節だけと RULES_SAME / RULES_ADDED の 1 行（delta）。delivered は渡した後の {id: sha}。
-    並び: HEADER → [拒否の理由のファイルの 1 行] → before → 決まり → after"""
-    shas = {pid: _sha(text) for pid, text, _ in parts}
-    rules_text = join(text for _, text, _ in parts)
-    rules_sha = _sha(rules_text)
-    old = None if prior is None else (prior.get("delivered") or {})
-    if old is None:
-        sent, body, mode, why = [pid for pid, _, _ in parts], [rules_text], "full", WHY_FULL
-    else:
-        sent = [pid for pid, _, _ in parts if old.get(pid) != shas[pid]]
-        line = (RULES_ADDED if sent else RULES_SAME).format(sha=rules_sha, path=rules_file or EMPTY)
-        body, mode, why = [line, join(text for pid, text, _ in parts if pid in sent)], "delta", WHY_DELTA
-    head = {"role": role, "iteration": iteration, "mode": mode, "why": why, "rules_sha": rules_sha, "rules_file": rules_file,
-            "sections": [{"id": pid, "why": w, "sent": pid in sent} for pid, _, w in parts]}
-    text = rolekit.compose([*before, *body, *after], reject_file=reject_file)
-    text = HEADER.format(json.dumps(head, ensure_ascii=False)) + "\n" + text.rstrip("\n") + "\n"
-    return {"text": text, "delivered": {**(old or {}), **shas}, "rules_text": rules_text, "head": head}
 
 
 def fix_prompt(values: dict, *, kinds: dict | None = None, reject_file: str = "", prior=None, iteration: int = 1,

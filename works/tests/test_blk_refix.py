@@ -331,6 +331,25 @@ class RefixCase(DeltaBoardCase):
         self.assertEqual({r["key"] for r in brief["owed"]}, {F1, PR_KEY})
         self.assertEqual(refix.must(self.board, "refix"), [got["brief_file"], brief["diff_file"]])
 
+    def test_prep_writes_the_composed_prompt(self):
+        """prompt（呼び手のブロックの組み立て）を渡した支度は、brief と差分のパスと run の値で組んだ指示書を prompt-<節>.md に
+        書き、prompt_file と must に足す。渡さない支度は前の試みの指示書を消す"""
+        repo, _ = self.reviewed()
+        seen = []
+
+        def build(n, values):
+            seen.append((n, values))
+            return f"指示書 {values['brief_file']} {values['policy_path']}\n"
+        got = refix.prep_fix(self.board, 1, repo, prompt=build, values={"policy_path": "/p.md"})
+        self.assertEqual(seen, [(1, {"policy_path": "/p.md", "brief_file": got["brief_file"], "diff_file": got["diff_file"]})])
+        self.assertEqual(pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8"), f"指示書 {got['brief_file']} /p.md\n")
+        self.assertEqual(got["must"][-1], got["prompt_file"])
+        self.assertEqual(refix.must(self.board, "refix"), got["must"])
+        again = refix.prep_fix(self.board, 1, repo)
+        self.assertNotIn("prompt_file", again)
+        self.assertFalse(pathlib.Path(got["prompt_file"]).exists())
+        self.assertEqual(refix.must(self.board, "refix"), again["must"])
+
 
 # ---------------------------------------------------------------- スクリプト（子で起こす）
 class RefixScriptCase(DeltaBoardCase):
@@ -340,11 +359,17 @@ class RefixScriptCase(DeltaBoardCase):
         repo, _ = self.reviewed()
         r = self.run_script("blk-refix", "cut2", repo)                    # 2 回目の差分はまだ無い
         self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
-        r = self.run_script("blk-refix", "prep", repo, **{"pass": "3"})
+        r = self.run_script("blk-refix", "prep", repo, policy_path="", **{"pass": "3"})
         self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
-        r = self.run_script("blk-refix", "prep", repo, **{"pass": "1"})
+        r = self.run_script("blk-refix", "prep", repo, **{"pass": "1"})   # policy_path の欠け（配線の誤り）
+        self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
+        r = self.run_script("blk-refix", "prep", repo, policy_path="", **{"pass": "1"})
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout)["owed"], 2)
+        prepped = json.loads(r.stdout)
+        self.assertEqual(prepped["owed"], 2)
+        composed = pathlib.Path(prepped["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(f"`{prepped['brief_file']}`", composed)
+        self.assertIn(prepped["prompt_file"], prepped["must"])
         r = self.run_script("blk-refix", "accept_refix", repo, reply=json.dumps(linekit.reply("fix2_delta_fix_missing_key")),
                             base_rev="", **{"pass": "1"})
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -401,18 +426,31 @@ class RefixStaticCase(unittest.TestCase):
                 self.assertEqual({k: v for k, v in fmt.items() if k != "description"}, accept.role_schema(node))
 
     def test_prompts_read_loop_prev_reason(self):
-        """refix.md・review2.md・refix2.md がそれぞれの受け付けの拒否の理由（reason_file のパス。裁定 R44）を読む。
-        $<節>.output の節は blk-refix の中の節（支度と差分）、$INPUTS は入口の policy_paste（読む役）・policy_path（書く役）だけ"""
-        want = {"refix.md": ("refix-accept", "$refix-prep.output", "$INPUTS.policy_path"),
+        """review2.md と、書く役 refix・refix2 の節の prompt（支度が組んだ指示書を Read させる）が、それぞれの受け付けの拒否の
+        理由（reason_file のパス。裁定 R44）を読む。$<節>.output の節は blk-refix の中の節（支度と差分）、$INPUTS は入口の
+        policy_paste（読む役）だけ。書く役の方針の置き場 policy_path は支度の節の with: で受け、組んだ指示書に入る"""
+        nodes = {}
+        for n in yaml.safe_load((REFIX_DIR / "blk-refix.yaml").read_text(encoding="utf-8"))["nodes"]:
+            nodes[n["id"]] = n
+            for m in (n.get("loop_group") or {}).get("nodes") or []:
+                nodes[m["id"]] = m
+        want = {"refix": ("refix-accept", "$refix-prep.output", None),
                 "review2.md": ("review2-accept", "$cut2.output", "$INPUTS.policy_paste"),
-                "refix2.md": ("refix2-accept", "$refix2-prep.output", "$INPUTS.policy_path")}
+                "refix2": ("refix2-accept", "$refix2-prep.output", None)}
         for name, (acc, own, pol) in want.items():
             with self.subTest(name):
-                body = (REFIX_DIR / "commands" / name).read_text(encoding="utf-8")
+                if name.endswith(".md"):
+                    body = (REFIX_DIR / "commands" / name).read_text(encoding="utf-8")
+                else:
+                    body = nodes[name]["prompt"]
+                    self.assertNotIn("command", nodes[name])
+                    self.assertIn(f"`{own}.prompt_file` を Read で", body)
+                    self.assertEqual(nodes[own[1:-len(".output")]]["with"]["policy_path"], "$INPUTS.policy_path")
                 self.assertIn(f"$LOOP_PREV.{acc}.output.reason_file", body)
                 self.assertNotIn(f"$LOOP_PREV.{acc}.output.reason ", body)
                 refs = set(re.findall(r"\$[A-Za-z_][A-Za-z0-9_.-]*[A-Za-z0-9_]", body))
-                self.assertIn(pol, refs)
+                if pol:
+                    self.assertIn(pol, refs)
                 self.assertTrue(any(r.startswith(own + ".") for r in refs), refs)
                 allowed = (f"$LOOP_PREV.{acc}.output.reason_file", pol)
                 self.assertEqual({r for r in refs if not r.startswith(own + ".")} - set(allowed), set(), refs)
@@ -445,7 +483,7 @@ class RefixStaticCase(unittest.TestCase):
 
     def test_scripts_hold_inputs(self):
         """各スクリプトは読む INPUTS_* を定数 INPUTS に持つ（TA16）。頭の 4 行は PEP 723"""
-        want = {"prep": ("INPUTS_PASS",), "accept_refix": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_PASS"),
+        want = {"prep": ("INPUTS_PASS", "INPUTS_POLICY_PATH"), "accept_refix": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_PASS"),
                 "cut2": (), "accept_review2": ("INPUTS_REPLY", "INPUTS_BASE_REV"), "route": (), "reads": (),
                 "collect": ()}
         for name, inputs in want.items():

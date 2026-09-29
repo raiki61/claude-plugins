@@ -8,7 +8,7 @@ tests/test_toolset.py（偽の利用者の設定で回す）。
 - 借りる一覧（BORROW）: .shared/borrow/borrow.json の superpowers.skills と同じで、使わないと決めたスキル（NEVER）・
   読んで参考にするだけのスキル（REFERENCE_ONLY）と重ならない。
 - 無人の読み替え（works/.shared/borrow/unattended.md）: 決まりの見出しは 1 つずつ。直す義務の単位の行き先は、修正の決まりの
-  正本（blk-fix/rules/common.md）と同じ行を持つ。持ち主が名指した読み替え（人に聞く・commit・superpowers: の参照・3 回の失敗）
+  正本（.shared/core/writerules/common.md）と同じ行を持つ。持ち主が名指した読み替え（人に聞く・commit・superpowers: の参照・3 回の失敗）
   の決まりが在る。
 """
 import json
@@ -27,7 +27,7 @@ NEVER = frozenset({"brainstorming", "subagent-driven-development", "executing-pl
                    "using-superpowers", "diagnosing-superpowers"})
 
 OVERLAY = ROOT / ".shared" / "borrow" / "unattended.md"
-ROUTING_HEAD = "**義務の単位の行き先**: "   # 読み替えと修正の決まりの正本 blk-fix/rules/common.md が同じ行で持つ決まりの頭
+ROUTING_HEAD = "**義務の単位の行き先**: "   # 読み替えと修正の決まりの正本 .shared/core/writerules/common.md が同じ行で持つ決まりの頭
 
 
 class BorrowListCase(unittest.TestCase):
@@ -58,11 +58,11 @@ class UnattendedOverlayCase(unittest.TestCase):
             self.assertIn(word, body)
 
     def test_owed_unit_routing_is_one_rule_in_overlay_and_fix_prompt(self):
-        """直す義務の単位の行き先は 1 つの決まり（行 ROUTING）で、読み替えと修正の決まりの正本（blk-fix/rules/common.md。
+        """直す義務の単位の行き先は 1 つの決まり（行 ROUTING）で、読み替えと修正の決まりの正本（.shared/core/writerules/common.md。
         機械が修正役の指示書に組み込む。読み替えより勝つ）が同じ行を持つ。義務の単位を not_done で終わらせない（受け付け
         fix_covers_open_units が拒む）。ASK・THREE-FAILS・POLICY・PUSHBACK と正本の方針の項はその行を名指しし、not_done に
         触れる文は免除か義務の外に限る"""
-        fix = (ROOT / "blk-fix" / "rules" / "common.md").read_text(encoding="utf-8")
+        fix = (ROOT / ".shared" / "core" / "writerules" / "common.md").read_text(encoding="utf-8")
         body = OVERLAY.read_text(encoding="utf-8")
         lines = [ln for ln in fix.splitlines() if ln.startswith(f"- {ROUTING_HEAD}")]
         self.assertEqual(len(lines), 1, "正本に行き先の行がちょうど 1 つ無い")

@@ -3,7 +3,8 @@
 test_layers の決まり 3（name）は L1〜L5 のコードの文字列の定数だけを見る。ここはその外——YAML の説明・docstring・
 コメント・指示書の md——で、自分以外の blk-<名> を名指しする行を数え、今ある破れを許可表（ファイル:相手の名 → 件数と理由）に
 固定する。件数が表より増えても・減っても・表に無い組が出ても赤（減る向きにだけ動かす。KNOWN と同じ ratchet）。
-同じ形で、役の指示書（blk-*/commands・rules・写しでない prompts。深さは問わない。lib が組む文・YAML・scripts は見ない）が
+同じ形で、役の指示書（blk-*/commands・rules・写しでない prompts。深さは問わない。lib が組む文・YAML・scripts は見ない）と
+書く役の決まりの正本（.shared/core/writerules/）が
 ほかの役・段を前提にする語（閉じた一覧 ROLE_TERMS。自分の名乗りの文の語は除く）の行を ROLE_KNOWN（ファイル:語 → 件数と理由）に固定する。
 中身は tests/blockblind.py（ここは試験だけ）。
 """
@@ -84,7 +85,14 @@ class BlockNamesFence(unittest.TestCase):
 
     def test_outside_blocks_is_not_counted(self):
         self.put("darkfactory/notes.md", "blk-a の出口を blk-b に渡す\n")
+        self.put(".shared/core/other.md", "blk-a の出口を blk-b に渡す\n")
         self.assertEqual(self.found(), {})
+
+    def test_shared_writer_rules_count_every_block(self):
+        """決まりの正本はどのブロックの書く役にも組まれるので持ち主が無く、どのブロックの名も数える"""
+        self.put(".shared/core/writerules/common.md", "blk-a の出口を読む\nblk-a と blk-b\n")
+        self.assertEqual(self.found(), {".shared/core/writerules/common.md:blk-a": 2,
+                                        ".shared/core/writerules/common.md:blk-b": 1})
 
     def test_verdict_new_pair_more_and_fewer_are_red(self):
         m = bb()
@@ -183,6 +191,12 @@ class RoleTermsFence(unittest.TestCase):
     def test_self_role_sentence_spans_lines(self):
         self.put("blk-a/commands/e.md", "お前は\n判定役。修正役が読む。\n")
         self.assertEqual(self.found(), {"blk-a/commands/e.md:修正役": 1})
+
+    def test_shared_writer_rules_are_counted(self):
+        """ブロックの外に置いた書く役の決まりの正本も数える（どのブロックの役にも組まれる）。core のほかの md は見ない"""
+        self.put(".shared/core/writerules/common.md", "## 直し方\n判定役の判定を読む。\n")
+        self.put(".shared/core/other.md", "判定役にも渡る。\n")
+        self.assertEqual(self.found(), {".shared/core/writerules/common.md:判定役": 1})
 
     def test_yaml_lib_and_scripts_are_out_of_scope(self):
         self.put("blk-a/blk-a.yaml", "name: blk-a\ndescription: 判定役を起こす\n")

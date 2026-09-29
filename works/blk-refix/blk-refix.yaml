@@ -5,7 +5,9 @@ description: |
   fixed と答えた穴が在れば、盤面の機械の節 p3.fix_delta2 が手直しだけの差分を切り、2 回目の審査役（読むだけ）が検算する（review2）。
   その義務（p3.delta_owed2）が残れば 2 回目の手直し（refix2）。3 往復目は無い（2 回目の手直しの fixed は次の run の依頼の下書きへ）。
   ラインは境の節 h-refix の go（盤面の p3.delta_fix が待つ）でこのブロックを開く。節の名前は写しの DELTA_PASSES から（refix.passes）。
-  拒否の理由は盤面のファイルに書き、指示書は $LOOP_PREV.<受け付け>.output.reason_file（パス）だけを読む（R44）。
+  手直しの役の指示書は、支度の節（refix-prep・refix2-prep）が書く役の決まりの正本（.shared/core/writerules/common.md）の全節と
+  手直しの決まり（rules/refix.md）と run の値から機械で組む（lib/refixrules.py。役の節の prompt は「組んだ指示書を Read で読め」）。
+  拒否の理由は盤面のファイルに書き、役の節の prompt は $LOOP_PREV.<受け付け>.output.reason_file（パス）だけを読む（R44）。
   出口 collect: {ok, handled_file, review2_file, owed2, fixed2, files, reads_file, reads_files}。
 
 inputs:
@@ -23,22 +25,25 @@ returns: collect
 outcome_field: ok
 
 nodes:
-  # 1 回目の手直しの支度: 義務（loop.delta_owed）と差分のパスを refix1-brief.json に書き、起こした印を置く。待っていなければ 2
+  # 1 回目の手直しの支度: 義務（loop.delta_owed）と差分のパスを refix1-brief.json に書き、役の指示書を組み（lib/refixrules.py:
+  # 書く役の決まりの正本の全節・手直しの決まり・run の値）、起こした印を置く。待っていなければ 2
   - id: refix-prep
     script: prep
     runtime: uv
     timeout: 1728000000
     with:
       pass: "1"
+      policy_path: $INPUTS.policy_path
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, owed, diff_file, brief_file, must]
+      required: [ok, owed, diff_file, brief_file, prompt_file, must]
       properties:
         ok: {type: boolean}
         owed: {type: integer, minimum: 0}
         diff_file: {type: string}
         brief_file: {type: string}
+        prompt_file: {type: string}
         must: {type: array, items: {type: string}}
 
   - id: refix-loop
@@ -49,7 +54,9 @@ nodes:
       until_bash: test $refix-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: refix
-          command: refix
+          prompt: |-
+            指示書 `$refix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
+            前の回の受け付けが拒んだ理由を書いたファイル（初回は空。空でなければ、まずそのファイルを Read で読み、書かれた理由を直した返答を丸ごと出し直せ。理由の本文はファイルにだけ在る）: `$LOOP_PREV.refix-accept.output.reason_file`
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
@@ -273,15 +280,17 @@ nodes:
     when: "$route2.output.refix2 == true"
     with:
       pass: "2"
+      policy_path: $INPUTS.policy_path
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, owed, diff_file, brief_file, must]
+      required: [ok, owed, diff_file, brief_file, prompt_file, must]
       properties:
         ok: {type: boolean}
         owed: {type: integer, minimum: 0}
         diff_file: {type: string}
         brief_file: {type: string}
+        prompt_file: {type: string}
         must: {type: array, items: {type: string}}
 
   - id: refix2-loop
@@ -293,7 +302,9 @@ nodes:
       until_bash: test $refix2-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: refix2
-          command: refix2
+          prompt: |-
+            指示書 `$refix2-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
+            前の回の受け付けが拒んだ理由を書いたファイル（初回は空。空でなければ、まずそのファイルを Read で読み、書かれた理由を直した返答を丸ごと出し直せ。理由の本文はファイルにだけ在る）: `$LOOP_PREV.refix2-accept.output.reason_file`
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}

@@ -1,4 +1,4 @@
-"""修正の決まりの正本（blk-fix/rules/common.md）と、2 つの修正役の指示書の組み立て（blk-fix/lib/fixrules.py。裁定 R65）の検査。
+"""修正の決まりの正本（.shared/core/writerules/common.md）と、2 つの修正役の指示書の組み立て（blk-fix/lib/fixrules.py。裁定 R65）の検査。
 
 - 決まりの正本は 1 つ: 直す役（fix-prep が組む）と TDD の輪の役（tdd-prep が組む）の両方の指示書が、正本の節をそのまま含む
 - 正本の文は works のほかの置き場に写さない（前から在る写しは KNOWN_COPIES に載せ、減らす方向にだけ変える）
@@ -30,8 +30,9 @@ sys.path.insert(0, str(CORE))
 import fixrules  # noqa: E402
 import node_marker  # noqa: E402
 import rolekit  # noqa: E402
+import rulebook  # noqa: E402
 
-SHARED = BLK / "rules" / "common.md"
+SHARED = CORE / "writerules" / "common.md"
 # 本線（graphloops の p3.fix.md）から来た決まりの句。正本に在り、両方の指示書に届く
 MAINLINE = ("根本の単位ごとに直せ", "同じ形を全部直せ", "直す前に既製の物で済まないかを確かめろ", "動きを変えたら",
             "テストを消すな・緩めるな", "git commit` するな")
@@ -47,9 +48,6 @@ RUN_TESTS = ("- **プロジェクトのテストを回せ。** 直した単位�
 KNOWN_COPIES = {
     # 読み替えが同じ行き先の行を持つ（test_sp_skills が同じ行であることを縛る。読み替えは役に届かない読み物）
     (".shared/borrow/unattended.md", "- **義務の単位の行き先**"),
-    # 差分の審査への手直し役（blk-refix）の指示書。ブロックはほかのブロックのファイルを読めないので写しのまま
-    ("blk-refix/commands/refix.md", "- 作業ツリーの外"),
-    ("blk-refix/commands/refix2.md", "- 作業ツリーの外"),
 }
 MIN_LINE = 20   # 写しを探す行の長さの下限（見出し・短い語は偶然に重なる）
 VALUES = {"judgment_file": "/b/out/r1/p2.diagnose.json", "open_units": '["a: 分母", "b: 上限"]', "plan_file": "/b/out/r1/p2.fix_plan.json",
@@ -432,6 +430,10 @@ class TestKinds(unittest.TestCase):
             with self.subTest(path):
                 self.assertEqual(fixrules.kind_of(path), kind)
 
+    def test_canon_is_a_prompt(self):
+        """正本の置き場を移しても、正本を直す run の証拠は指示書の節（描いて穴が埋まる・写しが揃う）のまま"""
+        self.assertEqual(fixrules.kind_of(str(SHARED.relative_to(ROOT.parent))), "prompts")
+
     def test_select_kinds_names_the_source(self):
         got = fixrules.select_kinds({"判定": ["stats.py"], "差分": ["README.md", "stats.py"]})
         self.assertEqual(set(got), {"code", "docs"})
@@ -767,6 +769,70 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         got = self.run_accept("1")
         self.assertEqual((got["ok"], got["done"]), (False, False), got)
         self.assertEqual(self.parked, [])
+
+
+REFIX = ROOT / "blk-refix"
+CANON = CORE / "writerules" / "common.md"
+REFIX_VALUES = {"brief_file": "/b/refix1-brief.json", "diff_file": "/b/r1/diff.patch", "policy_path": ""}
+REMAP_TITLE = "この輪での読み替え（上の決まりより、ここが勝つ）"
+
+
+def refixrules():
+    """手直しの役の組み立て（blk-refix/lib/refixrules.py）。無ければ試験の失敗にする（読み込みの誤りにしない）"""
+    sys.path.insert(0, str(REFIX / "lib"))
+    try:
+        import refixrules as mod
+    except ImportError as e:
+        raise AssertionError(f"手直しの役の組み立てが無い: {e}")
+    return mod
+
+
+class TestRefixCarriesCanon(unittest.TestCase):
+    """手直しの役（blk-refix の refix・refix2）も書く役なので、同じ正本の節を全部受け取る。正本はブロックの境を越えて読める
+    .shared/core の下に 1 つだけ置き、手書きの commands/refix*.md は無い"""
+
+    def test_canon_lives_in_shared_core(self):
+        self.assertTrue(CANON.is_file(), "正本は .shared/core の下（ほかのブロックからも読める置き場）")
+        self.assertFalse((BLK / "rules" / "common.md").exists(), "blk-fix の中に写しを残さない")
+
+    def test_refix_roles_read_the_composed_file(self):
+        nodes = yaml.safe_load((REFIX / "blk-refix.yaml").read_text(encoding="utf-8"))["nodes"]
+        for rid, prep in (("refix", "refix-prep"), ("refix2", "refix2-prep")):
+            with self.subTest(rid):
+                n = find_node(nodes, rid)
+                self.assertNotIn("command", n)
+                self.assertIn(f"`${prep}.output.prompt_file` を Read で", n.get("prompt", ""))
+                self.assertIn("prompt_file", find_node(nodes, prep)["output_format"]["properties"])
+                self.assertFalse((REFIX / "commands" / f"{rid}.md").exists(), "手書きの指示書は無い")
+
+    def test_refix_prompts_carry_every_canon_section(self):
+        self.assertTrue(CANON.is_file(), "正本は .shared/core の下")
+        canon = "\n".join(ln for ln in CANON.read_text(encoding="utf-8").splitlines()
+                          if not fixrules.MARK.match(ln)).strip("\n")
+        mod = refixrules()
+        for n in (1, 2):
+            with self.subTest(n):
+                text = mod.build(n, REFIX_VALUES)
+                self.assertIn(canon, text, "正本の全節を字のまま")
+                self.assertIn(REMAP_TITLE, text)
+                self.assertLess(text.index(canon), text.index(REMAP_TITLE), "読み替えは正本の後（ここが勝つ）")
+                self.assertNotIn("<<", text)
+                self.assertNotIn("<!-- 節", text)
+                self.assertIn(f"`{REFIX_VALUES['brief_file']}`", text)
+                self.assertEqual(text.encode(), mod.build(n, dict(reversed(list(REFIX_VALUES.items())))).encode())
+
+    def test_refix_reply_is_written_once_and_only_the_tail_differs(self):
+        """返答の決まりは rules/refix.md に 1 つだけ書き、どの回にも同じ字で載る。回ごとに違うのは後に当たる物（tail）だけ"""
+        mod = refixrules()
+        r = rulebook.sections(REFIX / "rules" / "refix.md")
+        reply, tails = r["refix-reply"], {n: r[f"refix-tail-{n}"] for n in (1, 2)}
+        self.assertEqual((REFIX / "rules" / "refix.md").read_text(encoding="utf-8").count(reply), 1)
+        for n in (1, 2):
+            with self.subTest(n):
+                text = mod.build(n, REFIX_VALUES)
+                self.assertEqual(text.count(reply), 1)
+                self.assertLess(text.index(reply), text.index(tails[n]))
+                self.assertNotIn(tails[3 - n], text)
 
 
 if __name__ == "__main__":
