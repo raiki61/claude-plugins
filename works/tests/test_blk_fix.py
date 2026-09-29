@@ -211,6 +211,9 @@ class TestBlockYaml(unittest.TestCase):
         got = node_marker.strip(recount.FIX_OUTPUT_FORMAT)
         self.assertEqual(got["properties"].pop("conflicts"), conflict.CONFLICTS_SCHEMA, "食い違いの申し出の欄（受け付けが外して渡す）")
         self.assertEqual(got["properties"].pop("bash_writes"), recount.writes.BASH_WRITES_SCHEMA, "Bash で書いたファイルの申告の欄（受け付けが外して渡す）")
+        site = got["properties"]["changes"]["items"]["properties"]["closure"]["properties"]["sites"]["items"]
+        self.assertEqual(site["properties"].pop(recount.SITE_PATH), recount.SITE_PATH_SCHEMA,
+                         "site が在るファイルのパスの欄（unitrows が問いの当たりに結び、写しに渡す前に外す）")
         self.assertEqual(got, role_schema("p3.fix"))
         mark = node_marker.parse(recount.FIX_OUTPUT_FORMAT["description"])
         self.assertEqual((mark["name"], mark["cont"], mark["flags"]), ("fix", None, frozenset()))

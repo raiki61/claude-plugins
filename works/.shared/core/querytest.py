@@ -15,6 +15,7 @@
 - split(reply, is_open): 例と理由を外した返答の写しと {単位の key: {例・理由・unproven}}
 - save(board, examples, replace)・restore(doc, board): 盤面の query-examples.json に置く・判定の写しの class_query に戻す（印は戻さない）
 - save_closure(b, rows)・closure_lines(b): 修正の受け付けが問いを数え直した単位ごとの閉鎖の表を置く・最後の関所と報告の行
+  （当たりが減っていない単位は stuck_only で別の見出し STUCK_HEAD の節に出す）
 """
 import copy
 import json
@@ -43,7 +44,8 @@ UNPROVEN = "unproven"                          # query-examples.json の行の�
 UNPROVEN_HEAD = "例で証明できない判定の問い"      # 最後の関所の文の節の見出し・報告の行の頭
 CLOSURE_FILE = "fix-unit-rows.json"              # 修正の受け付けが問いを数え直した単位ごとの表（盤面の置き場。周の番号つき）
 # 最後の関所の文の節の見出し・報告の行の頭。主語は平易に、記録の語（閉鎖の数え直し）は括弧に回す
-CLOSURE_HEAD = "機械が判定の問いで数え直すと、直したという申告と合わない・まだ閉じていない単位（閉鎖の数え直し）"
+CLOSURE_HEAD = "機械が判定の問いで数え直すと、直したという申告と合わない・まだ閉じていない・問いの外に直しを並べた単位（閉鎖の数え直し）"
+STUCK_HEAD = "直したのに、機械が判定の問いで数えた欠陥の数が 1 件も減っていない単位"   # CLOSURE_HEAD の節から分けて先に出す
 TIMEOUT = 60
 _LINES = {"type": "array", "maxItems": 20, "items": _util._TEXT}
 _WHY = {"type": "string", "minLength": MIN_WHY}
@@ -223,8 +225,9 @@ def unproven_lines(board) -> list:
 
 
 def save_closure(b, rows: list) -> pathlib.Path:
-    """単位ごとの閉鎖の表 {round, rows: [{unit_key, how_from, counts, total, after, claimed, closed, discrepancies}]} を
-    盤面の置き場に置く（受けた返答の分で上書きする。読む側は今の周の表だけを読む）"""
+    """単位ごとの閉鎖の表 {round, rows: [{unit_key, how_from, counts, total, after, claimed, covered, out_of_query, bound, closed,
+    discrepancies}]} を盤面の置き場に置く（covered は申告の site が在る問いの当たりのファイルの件数、out_of_query は当たりの外の
+    site のパス、bound は site を当たりのファイルに結べたか。結べなければ covered は claimed と同じ）。（受けた返答の分で上書きする。読む側は今の周の表だけを読む）"""
     p = pathlib.Path(b.dir) / CLOSURE_FILE
     tmp = p.with_name(p.name + ".tmp")
     tmp.write_text(json.dumps({"round": b.round, "rows": rows}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
@@ -232,9 +235,18 @@ def save_closure(b, rows: list) -> pathlib.Path:
     return p
 
 
-def closure_lines(b, *, mismatched_only: bool = False) -> list:
-    """最後の関所と報告に載せる今の周の表の行（1 件 1 行）: 申告と数え直しが合わない単位と、数え直しで閉じていない単位。
-    mismatched_only は合わない単位だけ（前は返答全体を拒んだ形で、関所を開ける理由になる）"""
+def _stuck(r: dict) -> bool:
+    """欠陥の形を数える問い（defects）で、修正前に当たりが在り、修正後に 1 件も減っていない行（population は直しても減らない母集団）"""
+    total, after = r.get("total"), r.get("after")
+    return (r.get("counts") == "defects" and isinstance(total, int) and isinstance(after, int) and total > 0
+            and after >= total)
+
+
+def closure_lines(b, *, mismatched_only: bool = False, stuck_only: bool = False) -> list:
+    """最後の関所と報告に載せる今の周の表の行（1 件 1 行）: 申告と数え直しが合わない単位と、数え直しで閉じていない単位と、
+    問いの当たりの外に site を並べた単位（パスを並べる。合わないには数えない）。当たりが減っていない単位（_stuck）は
+    見出し STUCK_HEAD の節に分けて stuck_only で返し、既定の列からは外す（二重に並べない）。
+    mismatched_only は合わない単位だけ（前は返答全体を拒んだ形で、関所を開ける理由になる。減っていない単位も含む）"""
     try:
         doc = json.loads((pathlib.Path(b.dir) / CLOSURE_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -244,8 +256,17 @@ def closure_lines(b, *, mismatched_only: bool = False) -> list:
     out = []
     for r in doc.get("rows") or []:
         bad = r.get("discrepancies") or []
-        if bad or (not mismatched_only and r.get("closed") is False):
+        outside = r.get("out_of_query") or []
+        if stuck_only:
+            show = _stuck(r)
+        elif mismatched_only:
+            show = bool(bad)
+        else:
+            show = not _stuck(r) and bool(bad or r.get("closed") is False or outside)
+        if show:
             state = "閉じた" if r.get("closed") else "閉じていない"
             out.append(f"{r.get('unit_key')}: {state}（{r.get('counts')}・修正前 {r.get('total')}・修正後 {r.get('after')}・"
-                       f"申告の site {r.get('claimed')}・問い {r.get('how_from')}）" + (f"——合わない: {' / '.join(bad)}" if bad else ""))
+                       f"申告の site {r.get('claimed')}" + (f"・site が覆う当たり {r['covered']}" if r.get("bound") else "") +
+                       f"・問い {r.get('how_from')}）" + (f"——合わない: {' / '.join(bad)}" if bad else "") +
+                       (f"——問いの外の site {len(outside)} 件: {', '.join(outside)}" if outside else ""))
     return out

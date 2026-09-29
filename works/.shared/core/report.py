@@ -492,6 +492,10 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     if unproven:
         lines.append(f"{querytest.UNPROVEN_HEAD}: {len(unproven)} 件")
         lines += [f"  - {x}" for x in unproven]
+    stuck = querytest.closure_lines(b, stuck_only=True)
+    if stuck:
+        lines.append(f"{querytest.STUCK_HEAD}: {len(stuck)} 件")
+        lines += [f"  - {x}" for x in stuck]
     closure = querytest.closure_lines(b)
     if closure:
         lines.append(f"{querytest.CLOSURE_HEAD}: {len(closure)} 件")

@@ -528,9 +528,9 @@ def _unproven_text(unproven: list) -> str:
     return "\n".join(lines + ["", ""])
 
 
-def _closure_text(closure: list) -> str:
-    """最後の関所の文の節（修正の受け付けが判定者の問いで数え直した単位ごとの表のうち、申告と合わない・閉じていない単位）"""
-    lines = [f"## {querytest.CLOSURE_HEAD}（{len(closure)} 件）", ""]
+def _closure_text(closure: list, head: str = querytest.CLOSURE_HEAD) -> str:
+    """最後の関所の文の節（修正の受け付けが判定者の問いで数え直した単位ごとの表のうち、head の見出しに載せる単位）"""
+    lines = [f"## {head}（{len(closure)} 件）", ""]
     lines += [f"- {x}" for x in closure]
     return "\n".join(lines + ["", ""])
 
@@ -633,9 +633,11 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     if mode == "when_needed" and not why:
         return {}
     unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
+    stuck = querytest.closure_lines(b, stuck_only=True)
     closure = querytest.closure_lines(b)
     text = ("\n".join(_final_head(b, head, why, guarded)) + "\n\n"
             + (_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
+            + (_closure_text(stuck, querytest.STUCK_HEAD) if stuck else "")
             + (_unproven_text(unproven) if unproven else "") + (_closure_text(closure) if closure else "")
             + _final_text(b, head, tests, objection, eyes, repo, run_id))
     _write_text(b.work(FINAL_GATE_FILE), text)

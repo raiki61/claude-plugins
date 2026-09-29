@@ -39,14 +39,18 @@ import writes  # noqa: E402
 FIX_NODE = "p3.fix"
 ROLE = "fix"
 RULED_ROLE = "fix-ruled"   # 裁定の後の 2 回目の修正役（修正役の会話の続き。印 continue=fix）
+SITE_PATH = "path"   # closure.sites[] の works だけの欄: site が在るファイルの対象の根からの相対パス（unitrows が問いの当たりに結ぶ）
+SITE_PATH_SCHEMA = {"type": "string"}
 
 
 def fix_output_format(name: str = ROLE, cont: str | None = None) -> dict:
     """修正役の output_format: 写しの p3.fix の schema に印と、食い違いの申し出の欄 conflicts・Bash で書いたファイルの申告の欄
-    bash_writes（どちらも任意。受け付けが盤面へ渡す前に外す）"""
+    bash_writes・closure.sites[] の欄 path（どれも任意。受け付けが盤面へ渡す前に外す）"""
     out = node_marker.mark(role_schema(FIX_NODE), name, cont=cont)
     out["properties"]["conflicts"] = conflict.CONFLICTS_SCHEMA
     out["properties"][writes.FIELD] = writes.BASH_WRITES_SCHEMA
+    site = out["properties"]["changes"]["items"]["properties"]["closure"]["properties"]["sites"]["items"]
+    site["properties"][SITE_PATH] = SITE_PATH_SCHEMA
     return out
 
 

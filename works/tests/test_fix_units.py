@@ -1,6 +1,6 @@
 """修正の受け付けの単位ごとの閉鎖の表（blk-fix/lib/unitrows.py）と、裁定の出どころの縛り（blk-fix/lib/ruling.py の grounds）。
 
-- 閉鎖は機械の数え直しで決め、修正役の申告（closure.sites の件数・remaining・作り直した how）と合わない形は拒まずに表の
+- 閉鎖は機械の数え直しで決め、修正役の申告（closure.sites の path が覆う問いの当たりの件数・remaining・作り直した how）と合わない形は拒まずに表の
   discrepancies に記録する。写しに渡す返答は、写しの数え合わせの拒否が発火しないように揃える（sites を母数に切る・空の
   remaining に機械の記録を書く）。裁定 replace_query を受けた単位は置き換えた問いで数える
 - 表の行は最後の関所と報告に載る（querytest.closure_lines。合わない単位だけが関所を開ける理由）
@@ -122,6 +122,71 @@ class BuildCase(unittest.TestCase):
         self.assertEqual((out, rows), ([c], []))
 
 
+class SitePathCase(unittest.TestCase):
+    """site の path（works だけの任意の欄）で申告を問いの当たりにファイル単位で結び、単位の違う数（site の件数と行数）を直に比べない"""
+
+    def build(self, sites, *, total, after, files, counts="defects", remaining=None):
+        import inspect
+        if "per_file" not in inspect.signature(unitrows.build).parameters:
+            self.fail("unitrows.build がファイルごとの数（per_file）を受けない: site の件数を行数の母数と直に比べるしかない")
+        c = {"unit_key": KEY, "files": ["stats.py"], "what": "直した",
+             "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v", "sites": sites}}
+        if remaining:
+            c["coverage"] = {"remaining": remaining}
+
+        def count(how, at_rev):
+            return (total if at_rev else after), ""
+
+        def per_file(how, at_rev):
+            return (files if at_rev else {}), ""
+        out, rows = unitrows.build([c], {KEY: {"how": HOW, "counts": counts}}, count=count, blank=blank,
+                                   per_file=per_file)
+        return out[0], rows[0]
+
+    def test_sites_outside_the_query_are_listed_not_counted_as_mismatch(self):
+        sites = [{"site": "上限の枝", "red_seen": True, "path": "stats.py"},
+                 {"site": "下限の枝", "red_seen": False, "path": "./stats.py"},
+                 {"site": "試験", "red_seen": False, "path": "tests/test_stats.py"},
+                 {"site": "文書", "red_seen": False, "path": "README.md"}]
+        got, row = self.build(sites, total=2, after=0, files={"stats.py": 2})
+        self.assertEqual(row["discrepancies"], [], "試験・文書の site と同じファイルの 2 件目は『超える』に数えない")
+        self.assertEqual(row["covered"], 2)
+        self.assertEqual(sorted(row["out_of_query"]), ["README.md", "tests/test_stats.py"],
+                         "問いの外に並べた site のパスは見えるまま表に残す")
+        self.assertIs(row["closed"], True)
+        self.assertEqual(row["claimed"], 4)
+        self.assertFalse(any("path" in s for s in got["closure"]["sites"]), "写しの sites は additionalProperties: false")
+
+    def test_sites_piled_on_one_file_do_not_cover_other_files(self):
+        sites = [{"site": f"s{i}", "red_seen": i == 0, "path": "a.py"} for i in range(3)]
+        _, row = self.build(sites, total=3, after=1, files={"a.py": 2, "b.py": 1}, counts="population")
+        self.assertEqual(row["covered"], 2, "同じファイルの site はそのファイルの件数を 1 回だけ足す")
+        self.assertTrue(any("remaining が無い" in d for d in row["discrepancies"]), row)
+        self.assertIs(row["closed"], True, "population の closed は今の式（len(sites) が母数に届くか）のまま")
+
+    def test_sites_without_path_fall_back_to_the_site_count_with_a_reason(self):
+        sites = [{"site": "上限の枝", "red_seen": True, "path": "stats.py"}, {"site": "試験", "red_seen": False}]
+        _, row = self.build(sites, total=1, after=0, files={"stats.py": 1})
+        self.assertTrue(row["discrepancies"][0].startswith("path が無い site 1 件"), row)
+        self.assertTrue(any("超える" in d for d in row["discrepancies"]), row)
+
+    def test_per_file_sum_not_matching_the_total_is_not_used_silently(self):
+        sites = [{"site": "上限の枝", "red_seen": True, "path": "stats.py"}, {"site": "試験", "red_seen": False,
+                                                                          "path": "tests/test_stats.py"}]
+        _, row = self.build(sites, total=1, after=0, files={"stats.py": 3})
+        self.assertTrue(any("ファイルごとの数が合計と合わない" in d for d in row["discrepancies"]), row)
+        self.assertTrue(any("超える" in d for d in row["discrepancies"]), "今の数え方（len(sites)）で比べる")
+
+    def test_uncountable_row_still_drops_path_before_the_copy(self):
+        c = {"unit_key": KEY, "files": ["stats.py"], "what": "直した",
+             "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v",
+                         "sites": [{"site": "s", "red_seen": True, "path": "stats.py"}]}}
+        out, rows = unitrows.build([c], {KEY: {"how": HOW, "counts": "defects"}}, count=lambda h, r: (None, "走らない"),
+                                   blank=blank)
+        self.assertEqual(rows, [])
+        self.assertEqual(out[0]["closure"]["sites"], [{"site": "s", "red_seen": True}], "写しに任せる行も path を外す")
+
+
 class ClosureLinesCase(unittest.TestCase):
     def test_lines_and_mismatched_only(self):
         tmp = tempfile.TemporaryDirectory()
@@ -138,6 +203,37 @@ class ClosureLinesCase(unittest.TestCase):
         self.assertEqual([x.split(":")[0] for x in querytest.closure_lines(b, mismatched_only=True)], ["c"])
         b.round = 2
         self.assertEqual(querytest.closure_lines(b), [], "前の周の表は読まない")
+
+
+class StuckLinesCase(unittest.TestCase):
+    """直したのに判定の問いの当たりが減っていない単位（defects で total>0 かつ after>=total）は、申告と合わない単位と別の見出しに出す"""
+
+    def lines(self, rows, **kw):
+        import inspect
+        if "stuck_only" not in inspect.signature(querytest.closure_lines).parameters:
+            self.fail("closure_lines が減っていない単位だけを返す口（stuck_only）を持たない: 合わない単位と同じ 1 節に埋もれる")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1)
+        querytest.save_closure(b, rows)
+        return [x.split(":")[0] for x in querytest.closure_lines(b, **kw)]
+
+    def test_stuck_defects_get_their_own_head_and_leave_the_closure_section(self):
+        head = getattr(querytest, "STUCK_HEAD", None)
+        if not isinstance(head, str) or not head or head == querytest.CLOSURE_HEAD:
+            self.fail("減っていない単位の見出し STUCK_HEAD が CLOSURE_HEAD と別に無い")
+        rows = [{"unit_key": "stuck", "counts": "defects", "total": 23, "after": 23, "closed": False, "discrepancies": []},
+                {"unit_key": "stuck-claimed", "counts": "defects", "total": 16, "after": 16, "closed": False,
+                 "discrepancies": ["母数 16 を全部塞いだと申告したが、修正後も 16 件を数える"]},
+                {"unit_key": "fewer", "counts": "defects", "total": 5, "after": 2, "closed": False, "discrepancies": []},
+                {"unit_key": "pop", "counts": "population", "total": 3, "after": 3, "closed": False, "discrepancies": []},
+                {"unit_key": "empty", "counts": "defects", "total": 0, "after": 0, "closed": True, "discrepancies": []},
+                {"unit_key": "noise", "counts": "defects", "total": 2, "after": 0, "closed": True, "discrepancies": ["合わない"]}]
+        self.assertEqual(self.lines(rows, stuck_only=True), ["stuck", "stuck-claimed"])
+        self.assertEqual(self.lines(rows), ["fewer", "pop", "noise"],
+                         "減ったが閉じていない defects と population の閉じていない単位は今の節に残り、減っていない単位は二重に並べない")
+        self.assertEqual(self.lines(rows, mismatched_only=True), ["stuck-claimed", "noise"],
+                         "関所を開ける理由（合わない単位）は今と同じ")
 
 
 class GroundsCase(unittest.TestCase):

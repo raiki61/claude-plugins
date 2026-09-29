@@ -296,6 +296,8 @@ nodes:
                                 type: string
                               red_seen:
                                 type: boolean
+                              path:
+                                type: string
                     files:
                       type: array
                       minItems: 1
