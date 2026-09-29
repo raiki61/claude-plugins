@@ -137,14 +137,9 @@ if [ "$TARGET" != "$TARGET_REAL" ]; then
 fi
 
 # 既定の家は clone ごとに分ける（Archon v0.11.1 は 1 つの家に同じリポジトリの clone を 1 か所しか登録できない）。
-# 印は解いた根のパスから作る（symlink 越し・下のフォルダでも同じ家）。名指した家はそのまま使う
-use_home_default() {
-  T="$TARGET" python3 -I -c 'import hashlib, os
-print(hashlib.sha256(os.environ["T"].encode()).hexdigest()[:8])'
-}
-WORKS_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/works"   # 既定の家の根（家の名の決め方はこの 2 行だけ）
-WORKS_USE_HOME="${WORKS_USE_HOME:-$WORKS_STATE_ROOT/use-$(use_home_default)}"
-WORKS_DEV_HOME="$WORKS_USE_HOME"
+# 印は解いた根のパスから作る（symlink 越し・下のフォルダでも同じ家）。名指した家はそのまま使う。家の根 WORKS_STATE_ROOT・
+# WORKS_USE_HOME・WORKS_DEV_HOME（= WORKS_USE_HOME）と claude の解決は launch.py env が持つ
+works_dev_launch_env use.sh --claude --target "$TARGET"
 WORKS_WRAPS_DIR="$WORKS_USE_HOME/wraps"
 export WORKS_DEV_HOME WORKS_WRAPS_DIR
 works_dev_refuse_claude_tmp use.sh "WORKS_USE_HOME" "$WORKS_USE_HOME"
@@ -171,12 +166,9 @@ auth_from() {
   python3 -I "$WORKS_DIR/.shared/core/auth_launch.py" check --user-home "$HOME" --user-config "${CLAUDE_CONFIG_DIR:-}" 2>/dev/null || true
 }
 
-# 本物の claude（隔離の前に解く。関数・別名は実行ファイルでない）。show・check も次の行に載せる
+# 本物の claude（隔離の前に launch.py env が解いた値。控えが置いた CLAUDE_BIN_PATH が先）。show・check も次の行に載せる
 resolve_claude() {
-  if [ -z "${CLAUDE_BIN_PATH:-}" ]; then
-    CLAUDE_BIN_PATH="$(command -v claude || true)"
-    case "$CLAUDE_BIN_PATH" in /*) ;; *) CLAUDE_BIN_PATH="" ;; esac
-  fi
+  CLAUDE_BIN_PATH="${CLAUDE_BIN_PATH:-$WORKS_LAUNCH_CLAUDE}"
   export CLAUDE_BIN_PATH
 }
 

@@ -23,7 +23,7 @@
 # <dir> に前の回の repo・origin.git・request.json が在れば、何も書かずに止まる（前の回の依頼を上書きしない）。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（ここでは埋めない。既定を解いて書くのは archon.sh）。
 # 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。
-# CLAUDE_BIN_PATH は real-run.sh と同じく隔離の前に解いて渡す。
+# 開発の家の既定と CLAUDE_BIN_PATH は launch.py env が解き（real-run.sh と同じ）、隔離の前に渡す。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_dev.py が偽物を差す）。
 set -eu
 
@@ -41,7 +41,6 @@ fi
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
-WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 # 包みは既定で通す。WORKS_DEV_ADAPTER=0 か空を明示した時だけ外す（値の検査は archon.sh）。--show は続きの行の前置きが
 # 包みを通した run にだけ WORKS_DEV_ADAPTER=1 を載せるので、無ければ外した run
 if [ -n "$SHOW" ]; then WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-}"; else WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"; fi
@@ -51,6 +50,8 @@ unset WORKS_MODEL_PINNED
 
 # 開発の家・置き場が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"
+# 家の既定と claude の解決は launch.py env が持つ（--show は claude を埋めない。下の CLAUDE_BIN_PATH の要求を残す）
+if [ -n "$SHOW" ]; then works_dev_launch_env dogfood.sh; else works_dev_launch_env dogfood.sh --claude; fi
 works_dev_abs_claude_config
 works_dev_refuse_claude_tmp dogfood.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
 
@@ -96,13 +97,10 @@ if [ ! -f "$1" ]; then
   exit 2
 fi
 
-if [ -z "${CLAUDE_BIN_PATH:-}" ]; then
-  CLAUDE_BIN_PATH="$(command -v claude || true)"
-  case "$CLAUDE_BIN_PATH" in /*) ;; *) CLAUDE_BIN_PATH="" ;; esac   # 関数・別名は実行ファイルでない
-  if [ -z "$CLAUDE_BIN_PATH" ]; then
-    echo "dogfood.sh: claude の実行ファイルが PATH に無い。CLAUDE_BIN_PATH に絶対パスを設定する" >&2
-    exit 2
-  fi
+CLAUDE_BIN_PATH="$WORKS_LAUNCH_CLAUDE"
+if [ -z "$CLAUDE_BIN_PATH" ]; then
+  echo "dogfood.sh: claude の実行ファイルが PATH に無い。CLAUDE_BIN_PATH に絶対パスを設定する" >&2
+  exit 2
 fi
 export CLAUDE_BIN_PATH
 

@@ -11,17 +11,17 @@
 #      テストの緑赤とログのパスは、止まる直前に出る関所の文面にある。
 # 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。
 # 隔離した HOME からは ~/.local/bin/claude を自動で見つけられないので、CLAUDE_BIN_PATH を
-# 隔離の前に解いて渡す（設定済みならそのまま）。
+# 隔離の前に解いて渡す（設定済みならそのまま）。開発の家の既定と claude の解決は launch.py env が持つ。
 set -eu
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
-WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
-export WORKS_DEV_HOME WORKS_DEV_MODEL
 # 起こすのは start だけなので、start の時の既定の釘（続きの行だけが置く）は利用者の殻に残っていても受けない
 unset WORKS_MODEL_PINNED
 
 # 開発の家・対象・origin が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"
+works_dev_launch_env real-run.sh --claude
+export WORKS_DEV_HOME WORKS_DEV_MODEL
 works_dev_abs_claude_config
 works_dev_refuse_claude_tmp real-run.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
 if [ "$#" -ge 1 ]; then
@@ -36,13 +36,10 @@ fi
 python3 -I "$(cd "$DEV_DIR/.." && pwd -P)/.shared/core/auth_launch.py" check --for real-run.sh \
   --user-home "$HOME" --user-config "${CLAUDE_CONFIG_DIR:-}" >/dev/null || exit $?
 
-if [ -z "${CLAUDE_BIN_PATH:-}" ]; then
-  CLAUDE_BIN_PATH="$(command -v claude || true)"
-  case "$CLAUDE_BIN_PATH" in /*) ;; *) CLAUDE_BIN_PATH="" ;; esac   # 関数・別名は実行ファイルでない
-  if [ -z "$CLAUDE_BIN_PATH" ]; then
-    echo "real-run.sh: claude の実行ファイルが PATH に無い。CLAUDE_BIN_PATH に絶対パスを設定する" >&2
-    exit 2
-  fi
+CLAUDE_BIN_PATH="$WORKS_LAUNCH_CLAUDE"
+if [ -z "$CLAUDE_BIN_PATH" ]; then
+  echo "real-run.sh: claude の実行ファイルが PATH に無い。CLAUDE_BIN_PATH に絶対パスを設定する" >&2
+  exit 2
 fi
 export CLAUDE_BIN_PATH
 

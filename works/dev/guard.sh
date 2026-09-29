@@ -66,3 +66,22 @@ works_dev_refuse_claude_tmp() {
       ;;
   esac
 }
+
+# works_dev_launch_env <殻の名> [launch.py env の旗…]: 家の既定と claude の解決を部品 launch.py から代入で受ける（設計書 2.2）。
+# 2 段で受ける: 代入だけの行の終了コードは置換の物なので、部品が失敗すれば代入を 1 つも効かせずにその終了コードで止まる
+# （1 段の eval "$(…)" は eval の 0 になる）。1 行目の版が合わなければ 1 行を出して 2 で止まる
+works_dev_launch_env() {
+  _wl_for=$1
+  shift
+  _wl_out=$(python3 -I "$(cd "$(dirname "$0")" && pwd -P)/launch.py" env --for="$_wl_for" "$@") || exit $?
+  case "$_wl_out" in
+    "WORKS_LAUNCH_FORMAT=1" | "WORKS_LAUNCH_FORMAT=1
+"*) ;;
+    *)
+      echo "${_wl_for}: launch.py の出力の版が WORKS_LAUNCH_FORMAT=1 でない。works/dev の殻と launch.py を同じ版にそろえる" >&2
+      exit 2
+      ;;
+  esac
+  eval "$_wl_out"
+  unset WORKS_LAUNCH_FORMAT _wl_out _wl_for
+}

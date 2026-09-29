@@ -12,10 +12,16 @@ ARCHON_VERSION="v0.11.1"
 ARCHON_SHA256="b9338474fd3151d5d5402d76ae278105e65835f2e3506a93f0e5e4a378d10ede"
 ARCHON_BIN_NAME="archon-darwin-arm64"
 
-WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
+WORKS_ADAPTER="$(cd "$(dirname "$0")/.." && pwd -P)/.shared/core/claude-adapter"
 
 # 開発の家と対象（cwd）が Claude Code の一時フォルダの下なら、認証も実行ファイルも触らずに止まる（guard.sh）
 . "$(cd "$(dirname "$0")" && pwd -P)/guard.sh"
+# 開発の家の既定と本物の claude の解決は launch.py env が持つ（何も作らず認証も読まない）。認証の要らない道では claude を解かない
+if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
+  works_dev_launch_env archon.sh --claude --adapter "$WORKS_ADAPTER"
+else
+  works_dev_launch_env archon.sh
+fi
 works_dev_abs_claude_config
 works_dev_refuse_claude_tmp archon.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
 works_dev_refuse_claude_tmp archon.sh "対象（cwd）" "$(pwd -P)"
@@ -24,7 +30,7 @@ works_dev_refuse_claude_tmp archon.sh "対象（cwd）" "$(pwd -P)"
 # 入れる時は、認証を使う実行で隔離した Archon の設定に claudeBinaryPath（包み）を書き、本物の claude を WORKS_REAL_CLAUDE で
 # 包みに渡し、env の CLAUDE_BIN_PATH（Archon では設定より強い）を外す。包みの家（会話の id・読んだ記録・起動の記録）は
 # WORKS_ADAPTER_HOME（既定は $WORKS_DEV_HOME/adapter）。役の sandbox の Bash から書けない所に置く（guard.sh）。
-WORKS_ADAPTER="$(cd "$(dirname "$0")/.." && pwd -P)/.shared/core/claude-adapter"
+# 包みの実パス WORKS_ADAPTER は頭で決める（launch.py env が CLAUDE_BIN_PATH の包み自身を本物から除くのに使う）。
 case "${WORKS_DEV_ADAPTER:-}" in
   "" | 0) WORKS_DEV_ADAPTER="" ;;
   1)
@@ -144,17 +150,9 @@ assistants:
 EOF
   TITLE_GENERATION_MODEL="${TITLE_GENERATION_MODEL:-$WORKS_MODEL_RESOLVED}"
   export TITLE_GENERATION_MODEL
-  # 本物の claude: WORKS_REAL_CLAUDE、CLAUDE_BIN_PATH（包み自身を差していれば使わない）、PATH の順（関数・別名は飛ばす）。
+  # 本物の claude（頭の launch.py env が WORKS_REAL_CLAUDE、CLAUDE_BIN_PATH（包み自身を差していれば使わない）、PATH の順で解いた）。
   # 隔離した設定にプラグインを入れる（下の toolset.py）のにも、包みが起こすのにも使う
-  REAL_CLAUDE="${WORKS_REAL_CLAUDE:-}"
-  if [ -z "$REAL_CLAUDE" ] && [ -n "${CLAUDE_BIN_PATH:-}" ] &&
-    [ "$(works_dev_real "$CLAUDE_BIN_PATH")" != "$WORKS_ADAPTER" ]; then
-    REAL_CLAUDE="$CLAUDE_BIN_PATH"
-  fi
-  if [ -z "$REAL_CLAUDE" ]; then
-    REAL_CLAUDE="$(command -v claude || true)"
-    case "$REAL_CLAUDE" in /*) ;; *) REAL_CLAUDE="" ;; esac
-  fi
+  REAL_CLAUDE="$WORKS_LAUNCH_CLAUDE"
   if [ -z "$REAL_CLAUDE" ]; then
     echo "archon.sh: 本物の claude（隔離した設定にプラグインを入れる・包みが起こす）が見つからない。WORKS_REAL_CLAUDE か CLAUDE_BIN_PATH に絶対パスを設定する" >&2
     exit 2
