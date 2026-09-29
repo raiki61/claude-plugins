@@ -984,6 +984,7 @@ nodes:
       - purpose_unusable
       - reviews
       - premise
+      - premise_inputs
       - retaken_for_reviews
       - exit_file
       properties:
@@ -1062,6 +1063,34 @@ nodes:
           - facts_to_add
           properties:
             facts_to_add:
+              type: array
+              items:
+                type: string
+        premise_inputs:
+          type: object
+          additionalProperties: false
+          required:
+          - design
+          - compare
+          - claims
+          properties:
+            design: &id002
+              type:
+              - object
+              - 'null'
+              properties:
+                node:
+                  type: string
+                given:
+                  type: array
+                  items:
+                    type: object
+                withheld:
+                  type: array
+                  items:
+                    type: object
+            compare: *id002
+            claims:
               type: array
               items:
                 type: string

@@ -322,7 +322,34 @@ def _eyes(b) -> tuple:
             blocked.append(name)
         reason = " ".join(str(r.get("reason") or "").split())
         lines.append(f"  - {name}: {st}（{reason}）" if reason else f"  - {name}: {st}")
+        if name == "R2":
+            lines += _r2_inputs(b)
     return lines, blocked
+
+
+def _r2_inputs(b) -> list:
+    """R2 の行の下に、R2 が『渡されていない』と書いた文と、支度の時に R2 の 2 つの役へ渡した前提の入力の控え（独立の目の出口の
+    premise_inputs。一番新しい周の eyes-exit.json）を並べる。人が同じ枚で突き合わせる（受け付けは拒まない）"""
+    exits = sorted(b.dir.glob("r*/eyes-exit.json"), key=lambda p: int(p.parent.name[1:]) if p.parent.name[1:].isdigit() else -1)
+    try:
+        pi = json.loads(exits[-1].read_text(encoding="utf-8")).get("premise_inputs") if exits else None
+    except (OSError, ValueError):
+        pi = None
+    if not isinstance(pi, dict):
+        return ["    - R2 に渡した入力の控えが無い"]
+    out = [f"    - R2 が渡されていないと書いた: {c}" for c in pi.get("claims") or []]
+    for role in ("design", "compare"):
+        led = pi.get(role)
+        if not isinstance(led, dict):
+            out.append(f"    - {role} の役に渡した入力の控えが無い")
+            continue
+        given = "／".join(f"{g.get('kind')}: {g.get('what')}" for g in led.get("given") or []) or "（前提の入力は無い）"
+        out.append(f"    - {role} の役に渡した前提の入力: {given}")
+        held = led.get("withheld") or []
+        if held:
+            out.append("    - run に在ったが渡していない: "
+                       + "／".join(f"{w.get('kind')}: {w.get('what')}（{w.get('why')}）" for w in held))
+    return out
 
 
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:

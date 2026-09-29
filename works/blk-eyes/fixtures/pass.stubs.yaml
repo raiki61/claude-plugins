@@ -189,6 +189,13 @@ eyes-collect:
       reason: 導入・露呈した横断リスクなし
   premise:
     facts_to_add: []
+  premise_inputs:
+    design: null
+    compare:
+      node: r2.compare
+      given: []
+      withheld: []
+    claims: []
   retaken_for_reviews: board/diff-r1-after-fix.patch
   exit_file: board/r1/eyes-exit.json
 fixture:

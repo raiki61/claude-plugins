@@ -12,19 +12,21 @@ R2 の設計の半分（r2.design）はここで起こさない: 修正の前に
 - route:   目 1 つを今起こすか（入口の周に、その目の待っている instance が在るか）
 - prep:    engine と同じ描き方（写しの graph の reads だけ・cap なし）で指示書を描き、役の定義（graph の plugin の agents/<役>.md）を
            頭に置き、前の拒否の文を先頭に置き、起こした印を置く。本文は出口の prompt で返し、指示書（commands/）が直の参照で貼る。
-           r2.compare には、設計を作った後に分かった前提（修正の中の前提のずれ loop.drift_notes と記録の制約）を頭に貼る
+           r2.compare には、設計を作った後に分かった前提（人の関所の答え・依頼が名指した設計書の節・修正の中の前提のずれ loop.drift_notes・記録の制約）を頭に貼る
            （設計は修正の前に作るので、それらを知らない。崩れていれば『設計の前提が変わった』と理由つきで言わせる）
 - accept:  返答を盤面に渡す（entry.take。入口の写しと今の作業ツリーを比べる）。拒否は数え、GIVE_UP_AFTER 回で諦めの印（done）。
            表で skippable の目（r1.comment_candidates）は諦めたら省いて（board.skip）後ろの目を出す
 - collect: 出口。入口の周の箱だけを見る（最後の目の受け付けの settle が p4.record・converge を回して周を進めても読み違えない）。
            人に聞いている（r4.human_gate の ask）なら止めずに asking（答えた後にブロックへ入り直すと残りの目が回る）。
-           聞いていないのに目が待ちのまま残れば（3 回とも拒まれた）盤面を止めて ok: false
+           聞いていないのに目が待ちのまま残れば（3 回とも拒まれた）盤面を止めて ok: false。premise_inputs に、R2 の 2 つの役へ
+           渡した前提の入力の控え（design-premises.json・eyes-premises.json）と、r2.compare の返答の『渡されていない』の文を並べる
+           （拒まない・verdict を書き換えない。最後の関所の文が R2 の行の下に出す）
 
 並び: 目は Archon の同じ層の輪で並んで走る。盤面（state.json・record.json）は版の突き合わせで守られているが、並んだ受け付けは
 BoardConflict（SystemExit）で落ちるので、このブロックの盤面の読み書きは全部、盤面の置き場の錠（LOCK_NAME。fcntl.flock）の中で行う。
 
 作業ファイルは入口の周の r<N>/ に置く: eyes-snapshot.json（入口の作業ツリーの写し）・eyes-enter.json（p4.assemble が数えた値の控え）・
-eyes-rejects.json（拒否の文）・eyes-exit.json（出口）。最後の目の受け付けの settle が周を進めると、次の周の頭が loop の差分の欄を
+eyes-rejects.json（拒否の文）・eyes-premises.json（r2.compare に渡した前提の入力の控え）・eyes-exit.json（出口）。最後の目の受け付けの settle が周を進めると、次の周の頭が loop の差分の欄を
 撮り直し、記録の reviews を空にし、facts_to_add を制約へ移す（写しの RL の on_new_round・p1.worktree_before）ので、出口は
 p4.assemble の値を入口の控えから、reviews を周の記録 rounds/round-<N>.json から、facts_to_add を stop.premise_check の出力から読む。
 """
@@ -82,11 +84,13 @@ SNAPSHOT_NAME = "eyes-snapshot.json"
 REJECTS_NAME = "eyes-rejects.json"
 ENTER_NAME = "eyes-enter.json"
 EXIT_NAME = "eyes-exit.json"
+PREMISES_NAME = "eyes-premises.json"   # r2.compare に渡した前提の入力の控え（入口の周の作業ファイル）
 STOP_BY = "works:eyes"
 PROMPTS_COPY = rolekit.PROMPTS_COPY
 # 出口の欄（BLOCKS.md 3.3 の R11 の出口に、ブロックの回り方の欄を足した物。並びも固定）
 EXIT_FIELDS = ("ok", "reason", "complete", "asking", "stopped", "eyes", "gave_up", "after_fix", "open_units", "r1_refire",
-               "r2_refire", "purpose_known", "purpose_unusable", "reviews", "premise", "retaken_for_reviews", "exit_file")
+               "r2_refire", "purpose_known", "purpose_unusable", "reviews", "premise", "premise_inputs", "retaken_for_reviews",
+               "exit_file")
 
 
 # ---------------------------------------------------------------- 写しの形
@@ -261,13 +265,19 @@ def _lines(rows) -> str:
     return "\n".join(f"- {r}" for r in rows) if rows else "（無い）"
 
 
-def premise_section(b) -> str:
-    """r2.compare の頭に貼る節: 修正の中の前提のずれ（loop.drift_notes）と記録の制約（record.process.constraints）"""
+def premise_section(b, repo) -> tuple:
+    """(r2.compare の頭に貼る節, 貼った入力の控え {node, given, withheld})。節は人が決めた前提（design.premises の関所の答え・
+    依頼が名指した設計書の節。在る時だけ、先に読ませる）・修正の中の前提のずれ（loop.drift_notes）・記録の制約
+    （record.process.constraints）"""
     drift = [f"周 {r.get('round')}: {r.get('text') or '（申告の文なし）'}" for r in b.loop_state.get("drift_notes") or []]
     cons = [f"（{c.get('kind')}）{c.get('text')}" if isinstance(c, dict) else str(c)
             for c in (b.record.get("process") or {}).get("constraints") or []]
-    return (f"{PREMISE_HEAD}\n\n{PREMISE_ASK}\n\n### 前提のずれ（修正の中の申告）\n\n{_lines(drift)}\n\n"
-            f"### 記録の制約\n\n{_lines(cons)}")
+    parts, ledger = design.premises(b, repo)
+    decided = "".join(f"{s}\n\n" for s in parts)
+    ledger["given"] += [{"kind": "drift", "what": d} for d in drift] + [{"kind": "constraint", "what": c} for c in cons]
+    return (f"{PREMISE_HEAD}\n\n{PREMISE_ASK}\n\n{decided}"
+            + f"### 前提のずれ（修正の中の申告）\n\n{_lines(drift)}\n\n"
+            f"### 記録の制約\n\n{_lines(cons)}"), {"node": PREMISE_NODE, **ledger}
 
 
 def _rejects(b, rnd, nid):
@@ -287,7 +297,9 @@ def prep(board_dir, role, rnd, repo) -> dict:
             raise BoardGap(f"この周に {nid} の待っている instance が無い（route が go の目だけを起こす）")
         prompt = render(b, nid)
         if nid == PREMISE_NODE:
-            prompt = f"{premise_section(b)}\n\n---\n\n{prompt}"
+            head, ledger = premise_section(b, repo)
+            _write_json(_work(b, rnd, PREMISES_NAME), ledger)
+            prompt = f"{head}\n\n---\n\n{prompt}"
         prompt, def_file, missing = rolekit.with_role_definition(b, nid, prompt)
         last = _rejects(b, rnd, nid)[-1:]
         if last:   # 拒否の文は本文に入れて渡す
@@ -374,6 +386,9 @@ def collect(board_dir, rnd) -> dict:
                "purpose_unusable": at["purpose_unusable"],
                "reviews": {k: reviews.get(k) for k in ("R1", "R2", "R3", "R4")},
                "premise": {"facts_to_add": list(pc.get("facts_to_add") or []) if pc.get("verdict") == "resolved" else []},
+               "premise_inputs": {"design": _read_json(b.dir / design.PREMISES_FILE, None),
+                                  "compare": _read_json(_work(b, rnd, PREMISES_NAME), None),
+                                  "claims": design.claims_unpassed(b.output_of_round(PREMISE_NODE, rnd))},
                "retaken_for_reviews": at["retaken_for_reviews"]}
         path = _work(b, rnd, EXIT_NAME)
         out["exit_file"] = str(path)

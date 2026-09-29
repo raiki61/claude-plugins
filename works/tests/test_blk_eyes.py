@@ -359,6 +359,72 @@ class PrepCase(_Case):
                         "比較の指示書の本文の前に置く")
         self.assertIn(DESIGN_OK["design"], text, "比較の本文には先に作った設計が載る")
 
+    HUMAN_ITEM = {"round": 1, "kinds": ["plan_review"], "asked": ["ASKED-本文-上限を呼び手ごとに持つか"],
+                  "answer": "continue", "note": "呼び手ごとの上限の要求は取り下げる"}
+
+    def _with_human_item(self):
+        p = pathlib.Path(self.bd) / "record.json"
+        rec = json.loads(p.read_text(encoding="utf-8"))
+        rec.setdefault("process", {}).setdefault("human_items", []).append(dict(self.HUMAN_ITEM))
+        p.write_text(json.dumps(rec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def test_compare_prompt_carries_human_gate_answers(self):
+        """人の関所の答え（record.process.human_items）は r2.compare の頭に、前提のずれより前に載る。
+        取り下げた要求を固定の契約として比べさせない。聞いた項目の本文（asked）は写さない"""
+        self.board("r1r2")
+        self._with_human_item()
+        self.enter()
+        text = eyes.prep(self.bd, "r2-compare", self.rnd, self.repo)["prompt"]
+        self.assertIn(self.HUMAN_ITEM["note"], text, "人の答えの一言が比較の目に届く")
+        self.assertNotIn(self.HUMAN_ITEM["asked"][0], text, "聞いた項目の本文は貼らない")
+        self.assertLess(text.index(self.HUMAN_ITEM["note"]), text.index("### 前提のずれ（修正の中の申告）"),
+                        "人の答えは前提のずれより前に読ませる")
+
+    def test_design_prompt_carries_human_gate_answers(self):
+        """修正の前に作る独立設計（design.prep）にも、その時点で在る人の関所の答えが載る。asked は写さない"""
+        self.board("r1r2", made=None)
+        self._with_human_item()
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        text = design.prep(self.bd, self.repo)["prompt"]
+        self.assertIn(self.HUMAN_ITEM["note"], text, "人の答えの一言が独立設計の役に届く")
+        self.assertNotIn(self.HUMAN_ITEM["asked"][0], text, "聞いた項目の本文は貼らない")
+
+    SPEC = ("# 設計書\n\n## 1 目的\n\nSECTION-1-BODY\n\n## 2 上限\n\nSECTION-2-BODY 上限は呼び手ごとに持つ\n\n"
+            "### 2.1 細目\n\nSECTION-2-1-BODY\n\n## 3 撤収\n\nSECTION-3-BODY\n")
+    NAMED_REQUEST = "[docs/spec.md の 2 節](docs/spec.md#2-上限) のとおりに直す"
+
+    def _with_named_section(self):
+        """依頼が設計書の節を名指す盤面: 作業ツリーに設計書を commit し、盤面の依頼の文をそれを名指す文にする"""
+        doc = pathlib.Path(self.repo) / "docs" / "spec.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text(self.SPEC, encoding="utf-8")
+        for args in (["add", "docs/spec.md"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "spec"]):
+            subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+        p = pathlib.Path(self.bd) / "state.json"
+        st = json.loads(p.read_text(encoding="utf-8"))
+        st["inputs"]["request"] = self.NAMED_REQUEST
+        p.write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def _assert_only_named_section(self, text):
+        self.assertIn("SECTION-2-BODY 上限は呼び手ごとに持つ", text, "依頼が名指した節の本文が道具ゼロの役に届く")
+        self.assertIn("SECTION-2-1-BODY", text, "名指した節の下の深い節も同じ節の本文")
+        for other in ("SECTION-1-BODY", "SECTION-3-BODY"):
+            self.assertNotIn(other, text, "名指していない節は貼らない")
+
+    def test_compare_prompt_carries_named_design_section(self):
+        """依頼が設計書の節を名指していれば、道具ゼロの r2.compare の頭にその節の本文が貼られる（『渡されていない』にしない）"""
+        self.board("r1r2")
+        self._with_named_section()
+        self.enter()
+        self._assert_only_named_section(eyes.prep(self.bd, "r2-compare", self.rnd, self.repo)["prompt"])
+
+    def test_design_prompt_carries_named_design_section(self):
+        """修正の前に作る独立設計（design.prep）にも、依頼が名指した設計書の節の本文が貼られる"""
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        self._assert_only_named_section(design.prep(self.bd, self.repo)["prompt"])
+
     def test_prep_refuses_eye_not_waiting(self):
         self.board("r1r2")
         self.enter()
@@ -461,6 +527,43 @@ class AcceptCase(_Case):
 
 
 class PathCase(_Case):
+    GATE_NOTE = "Python 3.9 の縛りは取り下げる"
+    UNPASSED = "関所の答えは渡されていない"
+    UNPASSED_DIFF = "設計書の 2 節の本文が渡っていない"
+
+    def _compare_with(self, reply):
+        """人の関所の答えの在る盤面で目を全部回し、r2.compare に reply を返させて出口を取る。返り (r2.compare の受け付け, 出口)"""
+        self.board("r1r2")
+        p = pathlib.Path(self.bd) / "record.json"
+        rec = json.loads(p.read_text(encoding="utf-8"))
+        rec.setdefault("process", {}).setdefault("human_items", []).append(
+            {"round": 1, "kinds": ["policy"], "asked": ["ASKED-本文"], "answer": "continue", "note": self.GATE_NOTE})
+        p.write_text(json.dumps(rec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        self.enter()
+        for role in ("r1-comments", "r1-minimality"):
+            self.run_eye(role, REPLY[role])
+        _, got = self.run_eye("r2-compare", reply)
+        return got, eyes.collect(self.bd, self.rnd)
+
+    def test_unpassed_claim_is_listed_with_given_inputs(self):
+        """R2 が『渡されていない』と書いた返答も受け付けは通し（拒まない・verdict を書き換えない）、出口の premise_inputs に
+        その文と、支度の時に R2 へ渡した入力の控え（ここでは人の関所の答え）を並べる——最後の関所で人が突き合わせられる"""
+        got, out = self._compare_with({"status": "redesign-needed", "reason": f"{self.UNPASSED}。古い縛りのまま比べた",
+                                       "differences": [{"kind": "構造", "text": self.UNPASSED_DIFF}]})
+        self.assertTrue(got["ok"], got)
+        self.assertIn("premise_inputs", out, "出口に R2 へ渡した入力の控えと R2 の『渡されていない』の文が載る")
+        pi = out["premise_inputs"]
+        self.assertTrue(any(self.UNPASSED in c for c in pi["claims"]), pi)
+        self.assertTrue(any(self.UNPASSED_DIFF in c for c in pi["claims"]), pi)
+        self.assertTrue(any(self.GATE_NOTE in g["what"] for g in pi["compare"]["given"]),
+                        "r2.compare の控えに、貼った人の関所の答えが載る")
+        self.assertEqual(out["reviews"]["R2"]["status"], "redesign-needed", "verdict は書き換えない")
+
+    def test_no_unpassed_claim_leaves_claims_empty(self):
+        _, out = self._compare_with(COMPARE_OK)
+        self.assertIn("premise_inputs", out)
+        self.assertEqual(out["premise_inputs"]["claims"], [])
+
     def test_premise_invalid_runs_premise_check(self):
         """R2 が premise-invalid（question_stands 偽）: r2.compare は条件で na、stop.premise_check が出る（条件は盤面の r2_premise_invalid）"""
         self.board("r1r2", made=DESIGN_INVALID)
