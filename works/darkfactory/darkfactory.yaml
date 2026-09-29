@@ -51,7 +51,7 @@ inputs:
     description: 無人の run か。空は人の居る run。true は人が答えない run（use.sh の WORKS_USE_UNATTENDED=1）で、判定の保留の問いだけでは修正前の関所を開かず、問いの出どころを飛ばして修正へ進み、問いを報告の冒頭に並べる（design_only=true と組めば関所は開き、use.sh が stop で報告へ進める）
   design_only:
     default: ""
-    description: 設計だけの run か。空は今どおり。true は修正前の関所を項目の有無に関わらず開けて止める（dogfood.sh・use.sh の WORKS_DESIGN_ONLY=1）。continue で今どおり修正へ進み、stop で報告へ進む（判定・修正案・事前審査・独立設計が報告の見る所に並ぶ）。直す義務が 0 件の周は関所が走らず、修正もしない
+    description: 設計だけの run か。空は今どおり。true は修正前の関所を項目の有無に関わらず開けて止める（殻の WORKS_DESIGN_ONLY=1）。continue で今どおり修正へ進み、stop で報告へ進む（判定・修正案・事前審査・独立設計が報告の見る所に並ぶ）。直す義務が 0 件の周は関所が走らず、修正もしない
   tdd_suite:
     default: ""
     description: テストの実行器（JUnit XML の書き先を第 1 引数に受ける実行ファイル。対象の根から。後ろに試験のファイル・node id（絶対パス）と -k を足して呼ぶことがある）。空なら修正の段の TDD の輪を飛ばす
@@ -66,7 +66,7 @@ nodes:
   - id: launch
     approval:
       message: |
-        darkfactory を始める（run $WORKFLOW_ID）。進める・止める・取り消す行は、run を起こした殻（use.sh・dogfood.sh・real-run.sh）が起動の後に出した行を使う。
+        darkfactory を始める（run $WORKFLOW_ID）。進める・止める・取り消す行は、run を起こした殻が起動の後に出した行を使う。
         use.sh の run は use.sh show <対象リポジトリ> $WORKFLOW_ID で出し直し、進める行を背景で打って use.sh wait <対象リポジトリ> $WORKFLOW_ID で戻る。
 
   # 盤面を作り（DiskBoard.begin）、CI と並行 PR の engine の節を回す（entry.start）。入力を受けなければ 1 で止まる（AI の前）

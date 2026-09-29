@@ -84,8 +84,8 @@ SECOND_CONFLICT = ("裁定の後の出し直しで新しく申し出た食い違
                    "（最後の人の関所で人が決める）")
 
 
-PACK_COPY = ("修正役は .archon/ の下を変えてはいけない（Archon の置き場で、自分食いの run では .archon/workflows/works/** が"
-             "この run を動かしている線の pack の写し。直すのは元の works/** だけで、写しは次の run が作り直す）: ")
+PACK_COPY = ("修正役は .archon/ の下を変えてはいけない（Archon の置き場で、この run を動かしている線の写しが在りうる。"
+             "写しは次の run が作り直す）: ")
 
 
 def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:

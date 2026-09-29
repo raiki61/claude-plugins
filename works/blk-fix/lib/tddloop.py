@@ -18,7 +18,7 @@
   範囲の中の変更は、輪が済んだ時の木（frozen_tree）との差分の塊の旧い側の行で見て通す）
 - fix-accept → selected_problems: 版からの変更に当たる試験（impact.select_tests。分からない物が近くに在れば全部）を同じ実行器で
   走らせ（選んだ .py のうち変えた・足したファイルだけを一式を回す時も絶対パスで後ろに足し、一式でない時は -k で絞る。届いただけの
-  段の外の試験は手元で走らせない。ADR 0071 の 3 の 1）、元で赤でなかった試験の赤を返す。走らせなかった試験は『CI に任せた』として
+  段の外の試験は手元で走らせない。ADR 0071 の 3 の 1）、元で赤でなかった試験の赤を返す。走らせなかった試験は『手元で回さなかった』として
   知らせと状態（ci_left。受け付けが盤面の trace に載せ、最後の関所が並べる）に名前で残す。元の結末に無い試験の赤は、版を
   一時の置き場に写して同じ試験を回し、版でも赤なら外す（作業ツリーは動かさない）。1 件も走らなければ「新しい赤なし」にせず
   知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
@@ -703,7 +703,7 @@ def selected_problems(state_file, repo, rev) -> tuple:
     _save(state_file, st)
     what = "一式（" + "・".join(sel["reasons"])[:200] + "）" if sel["run_all"] else \
         f"選んだ試験（ファイル {', '.join(files)[:300]}・-k {kexpr[:300]}）"
-    ci = f"。手元で回さず CI に任せた {len(st['ci_left'])} 件: {', '.join(st['ci_left'])[:300]}" if st["ci_left"] else ""
+    ci = f"。手元で回さなかった {len(st['ci_left'])} 件（run はその緑を確かめない）: {', '.join(st['ci_left'])[:300]}" if st["ci_left"] else ""
     if cases is None:
         return [], f"{what}を走らせられない（{'; '.join(why)}）{ci}"
     if not cases:
@@ -726,14 +726,14 @@ def selected_problems(state_file, repo, rev) -> tuple:
 
 
 def _left_to_ci(selected, run_files, cases) -> list:
-    """選んだ試験のうち、手元で名指さず（run_files に無く）結末にもモジュールが 1 件も出なかった物（CI に任せた）。実行器の
+    """選んだ試験のうち、手元で名指さず（run_files に無く）結末にもモジュールが 1 件も出なかった物（手元で回さなかった）。実行器の
     既定の段は対象ごとに違うので、段の一覧を写さず結末から決める。結末が無ければ名指さなかった物は全部"""
     ran = {impact._junit_module(c) for c in cases or []}
     return [t for t in selected if t not in run_files and impact._mod(t) not in ran]
 
 
 def ci_left(state_file) -> list:
-    """受け付けが手元で回さず CI に任せた試験（状態が無い・まだ選んでいなければ空）。見せるだけの読み口なので、状態のファイルが
+    """受け付けが手元で回さず 手元で回さなかった試験（状態が無い・まだ選んでいなければ空）。見せるだけの読み口なので、状態のファイルが
     無ければ空（受け付けの知らせの文にも同じ名が載る）"""
     return _load(state_file).get("ci_left", []) if state_file and pathlib.Path(state_file).is_file() else []
 

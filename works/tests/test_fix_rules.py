@@ -108,7 +108,7 @@ class TestSharedSource(unittest.TestCase):
         ruler = fixrules.ruler_prompt({"conflicts_file": "/b/r1/conflicts.json", "ids": "c1-1", "judgment_file": "/b/j.json",
                                        "request_file": "", "policy_path": ""})
         self.assertIn(fixrules.sections(fixrules.PRINCIPLES)["principles"], ruler)
-        for w in ("`c1-1`", "`/b/r1/conflicts.json`", "fix_test_scope", "fix_code_as", "ask_human", "review-graph"):
+        for w in ("`c1-1`", "`/b/r1/conflicts.json`", "fix_test_scope", "fix_code_as", "ask_human", "裁定の決まり"):
             self.assertIn(w, ruler)
 
     def test_questions_for_the_human_go_to_the_conflict_exit(self):

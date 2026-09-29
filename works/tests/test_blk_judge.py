@@ -129,12 +129,12 @@ class YamlCase(unittest.TestCase):
         self.assertNotIn("`materials_missing` と `carried_r1` は空の配列にせよ", text)
 
     def test_diagnose_prompt_decides_before_asking(self):
-        """人に問う前に自分で決める（持ち主 2026-09-29）: 7 項は決め手に人の前の決定・人の方針・本線の同じ場面・世界の解を並べ、
+        """人に問う前に自分で決める（持ち主 2026-09-29）: 7 項は決め手に人の前の決定・人の方針・対象の同じ場面・世界の解を並べ、
         人に問うのを 3 つの場合に限り、fork の reason に推しを書かせる。8 項の undecided_because はその 3 つのどれかを名指させる"""
         text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
         item7 = text[text.index("\n7. "):text.index("\n8. ")]
         item8 = text[text.index("\n8. "):text.index("\n9. ")]
-        for needle in ("人の前の決定", "人の方針", "本線の同じ場面", "世界の解", "人に問う（fork・escalate）のは次の 3 つの場合だけ",
+        for needle in ("人の前の決定", "人の方針", "対象の同じ場面", "世界の解", "人に問う（fork・escalate）のは次の 3 つの場合だけ",
                        "先例が割れる", "優先の付け方", "前の決定か方針の文書とぶつかる", "推し: <選択肢>——<理由>"):
             with self.subTest(needle):
                 self.assertIn(needle, item7)

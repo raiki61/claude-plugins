@@ -86,7 +86,7 @@ SNAPSHOT_PREFIX = "report-snapshot-"    # 書き手を起こす前の作業ツ�
 # pack の語の定義の一覧（terms: [{term, definition}]）。reviewed は固定の行ごとに出る語の承認（tests/test_blk_report.py だけが読む）
 GLOSSARY = _BLK / "glossary.json"
 GLOSSARY_HEADING = "## 語の定義（機械が付けた。本文の外）"
-CELL_REASON = ("表のセルに説明の文を入れない（持ち主の決まり: 表は状態・件数・日付など数語の値の一覧だけ。端末の表は列ごとに"
+CELL_REASON = ("表のセルに説明の文を入れない（書式の決まり: 表は状態・件数・日付など数語の値の一覧だけ。端末の表は列ごとに"
                f"幅を割るので、長いセルは細切れに折り返されて読めない）。「。」を含むか {CELL_LIMIT} 字を超えるセルが在る——"
                "表をやめて箇条書きか散文にするか、セルを数語に縮めて説明は表の外に書け:\n")
 WRITE_NOTE = ("\n\n---\n## works: 数の出どころ（盤面から機械が組んだ事実）\n\n"

@@ -188,15 +188,15 @@ class FinalTestSuitesCase(unittest.TestCase):
             self.assertTrue(self.head_text(tests).startswith("最後のテストが赤"))
 
     def test_final_gate_lists_tests_left_to_ci_by_fix_accept(self):
-        """受け付けが手元で回さず CI に任せた試験（盤面の trace の fix_tests_selected の ci_left）を、関所は名前で並べる"""
+        """受け付けが手元で回さなかった試験（盤面の trace の fix_tests_selected の ci_left）を、関所は名前で並べる"""
         rows = [{"op": "fix_tests_selected", "node": "fix-accept", "note": "n", "ci_left": ["works/tests/test_heavy_a.py"]},
                 {"op": "fix_tests_selected", "node": "fix-accept", "note": "n",
                  "ci_left": ["works/tests/test_heavy_a.py", "works/tests/test_heavy_b.py"]}]
         (self.b.dir / "trace.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         text = self.gate_text(GREEN_WITH_CMD)
-        self.assertIn("CI に任せた", text)
+        self.assertIn("手元で回さなかった", text)
         for name in ("works/tests/test_heavy_a.py", "works/tests/test_heavy_b.py"):
-            self.assertEqual(text.count(name), 1, f"CI に任せた試験 {name} が関所に 1 度だけ出ない:\n{text}")
+            self.assertEqual(text.count(name), 1, f"手元で回さなかった試験 {name} が関所に 1 度だけ出ない:\n{text}")
 
     def test_no_suites_line_when_final_tests_did_not_run(self):
         """走れなかった（節が落ちた出口）・走らなかった（出口が無い）時は『走らせなかった: 無い』を出さない"""

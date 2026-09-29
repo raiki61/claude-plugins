@@ -28,6 +28,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Fixed
 
+- 利用者の run に、このリポジトリ（works を直す開発）だけの語が出ていた所を直した。最後の関所と修正の受け付けの知らせは『ADR 0071』『PR の CI』『CI に任せた』でなく『手元で回さなかった試験（run はその緑を確かめない）』と書く。判定役・修正案役・事前審査役・裁定役の指示書は、決め手を『本線（graphloops）の同じ場面』でなく『対象の同じ場面』と書き、裁定の決まりは graphloops と比べる形をやめた。報告の役の『持ち主の決まり』は『書式の決まり』、審査役の守りのファイルは『このラインの守りのファイル（対象に無ければ空）』、起動の関所と入力 design_only の説明は開発の殻の名を挙げない。スキルとプラグインの説明から持ち主・自分食いの語を外した。試験の枠の台本の既定（開発の機械のパス）が無い時は、1 行を出さず黙って枠なしで回す（名指した台本が無い時は今どおり 1 行出す）。
 - 試験 `test_auth_launch` の `test_check_prints_only_the_name_and_leaves_no_pycache` が、`works/` 全体に `__pycache__` が 1 つも無いことを見ていたため、並行の試験や別の実行が残したバイトコードで関係のない run の受け付けを落としていた。`.shared/core` を一時の置き場へ写してそこで `check` を起こし、写しの下だけを見る。
 - 同じ理由で、試験 `test_tree_run` の `test_no_bytecode_in_pack` と `test_blk_tests_delta` の `test_tests_leave_no_bytecode` も、`works/` 全体の `__pycache__` で関係のない run を落としていた。`tree_run.py` は `.shared/core` の写しから、`run_tests.py` は pack の並び（`.shared/core` と `blk-tests`）を保った写しから起こし、写しの下だけを見る。共有の `works/` の清潔さ（試験自身の import の分も含む）は、どの試験も見なくなった。
 - 独立の目のブロックで、R4（依頼の範囲の外を見る目）の人への問いが盤面を止めると、R1（直しが最小か）が最後の関所までに出なかった。R4 の筋を R1・R2 の筋の後に置き（`all_done` で繋ぐ。筋の並びは `eyes.LANE_AFTER`）、R1・R2 の筋の節が Archon で落ちた時も R4 と出口は走って、落ちた筋を最後の関所に出す（盤面の順とのずれ・設計待ちは今どおり止める）。修正の後の R4 の関所は、直す前の関所で人が通した狭まりと同じ本文を聞き直さず、通した行は `gate_passes` に `by: carried` で残して最後の関所と報告に並べる。

@@ -202,7 +202,7 @@ def _traced(b, op: str, **kw) -> bool:
 
 
 def _ci_left(b) -> list:
-    """修正の受け付けが周をまたいで手元で回さず CI に任せた試験（重ねずに、出た順）"""
+    """修正の受け付けが周をまたいで手元で回さず 手元で回さなかった試験（重ねずに、出た順）"""
     return list(dict.fromkeys(t for row in report.trace_rows(b, impact.ACCEPT_TRACE_OP) for t in row.get("ci_left") or []))
 
 
@@ -419,7 +419,7 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
         lines.append(f"- テストの一式: {entry.suites_line(tests, role_status=entry.role_ci_status(b, tests))}")
     left = _ci_left(b)
     if left:
-        lines.append(f"- 修正の受け付けが手元で回さず CI に任せた試験（{len(left)} 件。ADR 0071 の 3 の 1。run はその緑を確かめない——取り込みの前に人が PR の CI を見る）:")
+        lines.append(f"- 修正の受け付けが手元で回さなかった試験（{len(left)} 件。run はその緑を確かめない——取り込みの前に人が回すか CI で確かめる）:")
         lines += [f"  - {t}" for t in left]
     lines.append(f"- ログ: {tests.get('log') or '（無い）'}")
     if tests.get("reason"):

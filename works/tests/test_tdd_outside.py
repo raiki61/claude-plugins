@@ -173,7 +173,7 @@ class TestAcceptOutsideTier(OutsideCase):
                              f"変えていない段の外の試験のファイルを受け付けが実行器の後ろに足した: {argv}")
 
     def test_tests_left_out_are_named_as_left_to_ci(self):
-        # 手元で回さなかった試験は黙って減らさず、知らせと状態のファイルに『CI に任せた』として名前で残す
+        # 手元で回さなかった試験は黙って減らさず、知らせと状態のファイルに『手元で回さなかった』として名前で残す
         self.write(OUTSIDE, OUTSIDE_TEST)
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-q", "-m", "段の外の試験（stats に届く）")
@@ -182,9 +182,9 @@ class TestAcceptOutsideTier(OutsideCase):
         p.write_text(p.read_text(encoding="utf-8").replace("(len(xs) - 1)", "len(xs)"), encoding="utf-8")
         probs, note = tddloop.selected_problems(state, self.repo, "HEAD")
         self.assertEqual(probs, [], note)
-        self.assertIn("CI に任せた", note)
+        self.assertIn("手元で回さなかった", note)
         self.assertIn(OUTSIDE, note)
-        self.assertNotIn("test_stats.py", note.split("CI に任せた", 1)[1], "手元で走った試験を CI に任せたと言う")
+        self.assertNotIn("test_stats.py", note.split("手元で回さなかった", 1)[1], "手元で走った試験を回さなかったと言う")
         self.assertEqual(tddloop.load_state(state).get("ci_left"), [OUTSIDE])
 
     def test_accept_args_name_only_pytest_modules(self):

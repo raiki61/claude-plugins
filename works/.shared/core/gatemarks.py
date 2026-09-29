@@ -50,14 +50,14 @@ FIELDS = ("decided_by", "undecided_because", "fences")
 FENCES = ("external_write", "irreversible", "policy_doc", "widen_protection", "web_doubt")
 MARK_SCHEMA = {
     "decided_by": {"type": "string",
-                   "note": "決め手の出どころ（依頼の引用・URL と節・本流の同じ場面・持ち主の前の決定＝ADR・台帳の行）。無ければ書かない"},
+                   "note": "決め手の出どころ（依頼の引用・URL と節・対象の同じ場面・人の前の決定＝ADR・台帳の行）。無ければ書かない"},
     "undecided_because": {"type": "string",
                           "note": "決め手を当たっても答えが 1 つに決まらない理由。書けないなら空（自明なので人に回さない）"},
     "fences": {"type": "array", "uniqueItems": True, "items": {"type": "string", "enum": list(FENCES)},
                "note": "当たる柵の印。1 つでも在れば決め手が在っても人に聞く"},
 }
 NODES = ("p2.fix_plan", "p2.plan_review")
-_RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ（依頼の引用・URL と節・本流の同じ場面・持ち主の前の決定＝ADR・台帳の行）。"
+_RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ（依頼の引用・URL と節・対象の同じ場面・人の前の決定＝ADR・台帳の行）。"
          "undecided_because＝決め手を当たっても答えが 1 つに決まらない理由（書けないなら空にせよ——自明なので人に回さない）。"
          "fences＝当たる柵の印（external_write 外への書き込み・irreversible 取り消せない操作・policy_doc 方針の文書の変更・"
          "widen_protection 守り（資格・sandbox）を広げる・web_doubt web の結果が新しい疑いを出した）。decided_by が在り "

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "workflow-pack",
   "name": "works",
-  "description": "持ち主の作業の生産ライン",
+  "description": "修正依頼を回す生産ライン",
   "compatibility": {
     "archon": ">=0.11.1 <0.12.0"
   },

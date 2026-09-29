@@ -67,7 +67,8 @@ unslotted() {
 slot=${WORKS_TESTSLOT-$DEFAULT_TESTSLOT}
 [ -z "$slot" ] && launch "$@"
 if [ ! -f "$slot" ]; then
-  echo "slotwrap.sh: 重いテストの枠の台本が無い（${slot}）。枠を取らずに回す" >&2
+  # 既定の台本は開発の機械にだけ在る。無ければ黙って枠なしで回す（名指した台本が無い時だけ 1 行出す）
+  [ "$slot" = "$DEFAULT_TESTSLOT" ] || echo "slotwrap.sh: 重いテストの枠の台本が無い（${slot}）。枠を取らずに回す" >&2
   unslotted "$@"
 fi
 # 置き場は台本と同じ式で 1 回だけ解決し、export して台本に渡す（試す場所・祖先を探す場所・台本が枠を取る場所を一致させる）
