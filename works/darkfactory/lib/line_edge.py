@@ -342,8 +342,7 @@ def structure_edge(board_dir, structured, plan_go=True) -> dict:
     自分の読み書きの失敗（設計の行が読めない・控えを書けない）も節の失敗にせず、status failed と理由で返す（計画は行なしで進む）。
     計画を起こさない周（plan_go が偽）は控えを書かずに status skipped（落ちの印を出さない）"""
     if plan_go is False:
-        return {"ok": True, "status": "skipped", "reason": "計画を起こさない周（h-plan の go が偽）", "design_file": "", "wall_s": 0,
-                "state_file": ""}
+        return {"ok": True, "status": "skipped", "reason": "計画を起こさない周（h-plan の go が偽）", "design_file": "", "wall_s": 0}
     why = _structure_failed(structured)
     got = structured if isinstance(structured, dict) else {}
     design_file, wall = str(got.get("design_file") or ""), got.get("wall_s", 0)
@@ -353,12 +352,11 @@ def structure_edge(board_dir, structured, plan_go=True) -> dict:
         except ValueError as e:
             why = str(e)
     status = "failed" if why else "ok"
-    state_file = ""
     try:
-        state_file = str(structmark.write(board_dir, status=status, reason=why, design_file=design_file, wall_s=wall))
+        structmark.write(board_dir, status=status, reason=why, design_file=design_file, wall_s=wall)
     except OSError as e:
         status, why = "failed", (why + "。" if why else "") + f"構造のブロックの控えを書けない: {e}"
-    return {"ok": True, "status": status, "reason": why, "design_file": design_file, "wall_s": wall, "state_file": state_file}
+    return {"ok": True, "status": status, "reason": why, "design_file": design_file, "wall_s": wall}
 
 
 def _fixed_by_role(b) -> bool:
@@ -479,9 +477,6 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     missing = structmark.note(structmark.read(b.dir))
     if missing:
         lines.append(f"- 構造のブロック: {missing}")
-    kept = structmark.kept_line(b.dir)
-    if kept:
-        lines.append(f"- {kept}")
     passed = gatemarks.lines(b)
     if passed:
         lines.append(f"- 直す前の関所で通した項目（決め手が在るので聞かずに通した行と、人が通したので後の関所で聞き直さなかった行。{len(passed)} 件）:")

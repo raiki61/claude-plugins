@@ -43,7 +43,6 @@ if str(_GL) not in sys.path:
 
 import engine.util as _util  # noqa: E402
 import gatemarks  # noqa: E402
-import structmark  # noqa: E402
 import querytest  # noqa: E402
 from engine.rules import load_rules, validator_module  # noqa: E402
 from engine.schema import expand_refs, validate_schema  # noqa: E402
@@ -144,8 +143,6 @@ def _role_schema_json(node, numbered):
         schema = _strip_notes(querytest.with_examples(schema))
     if node in gatemarks.NODES:
         schema = _strip_notes(gatemarks.with_marks(node, schema))
-    if node == structmark.PLAN_NODE:
-        schema = structmark.with_kept(schema)
     return json.dumps(schema, ensure_ascii=False)
 
 

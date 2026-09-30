@@ -30,9 +30,6 @@ inputs:
   excluded_file:
     default: ""
     description: 並行 PR の外した範囲のファイル（無ければ空か文字列 null）。在れば 2 つの役の指示書の頭にパスを名指す
-  structure_state_file:
-    default: ""
-    description: 構造の境の節が書いた控え（structure-state.json）のパス（線の h-structure の出口 state_file。空なら構造の目の行を貼らない）。修正案の指示書の頭に構造の目の行（落ちた周は行なしで計画した印）を貼り、修正案の受け付けが欄 structure_kept を行と突き合わせる
   include_id:
     default: planning
     description: ラインがこのブロックを include した id（読んだ証拠が Archon の出来事の節の名 <include>__<輪>.<役> を引くため）
@@ -74,7 +71,6 @@ nodes:
           with:
             role: r2-design
             excluded_file: $INPUTS.excluded_file
-            structure_state_file: $INPUTS.structure_state_file
           output_format:
             type: object
             additionalProperties: false
@@ -135,7 +131,6 @@ nodes:
           with:
             role: r2-design
             reply: {from: "$r2-design.output"}
-            structure_state_file: $INPUTS.structure_state_file
           output_format:
             type: object
             additionalProperties: false
@@ -198,7 +193,6 @@ nodes:
           with:
             role: plan
             excluded_file: $INPUTS.excluded_file
-            structure_state_file: $INPUTS.structure_state_file
           output_format:
             type: object
             additionalProperties: false
@@ -224,16 +218,6 @@ nodes:
             required:
             - plan
             properties:
-              structure_kept:
-                type: array
-                items:
-                  type: object
-                  additionalProperties: false
-                  required: [unit_id, kept, why]
-                  properties:
-                    unit_id: {type: string, minLength: 1}
-                    kept: {type: boolean}
-                    why: {type: string}
               plan:
                 type: array
                 minItems: 1
@@ -335,7 +319,6 @@ nodes:
           with:
             role: plan
             reply: {from: "$plan.output"}
-            structure_state_file: $INPUTS.structure_state_file
           output_format:
             type: object
             required: [ok, done, give_up, reason_file]
@@ -384,7 +367,6 @@ nodes:
           with:
             role: plan-review
             excluded_file: $INPUTS.excluded_file
-            structure_state_file: $INPUTS.structure_state_file
           output_format:
             type: object
             additionalProperties: false
@@ -516,7 +498,6 @@ nodes:
           with:
             role: plan-review
             reply: {from: "$plan-review.output"}
-            structure_state_file: $INPUTS.structure_state_file
           output_format:
             type: object
             required: [ok, done, give_up, reason_file]

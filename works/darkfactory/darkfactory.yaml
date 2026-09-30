@@ -363,14 +363,13 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, status, reason, design_file, wall_s, state_file]
+      required: [ok, status, reason, design_file, wall_s]
       properties:
         ok: {type: boolean}
         status: {type: string, enum: [ok, failed, skipped]}
         reason: {type: string}
         design_file: {type: string}
         wall_s: {type: number}
-        state_file: {type: string}
 
   # 独立設計と修正案と事前審査。独立設計（r2.design）は修正の前にここで作って盤面の根に控え、h-look が盤面へ渡す（最後の R2 は
   # 比較だけを回す）。直す物の無い判定でも、設計を作りに入る（h-plan の go）。構造の境を待ち、修正案の指示書の頭がその控えから
@@ -384,7 +383,6 @@ nodes:
       base_rev: $start.output.base_rev
       policy_paste: $start.output.policy_paste
       policy_path: $start.output.policy_path
-      structure_state_file: $h-structure.output.state_file
       include_id: "planning"
 
   # 盤面が人に聞いていれば関所を開く（文は r<N>/gate.md。文言には置き場だけを載せる）

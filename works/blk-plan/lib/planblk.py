@@ -2,7 +2,7 @@
 事前審査（p2.plan_review）の 3 つの役を、本線の指示書を engine の描き方で描いて回す（rolekit）。人の関所の項目は盤面の p2.human_gate が組む。
 独立設計は盤面の節がまだ待っていない（graph では修正の後）ので、支度・受け付け・控えは core の design に任せる（役 r2-design）。
 事前審査の指示書の頭には、その設計（無ければ無い理由）を貼る（design_section）。修正案の指示書の頭には、盤面の根の構造のブロックの
-明示の入力 structure_state_file（線の構造の境の節の出口）の控え（core の structmark）から構造の目の行か、行なしで計画した印を貼る。受け付けは欄 structure_kept（行ごとに守ったか）を行と突き合わせて外す（独立設計の役には渡さない）。
+控え（core の structmark）から構造の目の行か、行なしで計画した印を貼る（独立設計の役には渡さない）。
 
 - snap:     役を起こす前の作業ツリーの写し（accept.tree_state。R47）を今の周の <役>-snapshot.json に置き、節が待っているか
             （go）を返す。待っていなければ（判定が直す物を出さなかった・修正案が諦めた）輪を飛ばす
@@ -144,7 +144,7 @@ def snap(board_dir, role: str, repo) -> dict:
     return {"ok": True, "go": True, "snapshot_file": str(p)}
 
 
-def prep(board_dir, role: str, repo, excluded_file: str = "", structure_state_file: str = "") -> dict:
+def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
     """<役>-prep: 描く → 番号の控え → 起こした印。返り {prompt_file, attempt, out_path, node, already}。
     独立設計の役は core の design.prep（返り {prompt, prompt_file, node, attempt, already, role_def, role_def_missing}。
     道具ゼロなので指示書の本文を返し、commands/r2-design.md が直の参照で貼る）"""
@@ -152,7 +152,7 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", structure_state_fi
         return design.prep(board_dir, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
-    part = design_section(b) if role == "plan-review" else structmark.plan_section_file(_given(structure_state_file))
+    part = design_section(b) if role == "plan-review" else structmark.plan_section(b.dir)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
     ptrs = b.pointer_rows(nid)["pointers"]
     inst = _pending(b, nid)
@@ -167,12 +167,6 @@ def take(role: str):
     nid = role_node(role)
 
     def run(board, reply, repo):
-        if nid == structmark.PLAN_NODE:
-            reply, kept = structmark.split_kept(reply)
-            why = structmark.check_kept(_given(os.environ.get("INPUTS_STRUCTURE_STATE_FILE", "")), kept)
-            if why:
-                return {"ok": False, "reason": why}
-            structmark.save_kept(board, entry.open_board(pathlib.Path(board)).round, kept)
         bare, marks = gatemarks.split(nid, reply)
         gatemarks.save(board, nid, entry.open_board(pathlib.Path(board)).round, marks)
         return entry.take(pathlib.Path(board), nid, bare, pathlib.Path(repo), snapshot_name=snapshot_name(role))
