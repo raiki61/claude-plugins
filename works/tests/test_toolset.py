@@ -526,6 +526,13 @@ class GuardCase(Base):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(body, encoding="utf-8")
 
+    def test_official_marketplace_is_not_outside(self):
+        """Claude Code が起動の時に隔離した設定へ足す公式の marketplace（名と GitHub の repo が合う行）は、選んだ物の外に数えない
+        （登録だけでプラグインは増えない。これを拒むと wait・show が全部落ちていた）"""
+        self.put("plugins/known_marketplaces.json",
+                 '{"claude-plugins-official": {"source": {"source": "github", "repo": "anthropics/claude-plugins-official"}}}')
+        self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
+
     def test_guard_refuses_foreign(self):
         """一覧の外を 1 つずつ置くと、そのたびにちょうど 1 つ、名前つきで並ぶ"""
         cases = {
@@ -545,6 +552,10 @@ class GuardCase(Base):
             "marketplace x（plugins/known_marketplaces.json）": lambda: self.put("plugins/known_marketplaces.json",
                                                                                   '{"x": {}}'),
             "settings.json（JSON の表として読めない）": lambda: self.put("settings.json", "{"),
+            # 公式の名でも repo が違えば外に数える（名だけで通さない）
+            "marketplace claude-plugins-official（plugins/known_marketplaces.json）": lambda: self.put(
+                "plugins/known_marketplaces.json",
+                '{"claude-plugins-official": {"source": {"source": "github", "repo": "someone/claude-plugins-official"}}}'),
         }
         for name, make in cases.items():
             with self.subTest(name):

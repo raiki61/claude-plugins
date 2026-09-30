@@ -51,6 +51,15 @@ sys.dont_write_bytecode = True
 
 MARKETPLACE = "works-local"                 # 隔離した設定の中の手元の marketplace の名
 MP_DIR = "works-marketplace"                # その置き場（<設定の置き場>/works-marketplace）
+# Claude Code が起動の時に自分で足す公式の marketplace（名と GitHub の repo が両方合う時だけ）。登録だけで、入れた・有効な
+# プラグインは増えない（それは installed_plugins.json・enabledPlugins の検査が見る）ので、選んだ物の外に数えない
+OFFICIAL_MARKETPLACE = ("claude-plugins-official", "anthropics/claude-plugins-official")
+
+
+def _official(name, entry) -> bool:
+    src = entry.get("source") if isinstance(entry, dict) else None
+    return (name == OFFICIAL_MARKETPLACE[0] and isinstance(src, dict) and src.get("source") == "github"
+            and src.get("repo") == OFFICIAL_MARKETPLACE[1])
 RECORD = ".works-toolset.json"
 MCP_FILE = "works-mcp.json"                 # 借りる MCP の置き場（包みが --mcp-config で役に渡す）
 LICENCES_OK = frozenset({"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"})   # MCP を借りてよい使用許諾（SPDX の名）
@@ -292,7 +301,8 @@ def guard(config_dir: pathlib.Path, borrow: dict) -> list:
     if km is _BAD:
         out.append("plugins/known_marketplaces.json（JSON の表として読めない）")
     elif km is not None:
-        out += [f"marketplace {k}（plugins/known_marketplaces.json）" for k in sorted(set(km) - {MARKETPLACE})]
+        out += [f"marketplace {k}（plugins/known_marketplaces.json）" for k in sorted(set(km) - {MARKETPLACE})
+                if not _official(k, km[k])]
     mf = _read_json(cfg / MCP_FILE)
     if mf is _BAD or (mf is not None and not isinstance(mf.get("mcpServers"), dict)):
         out.append(f"{MCP_FILE}（JSON の表として読めない）")
