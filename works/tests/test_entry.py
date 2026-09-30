@@ -471,7 +471,7 @@ class CheckInputsCase(StartCaseBase):
         self.assertEqual(got["request_file"], str((self.tmp / "r.json").resolve()))
         self.assertIn("mean", got["request_text"])
         self.assertEqual(entry.THICKNESS, ("軽量", "標準", "重厚"))
-        self.assertEqual(entry.FINAL_GATES, ("always", "when_needed"))
+        self.assertEqual(entry.FINAL_GATES, ("always", "when_needed", "protected_only"))
         self.assertEqual(entry.ADAPTER_MODES, ("", "optional"))
         self.assertEqual(entry.GATES, ("", "merge"))
 

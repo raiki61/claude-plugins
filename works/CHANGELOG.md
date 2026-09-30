@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 利用の殻 `use.sh` の最後の関所の既定を `protected_only`（守りのファイルを触った・確かめられなかった時だけ開く）にした。最後のテストの赤・走れなかった・独立の目の阻害・残った異議は関所を開けず、報告の冒頭に並ぶ（関所で進めても止めても報告は出て、差分を当てるのは人の `use.sh apply` なので、答えが次の動きを変えない関所で run を止めない）。前の既定は `WORKS_USE_FINAL_GATE=when_needed` で選べる。線の入力 `final_gate` に語 `protected_only` を足した（空の既定は今どおり always）。
+
 ## [0.2.6] - 2026-09-30
 
 ### Added

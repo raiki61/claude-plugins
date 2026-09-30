@@ -390,6 +390,13 @@ class FinalGateCase(EdgeBase):
         self.assertEqual((got["ask"], got["gate_text"], got["stop"]), (False, "", False))
         self.assertFalse(entry.open_board(self.board, allow_halted=True).work(line_edge.FINAL_GATE_FILE).exists())
 
+    def test_final_protected_only_red_skips(self):
+        """protected_only・赤か走れなかった・走らなかった・守りのファイルに触れていない → 開かない"""
+        tests = self.closed()
+        for exit_ in ({**tests, "green": False}, {"ok": False, "green": False, "log": "", "reason": "宣言が読めない"}, None):
+            with self.subTest(exit_=exit_):
+                self.assertFalse(self.edge("final", tests=exit_, final_gate="protected_only").get("ask"))
+
     def test_final_when_needed_red_asks(self):
         """when_needed・赤か走れなかった・走らなかった（出口 null）→ ask True、頭の語がそれぞれ"""
         tests = self.closed()
@@ -515,6 +522,11 @@ class ProtectedGateCase(EdgeBase):
     def protected_rows(self):
         b = entry.open_board(self.board, allow_halted=True)
         return [h for h in b.record["process"]["human_items"] if h.get("node") == line_edge.PROTECTED_BY]
+
+    def test_protected_only_opens_just_for_protected_files(self):
+        """protected_only（利用者の既定）: 守りのファイルを触った時だけ開く。赤・走れなかった・走らなかったでは開かない
+        （理由は報告の冒頭に並ぶ。関所の答えは差分を当てるかを変えない）"""
+        self.assertTrue(self.edge("final", tests=self.touched_closed(), final_gate="protected_only")["ask"])
 
     def test_touch_forces_gate_when_needed(self):
         """when_needed・緑・問い無し・異議無しでも、守りのファイルを触っていれば開き、1 行目で名指し、本文の前の節に

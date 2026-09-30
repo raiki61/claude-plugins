@@ -66,7 +66,9 @@ GATE_AT = ("fix", "eyes")            # 関所の答えを受ける境の節（fi
 GATE_GO = ("approve", "continue")    # approve は continue と、reject は stop と同じ（台帳 R32）
 GATE_STOP = ("stop", "reject")
 GATE_STOP_NOTE = "関所で止めた"              # policy-gate の stop・reject に一言が無い時の理由
-FINAL_GATES = ("always", "when_needed")      # 入力 final_gate の語（空は always。P1-R3: 必ず止まれる所を残す）
+FINAL_GATES = ("always", "when_needed", "protected_only")   # 入力 final_gate の語（空は always。P1-R3: 必ず止まれる所を残す）。
+# protected_only は守りのファイルを触った（確かめられなかった）時だけ開く（利用者の既定。ほかの理由は報告の冒頭に並ぶだけで、
+# 関所の答えは差分を当てるかを変えない——当てるのは人の use.sh apply）
 FINAL_GATE_FILE = "final-gate.md"            # final-gate の文（b.work）
 FINAL_GATE_ANSWER = "final-gate-answer.json" # final-gate の答え {decision, text}（b.work。stop・reject も書く——報告が読む）
 FINAL_GATE_BY = "human:final-gate"           # final-gate の stop・reject の by（state.stop.by か、周を締めた後なら trace の行）
@@ -682,7 +684,7 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     # 残した）は前も通っていたので、見せるだけ
     mismatched = querytest.closure_lines(b, mismatched_only=True)
     why = _final_needs(b, head, objection, eyes, rows, err, asks, mismatched)
-    if mode == "when_needed" and not why:
+    if (mode == "when_needed" and not why) or (mode == "protected_only" and not guarded):
         return {}
     unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
     stuck = querytest.closure_lines(b, stuck_only=True)

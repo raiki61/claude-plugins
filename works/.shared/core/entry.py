@@ -188,7 +188,7 @@ LINE = "darkfactory"
 ORIGIN = "works/darkfactory"   # 依頼の出どころ（record.process.request_entry.origin）
 THICKNESS = ("軽量", "標準", "重厚")
 THICKNESS_DEFAULT = "標準"
-FINAL_GATES = ("always", "when_needed")   # 最後の人の関所の開き方（C18・P1-R3。line_edge.FINAL_GATES と同じ語）
+FINAL_GATES = ("always", "when_needed", "protected_only")   # 最後の人の関所の開き方（C18・P1-R3。line_edge.FINAL_GATES と同じ語）
 ADAPTER_MODES = ("", "optional")
 UNATTENDED_WORDS = ("", gatemarks.UNATTENDED)   # 入力 unattended（空は人の居る run。true は無人の殻 use.sh の WORKS_USE_UNATTENDED=1）
 DESIGN_ONLY_WORDS = ("", gatemarks.DESIGN_ONLY)   # 入力 design_only（空は今どおり。true は修正前の関所を必ず開ける設計だけの run）

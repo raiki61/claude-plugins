@@ -5,7 +5,7 @@
   リポジトリの中でない・対象に pack の写し（.archon/workflows/works）が在る・対象に remote の origin が無い・依頼のファイルが無い・
   認証が無い（keychain は偽物）。commit していない変更・未追跡のファイル（包んで回す）・下のフォルダ（git の根で回す）・test_cmd を省くことは拒まない。
 - start: pack（tests/・dev/・docs/ 抜き）を利用の家の Archon の全体の工程の置き場（<家>/archon-home/workflows/works）に写し、
-  対象の中で `workflow run darkfactory --from <対象の HEAD>` を、写した依頼の絶対パス・test_cmd・tdd_suite・adapter=（包みを入れる既定。archon.sh に WORKS_DEV_ADAPTER=1）・final_gate=when_needed（既定）で呼び、WORKS_USE_FINAL_GATE=always を付けた時だけ
+  対象の中で `workflow run darkfactory --from <対象の HEAD>` を、写した依頼の絶対パス・test_cmd・tdd_suite・adapter=（包みを入れる既定。archon.sh に WORKS_DEV_ADAPTER=1）・final_gate=protected_only（既定）で呼び、WORKS_USE_FINAL_GATE=always を付けた時だけ
   final_gate=always で呼ぶ。開発の家（WORKS_DEV_HOME）は継がない（走っている自分食いの家を書き換えない）。
 - tdd_suite: 第 4 引数が在ればそのまま。無ければ test_cmd が pytest の 1 コマンドの時だけ JUnit XML を第 1 引数に書く実行器を
   利用の家に書いて渡し、そうでなければ空（直に直す）にして 1 行で知らせる。
@@ -559,7 +559,7 @@ class UseShell(unittest.TestCase):
         self.assertEqual(run[3:], [
             "workflow", "run", "darkfactory", "--from", head,
             "--input", f"request={req}", "--input", "test_cmd=python3 -m unittest -q",
-            "--input", "tdd_suite=", "--input", "adapter=", "--input", "final_gate=when_needed"])
+            "--input", "tdd_suite=", "--input", "adapter=", "--input", "final_gate=protected_only"])
         self.assertIn("WORKS_DEV_ADAPTER=1 ", r.stdout)   # 何も付けない start は包みを入れる（続きの行も archon.sh に 1 を渡す）
         self.assertEqual(runs, [str(t), "1", str(self.home), "workflow", "runs", "--json"])
         out = r.stdout

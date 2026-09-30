@@ -36,7 +36,7 @@ inputs:
     description: graphloops の gates（空か merge）
   final_gate:
     default: ""
-    description: 最後の人の関所。always（空の既定。いつも開く）か when_needed（最後のテストが緑でない・盤面が人に聞いている・止めずに残った異議がある時だけ）
+    description: 最後の人の関所。always（空の既定。いつも開く）か when_needed（最後のテストが緑でない・盤面が人に聞いている・止めずに残った異議がある時だけ）か protected_only（守りのファイルを触った時だけ。ほかの理由は報告の冒頭に並ぶ）
   adapter:
     default: ""
     description: 包み（Claude の包み claude-adapter）。空は包みを通した run だけを受ける（h-judge が確かめる）。optional は包み無しで回し、報告に出す

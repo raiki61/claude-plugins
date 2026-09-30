@@ -71,7 +71,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <版> | --pr <番号>] [--] 
 - remote の `origin` が要る（Archon v0.11.1 は `--from` を渡しても、origin の無い対象では run の worktree を切れずに終了コード 1 で落ちる）。無ければ `check` が並べ、`start` は Archon を起こす前に 1 行で止まり、入れ方（`git remote add origin <URL>`。手元だけなら対象の外に `git init --bare <対象>.origin.git` を作って origin にし、`git push origin HEAD`）を出す。殻は remote を足さない。あなた（Claude）も自分で remote を足さず、預ける先の URL か手元の裸のリポジトリかを依頼者に尋ねて、依頼者に決めてもらう。
 - `test_cmd`（省ける）: 修正の前と最後に回すテストのコマンド（例: `python3 -m unittest -q`・`uv run pytest -q`）。在れば、対象の `.review-checks.json` の宣言が在っても宣言の一式に加えて回し、両方が緑の時だけ緑（宣言の段と同じコマンドなら 1 度だけ回す）。省くか空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
 - `tdd_suite`（省ける）: JUnit XML の書き先を第 1 引数に受ける実行ファイル（対象の根から走る）。機械は後ろに試験のファイル・node id（絶対パス）と `-k` を足して呼ぶことがある（既定の一式に足して集める。解けない実行器は無視してよい）。在れば修正の段で単位ごとの TDD の輪を回す。省くと、`test_cmd` が pytest の 1 コマンドなら殻がそれに `--junitxml` を足す実行器を書いて渡し、そうでなければ輪を飛ばして直に直す（どちらにしたかを 1 行出す）。
-- 最後の関所は既定で要る時だけ開く（`when_needed`）。いつも開くなら `WORKS_USE_FINAL_GATE=always` を前に付ける。
+- 最後の関所は既定で守りのファイルを触った時だけ開く（`protected_only`）。テストの赤・独立の目の阻害・残った異議は報告の冒頭に並ぶので、差分を当てる（`use.sh apply`）前に読む。それらでも止めるなら `WORKS_USE_FINAL_GATE=when_needed`、いつも開くなら `always` を前に付ける。
 - Claude の包み（`claude-adapter`）は既定で通す。外すなら `WORKS_DEV_ADAPTER=0`（起動の 1 行目に「包み無し」と出て、報告にも出る）。
 - ラインの入力 `policy_md`・`gates`・`thickness` は `WORKS_USE_POLICY_MD`・`WORKS_USE_GATES`・`WORKS_USE_THICKNESS` で渡す。
 - 無人で回すなら `WORKS_USE_UNATTENDED=1`: 起動の関所を越え、人が決める関所に着いたら止めて報告へ進める（関所に出た、能力を狭める・方針とぶつかる修正は通さない。関所に出ずに決め手で通る行は 3 節の `policy-gate` の項。判定の保留の問いだけでは関所を開かず、問いの出どころだけを飛ばして直し、問いを報告の冒頭に並べる）。
@@ -96,7 +96,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" answer <対象リポジトリ> <run-id> co
    - 狭めと穴の行のうち、役が決め手の出どころを書き、決め手を当たっても答えが割れず、柵（外への書き込み・取り消せない操作・方針の文書の変更・守り（資格・sandbox）を広げる・web の結果が新しい疑いを出した）に当たらない行は、関所に出さずに通す。通した行は出どころつきで報告の冒頭にいつも並び、最後の関所が開いた時はその文にも並ぶ（通した行だけでは既定の `when_needed` の最後の関所は開かない。関所で必ず見るなら `WORKS_USE_FINAL_GATE=always`）。
    - 通す: `answer … continue "<通す範囲と条件>" "<答えた者>"`。一言は修正役にファイルで届く。依頼者がこの周で直さない単位を名指ししたら、`--exclude <単位の番号>=<理由>` を後ろに何度でも足す（continue だけ。`answers.jsonl` と盤面の `answer-detail.json` に残る）。ただし、今の同梱の graphloops の写し（0.21.0）の線はまだそれを読まない。
    - 止める: `answer … stop "<理由>"`。止めても報告は出る。
-3. 最後の関所 `final-gate`（既定の `when_needed` では、テストが緑でない・独立の目が阻害を返した・問いや異議が残った時・守りのファイルが変わった時に開く。`final_gate: always` ならいつも）: 最後のテストと独立の目 R1〜R4 の後に開く。テストの緑赤・ログ・差分の置き場・残った異議・目の判定が全文 `r1/final-gate.md` に在る。`continue` でも `stop` でも報告へ進む。
+3. 最後の関所 `final-gate`（既定の `protected_only` では守りのファイルが変わった時だけ開く。`when_needed` では、テストが緑でない・独立の目が阻害を返した・問いや異議が残った時・守りのファイルが変わった時に開く。`final_gate: always` ならいつも）: 最後のテストと独立の目 R1〜R4 の後に開く。テストの緑赤・ログ・差分の置き場・残った異議・目の判定が全文 `r1/final-gate.md` に在る。`continue` でも `stop` でも報告へ進む。
    - 独立の目の R4 が人に聞く物（消えた能力・方針とのぶつかり）を挙げたら、その問いも関所の全文に載る。関所の `continue` は問いに答えない。問いは報告の冒頭と次の run の依頼の下書きに載り、結末は `needs_human`。
 
 殻の `approve`・`answer`・関所で待つ run の `stop` は、残りの工程（次の関所か終わりまで）を殻が切り離して回し、すぐ戻る（出力は `<利用の家>/logs/<run-id>-<時刻>.log`。終了コードは起こせたかだけ）。成否と状態は次の行を前景で打って見る。決まった時間（既定 540 秒。`WORKS_USE_WAIT_SECONDS` で変える）のうちに戻り、状態を 1 行と終了コードで返す（0 = 関所で待つ・3 = まだ走っている・5 = 終わった・1 = 落ちた）。3 なら同じ行を打ち直し、0 なら `show` で関所の文を読んで答える。止めるなら 5 節の `stop` を使う。
