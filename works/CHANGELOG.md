@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-10-01
+
 ### Fixed
 
 - 大きいファイルを名指す依頼で、構造の目の支度の節が落ちて run が止まっていた（重複行の一致を全件貼り、出力が Archon の上限を越えた）。目に見せる重複行を先頭 5 件と全件の数にした。
