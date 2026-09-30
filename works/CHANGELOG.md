@@ -6,14 +6,6 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
-### Fixed
-
-- 隔離した設定の置き場に Claude Code が起動の時に自分で足す公式の marketplace（`claude-plugins-official`・GitHub の `anthropics/claude-plugins-official`）を、選んだ物の外として拒んでいた。拒むと `use.sh wait`・`show` が全部落ち、画面には『JSON として読めない』とだけ出ていた。名と repo の両方が合う行だけを外に数えない（登録だけで入れた・有効なプラグインは増えない。それは今どおり見る）。
-
-### Changed
-
-- 利用の殻 `use.sh` の最後の関所の既定を `protected_only`（守りのファイルを触った・確かめられなかった時だけ開く）にした。最後のテストの赤・走れなかった・独立の目の阻害・残った異議は関所を開けず、報告の冒頭に並ぶ（関所で進めても止めても報告は出て、差分を当てるのは人の `use.sh apply` なので、答えが次の動きを変えない関所で run を止めない）。前の既定は `WORKS_USE_FINAL_GATE=when_needed` で選べる。線の入力 `final_gate` に語 `protected_only` を足した（空の既定は今どおり always）。
-
 ## [0.2.6] - 2026-09-30
 
 ### Added
@@ -25,9 +17,14 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
+- 利用の殻 `use.sh` の最後の関所の既定を `protected_only`（守りのファイルを触った・確かめられなかった時だけ開く）にした。最後のテストの赤・走れなかった・独立の目の阻害・残った異議は関所を開けず、報告の冒頭に並ぶ（関所で進めても止めても報告は出て、差分を当てるのは人の `use.sh apply` なので、答えが次の動きを変えない関所で run を止めない）。前の既定は `WORKS_USE_FINAL_GATE=when_needed` で選べる。線の入力 `final_gate` に語 `protected_only` を足した（空の既定は今どおり always）。
 - 包みの既定（`WORKS_DEV_ADAPTER`。`use.sh`・`dogfood.sh` は未設定の時だけ 1、`dogfood.sh --show` は未設定なら空）と、ラインの入力 adapter の値（包みが 1 なら空、それ以外は optional）も、殻 3 本の写しをやめて `dev/launch.py` の `env` の表に寄せた（env の後半）。空・0 の明示で包みを外す振る舞いと、値の検査を `archon.sh` が持つことは変えない。殻が包みの既定や入力の値を自分で組む行を書き戻すと、試験 `works/tests/test_launch.py` が赤になる。
 - 起動の殻の設計書 4 節の 1 回目（env）に入れていた模型の既定と優先の順（`guard.sh` の `WORKS_DEV_MODEL_DEFAULT`・`works_dev_model_value`・`works_dev_model_from`）は、部品へ移すのを 2 回目（ledger・go・show）へ回した。同じ関数を `lib.sh` の ledger・go も呼ぶので、その回に一緒に移し、定数が 2 か所に在る期間を作らない。模型の解決の振る舞いは変わらない。
 - 殻 4 本と `lib.sh` に埋め込んだ Python（`python3` に `-c` を渡す行）の数を試験 `works/tests/test_launch.py` で数え、今の数（`use.sh` 8・`dogfood.sh` 1・`real-run.sh` 0・`archon.sh` 0・`lib.sh` 9）を超えたら赤にする（設計書 3 節）。減った時は赤にしない。
+
+### Fixed
+
+- 隔離した設定の置き場に Claude Code が起動の時に自分で足す公式の marketplace（`claude-plugins-official`・GitHub の `anthropics/claude-plugins-official`）を、選んだ物の外として拒んでいた。拒むと `use.sh wait`・`show` が全部落ち、画面には『JSON として読めない』とだけ出ていた。名と repo の両方が合う行だけを外に数えない（登録だけで入れた・有効なプラグインは増えない。それは今どおり見る）。
 
 ## [0.2.5] - 2026-09-30
 
