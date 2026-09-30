@@ -105,7 +105,10 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 
 15. **engine の子の目印**（印のある起動だけ）: 子の env に ENGINE_CHILD_ENV=1 を立てる（役の claude の Bash の子へ継がれる）。
    本流 role_run が役・任せ先・書く子に立てるのと同じ名で、対象の重い一式（tests/run.sh・変異の撃ち）はこれを見て AI の役
-   からの起動を拒める。線の節（board.py の宣言の一式など）は包みを通らないので立たない。包み無しの run にも立たない
+   からの起動を拒める。線の節（board.py の宣言の一式など）は包みを通らないので立たない。包み無しの run にも立たない。
+   同じ子に NO_BG_ENV=1 も立て、役の会話が背景の作業（Bash の run_in_background など）を起こせないようにする。背景を残した
+   会話を引き継ぐと、Claude Code がその終わりの知らせを先に処理して依頼の文に届かずに空の result で終わり（origin が
+   task-notification・num_turns 0）、16 の no_turn の起こし直しが同じ結果を繰り返して節が落ちた（2026-10-01 の run 155b・155c の tdd）
 
 16. **子の終わりを種分けする**（印の有無に依らない。`--output-format stream-json` の起動だけ）: 子の stdout を継がせずに
    行ごとに同じバイトで写し（relay_out）、1 手も進まずに終わった子（assistant の行が無く result の num_turns が 0。no_turn）の
@@ -175,6 +178,7 @@ QUERY_RULE_LEAD = ("外のサービスへ問い合わせる時の決まり（wor
 REPO_SETTINGS = (pathlib.Path(".claude") / "settings.json", pathlib.Path(".claude") / "settings.local.json")   # role_run と同じ
 # 本流 graphloops/engine/role_run.ENGINE_CHILD_ENV と同じ名（対象の入口が既にこの名を読むので、読む側を 2 つにしない）
 ENGINE_CHILD_ENV = "GRAPHLOOPS_ENGINE_CHILD"
+NO_BG_ENV = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"   # Claude Code の背景の作業を切る（15 の後半）
 # 印 no-post（読むだけの役）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
 # 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
 # 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
@@ -911,7 +915,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             out, fence["query_rule"] = with_query_rule(out)
         except Unrecognised as e:
             return _refuse(argv, node, cont, tools_empty, f"検索語の規律を足せない（{e}）")
-    child_env = {**(no_post_env(env, gh) if gh is not None else {}), ENGINE_CHILD_ENV: "1"}
+    child_env = {**(no_post_env(env, gh) if gh is not None else {}), ENGINE_CHILD_ENV: "1", NO_BG_ENV: "1"}
     return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env,
                 strict_net=strict, cwd=child_cwd)
 

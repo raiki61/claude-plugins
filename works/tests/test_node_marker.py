@@ -137,6 +137,12 @@ class EngineChildCase(unittest.TestCase):
         self.assertEqual(p.mode, "merged", p.why)
         self.assertEqual((p.env or {}).get(self.name), "1")
 
+    def test_marked_launch_child_cannot_start_background_tasks(self):
+        """背景を残した会話を引き継ぐと空の result で終わるので、印のある起動の子は背景の作業を起こせない"""
+        for desc in ("fix", "pr-check no-post"):
+            p = self.plan(desc)
+            self.assertEqual((p.env or {}).get("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"), "1", desc)
+
     def test_no_post_env_keeps_engine_child_marker(self):
         p = self.plan("pr-check no-post")
         self.assertEqual(p.mode, "merged", p.why)
