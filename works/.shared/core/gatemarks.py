@@ -44,7 +44,7 @@ import re
 import answer
 
 MARKS_FILE = "gate-marks.json"
-FIELDS = ("decided_by", "undecided_because", "fences")
+FIELDS = ("decided_by", "undecided_because", "fences", "world")
 # 決め手が在っても人に聞く行の印（外への書き込み・取り消せない操作・方針の文書の変更・守り（資格・sandbox）を広げる・web の結果が
 # 新しい疑いを出した）
 FENCES = ("external_write", "irreversible", "policy_doc", "widen_protection", "web_doubt")
@@ -55,6 +55,8 @@ MARK_SCHEMA = {
                           "note": "決め手を当たっても答えが 1 つに決まらない理由。書けないなら空（自明なので人に回さない）"},
     "fences": {"type": "array", "uniqueItems": True, "items": {"type": "string", "enum": list(FENCES)},
                "note": "当たる柵の印。1 つでも在れば決め手が在っても人に聞く"},
+    "world": {"type": "string",
+              "note": "人に回す行で、世の中の同じ問題の解き方を当たった結果の 1 文（出どころと割れ方、当たらなかったならその理由）"},
 }
 NODES = ("p2.fix_plan", "p2.plan_review")
 _RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ（依頼の引用・URL と節・対象の同じ場面・人の前の決定＝ADR・台帳の行）。"
@@ -62,7 +64,10 @@ _RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ
          "fences＝当たる柵の印（external_write 外への書き込み・irreversible 取り消せない操作・policy_doc 方針の文書の変更・"
          "widen_protection 守り（資格・sandbox）を広げる・web_doubt web の結果が新しい疑いを出した）。decided_by が在り "
          "undecided_because が空で fences が無い行は修正前の関所で人に聞かずに通り、出どころつきで報告に並ぶ（最後の関所が開けばその文にも）。"
-         "決め手が無い・決まらない・柵に当たる行は今までどおり人に聞く")
+         "決め手が無い・決まらない・柵に当たる行は今までどおり人に聞く。"
+         "人に回す前に、世の中が同じ問題をどう解いているかを当たれ——多くは既に解かれている（標準仕様・著名 OSS・公式の文書の定石。"
+         "web を引くかは任せる）。定石で 1 つに決まるなら、その出どころを decided_by に書いて自分で決めよ。それでも人に回す行は、"
+         "world＝当たった結果の 1 文（出どころと割れ方、当たらなかったならその理由）を書け。関所の項目にそのまま載る")
 # 役の指示書の頭に足す文（写しの指示書は欄を知らない）
 HEAD = {"p2.fix_plan": "関所の項目の決め手: plan[].narrows の各行" + _RULE,
         "p2.plan_review": "関所の項目の決め手: faces のうち kind が regression・policy の各行" + _RULE}
@@ -283,6 +288,14 @@ def decided(mark: dict) -> bool:
             and not mark.get("fences"))
 
 
+def _world(mark: dict) -> str:
+    """人に回す行の尾: 役が決め手の欄を書いた行だけに、世界の解を当たった結果を付ける（書いていなければそう出す）"""
+    if not mark:
+        return ""
+    got = str(mark.get("world") or "").strip()
+    return f"（世界の解: {got or '役が書いていない'}）"
+
+
 def plan_gate_items(b) -> list:
     """写しの RL の _plan_gate_items の差し替え: 同じ行を組み、決め手の在る行は項目から外して state.works.gate_passes に残す"""
     rows = []   # (kind, 文, 決め手)
@@ -296,7 +309,7 @@ def plan_gate_items(b) -> list:
              for j, f in enumerate((b.output_of_round("p2.plan_review", b.round) or {}).get("faces") or [])
              if f["kind"] in b.rules.HUMAN_FACE_KINDS]
     _record(b, [(text, m) for _, text, m in rows if decided(m)])
-    items = [(kind, text) for kind, text, m in rows if not decided(m)]
+    items = [(kind, text + _world(m)) for kind, text, m in rows if not decided(m)]
     if not unattended(b):
         items += [(_ask_kind(q), ask_text(q)) for q in asks(b) if not answered(b, q)]
     if design_only(b) and not _design_only_answered(b):

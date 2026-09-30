@@ -325,6 +325,8 @@ nodes:
                               - policy_doc
                               - widen_protection
                               - web_doubt
+                          world:
+                            type: string
         - id: plan-accept
           script: accept
           runtime: uv
@@ -472,6 +474,8 @@ nodes:
                         - policy_doc
                         - widen_protection
                         - web_doubt
+                    world:
+                      type: string
               shrink:
                 type: array
                 items:

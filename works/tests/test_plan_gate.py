@@ -75,6 +75,17 @@ class PlanGateCase(GateBase):
         got, _ = self.gate(narrows=[{**NARROW, **DECIDED, "undecided_because": "世界の解が 2 つに割れる"}])
         self.assertEqual(got.get("decision"), "ask", got)
 
+    def test_asked_row_shows_what_the_world_does(self):
+        """人に回す行は、役が書いた世界の解の 1 文を項目の尾に載せる（書いていなければそう出す。欄の無い行には付けない）"""
+        world = "rjsf と JSON Forms はどちらも見せ方を UI schema に分ける（https://jsonforms.io/faq/）が、置き場は決めていない"
+        for mark, tail in (({**DECIDED, "undecided_because": "置き場が割れる", "world": world}, f"（世界の解: {world}）"),
+                           ({**DECIDED, "undecided_because": "置き場が割れる"}, "（世界の解: 役が書いていない）")):
+            with self.subTest(tail=tail):
+                got, _ = self.gate(narrows=[{**NARROW, **mark}])
+                self.assertTrue(got["ask"]["items"][0].endswith(tail), got["ask"]["items"])
+        got, _ = self.gate(narrows=[dict(NARROW)])
+        self.assertNotIn("世界の解", got["ask"]["items"][0])
+
     def test_mixed_rows_ask_only_the_undecided(self):
         """決め手の在る行と欄の無い行が並べば、欄の無い行だけを聞き、決め手の在る行は項目に出さず記録に残す"""
         got, b = self.gate(narrows=[{**NARROW, **DECIDED}, {"what": "負の上限の clamp", "why": "上限が負の時の結果が変わる"}])
