@@ -19,6 +19,7 @@ import time
 EYE_FILE = "eye.json"
 PROMPT_FILE = "eye-prompt-{n}.md"
 MAX_ATTEMPTS = 3
+DUP_SHOWN = 5   # 目に見せる duplicates の件数（残りは duplicates_total の数だけ。_cut）
 SCHEMA = pathlib.Path(__file__).resolve().parents[1] / "design-row.schema.json"
 ROUTE = "自分で決める"
 ROUTE_REASON = "人に上げる道（設計書 6 節）はこの版に無いので、目の判定をそのまま計画に渡す"
@@ -60,9 +61,24 @@ def _load(structure_file) -> dict:
     return json.loads(pathlib.Path(structure_file).read_text(encoding="utf-8"))
 
 
+def _cut(v):
+    """duplicates の配列を先頭 DUP_SHOWN 件に切り、全件の数を隣の duplicates_total に置く（入れ子のどこでも）。
+    大きい追跡ファイルを名指す単位で塊の一致が数百件になり、支度の出力が Archon の標準出力の上限を越えて線が落ちた（run 131）"""
+    if isinstance(v, list):
+        return [_cut(x) for x in v]
+    if not isinstance(v, dict):
+        return v
+    out = {k: _cut(x) for k, x in v.items()}
+    dups = v.get("duplicates")
+    if isinstance(dups, list) and len(dups) > DUP_SHOWN:
+        out["duplicates"] = [_cut(x) for x in dups[:DUP_SHOWN]]
+        out["duplicates_total"] = len(dups)
+    return out
+
+
 def view(doc: dict) -> dict:
     """目に見せる JSON。根拠の JSON Pointer はこれの中を指すので、受け付けも同じ物で引く"""
-    units = [{"id": u["id"], "summary": u.get("summary", ""), "measure": u.get("measure")} for u in measured(doc)]
+    units = [{"id": u["id"], "summary": u.get("summary", ""), "measure": _cut(u.get("measure"))} for u in measured(doc)]
     return {"units": units, "timing": doc.get("timing")}
 
 
@@ -77,9 +93,10 @@ def render(doc: dict, rejected: str = "") -> str:
               f"- verdict は {'・'.join(VERDICTS)} のどちらか。faces は当たった形の番号（汚れるなら 1 つ以上）",
               "- evidence は根拠にした実測の欄を、下の JSON（units の配列と timing）の中を指す JSON Pointer（RFC 6901。例 /units/0/measure）で"
               " 1 つ以上。無い欄を指すな",
-              "- reason は理由。汚れると見た単位は chosen（推しの避け方）と chosen_reason（推しの理由）も書く", "",
+              "- reason は理由。汚れると見た単位は chosen（推しの避け方）と chosen_reason（推しの理由）も書く",
+              f"- duplicates は先頭 {DUP_SHOWN} 件だけを載せた。duplicates_total が在れば、それが全件の数", "",
               "## 単位と実測（structure.json から機械が抜いた物。これが渡された物の全部）", "",
-              "```json", json.dumps(view(doc), ensure_ascii=False, indent=1), "```"]
+              "```json", json.dumps(view(doc), ensure_ascii=False, separators=(",", ":")), "```"]
     return "\n".join(lines) + "\n"
 
 
