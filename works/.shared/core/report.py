@@ -515,8 +515,8 @@ def head3(b, outcome: str, *, left: list | None = None, next_items: list | None 
 def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "", next_items: list | None = None,
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
-    関所の答え（事前審査の関所と最後の関所）・
-    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・並行 PR の
+    関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・
+    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
@@ -533,6 +533,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     for h in proc.get("human_items") or []:
         if isinstance(h, dict):
             lines.append(f"{gatemarks.named(h.get('node'))}の答え: {h.get('answer')}「{h.get('note') or ''}」")
+    lines += gatemarks.unread_hold_lines(b)
     lines += gatemarks.lines(b)
     got, doc, ans = final_gate_answer(b.dir)
     if got == "answered":
@@ -568,6 +569,10 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     if held:
         lines.append(f"判定の役が人に聞くと保留にしたままの問い（問いの台帳・{len(held)} 件）:")
         lines += [f"  - {x}" for x in held]
+    done = gatemarks.answered_lines(b)
+    if done:
+        lines.append(f"関所で答えた問い（問いの台帳・{len(done)} 件。保留の件数には数えない）:")
+        lines += [f"  - {x}" for x in done]
     lines.append(_conflict_line(b))
     unproven = querytest.unproven_lines(b.dir)
     if unproven:

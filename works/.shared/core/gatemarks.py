@@ -33,10 +33,15 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 直す義務が 0 件の周は関所の節が走らず、修正もしない。
 - asks(b)・answered(b, q)・pending(b)・withheld(b): 関所に載せる問い・関所で答えたか・まだ答えていない問い・それで直す
   義務から外す単位
+- hold_keys(note, keys): 一言の「保留:」から台帳の key を最長一致で拾う（answered が読む）
+- unread_holds(note, keys)・unread_hold_lines(b): key を拾えなかった「保留」の文と、拾えた文で並べた項の頭が台帳の key に
+  当たらなかった並び（並べ書きの打ち間違い。key の後ろの言葉は並べない）と、報告の冒頭・最後の関所の文に並べる
+  「読めなかった保留」の行（直す義務は変えない）
 - returned(b)・fixable(b): 答えで直す義務に戻る単位（今の周の units に在る物。約束・義務の数え・受け付けが同じこの集合を
   読む）・修正役が changes に書いてよい単位
-- held_lines(b)・returned_lines(b)・unreturned_lines(b): 最後の関所の文と報告に並べる聞いたままの問い・修正役に渡す義務に
-  戻った単位・答えたが今の周の units に無いので戻せなかった単位
+- held_lines(b)・answered_lines(b)・returned_lines(b)・unreturned_lines(b): 最後の関所の文と報告に並べる、関所で答えていない
+  聞いたままの問いと戻せなかった単位（保留の件数）・関所で答えた問い（件数に数えない）・修正役に渡す義務に戻った単位・答えたが
+  今の周の units に無いので戻せなかった単位
 - design_only(b): 設計だけの run か
 - unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
 - PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
@@ -108,8 +113,10 @@ CARRIED_ASK = ("下の行は、直す前の関所で人が通すと答えた（c
                "一字も変えずに写せ。通した条件を超える消え・別の能力は自分の言葉で書け")
 ASK_HEAD = "問いの台帳の問い"          # 関所の項目の頭。答えの突き合わせもこの頭と key で引く
 ASK_KINDS = ("fork", "escalate")       # 関所の項目の kinds（fork の問いと、status が escalate の問い）
-HOLD = re.compile(r"保留\s*[:：]\s*([^。；;\n）)」]+)")   # 一言の「保留: <key>」（文の終わりまで。key を並べてよい）
-HOLD_SEP = re.compile(r"[\s、，,・/／]+")   # 並べた key の区切り（関所の文も「・」で並べる）。key は区切りの間の全体で突き合わせる
+HOLD = re.compile(r"保留\s*[:：]\s*([^。；;\n]+)")   # 一言の「保留: <key>」（文の終わりまで。key を並べてよい。key は hold_keys が台帳から拾う）
+HOLD_END = re.compile(r"[。；;\n]")   # HOLD が読む文の終わり（unread_holds が一言を文に切る）
+KEY_CHAR = re.compile(r"[A-Za-z0-9_-]")   # 台帳の key の一致の前後にこれが続けば、もっと長い key の断片
+HOLD_ITEM = re.compile(r"(?:^|[・、,，])\s*([A-Za-z0-9_-]*[A-Za-z0-9][A-Za-z0-9_-]*)")   # 「保留:」に並べた項の頭の key らしい並び
 START_FILE = "r1/start.json"           # 盤面の start の控え（書き手は entry.start。conflict・report も start_doc で読む）
 UNATTENDED = "true"                   # 入力 unattended の無人の語（entry.UNATTENDED_WORDS）
 DESIGN_ONLY = "true"                  # 入力 design_only の設計だけの語（entry.DESIGN_ONLY_WORDS）
@@ -439,15 +446,70 @@ def ask_text(q) -> str:
 def answered(b, q) -> bool:
     """修正前の関所の continue がこの問いの行を聞いていて、一言が「保留: <key>」と名指していない"""
     key = str(q.get("key") or "")
-    for h in (b.record.get("process") or {}).get("human_items") or []:
-        if not (isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "continue"):
-            continue
-        if not any(isinstance(a, str) and a.startswith(_prefix(q)) for a in h.get("asked") or []):
-            continue
-        note = str(h.get("note") or "")
-        if key not in {k for m in HOLD.findall(note) for k in HOLD_SEP.split(m)}:
-            return True
-    return False
+    return any(key not in hold_keys(str(h.get("note") or ""), _ledger_keys(b))
+               for h in _gate_continues(b) if _asked_in(h, q))
+
+
+def _gate_continues(b) -> list:
+    return [h for h in (b.record.get("process") or {}).get("human_items") or []
+            if isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "continue"]
+
+
+def _asked_in(h, q) -> bool:
+    return any(isinstance(a, str) and a.startswith(_prefix(q)) for a in h.get("asked") or [])
+
+
+def unread_holds(note, keys) -> list:
+    """一言の文（。；;改行で切る）のうち「保留」を含むのに台帳の key を 1 つも拾えない文の全体（コロン無しの「<key> は保留」・
+    打ち間違いの key だけの文）と、key を拾えた文の「保留:」に並べた項の頭で台帳のどの key にも当たらなかった KEY_CHAR の並び
+    （並べ書きの打ち間違いの key・台帳に無い key。key の後ろに続く言葉は並べない）。answered はこれを保留と読まないので、問いは答えたものとして扱われる"""
+    out = []
+    for s in HOLD_END.split(note):
+        if "保留" in s:
+            found, rest = _hold_scan(s, keys)
+            out += rest if found else [s.strip()]
+    return out
+
+
+def unread_hold_lines(b) -> list:
+    """報告の冒頭 1 の関所の答えの直後と最後の関所の文に並べる「読めなかった保留」: 一言の断片と、そのせいで答えたものとして
+    扱った（推しで直す）問いの key。直す義務は変えない"""
+    out = []
+    for h in _gate_continues(b):
+        frags = unread_holds(str(h.get("note") or ""), _ledger_keys(b))
+        if frags:
+            took = [str(q.get("key")) for q in asks(b) if _asked_in(h, q) and answered(b, q)]
+            out.append(f"読めなかった保留: {'・'.join(f'「{s}」' for s in frags)}（台帳の key を拾えず、保留にならなかった。"
+                       f"答えたものとして推しで直す問い: {'・'.join(took) or '無し'}）")
+    return out
+
+
+def _ledger_keys(b) -> set:
+    return {str(q.get("key")) for q in b.record.get("questions") or [] if isinstance(q, dict) and q.get("key")}
+
+
+def hold_keys(note, keys) -> set:
+    """一言の「保留:」の後（文の終わりまで）から、台帳の key を最長一致で拾う。区切りの字を推測して割らないので、key の後に
+    言葉が続いても key が区切りの字を含んでも読める。前後が KEY_CHAR で続く一致は台帳に無いもっと長い key の断片なので拾わない"""
+    return _hold_scan(note, keys)[0]
+
+
+def _hold_scan(note, keys) -> tuple:
+    """hold_keys の拾った key と、並べた項の頭（「保留:」の直後か HOLD_ITEM の並べの字の後）でどの key にも当たらなかった
+    KEY_CHAR の並び（unread_holds が見せる）。key の後ろに続く言葉は項の頭でないので見せない"""
+    found, rest = set(), []
+    for m in HOLD.findall(note):
+        i, left = 0, ""
+        while i < len(m):
+            hit = max((k for k in keys if m.startswith(k, i)
+                       and not (i and KEY_CHAR.match(m[i - 1]))
+                       and not KEY_CHAR.match(m[i + len(k):i + len(k) + 1])), key=len, default="")
+            if hit:
+                found.add(hit)
+            left += "\0" if hit else m[i]
+            i += len(hit) or 1
+        rest += HOLD_ITEM.findall(left)
+    return found, rest
 
 
 def _answered_skips(b) -> list:
@@ -494,17 +556,27 @@ def unreturned_lines(b) -> list:
             for q, _, gone in _answered_skips(b) for k in gone]
 
 
+def _gate_answered(b, q) -> bool:
+    return q in asks(b) and q not in pending(b)
+
+
+def _ledger_line(q, mark: str = "", skip: list | None = None) -> str:
+    return (f"{_prefix(q)}{q.get('kind')}・{q.get('status')}{mark}）: {q.get('reason') or ''}"
+            + (f"／答えが無いと直さない単位: {'・'.join(skip)}" if skip else ""))
+
+
 def held_lines(b) -> list:
-    """最後の関所の文と報告の冒頭に並べる、台帳で人に聞く状態のままの問い（kind を問わず。1 件 1 行。「答えが無いと直さない
-    単位」は pending の問いの出どころ・depends のうち withheld に在る物だけ）と、関所で答えたが直す義務に戻せなかった単位
-    （unreturned_lines）"""
-    out, asked, held, kept = [], asks(b), pending(b), withheld(b)
-    for q in _asking(b):
-        mark = "・関所で continue を受けた" if q in asked and q not in held else ""
-        skip = [k for k in _skips(q) if k in kept] if q in held else []
-        out.append(f"{_prefix(q)}{q.get('kind')}・{q.get('status')}{mark}）: {q.get('reason') or ''}"
-                   + (f"／答えが無いと直さない単位: {'・'.join(skip)}" if skip else ""))
-    return out + unreturned_lines(b)
+    """最後の関所の文と報告の冒頭に並べ、「保留にしたままの問い」に数える、台帳で人に聞く状態のまま関所で答えていない問い
+    （kind を問わず。1 件 1 行。「答えが無いと直さない単位」は pending の問いの出どころ・depends のうち withheld に在る物だけ）と、
+    関所で答えたが直す義務に戻せなかった単位（unreturned_lines。人がまだ決める物なので件数に入れる）"""
+    held, kept = pending(b), withheld(b)
+    return [_ledger_line(q, skip=[k for k in _skips(q) if k in kept] if q in held else [])
+            for q in _asking(b) if not _gate_answered(b, q)] + unreturned_lines(b)
+
+
+def answered_lines(b) -> list:
+    """held_lines と同じ所に別の見出しで並べ、保留の件数に数えない行: 関所で continue を受けた台帳の問い"""
+    return [_ledger_line(q, "・関所で continue を受けた") for q in _asking(b) if _gate_answered(b, q)]
 
 
 def _keep(b, row: dict) -> None:

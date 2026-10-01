@@ -455,7 +455,7 @@ def _r2_inputs(b) -> list:
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
     """最後の関所の文: 最後のテストと修正前のテスト（entry.baseline_line）・差分の審査の穴の数・手直しの結果・止めずに残った異議・
     決着した再審の結果（report.rejudge_lines。関所を開ける理由には数えない）・構造のブロックが落ちた周の印
-    （structmark.note）・独立の目の判定・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）を 1 枚に。「盤面の問い: 無い」は両方とも無い時だけ。行の主語は平易な名で、
+    （structmark.note）・独立の目の判定・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・読めなかった保留（gatemarks.unread_hold_lines）を 1 枚に。「盤面の問い: 無い」はどれも無い時だけ。行の主語は平易な名で、
     盤面の節・目の名・状態の語は括弧に回す（gatemarks.named・eye_named）"""
     tests = tests or {}
     lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", ""]
@@ -500,7 +500,12 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
         lines.append(f"- 判定の役が人に聞くと保留にしたままの問い（問いの台帳・{len(held)} 件。この関所の答えは問いに答えない。"
                      "問いは報告の冒頭に並ぶ）:")
         lines += [f"  - {x}" for x in held]
-    if not asking and not held:
+    done = gatemarks.answered_lines(b)
+    if done:
+        lines.append(f"- 関所で答えた問い（問いの台帳・{len(done)} 件。保留の件数には数えない）:")
+        lines += [f"  - {x}" for x in done]
+    lines += [f"- {x}" for x in gatemarks.unread_hold_lines(b)]
+    if not asking and not held and not done:
         lines.append("- 盤面の問い: 無い")
     lines += ["", "答え方（人が決める関所。依頼者に聞いて、その言葉で答える）:",
               f"- 報告へ進める: {answer.line(run_id, 'continue', '<一言>')}",

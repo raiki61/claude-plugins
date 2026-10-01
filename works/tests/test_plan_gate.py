@@ -205,6 +205,55 @@ class LedgerAsksCase(GateBase):
                 self.answer(b, got, note=f"保留: {FORK['key']}{sep}{other['key']}")
                 self.assertEqual(self.owed(b), set())
 
+    def test_hold_note_with_words_after_the_key_keeps_the_fork_origin_exempt(self):
+        """「保留: <key>は来週決める」「保留: <key>（来週）」のように key の後ろに言葉が続いても、台帳の key と照らして保留にする"""
+        for note in (f"保留: {FORK['key']}は来週決める", f"保留: {FORK['key']}（来週）"):
+            with self.subTest(note=note):
+                got, b = self.gate(questions=[FORK], units=UNITS)
+                self.answer(b, got, note=note)
+                self.assertFalse(gatemarks.answered(b, FORK))
+                self.assertEqual(self.owed(b), {OTHER_UNIT})
+
+    def test_hold_note_names_a_key_that_holds_a_separator(self):
+        """台帳の key が区切りの字（/）を含んでも、「保留: <key>」はその問いを保留にする"""
+        slashed = {**FORK, "key": "storage/backend"}
+        got, b = self.gate(questions=[slashed], units=UNITS)
+        self.answer(b, got, note=f"保留: {slashed['key']}")
+        self.assertFalse(gatemarks.answered(b, slashed))
+        self.assertEqual(self.owed(b), {OTHER_UNIT})
+
+    def test_unread_hold_is_shown_to_the_human(self):
+        """台帳の key を拾えない「保留」（打ち間違いの key・コロン無し）は答えた扱いのまま、報告の冒頭と最後の関所の文に
+        「読めなかった保留」として一言の断片と答えた扱いになった問いの key を並べる"""
+        for note in ("保留: q-emty-mean", "q-emty-mean は保留"):
+            with self.subTest(note=note):
+                got, b = self.gate(questions=[FORK], units=UNITS)
+                self.answer(b, got, note=note)
+                self.assertTrue(gatemarks.answered(b, FORK))
+                for text in (self.head(b), self.final_text(b)):
+                    rows = [r for r in text.splitlines() if "読めなかった保留" in r]
+                    self.assertTrue(rows, text)
+                    self.assertIn("q-emty-mean", "\n".join(rows))
+                    self.assertIn(FORK["key"], "\n".join(rows))
+
+    def test_unread_hold_beside_a_read_key_is_shown(self):
+        """正しい key と打ち間違いを並べた「保留:」は、正しい key を保留にしたまま、打ち間違いの側を「読めなかった保留」に並べる。
+        key の後ろの言葉（英語・「-」も）だけなら並べない"""
+        for tail in ("・q-typo", "・q-typo は来週", ", q-typo"):
+            with self.subTest(tail=tail):
+                got, b = self.gate(questions=[FORK], units=UNITS)
+                self.answer(b, got, note=f"保留: {FORK['key']}{tail}")
+                self.assertFalse(gatemarks.answered(b, FORK))
+                for text in (self.head(b), self.final_text(b)):
+                    rows = "\n".join(r for r in text.splitlines() if "読めなかった保留" in r)
+                    self.assertIn("「q-typo」", rows, text)
+        for tail in ("は来週決める", " until Monday", " - 来週決める"):
+            with self.subTest(tail=tail):
+                got, b = self.gate(questions=[FORK], units=UNITS)
+                self.answer(b, got, note=f"保留: {FORK['key']}{tail}")
+                self.assertFalse(gatemarks.answered(b, FORK))
+                self.assertEqual(gatemarks.unread_hold_lines(b), [])
+
     def test_stop_or_another_gate_does_not_return_the_origin(self):
         got, b = self.gate(questions=[FORK], units=UNITS)
         b.record["process"]["human_items"].append({"round": 1, "kinds": ["fork"], "asked": got["ask"]["items"],
@@ -284,6 +333,23 @@ class EscalateAsksCase(GateBase):
             self.assertNotIn(f"{SKIP_MARK}: {FORK_UNIT}", self.final_text(b))
         _, b = self.gate(questions=[ESCALATE], units=UNITS)
         self.assertIn(f"{SKIP_MARK}: {FORK_UNIT}", "\n".join(gatemarks.held_lines(b)))
+
+    def test_answered_question_is_not_counted_as_held(self):
+        """関所で continue を受けた問いは、報告の冒頭の「決めてほしいこと」と最後の関所の文の「保留にしたままの問い」の件数に
+        数えない（行は答えた問いとして並べたまま）。関所に載らない台帳の問いは今どおり数える"""
+        awaiting = {"key": "q-awaiting-pr", "kind": "awaiting", "status": "held", "origin": "parallel_pr", "reason": "人が確かめる"}
+        got, b = self.gate(questions=[FORK], units=UNITS)
+        self.answer(b, got, note="例外で")
+        with mock.patch.object(report, "_asked", return_value=[]):
+            self.assertNotIn("保留にしたままの問い", "\n".join(report.head3(b, "fixed")))
+        text = self.final_text(b)
+        self.assertNotIn("保留にしたままの問い", text)
+        self.assertIn("関所で continue を受けた", text)
+        got, b = self.gate(questions=[FORK, awaiting], units=UNITS)
+        self.answer(b, got, note="例外で")
+        with mock.patch.object(report, "_asked", return_value=[]):
+            self.assertIn("保留にしたままの問い 1 件", "\n".join(report.head3(b, "fixed")))
+        self.assertIn("保留にしたままの問い（問いの台帳・1 件", self.final_text(b))
 
     def test_skip_mark_drops_a_unit_another_answer_returned(self):
         """保留の問いと答えた問いが同じ出どころを持つと、その単位は直す義務に戻るので、保留の問いの行に「答えが無いと直さない

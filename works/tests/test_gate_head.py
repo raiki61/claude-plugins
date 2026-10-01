@@ -177,6 +177,17 @@ class ReportHeadCase(GateBase):
         self.assertEqual(got[2], gatemarks.PUSH + "例外——呼び手が既に例外を捕まえている")
         self.assertEqual(internal_subjects("\n".join(got)), [])
 
+    def test_unreturned_unit_is_counted_as_decision(self):
+        """関所で答えたが直す義務に戻せなかった単位（unreturned_lines）は、答えた問いと違って人がまだ決める物なので、報告の冒頭と
+        最後の関所の冒頭の「保留にしたままの問い」の件数に入れる"""
+        got, b = self.gate(questions=[FORK], units=[{"key": "今の周に無い単位", "label": "block"}])
+        b.record["process"]["human_items"].append({"round": 1, "kinds": got["ask"]["kinds"], "asked": got["ask"]["items"],
+                                                   "answer": "continue", "note": "例外で", "node": "p2.human_gate"})
+        self.assertEqual(len(gatemarks.unreturned_lines(b)), 1)
+        self.assertEqual(gatemarks.held_lines(b), gatemarks.unreturned_lines(b))
+        self.assertIn("保留にしたままの問い 1 件", "\n".join(self.head(b, "fixed")))
+        self.assertIn("保留にしたままの問いも在る（1 件", FinalHeadCase.head(self, b)[0])
+
     def test_every_outcome_has_plain_words(self):
         self.assertEqual(set(report.OUTCOME_WORDS), set(report.OUTCOMES))
 
