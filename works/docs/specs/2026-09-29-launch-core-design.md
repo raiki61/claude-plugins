@@ -50,7 +50,7 @@
 |---|---|---|
 | `env <殻>` | 家・claude・認証の出どころ・包み・模型の代入 | guard.sh・各殻 |
 | `inputs <殻>` | Archon に渡す `--input` の並び | 各殻 |
-| `ledger save/load/list` | run の控えの読み書き | lib.sh・use.sh |
+| `ledger save/load/list/bind` | run の控えの読み書きと起動の後の結び方 | lib.sh・use.sh |
 | `go <殻>` | 続きの行 | lib.sh |
 | `show <殻>` | run の表示 | lib.sh |
 
@@ -119,6 +119,7 @@
 
 1. `env`: 部品を作り、4 本の殻の認証・claude・家・包みを部品に寄せる（食い違いの実害がここ）。2.6 の認証（本流の写しと起こし役）と 2.7 の clone ごとの家もこの回に入れる。
 2. `ledger`・`go`・`show`: lib.sh と use.sh の埋め込みの Python を部品に移す。模型の既定と優先の順（guard.sh の works_dev_model_value・works_dev_model_from）も、呼び手の lib.sh と一緒にこの回で部品へ移す（1 回目の run 152 の関所の答え）。
+   - 2026-10-01 にこの回を 2 つに割った（持ち主の依頼）: 先の回は `ledger` だけ（控えの形と版の欄 `schema`、2.3 の起動の後の結び方）。`go`・`show` と、模型の既定と優先の順の部品への移しは次の回に回した（上の関所の答えの「この回で」は次の回に移る）。結び方では、依頼を `-` にした起動（変更だけ）は依頼の写しを持たないので結ばない（2.3 の字のとおり。2026-10-01 の関所の答え）。先の回は 2026-10-01 の run で入れた（`launch.py ledger save|load|list|bind`。3 本の殻は lib.sh の `works_dev_ledger_bind` を通し、real-run.sh は依頼を起動ごとに対象の外の `<dir>.request.json` に写して絶対パスで渡す。lib.sh は . で読まれ自分の場所を知れないので、部品の場所は呼び手の殻が置く `DEV_DIR` から引く）。
 3. `inputs`: 入力の既定の表を作り、3 本の殻を通す。
 
 ## 5. 見直す条件

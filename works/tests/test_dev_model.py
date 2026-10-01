@@ -130,13 +130,17 @@ class UseShDefaultModel(unittest.TestCase):
         self.request.write_text('[{"where": "stats.py:1", "text": "mean が空で落ちる"}]\n')
         self.runs = self.tmp / "runs.json"
         self.runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
-                                                   "working_path": "/wt/run-1", "output_root": "/out"}]}))
+                                                   "working_path": "/wt/run-1", "output_root": str(self.tmp / "out")}]}))
         self.models = self.tmp / "models.txt"
         self.fake = self.tmp / "fake-archon.sh"
+        # workflow run は run の盤面 r1/start.json に request= の値を残す（線の start と同じ。起動の後に結ぶ材料）
+        board = self.tmp / "out" / "artifacts" / "runs" / "run-1" / "board" / "r1"
         self.fake.write_text(
             "#!/bin/sh\n"
             f'case "$*" in "workflow runs --json") cat "{self.runs}" ;; esac\n'
             f'printf \'%s\\t%s\\n\' "$2" "${{WORKS_DEV_MODEL-(unset)}}" >> "{self.models}"\n'
+            f'case "$1 $2" in "workflow run") mkdir -p "{board}"; for a in "$@"; do case "$a" in request=*)\n'
+            f'  printf \'{{"request_file": "%s"}}\' "${{a#request=}}" > "{board}/start.json" ;; esac; done ;; esac\n'
             "exit 0\n")
 
     def use(self, *args, **env_kw):

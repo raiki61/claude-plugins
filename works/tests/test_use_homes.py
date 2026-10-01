@@ -52,8 +52,9 @@ class HerdrAcrossHomes(unittest.TestCase):
         (h / "listed.json").write_text(json.dumps({"runs": [{"id": r, "status": s} for r, s in status_by_run.items()]}))
 
     def sync(self, dirs, *known):
+        # lib.sh は . で読まれ自分の場所を知れないので、控えを読む部品 launch.py の dir を殻と同じく DEV_DIR で渡す
         env = hermetic.child_env(PATH=f"{self.herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", HERDR_ENV="1",
-                                 HERDR_PANE_ID="pane-7")
+                                 HERDR_PANE_ID="pane-7", DEV_DIR=str(DEV))
         self.herdr_log.unlink(missing_ok=True)
         r = subprocess.run(["sh", "-c", '. "$1"; shift; works_dev_herdr_sync "$@"', "sh", str(DEV / "lib.sh"),
                             str(self.archon), "\n".join(str(d) for d in dirs), *known],

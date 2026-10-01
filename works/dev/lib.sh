@@ -40,61 +40,22 @@ sys.stdout.write(json.dumps(doc, ensure_ascii=False) + "\n")
 ' >"$2/.works-source.json"
 }
 
-# works_dev_save_ledger <控えの置き場> <run-id> <対象の dir>: run の控え <置き場>/<run-id>.json を書く（use.sh・dogfood.sh・
-# real-run.sh の同じ口）。模型（model は明示された全体の指定で、明示しなければ空。model_resolved は start の時に解いた
-# {value, from}）・claude の実行ファイル・keychain の項目の名（値でなく名）・包み・結んだ時刻・包んだ基の参照
-# （WRAP_REF）と、herdr の枠の中で起こしたならその枠とサーバ（herdr_pane と herdr_socket＝HERDR_SOCKET_PATH。works_dev_herdr_sync が
-# 枠ごとに数えて送る先）を残す
-works_dev_save_ledger() {
-  mkdir -p "$1"
-  RUN_ID="$2" DIR="$3" WRAP_REF="${WRAP_REF:-}" MODEL_VALUE="$(works_dev_model_value)" \
-    MODEL_FROM="$(works_dev_model_from)" python3 -c '
-import json, os, time
-e = os.environ
-inside = e.get("HERDR_ENV") == "1"
-print(json.dumps({"run_id": e["RUN_ID"], "target": e["DIR"], "model": e.get("WORKS_DEV_MODEL", ""),
-                  "model_resolved": {"value": e["MODEL_VALUE"], "from": e["MODEL_FROM"]},
-                  "claude_bin": e.get("CLAUDE_BIN_PATH", ""), "keychain_item": e.get("WORKS_KEYCHAIN_ITEM", ""),
-                  "adapter": e.get("WORKS_DEV_ADAPTER", ""), "started_at": time.time(),
-                  "wrap_ref": e.get("WRAP_REF", ""), "herdr_pane": e.get("HERDR_PANE_ID", "") if inside else "",
-                  "herdr_socket": e.get("HERDR_SOCKET_PATH", "") if inside else ""}, ensure_ascii=False))
-' >"$1/$2.json"
+# works_dev_launch <launch.py の引数…>: 部品 launch.py を呼ぶ。lib.sh は . で読まれ自分の場所を知れないので、呼び手の殻が置いた
+# DEV_DIR（works/dev）を使う（無ければ呼び手の殻の dir）
+works_dev_launch() {
+  python3 -I "${DEV_DIR:-$(cd "$(dirname "$0")" && pwd -P)}/launch.py" "$@"
 }
 
-# works_dev_ledgers <控えの置き場> [<run-id>]: 控え（works_dev_save_ledger の書いた形）を読む一覧の口。読めた控え 1 つを 1 行、
+# works_dev_ledgers <控えの置き場> [<run-id>]: 控えを読む一覧の口（launch.py ledger list）。読めた控え 1 つを 1 行、
 # run_id・対象の dir（realpath）・結んだ時刻（無ければ 0）・包んだ基の参照（refs/works/wraps/ の下の時だけ）・herdr_pane・
 # herdr_socket・続き中（works_dev_continue の印 <置き場>/<run-id>.cont の鍵を誰かが持っていれば 1、無ければ空）を
-# タブで区切って出す（run-id を渡せばその控えだけ）。壊れた・run_id の無い控えは飛ばす。run_id・target・started_at・wrap_ref・herdr_pane・
-# herdr_socket の欄と続き中の印を読むのはここだけ
-# （model・claude_bin・keychain_item・adapter の欄は use.sh の load_ledger が控えを直に開いて読む）
+# タブで区切って出す（run-id を渡せばその控えだけ）。壊れた・run_id の無い・知らない版の控えは飛ばす
 works_dev_ledgers() {
-  RUNS_DIR="$1" RUN_ID="${2:-*}" python3 -c '
-import fcntl, glob, json, os
-e = os.environ
-# 印は続きの殻が開いたまま flock で持つ。持ち手が落ちれば（SIGKILL・再起動も）鍵は外れるので、取れる印は残り物と見る
-def continuing(run_id):
-    try:
-        with open(os.path.join(e["RUNS_DIR"], run_id + ".cont"), "rb") as f:
-            fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return "1"
-    except OSError:
-        pass
-    return ""
-for p in sorted(glob.glob(os.path.join(e["RUNS_DIR"], e["RUN_ID"] + ".json"))):
-    try:
-        with open(p, encoding="utf-8") as f:
-            d = json.load(f)
-    except (OSError, ValueError):
-        continue
-    if not (isinstance(d, dict) and isinstance(d.get("run_id"), str) and d["run_id"]):
-        continue
-    s = lambda k: d.get(k) if isinstance(d.get(k), str) else ""
-    wrap = s("wrap_ref") if s("wrap_ref").startswith("refs/works/wraps/") else ""
-    at = d.get("started_at") if isinstance(d.get("started_at"), (int, float)) else 0
-    print("\t".join([d["run_id"], os.path.realpath(s("target")) if s("target") else "", repr(at), wrap, s("herdr_pane"),
-                     s("herdr_socket"), continuing(d["run_id"])]))
-'
+  if [ -n "${2:-}" ]; then
+    works_dev_launch ledger list --dir "$1" --run-id "$2"
+  else
+    works_dev_launch ledger list --dir "$1"
+  fi
 }
 
 # 試験の枠の印（盤面の testslot.json。書くのは .shared/core/slotwrap.sh、消すのは tree_run.slotted_run）の読み口。
@@ -307,17 +268,13 @@ print("cd {} && {}WORKS_DEV_HOME={} {}WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}{}
 '
 }
 
-# works_dev_run_json <呼び手> <archon を呼ぶ殻> <対象の dir> [<run-id> [<依頼のファイル>]]: Archon の run の一覧を 1 回引き、
-# その対象の darkfactory の run を 1 つ選んで行を JSON の 1 行で出す（run の選び方はここだけ）。選び方:
-# - 依頼のファイルを渡せば（start が起動の直後に run を結ぶ時）、盤面（r1/start.json の request_file か state.json の
-#   inputs.request）がその依頼の run。依頼は start ごとに <家>/requests/<印>.json に写すので、並べた start の run と混ざらない。
-#   盤面の無い run（盤面を作る前に落ちた）しか無ければそれを候補にする。候補が 1 つでなければ選ばず、候補と
-#   <呼び手> show <対象> <id> の行を標準エラーに出して 1
-# - run-id を渡せばその run（この対象の物でなければ見つからない）。どちらも無ければ一番新しい run
+# works_dev_run_json <呼び手> <archon を呼ぶ殻> <対象の dir> [<run-id>]: Archon の run の一覧を 1 回引き、その対象の
+# darkfactory の run を 1 つ選んで行を JSON の 1 行で出す（起動の後でない引き方。起動の後に結ぶのは works_dev_ledger_bind）。
+# run-id を渡せばその run（この対象の物でなければ見つからない）。無ければ一番新しい run。
 # 見つからない・一覧が読めなければ 1 行の理由で 1。問い合わせは認証が要らないので認証を読ませない
 works_dev_run_json() {
   WORKS_DEV_NO_AUTH=1 sh "$2" workflow runs --json 2>/dev/null |
-    CALLER="$1" DIR="$3" RUN_ID="${4:-}" REQUEST="${5:-}" python3 -c '
+    CALLER="$1" DIR="$3" RUN_ID="${4:-}" python3 -c '
 import json, os, sys
 e = os.environ
 caller = e["CALLER"]
@@ -330,32 +287,9 @@ except ValueError as err:
 def origin(r):
     o = ((r.get("metadata") or {}).get("workflow_source") or {}).get("origin")
     return os.path.realpath(o) if isinstance(o, str) and o else None
-def asked(r):
-    board = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board")
-    for name, pick in (("r1/start.json", lambda d: d.get("request_file")),
-                       ("state.json", lambda d: (d.get("inputs") or {}).get("request"))):
-        try:
-            with open(os.path.join(board, name), encoding="utf-8") as f:
-                v = pick(json.load(f))
-        except (OSError, ValueError, AttributeError):
-            continue
-        if isinstance(v, str) and v:
-            return os.path.realpath(v)
-    return None
-here, rid, req = os.path.realpath(e["DIR"]), e["RUN_ID"], e["REQUEST"]
+here, rid = os.path.realpath(e["DIR"]), e["RUN_ID"]
 runs = [r for r in listed.get("runs", []) if r.get("workflow_name") == "darkfactory" and origin(r) in (None, here)]
-if req:
-    want = os.path.realpath(req)
-    tagged = [(r, asked(r)) for r in runs]
-    mine = [r for r, a in tagged if a == want] or [r for r, a in tagged if a is None]
-    if len(mine) != 1:
-        print("{}: この起動の run を 1 つに結べない（依頼 {} の run の候補が {} 本）。推定では選ばない".format(caller, want, len(mine)),
-              file=sys.stderr)
-        for r in mine:
-            print("  候補 {}（{}）: {} show {} {}".format(r.get("id"), r.get("status"), caller, here, r.get("id")), file=sys.stderr)
-        sys.exit(1)
-    runs = mine
-elif rid:
+if rid:
     runs = [r for r in runs if r.get("id") == rid]
 if not runs:
     sys.exit("{}: darkfactory の run が見つからない（対象 {}{}）".format(caller, here, "・run id " + rid if rid else ""))
@@ -395,14 +329,23 @@ works_dev_show_synced() {
   return "$_st"
 }
 
-# works_dev_show_started <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]: dogfood.sh・real-run.sh の起動の後。
-# その対象の一番新しい run（対象は起動ごとに作り直すので 1 つ）を 1 回だけ引き、控え（$WORKS_DEV_HOME/runs）を書いてから
-# works_dev_show_synced に渡す（--show は控えを書き直さない。起動の時の started_at と herdr_pane を残す）
-works_dev_show_started() {
-  _row="$(works_dev_run_json "$1" "$2" "$3")" || return 1
-  _id_st="$(printf '%s\n' "$_row" | works_dev_id_status)"
-  works_dev_save_ledger "$WORKS_DEV_HOME/runs" "${_id_st%%=*}" "$3"
-  WORKS_RUN_ROW="$_row" works_dev_show_synced "$@"
+# works_dev_ledger_bind <呼び手> <archon を呼ぶ殻> <対象の dir> <この起動の依頼の写し> [show [<差分を取り込むリポジトリ>]]:
+# use.sh・dogfood.sh・real-run.sh の起動の後に run を結ぶ口（設計書 2.3）。run の一覧を 1 回引き、launch.py ledger bind が
+# 盤面の依頼がこの起動の写し（起動ごとに一意の絶対パス）と一致する run がちょうど 1 本の時だけ結んで控え（$WORKS_DEV_HOME/runs）を書き、
+# WORKS_RUN_ROW・WORKS_RUN_ID・WORKS_RUN_STATUS を置く。5 つめに show を渡せば works_dev_show_synced に渡す（--show は控えを
+# 書き直さない。起動の時の started_at と herdr_pane を残す）。結べなければ一覧に触れず控えも続きの行も書かず、理由と候補の後に
+# 結べなかった 1 行を出して 1
+works_dev_ledger_bind() {
+  if ! _lb_out=$(WORKS_DEV_NO_AUTH=1 sh "$2" workflow runs --json 2>/dev/null |
+    works_dev_launch ledger bind --for "$1" --dir "$WORKS_DEV_HOME/runs" --target "$3" --request "$4" \
+      --model-value "$(works_dev_model_value)" --model-from "$(works_dev_model_from)" --wrap-ref "${WRAP_REF:-}"); then
+    echo "この起動の run を結べなかった（続きの行は出さない。候補が在れば上の show の行で run id を名指しして出す）"
+    return 1
+  fi
+  works_dev_launch_eval "$1" "$_lb_out" || return $?
+  unset _lb_out
+  [ "${5:-}" = show ] || return 0
+  works_dev_show_synced "$1" "$2" "$3" "${6:-}"
 }
 
 # works_dev_show_run <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ> [<差分の置き場>]]:

@@ -73,12 +73,26 @@ class UseShell(unittest.TestCase):
         self.request.write_text('[{"where": "stats.py:1", "text": "mean が空で落ちる"}]\n')
         self.log = self.tmp / "calls.txt"
         self.runs = self.tmp / "runs.json"
-        self.set_runs(working_path="/wt/run-1", output_root="/out")
+        self.out = self.tmp / "out"
+        self.out.mkdir()
+        self.set_runs(working_path="/wt/run-1", output_root=str(self.out))
+        # workflow run は、一覧の run のうち output_root の在る物の盤面 r1/start.json に、この起動の依頼（request= の値。
+        # 変更だけの起動は空）を書く（start が起動の直後に依頼で run を結ぶ材料。Archon の線の start と同じ欄）
         self.fake = self.tmp / "fake-archon.sh"
         self.fake.write_text(
             "#!/bin/sh\n"
             f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "${{WORKS_DEV_HOME:-}}" "$@"; echo; }} >> "{self.log}"\n'
             f'case "$*" in "workflow runs --json") cat "{self.runs}" ;; esac\n'
+            'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
+            f'RUNS="{self.runs}" python3 - "$@" <<\'EOF\'\n'
+            "import json, os, pathlib, sys\n"
+            "req = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('request=')), '')\n"
+            "for r in json.loads(pathlib.Path(os.environ['RUNS']).read_text())['runs']:\n"
+            "    if r.get('output_root') and os.path.isdir(r['output_root']):\n"
+            "        board = pathlib.Path(r['output_root'], 'artifacts', 'runs', r['id'], 'board', 'r1')\n"
+            "        board.mkdir(parents=True, exist_ok=True)\n"
+            "        (board / 'start.json').write_text(json.dumps({'request_file': req}))\n"
+            "EOF\n"
             "exit 0\n")
 
     def set_runs(self, **run):
@@ -152,10 +166,12 @@ class UseShell(unittest.TestCase):
     def test_start_change_entry_flags(self):
         """変更から入る口: 先頭の --base <版>・--pr <番号>（と --）を旗として読み、残りの位置引数に対象を省ける決まりを当てる。
         依頼の - は依頼を省き（request= は空）、Archon へ --input base=・pr= を渡し、『入口: 変更から』を出す。
-        位置引数の後の --base は旗として読まない"""
+        位置引数の後の --base は旗として読まない。依頼を省いた起動は結ぶ依頼の写しが無いので run を結ばず、結べない時の
+        1 行を出して 1 で終わる（設計書 2.3。2026-10-01 の関所の答え A）"""
         t = self.target()
         r = self.use("start", "--base", "main", "-", cwd=str(t))
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("結べなかった", r.stdout)
         run = self.calls()[0]
         self.assertEqual(run[0], str(t))
         self.assertIn("base=main", run)
@@ -164,7 +180,8 @@ class UseShell(unittest.TestCase):
         self.assertFalse((self.home / "requests").exists())
         self.log.unlink()
         r = self.use("start", "--pr", "7", "--", str(t), "-", "true")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("結べなかった", r.stdout)
         run = self.calls()[0]
         self.assertIn("pr=7", run)
         self.assertIn("test_cmd=true", run)
@@ -577,7 +594,7 @@ class UseShell(unittest.TestCase):
             self.assertIn(f"WORKS_ANSWER_CMD='{answer_head}' ", line)
         self.assertIn(f"cd {t} && ", out)
         self.assertIn(f"WORKS_DEV_HOME={self.home} ", out)
-        self.assertIn("/out/artifacts/runs/run-1/board/report.md", out)
+        self.assertIn(f"{self.out}/artifacts/runs/run-1/board/report.md", out)
         diff = self.home / "diffs" / "run-run-1.diff"
         self.assertIn(f"git -C {t} apply {diff}", out)
         self.assertFalse((t.parent / "run-run-1.diff").exists())
@@ -900,6 +917,17 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("run id: run-mine", r.stdout)
 
+    def test_start_does_not_bind_run_without_board(self):
+        """盤面にこの起動の依頼を持つ run が無ければ、盤面の無い run（盤面を作る前に落ちた・別の起動の run）を代わりに
+        結ばない。控えも続きの行も書かず、結べない時の 1 行を出して 1 で終わる（設計書 2.3）"""
+        t = self.target()
+        self.set_runs(working_path="/wt/run-1", output_root=str(self.tmp / "no-board"))
+        r = self.use("start", str(t), str(self.request), "true", "")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("結べなかった", r.stdout)
+        self.assertNotIn("run id: run-1", r.stdout)
+        self.assertFalse((self.home / "runs" / "run-1.json").exists())
+
     def test_wait_does_not_find_run_of_other_target(self):
         """wait も show・answer と同じ選び方（darkfactory・この対象）で引く。別の対象の run id を渡しても見つからない"""
         t = self.target()
@@ -1031,6 +1059,17 @@ class UseShell(unittest.TestCase):
             f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "$WORKS_DEV_HOME" "$@"; echo; }} >> "{self.log}"\n'
             f'ls "$CLAUDE_CONFIG_DIR/skills" > "{self.skills_seen}"\n'
             f'case "$*" in "workflow runs --json") cat "{self.runs}" ;; esac\n'
+            # setUp の偽物と同じく、workflow run は run の盤面 r1/start.json に依頼を残す（起動の後に結ぶ材料）
+            'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
+            f'RUNS="{self.runs}" python3 - "$@" <<\'EOF\'\n'
+            "import json, os, pathlib, sys\n"
+            "req = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('request=')), '')\n"
+            "for r in json.loads(pathlib.Path(os.environ['RUNS']).read_text())['runs']:\n"
+            "    if r.get('output_root') and os.path.isdir(r['output_root']):\n"
+            "        board = pathlib.Path(r['output_root'], 'artifacts', 'runs', r['id'], 'board', 'r1')\n"
+            "        board.mkdir(parents=True, exist_ok=True)\n"
+            "        (board / 'start.json').write_text(json.dumps({'request_file': req}))\n"
+            "EOF\n"
             "exit 0\n")
         binary.chmod(0o755)
         self.claude_log = self.tmp / "claude-calls.jsonl"

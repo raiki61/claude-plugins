@@ -770,9 +770,10 @@ class SlotWaitShownCase(unittest.TestCase):
         fake.write_text(f"#!/bin/sh\necho '{json.dumps(listed)}'\n")
         herdr_bin, herdr_log = importlib.import_module("hermetic").fake_herdr(self.tmp)
         self.put_mark("r1", state="waiting", since=time.time() - 60, slots=str(self.slots), pid=os.getpid())
-        env = dict(os.environ, PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", HERDR_ENV="1",
-                   HERDR_PANE_ID="pane-7")
         dev = TESTS.parent / "dev"
+        # lib.sh は . で読まれ自分の場所を知れないので、控えを読む部品 launch.py の dir を殻と同じく DEV_DIR で渡す
+        env = dict(os.environ, PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", HERDR_ENV="1",
+                   HERDR_PANE_ID="pane-7", DEV_DIR=str(dev))
         r = subprocess.run(["sh", "-c", f'. "{dev}/lib.sh" && works_dev_herdr_sync "{fake}" "{runs_dir}"'],
                            capture_output=True, text=True, encoding="utf-8", env=env)
         self.assertEqual(r.returncode, 0, r.stderr)

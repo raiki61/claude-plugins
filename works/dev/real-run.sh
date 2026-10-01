@@ -89,11 +89,16 @@ git -C "$DIR" push -q origin HEAD
 git -C "$DIR" fetch -q origin
 git -C "$DIR" remote set-head origin -a >/dev/null
 
+# 依頼は対象の外の起動ごとの写し（絶対パス）で渡す。起動の後にこの写しを盤面に持つ run だけを結ぶ（相対のままだと
+# start が run の対象の根から解き、こちらの写しと一致しない）
+REQUEST="$DIR.request.json"
+cp "$DIR/request_ok.json" "$REQUEST"
+
 cd "$DIR"
 set +e
 # 包みを入れない run は adapter=optional（launch.py env の WORKS_LAUNCH_ADAPTER_MODE。h-judge が包みの無い run を止めないように。報告に出る）
 sh "$ARCHON" workflow run darkfactory \
-  --input request=request_ok.json --input test_cmd="python3 -m unittest -q" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE"
+  --input request="$REQUEST" --input test_cmd="python3 -m unittest -q" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE"
 run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
@@ -103,6 +108,6 @@ echo "workflow run の終了コード: $run_status"
 # 起動が落ちても run が在れば続きの行を出す（控えと herdr の枠の集計も lib.sh の同じ口で）。終了コードは起動のまま（起動が 0 の時だけ show の結果）
 show_status=0
 works_dev_show_cmd "$DEV_DIR/real-run.sh" "$ARCHON" "$DIR"
-works_dev_show_started real-run.sh "$ARCHON" "$DIR" || show_status=$?
+works_dev_ledger_bind real-run.sh "$ARCHON" "$DIR" "$REQUEST" show || show_status=$?
 [ "$run_status" -ne 0 ] && exit "$run_status"
 exit "$show_status"

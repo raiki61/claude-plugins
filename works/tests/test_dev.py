@@ -862,13 +862,16 @@ class TestDevShell(unittest.TestCase):
                 self.assertIn("workflow test works", args)   # 赤でも残りは回す
 
     # ---- dogfood.sh（works 自身のリポジトリを対象にラインを回す）。AI の要らない所だけを偽の Archon で見る
-    def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root="/out", runs_json=None, keychain=None, **env_kw):
+    def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root=None, runs_json=None, keychain=None, **env_kw):
         """TMPDIR の下に works/ を写した git の元（src）を作り、その写しの dogfood.sh を偽の Archon と偽の security
         （keychain の項目名→値。既定は項目の無い keychain。fake_security）で回す。
         src には commit していない物（根の未追跡・works/ の中の書き換えと未追跡）を残す。
         偽の Archon は cwd・WORKS_DEV_NO_AUTH・引数（1 つずつ）をタブ区切りで記録し、`workflow runs --json` には
-        runs_json（省略時は working_path・output_root の止まった run を 1 本）を返す。
+        runs_json（省略時は working_path・output_root（省略時は <tmp>/out）の止まった run を 1 本）を返す。
+        `workflow run` では一覧の run の盤面 r1/start.json の request_file に request= の値を書く（線の start と同じ欄。
+        起動の後にこの起動の依頼で run を結ぶ材料）。
         戻り値は (結果, 元のリポジトリ, 呼び出しの記録)。"""
+        output_root = tmp / "out" if output_root is None else output_root
         src = tmp / "src"
         # works/ を src/works に写して commit した git（型の写し。gitkit）
         committed_copy(src, ROOT, sub="works", ignore=("__pycache__", "*.pyc", ".DS_Store"))
@@ -888,6 +891,15 @@ class TestDevShell(unittest.TestCase):
             f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "$@"; echo; }} >> "{log}"\n'
             f'case "$1 $2" in "workflow run") printf \'%s\\n\' "${{WORKS_DEV_ADAPTER-(unset)}}" > "{tmp / 'adapter-env.txt'}" ;; esac\n'
             f'case "$*" in "workflow runs --json") cat "{tmp / 'runs.json'}" ;; esac\n'
+            'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
+            f'RUNS="{tmp / "runs.json"}" python3 - "$@" <<\'EOF\'\n'
+            "import json, os, pathlib, sys\n"
+            "req = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('request=')), '')\n"
+            "for r in json.loads(pathlib.Path(os.environ['RUNS']).read_text())['runs']:\n"
+            "    p = pathlib.Path(r['output_root'], 'artifacts', 'runs', r['id'], 'board', 'r1', 'start.json')\n"
+            "    p.parent.mkdir(parents=True, exist_ok=True)\n"
+            "    p.write_text(json.dumps(dict(json.loads(p.read_text()) if p.exists() else {}, request_file=req)))\n"
+            "EOF\n"
             "exit 0\n"
         )
         security, self.security_log = fake_security(tmp, keychain)
@@ -1157,7 +1169,12 @@ class TestDevShell(unittest.TestCase):
             (tmp / "runs.json").write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
                                                                  "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
             fake = tmp / "fake-archon.sh"
-            fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;; esac\nexit 0\n')
+            # workflow run は run の盤面 r1/start.json に request= の値を残す（線の start と同じ。起動の後に結ぶ材料）
+            fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;; esac\n'
+                            'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
+                            f'B="{tmp / "out" / "artifacts" / "runs" / "run-1" / "board" / "r1"}"; mkdir -p "$B"\n'
+                            'for a in "$@"; do case "$a" in request=*) printf \'{"request_file": "%s"}\' "${a#request=}" > "$B/start.json" ;; esac; done\n'
+                            'exit 0\n')
             env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp),
                                      CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
                                      HERDR_ENV="1", HERDR_PANE_ID="pane-7", **security)
@@ -1448,16 +1465,22 @@ class TestDevModelPin(unittest.TestCase):
         for name in ("WORKS_DEV_MODEL", "WORKS_MODEL_PINNED", "WORKS_MODEL_FROM", "WORKS_KEYCHAIN_ITEM",
                      "WORKS_DEV_ADAPTER", "WORKS_ANSWER_CMD", "HERDR_ENV"):
             env.pop(name, None)
-        env.update(WORKS_DEV_HOME="/h", CLAUDE_BIN_PATH="/c", **env_kw)
+        # lib.sh は . で読まれ自分の場所を知れないので、控えを書く部品 launch.py の dir を殻と同じく DEV_DIR で渡す
+        env.update(WORKS_DEV_HOME="/h", CLAUDE_BIN_PATH="/c", DEV_DIR=str(DEV), **env_kw)
         r = subprocess.run(["sh", "-c", f'set -eu; . "{DEV}/guard.sh"; . "{DEV}/lib.sh"; {script}'],
                            capture_output=True, text=True, encoding="utf-8", env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout
 
+    def save_ledger(self, runs, **env_kw):
+        # works_dev_ledger_bind が控えを書く時と同じく、今の殻の模型の値と出どころを部品に渡す
+        self.sh(f'works_dev_launch ledger save --dir "{runs}" --run-id run-1 --target /x '
+                '--model-value "$(works_dev_model_value)" --model-from "$(works_dev_model_from)"', **env_kw)
+
     def test_default_run_continues_with_start_default(self):
         """既定で start した run の続きは、答える殻の模型や既定に替えず、控えの start の時の既定で起こす"""
         runs = hermetic.tmpdir(self)
-        self.sh(f'works_dev_save_ledger "{runs}" run-1 /x')
+        self.save_ledger(runs)
         led = json.loads((runs / "run-1.json").read_text(encoding="utf-8"))
         self.assertEqual((led["model"], led["model_resolved"]["value"]), ("", "opus"))
         self.assertIn("既定", led["model_resolved"]["from"])
@@ -1471,7 +1494,7 @@ class TestDevModelPin(unittest.TestCase):
         self.assertEqual(self.sh("works_dev_model_value", WORKS_DEV_MODEL_DEFAULT="sonnet").strip(), "opus")
         # 明示した run の控えも start の時に解いた値を持ち、出どころで既定と見分ける
         explicit = hermetic.tmpdir(self)
-        self.sh(f'works_dev_save_ledger "{explicit}" run-1 /x', WORKS_DEV_MODEL="opus")
+        self.save_ledger(explicit, WORKS_DEV_MODEL="opus")
         exp = json.loads((explicit / "run-1.json").read_text(encoding="utf-8"))
         self.assertEqual((exp["model"], exp["model_resolved"]["value"]), ("opus", "opus"))
         self.assertNotEqual(exp["model_resolved"]["from"], led["model_resolved"]["from"])

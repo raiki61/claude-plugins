@@ -27,7 +27,8 @@
 # - 対象はリポジトリの下のフォルダでもよく、その git の根で回す。start で対象を省けば今いるフォルダの git の根。
 # - start の旗は位置引数より前だけで読み、最初の -- で旗を終える（POSIX の Utility Syntax Guidelines 9・10）。--base と --pr は
 #   どちらか 1 つ。旗を読んだ後の位置引数の数で対象を省いたかを決める。依頼の - は標準入力でなく「依頼を省く」
-#   （--base か --pr が在る時だけ受ける）。
+#   （--base か --pr が在る時だけ受ける）。依頼を省いた start は結ぶ依頼の写しが無いので run を結ばず、控えも続きの行も書かずに
+#   結べなかった 1 行と候補の show の行を出して 1 で終わる（run id を名指しした show で続ける。設計書 2.3）。
 # - run の worktree は対象の今の姿から切る: 汚れていなければ HEAD、commit していない変更・未追跡のファイル（.gitignore の物は
 #   入れない）が在れば一時の index で包んだ commit（--from）。対象の作業ツリー・index・枝は動かさない。包んだファイルは
 #   <家>/wraps/<commit>.txt に控え、起動と show に出す。origin が要る（Archon v0.11.1 は --from を渡しても
@@ -227,10 +228,7 @@ print("\t".join([r.get("id") or "", r.get("status") or "", r.get("working_path")
 
 # run の控え <家>/runs/<run-id>.json: start で選んだ模型（明示しなければ start の時の既定）・claude の実行ファイル・keychain の項目の名（値でなく名）・包みを残し、
 # 別の殻で打つ answer・stop がそれで Archon を起こし、show が出す進める・続きの行もそれで組む（無ければ今の殻の値のまま）。
-# 書く口は lib.sh works_dev_save_ledger（dogfood.sh・real-run.sh と同じ）
-save_ledger() {
-  works_dev_save_ledger "$WORKS_USE_HOME/runs" "$1" "$TARGET"
-}
+# 書くのは起動の後に run を結ぶ lib.sh works_dev_ledger_bind（dogfood.sh・real-run.sh と同じ口）、読むのは load_ledger。形は launch.py ledger
 # herdr_sync [<run-id>=<状態>…]: この家と既定の家の全部の控え（lib.sh works_dev_ledger_dirs）から、run を起こした herdr の枠ごとの
 # 集計を出す（lib.sh works_dev_herdr_sync）
 herdr_sync() {
@@ -272,21 +270,13 @@ ledger_latest() {
     awk -F'\t' -v here="$(cd "$TARGET" && pwd -P)" '$2 == here && (id == "" || $3 + 0 >= at) { at = $3 + 0; id = $1 } END { print id }'
 }
 # 2 つ目の引数は控えで何をするかの文（既定は answer・stop の『Archon を起こす』。show は起こさないので行を組むと言う）
+# 控えの無い run は今の殻の値のまま（案内も出さない）。控えは launch.py ledger load から 2 段で受け、部品が落ちれば
+# （知らない版の控えなど）代入を 1 つも効かせずに止まる
 load_ledger() {
   [ -f "$WORKS_USE_HOME/runs/$1.json" ] || return 0
-  eval "$(python3 -c '
-import json, shlex, sys
-d = json.load(open(sys.argv[1], encoding="utf-8"))
-resolved = d.get("model_resolved") if isinstance(d.get("model_resolved"), dict) else {}
-pinned = resolved.get("value") if d.get("model") == "" else None
-for k, v in (("WORKS_DEV_MODEL", d.get("model")), ("WORKS_MODEL_PINNED", pinned),
-             ("CLAUDE_BIN_PATH", d.get("claude_bin")),
-             ("WORKS_KEYCHAIN_ITEM", d.get("keychain_item")), ("WORKS_DEV_ADAPTER", d.get("adapter"))):
-    # 模型の空は「start で明示しなかった」の控え。この殻の値で埋めず、空のまま渡して archon.sh に start の時に解いた
-    # 既定（model_resolved の value）で解かせる
-    if isinstance(v, str) and (v or k in ("WORKS_DEV_ADAPTER", "WORKS_DEV_MODEL")):
-        print("{}={}; export {}".format(k, shlex.quote(v), k))
-' "$WORKS_USE_HOME/runs/$1.json")"
+  _ll_out=$(works_dev_launch ledger load --dir "$WORKS_USE_HOME/runs" --run-id "$1") || exit $?
+  works_dev_launch_eval use.sh "$_ll_out" || exit $?
+  unset _ll_out
   echo "run $1 の控え（模型 ${WORKS_DEV_MODEL:-既定 $(works_dev_model_value)}・包み ${WORKS_DEV_ADAPTER:-無し}）で${2:- Archon を起こす}（YAML の段に model: を書いた役の段は段の値）"
 }
 
@@ -578,9 +568,9 @@ set -e
 echo "workflow run の終了コード: $run_status"
 
 # 起動の直後に、この起動の依頼（<家>/requests/<印>.json）を盤面に持つ run を 1 つに結ぶ（一覧の先頭を推定で採らない。
-# 同じ家から並べた start の run と混ざらない）。結べなければ候補と show の行だけを出し、続きの行は出さない
-if ! BOUND="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "" "$REQUEST")"; then
-  echo "この起動の run を結べなかった（続きの行は出さない。候補が在れば上の show の行で run id を名指しして出す）"
+# 同じ家から並べた start の run と混ざらない。依頼を省いた起動は写しが無いので結ばない）。結べなければ候補と show の行と
+# 結べなかった 1 行だけを出し、続きの行は出さない
+if ! works_dev_ledger_bind use.sh "$ARCHON" "$TARGET" "$REQUEST"; then
   # 控えを書けないので clean は包んだ基の参照を知らない。ここで外す（run が切った worktree の枝が在ればその基はそこから届く）
   if [ -n "$WRAP_REF" ]; then
     git update-ref -d "$WRAP_REF"
@@ -589,8 +579,8 @@ if ! BOUND="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "" "$REQUEST")"; the
   [ "$run_status" -ne 0 ] && exit "$run_status"
   exit 1
 fi
-RID="$(printf '%s\n' "$BOUND" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id") or "")')"
-save_ledger "$RID"
+RID="$WORKS_RUN_ID"
+BOUND="$WORKS_RUN_ROW"
 
 # 無人の run: 起動の関所を越え（残りをその場で回す）、次に人が決める関所で待っていれば止めて報告へ進める（本線の --unattended）
 if [ "${WORKS_USE_UNATTENDED:-}" = 1 ] && [ "$run_status" -eq 0 ]; then
@@ -620,7 +610,7 @@ WORKS_RUN_ID="$RID" WORKS_RUN_ROW="$BOUND" works_dev_show_run use.sh "$ARCHON" "
   show_status=$?
 # herdr の枠の集計（結んだ行の状態が在ればそれを使い、一覧を引き直さない）
 if [ -n "$BOUND" ]; then
-  herdr_sync "$RID=$(printf '%s\n' "$BOUND" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("status") or "")')"
+  herdr_sync "$RID=$WORKS_RUN_STATUS"
 else
   herdr_sync
 fi

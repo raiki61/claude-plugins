@@ -165,6 +165,6 @@ echo "workflow run の終了コード: $run_status"
 # 起動が落ちても run が在れば続きの行を出す（控えと herdr の枠の集計も lib.sh の同じ口で）。終了コードは起動のまま（起動が 0 の時だけ show の結果）
 show_status=0
 works_dev_show_cmd "$DEV_DIR/dogfood.sh" "$ARCHON" "$DIR"
-works_dev_show_started dogfood.sh "$ARCHON" "$REPO" "$SRC" || show_status=$?
+works_dev_ledger_bind dogfood.sh "$ARCHON" "$REPO" "$REQUEST" show "$SRC" || show_status=$?
 [ "$run_status" -ne 0 ] && exit "$run_status"
 exit "$show_status"

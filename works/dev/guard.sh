@@ -74,14 +74,21 @@ works_dev_launch_env() {
   _wl_for=$1
   shift
   _wl_out=$(python3 -I "$(cd "$(dirname "$0")" && pwd -P)/launch.py" env --for="$_wl_for" "$@") || exit $?
-  case "$_wl_out" in
+  works_dev_launch_eval "$_wl_for" "$_wl_out" || exit $?
+  unset _wl_out _wl_for
+}
+
+# works_dev_launch_eval <殻の名> <launch.py の出力>: 2 段の受け方の 2 段目（env と ledger load・bind が通る）。1 行目の版が
+# 合わなければ 1 行を出して 2 を返し、代入を 1 つも効かせない
+works_dev_launch_eval() {
+  case "$2" in
     "WORKS_LAUNCH_FORMAT=1" | "WORKS_LAUNCH_FORMAT=1
 "*) ;;
     *)
-      echo "${_wl_for}: launch.py の出力の版が WORKS_LAUNCH_FORMAT=1 でない。works/dev の殻と launch.py を同じ版にそろえる" >&2
-      exit 2
+      echo "${1}: launch.py の出力の版が WORKS_LAUNCH_FORMAT=1 でない。works/dev の殻と launch.py を同じ版にそろえる" >&2
+      return 2
       ;;
   esac
-  eval "$_wl_out"
-  unset WORKS_LAUNCH_FORMAT _wl_out _wl_for
+  eval "$2"
+  unset WORKS_LAUNCH_FORMAT
 }
