@@ -46,6 +46,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 MOD = {
     "tree_run": (1, None), "script_io": (1, None), "node_marker": (1, None), "versions": (1, None),
     "answer": (1, None),      # 関所の文の答えの行（起動の殻が env に置いた頭で組む。works の物を何も知らない）
+    "hold_lock": (1, None),   # 殻が開いた fd を flock で取る（dev/lib.sh の続き中の印。works の物を何も知らない）
     "changemap": (1, None),   # attention の変更の地図の部品の写し（COPIED_FROM.changemap。works の物を何も知らない）
     "copyledger": (1, None),  # 写しの台帳の読み口（写し直しの道具と写しの一致の試験が読む。works の物を何も知らない）
     "claude_auth": (1, None),  # 本流 scripts/claude_auth.py の写し（shared-copies.py が同一を縛る。works の物を何も知らない）

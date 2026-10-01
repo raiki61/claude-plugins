@@ -2,7 +2,7 @@
 
 利用者の PATH に archon は無い（起動の殻が隔離した Archon を通して呼ぶ）ので、答えの行は起動した殻が env に置いた頭
 （ENV。後ろに `<run-id> continue|stop "<一言>"` を足せばそのまま打てる行）で組む。use.sh は `sh <use.sh> answer <対象>`
-（答えた者の記録も殻が残す）、dogfood.sh は隔離した archon.sh の respond を置く。殻の外で回した run は頭が無いので、
+（答えた者の記録も殻が残す）、dogfood.sh は続きの口 dev/continue.sh を通して隔離した archon.sh の respond を打つ頭を置く。殻の外で回した run は頭が無いので、
 打つ前に置き換える穴 HOLE で書く（直に打てない archon の行は書かない）。
 use.sh の answer は答えた者を必須にするので、殻は WHO_ENV に答えた者の穴を置き、行の末尾にそれを見せる。
 

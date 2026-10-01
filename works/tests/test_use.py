@@ -703,12 +703,83 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
         calls = herdr_log.read_text().splitlines() if herdr_log.exists() else []
         self.assertTrue(any(c.startswith("pane release-agent pane-7") for c in calls), calls)
-        # この枠から起こした run が無い枠: herdr に何もしない
+        # run を起こした枠と別の枠から打つ: 起こした枠 pane-7 へ今の状態（全部終わった release）を送り、打った枠 pane-9 へは何も送らない
         herdr_log.unlink(missing_ok=True)
-        r = self.use("wait", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1",
-                     **dict(pane, HERDR_PANE_ID="pane-9"))
+        r = self.use("wait", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1", **dict(pane, HERDR_PANE_ID="pane-9"))
         self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
-        self.assertFalse(herdr_log.exists(), herdr_log.read_text() if herdr_log.exists() else "")
+        self.assertTrue(any(c.startswith("pane release-agent pane-7 ") for c in herdr_log.read_text().splitlines()), r.stdout)
+        self.assertFalse(any("pane-9" in c for c in herdr_log.read_text().splitlines()), herdr_log.read_text())
+
+    def test_herdr_reports_to_ledger_pane_and_socket_from_other_shell(self):
+        """run を起こした枠とサーバ（控えの herdr_pane・herdr_socket）へ、別の枠・別のサーバの殻からも枠の外の殻からも送る"""
+        t = self.target()
+        fake_bin, herdr_log = hermetic.fake_herdr(self.tmp)
+        path = str(fake_bin) + os.pathsep + os.environ.get("PATH", "")
+        sock_a, sock_b = str(self.tmp / "herdr-a.sock"), str(self.tmp / "herdr-b.sock")
+        r = self.use("start", str(t), str(self.request), "true", "", PATH=path, HERDR_ENV="1", HERDR_PANE_ID="pane-7",
+                     HERDR_SOCKET_PATH=sock_a)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.loads((self.home / "runs" / "run-1.json").read_text())["herdr_socket"], sock_a)
+        for label, shell in (("別の枠・別のサーバ", dict(HERDR_ENV="1", HERDR_PANE_ID="pane-9", HERDR_SOCKET_PATH=sock_b)),
+                             ("herdr の枠の外", dict(HERDR_ENV=None, HERDR_PANE_ID=None, HERDR_SOCKET_PATH=None))):
+            with self.subTest(label):
+                pathlib.Path(f"{herdr_log}.socket").unlink(missing_ok=True)
+                self.use("wait", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1", PATH=path, **shell)
+                sent = hermetic.herdr_sockets(herdr_log)
+                self.assertTrue(any(s == sock_a and a.startswith("pane report-agent pane-7 ") and "--state blocked" in a
+                                    for s, a in sent), sent)
+                self.assertFalse(any("pane-9" in a for _, a in sent), sent)
+
+    def test_approve_reports_working_then_state_to_starting_pane(self):
+        """別の枠から承認しても、続きの口が Archon を呼ぶ前に起こした枠へ working を送る。Archon がまだ paused を返す間の wait は
+        続き中の印を見て走る run と答え、枠を blocked に戻さない。続きが戻れば印を外し、起こした枠へ今の状態（blocked）を送る"""
+        import time
+        t = self.target()
+        (self.home / "runs").mkdir(parents=True)
+        (self.home / "runs" / "run-1.json").write_text(json.dumps({"run_id": "run-1", "target": str(t), "herdr_pane": "pane-7",
+                                                                   "herdr_socket": ""}))
+        self.fake.write_text(
+            "#!/bin/sh\n"
+            f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "${{WORKS_DEV_HOME:-}}" "$@"; echo; }} >> "{self.log}"\n'
+            f'case "$*" in "workflow runs --json") cat "{self.runs}" ;; esac\n'
+            'case "$1 $2" in "workflow approve") sleep 8 ;; esac\n'
+            "exit 0\n")
+        fake_bin, herdr_log = hermetic.fake_herdr(self.tmp)
+        path = str(fake_bin) + os.pathsep + os.environ.get("PATH", "")
+        r = self.use("approve", str(t), "run-1", PATH=path, HERDR_ENV="1", HERDR_PANE_ID="pane-9")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        sent = [a for _, a in hermetic.herdr_sockets(herdr_log)]
+        self.assertTrue(sent and sent[0].startswith("pane report-agent pane-7 --source works-factory --agent works --state working"),
+                        sent)
+        r = self.use("wait", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1", PATH=path)
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertIn("running", r.stdout)
+        sent = [a for _, a in hermetic.herdr_sockets(herdr_log)]
+        self.assertIn("--state working", sent[-1])
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not (
+                not (self.home / "runs" / "run-1.cont").exists()
+                and "--state blocked" in [a for _, a in hermetic.herdr_sockets(herdr_log)][-1]):
+            time.sleep(0.2)
+        sent = [a for _, a in hermetic.herdr_sockets(herdr_log)]
+        self.assertFalse((self.home / "runs" / "run-1.cont").exists())
+        self.assertTrue(sent[-1].startswith("pane report-agent pane-7 --source works-factory --agent works --state blocked"), sent)
+        self.assertFalse(any("pane-9" in a for a in sent), sent)
+
+    def test_approve_returns_fast_failure_while_after_report_is_slow(self):
+        """切り離した続きの Archon が 1 秒のうちに落ちれば、後段の集計（ここでは遅い一覧）を待たずにその終了コードで返る"""
+        t = self.target()
+        (self.home / "runs").mkdir(parents=True)
+        (self.home / "runs" / "run-1.json").write_text(json.dumps({"run_id": "run-1", "target": str(t), "herdr_pane": "pane-7"}))
+        self.fake.write_text(
+            "#!/bin/sh\n"
+            f'case "$*" in "workflow runs --json") sleep 3; cat "{self.runs}"; exit 0 ;; esac\n'
+            "echo 'archon: 承認に失敗した' >&2\n"
+            "exit 4\n")
+        fake_bin, _ = hermetic.fake_herdr(self.tmp)
+        r = self.use("approve", str(t), "run-1", PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("承認に失敗した", r.stderr)
 
     def test_wait_returns_state_within_time(self):
         t = self.target()

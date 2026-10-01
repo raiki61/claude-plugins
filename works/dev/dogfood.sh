@@ -12,8 +12,8 @@
 #      archon.sh workflow run darkfactory を前景で回す。人の関所で run は止まって戻る。
 #   5. run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）と、run の worktree の差分
 #      （git diff --binary <周の頭の版>。<dir>/run-<id>.diff）をこのリポジトリへ git apply で取り込むコマンドを出す。
-#      差分が空（起動の直後の関所）なら書かない。承認・関所の答え・続き・拒否・取り消しの行は、Archon が戻った後に
-#      dogfood.sh --show <dir> <run-id> で差分を書き直す（lib.sh の WORKS_DEV_SHOW_CMD）。
+#      差分が空（起動の直後の関所）なら書かない。承認・関所の答え・続き・拒否・取り消しの行は continue.sh を通って前後で herdr の
+#      枠の集計を出し、Archon が戻った後に dogfood.sh --show <dir> <run-id> で差分を書き直す（lib.sh の WORKS_DEV_SHOW_CMD）。
 #      修正が pack の写し（.archon/）に触れていれば 1 行で注意する。
 # --show <dir> <run-id>: 前に回した <dir> の run の差分を今の worktree で書き直し、5 の行を出し直し、herdr の枠の集計を
 #   その run の今の状態で出す（lib.sh works_dev_show_synced。控えは書き直さない）。認証も前の回の検査も
@@ -146,7 +146,8 @@ g -C "$REPO" remote set-head origin dogfood-base >/dev/null
 echo "対象: ${REPO}（${REV} の上に pack を置いた枝 dogfood-base）"
 
 cd "$REPO"
-# 関所の文の答えの行の頭（.shared/core/answer.py）。利用者の PATH に archon は無いので、隔離した archon.sh の respond を置く
+# 関所の文の答えの行の頭（.shared/core/answer.py）。利用者の PATH に archon は無いので、続きの口 continue.sh を通して隔離した
+# archon.sh の respond を打つ頭を置く（前後で herdr の枠の集計を出す）
 WORKS_ANSWER_CMD="$(WORKS_ANSWER_CMD="" works_dev_go "$ARCHON" "$REPO") respond"
 export WORKS_ANSWER_CMD
 set +e

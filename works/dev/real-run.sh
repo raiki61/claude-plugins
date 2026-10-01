@@ -9,8 +9,8 @@
 #      （Archon は run ごとに切る worktree の元を remote から取るため）。
 #   3. その中で archon.sh workflow run darkfactory を前景で回す。人の関所で run は止まって戻る。
 #   4. run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）を出す。承認・関所の答え・続き・拒否・
-#      取り消しの行は、Archon が戻った後に real-run.sh --show <dir> <run-id> を打ち、herdr の枠の集計を run に追わせる
-#      （lib.sh の WORKS_DEV_SHOW_CMD）。テストの緑赤とログのパスは、止まる直前に出る関所の文面にある。
+#      取り消しの行は continue.sh を通って前後で herdr の枠の集計を出し、Archon が戻った後に real-run.sh --show <dir> <run-id>
+#      で行を出し直す（lib.sh の WORKS_DEV_SHOW_CMD）。テストの緑赤とログのパスは、止まる直前に出る関所の文面にある。
 # --show <dir> <run-id>: 前に作った対象 <dir> の run について 4 の行を出し直し、herdr の枠の集計をその run の今の状態で出す
 #   （lib.sh works_dev_show_synced）。認証も対象の作り直しもしない。続きの行が前置き（WORKS_DEV_HOME・CLAUDE_BIN_PATH など）ごと付けて打つ。
 # 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。

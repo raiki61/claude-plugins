@@ -44,8 +44,10 @@
 #   問いだけでは修正前の関所を開かない）、起動の関所を越え、人が決める関所に着いたら止めて報告へ進める。
 #   WORKS_DESIGN_ONLY=1 は設計だけの run: 入力 design_only=true を渡し、修正前の関所を項目の有無に関わらず開けて止める。
 # - 関所の文の答えの行は、この殻の answer の行（env WORKS_ANSWER_CMD。.shared/core/answer.py）。
-# - herdr の枠の中（HERDR_ENV=1・HERDR_PANE_ID）なら、起動・show・wait のたびに、その枠から起こした run（控えの herdr_pane）の
-#   集計を 1 つの信号で出し、全部終わった時だけ外す（lib.sh works_dev_herdr_sync）。数える控えは今の家と既定の家の全部の物。
+# - herdr の枠の中（HERDR_ENV=1・HERDR_PANE_ID）で起こした run は、控えにその枠とサーバ（herdr_pane・herdr_socket）を残す。起動・show・
+#   wait のたびと、答え・承認・止める・無人の続きの前後（lib.sh works_dev_continue。前に working、後に今の状態）に、run を起こした
+#   枠ごとにその枠から起こした run の集計を 1 つの信号で出し、全部終わった時だけ外す（lib.sh works_dev_herdr_sync）。別の枠・枠の
+#   外から打っても、起こした枠へ送る。数える控えは今の家と既定の家の全部の物。
 # - 差分（run の worktree と周の頭の版の差）は <家>/diffs/run-<id>.diff に書き、対象へ当てる apply の行を出す。当てるのは人。
 # 認証の順は起こし役 .shared/core/auth_launch.py（WORKS_KEYCHAIN_ITEM → 本流 claude_auth.py の写しの auth_env → Claude Code 自身の
 # keychain の項目）。ここは出どころの名だけを受け、値は受けない。模型は WORKS_DEV_MODEL（ここでは埋めない。未設定なら archon.sh が既定を解く。YAML の段に
@@ -141,7 +143,7 @@ fi
 # 外す。値の検査は archon.sh）とラインの入力 adapter の値（WORKS_LAUNCH_ADAPTER_MODE）は launch.py env が持つ
 works_dev_launch_env use.sh --claude --target "$TARGET"
 WORKS_WRAPS_DIR="$WORKS_USE_HOME/wraps"
-export WORKS_DEV_HOME WORKS_WRAPS_DIR
+export WORKS_DEV_HOME WORKS_WRAPS_DIR WORKS_STATE_ROOT
 works_dev_refuse_claude_tmp use.sh "WORKS_USE_HOME" "$WORKS_USE_HOME"
 WORKS_ANSWER_CMD="$(A="$WORKS_USE_SH" T="$TARGET" python3 -c 'import os, shlex
 print("sh {} answer {}".format(shlex.quote(os.environ["A"]), shlex.quote(os.environ["T"])))')"
@@ -229,26 +231,31 @@ print("\t".join([r.get("id") or "", r.get("status") or "", r.get("working_path")
 save_ledger() {
   works_dev_save_ledger "$WORKS_USE_HOME/runs" "$1" "$TARGET"
 }
-# herdr_sync [<run-id>=<状態>…]: この家と既定の家の全部（前の既定の家 works/use と clone ごとの works/use-<印>）の控えから、
-# 今の herdr の枠の run の集計を出す（lib.sh works_dev_herdr_sync）。1 つの枠から別の clone の run を起こしても、ある clone の
-# 人の番の合図が別の clone の終わりで消えない
+# herdr_sync [<run-id>=<状態>…]: この家と既定の家の全部の控え（lib.sh works_dev_ledger_dirs）から、run を起こした herdr の枠ごとの
+# 集計を出す（lib.sh works_dev_herdr_sync）
 herdr_sync() {
-  works_dev_herdr_sync "$ARCHON" "$(printf '%s\n' "$WORKS_USE_HOME/runs" "$WORKS_STATE_ROOT/use/runs" "$WORKS_STATE_ROOT"/use-*/runs)" "$@"
+  works_dev_herdr_sync "$ARCHON" "$(works_dev_ledger_dirs)" "$@"
 }
-# detach_archon <run-id> <archon の引数…>（殻を終える）: 残りの工程をその場で回す Archon の呼び出し（respond・approve）を切り離して起こし、
-# 出力を <家>/logs/<run-id>-<時刻>.log に書いて、終わりを待たずに wait の行を出して返る（成否は wait と show で見る）。
-# 呼び手の殻の終了コードは起こせたかだけ（人の答え (9)(10)）。1 秒のうちに 0 以外で終わった時だけ、ログの末尾を出してその終了コードで返る
+# detach_archon <run-id> <archon の引数…>（殻を終える）: 残りの工程をその場で回す Archon の呼び出し（respond・approve）を続きの口
+# （continue.sh。前後で herdr の枠の集計を出す）ごと切り離して起こし、出力を <家>/logs/<run-id>-<時刻>.log に書いて、終わりを待たずに
+# wait の行を出して返る（成否は wait と show で見る）。呼び手の殻の終了コードは起こせたかだけ（人の答え (9)(10)）。1 秒のうちに
+# Archon が 0 以外で終わった時だけ（後段の集計を待たずに <ログ>.rc で見る）、ログの末尾を出してその終了コードで返る
 detach_archon() {
   _rid="$1"
   shift
   mkdir -p "$WORKS_USE_HOME/logs"
   _log="$WORKS_USE_HOME/logs/${_rid}-$(date +%Y%m%d-%H%M%S)-$$.log"
-  nohup sh "$ARCHON" "$@" >"$_log" 2>&1 </dev/null &
+  WORKS_CONTINUE_RC="$_log.rc" nohup sh "$DEV_DIR/continue.sh" "$ARCHON" "$@" >"$_log" 2>&1 </dev/null &
   _pid=$!
   sleep 1
-  if ! kill -0 "$_pid" 2>/dev/null; then
+  _st=""
+  if [ -f "$_log.rc" ]; then
+    _st="$(cat "$_log.rc")"
+  elif ! kill -0 "$_pid" 2>/dev/null; then
     _st=0
     wait "$_pid" || _st=$?
+  fi
+  if [ -n "$_st" ]; then
     if [ "$_st" -ne 0 ]; then
       tail -n 20 "$_log" >&2
       echo "use.sh: archon workflow $2 が終了コード ${_st} で落ちた（全文: ${_log}）" >&2
@@ -327,6 +334,10 @@ case "$CMD" in
         break
       fi
       STATUS="$(printf '%s' "$ROW" | cut -f2)"
+      # 答え・承認を続きの口に渡したばかりの run（続き中の印が在る）は、Archon がまだ paused を返しても走る run と見る
+      if [ "$STATUS" = paused ] && [ "$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$3" | cut -f7)" = 1 ]; then
+        STATUS=running
+      fi
       case $STATUS in
         paused)
           echo "run $3: paused（関所で人の答えを待つ。use.sh show $TARGET $3 で関所の文と答えの行を出す）"
@@ -588,7 +599,7 @@ if [ "${WORKS_USE_UNATTENDED:-}" = 1 ] && [ "$run_status" -eq 0 ]; then
   if [ "$(printf '%s' "$ROW" | cut -f2)" = paused ]; then
     echo "無人の run（WORKS_USE_UNATTENDED=1）: 起動の関所を越える（run ${RID}）"
     set +e
-    sh "$ARCHON" workflow approve "$RID"
+    works_dev_continue "$ARCHON" "$(works_dev_ledger_dirs)" "$RID" workflow approve "$RID"
     run_status=$?
     set -e
   fi
@@ -596,7 +607,8 @@ if [ "${WORKS_USE_UNATTENDED:-}" = 1 ] && [ "$run_status" -eq 0 ]; then
   if [ "$run_status" -eq 0 ] && [ "$(printf '%s' "$ROW" | cut -f2)" = paused ]; then
     echo "無人の run: 人が決める関所に着いたので止めて報告へ進める（run ${RID}）"
     set +e
-    sh "$ARCHON" workflow respond "$RID" stop "無人の run（WORKS_USE_UNATTENDED=1）: 人が決める関所に着いたので止めて報告へ"
+    works_dev_continue "$ARCHON" "$(works_dev_ledger_dirs)" "$RID" \
+      workflow respond "$RID" stop "無人の run（WORKS_USE_UNATTENDED=1）: 人が決める関所に着いたので止めて報告へ"
     run_status=$?
     set -e
   fi

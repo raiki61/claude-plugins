@@ -343,6 +343,22 @@ class HermeticCase(unittest.TestCase):
                          ["pane report-agent pane-7 --source s --agent a --state working --seq 3",
                           "pane release-agent pane-7 --source s --agent a --seq 4"])
 
+    def test_failing_fake_herdr_keeps_the_accepted_forms(self):
+        # 失敗させる偽の herdr（fail=True）も受ける形は同じ: 受ける形は控えてから server_not_running で rc=1、ほかは rc=2
+        hermetic = self._hermetic()
+        bin_dir, log = hermetic.fake_herdr(hermetic.tmpdir(self), fail=True)
+        herdr = str(pathlib.Path(bin_dir) / "herdr")
+        r = subprocess.run([herdr, "report-agent", "pane-7"], capture_output=True, text=True, encoding="utf-8",
+                           env=hermetic.child_env())
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertFalse(pathlib.Path(log).exists(), "受けない形を控えた")
+        r = subprocess.run([herdr, "pane", "release-agent", "pane-7", "--source", "s", "--agent", "a", "--seq", "5"],
+                           capture_output=True, text=True, encoding="utf-8", env=hermetic.child_env())
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("server_not_running", r.stderr)
+        self.assertEqual(pathlib.Path(log).read_text().splitlines(),
+                         ["pane release-agent pane-7 --source s --agent a --seq 5"])
+
 
 SKIP_CALLS = {"skipTest": 0, "skip": 0, "SkipTest": 0, "skipIf": 1, "skipUnless": 1}
 

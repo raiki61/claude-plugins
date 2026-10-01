@@ -230,14 +230,14 @@ class CopiesFence(unittest.TestCase):
 
     def test_shells_hold_no_copy_of_home_default_or_claude_resolution(self):
         hits = []
-        for name in (*SHELLS, "guard.sh"):
+        for name in (*SHELLS, "guard.sh", "continue.sh"):
             for no, line in enumerate((DEV / name).read_text().splitlines(), 1):
                 hits += [f"{name}:{no}: {line.strip()}" for p in self.PATTERNS if p in line]
         self.assertEqual(hits, [])
 
     # 設計書 3 節: 殻に埋めた Python は部品へ移す途中なので、数が増えたら赤（減っても赤にしない）
     INLINE_PYTHON = re.compile(r"\bpython3(\s+-[A-Za-z]+)*\s+-[A-Za-z]*c\b")
-    INLINE_PYTHON_CAPS = {"use.sh": 8, "dogfood.sh": 1, "real-run.sh": 0, "archon.sh": 0, "lib.sh": 9}
+    INLINE_PYTHON_CAPS = {"use.sh": 8, "dogfood.sh": 1, "real-run.sh": 0, "archon.sh": 0, "lib.sh": 9, "continue.sh": 0}
 
     def test_inline_python_in_shells_does_not_grow(self):
         for name, cap in self.INLINE_PYTHON_CAPS.items():

@@ -88,11 +88,18 @@ def setUpModule():
         tempfile.tempdir = _saved["base"]
         _saved["environ"] = mock.patch.dict(os.environ, {"TMPDIR": _saved["base"]})   # 子が継ぐ TMPDIR も揃える
         _saved["environ"].start()
+    # 既定の家の根（XDG_STATE_HOME）も試験の一時の置き場に向ける（test_use の use と同じ）。殻の子が利用者の本物の
+    # ~/.local/state の控えを読み書きしないように、子が継ぐ os.environ を 1 か所で差し替える
+    _saved["xdg"] = tempfile.mkdtemp(prefix="xdg-state-")
+    _saved["xdg_environ"] = mock.patch.dict(os.environ, {"XDG_STATE_HOME": _saved["xdg"]})
+    _saved["xdg_environ"].start()
 
 
 def tearDownModule():
     base = _saved.pop("base", None)
     environ = _saved.pop("environ", None)
+    _saved.pop("xdg_environ").stop()
+    shutil.rmtree(_saved.pop("xdg"), ignore_errors=True)
     if environ:
         environ.stop()
     tempfile.tempdir = _saved.get("tempdir")
@@ -1104,8 +1111,8 @@ class TestDevShell(unittest.TestCase):
                     self.assertEqual(calls, [])
 
     def _herdr_follows_continue_lines(self, tmp, out, shell):
-        """起動の出力 out の続きの行（承認・止める・差分だけを書き直す）を、herdr の枠（偽の herdr）の中で WORKS_* の無い殻から
-        打つと、後段の <shell> --show が run の今の状態で集計を 1 回だけ出す（paused→blocked・running→working・completed→release）"""
+        """起動の出力 out の続きの行（承認・止める）を、herdr の枠（偽の herdr）の中で WORKS_* の無い殻から打つと、Archon を呼ぶ前に working を
+        送り、最後の報告が run の今の状態と合う（paused→blocked・running→working）。差分だけを書き直す行は今の状態で 1 回だけ（completed→release）"""
         lines = {l.split(": ", 1)[0]: l.split(": ", 1)[1] for l in out.splitlines() if ": " in l}
         herdr_log = tmp / "herdr.txt"
         self.assertIn(f"{shell} --show ", lines["差分だけを書き直す（Archon の生のコマンドで続けた後）"])
@@ -1125,8 +1132,8 @@ class TestDevShell(unittest.TestCase):
                 ran = subprocess.run(["sh", "-c", lines[label]], capture_output=True, text=True, encoding="utf-8", env=clean)
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 calls = herdr_log.read_text().splitlines()
-                self.assertEqual(len(calls), 1, calls)
-                self.assertTrue(calls[0].startswith(want), calls)
+                self.assertTrue(len(calls) == 1 if label.startswith("差分") else len(calls) >= 2 and calls[0].startswith("pane report-agent pane-7 --source works-factory --agent works --state working"), calls)
+                self.assertTrue(calls[-1].startswith(want), calls)
 
     def test_dogfood_continue_lines_report_run_state_to_herdr_pane(self):
         with tempfile.TemporaryDirectory() as tmp_str:
@@ -1193,6 +1200,65 @@ class TestDevShell(unittest.TestCase):
                     self.assertEqual(len(calls), 1, (status, calls))
                     self.assertTrue(calls[0].startswith(want), calls)
                 self.assertEqual(json.loads(ledger.read_text())["started_at"], 1.0)
+
+    def test_show_exit_and_output_do_not_change_when_herdr_fails(self):
+        """herdr が失敗しても（サーバが居ない server_not_running・rc=1）、dogfood.sh --show・real-run.sh --show の終了コードと
+        出力は herdr が通る時と同じ（集計の失敗で run を止めない）"""
+        for shell in ("dogfood.sh", "real-run.sh"):
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                target = tmp / "dog" / "repo" if shell == "dogfood.sh" else tmp / "target"
+                (target / ".git").mkdir(parents=True)
+                ledger = tmp / "dev-home" / "runs" / "run-1.json"
+                ledger.parent.mkdir(parents=True)
+                ledger.write_text(json.dumps({"run_id": "run-1", "target": str(target), "started_at": 1.0,
+                                              "herdr_pane": "pane-7"}))
+                runs = tmp / "runs.json"
+                runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
+                                                      "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
+                fake = tmp / "fake-archon.sh"
+                fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{runs}" ;; esac\nexit 0\n')
+                got = {}
+                for fail in (False, True):
+                    (tmp / str(fail)).mkdir()
+                    fake_bin, herdr_log = hermetic.fake_herdr(tmp / str(fail), fail=fail)
+                    env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
+                                             CLAUDE_BIN_PATH="/usr/bin/true", HERDR_ENV="1", HERDR_PANE_ID="pane-7",
+                                             PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
+                    r = subprocess.run(["sh", str(DEV / shell), "--show",
+                                        str(target.parent if shell == "dogfood.sh" else target), "run-1"],
+                                       capture_output=True, text=True, encoding="utf-8", env=env)
+                    self.assertTrue(herdr_log.exists(), f"herdr が呼ばれていない（fail={fail}）")
+                    self.assertIn("--state blocked", herdr_log.read_text())
+                    got[fail] = (r.returncode, r.stdout)
+                self.assertEqual(got[False][0], 0, got[False][1])
+                self.assertEqual(got[True], got[False])
+
+    def test_real_run_outside_herdr_pane_never_calls_herdr(self):
+        """herdr の枠の外（HERDR_ENV が無い）で起こした run は、herdr が PATH に在っても起動の後にも --show にも herdr を呼ばず、
+        控えに枠を残さない。既定の家の根（XDG_STATE_HOME。setUpModule が試験の一時の置き場に向けた）には何も書かない"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            fake_bin, herdr_log = hermetic.fake_herdr(tmp)
+            security, _ = fake_security(tmp)
+            (tmp / "fake-bin" / "herdr").symlink_to(fake_bin / "herdr")
+            (tmp / "runs.json").write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
+                                                                 "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
+            fake = tmp / "fake-archon.sh"
+            fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;; esac\nexit 0\n')
+            env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp),
+                                     CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
+                                     **security)
+            env.pop("HERDR_ENV", None)
+            env.pop("HERDR_PANE_ID", None)
+            for args in ([str(tmp / "target")], ["--show", str(tmp / "target"), "run-1"]):
+                with self.subTest(args=args[0]):
+                    r = subprocess.run(["sh", str(DEV / "real-run.sh"), *args],
+                                       capture_output=True, text=True, encoding="utf-8", env=env)
+                    self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                    self.assertFalse(herdr_log.exists(), herdr_log.read_text() if herdr_log.exists() else "")
+            self.assertEqual(json.loads((tmp / "dev-home" / "runs" / "run-1.json").read_text())["herdr_pane"], "")
+            self.assertEqual(os.listdir(os.environ["XDG_STATE_HOME"]), [])
 
     def test_real_run_show_usage(self):
         with tempfile.TemporaryDirectory() as tmp_str:
@@ -1413,6 +1479,163 @@ class TestDevModelPin(unittest.TestCase):
         out = self.sh("works_dev_go /a.sh /x", WORKS_DEV_MODEL="sonnet")
         self.assertIn("WORKS_DEV_MODEL=sonnet CLAUDE_BIN_PATH=/c ", out)
         self.assertNotIn("WORKS_MODEL_PINNED", out)
+
+
+class TestHerdrContinue(unittest.TestCase):
+    """lib.sh の続きの口 works_dev_continue と、run を起こした枠ごとの集計 works_dev_herdr_sync（偽の herdr・偽の Archon）"""
+
+    def setUp(self):
+        self.tmp = hermetic.tmpdir(self)
+        self.runs = self.tmp / "home" / "runs"
+        self.runs.mkdir(parents=True)
+        self.listed = self.tmp / "listed.json"
+        self.archon = self.tmp / "archon.sh"
+        # 続きの動詞では、呼ばれた時の herdr の控えの行数と続き中の印の有無を書き、ARCHON_RC で終わる
+        self.archon.write_text(
+            "#!/bin/sh\n"
+            f'case "$*" in "workflow runs --json") cat "{self.listed}"; exit 0 ;; esac\n'
+            f'printf "%s|%s|%s\\n" "$*" "$(cat "{self.tmp}/herdr.txt" 2>/dev/null | wc -l | tr -d " ")" '
+            f'"$(ls "{self.runs}" | grep -c "\\.cont$")" >> "{self.tmp}/archon-calls.txt"\n'
+            'sleep "${ARCHON_SLEEP:-0}"\n'
+            'exit "${ARCHON_RC:-0}"\n')
+
+    def ledger(self, rid, pane, sock=None):
+        doc = {"run_id": rid, "target": "/x", "herdr_pane": pane}
+        if sock is not None:
+            doc["herdr_socket"] = sock
+        (self.runs / f"{rid}.json").write_text(json.dumps(doc))
+
+    def status(self, **by_id):
+        self.listed.write_text(json.dumps({"runs": [{"id": k, "status": v} for k, v in by_id.items()]}))
+
+    def sh(self, script, fail=False, **env_kw):
+        shutil.rmtree(self.tmp / "herdr-bin", ignore_errors=True)
+        herdr_bin, log = hermetic.fake_herdr(self.tmp, fail=fail)
+        env = hermetic.child_env(PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", **env_kw)
+        r = subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh"; {script}', "_", str(self.archon), str(self.runs)],
+                           capture_output=True, text=True, encoding="utf-8", env=env)
+        return r, hermetic.herdr_sockets(log)
+
+    def test_continue_reports_working_before_archon_and_state_after(self):
+        """枠の外の殻から続けても、Archon を呼ぶ前に run を起こした枠（控えの枠とサーバ）へ working を送り、Archon の間は続き中の
+        印を置き、戻った後に印を外して run の今の状態を送る。終了の値は Archon の値"""
+        self.ledger("r1", "pane-7", "/sock-a")
+        self.status(r1="paused")
+        r, sent = self.sh('works_dev_continue "$1" "$2" r1 workflow approve r1', ARCHON_RC="3")
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertEqual((self.tmp / "archon-calls.txt").read_text(), "workflow approve r1|1|1\n")
+        self.assertEqual([s for s, _ in sent], ["/sock-a", "/sock-a"], sent)
+        self.assertTrue(sent[0][1].startswith("pane report-agent pane-7 --source works-factory --agent works --state working"), sent)
+        self.assertTrue(sent[1][1].startswith("pane report-agent pane-7 --source works-factory --agent works --state blocked"), sent)
+        self.assertEqual(list(self.runs.glob("*.cont")), [])
+
+    def test_continue_exit_and_output_do_not_change_when_herdr_fails(self):
+        self.ledger("r1", "pane-7", "/sock-a")
+        self.status(r1="completed")
+        got = {}
+        for fail in (False, True):
+            with self.subTest(fail=fail):
+                shutil.rmtree(self.tmp / "herdr-bin", ignore_errors=True)
+                r, sent = self.sh('works_dev_continue "$1" "$2" r1 workflow resume r1', fail=fail, ARCHON_RC="4")
+                self.assertTrue(sent, "herdr が呼ばれていない")
+                got[fail] = (r.returncode, r.stdout, r.stderr)
+        self.assertEqual(got[True], got[False])
+        self.assertEqual(got[False][0], 4)
+
+    def test_continue_stopped_by_signal_clears_mark_and_reports_state(self):
+        """続きを止められても（TERM）、続き中の印を外して run の今の状態を送り直す（working のまま残さない）"""
+        import signal
+        import time
+        self.ledger("r1", "pane-7", "/sock-a")
+        self.status(r1="paused")
+        herdr_bin, log = hermetic.fake_herdr(self.tmp)
+        env = hermetic.child_env(PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", ARCHON_SLEEP="30")
+        p = subprocess.Popen(["sh", "-c", f'. "{DEV}/lib.sh"; works_dev_continue "$1" "$2" r1 workflow approve r1', "_",
+                              str(self.archon), str(self.runs)], env=env, start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 20
+        while not (self.tmp / "archon-calls.txt").exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        os.killpg(p.pid, signal.SIGTERM)
+        self.assertEqual(p.wait(timeout=20), 130)
+        sent = [a for _, a in hermetic.herdr_sockets(log)]
+        self.assertEqual(list(self.runs.glob("*.cont")), [])
+        self.assertTrue(sent[0].startswith("pane report-agent pane-7 --source works-factory --agent works --state working"), sent)
+        self.assertTrue(sent[-1].startswith("pane report-agent pane-7 --source works-factory --agent works --state blocked"), sent)
+
+    def test_sync_sends_to_each_named_runs_pane_and_socket_with_rising_seq(self):
+        """名指した run を起こした枠ごとに、その枠のサーバへ送る。名指しも打った殻の枠でもない枠へは送らない。
+        1 回の集計で複数の枠へ送る時も通し番号は送るたびに増える"""
+        self.ledger("r1", "pane-7", "/sock-a")
+        self.ledger("r2", "pane-8", "/sock-b")
+        self.ledger("r3", "pane-5", "/sock-a")
+        self.status(r1="paused", r2="completed", r3="running")
+        r, sent = self.sh('works_dev_herdr_sync "$1" "$2" r1 r2')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([(s, a.split(" --")[0]) for s, a in sent],
+                         [("/sock-a", "pane report-agent pane-7"), ("/sock-b", "pane release-agent pane-8")], sent)
+        seqs = [int(a.rsplit("--seq ", 1)[1]) for _, a in sent]
+        self.assertLess(seqs[0], seqs[1])
+
+    def test_sync_without_socket_goes_to_default_server_unless_same_pane(self):
+        """サーバを残していない控えの枠へは既定のサーバへ送る（打った殻のサーバを継がない）。打った殻と同じ名の枠の時だけ、
+        前の作りどおり打った殻のサーバへ"""
+        self.ledger("r1", "pane-7")
+        self.status(r1="paused")
+        _, sent = self.sh('works_dev_herdr_sync "$1" "$2" r1', HERDR_ENV="1", HERDR_PANE_ID="pane-9", HERDR_SOCKET_PATH="/sock-b")
+        self.assertEqual([(s, a.split(" --")[0]) for s, a in sent], [("(unset)", "pane report-agent pane-7")], sent)
+        (self.tmp / "herdr.txt.socket").unlink()
+        _, sent = self.sh('works_dev_herdr_sync "$1" "$2"', HERDR_ENV="1", HERDR_PANE_ID="pane-7", HERDR_SOCKET_PATH="/sock-b")
+        self.assertEqual([(s, a.split(" --")[0]) for s, a in sent], [("/sock-b", "pane report-agent pane-7")], sent)
+
+    def test_sync_counts_continuing_run_as_running(self):
+        """続き中の印（鍵を誰かが持つ）の在る run は、Archon が paused を返しても走る run と数える。鍵の無い印（持ち手が落ちた
+        残り物。中の pid が別の処理に使い回されて居ても）は数えない"""
+        import fcntl
+        self.ledger("r1", "pane-7", "/sock-a")
+        self.status(r1="paused")
+        for held, want in ((True, "--state working"), (False, "--state blocked")):
+            with self.subTest(held=held), open(self.runs / "r1.cont", "w") as mark:
+                mark.write(f"{os.getpid()}\n")
+                mark.flush()
+                if held:
+                    fcntl.flock(mark, fcntl.LOCK_EX)
+                shutil.rmtree(self.tmp / "herdr-bin", ignore_errors=True)
+                (self.tmp / "herdr.txt.socket").unlink(missing_ok=True)
+                _, sent = self.sh('works_dev_herdr_sync "$1" "$2" r1=paused')
+                self.assertEqual(len(sent), 1, sent)
+                self.assertIn(want, sent[0][1])
+
+    def test_go_tail_passes_continue_entry_when_dev_dir_is_set(self):
+        """入口の殻（DEV_DIR を置く）の続きの行は続きの口の入口 continue.sh を通り、Archon の生の語（workflow <動詞>）も残す"""
+        env = hermetic.child_env(WORKS_DEV_HOME="/h", CLAUDE_BIN_PATH="/c", WORKS_DEV_MODEL="opus")
+        for dev_dir, want in ((str(DEV), f"sh {DEV / 'continue.sh'} /a.sh workflow"), ("", "sh /a.sh workflow")):
+            with self.subTest(dev_dir=dev_dir):
+                r = subprocess.run(["sh", "-c", f'DEV_DIR="{dev_dir}"; . "{DEV}/guard.sh"; . "{DEV}/lib.sh"; works_dev_go /a.sh /x'],
+                                   capture_output=True, text=True, encoding="utf-8", env=env)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertTrue(r.stdout.rstrip("\n").endswith(" " + want), r.stdout)
+
+    def test_continue_entry_needs_home_and_workflow_words(self):
+        for args, env_kw in (([str(self.archon), "workflow", "approve", "r1"], {}),
+                             ([str(self.archon), "approve", "r1", "x"], {"WORKS_DEV_HOME": str(self.tmp / "home")})):
+            with self.subTest(args=args):
+                r = subprocess.run(["sh", str(DEV / "continue.sh"), *args], capture_output=True, text=True, encoding="utf-8",
+                                   env=hermetic.child_env(**env_kw))
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("usage: ", r.stderr)
+        self.assertFalse((self.tmp / "archon-calls.txt").exists())
+        # 家を前置きで受け、その家の控えの置き場で続ける
+        self.ledger("r1", "pane-7", "/sock-a")
+        self.status(r1="running")
+        herdr_bin, log = hermetic.fake_herdr(self.tmp)
+        r = subprocess.run(["sh", str(DEV / "continue.sh"), str(self.archon), "workflow", "approve", "r1"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           env=hermetic.child_env(WORKS_DEV_HOME=str(self.tmp / "home"),
+                                                  PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.tmp / "archon-calls.txt").read_text(), "workflow approve r1|1|1\n")
+        self.assertEqual(len(hermetic.herdr_sockets(log)), 2)
 
 
 if __name__ == "__main__":

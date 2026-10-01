@@ -43,30 +43,44 @@ sys.stdout.write(json.dumps(doc, ensure_ascii=False) + "\n")
 # works_dev_save_ledger <控えの置き場> <run-id> <対象の dir>: run の控え <置き場>/<run-id>.json を書く（use.sh・dogfood.sh・
 # real-run.sh の同じ口）。模型（model は明示された全体の指定で、明示しなければ空。model_resolved は start の時に解いた
 # {value, from}）・claude の実行ファイル・keychain の項目の名（値でなく名）・包み・結んだ時刻・包んだ基の参照
-# （WRAP_REF）と、herdr の枠の中で起こしたならその枠（herdr_pane。works_dev_herdr_sync が枠ごとに数える元）を残す
+# （WRAP_REF）と、herdr の枠の中で起こしたならその枠とサーバ（herdr_pane と herdr_socket＝HERDR_SOCKET_PATH。works_dev_herdr_sync が
+# 枠ごとに数えて送る先）を残す
 works_dev_save_ledger() {
   mkdir -p "$1"
   RUN_ID="$2" DIR="$3" WRAP_REF="${WRAP_REF:-}" MODEL_VALUE="$(works_dev_model_value)" \
     MODEL_FROM="$(works_dev_model_from)" python3 -c '
 import json, os, time
 e = os.environ
-pane = e.get("HERDR_PANE_ID", "") if e.get("HERDR_ENV") == "1" else ""
+inside = e.get("HERDR_ENV") == "1"
 print(json.dumps({"run_id": e["RUN_ID"], "target": e["DIR"], "model": e.get("WORKS_DEV_MODEL", ""),
                   "model_resolved": {"value": e["MODEL_VALUE"], "from": e["MODEL_FROM"]},
                   "claude_bin": e.get("CLAUDE_BIN_PATH", ""), "keychain_item": e.get("WORKS_KEYCHAIN_ITEM", ""),
                   "adapter": e.get("WORKS_DEV_ADAPTER", ""), "started_at": time.time(),
-                  "wrap_ref": e.get("WRAP_REF", ""), "herdr_pane": pane}, ensure_ascii=False))
+                  "wrap_ref": e.get("WRAP_REF", ""), "herdr_pane": e.get("HERDR_PANE_ID", "") if inside else "",
+                  "herdr_socket": e.get("HERDR_SOCKET_PATH", "") if inside else ""}, ensure_ascii=False))
 ' >"$1/$2.json"
 }
 
 # works_dev_ledgers <控えの置き場> [<run-id>]: 控え（works_dev_save_ledger の書いた形）を読む一覧の口。読めた控え 1 つを 1 行、
-# run_id・対象の dir（realpath）・結んだ時刻（無ければ 0）・包んだ基の参照（refs/works/wraps/ の下の時だけ）・herdr_pane を
-# タブで区切って出す（run-id を渡せばその控えだけ）。壊れた・run_id の無い控えは飛ばす。run_id・target・started_at・wrap_ref・herdr_pane の欄を読むのはここだけ
+# run_id・対象の dir（realpath）・結んだ時刻（無ければ 0）・包んだ基の参照（refs/works/wraps/ の下の時だけ）・herdr_pane・
+# herdr_socket・続き中（works_dev_continue の印 <置き場>/<run-id>.cont の鍵を誰かが持っていれば 1、無ければ空）を
+# タブで区切って出す（run-id を渡せばその控えだけ）。壊れた・run_id の無い控えは飛ばす。run_id・target・started_at・wrap_ref・herdr_pane・
+# herdr_socket の欄と続き中の印を読むのはここだけ
 # （model・claude_bin・keychain_item・adapter の欄は use.sh の load_ledger が控えを直に開いて読む）
 works_dev_ledgers() {
   RUNS_DIR="$1" RUN_ID="${2:-*}" python3 -c '
-import glob, json, os
+import fcntl, glob, json, os
 e = os.environ
+# 印は続きの殻が開いたまま flock で持つ。持ち手が落ちれば（SIGKILL・再起動も）鍵は外れるので、取れる印は残り物と見る
+def continuing(run_id):
+    try:
+        with open(os.path.join(e["RUNS_DIR"], run_id + ".cont"), "rb") as f:
+            fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return "1"
+    except OSError:
+        pass
+    return ""
 for p in sorted(glob.glob(os.path.join(e["RUNS_DIR"], e["RUN_ID"] + ".json"))):
     try:
         with open(p, encoding="utf-8") as f:
@@ -78,7 +92,8 @@ for p in sorted(glob.glob(os.path.join(e["RUNS_DIR"], e["RUN_ID"] + ".json"))):
     s = lambda k: d.get(k) if isinstance(d.get(k), str) else ""
     wrap = s("wrap_ref") if s("wrap_ref").startswith("refs/works/wraps/") else ""
     at = d.get("started_at") if isinstance(d.get("started_at"), (int, float)) else 0
-    print("\t".join([d["run_id"], os.path.realpath(s("target")) if s("target") else "", repr(at), wrap, s("herdr_pane")]))
+    print("\t".join([d["run_id"], os.path.realpath(s("target")) if s("target") else "", repr(at), wrap, s("herdr_pane"),
+                     s("herdr_socket"), continuing(d["run_id"])]))
 '
 }
 
@@ -115,73 +130,147 @@ def slot_waiting(m):
     return bool(m) and m["state"] == "waiting" and m["alive"] is not False
 '
 
-# works_dev_herdr_sync <archon を呼ぶ殻> <控えの置き場…（改行で区切る）> [<run-id>=<状態>…]: herdr の枠（HERDR_ENV=1 と HERDR_PANE_ID）の中で
-# herdr が在る時だけ、その枠から起こした run（控えの herdr_pane）の集計を 1 つの信号で出す（herdr の公式の口。source works-factory・
-# agent works は 1 つのまま、run ごとに上書きしない）。関所で待つ・落ちた run が 1 つでも在れば blocked、無くて走っている run が
-# 在れば working（試験の枠を待つ run は走る run のうちに「うち枠待ち k」と数える）、全部終わった時だけ pane release-agent。その枠から起こした run が 0 なら何もしない。状態を渡されなかった run が
-# 在る時だけ、控えの在る家（控えの置き場の親）ごとに一覧を 1 回引く。herdr を呼ぶのはここだけ。枠の外・herdr が無い・失敗した時は何もしない（run を止めない）
+# works_dev_herdr_sync <archon を呼ぶ殻> <控えの置き場…（改行で区切る）> [<run-id>[=<状態>]…]: herdr が在る時だけ、run を起こした
+# herdr の枠（控えの herdr_pane と herdr_socket の組）ごとに、その枠から起こした run の集計を 1 つの信号で出し、その枠のサーバへ送る
+# （herdr の公式の口。source works-factory・agent works は 1 つのまま、run ごとに上書きしない）。送る枠は、名指した run を起こした枠と、
+# 打った殻の枠（HERDR_ENV=1 の HERDR_PANE_ID）だけ（昔の枠へ毎回送らない）。打った殻が枠の外でも、名指した run の起こした枠へは送る
+# （公式の手引きの「枠の外では何もしない」から外れるのは、run を起こした枠の表示を別の殻から打った続きに追わせるため。枠の外で
+# 起こした run は控えに枠が無いので、今も何も送らない）。関所で待つ・落ちた run が 1 つでも在れば blocked、無くて走っている run が
+# 在れば working（試験の枠を待つ run は走る run のうちに「うち枠待ち k」と数える。続き中の印の在る run は Archon がまだ paused を
+# 返しても走る run）、全部終わった時だけ pane release-agent。状態の分からない run が在る時だけ、その控えの在る家（控えの置き場の親）
+# ごとに一覧を 1 回引く。herdr を呼ぶのはここだけ。herdr が無い・失敗した時は何もしない（run を止めない・終了の値を変えない）
 works_dev_herdr_sync() {
-  [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1 || return 0
+  command -v herdr >/dev/null 2>&1 || return 0
   _archon="$1"
   _runs="$2"
   shift 2
-  _mine="$(printf '%s\n' "$_runs" | while IFS= read -r _d; do
-    works_dev_ledgers "$_d" | awk -F'\t' -v pane="$HERDR_PANE_ID" -v home="${_d%/runs}" '$5 == pane { print home "\t" $1 }'
+  _ledgers="$(printf '%s\n' "$_runs" | while IFS= read -r _d; do
+    [ -n "$_d" ] || continue
+    works_dev_ledgers "$_d" | awk -F'\t' -v home="${_d%/runs}" '$5 != "" { print home "\t" $1 "\t" $5 "\t" $6 "\t" $7 }'
   done)"
-  _sig="$(ARCHON_SH="$_archon" MINE="$_mine" SLOT_PY="$WORKS_DEV_SLOT_PY" python3 -c '
-import json, os, subprocess, sys
+  [ -n "$_ledgers" ] || return 0
+  _sigs="$(ARCHON_SH="$_archon" LEDGERS="$_ledgers" SLOT_PY="$WORKS_DEV_SLOT_PY" python3 -c '
+import json, os, subprocess, sys, time
 e = os.environ
 exec(e["SLOT_PY"])
-home_of = dict(reversed(l.split("\t", 1)) for l in e["MINE"].splitlines() if "\t" in l)
-mine = list(home_of)
-if not mine:
-    sys.exit(0)
+me_pane = e.get("HERDR_PANE_ID", "") if e.get("HERDR_ENV") == "1" else ""
+me_sock = e.get("HERDR_SOCKET_PATH", "") if me_pane else ""
+home_of, where, cont = {}, {}, set()
+for line in e["LEDGERS"].splitlines():
+    f = line.split("\t")
+    if len(f) < 5 or f[1] in home_of:   # 同じ run の控えが 2 つの置き場に在れば先の物
+        continue
+    home, rid, pane, sock, c = f[:5]
+    home_of[rid] = home
+    # サーバを残していない前の控えは、同じ名の枠に居る打った殻のサーバと見る（前の作りと同じ送り先）。それ以外は既定のサーバ
+    where[rid] = (sock or (me_sock if pane == me_pane else ""), pane)
+    if c:
+        cont.add(rid)
+named = {a.split("=", 1)[0] for a in sys.argv[1:]}
 known = dict(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
-rows = None
-def listed():
-    got_rows = {}
-    for home in sorted(set(home_of.values())):
+known.update({r: "running" for r in cont})
+picked = sorted({where[r] for r in named if r in where} | ({(me_sock, me_pane)} if me_pane else set()))
+rows = {}
+def listed(home):
+    if home not in rows:
         got = subprocess.run(["sh", e["ARCHON_SH"], "workflow", "runs", "--json"],
                              env=dict(e, WORKS_DEV_NO_AUTH="1", WORKS_DEV_HOME=home), capture_output=True, text=True)
         try:
-            got_rows.update({r.get("id"): r for r in json.loads(got.stdout).get("runs", [])})
+            rows[home] = {r.get("id"): r for r in json.loads(got.stdout).get("runs", [])}
         except (ValueError, AttributeError):
             sys.exit(0)
-    return got_rows
-if any(r not in known for r in mine):
-    rows = listed()
-    known = {**{k: r.get("status") or "" for k, r in rows.items()}, **known}
+    return rows[home]
 done = ("completed", "cancelled", "")
-states = [known.get(r, "") for r in mine]
-running = sum(s in ("running", "pending") for s in states)
-ended = sum(s in done for s in states)
-waiting = len(states) - running - ended
-if waiting:
-    print("blocked\tfactory: 人の番 {}・走る {}・終わった {}".format(waiting, running, ended))
-elif running:
-    # 枠待ちは人の答えが要る待ちではないので working のまま、走る run のうちに数える（印を読むのに一覧の output_root が要る）
-    rows = rows if rows is not None else listed()
-    slot_wait = sum(1 for r, s in zip(mine, states) if s in ("running", "pending")
-                    and slot_waiting(slot_mark(run_board(rows.get(r) or {}))))
-    print("working\tfactory: 走る {}{}・終わった {}".format(running, "（うち枠待ち {}）".format(slot_wait) if slot_wait else "",
-                                                          ended))
-else:
-    print("release")
+# herdr は同じ source の通し番号が前に受けた物より大きい報告だけを受ける（release も同じ）。ミリ秒の時刻から始め、送るたびに 1 つ増やす
+seq = time.time_ns() // 1000000
+for sock, pane in picked:
+    mine = [r for r in where if where[r] == (sock, pane)]
+    if not mine:
+        continue
+    states = [known[r] if r in known else (listed(home_of[r]).get(r) or {}).get("status") or "" for r in mine]
+    running = sum(s in ("running", "pending") for s in states)
+    ended = sum(s in done for s in states)
+    waiting = len(states) - running - ended
+    if waiting:
+        sig = "blocked\tfactory: 人の番 {}・走る {}・終わった {}".format(waiting, running, ended)
+    elif running:
+        # 枠待ちは人の答えが要る待ちではないので working のまま、走る run のうちに数える（印を読むのに一覧の output_root が要る。
+        # 続き中の run はまだ枠を待たないので一覧を引かない——続きの口が Archon を呼ぶ前の集計を遅らせない）
+        slot_wait = sum(1 for r, s in zip(mine, states) if s in ("running", "pending") and r not in cont
+                        and slot_waiting(slot_mark(run_board(listed(home_of[r]).get(r) or {}))))
+        sig = "working\tfactory: 走る {}{}・終わった {}".format(running, "（うち枠待ち {}）".format(slot_wait) if slot_wait else "",
+                                                              ended)
+    else:
+        sig = "release"
+    print("{}\t{}\t{}\t{}".format(seq, sock, pane, sig))
+    seq += 1
 ' "$@" 2>/dev/null)" || return 0
-  [ -n "$_sig" ] || return 0
-  # herdr は同じ source の通し番号が前に受けた物より大きい報告だけを受ける（release も同じ）。ミリ秒の時刻を通し番号にする
-  _seq="$(python3 -c 'import time; print(time.time_ns() // 1000000)')"
-  case $_sig in
-    release) herdr pane release-agent "$HERDR_PANE_ID" --source works-factory --agent works --seq "$_seq" >/dev/null 2>&1 || true ;;
-    *)
-      herdr pane report-agent "$HERDR_PANE_ID" --source works-factory --agent works --state "${_sig%%	*}" --message "${_sig#*	}" \
-        --seq "$_seq" >/dev/null 2>&1 || true
-      ;;
-  esac
+  printf '%s\n' "$_sigs" | while IFS= read -r _l; do
+    [ -n "$_l" ] || continue
+    _seq="${_l%%	*}"
+    _l="${_l#*	}"
+    _sock="${_l%%	*}"
+    _l="${_l#*	}"
+    _pane="${_l%%	*}"
+    _sig="${_l#*	}"
+    case $_sig in
+      release) set -- pane release-agent "$_pane" --source works-factory --agent works --seq "$_seq" ;;
+      *) set -- pane report-agent "$_pane" --source works-factory --agent works --state "${_sig%%	*}" --message "${_sig#*	}" --seq "$_seq" ;;
+    esac
+    # 控えのサーバが空なら既定のサーバへ（打った殻のサーバを継がない）
+    if [ -n "$_sock" ]; then
+      HERDR_SOCKET_PATH="$_sock" herdr "$@" >/dev/null 2>&1 || true
+    else
+      (unset HERDR_SOCKET_PATH; herdr "$@") >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+# works_dev_ledger_dirs: herdr の枠の集計が数える控えの置き場（改行で区切る）。1 行目は今の家の置き場（$WORKS_DEV_HOME/runs）。
+# 家の根 WORKS_STATE_ROOT（launch.py env が解く use.sh の家の根）が在れば、既定の家の全部（前の既定の家 use と clone ごとの
+# use-<印>）の置き場も足す。1 つの枠から別の clone の run を起こしても、ある clone の人の番の合図が別の clone の終わりで消えない
+works_dev_ledger_dirs() {
+  printf '%s\n' "$WORKS_DEV_HOME/runs"
+  if [ -n "${WORKS_STATE_ROOT:-}" ]; then
+    printf '%s\n' "$WORKS_STATE_ROOT/use/runs" "$WORKS_STATE_ROOT"/use-*/runs
+  fi
+}
+
+# works_dev_continue <archon を呼ぶ殻> <控えの置き場…（改行で区切る。1 行目がその run の控えの置き場）> <run-id> <archon の引数…>:
+# Archon に続きを渡す口（承認・関所の答え・続き・止める・取り消し。どの殻のどの行もここを通る）。続き中の印
+# <置き場>/<run-id>.cont（この殻が fd 9 で開いたまま flock で持つ）を置いてその run を running で集計し、Archon を呼び、印を外して run の今の状態で集計する
+# （herdr の手引きの「始まりに working、人が要る時に blocked」）。止められても印を外して集計し直す。終了の値は Archon の値
+# （集計の成否で変えない）。WORKS_CONTINUE_RC にファイルを渡せば Archon の終了の値をそこへ書く（切り離した呼び手が、後段の集計を
+# 待たずに早い失敗を見る）
+works_dev_continue() {
+  _c_archon="$1"
+  _c_runs="$2"
+  _c_rid="$3"
+  shift 3
+  _c_mark="$(printf '%s\n' "$_c_runs" | sed -n 1p)/$_c_rid.cont"
+  mkdir -p "$(dirname "$_c_mark")"
+  # 鍵を取ってから置く（読み手が鍵の無い印を見る間を作らない）
+  exec 9>"$_c_mark.$$"
+  PYTHONDONTWRITEBYTECODE=1 python3 "${DEV_DIR:-}/../.shared/core/hold_lock.py" 9
+  mv "$_c_mark.$$" "$_c_mark"
+  trap 'rm -f "$_c_mark"; exec 9>&-; works_dev_herdr_sync "$_c_archon" "$_c_runs" "$_c_rid"; exit 130' INT TERM HUP
+  works_dev_herdr_sync "$_c_archon" "$_c_runs" "$_c_rid=running"
+  _c_rc=0
+  # Archon の後に残る処理に鍵を継がせない
+  sh "$_c_archon" "$@" 9>&- || _c_rc=$?
+  if [ -n "${WORKS_CONTINUE_RC:-}" ]; then
+    echo "$_c_rc" >"$WORKS_CONTINUE_RC.tmp" && mv "$WORKS_CONTINUE_RC.tmp" "$WORKS_CONTINUE_RC"
+  fi
+  trap - INT TERM HUP
+  rm -f "$_c_mark"
+  exec 9>&-
+  works_dev_herdr_sync "$_c_archon" "$_c_runs" "$_c_rid"
+  return "$_c_rc"
 }
 
 # works_dev_go <archon を呼ぶ殻> <対象の dir> [<前置きの後ろのコマンド>]: 承認・答え・続きの行の頭（後ろに approve <id> などを
-# 足せば打てる）。3 つめ（字句で組んだ 1 行）を渡せば、sh <archon を呼ぶ殻> workflow の代わりに同じ前置きでそれを打つ行にする。
+# 足せば打てる）。既定の尾は sh <DEV_DIR>/continue.sh <archon を呼ぶ殻> workflow（続きの口 works_dev_continue を通り、前後で
+# herdr の枠の集計を出す。DEV_DIR を置かない呼び手には sh <archon を呼ぶ殻> workflow）。3 つめ（字句で組んだ 1 行）を渡せば、その尾の代わりに同じ前置きでそれを打つ行にする。
 # 承認・続きも AI の節を回すので認証が要る。変数の代入はその単純コマンドにだけ掛かるので、cd の後・sh の直前に置く。
 # 呼び手が WORKS_KEYCHAIN_ITEM で回したなら項目名（秘密ではない）を載せ、そのまま打てば通るようにする。
 # トークン（CLAUDE_CODE_OAUTH_TOKEN）だけで回したなら値は出さない（show が export した殻で打つよう 1 行で案内する）。
@@ -191,7 +280,8 @@ else:
 # WORKS_ANSWER_WHO（答えた者の穴。use.sh が置く）も在れば一緒に載せる。
 # 模型を明示しなかった run は空の指定に start の時の既定を WORKS_MODEL_PINNED で添え、続きで既定を解き直さない
 works_dev_go() {
-  ARCHON_SH="$1" DIR="$2" TAIL="${3:-}" MODEL_PINNED="$(works_dev_model_value)" python3 -c '
+  ARCHON_SH="$1" DIR="$2" TAIL="${3:-}" MODEL_PINNED="$(works_dev_model_value)" CONTINUE_SH="${DEV_DIR:+$DEV_DIR/continue.sh}" \
+    STATE_ROOT="${WORKS_STATE_ROOT:-}" python3 -c '
 import os, shlex
 model = os.environ.get("WORKS_DEV_MODEL", "")
 # 空は引用符なしで書く（行は WORKS_ANSWER_CMD の中に引用符ごと包まれるので、'' だと引用が入れ子になる）
@@ -203,10 +293,17 @@ answer = os.environ.get("WORKS_ANSWER_CMD", "")
 answer = "WORKS_ANSWER_CMD={} ".format(shlex.quote(answer)) if answer else ""
 who = os.environ.get("WORKS_ANSWER_WHO", "")
 answer += "WORKS_ANSWER_WHO={} ".format(shlex.quote(who)) if answer and who else ""
-print("cd {} && {}WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}{}{}".format(
-    shlex.quote(os.environ["DIR"]), auth, shlex.quote(os.environ["WORKS_DEV_HOME"]),
+# 続きの集計が既定の家の全部の控えを数えるよう、家の根（use.sh の家）も載せる
+root = "WORKS_STATE_ROOT={} ".format(shlex.quote(os.environ["STATE_ROOT"])) if os.environ["STATE_ROOT"] else ""
+# 続きの口の入口は DEV_DIR（works/dev）の下。sh の . で読まれた lib.sh は自分の置き場を知れないので、DEV_DIR を置かずに
+# 読んだ呼び手（入口の殻の外の試験など）には Archon を直に打つ尾を出す
+cont = os.environ["CONTINUE_SH"]
+tail = "sh {} {} workflow".format(shlex.quote(cont), shlex.quote(os.environ["ARCHON_SH"])) if cont else \
+    "sh {} workflow".format(shlex.quote(os.environ["ARCHON_SH"]))
+print("cd {} && {}WORKS_DEV_HOME={} {}WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}{}{}".format(
+    shlex.quote(os.environ["DIR"]), auth, shlex.quote(os.environ["WORKS_DEV_HOME"]), root,
     model, shlex.quote(os.environ["CLAUDE_BIN_PATH"]),
-    adapter, answer, os.environ["TAIL"] or "sh {} workflow".format(shlex.quote(os.environ["ARCHON_SH"]))))
+    adapter, answer, os.environ["TAIL"] or tail))
 '
 }
 
@@ -266,19 +363,14 @@ print(json.dumps(runs[0], ensure_ascii=False))
 '
 }
 
-# works_dev_quote <語>: shlex.quote と同じ字句で 1 語を引用する（殻の口を組むのに python を起こさない）
-works_dev_quote() {
-  case "$1" in
-    '') printf "''" ;;
-    *[!A-Za-z0-9@%+=:,./_-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\"'\"'/g")" ;;
-    *) printf '%s' "$1" ;;
-  esac
-}
-
 # works_dev_show_cmd <殻のパス> <archon を呼ぶ殻> <dir>: 続きの行の後ろに付ける口（<殻> --show <dir>。WORKS_DEV_SHOW_CMD）を export する。
 # dogfood.sh・real-run.sh が起動の後と --show で呼ぶ
 works_dev_show_cmd() {
-  WORKS_DEV_SHOW_CMD="WORKS_DEV_ARCHON=$(works_dev_quote "$2") sh $(works_dev_quote "$1") --show $(works_dev_quote "$3")"
+  WORKS_DEV_SHOW_CMD="$(SHELL_SH="$1" ARCHON_SH="$2" DIR="$3" python3 -c '
+import os, shlex
+e = os.environ
+print("WORKS_DEV_ARCHON={} {}".format(shlex.quote(e["ARCHON_SH"]), shlex.join(["sh", e["SHELL_SH"], "--show", e["DIR"]])))
+')"
   export WORKS_DEV_SHOW_CMD
 }
 
@@ -289,8 +381,8 @@ works_dev_id_status() {
 
 # works_dev_show_synced <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]: dogfood.sh・real-run.sh の起動の後と --show。
 # run の行（WORKS_RUN_ROW。無ければ WORKS_RUN_ID の run か一番新しい run）を 1 回だけ引き、works_dev_show_run で出し、
-# その状態で herdr の枠の集計（$WORKS_DEV_HOME/runs の控え）を出す。続きの行の後段もここを通るので、承認・答え・続け・拒否・取り消しの
-# 後に集計が run を追う。終了の値は works_dev_show_run の値（集計の成否で変えない）。引けなければ 1 行の理由で 1
+# その状態で herdr の枠の集計（$WORKS_DEV_HOME/runs の控え）を出す。続きの行の後段（差分の書き直し）もここを通る。終了の値は
+# works_dev_show_run の値（集計の成否で変えない）。引けなければ 1 行の理由で 1
 works_dev_show_synced() {
   _row="${WORKS_RUN_ROW:-}"
   if [ -z "$_row" ]; then
