@@ -440,7 +440,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
     関所の答え（事前審査の関所と最後の関所）・
-    人が止めた一言・最後のテスト・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・再審の問いと争点でない単位の変化・前提で測り直せなかった依頼・並行 PR の
+    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・再審の問いと争点でない単位の変化・前提で測り直せなかった依頼・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
@@ -481,6 +481,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines.append(f"{head}: {entry.suites_line(tests, role_status=role)}・ログ {tests.get('log') or '無い'}")
     else:
         lines.append(f"最後のテスト: 緑（{entry.suites_line(tests, role_status=role)}・ログ {tests.get('log') or '無い'}）")
+    lines.append(entry.baseline_line(b))
     ph = b.state.get("pending_human")
     if ph:
         lines.append(f"{gatemarks.named(ph.get('node'))}が人に聞いている問い（記録のまま引く）:")

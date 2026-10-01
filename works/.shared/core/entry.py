@@ -483,6 +483,29 @@ def role_ci_status(b, tests: dict | None) -> str | None:
     return ((b.record.get("materials") or {}).get("local_checks") or {}).get("status") or ""
 
 
+def baseline_line(b) -> str:
+    """修正前の CI（P0 の結果。写しの graph が process.baseline_checks に残し、materials.local_checks は P4 で書き直される）の 1 行。
+    報告の冒頭と最後の関所が最後のテストの行と並べて出す——最後の赤が修正の後に出た赤か、基の版からの赤かを人が見分ける手がかり。
+    修正前の CI と最後のテスト（test_cmd の段なども走る）は同じ一式とは限らないので、どちらとも言い切らない"""
+    named = "記録の名 process.baseline_checks"
+    process = b.record.get("process") or {}
+    if "baseline_checks" not in process:
+        return f"修正前のテスト: 記録が無い（{named}）"
+    base = process["baseline_checks"]
+    if not isinstance(base, dict) or not isinstance(base.get("status"), str) or not base["status"]:
+        return f"修正前のテスト: 記録が壊れている（{named} に文字列の status が無い: {json.dumps(base, ensure_ascii=False)[:80]}）"
+    status = base["status"]
+    word = gatemarks.MATERIAL_WORDS.get(status, "表に無い状態")
+    told = f"{named} の status {status}" + (f"・走らせた物 {base['checked']}" if base.get("checked") else "")
+    if status == "clean":
+        return (f"修正前のテスト: {word}（{told}）——最後のテストの赤は修正の後に出た赤でありうる"
+                "（同じ一式とは限らない。最後のテストの一式と照らして決める）")
+    if status == "found":
+        return (f"修正前のテスト: {word}（{told}）——最後のテストの赤は修正前から在りうる"
+                "（同じ一式とは限らない。最後のテストの一式と照らして決める）")
+    return f"修正前のテスト: {word}（{told}・{base.get('reason') or '理由なし'}）"
+
+
 def suites_line(tests: dict | None, *, role_status: str | None = None) -> str:
     """最後のテスト（blk-tests の final の出口 {suites, by, test_cmd_same_as, test_cmd_how}）が走らせた一式・環境で起こせなかった段・
     走らせなかった物の 1 行。起こし方（段の how か、test_cmd の段なら test_cmd_how の direct・shell）が在れば添える。報告の冒頭と最後の関所が同じ物を出す（何を根拠にした緑かを人に見せる。無い物はログからは読めない）。

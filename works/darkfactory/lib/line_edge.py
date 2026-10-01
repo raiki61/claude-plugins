@@ -453,13 +453,14 @@ def _r2_inputs(b) -> list:
 
 
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
-    """最後の関所の文: 最後のテスト・差分の審査の穴の数・手直しの結果・止めずに残った異議・構造のブロックが落ちた周の印
+    """最後の関所の文: 最後のテストと修正前のテスト（entry.baseline_line）・差分の審査の穴の数・手直しの結果・止めずに残った異議・構造のブロックが落ちた周の印
     （structmark.note）・独立の目の判定・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）を 1 枚に。「盤面の問い: 無い」は両方とも無い時だけ。行の主語は平易な名で、
     盤面の節・目の名・状態の語は括弧に回す（gatemarks.named・eye_named）"""
     tests = tests or {}
     lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", ""]
     if tests.get("by"):
         lines.append(f"- テストの一式: {entry.suites_line(tests, role_status=entry.role_ci_status(b, tests))}")
+    lines.append(f"- {entry.baseline_line(b)}")
     left = _ci_left(b)
     if left:
         lines.append(f"- 修正の受け付けが手元で回さなかった試験（{len(left)} 件。run はその緑を確かめない——取り込みの前に人が回すか CI で確かめる）:")

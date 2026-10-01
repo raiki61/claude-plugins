@@ -13,6 +13,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 import report  # noqa: E402
+import entry  # noqa: E402
+import gatemarks  # noqa: E402
 
 GUESSED_CAUSES = "取り消し・abandon・役の出し直しの上限のどれか"
 
@@ -104,6 +106,8 @@ GREEN_WITH_CMD = {"ok": True, "green": True, "log": "/x/p4.ci.log", "by": "engin
                   "suites": [{"name": "pytest", "exit": 0}, {"name": "root pytest", "exit": 0}, {"name": "test_cmd", "exit": 0}]}
 GREEN_NO_CMD = {"ok": True, "green": True, "log": "/x/p4.ci.log", "by": "engine",
                 "suites": [{"name": "pytest", "exit": 0}, {"name": "root pytest", "exit": 0}]}
+RED_ENGINE = {"ok": True, "green": False, "log": "/x/p4.ci.log", "by": "engine",
+              "suites": [{"name": "pytest", "exit": 1}, {"name": "test_cmd", "exit": 0}]}
 
 
 class FinalTestSuitesCase(unittest.TestCase):
@@ -204,6 +208,61 @@ class FinalTestSuitesCase(unittest.TestCase):
         self.assertNotIn("走らせなかった", self.head_text(failed))
         for tests in (failed, None):
             self.assertNotIn("テストの一式", self.gate_text(tests))
+
+    def head_lines(self, tests):
+        with mock.patch.object(report, "_stop_info", return_value=("", "", None)), \
+                mock.patch.object(report, "_latest", return_value=None), \
+                mock.patch.object(report, "_conflict_line", return_value=""), \
+                mock.patch.object(report, "_rejudge_changes", return_value=[]), \
+                mock.patch.object(report, "_premise_hypotheses", return_value=[]), \
+                mock.patch.object(report, "_pr_lines", return_value=[]):
+            return report.head_decisions(self.b, {}, tests=tests)
+
+    def test_baseline_green_shown_beside_final_red(self):
+        """修正前の CI（process.baseline_checks）が緑で最後のテストが赤の盤面（run-140 の形）: 報告の冒頭と最後の関所の両方が
+        修正前の結果を最後のテストの赤と並べて出す——人が『修正の後に出た赤』と『基の版からの赤』を見分ける手がかりにする"""
+        self.b.record["process"]["baseline_checks"] = {"status": "clean", "checked": 3}
+        self.b.record["materials"] = {"local_checks": {"status": "found"}}
+        lines = self.head_lines(RED_ENGINE)
+        self.assertTrue(any(x.startswith("最後のテストが赤") for x in lines), lines)
+        self.assertTrue(any(x.startswith("修正前のテスト: 緑") for x in lines), lines)
+        self.assertIn("修正前のテスト: 緑", self.gate_text(RED_ENGINE))
+
+    def test_baseline_red_shown_beside_final_red(self):
+        self.b.record["process"]["baseline_checks"] = {"status": "found", "count": 1}
+        lines = self.head_lines(RED_ENGINE)
+        self.assertTrue(any(x.startswith("修正前のテスト: 赤") for x in lines), lines)
+        self.assertIn("修正前のテスト: 赤", self.gate_text(RED_ENGINE))
+
+    def test_baseline_missing_is_said_missing(self):
+        self.b.record.get("process", {}).pop("baseline_checks", None)
+        lines = self.head_lines(RED_ENGINE)
+        self.assertTrue(any(x.startswith("修正前のテスト: 記録が無い") for x in lines), lines)
+        self.assertIn("修正前のテスト: 記録が無い", self.gate_text(RED_ENGINE))
+
+    def test_baseline_clean_does_not_blame_the_fix(self):
+        """修正前の CI と最後のテストは同じ一式とは限らない: 緑でも「修正の後に出た」と言い切らない"""
+        self.b.record["process"]["baseline_checks"] = {"status": "clean", "checked": "pytest"}
+        line = entry.baseline_line(self.b)
+        self.assertIn("修正の後に出た赤でありうる", line)
+        self.assertIn("同じ一式とは限らない", line)
+        self.assertIn("走らせた物 pytest", line)
+        self.assertNotIn("その赤は修正の後に出た", line)
+
+    def test_baseline_other_status_named_plainly(self):
+        """clean・found 以外を「走らせなかった」にまとめない: 状態ごとの平易な名（gatemarks.MATERIAL_WORDS）"""
+        for status in ("carried_over", "awaiting_human", "not_run", "not_applicable"):
+            self.b.record["process"]["baseline_checks"] = {"status": status, "reason": "r"}
+            line = entry.baseline_line(self.b)
+            self.assertTrue(line.startswith(f"修正前のテスト: {gatemarks.MATERIAL_WORDS[status]}（"), line)
+            self.assertIn(f"status {status}", line)
+        self.assertNotEqual(gatemarks.MATERIAL_WORDS["carried_over"], gatemarks.MATERIAL_WORDS["awaiting_human"])
+
+    def test_baseline_broken_record_not_said_missing(self):
+        for broken in ("clean", {"count": 1}, None, {"status": ["clean"]}, {"status": {"s": 1}}, {"status": 1}):
+            self.b.record["process"]["baseline_checks"] = broken
+            line = entry.baseline_line(self.b)
+            self.assertTrue(line.startswith("修正前のテスト: 記録が壊れている"), line)
 
 
 def node_done(step, cost):

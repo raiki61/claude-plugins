@@ -108,6 +108,9 @@ EYES = {"R1": "直しが最小か・注記が正しいかを見る目", "R2": "�
 REVIEW_WORDS = {"pass": "通った", "redesign-needed": "作り直しが要る", "unverifiable": "確かめられない",
                 "premise-invalid": "前提が崩れている", "carried_over": "前の周から持ち越した", "not_applicable": "当てはまらない",
                 "not_run": "走っていない"}
+# 素材の状態の語（写しの graph の material.status の enum）→ 平易な言い方。目の判定と共通の語は REVIEW_WORDS から引く
+MATERIAL_WORDS = {"found": "赤", "clean": "緑", "awaiting_human": "走らせられず人に諮った",
+                  **{k: REVIEW_WORDS[k] for k in ("carried_over", "not_applicable", "not_run")}}
 HANDLED_WORDS = {"fixed": "直した", "declared": "直さずに残すと申告した"}   # 手直しの行の handled の語（写しの graph の enum）
 # 独立の目のブロックが Archon の節が落ちた筋とその文を置く作業ファイル（入口の周の箱 r<N>/。書き手は blk-eyes の route・collect、
 # 読み手は fell_lanes）。ブロックとラインが名前を写し合わないよう、正本はここ

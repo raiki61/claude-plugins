@@ -616,6 +616,36 @@ class P4Case(unittest.TestCase):
         self.assertEqual(after.record["materials"]["local_checks"]["status"], "clean")
         self.assertFalse(pathlib.Path(snap["copy_dir"]).exists())
 
+    def test_baseline_green_kept_apart_from_final_red(self):
+        """修正前が緑で最後のテストが赤（run-140 の形）: p4.ci の後も process.baseline_checks は修正前の値のまま残り、
+        materials.local_checks だけが赤になる。報告の冒頭と最後の関所は 2 つを並べて出す"""
+        import report
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge
+        b = self.case.mode_board(decl=None)
+        self.assertEqual(b.record["process"]["baseline_checks"]["status"], "clean", "手本の盤面の修正前は緑")
+        repo = self.case.repo(b)
+        self.assertEqual(entry.run_ci(b, "p4.ci", test_cmd="")["by"], "role_needed")
+        tests = {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"}   # blk-tests の final の出口
+        ci_role.snapshot(b.dir, "p4.ci", repo)
+        ci_role.prep(b.dir, "p4.ci", repo)
+        fenced_row(repo)
+        reply = {"material": {"status": "found", "count": 1, "detail": "写しの上で走らせた: exit 1"}}
+        self.assertTrue(ci_role.take(b.dir, "p4.ci", reply, repo, "")["ok"])
+        self.assertEqual(ci_role.collect(b.dir, "p4.ci", "")["status"], "found")
+        after = entry.open_board(b.dir, allow_halted=True)
+        self.assertEqual(after.record["process"]["baseline_checks"]["status"], "clean")
+        self.assertEqual(after.record["materials"]["local_checks"]["status"], "found")
+        with mock.patch.object(report, "_stop_info", return_value=("", "", None)), \
+                mock.patch.object(report, "_latest", return_value=None), \
+                mock.patch.object(report, "_pr_lines", return_value=[]):
+            head = report.head_decisions(after, {}, tests=tests)
+        self.assertTrue(any(x.startswith("最後のテストが赤") for x in head), head)
+        self.assertTrue(any(x.startswith("修正前のテスト: 緑") for x in head), head)
+        gate = line_edge._final_text(after, line_edge._tests_head(after, tests), tests, "", ([], []), repo, "run-1")
+        self.assertIn("テストは赤", gate)
+        self.assertIn("修正前のテスト: 緑", gate)
+
 
 if __name__ == "__main__":
     unittest.main()
