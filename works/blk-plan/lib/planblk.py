@@ -5,7 +5,8 @@
 控え（core の structmark）から構造の目の行か、行なしで計画した印を貼る（独立設計の役には渡さない）。
 
 - snap:     役を起こす前の作業ツリーの写し（accept.tree_state。R47）を今の周の <役>-snapshot.json に置き、節が待っているか
-            （go）を返す。待っていなければ（判定が直す物を出さなかった・修正案が諦めた）輪を飛ばす
+            （go）を返す。待っていなければ（判定が直す物を出さなかった・修正案が諦めた）輪を飛ばす。修正案は、必ず入れるのに
+            開いていない単位が在れば（stuck_reason。案の形では閉じない）盤面を止めて（by works:plan）輪を飛ばす
 - prep:     rolekit.render_prompt で本線の指示書を描き（頭に役の定義と、並行 PR の外した範囲のパス）、番号の控え（pointer_rows）を
             付けて起こした印（mark_launched）を置く。拒否の後の出し直しは、頭の 1 行が前の拒否の理由のファイルを名指す（R44）
 - accept:   rolekit.main_accept（take が狭めない案の欄を欠く narrows の行を拒み、関所の項目の決め手の欄を外して盤面に置き（gatemarks）、entry.take・読むだけの役の作業ツリーの比べ・3 回目の拒否で done・give_up。R50）
@@ -50,6 +51,9 @@ EXCLUDED_HEAD = "並行 PR の範囲。触らず、単位に入れない"
 NO_NARROW_REJECT = (f"narrows の行に狭めない案を探した結果（{gatemarks.NO_NARROW}）が無いか短い（直して done し直す）。狭めを避ける形が"
                     "在ればそれを案に採ってその行を消し、無い時だけ、どの形を当たりなぜ採れないかを書け:")
 NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit・info・defer など。受け付けが受けない）。案から外し、入れてよい no は頭の節に在る:"
+PLAN_STUCK = "修正案の行き止まり: 必ず案に入れる単位が開いていない"
+STUCK_WHY = ("受け付けの写しは開いていない単位を受けず、義務からも外さないので、案の形では閉じない。人が関所で問いの答えを直すか、"
+             "単位を開く")
 PLAN_SLOTS_HEAD = ("## 案に入れてよい単位の no（機械が受け付けと同じ述語から作った。下の本文の『今の周に直す単位』の見出しと、"
                    "one_shot_closes に載る単位より、この節が優先する）")
 DESIGN_HEAD = "## 独立設計（修正案を見ない別の目が、目的と実測した制約・人の関所の答え・依頼が名指した設計書の節から作った理想解。機械が貼った）"
@@ -136,17 +140,33 @@ def plan_slots_section(b) -> str:
     no = {k: i + 1 for i, k in enumerate(names)}
     must = sorted(no[k] for k in owed if k in no)
     may = sorted(no[k] for k in opened - owed if k in no)
-    stuck = sorted(no[k] for k in owed - opened if k in no)
     shut = [f"no {no[k]}（label={u.get('label')}・disposition={u.get('disposition', '無し')}）"
             for k, u in units.items() if k not in opened and k not in owed and k in no]
-    if not shut and not stuck:   # 本文の一覧が受け付けの集合と同じ（全部入れてよい）なら貼らない
+    if not shut:   # 本文の一覧が受け付けの集合と同じ（全部入れてよい）なら貼らない。行き止まりの盤面は役を起こす前に止める（halt_if_stuck）
         return ""
-    text = (f"{PLAN_SLOTS_HEAD}\n\n- 必ず案に入れる no: {must}\n- 入れてもよい no（人の答え待ちの問いの出どころ・depends。入れなくてもよい）: {may}\n"
+    return (f"{PLAN_SLOTS_HEAD}\n\n- 必ず案に入れる no: {must}\n- 入れてもよい no（人の答え待ちの問いの出どころ・depends。入れなくてもよい）: {may}\n"
             f"- 入れてはいけない no（受け付けが拒む）: {'、'.join(shut) or '無し'}")
-    if stuck:
-        text += (f"\n- 必ず入れる no のうち開いていない単位（関所で答えた問いの出どころ。受け付けの写しの食い違いで、入れても入れなくても"
-                 f"拒まれうる）: {stuck}——入れて、拒まれたら理由をそのまま返せ")
-    return text
+
+
+def stuck_reason(b) -> str:
+    """必ず入れるのに開いていない単位（関所で答えた問いの出どころが defer など。plan_slots の 必ず入れる − 入れてよい）が在れば、
+    盤面を止める理由（PLAN_STUCK・その単位の no と key・STUCK_WHY）。無ければ空。写しの受け付けはこの単位を入れても外しても拒むので、
+    役を起こすと同じ拒否を 3 回繰り返して止まる"""
+    owed, opened, _ = plan_slots(b)
+    stuck = sorted(owed - opened)
+    if not stuck:
+        return ""
+    names = _names(b, NODE_OF["plan"])
+    items = "・".join(f"no {names.index(k) + 1}（{k}）" if k in names else f"no の一覧に無い単位（{k}）" for k in stuck)
+    return f"{PLAN_STUCK}: {items}。{STUCK_WHY}"
+
+
+def halt_if_stuck(b) -> str:
+    """行き止まりの単位が在れば盤面を止めて（by works:plan。もう止まっていれば止め直さない）理由を返す。無ければ空"""
+    why = stuck_reason(b)
+    if why and not (b.state.get("halted") or b.state.get("stop")):
+        b.stop(why, by=STOP_BY)
+    return why
 
 
 def not_allowed(b, nid: str, reply) -> list[str]:
@@ -191,13 +211,15 @@ def lib_section(b, repo) -> str:
 
 # ---------------------------------------------------------------- 節
 def snap(board_dir, role: str, repo) -> dict:
-    """<役>-snap: 節が待っていれば作業ツリーの写しを置いて go: true。待っていなければ写しを置かずに go: false。
-    独立設計の役は core の design.snap（起こすかは design.due）"""
+    """<役>-snap: 節が待っていれば作業ツリーの写しを置いて go: true。待っていなければ写しを置かずに go: false。修正案の
+    行き止まりの盤面（stuck_reason）は止めて go: false。独立設計の役は core の design.snap（起こすかは design.due）"""
     if role == DESIGN_ROLE:
         return design.snap(board_dir, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
     if _pending(b, nid) is None:
+        return {"ok": True, "go": False, "snapshot_file": ""}
+    if role == "plan" and halt_if_stuck(b):   # 行き止まりの盤面は止めて輪を飛ばす（役を起こさない）
         return {"ok": True, "go": False, "snapshot_file": ""}
     p = entry.snapshot(pathlib.Path(board_dir), snapshot_name(role), pathlib.Path(repo))
     return {"ok": True, "go": True, "snapshot_file": str(p)}
@@ -211,6 +233,10 @@ def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
         return design.prep(board_dir, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
+    if role == "plan":
+        why = halt_if_stuck(b)
+        if why:   # snap が先に止めて輪を飛ばすので、ここに届くのは配線の誤り。指示書を書かずに 2 で落とす（役を起こさせない）
+            raise BoardGap(why)
     part = design_section(b) if role == "plan-review" else "\n\n".join(x for x in (structmark.plan_section(b.dir), plan_slots_section(b)) if x)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
     ptrs = b.pointer_rows(nid)["pointers"]
