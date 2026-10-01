@@ -28,7 +28,7 @@ row = {
     "stdin": data,
     "cwd": os.getcwd(),
     "pid": os.getpid(),
-    "env": {k: v for k, v in os.environ.items() if k.startswith(("WORKS_", "CLAUDE_")) or k == "PATH"},
+    "env": {k: v for k, v in os.environ.items() if k.startswith(("WORKS_", "CLAUDE_")) or k in ("PATH", "UV_CACHE_DIR")},
 }
 if os.environ.get("FAKE_CLAUDE_READ"):
     try:

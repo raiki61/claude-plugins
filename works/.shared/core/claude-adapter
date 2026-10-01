@@ -86,10 +86,20 @@ def run(home_dir, cwd, real, p, on_line=None):
     return rc
 
 
-def protected(cwd, home_dir):
+def ticket_reader(cwd, home_dir):
+    """切符を 1 回だけ読む関数（protected と run_place が同じ読みを使う。入口を 2 つにしない）"""
+    cache = []
+    def read():
+        if not cache:
+            cache.append(adapter.read_ticket(cwd, home_dir))
+        return cache[0]
+    return read
+
+
+def protected(cwd, home_dir, read=None):
     """守る場所。切符が無ければ None（柵を足さない。線の start が切符を書く前の起動・線の外の起動。旗 no-tree-write の
     起動は plan が拒む）。切符のファイルが在るのに読めなければ adapter.BadTicket（plan が起動を拒む）"""
-    doc = adapter.read_ticket(cwd, home_dir)
+    doc = (read or (lambda: adapter.read_ticket(cwd, home_dir)))()
     if doc is None:
         return None
     return adapter.protected_now(doc, cwd, os.environ, adapter.live_worktrees(cwd))
@@ -118,8 +128,10 @@ def main():
         say(f"{adapter.ENV_HOME} が絶対パスでない（{home_dir}）。役の sandbox から書けない場所の絶対パスを設定する")
         return 2
     sink = adapter.reads_dir(cwd, home_dir)
+    read = ticket_reader(cwd, home_dir)
     p = adapter.plan(argv, cwd, home_dir, adapter.hook_command(sys.executable, RECORDER, sink),
-                     protected=lambda: protected(cwd, home_dir),
+                     protected=lambda: protected(cwd, home_dir, read),
+                     run_place=lambda: adapter.run_place_of(read()),
                      write_command=adapter.hook_command(sys.executable, WRITE_RECORDER, sink))
     if p.mode == "refused":
         log_launch(home_dir, cwd, p)

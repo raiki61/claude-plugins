@@ -1164,6 +1164,102 @@ class FenceCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(f"Write(/{self.board}/**)", self.settings()["permissions"]["deny"])
 
+    # --- 17. run ごとの書ける置き場（Bash を持つ役の sandbox） ---
+    def place(self):
+        return str(self.board.parent / adapter.RUN_PLACE_NAME)
+
+    def assert_untouched(self, argv, **env_over):
+        """道具ゼロ・/・網を閉じた・切符なしの起動: sandbox の鍵は SDK のまま（足すのは柵だけ）で、子の env も向け直さない"""
+        r = self.e.run(argv, **env_over)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        aw = self.settings()["sandbox"]["filesystem"].get("allowWrite", [])
+        self.assertNotIn(self.place(), aw)
+        env = self.e.child()["env"]
+        self.assertNotIn("WORKS_RUN_PLACE", env)
+        self.assertNotIn("UV_CACHE_DIR", env)
+        self.assertNotIn("run_place", self.e.launches()[-1]["fence"])
+
+    def test_bash_role_gets_run_place_after_sdk_items(self):
+        sdk = json.loads(net_settings(None))
+        sdk["sandbox"]["filesystem"] = {"allowWrite": ["/sdk-item"]}
+        r = self.e.run(sdk_argv("works-node: fix", settings=json.dumps(sdk), tools="Bash,Read,Edit"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = self.settings()
+        self.assertEqual(s["sandbox"]["filesystem"]["allowWrite"], ["/sdk-item"] + adapter.spellings(self.place()))
+        self.assertTrue(pathlib.Path(self.place(), "uv-cache").is_dir())
+        env = self.e.child()["env"]
+        self.assertEqual(env["WORKS_RUN_PLACE"], self.place())
+        self.assertEqual(env["UV_CACHE_DIR"], self.place() + "/uv-cache")
+        self.assertEqual(self.e.launches()[-1]["fence"]["run_place"], self.place())
+        with self.subTest("/private の別名の綴り"):
+            self.assertIn(hermetic.alias(self, self.place()), s["sandbox"]["filesystem"]["allowWrite"])
+        # SDK の sandbox のほかの鍵は一字も変わらない
+        for k, v in sdk["sandbox"].items():
+            if k != "filesystem":
+                self.assertEqual(s["sandbox"][k], v)
+        self.assertIn(str(self.board), s["sandbox"]["filesystem"]["denyWrite"])
+
+    def test_run_place_replaces_outer_uv_cache_dir_and_records_it(self):
+        self.e.run(sdk_argv("works-node: fix", tools="Bash"), UV_CACHE_DIR="/elsewhere/uv")
+        self.assertEqual(self.e.child()["env"]["UV_CACHE_DIR"], self.place() + "/uv-cache")
+        self.assertEqual(self.e.launches()[-1]["fence"]["run_place_replaced_env"], ["UV_CACHE_DIR"])
+
+    def test_run_place_untouched_without_bash_or_with_slash_or_closed_net_or_no_ticket(self):
+        with self.subTest("道具ゼロ"):
+            self.assert_untouched(sdk_argv("works-node: fix"))
+        with self.subTest("Bash の無い役"):
+            self.assert_untouched(sdk_argv("works-node: fix", tools="Read,Edit"))
+        with self.subTest("allowWrite に /"):
+            sdk = json.loads(SANDBOX)
+            sdk["sandbox"]["filesystem"] = {"allowWrite": ["/"]}
+            self.assert_untouched(sdk_argv("works-node: fix", settings=json.dumps(sdk), tools="Bash"))
+        with self.subTest("網を閉じた役"):
+            self.assert_untouched(sdk_argv("works-node: fix", settings=net_settings({"allowedDomains": []}), tools="Bash"))
+        with self.subTest("切符なし"):
+            adapter.ticket_path(self.e.cwd, self.e.home).unlink()
+            r = self.e.run(sdk_argv("works-node: fix", tools="Bash"))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("WORKS_RUN_PLACE", self.e.child()["env"])
+            self.assertNotIn("filesystem", self.settings()["sandbox"])
+            self.assertNotIn("run_place", self.e.launches()[-1]["fence"])
+
+    def test_run_place_refused_when_ticket_board_is_broken(self):
+        """切符の board が相対パス・文字列でないなら、「切符が無い」に化かさず理由つきで起こさない"""
+        t = adapter.ticket_path(self.e.cwd, self.e.home)
+        for bad in ("relative/board", 7):
+            with self.subTest(bad):
+                doc = json.loads(t.read_text(encoding="utf-8"))
+                doc["board"] = bad
+                t.write_text(json.dumps(doc), encoding="utf-8")
+                r = self.e.run(sdk_argv("works-node: fix", tools="Bash"))
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIn("切符の board", r.stderr)
+
+    def test_run_place_skipped_when_it_overlaps_protected_or_worktree(self):
+        """置き場が守る場所か役の worktree に掛かる（board が worktree の中）なら足さず、理由を記録に残す"""
+        t = adapter.ticket_path(self.e.cwd, self.e.home)
+        doc = json.loads(t.read_text(encoding="utf-8"))
+        doc["board"] = str(self.e.cwd / "board")
+        t.write_text(json.dumps(doc), encoding="utf-8")
+        r = self.e.run(sdk_argv("works-node: fix", tools="Bash"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("WORKS_RUN_PLACE", self.e.child()["env"])
+        self.assertIn("skipped", self.e.launches()[-1]["fence"]["run_place"])
+        self.assertNotIn("allowWrite", self.settings()["sandbox"].get("filesystem", {}))
+
+    def test_run_place_refused_when_not_creatable(self):
+        """置き場を作れない起動は起こさない（作れない親の下で uv と試験が同じ EPERM に落ちるのを黙って通さない）"""
+        (self.board.parent / adapter.RUN_PLACE_NAME).write_text("file", encoding="utf-8")
+        r = self.e.run(sdk_argv("works-node: fix", tools="Bash"))
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("置き場", r.stderr)
+        self.assertIsNone(self.e.child())
+
+    def test_run_place_env_name_matches_linekit(self):
+        """linekit.work_home が読む env の名は adapter の RUN_PLACE_ENV と同じ（字を写しているので 1 か所の照合で縛る）"""
+        import linekit
+        self.assertIn(linekit.RUN_PLACE_ENV, adapter.RUN_PLACE_ENV)
+
 
 def net_settings(network, **sandbox):
     """sandbox の塊に network を持つ --settings の本文（Archon の YAML の sandbox を SDK がそのまま渡す形）"""

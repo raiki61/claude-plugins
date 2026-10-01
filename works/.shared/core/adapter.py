@@ -116,6 +116,15 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    output_contract に落とし、Archon は起こし直さない（run 43・54）。0 でない終了は transient として Archon が上限まで
    起こし直す。result の行は届いた時に決め、手が進んだ起動の result はすぐ写す。写さなかった result は全文を包みの終わりの
    記録 `exits/<key>.jsonl`（claude-adapter の write_exit）に残す
+17. **run ごとの書ける置き場**（印のある起動で、`--tools` に Bash・sandbox が enabled・allowWrite に `/` が無い・網を閉じていない・
+   切符が在る時だけ）: 役の sandbox が書けるのは cwd と利用者ごとの TMPDIR だけ（Claude Code の既定）で、dev の殻が置く
+   uv のキャッシュ（XDG_CACHE_HOME の下）と試験の置き場（linekit.work_home）はその外なので、Bash の役は Operation not
+   permitted になる。切符の board の隣 `<board の親>/run-place`（RUN_PLACE_NAME。run ごと。包みが作る）の全部の綴りを
+   `sandbox.filesystem.allowWrite` の SDK の項目の後ろに足し（denyWrite が勝つので柵は残る）、子の env に RUN_PLACE_ENV
+   （UV_CACHE_DIR・WORKS_RUN_PLACE）を立てる。置き場が役の worktree か守る場所に掛かる（同じ・祖先・子孫）なら足さずに
+   fence.run_place.skipped に理由を残し、作れなければ起こさない。TMPDIR は Claude Code が sandbox の中で書ける一時フォルダへ
+   向けるので向けず、WORKS_DEV_HOME・XDG_CACHE_HOME は run をまたぐ共有の置き場なので向けない。allowWrite に `/` が在る
+   起動（任せ先）・道具ゼロ・Bash の無い役・網を閉じた役・切符の無い起動は sandbox も env も変えない
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
 変えない（stdin も中継しない。stdout は 16 のとおり同じバイトで写す）。見分けられない形
@@ -179,6 +188,8 @@ REPO_SETTINGS = (pathlib.Path(".claude") / "settings.json", pathlib.Path(".claud
 # 本流 graphloops/engine/role_run.ENGINE_CHILD_ENV と同じ名（対象の入口が既にこの名を読むので、読む側を 2 つにしない）
 ENGINE_CHILD_ENV = "GRAPHLOOPS_ENGINE_CHILD"
 NO_BG_ENV = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"   # Claude Code の背景の作業を切る（15 の後半）
+RUN_PLACE_NAME = "run-place"   # 切符の board の隣（run ごとの置き場。17）
+RUN_PLACE_ENV = {"UV_CACHE_DIR": "uv-cache", "WORKS_RUN_PLACE": ""}   # 子の env 名 → 置き場の下の相対（"" は置き場そのもの）。向け直す物はここだけ
 # 印 no-post（読むだけの役）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
 # 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
 # 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
@@ -537,9 +548,66 @@ def strict_network(argv: List[str]) -> Tuple[List[str], Optional[bool]]:
     return _put_settings(argv, found[0], doc), True
 
 
+def _overlaps(a: str, b: str) -> bool:
+    """a と b が同じ・祖先・子孫か（全部の綴りで比べる）"""
+    for x in spellings(a):
+        for y in spellings(b):
+            if x == y or x.startswith(y.rstrip("/") + "/") or y.startswith(x.rstrip("/") + "/"):
+                return True
+    return False
+
+
+def run_place_of(ticket_doc: Optional[dict]) -> Optional[str]:
+    """17. 切符の board の隣の run ごとの置き場（<board の親>/run-place）。切符が無ければ None。切符の board が絶対パスの文字列でなければ
+    BadTicket（壊れた切符の理由を「切符が無い」に化かさず、起動を拒ませる）"""
+    if ticket_doc is None:
+        return None
+    board = ticket_doc.get("board")
+    if not isinstance(board, str) or not os.path.isabs(board):
+        raise BadTicket(f"切符の board が絶対パスの文字列でない（{board!r}）")
+    return os.path.join(os.path.dirname(os.path.normpath(board)), RUN_PLACE_NAME)
+
+
+def with_run_place(doc: dict, tools: set, board_place: Optional[str], strict: Optional[bool], keep_out: Sequence[str]) \
+        -> Tuple[Optional[str], Optional[str]]:
+    """17. 対象の起動（Bash を持つ・sandbox が enabled・allowWrite に `/` が無い・網を閉じていない）なら、置き場の全部の綴りを
+    doc の sandbox.filesystem.allowWrite の後ろに足し、置き場とその下の道具の置き場を作る。(足した置き場, 足さなかった理由)
+    を返す（対象外は (None, None)。足せない対象は理由つき）。keep_out は置き場が掛かってはいけない所（役の worktree・守る場所）。
+    作れなければ Unrecognised（呼び手は起動を拒む）"""
+    sandbox = doc.get("sandbox")
+    if "Bash" not in tools or not isinstance(sandbox, dict) or sandbox.get("enabled") is not True or strict is True:
+        return None, None
+    fs = sandbox.get("filesystem")
+    if fs is not None and not isinstance(fs, dict):
+        raise Unrecognised("--settings の sandbox.filesystem が object でない")
+    aw = (fs or {}).get("allowWrite", [])
+    if not isinstance(aw, list):
+        raise Unrecognised("--settings の sandbox.filesystem.allowWrite が配列でない")
+    if "/" in aw:
+        return None, None
+    if board_place is None:   # 切符が無い起動は sandbox も env も変えず、記録にも残さない（17）
+        return None, None
+    for k in keep_out:
+        if _overlaps(board_place, k):
+            return None, f"置き場が守る場所か役の worktree に掛かる（{k}）"
+    try:
+        for rel in RUN_PLACE_ENV.values():
+            os.makedirs(os.path.join(board_place, rel), mode=0o700, exist_ok=True)
+    except OSError as e:
+        raise Unrecognised(f"run ごとの置き場を作れない（{board_place}: {e}）") from None
+    fs = sandbox.setdefault("filesystem", {})
+    allow = fs.setdefault("allowWrite", [])
+    for p in spellings(board_place):
+        if p not in allow:
+            allow.append(p)
+    return board_place, None
+
+
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
                no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None,
-               repo: Sequence[str] = ()) -> Tuple[List[str], dict]:
+               repo: Sequence[str] = (), place: Optional[Tuple[Optional[str], Optional[bool], Sequence[str]]] = None
+               ) -> Tuple[List[str], dict]:
+    """place は 17 の (board の隣の置き場, strict_network の値, 置き場が掛かってはいけない所)。省けば足さない"""
     found = find_opt(argv, "--settings")
     if len(found) > 1:
         raise Unrecognised("--settings が 2 つ以上")
@@ -547,6 +615,12 @@ def _with_hook(argv: List[str], command: str, protected: Sequence[str],
     doc = merge_settings(_load_settings(found[0][2]), ours) if found else ours
     n_write, n_deny = add_fences(doc, protected) if protected else (0, 0)
     fence = {"deny_write": n_write, "permissions_deny": n_deny}
+    if place is not None:
+        added, skipped = with_run_place(doc, _tools(argv), *place)
+        if added:
+            fence["run_place"] = added
+        elif skipped:
+            fence["run_place"] = {"skipped": skipped}
     if repo:
         fence["repo_deny"] = add_deny(doc, repo)
     if no_post is not None:
@@ -821,9 +895,11 @@ def _inside_git(path: pathlib.Path) -> bool:
 
 def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
-         protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None) -> Plan:
-    """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書かない）。
+         protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None,
+         run_place: Optional[Callable[[], Optional[str]]] = None) -> Plan:
+    """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書くのは旗 isolated と 17 の置き場の mkdir）。
     protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
+    run_place は 17 の置き場（run_place_of の値。切符が無ければ None）を返す関数。protected と同じ切符の 1 回の読みを使う。
     write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。
     env は起動の env（no-post の起動で本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）。
     子の env の上書き（Plan.env）は印のある起動の全部に付く（15 の目印。no-post なら 5 の口も）"""
@@ -890,8 +966,10 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     try:
         places = protected() if protected else None
         own = _no_tree_write_places(argv, cwd, places is not None) if NO_TREE_WRITE in marker.flags else []
+        board_place = run_place() if run_place else None
         out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh,
-                                write_command, repo_deny(cwd))
+                                write_command, repo_deny(cwd),
+                                (board_place, strict, list(places or []) + [os.path.abspath(str(cwd))]) if run_place else None)
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     if own:
@@ -918,6 +996,11 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         except Unrecognised as e:
             return _refuse(argv, node, cont, tools_empty, f"検索語の規律を足せない（{e}）")
     child_env = {**(no_post_env(env, gh) if gh is not None else {}), ENGINE_CHILD_ENV: "1", NO_BG_ENV: "1"}
+    if isinstance(fence.get("run_place"), str):   # 17。外から立っていた値は置き場の物に替わる（替えた名を記録に残す）
+        child_env.update({k: os.path.join(fence["run_place"], rel).rstrip("/") for k, rel in RUN_PLACE_ENV.items()})
+        replaced = sorted(k for k in RUN_PLACE_ENV if env.get(k) and env[k] != child_env[k])
+        if replaced:
+            fence["run_place_replaced_env"] = replaced
     return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env,
                 strict_net=strict, cwd=child_cwd)
 

@@ -390,18 +390,36 @@ class LinekitCase(unittest.TestCase):
             self.assertIn("error", engine_declared.read(broken))
 
     def test_reply_and_home(self):
-        self.assertIsInstance(linekit.reply("judge_ok"), dict)
-        self.assertTrue(str(linekit.work_home()).endswith("/single"))
-        self.assertFalse(str(linekit.work_home().resolve()).startswith("/private/tmp/claude-"))
+        with mock.patch.dict("os.environ"):   # 包みが Bash の役に立てる WORKS_RUN_PLACE が漏れても、この試験は WORKS_DEV_HOME の側を見る
+            os.environ.pop("WORKS_RUN_PLACE", None)
+            self.assertIsInstance(linekit.reply("judge_ok"), dict)
+            self.assertTrue(str(linekit.work_home()).endswith("/single"))
+            self.assertFalse(str(linekit.work_home().resolve()).startswith("/private/tmp/claude-"))
 
     def test_work_home_refuses_claude_tmp(self):
         """WORKS_DEV_HOME が Claude Code の一時フォルダの下なら、作る前に BoardGap（1 行）"""
         for base in ("/private/tmp/claude-works-test-0/home", "/tmp/claude-works-test-0/home"):
             with self.subTest(base), mock.patch.dict("os.environ", {"WORKS_DEV_HOME": base}):
+                os.environ.pop("WORKS_RUN_PLACE", None)   # 外の WORKS_RUN_PLACE が WORKS_DEV_HOME より先に解けないように
                 with self.assertRaises(BoardGap) as cm:
                     linekit.work_home()
                 self.assertNotIn("\n", str(cm.exception))
                 self.assertFalse(pathlib.Path(base).exists())
+
+    def test_work_home_follows_run_place(self):
+        """env の WORKS_RUN_PLACE が在れば、置き場は <それ>/single（WORKS_DEV_HOME より先）。sandbox の役が書ける場所へ向ける細い口"""
+        env = {"WORKS_RUN_PLACE": "/works-run-place-test", "WORKS_DEV_HOME": "/works-dev-home-test"}
+        with mock.patch.dict("os.environ", env), mock.patch.object(pathlib.Path, "mkdir"):
+            self.assertEqual(linekit.work_home(), pathlib.Path("/works-run-place-test/single").resolve())
+
+    def test_work_home_refuses_claude_tmp_run_place(self):
+        """WORKS_RUN_PLACE も Claude Code の一時フォルダの下なら、作る前に BoardGap（WORKS_DEV_HOME と同じ拒み）"""
+        for base in ("/private/tmp/claude-works-test-1/place", "/tmp/claude-works-test-1/place"):
+            env = {"WORKS_RUN_PLACE": base, "WORKS_DEV_HOME": "/works-dev-home-test"}
+            with self.subTest(base), mock.patch.dict("os.environ", env), mock.patch.object(pathlib.Path, "mkdir"):
+                with self.assertRaises(BoardGap) as cm:
+                    linekit.work_home()
+                self.assertNotIn("\n", str(cm.exception))
 
 
 

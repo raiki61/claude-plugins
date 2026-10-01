@@ -3,7 +3,7 @@
 - seed_repo: dev/target-seed/ を写した使い捨ての git リポジトリ（初めの commit つき。名前と時刻は固定）
 - reply:     tests/replies/<名>.json の役の返答の見本
 - git_env:   名前と時刻を固定した git の環境
-- work_home: 使い捨ての物を置く家（${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/single/。Claude Code の一時フォルダの下に置かない）
+- work_home: 使い捨ての物を置く家（${WORKS_RUN_PLACE:-${WORKS_DEV_HOME:-$HOME/.cache/works-dev}}/single/。Claude Code の一時フォルダの下に置かない）
 """
 import json
 import os
@@ -135,20 +135,24 @@ def lens_plugin(into) -> dict:
     return {"PR_REVIEW_TOOLKIT_ROOT": str(root)}
 
 
+RUN_PLACE_ENV = "WORKS_RUN_PLACE"   # 包みが Bash を持つ役の子に立てる名（adapter.RUN_PLACE_ENV。test_adapter が照合する）
 CLAUDE_TMP = ("/private/tmp/claude-", "/tmp/claude-")   # Claude Code の一時フォルダ（dev/guard.sh と同じ決まり）
 
 
 def work_home() -> pathlib.Path:
-    """${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/single/ を解決した字で返す（作って返す）。盤面は解決した字を返すので、
-    解決しない字（macOS の /var → /private/var）を配ると relative_to と文字列比較が割れる。Claude Code の一時フォルダの下に
-    解決される置き場は、作る前に BoardGap で拒む（サンドボックスの Bash が書ける所に使い捨ての物を置かない）"""
+    """${WORKS_RUN_PLACE:-${WORKS_DEV_HOME:-$HOME/.cache/works-dev}}/single/ を解決した字で返す（作って返す）。WORKS_RUN_PLACE は
+    包みが Bash を持つ役の子に立てる run ごとの書ける置き場で、在れば WORKS_DEV_HOME より先に見る（sandbox の役が書ける所へ向ける
+    細い口）。盤面は解決した字を返すので、解決しない字（macOS の /var → /private/var）を配ると relative_to と文字列比較が割れる。
+    Claude Code の一時フォルダの下に解決される置き場は、どちらの根でも作る前に BoardGap で拒む
+    （サンドボックスの Bash が書ける所に使い捨ての物を置かない）"""
     from board import BoardGap   # 盤面の層の誤りの型（.shared/core を sys.path に足してある）
-    base = os.environ.get("WORKS_DEV_HOME") or str(pathlib.Path.home() / ".cache" / "works-dev")
+    name = RUN_PLACE_ENV if os.environ.get(RUN_PLACE_ENV) else "WORKS_DEV_HOME"
+    base = os.environ.get(name) or str(pathlib.Path.home() / ".cache" / "works-dev")
     given = pathlib.Path(base) / "single"
     home = given.resolve()
     for p in (str(given), str(home)):
         if p.startswith(CLAUDE_TMP):
-            raise BoardGap(f"work_home: {given} が Claude Code の一時フォルダの下にある（{home}）。WORKS_DEV_HOME を別の場所にする")
+            raise BoardGap(f"work_home: {given} が Claude Code の一時フォルダの下にある（{home}）。{name} を別の場所にする")
     home.mkdir(parents=True, exist_ok=True)
     # 盤面の置き場は受け付けが一度だけ resolve する（script_io.board_dir）。macOS の /var → /private/var のリンクの下でも
     # 試験が持つパスと受け付けが返すパスの綴りを揃える

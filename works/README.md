@@ -196,6 +196,7 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 - 模型は固定しないと黙って変わる。当初は `real-run.sh` だけが模型を設定に書いていたので、`archon.sh workflow run` を直に打つと Claude CLI の既定の模型（sonnet）で回った。今は `archon.sh` が認証を使う実行のたびに書く（開発の回し方の節）。
 - テストのコマンドが確かめるのは、渡した物だけ。ラインにはまだ全体を回す CI の節が無いので、迷ったら全体（`sh works/tests/run.sh`）を渡す。
 - サンドボックスの中の修正役は `tests/test_dev.py` を回せない。サンドボックスの TMPDIR は `/tmp/claude-*` の下で、`guard.sh` がそこを拒むため。修正役は環境のせいの赤を 10 件ほど報告するが、修正の良し悪しとは関係ない。
+- 包みは、Bash を持つ役（sandbox が enabled・allowWrite に `/` が無い・網を閉じていない・切符が在る）の起動にだけ、run ごとの置き場 `<切符の board の親>/run-place` を `sandbox.filesystem.allowWrite` に足し、子の env に `UV_CACHE_DIR`（`<置き場>/uv-cache`）と `WORKS_RUN_PLACE`（`<置き場>`。試験の `linekit.work_home` が `WORKS_DEV_HOME` より先に見て `<置き場>/single` を使う）を立てる。サンドボックスが既定で書ける場所は作業ツリーと `$TMPDIR` だけで、uv のキャッシュ（`XDG_CACHE_HOME` の下）と試験の置き場はその外だったため。`TMPDIR` は Claude Code が書ける一時フォルダへ向けるので向けず、`WORKS_DEV_HOME`・`XDG_CACHE_HOME` は run をまたぐ共有の置き場なので向けない。起動の記録の `fence.run_place` に足した置き場（足せなければ理由）が残る（`.shared/core/adapter.py` の頭の 17）。
 - 修正役は run の worktree に `__pycache__` などの git が無視するファイルを残すことがある。fix.diff には載らないが、テストの節の緑赤を左右した（自分食いの run で、バイトコードが無いことを見る試験が偽の赤になった）。今は blk-fix が修正役の前に git が無視するファイルを控え（節 `ignored-before`）、修正役の後、テストの前に、控えに無かった物だけを消す（節 `clean`。消した物の全件は盤面の `fix-removed.json` に書き、出口には件数とそのファイルを出す）。判定・審査の読むだけの検査（作業ツリーの写し）も、git が無視するファイルの増減・書き換えを見る。
 
 ## 足りない所
