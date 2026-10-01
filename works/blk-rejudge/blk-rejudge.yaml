@@ -95,6 +95,7 @@ nodes:
               already:
                 type: boolean
         - id: rejudge
+          effort: high   # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: rejudge
           depends_on: [rejudge-prep]
           context: fresh              # Archon には会話を継がせない。継ぐのは包み（印の continue=judge）
@@ -328,6 +329,7 @@ nodes:
               already:
                 type: boolean
         - id: rejudge-third
+          effort: high   # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: rejudge-third
           depends_on: [rejudge-third-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）

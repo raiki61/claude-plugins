@@ -1627,7 +1627,7 @@ class PromptVariantCase(unittest.TestCase):
         child, row = self.launch("works-node: judge", prompt)
         self.assertNotIn("prompt", row)
         self.assertEqual(set(row), {"at", "pid", "cwd", "node", "continue", "mode", "why", "hook", "tools_empty",
-                                    "session", "fence", "strict_net", "model"})
+                                    "session", "fence", "strict_net", "model", "effort"})
         self.assertEqual(child["read"], "そのままの指示書\n")
         after = os.stat(prompt)
         self.assertEqual((before.st_ino, before.st_mtime_ns), (after.st_ino, after.st_mtime_ns))

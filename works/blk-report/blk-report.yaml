@@ -160,6 +160,7 @@ nodes:
               already: {type: boolean}
         - id: report-cold
           model: sonnet               # 役 cold-reader の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+          effort: medium              # 役 cold-reader の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: report-cold
           depends_on: [report-cold-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
@@ -290,6 +291,7 @@ nodes:
               prompt: {type: string}
         - id: report-write-cold
           model: sonnet               # 役 cold-reader の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+          effort: medium              # 役 cold-reader の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           # 指示は commands/report-cold.md（初見の読み手の決まり）に書き手の頭を描いた本文を入れた物（支度が組む。写しを持たない）
           prompt: $report-write-cold-prep.output.prompt
           depends_on: [report-write, report-write-cold-prep]

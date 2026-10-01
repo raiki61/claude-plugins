@@ -137,6 +137,7 @@ nodes:
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: prior-decisions
         model: sonnet   # 役 investigator の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+        effort: medium  # 役 investigator の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: prior-decisions
         depends_on:
         - prior-decisions-prep
@@ -308,6 +309,7 @@ nodes:
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: purpose-review
         model: sonnet   # 役 inspector の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+        effort: medium  # 役 inspector の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: purpose-review
         depends_on:
         - purpose-review-prep
@@ -626,6 +628,7 @@ nodes:
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: consistency-bypass
         model: sonnet   # 役 inspector の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+        effort: medium  # 役 inspector の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: consistency-bypass
         depends_on:
         - consistency-bypass-prep
@@ -833,6 +836,7 @@ nodes:
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: hygiene
         model: sonnet   # 役 cold-reader の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+        effort: medium  # 役 cold-reader の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: hygiene
         depends_on:
         - hygiene-prep
@@ -958,6 +962,7 @@ nodes:
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: external-standards
         model: sonnet   # 役 investigator の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+        effort: medium  # 役 investigator の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: external-standards
         depends_on:
         - external-standards-prep
@@ -1159,6 +1164,7 @@ nodes:
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: procedure-trace
         model: sonnet   # 役 investigator の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+        effort: medium  # 役 investigator の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
         command: procedure-trace
         depends_on:
         - procedure-trace-prep

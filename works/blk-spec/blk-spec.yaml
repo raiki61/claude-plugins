@@ -192,6 +192,7 @@ nodes:
               node: {type: string}
               already: {type: boolean}
         - id: spec-review
+          effort: high   # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           command: spec-review
           depends_on: [review-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）

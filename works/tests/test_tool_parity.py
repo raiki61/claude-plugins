@@ -234,20 +234,14 @@ def model_mismatches(nodes: dict, roles: dict) -> list:
     return out
 
 
-# 段に effort: を書かねばならない段（書き忘れると前付けの effort が効かず既定で黙って走るので、欠けも咎める）
-EFFORT_STAGES = {("blk-structure", "structure-eye")}
-
-
-def effort_mismatches(nodes: dict, roles: dict, owed=EFFORT_STAGES) -> list:
-    """段の effort: が役の前付けの effort と食い違う段を名指す。owed の段は effort: の欠けも名指す。
-    役に引き当てられない段は model_mismatches が名指すので、ここでは見ない"""
+def effort_mismatches(nodes: dict, roles: dict) -> list:
+    """段の effort: が役の前付けの effort（無ければ None）と食い違う段を名指す。書き忘れると前付けの effort が効かず
+    既定で黙って走るので、欠けも名指す。役に引き当てられない段は model_mismatches が名指すので、ここでは見ない"""
     out = []
     for place, node in sorted(nodes.items()):
         if place not in roles:
             continue
         want, have = frontmatter_effort(roles[place]), node.get("effort")
-        if have is None and place not in owed:
-            continue
         if have != want:
             out.append(f"{place[0]} の段 {place[1]}（役 {roles[place]}）: effort: {have!r}（前付け {want!r}）")
     return out
@@ -265,7 +259,8 @@ def reverse_fence_hits(files) -> list:
 
 class RoleModelCase(unittest.TestCase):
     """Archon の段は役の前付けを読まない。前付けの model が PINNED に在る役の段だけ段の model: に同じ値を書き、
-    ほかの段と工程の頭には書かない（持ち主 2026-09-29）。段に effort: を書くなら前付けの effort と同じ値にする。
+    ほかの段と工程の頭には書かない（持ち主 2026-09-29）。effort は前付けに effort を持つ役の全部の段に同じ値を書き、
+    ほかの段と工程の頭には書かない。
     graph の節の delegate.model は本線の主のセッションが下請けを起こす時の模型で、正本に数えない（works の段は Archon が
     run_by の役として起こすので、役の前付けだけが正本）"""
 
@@ -279,26 +274,25 @@ class RoleModelCase(unittest.TestCase):
     def test_stage_effort_matches_role_frontmatter(self):
         self.assertEqual(effort_mismatches(self.nodes, self.roles), [])
 
-    def test_effort_stages_are_ai_stages(self):
-        self.assertEqual(sorted(EFFORT_STAGES - set(self.nodes)), [], "EFFORT_STAGES に AI の段でない名が在る")
-
     def test_effort_bad_examples_are_caught(self):
-        """前付けと違う effort: を書いた段・前付けに effort の無い役の段に effort: を書いた段・owed の段の欠けを 1 件ずつ名指す"""
-        judge = next(p for p in sorted(self.nodes) if self.roles.get(p) == "judge")
-        writer = next(p for p in sorted(self.nodes) if self.roles.get(p) == "writer")
-        good = {judge: dict(self.nodes[judge], effort=frontmatter_effort("judge"))}
-        self.assertEqual(effort_mismatches(good, self.roles), [])
-        self.assertEqual(effort_mismatches(good, self.roles, owed={judge}), [])
-        self.assertEqual(len(effort_mismatches({judge: dict(self.nodes[judge], effort="medium")}, self.roles)), 1)
-        self.assertEqual(len(effort_mismatches({writer: dict(self.nodes[writer], effort="high")}, self.roles)), 1)
-        bare = {judge: {k: v for k, v in self.nodes[judge].items() if k != "effort"}}
-        self.assertEqual(effort_mismatches(bare, self.roles), [])
-        self.assertEqual(len(effort_mismatches(bare, self.roles, owed={judge})), 1)
+        """前付けどおりに直した写しは 0 件。judge の段から effort: を抜く・medium に替える・writer の段に effort: を足すと 1 件ずつ名指す"""
+        fixed = {place: dict({k: v for k, v in n.items() if k != "effort"},
+                             **({"effort": w} if (w := frontmatter_effort(self.roles[place])) else {}))
+                 for place, n in self.nodes.items() if place in self.roles}
+        self.assertEqual(effort_mismatches(fixed, self.roles), [])
+        judge = next(p for p in sorted(fixed) if self.roles[p] == "judge")
+        writer = next(p for p in sorted(fixed) if self.roles[p] == "writer")
+        bare = {**fixed, judge: {k: v for k, v in fixed[judge].items() if k != "effort"}}
+        self.assertEqual(len(effort_mismatches(bare, self.roles)), 1)
+        self.assertEqual(len(effort_mismatches({**fixed, judge: dict(fixed[judge], effort="medium")}, self.roles)), 1)
+        self.assertEqual(len(effort_mismatches({**fixed, writer: dict(fixed[writer], effort="high")}, self.roles)), 1)
 
     def test_no_workflow_level_model(self):
         for p in workflow_files():
             with self.subTest(p.name):
-                self.assertNotIn("model", yaml.safe_load(p.read_text(encoding="utf-8")))
+                head = yaml.safe_load(p.read_text(encoding="utf-8"))
+                self.assertNotIn("model", head)
+                self.assertNotIn("effort", head)
 
     def test_bad_examples_are_caught(self):
         """前付けどおりに直した写しは 0 件。3 役の段から model: を抜く・judge の段に model: opus を足すと 1 件ずつ名指す"""
