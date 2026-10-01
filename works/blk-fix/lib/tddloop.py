@@ -223,23 +223,25 @@ def _open_units(raw: str) -> list:
     return keys
 
 
-def _excused(board_dir: pathlib.Path) -> dict:
-    """直す義務から外れた単位 {key: 理由}（conflict.excused_units。答え待ちの fork・escalate の出どころ・ask_human）。
-    盤面の無い置き場（state.json が無い）は空。在るのに読めなければ Broken（開いた単位のまま黙って続けない）"""
+def _duty(board_dir: pathlib.Path):
+    """(直す義務 owed か None, 直す義務から外れた単位 {key: 理由})（conflict.fix_duty。受け付けと同じ 1 つの集合）。盤面の無い
+    置き場（state.json が無い）は (None, {})。在るのに読めなければ Broken（開いた単位のまま黙って続けない）"""
     try:
         b = entry.open_board(board_dir, allow_halted=True)
     except Exception as e:
         if (board_dir / "state.json").exists():
-            raise Broken(f"盤面 {board_dir} が開けず、直す義務から外れた単位が読めない: {e}") from None
-        return {}
+            raise Broken(f"盤面 {board_dir} が開けず、直す義務が読めない: {e}") from None
+        return None, {}
     try:
-        return dict(conflict.excused_units(b))
+        owed, excused = conflict.fix_duty(b)
+        return set(owed), dict(excused)
     except Exception as e:
-        raise Broken(f"盤面 {board_dir} の直す義務から外れた単位が読めない: {e}") from None
+        raise Broken(f"盤面 {board_dir} の直す義務が読めない: {e}") from None
 
 
 def _owed(st) -> list:
-    """TDD の直す義務: 開いた単位から、外れた単位（excused）と食い違いで止めた単位（parked）を除いた物"""
+    """TDD の直す義務: start が conflict.fix_duty から組んだ単位（open_units）から、外れた単位（excused）と食い違いで止めた
+    単位（parked）を除いた物"""
     out = set(st.get("excused", {})) | set(st.get("parked", []))
     return [k for k in st["open_units"] if k not in out]
 
@@ -268,7 +270,10 @@ def start(board_dir, repo, suite: str, open_units: str) -> dict:
     if not exe.is_file() or not (suite.endswith(".py") or os.access(exe, os.X_OK)):
         return {**off, "reason": f"テストの実行器 {suite} が無いか実行できない——全部の単位を今どおり直す"}
     board_dir = pathlib.Path(board_dir)
-    excused = {k: why for k, why in _excused(board_dir).items() if k in keys}
+    owed, excused = _duty(board_dir)
+    if owed is not None:   # 振り分ける義務は受け付けと同じ fix_duty の owed（渡された is_open の並びに、関所で答えて戻った単位を足す）
+        keys = [k for k in keys if k in owed or k in excused] + sorted(owed - set(keys))   # is_open の並び順を保つ
+    excused = {k: why for k, why in excused.items() if k in keys}
     board_dir.mkdir(parents=True, exist_ok=True)
     k = 1
     while (board_dir / f"tdd-{k}").exists():
@@ -341,7 +346,7 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
               "自分で回す時も同じ形で足せる。", "",
               "## 返す JSON", "", RETURN[phase], "", RETURN_CONFLICT]
     vals = {**{k: "" for k in fixrules.TDD_VALUES}, **(values or {}),
-            "open_units": json.dumps(st["open_units"], ensure_ascii=False)}
+            "open_units": json.dumps(_owed(st), ensure_ascii=False)}
     path = pathlib.Path(st["work"]) / PROMPT
     n = st["iterations"] + 1
     lang = fixrules.lang_at(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>

@@ -321,6 +321,18 @@ def last_reject(board_dir) -> str:
     return str(got[-1]) if got else ""
 
 
+def owed_values(b, values: dict) -> dict:
+    """指示書に埋める値の open_units を、受け付けと同じ conflict.fix_duty の owed に替えた物（判定の出口の is_open の並びを
+    保ち、関所で答えて直す義務に戻った単位を後ろに足す）。出口の値が読めなければ owed の並べ替えだけ"""
+    try:
+        keys = json.loads(values.get("open_units") or "[]")
+    except (ValueError, TypeError):
+        keys = []
+    owed, _ = conflict.fix_duty(b)
+    seen = [k for k in keys if k in owed] if isinstance(keys, list) else []
+    return {**values, "open_units": json.dumps(seen + sorted(owed - set(seen)), ensure_ascii=False)}
+
+
 def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     """節 fix-prep（pass_ first）と fix-ruled-prep（pass_ ruled）: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。
     返り {prompt_file, attempt, out_path, node, already, variants_file, iteration}（iteration はこの輪の何回目か。受け付けが
@@ -346,6 +358,7 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
         if not rulings.is_file():
             rulings = conflict.write_rulings(b)
         reject, before = "", (RULINGS_LINE.format(path=rulings),)
+    values = owed_values(b, values)
     docs = lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))
 

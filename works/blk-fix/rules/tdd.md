@@ -12,7 +12,7 @@
 
 - 判定のファイル: <<judgment_file>>——初回に Read で全部読め。単位ごとの `key`・`reason`（事実と反証）・`origin_analysis`・
   `class_query`（同じ形を全部引く問い）・`prescriptions`（零処方から並ぶ処方）が在る
-- 直す義務の単位の key（JSON の配列）: <<open_units>>
+- 直す義務の単位の key（JSON の配列。受け付けが読むのと同じ集合で、答え待ちの問いの出どころと ask_human の単位は載らず、人が答えて戻した単位は載る）: <<open_units>>
 - 修正案: <<plan_file>>（空でなければ Read）・人の方針の文書: <<policy_path>>（空でなければ Read）
 - 人が関所で答えたことを書いたファイル: <<notes_file>>（空なら聞いていない。空でなければ Read。一言は通す範囲と条件で、超えて削るな）
 

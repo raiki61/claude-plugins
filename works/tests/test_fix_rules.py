@@ -824,6 +824,22 @@ class TestLangLine(unittest.TestCase):
             self.assertEqual(fixrules.lang_at(d), "", "盤面でない置き場では置かない")
 
 
+class TestPrepOwedValues(unittest.TestCase):
+    def test_open_units_value_is_the_fix_duty_owed(self):
+        """指示書の <<open_units>> は受け付けと同じ conflict.fix_duty の owed: 判定の並びを保ち、答え待ちの単位は載せず、
+        関所で答えて戻った単位を後ろに足す"""
+        from unittest import mock
+        back = "c.py back: 関所で答えて戻した単位"
+        with mock.patch.object(fixrules.conflict, "fix_duty", return_value=({"b: 上限", back}, {"a: 分母": "答え待ちの問い q"})):
+            got = fixrules.owed_values(object(), VALUES)
+        self.assertEqual(json.loads(got["open_units"]), ["b: 上限", back])
+        self.assertEqual({k: v for k, v in got.items() if k != "open_units"}, {k: v for k, v in VALUES.items() if k != "open_units"})
+
+    def test_prep_reads_the_duty_before_it_builds_the_prompt(self):
+        src = (BLK / "lib" / "fixrules.py").read_text(encoding="utf-8")
+        self.assertLess(src.index("values = owed_values(b, values)"), src.index("docs = lib_section(b, repo, values)"))
+
+
 class TestRefixCarriesCanon(unittest.TestCase):
     """手直しの役（blk-refix の refix・refix2）も書く役なので、同じ正本の節を全部受け取る。正本はブロックの境を越えて読める
     .shared/core の下に 1 つだけ置き、手書きの commands/refix*.md は無い"""

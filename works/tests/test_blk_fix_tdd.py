@@ -321,6 +321,18 @@ class TestStart(LoopCase):
         side = json.loads(fixrules.beside(prompt, fixrules.VARIANTS).read_text(encoding="utf-8"))
         self.assertEqual((side["iteration"], side["delta_is_full"]), (2, False))
 
+    def test_owed_units_are_conflict_fix_duty_not_the_is_open_list(self):
+        """TDD が振り分ける義務は受け付けと同じ conflict.fix_duty の owed。渡された open_units（is_open）に無くても、関所で答えて
+        直す義務に戻った単位は載り、外れた単位は載らない"""
+        from unittest import mock
+        back = "stats.py returned: 関所で答えて直す義務に戻った単位"
+        with mock.patch.object(tddloop.entry, "open_board", return_value=object()), \
+                mock.patch.object(tddloop.conflict, "fix_duty", return_value=({MEAN, back}, {CLAMP: "答え待ちの問い q1"})):
+            got = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
+        self.assertTrue(got["go"], got)
+        st = json.loads(pathlib.Path(got["state_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(sorted(tddloop._owed(st)), sorted([MEAN, back]))
+
     def test_second_start_gets_its_own_state(self):
         again = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
         self.assertNotEqual(again["state_file"], self.state)
