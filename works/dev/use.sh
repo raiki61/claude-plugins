@@ -198,7 +198,7 @@ if [ "$CMD" = start ] || [ "$CMD" = check ]; then
     problem "対象に pack の写し（.archon/workflows/works）がある。works 自身の直しは dogfood.sh で回す"
   fi
   if ! git -C "$TARGET" remote get-url origin >/dev/null 2>&1; then
-    problem "対象に remote の origin が無い（Archon v0.11.1 は --from を渡しても run の worktree を切れずに落ちる）。対象（${TARGET}）で入れる: git remote add origin <URL>（手元だけなら対象の外に git init --bare <対象>.origin.git を作って origin にし、git push origin HEAD）"
+    problem "対象に remote の origin が無い（Archon v0.11.1 は --from を渡しても run の worktree を切れずに落ちる）。対象（${TARGET}）で入れる: git remote add origin <URL>（手元だけなら対象の外に git init --bare <対象>.origin.git を作って origin にし、git push origin HEAD の後に git remote set-head origin <push した枝>）"
   fi
   if [ "$CMD" = start ] && [ "$REQUEST_SRC" = - ]; then
     if [ -z "$CHANGE_INPUT" ]; then
@@ -480,8 +480,10 @@ elif got:
     ROW="$(run_row "$3")" || exit 2
     STATUS="$(printf '%s' "$ROW" | cut -f2)"
     GOT="$(printf '%s' "$ROW" | cut -f3)"
-    # 生きた状態の一覧は launch.py の LIVE_STATUSES の 1 か所（ledger live）
-    if [ -n "$(works_dev_launch ledger live --status "$STATUS")" ]; then
+    # 生きた状態の一覧は launch.py の LIVE_STATUSES の 1 か所（ledger live）。確かめが落ちたら生きていないと読まずに止める
+    # （生きた run の使う物を消すか決める所は、迷ったら残す）
+    LIVE="$(works_dev_launch ledger live --status "$STATUS")" || exit 2
+    if [ -n "$LIVE" ]; then
       refuse "run $3 は ${STATUS}。止めるか終わってから片付ける"
     fi
     # start が包んだ run の基を守った参照（控えの wrap_ref）と隔離の前の読み出しのファイル（github_reads）も一緒に消す
@@ -537,18 +539,18 @@ esac
 
 # ---- start
 # Archon に渡す worktree の土台の枝（入口の旗 --base <版> の CHANGE_INPUT とは別物）: origin の既定の枝。origin/HEAD が指す枝、
-# 無ければ origin/main、次に origin/master。どれも無ければ推さずに止める（依頼の写し・読み出し・pack の写し・包んだ参照を作る前に）
-ARCHON_BASE_BRANCH="$(git -C "$TARGET" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-ARCHON_BASE_BRANCH="${ARCHON_BASE_BRANCH#origin/}"
-if [ -z "$ARCHON_BASE_BRANCH" ]; then
-  for _b in main master; do
-    if git -C "$TARGET" show-ref --verify --quiet "refs/remotes/origin/$_b"; then
-      ARCHON_BASE_BRANCH="$_b"
-      break
-    fi
-  done
-fi
-[ -n "$ARCHON_BASE_BRANCH" ] || refuse "origin の既定の枝が分からない（origin/HEAD・origin/main・origin/master のどれも無い）。git fetch origin で追跡の枝を取ってから打ち直す"
+# 無ければ origin/main、次に origin/master。どれも無ければ推さずに止める（依頼の写し・読み出し・pack の写し・包んだ参照を作る前に）。
+# origin/HEAD は --short で読まない（手元に origin/main という名の枝が在ると remotes/origin/main を返す）。指す先の追跡の枝が
+# 無い時（改名の後の fetch --prune で消えた枝を指したまま）も渡さずに次へ進む
+_head="$(git -C "$TARGET" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
+ARCHON_BASE_BRANCH=""
+for _b in "${_head#refs/remotes/origin/}" main master; do
+  if [ -n "$_b" ] && git -C "$TARGET" show-ref --verify --quiet "refs/remotes/origin/$_b"; then
+    ARCHON_BASE_BRANCH="$_b"
+    break
+  fi
+done
+[ -n "$ARCHON_BASE_BRANCH" ] || refuse "origin の既定の枝が分からない（origin/HEAD・origin/main・origin/master のどれも無い）。git fetch origin で追跡の枝を取り、それでも無ければ git remote set-head origin -a（または git remote set-head origin <枝>）で origin/HEAD を置いてから打ち直す"
 
 if [ -n "$WORKS_LAUNCH_ADAPTER_MODE" ]; then
   echo "包み無し（WORKS_DEV_ADAPTER=${WORKS_DEV_ADAPTER:-空}）: adapter=optional で回し、報告に出る"

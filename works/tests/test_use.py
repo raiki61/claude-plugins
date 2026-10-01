@@ -488,6 +488,27 @@ class UseShell(unittest.TestCase):
         self.set_runs(status="failed")
         self.assertEqual(self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None).returncode, 0)
 
+    def test_clean_stops_when_live_check_fails(self):
+        """生きているかの確かめ（launch.py ledger live）が落ちたら、生きていないと読まずに 2 で止まり、worktree も枝も消さない
+        （消す前の関所は、迷ったら閉じる）"""
+        t = self.target()
+        wt = self.tmp / "run-wt"
+        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
+        self.set_runs(status="paused", working_path=str(wt), output_root=str(self.tmp / "out"))
+        # ledger live の呼び出しだけを落とす python3 を PATH の頭に置く（ほかの呼び出しは本物へ渡す）
+        bin_ = self.tmp / "broken-live-bin"
+        bin_.mkdir()
+        (bin_ / "python3").write_text(
+            "#!/bin/sh\n"
+            'case " $* " in *" ledger live "*) echo "launch.py: 壊れた" >&2; exit 1 ;; esac\n'
+            f'exec "{shutil.which("python3")}" "$@"\n')
+        (bin_ / "python3").chmod(0o755)
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None,
+                     PATH=f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertTrue(wt.exists())
+        self.assertNotEqual(git(t, "branch", "--list", "archon/task-darkfactory-1"), "")
+
     def test_clean_removes_reads_file_of_run(self):
         """結べた run の読み出しのファイルは run の控えに残し、clean が run と一緒に消す（起動の関所で取り消して start が
         写さなかった run の残りも掃く）"""
@@ -514,10 +535,18 @@ class UseShell(unittest.TestCase):
         後ろの --base（入口の旗 --base <版> と取り違えない）"""
         cases = [(dict(origin_head="develop", tracking=("main", "develop")), "develop"),   # origin/HEAD が勝つ
                  (dict(tracking=("main",)), "main"),
-                 (dict(tracking=("master",)), "master")]
+                 (dict(tracking=("master",)), "master"),
+                 (dict(tracking=("main", "master")), "main"),                         # main が master より先
+                 # 改名（master → main）の後の fetch --prune: origin/HEAD は消えた枝を指したまま残る。渡さずに origin/main へ進む
+                 (dict(origin_head="master", tracking=("main",)), "main"),
+                 # 手元に origin/main という名の枝が在っても、remotes/origin/main でなく main を渡す
+                 (dict(origin_head="main", tracking=("main",), local_branch="origin/main"), "main")]
         for i, (kw, want) in enumerate(cases):
-            with self.subTest(want=want):
+            with self.subTest(kw=kw, want=want):
+                local_branch = kw.pop("local_branch", None)
                 t = self.target(f"t{i}", **kw)
+                if local_branch:
+                    git(t, "branch", local_branch)
                 r = self.use("start", str(t), str(self.request), "true", "")
                 self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
                 run = next(c for c in self.calls() if c[0] == str(t) and c[3:6] == ["workflow", "run", "darkfactory"])
@@ -534,8 +563,22 @@ class UseShell(unittest.TestCase):
         self.assertIn("origin の既定の枝", r.stderr)
         self.assertIn("git fetch origin", r.stderr)
         self.assertFalse(any(c[3:6] == ["workflow", "run", "darkfactory"] for c in self.calls()), "拒んだのに Archon を起こした")
-        self.assert_refused(r, "origin の既定の枝", "git fetch origin")
+        self.assert_refused(r, "origin の既定の枝", "git fetch origin", "git remote set-head origin")
         self.assertFalse((self.home / "requests").exists())
+
+    def test_start_refusal_names_set_head_for_feature_branch_only_origin(self):
+        """手元だけの手順（裸の origin に機能の枝だけを push した対象）では追跡の枝は origin/feat/x だけで、git fetch origin を
+        打っても origin/HEAD はできない。拒みの文は git remote set-head origin を案内し、それで origin/HEAD を置けば start は
+        その枝を --base に渡す（枝は推さない）"""
+        t = self.target(tracking=("feat/x",))
+        r = self.use("start", str(t), str(self.request), "true", "")
+        self.assert_refused(r, "origin の既定の枝", "git remote set-head origin")
+        git(t, "remote", "set-head", "origin", "feat/x")
+        r = self.use("start", str(t), str(self.request), "true", "")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        run = next(c for c in self.calls() if c[3:6] == ["workflow", "run", "darkfactory"])
+        after_from = run[run.index("--from"):]
+        self.assertEqual(after_from[after_from.index("--base") + 1], "feat/x")
 
     def test_check_lists_missing_origin(self):
         """check は origin の無い対象を入れ方の行つきで並べ、validate は呼んだ上で 0 以外で終わる"""
