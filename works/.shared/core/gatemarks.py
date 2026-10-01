@@ -9,7 +9,11 @@ undecided_because の規律（本流 p2.diagnose.md 8 項）を関所の項目�
 写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、querytest の例の欄と同じく、役の型にだけ欄を足し、受け付けが
 盤面へ渡す前に外して盤面の gate-marks.json に置く。関所の組み立ては写しの RL の _plan_gate_items を差し替える（entry.CORE_OVERRIDES）。
 
+狭めない案（持ち主 2026-10-01。人が関所で毎回「BASE の動きを残し、黙らずに名指す」形を書き足していたため）: 修正案の役は
+narrows を書く前に狭めを避ける形を当たり、無い時だけ narrows に書いて各行に探した結果（NO_NARROW）を書く。欄は決め手の欄と
+同じ道で役の型にだけ足して盤面へ渡す前に外し、関所の項目の尾に添えるが、関所を通す条件（decided）には使わない。
 - with_marks(node, schema)・split(node, reply)・save(board, node, round, marks): 役の型・受け付け
+- narrow_gaps(node, reply): 修正案の narrows の行で狭めない案の欄を欠く・短い行（planblk.take が拒む）
 - plan_gate_items(b): 写しの _plan_gate_items の差し替え
 - r4_gate_items(rl): 写しの _r4_gate_items の組み手。修正前の関所で人が continue で通した行と種類も本文も同じ行を、修正の後の
   関所（r4.human_gate）で聞き直さず、gate_passes に by human で残す（ADR 0043 の文脈と同じ向き: 答え済みの人の決定を聞き直さない）
@@ -64,6 +68,12 @@ MARK_SCHEMA = {
     "world": {"type": "string",
               "note": "人に回す行で、世の中の同じ問題の解き方を当たった結果の 1 文（出どころと割れ方、当たらなかったならその理由）"},
 }
+# 狭めない案を探した結果（持ち主の方針 ADR 0002「今ある能力と使い方を減らさない」）。決め手の欄と同じく役の型にだけ足して受け付けが外すが、
+# 関所を通す条件（decided）には使わない。修正案の narrows の行では欠け・短いを受け付けが拒み、事前審査の穴では示せる時だけ書く
+NO_NARROW = "no_narrow"
+NO_NARROW_MIN = 20     # 本流の事前審査が entrance の穴に求める no_add と同じ長さ
+NO_NARROW_SCHEMA = {"type": "string", "minLength": NO_NARROW_MIN,
+                    "note": "狭めない案（BASE の動きを残し、直したい場合だけ新しい動きを当て、黙らずに名指す形）を探した結果"}
 NODES = ("p2.fix_plan", "p2.plan_review")
 _RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ（依頼の引用・URL と節・対象の同じ場面・人の前の決定＝ADR・台帳の行）。"
          "undecided_because＝決め手を当たっても答えが 1 つに決まらない理由（書けないなら空にせよ——自明なので人に回さない）。"
@@ -74,9 +84,17 @@ _RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ
          "人に回す前に、世の中が同じ問題をどう解いているかを当たれ——多くは既に解かれている（標準仕様・著名 OSS・公式の文書の定石。"
          "web を引くかは任せる）。定石で 1 つに決まるなら、その出どころを decided_by に書いて自分で決めよ。それでも人に回す行は、"
          "world＝当たった結果の 1 文（出どころと割れ方、当たらなかったならその理由）を書け。関所の項目にそのまま載る")
+_NO_NARROW_PLAN = ("\n\n狭めない案を先に探せ: narrows を書く前に、その狭めを避ける形——直したい場合だけに新しい動きを当て、当てられない"
+                   "場合（記録の欄が無い・数えられない・道具が違う等）は BASE の動きを残し、黙らずに報告か標準エラーで名指す形——を"
+                   "当たれ。在ればそれを案に採り、その行を narrows に書かない。無い時だけ narrows に書き、各行に "
+                   f"{NO_NARROW}＝探した結果（どの狭めない案を当たり、なぜ採れないか。{NO_NARROW_MIN} 字以上）を書け。欠けた行・"
+                   "短い行は受け付けが拒み、書いた文は関所の項目にそのまま載る")
+_NO_NARROW_REVIEW = ("\n\n狭めない案を添えよ: kind が regression の穴で、BASE の動きを残し、直したい場合だけ新しい動きを当て、"
+                     f"当てられない場合は黙らずに名指す形を示せるなら、{NO_NARROW}＝その案（{NO_NARROW_MIN} 字以上）を書け。"
+                     "示せなければ書かない。書いた文は関所の項目に添わる")
 # 役の指示書の頭に足す文（写しの指示書は欄を知らない）
-HEAD = {"p2.fix_plan": "関所の項目の決め手: plan[].narrows の各行" + _RULE,
-        "p2.plan_review": "関所の項目の決め手: faces のうち kind が regression・policy の各行" + _RULE}
+HEAD = {"p2.fix_plan": "関所の項目の決め手: plan[].narrows の各行" + _RULE + _NO_NARROW_PLAN,
+        "p2.plan_review": "関所の項目の決め手: faces のうち kind が regression・policy の各行" + _RULE + _NO_NARROW_REVIEW}
 PASSED_BY = "decided"
 PASSED_BY_HUMAN = "human"               # 修正の後の関所で、修正前の関所で人が通した行と同じなので聞き直さなかった
 GATE_NODE = "p2.human_gate"
@@ -208,19 +226,43 @@ def gate_text(asking: dict, *, run_id: str, node: str, record_name: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _row_props(node: str, schema: dict):
+def _row_schema(node: str, schema: dict) -> dict:
     props = schema.get("properties") or {}
     if node == "p2.fix_plan":
-        return props["plan"]["items"]["properties"]["narrows"]["items"]["properties"]
-    return props["faces"]["items"]["properties"]
+        return props["plan"]["items"]["properties"]["narrows"]["items"]
+    return props["faces"]["items"]
+
+
+def _row_props(node: str, schema: dict):
+    return _row_schema(node, schema)["properties"]
 
 
 def with_marks(node: str, schema: dict) -> dict:
-    """役の型に決め手の欄を足した写し（NODES でなければそのまま）"""
+    """役の型に決め手の欄と狭めない案の欄を足した写し（NODES でなければそのまま）。修正案の narrows の行では狭めない案の欄が要る"""
     if node not in NODES:
         return schema
     out = copy.deepcopy(schema)
-    _row_props(node, out).update(copy.deepcopy(MARK_SCHEMA))
+    _row_props(node, out).update({**copy.deepcopy(MARK_SCHEMA), NO_NARROW: copy.deepcopy(NO_NARROW_SCHEMA)})
+    if node == "p2.fix_plan":
+        row = _row_schema(node, out)
+        row["required"] = [*row.get("required", []), NO_NARROW]
+    return out
+
+
+def narrow_gaps(node: str, reply: dict) -> list:
+    """修正案の narrows の行のうち、狭めない案を探した結果（NO_NARROW）を欠く・NO_NARROW_MIN 字に満たない行の 1 行ずつの文
+    （ほかの節は空）"""
+    if node != "p2.fix_plan":
+        return []
+    out = []
+    for i, narrows in enumerate(_rows(node, reply)):
+        for j, n in enumerate(narrows):
+            got = n.get(NO_NARROW) if isinstance(n, dict) else None
+            if isinstance(got, str) and len(got.strip()) >= NO_NARROW_MIN:
+                continue
+            what = n.get("what") if isinstance(n, dict) else n
+            out.append(f"plan[{i}].narrows[{j}]（{what}）: {NO_NARROW} が"
+                       + (f" {len(got.strip())} 字（{NO_NARROW_MIN} 字以上）" if isinstance(got, str) else "無い（文字列で書く）"))
     return out
 
 
@@ -234,11 +276,11 @@ def _rows(node: str, reply: dict) -> list:
 
 
 def _pop(row) -> dict:
-    return {k: row.pop(k) for k in FIELDS if isinstance(row, dict) and k in row}
+    return {k: row.pop(k) for k in (*FIELDS, NO_NARROW) if isinstance(row, dict) and k in row}
 
 
 def split(node: str, reply: dict) -> tuple:
-    """（決め手の欄を外した返答の写し, 行と同じ並びの決め手）。NODES でなければ（写し, None）"""
+    """（決め手と狭めない案の欄を外した返答の写し, 行と同じ並びの決め手）。NODES でなければ（写し, None）"""
     out = copy.deepcopy(reply)
     if node not in NODES:
         return out, None
@@ -253,8 +295,8 @@ def _any(marks) -> bool:
 
 
 def save(board, node: str, rnd: int, marks) -> None:
-    """盤面の gate-marks.json の節の分を今の返答の分で置き換える（周を控える）。決め手が 1 つも無ければ節の分を消し、
-    ファイルが無ければ作らない（決め手を書かない役の盤面は今までどおりの姿）"""
+    """盤面の gate-marks.json の節の分を今の返答の分で置き換える（周を控える）。決め手も狭めない案も 1 つも無ければ節の分を
+    消し、ファイルが無ければ作らない（どちらも書かない役の盤面は今までどおりの姿）"""
     p = pathlib.Path(board) / MARKS_FILE
     try:
         doc = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
@@ -280,9 +322,9 @@ def _saved(b, node: str):
 
 
 def _mark(row: dict, saved, *idx) -> dict:
-    """行の決め手: 行が欄を持てばそれ、無ければ盤面の控え（idx の位置）"""
-    if any(k in row for k in FIELDS):
-        return {k: row[k] for k in FIELDS if k in row}
+    """行の決め手と狭めない案: 行が欄を持てばそれ、無ければ盤面の控え（idx の位置）"""
+    if any(k in row for k in (*FIELDS, NO_NARROW)):
+        return {k: row[k] for k in (*FIELDS, NO_NARROW) if k in row}
     try:
         for i in idx:
             saved = saved[i]
@@ -299,10 +341,16 @@ def decided(mark: dict) -> bool:
 
 def _world(mark: dict) -> str:
     """人に回す行の尾: 役が決め手の欄を書いた行だけに、世界の解を当たった結果を付ける（書いていなければそう出す）"""
-    if not mark:
+    if not any(k in mark for k in FIELDS):
         return ""
     got = str(mark.get("world") or "").strip()
     return f"（世界の解: {got or '役が書いていない'}）"
+
+
+def _no_narrow(mark: dict) -> str:
+    """人に回す行の尾: 役が狭めない案の欄を書いた行だけに、その文を付ける"""
+    got = str(mark.get(NO_NARROW) or "").strip()
+    return f"（狭めない案: {got}）" if got else ""
 
 
 def plan_gate_items(b) -> list:
@@ -318,7 +366,7 @@ def plan_gate_items(b) -> list:
              for j, f in enumerate((b.output_of_round("p2.plan_review", b.round) or {}).get("faces") or [])
              if f["kind"] in b.rules.HUMAN_FACE_KINDS]
     _record(b, [(text, m) for _, text, m in rows if decided(m)])
-    items = [(kind, text + _world(m)) for kind, text, m in rows if not decided(m)]
+    items = [(kind, text + _world(m) + _no_narrow(m)) for kind, text, m in rows if not decided(m)]
     if not unattended(b):
         items += [(_ask_kind(q), ask_text(q)) for q in asks(b) if not answered(b, q)]
     if design_only(b) and not _design_only_answered(b):

@@ -38,6 +38,7 @@ import design  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import entry  # noqa: E402
+import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import node_marker  # noqa: E402
 import libdocs  # noqa: E402
@@ -48,7 +49,8 @@ DEADLINE = 1728000000
 RUN_ID = "run-plan"
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
-NARROWS = [{"what": "空の列の mean", "why": "空の列の平均は 0 割りの例外のまま（前も例外で、狭まる能力は無いが人に確かめる）"}]
+NARROWS = [{"what": "空の列の mean", "why": "空の列の平均は 0 割りの例外のまま（前も例外で、狭まる能力は無いが人に確かめる）",
+            "no_narrow": "空の列で例外を投げる今の動きを残すと、直したい呼び手の 0 返しが成り立たないので狭めない案は無い"}]
 
 
 def workflow():
@@ -382,6 +384,51 @@ class ScriptCase(unittest.TestCase):
         got, out = self.gate_after(undecided)
         self.assertTrue(got["asking"], got)
         self.assertIn("regression", out["gate_kinds"])
+
+    # -- 狭めない案（narrows を書く前に狭めを避ける形を当たり、探した結果を no_narrow に書く）
+    def test_plan_narrows_without_no_narrow_rejected(self):
+        """narrows の行が no_narrow を欠く・短いなら、受け付けが行を名指して拒み、盤面へ渡さない（修正案の節は待ったまま）"""
+        self.judged()
+        self.assertTrue(self.ok("snap", role="plan")["go"])
+        bare = {k: v for k, v in NARROWS[0].items() if k != gatemarks.NO_NARROW}
+        for row in (bare, {**bare, gatemarks.NO_NARROW: "無い"}):
+            with self.subTest(row=row):
+                plan = linekit.reply("plan_ok")
+                plan["plan"][0]["narrows"] = [row]
+                got = self.ok("accept", role="plan", reply=json.dumps(plan, ensure_ascii=False))
+                self.assertFalse(got["ok"], got)
+                reason = self.reason_of(got)
+                self.assertTrue(reason.startswith(planblk.NO_NARROW_REJECT), reason)
+                self.assertIn(f"plan[0].narrows[0]（{bare['what']}）", reason)
+                self.assertEqual(entry.open_board(self.board).rd["instances"]["p2.fix_plan"]["status"], "pending")
+
+    def test_plan_narrows_no_narrow_on_gate_item(self):
+        """no_narrow の在る狭めは受け付けを通り、人に聞く関所の項目の尾に探した結果が添わる（決め手の欄が無ければ世界の解の尾は付けない）"""
+        got, out = self.gate_after(NARROWS)
+        self.assertTrue(got["asking"], got)
+        items = entry.open_board(self.board).state["pending_human"]["items"]
+        self.assertEqual([x for x in items if NARROWS[0]["what"] in x],
+                         [f"修正案 1 が狭める能力: {NARROWS[0]['what']}——{NARROWS[0]['why']}"
+                          f"（狭めない案: {NARROWS[0][gatemarks.NO_NARROW]}）"])
+
+    def test_head_asks_no_narrow_first(self):
+        """修正案の役の頭は、narrows を書く前に狭めない案を探し、無い時だけ no_narrow に結果を書けと言う。事前審査の役の頭は、
+        regression の穴に示せる時だけ添えよと言う"""
+        plan, review = planblk.head("plan"), planblk.head("plan-review")
+        self.assertIn("狭めない案を先に探せ", plan)
+        self.assertIn(f"{gatemarks.NO_NARROW}＝探した結果", plan)
+        self.assertIn("狭めない案を添えよ", review)
+        self.assertNotIn("狭めない案を先に探せ", review)
+
+    def test_no_narrow_required_only_on_plan_narrows(self):
+        """役の型: 修正案の narrows の行は no_narrow が要る。事前審査の穴は持てるが要らない（関所を通す条件にもしない）"""
+        narrow = accept.role_schema("p2.fix_plan")["properties"]["plan"]["items"]["properties"]["narrows"]["items"]
+        self.assertIn(gatemarks.NO_NARROW, narrow["required"])
+        self.assertEqual(narrow["properties"][gatemarks.NO_NARROW]["minLength"], gatemarks.NO_NARROW_MIN)
+        face = accept.role_schema("p2.plan_review")["properties"]["faces"]["items"]
+        self.assertIn(gatemarks.NO_NARROW, face["properties"])
+        self.assertNotIn(gatemarks.NO_NARROW, face["required"])
+        self.assertFalse(gatemarks.decided({gatemarks.NO_NARROW: "x" * gatemarks.NO_NARROW_MIN}))
 
     def test_plan_review_regression_decided_passes_gate(self):
         """事前審査の regression の穴も、決め手が在り柵の印が無ければ人に聞かない"""

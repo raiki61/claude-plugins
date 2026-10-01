@@ -291,6 +291,7 @@ nodes:
                         required:
                         - what
                         - why
+                        - no_narrow
                         properties:
                           what:
                             type: string
@@ -315,6 +316,9 @@ nodes:
                               - web_doubt
                           world:
                             type: string
+                          no_narrow:
+                            type: string
+                            minLength: 20
         - id: plan-accept
           script: accept
           runtime: uv
@@ -465,6 +469,9 @@ nodes:
                         - web_doubt
                     world:
                       type: string
+                    no_narrow:
+                      type: string
+                      minLength: 20
               shrink:
                 type: array
                 items:
