@@ -227,8 +227,8 @@ class ScriptCase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
-    def judged(self, policy_md=""):
-        """start → 並行 PR の任せ先・前提の役 → 判定（judge_ok）を受けた盤面（p2.fix_plan が待つ）"""
+    def judged(self, policy_md="", judge=None):
+        """start → 並行 PR の任せ先・前提の役 → 判定（judge。無ければ judge_ok）を受けた盤面（p2.fix_plan が待つ）"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True)
@@ -241,7 +241,7 @@ class ScriptCase(unittest.TestCase):
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
         self.take("p0.premises", {"constraints": []})
         linekit.pre_judge(self.board, self.repo)   # 目的の文（判定の前に盤面が待つ）
-        self.take("p2.diagnose", linekit.reply("judge_ok"))
+        self.take("p2.diagnose", judge or linekit.reply("judge_ok"))
 
     def state(self):
         return json.loads((self.board / "state.json").read_text(encoding="utf-8"))
@@ -303,6 +303,35 @@ class ScriptCase(unittest.TestCase):
         got = self.planned()
         self.assertEqual((got["done"], got["give_up"], got["reason_file"]), (True, False, ""))
         self.assertIn("p2.plan_review", got["ready"])
+
+    def test_plan_with_nit_unit_rejected_naming_label(self):
+        """義務の無い nit の単位を案に入れた返答は、理由が label を名指して拒まれる（見せる一覧と受け付けの述語を合わせる）"""
+        nit = "stats.py mean: 変数名が短い"
+        judge = linekit.reply("judge_ok")
+        judge["units"].append({"key": nit, "label": "nit", "reason": "事実: 名前が短い。反証: 無し",
+                               "origin_analysis": "命名"})
+        self.judged(judge=judge)
+        self.ok("snap", role="plan")
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["unit_keys"] = [UNIT_MEAN, UNIT_CLAMP, nit]
+        _, got = self.round_of("plan", plan)
+        self.assertFalse(got["ok"])
+        self.assertIn("label=nit", self.reason_of(got))
+
+    def test_not_allowed_skips_unit_missing_from_names(self):
+        """義務の無い単位が今の no の一覧に無くても、事前の拒否は落ちず、その単位は受け付けの写しの拒否に任せる"""
+        nit = "stats.py mean: 変数名が短い"
+        judge = linekit.reply("judge_ok")
+        judge["units"].append({"key": nit, "label": "nit", "reason": "事実: 名前が短い。反証: 無し",
+                               "origin_analysis": "命名"})
+        self.judged(judge=judge)
+        self.ok("snap", role="plan")
+        b = entry.open_board(self.board)
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["unit_keys"] = [UNIT_MEAN, UNIT_CLAMP, nit]
+        with mock.patch.object(planblk, "_names", return_value=[UNIT_MEAN, UNIT_CLAMP]), \
+                mock.patch.object(planblk.pointers, "resolve"):
+            self.assertEqual(planblk.not_allowed(b, "p2.fix_plan", plan), [])
 
     def test_plan_missing_unit_rejected(self):
         self.judged()

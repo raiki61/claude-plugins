@@ -14,6 +14,7 @@
             待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true。
             独立設計が 3 回とも拒まれたのは止めず、盤面の trace に設計が無いことを書く（最後の R2 が目の層で言う）
 """
+import copy
 import json
 import os
 import pathlib
@@ -28,6 +29,7 @@ if str(_CORE) not in sys.path:
 import accept  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import design  # noqa: E402
+from engine import pointers  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import libdocs  # noqa: E402
@@ -47,6 +49,9 @@ NONE_WORDS = ("", "null")               # 入口の「無し」（Archon の入�
 EXCLUDED_HEAD = "並行 PR の範囲。触らず、単位に入れない"
 NO_NARROW_REJECT = (f"narrows の行に狭めない案を探した結果（{gatemarks.NO_NARROW}）が無いか短い（直して done し直す）。狭めを避ける形が"
                     "在ればそれを案に採ってその行を消し、無い時だけ、どの形を当たりなぜ採れないかを書け:")
+NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit・info・defer など。受け付けが受けない）。案から外し、入れてよい no は頭の節に在る:"
+PLAN_SLOTS_HEAD = ("## 案に入れてよい単位の no（機械が受け付けと同じ述語から作った。下の本文の『今の周に直す単位』の見出しと、"
+                   "one_shot_closes に載る単位より、この節が優先する）")
 DESIGN_HEAD = "## 独立設計（修正案を見ない別の目が、目的と実測した制約・人の関所の答え・依頼が名指した設計書の節から作った理想解。機械が貼った）"
 DESIGN_ASK = ("修正案をこの設計と構造で突き合わせよ——何を固定し何を派生と見るか・どこに継ぎ目を置くか・目的の当事者が日常で回す"
               "動線が閉じるか。構造の本質的な食い違いは faces に kind contract_drift・severity block で挙げ、why を"
@@ -100,7 +105,7 @@ def _given(value) -> str:
 
 def head(role: str, excluded_file: str = "", lib_docs: str = "", design_part: str = "") -> str:
     """指示書の頭（役の定義と、並行 PR の外した範囲のパスと、ライブラリの今の文書の節 libdocs.section と、事前審査なら
-    独立設計の節 design_section・修正案なら構造の目の節 structmark.plan_section）"""
+    独立設計の節 design_section・修正案なら構造の目の節 structmark.plan_section と入れてよい no の節 plan_slots_section）"""
     text = HEAD[role] + "\n\n" + gatemarks.HEAD[role_node(role)]
     ex = _given(excluded_file)
     if ex:
@@ -110,6 +115,58 @@ def head(role: str, excluded_file: str = "", lib_docs: str = "", design_part: st
     if design_part:
         text += "\n\n" + design_part
     return text
+
+
+def plan_slots(b) -> tuple[set, set, dict]:
+    """(必ず入れる, 入れてよい, 単位の key → 単位)。写しの受け付け fix_plan_covers_units が読むのと同じ物（want＝b.rules._owed_units、
+    opened＝validator の is_open）から作る。見せる頭の節と take の事前の拒否が、ここだけを読む"""
+    V = b.rules.validator_module(b)
+    units = {u["key"]: u for u in b.record["units"]}
+    return set(b.rules._owed_units(b)), {k for k, u in units.items() if V.is_open(u)}, units
+
+
+def _names(b, nid: str) -> list:
+    return next((p.get("names") or [] for p in b.pointer_rows(nid)["pointers"] or []), [])
+
+
+def plan_slots_section(b) -> str:
+    """修正案の指示書の頭に貼る、入れてよい no・入れてはいけない no の節（本文の見出し・one_shot_closes より優先する）"""
+    owed, opened, units = plan_slots(b)
+    names = _names(b, NODE_OF["plan"])
+    no = {k: i + 1 for i, k in enumerate(names)}
+    must = sorted(no[k] for k in owed if k in no)
+    may = sorted(no[k] for k in opened - owed if k in no)
+    stuck = sorted(no[k] for k in owed - opened if k in no)
+    shut = [f"no {no[k]}（label={u.get('label')}・disposition={u.get('disposition', '無し')}）"
+            for k, u in units.items() if k not in opened and k not in owed and k in no]
+    if not shut and not stuck:   # 本文の一覧が受け付けの集合と同じ（全部入れてよい）なら貼らない
+        return ""
+    text = (f"{PLAN_SLOTS_HEAD}\n\n- 必ず案に入れる no: {must}\n- 入れてもよい no（人の答え待ちの問いの出どころ・depends。入れなくてもよい）: {may}\n"
+            f"- 入れてはいけない no（受け付けが拒む）: {'、'.join(shut) or '無し'}")
+    if stuck:
+        text += (f"\n- 必ず入れる no のうち開いていない単位（関所で答えた問いの出どころ。受け付けの写しの食い違いで、入れても入れなくても"
+                 f"拒まれうる）: {stuck}——入れて、拒まれたら理由をそのまま返せ")
+    return text
+
+
+def not_allowed(b, nid: str, reply) -> list[str]:
+    """修正案の返答が案に入れた単位のうち、受け付けが受けない物（入れてよくなく、必ず入れる物でもない）の理由の行。no は engine の
+    pointers.resolve で名前に戻す（範囲外の番号・判定に無い key の拒否は entry.take＝engine に任せる）"""
+    if not isinstance(reply, dict):
+        return []
+    owed, opened, units = plan_slots(b)
+    inst = b.rd["instances"].get(nid) or {}
+    got = copy.deepcopy(reply)
+    pointers.resolve(got, b.nodes[nid].get("pointers"), inst.get("pointers"))
+    names = _names(b, nid)
+    lines = []
+    for p in got.get("plan") or []:
+        for k in p.get("unit_keys") or []:
+            if k in units and k in names and k not in opened and k not in owed:   # 判定に無い key・番号に無い名前は受け付けの写しの拒否に任せる
+                u = units[k]
+                lines.append(f"no {names.index(k) + 1} は label={u.get('label')}（disposition={u.get('disposition', '無し')}）"
+                             f"で直す対象でない（{k[:40]}）")
+    return lines
 
 
 def design_section(b) -> str:
@@ -154,7 +211,7 @@ def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
         return design.prep(board_dir, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
-    part = design_section(b) if role == "plan-review" else structmark.plan_section(b.dir)
+    part = design_section(b) if role == "plan-review" else "\n\n".join(x for x in (structmark.plan_section(b.dir), plan_slots_section(b)) if x)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
     ptrs = b.pointer_rows(nid)["pointers"]
     inst = _pending(b, nid)
@@ -173,6 +230,10 @@ def take(role: str):
         gaps = gatemarks.narrow_gaps(nid, reply)
         if gaps:
             return {"ok": False, "reason": NO_NARROW_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
+        if role == "plan":
+            closed = not_allowed(entry.open_board(pathlib.Path(board)), nid, reply)
+            if closed:
+                return {"ok": False, "reason": NOT_OWED_REJECT + "\n" + "\n".join(f"  - {c}" for c in closed)}
         bare, marks = gatemarks.split(nid, reply)
         gatemarks.save(board, nid, entry.open_board(pathlib.Path(board)).round, marks)
         return entry.take(pathlib.Path(board), nid, bare, pathlib.Path(repo), snapshot_name=snapshot_name(role))
