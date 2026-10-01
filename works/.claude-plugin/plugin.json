@@ -1,7 +1,7 @@
 {
   "name": "works",
   "description": "修正の仕事を Archon の上で回す pack の、Claude Code 側の入口。/works スキルは、人の修正依頼を、今いるリポジトリを対象に生産ライン darkfactory（前提の実測 → 目的の文 → 素材集め → 判定 → 修正案と事前審査 → 修正（単位ごとの TDD） → 差分の審査 → 手直し → 最後のテスト → 独立の目 → 人の最後の関所 → 報告）に回すときの依頼の書き方・起動・関所での答え方を持つ。",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "dependencies": [
     {
       "name": "superpowers",
