@@ -462,24 +462,25 @@ class UseShell(unittest.TestCase):
 
     def test_answer_records_who_and_responds(self):
         """別の殻で打つ答えも、start の控え（<家>/runs/<id>.json）の模型・包みで Archon を起こす"""
+        probe = hermetic.other_model()
         t = self.target()
-        r = self.use("start", str(t), str(self.request), "true", "", WORKS_DEV_MODEL="sonnet", WORKS_DEV_ADAPTER="0")
+        r = self.use("start", str(t), str(self.request), "true", "", WORKS_DEV_MODEL=probe, WORKS_DEV_ADAPTER="0")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads((self.home / "runs" / "run-1.json").read_text())["model"], "sonnet")
-        # 別の殻の show が出す進める・続きの行も控えの模型・claude で組む（その殻の既定 opus に黙って替えない）
+        self.assertEqual(json.loads((self.home / "runs" / "run-1.json").read_text())["model"], probe)
+        # 別の殻の show が出す進める・続きの行も控えの模型・claude で組む（その殻の既定に黙って替えない）
         for rid in ((), ("run-1",)):
             with self.subTest(show=rid):
                 r = self.use("show", str(t), *rid, WORKS_DEV_MODEL=None, CLAUDE_BIN_PATH="/other/claude")
                 self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-                self.assertIn("run run-1 の控え（模型 sonnet・包み 0）で進める・続きの行を組む", r.stdout)
+                self.assertIn(f"run run-1 の控え（模型 {probe}・包み 0）で進める・続きの行を組む", r.stdout)
                 self.assertNotIn("で Archon を起こす", r.stdout)   # show は Archon を起こさない
                 for verb in ("approve", "resume"):
                     line = next(l for l in r.stdout.splitlines() if f"workflow {verb} run-1" in l)
-                    self.assertIn("WORKS_DEV_MODEL=sonnet CLAUDE_BIN_PATH=/usr/bin/true ", line)
+                    self.assertIn(f"WORKS_DEV_MODEL={probe} CLAUDE_BIN_PATH=/usr/bin/true ", line)
                     self.assertNotIn("WORKS_DEV_ADAPTER=1", line)
         r = self.use("answer", str(t), "run-1", "continue", "stats.py だけ", "依頼者", WORKS_DEV_MODEL=None)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("模型 sonnet・包み 0", r.stdout)
+        self.assertIn(f"模型 {probe}・包み 0", r.stdout)
         self.assertEqual(self.calls()[-1][3:], ["workflow", "respond", "run-1", "continue", "stats.py だけ"])
         rows = [json.loads(ln) for ln in (self.home / "answers.jsonl").read_text().splitlines()]
         self.assertEqual([(x["run_id"], x["answer"], x["text"], x["by"]) for x in rows],

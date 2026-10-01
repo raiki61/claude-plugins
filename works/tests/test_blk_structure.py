@@ -571,7 +571,7 @@ class EyeCase(unittest.TestCase):
         ai = self.ai_node(loop)
         self.assertEqual(ai.get("allowed_tools"), [], "見せるのは structure.json と単位の要約だけ（道具ゼロ）")
         self.assertEqual(ai.get("effort"), "high")
-        self.assertNotIn("model", ai, "前付けが opus の役の段は model: を書かない")
+        self.assertEqual(ai.get("model"), "opus", "前付け（core/agents/blind-judge.md）の model を段に書く（run の既定に頼らない）")
         after = [m for m in g["nodes"] if "script" in m and ai["id"] in (m.get("depends_on") or [])]
         self.assertEqual(len(after), 1, "役の後に受け付けの script の節が 1 つ要る")
         collect = next(n for n in doc["nodes"] if n["id"] == doc["returns"])

@@ -3,7 +3,7 @@ description: |
   CI の任せ先の役のブロック（裁定 R52）。graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engine が宣言
   （.review-checks.json）を走らせられない時に任せ先の役へ落ちる。works では test_cmd も空の run で、start の ci_role_go
   （p0.local_checks）か blk-tests の final の by: role_needed（p4.ci）が真の時に、ラインが include で node を渡して回す。
-  役（opus）はリポジトリの CI の定義を読み、テスト・lint を作業ツリーの写しの上で走らせて素材（material）を返す。走らせられなければ
+  役（前付けが無いので run の既定の模型で走る）はリポジトリの CI の定義を読み、テスト・lint を作業ツリーの写しの上で走らせて素材（material）を返す。走らせられなければ
   緑を仮定しない（p0 は awaiting_human、p4 は not_run）。定義が無ければ理由つきの not_applicable（graph の na_self_ok）。
   役の sandbox は graphloops の任せ先と同じ形（allowWrite ['/']・網）で、書き込みの守りは包みが印の旗 no-tree-write を見て足す（裁定 R56）。
   ci-fence は run が宣言した包みの形（start の控えの adapter）を役を起こす前に 1 回だけ読み（裁定 R58）、with: で受け付けと出口に渡す（再審査 N8）。包みを宣言した run は、受け付けが役の起動に柵が掛かったかを

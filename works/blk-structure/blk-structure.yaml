@@ -64,6 +64,7 @@ nodes:
               prompt_file: {type: string}
               attempt: {type: integer}
         - id: structure-eye
+          model: opus                 # 役 blind-judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           command: structure-eye
           depends_on: [structure-eye-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）

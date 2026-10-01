@@ -635,7 +635,8 @@ nodes:
               iteration: {type: integer, minimum: 1}
 
         - id: rule
-          effort: high   # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
+          model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+          effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           prompt: 指示書 `$rule-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [rule-prep]
           settingSources: [user]

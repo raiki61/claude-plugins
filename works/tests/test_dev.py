@@ -10,7 +10,7 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
   CLAUDE_KEYCHAIN_SERVICE・設定の置き場から導いた claude-code-oauth-<名>）、それでも足せなければ CLAUDE_CONFIG_DIR から導いた
   Claude Code 自身の keychain の項目（どれも偽物に差し替える。本物には触らない）を HOME を隔離する前の元の HOME で読み、
   拾った出どころの名だけを出し（値は出さない）、どれも無ければ 1 行の案内で止まること（Ruling R20 の「黙ってどこかの口座で回さない」）。
-- archon.sh が、認証を使う実行のたびに隔離した Archon の設定へ模型（WORKS_DEV_MODEL。既定 opus）を書き、
+- archon.sh が、認証を使う実行のたびに隔離した Archon の設定へ模型（WORKS_DEV_MODEL。既定は dev/guard.sh の WORKS_DEV_MODEL_DEFAULT）を書き、
   TITLE_GENERATION_MODEL も（設定していなければ）同じにすること。WORKS_DEV_NO_AUTH=1 では書かないこと
   （偽の shasum で確かめを通し、偽の実行ファイルまで exec させて見る）。
 - archon.sh が、認証を使う実行で対象（cwd）の根を利用者の mise が信頼済みの時だけ（偽の mise の trust --show を隔離の前の
@@ -438,26 +438,29 @@ class TestDevShell(unittest.TestCase):
                     seen.read_text().splitlines() if seen.exists() else None)
 
     def test_archon_sh_pins_model_when_using_auth(self):
-        """認証を使う実行は毎回、隔離した Archon の設定に模型（既定 opus）を書き、題の生成の模型も揃える。
+        """認証を使う実行は毎回、隔離した Archon の設定に模型（既定は guard.sh の値）を書き、題の生成の模型も揃える。
         書かないと Claude CLI の既定の模型で黙って回る（real-run.sh を通さず archon.sh を直に打った時）。"""
+        default = hermetic.dev_model_default()
         result, config, seen = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("assistants:\n  claude:\n    model: opus\n", config)
-        self.assertEqual(seen, ["opus", "workflow run x"])
+        self.assertIn(f"assistants:\n  claude:\n    model: {default}\n", config)
+        self.assertEqual(seen, [default, "workflow run x"])
 
     def test_archon_sh_model_follows_works_dev_model(self):
+        probe = hermetic.other_model()
         result, config, seen = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test",
-                                                    WORKS_DEV_MODEL="sonnet")
+                                                    WORKS_DEV_MODEL=probe)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("    model: sonnet\n", config)
-        self.assertEqual(seen[0], "sonnet")
+        self.assertIn(f"    model: {probe}\n", config)
+        self.assertEqual(seen[0], probe)
 
     def test_archon_sh_keeps_title_generation_model_if_set(self):
+        probe = hermetic.other_model()
         result, config, seen = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test",
-                                                    TITLE_GENERATION_MODEL="haiku")
+                                                    TITLE_GENERATION_MODEL=probe)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("    model: opus\n", config)
-        self.assertEqual(seen[0], "haiku")
+        self.assertIn(f"    model: {hermetic.dev_model_default()}\n", config)
+        self.assertEqual(seen[0], probe)
 
     def test_archon_sh_no_auth_does_not_pin_model(self):
         """認証の要らない道（テスト・validate・workflow test）は変えない: 設定を書かず、模型も要らない。"""
@@ -975,9 +978,9 @@ class TestDevShell(unittest.TestCase):
             self.assertIn("/wt/run-1", out)
             for verb in ("approve", "reject", "resume"):
                 self.assertIn(f"workflow {verb} run-1", out)
-            # 模型を明示しなかった run の続きは空の指定で起こす（既定の opus を明示にしない。解くのは archon.sh）
+            # 模型を明示しなかった run の続きは空の指定で起こす（既定を明示にしない。解くのは archon.sh）
             self.assertIn("WORKS_DEV_MODEL= WORKS_MODEL_PINNED=", out)
-            self.assertNotIn("WORKS_DEV_MODEL=opus", out)
+            self.assertNotIn(f"WORKS_DEV_MODEL={hermetic.dev_model_default()}", out)
             for verb in ("approve", "resume"):   # 続きのコマンドも包みを通す（archon.sh は打つたびに設定を書き直す）
                 self.assertRegex(out, rf"WORKS_DEV_ADAPTER=1 sh [^\n]* workflow {verb} run-1")
                 # その場で回る残りの工程が関所の文の答えの行を組めるよう、答えの頭（隔離した archon.sh の respond）を載せる
@@ -1548,25 +1551,26 @@ class TestDevModelPin(unittest.TestCase):
         runs = hermetic.tmpdir(self)
         self.save_ledger(runs)
         led = json.loads((runs / "run-1.json").read_text(encoding="utf-8"))
-        self.assertEqual((led["model"], led["model_resolved"]["value"]), ("", "opus"))
+        default, probe = hermetic.dev_model_default(), hermetic.other_model()
+        self.assertEqual((led["model"], led["model_resolved"]["value"]), ("", default))
         self.assertIn("既定", led["model_resolved"]["from"])
         # 控えの既定を釘の名で渡した殻（load_ledger が export する形）では、続きの行も guard.sh を読んだ archon.sh も
         # その値で解き、出どころに釘の名を残す（既定の定数は環境で替えさせない）
-        for pinned in (led["model_resolved"]["value"], "haiku"):
+        for pinned in (led["model_resolved"]["value"], probe):
             out = self.sh('works_dev_go /a.sh /x; works_dev_model_value; works_dev_model_from',
                           WORKS_DEV_MODEL="", WORKS_MODEL_PINNED=pinned)
             self.assertIn(f"WORKS_DEV_MODEL= WORKS_MODEL_PINNED={pinned} ", out)
             self.assertEqual(out.splitlines()[-2:], [pinned, "start の時の既定（WORKS_MODEL_PINNED）"])
-        self.assertEqual(self.sh("works_dev_model_value", WORKS_DEV_MODEL_DEFAULT="sonnet").strip(), "opus")
-        # 明示した run の控えも start の時に解いた値を持ち、出どころで既定と見分ける
+        self.assertEqual(self.sh("works_dev_model_value", WORKS_DEV_MODEL_DEFAULT=probe).strip(), default)
+        # 明示した run の控えも start の時に解いた値を持ち、出どころで既定と見分ける（明示の値は既定と同じでも見分ける）
         explicit = hermetic.tmpdir(self)
-        self.save_ledger(explicit, WORKS_DEV_MODEL="opus")
+        self.save_ledger(explicit, WORKS_DEV_MODEL=default)
         exp = json.loads((explicit / "run-1.json").read_text(encoding="utf-8"))
-        self.assertEqual((exp["model"], exp["model_resolved"]["value"]), ("opus", "opus"))
+        self.assertEqual((exp["model"], exp["model_resolved"]["value"]), (default, default))
         self.assertNotEqual(exp["model_resolved"]["from"], led["model_resolved"]["from"])
         # 明示した run の行は明示の値だけを載せる（既定は添えない）
-        out = self.sh("works_dev_go /a.sh /x", WORKS_DEV_MODEL="sonnet")
-        self.assertIn("WORKS_DEV_MODEL=sonnet CLAUDE_BIN_PATH=/c ", out)
+        out = self.sh("works_dev_go /a.sh /x", WORKS_DEV_MODEL=probe)
+        self.assertIn(f"WORKS_DEV_MODEL={probe} CLAUDE_BIN_PATH=/c ", out)
         self.assertNotIn("WORKS_MODEL_PINNED", out)
 
 

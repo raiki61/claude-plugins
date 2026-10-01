@@ -10,6 +10,7 @@ tmpdir の実体のパスを使う（test_adapter の Env）。
 """
 import os
 import pathlib
+import re
 import shutil
 import tempfile
 
@@ -31,6 +32,21 @@ def child_env(**overrides) -> dict:
     env = {k: v for k, v in os.environ.items() if not dropped(k)}
     env.update(overrides)
     return env
+
+
+def dev_model_default() -> str:
+    """dev/guard.sh の全体の模型の既定（WORKS_DEV_MODEL_DEFAULT）。試験に値を写さない——写すと既定を替えた時に、
+    既定と違うはずの探りの値が既定と重なって試験が空振りする"""
+    guard = pathlib.Path(__file__).resolve().parents[1] / "dev" / "guard.sh"
+    m = re.search(r"^WORKS_DEV_MODEL_DEFAULT=(\S+)$", guard.read_text(encoding="utf-8"), re.M)
+    if not m:
+        raise AssertionError(f"{guard} に WORKS_DEV_MODEL_DEFAULT= の行が無い")
+    return m.group(1)
+
+
+def other_model(*avoid) -> str:
+    """探りの値: 既定とも avoid とも違う模型名（既定を替えても探りが既定と重ならない）"""
+    return next(m for m in ("opus", "haiku", "sonnet") if m != dev_model_default() and m not in avoid)
 
 
 def alias(case, path) -> str:

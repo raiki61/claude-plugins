@@ -1736,7 +1736,7 @@ class DevWiringCase(unittest.TestCase):
         r, config, seen, tmp = self._exec(WORKS_DEV_ADAPTER="1", CLAUDE_BIN_PATH="@TMP/fake-bin/claude")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(f"    claudeBinaryPath: {ADAPTER}\n", config)
-        self.assertIn("    model: opus\n", config)
+        self.assertIn(f"    model: {hermetic.dev_model_default()}\n", config)
         self.assertIsNone(seen["CLAUDE_BIN_PATH"])   # env は設定より強いので外す
         self.assertEqual(seen["WORKS_REAL_CLAUDE"], str(tmp / "fake-bin" / "claude"))
         self.assertEqual(seen["WORKS_ADAPTER_HOME"], str(tmp / "dev-home" / "adapter"))

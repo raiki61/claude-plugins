@@ -91,8 +91,9 @@ ROLE_NODES = {
 
 # 本線の graph に無い works だけの役の節 → 本線のどの役に当たるか（食い違いの申し出の出口。持ち主 2026-09-28）:
 # 2 回目の修正役は p3.fix の続き（writer）、裁定役は読むだけで裁く目（judge）、報告の書き手の出した物を確かめる初見の読み手は
-# report.cold_check と同じ cold-reader（道具なし）。構造の目は道具ゼロの opus の目で blind-judge。修正の後のレンズは借りた
-# agent そのもの（前付けが core/agents に無いので段に model: を書かず、既定の Opus のまま。下げるなら行を前付けの在る役にする）
+# report.cold_check と同じ cold-reader（道具なし）。構造の目は道具ゼロの目で blind-judge。修正の後のレンズは借りた
+# agent そのもの（前付けが core/agents に無いので段に model: を書かず、run の既定（dev/guard.sh の WORKS_DEV_MODEL_DEFAULT）で
+# 走る。ADR 0072 の「測るまで Opus」は持ち主 2026-10-01 が費用を先に取って覆した。模型を固定するなら行を前付けの在る役にする）
 EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge",
                ("blk-report", "report-write-cold"): "cold-reader", ("blk-structure", "structure-eye"): "blind-judge",
                ("blk-lens", "lens-silent-failure-hunter"): "silent-failure-hunter"}
@@ -203,8 +204,9 @@ def frontmatter_effort(run_by: str):
     return frontmatter(run_by).get("effort")
 
 
-# 段に model: を書く模型の集合（持ち主 2026-09-29）。殻の環境変数 WORKS_MODEL_PINNED とは別物
-PINNED = {"sonnet"}
+# 段に model: を書く模型の集合（持ち主 2026-10-01。前付けに model の在る役は全部段に映し、run の既定に頼らない）。
+# 殻の環境変数 WORKS_MODEL_PINNED とは別物
+PINNED = {"sonnet", "opus"}
 
 
 def stage_roles() -> dict:
@@ -259,7 +261,7 @@ def reverse_fence_hits(files) -> list:
 
 class RoleModelCase(unittest.TestCase):
     """Archon の段は役の前付けを読まない。前付けの model が PINNED に在る役の段だけ段の model: に同じ値を書き、
-    ほかの段と工程の頭には書かない（持ち主 2026-09-29）。effort は前付けに effort を持つ役の全部の段に同じ値を書き、
+    ほかの段と工程の頭には書かない（持ち主 2026-09-29。2026-10-01 に PINNED へ opus も足した）。effort は前付けに effort を持つ役の全部の段に同じ値を書き、
     ほかの段と工程の頭には書かない。
     graph の節の delegate.model は本線の主のセッションが下請けを起こす時の模型で、正本に数えない（works の段は Archon が
     run_by の役として起こすので、役の前付けだけが正本）"""
@@ -270,6 +272,12 @@ class RoleModelCase(unittest.TestCase):
 
     def test_stage_model_matches_role_frontmatter(self):
         self.assertEqual(model_mismatches(self.nodes, self.roles), [])
+
+    def test_frontmatter_models_are_pinned(self):
+        """前付けに書いた model は全部 PINNED に在る（無いと expected_model が None を返し、その役の段は黙って run の既定で走る）"""
+        models = {frontmatter_model(r) for r in set(self.roles.values())} - {None}
+        self.assertEqual(sorted(models - PINNED), [])
+        self.assertEqual(sorted(PINNED - models), [], "PINNED に前付けで使われていない模型が在る")
 
     def test_stage_effort_matches_role_frontmatter(self):
         self.assertEqual(effort_mismatches(self.nodes, self.roles), [])
@@ -295,16 +303,25 @@ class RoleModelCase(unittest.TestCase):
                 self.assertNotIn("effort", head)
 
     def test_bad_examples_are_caught(self):
-        """前付けどおりに直した写しは 0 件。3 役の段から model: を抜く・judge の段に model: opus を足すと 1 件ずつ名指す"""
+        """前付けどおりに直した写しは 0 件。PINNED の各値について、その役の段から model: を抜く・前付けと違う PINNED の値を
+        書くと 1 件ずつ名指す。前付けに model の無い役の段に model: を足しても 1 件名指す"""
         fixed = {place: dict(n, **({"model": w} if (w := expected_model(self.roles[place])) else {}))
                  for place, n in self.nodes.items() if place in self.roles}
         self.assertEqual(model_mismatches(fixed, self.roles), [])
-        three = next(p for p in sorted(fixed) if expected_model(self.roles[p]))
-        dropped = {**fixed, three: {k: v for k, v in fixed[three].items() if k != "model"}}
-        self.assertEqual(len(model_mismatches(dropped, self.roles)), 1)
-        judge = next(p for p in sorted(fixed) if self.roles[p] == "judge")
-        added = {**fixed, judge: dict(fixed[judge], model="opus")}
-        self.assertEqual(len(model_mismatches(added, self.roles)), 1)
+        for want in sorted(PINNED):
+            with self.subTest(want):
+                place = next((p for p in sorted(fixed) if expected_model(self.roles[p]) == want), None)
+                self.assertIsNotNone(place, f"前付けが {want} の役の段が無い（見本が空振りする）")
+                dropped = {**fixed, place: {k: v for k, v in fixed[place].items() if k != "model"}}
+                self.assertEqual(len(model_mismatches(dropped, self.roles)), 1)
+                other = next(m for m in sorted(PINNED) if m != want)
+                swapped = {**fixed, place: dict(fixed[place], model=other)}
+                self.assertEqual(len(model_mismatches(swapped, self.roles)), 1)
+        writer = next(p for p in sorted(fixed) if self.roles[p] == "writer")
+        for m in sorted(PINNED):
+            with self.subTest(writer=m):
+                added = {**fixed, writer: dict(fixed[writer], model=m)}
+                self.assertEqual(len(model_mismatches(added, self.roles)), 1)
 
     def test_no_reverse_fence_on_the_model_word(self):
         """段の model: は上の柵が前付けと縛る。118 件目で外した段の字の禁止（REVERSE_FENCE の 2 形）を試験に戻さない"""

@@ -18,6 +18,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 - 起動の殻の共通の口の設計（`docs/specs/2026-09-29-launch-core-design.md` の 4 節）の 2 回目を 2 つに割った。先の回は run の控え（ledger。控えの形と版の欄・起動の後の結び方）だけを入れ、続きの行（go）・run の表示（show）・模型の既定と優先の順の部品への移しは次の回に回す。
 - run の控え（`<家>/runs/<run-id>.json`）の形を `dev/launch.py` の動詞 `ledger`（save・load・list・bind）の 1 か所に寄せ、版の欄 `schema`（今は 1）を足した。版の欄の無い前の控えは今どおり読み、知らない版の控えは 1 行の理由で止める（list は黙って飛ばす）。`use.sh` が控えを読む所は部品の出力を 2 段で受け、部品が落ちれば代入を 1 つも効かせずに止まる。
 - 起動の後に run を結ぶ所を、`use.sh`・`dev/dogfood.sh`・`dev/real-run.sh` の 3 本とも `lib.sh` の 1 つの口（`works_dev_ledger_bind`）にした。盤面の依頼がこの起動の依頼の写しと一致する run がちょうど 1 本の時だけ結んで控えを書く。一覧の一番新しい run や、盤面の無い run を代わりに結ぶことはしない（結べなければ控えも続きの行も書かず、結べなかった 1 行を出して 1 で終わる）。`dev/real-run.sh` は依頼を起動ごとに `<dir>.request.json` に写して絶対パスで渡す。依頼を `-` で省いた `use.sh start`（変更だけ）は結ぶ依頼が無いので結ばず、1 で終わる（run id を名指しした show で続ける）。
+- run の全体の模型の既定（`dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT`）を opus から sonnet に下げた（費用を先に取る。持ち主 2026-10-01）。前付けに模型の無い段——修正・修正案の writer、借りたレンズ silent-failure-hunter、CI の任せ先の役、pr-check の役など——と run の題が sonnet で走る。[ADR 0072](../docs/adr/0072-works-post-fix-lens-block.md) の「レンズは測るまで Opus」と、並行 PR・仕分けの役を opus に置いた前の決定は、測らずにここで覆した。質が足りなければ、`WORKS_DEV_MODEL=opus` を付けて起こした run だけ opus に戻せる。判定役（judge・blind-judge）の段は前付けの `model: opus` を段に書いて opus に留め、`WORKS_DEV_MODEL` はその段に効かない（効くのは段に `model:` の無い段だけ）。
 
 ### Fixed
 

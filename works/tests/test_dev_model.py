@@ -1,9 +1,10 @@
 """works/dev の殻の全体の模型（WORKS_DEV_MODEL）が、明示された指定と既定を見分けたまま archon.sh まで届くかの検査。
 
 - 入口の殻（use.sh・dogfood.sh・real-run.sh）は既定を埋めない。既定を解くのは archon.sh の 1 か所だけ。
-- archon.sh は、既定を埋めた時と利用者が同じ opus を明示した時とで、出どころ（WORKS_MODEL_FROM）を違えて下へ渡す。
+- archon.sh は、既定を埋めた時と利用者が既定と同じ値を明示した時とで、出どころ（WORKS_MODEL_FROM）を違えて下へ渡す。
 - use.sh は、模型を明示せずに start した run を Archon へ未設定のまま渡し、控えの model を空に残す。別の殻の show が組む続きの
-  行も、その殻の WORKS_DEV_MODEL や既定の opus を明示として書かない。
+  行も、その殻の WORKS_DEV_MODEL や既定を明示として書かない。
+既定の値は試験に写さず hermetic.dev_model_default() で guard.sh から読み、探りの値は hermetic.other_model() で既定と違う値にする。
 
 Archon・claude・mise・shasum は偽物（sh の台本）。種の git は gitkit の型の写し。
 """
@@ -63,6 +64,17 @@ class EntryShells(unittest.TestCase):
                 self.assertLess(body.index("\nunset WORKS_MODEL_PINNED\n"), body.index('. "$DEV_DIR/guard.sh"'))
 
 
+class ModelDefault(unittest.TestCase):
+    def test_default_is_sonnet(self):
+        """前付けに模型の無い段は sonnet で走らせる（持ち主 2026-10-01。費用を先に取る）。前付けに模型の在る役は段の model: が縛る"""
+        self.assertEqual(hermetic.dev_model_default(), "sonnet")
+
+    def test_probe_differs_from_default(self):
+        """探りの値が既定と重なると、上書きできないことを見る試験が空振りする"""
+        self.assertNotEqual(hermetic.other_model(), hermetic.dev_model_default())
+        self.assertNotIn(hermetic.other_model("opus"), ("opus", hermetic.dev_model_default()))
+
+
 class ArchonShModelFrom(unittest.TestCase):
     def exec_archon_sh(self, **overrides):
         """偽の shasum で確かめを通し、キャッシュの偽の実行ファイルまで exec させる。戻り値は (結果, config.yaml, WORKS_MODEL_FROM)"""
@@ -97,13 +109,14 @@ class ArchonShModelFrom(unittest.TestCase):
                 seen.read_text().strip() if seen.exists() else None)
 
     def test_archon_sh_tells_explicit_model_from_default(self):
-        """書く模型はどちらも opus で、出どころだけが違う（明示か既定かの区別を下へ渡す）"""
+        """書く模型はどちらも既定の値で、出どころだけが違う（明示か既定かの区別を下へ渡す）"""
+        default = hermetic.dev_model_default()
         result, config, from_default = self.exec_archon_sh()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("    model: opus\n", config)
-        result, config, from_explicit = self.exec_archon_sh(WORKS_DEV_MODEL="opus")
+        self.assertIn(f"    model: {default}\n", config)
+        result, config, from_explicit = self.exec_archon_sh(WORKS_DEV_MODEL=default)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("    model: opus\n", config)
+        self.assertIn(f"    model: {default}\n", config)
         for v in (from_default, from_explicit):
             self.assertNotIn(v, (None, "", "(unset)"))
         self.assertNotEqual(from_default, from_explicit)
@@ -111,12 +124,13 @@ class ArchonShModelFrom(unittest.TestCase):
     def test_default_is_not_overridable_and_pin_stays_out_of_archon(self):
         """既定の定数は環境で替わらない。start の時の既定の釘（WORKS_MODEL_PINNED）はその値で解いて出どころに名を残し、
         Archon（その下の殻・入れ子の run）には継がせない"""
-        result, config, from_default = self.exec_archon_sh(WORKS_DEV_MODEL_DEFAULT="sonnet")
+        default, probe = hermetic.dev_model_default(), hermetic.other_model()
+        result, config, from_default = self.exec_archon_sh(WORKS_DEV_MODEL_DEFAULT=probe)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("    model: opus\n", config)
-        result, config, from_pinned = self.exec_archon_sh(WORKS_DEV_MODEL="", WORKS_MODEL_PINNED="haiku")
+        self.assertIn(f"    model: {default}\n", config)
+        result, config, from_pinned = self.exec_archon_sh(WORKS_DEV_MODEL="", WORKS_MODEL_PINNED=probe)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("    model: haiku\n", config)
+        self.assertIn(f"    model: {probe}\n", config)
         self.assertIn("WORKS_MODEL_PINNED", from_pinned)
         self.assertNotEqual(from_pinned, from_default)
         self.assertEqual(self.pinned_seen.read_text().strip(), "(unset)")
@@ -161,35 +175,37 @@ class UseShDefaultModel(unittest.TestCase):
         return t
 
     def test_start_without_model_keeps_it_unset_through_ledger(self):
-        """既定を解くのは archon.sh。控えの model は空で、別の殻の show の続きの行もその殻の値や既定の opus を明示にしない"""
+        """既定を解くのは archon.sh。控えの model は空で、別の殻の show の続きの行もその殻の値や既定を明示にしない"""
+        default, probe = hermetic.dev_model_default(), hermetic.other_model()
         t = self.target()
         r = self.use("start", str(t), str(self.request), "true", "")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("run\t(unset)", self.models.read_text().splitlines())
         self.assertEqual(json.loads((self.home / "runs" / "run-1.json").read_text())["model"], "")
-        r = self.use("show", str(t), "run-1", WORKS_DEV_MODEL="haiku")
+        r = self.use("show", str(t), "run-1", WORKS_DEV_MODEL=probe)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         for verb in ("approve", "resume"):
             line = next(l for l in r.stdout.splitlines() if f"workflow {verb} run-1" in l)
-            self.assertNotIn("WORKS_DEV_MODEL=opus", line)
-            self.assertNotIn("WORKS_DEV_MODEL=haiku", line)
+            self.assertNotIn(f"WORKS_DEV_MODEL={default}", line)
+            self.assertNotIn(f"WORKS_DEV_MODEL={probe}", line)
 
     def test_stray_pin_in_caller_shell_does_not_change_default(self):
         """start の時の既定の釘は控えからだけ受ける。利用者の殻に残った WORKS_MODEL_PINNED は start にも、既定の控えの無い
         古い控えの show の続きの行にも届かない"""
+        default, stray = hermetic.dev_model_default(), hermetic.other_model()
         t = self.target()
-        r = self.use("start", str(t), str(self.request), "true", "", WORKS_MODEL_PINNED="sonnet")
+        r = self.use("start", str(t), str(self.request), "true", "", WORKS_MODEL_PINNED=stray)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         led_path = self.home / "runs" / "run-1.json"
         led = json.loads(led_path.read_text())
-        self.assertEqual(led["model_resolved"]["value"], "opus")
+        self.assertEqual(led["model_resolved"]["value"], default)
         self.assertNotIn("WORKS_MODEL_PINNED", led["model_resolved"]["from"])
         led.pop("model_resolved")
         led_path.write_text(json.dumps(led))
-        r = self.use("show", str(t), "run-1", WORKS_MODEL_PINNED="sonnet")
+        r = self.use("show", str(t), "run-1", WORKS_MODEL_PINNED=stray)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         line = next(l for l in r.stdout.splitlines() if "workflow resume run-1" in l)
-        self.assertIn("WORKS_MODEL_PINNED=opus ", line)
+        self.assertIn(f"WORKS_MODEL_PINNED={default} ", line)
 
 
 if __name__ == "__main__":

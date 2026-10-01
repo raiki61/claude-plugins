@@ -8,8 +8,9 @@
 # 全体の模型の既定。入口の殻は埋めず、埋めるのは archon.sh だけ（埋めると明示と既定が見分けられない）。
 # 環境から上書きさせない。続き（answer・show の行）は start の時に解いた既定を別の名 WORKS_MODEL_PINNED で渡し
 # （use.sh load_ledger・lib.sh works_dev_go だけが置く。入口の殻 use.sh・dogfood.sh・real-run.sh は起動の時に外し、
-# 利用者の殻に残った値を受けない）、archon.sh が読んで外す（run の途中で既定を解き直さない）
-WORKS_DEV_MODEL_DEFAULT=opus
+# 利用者の殻に残った値を受けない）、archon.sh が読んで外す（run の途中で既定を解き直さない）。
+# 効くのは段に model: の無い段（役の前付けに model の無い段）だけ。費用を先に取る（持ち主 2026-10-01）
+WORKS_DEV_MODEL_DEFAULT=sonnet
 
 # works_dev_model_value / works_dev_model_from: 全体の模型の値と出どころ。空でなければ明示、次に start の時の既定
 # （WORKS_MODEL_PINNED）、無ければ今の既定

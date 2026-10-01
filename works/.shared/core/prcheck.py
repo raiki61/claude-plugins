@@ -2,7 +2,7 @@
 
 1〜5 段（owner/repo の解決・自分の PR の除外・打ち切り・変更ファイルの交差）は、盤面の層の run_engine が写しの
 parallel-pr.py を走らせる（run_helper）。交差が在る・remote が GitHub でない・gh が無い時だけ任せ先に落ち、読むだけの
-opus の役 pr-check（ブロック blk-pr）が 6 段の全部をする。6 段目だけ替える: 担当の PR へ投稿せず、申し送りの下書きを
+run の既定の模型の役 pr-check（ブロック blk-pr）が 6 段の全部をする。6 段目だけ替える: 担当の PR へ投稿せず、申し送りの下書きを
 conflicts[].note に書き handed_over を false で返す（真は blk-pr/scripts/accept.py の check_no_post が拒む）。
 投稿しないことは review-graph より下げた所で、<ライン>/downgrades.json に宣言し、報告の冒頭に出す。
 review-graph の 6 段の「衝突した箇所を本ループのスコープから外す」は保つ: 役は外す hunk（PR・ファイル・今の作業ツリーでの行の範囲）を

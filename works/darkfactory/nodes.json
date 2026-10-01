@@ -1,7 +1,7 @@
 {"line": "darkfactory", "graph_sha": "f9897bb07384",
  "nodes": {
    "p0.base":                 {"by": "machine", "where": "start", "reason": "start が DiskBoard.begin の base_output で版の根を渡す"},
-   "p0.local_checks":         {"by": "engine_run", "fallback": "machine", "where": "start", "reason": "start が run_engine で走らせる。任せ先に落ちたら、test_cmd が在れば start がそれを走らせた素材を渡し、test_cmd も空なら start の ci_role_go が真で、ラインが blk-ci（CI の任せ先の役。読むだけ＋Bash の opus が CI の定義を読み、作業ツリーの写しで走らせる）を node: p0.local_checks で回す（裁定 R52）"},
+   "p0.local_checks":         {"by": "engine_run", "fallback": "machine", "where": "start", "reason": "start が run_engine で走らせる。任せ先に落ちたら、test_cmd が在れば start がそれを走らせた素材を渡し、test_cmd も空なら start の ci_role_go が真で、ラインが blk-ci（CI の任せ先の役。読むだけ＋Bash の run の既定の模型の役が CI の定義を読み、作業ツリーの写しで走らせる）を node: p0.local_checks で回す（裁定 R52）"},
    "p0.premises":             {"by": "role", "where": "blk-premises", "reason": "判定の前に 1 度。依頼の measured を作業ツリーで測り直す（持ち主の答え 2026-09-27）"},
    "p0.purpose":              {"by": "role", "where": "blk-purpose", "reason": "前提の実測の後に 1 度（graph の once）。blk-purpose の読むだけの役が依頼と前提から目的の文を書き、境の節 h-mat が盤面へ渡す（判定・独立の目の R1・R2 が読む）"},
    "p0.purpose_review":       {"by": "role", "where": "blk-material", "reason": "目的の文の出典が ③writer の要約の時に、別の会話の inspector が狭めていないかを見る（条件 purpose_review_due）"},

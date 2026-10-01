@@ -2,7 +2,7 @@
 
 graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engine が宣言（.review-checks.json）を走らせられない時、任せ先の役に
 落ちる。works では test_cmd も空の run で、run_ci が role_needed を返し（start の ci_role_go・blk-tests の final の by）、ラインが
-このブロックを回す。役は読むだけ＋Bash（テストを走らせる）の opus で、作業ツリーの写し（engine の copy_worktree）の上で走らせ、
+このブロックを回す。役は読むだけ＋Bash（テストを走らせる）の run の既定の模型で、作業ツリーの写し（engine の copy_worktree）の上で走らせ、
 受け付けは役を起こす前と後の作業ツリーの姿（accept.tree_state: porcelain・差分・git が無視するパス・HEAD・枝）を比べる。
 
 - YAML の形: 役の output_format が ci_role.OUTPUT_FORMAT（写しの schema に印 works-node: ci）・輪は fresh_context で AI の節は 1 つ・
