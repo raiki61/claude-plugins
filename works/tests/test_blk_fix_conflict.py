@@ -387,8 +387,9 @@ class TestTddExcused(LoopCase):
         from unittest import mock
         import conflict
         for p in (mock.patch.object(entry, "open_board", return_value=mock.MagicMock()),
-                  mock.patch.object(conflict, "excused_units", return_value={CLAMP: "答え待ちの問い q-1（fork・held）"}),
-                  mock.patch.object(conflict, "owed_units_but_asked", return_value={MEAN})):
+                  # 直す義務と外れた単位は conflict.fix_duty の 1 か所から読む（tddloop._duty・受け付けが同じ物を読む）
+                  mock.patch.object(conflict, "fix_duty",
+                                    return_value=({MEAN}, {CLAMP: "答え待ちの問い q-1（fork・held）"}))):
             p.start()
             self.addCleanup(p.stop)
         super().setUp()
