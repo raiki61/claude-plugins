@@ -249,6 +249,7 @@ class LineShapeCase(unittest.TestCase):
         import report
         self.assertEqual(report.STOP_AFTER_END_OP, line_edge.STOP_AFTER_END_OP)
         self.assertEqual(report.FINAL_GATE_ANSWER, line_edge.FINAL_GATE_ANSWER)
+        self.assertEqual(report.FINAL_GATE_FILE, line_edge.FINAL_GATE_FILE)
         self.assertEqual(report.FINAL_GATE_BY, line_edge.FINAL_GATE_BY)
 
     def test_reads_include_ids_match_line(self):

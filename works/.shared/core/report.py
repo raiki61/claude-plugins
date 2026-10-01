@@ -88,6 +88,7 @@ NO_TURN_FILE = "no-turn-exits.json"   # 包みの終わりの記録の即時の�
 NEXT_ORIGIN = "works:report"   # 次の run に渡す依頼の出どころ（accept.check_request の reason）
 TAIL_LINES = 20
 FINAL_GATE_ANSWER = "final-gate-answer.json"   # 最後の関所の答え {decision, text}（境の節 eyes が b.work に書く。P1 Task 26）
+FINAL_GATE_FILE = "final-gate.md"              # 最後の関所の文（書き手 line_edge.FINAL_GATE_FILE と同じ字。関所が開いた印）
 FINAL_GATE_BY = "human:final-gate"             # 最後の関所の stop・reject で止めた盤面の state.stop.by
 FINAL_GATE_STOPS = ("stop", "reject")           # 最後の関所の答えのうち止める語（書き手 line_edge の GATE_STOP）
 REQUEST_BY = "request:"                        # 止め札で止めた盤面の state.stop.by の頭
@@ -143,6 +144,29 @@ def _latest(board_dir: pathlib.Path, name: str) -> pathlib.Path | None:
         if tail.isdigit() and p.is_file():
             found.append((int(tail), p))
     return max(found)[1] if found else None
+
+
+def final_gate_answer(board_dir) -> tuple:
+    """最後の関所の答えの読み手（ここだけが final-gate-answer.json を読む）: (状態, 答えの doc, 答えのファイル)。
+    answered＝{decision, text} が読めた／unreadable＝答えのファイルが在るのに読めない（doc は {}）、または関所の文が在るのに
+    答えのファイルが無い（ファイルは None）／not_asked＝関所の文も答えも無い（関所が開かなかった。final_gate protected_only の既定では正常）"""
+    ans = _latest(pathlib.Path(board_dir), FINAL_GATE_ANSWER)
+    if ans is None:
+        return ("unreadable" if _latest(pathlib.Path(board_dir), FINAL_GATE_FILE) is not None else "not_asked"), {}, None
+    doc = _read_json(ans, None)
+    if isinstance(doc, dict) and isinstance(doc.get("decision"), str):
+        return "answered", doc, ans
+    return "unreadable", {}, ans
+
+
+def _gate_answer_note(board_dir) -> str:
+    """盤面の問いの行に添える最後の関所の答えの一言（括弧つき）"""
+    state, doc, ans = final_gate_answer(board_dir)
+    if state == "answered":
+        return f"（最後の関所の答え: {doc['decision']}「{doc.get('text') or ''}」）"
+    if state == "unreadable":
+        return f"（最後の関所の答えが読めなかった: {ans or '答えのファイルが無い'}）"
+    return ""   # 開かなかった（final_gate protected_only の既定では正常）。冒頭 1 の head_decisions も何も出さない
 
 
 def _all_rounds(board_dir: pathlib.Path, pattern: str) -> list:
@@ -355,7 +379,8 @@ def stop_outcome(b) -> tuple:
 def stopped_run(board_dir) -> tuple | None:
     """差分を当てる前（use.sh apply）に見る記録の止まり: 盤面の止めか最後の関所の stop・reject なら (結末の語, by, 一言)、
     記録が止まりでないと言えば ()、止まりかを言える記録（最後の関所の答え・state の stop か halted）が無いか、在るのに
-    読めなければ None。盤面は開かずにファイルとして読む（周の途中で終わった run の盤面も読む）"""
+    読めなければ None（decision が文字列でない答えも「読めない」で、旧い式の () からここで None に変わった）。
+    盤面は開かずにファイルとして読む（周の途中で終わった run の盤面も読む）"""
     d = pathlib.Path(board_dir)
     state = _read_json(d / "state.json", None)
     unreadable = not isinstance(state, dict) and (d / "state.json").exists()
@@ -363,13 +388,12 @@ def stopped_run(board_dir) -> tuple | None:
     stopped = stop_outcome(types.SimpleNamespace(state=state, dir=d))
     if stopped:
         return stopped
-    ans = _latest(d, FINAL_GATE_ANSWER)
-    doc = _read_json(ans, None) if ans is not None else None
-    if isinstance(doc, dict) and doc.get("decision") in FINAL_GATE_STOPS:
+    got, doc, ans = final_gate_answer(d)
+    if got == "answered" and doc["decision"] in FINAL_GATE_STOPS:
         return "stopped_by_human", FINAL_GATE_BY, str(doc.get("text") or "")
-    if unreadable or (ans is not None and not isinstance(doc, dict)):
+    if unreadable or (got == "unreadable" and ans is not None):
         return None
-    if isinstance(doc, dict):
+    if got == "answered":
         return ()
     return () if state.get("stop") or _halted(types.SimpleNamespace(state=state)) else None
 
@@ -408,7 +432,8 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     再審されずに残った異議（loop.rejudge_requested。写し直しの前で再審の節が無い run と、会話が無くて止めた run）・
     決着した再審の結果（rejudge-exit.json の判定と異議の文・再審が直す単位にした単位・block から下げた単位。単位の行を持つ
     単位は検証器の単位の行を渡さない）・
-    盤面が人に聞いたままの問い（独立の目の r4.human_gate など。この run では答えを受けないので次の run へ渡す。計画 P1 Task 33 の (b)）・
+    盤面が人に聞いたままの問い（独立の目の r4.human_gate など。この run では答えを受けないので次の run へ渡す。計画 P1 Task 33 の (b)。
+    最後の関所の答え・読めなかったも、その行の後ろに添える）・
     食い違いの申し出を人に回して直さずに残した単位（conflict の ask_human）"""
     items = []
     for nid in REFIX_NODES:
@@ -449,7 +474,8 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     if ph.get("question"):
         asked = "・".join(str(x) for x in ph.get("items") or [])
         items.append({"where": f"人の関所（{ph.get('node')}）",
-                      "text": f"{_one_line(ph['question'])}" + (f"（挙がった物: {_one_line(asked)}）" if asked else "")})
+                      "text": f"{_one_line(ph['question'])}" + (f"（挙がった物: {_one_line(asked)}）" if asked else "")
+                              + _gate_answer_note(b.dir)})
     seen, out = set(), []
     for it in items:
         k = (it["where"], it["text"])
@@ -508,10 +534,11 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         if isinstance(h, dict):
             lines.append(f"{gatemarks.named(h.get('node'))}の答え: {h.get('answer')}「{h.get('note') or ''}」")
     lines += gatemarks.lines(b)
-    ans = _latest(b.dir, FINAL_GATE_ANSWER)
-    if ans is not None:
-        doc = _read_json(ans, {}) or {}
-        lines.append(f"最後の関所の答え: {doc.get('decision')}「{doc.get('text') or ''}」（{ans}）")
+    got, doc, ans = final_gate_answer(b.dir)
+    if got == "answered":
+        lines.append(f"最後の関所の答え: {doc['decision']}「{doc.get('text') or ''}」（{ans}）")
+    elif got == "unreadable":
+        lines.append(f"最後の関所の答えが読めなかった（{ans or '答えのファイルが無い'}）")
     by, reason, info = _stop_info(b)
     if by == FINAL_GATE_BY:
         lines.append(f"最後の関所で止めた: 「{reason}」")

@@ -745,6 +745,51 @@ class NextRequestCase(ReportBase):
         self.assertIn(json.dumps(ODD_KEY, ensure_ascii=False)[1:-1].encode("utf-8"), raw)
 
 
+class FinalGateAnswerNextRequestCase(ReportBase):
+    """最後の関所の答えは、盤面が人に聞いたままの問いの行に添えて next-request.json に載る"""
+
+    def asked_rows(self, answer_text=None):
+        self.planned()
+        b = entry.open_board(self.board, allow_halted=True)
+        if answer_text is not None:
+            b.work(report.FINAL_GATE_ANSWER).write_text(answer_text, encoding="utf-8")
+        out, _, h = self.build()
+        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
+        question = b.state["pending_human"]["question"]
+        return [i for i in items if i["where"].startswith("人の関所")], question, h
+
+    def test_continue_answer_rides_on_the_open_question_row(self):
+        """問いが残った盤面に continue「一言」の答え → 問いの行の text に問いの字・continue・一言が載る"""
+        answer = json.dumps({"decision": "continue", "text": ODD}, ensure_ascii=False)
+        rows, question, _ = self.asked_rows(answer)
+        self.assertEqual(len(rows), 1, rows)
+        self.assertIn(report._one_line(question), rows[0]["text"])
+        self.assertIn("continue", rows[0]["text"])
+        self.assertIn(ODD, rows[0]["text"])
+
+    def test_broken_answer_is_unreadable_not_none(self):
+        """壊れた答えのファイル → 冒頭 1 に『None「」』を出さず『読めなかった』と言い、問いの行にも『読めなかった』が載る"""
+        rows, _, h = self.asked_rows("{壊れた")
+        self.assertNotIn("None「」", h[H1])
+        self.assertIn("読めなかった", h[H1])
+        self.assertEqual(len(rows), 1, rows)
+        self.assertIn("読めなかった", rows[0]["text"])
+
+    def test_no_gate_no_answer_adds_nothing(self):
+        """関所の文も答えも無い（protected_only の既定。関所が開かないのが正常）→ 冒頭 1 に答えの行は無く、問いの行にも一文を足さない"""
+        rows, question, h = self.asked_rows()
+        self.assertNotIn("最後の関所の答え", h[H1])
+        self.assertEqual(len(rows), 1, rows)
+        self.assertNotIn("最後の関所", rows[0]["text"])
+
+    def test_stopped_run_answer_without_decision_is_unreadable(self):
+        """decision の無い dict の答え → stopped_run は止まりかを言えず None（旧い式は () だった。decision の無い答えは読めない答えに揃えた）"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / report.FINAL_GATE_ANSWER).write_text('{"text": "一言だけ"}', encoding="utf-8")
+            self.assertIsNone(report.stopped_run(d))
+
+
 # ---------------------------------------------------------------- 費用
 class HeadWhereDesignCase(unittest.TestCase):
     """止めた run（修正前の関所で stop）の見る所: 判定・修正案・事前審査と並んで、盤面の根の独立設計（design.json）が載る。
