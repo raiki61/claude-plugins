@@ -77,7 +77,9 @@ class UseShell(unittest.TestCase):
         self.out.mkdir()
         self.set_runs(working_path="/wt/run-1", output_root=str(self.out))
         # workflow run は、一覧の run のうち output_root の在る物の盤面 r1/start.json に、この起動の依頼（request= の値。
-        # 変更だけの起動は空）を書く（start が起動の直後に依頼で run を結ぶ材料。Archon の線の start と同じ欄）
+        # 変更だけの起動は空）を書く（start が起動の直後に依頼で run を結ぶ材料。Archon の線の start と同じ欄）。読み出しの
+        # ファイル（github_reads= の値）が在れば run-1 の metadata.inputs.github_reads に残す（Archon が run に残す入力と同じ欄。
+        # 依頼を省いた起動を結ぶ材料）
         self.fake = self.tmp / "fake-archon.sh"
         self.fake.write_text(
             "#!/bin/sh\n"
@@ -89,11 +91,17 @@ class UseShell(unittest.TestCase):
             f'RUNS="{self.runs}" python3 - "$@" <<\'EOF\'\n'
             "import json, os, pathlib, sys\n"
             "req = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('request=')), '')\n"
-            "for r in json.loads(pathlib.Path(os.environ['RUNS']).read_text())['runs']:\n"
+            "reads = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('github_reads=')), '')\n"
+            "path = pathlib.Path(os.environ['RUNS'])\n"
+            "listed = json.loads(path.read_text())\n"
+            "for r in listed['runs']:\n"
             "    if r.get('output_root') and os.path.isdir(r['output_root']):\n"
             "        board = pathlib.Path(r['output_root'], 'artifacts', 'runs', r['id'], 'board', 'r1')\n"
             "        board.mkdir(parents=True, exist_ok=True)\n"
             "        (board / 'start.json').write_text(json.dumps({'request_file': req}))\n"
+            "    if reads and r.get('id') == 'run-1':\n"
+            "        r.setdefault('metadata', {}).setdefault('inputs', {})['github_reads'] = reads\n"
+            "path.write_text(json.dumps(listed))\n"
             "EOF\n"
             "exit 0\n")
 
@@ -186,8 +194,9 @@ class UseShell(unittest.TestCase):
     def test_start_change_entry_flags(self):
         """変更から入る口: 先頭の --base <版>・--pr <番号>（と --）を旗として読み、残りの位置引数に対象を省ける決まりを当てる。
         依頼の - は依頼を省き（request= は空）、Archon へ --input base=・pr= を渡し、『入口: 変更から』を出す。
-        位置引数の後の --base は旗として読まない。依頼を省いた起動は結ぶ依頼の写しが無いので run を結ばず、結べない時の
-        1 行を出して 1 で終わる（設計書 2.3。2026-10-01 の関所の答え A）"""
+        位置引数の後の --base は旗として読まない。依頼も読み出しのファイルも無い起動（--base だけ）は結ぶ印が無いので run を
+        結ばず、結べない時の 1 行を出して 1 で終わる（設計書 2.3。2026-10-01 の関所の答え A）。--pr の起動は読み出しのファイルで
+        結ぶ（test_start_pr_without_request_binds_by_reads）"""
         t = self.target()
         r = self.use("start", "--base", "main", "-", cwd=str(t))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
@@ -200,8 +209,7 @@ class UseShell(unittest.TestCase):
         self.assertFalse((self.home / "requests").exists())
         self.log.unlink()
         r = self.use("start", "--pr", "7", "--", str(t), "-", "true", **self.gh_env())   # --pr は隔離の前に読める PR
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)   # 依頼を省いた起動は結ばない（上と同じ）
-        self.assertIn("結べなかった", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)   # 依頼を省いても読み出しのファイルで結ぶ
         run = self.calls()[0]
         self.assertIn("pr=7", run)
         self.assertIn("test_cmd=true", run)
@@ -252,6 +260,20 @@ class UseShell(unittest.TestCase):
         self.assertEqual(doc["issue"]["9"]["body"], "課題の本文")
         from test_ghreads import gh_calls
         self.assertEqual({cwd for cwd, _ in gh_calls(self.gh_calls_file)}, {str(t)})
+
+    def test_start_pr_without_request_binds_by_reads(self):
+        """依頼を - で省いた --pr の起動は、依頼の写しの代わりに読み出しのファイル（起動ごとに一意。Archon が run に残した
+        入力 github_reads）の一致で run を結ぶ。0 で終わり、控えにその読み出しのファイルを残し、ファイルは消さない（run が
+        start で盤面へ写す。2026-10-01 に利用者が踏んだ: 結ばずに 1 で終わり、後始末でファイルが消えて run が落ちた）"""
+        t = self.target()
+        r = self.use("start", "--pr", "7", str(t), "-", "true", "", **self.gh_env())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("結べなかった", r.stdout)
+        given = [a.split("=", 1)[1] for a in self.calls()[0] if a.startswith("github_reads=")]
+        self.assertEqual(len(given), 1, self.calls()[0])
+        led = json.loads((self.home / "runs" / "run-1.json").read_text())
+        self.assertEqual(led["github_reads"], given[0])
+        self.assertEqual(self.reads_left(), [pathlib.Path(given[0]).name])
 
     def test_start_refuses_unreadable_pr_before_archon(self):
         """--pr の base・head が隔離の前に読めなければ（ログインが見えない）、Archon を起こさずに止まる"""
@@ -1282,11 +1304,17 @@ class UseShell(unittest.TestCase):
             f'RUNS="{self.runs}" python3 - "$@" <<\'EOF\'\n'
             "import json, os, pathlib, sys\n"
             "req = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('request=')), '')\n"
-            "for r in json.loads(pathlib.Path(os.environ['RUNS']).read_text())['runs']:\n"
+            "reads = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('github_reads=')), '')\n"
+            "path = pathlib.Path(os.environ['RUNS'])\n"
+            "listed = json.loads(path.read_text())\n"
+            "for r in listed['runs']:\n"
             "    if r.get('output_root') and os.path.isdir(r['output_root']):\n"
             "        board = pathlib.Path(r['output_root'], 'artifacts', 'runs', r['id'], 'board', 'r1')\n"
             "        board.mkdir(parents=True, exist_ok=True)\n"
             "        (board / 'start.json').write_text(json.dumps({'request_file': req}))\n"
+            "    if reads and r.get('id') == 'run-1':\n"
+            "        r.setdefault('metadata', {}).setdefault('inputs', {})['github_reads'] = reads\n"
+            "path.write_text(json.dumps(listed))\n"
             "EOF\n"
             "exit 0\n")
         binary.chmod(0o755)

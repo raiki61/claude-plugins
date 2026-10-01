@@ -536,6 +536,42 @@ class Bind(unittest.TestCase):
         rc, out, err = self.bind([self.row("change-only", "")], request="")
         self.assert_unbound(rc, out, err, "依頼の写しの無い起動", "候補 change-only")
 
+    def bind_reads(self, rows, reads):
+        """依頼を省いた起動（変更だけ）の結び方: --request は空、--github-reads にこの起動の読み出しのファイル"""
+        return run_ledger(self, ["bind", "--for", "use.sh", "--dir", str(self.runs), "--target", str(self.target),
+                                 "--request", "", "--github-reads", str(reads),
+                                 "--model-value", "opus", "--model-from", "既定"],
+                          {"WORKS_DEV_MODEL": ""}, json.dumps({"runs": rows}))
+
+    def test_launch_without_request_binds_by_its_github_reads(self):
+        """依頼の写しが無くても、読み出しのファイル（起動ごとに一意。Archon が残した metadata.inputs.github_reads）が
+        この起動の物と一致する run がちょうど 1 本なら結ぶ（dict でも JSON の文字列でも）"""
+        reads = self.tmp / "reads.json"
+        reads.write_text("{}")
+        for wrap in (lambda m: m, json.dumps):
+            with self.subTest(meta=type(wrap({})).__name__):
+                shutil.rmtree(self.runs, ignore_errors=True)
+                rows = [self.row("mine", metadata=wrap({"inputs": {"request": "", "github_reads": str(reads)}})),
+                        self.row("other", metadata={"inputs": {"request": "", "github_reads": str(self.tmp / "x.json")}}),
+                        self.row("no-reads", metadata={"inputs": {"request": ""}})]
+                rc, out, err = self.bind_reads(rows, reads)
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(sh_assigned(self, out, ("WORKS_RUN_ID",))["WORKS_RUN_ID"], "mine")
+                self.assertEqual(json.loads((self.runs / "mine.json").read_text())["github_reads"], str(reads))
+
+    def test_launch_without_request_and_not_one_run_with_its_reads_does_not_bind(self):
+        """読み出しのファイルの一致する run が 0 本・2 本なら結ばない（推定では選ばない）"""
+        reads = self.tmp / "reads.json"
+        reads.write_text("{}")
+        same = {"inputs": {"request": "", "github_reads": str(reads)}}
+        for rows, says in (([self.row("a", metadata=same), self.row("b", metadata=same)],
+                            ("候補が 2 本", f"候補 a（paused）: use.sh show {self.target.resolve()} a", "候補 b")),
+                           ([self.row("other", metadata={"inputs": {"github_reads": str(self.tmp / "x.json")}})],
+                            ("候補が 0 本",))):
+            with self.subTest(n=len(rows)):
+                rc, out, err = self.bind_reads(rows, reads)
+                self.assert_unbound(rc, out, err, "読み出しのファイル", "推定では選ばない", *says)
+
     def test_no_run_and_other_target_and_other_workflow_are_not_found(self):
         mine = str(self.request)
         rows = [self.row("x", mine, metadata={"workflow_source": {"origin": str(self.tmp)}}),

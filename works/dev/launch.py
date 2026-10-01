@@ -327,6 +327,14 @@ def _run_request(row):
     return None
 
 
+def _run_reads(row):
+    """run の読み出しのファイル（Archon が run に残した入力 metadata.inputs.github_reads）の realpath。無ければ None。
+    盤面は見ない（start が盤面へ写して元を消すので、起動の直後の入力だけが起動の時のパスを持つ）"""
+    inputs = _run_meta(row).get("inputs")
+    value = inputs.get("github_reads") if isinstance(inputs, dict) else None
+    return os.path.realpath(value) if isinstance(value, str) and value else None
+
+
 def _ledger_bind(opts, environ, stdin):
     caller, here = opts["for"], os.path.realpath(opts["target"])
     try:
@@ -339,14 +347,20 @@ def _ledger_bind(opts, environ, stdin):
         raise Unbound(f"{caller}: darkfactory の run が見つからない（対象 {here}）")
     show = lambda found: "".join(f"\n  候補 {r.get('id')}（{r.get('status')}）: {caller} show {here} {r.get('id')}"
                                  for r in found)
-    if not opts["request"]:
-        # 依頼の写しの無い起動（変更だけ）は目印が無いので結ばない（設計書 2.3。2026-10-01 の関所の答え）
+    if opts["request"]:
+        want, mark = os.path.realpath(opts["request"]), "依頼"
+        mine = [r for r in rows if _run_request(r) == want]
+    elif opts.get("github-reads"):
+        # 依頼の写しの無い起動（変更だけ）でも、読み出しのファイルは起動ごとに一意（<家>/reads/<印>.json）なので、
+        # 推定でなく印で結ぶ（設計書 2.3）
+        want, mark = os.path.realpath(opts["github-reads"]), "読み出しのファイル"
+        mine = [r for r in rows if _run_reads(r) == want]
+    else:
+        # 依頼の写しも読み出しのファイルも無い起動（変更だけ）は目印が無いので結ばない（設計書 2.3。2026-10-01 の関所の答え）
         found = [r for r in rows if _run_request(r) is None]
         raise Unbound(f"{caller}: 依頼の写しの無い起動（変更だけ）は run を結ばない。推定では選ばない{show(found)}")
-    want = os.path.realpath(opts["request"])
-    mine = [r for r in rows if _run_request(r) == want]
     if len(mine) != 1:
-        raise Unbound(f"{caller}: この起動の run を 1 つに結べない（依頼 {want} の run の候補が {len(mine)} 本）。"
+        raise Unbound(f"{caller}: この起動の run を 1 つに結べない（{mark} {want} の run の候補が {len(mine)} 本）。"
                       f"推定では選ばない{show(mine)}")
     row = mine[0]
     run_id = row.get("id") if isinstance(row.get("id"), str) else ""
