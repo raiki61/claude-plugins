@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -21,16 +22,6 @@ import test_use as base
 DEV = base.DEV
 setUpModule = base.setUpModule
 tearDownModule = base.tearDownModule
-
-
-def fake_herdr(tmp):
-    """herdr の偽物: 受けた引数を 1 行ずつ控える。(PATH の頭に足すフォルダ, 控えのファイル)"""
-    bin_dir = tmp / "herdr-bin"
-    bin_dir.mkdir()
-    log = tmp / "herdr.txt"
-    (bin_dir / "herdr").write_text(f'#!/bin/sh\necho "$*" >> "{log}"\nexit 0\n')
-    (bin_dir / "herdr").chmod(0o755)
-    return bin_dir, log
 
 
 def herdr_calls(log):
@@ -44,7 +35,7 @@ class HerdrAcrossHomes(unittest.TestCase):
         self._td = tempfile.TemporaryDirectory()
         self.tmp = pathlib.Path(self._td.name).resolve()
         self.addCleanup(self._td.cleanup)
-        self.herdr_bin, self.herdr_log = fake_herdr(self.tmp)
+        self.herdr_bin, self.herdr_log = hermetic.fake_herdr(self.tmp)
         # 偽の Archon: 一覧は呼び手の WORKS_DEV_HOME の家の listed.json（家ごとに別の Archon の形）
         self.archon = self.tmp / "archon.sh"
         self.archon.write_text('#!/bin/sh\ncat "$WORKS_DEV_HOME/listed.json" 2>/dev/null || echo \'{"runs": []}\'\n')
@@ -75,20 +66,35 @@ class HerdrAcrossHomes(unittest.TestCase):
         b = self.home("home-b", **{"run-b": "completed"})
         calls = self.sync([a / "runs", b / "runs"], "run-b=completed")
         self.assertFalse(any(c.startswith("release-agent") for c in calls), calls)
-        reports = [c for c in calls if c.startswith("report-agent")]
+        self.assertFalse(any(c.startswith("pane release-agent") for c in calls), calls)
+        reports = [c for c in calls if c.startswith("pane report-agent")]
         self.assertEqual(len(reports), 1, calls)
         self.assertIn("--state blocked", reports[0])
         self.assertIn("人の番 1・走る 0・終わった 1", reports[0])
         # A も終わった時だけ release
         self.set_status(a, **{"run-a": "completed"})
         calls = self.sync([a / "runs", b / "runs"], "run-b=completed")
-        self.assertTrue(any(c.startswith("release-agent pane-7") for c in calls), calls)
+        self.assertTrue(any(c.startswith("pane release-agent pane-7") for c in calls), calls)
+
+    def test_release_carries_seq_newer_than_last_report(self):
+        # herdr は同じ source の通し番号が前に受けた物より大きい報告だけを受ける。release にも seq が無いと解除が受けられない
+        def seq(call):
+            m = re.search(r"--seq (\d+)", call)
+            self.assertIsNotNone(m, call)
+            return int(m.group(1))
+        a = self.home("home-a", **{"run-a": "running"})
+        reports = [c for c in self.sync([a / "runs"]) if "report-agent" in c]
+        self.assertEqual(len(reports), 1, reports)
+        self.set_status(a, **{"run-a": "completed"})
+        releases = [c for c in self.sync([a / "runs"]) if "release-agent" in c]
+        self.assertEqual(len(releases), 1, releases)
+        self.assertGreater(seq(releases[0]), seq(reports[0]))
 
     def test_same_home_given_twice_counts_once(self):
         a = self.home("home-a", **{"run-a": "running"})
         (self.tmp / "link").symlink_to(a)
         calls = self.sync([a / "runs", self.tmp / "link" / "runs", self.tmp / "missing" / "runs"])
-        reports = [c for c in calls if c.startswith("report-agent")]
+        reports = [c for c in calls if c.startswith("pane report-agent")]
         self.assertEqual(len(reports), 1, calls)
         self.assertIn("走る 1・終わった 0", reports[0])
 
@@ -128,7 +134,7 @@ class UseHomes(unittest.TestCase):
                 {"id": rid, "workflow_name": "darkfactory", "status": status, "working_path": "/wt/" + rid}]}))
         self.fake.write_text('#!/bin/sh\ncase "$*" in "workflow runs --json") cat "$WORKS_DEV_HOME/listed.json" ;; esac\n'
                              "exit 0\n")
-        herdr_bin, herdr_log = fake_herdr(self.tmp)
+        herdr_bin, herdr_log = hermetic.fake_herdr(self.tmp)
         pane = dict(PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", HERDR_ENV="1", HERDR_PANE_ID="pane-7")
         # clone B の run が終わっても、同じ枠から起こした clone A の run が関所で待つ: release せず blocked
         r = self.use("wait", str(b), "run-b", XDG_STATE_HOME=str(state), WORKS_USE_HOME=None, CLAUDE_CODE_OAUTH_TOKEN=None,
@@ -136,7 +142,8 @@ class UseHomes(unittest.TestCase):
         self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
         calls = herdr_calls(herdr_log)
         self.assertFalse(any(c.startswith("release-agent") for c in calls), calls)
-        reports = [c for c in calls if c.startswith("report-agent")]
+        self.assertFalse(any(c.startswith("pane release-agent") for c in calls), calls)
+        reports = [c for c in calls if c.startswith("pane report-agent")]
         self.assertTrue(reports and "--state blocked" in reports[-1], calls)
         self.assertIn("人の番 1・走る 0・終わった 2", reports[-1])
 

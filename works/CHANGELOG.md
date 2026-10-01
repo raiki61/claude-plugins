@@ -12,6 +12,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Fixed
 
+- herdr の枠の集計（run を起こしたペインの「走る」「人の番」の表示）が一度も出ていなかった。herdr に無い最上位のコマンド `herdr report-agent`・`herdr release-agent` を呼び、エラーを捨てていたため。`herdr pane report-agent`・`herdr pane release-agent` に直し、解除にも通し番号（`--seq`）を付けた（付けないと解除が受けられず、表示が残りうる）。試験の偽の herdr は何でも受けていたので、実物と同じく `pane` の下の 2 つの形だけを受け、ほかは `unknown command` で落ちるようにした（`tests/hermetic.py` の `fake_herdr` 1 か所にまとめた）。
 - 修正の段の役の会話が、背景の作業を残したまま引き継がれると 1 手も進まずに終わり、起こし直しを繰り返して run が落ちていた。役の会話では背景の作業を起こせないようにした。
 
 ## [0.2.8] - 2026-10-01

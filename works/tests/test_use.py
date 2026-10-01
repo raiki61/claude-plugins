@@ -636,11 +636,7 @@ class UseShell(unittest.TestCase):
 
     def test_start_reports_run_to_herdr_pane(self):
         t = self.target()
-        fake_bin = self.tmp / "herdr-bin"
-        fake_bin.mkdir()
-        herdr_log = self.tmp / "herdr.txt"
-        (fake_bin / "herdr").write_text(f'#!/bin/sh\necho "$*" >> "{herdr_log}"\nexit 0\n')
-        (fake_bin / "herdr").chmod(0o755)
+        fake_bin, herdr_log = hermetic.fake_herdr(self.tmp)
         path = str(fake_bin) + os.pathsep + os.environ.get("PATH", "")
         # herdr の下でない（HERDR_ENV が無い）なら何も呼ばない
         r = self.use("start", str(t), str(self.request), "true", "", PATH=path, HERDR_ENV=None, HERDR_PANE_ID=None)
@@ -678,11 +674,7 @@ class UseShell(unittest.TestCase):
             "pathlib.Path(e['RUNS']).write_text(json.dumps({'runs': rows}))\n"
             "EOF\n"
             "exit 0\n")
-        fake_bin = self.tmp / "herdr-bin"
-        fake_bin.mkdir()
-        herdr_log = self.tmp / "herdr.txt"
-        (fake_bin / "herdr").write_text(f'#!/bin/sh\necho "$*" >> "{herdr_log}"\nexit 0\n')
-        (fake_bin / "herdr").chmod(0o755)
+        fake_bin, herdr_log = hermetic.fake_herdr(self.tmp)
         pane = dict(PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""), HERDR_ENV="1", HERDR_PANE_ID="pane-7")
         for _ in range(2):
             r = self.use("start", str(t), str(self.request), "true", "", **pane)
@@ -701,8 +693,8 @@ class UseShell(unittest.TestCase):
         r = self.use("wait", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1", **pane)
         self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
         calls = herdr_log.read_text().splitlines() if herdr_log.exists() else []
-        self.assertFalse(any(c.startswith("release-agent") for c in calls), calls)
-        reports = [c for c in calls if c.startswith("report-agent")]
+        self.assertFalse(any(c.startswith("pane release-agent") for c in calls), calls)
+        reports = [c for c in calls if c.startswith("pane report-agent")]
         self.assertTrue(reports and "--state working" in reports[-1] and "pane-7" in reports[-1], calls)
         # 全部終わった: その時だけ release
         set_status(**{"run-2": "completed"})
@@ -710,7 +702,7 @@ class UseShell(unittest.TestCase):
         r = self.use("wait", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1", **pane)
         self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
         calls = herdr_log.read_text().splitlines() if herdr_log.exists() else []
-        self.assertTrue(any(c.startswith("release-agent pane-7") for c in calls), calls)
+        self.assertTrue(any(c.startswith("pane release-agent pane-7") for c in calls), calls)
         # この枠から起こした run が無い枠: herdr に何もしない
         herdr_log.unlink(missing_ok=True)
         r = self.use("wait", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1",

@@ -320,6 +320,29 @@ class HermeticCase(unittest.TestCase):
             self.assertNotEqual(pub, str(d))
             self.assertEqual(os.path.realpath(pub), str(d))
 
+    def test_fake_herdr_rejects_commands_real_herdr_lacks(self):
+        # 偽の herdr は実物の CLI の形（pane の下の report-agent・release-agent）だけを受けて控え、最上位の形は実物と同じく
+        # unknown command で rc=2 にする（誤った呼び出しを緑で通さない）
+        hermetic = self._hermetic()
+        fake_herdr = getattr(hermetic, "fake_herdr", None)
+        self.assertIsNotNone(fake_herdr, "試験の足場 tests/hermetic.py に共通の偽の herdr（fake_herdr）が無い")
+        bin_dir, log = fake_herdr(hermetic.tmpdir(self))
+        herdr = str(pathlib.Path(bin_dir) / "herdr")
+        for args in (["report-agent", "pane-7", "--source", "s", "--agent", "a", "--state", "working", "--seq", "1"],
+                     ["release-agent", "pane-7", "--source", "s", "--agent", "a", "--seq", "2"]):
+            with self.subTest(args=args[0]):
+                r = subprocess.run([herdr, *args], capture_output=True, text=True, encoding="utf-8", env=hermetic.child_env())
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn(f"unknown command: {args[0]}", r.stderr)
+        self.assertFalse(pathlib.Path(log).exists(), "受けない形を控えた")
+        for args in (["pane", "report-agent", "pane-7", "--source", "s", "--agent", "a", "--state", "working", "--seq", "3"],
+                     ["pane", "release-agent", "pane-7", "--source", "s", "--agent", "a", "--seq", "4"]):
+            r = subprocess.run([herdr, *args], capture_output=True, text=True, encoding="utf-8", env=hermetic.child_env())
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(pathlib.Path(log).read_text().splitlines(),
+                         ["pane report-agent pane-7 --source s --agent a --state working --seq 3",
+                          "pane release-agent pane-7 --source s --agent a --seq 4"])
+
 
 SKIP_CALLS = {"skipTest": 0, "skip": 0, "SkipTest": 0, "skipIf": 1, "skipUnless": 1}
 
@@ -729,11 +752,7 @@ class SlotWaitShownCase(unittest.TestCase):
                            {"id": "r2", "status": "running", "output_root": str(self.tmp / "out")}]}
         fake = self.tmp / "archon.sh"
         fake.write_text(f"#!/bin/sh\necho '{json.dumps(listed)}'\n")
-        herdr_bin = self.tmp / "herdr-bin"
-        herdr_bin.mkdir()
-        herdr_log = self.tmp / "herdr.txt"
-        (herdr_bin / "herdr").write_text(f'#!/bin/sh\necho "$*" >> "{herdr_log}"\nexit 0\n')
-        (herdr_bin / "herdr").chmod(0o755)
+        herdr_bin, herdr_log = importlib.import_module("hermetic").fake_herdr(self.tmp)
         self.put_mark("r1", state="waiting", since=time.time() - 60, slots=str(self.slots), pid=os.getpid())
         env = dict(os.environ, PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", HERDR_ENV="1",
                    HERDR_PANE_ID="pane-7")
@@ -742,7 +761,7 @@ class SlotWaitShownCase(unittest.TestCase):
                            capture_output=True, text=True, encoding="utf-8", env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         calls = herdr_log.read_text().splitlines() if herdr_log.exists() else []
-        reports = [c for c in calls if c.startswith("report-agent")]
+        reports = [c for c in calls if c.startswith("pane report-agent")]
         self.assertEqual(len(reports), 1, calls)
         self.assertIn("--state working", reports[0])
         self.assertIn("走る 2（うち枠待ち 1）", reports[0])

@@ -46,6 +46,20 @@ def alias(case, path) -> str:
     case.skipTest(f"SKIP private-symlink: {p} に /private の別名の綴りが無い")
 
 
+def fake_herdr(tmp):
+    """偽の herdr を置く。(PATH の頭に足すフォルダ, 控えのファイル)。偽の herdr を作る所はここだけ。
+    実物の CLI の形（pane の下の report-agent・release-agent）だけを受けて引数を控えに 1 行ずつ書き、ほかは実物と同じ文言で
+    rc=2。形は lib.sh の呼び方でなく実物の --help と公式文書から写す（lib.sh を写すと呼び方の誤りを緑で通す）"""
+    bin_dir = pathlib.Path(tmp) / "herdr-bin"
+    bin_dir.mkdir()
+    log = pathlib.Path(tmp) / "herdr.txt"
+    (bin_dir / "herdr").write_text(f'#!/bin/sh\ncase "$1 $2" in\n  "pane report-agent"|"pane release-agent")\n'
+                                   f'    echo "$*" >> "{log}"\n    exit 0 ;;\nesac\n'
+                                   'echo "unknown command: $1" >&2\nexit 2\n')
+    (bin_dir / "herdr").chmod(0o755)
+    return bin_dir, log
+
+
 def tmpdir(case, **kw) -> pathlib.Path:
     """実体のパス（realpath）の一時フォルダ。case（unittest.TestCase）の後始末で消す"""
     d = pathlib.Path(os.path.realpath(tempfile.mkdtemp(**kw)))

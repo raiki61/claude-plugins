@@ -118,7 +118,7 @@ def slot_waiting(m):
 # works_dev_herdr_sync <archon を呼ぶ殻> <控えの置き場…（改行で区切る）> [<run-id>=<状態>…]: herdr の枠（HERDR_ENV=1 と HERDR_PANE_ID）の中で
 # herdr が在る時だけ、その枠から起こした run（控えの herdr_pane）の集計を 1 つの信号で出す（herdr の公式の口。source works-factory・
 # agent works は 1 つのまま、run ごとに上書きしない）。関所で待つ・落ちた run が 1 つでも在れば blocked、無くて走っている run が
-# 在れば working（試験の枠を待つ run は走る run のうちに「うち枠待ち k」と数える）、全部終わった時だけ release-agent。その枠から起こした run が 0 なら何もしない。状態を渡されなかった run が
+# 在れば working（試験の枠を待つ run は走る run のうちに「うち枠待ち k」と数える）、全部終わった時だけ pane release-agent。その枠から起こした run が 0 なら何もしない。状態を渡されなかった run が
 # 在る時だけ、控えの在る家（控えの置き場の親）ごとに一覧を 1 回引く。herdr を呼ぶのはここだけ。枠の外・herdr が無い・失敗した時は何もしない（run を止めない）
 works_dev_herdr_sync() {
   [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1 || return 0
@@ -168,12 +168,14 @@ elif running:
 else:
     print("release")
 ' "$@" 2>/dev/null)" || return 0
+  [ -n "$_sig" ] || return 0
+  # herdr は同じ source の通し番号が前に受けた物より大きい報告だけを受ける（release も同じ）。ミリ秒の時刻を通し番号にする
+  _seq="$(python3 -c 'import time; print(time.time_ns() // 1000000)')"
   case $_sig in
-    '') ;;
-    release) herdr release-agent "$HERDR_PANE_ID" --source works-factory --agent works >/dev/null 2>&1 || true ;;
+    release) herdr pane release-agent "$HERDR_PANE_ID" --source works-factory --agent works --seq "$_seq" >/dev/null 2>&1 || true ;;
     *)
-      herdr report-agent "$HERDR_PANE_ID" --source works-factory --agent works --state "${_sig%%	*}" --message "${_sig#*	}" \
-        --seq "$(python3 -c 'import time; print(time.time_ns() // 1000000)')" >/dev/null 2>&1 || true
+      herdr pane report-agent "$HERDR_PANE_ID" --source works-factory --agent works --state "${_sig%%	*}" --message "${_sig#*	}" \
+        --seq "$_seq" >/dev/null 2>&1 || true
       ;;
   esac
 }
