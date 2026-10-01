@@ -597,6 +597,126 @@ class CollectCase(_Case):
         self.assertTrue(got["ok"], got)
         self.assertEqual((got["passes"], got["verdicts"], got["diff_file"]), (0, [], ""))
 
+    def test_collect_exit_has_lowered_and_objection(self):
+        """block から suggest に下げた単位は出口と rejudge-exit.json の lowered に、再審にかけた異議の文は objection に出る"""
+        self.board("objection")
+        reply = load("rejudge_settled")
+        reply["units"][0] = {**reply["units"][0], "label": "suggest", "disposition": "do-now"}
+        self.assertTrue(self.run_pass(reply)["ok"])
+        got = rejudge.collect(self.bd)
+        self.assertEqual(got["lowered"], [UNIT_A])
+        self.assertIn(UNIT_A, got["objection"])
+        self.assertEqual(json.loads(self.work(rejudge.EXIT_NAME).read_text(encoding="utf-8")), got)
+
+    def test_collect_nothing_lowered(self):
+        self.board("objection")
+        self.assertTrue(self.run_pass(load("rejudge_settled"))["ok"])
+        self.assertEqual(rejudge.collect(self.bd)["lowered"], [])
+
+
+class SettledOutcomeCase(_Case):
+    """決着した再審の結果（判定・再審が開いた単位・block から下げた単位）は、決着で loop.rejudge_requested が消えた後も、
+    最後の関所の文・報告の冒頭 1・次の run の依頼の 3 か所に出る（読み手は rejudge-exit.json を名前で読む）"""
+    NEW = "src/c.py:h — 上限の抜け道がもう 1 つ"
+
+    def settled(self, verdict, *, new=(), lower=()):
+        self.board("objection")
+        reply = load("rejudge_settled")
+        reply["verdict"] = verdict
+        reply["units"] = [{**u, "label": "suggest", "disposition": "do-now"} if u["key"] in lower else u for u in reply["units"]]
+        reply["units"] += [{"key": k, "label": "block"} for k in new]
+        self.assertTrue(self.run_pass(reply)["ok"])
+        self.assertTrue(rejudge.collect(self.bd)["ok"])
+        b = rejudge.open_board(self.bd, repo=self.repo, allow_halted=True)
+        self.assertEqual(rejudge.unsettled(b), {"text": "", "settled": True})
+        return b
+
+    def three(self, b):
+        sys.path.insert(0, str(kit.CORE.parents[1] / "darkfactory" / "lib"))
+        import line_edge
+        import report
+        head = "\n".join(report.head_decisions(b, {"accepted": True, "round_closed": True}))
+        gate = line_edge.final_edge(b, self.repo, run_id="run-1", mode="always", tests=None)["gate_text"]
+        return head, gate, report.next_request(b)
+
+    def test_taken_shown_in_three_places(self):
+        b = self.settled("採る", new=[self.NEW], lower=[UNIT_A])
+        head, gate, items = self.three(b)
+        for where, text in (("冒頭 1", head), ("最後の関所", gate)):
+            with self.subTest(where):
+                self.assertIn("再審の結果（r1・1 往復）: 採る", text)
+                self.assertIn(self.NEW, text)
+                self.assertIn(f"block から suggest に下げた（拒まずに見せる——人が確かめる）: {UNIT_A}", text)
+                self.assertIn("異議: 判定の単位 src/a.py:f", text)
+        wheres = [i["where"] for i in items]
+        self.assertIn(self.NEW, wheres, items)
+        self.assertIn(UNIT_A, wheres, items)
+        self.assertTrue(any(i["where"] == "判定（再審の結果）" and "採る" in i["text"] for i in items), items)
+
+    def test_settled_units_not_doubled_with_validator_rows(self):
+        """再審が開いた・下げた単位は、検証器の単位の行（[block] 未解消・[suggest] do-now 未対応）を次の run に二重に渡さない"""
+        import report
+        b = self.settled("採る", new=[self.NEW], lower=[UNIT_A])
+        left = [{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {self.NEW}"},
+                {"where": report.VALIDATOR_WHERE, "text": f"[suggest] do-now 未対応: {UNIT_A}"},
+                {"where": report.VALIDATOR_WHERE, "text": "[block] 未解消: ほかの単位"}]
+        items = report.next_request(b, left=left)
+        for k in (self.NEW, UNIT_A):   # 異議の文が key を含む判定の行は数えない
+            self.assertEqual(sum(k in i["text"] for i in items if i["where"] != report.REJUDGE_WHERE), 1, items)
+        self.assertIn(left[2], items)
+
+    def test_rejected_shown_without_unit_rows(self):
+        b = self.settled("退ける")
+        head, gate, items = self.three(b)
+        for text in (head, gate):
+            self.assertIn("再審の結果（r1・1 往復）: 退ける", text)
+            self.assertNotIn("直す単位にした", text)
+        self.assertEqual([i["where"] for i in items], ["判定（再審の結果）"], items)
+
+    def test_no_rejudge_says_none(self):
+        self.board("none")
+        b = rejudge.open_board(self.bd, repo=self.repo, allow_halted=True)
+        head, gate, items = self.three(b)
+        self.assertIn("- 再審: 無い", gate)
+        self.assertNotIn("再審の結果", head)
+        self.assertEqual(items, [])
+
+    def test_units_shown_when_verdict_missing(self):
+        """判定の欄が無い往復（collect が "" を入れる）でも、同じ出口の開いた・下げた単位を 3 か所から落とさない"""
+        b = self.settled("採る", new=[self.NEW], lower=[UNIT_A])
+        p = self.work(rejudge.EXIT_NAME)
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        p.write_text(json.dumps({**doc, "verdicts": [""]}, ensure_ascii=False), encoding="utf-8")
+        head, gate, items = self.three(b)
+        for where, text in (("冒頭 1", head), ("最後の関所", gate)):
+            with self.subTest(where):
+                self.assertIn("再審の結果（r1・1 往復）: （判定の欄が無い）", text)
+                self.assertIn(self.NEW, text)
+                self.assertIn(f"に下げた（拒まずに見せる——人が確かめる）: {UNIT_A}", text)
+        self.assertNotIn("- 再審: 無い", gate)
+        wheres = [i["where"] for i in items]
+        self.assertIn(self.NEW, wheres, items)
+        self.assertIn(UNIT_A, wheres, items)
+
+    def test_unreadable_exit_is_shown(self):
+        b = self.settled("採る")
+        self.work(rejudge.EXIT_NAME).write_text("{壊れた", encoding="utf-8")
+        head, gate, items = self.three(b)
+        for text in (head, gate, json.dumps(items, ensure_ascii=False)):
+            self.assertIn("再審の記録が読めない", text)
+
+    def test_named_removed_unit_shown(self):
+        """異議に名指された単位を再審が消した変化も冒頭 1 に出る（争点でない変化だけを出さない）"""
+        import report
+        self.board("objection")
+        reply = load("rejudge_settled")
+        reply["units"] = [u for u in reply["units"] if u["key"] != UNIT_A]
+        self.assertTrue(self.run_pass(reply)["ok"])
+        rejudge.collect(self.bd)
+        b = rejudge.open_board(self.bd, repo=self.repo, allow_halted=True)
+        head = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        self.assertIn(f"再審（rejudge）で異議に名指された単位が消えた: {UNIT_A}", head)
+
 
 class ShimCase(unittest.TestCase):
     def test_shim_home_matches_adapter(self):

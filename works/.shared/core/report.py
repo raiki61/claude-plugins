@@ -17,12 +17,13 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base}]
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
+- rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
   failed=None, retried=None, eyeing=None) -> dict
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
-並行 PR の外した範囲 pr-excluded.json、再審の差分 rejudge-diff.json）は書き手の模块（ライン・ブロック）を import せずに
+並行 PR の外した範囲 pr-excluded.json、再審の差分 rejudge-diff.json と出口 rejudge-exit.json）は書き手の模块（ライン・ブロック）を import せずに
 ファイルの名前として読む（層 L3 は上の層を import しない。裁定 R59）。書き手と名前を揃えるのは試験（test_report）。
 
 この版で持たない物（報告に書く）: 版の一覧の行（P1 Task 18・19 の works_version・書き出しの manifest が無い）、
@@ -96,6 +97,8 @@ FLAG_SEEN_OP = "stop_flag_seen"                # 止め札を見て止めた境�
 PR_NODE = "p0.parallel_pr"
 PR_EXCLUDED = "pr-excluded.json"               # 並行 PR の外した hunk {node, head, excluded}
 REJUDGE_DIFF = "rejudge-diff.json"             # 再審の単位の差分の行の列
+REJUDGE_EXIT = "rejudge-exit.json"             # 再審のブロックの出口（決着した結果 verdicts・objection・new_open_units・lowered）
+REJUDGE_WHERE = "判定（再審の結果）"           # 次の run の依頼の再審の結果の行の where
 DOWNGRADES = "downgrades.json"
 DOWNGRADE_KEYS = ("node", "what", "versus")
 HEADINGS = ("## 1. 人が決めること", "## 2. 入口・段・決めた人", "## 3. 止めたか", "## 4. 読んだ証拠と包み", "## 5. 見る所")
@@ -360,6 +363,8 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     残り（left＝residue の返り）のうち検証器の阻害と独立の目の block（テストの赤は上の行が持つ。not_done と人に回した単位の
     検証器の単位の行は、その単位の行が持つので渡さない）・
     再審されずに残った異議（loop.rejudge_requested。写し直しの前で再審の節が無い run と、会話が無くて止めた run）・
+    決着した再審の結果（rejudge-exit.json の判定と異議の文・再審が直す単位にした単位・block から下げた単位。単位の行を持つ
+    単位は検証器の単位の行を渡さない）・
     盤面が人に聞いたままの問い（独立の目の r4.human_gate など。この run では答えを受けないので次の run へ渡す。計画 P1 Task 33 の (b)）・
     食い違いの申し出を人に回して直さずに残した単位（conflict の ask_human）"""
     items = []
@@ -383,14 +388,16 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
         items.append({"where": str(tests.get("log") or "最後のテスト"),
                       "text": f"最後のテストが{head}（{tests.get('reason') or 'ログを読む'}）"})
     asked = _asked(b)
-    # 単位の行（not_done・人に回した単位）を下で自分の字で持つ単位は、検証器の『[block] 未解消: <key>』を二重に渡さない
+    settled, settled_keys = _rejudge_next(b)
+    # 単位の行（not_done・人に回した単位・再審が開いた・下げた単位）を自分の字で持つ単位は、検証器の『[block] 未解消: <key>』を二重に渡さない
     owned = {nd["unit_key"] for nd in fix.get("not_done") or [] if isinstance(nd, dict) and isinstance(nd.get("unit_key"), str)} \
-        | {r["unit_key"] for r in asked}
+        | {r["unit_key"] for r in asked} | settled_keys
     items += [r for r in left or [] if r["where"].startswith((VALIDATOR_WHERE, EYES_WHERE))
               and not any(_unit_row_of(r["text"], k) for k in owned)]
     req = (b.loop_state or {}).get("rejudge_requested") or {}
     if isinstance(req, dict) and isinstance(req.get("text"), str) and req["text"]:
         items.append({"where": "判定（再審されずに残った異議）", "text": req["text"]})
+    items += settled
     for r in asked:
         items.append({"where": r["unit_key"],
                       "text": f"{r['unit_key']}（{conflict.HEAD}を人に回した——直さずに残した: {_one_line(r['ruling']['text'])}。"
@@ -440,7 +447,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
     関所の答え（事前審査の関所と最後の関所）・
-    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・再審の問いと争点でない単位の変化・前提で測り直せなかった依頼・並行 PR の
+    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
@@ -504,6 +511,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     if closure:
         lines.append(f"{querytest.CLOSURE_HEAD}: {len(closure)} 件")
         lines += [f"  - {x}" for x in closure]
+    lines += rejudge_lines(b)
     lines += _rejudge_changes(b)
     lines += _premise_hypotheses(b)
     lines += _pr_lines(b)
@@ -532,20 +540,85 @@ def _conflict_line(b) -> str:
 
 
 def _rejudge_changes(b) -> list:
-    """再審で異議に名指されていない単位が変わった行（rejudge-diff.json の changed のうち named が偽の物）"""
+    """再審で単位が変わった行（rejudge-diff.json の changed の全部。異議に名指されていない物は「争点でない」と印を付ける）"""
     lines = []
     for p in _all_rounds(b.dir, REJUDGE_DIFF):
         for row in _read_json(p, []) or []:
             for c in row.get("changed") or [] if isinstance(row, dict) else []:
-                if not isinstance(c, dict) or c.get("named"):
+                if not isinstance(c, dict):
                     continue
+                who = "異議に名指された単位" if c.get("named") else "争点でない単位"
                 if c.get("kind") == "changed":
-                    lines.append(f"再審（{row.get('pass')}）で争点でない単位が変わった: {c.get('key')} の {c.get('field')}: "
+                    lines.append(f"再審（{row.get('pass')}）で{who}が変わった: {c.get('key')} の {c.get('field')}: "
                                  f"{json.dumps(c.get('before'), ensure_ascii=False)} → {json.dumps(c.get('after'), ensure_ascii=False)}")
                 else:
-                    lines.append(f"再審（{row.get('pass')}）で争点でない単位が{'足された' if c.get('kind') == 'added' else '消えた'}: "
+                    lines.append(f"再審（{row.get('pass')}）で{who}が{'足された' if c.get('kind') == 'added' else '消えた'}: "
                                  f"{c.get('key')}")
     return lines
+
+
+def _rejudge_exits(b) -> list:
+    """周ごとの再審の出口 [(周の名, パス, 中身)]（周の順）。読めない・形が違う出口の中身は None（黙って飛ばさない）"""
+    rows = []
+    for p in _all_rounds(b.dir, REJUDGE_EXIT):
+        doc = _read_json(p)
+        rows.append((p.parent.name, p, doc if isinstance(doc, dict) else None))
+    return rows
+
+
+def _keys(v) -> list:
+    return [k for k in v or [] if isinstance(k, str) and k]
+
+
+def _label_now(b, key: str) -> str:
+    return next((str(u.get("label")) for u in b.record.get("units") or [] if u.get("key") == key), "（記録に無い）")
+
+
+def _settled_rounds(b) -> list:
+    """周ごとの決着した再審の結果 [(周の名, パス, (往復の数, 判定の文), 異議の文, 開いた単位, 下げた単位)]。中身が読めない出口は
+    判定を None にする。往復も単位も異議も無い出口（再審が無かった周）だけを飛ばす——判定の欄が無い往復は
+    「判定の欄が無い」と書き、同じ出口の単位を落とさない"""
+    rows = []
+    for rnd, p, doc in _rejudge_exits(b):
+        if doc is None:
+            rows.append((rnd, p, None, "", [], []))
+            continue
+        raw = doc.get("verdicts") if isinstance(doc.get("verdicts"), list) else []
+        opened, lowered = _keys(doc.get("new_open_units")), _keys(doc.get("lowered"))
+        obj = _one_line(doc.get("objection") or "")
+        if not (raw or opened or lowered or obj):
+            continue
+        verdicts = [v if isinstance(v, str) and v else "（判定の欄が無い）" for v in raw] or ["（判定の往復が無い）"]
+        rows.append((rnd, p, (len(raw), "・".join(verdicts)), obj, opened, lowered))
+    return rows
+
+
+def rejudge_lines(b) -> list:
+    """決着した再審の結果（rejudge-exit.json）の行。報告の冒頭 1 と最後の関所の文が同じ行を出す: 周ごとの判定と異議の文・
+    再審が直す単位にした単位（この run では直していない）・block から下げた単位（拒まずに見せる）。読めない出口も 1 行"""
+    lines = []
+    for rnd, p, verdict, obj, opened, lowered in _settled_rounds(b):
+        if verdict is None:
+            lines.append(f"再審の記録が読めない（{p}）——再審の結果を確かめる")
+            continue
+        lines.append(f"再審の結果（{rnd}・{verdict[0]} 往復）: {verdict[1]}" + (f"（異議: {obj}）" if obj else ""))
+        lines += [f"  - 再審が直す単位にした（この run では直していない——次の run に渡す）: {k}" for k in opened]
+        lines += [f"  - 再審が block から {_label_now(b, k)} に下げた（拒まずに見せる——人が確かめる）: {k}" for k in lowered]
+    return lines
+
+
+def _rejudge_next(b) -> tuple:
+    """次の run に渡す再審の結果の行 [{where, text}] と、単位の行を持つ key の集合"""
+    items, keys = [], set()
+    for rnd, p, verdict, obj, opened, lowered in _settled_rounds(b):
+        if verdict is None:
+            items.append({"where": REJUDGE_WHERE, "text": f"再審の記録が読めない（{p}）——再審の結果を確かめる"})
+            continue
+        items.append({"where": REJUDGE_WHERE, "text": f"{rnd} の再審: {verdict[1]}" + (f"（異議: {obj}）" if obj else "")})
+        items += [{"where": k, "text": f"{k}（再審が直す単位にした——この run では直していない）"} for k in opened]
+        items += [{"where": k, "text": f"{k}（再審が block から {_label_now(b, k)} に下げた——人が確かめる）"} for k in lowered]
+        keys.update(opened, lowered)
+    return items, keys
 
 
 def _premise_hypotheses(b) -> list:

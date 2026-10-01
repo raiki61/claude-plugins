@@ -14,7 +14,7 @@
                   {ok: False, reason} にして返し、他の Reject・BoardGap は投げる（回す側の誤り）。通れば単位の差分を 1 行
 - diff_units:     前後の単位を key で比べ、異議に名指されていない変化（unnamed_changed）とラベルを下げた単位（lowered）を出す。柵は足さない
 - unsettled:      決着しなかった異議の文（段 1 は loop.rejudge_requested、段 2 は写しの _rejudge_trail）
-- collect:        出口。回した後も再審の節が ready のまま（輪が 3 回とも拒まれた・engine の順とずれた）なら盤面を止める（by works:rejudge）
+- collect:        出口（rejudge-exit.json。決着した結果 verdicts・objection・new_open_units・lowered を報告が名前で読む）。回した後も再審の節が ready のまま（輪が 3 回とも拒まれた・engine の順とずれた）なら盤面を止める（by works:rejudge）
 - actual_costs:   継いだ起動の表示の費用から、同じ会話のそれまでの実額を引く（再開した会話の total_cost_usd は累積）
 
 盤面は entry.open_board（Task 3）で開き、印は node_marker（Task 2）で付ける。まだこの枝に無い部品の代わり（入った時に差し替える）:
@@ -514,8 +514,10 @@ def unsettled(b) -> dict:
 
 
 def collect(board_dir) -> dict:
-    """ブロックの出口 {ok, reason, passes, verdicts, unsettled, new_open_units, unnamed_changed, diff_file, reads_file}。
-    同じ物を rejudge-exit.json に書く。回した後も再審の節が ready のまま（輪が 3 回とも拒まれた・engine の順と段の順が
+    """ブロックの出口 {ok, reason, passes, verdicts, unsettled, objection, new_open_units, lowered, unnamed_changed, diff_file,
+    reads_file}。objection は再審にかけた異議の文（決着すると loop.rejudge_requested から消えるので写す）、new_open_units と
+    lowered（block から他のラベルに下げた単位）は最初の再審の前の単位と今の単位の比べ。
+    同じ物を rejudge-exit.json に書く（報告の冒頭 1・最後の関所・次の run の依頼が名前で読む）。回した後も再審の節が ready のまま（輪が 3 回とも拒まれた・engine の順と段の順が
     ずれた）なら盤面を止めて（by works:rejudge）ok: False。盤面が既に止まっている（会話を確かめられなかった）なら ok: True
     （次の境の節が止まった盤面を見てラインを止める）"""
     b = open_board(board_dir, allow_halted=True)
@@ -536,17 +538,24 @@ def collect(board_dir) -> dict:
     done = [p for p in ps if p["node"] in b.rd["done"]]
     verdicts = [(b.output_of_round(p["node"], b.round) or {}).get("verdict", "") for p in done]
     rows = _read_json(b.work(DIFF_NAME), [])
-    first = next((d for d in (_read_json(b.work(f"{BEFORE_PREFIX}{p['role']}.json")) for p in ps) if d), None)
-    new_open = []
+    befores = [d for d in (_read_json(b.work(f"{BEFORE_PREFIX}{p['role']}.json")) for p in ps) if d]
+    first = befores[0] if befores else None
+    new_open, lowered = [], []
     if first is not None:
         V = validator_module(b)
         was = {u.get("key"): u for u in first["units"]}
-        new_open = [u["key"] for u in b.record.get("units") or []
+        now_units = b.record.get("units") or []
+        new_open = [u["key"] for u in now_units
                     if V.is_open(u) and not (u["key"] in was and V.is_open(was[u["key"]]))]
+        # new_open_units と同じ基準（最初の再審の前と今）で比べ、往復の途中で下げて戻した単位は数えない
+        lowered = [u["key"] for u in now_units
+                   if (was.get(u["key"]) or {}).get("label") == "block" and u.get("label") != "block"]
+    objections = list(dict.fromkeys(d.get("objection") for d in befores if d.get("objection")))
     unnamed = list(dict.fromkeys(k for r in rows for k in r.get("unnamed_changed") or []))
     diff_p, reads_p = b.work(DIFF_NAME), b.work(READS_NAME)
     out = {"ok": ok, "reason": reason, "passes": len(done), "verdicts": verdicts, "unsettled": unsettled(b),
-           "new_open_units": new_open, "unnamed_changed": unnamed, "diff_file": str(diff_p) if diff_p.exists() else "",
+           "objection": "\n".join(objections), "new_open_units": new_open, "lowered": lowered,
+           "unnamed_changed": unnamed, "diff_file": str(diff_p) if diff_p.exists() else "",
            "reads_file": str(reads_p) if reads_p.exists() else ""}
     _write_json(b.work(EXIT_NAME), out)
     return out

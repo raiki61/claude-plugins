@@ -520,7 +520,9 @@ nodes:
       - passes
       - verdicts
       - unsettled
+      - objection
       - new_open_units
+      - lowered
       - unnamed_changed
       - diff_file
       - reads_file
@@ -546,7 +548,13 @@ nodes:
               type: string
             settled:
               type: boolean
+        objection:
+          type: string
         new_open_units:
+          type: array
+          items:
+            type: string
+        lowered:
           type: array
           items:
             type: string

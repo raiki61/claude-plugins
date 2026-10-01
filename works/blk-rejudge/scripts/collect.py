@@ -3,7 +3,8 @@
 # dependencies = []
 # ///
 """ブロックの出口を組む（rejudge.collect）。回した後も再審の節が ready のまま（3 回とも拒まれた・段の順のずれ）なら
-盤面を止めて ok: false。出口 {ok, reason, passes, verdicts, unsettled, new_open_units, unnamed_changed, diff_file, reads_file}"""
+盤面を止めて ok: false。出口 {ok, reason, passes, verdicts, unsettled, objection, new_open_units, lowered, unnamed_changed,
+diff_file, reads_file}（同じ物を rejudge-exit.json に書き、報告と最後の関所が名前で読む）"""
 import sys
 from pathlib import Path
 

@@ -433,7 +433,7 @@ class NextRequestUnitRowsCase(unittest.TestCase):
     もう 1 行渡さない（同じ単位が次の run に 2 件の依頼で届かない）。ほかの阻害の行は渡す"""
 
     def test_unit_rows_not_doubled(self):
-        b = types.SimpleNamespace(state={"outputs": {"p3.fix": {"round": 1}}}, round=1, loop_state={},
+        b = types.SimpleNamespace(state={"outputs": {"p3.fix": {"round": 1}}}, round=1, loop_state={}, dir=pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())),
                                   output_of_round=lambda nid, rnd: {"changes": [], "not_done": [{"unit_key": "u-left", "why": "範囲外"}]})
         asked = [{"unit_key": "u-asked", "ruling": {"text": "人が決める"}, "between": ["a", "b"]}]
         left = [{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {k}"} for k in ("u-left", "u-asked", "u-other")]

@@ -453,7 +453,8 @@ def _r2_inputs(b) -> list:
 
 
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
-    """最後の関所の文: 最後のテストと修正前のテスト（entry.baseline_line）・差分の審査の穴の数・手直しの結果・止めずに残った異議・構造のブロックが落ちた周の印
+    """最後の関所の文: 最後のテストと修正前のテスト（entry.baseline_line）・差分の審査の穴の数・手直しの結果・止めずに残った異議・
+    決着した再審の結果（report.rejudge_lines。関所を開ける理由には数えない）・構造のブロックが落ちた周の印
     （structmark.note）・独立の目の判定・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）を 1 枚に。「盤面の問い: 無い」は両方とも無い時だけ。行の主語は平易な名で、
     盤面の節・目の名・状態の語は括弧に回す（gatemarks.named・eye_named）"""
     tests = tests or {}
@@ -475,6 +476,9 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     lines += [f"  - {h.get('key')}: {gatemarks.HANDLED_WORDS.get(h.get('handled'), '')}（{h.get('handled')}）——{h.get('how')}"
               for h in handled if isinstance(h, dict)] or ["  - （無い）"]
     lines.append(f"- 止めずに残った異議: {objection or '無い'}")
+    settled = report.rejudge_lines(b)
+    lines += ["- 再審で決着した結果:", *[f"  {x}" if x.startswith("  ") else f"  - {x}" for x in settled]] if settled \
+        else ["- 再審: 無い"]
     missing = structmark.note(structmark.read(b.dir))
     if missing:
         lines.append(f"- 構造のブロック: {missing}")

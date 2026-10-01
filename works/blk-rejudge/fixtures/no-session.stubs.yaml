@@ -21,7 +21,9 @@ collect:
   unsettled:
     text: '判定の単位 src/a.py:f — 上限が効かない経路がある について: 修正の後に src/a.py の f へ入る道をもう 1 つ見つけた（呼び出し元の g からの直の呼び出し）。上限は片方の道にしか掛かっておらず、この単位の class_query の数え方も狭い。判定を見直してほしい'
     settled: false
+  objection: ''
   new_open_units: []
+  lowered: []
   unnamed_changed: []
   diff_file: ''
   reads_file: ''

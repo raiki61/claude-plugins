@@ -264,6 +264,10 @@ class ScriptCase(unittest.TestCase):
         out = self.ok("collect")
         self.assertEqual((out["ok"], out["passes"], out["verdicts"]), (True, 1, ["採る"]), out)
         self.assertTrue(pathlib.Path(out["diff_file"]).is_file())
+        # 出口の欄は全部 YAML の出口の型に在り、必須（読み手が名前で読む欄を型が落とさない）
+        fmt = next(n for n in workflow()["nodes"] if n["id"] == "collect")["output_format"]
+        self.assertEqual(validate_schema(out, fmt), [])
+        self.assertEqual(set(fmt["required"]), set(out))
 
     def test_block_no_session_path(self):
         self.board(session=False)

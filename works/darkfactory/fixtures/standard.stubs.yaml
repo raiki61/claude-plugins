@@ -1175,7 +1175,9 @@ rejudging__collect:
   unsettled:
     text: ''
     settled: true
+  objection: ''
   new_open_units: []
+  lowered: []
   unnamed_changed: []
   diff_file: board/r1/rejudge-diff.json
   reads_file: ''
