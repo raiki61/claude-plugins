@@ -29,8 +29,9 @@
 # - start の旗は位置引数より前だけで読み、最初の -- で旗を終える（POSIX の Utility Syntax Guidelines 9・10）。--base と --pr は
 #   どちらか 1 つ。旗を読んだ後の位置引数の数で対象を省いたかを決める。依頼の - は標準入力でなく「依頼を省く」
 #   （--base か --pr が在る時だけ受ける）。依頼を省いた start は、--pr なら隔離の前に読んだ読み出しのファイル（起動ごとに一意）で
-#   run を結ぶ。--base だけなら結ぶ印が無いので run を結ばず、控えも続きの行も書かずに結べなかった 1 行と候補の show の行を出して
-#   1 で終わる（run id を名指しした show で続ける。設計書 2.3）。
+#   run を結ぶ。--base だけなら結ぶ印が無いので run を結ばず、run の控えも続きの行も書かずに結べなかった 1 行と候補の show の行を出して
+#   1 で終わる（run id を名指しした show で続ける。設計書 2.3）。起動が 0 で終わり候補（依頼の写しも読み出しも持たない run）が
+#   在れば、run が使う包んだ基と読み出しは消さずに <家>/unbound/<印>.json に候補と残し、clean <対象> <候補の run-id> が消す。
 # - run の worktree は対象の今の姿から切る: 汚れていなければ HEAD、commit していない変更・未追跡のファイル（.gitignore の物は
 #   入れない）が在れば一時の index で包んだ commit（--from）。対象の作業ツリー・index・枝は動かさない。包んだファイルは
 #   <家>/wraps/<commit>.txt に控え、起動と show に出す。origin が要る（Archon v0.11.1 は --from を渡しても
@@ -481,18 +482,35 @@ elif got:
     case "$STATUS" in
       running | pending | paused) refuse "run $3 は ${STATUS}。止めるか終わってから片付ける" ;;
     esac
-    # start が包んだ run の基を守った参照（控えの wrap_ref）も一緒に消す
+    # start が包んだ run の基を守った参照（控えの wrap_ref）と隔離の前の読み出しのファイル（github_reads）も一緒に消す
     LEDGER_ROW="$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$3")"
     WRAP_REF="$(printf '%s' "$LEDGER_ROW" | cut -f4)"
+    GITHUB_READS="$(printf '%s' "$LEDGER_ROW" | cut -f8)"
+    # 控えが無ければ、start が結べずに残した控え（<家>/unbound/<印>.json）のうち、候補にこの run を持ちこの対象の物の
+    # 包んだ基と読み出しを消す（探すのは launch.py ledger unbound-find。参照は refs/works/wraps/ の下・読み出しは .json の
+    # 絶対パスの時だけ。控えの一覧と同じ）
+    UNBOUND_FILE=""
+    if [ -z "$LEDGER_ROW" ] && [ -d "$WORKS_USE_HOME/unbound" ]; then
+      UNBOUND_ROW="$(works_dev_launch ledger unbound-find --dir "$WORKS_USE_HOME/unbound" --target "$TARGET" --run-id "$3")" ||
+        exit 2
+      if [ -n "$UNBOUND_ROW" ]; then
+        UNBOUND_FILE="$(printf '%s' "$UNBOUND_ROW" | cut -f1)"
+        WRAP_REF="$(printf '%s' "$UNBOUND_ROW" | cut -f2)"
+        GITHUB_READS="$(printf '%s' "$UNBOUND_ROW" | cut -f3)"
+      fi
+    fi
     if [ -n "$WRAP_REF" ] && git show-ref --verify --quiet "$WRAP_REF"; then
       git update-ref -d "$WRAP_REF"
       echo "run $3 の基を守った参照を消した: ${WRAP_REF}"
     fi
-    # 隔離の前に読んだ読み出しのファイル（控えの github_reads）が残っていれば消す（start が盤面へ写す前に止まった run）
-    GITHUB_READS="$(printf '%s' "$LEDGER_ROW" | cut -f8)"
+    # 読み出しのファイルが残っていれば消す（start が盤面へ写す前に止まった run）
     if [ -n "$GITHUB_READS" ] && [ -f "$GITHUB_READS" ]; then
       rm -f "$GITHUB_READS"
       echo "run $3 の隔離の前の読み出しのファイルを消した: ${GITHUB_READS}"
+    fi
+    if [ -n "$UNBOUND_FILE" ]; then
+      rm -f "$UNBOUND_FILE"
+      echo "start が結べずに残した控えを消した: ${UNBOUND_FILE}"
     fi
     if [ -z "$GOT" ] || [ ! -d "$GOT" ]; then
       echo "run $3 の worktree（${GOT:-無し}）はもう無い"
@@ -583,7 +601,7 @@ cd "$TARGET"
 # run の基: 汚れていなければ HEAD。commit していない変更・未追跡が在れば、一時の index（HEAD の木から add -A。.gitignore の物は
 # 入らない）で包んだ commit にする（git の plumbing。対象の作業ツリー・index・枝・タグは動かさない）。包んだ commit はどの枝にも
 # 無いので、git gc に消されないよう refs/works/wraps/<commit> で守る（refs/heads・refs/tags の外。控えの wrap_ref に残し、
-# clean が run と一緒に消す。run を結べず控えを書けない時は、下の結べなかった所で外す）
+# clean が run と一緒に消す。run を結べない時は、下の結べなかった所で控え unbound/ に残すか、その場で外す）
 BASE_REV="$(git rev-parse HEAD)"
 WRAP_REF=""
 if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
@@ -631,7 +649,23 @@ echo "workflow run の終了コード: $run_status"
 # 同じ家から並べた start の run と混ざらない。依頼を省いた起動は読み出しのファイル（<家>/reads/<印>.json）で結び、それも無ければ
 # 結ばない）。結べなければ候補と show の行と結べなかった 1 行だけを出し、続きの行は出さない
 if ! works_dev_ledger_bind use.sh "$ARCHON" "$TARGET" "$REQUEST"; then
-  # 控えを書けないので clean は包んだ基の参照を知らない。ここで外す（run が切った worktree の枝が在ればその基はそこから届く）
+  # 起動が 0 で終わったなら、この起動の run は起動の関所で生きていて、包んだ基と読み出しを使う（消すと承認した run が落ちる。
+  # 2026-10-01 に実測）。推定では結ばず（設計書 2.3）、一覧のうち依頼の写しも読み出しも持たない darkfactory の run（launch.py が
+  # 結べない文に並べる候補）を控え <家>/unbound/<印>.json に残し、clean <対象> <候補の run-id> が run の片付けと一緒に消す。
+  # 候補は一覧から 1 回引く（works_dev_run_json と同じ引き方。候補の判じ方と控えの形は launch.py ledger unbound-save）
+  UNBOUND_CANDIDATES=""
+  if [ "$run_status" -eq 0 ] && { [ -n "$WRAP_REF" ] || [ -n "$GITHUB_READS" ]; }; then
+    UNBOUND_FILE="$WORKS_USE_HOME/unbound/$STAMP.json"
+    UNBOUND_CANDIDATES="$(WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow runs --json 2>/dev/null |
+      works_dev_launch ledger unbound-save --dir "$WORKS_USE_HOME/unbound" --target "$TARGET" --stamp "$STAMP" \
+        --wrap-ref "$WRAP_REF" --github-reads "$GITHUB_READS")" || UNBOUND_CANDIDATES=""
+  fi
+  if [ -n "$UNBOUND_CANDIDATES" ]; then
+    echo "この起動の run を結べなかった。包んだ基 ${WRAP_REF:-無し} と読み出し ${GITHUB_READS:-無し} は run が使うので残した。run を片付けた後に use.sh clean ${TARGET} <run-id> で消える（候補 ${UNBOUND_CANDIDATES}・控え ${UNBOUND_FILE}）"
+    exit 1
+  fi
+  # 起動が落ちたか候補が 0 本なら、控えを書けないので clean は包んだ基の参照を知らない。ここで外す（run が切った worktree の枝が
+  # 在ればその基はそこから届く）
   if [ -n "$WRAP_REF" ]; then
     git update-ref -d "$WRAP_REF"
     echo "包んだ基を守った参照を外した（どの run の控えにも結べないので）: ${WRAP_REF}"
