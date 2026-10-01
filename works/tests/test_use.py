@@ -506,28 +506,35 @@ class UseShell(unittest.TestCase):
                 self.assertNotIn(["workflow", "respond"], [c[3:5] for c in self.calls()])
                 self.assertFalse((self.home / "answers.jsonl").exists())
 
-    def test_answer_excludes_units_with_reason(self):
-        """continue に --exclude <単位の番号>=<理由> を何度でも添えられ、{"exclude": [{unit, why}]} を run の盤面の
-        answer-detail.json（同梱の graphloops 0.21.0 の線はまだ読まない置き場。answer が注意を出す）と answers.jsonl の行に残してから respond する。stop には添えられない"""
+    def test_answer_refuses_exclude_before_writing(self):
+        """同梱の線は外す単位を読まないので、--exclude は continue でも stop でも何かを書く前に 1 行で拒み、外したい単位は
+        一言に書くよう案内する（answer-detail.json も answers.jsonl の行も書かず、respond を起こさない）"""
         t = self.target()
         board = self.tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
         board.mkdir(parents=True)
         self.set_runs(working_path="/wt/run-1", output_root=str(self.tmp / "out"))
-        r = self.use("answer", str(t), "run-1", "continue", "残りは直す", "依頼者",
-                     "--exclude", "2=別の依頼で直す", "--exclude", "3=方針が決まってから")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        want = [{"unit": 2, "why": "別の依頼で直す"}, {"unit": 3, "why": "方針が決まってから"}]
-        self.assertEqual(json.loads((board / "answer-detail.json").read_text()), {"exclude": want})
-        rows = [json.loads(ln) for ln in (self.home / "answers.jsonl").read_text().splitlines()]
-        self.assertEqual((rows[-1]["by"], rows[-1]["exclude"]), ("依頼者", want))
-        self.assertEqual(self.calls()[-1][3:], ["workflow", "respond", "run-1", "continue", "残りは直す"])
-        self.log.unlink()
-        (board / "answer-detail.json").unlink()
-        r = self.use("answer", str(t), "run-1", "stop", "やめる", "依頼者", "--exclude", "2=別の依頼で直す")
-        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        self.assertIn("--exclude", r.stderr)
-        self.assertEqual(self.calls(), [])
-        self.assertFalse((board / "answer-detail.json").exists())
+        for verb in ("continue", "stop"):
+            with self.subTest(verb=verb):
+                r = self.use("answer", str(t), "run-1", verb, "残りは直す", "依頼者", "--exclude", "2=別の依頼で直す")
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                lines = r.stderr.strip().splitlines()
+                self.assertEqual(len(lines), 1, r.stderr)
+                self.assertIn("--exclude", lines[0])
+                self.assertIn("一言", lines[0])
+                self.assertEqual(self.calls(), [])
+                self.assertFalse((board / "answer-detail.json").exists())
+                self.assertFalse((self.home / "answers.jsonl").exists())
+
+    def test_exclude_guidance_agrees_with_gate_quote_note(self):
+        """利用者の案内（SKILL.md）・使い方（use.sh）は --exclude を案内せず、関所の文の QUOTE_NOTE と同じく
+        外す口はこの関所に無いと言う（3 か所が逆を指さない）"""
+        import sys
+        sys.path.insert(0, str(ROOT / ".shared" / "core"))
+        import gatemarks
+        self.assertIn("--detail（単位を外す）はこの関所に無い", gatemarks.QUOTE_NOTE)
+        self.assertNotIn("--exclude", (ROOT / "skills" / "works" / "SKILL.md").read_text(encoding="utf-8"))
+        r = self.use()
+        self.assertNotIn("--exclude", r.stdout + r.stderr)
 
     def test_gate_answer_line_shows_who_hole(self):
         """関所の文の答えの行（answer.line）は、殻が WORKS_ANSWER_WHO を置いていれば末尾に答えた者の穴を見せる
@@ -932,6 +939,31 @@ class UseShell(unittest.TestCase):
         self.assertIn("+# 直した", diff.read_text())
         self.assertIn(f"git -C {t} apply {diff}", r.stdout)
 
+    def test_show_hides_raw_apply_for_stopped_or_unjudgeable_run(self):
+        """記録が止まりを示す run には止まりの 1 行を、止まりの判定が壊れた run には判定できなかった理由の 1 行を出し、
+        どちらも生の git apply の行を出さない（取り込みの行は use.sh apply の 1 本）"""
+        cases = {
+            "stopped": ({"stop": {"by": "human:final-gate", "reason": "守りのファイルは戻す"}}, "守りのファイルは戻す"),
+            "broken": ({"stop": "壊れた止め"}, "止まりの判定: できなかった（AttributeError"),
+        }
+        for name, (state, want) in cases.items():
+            with self.subTest(name):
+                t = self.target(f"target-{name}")
+                wt = self.tmp / f"wt-{name}"
+                committed_copy(wt, DEV / "target-seed")
+                base = git(wt, "rev-parse", "HEAD")
+                (wt / "stats.py").write_text((wt / "stats.py").read_text() + "# 直した\n")
+                board = self.tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
+                shutil.rmtree(board, ignore_errors=True)
+                (board / "r1").mkdir(parents=True)
+                (board / "r1" / "start.json").write_text(json.dumps({"base_rev": base}))
+                (board / "state.json").write_text(json.dumps(state, ensure_ascii=False))
+                self.set_runs(working_path=str(wt), output_root=str(self.tmp / "out"))
+                r = self.use("show", str(t), CLAUDE_CODE_OAUTH_TOKEN=None)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn(want, r.stdout)
+                self.assertNotIn(f"git -C {t} apply", r.stdout)
+
     def test_show_diff_keeps_tracked_ignored_files(self):
         t = self.target()
         wt = self.tmp / "wt"
@@ -1090,6 +1122,62 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue((t / "stats.py").read_text().endswith("# 直した\n"))
         self.assertEqual(git(t, "status", "--porcelain"), "M stats.py")
+
+    def test_apply_refuses_run_stopped_by_record(self):
+        """記録が止まりを明示する run（最後の関所の答えが stop・盤面の state.stop が human:final-gate）の差分は、
+        当てる前に 1 行で拒み（止めた一言と上書きの仕方を出す）、対象の作業ツリーを変えない。WORKS_USE_ALLOW_STOPPED=1 なら当てる。
+        最後の関所の答えが continue なら今どおり当て、止まりの記録が無い run も当てて、確かめられなかったことを 1 行出す"""
+        board = self.tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
+
+        def stopped_run(name, record):
+            wt = self.tmp / f"wt-{name}"
+            committed_copy(wt, DEV / "target-seed")
+            base = git(wt, "rev-parse", "HEAD")
+            (wt / "stats.py").write_text((wt / "stats.py").read_text() + "# 直した\n")
+            shutil.rmtree(board, ignore_errors=True)
+            (board / "r1").mkdir(parents=True)
+            (board / "r1" / "start.json").write_text(json.dumps({"base_rev": base}))
+            for rel, doc in record.items():
+                (board / rel).write_text(json.dumps(doc, ensure_ascii=False))
+            self.set_runs(status="completed", working_path=str(wt), output_root=str(self.tmp / "out"))
+            return self.target(f"target-{name}")
+
+        stops = {
+            "answer": {"r1/final-gate-answer.json": {"decision": "stop", "text": "守りのファイルは戻す"}},
+            "state": {"state.json": {"stop": {"by": "human:final-gate", "reason": "守りのファイルは戻す"}}},
+        }
+        for name, record in stops.items():
+            with self.subTest(stopped=name):
+                t = stopped_run(name, record)
+                r = self.use("apply", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                lines = r.stderr.strip().splitlines()
+                self.assertEqual(len(lines), 1, r.stderr)
+                self.assertIn("守りのファイルは戻す", lines[0])
+                self.assertIn("WORKS_USE_ALLOW_STOPPED=1", lines[0])
+                self.assertEqual(git(t, "status", "--porcelain"), "")
+                t = stopped_run(name + "-forced", record)
+                r = self.use("apply", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_ALLOW_STOPPED="1")
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertIn("守りのファイルは戻す", r.stdout + r.stderr)
+                self.assertEqual(git(t, "status", "--porcelain"), "M stats.py")
+        t = stopped_run("continue", {"r1/final-gate-answer.json": {"decision": "continue", "text": "通す"}})
+        r = self.use("apply", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(git(t, "status", "--porcelain"), "M stats.py")
+        unknown = {
+            "unrecorded": {},
+            "corrupt-answer": {"state.json": {"halted": {"by": "stop_after_round"}}},   # 周は締めたが、答えのファイルが読めない
+        }
+        for name, record in unknown.items():
+            with self.subTest(unknown=name):
+                t = stopped_run(name, record)
+                if name == "corrupt-answer":
+                    (board / "r1" / "final-gate-answer.json").write_text("{壊れた")
+                r = self.use("apply", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertEqual(git(t, "status", "--porcelain"), "M stats.py")
+                self.assertIn("止まりかどうかを記録で確かめられなかった", r.stderr)
 
     def test_clean_removes_run_worktree_and_branch(self):
         t = self.target()

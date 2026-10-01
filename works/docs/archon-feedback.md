@@ -119,7 +119,7 @@ works（Archon の上の pack「darkfactory」）が、Archon の不具合や欠
 - works の回り道: 関所の後ろの節の stub で答えを差す。
 
 ### 15. 関所の答えに構造の値を載せられない
-- works の回り道: 外す単位を盤面の `answer-detail.json` に置く（ただし同梱の線はまだ読まない。works 側の未完で、依頼 180 で扱う）。
+- works の回り道: 無い。同梱の graphloops の写し（0.21.0）が answer_detail を持たないので、`use.sh answer` は `--exclude` を拒み、外したい単位と理由は一言に書く（修正役に届くが、直す義務の数からは外れない）。写しを answer_detail を持つ版に上げた時に口を足す。
 - Archon 側: #2707・#3140 open。
 
 ### 16〜25（works に効かない・小さい物）

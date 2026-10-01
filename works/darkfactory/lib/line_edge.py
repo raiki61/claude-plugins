@@ -67,8 +67,8 @@ GATE_GO = ("approve", "continue")    # approve は continue と、reject は sto
 GATE_STOP = ("stop", "reject")
 GATE_STOP_NOTE = "関所で止めた"              # policy-gate の stop・reject に一言が無い時の理由
 FINAL_GATES = ("always", "when_needed", "protected_only")   # 入力 final_gate の語（空は always。P1-R3: 必ず止まれる所を残す）。
-# protected_only は守りのファイルを触った（確かめられなかった）時だけ開く（利用者の既定。ほかの理由は報告の冒頭に並ぶだけで、
-# 関所の答えは差分を当てるかを変えない——当てるのは人の use.sh apply）
+# protected_only は守りのファイルを触った（確かめられなかった）時だけ開く（利用者の既定。ほかの理由は報告の冒頭に並ぶだけ。
+# 開いた関所の stop・reject は use.sh apply が読んで差分を当てずに止まり、当てるのは WORKS_USE_ALLOW_STOPPED=1 の時だけ）
 FINAL_GATE_FILE = "final-gate.md"            # final-gate の文（b.work）
 FINAL_GATE_ANSWER = "final-gate-answer.json" # final-gate の答え {decision, text}（b.work。stop・reject も書く——報告が読む）
 FINAL_GATE_BY = "human:final-gate"           # final-gate の stop・reject の by（state.stop.by か、周を締めた後なら trace の行）

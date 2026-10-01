@@ -9,11 +9,12 @@
 #   use.sh wait  <対象リポジトリ> <run-id>                                  裏で回る run を決まった時間（WORKS_USE_WAIT_SECONDS。既定 540 秒）
 #                                                                           まで待ち、状態を 1 行で返す（0 = 関所で待つ・3 = まだ走っている・
 #                                                                           5 = 終わった・1 = 落ちた・見つからない）。AI を起こさない
-#   use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> [--exclude <単位の番号>=<理由>]… 関所で待つ run に答える（答えた者を <家>/answers.jsonl に残す）。残りの工程は切り離して回し、wait の行で返る
+#   use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> 関所で待つ run に答える（答えた者を <家>/answers.jsonl に残す）。残りの工程は切り離して回し、wait の行で返る
 #   use.sh approve <対象リポジトリ> <run-id>                               起動の関所を越える（切り離して回し、wait の行で返る）
 #   use.sh stop  <対象リポジトリ> <run-id> <理由>                           止める（関所で待つ run は respond stop、走っている run は止め札）
 #   use.sh apply <対象リポジトリ> <run-id>                                  その run の差分を書き直し、git apply --check の後に対象へ当てる
-#                                                                           （commit しない。消す行は WORKS_USE_ALLOW_DELETE=1 の時だけ）
+#                                                                           （commit しない。消す行は WORKS_USE_ALLOW_DELETE=1 の時だけ。
+#                                                                           記録が止まりを示す run は WORKS_USE_ALLOW_STOPPED=1 の時だけ）
 #   use.sh clean <対象リポジトリ> <run-id>                                  終わった run の worktree と枝を消す（走っている・関所で待つ run は拒む）
 #   use.sh check <対象リポジトリ>                                           AI を起こさずに、pack を置いて Archon の validate を回し、
 #                                                                           start に足りない物（uv・claude・認証・対象の条件）を全部並べる
@@ -57,7 +58,7 @@
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
 
-USAGE="usage: use.sh start [--base <版> | --pr <番号>] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> [--exclude <単位の番号>=<理由>]… | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
+USAGE="usage: use.sh start [--base <版> | --pr <番号>] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
 CHANGE_INPUT=""   # 変更の入口（ラインの入力 base か pr）。--input にそのまま渡す <鍵>=<値>
 if [ "${1:-}" = start ]; then
   shift
@@ -102,6 +103,7 @@ WORKS_USE_GATES="${WORKS_USE_GATES:-}"
 WORKS_USE_POLICY_MD="${WORKS_USE_POLICY_MD:-}"
 WORKS_USE_THICKNESS="${WORKS_USE_THICKNESS:-}"
 WORKS_USE_WAIT_SECONDS="${WORKS_USE_WAIT_SECONDS:-540}"
+WORKS_USE_ALLOW_STOPPED="${WORKS_USE_ALLOW_STOPPED:-}"
 export WORKS_DEV_MODEL WORKS_DEV_ADAPTER WORKS_USE_SH
 # start の時の既定の釘は控えからだけ受ける（load_ledger が置く）。利用者の殻に残った値で既定を替えさせない
 unset WORKS_MODEL_PINNED
@@ -372,24 +374,16 @@ case "$CMD" in
     exit "$wait_status"
     ;;
   answer)
-    # 関所で待つ run に continue か stop で答える。人が決める関所なので、答えた者（第 6 引数。必須で、殻を打った者に落とさない）・
-    # 一言・外す単位（continue の --exclude <単位の番号>=<理由>。形は本流 graphloops の answer --detail {exclude: [{unit, why}]}）を
-    # <家>/answers.jsonl に残してから Archon へ渡す（残りの工程は切り離して回し、wait の行で返る）
+    # 関所で待つ run に continue か stop で答える。人が決める関所なので、答えた者（第 6 引数。必須で、殻を打った者に落とさない）と
+    # 一言を <家>/answers.jsonl に残してから Archon へ渡す（残りの工程は切り離して回し、wait の行で返る）
     case "$4" in continue | stop) ;; *) refuse "答えは continue か stop（受けた値: $4）" ;; esac
-    DETAIL="$(VERB="$4" python3 -c '
-import json, os, sys
-args, rows = sys.argv[7:], []   # 第 7 引数から（"$@" を全部渡す）
-if args and os.environ["VERB"] != "continue":
-    sys.exit("--exclude を添えられるのは continue だけ（受けた答え: {}）".format(os.environ["VERB"]))
-while args:
-    flag, val = args[0], (args[1] if len(args) > 1 else "")
-    unit, _, why = val.partition("=")
-    if flag != "--exclude" or not unit.strip().isdigit() or int(unit) < 1 or len(why.strip()) < 4:
-        sys.exit("第 7 引数からは --exclude <単位の番号>=<理由（4 字以上）> の組だけ（受けた値: {} {}）".format(flag, val))
-    rows.append({"unit": int(unit), "why": " ".join(why.split())})
-    args = args[2:]
-print(json.dumps({"exclude": rows}, ensure_ascii=False) if rows else "")
-' "$@" 2>&1)" || refuse "$DETAIL"
+    # 同梱の graphloops の写し（0.21.0）は answer_detail を持たず、外した単位も直す義務に数えるので、効かない決定は受けない
+    if [ $# -gt 6 ]; then
+      case "$7" in
+        --exclude*) refuse "--exclude は受けない（同梱の線が外す単位を読まず、直す義務の数から外せないため）。外したい単位と理由は continue の一言に書く" ;;
+        *) refuse "第 7 引数からは受けない（受けた値: $7）" ;;
+      esac
+    fi
     resolve_claude
     cd "$TARGET"
     ROW="$(run_row "$3")" || exit 2
@@ -398,23 +392,11 @@ print(json.dumps({"exclude": rows}, ensure_ascii=False) if rows else "")
     BY="$(printf '%s' "${6:-}" | tr -d '[:space:]')"
     [ -n "$BY" ] || refuse "答えた者（第 6 引数）が無い。人が決める関所なので、決めた人の名を渡す（殻を打った者には落とさない）"
     mkdir -p "$WORKS_USE_HOME"
-    if [ -n "$DETAIL" ]; then
-      # 外す単位は Archon の respond が運べない構造の値なので、run の盤面に置く（本流 0.21.1 の answer_detail が読む置き場。同梱の graphloops 0.21.0 の線はまだ読まない）
-      BOARD="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "$3" | python3 -c '
-import json, os, sys
-r = json.load(sys.stdin)
-print(os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board"))')" || exit 2
-      [ -d "$BOARD" ] || refuse "run $3 の盤面（${BOARD}）が無いので、外す単位を置けない"
-      printf '%s\n' "$DETAIL" >"$BOARD/answer-detail.json"
-      echo "外す単位を ${BOARD}/answer-detail.json に置いた（注意: 同梱の graphloops の写しは 0.21.0 で answer_detail を持たないので、この版の線はまだ読まず、修正の輪は外した単位も直す義務に数える）"
-    fi
-    RUN_ID="$3" VERB="$4" TEXT="$5" BY="$6" DIR="$TARGET" DETAIL="$DETAIL" python3 -c '
+    RUN_ID="$3" VERB="$4" TEXT="$5" BY="$6" DIR="$TARGET" python3 -c '
 import datetime, json, os
 e = os.environ
 row = {"at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "run_id": e["RUN_ID"],
        "target": e["DIR"], "answer": e["VERB"], "text": e["TEXT"], "by": e["BY"]}
-if e["DETAIL"]:
-    row["exclude"] = json.loads(e["DETAIL"])["exclude"]
 print(json.dumps(row, ensure_ascii=False))
 ' >>"$WORKS_USE_HOME/answers.jsonl"
     load_ledger "$3"
@@ -458,6 +440,32 @@ print(json.dumps(row, ensure_ascii=False))
     if [ -n "$GONE" ] && [ "${WORKS_USE_ALLOW_DELETE:-}" != 1 ]; then
       refuse "差分が対象のファイルを消す（${GONE}）。消してよければ WORKS_USE_ALLOW_DELETE=1 を前に付けて打ち直す"
     fi
+    # 記録が止まりを明示する run（人が最後の関所で stop と答えた・止め札・ラインの止め）は当てない。止まりの判定の正本は
+    # report.stopped_run（結末を決める decide_outcome と同じ分け方）。止まりかを言える記録が無いか読めない run は 1 行出して当てる
+    STOPPED="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "$3" |
+      RUN_ID="$3" CORE_DIR="$WORKS_DIR/.shared/core" PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import json, os, sys
+sys.path.insert(0, os.environ["CORE_DIR"])
+import report
+r = json.load(sys.stdin)
+board = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board")
+got = report.stopped_run(board) if os.path.isdir(board) else None
+rid = os.environ["RUN_ID"]
+if got is None:
+    print("unknown\trun {} は止まりかどうかを記録で確かめられなかった（盤面 {}。止まりかを言える記録が無いか読めない）。当てる".format(rid, board))
+elif got:
+    word, by, text = got
+    print("stopped\trun {} は{}（{}）で止まった: 「{}」".format(rid, report.OUTCOME_WORDS.get(word, word), by, " ".join(text.split())))
+')" || exit 2
+    case "$STOPPED" in
+      stopped*)
+        if [ "$WORKS_USE_ALLOW_STOPPED" != 1 ]; then
+          refuse "${STOPPED#*	}。それでも当てるなら WORKS_USE_ALLOW_STOPPED=1 を前に付けて打ち直す"
+        fi
+        echo "use.sh: ${STOPPED#*	}。WORKS_USE_ALLOW_STOPPED=1 なので当てる" >&2
+        ;;
+      unknown*) echo "use.sh: ${STOPPED#*	}" >&2 ;;
+    esac
     git apply --check "$DIFF" || refuse "差分が対象に当たらない（${DIFF}）。対象の手元の変更とぶつかっていないかを見る"
     git apply "$DIFF"
     echo "run $3 の差分を ${TARGET} に当てた（commit はしていない。テストを回してから commit する）: ${DIFF}"

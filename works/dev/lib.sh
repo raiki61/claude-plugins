@@ -536,11 +536,25 @@ if os.environ["BRING_BACK"]:
             print("取り込むと消えるファイル:", p)
     else:
         print("修正の差分: run の worktree（{}）が無いので書いていない".format(wp))
-    if not empty:
+    # 記録が止まりを示す run は、殻からなら生の git apply の行を出さない（use.sh apply の止まりの拒みを素通りさせない）
+    # 判定が壊れた時も止まりと同じに扱う（止まりかを言えないまま生の行を出さない）
+    try:
+        sys.path.insert(0, os.environ["CORE_DIR"])
+        import report
+        stopped = report.stopped_run(board) if os.path.isdir(board) else None
+        broken = ""
+    except Exception as e:
+        stopped, broken = None, " ".join("{}: {}".format(type(e).__name__, e).split())
+    if not empty and stopped:
+        print("止まった run: {}（{}）で止まった: 「{}」".format(
+            report.OUTCOME_WORDS.get(stopped[0], stopped[0]), stopped[1], " ".join(stopped[2].split())))
+    if not empty and broken:
+        print("止まりの判定: できなかった（{}）。止まった run かを確かめてから取り込む".format(broken))
+    if not empty and not ((stopped or broken) and os.environ.get("WORKS_USE_SH")):
         print("差分を元のリポジトリへ取り込む:", "git -C {} apply {}".format(shlex.quote(os.environ["BRING_BACK"]), shlex.quote(diff)))
     if os.environ.get("WORKS_USE_SH"):
         use = "sh {} {{}} {} {}".format(shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id"))
-        print("殻で取り込む（当たるかを先に見る・消す行は止まる）:", use.format("apply"))
+        print("殻で取り込む（当たるかを先に見る・消す行は止まる・止まりの run は止まる）:", use.format("apply"))
         print("終わった run の worktree と枝を片付ける:", use.format("clean"))
     touched = False
     # 注意は対象に pack の写しが在る時だけ（自分食い・使い捨ての対象）。ほかのリポジトリの .archon/ は対象自身の物

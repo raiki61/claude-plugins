@@ -11,6 +11,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - gate_record(b) -> {exit, accepted, out, tail, traces, round_closed}
 - residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
+- stop_outcome(b) -> 盤面の止めの (結末の語, by, 一言) か ()・stopped_run(board_dir) -> 当てる前に見る記録の止まり（記録が無いか読めなければ None）
 - head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)・
   absent_lines(b)（末尾の「このラインに無い節」）
@@ -87,6 +88,7 @@ NEXT_ORIGIN = "works:report"   # 次の run に渡す依頼の出どころ（acc
 TAIL_LINES = 20
 FINAL_GATE_ANSWER = "final-gate-answer.json"   # 最後の関所の答え {decision, text}（境の節 eyes が b.work に書く。P1 Task 26）
 FINAL_GATE_BY = "human:final-gate"             # 最後の関所の stop・reject で止めた盤面の state.stop.by
+FINAL_GATE_STOPS = ("stop", "reject")           # 最後の関所の答えのうち止める語（書き手 line_edge の GATE_STOP）
 REQUEST_BY = "request:"                        # 止め札で止めた盤面の state.stop.by の頭
 HUMAN_BY = "human:"
 LINE_BY = "works:"
@@ -327,6 +329,40 @@ def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = N
     return rows
 
 
+def stop_outcome(b) -> tuple:
+    """盤面の止め（_stop_info）を結末の語に分ける: (結末の語, by, 一言)。止めていなければ ()"""
+    by, reason, info = _stop_info(b)
+    if by.startswith(REQUEST_BY):
+        return "stopped_by_request", by, reason
+    if (info and info is b.state.get("halted") and by == ANSWER_BY) or by.startswith(HUMAN_BY):
+        return "stopped_by_human", by, reason
+    if by.startswith(LINE_BY):
+        return "stopped_by_line", by, reason
+    return ()
+
+
+def stopped_run(board_dir) -> tuple | None:
+    """差分を当てる前（use.sh apply）に見る記録の止まり: 盤面の止めか最後の関所の stop・reject なら (結末の語, by, 一言)、
+    記録が止まりでないと言えば ()、止まりかを言える記録（最後の関所の答え・state の stop か halted）が無いか、在るのに
+    読めなければ None。盤面は開かずにファイルとして読む（周の途中で終わった run の盤面も読む）"""
+    d = pathlib.Path(board_dir)
+    state = _read_json(d / "state.json", None)
+    unreadable = not isinstance(state, dict) and (d / "state.json").exists()
+    state = state if isinstance(state, dict) else {}
+    stopped = stop_outcome(types.SimpleNamespace(state=state, dir=d))
+    if stopped:
+        return stopped
+    ans = _latest(d, FINAL_GATE_ANSWER)
+    doc = _read_json(ans, None) if ans is not None else None
+    if isinstance(doc, dict) and doc.get("decision") in FINAL_GATE_STOPS:
+        return "stopped_by_human", FINAL_GATE_BY, str(doc.get("text") or "")
+    if unreadable or (ans is not None and not isinstance(doc, dict)):
+        return None
+    if isinstance(doc, dict):
+        return ()
+    return () if state.get("stop") or _halted(types.SimpleNamespace(state=state)) else None
+
+
 def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | None = None,
                    eyeing: dict | None = None) -> str:
     """結末。順: 止め札（by request:）→ stopped_by_request、関所の stop・reject（halted.by answer か by human:）→ stopped_by_human、
@@ -338,13 +374,9 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
     run の帳尻の行を通すためで、1 の中身は residue が見る。needs_human を record_invalid の前に置くのは、人に聞いて
     いる盤面は周の記録がまだ無く（検証器が 2）、record_invalid の後ろでは needs_human に届かないため（〔線A計〕T15 の並びから
     替えた。どちらも成功の結末ではない）"""
-    by, _, info = _stop_info(b)
-    if by.startswith(REQUEST_BY):
-        return "stopped_by_request"
-    if (info and info is b.state.get("halted") and by == ANSWER_BY) or by.startswith(HUMAN_BY):
-        return "stopped_by_human"
-    if by.startswith(LINE_BY):
-        return "stopped_by_line"
+    stopped = stop_outcome(b)
+    if stopped:
+        return stopped[0]
     if b.state.get("pending_human") or _asked(b):   # 食い違いの申し出を人に回した単位は直さずに残した
         return "needs_human"
     if not gate.get("accepted") or not gate.get("round_closed"):
