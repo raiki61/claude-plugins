@@ -94,7 +94,7 @@ class LineShapeCase(unittest.TestCase):
         self.assertEqual(y["name"], "darkfactory")
         self.assertIs(y["interactive"], True)
         self.assertEqual(set(y["inputs"]), {"request", "base", "pr", "test_cmd", "thickness", "gates", "final_gate", "adapter",
-                                            "policy_md", "lang", "tdd_suite", "unattended", "design_only"})
+                                            "policy_md", "lang", "tdd_suite", "unattended", "design_only", "github_reads"})
         self.assertIsNot(y["inputs"]["request"].get("required"), True)   # 依頼・base・pr の少なくとも 1 つは check_inputs が要る
         for k in set(y["inputs"]):
             self.assertEqual(y["inputs"][k].get("default"), "", k)
