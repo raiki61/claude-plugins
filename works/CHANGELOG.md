@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 起動の後に run を結ぶ所（`use.sh`・`dev/dogfood.sh`・`dev/real-run.sh`）が、起動の直後に最初の関所で止まった run を 1 本も見つけられず、どの起動も「結べなかった」で終わっていた。盤面は start の節が走るまで無いため。Archon が run に残した入力（`workflow runs --json` の依頼）を先に見て結ぶ。
+
 ## [0.2.9] - 2026-10-01
 
 ### Added

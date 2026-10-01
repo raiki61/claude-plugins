@@ -287,15 +287,33 @@ def _ledger_load(opts, err):
     return _assignments(values, LEDGER_LOAD_NAMES, export=True)
 
 
+def _run_meta(row):
+    """runs --json の行の metadata を dict で（JSON の文字列でも読む。読めない・dict でなければ空）"""
+    meta = row.get("metadata")
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            return {}
+    return meta if isinstance(meta, dict) else {}
+
+
 def _run_origin(row):
     # 名指しの家は対象をまたいで 1 つなので、起動した対象（metadata.workflow_source.origin）が違う run は採らない
     # （origin の無い行は見分けられないので残す）
-    origin = ((row.get("metadata") or {}).get("workflow_source") or {}).get("origin")
+    source = _run_meta(row).get("workflow_source")
+    origin = source.get("origin") if isinstance(source, dict) else None
     return os.path.realpath(origin) if isinstance(origin, str) and origin else None
 
 
 def _run_request(row):
-    """run の盤面に残った依頼（r1/start.json の request_file か state.json の inputs.request）の realpath。無ければ None"""
+    """run の依頼の realpath。無ければ None。先に Archon が run に残した入力（runs --json の metadata.inputs.request）を見る——
+    起動の直後は最初の関所（launch）で止まっていて start の節がまだ走らず、盤面がまだ無い。次に盤面に残った依頼（r1/start.json の
+    request_file か state.json の inputs.request）を見る"""
+    inputs = _run_meta(row).get("inputs")
+    value = inputs.get("request") if isinstance(inputs, dict) else None
+    if isinstance(value, str) and value:
+        return os.path.realpath(value)
     board = os.path.join(row.get("output_root") or "", "artifacts", "runs", row.get("id") or "", "board")
     for name, pick in (("r1/start.json", lambda d: d.get("request_file")),
                        ("state.json", lambda d: (d.get("inputs") or {}).get("request"))):

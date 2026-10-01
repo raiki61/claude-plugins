@@ -505,6 +505,18 @@ class Bind(unittest.TestCase):
                 self.assertEqual((led["schema"], led["run_id"], led["target"]), (1, "mine", str(self.target)))
                 self.assertEqual(sorted(p.name for p in self.runs.iterdir()), ["mine.json"])
 
+    def test_binds_a_run_still_at_the_launch_gate_by_archons_recorded_input(self):
+        """起動の直後は最初の関所（launch）で止まり、start の節がまだ走らず盤面が無い。Archon が run に残した入力
+        （runs --json の metadata.inputs.request。dict でも JSON の文字列でも）で結ぶ（実測 2026-10-01: 盤面だけを見て 0 本になった）"""
+        for meta in ({"inputs": {"request": str(self.request)}}, json.dumps({"inputs": {"request": str(self.request)}})):
+            with self.subTest(meta=type(meta).__name__):
+                shutil.rmtree(self.runs, ignore_errors=True)
+                rows = [self.row("mine", metadata=meta),
+                        self.row("other", metadata={"inputs": {"request": str(self.tmp / "other.json")}})]
+                rc, out, err = self.bind(rows)
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(sh_assigned(self, out, ("WORKS_RUN_ID",))["WORKS_RUN_ID"], "mine")
+
     def assert_unbound(self, rc, out, err, *says):
         self.assertEqual((rc, out), (1, ""))
         for text in says:
