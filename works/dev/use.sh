@@ -473,10 +473,17 @@ print(json.dumps(row, ensure_ascii=False))
       running | pending | paused) refuse "run $3 は ${STATUS}。止めるか終わってから片付ける" ;;
     esac
     # start が包んだ run の基を守った参照（控えの wrap_ref）も一緒に消す
-    WRAP_REF="$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$3" | cut -f4)"
+    LEDGER_ROW="$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$3")"
+    WRAP_REF="$(printf '%s' "$LEDGER_ROW" | cut -f4)"
     if [ -n "$WRAP_REF" ] && git show-ref --verify --quiet "$WRAP_REF"; then
       git update-ref -d "$WRAP_REF"
       echo "run $3 の基を守った参照を消した: ${WRAP_REF}"
+    fi
+    # 隔離の前に読んだ読み出しのファイル（控えの github_reads）が残っていれば消す（start が盤面へ写す前に止まった run）
+    GITHUB_READS="$(printf '%s' "$LEDGER_ROW" | cut -f8)"
+    if [ -n "$GITHUB_READS" ] && [ -f "$GITHUB_READS" ]; then
+      rm -f "$GITHUB_READS"
+      echo "run $3 の隔離の前の読み出しのファイルを消した: ${GITHUB_READS}"
     fi
     if [ -z "$GOT" ] || [ ! -d "$GOT" ]; then
       echo "run $3 の worktree（${GOT:-無し}）はもう無い"
@@ -534,6 +541,19 @@ else
   echo "TDD の輪を飛ばす（全部の単位を直に直す）: test_cmd が pytest の 1 コマンドでない。JUnit XML を第 1 引数に書く実行器を最後の引数 <tdd_suite> に渡せば輪を回す"
 fi
 
+# 依頼の欄 pr・issue と --pr が名指した PR・issue を、Archon を起こす前に利用者の env（gh のログインが見える）のまま、対象の根を
+# cwd にして 1 回だけ読む（隔離した Archon の中からは非公開のリポジトリを読めない。設計書 2.8）。--pr の base・head が読めなければ
+# ここで止まる（包んだ参照も pack の写しもまだ作っていない）。名指しが無ければ何も書かない
+GITHUB_READS=""
+_reads="$WORKS_USE_HOME/reads/$STAMP.json"
+_pr=""
+case $CHANGE_INPUT in pr=*) _pr="${CHANGE_INPUT#pr=}" ;; esac
+python3 -I "$WORKS_DIR/.shared/core/ghreads.py" read --repo "$TARGET" --request "${REQUEST:--}" --pr "$_pr" --out "$_reads"
+if [ -f "$_reads" ]; then
+  GITHUB_READS="$_reads"
+  echo "名指した PR・issue を隔離の前に読んだ: ${GITHUB_READS}"
+fi
+
 place_pack
 cd "$TARGET"
 
@@ -574,6 +594,7 @@ if [ -n "$CHANGE_INPUT" ]; then
   echo "入口: 変更から（${CHANGE_INPUT}）"
   set -- "$@" --input "$CHANGE_INPUT"
 fi
+if [ -n "$GITHUB_READS" ]; then set -- "$@" --input github_reads="$GITHUB_READS"; fi
 set +e
 sh "$ARCHON" "$@"
 run_status=$?
@@ -588,6 +609,10 @@ if ! works_dev_ledger_bind use.sh "$ARCHON" "$TARGET" "$REQUEST"; then
   if [ -n "$WRAP_REF" ]; then
     git update-ref -d "$WRAP_REF"
     echo "包んだ基を守った参照を外した（どの run の控えにも結べないので）: ${WRAP_REF}"
+  fi
+  if [ -n "$GITHUB_READS" ]; then
+    rm -f "$GITHUB_READS"
+    echo "隔離の前に読んだ読み出しのファイルを消した（どの run の控えにも結べないので）: ${GITHUB_READS}"
   fi
   [ "$run_status" -ne 0 ] && exit "$run_status"
   exit 1

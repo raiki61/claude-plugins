@@ -48,8 +48,9 @@ works_dev_launch() {
 
 # works_dev_ledgers <控えの置き場> [<run-id>]: 控えを読む一覧の口（launch.py ledger list）。読めた控え 1 つを 1 行、
 # run_id・対象の dir（realpath）・結んだ時刻（無ければ 0）・包んだ基の参照（refs/works/wraps/ の下の時だけ）・herdr_pane・
-# herdr_socket・続き中（works_dev_continue の印 <置き場>/<run-id>.cont の鍵を誰かが持っていれば 1、無ければ空）を
-# タブで区切って出す（run-id を渡せばその控えだけ）。壊れた・run_id の無い・知らない版の控えは飛ばす
+# herdr_socket・続き中（works_dev_continue の印 <置き場>/<run-id>.cont の鍵を誰かが持っていれば 1、無ければ空）・
+# 隔離の前の読み出しのファイル（.json の絶対パスの時だけ）をタブで区切って出す（run-id を渡せばその控えだけ）。壊れた・run_id の無い・
+# 知らない版の控えは飛ばす
 works_dev_ledgers() {
   if [ -n "${2:-}" ]; then
     works_dev_launch ledger list --dir "$1" --run-id "$2"
@@ -338,7 +339,8 @@ works_dev_show_synced() {
 works_dev_ledger_bind() {
   if ! _lb_out=$(WORKS_DEV_NO_AUTH=1 sh "$2" workflow runs --json 2>/dev/null |
     works_dev_launch ledger bind --for "$1" --dir "$WORKS_DEV_HOME/runs" --target "$3" --request "$4" \
-      --model-value "$(works_dev_model_value)" --model-from "$(works_dev_model_from)" --wrap-ref "${WRAP_REF:-}"); then
+      --model-value "$(works_dev_model_value)" --model-from "$(works_dev_model_from)" --wrap-ref "${WRAP_REF:-}" \
+      --github-reads "${GITHUB_READS:-}"); then
     echo "この起動の run を結べなかった（続きの行は出さない。候補が在れば上の show の行で run id を名指しして出す）"
     return 1
   fi

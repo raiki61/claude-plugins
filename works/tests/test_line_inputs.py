@@ -46,14 +46,18 @@ READ_FROM_REQUEST = {"request_file", "items", "request_text"}
 # 同じ名で返さず、変更の入口として解いて返す start の名と、その返りの欄（解き方の正本の試験は test_entry_inputs.ChangeInputsCase）
 CHANGE_INPUTS = {"base", "pr"}
 FROM_CHANGE = {"base_rev", "change"}
+# check_inputs でなく entry.start が読む start の名（隔離の前の読み出しのファイル。start が盤面へ写し、写しを check_inputs の
+# reads に渡す。解き方の正本の試験は test_ghreads）
+START_ONLY = {"github_reads"}
+# pr の名を読む時に渡す、殻が隔離の前に読んだ写し（HEAD と PR の head は同じ版）
+PR_READS = {"version": 1, "pr": {"7": {"baseRefOid": "b" * 40, "headRefOid": "h" * 40, "title": "", "body": ""}}, "issue": {}}
 
 
-def _fake_git_and_gh():
-    """entry の git を読む口と gh pr view を偽物にする（FAST の段は git も子のプロセスも起こさない）。HEAD と PR の head は同じ版"""
-    doc = json.dumps({"baseRefOid": "b" * 40, "headRefOid": "h" * 40, "title": "", "body": ""})
+def _fake_git():
+    """entry の git を読む口を偽物にする（FAST の段は git も子のプロセスも起こさない）。PR の base・head は PR_READS から"""
     stack = contextlib.ExitStack()
     stack.enter_context(mock.patch.object(entry, "_git", return_value="h" * 40))
-    stack.enter_context(mock.patch.object(entry.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=doc, stderr="")))
+    stack.enter_context(mock.patch.object(entry.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")))
     return stack
 
 
@@ -141,15 +145,15 @@ class InputNamesCase(unittest.TestCase):
                      "policy_md": "policy.md", "lang": "English", "base": "main", "pr": "7", "unattended": "true",
                      "design_only": "true"}
             want = {**given, "policy_md": str(repo / "policy.md")}
-            self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"}, "start.py の名に、渡す値を決めていない名がある")
+            self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"} - START_ONLY, "start.py の名に、渡す値を決めていない名がある")
             base = entry.check_inputs({"request": "req.json"}, repo)
-            self.assertEqual(set(base), (names - {"request"} - CHANGE_INPUTS) | READ_FROM_REQUEST)
+            self.assertEqual(set(base), (names - {"request"} - CHANGE_INPUTS - START_ONLY) | READ_FROM_REQUEST)
             self.assertEqual(base["request_file"], str((repo / "req.json").resolve()))
             for name, value in given.items():
                 with self.subTest(name):
-                    if name in CHANGE_INPUTS:   # 同じ名でなく change の name に返る（git と gh は偽物）
-                        with _fake_git_and_gh():
-                            got = entry.check_inputs({"request": "req.json", name: value}, repo)
+                    if name in CHANGE_INPUTS:   # 同じ名でなく change の name に返る（git は偽物、PR は隔離の前の写し）
+                        with _fake_git():
+                            got = entry.check_inputs({"request": "req.json", name: value}, repo, reads=PR_READS)
                         self.assertEqual(got["change"]["from"], name)
                         self.assertEqual(got["change"]["name"], want[name])
                         continue

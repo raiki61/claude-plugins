@@ -83,6 +83,8 @@ class UseShell(unittest.TestCase):
             "#!/bin/sh\n"
             f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "${{WORKS_DEV_HOME:-}}" "$@"; echo; }} >> "{self.log}"\n'
             f'case "$*" in "workflow runs --json") cat "{self.runs}" ;; esac\n'
+            # 起動の時に渡された読み出しのファイル（github_reads）の中身を写して残す（start が盤面へ写して消すので、起動の時に見る）
+            f'for a in "$@"; do case $a in github_reads=?*) cp "${{a#github_reads=}}" "{self.tmp / "github-reads-seen.json"}" ;; esac; done\n'
             'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
             f'RUNS="{self.runs}" python3 - "$@" <<\'EOF\'\n'
             "import json, os, pathlib, sys\n"
@@ -126,6 +128,18 @@ class UseShell(unittest.TestCase):
 
     def calls(self):
         return [l.rstrip("\t").split("\t") for l in self.log.read_text().splitlines()] if self.log.exists() else []
+
+    def gh_env(self, logged_in=True, **gh_kw):
+        """偽の gh（test_ghreads.fake_gh）を PATH の頭に置く env。logged_in なら利用者のログイン（GH_CONFIG_DIR）が見える。
+        HOME は空の置き場にし、本物の gh の設定を読ませない"""
+        from test_ghreads import GH_ENV, fake_gh
+        bin_, self.gh_calls_file, login = fake_gh(self.tmp, **gh_kw)
+        env = {name: None for name in GH_ENV}
+        (self.tmp / "user-home").mkdir(exist_ok=True)
+        env.update(PATH=f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", HOME=str(self.tmp / "user-home"))
+        if logged_in:
+            env["GH_CONFIG_DIR"] = str(login)
+        return env
 
     def assert_refused(self, r, *words):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
@@ -179,8 +193,8 @@ class UseShell(unittest.TestCase):
         self.assertIn("入口: 変更から（base=main）", r.stdout)
         self.assertFalse((self.home / "requests").exists())
         self.log.unlink()
-        r = self.use("start", "--pr", "7", "--", str(t), "-", "true")
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        r = self.use("start", "--pr", "7", "--", str(t), "-", "true", **self.gh_env())   # --pr は隔離の前に読める PR
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)   # 依頼を省いた起動は結ばない（上と同じ）
         self.assertIn("結べなかった", r.stdout)
         run = self.calls()[0]
         self.assertIn("pr=7", run)
@@ -210,6 +224,36 @@ class UseShell(unittest.TestCase):
                 r = self.use(*args)
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
                 self.assertEqual(self.calls(), [])
+
+    def test_start_reads_named_pr_and_issue_before_isolation(self):
+        """依頼が {findings, pr, issue} で PR・issue を名指せば、Archon を起こす前に利用者の env（ログインが見える）のまま、
+        対象の根を cwd にして 1 回だけ読み、その結果のファイルを --input github_reads= で渡す（隔離した Archon の中では読めない）"""
+        t = self.target()
+        req = self.tmp / "named.json"
+        req.write_text(json.dumps({"findings": [{"where": "stats.py:1", "text": "mean が空で落ちる"}], "pr": [7], "issue": [9]},
+                                  ensure_ascii=False))
+        r = self.use("start", str(t), str(req), **self.gh_env())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        run = self.calls()[0]
+        given = [a for a in run if a.startswith("github_reads=")]
+        self.assertEqual(len(given), 1, run)
+        self.assertNotEqual(given[0], "github_reads=", run)
+        seen = self.tmp / "github-reads-seen.json"
+        self.assertTrue(seen.exists(), "起動の時に読み出しのファイルが無い")
+        doc = json.loads(seen.read_text(encoding="utf-8"))
+        self.assertEqual(doc["pr"]["7"]["body"], "非公開の本文")
+        self.assertEqual([c["body"] for c in doc["pr"]["7"]["review_comments"]], ["非公開の行コメント"])
+        self.assertEqual(doc["issue"]["9"]["body"], "課題の本文")
+        from test_ghreads import gh_calls
+        self.assertEqual({cwd for cwd, _ in gh_calls(self.gh_calls_file)}, {str(t)})
+
+    def test_start_refuses_unreadable_pr_before_archon(self):
+        """--pr の base・head が隔離の前に読めなければ（ログインが見えない）、Archon を起こさずに止まる"""
+        t = self.target()
+        r = self.use("start", "--pr", "7", "--", str(t), "-", "true", **self.gh_env(logged_in=False))
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("7", r.stderr)
 
     def test_refuses_target_under_private_tmp(self):
         for t in ("/private/tmp/works-use-test-none", "/tmp/works-use-test-none"):
@@ -291,6 +335,42 @@ class UseShell(unittest.TestCase):
         self.assertIn("包んだ（wrapped）", r.stdout)
         self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
         self.assertFalse((self.home / "runs").exists() and os.listdir(self.home / "runs"))
+
+    def named_request(self):
+        req = self.tmp / "named.json"
+        req.write_text(json.dumps({"findings": [{"where": "stats.py:1", "text": "mean が空で落ちる"}], "pr": [7], "issue": [9]},
+                                  ensure_ascii=False))
+        return req
+
+    def reads_left(self):
+        d = self.home / "reads"
+        return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+
+    def test_unbound_start_drops_reads_file(self):
+        """start が run を結べない時は、包んだ基の参照と一緒に、隔離の前に読んだ読み出しのファイル（非公開の本文を持つ）も
+        その場で消す（控えが無いので clean は知る口が無い）"""
+        t = self.target()
+        (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
+        self.runs.write_text(json.dumps({"runs": []}))
+        r = self.use("start", str(t), str(self.named_request()), "true", "", **self.gh_env())
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertTrue(any(a.startswith("github_reads=") and a != "github_reads=" for a in self.calls()[0]), self.calls())
+        self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
+        self.assertEqual(self.reads_left(), [])
+
+    def test_clean_removes_reads_file_of_run(self):
+        """結べた run の読み出しのファイルは run の控えに残し、clean が run と一緒に消す（起動の関所で取り消して start が
+        写さなかった run の残りも掃く）"""
+        t = self.target()
+        r = self.use("start", str(t), str(self.named_request()), "true", "", **self.gh_env())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(self.reads_left()), 1)
+        wt = self.tmp / "run-wt"
+        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
+        self.set_runs(status="completed", working_path=str(wt), output_root=str(self.tmp / "out"))
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.reads_left(), [])
 
     def test_refuses_target_without_origin(self):
         """origin の無い対象は Archon を呼ばずに 1 行で拒み、対象の remote は書き換えない"""

@@ -368,6 +368,15 @@ class ScriptCase(RepoCase):
         # 依頼を盤面に積むのは判定のブロックの intake だけ（ここで積むと判定の時に同じ依頼が 2 度積まれる）
         self.assertFalse((self.board / "request.json").exists())
 
+    def test_intake_accepts_object_form(self):
+        # 依頼は配列か {findings, pr, issue} の形。受け付けの check_claims に渡す依頼の行は findings だけ
+        doc = {"findings": load("request_ok"), "pr": [3], "issue": [5]}
+        (self.repo / "obj.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        r = self.run_script("intake", INPUTS_REQUEST="obj.json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads((self.board / premises.PREMISES_REQUEST_FILE).read_text(encoding="utf-8")),
+                         load("request_ok"))
+
     def test_intake_missing_file(self):
         r = self.run_script("intake", INPUTS_REQUEST="missing.json")
         self.assertEqual(r.returncode, 1)

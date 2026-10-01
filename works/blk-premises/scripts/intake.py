@@ -2,8 +2,8 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""依頼の型の確かめと、作業ツリーの写し。INPUTS_REQUEST が指す JSON のファイル（cwd＝対象リポジトリの根からの相対か絶対）を読み、
-check_request（graphloops の add と同じ規則）に使い捨ての置き場で通す——盤面の request.json には積まない（積むのは判定の
+"""依頼の型の確かめと、作業ツリーの写し。INPUTS_REQUEST が指す JSON のファイル（cwd＝対象リポジトリの根からの相対か絶対。findings の配列か
+{findings, pr, issue} の形を request_parts で解く）を読み、findings を check_request（graphloops の add と同じ規則）に使い捨ての置き場で通す——盤面の request.json には積まない（積むのは判定の
 ブロックの intake だけ。ここで積むと同じ依頼が 2 度積まれる）。続けて、実測役を起こす前の作業ツリーの姿（共通の tree_state。バイトコードは除く）を
 盤面の premises-snapshot.json に置く。受け付け（check_premises）はこれと今の作業ツリーを比べる。型を確かめた依頼の行は
 premises-request.json に控える（受け付けの check_claims と collect が依頼の measured の行を読む）。
@@ -28,6 +28,7 @@ import tempfile  # noqa: E402
 
 from accept import check_request, tree_state  # noqa: E402
 from engine.util import Reject  # noqa: E402
+from ghreads import request_parts  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_REQUEST_FILE, PREMISES_SNAPSHOT_FILE  # noqa: E402
 import conflict  # noqa: E402
 import rolekit  # noqa: E402
@@ -70,9 +71,13 @@ def main() -> int:
         except (OSError, UnicodeDecodeError) as e:
             return _stop(f"依頼のファイル {rel} が読めない（{type(e).__name__}: {e}）")
         try:
-            items = json.loads(text)
+            doc = json.loads(text)
         except json.JSONDecodeError as e:
             return _stop(f"依頼のファイル {rel} が JSON として読めない（{e}）")
+        try:
+            items = request_parts(doc)["findings"]
+        except ValueError as e:
+            return _stop(f"依頼のファイル {rel} の形: {e}")
         with tempfile.TemporaryDirectory() as scratch:   # 規則に通すだけ。積んだ request.json は捨てる
             r = check_request(items, Path(scratch), f"人の依頼（{rel}）")
         if not r["ok"]:

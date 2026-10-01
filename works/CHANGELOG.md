@@ -12,6 +12,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
+- 名指した PR・issue を、Archon を起こす前に利用者の gh のログインのまま 1 回だけ読むようにした（`use.sh start` と `dogfood.sh`）。依頼のファイルは findings の配列のほかに `{"findings": [...], "pr": [<番号>…], "issue": [<番号>…]}` の形も受け、名指した PR の本文・コメント・レビュー・行コメントと issue の本文・コメントを読んで、ラインの入力 `github_reads` で渡す（start が盤面の `github.json` へ写す。役はまだ読まない）。`--pr` の base・head も同じく隔離の前に読み、読めなければ Archon を起こさずに止まる。今までは start の中（隔離した HOME）で `gh pr view` を呼んでいたので、非公開のリポジトリの PR は読めなかった。Archon を直に起こして `--input pr=<番号>` を渡す時は、先に `python3 -I works/.shared/core/ghreads.py read --repo <対象> --pr <番号> --out <ファイル>` で読み、`--input github_reads=<ファイル>` も渡す。
+
 - /works を回す Claude が依頼者に聞く・結果を伝える時の書き方を、スキルの 4 節に 1 つ置いた（決めてほしい事を最初に、1 件ずつ何を決めるのか・背景・答えごとに起きること・推しとその理由・答えの後に何をするか。run の中の語は使わないか中身を先に。費用・直しの中身・置き場は後ろに畳む）。3 節の関所で聞く時もこの並びを使う。報告の書き手（report-items・report-write）の「判断してほしいこと」にも同じ並びを足した。推しは今どおり判定の役が書いた物だけ。
 - 起動の殻の共通の口の設計（`docs/specs/2026-09-29-launch-core-design.md` の 4 節）の 2 回目を 2 つに割った。先の回は run の控え（ledger。控えの形と版の欄・起動の後の結び方）だけを入れ、続きの行（go）・run の表示（show）・模型の既定と優先の順の部品への移しは次の回に回す。
 - run の控え（`<家>/runs/<run-id>.json`）の形を `dev/launch.py` の動詞 `ledger`（save・load・list・bind）の 1 か所に寄せ、版の欄 `schema`（今は 1）を足した。版の欄の無い前の控えは今どおり読み、知らない版の控えは 1 行の理由で止める（list は黙って飛ばす）。`use.sh` が控えを読む所は部品の出力を 2 段で受け、部品が落ちれば代入を 1 つも効かせずに止まる。

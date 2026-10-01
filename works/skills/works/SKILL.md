@@ -39,7 +39,7 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
 
 ## 1. 依頼の JSON を書く
 
-findings（指摘）の JSON の配列を 1 つのファイルにする。置き場所はどこでもよい（起動のときに写して渡す）。
+findings（指摘）の JSON の配列か、`{"findings": [...], "pr": [<番号>…], "issue": [<番号>…]}` の形を 1 つのファイルにする。置き場所はどこでもよい（起動のときに写して渡す）。
 
 ```json
 [
@@ -56,6 +56,11 @@ findings（指摘）の JSON の配列を 1 つのファイルにする。置き
 - 必須: `where`（どこ）・`text`（何が悪いか）
 - 任意: `mechanism`（なぜ起きるか）・`measured`（何で確かめたか）・`false_positive_if`（どうなら誤りか）
 - これ以外の欄は拒まれる。型の確かめはラインの入口で、AI を起こす前に止まる。
+- object の形の `pr`・`issue`（省ける）は、対象の GitHub の PR・issue の番号（正の整数）の配列。名指した物の本文とコメントは、殻が Archon を起こす前に利用者の gh で 1 回だけ読み、run の盤面の `github.json` に置く（読めない物は読めないと記録して進む）。この版では役はまだそれを読まない。`findings` を省くと空の配列。
+
+```json
+{"findings": [{"where": "src/app/parse.py:42", "text": "空の行で IndexError が出る"}], "pr": [12], "issue": [34]}
+```
 
 ## 2. 起動する
 
@@ -65,7 +70,7 @@ findings（指摘）の JSON の配列を 1 つのファイルにする。置き
 sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <版> | --pr <番号>] [--] [<対象リポジトリ>] <依頼の JSON か -> ["<test_cmd>" [<tdd_suite>]]
 ```
 
-- 入口: 依頼の JSON だけなら判定から入る（依頼の指摘を判定して直す）。人が変更（枝・PR）の審査を頼んだ時だけ `--base <版>`（base と HEAD の merge-base から HEAD まで）か `--pr <番号>`（GitHub の PR と同じ差分。`gh pr view` で読むだけで投稿しない。対象の HEAD が PR の head であること）を足し、差分に局所の審査の目を回す（起動の時に「入口: 変更から」の行が出る）。変更だけなら依頼の JSON を `-` にする（ここの `-` は標準入力でなく依頼を省く意味。`--base`・`--pr` が無ければ拒む）。両方を渡すと、差分の目と依頼を一緒に判定へ流す。`--base` と `--pr` はどちらか 1 つ。旗は対象より前に置き、`--` の後は旗として読まない。手元に commit していない変更が在ると、下の「手元の変更」のとおり殻が包んだ commit が run の HEAD になるので、`--pr` は PR の head と違うとして拒まれ（commit してから打つ）、`--base` の差分には包んだ手元の変更も入る。
+- 入口: 依頼の JSON だけなら判定から入る（依頼の指摘を判定して直す）。人が変更（枝・PR）の審査を頼んだ時だけ `--base <版>`（base と HEAD の merge-base から HEAD まで）か `--pr <番号>`（GitHub の PR と同じ差分。殻が Archon を起こす前に利用者の gh で読むだけで投稿しない。読めなければ起動しない。対象の HEAD が PR の head であること）を足し、差分に局所の審査の目を回す（起動の時に「入口: 変更から」の行が出る）。変更だけなら依頼の JSON を `-` にする（ここの `-` は標準入力でなく依頼を省く意味。`--base`・`--pr` が無ければ拒む）。両方を渡すと、差分の目と依頼を一緒に判定へ流す。`--base` と `--pr` はどちらか 1 つ。旗は対象より前に置き、`--` の後は旗として読まない。手元に commit していない変更が在ると、下の「手元の変更」のとおり殻が包んだ commit が run の HEAD になるので、`--pr` は PR の head と違うとして拒まれ（commit してから打つ）、`--base` の差分には包んだ手元の変更も入る。
 - 対象: リポジトリの下のフォルダでもよく、その git の根で回す。省けば今いるフォルダの git の根。`/private/tmp` の下は使えない。
 - 手元の変更: commit していない変更・未追跡のファイルが在っても止めない。殻がそれを一時の commit に包み（`.gitignore` の物は入れない）、run はそこから切る。対象の作業ツリー・index・枝は動かさない（包んだ commit を守る参照を `refs/works/wraps/` にだけ置く。`clean` が消すのは run の控えに `wrap_ref` が在る時だけ。`start` が run を結べなかった時はその場で外す。控えに `wrap_ref` の無い前の run の参照は残るので、要らなければ `git update-ref -d` で外す）。包んだことと commit・ファイルを「包んだ（wrapped）」の行に出す（`show` も出す）。差分はその姿との差なので、今の手元にそのまま当たる。
 - remote の `origin` が要る（Archon v0.11.1 は `--from` を渡しても、origin の無い対象では run の worktree を切れずに終了コード 1 で落ちる）。無ければ `check` が並べ、`start` は Archon を起こす前に 1 行で止まり、入れ方（`git remote add origin <URL>`。手元だけなら対象の外に `git init --bare <対象>.origin.git` を作って origin にし、`git push origin HEAD`）を出す。殻は remote を足さない。あなた（Claude）も自分で remote を足さず、預ける先の URL か手元の裸のリポジトリかを依頼者に尋ねて、依頼者に決めてもらう。

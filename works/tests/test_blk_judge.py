@@ -213,6 +213,15 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(batches[0]["findings"], load("request_ok"))
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")   # 対象の作業ツリーは汚さない
 
+    def test_intake_accepts_object_form(self):
+        # 依頼は配列か {findings, pr, issue} の形。盤面に積むのは findings の行だけ
+        doc = {"findings": load("request_ok"), "pr": [3], "issue": [5]}
+        (self.repo / "obj.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        r = self.run_script("intake", INPUTS_REQUEST="obj.json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        batches = json.loads((self.board / "request.json").read_text(encoding="utf-8"))
+        self.assertEqual(batches[0]["findings"], load("request_ok"))
+
     def test_intake_missing_file(self):
         r = self.run_script("intake", INPUTS_REQUEST="missing.json")
         self.assertEqual(r.returncode, 1)

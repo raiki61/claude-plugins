@@ -51,6 +51,7 @@ MOD = {
     "copyledger": (1, None),  # 写しの台帳の読み口（写し直しの道具と写しの一致の試験が読む。works の物を何も知らない）
     "claude_auth": (1, None),  # 本流 scripts/claude_auth.py の写し（shared-copies.py が同一を縛る。works の物を何も知らない）
     "auth_launch": (1, None),  # 殻の認証の起こし役（claude_auth の写しだけを import する。works の物を何も知らない）
+    "ghreads": (1, None),     # 依頼のファイルの形（findings の配列か {findings, pr, issue}）を解く 1 か所（works の物を何も知らない）
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "record-write": (2, None),   # 包みが足す書き込みの記録のフック（writes が読む記録を書く）
     "no-post-bin/works-gh": (2, None),

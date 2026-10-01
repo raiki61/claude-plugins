@@ -862,7 +862,8 @@ class TestDevShell(unittest.TestCase):
                 self.assertIn("workflow test works", args)   # 赤でも残りは回す
 
     # ---- dogfood.sh（works 自身のリポジトリを対象にラインを回す）。AI の要らない所だけを偽の Archon で見る
-    def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root=None, runs_json=None, keychain=None, **env_kw):
+    def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root=None, runs_json=None, keychain=None, run_status=0,
+                 **env_kw):
         """TMPDIR の下に works/ を写した git の元（src）を作り、その写しの dogfood.sh を偽の Archon と偽の security
         （keychain の項目名→値。既定は項目の無い keychain。fake_security）で回す。
         src には commit していない物（根の未追跡・works/ の中の書き換えと未追跡）を残す。
@@ -891,6 +892,8 @@ class TestDevShell(unittest.TestCase):
             f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "$@"; echo; }} >> "{log}"\n'
             f'case "$1 $2" in "workflow run") printf \'%s\\n\' "${{WORKS_DEV_ADAPTER-(unset)}}" > "{tmp / 'adapter-env.txt'}" ;; esac\n'
             f'case "$*" in "workflow runs --json") cat "{tmp / 'runs.json'}" ;; esac\n'
+            # 起動の時に渡された読み出しのファイル（github_reads）の中身を写して残す（start が盤面へ写して消すので、起動の時に見る）
+            f'for a in "$@"; do case $a in github_reads=?*) cp "${{a#github_reads=}}" "{tmp / "github-reads-seen.json"}" ;; esac; done\n'
             'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
             f'RUNS="{tmp / "runs.json"}" python3 - "$@" <<\'EOF\'\n'
             "import json, os, pathlib, sys\n"
@@ -900,6 +903,7 @@ class TestDevShell(unittest.TestCase):
             "    p.parent.mkdir(parents=True, exist_ok=True)\n"
             "    p.write_text(json.dumps(dict(json.loads(p.read_text()) if p.exists() else {}, request_file=req)))\n"
             "EOF\n"
+            f'case "$1 $2" in "workflow run") exit {run_status} ;; esac\n'
             "exit 0\n"
         )
         security, self.security_log = fake_security(tmp, keychain)
@@ -982,6 +986,45 @@ class TestDevShell(unittest.TestCase):
             self.assertIn(f"git -C {src.resolve()} apply {dog / 'run-run-1.diff'}", out)
             self.assertIn("run の worktree（/wt/run-1）が無いので書いていない", out)
             self.assertNotIn("注意", out)   # 差分も worktree も .archon/ に触れていない
+
+    def test_dogfood_reads_named_pr_and_issue_from_source_before_clone(self):
+        """依頼が {findings, pr, issue} で名指せば、clone の前に元のリポジトリ（GitHub を解ける remote を持つ物。clone は origin を
+        付け替える）を cwd にして利用者の env のまま 1 回だけ読み、そのファイルを --input github_reads= で渡す"""
+        from test_ghreads import GH_ENV, fake_gh, gh_calls
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            request = tmp / "req.json"
+            request.write_text(json.dumps({"findings": [{"where": "x", "text": "y"}], "pr": [7], "issue": [9]}))
+            bin_, gh_log, login = fake_gh(tmp)
+            env = {name: None for name in GH_ENV}
+            env.update(PATH=f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", GH_CONFIG_DIR=str(login))
+            result, src, calls = self._dogfood(tmp, str(request), "true", str(tmp / "dog"), **env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            given = [a for a in calls[0] if a.startswith("github_reads=")]
+            self.assertEqual(len(given), 1, calls[0])
+            self.assertNotEqual(given[0], "github_reads=", calls[0])
+            seen = tmp / "github-reads-seen.json"
+            self.assertTrue(seen.exists(), "起動の時に読み出しのファイルが無い")
+            doc = json.loads(seen.read_text(encoding="utf-8"))
+            self.assertEqual(doc["pr"]["7"]["body"], "非公開の本文")
+            self.assertEqual(doc["issue"]["9"]["comments"][0]["body"], "課題のコメント")
+            self.assertEqual({cwd for cwd, _ in gh_calls(gh_log)}, {str(src.resolve())})
+
+    def test_dogfood_failed_launch_drops_reads_file(self):
+        """Archon の起動が 0 以外で終わった（start まで行かない）時は、隔離の前に読んだ読み出しのファイル（非公開の本文を持つ）を
+        <dir> に残さない。起動の終了コードはそのまま返す"""
+        from test_ghreads import GH_ENV, fake_gh
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            request = tmp / "req.json"
+            request.write_text(json.dumps({"findings": [{"where": "x", "text": "y"}], "pr": [7], "issue": [9]}))
+            bin_, _, login = fake_gh(tmp)
+            env = {name: None for name in GH_ENV}
+            env.update(PATH=f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", GH_CONFIG_DIR=str(login))
+            result, src, calls = self._dogfood(tmp, str(request), "true", str(tmp / "dog"), run_status=3, **env)
+            self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+            self.assertTrue((tmp / "github-reads-seen.json").exists(), "起動の時に読み出しのファイルが無い")
+            self.assertFalse((tmp / "dog" / "github-reads.json").exists())
 
     def test_dogfood_adapter_switch_falls_back_to_optional(self):
         """WORKS_DEV_ADAPTER=0（か空）で包みを外し、ラインには adapter=optional を渡す（包みの無い run を h-judge が止めない）。
@@ -1280,7 +1323,12 @@ class TestDevShell(unittest.TestCase):
             (tmp / "runs.json").write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
                                                                  "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
             fake = tmp / "fake-archon.sh"
-            fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;; esac\nexit 0\n')
+            # workflow run は run の盤面 r1/start.json に request= の値を残す（線の start と同じ。起動の後に結ぶ材料）
+            fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;; esac\n'
+                            'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
+                            f'B="{tmp / "out" / "artifacts" / "runs" / "run-1" / "board" / "r1"}"; mkdir -p "$B"\n'
+                            'for a in "$@"; do case "$a" in request=*) printf \'{"request_file": "%s"}\' "${a#request=}" > "$B/start.json" ;; esac; done\n'
+                            'exit 0\n')
             env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp),
                                      CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
                                      **security)
@@ -1552,7 +1600,7 @@ class TestHerdrContinue(unittest.TestCase):
     def sh(self, script, fail=False, **env_kw):
         shutil.rmtree(self.tmp / "herdr-bin", ignore_errors=True)
         herdr_bin, log = hermetic.fake_herdr(self.tmp, fail=fail)
-        env = hermetic.child_env(PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", **env_kw)
+        env = hermetic.child_env(PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", DEV_DIR=str(DEV), **env_kw)
         r = subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh"; {script}', "_", str(self.archon), str(self.runs)],
                            capture_output=True, text=True, encoding="utf-8", env=env)
         return r, hermetic.herdr_sockets(log)
@@ -1590,7 +1638,8 @@ class TestHerdrContinue(unittest.TestCase):
         self.ledger("r1", "pane-7", "/sock-a")
         self.status(r1="paused")
         herdr_bin, log = hermetic.fake_herdr(self.tmp)
-        env = hermetic.child_env(PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", ARCHON_SLEEP="30")
+        env = hermetic.child_env(PATH=f"{herdr_bin}{os.pathsep}{os.environ.get('PATH', '')}", ARCHON_SLEEP="30",
+                                 DEV_DIR=str(DEV))
         p = subprocess.Popen(["sh", "-c", f'. "{DEV}/lib.sh"; works_dev_continue "$1" "$2" r1 workflow approve r1', "_",
                               str(self.archon), str(self.runs)], env=env, start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

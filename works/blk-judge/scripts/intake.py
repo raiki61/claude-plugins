@@ -2,8 +2,8 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""依頼の受け付け。INPUTS_REQUEST が指す JSON のファイル（cwd＝対象リポジトリの根からの相対か絶対）を読み、
-check_request（graphloops の add と同じ規則）に通して盤面（$ARTIFACTS_DIR/board/）の request.json に積む。
+"""依頼の受け付け。INPUTS_REQUEST が指す JSON のファイル（cwd＝対象リポジトリの根からの相対か絶対。findings の配列か
+{findings, pr, issue} の形を request_parts で解く）を読み、findings を check_request（graphloops の add と同じ規則）に通して盤面（$ARTIFACTS_DIR/board/）の request.json に積む。
 続けて、判定役を起こす前の作業ツリーの姿（共通の tree_state。HEAD と枝も持つ。R47）を盤面の judge-snapshot.json に置く。受け付け（check_judge）は
 これと今の作業ツリーを比べる（Ruling R14。依頼のファイルが対象の中で未追跡でも、判定役が変えていなければ通る）。
 写しを置くのと同じ所で、盤面に前の呼び出しが残した judgment.json を消す——受け付けが 3 回とも拒んだ時に collect が
@@ -27,6 +27,7 @@ import conflict  # noqa: E402
 
 from accept import JUDGE_SNAPSHOT_FILE, JUDGMENT_FILE, check_request, tree_state  # noqa: E402
 from engine.util import Reject  # noqa: E402
+from ghreads import request_parts  # noqa: E402
 
 REQUEST_ENV = "INPUTS_REQUEST"
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
@@ -56,9 +57,13 @@ def main() -> int:
         except (OSError, UnicodeDecodeError) as e:
             return _stop(f"依頼のファイル {rel} が読めない（{type(e).__name__}: {e}）")
         try:
-            items = json.loads(text)
+            doc = json.loads(text)
         except json.JSONDecodeError as e:
             return _stop(f"依頼のファイル {rel} が JSON として読めない（{e}）")
+        try:
+            items = request_parts(doc)["findings"]
+        except ValueError as e:
+            return _stop(f"依頼のファイル {rel} の形: {e}")
         r = check_request(items, board, f"人の依頼（{rel}）")
         if not r["ok"]:
             return _stop(f"{rel}: {r['reason']}")

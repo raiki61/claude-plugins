@@ -38,9 +38,9 @@ LEDGER_SCHEMA = 1
 USAGE = ("launch.py env --for=<use.sh|dogfood.sh|real-run.sh|archon.sh> [--claude] [--show] [--target <path>]"
          " [--adapter <path>]")
 LEDGER_USAGE = ("launch.py ledger save --dir <置き場> --run-id <id> --target <dir> --model-value <値> --model-from <出どころ>"
-                " [--wrap-ref <参照>] | ledger list --dir <置き場> [--run-id <id>] | ledger load --dir <置き場> --run-id <id>"
+                " [--wrap-ref <参照>] [--github-reads <読み出しのファイル>] | ledger list --dir <置き場> [--run-id <id>] | ledger load --dir <置き場> --run-id <id>"
                 " | ledger bind --for <呼び手> --dir <置き場> --target <dir> --request <依頼の写し> --model-value <値>"
-                " --model-from <出どころ> [--wrap-ref <参照>]（標準入力に archon workflow runs --json）")
+                " --model-from <出どころ> [--wrap-ref <参照>] [--github-reads <読み出しのファイル>]（標準入力に archon workflow runs --json）")
 
 
 class Refused(Exception):
@@ -160,10 +160,10 @@ def _assignments(values, allowed, export=False):
 
 
 LEDGER_OPTIONS = {
-    "save": ({"dir", "run-id", "target", "model-value", "model-from"}, {"wrap-ref"}),
+    "save": ({"dir", "run-id", "target", "model-value", "model-from"}, {"wrap-ref", "github-reads"}),
     "list": ({"dir"}, {"run-id"}),
     "load": ({"dir", "run-id"}, set()),
-    "bind": ({"for", "dir", "target", "request", "model-value", "model-from"}, {"wrap-ref"}),
+    "bind": ({"for", "dir", "target", "request", "model-value", "model-from"}, {"wrap-ref", "github-reads"}),
 }
 
 
@@ -208,13 +208,15 @@ def _ledger_read(path):
 
 
 def _ledger_write(opts, run_id, environ):
-    # 包んだ基の参照は殻の変数（export しない）なので旗で受ける
+    # 包んだ基の参照と隔離の前に読んだ読み出しのファイル（start が盤面へ写さなかった時に use.sh clean が消す）は殻の変数
+    # （export しない）なので旗で受ける
     inside = environ.get("HERDR_ENV") == "1"   # herdr の枠の中で起こしたならその枠とサーバ（works_dev_herdr_sync が送る先）
     doc = {"schema": LEDGER_SCHEMA, "run_id": run_id, "target": opts["target"], "model": environ.get("WORKS_DEV_MODEL", ""),
            "model_resolved": {"value": opts["model-value"], "from": opts["model-from"]},
            "claude_bin": environ.get("CLAUDE_BIN_PATH", ""), "keychain_item": environ.get("WORKS_KEYCHAIN_ITEM", ""),
            "adapter": environ.get("WORKS_DEV_ADAPTER", ""), "started_at": time.time(),
-           "wrap_ref": opts.get("wrap-ref", ""), "herdr_pane": environ.get("HERDR_PANE_ID", "") if inside else "",
+           "wrap_ref": opts.get("wrap-ref", ""), "github_reads": opts.get("github-reads", ""),
+           "herdr_pane": environ.get("HERDR_PANE_ID", "") if inside else "",
            "herdr_socket": environ.get("HERDR_SOCKET_PATH", "") if inside else ""}
     folder = opts["dir"]
     os.makedirs(folder, exist_ok=True)
@@ -258,8 +260,9 @@ def _ledger_list(opts):
         wrap = s("wrap_ref") if s("wrap_ref").startswith("refs/works/wraps/") else ""
         at = doc.get("started_at") if isinstance(doc.get("started_at"), (int, float)) else 0
         target = os.path.realpath(s("target")) if s("target") else ""
+        reads = s("github_reads") if os.path.isabs(s("github_reads")) and s("github_reads").endswith(".json") else ""
         lines.append("\t".join([doc["run_id"], target, repr(at), wrap, s("herdr_pane"), s("herdr_socket"),
-                                 _continuing(opts["dir"], doc["run_id"])]) + "\n")
+                                 _continuing(opts["dir"], doc["run_id"]), reads]) + "\n")
     return "".join(lines)
 
 

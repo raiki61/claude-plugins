@@ -511,8 +511,9 @@ class CheckInputsCase(StartCaseBase):
             with self.subTest(ok=ok):
                 self.assertEqual(entry.check_inputs(self.raw(**{key: ok}), repo)[key], ok)
 
-    def test_request_unreadable_or_not_array(self):
-        """依頼が読めない・JSON の配列でない・依頼の型（写しの RL の REQUEST_SCHEMA）に合わない → InputRefused（1 行）"""
+    def test_request_unreadable_or_bad_shape(self):
+        """依頼が読めない・findings の配列でも {findings, pr, issue} の形でもない（findings の欄の無い object を含む）・
+        依頼の型（写しの RL の REQUEST_SCHEMA）に合わない → InputRefused（1 行）"""
         repo = self.seed()
         bad = self.tmp / "bad"
         bad.mkdir()
@@ -524,6 +525,34 @@ class CheckInputsCase(StartCaseBase):
             with self.subTest(req):
                 with self.assertRaises(entry.InputRefused) as cm:
                     entry.check_inputs({"request": req}, repo)
+                self.assertNotIn("\n", str(cm.exception))
+
+    def test_request_object_form_accepted(self):
+        """依頼は配列か {findings, pr, issue} の形。object の形でも findings の行が items に入る"""
+        repo = self.seed()
+        rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+        req = request_file(self.tmp / "obj.json", {"findings": rows, "pr": [3], "issue": [5]})
+        try:
+            got = entry.check_inputs({"request": str(req)}, repo)
+        except entry.InputRefused as e:
+            self.fail(f"object の形の依頼を拒んだ: {e}")
+        self.assertEqual(got["items"], rows)
+
+    def test_request_object_form_bad_names_refused(self):
+        """object の形の pr・issue が正の整数の配列でない・知らない鍵 → InputRefused（1 行）。配列の形は今どおり通る"""
+        repo = self.seed()
+        rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+        ok = request_file(self.tmp / "ok.json", {"findings": rows, "pr": [3]})
+        try:
+            entry.check_inputs({"request": str(ok)}, repo)
+        except entry.InputRefused as e:
+            self.fail(f"object の形の依頼を拒んだ: {e}")
+        for name, doc in (("str", {"findings": rows, "pr": "3"}), ("zero", {"findings": rows, "issue": [0]}),
+                          ("bool", {"findings": rows, "pr": [True]}), ("extra", {"findings": rows, "repo": "x"})):
+            with self.subTest(name):
+                req = request_file(self.tmp / f"{name}.json", doc)
+                with self.assertRaises(entry.InputRefused) as cm:
+                    entry.check_inputs({"request": str(req)}, repo)
                 self.assertNotIn("\n", str(cm.exception))
 
     def test_no_tests_accepted_by_r52(self):
@@ -938,6 +967,20 @@ class ChangeEntryCase(StartCaseBase):
         self.start(repo, self.raw(base="base"))
         self.assertEqual(len(entry.open_board(self.board).record["process"]["request_findings"]), 1)
         self.assertEqual(entry.add_pending_request(entry.open_board(self.board)), "none")
+
+    def test_start_object_request_and_change_adds_findings(self):
+        """依頼が {findings, pr, issue} の形でも、両方の入口で積むのは findings の行だけ（add_pending_request も同じ形を解く）"""
+        repo, _ = self.changed_repo()
+        rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+        req = request_file(self.tmp / "req" / "obj.json", {"findings": rows, "pr": [3], "issue": [5]})
+        try:
+            got = self.start(repo, self.raw(request=str(req), base="base"))
+        except entry.InputRefused as e:
+            self.fail(f"object の形の依頼を拒んだ: {e}")
+        self.assertEqual(got["entry"], "both")
+        batches = entry.open_board(self.board).record["process"]["request_findings"]
+        self.assertEqual([x["origin"] for x in batches], [entry.ORIGIN])
+        self.assertEqual(batches[0]["findings"], rows)
 
     def test_both_waits_for_frozen_revision_then_adds(self):
         """版が固まる前（CI の任せ先の役を待つ）は依頼を積まずに待ち、役が渡した後の resume_after_ci で積む（印は立てない）"""

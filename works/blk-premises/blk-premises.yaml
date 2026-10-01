@@ -1,6 +1,6 @@
 name: blk-premises
 description: |
-  前提の実測のブロック（graphloops の節 p0.premises。判定の前に置く）。人の修正依頼（findings の JSON の配列）に書かれた
+  前提の実測のブロック（graphloops の節 p0.premises。判定の前に置く）。人の修正依頼（findings の JSON の配列か、{findings, pr, issue} の形）に書かれた
   数値・規模・件数・在る／無いの主張（各行の measured を含む）を、実測役が run の作業ツリーでコマンドを走らせて測り、
   制約の一覧 {constraints: [{text, measured_how, kind: 実測|仮説, measured_output}]} で返す。受け付けは写した
   graphloops の規則（measured_needs_output: kind=実測 は実行したコマンドと出力が要る）に通るまで同じ会話で出し直させる
@@ -22,7 +22,7 @@ description: |
 inputs:
   request:
     default: ""
-    description: 人の修正依頼（findings の JSON の配列）のファイルのパス。対象リポジトリの根からの相対か絶対。空を受けるのはラインが依頼を持たずに変更から入った run だけ（intake が盤面の start の控えで確かめる）
+    description: 人の修正依頼（findings の JSON の配列か、{findings, pr, issue} の形）のファイルのパス。対象リポジトリの根からの相対か絶対。空を受けるのはラインが依頼を持たずに変更から入った run だけ（intake が盤面の start の控えで確かめる）
   base_rev:
     default: ""
     description: 周の頭で固めた版。受け付けは版として引けるかだけを見る。空なら受け付けの時の HEAD（Ruling R2）

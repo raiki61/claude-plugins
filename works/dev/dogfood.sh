@@ -109,7 +109,7 @@ SRC="$(git -C "$WORKS_DIR" rev-parse --show-toplevel)"
 REV="$(git -C "$SRC" rev-parse HEAD)"
 
 if [ "$#" -ge 3 ]; then
-  for used in repo origin.git request.json; do
+  for used in repo origin.git request.json github-reads.json; do
     if [ -e "$3/$used" ] || [ -L "$3/$used" ]; then
       echo "dogfood.sh: <dir> に前の回の ${used} が在る（$3/${used}）。別の <dir> を使うか、要らなければ消す" >&2
       exit 2
@@ -124,6 +124,15 @@ REPO="$DIR/repo"
 ORIGIN="$DIR/origin.git"
 REQUEST="$DIR/request.json"
 cp "$1" "$REQUEST"
+
+# 依頼の欄 pr・issue が名指した PR・issue を、clone の前に利用者の env（gh のログインが見える）のまま 1 回だけ読む（設計書 2.8）。
+# cwd は元のリポジトリ SRC（clone は origin を付け替えるので gh が GitHub のリポジトリを解けない）。名指しが無ければ何も書かない
+GITHUB_READS=""
+python3 -I "$WORKS_DIR/.shared/core/ghreads.py" read --repo "$SRC" --request "$REQUEST" --out "$DIR/github-reads.json"
+if [ -f "$DIR/github-reads.json" ]; then
+  GITHUB_READS="$DIR/github-reads.json"
+  echo "名指した PR・issue を隔離の前に読んだ: ${GITHUB_READS}"
+fi
 
 # 利用者の git の設定（署名・hook）に左右されないように、ここで打つ git は全部 hook と署名を切る
 g() { git -c core.hooksPath=/dev/null -c commit.gpgsign=false "$@"; }
@@ -165,10 +174,16 @@ TDD_SUITE="${WORKS_DOGFOOD_TDD_SUITE-works/dev/tdd-suite.sh}"
 set -- workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2" \
   --input tdd_suite="$TDD_SUITE" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE" --input final_gate="${WORKS_DOGFOOD_FINAL_GATE:-always}"
 if [ "${WORKS_DESIGN_ONLY:-}" = 1 ]; then set -- "$@" --input design_only=true; fi
+if [ -n "$GITHUB_READS" ]; then set -- "$@" --input github_reads="$GITHUB_READS"; fi
 sh "$ARCHON" "$@"
 run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
+# 起動が落ちた（start が盤面へ写して消すところまで行かない）時は、読み出しのファイル（非公開の本文を持つ）を <dir> に残さない
+if [ "$run_status" -ne 0 ] && [ -n "$GITHUB_READS" ]; then
+  rm -f "$GITHUB_READS"
+  echo "起動が落ちたので、隔離の前に読んだ読み出しのファイルを消した: ${GITHUB_READS}"
+fi
 
 # 起動が落ちても run が在れば続きの行を出す（控えと herdr の枠の集計も lib.sh の同じ口で）。終了コードは起動のまま（起動が 0 の時だけ show の結果）
 show_status=0

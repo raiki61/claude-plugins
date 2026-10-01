@@ -18,13 +18,16 @@ interactive: true
 inputs:
   request:
     default: ""
-    description: 人の修正依頼（findings の JSON の配列）のファイルの絶対パス（対象の外でよい）。相対なら run の worktree の根から。request・base・pr の少なくとも 1 つが要る。依頼だけなら判定から入る run
+    description: 人の修正依頼（findings の JSON の配列か、{findings, pr, issue} の形。名指した PR・issue は殻が github_reads で読む）のファイルの絶対パス（対象の外でよい）。相対なら run の worktree の根から。request・base・pr の少なくとも 1 つが要る。依頼だけなら判定から入る run
   base:
     default: ""
     description: 変更の根の版（枝・タグ・commit）。base と HEAD の merge-base から HEAD までを差分にし、依頼を積まない通常の run で P1 の目を差分に回す（依頼も在れば 1 周目の版が固まった後に積む）。pr と一緒には名指さない
   pr:
     default: ""
-    description: PR の番号。gh pr view で base の枝と head を読むだけ（投稿しない）で、head が run の HEAD と違えば止める。差分は base の枝と HEAD の merge-base から（GitHub の PR と同じ）。base と一緒には名指さない
+    description: PR の番号。base の版と head は github_reads（殻が隔離の前に読んだ物）から読み（start は gh を呼ばない。投稿もしない）、写しに無ければ・head が run の HEAD と違えば止める。差分は base の版と HEAD の merge-base から（GitHub の PR と同じ）。base と一緒には名指さない
+  github_reads:
+    default: ""
+    description: 依頼の欄 pr・issue と pr の番号が名指した PR・issue を、殻（use.sh・dogfood.sh）が Archon を起こす前に利用者の gh で読んだファイル（.shared/core/ghreads.py の read が書く形）。start が盤面の根の github.json へ写して元を消す。空なら名指しを読まない（pr を名指す run では要る）
   test_cmd:
     default: ""
     description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）。在れば、対象の .review-checks.json の宣言が在っても宣言の一式に加えて走らせ、両方が緑の時だけ緑（宣言の段と同じコマンドなら 1 度だけ）。宣言が無ければ test_cmd だけ。空なら宣言を engine が走らせ、宣言も無ければ CI の任せ先の役（blk-ci）
@@ -79,6 +82,7 @@ nodes:
       request: $INPUTS.request
       base: $INPUTS.base
       pr: $INPUTS.pr
+      github_reads: $INPUTS.github_reads
       test_cmd: $INPUTS.test_cmd
       thickness: $INPUTS.thickness
       gates: $INPUTS.gates

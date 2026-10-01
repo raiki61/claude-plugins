@@ -343,23 +343,26 @@ class Ledger(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir)
 
     def save(self, run_id="run-1", target="/t", value="opus", origin="既定（WORKS_DEV_MODEL_DEFAULT）", wrap_ref=None,
-             **environ):
+             github_reads=None, **environ):
         rc, out, err = run_ledger(self, ["save", "--dir", str(self.dir), "--run-id", run_id, "--target", target,
                                          "--model-value", value, "--model-from", origin,
-                                         *(["--wrap-ref", wrap_ref] if wrap_ref is not None else [])], environ)
+                                         *(["--wrap-ref", wrap_ref] if wrap_ref is not None else []),
+                                         *(["--github-reads", github_reads] if github_reads is not None else [])], environ)
         self.assertEqual((rc, out), (0, ""), err)
         return json.loads((self.dir / f"{run_id}.json").read_text(encoding="utf-8"))
 
     def test_save_writes_every_field_with_schema(self):
-        doc = self.save(wrap_ref="refs/works/wraps/abc", WORKS_DEV_MODEL="", CLAUDE_BIN_PATH="/c", WORKS_KEYCHAIN_ITEM="item",
-                        WORKS_DEV_ADAPTER="1", HERDR_ENV="1", HERDR_PANE_ID="pane-7", HERDR_SOCKET_PATH="/s/herdr.sock")
+        doc = self.save(wrap_ref="refs/works/wraps/abc", github_reads="/h/reads/1.json", WORKS_DEV_MODEL="", CLAUDE_BIN_PATH="/c",
+                        WORKS_KEYCHAIN_ITEM="item", WORKS_DEV_ADAPTER="1", HERDR_ENV="1", HERDR_PANE_ID="pane-7",
+                        HERDR_SOCKET_PATH="/s/herdr.sock")
+        self.assertEqual(self.save(GITHUB_READS="/h/reads/env.json")["github_reads"], "")   # 環境からは読まない（旗だけ）
         self.assertEqual(self.save(WRAP_REF="refs/works/wraps/from-env")["wrap_ref"], "")   # 環境からは読まない（旗だけ）
         self.assertEqual(doc["schema"], 1)
         self.assertEqual({k: doc[k] for k in ("run_id", "target", "model", "claude_bin", "keychain_item", "adapter",
-                                              "wrap_ref", "herdr_pane", "herdr_socket")},
+                                              "wrap_ref", "github_reads", "herdr_pane", "herdr_socket")},
                          {"run_id": "run-1", "target": "/t", "model": "", "claude_bin": "/c", "keychain_item": "item",
-                          "adapter": "1", "wrap_ref": "refs/works/wraps/abc", "herdr_pane": "pane-7",
-                          "herdr_socket": "/s/herdr.sock"})
+                          "adapter": "1", "wrap_ref": "refs/works/wraps/abc", "github_reads": "/h/reads/1.json",
+                          "herdr_pane": "pane-7", "herdr_socket": "/s/herdr.sock"})
         self.assertEqual(doc["model_resolved"], {"value": "opus", "from": "既定（WORKS_DEV_MODEL_DEFAULT）"})
         self.assertIsInstance(doc["started_at"], float)
         self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["run-1.json"])   # 途中の写しを残さない
@@ -378,19 +381,23 @@ class Ledger(unittest.TestCase):
                 self.assertEqual(len(err.strip().splitlines()), 1, err)
         self.assertEqual(list(self.dir.iterdir()), [])
 
-    def test_list_reads_old_ledgers_into_the_same_seven_columns(self):
+    def test_list_reads_old_ledgers_into_the_same_eight_columns(self):
         target = self.dir / "target"
         target.mkdir()
         (self.dir / "old.json").write_text(json.dumps({"run_id": "old", "target": str(target), "started_at": 1.5,
                                                        "wrap_ref": "refs/works/wraps/abc", "herdr_pane": "pane-7"}))
-        (self.dir / "other.json").write_text(json.dumps({"run_id": "other", "wrap_ref": "refs/heads/main"}))
+        (self.dir / "other.json").write_text(json.dumps({"run_id": "other", "wrap_ref": "refs/heads/main",
+                                                         "github_reads": "reads.json"}))   # 絶対パスでない読み出しは出さない
         self.save("new", str(target))
         rc, out, err = run_ledger(self, ["list", "--dir", str(self.dir)])
         self.assertEqual(rc, 0, err)
         rows = [line.split("\t") for line in out.splitlines()]
         self.assertEqual([r[0] for r in rows], ["new", "old", "other"])
-        self.assertEqual(rows[1], ["old", str(target.resolve()), "1.5", "refs/works/wraps/abc", "pane-7", "", ""])
-        self.assertEqual(rows[2], ["other", "", "0", "", "", "", ""])
+        self.assertEqual(rows[1], ["old", str(target.resolve()), "1.5", "refs/works/wraps/abc", "pane-7", "", "", ""])
+        self.assertEqual(rows[2], ["other", "", "0", "", "", "", "", ""])
+        self.save("reads", str(target), github_reads="/h/reads/2.json")
+        rc, out, err = run_ledger(self, ["list", "--dir", str(self.dir), "--run-id", "reads"])
+        self.assertEqual(out.rstrip("\n").split("\t")[7], "/h/reads/2.json")
         self.assertEqual(rows[0][1], str(target.resolve()))
         rc, out, err = run_ledger(self, ["list", "--dir", str(self.dir), "--run-id", "old"])
         self.assertEqual([line.split("\t")[0] for line in out.splitlines()], ["old"])

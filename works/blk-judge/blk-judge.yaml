@@ -1,6 +1,6 @@
 name: blk-judge
 description: |
-  判定のブロック。人の修正依頼（findings の JSON の配列）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ
+  判定のブロック。人の修正依頼（findings の JSON の配列か、{findings, pr, issue} の形）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ
   （ラインの盤面が在れば、凍結した目的の文と素材も盤面から描いて読ませる。judge-brief）、
   受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回。ラインの盤面が在れば受け付けは盤面の p2.diagnose の done——本線と同じ）。
   ラインから include で使う。
@@ -9,7 +9,7 @@ description: |
 inputs:
   request:
     default: ""
-    description: 人の修正依頼（findings の JSON の配列）のファイルのパス。対象リポジトリの根からの相対か絶対。空を受けるのはラインが依頼を持たずに変更から入った run だけ（intake が盤面の start の控えで確かめる）
+    description: 人の修正依頼（findings の JSON の配列か、{findings, pr, issue} の形）のファイルのパス。対象リポジトリの根からの相対か絶対。空を受けるのはラインが依頼を持たずに変更から入った run だけ（intake が盤面の start の控えで確かめる）
   base_rev:
     default: ""
     description: 周の頭で固めた版。空なら受け付けの時の HEAD（Ruling R2）
