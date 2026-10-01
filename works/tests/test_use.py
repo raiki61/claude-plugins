@@ -510,8 +510,8 @@ class UseShell(unittest.TestCase):
 
     def test_design_only_passes_input_only_when_asked(self):
         """WORKS_DESIGN_ONLY=1 だけが線に design_only=true を渡す（修正前の関所を必ず開ける。gatemarks.design_only）。
-        未設定・1 の外では run の行に design_only が載らない"""
-        for value, want in ((None, False), ("", False), ("on", False), ("1", True)):
+        未設定・空では run の行に design_only が載らない（1 の外の値は test_start_refuses_switch_outside_one が止める）"""
+        for value, want in ((None, False), ("", False), ("1", True)):
             with self.subTest(value=value):
                 self.setUp()
                 t = self.target()
@@ -520,6 +520,20 @@ class UseShell(unittest.TestCase):
                 run = next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
                 self.assertEqual("design_only=true" in run, want, run)
                 self.assertFalse(any(a.startswith("design_only=") and a != "design_only=true" for a in run), run)
+
+    def test_start_refuses_switch_outside_one(self):
+        """WORKS_DESIGN_ONLY・WORKS_USE_UNATTENDED は未設定・空・1 だけを受け、ほかの値は家の下に何も作らず
+        Archon も呼ばずに止まる（黙って捨てると設計だけ・無人のつもりの run が修正まで流れる・関所で人を待つ）"""
+        for name in ("WORKS_DESIGN_ONLY", "WORKS_USE_UNATTENDED"):
+            for value in ("on", "true", "0"):
+                with self.subTest(name=name, value=value):
+                    self.setUp()
+                    t = self.target()
+                    r = self.use("start", str(t), str(self.request), "true", "", **{name: value})
+                    self.assert_refused(r, name, f"受けた値: {value}")
+                    self.assertFalse((self.home / "requests").exists(), sorted(map(str, self.home.rglob("*"))))
+                    self.assertFalse((self.home / "suites").exists())
+                    self.assertFalse((self.home / "wraps").exists())
 
     def test_refuses_use_home_in_claude_tmp(self):
         t = self.target()

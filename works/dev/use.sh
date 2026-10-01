@@ -44,6 +44,7 @@
 #   WORKS_USE_THICKNESS（空なら渡さない）。WORKS_USE_UNATTENDED=1 は無人の run: 入力 unattended=true を渡し（判定の保留の
 #   問いだけでは修正前の関所を開かない）、起動の関所を越え、人が決める関所に着いたら止めて報告へ進める。
 #   WORKS_DESIGN_ONLY=1 は設計だけの run: 入力 design_only=true を渡し、修正前の関所を項目の有無に関わらず開けて止める。
+#   この 2 つは未設定・空・1 だけを受け、ほかの値は start が何かを作る前に拒む（1 行で終了コード 2）。
 # - 関所の文の答えの行は、この殻の answer の行（env WORKS_ANSWER_CMD。.shared/core/answer.py）。
 # - herdr の枠の中（HERDR_ENV=1・HERDR_PANE_ID）で起こした run は、控えにその枠とサーバ（herdr_pane・herdr_socket）を残す。起動・show・
 #   wait のたびと、答え・承認・止める・無人の続きの前後（lib.sh works_dev_continue。前に working、後に今の状態）に、run を起こした
@@ -109,6 +110,18 @@ refuse() {
   echo "use.sh: $*" >&2
   exit 2
 }
+
+# 1 の外の値を黙って捨てると、設計だけ・無人のつもりの run が修正まで流れる・関所で人を待つ。何かを作る前に止める
+if [ "$CMD" = start ]; then
+  case "${WORKS_DESIGN_ONLY:-}" in
+    "" | 1) ;;
+    *) refuse "WORKS_DESIGN_ONLY は 1（設計だけの run）か空（今どおり）。受けた値: ${WORKS_DESIGN_ONLY}" ;;
+  esac
+  case "${WORKS_USE_UNATTENDED:-}" in
+    "" | 1) ;;
+    *) refuse "WORKS_USE_UNATTENDED は 1（無人の run）か空（今どおり）。受けた値: ${WORKS_USE_UNATTENDED}" ;;
+  esac
+fi
 
 . "$DEV_DIR/guard.sh"
 works_dev_abs_claude_config

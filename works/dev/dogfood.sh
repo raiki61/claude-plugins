@@ -21,6 +21,7 @@
 #   入力: tdd_suite=works/dev/tdd-suite.sh（WORKS_DOGFOOD_TDD_SUITE で替える・空で輪を飛ばす）・adapter は空＝包みを求める
 #   （既定。WORKS_DEV_ADAPTER=0 か空で包みを外すと adapter=optional）・final_gate=always（WORKS_DOGFOOD_FINAL_GATE で when_needed に）。
 #   WORKS_DESIGN_ONLY=1 は設計だけの run: 入力 design_only=true を渡し、修正前の関所を項目の有無に関わらず開けて止める。
+#   未設定・空は今どおり。1 の外の値（on など）だけが、何かを作る前に 1 行で止まる（終了コード 2）。
 # 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
 # <dir> に前の回の repo・origin.git・request.json が在れば、何も書かずに止まる（前の回の依頼を上書きしない）。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（ここでは埋めない。既定を解いて書くのは archon.sh）。
@@ -38,6 +39,13 @@ else
     echo "usage: dogfood.sh <request.json> <test_cmd> [<dir>]（前の回の差分を書き直すのは dogfood.sh --show <dir> <run-id>）" >&2
     exit 2
   fi
+  case "${WORKS_DESIGN_ONLY:-}" in
+    "" | 1) ;;
+    *)
+      echo "dogfood.sh: WORKS_DESIGN_ONLY は 1（設計だけの run）か空（今どおり）。受けた値: ${WORKS_DESIGN_ONLY}" >&2
+      exit 2
+      ;;
+  esac
 fi
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"

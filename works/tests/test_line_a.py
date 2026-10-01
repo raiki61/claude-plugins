@@ -20,6 +20,7 @@ sys.path.insert(0, str(TESTS))
 
 import engine.util as engine_util  # noqa: E402,F401  （linekit が .shared/core を足した後）
 import entry  # noqa: E402
+import gatemarks  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
 from test_edge import CLEAN_REVIEW, DELTA_FACE, DELTA_FIX, DELTA_REVIEW, FACE, ODD_NOTE, fix_reply, plan_reply  # noqa: E402
@@ -36,6 +37,13 @@ def replies(review="plan_review_regression"):
     return {"judge": linekit.reply("judge_ok"), "plan": plan_reply(),
             "plan-review": linekit.reply(review) if isinstance(review, str) else review,
             "fix": fix_reply(faces=review == "plan_review_regression"), "review": DELTA_REVIEW, "refix": DELTA_FIX}
+
+
+def clean_replies():
+    """事前審査に穴の無い返し。修正役は塞いだ穴を言わないので、差分の審査も塞いだ穴を確かめない（checks は空）"""
+    r = replies(review=CLEAN_REVIEW)
+    r["review"] = {**DELTA_REVIEW, "checks": []}
+    return r
 
 
 class LineBase(unittest.TestCase):
@@ -111,6 +119,36 @@ class LineCase(LineBase):
         # 修正の前の関所の stop は周の途中の答え（盤面は halted.by answer）で、盤面は報告の役の節を出さない
         self.assertEqual(got["trail"][-3:], ["h-eyes", "report", "result"])
         self.assertEqual(got["outcome"], "stopped_by_human")
+
+    def test_design_only_opens_policy_gate_without_other_items(self):
+        """事前審査に穴が無く design_only も無い run では policy-gate は開かない（下の 2 本で開けたのが設計だけの行だと言える対照）"""
+        got = self.run_line(replies=clean_replies())
+        self.assertNotIn("policy-gate", got["trail"])
+        self.assertIn("fixing", got["trail"])
+
+    def test_design_only_policy_gate_stop(self):
+        """design_only=true・ほかに開ける理由の無い run → 修正前の関所が設計だけの行で開き、stop なら修正から後を飛ばして
+        報告へ（stopped_by_human）"""
+        got = self.run_line(replies=clean_replies(), inputs={"design_only": "true"},
+                            gates={"policy-gate": {"decision": "stop", "text": "設計だけで止める"}})
+        self.order_ok(got["trail"])
+        self.assertIs(got["out"]["h-gate"]["ask"], True)
+        self.assertIn(gatemarks.DESIGN_ONLY_ITEM, got["out"]["h-gate"]["gate_text"])
+        self.assertIn("policy-gate", got["trail"])
+        for nid in ("fixing", "reviewing", "refixing", "testing", "final-gate"):
+            self.assertNotIn(nid, got["trail"])
+        self.assertEqual(got["trail"][-3:], ["h-eyes", "report", "result"])
+        self.assertEqual(got["outcome"], "stopped_by_human")
+
+    def test_design_only_policy_gate_continue(self):
+        """design_only=true・ほかに開ける理由の無い run → 設計だけの行に continue なら修正へ進み、関所は 2 度開かない"""
+        got = self.run_line(replies=clean_replies(), inputs={"design_only": "true"},
+                            gates={"policy-gate": {"decision": "continue", "text": ""}})
+        self.order_ok(got["trail"])
+        self.assertIn(gatemarks.DESIGN_ONLY_ITEM, got["out"]["h-gate"]["gate_text"])
+        self.assertEqual(got["trail"].count("policy-gate"), 1)
+        self.assertIn("fixing", got["trail"])
+        self.assertEqual(got["outcome"], "fixed")
 
     def test_final_gate_stop(self):
         """最後の関所の stop → 止めた run にも報告が走り、結末 stopped_by_human。答えは final-gate-answer.json と human_items"""

@@ -1000,10 +1000,10 @@ class TestDevShell(unittest.TestCase):
 
     def test_dogfood_design_only_appends_input_only_when_asked(self):
         """WORKS_DESIGN_ONLY=1 だけがラインの引数の最後に design_only=true を足す（設計だけの run）。
-        未設定・1 の外では引数は今と同じ"""
+        未設定・空では引数は今と同じ（1 の外の値は test_dogfood_refuses_design_only_outside_one が止める）"""
         base = ["--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=optional",
                 "--input", "final_gate=always"]
-        for value, extra in ((None, []), ("", []), ("on", []), ("1", ["--input", "design_only=true"])):
+        for value, extra in ((None, []), ("", []), ("1", ["--input", "design_only=true"])):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp_str:
                 tmp = pathlib.Path(tmp_str)
                 (tmp / "req.json").write_text("[]\n")
@@ -1011,6 +1011,24 @@ class TestDevShell(unittest.TestCase):
                                                    WORKS_DEV_ADAPTER="0", WORKS_DESIGN_ONLY=value)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(calls[0][-(len(base) + len(extra)):], base + extra)
+
+    def test_dogfood_refuses_design_only_outside_one(self):
+        """WORKS_DESIGN_ONLY は未設定・空・1 だけを受け、ほかの値は <dir> を作らず・clone せず・Archon を呼ばずに止まる
+        （黙って捨てると設計だけのつもりの run が修正まで流れる）"""
+        for value in ("on", "true", "0"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                (tmp / "req.json").write_text("[]\n")
+                result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                                   WORKS_DEV_ADAPTER="0", WORKS_DESIGN_ONLY=value)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                lines = result.stderr.strip().splitlines()
+                self.assertEqual(len(lines), 1, result.stderr)
+                self.assertTrue(lines[0].startswith("dogfood.sh: "), lines[0])
+                self.assertIn("WORKS_DESIGN_ONLY", lines[0])
+                self.assertIn(f"受けた値: {value}", lines[0])
+                self.assertEqual(calls, [])
+                self.assertFalse((tmp / "dog").exists())
 
     def test_dogfood_warns_when_fix_touches_pack_copy(self):
         """修正が works/ でなく pack の写し（.archon/workflows/works）を書き換えたら、取り込まないよう 1 行で注意する。
