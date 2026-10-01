@@ -1,7 +1,7 @@
 """起動の殻の共通の口（設計書 works/docs/specs/2026-09-29-launch-core-design.md の 2.2・2.3）。
 
 python3 -I works/dev/launch.py env --for=<殻> [--claude] [--show] [--target <解いた対象の根>] [--adapter <包みの実パス>]
-python3 -I works/dev/launch.py ledger save|load|list|bind|unbound-save|unbound-release …（下の LEDGER_USAGE）
+python3 -I works/dev/launch.py ledger save|load|list|bind|unbound-save|unbound-release|live …（下の LEDGER_USAGE）
 
 env: 殻 4 本（use.sh・dogfood.sh・real-run.sh・archon.sh）の家の既定・claude の解決・包みの既定とラインの入力 adapter の値
 （WORKS_LAUNCH_ADAPTER_MODE）を 1 か所で持ち、sh の代入の行で返す。--show は dogfood.sh --show の時だけ渡す。
@@ -9,10 +9,10 @@ env: 殻 4 本（use.sh・dogfood.sh・real-run.sh・archon.sh）の家の既定
 ledger: run の控え <置き場>/<run-id>.json の形（版の欄 schema）と、起動の後に run を結ぶ規則を 1 か所で持つ。save は書き、
 list は lib.sh works_dev_ledgers のタブ区切りの 5 欄で読み、load は use.sh が続きで Archon を起こす値を代入の行で返し、
 bind は標準入力の run の一覧から、盤面の依頼がこの起動の依頼の写しと一致する run がちょうど 1 本の時だけ結んで控えを書く。
-unbound-save は結べなかった起動の後に、標準入力の run の一覧の候補（依頼の写しも読み出しも持たない run。bind が結べない文に
-並べる物と同じ）が在れば、起動が使う包んだ基と読み出しを候補と一緒に結べない控え <置き場>/<印>.json に書いて候補を空白区切りの
-1 行で出す。unbound-release は候補にその run を持ちその対象の結べない控えを 1 つ探し、パス・包んだ基・読み出し・まだ生きている
-ほかの候補をタブ区切りの 1 行で出す（生きた候補が在れば包んだ基と読み出しは空にし、控えの候補からその run だけを外す）。
+unbound-save は結べなかった起動の後に、標準入力の run の一覧の候補（依頼の写しも読み出しも持たない run のうち生きた状態の物）が
+在れば、起動が使う包んだ基と読み出しを候補と一緒に結べない控え <置き場>/<印>.json に書いて候補を空白区切りの 1 行で出す。
+unbound-release は候補にその run を持ちその対象の結べない控えを全部回り、控えごとにパス・包んだ基・読み出し・まだ生きている
+ほかの候補をタブ区切りの 1 行で出す（生きた候補が在れば包んだ基と読み出しは空にし、控えの候補からその run だけを外す）。live は状態が生きた状態（LIVE_STATUSES）なら 1 を出す。
 代入の行を返す動詞の 1 行目は版の行 WORKS_LAUNCH_FORMAT=1。値は shlex.quote で囲み、名は動詞ごとの許した一覧に在る物だけを出す
 （shlex.quote は名を守らない）。
 claude が見つからなくても WORKS_LAUNCH_CLAUDE を空で返して 0 で終わる。止めるか・どの文言で止めるかは殻の今の場所が決める。
@@ -39,6 +39,8 @@ LEDGER_LOAD_NAMES = frozenset({"WORKS_DEV_MODEL", "WORKS_MODEL_PINNED", "CLAUDE_
                                "WORKS_DEV_ADAPTER"})
 LEDGER_BIND_NAMES = frozenset({"WORKS_RUN_ROW", "WORKS_RUN_ID", "WORKS_RUN_STATUS"})
 LEDGER_SCHEMA = 1
+# 生きた run の状態（走っている・関所で待つ）。use.sh clean の拒みも ledger live でここを読む（一覧を 1 か所に）
+LIVE_STATUSES = ("running", "paused", "pending")
 USAGE = ("launch.py env --for=<use.sh|dogfood.sh|real-run.sh|archon.sh> [--claude] [--show] [--target <path>]"
          " [--adapter <path>]")
 LEDGER_USAGE = ("launch.py ledger save --dir <置き場> --run-id <id> --target <dir> --model-value <値> --model-from <出どころ>"
@@ -47,7 +49,7 @@ LEDGER_USAGE = ("launch.py ledger save --dir <置き場> --run-id <id> --target 
                 " --model-from <出どころ> [--wrap-ref <参照>] [--github-reads <読み出しのファイル>]（標準入力に archon workflow runs --json）"
                 " | ledger unbound-save --dir <置き場> --target <dir> --stamp <印> [--wrap-ref <参照>] [--github-reads <読み出しのファイル>]"
                 "（標準入力に archon workflow runs --json） | ledger unbound-release --dir <置き場> --target <dir> --run-id <id>"
-                "（標準入力に archon workflow runs --json）")
+                "（標準入力に archon workflow runs --json） | ledger live --status <状態>")
 
 
 class Refused(Exception):
@@ -173,6 +175,7 @@ LEDGER_OPTIONS = {
     "bind": ({"for", "dir", "target", "request", "model-value", "model-from"}, {"wrap-ref", "github-reads"}),
     "unbound-save": ({"dir", "target", "stamp"}, {"wrap-ref", "github-reads"}),
     "unbound-release": ({"dir", "target", "run-id"}, set()),
+    "live": ({"status"}, set()),
 }
 
 
@@ -404,14 +407,15 @@ def _ledger_bind(opts, environ, stdin):
 
 def _unbound_save(opts, stdin):
     # 結べなかった起動の run は起動の関所で生きていて、包んだ基と読み出しを使う（消すと承認した run が落ちる。2026-10-01）。
-    # 結ばずに（設計書 2.3）候補と一緒に残し、use.sh clean が候補の run の片付けと一緒に消す。一覧が読めない・候補が 0 本なら
-    # 何も書かずに空を返す（呼び手がその場で消す）
+    # 結ばずに（設計書 2.3）候補と一緒に残し、use.sh clean が候補の run の片付けと一緒に消す。候補は生きた状態の物だけ（終わった
+    # 古い run を載せない）。一覧が読めない・候補が 0 本なら何も書かずに空を返す（呼び手がその場で消す）
     here = os.path.realpath(opts["target"])
     try:
         rows = _darkfactory_rows(stdin, here)
     except ValueError:
         return ""
-    found = [r["id"] for r in _unmarked(rows) if isinstance(r.get("id"), str) and r["id"]]
+    found = [r["id"] for r in _unmarked(rows)
+             if isinstance(r.get("id"), str) and r["id"] and r.get("status") in LIVE_STATUSES]
     if not found:
         return ""
     doc = {"wrap_ref": opts.get("wrap-ref", ""), "github_reads": opts.get("github-reads", ""), "candidates": found,
@@ -425,12 +429,10 @@ def _unbound_save(opts, stdin):
     return " ".join(found) + "\n"
 
 
-LIVE_STATUSES = ("running", "paused", "pending")
-
-
 def _unbound_release(opts, stdin):
     # clean <対象> <run-id> が呼ぶ。ほかの候補がまだ生きている間はその run が包んだ基と読み出しを使うかもしれないので返さず、
-    # 控えの候補からこの run だけを外して書き戻す。最後の候補の時だけ返す（消すのと控えを消すのは呼び手）。一覧が読めなければ
+    # 控えの候補からこの run だけを外して書き戻す。最後の候補の時だけ返す（消すのと控えを消すのは呼び手）。この run を候補に
+    # 持つ控えは全部回り、控えごとに 1 行を出す（印の無い起動を並べると後の控えに前の run も載る）。一覧が読めなければ
     # 生きているかが分からないので止める
     here, run_id = os.path.realpath(opts["target"]), opts["run-id"]
     try:
@@ -438,6 +440,7 @@ def _unbound_release(opts, stdin):
     except ValueError as e:
         raise Refused(f"archon workflow runs --json の出力が JSON として読めない（{e}）")
     live = {r.get("id") for r in rows if r.get("status") in LIVE_STATUSES}
+    lines = []
     for path in sorted(glob.glob(os.path.join(glob.escape(opts["dir"]), "*.json"))):
         try:
             with open(path, encoding="utf-8") as f:
@@ -450,13 +453,14 @@ def _unbound_release(opts, stdin):
         rest = [c for c in doc["candidates"] if c != run_id]
         alive = [c for c in rest if c in live]
         if not alive:
-            return "\t".join((path, *_kept_paths(doc), "")) + "\n"
+            lines.append("\t".join((path, *_kept_paths(doc), "")) + "\n")
+            continue
         part = f"{path}.{os.getpid()}.part"
         with open(part, "w", encoding="utf-8") as f:
             f.write(json.dumps(dict(doc, candidates=rest), ensure_ascii=False) + "\n")
         os.replace(part, path)
-        return "\t".join((path, "", "", " ".join(alive))) + "\n"
-    return ""
+        lines.append("\t".join((path, "", "", " ".join(alive))) + "\n")
+    return "".join(lines)
 
 
 def ledger(args, environ, err, stdin):
@@ -472,6 +476,8 @@ def ledger(args, environ, err, stdin):
         return _unbound_save(opts, stdin)
     if sub == "unbound-release":
         return _unbound_release(opts, stdin)
+    if sub == "live":
+        return "1\n" if opts["status"] in LIVE_STATUSES else ""
     return _ledger_bind(opts, environ, stdin)
 
 

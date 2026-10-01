@@ -30,7 +30,7 @@
 #   どちらか 1 つ。旗を読んだ後の位置引数の数で対象を省いたかを決める。依頼の - は標準入力でなく「依頼を省く」
 #   （--base か --pr が在る時だけ受ける）。依頼を省いた start は、--pr なら隔離の前に読んだ読み出しのファイル（起動ごとに一意）で
 #   run を結ぶ。--base だけなら結ぶ印が無いので run を結ばず、run の控えも続きの行も書かずに結べなかった 1 行と候補の show の行を出して
-#   1 で終わる（run id を名指しした show で続ける。設計書 2.3）。起動が 0 で終わり候補（依頼の写しも読み出しも持たない run）が
+#   1 で終わる（run id を名指しした show で続ける。設計書 2.3）。起動が 0 で終わり候補（依頼の写しも読み出しも持たない生きた run）が
 #   在れば、run が使う包んだ基と読み出しは消さずに <家>/unbound/<印>.json に候補と残し、clean <対象> <候補の run-id> が消す
 #   （ほかの候補が生きている間は候補から外すだけで、最後の候補の clean で消す）。
 # - run の worktree は対象の今の姿から切る: 汚れていなければ HEAD、commit していない変更・未追跡のファイル（.gitignore の物は
@@ -480,42 +480,45 @@ elif got:
     ROW="$(run_row "$3")" || exit 2
     STATUS="$(printf '%s' "$ROW" | cut -f2)"
     GOT="$(printf '%s' "$ROW" | cut -f3)"
-    case "$STATUS" in
-      running | pending | paused) refuse "run $3 は ${STATUS}。止めるか終わってから片付ける" ;;
-    esac
+    # 生きた状態の一覧は launch.py の LIVE_STATUSES の 1 か所（ledger live）
+    if [ -n "$(works_dev_launch ledger live --status "$STATUS")" ]; then
+      refuse "run $3 は ${STATUS}。止めるか終わってから片付ける"
+    fi
     # start が包んだ run の基を守った参照（控えの wrap_ref）と隔離の前の読み出しのファイル（github_reads）も一緒に消す
-    LEDGER_ROW="$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$3")"
-    WRAP_REF="$(printf '%s' "$LEDGER_ROW" | cut -f4)"
-    GITHUB_READS="$(printf '%s' "$LEDGER_ROW" | cut -f8)"
-    # 控えが無ければ、start が結べずに残した控え（<家>/unbound/<印>.json）のうち、候補にこの run を持ちこの対象の物を引く
-    # （launch.py ledger unbound-release。参照は refs/works/wraps/ の下・読み出しは .json の絶対パスの時だけ。控えの一覧と同じ）。
-    # ほかの候補がまだ生きている（running・paused・pending）間は、その run が使うかもしれないので包んだ基と読み出しを消さず、
-    # 控えの候補からこの run だけを外す。最後の候補で全部消す
-    UNBOUND_FILE=""
-    if [ -z "$LEDGER_ROW" ] && [ -d "$WORKS_USE_HOME/unbound" ]; then
-      UNBOUND_ROW="$(WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow runs --json 2>/dev/null |
-        works_dev_launch ledger unbound-release --dir "$WORKS_USE_HOME/unbound" --target "$TARGET" --run-id "$3")" || exit 2
-      UNBOUND_ALIVE="$(printf '%s' "$UNBOUND_ROW" | cut -f4)"
-      if [ -n "$UNBOUND_ALIVE" ]; then
-        echo "start が結べずに残した控えの候補から run $3 を外した。包んだ基と読み出しは、まだ生きている候補 ${UNBOUND_ALIVE} が使うかもしれないので残した（最後の候補の clean で消える）: $(printf '%s' "$UNBOUND_ROW" | cut -f1)"
-      elif [ -n "$UNBOUND_ROW" ]; then
-        UNBOUND_FILE="$(printf '%s' "$UNBOUND_ROW" | cut -f1)"
-        WRAP_REF="$(printf '%s' "$UNBOUND_ROW" | cut -f2)"
-        GITHUB_READS="$(printf '%s' "$UNBOUND_ROW" | cut -f3)"
+    # （参照は refs/works/wraps/ の下・読み出しは .json の絶対パスの時だけ。読み出しは start が盤面へ写す前に止まった run の残り）
+    # drop_kept <run-id> <包んだ基の参照> <読み出しのファイル>
+    drop_kept() {
+      if [ -n "$2" ] && git show-ref --verify --quiet "$2"; then
+        git update-ref -d "$2"
+        echo "run $1 の基を守った参照を消した: ${2}"
       fi
-    fi
-    if [ -n "$WRAP_REF" ] && git show-ref --verify --quiet "$WRAP_REF"; then
-      git update-ref -d "$WRAP_REF"
-      echo "run $3 の基を守った参照を消した: ${WRAP_REF}"
-    fi
-    # 読み出しのファイルが残っていれば消す（start が盤面へ写す前に止まった run）
-    if [ -n "$GITHUB_READS" ] && [ -f "$GITHUB_READS" ]; then
-      rm -f "$GITHUB_READS"
-      echo "run $3 の隔離の前の読み出しのファイルを消した: ${GITHUB_READS}"
-    fi
-    if [ -n "$UNBOUND_FILE" ]; then
-      rm -f "$UNBOUND_FILE"
-      echo "start が結べずに残した控えを消した: ${UNBOUND_FILE}"
+      if [ -n "$3" ] && [ -f "$3" ]; then
+        rm -f "$3"
+        echo "run $1 の隔離の前の読み出しのファイルを消した: ${3}"
+      fi
+    }
+    LEDGER_ROW="$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$3")"
+    drop_kept "$3" "$(printf '%s' "$LEDGER_ROW" | cut -f4)" "$(printf '%s' "$LEDGER_ROW" | cut -f8)"
+    # 控えが無ければ、start が結べずに残した控え（<家>/unbound/<印>.json）のうち、候補にこの run を持ちこの対象の物を全部引く
+    # （launch.py ledger unbound-release。控えごとに 1 行）。ほかの候補がまだ生きている間は、その run が使うかもしれないので
+    # 包んだ基と読み出しを消さず、控えの候補からこの run だけを外す。最後の候補で全部消す
+    if [ -z "$LEDGER_ROW" ] && [ -d "$WORKS_USE_HOME/unbound" ]; then
+      UNBOUND_ROWS="$(WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow runs --json 2>/dev/null |
+        works_dev_launch ledger unbound-release --dir "$WORKS_USE_HOME/unbound" --target "$TARGET" --run-id "$3")" || exit 2
+      while IFS= read -r _row; do
+        [ -n "$_row" ] || continue
+        _file="$(printf '%s' "$_row" | cut -f1)"
+        _alive="$(printf '%s' "$_row" | cut -f4)"
+        if [ -n "$_alive" ]; then
+          echo "start が結べずに残した控えの候補から run $3 を外した。包んだ基と読み出しは、まだ生きている候補 ${_alive} が使うかもしれないので残した（最後の候補の clean で消える）: ${_file}"
+          continue
+        fi
+        drop_kept "$3" "$(printf '%s' "$_row" | cut -f2)" "$(printf '%s' "$_row" | cut -f3)"
+        rm -f "$_file"
+        echo "start が結べずに残した控えを消した: ${_file}"
+      done <<EOF
+$UNBOUND_ROWS
+EOF
     fi
     if [ -z "$GOT" ] || [ ! -d "$GOT" ]; then
       echo "run $3 の worktree（${GOT:-無し}）はもう無い"
@@ -655,8 +658,8 @@ echo "workflow run の終了コード: $run_status"
 # 結ばない）。結べなければ候補と show の行と結べなかった 1 行だけを出し、続きの行は出さない
 if ! works_dev_ledger_bind use.sh "$ARCHON" "$TARGET" "$REQUEST"; then
   # 起動が 0 で終わったなら、この起動の run は起動の関所で生きていて、包んだ基と読み出しを使う（消すと承認した run が落ちる。
-  # 2026-10-01 に実測）。推定では結ばず（設計書 2.3）、一覧のうち依頼の写しも読み出しも持たない darkfactory の run（launch.py が
-  # 結べない文に並べる候補）を控え <家>/unbound/<印>.json に残し、最後の候補の clean <対象> <run-id> が run の片付けと一緒に消す。
+  # 2026-10-01 に実測）。推定では結ばず（設計書 2.3）、一覧のうち依頼の写しも読み出しも持たない生きた darkfactory の run
+  # （launch.py の LIVE_STATUSES）を候補として控え <家>/unbound/<印>.json に残し、最後の候補の clean <対象> <run-id> が消す。
   # 候補は一覧から 1 回引く（works_dev_run_json と同じ引き方。候補の判じ方と控えの形は launch.py ledger unbound-save）
   UNBOUND_CANDIDATES=""
   if [ "$run_status" -eq 0 ] && { [ -n "$WRAP_REF" ] || [ -n "$GITHUB_READS" ]; }; then

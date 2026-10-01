@@ -631,6 +631,37 @@ class Bind(unittest.TestCase):
         self.assertEqual(self.unbound_release("a", rows=rows),
                          (0, f"{path}\trefs/works/wraps/abc\t/h/reads/1.json\t\n", ""))
 
+    def test_unbound_release_handles_every_control_naming_the_run(self):
+        """同じ run を候補に持つ控えが 2 つ在れば全部回り、控えごとに 1 行を出す（最初の 1 つで返らない）"""
+        self.unbound_save(json.dumps({"runs": [self.row("a")]}), stamp="1-A", wrap_ref="refs/works/wraps/a",
+                          github_reads="/h/reads/a.json")
+        self.unbound_save(json.dumps({"runs": [self.row("a"), self.row("b")]}), stamp="2-B", wrap_ref="refs/works/wraps/b",
+                          github_reads="/h/reads/b.json")
+        a, b = self.tmp / "unbound" / "1-A.json", self.tmp / "unbound" / "2-B.json"
+        rows = [self.row("a"), dict(self.row("b"), status="completed")]
+        self.assertEqual(self.unbound_release("b", rows=rows), (0, f"{b}\t\t\ta\n", ""))
+        self.assertEqual(json.loads(b.read_text())["candidates"], ["a"])
+        rows = [dict(self.row("a"), status="completed"), dict(self.row("b"), status="completed")]
+        self.assertEqual(self.unbound_release("a", rows=rows),
+                         (0, f"{a}\trefs/works/wraps/a\t/h/reads/a.json\t\n{b}\trefs/works/wraps/b\t/h/reads/b.json\t\n", ""))
+
+    def test_unbound_save_lists_only_live_candidates(self):
+        """控えの候補は生きた状態（LIVE_STATUSES）の印の無い run だけ。終わった run は候補に載せず、生きた候補が 0 本なら書かない"""
+        rows = [self.row("live"), dict(self.row("done"), status="completed"), dict(self.row("broke"), status="failed")]
+        self.assertEqual(self.unbound_save(json.dumps({"runs": rows}))[:2], (0, "live\n"))
+        self.assertEqual(json.loads((self.tmp / "unbound" / "20261002-1.json").read_text())["candidates"], ["live"])
+        shutil.rmtree(self.tmp / "unbound")
+        self.assertEqual(self.unbound_save(json.dumps({"runs": rows[1:]})), (0, "", ""))
+        self.assertFalse((self.tmp / "unbound").exists())
+
+    def test_live_tells_whether_a_status_is_live(self):
+        """生きた状態の一覧は LIVE_STATUSES の 1 か所。ledger live は生きた状態なら 1 を出す（use.sh clean の拒みが読む）"""
+        mod = load(self)
+        self.assertEqual(set(mod.LIVE_STATUSES), {"running", "paused", "pending"})
+        for status, want in (("running", "1\n"), ("paused", "1\n"), ("pending", "1\n"), ("completed", ""), ("", "")):
+            with self.subTest(status=status):
+                self.assertEqual(run_ledger(self, ["live", "--status", status]), (0, want, ""))
+
     def test_unbound_release_refuses_unreadable_list(self):
         """一覧が読めなければほかの候補が生きているか分からないので、何も返さず控えも書き換えずに止める"""
         self.unbound_save(json.dumps({"runs": [self.row("a"), self.row("b")]}))

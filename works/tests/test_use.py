@@ -450,6 +450,44 @@ class UseShell(unittest.TestCase):
         self.assertFalse(reads.exists())
         self.assertEqual(list((self.home / "unbound").iterdir()), [])
 
+    def test_unbound_clean_releases_every_control_naming_the_run(self):
+        """印の無い起動を 2 本並べると、後の起動の控えには前の起動の run も候補に載る。後の run を先に片付け、次に前の run を
+        片付けると、1 回の clean でその run を候補に持つ控えを全部片付ける（後の控えの包んだ基を残さない）"""
+        t = self.target()
+        live = lambda *ids, status="paused": self.runs.write_text(json.dumps({"runs": [
+            {"id": i, "workflow_name": "darkfactory", "status": status} for i in ids]}))
+        (t / "stats.py").write_text((t / "stats.py").read_text() + "# 起動 A の手元\n")
+        live("run-1")
+        self.assertEqual(self.use("start", "--base", "HEAD", str(t), "-", "true", "").returncode, 1)
+        (t / "stats.py").write_text((t / "stats.py").read_text() + "# 起動 B の手元\n")
+        live("run-1", "run-2")
+        self.assertEqual(self.use("start", "--base", "HEAD", str(t), "-", "true", "").returncode, 1)
+        self.assertEqual(len(git(t, "for-each-ref", "refs/works/").splitlines()), 2)
+        self.assertEqual(sorted(json.loads(p.read_text())["candidates"] for p in (self.home / "unbound").iterdir()),
+                         [["run-1"], ["run-1", "run-2"]])
+        self.runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused"},
+                                                  {"id": "run-2", "workflow_name": "darkfactory", "status": "completed"}]}))
+        r = self.use("clean", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(git(t, "for-each-ref", "refs/works/").splitlines()), 2)
+        live("run-1", "run-2", status="completed")
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
+        self.assertEqual(list((self.home / "unbound").iterdir()), [])
+
+    def test_clean_refuses_live_run(self):
+        """走っている・関所で待つ run（生きた状態の一覧は launch.py の LIVE_STATUSES）は片付けない"""
+        t = self.target()
+        for status in ("running", "pending", "paused"):
+            with self.subTest(status=status):
+                self.set_runs(status=status)
+                r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn(f"use.sh: run run-1 は {status}", r.stderr)
+        self.set_runs(status="failed")
+        self.assertEqual(self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None).returncode, 0)
+
     def test_clean_removes_reads_file_of_run(self):
         """結べた run の読み出しのファイルは run の控えに残し、clean が run と一緒に消す（起動の関所で取り消して start が
         写さなかった run の残りも掃く）"""
