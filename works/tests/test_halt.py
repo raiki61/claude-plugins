@@ -341,14 +341,17 @@ class TestAskedOnlyEmptyChanges(unittest.TestCase):
         self.b.round = 1
         self.b.work.side_effect = lambda name: self.tmp / name
 
-    def board(self, asked, owed):
+    def board(self, asked, owed, withheld=()):
         import conflict
         import entry
+        import gatemarks
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(self.mock.patch.object(entry, "open_board", return_value=self.b))
         stack.enter_context(self.mock.patch.object(conflict, "asked_keys", return_value=set(asked)))
         stack.enter_context(self.mock.patch.object(conflict, "owed_units_but_asked", return_value=set(owed)))
+        stack.enter_context(self.mock.patch.object(gatemarks, "withheld_by", return_value={
+            k: {"key": "q-1", "kind": "fork", "status": "open"} for k in withheld}))
 
     def assert_changed(self):
         spec = importlib.util.spec_from_file_location("assert_changed_under_test",
@@ -380,6 +383,24 @@ class TestAskedOnlyEmptyChanges(unittest.TestCase):
         self.board(asked={"u-asked"}, owed={"u-owed"})
         self.assertIs(self.assert_changed()["ok"], False)
         self.b.stop.assert_called_once()
+
+    def test_assert_changed_passes_when_all_open_units_await_fork_or_escalate_answer(self):
+        """開いた単位が全部、答え待ちの fork・escalate の出どころ（gatemarks.withheld_by）で ask_human が無い周の空の changes は止めない"""
+        self.board(asked=set(), owed=set(), withheld={"u-fork"})
+        got = self.assert_changed()
+        self.assertIs(got["ok"], True, got)
+        self.assertEqual(got["files"], [])
+        self.b.stop.assert_not_called()
+
+    def test_collect_takes_empty_changes_when_all_open_units_await_fork_or_escalate_answer(self):
+        import recount
+        self.board(asked=set(), owed=set(), withheld={"u-fork"})
+        with self.mock.patch.object(recount, "_fix_output", return_value=({}, self.tmp / "fix.json")):
+            try:
+                got = recount.collect(self.tmp / "art" / "board", {"ok": True, "changes": []}, {"ok": True, "files": []})
+            except recount.Unreadable as e:
+                self.fail(f"collect が答え待ちの単位だけの空の changes を拒んだ: {e}")
+        self.assertIs(got["ok"], True)
 
     def test_collect_takes_empty_changes_when_all_owed_units_are_asked(self):
         import recount

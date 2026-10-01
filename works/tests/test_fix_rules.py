@@ -756,7 +756,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
     def test_third_not_opened_key_is_not_parked(self):
         # 今の周に開いていない unit_key は、3 回目でも ask_human に積まず返答全体を拒む（直す義務の外の単位を人に回さない）
         from unittest import mock
-        with mock.patch.object(self.mod, "fix_unit_keys", return_value=([self.MEAN, self.CLAMP], {self.MEAN})), \
+        with mock.patch.object(self.mod, "fix_unit_keys", return_value=([self.MEAN, self.CLAMP], {self.MEAN}, {})), \
                 mock.patch.object(self.mod, "check_pack_copy", return_value=""):
             got = self.run_accept("3")
         self.assertEqual((got["ok"], got["done"]), (False, True), got)

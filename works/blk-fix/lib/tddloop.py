@@ -6,7 +6,8 @@
 - tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形）→ 役 tdd（修正役。
   同じ会話で振り分け・テスト・直し・整えを返す）→
   tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix → refactor → 次の単位
-  - route: 直す義務の単位を全部 1 度だけ tdd か direct（理由 10 字以上）に振る
+  - route: 直す義務の単位（_owed: 開いた単位から、答え待ち・ask_human で外れた単位と食い違いで止めた単位を除く）を全部 1 度だけ
+    tdd か direct（理由 10 字以上）に振る
   - test: 申告したテストのファイルの外に触れていない・写しの red_problems（名指しは failure で落ち、元で通っていた物は緑）
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
@@ -43,7 +44,8 @@ import tempfile
 sys.dont_write_bytecode = True
 
 import board  # noqa: E402
-import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確かめ）
+import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確かめ・直す義務から外れた単位）
+import entry  # noqa: E402  （.shared/core。盤面の入口）
 import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
 import impact  # noqa: E402  （.shared/core。変更に当たる試験の選び）
 import tree_run  # noqa: E402
@@ -221,6 +223,35 @@ def _open_units(raw: str) -> list:
     return keys
 
 
+def _excused(board_dir: pathlib.Path) -> dict:
+    """直す義務から外れた単位 {key: 理由}（conflict.excused_units。答え待ちの fork・escalate の出どころ・ask_human）。
+    盤面の無い置き場（state.json が無い）は空。在るのに読めなければ Broken（開いた単位のまま黙って続けない）"""
+    try:
+        b = entry.open_board(board_dir, allow_halted=True)
+    except Exception as e:
+        if (board_dir / "state.json").exists():
+            raise Broken(f"盤面 {board_dir} が開けず、直す義務から外れた単位が読めない: {e}") from None
+        return {}
+    try:
+        return dict(conflict.excused_units(b))
+    except Exception as e:
+        raise Broken(f"盤面 {board_dir} の直す義務から外れた単位が読めない: {e}") from None
+
+
+def _owed(st) -> list:
+    """TDD の直す義務: 開いた単位から、外れた単位（excused）と食い違いで止めた単位（parked）を除いた物"""
+    out = set(st.get("excused", {})) | set(st.get("parked", []))
+    return [k for k in st["open_units"] if k not in out]
+
+
+def _not_owed_why(st, k) -> str:
+    if k in st.get("excused", {}):
+        return f"直す義務から外れた——{st['excused'][k]}"
+    if k in st.get("parked", []):
+        return "食い違いで止めた"
+    return "直す義務の単位に無い"
+
+
 def _unit(key, route, why="") -> dict:
     return {"unit_key": key, "route": route, "why": why, "tests": [], "test_files": [], "red": "", "green": "",
             "refactor": "", "gave_up": "", "problems": [], "files": [], "what": ""}
@@ -237,6 +268,7 @@ def start(board_dir, repo, suite: str, open_units: str) -> dict:
     if not exe.is_file() or not (suite.endswith(".py") or os.access(exe, os.X_OK)):
         return {**off, "reason": f"テストの実行器 {suite} が無いか実行できない——全部の単位を今どおり直す"}
     board_dir = pathlib.Path(board_dir)
+    excused = {k: why for k, why in _excused(board_dir).items() if k in keys}
     board_dir.mkdir(parents=True, exist_ok=True)
     k = 1
     while (board_dir / f"tdd-{k}").exists():
@@ -246,7 +278,7 @@ def start(board_dir, repo, suite: str, open_units: str) -> dict:
     cases, code, why = run_suite(str(exe), repo, work, 0)
     if cases is None:
         return {**off, "reason": f"元の結末が取れない（{'; '.join(why)}）——全部の単位を今どおり直す"}
-    st = {"suite": suite, "exe": str(exe), "work": str(work), "open_units": keys,
+    st = {"suite": suite, "exe": str(exe), "work": str(work), "open_units": keys, "excused": excused,
           "baseline": {_key(c): c["outcome"] for c in cases}, "baseline_exit": code,
           "handoff": snapshot(repo), "suite_made": [], "phase": "route", "tries": 0, "reason": "", "iterations": 0,
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
@@ -294,7 +326,7 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     title = f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）"
     lines = ["## この段ですること", "", DO[phase], ""]
     if phase == "route":
-        lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in st["open_units"] if k not in st.get("parked", [])] + [""]
+        lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in _owed(st)] + [""]
     else:
         u = st["units"][st["queue"][st["cur"]]]
         lines += ["## 今の単位", "", f"- {u['unit_key']}", ""]
@@ -377,10 +409,10 @@ def _route(st, reply, repo) -> list:
     if moved:
         errs.append(f"振り分けの段で作業ツリーを変えた: {moved[:5]}（この段では何も書かない）")
     keys = [r.get("unit_key") for r in rows]
-    owed = [k for k in st["open_units"] if k not in st.get("parked", [])]
+    owed = _owed(st)
     errs += [f"'{k}' を 2 度以上振った" for k in dict.fromkeys(k for k in keys if keys.count(k) > 1)]
     errs += [f"直す義務の単位 '{k}' を振っていない" for k in owed if k not in keys]
-    errs += [f"'{k}' は直す義務の単位に無い（食い違いで止めた単位は振らない）" for k in dict.fromkeys(k for k in keys if k not in owed)]
+    errs += [f"'{k}' は振らない（{_not_owed_why(st, k)}）" for k in dict.fromkeys(k for k in keys if k not in owed)]
     for r in rows:
         if r.get("route") not in ("tdd", "direct"):
             errs.append(f"'{r.get('unit_key')}' の route は tdd か direct（{r.get('route')!r}）")
@@ -490,7 +522,7 @@ def _abort(st, repo, why, stage) -> None:
     """残りの tdd の単位を全部 direct にして輪を抜ける（実行器が走らない・回数の上限・振り分けを諦めた）"""
     st["note"] = why
     if st["phase"] == "route":
-        st["order"] = list(st["open_units"])
+        st["order"] = _owed(st)
         st["units"] = {k: _unit(k, "direct") for k in st["order"]}
         for u in st["units"].values():
             _to_direct(u, stage, why)
@@ -519,7 +551,7 @@ def _conflict(st, reply, repo, try_query=None) -> tuple:
         item[conflict.CORRECT] = reply[conflict.CORRECT]
     parked = st.setdefault("parked", [])
     if st["phase"] == "route":
-        owed = {k for k in st["open_units"] if k not in parked}
+        owed = set(_owed(st))
     else:
         owed = {st["queue"][st["cur"]]}
     probs = conflict.problems([item], repo=repo, board_dir=pathlib.Path(st["work"]).parent, owed=owed,
@@ -608,6 +640,9 @@ def _finish(st, repo) -> None:
     if parked:
         lines += ["", "## 食い違いで止めた単位（直すな。輪の後に裁定役が裁き、裁定が理由のファイルで届く）", ""]
         lines += [f"- {k}: {st.get('parked_why', {}).get(k, '')}" for k in parked]
+    if st.get("excused"):
+        lines += ["", "## 直す義務から外れた単位（直すな。not_done に理由を書け）", ""]
+        lines += [f"- {k}: {why}" for k, why in st["excused"].items()]
     lines += ["", "## direct の単位（ここで直せ）", ""]
     lines += [f"- {st['units'][k]['unit_key']}: {st['units'][k]['why']}" for k in st["order"] if st["units"][k]["route"] == "direct"]
     (pathlib.Path(st["work"]) / SUMMARY).write_text("\n".join(lines) + "\n", encoding="utf-8")

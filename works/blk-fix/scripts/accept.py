@@ -15,9 +15,13 @@
 1. works だけの 2 つの検査（TA25 で .shared/core/accept.py には足さない。写しの fix_covers_open_units はどちらも見ない。
    1 本目は check_fix が fix_plan_covers_units に読み替えてどちらも拒んでいた。works は graphloops の上にこの拒否を残す）
    - check_unique_units: 同じ unit_key を 2 行に分けた返答を拒む
-   - check_opened_units: 修正役が書いてよい単位（gatemarks.fixable: 検証器の is_open の単位と、関所で答えた問いの
-     出どころ・depends。修正役への約束と義務の数えも同じ集合を読む）に無い unit_key を拒む（関所で答えていない defer の
-     単位・判定に無い key。1 本目の unknown = got - opened）
+   - check_opened_units: 直す義務（conflict.fix_duty の owed。検証器の is_open の単位と、関所で答えた問いの出どころ・depends
+     から、答え待ちの問いの出どころ・depends と ask_human の単位を外した物）にも、そこから外れた単位にも無い unit_key を拒む
+     （関所で答えていない defer の単位・判定に無い key。1 本目の unknown = got - opened）
+   - check_excused_units: 直す義務から外れた単位（fix_duty の excused）の unit_key を、外れた理由（答え待ちの問いの key・
+     ask_human の裁定 id）を名指して拒む。輪の最後の回だけは、その単位の直しを作業ツリーから戻して changes から外し
+     （drop_excused_units。控えの patch を盤面に置く）、残りの単位で受け付けを頭から通し直し、通れば trace に 1 行
+     （EXCUSED_DROPPED_OP）。通らなければ戻した直しを元に戻す
 1a. check_pack_copy: .archon/ の下（自分食いの run では動いている線の pack の写し）を申告した・変えた返答を拒む（run 26）
 1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
    空・欠けは輪の無い run で見ない）。裁定の後（ruled）は、裁定 fix_test_scope の範囲（conflict.ruled_test_limits）の中の変更を通す
@@ -37,8 +41,8 @@ done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_
 1 単位に結べれば、その単位の直しを戻して（控えの patch を盤面に置く）ask_human に止め、残りの単位で受け付けを頭から通し直す
 （park_bound_units。fail-fast: false）。通し直しが通らなければ、止めた単位の直し・食い違いの控え・裁定の文を止める前に戻す
 （拒否では盤面を前のままにする）。諦めるのは、どの単位にも結べない拒否か、止める単位のファイルをほかの単位と共有する
-返答か、1a と works だけの 2 つの検査の拒否（key の形の拒否は 3 回目でも単位に結んで止めない。開いた単位を 2 行に分けた
-返答も丸ごと諦める）。諦めた輪の後は assert-changed が盤面を止め、collect が ok: false の出口を出す
+返答か、1a と works だけの検査のうち重なりと開いていない key の拒否（key の形の拒否は 3 回目でも単位に結んで止めない。
+開いた単位を 2 行に分けた返答も丸ごと諦める）。諦めた輪の後は assert-changed が盤面を止め、collect が ok: false の出口を出す
 """
 import copy
 import json
@@ -60,7 +64,6 @@ import recount  # noqa: E402
 import tddloop  # noqa: E402
 import unitrows  # noqa: E402   閉鎖の数え直しの前段（blk-fix/lib）
 import entry  # noqa: E402
-import gatemarks  # noqa: E402   修正役が書いてよい単位（開いた単位と関所で答えて戻した単位。.shared/core）
 import writes  # noqa: E402   書き込みの出どころの突き合わせ（.shared/core）
 from leftovers import git  # noqa: E402
 from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
@@ -72,6 +75,9 @@ PARK_UNDONE_OP = "fix_mismatch_park_undone"   # 最後の回に止めた単位�
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
 NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（開いた単位と、関所で答えた問いの出どころ・depends のほかは直さない。"
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
+EXCUSED = ("直す義務から外れた単位を changes に書いた（答えが届くまで・人が決めるまで直さない。changes から外し、作業ツリーの"
+           "その単位の直しを戻し、not_done に理由を書け）: ")
+EXCUSED_DROPPED_OP = "fix_excused_dropped"   # 最後の回に、直す義務から外れた単位の直しを戻して changes から外した盤面の trace の行
 
 
 CONFLICT_BAD = "食い違いの申し出を受けない（名指した所が現物に無いか、形が違う。直して丸ごと出し直せ）: "
@@ -114,8 +120,9 @@ def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
 
 
 def fix_unit_keys(reply: dict, board: Path):
-    """盤面が p3.fix を待っていれば (changes[].unit_key を名前に戻した列, 修正役が書いてよい単位の key の集合)。待っていない・
-    changes の形が崩れている・番号を名前に戻せないときは None（検査せず entry.take に任せる）"""
+    """盤面が p3.fix を待っていれば (changes[].unit_key を名前に戻した列（changes と同じ順）, 直す義務の key の集合,
+    直す義務から外れた単位 {key: 理由})（conflict.fix_duty）。待っていない・changes の形が崩れている・番号を名前に戻せない
+    ときは None（検査せず entry.take に任せる）"""
     b = entry.open_board(board)
     inst = b.rd["instances"].get(recount.FIX_NODE)
     if not inst or inst["status"] != "pending" or not inst.get("launched_at") or not b.deps_met(recount.FIX_NODE):
@@ -129,7 +136,7 @@ def fix_unit_keys(reply: dict, board: Path):
     keys = [c.get("unit_key") for c in out["changes"]]
     if not all(isinstance(k, str) for k in keys):
         return None
-    return keys, gatemarks.fixable(b)
+    return (keys, *conflict.fix_duty(b))
 
 
 def check_unique_units(keys: list) -> list:
@@ -143,8 +150,13 @@ def check_unique_units(keys: list) -> list:
 
 
 def check_opened_units(keys: list, opened: set) -> list:
-    """修正役が書いてよい単位（fix_unit_keys の 2 つ目）に無い unit_key（現れた順・重なりは 1 つ）"""
+    """直す義務にもそこから外れた単位にも無い unit_key（現れた順・重なりは 1 つ）"""
     return list(dict.fromkeys(k for k in keys if k not in opened))
+
+
+def check_excused_units(keys: list, owed: set, excused: dict) -> dict:
+    """直す義務から外れた単位の unit_key と理由 {key: 理由}（現れた順）"""
+    return {k: excused[k] for k in keys if k not in owed and k in excused}
 
 
 def _reject(reason: str) -> dict:
@@ -156,11 +168,12 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     - 申し出が在れば機械が確かめる（conflict.problems: 形・今の直す義務の単位か・名指した所が現物に在るか）。外れれば普通の拒否
     - first: 通った申し出を盤面の控えに積み（拒否に数えない）、裁かれていない申し出が在れば（TDD の輪の分も）盤面に渡さずに
       {ok: true, parked: true, changes: []}（裁定の輪の後、2 回目の修正役が渡す）。返答は盤面の置き場に控える（PARKED_REPLY）
-    - ruled: 裁定の後の新しい申し出は、裁定の輪がもう無いので機械が ask_human に裁いて積む。ask_human の単位を直した返答は拒む"""
+    - ruled: 裁定の後の新しい申し出は、裁定の輪がもう無いので機械が ask_human に裁いて積む（その単位を直した返答は
+      check_excused_units が拒む）"""
     reply = dict(reply)
     items = reply.pop("conflicts", None) or []
     b = entry.open_board(board)
-    owed = gatemarks.fixable(b) - conflict.asked_keys(b)
+    owed = conflict.owed_units_but_asked(b)
     if items:
         bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed, try_query=querytest.judge_hits(b.record["units"]))
         both = sorted({i.get("unit_key") for i in items if isinstance(i, dict)}
@@ -181,10 +194,6 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
         tmp.write_text(json.dumps({**reply, "conflicts": items}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         os.replace(tmp, path)
         return reply, {"ok": True, "parked": True, "reason": "", "changes": []}
-    asked = sorted(conflict.asked_keys(b) & {c.get("unit_key") for c in reply.get("changes") or [] if isinstance(c, dict)})
-    if asked:
-        return reply, _reject(f"ask_human に裁いた単位を直した: {asked}（最後の人の関所で人が決める。changes から外し、作業ツリーの"
-                              "その単位の直しを戻す）")
     return reply, None
 
 
@@ -257,6 +266,33 @@ def unrevert_units(board, base_rev, repo, patch: str, rows) -> None:
         git(repo, "apply", "--binary", "--whitespace=nowarn", patch)
 
 
+def _without_rows(reply: dict, rest: list, mine: set, repo) -> dict:
+    """changes を rest にし、外した行のファイル（mine）の bash_writes の申告も外した返答"""
+    out = {**reply, "changes": rest}
+    if isinstance(reply.get(writes.FIELD), list):
+        out[writes.FIELD] = [w for w in reply[writes.FIELD]
+                             if not (isinstance(w, dict) and _files([{"files": [w.get("path")]}], repo) & mine)]
+    return out
+
+
+def drop_excused_units(reply: dict, keys: list, held: dict, board, base_rev, repo, state):
+    """輪の最後の回: 直す義務から外れた単位（held。keys は changes と同じ順の名前）の行の直しを戻し（revert_units）、その行を
+    外した返答・控えの patch・戻す手（undo: 直しを元に戻して控えを消す）を返す。外す行のファイルをほかの行と共有していれば
+    None（返答全体を拒む）"""
+    rows = reply.get("changes") or []
+    gone = [c for c, k in zip(rows, keys) if k in held]
+    rest = [c for c, k in zip(rows, keys) if k not in held]
+    mine = _files(gone, repo)
+    if mine & _files(rest, repo):
+        return None
+    patch = revert_units(board, base_rev, repo, state, gone)
+
+    def undo():
+        unrevert_units(board, base_rev, repo, patch, gone)
+        Path(patch).unlink(missing_ok=True)
+    return _without_rows(reply, rest, mine, repo), patch, undo
+
+
 def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     """輪の最後の回の拒否: 文が全部どれかの単位に結べ、止める単位のファイルをほかの単位と共有していなければ、その単位の直しを
     戻して（revert_units）ask_human に裁いて止め（conflict.park）、その行（と bash_writes の申告）を外した返答と、止める前に
@@ -281,10 +317,7 @@ def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
                                             "limits": [], "by": "works:fix-accept"})
     conflict.write_rulings(b)
     b.trace(BOUND_PARKED_OP, node=recount.ROLE, unit_keys=list(bound), patch=patch)
-    out = {**reply, "changes": rest}
-    if isinstance(reply.get(writes.FIELD), list):
-        out[writes.FIELD] = [w for w in reply[writes.FIELD]
-                             if not (isinstance(w, dict) and _files([{"files": [w.get("path")]}], repo) & mine)]
+    out = _without_rows(reply, rest, mine, repo)
 
     def undo():
         unrevert_units(board, base_rev, repo, patch, parked)
@@ -332,10 +365,23 @@ def accept_fix(reply, board, base_rev, repo):
         pack = check_pack_copy(reply, board, repo)
         if pack:
             return {"ok": False, "reason": pack, "changes": []}
-        keys, opened = got
-        for words, bad in ((DUPLICATE, check_unique_units(keys)), (NOT_OPENED, check_opened_units(keys, opened))):
+        keys, owed, excused = got
+        for words, bad in ((DUPLICATE, check_unique_units(keys)), (NOT_OPENED, check_opened_units(keys, owed | set(excused)))):
             if bad:   # key の形の拒否は単位に結んで止めない（開いていない単位を ask_human に積まない）
                 return _reject(" / ".join(words + k for k in bad))
+        held = check_excused_units(keys, owed, excused)
+        if held:
+            got = drop_excused_units(whole, keys, held, board, base_rev, repo, state) if last and isinstance(whole, dict) else None
+            if got is None:
+                return _reject(" / ".join(f"{EXCUSED}{k}（{why}）" for k, why in held.items()))
+            rest, patch, undo = got
+            out = accept_fix(rest, board, base_rev, repo)
+            if out.get("ok") is True:
+                entry.open_board(board, allow_halted=True).trace(EXCUSED_DROPPED_OP, node=recount.ROLE, excused=held,
+                                                                  patch=patch)
+            else:
+                undo()
+            return out
     red, note = check_tests(board, base_rev, repo, state)
     if red:
         return refuse(red)

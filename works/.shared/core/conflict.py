@@ -19,7 +19,9 @@
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
   答えた問いの出どころを直す義務に戻し、ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
 - ruled_test_doc(b): fix_test_scope が名指したテストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
-- only_asked_left(b): 直す義務の単位が全部 ask_human（空の changes を止めない。blk-fix の assert-changed と recount.collect）
+- fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
+  出どころ・depends と ask_human）を 1 回で返す正本（blk-fix の受け付け・TDD の輪が読む）。義務が空で外れた単位が在れば空の
+  changes を止めない（blk-fix の assert-changed と recount.collect）
 - ruled_test_limits(b)・parse_limit(lim): fix_test_scope の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
 - human_lines(b): 最後の関所と報告に載せる ask_human の行
 標準ライブラリだけ。期限は持たない。
@@ -361,15 +363,40 @@ def owed_units_but_asked(b):
         return got
 
 
-ASKED_ONLY = "直す義務の単位は全部 ask_human に裁かれた（changes が空なのが正しい返答。最後の人の関所で人が決める）"
+NOTHING_OWED = ("直す義務の単位が残っていない——開いた単位は全部、人の答え待ちか ask_human で直す義務から外れた"
+                "（changes が空なのが正しい返答。最後の人の関所で人が決める）")
 
 
-def only_asked_left(b) -> bool:
-    """ask_human に裁いた単位が在り、それを除いた直す義務が残っていない（空の changes が正しい返答）。読めなければ偽（止める側）"""
+def fix_duty(b) -> tuple:
+    """(直す義務 owed_units_but_asked, 直す義務から外れた単位 {key: 理由})。外れた単位は、答えていない fork・escalate の問いの
+    出どころ・depends（gatemarks.withheld_by。理由はそこが組にした問い）と、ask_human に裁いた単位（asked_keys）。owed と互いに素で、owed ∪ 外れた単位は
+    gatemarks.fixable を覆う（写しの RL の _owed_units が外す fork の出どころは withheld か returned に在る。withheld は開いていない
+    単位も含みうる）。1 単位が withheld と ask_human の両方に当たれば ask_human の理由。控えが読めなければ ask_human を外さない
+    （owed_units_but_asked と同じ側）"""
+    owed = owed_units_but_asked(b)
+    out = {k: f"答え待ちの問い {q.get('key')}（{q.get('kind')}・{q.get('status')}）"
+           for k, q in gatemarks.withheld_by(b).items()}
     try:
-        return bool(asked_keys(b)) and not owed_units_but_asked(b)
+        ids = {i["unit_key"]: i["id"] for i in asked(b)}
+        out.update({k: f"ask_human の裁定 {ids.get(k) or '（id 無し）'}" for k in asked_keys(b)})
+    except _board.BoardGap:
+        pass
+    return owed, {k: why for k, why in out.items() if k not in owed}
+
+
+def excused_units(b) -> dict:
+    """直す義務から外れた単位 {key: 理由}（fix_duty の 2 つ目）"""
+    return fix_duty(b)[1]
+
+
+def nothing_owed_but_excused(b) -> dict:
+    """直す義務（owed_units_but_asked）が空で、外れた単位（excused_units）が 1 件以上ある盤面なら外れた単位 {key: 理由}
+    （空の changes が正しい返答）。違う・読めなければ空（止める側。義務も外れた単位も無い退化した盤面も止める）"""
+    try:
+        owed, excused = fix_duty(b)
+        return excused if excused and not owed else {}
     except Exception:   # 盤面・控え・写しの RL が読めない: 空の申告は今どおり止める
-        return False
+        return {}
 
 
 def parse_limit(lim: str):

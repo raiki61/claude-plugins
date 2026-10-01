@@ -803,7 +803,7 @@ nodes:
       base_rev: $INPUTS.base_rev
       accepted: $fix-loop.output
       ruled: {from: "$fix-ruled-loop.output", if_skipped: null}   # 2 回目の修正の輪が走れば、その受け付けの出力を使う
-    # 通らない（申告が空（直す義務の単位が全部 ask_human の時を除く）・申告したのに変わっていない・輪が 3 回とも拒まれて諦めた）時は run を落とさずに盤面を理由つきで止め
+    # 通らない（申告が空（直す義務が残らず、答え待ち・ask_human で外れた単位が在る時を除く）・申告したのに変わっていない・輪が 3 回とも拒まれて諦めた）時は run を落とさずに盤面を理由つきで止め
     # （by works:fix。R50）、ok: false と reason を出す。後ろの段は境の節が飛ばし、報告と書き出しは走る（run 26）
     output_format:
       type: object

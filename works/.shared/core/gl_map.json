@@ -33,7 +33,13 @@
     "works": "blk-fix/scripts/accept.py:check_opened_units",
     "gl": "",
     "status": "works-only",
-    "note": "修正役が書いてよい単位（gatemarks.fixable: 検証器の is_open の単位と、関所で答えた問いの出どころ・depends）に無い unit_key を書いた修正の返答を拒む（関所で答えていない defer の単位・判定に無い key。1 本目の決まりで、1 本目は check_fix が fix_plan_covers_units の unknown = got - opened で拒んでいた）。写しの fix_covers_open_units は義務の単位の書き落としだけを見て義務に無い key を拒まないので、check_unique_units と同じく盤面の done の前に blk-fix の受け付けのスクリプトが見る（graphloops の上に 1 本目の拒否を足す側。線 A Task 12 の直し。裁定 TA25）。"
+    "note": "直す義務（conflict.fix_duty の owed: 検証器の is_open の単位と、関所で答えた問いの出どころ・depends から、答え待ちの問いの出どころ・depends と ask_human の単位を外した物）にも、そこから外れた単位にも無い unit_key を書いた修正の返答を拒む（関所で答えていない defer の単位・判定に無い key。1 本目の決まりで、1 本目は check_fix が fix_plan_covers_units の unknown = got - opened で拒んでいた）。写しの fix_covers_open_units は義務の単位の書き落としだけを見て義務に無い key を拒まないので、check_unique_units と同じく盤面の done の前に blk-fix の受け付けのスクリプトが見る（graphloops の上に 1 本目の拒否を足す側。線 A Task 12 の直し。裁定 TA25）。"
+  },
+  {
+    "works": "blk-fix/scripts/accept.py:check_excused_units",
+    "gl": "",
+    "status": "works-only",
+    "note": "直す義務から外れた単位（conflict.fix_duty の excused: 答え待ちの fork・escalate の問いの出どころ・depends と ask_human の単位）の unit_key を書いた修正の返答を、外れた理由（問いの key・裁定の id）を名指して拒む。輪の最後の回は、その単位の直しを作業ツリーから戻して changes から外し、残りの単位で受け付けを通し直す（drop_excused_units）。写しの fix_covers_open_units は義務に無い key を見ないので、盤面の done の前に blk-fix の受け付けのスクリプトが見る。"
   },
   {
     "works": "blk-fix/scripts/accept.py:check_pack_copy",

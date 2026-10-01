@@ -309,6 +309,24 @@ class TestTddConflict(LoopCase):
         summary = pathlib.Path(self.start["summary_file"]).read_text(encoding="utf-8")
         self.assertIn("食い違い", summary)
 
+    def test_route_give_up_after_park_does_not_direct_parked_unit(self):
+        """振り分けの段で止めた単位は、振り分けを諦めた _abort でも direct に載せず、summary の「食い違いで止めた単位」と出口の
+        parked の行だけに載る"""
+        import tddloop
+        got = tddloop_step(self, {"phase": "conflict", **conflict_on_mean()})
+        self.assertTrue(got["ok"], got)
+        for _ in range(tddloop.retry_max()):
+            got = tddloop_step(self, {"phase": "route", "units": []})
+            self.assertFalse(got["ok"], got)
+        self.assertTrue(got["done"], got)
+        summary = pathlib.Path(self.start["summary_file"]).read_text(encoding="utf-8")
+        direct = summary.split("## direct の単位")[1]
+        self.assertNotIn(MEAN, direct, "食い違いで止めた単位を「ここで直せ」に載せない")
+        self.assertIn(CLAMP, direct)
+        rows = [(u["unit_key"], u["route"]) for u in tddloop.exit_fields(self.start)["units"]]
+        self.assertIn((MEAN, "parked"), rows)
+        self.assertNotIn((MEAN, "direct"), rows)
+
     def test_conflict_in_test_phase_restores_and_moves_on(self):
         self.route(mean="tdd", clamp="direct")
         self.add_test("    def test_x(self):\n        pass")
@@ -360,6 +378,34 @@ class TestTddConflict(LoopCase):
                                                "ARTIFACTS_DIR": str(self.board.parent)}):
             self.assertEqual(mod.main(), 0)
         self.assertIn("どの行にも当たらない", seen["err"])
+
+
+class TestTddExcused(LoopCase):
+    """答え待ちの fork の出どころ（conflict.excused_units）は TDD の直す義務に載せず、振らせない"""
+
+    def setUp(self):
+        from unittest import mock
+        import conflict
+        for p in (mock.patch.object(entry, "open_board", return_value=mock.MagicMock()),
+                  mock.patch.object(conflict, "excused_units", return_value={CLAMP: "答え待ちの問い q-1（fork・held）"}),
+                  mock.patch.object(conflict, "owed_units_but_asked", return_value={MEAN})):
+            p.start()
+            self.addCleanup(p.stop)
+        super().setUp()
+
+    def test_unit_awaiting_answer_is_not_routed(self):
+        import tddloop
+        prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        owed = prompt.rsplit("## 直す義務の単位", 1)[1].split("## ")[0]
+        self.assertIn(MEAN, owed)
+        self.assertNotIn(CLAMP, owed, "答え待ちの単位を直す義務に並べない")
+        why = "文書の直しと同じで、先にテストを書けない単位"
+        got = tddloop_step(self, {"phase": "route", "units": [{"unit_key": MEAN, "route": "direct", "why": why},
+                                                              {"unit_key": CLAMP, "route": "direct", "why": why}]})
+        self.assertFalse(got["ok"], "答え待ちの単位を振る返答は拒む")
+        self.assertIn("答え待ちの問い q-1", got["reason"], "拒否文に外れた理由を出す")
+        got = tddloop_step(self, {"phase": "route", "units": [{"unit_key": MEAN, "route": "direct", "why": why}]})
+        self.assertTrue(got["ok"], got)
 
 
 def tddloop_step(case, reply):
