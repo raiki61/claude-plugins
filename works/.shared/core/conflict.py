@@ -16,8 +16,8 @@
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
 - items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b): 読む口
 - apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く
-- owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（修正前の関所で答えた fork の出どころを直す義務に戻し、ask_human に
-  裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
+- owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
+  答えた問いの出どころを直す義務に戻し、ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
 - ruled_test_doc(b): fix_test_scope が名指したテストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
 - only_asked_left(b): 直す義務の単位が全部 ask_human（空の changes を止めない。blk-fix の assert-changed と recount.collect）
 - ruled_test_limits(b)・parse_limit(lim): fix_test_scope の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
@@ -347,13 +347,14 @@ def write_rulings(b) -> pathlib.Path:
 
 # ---------------------------------------------------------------- 写しの RL の差し替え・最後の関所
 def owed_units_but_asked(b):
-    """写しの RL の _owed_units（開いた単位から、人に諮っている fork の出どころ・depends を除いた物）に、修正前の関所で人が
-    答えた fork の出どころ・depends（gatemarks.returned。問いの status は判定の節しか書けず held のまま残るので、関所の答えで見る）
-    を戻し、裁定役か機械が ask_human に裁いた単位を除く（最後の人の関所で人が決める。直す義務から外すのは裁定の後だけ）。元の
-    関数は盤面の graph の RL を新しく読み込んで呼ぶ（差し替えた大域の名前を読まない）"""
+    """写しの RL の _owed_units（開いた単位から、人に諮っている fork の出どころ・depends を除いた物）から、関所に載せる問い
+    （gatemarks.asks。fork も escalate も）のうち答えていない物の出どころ・depends（gatemarks.withheld。無人の run・「保留: <key>」
+    も）を除き、修正前の関所で人が答えた問いの出どころ・depends（gatemarks.returned。問いの status は判定の節しか書けず held の
+    まま残るので、関所の答えで見る。開いていない defer の単位も戻す。修正役への約束と受け付けも同じ集合を読む）を戻し、裁定役か
+    機械が ask_human に裁いた単位を除く（最後の人の関所で人が決める。直す義務から外すのは裁定の後だけ）。元の関数は盤面の graph の
+    RL を新しく読み込んで呼ぶ（差し替えた大域の名前を読まない）"""
     fresh = _board.rules_module(pathlib.Path(b.state["graph"]))
-    V = fresh.validator_module(b)
-    got = fresh._owed_units(b) | (gatemarks.returned(b) & {u["key"] for u in b.record["units"] if V.is_open(u)})
+    got = (fresh._owed_units(b) - gatemarks.withheld(b)) | gatemarks.returned(b)
     try:
         return got - asked_keys(b)
     except _board.BoardGap:   # 控えが読めない盤面は外さない（義務を減らさない側）

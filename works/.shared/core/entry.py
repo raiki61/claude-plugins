@@ -140,7 +140,8 @@ CORE_OVERRIDES = {
                       "読んだ記録は盤面の隣でなく包みの置き場 adapter.reads_dir(run の worktree)/reads.jsonl に在る（Task 6 の直し 1）"),
     "_owed_units": (conflict.owed_units_but_asked,
                     "食い違いの申し出を裁定役か機械が ask_human に裁いた単位は、直す義務から外す（最後の人の関所で人が決める。"
-                    "conflict.py）。修正前の関所で答えた fork の出どころ・depends は直す義務に戻す（gatemarks.returned）"),
+                    "conflict.py）。関所に載せる問い（fork・escalate）の出どころ・depends は、答えるまで外し"
+                    "（gatemarks.withheld）、修正前の関所で答えたら直す義務に戻す（gatemarks.returned）"),
     "_plan_gate_items": (gatemarks.plan_gate_items,
                          "決め手の出どころが在り undecided_because が空で柵の印の無い狭め・穴は、修正前の関所で人に聞かずに通し、"
                          "state.works.gate_passes に残す（持ち主 2026-09-28。gatemarks.py）。問いの台帳で人に聞く状態の fork・"

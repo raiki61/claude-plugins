@@ -15,8 +15,9 @@
 1. works だけの 2 つの検査（TA25 で .shared/core/accept.py には足さない。写しの fix_covers_open_units はどちらも見ない。
    1 本目は check_fix が fix_plan_covers_units に読み替えてどちらも拒んでいた。works は graphloops の上にこの拒否を残す）
    - check_unique_units: 同じ unit_key を 2 行に分けた返答を拒む
-   - check_opened_units: 今の周に開いた単位（検証器の is_open）に無い unit_key を拒む（判定が defer にした単位・判定に
-     無い key。1 本目の unknown = got - opened。fork の出どころは開いた単位なので通す）
+   - check_opened_units: 修正役が書いてよい単位（gatemarks.fixable: 検証器の is_open の単位と、関所で答えた問いの
+     出どころ・depends。修正役への約束と義務の数えも同じ集合を読む）に無い unit_key を拒む（関所で答えていない defer の
+     単位・判定に無い key。1 本目の unknown = got - opened）
 1a. check_pack_copy: .archon/ の下（自分食いの run では動いている線の pack の写し）を申告した・変えた返答を拒む（run 26）
 1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
    空・欠けは輪の無い run で見ない）。裁定の後（ruled）は、裁定 fix_test_scope の範囲（conflict.ruled_test_limits）の中の変更を通す
@@ -59,17 +60,17 @@ import recount  # noqa: E402
 import tddloop  # noqa: E402
 import unitrows  # noqa: E402   閉鎖の数え直しの前段（blk-fix/lib）
 import entry  # noqa: E402
+import gatemarks  # noqa: E402   修正役が書いてよい単位（開いた単位と関所で答えて戻した単位。.shared/core）
 import writes  # noqa: E402   書き込みの出どころの突き合わせ（.shared/core）
 from leftovers import git  # noqa: E402
 from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
-from engine.rules import validator_module  # noqa: E402
 
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS")
 GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
 TESTS_OP = impact.ACCEPT_TRACE_OP   # 受け付けが選んだ試験を走らせた盤面の trace の行（ci_left を最後の関所が読む）
 PARK_UNDONE_OP = "fix_mismatch_park_undone"   # 最後の回に止めた単位を、返答が通らなかったので戻した盤面の trace の行
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
-NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（判定が defer にした単位・判定に無い単位は直さない。"
+NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（開いた単位と、関所で答えた問いの出どころ・depends のほかは直さない。"
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
 
 
@@ -113,7 +114,7 @@ def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
 
 
 def fix_unit_keys(reply: dict, board: Path):
-    """盤面が p3.fix を待っていれば (changes[].unit_key を名前に戻した列, 今の周に開いた単位の key の集合)。待っていない・
+    """盤面が p3.fix を待っていれば (changes[].unit_key を名前に戻した列, 修正役が書いてよい単位の key の集合)。待っていない・
     changes の形が崩れている・番号を名前に戻せないときは None（検査せず entry.take に任せる）"""
     b = entry.open_board(board)
     inst = b.rd["instances"].get(recount.FIX_NODE)
@@ -128,8 +129,7 @@ def fix_unit_keys(reply: dict, board: Path):
     keys = [c.get("unit_key") for c in out["changes"]]
     if not all(isinstance(k, str) for k in keys):
         return None
-    V = validator_module(b)
-    return keys, {u["key"] for u in b.record["units"] if V.is_open(u)}
+    return keys, gatemarks.fixable(b)
 
 
 def check_unique_units(keys: list) -> list:
@@ -143,7 +143,7 @@ def check_unique_units(keys: list) -> list:
 
 
 def check_opened_units(keys: list, opened: set) -> list:
-    """今の周に開いた単位に無い unit_key（現れた順・重なりは 1 つ）"""
+    """修正役が書いてよい単位（fix_unit_keys の 2 つ目）に無い unit_key（現れた順・重なりは 1 つ）"""
     return list(dict.fromkeys(k for k in keys if k not in opened))
 
 
@@ -160,8 +160,7 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     reply = dict(reply)
     items = reply.pop("conflicts", None) or []
     b = entry.open_board(board)
-    V = validator_module(b)
-    owed = {u["key"] for u in b.record["units"] if V.is_open(u)} - conflict.asked_keys(b)
+    owed = gatemarks.fixable(b) - conflict.asked_keys(b)
     if items:
         bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed, try_query=querytest.judge_hits(b.record["units"]))
         both = sorted({i.get("unit_key") for i in items if isinstance(i, dict)}

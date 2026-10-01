@@ -166,6 +166,24 @@ class LedgerAsksCase(GateBase):
         self.assertEqual(gatemarks.plan_gate_items(b), [])   # 答えた問いは関所に 2 度出さない
         self.assertIn("関所で continue を受けた", self.final_text(b))
 
+    def test_continue_returns_a_deferred_origin_the_fixer_was_promised(self):
+        """開いていない単位（suggest の defer）を出どころに持つ fork に関所で答えると、修正役への約束（returned_lines）に載った
+        単位が直す義務（owed_units_but_asked）にも入る。約束と義務の数えが別の集合だと、約束どおり直した返答が拒まれる"""
+        units = [{"key": FORK_UNIT, "label": "suggest", "disposition": "defer"}, {"key": OTHER_UNIT, "label": "block"}]
+        got, b = self.gate(questions=[FORK], units=units)
+        self.answer(b, got, note="例外で")
+        self.assertIn(FORK_UNIT, "\n".join(gatemarks.returned_lines(b)))
+        self.assertEqual(self.owed(b), {FORK_UNIT, OTHER_UNIT})
+
+    def test_origin_missing_from_the_round_units_is_not_promised(self):
+        """今の周の units に無い出どころ（defer の台帳だけに在る key）は、答えても直す義務に戻せないので、修正役に
+        「直す義務に戻った」と約束しない"""
+        gone = {**FORK, "origin": "stats.py median: 台帳だけに在る単位"}
+        got, b = self.gate(questions=[gone], units=UNITS)
+        self.answer(b, got, note="例外で")
+        self.assertNotIn(gone["origin"], "\n".join(gatemarks.returned_lines(b)))
+        self.assertEqual(self.owed(b), {FORK_UNIT, OTHER_UNIT})
+
     def test_hold_note_keeps_the_fork_origin_exempt(self):
         got, b = self.gate(questions=[FORK], units=UNITS)
         self.answer(b, got, note=f"狭めは通す。保留: {FORK['key']}")
@@ -219,6 +237,72 @@ class LedgerAsksCase(GateBase):
         _, empty = self.gate(units=UNITS)
         self.assertIn("盤面の問い: 無い", self.final_text(empty))
         self.assertNotIn(gatemarks.ASK_HEAD, self.head(empty))
+
+
+ESCALATE = {**FORK, "key": "q-stuck-mean", "kind": "stuck", "status": "escalate"}
+SKIP_MARK = "答えが無いと直さない単位"
+
+
+class EscalateAsksCase(GateBase):
+    """status が escalate の問い（kind が fork でない）も、関所に載せる問いと同じ 1 つの決まりで直す義務から外し・戻す:
+    答える前は出どころを外し、continue で戻し、「保留: <key>」では外したまま、無人の run でも外す"""
+    answer, owed, final_text, head = (LedgerAsksCase.answer, LedgerAsksCase.owed, LedgerAsksCase.final_text,
+                                      LedgerAsksCase.head)
+
+    def test_unanswered_escalate_origin_is_not_owed(self):
+        got, b = self.gate(questions=[ESCALATE], units=UNITS)
+        self.assertEqual(got["ask"]["kinds"], ["escalate"])
+        self.assertEqual(self.owed(b), {OTHER_UNIT})
+
+    def test_continue_returns_the_escalate_origin(self):
+        got, b = self.gate(questions=[ESCALATE], units=UNITS)
+        self.answer(b, got, note="例外で")
+        self.assertEqual(self.owed(b), {FORK_UNIT, OTHER_UNIT})
+        self.assertIn(FORK_UNIT, "\n".join(gatemarks.returned_lines(b)))
+
+    def test_hold_note_keeps_the_escalate_origin_exempt(self):
+        got, b = self.gate(questions=[ESCALATE], units=UNITS)
+        self.answer(b, got, note=f"保留: {ESCALATE['key']}")
+        self.assertEqual(self.owed(b), {OTHER_UNIT})
+
+    def test_unattended_run_keeps_the_escalate_origin_exempt(self):
+        (self.tmp / "r1").mkdir()
+        (self.tmp / "r1" / "start.json").write_text('{"unattended": "true"}', encoding="utf-8")
+        got, b = self.gate(questions=[ESCALATE], units=UNITS)
+        self.assertEqual(got, {"ok": True})
+        self.assertEqual(self.owed(b), {OTHER_UNIT})
+        self.assertIn(ESCALATE["key"], self.head(b))
+
+    def test_skip_mark_only_on_questions_still_exempting(self):
+        """held_lines・最後の関所の文は、答えて戻した問いと関所に載らない問いに「答えが無いと直さない単位」を付けない"""
+        awaiting = {"key": "q-awaiting-pr", "kind": "awaiting", "status": "held", "origin": "parallel_pr", "reason": "人が確かめる"}
+        for q in (FORK, ESCALATE):
+            got, b = self.gate(questions=[q, awaiting], units=UNITS)
+            self.answer(b, got, note="例外で")
+            rows = gatemarks.held_lines(b)
+            self.assertFalse([r for r in rows if SKIP_MARK in r], (q["kind"], rows))
+            self.assertNotIn(f"{SKIP_MARK}: {FORK_UNIT}", self.final_text(b))
+        _, b = self.gate(questions=[ESCALATE], units=UNITS)
+        self.assertIn(f"{SKIP_MARK}: {FORK_UNIT}", "\n".join(gatemarks.held_lines(b)))
+
+    def test_skip_mark_drops_a_unit_another_answer_returned(self):
+        """保留の問いと答えた問いが同じ出どころを持つと、その単位は直す義務に戻るので、保留の問いの行に「答えが無いと直さない
+        単位」として並べない（戻らなかった depends だけを並べる）"""
+        held = {**ESCALATE, "depends": [OTHER_UNIT]}
+        got, b = self.gate(questions=[FORK, held], units=UNITS)
+        self.answer(b, got, note=f"保留: {held['key']}")
+        self.assertEqual(self.owed(b), {FORK_UNIT})
+        rows = [r for r in gatemarks.held_lines(b) if held["key"] in r]
+        self.assertEqual([r.split(f"{SKIP_MARK}: ")[1] for r in rows], [OTHER_UNIT])
+
+    def test_gate_item_exemption_and_return_name_the_same_units(self):
+        """fork と escalate の両方で、関所の項目が名指す単位・答える前に外れる単位・答えて戻る単位が同じ"""
+        for q in (FORK, ESCALATE):
+            got, b = self.gate(questions=[q], units=UNITS)
+            named = {u for u in (FORK_UNIT, OTHER_UNIT) if u in got["ask"]["items"][0]}
+            exempt = {FORK_UNIT, OTHER_UNIT} - self.owed(b)
+            self.answer(b, got)
+            self.assertEqual((q["kind"], named, exempt, gatemarks.returned(b)), (q["kind"], *({FORK_UNIT},) * 3))
 
 
 class DesignOnlyCase(GateBase):

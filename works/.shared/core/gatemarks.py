@@ -16,17 +16,23 @@ undecided_because の規律（本流 p2.diagnose.md 8 項）を関所の項目�
 - passes(b)・lines(b): 通した行と、最後の関所の文・報告の行
 
 問いの台帳（record.questions）のうち人に聞く状態（検証器の ASKING）の問いも、修正前の関所の項目に 1 件 1 行で載せる（持ち主
-2026-09-29。run 119 の人の答え）。人に聞くと名乗る問いが人の口に繋がらないまま、出どころの免除（写しの _owed_units）だけが効いて
+2026-09-29。run 119 の人の答え）。人に聞くと名乗る問いが人の口に繋がらないまま、出どころの免除だけが効いて
 いたため。この行は決め手の濾しに掛けない。関所の continue はその問いへの答えで、一言が問いに触れなければ修正役は問いの理由の推しで
 直す。一言で「保留: <key>」と名指した問いは答えに数えない。無人の run（入力 unattended）では問いの行を項目に載せない——関所を
-開けば無人の殻が stop を返し、問いと関係の無い単位の修正まで飛ぶので、出どころだけを今どおり飛ばして報告の冒頭に並べる。
+開けば無人の殻が stop を返し、問いと関係の無い単位の修正まで飛ぶので、出どころだけを飛ばして報告の冒頭に並べる。関所に載せる問い・
+出どころの免除・答えでの戻しは、fork も escalate も同じ asks の 1 つの決まりから作る（免除は works の差し替え
+conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は fork だけを外す）。
 
 設計だけの run（入力 design_only）では、修正前の関所を項目の有無に関わらず開け、設計だけの行を 1 行載せる（持ち主 2026-09-30。
 調べた改造の案を、直す前の判定・修正案・事前審査・独立設計だけに流して見る）。continue で今どおり修正へ進み、stop で報告へ進む。
 この行は決め手の濾しにも無人の濾しにも掛けない（無人の殻は関所で stop を返すので、無人の設計だけの run も止まって報告へ進む）。
 直す義務が 0 件の周は関所の節が走らず、修正もしない。
-- asks(b)・answered(b, q)・returned(b): 関所に載せる問い・関所で答えたか・答えで直す義務に戻る単位
-- held_lines(b)・returned_lines(b): 最後の関所の文と報告に並べる聞いたままの問い・修正役に渡す義務に戻った単位
+- asks(b)・answered(b, q)・pending(b)・withheld(b): 関所に載せる問い・関所で答えたか・まだ答えていない問い・それで直す
+  義務から外す単位
+- returned(b)・fixable(b): 答えで直す義務に戻る単位（今の周の units に在る物。約束・義務の数え・受け付けが同じこの集合を
+  読む）・修正役が changes に書いてよい単位
+- held_lines(b)・returned_lines(b)・unreturned_lines(b): 最後の関所の文と報告に並べる聞いたままの問い・修正役に渡す義務に
+  戻った単位・答えたが今の周の units に無いので戻せなかった単位
 - design_only(b): 設計だけの run か
 - unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
 - PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
@@ -355,7 +361,9 @@ def _asking(b) -> list:
 
 
 def asks(b) -> list:
-    """関所に載せる問い: 人に聞く状態の fork と、status が escalate の問い（写しの _owed_units・_precedent_errors と同じ選び方）"""
+    """関所に載せる問い: 人に聞く状態の fork と、status が escalate の問い（写しの _precedent_errors と同じ選び方）。直す義務
+    から外す（withheld）・戻す（returned）も、この問いだけを見る（写しの _owed_units は fork だけを外すので、works の差し替え
+    conflict.owed_units_but_asked がこの選び方で外し直す）"""
     return [q for q in _asking(b) if q.get("kind") == "fork" or q.get("status") == "escalate"]
 
 
@@ -394,26 +402,61 @@ def answered(b, q) -> bool:
     return False
 
 
+def _answered_skips(b) -> list:
+    """関所で答えた問いごとに (問い, 今の周の units に在る出どころ・depends, 無い出どころ・depends)"""
+    keys = {u.get("key") for u in b.record.get("units") or [] if isinstance(u, dict)}
+    return [(q, [k for k in _skips(q) if k in keys], [k for k in _skips(q) if k not in keys])
+            for q in asks(b) if answered(b, q)]
+
+
+def pending(b) -> list:
+    """関所に載せる問い（asks）のうち、まだ答えていない物（関所を開かない無人の run と「保留: <key>」を含む）"""
+    return [q for q in asks(b) if not answered(b, q)]
+
+
+def withheld(b) -> set:
+    """答えが無いので直す義務から外す単位: まだ答えていない asks の問いの出どころ・depends（fork も escalate も）。別の問いに
+    答えて戻した単位（returned）は外さない——義務の数えと最後の関所の文（held_lines）が同じこの集合を読む"""
+    return {k for q in pending(b) for k in _skips(q)} - returned(b)
+
+
 def returned(b) -> set:
-    """関所で答えた fork の出どころ・depends（写しの _owed_units が外した単位のうち、直す義務に戻す物）"""
-    return {k for q in asks(b) if q.get("kind") == "fork" and answered(b, q) for k in _skips(q)}
+    """関所で答えた asks の問い（fork も escalate も）の出どころ・depends のうち今の周の units に在る物（label・disposition を
+    問わない）。修正役への約束（returned_lines）・義務の数え（conflict.owed_units_but_asked）・受け付け（fixable）が読む 1 つの集合"""
+    return {k for _, keep, _ in _answered_skips(b) for k in keep}
+
+
+def fixable(b) -> set:
+    """修正役が changes に書いてよい単位: 今の周に開いた単位（検証器の is_open）と、関所で答えて直す義務に戻した単位"""
+    V = b.rules.validator_module(b)
+    return {u["key"] for u in filter(V.is_open, b.record["units"])} | returned(b)
 
 
 def returned_lines(b) -> list:
-    """修正役に渡す行: 関所で答えた問いと、それで直す義務に戻った単位（1 問 1 行）"""
-    return [f"関所で答えた{ASK_HEAD} {q.get('key')} の出どころ・depends は直す義務に戻った（fork の出どころとして飛ばさない）: "
-            f"{'・'.join(_skips(q))}——一言に案が無ければ問いの理由の推しで直す（問いの理由: {q.get('reason') or ''}）"
-            for q in asks(b) if q.get("kind") == "fork" and answered(b, q) and _skips(q)]
+    """修正役に渡す行: 関所で答えた問いと、それで直す義務に戻った単位（1 問 1 行。今の周の units に無い単位は約束しない）"""
+    return [f"関所で答えた{ASK_HEAD} {q.get('key')} の出どころ・depends は直す義務に戻った（保留の問いの出どころとして飛ばさない）: "
+            f"{'・'.join(keep)}——一言に案が無ければ問いの理由の推しで直す（問いの理由: {q.get('reason') or ''}）。"
+            "判定者の class_query が無い単位は coverage.how と counts を書け（写しの受け付けが求める）"
+            for q, keep, _ in _answered_skips(b) if keep]
+
+
+def unreturned_lines(b) -> list:
+    """関所で答えたが、今の周の判定の units に無いので直す義務に戻せなかった単位（1 件 1 行）"""
+    return [f"関所で答えたが直す単位に入れられなかった: {q.get('key')}・{k}（理由: 今の周の判定に無い）"
+            for q, _, gone in _answered_skips(b) for k in gone]
 
 
 def held_lines(b) -> list:
-    """最後の関所の文と報告の冒頭に並べる、台帳で人に聞く状態のままの問い（kind を問わず。1 件 1 行）"""
-    out = []
+    """最後の関所の文と報告の冒頭に並べる、台帳で人に聞く状態のままの問い（kind を問わず。1 件 1 行。「答えが無いと直さない
+    単位」は pending の問いの出どころ・depends のうち withheld に在る物だけ）と、関所で答えたが直す義務に戻せなかった単位
+    （unreturned_lines）"""
+    out, asked, held, kept = [], asks(b), pending(b), withheld(b)
     for q in _asking(b):
-        mark = "・関所で continue を受けた" if q in asks(b) and answered(b, q) else ""
+        mark = "・関所で continue を受けた" if q in asked and q not in held else ""
+        skip = [k for k in _skips(q) if k in kept] if q in held else []
         out.append(f"{_prefix(q)}{q.get('kind')}・{q.get('status')}{mark}）: {q.get('reason') or ''}"
-                   + (f"／答えが無いと直さない単位: {'・'.join(_skips(q))}" if _skips(q) else ""))
-    return out
+                   + (f"／答えが無いと直さない単位: {'・'.join(skip)}" if skip else ""))
+    return out + unreturned_lines(b)
 
 
 def _keep(b, row: dict) -> None:
