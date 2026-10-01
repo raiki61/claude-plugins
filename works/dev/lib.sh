@@ -266,17 +266,51 @@ print(json.dumps(runs[0], ensure_ascii=False))
 '
 }
 
-# works_dev_show_started <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]: dogfood.sh・real-run.sh の起動の後。
-# その対象の一番新しい run（対象は起動ごとに作り直すので 1 つ）を 1 回だけ引き、控え（$WORKS_DEV_HOME/runs）を書き、
-# works_dev_show_run で出し、herdr の枠の集計を出す。引けなければ 1 行の理由で 1
-works_dev_show_started() {
-  _row="$(works_dev_run_json "$1" "$2" "$3")" || return 1
-  _id_st="$(printf '%s\n' "$_row" | python3 -c 'import json, sys; r = json.load(sys.stdin); print("{}={}".format(r.get("id") or "", r.get("status") or ""))')"
-  works_dev_save_ledger "$WORKS_DEV_HOME/runs" "${_id_st%%=*}" "$3"
+# works_dev_quote <語>: shlex.quote と同じ字句で 1 語を引用する（殻の口を組むのに python を起こさない）
+works_dev_quote() {
+  case "$1" in
+    '') printf "''" ;;
+    *[!A-Za-z0-9@%+=:,./_-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\"'\"'/g")" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# works_dev_show_cmd <殻のパス> <archon を呼ぶ殻> <dir>: 続きの行の後ろに付ける口（<殻> --show <dir>。WORKS_DEV_SHOW_CMD）を export する。
+# dogfood.sh・real-run.sh が起動の後と --show で呼ぶ
+works_dev_show_cmd() {
+  WORKS_DEV_SHOW_CMD="WORKS_DEV_ARCHON=$(works_dev_quote "$2") sh $(works_dev_quote "$1") --show $(works_dev_quote "$3")"
+  export WORKS_DEV_SHOW_CMD
+}
+
+# works_dev_id_status: 標準入力の run の行（works_dev_run_json の 1 行）を <run-id>=<状態> にする
+works_dev_id_status() {
+  python3 -c 'import json, sys; r = json.load(sys.stdin); print("{}={}".format(r.get("id") or "", r.get("status") or ""))'
+}
+
+# works_dev_show_synced <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]: dogfood.sh・real-run.sh の起動の後と --show。
+# run の行（WORKS_RUN_ROW。無ければ WORKS_RUN_ID の run か一番新しい run）を 1 回だけ引き、works_dev_show_run で出し、
+# その状態で herdr の枠の集計（$WORKS_DEV_HOME/runs の控え）を出す。続きの行の後段もここを通るので、承認・答え・続け・拒否・取り消しの
+# 後に集計が run を追う。終了の値は works_dev_show_run の値（集計の成否で変えない）。引けなければ 1 行の理由で 1
+works_dev_show_synced() {
+  _row="${WORKS_RUN_ROW:-}"
+  if [ -z "$_row" ]; then
+    _row="$(works_dev_run_json "$1" "$2" "$3" "${WORKS_RUN_ID:-}")" || return 1
+  fi
+  _id_st="$(printf '%s\n' "$_row" | works_dev_id_status)"
   _st=0
   WORKS_RUN_ROW="$_row" works_dev_show_run "$1" "$2" "$3" "${4:-}" || _st=$?
   works_dev_herdr_sync "$2" "$WORKS_DEV_HOME/runs" "$_id_st"
   return "$_st"
+}
+
+# works_dev_show_started <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]: dogfood.sh・real-run.sh の起動の後。
+# その対象の一番新しい run（対象は起動ごとに作り直すので 1 つ）を 1 回だけ引き、控え（$WORKS_DEV_HOME/runs）を書いてから
+# works_dev_show_synced に渡す（--show は控えを書き直さない。起動の時の started_at と herdr_pane を残す）
+works_dev_show_started() {
+  _row="$(works_dev_run_json "$1" "$2" "$3")" || return 1
+  _id_st="$(printf '%s\n' "$_row" | works_dev_id_status)"
+  works_dev_save_ledger "$WORKS_DEV_HOME/runs" "${_id_st%%=*}" "$3"
+  WORKS_RUN_ROW="$_row" works_dev_show_synced "$@"
 }
 
 # works_dev_show_run <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ> [<差分の置き場>]]:
@@ -289,7 +323,7 @@ works_dev_show_started() {
 # 同じ名のファイルを消し、取り込むコマンドも出さない（0 バイトの差分は「修正なし」に見え、取り込みを誤る）。
 # 承認・拒否・続きのコマンドは、呼び手の WORKS_KEYCHAIN_ITEM を sh の直前に載せ、export の無い殻でもそのまま打てる形で出す。
 # 呼び手が WORKS_DEV_SHOW_CMD（この関数を同じ対象で呼び直す殻の口。字句で組んだ 1 行で、後ろに run id を足して打つ）を export
-# すれば、承認・関所の答え・続きの行の後ろに同じ前置きでそれを付け、Archon が戻った後に差分を書き直す（行の終了は続きが落ちれば
+# すれば、承認・関所の答え・続き・拒否・取り消しの行の後ろに同じ前置きでそれを付け、Archon が戻った後に差分を書き直す（行の終了は続きが落ちれば
 # その値、続きが通れば書き直しの値）。その口だけを打つ行も出す。
 # 修正は対象ではなく、Archon が run ごとに切った worktree の中にある。関所の文面の「テストのログ」の行が、テストの出力のファイル。
 # 状態の下に launched_min（起こしてからの分）を出し、走っている run は Archon の workflow get の出来事を 1 回引いて、
@@ -407,12 +441,12 @@ if os.environ.get("WORKS_USE_SH"):
         shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id")))
     print("待って状態を見る（決まった時間で戻る。まだ走っていれば打ち直す）:", "sh {} wait {} {}".format(
         shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id")))
-print("取り消す（走っている run を Archon の cancel で止める。報告は report.sh で組む）:", go, "cancel", r.get("id"))
+print("取り消す（走っている run を Archon の cancel で止める。報告は report.sh で組む）:", then("cancel", r.get("id")))
 # use.sh からなら、関所の答えと止めるのは殻の answer・stop だけを出す（生の respond・reject は答えた者の記録と run の控えを通らない）
 if not os.environ.get("WORKS_USE_SH"):
     print("関所に一言で答えて進める:", then("respond", r.get("id"), "continue", shlex.quote("<通す範囲と条件>")))
     print("関所で止める（報告は出る）:", then("respond", r.get("id"), "stop", shlex.quote("<理由>")))
-    print("止める:", go, "reject", r.get("id"))
+    print("止める:", then("reject", r.get("id")))
 print("失敗や中断から続ける:", then("resume", r.get("id")))
 if redo:
     print("差分だけを書き直す（Archon の生のコマンドで続けた後）:", redo, r.get("id"))

@@ -152,7 +152,7 @@ AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` �
 
 1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/real-run.sh [<dir>]` を前景で打つ。使い捨ての対象を作り、ライン（模型は `WORKS_DEV_MODEL`、未設定なら `archon.sh` が `dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT` を解く。YAML の段に `model:` を書いた役の段を除く）を回し、人の関所で止まって戻る。
 2. 関所の文面の「テストが緑か」「テストのログ」と、殻が出す「修正の差分がある worktree」を見る。修正は対象ではなく、Archon が run ごとに切った worktree の中にある。
-3. 殻が出す approve のコマンドを打つ。承認はその場で続き（差分の審査）を回して終わる。`WORKS_KEYCHAIN_ITEM` で起こしたなら、出た行に項目名が載っているので、export していない殻でもそのまま打てる。`CLAUDE_CODE_OAUTH_TOKEN` だけで起こしたなら、値は出さないので、それを export した殻で打つ。`resume` は失敗・中断から続けるときだけ要る。
+3. 殻が出す approve のコマンドを打つ。承認はその場で続き（差分の審査）を回して終わる。`WORKS_KEYCHAIN_ITEM` で起こしたなら、出た行に項目名が載っているので、export していない殻でもそのまま打てる。`CLAUDE_CODE_OAUTH_TOKEN` だけで起こしたなら、値は出さないので、それを export した殻で打つ。`resume` は失敗・中断から続けるときだけ要る。殻が出す承認・関所の答え・続き・止める・取り消しの行は、Archon が戻った後に `sh works/dev/real-run.sh --show <dir> <run-id>` で行を出し直し、herdr の枠の中ならその run の今の状態で枠の集計を出し直す。
 
 ### 結果（2026-09-26・Archon v0.11.1・opus・3 回）
 
@@ -179,7 +179,7 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 1. 依頼の JSON を書く（形は `skills/works/SKILL.md`）。置き場所はどこでもよい（殻が写して渡す）。
 2. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/dogfood.sh <依頼の JSON> "<テストのコマンド>" [<dir>]` を前景で打つ。殻は、このリポジトリの今の HEAD（commit 済みの物だけ）を `<dir>/repo` に clone し、works を `.archon/workflows/works` に写して枝 `dogfood-base` に commit し、`<dir>/origin.git` を origin にしてラインを回す。`<dir>` の既定は `$TMPDIR` の下の一時フォルダ。人の関所で止まって戻る。
 3. 起動の関所（`launch`）で止まって戻る。殻が出す approve のコマンドで越える。修正の前の関所（要る時だけ）と最後の関所は、関所の文に載る答えの行（隔離した `archon.sh` の `respond <run-id> continue "<一言>"`。止めるなら `stop "<理由>"`）で答える（`skills/works/SKILL.md` の 3 節）。殻は入力 `tdd_suite=works/dev/tdd-suite.sh`・`adapter=`（空＝包みを求める。既定で包みを通す。`WORKS_DEV_ADAPTER=0` で外すと `adapter=optional`）・`final_gate=always` を渡す。
-4. 報告まで済んだら、殻が出す `git -C <このリポジトリ> apply <dir>/run-<id>.diff` で差分（run の worktree と周の頭の版の差。手直しも未追跡も入る）を取り込み、手元でテストを回してから commit する。差分は修正が在る時だけ書く（起動の関所ではまだ無いので書かない）。殻が出す承認・関所の答え・続き（resume）の行は、Archon が戻った後に `sh works/dev/dogfood.sh --show <dir> <run-id>` で差分を今の worktree から書き直す。Archon の生のコマンドで続けた後は、殻が出す「差分だけを書き直す」の行を打つ。
+4. 報告まで済んだら、殻が出す `git -C <このリポジトリ> apply <dir>/run-<id>.diff` で差分（run の worktree と周の頭の版の差。手直しも未追跡も入る）を取り込み、手元でテストを回してから commit する。差分は修正が在る時だけ書く（起動の関所ではまだ無いので書かない）。殻が出す承認・関所の答え・続き（resume）・止める（reject）・取り消し（cancel）の行は、Archon が戻った後に `sh works/dev/dogfood.sh --show <dir> <run-id>` で差分を今の worktree から書き直し、herdr の枠の中ならその run の今の状態で枠の集計を出し直す。Archon の生のコマンドで続けた後は、殻が出す「差分だけを書き直す」の行を打つ。
    修正が `works/` でなく pack の写し（`.archon/workflows/works`）を書き換えていたら、その部分は取り込まない（殻は「注意:」の 1 行を出す）。`<dir>` に前の回の `repo`・`origin.git`・`request.json` が在ると、殻は何も書かずに止まる。
 
 ### 結果（2026-09-26・Archon v0.11.1・opus・2 回）
