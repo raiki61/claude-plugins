@@ -2,7 +2,7 @@
 
 閉鎖は機械の数え直しで決め、修正役の申告では決めない（CodeQL の variant analysis: 1 本の問いで同じ形を全部引き、その結果を数える）。
 判定者の class_query（裁定 replace_query を受けた単位は置き換えた問い）を、写しの RL の _run_query が修正前の版と修正後の作業ツリーで
-数え、defects なら修正後 0、population なら申告の site が母数に届くかで closed を決める。修正役の申告（closure.sites が覆う当たりの
+数え、defects なら修正後 0、population なら申告の site が覆う当たりの件数（covered）が母数に届くかで closed を決める。修正役の申告（closure.sites が覆う当たりの
 件数・remaining・作り直した how）が数え直しと合わない形は、写しの fix_covers_open_units なら返答全体を拒む 4 つの形と同じで、ここでは
 拒まずに表の discrepancies に記録する。写しに渡す返答は、その 4 つの拒否が発火しないように揃える（sites を母数に切る・空の
 remaining に機械の記録を書く）。写しは変えない（板の POST_CHECKS は差し替えられない。ADR 0009・TA25 の置き場）。
@@ -154,7 +154,8 @@ def build(changes, judged: dict, *, count, blank, zero_keys=(), replaced=None, p
         if a_total is None or a_after is None:
             a_total, a_after = total, after
         a_cap = a_total if a_total else a_after
-        closed = a_after == 0 if counts == "defects" else min(claimed, a_cap) >= a_cap
+        a_covered = covered if auth == how else _bind(sites, a_cap, per_file(auth, bool(a_total)) if per_file else None)[0]
+        closed = a_after == 0 if counts == "defects" else min(a_covered, a_cap) >= a_cap
         rows.append({"unit_key": key, "how_from": how_from, "counts": counts, "total": a_total, "after": a_after,
                      "claimed": claimed, "covered": covered, "out_of_query": out_of_query, "bound": bound, "closed": closed,
                      "discrepancies": bad})

@@ -688,7 +688,7 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
         return {}
     unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
     stuck = querytest.closure_lines(b, stuck_only=True)
-    closure = querytest.closure_lines(b)
+    closure = querytest.closure_lines(b, claimed=report.claimed_units(b))
     text = ("\n".join(_final_head(b, head, why, guarded)) + "\n\n"
             + (_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
             + (_closure_text(stuck, querytest.STUCK_HEAD) if stuck else "")

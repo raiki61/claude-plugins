@@ -277,9 +277,19 @@ def _validator_blockers(out: str) -> list | None:
 def _closed_units(b) -> set:
     """この周の修正が盤面の受け付け（写しの fix_covers_open_units: 閉鎖の実証と数え直し）を通って閉じた単位の key。
     記録の units は判定の時のラベルのままで、1 周で止める run では次の周の判定が閉じを書かないため、検証器はこれらをいつも
-    『未解消』と出す"""
+    『未解消』と出す。changes に載っても、今の周の閉鎖の表（querytest.CLOSURE_FILE）で closed が偽の行の単位は外さない。
+    表に行が無い単位は外し、閉じたと確かめていない物として最後の関所と報告の冒頭に名指しで並べる（querytest.closure_lines）"""
+    rows = {r.get("unit_key"): r.get("closed") for r in querytest.closure_rows(b)}
+    return {k for k in claimed_units(b) if rows.get(k, True) is True}
+
+
+def claimed_units(b) -> list:
+    """この周の修正役が changes に載せた単位の key（申告。閉じたかは閉鎖の表が決める）"""
+    info = (b.state.get("outputs") or {}).get("p3.fix") or {}
+    if "round" in info and info["round"] != getattr(b, "round", info["round"]):   # 前の周の出力の changes は、今の周の表と突き合わせない
+        return []
     fix = _output(b, "p3.fix") or {}
-    return {c["unit_key"] for c in fix.get("changes") or [] if isinstance(c, dict) and isinstance(c.get("unit_key"), str)}
+    return [c["unit_key"] for c in fix.get("changes") or [] if isinstance(c, dict) and isinstance(c.get("unit_key"), str)]
 
 
 def _unit_row_of(row: str, key: str) -> bool:
@@ -539,7 +549,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     if stuck:
         lines.append(f"{querytest.STUCK_HEAD}: {len(stuck)} 件")
         lines += [f"  - {x}" for x in stuck]
-    closure = querytest.closure_lines(b)
+    closure = querytest.closure_lines(b, claimed=claimed_units(b))
     if closure:
         lines.append(f"{querytest.CLOSURE_HEAD}: {len(closure)} 件")
         lines += [f"  - {x}" for x in closure]

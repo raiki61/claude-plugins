@@ -242,19 +242,26 @@ def _stuck(r: dict) -> bool:
             and after >= total)
 
 
-def closure_lines(b, *, mismatched_only: bool = False, stuck_only: bool = False) -> list:
-    """最後の関所と報告に載せる今の周の表の行（1 件 1 行）: 申告と数え直しが合わない単位と、数え直しで閉じていない単位と、
-    問いの当たりの外に site を並べた単位（パスを並べる。合わないには数えない）。当たりが減っていない単位（_stuck）は
-    見出し STUCK_HEAD の節に分けて stuck_only で返し、既定の列からは外す（二重に並べない）。
-    mismatched_only は合わない単位だけ（前は返答全体を拒んだ形で、関所を開ける理由になる。減っていない単位も含む）"""
+def closure_rows(b) -> list:
+    """今の周の閉鎖の表の行（表が無い・読めない・前の周の物なら空）"""
     try:
         doc = json.loads((pathlib.Path(b.dir) / CLOSURE_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
     if not isinstance(doc, dict) or doc.get("round") != getattr(b, "round", None):
         return []
+    return [r for r in doc.get("rows") or [] if isinstance(r, dict)]
+
+
+def closure_lines(b, *, mismatched_only: bool = False, stuck_only: bool = False, claimed=()) -> list:
+    """最後の関所と報告に載せる今の周の表の行（1 件 1 行）: 申告と数え直しが合わない単位と、数え直しで閉じていない単位と、
+    問いの当たりの外に site を並べた単位（パスを並べる。合わないには数えない）。当たりが減っていない単位（_stuck）は
+    見出し STUCK_HEAD の節に分けて stuck_only で返し、既定の列からは外す（二重に並べない）。
+    mismatched_only は合わない単位だけ（前は返答全体を拒んだ形で、関所を開ける理由になる。減っていない単位も含む）。
+    claimed は修正役が changes に載せた単位の key で、表に行が無い物は既定の列に名指しで足す（申告だけでは閉じたと言わない）"""
+    rows = closure_rows(b)
     out = []
-    for r in doc.get("rows") or []:
+    for r in rows:
         bad = r.get("discrepancies") or []
         outside = r.get("out_of_query") or []
         if stuck_only:
@@ -269,4 +276,8 @@ def closure_lines(b, *, mismatched_only: bool = False, stuck_only: bool = False)
                        f"申告の site {r.get('claimed')}" + (f"・site が覆う当たり {r['covered']}" if r.get("bound") else "") +
                        f"・問い {r.get('how_from')}）" + (f"——合わない: {' / '.join(bad)}" if bad else "") +
                        (f"——問いの外の site {len(outside)} 件: {', '.join(outside)}" if outside else ""))
+    if not (stuck_only or mismatched_only):
+        seen = {r.get("unit_key") for r in rows}
+        out += [f"{k}: 閉鎖の表に行が無い（修正役の申告だけで、機械の数え直しで閉じたと確かめていない）"
+                for k in claimed if k not in seen]
     return out

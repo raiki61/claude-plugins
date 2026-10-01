@@ -159,10 +159,11 @@ class SitePathCase(unittest.TestCase):
 
     def test_sites_piled_on_one_file_do_not_cover_other_files(self):
         sites = [{"site": f"s{i}", "red_seen": i == 0, "path": "a.py"} for i in range(3)]
-        _, row = self.build(sites, total=3, after=1, files={"a.py": 2, "b.py": 1}, counts="population")
+        _, row = self.build(sites, total=3, after=1, files={"a.py": 2, "b.py": 1}, counts="population",
+                              remaining="b.py の 1 件は並行の線の担当")
         self.assertEqual(row["covered"], 2, "同じファイルの site はそのファイルの件数を 1 回だけ足す")
-        self.assertTrue(any("remaining が無い" in d for d in row["discrepancies"]), row)
-        self.assertIs(row["closed"], True, "population の closed は今の式（len(sites) が母数に届くか）のまま")
+        self.assertEqual(row["discrepancies"], [], row)
+        self.assertIs(row["closed"], False, "population の closed は覆った当たりの件数で決める（同じファイルの site は増えない）")
 
     def test_sites_without_path_fall_back_to_the_site_count_with_a_reason(self):
         sites = [{"site": "上限の枝", "red_seen": True, "path": "stats.py"}, {"site": "試験", "red_seen": False}]

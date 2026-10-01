@@ -419,6 +419,30 @@ class ResidueOutcomeCase(unittest.TestCase):
     def test_eyes_all_pass_is_fixed(self):
         self.assertEqual(self.decide(gate(0), eyeing={"ok": True, "reason": "", "reviews": EYES_PASS}), "fixed")
 
+    def test_unit_in_changes_but_not_closed_in_the_table_is_not_fixed(self):
+        """changes に載っても、閉鎖の表で closed が偽の単位は検証器の未解消から外さない → round_limit"""
+        import querytest
+        key = "stats.py clamp: 上限を超えた値に lo を返す"
+        row = f"[block] 未解消: {key}"
+        self.b.round = 1
+        self.b.state = {"outputs": {"p3.fix": {"round": 1}}}
+        self.b.output_of_round = lambda nid, rnd: {"changes": [{"unit_key": key}]}
+        querytest.save_closure(self.b, [{"unit_key": key, "counts": "population", "total": 3, "after": 1, "claimed": 3,
+                                         "covered": 2, "out_of_query": [], "bound": True, "closed": False,
+                                         "discrepancies": []}])
+        rows = report.residue(self.b, gate(1, validator_out(row, FIRST_ROUND)))
+        self.assertEqual([r["text"] for r in rows], [row], "閉じていない単位の未解消の行は残りに残す")
+        self.assertEqual(self.decide(gate(1, validator_out(row, FIRST_ROUND))), "round_limit")
+
+    def test_unit_in_changes_without_a_table_row_is_dropped_from_residue(self):
+        """changes に載って閉鎖の表に行が無い単位は検証器の未解消から外す（名指しは ClaimedWithoutTableRowCase）"""
+        key = "stats.py clamp: 上限を超えた値に lo を返す"
+        row = f"[block] 未解消: {key}"
+        self.b.round = 1
+        self.b.state = {"outputs": {"p3.fix": {"round": 1}}}
+        self.b.output_of_round = lambda nid, rnd: {"changes": [{"unit_key": key}]}
+        self.assertEqual(report.residue(self.b, gate(1, validator_out(row, FIRST_ROUND))), [])
+
     def test_first_round_constant_matches_validator(self):
         """除く帳尻の行の定数は、写しの検証器の本文に字のまま在る（写しが変われば赤になり、黙って除かない）"""
         const = getattr(report, "FIRST_ROUND_LINE", None)
@@ -426,6 +450,52 @@ class ResidueOutcomeCase(unittest.TestCase):
         src = (ROOT / ".shared" / "core" / "scripts" / "review-record.py").read_text(encoding="utf-8")
         self.assertIn(f'"{const}"', src)
         self.assertEqual(const, FIRST_ROUND)
+
+
+class ClaimedWithoutTableRowCase(unittest.TestCase):
+    """changes に載ったのに今の周の閉鎖の表に行が無い単位（数え直しが走らなかった）は、最後の関所と報告の冒頭に名指しで並ぶ"""
+    KEY = "stats.py clamp: 上限を超えた値に lo を返す"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.b = types.SimpleNamespace(state={"outputs": {"p3.fix": {"round": 1}}}, dir=pathlib.Path(self._tmp.name),
+                                       record={"process": {}}, round=1, loop_state={},
+                                       output_of_round=lambda nid, n: {"changes": [{"unit_key": self.KEY}]})
+        self.b.work = lambda name: self.b.dir / name
+
+    def head_text(self):
+        with mock.patch.object(report, "_stop_info", return_value=("", "", None)), \
+                mock.patch.object(report, "_latest", return_value=None), \
+                mock.patch.object(report, "_conflict_line", return_value=""), \
+                mock.patch.object(report, "_rejudge_changes", return_value=[]), \
+                mock.patch.object(report, "_premise_hypotheses", return_value=[]), \
+                mock.patch.object(report, "_pr_lines", return_value=[]):
+            return "\n".join(report.head_decisions(self.b, {}, tests=None))
+
+    def gate_text(self):
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge
+        with mock.patch.object(line_edge, "_tests_head", return_value="緑"), \
+                mock.patch.object(line_edge, "_eyes", return_value=([], [])), \
+                mock.patch.object(line_edge.rejudge, "unsettled", return_value={"settled": True, "text": ""}), \
+                mock.patch.object(line_edge, "_guard", return_value=([], "", "", [])), \
+                mock.patch.object(line_edge.querytest, "unproven_lines", return_value=[]), \
+                mock.patch.object(line_edge, "_final_text", return_value="本文\n"), \
+                mock.patch.object(line_edge, "_write_text"):
+            return line_edge.final_edge(self.b, self._tmp.name, run_id="run-1", mode="always", tests={})["gate_text"]
+
+    def test_unit_without_a_table_row_is_named_in_head_and_final_gate(self):
+        self.assertIn(self.KEY, self.head_text())
+        self.assertIn(self.KEY, self.gate_text())
+
+    def test_unit_closed_in_the_table_is_not_named(self):
+        import querytest
+        querytest.save_closure(self.b, [{"unit_key": self.KEY, "counts": "defects", "total": 1, "after": 0, "claimed": 1,
+                                         "covered": 1, "out_of_query": [], "bound": True, "closed": True,
+                                         "discrepancies": []}])
+        self.assertNotIn(self.KEY, self.head_text())
+        self.assertNotIn(self.KEY, self.gate_text())
 
 
 class NextRequestUnitRowsCase(unittest.TestCase):
