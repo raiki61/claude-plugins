@@ -1170,7 +1170,8 @@ class FenceCase(unittest.TestCase):
 
     def assert_untouched(self, argv, **env_over):
         """道具ゼロ・/・網を閉じた・切符なしの起動: sandbox の鍵は SDK のまま（足すのは柵だけ）で、子の env も向け直さない"""
-        r = self.e.run(argv, **env_over)
+        # 外の UV_CACHE_DIR（CI の setup-uv が立てる）は子へそのまま流れるので外して起こし、向け直していないことだけを見る
+        r = self.e.run(argv, **{"UV_CACHE_DIR": None, **env_over})
         self.assertEqual(r.returncode, 0, r.stderr)
         aw = self.settings()["sandbox"]["filesystem"].get("allowWrite", [])
         self.assertNotIn(self.place(), aw)
