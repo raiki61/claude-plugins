@@ -597,11 +597,11 @@ class Bind(unittest.TestCase):
         return run_ledger(self, ["unbound-save", "--dir", str(self.tmp / "unbound"), "--target", str(self.target),
                                  "--stamp", stamp, "--wrap-ref", wrap_ref, "--github-reads", github_reads], {}, listed)
 
-    def unbound_find(self, run_id, target=None):
-        return run_ledger(self, ["unbound-find", "--dir", str(self.tmp / "unbound"), "--target",
-                                 str(target or self.target), "--run-id", run_id])
+    def unbound_release(self, run_id, target=None, rows=()):
+        return run_ledger(self, ["unbound-release", "--dir", str(self.tmp / "unbound"), "--target",
+                                 str(target or self.target), "--run-id", run_id], {}, json.dumps({"runs": list(rows)}))
 
-    def test_unbound_save_keeps_paths_with_unmarked_candidates_and_find_returns_them(self):
+    def test_unbound_save_keeps_paths_with_unmarked_candidates_and_release_returns_them(self):
         """結べなかった起動の包んだ基と読み出しを、印の無い候補と一緒に控えに残し、候補の run id と対象で引ける"""
         rows = [self.row("bare"), self.row("asked", str(self.request)),
                 self.row("elsewhere", metadata={"workflow_source": {"origin": str(self.tmp)}})]
@@ -610,22 +610,40 @@ class Bind(unittest.TestCase):
         path = self.tmp / "unbound" / "20261002-1.json"
         self.assertEqual(json.loads(path.read_text()), {"wrap_ref": "refs/works/wraps/abc", "github_reads": "/h/reads/1.json",
                                                         "candidates": ["bare"], "target": str(self.target.resolve())})
-        self.assertEqual(self.unbound_find("bare"), (0, f"{path}\trefs/works/wraps/abc\t/h/reads/1.json\n", ""))
         for run_id, target in (("asked", None), ("bare", self.tmp)):
             with self.subTest(run_id=run_id, target=str(target)):
-                self.assertEqual(self.unbound_find(run_id, target), (0, "", ""))
+                self.assertEqual(self.unbound_release(run_id, target), (0, "", ""))
+        self.assertEqual(self.unbound_release("bare"), (0, f"{path}\trefs/works/wraps/abc\t/h/reads/1.json\t\n", ""))
 
-    def test_unbound_save_writes_nothing_without_candidates_or_readable_list(self):
-        """候補が 0 本・一覧が読めなければ控えを書かずに空を返す（呼び手がその場で消す）"""
-        for listed in (json.dumps({"runs": []}), json.dumps({"runs": [self.row("asked", str(self.request))]}), "not json"):
-            with self.subTest(listed=listed[:20]):
-                self.assertEqual(self.unbound_save(listed), (0, "", ""))
-                self.assertFalse((self.tmp / "unbound").exists())
+    def test_unbound_release_keeps_paths_while_another_candidate_lives(self):
+        """ほかの候補が生きて（running・paused・pending）いる間は包んだ基と読み出しを返さず、控えの候補からその run だけを
+        外して書き戻す（生きた run の使う物を消さない）。最後の候補で返す。一覧に無い・終わった候補は生きていない"""
+        self.unbound_save(json.dumps({"runs": [self.row("a"), self.row("b"), self.row("c")]}))
+        path = self.tmp / "unbound" / "20261002-1.json"
+        for status in ("running", "paused", "pending"):
+            with self.subTest(status=status):
+                rows = [dict(self.row("a"), status="completed"), dict(self.row("b"), status=status)]
+                self.assertEqual(self.unbound_release("a", rows=rows), (0, f"{path}\t\t\tb\n", ""))
+                self.assertEqual(json.loads(path.read_text())["candidates"], ["b", "c"])
+                doc = json.loads(path.read_text())
+                path.write_text(json.dumps(dict(doc, candidates=["a", "b", "c"])))
+        rows = [dict(self.row("a"), status="completed"), dict(self.row("b"), status="failed")]
+        self.assertEqual(self.unbound_release("a", rows=rows),
+                         (0, f"{path}\trefs/works/wraps/abc\t/h/reads/1.json\t\n", ""))
 
-    def test_unbound_find_hands_back_only_safe_paths(self):
+    def test_unbound_release_refuses_unreadable_list(self):
+        """一覧が読めなければほかの候補が生きているか分からないので、何も返さず控えも書き換えずに止める"""
+        self.unbound_save(json.dumps({"runs": [self.row("a"), self.row("b")]}))
+        rc, out, err = run_ledger(self, ["unbound-release", "--dir", str(self.tmp / "unbound"), "--target",
+                                         str(self.target), "--run-id", "a"], {}, "not json")
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("JSON として読めない", err)
+        self.assertEqual(json.loads((self.tmp / "unbound" / "20261002-1.json").read_text())["candidates"], ["a", "b"])
+
+    def test_unbound_release_hands_back_only_safe_paths(self):
         """控えの参照は refs/works/wraps/ の下・読み出しは .json の絶対パスの時だけ返す（手で書き換えた控えで別の物を消さない）"""
         self.unbound_save(json.dumps({"runs": [self.row("bare")]}), wrap_ref="refs/heads/main", github_reads="rel.json")
-        self.assertEqual(self.unbound_find("bare"), (0, f"{self.tmp / 'unbound' / '20261002-1.json'}\t\t\n", ""))
+        self.assertEqual(self.unbound_release("bare"), (0, f"{self.tmp / 'unbound' / '20261002-1.json'}\t\t\t\n", ""))
 
     def test_unbound_stamp_must_be_a_file_name(self):
         for stamp in ("", "a/b", ".x"):

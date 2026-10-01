@@ -1,7 +1,7 @@
 """起動の殻の共通の口（設計書 works/docs/specs/2026-09-29-launch-core-design.md の 2.2・2.3）。
 
 python3 -I works/dev/launch.py env --for=<殻> [--claude] [--show] [--target <解いた対象の根>] [--adapter <包みの実パス>]
-python3 -I works/dev/launch.py ledger save|load|list|bind|unbound-save|unbound-find …（下の LEDGER_USAGE）
+python3 -I works/dev/launch.py ledger save|load|list|bind|unbound-save|unbound-release …（下の LEDGER_USAGE）
 
 env: 殻 4 本（use.sh・dogfood.sh・real-run.sh・archon.sh）の家の既定・claude の解決・包みの既定とラインの入力 adapter の値
 （WORKS_LAUNCH_ADAPTER_MODE）を 1 か所で持ち、sh の代入の行で返す。--show は dogfood.sh --show の時だけ渡す。
@@ -11,7 +11,8 @@ list は lib.sh works_dev_ledgers のタブ区切りの 5 欄で読み、load �
 bind は標準入力の run の一覧から、盤面の依頼がこの起動の依頼の写しと一致する run がちょうど 1 本の時だけ結んで控えを書く。
 unbound-save は結べなかった起動の後に、標準入力の run の一覧の候補（依頼の写しも読み出しも持たない run。bind が結べない文に
 並べる物と同じ）が在れば、起動が使う包んだ基と読み出しを候補と一緒に結べない控え <置き場>/<印>.json に書いて候補を空白区切りの
-1 行で出す。unbound-find は候補にその run を持ちその対象の結べない控えを 1 つ探し、パス・包んだ基・読み出しをタブ区切りの 1 行で出す。
+1 行で出す。unbound-release は候補にその run を持ちその対象の結べない控えを 1 つ探し、パス・包んだ基・読み出し・まだ生きている
+ほかの候補をタブ区切りの 1 行で出す（生きた候補が在れば包んだ基と読み出しは空にし、控えの候補からその run だけを外す）。
 代入の行を返す動詞の 1 行目は版の行 WORKS_LAUNCH_FORMAT=1。値は shlex.quote で囲み、名は動詞ごとの許した一覧に在る物だけを出す
 （shlex.quote は名を守らない）。
 claude が見つからなくても WORKS_LAUNCH_CLAUDE を空で返して 0 で終わる。止めるか・どの文言で止めるかは殻の今の場所が決める。
@@ -45,7 +46,8 @@ LEDGER_USAGE = ("launch.py ledger save --dir <置き場> --run-id <id> --target 
                 " | ledger bind --for <呼び手> --dir <置き場> --target <dir> --request <依頼の写し> --model-value <値>"
                 " --model-from <出どころ> [--wrap-ref <参照>] [--github-reads <読み出しのファイル>]（標準入力に archon workflow runs --json）"
                 " | ledger unbound-save --dir <置き場> --target <dir> --stamp <印> [--wrap-ref <参照>] [--github-reads <読み出しのファイル>]"
-                "（標準入力に archon workflow runs --json） | ledger unbound-find --dir <置き場> --target <dir> --run-id <id>")
+                "（標準入力に archon workflow runs --json） | ledger unbound-release --dir <置き場> --target <dir> --run-id <id>"
+                "（標準入力に archon workflow runs --json）")
 
 
 class Refused(Exception):
@@ -170,7 +172,7 @@ LEDGER_OPTIONS = {
     "load": ({"dir", "run-id"}, set()),
     "bind": ({"for", "dir", "target", "request", "model-value", "model-from"}, {"wrap-ref", "github-reads"}),
     "unbound-save": ({"dir", "target", "stamp"}, {"wrap-ref", "github-reads"}),
-    "unbound-find": ({"dir", "target", "run-id"}, set()),
+    "unbound-release": ({"dir", "target", "run-id"}, set()),
 }
 
 
@@ -423,8 +425,19 @@ def _unbound_save(opts, stdin):
     return " ".join(found) + "\n"
 
 
-def _unbound_find(opts):
+LIVE_STATUSES = ("running", "paused", "pending")
+
+
+def _unbound_release(opts, stdin):
+    # clean <対象> <run-id> が呼ぶ。ほかの候補がまだ生きている間はその run が包んだ基と読み出しを使うかもしれないので返さず、
+    # 控えの候補からこの run だけを外して書き戻す。最後の候補の時だけ返す（消すのと控えを消すのは呼び手）。一覧が読めなければ
+    # 生きているかが分からないので止める
     here, run_id = os.path.realpath(opts["target"]), opts["run-id"]
+    try:
+        rows = _darkfactory_rows(stdin, here)
+    except ValueError as e:
+        raise Refused(f"archon workflow runs --json の出力が JSON として読めない（{e}）")
+    live = {r.get("id") for r in rows if r.get("status") in LIVE_STATUSES}
     for path in sorted(glob.glob(os.path.join(glob.escape(opts["dir"]), "*.json"))):
         try:
             with open(path, encoding="utf-8") as f:
@@ -434,7 +447,15 @@ def _unbound_find(opts):
         if not (isinstance(doc, dict) and doc.get("target") == here and isinstance(doc.get("candidates"), list)
                 and run_id in doc["candidates"]):
             continue
-        return "\t".join((path, *_kept_paths(doc))) + "\n"
+        rest = [c for c in doc["candidates"] if c != run_id]
+        alive = [c for c in rest if c in live]
+        if not alive:
+            return "\t".join((path, *_kept_paths(doc), "")) + "\n"
+        part = f"{path}.{os.getpid()}.part"
+        with open(part, "w", encoding="utf-8") as f:
+            f.write(json.dumps(dict(doc, candidates=rest), ensure_ascii=False) + "\n")
+        os.replace(part, path)
+        return "\t".join((path, "", "", " ".join(alive))) + "\n"
     return ""
 
 
@@ -449,8 +470,8 @@ def ledger(args, environ, err, stdin):
         return _ledger_load(opts, err)
     if sub == "unbound-save":
         return _unbound_save(opts, stdin)
-    if sub == "unbound-find":
-        return _unbound_find(opts)
+    if sub == "unbound-release":
+        return _unbound_release(opts, stdin)
     return _ledger_bind(opts, environ, stdin)
 
 

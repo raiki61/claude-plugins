@@ -415,6 +415,41 @@ class UseShell(unittest.TestCase):
         self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
         self.assertEqual(list((self.home / "unbound").iterdir()), [])
 
+    def test_unbound_clean_keeps_paths_while_another_candidate_lives(self):
+        """結べない起動の控えに候補が 2 本在る時、終わった 1 本を clean しても、もう 1 本が生きて（paused）いる間は包んだ基と
+        読み出しを消さず、控えの候補からその run だけを外す。最後の候補の clean で全部消す（生きた run の使う物を消さない）"""
+        t = self.target()
+        (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
+        two = lambda first, wt="": self.runs.write_text(json.dumps({"runs": [
+            {"id": "run-1", "workflow_name": "darkfactory", "status": first, "working_path": wt},
+            {"id": "run-2", "workflow_name": "darkfactory", "status": "paused"}]}))
+        two("paused")
+        r = self.use("start", "--base", "HEAD", str(t), "-", "true", "")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        [kept] = list((self.home / "unbound").iterdir())
+        # 読み出しを持つ起動の形にする（--base だけの起動は読み出しを持たないので、控えに足す）
+        reads = self.home / "reads" / "x.json"
+        reads.parent.mkdir(parents=True, exist_ok=True)
+        reads.write_text("{}")
+        doc = json.loads(kept.read_text())
+        self.assertEqual(doc["candidates"], ["run-1", "run-2"])
+        kept.write_text(json.dumps(dict(doc, github_reads=str(reads))))
+        wt = self.tmp / "run-wt"
+        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
+        two("completed", str(wt))
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotEqual(git(t, "for-each-ref", "refs/works/"), "")
+        self.assertTrue(reads.exists())
+        self.assertEqual(json.loads(kept.read_text())["candidates"], ["run-2"])
+        self.assertFalse(wt.exists())                                     # run の worktree は今どおり片付ける
+        self.runs.write_text(json.dumps({"runs": [{"id": "run-2", "workflow_name": "darkfactory", "status": "completed"}]}))
+        r = self.use("clean", str(t), "run-2", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
+        self.assertFalse(reads.exists())
+        self.assertEqual(list((self.home / "unbound").iterdir()), [])
+
     def test_clean_removes_reads_file_of_run(self):
         """結べた run の読み出しのファイルは run の控えに残し、clean が run と一緒に消す（起動の関所で取り消して start が
         写さなかった run の残りも掃く）"""
