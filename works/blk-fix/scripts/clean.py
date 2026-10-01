@@ -6,9 +6,10 @@
 
 修正役はテストを回すので、__pycache__ などの git が無視する生成物を残す。差分（fix.diff）には載らないが、後のテストの節の
 緑赤を左右する（自分食いの run で、バイトコードが無いことを見る試験が偽の赤になった）。盤面の fix-ignored-before.json
-（節 ignored-before の控え）に無かった物だけを消す（leftovers の remove_new_ignored。前から在った .venv などと、前から
+（節 ignored-before の控え）に無かった物だけを消す（leftovers の remove_new_ignored。前から在った .venv などの中身と、前から
 在ったフォルダは残す）。
-- 消した（0 本も含む）: {"ok": true, "removed": [消したパス]} を 1 行出して 0。collect が出口に並べて人に見せる
+- 消した（0 本も含む）: 全件を盤面の fix-removed.json に書き、{"ok": true, "count": 件数, "file": そのパス} を 1 行出して 0。
+  stdout の大きさは件数によらない（実行器は出力の上限を越えた子を殺す）。collect が件数とファイルを出口に通す
 - ARTIFACTS_DIR が無い・空: 標準エラーに名前を出して 2
 - 控えが無い・読めない・git が効かない・消せない: 標準エラーに理由を 1 行出して 1（生成物の残る木でテストを回さない）
 """

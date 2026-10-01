@@ -477,7 +477,7 @@ class LineRun:
     def blk_fix(self):
         self._edit("fix")
         self.take("p3.fix", self.replies["fix"])
-        return {"ok": True, "files": ["stats.py"], "changes_file": "", "removed": []}
+        return {"ok": True, "files": ["stats.py"], "changes_file": "", "removed": {"count": 0, "file": ""}}
 
     def blk_rejudge(self):
         """blk-rejudge の中の節の順（rj-snap → 段ごとに経路 rj-route<k> → 支度・役・受け付けの輪 → 出口 collect）を本物の口で回す。

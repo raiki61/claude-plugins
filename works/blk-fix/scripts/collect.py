@@ -8,7 +8,8 @@
 - INPUTS_ACCEPTED: 輪（fix-loop）の出力 = 最後の周の fix-accept の出力（{ok, reason, changes, …} の JSON の文字列）
 - INPUTS_RULED: 2 回目の修正の輪（fix-ruled-loop。食い違いの裁定の後）の出力。飛ばされれば文字列 null（在れば ACCEPTED の代わり）
 - INPUTS_CHANGED: assert-changed の出力（{ok, files} の JSON の文字列）
-- INPUTS_CLEANED: clean の出力（{ok, removed} の JSON の文字列。修正役が残した git が無視するファイルのうち消した物）
+- INPUTS_CLEANED: clean の出力（{ok, count, file} の JSON の文字列。修正役が残した git が無視するファイルのうち消した物の
+  件数と、全件を書いた盤面のファイル。出口の removed に {count, file} でそのまま通し、ファイルは開かない）
 - INPUTS_TDD: tdd-start の出力（{go, reason, suite, state_file, summary_file} の JSON の文字列。いつも走る節）
 - ARTIFACTS_DIR: 盤面はその下の board/
 中身は recount.collect: 受け付けた changes を今の周の changes.json（{"changes": [...]}）に書き、1 本目の欄
@@ -56,9 +57,10 @@ def collect():
     artifacts = os.environ.get("ARTIFACTS_DIR")
     if not artifacts:
         raise recount.Unreadable("環境変数が無い: ARTIFACTS_DIR")
-    removed = cleaned.get("removed")
-    if cleaned.get("ok") is not True or not isinstance(removed, list) or not all(isinstance(f, str) for f in removed):
-        raise recount.Unreadable(f"clean の出力に removed が無い（{cleaned!r}）")
+    count, file = cleaned.get("count"), cleaned.get("file")
+    if cleaned.get("ok") is not True or type(count) is not int or count < 0 or not isinstance(file, str):
+        raise recount.Unreadable(f"clean の出力に count・file が無い（{cleaned!r}）")
+    removed = {"count": count, "file": file}
     board = pathlib.Path(artifacts) / "board"
     if accepted.get("ok") is not True or changed.get("ok") is not True:
         st = entry.open_board(board, allow_halted=True).state

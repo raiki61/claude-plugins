@@ -1071,8 +1071,8 @@ fix-ruled-accept:
     what: clamp の上限の枝で hi を返すように直した
 fixing__clean:
   ok: true
-  removed:
-  - __pycache__/test_stats.cpython-314.pyc
+  count: 1
+  file: board/fix-removed.json
 fixing__assert-changed:
   ok: true
   files:
@@ -1086,7 +1086,8 @@ fixing__collect:
   - stats.py
   changes_file: board/changes.json
   removed:
-  - __pycache__/test_stats.cpython-314.pyc
+    count: 1
+    file: board/fix-removed.json
   tdd:
     ran: false
     suite: ''

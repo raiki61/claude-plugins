@@ -48,7 +48,7 @@ collect:
   ok: true
   files: [stats.py]
   changes_file: board/r<N>/changes.json
-  removed: []
+  removed: {count: 0, file: board/fix-removed.json}
   fix_file: board/out/r<N>/p3.fix.json
   not_done: 0
   coverage: {}

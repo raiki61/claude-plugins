@@ -18,6 +18,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 - herdr の枠の集計（run を起こしたペインの「走る」「人の番」の表示）が一度も出ていなかった。herdr に無い最上位のコマンド `herdr report-agent`・`herdr release-agent` を呼び、エラーを捨てていたため。`herdr pane report-agent`・`herdr pane release-agent` に直し、解除にも通し番号（`--seq`）を付けた（付けないと解除が受けられず、表示が残りうる）。試験の偽の herdr は何でも受けていたので、実物と同じく `pane` の下の 2 つの形だけを受け、ほかは `unknown command` で落ちるようにした（`tests/hermetic.py` の `fake_herdr` 1 か所にまとめた）。
 - `dev/dogfood.sh`・`dev/real-run.sh` で起こした run の herdr の枠の集計が、起動の直後の「人の番」のまま進まなかった。殻が出す承認・関所の答え・続き・止める（reject）・取り消し（cancel）の行の後段 `--show <dir> <run-id>` が、Archon が戻った後にその run の今の状態で集計を出すようにした（`lib.sh` の `works_dev_show_synced` 1 か所。控えは書き直さない）。止める・取り消しの行にも後段を付け、`real-run.sh` にも `--show <dir> <run-id>` を足した。
+- 修正の段の片付けの節（fixing__clean）が、前から在った無視のフォルダ（`.venv`・`node_modules` など）の中に修正役が足したファイルを 1 本ずつ消して環境を壊し、消したパスを全部出力して Archon の出力の上限で落ちていた。前から在った無視のフォルダの下は触らず、消した物の一覧は盤面のファイル（`fix-removed.json`）に書いて、出力は件数とそのパスだけにした。
 - 修正の段の役の会話が、背景の作業を残したまま引き継がれると 1 手も進まずに終わり、起こし直しを繰り返して run が落ちていた。役の会話では背景の作業を起こせないようにした。
 
 ## [0.2.8] - 2026-10-01

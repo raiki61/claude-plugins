@@ -103,7 +103,12 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(set(out["properties"]), {"ok", "files", "changes_file", "removed", "tdd", "fix_file", "not_done",
                                                   "coverage", "reads_file", "reason"})
         self.assertEqual(set(out["required"]), {"ok", "files", "changes_file", "removed", "tdd"})
-        self.assertEqual(out["properties"]["removed"], {"type": "array", "items": {"type": "string"}})
+        # 消したパスの全件は出口に持たない（出口の大きさに上限が在る）。件数と全件を書いた盤面のファイルだけ
+        self.assertEqual(out["properties"]["removed"]["type"], "object")
+        self.assertEqual(set(out["properties"]["removed"]["required"]), {"count", "file"})
+        clean = find_node(y["nodes"], "clean")["output_format"]
+        self.assertEqual(set(clean["required"]), {"ok", "count", "file"})
+        self.assertNotIn("removed", clean["properties"])
         self.assertEqual(out["properties"]["ok"]["type"], "boolean")
         self.assertEqual(out["properties"]["files"], {"type": "array", "items": {"type": "string"}})
         self.assertEqual(out["properties"]["changes_file"]["type"], "string")
@@ -915,7 +920,7 @@ class TestCollect(BoardCase):
 
     def run_it(self, accepted, changed, cleaned=None):
         if cleaned is None:
-            cleaned = {"ok": True, "removed": []}
+            cleaned = {"ok": True, "count": 0, "file": "/b/fix-removed.json"}
         env = {"INPUTS_ACCEPTED": accepted if isinstance(accepted, str) else json.dumps(accepted, ensure_ascii=False),
                "INPUTS_CHANGED": json.dumps(changed), "INPUTS_CLEANED": json.dumps(cleaned),
                "INPUTS_TDD": json.dumps(NO_SUITE_START, ensure_ascii=False), "ARTIFACTS_DIR": str(self.art)}
@@ -930,7 +935,8 @@ class TestCollect(BoardCase):
 
     def test_exit_keeps_v1_fields(self):
         acc = self.accepted()
-        code, out, err = self.run_it(acc, {"ok": True, "files": ["stats.py"]}, {"ok": True, "removed": ["__pycache__/"]})
+        code, out, err = self.run_it(acc, {"ok": True, "files": ["stats.py"]},
+                                     {"ok": True, "count": 1, "file": "/b/fix-removed.json"})
         self.assertEqual(code, 0, err)
         r = json.loads(out)
         self.assertLessEqual({"ok", "files", "changes_file", "removed"}, set(r), "1 本目の欄を全部残す")
@@ -938,7 +944,8 @@ class TestCollect(BoardCase):
         # 実行器の無い run（tdd-start が go: false）: 1 本目の欄は今と同じで、tdd は ran: false・単位は空
         self.assertEqual(r["tdd"], {"ran": False, "suite": "", "reason": NO_SUITE_START["reason"], "units": []})
         b = entry.open_board(self.board)
-        self.assertEqual((r["ok"], r["files"], r["removed"]), (True, ["stats.py"], ["__pycache__/"]))
+        self.assertEqual((r["ok"], r["files"], r["removed"]), (True, ["stats.py"], {"count": 1, "file": "/b/fix-removed.json"}),
+                         "clean の件数とファイルをそのまま通す（全件は出口に持たない）")
         self.assertEqual(r["changes_file"], str(b.work("changes.json")))
         self.assertEqual(json.loads(pathlib.Path(r["changes_file"]).read_text(encoding="utf-8")), {"changes": acc["changes"]},
                          "changes.json は 1 本目の形（{changes: [{unit_key, files, what}]}）")
@@ -961,8 +968,9 @@ class TestCollect(BoardCase):
         # 盤面が受けた返答の not_done を数える（受け付けた後に書き換えた写しで、数える先が盤面の出力であることを見る）
         out["not_done"] = [{"unit_key": MEAN, "why": "fork の出どころ"}]
         f.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
-        r = json.loads(self.run_it(acc, {"ok": True, "files": ["stats.py"]})[1])
-        self.assertEqual(r["not_done"], 1)
+        code, out, err = self.run_it(acc, {"ok": True, "files": ["stats.py"]})
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["not_done"], 1)
 
     def test_refuses_unaccepted_or_unreadable(self):
         acc = self.accepted()
@@ -977,7 +985,9 @@ class TestCollect(BoardCase):
 
     def test_refuses_without_clean_output(self):
         acc = self.accepted()
-        for cleaned in ({"ok": True}, {"ok": False, "removed": []}, {"ok": True, "removed": [1]}):
+        for cleaned in ({"ok": True}, {"ok": False, "count": 0, "file": "/b/f.json"}, {"ok": True, "count": -1, "file": "/b/f.json"},
+                        {"ok": True, "count": True, "file": "/b/f.json"}, {"ok": True, "count": 0, "file": 1},
+                        {"ok": True, "removed": []}):
             with self.subTest(cleaned=cleaned):
                 code, out, _ = self.run_it(acc, {"ok": True, "files": ["stats.py"]}, cleaned)
                 self.assertEqual((code, out), (2, ""))
@@ -1002,7 +1012,7 @@ class TestGiveUpOnBoard(BoardCase):
     def collect(self, accepted, changed):
         return run_script("collect", self.repo, {
             "INPUTS_ACCEPTED": json.dumps(accepted, ensure_ascii=False), "INPUTS_CHANGED": json.dumps(changed, ensure_ascii=False),
-            "INPUTS_CLEANED": json.dumps({"ok": True, "removed": ["x.pyc"]}),
+            "INPUTS_CLEANED": json.dumps({"ok": True, "count": 1, "file": "/b/fix-removed.json"}),
             "INPUTS_TDD": json.dumps(NO_SUITE_START, ensure_ascii=False), "ARTIFACTS_DIR": str(self.art)})
 
     def assert_halted(self, *words):
@@ -1025,7 +1035,8 @@ class TestGiveUpOnBoard(BoardCase):
         code, out, err = self.collect(accepted, r)
         self.assertEqual(code, 0, err)
         c = json.loads(out)
-        self.assertEqual((c["ok"], c["files"], c["changes_file"], c["removed"]), (False, [], "", ["x.pyc"]))
+        self.assertEqual((c["ok"], c["files"], c["changes_file"], c["removed"]),
+                         (False, [], "", {"count": 1, "file": "/b/fix-removed.json"}))
         self.assertIn("変わっていない", c["reason"])
         self.assertEqual(c["tdd"]["ran"], False, "1 本目の欄と tdd を持つ")
 
@@ -1082,6 +1093,15 @@ class TestCleanIgnored(ScriptCase):
     def ignored(self):
         return git(self.repo, "status", "--porcelain", "--ignored", "--untracked-files=all")
 
+    def removed(self, out):
+        """clean の出口は {ok, count, file}（件数によらず大きさが一定）。消したパスの全件は file の {"removed": [...]} に在る"""
+        r = json.loads(out)
+        self.assertEqual(set(r), {"ok", "count", "file"}, "消したパスの全件を stdout に出さない")
+        self.assertIs(r["ok"], True)
+        listed = json.loads(pathlib.Path(r["file"]).read_text(encoding="utf-8"))["removed"]
+        self.assertEqual(r["count"], len(listed))
+        return listed
+
     def test_removes_only_what_the_fixer_left(self):
         # 前から在った無視されるファイル（対象の .venv の代わりに __pycache__ の下の 1 本）は残す
         (self.repo / "__pycache__").mkdir()
@@ -1101,15 +1121,37 @@ class TestCleanIgnored(ScriptCase):
         self.assertGreater(len(made), 1, r.stderr)
         code, out, err = run_script("clean", self.repo, self.env())
         self.assertEqual(code, 0, err)
-        removed = json.loads(out)["removed"]
+        removed = self.removed(out)
         self.assertIn("sub/__pycache__/x.pyc", removed)
         self.assertNotIn("__pycache__/old.pyc", removed)
-        self.assertEqual(sorted(p.name for p in (self.repo / "__pycache__").iterdir()), ["old.pyc"])
+        self.assertEqual(sorted(p.name for p in (self.repo / "__pycache__").iterdir()), sorted(made),
+                         "前から在った無視のフォルダの中身は、増えていても消さない")
         self.assertFalse((self.repo / "sub").exists(), "空になった親のフォルダも消す")
-        self.assertEqual([l for l in self.ignored().splitlines() if l.startswith("!!")],
-                         [l for l in before.splitlines() if l.startswith("!!")], "無視される物は修正役の前と同じ")
+        self.assertEqual([l for l in self.ignored().splitlines() if l.startswith("!! ") and not l[3:].startswith("__pycache__/")],
+                         [l for l in before.splitlines() if l.startswith("!! ") and not l[3:].startswith("__pycache__/")],
+                         "前から在った無視のフォルダの外の、無視される物は修正役の前と同じ")
         self.assertEqual((self.repo / "stats.py").read_text(), "x = 1\n")
         self.assertTrue((self.repo / "helper.py").exists())
+
+    def test_keeps_new_files_inside_ignored_dir_that_was_there_before(self):
+        # 前から在った対象の仮想環境（無視のフォルダ）に修正役が依存を足しても、中身は 1 本も消さない。新しい無視のフォルダは丸ごと消す
+        (self.repo / ".gitignore").write_text("__pycache__/\n*.pyc\n**/.venv\n")
+        git(self.repo, "commit", "-q", "-am", "ignore .venv")
+        venv = self.repo / "svc" / ".venv"
+        (venv / "lib").mkdir(parents=True)
+        (venv / "lib" / "old.py").write_text("o\n")
+        self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
+        added = [venv / "lib" / "pkg" / f"m{i}.py" for i in range(50)]
+        added[0].parent.mkdir()
+        for p in added:
+            p.write_text("m\n")
+        (self.repo / "svc2" / ".venv" / "lib").mkdir(parents=True)
+        (self.repo / "svc2" / ".venv" / "lib" / "n.py").write_text("n\n")
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        self.assertEqual([p for p in added if not p.exists()], [], "前から在った .venv に足したファイルは残す")
+        self.assertTrue((venv / "lib" / "old.py").exists())
+        self.assertFalse((self.repo / "svc2").exists(), "修正役の後に出来た無視のフォルダは消す")
 
     def test_keeps_empty_dir_that_was_there_before(self):
         # 前から在った空のフォルダ（対象の道具が作る build/ など）に修正役が無視されるファイルを置いても、消すのはファイルだけ
@@ -1126,7 +1168,7 @@ class TestCleanIgnored(ScriptCase):
         (self.repo / "src" / "new" / "__pycache__" / "z.pyc").write_bytes(b"z")
         code, out, err = run_script("clean", self.repo, self.env())
         self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads(out)["removed"], ["build/empty/x.pyc", "src/cache/y.pyc", "src/new/__pycache__/z.pyc"])
+        self.assertEqual(self.removed(out), ["build/empty/x.pyc", "src/cache/y.pyc", "src/new/__pycache__/z.pyc"])
         self.assertTrue((self.repo / "build" / "empty").is_dir(), "前から在った空のフォルダは残す")
         self.assertTrue((self.repo / "src" / "cache").is_dir(), "前から在った空のフォルダは残す")
         self.assertFalse((self.repo / "src" / "new").exists(), "修正役の後に出来たフォルダは消す")
@@ -1144,8 +1186,21 @@ class TestCleanIgnored(ScriptCase):
 
     def test_nothing_left(self):
         self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
-        code, out, _ = run_script("clean", self.repo, self.env())
-        self.assertEqual((code, json.loads(out)), (0, {"ok": True, "removed": []}))
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.removed(out), [])
+
+    def test_stdout_stays_small_however_many_removed(self):
+        # 子の stdout と節の出口には上限が在る（実行器が越えた子を殺す）。件数がいくら増えても stdout の大きさは一定
+        self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
+        (self.repo / "logs").mkdir()
+        for i in range(3000):
+            (self.repo / "logs" / f"m{i:04d}.pyc").write_bytes(b"x")
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        self.assertLess(len(out.encode("utf-8")), 1024, "消したパスの全件を stdout に出さない")
+        self.assertEqual(len(self.removed(out)), 3000, "件数と全件はファイルで保つ")
+        self.assertFalse((self.repo / "logs").exists())
 
     def test_archon_dir_is_left_alone(self):
         (self.repo / ".gitignore").write_text("__pycache__/\n*.pyc\n.archon/\n")
@@ -1153,8 +1208,9 @@ class TestCleanIgnored(ScriptCase):
         self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
         (self.repo / ".archon").mkdir()
         (self.repo / ".archon" / "x.yaml").write_text("a: 1\n")
-        code, out, _ = run_script("clean", self.repo, self.env())
-        self.assertEqual((code, json.loads(out)["removed"]), (0, []))
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.removed(out), [])
         self.assertTrue((self.repo / ".archon" / "x.yaml").exists())
 
     def test_without_record_removes_nothing(self):
