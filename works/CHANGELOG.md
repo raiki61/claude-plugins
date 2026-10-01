@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-10-01
+
 ### Added
 
 - 修正の後の局所レビューのブロック `blk-lens` を足し、darkfactory の差分の審査（reviewing）の前に置いた（修正が差分を作った run だけ。[ADR 0072](../docs/adr/0072-works-post-fix-lens-block.md)）。レンズは利用者が入れた pr-review-toolkit の silent-failure-hunter の 1 本で、定義の本文を指示書に貼った節が Read・Grep・Glob だけで読む。指摘は出どころ（レンズの名）つきで盤面の今の周の `lens.json` に残り、1 回目の差分の審査役の brief の `lens` に載って、審査役が検算して穴にする。落ちたレンズ・起こさなかったレンズは報告の「## 未確認のレンズ」に名前と理由で出る。集め役が落ちた run は差分の審査へ進まずに止まる（`works:lens`）。手直しの差分にはレンズが当たらない。
