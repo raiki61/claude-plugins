@@ -170,6 +170,7 @@ nodes:
           command: review2
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob]
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # refix.output_format("review2")（写しの p3.delta_review2 の schema に印 works-node: review2）を貼った物

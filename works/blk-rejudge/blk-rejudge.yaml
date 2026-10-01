@@ -102,6 +102,7 @@ nodes:
           context: fresh              # Archon には会話を継がせない。継ぐのは包み（印の continue=judge）
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # rejudge.output_format("p2.rejudge")（写しの schema に印）を貼った物（tests/test_blk_rejudge.py が一致を見る）
@@ -336,6 +337,7 @@ nodes:
           depends_on: [rejudge-third-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # rejudge.output_format("p2.rejudge_third")（写しの schema に印）を貼った物（tests/test_blk_rejudge.py が一致を見る）

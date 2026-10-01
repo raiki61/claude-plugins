@@ -38,6 +38,7 @@ nodes:
     when: "$lens-route.output.silent_failure_hunter_go == true"
     settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
     allowed_tools: [Read, Grep, Glob]   # 読むだけ。定義（pr-review-toolkit）は全部の道具を持つが、子を起こす形はまとめ役に戻るので持たせない
+    mutates_checkout: false
     sandbox: {enabled: true, allowUnsandboxedCommands: false}
     idle_timeout: 1728000000
     output_format:

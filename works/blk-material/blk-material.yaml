@@ -319,6 +319,7 @@ nodes:
         - Read
         - Grep
         - Glob
+        mutates_checkout: false
         sandbox:
           enabled: true
           allowUnsandboxedCommands: false
@@ -638,6 +639,7 @@ nodes:
         - Read
         - Grep
         - Glob
+        mutates_checkout: false
         sandbox:
           enabled: true
           allowUnsandboxedCommands: false
@@ -843,6 +845,7 @@ nodes:
         when: $hygiene-prep.output.stopped == false
         settingSources: [user]
         allowed_tools: []
+        mutates_checkout: false
         sandbox:
           enabled: true
           allowUnsandboxedCommands: false

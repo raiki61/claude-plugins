@@ -104,6 +104,7 @@ nodes:
           depends_on: [r2-design-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。包みが旗 isolated を見て Git の外の置き場で起こす（git status が入らない）
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # planblk.output_format("r2-design")（写しの r2.design の schema に印 works-node: r2-design isolated）を貼った物（tests/test_blk_plan.py が一致を見る）
@@ -210,6 +211,7 @@ nodes:
           depends_on: [plan-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # planblk.output_format("plan")（写しの p2.fix_plan の schema に印 works-node: plan）を貼った物。番号の欄は番号でも返せる（tests/test_blk_plan.py が一致を見る）
@@ -386,6 +388,7 @@ nodes:
           depends_on: [plan-review-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # planblk.output_format("plan-review")（写しの p2.plan_review の schema に印 works-node: plan-review）を貼った物

@@ -5,6 +5,7 @@ nodes:
   - id: fix
     prompt: 直せ
     allowed_tools: [Read, Grep, Glob]
+    mutates_checkout: false
     skills: [test-driven-development, systematic-debugging, verification-before-completion]
     settingSources: [user]
     sandbox: {enabled: true, allowUnsandboxedCommands: false}

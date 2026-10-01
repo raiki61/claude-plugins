@@ -24,6 +24,10 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     rejudge・rejudge-third、blk-purpose の purpose、blk-report の report-items・report-write、blk-spec の spec-review
   - blk-premises/blk-premises.yaml の節 premises（測る役）: 読む道具に Bash と web（測るためにコマンドを走らせるが書く道具は
     持たない。Bash は狭い sandbox の中。作業ツリーを変えれば受け付けが写しと比べて拒む）
+- 書く役でなく Bash・Edit・Write（TREE_CHANGERS）も持たない AI の節は節の段の mutates_checkout: false を持ち、それ以外の AI の節は
+  持たない（設計書 7 節の読むだけの役）。Bash を持つ読む役は、受け付けの出し直しで自分の残し物を片付けて通る道を残す。
+  false の節では Archon が節の前のやり直し用の checkpoint を作らないが、作業ツリーを変える道具が無いので巻き戻す物も、
+  resume の時に基準へ残る前の試みの汚れも無い
 - AI の節は settingSources: [user] を持つ（P1 計画 Task 20・裁定 P1-R8）。役は開発の殻が隔離した CLAUDE_CONFIG_DIR だけを読み、
   そこには許す一覧（.shared/borrow/borrow.json）の物しか無い（dev/toolset.py が組み、柵が一覧の外を拒む）。対象の CLAUDE.md
   （project）は読ませない。書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す。
@@ -50,6 +54,7 @@ TESTS = pathlib.Path(__file__).resolve().parent
 
 DEADLINE = 1728000000                     # 20 日（ms）
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob"}
+TREE_CHANGERS = {"Bash", "Edit", "Write"}   # 作業ツリーを変えうる道具（持つ節は mutates_checkout: false を書かない）
 WRITER = ("blk-fix", "blk-fix.yaml", "fix")   # 書く道具を持ってよい節: (フォルダ, ファイル, 節)
 TDD_WRITER = ("blk-fix", "blk-fix.yaml", "tdd")   # TDD の輪の修正役（テストを書く・直す・整える。設計 4 節）
 RULED_WRITER = ("blk-fix", "blk-fix.yaml", "fix-ruled")   # 食い違いの裁定の後の 2 回目の修正役（修正役の会話の続き。印 continue=fix）
@@ -220,6 +225,12 @@ def _check_node(node, where, place, out):
             elif not set(tools) <= allowed:
                 out.append(f"{at}: AI の節の allowed_tools が {sorted(allowed)} の外を持つ"
                            f"（{sorted(set(tools) - allowed)}）")
+        mc = node.get("mutates_checkout", "（無し）")
+        if allowed is None or not isinstance(tools, list) or set(tools) & TREE_CHANGERS:
+            if mc is False:
+                out.append(f"{at}: Bash か書く道具を持つ節に mutates_checkout: false を書いた（受け付けの出し直しが走らなくなる）")
+        elif mc is not False:
+            out.append(f"{at}: AI の節の mutates_checkout が false でない（{mc!r}。読むだけの節はエンジンにも守らせる）")
         ss = node.get("settingSources", "（無し）")
         if ss != ["user"]:
             out.append(f"{at}: AI の節の settingSources が [user] でない（{ss!r}。役は隔離した設定の置き場"
@@ -449,7 +460,8 @@ class YamlRulesCase(unittest.TestCase):
             p = pathlib.Path(tmp) / "w.yaml"
             p.write_text("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n    settingSources: [user]\n"
                          "    sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}\n"
-                         "    idle_timeout: 1728000000\n    output_format: {type: object}\n", encoding="utf-8")
+                         "    idle_timeout: 1728000000\n    output_format: {type: object}\n    mutates_checkout: false\n",
+                         encoding="utf-8")
             self.assertEqual(check_file(p), [])
 
     def test_measurer_allowed_only_in_blk_premises(self):
@@ -510,7 +522,7 @@ class YamlRulesCase(unittest.TestCase):
     def test_setting_sources_user_only(self):
         base = ("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n"
                 "    sandbox: {enabled: true, allowUnsandboxedCommands: false}\n"
-                "    idle_timeout: 1728000000\n    output_format: {type: object}\n")
+                "    idle_timeout: 1728000000\n    output_format: {type: object}\n    mutates_checkout: false\n")
         with tempfile.TemporaryDirectory() as tmp:
             bad = "w.yaml: 節 judge: AI の節の settingSources が [user] でない"
             outside = "w.yaml: 節 judge: AI の節の skills: が借りたスキルの一覧の外を持つ"
@@ -575,6 +587,58 @@ class RoleSessionCase(unittest.TestCase):
                                  f"{rid} より前に AI の節か include が在る（前の会話を引き継ぐ恐れ）")
                 others = [m["id"] for m in inner.values() if m["id"] != rid and _is_ai(m)]
                 self.assertEqual(others, [], f"{rid} の輪に別の AI の節が在る")
+
+
+class MutatesCheckoutCase(unittest.TestCase):
+    """節の段の mutates_checkout: false は、書く役でなく作業ツリーを変える道具（TREE_CHANGERS）も持たない AI の節にだけ在る"""
+    CHANGERS = TREE_CHANGERS
+
+    def _found(self, folder, name, nid, tools, extra=""):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = pathlib.Path(tmp) / folder / name
+            p.parent.mkdir(parents=True)
+            p.write_text(f"nodes:\n  - id: {nid}\n    prompt: 読め\n    allowed_tools: {tools}\n    settingSources: [user]\n"
+                         "    sandbox: {enabled: true, allowUnsandboxedCommands: false}\n"
+                         "    idle_timeout: 1728000000\n    output_format: {type: object}\n" + extra, encoding="utf-8")
+            return check_file(p)
+
+    def test_pack_read_only_ai_nodes_do_not_mutate_checkout(self):
+        def ai_nodes(place, nodes):
+            for n in nodes or []:
+                if isinstance(n, dict):
+                    if _kind(n) in AI_KEYS:
+                        yield n
+                    yield from ai_nodes(place, (n.get("loop_group") or {}).get("nodes"))
+        read_only, changers = [], []
+        for p in sorted(ROOT.glob("*/*.yaml")):
+            place = (p.parent.name, p.name)
+            for n in ai_nodes(place, yaml.safe_load(p.read_text(encoding="utf-8")).get("nodes")):
+                changes = (_allowed_tools(place, n.get("id")) is None
+                           or bool(set(n.get("allowed_tools") or []) & self.CHANGERS))
+                (changers if changes else read_only).append((p.name, n.get("id"), n.get("mutates_checkout", "（無し）")))
+        self.assertGreaterEqual(len(read_only), 20, read_only)
+        self.assertEqual([r for r in read_only if r[2] is not False], [], "読むだけの節に mutates_checkout: false が無い")
+        self.assertEqual([r for r in changers if r[2] is False], [], "Bash か書く道具を持つ節に mutates_checkout: false が在る")
+
+    def test_read_only_node_without_mutates_checkout_is_red(self):
+        self.assertEqual(self._found("blk-judge", "w.yaml", "judge", "[Read, Grep, Glob]",
+                                     "    mutates_checkout: false\n"), [])
+        found = self._found("blk-judge", "w.yaml", "judge", "[Read, Grep, Glob]")
+        self.assertEqual(["w.yaml: 節 judge: AI の節の mutates_checkout が false でない" in f for f in found], [True], found)
+        # 真偽値の false そのものだけを通す（文字列の "false" は Archon にとって偽でない）
+        found = self._found("blk-judge", "w.yaml", "judge", "[Read, Grep, Glob]", "    mutates_checkout: 'false'\n")
+        self.assertEqual(["w.yaml: 節 judge: AI の節の mutates_checkout が false でない" in f for f in found], [True], found)
+
+    def test_changer_node_with_mutates_checkout_false_is_red(self):
+        self.assertEqual(self._found("blk-premises", "blk-premises.yaml", "premises", "[Read, Grep, Glob, Bash]"), [])
+        found = self._found("blk-premises", "blk-premises.yaml", "premises", "[Read, Grep, Glob, Bash]",
+                            "    mutates_checkout: false\n")
+        self.assertEqual(["blk-premises.yaml: 節 premises: Bash か書く道具を持つ節に mutates_checkout: false を書いた" in f
+                          for f in found], [True], found)
+        # 書く役（道具の決まりの外）も同じ
+        found = self._found("blk-fix", "blk-fix.yaml", "fix", "[Read, Edit, Write, Bash]", "    mutates_checkout: false\n")
+        self.assertEqual(["blk-fix.yaml: 節 fix: Bash か書く道具を持つ節に mutates_checkout: false を書いた" in f
+                          for f in found], [True], found)
 
 
 if __name__ == "__main__":

@@ -134,6 +134,7 @@ nodes:
           depends_on: [r1-comments-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]   # 読むだけ＋web。定義（pr-review-toolkit）は全部の道具を持つが、目は作業ツリーを変えないので書く道具と shell を除く
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # eyes.output_format("r1.comment_candidates")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
@@ -288,6 +289,7 @@ nodes:
           depends_on: [r1-minimality-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]   # 読むだけ（Read・Grep・Glob）＋web。graphloops の judge の定義の道具から書く道具と shell を除いた物
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # eyes.output_format("r1.minimality")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
@@ -445,6 +447,7 @@ nodes:
           depends_on: [r2-compare-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。包みが旗 isolated を見て Git の外の置き場で起こす（git status が入らない）
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # eyes.output_format("r2.compare")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
@@ -592,6 +595,7 @@ nodes:
           depends_on: [premise-check-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]   # 読むだけ（Read・Grep・Glob）＋web。graphloops の judge の定義の道具から書く道具と shell を除いた物
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # eyes.output_format("stop.premise_check")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
@@ -740,6 +744,7 @@ nodes:
           depends_on: [r3-coherence-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob"]   # 読むだけ（graphloops の inspector の定義の道具）
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # eyes.output_format("r3.coherence")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
@@ -872,6 +877,7 @@ nodes:
           depends_on: [r4-scope-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: ["Read", "Grep", "Glob"]   # 読むだけ（graphloops の inspector の定義の道具）
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # eyes.output_format("r4.hidden_scope")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）

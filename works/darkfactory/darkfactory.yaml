@@ -64,8 +64,8 @@ outcome_field: ok
 
 nodes:
   # 起動の関所。越えると run が続き、cancel で木ごと止められる（線 A 仕様 5.3）。利用者の PATH に archon は無いので、文は run を
-  # 起こした殻が出す行を指す（Archon の approval の文は $WORKFLOW_ID しか置き換えないので、殻の行はここに組めない。殻ごとに家が違い、
-  # use.sh show は use.sh の家の run しか引けない）
+  # 起こした殻が出す行を指す（approval の文は $WORKFLOW_ID も $<節>.output も置き換える（h-gate・h-final の文）が、launch は最初の節で
+  # 置ける前の節の出力がまだ無いので、殻の行はここに組めない。殻ごとに家が違い、use.sh show は use.sh の家の run しか引けない）
   - id: launch
     approval:
       message: |

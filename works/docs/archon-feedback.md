@@ -138,8 +138,8 @@ works（Archon の上の pack「darkfactory」）が、Archon の不具合や欠
 
 調べの途中で見つかった、Archon に既にある機能を works が使っていない所と、古い記述。
 
-1. 節の段の `mutates_checkout: false`（v0.11.1、#2771）が使える。設計書（`works/docs/specs/2026-09-26-darkfactory-design.md:173`、`works/docs/plans/2026-09-26-darkfactory-v1.md:49`）の「include で落とされるので当てにしない」は工程の段の鍵の話で、節の段には当たらない。読むだけの役に重ねて付ける。
+1. 節の段の `mutates_checkout: false`（v0.11.1、#2771）が使える。設計書（`works/docs/specs/2026-09-26-darkfactory-design.md:173`、`works/docs/plans/2026-09-26-darkfactory-v1.md:50`）の「include で落とされるので当てにしない」は工程の段の鍵の話で、節の段には当たらない。読むだけの役に重ねて付ける。依頼 183 で、Bash・Edit・Write を持たない読むだけの AI の節に付け、設計書と計画の記述を直した（Bash を持つ読む役に付けないのは依頼 183 の人の答え）。
 2. 節の `mcp:` が在る。包みの `--mcp-config` を置き換えられるかは未確認（env での切り替えは Archon にできない）。
-3. `works/darkfactory/darkfactory.yaml:64` の「関所の文は `$WORKFLOW_ID` しか置き換えない」は不正確（`$節.output` も置き換わる）。
-4. design.md:181 の「人の関所を持つラインは外から cancel もできない」は今の形と合わない。
+3. `works/darkfactory/darkfactory.yaml:64` の「関所の文は `$WORKFLOW_ID` しか置き換えない」は不正確（`$節.output` も置き換わる）。依頼 183 で直した（今は :67）。
+4. design.md:181 の「人の関所を持つラインは外から cancel もできない」は今の形と合わない。依頼 183 で直した（single-run 設計 5.3 を指す）。
 5. 節の間の大きな受け渡しは `archon_artifact` の指しで渡すと設計書が決めていたが、今は使う所が 0 件。依頼 178 で扱う。

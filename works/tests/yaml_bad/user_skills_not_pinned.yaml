@@ -5,6 +5,7 @@ nodes:
   - id: judge
     prompt: 判定せよ
     allowed_tools: [Read, Grep, Glob]
+    mutates_checkout: false
     skills: [test-driven-development, brainstorming]
     settingSources: [user]
     sandbox: {enabled: true, allowUnsandboxedCommands: false}

@@ -6,5 +6,6 @@ nodes:
     command: diagnose
     settingSources: [user]
     allowed_tools: [Read, Grep, Glob]
+    mutates_checkout: false
     sandbox: {enabled: true, allowUnsandboxedCommands: false}
     output_format: {type: object}

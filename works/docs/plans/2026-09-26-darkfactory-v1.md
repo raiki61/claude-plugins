@@ -10,6 +10,7 @@
 > - R10: `dev/check.sh` は works 自身の工程だけを 1 本ずつ validate する。
 > - R11: 出し直しの上限の筋書きは、模擬実行が `until_bash` を回さないので、失敗の節を collect で見る。
 > - R12: AI の節の sandbox は `{enabled: true, allowUnsandboxedCommands: false}`。
+> - Review Focus 3 の「`mutates_checkout: false` は include で落とされるため唯一の守り」は古い。落ちるのは工程の段の鍵で、節の段の鍵は別物（設計書 7 節の「読むだけの役」）。
 > - R14: 判定の受け付けは、intake が盤面に置く作業ツリーの写し（`judge-snapshot.json`）と比べる。
 > - R15: テストで出来るバイトコード（`__pycache__/`・`.pyc`）は触ったファイルに数えない。blk-tests は `PYTHONDONTWRITEBYTECODE=1` で回す。
 > - R16（R13 を置き換え）: 指示書は `$LOOP_PREV.<役>-accept.output.reason` と `$cut.output.*` を本文で直に読む（節の `with:` で渡さない）。

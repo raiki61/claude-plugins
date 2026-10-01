@@ -12,6 +12,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Fixed
 
+- 読むだけの AI の節（道具に Bash・Write・Edit を持たない節）に Archon の節の段の `mutates_checkout: false` を付け、作業ツリーを変えたら Archon が節を落とすようにした（works の受け付けの写し比べはそのまま重ねる）。Bash を持つ読む役（premises・pr-check など）には付けず、今どおり受け付けの出し直しで自分の残し物を片付けて通れる。付けた節は Archon の checkpoint の ref を作らないが、作業ツリーを変えられないので巻き戻す物は無い。
 - population の単位の `closed` を、申告の site の件数でなく、site が覆う問いの当たりの件数（`covered`）で決めるようにした（0.2.11 より前の「closed の決め方は変えていない」を覆す）。同じファイルに site を並べても `closed` は真にならない。`path` の無い site でファイルごとに数えられない時は、今どおり site の件数で比べる。あわせて、changes に載っても閉鎖の表で `closed` が偽の単位は検証器の未解消から外さず（`fixed` を名乗れない）、表に行が無い単位は外したうえで最後の関所と報告の冒頭に名指しで並べる。
 - `dev/dogfood.sh` と `dev/real-run.sh` が依頼の写しを `<dir>` から作る固定の名（`<dir>/request.json`・`<dir>.request.json`）に置いていたので、同じ `<dir>` で起こし直すと、一覧に残る前の起動の run も同じ写しを持ち、結びの候補が 2 本になって結べなかった。写しの名を `use.sh` と同じ起動ごとの印（日時-pid）で作る（`<dir>/requests/<印>.json`・`<dir>.request.<印>.json`）。`dogfood.sh` は `requests/` が残っていても止まらない。
 - `use.sh apply` が、人が最後の関所で `stop` と答えた run（止め札・ラインの止めの run も）の差分を、止まったことを言わずに当てていた。記録（最後の関所の答え `final-gate-answer.json`・盤面の `state.stop`）が止まりを示す run は、止まった結末と一言を 1 行で出して当てずに止まる。当てるのは `WORKS_USE_ALLOW_STOPPED=1` の時だけ。`use.sh` の `show`・`start` も、その run には止まった結末の 1 行を出し、生の `git apply` の行を出さない（取り込みの行は `use.sh apply` の 1 本）。止まりの判定は報告の結末と同じ `report.stopped_run` が持つ。止まりかを記録で確かめられない run（この変更より前の run・途中で終わった run・記録が在るのに壊れて読めない run など）は、その 1 行を出して今どおり当てる。`show` で止まりの判定そのものが落ちた時は、落ちた理由の 1 行を出し、生の `git apply` の行を出さない。0.2.x で既定を `protected_only` にした時の理由（「関所の答えは次の動きを変えない。当てるのは人の `use.sh apply`」）は、この変更で古くなった。

@@ -69,6 +69,7 @@ nodes:
           depends_on: [structure-eye-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。見せるのは prep が貼る実測と単位の要約だけ
+          mutates_checkout: false
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           effort: high        # 役の前付け（core/agents/blind-judge.md）と同じ値。段は前付けを読まない（tests/test_tool_parity.py が一致を見る）
           idle_timeout: 1728000000
