@@ -26,6 +26,7 @@
 赤・緑の判定は写しの rules（review-loop-tdd.py）の関数を呼ぶ（写さない）。版は一時の index（GIT_INDEX_FILE）で木に固める
 （本物の index・HEAD・枝は動かさない。.gitignore に当たる物は載らない）。期限は持たない。
 """
+import ast
 import difflib
 import hashlib
 import io
@@ -625,7 +626,9 @@ def frozen_problems(state_file, repo, allowed=()) -> list:
     for lim in allowed:
         got = conflict.parse_limit(lim)
         if got:
-            scope.setdefault(got[0], []).append(got[1])
+            m = conflict.CITE.match(lim.strip())
+            # 1 行の指し（`<パス>:<行>`）だけが関数の幅に広がる。`<行>-<行>` は書いたとおり
+            scope.setdefault(got[0], []).append(got[1] and (*got[1], bool(m) and not m["b"]))
     probs, outside = [], {}
     for f in moved:
         spans = scope.get(f)
@@ -637,12 +640,13 @@ def frozen_problems(state_file, repo, allowed=()) -> list:
                 outside[f] = bad
     out = [f"TDD の輪で凍ったテストのファイルを書き換えた: {probs}（輪で直した単位のテストは変えない）"] if probs else []
     out += [f"TDD の輪で凍ったテストのファイル {f} を、裁定 fix_test_scope の範囲の外で書き換えた: 旧い行 {', '.join(bad)}"
-            "（範囲に並べた行だけ直してよい）" for f, bad in outside.items()]
+            "（範囲に並べた行だけ直してよい。.py の 1 行の指しはその行を含む関数の全体）" for f, bad in outside.items()]
     return out
 
 
 def _hunks_outside(repo, tree, path, spans) -> list:
     """輪が済んだ時の木の path と今のファイルの差分の塊のうち、旧い側の行が spans のどれにも収まらない物（`a-b` の文）。
+    span は (始め, 終わり, 1 行の指しか)。1 行の指しの .py は _function_span で関数の幅に広げる。
     木が無い・木に path が無い時はファイル全体を 1 つの外の塊にする"""
     new = (pathlib.Path(repo) / path).read_text(encoding="utf-8", errors="replace").splitlines() \
         if (pathlib.Path(repo) / path).is_file() else []
@@ -652,14 +656,42 @@ def _hunks_outside(repo, tree, path, spans) -> list:
         old = None
     if old is None:
         return ["（輪が済んだ時の姿が読めない）"]
+    wide = []
+    for s, e, single in (sp for sp in spans if sp):
+        w = _function_span(old, s) if single and path.endswith(".py") else None
+        wide.append((*(w or (s, e)), w is not None))
     bad = []
     for tag, i1, i2, _, _ in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
         if tag == "equal":
             continue
-        a, b = (i1 + 1, i2) if i2 > i1 else (max(i1, 1), max(i1, 1))   # 足しただけの塊は直前の行（頭なら 1 行目）で見る
-        if not any(s <= a and b <= e for s, e in spans):
+        ins = i2 == i1
+        a, b = (i1 + 1, i2) if not ins else (max(i1, 1), max(i1, 1))   # 足しただけの塊は直前の行（頭なら 1 行目）で見る
+        # 関数の幅に広げた span では、足しただけの塊が幅の直前（def・デコレータの真上）に入るのも幅の中
+        if not any(s <= a and b <= e or (ins and f and s - 1 <= a <= e) for s, e, f in wide):
             bad.append(f"{a}-{b}" if b != a else str(a))
     return bad
+
+
+def _function_span(old, line):
+    """old（行の一覧）の line を含む最も外側の関数（メソッドも。クラスそのものには広げない）の幅 (始め, 終わり)。
+    始めは最初のデコレータの行から、直前に続く def と同じ字下げのコメントの行まで上へ。
+    関数の外の行・構文が読めない時は None（1 行のまま＝拒む側）"""
+    try:
+        tree = ast.parse("\n".join(old))
+    except (SyntaxError, ValueError):
+        return None
+    best = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            top = min([node.lineno] + [d.lineno for d in node.decorator_list])
+            if top <= line <= node.end_lineno and (best is None or top < best[1]):
+                best = (node, top)
+    if best is None:
+        return None
+    node, top = best
+    while top > 1 and old[top - 2].startswith(" " * node.col_offset + "#"):   # def と同じ字下げのコメントだけ（前の関数の本体の末尾のコメントは字下げが深い）
+        top -= 1
+    return top, node.end_lineno
 
 
 def suite_made(state_file) -> list:

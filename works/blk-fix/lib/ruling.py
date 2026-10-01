@@ -92,7 +92,7 @@ def prep(board_dir, repo, values: dict) -> dict:
 
 
 def limit_problem(lim: str, repo) -> str:
-    """範囲の 1 つ（<パス> か <パス>:<行>。リポジトリの根から）が現物に在るか"""
+    """範囲の 1 つ（<パス>・<パス>:<行>・<パス>:<行>-<行>。リポジトリの根から）が現物に在るか"""
     if not isinstance(lim, str) or not lim.strip():
         return f"範囲 {lim!r} が空"
     if conflict.parse_limit(lim) is None:   # 絶対パス・根の外: 凍結の検査（tddloop.frozen_problems）が読めない範囲を受けない
@@ -136,7 +136,7 @@ def problems(reply, todo: dict, repo, request: str = "", roots=()) -> list:
     errs += [f"申し出 {i} を裁いていない" for i in todo if i not in ids]
     for r in rows:
         if r["decision"] == "fix_test_scope" and not r["limits"]:
-            errs.append(f"申し出 {r['id']}: fix_test_scope なのに範囲（limits。直してよいテストの <パス> か <パス>:<行>）が無い")
+            errs.append(f"申し出 {r['id']}: fix_test_scope なのに範囲（limits。直してよいテストの <パス>・<パス>:<行>・<パス>:<行>-<行>）が無い")
         if r["decision"] in conflict.FIX_DECISIONS:
             errs += [f"申し出 {r['id']}: {e}" for e in (limit_problem(x, repo) for x in r["limits"]) if e]
         if r["decision"] == conflict.REPLACE or "query" in r:

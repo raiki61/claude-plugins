@@ -3,6 +3,8 @@
 裁定が範囲（limits。`<パス>` か `<パス>:<行>[-<行>]`）に並べた所の直しは、凍ったファイルでも拒まない。範囲の外の行・
 範囲の無いファイルの変更は今どおり拒む。行は凍った時の木（st["frozen_tree"]。_finish が書く）に対する旧い側で見る。
 st["handoff"] は frozen_tree の無い古い状態の時だけの控え。輪で足した未追跡のテストのファイルも同じに見る。
+.py の `<パス>:<行>` 1 つは、その行を含む関数の全体に広がる（`<行>-<行>` は書いたとおり）。この試験の「範囲の外の行」は
+その広がりの外を指す（広がりの試験は test_tdd_frozen_function_span.py）。
 種の git は gitkit の型の写し（盤面・子の実行器なし）。
 """
 import json
@@ -78,7 +80,7 @@ class FrozenRuledScopeCase(unittest.TestCase):
         self.assertEqual(self.frozen([f"{NEW_FILE}:6"]), [])
 
     def test_untracked_new_file_outside_ruled_lines_is_rejected(self):
-        self.edit("def test_one", "def test_first", NEW_FILE)   # 5 行目
+        self.edit("class T(", "class U(", NEW_FILE)   # 4 行目（6 行目を含む関数の幅の外）
         got = self.frozen([f"{NEW_FILE}:6"])
         self.assertTrue(got, "未追跡のファイルでも範囲の外の行の変更は拒む")
         self.assertIn(NEW_FILE, " ".join(got))
