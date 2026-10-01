@@ -47,6 +47,7 @@ works は、AI に修正の仕事を任せるための Claude Code のプラグ�
 - Archon v0.11.1 以上 0.12.0 未満（`archon-plugin.json` の `compatibility.archon` が `>=0.11.1 <0.12.0`。確かめたのは v0.11.1 だけ）。
 - uv（script の節は `runtime: uv` で起きる）と git。節のスクリプトは PEP 723 の塊を持つので、対象が pyproject.toml を持っても uv は対象の project を拾わない（worktree に .venv・uv.lock を作らない）。既知の限界: 対象の uv の設定（`[tool.uv]`・`uv.toml`）は読まれるので、それが壊れているか、手元の uv に合わない `required-version` を持つと、works の script の節は起動時に終了コード 2 で止まる。直すのは対象か uv の設定。`UV_NO_CONFIG=1` を Archon の環境に立てて逃げるのは勧めない: 対象自身の uv の動きも変わり（テストのコマンドや修正役の Bash が私的な index を読まずに公開の PyPI から解決する）、偽の赤と依存の取り違えの口になる。
 - 対象リポジトリには git の remote の `origin` が要る（Archon v0.11.1 は `--from` を渡しても、origin の無い対象では run の worktree を切れずに終了コード 1 で落ちる）。無ければ `dev/use.sh` の `check` が並べ、`start` は Archon を起こす前に止まる。入れ方は `git remote add origin <URL>`。預ける先が無く手元だけで回すなら、対象の外に `git init --bare <対象>.origin.git` を作って origin にし、`git push origin HEAD`（`dev/real-run.sh` と同じ形）。殻は対象の remote を書き換えない。依頼の JSON は対象の外に置いてよい（`dev/use.sh` は依頼を利用の家に写して渡す）。
+- `start` は origin の既定の枝（`origin/HEAD` が指す枝、無ければ `origin/main`、次に `origin/master`）を Archon の土台（`--base`）に毎回渡す（Archon は対象を最初に登録した時の枝を覚えて更新しないので、登録した時の枝が消えても止まらない）。追跡の枝が無ければ Archon を起こす前に `git fetch origin` を案内して止まる。
 
 ## Claude Code のスキル
 

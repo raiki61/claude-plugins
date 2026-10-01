@@ -100,11 +100,17 @@ class UseShell(unittest.TestCase):
     def set_runs(self, **run):
         self.runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused", **run}]}))
 
-    def target(self, name="target", origin=True):
+    def target(self, name="target", origin=True, origin_head=None, tracking=("main",)):
+        """origin を足す時は、tracking の各枝の追跡の ref（refs/remotes/origin/<枝>）を HEAD に置き、origin_head が在れば
+        origin/HEAD をそこへ向ける（start が Archon の土台に渡す origin の既定の枝の材料。網には出ない）"""
         t = self.tmp / name
         committed_copy(t, DEV / "target-seed")
         if origin:
             git(t, "remote", "add", "origin", str(self.tmp / "origin.git"))
+            for b in tracking:
+                git(t, "update-ref", f"refs/remotes/origin/{b}", "HEAD")
+            if origin_head:
+                git(t, "symbolic-ref", "refs/remotes/origin/HEAD", f"refs/remotes/origin/{origin_head}")
         return t
 
     def use(self, *args, cwd=None, script=USE, **env_kw):
@@ -377,6 +383,35 @@ class UseShell(unittest.TestCase):
         t = self.target(origin=False)
         self.assert_refused(self.use("start", str(t), str(self.request), "true"), "origin", "git remote add origin")
         self.assertEqual(git(t, "remote"), "")
+
+    def test_start_passes_origin_default_branch_as_archon_base(self):
+        """Archon は codebase の登録の時の枝を覚えて更新しない。start は毎回 origin の既定の枝を --base で渡す
+        （origin/HEAD が先、無ければ origin/main、次に origin/master）。読むのは workflow run darkfactory の行の --from より
+        後ろの --base（入口の旗 --base <版> と取り違えない）"""
+        cases = [(dict(origin_head="develop", tracking=("main", "develop")), "develop"),   # origin/HEAD が勝つ
+                 (dict(tracking=("main",)), "main"),
+                 (dict(tracking=("master",)), "master")]
+        for i, (kw, want) in enumerate(cases):
+            with self.subTest(want=want):
+                t = self.target(f"t{i}", **kw)
+                r = self.use("start", str(t), str(self.request), "true", "")
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                run = next(c for c in self.calls() if c[0] == str(t) and c[3:6] == ["workflow", "run", "darkfactory"])
+                after_from = run[run.index("--from"):]
+                self.assertIn("--base", after_from, run)
+                self.assertEqual(after_from[after_from.index("--base") + 1], want)
+
+    def test_start_refuses_when_origin_default_branch_is_unknown(self):
+        """origin の追跡の枝が 1 つも無ければ、土台の枝を推さずに git fetch origin を案内して止まり、Archon を起こさない。
+        依頼の写し・pack の写しも作らない（何かを作る前に止める）"""
+        t = self.target(tracking=())
+        r = self.use("start", str(t), str(self.request), "true", "")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("origin の既定の枝", r.stderr)
+        self.assertIn("git fetch origin", r.stderr)
+        self.assertFalse(any(c[3:6] == ["workflow", "run", "darkfactory"] for c in self.calls()), "拒んだのに Archon を起こした")
+        self.assert_refused(r, "origin の既定の枝", "git fetch origin")
+        self.assertFalse((self.home / "requests").exists())
 
     def test_check_lists_missing_origin(self):
         """check は origin の無い対象を入れ方の行つきで並べ、validate は呼んだ上で 0 以外で終わる"""
@@ -678,7 +713,7 @@ class UseShell(unittest.TestCase):
         self.assertEqual(run[3:], [
             "workflow", "run", "darkfactory", "--from", head,
             "--input", f"request={req}", "--input", "test_cmd=python3 -m unittest -q",
-            "--input", "tdd_suite=", "--input", "adapter=", "--input", "final_gate=protected_only"])
+            "--input", "tdd_suite=", "--input", "adapter=", "--input", "final_gate=protected_only", "--base", "main"])
         self.assertIn("WORKS_DEV_ADAPTER=1 ", r.stdout)   # 何も付けない start は包みを入れる（続きの行も archon.sh に 1 を渡す）
         self.assertEqual(runs, [str(t), "1", str(self.home), "workflow", "runs", "--json"])
         out = r.stdout

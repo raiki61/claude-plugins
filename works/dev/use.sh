@@ -509,6 +509,20 @@ elif got:
 esac
 
 # ---- start
+# Archon に渡す worktree の土台の枝（入口の旗 --base <版> の CHANGE_INPUT とは別物）: origin の既定の枝。origin/HEAD が指す枝、
+# 無ければ origin/main、次に origin/master。どれも無ければ推さずに止める（依頼の写し・読み出し・pack の写し・包んだ参照を作る前に）
+ARCHON_BASE_BRANCH="$(git -C "$TARGET" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+ARCHON_BASE_BRANCH="${ARCHON_BASE_BRANCH#origin/}"
+if [ -z "$ARCHON_BASE_BRANCH" ]; then
+  for _b in main master; do
+    if git -C "$TARGET" show-ref --verify --quiet "refs/remotes/origin/$_b"; then
+      ARCHON_BASE_BRANCH="$_b"
+      break
+    fi
+  done
+fi
+[ -n "$ARCHON_BASE_BRANCH" ] || refuse "origin の既定の枝が分からない（origin/HEAD・origin/main・origin/master のどれも無い）。git fetch origin で追跡の枝を取ってから打ち直す"
+
 if [ -n "$WORKS_LAUNCH_ADAPTER_MODE" ]; then
   echo "包み無し（WORKS_DEV_ADAPTER=${WORKS_DEV_ADAPTER:-空}）: adapter=optional で回し、報告に出る"
 fi
@@ -592,6 +606,9 @@ fi
 
 set -- workflow run darkfactory --from "$BASE_REV" --input request="$REQUEST" --input test_cmd="$TEST_CMD" \
   --input tdd_suite="$TDD_SUITE" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE" --input final_gate="${WORKS_USE_FINAL_GATE:-protected_only}"
+# Archon は対象を codebase に登録した時の枝を覚えて更新せず、起動のたびにその枝を fetch する（その枝が消えると起動が止まる）。
+# --base が登録の枝に勝つので毎回渡す（answer・approve の再開は既存の worktree を使い直すので渡さない）
+set -- "$@" --base "$ARCHON_BASE_BRANCH"
 if [ -n "${WORKS_USE_POLICY_MD:-}" ]; then set -- "$@" --input policy_md="$WORKS_USE_POLICY_MD"; fi
 if [ -n "${WORKS_USE_GATES:-}" ]; then set -- "$@" --input gates="$WORKS_USE_GATES"; fi
 if [ -n "${WORKS_USE_THICKNESS:-}" ]; then set -- "$@" --input thickness="$WORKS_USE_THICKNESS"; fi

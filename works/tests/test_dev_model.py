@@ -168,10 +168,12 @@ class UseShDefaultModel(unittest.TestCase):
         return subprocess.run(["sh", str(DEV / "use.sh"), *args], capture_output=True, text=True, encoding="utf-8", env=env)
 
     def target(self):
-        """use.sh は remote の origin の無い対象を拒むので、origin を持つ対象を作る"""
+        """use.sh は remote の origin の無い対象・origin の既定の枝が分からない対象を拒むので、origin と追跡の枝 origin/main を
+        持つ対象を作る（網には出ない）"""
         t = self.tmp / "target"
         committed_copy(t, DEV / "target-seed")
         git(t, "remote", "add", "origin", str(self.tmp / "origin.git"))
+        git(t, "update-ref", "refs/remotes/origin/main", "HEAD")
         return t
 
     def test_start_without_model_keeps_it_unset_through_ledger(self):
