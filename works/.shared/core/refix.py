@@ -5,7 +5,8 @@
 節の名前は写しの RL の DELTA_PASSES からだけ引く（passes()。works に名前の写しを持たない。仕様 7 節）。
 
 - passes():                  {n: {cut, review, owed, fix, state_key, owed_key}}（写しの DELTA_PASSES から）
-- cut(board, n, repo):       n 回目の審査役を起こす前の支度。盤面の loop.<state_key>（今の周）の差分のファイルと触ったファイルを
+- fix_delta(b):              今の周の修正の差分（盤面の loop.<1 回目の state_key>。{file, files, rev, …}）か None
+- cut(board, n, repo):      n 回目の審査役を起こす前の支度。盤面の loop.<state_key>（今の周）の差分のファイルと触ったファイルを
                              返し、役に見せる材料（brief）を書き、読むだけの役の前の作業ツリーの写しを撮り、起こした印を置く
 - prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスを brief に書き、呼び手の
                              組み立て（prompt）で指示書を書き、印を置く
@@ -20,7 +21,8 @@
 
 作業ファイル（b.work。今の周の r<N>/。周の番号を仮定しない。TA17）: review<n>-snapshot.json（計画の予約の名）・
 review<n>-brief.json・refix<n>-brief.json（役に見せる材料: graph がその節に読ませる盤面の値と、人の方針 policy.brief の
-{paste, path}。審査役の brief には、変わったファイルのうち守りのファイル（protect.hits）の protected_files も。1 本目の blk-delta の YAML は入口 policy_paste を持たないので、審査役へは方針の本文をこの brief で届ける）・手直しの役の指示書 prompt-<節>.md（呼び手のブロックが組む）。
+{paste, path}。審査役の brief には、変わったファイルのうち守りのファイル（protect.hits）の protected_files も、1 回目の審査役の brief には修正の差分に当てたレンズの行（lens.brief_rows）の lens も
+（graph の reads は写しなので足せない。手直しの差分にはレンズが当たらないので 2 回目には載せない）。1 本目の blk-delta の YAML は入口 policy_paste を持たないので、審査役へは方針の本文をこの brief で届ける）・手直しの役の指示書 prompt-<節>.md（呼び手のブロックが組む）。
 支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 本目の blk-delta が盤面の根に書いた delta-review.json・fix.diff・
 delta-snapshot.json）を先に消す——新しい審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が
 踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
@@ -41,6 +43,7 @@ from board import BoardGap, pending_instance as _pending, rules_module  # noqa: 
 import engine.util as _util  # noqa: E402
 import accept  # noqa: E402
 import entry  # noqa: E402
+import lens  # noqa: E402
 import node_marker  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
@@ -101,6 +104,10 @@ def output_format(role: str) -> dict:
 def _in_round(b, v):
     """周に属する loop 値（{round, …}）を今の周の物だけ（前の周の値は None）"""
     return v if isinstance(v, dict) and v.get("round") == b.round else None
+
+
+def fix_delta(b) -> dict | None:
+    return _in_round(b, b.loop_state.get(_pass(1)["state_key"]))
 
 
 def _owed_rows(b, n) -> list:
@@ -178,7 +185,12 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
         doc["protected_files"] = protect.hits(doc["files"])
     except protect.Broken as e:
         doc["protected_files"], doc["protected_files_error"] = [], str(e)
-    brief = _write_json(b.work(brief_name), doc)
+    if n == 1:
+        try:
+            doc["lens"] = lens.brief_rows(b)
+        except ValueError as e:
+            doc["lens"], doc["lens_error"] = [], str(e)
+    brief =_write_json(b.work(brief_name), doc)
     entry.snapshot(board, snapshot_name(n), repo)
     b.mark_launched(p["review"], inst.get("attempts", 1))
     return {"ok": True, "files": list(d.get("files") or []), "diff_file": d["file"], "rev": d.get("rev") or "",

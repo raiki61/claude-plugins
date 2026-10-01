@@ -136,7 +136,7 @@ class ScriptLine:
         self.env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         self.env.update({"ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": RUN_ID, "PYTHONDONTWRITEBYTECODE": "1",
                          "WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home"),
-                         "XDG_STATE_HOME": str(self.tmp / "state")})
+                         "XDG_STATE_HOME": str(self.tmp / "state"), **linekit.lens_plugin(self.tmp)})
 
     # -- 役・関所
     def _reply(self, block, nid):
@@ -291,7 +291,9 @@ def default_reply(block, nid):
     if block == "blk-report":
         stubs = yaml.safe_load((ROOT / "blk-report" / "fixtures" / "pass.stubs.yaml").read_text(encoding="utf-8"))
         return stubs[nid]
-    fixed = {("blk-pr", "pr-check"): "pr_no_conflicts", ("blk-premises", "premises"): "premises_ok",
+    if block == "blk-lens":
+        return linekit.LENS_REPLY
+    fixed ={("blk-pr", "pr-check"): "pr_no_conflicts", ("blk-premises", "premises"): "premises_ok",
              ("blk-purpose", "purpose"): "purpose_ok", ("blk-judge", "judge"): "judge_ok", ("blk-plan", "r2-design"): "design_ok"}
     if (block, nid) in fixed:
         return linekit.reply(fixed[(block, nid)])

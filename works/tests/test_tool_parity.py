@@ -39,6 +39,9 @@ NARROWED = {
     "comment-analyzer": (AGENT_TOOLS["judge"],
                          "pr-review-toolkit の comment-analyzer は tools: を持たない（全部の道具）。独立の目は作業ツリーを"
                          "変えないので書く道具と shell を除く（blk-eyes/lib/eyes.py の TOOLS と同じ）"),
+    "silent-failure-hunter": (AGENT_TOOLS["inspector"],
+                              "pr-review-toolkit の silent-failure-hunter は tools: を持たない（全部の道具）。修正の後のレンズの節は"
+                              "定義を貼った節そのもので、道具は Read・Grep・Glob だけ（子を起こすとまとめ役の形に戻る。持ち主 2026-10-01）"),
 }
 
 # graph の節 → (フォルダ, YAML の節)。1 つの YAML の節を 2 つの graph の節が使う物（blk-ci の ci）は 2 行
@@ -88,9 +91,11 @@ ROLE_NODES = {
 
 # 本線の graph に無い works だけの役の節 → 本線のどの役に当たるか（食い違いの申し出の出口。持ち主 2026-09-28）:
 # 2 回目の修正役は p3.fix の続き（writer）、裁定役は読むだけで裁く目（judge）、報告の書き手の出した物を確かめる初見の読み手は
-# report.cold_check と同じ cold-reader（道具なし）。構造の目は道具ゼロの opus の目で blind-judge
+# report.cold_check と同じ cold-reader（道具なし）。構造の目は道具ゼロの opus の目で blind-judge。修正の後のレンズは借りた
+# agent そのもの（前付けが core/agents に無いので段に model: を書かず、既定の Opus のまま。下げるなら行を前付けの在る役にする）
 EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge",
-               ("blk-report", "report-write-cold"): "cold-reader", ("blk-structure", "structure-eye"): "blind-judge"}
+               ("blk-report", "report-write-cold"): "cold-reader", ("blk-structure", "structure-eye"): "blind-judge",
+               ("blk-lens", "lens-silent-failure-hunter"): "silent-failure-hunter"}
 
 
 def graph_run_by() -> dict:

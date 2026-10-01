@@ -10,6 +10,7 @@
 - 筋書き（fixtures/）: 本物で回す start の筋書き（standard・start-refused）のほかは、走る script と役の節を全部 stub する。
   判定の stub の鍵は blk-judge.yaml から組む（test_judging_stubs_follow_block）
 """
+import json
 import pathlib
 import re
 import sys
@@ -287,6 +288,32 @@ class LineShapeCase(unittest.TestCase):
         self.assertIn("h-structure", node("h-gate")["depends_on"])
 
 
+class LensWiringCase(unittest.TestCase):
+    def test_lens_block_wired_before_review(self):
+        """修正の後のレンズ（blk-lens）は h-review の直後に include 1 つで入り、h-review の go を引く（新しい条件を作らない）。
+        差分の審査 reviewing はその出口を待つ（none_failed_min_one_success: レンズの節が落ちても集め役が ok で終われば走り、
+        境が盤面を止めて ok: false で落ちた周は飛ぶ）"""
+        ids = [n["id"] for n in line()["nodes"]]
+        got = next((n for n in line()["nodes"] if n.get("include") == "blk-lens"), None)
+        self.assertIsNotNone(got, "darkfactory.yaml に blk-lens の include が無い")
+        self.assertEqual(ids.index(got["id"]), ids.index("h-review") + 1)
+        self.assertEqual((got["depends_on"], got["when"]), (["h-review"], node("reviewing")["when"]))
+        self.assertEqual(node("reviewing")["when"], "$h-review.output.go == true")
+        self.assertEqual(node("reviewing")["depends_on"], ["h-review", got["id"]])
+        self.assertEqual(node("reviewing")["trigger_rule"], linekit.NFMOS)
+
+    def test_rollback_restores_previous_line(self):
+        """撤収の手順（include を外し、reviewing の依存を [h-review] に戻す）で、レンズを入れる前の線の並びと配線に戻る"""
+        before = [{**r} for r in linekit.LINE_ORDER if r["id"] != "lensing"]
+        rv = next(r for r in before if r["id"] == "reviewing")
+        rv["depends_on"] = ["h-review"]
+        rv.pop("trigger_rule")
+        self.assertEqual(rv, {"id": "reviewing", "kind": "include", "block": "blk-delta", "depends_on": ["h-review"],
+                              "when": "$h-review.output.go == true", "with": {"base_rev": "$start.output.base_rev"}})
+        self.assertFalse([r["id"] for r in before if "lensing" in (r.get("depends_on") or [])
+                          or "$lensing." in json.dumps(r.get("with") or {})], "lensing を読む節がほかに在ると戻せない")
+
+
 class LineFixturesCase(unittest.TestCase):
     def fixtures(self):
         return {p.name.removesuffix(".stubs.yaml"): load(p) for p in (LINE / "fixtures").glob("*.stubs.yaml")}
@@ -321,9 +348,9 @@ class LineFixturesCase(unittest.TestCase):
         roles = {}
         for n in line()["nodes"]:
             if "include" in n:
-                for m, _ in walk(block(n["include"])["nodes"]):
+                for m, inner in walk(block(n["include"])["nodes"]):
                     if "command" in m or "prompt" in m:
-                        roles[m["id"]] = m["output_format"]
+                        roles[m["id"] if inner else f"{n['id']}__{m['id']}"] = m["output_format"]   # stub_keys と同じ鍵
         f = self.fixtures()["policy-continue"]
         for rid, fmt in roles.items():
             with self.subTest(rid):

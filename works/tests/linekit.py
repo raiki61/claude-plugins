@@ -122,6 +122,19 @@ def close_eyes(board, repo, replies=None) -> list:
             done.append(nid)
 
 
+LENS_DEF_BODY = "お前は黙った失敗を探す。握りつぶした例外・既定値で黙って続ける枝を挙げる。"
+LENS_REPLY = {"findings": [], "findings_none": "stats.py の差分を読んだ。例外を握りつぶす枝も既定値で黙って続ける枝も無い"}
+
+
+def lens_plugin(into) -> dict:
+    """レンズの定義を引く置き場の偽物（pr-review-toolkit の agents/<レンズ>.md を置き、<PLUGIN>_ROOT で指す）。返りは env に重ねる値"""
+    root = pathlib.Path(into) / "lens-plugin"
+    (root / "agents").mkdir(parents=True, exist_ok=True)
+    (root / "agents" / "silent-failure-hunter.md").write_text(
+        f"---\nname: silent-failure-hunter\nmodel: inherit\n---\n\n{LENS_DEF_BODY}\n", encoding="utf-8")
+    return {"PR_REVIEW_TOOLKIT_ROOT": str(root)}
+
+
 CLAUDE_TMP = ("/private/tmp/claude-", "/tmp/claude-")   # Claude Code の一時フォルダ（dev/guard.sh と同じ決まり）
 
 
@@ -221,7 +234,9 @@ LINE_ORDER = [
      "with": {"base_rev": "$start.output.base_rev", "policy_paste": "$start.output.policy_paste"}},
     _edge("h-mid", "mid", ["start", "h-rejudge", "rejudging"]),
     _edge("h-review", "review", ["start", "h-mid"]),
-    {"id": "reviewing", "kind": "include", "block": "blk-delta", "depends_on": ["h-review"],
+    {"id": "lensing", "kind": "include", "block": "blk-lens", "depends_on": ["h-review"],
+     "when": "$h-review.output.go == true", "with": {}},
+    {"id": "reviewing", "kind": "include", "block": "blk-delta", "depends_on": ["h-review", "lensing"], "trigger_rule": NFMOS,
      "when": "$h-review.output.go == true", "with": {"base_rev": "$start.output.base_rev"}},
     _edge("h-refix", "refix", ["start", "h-review", "reviewing"]),
     {"id": "refixing", "kind": "include", "block": "blk-refix", "depends_on": ["h-refix"],
@@ -485,6 +500,24 @@ class LineRun:
             self.rejudge_roles.append(r["next"])
         return rejudge.collect(self.board)
 
+    def blk_lens(self):
+        """blk-lens の中の節の順（振り分け → go のレンズの節 → 集め役 → 境）を本物の口で回す。レンズの返答は replies[<レンズの節>]
+        （None は節が落ちた形。無ければ LENS_REPLY）。replies["lens-collect"] が "fail" なら集め役が落ちた形（境へ null）。
+        定義は lens_plugin の偽の置き場から引く"""
+        from unittest import mock
+        if str(ROOT / "blk-lens" / "lib") not in sys.path:
+            sys.path.insert(0, str(ROOT / "blk-lens" / "lib"))
+        import lenses
+        with mock.patch.dict(os.environ, lens_plugin(self.tmp)):
+            r = lenses.route(self.board)
+        env = {}
+        for row in lenses.LENSES:
+            node = f"lens-{row['lens']}"
+            body = self.replies.get(node, LENS_REPLY) if r[f"{lenses.key(row)}_go"] else None
+            env[lenses.input_name(row)] = json.dumps(body, ensure_ascii=False)
+        collected = None if self.replies.get("lens-collect") == "fail" else lenses.collect(self.board, env)
+        return lenses.exit_(self.board, collected)
+
     def blk_delta(self):
         import refix
         assert refix.cut(self.board, 1, self.repo)["ok"]
@@ -538,13 +571,21 @@ class LineRun:
         nid, _, field = ref.lstrip("$").partition(".output.")
         return nid in self.out and self.out[nid].get(field) is (want == "true")
 
+    def _after_failed(self, row) -> bool:
+        """all_done でない節は、出口が ok: false の include（outcome_field ok で落ちた節）に依れば飛ぶ"""
+        includes = {r["id"] for r in LINE_ORDER if r["kind"] == "include"}
+        return row.get("trigger_rule") != ALL_DONE and any(
+            d in includes and isinstance(self.out.get(d), dict) and self.out[d].get("ok") is False
+            for d in row.get("depends_on") or [])
+
     def run(self):
         import entry
         import halt
         import line_edge
         import report
         blocks = {"blk-pr": self.blk_pr, "blk-premises": self.blk_premises, "blk-purpose": self.blk_purpose,
-                  "blk-judge": self.blk_judge, "blk-plan": self.blk_plan, "blk-fix": self.blk_fix, "blk-delta": self.blk_delta,
+                  "blk-judge": self.blk_judge, "blk-plan": self.blk_plan, "blk-fix": self.blk_fix, "blk-lens": self.blk_lens,
+                  "blk-delta": self.blk_delta,
                   "blk-refix": self.blk_refix, "blk-tests": self.blk_tests, "blk-eyes": self.blk_eyes,
                   "blk-report": self.blk_report, "blk-material": self.blk_material, "blk-rejudge": self.blk_rejudge,
                   "blk-structure": self.blk_structure}
@@ -576,7 +617,7 @@ class LineRun:
                     self.out[nid] = self.gates.get(nid) or {"decision": "continue", "text": ""}
                     self.trail.append(nid)
             elif row["kind"] == "include":
-                if not self._when(row):
+                if not self._when(row) or self._after_failed(row):
                     continue
                 if row["block"] not in blocks:
                     raise AssertionError(f"LineRun は {row['block']} を回せない（{nid}）")

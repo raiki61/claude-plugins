@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- 修正の後の局所レビューのブロック `blk-lens` を足し、darkfactory の差分の審査（reviewing）の前に置いた（修正が差分を作った run だけ。[ADR 0072](../docs/adr/0072-works-post-fix-lens-block.md)）。レンズは利用者が入れた pr-review-toolkit の silent-failure-hunter の 1 本で、定義の本文を指示書に貼った節が Read・Grep・Glob だけで読む。指摘は出どころ（レンズの名）つきで盤面の今の周の `lens.json` に残り、1 回目の差分の審査役の brief の `lens` に載って、審査役が検算して穴にする。落ちたレンズ・起こさなかったレンズは報告の「## 未確認のレンズ」に名前と理由で出る。集め役が落ちた run は差分の審査へ進まずに止まる（`works:lens`）。手直しの差分にはレンズが当たらない。
+
 ### Changed
 
 - /works を回す Claude が依頼者に聞く・結果を伝える時の書き方を、スキルの 4 節に 1 つ置いた（決めてほしい事を最初に、1 件ずつ何を決めるのか・背景・答えごとに起きること・推しとその理由・答えの後に何をするか。run の中の語は使わないか中身を先に。費用・直しの中身・置き場は後ろに畳む）。3 節の関所で聞く時もこの並びを使う。報告の書き手（report-items・report-write）の「判断してほしいこと」にも同じ並びを足した。推しは今どおり判定の役が書いた物だけ。

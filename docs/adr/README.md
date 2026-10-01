@@ -118,3 +118,4 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0069](0069-engine-launches-skill-node-and-lanes.md) | 局所レビューの skill の節も engine が起こし、背景の線は回し手が立てる | 採用 | 2026-09-27 |
 | [0070](0070-works-entry-does-not-classify-requests.md) | /works の入口は依頼を分類しない（何をどう直すかはラインが単位ごとに決める） | 採用 | 2026-09-28 |
 | [0071](0071-test-sizes-and-where-they-run.md) | 試験は使う資源の大きさで分け、大きさで回す場所を決める（重い試験と変異テストは手元で回さない） | 採用 | 2026-09-29 |
+| [0072](0072-works-post-fix-lens-block.md) | works の修正の後の局所レビューは、レンズを 1 本ずつ独立の節にしたブロック blk-lens に置く | 採用 | 2026-10-01 |

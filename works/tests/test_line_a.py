@@ -142,6 +142,60 @@ class LineCase(LineBase):
             self.assertNotIn(nid, got["trail"])
         self.assertEqual(got["outcome"], "stopped_by_request")
 
+    def test_lens_runs_before_review_and_reaches_brief(self):
+        """修正が差分を作った run では、レンズのブロックが差分の審査の前に走り、指摘が出どころつきで審査役の brief に届く。
+        全部のレンズが走った周の報告の「未確認のレンズ」は、なしと手直しの差分の 1 行"""
+        import lens
+        finding = {"where": "stats.py", "cite": "return hi", "why": "上限を超えた値を黙って hi に丸め、呼び元は気づけない"}
+        r = replies()
+        r["lens-silent-failure-hunter"] = {"findings": [finding]}
+        got = self.run_line(replies=r)
+        self.assertLess(got["trail"].index("lensing"), got["trail"].index("reviewing"))
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        brief = json.loads(b.work("review1-brief.json").read_text(encoding="utf-8"))
+        self.assertEqual(brief["lens"][0]["findings"], [{"lens": "silent-failure-hunter", **finding}])
+        text = pathlib.Path(got["report"]["machine_report_file"]).read_text(encoding="utf-8")
+        self.assertIn("## 未確認のレンズ\n\n- なし（振り分けたレンズは全部走った）\n- " + lens.REFIX_NOTE, text)
+
+    def test_failed_lens_node_still_reviews(self):
+        """レンズの節が 1 本落ちても集め役が ok で終わり、差分の審査が走る。落ちたレンズは名前と理由で報告に出る"""
+        r = replies()
+        r["lens-silent-failure-hunter"] = None
+        got = self.run_line(replies=r)
+        for nid in ("lensing", "reviewing", "refixing", "testing"):
+            self.assertIn(nid, got["trail"])
+        self.assertIs(got["out"]["lensing"]["ok"], True)
+        self.assertEqual(got["outcome"], "fixed")
+        text = pathlib.Path(got["report"]["machine_report_file"]).read_text(encoding="utf-8")
+        self.assertIn("- silent-failure-hunter: 落ちた（", text.split("## 未確認のレンズ", 1)[1])
+
+    def test_failed_lens_collector_stops_run(self):
+        """集め役そのものが落ちたら、ブロックの境が盤面を止め（by works:lens）、差分の審査は走らず、手直しの境の節は stop。
+        報告は stopped_by_line で、止めた理由を出す"""
+        import lens
+        r = replies()
+        r["lens-collect"] = "fail"
+        got = self.run_line(replies=r)
+        self.assertIs(got["out"]["lensing"]["ok"], False)
+        for nid in ("reviewing", "refixing", "testing"):
+            self.assertNotIn(nid, got["trail"])
+        self.assertIs(got["out"]["h-refix"]["stop"], True)
+        self.assertEqual(self.state(got)["stop"]["by"], lens.STOP_BY)
+        self.assertEqual(got["outcome"], "stopped_by_line")
+        self.assertIn("レンズの集め役が終わらなかった", pathlib.Path(got["report"]["machine_report_file"]).read_text(encoding="utf-8"))
+
+    def test_rollback_without_lens_block(self):
+        """撤収（lensing を外し reviewing の依存を [h-review] に戻す）の線でも run は fixed で、レンズの節は報告に出ない"""
+        order = [{**r} for r in linekit.LINE_ORDER if r["id"] != "lensing"]
+        rv = next(r for r in order if r["id"] == "reviewing")
+        rv["depends_on"] = ["h-review"]
+        rv.pop("trigger_rule")
+        with mock.patch.object(linekit, "LINE_ORDER", order):
+            got = self.run_line()
+        self.assertIn("reviewing", got["trail"])
+        self.assertEqual(got["outcome"], "fixed")
+        self.assertNotIn("## 未確認のレンズ", pathlib.Path(got["report"]["machine_report_file"]).read_text(encoding="utf-8"))
+
     def test_premises_before_judge(self):
         """前提の実測は判定より前で、判定の入口の premises_file は盤面の p0.premises の出力"""
         got = self.run_line()

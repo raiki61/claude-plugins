@@ -1,0 +1,98 @@
+name: blk-lens
+description: |
+  修正の後の局所レビュー（レンズ）のブロック。判定の前の局所レビューは素材集めの local-review、修正の後はこのブロックで、
+  互いに触れない。修正が作った差分に、利用者が入れた pr-review-toolkit の agent を 1 本ずつ独立の節（レンズ）として当て、
+  指摘を出どころ（レンズの名）つきで盤面の今の周の lens.json に残す（控えの形と読み書きは core の lens。差分の審査の支度が
+  brief に写して審査役が検算し、報告が未確認のレンズを出す）。
+  節: 振り分け（AI なし。レンズごとの <名>_go と理由。定義が引けないレンズは起こさない）→ レンズの節（when: で go を引く。
+  定義の本文を指示書に貼った節そのもので、道具は Read・Grep・Glob だけ。子を起こさない。節ごとに model を持てる）→
+  集め役（all_done。落ちたレンズも起こさなかったレンズも理由つきで記録して ok）→ 境（all_done。集め役が終わらなければ
+  盤面を止めて ok: false）。
+  ラインから include で使う。出口は lens-exit（{ok, reason, lens_file}）。
+
+returns: lens-exit
+outcome_field: ok
+
+nodes:
+  # 振り分け: 今の周の修正の差分から、レンズごとの go と理由・指示書を出し、lens.json に行を書く。差分が無ければ 2（配線の誤り）
+  - id: lens-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, why, diff_file, silent_failure_hunter_go, prompt_silent_failure_hunter]
+      properties:
+        ok: {type: boolean}
+        why: {type: string}
+        diff_file: {type: string}
+        silent_failure_hunter_go: {type: boolean}
+        prompt_silent_failure_hunter: {type: string}
+
+  # レンズ pr-review-toolkit:silent-failure-hunter（黙った失敗）。model: は書かない（前付けの無い役は段の既定のまま Opus。
+  # tests/test_tool_parity.py の RoleModelCase が縛る）
+  - id: lens-silent-failure-hunter
+    command: lens-silent-failure-hunter
+    depends_on: [lens-route]
+    when: "$lens-route.output.silent_failure_hunter_go == true"
+    settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+    allowed_tools: [Read, Grep, Glob]   # 読むだけ。定義（pr-review-toolkit）は全部の道具を持つが、子を起こす形はまとめ役に戻るので持たせない
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
+    idle_timeout: 1728000000
+    output_format:
+      description: 'works-node: lens-silent-failure-hunter'
+      type: object
+      additionalProperties: false
+      required: [findings]
+      properties:
+        findings:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [where, cite, why]
+            properties:
+              where: {type: string, minLength: 1}
+              cite: {type: string, minLength: 4}
+              why: {type: string, minLength: 20}
+        findings_none: {type: string}
+
+  # 集め役: レンズの節が落ちても走る。落ちたレンズは名前と理由を記録して ok（控えが無い・読めない時だけ ok: false）
+  - id: lens-collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [lens-route, lens-silent-failure-hunter]
+    trigger_rule: all_done
+    with:
+      silent_failure_hunter: {from: "$lens-silent-failure-hunter.output", if_skipped: null}
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, reason, lens_file, ran, failed, not_routed]
+      properties:
+        ok: {type: boolean}
+        reason: {type: string}
+        lens_file: {type: string}
+        ran: {type: integer, minimum: 0}
+        failed: {type: integer, minimum: 0}
+        not_routed: {type: integer, minimum: 0}
+
+  # 境: 集め役が落ちた・ok でないなら盤面を止める（依存を足すだけでは後ろの手直しの境が審査を飛ばして走るので、ここで止める）
+  - id: lens-exit
+    script: exit
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [lens-collect]
+    trigger_rule: all_done
+    with:
+      collected: {from: "$lens-collect.output", if_skipped: null}
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, reason, lens_file]
+      properties:
+        ok: {type: boolean}
+        reason: {type: string}
+        lens_file: {type: string}

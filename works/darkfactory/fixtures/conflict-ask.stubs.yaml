@@ -1187,6 +1187,26 @@ h-review:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+lensing__lens-route:
+  ok: true
+  why: ''
+  diff_file: board/fix.diff
+  silent_failure_hunter_go: true
+  prompt_silent_failure_hunter: レンズの定義の本文と、修正の差分 board/fix.diff の読み方・返し方（振り分けの節が組んだ指示書）
+lensing__lens-silent-failure-hunter:
+  findings: []
+  findings_none: stats.py の差分 2 行を読んだ。例外を握りつぶす枝も、既定値で黙って続ける枝も無い
+lensing__lens-collect:
+  ok: true
+  reason: ''
+  lens_file: board/r1/lens.json
+  ran: 1
+  failed: 0
+  not_routed: 0
+lensing__lens-exit:
+  ok: true
+  reason: ''
+  lens_file: board/r1/lens.json
 reviewing__cut:
   ok: true
   files:
@@ -1817,6 +1837,7 @@ fixture:
   - h-rejudge
   - h-mid
   - h-review
+  - lensing__lens-exit
   - reviewing__collect
   - h-refix
   - refixing__collect

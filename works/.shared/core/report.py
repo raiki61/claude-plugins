@@ -55,6 +55,7 @@ from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が
 from engine.rules import validator_module  # noqa: E402
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
+import lens  # noqa: E402
 import reads  # noqa: E402
 import structmark  # noqa: E402
 import writes  # noqa: E402
@@ -957,6 +958,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     structure = structmark.report_lines(board_dir)
     if structure:
         body += ["## 構造の目", "", *[f"- {r}" for r in structure], ""]
+    unseen = lens.report_lines(b)
+    if unseen:
+        body += ["## 未確認のレンズ", "", *[f"- {r}" for r in unseen], ""]
     body += ["## このラインに無い節", "", *[f"- {r}" for r in absent_lines(b)], ""]
     _write_text(rep_p, "\n".join(body))
     green = isinstance(tests, dict) and tests.get("ok") is True and tests.get("green") is True
