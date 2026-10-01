@@ -5,7 +5,9 @@
   （pyproject.toml・requirements*.txt・package.json）から版を引く。宣言のファイル自体が単位なら宣言の全部が対象
 - 取り方: libs/search で id と版を決め、context（type=json）で断片を取る。版が Context7 に在ればその版を指す
 - 盤面の控え: 取れた物（と Context7 に無い物）はライブラリ＋版の鍵で周の置き場に書き、次は網に出ない（前の周の控えも読む）
-- 数で言う: 取れなかった・Context7 に無い・版が無い・上限で取らない物は節の頭に数と名前で出す（黙って落とさない）
+- 数で言う: 枠切れ（429）で取らなかった・取れなかった・Context7 に無い・版が無い・上限で取らない物は節の頭に数と名前で出す
+  （黙って落とさない）。枠切れは TITLE の次の行にも出し、1 本受けたら以後は（次の周も）問い合わせない
+  （test_quota_stops_later_calls_and_leads_the_section。報告の冒頭 2 の 1 行は test_report の test_context7_quota_line_in_head_entry）
 - 標準ライブラリだけの対象は何も取らず、取らないことを書く。WORKS_CONTEXT7=off も取らないことを書く
 - 組み立て: 修正役の指示書（fixrules.fix_prompt）と修正案の役の頭（planblk.head）に節が入る
 """
@@ -103,6 +105,23 @@ class DetectCase(Base):
         self.assertEqual(got["counts"]["stdlib"], 2)
         self.assertEqual(got["counts"]["local"], 2)
 
+    def test_nested_own_python_package_is_not_a_library(self):
+        self.write("backend/app/__init__.py", "")
+        self.write("backend/app/core.py", "V = 1\n")
+        f = self.write("backend/tests/test_x.py", "import app\nfrom app.core import V\nimport requests\n")
+        self.write("requirements.txt", "requests==2.32.3\n")
+        got = libdocs.detect(self.repo, [f])
+        self.assertEqual(sorted(got["libs"]), ["requests"], "作業ツリーで定義された app を外のライブラリとして引かない")
+        self.assertEqual(got["counts"]["local"], 2)
+
+    def test_own_js_workspace_package_is_not_a_library(self):
+        self.write("packages/ui/package.json", json.dumps({"name": "@acme/ui"}))
+        f = self.write("web/app.ts", "import { Button } from '@acme/ui';\nimport { z } from 'zod';\n")
+        self.write("package.json", json.dumps({"dependencies": {"zod": "^3.23.8"}}))
+        got = libdocs.detect(self.repo, [f])
+        self.assertEqual(sorted(got["libs"]), ["zod"], "workspace の自分のパッケージ名を外のライブラリとして引かない")
+        self.assertEqual(got["counts"]["local"], 1)
+
     def test_js_imports_and_package_json(self):
         f = self.write("web/app.ts", "import { z } from 'zod';\nimport fs from 'node:fs';\nimport x from './x';\n"
                                      "const r = require(\"@upstash/context7-sdk\");\nimport path from 'path';\n")
@@ -166,11 +185,24 @@ class SectionCase(Base):
         http = FakeHttp({"libraryName=requests": (429, {"error": "rate_limited", "message": "slow down"}),
                          "libraryName=flask": (200, {"results": []})})
         text = self.section([f], http)
-        self.assertIn("取れなかった 1 本", text)
+        self.assertIn("枠切れで取らなかった 1 本", text)
+        self.assertIn("取れなかった 0 本", text)
         self.assertIn("requests（HTTP 429", text)
         self.assertIn("Context7 に無い 1 本", text)
         self.assertIn("flask", text)
         self.assertFalse(list(self.board.dir.glob(f"r*/{libdocs.CACHE_DIR}/requests@*.json")), "失敗は控えない（次に取り直す）")
+
+    def test_quota_stops_later_calls_and_leads_the_section(self):
+        f = self.write("app.py", "import requests\nimport flask\nimport yaml\n")
+        http = FakeHttp({"libraryName=flask": (429, {"error": "quota", "message": "Monthly quota exceeded"})})
+        text = self.section([f], http)
+        self.assertEqual(len([u for u in http.calls if "libraryName=" in u]), 1, "1 本目の 429 で以後は網に出ない")
+        self.assertEqual(text.splitlines()[1], libdocs.QUOTA_NOTICE)
+        self.assertIn("枠切れで取らなかった 3 本", text)
+        again = FakeHttp()
+        self.board.round = 2
+        self.section([f], again)
+        self.assertEqual(again.calls, [], "次の周も印を読んで網に出ない")
 
     def test_network_error_is_declared(self):
         f = self.write("app.py", "import requests\n")

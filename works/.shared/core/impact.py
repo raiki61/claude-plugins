@@ -19,6 +19,7 @@ AI に探させず、1 回作って使い回す（鍵 = rev・起点・作業ツ
 - seeds_from_units(repo, units) -> list: 判定の単位の文（key・reason・class_query・prescriptions など全部の字）に
   現れる追跡中の file（パスそのものか、一意な basename）
 - py_imports(text) -> list | None: Python の file の import の一覧（地図の import の辺と同じ読み取り。libdocs が使う）
+- tree_files(repo) -> list | None: 作業ツリーの file の一覧（追跡中と無視されていない未追跡。git が使えなければ None。libdocs が使う）
 
 地図の JSON（schema works-impact/1）の欄:
 - key・rev（commit の sha）・rev_name・seeds {given, files, names, from_diff, missing}
@@ -1028,6 +1029,14 @@ def miss(m, junit, fast=(), scope=None):
             misses.append({"test": tid, "module": mod, "file": case.get("file"), "reason": "not-selected"})
     return {"schema": MISS_SCHEMA, "key": m["key"], "failed": failed, "run_all": sel["run_all"],
             "misses": misses, "caught": caught, "unmapped": unmapped}
+
+
+def tree_files(repo):
+    """作業ツリーの file の一覧（追跡中と、無視されていない未追跡。submodule・symlink は除く）。git が使えなければ None"""
+    try:
+        return sorted(_Index(repo, None, scan=False).files)
+    except RuntimeError:
+        return None
 
 
 def seeds_from_units(repo, units):

@@ -12,7 +12,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
 - stop_outcome(b) -> 盤面の止めの (結末の語, by, 一言) か ()・stopped_run(board_dir) -> 当てる前に見る記録の止まり（記録が無いか読めなければ None）
-- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
+- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2。Context7 の枠切れの 1 行を含む）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)・
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
@@ -52,6 +52,7 @@ import adapter  # noqa: E402
 import conflict  # noqa: E402
 import design  # noqa: E402
 import gatemarks  # noqa: E402
+import libdocs  # noqa: E402
 import querytest  # noqa: E402
 from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.rules import validator_module  # noqa: E402
@@ -709,7 +710,7 @@ def declared_downgrades(line: str, *, pack: pathlib.Path = PACK) -> list:
 
 def head_entry(b, start: dict | None, *, mid: dict | None = None) -> list:
     """冒頭 2: 入口・段・gates・最後の関所の形・決めた人（関所の答えの数）・このラインに無い節の数と一覧のパス・下げている所・
-    中の検査の枠の行（境の節の mid_note）"""
+    中の検査の枠の行（境の節の mid_note）・ライブラリの文書の枠切れの 1 行（印が在る時だけ。libdocs.notice）"""
     s = _start_doc(b, start)
     reqs = s.get("requests")
     if reqs is None:
@@ -734,6 +735,9 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None) -> list:
         lines.append(f"中の検査の枠: {mid['mid_note']}")
     else:
         lines.append("中の検査の枠: 境の節の出口が届いていない（中の検査を回さなかった run）")
+    quota = libdocs.notice(b)
+    if quota:
+        lines.append(quota)
     return lines
 
 

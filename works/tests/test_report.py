@@ -580,6 +580,20 @@ class HeadCase(ReportBase):
         self.assertIn(f"中の検査の枠: {note}", report.head_entry(b, None, mid={"go": True, "mid_note": note}))
         self.assertTrue(any("届いていない" in x for x in report.head_entry(b, None, mid=None)))
 
+    def test_context7_quota_line_in_head_entry(self):
+        """Context7 が 429（枠切れ）を返した盤面では冒頭 2 に枠切れの 1 行が在り、返さなかった盤面では無い"""
+        import libdocs
+        self.judged()
+        b = entry.open_board(self.board)
+        self.assertFalse(any("枠切れ" in x for x in report.head_entry(b, None)))
+        repo = self.board / "repo_quota"
+        repo.mkdir()
+        (repo / "app.py").write_text("import requests\n", encoding="utf-8")
+        libdocs.section(b, repo, ["app.py"], env={},
+                        get=lambda url, headers: (429, b'{"error": "rate_limited", "message": "quota exceeded"}'))
+        lines = report.head_entry(b, None)
+        self.assertTrue(any("ライブラリの文書は枠切れで取れていない" in x for x in lines), lines)
+
     def test_handover_drafts_and_downgrade(self):
         """p0.parallel_pr を任せ先で受けた盤面（conflicts 2 件・どちらも note つき・外した hunk 1 件）→ 冒頭 1 に 2 件の下書きと
         外した範囲、冒頭 2 に downgrades.json の 1 行"""
