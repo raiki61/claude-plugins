@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-10-02
+
 ### Removed
 
 - `use.sh answer` の `--exclude <単位の番号>=<理由>` を消した。同梱の線が外す単位を読まないので、受けても外した単位は直されていた。今は何かを書く前に拒み、外したい単位と理由は一言に書くよう案内する（盤面の `answer-detail.json` と `answers.jsonl` の `exclude` 欄はもう書かない）。
