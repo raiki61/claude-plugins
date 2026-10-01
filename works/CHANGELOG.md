@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- `dev/dogfood.sh` と `dev/real-run.sh` が依頼の写しを `<dir>` から作る固定の名（`<dir>/request.json`・`<dir>.request.json`）に置いていたので、同じ `<dir>` で起こし直すと、一覧に残る前の起動の run も同じ写しを持ち、結びの候補が 2 本になって結べなかった。写しの名を `use.sh` と同じ起動ごとの印（日時-pid）で作る（`<dir>/requests/<印>.json`・`<dir>.request.<印>.json`）。`dogfood.sh` は `requests/` が残っていても止まらない。
+
 ## [0.2.11] - 2026-10-01
 
 ### Fixed

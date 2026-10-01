@@ -91,7 +91,8 @@ git -C "$DIR" remote set-head origin -a >/dev/null
 
 # 依頼は対象の外の起動ごとの写し（絶対パス）で渡す。起動の後にこの写しを盤面に持つ run だけを結ぶ（相対のままだと
 # start が run の対象の根から解き、こちらの写しと一致しない）
-REQUEST="$DIR.request.json"
+# 名は起動ごとに一意（use.sh と同じ印）。同じ <dir> で起こし直しても、前の起動の run と候補が重ならない
+REQUEST="$DIR.request.$(date +%Y%m%d-%H%M%S)-$$.json"
 cp "$DIR/request_ok.json" "$REQUEST"
 
 cd "$DIR"

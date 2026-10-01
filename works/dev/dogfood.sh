@@ -1,5 +1,5 @@
 #!/bin/sh
-# works/dev/dogfood.sh <request.json> <test_cmd> [<dir>]
+# works/dev/dogfood.sh <依頼の JSON> <test_cmd> [<dir>]
 # works/dev/dogfood.sh --show <dir> <run-id>
 #
 # 自分食い: このリポジトリ自身を対象に、ライン darkfactory を本物の AI で 1 回回す（費用が掛かる。回す前に持ち主の了承を取る）。
@@ -8,7 +8,7 @@
 #      （tests/・dev/・docs/ は除く。lib.sh）、dogfood-base に commit する。
 #   3. <dir>/origin.git に裸のリポジトリを作って origin にし、dogfood-base を push して origin の既定の枝にする
 #      （Archon は run ごとに切る worktree の元を origin の既定の枝から取るため）。
-#   4. 依頼を <dir>/request.json に写し（依頼の元が後で書き換わっても、回した物が残る）、clone の中で
+#   4. 依頼を起動ごとの写し <dir>/requests/<日時>-<pid>.json に写し（依頼の元が後で書き換わっても、回した物が残る）、clone の中で
 #      archon.sh workflow run darkfactory を前景で回す。人の関所で run は止まって戻る。
 #   5. run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）と、run の worktree の差分
 #      （git diff --binary <周の頭の版>。<dir>/run-<id>.diff）をこのリポジトリへ git apply で取り込むコマンドを出す。
@@ -23,7 +23,8 @@
 #   WORKS_DESIGN_ONLY=1 は設計だけの run: 入力 design_only=true を渡し、修正前の関所を項目の有無に関わらず開けて止める。
 #   未設定・空は今どおり。1 の外の値（on など）だけが、何かを作る前に 1 行で止まる（終了コード 2）。
 # 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
-# <dir> に前の回の repo・origin.git・request.json が在れば、何も書かずに止まる（前の回の依頼を上書きしない）。
+# <dir> に前の回の repo・origin.git・github-reads.json か、前の版の固定名の写し request.json が在れば、何も書かずに止まる。
+# 起動ごとの写し（requests/）は起動の記録で、残っていても次の起動を妨げない。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（ここでは埋めない。既定を解いて書くのは archon.sh）。
 # 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。
 # 開発の家の既定と CLAUDE_BIN_PATH は launch.py env が解き（real-run.sh と同じ）、隔離の前に渡す。
@@ -36,7 +37,7 @@ if [ "${1:-}" = --show ]; then
 else
   SHOW=""
   if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-    echo "usage: dogfood.sh <request.json> <test_cmd> [<dir>]（前の回の差分を書き直すのは dogfood.sh --show <dir> <run-id>）" >&2
+    echo "usage: dogfood.sh <依頼の JSON> <test_cmd> [<dir>]（前の回の差分を書き直すのは dogfood.sh --show <dir> <run-id>）" >&2
     exit 2
   fi
   case "${WORKS_DESIGN_ONLY:-}" in
@@ -122,7 +123,9 @@ else
 fi
 REPO="$DIR/repo"
 ORIGIN="$DIR/origin.git"
-REQUEST="$DIR/request.json"
+# 写しの名は起動ごとに一意（use.sh と同じ印）。<dir> を使い直しても、一覧に残る前の起動の run と結びの候補が重ならない
+mkdir -p "$DIR/requests"
+REQUEST="$DIR/requests/$(date +%Y%m%d-%H%M%S)-$$.json"
 cp "$1" "$REQUEST"
 
 # 依頼の欄 pr・issue が名指した PR・issue を、clone の前に利用者の env（gh のログインが見える）のまま 1 回だけ読む（設計書 2.8）。

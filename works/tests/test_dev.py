@@ -960,12 +960,12 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(git(dog / "origin.git", "symbolic-ref", "HEAD"), "refs/heads/dogfood-base")
             self.assertEqual(git(dog / "origin.git", "rev-parse", "dogfood-base"), git(repo, "rev-parse", "HEAD"))
 
-            # 依頼は <dir>/request.json に写し、その絶対パスを渡す。ラインは clone の中で認証付きで回し、
+            # 依頼は起動ごとの写し <dir>/requests/<日時>-<pid>.json に写し、その絶対パスを渡す。ラインは clone の中で認証付きで回し、
             # run の問い合わせは認証を読ませずに回す
-            self.assertEqual((dog / "request.json").read_text(), request.read_text())
+            copies = list((dog / "requests").iterdir()); self.assertEqual(len(copies), 1, copies); copy = copies[0]; self.assertRegex(copy.name, r"^\d{8}-\d{6}-\d+\.json$"); self.assertEqual(copy.read_text(), request.read_text())
             self.assertEqual(calls, [
                 [str(repo), "", "workflow", "run", "darkfactory",
-                 "--input", f"request={dog / 'request.json'}", "--input", "test_cmd=python3 -m unittest -q",
+                 "--input", f"request={copy}", "--input", "test_cmd=python3 -m unittest -q",
                  "--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=", "--input", "final_gate=always"],
                 [str(repo), "1", "workflow", "runs", "--json"],
             ])
@@ -989,6 +989,82 @@ class TestDevShell(unittest.TestCase):
             self.assertIn(f"git -C {src.resolve()} apply {dog / 'run-run-1.diff'}", out)
             self.assertIn("run の worktree（/wt/run-1）が無いので書いていない", out)
             self.assertNotIn("注意", out)   # 差分も worktree も .archon/ に触れていない
+
+    def test_dogfood_reused_dir_binds_only_this_launch_run(self):
+        """同じ <dir> を使い直して起こし直しても（前の回の物を消して守りを通る道）、依頼の写しは起動ごとに一意の名で、
+        一覧に残った前の起動の run（止まった・落ちた・取り消した）と結びの候補が重ならず、この起動の run 1 本に結べる（設計書 2.3）"""
+        for prior in ("paused", "failed", "cancelled"):
+            with self.subTest(prior=prior), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                request = tmp / "req.json"
+                request.write_text('[{"where": "x", "text": "y"}]\n')
+                dog = tmp / "dog"
+                first_tmp, second_tmp = tmp / "first", tmp / "second"
+                first_tmp.mkdir()
+                second_tmp.mkdir()
+                result, _, calls = self._dogfood(first_tmp, str(request), "true", str(dog))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                first_request = next(a.split("=", 1)[1] for a in calls[0] if a.startswith("request="))
+                # 人が前の回の clone・origin を消して守りを通る（前の run は <dir> の外、Archon の一覧に残る）
+                for used in ("repo", "origin.git"):
+                    shutil.rmtree(dog / used)
+                runs = json.dumps({"runs": [
+                    {"id": "run-2", "workflow_name": "darkfactory", "status": "paused", "working_path": "/wt/run-2",
+                     "output_root": str(second_tmp / "out")},
+                    # 前の起動の run は、Archon が残した入力（metadata.inputs.request）に前の起動の写しを持つ
+                    {"id": "run-1", "workflow_name": "darkfactory", "status": prior, "working_path": "/wt/run-1",
+                     "output_root": str(first_tmp / "out"), "metadata": {"inputs": {"request": first_request}}},
+                ]})
+                result, _, calls = self._dogfood(second_tmp, str(request), "true", str(dog), runs_json=runs)
+                second_request = next(a.split("=", 1)[1] for a in calls[0] if a.startswith("request="))
+                self.assertNotEqual(os.path.realpath(second_request), os.path.realpath(first_request))
+                self.assertTrue(pathlib.Path(first_request).exists())   # 前の起動の写しは消さない（前の run が指す）
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("run id: run-2", result.stdout)
+                self.assertTrue((second_tmp / "dev-home" / "runs" / "run-2.json").exists())
+
+    def test_real_run_reused_dir_binds_only_this_launch_run(self):
+        """real-run.sh も、同じ <dir> を消して起こし直した時、依頼の写しの名が前の起動と重ならず、一覧に残る前の起動の run
+        （止まった・落ちた・取り消した）を候補にせずに、この起動の run 1 本に結べる（設計書 2.3）"""
+        for prior in ("paused", "failed", "cancelled"):
+            with self.subTest(prior=prior), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                security, _ = fake_security(tmp)
+                runs, current, log = tmp / "runs.json", tmp / "current-run", tmp / "calls.txt"
+                fake = tmp / "fake-archon.sh"
+                # workflow run はこの起動の run（current-run）の盤面 r1/start.json にだけ request= の値を残す
+                fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{runs}" ;; esac\n'
+                                'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
+                                f'printf \'%s\\n\' "$*" >> "{log}"\n'
+                                f'B="{tmp / "out" / "artifacts" / "runs"}/$(cat "{current}")/board/r1"; mkdir -p "$B"\n'
+                                'for a in "$@"; do case "$a" in request=*) printf \'{"request_file": "%s"}\' "${a#request=}" > "$B/start.json" ;; esac; done\n'
+                                'exit 0\n')
+                env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp),
+                                         CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
+                                         **security)
+                target = tmp / "target"
+                row = lambda i, status: {"id": i, "workflow_name": "darkfactory", "status": status,
+                                         "working_path": f"/wt/{i}", "output_root": str(tmp / "out")}
+                current.write_text("run-1")
+                runs.write_text(json.dumps({"runs": [row("run-1", "paused")]}))
+                first = subprocess.run(["sh", str(DEV / "real-run.sh"), str(target)],
+                                       capture_output=True, text=True, encoding="utf-8", env=env)
+                self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+                self.assertIn("run id: run-1", first.stdout)
+                # 人が前の対象と origin を消して同じ <dir> で起こし直す（前の run は Archon の一覧に残る）
+                shutil.rmtree(target)
+                shutil.rmtree(tmp / "target.origin.git")
+                current.write_text("run-2")
+                runs.write_text(json.dumps({"runs": [row("run-2", "paused"), row("run-1", prior)]}))
+                second = subprocess.run(["sh", str(DEV / "real-run.sh"), str(target)],
+                                        capture_output=True, text=True, encoding="utf-8", env=env)
+                self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+                self.assertIn("run id: run-2", second.stdout)
+                requests = [next(a.split("=", 1)[1] for a in line.split() if a.startswith("request="))
+                            for line in log.read_text().splitlines()]
+                self.assertEqual(len(requests), 2, requests)
+                self.assertNotEqual(*requests)
+                self.assertTrue((tmp / "dev-home" / "runs" / "run-2.json").exists())
 
     def test_dogfood_reads_named_pr_and_issue_from_source_before_clone(self):
         """依頼が {findings, pr, issue} で名指せば、clone の前に元のリポジトリ（GitHub を解ける remote を持つ物。clone は origin を
