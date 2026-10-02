@@ -598,7 +598,7 @@ nodes:
           with:
             reply: {from: "$fix.output"}
             base_rev: $INPUTS.base_rev
-            tdd_state: $tdd-start.output.state_file   # 輪で凍ったテストのファイルを修正役が変えていないか（空は輪の無い run）
+            tdd_state: $tdd-start.output.state_file   # 輪で凍ったテストのファイルを修正役が変えていないか・選んで回す試験の元の結末（空は実行器の無い run）
             iteration: $fix-prep.output.iteration     # 輪の何回目か（3 回目の拒否で done。R50）
             pass: "first"
             tdd_suite: $INPUTS.tdd_suite              # 事後の関門の束の実行器（空は受け入れのテストの赤緑を確かめない run）

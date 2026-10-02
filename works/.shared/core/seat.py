@@ -53,7 +53,9 @@ ITEM = "superpowers"   # borrow.json の借りる物の名
 G1_SHAPE = "g1"
 G1_HEAD = "## 下請けを回す（修正の形 g1）"
 G1_REPORT = "実装役の最後のメッセージを、この型の後ろに貼る"   # 審査役の型の [REPORT_FILE]
-G1_HEAD_SHA = "HEAD"   # 審査役の型の [HEAD_SHA]（型の git diff のコマンドの中に在るので版の値。Preflight F20）
+# 審査役の型の [HEAD_SHA]。works は commit しないので差分は作業ツリーと base の間。型の `git diff [BASE_SHA]..[HEAD_SHA]` は
+# g1_prompt が `git diff <base>` に直す（commit の範囲は空になる。コマンドに文を残さない。Preflight F20）。Head の行にだけ残る
+G1_HEAD_SHA = "作業ツリー（works は commit しない）"
 G1_DIFF = "審査を起こす前に git diff <BASE_SHA> を $TMPDIR/works-g1-<n>.patch に書いたパス"   # 審査役の型の [DIFF_FILE]
 G1_IMPL_REPORT = "ファイルに書かない。報告の全部を最後のメッセージに書く（修正役が審査役にそのまま渡す）"   # 実装役の型の [REPORT_FILE]
 G1_STEPS = (
@@ -61,7 +63,7 @@ G1_STEPS = (
     "実装役の最後のメッセージを受けたら、審査役のファイルの『Diff file』の行のとおりに差分のファイルを Bash で書き（作業ツリーの"
     "外。未追跡の新しいファイルは git diff に出ないので、`git ls-files --others --exclude-standard` の名をそのファイルの末尾に"
     "足す）、別の Agent で審査役の下請けを起こす。prompt には審査役のファイルの中身を全部と、その後ろに実装役の最後のメッセージを"
-    "貼る。",
+    "貼る。差分は base からの全体で、前の項目の直しも入る（審査役のファイルにもそう書いてある）。",
     "審査の返答が `❌` か `Needs fixes` なら、指摘を添えて同じ項目の実装役を起こし直し、もう 1 度審査を起こす。実装役は項目ごとに"
     "3 回まで。3 回目の審査も通らなければ、残った指摘を返答の欄に書いて次の項目へ進む。実装役が NEEDS_CONTEXT か BLOCKED を"
     "返した項目の単位は、直さずに食い違いの申し出（conflicts）で返す（下の読み替えの ASK）。",
@@ -86,6 +88,14 @@ G1_SUB_RULES = (
     "一式は回さない（一式と test_cmd は線が回す）。回すのは変えたファイルに当たる試験だけ。",
     "下請けを起こさない。",
 )
+G1_EXTRA = {   # 節ごとに G1_SUB_RULES の後ろへ足す決まり（審査役だけ）
+    "task-review": (
+        "差分の主の材料は、修正役が書いた差分のファイル（上の Diff file）。先にそれを読む。無い時だけ上の `git diff <base>` で"
+        "取る（作業ツリーと base の差分。works は commit しないので、commit の範囲には差分が出ない）。",
+        "差分は base からの全体で、前の項目の直しも入る。審査するのは今の項目の brief に当たる所で、前の項目の直しそのものは"
+        "審査しない（今の項目の直しがそれを壊していれば指摘する）。",
+    ),
+}
 G1_QUERY_LEAD = "外のサービスへ問い合わせる時の決まり（works の包みより。この決まりは型の文に勝つ）:"
 
 
@@ -143,15 +153,19 @@ def section(node: str, shape: str, values: dict[str, str] | None = None) -> str:
 
 def g1_prompt(seam_id: str, values: dict[str, str]) -> str:
     """修正の形 g1 の下請けに渡すファイルの中身: 216 の部品の節 seam_id の型を values で埋めた本文、下請けへの works の決まり
-    （G1_SUB_HEAD・G1_SUB_RULES）、検索語の規律の塊（adapter.query_rule を字のまま）。写しが固定と違う・穴が埋まらない・規律の
-    正本が読めなければ ValueError（名指す）"""
+    （G1_SUB_HEAD・G1_SUB_RULES と G1_EXTRA の節の行）、検索語の規律の塊（adapter.query_rule を字のまま）。型の範囲
+    `<[BASE_SHA]>..<[HEAD_SHA]>` は `<[BASE_SHA]>` に直す（作業ツリーとの差分。G1_HEAD_SHA）。写しが固定と違う・穴が埋まらない・
+    規律の正本が読めなければ ValueError（名指す）"""
     item, src = pinned()
     filled = spseam.fill(seam_id, values, src, item)
+    if "[BASE_SHA]" in values and "[HEAD_SHA]" in values:
+        filled = filled.replace(f"{values['[BASE_SHA]']}..{values['[HEAD_SHA]']}", values["[BASE_SHA]"])
     try:
         rule = adapter.query_rule()
     except adapter.Unrecognised as e:
         raise ValueError(f"下請けに渡す検索語の規律を引けない: {e}") from None
-    return "\n\n".join([filled.rstrip("\n"), G1_SUB_HEAD, _bullets(G1_SUB_RULES), G1_QUERY_LEAD + "\n" + rule]) + "\n"
+    rules = _bullets((*G1_SUB_RULES, *G1_EXTRA.get(seam_id, ())))
+    return "\n\n".join([filled.rstrip("\n"), G1_SUB_HEAD, rules, G1_QUERY_LEAD + "\n" + rule]) + "\n"
 
 
 def g1_section(rows: list[dict]) -> str:

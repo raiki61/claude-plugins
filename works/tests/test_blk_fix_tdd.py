@@ -443,15 +443,18 @@ class TestStart(LoopCase):
                          "盤面の無い置き場（記録の無い盤面は af）も座を出さない")
 
     def test_g1_skips_loop(self):
-        """修正の形 g1 の盤面: 実行器が在っても輪を回さず、何も書かずに実行器の無い run と同じ出口の形で go: false"""
+        """修正の形 g1 の盤面: 輪の頭と同じ元の結末を取って状態を書き（受け付けの選んで回す試験が読む）、輪だけを回さない
+        （go: false・理由 G1_NO_LOOP・輪の要約は無い）"""
         fixshape.choose(self.board, "g1", by="試験", why="g1 は輪を回さない")
-        before = sorted(p.name for p in self.board.iterdir())
         got = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
-        self.assertEqual(got, {"go": False, "reason": tddloop.G1_NO_LOOP, "suite": str(self.suite), "state_file": "",
-                               "summary_file": ""})
+        self.assertEqual({k: got[k] for k in ("go", "reason", "suite", "summary_file")},
+                         {"go": False, "reason": tddloop.G1_NO_LOOP, "suite": str(self.suite), "summary_file": ""})
         self.assertEqual(tddloop.G1_NO_LOOP, "修正の形 g1——TDD の輪は回さない（修正役が下請けを回し、赤緑と凍結は修正の受け付けの束が"
                                              "事後に確かめる）")
-        self.assertEqual(sorted(p.name for p in self.board.iterdir()), before, "盤面の置き場に何も書かない")
+        st = json.loads(pathlib.Path(got["state_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(st["baseline"], self.st()["baseline"], "輪の頭と同じ元の結末")
+        self.assertEqual((st["frozen"], st["order"]), ({}, []), "輪は回っていない（凍ったテストも単位も無い）")
+        self.assertEqual(tddloop.exit_fields(got)["ran"], False)
 
 
 class TestRoute(LoopCase):

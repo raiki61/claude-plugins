@@ -409,8 +409,9 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dic
     - G1_IMPL: 216 の implementer の型。[BRIEF_FILE] はその項目の brief、[task name] はその項目の直す義務の単位、[REPORT_FILE] は
       seat.G1_IMPL_REPORT（下請けには返答の欄が無い）、ほかは implementer_values と同じ
     - G1_REVIEW: 216 の task-review の型。[BRIEF_FILE] は同じ brief、[GLOBAL_CONSTRAINTS] は人の方針の文書のパスか G1_NO_POLICY、
-      [REPORT_FILE] は seat.G1_REPORT、[BASE_SHA] は修正前の版（writes.base_rev）、[HEAD_SHA] は seat.G1_HEAD_SHA（どちらも型の
-      git diff のコマンドの中に在るので版の値。Preflight F20）、[DIFF_FILE] は seat.G1_DIFF の版と項目の番号を埋めた物
+      [REPORT_FILE] は seat.G1_REPORT、[BASE_SHA] は修正前の版（writes.base_rev）、[HEAD_SHA] は seat.G1_HEAD_SHA（型の
+      `git diff <版>..<HEAD_SHA>` は seat.g1_prompt が作業ツリーとの差分 `git diff <版>` に直す。Preflight F20）、[DIFF_FILE] は
+      seat.G1_DIFF の版と項目の番号を埋めた物
     どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊）。写しが固定と違う・穴が埋まらなければ ValueError"""
     common = implementer_values(b, values, repo, owed)
     briefs = planbrief.for_units(briefs_or_halt(b), owed)

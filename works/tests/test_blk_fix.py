@@ -758,7 +758,12 @@ class TestFixPrep(BoardCase):
             self.assertIn(str(b.work("brief-1.md")), text, "その項目の brief")
         want = writes.base_rev(b, base)   # 修正前の版（盤面の review_rev が先。受け付けの突き合わせと同じ起点）
         self.assertRegex(want, r"^[0-9a-f]{40}$")
-        self.assertIn(f"git diff {want}..{seat.G1_HEAD_SHA}`", review.read_text(encoding="utf-8"))
+        text = review.read_text(encoding="utf-8")
+        for cmd in (f"`git diff {want}`", f"`git diff --stat {want}`"):   # works は commit しないので作業ツリーと base の差分
+            self.assertIn(cmd, text)
+        self.assertNotIn(f"{want}..", text, "commit の範囲（..HEAD）は空になる")
+        self.assertIn(seat.G1_EXTRA["task-review"][0], text, "修正役が書く差分のファイルが主の材料")
+        self.assertNotIn(seat.G1_EXTRA["task-review"][0], impl.read_text(encoding="utf-8"))
         self.assertIn(str(self.repo), impl.read_text(encoding="utf-8"))
         full = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn(seat.G1_HEAD, full)

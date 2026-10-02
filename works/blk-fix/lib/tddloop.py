@@ -103,7 +103,7 @@ GATE_OFF = "off"
 SUITE_MADE_NOTE = "一式を走らせて出来たファイル"
 # 平の run（修正の形 current。fixshape.plain）: 比べの基準なので 219 の前の振る舞い（約束を読まない・整えはいつも・test_cmd の関門を切る）
 PLAIN_NOTE = "修正の形 current——test_cmd の関門は回さない（比べの基準）"
-# 修正の形 g1（seat.G1_SHAPE）: 輪を回さない（start は実行器の無い run と同じ出口の形で go: false）
+# 修正の形 g1（seat.G1_SHAPE）: 輪を回さない（start は元の結末を取って状態を書いた後、輪の出口を go: false にする）
 G1_NO_LOOP = "修正の形 g1——TDD の輪は回さない（修正役が下請けを回し、赤緑と凍結は修正の受け付けの束が事後に確かめる）"
 
 
@@ -390,15 +390,14 @@ def _unit(key, route, why="") -> dict:
 
 
 def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> dict:
-    """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無い・修正の形が g1 なら何も書かずに go: false
-    （理由は NO_SUITE・G1_NO_LOOP。実行器の無い run は盤面を読まない）。
-    test_cmd は run のテストのコマンド（線の入力）で、元の結末を取った後に関門を決める（_test_cmd_gate）"""
+    """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無ければ何も書かずに go: false（盤面を読まない）。
+    test_cmd は run のテストのコマンド（線の入力）で、元の結末を取った後に関門を決める（_test_cmd_gate）。
+    修正の形 g1 も元の結末を取って状態を書く（受け付けの選んで回す試験 1c が元で緑だった試験の赤を拒むのに要る。強み 6）。
+    違いは輪を回さないことだけで、出口は go: false・理由 G1_NO_LOOP・state_file は書いた状態・summary_file は空（輪の要約は無い）"""
     suite = (suite or "").strip()
     off = {"go": False, "reason": NO_SUITE, "suite": suite, "state_file": "", "summary_file": ""}
     if not suite:
         return off
-    if _shape(pathlib.Path(board_dir)) == seat.G1_SHAPE:
-        return {**off, "reason": G1_NO_LOOP}
     keys = _open_units(open_units)
     exe = pathlib.Path(suite) if pathlib.Path(suite).is_absolute() else pathlib.Path(repo) / suite
     if not exe.is_file() or not (suite.endswith(".py") or os.access(exe, os.X_OK)):
@@ -429,6 +428,8 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> d
           "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "calls": []}
     state_file = work / STATE
     _save(state_file, st)
+    if _shape(board_dir) == seat.G1_SHAPE:
+        return {**off, "reason": G1_NO_LOOP, "state_file": str(state_file)}
     return {"go": True, "reason": "", "suite": suite, "state_file": str(state_file), "summary_file": str(work / SUMMARY)}
 
 

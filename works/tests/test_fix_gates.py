@@ -446,6 +446,22 @@ class TestAcceptWiring(FixGatesCase):
         self.assertIn("受け付け 1 回", lines[0])
         self.assertNotIn(fixgates.OUT_OF_DUTY, lines[0])
 
+    def test_g1_accept_rejects_new_red_in_selected_test(self):
+        """修正の形 g1: tdd-start は輪を回さないが元の結末は取る（強み 6: どの形も受け付けで変更に当たる試験を選んで回す）。
+        元で緑だった選んだ試験を赤にした直しは、受け付けの 1c（check_tests）が拒む"""
+        import tddloop
+        self.fix_ready()
+        fixshape.choose(self.board, "g1", by="試験", why="g1 の受け付けの 1c を見る")
+        start = tddloop.start(self.board, self.repo, self.SUITE, tbt.OPEN)
+        self.assertEqual((start["go"], start["reason"], start["summary_file"]), (False, tddloop.G1_NO_LOOP, ""))
+        self.edit_tree({**tbf.FIXED, "    return x\n": "    return lo\n"})   # 直した上で、元で緑の test_clamp_within_range を赤に
+        mod = self.accept_mod()
+        with self.env(), mock.patch.dict(os.environ, {"INPUTS_TDD_STATE": start["state_file"]}):
+            got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
+        self.assertIs(got["ok"], False, got)
+        self.assertIn("元で赤でなかった試験が赤", got["reason"])
+        self.assertIn("test_clamp_within_range", got["reason"])
+
     def test_clean_battery_lets_fix_through(self):
         """束が何も見つけなければ今までどおり受ける（修正案の欄の無い run・既存のテストを変えない直し）"""
         self.fix_ready()

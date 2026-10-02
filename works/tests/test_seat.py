@@ -196,6 +196,25 @@ class G1Case(unittest.TestCase):
         with self.assertRaises(ValueError):
             seat.g1_prompt("implementer", {"[BRIEF_FILE]": "x"})   # 穴の値が足りない
 
+    def test_g1_review_diffs_the_working_tree(self):
+        """works は commit しないので、審査役の型の git diff は base と作業ツリーの差分（`git diff <base>`）。[HEAD_SHA] の行は
+        作業ツリーと書き、範囲の `<base>..` はコマンドに残さない（Preflight F20 の続き）。修正役が書く差分のファイルが主の材料で、
+        前の項目の直しも入ると審査役に書く"""
+        values = {p: f"<{i}>" for i, p in enumerate(spseam.load_seams()["task-review"]["placeholders"])}
+        text = seat.g1_prompt("task-review", {**values, "[BASE_SHA]": "abc123", "[HEAD_SHA]": seat.G1_HEAD_SHA})
+        self.assertIn("`git diff abc123`", text)
+        self.assertIn("`git diff --stat abc123`", text)
+        self.assertNotIn("abc123..", text)
+        self.assertIn(f"**Head:** {seat.G1_HEAD_SHA}", text)
+        for rule in seat.G1_EXTRA["task-review"]:
+            self.assertIn(rule, text)
+        self.assertIn("前の項目", " ".join(seat.G1_EXTRA["task-review"]))
+        impl = seat.g1_prompt("implementer", {p: "x" for p in spseam.load_seams()["implementer"]["placeholders"]})
+        self.assertNotIn(seat.G1_EXTRA["task-review"][0], impl, "審査役だけの決まり")
+
+    def test_g1_section_says_diffs_include_earlier_items(self):
+        self.assertIn("前の項目", seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r"}]))
+
     def test_g1_prompt_refuses_unreadable_query_rule(self):
         with mock.patch.object(seat.adapter, "query_rule", side_effect=adapter.Unrecognised("頭の行が無い")):
             with self.assertRaisesRegex(ValueError, "検索語の規律"):
