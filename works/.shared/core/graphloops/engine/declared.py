@@ -30,6 +30,7 @@ DECL_NAME = ".review-checks.json"
 DECL_KEYS = ("suite",)   # 宣言の最上位の必須の鍵。知らない鍵は拒む（効かない鍵を書いても黙って無視しない）
 OPTIONAL_KEYS = ("mutation",)   # 任意の鍵。engine は走らせず、役が読む名指し（変異の実行器と腕の一覧）
 STEP_KEYS = ("name", "argv")
+STEP_OPTIONAL_KEYS = ("junit",)   # 段の任意の鍵: 段が書く試験の報告（JUnit XML）の、リポジトリのルートからの相対パス。段が走ったかを件数で見る
 MUTATION_KEYS = ("argv", "arms")   # argv＝実行器の呼び方の頭（口の旗は付けない——口の綴りは実行器の --help）・arms＝腕の一覧のパス
 
 
@@ -43,7 +44,7 @@ def steps_sha(steps):
 
 
 def parse(text):
-    """宣言の本文を読む ——（steps, 誤り）。steps は [{name, argv}]。誤りがあれば steps は None"""
+    """宣言の本文を読む ——（steps, 誤り）。steps は [{name, argv[, junit]}]。誤りがあれば steps は None"""
     try:
         d = json.loads(text)
     except ValueError as e:
@@ -56,15 +57,18 @@ def parse(text):
         return None, "suite は 1 段以上の配列"
     seen = set()
     for i, s in enumerate(suite):
-        if not isinstance(s, dict) or set(s) != set(STEP_KEYS):
-            return None, f"suite[{i}] は {{{', '.join(STEP_KEYS)}}} だけ"
+        if not isinstance(s, dict) or not set(STEP_KEYS) <= set(s) <= set(STEP_KEYS + STEP_OPTIONAL_KEYS):
+            return None, f"suite[{i}] は {{{', '.join(STEP_KEYS)}}}（必須）と {{{', '.join(STEP_OPTIONAL_KEYS)}}}（任意）だけ"
         if not isinstance(s["name"], str) or not s["name"].strip() or s["name"] in seen:
             return None, f"suite[{i}].name は空でない・重ならない文字列"
         seen.add(s["name"])
         if (not isinstance(s["argv"], list) or not s["argv"]
                 or not all(isinstance(a, str) for a in s["argv"]) or not s["argv"][0]):
             return None, f"suite[{i}].argv は 1 語以上の文字列の配列（shell を通さずにそのまま起こす）"
-    return [{"name": s["name"], "argv": list(s["argv"])} for s in suite], None
+        j = s.get("junit")
+        if "junit" in s and (not isinstance(j, str) or not j or pathlib.PurePosixPath(j).is_absolute() or ".." in pathlib.PurePosixPath(j).parts):
+            return None, f"suite[{i}].junit はリポジトリのルートからの相対パス（空・絶対・.. を含むパスは読まない）"
+    return [{k: (list(s[k]) if k == "argv" else s[k]) for k in STEP_KEYS + STEP_OPTIONAL_KEYS if k in s} for s in suite], None
 
 
 def parse_mutation(m, root=None):

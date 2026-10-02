@@ -142,6 +142,9 @@ REVIEW_WORDS = {"pass": "通った", "redesign-needed": "作り直しが要る",
 # 素材の状態の語（写しの graph の material.status の enum）→ 平易な言い方。目の判定と共通の語は REVIEW_WORDS から引く
 MATERIAL_WORDS = {"found": "赤", "clean": "緑", "awaiting_human": "走らせられず人に諮った",
                   **{k: REVIEW_WORDS[k] for k in ("carried_over", "not_applicable", "not_run")}}
+# 修正前のテストの行（entry.baseline_line）が、走らなかった段・走ったかを確かめていない段に添える語
+BASELINE_NOT_RUN = "基準の検査が走らなかった（コードの赤ではない）"
+BASELINE_UNVERIFIED = "走ったかは確かめていない"
 HANDLED_WORDS = {"fixed": "直した", "declared": "直さずに残すと申告した"}   # 手直しの行の handled の語（写しの graph の enum）
 # 独立の目のブロックが Archon の節が落ちた筋とその文を置く作業ファイル（入口の周の箱 r<N>/。書き手は blk-eyes の route・collect、
 # 読み手は fell_lanes）。ブロックとラインが名前を写し合わないよう、正本はここ

@@ -170,6 +170,26 @@ class EnvFailureLineCase(unittest.TestCase):
         self.assertIn("pytest（exit 1）", entry.suites_line(tests))
 
 
+class BaselineNotRunCase(unittest.TestCase):
+    """基準の検査が走らなかった段・走ったかを確かめていない段を、既知の基の赤と分けて書く（test_cmd の素材と報告の行）"""
+
+    def test_test_cmd_red_says_unverified(self):
+        """test_cmd は shell の文字列で試験の報告を宣言できない: 赤は found のまま、走ったかは確かめていないと添える"""
+        with tempfile.TemporaryDirectory() as d:
+            log = pathlib.Path(d) / "t.log"
+            log.write_text("boom\n", encoding="utf-8")
+            m = entry._cmd_material(1, log, ["bash", "-c", "x"], "shell")["material"]
+        self.assertEqual(m["status"], "found")
+        self.assertIn(entry.gatemarks.BASELINE_UNVERIFIED, m["detail"])
+
+    def test_awaiting_human_baseline_is_said_not_run(self):
+        """p0 は走らなかった時にだけ awaiting_human を立てる: 状態の語のまま『基準の検査が走らなかった』を添える"""
+        b = type("B", (), {"record": {"process": {"baseline_checks": {"status": "awaiting_human", "reason": "r"}}}})()
+        line = entry.baseline_line(b)
+        self.assertTrue(line.startswith(f"修正前のテスト: {entry.gatemarks.MATERIAL_WORDS['awaiting_human']}（"), line)
+        self.assertIn(entry.gatemarks.BASELINE_NOT_RUN, line)
+
+
 def _load_run_tests():
     """blk-tests の節のスクリプトを module として読む（main は __main__ の時だけ走る）"""
     import importlib.util

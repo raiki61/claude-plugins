@@ -603,5 +603,24 @@ class HeadModelsCase(unittest.TestCase):
         self.assertEqual(report._live_launches(None, launches), [launches[2], launches[0]])
 
 
+class HeadBaselineCase(unittest.TestCase):
+    """修正前のテストの行（entry.baseline_line）: 走らなかった段を、既知の基の赤と区別して書く。
+    見るのは process.baseline_checks の構造の値（status）だけで、detail や reason の文言は読まない"""
+
+    def line(self, base: dict) -> str:
+        b = types.SimpleNamespace(record={"process": {"baseline_checks": base}})
+        return entry.baseline_line(b)
+
+    def test_baseline_not_run_is_not_said_known_red(self):
+        line = self.line({"status": "not_run", "reason": "x"})
+        self.assertIn("基準の検査が走らなかった（コードの赤ではない）", line)
+        self.assertNotIn("修正前から在りうる", line)
+
+    def test_baseline_found_says_known_red(self):
+        line = self.line({"status": "found", "count": 1})
+        self.assertIn("修正前から在りうる", line)
+        self.assertNotIn("基準の検査が走らなかった", line)
+
+
 if __name__ == "__main__":
     unittest.main()

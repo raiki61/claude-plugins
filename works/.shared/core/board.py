@@ -358,8 +358,8 @@ def tree_runner(steps: list, cwd, log_dir) -> list:
     グループ・期限なし・標準入力は空・uv run の環境を外す（tree_run.outside_env。blk-tests の run_tests と同じ 1 本）・止められたら
     tree_run.stop_group の数え上げ→送る→数え直しの式で木ごと止め（受けた信号と SIGTERM → KILL_GRACE（2 秒）→ SIGKILL。
     ps を待つ上限 PS_TIMEOUT を含む）、止めた後に LINGER（1 秒）待ってから tree_run.Stopped を投げる（ここでは捕まえない）。標準出力・標準エラーは log_dir/<段の番号>.out・.err に丸ごと。
-    返りの行は engine の run_steps と同じ鍵 {name, argv, out, err, exit, wall_s, tail}（起こせなければ exit None と error。argv は
-    包む前の宣言の形）。枠を取った段だけ wait_s（枠を待った秒）を足し、wall_s は待ちを除いた実行の時間のまま。
+    返りの行は engine の run_steps と同じ鍵 {name, argv, out, err, started, exit, wall_s, tail}（started は段を起こした epoch 秒で、
+    試験の報告が今の段の物かを checks_reply が見る。起こせなければ exit None と error。argv は包む前の宣言の形）。枠を取った段だけ wait_s（枠を待った秒）を足し、wall_s は待ちを除いた実行の時間のまま。
     engine と違う所: 信号で死んだ段の exit は tree_run の 128+信号（engine は負の番号）。どちらも赤に読まれる。
     子の環境は uv run の外の形で、PYTHONDONTWRITEBYTECODE=1 を立てる（works の決まり。engine の run_steps は環境をそのまま継ぐ）"""
     log_dir = pathlib.Path(log_dir)
@@ -369,7 +369,7 @@ def tree_runner(steps: list, cwd, log_dir) -> list:
     for i, s in enumerate(steps):
         started = time.time()
         base = log_dir / f"{i + 1}"
-        row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
+        row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err", "started": started}
         wait = None
         with open(row["out"], "wb") as out, open(row["err"], "wb") as err:
             try:

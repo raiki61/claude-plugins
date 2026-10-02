@@ -2205,10 +2205,33 @@ def checks_fallback(b, nid, reason):
     _checks_note(b, nid, by="role", why=reason)
 
 
+def _junit_unran(root, step, row):
+    """宣言の段が試験の報告（junit）を持つとき、段が試験を走らせなかった理由（走ったなら None）。見るのは報告の有無・鮮度・件数だけ
+    ——実行器の名も終了コードの数値の意味も読まない（pytest の 5 は pytest だけの意味）"""
+    import xml.etree.ElementTree as ET
+    rel = step["junit"]
+    path = pathlib.Path(root) / rel if root else None
+    if path is None or not path.is_file():
+        return f"報告 {rel} が無い"
+    if row.get("started") is None or path.stat().st_mtime < row["started"]:
+        return f"報告 {rel} が今の段の起動より古い（前の報告は数えない）"
+    try:
+        cases = list(ET.parse(path).getroot().iter("testcase"))
+    except (ET.ParseError, OSError) as e:
+        return f"報告 {rel} が XML として読めない（{type(e).__name__}）"
+    if not cases:
+        return f"報告 {rel} の試験が 0 件"
+    if all(c.find("error") is not None for c in cases):
+        return f"報告 {rel} の試験 {len(cases)} 件が全部 error（走って落ちた failure でなく、走り始める前に壊れた形）"
+    return None
+
+
 def checks_reply(b, nid, launch, runs):
     """走らせた結果から local_checks の素材を組む。走らせられないときは、判定の前（p0）なら awaiting_human、判定の後（p4.ci）
     なら not_run（人待ちを新しく立てない規則）。p4.ci は台帳に local_checks を出どころにする未決の人待ちが在れば、走らせた
-    結果を reason に入れて awaiting_human のまま組む——その判定は check_record と同じ _awaiting_origins を通す（写さない）"""
+    結果を reason に入れて awaiting_human のまま組む——その判定は check_record と同じ _awaiting_origins を通す（写さない）。
+    試験の報告（junit）を宣言した段は、報告の件数で走ったかを見て、走らなかった段を起こせない段と同じ cant に落とす。
+    報告を宣言していない段の赤は found のまま、走ったかは確かめていないと detail に添える"""
     after_judge = nid == "p4.ci"
     cant = "not_run" if after_judge else "awaiting_human"
     if launch.get("blocked"):
@@ -2218,11 +2241,20 @@ def checks_reply(b, nid, launch, runs):
         summary = "; ".join(f"{r['name']}: exit {r['exit']}（{r['wall_s']} 秒）" for r in runs)
         broken = [r for r in runs if r["exit"] is None]
         red = [r for r in runs if r["exit"] not in (0, None)]
+        decl = {s["name"]: s for s in launch.get("steps") or []}
+        root = _repo_root()
+        unran = {r["name"]: _junit_unran(root, decl[r["name"]], r) for r in runs if r["exit"] is not None and decl.get(r["name"], {}).get("junit")}
+        unran = {n: why for n, why in unran.items() if why}
         if broken:
             m = {"status": cant, "reason": "宣言の語を起こせない: " + "; ".join(f"{r['name']}: {r.get('error')}" for r in broken)}
+        elif unran:
+            m = {"status": cant, "reason": "基準の検査が走らなかった段（コードの赤ではない）: " + "; ".join(f"{n}: {why}" for n, why in unran.items())
+                                          + f" ／ 走らせた結果: {summary}"}
         elif red:
+            unverified = [r["name"] for r in red if not decl.get(r["name"], {}).get("junit")]
             m = {"status": "found", "count": len(red),
-                 "detail": f"engine が宣言 {DECL_NAME} を走らせた: {summary} ／ " + " ／ ".join(f"{r['name']} の末尾: {r['tail'][-600:]}" for r in red)}
+                 "detail": f"engine が宣言 {DECL_NAME} を走らせた: {summary} ／ " + " ／ ".join(f"{r['name']} の末尾: {r['tail'][-600:]}" for r in red)
+                           + (f" ／ 走ったかは確かめていない（試験の報告の宣言が無い段: {', '.join(unverified)}）" if unverified else "")}
         else:
             m = {"status": "clean", "checked": f"engine が宣言 {DECL_NAME}（sha {launch['sha'][:12]}）の {len(runs)} 段を走らせた: {summary}"}
         _checks_note(b, nid, by="engine", sha=launch.get("sha"),
