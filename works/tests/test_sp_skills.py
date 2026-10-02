@@ -16,6 +16,7 @@
   の決まりが在る。
 """
 import json
+import os
 import pathlib
 import re
 import sys
@@ -65,9 +66,21 @@ class VendoredCopyCase(unittest.TestCase):
         self.assertEqual(sorted(led.rows), sorted((f"{v}/{f}", f) for f in sp["pin"]["files"]))
 
     def test_licence_is_mit_with_the_notice(self):
-        text = (ROOT / ".shared/borrow/superpowers/6.4.2/LICENSE").read_text(encoding="utf-8")
+        v = json.loads((ROOT / ".shared/borrow/borrow.json").read_text(encoding="utf-8"))["superpowers"]["pin"]["version"]
+        text = (ROOT / ".shared" / "borrow" / "superpowers" / v / "LICENSE").read_text(encoding="utf-8")
         self.assertTrue(text.startswith("MIT License"))
         self.assertIn("Copyright (c) 2025 Jesse Vincent", text)
+
+    @unittest.skipIf(os.name == "nt", "SKIP posix-mode: 実行の権限は POSIX だけ")
+    def test_scripts_in_the_copy_keep_exec_bit(self):
+        """写しの .sh は実行できる（写しと git の mode 100755 が権限を落とさない）"""
+        sp = json.loads((ROOT / ".shared/borrow/borrow.json").read_text(encoding="utf-8"))["superpowers"]
+        base = ROOT / ".shared" / "borrow" / "superpowers" / sp["pin"]["version"]
+        scripts = [f for f in sp["pin"]["files"] if f.endswith(".sh")]
+        self.assertTrue(scripts)
+        for f in scripts:
+            with self.subTest(f):
+                self.assertTrue(os.access(base / f, os.X_OK))
 
 
 class UnattendedOverlayCase(unittest.TestCase):

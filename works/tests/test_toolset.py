@@ -242,6 +242,9 @@ class BorrowListCase(unittest.TestCase):
         self.assertFalse((ROOT / "NOTICE").exists())
 
 
+SHA = "a" * 40   # 偽の superpowers の commit（vendor は commit の分からない写しを拒む）
+
+
 class VendorCase(Base):
     """vendor: 利用者のキャッシュの superpowers の 1 つの版から、包むファイルだけを .shared/borrow/superpowers/<版>/ へ写し、
     写しの台帳（COPIED_FROM）と borrow.json の pin を書き直す。偽の pack（borrow.json だけ）と偽の superpowers 9.9.0 で回す"""
@@ -254,7 +257,7 @@ class VendorCase(Base):
 
     def test_vendor_writes_copy_ledger_and_pin(self):
         src = installed_dir(self.user, "superpowers")
-        pin = toolset.vendor(self.pack, src, "9.9.0", None, "2026-10-02")
+        pin = toolset.vendor(self.pack, src, "9.9.0", SHA, "2026-10-02")
         base = self.pack / ".shared" / "borrow" / "superpowers"
         item = json.loads((self.pack / ".shared/borrow/borrow.json").read_text())["superpowers"]
         self.assertEqual(item["pin"], pin)
@@ -268,32 +271,102 @@ class VendorCase(Base):
         self.assertIn("Copyright (c) 2025 Test", led.head)
 
     def test_vendor_replaces_the_old_version(self):
-        toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", None, "2026-10-02")
+        toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", SHA, "2026-10-02")
         newer = installed_dir(self.user, "superpowers").parent / "9.10.0"
         shutil.copytree(installed_dir(self.user, "superpowers"), newer)
         toolset.vendor(self.pack, newer, "9.10.0", "f" * 40, "2026-10-03")
         self.assertEqual(sorted(p.name for p in (self.pack / ".shared/borrow/superpowers").iterdir()), ["9.10.0", "COPIED_FROM"])
 
     def test_vendor_skips_markers(self):
-        pin = toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", None, "2026-10-02")
+        """Claude Code の印（.in_use/）と .DS_Store が借りるスキルの中に在っても、写さず固定にも数えない"""
+        src = installed_dir(self.user, "superpowers")
+        _put(src / "skills" / "test-driven-development" / ".in_use" / "1", "{}")
+        _put(src / "skills" / "test-driven-development" / ".DS_Store", "x")
+        pin = toolset.vendor(self.pack, src, "9.9.0", SHA, "2026-10-02")
         self.assertFalse(any(".in_use" in f or f.endswith(".DS_Store") for f in pin["files"]))
+        copied = self.pack / ".shared/borrow/superpowers/9.9.0/skills/test-driven-development"
+        self.assertEqual(sorted(p.name for p in copied.iterdir()), ["SKILL.md"])
 
     def test_vendor_refuses_without_mit_licence(self):
         (installed_dir(self.user, "superpowers") / "LICENSE").write_text("Proprietary\n", encoding="utf-8")
         before = (self.pack / ".shared/borrow/borrow.json").read_bytes()
         with self.assertRaises(toolset.ToolsetError):
-            toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", None, "2026-10-02")
+            toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", SHA, "2026-10-02")
         self.assertEqual((self.pack / ".shared/borrow/borrow.json").read_bytes(), before)
         self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())
 
     def test_cli_vendor_missing_version_is_2(self):
-        self.assertEqual(self.cli("vendor", "0.0.1").returncode, 2)
+        r = self.cli("vendor", "0.0.1")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn(str(installed_dir(self.user, "superpowers").parent / "0.0.1"), r.stderr)
+
+    def test_vendor_refuses_unknown_commit_and_writes_nothing(self):
+        """固定は写し元の commit を名指す。分からない（None・空・40 桁の 16 進でない）なら何も書かずに止まる"""
+        before = (self.pack / ".shared/borrow/borrow.json").read_bytes()
+        for commit in (None, "", "unknown", "abc"):
+            with self.subTest(commit):
+                with self.assertRaises(toolset.ToolsetError) as cm:
+                    toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", commit, "2026-10-02")
+                self.assertIn("commit", str(cm.exception))
+                self.assertEqual((self.pack / ".shared/borrow/borrow.json").read_bytes(), before)
+                self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())
+
+    def test_vendor_failure_leaves_no_empty_folder(self):
+        """写している途中で落ちたら、初めての写しなら superpowers/ を残さず、borrow.json も変えない"""
+        before = (self.pack / ".shared/borrow/borrow.json").read_bytes()
+        with mock.patch.object(toolset.shutil, "copy2", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", SHA, "2026-10-02")
+        self.assertEqual((self.pack / ".shared/borrow/borrow.json").read_bytes(), before)
+        self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())
+
+    def test_vendor_failure_keeps_the_old_version(self):
+        """入れ替えの途中（borrow.json を書く所）で落ちても、前の版の写し・台帳・borrow.json はそのまま残る"""
+        src = installed_dir(self.user, "superpowers")
+        toolset.vendor(self.pack, src, "9.9.0", SHA, "2026-10-02")
+        base = self.pack / ".shared/borrow/superpowers"
+        snap = {p.relative_to(base).as_posix(): p.read_bytes() for p in base.rglob("*") if p.is_file()}
+        before = (self.pack / ".shared/borrow/borrow.json").read_bytes()
+        newer = src.parent / "9.10.0"
+        shutil.copytree(src, newer)
+        real = os.replace
+
+        def fail_on_borrow(a, b):
+            if pathlib.Path(b).name == "borrow.json":
+                raise OSError("disk full")
+            return real(a, b)
+        with mock.patch.object(toolset.os, "replace", side_effect=fail_on_borrow):
+            with self.assertRaises(OSError):
+                toolset.vendor(self.pack, newer, "9.10.0", "f" * 40, "2026-10-03")
+        self.assertEqual((self.pack / ".shared/borrow/borrow.json").read_bytes(), before)
+        self.assertEqual({p.relative_to(base).as_posix(): p.read_bytes() for p in base.rglob("*") if p.is_file()}, snap)
+        self.assertEqual(sorted(p.name for p in base.iterdir()), ["9.9.0", "COPIED_FROM"])
+
+    @unittest.skipIf(os.name == "nt", "SKIP posix-mode: 実行の権限は POSIX だけ")
+    def test_vendor_keeps_exec_bit(self):
+        toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", SHA, "2026-10-02")
+        sh = self.pack / ".shared/borrow/superpowers/9.9.0/skills/systematic-debugging/find-polluter.sh"
+        self.assertTrue(os.access(sh, os.X_OK))
+        self.assertFalse(os.access(sh.parent / "SKILL.md", os.X_OK))
+
+    def test_commit_of_reads_the_row_of_the_install_path(self):
+        """commit は installed_plugins.json の行のうち installPath が版のフォルダの行の gitCommitSha。無ければ None"""
+        src = installed_dir(self.user, "superpowers")
+        other = src.parent / "9.8.0"
+        other.mkdir()
+        rows = [{"scope": "user", "installPath": str(other), "version": "9.8.0", "gitCommitSha": "b" * 40},
+                {"scope": "project", "projectPath": "/x", "installPath": str(src), "version": "9.9.0", "gitCommitSha": "c" * 40}]
+        _put(self.user / "plugins" / "installed_plugins.json",
+             json.dumps({"version": 2, "plugins": {"superpowers@superpowers-marketplace": rows}}))
+        self.assertEqual(toolset._commit_of(self.user, src), "c" * 40)
+        self.assertEqual(toolset._commit_of(self.user, other), "b" * 40)
+        self.assertIsNone(toolset._commit_of(self.user, src.parent / "9.7.0"))
 
     def test_vendor_refuses_version_names_that_point_outside(self):
         for bad in ("../9.9.0", "9.9.0/x", ".hidden", ""):
             with self.subTest(bad):
                 with self.assertRaises(toolset.ToolsetError) as cm:
-                    toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), bad, None, "2026-10-02")
+                    toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), bad, SHA, "2026-10-02")
                 self.assertIn("版の名", str(cm.exception))
                 self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())
 
@@ -308,7 +381,7 @@ class VendorCase(Base):
             with self.subTest(said):
                 breakit()
                 with self.assertRaises(toolset.ToolsetError) as cm:
-                    toolset.vendor(self.pack, src, "9.9.0", None, "2026-10-02")
+                    toolset.vendor(self.pack, src, "9.9.0", SHA, "2026-10-02")
                 self.assertIn(said, str(cm.exception))
                 self.assertEqual((self.pack / ".shared/borrow/borrow.json").read_bytes(), before)
                 self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())

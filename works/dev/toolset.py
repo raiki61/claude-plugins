@@ -43,7 +43,7 @@ Claude Code に入れたプラグインから取る（本線の graphloops と�
   網からは取らない。版は人が名指す）から、包むファイル（.shared/core/spseam.py の wrapped_files。借りるスキルの全ファイル・
   部品 parts・LICENSE）だけを .shared/borrow/superpowers/<版>/ へバイトのまま・権限つきで写し、ほかの版の写しを消し、写しの台帳
   .shared/borrow/superpowers/COPIED_FROM と borrow.json の superpowers.pin（版・commit・確かめた日・ファイルごとの sha256）を
-  書き直す。commit は installed_plugins.json の行のうち installPath がその版の置き場の行の gitCommitSha（無ければ null）。
+  書き直す。commit は installed_plugins.json の行のうち installPath がその版の置き場の行の gitCommitSha（無ければ写さずに止まる）。
   使用許諾のファイルが MIT License で borrow.json の licence と合う時だけ写す（外れなら何も書かずに止まる）。写しは直さない。
   写しを変えるのはこの口だけで、写し・台帳・pin を同じ 1 つの commit に入れる。
 """
@@ -91,6 +91,8 @@ VENDORED = "superpowers"                    # 写しを持つ借りる物（.sha
 LEDGER = "COPIED_FROM"                      # 写しの台帳の名（.shared/borrow/superpowers/ の下。形は .shared/core/copyledger.py）
 LICENCE_HEADS = {"MIT": "MIT License"}      # borrow.json の licence → 使用許諾のファイルの頭の行（写してよい物だけ）
 UPSTREAM = "github.com/obra/superpowers"    # 写し元の系統（台帳の 1 行目に書く）
+OLD_MARK = ".works-old."                    # 入れ替えの間、前の版の写しと台帳を脇へ退ける名の印
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")    # 固定に書く写し元の commit（installed_plugins.json の gitCommitSha）
 VERSION_NAME = re.compile(r"[0-9A-Za-z][0-9A-Za-z._+-]*")   # 写す版の名（フォルダの名になる。/ や .. で外を指させない）
 
 
@@ -475,13 +477,21 @@ def _licence_notice(src: pathlib.Path, item: dict) -> str:
     return notice
 
 
-def vendor(pack: pathlib.Path, src: pathlib.Path, version: str, commit: "str | None", checked: str) -> dict:
+def vendor(pack: pathlib.Path, src: pathlib.Path, version: str, commit: str, checked: str) -> dict:
     """利用者のキャッシュの superpowers の版のフォルダ src の包むファイル（spseam.wrapped_files）を
     pack/.shared/borrow/superpowers/<version>/ へバイトのまま・権限つきで写し、ほかの版のフォルダを消し、台帳 COPIED_FROM と
-    borrow.json の superpowers.pin を書き直して、新しい pin を返す。使用許諾が合わない・借りるスキルの SKILL.md か部品が無い・
-    symlink か外を指すパスが在る・パスに空白か # が在る（台帳に書けない）、のどれかなら何も書かずに ToolsetError"""
+    borrow.json の superpowers.pin を書き直して、新しい pin を返す。commit が分からない（40 桁の 16 進でない。固定は写し元を
+    名指す）・使用許諾が合わない・借りるスキルの SKILL.md か部品が無い・symlink か外を指すパスが在る・パスに空白か # が在る
+    （台帳に書けない）、のどれかなら何も書かずに ToolsetError。
+
+    入れ替えは、新しい版を一時の置き場に写し、台帳と borrow.json も一時のファイルに書いてから、前の版と台帳を脇へ退け、
+    新しい物を置き、最後に borrow.json を os.replace で置く。途中で落ちたら脇へ退けた物を戻し、初めての写しなら
+    superpowers/ も残さない。前の版を消すのは borrow.json を置いた後だけ"""
     pack, src = pathlib.Path(pack), pathlib.Path(src)
     _check_version_name(version)
+    if not isinstance(commit, str) or not COMMIT_SHA.fullmatch(commit):
+        raise ToolsetError(f"写し元の commit が分からない（{commit!r}。40 桁の 16 進が要る）。固定は写し元を名指すので写さない"
+                           "（installed_plugins.json の行に gitCommitSha が在る版を入れ直す）")
     bj = pack / ".shared" / "borrow" / "borrow.json"
     borrow = json.loads(bj.read_text(encoding="utf-8"))
     item = borrow[VENDORED]
@@ -497,34 +507,59 @@ def vendor(pack: pathlib.Path, src: pathlib.Path, version: str, commit: "str | N
     bad += [f"{r}: パスに空白か # が在る（台帳に書けない）" for r in files if any(c.isspace() or c == "#" for c in r)]
     if bad:
         raise ToolsetError(f"{src} を写せない: " + " / ".join(bad))
+    head = (f"{commit}  {VENDORED} {version}（{UPSTREAM}。{LICENCE_HEADS[item['licence']]}・{notice}。"
+            f"直さない写し。取り直しは dev/toolset.py vendor）")
+    ledger = "\n".join([head, *(f"{version}/{rel}  {rel}" for rel in files)]) + "\n"
     base = pack / ".shared" / "borrow" / VENDORED
-    base.mkdir(parents=True, exist_ok=True)
-    tmp = base / f".{version}{TMP_MARK}{os.getpid()}"
-    shutil.rmtree(tmp, ignore_errors=True)
+    pid = os.getpid()
+    tmp = base / f".{version}{TMP_MARK}{pid}"
+    led_tmp = base / f".{LEDGER}{TMP_MARK}{pid}"
+    bj_tmp = bj.parent / f".{bj.name}{TMP_MARK}{pid}"
+    created = not base.exists()
+    moved, placed, led_placed = [], False, False   # 脇へ退けた (元の場所, 脇)・新しい版を置いたか・新しい台帳を置いたか
     try:
+        base.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(tmp, ignore_errors=True)
         for rel in files:
             (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src / rel, tmp / rel)
         pin = spseam.pin_of(tmp, item, version, commit, checked)
         if pin["files"] != files:
             raise ToolsetError(f"写しの sha256 が元と違う（写している間に {src} が変わった？）。写さない")
+        item["pin"] = pin
+        led_tmp.write_text(ledger, encoding="utf-8")
+        bj_tmp.write_text(json.dumps(borrow, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        for old in sorted(base.iterdir()):
+            if old in (tmp, led_tmp):
+                continue
+            aside = base / f".{old.name}{OLD_MARK}{pid}"
+            old.rename(aside)
+            moved.append((old, aside))
+        tmp.rename(base / version)
+        placed = True
+        os.replace(led_tmp, base / LEDGER)
+        led_placed = True
+        os.replace(bj_tmp, bj)       # ここで入れ替わる（この後は前の版を消すだけ）
     except BaseException:
-        shutil.rmtree(tmp, ignore_errors=True)
+        for t in (tmp, led_tmp, bj_tmp):
+            if t.is_dir():
+                shutil.rmtree(t, ignore_errors=True)
+            elif t.exists():
+                t.unlink()
+        if placed:
+            shutil.rmtree(base / version, ignore_errors=True)
+        if led_placed:
+            (base / LEDGER).unlink(missing_ok=True)
+        for old, aside in moved:
+            aside.rename(old)
+        if created:
+            shutil.rmtree(base, ignore_errors=True)
         raise
-    head = (f"{commit or 'unknown'}  {VENDORED} {version}（{UPSTREAM}。{LICENCE_HEADS[item['licence']]}・{notice}。"
-            f"直さない写し。取り直しは dev/toolset.py vendor）")
-    ledger = "\n".join([head, *(f"{version}/{rel}  {rel}" for rel in files)]) + "\n"
-    item["pin"] = pin
-    for old in base.iterdir():
-        if old == tmp or old.name == LEDGER:
-            continue
-        if old.is_dir() and not old.is_symlink():
-            shutil.rmtree(old)
+    for _, aside in moved:
+        if aside.is_dir() and not aside.is_symlink():
+            shutil.rmtree(aside, ignore_errors=True)
         else:
-            old.unlink()
-    tmp.rename(base / version)
-    (base / LEDGER).write_text(ledger, encoding="utf-8")
-    bj.write_text(json.dumps(borrow, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            aside.unlink(missing_ok=True)
     return pin
 
 
@@ -555,7 +590,7 @@ def _vendor_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None", version: st
         return 2
     pin = vendor(pack, src, version, _commit_of(user_cfg, src), datetime.date.today().isoformat())
     print(f"toolset.py: {VENDORED} {pin['version']} の {len(pin['files'])} 本を .shared/borrow/{VENDORED}/{pin['version']}/ に写した"
-          f"（commit {pin['commit'] or 'unknown'}）")
+          f"（commit {pin['commit']}）")
     return 0
 
 
