@@ -49,6 +49,7 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import conflict  # noqa: E402
 import entry  # noqa: E402
+import fixshape  # noqa: E402
 from leftovers import Unreadable, git_names  # noqa: E402
 import libdocs  # noqa: E402
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
@@ -57,6 +58,7 @@ import rolekit  # noqa: E402
 import rulebook  # noqa: E402
 from rulebook import EMPTY, MARK, RULES_SAME, WHY_DELTA, Unfilled, fill, join, render, shared  # noqa: E402,F401
 import script_io  # noqa: E402
+import seat as seatkit  # noqa: E402  （借りたスキルの座。引数の名 seat と分ける）
 from engine.util import Reject  # noqa: E402
 
 RULES_DIR = pathlib.Path(__file__).resolve().parents[1] / "rules"
@@ -89,6 +91,7 @@ REJECT_GLOB = f"{script_io.REJECT_PREFIX}accept_fix-*.txt"
 # 並べて書く形の名の尾（<名>.md の隣）
 FULL, DELTA, RULES, VARIANTS, DELIVERED = ".full.md", ".delta.md", ".rules.md", ".variants.json", ".delivered.json"
 WHY_FIRST = "1 回目（この輪でまだ決まりを渡していない。delta は full と同じ）"
+SEAT_BRIEFS = "seat-briefs.md"   # 修正役の座の型の [BRIEF_FILE]（今の周の作業ファイル。直す義務の単位の brief を名指す節）
 BRIEF_STOP_BY = "works:fix"   # brief の控えが壊れた盤面を止めた口（assert-changed の STOP_BY と同じ修正の段の印）
 BRIEF_BROKEN = (f"修正案の brief の控え（今の周の {planbrief.LEDGER}）か欄の控え（盤面の {planbrief.planmarks.FIELDS_FILE}）が壊れているか"
                 "凍結の後に書き換えられ、承認した要求の正本が"
@@ -179,8 +182,14 @@ def _all_kinds() -> dict:
     return {k: "種類を選ばない組み立て（全部）" for k in KINDS}
 
 
-def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "") -> list:
-    """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの今の文書の節（libdocs.section。空なら載せない）"""
+def _seat(seat: str) -> list:
+    """借りたスキルの座の節（seat.section の文。空なら載せない）"""
+    return [("seat", seat, ALWAYS + "（修正の形 g3 の座）")] if seat else []
+
+
+def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: str = "") -> list:
+    """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの今の文書の節（libdocs.section。空なら載せない）。
+    seat は借りたスキルの座（seat.section。空なら載せない）で、返答の欄の直前に置く"""
     c, d = sections(SHARED), sections(DIRECT)
     kinds = _all_kinds() if kinds is None else kinds
     return [("fix-head", fill(d["fix-head"], _pick(values, FIX_VALUES)), ALWAYS + "（役・読む物・run の値）"),
@@ -189,18 +198,18 @@ def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "") -> lis
             ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
             ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
             *([("libdocs", libdocs, "機械が引いた（Context7。見つけた数と取れた数は節の頭）")] if libdocs else []),
-            ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
+            *_seat(seat), ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
 
 
-def tdd_parts(values: dict, kinds: dict | None = None) -> list:
-    """TDD の輪の役の決まりの節（段によらない物）"""
+def tdd_parts(values: dict, kinds: dict | None = None, seat: str = "") -> list:
+    """TDD の輪の役の決まりの節（段によらない物）。seat は借りたスキルの座（空なら載せない）で、この輪での読み替えの後に置く"""
     c, t = sections(SHARED), sections(TDD)
     kinds = _all_kinds() if kinds is None else kinds
     return [("tdd-head", fill(t["tdd-head"], _pick(values, TDD_VALUES)), ALWAYS + "（役・読む物・run の値）"),
             ("brief-canon", sections(BRIEF)["brief-canon"], ALWAYS + BRIEF_WHY),
             ("core-fix", c["core-fix"], ALWAYS + "（本線の核）"), *_evidence(c, kinds),
             ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
-            ("tdd-remap", t["tdd-remap"], ALWAYS + "（この輪での読み替え）")]
+            ("tdd-remap", t["tdd-remap"], ALWAYS + "（この輪での読み替え）"), *_seat(seat)]
 
 
 def tdd_phase_rules(phase: str) -> str:
@@ -224,28 +233,28 @@ def ruler_prompt(values: dict, *, reject_file: str = "", iteration: int = 1, lan
 
 
 def fix_prompt(values: dict, *, kinds: dict | None = None, reject_file: str = "", prior=None, iteration: int = 1,
-               rules_file: str = "", libdocs: str = "") -> str:
+               rules_file: str = "", libdocs: str = "", seat: str = "") -> str:
     """直す役の指示書の 1 つの形（純粋）"""
-    return render("fix", iteration, fix_parts(values, kinds, libdocs), prior=prior, rules_file=rules_file,
+    return render("fix", iteration, fix_parts(values, kinds, libdocs, seat), prior=prior, rules_file=rules_file,
                   reject_file=reject_file)["text"]
 
 
 def tdd_prompt(values: dict, phase: str, phase_text: str, *, title: str, reason: str = "", kinds: dict | None = None,
-               prior=None, iteration: int = 1, rules_file: str = "", brief: str = "") -> str:
+               prior=None, iteration: int = 1, rules_file: str = "", brief: str = "", seat: str = "") -> str:
     """TDD の輪の役の指示書の 1 つの形（純粋）"""
     return tdd_render(values, phase, phase_text, title=title, reason=reason, kinds=kinds, prior=prior, iteration=iteration,
-                      rules_file=rules_file, brief=brief)["text"]
+                      rules_file=rules_file, brief=brief, seat=seat)["text"]
 
 
 def tdd_render(values, phase, phase_text, *, title, reason="", kinds=None, prior=None, iteration=1, rules_file="",
-               lang="", brief="") -> dict:
+               lang="", brief="", seat="") -> dict:
     """tdd_prompt の形 {text, delivered, rules_text, head}。並び: 題 → [brief の節（planbrief.head_text）] → [拒んだ理由] → 決まり
     → 今の段の約束 → 今の段（tddloop が書く）→ 結び → [言語の 1 行（lang_at）]"""
     before = [title, *([brief] if brief else [])]
     if reason:
         before.append("## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）\n\n" + reason.rstrip("\n"))
     after = [tdd_phase_rules(phase), phase_text.rstrip("\n"), sections(TDD)["tdd-end"]]
-    return render("tdd", iteration, tdd_parts(values, kinds), prior=prior, rules_file=rules_file, before=before, after=after,
+    return render("tdd", iteration, tdd_parts(values, kinds, seat), prior=prior, rules_file=rules_file, before=before, after=after,
                   lang=lang)
 
 
@@ -369,6 +378,27 @@ def briefs_or_halt(b) -> list:
         raise BoardGap(brief_halt(b, e)) from None
 
 
+def implementer_values(b, values: dict, repo, owed: list[str]) -> dict[str, str]:
+    """修正役の座（216 の節 implementer の型）の 5 つの穴の値。owed は今直す単位の key。直す義務の単位の brief を名指す節
+    （planbrief.head_text）を今の周の作業ファイル SEAT_BRIEFS に書いて [BRIEF_FILE] にする（brief の無い run は判定のファイル）。
+    brief の控えが壊れていれば盤面を止めて BoardGap（briefs_or_halt）"""
+    briefs = planbrief.for_units(briefs_or_halt(b), owed)
+    head = planbrief.head_text(briefs, owed)
+    brief_file = values.get("judgment_file") or ""
+    if head:
+        path = b.work(SEAT_BRIEFS)
+        path.write_text(head + "\n", encoding="utf-8")
+        brief_file = str(path)
+    items = "、".join(str(r["item"]) for r in briefs)
+    summary = values.get("summary_file") or ""
+    return {"[task name]": f"直す義務の単位 {len(owed)} 件" + (f"（修正案の項目 {items}）" if items else ""),
+            "[BRIEF_FILE]": brief_file,
+            "[Scene-setting: where this fits, dependencies, architectural context]":
+                seatkit.SCENE + (f"。輪の要約のファイル: {summary}" if summary else ""),
+            "[directory]": "" if repo is None else str(repo),
+            "[REPORT_FILE]": seatkit.NO_REPORT_FILE}
+
+
 def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     """節 fix-prep（pass_ first）と fix-ruled-prep（pass_ ruled）: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。
     返り {prompt_file, attempt, out_path, node, already, variants_file, iteration}（iteration はこの輪の何回目か。受け付けが
@@ -378,7 +408,10 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     次の 1 行で名指す（裁定の文は貼らない。R44）。盤面が p3.fix を待っていなければ BoardGap。
     full と delta の頭（題の次。ruled の 1 回目は裁定の文のファイルの行の後）に、直す義務の単位の brief を名指す節
     （planbrief.head_text。義務から外れた単位には「今は直すな」）を置く（1 回目も ruled も同じ凍結の中身）。
-    brief の控えが壊れていれば盤面を止めて BoardGap（briefs_or_halt。指示書を書かず、起こした印も置かない）"""
+    brief の控えが壊れていれば盤面を止めて BoardGap（briefs_or_halt。指示書を書かず、起こした印も置かない）。
+    修正の形（fixshape.shape_at）が座を載せる形なら、借りたスキルの座（seat.section。型の穴は implementer_values）を full と delta の
+    両方に載せる。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も置かない。支度の
+    script は 2 で落ちる）"""
     if pass_ not in PASSES:
         raise Unfilled(f"pass {pass_!r} は {PASSES} のどれでもない")
     nid = recount.FIX_NODE
@@ -404,9 +437,11 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     before = tuple(x for x in (*before, head) if x)   # ruled の裁定の文の行は見出しの次の 1 行のまま（R44）。brief はその後
     docs = lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))
+    mark, shape = ("fix" if pass_ == PASSES[0] else "fix-ruled"), fixshape.shape_at(board_dir)
+    seat = seatkit.section(mark, shape, implementer_values(b, values, repo, owed)) if seatkit.carries(mark, shape) else ""
 
     def build(kinds, prior, rules_file):
-        return render("fix", n, fix_parts(values, kinds, docs), prior=prior, rules_file=rules_file, reject_file=reject,
+        return render("fix", n, fix_parts(values, kinds, docs, seat), prior=prior, rules_file=rules_file, reject_file=reject,
                       before=before, lang=lang)
     write_variants(path, repo, values, build, n)
     m = b.mark_launched(nid, inst.get("attempts", 1))

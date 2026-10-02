@@ -13,6 +13,7 @@
   ファイルが無い・鍵が無いなら次へ。JSON が読めない・値が語の外なら ValueError（黙って既定にしない）
 - choose(board_dir, shape, *, by, why): CHOICE_REL を書く（後の振り分けの書き口）
 - plain(board_dir): 平の run（形が current）か
+- SKILL_NODES: 座が skill の節の名（seat の表と試験で一致を縛る）
 
 形はいつもこの shape_at から引く（ブロック・包み・測る関数が start.json を直に読まない）。
 """
@@ -28,6 +29,8 @@ BEFORE = "af"             # 形の記録の無い盤面（220 の前の版で作
 KEY = "fix_shape"         # start の控えの鍵（ラインの入力の名と同じ）
 START_REL = "r1/start.json"       # 線の start の控え（entry.START_FILE の 1 周目。L2 なので entry は import しない）
 CHOICE_REL = "r1/fix-shape.json"  # 後の振り分けが選んだ形の控え
+# 座が skill の節（借りたスキルを Skill の道具で読む役の印の名。seat.SEATS のうち use_as が skill の物と同じ。形ごとの道具の柵が読む）
+SKILL_NODES = frozenset({"tdd"})
 
 
 def _words() -> str:

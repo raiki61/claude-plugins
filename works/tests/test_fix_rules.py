@@ -963,5 +963,69 @@ class TestBriefCanonEdges(unittest.TestCase):
             self.assertIn(f"「{heading[3:]}」", line)
 
 
+class TestSeatParts(unittest.TestCase):
+    """借りたスキルの座（seat.section の文）は、渡された時だけ節 seat として載る（修正の形 g3。計画 220 Task 2）。
+    修正役の座の型の穴の値は implementer_values が盤面と run の値から組む"""
+
+    def test_seat_part_only_when_given(self):
+        tdd = [pid for pid, _, _ in fixrules.tdd_parts(tdd_values(), seat="S")]
+        self.assertEqual(tdd[tdd.index("tdd-remap") + 1], "seat")
+        fix = [pid for pid, _, _ in fixrules.fix_parts(VALUES, seat="S")]
+        self.assertEqual(fix[fix.index("fix-reply") - 1], "seat")
+        self.assertNotIn("seat", [pid for pid, _, _ in fixrules.fix_parts(VALUES)])
+        self.assertNotIn("seat", [pid for pid, _, _ in fixrules.tdd_parts(tdd_values())])
+
+    def test_prompts_pass_the_seat_through(self):
+        self.assertIn("座の文 S", fixrules.fix_prompt(VALUES, seat="座の文 S"))
+        self.assertIn("座の文 S", fixrules.tdd_prompt(tdd_values(), "fix", PHASE_TEXT, title=TITLE, seat="座の文 S"))
+        self.assertEqual(fixrules.fix_prompt(VALUES), fixrules.fix_prompt(VALUES, seat=""))
+
+    def _values(self, rows, owed):
+        from unittest import mock
+        import seat
+        import spseam
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = pathlib.Path(tmp.name)
+        b = mock.Mock()
+        b.work.side_effect = lambda name: d / name
+        with mock.patch.object(fixrules.planbrief, "cut", return_value=rows):
+            got = fixrules.implementer_values(b, VALUES, pathlib.Path("/repo"), owed)
+        self.assertEqual(set(got), set(spseam.load_seams()["implementer"]["placeholders"]))
+        self.assertEqual(got["[REPORT_FILE]"], seat.NO_REPORT_FILE)
+        self.assertEqual(got["[directory]"], "/repo")
+        scene = got["[Scene-setting: where this fits, dependencies, architectural context]"]
+        self.assertIn(seat.SCENE, scene)
+        self.assertIn(VALUES["summary_file"], scene)
+        return got, d
+
+    def test_implementer_values_with_briefs(self):
+        import planbrief
+        owed = ["a: 分母", "b: 上限"]
+        rows = [{"item": 1, "unit_keys": ["a: 分母"], "file": "/b/r1/brief-1.md", "sha256": "a" * 64},
+                {"item": 2, "unit_keys": ["z: 外"], "file": "/b/r1/brief-2.md", "sha256": "b" * 64},
+                {"item": 3, "unit_keys": ["b: 上限", "y: 外"], "file": "/b/r1/brief-3.md", "sha256": "c" * 64}]
+        got, d = self._values(rows, owed)
+        self.assertEqual(got["[task name]"], "直す義務の単位 2 件（修正案の項目 1、3）")
+        self.assertEqual(got["[BRIEF_FILE]"], str(d / fixrules.SEAT_BRIEFS))
+        text = (d / fixrules.SEAT_BRIEFS).read_text(encoding="utf-8")
+        self.assertIn(planbrief.HEAD, text)
+        self.assertIn("brief-1.md", text)
+        self.assertIn("brief-3.md", text)
+        self.assertNotIn("brief-2.md", text, "義務の単位を持たない項目は載せない")
+
+    def test_implementer_values_without_briefs(self):
+        got, d = self._values([], ["a: 分母"])
+        self.assertEqual(got["[task name]"], "直す義務の単位 1 件")
+        self.assertEqual(got["[BRIEF_FILE]"], VALUES["judgment_file"], "brief が無い run は判定のファイル")
+        self.assertFalse((d / fixrules.SEAT_BRIEFS).exists())
+
+    def test_implementer_values_fill_the_real_template(self):
+        """組んだ値で 216 の型が埋まる（穴が残らない）"""
+        import seat
+        got, _ = self._values([], ["a: 分母"])
+        self.assertIn(VALUES["judgment_file"], seat.section("fix", "g3", got))
+
+
 if __name__ == "__main__":
     unittest.main()

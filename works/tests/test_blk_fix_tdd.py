@@ -136,7 +136,9 @@ class TestYaml(unittest.TestCase):
         self.assertNotIn("command", role)
         self.assertIn("`$tdd-prep.output.prompt_file` を Read で", role["prompt"])
         self.assertEqual(role["settingSources"], ["user"])
-        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch"])
+        # Skill と skills: は借りたスキルの座（修正の形 g3。計画 220 Task 2。test_seat が座の表と縛る）
+        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch", "Skill"])
+        self.assertEqual(role["skills"], ["test-driven-development"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["idle_timeout"], DEADLINE)
         of = role["output_format"]
@@ -363,6 +365,25 @@ class TestStart(LoopCase):
         with mock.patch.object(tddloop.planbrief, "cut_at", side_effect=broken):
             with self.assertRaisesRegex(tddloop.Broken, planbrief.LEDGER):
                 tddloop.prep(self.state)
+
+    def test_g3_tdd_prompt_carries_seat(self):
+        """修正の形 g3 の盤面: TDD の役の指示書に借りたスキルの座（test-driven-development）と読み替えの頭の行が載る"""
+        import rolekit
+        import seat
+        with mock.patch.object(tddloop.fixshape, "shape_at", return_value="g3") as at:
+            prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertEqual(pathlib.Path(at.call_args[0][0]).resolve(), self.board.resolve(), "盤面の置き場で形を読む")
+        self.assertIn(seat.HEAD, prompt)
+        self.assertIn("test-driven-development", prompt)
+        self.assertIn(rolekit.skill_overlay().splitlines()[0], prompt)
+
+    def test_af_tdd_prompt_has_no_seat(self):
+        import seat
+        with mock.patch.object(tddloop.fixshape, "shape_at", return_value="af"):
+            prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(seat.HEAD, prompt)
+        self.assertNotIn(seat.HEAD, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"),
+                         "盤面の無い置き場（記録の無い盤面は af）も座を出さない")
 
 
 class TestRoute(LoopCase):

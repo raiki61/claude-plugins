@@ -116,7 +116,9 @@ nodes:
           prompt: 指示書 `$tdd-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
+          # 借りたスキルの座（.shared/core/seat.py）: 修正の形 g3 の時だけ tdd-prep が指示書に座と読み替えを載せる。宣言は静的で、ほかの形の柵は包みが持つ
+          skills: [test-driven-development]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # 印 works-node: tdd（包みが会話を節の名で分け、続きの起動で指示書の形を選ぶ）

@@ -714,6 +714,57 @@ class TestFixPrep(BoardCase):
         rows = json.loads(pathlib.Path(json.loads(out)["reads_file"]).read_text(encoding="utf-8"))["rows"]
         self.assertEqual([r["path"] for r in rows], [judgment, prompt])
 
+    def test_g3_prompt_carries_the_implementer_seat(self):
+        """既定の形 g3 の盤面: 修正役の指示書（full）に借りたスキルの座（216 の implementer の型を埋めた物）が返答の欄の前に載る"""
+        import fixshape
+        import seat
+        self.fix_ready(launched=False)
+        self.assertEqual(fixshape.shape_at(self.board), "g3")
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        full = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(seat.HEAD, full)
+        self.assertIn(seat.NO_REPORT_FILE, full)
+        import rolekit
+        own = full[full.index(seat.HEAD):full.index(rolekit.skill_overlay().splitlines()[0])]   # 座の本文（読み替えの前まで。F8）
+        self.assertNotRegex(own, r"\[(BRIEF_FILE|REPORT_FILE|directory|task name)\]")
+        side = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
+        ids = [s["id"] for s in side["sections"]]
+        self.assertEqual(ids[ids.index("fix-reply") - 1], "seat")
+
+    def test_g3_broken_pin_stops_prep_with_2(self):
+        """g3 の盤面で 216 の写しが固定と 1 バイト違えば、支度は af の文へ黙って逃げず、名指して 2 で落ちる。指示書も起こした印も
+        置かない（Review Focus 5・Preflight F9）。写しを替えるため、子でなく同じプロセスで script の入口を回す"""
+        import contextlib
+        import importlib.util
+        import io
+        import shutil
+        import rolekit
+        import spseam
+        self.fix_ready(launched=False)
+        borrow = self.tmp / "borrow"
+        shutil.copytree(spseam.BORROW_DIR, borrow)
+        item = json.loads((borrow / "borrow.json").read_text(encoding="utf-8"))["superpowers"]
+        rel = "skills/subagent-driven-development/implementer-prompt.md"
+        p = spseam.vendored_dir(item, borrow) / rel
+        p.write_bytes(p.read_bytes().replace(b"Report Format", b"Report Formax", 1))
+        spec = importlib.util.spec_from_file_location("fix_prep_script", BLK / "scripts" / "fix_prep.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        env = {"ARTIFACTS_DIR": str(self.art), "INPUTS_PASS": "first",
+               **{f"INPUTS_{k.upper()}": v for k, v in self.values().items()}}
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.repo)
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, env), mock.patch.object(spseam, "BORROW_DIR", borrow), \
+                contextlib.redirect_stderr(err):
+            code = rolekit.script_main(mod.run, mod.INPUTS)
+        self.assertEqual(code, 2, err.getvalue())
+        self.assertIn(rel, err.getvalue())
+        b = entry.open_board(self.board)
+        self.assertFalse(b.rd["instances"]["p3.fix"].get("launched_at"), "起こした印を置かない")
+        self.assertFalse(b.work("prompt-p3.fix.md").exists(), "指示書を書かない")
+
     def test_not_waiting_is_wiring(self):
         """盤面が p3.fix を待っていない（判定の直後）→ 2（標準出力は空）"""
         self.judged()

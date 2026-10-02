@@ -48,8 +48,10 @@ import board  # noqa: E402
 import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確かめ・直す義務から外れた単位）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
 import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
+import fixshape  # noqa: E402  （.shared/core。盤面の修正の形）
 import impact  # noqa: E402  （.shared/core。変更に当たる試験の選び）
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
+import seat  # noqa: E402  （.shared/core。借りたスキルの座）
 import tree_run  # noqa: E402
 import writes  # noqa: E402  （.shared/core。書き込みの出どころの突き合わせ）
 from leftovers import Unreadable, git, git_names  # noqa: E402
@@ -340,7 +342,9 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     置き場の next.md（full の写し）と隣の next.full.md・next.delta.md・next.variants.json に書き、{prompt_file} を返す。
     values は fixrules.TDD_VALUES の run の値（義務の単位は状態の物を使う。欠けは空）。repo は差分から変更の種類を選ぶ根（None は見ない）。
     題の次に brief の節（planbrief.head_text）: 振り分けの段は直す義務の単位の全部、ほかの段は今の単位 1 つの brief。行の
-    「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える"""
+    「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える。
+    盤面の修正の形（fixshape.shape_at。盤面の無い置き場は記録の無い盤面と同じ af）が座を載せる形なら、借りたスキルの座
+    （seat.section）を載せる。形の控え・写しが壊れていれば Broken"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-prep を呼ぶ番でない）")
@@ -370,11 +374,15 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
             "open_units": json.dumps(_owed(st), ensure_ascii=False)}
     n = st["iterations"] + 1
     lang = fixrules.lang_at(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
+    try:
+        seat_text = seat.section("tdd", fixshape.shape_at(path.parent.parent))
+    except ValueError as e:
+        raise Broken(f"TDD の輪の座を組めない: {e}") from None
 
     def build(kinds, prior, rules_file):
         try:
             return fixrules.tdd_render(vals, phase, "\n".join(lines), title=title, reason=st["reason"], kinds=kinds,
-                                       prior=prior, iteration=n, brief=brief, rules_file=rules_file, lang=lang)
+                                       prior=prior, iteration=n, brief=brief, seat=seat_text, rules_file=rules_file, lang=lang)
         except fixrules.Unfilled as e:
             raise Broken(f"TDD の輪の指示書を組めない: {e}")
     fixrules.write_variants(path, repo, vals, build, n)
