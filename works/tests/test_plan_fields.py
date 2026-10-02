@@ -26,7 +26,7 @@ def item(**over):
             "route": "tdd", "route_why": "",
             "tests": [{"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "2 つの値の平均を返す",
                        "path": "stats.mean を直に呼ぶ（mock なし）", "red_kind": "assertion", "red_why": "今は len-1 で割り 3.0 になる"}],
-            "rewrite_tests": [], "refactor": {"declared": False, "why": ""}}
+            "rewrite_tests": [], "refactor": {"declared": False, "why": ""}, "allowed_paths": ["stats.py"], "out_of_scope": []}
     return {**base, **over}
 
 
@@ -302,6 +302,45 @@ class TestLineScenarioPlans(PlanFieldsCase):
                     with self.subTest(f"{name}/{key}/{attempt}"):
                         self.assertEqual(planmarks.gaps(reply, self.repo), [])
         self.assertGreater(seen, 0)
+
+
+class ScopeFieldsCase(PlanFieldsCase):
+    """修正案の項目の範囲の欄（allowed_paths・out_of_scope。依頼 218）: 役の型の必須・glob の誤りと丸ごとの許しの拒否・欄を外す口・
+    修正案の役と事前審査の役の頭の文"""
+
+    def test_role_schema_requires_scope_fields(self):
+        it = accept.role_schema("p2.fix_plan")["properties"]["plan"]["items"]
+        for k in ("allowed_paths", "out_of_scope"):
+            self.assertIn(k, it["required"])
+        self.assertEqual(it["properties"]["allowed_paths"]["minItems"], 1)
+
+    def test_gaps_allowed_paths_must_be_relative_and_narrow(self):
+        for g in ("/abs/x.py", "../x.py", "a\\b.py", "**", "*", "**/*"):
+            with self.subTest(g):
+                got = planmarks.gaps({"plan": [item(allowed_paths=[g])]}, self.repo)
+                self.assertTrue(any(x.startswith("plan[0].allowed_paths[0]") for x in got), got)
+        self.assertEqual(planmarks.gaps({"plan": [item(allowed_paths=["stats.py", "docs/**/*.md"])]}, self.repo), [])
+
+    def test_gaps_out_of_scope_rows(self):
+        bad = [{"glob": "../x.py", "why": "根の外は触らない（試験の材料）"}]
+        got = planmarks.gaps({"plan": [item(out_of_scope=bad)]}, self.repo)
+        self.assertTrue(any(x.startswith("plan[0].out_of_scope[0]") for x in got), got)
+        self.assertTrue(planmarks.gaps({"plan": [item(out_of_scope=[{"glob": "test_stats.py", "why": "短い"}])]}, self.repo))
+
+    def test_gaps_scope_fields_required(self):
+        it = item()
+        del it["allowed_paths"]
+        self.assertTrue(any(g.startswith("plan[0].allowed_paths") for g in planmarks.gaps({"plan": [it]}, self.repo)))
+
+    def test_split_keeps_scope_fields_off_the_board(self):
+        bare, fields = planmarks.split({"plan": [item()]}, self.repo)
+        self.assertEqual(set(bare["plan"][0]), {"unit_keys", "approach", "adds", "removes", "shrink_first", "narrows"})
+        self.assertEqual((fields[0]["allowed_paths"], fields[0]["out_of_scope"]), (["stats.py"], []))
+
+    def test_head_and_review_ask_name_scope_fields(self):
+        for w in ("allowed_paths", "out_of_scope", "識別子", "canonical", "removes"):
+            self.assertIn(w, planmarks.HEAD)
+        self.assertIn("allowed_paths", planmarks.REVIEW_ASK)
 
 
 if __name__ == "__main__":

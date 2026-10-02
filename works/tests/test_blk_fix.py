@@ -397,7 +397,8 @@ def plan_reply(narrows=()):
 PLAN_FIELDS = [{"route": "tdd", "route_why": "", "tests": [{"id": "test_stats.py::TestStats::test_mean_of_two",
                                                             "behavior": "2 つの値の平均", "path": "stats.mean を直に呼ぶ",
                                                             "red_kind": "assertion", "red_why": "今は len-1 で割る"}],
-                "rewrite_tests": [], "refactor": {"declared": False, "why": ""}}]
+                "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
+                "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}]
 
 
 def extra_row(key):

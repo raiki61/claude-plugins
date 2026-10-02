@@ -14,6 +14,7 @@
   書き換えた・消した）FieldsBroken。読む側が盤面を止める（黙って許しを広げない・黙って捨てない）。印の無い控えは無い物（None）
 - HEAD・REVIEW_HEAD・REVIEW_ASK・review_section(b): 修正案の役と事前審査の役の指示書の頭に足す文
 - climbs(norm): 整えたパスが根の外へ上るか（`..` は段で見る。conflict.parse_limit も同じ物を使う）
+- glob_problem(glob): 範囲の欄（allowed_paths・out_of_scope の glob）の誤りの文（\\ の区切り・根の外・`**` のような丸ごとの許し）
 
 写しの engine の型の検査と時刻（engine.schema・engine.util。L0 の写し）だけを使い、entry・conflict を import しない（conflict がこの模块を読むので、
 輪を作らない）。
@@ -40,8 +41,9 @@ NODE = "p2.fix_plan"
 NODES = (NODE,)
 FIELDS_FILE = "plan-fields.json"   # 盤面の根の控え {"round": 周, "fields": [項目ごとの欄]}
 SAVED_OP = "plan_fields_saved"     # save が盤面の trace に書く凍結の印 {round, sha256}
-KEYS = ("route", "route_why", "tests", "rewrite_tests", "refactor")
-REQUIRED = ("route", "tests", "rewrite_tests", "refactor")   # route_why は route が direct の時だけ要る（gaps が見る）
+KEYS = ("route", "route_why", "tests", "rewrite_tests", "refactor", "allowed_paths", "out_of_scope")
+# route_why は route が direct の時だけ要る（gaps が見る）
+REQUIRED = ("route", "tests", "rewrite_tests", "refactor", "allowed_paths", "out_of_scope")
 ROUTES = ("tdd", "direct")
 RED_KINDS = ("assertion", "exception")
 MIN_WHY = 10
@@ -59,10 +61,15 @@ FIELD_SCHEMA = {
                        "old": {"type": "string", "minLength": 4}, "new": _WHY}}},
     "refactor": {"type": "object", "additionalProperties": False, "required": ["declared", "why"],
                  "properties": {"declared": {"type": "boolean"}, "why": {"type": "string"}}},
+    # 範囲の欄（依頼 218）: 書いてよいパスの glob と、範囲の中でも触らない物 {glob, why}
+    "allowed_paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "out_of_scope": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["glob", "why"],
+        "properties": {"glob": {"type": "string", "minLength": 1}, "why": _WHY}}},
 }
 
-REJECT = ("修正案の項目の works の欄（route・tests・rewrite_tests・refactor）に欠けか誤りが在る（直して done し直す）。"
-          "下の行を直した案を丸ごと出し直せ:")
+REJECT = ("修正案の項目の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）に欠けか誤りが在る"
+          "（直して done し直す）。下の行を直した案を丸ごと出し直せ:")
 # 修正案の役の指示書の頭に足す文（写しの指示書はこの欄を知らない）
 HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を知らないが、plan[] の各項目に必ず書け。"
         "route＝直し方の道（tdd＝先に落ちる受け入れのテストを書いてから直す・direct＝テストを先に書かずに直す）。"
@@ -75,12 +82,20 @@ HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を�
         "behavior（変わる振る舞い）・old（今の期待）・new（新しい期待）。期待値を実装に合わせるための書き換えは書かない。"
         f"refactor＝整えの申告 {{declared, why}}（整えをするなら declared を true にし、why に {MIN_WHY} 字以上で理由を書く）。"
         "承認された案は項目ごとの brief に切り出され、修正役・TDD の役の要求の正本になる。rewrite_tests に名指さない既存のテストは"
-        "修正で変えられない。欠けや誤りは、受け付けが plan[<i>].<欄> の行を名指して拒む")
+        "修正で変えられない。欠けや誤りは、受け付けが plan[<i>].<欄> の行を名指して拒む。"
+        "allowed_paths＝その項目で書いてよいパスの glob の並び（1 つ以上。作業ツリーの根からの相対・/ 区切り・** は段をまたぐ）。"
+        "tests・rewrite_tests の id のファイルは書かなくても範囲に入る。** や * や **/* のような丸ごとの許しは拒む。"
+        "out_of_scope＝範囲の中でも触らない物 {glob, why} の並び（why は "
+        f"{MIN_WHY} 字以上。無ければ空の並び）。修正の受け付けは差分をこの範囲と照らし、外れたら同じ brief で返す。"
+        "機械は差分で次を探すので、adds の name は識別子（関数・欄・CLI・テストの名）で書き、新設の物の canonical には"
+        "置くファイルのパスを書け。removes に識別子を書けば、差分で消えたかを見る")
 REVIEW_HEAD = "## 修正案の項目の works の欄（機械が貼った）"
 REVIEW_ASK = ("下は修正案の役が項目ごとに書いた works の欄（route・受け入れのテスト tests・書き換える既存のテスト rewrite_tests・"
-              "整えの申告 refactor）。承認されると項目ごとの brief になり、修正役・TDD の役の要求の正本になる。受け入れのテストが"
+              "整えの申告 refactor・書いてよいパス allowed_paths・触らない物 out_of_scope）。承認されると項目ごとの brief になり、"
+              "修正役・TDD の役の要求の正本になる。受け入れのテストが"
               "本物の経路を通るか・mock の戻り値を断言していないか・文言の比べに寄っていないか、red_kind の赤が今のコードで本当に"
               "起きるか、rewrite_tests が依頼で変わる振る舞いだけを書き換え、期待値を実装に合わせる書き換えでないかを見よ。"
+              "allowed_paths が項目の直しに足りて広すぎないか、out_of_scope が依頼の触らない物を覆うかも見よ。"
               "穴は faces に挙げよ")
 
 
@@ -110,6 +125,21 @@ def _parse_id(test_id):
 def climbs(norm: str) -> bool:
     """整えたパスが根そのもの・絶対パス・`..` の段で上る物か（`..` は段で見る。`..foo/x.py` は根の中のディレクトリ `..foo` の物）"""
     return norm.startswith("/") or norm == "." or norm.split("/", 1)[0] == ".."
+
+
+def glob_problem(glob: str) -> str | None:
+    """範囲の欄の glob（allowed_paths の行・out_of_scope の glob）の誤りの文。無ければ None。\\ の区切り・絶対パス・`..` の段で
+    根の外へ上る・全部の段が * か **（**・*・**/* のような丸ごとの許し）を拒む。ファイルの有無は見ない（新しく置くファイルも書く）"""
+    if "\\" in glob:
+        return "\\ が在る（区切りは / で書け。glob は作業ツリーの根からの相対）"
+    if glob.startswith("/"):
+        return "絶対パス（作業ツリーの根からの相対の glob にせよ）"
+    norm = posixpath.normpath(glob)
+    if climbs(norm):
+        return "根の外か根そのものを指す（`..` の段で上らない、根からの相対の glob にせよ）"
+    if all(seg in ("*", "**") for seg in norm.split("/")):
+        return "丸ごとの許し（全部の段が * か **）は拒む。項目の直しが触るファイルかディレクトリまで狭めよ"
+    return None
 
 
 def _resolve(repo: pathlib.Path, path: str):
@@ -235,6 +265,15 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
             if line is not None:
                 out.append(f"plan[{i}].tests[{j}].id（{tid}）: 既に在るテスト（{_limit(repo, tid)}）。tests はまだ無いテストを名指す。"
                            "既に在るテストの期待を変えるなら rewrite_tests に書け")
+        for j, g in enumerate(_rows(it, "allowed_paths")):
+            bad = glob_problem(g) if isinstance(g, str) and g else None
+            if bad:
+                out.append(f"plan[{i}].allowed_paths[{j}]（{g}）: {bad}")
+        for j, row in enumerate(_rows(it, "out_of_scope")):
+            g = row.get("glob") if isinstance(row, dict) else None
+            bad = glob_problem(g) if isinstance(g, str) and g else None
+            if bad:
+                out.append(f"plan[{i}].out_of_scope[{j}].glob（{g}）: {bad}")
         rf = it.get("refactor")
         if isinstance(rf, dict) and rf.get("declared") is True:
             rwhy = rf.get("why")

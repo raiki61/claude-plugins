@@ -98,6 +98,12 @@ def _rewrite(r) -> str:
             f"  - behavior: {r.get('behavior')}\n  - old: {r.get('old')}\n  - new: {r.get('new')}")
 
 
+def _scope(r) -> str:
+    if isinstance(r, dict):
+        return f"{r.get('glob')}——{r.get('why')}"
+    return str(r)
+
+
 def _route(fields: dict) -> str:
     route = fields.get("route")
     if route is None:
@@ -138,6 +144,8 @@ def render(n: int, item: dict, fields: dict, units: dict, purpose: str, structur
         "## 受け入れのテスト（tests）\n\n" + _bullets(fields.get("tests") or [], _test),
         "## 書き換えてよい既存のテスト（rewrite_tests）\n\n" + _bullets(fields.get("rewrite_tests") or [], _rewrite),
         "## 整えの申告（refactor）\n\n" + _refactor(fields),
+        "## 書いてよいパス（allowed_paths）\n\n" + _bullets(fields.get("allowed_paths") or [], str),
+        "## 触らない物（out_of_scope）\n\n" + _bullets(fields.get("out_of_scope") or [], _scope),
         f"## 目的の文（凍結）\n\n{purpose or NONE}",
         structure or f"## 構造の目の行\n\n{NONE}",
         f"## {BACKGROUND}\n\n" + ("\n\n".join(_unit(k, units) for k in keys) if keys else NONE),

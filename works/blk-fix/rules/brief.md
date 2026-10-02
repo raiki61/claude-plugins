@@ -29,3 +29,6 @@ brief は、事前審査と人の承認を通った修正案の 1 項目を、�
 7. **修正の前に人が答えた条件（notes_file）は brief に勝つ。** 1〜5 より先に当てる。
    brief が条件を超えれば条件どおりに直し、超えた所は食い違いの申し出で返す（`between` に brief のファイルの行と
    notes_file の行を並べる）。条件は通す範囲で、超えて削るな。
+8. **brief の `allowed_paths` の外と `out_of_scope` のファイルを変えるな。** `tests`・`rewrite_tests` の id のファイルは
+   範囲に入る。範囲の外が要るなら、変えずに食い違いの申し出で返せ（`which_is_right` は request）。受け付けは差分を
+   範囲・`adds`・`removes`・`tests` と照らし、外れは同じ brief のまま返る。

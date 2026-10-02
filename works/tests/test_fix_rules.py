@@ -240,6 +240,12 @@ class TestCompose(unittest.TestCase):
         self.assertIn("範囲の外が要るなら request", sec)
         self.assertIn("query（`correct_lines` 付き）", sec)
 
+    def test_brief_rule_names_scope(self):
+        """brief の allowed_paths の外と out_of_scope は変えない。範囲の外が要るなら食い違いの申し出で返す（依頼 218）"""
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        for w in ("allowed_paths", "out_of_scope", "範囲の外", "食い違いの申し出"):
+            self.assertIn(w, sec)
+
     def test_rewrite_tests_is_an_exception_to_frozen_tests(self):
         """修正役の頭の「テストのファイルは変えるな」の例外に、修正案の rewrite_tests の名指しが並ぶ"""
         head = fixrules.sections(fixrules.DIRECT)["fix-head"]

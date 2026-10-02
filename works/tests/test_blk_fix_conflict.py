@@ -515,7 +515,8 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.fix_ready()
         b = entry.open_board(self.board)
         planmarks.save(self.board, b.round, [{"route": "tdd", "route_why": "", "tests": [], "rewrite_tests": [self.REWRITE],
-                                               "refactor": {"declared": False, "why": ""}}])
+                                               "refactor": {"declared": False, "why": ""},
+                                               "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}])
         return entry.open_board(self.board)
 
     def test_permits_join_plan_rewrites_and_rulings(self):
@@ -614,7 +615,8 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.assertTrue(r["ok"], r)
         b = entry.open_board(self.board)
         planmarks.save(self.board, b.round, [{"route": "tdd", "route_why": "", "tests": [], "rewrite_tests": [self.REWRITE],
-                                               "refactor": {"declared": False, "why": ""}}])
+                                               "refactor": {"declared": False, "why": ""},
+                                               "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}])
         b = entry.open_board(self.board)
         self.assertEqual(len(conflict.ruled_test_doc(b)["rules"]), 1, "パスで 1 行")
         path = self.repo / "test_stats.py"

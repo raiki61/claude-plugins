@@ -93,13 +93,14 @@ def conflict_fix():
     return r
 
 
-# 修正案の役の返答の works の欄（route・tests・rewrite_tests・refactor。planmarks）。線を本物のスクリプトで回すと、修正案は
+# 修正案の役の返答の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope。planmarks）。線を本物のスクリプトで回すと、修正案は
 # blk-plan の受け付け（planmarks.gaps）を通り、欄が欠ければ 3 回とも拒まれて盤面が止まる（by works:plan）。test_edge.plan_reply は
 # 受け付けが欄を外した後の形（entry.take を直に呼ぶ linekit の道の物）なので、ここで欄を足す。種の test_stats.py は 3 件のうち
 # 2 件が今の 2 つのバグで赤なので、受け入れのテストを先に足さず direct で直す（TDD の輪の返答 TDD_ALL_DIRECT とも揃う）
 PLAN_FIELDS = {"route": "direct",
                "route_why": "種の test_stats.py の 3 件のうち 2 件が今の 2 つのバグで赤になり、直した後の振る舞いを既に確かめている",
-               "tests": [], "rewrite_tests": [], "refactor": {"declared": False, "why": ""}}
+               "tests": [], "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
+               "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}
 
 
 def line_replies(**kw) -> dict:
