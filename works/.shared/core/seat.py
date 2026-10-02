@@ -13,13 +13,17 @@
 - section(node, shape, values): 座の文。載らなければ空。HEAD → 節の種類ごとの本文 → 読み替え。勝つ物の段落は WINS（役の
   指示書に組み込まれる座）か、座のファイルを別に読む役では指示書を名指す WINS_OF の文。差分の審査役（review）の型
   VERDICT_SEAM は本文の後ろに words_table（型の判定の語がどの欄のどの値に当たるか。VERDICT_WORDS と NOTE_ROWS）を持つ
+- 申し出の種類の手引き DIVERGENCE_HINT: 型の状態の語 NEEDS_CONTEXT・BLOCKED（216 の works の語 conflict.WORD）に当たる時、
+  食い違いの申し出をどの kind（conflict.DIV_KINDS。211）で返すかを 1 語に 1 行で言う。語に conflict.WORD を持つ節（implementer。
+  修正役の fix・fix-ruled）の座の本文の後ろと、g1 の修正役の節（下請けの実装役がそう返した時）に載る。各語の決まりの正本は
+  指示書の『食い違いの申し出』の節（writerules/common.md）で、ここは場面の引き当てだけ
 - 座の節: TDD の役（tdd）と手直しの役（refix・refix2。receiving-review）は skill、修正役（fix・fix-ruled。implementer）と 1 回目の
   差分の審査役（review。task-review）は prompt。2 回目の審査役（review2）には座が無い（返答に判定の欄が無く、判定の語の表を
   持つ型とぶつかる）。手直しの役の座は手直しの支度（blk-refix/scripts/prep.py）が、審査役の座は審査の支度（refix.cut）が置く
 - 修正の形 G1_SHAPE（g1）: 修正役（fixshape.AGENT_NODES）が SDD の型で項目ごとに下請け（実装役・審査役）を Agent で回す。
   g1_prompt(seam_id, values) は下請けに渡すファイルの中身（216 の型を埋めた物の後ろに、下請けへの works の決まり G1_SUB_HEAD と
-  検索語の規律の塊）、g1_section(rows) は修正役の指示書の節（G1_HEAD → 手順 → 項目ごとのファイル → 読み替えの上書き
-  G1_OVERRIDES → 読み替え）。下請けは包みの起動でないので、包みが system prompt に足す検索語の規律（adapter.query_rule）が
+  検索語の規律の塊）、g1_section(rows) は修正役の指示書の節（G1_HEAD → 手順 → 項目ごとのファイル → 申し出の種類の手引き
+  DIVERGENCE_HINT → 読み替えの上書き G1_OVERRIDES → 読み替え）。下請けは包みの起動でないので、包みが system prompt に足す検索語の規律（adapter.query_rule）が
   届かない。だから型の後ろに字のまま載せる（run 221 の R4 の 3）。下請けの Edit・Write は修正役と同じ記録に載る（PostToolUse の
   フックは subagent の呼び出しでも起きる。tests/test_writes.py）
 
@@ -41,6 +45,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 import adapter  # noqa: E402  （L2。検索語の規律の塊 query_rule を g1 の下請けのファイルに載せる）
+import conflict  # noqa: E402  （同じ L3。申し出の種類の語 DIV_KINDS と状態の語の読み替え WORD）
 import rolekit  # noqa: E402
 import spseam  # noqa: E402
 
@@ -59,6 +64,21 @@ WORDS_HEAD = ("### 判定の語の欄（型の語がどの欄のどの値に当�
 # 表の後ろの注の行（型の語に依らずに欄の値が決まる場合。deltamarks.gaps の決まり）: (場合, 欄の値)
 NOTE_ROWS = (("材料の plan_items が空", "`compliance.verdict`: `not_applicable`"),
              ("準拠の行に結ばれない穴が faces に 1 つでも在る", "`quality.verdict`: `fail`"))
+# 申し出の種類の手引き: 語ごとの場面（conflict.DIV_KINDS と同じ語・同じ順。試験が照らす）。欄と語の決まりの正本は指示書の
+# 『食い違いの申し出』の節（writerules/common.md）で、ここは状態の語から kind を引き当てる 1 行ずつ
+DIVERGENCE_SCENES = {
+    conflict.BRIEF_VS_JUDGMENT: "brief と、判定・依頼・修正の前に人が答えた条件が食い違う（`between` にその単位の brief の行）",
+    conflict.UNNAMED_TEST_BROKE: "修正案にも裁定にも名指されていない既存のテストが、直すと落ちる・外すしかない",
+    conflict.NOT_RED: "受け入れのテスト・名指しの書き換えが、案どおりに書いても赤にならない・赤の種類が案と違う",
+    conflict.SCOPE_NEEDED: "brief や案の範囲の外を触らないと緑にならない・判定者の問いの数え直しが閉じない",
+    conflict.QUERY_HITS_FIXED: "判定者の問いが直した後の正しい形にも当たる（`which_is_right` は query・`correct_lines` が要る）",
+    conflict.NEEDS_CONTEXT: "方針・依頼の意図・どれが正しいかが材料から決められず、人か依頼の答えが要る（`which_is_right` は unknown）",
+}
+DIVERGENCE_HINT = "\n".join([
+    f"実装役の型の状態の語 NEEDS_CONTEXT・BLOCKED（works の語 {conflict.WORD}）に当たる時は、その単位を直したことにせず、"
+    f"食い違いの申し出 conflicts の 1 件で返す。`{conflict.KIND_FIELD}` は起きた場面で次のどれか（欄の決まりは指示書の"
+    "『食い違いの申し出』の節）:",
+    *(f"- `{k}`: {DIVERGENCE_SCENES[k]}" for k in conflict.DIV_KINDS)])
 HEAD = "## 借りたスキルの座（修正の形 g3）"
 SCENE = "works の修正の段。流れ・機械の関門・commit は線が持つ。TDD の輪で直した単位は輪の要約に在る"
 NO_REPORT_FILE = "ファイルに書かない。返答は指示書の『返答の欄』の JSON"
@@ -200,7 +220,8 @@ def section(node: str, shape: str, values: dict[str, str] | None = None) -> str:
     else:
         filled = spseam.fill(sid, values, src, item, seams)
         body = [WINS_OF.get(node, WINS), PROMPT_HEAD.format(file=sec["files"][0]), filled.rstrip("\n"),
-                *([words_table(sid)] if sid == VERDICT_SEAM else [])]
+                *([words_table(sid)] if sid == VERDICT_SEAM else []),
+                *([DIVERGENCE_HINT] if conflict.WORD in (sec.get("words") or {}).values() else [])]
     return "\n\n".join([HEAD, *body, rolekit.skill_overlay().rstrip("\n")]) + "\n"
 
 
@@ -223,8 +244,9 @@ def g1_prompt(seam_id: str, values: dict[str, str]) -> str:
 
 def g1_section(rows: list[dict]) -> str:
     """修正の形 g1 の修正役の指示書の節。rows は項目の順の {item, impl_file, review_file, base, patch}（fixrules.g1_values）。
-    G1_HEAD → 手順（G1_STEPS）→ 項目ごとの実装役と審査役のファイル → 読み替えの上書き（G1_OVERRIDES）→ 読み替え"""
+    G1_HEAD → 手順（G1_STEPS）→ 項目ごとの実装役と審査役のファイル → 申し出の種類の手引き（DIVERGENCE_HINT）→ 読み替えの
+    上書き（G1_OVERRIDES）→ 読み替え"""
     steps = "\n".join(f"{n}. {t}" for n, t in enumerate(G1_STEPS, 1))
     files = _bullets(f"項目 {r['item']}: 実装役 {r['impl_file']}・審査役 {r['review_file']}・差分のコマンド "
                      f"`{G1_PATCH.format(base=r['base'], patch=shlex.quote(r['patch']))}`" for r in rows)
-    return "\n\n".join([G1_HEAD, steps, files, G1_OVERRIDES, rolekit.skill_overlay().rstrip("\n")]) + "\n"
+    return "\n\n".join([G1_HEAD, steps, files, DIVERGENCE_HINT, G1_OVERRIDES, rolekit.skill_overlay().rstrip("\n")]) + "\n"

@@ -38,6 +38,9 @@
   task_id の数で、起き直した下請けの 2 行目の started を数えない）。compliance_fails・quality_fails（VERDICT_FAILS）は 1 回目の差分の
   審査が受けた 2 判定（盤面の trace の deltamarks.SAVED_OP）の準拠と品質の fail の数。どちらも delta_faces と同じ穴を判定で数え
   直した物なので redo_total に足さない（報告だけ）。平の run（current）は準拠がいつも not_applicable なので compliance_fails は 0。
+- 裁定（rulings）・申し出（divergences）: 各周の食い違いの控え（conflict.FILE）の行を、裁定は語ごと（conflict.DECISIONS の順。
+  案の項目そのものを誤りと裁く fix_plan_item も 1 語）、申し出は 211 の種類ごと（conflict.kind_counts。DIV_KINDS の順）に数える。
+  種類の無い前の形の行（conflict.UNSET）は UNKINDED に数える。0 の語は出さない。どちらも報告だけ（verdict の report_only）。
 - red_green_checked: 受け付けが受けた回に確かめなかった理由を載せる盤面の trace（fixgates.SKIPPED_OP。fixgates.unchecked の
   決まりで、義務の外の項目の OUT_OF_DUTY は除く）に行が 1 つでも在るか、輪の状態が無い（実行器の無い run）なら偽。拒んだ回の
   帳面の skipped は数えない（受け付けが受けた回だけを見る）。平の run（current）は束が赤緑を当てないので None（当てない。確かめたとは数えない）。

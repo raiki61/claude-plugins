@@ -235,6 +235,23 @@ class RowCase(unittest.TestCase):
         self.assertEqual(len(r["record_gaps"]), 1, r["record_gaps"])
         self.assertIn("calls", r["record_gaps"][0])
 
+    def test_row_counts_divergence_kinds_and_plan_item_rulings(self):
+        """申し出は 211 の種類（conflict.DIV_KINDS）ごとに DIV_KINDS の順で数え、種類の無い前の形の行は unkinded（0 は出さない）。
+        裁定は語ごとで、案の項目を誤りと裁く fix_plan_item（盤面が足す plan_items・plan_units つき）も数える"""
+        board = make_board(self.tmp, shape="g3")
+        base = {"round": 1, "source": "fix", "between": ["a.py:1", "b.py:2"], "why_both_cannot_hold": "両立しない理由",
+                "which_is_right": "request", "status": "parked", "ruling": None}
+        kinds = list(reversed(conflict.DIV_KINDS))   # 積む順と数えの並びは別（数えは DIV_KINDS の順）
+        rows = [{**base, "id": f"c1-{n}", "unit_key": f"u{n}", "kind": k} for n, k in enumerate(kinds, 1)]
+        rows[0]["ruling"] = {"decision": conflict.REPLAN, "text": "案の項目が誤り", "limits": [], "by": "x",
+                             conflict.PLAN_ITEMS: [1], conflict.PLAN_UNITS: ["u1", "u2"]}
+        rows[1]["ruling"] = {"decision": conflict.ASK, "text": "人に回す", "limits": [], "by": "x"}
+        rows.append({**base, "id": "c1-9", "unit_key": "u9", "kind": None})
+        put(board / "r1" / conflict.FILE, {"items": rows})
+        r = self.row(make_db(self.tmp, events=[node("fixing__fix-loop.fix")]), board)
+        self.assertEqual(list(r["divergences"].items()), [*((k, 1) for k in conflict.DIV_KINDS), (fixmeasure.UNKINDED, 1)])
+        self.assertEqual(list(r["rulings"].items()), [(conflict.ASK, 1), (conflict.REPLAN, 1)])
+
     def test_battery_rejects_count_attempts(self):
         """束の行は受け付けの回（周・pass・attempt）ごとに 1 回の作り直し（同じ回の 2 行は 1 回。preflight F23）"""
         board = make_board(self.tmp)

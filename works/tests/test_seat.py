@@ -16,6 +16,9 @@
 - 差分の審査役（1 回目だけ）の座（task-review）は型の後ろに判定の語の欄の表（型の語がどの欄のどの値に当たるか。欄の値は
   指示書 delta-review.md の決まりで返答の行から決まる）を持ち、勝つ物の段落は指示書を名指す。型の読み方の決まり（差分の外を
   読むな・変わったファイルを別に読むな）は指示書の読む義務に負ける（読み替えの CRAWL。型の段落は錨で縛る）
+- 申し出の種類の手引き（DIVERGENCE_HINT）: 型の状態の語 NEEDS_CONTEXT・BLOCKED（works の語 divergence）に当たる時にどの kind
+  で申し出るかを、conflict.DIV_KINDS の 1 語に 1 行で持つ。座のうち語に divergence を持つ節（implementer。修正役の fix・fix-ruled）
+  と g1 の修正役の節に載り、ほかの座には載らない
 - 修正の形 g1 の節（g1_section）: 見出し・Agent・項目ごとの実装役と審査役のファイル・読み替えを持ち、読み替えの DISPATCH を
   名指して上書きする（Preflight F18）。下請けのファイルの型（g1_prompt）は穴を残さず、works の決まりと検索語の規律の塊を持つ
   （run 221 の R4 の 3）。YAML で Agent を持つ節は fixshape.AGENT_NODES と同じ
@@ -39,6 +42,7 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import adapter  # noqa: E402
+import conflict  # noqa: E402
 import deltamarks  # noqa: E402
 import fixshape  # noqa: E402
 import rolekit  # noqa: E402
@@ -206,6 +210,32 @@ class SeatCase(unittest.TestCase):
         for shape in ("current", "af", "g1"):
             self.assertEqual(seat.section("review", shape, self.review_values()), "")
 
+    def test_divergence_hint_names_every_kind(self):
+        """手引きは状態の語 NEEDS_CONTEXT・BLOCKED と works の語 divergence を名指し、211 の種類（conflict.DIV_KINDS）の 1 語に 1 行
+        （行の頭がその語。並びも DIV_KINDS の順）"""
+        hint = seat.DIVERGENCE_HINT
+        for w in ("NEEDS_CONTEXT", "BLOCKED", conflict.WORD, "conflicts", conflict.KIND_FIELD):
+            self.assertIn(w, hint)
+        rows = [line for line in hint.splitlines() if line.startswith("- ")]
+        self.assertEqual([r.split("`")[1] for r in rows], list(conflict.DIV_KINDS))
+        for k in conflict.DIV_KINDS:
+            self.assertEqual(hint.count(f"`{k}`"), 1, k)
+
+    def test_divergence_hint_rides_the_implementer_seats_only(self):
+        """手引きは語に divergence を持つ座（implementer。修正役の fix・fix-ruled）の本文に 1 度、読み替えの前に載る。ほかの座と
+        g3 でない形には載らない"""
+        for node in ("fix", "fix-ruled"):
+            with self.subTest(node):
+                text = seat.section(node, "g3", self.values())
+                own = own_part(text)
+                self.assertEqual(own.count(seat.DIVERGENCE_HINT), 1)
+                self.assertLess(own.index("implementer-prompt.md"), own.index(seat.DIVERGENCE_HINT))
+        for node, values in (("tdd", None), ("review", self.review_values()), ("refix", None), ("refix2", None)):
+            with self.subTest(node):
+                self.assertNotIn(seat.DIVERGENCE_HINT, seat.section(node, "g3", values))
+        for shape in ("current", "af", "g1"):
+            self.assertNotIn(seat.DIVERGENCE_HINT, seat.section("fix", shape, self.values()))
+
     def test_refix_seat_names_receiving_review(self):
         """手直しの役の座（g3）は receiving-code-review を Skill の道具で読ませ、効く所・効かない所と読み替えを持つ"""
         s = spseam.load_seams()["receiving-review"]
@@ -364,6 +394,13 @@ class G1Case(unittest.TestCase):
         steps = " ".join(seat.G1_STEPS)
         for w in ("出し直し", "裁定", "名指す項目だけ"):
             self.assertIn(w, steps)
+
+    def test_g1_section_carries_the_divergence_hint(self):
+        """g1 の修正役は実装役の下請けが NEEDS_CONTEXT・BLOCKED を返した時に申し出る。手引きは手順の後・読み替えの上書きの前に 1 度"""
+        text = seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}])
+        self.assertEqual(text.count(seat.DIVERGENCE_HINT), 1)
+        self.assertLess(text.index(seat.G1_STEPS[-1]), text.index(seat.DIVERGENCE_HINT))
+        self.assertLess(text.index(seat.DIVERGENCE_HINT), text.index(seat.G1_OVERRIDES))
 
     def test_g1_section_says_diffs_include_earlier_items(self):
         self.assertIn("前の項目", seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}]))
