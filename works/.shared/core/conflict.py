@@ -24,7 +24,7 @@
 - brief_cite_problem(key, cites, repo, briefs, what, field): brief を誤りと言う物（申し出 brief_vs_judgment・裁定 fix_plan_item の
   grounds）が、その単位の brief の行を名指すかの確かめ（1 つの決まり）
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
-- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replanned(b)・replanned_keys(b)・replaced_queries(b)・counts(b)・
+- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b)・
   kind_counts(b): 読む口
 - held_by_rulings(b)・ruled_units(row): 直す義務から外す単位と理由。決まりは「直す裁定（FIX_DECISIONS）でない裁定は、それが外す
   単位（申し出の単位と、fix_plan_item ならその項目に載る単位の全部）を直させない」の 1 つ
@@ -370,16 +370,6 @@ def ruled_fix(b) -> list:
 
 def asked_keys(b) -> set:
     return {i["unit_key"] for i in asked(b)}
-
-
-def replanned(b) -> list:
-    """裁定が fix_plan_item の行（案の項目の誤り。この run では直さない）"""
-    return [i for i in items(b) if (i.get("ruling") or {}).get("decision") == REPLAN]
-
-
-def replanned_keys(b) -> set:
-    """fix_plan_item が外す単位の全部（申し出の単位と、その項目の単位）"""
-    return {k for i in replanned(b) for k in ruled_units(i)}
 
 
 def replan_state(row) -> str | None:
