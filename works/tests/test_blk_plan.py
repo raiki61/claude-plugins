@@ -53,6 +53,7 @@ import node_marker  # noqa: E402
 import libdocs  # noqa: E402
 import planblk  # noqa: E402
 import planmarks  # noqa: E402
+import report  # noqa: E402
 import rolekit  # noqa: E402
 
 DEADLINE = 1728000000
@@ -1307,13 +1308,23 @@ class ConvergeReviewCase(unittest.TestCase):
         _, got = self.round_of("plan-review", reply)
         return got
 
+    def answers(self, handled="fixed"):
+        """1 往復目の block（KEY）への直しの役の答え"""
+        return [{"key": self.KEY, "handled": handled, "how": "clamp の上限の枝の呼び手を案の項目に足して確かめる形に直した"}]
+
+    def revise(self, reply=None):
+        """直しの役の 1 回（snap → prep → accept。子のプロセス）の受け付けの出口。reply が無ければ plan_ok に答えを足した物"""
+        role = planblk.REVISE_ROLE
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        _, got = self.round_of(role, reply if reply is not None else {**linekit.reply("plan_ok"), converge.ANSWERS: self.answers()})
+        return got
+
     def again(self):
-        """1 往復目が block（again）→ 修正案を直に受け直した盤面（Task 4 の前なので entry.take で直に渡す）"""
+        """1 往復目が block（again）→ 直しの役が案を直して受けられた盤面（p2.plan_review が待つ）"""
         got = self.review(linekit.reply("plan_review_regression"))
         self.assertTrue(got.get("again"), got)
-        self.assertTrue(self.ok("snap", role="plan")["go"])
-        bare, _ = planmarks.split(linekit.reply("plan_ok"), self.repo)
-        self.take("p2.fix_plan", bare)
+        got = self.revise()
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
 
     def test_clean_review_taken_as_today(self):
         got = self.review(linekit.reply("plan_review_ok"))
@@ -1406,6 +1417,7 @@ class ConvergeReviewCase(unittest.TestCase):
         self.assertEqual(converge.read(b)["outcome"], converge.PERSISTED)
         items = b.state["pending_human"]["items"]
         self.assertTrue(any(i.startswith(gatemarks.DESIGN_ONLY_ITEM + "。理由: ") for i in items), items)
+        self.assertTrue(any(i.startswith("事前審査の穴 [regression] " + self.KEY) for i in items), items)   # block の穴も関所へ
 
     def test_rereview_must_account_for_every_previous_block(self):
         self.again()
@@ -1424,7 +1436,7 @@ class ConvergeReviewCase(unittest.TestCase):
         self.assertTrue(self.ok("snap", role="plan-review")["go"])
         text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
         face = linekit.reply("plan_review_regression")["faces"][0]
-        for w in (converge.REREVIEW_ASK, face["key"], face["where"], face["why"], "修正案の役の答え:"):
+        for w in (converge.REREVIEW_ASK, face["key"], face["where"], face["why"], "修正案の役の答え:", self.answers()[0]["how"]):
             self.assertIn(w, text)
 
     def test_first_pass_prompt_unchanged(self):
@@ -1437,6 +1449,215 @@ class ConvergeReviewCase(unittest.TestCase):
         head = planblk.head("plan-review", "", planblk.lib_section(b, self.repo), planblk.design_section(b))
         self.assertEqual(text, head + "\n\n" + want)
         self.assertNotIn(converge.REREVIEW_ASK, text)
+
+
+class ConvergeReviseCase(unittest.TestCase):
+    """事前審査の壁打ちの直しの役（依頼 231 Task 4）: 役 plan-revise は修正案の役の会話の続き（印 continue=plan）で、盤面の節は
+    p2.fix_plan。起きるかは壁打ちの控えの事実（converge.held）だけで決め、受け付けは block への答えを確かめてから案を修正案と
+    同じ口（欄の控え・写しの受け付け）に渡す。比べる作業ツリーの写しは直しの役の snap が置いた物。壁打ちの出口 converge_check は
+    抜け方が again でない・役が諦めた・盤面が止まった時に done。helper は ScriptCase・ConvergeReviewCase から借りる"""
+
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+        ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+    board_obj, ready, review, answers, revise = (ConvergeReviewCase.board_obj, ConvergeReviewCase.ready,
+                                                 ConvergeReviewCase.review, ConvergeReviewCase.answers,
+                                                 ConvergeReviewCase.revise)
+    KEY = ConvergeReviewCase.KEY   # 見本 plan_review_regression.json の faces[0]["key"]（「clamp の上限の意味が変わる」。F13）
+
+    def again(self, ready=True):
+        """1 往復目の事前審査を block で受けて again にした盤面（Task 3 の道。p2.fix_plan が待つ）。ready が偽なら今の盤面で"""
+        got = self.review(linekit.reply("plan_review_regression"), ready=ready)
+        self.assertTrue(got.get("again"), got)
+
+    def reply(self, answers=None, plan="plan_ok"):
+        return {**linekit.reply(plan), converge.ANSWERS: self.answers() if answers is None else answers}
+
+    def check(self):
+        return self.ok("converge")
+
+    def test_revise_role_is_fix_plan_node(self):
+        role = planblk.REVISE_ROLE
+        self.assertEqual(role, "plan-revise")
+        self.assertEqual(planblk.known_role(role), "p2.fix_plan")
+        self.assertEqual(planblk.snapshot_name(role), "plan-revise-snapshot.json")
+        self.assertNotIn(role, planblk.NODE_OF)   # collect の役の並びは今のまま
+        self.assertNotIn(role, planblk.ROLES)
+
+    def test_revise_snap_only_after_again(self):
+        """go は控えの抜け方が again で p2.fix_plan が待つ時だけ（控え無し・clean・persisted・案を受けた後は go 偽で写しを置かない）"""
+        role = planblk.REVISE_ROLE
+        self.judged()   # p2.fix_plan は待つが控えが無い（1 往復目の修正案は plan の輪）
+        self.assertEqual(self.ok("snap", role=role), {"ok": True, "go": False, "snapshot_file": ""})
+        self.planned()
+        self.again(ready=False)
+        b = self.board_obj()
+        doc = converge.read(b)
+        for outcome in (None, converge.CLEAN, converge.PERSISTED, converge.UNSETTLED):
+            with self.subTest(outcome):
+                converge._write(b, {**doc, "outcome": outcome})
+                self.assertIs(self.ok("snap", role=role)["go"], False)
+                self.assertFalse(b.work(planblk.snapshot_name(role)).exists())
+        converge._write(b, doc)
+        got = self.ok("snap", role=role)
+        self.assertIs(got["go"], True)
+        self.assertEqual(got["snapshot_file"], str(b.work("plan-revise-snapshot.json")))
+        self.assertTrue(pathlib.Path(got["snapshot_file"]).is_file())
+        self.ok("prep", role=role, excluded_file="")
+        self.assertTrue(self.ok("accept", role=role, reply=json.dumps(self.reply(), ensure_ascii=False))["ok"])
+        self.assertIs(self.ok("snap", role=role)["go"], False)   # 案を受けた後（held は残るが p2.fix_plan が待たない）
+
+    def test_revise_compares_its_own_snapshot(self):
+        """直しの役が作業ツリーを変えた → 拒否。比べる写しは直しの役の snap が置いた plan-revise-snapshot.json（1 往復目の
+        plan-snapshot.json と比べない: 往復の間に変わった木は、直しの役の snap の後で変えていなければ拒まない）"""
+        role = planblk.REVISE_ROLE
+        self.again()
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        self.ok("prep", role=role, excluded_file="")
+        (self.repo / "stats.py").write_text("# 変えた\n", encoding="utf-8")
+        got = self.ok("accept", role=role, reply=json.dumps(self.reply(), ensure_ascii=False))
+        self.assertFalse(got["ok"])
+        self.assertTrue(self.reason_of(got).startswith(entry.READONLY_MOVED), self.reason_of(got))
+        self.assertEqual(self.board_obj().node_state("p2.fix_plan"), "pending")
+        self.assertTrue(self.ok("snap", role=role)["go"])   # 変わった木で写しを置き直す（1 往復目の写しとは違う）
+        self.ok("prep", role=role, excluded_file="")
+        got = self.ok("accept", role=role, reply=json.dumps(self.reply(), ensure_ascii=False))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+
+    def test_revise_prompt_names_blocks_and_keys(self):
+        self.again()
+        self.assertTrue(self.ok("snap", role=planblk.REVISE_ROLE)["go"])
+        got = self.ok("prep", role=planblk.REVISE_ROLE, excluded_file="")
+        self.assertEqual(pathlib.Path(got["prompt_file"]).name, "prompt-plan-revise-2.md")
+        self.assertEqual((got["node"], got["already"]), ("p2.fix_plan", False))
+        self.assertIn("out_path", got)
+        p = pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(converge.REVISE_ASK, p)
+        self.assertIn(self.KEY, p)
+        self.assertTrue(p.startswith(planblk.HEAD["plan"].split("\n\n")[0]), p[:200])
+        self.assertNotIn("=====独立設計ここから=====", p)      # 独立設計は直しの役に渡さない
+        self.assertNotIn(planmarks.HEAD, p)                    # 修正案の役の頭は会話に在る（貼り直さない）
+        b = self.board_obj()
+        self.assertTrue(b.rd["instances"]["p2.fix_plan"].get("launched_at"))
+
+    def test_revise_reply_must_answer_every_block(self):
+        role = planblk.REVISE_ROLE
+        self.again()
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        _, got = self.round_of(role, linekit.reply("plan_ok"))   # block_answers が無い
+        self.assertFalse(got["ok"])
+        text = self.reason_of(got)
+        self.assertTrue(text.startswith(planblk.ANSWERS_REJECT), text)
+        self.assertEqual(planblk.ANSWERS_REJECT, "block への答えに誤りが在る（下の行を全部直して出し直せ）:")
+        self.assertIn(f"block の key {self.KEY} への答えが無い", text)
+        wrong = [{**self.answers()[0], "key": "別の穴の key を書いた"}]
+        prep, got = self.round_of(role, self.reply(wrong))
+        self.assertTrue(pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8").startswith(
+            rolekit.REJECT_LINE.format(path=rolekit.rejects(self.board_obj(), "p2.fix_plan")[0]["reason_file"])))
+        self.assertFalse(got["ok"])
+        text = self.reason_of(got)
+        for w in (f"block の key {self.KEY} への答えが無い", "別の穴の key を書いた は前の往復の block に無い"):
+            self.assertIn(w, text)
+        b = self.board_obj()
+        self.assertEqual(b.node_state("p2.fix_plan"), "pending")
+        self.assertEqual(converge.read(b)["open"], {})
+
+    def test_revise_takes_plan_with_fields_and_notes_answers(self):
+        self.ready()
+        b = self.board_obj()
+        marks = [r for r in (b.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if planmarks.SAVED_OP in r]
+        self.again(ready=False)
+        plan = self.reply()
+        plan["plan"][0]["tests"][0]["behavior"] = "2 つの値の平均が、その 2 つのちょうど真ん中の値になる"
+        got = self.revise(plan)
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        self.assertTrue(got["done"])
+        b = self.board_obj()
+        self.assertEqual(b.node_state("p2.fix_plan"), "done")
+        self.assertIsNotNone(planblk._pending(b, "p2.plan_review"))
+        out = json.loads((self.board / b.state["outputs"]["p2.fix_plan"]["file"]).read_text(encoding="utf-8"))
+        self.assertNotIn(converge.ANSWERS, out)
+        self.assertNotIn("route", out["plan"][0])
+        self.assertEqual(planmarks.frozen(b)[0]["tests"][0]["behavior"], plan["plan"][0]["tests"][0]["behavior"])
+        after = [r for r in (b.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if planmarks.SAVED_OP in r]
+        self.assertEqual(len(after), len(marks) + 1)   # 凍結の印を置き直した
+        self.assertEqual(converge.read(b)["open"], {"answers": self.answers()})
+
+    def test_check_done_unless_again(self):
+        self.ready()
+        rf = str(self.board_obj().work(converge.RECORD))
+        self.assertEqual(self.check(), {"ok": True, "done": True, "outcome": "", "record_file": rf})   # 控え無し
+        self.again(ready=False)
+        self.assertEqual(self.check(), {"ok": True, "done": False, "outcome": converge.AGAIN, "record_file": rf})
+        self.assertTrue(self.revise()["ok"])
+        self.assertIs(self.check()["done"], False)   # 案を受けても、審査し直すまで again のまま
+        got = self.review(linekit.reply("plan_review_regression"), ready=False)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.check(), {"ok": True, "done": True, "outcome": converge.PERSISTED, "record_file": rf})
+
+    def test_check_done_after_clean_rereview(self):
+        self.again()
+        self.assertTrue(self.revise()["ok"])
+        got = self.review({**linekit.reply("plan_review_ok"), converge.RESOLVED: [self.KEY]}, ready=False)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual((self.check()["done"], self.check()["outcome"]), (True, converge.CLEAN))
+
+    def test_check_done_on_stopped_board(self):
+        """again のまま盤面が止まる → done（止めた盤面では役が起きず、抜け方が again のまま残る。輪を max_iterations で
+        落とさずに抜ける。F4・R50）"""
+        self.again()
+        entry.open_board(self.board).stop("人が止めた", by="human")
+        got = self.check()
+        self.assertEqual((got["done"], got["outcome"]), (True, converge.AGAIN))
+
+    def test_revise_give_up_stops_board_and_keeps_record(self):
+        role = planblk.REVISE_ROLE
+        self.again()
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        for i in range(planblk.GIVE_UP_AFTER):
+            _, got = self.round_of(role, linekit.reply("plan_ok"))   # 答えが無い
+            self.assertFalse(got["ok"])
+            self.assertIs(got["done"], i == planblk.GIVE_UP_AFTER - 1)
+        self.assertIs(self.check()["done"], True)
+        self.assertIs(self.ok("snap", role="plan-review")["go"], False)
+        out = self.ok("collect")
+        self.assertEqual((out["ok"], out["gave_up"]), (False, True))
+        b = self.board_obj()
+        self.assertEqual(b.state["stop"]["by"], planblk.STOP_BY)
+        pass1 = b.work(converge.PASS_DIR) / "pass-1"
+        for name in ("p2.fix_plan.json", "p2.plan_review.json", "plan-fields.json"):
+            self.assertTrue((pass1 / name).is_file(), name)
+        lines = report.head_decisions(b, {})
+        self.assertTrue(any(x.startswith("事前審査の壁打ち: 1 往復") for x in lines), lines)
+
+    def test_reads_include_revise_prompt(self):
+        role = planblk.REVISE_ROLE
+        self.ready()
+        idx = json.loads(pathlib.Path(planblk.collect_reads(self.board, self.repo, "", "planning")["reads_file"]).read_text(
+            encoding="utf-8"))
+        self.assertNotIn(role, idx)   # 直しの役の指示書がまだ無い
+        self.again(ready=False)
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        prompt = self.ok("prep", role=role, excluded_file="")["prompt_file"]
+        idx = json.loads(pathlib.Path(planblk.collect_reads(self.board, self.repo, "", "planning")["reads_file"]).read_text(
+            encoding="utf-8"))
+        self.assertEqual(set(idx), {"plan", "plan-review", role})
+        got = json.loads(pathlib.Path(idx[role]).read_text(encoding="utf-8"))
+        self.assertEqual(got["node_path"], "planning__converge-loop.plan-revise-loop.plan-revise")
+        self.assertIn(prompt, [r["path"] for r in got["rows"]])
+        review = json.loads(pathlib.Path(idx["plan-review"]).read_text(encoding="utf-8"))
+        self.assertEqual(review["node_path"], "planning__converge-loop.plan-review-loop.plan-review")
+        plan = json.loads(pathlib.Path(idx["plan"]).read_text(encoding="utf-8"))
+        self.assertEqual(plan["node_path"], "planning__plan-loop.plan")
+
+    def test_revise_mark_continues_plan(self):
+        of = planblk.output_format(planblk.REVISE_ROLE)
+        self.assertEqual(of["description"], "works-node: plan-revise continue=plan")
+        self.assertEqual(node_marker.parse(of["description"])["cont"], "plan")
+        bare = node_marker.strip(of)
+        self.assertIn(converge.ANSWERS, bare["required"])
+        self.assertEqual(converge.with_fields(planblk.REVISE_ROLE, accept.role_schema("p2.fix_plan", numbered=True)), bare)
+        self.assertEqual(planblk.output_format("plan")["description"], "works-node: plan")   # 修正案の役は今のまま
 
 
 if __name__ == "__main__":
