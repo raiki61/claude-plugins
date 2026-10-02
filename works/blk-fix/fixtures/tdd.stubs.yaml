@@ -58,8 +58,8 @@ collect:
     suite: suite.py
     reason: ""
     units:
-      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: none, gave_up: "", problems: []}
-      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: direct, why: "試験のための direct の理由（10 字以上）", tests: [], test_files: [], red: "", green: "", refactor: "", gave_up: "", problems: []}
+      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: none, gave_up: "", problems: [], red_kinds: {"test_stats.py::TestStats::test_mean_of_two": assertion}}
+      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: direct, why: "試験のための direct の理由（10 字以上）", tests: [], test_files: [], red: "", green: "", refactor: "", gave_up: "", problems: [], red_kinds: {}}
 fix-reads:   # 読んだ証拠の節は盤面を要るので stub（中身は tests/test_reads.py）
   ok: true
   reads_file: ""

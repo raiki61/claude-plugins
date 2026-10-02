@@ -22,6 +22,8 @@
   唯一の元。凍結の検査と最後の関所はここから引く。source を渡すと、修正案の行の範囲をその木でテストの id から引き直す。
   修正案の欄の控え plan-fields.json が凍結の印と食い違えば（planmarks.FieldsBroken）、許しを引かずに盤面を止めて
   （by FIELDS_STOP_BY）控えを名指す理由の BoardGap
+- frozen_fields(b): 今の周の凍結した修正案の欄の並び（TDD の輪が単位の約束を組む元）。食い違いは test_permits と同じ 1 か所の
+  文で盤面を止めて BoardGap
 - ruled_test_doc(b): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指した
   テストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
 - fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
@@ -431,20 +433,35 @@ def _plan_limit(r: dict, source):
     return f"{got[0]}:{line}" if line else None
 
 
+def _fields_gap(b, e: planmarks.FieldsBroken) -> _board.BoardGap:
+    """修正案の欄の控えが凍結の印と食い違った（e）盤面を止め（もう止まった盤面は止め直さない）、控えを名指す理由の BoardGap を
+    返す（止めの文の 1 か所。_plan_rewrites と frozen_fields が使う）"""
+    why = f"{FIELDS_BROKEN}: {' '.join(str(e).split())}"
+    state = getattr(b, "state", None) or {}
+    if hasattr(b, "stop") and not (state.get("halted") or state.get("stop")):
+        try:
+            b.stop(why, by=FIELDS_STOP_BY)
+        except Reject as r:
+            why += f"（盤面を止められない: {' '.join(str(r).split())}）"
+    return _board.BoardGap(why)
+
+
 def _plan_rewrites(b) -> list[dict]:
-    """planmarks.rewrites。控えが凍結の印と食い違えば（FieldsBroken）盤面を止め（もう止まった盤面は止め直さない）、控えを
-    名指す理由の BoardGap（許しを黙って広げない・黙って捨てない）"""
+    """planmarks.rewrites。控えが凍結の印と食い違えば（FieldsBroken）盤面を止め、控えを名指す理由の BoardGap（_fields_gap。
+    許しを黙って広げない・黙って捨てない）"""
     try:
         return planmarks.rewrites(b)
     except planmarks.FieldsBroken as e:
-        why = f"{FIELDS_BROKEN}: {' '.join(str(e).split())}"
-        state = getattr(b, "state", None) or {}
-        if hasattr(b, "stop") and not (state.get("halted") or state.get("stop")):
-            try:
-                b.stop(why, by=FIELDS_STOP_BY)
-            except Reject as r:
-                why += f"（盤面を止められない: {' '.join(str(r).split())}）"
-        raise _board.BoardGap(why) from None
+        raise _fields_gap(b, e) from None
+
+
+def frozen_fields(b) -> list | None:
+    """今の周の凍結した修正案の欄の並び（planmarks.frozen。控えが無ければ None）。控えが凍結の印と食い違えば、_plan_rewrites と
+    同じく盤面を止めて BoardGap（_fields_gap。TDD の輪の約束を黙って空にしない）"""
+    try:
+        return planmarks.frozen(b)
+    except planmarks.FieldsBroken as e:
+        raise _fields_gap(b, e) from None
 
 
 def test_permits(b, *, rulings: bool = True, source=None) -> list[dict]:

@@ -26,6 +26,7 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(TESTS))
 
+import board  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import planmarks  # noqa: E402
@@ -526,6 +527,24 @@ class TestPlanRewritePermits(ConflictBoardCase):
     def test_no_plan_fields_same_as_before(self):
         self.fix_ready()
         self.assertIsNone(conflict.ruled_test_doc(entry.open_board(self.board)))
+
+    def test_frozen_fields_halts_on_broken_ledger(self):
+        """conflict.frozen_fields は凍結した欄の並び（planmarks.frozen）。控えが受け付けの後に書き換えられたら、_plan_rewrites と
+        同じ 1 か所の文（FIELDS_BROKEN で始まる）で盤面を止めて BoardGap"""
+        b = self.fields_saved()
+        self.assertEqual(conflict.frozen_fields(b)[0]["rewrite_tests"], [self.REWRITE])
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["route"] = "direct"
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaises(board.BoardGap) as got:
+            conflict.frozen_fields(entry.open_board(self.board))
+        self.assertTrue(str(got.exception).startswith(conflict.FIELDS_BROKEN), got.exception)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        with self.assertRaises(board.BoardGap) as again:
+            conflict.test_permits(after)
+        self.assertEqual(str(again.exception), str(got.exception), "_plan_rewrites と同じ文")
 
     def test_plan_rewrite_listed_at_final_gate(self):
         import line_edge

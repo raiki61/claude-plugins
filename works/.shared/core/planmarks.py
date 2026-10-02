@@ -9,6 +9,7 @@
 - find_test(repo, test_id): テストの id の定義の行（rewrite_tests は在るテストだけ・tests は無いテストだけを名指す）
 - line_in(src, test_id): 渡したファイルの中身でのテストの id の定義の行（凍結の検査が輪の後の木で引き直す）
 - split(reply, repo)・save(board, rnd, fields)・read(b)・rewrites(b): 欄を外す口・盤面の控え・書き換えてよい既存のテストの並び
+- unit_contract(fields, key): 1 つの単位の約束（その単位を名指す項目の道・受け入れのテスト・書き換えの id・整えの申告を合わせた物。TDD の輪が読む）
 - 凍結（SAVED_OP・frozen(b)・FieldsBroken）: save は控えを置いた後、盤面の trace に印 {round, sha256（控えのバイトの sha256）} を
   1 行書く。テストの変更の許しの元（rewrites）と brief の切り出しは frozen で読み、今の周の印と控えが食い違えば（受け付けの後に
   書き換えた・消した）FieldsBroken。読む側が盤面を止める（黙って許しを広げない・黙って捨てない）。印の無い控えは無い物（None）
@@ -355,6 +356,35 @@ def rewrites(b) -> list[dict]:
                 out.append({"item": n, "unit_keys": list(f.get("unit_keys") or []), "id": row.get("id"),
                             "new": row.get("new"), "limit": row["limit"]})
     return out
+
+
+def unit_contract(fields: list | None, key: str) -> dict | None:
+    """単位 key の約束 {items: 項目の番号（1 始まり）, route, tests: [{id, red_kind}], rewrites: [id], refactor}。key を unit_keys に
+    含む項目の欄を合わせる: route はどれかの項目が tdd なら tdd（ほかは direct）・tests は項目の順で id の重複を除く・rewrites は
+    範囲 limit の在る行の id だけ（rewrites と同じ選び方）・refactor はどれかの項目の refactor.declared が真なら真。
+    fields が None か、当たる項目が無ければ None。純粋（盤面もファイルも読まない）"""
+    if not isinstance(fields, list):
+        return None
+    items, tests, rws = [], {}, {}
+    route, refactor = "direct", False
+    for n, f in enumerate(fields, 1):
+        keys = f.get("unit_keys") if isinstance(f, dict) else None
+        if not isinstance(keys, list) or key not in keys:
+            continue
+        items.append(n)
+        route = "tdd" if f.get("route") == "tdd" else route
+        for row in _rows(f, "tests"):
+            if _id_of(row):
+                tests.setdefault(row["id"], row.get("red_kind"))
+        for row in _rows(f, "rewrite_tests"):
+            if _id_of(row) and isinstance(row.get("limit"), str) and row["limit"]:
+                rws.setdefault(row["id"])
+        rf = f.get("refactor")
+        refactor = refactor or (isinstance(rf, dict) and rf.get("declared") is True)
+    if not items:
+        return None
+    return {"items": items, "route": route, "tests": [{"id": i, "red_kind": k} for i, k in tests.items()],
+            "rewrites": list(rws), "refactor": refactor}
 
 
 def review_section(b) -> str:

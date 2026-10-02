@@ -62,6 +62,30 @@ ET.ElementTree(root).write(out)
 sys.exit(0 if all(k in (None, "skipped") for _, k in rows) else 1)
 '''
 
+# SUITE の写しで、pytest の JUnit に合わせる実行器: 断言の失敗も本体の例外も failure と書き、message に「<型>: <文>」を付ける
+# （pytest は本体の例外を failure と書く。赤の種類 tddloop.red_kind はこの message を読む）
+PYTEST_LIKE = '''
+import sys, unittest, xml.etree.ElementTree as ET
+sys.dont_write_bytecode = True
+sys.path.insert(0, ".")
+out = sys.argv[1]
+rows = []
+class R(unittest.TestResult):
+    def addSuccess(self, t): rows.append((t, None, ""))
+    def addFailure(self, t, e): rows.append((t, "failure", f"{e[0].__name__}: {e[1]}"))
+    def addError(self, t, e): rows.append((t, "failure", f"{e[0].__name__}: {e[1]}"))
+    def addSkip(self, t, r): rows.append((t, "skipped", ""))
+unittest.defaultTestLoader.discover(".", pattern="test_*.py", top_level_dir=".").run(R())
+root = ET.Element("testsuite")
+for t, kind, msg in rows:
+    cls, name = t.id().rsplit(".", 1)
+    tc = ET.SubElement(root, "testcase", classname=cls, name=name)
+    if kind:
+        ET.SubElement(tc, kind, message=msg)
+ET.ElementTree(root).write(out)
+sys.exit(0 if all(k in (None, "skipped") for _, k, _ in rows) else 1)
+'''
+
 NEW_TEST = '''
     def test_mean_of_two(self):
         self.assertEqual(mean([2, 4]), 3)
@@ -535,6 +559,170 @@ class TestUnitLoop(LoopCase):
         code, out, err = run_script("tdd_prep", self.repo, {k: v for k, v in env.items() if k != "INPUTS_NOTES_FILE"})
         self.assertEqual((code, out), (2, ""))
         self.assertIn("INPUTS_NOTES_FILE", err)
+
+
+MEAN_ID = "test_stats.py::TestStats::test_mean_of_two"
+WRONG_KIND_TEST = "\n    def test_mean_of_two(self):\n        import stats\n        self.assertEqual(stats.mean2([2, 4]), 3)\n"
+
+
+class ContractCase(LoopCase):
+    """約束を持つ run。tdd-start を plan_contract の差し替えで起こし直す（実行器は pytest に似せた PYTEST_LIKE）"""
+    CONTRACT = {MEAN: {"items": [1], "route": "tdd", "rewrites": [], "refactor": False,
+                       "tests": [{"id": MEAN_ID, "red_kind": "assertion"}]}}
+
+    def setUp(self):
+        super().setUp()
+        self.suite.write_text(PYTEST_LIKE, encoding="utf-8")
+        with mock.patch.object(tddloop, "plan_contract", return_value=self.CONTRACT) as pc:
+            self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
+        self.assertTrue(self.start["go"], self.start)
+        self.state = self.start["state_file"]
+        self.assertEqual(sorted(pc.call_args[0][1]), sorted([MEAN, CLAMP]))
+
+    def wrong_kind(self):
+        """今のコードに無い名前を呼んで AttributeError で落ちるテスト（案は assertion）を書いて出す"""
+        return self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": [MEAN_ID]})
+
+
+class TestPlanContract(ContractCase):
+    def test_contract_lands_in_state(self):
+        self.assertEqual(self.st()["contract"], self.CONTRACT)
+
+    def test_plan_tdd_unit_cannot_be_routed_direct(self):
+        got = self.step({"phase": "route", "units": [{"unit_key": MEAN, "route": "direct", "why": "文書だけの直しで書けない"},
+                                                     {"unit_key": CLAMP, "route": "direct", "why": "文書だけの直しで書けない"}]})
+        self.assertFalse(got["ok"])
+        self.assertIn(MEAN, got["reason"])
+        self.assertIn("conflict", got["reason"])
+        self.assertNotIn(CLAMP, got["reason"].split("\n")[0])   # 約束の無い単位は今どおり direct に振れる
+
+    def test_plan_tdd_unit_cannot_hand_off_by_direct_why(self):
+        self.route()
+        got = self.step({"phase": "test", "unit_key": MEAN, "direct_why": "既存の名前だけでは再現できないと分かった"})
+        self.assertEqual((got["ok"], got["done"]), (False, False))
+        self.assertIn("conflict", got["reason"])
+        self.assertEqual((self.st()["phase"], self.st()["units"][MEAN]["route"]), ("test", "tdd"))
+
+    def test_test_phase_must_name_plan_tests(self):
+        self.route()
+        self.add_test(NEW_TEST.replace("test_mean_of_two", "test_other_name"))
+        runs = self.st()["runs"]
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
+                         "tests": ["test_stats.py::TestStats::test_other_name"]})
+        self.assertFalse(got["ok"])
+        self.assertIn(MEAN_ID, got["reason"])
+        self.assertEqual(self.st()["runs"], runs, "実行器を走らせる前に拒む")
+
+    def test_plan_test_named_with_dot_path_counts(self):
+        """名指しのパスの部分は posixpath.normpath で整えて比べる"""
+        self.route()
+        self.add_test(NEW_TEST)
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
+                         "tests": ["./test_stats.py::TestStats::test_mean_of_two"]})
+        self.assertTrue(got["ok"], got)
+
+    def test_red_kind_matches_and_is_recorded(self):
+        self.route()
+        self.red()
+        self.assertEqual(self.st()["units"][MEAN]["red_kinds"], {MEAN_ID: "assertion"})
+
+    def test_red_rejects_wrong_kind(self):
+        self.route()
+        self.add_test(WRONG_KIND_TEST)
+        got = self.wrong_kind()
+        self.assertFalse(got["ok"])
+        for w in ("AttributeError", "assertion", "conflict"):
+            self.assertIn(w, got["reason"])
+        self.assertEqual(self.st()["phase"], "test")
+
+    def test_wrong_kind_three_times_gives_up_to_direct(self):
+        self.route()
+        head = (self.repo / "test_stats.py").read_text(encoding="utf-8")
+        self.add_test(WRONG_KIND_TEST)
+        for _ in range(tddloop.retry_max()):
+            got = self.wrong_kind()
+            self.assertFalse(got["ok"])
+        self.assertTrue(got["done"], "tdd の単位が 1 つなので輪は済む")
+        self.assertEqual((self.repo / "test_stats.py").read_text(encoding="utf-8"), head, "作業ツリーは単位の頭")
+        u = self.st()["units"][MEAN]
+        self.assertEqual((u["route"], u["gave_up"]), ("direct", "red"))
+
+    def test_unknown_kind_is_recorded_not_rejected(self):
+        """実行器が failure に message も type も書かない（SUITE）なら赤の種類は unknown。拒まず記録する"""
+        self.suite.write_text(SUITE, encoding="utf-8")
+        self.route()
+        self.red()
+        self.assertEqual(self.st()["units"][MEAN]["red_kinds"], {MEAN_ID: tddloop.KIND_UNKNOWN})
+
+
+class TestNoContract(LoopCase):
+    def test_no_contract_same_as_before(self):
+        """約束の無い run（LoopCase）は、名指しの名前も赤の種類も見ない"""
+        self.assertEqual(self.st()["contract"], {})
+        self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]), {}, "盤面の無い置き場は空")
+        self.route()
+        self.add_test(NEW_TEST.replace("test_mean_of_two", "test_other_name"))
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
+                         "tests": ["test_stats.py::TestStats::test_other_name"]})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.st()["units"][MEAN]["red_kinds"],
+                         {"test_stats.py::TestStats::test_other_name": tddloop.KIND_UNKNOWN})
+
+    def test_board_without_fields_has_no_contract(self):
+        """盤面が在っても欄の控えが無ければ（frozen_fields が None）約束は空"""
+        (self.board / "state.json").write_text("{}", encoding="utf-8")
+        with mock.patch.object(tddloop.entry, "open_board", return_value=object()), \
+                mock.patch.object(tddloop.conflict, "frozen_fields", return_value=None):
+            self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]), {})
+
+
+class TestContractBroken(LoopCase):
+    def test_broken_fields_stop_start(self):
+        """盤面が在り、欄の控えが凍結の印と食い違う → plan_contract は Broken（理由の文は conflict.FIELDS_BROKEN で始まる）"""
+        (self.board / "state.json").write_text("{}", encoding="utf-8")
+        gap = tddloop.board.BoardGap(f"{tddloop.conflict.FIELDS_BROKEN}: 控えの sha256 が印と違う")
+        with mock.patch.object(tddloop.entry, "open_board", return_value=object()), \
+                mock.patch.object(tddloop.conflict, "frozen_fields", side_effect=gap), \
+                mock.patch.object(tddloop.conflict, "fix_duty", return_value=({MEAN, CLAMP}, {})):
+            with self.assertRaises(tddloop.Broken) as got:
+                tddloop.plan_contract(self.board, [MEAN])
+            self.assertTrue(str(got.exception).startswith(tddloop.conflict.FIELDS_BROKEN), got.exception)
+            with self.assertRaises(tddloop.Broken) as again:
+                tddloop.start(self.board, self.repo, str(self.suite), OPEN)
+            self.assertTrue(str(again.exception).startswith(tddloop.conflict.FIELDS_BROKEN), again.exception)
+
+    def test_board_that_cannot_open_is_broken(self):
+        (self.board / "state.json").write_text("{}", encoding="utf-8")
+        with mock.patch.object(tddloop.entry, "open_board", side_effect=tddloop.board.BoardGap("開けない")):
+            with self.assertRaisesRegex(tddloop.Broken, "開けない"):
+                tddloop.plan_contract(self.board, [MEAN])
+
+
+class TestRedKind(unittest.TestCase):
+    def test_kinds(self):
+        def k(t, m):
+            return tddloop.red_kind({"fail_type": t, "fail_message": m})
+        self.assertEqual(k("", "assert 3.0 == 2"), "assertion")
+        self.assertEqual(k("", "AssertionError: 3.0 != 2"), "assertion")
+        self.assertEqual(k("", "AssertionError: ValueError not raised"), "exception")
+        self.assertEqual(k("", "Failed: DID NOT RAISE ValueError"), "exception")
+        self.assertEqual(k("", "NameError: name 'f' is not defined"), "NameError")
+        self.assertEqual(k("org.opentest4j.AssertionFailedError", "expected: <1>"), "assertion")
+        self.assertEqual(k("", ""), tddloop.KIND_UNKNOWN)
+        self.assertEqual(k("", "3.0 != 2"), tddloop.KIND_UNKNOWN)
+
+    def test_run_suite_rows_carry_failure_attrs(self):
+        """run_suite の結末の行に failure の子の type・message（無ければ空）"""
+        with tempfile.TemporaryDirectory() as td:
+            work = pathlib.Path(td)
+            exe = work / "suite.py"
+            exe.write_text("import sys\nopen(sys.argv[1], 'w').write('<testsuite>"
+                           "<testcase classname=\"a\" name=\"t1\"><failure type=\"x.AssertionError\" message=\"m\"/></testcase>"
+                           "<testcase classname=\"a\" name=\"t2\"/></testsuite>')\nsys.exit(1)\n", encoding="utf-8")
+            cases, _, why = tddloop.run_suite(str(exe), work, work, "attrs")
+        self.assertEqual(why, [])
+        self.assertEqual([(c["name"], c["fail_type"], c["fail_message"]) for c in cases],
+                         [("t1", "x.AssertionError", "m"), ("t2", "", "")])
 
 
 class TestRunSuiteSlot(unittest.TestCase):
