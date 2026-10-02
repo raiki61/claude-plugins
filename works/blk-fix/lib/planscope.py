@@ -232,9 +232,8 @@ def _named_paths(text: str, paths) -> list[str]:
 
 
 def _all_held(it: dict, held) -> bool:
-    """項目の unit_keys の全部が held に在る（外れた項目）。unit_keys の無い項目は外れていない"""
-    keys = set(_keys(it))
-    return bool(keys) and keys <= set(held)
+    """項目の unit_keys の全部が held に在る（外れた項目。conflict.held_item）。unit_keys の無い項目は外れていない"""
+    return bool(conflict.held_item(_keys(it), held))
 
 
 def _held_note(path: str, items: list[dict], held: dict) -> str:
@@ -243,7 +242,7 @@ def _held_note(path: str, items: list[dict], held: dict) -> str:
     out = ""
     for it in items:
         if _all_held(it, held) and _inside(path, it):
-            why = "・".join(dict.fromkeys(held[k] for k in _keys(it)))
+            why = conflict.held_item(_keys(it), held)
             out += f"（{path} は項目 {it.get('item')} の範囲で、項目 {it.get('item')} は {why} で直す義務から外れた。その項目の直しなら作業ツリーから戻せ）"
     return out
 

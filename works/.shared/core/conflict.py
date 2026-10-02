@@ -385,6 +385,16 @@ def held_by_rulings(b) -> dict:
     return out
 
 
+def held_item(unit_keys, held: dict) -> str:
+    """案の項目が裁定で外れた項目か（unit_keys の全部が held_by_rulings の held に在る）。外れていれば外した裁定の理由を「・」で
+    つないだ文、外れていない・unit_keys が無ければ空。外れた項目は範囲を与えない（blk-fix の planscope と差分の審査の材料が読む
+    1 つの決まり）"""
+    keys = [k for k in unit_keys or [] if isinstance(k, str)]
+    if not keys or not set(keys) <= set(held):
+        return ""
+    return "・".join(dict.fromkeys(held[k] for k in keys))
+
+
 def replaced_queries(b) -> dict:
     """裁定 replace_query が置き換えた問い {unit_key: {id, how, counts, hits, misses}}（閉鎖の数え直しが判定者の問いの代わりに使う）"""
     return {i["unit_key"]: {"id": i["id"], **i["ruling"]["query"]} for i in items(b)

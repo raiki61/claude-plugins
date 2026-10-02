@@ -208,6 +208,10 @@ class RulingLimitsTextCase(KindRowsCase):
         text = conflict.write_rulings(self.b).read_text(encoding="utf-8")
         self.assertEqual(text.count("「範囲」に並べたパスだけ"), 2, text)
 
+    def test_ruler_opens_brief_for_limits_too(self):
+        # 範囲（limits）を書く時も fix_plan_item を考える時も、その単位の brief を開く
+        self.assertIn("`limits` を書く時と `fix_plan_item` を考える時は", fixrules.sections(fixrules.RULER)["ruler-head"])
+
     def test_brief_rule_names_ruling_limits(self):
         self.assertIn("裁定の「範囲」", fixrules.sections(fixrules.BRIEF)["brief-canon"])
 

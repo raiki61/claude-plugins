@@ -85,6 +85,16 @@ class DeltaMarksCase(unittest.TestCase):
         self.assertEqual(deltamarks.gaps(reply([FACE], {**PASS, "verdict": "unverifiable", "items": [UNV]},
                                                {**GOOD_Q, "verdict": "fail"}), ITEMS), [])
 
+    def test_fail_row_on_held_item_rejected(self):
+        """裁定で外れた項目（held）に missing・extra・misunderstood の行を書けば拒む（手直しの義務にしない）。unverifiable は通す"""
+        held = [{"item": 1, "unit_keys": ["k"], "held": "fix_plan_item の裁定 c1-1（案の項目 1）"}]
+        fail = {**PASS, "verdict": "fail", "items": [MISS]}
+        got = deltamarks.gaps(reply([FACE], fail), held)
+        self.assertTrue(any("compliance.items[0].item（1）" in g and "held" in g for g in got), got)
+        self.assertEqual(deltamarks.gaps(reply([FACE], fail), ITEMS), [])
+        unv = {**PASS, "verdict": "unverifiable", "items": [UNV]}
+        self.assertEqual(deltamarks.gaps(reply(compliance=unv), held), [])
+
     def test_malformed_faces(self):
         """faces が key を持つ object の並びでない返答は、2 判定の欄を照らさない（写しの型が拒む）"""
         for faces in ("x", None, ["x"], [{"kind": "copy"}], [{"key": 1}]):

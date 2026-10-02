@@ -474,6 +474,7 @@ class RefixStaticCase(unittest.TestCase):
         for w in ("`plan_items`", "`compliance`", "`face_key`"):
             self.assertIn(w, sec["refix-head-1"])
             self.assertNotIn(w, sec["refix-head-2"])
+        self.assertIn("`held` の在る項目に向けて直すな", sec["refix-head-1"])
 
     def test_output_format_marks_roles(self):
         """役の output_format は mark(role_schema(節), 役の名)（TA20）。strip すれば graph の schema"""

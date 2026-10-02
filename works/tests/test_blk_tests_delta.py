@@ -136,7 +136,10 @@ class TestDeltaSchema(unittest.TestCase):
         for w in ("plan_items", "fix_report", "compliance", "quality", "missing", "extra", "misunderstood", "unverifiable",
                   "face_key", "not_applicable", "信じず", "先に準拠"):
             self.assertIn(w, text)
-        self.assertIn("unverifiable の行は `face_key` を空", text)   # 穴に結べない行（deltamarks.gaps の M4 の決まり）
+        self.assertIn("unverifiable の行は `face_key` を空文字 `\"\"`", text)   # 穴に結べない行（deltamarks.gaps の M4 の決まり）
+        self.assertIn("3 点と下の品質の観点", text)
+        for w in ("`held`", "`ruled_paths`"):   # 裁定で外れた項目と裁定が広げたパス（planscope と同じ決まり）
+            self.assertIn(w, text)
 
     def test_review_prompts_read_protected_files(self):
         # 支度（refix.cut）が brief に書く守りのファイル（protected_files）を、1 回目と 2 回目の審査役の指示書が読ませる
@@ -738,6 +741,47 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.plan_fields(scoped=False)   # 217 番の形の控え（範囲の欄が無い）は修正案の無い run と同じ
         brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
         self.assertEqual(brief["plan_items"], [])
+
+    def held_board(self):
+        """p3.fix まで受けた盤面に、範囲の欄の控えと裁定 2 件（項目 2 の単位 K2 に fix_plan_item、K1 に fix_code_as と範囲
+        test_stats.py:3）を置く"""
+        repo = self.fixed()
+        self.plan_fields(scoped=True)
+        b = real_entry.open_board(self.board)
+        base = {"between": ["stats.py:3", "test_stats.py:2"], "why_both_cannot_hold": "テストと依頼が両方は成り立たない",
+                "which_is_right": "request", "kind": "scope_needed", "round": b.round, "source": "fix", "status": "ruled"}
+        rows = [{**base, "id": "c1-1", "unit_key": RF.K2,
+                 "ruling": {"decision": "fix_plan_item", "text": "案の項目 2 の範囲が誤り", "limits": [], "by": "x",
+                            conflict.PLAN_ITEMS: [2], conflict.PLAN_UNITS: [RF.K2]}},
+                {**base, "id": "c1-2", "unit_key": RF.K1,
+                 "ruling": {"decision": "fix_code_as", "text": "式を定義どおりに直す", "limits": ["test_stats.py:3"], "by": "x"}}]
+        b.work(conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False), encoding="utf-8")
+        return repo
+
+    def test_cut_brief_marks_held_items_and_ruled_paths(self):
+        """裁定で外れた項目は番号を保ったまま held（外した裁定）を持ち、直す裁定の limits のパスは ruled_paths に並ぶ"""
+        repo = self.held_board()
+        brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual([it["item"] for it in brief["plan_items"]], [1, 2])
+        self.assertNotIn("held", brief["plan_items"][0])
+        self.assertIn("fix_plan_item の裁定 c1-1", brief["plan_items"][1]["held"])
+        self.assertEqual(brief["ruled_paths"], ["test_stats.py"])
+
+    def test_missing_on_held_item_does_not_become_owed(self):
+        """審査役が外れた項目 2 を missing と書いて穴に結ぶ → 受け付けが拒み（盤面は前のまま）、手直しの義務にならない"""
+        repo = self.held_board()
+        self.assertTrue(refix.cut(self.board, 1, repo)["ok"])
+        before = RF.TE.board_shas(self.board)
+        reply = load("fix2_delta_review_faces")
+        reply["compliance"] = {"verdict": "fail", "read": "修正案の項目 2 と差分の stats.py を読み、項目と差分を照らした",
+                               "items": [{"item": 2, "kind": "missing", "face_key": RF.F1,
+                                          "why": "項目 2 の clamp の直しが差分に無いので、項目どおりに直していない"}]}
+        reply["quality"] = {"verdict": "pass", "why": "準拠に結ばれていない穴は無く、テストの形の問題も見当たらない"}
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertFalse(got["ok"])
+        self.assertTrue(got["reason"].startswith(deltamarks.REJECT), got["reason"])
+        self.assertIn("held", got["reason"])
+        self.assertEqual(RF.TE.board_shas(self.board), before)
 
     def test_review_faces_make_owed(self):
         """fix2_delta_review_faces（穴 1 件・塞がっていない検算 1 件）→ settle の後 loop.delta_owed に 2 件、ready に

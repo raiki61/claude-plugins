@@ -6,7 +6,8 @@
 （p3.delta_review2）には重ねない。
 - with_verdicts(node, schema): 役の型（accept.role_schema が重ねる）
 - gaps(reply, items): 欠けと誤りの行（審査の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）。items は
-  承認済みの修正案の項目（planmarks.approved_items。無い run は None か空で、準拠は not_applicable）
+  承認済みの修正案の項目（planmarks.approved_items。無い run は None か空で、準拠は not_applicable）。裁定で外れた項目は
+  held（外した裁定の理由）を持ち、その項目の落ちた行は拒む（外れた項目を手直しの義務にしない）
 - malformed(reply): faces が穴の並びの形でない返答か（真なら受け付けは 2 判定の欄を照らさず、写しの型に拒ませる）
 - split(reply)・save(b, verdicts)・read(b)・fail_rows(verdicts): 欄を外す口・盤面の外の控え・準拠の落ちた行
 語:
@@ -116,9 +117,13 @@ def gaps(reply: dict, items: list | None) -> list[str]:
     elif verdict == "not_applicable":
         out.append(f"compliance.verdict（not_applicable）: 承認済みの修正案の項目が {n} 個在る。"
                    "pass・fail・unverifiable のどれかにせよ")
+    held = {it.get("item"): it.get("held") for it in items or [] if isinstance(it, dict) and it.get("held")}
     for j, r in enumerate(rows):
         if n and not 1 <= r["item"] <= n:
             out.append(f"compliance.items[{j}].item（{r['item']}）: 承認済みの修正案の項目の番号は 1〜{n}")
+        if r["kind"] in FAIL_KINDS and r["item"] in held:
+            out.append(f"compliance.items[{j}].item（{r['item']}）: 項目 {r['item']} は裁定で直す義務から外れた（held: "
+                       f"{held[r['item']]}）。外れた項目に {r['kind']} の行を書くな（手直しに直させない。次の run の修正案で決める）")
         if r["kind"] in FAIL_KINDS and r["face_key"] not in faces:
             out.append(f"compliance.items[{j}].face_key（{r['face_key']}）: faces の key に無い。"
                        "差分の中の所を faces に挙げて face_key で結べ")

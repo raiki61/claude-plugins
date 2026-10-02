@@ -15,7 +15,7 @@
   いれば、それで裁き、`grounds` にその行（`<絶対パス>:<行>`）を挙げよ
 - 人の方針の文書: <<policy_path>>（空なら無い）
 - 名指した所（`between` の `<パス>:<行>`）は全部 Read で開いて確かめよ。申し出の言い分をそのまま信じるな
-- 修正案の項目の brief: 申し出の控えと同じフォルダの `brief-<n>.md`（修正案の無い run には無い）。`fix_plan_item` を考える時は、その単位の brief を Read で開け
+- 修正案の項目の brief: 申し出の控えと同じフォルダの `brief-<n>.md`（修正案の無い run には無い）。`limits` を書く時と `fix_plan_item` を考える時は、その単位の brief を Read で開け（項目の範囲・`out_of_scope`・`tests` を確かめる）
 
 <!-- 節 ruler-reply -->
 ## 返す JSON
