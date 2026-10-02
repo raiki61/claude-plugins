@@ -628,8 +628,17 @@ def _replanned(b) -> list:
 
 
 def _replanned_units(b) -> list:
-    """fix_plan_item が外した単位ごとの (単位, 裁定の行)（conflict.ruled_units。申し出の単位と、その項目に載る単位の全部）"""
-    return [(k, r) for r in _replanned(b) for k in conflict.ruled_units(r)]
+    """fix_plan_item が外した単位ごとの (単位, 裁定の行)（conflict.ruled_units。申し出の単位と、その項目に載る単位の全部）。
+    1 単位に 1 行（同じ項目の単位を 2 件とも裁けば、どちらの裁定もその 2 単位を外す）: 単位自身の申し出の裁定を先に、無ければ
+    先に当たった裁定（conflict.held_by_rulings と同じく先の物で決める）。並びは単位が先に現れた順"""
+    rows = _replanned(b)
+    own, out = {}, {}
+    for r in rows:
+        own.setdefault(r["unit_key"], r)
+    for r in rows:
+        for k in conflict.ruled_units(r):
+            out.setdefault(k, own.get(k, r))
+    return list(out.items())
 
 
 def _from_unit(key: str, r) -> str:

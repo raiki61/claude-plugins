@@ -1075,10 +1075,12 @@ class TestFixPlanItemWholeItem(ReplanCase):
         got = self.accept_script(only_clamp_reply() | {"changes": []}, pass_="ruled", iteration="2")
         self.assertTrue(got["ok"], got)
         b = entry.open_board(self.board, allow_halted=True)
-        items = report.next_request(b)
+        items = report.next_request(b, left=[{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {CLAMP}"}])
         for k in (MEAN, CLAMP):
             self.assertTrue(any(i["where"] == k and "fix_plan_item" in i["text"] and "事前審査" in i["text"] for i in items),
                             (k, items))
+        self.assertEqual(sum(CLAMP in i["where"] or CLAMP in i["text"] for i in items), 1,
+                         "項目を共にして止まった単位の検証器の行は単位の行が持つ（二重に渡さない）")
         lines = report.replanned_lines(b)
         self.assertEqual([x.split(": ")[0] for x in lines], [MEAN.split(": ")[0], CLAMP.split(": ")[0]])
         self.assertTrue(any(x.startswith(CLAMP) and f"申し出の単位 {MEAN}" in x for x in lines), lines)
@@ -1106,6 +1108,82 @@ class TestFixPlanItemWholeItem(ReplanCase):
         self.assertTrue(any(x.startswith(report.REPLAN_HEAD) for x in lines), lines)
         lines = report.head_decisions(b, gate, outcome="round_limit", left=[{"where": "w", "text": "t"}])
         self.assertTrue(any(x.startswith("直しきれずに残った物") for x in lines), lines)
+
+    def test_parked_fix_of_a_held_unit_is_reverted(self):
+        """1 回目に clamp を直して mean を申し出、mean が fix_plan_item に裁かれて clamp も止まった盤面で、2 回目が changes を
+        空にしただけで出しても、受け付けが控えの返答の clamp の直しを作業ツリーから戻す（止めた単位の直しを残さない）"""
+        accept_script_mod = accept_module()
+        self.SHARED_ITEM = True
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        self.assertIn("機械も戻す", pathlib.Path(r["rulings_file"]).read_text(encoding="utf-8"))
+        got = self.accept_script(only_clamp_reply() | {"changes": []}, pass_="ruled")
+        self.assertTrue(got["ok"], got)
+        self.assertNotIn("return hi", (self.repo / "stats.py").read_text(encoding="utf-8"), "clamp の直しが作業ツリーに残った")
+        b = entry.open_board(self.board, allow_halted=True)
+        parked = json.loads(b.work(conflict.PARKED_REPLY).read_text(encoding="utf-8"))
+        self.assertEqual(parked["changes"], [], "控えの返答から止めた単位の行を外す")
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        hit = [x for x in rows if x.get("op") == accept_script_mod.RULED_REVERTED_OP]
+        self.assertEqual(len(hit), 1, hit)
+        self.assertEqual(list(hit[0]["excused"]), [CLAMP])
+
+
+def accept_module():
+    """受け付けのスクリプト（blk-fix/scripts/accept.py。.shared/core の accept と名が重なるので別名で読む）"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("accept_script_mod", BLK / "scripts" / "accept.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestFixPlanItemBothUnits(ReplanCase):
+    """同じ項目の 2 単位を両方とも申し出て、同じ返答で裁いた盤面"""
+
+    CLAMP_WHY = "テストは上限の枝で hi を期待しているが、依頼は上限の枝を lo に寄せると書いている"
+
+    def ruled_both(self, clamp_decision="fix_plan_item"):
+        """mean と clamp を 1 項目に置いた案で、2 単位とも申し出た盤面を裁く（mean は fix_plan_item、clamp は clamp_decision）"""
+        import planbrief
+        import test_blk_fix
+        self.fix_ready()
+        clamp = {"unit_key": CLAMP, "between": ["stats.py:16", "test_stats.py:15"], "why_both_cannot_hold": self.CLAMP_WHY,
+                 "which_is_right": "request", "kind": "unnamed_test_broke"}
+        r = self.accept_script(only_clamp_reply([conflict_on_mean(), clamp]) | {"changes": []})
+        self.assertEqual((r["ok"], r.get("parked")), (True, True), r)
+        planmarks.save(self.board, entry.open_board(self.board).round, test_blk_fix.PLAN_FIELDS)
+        planbrief.cut_at(self.board)
+        brief = entry.open_board(self.board).work("brief-1.md")
+        ids = {i["unit_key"]: i["id"] for i in self.items()}
+        return self.rule([{"id": ids[MEAN], "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": [],
+                           "grounds": [f"{brief}:1"]},
+                          {"id": ids[CLAMP], "decision": clamp_decision, "text": PLAN_TEXT, "limits": [],
+                           "grounds": [f"{brief}:1"]}])
+
+    def test_each_unit_once_when_both_are_ruled(self):
+        """2 件の fix_plan_item がどちらも同じ 2 単位を外しても、報告と次の依頼は単位ごとに 1 行（単位自身の裁定の行）"""
+        import report
+        _, r = self.ruled_both()
+        self.assertTrue(r["ok"], r)
+        b = entry.open_board(self.board, allow_halted=True)
+        ids = {i["unit_key"]: i["id"] for i in self.items()}
+        lines = report.replanned_lines(b)
+        self.assertEqual([x.split(": ")[0] for x in lines], [MEAN.split(": ")[0], CLAMP.split(": ")[0]], lines)
+        for k, x in zip((MEAN, CLAMP), lines):
+            self.assertIn(ids[k], x); self.assertNotIn("申し出の単位", x)
+        head = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        self.assertIn(f"{report.REPLAN_HEAD}: 2 件", head)
+        wheres = [i["where"] for i in report.next_request(b)]
+        self.assertEqual([w for w in wheres if w in (MEAN, CLAMP)], [MEAN, CLAMP], wheres)
+
+    def test_fix_ruling_inside_a_replanned_item_is_rejected(self):
+        """同じ返答で fix_plan_item に裁いた項目の単位に直す裁定を出せば、単位と項目を名指して拒む"""
+        _, r = self.ruled_both("fix_code_as")
+        self.assertEqual((r["ok"], r["done"]), (False, False), r)
+        for w in (CLAMP, "案の項目 1", "fix_code_as", "fix_plan_item"):
+            self.assertIn(w, r["reason"])
+        self.assertTrue(all(i["ruling"] is None for i in self.items()), "拒んだ返答の裁定は積まない")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,8 @@
 - accept_rule(reply, board, base_rev, repo): 節 rule-accept（script_io.main が回す）。作業ツリーが変わっていない・裁く申し出の id に
   ちょうど 1 件ずつ・語・fix_test_scope の範囲が現物に在る・replace_query の問いが例（hits・misses・申し出の correct_lines）で
   外れない・裁きの出どころ（grounds）が現物に在り、依頼のファイルが在る run の ask_human は依頼の行か request_searched を持つ・
-  fix_plan_item は範囲を持たず、grounds にその単位の brief の行を名指す（planbrief.by_unit_at・conflict.brief_cite_problem）、
+  fix_plan_item は範囲を持たず、grounds にその単位の brief の行を名指す（planbrief.by_unit_at・conflict.brief_cite_problem）・
+  同じ返答で fix_plan_item に裁いた項目の単位に直す裁定を出さない（plan_item_fix_problems）、
   を確かめて conflict.apply_rulings で積む
   （fix_plan_item には欄 plan_items にその単位の brief の項目の番号を、欄 plan_units にその項目に載る単位の全部を足す）。GIVE_UP_AFTER 回目の拒否では
   裁かれていない申し出を全部 ask_human に裁いて抜ける（決められない物は人へ。max_iterations で落とさない）
@@ -126,6 +127,13 @@ def grounds_problems(r: dict, repo, request: str, roots) -> list:
     return errs
 
 
+def plan_item_units(unit_key, briefs) -> tuple:
+    """fix_plan_item が誤りと裁く案の項目: (その単位の brief の項目の番号, その項目に載る単位の全部)。briefs は
+    planbrief.by_unit_at の {unit_key: [{item, file}]}（brief の無い単位は ([], [])）"""
+    nums = [x["item"] for x in (briefs or {}).get(unit_key) or []]
+    return nums, [k for k, rows in (briefs or {}).items() if any(x["item"] in nums for x in rows)]
+
+
 def problems(reply, todo: dict, repo, request: str = "", roots=(), briefs=None) -> list:
     """裁定の返答の確かめ（空なら通る）。request は run の依頼のファイル（空なら依頼の無い run）、roots は grounds の絶対パスを
     許す置き場（依頼のファイル・盤面）、briefs は今の周の brief の行 {unit_key: [{item, file}]}（planbrief.by_unit_at。None と {}
@@ -153,6 +161,27 @@ def problems(reply, todo: dict, repo, request: str = "", roots=(), briefs=None) 
         if r["decision"] == conflict.REPLACE or "query" in r:
             errs += [f"申し出 {r['id']}: {e}" for e in query_problems(r, todo.get(r["id"]) or {})]
         errs += [f"申し出 {r['id']}: {e}" for e in grounds_problems(r, repo, request, roots)]
+    errs += plan_item_fix_problems(rows, todo, briefs)
+    return errs
+
+
+def plan_item_fix_problems(rows: list, todo: dict, briefs) -> list:
+    """同じ返答で fix_plan_item に裁いた案の項目に載る単位へ、直す裁定（FIX_DECISIONS）を出した物（項目の単位は fix_plan_item が
+    直す義務から外すので、「直せ」と「直すな」が裁定の文に並ぶ）。単位・裁定・項目を名指す"""
+    held = {}
+    for r in rows:
+        if r["decision"] == conflict.REPLAN and r["id"] in todo:
+            nums, units = plan_item_units(todo[r["id"]].get("unit_key"), briefs)
+            for k in units:
+                held.setdefault(k, (r["id"], nums))
+    errs = []
+    for r in rows:
+        k = (todo.get(r["id"]) or {}).get("unit_key")
+        if r["decision"] in conflict.FIX_DECISIONS and k in held:
+            rid, nums = held[k]
+            errs.append(f"申し出 {r['id']}: 単位 {k} は同じ返答で {conflict.REPLAN} に裁いた申し出 {rid} の案の項目 "
+                        f"{', '.join(map(str, nums))} に載る（その項目の単位は直さない）のに {r['decision']} に裁いた——"
+                        f"項目が誤りなら {conflict.REPLAN} か {conflict.ASK} に揃えよ")
     return errs
 
 
@@ -200,9 +229,7 @@ def accept_rule(reply, board, base_rev, repo) -> dict:
         def stored(r):   # 盤面に積む欄（役の欄と、fix_plan_item には機械が足すその単位の brief の項目の番号と、その項目の単位の全部）
             got = {k: r[k] for k in RULING_KEYS if k in r}
             if r["decision"] == conflict.REPLAN:
-                nums = [x["item"] for x in briefs[todo[r["id"]]["unit_key"]]]
-                got[conflict.PLAN_ITEMS] = nums
-                got[conflict.PLAN_UNITS] = [k for k, rows in briefs.items() if any(x["item"] in nums for x in rows)]
+                got[conflict.PLAN_ITEMS], got[conflict.PLAN_UNITS] = plan_item_units(todo[r["id"]]["unit_key"], briefs)
             return got
         path = conflict.apply_rulings(b, {r["id"]: stored(r) for r in reply["rulings"]}, by=BY_ROLE)
         return {"ok": True, "done": True, "reason": "", "rulings_file": str(path), "counts": conflict.counts(b)}
