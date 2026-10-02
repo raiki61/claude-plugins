@@ -35,7 +35,8 @@
    本体の変更を確かめる。行が在れば行ごとの文（fixgates.reject_lines。" / " でつないで 1 つの理由に全部の行が並ぶ）で拒む
    （今の拒否の道。最後の回は文ごとに unit_key か名指しのファイルで単位に結べれば止める）。盤面に done を書く 3 の前に置く
    （拒否では盤面を前のままにする。束の帳面 fixgates.LEDGER と一式のログは残す）。受けた回に束が赤緑を確かめずに飛ばした
-   理由（fixgates.skipped）は盤面の trace の fixgates.SKIPPED_OP の行に載せる（報告が数える）
+   理由（fixgates.unchecked。義務の外の項目を見なかった理由は除く）は盤面の trace の fixgates.SKIPPED_OP の行に載せる
+   （報告と最後の人の関所の文が数える）
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
    修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告
    （closure.sites の path が覆う問いの当たりの件数・remaining・作り直した how）との食い違いを記録する。食い違いは拒否でなく記録で、写しに渡す返答は
@@ -410,7 +411,7 @@ def accept_fix(reply, board, base_rev, repo):
         b = entry.open_board(board, allow_halted=True)
         writes.trace(b, recount.ROLE, wrote)
         b.trace(TESTS_OP, node=recount.ROLE, note=note, ci_left=tddloop.ci_left(state))
-        gaps = fixgates.skipped(board, pass_=pass_, attempt=attempt)
+        gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt)
         if gaps:   # 束が赤緑を確かめずに受けた回（拒まないが、報告で見えるように）
             b.trace(fixgates.SKIPPED_OP, node=recount.ROLE, why=gaps)
         if rows:

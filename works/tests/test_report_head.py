@@ -137,6 +137,15 @@ class FinalTestSuitesCase(unittest.TestCase):
         text = line_edge._final_text(self.b, "緑", tests, "", ([], []), self._tmp.name, "run-1")
         return text.split("- run の作業ツリー")[0]
 
+    def test_gate_shows_unchecked_red_green(self):
+        """修正の受け付けの束が赤緑を確かめずに通した回（盤面の trace の行）は、最後の関所の文に出る。無ければ出ない"""
+        self.assertNotIn("事後の関門の束", self.gate_text(GREEN_WITH_CMD))
+        row = {"op": report.impact.ACCEPT_GATES_SKIPPED_OP, "node": "fix", "why": ["テストの実行器が無い"]}
+        (self.b.dir / "trace.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+        text = self.gate_text(GREEN_WITH_CMD)
+        self.assertIn("事後の関門の束: 受け付け 1 回", text)
+        self.assertIn("テストの実行器が無い", text)
+
     def test_report_green_line_names_suites(self):
         line = self.head_text(GREEN_WITH_CMD)
         for name in ("pytest", "root pytest", "test_cmd"):

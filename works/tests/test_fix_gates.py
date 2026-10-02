@@ -224,6 +224,7 @@ class TestRedGreen(FixGatesCase):
         self.assertEqual(len(why), 1, why)
         for w in (fixgates.OUT_OF_DUTY, "項目 1", tbf.MEAN):   # 見なかった項目と単位を名指して残す
             self.assertIn(w, why[0])
+        self.assertEqual(fixgates.unchecked(self.board, pass_="first", attempt=1), [], "義務の外の項目は確かめずに通したに数えない")
 
     def test_worktree_removed_after(self):
         self.ready_with_fields()
@@ -399,6 +400,19 @@ class TestAcceptWiring(FixGatesCase):
         rows = report.trace_rows(b, fixgates.SKIPPED_OP)
         self.assertEqual([r["why"] for r in rows], [[fixgates.NO_SUITE]])
         self.assertIn("受け付け 1 回", report.gates_lines(b)[0])
+
+    def test_out_of_duty_items_alone_are_not_traced(self):
+        """飛ばした理由が義務の外の項目だけなら、受けた回の trace に載せない（確かめずに通したに数えない。帳面にだけ残る）"""
+        self.fix_ready()
+        planmarks.save(self.board, entry.open_board(self.board).round, [{**FIELDS[0], "unit_keys": ["判定に無い単位"]}])
+        self.edit_tree(tbf.FIXED)
+        mod = self.accept_mod()
+        with self.env():
+            got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
+        self.assertIs(got["ok"], True, got)
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertTrue(fixgates.skipped(self.board, pass_="first", attempt=1), "帳面には残る")
+        self.assertEqual(report.trace_rows(b, fixgates.SKIPPED_OP), [])
 
     def test_clean_battery_lets_fix_through(self):
         """束が何も見つけなければ今までどおり受ける（修正案の欄の無い run・既存のテストを変えない直し）"""

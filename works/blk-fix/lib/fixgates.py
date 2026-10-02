@@ -20,14 +20,15 @@ TDD の輪の中にだけ在った 2 つの関門を、修正の形（fixshape�
   （planmarks.rewrites）と、裁定 fix_test_scope の範囲（裁定の後の受け付けだけ。conflict.ruled_test_limits から修正案の行を
   外した物）の中だけを変えた関数。範囲の読みは輪の凍結の検査（tddloop.frozen_problems）と同じ: 1 行の指しの .py はその行を
   含む関数の全体に広げ、`<行>-<行>` は書いたとおり（base との差分の塊の旧い側の行が範囲の外なら、その塊に掛かる関数は
-  許さない。tddloop.hunks_outside）。ファイルだけの範囲はそのファイルの全部平の run は修正の段に修正案の欄を渡さないので、
+  許さない。tddloop.hunks_outside）。ファイルだけの範囲はそのファイルの全部。平の run は修正の段に修正案の欄を渡さないので、
   修正案の名指しを許しにしない（current の腕の比べの条件。preflight F15）
 
 帳面（LEDGER。今の周の作業ファイル）: {"rows": [{pass, attempt, shape, gate, id, detail, unit_keys}], "skipped": [{pass, attempt, why}]}。
 受け付けの回の印は (pass, attempt)（裁定の後の輪は回を 1 から数え直す）。最後の回の通し直し（accept_fix が自分を呼び直す）で
 束が同じ回に 2 度走っても、同じ行・同じ skipped は 1 度だけ積む（preflight F23）。積む物が無ければ書かない。
-飛ばした理由は拒まない（受け付けの回数を使わない）が、見えなくしない: 受け付けが受けた時に skipped(…) を盤面の trace の
-SKIPPED_OP の行に載せ、報告（report.gates_lines）が「確かめずに通した」回を数える。
+飛ばした理由は拒まない（受け付けの回数を使わない）が、見えなくしない: 受け付けが受けた時に unchecked(…)（skipped から
+OUT_OF_DUTY を除いた物。義務の外の項目は確かめる物でなく、ほかの項目は確かめた）を盤面の trace の SKIPPED_OP の行に載せ、
+報告（report.gates_lines）と最後の人の関所の文が「確かめずに通した」回を数える。OUT_OF_DUTY は帳面にだけ残る。
 期限は持たない（実行器の枠と nice は tddloop.run_suite が付ける）。
 """
 from __future__ import annotations
@@ -106,6 +107,12 @@ def skipped(board_dir, *, pass_: str, attempt: int) -> list[str]:
     except FileNotFoundError:
         return []
     return [r["why"] for r in doc.get("skipped") or [] if (r.get("pass"), r.get("attempt")) == (pass_, attempt)]
+
+
+def unchecked(board_dir, *, pass_: str, attempt: int) -> list[str]:
+    """受け付けの回 (pass_, attempt) に、確かめるはずの受け入れのテストの赤緑を確かめなかった理由（skipped から OUT_OF_DUTY を
+    除いた物）。受け付けが受けた回の盤面の trace に載せる"""
+    return [w for w in skipped(board_dir, pass_=pass_, attempt=attempt) if not w.startswith(OUT_OF_DUTY)]
 
 
 def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:

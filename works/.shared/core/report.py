@@ -882,7 +882,8 @@ def write_lines(b) -> list:
 
 def gates_lines(b) -> list:
     """修正の受け付けの事後の関門の束が、受け入れのテストの赤緑を確かめずに受けた回の行（blk-fix の受け付けが盤面の trace に
-    impact.ACCEPT_GATES_SKIPPED_OP で積んだ物）: 回の数と理由（同じ理由は 1 度）"""
+    impact.ACCEPT_GATES_SKIPPED_OP で積んだ物）: 回の数と理由（同じ理由は 1 度）。報告の冒頭（head_reads）と最後の人の関所の
+    文（darkfactory の line_edge._final_text）が載せる"""
     rows = trace_rows(b, impact.ACCEPT_GATES_SKIPPED_OP)
     if not rows:
         return []
