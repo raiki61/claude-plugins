@@ -155,6 +155,18 @@ class TestAcceptExcused(unittest.TestCase):
         self.assertIn(self.WHY, got["reason"])
         self.revert.assert_not_called()
 
+    def test_last_round_with_unparkable_row_keeps_the_excused_fix(self):
+        # 最後の回でも、止めてよくない確かめの行（重なり）が既に積まれていれば外れた単位の直しを戻さず、丸ごと拒んで
+        # 外れた単位の行も並べる（作業ツリーに触らない。通し直しの数え直しも回さない）
+        rows = [{"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"},
+                {"unit_key": self.HELD, "files": ["clamp.py"], "what": "上限の枝を直した"},
+                {"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"}]
+        got = self.run_accept("3", rows)
+        self.assertEqual((got["ok"], got["done"]), (False, True), got)
+        self.assertEqual({r["check"] for r in got["rejects"]}, {"duplicate", "excused"}, got)
+        self.revert.assert_not_called()
+        self.unrevert.assert_not_called()
+
     def test_key_outside_duty_and_excused_is_not_opened(self):
         rows = [{"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"},
                 {"unit_key": "作り話の単位", "files": ["x.py"], "what": "x"}]

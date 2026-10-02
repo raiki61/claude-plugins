@@ -134,6 +134,30 @@
    }
   },
   {
+   "id": "fx6",
+   "title": "修正の受け付けは積んだ拒否の行が在れば写しの照らしを乾いた形（commit=False）で当て、盤面に done を書かない（依頼 224）",
+   "file": "blk-fix/scripts/accept.py",
+   "old": "    out = recount.accept_fix(reply, board, base_rev, repo, commit=not found)\n",
+   "new": "    out = recount.accept_fix(reply, board, base_rev, repo, commit=True)\n",
+   "tests": {
+    "tests/test_fix_accept_all.py": [
+     "AllChecksCase.test_scope_and_copy_listed_together"
+    ]
+   }
+  },
+  {
+   "id": "fx7",
+   "title": "輪の最後の回に単位を止める・外して通し直すのは、積んだ行の確かめが全部止めてよい物（表 CHECKS）の時だけ（依頼 224）",
+   "file": "blk-fix/scripts/accept.py",
+   "old": "        return last and isinstance(whole, dict) and all(CHECKS[c][1] for c, _ in found)\n",
+   "new": "        return last and isinstance(whole, dict) and True\n",
+   "tests": {
+    "tests/test_fix_accept_all.py": [
+     "AllChecksCase.test_last_round_unbindable_line_rejects_whole"
+    ]
+   }
+  },
+  {
    "id": "td1",
    "title": "TDD の赤の段: 名指しのテストがもう通るなら拒む（red_problems）",
    "file": "blk-fix/lib/tddloop.py",

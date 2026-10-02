@@ -6,6 +6,8 @@
   文を並べ、rejects に 1 行ずつ id を付ける
 - 申し出より後の確かめを全部回す（Task 3）: accept_fix が確かめを返さずに積み、写しの照らしも乾いた形で当てて 1 回の拒否に
   並べる。最後の回は止めてよい確かめの行だけで単位を止める
+- 凍結と書き込みの出どころも積む（Task 4）: 凍ったテストのファイル・書き込みの出どころの誤りも積んで先へ進み、食い違いの申し出は
+  積んだ誤りに依らず裁定へ渡す（run 222f の 3 回の拒否を 1 回に並べる）
 盤面は test_blk_fix の BoardCase（本物の darkfactory の表・種の git）で作る。
 """
 import hashlib
@@ -25,6 +27,10 @@ import entry  # noqa: E402
 import recount  # noqa: E402
 import conflict  # noqa: E402
 from test_blk_fix import CLAMP, FIXED, INVENTED, MEAN, extra_row, load  # noqa: E402
+from test_blk_fix_conflict import conflict_on_mean, only_clamp_reply  # noqa: E402
+
+FROZEN_LINE = "TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']（輪で直した単位のテストは変えない）"
+WRITES_LINE = "書き込みの出どころの記録が無い変更: stats.py"
 
 
 def accept_module(name):
@@ -35,6 +41,11 @@ def accept_module(name):
 def sha(path) -> str:
     """ファイルの sha256"""
     return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+
+
+def conflict_items(board) -> list:
+    """盤面の今の周の食い違いの控え（conflict.FILE）の items"""
+    return conflict.items(entry.open_board(board, allow_halted=True))
 
 
 class DryTakeCase(test_blk_fix.BoardCase):
@@ -155,6 +166,80 @@ class AllChecksCase(test_blk_fix.BoardCase):
         checks = [x["check"] for x in r["rejects"]]
         self.assertTrue({"duplicate", "copy"} <= set(checks), checks)
         self.assertEqual(list(self.board.rglob(conflict.FILE)), [])
+
+
+class SeamCase(test_blk_fix.BoardCase):
+    """凍結と書き込みの出どころも積み、食い違いの申し出は積んだ誤りに依らず裁定へ渡す（Task 4。run 222f の型）"""
+
+    acc = AllChecksCase.acc
+    env = AllChecksCase.env
+    accept_direct = AllChecksCase.accept_direct
+    tdd_frozen = test_blk_fix.TestAccept.tdd_frozen
+    scope_ready = test_blk_fix.TestAccept.scope_ready
+
+    def test_222f_three_classes_in_one_rejection(self):
+        # run 222f の 3 回の拒否（凍ったテストのファイル・修正案の範囲・写しの照らし）を、1 回の拒否に並べる
+        state = self.tdd_frozen()                                            # test_stats.py を凍らせ、FIXED を当てた木
+        (self.repo / "test_stats.py").write_text((self.repo / "test_stats.py").read_text(encoding="utf-8") + "\n# 凍った後の書き換え\n",
+                                                 encoding="utf-8")         # 1 回目の型
+        (self.repo / "other.py").write_text("x = 1\n", encoding="utf-8")     # 2 回目の型（allowed_paths は stats.py だけ）
+        reply = load("fix2_ok"); reply["changes"][0]["files"].append("other.py")
+        reply["changes"][1]["breaks"]["result"] = "なし"                     # 3 回目の型（写しの fix_covers_open_units）
+        before = sha(self.board / "state.json")
+        with mock.patch.object(self.acc, "check_tests", return_value=([], "")), self.env(state=state):
+            got = self.acc.accept_fix(reply, self.board, "", self.repo)
+        checks = [r["check"] for r in got["rejects"]]
+        self.assertFalse(got["ok"])
+        self.assertEqual([c for c in self.acc.CHECKS if c in {"frozen", "scope", "copy"}],
+                         [c for c in dict.fromkeys(checks) if c in {"frozen", "scope", "copy"}], checks)
+        self.assertTrue(any("test_stats.py" in r["text"] for r in got["rejects"] if r["check"] == "frozen"))
+        self.assertTrue(any("other.py" in r["text"] for r in got["rejects"] if r["check"] == "scope"))
+        self.assertTrue(any(r["text"].startswith(CLAMP[:60]) for r in got["rejects"] if r["check"] == "copy"))
+        self.assertEqual(sha(self.board / "state.json"), before)
+
+    def test_frozen_error_does_not_stop_ruled_revert(self):
+        # 決め 5: ruled で凍結の誤りが在っても revert_ruled_units は今の位置で呼ばれる（224e の事前審査の穴 3）
+        self.fix_ready(); self.edit_tree(FIXED)
+        with mock.patch.object(self.acc.tddloop, "frozen_problems", return_value=[FROZEN_LINE]), \
+                mock.patch.object(self.acc, "revert_ruled_units", return_value=None) as revert:
+            got = self.accept_direct(load("fix2_ok"), pass_="ruled")
+        self.assertFalse(got["ok"])
+        revert.assert_called_once()
+        self.assertIn("frozen", [r["check"] for r in got["rejects"]])
+
+    def first_pass_conflict(self) -> dict:
+        """凍結の誤りが在る 1 回目に、名指しの在る食い違いの申し出（mean）を出す"""
+        with mock.patch.object(self.acc.tddloop, "frozen_problems", return_value=[FROZEN_LINE]), self.env():
+            return self.acc.accept_fix(only_clamp_reply([conflict_on_mean()]), self.board, "", self.repo)
+
+    def test_first_pass_conflict_reaches_ruling_with_frozen_error(self):
+        self.fix_ready(); self.edit_tree(FIXED)
+        got = self.first_pass_conflict()
+        self.assertEqual((got["ok"], got.get("parked")), (True, True), got)
+        self.assertEqual([(i["unit_key"], i["status"]) for i in conflict_items(self.board)], [(MEAN, "parked")])
+
+    def test_same_conflict_twice_parks_once(self):
+        self.fix_ready(); self.edit_tree(FIXED)
+        for _ in range(2):
+            got = self.first_pass_conflict()
+            self.assertEqual((got["ok"], got.get("parked")), (True, True), got)
+        self.assertEqual(len(conflict_items(self.board)), 1)
+
+    def test_ruled_pass_conflict_parked_despite_writes_error(self):
+        # ruled で書き込みの出どころの誤り（check_writes を mock で 1 行に）と新しい申し出 → 拒否に writes が載り、申し出は
+        # ask_human の裁定つきで積まれたまま残る（拒否で巻き戻さない。224e の R2）。同じ返答をもう一度出しても行は 1 つ
+        self.fix_ready(); self.edit_tree(FIXED)
+
+        def wrote(reply, *a, **k):
+            return {"reply": {f: v for f, v in reply.items() if f != "bash_writes"}, "problems": [WRITES_LINE], "note": "",
+                    "left": []}
+        for _ in range(2):
+            with mock.patch.object(self.acc, "check_writes", side_effect=wrote):
+                got = self.accept_direct(only_clamp_reply([conflict_on_mean()]), pass_="ruled")
+            self.assertFalse(got["ok"], got)
+            self.assertIn(("writes", WRITES_LINE), [(r["check"], r["text"]) for r in got["rejects"]])
+            self.assertEqual([(i["unit_key"], i["ruling"]["decision"]) for i in conflict_items(self.board)],
+                             [(MEAN, conflict.ASK)])
 
 
 class RenderCase(unittest.TestCase):

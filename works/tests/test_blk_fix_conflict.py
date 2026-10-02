@@ -766,6 +766,11 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.assertIn(f"裁定 {cid}", got["gate_text"])
 
 
+class AfterFrozen(Exception):
+    """凍結の検査の後の確かめ（書き込みの出どころ）に来た印。凍結の誤りは積んで先へ進むので（依頼 224）、偽の盤面の試験は
+    ここで止める"""
+
+
 class TestFirstPassPlanLimits(unittest.TestCase):
     """1 回目（first）の受け付けも、修正案が名指した書き換えを凍結の検査に渡す（裁定の範囲は 2 回目だけ）。
     盤面・git は使わない（test_fix_rules.TestThirdRejectParksBoundUnit と同じく受け付けの模块を読み、検査を mock にする）"""
@@ -780,10 +785,11 @@ class TestFirstPassPlanLimits(unittest.TestCase):
         with mock.patch.object(mod.conflict, "ruled_test_limits", limits), \
                 mock.patch.object(mod.tddloop, "frozen_problems", frozen), \
                 mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
+                mock.patch.object(mod, "check_writes", side_effect=AfterFrozen), \
                 mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": "/b/tdd.json",
-                                               "INPUTS_PASS": "first"}):
-            got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
-        self.assertIs(got["ok"], False, got)
+                                               "INPUTS_PASS": "first"}), self.assertRaises(AfterFrozen):
+            mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
+        frozen.assert_called_once()
         limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY, skip_ids=[])
         self.assertTrue(callable(limits.call_args.kwargs["source"]), "修正案の limit は輪の後の木で引き直す")
         self.assertEqual(frozen.call_args[0][2], ["test_stats.py:8"])
@@ -804,10 +810,12 @@ class TestAcceptSkipsVerifiedRewrites(unittest.TestCase):
                     mock.patch.object(mod.tddloop, "frozen_problems", frozen), \
                     mock.patch.object(mod.tddloop, "verified_rewrites", return_value=["t.py::T::test_a"]) as vr, \
                     mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
+                    mock.patch.object(mod, "revert_ruled_units", return_value=None), \
+                    mock.patch.object(mod, "check_writes", side_effect=AfterFrozen), \
                     mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": "/b/tdd.json",
-                                                   "INPUTS_PASS": pass_}):
-                got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
-            self.assertIs(got["ok"], False, got)
+                                                   "INPUTS_PASS": pass_}), self.assertRaises(AfterFrozen):
+                mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
+            frozen.assert_called_once()
             vr.assert_called_once_with("/b/tdd.json")
             self.assertEqual(limits.call_args.kwargs["skip_ids"], ["t.py::T::test_a"], pass_)
             self.assertEqual(limits.call_args.kwargs["rulings"], pass_ == "ruled")
