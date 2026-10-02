@@ -93,6 +93,22 @@ def conflict_fix():
     return r
 
 
+# 修正案の役の返答の works の欄（route・tests・rewrite_tests・refactor。planmarks）。線を本物のスクリプトで回すと、修正案は
+# blk-plan の受け付け（planmarks.gaps）を通り、欄が欠ければ 3 回とも拒まれて盤面が止まる（by works:plan）。test_edge.plan_reply は
+# 受け付けが欄を外した後の形（entry.take を直に呼ぶ linekit の道の物）なので、ここで欄を足す。種の test_stats.py は 3 件のうち
+# 2 件が今の 2 つのバグで赤なので、受け入れのテストを先に足さず direct で直す（TDD の輪の返答 TDD_ALL_DIRECT とも揃う）
+PLAN_FIELDS = {"route": "direct",
+               "route_why": "種の test_stats.py の 3 件のうち 2 件が今の 2 つのバグで赤になり、直した後の振る舞いを既に確かめている",
+               "tests": [], "rewrite_tests": [], "refactor": {"declared": False, "why": ""}}
+
+
+def line_replies(**kw) -> dict:
+    """TL.replies の修正案を、役そのものの返答（項目に works の欄 PLAN_FIELDS を足した物）に替えた返答の組"""
+    r = TL.replies(**kw)
+    r["plan"] = {"plan": [{**row, **PLAN_FIELDS} for row in r["plan"]["plan"]]}
+    return r
+
+
 PR_AWAITING = {"material": {"status": "awaiting_human", "reason": "origin が GitHub でないローカルの bare リポジトリで、PR の一覧を読めない"},
                "repo": "", "listed": 0, "truncated": False, "conflicts": [], "excluded": []}
 
@@ -118,40 +134,40 @@ def scenarios(tmp: pathlib.Path) -> dict:
     suite = tmp / "suite.py"
     suite.write_text(TT.SUITE, encoding="utf-8")
     edits = {"fix": TL.fix_tree}
-    full = {**TL.replies(), "refix": REFIX_FIXED, "review2": REVIEW2_OK, "tdd": TDD_ALL_DIRECT}
-    nofix = {**TL.replies(review=CLEAN_REVIEW), "judge": linekit.reply("judge_no_fix")}
+    full = {**line_replies(), "refix": REFIX_FIXED, "review2": REVIEW2_OK, "tdd": TDD_ALL_DIRECT}
+    nofix = {**line_replies(review=CLEAN_REVIEW), "judge": linekit.reply("judge_no_fix")}
     judged = linekit.reply("judge_ok")["units"]
-    objection = {**TL.replies(), "fix": {**TL.replies()["fix"], "rejudge_requested": TL.OBJECTION},
+    objection = {**line_replies(), "fix": {**line_replies()["fix"], "rejudge_requested": TL.OBJECTION},
                  "refix": REFIX_FIXED, "review2": TL.REVIEW2_FACES, "refix2": TL.REFIX2_DECLARED,
                  "rejudge": {"verdict": "退ける", "new_facts": "stats.py の clamp の上限の枝を読み、hi を返すのが定義だと確かめた",
                              "units": [{k: u[k] for k in ("key", "label", "disposition", "reason") if k in u} for u in judged]}}
     return {
         "full": dict(replies=full, edits={**edits, "refix": refix_edit}, bad_first=ai_keys(),
                      inputs={"tdd_suite": str(suite)}, gates={"policy-gate": {"decision": "continue", "text": "$x `y` \"z\""}}),
-        "ci-final-stop": dict(replies={**TL.replies(), "ci": linekit.reply("ci_found")}, edits=edits, declared=False,
+        "ci-final-stop": dict(replies={**line_replies(), "ci": linekit.reply("ci_found")}, edits=edits, declared=False,
                               bad_first={"blk-ci/ci", "blk-report/report-items", "blk-report/report-cold", "blk-report/report-write"},
                               gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}}),
-        "give-up": dict(replies={**TL.replies(), "plan": lambda n: {}}, edits=edits),
+        "give-up": dict(replies={**line_replies(), "plan": lambda n: {}}, edits=edits),
         # run 30: 素材集めの役が 3 回とも拒まれて諦め、素材集めのブロックが盤面を止める。同じ境の節（h-mat）の後ろの判定の
         # ブロックは支度 judge-brief が止まった盤面を見て判定役を起こさず（go: false）、報告と出口まで落ちずに届く
-        "material-give-up": dict(replies={**TL.replies(), "prior-decisions": lambda n: {}}, edits=edits),
+        "material-give-up": dict(replies={**line_replies(), "prior-decisions": lambda n: {}}, edits=edits),
         # 同じ止めで、並行 PR の素材が awaiting_human（run 30 の姿）: 判定の前に止めた周の記録は検証器を通らない（awaiting を
         # 問いの台帳に載せる判定役が走っていない）。本線と同じく報告の節（AI の報告）は出ず、機械の報告がその理由を言う
-        "material-give-up-awaiting": dict(replies={**TL.replies(), "prior-decisions": lambda n: {}, "pr-check": PR_AWAITING},
+        "material-give-up-awaiting": dict(replies={**line_replies(), "prior-decisions": lambda n: {}, "pr-check": PR_AWAITING},
                                           edits=edits),
-        "fix-give-up": dict(replies={**TL.replies(), "fix": lambda n: {}}, edits=edits),
-        "unchanged-file": dict(replies={**TL.replies(), "fix": unchanged_file_fix()}, edits=edits),
+        "fix-give-up": dict(replies={**line_replies(), "fix": lambda n: {}}, edits=edits),
+        "unchanged-file": dict(replies={**line_replies(), "fix": unchanged_file_fix()}, edits=edits),
         "no-fix": dict(replies=nofix, edits={}),
-        "policy-stop": dict(replies=TL.replies(), edits=edits, gates={"policy-gate": {"decision": "stop", "text": "範囲が広い"}}),
-        "stop-flag": dict(replies=TL.replies(), edits=edits, stop_at="h-review"),
+        "policy-stop": dict(replies=line_replies(), edits=edits, gates={"policy-gate": {"decision": "stop", "text": "範囲が広い"}}),
+        "stop-flag": dict(replies=line_replies(), edits=edits, stop_at="h-review"),
         # 食い違いの申し出: 1 回目の修正役が mean を申し出て parked → 裁定役（1 回目は拒む）が fix_code_as → 2 回目の修正役が全部を直す
-        "conflict": dict(replies={**TL.replies(), "fix": conflict_fix(), "rule": RULING_CODE, "fix-ruled": TL.replies()["fix"]},
+        "conflict": dict(replies={**line_replies(), "fix": conflict_fix(), "rule": RULING_CODE, "fix-ruled": line_replies()["fix"]},
                          edits={"fix": clamp_only, "fix-ruled": TL.fix_tree}, bad_first={"blk-fix/rule"}),
         # run 28: 修正役の異議の後に再審を回さないと p2.rejudge が待ったままで p4.ci が出ず、最後のテストが走らなかった
         "rejudge": dict(replies=objection, edits={**edits, "refix": refix_edit}, inputs={"test_cmd": TL.TEST_CMD},
                         bad_first={"blk-rejudge/rejudge"}, sessions=True),
         "rejudge-no-session": dict(replies=objection, edits={**edits, "refix": refix_edit}, inputs={"test_cmd": TL.TEST_CMD}),
-        **{name: dict(replies={**TL.replies(), "refix": REFIX_FIXED, "review2": REVIEW2_OK, key: lambda n: {}},
+        **{name: dict(replies={**line_replies(), "refix": REFIX_FIXED, "review2": REVIEW2_OK, key: lambda n: {}},
                       edits={**edits, "refix": refix_edit})
            for key, name in GIVE_UPS.items()},
     }
