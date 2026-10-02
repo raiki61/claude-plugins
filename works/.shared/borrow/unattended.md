@@ -19,7 +19,7 @@
 
 無人の役には聞く相手が居ない。止まって答えを待たない（待っても答えは来ず、受け付けの輪が上限まで回って run が落ちる）。
 
-- 修正役（`blk-fix` の `fix`）は、上の「義務の単位の行き先」に従う。直す義務の単位は、分かる範囲で一番ましな直しを `changes` に載せる。人の答えが無いと直し方が決まらない単位は、直さずに食い違いの申し出（`conflicts`。`which_is_right` は unknown）で返す——裁定役が人に回し、最後の人の関所に届く（正本 [`.shared/core/writerules/common.md`](../core/writerules/common.md) の「食い違いの申し出」）。`rejudge_requested` は判定のフレーミングへの異議だけで、人への問いを書かない（読むのは判定役）。義務の外の単位は `not_done` に理由を書いてよい（`unit_key`・`why`）。
+- 修正役（`blk-fix` の `fix`）は、上の「義務の単位の行き先」に従う。直す義務の単位は、分かる範囲で一番ましな直しを `changes` に載せる。人の答えが無いと直し方が決まらない単位は、直さずに食い違いの申し出（`conflicts`。`which_is_right` は unknown・`kind` は `needs_context`）で返す——裁定役が人に回し、最後の人の関所に届く（正本 [`.shared/core/writerules/common.md`](../core/writerules/common.md) の「食い違いの申し出」）。`rejudge_requested` は判定のフレーミングへの異議だけで、人への問いを書かない（読むのは判定役）。義務の外の単位は `not_done` に理由を書いてよい（`unit_key`・`why`）。
 - 差分の審査への手直し（`blk-refix`）は、その穴を `declared` で残し、`how` に何が分からないかを書く。
 - 読むだけの役（判定・審査）は、分からないまま置いた前提を、返答の型の中の理由の欄に書く。
 - TDD の例外（使い捨ての試作・生成したコード・設定のファイル）に当たるかどうかは、役は決めない。役は先のテストを省かない。省いてよい単位は線の側（修正案の route と機械の決まり。TDD の節が入ったら本線 fix-tdd の `route: direct`）が決める。
@@ -32,7 +32,7 @@
 
 ## POLICY 人の決めたこと・方針とぶつかる
 
-自分の判断で通さない。修正役は「義務の単位の行き先」に従う: 直す義務の単位は、方針に反しない範囲の直しで閉じるならそれを `changes` に載せ、閉じないなら直さずに食い違いの申し出（`between` に方針の文書の行を含め、`which_is_right` は unknown）で人に回す。義務の外の単位なら `not_done` に書く。手直しは `declared` の `how` に書く。方針の文書は書き換えない（正本 [`.shared/core/writerules/common.md`](../core/writerules/common.md) と、手直しの決まり [`blk-refix/rules/refix.md`](../../blk-refix/rules/refix.md) の読み替えと同じ）。
+自分の判断で通さない。修正役は「義務の単位の行き先」に従う: 直す義務の単位は、方針に反しない範囲の直しで閉じるならそれを `changes` に載せ、閉じないなら直さずに食い違いの申し出（`between` に方針の文書の行を含め、`which_is_right` は unknown・`kind` は `needs_context`）で人に回す。義務の外の単位なら `not_done` に書く。手直しは `declared` の `how` に書く。方針の文書は書き換えない（正本 [`.shared/core/writerules/common.md`](../core/writerules/common.md) と、手直しの決まり [`blk-refix/rules/refix.md`](../../blk-refix/rules/refix.md) の読み替えと同じ）。
 
 ## COMMIT commit・push・PR・merge
 

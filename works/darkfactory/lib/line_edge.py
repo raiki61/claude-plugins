@@ -591,6 +591,13 @@ def _conflict_text(asks: list) -> str:
     return "\n".join(lines + ["", ""])
 
 
+def _replan_text(replanned: list) -> str:
+    """最後の関所の文の節（食い違いの申し出を fix_plan_item に裁いて直さずに残した単位。関所を開ける理由には数えない）"""
+    lines = [f"## {report.REPLAN_HEAD}（{len(replanned)} 件。この節だけでは関所を開けない）", ""]
+    lines += [f"- {x}" for x in replanned]
+    return "\n".join(lines + ["", ""])
+
+
 def _unproven_text(unproven: list) -> str:
     """最後の関所の文の節（判定者の問いを例で試していない単位。閉鎖の数え直しはその問いのまま）"""
     lines = [f"## {querytest.UNPROVEN_HEAD}（{len(unproven)} 件。閉鎖の数え直しは例で試していない問いのまま）", ""]
@@ -689,7 +696,8 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     走れなかった・走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
     阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る時。文は冒頭 3 行（_final_head。開けた理由・決めて
     ほしいこと・推し）で始まり、守りのファイルはその 1 行目で名指し、3 行の直後の最初の節と process.human_items の 1 行にもなる。
-    文は b.work(FINAL_GATE_FILE) にも"""
+    開いた関所の文は、食い違いの申し出を fix_plan_item に裁いて直さずに残した単位と、例で証明できない単位も並べる（どちらも開ける
+    理由には数えない）。文は b.work(FINAL_GATE_FILE) にも"""
     head = _tests_head(b, tests)
     eyes = _eyes(b)
     left = rejudge.unsettled(b)
@@ -705,10 +713,12 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     if (mode == "when_needed" and not why) or (mode == "protected_only" and not guarded):
         return {}
     unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
+    replanned = report.replanned_lines(b)          # 同じく見せるだけ（次の run の修正案で直す。人に回す物ではない）
     stuck = querytest.closure_lines(b, stuck_only=True)
     closure = querytest.closure_lines(b, claimed=report.claimed_units(b))
     text = ("\n".join(_final_head(b, head, why, guarded)) + "\n\n"
             + (_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
+            + (_replan_text(replanned) if replanned else "")
             + (_closure_text(stuck, querytest.STUCK_HEAD) if stuck else "")
             + (_unproven_text(unproven) if unproven else "") + (_closure_text(closure) if closure else "")
             + _final_text(b, head, tests, objection, eyes, repo, run_id))

@@ -19,6 +19,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base}]
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
+- replanned_lines(b)・REPLAN_HEAD -> 食い違いの申し出を fix_plan_item（案の項目の誤り）に裁いて直さずに残した単位の行（冒頭 1 と最後の関所の文が同じ行を出す。関所を開ける理由には数えない）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
   failed=None, retried=None, eyeing=None) -> dict
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
@@ -107,6 +108,7 @@ REJUDGE_EXIT = "rejudge-exit.json"             # 再審のブロックの出口�
 REJUDGE_WHERE = "判定（再審の結果）"           # 次の run の依頼の再審の結果の行の where
 DOWNGRADES = "downgrades.json"
 DOWNGRADE_KEYS = ("node", "what", "versus")
+REPLAN_HEAD = "案の項目の誤りと裁いて直さずに残した単位（fix_plan_item。次の run の修正案で項目を直して事前審査に掛ける）"
 HEADINGS = ("## 1. 人が決めること", "## 2. 入口・段・決めた人", "## 3. 止めたか", "## 4. 読んだ証拠と包み", "## 5. 見る所")
 WHERE = tuple((gatemarks.PLAIN[n], n) for n in ("p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix", "p3.delta_review",
                                                    "p3.delta_fix", "p3.delta_review2", "p3.delta_fix2", "p4.ci"))
@@ -404,8 +406,9 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
                    eyeing: dict | None = None) -> str:
     """結末。順: 止め札（by request:）→ stopped_by_request、関所の stop・reject（halted.by answer か by human:）→ stopped_by_human、
     機械の止め（by works:）→ stopped_by_line、人に聞いたまま（pending_human）か食い違いの申し出を人に回した → needs_human、関所が通らない（accepted か
-    round_closed が偽）→ record_invalid、直す物が無い周 → no_fix_needed、残り（residue: 検証器の阻害・最後のテストの赤・
-    独立の目の block）が在る → round_limit、他 → fixed。
+    round_closed が偽）→ record_invalid、食い違いの申し出を fix_plan_item に裁いて直さずに残した単位が在る → round_limit（直す物が
+    無い周より先に見る。全部の単位を裁いた run を no_fix_needed と言わない）、直す物が無い周 → no_fix_needed、残り（residue:
+    検証器の阻害・最後のテストの赤・独立の目の block）が在る → round_limit、他 → fixed。
     **fixed・no_fix_needed は accepted と round_closed が真の時だけ、fixed はさらに残りが無い時だけ**。直す物が無い周の赤は
     直しが起こした物でないので no_fix_needed のまま冒頭 1 に出す。report_accepts が 1 を受けるのは 1 周で止める
     run の帳尻の行を通すためで、1 の中身は residue が見る。needs_human を record_invalid の前に置くのは、人に聞いて
@@ -418,6 +421,8 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
         return "needs_human"
     if not gate.get("accepted") or not gate.get("round_closed"):
         return "record_invalid"
+    if _replanned(b):   # 案の項目の誤りと裁いた単位は直さずに残した（次の run の修正案へ）
+        return "round_limit"
     if _no_fix(b, judged):
         return "no_fix_needed"
     if residue(b, gate, tests=tests, eyeing=eyeing):
@@ -436,7 +441,8 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     単位は検証器の単位の行を渡さない）・
     盤面が人に聞いたままの問い（独立の目の r4.human_gate など。この run では答えを受けないので次の run へ渡す。計画 P1 Task 33 の (b)。
     最後の関所の答え・読めなかったも、その行の後ろに添える）・
-    食い違いの申し出を人に回して直さずに残した単位（conflict の ask_human）"""
+    食い違いの申し出を人に回して直さずに残した単位（conflict の ask_human）・
+    食い違いの申し出の裁定 fix_plan_item で直さずに残した単位"""
     items = []
     for nid in REFIX_NODES:
         out = _output(b, nid) or {}
@@ -458,10 +464,11 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
         items.append({"where": str(tests.get("log") or "最後のテスト"),
                       "text": f"最後のテストが{head}（{tests.get('reason') or 'ログを読む'}）"})
     asked = _asked(b)
+    replanned = _replanned_units(b)
     settled, settled_keys = _rejudge_next(b)
     # 単位の行（not_done・人に回した単位・再審が開いた・下げた単位）を自分の字で持つ単位は、検証器の『[block] 未解消: <key>』を二重に渡さない
     owned = {nd["unit_key"] for nd in fix.get("not_done") or [] if isinstance(nd, dict) and isinstance(nd.get("unit_key"), str)} \
-        | {r["unit_key"] for r in asked} | settled_keys
+        | {r["unit_key"] for r in asked} | {k for k, _ in replanned} | settled_keys
     items += [r for r in left or [] if r["where"].startswith((VALIDATOR_WHERE, EYES_WHERE))
               and not any(_unit_row_of(r["text"], k) for k in owned)]
     req = (b.loop_state or {}).get("rejudge_requested") or {}
@@ -472,6 +479,11 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
         items.append({"where": r["unit_key"],
                       "text": f"{r['unit_key']}（{conflict.HEAD}を人に回した——直さずに残した: {_one_line(r['ruling']['text'])}。"
                               f"名指し {', '.join(r['between'])}）"})
+    for k, r in replanned:
+        items.append({"where": k,
+                      "text": f"{k}（{conflict.HEAD}で案の項目 {_plan_nums(r)} の誤りと裁いた（{conflict.REPLAN}）"
+                              f"——直さずに残した。次の run の修正案で項目を直して事前審査に掛ける: {_one_line(r['ruling']['text'])}。"
+                              f"名指し {', '.join(r['between'])}{_from_unit(k, r)}）"})
     ph = b.state.get("pending_human") or {}
     if ph.get("question"):
         asked = "・".join(str(x) for x in ph.get("items") or [])
@@ -518,7 +530,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・
-    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・並行 PR の
+    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）と fix_plan_item で直さずに残した単位（replanned_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
@@ -528,7 +540,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
             lines += ["検証器の出力の末尾:", *[f"    {x}" for x in gate["tail"].splitlines()]]
         for field, val in (gate.get("traces") or {}).items():
             lines.append(f"記録の痕跡 {field}: {json.dumps(val, ensure_ascii=False)[:400]}")
-    if outcome == "round_limit":
+    if outcome == "round_limit" and left:   # 残りの行が無い round_limit（fix_plan_item だけ）は下の REPLAN_HEAD の節が持つ
         lines.append("直しきれずに残った物（結末を「直した」と名乗らない）:")
         lines += [f"  - {r['where']}: {r['text']}" for r in left or []]
     proc = b.record.get("process") or {}
@@ -576,6 +588,10 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines.append(f"関所で答えた問い（問いの台帳・{len(done)} 件。保留の件数には数えない）:")
         lines += [f"  - {x}" for x in done]
     lines.append(_conflict_line(b))
+    replanned = replanned_lines(b)
+    if replanned:
+        lines.append(f"{REPLAN_HEAD}: {len(replanned)} 件")
+        lines += [f"  - {x}" for x in replanned]
     unproven = querytest.unproven_lines(b.dir)
     if unproven:
         lines.append(f"{querytest.UNPROVEN_HEAD}: {len(unproven)} 件")
@@ -605,15 +621,59 @@ def _asked(b) -> list:
         return []
 
 
+def _replanned(b) -> list:
+    """今の周に fix_plan_item（案の項目の誤り）に裁いた食い違いの申し出（控えが読めなければ空。件数の行が「読めない」と言う）"""
+    try:
+        return conflict.replanned(b)
+    except BoardGap:
+        return []
+
+
+def _replanned_units(b) -> list:
+    """fix_plan_item が外した単位ごとの (単位, 裁定の行)（conflict.ruled_units。申し出の単位と、その項目に載る単位の全部）。
+    1 単位に 1 行（同じ項目の単位を 2 件とも裁けば、どちらの裁定もその 2 単位を外す）: 単位自身の申し出の裁定を先に、無ければ
+    先に当たった裁定（conflict.held_by_rulings と同じく先の物で決める）。並びは単位が先に現れた順"""
+    rows = _replanned(b)
+    own, out = {}, {}
+    for r in rows:
+        own.setdefault(r["unit_key"], r)
+    for r in rows:
+        for k in conflict.ruled_units(r):
+            out.setdefault(k, own.get(k, r))
+    return list(out.items())
+
+
+def _from_unit(key: str, r) -> str:
+    """申し出の単位でなく、項目を共にして外れた単位の行に添える「・申し出の単位 <key>」（申し出の単位なら空）"""
+    return "" if key == r["unit_key"] else f"・申し出の単位 {r['unit_key']}"
+
+
+def _plan_nums(r) -> str:
+    """fix_plan_item の行の案の項目の番号（裁定の行の plan_items。無ければ「番号なし」）"""
+    return ", ".join(map(str, r["ruling"].get(conflict.PLAN_ITEMS) or [])) or "番号なし"
+
+
+def replanned_lines(b) -> list:
+    """冒頭 1 と最後の関所の文に載せる fix_plan_item の単位の行（外した単位 1 つに 1 行。項目を共にして外れた単位は申し出の単位を
+    添える。関所を開ける理由には数えない）"""
+    return [f"{k}: {_one_line(r['ruling']['text'])}（案の項目 {_plan_nums(r)}・名指し {', '.join(r['between'])}・"
+            f"種類 {r.get(conflict.KIND_FIELD) or '無し'}・{r.get('id') or 'id 無し'}{_from_unit(k, r)}）"
+            for k, r in _replanned_units(b)]
+
+
 def _conflict_line(b) -> str:
-    """冒頭 1 の食い違いの申し出の件数（run ごと。0 件も出す）"""
+    """冒頭 1 の食い違いの申し出の件数（run ごと。0 件も出す）と、裁定の内訳（fix_plan_item は在る時だけ）と種類の内訳
+    （DIV_KINDS の順に 0 件も。kind の無い前の形の行は末尾に「種類なし」）"""
     try:
         c = conflict.counts(b)
+        k = conflict.kind_counts(b)
     except BoardGap as e:
         return f"{conflict.HEAD}: 控えが読めない（{_one_line(str(e))}）"
+    replan = f"・案の項目を直す（{conflict.REPLAN}）{c[conflict.REPLAN]}" if conflict.REPLAN in c else ""
+    kinds = [f"{x} {k[x]}" for x in conflict.DIV_KINDS] + ([f"種類なし {k[conflict.UNSET]}"] if conflict.UNSET in k else [])
     return (f"{conflict.HEAD}: {c['parked']} 件（裁定の内訳。括弧は記録の名: テストの直しを許す（fix_test_scope）"
-            f"{c['fix_test_scope']}・コードをこう直す（fix_code_as）{c['fix_code_as']}・人に回す（ask_human）{c['ask_human']}・"
-            f"裁定なし {c['unruled']}）")
+            f"{c['fix_test_scope']}・コードをこう直す（fix_code_as）{c['fix_code_as']}・人に回す（ask_human）{c['ask_human']}"
+            f"{replan}・裁定なし {c['unruled']}）。種類の内訳: " + "・".join(kinds))
 
 
 def _rejudge_changes(b) -> list:
