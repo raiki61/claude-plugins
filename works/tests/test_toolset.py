@@ -776,6 +776,39 @@ class InstallCase(Base):
         self.assertTrue((self.cfg / "works-parts" / "superpowers" / smaller["superpowers"]["parts"][0]).is_file())
         self.assertEqual(toolset.guard(self.cfg, smaller), [])
 
+    def test_prune_does_not_follow_symlinks_outside_the_config(self):
+        """works-parts・works-parts/superpowers が設定の外を指す symlink なら、外のファイルを消さずに柵が止める。
+        works-parts/superpowers/ の下の symlink のファイルも消さず、柵が名指す"""
+        def parts_dir_link(outside):
+            _put(outside / "precious.md", "外の大事なファイル\n")
+            (self.cfg / "works-parts").mkdir()
+            (self.cfg / "works-parts" / "superpowers").symlink_to(outside)
+            return outside / "precious.md"
+
+        def root_link(outside):
+            _put(outside / "superpowers" / "precious.md", "外の大事なファイル\n")
+            (self.cfg / "works-parts").symlink_to(outside)
+            return outside / "superpowers" / "precious.md"
+
+        for make in (parts_dir_link, root_link):
+            with self.subTest(make.__name__):
+                shutil.rmtree(self.cfg)
+                self.cfg.mkdir()
+                precious = make(self.tmp / f"outside-{make.__name__}")
+                with self.assertRaises(toolset.ToolsetError):
+                    self.install()
+                self.assertTrue(precious.is_file(), "設定の外のファイルを消した")
+        shutil.rmtree(self.cfg)
+        self.cfg.mkdir()
+        _put(self.tmp / "outside-file.md", "外の大事なファイル\n")
+        link = self.cfg / "works-parts" / "superpowers" / "link.md"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(self.tmp / "outside-file.md")
+        with self.assertRaises(toolset.ToolsetError):
+            self.install()
+        self.assertTrue(link.is_symlink() and (self.tmp / "outside-file.md").is_file())
+        self.assertEqual(toolset.guard(self.cfg, self.borrow), ["works-parts/superpowers/link.md"])
+
     def test_parts_go_to_works_parts_and_record_has_commit(self):
         """部品は works-parts/superpowers/<相対パス> へバイトのまま写り、スキルとしては入らない。記録は pin の commit を持ち、
         source_enabled を持たない。works-parts/ の下の部品の外のファイルは柵が名指す"""

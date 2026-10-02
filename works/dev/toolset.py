@@ -104,7 +104,7 @@ OLD_MARK = ".works-old."                    # 入れ替えの間、前の版の�
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")    # 固定に書く写し元の commit（installed_plugins.json の gitCommitSha）
 # 写しが pin と合わない時の直し方（写しは works の置き場の一部なので、works の置き場が壊れている）
 VENDORED_FIX = ("  直す: works を入れ直す（claude plugin install works@raiki61）か、開発中なら git で写しを戻す"
-                "（git checkout -- works/.shared/borrow）")
+                "（git checkout -- :/works/.shared/borrow）")
 VERSION_NAME = re.compile(r"[0-9A-Za-z][0-9A-Za-z._+-]*")   # 写す版の名（フォルダの名になる。/ や .. で外を指させない）
 
 
