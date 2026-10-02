@@ -390,21 +390,11 @@ class TestAcceptWiring(FixGatesCase):
                 mock.patch.object(mod.recount, "accept_fix", wraps=mod.recount.accept_fix) as recount:
             got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
         self.assertIs(got["ok"], False, got)
-        self.assertTrue(got["reason"].startswith(fixgates.REJECT), got["reason"])
+        self.assertIn(fixgates.REJECT, got["reason"])
         gates.assert_called_once_with(self.board, self.repo, "", self.SUITE, 1, pass_="first")
-        recount.assert_not_called()   # 盤面に done("p3.fix") を書く前に拒む（preflight F12）
+        recount.assert_called_once()   # 写しの照らしは乾いた形だけ（盤面に done("p3.fix") を書く前に拒む。preflight F12）
+        self.assertIs(recount.call_args.kwargs["commit"], False)
         self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
-
-    def test_other_reject_does_not_run_battery(self):
-        self.fix_ready()
-        self.edit_tree(tbf.FIXED)
-        reply = tbf.load("fix2_ok")
-        reply["changes"].append(reply["changes"][0])   # 同じ unit_key を 2 行に（works だけの検査が拒む）
-        mod = self.accept_mod()
-        with self.env(), mock.patch.object(mod.fixgates, "problems", return_value=[]) as gates:
-            got = mod.accept_fix(reply, self.board, "", self.repo)
-        self.assertIs(got["ok"], False, got)
-        gates.assert_not_called()
 
     def test_accept_traces_skipped_red_green(self):
         """束が赤緑を確かめずに受けた回（実行器の無い run）は、盤面の trace の SKIPPED_OP に理由を載せ、報告が数える"""

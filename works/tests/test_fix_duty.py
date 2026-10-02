@@ -106,8 +106,9 @@ class TestAcceptExcused(unittest.TestCase):
     def keys(self, reply, board):
         return [c["unit_key"] for c in reply["changes"]], {self.MEAN}, {self.HELD: self.WHY}
 
-    def recount(self, reply, *a):
-        self.recounted.append([c["unit_key"] for c in reply["changes"]])
+    def recount(self, reply, *a, commit=True):
+        if commit:   # 盤面に渡した呼びだけを数える（乾いた照らし commit=False は数えない）
+            self.recounted.append([c["unit_key"] for c in reply["changes"]])
         if not self.accept_ok:
             return {"ok": False, "reason": "写しの受け付けが拒んだ", "changes": []}
         return {"ok": True, "reason": "", "changes": [{k: c[k] for k in ("unit_key", "files", "what")} for c in reply["changes"]]}

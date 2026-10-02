@@ -2,13 +2,17 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""修正役の返答の受け付け（blk-fix の節 fix-accept）。順は
--3. TDD の輪で凍ったテストのファイル（下の 1b）
--2. 書き込みの出どころ（check_writes。writes.check）: 版からの変更に、Edit・Write の書き込みの記録か返答の欄 bash_writes の申告が
-   在るか。無ければ拒む。記録の無い run（包みが無い）は通し、受けた時に盤面の trace に 1 行。盤面に渡す返答からは bash_writes を外す
--1. 食い違いの申し出（欄 conflicts。INPUTS_PASS が first か ruled）: take_conflicts。名指しが現物に無ければ普通の拒否、在れば
-   拒否に数えずその単位を止める。1 回目（first）で裁かれていない申し出が在れば盤面に渡さずに {ok: true, parked: true}
-   （輪を抜け、裁定の輪 → 2 回目の修正役 fix-ruled が渡す）。盤面に渡す返答からは conflicts を外す（写しの schema に無い欄）
+"""修正役の返答の受け付け（blk-fix の節 fix-accept）。確かめは返さずに表 CHECKS の id で積み（note）、最後に 1 回だけ拒む
+（rejected。見出しごとに並べた本文 reason と行ごとの id の rejects）。下の段の「拒む」は、-3・-2 のほかは積んで先へ進む意味。
+積んだ行が在れば写しの照らし（3）も乾いた形（commit=False。盤面を書かない）で当てて並べる。順は
+-3. TDD の輪で凍ったテストのファイル（下の 1b。id frozen。まだ積んですぐ拒む）
+-2. 書き込みの出どころ（check_writes。writes.check。id writes。まだ積んですぐ拒む）: 版からの変更に、Edit・Write の
+   書き込みの記録か返答の欄 bash_writes の申告が在るか。無ければ拒む。記録の無い run（包みが無い）は通し、受けた時に
+   盤面の trace に 1 行。盤面に渡す返答からは bash_writes を外す
+-1. 食い違いの申し出（欄 conflicts。INPUTS_PASS が first か ruled。id conflict）: take_conflicts。名指しが現物に無ければ
+   普通の拒否、在れば拒否に数えずその単位を止める。1 回目（first）で裁かれていない申し出が在れば盤面に渡さずに
+   {ok: true, parked: true}（輪を抜け、裁定の輪 → 2 回目の修正役 fix-ruled が渡す）。盤面に渡す返答からは conflicts を外す
+   （写しの schema に無い欄）
 0. 盤面が p3.fix を待っている（instance が待ち・起こした印が在る・依存が済んだ）ときだけ、返答の changes[].unit_key を盤面の
    控え（graph の pointers。mark_launched が固めた一覧）で名前に戻した列を作り、次の 2 つの works だけの検査に当てる。
    待っていない・番号を名前に戻せないときは検査せず 2 に進む（entry.take が回す側の誤り（2）か型・番号の文で拒む）
@@ -58,14 +62,15 @@
    出口のための changes（unit_key・files・what）を足し、表を盤面に置く
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
 ここで出口へ運ぶ（collect が今の周の changes.json に書く）。拒んだときの changes は空。
-中身の拒否は終了コード 0 の {"ok": false, "reason", "reason_file", "changes": [], "done"} を 1 行。回す側の誤りは 2。
-done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目は、-2・1b・1c・1d・1e・
-写しの受け付けの拒否の文が changes[].files か unit_key（写しの文の頭の unit_key[:60] も）でちょうど
-1 単位に結べれば、その単位の直しを戻して（控えの patch を盤面に置く）ask_human に止め、残りの単位で受け付けを頭から通し直す
-（park_bound_units。fail-fast: false）。通し直しが通らなければ、止めた単位の直し・食い違いの控え・裁定の文を止める前に戻す
-（拒否では盤面を前のままにする）。諦めるのは、どの単位にも結べない拒否か、止める単位のファイルをほかの単位と共有する
-返答か、1a と works だけの検査のうち重なりと開いていない key の拒否（key の形の拒否は 3 回目でも単位に結んで止めない。
-開いた単位を 2 行に分けた返答も丸ごと諦める）。諦めた輪の後は assert-changed が盤面を止め、collect が ok: false の出口を出す
+中身の拒否は終了コード 0 の {"ok": false, "reason", "rejects", "reason_file", "changes": [], "done"} を 1 行。回す側の誤りは 2。
+done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目は、積んだ行の確かめが
+全部、表 CHECKS で止めてよい物（-3・-2・1b・1c・1d・1e・写しの受け付け）で、どの行も changes[].files か unit_key（写しの文の頭の
+unit_key[:60] も）でちょうど 1 単位に結べれば、その単位の直しを戻して（控えの patch を盤面に置く）ask_human に止め、残りの単位で
+受け付けを頭から通し直す（park_bound_units。fail-fast: false）。通し直しが通らなければ、止めた単位の直し・食い違いの控え・
+裁定の文を止める前に戻す（拒否では盤面を前のままにする）。諦めるのは、どの単位にも結べない行か、止める単位のファイルをほかの
+単位と共有する返答か、止めてよくない確かめ（申し出の形・1a・重なり・開いていない key・直す義務から外れた単位）の行が 1 つでも
+在る時（key の形の拒否は 3 回目でも単位に結んで止めない。開いた単位を 2 行に分けた返答も丸ごと諦め、並べた全部の行を返す）。
+諦めた輪の後は assert-changed が盤面を止め、collect が ok: false の出口を出す
 """
 import copy
 import json
@@ -145,7 +150,7 @@ def note(found: list, check: str, texts) -> None:
     （配線の誤り。入口が 2 にする）"""
     if check not in CHECKS:
         raise ValueError(f"修正の受け付けの表 CHECKS に無い確かめの id: {check!r}")
-    for text in [texts] if isinstance(texts, str) else texts or []:
+    for text in [texts] if isinstance(texts, str) else texts:
         if text and text.strip():
             found.append((check, text))
 
@@ -488,25 +493,28 @@ def accept_fix(reply, board, base_rev, repo):
     whole = reply
     scope_note = None   # 承認済みの修正案の項目と差分を照らした記録（受けた時に trace へ）
 
-    def refuse(problems):
-        """拒否。輪の最後の回は、単位に結べる拒否ならその単位だけを止めて残りで受け付けを通し直し、通らなければ止めた単位を
-        戻す（fail-fast: false）"""
-        if last and isinstance(whole, dict):
-            got = park_bound_units(whole, problems, board, base_rev, repo, state)
+    found = []   # 積んだ拒否の行 (確かめの id, 文)。申し出より後の確かめは返さずにここへ積み、最後に 1 回だけ拒む
+
+    def refuse(found):
+        """積んだ行で拒む。輪の最後の回は、行の確かめが全部止めてよい物（表 CHECKS）なら、単位に結べる行の単位だけを止めて
+        残りで受け付けを通し直し、通らなければ止めた単位を戻す（fail-fast: false）"""
+        if last and isinstance(whole, dict) and all(CHECKS[c][1] for c, _ in found):
+            got = park_bound_units(whole, [t for _, t in reject_rows(found)], board, base_rev, repo, state)
             if got is not None:
                 rest, undo = got
                 out = accept_fix(rest, board, base_rev, repo)
                 if out.get("ok") is not True:
                     undo()
                 return out
-        return _reject(" / ".join(problems))
+        return rejected(found)
 
     allowed = conflict.ruled_test_limits(entry.open_board(board), rulings=pass_ == "ruled",
                                          source=tddloop.frozen_source(state, repo),
                                          skip_ids=tddloop.verified_rewrites(state)) if state else []
     frozen = tddloop.frozen_problems(state, repo, allowed)
     if frozen:
-        return refuse(frozen)
+        note(found, "frozen", frozen)
+        return refuse(found)
     got = revert_ruled_units(whole, board, base_rev, repo, state) if pass_ == "ruled" else None
     if got is not None:   # 控えから行を外したので、通し直しの中ではもう当たらない
         held, patch, undo = got
@@ -518,51 +526,54 @@ def accept_fix(reply, board, base_rev, repo):
         return out
     wrote = check_writes(reply, board, base_rev, repo, state)
     if wrote["problems"]:
-        return refuse(wrote["problems"])
+        note(found, "writes", wrote["problems"])
+        return refuse(found)
     reply = wrote["reply"]
     reply, done = take_conflicts(reply, board, repo, pass_)
     if done is not None:
-        return done
+        if done.get("ok") is not False:   # 1 回目に裁かれていない申し出を止めた出口
+            return done
+        note(found, "conflict", [done["reason"]])
     got = fix_unit_keys(reply, board)
     if got is not None:
-        pack = check_pack_copy(reply, board, repo)
-        if pack:
-            return {"ok": False, "reason": pack, "changes": []}
+        note(found, "pack", check_pack_copy(reply, board, repo))
         keys, owed, excused = got
-        for words, bad in ((DUPLICATE, check_unique_units(keys)), (NOT_OPENED, check_opened_units(keys, owed | set(excused)))):
-            if bad:   # key の形の拒否は単位に結んで止めない（開いていない単位を ask_human に積まない）
-                return _reject(" / ".join(words + k for k in bad))
+        # key の形の行は単位に結んで止めない（開いていない単位を ask_human に積まない。表 CHECKS で止めてよくない物）
+        note(found, "duplicate", [DUPLICATE + k for k in check_unique_units(keys)])
+        note(found, "not_opened", [NOT_OPENED + k for k in check_opened_units(keys, owed | set(excused))])
         held = check_excused_units(keys, owed, excused)
         if held:
             got = drop_excused_units(whole, keys, held, board, base_rev, repo, state) if last and isinstance(whole, dict) else None
             if got is None:
-                return _reject(" / ".join(f"{EXCUSED}{k}（{why}）" for k, why in held.items()))
-            rest, patch, undo = got
-            out = accept_fix(rest, board, base_rev, repo)
-            if out.get("ok") is True:
-                entry.open_board(board, allow_halted=True).trace(EXCUSED_DROPPED_OP, node=recount.ROLE, excused=held,
-                                                                  patch=patch)
-            else:
-                undo()
-            return out
+                note(found, "excused", [f"{EXCUSED}{k}（{why}）" for k, why in held.items()])
+            else:   # 通し直しの結果をそのまま返す（ここまでに積んだ行は通し直しがもう一度当てる）
+                rest, patch, undo = got
+                out = accept_fix(rest, board, base_rev, repo)
+                if out.get("ok") is True:
+                    entry.open_board(board, allow_halted=True).trace(EXCUSED_DROPPED_OP, node=recount.ROLE, excused=held,
+                                                                      patch=patch)
+                else:
+                    undo()
+                return out
         scope, scope_note = check_plan_scope(reply, keys, board, base_rev, repo, state, pass_)
-        if scope:
-            return refuse(scope)
-    red, note = check_tests(board, base_rev, repo, state)
-    if red:
-        return refuse(red)
+        note(found, "scope", scope)
+    red, tests_note = check_tests(board, base_rev, repo, state)
+    note(found, "tests", red)
     gates = fixgates.problems(board, repo, base_rev, os.environ.get("INPUTS_TDD_SUITE", ""), attempt, pass_=pass_)
-    if gates:   # 盤面に done("p3.fix") を書く recount.accept_fix の前（preflight F12）
-        return refuse(fixgates.reject_lines(gates))
+    note(found, "gates", fixgates.reject_lines(gates) if gates else [])
     b = entry.open_board(board)
     reply, rows = unitrows.take(reply, b, repo)
-    out = recount.accept_fix(reply, board, base_rev, repo)
-    if out.get("ok") is not True and last:
-        return refuse(out.get("problems") or [str(out.get("reason") or "")])
+    # 積んだ行が在れば写しの照らしは乾いた形（commit=False。盤面を書かない）で当て、その誤りも並べる。
+    # 無ければ盤面に done("p3.fix") を書く（事後の関門の束の後。preflight F12）
+    out = recount.accept_fix(reply, board, base_rev, repo, commit=not found)
+    if out.get("ok") is not True:
+        note(found, "copy", out.get("problems") or [str(out.get("reason") or "")])
+    if found:
+        return refuse(found)
     if out.get("ok") is True:   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
         b = entry.open_board(board, allow_halted=True)
         writes.trace(b, recount.ROLE, wrote)
-        b.trace(TESTS_OP, node=recount.ROLE, note=note, ci_left=tddloop.ci_left(state))
+        b.trace(TESTS_OP, node=recount.ROLE, note=tests_note, ci_left=tddloop.ci_left(state))
         if scope_note is not None:
             b.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
         gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt)

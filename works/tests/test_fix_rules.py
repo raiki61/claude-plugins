@@ -574,7 +574,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def recount(self, reply, board, base_rev, repo):
+    def recount(self, reply, board, base_rev, repo, commit=True):
         """写しの受け付けの代わり: CLAMP の行が在れば、写しと同じ文の形（unit_key の頭 60 字: …）で閉鎖の柵（数え合わせの外）で拒む。
         申告の sites が 1 件を超える行は、写しの数え合わせ（母数 1）と同じく拒む（前段が揃えていれば発火しない）"""
         keys = [c["unit_key"] for c in reply["changes"]]
@@ -664,9 +664,9 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
         def park(b_, rows, **k):
             (work / self.mod.conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False), encoding="utf-8")
 
-        def recount(reply, *a):
+        def recount(reply, *a, **k):
             if self.CLAMP in [c["unit_key"] for c in reply["changes"]]:
-                return self.recount(reply, *a)
+                return self.recount(reply, *a, **k)
             return {"ok": False, "changes": [], "reason": "閉鎖の実証で赤を一度も見ていないのに fix_closure=clean"}
 
         with mock.patch.object(self.mod.entry, "open_board", return_value=b), \
@@ -775,7 +775,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
                               if len(self.gates) > 1 else self.gates[0]),
             mock.patch.object(self.mod.fixgates, "skipped", return_value=[]),
             mock.patch.object(self.mod.recount, "accept_fix",
-                              side_effect=lambda reply, *a: {"ok": True, "reason": "", "changes": [
+                              side_effect=lambda reply, *a, **kw: {"ok": True, "reason": "", "changes": [
                                   {k: c[k] for k in ("unit_key", "files", "what")} for c in reply["changes"]]}),
             mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
             mock.patch.object(self.mod.writes, "trace"),
@@ -845,7 +845,8 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         # 今の周に開いていない unit_key は、3 回目でも ask_human に積まず返答全体を拒む（直す義務の外の単位を人に回さない）
         from unittest import mock
         with mock.patch.object(self.mod, "fix_unit_keys", return_value=([self.MEAN, self.CLAMP], {self.MEAN}, {})), \
-                mock.patch.object(self.mod, "check_pack_copy", return_value=""):
+                mock.patch.object(self.mod, "check_pack_copy", return_value=""), \
+                mock.patch.object(self.mod, "check_plan_scope", return_value=([], None)):   # 積んだ後も範囲の照らしまで回る
             got = self.run_accept("3")
         self.assertEqual((got["ok"], got["done"]), (False, True), got)
         self.assertIn(self.CLAMP, got["reason"])
@@ -870,7 +871,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
 
     def copy_owed(self):
         """写しの受け付けの直す義務の数え（fix_covers_open_units と同じ文）: 止めた単位を除いた義務が changes に無ければ拒む"""
-        def accept(reply, *a):
+        def accept(reply, *a, **k):
             parked = {r["unit_key"] for rs, _ in self.parked for r in rs}
             missing = sorted({self.MEAN, self.CLAMP} - parked - {c["unit_key"] for c in reply["changes"]})
             if missing:

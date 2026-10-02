@@ -113,8 +113,8 @@
    "id": "fx4",
    "title": "修正の受け付けが .archon/ の下（pack の写し）を申告した・変えた返答を拒む（run 26）",
    "file": "blk-fix/scripts/accept.py",
-   "old": "        if pack:\n",
-   "new": "        if False:\n",
+   "old": "        note(found, \"pack\", check_pack_copy(reply, board, repo))\n",
+   "new": "        pass\n",
    "tests": {
     "tests/test_blk_fix.py": [
      "TestAccept.test_rejects_declared_pack_copy"
