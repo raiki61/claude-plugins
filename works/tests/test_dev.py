@@ -657,11 +657,13 @@ class TestDevShell(unittest.TestCase):
 
     def test_archon_sh_takes_borrowed_tools_from_the_users_config(self):
         """借りる物は、隔離の前の利用者の設定（CLAUDE_CONFIG_DIR、無ければ $HOME/.claude）に入れたプラグインから取る
-        （隔離した後の CLAUDE_CONFIG_DIR は選んだ物だけの設定で、利用者の物ではない）。記録の source がそこを指す"""
+        （隔離した後の CLAUDE_CONFIG_DIR は選んだ物だけの設定で、利用者の物ではない）。記録の source がそこを指す。
+        superpowers は works の写しから入れるので、利用者の設定を指さない"""
         from test_toolset import make_user_config
         result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        for name in ("superpowers", "coldwrite", "pr-review-toolkit"):
+        self.assertFalse(self.toolset_rec["superpowers"]["source"].startswith(str(self.user_cfg) + os.sep), self.toolset_rec)
+        for name in ("coldwrite", "pr-review-toolkit"):
             self.assertTrue(self.toolset_rec[name]["source"].startswith(str(self.user_cfg) + os.sep), self.toolset_rec[name])
         with tempfile.TemporaryDirectory() as home:
             dot = make_user_config(pathlib.Path(home) / ".claude")
@@ -675,20 +677,21 @@ class TestDevShell(unittest.TestCase):
         result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR="../user-claude-config",
                                             cwd_in_tmp="dev-home")
         self.assertEqual(result.returncode, 0, result.stderr)
-        for name in ("superpowers", "coldwrite", "pr-review-toolkit"):
+        for name in ("coldwrite", "pr-review-toolkit"):   # superpowers は works の写しから入れる
             src = self.toolset_rec[name]["source"]
             self.assertTrue(os.path.isabs(src), self.toolset_rec[name])
             self.assertTrue(os.path.realpath(src).startswith(os.path.realpath(self.user_cfg) + os.sep), self.toolset_rec[name])
 
     def test_archon_sh_stops_when_borrowed_tools_are_not_installed(self):
         """借りる物が利用者の設定に入っていなければ、1 物 1 行の理由と入れるコマンドを出して終了コード 2 で止まり、
-        Archon を起こさない（use.sh check・start も同じ所で止まる）"""
+        Archon を起こさない（use.sh check・start も同じ所で止まる）。superpowers は works の写しから入れるので、入れるコマンドを
+        出さない"""
         with tempfile.TemporaryDirectory() as empty:
             result, _, seen = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR=empty)
         self.assertEqual(result.returncode, 2, result.stderr)
-        for cmd in ("claude plugin install superpowers@superpowers-marketplace", "claude plugin install coldwrite@raiki61",
-                    "claude plugin install pr-review-toolkit@claude-plugins-official"):
+        for cmd in ("claude plugin install coldwrite@raiki61", "claude plugin install pr-review-toolkit@claude-plugins-official"):
             self.assertIn(cmd, result.stderr)
+        self.assertNotIn("superpowers@superpowers-marketplace", result.stderr)
         self.assertIsNone(seen, "止めるべき所で Archon を起こした")
 
     def test_archon_sh_stops_when_isolated_config_leaks_into_user_scope(self):

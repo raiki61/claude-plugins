@@ -86,8 +86,9 @@ fi
 
 chmod +x "$BIN_PATH"
 
-# 借りる物（superpowers のスキル・coldwrite・pr-review-toolkit）は、利用者が Claude Code に入れたプラグインから取る（下の toolset.py）。
-# その一覧（plugins/installed_plugins.json）を読む利用者の設定の置き場を、隔離の前に決めておく（隔離の後の CLAUDE_CONFIG_DIR は
+# 借りる物のうち coldwrite・pr-review-toolkit は、利用者が Claude Code に入れたプラグインから取る（下の toolset.py）。superpowers の
+# スキルと部品は、works に写した固定の版（.shared/borrow/superpowers/<版>/）から入れ、利用者が入れた版は run に使わない（開発の
+# 再開の確かめが比べるだけ）。その一覧（plugins/installed_plugins.json）を読む利用者の設定の置き場を、隔離の前に決めておく（隔離の後の CLAUDE_CONFIG_DIR は
 # 選んだ物だけの設定で、利用者の物ではない）。相対の値は頭の works_dev_abs_claude_config が絶対に直してある。殻の中から入れ子で
 # 打って隔離の置き場そのものになっていれば、toolset.py が名指しで止める
 USER_CLAUDE_CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -166,9 +167,10 @@ EOF
 fi
 
 # 選んだ物だけの隔離した Claude の設定を組む（toolset.py。P1 計画 Task 20・裁定 P1-R8）。AI の節は全部 settingSources: [user] で
-# ここを読む: 利用者が入れた superpowers の 5 つのスキルを skills/ へ写し、利用者が入れた coldwrite・pr-review-toolkit を設定の中の
-# 手元の marketplace から claude の plugin の CLI で入れる。借りる物が入っていない・works が名前で頼る物が無ければ、借りる物ごとに
-# 理由と入れるコマンドを出して終了コード 2 で止まる。柵が一覧の外（CLAUDE.md・rules/・agents/・ほかのプラグイン・余分な設定の鍵
+# ここを読む: works に写した固定の版の superpowers の 5 つのスキルを skills/ へ、部品を works-parts/superpowers/ へ写し、利用者が
+# 入れた coldwrite・pr-review-toolkit を設定の中の手元の marketplace から claude の plugin の CLI で入れる。superpowers の写しが
+# borrow.json の pin の sha256 と合わない・借りる物が入っていない・works が名前で頼る物が無ければ、借りる物ごとに理由（と入れる
+# コマンド）を出して終了コード 2 で止まる。柵が一覧の外（CLAUDE.md・rules/・agents/・ほかのプラグイン・余分な設定の鍵
 # など）を見つければ、名前を出して終了コード 2 で止まる。どちらも Archon を起こさない。認証の要らない道（validate・テスト）は
 # claude を起こさず、スキルだけを写す（validate も同じ置き場で探す。借りる物の確かめは同じ）
 TOOLSET="$(cd "$(dirname "$0")" && pwd -P)/toolset.py"

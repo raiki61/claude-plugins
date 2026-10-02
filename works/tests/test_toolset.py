@@ -1,13 +1,16 @@
 """選んだ物だけの隔離した Claude の設定（dev/toolset.py。P1 計画 Task 20 の R61 の範囲）の検査。
 
 AI の節は全部 settingSources: [user] で、開発の殻（dev/archon.sh）が隔離した CLAUDE_CONFIG_DIR を読む。そこに置くのは
-許す一覧（.shared/borrow/borrow.json）の物だけ。借りる物は、利用者が Claude Code に入れたプラグインからだけ取る（works は写しを
-持たない。本線と同じく、版は Claude Code が今に保つ）:
-- 探す所: 利用者の設定の置き場の plugins/installed_plugins.json の <名>@<marketplace> の行（user の行、次に projectPath が
-  cwd の project・local の行）。入っていない・works が名前で頼る物（スキル・agent・hook）が無い借りる物は、1 物 1 行の理由と
-  入れるコマンドを並べて止まる。中身・版・バイトは確かめない（試験が中身を見るのは、ここで作った偽のプラグインだけ）。
-- superpowers の 5 つのスキルを skills/<名>/ へバイトのまま写す（プラグインとしては入れない。有効にすると SessionStart の hook が
+許す一覧（.shared/borrow/borrow.json）の物だけ。借りる物の取り元は 2 つに分かれる:
+- superpowers: works に写した固定の版（.shared/borrow/superpowers/<版>/。VENDORED）だけから入れる。利用者の
+  installed_plugins.json の superpowers の行は読まない（入っていなくても、別の版でも同じに組む）。写しが borrow.json の pin の
+  sha256 と合わなければ、違うファイルを名指して何も写さずに止まる。5 つのスキルを skills/<名>/ へ、部品（parts）を
+  works-parts/superpowers/<相対パス> へバイトのまま写す（プラグインとしては入れない。有効にすると SessionStart の hook が
   using-superpowers を差し込むため。裁定 P1-R8）。
+- coldwrite・pr-review-toolkit: 利用者が Claude Code に入れたプラグインから取る（works は写しを持たない。版は Claude Code が
+  今に保つ）。探す所は利用者の設定の置き場の plugins/installed_plugins.json の <名>@<marketplace> の行（user の行、次に
+  projectPath が cwd の project・local の行）。入っていない・works が名前で頼る物（agent・hook）が無い借りる物は、1 物 1 行の
+  理由と入れるコマンドを並べて止まる。中身・版・バイトは確かめない（試験が中身を見るのは、ここで作った偽のプラグインだけ）。
 - coldwrite・pr-review-toolkit を、設定の中の手元の marketplace works-local（works-marketplace/）に写し、Claude Code の CLI
   （claude plugin marketplace add・install）で入れる。Claude Code のキャッシュの印（.in_use/・.orphaned_at）は写さない。
 柵（guard）は一覧の外（CLAUDE.md・rules/・agents/・commands/・output-styles/・settings.json 以外の settings*.json・
@@ -42,6 +45,8 @@ import copyledger  # noqa: E402
 
 BORROW_SKILLS = ["test-driven-development", "systematic-debugging", "verification-before-completion",
                  "receiving-code-review", "requesting-code-review"]
+# 隔離した設定の superpowers の取り元（works に写した固定の版。本物の写しを読む）
+VENDORED = spseam.vendored_dir(toolset.load_borrow(ROOT)["superpowers"])
 LENSES = ["code-reviewer", "silent-failure-hunter", "type-design-analyzer", "pr-test-analyzer", "comment-analyzer"]
 MP = "works-local"
 # 偽の利用者の設定に入れる偽のプラグイン: 名 → (marketplace, キャッシュの版の置き場の名・installed_plugins.json の version)
@@ -402,9 +407,11 @@ class ResolveCase(unittest.TestCase):
     def test_user_scope_rows_are_used(self):
         user = make_user_config(self.tmp / "user")
         chosen, versions = toolset.installed_sources(user, self.borrow)
-        self.assertEqual(chosen, {n: installed_dir(user, n) for n in FAKE_INSTALLED}
-                         | {"context7": self.borrow["context7"]["url"]})
-        self.assertEqual(versions, {n: v for n, (_, v) in FAKE_INSTALLED.items()} | {"context7": self.borrow["context7"]["version"]})
+        self.assertEqual(chosen, {n: installed_dir(user, n) for n in FAKE_INSTALLED if n != "superpowers"}
+                         | {"superpowers": VENDORED, "context7": self.borrow["context7"]["url"]})
+        self.assertEqual(versions, {n: v for n, (_, v) in FAKE_INSTALLED.items() if n != "superpowers"}
+                         | {"superpowers": self.borrow["superpowers"]["pin"]["version"],
+                            "context7": self.borrow["context7"]["version"]})
 
     def test_project_rows_count_only_for_their_project(self):
         target = self.tmp / "target"
@@ -416,15 +423,16 @@ class ResolveCase(unittest.TestCase):
             toolset.installed_sources(user, self.borrow, cwd=self.tmp)
 
     def test_missing_tools_are_listed_one_line_each_with_install_commands(self):
-        """何も入っていない利用者: 借りる 3 つが 1 行ずつ、入れる marketplace と install のコマンドつきで並ぶ"""
+        """何も入っていない利用者: 利用者の入れた物から借りる 2 つが 1 行ずつ、入れる marketplace と install のコマンドつきで並ぶ。
+        superpowers は works の写しから入れるので並ばない"""
         user = self.tmp / "empty"
         user.mkdir()
         with self.assertRaises(toolset.ToolsetError) as cm:
             toolset.installed_sources(user, self.borrow)
         lines = str(cm.exception).splitlines()[1:]
-        self.assertEqual(len(lines), 3, lines)
-        for key, repo in (("superpowers@superpowers-marketplace", "obra/superpowers-marketplace"),
-                          ("coldwrite@raiki61", "raiki61/claude-plugins"),
+        self.assertEqual(len(lines), 2, lines)
+        self.assertNotIn("superpowers", str(cm.exception))
+        for key, repo in (("coldwrite@raiki61", "raiki61/claude-plugins"),
                           ("pr-review-toolkit@claude-plugins-official", "anthropics/claude-plugins-official")):
             line = next(ln for ln in lines if key in ln)
             self.assertIn(f"claude plugin marketplace add {repo}", line)
@@ -447,9 +455,7 @@ class ResolveCase(unittest.TestCase):
 
     def test_missing_names_stop_with_the_name(self):
         """works が名前で頼る物が無い版は止める（名前が API）。無い名前を出す"""
-        cases = {
-            "スキル verification-before-completion": lambda u: shutil.rmtree(
-                installed_dir(u, "superpowers") / "skills" / "verification-before-completion"),
+        cases = {   # superpowers のスキルの欠けは写しの照合が名指す（test_tampered_vendored_copy_stops_before_writing）
             "agent comment-analyzer": lambda u: (installed_dir(u, "pr-review-toolkit") / "agents" / "comment-analyzer.md").unlink(),
             "hook PreToolUse:Write": lambda u: _put(installed_dir(u, "coldwrite") / "hooks" / "hooks.json",
                                                     json.dumps({"hooks": {"PreToolUse": [{"matcher": "Edit"}]}})),
@@ -464,13 +470,19 @@ class ResolveCase(unittest.TestCase):
                 self.assertEqual(len(lines), 1, lines)
                 self.assertIn(want, lines[0])
 
-    def test_content_and_version_are_not_checked(self):
-        """名前が在れば、中身が変わった新しい版でも通る（役は読むだけ）"""
+    def test_superpowers_comes_from_the_vendored_copy(self):
+        """利用者のキャッシュの superpowers が別の中身・別の版でも、取り元は works の写しで、版は pin の版"""
         user = make_user_config(self.tmp / "user")
-        _put(installed_dir(user, "superpowers") / "skills" / "test-driven-development" / "SKILL.md", "まったく別の文\n")
+        _put(installed_dir(user, "superpowers") / "skills" / "test-driven-development" / "SKILL.md", "新しい版\n")
+        chosen, versions = toolset.installed_sources(user, self.borrow)
+        self.assertEqual((chosen["superpowers"], versions["superpowers"]), (VENDORED, self.borrow["superpowers"]["pin"]["version"]))
+
+    def test_plugins_content_is_not_checked(self):
+        """coldwrite・pr-review-toolkit は今どおり名前だけ: 名前が在れば、中身が変わった新しい版でも通る（役は読むだけ）"""
+        user = make_user_config(self.tmp / "user")
         _put(installed_dir(user, "pr-review-toolkit") / "agents" / "code-reviewer.md", "新しい版の文\n")
         chosen, _ = toolset.installed_sources(user, self.borrow)
-        self.assertEqual(chosen["superpowers"], installed_dir(user, "superpowers"))
+        self.assertEqual(chosen["pr-review-toolkit"], installed_dir(user, "pr-review-toolkit"))
 
     def test_user_config_dir_follows_env(self):
         self.assertEqual(toolset.user_config_dir({"CLAUDE_CONFIG_DIR": "/x/cfg"}), pathlib.Path("/x/cfg"))
@@ -481,6 +493,8 @@ class ScopeCase(unittest.TestCase):
     """同じプラグインが複数の scope に入っていれば、Claude Code と同じく local > project > user の行を取る
     （https://code.claude.com/docs/en/discover-plugins の Which scope wins）。enabledPlugins の無効は拒まずに借り、
     元が有効だったか無効だったかを記録に残す（人の答え: 利用者は借りる物のフックを普段効かせないために無効にしておく）"""
+
+    FROM_USER = [n for n in FAKE_INSTALLED if n != "superpowers"]   # 利用者の入れた物から借りる物（superpowers は写しから）
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -506,19 +520,20 @@ class ScopeCase(unittest.TestCase):
     def test_project_row_wins_over_user_row(self):
         project = self.add_rows("project")
         chosen, _ = toolset.installed_sources(self.user, self.borrow, cwd=self.target)
-        for n in FAKE_INSTALLED:
+        for n in self.FROM_USER:
             self.assertEqual(chosen[n], installed_dir(project, n), n)
 
     def test_local_row_wins_over_project_and_user_rows(self):
         self.add_rows("project")
         local = self.add_rows("local")
         chosen, _ = toolset.installed_sources(self.user, self.borrow, cwd=self.target)
-        for n in FAKE_INSTALLED:
+        for n in self.FROM_USER:
             self.assertEqual(chosen[n], installed_dir(local, n), n)
 
     def test_disabled_plugin_is_borrowed_and_the_source_state_is_recorded(self):
         """利用者の settings.json で無効でも借りる。対象の .claude/settings.local.json・settings.json が利用者の値に勝つ。
-        記録の source_enabled は、元で勝った enabledPlugins の値（どこにも鍵が無ければ null）"""
+        記録の source_enabled は、元で勝った enabledPlugins の値（どこにも鍵が無ければ null）。superpowers は写しから入れるので、
+        利用者の側の有効・無効を載せない"""
         _put(self.user / "settings.json", json.dumps({"enabledPlugins": {
             "coldwrite@raiki61": False, "superpowers@superpowers-marketplace": False}}))
         _put(self.target / ".claude" / "settings.json", json.dumps({"enabledPlugins": {
@@ -532,7 +547,7 @@ class ScopeCase(unittest.TestCase):
         rec = json.loads((cfg / toolset.RECORD).read_text())
         self.assertEqual(rec["coldwrite"]["source"], str(installed_dir(self.user, "coldwrite")))
         self.assertEqual({n: rec[n].get("source_enabled", "無い") for n in FAKE_INSTALLED},
-                         {"coldwrite": False, "superpowers": True, "pr-review-toolkit": None})
+                         {"coldwrite": False, "superpowers": "無い", "pr-review-toolkit": None})
 
 
 class InstalledShapeCase(unittest.TestCase):
@@ -579,13 +594,15 @@ class InstalledShapeCase(unittest.TestCase):
 
 class InstallCase(Base):
     def test_install_builds_exactly_the_chosen_config(self):
-        """一時の置き場に組んだ設定の中身が、ちょうど 5 つのスキル・手元の marketplace の coldwrite と pr-review-toolkit・
-        その入れた状態だけ。写す元は利用者が入れた置き場で、キャッシュの印は写さない"""
+        """一時の置き場に組んだ設定の中身が、ちょうど 5 つのスキル・2 つの部品・手元の marketplace の coldwrite と
+        pr-review-toolkit・その入れた状態だけ。superpowers の写す元は works の写し、ほかは利用者が入れた置き場で、キャッシュの印は
+        写さない"""
         rec = self.install()
         srcs = {"coldwrite": installed_dir(self.user, "coldwrite"), "pr-review-toolkit": installed_dir(self.user, "pr-review-toolkit")}
-        sp = installed_dir(self.user, "superpowers")
+        sp = VENDORED
         want = sorted(
             [f"skills/{n}/{f}" for n in BORROW_SKILLS for f in files_under(sp / "skills" / n)]
+            + [f"works-parts/superpowers/{rel}" for rel in self.borrow["superpowers"]["parts"]]
             + [f"works-marketplace/{n}/{f}" for n, s in srcs.items() for f in plain_files(s)]
             + ["works-marketplace/.claude-plugin/marketplace.json", "settings.json", ".works-toolset.json", toolset.MCP_FILE,
                "plugins/known_marketplaces.json", "plugins/installed_plugins.json"]
@@ -610,10 +627,13 @@ class InstallCase(Base):
                           "enabledPlugins": {f"{n}@{MP}": True for n in PLUGINS}})
         self.assertEqual(self.calls(), [["plugin", "marketplace", "add", str(self.cfg / "works-marketplace")]]
                          + [["plugin", "install", f"{n}@{MP}"] for n in PLUGINS])
-        # 記録: 版は installed_plugins.json の行の物、source は利用者が入れた置き場（versions.json の borrowed に載る）
+        # 記録: 版は installed_plugins.json の行の物、source は利用者が入れた置き場（versions.json の borrowed に載る）。
+        # superpowers は pin の版と写しのフォルダ
         self.assertEqual(sorted(rec), ["coldwrite", "context7", "pr-review-toolkit", "superpowers"])
         self.assertEqual({k: (v["version"], v["source"], v["loaded"]) for k, v in rec.items()},
-                         {n: (ver, str(installed_dir(self.user, n)), True) for n, (_, ver) in FAKE_INSTALLED.items()}
+                         {n: (ver, str(installed_dir(self.user, n)), True) for n, (_, ver) in FAKE_INSTALLED.items()
+                          if n != "superpowers"}
+                         | {"superpowers": (self.borrow["superpowers"]["pin"]["version"], str(VENDORED), True)}
                          | {"context7": (self.borrow["context7"]["version"], self.borrow["context7"]["url"], True)})
         self.assertEqual(json.loads((self.cfg / ".works-toolset.json").read_text()), rec)
         self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
@@ -642,7 +662,7 @@ class InstallCase(Base):
                          '{"hooks": {"PreToolUse": [{"matcher": "Write"}]}}\n')
 
     def test_stale_skill_copy_and_exec_bit_are_fixed(self):
-        sp = installed_dir(self.user, "superpowers")
+        sp = VENDORED
         self.install()
         tdd = self.cfg / "skills" / "test-driven-development"
         (tdd / "SKILL.md").write_text("古い\n", encoding="utf-8")
@@ -655,6 +675,38 @@ class InstallCase(Base):
         self.assertTrue(os.access(polluter, os.X_OK))
         self.assertEqual(sorted(p.name for p in (self.cfg / "skills").iterdir()), sorted(BORROW_SKILLS),
                          "作業の一時の置き場か、借りない物が残っている")
+
+    def test_no_superpowers_installed_still_installs(self):
+        """利用者が superpowers を入れていなくても組め、スキルは写しのバイトと同じ"""
+        self.user = make_user_config(self.tmp / "user2", only={"coldwrite", "pr-review-toolkit"})
+        rec = self.install()
+        for s in self.borrow["superpowers"]["skills"]:
+            for f in files_under(VENDORED / "skills" / s):
+                self.assertEqual((self.cfg / "skills" / s / f).read_bytes(), (VENDORED / "skills" / s / f).read_bytes())
+        self.assertEqual(rec["superpowers"]["source"], str(VENDORED))
+
+    def test_tampered_vendored_copy_stops_before_writing(self):
+        """写しのファイルが pin の sha256 と違えば、違うファイルを名指して何も写す前に止まる（写しを一時の置き場に写して向ける）"""
+        copy = self.tmp / "vendored"
+        shutil.copytree(VENDORED, copy)
+        (copy / "skills" / "test-driven-development" / "SKILL.md").write_text("書き換え\n", encoding="utf-8")
+        with mock.patch.object(toolset.spseam, "vendored_dir", return_value=copy), self.assertRaises(toolset.ToolsetError) as cm:
+            toolset.installed_sources(self.user, self.borrow)
+        self.assertIn("skills/test-driven-development/SKILL.md: 中身が固定と違う", str(cm.exception))
+        self.assertEqual(files_under(self.cfg), [])
+
+    def test_parts_go_to_works_parts_and_record_has_commit(self):
+        """部品は works-parts/superpowers/<相対パス> へバイトのまま写り、スキルとしては入らない。記録は pin の commit を持ち、
+        source_enabled を持たない。works-parts/ の下の部品の外のファイルは柵が名指す"""
+        rec = self.install()
+        for rel in self.borrow["superpowers"]["parts"]:
+            self.assertEqual((self.cfg / "works-parts" / "superpowers" / rel).read_bytes(), (VENDORED / rel).read_bytes())
+        self.assertFalse((self.cfg / "skills" / "subagent-driven-development").exists())   # スキルとしては入れない
+        self.assertEqual(rec["superpowers"]["commit"], self.borrow["superpowers"]["pin"]["commit"])
+        self.assertNotIn("source_enabled", rec["superpowers"])
+        self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
+        _put(self.cfg / "works-parts" / "superpowers" / "skills" / "subagent-driven-development" / "SKILL.md", "x\n")
+        self.assertEqual(toolset.guard(self.cfg, self.borrow), ["works-parts/superpowers/skills/subagent-driven-development/SKILL.md"])
 
     def test_plugin_not_enabled_after_cli_fails_closed(self):
         """CLI が 0 で終わっても coldwrite が有効になっていなければ、入ったことにしない（フックの効かない役を起こさない）"""
@@ -696,6 +748,7 @@ class GuardCase(Base):
             "commands/": lambda: self.put("commands/a.md"),
             "output-styles/": lambda: self.put("output-styles/a.md"),
             "skills/mine/": lambda: self.put("skills/mine/SKILL.md"),
+            "works-parts/other/a.md": lambda: self.put("works-parts/other/a.md"),
             "settings.json の鍵 permissions": lambda: self.put("settings.json", '{"permissions": {"allow": []}}'),
             "settings.json の鍵 hooks": lambda: self.put("settings.json", '{"hooks": {}}'),
             "有効なプラグイン other@x": lambda: self.put("settings.json", '{"enabledPlugins": {"other@x": true}}'),
@@ -758,15 +811,15 @@ class CliCase(Base):
 
     def test_cli_missing_tools_stop_before_writing(self):
         """借りる物が入っていなければ、1 物 1 行の理由と入れるコマンドを出して終了コード 2。何も写さず claude も起こさない。
-        --user-config が env の CLAUDE_CONFIG_DIR より勝つ"""
+        --user-config が env の CLAUDE_CONFIG_DIR より勝つ。superpowers は works の写しから入れるので、入れるコマンドを出さない"""
         empty = self.tmp / "empty"
         empty.mkdir()
         for args, env in ((["--user-config", str(empty)], {}), ([], {"CLAUDE_CONFIG_DIR": str(empty)})):
             with self.subTest(args=args):
                 r = self.cli("install", "--claude", str(self.claude), *args, str(self.cfg), **env)
                 self.assertEqual(r.returncode, 2, r.stderr)
-                self.assertEqual(len([ln for ln in r.stderr.splitlines() if ln.startswith("- ")]), 3, r.stderr)
-                self.assertIn("claude plugin install superpowers@superpowers-marketplace", r.stderr)
+                self.assertEqual(len([ln for ln in r.stderr.splitlines() if ln.startswith("- ")]), 2, r.stderr)
+                self.assertNotIn("superpowers@superpowers-marketplace", r.stderr)
                 self.assertEqual(files_under(self.cfg), [])
                 self.assertEqual(self.calls(), [])
         r = self.cli("install", "--no-plugins", str(self.cfg), CLAUDE_CONFIG_DIR=str(empty))

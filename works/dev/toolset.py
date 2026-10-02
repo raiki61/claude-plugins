@@ -5,20 +5,26 @@
   python3 toolset.py vendor [--user-config <利用者の設定の置き場>] <superpowers の版>
 
 AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CLAUDE_CONFIG_DIR を読む（P1 計画 Task 20・裁定 P1-R8）。
-そこに置くのは許す一覧 .shared/borrow/borrow.json の物だけ。借りる物（superpowers・coldwrite・pr-review-toolkit）は、利用者が
-Claude Code に入れたプラグインから取る（本線の graphloops と同じ。版は Claude Code が今に保つ。superpowers の写しは下の vendor）:
-- 探す所: 利用者の設定の置き場（--user-config。無ければ env の CLAUDE_CONFIG_DIR、無ければ ~/.claude。隔離した設定ではない。
+そこに置くのは許す一覧 .shared/borrow/borrow.json の物だけ。借りる物の取り元は 2 つに分かれる:
+- superpowers（kind "skills"）: works に写した固定の版（.shared/borrow/superpowers/<版>/。下の vendor が作る）から入れる。
+  利用者の installed_plugins.json の superpowers の行は読まない（入れた版は run に使わず、開発の再開の確かめが比べるだけ）。
+  写しの包むファイルが borrow.json の superpowers.pin の sha256 と合わなければ（spseam.pin_problems）、違うファイルを 1 行ずつ
+  名指して、何も写さずに止まる。
+- coldwrite・pr-review-toolkit（kind "plugin"）: 利用者が Claude Code に入れたプラグインから取る（本線の graphloops と同じ。版は
+  Claude Code が今に保ち、入れた版をそのまま使う）。
+- 探す所（kind "plugin"）: 利用者の設定の置き場（--user-config。無ければ env の CLAUDE_CONFIG_DIR、無ければ ~/.claude。隔離した設定ではない。
   archon.sh は隔離の前の値を渡す。絶対パスだけを受け、隔離した設定の置き場と同じなら名指しして止まる）の plugins/installed_plugins.json の <名>@<borrow の marketplace> の行。Claude Code と同じく
   local > project > user の scope の行を取る（local・project は projectPath が今の cwd（対象リポジトリ）の行だけ。勝った行の
   installPath が無ければ下の scope へ落ちずに入っていないとする）。enabledPlugins で無効でも借りる（記録に残すだけ）。
   installed_plugins.json が知らない形（version が INSTALLED_VERSIONS の外など）なら、入っていないとは言わずに形を名指しして止まる。
-- 確かめるのは、works が名前で頼る物が在ることだけ（中身・版・バイトは見ない。役は読むだけなので、名前が在れば新しい版で動く）:
-  superpowers は skills/<スキル>/SKILL.md、pr-review-toolkit は agents/<名>.md（borrow の agents。レンズの名）、coldwrite は
-  hooks/hooks.json の hooks.<事象> に matcher が borrow の hooks の物の行。入っていない・名前が無い物は、借りる物ごとに 1 行の
-  理由と入れるコマンドを並べ、何も写さずに止まる（AI を起こさない）。
-- kind "skills"（superpowers）: 入れた置き場の skills/<スキル>/ の一覧のスキルだけを <置き場>/skills/<スキル>/ へ
-  バイトのまま・権限つきで写す。プラグインとしては入れない（有効にすると SessionStart の hook が using-superpowers を差し込み、
-  無人の役の約束が崩れる）。中身と実行の権限が同じなら何もしない。違えば一時の置き場に写してから入れ替える。
+- kind "plugin" で確かめるのは、works が名前で頼る物が在ることだけ（中身・版・バイトは見ない。役は読むだけなので、名前が在れば
+  新しい版で動く）: pr-review-toolkit は agents/<名>.md（borrow の agents。レンズの名）、coldwrite は hooks/hooks.json の
+  hooks.<事象> に matcher が borrow の hooks の物の行。入っていない・名前が無い物は、借りる物ごとに 1 行の理由と入れるコマンドを
+  並べ、何も写さずに止まる（AI を起こさない）。写しが pin と合わない superpowers の行も同じ 1 つの止まりにまとめる。
+- kind "skills"（superpowers）: 写しの skills/<スキル>/ の一覧のスキルだけを <置き場>/skills/<スキル>/ へ、部品（parts。スキル
+  としては使わず、中の文を役の指示書に使うファイル）を <置き場>/works-parts/superpowers/<相対パス> へ、バイトのまま・権限つきで
+  写す。プラグインとしては入れない（有効にすると SessionStart の hook が using-superpowers を差し込み、無人の役の約束が崩れる）。
+  中身と実行の権限が同じなら何もしない。違えば一時の置き場に写してから入れ替える。
 - kind "plugin"（coldwrite・pr-review-toolkit）: 入れた置き場を <置き場>/works-marketplace/<名>/ に写し、手元の marketplace
   works-local を書いて、Claude Code の CLI（`claude plugin marketplace add`・`claude plugin install <名>@works-local`）で入れる
   （試し plugin-hook-probe と同じ機構）。coldwrite は書く散文の初見検査のフック、pr-review-toolkit は素材集めの局所レビューの
@@ -31,14 +37,16 @@ Claude Code に入れたプラグインから取る（本線の graphloops と�
   プラグインの MCP）を読まない（strictMcpConfig）ので、包み（.shared/core/adapter.py の 10）がこのファイルを web を持つ役の
   起動に --mcp-config で渡す（既定は渡さない。env の WORKS_CONTEXT7_MCP=on の時だけ）。
 - 柵（guard）: 一覧の外を名前で並べる。CLAUDE.md・rules/・agents/・commands/・output-styles/・settings.json 以外の
-  settings*.json・一覧の外のスキル・settings.json の鍵が {enabledPlugins, extraKnownMarketplaces} の外・一覧の外の有効な
+  settings*.json・一覧の外のスキル・works-parts/ の下の部品の外のファイル・settings.json の鍵が {enabledPlugins,
+  extraKnownMarketplaces} の外・一覧の外の有効な
   プラグイン・入れたプラグイン（plugins/installed_plugins.json）・marketplace（settings.json と plugins/known_marketplaces.json）・
   works-mcp.json の一覧の外の MCP。
   Claude Code が自分で書く状態（projects/・.claude.json・backups/・remote-settings.json・plugins/cache/ など）は見ない。
   install は組む前と後に柵を当て、当たれば何も写さずに止まる。CLI は 1 行を出して終了コード 2（入っていない物は 1 物 1 行）。
-- 記録 <置き場>/.works-toolset.json: {名: {version, source, sha256, loaded[, source_enabled]}}（見えるようにするだけ。run ごとの
-  versions.json の borrowed に載る）。version は installed_plugins.json の行の version、source は入れた置き場、source_enabled は
-  利用者の側の enabledPlugins の値（CLI の install が載せる。source_enabled を見よ）。
+- 記録 <置き場>/.works-toolset.json: {名: {version, source, sha256, loaded[, commit][, source_enabled]}}（見えるようにするだけ。
+  run ごとの versions.json の borrowed に載る）。kind "plugin" の version は installed_plugins.json の行の version、source は
+  入れた置き場、source_enabled は利用者の側の enabledPlugins の値（CLI の install が載せる。source_enabled を見よ）。superpowers
+  の version・commit は pin の物、source は写しのフォルダで、source_enabled は載せない（利用者の側の有効・無効に依らない）。
 - 写し（vendor）: 利用者のキャッシュの superpowers の 1 つの版（<利用者の設定の置き場>/plugins/cache/<marketplace>/superpowers/<版>。
   網からは取らない。版は人が名指す）から、包むファイル（.shared/core/spseam.py の wrapped_files。借りるスキルの全ファイル・
   部品 parts・LICENSE）だけを .shared/borrow/superpowers/<版>/ へバイトのまま・権限つきで写し、ほかの版の写しを消し、写しの台帳
@@ -78,8 +86,9 @@ LICENCES_OK = frozenset({"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"})  
 SETTINGS_KEYS = frozenset({"enabledPlugins", "extraKnownMarketplaces"})
 FOREIGN_FILES = ("CLAUDE.md",)
 FOREIGN_DIRS = ("rules", "agents", "commands", "output-styles")
-IGNORED_IN_SKILLS = frozenset({".DS_Store"})
-MARKERS = frozenset({".in_use", ".orphaned_at"})   # Claude Code がプラグインのキャッシュの版の置き場に置く印（使っている pid・捨てた時刻）
+IGNORED_IN_SKILLS = spseam.IGNORED
+MARKERS = spseam.MARKERS                    # Claude Code がプラグインのキャッシュの版の置き場に置く印（使っている pid・捨てた時刻）
+PARTS_DIR = "works-parts"                   # 部品の置き場（<設定の置き場>/works-parts/<借りる物の名>/<相対パス>）
 USER_CONFIG_DEFAULT = "~/.claude"
 TMP_MARK = ".works-tmp."
 USAGE = ("toolset.py: 使い方: python3 toolset.py install [--no-plugins] [--claude <claude の実行ファイル>] "
@@ -183,11 +192,12 @@ def user_config_dir(env=None) -> pathlib.Path:
 
 
 def installed_sources(user_config: pathlib.Path, borrow: dict, cwd=None) -> tuple:
-    """(名 → 使う置き場（mcp は url）, 名 → 版)。借りる物は利用者が入れたプラグインからだけ取る。入っていない・works が名前で
-    頼る物が無い借りる物は、借りる物ごとに 1 行の理由と入れるコマンドを並べて ToolsetError（何も写す前に呼ぶ）"""
+    """(名 → 使う置き場（mcp は url）, 名 → 版)。kind "skills"（superpowers）は works の写し（spseam.vendored_dir）と pin の版で、
+    利用者の入れた物は読まない。kind "plugin" は利用者が入れたプラグインからだけ取る。写しが pin と合わない・入っていない・works が
+    名前で頼る物が無い借りる物は、借りる物ごとに理由と入れるコマンドを並べて 1 つの ToolsetError（何も写す前に呼ぶ）"""
     user_config = pathlib.Path(user_config)
     chosen, versions, bad = {}, {}, []
-    plugins = _read_installed(user_config) if any(i["kind"] != "mcp" for i in borrow.values()) else {}
+    plugins = _read_installed(user_config) if any(i["kind"] == "plugin" for i in borrow.values()) else {}
     for name, item in borrow.items():
         if item["kind"] == "mcp":
             chosen[name] = item["url"]
@@ -195,6 +205,20 @@ def installed_sources(user_config: pathlib.Path, borrow: dict, cwd=None) -> tupl
             continue
         if item["kind"] not in ("skills", "plugin"):
             raise ToolsetError(f"borrow.json の {name} の kind {item['kind']!r} を知らない（skills・plugin・mcp）")
+        if item["kind"] == "skills":
+            if not isinstance(item.get("pin"), dict) or not item["pin"].get("version"):
+                bad.append(f"borrow.json の {name} に pin（版・sha256）が無い。写しを作るのは dev/toolset.py vendor <版>")
+                continue
+            src = spseam.vendored_dir(item)
+            problems = spseam.pin_problems(src, item) if src.is_dir() else [f"{src}: 写しのフォルダが無い"]
+            problems += [f"skills/{s}/SKILL.md: 借りる一覧に在るのに写しに無い" for s in item["skills"]
+                         if not (src / "skills" / s / "SKILL.md").is_file() and f"skills/{s}/SKILL.md" not in item["pin"].get("files", {})]
+            if problems:
+                bad.append(f"{name} の写し（{src}）が borrow.json の pin と合わない:\n" + "\n".join(f"  - {ln}" for ln in problems))
+                continue
+            chosen[name] = src
+            versions[name] = item["pin"]["version"]
+            continue
         key = f"{name}@{item['marketplace']}"
         row = _installed_row(plugins, key, cwd)
         if row is None:
@@ -249,6 +273,21 @@ def _sync(src: pathlib.Path, dest: pathlib.Path) -> bool:
     return True
 
 
+def _sync_file(src: pathlib.Path, dest: pathlib.Path) -> bool:
+    """1 本のファイル src を dest へ _sync と同じくバイトのまま・権限つきで写す（中身と実行の権限が同じなら何もしない）。一時の
+    ファイルに写してから入れ替える。変えたら真"""
+    if (dest.is_file() and not dest.is_symlink() and dest.read_bytes() == src.read_bytes()
+            and os.access(dest, os.X_OK) == os.access(src, os.X_OK)):
+        return False
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.parent / f".{dest.name}{TMP_MARK}{os.getpid()}"
+    shutil.copy2(src, tmp)
+    if dest.is_dir() and not dest.is_symlink():   # 同じ名のフォルダは os.replace で置き換えられない
+        shutil.rmtree(dest)
+    os.replace(tmp, dest)
+    return True
+
+
 def _alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -261,7 +300,10 @@ def _alive(pid: int) -> bool:
 
 def _clean_tmp(cfg: pathlib.Path) -> None:
     """落ちた install が残した一時の置き場（持ち主の pid がもう居ない物）だけを消す"""
-    for parent in (cfg / "skills", cfg / MP_DIR):
+    parents = [cfg / "skills", cfg / MP_DIR]
+    if (cfg / PARTS_DIR).is_dir() and not (cfg / PARTS_DIR).is_symlink():   # 部品の一時のファイルは写す先の隣に在る
+        parents += [pathlib.Path(here) for here, _, _ in os.walk(cfg / PARTS_DIR, followlinks=False)]
+    for parent in parents:
         if not parent.is_dir():
             continue
         for p in parent.iterdir():
@@ -270,7 +312,10 @@ def _clean_tmp(cfg: pathlib.Path) -> None:
             pid = p.name.rsplit(".", 1)[-1]
             if pid.isdigit() and _alive(int(pid)):
                 continue
-            shutil.rmtree(p, ignore_errors=True)
+            if p.is_dir() and not p.is_symlink():
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                p.unlink(missing_ok=True)
 
 
 _BAD = object()
@@ -306,6 +351,7 @@ def guard(config_dir: pathlib.Path, borrow: dict) -> list:
                 out.append(f"skills/{p.name}/" if p.is_dir() else f"skills/{p.name}")
     elif sk.exists():
         out.append("skills（フォルダでない）")
+    out += _foreign_parts(cfg, borrow)
     st = _read_json(cfg / "settings.json")
     if st is _BAD:
         out.append("settings.json（JSON の表として読めない）")
@@ -331,6 +377,26 @@ def guard(config_dir: pathlib.Path, borrow: dict) -> list:
         mcps = {n for n, i in borrow.items() if i["kind"] == "mcp"}
         out += [f"{MCP_FILE} の MCP {k}" for k in sorted(set(mf["mcpServers"]) - mcps)]
     return out
+
+
+def _foreign_parts(cfg: pathlib.Path, borrow: dict) -> list:
+    """works-parts/ の下の、borrow.json の parts の外のファイル（と symlink）を works-parts/<相対パス> で（パスの順）。
+    .DS_Store（IGNORED_IN_SKILLS）は数えない"""
+    root = cfg / PARTS_DIR
+    if root.is_symlink() or (root.exists() and not root.is_dir()):
+        return [f"{PARTS_DIR}（フォルダでない）"]
+    if not root.is_dir():
+        return []
+    allowed = {f"{n}/{rel}" for n, i in borrow.items() if i["kind"] == "skills" for rel in i.get("parts", [])}
+    out = []
+    for here, dirs, names in os.walk(root, followlinks=False):
+        for n in [*names, *(d for d in dirs if (pathlib.Path(here) / d).is_symlink())]:
+            p = pathlib.Path(here) / n
+            rel = p.relative_to(root).as_posix()
+            if n in IGNORED_IN_SKILLS or (rel in allowed and not p.is_symlink()):
+                continue
+            out.append(f"{PARTS_DIR}/{rel}")
+    return sorted(out)
 
 
 def _mcp_servers(chosen: dict, borrow: dict) -> dict:
@@ -403,8 +469,8 @@ def _install_plugins(cfg: pathlib.Path, srcs: dict, claude_bin: str) -> None:
 def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin, plugins: bool = True,
             versions: "dict | None" = None, enabled: "dict | None" = None) -> dict:
     """隔離した設定を組む。chosen・versions は installed_sources の返り（versions に無い名は置き場の名・plugin.json の version）。
-    enabled は 名 → source_enabled の値（渡された名だけ記録に source_enabled として載せる）。
-    返りと <置き場>/.works-toolset.json は {名: {version, source, sha256, loaded[, source_enabled]}}"""
+    enabled は 名 → source_enabled の値（渡された kind "plugin" の名だけ記録に source_enabled として載せる）。
+    返りと <置き場>/.works-toolset.json は {名: {version, source, sha256, loaded[, commit][, source_enabled]}}"""
     versions = versions or {}
     enabled_src = enabled or {}
     cfg = pathlib.Path(config_dir)
@@ -418,14 +484,28 @@ def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin,
         if item["kind"] != "skills":
             continue
         src = pathlib.Path(chosen[name])
+        # 無い物は何も写す前に名指す（スキルの SKILL.md と部品）
+        lack = [f"スキル {s}（{src / 'skills' / s}）" for s in item["skills"] if not (src / "skills" / s / "SKILL.md").is_file()]
+        lack += [f"部品 {rel}" for rel in item.get("parts", []) if not (src / rel).is_file()]
+        if lack:
+            raise ToolsetError(f"{name} の {'・'.join(lack)} が {src} に無い")
         trees = []
         for s in item["skills"]:
             d = src / "skills" / s
-            if not (d / "SKILL.md").is_file():
-                raise ToolsetError(f"{name} のスキル {s} が {d} に無い")
             _sync(d, cfg / "skills" / s)
             trees.append([s, _tree(d)])
-        rec[name] = {"version": versions.get(name) or src.name, "source": str(src), "sha256": _digest(trees), "loaded": True}
+        parts = {}
+        for rel in item.get("parts", []):
+            f = src / rel
+            _sync_file(f, cfg / PARTS_DIR / name / rel)
+            parts[rel] = (hashlib.sha256(f.read_bytes()).hexdigest(), os.access(f, os.X_OK))
+        if parts:
+            trees.append([PARTS_DIR, parts])
+        pin = item.get("pin") or {}
+        rec[name] = {"version": versions.get(name) or pin.get("version") or src.name, "source": str(src),
+                     "sha256": _digest(trees), "loaded": True}
+        if "commit" in pin:
+            rec[name]["commit"] = pin["commit"]
     srcs = {n: pathlib.Path(chosen[n]) for n, i in borrow.items() if i["kind"] == "plugin"}
     if plugins and srcs:
         if not claude_bin:
@@ -455,7 +535,8 @@ def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin,
     if bad:
         raise ToolsetError(_refusal(cfg, bad))
     for name in rec.keys() & enabled_src.keys():
-        rec[name]["source_enabled"] = enabled_src[name]
+        if borrow[name]["kind"] == "plugin":   # superpowers は写しから入れるので、利用者の側の有効・無効を載せない
+            rec[name]["source_enabled"] = enabled_src[name]
     _write_if_changed(cfg / RECORD, json.dumps(rec, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return rec
 
@@ -647,7 +728,7 @@ def main(argv: list) -> int:
             _check_user_config(user_cfg, cfg, src)
             chosen, versions = installed_sources(user_cfg, borrow, cwd=here)
             enabled = {n: source_enabled(user_cfg, f"{n}@{i['marketplace']}", here)
-                       for n, i in borrow.items() if i["kind"] in ("skills", "plugin")}
+                       for n, i in borrow.items() if i["kind"] == "plugin"}
             install(cfg, chosen, borrow, claude_bin=claude_bin, plugins=not no_plugins, versions=versions, enabled=enabled)
     except ToolsetError as e:
         print(f"toolset.py: {e}", file=sys.stderr)
