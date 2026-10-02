@@ -1129,6 +1129,25 @@ class TestFixPlanItemWholeItem(ReplanCase):
         self.assertEqual(list(hit[0]["excused"]), [CLAMP])
 
 
+    def test_revert_is_undone_when_the_reply_is_rejected(self):
+        """控えの clamp の直しを戻した後で返答が拒まれれば（開いていない unit_key）、作業ツリーの直しと控えの返答を戻す前の姿に
+        戻し、trace に戻した行を残さない（拒否では盤面を前のままにする）"""
+        accept_script_mod = accept_module()
+        self.SHARED_ITEM = True
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        b = entry.open_board(self.board, allow_halted=True)
+        before = b.work(conflict.PARKED_REPLY).read_bytes()
+        reply = only_clamp_reply()
+        reply["changes"][0] |= {"unit_key": "stats.py median: 判定に無い作り話の単位", "files": ["median.py"]}
+        got = self.accept_script(reply, pass_="ruled")
+        self.assertFalse(got["ok"], got)
+        self.assertIn("return hi", (self.repo / "stats.py").read_text(encoding="utf-8"), "拒否の後に clamp の直しを戻していない")
+        self.assertEqual(b.work(conflict.PARKED_REPLY).read_bytes(), before, "拒否の後に控えの返答を戻していない")
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        self.assertFalse([x for x in rows if x.get("op") == accept_script_mod.RULED_REVERTED_OP])
+
+
 def accept_module():
     """受け付けのスクリプト（blk-fix/scripts/accept.py。.shared/core の accept と名が重なるので別名で読む）"""
     import importlib.util
