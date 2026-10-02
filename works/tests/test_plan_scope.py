@@ -160,5 +160,43 @@ class FalseRejectCase(unittest.TestCase):
         self.assertEqual(note["unchecked"], ["docs/scope.md"])
 
 
+class LoopFrozenCase(unittest.TestCase):
+    """TDD の輪が凍らせたファイル（loop: パス → 凍った時の中身）。修正役に問うのは凍った後に変えた分だけ、欠けは版から見る"""
+    BASE = "class TestStats:\n    def test_a(self):\n        pass\n"
+    FROZEN = BASE + "    def test_new(self):\n        pass\n"
+
+    def test_untouched_frozen_file_not_charged(self):
+        it = item(tests=[{"id": "test_stats.py::TestStats::test_new"}])
+        ch = {**STATS, "test_stats.py": (self.BASE, self.FROZEN), "data.json": (None, "[]\n")}
+        loop = {"test_stats.py": self.FROZEN, "data.json": "[]\n"}
+        self.assertEqual(planscope.problems([it], [ROW], ch, loop=loop)[0], [])
+        got = planscope.problems([it], [ROW], ch)[0]
+        self.assertTrue(any("data.json" in p for p in got), "輪の無い run なら範囲の外")
+
+    def test_test_added_after_freeze_counts(self):
+        it = item(tests=[{"id": "test_stats.py::TestStats::test_new"}])
+        now = self.FROZEN + "    def test_after(self):\n        pass\n"
+        ch = {**STATS, "test_stats.py": (self.BASE, now)}
+        got = planscope.problems([it], [ROW], ch, loop={"test_stats.py": self.FROZEN}, permits=("test_stats.py",))[0]
+        self.assertTrue(any("test_after" in p for p in got), got)
+        self.assertFalse(any("test_new" in p for p in got), got)
+
+    def test_qualified_remove_sees_other_class(self):
+        """removes の Stats.median は、Legacy.median を消して Stats.median を残した差分を拒む（ast の名で見る）"""
+        base = "class Legacy:\n    def median(self):\n        pass\n\n\nclass Stats:\n    def median(self):\n        pass\n"
+        now = "class Legacy:\n    pass\n\n\nclass Stats:\n    def median(self):\n        pass\n"
+        ch = {"stats.py": (base, now)}
+        got = planscope.problems([item(removes=["Stats.median"])], [ROW], ch)[0]
+        self.assertTrue(any("Stats.median" in p for p in got), got)
+        self.assertEqual(planscope.problems([item(removes=["Legacy.median"])], [ROW], ch)[0], [])
+
+    def test_removed_call_with_kept_definition_remains(self):
+        """呼び出しの行だけを消して定義を残した差分は、消えていない"""
+        base = "def old_mean():\n    pass\n\n\nx = old_mean()\n"
+        now = "def old_mean():\n    pass\n\n\nx = 1\n"
+        got = planscope.problems([item(removes=["old_mean"])], [ROW], {"stats.py": (base, now)})[0]
+        self.assertTrue(any("old_mean" in p for p in got), got)
+
+
 if __name__ == "__main__":
     unittest.main()

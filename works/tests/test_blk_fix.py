@@ -1029,30 +1029,64 @@ class TestAccept(BoardCase):
         spec.loader.exec_module(acc)
         return acc
 
-    def test_tdd_written_files_not_charged_to_fixer(self):
-        """TDD の輪が書いて凍らせたファイル（tests に無いテスト・allowed_paths の外の補助のファイル）は、修正役が変えられない
-        ので照らさない（check_plan_scope に輪の状態を渡すと拒まない。渡さなければ同じ木を拒む）。輪の状態は凍結の印だけ
-        （実行器を走らせる受け付けの全部は test_blk_fix_tdd が見る）"""
+    def tdd_frozen(self, **over):
+        """TDD の輪が回った後の形: 項目は route tdd で tests が test_mean_of_two を名指す。輪が test_stats.py に
+        test_mean_of_two（tests に名指した物）と test_tdd_only（名指さない物）を足し、allowed_paths の外の補助のファイル
+        tdd_data.json を書いて凍らせた。返りは輪の状態のファイル（frozen と frozen_tree だけ）"""
         import tddloop
-        acc = self.accept_module("blk_fix_accept_tdd_scope")
-        self.scope_ready(["stats.py"])
+        self.scope_ready(["stats.py"], route="tdd", route_why="", tests=[PLAN_FIELDS[0]["tests"][0]], **over)
         path = self.repo / "test_stats.py"
         text = path.read_text(encoding="utf-8")
         head = "class TestStats(unittest.TestCase):\n"
         self.assertIn(head, text)
-        path.write_text(text.replace(head, head + "    def test_tdd_only(self):\n        self.assertTrue(True)\n"),
-                        encoding="utf-8")
+        path.write_text(text.replace(head, head + "    def test_mean_of_two(self):\n        self.assertEqual(mean([1, 3]), 2)\n\n"
+                                     "    def test_tdd_only(self):\n        self.assertTrue(True)\n\n"), encoding="utf-8")
         (self.repo / "tdd_data.json").write_text("[1, 2]\n", encoding="utf-8")
         state = self.tmp / "tdd-state.json"
         state.write_text(json.dumps({"frozen": tddloop.hashes(self.repo, ["test_stats.py", "tdd_data.json"]),
                                      "frozen_tree": tddloop.snapshot(self.repo)}), encoding="utf-8")
         self.edit_tree(FIXED)
+        return str(state)
+
+    def scope_of(self, state, name):
+        acc = self.accept_module(name)
         reply = load("fix2_ok")
-        keys = [c["unit_key"] for c in reply["changes"]]
-        got, note = acc.check_plan_scope(reply, keys, self.board, "", self.repo, str(state), "first")
+        return acc.check_plan_scope(reply, [c["unit_key"] for c in reply["changes"]], self.board, "", self.repo, state, "first")
+
+    def test_tdd_written_files_not_charged_to_fixer(self):
+        """TDD の輪が書いて凍らせ、その後に変わっていないファイル（tests の受け入れのテスト・tests に無いテスト・allowed_paths の
+        外の補助のファイル）は修正役に問わない。欠けの証拠（tests が修正の後の木に在るか）は版からの差分の全部で見る"""
+        state = self.tdd_frozen()
+        got, note = self.scope_of(state, "blk_fix_accept_tdd_scope")
         self.assertEqual((got, note["checked"]), ([], True))
-        got, _ = acc.check_plan_scope(reply, keys, self.board, "", self.repo, "", "first")
+        got, _ = self.scope_of("", "blk_fix_accept_tdd_scope_nostate")
         self.assertTrue(any("test_tdd_only" in p for p in got) and any("tdd_data.json" in p for p in got), got)
+
+    def test_test_added_after_freeze_above_rewrite_is_rejected(self):
+        """凍った後に修正役が rewrite_tests の関数の真上へ足した新しいテストは、凍結の検査を通っても tests に無いテストとして拒む
+        （凍ったファイルの新しいテストは凍った時の中身から数える）"""
+        rewrite = {"id": "test_stats.py::TestStats::test_mean_of_three", "behavior": "平均の定義が依頼で変わる",
+                   "old": "mean([1, 2, 3]), 2", "new": "新しい期待は 2.0（float で返す）", "limit": "test_stats.py:14"}
+        state = self.tdd_frozen(rewrite_tests=[rewrite])
+        path = self.repo / "test_stats.py"
+        text = path.read_text(encoding="utf-8")
+        target = "    def test_mean_of_three(self):\n"
+        self.assertIn(target, text)
+        path.write_text(text.replace(target, "    def test_sneak(self):\n        pass\n\n" + target), encoding="utf-8")
+        got, _ = self.scope_of(state, "blk_fix_accept_sneak")
+        self.assertTrue(any("test_stats.py::TestStats::test_sneak" in p and "tests にも無い" in p for p in got), got)
+        self.assertFalse(any("test_tdd_only" in p for p in got), got)
+
+    def test_tdd_state_reaches_scope_check_through_accept_fix(self):
+        """配線: 受け付けの本体（accept_fix）が輪の状態を照らしに渡し、TDD の項目を受ける（実行器は check_tests を mock にして
+        起こさない。test_blk_fix_conflict.TestFirstPassPlanLimits と同じ型）"""
+        state = self.tdd_frozen()
+        acc = self.accept_module("blk_fix_accept_tdd_wiring")
+        with mock.patch.object(acc, "check_tests", return_value=([], "")), \
+                mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": state, "INPUTS_PASS": "first"}):
+            got = acc.accept_fix(load("fix2_ok"), self.board, "", self.repo)
+        self.assertIs(got["ok"], True, got)
+        self.assertIs(self.scope_rows()[0]["checked"], True)
 
     def test_no_plan_traces_reason(self):
         """修正案の欄の控えが無い run は照らさずに受け、trace に checked: false と理由（NO_PLAN）を残す"""
