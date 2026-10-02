@@ -13,6 +13,7 @@
   1 行書く。テストの変更の許しの元（rewrites）と brief の切り出しは frozen で読み、今の周の印と控えが食い違えば（受け付けの後に
   書き換えた・消した）FieldsBroken。読む側が盤面を止める（黙って許しを広げない・黙って捨てない）。印の無い控えは無い物（None）
 - HEAD・REVIEW_HEAD・REVIEW_ASK・review_section(b): 修正案の役と事前審査の役の指示書の頭に足す文
+- climbs(norm): 整えたパスが根の外へ上るか（`..` は段で見る。conflict.parse_limit も同じ物を使う）
 
 写しの engine の型の検査と時刻（engine.schema・engine.util。L0 の写し）だけを使い、entry・conflict を import しない（conflict がこの模块を読むので、
 輪を作らない）。
@@ -106,7 +107,7 @@ def _parse_id(test_id):
     return path, names
 
 
-def _climbs(norm: str) -> bool:
+def climbs(norm: str) -> bool:
     """整えたパスが根そのもの・絶対パス・`..` の段で上る物か（`..` は段で見る。`..foo/x.py` は根の中のディレクトリ `..foo` の物）"""
     return norm.startswith("/") or norm == "." or norm.split("/", 1)[0] == ".."
 
@@ -115,7 +116,7 @@ def _resolve(repo: pathlib.Path, path: str):
     """根の中のファイルなら (作業ツリーの根からの相対の綴り, 実体)。根の外（絶対パス・`..` の段・根の外へのリンク）・無いなら
     None。根の外へのリンクは解いた実体の is_relative_to で見る"""
     norm = posixpath.normpath(path)
-    if _climbs(norm):
+    if climbs(norm):
         return None
     root = pathlib.Path(repo).resolve()
     real = (root / norm).resolve()
@@ -176,7 +177,7 @@ def _path_problem(repo: pathlib.Path, test_id: str) -> str | None:
         return None
     norm = posixpath.normpath(got[0])
     root = pathlib.Path(repo).resolve()
-    if _climbs(norm) or not (root / norm).resolve().is_relative_to(root):
+    if climbs(norm) or not (root / norm).resolve().is_relative_to(root):
         return "パスが作業ツリーの根からの相対でない（絶対パス・根の外を指す。/ で書いた根からの相対にせよ）"
     return None
 
@@ -357,8 +358,9 @@ def rewrites(b) -> list[dict]:
 
 
 def review_section(b) -> str:
-    """事前審査の役の指示書の頭に貼る節（"\\n\\n" で始まる）: 見る点の頼みと、項目ごとの欄の JSON。控えが無ければ空"""
-    fields = read(b)
+    """事前審査の役の指示書の頭に貼る節（"\\n\\n" で始まる）: 見る点の頼みと、項目ごとの欄の JSON。控えが無ければ空。
+    控えは frozen で読む（凍結の印と食い違えば FieldsBroken。読む側が盤面を止める）"""
+    fields = frozen(b)
     if fields is None:
         return ""
     rows = [f"### 修正案の項目 {n}\n\n```json\n{json.dumps(f, ensure_ascii=False, indent=1)}\n```" for n, f in enumerate(fields, 1)]

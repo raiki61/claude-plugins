@@ -1162,5 +1162,28 @@ class PlanFieldsSaveCase(unittest.TestCase):
         self.assertEqual(json.loads((self.board / planmarks.FIELDS_FILE).read_text(encoding="utf-8"))["round"], rnd)
 
 
+class PlanReviewFrozenFieldsCase(unittest.TestCase):
+    """事前審査の頭の欄の節（planmarks.review_section）も凍結の印と突き合わせて読み、食い違えば盤面を止める"""
+
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+        ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+
+    def test_tampered_fields_halt_plan_review_prep(self):
+        self.judged()
+        self.planned()
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["route"] = "direct"
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.ok("snap", role="plan-review")
+        rc, out, err = self.run_script("prep", role="plan-review", excluded_file="")
+        self.assertEqual(rc, 2, err)
+        self.assertIn(planmarks.FIELDS_FILE, err)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], planblk.STOP_BY)
+        self.assertIn(planmarks.FIELDS_FILE, after.state["stop"]["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()

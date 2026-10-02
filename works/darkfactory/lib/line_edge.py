@@ -685,6 +685,8 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     left = rejudge.unsettled(b)
     objection = "" if left["settled"] else left["text"]
     rows, rev, err, asks = _guard(b, repo)
+    if _stopped(b) and not _ended(b):   # 確かめが盤面を止めた（修正案の欄の控えの食い違い）: 答えが効かない関所は開かない
+        return {}
     guarded = bool(rows) or bool(err)
     # 申告と数え直しが合わない単位は、前は返答全体を拒んだ形なので関所を開ける。閉じていないだけの単位（修正役が remaining で
     # 残した）は前も通っていたので、見せるだけ
@@ -884,7 +886,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        stop・reject は b.stop(一言 か FINAL_GATE_STOP_NOTE, by=FINAL_GATE_BY)——周を締めた盤面では b.stop が拒むので、
        trace に STOP_AFTER_END_OP の 1 行（by FINAL_GATE_BY）を書いて stop。守りのファイルの行（h-final が書いた）にも答えを写す。
        gate が null（関所が開かなかった）なら守りのファイルと食い違いを確かめ直し（_guard。h-final が飛ばされた run でも行を書く）、
-       今の周の行が答えを待っていれば、止める（by PROTECTED_BY・conflict.BY）
+       今の周の行が答えを待っていれば、止める（by PROTECTED_BY・conflict.BY）。at final・eyes の確かめ（_guard）が盤面を止めた
+       （修正案の欄の控え plan-fields.json の食い違い。conflict.test_permits）なら、関所を開かず止め直さずに _halted_out
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
@@ -919,6 +922,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
                 return {**out, "stop": True, "why": reason}
     if at == "eyes" and gate is None:
         _guard(b, repo)   # h-final が飛ばされた（独立の目のブロックが落ちた）run では行がまだ無い
+        if _stopped(b) and not _ended(b):   # 確かめが盤面を止めた（修正案の欄の控えの食い違い）: 2 度止めず、その理由で止まる
+            return _halted_out(b, out, flag, at)
         guarded = _protected_row(b)
         if guarded is not None and guarded.get("answer") is None:   # 守りのファイルを触ったのに最後の関所が開かなかった
             reason = f"{PROTECTED_HEAD}のに最後の関所の答えが無い（関所が開かなかった）——通すのは人の continue だけ: {guarded.get('note')}"
@@ -966,5 +971,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
     if at == "mid":
         return {**out, "go": _fixed_by_role(b), "mid_note": MID_NOTE}
     if at == "final":
-        return {**out, **final_edge(b, repo, run_id=run_id, mode=mode, tests=tests)}
+        got = final_edge(b, repo, run_id=run_id, mode=mode, tests=tests)
+        if _stopped(b) and not _ended(b):   # final_edge の確かめ（_guard）が盤面を止めた: 関所を開かず、その理由で止まる
+            return _halted_out(b, out, flag, at)
+        return {**out, **got}
     return {**out, "go": GO_NODE[at] in b.ready()}

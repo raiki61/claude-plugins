@@ -416,7 +416,7 @@ def parse_limit(lim: str):
     根の外・根そのものを指す物は None"""
     m = CITE.match(lim.strip())
     path = posixpath.normpath(m["path"] if m else lim.strip())
-    if path.startswith(("/", "..")) or path == ".":
+    if planmarks.climbs(path):   # `..` は段で見る（`..foo/x.py` は根の中。planmarks.gaps が通す範囲を捨てない）
         return None
     return path, ((int(m["a"]), int(m["b"] or m["a"])) if m else None)
 

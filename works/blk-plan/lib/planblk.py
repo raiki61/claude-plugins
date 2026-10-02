@@ -202,8 +202,15 @@ def not_allowed(b, nid: str, reply) -> list[str]:
 
 def design_section(b) -> str:
     """事前審査の指示書の頭に貼る節: 独立設計の節（_design_part）と、修正案の項目の works の欄の節（planmarks.review_section。
-    控えが無ければ無し）"""
-    return _design_part(b) + planmarks.review_section(b)
+    控えが無ければ無し）。欄の控えが凍結の印と食い違えば盤面を止めて（by works:plan）控えを名指す理由の BoardGap"""
+    try:
+        fields = planmarks.review_section(b)
+    except planmarks.FieldsBroken as e:   # 受け付けの後に欄の控えを書き換えた: 書き換えた欄を審査に見せず、盤面を止める
+        why = f"修正案の項目の works の欄の控え {planmarks.FIELDS_FILE} が凍結と食い違う: {' '.join(str(e).split())}"
+        if not (b.state.get("halted") or b.state.get("stop")):
+            b.stop(why, by=STOP_BY)
+        raise BoardGap(why) from None
+    return _design_part(b) + fields
 
 
 def _design_part(b) -> str:

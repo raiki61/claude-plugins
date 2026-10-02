@@ -725,5 +725,53 @@ class TestRuledPrepBrief(ConflictBoardCase):
         self.assertIn(f"今は直すな: {MEAN}", row)
 
 
+class TestTamperedFieldsAtLineEdge(ConflictBoardCase):
+    """受け付けの後に plan-fields.json を書き換えた盤面を、線の境（h-final・h-eyes）の読むだけの確かめ（line_edge._guard）が
+    止めた時: 答えが効かない関所を開かず、2 度止めず、控えを名指す理由で止まる"""
+    REWRITE, fields_saved = TestPlanRewritePermits.REWRITE, TestPlanRewritePermits.fields_saved
+
+    def tampered(self):
+        self.fields_saved()
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["rewrite_tests"].append(dict(self.REWRITE, id="test_stats.py::TestStats::test_mean_of_two",
+                                                      limit="test_stats.py:11"))
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.edit_tree(MEAN_FIX)
+
+    def assert_halted_once(self, out):
+        import line_edge
+        self.assertTrue(out["stop"], out)
+        self.assertFalse(out.get("ask"), "答えが効かない関所を開かない")
+        self.assertIn(planmarks.FIELDS_FILE, out["why"])
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(b.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        stops = [x for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if '"op": "stop"' in x]
+        self.assertEqual(len(stops), 1, "2 度止めない")
+        self.assertFalse(b.work(line_edge.FINAL_GATE_FILE).exists())
+
+    def test_at_final_no_gate(self):
+        import line_edge
+        self.tampered()
+        out = line_edge.edge(self.board, "final", self.repo, run_id="run-12", adapter_mode="", final_gate="always",
+                             tests={"ok": True, "green": True})
+        self.assert_halted_once(out)
+
+    def test_at_eyes_without_final_no_second_stop(self):
+        """h-final が飛ばされた run の h-eyes（関所の答えが無い）"""
+        import line_edge
+        self.tampered()
+        out = line_edge.edge(self.board, "eyes", self.repo, run_id="run-12", adapter_mode="", final_gate="when_needed")
+        self.assert_halted_once(out)
+
+
+class TestParseLimitDots(unittest.TestCase):
+    def test_dotdot_prefixed_dir_kept_and_climb_dropped(self):
+        """`..foo/x.py` は根の中のディレクトリ `..foo` の物（planmarks.gaps が通す範囲を受け付けで捨てない）。`../` の上りは今どおり捨てる"""
+        self.assertEqual(conflict.parse_limit("..foo/x.py:3"), ("..foo/x.py", (3, 3)))
+        self.assertIsNone(conflict.parse_limit("../x.py:3"))
+        self.assertIsNone(conflict.parse_limit("/x.py:3"))
+
+
 if __name__ == "__main__":
     unittest.main()
