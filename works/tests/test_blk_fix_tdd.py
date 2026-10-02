@@ -635,6 +635,22 @@ class TestPlanContract(ContractCase):
             self.assertIn(w, got["reason"])
         self.assertEqual(self.st()["phase"], "test")
 
+    def test_crash_red_with_assertion_plan_passes_and_is_recorded(self):
+        """今のコードが例外で落ちる種類のバグ（ZeroDivisionError）は、案が assertion でも拒まず種類を記録する"""
+        self.route()
+        self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(mean([5]), 5)\n")
+        got = self.wrong_kind()
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.st()["units"][MEAN]["red_kinds"], {MEAN_ID: "ZeroDivisionError"})
+
+    def test_name_error_red_with_assertion_plan_rejected(self):
+        self.route()
+        self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(mean_of([2, 4]), 3)\n")
+        got = self.wrong_kind()
+        self.assertFalse(got["ok"])
+        for w in ("NameError", "assertion", "conflict"):
+            self.assertIn(w, got["reason"])
+
     def test_wrong_kind_three_times_gives_up_to_direct(self):
         self.route()
         head = (self.repo / "test_stats.py").read_text(encoding="utf-8")
@@ -710,6 +726,36 @@ class TestRedKind(unittest.TestCase):
         self.assertEqual(k("org.opentest4j.AssertionFailedError", "expected: <1>"), "assertion")
         self.assertEqual(k("", ""), tddloop.KIND_UNKNOWN)
         self.assertEqual(k("", "3.0 != 2"), tddloop.KIND_UNKNOWN)
+
+    def test_kinds_custom_assertion_and_junit5_not_thrown(self):
+        """名前が AssertionError で終わる型（自前の子の型）は assertion。JUnit 5 の『to be thrown, but nothing was thrown』は exception"""
+        def k(t, m):
+            return tddloop.red_kind({"fail_type": t, "fail_message": m})
+        self.assertEqual(k("", "MyAssertionError: 3.0 != 2"), "assertion")
+        self.assertEqual(k("pkg.CustomAssertionError", "m"), "assertion")
+        self.assertEqual(k("org.opentest4j.AssertionFailedError",
+                           "Expected java.lang.IllegalArgumentException to be thrown, but nothing was thrown."), "exception")
+
+    def test_kind_rule(self):
+        """赤の種類の照らし（_kind_problems）: 拒むのは名前・import の失敗の 4 つの型と、exception の案に断言の失敗だけ。
+        ほかの例外の型（落ちる種類のバグ）は記録だけで拒まない。案の red_kind が RED_KINDS の外なら見ない"""
+        def probs(declared, msg):
+            case = {"classname": "test_stats.TestStats", "name": "test_mean_of_two", "outcome": "failure",
+                    "fail_type": "", "fail_message": msg}
+            return tddloop._kind_problems([{"id": MEAN_ID, "red_kind": declared}], [case])
+        self.assertEqual(probs("assertion", "ZeroDivisionError: division by zero"), [])
+        self.assertEqual(probs("assertion", "Failed: DID NOT RAISE ValueError"), [])
+        for name in ("NameError", "AttributeError", "ImportError", "ModuleNotFoundError"):
+            got = probs("assertion", f"{name}: x")
+            self.assertEqual(len(got), 1, name)
+            self.assertIn(name, got[0])
+            self.assertIn("conflict", got[0])
+            self.assertTrue(probs("exception", f"{name}: x"), name)
+        self.assertEqual(probs("exception", "Failed: DID NOT RAISE ValueError"), [])
+        self.assertEqual(probs("exception", "TypeError: bad operand"), [])
+        self.assertTrue(probs("exception", "AssertionError: 3.0 != 2"))
+        self.assertEqual(probs(None, "NameError: name 'f' is not defined"), [])
+        self.assertEqual(probs("weird", "NameError: name 'f' is not defined"), [])
 
     def test_run_suite_rows_carry_failure_attrs(self):
         """run_suite の結末の行に failure の子の type・message（無ければ空）"""

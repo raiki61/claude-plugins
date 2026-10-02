@@ -13,7 +13,8 @@
     tdd か direct（理由 10 字以上）に振る。約束で tdd の単位は direct に振れない（出口は phase conflict の申し出）
   - test: 申告したテストのファイルの外に触れていない・写しの red_problems（名指しは failure で落ち、元で通っていた物は緑）。
     約束の在る単位は、受け入れのテストの id を全部名指し（走らせる前に見る）、各テストの赤の種類（red_kind。JUnit の failure の
-    type・message から機械が分ける）が案の red_kind と合う（分からない unknown は通す）。direct_why でも direct に渡せない。
+    type・message から機械が分ける）が名前・import の失敗でなく、案が exception なら断言の失敗でない（_kind_problems。ほかの
+    例外の型・unknown は記録だけ）。direct_why でも direct に渡せない。
     名指し全部の赤の種類を単位の red_kinds に残す
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
@@ -198,15 +199,17 @@ def _failure_attrs(text: str) -> dict:
 
 
 KIND_UNKNOWN = "unknown"   # 実行器が failure に type も message も書かない（試験の SUITE・pytest でない JUnit）。拒まず記録だけ
-_ASSERT_NAMES = ("AssertionError", "AssertionFailedError", "ComparisonFailure", "Failed")
-_NOT_RAISED = re.compile(r"DID NOT RAISE|\bnot raised\b")
+_ASSERT_NAMES = ("AssertionFailedError", "ComparisonFailure", "Failed")   # ほかに名前が AssertionError で終わる型（自前の子の型も）
+_NOT_RAISED = re.compile(r"DID NOT RAISE|\bnot raised\b|to be thrown, but nothing was thrown")   # 最後は JUnit 5 の assertThrows
+NAME_KINDS = ("NameError", "AttributeError", "ImportError", "ModuleNotFoundError")   # 名前・import の失敗（機能が無い・綴りの誤り）
 _HEAD_NAME = re.compile(r"^([A-Za-z_][\w.]*)(?::|$)")
 
 
 def red_kind(case: dict) -> str:
     """結末の 1 行の赤の種類（上から先に当たった物）: type も message も空なら unknown／期待した例外が出ない（DID NOT RAISE・
-    not raised）なら exception／message が assert で始まるか、例外の名前（type の最後の . の後。type が空なら message の頭の
-    『名前:』）が断言の失敗の型なら assertion／ほかは例外の名前（NameError など。名前も無ければ unknown）"""
+    not raised・JUnit 5 の to be thrown, but nothing was thrown）なら exception／message が assert で始まるか、例外の名前（type の
+    最後の . の後。type が空なら message の頭の『名前:』）が断言の失敗の型（名前が AssertionError で終わる型を含む）なら
+    assertion／ほかは例外の名前（NameError など。名前も無ければ unknown）"""
     typ = (case.get("fail_type") or "").strip()
     msg = (case.get("fail_message") or "").strip()
     if not typ and not msg:
@@ -215,7 +218,7 @@ def red_kind(case: dict) -> str:
         return "exception"
     m = _HEAD_NAME.match(msg) if not typ else None
     name = (typ or (m.group(1) if m else "")).rsplit(".", 1)[-1]
-    if msg.startswith("assert") or name in _ASSERT_NAMES:
+    if msg.startswith("assert") or name.endswith("AssertionError") or name in _ASSERT_NAMES:
         return "assertion"
     return name or KIND_UNKNOWN
 
@@ -512,8 +515,9 @@ def _route(st, reply, repo) -> list:
             errs.append(f"'{r.get('unit_key')}' の route は tdd か direct（{r.get('route')!r}）")
         elif r["route"] == "direct" and _blank(r.get("why")):
             errs.append(f"'{r.get('unit_key')}' は direct なのに、先にテストを書けない理由（why。{MIN_WHY} 字以上）が無い")
-        if r.get("route") == "direct" and _plan_tdd(st, r["unit_key"]):
-            errs.append(_plan_tdd(st, r["unit_key"]))
+        bound = _plan_tdd(st, r["unit_key"]) if r.get("route") == "direct" else ""
+        if bound:
+            errs.append(bound)
     if errs:
         return errs
     st["order"] = keys
@@ -546,13 +550,24 @@ def _plan_tests(st, k) -> list:
 
 
 def _kind_problems(want: list, cases: list) -> list:
-    """約束の各テストの赤の種類（red_kind）が案と違う物の文。分からない（unknown）は通す"""
+    """約束の各テストの赤の種類（red_kind）を照らし、拒む物の文。拒むのは次の 2 つだけ（superpowers の TDD の『error でなく
+    fail で落とす』）:
+    - 名前・import の失敗（NAME_KINDS。機能が無い・綴りの誤り）。案が assertion でも exception でも
+    - 案が exception（期待した例外が出ない）なのに断言の失敗で落ちた
+    ほかの例外の型（今のコードが例外で落ちる種類のバグ）と、案が assertion で期待した例外が出ない赤は、記録だけで通す。
+    分からない（unknown）は通す。案の red_kind が planmarks.RED_KINDS の外（None など）なら見ない"""
     out = []
     for t in want:
+        want_kind = t.get("red_kind")
+        if want_kind not in planmarks.RED_KINDS:
+            continue
         c = rules().match_case(t["id"], cases)
         got = red_kind(c) if c else KIND_UNKNOWN
-        if got not in (KIND_UNKNOWN, t["red_kind"]):
-            out.append(f"{t['id']}: 赤の種類が案と違う（案 {t['red_kind']}・実際 {got}）——名前・import・型の失敗は狙いの赤でない。"
+        if got in NAME_KINDS:
+            out.append(f"{t['id']}: 赤の種類が案と違う（案 {want_kind}・実際 {got}）——名前・import の失敗は狙いの赤でない"
+                       "（機能が無い・綴りの誤り）。テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
+        elif want_kind == "exception" and got == "assertion":
+            out.append(f"{t['id']}: 赤の種類が案と違う（案 {want_kind}・実際 {got}）——案は期待した例外が出ない赤。"
                        "テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
     return out
 

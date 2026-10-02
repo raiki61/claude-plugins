@@ -528,6 +528,20 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.fix_ready()
         self.assertIsNone(conflict.ruled_test_doc(entry.open_board(self.board)))
 
+    def test_tdd_plan_contract_reads_saved_fields_on_real_board(self):
+        """本物の盤面と受け付けが置いた欄の控え（凍結の印つき）から、TDD の輪の約束（tddloop.plan_contract）が
+        planmarks.unit_contract の形で組める。約束の無い単位は載らない"""
+        import tddloop
+        self.fix_ready()
+        b = entry.open_board(self.board)
+        test = {"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "2 つの値の平均を返す",
+                "path": "stats.mean を直に呼ぶ（mock なし）", "red_kind": "assertion", "red_why": "今は len-1 で割り 6.0 になる"}
+        planmarks.save(self.board, b.round, [{"unit_keys": [MEAN], "route": "tdd", "route_why": "", "tests": [test],
+                                               "rewrite_tests": [self.REWRITE], "refactor": {"declared": False, "why": ""}}])
+        self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]),
+                         {MEAN: {"items": [1], "route": "tdd", "tests": [{"id": test["id"], "red_kind": "assertion"}],
+                                 "rewrites": [self.REWRITE["id"]], "refactor": False}})
+
     def test_frozen_fields_halts_on_broken_ledger(self):
         """conflict.frozen_fields は凍結した欄の並び（planmarks.frozen）。控えが受け付けの後に書き換えられたら、_plan_rewrites と
         同じ 1 か所の文（FIELDS_BROKEN で始まる）で盤面を止めて BoardGap"""
