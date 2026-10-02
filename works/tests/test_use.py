@@ -1512,10 +1512,15 @@ class UseShell(unittest.TestCase):
         (copy / ".in_use").mkdir()
         (copy / ".in_use" / "4242").write_text("{}")
         (copy / ".orphaned_at").write_text("1790054446372")
-        # 写しの borrow.json だけ借りるスキルを 1 本減らす（元の works を読めば 1 本多く写り、見分けられる）
+        # 写しの borrow.json だけ借りるスキルを 1 本減らす（元の works を読めば 1 本多く写り、見分けられる）。superpowers は
+        # pack の写し（.shared/borrow/superpowers/<版>/）から入れるので、外したスキルの pin.files の行と写しのフォルダも消す
         borrow = copy / ".shared" / "borrow" / "borrow.json"
         doc = json.loads(borrow.read_text())
+        dropped = doc["superpowers"]["skills"][-1]
         self.copy_skills = doc["superpowers"]["skills"] = doc["superpowers"]["skills"][:-1]
+        pin = doc["superpowers"]["pin"]
+        pin["files"] = {r: h for r, h in pin["files"].items() if not r.startswith(f"skills/{dropped}/")}
+        shutil.rmtree(copy / ".shared" / "borrow" / "superpowers" / pin["version"] / "skills" / dropped)
         borrow.write_text(json.dumps(doc))
         user_cfg = make_user_config(self.tmp / "user-claude-config")
         sha = re.search(r'^ARCHON_SHA256="([0-9a-f]{64})"', (copy / "dev" / "archon.sh").read_text(), re.M).group(1)

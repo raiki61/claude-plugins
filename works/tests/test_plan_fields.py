@@ -317,5 +317,29 @@ class UnitContractCase(unittest.TestCase):
         self.assertEqual(planmarks.unit_contract(fields, MEAN)["tests"], [{"id": self.T1["id"], "red_kind": "assertion"}])
 
 
+class TestLineScenarioPlans(PlanFieldsCase):
+    """線を本物のスクリプトで回す筋書き（test_script_contract。遅い段）の修正案の役の返答が、blk-plan の受け付けの gaps を通る。
+    欄の欠けた返答を渡すと 3 回とも拒まれて盤面が止まり（by works:plan）、fixed・stopped_by_human を待つ筋書きが全部
+    stopped_by_line で終わる（依頼 217 の後に起きた）。それを筋書きを回さずに見る（筋書きの組を作るだけ。盤面・git・子のプロセスなし）"""
+
+    def test_scenario_plan_replies_pass_gaps(self):
+        tests = str(ROOT / "tests")
+        if tests not in sys.path:
+            sys.path.insert(0, tests)
+        import test_script_contract as SC
+        seen = 0
+        for name, kw in SC.scenarios(self.tmp).items():
+            for key in ("plan", "blk-plan/plan"):
+                got = (kw.get("replies") or {}).get(key)
+                for attempt in (1, 2, 3):
+                    reply = got(attempt) if callable(got) else got
+                    if not (isinstance(reply, dict) and reply.get("plan")):
+                        continue   # 諦めの筋書きの空の返答（拒ませる物）
+                    seen += 1
+                    with self.subTest(f"{name}/{key}/{attempt}"):
+                        self.assertEqual(planmarks.gaps(reply, self.repo), [])
+        self.assertGreater(seen, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
