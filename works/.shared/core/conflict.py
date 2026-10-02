@@ -66,7 +66,6 @@ KIND_FIELD = "kind"                      # 申し出の種類の欄（食い違�
 FIELDS = ("unit_key", "between", "why_both_cannot_hold", "which_is_right", KIND_FIELD)
 CORRECT = "correct_lines"               # which_is_right: query の時だけ要る欄（直した後の正しい行の写し）
 QUERY = "query"                         # 判定者の class_query が直した後の正しい形にも当たる
-WHICH = ("request", "test", "code", "unknown", QUERY)
 REPLACE = "replace_query"               # 問いを置き換える裁定（新しい問いを hits・misses と申し出の correct_lines で試す）
 ASK = "ask_human"
 DECISIONS = ("fix_test_scope", "fix_code_as", ASK, REPLACE)
@@ -83,6 +82,7 @@ QUERY_HITS_FIXED = "query_hits_fixed"       # 判定の問いが直した後の�
 NEEDS_CONTEXT = "needs_context"             # 材料から決められず人か依頼の答えが要る（which_is_right unknown と対）
 DIV_KINDS = (BRIEF_VS_JUDGMENT, UNNAMED_TEST_BROKE, NOT_RED, SCOPE_NEEDED, QUERY_HITS_FIXED, NEEDS_CONTEXT)
 UNKNOWN = "unknown"                     # which_is_right: どれが正しいか決められない（needs_context の対）
+WHICH = ("request", "test", "code", UNKNOWN, QUERY)
 UNSET = "unset"                         # kind_counts の鍵: kind の無い前の形の行
 WORD = "divergence"                     # superpowers の状態の語を読み替える works の語（216 の seams.json の words と同じ綴り）
 KIND = "conflict"                       # process.human_items の行の kinds（申し出の種類 KIND_FIELD とは別物）
@@ -208,17 +208,18 @@ def _correct_problem(it, try_query) -> str:
     return try_query(it["unit_key"], lines) if try_query else ""
 
 
-def _kind_problem(it) -> str:
-    """種類の欄 kind の確かめ（通れば空）: DIV_KINDS のどれかで、query_hits_fixed ⇔ which_is_right query、needs_context なら
-    which_is_right unknown。外れの文は両方の欄を名指す（修正役の受け付けと TDD の輪が同じ文を返す）"""
+def _kind_problem(it, at) -> str:
+    """種類の欄 kind の確かめ（通れば空。外れなら at を頭に入れた仕上がりの文）: DIV_KINDS のどれかで、query_hits_fixed ⇔
+    which_is_right query、needs_context なら which_is_right unknown。外れの文は両方の欄を名指す（修正役の受け付けと TDD の輪が
+    同じ文を返す）"""
     kind, which = it.get(KIND_FIELD), it.get("which_is_right")
     if kind not in DIV_KINDS:
-        return f"{KIND_FIELD} は {' / '.join(DIV_KINDS)} のどれか（{kind!r}）"
+        return f"{at} の {KIND_FIELD} は {' / '.join(DIV_KINDS)} のどれか（{kind!r}）"
     if (kind == QUERY_HITS_FIXED) != (which == QUERY):
-        return (f"{KIND_FIELD} {QUERY_HITS_FIXED} と which_is_right {QUERY} は対で書く"
+        return (f"{at}: {KIND_FIELD} {QUERY_HITS_FIXED} と which_is_right {QUERY} は対で書く"
                 f"（{KIND_FIELD} {kind}・which_is_right {which}）")
     if kind == NEEDS_CONTEXT and which != UNKNOWN:
-        return f"{KIND_FIELD} {NEEDS_CONTEXT} の which_is_right は {UNKNOWN}（{KIND_FIELD} {kind}・which_is_right {which}）"
+        return f"{at}: {KIND_FIELD} {NEEDS_CONTEXT} の which_is_right は {UNKNOWN}（{KIND_FIELD} {kind}・which_is_right {which}）"
     return ""
 
 
@@ -248,9 +249,9 @@ def problems(items, *, repo, board_dir, owed, try_query=None) -> list:
             bad = _correct_problem(it, try_query)
             if bad:
                 out.append(f"{at}: {bad}")
-        bad = _kind_problem(it)
+        bad = _kind_problem(it, at)
         if bad:
-            out.append(f"{at} の {bad}" if bad.startswith(f"{KIND_FIELD} は ") else f"{at}: {bad}")
+            out.append(bad)
         cites = it["between"]
         if not isinstance(cites, list) or len(cites) < MIN_CITES:
             out.append(f"{at} の between は食い違う所を {MIN_CITES} つ以上（依頼の行・テストのファイル:行・コードのファイル:行）")
@@ -339,7 +340,8 @@ def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
     doc = _load(b)
     ids = []
     for it in rows:
-        body = {k: it.get(k) for k in FIELDS}
+        # 前からの 4 つの欄は必ず在る（受け付けと機械の申し出が確かめてから積む）。kind だけは前の形の行に無いことがある
+        body = {**{k: it[k] for k in FIELDS if k != KIND_FIELD}, KIND_FIELD: it.get(KIND_FIELD)}
         same = next((r for r in doc["items"] if {k: r.get(k) for k in FIELDS} == body), None)
         if same is not None:
             ids.append(same["id"])

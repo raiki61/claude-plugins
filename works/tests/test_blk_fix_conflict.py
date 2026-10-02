@@ -495,6 +495,7 @@ class TestYaml(unittest.TestCase):
         self.assertIn("conflict", tdd["output_format"]["properties"]["phase"]["enum"])
         for k in ("between", "why_both_cannot_hold", "which_is_right", "kind"):
             self.assertIn(k, tdd["output_format"]["properties"])
+        self.assertEqual(tdd["output_format"]["properties"]["kind"]["enum"], list(conflict.DIV_KINDS))
 
     def test_after_the_loops_read_the_later_output(self):
         y = block()
