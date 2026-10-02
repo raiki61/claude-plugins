@@ -1,7 +1,7 @@
 {
  "graphloops_rev": "a1202d0",
  "graph_sha": "f9897bb07384",
- "made_at": "2026-09-26T17:18:23+00:00",
+ "made_at": "2026-10-02T13:26:36+00:00",
  "git_env": {
   "GIT_AUTHOR_NAME": "t",
   "GIT_AUTHOR_EMAIL": "t@t",
@@ -139,16 +139,16 @@
      "init_rejected": false,
      "graph_sha": "f9897bb07384",
      "last": {
-      "memory": "048f02ceb103ba7aaa7845ea02f05d67da8824209acad5c2118f4047b0957ab4",
-      "disk": "edcc96f637ae05d81b0ba4ec8c9cd7319c46d235adfb90f1218d700374031449",
-      "repo": "d0eb5cf3bec84276c7220644113fc36c1bc13fb2968c5d07c728e1974e01b888"
+      "memory": "41f53ca849d17d87bc14a41f0397e20f2e01c3bff741af22a8cec0571a75d198",
+      "disk": "23835d1121fd01feb16a82ea6a932b45d4d187c22cdf5aac5a4f43e95170731c",
+      "repo": "1e16623b48105b15b873aaee99d4ebf3bb989efb3d1f6b785f9feb5f66afe181"
      },
      "final": {
-      "memory": "048f02ceb103ba7aaa7845ea02f05d67da8824209acad5c2118f4047b0957ab4",
-      "disk": "edcc96f637ae05d81b0ba4ec8c9cd7319c46d235adfb90f1218d700374031449",
-      "repo": "5ebbce390baa1b0e46b415885cb081b9cb3e0a1f477bec03217bab944c9ca981"
+      "memory": "41f53ca849d17d87bc14a41f0397e20f2e01c3bff741af22a8cec0571a75d198",
+      "disk": "23835d1121fd01feb16a82ea6a932b45d4d187c22cdf5aac5a4f43e95170731c",
+      "repo": "1e16623b48105b15b873aaee99d4ebf3bb989efb3d1f6b785f9feb5f66afe181"
      },
-     "bytes": 49237
+     "bytes": 48948
     },
     "2": {
      "dir": "gl-review-neg-nodecl-*/state",
@@ -159,17 +159,17 @@
      "init_rejected": false,
      "graph_sha": "f9897bb07384",
      "last": {
-      "memory": "57981657c566b90d0bf817f82378be49a244f2a7f44554a5bf71bc3d1d5a7f49",
+      "memory": "dc022dcec9c5b1a97590a101b20842543362c26ddb6d38664e21a53108d0a810",
       "disk": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-      "repo": "8126f25fc4c1616ab66ec8097b74153f0e83eaf740ec9d7085ef524a3ab01e93"
+      "repo": "53736c509a69ca5381f3b1a85e9f0f16cf85d191a1a482fdcffba329387a2ba5"
      },
      "final": {
-      "memory": "9a566fd8531084bc64bb4188889795096501c93c580963e4ce7ddc5a01a61213",
+      "memory": "c163c6e6cf5f32dbcf1d93be9e841b47259cc77690787af53d2a0467eff3c812",
       "disk": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-      "repo": "8126f25fc4c1616ab66ec8097b74153f0e83eaf740ec9d7085ef524a3ab01e93"
+      "repo": "53736c509a69ca5381f3b1a85e9f0f16cf85d191a1a482fdcffba329387a2ba5"
      },
      "init_only": "宣言の無いリポジトリの最初の next が p0.local_checks を任せ先に落とした ready だけを見る（その next の中に機械の節も条件の na も無い）",
-     "bytes": 6577
+     "bytes": 6584
     }
    },
    "simulator": {
@@ -479,16 +479,16 @@
      "init_rejected": false,
      "graph_sha": "f9897bb07384",
      "last": {
-      "memory": "22bfc41847cbea6e74d47256722d014adafcf2607c4b902fd194a4e722860245",
-      "disk": "bac6c8228713184dd6a574a0301b914db8f6d8f6ca23249da8ceb3aea77f4b08",
-      "repo": "ac01b53b198398d425a14173ff1262f16a56fd7847f7648a7f326f8313d18a01"
+      "memory": "438643a7874d6bd7049920c0d9bcec5e7d6e9c3470949a21c921a8afd66116a7",
+      "disk": "a44c20908f8ea8d6e950a85704797a1f12fc25df3a3f65cd69a3ba341eebcbc9",
+      "repo": "f981f94340555ba093509fa8f9d3adc9c692647b154cd8b30e35b2bc945a52cd"
      },
      "final": {
-      "memory": "22bfc41847cbea6e74d47256722d014adafcf2607c4b902fd194a4e722860245",
-      "disk": "bac6c8228713184dd6a574a0301b914db8f6d8f6ca23249da8ceb3aea77f4b08",
-      "repo": "ac01b53b198398d425a14173ff1262f16a56fd7847f7648a7f326f8313d18a01"
+      "memory": "438643a7874d6bd7049920c0d9bcec5e7d6e9c3470949a21c921a8afd66116a7",
+      "disk": "a44c20908f8ea8d6e950a85704797a1f12fc25df3a3f65cd69a3ba341eebcbc9",
+      "repo": "f981f94340555ba093509fa8f9d3adc9c692647b154cd8b30e35b2bc945a52cd"
      },
-     "bytes": 93738
+     "bytes": 93873
     }
    },
    "simulator": {
@@ -1019,7 +1019,7 @@
  "uncovered": [
   "p0.parallel_pr"
  ],
- "total_bytes": 1583564,
+ "total_bytes": 1583029,
  "simulator": {
   "checks": 255,
   "failed": []

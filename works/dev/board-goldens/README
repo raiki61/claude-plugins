@@ -11,6 +11,8 @@
 
 何をするか:
 - --graphloops-rev の版のリポジトリを git archive で使い捨ての場所に書き出す（台本 graphloops/tests/simulate_review.py は写しに無いため）。
+  書き出しには写しの台帳 works/.shared/core/COPIED_FROM の手直し（! 行）を当てる（手本は works が走らせる写しと同じ engine の
+  手。! 行で engine の振る舞いを変えたら、変わる場面を撮り直す）。
 - 台本を同じプロセスで import し、場面の関数を 1 つずつ呼ぶ（台本の main() は使わない）。実物の claude を起こしたら
   印を書いて 97 で落ちる偽の claude を PATH の頭に置き、CLAUDE_CONFIG_DIR を空の置き場に向ける（入れた plugin を引かせない）。
 - 子の loop.py に PYTHONPATH=このフォルダ を渡し、sitecustomize.py が engine の中で手の前後を撮る（包み方は sitecustomize.py の頭）。
