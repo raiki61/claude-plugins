@@ -181,5 +181,46 @@ class BriefCase(tbf.BoardCase):
         self.assert_broken("ディレクトリ")
 
 
+class BriefFreezeEdgeCase(tbf.BoardCase):
+    """凍結の端: 欄の控え plan-fields.json の書き換え・cut の外で置いた控え・控えの一時ファイルのリンク"""
+    ready = BriefCase.ready
+
+    def test_fields_rewritten_before_first_cut_is_broken(self):
+        """受け付けの後（1 回目の cut の前）に plan-fields.json を書き換えた盤面は brief を切らず LedgerBroken（控えを名指す）"""
+        b = self.ready()
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["route"] = "direct"
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(planbrief.LedgerBroken, planmarks.FIELDS_FILE):
+            planbrief.cut(entry.open_board(self.board))
+        self.assertFalse((self.board / f"r{b.round}" / planbrief.LEDGER).exists())
+
+    def test_unmarked_ledger_before_first_cut_is_broken(self):
+        """1 回目の cut の前に置かれた控え（行の text と sha256 は揃っているが、切った印が無い）を正本にしない"""
+        b = self.ready()
+        text = "# 要求の正本: cut の外で書いた brief\n"
+        ledger = self.board / f"r{b.round}" / planbrief.LEDGER
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.write_text(json.dumps({"briefs": [{"item": 1, "unit_keys": [tbf.MEAN], "file": "brief-1.md", "text": text,
+                                                  "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}]},
+                                     ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(planbrief.LedgerBroken, "印が無い"):
+            planbrief.cut(entry.open_board(self.board))
+
+    def test_ledger_tmp_symlink_is_not_written_through(self):
+        """控えの一時ファイル（briefs.json.tmp）の置き場に先にリンクが在っても、リンクの先へ書かない"""
+        b = self.ready()
+        box = self.board / f"r{b.round}"
+        box.mkdir(parents=True, exist_ok=True)
+        outside = self.tmp / "outside.json"
+        outside.write_text("外のファイル", encoding="utf-8")
+        os.symlink(outside, box / (planbrief.LEDGER + ".tmp"))
+        rows = planbrief.cut(entry.open_board(self.board))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(outside.read_text(encoding="utf-8"), "外のファイル")
+        self.assertFalse((box / planbrief.LEDGER).is_symlink())
+
+
 if __name__ == "__main__":
     unittest.main()

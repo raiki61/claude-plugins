@@ -573,6 +573,28 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=tddloop.frozen_source(str(no_tree), self.repo)), [],
                          "輪の後の木が無ければ引けないので捨てる")
 
+    def test_fields_rewritten_after_accept_halt_the_frozen_check(self):
+        """受け付けの後に plan-fields.json へ rewrite_tests の行を足しても、凍結の検査はその許しを使わず、盤面を止めて
+        plan-fields.json を名指す 1 行で 2（黙って許しを広げない・黙って捨てない）"""
+        _, state = self.frozen_after_test_added_above()
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["rewrite_tests"].append(dict(self.REWRITE, id="test_stats.py::TestStats::test_empty",
+                                                      limit="test_stats.py:4"))
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("clamp(0, 0, 0), 0)", "clamp(0, 0, 0), 1)"), encoding="utf-8")
+        env = {"INPUTS_REPLY": json.dumps(load("fix2_ok"), ensure_ascii=False), "INPUTS_BASE_REV": "", "INPUTS_TDD_STATE": state,
+               "INPUTS_ITERATION": "1", "INPUTS_PASS": "first", "ARTIFACTS_DIR": str(self.art),
+               "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]}
+        code, out, err = run_script("accept", self.repo, env)
+        self.assertEqual((code, out), (2, ""), err)
+        self.assertIn(planmarks.FIELDS_FILE, err)
+        self.assertNotIn("Traceback", err)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        self.assertIn(planmarks.FIELDS_FILE, after.state["stop"]["reason"])
+
     def test_same_file_by_plan_and_ruling_lists_both_reasons_at_final_gate(self):
         """修正案と裁定 fix_test_scope が同じテストのファイルを許すと、最後の関所のその 1 行に両方の理由が並ぶ"""
         import line_edge

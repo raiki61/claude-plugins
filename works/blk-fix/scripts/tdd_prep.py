@@ -9,6 +9,7 @@ INPUTS_NOTES_FILE（空でよい）。修正の決まりの正本・TDD の決�
 next.md（full の写し）と隣の 2 つの形に書き、{"prompt_file"} を 1 行出して 0。役はそのパスを Read する（理由の本文を
 $LOOP_PREV で貼らない。R44）。cwd（対象の worktree）の差分から変更の種類を選ぶ。
 環境変数が欠けた・状態が読めない・輪が済んでいる: 標準エラーに 1 行出して 2。
+brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2。
 """
 import sys
 from pathlib import Path

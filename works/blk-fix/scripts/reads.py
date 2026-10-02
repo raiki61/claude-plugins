@@ -4,7 +4,8 @@
 # ///
 """blk-fix の節 fix-reads: 修正役 fix の読んだ証拠を今の周の reads-fix.json に書く（reads.main_for。線 A Task 6。
 受け付けの条件にはしない。collect が reads_file で出口に出す）。読むべきパスは INPUTS_MUST（JSON の配列）と、fix-prep が
-今の周に組んだ指示書（fixrules.reads_more。輪の外の節は輪の中の出力を引けないので盤面の置き場から）"""
+今の周に組んだ指示書（fixrules.reads_more。輪の外の節は輪の中の出力を引けないので盤面の置き場から）。
+brief の控え（briefs.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2（欄の控え plan-fields.json は読まない）"""
 import sys
 from pathlib import Path
 

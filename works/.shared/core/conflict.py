@@ -19,7 +19,9 @@
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
   答えた問いの出どころを直す義務に戻し、ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
 - test_permits(b, rulings=, source=): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲）の
-  唯一の元。凍結の検査と最後の関所はここから引く。source を渡すと、修正案の行の範囲をその木でテストの id から引き直す
+  唯一の元。凍結の検査と最後の関所はここから引く。source を渡すと、修正案の行の範囲をその木でテストの id から引き直す。
+  修正案の欄の控え plan-fields.json が凍結の印と食い違えば（planmarks.FieldsBroken）、許しを引かずに盤面を止めて
+  （by FIELDS_STOP_BY）控えを名指す理由の BoardGap
 - ruled_test_doc(b): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指した
   テストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
 - fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
@@ -46,6 +48,7 @@ if str(_CORE) not in sys.path:
 import board as _board  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402  （planmarks は conflict・entry を読まないので輪にならない）
+from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足す）
 
 FILE = "conflicts.json"                 # 盤面の今の周の作業ファイル {"items": [...]}
 RULINGS_FILE = "conflict-rulings.md"    # 裁定の文（修正役が 2 回目の起動の 1 行目で Read する。R44）
@@ -66,6 +69,9 @@ BY = "works:conflict"                   # その行の node と、答えの無�
 HEAD = "食い違いの申し出"                # 最後の関所の文の節の見出し・報告の行の頭
 RULED_TEST_ID = "conflict-ruling"       # 裁定が許したテストの変更を守りのファイルの行にする時の id の頭
 PLAN_TEST_ID = "plan-rewrite"           # 承認済みの修正案が名指した既存テストの書き換えを守りのファイルの行にする時の id の頭
+FIELDS_STOP_BY = "works:fix"            # 修正案の欄の控えが凍結と食い違った盤面を止めた口（blk-fix の brief の止めと同じ修正の段の印）
+FIELDS_BROKEN = (f"承認済みの修正案の欄の控え（盤面の {planmarks.FIELDS_FILE}）が受け付けの後に書き換えられた。"
+                 "テストの変更の許しを引かずに止めた")
 PARK_OP, RULE_OP = "conflict_parked", "conflict_ruled"   # trace の行
 CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
 
@@ -425,13 +431,30 @@ def _plan_limit(r: dict, source):
     return f"{got[0]}:{line}" if line else None
 
 
+def _plan_rewrites(b) -> list[dict]:
+    """planmarks.rewrites。控えが凍結の印と食い違えば（FieldsBroken）盤面を止め（もう止まった盤面は止め直さない）、控えを
+    名指す理由の BoardGap（許しを黙って広げない・黙って捨てない）"""
+    try:
+        return planmarks.rewrites(b)
+    except planmarks.FieldsBroken as e:
+        why = f"{FIELDS_BROKEN}: {' '.join(str(e).split())}"
+        state = getattr(b, "state", None) or {}
+        if hasattr(b, "stop") and not (state.get("halted") or state.get("stop")):
+            try:
+                b.stop(why, by=FIELDS_STOP_BY)
+            except Reject as r:
+                why += f"（盤面を止められない: {' '.join(str(r).split())}）"
+        raise _board.BoardGap(why) from None
+
+
 def test_permits(b, *, rulings: bool = True, source=None) -> list[dict]:
     """テストの変更の許しの唯一の元（凍結の検査と最後の関所はここから引く）。行は {limit: 範囲の文字列, id: 守りのファイルの行の
     id の頭, why: 許した理由}。承認済みの修正案の rewrite_tests（いつも。planmarks.rewrites の順）と、rulings が真なら裁定
     fix_test_scope の範囲（ruled_fix の順）。source（パス → 中身か None）を渡すと、修正案の行の範囲をその木でテストの id から
-    引き直し、引けない行は捨てる（凍結の検査が読む輪の後の木。tddloop.frozen_source）。裁定の行はそのまま"""
+    引き直し、引けない行は捨てる（凍結の検査が読む輪の後の木。tddloop.frozen_source）。裁定の行はそのまま。
+    修正案の欄の控えが凍結の印と食い違えば、盤面を止めて BoardGap（_plan_rewrites）"""
     out = []
-    for r in planmarks.rewrites(b):
+    for r in _plan_rewrites(b):
         lim = _plan_limit(r, source)
         if lim:
             out.append({"limit": lim, "id": f"{PLAN_TEST_ID}-{r['item']}",

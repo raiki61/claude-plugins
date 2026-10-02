@@ -1127,5 +1127,39 @@ class PlanFieldsCase(unittest.TestCase):
             self.assertIn(w, text)
 
 
+class PlanFieldsSaveCase(unittest.TestCase):
+    """修正案の欄の控えの置き方: 周は包みの頭で 1 度だけ読み、盤面が案を受けた後に控えを置けなければ盤面を止める"""
+
+    setUp, take, judged, state, run_script, ok = (ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state,
+                                                 ScriptCase.run_script, ScriptCase.ok)
+
+    def ready(self):
+        self.judged()
+        self.ok("snap", role="plan")
+        planblk.prep(self.board, "plan", self.repo)
+
+    def test_save_failure_after_board_took_plan_halts(self):
+        """盤面が案を受けた後で plan-fields.json を置けなければ、黙って欄の無い run にせず盤面を止めて（by works:plan）、
+        控えを名指す理由の BoardGap"""
+        self.ready()
+        with mock.patch.object(planblk.planmarks, "save", side_effect=OSError("書けない")):
+            with self.assertRaisesRegex(board_mod.BoardGap, planmarks.FIELDS_FILE):
+                planblk.take("plan")(self.board, linekit.reply("plan_ok"), self.repo)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], planblk.STOP_BY)
+        self.assertIn(planmarks.FIELDS_FILE, after.state["stop"]["reason"])
+
+    def test_round_read_once_at_head(self):
+        """控えに書く周は包みの頭で 1 度だけ読む（受けた後に盤面を開き直さない）"""
+        self.ready()
+        rnd = entry.open_board(self.board).round
+        with mock.patch.object(planblk.entry, "open_board", wraps=entry.open_board) as opened:
+            got = planblk.with_plan_fields(lambda board, reply, repo: {"ok": True})(
+                self.board, linekit.reply("plan_ok"), self.repo)
+        self.assertTrue(got["ok"])
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(json.loads((self.board / planmarks.FIELDS_FILE).read_text(encoding="utf-8"))["round"], rnd)
+
+
 if __name__ == "__main__":
     unittest.main()

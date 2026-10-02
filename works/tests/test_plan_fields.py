@@ -185,5 +185,62 @@ class TestSplitAndBoard(PlanFieldsCase):
             self.assertIn(w, planmarks.HEAD)
 
 
+class TestFrozenFields(PlanFieldsCase):
+    """盤面の控え plan-fields.json の凍結: save が trace に印 {round, sha256} を書き、許しの元（rewrites）は印と突き合わせて読む"""
+
+    def saved(self, rnd=1):
+        _, fields = planmarks.split({"plan": [item(rewrite_tests=[REWRITE])]}, self.repo)
+        planmarks.save(self.tmp, rnd, fields)
+        return types.SimpleNamespace(dir=self.tmp, round=rnd)
+
+    def marks(self):
+        rows = [json.loads(x) for x in (self.tmp / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        return [r for r in rows if r.get("op") == planmarks.SAVED_OP]
+
+    def test_save_writes_mark_with_round_and_sha(self):
+        import hashlib
+        self.saved(2)
+        raw = (self.tmp / planmarks.FIELDS_FILE).read_bytes()
+        got = self.marks()
+        self.assertEqual(len(got), 1)
+        self.assertEqual((got[0]["round"], got[0]["sha256"]), (2, hashlib.sha256(raw).hexdigest()))
+
+    def test_frozen_reads_saved_fields(self):
+        b = self.saved()
+        self.assertEqual(planmarks.frozen(b), planmarks.read(b))
+        self.assertEqual(len(planmarks.rewrites(b)), 1)
+
+    def test_rewritten_after_save_is_broken(self):
+        """受け付けの後に rewrite_tests の行を足した控えは、許しの元にしない（FieldsBroken。理由に plan-fields.json を名指す）"""
+        b = self.saved()
+        p = self.tmp / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["rewrite_tests"].append(dict(REWRITE, id="test_stats.py::TestStats::test_mean_of_three",
+                                                      limit="test_stats.py:8"))
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        for fn in (planmarks.frozen, planmarks.rewrites):
+            with self.subTest(fn.__name__), self.assertRaisesRegex(planmarks.FieldsBroken, planmarks.FIELDS_FILE):
+                fn(b)
+
+    def test_removed_after_save_is_broken(self):
+        b = self.saved()
+        (self.tmp / planmarks.FIELDS_FILE).unlink()
+        with self.assertRaisesRegex(planmarks.FieldsBroken, planmarks.FIELDS_FILE):
+            planmarks.frozen(b)
+
+    def test_unmarked_fields_read_as_none(self):
+        """印の無い控え（変更前の盤面・save の外で置いた物）は無い物として読む（許しを広げない）"""
+        _, fields = planmarks.split({"plan": [item(rewrite_tests=[REWRITE])]}, self.repo)
+        (self.tmp / planmarks.FIELDS_FILE).write_text(json.dumps({"round": 1, "fields": fields}, ensure_ascii=False),
+                                                      encoding="utf-8")
+        b = types.SimpleNamespace(dir=self.tmp, round=1)
+        self.assertIsNone(planmarks.frozen(b))
+        self.assertEqual(planmarks.rewrites(b), [])
+
+    def test_mark_of_other_round_does_not_count(self):
+        self.saved(1)
+        self.assertIsNone(planmarks.frozen(types.SimpleNamespace(dir=self.tmp, round=2)))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,7 @@
 
 読む物（どれも盤面の物。entry・planmarks・structmark の口だけ）:
 - 承認済みの修正案: 今の周の p2.fix_plan の出力（b.output_of_round）の plan。項目の並びは控え plan-fields.json と同じ
-- 項目の works の欄: planmarks.read(b)（今の周の plan-fields.json）
+- 項目の works の欄: planmarks.frozen(b)（今の周の plan-fields.json。凍結の印と食い違えば LedgerBroken に替えて止める）
 - 判定の単位 b.record["units"]・凍結した目的の文（record.process.purpose.purpose_text）・構造の目の行（structmark.plan_section）
 
 同じ入力からはバイト単位で同じ文を書く（時刻を書かない。辞書は書いた順）。
@@ -58,8 +58,8 @@ NONE = "無し"
 
 
 class LedgerBroken(ValueError):
-    """控え briefs.json が読めない・形が違う・text と sha256 が合わない・切った印と合わない・brief の置き場がディレクトリ
-    （凍結を作り直して隠さず、ここで止める）"""
+    """控え briefs.json が読めない・形が違う・text と sha256 が合わない・切った印と合わない・brief の置き場がディレクトリ・
+    1 回目の cut で読む欄の控え plan-fields.json が凍結の印と合わない（planmarks.FieldsBroken。凍結を作り直して隠さず、ここで止める）"""
 
 
 # ---------------------------------------------------------------- 文
@@ -223,9 +223,11 @@ def _put(p: pathlib.Path, data: bytes) -> None:
 
 
 def _write_ledger(p: pathlib.Path, rows: list) -> bytes:
-    """控えを一時のファイルから os.replace で置き、置いたバイトを返す"""
+    """控えを一時のファイルから os.replace で置き、置いたバイトを返す（一時のファイルの置き場に先に在る物は消してから書く。
+    リンクの先へ書かない）"""
     raw = (json.dumps({"briefs": rows}, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     tmp = p.with_name(p.name + ".tmp")
+    tmp.unlink(missing_ok=True)
     tmp.write_bytes(raw)
     os.replace(tmp, p)
     return raw
@@ -255,13 +257,18 @@ def _restore(b, rows: list) -> None:
 
 
 def cut(b) -> list[dict]:
-    """今の周の brief を返す。控えが無ければ、修正案の出力と planmarks.read(b) が両方在る時だけ項目ごとに render して書き、控えを
-    書く（どちらか無ければ [] で何も書かない）。控えが在れば作り直さず、控えと違うファイルを書き戻す"""
+    """今の周の brief を返す。控えが無ければ、修正案の出力と planmarks.frozen(b) が両方在る時だけ項目ごとに render して書き、控えを
+    書く（どちらか無ければ [] で何も書かない。欄の控えが凍結の印と食い違えば LedgerBroken）。控えが在れば作り直さず、控えと違う
+    ファイルを書き戻す"""
     rows = _ledger(b)
     if rows is not None:
         _restore(b, rows)
         return _out(b, rows)
-    plan, fields = _plan(b), planmarks.read(b)
+    try:
+        fields = planmarks.frozen(b)
+    except planmarks.FieldsBroken as e:
+        raise LedgerBroken(str(e)) from None
+    plan = _plan(b)
     if plan is None or fields is None:
         return []
     if len(fields) != len(plan):

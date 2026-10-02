@@ -9,16 +9,21 @@
 - find_test(repo, test_id): テストの id の定義の行（rewrite_tests は在るテストだけ・tests は無いテストだけを名指す）
 - line_in(src, test_id): 渡したファイルの中身でのテストの id の定義の行（凍結の検査が輪の後の木で引き直す）
 - split(reply, repo)・save(board, rnd, fields)・read(b)・rewrites(b): 欄を外す口・盤面の控え・書き換えてよい既存のテストの並び
+- 凍結（SAVED_OP・frozen(b)・FieldsBroken）: save は控えを置いた後、盤面の trace に印 {round, sha256（控えのバイトの sha256）} を
+  1 行書く。テストの変更の許しの元（rewrites）と brief の切り出しは frozen で読み、今の周の印と控えが食い違えば（受け付けの後に
+  書き換えた・消した）FieldsBroken。読む側が盤面を止める（黙って許しを広げない・黙って捨てない）。印の無い控えは無い物（None）
 - HEAD・REVIEW_HEAD・REVIEW_ASK・review_section(b): 修正案の役と事前審査の役の指示書の頭に足す文
 
-写しの engine の型の検査（engine.schema。L0 の写し）だけを使い、entry・conflict を import しない（conflict がこの模块を読むので、
+写しの engine の型の検査と時刻（engine.schema・engine.util。L0 の写し）だけを使い、entry・conflict を import しない（conflict がこの模块を読むので、
 輪を作らない）。
 """
 from __future__ import annotations
 
 import ast
 import copy
+import hashlib
 import json
+import os
 import pathlib
 import posixpath
 import sys
@@ -28,10 +33,12 @@ if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
 from engine.schema import validate_schema  # noqa: E402
+from engine.util import now  # noqa: E402
 
 NODE = "p2.fix_plan"
 NODES = (NODE,)
 FIELDS_FILE = "plan-fields.json"   # 盤面の根の控え {"round": 周, "fields": [項目ごとの欄]}
+SAVED_OP = "plan_fields_saved"     # save が盤面の trace に書く凍結の印 {round, sha256}
 KEYS = ("route", "route_why", "tests", "rewrite_tests", "refactor")
 REQUIRED = ("route", "tests", "rewrite_tests", "refactor")   # route_why は route が direct の時だけ要る（gaps が見る）
 ROUTES = ("tdd", "direct")
@@ -241,10 +248,23 @@ def split(reply: dict, repo: pathlib.Path) -> tuple[dict, list[dict]]:
 
 
 # ---------------------------------------------------------------- 盤面の控え
+class FieldsBroken(ValueError):
+    """盤面の控え plan-fields.json が今の周の凍結の印（SAVED_OP）と合わない（受け付けの後に書き換えた・消した・読めない）"""
+
+
 def save(board, rnd: int, fields: list) -> None:
-    """盤面の plan-fields.json を今の周の欄で置き換える"""
-    doc = {"round": rnd, "fields": fields}
-    (pathlib.Path(board) / FIELDS_FILE).write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    """盤面の plan-fields.json を今の周の欄で置き換え（一時のファイルから os.replace。リンクの先へ書かない）、盤面の trace に
+    凍結の印 SAVED_OP {round, sha256（置いたバイトの sha256）} を 1 行足す（DiskBoard.trace と同じ行の形 {t, op, …}）"""
+    d = pathlib.Path(board)
+    raw = (json.dumps({"round": rnd, "fields": fields}, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+    p = d / FIELDS_FILE
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.unlink(missing_ok=True)
+    tmp.write_bytes(raw)
+    os.replace(tmp, p)
+    with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"t": now(), "op": SAVED_OP, "round": rnd, "sha256": hashlib.sha256(raw).hexdigest()},
+                           ensure_ascii=False) + "\n")
 
 
 def read(b) -> list | None:
@@ -259,11 +279,46 @@ def read(b) -> list | None:
     return doc["fields"]
 
 
+def _saved_mark(b) -> dict | None:
+    """今の周（b.round）の凍結の印（trace の SAVED_OP の行の最後の物）。無ければ None"""
+    try:
+        lines = (pathlib.Path(b.dir) / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    mark = None
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("op") == SAVED_OP and row.get("round") == b.round:
+            mark = row
+    return mark
+
+
+def frozen(b) -> list | None:
+    """今の周の凍結した欄の並び（read と同じ物）。今の周の印が無ければ None（印の無い控えは無い物: 変更前の盤面・save の外で
+    置いた控え）。印が在るのに控えが読めない・控えのバイトの sha256 が印と違えば FieldsBroken"""
+    mark = _saved_mark(b)
+    if mark is None:
+        return None
+    p = pathlib.Path(b.dir) / FIELDS_FILE
+    try:
+        raw = p.read_bytes()
+    except OSError as e:
+        raise FieldsBroken(f"盤面の控え {p}（{FIELDS_FILE}）が読めない。周 {b.round} の {SAVED_OP} の印が在る: {e}") from None
+    if hashlib.sha256(raw).hexdigest() != mark.get("sha256"):
+        raise FieldsBroken(f"盤面の控え {p}（{FIELDS_FILE}）のバイトの sha256 が周 {b.round} の {SAVED_OP} の印と違う"
+                           "（受け付けの後に書き換えた）")
+    return read(b)
+
+
 def rewrites(b) -> list[dict]:
     """今の周の承認済みの修正案が名指した、書き換えてよい既存のテストの並び
-    {item: 項目の番号（1 始まり）, unit_keys, id, new, limit}。範囲 limit の無い行は並べない（許しを広げない）"""
+    {item: 項目の番号（1 始まり）, unit_keys, id, new, limit}。範囲 limit の無い行は並べない（許しを広げない）。
+    控えは frozen で読む（印と食い違えば FieldsBroken）"""
     out = []
-    for n, f in enumerate(read(b) or [], 1):
+    for n, f in enumerate(frozen(b) or [], 1):
         if not isinstance(f, dict):
             continue
         for row in f.get("rewrite_tests") or []:

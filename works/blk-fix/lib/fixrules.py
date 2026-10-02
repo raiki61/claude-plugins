@@ -90,7 +90,8 @@ REJECT_GLOB = f"{script_io.REJECT_PREFIX}accept_fix-*.txt"
 FULL, DELTA, RULES, VARIANTS, DELIVERED = ".full.md", ".delta.md", ".rules.md", ".variants.json", ".delivered.json"
 WHY_FIRST = "1 回目（この輪でまだ決まりを渡していない。delta は full と同じ）"
 BRIEF_STOP_BY = "works:fix"   # brief の控えが壊れた盤面を止めた口（assert-changed の STOP_BY と同じ修正の段の印）
-BRIEF_BROKEN = (f"修正案の brief の控え（今の周の {planbrief.LEDGER}）が壊れているか凍結の後に書き換えられ、承認した要求の正本が"
+BRIEF_BROKEN = (f"修正案の brief の控え（今の周の {planbrief.LEDGER}）か欄の控え（盤面の {planbrief.planmarks.FIELDS_FILE}）が壊れているか"
+                "凍結の後に書き換えられ、承認した要求の正本が"
                 "引けない——brief の無い指示書で役を起こさずに盤面を止める")
 _sha = rulebook.sha
 _pick = rulebook.pick

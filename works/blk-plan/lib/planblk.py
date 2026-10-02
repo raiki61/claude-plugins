@@ -283,22 +283,42 @@ def take(role: str):
 
 def with_plan_fields(run):
     """修正案の take の包み: 項目の works の欄（planmarks）の欠けと誤りが在れば盤面へ渡さずに拒み（planmarks.REJECT と行）、
-    無ければ欄を外した返答を run に渡す。run が受けた（ok）時だけ、欄を盤面の plan-fields.json に今の周で控える。控えの
-    unit_keys は、返答の no を engine の pointers.resolve で名前に戻した物（not_allowed と同じ戻し方。盤面が受けた案と同じ名前）"""
+    無ければ欄を外した返答を run に渡す。run が受けた（ok）時だけ、欄を盤面の plan-fields.json に控える。控えの周は包みの頭で
+    1 度だけ読んだ盤面の周（受けた後に開き直さない）。控えの unit_keys は、返答の no を engine の pointers.resolve で名前に
+    戻した物（not_allowed と同じ戻し方。盤面が受けた案と同じ名前）。盤面が受けた後で控えを置けなければ、黙って欄の無い run に
+    せず盤面を止めて（by works:plan）控えを名指す理由の BoardGap"""
     def wrapped(board, reply, repo):
         gaps = planmarks.gaps(reply, pathlib.Path(repo))
         if gaps:
             return {"ok": False, "reason": planmarks.REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
         if not isinstance(reply, dict):
             return run(board, reply, repo)
-        named = _resolved(entry.open_board(pathlib.Path(board)), planmarks.NODE, reply)
+        b = entry.open_board(pathlib.Path(board))
+        rnd = b.round
+        named = _resolved(b, planmarks.NODE, reply)
         _, fields = planmarks.split(named, pathlib.Path(repo))
         bare, _ = planmarks.split(reply, pathlib.Path(repo))
         got = run(board, bare, repo)
         if got.get("ok") is True:
-            planmarks.save(board, entry.open_board(pathlib.Path(board), allow_halted=True).round, fields)
+            try:
+                planmarks.save(board, rnd, fields)
+            except Exception as e:   # 書けない・形にできない: 受けた案に欄が無いまま進ませない
+                raise BoardGap(_halt_unsaved(board, e)) from None
         return got
     return wrapped
+
+
+def _halt_unsaved(board, err) -> str:
+    """修正案の欄の控えを置けなかった盤面を止め（by works:plan。もう止まった盤面は止め直さない）、理由の 1 行を返す"""
+    why = (f"盤面が修正案を受けた後で、項目の works の欄の控え {planmarks.FIELDS_FILE} を置けない"
+           f"（欄の無いまま修正に進ませない）: {type(err).__name__}: {' '.join(str(err).split())}")
+    try:
+        b = entry.open_board(pathlib.Path(board), allow_halted=True)
+        if not (b.state.get("halted") or b.state.get("stop")):
+            b.stop(why, by=STOP_BY)
+    except Exception as e:   # 開けない・止められない: 理由に足して返す（BoardGap で 2 にする）
+        why += f"（盤面を止められない: {type(e).__name__}: {' '.join(str(e).split())}）"
+    return why
 
 
 def main_accept(role: str) -> int:
