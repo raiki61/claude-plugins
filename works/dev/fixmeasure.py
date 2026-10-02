@@ -33,11 +33,20 @@
   2 重に数えない）、tdd_rejects は輪の calls の ok が偽の行、battery_rejects は
   束の行の在る受け付けの回（周・pass・attempt。preflight F23）、delta_faces は差分の審査（p3.delta_review・p3.delta_review2）が
   受け付けた穴、refix_rounds は手直し（report.REFIX_NODES）を受け付けた回（盤面の trace の done の行）、subagent_redos は g1 の
-  下請けの作り直しの往復（修正役の節の LOCAL_AGENT の started のうち、項目ごとの 2 本（実装役と審査役）を超えた分を 2 本で 1 回。
-  g1 の作り直しは修正役の中で回り、ほかの形の拒否の数に出ないので、比べを揃える。ほかの形は 0。下請けの数は節ごとの
-  task_id の数で、起き直した下請けの 2 行目の started を数えない）。compliance_fails・quality_fails（VERDICT_FAILS）は 1 回目の差分の
+  下請けの作り直しの往復（数え方は下）。compliance_fails・quality_fails（VERDICT_FAILS）は 1 回目の差分の
   審査が受けた 2 判定（盤面の trace の deltamarks.SAVED_OP）の準拠と品質の fail の数。どちらも delta_faces と同じ穴を判定で数え
   直した物なので redo_total に足さない（報告だけ）。平の run（current）は準拠がいつも not_applicable なので compliance_fails は 0。
+  subagent_redos の数え方（g1 の作り直しは修正役の中で回り、ほかの形の拒否の数に出ないので、比べを揃える。ほかの形は 0）:
+  - 数えるのは最初の周の修正役の節（G1_FIRST。fix-ruled でない方）の最初の回の中の LOCAL_AGENT の started だけ。最初の回の
+    終わりはその節の最初の node_completed か node_failed（無ければ全部が最初の回）。受け付けの拒否の後の出し直しで起こし直した
+    下請けは、その拒否を fix_rejects に数えたので数えない（2 重にしない）。
+  - 裁定の後の 2 回目（fix-ruled）の下請けは数えない。裁定の後の 2 回目はどの形でも作り直しに数えず（裁定は報告だけ）、2 回目の
+    受け付けの拒否は fix_rejects でどの形も同じに数える。
+  - 項目ごとの 2 本（実装役と審査役）を超えた分を 2 本で 1 回。項目は最初の周に下請けを起こした項目の数: 修正案の項目のうち単位が
+    輪に渡した単位（輪の状態の open_units。直す義務の単位）と重なる物と、どの項目にも無い単位が在れば残りの 1 項目
+    （fixrules.G1_REST。その 2 本は作り直しにしない）。輪の状態が無ければ修正案の項目の数。行の items（項目あたりの比べの
+    分母）はどの腕も修正案の項目の数のままで、この数に替えない。
+  - 下請けの数は task_id の数で、起き直した下請けの 2 行目の started を数えない。
 - 裁定（rulings）・申し出（divergences）: 各周の食い違いの控え（conflict.FILE）の行を、裁定は語ごと（conflict.DECISIONS の順。
   案の項目そのものを誤りと裁く fix_plan_item も 1 語）、申し出は 211 の種類ごと（conflict.kind_counts。DIV_KINDS の順）に数える。
   種類の無い前の形の行（conflict.UNSET）は UNKINDED に数える。0 の語は出さない。どちらも報告だけ（verdict の report_only）。
@@ -105,6 +114,8 @@ UNKINDED = "unkinded"                  # 種類の無い申し出（211 の前�
 DECISIONS = ("keep_g3", "switch_to_af", "fix_gates_first", "incomplete")
 METRICS = ("redo_per_item", "cost_per_item")
 LOCAL_AGENT = "local_agent"            # task_activity の task_type のうち下請け（Agent）の起動
+G1_FIRST = "fix"                       # g1 の作り直しを数える最初の周の修正役の節（fixshape.AGENT_NODES のうち fix-ruled でない方）
+NODE_ENDS = ("node_completed", "node_failed")   # 節の 1 回の終わり
 VERDICT_FAILS = ("compliance_fails", "quality_fails")   # redo のうち差分の審査の 2 判定の fail の数（redo_total に足さない）
 # 測る関数が頼る欄の形の印（最初の試しの run で確かめたら真にする。何を見るかはモジュールの頭）。偽が 1 つでも在れば verdict は incomplete
 FIELDS_CHECKED = {"node_kind_cost": False, "tool_outcome_refusal": False, "local_agent_start": False}
@@ -164,17 +175,24 @@ def _spend(events: list) -> tuple[dict, dict, list]:
     return ({k: round(v, 6) for k, v in cost.items()}, {k: round(v / 1000, 1) for k, v in secs.items()}, whys)
 
 
-def _tool_calls(events: list, shape: str) -> tuple[dict, dict, int]:
-    """(混ざり {Skill, Agent}, 拒まれた呼び出し {Skill, Agent}, 修正役の節で起きた下請けの数)。走ったかの見分けはモジュールの頭"""
+def _tool_calls(events: list, shape: str) -> tuple[dict, dict, int, int]:
+    """(混ざり {Skill, Agent}, 拒まれた呼び出し {Skill, Agent}, 修正役の節で起きた下請けの数, そのうち最初の周の修正役の節の
+    最初の回の数)。走ったかの見分けと最初の回の決まりはモジュールの頭"""
     outcome = {e["data"].get("tool_call_id"): e["data"].get("tool_outcome") for e in events
                if e["event_type"] == "tool_completed" and e["data"].get("tool_call_id")}
     # 節（step_name）ごとの下請けの task_id（起き直した下請けは同じ task_id の started をもう 1 行出すので、行でなく id で数える。
-    # id の無い行は 1 行を 1 つ）・拒む Agent の呼び出しの数
-    ids, asked = {}, {}
+    # id の無い行は 1 行を 1 つ）・拒む Agent の呼び出しの数・最初の周の修正役の節の最初の回の task_id
+    ids, asked, first, ended = {}, {}, set(), set()
     for n, e in enumerate(events):
+        at_first = _in_stage(e, FIX_STAGE[0]) and _node(e) == G1_FIRST
+        if e["event_type"] in NODE_ENDS and at_first:
+            ended.add(e["step_name"])
         if (e["event_type"] == "task_activity" and _in_stage(e) and e["data"].get("activity") == "started"
                 and e["data"].get("task_type") == LOCAL_AGENT):
-            ids.setdefault(e["step_name"], set()).add(e["data"].get("task_id") or ("row", n))
+            tid = e["data"].get("task_id") or ("row", n)
+            ids.setdefault(e["step_name"], set()).add(tid)
+            if at_first and e["step_name"] not in ended:
+                first.add(tid)
     starts = {step: len(v) for step, v in ids.items()}
     ran, refused = dict.fromkeys(TOOLS, 0), dict.fromkeys(TOOLS, 0)
     for e in events:
@@ -193,7 +211,7 @@ def _tool_calls(events: list, shape: str) -> tuple[dict, dict, int]:
         refused["Agent"] += n - went
     agents = sum(n for step, n in starts.items()
                  if step.startswith(FIX_STAGE[0]) and report._step_name(step) in fixshape.AGENT_NODES)
-    return ran, refused, agents
+    return ran, refused, agents, len(first)
 
 
 # ---------------------------------------------------------------- 盤面
@@ -310,7 +328,16 @@ def _empty_board() -> dict:
             "rulings": {}, "divergences": {}, "gate_misses": 0, "red_green": False, "tdd_calls": 0}
 
 
-def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, home, gaps: list) -> dict:
+def _g1_items(fields: list, asked: set) -> int:
+    """g1 の修正役が最初の周に下請けを起こした項目の数（fixrules.g1_values の項目の決まり。モジュールの頭の subagent_redos）"""
+    if not asked:
+        return len(fields)
+    hit = [f for f in fields if isinstance(f, dict) and asked & set(f.get("unit_keys") or [])]
+    covered = {k for f in hit for k in f.get("unit_keys") or []}
+    return len(hit) + (1 if asked - covered else 0)
+
+
+def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, first: int, home, gaps: list) -> dict:
     out = _empty_board()
     out["report"] = (board / report.REPORT_FILE).is_file()
     try:
@@ -351,7 +378,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, ho
                    "battery_rejects": battery,
                    "delta_faces": _faces(board, gaps),
                    "refix_rounds": sum(1 for r in report.trace_rows(b, "done") if r.get("instance") in report.REFIX_NODES),
-                   "subagent_redos": max(0, agents - 2 * items) // 2 if shape == seat.G1_SHAPE else 0,
+                   "subagent_redos": max(0, first - 2 * _g1_items(fields, asked)) // 2 if shape == seat.G1_SHAPE else 0,
                    **_verdict_fails(b)}
     out["rulings"], out["divergences"] = _rulings(rounds, gaps)
     out["gate_misses"] = len(rows)
@@ -382,9 +409,9 @@ def row(db, run_id: str, board, *, adapter_home=None) -> dict:
             gaps.append(f"start の控えに {fixshape.KEY} が無い（前の版の盤面。形は {fixshape.BEFORE} と読む）")
     cost, secs, whys = _spend(events)
     gaps += [f"修正の工程の AI の節の費用（costUsd）が取れない: {w}" for w in whys]
-    ran, refused, agents = _tool_calls(events, shape)
+    ran, refused, agents, first = _tool_calls(events, shape)
     tdd_done = sum(1 for e in _ai_nodes(events) if _in_stage(e, FIX_STAGE[0]) and _node(e) == TDD_NODE)
-    facts = _board_facts(board, shape, tdd_done, agents, adapter_home, gaps)
+    facts = _board_facts(board, shape, tdd_done, agents, first, adapter_home, gaps)
     return {"run_id": run_id, "shape": shape, "fixture": str((rec["fixture"] or {}).get("source_run") or ""),
             "complete": status == "completed" and facts["report"], "items": facts["items"],
             "redo": facts["redo"], "redo_total": sum(v for k, v in facts["redo"].items() if k not in VERDICT_FAILS),

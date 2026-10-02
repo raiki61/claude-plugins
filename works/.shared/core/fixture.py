@@ -4,8 +4,10 @@
 語:
 - 固定材料: $ARTIFACTS_DIR/DIR/ のフォルダ。中身は次の 3 つ。
   - COPY（board/）: 盤面を丸ごと写した物。
-  - OUTSIDE（outside/）: 盤面の外で $ARTIFACTS_DIR の下に在るファイル（DIR 自身を除く）の写し。盤面の字が指す
-    （例: 構造のブロックの設計の行のファイル）ので、元の run の置き場が消えても読めるように運ぶ。
+  - OUTSIDE（outside/）: 盤面の外で $ARTIFACTS_DIR の下に在るファイル（DIR 自身を除く）のうち、絶対パスが盤面の字（UTF-8 で
+    読める盤面のファイルの中身）に現れる物だけの写し（例: 構造のブロックの設計の行のファイル）。元の run の置き場が消えても
+    読めるように運ぶ。盤面の字が指さない物（run ごとの置き場 run-place の uv の cache など）は運ばない。フォルダは、その
+    絶対パスに / を足した字が盤面の字に現れる時だけ降りる（指されないフォルダの下は見もしない）。
   - MANIFEST（fixture.json）: 控え。{source_run, head, tree, board_root, repo_root, pack_root, request_sha256, test_cmd,
     commits: {commit: 木}, files: {DIR からの相対パス: sha256}}。時刻を書かない。
     - head・tree は写した時の対象の `git rev-parse HEAD`・`HEAD^{tree}`。
@@ -135,10 +137,22 @@ def since(board_dir, created):
     return (adopted(board_dir) or {}).get("at") or created
 
 
+def _named(art: pathlib.Path, board: pathlib.Path, dest: pathlib.Path) -> list:
+    """art の下で board と dest の外のファイルのうち、絶対パスが盤面の字に現れる物（パスの順）。フォルダは絶対パスに / を足した
+    字が盤面の字に現れる時だけ降りる（モジュールの頭の OUTSIDE）"""
+    text = "\n".join(t for _, t in _texts(board))
+    out = []
+    for top, dirs, files in os.walk(art):
+        here = pathlib.Path(top)
+        dirs[:] = sorted(d for d in dirs if (here / d) not in (board, dest) and f"{here / d}/" in text)
+        out += [here / f for f in files if str(here / f) in text and (here / f).is_file()]
+    return sorted(out)
+
+
 def capture(board_dir, repo, *, run_id: str, pack_root) -> dict | None:
-    """盤面を <board_dir の親>/DIR/COPY へ、盤面の外の $ARTIFACTS_DIR の下のファイル（DIR を除く）を DIR/OUTSIDE へ写し、
-    MANIFEST を書いて返す。MANIFEST が既に在れば書き直さずに返す。固定材料から始めた盤面は写さずに None。
-    写しの途中で落ちた残り（MANIFEST の無い DIR）は消して写し直す。控えは最後に置く（控えが在れば写しは揃っている）"""
+    """盤面を <board_dir の親>/DIR/COPY へ、盤面の外の $ARTIFACTS_DIR の下のファイル（DIR を除く）のうち盤面の字が指す物を
+    DIR/OUTSIDE へ写し（_named）、MANIFEST を書いて返す。MANIFEST が既に在れば書き直さずに返す。固定材料から始めた盤面は
+    写さずに None。写しの途中で落ちた残り（MANIFEST の無い DIR）は消して写し直す。控えは最後に置く（控えが在れば写しは揃っている）"""
     board = pathlib.Path(board_dir).resolve()
     if adopted(board) is not None:
         return None
@@ -154,11 +168,10 @@ def capture(board_dir, repo, *, run_id: str, pack_root) -> dict | None:
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(board, dest / COPY)
-    for p in sorted(art.rglob("*")):
-        if p.is_file() and not p.is_relative_to(board) and not p.is_relative_to(dest):
-            out = dest / OUTSIDE / p.relative_to(art)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(p, out)
+    for p in _named(art, board, dest):
+        out = dest / OUTSIDE / p.relative_to(art)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, out)
     man = {"source_run": run_id, "head": head, "tree": tree, "board_root": str(board),
            "repo_root": str(pathlib.Path(repo).resolve()), "pack_root": str(pack_root),
            "request_sha256": _sha(request.encode("utf-8")), "test_cmd": start.get("test_cmd", ""),

@@ -36,6 +36,7 @@ import fixshape  # noqa: E402
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import reads  # noqa: E402
+import script_io  # noqa: E402
 import report  # noqa: E402
 from board import DiskBoard  # noqa: E402
 
@@ -352,6 +353,49 @@ class RowCase(unittest.TestCase):
                 r = self.row(db, board)
                 self.assertEqual(r["redo"]["subagent_redos"], want)
                 self.assertEqual(r["redo_total"], want)
+
+    def g1_board(self, name, items=2, owed=None):
+        board = make_board(self.tmp, shape="g1", items=items, name=name)
+        if owed is not None:   # 輪に渡した単位（直す義務の単位）を欄の単位の外まで広げる
+            put(board / "tdd-1" / "state.json", {"open_units": owed, "units": {}, "calls": []})
+        log = adapter.writes_path(entry.open_board(board, allow_halted=True).state["inputs"]["cwd"], self.home)
+        put(log, json.dumps({"tool_name": "Edit", "agent_id": "a1", "path": "/x/a.py"}) + "\n")
+        return board
+
+    def test_g1_rejection_is_counted_once(self):
+        """修正の受け付けの拒否の後の出し直しで起こし直した下請けは fix_rejects に数えたので、subagent_redos に 2 重に数えない
+        （下請けの作り直しは最初の周の最初の回の中だけ。最初の回の終わりは修正役の節の最初の node_completed）"""
+        board = self.g1_board("rej")
+        put(board / f"{script_io.REJECT_PREFIX}accept_fix-1.txt", "拒否\n")
+        fix = "fixing__fix-loop.fix"
+        db = make_db(self.tmp, events=[*[agent(fix) for _ in range(4)], node(fix),
+                                       *[agent(fix) for _ in range(2)], node(fix)])
+        r = self.row(db, board)
+        self.assertEqual(r["redo"]["fix_rejects"], 1)
+        self.assertEqual(r["redo"]["subagent_redos"], 0)
+        self.assertEqual(r["redo_total"], 1)
+        with self.subTest("最初の回の中の作り直しは数える"):
+            db = make_db(self.tmp, path=self.tmp / "rej2.db",
+                         events=[*[agent(fix) for _ in range(6)], node(fix), *[agent(fix) for _ in range(2)], node(fix)])
+            self.assertEqual(self.row(db, board)["redo"]["subagent_redos"], 1)
+
+    def test_g1_ruled_pass_is_not_g1_only_rework(self):
+        """裁定の後の 2 回目（fix-ruled）の下請けは、どの形でも作り直しに数えない（2 回目の拒否は fix_rejects でどの形も数える）"""
+        board = self.g1_board("ruled")
+        db = make_db(self.tmp, events=[*[agent("fixing__fix-loop.fix") for _ in range(4)],
+                                       *[agent("fixing__fix-ruled-loop.fix-ruled") for _ in range(4)]])
+        self.assertEqual(self.row(db, board)["redo"]["subagent_redos"], 0)
+
+    def test_g1_rest_item_is_not_a_redo(self):
+        """修正案のどの項目にも無い直す義務の単位は残りの 1 項目（fixrules.G1_REST）で下請けを 2 本起こす。作り直しに数えない"""
+        board = self.g1_board("rest", items=2, owed=["u1", "u2", "u3"])
+        db = make_db(self.tmp, events=[agent("fixing__fix-loop.fix") for _ in range(6)])
+        r = self.row(db, board)
+        self.assertEqual(r["items"], 2)   # 項目あたりの比べの分母は腕を通して修正案の項目のまま
+        self.assertEqual(r["redo"]["subagent_redos"], 0)
+        with self.subTest("残りの項目の作り直しは数える"):
+            db = make_db(self.tmp, path=self.tmp / "rest2.db", events=[agent("fixing__fix-loop.fix") for _ in range(8)])
+            self.assertEqual(self.row(db, board)["redo"]["subagent_redos"], 1)
 
     def test_g1_subagent_wake_up_is_not_a_second_start(self):
         """下請けが起き直すと同じ task_id の started がもう 1 行出る。起動は節ごとの task_id の数で数える（作り直しにしない）"""

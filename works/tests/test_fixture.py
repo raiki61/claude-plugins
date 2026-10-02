@@ -124,6 +124,25 @@ class FixtureCase(FixtureBase):
         self.assertTrue(moved.is_relative_to(new_board), moved)
         self.assertEqual(moved.read_text(encoding="utf-8"), '{"row": 1}\n')
 
+    def test_capture_carries_only_named_outside_files(self):
+        """盤面の字が指さない $ARTIFACTS_DIR の下のファイル（run ごとの置き場 run-place の uv の cache・名指されない物）は運ばない。
+        名指された物は run-place の下でも運ぶ"""
+        self.fix_ready()
+        art = self.board.parent
+        cache = art / "run-place" / "uv-cache" / "wheels" / "big.whl"
+        cache.parent.mkdir(parents=True)
+        cache.write_bytes(b"\0" * 4096)
+        named = art / "run-place" / "g1-patch-1.diff"
+        named.write_text("diff\n", encoding="utf-8")
+        stray = art / "notes" / "stray.txt"
+        stray.parent.mkdir(parents=True)
+        stray.write_text("盤面は指さない\n", encoding="utf-8")
+        (self.board / "ref.json").write_text(json.dumps({"patch": str(named)}), encoding="utf-8")
+        man = fixture.capture(self.board, self.repo, run_id="run-1", pack_root=PACK)
+        outside = sorted(p for p in man["files"] if p.startswith(f"{fixture.OUTSIDE}/"))
+        self.assertEqual(outside, [f"{fixture.OUTSIDE}/run-place/g1-patch-1.diff"])
+        self.assertFalse((art / fixture.DIR / fixture.OUTSIDE / "run-place" / "uv-cache").exists())
+
     def test_adopt_rewrites_pack_root(self):
         """別の works の置き場（pack_root）で取り込む → 盤面の中の works の置き場の字が新しい値になる"""
         _, src = self.captured()
