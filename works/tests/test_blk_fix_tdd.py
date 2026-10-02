@@ -1543,20 +1543,52 @@ class TestPlainShape(LoopCase):
         super().setUp()
         self.shape("current")
 
-    def test_no_contract_and_always_refactor(self):
+    def test_always_refactor_without_declaration(self):
+        """申告が無くても整えの段へ。refactor_why は役の申告のまま（空。形の名を役に渡さない）"""
         self.route()
         self.red()
         self.fix_mean()   # 申告なし
         self.assertEqual(self.st()["phase"], "refactor")
-        self.assertEqual(self.st()["contract"], {})
-        self.assertTrue(self.st()["units"][MEAN]["refactor_why"], "整えに進んだ理由を単位に残す")
+        self.assertEqual(self.st()["units"][MEAN]["refactor_why"], "")
 
-    def test_plan_contract_does_not_open_board(self):
-        """盤面が在っても修正案の欄を読まない（約束は空）"""
+    def test_contract_depends_on_shape(self):
+        """盤面と欄の控えが在っても、current は欄を読まず約束が空。同じ盤面で af は約束を組む"""
         (self.board / "state.json").write_text("{}", encoding="utf-8")
-        with mock.patch.object(tddloop.entry, "open_board") as ob:
-            self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]), {})
-        ob.assert_not_called()
+        fields = [{"unit_keys": [MEAN], "route": "tdd", "route_why": "", "rewrite_tests": [],
+                   "tests": [{"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "2 つの値の平均",
+                              "path": "stats.mean を直に呼ぶ", "red_kind": "assertion", "red_why": "今は len-1 で割る"}],
+                   "refactor": {"declared": False, "why": ""}}]
+        with mock.patch.object(tddloop.entry, "open_board"), \
+                mock.patch.object(tddloop.conflict, "fix_duty", return_value=([MEAN, CLAMP], {})), \
+                mock.patch.object(tddloop.conflict, "frozen_fields", return_value=fields) as ff:
+            self.shape("current")
+            self.assertEqual(self.st()["contract"], {})
+            ff.assert_not_called()
+            self.shape("af")
+            self.assertEqual(list(self.st()["contract"]), [MEAN])
+
+    def test_prompts_use_pre_219_wording(self):
+        """fix・refactor の段の指示書は 219 の前の文（申告の決まりの文を出さず、整えがいつも来ることを添える）"""
+        self.route()
+        self.red()
+        fix = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(tddloop.DO["fix"], fix)
+        self.assertIn("機械が一式を走らせ、名指しのテストと元で通っていたテストが通ることを確かめる。", fix)
+        self.assertIn(tddloop.PLAIN_DO["fix"], fix)
+        self.fix_mean()
+        ref = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(tddloop.DO["refactor"], ref)
+        self.assertIn("緑のまま、今の単位の差分を整えよ（重複・名前・不要になったコード。テストのファイルは変えない）", ref)
+        for text in (fix, ref):
+            self.assertNotIn("current", text, "形の名を役に渡さない")
+
+    def test_broken_shape_stops_start(self):
+        """形の控えが壊れていれば、traceback でなく理由の Broken で止める"""
+        p = self.board / fixshape.CHOICE_REL
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("壊れた", encoding="utf-8")
+        with self.assertRaisesRegex(tddloop.Broken, "修正の形"):
+            tddloop.start(self.board, self.repo, str(self.suite), OPEN, test_cmd=f"{sys.executable} -c pass")
 
     def test_test_cmd_gate_off_with_note(self):
         """緑の test_cmd でも走らせず、関門を切って理由を残す"""
@@ -1578,6 +1610,8 @@ class TestPlainShape(LoopCase):
         self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
         self.route()
         self.red()
+        fix = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(tddloop.DO["fix"], fix)
         self.assertTrue(self.fix_mean()["done"])
         self.assertEqual(self.st()["units"][MEAN]["refactor"], "skipped")
 

@@ -264,8 +264,13 @@ def _restore(b, rows: list) -> None:
 def cut(b) -> list[dict]:
     """今の周の brief を返す。控えが無ければ、修正案の出力と planmarks.frozen(b) が両方在る時だけ項目ごとに render して書き、控えを
     書く（どちらか無ければ [] で何も書かない。欄の控えが凍結の印と食い違えば LedgerBroken）。控えが在れば作り直さず、控えと違う
-    ファイルを書き戻す。平の run（修正の形 current。fixshape.plain）は修正案の欄を修正の段に渡さないので、いつも [] で何も書かない"""
-    if fixshape.plain(b.dir):
+    ファイルを書き戻す。平の run（修正の形 current。fixshape.plain）は修正案の欄を修正の段に渡さないので、いつも [] で何も書かない
+    （形の控えが壊れていれば LedgerBroken）"""
+    try:
+        plain = fixshape.plain(b.dir)
+    except ValueError as e:
+        raise LedgerBroken(f"盤面の修正の形が読めない: {e}") from None
+    if plain:
         return []
     rows = _ledger(b)
     if rows is not None:

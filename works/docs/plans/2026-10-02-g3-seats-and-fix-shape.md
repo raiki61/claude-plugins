@@ -91,7 +91,7 @@ works の中の語:
 - 今ある能力を減らさない: `fix_shape` が空の run は g3、前の版で作った盤面（`r1/start.json` に `fix_shape` が無い）は af として動く（座は出ず、道具の振る舞いは 220 の前と同じ）。
 - 後の振り分けを塞がない: 形はいつも `fixshape.shape_at` の 1 つの読み口から引く。ブロック・包み・測る関数が `start.json` を直に読まない。腕ごとの違いは `SHAPES`・`denied_tools` の表・`seat.SEATS` の表で持ち、語を決め打ちする分かれを散らさない。
 - 並行の枝と重ねる所（取り込みの衝突を小さくする）:
-  - `works/blk-fix/lib/tddloop.py`（219・211 が大きく変える）: 触るのは `start` の頭の 1 分岐（g1）・`plan_contract` の頭の 1 行（平の run）・`_fix` の整えの条件の 1 項（平の run）・`start` の test_cmd の関門の決め方の 1 分岐（平の run）・`prep` の座の 1 引数と、公開の別名 `unnamed_edits = _unnamed_edits` だけ。
+  - `works/blk-fix/lib/tddloop.py`（219・211 が大きく変える）: 触るのは `start` の頭の 1 分岐（g1）・`plan_contract` の頭の 1 行（平の run）・`_fix` の整えの条件の 1 項（平の run）・`start` の test_cmd の関門の決め方の 1 分岐（平の run）・`prep` の平の run の 1 分岐（fix・refactor の段の文を 219 の前の文 `PLAIN_DO` に替え、決まりの申告の行をこの輪では読まないと添える）・`prep` の座の 1 引数と、公開の別名 `unnamed_edits = _unnamed_edits` だけ。
   - `works/blk-fix/lib/fixrules.py`: `fix_parts`・`tdd_parts`・`tdd_render`・`tdd_prompt`・`fix_prompt` の `seat=""` の引数と、新しい関数 `implementer_values`・`g1_values` だけ。
   - `works/blk-fix/scripts/accept.py`: `accept_fix` の最後の 1 段（束）と `INPUTS` の 1 語だけ。
   - `works/.shared/core/refix.py`（218 が brief に欄を足す）: `cut` の brief の辞書に鍵 `seat_file` を 1 つ足すだけ。
