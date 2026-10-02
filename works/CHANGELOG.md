@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-10-02
+
 ### Fixed
 
 - `use.sh start` が run を結べなかった時、run の一覧が読めない（`archon workflow runs --json` が落ちた・JSON でない・`runs` が list でない）と、生きた run が在るか分からないのに候補 0 本と同じに扱い、生きた run の使う包んだ基の参照と読み出しのファイルを消していた。一覧が読めない時は消さず、候補の無い控え（`<家>/unbound/` の `unknown`）に残して 1 で終わる。`use.sh clean` は一覧を読めた時、その対象の生きた run が 1 本も無ければ消す。`use.sh check` は origin の既定の枝が分からない対象を start と同じ文で並べる（start だけが拒んでいた）。修正案の事前の拒否は、形の崩れた返答で例外を投げて再提出の道を外れず（形の拒否は engine に任せる）、拒否文が入れてよい no を自分で並べる。
