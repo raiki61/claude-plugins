@@ -52,6 +52,7 @@ import adapter  # noqa: E402
 import conflict  # noqa: E402
 import design  # noqa: E402
 import gatemarks  # noqa: E402
+import impact  # noqa: E402
 import libdocs  # noqa: E402
 import querytest  # noqa: E402
 from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
@@ -853,6 +854,7 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
             lines.append("包みが通っていない")
         lines += [f"  - {w}" for w in seen["whys"]]
     lines += write_lines(b)
+    lines += gates_lines(b)
     by, reason, _ = _stop_info(b)
     if by == ADAPTER_BY:
         lines.append(f"包みの確かめで止めた: {reason}")
@@ -876,6 +878,16 @@ def write_lines(b) -> list:
     if paths:
         lines.append(f"書き込みの記録の無い変更（手直しの役。拒まずに残した）: {len(paths)} 件 {paths[:10]}")
     return lines
+
+
+def gates_lines(b) -> list:
+    """修正の受け付けの事後の関門の束が、受け入れのテストの赤緑を確かめずに受けた回の行（blk-fix の受け付けが盤面の trace に
+    impact.ACCEPT_GATES_SKIPPED_OP で積んだ物）: 回の数と理由（同じ理由は 1 度）"""
+    rows = trace_rows(b, impact.ACCEPT_GATES_SKIPPED_OP)
+    if not rows:
+        return []
+    whys = list(dict.fromkeys(w for r in rows for w in r.get("why") or [] if isinstance(w, str)))
+    return [f"事後の関門の束: 受け付け {len(rows)} 回が受け入れのテストの赤緑を確かめずに通した（理由: {' / '.join(whys)[:600]}）"]
 
 
 def _time(s):

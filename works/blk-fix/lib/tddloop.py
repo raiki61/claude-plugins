@@ -1361,8 +1361,9 @@ def exit_fields(start_out: dict) -> dict:
 
 
 # 事後の関門の束（同じブロックの fixgates。計画 220 Task 4）が輪と同じ決まりで読む口の公開の別名（輪の中の名は変えない。
-# 名指しの外の既存のテストの書き換え・赤の種類の照らし・名指しの node id・関数の幅。preflight F11・F13）
+# 名指しの外の既存のテストの書き換え・赤の種類の照らし・名指しの node id・関数の幅・範囲の外の差分の塊。preflight F11・F13）
 unnamed_edits = _unnamed_edits
 kind_problems = _kind_problems
 abs_ids = _abs_ids
 function_span = _function_span
+hunks_outside = _hunks_outside

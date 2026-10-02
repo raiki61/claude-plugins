@@ -32,8 +32,10 @@
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
 1d. 事後の関門の束（fixgates.problems。計画 220 Task 4）: 修正の形に依らず、base から今の木までを相手に、承認済みの修正案の
    受け入れのテストの赤→緑（INPUTS_TDD_SUITE の実行器。無い run は帳面に飛ばした理由だけ）と、名指しの外の既存のテストの
-   本体の変更を確かめる。行が在れば全部を並べた 1 つの文（fixgates.reject_text）で拒む（今の拒否の道。最後の回は単位に結べれば
-   止める）。盤面に done を書く 3 の前に置く（拒否では盤面を前のままにする。束の帳面 fixgates.LEDGER と一式のログは残す）
+   本体の変更を確かめる。行が在れば行ごとの文（fixgates.reject_lines。" / " でつないで 1 つの理由に全部の行が並ぶ）で拒む
+   （今の拒否の道。最後の回は文ごとに unit_key か名指しのファイルで単位に結べれば止める）。盤面に done を書く 3 の前に置く
+   （拒否では盤面を前のままにする。束の帳面 fixgates.LEDGER と一式のログは残す）。受けた回に束が赤緑を確かめずに飛ばした
+   理由（fixgates.skipped）は盤面の trace の fixgates.SKIPPED_OP の行に載せる（報告が数える）
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
    修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告
    （closure.sites の path が覆う問いの当たりの件数・remaining・作り直した how）との食い違いを記録する。食い違いは拒否でなく記録で、写しに渡す返答は
@@ -341,7 +343,8 @@ def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
 def accept_fix(reply, board, base_rev, repo):
     state = os.environ.get("INPUTS_TDD_STATE", "")
     pass_ = os.environ.get("INPUTS_PASS") or "first"
-    last = int(os.environ.get("INPUTS_ITERATION") or 0) >= GIVE_UP_AFTER
+    attempt = int(os.environ.get("INPUTS_ITERATION") or 0)
+    last = attempt >= GIVE_UP_AFTER
     whole = reply
 
     def refuse(problems):
@@ -395,10 +398,9 @@ def accept_fix(reply, board, base_rev, repo):
     red, note = check_tests(board, base_rev, repo, state)
     if red:
         return refuse(red)
-    gates = fixgates.problems(board, repo, base_rev, os.environ.get("INPUTS_TDD_SUITE", ""),
-                              int(os.environ.get("INPUTS_ITERATION") or 0), pass_=pass_)
+    gates = fixgates.problems(board, repo, base_rev, os.environ.get("INPUTS_TDD_SUITE", ""), attempt, pass_=pass_)
     if gates:   # 盤面に done("p3.fix") を書く recount.accept_fix の前（preflight F12）
-        return refuse([fixgates.reject_text(gates)])
+        return refuse(fixgates.reject_lines(gates))
     b = entry.open_board(board)
     reply, rows = unitrows.take(reply, b, repo)
     out = recount.accept_fix(reply, board, base_rev, repo)
@@ -408,6 +410,9 @@ def accept_fix(reply, board, base_rev, repo):
         b = entry.open_board(board, allow_halted=True)
         writes.trace(b, recount.ROLE, wrote)
         b.trace(TESTS_OP, node=recount.ROLE, note=note, ci_left=tddloop.ci_left(state))
+        gaps = fixgates.skipped(board, pass_=pass_, attempt=attempt)
+        if gaps:   # 束が赤緑を確かめずに受けた回（拒まないが、報告で見えるように）
+            b.trace(fixgates.SKIPPED_OP, node=recount.ROLE, why=gaps)
         if rows:
             b.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(b, rows)))
     return out

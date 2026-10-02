@@ -30,6 +30,7 @@ import entry  # noqa: E402
 import fixgates  # noqa: E402
 import fixshape  # noqa: E402
 import planmarks  # noqa: E402
+import report  # noqa: E402
 
 MEAN_ID = "test_stats.py::TestStats::test_mean_of_two"
 THREE_ID = "test_stats.py::TestStats::test_mean_of_three"
@@ -40,6 +41,11 @@ FIELDS = [{"unit_keys": [tbf.MEAN], "route": "tdd", "route_why": "", "tests": [T
            "refactor": {"declared": False, "why": ""}}]
 MEAN_FIX = {"return sum(xs) / (len(xs) - 1)": "return sum(xs) / len(xs)"}
 THREE_EDIT = ("self.assertEqual(mean([1, 2, 3]), 2)", "self.assertEqual(mean([1, 2, 3]), 2.0)")   # 既存のテストの期待の書き換え
+HALVE = {"def clamp(x, lo, hi):": "def halve(x):\n    return x / 2\n\n\ndef clamp(x, lo, hi):"}   # 今の木で足す関数
+TWO_ID = "test_two.py::TestTwo::test_halve"
+TWO_FILE = ("import unittest\n\nfrom stats import halve\n\n\nclass TestTwo(unittest.TestCase):\n    def test_halve(self):\n"
+            "        self.assertEqual(halve(4), 2)\n")   # base では読み込みで落ちる（halve が無い）新しいテストのファイル
+NO_JUNIT = "import sys\nsys.exit(0)\n"   # JUnit を書かない実行器
 REWRITE = {"id": THREE_ID, "behavior": "3 つの値の平均の期待", "old": "期待は 2", "new": "期待を 2.0 に書き換える",
            "limit": "test_stats.py:8"}
 
@@ -80,6 +86,13 @@ class FixGatesCase(tbf.BoardCase):
     def add_test_that_passes_on_base(self, name):
         self.add_test(f"\n    def {name}(self):\n        self.assertEqual(clamp(5, 0, 10), 5)\n")
 
+    def git(self, *args):
+        return subprocess.run(["git", *args], cwd=self.repo, capture_output=True, text=True, check=True).stdout.strip()
+
+    def fields_for(self, test_id):
+        """受け入れのテスト test_id を 1 本持つ tdd の項目（単位は mean）"""
+        return [{**FIELDS[0], "tests": [{**TEST_ROW, "id": test_id}]}]
+
     def problems(self, suite=None, attempt=1, **kw):
         return fixgates.problems(self.board, self.repo, self.base, self.SUITE if suite is None else suite, attempt, **kw)
 
@@ -105,6 +118,7 @@ class TestRedGreen(FixGatesCase):
         rows = self.problems()
         self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
         self.assertIn("base で緑", rows[0]["detail"])
+        self.assertEqual(rows[0]["unit_keys"], [tbf.MEAN], "行は項目の単位を持つ（最後の回に unit_key で単位に結ぶ）")
 
     def test_wrong_red_kind_is_a_miss(self):
         """新しいテストが base で NameError（機能が無い）——案は assertion。今の木では緑"""
@@ -124,6 +138,66 @@ class TestRedGreen(FixGatesCase):
         rows = self.problems()
         self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
         self.assertIn("今の木で failure", rows[0]["detail"])
+
+    def test_base_missing_and_non_failure_are_misses(self):
+        with self.subTest("base で一式の結末に居ない（読み込みで落ちる）"):
+            self.ready_with_fields(self.fields_for(TWO_ID))
+            (self.repo / "test_two.py").write_text(TWO_FILE, encoding="utf-8")
+            self.edit_tree(HALVE)
+            rows = self.problems()
+            self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", TWO_ID)])
+            self.assertIn("base で一式の結末に居ない", rows[0]["detail"])
+        with self.subTest("base で error（failure でない赤）"):
+            self.suite.write_text(tbt.SUITE, encoding="utf-8")   # 本体の例外を error と書く実行器
+            (self.repo / "test_two.py").unlink()
+            self.edit_tests("from stats import clamp, mean", "from stats import *  # noqa: F403")
+            self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(halve(4), 2)  # noqa: F405\n")
+            planmarks.save(self.board, entry.open_board(self.board).round, FIELDS)
+            rows = self.problems(attempt=2)
+            self.assertEqual([(r["gate"], r["id"], r["detail"].split("（")[0]) for r in rows],
+                             [("red_green", MEAN_ID, "base で error")])
+
+    def test_runner_inside_repo_runs_its_base_copy(self):
+        """実行器が対象のリポジトリの中に在れば、base の木では worktree の中の base の版を走らせる"""
+        self.ready_with_fields()
+        runner = self.repo / "runner.py"
+        runner.write_text(tbt.PYTEST_LIKE, encoding="utf-8")
+        self.git("add", "runner.py")
+        self.git("commit", "-q", "-m", "runner")
+        head = self.git("rev-parse", "HEAD")
+        # 今の木の実行器は、印のファイルが無い置き場（base の worktree）では受け入れのテストを緑と書く（base の版を走らせない誤りを露わにする）
+        runner.write_text("import os, sys\nif not os.path.exists('now-only.txt'):\n    open(sys.argv[1], 'w').write("
+                          "'<testsuite><testcase classname=\"test_stats.TestStats\" name=\"test_mean_of_two\"/></testsuite>')\n"
+                          "    sys.exit(0)\n" + tbt.PYTEST_LIKE, encoding="utf-8")
+        (self.repo / "now-only.txt").write_text("", encoding="utf-8")
+        self.add_test_mean_of_two()
+        self.edit_tree(MEAN_FIX)
+        with mock.patch.object(fixgates.writes, "base_rev", return_value=head):
+            self.assertEqual(self.problems(suite=str(runner)), [])
+
+    def test_runner_without_junit_skips_and_records(self):
+        """今の木で実行器が JUnit を書かない → 拒まず、帳面の skipped に理由（受けた回は trace にも載る。TestAcceptWiring）"""
+        self.ready_with_fields()
+        self.add_test_that_passes_on_base("test_mean_of_two")
+        self.suite.write_text(NO_JUNIT, encoding="utf-8")
+        self.assertEqual(self.problems(), [])
+        why = fixgates.skipped(self.board, pass_="first", attempt=1)
+        self.assertEqual(len(why), 1, why)
+        self.assertTrue(why[0].startswith(fixgates.NO_RUN), why)
+        self.assertIn("今の木", why[0])
+
+    def test_base_tree_that_cannot_be_made_skips_and_records(self):
+        """base の版から worktree を作れない（commit でない版）→ 拒まず、帳面の skipped に理由。worktree は残さない"""
+        b = self.ready_with_fields()
+        self.add_test_that_passes_on_base("test_mean_of_two")
+        tree = self.git("rev-parse", f"{b.state['inputs']['review_rev']}^{{tree}}")
+        with mock.patch.object(fixgates.writes, "base_rev", return_value=tree):
+            self.assertEqual(self.problems(), [])
+        why = fixgates.skipped(self.board, pass_="first", attempt=1)
+        self.assertEqual(len(why), 1, why)
+        self.assertTrue(why[0].startswith(fixgates.NO_RUN), why)
+        self.assertIn("base の木", why[0])
+        self.assertEqual(len(self.worktrees()), 1, self.worktrees())
 
     def test_no_suite_skips_and_records(self):
         self.ready_with_fields()
@@ -146,6 +220,10 @@ class TestRedGreen(FixGatesCase):
                       ruling={"decision": conflict.ASK, "text": "試験で止めた", "limits": [], "by": "works:fix-accept"})
         self.add_test_that_passes_on_base("test_mean_of_two")
         self.assertEqual(self.problems(), [])
+        why = fixgates.skipped(self.board, pass_="first", attempt=1)
+        self.assertEqual(len(why), 1, why)
+        for w in (fixgates.OUT_OF_DUTY, "項目 1", tbf.MEAN):   # 見なかった項目と単位を名指して残す
+            self.assertIn(w, why[0])
 
     def test_worktree_removed_after(self):
         self.ready_with_fields()
@@ -207,6 +285,24 @@ class TestTestEdits(FixGatesCase):
         self.assertEqual(self.problems(pass_="ruled"), [])
         self.assertEqual([(r["gate"], r["id"]) for r in self.problems(pass_="first")], [("test_edits", THREE_ID)])
 
+    def rule(self, limits):
+        entry.open_board(self.board).work(conflict.FILE).write_text(json.dumps({"items": [
+            {"id": "c1-1", "unit_key": tbf.MEAN, "between": ["stats.py:9", "test_stats.py:9"],
+             "why_both_cannot_hold": "期待の型が依頼と食い違う", "which_is_right": "test", "status": "ruled",
+             "ruling": {"decision": "fix_test_scope", "text": "期待を float で書いてよい", "limits": limits}}]},
+            ensure_ascii=False), encoding="utf-8")
+
+    def test_ruled_scope_reads_like_the_frozen_check(self):
+        """範囲の読みは輪の凍結の検査と同じ: ファイルだけは全部・1 行の指しは関数の全体・`<行>-<行>` は書いたとおり"""
+        self.ready_with_fields(direct_fields())
+        self.edit_tests(*THREE_EDIT)   # test_mean_of_three の本体の 9 行目
+        for limits, ok in ((["test_stats.py"], True), (["test_stats.py:8"], True), (["test_stats.py:9-9"], True),
+                           (["test_stats.py:8-8"], False), (["test_stats.py:11-12"], False)):
+            with self.subTest(limits):
+                self.rule(limits)
+                got = [(r["gate"], r["id"]) for r in self.problems(pass_="ruled")]
+                self.assertEqual(got, [] if ok else [("test_edits", THREE_ID)])
+
 
 class TestLedgerAndText(FixGatesCase):
     def test_ledger_marks_the_attempt_and_does_not_repeat_rows(self):
@@ -221,18 +317,35 @@ class TestLedgerAndText(FixGatesCase):
         rows = self.ledger()["rows"]
         self.assertEqual(len(rows), 2, rows)
         self.assertEqual({(r["pass"], r["attempt"], r["shape"]) for r in rows}, {("first", 3, fixshape.DEFAULT)})
-        self.assertEqual(set(rows[0]), {"pass", "attempt", "shape", "gate", "id", "detail"})
+        self.assertEqual(set(rows[0]), {"pass", "attempt", "shape", "gate", "id", "detail", "unit_keys"})
         self.problems(attempt=1, pass_="ruled")
         self.assertEqual(len(self.ledger()["rows"]), 4, "裁定の後の 1 回目は別の回")
 
     def test_reject_text_lists_every_row(self):
-        rows = [{"gate": "red_green", "id": MEAN_ID, "detail": "base で緑"},
-                {"gate": "test_edits", "id": THREE_ID, "detail": "名指しの外"}]
+        rows = [{"gate": "red_green", "id": MEAN_ID, "detail": "base で緑", "unit_keys": [tbf.MEAN]},
+                {"gate": "test_edits", "id": THREE_ID, "detail": "名指しの外", "unit_keys": []}]
+        lines = fixgates.reject_lines(rows)
+        self.assertEqual(len(lines), 2, "行ごとに 1 つの文（最後の回に文ごとに単位に結ぶ）")
+        self.assertTrue(all(t.startswith(fixgates.REJECT) for t in lines), lines)
+        self.assertIn(tbf.MEAN, lines[0], "red_green の文は項目の単位を名指す")
+        self.assertTrue(lines[-1].endswith(fixgates.REDO) and fixgates.REDO not in lines[0], "出し直しの頼みは最後の文の末だけ")
         text = fixgates.reject_text(rows)
-        self.assertTrue(text.startswith(fixgates.REJECT), text)
+        self.assertEqual(text, " / ".join(lines))
         for w in (f"red_green {MEAN_ID}: base で緑", f"test_edits {THREE_ID}: 名指しの外", "全部"):
             self.assertIn(w, text)
         self.assertEqual(fixgates.GATES, ("red_green", "test_edits"))
+
+    def test_report_counts_unchecked_acceptances(self):
+        class B:
+            dir = self.tmp
+        self.assertEqual(report.gates_lines(B), [])
+        rows = [{"op": fixgates.SKIPPED_OP, "node": "fix", "why": [fixgates.NO_SUITE]},
+                {"op": fixgates.SKIPPED_OP, "node": "fix", "why": [fixgates.NO_SUITE]}]
+        (self.tmp / "trace.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        lines = report.gates_lines(B)
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("受け付け 2 回", lines[0])
+        self.assertEqual(lines[0].count(fixgates.NO_SUITE), 1, "同じ理由は 1 度")
 
 
 class TestAcceptWiring(FixGatesCase):
@@ -252,7 +365,7 @@ class TestAcceptWiring(FixGatesCase):
         self.fix_ready()
         self.edit_tree(tbf.FIXED)
         mod = self.accept_mod()
-        rows = [{"gate": "red_green", "id": MEAN_ID, "detail": "base で緑"}]
+        rows = [{"gate": "red_green", "id": MEAN_ID, "detail": "base で緑", "unit_keys": [tbf.MEAN]}]
         with self.env(), mock.patch.object(mod.fixgates, "problems", return_value=rows) as gates, \
                 mock.patch.object(mod.recount, "accept_fix", wraps=mod.recount.accept_fix) as recount:
             got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
@@ -273,6 +386,20 @@ class TestAcceptWiring(FixGatesCase):
         self.assertIs(got["ok"], False, got)
         gates.assert_not_called()
 
+    def test_accept_traces_skipped_red_green(self):
+        """束が赤緑を確かめずに受けた回（実行器の無い run）は、盤面の trace の SKIPPED_OP に理由を載せ、報告が数える"""
+        self.fix_ready()
+        planmarks.save(self.board, entry.open_board(self.board).round, FIELDS)
+        self.edit_tree(tbf.FIXED)
+        mod = self.accept_mod()
+        with self.env(), mock.patch.dict(os.environ, {"INPUTS_TDD_SUITE": ""}):
+            got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
+        self.assertIs(got["ok"], True, got)
+        b = entry.open_board(self.board, allow_halted=True)
+        rows = report.trace_rows(b, fixgates.SKIPPED_OP)
+        self.assertEqual([r["why"] for r in rows], [[fixgates.NO_SUITE]])
+        self.assertIn("受け付け 1 回", report.gates_lines(b)[0])
+
     def test_clean_battery_lets_fix_through(self):
         """束が何も見つけなければ今までどおり受ける（修正案の欄の無い run・既存のテストを変えない直し）"""
         self.fix_ready()
@@ -281,6 +408,8 @@ class TestAcceptWiring(FixGatesCase):
         with self.env():
             got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
         self.assertIs(got["ok"], True, got)
+        self.assertEqual(report.trace_rows(entry.open_board(self.board, allow_halted=True), fixgates.SKIPPED_OP), [],
+                         "飛ばした物が無ければ trace に載せない")
 
 
 if __name__ == "__main__":

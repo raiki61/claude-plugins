@@ -555,6 +555,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
             mock.patch.object(self.mod, "fix_unit_keys", return_value=None),
             mock.patch.object(self.mod, "check_tests", return_value=([], "")),
             mock.patch.object(self.mod.fixgates, "problems", return_value=[]),   # 事後の関門の束（test_fix_gates が見る）
+            mock.patch.object(self.mod.fixgates, "skipped", return_value=[]),
             mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.recount),
             mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
             mock.patch.object(self.mod.writes, "trace"),
@@ -764,6 +765,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
                               if len(self.tests) > 1 else self.tests[0]),
             mock.patch.object(self.mod.fixgates, "problems", side_effect=lambda *a, **k: self.gates.pop(0)
                               if len(self.gates) > 1 else self.gates[0]),
+            mock.patch.object(self.mod.fixgates, "skipped", return_value=[]),
             mock.patch.object(self.mod.recount, "accept_fix",
                               side_effect=lambda reply, *a: {"ok": True, "reason": "", "changes": [
                                   {k: c[k] for k in ("unit_key", "files", "what")} for c in reply["changes"]]}),
@@ -805,8 +807,24 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
 
     def test_third_battery_row_bound_to_one_unit_parks_only_that_unit(self):
         """事後の関門の束の行（計画 220 Task 4）も、名指しのファイルで 1 単位に結べれば、その単位だけを止めて残りを通す"""
-        self.gates = [[{"gate": "red_green", "id": "test_clamp.py::test_clamp_above_range", "detail": "base で緑"}], []]
+        self.gates = [[{"gate": "test_edits", "id": "test_clamp.py::test_clamp_above_range", "detail": "名指しの外"}], []]
         self.assert_parked_clamp(self.run_accept("3"))
+
+    def test_third_battery_rows_of_two_units_park_both(self):
+        """束の行は行ごとの文で渡るので、別の単位を指す 2 行はそれぞれの単位に結んで両方を止める（red_green は項目の
+        unit_key で結ぶ。名指しのテストのファイルが changes に無くても）。1 回目の拒否の文には 2 行とも並ぶ"""
+        rows = [{"gate": "red_green", "id": "test_mean.py::test_mean_of_two", "detail": "base で緑", "unit_keys": [self.MEAN]},
+                {"gate": "test_edits", "id": "test_clamp.py::test_clamp_above_range", "detail": "名指しの外", "unit_keys": []}]
+        self.gates = [rows]
+        first = self.run_accept("1")
+        self.assertEqual((first["ok"], first["done"]), (False, False), first)
+        for w in ("test_mean.py::test_mean_of_two", "test_clamp.py::test_clamp_above_range"):
+            self.assertIn(w, first["reason"])
+        self.gates = [rows, []]
+        got = self.run_accept("3")
+        self.assertEqual((got["ok"], got["done"], got["changes"]), (True, True, []), got)
+        self.assertEqual(sorted(r["unit_key"] for rs, _ in self.parked for r in rs), sorted([self.MEAN, self.CLAMP]))
+        self.revert.assert_called_once()
 
     def test_unbound_third_reject_still_gives_up(self):
         self.tests = [(["受け付けが走らせた一式（環境）で、元で赤でなかった試験が赤: ['test_env.py::test_x']（1 件）"], "")]
