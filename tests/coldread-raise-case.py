@@ -17,11 +17,11 @@ gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 
 
-def always_raises(command):
+def always_raises(*_args, **_kwargs):
     raise RuntimeError("代役: 想定外の例外")
 
 
-gate.posting_bodies = always_raises
+gate.gh_calls = always_raises
 command = "gh issue comment 1 --body '%s'" % ("これは検査対象の本文です。" * 20 + "x" * 420)
 sys.stdin = io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}))
 buf = io.StringIO()

@@ -118,7 +118,8 @@ jobs:
           rc=0; python -m pytest -n auto graphloops/tests/py || rc=$?
           times
           exit "$rc"
-      # **ルートの pytest の置き場（tests/py/。検証器 scripts/review-record.py の表の検査）は別の起動で回す。** 柵（fence.py）は
+      # **ルートの pytest の置き場（tests/py/。scripts/review-record.py の検証器の検査と、gates の門番 coldread・destgate の
+      # 解析と記録の検査）は別の起動で回す。** 柵（fence.py）は
       # 1 回の起動に 1 つの置き場しか載せない。件数の柵（tests/py/conftest.py の EXPECTED_ITEMS）が当たるよう置き場を丸ごと渡す
       - name: root pytest
         shell: bash
