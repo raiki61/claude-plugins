@@ -120,7 +120,7 @@ VENDORED_FIX = ("  直す: works を入れ直す（claude plugin install works@r
                 "（git checkout -- :/works/.shared/borrow）")
 VERSION_NAME = re.compile(r"[0-9A-Za-z][0-9A-Za-z._+-]*")   # 写す版の名（フォルダの名になる。/ や .. で外を指させない）
 VERSION_NUMBER = re.compile(r"[0-9]+(?:\.[0-9]+)*")   # newer が数の組で比べられる版の名（6.10.0 → (6, 10, 0)）
-HUMAN_ASK = "human partner"                 # 原文の役が人に聞く文の印（newer が増えた行を名指す。読み替えで覆うかは人が決める）
+HUMAN_ASK = "human partner"                 # 原文の役が人に聞く文の印（小文字で比べる。newer が増えた行を名指す。読み替えで覆うかは人が決める）
 NEWER_LAST = "版を上げるかは人が決める（上げる時は toolset.py vendor <版> で写しと pin を取り直し、同じ commit で試験を通す）"
 
 
@@ -819,7 +819,7 @@ def _new_asks(src: pathlib.Path, copy: pathlib.Path, item: dict) -> list:
         old_p = copy / rel
         old = old_p.read_text(encoding="utf-8", errors="replace").split("\n") if old_p.is_file() else []
         have = {ln.strip() for ln in old}
-        out += [(rel, ln.strip()) for ln in new if HUMAN_ASK in ln and ln.strip() not in have]
+        out += [(rel, ln.strip()) for ln in new if HUMAN_ASK in ln.lower() and ln.strip() not in have]   # 行頭の Human も拾う
     return out
 
 
@@ -857,8 +857,8 @@ def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
         if key < pin_key:
             continue
         try:
-            pp = spseam.pin_problems(d, item)
             if key == pin_key:
+                pp = spseam.pin_problems(d, item)
                 if pp:
                     found = True
                     print(f"{VENDORED} {v}（{d}）: 写しと同じ版なのに中身が違う")
@@ -867,8 +867,10 @@ def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
                 continue
             found = True
             print(f"{VENDORED} {v}（{d}）: 写した {pin_v} より新しい")
+            # contract_problems は固定との食い違い（pin_problems）を頭に並べる（spseam の docstring）。頭の分を外して契約の行にする
             cp = spseam.contract_problems(d, item, seams, overlay)
-            rest = cp[len(pp):] if cp[:len(pp)] == pp else [ln for ln in cp if ln not in pp]   # 頭に並ぶ食い違いを除く
+            pp = spseam.pin_problems(d, item)
+            rest = cp[len(pp):]
             for ln in pp:
                 print(f"- {ln}")
             for ln in rest or ["錨・穴・語は全部そのまま在る"]:
@@ -936,7 +938,12 @@ def main(argv: list) -> int:
         return 2
     pack = pathlib.Path(__file__).resolve().parents[1]
     if cmd == "newer":
-        return _newer_cli(pack, user_cfg)
+        try:
+            return _newer_cli(pack, user_cfg)
+        except (OSError, ValueError, ToolsetError) as e:   # 確かめは知らせるだけ。読めない物を名指して 0 で終わる
+            print(f"superpowers の新しい版の確かめが途中で読めない物に当たった（{e}）")
+            print(NEWER_LAST)
+            return 0
     if cmd == "contract":
         try:
             return _contract_cli(pack, user_cfg, pos[0] if pos else None)

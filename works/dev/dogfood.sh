@@ -94,7 +94,6 @@ fi
 # （名の行は archon.sh が出す）
 python3 -I "$WORKS_DIR/.shared/core/auth_launch.py" check --for dogfood.sh \
   --user-home "$HOME" --user-config "${CLAUDE_CONFIG_DIR:-}" >/dev/null || exit $?
-python3 "$DEV_DIR/toolset.py" newer --user-config "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" >&2 || echo "dogfood.sh: superpowers の新しい版の確かめが終了コード $? で落ちた（run の起動は続ける）" >&2
 
 if [ ! -f "$1" ]; then
   echo "dogfood.sh: 依頼の JSON が無い（$1）" >&2
@@ -123,6 +122,7 @@ if [ "$#" -ge 3 ]; then
 else
   DIR="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/works-dogfood.XXXXXX")" && pwd -P)"
 fi
+python3 "$DEV_DIR/toolset.py" newer --user-config "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" >&2 || echo "dogfood.sh: superpowers の新しい版の確かめが終了コード $? で落ちた（run の起動は続ける）" >&2
 REPO="$DIR/repo"
 ORIGIN="$DIR/origin.git"
 # 写しの名は起動ごとに一意（use.sh と同じ印）。<dir> を使い直しても、一覧に残る前の起動の run と結びの候補が重ならない

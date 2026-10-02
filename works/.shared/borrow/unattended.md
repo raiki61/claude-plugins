@@ -24,7 +24,7 @@
 - 読むだけの役（判定・審査）は、分からないまま置いた前提を、返答の型の中の理由の欄に書く。
 - TDD の例外（使い捨ての試作・生成したコード・設定のファイル）に当たるかどうかは、役は決めない。役は先のテストを省かない。省いてよい単位は線の側（修正案の route と機械の決まり。TDD の節が入ったら本線 fix-tdd の `route: direct`）が決める。
 - 分からない項目があるうちは実装を始めない、という原則（receiving-code-review）はそのまま効く。分からない項目は上のとおり返答に書き、分かった項目だけを直す。
-- test-driven-development の「Ask your human partner」と、部品の実装役の型の「Ask them now」「ask questions」は、止まらずに食い違いの申し出で返す。状態の語 `NEEDS_CONTEXT`・`BLOCKED` も申し出に当たる（`seams.json` の `words`）。
+- test-driven-development の「Ask your human partner」と、部品の実装役の型の「Ask them now」「ask questions」は、止まらずに食い違いの申し出で返す。状態の語「NEEDS_CONTEXT」・「BLOCKED」も申し出に当たる（`seams.json` の `words`）。
 
 ## THREE-FAILS 3 回直して効かなければ、人と構成を話す
 
@@ -50,7 +50,7 @@
 
 ## DISPATCH 下請けの AI を起こす・調整役として振る舞う
 
-スキルの文に従って下請けを起こさない。Agent を持つ役（素材集めの局所レビュー）が起こすのは、指示書が名指すレンズだけ。ほかの役の道具に Agent は無い。別の目の審査は、線の別の節（`blk-delta` の審査役など）が新しい会話で受け持つ。`requesting-code-review/code-reviewer.md` をテストの審査役の手引きに使うときは、`Subagent (general-purpose):` の枠と `description:` の行を読み飛ばし、`prompt: |` の中身だけを手引きとして読む。`DESCRIPTION` などの角括弧の埋め草は、engine が渡す材料で埋まる。
+スキルの文に従って下請けを起こさない。Agent を持つ役（素材集めの局所レビュー）が起こすのは、指示書が名指すレンズだけ。ほかの役の道具に Agent は無い。別の目の審査は、線の別の節（`blk-delta` の審査役など）が新しい会話で受け持つ。`requesting-code-review/code-reviewer.md` をテストの審査役の手引きに使うときは、`Subagent (general-purpose):` の枠と `description:` の行を読み飛ばし、`prompt: |` の中身だけを手引きとして読む。「DESCRIPTION」などの角括弧の埋め草は、engine が渡す材料で埋まる。
 
 ## DELEGATE エージェントの報告を信じない
 

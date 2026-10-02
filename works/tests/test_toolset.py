@@ -1233,7 +1233,9 @@ class NewerCase(Base):
         self.add_version("6.10.0")
         before = {p: p.read_bytes() for p in self.user.rglob("*") if p.is_file()}
         pack = {p: p.read_bytes() for p in (ROOT / ".shared" / "borrow").rglob("*") if p.is_file()}
-        self.cli("newer")
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("superpowers 6.10.0", r.stdout)
         self.assertEqual({p: p.read_bytes() for p in self.user.rglob("*") if p.is_file()}, before)
         self.assertEqual({p: p.read_bytes() for p in (ROOT / ".shared" / "borrow").rglob("*") if p.is_file()}, pack)
 
@@ -1261,3 +1263,23 @@ class NewerCase(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("installed_plugins.json", r.stdout)
         self.assertIn("superpowers 6.10.0", r.stdout)
+
+    def test_newer_names_added_asks_whatever_the_case(self):
+        """人に聞く文は大文字・小文字を問わずに拾う（原文には行頭の Human partner が在る）"""
+        self.add_version("6.10.0", edit={"skills/receiving-code-review/SKILL.md": "Human partner decides this.\n"})
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("人に聞く文が増えた: skills/receiving-code-review/SKILL.md: Human partner decides this.", r.stdout)
+
+    def test_newer_unlistable_version_folders_still_exit_0(self):
+        """版のフォルダの一覧を読めない（権限が無い）時も、1 行で名指して最後の行を出し、終了コード 0"""
+        base = self.add_version(PIN_V).parent
+        base.chmod(0)
+        try:
+            r = self.cli("newer")
+        finally:
+            base.chmod(0o755)   # tearDown が一時の置き場を消せるように、ここで戻す
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("読めない物に当たった", r.stdout)
+        self.assertIn("版を上げるかは人が決める", r.stdout)
+        self.assertNotIn("Traceback", r.stderr)
