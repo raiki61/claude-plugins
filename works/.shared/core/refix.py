@@ -11,7 +11,9 @@
 - prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスを brief に書き、呼び手の
                              組み立て（prompt）で指示書を書き、印を置く
 - accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる。手直しは先に書き込みの
-                             記録と突き合わせ、記録の無い変更を盤面の trace に残す）
+                             記録と突き合わせ、記録の無い変更を盤面の trace に残す）。1 回目の審査は準拠と品質の 2 判定の欄
+                             （deltamarks）を承認済みの修正案の項目（_plan_items）と照らし、欠けと誤りは盤面へ渡さずに拒み、
+                             通れば欄を外して渡し、受けた時だけ欄を今の周の delta-verdicts.json に控える
 - main_accept_review・main_accept_fix: 受け付けのスクリプトの入口（rolekit.main_accept。3 回目の拒否で done・give_up。R50）
 - route(board):              blk-refix の分かれ道 {review2, refix2, owed, owed2}（盤面の待っている節と義務の数）
 - collect_delta・collect_refix: 出口（1 本目の欄を全部残して足す）。役が 3 回とも拒まれて輪を抜けたら、最後の拒否の文で
@@ -42,9 +44,11 @@ if str(_CORE) not in sys.path:
 from board import BoardGap, pending_instance as _pending, rules_module  # noqa: E402
 import engine.util as _util  # noqa: E402
 import accept  # noqa: E402
+import deltamarks  # noqa: E402
 import entry  # noqa: E402
 import lens  # noqa: E402
 import node_marker  # noqa: E402
+import planmarks  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
 import rolekit  # noqa: E402
@@ -233,9 +237,31 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
 
 
 # ---------------------------------------------------------------- 受け付け
+def _plan_items(b) -> list[dict]:
+    """今の周の承認済みの修正案の項目（planmarks.approved_items。無い run は空）。控えが凍結の印と食い違えば BoardGap
+    （盤面を止めるのは先に起きている修正の受け付けの conflict.test_permits。ここは回す側の誤りとして 2 で抜ける）"""
+    try:
+        return planmarks.approved_items(b) or []
+    except planmarks.FieldsBroken as e:
+        raise BoardGap(f"差分の審査の受け付けが承認済みの修正案の項目を読めない: {e}") from None
+
+
 def accept_review(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path, *, n: int) -> dict:
-    """n 回目の審査役の返答（読むだけの役。cut が撮った写しと今の作業ツリーを比べる）。entry.take の返り"""
-    return entry.take(board, _pass(n)["review"], reply, repo, snapshot_name=snapshot_name(n))
+    """n 回目の審査役の返答（読むだけの役。cut が撮った写しと今の作業ツリーを比べる）。entry.take の返り。節が
+    deltamarks.NODES に在れば、先に 2 判定の欄を承認済みの修正案の項目と照らし、欠けと誤りが在れば盤面へ渡さずに
+    {ok: False, reason: deltamarks.REJECT と行}。無ければ欄を外した返答を渡し、受けた時だけ欄を控える"""
+    nid = _pass(n)["review"]
+    if nid not in deltamarks.NODES:
+        return entry.take(board, nid, reply, repo, snapshot_name=snapshot_name(n))
+    b = entry.open_board(board)
+    gaps = deltamarks.gaps(reply, _plan_items(b))
+    if gaps:
+        return {"ok": False, "reason": deltamarks.REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
+    bare, verdicts = deltamarks.split(reply)
+    out = entry.take(board, nid, bare, repo, snapshot_name=snapshot_name(n))
+    if out.get("ok") is True:   # 受けた時だけ（拒否では盤面の外の控えも前のまま）
+        deltamarks.save(b, verdicts)
+    return out
 
 
 def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path, *, n: int) -> dict:
@@ -252,8 +278,9 @@ def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pa
 
 def main_accept_review(n: int) -> int:
     """審査の受け付けのスクリプトの入口（rolekit.main_accept。中身の拒否は 0 と 1 行、3 回目の拒否で done・give_up、
-    配線の誤りは 2）"""
-    return rolekit.main_accept(_pass(n)["review"], snapshot_name=snapshot_name(n))
+    配線の誤りは 2）。盤面へは accept_review（2 判定の欄の照らしと控えつき。読むだけの役の写しの比べもここ）で渡す"""
+    return rolekit.main_accept(_pass(n)["review"], take=lambda board, reply, repo: accept_review(
+        reply, board, os.environ.get("INPUTS_BASE_REV", ""), repo, n=n))
 
 
 def main_accept_fix(n: int) -> int:

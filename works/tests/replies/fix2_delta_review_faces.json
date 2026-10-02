@@ -14,5 +14,14 @@
       "closed": false,
       "why": "docstring は上限の枝を書いたが下限の枝を書いておらず、事前審査が言った約束のずれが片方残る"
     }
-  ]
+  ],
+  "compliance": {
+    "verdict": "not_applicable",
+    "items": [],
+    "read": "修正案の works の欄の控えが無い run なので、照らす承認済みの項目は無い。差分の stats.py を読んだ"
+  },
+  "quality": {
+    "verdict": "fail",
+    "why": "faces に挙げた穴は修正案の項目への準拠の外の品質の穴で、準拠の行には結ばない"
+  }
 }

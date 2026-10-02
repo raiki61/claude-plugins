@@ -527,7 +527,9 @@ REFIX2_DECLARED = {"handled": [{"key": DELTA_FACE2, "handled": "declared",
                                 "how": "境の値は本体が x をそのまま返し、2 つの枝の約束の外側で自明なので書き足さない"}]}
 CLEAN_DELTA_REVIEW = {"faces": [], "faces_none": "stats.py の差分 2 行（mean の分母・clamp の上限の戻り値）と test_stats.py を読んだ。"
                                                "写し・入口・宣言とのずれは無い",
-                      "checks": [{"key": FACE, "closed": True, "why": "clamp の上限の枝が hi を返す形になり、人の答えどおり"}]}
+                      "checks": [{"key": FACE, "closed": True, "why": "clamp の上限の枝が hi を返す形になり、人の答えどおり"}],
+                      "compliance": DELTA_REVIEW["compliance"],
+                      "quality": {"verdict": "pass", "why": "差分は mean の分母と clamp の上限の枝を直すだけで、faces に挙げる穴は無い"}}
 
 
 class RefixToTestsCase(LineBase):

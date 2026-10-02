@@ -32,6 +32,7 @@ sys.path.insert(0, str(CORE))
 
 from accept import role_schema, snapshot_tree, tree_state  # noqa: E402
 from board import BoardGap  # noqa: E402
+import deltamarks  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
 import refix  # noqa: E402
@@ -768,6 +769,27 @@ class TestDeltaBoard(RF.DeltaBoardCase):
                 self.assertFalse(got["ok"])
                 self.assertIn(word, got["reason"])
 
+    def test_accept_review_strips_and_saves_verdicts(self):
+        """修正案の欄を控えない盤面（not_applicable）: 2 判定の欄を外した返答が盤面に渡り、欄は盤面の外の控えに置かれる"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        self.assertTrue(refix.accept_review(load("fix2_delta_review_faces"), self.board, "", repo, n=1)["ok"])
+        b = real_entry.open_board(self.board)
+        self.assertNotIn("compliance", b.output_of_round("p3.delta_review", b.round))
+        self.assertEqual(deltamarks.read(b)["compliance"]["verdict"], "not_applicable")
+
+    def test_accept_review_rejects_missing_verdicts(self):
+        """2 判定の欄が欠けた返答 → 拒否の文の頭は deltamarks.REJECT、盤面は前のまま"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        before = RF.TE.board_shas(self.board)
+        reply = load("fix2_delta_review_none")
+        del reply["quality"]
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertFalse(got["ok"])
+        self.assertTrue(got["reason"].startswith(deltamarks.REJECT), got["reason"])
+        self.assertEqual(RF.TE.board_shas(self.board), before)
+
     def test_delta_exit_keeps_v1_fields(self):
         """collect_delta の鍵 ⊇ {ok, faces, review_file, diff_file}（1 本目の出口）。足すのは owed・fix_rev・reads_file"""
         repo, _ = self.reviewed("fix2_delta_review_faces")
@@ -833,7 +855,8 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         reply = {"faces": [{"key": f"{where} 使われない物", "kind": "dead_path", "where": where, "cite": cite,
                             "why": "どこからも呼ばれない物を修正が足している"} for where, cite in
                            (("日本.py", "def 日付():"), ("未追跡.py", "x = 1"))],
-                 "checks": load("fix2_delta_review_none")["checks"]}
+                 "checks": load("fix2_delta_review_none")["checks"],
+                 "compliance": load("fix2_delta_review_faces")["compliance"], "quality": load("fix2_delta_review_faces")["quality"]}
         res = refix.accept_review(reply, self.board, "", repo, n=1)
         self.assertTrue(res["ok"], res.get("reason"))
 

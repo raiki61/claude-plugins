@@ -299,7 +299,9 @@ class TestDelta(AcceptCase):
         self.fix_stats()
         (self.repo / "helper.py").write_text("def helper():\n    return 1\n")
         reply = {"faces": [{"key": "helper.py 使われない関数", "kind": "dead_path", "where": "helper.py",
-                            "cite": "def helper():", "why": "どこからも呼ばれない関数を修正が足している"}], "checks": []}
+                            "cite": "def helper():", "why": "どこからも呼ばれない関数を修正が足している"}], "checks": [],
+                 "compliance": {"verdict": "not_applicable", "items": [], "read": "修正案の works の欄の控えが無い run なので、照らす承認済みの項目は無い。差分の stats.py を読んだ"},
+                 "quality": {"verdict": "fail", "why": "faces に挙げた穴は修正案の項目への準拠の外の品質の穴で、準拠の行には結ばない"}}
         r = check_delta(reply, self.board, self.base, self.repo)
         self.assertTrue(r["ok"], r["reason"])
 

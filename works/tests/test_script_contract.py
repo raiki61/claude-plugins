@@ -103,10 +103,17 @@ PLAN_FIELDS = {"route": "direct",
                "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}
 
 
+# 修正案の works の欄を控えた run の 1 回目の差分の審査の準拠（deltamarks。承認済みの項目と照らし、落ちた行は無い）
+REVIEW_COMPLIANCE = {"verdict": "pass", "items": [],
+                     "read": "承認済みの修正案の項目 1 の approach・allowed_paths と差分の stats.py を読み、足りない物も範囲の外の物も無い"}
+
+
 def line_replies(**kw) -> dict:
-    """TL.replies の修正案を、役そのものの返答（項目に works の欄 PLAN_FIELDS を足した物）に替えた返答の組"""
+    """TL.replies の修正案を、役そのものの返答（項目に works の欄 PLAN_FIELDS を足した物）に替え、1 回目の差分の審査の準拠を
+    控えの在る run の pass（REVIEW_COMPLIANCE）に替えた返答の組（品質は TL.replies の物のまま: 穴が在れば fail）"""
     r = TL.replies(**kw)
     r["plan"] = {"plan": [{**row, **PLAN_FIELDS} for row in r["plan"]["plan"]]}
+    r["review"] = {**r["review"], "compliance": REVIEW_COMPLIANCE}
     return r
 
 

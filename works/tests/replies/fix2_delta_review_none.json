@@ -7,5 +7,14 @@
       "closed": true,
       "why": "clamp の docstring に上限を超えた値は hi を返すと書かれ、事前審査が言った約束のずれは塞がった"
     }
-  ]
+  ],
+  "compliance": {
+    "verdict": "not_applicable",
+    "items": [],
+    "read": "修正案の works の欄の控えが無い run なので、照らす承認済みの項目は無い。差分の stats.py を読んだ"
+  },
+  "quality": {
+    "verdict": "pass",
+    "why": "差分は mean の分母と clamp の上限の枝を直すだけで、faces に挙げる穴は無い"
+  }
 }
