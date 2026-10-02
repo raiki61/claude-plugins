@@ -6,10 +6,16 @@
 - 控え（LEDGER）: 今の周の作業ファイル r<N>/briefs.json。{"briefs": [{item, unit_keys, file, sha256, text}]}。file は周の箱
   （r<N>/）からの名、text は書いた文、sha256 はその文の UTF-8 のバイトの sha256
 - 凍結: 控えが在る周では brief を作り直さない。brief のファイルの sha256 が控えと違えば控えの text で書き戻し、盤面の trace に
-  RESTORED_OP の行を残す（役が brief を書き換えても、次に読むのは承認された時の文）
+  RESTORED_OP の行を残す（役が brief を書き換えても、次に読むのは承認された時の文）。書き戻しはリンクの先へ書かない（リンクや
+  普通のファイルでない物は消してから書く。ディレクトリなら LedgerBroken）
+- 切った印（CUT_OP）: 周の 1 回目の cut が trace に 1 行 {round, ledger_sha256（控えのファイルのバイトの sha256）, files} を書く。
+  後の cut は、印の在る周で控えが無い（消して作り直させる）・控えのバイトの sha256 が印と違う（text と sha256 を揃えて書き換えた）・
+  印の無い控え（cut の外で置いた）を LedgerBroken で止める。控えは一時のファイルから os.replace で置く
+- 呼ぶ時: cut・cut_at は今の周の p2.fix_plan の出力をそのまま凍結する。事前審査（p2.plan_review）と人の関所（p2.human_gate）を
+  抜けた後にだけ呼ぶ（前に呼ぶと、承認されていない案がその周の正本になる）
 
 読む物（どれも盤面の物。entry・planmarks・structmark の口だけ）:
-- 承認済みの修正案: 盤面の outputs の p2.fix_plan の file（今の周の物だけ）の plan。項目の並びは控え plan-fields.json と同じ
+- 承認済みの修正案: 今の周の p2.fix_plan の出力（b.output_of_round）の plan。項目の並びは控え plan-fields.json と同じ
 - 項目の works の欄: planmarks.read(b)（今の周の plan-fields.json）
 - 判定の単位 b.record["units"]・凍結した目的の文（record.process.purpose.purpose_text）・構造の目の行（structmark.plan_section）
 
@@ -25,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import pathlib
 import sys
 
@@ -44,13 +51,15 @@ LEDGER = "briefs.json"
 NAME = "brief-{n}.md"
 HEAD = "## 要求の正本（brief）"
 RESTORED_OP = "brief_restored"
+CUT_OP = "brief_cut"   # 周の 1 回目の cut の印（trace）
 BACKGROUND = "背景（参照。brief と食い違えば自分で解かずに申し出よ）"
 READ_ALL = "まず Read で全部読め。下の決まりの『要求の正本（brief）と背景』に従え"
 NONE = "無し"
 
 
 class LedgerBroken(ValueError):
-    """控え briefs.json が読めない・形が違う・text と sha256 が合わない（凍結を作り直して隠さず、ここで止める）"""
+    """控え briefs.json が読めない・形が違う・text と sha256 が合わない・切った印と合わない・brief の置き場がディレクトリ
+    （凍結を作り直して隠さず、ここで止める）"""
 
 
 # ---------------------------------------------------------------- 文
@@ -108,7 +117,7 @@ def _unit(key: str, units: dict) -> str:
     if not isinstance(u, dict):
         return f"### {key}\n\n判定の記録に無い単位"
     rx = u.get("prescriptions")
-    head = f"### {key}\n\n- label: {u.get('label')}\n- disposition: {u.get('disposition', NONE)}\n- reason: {u.get('reason')}\n"
+    head = f"### {key}\n\n- label: {u.get('label')}\n- disposition: {u.get('disposition') or NONE}\n- reason: {u.get('reason')}\n"
     return head + (f"- prescriptions:\n\n```json\n{_json(rx)}\n```" if rx else f"- prescriptions: {NONE}")
 
 
@@ -146,34 +155,80 @@ def _box(b) -> pathlib.Path:
 
 
 def _plan(b) -> list | None:
-    """今の周の承認済みの修正案の plan。出力が無い・前の周の物・読めないなら None"""
-    out = (b.state.get("outputs") or {}).get(PLAN_NODE)
-    if not isinstance(out, dict) or out.get("round") != b.round or not isinstance(out.get("file"), str):
-        return None
-    try:
-        doc = json.loads((pathlib.Path(b.dir) / out["file"]).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    """今の周の承認済みの修正案の plan。今の周に出していない・plan が並びでないなら None"""
+    doc = b.output_of_round(PLAN_NODE, b.round)
     plan = doc.get("plan") if isinstance(doc, dict) else None
     return plan if isinstance(plan, list) else None
 
 
+def _cut_mark(b) -> dict | None:
+    """今の周の切った印（trace の CUT_OP の行の最後の物）。無ければ None"""
+    try:
+        lines = (pathlib.Path(b.dir) / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    mark = None
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("op") == CUT_OP and row.get("round") == b.round:
+            mark = row
+    return mark
+
+
+def _row_ok(r) -> bool:
+    return (isinstance(r, dict) and isinstance(r.get("item"), int) and not isinstance(r.get("item"), bool)
+            and isinstance(r.get("unit_keys"), list) and all(isinstance(k, str) for k in r["unit_keys"])
+            and isinstance(r.get("text"), str) and isinstance(r.get("file"), str) and isinstance(r.get("sha256"), str)
+            and r["file"] not in ("", ".", "..") and pathlib.PurePosixPath(r["file"]).name == r["file"] and "\\" not in r["file"])
+
+
 def _ledger(b) -> list | None:
-    """今の周の控えの行。控えが無ければ None。在るのに読めない・形が違う・text と sha256 が合わなければ LedgerBroken"""
+    """今の周の控えの行。控えも切った印も無ければ None。次は LedgerBroken: 印が在るのに控えが無い・控えが読めない・行の形が違う・
+    行の text と sha256 が合わない・印の無い控え・控えのバイトの sha256 が印と違う"""
     p = _box(b) / LEDGER
-    if not p.is_file():
+    mark = _cut_mark(b)
+    if not p.exists():
+        if mark is not None:
+            raise LedgerBroken(f"周 {b.round} は {CUT_OP} の印が在るのに brief の控え {p} が無い（消して作り直させない）")
         return None
     try:
-        rows = json.loads(p.read_text(encoding="utf-8")).get("briefs")
+        raw = p.read_bytes()
+        rows = json.loads(raw.decode("utf-8")).get("briefs")
     except (OSError, ValueError, AttributeError) as e:
         raise LedgerBroken(f"brief の控え {p} を読めない: {e}") from None
     if not isinstance(rows, list):
         raise LedgerBroken(f"brief の控え {p} に briefs の並びが無い")
     for r in rows:
-        if not (isinstance(r, dict) and isinstance(r.get("text"), str) and isinstance(r.get("file"), str)
-                and pathlib.PurePosixPath(r["file"]).name == r["file"] and r.get("sha256") == _sha(r["text"])):
-            raise LedgerBroken(f"brief の控え {p} の行が形を成さないか、text と sha256 が合わない: {str(r)[:200]}")
+        if not _row_ok(r):
+            raise LedgerBroken(f"brief の控え {p} の行が形を成さない: {str(r)[:200]}")
+        if r["sha256"] != _sha(r["text"]):
+            raise LedgerBroken(f"brief の控え {p} の項目 {r['item']} の text と sha256 が合わない")
+    if mark is None:
+        raise LedgerBroken(f"brief の控え {p} に周 {b.round} の {CUT_OP} の印が無い（cut の外で置いた控えを正本にしない）")
+    if mark.get("ledger_sha256") != hashlib.sha256(raw).hexdigest():
+        raise LedgerBroken(f"brief の控え {p} のバイトの sha256 が周 {b.round} の {CUT_OP} の印と違う（凍結の後に書き換えた）")
     return rows
+
+
+def _put(p: pathlib.Path, data: bytes) -> None:
+    """data を p に置く。リンクや普通のファイルでない物はリンクの先へ書かずに消してから書く。ディレクトリなら LedgerBroken"""
+    if p.is_dir() and not p.is_symlink():
+        raise LedgerBroken(f"brief の置き場 {p} がディレクトリ（書き戻せない）")
+    if p.is_symlink() or (p.exists() and not p.is_file()):
+        p.unlink()
+    p.write_bytes(data)
+
+
+def _write_ledger(p: pathlib.Path, rows: list) -> bytes:
+    """控えを一時のファイルから os.replace で置き、置いたバイトを返す"""
+    raw = (json.dumps({"briefs": rows}, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_bytes(raw)
+    os.replace(tmp, p)
+    return raw
 
 
 def _out(b, rows: list) -> list[dict]:
@@ -188,12 +243,13 @@ def _restore(b, rows: list) -> None:
     for r in rows:
         p = _box(b) / r["file"]
         try:
-            same = hashlib.sha256(p.read_bytes()).hexdigest() == r["sha256"]
+            same = (not p.is_symlink() and p.is_file()
+                    and hashlib.sha256(p.read_bytes()).hexdigest() == r["sha256"])
         except OSError:
             same = False
         if not same:
-            p.write_bytes(r["text"].encode("utf-8"))
-            fixed.append(str(p.resolve()))
+            _put(p, r["text"].encode("utf-8"))
+            fixed.append(str(_box(b).resolve() / r["file"]))
     if fixed:
         b.trace(RESTORED_OP, files=fixed)
 
@@ -219,11 +275,13 @@ def cut(b) -> list[dict]:
         item = item if isinstance(item, dict) else {}
         text = render(n, item, f if isinstance(f, dict) else {}, units, purpose, structure)
         name = NAME.format(n=n)
-        b.work(name).write_bytes(text.encode("utf-8"))
+        _put(b.work(name), text.encode("utf-8"))
         rows.append({"item": n, "unit_keys": [k for k in item.get("unit_keys") or [] if isinstance(k, str)], "file": name,
                      "sha256": _sha(text), "text": text})
-    b.work(LEDGER).write_text(json.dumps({"briefs": rows}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    return _out(b, rows)
+    raw = _write_ledger(b.work(LEDGER), rows)
+    out = _out(b, rows)
+    b.trace(CUT_OP, round=b.round, ledger_sha256=hashlib.sha256(raw).hexdigest(), files=[r["file"] for r in out])
+    return out
 
 
 def cut_at(board_dir) -> list[dict]:
