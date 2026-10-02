@@ -32,4 +32,5 @@ brief は、事前審査と人の承認を通った修正案の 1 項目を、�
    notes_file の行を並べる。`kind` は `brief_vs_judgment`）。条件は通す範囲で、超えて削るな。
 8. **brief の `allowed_paths` の外と `out_of_scope` のファイルを変えるな。** `tests`・`rewrite_tests` の id のファイルは
    範囲に入る。範囲の外が要るなら、変えずに食い違いの申し出で返せ（`which_is_right` は request、`kind` は `scope_needed`）。
-   受け付けは差分を範囲・`adds`・`removes`・`tests` と照らし、外れは同じ brief のまま返る。
+   受け付けは差分を範囲・`adds`・`removes`・`tests` と照らし、外れは同じ brief のまま返る。裁定を受けた後に範囲へ
+   足してよいのは、裁定の「範囲」（`limits`）に並べたパスだけ（`out_of_scope` には足せない）。
