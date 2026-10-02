@@ -121,6 +121,59 @@ SECOND_CONFLICT = ("裁定の後の出し直しで新しく申し出た食い違
 PACK_COPY = ("修正役は .archon/ の下を変えてはいけない（Archon の置き場で、この run を動かしている線の写しが在りうる。"
              "写しは次の run が作り直す）: ")
 
+# 修正の受け付けの確かめの id → (拒否の見出しの短い名, 最後の回に単位に結んで止めてよいか)。並びは受け付けが回す順。
+# 拒否の見出しと確かめの id の表はここ 1 か所（role-rejects の行の id もここから引く。依頼 236）
+CHECKS = {
+    "frozen": ("TDD の輪で凍ったテストのファイル", True),
+    "writes": ("書き込みの出どころ", True),
+    "conflict": ("食い違いの申し出の形", False),
+    "pack": (".archon/ の下の変更", False),
+    "duplicate": ("同じ unit_key の重なり", False),
+    "not_opened": ("今の周に直す単位に無い unit_key", False),
+    "excused": ("直す義務から外れた単位", False),
+    "scope": ("承認済みの修正案の範囲", True),
+    "tests": ("変更に当たる試験の赤", True),
+    "gates": ("事後の関門の束", True),
+    "copy": ("写しの受け付け（graph の p3.fix の型と規則）", True),
+}
+REJECT_HEAD = ("受け付けは確かめを全部回した。見出しごとに並べた行を全部直した返答を丸ごと出し直せ（直した所だけを返すな。"
+               "1 回の出し直しで全部を直せ）:")
+
+
+def note(found: list, check: str, texts) -> None:
+    """found に (check, 文) を足す（texts は文の列か文 1 つ）。空の文は足さない。表 CHECKS に無い id は ValueError
+    （配線の誤り。入口が 2 にする）"""
+    if check not in CHECKS:
+        raise ValueError(f"修正の受け付けの表 CHECKS に無い確かめの id: {check!r}")
+    for text in [texts] if isinstance(texts, str) else texts or []:
+        if text and text.strip():
+            found.append((check, text))
+
+
+def reject_rows(found: list) -> list:
+    """found を表 CHECKS の順に並べ、同じ (id, 文) を 1 つにした列（確かめの中は積んだ順）"""
+    seen = dict.fromkeys(found)
+    return [row for check in CHECKS for row in seen if row[0] == check]
+
+
+def render_rejects(found: list) -> str:
+    """拒否の本文: REJECT_HEAD の後に、行の在る確かめごとに見出し `## <見出し>（確かめ <id>・<件数> 件）` と行 `  - <文>`。
+    文の中の改行は次の行の頭に 4 字の空白を置いて続ける"""
+    rows = reject_rows(found)
+    lines = [REJECT_HEAD]
+    for check, (head, _) in CHECKS.items():
+        texts = [text for c, text in rows if c == check]
+        if texts:
+            lines.append(f"## {head}（確かめ {check}・{len(texts)} 件）")
+            lines += ["  - " + text.replace("\n", "\n    ") for text in texts]
+    return "\n".join(lines)
+
+
+def rejected(found: list) -> dict:
+    """拒否の出力。rejects は本文の `  - ` の行と同じ数・同じ順で、行ごとの確かめの id と文"""
+    return {"ok": False, "reason": render_rejects(found),
+            "rejects": [{"check": c, "text": t} for c, t in reject_rows(found)], "changes": []}
+
 
 def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
     """.archon/ の下（leftovers.ARCHON_PREFIX）を changes[].files に申告した・修正役の前の控え（節 ignored-before）から
