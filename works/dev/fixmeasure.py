@@ -70,6 +70,8 @@ reads.EVENTS_VERIFIED）とは別の表（あちらは別の物を見る）。�
   真にしない（別の run で確かめる）。
 - local_agent_start: g1 の run の修正役（fixing__fix-loop.fix）が Agent を呼んだ回ごとに、同じ step_name の task_activity に
   activity started・task_type local_agent の行が 1 行出ること。下請けの起動の数と started の行の数が合うこと。
+  あわせて、各回の started の行が、同じ回の fix の node_completed より event_order で前に並ぶこと（g1 の作り直しは最初の回の
+  起動だけを数えるので、後に書かれると 0 と数える）。
 """
 from __future__ import annotations
 
