@@ -945,9 +945,10 @@ class TestBriefCanonEdges(unittest.TestCase):
     """brief の決まり（brief-canon）の端: 人が関所で付けた条件との強さの順と、指示書の頭の節の見出しとの重なり"""
 
     def test_gate_notes_win_over_brief(self):
-        """人が関所で答えた条件（notes_file）は brief に勝つ。brief が条件を超えれば条件どおりに直し、超えた所は申し出で返す"""
+        """修正の前に人が答えた条件（notes_file）は brief に勝つ。brief が条件を超えれば条件どおりに直し、超えた所は申し出で返す。
+        決まりの文は「関所」の語を使わない（ブロックはほかの段を知らない。test の BLOCK_KNOWN の数え）"""
         sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
-        self.assertIn("人が関所で答えた条件（notes_file）は brief に勝つ", sec)
+        self.assertIn("修正の前に人が答えた条件（notes_file）は brief に勝つ", sec)
         self.assertIn("brief が条件を超えれば条件どおりに直し、超えた所は食い違いの申し出で返す", sec)
 
     def test_rule_heading_does_not_overlap_brief_head(self):
