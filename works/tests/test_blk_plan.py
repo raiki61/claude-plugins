@@ -10,6 +10,7 @@
 - スクリプト: 別のプロセスで Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）に回す。盤面は linekit の種で start →
   並行 PR・前提・判定を entry.take で受けた物（p2.fix_plan が待つ）。指示書は本線の写し（gl-prompts）を rolekit の描き方で描いた物
 """
+import copy
 import fcntl
 import importlib.util
 import json
@@ -30,6 +31,8 @@ BLK = ROOT / "blk-plan"
 CORE = ROOT / ".shared" / "core"
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(BLK / "lib"))
+sys.path.insert(0, str(ROOT / "blk-eyes" / "lib"))
+sys.path.insert(0, str(ROOT / "blk-material" / "lib"))
 sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
@@ -40,8 +43,10 @@ import engine.rules as engine_rules  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import entry  # noqa: E402
+import eyes  # noqa: E402
 import gatemarks  # noqa: E402
 import linekit  # noqa: E402
+import material  # noqa: E402
 import node_marker  # noqa: E402
 import libdocs  # noqa: E402
 import planblk  # noqa: E402
@@ -58,8 +63,8 @@ DEFER = "stats.py: 他の統計の関数と書き方を揃える"
 QUESTION = "stats.py mean: 空の列の意味が決まっていない"
 ASKED = "stats.py clamp: lo > hi の扱いが割れる"
 BACK = "stats.py mean: 浮動小数の和の誤差"
-# 盤面の置き場の錠のファイル名（blk-eyes の eyes.LOCK_NAME・blk-material の material.LOCK）。blk-plan は錠を取らない
-BOARD_LOCKS = ("board.lock", ".works-material.lock")
+# 盤面の置き場の錠のファイル名（正本から引く）。blk-plan は錠を取らない
+BOARD_LOCKS = (eyes.LOCK_NAME, material.LOCK)
 NARROWS = [{"what": "空の列の mean", "why": "空の列の平均は 0 割りの例外のまま（前も例外で、狭まる能力は無いが人に確かめる）",
             "no_narrow": "空の列で例外を投げる今の動きを残すと、直したい呼び手の 0 返しが成り立たないので狭めない案は無い"}]
 
@@ -343,6 +348,44 @@ class ScriptCase(unittest.TestCase):
         with mock.patch.object(planblk, "_names", return_value=[UNIT_MEAN, UNIT_CLAMP]), \
                 mock.patch.object(planblk.pointers, "resolve"):
             self.assertEqual(planblk.not_allowed(b, "p2.fix_plan", plan), [])
+
+    def test_plan_reply_by_number_rejects_unowed_unit(self):
+        """本線の返答は no の整数で来る: 義務の無い単位を番号で指した案も、事前の拒否が label と no を名指して拒み、拒否文が入れてよい
+        no を並べる（役の返答は書き換わらない）"""
+        judge = linekit.reply("judge_ok")
+        judge["units"].append({"key": NIT, "label": "nit", "reason": "事実: 名前が短い。反証: 無し", "origin_analysis": "命名"})
+        self.judged(judge=judge)
+        self.ok("snap", role="plan")
+        self.ok("prep", role="plan", excluded_file="")
+        names = planblk._names(entry.open_board(self.board), "p2.fix_plan")
+        nit_no = names.index(NIT) + 1
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["unit_keys"] = [names.index(UNIT_MEAN) + 1, names.index(UNIT_CLAMP) + 1, nit_no]
+        sent = copy.deepcopy(plan)
+        got = planblk.take("plan")(self.board, plan, self.repo)
+        self.assertFalse(got["ok"])
+        self.assertIn("label=nit", got["reason"])
+        self.assertIn(f"no {nit_no} は", got["reason"])
+        allowed = sorted(names.index(k) + 1 for k in (UNIT_MEAN, UNIT_CLAMP))
+        self.assertIn(f"{planblk.NOT_OWED_REJECT} {allowed}", got["reason"])
+        self.assertNotIn("頭の節", got["reason"])
+        self.assertEqual(plan, sent)
+
+    def test_take_malformed_plan_resubmits_not_raises(self):
+        """形の崩れた修正案は例外でなく ok:false（再提出の道。accept は exit 2 で落ちない）。前段の 3 つの読み（narrow_gaps・split・
+        not_allowed）が全部、形の崩れを読み飛ばして形の拒否を entry.take に任せる"""
+        self.judged()
+        self.ok("snap", role="plan")
+        self.ok("prep", role="plan", excluded_file="")
+        row = linekit.reply("plan_ok")["plan"][0]
+        for name, reply in (("行が文字列", {"plan": ["x"]}), ("plan が文字列", {"plan": "s"}), ("plan が数", {"plan": 5}),
+                            ("unit_keys が数", {"plan": [{**row, "unit_keys": 5}]}),
+                            ("unit_keys が入れ子", {"plan": [{**row, "unit_keys": [[1]]}]}),
+                            ("unit_keys が dict", {"plan": [{**row, "unit_keys": [{"a": 1}]}]}),
+                            ("narrows が数", {"plan": [{**row, "narrows": 5}]})):
+            with self.subTest(name):
+                got = planblk.take("plan")(self.board, reply, self.repo)
+                self.assertFalse(got["ok"], got)
 
     # -- 入れてよい no の節（planblk.plan_slots）と受け付けの写しの一致
     def mixed(self, extra_questions=(), closes=()):

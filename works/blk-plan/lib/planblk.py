@@ -50,7 +50,7 @@ NONE_WORDS = ("", "null")               # 入口の「無し」（Archon の入�
 EXCLUDED_HEAD = "並行 PR の範囲。触らず、単位に入れない"
 NO_NARROW_REJECT = (f"narrows の行に狭めない案を探した結果（{gatemarks.NO_NARROW}）が無いか短い（直して done し直す）。狭めを避ける形が"
                     "在ればそれを案に採ってその行を消し、無い時だけ、どの形を当たりなぜ採れないかを書け:")
-NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit・info・defer など。受け付けが受けない）。案から外し、入れてよい no は頭の節に在る:"
+NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit・info・defer など。受け付けが受けない）。案から外せ。案に入れてよい no（必ず入れる物を含む）は"
 PLAN_STUCK = "修正案の行き止まり: 必ず案に入れる単位が開いていない"
 STUCK_WHY = ("受け付けの写しは開いていない単位を受けず、義務からも外さないので、案の形では閉じない。人が関所で問いの答えを直すか、"
              "単位を開く")
@@ -169,6 +169,19 @@ def halt_if_stuck(b) -> str:
     return why
 
 
+def _plan_keys(got) -> list:
+    """修正案の返答が案の行に挙げた単位の key（文字列）。形の崩れた行・欄は飛ばす（形の拒否は entry.take＝engine に任せる。再提出の道に乗せる）"""
+    rows = got.get("plan") if isinstance(got, dict) else None
+    return [k for p in rows if isinstance(p, dict) and isinstance(p.get("unit_keys"), list)
+            for k in p["unit_keys"] if isinstance(k, str)] if isinstance(rows, list) else []
+
+
+def allowed_nos(b, nid: str) -> list:
+    """案に入れてよい no（開いている単位の no。必ず入れる単位は開いている＝halt_if_stuck が保つ）"""
+    _, opened, _ = plan_slots(b)
+    return [i + 1 for i, k in enumerate(_names(b, nid)) if k in opened]
+
+
 def not_allowed(b, nid: str, reply) -> list[str]:
     """修正案の返答が案に入れた単位のうち、受け付けが受けない物（入れてよくなく、必ず入れる物でもない）の理由の行。no は engine の
     pointers.resolve で名前に戻す（範囲外の番号・判定に無い key の拒否は entry.take＝engine に任せる）"""
@@ -180,12 +193,11 @@ def not_allowed(b, nid: str, reply) -> list[str]:
     pointers.resolve(got, b.nodes[nid].get("pointers"), inst.get("pointers"))
     names = _names(b, nid)
     lines = []
-    for p in got.get("plan") or []:
-        for k in p.get("unit_keys") or []:
-            if k in units and k in names and k not in opened and k not in owed:   # 判定に無い key・番号に無い名前は受け付けの写しの拒否に任せる
-                u = units[k]
-                lines.append(f"no {names.index(k) + 1} は label={u.get('label')}（disposition={u.get('disposition', '無し')}）"
-                             f"で直す対象でない（{k[:40]}）")
+    for k in _plan_keys(got):
+        if k in units and k in names and k not in opened and k not in owed:   # 判定に無い key・番号に無い名前は受け付けの写しの拒否に任せる
+            u = units[k]
+            lines.append(f"no {names.index(k) + 1} は label={u.get('label')}（disposition={u.get('disposition', '無し')}）"
+                         f"で直す対象でない（{k[:40]}）")
     return lines
 
 
@@ -259,7 +271,8 @@ def take(role: str):
         if role == "plan":
             closed = not_allowed(entry.open_board(pathlib.Path(board)), nid, reply)
             if closed:
-                return {"ok": False, "reason": NOT_OWED_REJECT + "\n" + "\n".join(f"  - {c}" for c in closed)}
+                allowed = allowed_nos(entry.open_board(pathlib.Path(board)), nid)
+                return {"ok": False, "reason": f"{NOT_OWED_REJECT} {allowed}。外す単位:\n" + "\n".join(f"  - {c}" for c in closed)}
         bare, marks = gatemarks.split(nid, reply)
         gatemarks.save(board, nid, entry.open_board(pathlib.Path(board)).round, marks)
         return entry.take(pathlib.Path(board), nid, bare, pathlib.Path(repo), snapshot_name=snapshot_name(role))

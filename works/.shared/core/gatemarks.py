@@ -277,9 +277,13 @@ def _rows(node: str, reply: dict) -> list:
     """行の一覧（plan は [[narrow…]…]、plan_review は [face…]）"""
     if not isinstance(reply, dict):
         return []
+    # 形の崩れた返答（行が list でない・行が dict でない・narrows が list でない）は空として読む。形の拒否は entry.take が言う
     if node == "p2.fix_plan":
-        return [p.get("narrows") or [] if isinstance(p, dict) else [] for p in reply.get("plan") or []]
-    return reply.get("faces") or []
+        rows = reply.get("plan")
+        return [p["narrows"] if isinstance(p, dict) and isinstance(p.get("narrows"), list) else []
+                for p in (rows if isinstance(rows, list) else [])]
+    rows = reply.get("faces")
+    return rows if isinstance(rows, list) else []
 
 
 def _pop(row) -> dict:
