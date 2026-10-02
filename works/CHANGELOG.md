@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-10-02
+
 ### Changed
 
 - herdr の枠の集計で、同じ枠・同じ対象で後に起こした run（Archon の started_at が後の物。状態は問わない）が在る落ちた run は、終わった run と同じに数える（以前は落ちた run を必ず人の番に数えていた）。放っておいた落ちた run が 1 本あるだけで、枠の表示が『人の番』のまま戻らなかったため。いちばん新しい run が落ちた時、対象が空・started_at が読めない・同じ時刻の時は、今までどおり人の番に数える。paused など落ちた run 以外の数え方は変えない。
