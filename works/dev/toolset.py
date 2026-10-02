@@ -58,7 +58,7 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
 - 契約の確かめ（contract）: 版のフォルダに、固定との食い違い（spseam.pin_problems）と、包む節の表 .shared/borrow/seams.json の
   契約の破れ（spseam.contract_problems。錨・読み替えの決まり・穴・出口の語）を当てて 1 行ずつ出す。版を名指さなければ写しに、
   名指せば利用者のキャッシュのその版の置き場（vendor と同じ所。版を上げる前に、新しい版で何が崩れるかを見る）に当てる。
-  破れが無ければ 1 行で終了コード 0、在れば 1、版のフォルダが無ければ 2。何も書かない。
+  破れが無ければ 1 行で終了コード 0、在れば 1、版のフォルダが無い・borrow.json に pin が無ければ 2。何も書かない。
 """
 import datetime
 import hashlib
@@ -718,24 +718,27 @@ def _vendor_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None", version: st
 
 def _contract_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None", version: "str | None") -> int:
     """版のフォルダ（version が無ければ写し、在れば利用者のキャッシュのその版）に固定と節の契約を当てて行を出す。
-    破れが無ければ 0、在れば 1、版のフォルダが無ければ 2"""
+    破れが無ければ 0、在れば 1、版のフォルダが無い・borrow.json に pin が無ければ 2"""
+    borrow_dir = pack / ".shared" / "borrow"
     item = load_borrow(pack)[VENDORED]
+    pin = item.get("pin")
+    if not pin:
+        raise ToolsetError(f"borrow.json の {VENDORED} に pin が無い（写しの版が決まらない。dev/toolset.py vendor で写す）")
     if version is None:
-        src, version = spseam.vendored_dir(item, pack / ".shared" / "borrow"), item["pin"]["version"]
+        src, version = spseam.vendored_dir(item, borrow_dir), pin["version"]
     else:
         _check_version_name(version)
         src = (user_cfg or user_config_dir()) / "plugins" / "cache" / item["marketplace"] / VENDORED / version
     if not src.is_dir():
         print(f"toolset.py: {VENDORED} {version} の版のフォルダ {src} が無い", file=sys.stderr)
         return 2
-    borrow_dir = pack / ".shared" / "borrow"
     seams = spseam.load_seams(borrow_dir)
     overlay = (borrow_dir / spseam.OVERLAY_FILE).read_text(encoding="utf-8")
     bad = spseam.contract_problems(src, item, seams, overlay)   # 固定との食い違い（pin_problems）が先に並ぶ
     if not bad:
         print(f"契約: {VENDORED} {version}（{src}）の錨・穴・語・sha256 は全部そろう")
         return 0
-    print(f"契約: {VENDORED} {version}（{src}）の破れ {len(bad)} 件（固定 {item['pin']['version']} と "
+    print(f"契約: {VENDORED} {version}（{src}）の破れ {len(bad)} 件（固定 {pin['version']} と "
           f"{spseam.SEAMS_FILE} に照らして）:")
     for line in bad:
         print(f"- {line}")

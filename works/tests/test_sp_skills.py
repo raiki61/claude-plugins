@@ -44,7 +44,6 @@ NEVER = frozenset({"brainstorming", "subagent-driven-development", "executing-pl
 
 # 部品（parts）: スキルとしては使わず、中の文（部品の型）を役の指示書に使うファイル。スキルの名 → ファイルの名
 PARTS = {"subagent-driven-development": frozenset({"implementer-prompt.md", "task-reviewer-prompt.md"})}
-BRACKETED = re.compile(r"\[[^\[\]]+\]")   # 部品の型の本文の角括弧の語（行をまたぐ物も 1 つに数える）
 
 OVERLAY = ROOT / ".shared" / "borrow" / "unattended.md"
 ROUTING_HEAD = "**義務の単位の行き先**: "   # 読み替えと修正の決まりの正本 .shared/core/writerules/common.md が同じ行で持つ決まりの頭
@@ -172,24 +171,14 @@ class SeamTableCase(unittest.TestCase):
         self.assertEqual((w["NEEDS_CONTEXT"], w["BLOCKED"]), ("divergence", "divergence"))
 
     def test_every_bracketed_token_in_part_bodies_is_a_placeholder_or_listed_literal(self):
-        """部品の型の本文（役に渡す文）の角括弧の語を、本物の写しで全部数える。どれも節の穴か、埋めない語（literals）に並べた物。
-        fill の埋め残しの検査（spseam.HOLE は [大文字の名] だけ）より広い形の穴（[task name] など）を、言わずに残させない。
-        literals の語は空白の続きを 1 つの空白にした形で比べる（行をまたぐ語も 1 行で書ける）"""
-        src = spseam.vendored_dir(self.sp)
-
-        def norm(t):
-            return " ".join(t.split())
+        """部品の型の本文の角括弧の語（[task name] の類いの小文字の語も）は、どれも節の穴か埋めない語（literals）。数えるのは
+        spseam（contract_problems・fill。版を上げる前の下見も同じ規則）で、ここは本物の写しで破れが無いことと、同じ語を両方に
+        並べていないことを見る"""
+        overlay = OVERLAY.read_text(encoding="utf-8")
+        self.assertEqual(spseam.contract_problems(spseam.vendored_dir(self.sp), self.sp, self.seams, overlay), [])
         for name, s in self.seams.items():
-            if s["use_as"] != "prompt":
-                continue
             with self.subTest(name):
-                body = spseam.prompt_body((src / s["files"][0]).read_text(encoding="utf-8"))
-                found = {norm(t) for t in BRACKETED.findall(body)}
-                declared = {norm(h) for h in s["placeholders"]}
-                literals = {norm(t) for t in s.get("literals", [])}
-                self.assertFalse(declared & literals, "穴と埋めない語の両方に並べた")
-                self.assertEqual(found, declared | literals)    # 余る literals も赤（版を上げて消えた語を残さない）
-
+                self.assertFalse(set(s.get("placeholders", [])) & set(s.get("literals", [])), "穴と埋めない語の両方に並べた")
 
 
 class OverlayDeliveryCase(unittest.TestCase):

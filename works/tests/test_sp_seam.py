@@ -115,6 +115,27 @@ class SeamCase(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"\[EXTRA\]"):
             spseam.fill("implementer", {"[BRIEF_FILE]": "x", "[directory]": "y"}, src, item, seams)
 
+    def test_bracketed_tokens_outside_placeholders_and_literals_are_named_and_refused(self):
+        """型の本文の角括弧の語は、どれも穴（placeholders）か埋めない語（literals）。小文字の語（[task name] の類い）も数える。
+        どちらでもない語は contract_problems が名指し、fill は ValueError。本文に無い literals も名指す。literals は空白の続きを
+        1 つの空白にして比べる（行をまたぐ語も 1 行で書ける）"""
+        text = IMPL_TEXT.replace("[directory]\n", "[directory] [task name] [Approved |\n      Needs fixes]\n")
+        src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT, IMPL: text})
+        item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}
+        seams = {"implementer": {"use_as": "prompt", "files": [IMPL], "anchors": [], "words": {},
+                                 "placeholders": ["[BRIEF_FILE]", "[directory]"],
+                                 "literals": ["[Approved | Needs fixes]", "[gone]"]}}
+        got = spseam.contract_problems(src, item, seams, "")
+        self.assertEqual(got, [f"implementer: 穴でも literals でもない角括弧の語 [task name] が {IMPL} の prompt の本文に在る",
+                               f"implementer: literals [gone] が本文に無い（{IMPL} の prompt）"])
+        with self.assertRaisesRegex(ValueError, r"\[task name\]"):
+            spseam.fill("implementer", {"[BRIEF_FILE]": "x", "[directory]": "y"}, src, item, seams)
+        seams["implementer"]["placeholders"].append("[task name]")
+        seams["implementer"]["literals"].remove("[gone]")
+        self.assertEqual(spseam.contract_problems(src, item, seams, ""), [])
+        got = spseam.fill("implementer", {"[BRIEF_FILE]": "x", "[directory]": "[lower case]", "[task name]": "t"}, src, item, seams)
+        self.assertIn("[lower case] t [Approved |", got)             # 値の中の角括弧と literals は埋め残しに数えない
+
     def test_anchor_found_twice_is_named(self):
         src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT + "Ask your human partner.\n", IMPL: IMPL_TEXT})
         item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}

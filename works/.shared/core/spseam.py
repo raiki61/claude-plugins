@@ -7,6 +7,8 @@
 - 固定（pin）: borrow.json の superpowers.pin。{version, commit, checked, files: {相対パス: sha256}}
 - 錨（anchor）: 読み替えの決まりの根拠になる原文の引用。引用を含む行がちょうど 1 行で、その段落の sha256 が固定の時と同じこと
 - 穴（placeholder）: 部品の型（```` ``` ```` の囲みの中の prompt: | の本文）の [名]。fill が全部を値に置き換える
+- 埋めない語（literals）: 型の本文の角括弧の語のうち穴でない物（役が返答に書く欄の見本など）。本文の角括弧の語（BRACKETED。
+  小文字の [task name] の類いも、行をまたぐ物も数える）は、どれも穴か埋めない語でなければならない
 - 出口の語（words）: 原文の役が返す状態の語（DONE・BLOCKED など）と works の語の対応。無い語は推して埋めない
 
 口:
@@ -32,7 +34,7 @@ SEAMS_FILE = "seams.json"          # 節の契約（BORROW_DIR の下）
 OVERLAY_FILE = "unattended.md"     # 無人の読み替え（BORROW_DIR の下）
 MARKERS = frozenset({".in_use", ".orphaned_at"})   # Claude Code がプラグインのキャッシュの版の置き場に置く印（使っている pid・捨てた時刻）
 IGNORED = frozenset({".DS_Store"})
-HOLE = re.compile(r"\[[A-Z][A-Z_]+\]")   # 埋め残しと見なす穴の形
+BRACKETED = re.compile(r"\[[^\[\]]+\]")   # 型の本文の角括弧の語（行をまたぐ物も 1 つに数える）。穴か埋めない語でなければ破れ
 FENCE = "```"
 PROMPT_LINE = "  prompt: |"
 
@@ -183,6 +185,17 @@ def _read(src: pathlib.Path, rel: str) -> str | None:
     return p.read_text(encoding="utf-8") if not _bad_path(src, rel) and p.is_file() else None
 
 
+def _norm(token: str) -> str:
+    """角括弧の語の空白の続きを 1 つの空白にした形（行をまたぐ語を 1 行で書いた literals と比べる）"""
+    return " ".join(token.split())
+
+
+def _stray(text: str, sec: dict) -> list[str]:
+    """text の角括弧の語のうち、節の穴でも埋めない語（literals）でもない物（_norm した形・重なりなし・順に並べて）"""
+    known = {_norm(t) for t in [*sec.get("placeholders", []), *sec.get("literals", [])]}
+    return sorted({_norm(t) for t in BRACKETED.findall(text)} - known)
+
+
 def _section(seams: dict, seam_id: str) -> dict:
     if seam_id not in seams:
         raise ValueError(f"節 {seam_id} が {SEAMS_FILE} に無い")
@@ -234,14 +247,19 @@ def contract_problems(src: pathlib.Path, item: dict, seams: dict, overlay_text: 
 
 
 def _prompt_problems(sid: str, sec: dict, src: pathlib.Path, item: dict, text: str, rel: str) -> list[str]:
-    """部品の節の穴の破れ: 型の本文に無い穴と、全部の穴をダミーの値で埋めた後に残る穴"""
+    """部品の節の穴の破れ: 型の本文に無い穴・穴でも埋めない語でもない角括弧の語・本文に無い埋めない語と、全部の穴をダミーの
+    値で埋めた後に残る穴（角括弧の語の行が在れば、同じ語を 2 度名指さないよう埋めて確かめない）"""
     try:
         body = prompt_body(text)
     except ValueError as e:
         return [f"{sid}: {rel} の prompt の型が読めない（{e}）"]
     holes = sec.get("placeholders", [])
     out = [f"{sid}: 穴 {h} が {rel} の prompt の本文に無い" for h in holes if h not in body]
-    if (item.get("pin") or {}).get("files", {}).get(rel) == _sha(src / rel):   # 固定と違えば上の行が名指している
+    stray = _stray(body, sec)
+    out += [f"{sid}: 穴でも literals でもない角括弧の語 {t} が {rel} の prompt の本文に在る" for t in stray]
+    found = {_norm(t) for t in BRACKETED.findall(body)}
+    out += [f"{sid}: literals {t} が本文に無い（{rel} の prompt）" for t in sorted({_norm(t) for t in sec.get("literals", [])} - found)]
+    if not stray and (item.get("pin") or {}).get("files", {}).get(rel) == _sha(src / rel):   # 固定と違えば上の行が名指している
         try:
             fill(sid, {h: "x" for h in holes}, src, item, {sid: sec})
         except ValueError as e:
@@ -252,8 +270,9 @@ def _prompt_problems(sid: str, sec: dict, src: pathlib.Path, item: dict, text: s
 def fill(seam_id: str, values: dict[str, str], src: pathlib.Path, item: dict, seams: dict | None = None) -> str:
     """部品の節（use_as が prompt）の型の穴を全部 values で置き換えた本文。型の sha256 が固定と合うことを先に確かめる。
 
-    値の鍵が placeholders とちょうど同じでない・sha256 が固定と合わない・置き換えの後に [大文字の名] の穴が残る、のどれかで
-    ValueError（名指す）。値の中の角括弧は置き換えも残りの検査もしない（1 回の置き換えで組む）。
+    値の鍵が placeholders とちょうど同じでない・sha256 が固定と合わない・置き換えの後に穴でも埋めない語（literals）でもない
+    角括弧の語（BRACKETED。小文字の語も）が残る、のどれかで ValueError（名指す）。値の中の角括弧は置き換えも残りの検査も
+    しない（穴を除いた本文を検査し、1 回の置き換えで組む）。
     """
     sec = _section(load_seams() if seams is None else seams, seam_id)
     if sec.get("use_as") != "prompt":
@@ -276,10 +295,10 @@ def fill(seam_id: str, values: dict[str, str], src: pathlib.Path, item: dict, se
     body = prompt_body(p.read_text(encoding="utf-8"))
     if holes:
         pat = re.compile("|".join(re.escape(h) for h in sorted(holes, key=len, reverse=True)))
-        left = sorted(set(HOLE.findall(pat.sub("", body))))
+        left = _stray(pat.sub("", body), sec)
         body = pat.sub(lambda m: values[m.group(0)], body)
     else:
-        left = sorted(set(HOLE.findall(body)))
+        left = _stray(body, sec)
     if left:
         raise ValueError(f"{seam_id}: 埋めていない穴 {' '.join(left)} が {rel} の prompt の本文に残る")
     return body

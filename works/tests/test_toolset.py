@@ -972,7 +972,7 @@ class CliCase(Base):
                     self.assertEqual(files_under(self.cfg), [])
 
     def test_cli_usage(self):
-        for args in ([], ["install"], ["install", str(self.cfg)], ["bogus", str(self.cfg)], ["guard"]):
+        for args in ([], ["install"], ["install", str(self.cfg)], ["bogus", str(self.cfg)], ["guard"], ["contract", "a", "b"]):
             with self.subTest(args):
                 r = self.cli(*args)
                 self.assertEqual(r.returncode, 2, r.stderr)
@@ -988,6 +988,35 @@ class CliCase(Base):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("tdd: 錨 SUITE", r.stdout)
 
+
+    def test_cli_contract_on_a_missing_version_is_2_and_names_it(self):
+        r = self.cli("contract", "8.8.8")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("8.8.8", r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_cli_contract_without_pin_is_2_and_says_how_to_fix(self):
+        """borrow.json に superpowers の pin が無ければ、写しの版が決まらない。版を名指しても名指さなくても、トレースバックで
+        なく 1 行で 2（偽の pack を一時の置き場に組む）"""
+        pack = self.tmp / "pack"
+        shutil.copytree(ROOT / ".shared" / "borrow", pack / ".shared" / "borrow")
+        (pack / ".shared" / "core").mkdir()
+        shutil.copy2(ROOT / ".shared" / "core" / "spseam.py", pack / ".shared" / "core" / "spseam.py")   # toolset が import するのはこれだけ
+        (pack / "dev").mkdir()
+        shutil.copy2(TOOLSET, pack / "dev" / "toolset.py")
+        bj = pack / ".shared" / "borrow" / "borrow.json"
+        borrow = json.loads(bj.read_text(encoding="utf-8"))
+        del borrow["superpowers"]["pin"]
+        bj.write_text(json.dumps(borrow, ensure_ascii=False), encoding="utf-8")
+        for args in ([], ["9.9.0"]):
+            with self.subTest(args):
+                r = subprocess.run([sys.executable, str(pack / "dev" / "toolset.py"), "contract", *args],
+                                   capture_output=True, text=True, encoding="utf-8",
+                                   env=hermetic.child_env(CLAUDE_CONFIG_DIR=str(self.user)))
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("toolset.py: borrow.json の superpowers に pin が無い（写しの版が決まらない。"
+                              "dev/toolset.py vendor で写す）", r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
 
 class RepoDenyCase(unittest.TestCase):
     """対象の持ち主の禁止: 役は settingSources: [user] とこの隔離した設定で起きるので、対象リポジトリの .claude/settings.json・

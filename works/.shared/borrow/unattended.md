@@ -42,7 +42,7 @@
 
 ## SUITE 一式（project's suite・full suite）を回せと言われる
 
-役は一式を回さない。一式は線が渡す `test_cmd`（速い段）を機械が関門として回す。重い段・変異テストは CI だけが回す。役が回すのは、変えたファイルに当たる試験だけ（絞る手が無い時だけ、返答の直前に一式を 1 回回してよい）。正本 [`.shared/core/writerules/common.md`](../core/writerules/common.md) の一式の行と同じ行き先。
+役は一式を回さない。一式は線が渡す `test_cmd`（速い段）を機械が関門として回す。重い段・変異テストは CI だけが回す。役が回すのは、変えたファイルに当たる試験だけ（絞る手が無い時だけ、返答の直前に一式を 1 回だけ回す）。正本 [`.shared/core/writerules/common.md`](../core/writerules/common.md) の一式の行と同じ行き先。
 
 ## SP-REF `superpowers:` の名前での参照
 
@@ -50,7 +50,7 @@
 
 ## DISPATCH 下請けの AI を起こす・調整役として振る舞う
 
-スキルの文に従って下請けを起こさない。Agent を持つ役（素材集めの局所レビュー）が起こすのは、指示書が名指すレンズだけ。ほかの役の道具に Agent は無い。別の目の審査は、線の別の節（`blk-delta` の審査役など）が新しい会話で受け持つ。`requesting-code-review/code-reviewer.md` をテストの審査役の手引きに使うときは、`Subagent (general-purpose):` の枠と `description:` の行を読み飛ばし、`prompt: |` の中身だけを手引きとして読む。角括弧の埋め草（`[DESCRIPTION]` など）は、engine が渡す材料で埋まる。
+スキルの文に従って下請けを起こさない。Agent を持つ役（素材集めの局所レビュー）が起こすのは、指示書が名指すレンズだけ。ほかの役の道具に Agent は無い。別の目の審査は、線の別の節（`blk-delta` の審査役など）が新しい会話で受け持つ。`requesting-code-review/code-reviewer.md` をテストの審査役の手引きに使うときは、`Subagent (general-purpose):` の枠と `description:` の行を読み飛ばし、`prompt: |` の中身だけを手引きとして読む。`DESCRIPTION` などの角括弧の埋め草は、engine が渡す材料で埋まる。
 
 ## DELEGATE エージェントの報告を信じない
 
