@@ -1,0 +1,230 @@
+"""借りる superpowers（Claude Code のプラグインのスキル集）の写しを固定と照らし、節（seam: 借りた物を works の役に載せる 1 項目）
+の契約を確かめ、部品の型を埋める部品。
+
+言葉:
+- 版のフォルダ: superpowers の 1 つの版の中身（.shared/borrow/superpowers/<版> の写し、または利用者のキャッシュの版の置き場）
+- 包むファイル: 版のフォルダのうち works が使う物。借りるスキルの skills/<名>/ の下の全ファイル・部品（parts）・LICENSE
+- 固定（pin）: borrow.json の superpowers.pin。{version, commit, checked, files: {相対パス: sha256}}
+- 錨（anchor）: 読み替えの決まりの根拠になる原文の引用。引用を含む行がちょうど 1 行で、その段落の sha256 が固定の時と同じこと
+- 穴（placeholder）: 部品の型（```` ``` ```` の囲みの中の prompt: | の本文）の [名]。fill が全部を値に置き換える
+- 出口の語（words）: 原文の役が返す状態の語（DONE・BLOCKED など）と works の語の対応。無い語は推して埋めない
+
+口:
+- wrapped_files・pin_of・pin_problems: 包むファイルの sha256 を集める・固定を作る・固定との食い違いをパスの順に名指す
+- paragraph・para_sha256: 引用を含む行がちょうど 1 行の時、その段落（とその sha256）
+- prompt_body: 部品の型の本文
+- contract_problems: 節ごとの契約の破れ（錨・読み替えの決まり・穴・出口の語・固定に無いファイル）を 1 行ずつ
+- fill・word: 部品の型の穴を埋めた文・出口の語の対応
+
+Claude Code が版のフォルダに置く印（MARKERS）と .DS_Store（IGNORED）は数えない。標準ライブラリだけを使い、works のほかの模块を
+import しない。層は L3（盤面と受け付けの層。rolekit と同じく .shared/borrow を読む）。
+"""
+import hashlib
+import json
+import pathlib
+import re
+import textwrap
+
+BORROW_DIR = pathlib.Path(__file__).resolve().parent.parent / "borrow"
+SEAMS_FILE = "seams.json"          # 節の契約（BORROW_DIR の下）
+OVERLAY_FILE = "unattended.md"     # 無人の読み替え（BORROW_DIR の下）
+MARKERS = frozenset({".in_use", ".orphaned_at"})   # Claude Code がプラグインのキャッシュの版の置き場に置く印（使っている pid・捨てた時刻）
+IGNORED = frozenset({".DS_Store"})
+HOLE = re.compile(r"\[[A-Z][A-Z_]+\]")   # 埋め残しと見なす穴の形
+FENCE = "```"
+PROMPT_LINE = "  prompt: |"
+
+
+def vendored_dir(item: dict, borrow_dir: pathlib.Path = BORROW_DIR) -> pathlib.Path:
+    """固定した版の写しの置き場 <borrow_dir>/superpowers/<pin の版>"""
+    return borrow_dir / "superpowers" / item["pin"]["version"]
+
+
+def load_seams(borrow_dir: pathlib.Path = BORROW_DIR) -> dict:
+    """節の契約 <borrow_dir>/seams.json を読む"""
+    return json.loads((borrow_dir / SEAMS_FILE).read_text(encoding="utf-8"))
+
+
+def _sha(p: pathlib.Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def wrapped_files(src: pathlib.Path, item: dict) -> dict[str, str]:
+    """版のフォルダ src の包むファイルの {相対パス（/ 区切り）: sha256}。在る物だけを数える"""
+    out = {}
+    for name in item["skills"]:
+        root = src / "skills" / name
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*"):
+            rel = p.relative_to(src)
+            if p.is_file() and not MARKERS & set(rel.parts) and p.name not in IGNORED:
+                out[rel.as_posix()] = _sha(p)
+    for rel in [*item.get("parts", []), *([item["licence_file"]] if item.get("licence_file") else [])]:
+        p = src / rel
+        if p.is_file():
+            out[rel] = _sha(p)
+    return dict(sorted(out.items()))
+
+
+def pin_of(src: pathlib.Path, item: dict, version: str, commit: str | None, checked: str) -> dict:
+    """版のフォルダ src から固定（pin）を作る"""
+    return {"version": version, "commit": commit, "checked": checked, "files": wrapped_files(src, item)}
+
+
+def pin_problems(src: pathlib.Path, item: dict) -> list[str]:
+    """固定の files と版のフォルダ src の包むファイルの食い違いの行（パスの順）。空なら写しは固定と同じ"""
+    pin = item.get("pin")
+    if not pin:
+        return ["borrow.json の superpowers に pin が無い"]
+    want, have = pin.get("files", {}), wrapped_files(src, item)
+    out = []
+    for rel in sorted(set(want) | set(have)):
+        if rel not in have:
+            out.append(f"{rel}: 固定に在るのに手元に無い")
+        elif rel not in want:
+            out.append(f"{rel}: 固定に無いファイルが手元に在る")
+        elif want[rel] != have[rel]:
+            out.append(f"{rel}: 中身が固定と違う（固定 {want[rel][:12]} / 手元 {have[rel][:12]}）")
+    return out
+
+
+def _hits(text: str, quote: str) -> list[int]:
+    return [i for i, line in enumerate(text.splitlines()) if quote in line]
+
+
+def paragraph(text: str, quote: str) -> str | None:
+    """quote を含む行がちょうど 1 行の時、その行を含む段落（前後の空白だけの行の手前まで）。0 行・2 行以上なら None"""
+    hits = _hits(text, quote)
+    if len(hits) != 1:
+        return None
+    lines = text.splitlines()
+    lo = hi = hits[0]
+    while lo > 0 and lines[lo - 1].strip():
+        lo -= 1
+    while hi + 1 < len(lines) and lines[hi + 1].strip():
+        hi += 1
+    return "\n".join(lines[lo:hi + 1])
+
+
+def para_sha256(text: str, quote: str) -> str | None:
+    """paragraph の UTF-8 の sha256。段落が決まらなければ None"""
+    para = paragraph(text, quote)
+    return None if para is None else hashlib.sha256(para.encode("utf-8")).hexdigest()
+
+
+def prompt_body(text: str) -> str:
+    """型の最初の ``` の囲みの中の「  prompt: |」の次の行から囲みの終わりまでを dedent した物。無ければ ValueError"""
+    lines = text.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.startswith(FENCE))
+        end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith(FENCE))
+    except StopIteration:
+        raise ValueError("``` の囲みが無い（開きか閉じが欠けている）") from None
+    head = [i for i in range(start + 1, end) if lines[i].rstrip() == PROMPT_LINE]
+    if not head:
+        raise ValueError(f"最初の ``` の囲みに「{PROMPT_LINE.strip()}」の行が無い")
+    return textwrap.dedent("\n".join(lines[head[0] + 1:end]) + "\n")
+
+
+def _read(src: pathlib.Path, rel: str) -> str | None:
+    p = src / rel
+    return p.read_text(encoding="utf-8") if p.is_file() else None
+
+
+def _section(seams: dict, seam_id: str) -> dict:
+    if seam_id not in seams:
+        raise ValueError(f"節 {seam_id} が {SEAMS_FILE} に無い")
+    return seams[seam_id]
+
+
+def contract_problems(src: pathlib.Path, item: dict, seams: dict, overlay_text: str) -> list[str]:
+    """節の契約の破れの行。固定との食い違い（pin_problems）が在れば先に並べる。空なら契約が成り立つ"""
+    out = pin_problems(src, item)
+    pinned = (item.get("pin") or {}).get("files", {})
+    for sid, sec in seams.items():
+        files = sec.get("files", [])
+        texts = {}
+        for rel in files:
+            if rel not in pinned:
+                out.append(f"{sid}: {rel} が pin.files に無い")
+            text = _read(src, rel)
+            if text is None:
+                out.append(f"{sid}: ファイル {rel} が無い（版のフォルダ {src.name} の下）")
+            else:
+                texts[rel] = text
+        if sec.get("use_as") not in ("skill", "prompt"):
+            out.append(f"{sid}: use_as {sec.get('use_as')!r} が skill でも prompt でもない")
+        for a in sec.get("anchors", []):
+            rule, rel, quote = a["rule"], a["file"], a["quote"]
+            text = texts[rel] if rel in texts else _read(src, rel)
+            n = len(_hits(text, quote)) if text is not None else 0
+            if n != 1:
+                out.append(f"{sid}: 錨 {rule}「{quote}」が {rel} に" + ("無い" if n == 0 else f" {n} 回在る"))
+            elif para_sha256(text, quote) != a.get("para_sha256"):
+                out.append(f"{sid}: 錨 {rule}「{quote}」の段落が固定の時と違う")
+            if not re.search(rf"^## {re.escape(rule)} ", overlay_text, re.M):
+                out.append(f"{sid}: 読み替えの決まり {rule} が {OVERLAY_FILE} に無い")
+        if sec.get("use_as") == "prompt" and files and files[0] in texts:
+            out += _prompt_problems(sid, sec, src, item, texts[files[0]], files[0])
+        for said in sec.get("words", {}):
+            if not any(said in t for t in texts.values()):
+                out.append(f"{sid}: 語 {said} が {'・'.join(files)} に無い")
+    return out
+
+
+def _prompt_problems(sid: str, sec: dict, src: pathlib.Path, item: dict, text: str, rel: str) -> list[str]:
+    """部品の節の穴の破れ: 型の本文に無い穴と、全部の穴をダミーの値で埋めた後に残る穴"""
+    try:
+        body = prompt_body(text)
+    except ValueError as e:
+        return [f"{sid}: {rel} の prompt の型が読めない（{e}）"]
+    holes = sec.get("placeholders", [])
+    out = [f"{sid}: 穴 {h} が {rel} の prompt の本文に無い" for h in holes if h not in body]
+    if (item.get("pin") or {}).get("files", {}).get(rel) == _sha(src / rel):   # 固定と違えば上の行が名指している
+        try:
+            fill(sid, {h: "x" for h in holes}, src, item, {sid: sec})
+        except ValueError as e:
+            out.append(str(e))
+    return out
+
+
+def fill(seam_id: str, values: dict[str, str], src: pathlib.Path, item: dict, seams: dict | None = None) -> str:
+    """部品の節（use_as が prompt）の型の穴を全部 values で置き換えた本文。型の sha256 が固定と合うことを先に確かめる。
+
+    値の鍵が placeholders とちょうど同じでない・sha256 が固定と合わない・置き換えの後に [大文字の名] の穴が残る、のどれかで
+    ValueError（名指す）。値の中の角括弧は置き換えも残りの検査もしない（1 回の置き換えで組む）。
+    """
+    sec = _section(load_seams() if seams is None else seams, seam_id)
+    if sec.get("use_as") != "prompt":
+        raise ValueError(f"{seam_id}: 部品の節でない（use_as {sec.get('use_as')!r}）")
+    holes = list(sec.get("placeholders", []))
+    lack, extra = sorted(set(holes) - set(values)), sorted(set(values) - set(holes))
+    if lack or extra:
+        raise ValueError(f"{seam_id}: 値の鍵が穴と違う（足りない {lack} / 余る {extra}）")
+    rel = sec["files"][0]
+    p = src / rel
+    if not p.is_file():
+        raise ValueError(f"{seam_id}: 型 {rel} が無い（版のフォルダ {src.name} の下）")
+    want = (item.get("pin") or {}).get("files", {}).get(rel)
+    have = _sha(p)
+    if want != have:
+        raise ValueError(f"{seam_id}: 型 {rel} の sha256 が固定と違う（固定 {str(want)[:12]} / 手元 {have[:12]}）")
+    body = prompt_body(p.read_text(encoding="utf-8"))
+    if holes:
+        pat = re.compile("|".join(re.escape(h) for h in sorted(holes, key=len, reverse=True)))
+        left = sorted(set(HOLE.findall(pat.sub("", body))))
+        body = pat.sub(lambda m: values[m.group(0)], body)
+    else:
+        left = sorted(set(HOLE.findall(body)))
+    if left:
+        raise ValueError(f"{seam_id}: 埋めていない穴 {' '.join(left)} が {rel} の prompt の本文に残る")
+    return body
+
+
+def word(seam_id: str, said: str, seams: dict | None = None) -> str:
+    """原文の出口の語 said を works の語に読む。対応に無い語は ValueError（推して埋めない）"""
+    words = _section(load_seams() if seams is None else seams, seam_id).get("words", {})
+    if said not in words:
+        raise ValueError(f"{seam_id}: 出口の語 {said} の対応が無い（推して埋めない）")
+    return words[said]
