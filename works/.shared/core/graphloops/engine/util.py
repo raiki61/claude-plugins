@@ -20,7 +20,20 @@ class Reject(Exception):
 class AnswerReject(Reject):
     """**返答の中身・形**が受け付けられない（読めない・型に合わない・記録の整合が取れない）。役に理由を返せば直せる
     ——engine が起こした役なら、同じ会話に続きを頼む（loop.py launch）。それ以外の Reject（節が待っていない・
-    作業ツリーが変わった・前段が済んでいない）は役に返しても直らないので、続きを頼まずに回す側へ上げる。"""
+    作業ツリーが変わった・前段が済んでいない）は役に返しても直らないので、続きを頼まずに回す側へ上げる。
+    problems は誤りを 1 誤り 1 要素で運ぶ欄（省略時は空）——文を行に割り直さずに受け付けが単位に結べる。"""
+
+    def __init__(self, msg="", problems=None):
+        super().__init__(msg)
+        self.problems = list(problems or [])
+
+
+FIX_REJECT_HEADING = "下の行を直した返答を丸ごと出し直せ:"
+
+
+def reject_with_problems(heading, problems):
+    """見出しの下に 1 誤り 1 行（'  - '）で並べた文と、誤りの配列 problems を持つ AnswerReject（人に見せる文の形の唯一の置き場）"""
+    return AnswerReject(heading + "\n" + "\n".join(f"  - {p}" for p in problems), problems)
 
 
 class BoardConflict(SystemExit):

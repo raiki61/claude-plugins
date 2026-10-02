@@ -129,10 +129,9 @@ def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
     return PACK_COPY + " / ".join(parts) if parts else ""
 
 
-def fix_unit_keys(reply: dict, board: Path):
-    """盤面が p3.fix を待っていれば (changes[].unit_key を名前に戻した列（changes と同じ順）, 直す義務の key の集合,
-    直す義務から外れた単位 {key: 理由})（conflict.fix_duty）。待っていない・changes の形が崩れている・番号を名前に戻せない
-    ときは None（検査せず entry.take に任せる）"""
+def resolved_changes(reply: dict, board: Path):
+    """盤面が p3.fix を待っていれば、changes の行（番号の unit_key を盤面の控えで名前に戻した写し）。待っていない・changes の形が
+    崩れている・番号を名前に戻せないときは None。番号を名前に戻す仕事は engine の pointers.resolve の 1 本で、ここに別の戻しを書かない"""
     b = entry.open_board(board)
     inst = b.rd["instances"].get(recount.FIX_NODE)
     if not inst or inst["status"] != "pending" or not inst.get("launched_at") or not b.deps_met(recount.FIX_NODE):
@@ -143,10 +142,20 @@ def fix_unit_keys(reply: dict, board: Path):
     out = {"changes": copy.deepcopy(rows)}
     if pointers.resolve(out, b.nodes[recount.FIX_NODE].get("pointers"), inst.get("pointers")):
         return None
-    keys = [c.get("unit_key") for c in out["changes"]]
+    return out["changes"]
+
+
+def fix_unit_keys(reply: dict, board: Path):
+    """盤面が p3.fix を待っていれば (changes[].unit_key を名前に戻した列（changes と同じ順）, 直す義務の key の集合,
+    直す義務から外れた単位 {key: 理由})（conflict.fix_duty）。待っていない・changes の形が崩れている・番号を名前に戻せない
+    ときは None（検査せず entry.take に任せる）"""
+    rows = resolved_changes(reply, board)
+    if rows is None:
+        return None
+    keys = [c.get("unit_key") for c in rows]
     if not all(isinstance(k, str) for k in keys):
         return None
-    return (keys, *conflict.fix_duty(b))
+    return (keys, *conflict.fix_duty(entry.open_board(board)))
 
 
 def check_unique_units(keys: list) -> list:
@@ -348,7 +357,8 @@ def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     戻して（revert_units）ask_human に裁いて止め（conflict.park）、その行（と bash_writes の申告）を外した返答と、止める前に
     戻す手（undo: 直し・食い違いの控え・裁定の文を戻し、trace に PARK_UNDONE_OP）を返す。結べない文が在る・共有のファイルが
     在る時は None（今までどおり返答全体を拒む）"""
-    rows = [c for c in reply.get("changes") or [] if isinstance(c, dict)]
+    named = resolved_changes(reply, board)   # 拒否の行は名前の unit_key[:60] を頭に持つので、番号で答えた行も名前に戻して結ぶ
+    rows = named if named is not None else [c for c in reply.get("changes") or [] if isinstance(c, dict)]
     bound, unbound = bind_problems(problems, rows, repo)
     if unbound or not bound:
         return None
@@ -451,7 +461,7 @@ def accept_fix(reply, board, base_rev, repo):
     reply, rows = unitrows.take(reply, b, repo)
     out = recount.accept_fix(reply, board, base_rev, repo)
     if out.get("ok") is not True and last:
-        return refuse([str(out.get("reason") or "")])
+        return refuse(out.get("problems") or [str(out.get("reason") or "")])
     if out.get("ok") is True:   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
         b = entry.open_board(board, allow_halted=True)
         writes.trace(b, recount.ROLE, wrote)

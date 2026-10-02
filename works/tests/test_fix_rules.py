@@ -964,5 +964,41 @@ class TestBriefCanonEdges(unittest.TestCase):
             self.assertIn(f"「{heading[3:]}」", line)
 
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from test_edge import EdgeBase, fix_reply  # noqa: E402  （盤面を線の順に進める手助け。本物の盤面と写しの規則を通す）
+
+
+class FixCoversOpenUnitsAllErrorsCase(EdgeBase):
+    """修正の返答の受け付け（写しの fix_covers_open_units）は、形の誤りを最初の 1 つで投げず、全部を 1 回の拒否に 1 誤り 1 行で並べる
+    （3 回の枠を形の誤りだけで使い切らないため）。誤りは文でなく problems の配列でも運ぶ（受け付けが行に割らずに単位へ結ぶため）"""
+
+    HEADING = "下の行を直した返答を丸ごと出し直せ:"
+
+    def test_shape_errors_listed_one_per_line(self):
+        import entry
+        import test_edge
+        self.planned()
+        entry.open_board(self.board).answer("continue", "clamp の上限は hi でよい")
+        src = (self.repo / "stats.py").read_text(encoding="utf-8")
+        (self.repo / "stats.py").write_text(src.replace("(len(xs) - 1)", "len(xs)").replace(
+            "    if x > hi:\n        return lo", "    if x > hi:\n        return hi"), encoding="utf-8")
+        reply = fix_reply(faces=True)
+        mean, clamp = reply["changes"]
+        mean["bypass_tried"] = "なし"        # 形の誤り 1（mean の行。空語は型には通り、規則が空同然として拒む）
+        clamp["breaks"]["result"] = "なし"   # 形の誤り 2（clamp の行）
+        reply["interactions"] = []           # 2 単位が同じ stats.py を触るのに面の記録が無い（誤り 3）
+        b = entry.open_board(self.board)
+        b.mark_launched("p3.fix", test_edge.pending_inst(b, "p3.fix").get("attempts", 1))
+        got = entry.take(self.board, "p3.fix", reply, self.repo)
+        self.assertFalse(got["ok"], got)
+        lines = [ln for ln in got["reason"].splitlines() if ln.startswith("  - ")]
+        self.assertIn(self.HEADING, got["reason"])
+        self.assertEqual(len(lines), 3, got["reason"])
+        self.assertTrue(any("interactions" in ln for ln in lines), lines)
+        self.assertTrue(any("bypass_tried" in ln and ln.lstrip(" -").startswith(test_edge.UNIT_MEAN[:60]) for ln in lines), lines)
+        self.assertTrue(any("breaks.result" in ln and ln.lstrip(" -").startswith(test_edge.UNIT_CLAMP[:60]) for ln in lines), lines)
+        self.assertEqual(len(got.get("problems") or []), 3, got)
+
+
 if __name__ == "__main__":
     unittest.main()

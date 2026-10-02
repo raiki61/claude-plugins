@@ -2617,8 +2617,12 @@ def _owed_units(b):
 
 
 def fix_covers_open_units(b, nid, out, item):
-    """[block] と do-now は必ず直す。fork の出どころ・depends だけは待ってよい（義務の集合は _owed_units）。"""
+    """[block] と do-now は必ず直す。fork の出どころ・depends だけは待ってよい（義務の集合は _owed_units）。
+    返答の形の誤りは最初の 1 つで投げず errs に全部溜め、最後に 1 回だけ 1 誤り 1 行で返す（役が 3 回の枠を形の誤り 1 つずつで
+    使い切らない）。1 つの誤りが後続の検算の入力を欠く時（how が無い・向きが決まらない・問いを走らせられない）は、その変更の
+    後続だけを飛ばす。"""
     V = validator_module(b)
+    errs = []
     # **fork の出どころは待ってよい。** 待ちが前に進んでいるかを見るのは judge の側（_fork_moves_forward）
     # ——ここで止めると、正本のプロンプト（p3.fix.md「fork の出どころは実装するな」）と機械が逆を言い、writer には
     # questions を書く権限が無く、同じ周の p2 は既に done で再実行できない＝周が詰む（実測 2026-09-16）。義務は、動ける役の手前に置く。
@@ -2627,7 +2631,7 @@ def fix_covers_open_units(b, nid, out, item):
     missing = [f"{k}（理由: {waiting[k]}）——fork の出どころでないなら直す義務がある" if k in waiting else k
                for k in sorted(_owed_units(b) - changed)]
     if missing:
-        raise Reject("直していない [block] / do-now がある（writer の裁量で defer に覆せない。異議は新しい judge に再判定させる）: " + "; ".join(missing))
+        errs.append("直していない [block] / do-now がある（writer の裁量で defer に覆せない。異議は新しい judge に再判定させる）: " + "; ".join(missing))
     # 閉鎖の実証は自己申告——機械が検算できるのは「赤を一度も見ていないのに clean を名乗る」形だけなので、そこは拒む
     # （gate_arms_all_red と同じ形。以前は red_seen が全部 false・verified_how が「見ていない」でも clean が通った）。
     # 見るのは周の全体——文書だけの修正は赤を見られないので、修正ごとに要求すると文書を触った周が全部 found になる。
@@ -2640,7 +2644,7 @@ def fix_covers_open_units(b, nid, out, item):
         # 修正が在る周の閉鎖の実証は今の周の修正に対して行う——「条件に当たらない」「前の周の流用」は
         # 機械が持つ事実（changes が非空）と食い違う（実測: 全 site が red_seen=false でも not_applicable なら
         # 受理され、3 周で converged した）
-        raise Reject(f"修正が {len(out['changes'])} 件在るのに fix_closure が {st}——閉鎖の実証は今の周の修正に対して行う（clean か found）")
+        errs.append(f"修正が {len(out['changes'])} 件在るのに fix_closure が {st}——閉鎖の実証は今の周の修正に対して行う（clean か found）")
     # 覆いの母数——「1 か所直して終わり」を数字で見えるようにする。closed < total は禁じない（残すのは判断）が、
     # 残したこと自体を書かせる。ここで検算できるのは数の整合だけで、問い（how）が正しいかは次の周の判定者が同じ
     # コマンドを走らせて見る（kind=実測 に measured_output を要求するのと同じ形）
@@ -2656,14 +2660,14 @@ def fix_covers_open_units(b, nid, out, item):
         seen = {i.get("surface"): i for i in out.get("interactions", [])}
         missing = sorted(set(shared) - set(seen))
         if missing:
-            raise Reject(f"2 つ以上の修正が触った面が interactions に無い: {missing}"
-                         "——面の一覧は機械が changes[].files から出す。一方が他方を不要にしないか・順序で結果が変わらないか・"
-                         "組み合わせて初めて生まれる状態が無いかを突き合わせて書け")
+            errs.append(f"2 つ以上の修正が触った面が interactions に無い: {missing}"
+                        "——面の一覧は機械が changes[].files から出す。一方が他方を不要にしないか・順序で結果が変わらないか・"
+                        "組み合わせて初めて生まれる状態が無いかを突き合わせて書け")
         # 面ごとにどの修正が触ったかは shared[f] として機械が持つ——役に写させない（以前の interactions[].changes）
-        for f, ks in shared.items():
-            if blank(seen[f].get("checked"), 10):
-                raise Reject(f"interactions[{f}] の checked が空同然——一方が他方を不要にしないか・順序で結果が変わらないか・"
-                             "組み合わせて初めて生まれる状態が無いかを突き合わせた結果を書け")
+        for f in shared:
+            if f in seen and blank(seen[f].get("checked"), 10):
+                errs.append(f"interactions[{f}] の checked が空同然——一方が他方を不要にしないか・順序で結果が変わらないか・"
+                            "組み合わせて初めて生まれる状態が無いかを突き合わせた結果を書け")
     # 「破れない」「壊れない」の自己申告は、**探した形跡が無い一語**では受け取らない。機械が検算できるのは
     # 「探したと言っているか」までだが、次の周の判定者はこの欄を材料に当て直せる（kind=実測 の measured_output と同じ形）
     # 判定者が数えた母数（class_query.total）。**writer が how を狭めて total を書き直せば「1 か所直して終わり」が
@@ -2672,23 +2676,24 @@ def fix_covers_open_units(b, nid, out, item):
               for u in ((b.record.get("process") or {}).get("diagnosis") or {}).get("units", [])}
     root, afters = None, []
     for c in out["changes"]:
+        head = c["unit_key"][:60]
         if blank(c.get("bypass_tried"), 10):
-            raise Reject(f"{c['unit_key'][:60]}: bypass_tried が空同然——**修正を残したまま**破りに行った入力と結果を書け"
-                         "（『修正を外したら赤くなった』は不在の検知であって完全性の証拠にならない）")
+            errs.append(f"{head}: bypass_tried が空同然——**修正を残したまま**破りに行った入力と結果を書け"
+                        "（『修正を外したら赤くなった』は不在の検知であって完全性の証拠にならない）")
         br = c.get("breaks") or {}
         if blank(br.get("result"), 1):
-            raise Reject(f"{c['unit_key'][:60]}: breaks.result が空同然——壊しうる面を how で引いて、壊れていないことを確かめた結果を書け")
+            errs.append(f"{head}: breaks.result が空同然——壊しうる面を how で引いて、壊れていないことを確かめた結果を書け")
         pr = c.get("precedent") or {}
         if pr.get("from_judge_row"):   # 判定者の行を採った印は欄で持つ（共有の verdict の語彙に修正役だけの値を混ぜない）
             if c["unit_key"] not in {r.get("key") for r in ((b.record.get("process") or {}).get("precedents") or [])}:
-                raise Reject(f"{c['unit_key'][:60]}: precedent が from_judge_row なのに、判定者の先行例の行（process.precedents）にこの単位の行が無い"
-                             "——自分で先行例を当たって problem と source を書け")
+                errs.append(f"{head}: precedent が from_judge_row なのに、判定者の先行例の行（process.precedents）にこの単位の行が無い"
+                            "——自分で先行例を当たって problem と source を書け")
         elif blank(pr.get("problem"), 4) or _precedent_gap(pr):
-            raise Reject(f"{c['unit_key'][:60]}: precedent に problem と source（not_found なら searched）が要る——機構を足す・形を変える修正は、"
-                         "同じ問題を世の中がどう解いているかを一次情報で確かめてから書け（REVIEW.md『処方の最小性』の世界の解を採る）")
+            errs.append(f"{head}: precedent に problem と source（not_found なら searched）が要る——機構を足す・形を変える修正は、"
+                        "同じ問題を世の中がどう解いているかを一次情報で確かめてから書け（REVIEW.md『処方の最小性』の世界の解を採る）")
         ros = c.get("root_or_symptom") or {}
         if ros.get("kind") == "symptom" and len((ros.get("why") or "").strip()) < 10:
-            raise Reject(f"{c['unit_key'][:60]}: 症状を塞ぐ修正なのに、なぜ今それで止めるかが無い（根に当てるのが設計作業なら、そう書いて questions に fork を立てろ）")
+            errs.append(f"{head}: 症状を塞ぐ修正なのに、なぜ今それで止めるかが無い（根に当てるのが設計作業なら、そう書いて questions に fork を立てろ）")
         # **判定者の how は役に写させない**——役が how を書かなければ判定者の class_query の how を補い、out に書き戻す
         # （process.fixes と R1 には今までと同じ how が残る）。役が書いた how は作り直しとして採る（狭めれば下の柵が remaining を求める）
         jq = judged.get(c["unit_key"]) or {}
@@ -2696,70 +2701,74 @@ def fix_covers_open_units(b, nid, out, item):
         if not cov.get("how") and jq.get("how"):
             cov = c["coverage"] = {**cov, "how": jq["how"]}
         if not cov.get("how"):
-            raise Reject(f"{c['unit_key'][:60]}: 判定者の class_query が無い単位なのに coverage.how（同じ形を全部引ける機械の問い）が無い"
-                         "——名指しの 1 site だけを塞いでいないことは母数でしか示せない")
+            errs.append(f"{head}: 判定者の class_query が無い単位なのに coverage.how（同じ形を全部引ける機械の問い）が無い"
+                        "——名指しの 1 site だけを塞いでいないことは母数でしか示せない")
+            continue
         # **修正の前後の件数は engine が数える。向きは判定者が決める**——修正役が書く total と counts を入力にしていた頃は、
         # 検査される側の申告で柵が外れた（counts を population に書き換えると修正後の件数の拒否が消え、修正後だけ未追跡を
         # 外して数えるので、判定時 2・修正後 1 の数え違いで defects の柵をすり抜けた。2026-09-24 の review-graph 1 周目）。
         # 修正前は判定者が読んだのと同じ固定の版、修正後はそれと同じ世界（未追跡も含め、.gitignore に当たる物は外す）
         counts = jq.get("counts") or cov.get("counts")
         if counts not in ("defects", "population"):
-            raise Reject(f"{c['unit_key'][:60]}: 数えるものの向きが決まらない——判定者の class_query が無い単位は coverage.counts（defects / population）を書け")
+            errs.append(f"{head}: 数えるものの向きが決まらない——判定者の class_query が無い単位は coverage.counts（defects / population）を書け")
+            continue
         # 空語（『なし』『-』…）は理由でない——残した理由の有無を blank で見る（truthiness で見ていた頃は『なし』で柵が外れた）
         remaining = "" if blank(cov.get("remaining"), 10) else cov["remaining"].strip()
         if root is None:
             root = _repo_root() or ""
-        total, why = _run_query(b, f"{c['unit_key'][:60]}: coverage（修正前）", cov["how"], root, rev=(b.state.get("inputs") or {}).get("review_rev"))
+        total, why = _run_query(b, f"{head}: coverage（修正前）", cov["how"], root, rev=(b.state.get("inputs") or {}).get("review_rev"))
         if why:
-            raise Reject(why)
+            errs.append(why)
+            continue
         closed = len(c.get("closure", {}).get("sites", []) or [])  # 塞いだ数は closure.sites から機械が数える（二度書かせない）
-        after, why = _run_query(b, f"{c['unit_key'][:60]}: coverage（修正後）", {**cov["how"], "untracked": True}, root, probe=False)
+        after, why = _run_query(b, f"{head}: coverage（修正後）", {**cov["how"], "untracked": True}, root, probe=False)
         if why:
-            raise Reject(why)
+            errs.append(why)
+            continue
         # 修正前が 0 件の問い（在るべき物が無い型）は、修正で生まれた数（修正後の件数）まで site を書ける
         cap = total if total else after
         if closed > cap:
-            raise Reject(f"{c['unit_key'][:60]}: closure.sites が {closed} 件なのに、engine が how を修正前の版で数えた母数は {total}"
-                         f"（修正前が 0 件なら修正後の {after}）——母数を超えて塞げない"
-                         "（問いが対象を取りこぼしている）。判定者の how が根の 1 行だけを数えているなら、直す site になる行を全部数える how に作り直せ")
+            errs.append(f"{head}: closure.sites が {closed} 件なのに、engine が how を修正前の版で数えた母数は {total}"
+                        f"（修正前が 0 件なら修正後の {after}）——母数を超えて塞げない"
+                        "（問いが対象を取りこぼしている）。判定者の how が根の 1 行だけを数えているなら、直す site になる行を全部数える how に作り直せ")
         if closed < cap and not remaining:
-            raise Reject(f"{c['unit_key'][:60]}: 母数 {cap} のうち閉鎖を実証した site が {closed} 件で、残りが在るのに remaining（残した理由）が無い"
-                         "——残すこと自体は禁じないが、黙って残すのは禁じる")
+            errs.append(f"{head}: 母数 {cap} のうち閉鎖を実証した site が {closed} 件で、残りが在るのに remaining（残した理由）が無い"
+                        "——残すこと自体は禁じないが、黙って残すのは禁じる")
         zero = b.loop_state.get("engine_zero") or {}
         jt = 0 if zero.get("round") == b.round and c["unit_key"] in (zero.get("keys") or []) else jq.get("total")
         if isinstance(jt, int) and not isinstance(jt, bool) and total < jt and not remaining:
-            raise Reject(f"{c['unit_key'][:60]}: 判定者が数えた母数は {jt} なのに、この how は修正前の版で {total} しか数えない（問いを狭めている）"
-                         "——狭める理由（問いが対象を取りこぼしていた等）を remaining に書け")
+            errs.append(f"{head}: 判定者が数えた母数は {jt} なのに、この how は修正前の版で {total} しか数えない（問いを狭めている）"
+                        "——狭める理由（問いが対象を取りこぼしていた等）を remaining に書け")
         # **欠陥の形を数える問いなら、全部塞いだ後の件数は 0**
         if counts == "defects" and after and closed >= total and not remaining:
-            raise Reject(f"{c['unit_key'][:60]}: 欠陥の形を数える問い（判定者の counts: defects）が、母数 {total} を全部塞いだと言う修正の後も {after} 件を数える"
-                         "——塞ぎ損ねた site が在る（向きは判定者が決めるので、修正役が population と書いても外れない）")
+            errs.append(f"{head}: 欠陥の形を数える問い（判定者の counts: defects）が、母数 {total} を全部塞いだと言う修正の後も {after} 件を数える"
+                        "——塞ぎ損ねた site が在る（向きは判定者が決めるので、修正役が population と書いても外れない）")
         afters.append({"unit_key": c["unit_key"], "how": cov["how"], "counts": counts, "total": total, "closed": closed, "after": after})
     if out["changes"] and st == "clean":
-        if not any(s.get("red_seen") for c in out["changes"] for s in c["closure"].get("sites", [])):
-            raise Reject("閉鎖の実証で赤を一度も見ていないのに fix_closure=clean——found にして赤を見ていない site を書くか、"
-                         "退行を注入して赤を見てから出せ")
+        if not any(s.get("red_seen") for c in out["changes"] for s in (c.get("closure") or {}).get("sites", [])):
+            errs.append("閉鎖の実証で赤を一度も見ていないのに fix_closure=clean——found にして赤を見ていない site を書くか、"
+                        "退行を注入して赤を見てから出せ")
     # **修正が新しく書いた指しを、指摘と同じ裏取りに通す**（何を・どの版で・どこまで数えるかは _cite_errors の
     # docstring、採った道と落とした道は docs/feedback/review-loop-remaining-findings.md の『設計の記録: 修正側の裏取り』が正本）。
     # **申告が空でも通す**——`if refs:` で囲っていた頃、いちばん多い周（新しい指しを書かなかった周）は
     # 関数に入らず、読了の記録が前の周の値のまま残った。不変条件は、それが守る経路の上に置く
-    errs, reads = _cite_errors(b, nid, out.get("wrote_refs") or [], None, "wrote_refs")
+    cites, reads = _cite_errors(b, nid, out.get("wrote_refs") or [], None, "wrote_refs")
     # 次の周の判定役が読む（graph の reads に loop.wrote_refs_reads）。**拒否には使わない**。**周を刻み、
     # 空の周も必ず書く**——前の周の値が『この周の材料』として読まれないため（p2.diagnose は同じ周の p3.fix より
     # 前に走る）
     b.loop_state["wrote_refs_reads"] = {"round": b.round, "items": reads}
     b.loop_state["coverage_after"] = {"round": b.round, "items": afters}
-    if errs:
-        # **機械が支える範囲だけを言う。** 以前は「申告を消して通すな」と添えていたが、消した周を見る
-        # 機械は無い（引くのは申告された行だけ）——支えない主張は、正直に申告した側にだけ効く
-        raise Reject(f"{nid}: 修正が書いた指しが現物で引けない（直してから出し直せ）: " + "; ".join(errs))
-    pf = _plan_face_errors(b, out)
-    if pf:
-        raise Reject(f"{nid}: 修正案の事前審査への応答が揃わない: " + "; ".join(pf))
+    # **機械が支える範囲だけを言う。** 以前は「申告を消して通すな」と添えていたが、消した周を見る
+    # 機械は無い（引くのは申告された行だけ）——支えない主張は、正直に申告した側にだけ効く
+    errs.extend(f"{nid}: 修正が書いた指しが現物で引けない（直してから出し直せ）: {e}" for e in cites)
+    errs.extend(f"{nid}: 修正案の事前審査への応答が揃わない: {e}" for e in _plan_face_errors(b, out))
     links = _md_link_errors(b.record["base"], _repo_root() or "") if b.record.get("base") else []
-    if links:
-        raise Reject(f"{nid}: 差分が足した Markdown のリンクが指し先に届かない（申告に依らず engine が差分から拾った。直してから出し直せ）: "
-                     + "; ".join(links[:10]) + (f" ほか {len(links) - 10} 件" if len(links) > 10 else ""))
+    errs.extend(f"{nid}: 差分が足した Markdown のリンクが指し先に届かない（申告に依らず engine が差分から拾った。直してから出し直せ）: {e}"
+                for e in links[:10])
+    if len(links) > 10:
+        errs.append(f"{nid}: 差分が足した Markdown のリンクが指し先に届かない: ほか {len(links) - 10} 件")
+    if errs:
+        raise reject_with_problems(FIX_REJECT_HEADING, errs)
     if out.get("rejudge_requested"):
         b.loop_state["rejudge_requested"] = {"round": b.round, "text": out["rejudge_requested"]}
 

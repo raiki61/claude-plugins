@@ -9,7 +9,7 @@ import pathlib
 from . import declared
 from .schema import validate_schema
 from .role_run import run_tree
-from .util import READ_CAP, Reject, _grep, die, git, git_bytes, hook_evidence, pick, read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, write_json
+from .util import FIX_REJECT_HEADING, READ_CAP, Reject, reject_with_problems, _grep, die, git, git_bytes, hook_evidence, pick, read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, write_json
 
 _VALIDATORS = {}
 
@@ -45,7 +45,7 @@ def validator_module(b):
 # rules に差し込む道具の正本。**消費者が 0 の鍵は置かない**——get_path / set_path / has_path は同梱の rules 2 本から
 # 一度も呼ばれておらず、『rules が記録の任意の場所を path で読み書きしてよい』と読める面だけを開いていた
 # （記録を書く経路を writes に寄せる方針と逆向き）。使う日に戻せる
-INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,
+INJECT = {"Reject": Reject, "reject_with_problems": reject_with_problems, "FIX_REJECT_HEADING": FIX_REJECT_HEADING, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,
           "git": git, "git_bytes": git_bytes, "sha": sha, "hook_evidence": hook_evidence, "read_capped": read_capped, "READ_CAP": READ_CAP, "repo_root": repo_root, "grep": _grep, "run_count": run_count, "sum_counts": sum_counts,
           "validator_module": validator_module, "validate_schema": validate_schema, "cond_reads": cond_reads,
           "run_tree": run_tree,

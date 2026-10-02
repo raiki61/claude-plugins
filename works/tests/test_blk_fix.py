@@ -986,6 +986,55 @@ class TestAccept(BoardCase):
                 self.assertIn(name, err)
 
 
+class ParkBoundBase(BoardCase):
+    """輪の最後の回（INPUTS_ITERATION=GIVE_UP_AFTER）の受け付け（blk-fix の fix-accept のスクリプト）を、本物の盤面・作業ツリーで子に起こす"""
+
+    run_it = TestAccept.run_it
+
+    def parked_units(self):
+        """盤面の trace の BOUND_PARKED_OP の行が止めた単位の key（行の順）"""
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        return [k for r in rows if r.get("op") == "fix_bound_parked" for k in r.get("unit_keys") or []]
+
+    def run_last(self, reply):
+        code, out, err = self.run_it(reply, INPUTS_ITERATION="3")
+        self.assertEqual(code, 0, err)
+        return json.loads(out)
+
+
+class ParkBoundMultiLineCase(ParkBoundBase):
+    def test_last_round_parks_two_units_from_one_reject(self):
+        # 2 単位の行が形の誤り（空語の bypass_tried・breaks.result）を持つ返答の最後の回: 写しの拒否が誤りを 1 行ずつ並べ、
+        # どの行も名前の頭 unit_key[:60] で単位に結べるので、両方の単位を止め（ask_human）、残りの行で通し直す
+        self.fix_ready()
+        self.edit_tree(FIXED)
+        reply = load("fix2_ok")
+        reply["changes"][0]["bypass_tried"] = "なし"
+        reply["changes"][1]["breaks"]["result"] = "なし"
+        r = self.run_last(reply)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(sorted(self.parked_units()), sorted([MEAN, CLAMP]), "両方の単位を止める")
+        self.assertEqual(r["changes"], [], "止めた単位の行は changes から外れる")
+
+
+class ParkBoundNumberedCase(ParkBoundBase):
+    def test_numbered_unit_key_reply_parks_bound_unit(self):
+        # unit_key を番号で答えた返答の最後の回: 拒否の行は engine が名前に戻した unit_key[:60] を頭に持つので、番号のままの
+        # 返答の行も名前に戻して結び、その単位だけを止める（返答全体の拒否にしない）
+        self.fix_ready(numbered=True)
+        self.edit_tree(FIXED)
+        (self.repo / "notes_clamp.txt").write_text("clamp の上限の枝の控え\n", encoding="utf-8")
+        reply = load("fix2_ok")
+        for no, c in enumerate(reply["changes"], 1):
+            c["unit_key"] = no
+        reply["changes"][1]["files"] = ["notes_clamp.txt"]   # mean の行と共有しない（共有すると結べず全体の拒否）
+        reply["changes"][1]["breaks"]["result"] = "なし"
+        r = self.run_last(reply)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.parked_units(), [CLAMP], "拒否の行に結べる単位が止まる")
+        self.assertEqual([c["unit_key"] for c in r["changes"]], [MEAN])
+
+
 class TestCollect(BoardCase):
     """集める節（blk-fix の節 collect）: 1 本目の出口の欄を全部残し、fix_file・not_done・coverage・reads_file を足す"""
 

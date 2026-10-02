@@ -866,7 +866,7 @@ def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, 
     try:
         p = b.done(nid, reply)
     except AnswerReject as e:
-        return {"ok": False, "reason": str(e)}
+        return {"ok": False, "reason": str(e), **({"problems": e.problems} if e.problems else {})}
     return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),
             "out_file": b.state["outputs"][nid]["file"]}
 
