@@ -14,7 +14,7 @@
 git が無視するファイルは、ここでは数えない（取り込む差分に載らない物。Ruling R15）。修正役が残したそれは、この前の節
 clean が消す（盤面の fix-ignored-before.json の控えに無かった物だけ。消した物の件数と全件のファイルは collect が出口に通す）。
 - 申告したファイルが全部変わっている: {"ok": true, "files": [申告 ∩ 変わった物]} を 1 行出して 0（ゴミは下流に流さない）
-- 申告が空でも、直す義務の単位が残らず、答え待ちの fork・escalate の出どころか ask_human で外れた単位が在る盤面
+- 申告が空でも、直す義務の単位が残らず、答え待ちの fork・escalate の出どころか直す裁定でない裁定（ask_human・fix_plan_item）で外れた単位が在る盤面
   （conflict.nothing_owed_but_excused）なら正しい返答: {"ok": true, "files": [], "reason"（外れた単位と理由）} を 1 行出して 0、
   盤面の trace に 1 行（止めずに最後の人の関所へ届ける）
 - 申告が空（上の場合を除く）・申告したのに変わっていないファイルが在る・受け付けが通らないまま輪を抜けた（修正の輪が 3 回とも拒まれ、
@@ -143,7 +143,7 @@ def main():
         return 0
     if not declared:
         return give_up("修正役は済んだと言ったが、触ったファイルを 1 つも申告していない（changes[].files が空。直す義務の単位が"
-                       "残っているか、答え待ち・ask_human で外れた単位が 1 つも無い）")
+                       "残っているか、答え待ち・直さない裁定で外れた単位が 1 つも無い）")
     unchanged = sorted(declared - set(changed))
     if unchanged:
         return give_up(f"修正役は済んだと言ったが、申告したファイル {unchanged} は {since} から何も変わっていない"

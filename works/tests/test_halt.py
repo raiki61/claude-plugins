@@ -322,7 +322,7 @@ class TestSamples(unittest.TestCase):
 
 
 class TestAskedOnlyEmptyChanges(unittest.TestCase):
-    """義務の単位が全部 ask_human の空の changes は止めない（conflict.asked_keys が在り、conflict.owed_units_but_asked が空）"""
+    """義務の単位が全部 ask_human の空の changes は止めない（conflict.held_by_rulings が在り、conflict.owed_units_but_asked が空）"""
 
     def setUp(self):
         from unittest import mock
@@ -348,7 +348,8 @@ class TestAskedOnlyEmptyChanges(unittest.TestCase):
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(self.mock.patch.object(entry, "open_board", return_value=self.b))
-        stack.enter_context(self.mock.patch.object(conflict, "asked_keys", return_value=set(asked)))
+        stack.enter_context(self.mock.patch.object(conflict, "held_by_rulings",
+                                                   return_value={k: "ask_human の裁定 c1-1" for k in asked}))
         stack.enter_context(self.mock.patch.object(conflict, "owed_units_but_asked", return_value=set(owed)))
         stack.enter_context(self.mock.patch.object(gatemarks, "withheld_by", return_value={
             k: {"key": "q-1", "kind": "fork", "status": "open"} for k in withheld}))

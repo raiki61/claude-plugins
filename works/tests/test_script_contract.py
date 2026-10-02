@@ -89,7 +89,7 @@ def conflict_fix():
     r["interactions"] = []
     r["conflicts"] = [{"unit_key": TT.MEAN, "between": ["stats.py:9", "test_stats.py:9"],
                        "why_both_cannot_hold": "テストは算術平均を期待し、今の式は分母が 1 少ない——どちらかを曲げないと緑にならない",
-                       "which_is_right": "test"}]
+                       "which_is_right": "test", "kind": "unnamed_test_broke"}]
     return r
 
 

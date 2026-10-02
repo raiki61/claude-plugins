@@ -23,6 +23,8 @@
 
 - render: 1 項目の brief の文（純粋な関数）
 - cut / cut_at: 今の周の brief を書いて凍結する（在れば書き戻すだけ）。返りは {item, unit_keys, file（絶対パス）, sha256} の並び
+- by_unit_at: 今の周の控えの brief を単位ごとに {unit_key: [{item, file（絶対パス）}]}（切らない・書き戻さない。食い違いの申し出の
+  brief_vs_judgment の確かめが読む。盤面が開けない・控えが無い・壊れているなら {}）
 - for_units: 単位の key に当たる項目の行だけ
 - head_text: 指示書の頭に置く、brief を名指す節（今直す単位を渡すと、項目のほかの単位に「今は直すな」と添える）
 - files: 今の周の brief のファイル（読んだ証拠に足す）
@@ -302,6 +304,22 @@ def cut_at(board_dir) -> list[dict]:
 
 
 # ---------------------------------------------------------------- 読む口
+def by_unit_at(board_dir) -> dict[str, list[dict]]:
+    """盤面を（止まっていても）開き、今の周の控えの行を単位ごとに {unit_key: [{item, file（絶対パス）}]}（項目の順）。切らない・
+    書き戻さない・trace を書かない。盤面が開けない・控えが無い・控えが壊れている（LedgerBroken）なら {}（brief の無い側＝
+    brief_vs_judgment を通さない側に倒す。壊れた控えは次の支度の cut が止める）"""
+    try:
+        b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
+        rows = _ledger(b) or []
+    except (BoardGap, LedgerBroken):
+        return {}
+    out: dict[str, list[dict]] = {}
+    for r in _out(b, rows):
+        for k in dict.fromkeys(r["unit_keys"]):
+            out.setdefault(k, []).append({"item": r["item"], "file": r["file"]})
+    return out
+
+
 def for_units(briefs: list, keys) -> list[dict]:
     """unit_keys が keys と重なる項目の行（項目の順。1 つの単位が 2 項目に在れば両方）"""
     want = set(keys)

@@ -474,8 +474,10 @@ RETURN = {
 }
 RETURN_CONFLICT = ('どの段でも、緑にするためにテスト・依頼・コードのどれかを曲げるしかないと分かった単位は '
                    '{"phase": "conflict", "unit_key": "<単位>", "between": ["<パス>:<行>", "<パス>:<行>"], '
-                   '"why_both_cannot_hold": "<なぜ両方は成り立たないか>", "which_is_right": "request か test か code か unknown か query"}（query なら "correct_lines": ["<問いが当たる直した後の正しい行>"] も）'
-                   '（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）')
+                   '"why_both_cannot_hold": "<なぜ両方は成り立たないか>", "which_is_right": "request か test か code か unknown か query", '
+                   '"kind": "<種類: ' + " か ".join(conflict.DIV_KINDS) + '>"}'
+                   '（query なら "correct_lines": ["<問いが当たる直した後の正しい行>"] も）'
+                   '（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）。種類の意味は決まりの節「食い違いの申し出」')
 DO = {
     "route": "直す義務の単位を全部、ちょうど 1 度ずつ振り分けよ。tdd＝直す前に落ち、直した後に通るテストをリポジトリのテスト一式に"
              "書ける単位。direct＝先にテストを書けない単位（文書・指示書・注記・設定だけの直しなど）で、理由を 10 字以上で書く。"
@@ -1030,7 +1032,7 @@ def _conflict(st, reply, repo, try_query=None) -> tuple:
     else:
         owed = {st["queue"][st["cur"]]}
     probs = conflict.problems([item], repo=repo, board_dir=pathlib.Path(st["work"]).parent, owed=owed,
-                              try_query=try_query)
+                              try_query=try_query, briefs=planbrief.by_unit_at(pathlib.Path(st["work"]).parent))
     if probs:
         return probs, None
     parked.append(item["unit_key"])

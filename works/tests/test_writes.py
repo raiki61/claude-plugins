@@ -336,7 +336,7 @@ class TestTddStep(unittest.TestCase):
         self.add_test()
         conflict = {"phase": "conflict", "unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"],
                     "why_both_cannot_hold": "テストは分母 len(xs) - 1 の値を期待しているが、依頼は算術平均を求めている",
-                    "which_is_right": "request"}
+                    "which_is_right": "request", "kind": "unnamed_test_broke"}
         self.assertTrue(tddloop.step(state, conflict, self.repo)["ok"])
         got = tddloop.step(state, {"phase": "route", "units": [{"unit_key": CLAMP, "route": "direct",
                                                                 "why": "文書の直しと同じで先に書けない"}]}, self.repo)
