@@ -1161,6 +1161,11 @@ class TestRedKind(unittest.TestCase):
 
 
 LINT = "import pathlib, sys\nsys.exit(1 if 'print(' in pathlib.Path('stats.py').read_text() else 0)\n"
+# 整形の真似: 直した後の stats.py（分母が len(xs)）だけを書き換え、新しいファイル fmt.cache も作って 0 で抜ける
+FMT = ("import pathlib\np = pathlib.Path('stats.py')\nt = p.read_text()\n"
+       "p.write_text(t.replace('sum(xs) / len(xs)', 'sum(xs)/len(xs)'))\npathlib.Path('fmt.cache').write_text('x')\n")
+# いつも stats.py を書き換える test_cmd（輪の頭で書き換えが見える）
+FMT_ALWAYS = "import pathlib\np = pathlib.Path('stats.py')\np.write_text(p.read_text() + '\\n# formatted\\n')\n"
 
 
 class TestTestCmdGate(LoopCase):
@@ -1260,7 +1265,54 @@ class TestTestCmdGate(LoopCase):
             got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を直した"})
         self.assertTrue(got["done"])
         self.assertIn("起こせない", got["reason"])
+        self.assertTrue(got["reason"].startswith("テストのコマンドが走らない"), got["reason"])
         self.assertEqual(self.st()["units"][MEAN]["gave_up"], "runner")
+
+    def tool(self, name, src):
+        (self.repo / name).write_text(src, encoding="utf-8")
+        git(self.repo, "add", name)
+        git(self.repo, "commit", "-qm", name)
+        return f"{sys.executable} {name}"
+
+    def test_rewriting_test_cmd_is_restored_and_not_excused(self):
+        """test_cmd が既存のファイルを書き換えたら、元に戻して suite_made に積まない（書き込みの出どころの照合から外さない）。
+        新しく出来たファイルは今どおり積む"""
+        self.restart(self.tool("fmt.py", FMT))
+        self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
+        self.route()
+        self.red()
+        self.fix_mean()
+        st = self.st()
+        self.assertNotIn("stats.py", st["suite_made"])
+        self.assertIn("fmt.cache", st["suite_made"])
+        self.assertIn("return sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "役の直しの姿に戻す")
+
+    def test_start_rewriting_test_cmd_turns_gate_off(self):
+        self.restart(self.tool("fmt_always.py", FMT_ALWAYS))
+        st = self.st()
+        self.assertEqual(st["test_cmd_gate"], tddloop.GATE_OFF)
+        self.assertIn("test_cmd が作業ツリーの既存のファイルを書き換える", st["test_cmd_note"])
+        self.assertIn("stats.py", st["test_cmd_note"])
+        self.assertNotIn("stats.py", st["suite_made"])
+        self.assertNotIn("# formatted", (self.repo / "stats.py").read_text(encoding="utf-8"))
+
+    def test_prompt_names_test_cmd_only_when_gate_on(self):
+        """関門が on の時だけ、直し・整えの段の指示書に test_cmd の文字列が載る（拒まれて初めて知るのを防ぐ）"""
+        cmd = self.lint()
+        self.restart(cmd)
+        self.route()
+        self.assertNotIn(cmd, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"), "test の段")
+        self.red()
+        self.assertIn(cmd, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"), "fix の段")
+        self.fix_mean()
+        self.assertIn(cmd, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"), "refactor の段")
+
+    def test_prompt_omits_test_cmd_when_gate_off(self):
+        off = f"{sys.executable} -c 'raise SystemExit(1)'"
+        self.restart(off)
+        self.route()
+        self.red()
+        self.assertNotIn(off, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"), "関門が off")
 
     def test_start_not_run_turns_gate_off_with_reason(self):
         down = {"material": {"status": "not_run", "reason": "起こせない"}}

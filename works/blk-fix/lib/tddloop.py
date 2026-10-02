@@ -7,7 +7,8 @@
   組んで状態の contract に置く（盤面の無い置き場・欄の控えの無い run は空で、輪は約束の無い今の動きのまま）。
   run のテストのコマンド（線の入力 test_cmd）の関門（test_cmd_gate）もここで 1 回だけ決める: 空なら off、実行器のファイルが
   そのコマンドの文字列をそのまま含むなら same_as_suite（一式と同じなので 2 度走らせない）、ほかは 1 回走らせて緑なら on、
-  赤・走らないなら off にして理由を test_cmd_note に残す（元から赤の test_cmd で毎単位を拒まない）
+  赤・走らない・既存のファイルを書き換える（元に戻す）なら off にして理由を test_cmd_note に残す（元から赤の test_cmd で
+  毎単位を拒まない）。関門が on なら直し・整えの段の指示書にそのコマンドを書く
 - tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形。頭に brief の節: 振り分けの段は
   直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run は無し）→ 役 tdd（修正役。
   同じ会話で振り分け・テスト・直し・整えを返す）→
@@ -91,6 +92,12 @@ class Broken(Exception):
 
 class _RunnerDown(Exception):
     """実行器が走らない・JUnit が読めない（テストや直しの誤りではない。やり直しの回数を使わずに輪を抜ける）"""
+    head = "テストの実行器が走らない"
+
+
+class _CmdDown(_RunnerDown):
+    """run の test_cmd が走らない（実行器が走らない時と同じ道で輪を抜ける。理由の頭の語だけ違う）"""
+    head = "テストのコマンドが走らない"
 
 
 _RULES = []
@@ -386,7 +393,7 @@ def _test_cmd_gate(exe: pathlib.Path, cmd: str, repo, log: pathlib.Path) -> tupl
     """(関門, 理由, 走らせて出来たファイル)。空は (off, "", [])。実行器のファイルの中身が cmd をそのまま含めば
     (same_as_suite, "", [])（use.sh が pytest の 1 コマンドから書いた実行器など。一式の緑が同じコマンドの緑）。ほかは機械の
     試験の枠（entry.local_checks_material → tree_run.slotted_run）で 1 回走らせ、緑なら on、赤・走らないなら off と理由。
-    出来たファイルは状態の suite_made の頭（段が触った数えから外す）"""
+    出来たファイルは状態の suite_made の頭（段が触った数えから外す）。既存のファイルを書き換えたら（_cmd_run が戻す）off と理由"""
     if not cmd:
         return GATE_OFF, "", []
     try:
@@ -394,9 +401,10 @@ def _test_cmd_gate(exe: pathlib.Path, cmd: str, repo, log: pathlib.Path) -> tupl
             return GATE_SAME, "", []
     except OSError:
         pass   # 読めない実行器は包みと見なさず、走らせて決める
-    pre = snapshot(repo)
-    mat = entry.local_checks_material(repo, cmd, log)["material"]
-    made = touched(repo, pre, snapshot(repo))
+    mat, made, rewrote = _cmd_run(repo, cmd, log)
+    if rewrote:
+        return GATE_OFF, (f"test_cmd が作業ツリーの既存のファイルを書き換える（{', '.join(rewrote[:10])}。元に戻した。"
+                          f"ログ {log}）——この輪では確かめない（書き換えた物を書き込みの出どころの照合から外さない）"), made
     if mat["status"] == "clean":
         return GATE_ON, "", made
     if mat["status"] == "found":
@@ -405,19 +413,31 @@ def _test_cmd_gate(exe: pathlib.Path, cmd: str, repo, log: pathlib.Path) -> tupl
     return GATE_OFF, f"run の test_cmd（{cmd}）を輪の頭で走らせられない（{mat.get('reason', '')}）——この輪では確かめない", made
 
 
+def _cmd_run(repo, cmd: str, log: pathlib.Path) -> tuple[dict, list[str], list[str]]:
+    """test_cmd を機械の試験の枠で 1 回走らせる ——（素材, 新しく出来たパス, 書き換えた既存のパス）。書き換えた既存のパス
+    （変えた・消した）は走らせる前の木に戻す（restore_paths）。suite_made に積んでよいのは新しく出来たパスだけ（利用者の
+    1 行は整形などで既存のファイルを書き換えうる。積むと書き込みの出どころの照合・凍結の照らしから外れる）"""
+    pre = snapshot(repo)
+    mat = entry.local_checks_material(repo, cmd, log)["material"]
+    post = snapshot(repo)
+    made = sorted(set(git_names(repo, "diff-tree", "-r", "--name-only", "--no-renames", "--diff-filter=A", pre, post)))
+    rewrote = sorted(set(touched(repo, pre, post)) - set(made))
+    restore_paths(repo, pre, rewrote)
+    return mat, made, rewrote
+
+
 def _test_cmd_problems(st, repo) -> list[str]:
     """関門が on の時だけ run の test_cmd を 1 回走らせ（ログ work/test-cmd-<runs>.log。runs を 1 進め、出来たファイルを
-    suite_made に積む。_run と同じ）、赤ならログのパスを含む拒否の文。緑なら今の単位の test_cmd を ok にする（_green は今の
-    単位にしか呼ばれない）。走らなければ _RunnerDown（実行器が走らない時と同じ道）"""
+    suite_made に積む。書き換えた既存のファイルは _cmd_run が戻して積まない）、赤ならログのパスを含む拒否の文。緑なら今の単位の
+    test_cmd を ok にする（_green は今の単位にしか呼ばれない）。走らなければ _CmdDown（実行器が走らない時と同じ道）"""
     if st.get("test_cmd_gate") != GATE_ON:
         return []
     log = pathlib.Path(st["work"]) / f"test-cmd-{st['runs']}.log"
-    pre = snapshot(repo)
-    mat = entry.local_checks_material(repo, st["test_cmd"], log)["material"]
+    mat, made, _ = _cmd_run(repo, st["test_cmd"], log)
     st["runs"] += 1
-    st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
+    st["suite_made"] = sorted(set(st["suite_made"]) | set(made))
     if mat["status"] == "not_run":
-        raise _RunnerDown(f"run の test_cmd（{st['test_cmd']}）: {mat.get('reason', '')}")
+        raise _CmdDown(f"run の test_cmd（{st['test_cmd']}）: {mat.get('reason', '')}")
     if mat["status"] == "clean":
         _cur(st)["test_cmd"] = "ok"
         return []
@@ -483,6 +503,8 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     phase = st["phase"]
     title = f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）"
     lines = ["## この段ですること", "", DO[phase], ""]
+    if phase in ("fix", "refactor") and st.get("test_cmd_gate") == GATE_ON:
+        lines += [f"緑の後に機械が run の test_cmd（`{st['test_cmd']}`）も走らせる。これも緑にせよ。", ""]
     if phase == "route":
         lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in _owed(st)] + [""]
         brief = planbrief.head_text(planbrief.for_units(briefs, _owed(st)), _owed(st))
@@ -1014,7 +1036,7 @@ def step(state_file, reply, repo, try_query=None) -> dict:
         try:
             probs = {"route": _route, "test": _test, "fix": _fix, "refactor": _refactor}[phase](st, reply, repo)
         except _RunnerDown as e:
-            _abort(st, repo, f"テストの実行器が走らない: {e}", "runner")
+            _abort(st, repo, f"{e.head}: {e}", "runner")
             probs = [st["note"]]
     if probs and not st["done"]:
         st["tries"] += 1
