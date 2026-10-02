@@ -26,7 +26,7 @@
   裁かれた項目・申し出・裁定の文だけを渡し（REPLAN_ASK）、返答は渡した項目に限る（数・unit_keys の字・works の欄・狭めない案・
   型の誤りを全部並べて 1 回で拒む。REPLAN_REJECT）。受け入れのテストが既に在るかは修正の起点の版（盤面の review_rev）の木で
   引く。事前審査の役には呼び手が組んだ独立設計の節と、前後の項目だけを渡す（REVIEW_ASK_REPLAN）。どちらも読むだけの役で、
-  起こす前の作業ツリーの写しと比べて変わっていれば拒む。拒否は rolekit.with_done の控えに積み、GIVE_UP_AFTER 回目で done
+  輪の前に snap が置いた作業ツリーの写しと比べて変わっていれば拒む（支度は写しを置き直さない）。拒否は rolekit.with_done の控えに積み、GIVE_UP_AFTER 回目で done
   （諦めは盤面を止めない。後の関所が項目ごとに読む）
 - new_item(row): TRIP_FILE の行の直した項目に、外した決め手の欄を narrows の行ごとに戻した形
 
@@ -204,6 +204,8 @@ def material(b) -> dict:
         by_item: dict[int, list] = {}
         for r in conflict.waiting(b):
             for n in (r.get("ruling") or {}).get(conflict.PLAN_ITEMS) or []:
+                if not isinstance(n, int) or isinstance(n, bool):
+                    raise BoardGap(f"裁定の行 {r.get('id')} の欄 {conflict.PLAN_ITEMS} の項目 {n!r} が番号（整数）でない")
                 by_item.setdefault(n, []).append(r)
         if not by_item:
             return {"go": False, "items": []}
@@ -212,7 +214,7 @@ def material(b) -> dict:
             raise BoardGap(f"案の直しを待つ行が在るのに、周 {b.round} の承認済みの修正案か凍結した欄の控えが無い")
         items = []
         for n in sorted(by_item):
-            if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= len(current):
+            if not 1 <= n <= len(current):
                 raise BoardGap(f"裁定の欄 {conflict.PLAN_ITEMS} の項目 {n!r} が承認済みの修正案（{len(current)} 項目）の外")
             rows = by_item[n]
             brief = b.work(BRIEF_NAME.format(n=n))
@@ -236,7 +238,8 @@ def _handed(doc: dict | None, role: str) -> list:
 
 def snap(board_dir, role: str, repo) -> dict:
     """{ok, go, snapshot_file}。plan は material を通し new の無い項目が在れば go、plan-review は new が在り review の無い項目が
-    在れば go。go なら起こす前の作業ツリーの写しを置く（支度が起こす直前に置き直す）"""
+    在れば go。go なら役の輪の前に 1 度だけ作業ツリーの写しを置く（支度は置き直さない。拒まれた回が残した変化も、輪の全部の回の
+    受け付けがこの写しと比べて拒む。planblk の読むだけの役の決まりと同じ）"""
     node_of(role)
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
@@ -291,7 +294,7 @@ def _section(row: dict, conflicts: dict, role: str) -> str:
 
 
 def prep(board_dir, role: str, repo, *, head: str, design_part: str = "") -> dict:
-    """指示書を書き、起こす前の作業ツリーの写しを置き直す。返り {prompt_file, attempt, out_path, node, already}（planblk.prep と同じ鍵。
+    """指示書を書く（作業ツリーの写しは snap が輪の前に置いた物のまま）。返り {prompt_file, attempt, out_path, node, already}（planblk.prep と同じ鍵。
     out_path は受け付けが置く TRIP_FILE）。指示書は head（呼び手の planblk.head）・役の頼み（plan は REPLAN_ASK、plan-review は
     design_part と REVIEW_ASK_REPLAN と planmarks.REVIEW_ASK）・項目ごとの節だけ。拒否の後は 1 行目で前の理由のファイルを名指す。
     渡す項目が無ければ BoardGap（snap が go の時だけ支度する）"""
@@ -310,7 +313,6 @@ def prep(board_dir, role: str, repo, *, head: str, design_part: str = "") -> dic
         rf = b.work(f"reject-{safe_name(node)}-{len(rejects)}.txt")
         rf.write_text(str(rejects[-1].get("reason") or ""), encoding="utf-8")
         reject_file = str(rf)
-    entry.snapshot(board_dir, _snapshot_name(role), pathlib.Path(repo))
     p = b.work(rolekit.prompt_name(node))
     p.write_text(rolekit.compose(parts, reject_file=reject_file), encoding="utf-8")
     return {"prompt_file": str(p), "attempt": len(rejects) + 1, "out_path": str(b.work(TRIP_FILE)), "node": node,

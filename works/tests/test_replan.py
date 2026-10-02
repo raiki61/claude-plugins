@@ -262,7 +262,8 @@ class TripCase(ReplanCase):
         self.assertTrue(replan.material(entry.open_board(self.board))["go"])
 
     def play_role(self, role, reply):
-        """1 つの役の支度（planblk.prep の replan の口）と受け付け。返りは accept_reply の返り"""
+        """1 つの役の輪の前の写し（planblk.snap の replan の口）・支度（planblk.prep）と受け付け。返りは accept_reply の返り"""
+        self.assertTrue(planblk.snap(self.board, role, self.repo, replan="true")["go"])
         planblk.prep(self.board, role, self.repo, replan="true")
         return replan.accept_reply(self.board, role, json.dumps(reply, ensure_ascii=False), self.repo)
 
@@ -292,6 +293,8 @@ class TestReplanRoles(ReplanCase):
         self.b = entry.open_board(self.board)
 
     def prep(self, role):
+        """輪の前の写し（snap）と支度（prep）。輪の 2 回目以降の支度だけを回すなら planblk.prep を直に呼ぶ"""
+        self.assertTrue(planblk.snap(self.board, role, self.repo, replan="true")["go"])
         return planblk.prep(self.board, role, self.repo, replan="true")
 
     def accept(self, role, reply):
@@ -416,6 +419,23 @@ class TestReplanRoles(ReplanCase):
         (self.repo / "scratch.txt").write_text("役が書いた\n", encoding="utf-8")
         got = self.accept("plan", {"plan": [fixed_item()]})
         self.assertFalse(got["ok"]); self.assertIn(entry.READONLY_MOVED, got["reason"])
+
+    def test_tree_change_left_by_rejected_attempt_is_still_rejected(self):
+        """1 回目の返答の後に作業ツリーに残った変化は、2 回目の支度で写しの元にならない（写しは輪の前に 1 度だけ。planblk と同じ）"""
+        replan.material(self.b); self.prep("plan")
+        (self.repo / "scratch.txt").write_text("役が書いた\n", encoding="utf-8")
+        self.assertFalse(self.accept("plan", {"plan": [fixed_item()]})["ok"])
+        planblk.prep(self.board, "plan", self.repo, replan="true")          # 輪の 2 回目の支度（snap は輪の外で 1 回）
+        got = self.accept("plan", {"plan": [fixed_item()]})
+        self.assertFalse(got["ok"], got); self.assertIn(entry.READONLY_MOVED, got["reason"])
+
+    def test_material_rejects_non_int_plan_items(self):
+        path = self.b.work(conflict.FILE)
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc["items"][0]["ruling"][conflict.PLAN_ITEMS] = [1, "x"]
+        path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaises(board.BoardGap):
+            replan.material(entry.open_board(self.board))
 
     def test_review_role_sees_design_only_and_both_forms(self):
         """事前審査の指示書に独立設計の節と前後の項目、ほかの項目の欄（planmarks.REVIEW_HEAD の節）は無い"""
