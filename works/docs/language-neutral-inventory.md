@@ -97,7 +97,7 @@
 ### 4-1 (A) 赤の種類の見分けが CPython の例外の名前（既知・依頼 228b）— M
 - 場所: `tddloop.py:234-239`（`KIND_UNKNOWN`・`_ASSERT_NAMES`・`_NOT_RAISED`・`NAME_KINDS`・`_HEAD_NAME`・`_MISSING`）, `tddloop.py:242-257`（`red_kind`）, `tddloop.py:825-856`（`_declared_hit`・`_kind_problems`）, `blk-fix/rules/tdd.md:37-41`。
 - 決め打ち: 「機能が無い」赤は `NameError`・`AttributeError`・`ImportError`・`ModuleNotFoundError`、無い名前は CPython の message の形 `has no attribute 'x'` などから引く。
-- Go/TS/Rust/Java: Go の `undefined: Foo`・TS の `TS2305`・Java の `cannot find symbol` は名前で見分けられず、`unknown` か例外名のまま「記録だけで通す」側に落ちる（綴りの誤りの拒否が黙って効かない）。
+- Go/TS/Rust/Java: Go の `undefined: Foo`・TS の TS2305（名前が無いという意味のエラー番号）・Java の `cannot find symbol` は名前で見分けられず、`unknown` か例外名のまま「記録だけで通す」側に落ちる（綴りの誤りの拒否が黙って効かない）。
 - 保つ強み: 1。
 - 中立の置き換え: 機械は「名指しのテストが通っていない・ほかは元のまま」という JUnit の事実だけを見る。赤の理由（機能が無い／綴りの誤り／準備の失敗）は、読むだけの赤の読み手の役に、生のログ・JUnit の failure の本文・案の宣言（`red_kind`・`red_why`・`adds` の名前）を渡して判定させ、根拠の 1 行を引用させる。機械はその引用がログに字のまま在るかを確かめる（食い違いの申し出の指しの確かめと同じ型）。superpowers の test-driven-development の「失敗の理由が想定どおりか（機能が無い、綴りでない）」を役の判断に置く形。
 
