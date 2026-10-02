@@ -91,6 +91,75 @@ class HerdrAcrossHomes(unittest.TestCase):
         self.assertEqual(len(releases), 1, releases)
         self.assertGreater(seq(releases[0]), seq(reports[0]))
 
+    def home_with_rows(self, name, rows):
+        """rows: (run_id, target, 状態, Archon の started_at)。控えには target と枠を書き、一覧には started_at を載せる"""
+        h = self.tmp / name
+        (h / "runs").mkdir(parents=True)
+        for rid, target, _, _ in rows:
+            (h / "runs" / f"{rid}.json").write_text(json.dumps(
+                {"run_id": rid, "target": target, "herdr_pane": "pane-7"}))
+        (h / "listed.json").write_text(json.dumps({"runs": [
+            {"id": rid, "status": st, "started_at": at} for rid, _, st, at in rows]}))
+        return h
+
+    def test_failed_run_superseded_by_later_run_of_same_pane_and_target_is_ended(self):
+        t = str(self.tmp)
+        a = self.home_with_rows("home-a", [("run-old", t, "failed", "2026-10-01T08:00:00Z"),
+                                           ("run-new", t, "completed", "2026-10-02T08:00:00Z")])
+        calls = self.sync([a / "runs"])
+        self.assertTrue(any(c.startswith("pane release-agent pane-7") for c in calls), calls)
+        self.assertFalse(any("--state blocked" in c for c in calls), calls)
+
+    def test_failed_run_stays_blocked_when_later_run_is_of_other_target(self):
+        t = str(self.tmp)
+        other = self.tmp / "other"
+        other.mkdir()
+        a = self.home_with_rows("home-a", [("run-old", t, "failed", "2026-10-01T08:00:00Z"),
+                                           ("run-new", str(other), "completed", "2026-10-02T08:00:00Z")])
+        reports = [c for c in self.sync([a / "runs"]) if c.startswith("pane report-agent")]
+        self.assertEqual(len(reports), 1, reports)
+        self.assertIn("--state blocked", reports[0])
+        self.assertIn("人の番 1", reports[0])
+
+    def test_failed_run_is_ended_whatever_the_later_run_state(self):
+        # 起こし直した run が走る間は working、取り消した後は release（落ちた古い run が人の番に残らない）
+        t = str(self.tmp)
+        rows = [("run-old", t, "failed", "2026-10-01T08:00:00Z"), ("run-new", t, "running", "2026-10-02T08:00:00Z")]
+        a = self.home_with_rows("home-a", rows)
+        reports = [c for c in self.sync([a / "runs"], "run-new=running") if c.startswith("pane report-agent")]
+        self.assertEqual(len(reports), 1, reports)
+        self.assertIn("--state working", reports[0])
+        rows[1] = ("run-new", t, "cancelled", "2026-10-02T08:00:00Z")
+        a = self.home_with_rows("home-b", rows)
+        calls = self.sync([a / "runs"])
+        self.assertTrue(any(c.startswith("pane release-agent pane-7") for c in calls), calls)
+
+    def test_only_the_latest_failed_run_counts(self):
+        t = str(self.tmp)
+        a = self.home_with_rows("home-a", [("run-old", t, "failed", "2026-10-01T08:00:00Z"),
+                                           ("run-new", t, "failed", "2026-10-02T08:00:00Z")])
+        reports = [c for c in self.sync([a / "runs"]) if c.startswith("pane report-agent")]
+        self.assertEqual(len(reports), 1, reports)
+        self.assertIn("人の番 1・走る 0・終わった 1", reports[0])
+
+    def test_failed_run_stays_blocked_when_order_is_unknown(self):
+        # 同じ時刻・読めない時刻では順が決まらないので、見限らない側（人の番）に倒す
+        t = str(self.tmp)
+        for name, at in (("home-a", "2026-10-01T08:00:00Z"), ("home-b", "")):
+            a = self.home_with_rows(name, [("run-old", t, "failed", "2026-10-01T08:00:00Z"),
+                                           ("run-new", t, "completed", at)])
+            reports = [c for c in self.sync([a / "runs"]) if c.startswith("pane report-agent")]
+            self.assertEqual(len(reports), 1, reports)
+            self.assertIn("人の番 1", reports[0])
+
+    def test_latest_failed_run_stays_blocked(self):
+        t = str(self.tmp)
+        a = self.home_with_rows("home-a", [("run-old", t, "completed", "2026-10-01T08:00:00Z"),
+                                           ("run-new", t, "failed", "2026-10-02T08:00:00Z")])
+        reports = [c for c in self.sync([a / "runs"]) if c.startswith("pane report-agent")]
+        self.assertEqual(len(reports), 1, reports)
+        self.assertIn("--state blocked", reports[0])
+
     def test_same_home_given_twice_counts_once(self):
         a = self.home("home-a", **{"run-a": "running"})
         (self.tmp / "link").symlink_to(a)
