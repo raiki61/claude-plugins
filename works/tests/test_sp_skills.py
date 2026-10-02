@@ -1,9 +1,16 @@
-"""superpowers（Claude Code のプラグインのスキル集）から借りるスキルの一覧と、無人の役のための読み替えの検査。
+"""superpowers（Claude Code のプラグインのスキル集）から借りるスキルの一覧と、借りた物を包む節（seams.json）の契約と、
+無人の役のための読み替えの検査。
 
-借りるスキルは、利用者が Claude Code に入れた superpowers から dev/toolset.py が隔離した設定の skills/ へ写す（works は写しを
-持たない。版は利用者が入れた物に従う。本線の graphloops と同じ）。確かめるのは works が名前で頼る物だけで、スキルの中身・版・
-バイトは見ない（役は読むだけなので、名前が在れば新しい版でも動く）。名前が在ることの確かめと写し入れの検査は
-tests/test_toolset.py（偽の利用者の設定で回す）。
+借りるスキルは、works に写した superpowers（.shared/borrow/superpowers/<版>/）から dev/toolset.py が隔離した設定の skills/ へ写す。
+写しの版・commit・ファイルごとの sha256 は borrow.json の superpowers.pin に固定し、入れる前に写しのバイトを固定と照合する
+（利用者が Claude Code に入れた版は run に使わない）。隔離した設定への写し入れの検査は tests/test_toolset.py（偽の利用者の設定で回す）。
+
+- 写し（VendoredCopyCase）: works は superpowers の使うファイルと LICENSE を .shared/borrow/superpowers/<版>/ に直さずに持つ
+  （写しを作り直すのは dev/toolset.py vendor だけ）。写しのバイトは borrow.json の superpowers.pin の sha256 と同じで、
+  写しの台帳（COPIED_FROM）と 1 本ずつ合い、版のフォルダは 1 つだけ。
+- 節（SeamTableCase）: .shared/borrow/seams.json の 4 つの節（tdd・implementer・task-review・receiving-review）の錨・穴・出口の語が
+  本物の写しで成り立つ（spseam.contract_problems）。部品（PARTS）は使わないと決めたスキルのファイルで、ちょうど 1 つの節が包む。
+  部品の型の本文の角括弧の語は、どれも節の穴（placeholders）か、埋めない語として節に並べた物（literals）。
 
 - 借りる一覧（BORROW）: .shared/borrow/borrow.json の superpowers.skills と同じで、使わないと決めたスキル（NEVER）・
   読んで参考にするだけのスキル（REFERENCE_ONLY）と重ならない。
@@ -12,19 +19,31 @@ tests/test_toolset.py（偽の利用者の設定で回す）。
   の決まりが在る。
 """
 import json
+import os
 import pathlib
 import re
+import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+if str(ROOT / ".shared" / "core") not in sys.path:
+    sys.path.insert(0, str(ROOT / ".shared" / "core"))
+import copyledger  # noqa: E402
+import spseam  # noqa: E402
 
 # 持ち主が決めた借りる一覧（2026-09-27）。requesting-code-review の code-reviewer.md はテストの審査役の手引きに使う
 BORROW = frozenset({"test-driven-development", "systematic-debugging", "verification-before-completion",
                     "receiving-code-review", "requesting-code-review"})
 REFERENCE_ONLY = frozenset({"writing-plans"})       # 読んで参考にするだけ。借りない
+# スキルとして読まない（skills: に宣言しない・隔離した設定の skills/ に写さない）。部品のファイルは PARTS に並べ、sha256 で
+# 固定して節で包む場合に限り使う
 NEVER = frozenset({"brainstorming", "subagent-driven-development", "executing-plans", "using-git-worktrees",
                    "finishing-a-development-branch", "dispatching-parallel-agents", "writing-skills",
                    "using-superpowers", "diagnosing-superpowers"})
+
+# 部品（parts）: スキルとしては使わず、中の文（部品の型）を役の指示書に使うファイル。スキルの名 → ファイルの名
+PARTS = {"subagent-driven-development": frozenset({"implementer-prompt.md", "task-reviewer-prompt.md"})}
 
 OVERLAY = ROOT / ".shared" / "borrow" / "unattended.md"
 ROUTING_HEAD = "**義務の単位の行き先**: "   # 読み替えと修正の決まりの正本 .shared/core/writerules/common.md が同じ行で持つ決まりの頭
@@ -37,9 +56,40 @@ class BorrowListCase(unittest.TestCase):
         self.assertEqual(len(item["skills"]), len(BORROW), "同じスキルを 2 度並べた")
         self.assertFalse(BORROW & (NEVER | REFERENCE_ONLY))
 
-    def test_no_copy_of_superpowers_is_shipped(self):
-        """works は superpowers の写しを持たない（利用者が入れた物から取る）"""
-        self.assertFalse((ROOT / ".shared" / "superpowers").exists())
+
+class VendoredCopyCase(unittest.TestCase):
+    """本物の写し（.shared/borrow/superpowers/<版>/）を読む。手の直し・足したファイルはここで名指して赤"""
+
+    def test_vendored_copy_matches_ledger_and_pin(self):
+        sp = json.loads((ROOT / ".shared/borrow/borrow.json").read_text(encoding="utf-8"))["superpowers"]
+        base = ROOT / ".shared" / "borrow" / "superpowers"
+        v = sp["pin"]["version"]
+        self.assertEqual(sorted(p.name for p in base.iterdir()), sorted([v, "COPIED_FROM"]))   # 写しの版は 1 つだけ
+        self.assertEqual(spseam.pin_problems(base / v, sp), [])                                # バイトが pin と同じ
+        on_disk = sorted(r.as_posix() for r in (p.relative_to(base / v) for p in (base / v).rglob("*") if p.is_file())
+                         if r.name not in spseam.IGNORED and not spseam.MARKERS & set(r.parts))   # spseam と同じく数えない物を除く
+        self.assertEqual(on_disk, sorted(sp["pin"]["files"]))                                  # 余分なファイルが無い
+        led = copyledger.read(base / "COPIED_FROM")
+        self.assertEqual(led.commit, sp["pin"]["commit"])
+        self.assertEqual(led.deviations, {})                                                   # 直さない写し
+        self.assertEqual(sorted(led.rows), sorted((f"{v}/{f}", f) for f in sp["pin"]["files"]))
+
+    def test_licence_is_mit_with_the_notice(self):
+        v = json.loads((ROOT / ".shared/borrow/borrow.json").read_text(encoding="utf-8"))["superpowers"]["pin"]["version"]
+        text = (ROOT / ".shared" / "borrow" / "superpowers" / v / "LICENSE").read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("MIT License"))
+        self.assertIn("Copyright (c) 2025 Jesse Vincent", text)
+
+    @unittest.skipIf(os.name == "nt", "SKIP posix-mode: 実行の権限は POSIX だけ")
+    def test_scripts_in_the_copy_keep_exec_bit(self):
+        """写しの .sh は実行できる（写しと git の mode 100755 が権限を落とさない）"""
+        sp = json.loads((ROOT / ".shared/borrow/borrow.json").read_text(encoding="utf-8"))["superpowers"]
+        base = ROOT / ".shared" / "borrow" / "superpowers" / sp["pin"]["version"]
+        scripts = [f for f in sp["pin"]["files"] if f.endswith(".sh")]
+        self.assertTrue(scripts)
+        for f in scripts:
+            with self.subTest(f):
+                self.assertTrue(os.access(base / f, os.X_OK))
 
 
 class UnattendedOverlayCase(unittest.TestCase):
@@ -88,6 +138,48 @@ class UnattendedOverlayCase(unittest.TestCase):
         self.assertNotIn("省くなら", m.group(0))
         self.assertIn("役は決めない", m.group(0))
 
+
+class SeamTableCase(unittest.TestCase):
+    def setUp(self):
+        self.sp = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))["superpowers"]
+        self.seams = spseam.load_seams()
+
+    def test_contract_holds_on_the_vendored_copy(self):          # 錨・穴・語を本物の写しに当てる（CI でも回る）
+        overlay = OVERLAY.read_text(encoding="utf-8")
+        self.assertEqual(spseam.contract_problems(spseam.vendored_dir(self.sp), self.sp, self.seams, overlay), [])
+
+    def test_parts_are_only_the_wrapped_files_of_never_skills(self):
+        self.assertEqual(set(self.sp["parts"]), {f"skills/{s}/{f}" for s, fs in PARTS.items() for f in fs})
+        self.assertTrue(set(PARTS) <= NEVER)                       # 部品を借りても、スキルとしては使わない
+        self.assertFalse(any(p.endswith("/SKILL.md") for p in self.sp["parts"]))
+        used = [f for s in self.seams.values() if s["use_as"] == "prompt" for f in s["files"]]
+        self.assertEqual(sorted(used), sorted(self.sp["parts"]))   # 部品はちょうど 1 つの節が包む
+
+    def test_every_seam_file_is_pinned_and_skill_seams_use_borrowed_skills(self):
+        self.assertEqual(set(self.seams), {"tdd", "implementer", "task-review", "receiving-review"})
+        for name, s in self.seams.items():
+            with self.subTest(name):
+                self.assertTrue(set(s["files"]) <= set(self.sp["pin"]["files"]))
+                self.assertTrue(s["applies"] and s["not_applies"] and s["anchors"])
+                if s["use_as"] == "skill":
+                    self.assertTrue(all(f.split("/")[1] in BORROW for f in s["files"]))
+                else:
+                    self.assertTrue(s["placeholders"] and s["words"])
+
+    def test_status_words_cover_the_four_and_route_asks_to_divergence(self):
+        w = self.seams["implementer"]["words"]
+        self.assertEqual(set(w), {"DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"})
+        self.assertEqual((w["NEEDS_CONTEXT"], w["BLOCKED"]), ("divergence", "divergence"))
+
+    def test_every_bracketed_token_in_part_bodies_is_a_placeholder_or_listed_literal(self):
+        """部品の型の本文の角括弧の語（[task name] の類いの小文字の語も）は、どれも節の穴か埋めない語（literals）。数えるのは
+        spseam（contract_problems・fill。版を上げる前の下見も同じ規則）で、ここは本物の写しで破れが無いことと、同じ語を両方に
+        並べていないことを見る"""
+        overlay = OVERLAY.read_text(encoding="utf-8")
+        self.assertEqual(spseam.contract_problems(spseam.vendored_dir(self.sp), self.sp, self.seams, overlay), [])
+        for name, s in self.seams.items():
+            with self.subTest(name):
+                self.assertFalse(set(s.get("placeholders", [])) & set(s.get("literals", [])), "穴と埋めない語の両方に並べた")
 
 
 class OverlayDeliveryCase(unittest.TestCase):
