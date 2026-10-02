@@ -1889,6 +1889,86 @@ class DevWiringCase(unittest.TestCase):
             self.assertNotIn("WORKS_DEV_ADAPTER", r.stdout)
 
 
+class ShapeFenceCase(unittest.TestCase):
+    """形ごとの道具の柵（計画 220 Task 3）: 切符の board の修正の形（fixshape.shape_at）を読み、g3 以外の座の節（tdd）は Skill を、
+    g1 以外の修正役（fix・fix-ruled）は Agent を permissions.deny に足し、足した数を fence.shape_deny に残す。
+    形の控えが壊れていれば起こさない（理由に fix_shape）。切符の無い起動は今どおり"""
+
+    def setUp(self):
+        import fixshape
+        self.fixshape = fixshape
+        self.e = Env(self)
+        self.board = self.e.tmp / "board"
+        self.board.mkdir()
+        t = adapter.ticket_path(self.e.cwd, self.e.home)
+        t.parent.mkdir(parents=True)
+        t.write_text(json.dumps({"run_id": "r1", "board": str(self.board), "cwd": str(self.e.cwd),
+                                 "protected": [str(self.board)], "written_at": "2026-10-02T00:00:00+09:00"}),
+                     encoding="utf-8")
+
+    def start(self, shape):
+        p = self.board / self.fixshape.START_REL
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({self.fixshape.KEY: shape}), encoding="utf-8")
+
+    def launch(self, node):
+        r = self.e.run(sdk_argv(f"works-node: {node}", tools="Read,Edit"), GIT_CEILING_DIRECTORIES=str(self.e.tmp))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        deny = json.loads(opt(self.e.child()["argv"], "--settings")[0]).get("permissions", {}).get("deny", [])
+        return deny, self.e.launches()[-1]["fence"]
+
+    def test_fence_denies_by_shape(self):
+        self.start("af")
+        deny, fence = self.launch("tdd")
+        self.assertIn("Skill", deny)
+        self.assertNotIn("Agent", deny)
+        self.assertEqual(fence["shape_deny"], 1)
+        self.start("g3")
+        deny, fence = self.launch("tdd")
+        self.assertNotIn("Skill", deny)
+        self.assertNotIn("shape_deny", fence)
+        with self.subTest("g1 の修正役は Agent を拒まない・g3 の修正役は拒む"):
+            self.start("g1")
+            deny, _ = self.launch("fix-ruled")
+            self.assertNotIn("Agent", deny)
+            self.start("g3")
+            deny, fence = self.launch("fix")
+            self.assertIn("Agent", deny)
+            self.assertNotIn("Skill", deny)
+            self.assertEqual(fence["shape_deny"], 1)
+
+    def test_no_record_means_af(self):
+        deny, _ = self.launch("tdd")
+        self.assertIn("Skill", deny)
+        deny, _ = self.launch("fix")
+        self.assertIn("Agent", deny)
+
+    def test_choice_file_steers_fence(self):
+        self.start("af")
+        self.fixshape.choose(self.board, "g3", by="test", why="振り分けの控えが柵を動かすことの確かめ")
+        deny, fence = self.launch("tdd")
+        self.assertNotIn("Skill", deny)
+        self.assertNotIn("shape_deny", fence)
+
+    def test_broken_shape_refuses_launch(self):
+        self.start("x")
+        r = self.e.run(sdk_argv("works-node: tdd", tools="Read,Edit"), GIT_CEILING_DIRECTORIES=str(self.e.tmp))
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+        self.assertIn("fix_shape", r.stderr)
+        self.assertIsNone(self.e.child())
+        self.assertEqual(self.e.launches()[-1]["mode"], "refused")
+
+    def test_no_ticket_unchanged(self):
+        adapter.ticket_path(self.e.cwd, self.e.home).unlink()
+        for node in ("tdd", "fix"):
+            with self.subTest(node):
+                deny, fence = self.launch(node)
+                self.assertNotIn("Skill", deny)
+                self.assertNotIn("Agent", deny)
+                self.assertNotIn("shape_deny", fence)
+
+
 class LaunchRowModelCase(unittest.TestCase):
     def test_launch_row_carries_requested_model_from_argv(self):
         """起動の行の model は Archon が渡した --model（CLI と同じく後の指定が勝つ。無ければ None）。argv は読むだけ"""

@@ -9,6 +9,7 @@
 - shape_at は 振り分けの控え → start の控え → af（記録の無い前の版の盤面）の順に読み、壊れた控え・語の外は ValueError
 - choose が書いた控えは start の控えより勝つ。語の外・空の by・why は ValueError
 - START_REL は 1 周目の entry.START_FILE
+- denied_tools は形と印の名から拒む道具を返す（g3 以外の座の節で Skill・g1 以外の修正役で Agent。この順）
 """
 import json
 import pathlib
@@ -82,6 +83,17 @@ class FixShapeCase(unittest.TestCase):
                 (self.tmp / fixshape.CHOICE_REL).write_text(bad, encoding="utf-8")
                 with self.assertRaises(ValueError):
                     fixshape.shape_at(self.tmp)
+
+    def test_denied_tools_table(self):
+        rows = {("g3", "tdd"): (), ("af", "tdd"): ("Skill",), ("current", "tdd"): ("Skill",), ("g1", "tdd"): ("Skill",),
+                ("g1", "fix"): (), ("g1", "fix-ruled"): (), ("g3", "fix"): ("Agent",), ("af", "fix-ruled"): ("Agent",),
+                ("af", "judge"): (), ("g3", "local-review"): ()}
+        for (shape, node), want in rows.items():
+            self.assertEqual(fixshape.denied_tools(shape, node), want, (shape, node))
+
+    def test_agent_nodes_are_the_fix_roles(self):
+        """Agent を拒む節は修正役の 2 つ（Task 7 で YAML に Agent を足す節。先に拒む）"""
+        self.assertEqual(fixshape.AGENT_NODES, frozenset({"fix", "fix-ruled"}))
 
 
 if __name__ == "__main__":

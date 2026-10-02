@@ -125,6 +125,12 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    fence.run_place.skipped に理由を残し、作れなければ起こさない。TMPDIR は Claude Code が sandbox の中で書ける一時フォルダへ
    向けるので向けず、WORKS_DEV_HOME・XDG_CACHE_HOME は run をまたぐ共有の置き場なので向けない。allowWrite に `/` が在る
    起動（任せ先）・道具ゼロ・Bash の無い役・網を閉じた役・切符の無い起動は sandbox も env も変えない
+18. **形ごとの道具の柵**（印のある起動で、切符が在る時だけ。計画 220）: 切符の board の修正の形（fixshape.shape_at。形はいつも
+   この口から引く）と印の名から fixshape.denied_tools が返す道具——g3 以外の座の節（SKILL_NODES）の `Skill`、g1 以外の修正役
+   （AGENT_NODES）の `Agent`——を `permissions.deny` の後ろに足し、足した数を fence.shape_deny に残す（拒む物が無ければ鍵を
+   持たない）。形の控えが壊れている（読めない・語の外）なら、壊れた切符と同じく claude を起こさない（理由に fix_shape）。
+   deny は道具の呼びを拒むだけで、YAML の `skills:` が載せたスキルの一覧は system prompt に残る（拒まれた呼びが Archon の
+   events に tool_called として出うる。一覧を外すのは YAML の側）
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
 変えない（stdin も中継しない。stdout は 16 のとおり同じバイトで写す）。見分けられない形
@@ -159,6 +165,7 @@ import time
 import uuid
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
+import fixshape
 import tree_run
 
 ENV_HOME = "WORKS_ADAPTER_HOME"
@@ -224,7 +231,7 @@ class Plan(NamedTuple):
     tools_empty: bool               # `--tools ""`（題の生成か、道具を持たない役）
     session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?}
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
-    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, mcp?, query_rule?, repo_deny?}（フックを足した起動だけ）
+    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, mcp?, query_rule?, repo_deny?, shape_deny?}（フックを足した起動だけ）
     env: Optional[dict] = None      # 子の env に上書きする物（印のある起動。ENGINE_CHILD_ENV と、no-post の口）
     strict_net: Optional[bool] = None   # 網: True は strictAllowlist で閉じた起動、False は `*` の網、None は網の一覧が無い
     cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
@@ -557,15 +564,32 @@ def _overlaps(a: str, b: str) -> bool:
     return False
 
 
-def run_place_of(ticket_doc: Optional[dict]) -> Optional[str]:
-    """17. 切符の board の隣の run ごとの置き場（<board の親>/run-place）。切符が無ければ None。切符の board が絶対パスの文字列でなければ
-    BadTicket（壊れた切符の理由を「切符が無い」に化かさず、起動を拒ませる）"""
+def board_of(ticket_doc: Optional[dict]) -> Optional[str]:
+    """切符の board（正規化した絶対パス）。切符が無ければ None。絶対パスの文字列でなければ BadTicket（「切符が無い」に化かさない）"""
     if ticket_doc is None:
         return None
     board = ticket_doc.get("board")
     if not isinstance(board, str) or not os.path.isabs(board):
         raise BadTicket(f"切符の board が絶対パスの文字列でない（{board!r}）")
-    return os.path.join(os.path.dirname(os.path.normpath(board)), RUN_PLACE_NAME)
+    return os.path.normpath(board)
+
+
+def shape_deny(board_dir: Optional[str], node: str) -> Tuple[str, ...]:
+    """18. 盤面 board_dir の修正の形で印 node の役に拒む道具。切符が無ければ ()。形の控えが壊れていれば Unrecognised
+    （理由に fix_shape。呼び手は起動を拒む）"""
+    if board_dir is None:
+        return ()
+    try:
+        return fixshape.denied_tools(fixshape.shape_at(board_dir), node)
+    except ValueError as e:
+        raise Unrecognised(f"盤面の修正の形（{fixshape.KEY}）が読めない（{e}）") from None
+
+
+def run_place_of(ticket_doc: Optional[dict]) -> Optional[str]:
+    """17. 切符の board の隣の run ごとの置き場（<board の親>/run-place）。切符が無ければ None。切符の board が絶対パスの文字列でなければ
+    BadTicket（壊れた切符の理由を「切符が無い」に化かさず、起動を拒ませる）"""
+    board = board_of(ticket_doc)
+    return None if board is None else os.path.join(os.path.dirname(board), RUN_PLACE_NAME)
 
 
 def with_run_place(doc: dict, tools: set, board_place: Optional[str], strict: Optional[bool], keep_out: Sequence[str]) \
@@ -605,9 +629,10 @@ def with_run_place(doc: dict, tools: set, board_place: Optional[str], strict: Op
 
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
                no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None,
-               repo: Sequence[str] = (), place: Optional[Tuple[Optional[str], Optional[bool], Sequence[str]]] = None
-               ) -> Tuple[List[str], dict]:
-    """place は 17 の (board の隣の置き場, strict_network の値, 置き場が掛かってはいけない所)。省けば足さない"""
+               repo: Sequence[str] = (), place: Optional[Tuple[Optional[str], Optional[bool], Sequence[str]]] = None,
+               tools_deny: Sequence[str] = ()) -> Tuple[List[str], dict]:
+    """place は 17 の (board の隣の置き場, strict_network の値, 置き場が掛かってはいけない所)。省けば足さない。
+    tools_deny は 18 の形ごとに拒む道具（空なら足さず、fence.shape_deny の鍵も持たない）"""
     found = find_opt(argv, "--settings")
     if len(found) > 1:
         raise Unrecognised("--settings が 2 つ以上")
@@ -623,6 +648,8 @@ def _with_hook(argv: List[str], command: str, protected: Sequence[str],
             fence["run_place"] = {"skipped": skipped}
     if repo:
         fence["repo_deny"] = add_deny(doc, repo)
+    if tools_deny:
+        fence["shape_deny"] = add_deny(doc, tools_deny)
     if no_post is not None:
         fence["no_post"] = add_deny(doc, no_post_rules(no_post))
     return _put_settings(argv, found[0] if found else None, doc), fence
@@ -896,10 +923,12 @@ def _inside_git(path: pathlib.Path) -> bool:
 def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
          protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None,
-         run_place: Optional[Callable[[], Optional[str]]] = None) -> Plan:
+         run_place: Optional[Callable[[], Optional[str]]] = None,
+         board: Optional[Callable[[], Optional[str]]] = None) -> Plan:
     """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書くのは旗 isolated と 17 の置き場の mkdir）。
     protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
     run_place は 17 の置き場（run_place_of の値。切符が無ければ None）を返す関数。protected と同じ切符の 1 回の読みを使う。
+    board は 18 の切符の board（board_of の値。切符が無ければ None）を返す関数。同じ切符の 1 回の読みを使う。
     write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。
     env は起動の env（no-post の起動で本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）。
     子の env の上書き（Plan.env）は印のある起動の全部に付く（15 の目印。no-post なら 5 の口も）"""
@@ -967,9 +996,11 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         places = protected() if protected else None
         own = _no_tree_write_places(argv, cwd, places is not None) if NO_TREE_WRITE in marker.flags else []
         board_place = run_place() if run_place else None
+        tools_deny = shape_deny(board() if board else None, node)
         out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh,
                                 write_command, repo_deny(cwd),
-                                (board_place, strict, list(places or []) + [os.path.abspath(str(cwd))]) if run_place else None)
+                                (board_place, strict, list(places or []) + [os.path.abspath(str(cwd))]) if run_place else None,
+                                tools_deny)
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     if own:
