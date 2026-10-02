@@ -20,9 +20,8 @@ works は、AI に修正の仕事を任せるための Claude Code のプラグ�
 
 入口は Claude Code のスキル `skills/works/SKILL.md`（`/works`）。手順の正本はそこで、ここは要点だけ。
 
-1. プラグインを 4 つ入れる。works と、works の AI の役が借りる 3 つ（superpowers・coldwrite・pr-review-toolkit）。リポジトリの clone は要らない。
+1. プラグインを 3 つ入れる。works と、works の AI の役が借りる 2 つ（coldwrite・pr-review-toolkit）。superpowers のスキルは works に写した固定の版を使うので入れなくてよい。リポジトリの clone は要らない。
    - `claude plugin marketplace add raiki61/claude-plugins`（登録済みなら `claude plugin marketplace update raiki61`）→ `claude plugin install works@raiki61`・`claude plugin install coldwrite@raiki61`
-   - `claude plugin marketplace add obra/superpowers-marketplace` → `claude plugin install superpowers@superpowers-marketplace`（`plugin.json` の `dependencies` が入れる物として残す。run は works に写した固定の版を使うので、run には要らない）
    - `claude plugin install pr-review-toolkit@claude-plugins-official`（marketplace `claude-plugins-official`（GitHub の anthropics/claude-plugins-official）が無ければ先に `claude plugin marketplace add anthropics/claude-plugins-official`）
 2. 起動の殻 `dev/use.sh` と pack は、Claude Code が入れたプラグインの置き場（`~/.claude/plugins/cache/raiki61/works/<版>/`）の中に在る。スキルの行は、Claude Code がスキルを読む時にそこの絶対パスへ置き換える形（プラグインのスキルの置き換え CLAUDE_PLUGIN_ROOT）で書いてあるので、`/works` から打てばその置き場の `use.sh` が起きる。
 3. 対象リポジトリで確かめる（AI を起こさない）: `sh <置き場>/dev/use.sh check <対象>`。最後の行が `Results: 1 valid, 0 with errors, …` なら入っている（Claude Code に組み込みのスキル `code-review`・`simplify`・`security-review` の WARNING の 3 行は出てよい）。借りる物が入っていなければ、足りない物ごとに 1 行の理由と入れるコマンドを出して止まる（`start` も AI を起こす前に同じ所で止まる）。uv・claude・認証・対象の条件で足りない物も、入れ方つきで全部並べて 0 以外で終わる。

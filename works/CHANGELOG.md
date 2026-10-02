@@ -22,6 +22,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 - 段ごとの呼び出しの記録（段・単位・合否・一式の回数・秒）を輪の状態と出口に残す。
 - 修正案の欄の無い run は、整えの申告のほかは今どおり。本流 graphloops の指示書と rules は変えていない。
 
+### Removed
+
+- superpowers のプラグインを入れる手順と `plugin.json` の依存を外した。run は 0.2.17 から works に写した固定の版（`.shared/borrow/superpowers/`）を使い、利用者が入れた版を読まないので、入れなくてよい（入れてあっても害は無い）。
+
 ### Fixed
 
 - TDD の実行器（`dev/tdd-suite.sh`）が、works の試験と graphloops の試験の名指しを 1 つの pytest のプロセスに混ぜて流していた。本体と写しの 2 つの `engine` が同じプロセスに載り、eyes の盤面の錠と本体の `Board.save` の錠が同じ `board.lock` を取り合って止まった（run 198 が 48 分止まった）。名指しを試験の根（上へ辿って最初に `conftest.py` が在る置き場）ごとに分けて別の pytest で流し、JUnit を `junitparser merge` で 1 つに合わせる。終了コードは各プロセスの最大で、`-k` で 0 件の根は、ほかの根が走っていれば赤にしない。外の根の名指しが無ければ今どおり pytest 1 本。写しの engine を `board_lock` を持つ版に上げた時に eyes の錠と入れ子で止まる余地は、止まらずに赤になる試験で縛る（錠を 1 本にまとめる直しは、その試験が赤になった時に入れる）。

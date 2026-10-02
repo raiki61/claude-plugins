@@ -186,12 +186,21 @@ class TestCoreCopy(unittest.TestCase):
         for x in shells:
             self.assertTrue(x.startswith("${CLAUDE_PLUGIN_ROOT}/dev/"), x)
         self.assertNotIn("WORKS_REPO", body)
-        # 借りる 3 つも入れる行が在る（名は borrow.json の <名>@<marketplace>）
+        # 利用者が入れる借り物は入れる行が在り、works に写した物（pin を持つ。superpowers）は入れる行も依存も無い
+        # （名は borrow.json の <名>@<marketplace>）
         borrow = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
+        deps = {d["name"] for d in json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())["dependencies"]}
         for name, item in borrow.items():
-            if item["kind"] in ("skills", "plugin"):
-                self.assertIn(f"claude plugin install {name}@{item['marketplace']}", body)
-                self.assertIn(f"claude plugin marketplace add {item['marketplace_repo']}", body)
+            if item["kind"] not in ("skills", "plugin"):
+                continue
+            with self.subTest(name=name):
+                if "pin" in item:
+                    self.assertNotIn(f"claude plugin install {name}@", body)
+                    self.assertNotIn(name, deps)
+                else:
+                    self.assertIn(f"claude plugin install {name}@{item['marketplace']}", body)
+                    self.assertIn(f"claude plugin marketplace add {item['marketplace_repo']}", body)
+                    self.assertIn(name, deps)
         self.assertNotIn("archon workflow run raiki61/works:darkfactory", body)
         p = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
         self.assertEqual(p["name"], "works")

@@ -4,10 +4,6 @@
   "version": "0.2.17",
   "dependencies": [
     {
-      "name": "superpowers",
-      "marketplace": "superpowers-marketplace"
-    },
-    {
       "name": "coldwrite",
       "marketplace": "raiki61"
     },
