@@ -66,6 +66,17 @@ class OtherCase(unittest.TestCase):
         pass
 '''
 
+WORLD_TEST = '''\
+import unittest
+
+import engine   # 先に載った engine が sys.modules に残る（根が別なら別プロセスで、自分の根の engine を読む）
+
+
+class WorldCase(unittest.TestCase):
+    def test_{name}(self):
+        self.assertEqual(engine.ORIGIN, "{origin}")
+'''
+
 OUT_TEST = '''\
 import unittest
 
@@ -185,6 +196,44 @@ class TddSuiteCase(unittest.TestCase):
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
                 self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
         self.assertFalse((self.caller / "junit.xml").exists())
+
+    def _two_worlds(self):
+        # works 側（conftest 無し）と、別の conftest を持つ外の根が、同名の engine パッケージを別の置き場から読む世界
+        (self.root / "tests" / "engine").mkdir()
+        (self.root / "tests" / "engine" / "__init__.py").write_text('ORIGIN = "works"\n', encoding="utf-8")
+        (self.root / "tests" / "test_world.py").write_text(WORLD_TEST.format(origin="works", name="works_engine"),
+                                                           encoding="utf-8")
+        (self.root / "tests" / "tiers.py").write_text(
+            FAKE_TIERS.replace('["tests/test_fake.py"]', '["tests/test_world.py"]'), encoding="utf-8")
+        outside = self.caller.parent / "outside"
+        (outside / "tests").mkdir(parents=True)
+        (outside / "engine").mkdir()
+        (outside / "engine" / "__init__.py").write_text('ORIGIN = "outside"\n', encoding="utf-8")
+        (outside / "conftest.py").write_text(
+            "import pathlib\nimport sys\nsys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))\n", encoding="utf-8")
+        (outside / "tests" / "test_out_world.py").write_text(
+            WORLD_TEST.format(origin="outside", name="outside_engine")
+            + "\n    def test_outside_fail(self):\n        self.fail(\"外の根の落ちる試験\")\n", encoding="utf-8")
+        return outside / "tests" / "test_out_world.py"
+
+    def test_node_ids_from_different_conftest_roots_run_in_separate_processes(self):
+        out_test = self._two_worlds()
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, f"{out_test}::WorldCase::test_outside_engine")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()},
+                         {"test_works_engine": "passed", "test_outside_engine": "passed"})
+
+    def test_merged_exit_code_ignores_zero_selected_root(self):
+        out_test = self._two_worlds()
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, f"{out_test}::WorldCase::test_outside_engine", "-k", "test_outside_engine")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)   # works の根は 0 件（pytest の 5）だが、外の根が走って緑
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_outside_engine": "passed"})
+        r = self.run_suite(out, f"{out_test}::WorldCase::test_outside_fail", f"{out_test}::WorldCase::test_outside_engine")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)   # 落ちた試験が在る根が 1 つでも在れば 1
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()},
+                         {"test_works_engine": "passed", "test_outside_fail": "failure", "test_outside_engine": "passed"})
 
     def test_bad_tier_list_stops_before_pytest(self):
         (self.root / "tests" / "tiers.py").write_text("import sys\nprint('tiers: 段の一覧が崩れた', file=sys.stderr)\n"

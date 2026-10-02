@@ -518,6 +518,49 @@ class ScriptCase(unittest.TestCase):
         self.assertTrue(seen)
         self.assertEqual([n for n, free in seen if not free], [])
 
+    def nested_board_lock_peeks(self):
+        """eyes.locked が握る board.lock への、別の fd からの待つ flock（LOCK_EX・LOCK_NB 無し）を、待たずに LOCK_NB で覗いて
+        控える（取れなければ BlockingIOError を投げ、本体の filelock と同じく呼び手が飲む）。最初の 1 回（locked 自身）は通す"""
+        fcntl_fd = lambda f: f if isinstance(f, int) else f.fileno()  # noqa: E731
+        lock = self.board / eyes.LOCK_NAME
+        real, seen, outer = fcntl.flock, [], []
+
+        def spy(fd, op):
+            if op & fcntl.LOCK_EX and not op & fcntl.LOCK_NB and os.path.samestat(os.fstat(fcntl_fd(fd)), os.stat(lock)) and outer:
+                try:
+                    real(fd, op | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    seen.append(lock.name)
+                    raise
+                real(fd, fcntl.LOCK_UN)
+                return None
+            outer.append(1) if op & fcntl.LOCK_EX else None
+            return real(fd, op)
+        return mock.patch.object(fcntl, "flock", spy), seen
+
+    def test_eyes_locked_does_not_nest_engine_board_save(self):
+        """eyes.locked が board.lock を握ったまま engine の Board.save を呼んでも、別の fd から同じ board.lock を待たない。
+        今の写しの engine は board.lock を取らないので緑のまま通る（錠を 1 本にまとめる直しは後に置いた）。写しの engine を
+        上げてこの試験が赤になったら、locked と engine の board_lock が入れ子で自分を待つ合図——錠をまとめる直しが要る。
+        material._locked の錠は別のファイル（material.LOCK）で engine の錠と重ならないので、ここでは縛らない"""
+        self.mixed()
+        self.assertTrue(pathlib.Path(engine_rules.__file__).resolve().is_relative_to(CORE / "graphloops"),
+                        "engine が写しでない（本体の engine を測っている）")
+        patch, seen = self.nested_board_lock_peeks()
+        with patch, eyes.locked(self.board):
+            entry.open_board(self.board).save()
+        self.assertEqual(seen, [])
+
+    def test_nested_board_lock_peek_catches_a_second_flock_under_locked(self):
+        """対照: locked の中で別の fd から待つ flock が来る形（engine が board_lock で取る形）なら、覗きが控えて赤にできる"""
+        self.mixed()
+        patch, seen = self.nested_board_lock_peeks()
+        with patch, eyes.locked(self.board):
+            with open(self.board / eyes.LOCK_NAME, "a", encoding="utf-8") as f:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(f, fcntl.LOCK_EX)
+        self.assertEqual(seen, [eyes.LOCK_NAME])
+
     def test_plan_reply_with_info_defer_question_rejected_naming_label(self):
         """nit のほかの義務の無い単位（info・suggest の defer・question）を入れた案も、受け付けの手前で label を名指して拒む"""
         self.mixed()
