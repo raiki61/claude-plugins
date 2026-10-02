@@ -618,5 +618,45 @@ class TestFirstPassPlanLimits(unittest.TestCase):
         self.assertEqual(frozen.call_args[0][2], ["test_stats.py:8"])
 
 
+class TestPermitsOnRawBoard(unittest.TestCase):
+    """盤面の控えのファイルだけを置いた軽い盤面（dir・round・work）で、許しの行の引き方と最後の関所の行の組み方を見る"""
+    TWO = "import unittest\nclass A(unittest.TestCase):\n    def test_x(self):\n        pass\nclass B(unittest.TestCase):\n" \
+          "    def test_x(self):\n        pass\n"
+
+    def setUp(self):
+        import tempfile
+        import types
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = pathlib.Path(tmp.name)
+        self.b = types.SimpleNamespace(dir=self.dir, round=1, work=lambda name: self.dir / name)
+
+    def test_trailing_slash_id_names_the_class_at_plan_and_frozen_time(self):
+        """id のパスを書いたまま（t.py/）でなく、整えたパス（t.py）で .py かを決める（A::test_x の行に広げない）"""
+        repo = self.dir / "repo"
+        repo.mkdir()
+        (repo / "t.py").write_text(self.TWO, encoding="utf-8")
+        tid = "t.py/::B::test_x"
+        self.assertEqual(planmarks.find_test(repo, tid), 6)
+        row = {"id": tid, "behavior": "B の振る舞いが依頼で変わる", "old": "pass のまま", "new": "新しい期待を書く行に変える"}
+        _, fields = planmarks.split({"plan": [{"rewrite_tests": [row]}]}, repo)
+        self.assertEqual(fields[0]["rewrite_tests"][0]["limit"], "t.py:6", "修正案の時")
+        planmarks.save(self.dir, 1, fields)
+        self.assertEqual(conflict.ruled_test_limits(self.b, rulings=False, source=lambda p: self.TWO if p == "t.py" else None),
+                         ["t.py:6"], "凍結の検査の時")
+
+    def test_same_reason_with_slash_listed_once(self):
+        """1 つの裁定が同じファイルに 2 つの範囲を許しても、理由は 1 度だけ（理由の文に " / " が在っても）"""
+        text = "期待は float / int のどちらでもよいと依頼に在るので、範囲の 2 か所を直してよい"
+        (self.dir / conflict.FILE).write_text(json.dumps({"items": [
+            {"id": "c1-1", "unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"], "why_both_cannot_hold": WHY,
+             "which_is_right": "test", "ruling": {"decision": "fix_test_scope", "text": text,
+                                                   "limits": ["test_stats.py:8", "test_stats.py:14"]}}]}, ensure_ascii=False),
+            encoding="utf-8")
+        rows = conflict.ruled_test_doc(self.b)["rules"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["why"].count(text), 1, rows[0]["why"])
+
+
 if __name__ == "__main__":
     unittest.main()

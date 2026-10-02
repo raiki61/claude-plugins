@@ -454,19 +454,19 @@ def ruled_test_doc(b) -> dict | None:
     ファイル（範囲の <パス>[:行]）を、守りのファイルの一覧の形 {rules: [...]} に。無ければ None。
     パスで 1 行（protect.hits は 1 つのパスに最初の行しか返さない）。id は先に並んだ許しの物で、同じパスの許しの理由は
     捨てずに why に " / " でつなぐ（最後の関所に許したテストの変更を全部並べる）"""
-    rows, by_path = [], {}
+    rows, whys = [], {}   # whys: パス → 理由の並び（同じ理由は 1 度だけ。理由の文に " / " が在っても割らない）
     for p in test_permits(b):
         got = parse_limit(p["limit"])
         path = got[0] if got else None
         if path is None:
             continue
-        if path in by_path:
-            row = by_path[path]
-            if p["why"] not in row["why"].split(" / "):
-                row["why"] += " / " + p["why"]
-            continue
-        by_path[path] = {"id": f"{p['id']}-{len(rows) + 1}", "glob": path, "why": p["why"]}
-        rows.append(by_path[path])
+        if path not in whys:
+            whys[path] = []
+            rows.append({"id": f"{p['id']}-{len(rows) + 1}", "glob": path})
+        if p["why"] not in whys[path]:
+            whys[path].append(p["why"])
+    for row in rows:
+        row["why"] = " / ".join(whys[row["glob"]])
     return {"rules": rows} if rows else None
 
 

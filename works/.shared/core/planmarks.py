@@ -128,12 +128,13 @@ def _py_line(src: str, names: list):
 
 
 def line_in(src: str, test_id: str) -> int | None:
-    """テストの id のファイルの中身 src での定義の行（1 始まり。引き方は find_test と同じ）。id の形が違う・名前が無いなら None"""
+    """テストの id のファイルの中身 src での定義の行（1 始まり。引き方は find_test と同じ）。id の形が違う・名前が無いなら None。
+    .py かは _resolve と同じく整えたパス（posixpath.normpath。`t.py/` は t.py）で決める"""
     got = _parse_id(test_id)
     if got is None or not isinstance(src, str):
         return None
     path, names = got
-    if path.endswith(".py"):
+    if posixpath.normpath(path).endswith(".py"):
         return _py_line(src, names)
     return next((i for i, line in enumerate(src.splitlines(), 1) if names[-1] in line), None)
 
