@@ -54,6 +54,7 @@ import design  # noqa: E402
 import gatemarks  # noqa: E402
 import libdocs  # noqa: E402
 import querytest  # noqa: E402
+import recount  # noqa: E402
 import replan  # noqa: E402
 from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.rules import validator_module  # noqa: E402
@@ -188,6 +189,14 @@ def _output(b, nid: str):
     return b.output_of_round(nid, info.get("round", b.round))
 
 
+def _fix(b):
+    """今の周の修正の返答（recount.fix_reply: 盤面の p3.fix か、1 回目に受け付けた返答の控え）。どちらも無ければ None"""
+    try:
+        return recount.fix_reply(b)[0]
+    except recount.Unreadable:
+        return None
+
+
 def _one_line(text) -> str:
     return " ".join(str(text).split())
 
@@ -273,10 +282,10 @@ def gate_record(b) -> dict:
 
 
 def _no_fix(b, judged) -> bool:
-    """直す物が無い周: 判定の出口の need_fix が偽（渡されていれば）。無ければ今の周の修正の出力に changes が無い"""
+    """直す物が無い周: 判定の出口の need_fix が偽（渡されていれば）。無ければ今の周の修正の返答（_fix）に changes が無い"""
     if isinstance(judged, dict) and isinstance(judged.get("need_fix"), bool):
         return not judged["need_fix"]
-    fix = _output(b, "p3.fix")
+    fix = _fix(b)
     return isinstance(fix, dict) and not fix.get("changes")
 
 
@@ -310,11 +319,9 @@ def _closed_units(b) -> set:
 
 
 def claimed_units(b) -> list:
-    """この周の修正役が changes に載せた単位の key（申告。閉じたかは閉鎖の表が決める）"""
-    info = (b.state.get("outputs") or {}).get("p3.fix") or {}
-    if "round" in info and info["round"] != getattr(b, "round", info["round"]):   # 前の周の出力の changes は、今の周の表と突き合わせない
-        return []
-    fix = _output(b, "p3.fix") or {}
+    """この周の修正役が changes に載せた単位の key（申告。閉じたかは閉鎖の表が決める）。読むのは今の周の修正の返答（_fix）で、
+    前の周の出力の changes は、今の周の表と突き合わせない"""
+    fix = _fix(b) or {}
     return [c["unit_key"] for c in fix.get("changes") or [] if isinstance(c, dict) and isinstance(c.get("unit_key"), str)]
 
 
@@ -450,7 +457,7 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
             elif h.get("handled") == "fixed" and nid == REFIX_NODES[-1]:
                 items.append({"where": str(where),
                               "text": f"{h['key']}（手直し 2 回目が fixed と言ったが、3 回目の審査は無い——検算が要る: {h.get('how') or ''}）"})
-    fix = _output(b, "p3.fix") or {}
+    fix = _fix(b) or {}
     for nd in fix.get("not_done") or []:
         if isinstance(nd, dict) and isinstance(nd.get("unit_key"), str):
             items.append({"where": nd["unit_key"], "text": f"{nd['unit_key']}（修正がやらなかった: {nd.get('why') or ''}）"})

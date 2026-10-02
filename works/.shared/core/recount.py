@@ -13,7 +13,9 @@ done("p3.fix") に替える。graph の p3.fix の受け付けの検査は写し
   印 works-node: fix と食い違いの申し出の欄 conflicts・Bash で書いたファイルの申告の欄 bash_writes を足した物。blk-fix.yaml の fix に貼る）。RULED_OUTPUT_FORMAT は裁定の後の
   2 回目の修正役（印 works-node: fix-ruled continue=fix）の物
 - READS: 読んだ証拠の節 fix-reads が reads.main_for に渡す (役, include, 輪, 節)
-- accept_fix: 節 fix-accept の中身。entry.take に渡し、1 本目の出口のための changes を足す
+- accept_fix: 節 fix-accept の中身。entry.take に渡し、1 本目の出口のための changes を足す（v1_changes）
+- fix_reply: 修正の返答を読む 1 つの口（今の周の盤面の p3.fix か、無ければ 1 回目に受け付けた返答の控え conflict.held_reply）。
+  集める節と報告が読む
 - collect: 節 collect の中身。1 本目の出口の欄に fix_file・not_done・coverage・reads_file を足す
 - main_accept: 受け付けのスクリプトの入口（script_io.main の約束。回す側の誤りは 2）
 """
@@ -77,6 +79,24 @@ def _fix_output(b) -> tuple:
         raise Unreadable(f"盤面の {FIX_NODE} の返答 {f} が読めない: {e}") from None
 
 
+def fix_reply(b) -> tuple:
+    """(修正の返答, そのファイルの絶対パス)。今の周の盤面の p3.fix（_fix_output）か、無ければ 1 回目に受け付けた返答の控え
+    （conflict.held_reply。欄 bash_writes を外した写し。待つ単位が在る間に受け付けが盤面に渡さずに置いた物）。どちらも無ければ
+    Unreadable。控えが壊れていれば held_reply の BoardGap"""
+    try:
+        return _fix_output(b)
+    except Unreadable as e:
+        held, path = conflict.held_reply(b)
+        if held is None:
+            raise Unreadable(f"{e}。1 回目に受け付けた返答の控え {path} も無い") from None
+    return {k: v for k, v in held.items() if k != writes.FIELD}, path
+
+
+def v1_changes(rows) -> list:
+    """1 本目の出口のための changes（[{unit_key, files, what}]）"""
+    return [{k: c[k] for k in V1_CHANGE_KEYS} for c in rows]
+
+
 def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
     """修正役の返答を盤面に渡す（entry.take(board, "p3.fix", reply, repo)）。結果に 1 本目の出口のための changes
     （[{unit_key, files, what}]。盤面が受けた返答の changes[] から写す）を足す。拒否のときの changes は空（1 本目と同じ）。
@@ -87,7 +107,7 @@ def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pa
         return {**got, "changes": []}
     b = entry.open_board(board, allow_halted=True)
     out, _ = _fix_output(b)
-    return {**got, "changes": [{k: c[k] for k in V1_CHANGE_KEYS} for c in out["changes"]]}
+    return {**got, "changes": v1_changes(out["changes"])}
 
 
 def _coverage(b) -> dict:
@@ -99,10 +119,10 @@ def _coverage(b) -> dict:
 
 
 def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:
-    """集める節の中身。1 本目の {ok, files, changes_file} を全部残し、fix_file（盤面の state.outputs["p3.fix"]["file"] の
-    絶対パス）・not_done（件数）・coverage（単位ごとの {before, after}）・reads_file（fix-reads が今の周に書いた
+    """集める節の中身。1 本目の {ok, files, changes_file} を全部残し、fix_file（fix_reply が読んだ方のファイル: 盤面の
+    state.outputs["p3.fix"]["file"] か 1 回目に受け付けた返答の控えの絶対パス）・not_done（件数）・coverage（単位ごとの {before, after}）・reads_file（fix-reads が今の周に書いた
     reads-fix.json。無ければ空）を足す。受け付けた changes を今の周の changes.json（{"changes": [...]}。1 本目の形）に書く。
-    受け付けが通っていない・assert-changed の出力が読めない・盤面が今の周の p3.fix を受けていない・changes が空（直す義務の
+    受け付けが通っていない・assert-changed の出力が読めない・盤面が今の周の p3.fix を受けておらず控えも無い・changes が空（直す義務の
     単位が残らず、答え待ちの問いの出どころか直す裁定でない裁定（ask_human・fix_plan_item）で外れた単位が在る盤面 conflict.nothing_owed_but_excused を除く）ときは
     Unreadable（何も書かない）"""
     if not isinstance(accepted, dict) or accepted.get("ok") is not True:
@@ -117,7 +137,7 @@ def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:
     b = entry.open_board(board, allow_halted=True)
     if not changes and not conflict.nothing_owed_but_excused(b):
         raise Unreadable("受け付けの出力に changes が無い")
-    out, fix_file = _fix_output(b)
+    out, fix_file = fix_reply(b)
     path = b.work(CHANGES_FILE)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps({"changes": changes}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")

@@ -93,6 +93,7 @@ class TestAcceptExcused(unittest.TestCase):
             mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.recount),
             mock.patch.object(self.mod.entry, "open_board", return_value=self.board),
             mock.patch.object(self.mod.writes, "trace"),
+            mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
             mock.patch.object(self.mod, "revert_units", self.revert),
             mock.patch.object(self.mod, "unrevert_units", self.unrevert),
         ]

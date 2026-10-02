@@ -20,8 +20,17 @@ GUESSED_CAUSES = "取り消し・abandon・役の出し直しの上限のどれ�
 
 
 def fake_board(tmp) -> types.SimpleNamespace:
-    """止めていない盤面（stop・halted なし。trace.jsonl なし）"""
-    return types.SimpleNamespace(state={}, dir=pathlib.Path(tmp))
+    """止めていない盤面（stop・halted なし。trace.jsonl なし。周は 1）"""
+    b = types.SimpleNamespace(state={}, dir=pathlib.Path(tmp), round=1)
+    b.work = lambda name: b.dir / name
+    return b
+
+
+def put_fix(b, doc: dict, rnd: int = 1) -> None:
+    """偽の盤面に今の周の p3.fix の返答を置く（recount.fix_reply が読む形: state.outputs の file と round）"""
+    (b.dir / "fix-out.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    b.round = rnd
+    b.state = {**b.state, "outputs": {"p3.fix": {"round": rnd, "file": "fix-out.json"}}}
 
 
 class HeadStopInterruptedCase(unittest.TestCase):
@@ -119,6 +128,7 @@ class FinalTestSuitesCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1,
                                        output_of_round=lambda nid, n: {})
+        self.b.work = lambda name: self.b.dir / name
 
     def head_text(self, tests):
         from unittest import mock
@@ -469,9 +479,7 @@ class ResidueOutcomeCase(unittest.TestCase):
         import querytest
         key = "stats.py clamp: 上限を超えた値に lo を返す"
         row = f"[block] 未解消: {key}"
-        self.b.round = 1
-        self.b.state = {"outputs": {"p3.fix": {"round": 1}}}
-        self.b.output_of_round = lambda nid, rnd: {"changes": [{"unit_key": key}]}
+        put_fix(self.b, {"changes": [{"unit_key": key}]})
         querytest.save_closure(self.b, [{"unit_key": key, "counts": "population", "total": 3, "after": 1, "claimed": 3,
                                          "covered": 2, "out_of_query": [], "bound": True, "closed": False,
                                          "discrepancies": []}])
@@ -483,9 +491,7 @@ class ResidueOutcomeCase(unittest.TestCase):
         """changes に載って閉鎖の表に行が無い単位は検証器の未解消から外す（名指しは ClaimedWithoutTableRowCase）"""
         key = "stats.py clamp: 上限を超えた値に lo を返す"
         row = f"[block] 未解消: {key}"
-        self.b.round = 1
-        self.b.state = {"outputs": {"p3.fix": {"round": 1}}}
-        self.b.output_of_round = lambda nid, rnd: {"changes": [{"unit_key": key}]}
+        put_fix(self.b, {"changes": [{"unit_key": key}]})
         self.assertEqual(report.residue(self.b, gate(1, validator_out(row, FIRST_ROUND))), [])
 
     def test_first_round_constant_matches_validator(self):
@@ -504,10 +510,10 @@ class ClaimedWithoutTableRowCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.b = types.SimpleNamespace(state={"outputs": {"p3.fix": {"round": 1}}}, dir=pathlib.Path(self._tmp.name),
-                                       record={"process": {}}, round=1, loop_state={},
-                                       output_of_round=lambda nid, n: {"changes": [{"unit_key": self.KEY}]})
+        self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1, loop_state={},
+                                       output_of_round=lambda nid, n: {})
         self.b.work = lambda name: self.b.dir / name
+        put_fix(self.b, {"changes": [{"unit_key": self.KEY}]})
 
     def head_text(self):
         with mock.patch.object(report, "_stop_info", return_value=("", "", None)), \
@@ -550,8 +556,10 @@ class NextRequestUnitRowsCase(unittest.TestCase):
 
     def test_unit_rows_not_doubled(self):
         import conflict
-        b = types.SimpleNamespace(state={"outputs": {"p3.fix": {"round": 1}}}, round=1, loop_state={}, dir=pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())),
-                                  output_of_round=lambda nid, rnd: {"changes": [], "not_done": [{"unit_key": "u-left", "why": "範囲外"}]})
+        b = types.SimpleNamespace(state={}, round=1, loop_state={}, dir=pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())),
+                                  output_of_round=lambda nid, rnd: {})
+        b.work = lambda name: b.dir / name
+        put_fix(b, {"changes": [], "not_done": [{"unit_key": "u-left", "why": "範囲外"}]})
         asked = [{"unit_key": "u-asked", "ruling": {"text": "人が決める"}, "between": ["a", "b"]},
                  {"unit_key": "u-gave", "ruling": {"decision": conflict.REPLAN, "text": "項目を直せ", conflict.PLAN_UNITS: ["u-gave", "u-item"]},
                   "between": ["c", "d"], conflict.REPLAN_STATE: conflict.GAVE_UP, conflict.REPLAN_WHY: "直せなかった"}]

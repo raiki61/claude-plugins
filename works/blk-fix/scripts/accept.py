@@ -47,6 +47,10 @@
    修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告
    （closure.sites の path が覆う問いの当たりの件数・remaining・作り直した how）との食い違いを記録する。食い違いは拒否でなく記録で、写しに渡す返答は
    写しの数え合わせの拒否が発火しないように揃える
+2a. 案の直しを待つ単位（conflict.waiting。裁定 fix_plan_item の WAITING の行）が在り、盤面が p3.fix を待っていれば（named_reply）、
+   盤面に渡さずに控える（hold_fix）: 盤面に渡す形の返答（番号は名前に戻す）に役が申告した bash_writes を残して
+   conflict.HELD_REPLY に置き、受けた時と同じ trace（書き込みの出どころ・TESTS_OP・SCOPE_OP・CLOSURE_OP）と HELD_OP を書いて
+   {ok: true, done: true, parked: true, changes: 1 本目の行}。盤面へは h-rejudge の replan.settle（hand_held）が渡す
 3. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が同じ問いで数え直す（仕様 3.2）。通れば 1 本目の
    出口のための changes（unit_key・files・what）を足し、表を盤面に置く
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
@@ -97,6 +101,7 @@ EXCUSED = ("直す義務から外れた単位を changes に書いた（答え�
            "その単位の直しを戻し、not_done に理由を書け）: ")
 EXCUSED_DROPPED_OP = "fix_excused_dropped"   # 最後の回に、直す義務から外れた単位の直しを戻して changes から外した盤面の trace の行
 RULED_REVERTED_OP = "fix_ruled_reverted"     # 裁定の後の受け付けで、控えの返答の行のうち裁定が止めた単位の直しを戻した盤面の trace の行
+HELD_OP = "fix_held"   # 待つ単位が在る間、盤面に渡さずに返答を控えた（conflict.HELD_REPLY）盤面の trace の行
 
 
 CONFLICT_BAD = "食い違いの申し出を受けない（名指した所が現物に無いか、形が違う。直して丸ごと出し直せ）: "
@@ -138,20 +143,28 @@ def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
     return PACK_COPY + " / ".join(parts) if parts else ""
 
 
-def resolved_changes(reply: dict, board: Path):
-    """盤面が p3.fix を待っていれば、changes の行（番号の unit_key を盤面の控えで名前に戻した写し）。待っていない・changes の形が
-    崩れている・番号を名前に戻せないときは None。番号を名前に戻す仕事は engine の pointers.resolve の 1 本で、ここに別の戻しを書かない"""
+def named_reply(reply: dict, board: Path):
+    """盤面が p3.fix を待っていれば、返答の番号（changes・not_done の unit_key と plan_faces の key）を盤面の控えで名前に戻した写し
+    （resolved_changes と同じ engine の pointers.resolve の 1 本）。待っていない・番号を名前に戻せないときは None（盤面に渡して
+    盤面に拒ませる）"""
     b = entry.open_board(board)
     inst = b.rd["instances"].get(recount.FIX_NODE)
     if not inst or inst["status"] != "pending" or not inst.get("launched_at") or not b.deps_met(recount.FIX_NODE):
         return None
+    out = copy.deepcopy(reply)
+    if pointers.resolve(out, b.nodes[recount.FIX_NODE].get("pointers"), inst.get("pointers")):
+        return None
+    return out
+
+
+def resolved_changes(reply: dict, board: Path):
+    """盤面が p3.fix を待っていれば、changes の行（番号の unit_key を盤面の控えで名前に戻した写し）。待っていない・changes の形が
+    崩れている・番号を名前に戻せないときは None。番号を名前に戻す仕事は engine の pointers.resolve の 1 本で、ここに別の戻しを書かない"""
     rows = reply.get("changes") if isinstance(reply, dict) else None
     if not isinstance(rows, list) or not all(isinstance(c, dict) for c in rows):
         return None
-    out = {"changes": copy.deepcopy(rows)}
-    if pointers.resolve(out, b.nodes[recount.FIX_NODE].get("pointers"), inst.get("pointers")):
-        return None
-    return out["changes"]
+    out = named_reply({"changes": rows}, board)
+    return None if out is None else out["changes"]
 
 
 def fix_unit_keys(reply: dict, board: Path):
@@ -225,7 +238,7 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
 
 
 def _put_parked(path: Path, reply: dict) -> None:
-    """控えの返答（conflict.PARKED_REPLY）を書く（一時のファイルから置き換える）"""
+    """控えの返答（conflict.PARKED_REPLY・HELD_REPLY）を書く（一時のファイルから置き換える）"""
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(reply, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     os.replace(tmp, path)
@@ -419,6 +432,20 @@ def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     return out, undo
 
 
+def hold_fix(named: dict, whole: dict, b, traced) -> dict:
+    """待つ単位（conflict.waiting）が在る間の受け付け: 盤面に渡す形の返答（named。番号は名前に戻した）に、役が申告した
+    bash_writes（whole の欄）を残して 1 回目に受け付けた返答の控え（conflict.HELD_REPLY）に置き、受けた時と同じ trace
+    （traced）と HELD_OP を書く。盤面には渡さない（h-rejudge の replan.settle が渡す）。返りは輪を抜ける {ok, done, parked}"""
+    held = dict(named)
+    if isinstance(whole, dict) and isinstance(whole.get(writes.FIELD), list):
+        held[writes.FIELD] = whole[writes.FIELD]
+    path = b.work(conflict.HELD_REPLY)
+    _put_parked(path, held)
+    changes = recount.v1_changes(named.get("changes") or [])
+    traced().trace(HELD_OP, node=recount.ROLE, file=str(path), unit_keys=[c["unit_key"] for c in changes])
+    return {"ok": True, "done": True, "parked": True, "reason": "", "reason_file": "", "changes": changes}
+
+
 def accept_fix(reply, board, base_rev, repo):
     state = os.environ.get("INPUTS_TDD_STATE", "")
     pass_ = os.environ.get("INPUTS_PASS") or "first"
@@ -491,17 +518,26 @@ def accept_fix(reply, board, base_rev, repo):
         return refuse(red)
     b = entry.open_board(board)
     reply, rows = unitrows.take(reply, b, repo)
+
+    def traced():   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
+        tb = entry.open_board(board, allow_halted=True)
+        writes.trace(tb, recount.ROLE, wrote)
+        tb.trace(TESTS_OP, node=recount.ROLE, note=note, ci_left=tddloop.ci_left(state))
+        if scope_note is not None:
+            tb.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
+        if rows:
+            tb.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(tb, rows)))
+        return tb
+
+    if conflict.waiting(b):
+        named = named_reply(reply, board)
+        if named is not None:
+            return hold_fix(named, whole, b, traced)
     out = recount.accept_fix(reply, board, base_rev, repo)
     if out.get("ok") is not True and last:
         return refuse(out.get("problems") or [str(out.get("reason") or "")])
-    if out.get("ok") is True:   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
-        b = entry.open_board(board, allow_halted=True)
-        writes.trace(b, recount.ROLE, wrote)
-        b.trace(TESTS_OP, node=recount.ROLE, note=note, ci_left=tddloop.ci_left(state))
-        if scope_note is not None:
-            b.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
-        if rows:
-            b.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(b, rows)))
+    if out.get("ok") is True:
+        traced()
     return out
 
 

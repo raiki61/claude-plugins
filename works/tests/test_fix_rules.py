@@ -564,6 +564,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
             mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.recount),
             mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
             mock.patch.object(self.mod.writes, "trace"),
+            mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
         ]
@@ -772,6 +773,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
                                   {k: c[k] for k in ("unit_key", "files", "what")} for c in reply["changes"]]}),
             mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
             mock.patch.object(self.mod.writes, "trace"),
+            mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
             mock.patch.object(self.mod, "revert_units", self.revert, create=True),
