@@ -11,7 +11,9 @@
 - skill の座はスキルの名・Skill の道具・効く所・効かない所・読み替えを持つ
 - prompt の座は 216 の fill で穴を全部埋める（残りの検査は座の本文だけに当て、読み替えの全文には当てない）。値が無ければ ValueError
 - 写しが固定（pin）と 1 バイトでも違えば ValueError（af の文へ黙って逃げない。Review Focus 5）
-- 座の skill の節は fixshape.SKILL_NODES と同じで、YAML で skills: と Skill を宣言する（prompt の座の節は skills: を持たない）
+- 座の skill の節は fixshape.SKILL_NODES と同じで、YAML で skills: と Skill を宣言する（prompt の座の節は skills: を持たない）。
+  YAML は blk-fix（tdd・fix・fix-ruled）・blk-delta（review）・blk-refix（refix・review2・refix2）
+- 差分の審査役の座（task-review）は型の後ろに語の対応の表（型の語 → 差分の審査の返答の 2 判定の欄 deltamarks の欄と語）を持つ
 - 修正の形 g1 の節（g1_section）: 見出し・Agent・項目ごとの実装役と審査役のファイル・読み替えを持ち、読み替えの DISPATCH を
   名指して上書きする（Preflight F18）。下請けのファイルの型（g1_prompt）は穴を残さず、works の決まりと検索語の規律の塊を持つ
   （run 221 の R4 の 3）。YAML で Agent を持つ節は fixshape.AGENT_NODES と同じ
@@ -35,6 +37,7 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import adapter  # noqa: E402
+import deltamarks  # noqa: E402
 import fixshape  # noqa: E402
 import rolekit  # noqa: E402
 import seat  # noqa: E402
@@ -132,6 +135,52 @@ class SeatCase(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, re.escape(rel)):
                         seat.section(node, "g3", self.values())
 
+    def review_values(self):
+        return {p: f"<{i}>" for i, p in enumerate(spseam.load_seams()["task-review"]["placeholders"])}
+
+    def test_verdict_words_cover_task_review_words(self):
+        """task-review の型の出口の語（216 の works の語）は全部、差分の審査の返答の 2 判定の欄（deltamarks）の欄と語に読む"""
+        self.assertEqual(set(spseam.load_seams()["task-review"]["words"].values()), set(seat.VERDICT_WORDS))
+        for word, (key, value) in seat.VERDICT_WORDS.items():
+            with self.subTest(word):
+                self.assertIn(key, deltamarks.KEYS)
+                self.assertIn(value, deltamarks.FIELD_SCHEMA[key]["properties"]["verdict"]["enum"])
+
+    def test_words_table_rows_and_refusal(self):
+        """語の対応の表は型の語・works の語・欄の値の 3 列で、型の語ごとに 1 行。対応に無い語を持つ節は ValueError"""
+        table = seat.words_table("task-review")
+        rows = [r for r in table.splitlines() if r.startswith("| ") and "---" not in r]
+        self.assertEqual(len(rows), 1 + len(seat.VERDICT_WORDS))   # 見出しの行と語の行
+        line = next(r for r in rows if "✅ Spec compliant" in r)
+        self.assertIn("compliance_pass", line)
+        self.assertIn("`compliance.verdict`", line)
+        self.assertIn("`pass`", line)
+        with self.assertRaises(ValueError):
+            seat.words_table("implementer")   # 出口の語が判定の欄でない節
+
+    def test_review_seat_has_filled_part_and_table(self):
+        """差分の審査役の座（g3）は task-review の型の 6 つの穴を埋めた文と、その後ろの語の対応の表を持つ。2 回目の審査役も同じ型"""
+        text = seat.section("review", "g3", self.review_values())
+        own = own_part(text)
+        self.assertNotRegex(own, HOLE)
+        self.assertIn("task-reviewer-prompt.md", own)
+        self.assertIn("✅ Spec compliant", own)
+        self.assertIn(seat.words_table("task-review"), own)
+        self.assertLess(own.index("<5>"), own.index(seat.words_table("task-review")), "表は型の後ろ")
+        self.assertEqual(seat.section("review2", "g3", self.review_values()), text)
+        for shape in ("current", "af", "g1"):
+            self.assertEqual(seat.section("review", shape, self.review_values()), "")
+
+    def test_refix_seat_names_receiving_review(self):
+        """手直しの役の座（g3）は receiving-code-review を Skill の道具で読ませ、効く所・効かない所と読み替えを持つ"""
+        s = spseam.load_seams()["receiving-review"]
+        for node in ("refix", "refix2"):
+            with self.subTest(node):
+                text = seat.section(node, "g3")
+                for w in (seat.HEAD, "Skill", "receiving-code-review", *s["applies"], *s["not_applies"]):
+                    self.assertIn(w, text)
+                self.assertEqual(seat.section(node, "af"), "")
+
     def test_skill_seats_are_the_fenced_nodes(self):
         seams = spseam.load_seams()
         self.assertTrue(set(seat.SEATS.values()) <= set(seams))
@@ -142,9 +191,11 @@ class SeatCase(unittest.TestCase):
         （direct の修正役に test-driven-development を宣言しない。事前審査 tdd-skill-on-direct-fix-node）"""
         seams = spseam.load_seams()
         nodes = yaml.safe_load((ROOT / "blk-fix" / "blk-fix.yaml").read_text(encoding="utf-8"))["nodes"]
+        blocks = [nodes] + [yaml.safe_load((ROOT / blk / f"{blk}.yaml").read_text(encoding="utf-8"))["nodes"]
+                            for blk in ("blk-delta", "blk-refix")]   # 差分の審査役（review）と手直し・2 回目の審査（refix・review2・refix2）
         for nid, sid in seat.SEATS.items():
             with self.subTest(nid):
-                node = find_node(nodes, nid)
+                node = next((n for ns in blocks if (n := find_node(ns, nid)) is not None), None)
                 self.assertIsNotNone(node)
                 if seams[sid]["use_as"] == "skill":
                     self.assertEqual(node.get("skills"), [seat.skill_of(seams[sid])])

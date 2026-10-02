@@ -2,7 +2,8 @@
 字のまま載せ、手直しの決まり（rules/refix.md）と run の値を繋ぐ。同じ入力からはバイト単位で同じ。
 
 並び: 役の頭（refix-head-<n>）→ 正本の全節（ファイルの順）→ 読み替え（refix-remap。正本より勝つ）→ 手直しだけの決まり
-（refix-keep）→ 返答（refix-reply。どの回も同じ）→ 返答の後に当たる物（refix-tail-<n>）。支度は輪の外で 1 度だけ組むので、形は full だけ（拒否の理由のファイルは役の節の
+（refix-keep）→ 借りたスキルの座（seat。修正の形 g3 の receiving-code-review。呼び手の支度 scripts/prep.py が
+seat.section で組んで渡す。空なら載せない）→ 返答（refix-reply。どの回も同じ）→ 返答の後に当たる物（refix-tail-<n>）。支度は輪の外で 1 度だけ組むので、形は full だけ（拒否の理由のファイルは役の節の
 prompt が $LOOP_PREV で名指す）。
 """
 import pathlib
@@ -22,8 +23,8 @@ ROLES = {1: "refix", 2: "refix2"}
 ALWAYS = "いつも"
 
 
-def parts(n: int, values: dict) -> list:
-    """n 回目の手直しの役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）"""
+def parts(n: int, values: dict, seat: str = "") -> list:
+    """n 回目の手直しの役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。seat は借りたスキルの座（空なら載せない）"""
     if n not in ROLES:
         raise rulebook.Unfilled(f"手直しの往復 {n!r} は {sorted(ROLES)} のどれでもない")
     r = rulebook.sections(RULES)
@@ -32,11 +33,12 @@ def parts(n: int, values: dict) -> list:
             *canon,
             ("refix-remap", r["refix-remap"], ALWAYS + "（この役での読み替え）"),
             ("refix-keep", r["refix-keep"], ALWAYS + "（手直しだけの決まり）"),
+            *([("seat", seat, ALWAYS + "（修正の形 g3 の座）")] if seat else []),
             ("refix-reply", r["refix-reply"], ALWAYS + "（返答の欄）"),
             ("refix-tail", r[f"refix-tail-{n}"], ALWAYS + "（返答の後に当たる物）")]
 
 
-def build(n: int, values: dict) -> str:
-    """n 回目の手直しの役の指示書（純粋）。values の lang（言語の 1 行。refix.prep_fix が盤面から置く）は末尾に"""
-    got = parts(n, values)
+def build(n: int, values: dict, seat: str = "") -> str:
+    """n 回目の手直しの役の指示書（純粋）。values の lang（言語の 1 行。refix.prep_fix が盤面から置く）は末尾に。seat は parts の座"""
+    got = parts(n, values, seat)
     return rulebook.render(ROLES[n], 1, got, lang=values.get("lang") or "")["text"]

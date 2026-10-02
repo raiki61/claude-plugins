@@ -36,7 +36,7 @@ START_REL = "r1/start.json"       # 線の start の控え（entry.START_FILE �
 CHOICE_REL = "r1/fix-shape.json"  # 後の振り分けが選んだ形の控え
 FIXTURE_KEY = "fixture"           # start の控えの固定材料の印の鍵（fixture.KEY。entry.start が書く。L2 なので fixture は import しない）
 # 座が skill の節（借りたスキルを Skill の道具で読む役の印の名。seat.SEATS のうち use_as が skill の物と同じ。形ごとの道具の柵が読む）
-SKILL_NODES = frozenset({"tdd"})
+SKILL_NODES = frozenset({"tdd", "refix", "refix2"})
 # 修正役の節（g1 の形で SDD の型の下請けを Agent で起こす役の印の名。Task 7 で YAML に Agent を足す。先に g1 の外で拒む）
 AGENT_NODES = frozenset({"fix", "fix-ruled"})
 

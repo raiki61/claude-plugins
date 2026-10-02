@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 
 import adapter  # noqa: E402
 import conflict  # noqa: E402
+import deltamarks  # noqa: E402
 import entry  # noqa: E402
 import fixgates  # noqa: E402
 import fixmeasure  # noqa: E402
@@ -226,7 +227,7 @@ class RowCase(unittest.TestCase):
         r = self.row(db, board)
         # 束の拒否も拒否の本文を書くので、fix_rejects は本文の数から束の回を引く（2 - 1）
         self.assertEqual(r["redo"], {"fix_rejects": 1, "tdd_rejects": 1, "battery_rejects": 1, "delta_faces": 2, "refix_rounds": 1,
-                                     "subagent_redos": 0})
+                                     "subagent_redos": 0, "compliance_fails": 0, "quality_fails": 0})
         self.assertEqual(r["redo_total"], 6)
         self.assertEqual(r["rulings"], {"fix_test_scope": 1})
         self.assertEqual(r["divergences"], {"brief_vs_judgment": 1, "unkinded": 1})
@@ -334,6 +335,27 @@ class RowCase(unittest.TestCase):
                 r = self.row(db, board)
                 self.assertEqual(r["redo"]["subagent_redos"], want)
                 self.assertEqual(r["redo_total"], want)
+
+    def test_g1_subagent_wake_up_is_not_a_second_start(self):
+        """下請けが起き直すと同じ task_id の started がもう 1 行出る。起動は節ごとの task_id の数で数える（作り直しにしない）"""
+        board = make_board(self.tmp, shape="g1", items=1)
+        log = adapter.writes_path(entry.open_board(board, allow_halted=True).state["inputs"]["cwd"], self.home)
+        put(log, json.dumps({"tool_name": "Edit", "agent_id": "a1", "path": "/x/a.py"}) + "\n")
+        events = [agent("fixing__fix-loop.fix") for _ in range(2)]
+        woke = [{**e[-1], "data": {**e[-1]["data"], "description": "起き直し"}} for e in events]
+        r = self.row(make_db(self.tmp, events=[*events, *woke]), board)
+        self.assertEqual(r["redo"]["subagent_redos"], 0)
+
+    def test_row_counts_two_verdicts(self):
+        """差分の審査が受けた 2 判定の控え（盤面の trace の deltamarks.SAVED_OP）の準拠 fail と品質 fail を redo の 2 欄に数える。
+        どちらも delta_faces と同じ穴を判定で数え直した物なので、redo_total には足さない"""
+        board = make_board(self.tmp, shape="g3")
+        with open(board / "trace.jsonl", "a", encoding="utf-8") as f:
+            for comp, qual in (("fail", "pass"), ("pass", "fail"), ("not_applicable", "pass")):
+                f.write(json.dumps({"t": "x", "op": deltamarks.SAVED_OP, "compliance": comp, "quality": qual}) + "\n")
+        r = self.row(make_db(self.tmp), board)
+        self.assertEqual((r["redo"]["compliance_fails"], r["redo"]["quality_fails"]), (1, 1))
+        self.assertEqual(r["redo_total"], 0)
 
     def test_unavailable_cost_of_an_ai_node_is_a_gap(self):
         db = make_db(self.tmp, events=[node("fixing__fix-loop.fix", usd=None)])

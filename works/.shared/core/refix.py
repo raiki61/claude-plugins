@@ -29,7 +29,7 @@ review<n>-brief.json・refix<n>-brief.json（役に見せる材料: graph がそ
 つき）と直す裁定が広げたパス ruled_paths と直した側の報告 fix_report（今の周の修正の出力の changes・not_done。無ければ空）も、
 1 回目の手直しの役の brief には同じ plan_items・ruled_paths と、審査の 2 判定の控えの準拠の落ちた行 compliance
 （deltamarks.fail_rows）も載せる。2 回目の往復には載せない）・手直しの役の指示書
-prompt-<節>.md（呼び手のブロックが組む）。
+prompt-<節>.md（呼び手のブロックが組む）・修正の形 g3 の審査役の座 review<n>-seat.md（brief の seat_file。g3 でなければ空）。
 支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 回目の審査の 2 判定の控え delta-verdicts.json・1 本目の blk-delta が
 盤面の根に書いた delta-review.json・fix.diff・delta-snapshot.json）を先に消す——新しい審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が
 踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
@@ -53,6 +53,7 @@ import accept  # noqa: E402
 import conflict  # noqa: E402
 import deltamarks  # noqa: E402
 import entry  # noqa: E402
+import fixshape  # noqa: E402
 import lens  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
@@ -60,6 +61,7 @@ import policy  # noqa: E402
 import protect  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
+import seat  # noqa: E402
 import writes  # noqa: E402
 
 PASS_KEYS = ("cut", "review", "owed", "fix", "state_key", "owed_key")
@@ -165,11 +167,15 @@ def _brief(b, nid) -> dict:
     return {p: _read_value(b, p) for p in b.nodes[nid].get("reads") or [] if not p.startswith("inputs.")}
 
 
-def _write_json(path: pathlib.Path, doc) -> pathlib.Path:
+def _write_text(path: pathlib.Path, text: str) -> pathlib.Path:
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
     return path
+
+
+def _write_json(path: pathlib.Path, doc) -> pathlib.Path:
+    return _write_text(path, json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
 
 
 def _drop_stale(b, *names, root=()):
@@ -183,7 +189,10 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
     """n 回目の差分の審査役を起こす前の支度。盤面の loop.<state_key> が今の周に無い・審査の節が待っていないなら
     {ok: False, reason}（配線の誤り。スクリプトは 2）。在れば、前の試みの自分の出力を消し、役に見せる材料を
     review<n>-brief.json に書き、作業ツリーの写し（review<n>-snapshot.json）を撮り、起こした印を置いて
-    {ok: True, files, diff_file, rev, brief_file, must} を返す。名前は盤面の値のまま（組み立てない）。1 回目は修正案の欄の
+    {ok: True, files, diff_file, rev, brief_file, must} を返す。名前は盤面の値のまま（組み立てない）。盤面の修正の形
+    （fixshape.shape_at）に審査役の座が載る（g3）なら、task-review の型を埋めた座（seat.section。穴は brief・人の方針の文書・
+    直した側の出力・差分の起点と修正後の版・差分のファイル。無い物は seat.NONE）を review<n>-seat.md に書いて brief の
+    seat_file と must に名指す（載らなければ seat_file は空。写しが固定と違えば何も書かずに ValueError）。1 回目は修正案の欄の
     控えが凍結の印と食い違えば、差分の審査の段の印 DELTA_BY で盤面を止めて控えを名指す BoardGap（conflict.fields_broken）"""
     p = _pass(n)
     b = entry.open_board(board)
@@ -194,11 +203,17 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
     if inst is None:
         return {"ok": False, "reason": f"この周に {p['review']} が待っていない（盤面の ready に無い節の役は起こさない）"}
     role = REVIEW_ROLE[n]
-    brief_name = f"review{n}-brief.json"
-    _drop_stale(b, brief_name, f"reads-{role}.json", *((deltamarks.VERDICTS_FILE,) if n == 1 else ()),
+    brief_name, seat_name = f"review{n}-brief.json", f"review{n}-seat.md"
+    pol = policy.brief(b)
+    seat_text = seat.section(role, fixshape.shape_at(b.dir), {   # 写しの照合（pinned）を書き込みの前に
+        "[BRIEF_FILE]": str(b.work(brief_name)), "[GLOBAL_CONSTRAINTS]": pol["path"] or seat.NONE,
+        "[REPORT_FILE]": _out_file(b, recount.FIX_NODE if n == 1 else _pass(n - 1)["fix"]) or seat.NONE,
+        "[BASE_SHA]": _cut_base(b, n) or seat.NONE, "[HEAD_SHA]": d.get("rev") or seat.NONE, "[DIFF_FILE]": d["file"]})
+    _drop_stale(b, brief_name, seat_name, f"reads-{role}.json", *((deltamarks.VERDICTS_FILE,) if n == 1 else ()),
                 root=V1_OUTPUTS if n == 1 else ())
+    seat_file = str(_write_text(b.work(seat_name), seat_text)) if seat_text else ""
     doc = {"node": p["review"], "diff_file": d["file"], "files": d.get("files") or [], "rev": d.get("rev"),
-           "reads": _brief(b, p["review"]), "policy": policy.brief(b)}
+           "reads": _brief(b, p["review"]), "policy": pol, "seat_file": seat_file}
     try:   # 変わったファイルのうち守りのファイル（protect）。審査役が検査を緩める変更を見る材料（最後の人の関所にも必ず出る）
         doc["protected_files"] = protect.hits(doc["files"])
     except protect.Broken as e:
@@ -215,7 +230,15 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
     entry.snapshot(board, snapshot_name(n), repo)
     b.mark_launched(p["review"], inst.get("attempts", 1))
     return {"ok": True, "files": list(d.get("files") or []), "diff_file": d["file"], "rev": d.get("rev") or "",
-            "brief_file": str(brief), "must": [str(brief), d["file"]]}
+            "brief_file": str(brief), "must": [str(brief), d["file"]] + ([seat_file] if seat_file else [])}
+
+
+def _cut_base(b, n) -> str:
+    """n 回目の審査の差分の起点の版（写しの RL の fix_delta と同じ: 1 回目は周の頭に固めた版 reviewed_revision、2 回目は
+    1 回目に固めた修正後の版）。無ければ空"""
+    if n == 1:
+        return b.loop_state.get("reviewed_revision") or ""
+    return (_in_round(b, b.loop_state.get(_pass(n - 1)["state_key"])) or {}).get("rev") or ""
 
 
 def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, values=None) -> dict:
@@ -248,11 +271,8 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
     out = {"ok": True, "owed": len(rows), "diff_file": d.get("file") or "", "brief_file": str(brief),
            "must": [str(brief)] + ([d["file"]] if d.get("file") else [])}
     if prompt is not None:
-        text = prompt(n, {**(values or {}), "brief_file": str(brief), "diff_file": out["diff_file"],
-                          "lang": rolekit.lang_line(b.state.get("inputs"))})
-        tmp = prompt_file.with_name(prompt_file.name + ".tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, prompt_file)
+        _write_text(prompt_file, prompt(n, {**(values or {}), "brief_file": str(brief), "diff_file": out["diff_file"],
+                                            "lang": rolekit.lang_line(b.state.get("inputs"))}))
         out["prompt_file"] = str(prompt_file)
         out["must"].append(str(prompt_file))
     b.mark_launched(p["fix"], inst.get("attempts", 1))
@@ -261,11 +281,15 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
 
 # ---------------------------------------------------------------- 受け付け
 def _plan_items(b, by: str = DELTA_BY) -> list[dict]:
-    """今の周の範囲の欄の在る承認済みの修正案の項目（planmarks.scoped_items。修正案の無い run・217 番の形の控えは空）。全部の
+    """今の周の範囲の欄の在る承認済みの修正案の項目（planmarks.scoped_items。修正案の無い run・217 番の形の控えは空。平の run
+    （fixshape.plain。修正の形 current）も空: current の修正役は修正案の欄を見ないので、見ていない案への準拠で裁かず、審査の準拠は
+    not_applicable・手直しに準拠の行を渡さない。修正の受け付けの範囲の照らし planscope.check の NO_PLAIN と同じ）。全部の
     項目を番号のまま返し、裁定で外れた項目（conflict.held_item）には held（外した裁定の理由）を、単位の一部だけが外れた項目には
     held_units（conflict.held_units の {単位: 理由}）を足す。控えが
     凍結の印と食い違えば conflict.fields_broken の道（呼んだ段の印 by で盤面を止めて控えを名指す BoardGap。差分の審査の支度と
     受け付けは DELTA_BY、手直しの支度は REFIX_BY）"""
+    if fixshape.plain(b.dir):
+        return []
     try:
         items = planmarks.scoped_items(b) or []
     except planmarks.FieldsBroken as e:
@@ -409,7 +433,8 @@ def collect_refix(board: pathlib.Path) -> dict:
 
 
 def must(board: pathlib.Path, role: str) -> list:
-    """役 role に機械が渡したパス（支度が書いた brief と、その差分のファイルと、組んだ指示書が在ればそれ）。支度が走っていなければ空"""
+    """役 role に機械が渡したパス（支度が書いた brief と、その差分のファイルと、審査役の座のファイル・組んだ指示書が在ればそれ）。
+    支度が走っていなければ空"""
     b = entry.open_board(board, allow_halted=True)
     name = next((f"review{n}-brief.json" for n, r in REVIEW_ROLE.items() if r == role), None) \
         or next((f"refix{n}-brief.json" for n, r in FIX_ROLE.items() if r == role), None)
@@ -418,10 +443,12 @@ def must(board: pathlib.Path, role: str) -> list:
     p = b.work(name)
     if not p.is_file():
         return []
-    diff = json.loads(p.read_text(encoding="utf-8")).get("diff_file") or ""
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    diff, seat_file = doc.get("diff_file") or "", doc.get("seat_file") or ""
     fix = next((_pass(n)["fix"] for n, r in FIX_ROLE.items() if r == role), None)
     composed = b.work(rolekit.prompt_name(fix)) if fix else None
-    return [str(p)] + ([diff] if diff else []) + ([str(composed)] if composed and composed.is_file() else [])
+    return ([str(p)] + ([diff] if diff else []) + ([seat_file] if seat_file else [])
+            + ([str(composed)] if composed and composed.is_file() else []))
 
 
 def reads_all(board: pathlib.Path, reads_mod, run_id: str) -> dict:

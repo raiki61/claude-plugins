@@ -784,7 +784,11 @@ git commit -m "feat(works): 修正の形の腕ごとに作り直し・費用・�
 
 ### Task 9: 218 の後: 差分の審査の座（task-review の型）・手直しの役の座（receiving-code-review）・current の外れの検査を切る
 
-**前提:** 218 が取り込まれている。この Task の最初に 218 の計画と実装から次の 3 つの名を引き、下の `<218: …>` を置き換える。
+**前提:** 218 が取り込まれている。218 の計画と実装から引いた 3 つの名（下の本文は置き換え済み）:
+- 差分の審査の返答の 2 判定の欄と語: `deltamarks.KEYS` の `compliance`（語は `deltamarks.COMPLIANCE`）・`quality`（`deltamarks.QUALITY`）。欄の形は `deltamarks.FIELD_SCHEMA`。穴とは `face_key` で結ぶ。
+- 外れの機械の検査が修正の受け付けで呼ばれる 1 か所: `works/blk-fix/scripts/accept.py` の段 1d（`check_plan_scope` → `planscope.check`）。平の run は 220 と 218 の継ぎ目の直し（3e3abf0d）で照らさず、trace に `NO_PLAIN` を残す。
+- 品質が落ちた時に手直しへ渡る道: 穴が義務（`p3.delta_owed`）になり、`refix.prep_fix(b, 1, repo)` が `refix1-brief.json` に `plan_items`・`compliance`（`deltamarks.fail_rows`）・`ruled_paths` を書く。
+- 平の run の準拠（持ち主の裁定）: current の修正役は修正案を見ないので、差分の審査の準拠は `not_applicable`。`refix._plan_items` が平の run で空を返し、審査役の brief・受け付けの照らし（`deltamarks.gaps`）・手直しの brief がそろって項目の無い run になる。
 - 差分の審査の返答の 2 判定の欄と語（準拠・品質）。
 - 外れの機械の検査が修正の受け付けで呼ばれる 1 か所。
 - 品質が落ちた時に手直しへ渡る道。
@@ -795,14 +799,14 @@ git commit -m "feat(works): 修正の形の腕ごとに作り直し・費用・�
 - Modify: `works/.shared/core/refix.py`（`cut`: 形が g3 なら `review<n>-seat.md` を書き、brief の辞書に `seat_file`。g3 でなければ `seat_file: ""`）
 - Modify: `works/blk-delta/commands/delta-review.md`（1 行: brief の `seat_file` が空でなければ Read で全部読み、その型の手順で審査する。返す JSON の形はこのコマンドの形で、判定の語は型の後ろの対応表のとおり欄に書く）
 - Modify: `works/blk-refix/lib/refixrules.py`（`parts(n, values, seat="")`。座の節は `refix-keep` の後）・`works/blk-refix/blk-refix.yaml`（節 `refix`・`refix2` に `skills: [receiving-code-review]` と `Skill`）
-- Modify: `<218: 外れの機械の検査の 1 か所>`（`fixshape.plain` なら呼ばない）
+- Modify: `works/blk-fix/lib/planscope.py` の `check`（`fixshape.plain` なら照らさない。継ぎ目の直し 3e3abf0d で済み）と `works/.shared/core/refix.py` の `_plan_items`（平の run は空。準拠は not_applicable）
 - Modify: `works/dev/fixmeasure.py`（`redo` に `compliance_fails`・`quality_fails`）
 - Modify: `works/tests/test_seat.py`・`works/tests/test_blk_delta.py`（cut の 1 本）・`works/tests/test_blk_refix.py`（parts の 1 本）・`works/tests/test_fixmeasure.py`（`test_sp_skills` は期待を `fixshape.SKILL_NODES` から引くので直す所は無い）
 
 **Interfaces:**
 - Consumes: 216 の `seams.json` の `task-review` の `placeholders`・`words`（`"✅ Spec compliant": "compliance_pass"` ほか 5 語）、`receiving-review` の `applies`・`not_applies`。218 の返答の 2 判定の欄
 - Produces:
-  - `seat.VERDICT_WORDS: dict[str, tuple[str, str]]` — 216 の works の語 → `(<218 の欄>, <218 の語>)`。5 語の全部を持つ
+  - `seat.VERDICT_WORDS: dict[str, tuple[str, str]]` — 216 の works の語 → `(deltamarks.KEYS の欄, その欄の verdict の語)`。5 語の全部を持つ
   - `seat.words_table(seam_id: str) -> str` — 型の語・works の語・欄の値の 3 列の Markdown の表。語の対応に無い語が在れば `ValueError`
   - `seat.section("review", "g3", values)` — task-review の型を埋めた文と `words_table("task-review")`。values の 6 つの穴:
     - `[BRIEF_FILE]` は 218 が brief に足す修正案の brief の控え。

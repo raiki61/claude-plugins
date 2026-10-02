@@ -27,14 +27,17 @@
   輪を回さないので見ない）・平の run でないのに修正案の欄が在って brief の控えが無い・修正の工程の AI の節の費用が取れない・g1 で
   Agent が走ったのに書き込みの記録に下請けの行（agent_id）が無く、申告（bash_writes。記録の declared の行）だけが在る（フックの
   欠けを自己申告が隠した疑い。Task 7 の審査 M1）・g1 で Agent が走ったのに書き込みの記録が無い（家の取り違えか包みの無い起動。
-  黙って空にしない）。g1 の「Agent が走った」は修正役の節の LOCAL_AGENT の started の数。
+  黙って空にしない）。g1 の「Agent が走った」は修正役の節の LOCAL_AGENT の started の task_id の数。
 - 作り直し（redo）: fix_rejects は修正の受け付け（fix-accept・fix-ruled-accept。どちらも accept_fix）の拒否の本文のファイル
   FIX_REJECTS の数（修正の受け付けは role-rejects.json を書かない）から battery_rejects を引いた物（束の拒否も同じ本文を書くので
   2 重に数えない）、tdd_rejects は輪の calls の ok が偽の行、battery_rejects は
   束の行の在る受け付けの回（周・pass・attempt。preflight F23）、delta_faces は差分の審査（p3.delta_review・p3.delta_review2）が
   受け付けた穴、refix_rounds は手直し（report.REFIX_NODES）を受け付けた回（盤面の trace の done の行）、subagent_redos は g1 の
   下請けの作り直しの往復（修正役の節の LOCAL_AGENT の started のうち、項目ごとの 2 本（実装役と審査役）を超えた分を 2 本で 1 回。
-  g1 の作り直しは修正役の中で回り、ほかの形の拒否の数に出ないので、比べを揃える。ほかの形は 0）。
+  g1 の作り直しは修正役の中で回り、ほかの形の拒否の数に出ないので、比べを揃える。ほかの形は 0。下請けの数は節ごとの
+  task_id の数で、起き直した下請けの 2 行目の started を数えない）。compliance_fails・quality_fails（VERDICT_FAILS）は 1 回目の差分の
+  審査が受けた 2 判定（盤面の trace の deltamarks.SAVED_OP）の準拠と品質の fail の数。どちらも delta_faces と同じ穴を判定で数え
+  直した物なので redo_total に足さない（報告だけ）。平の run（current）は準拠がいつも not_applicable なので compliance_fails は 0。
 - red_green_checked: 受け付けが受けた回に確かめなかった理由を載せる盤面の trace（fixgates.SKIPPED_OP。fixgates.unchecked の
   決まりで、義務の外の項目の OUT_OF_DUTY は除く）に行が 1 つでも在るか、輪の状態が無い（実行器の無い run）なら偽。拒んだ回の
   帳面の skipped は数えない（受け付けが受けた回だけを見る）。平の run（current）は束が赤緑を当てないので None（当てない。確かめたとは数えない）。
@@ -73,6 +76,7 @@ for _p in (PACK / "blk-fix" / "lib", PACK / ".shared" / "core"):
 import adapter  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import conflict  # noqa: E402
+import deltamarks  # noqa: E402
 import entry  # noqa: E402
 import fixgates  # noqa: E402
 import fixshape  # noqa: E402
@@ -98,6 +102,7 @@ UNKINDED = "unkinded"                  # 種類の無い申し出（211 の前�
 DECISIONS = ("keep_g3", "switch_to_af", "fix_gates_first", "incomplete")
 METRICS = ("redo_per_item", "cost_per_item")
 LOCAL_AGENT = "local_agent"            # task_activity の task_type のうち下請け（Agent）の起動
+VERDICT_FAILS = ("compliance_fails", "quality_fails")   # redo のうち差分の審査の 2 判定の fail の数（redo_total に足さない）
 # 測る関数が頼る欄の形の印（最初の試しの run で確かめたら真にする。何を見るかはモジュールの頭）。偽が 1 つでも在れば verdict は incomplete
 FIELDS_CHECKED = {"node_kind_cost": False, "tool_outcome_refusal": False, "local_agent_start": False}
 
@@ -160,11 +165,14 @@ def _tool_calls(events: list, shape: str) -> tuple[dict, dict, int]:
     """(混ざり {Skill, Agent}, 拒まれた呼び出し {Skill, Agent}, 修正役の節で起きた下請けの数)。走ったかの見分けはモジュールの頭"""
     outcome = {e["data"].get("tool_call_id"): e["data"].get("tool_outcome") for e in events
                if e["event_type"] == "tool_completed" and e["data"].get("tool_call_id")}
-    starts, asked = {}, {}   # 節（step_name）ごとの下請けの起動の印の数・拒む Agent の呼び出しの数
-    for e in events:
+    # 節（step_name）ごとの下請けの task_id（起き直した下請けは同じ task_id の started をもう 1 行出すので、行でなく id で数える。
+    # id の無い行は 1 行を 1 つ）・拒む Agent の呼び出しの数
+    ids, asked = {}, {}
+    for n, e in enumerate(events):
         if (e["event_type"] == "task_activity" and _in_stage(e) and e["data"].get("activity") == "started"
                 and e["data"].get("task_type") == LOCAL_AGENT):
-            starts[e["step_name"]] = starts.get(e["step_name"], 0) + 1
+            ids.setdefault(e["step_name"], set()).add(e["data"].get("task_id") or ("row", n))
+    starts = {step: len(v) for step, v in ids.items()}
     ran, refused = dict.fromkeys(TOOLS, 0), dict.fromkeys(TOOLS, 0)
     for e in events:
         if e["event_type"] != "tool_called" or not _in_stage(e):
@@ -295,7 +303,7 @@ def _writes_rows(b, home) -> tuple[pathlib.Path | None, list | None]:
 def _empty_board() -> dict:
     return {"report": False, "items": 0,
             "redo": {"fix_rejects": 0, "tdd_rejects": 0, "battery_rejects": 0, "delta_faces": 0, "refix_rounds": 0,
-                     "subagent_redos": 0},
+                     "subagent_redos": 0, "compliance_fails": 0, "quality_fails": 0},
             "rulings": {}, "divergences": {}, "gate_misses": 0, "red_green": False, "tdd_calls": 0}
 
 
@@ -340,11 +348,18 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, ho
                    "battery_rejects": battery,
                    "delta_faces": _faces(board, gaps),
                    "refix_rounds": sum(1 for r in report.trace_rows(b, "done") if r.get("instance") in report.REFIX_NODES),
-                   "subagent_redos": max(0, agents - 2 * items) // 2 if shape == seat.G1_SHAPE else 0}
+                   "subagent_redos": max(0, agents - 2 * items) // 2 if shape == seat.G1_SHAPE else 0,
+                   **_verdict_fails(b)}
     out["rulings"], out["divergences"] = _rulings(rounds, gaps)
     out["gate_misses"] = len(rows)
     out["red_green"] = None if plain else bool(states) and not report.trace_rows(b, fixgates.SKIPPED_OP)
     return out
+
+
+def _verdict_fails(b) -> dict:
+    """差分の審査が受けた 2 判定（盤面の trace の deltamarks.SAVED_OP。受けた回ごとに 1 行）のうち fail の数（VERDICT_FAILS の鍵）"""
+    rows = report.trace_rows(b, deltamarks.SAVED_OP)
+    return {k: sum(1 for r in rows if r.get(key) == "fail") for k, key in zip(VERDICT_FAILS, deltamarks.KEYS)}
 
 
 def row(db, run_id: str, board, *, adapter_home=None) -> dict:
@@ -369,7 +384,8 @@ def row(db, run_id: str, board, *, adapter_home=None) -> dict:
     facts = _board_facts(board, shape, tdd_done, agents, adapter_home, gaps)
     return {"run_id": run_id, "shape": shape, "fixture": str((rec["fixture"] or {}).get("source_run") or ""),
             "complete": status == "completed" and facts["report"], "items": facts["items"],
-            "redo": facts["redo"], "redo_total": sum(facts["redo"].values()), "cost_usd": cost, "secs": secs,
+            "redo": facts["redo"], "redo_total": sum(v for k, v in facts["redo"].items() if k not in VERDICT_FAILS),
+            "cost_usd": cost, "secs": secs,
             "rulings": facts["rulings"], "divergences": facts["divergences"], "gate_misses": facts["gate_misses"],
             "record_gaps": gaps, "contamination": ran, "refused": refused, "red_green_checked": facts["red_green"]}
 

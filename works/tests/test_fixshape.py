@@ -87,7 +87,8 @@ class FixShapeCase(unittest.TestCase):
     def test_denied_tools_table(self):
         rows = {("g3", "tdd"): (), ("af", "tdd"): ("Skill",), ("current", "tdd"): ("Skill",), ("g1", "tdd"): ("Skill",),
                 ("g1", "fix"): (), ("g1", "fix-ruled"): (), ("g3", "fix"): ("Agent",), ("af", "fix-ruled"): ("Agent",),
-                ("af", "judge"): (), ("g3", "local-review"): ()}
+                ("af", "judge"): (), ("g3", "local-review"): (), ("g3", "refix"): (), ("af", "refix2"): ("Skill",),
+                ("current", "refix"): ("Skill",), ("g3", "review"): ()}
         for (shape, node), want in rows.items():
             self.assertEqual(fixshape.denied_tools(shape, node), want, (shape, node))
 

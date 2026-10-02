@@ -10,7 +10,11 @@
 - SEATS・SHAPE・carries(node, shape): どの節に、どの形で座が載るか
 - skill_of(seam): skill の節の files[0]（skills/<名>/…）の <名>
 - pinned(): 写しが固定と合うかを照らし、(item, 写しの置き場) を返す（合わなければ ValueError）
-- section(node, shape, values): 座の文。載らなければ空。HEAD → 節の種類ごとの本文 → 読み替え
+- section(node, shape, values): 座の文。載らなければ空。HEAD → 節の種類ごとの本文 → 読み替え。差分の審査役（review・
+  review2）の型 VERDICT_SEAM は本文の後ろに words_table（型の判定の語 → 差分の審査の返答の 2 判定の欄 VERDICT_WORDS）を持つ
+- 座の節: TDD の役（tdd）と手直しの役（refix・refix2。receiving-review）は skill、修正役（fix・fix-ruled。implementer）と差分の
+  審査役（review・review2。task-review）は prompt。手直しの役の座は手直しの支度（blk-refix/scripts/prep.py）が、審査役の座は
+  審査の支度（refix.cut）が置く
 - 修正の形 G1_SHAPE（g1）: 修正役（fixshape.AGENT_NODES）が SDD の型で項目ごとに下請け（実装役・審査役）を Agent で回す。
   g1_prompt(seam_id, values) は下請けに渡すファイルの中身（216 の型を埋めた物の後ろに、下請けへの works の決まり G1_SUB_HEAD と
   検索語の規律の塊）、g1_section(rows) は修正役の指示書の節（G1_HEAD → 手順 → 項目ごとのファイル → 読み替えの上書き
@@ -40,7 +44,16 @@ import rolekit  # noqa: E402
 import spseam  # noqa: E402
 
 SHAPE = "g3"   # 座が載る修正の形
-SEATS = {"tdd": "tdd", "fix": "implementer", "fix-ruled": "implementer"}   # 役の印の名 → 節の名
+SEATS = {"tdd": "tdd", "fix": "implementer", "fix-ruled": "implementer",   # 役の印の名 → 節の名
+         "review": "task-review", "review2": "task-review", "refix": "receiving-review", "refix2": "receiving-review"}
+NONE = "（無し）"   # 型の穴に入れる物が無い時の値（人の方針の文書が無い run の [GLOBAL_CONSTRAINTS] など）
+# 差分の審査役の型（task-review）の出口の語（216 の works の語）→ 差分の審査の返答の 2 判定の欄（deltamarks.KEYS）と欄の語
+# （deltamarks.COMPLIANCE・QUALITY）。審査役の座の型の後ろに words_table の表で載り、役は型の語をこの欄に書く
+VERDICT_SEAM = "task-review"
+VERDICT_WORDS = {"compliance_pass": ("compliance", "pass"), "compliance_fail": ("compliance", "fail"),
+                 "compliance_unverifiable": ("compliance", "unverifiable"),
+                 "quality_pass": ("quality", "pass"), "quality_fail": ("quality", "fail")}
+WORDS_HEAD = "### 判定の語の対応（型の語は返答の欄にこの値で書く）"
 HEAD = "## 借りたスキルの座（修正の形 g3）"
 SCENE = "works の修正の段。流れ・機械の関門・commit は線が持つ。TDD の輪で直した単位は輪の要約に在る"
 NO_REPORT_FILE = "ファイルに書かない。返答は指示書の『返答の欄』の JSON"
@@ -148,6 +161,17 @@ def pinned() -> tuple[dict, pathlib.Path]:
     return item, src
 
 
+def words_table(seam_id: str) -> str:
+    """節 seam_id の出口の語の表（型の語・works の語・欄の値の 3 列の Markdown。見出し WORDS_HEAD つき）。works の語が
+    VERDICT_WORDS に無ければ ValueError（推して埋めない）"""
+    words = spseam.load_seams(spseam.BORROW_DIR)[seam_id].get("words") or {}
+    lack = sorted(w for w in words.values() if w not in VERDICT_WORDS)
+    if lack:
+        raise ValueError(f"節 {seam_id} の語 {lack} が判定の欄の語の対応（seat.VERDICT_WORDS）に無い")
+    rows = [f"| {said} | {w} | `{VERDICT_WORDS[w][0]}.verdict`: `{VERDICT_WORDS[w][1]}` |" for said, w in words.items()]
+    return "\n".join([WORDS_HEAD, "", "| 型の語 | works の語 | 欄の値 |", "| --- | --- | --- |", *rows])
+
+
 def section(node: str, shape: str, values: dict[str, str] | None = None) -> str:
     """役 node の座の文。載らなければ（carries が偽）空。prompt の節は values で型の穴を埋め、values が None なら ValueError。
     写しが固定と違う・穴が埋まらなければ ValueError（名指す）"""
@@ -166,7 +190,8 @@ def section(node: str, shape: str, values: dict[str, str] | None = None) -> str:
                 NOT_APPLIES + "\n\n" + _bullets(sec.get("not_applies") or [])]
     else:
         filled = spseam.fill(sid, values, src, item, seams)
-        body = [WINS, PROMPT_HEAD.format(file=sec["files"][0]), filled.rstrip("\n")]
+        body = [WINS, PROMPT_HEAD.format(file=sec["files"][0]), filled.rstrip("\n"),
+                *([words_table(sid)] if sid == VERDICT_SEAM else [])]
     return "\n\n".join([HEAD, *body, rolekit.skill_overlay().rstrip("\n")]) + "\n"
 
 
