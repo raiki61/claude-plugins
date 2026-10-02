@@ -431,20 +431,25 @@ def _plan_limit(r: dict, source):
     return f"{got[0]}:{line}" if line else None
 
 
+def fields_broken(b, e: Exception) -> Exception:
+    """修正案の欄の控えが壊れた（planmarks.FieldsBroken）時の 1 本の道: 盤面を止め（もう止まった盤面は止め直さない）、控えを
+    名指す理由の BoardGap を返す（呼ぶ側が raise する。許しや照らしを黙って広げない・黙って捨てない）"""
+    why = f"{FIELDS_BROKEN}: {' '.join(str(e).split())}"
+    state = getattr(b, "state", None) or {}
+    if hasattr(b, "stop") and not (state.get("halted") or state.get("stop")):
+        try:
+            b.stop(why, by=FIELDS_STOP_BY)
+        except Reject as r:
+            why += f"（盤面を止められない: {' '.join(str(r).split())}）"
+    return _board.BoardGap(why)
+
+
 def _plan_rewrites(b) -> list[dict]:
-    """planmarks.rewrites。控えが凍結の印と食い違えば（FieldsBroken）盤面を止め（もう止まった盤面は止め直さない）、控えを
-    名指す理由の BoardGap（許しを黙って広げない・黙って捨てない）"""
+    """planmarks.rewrites。控えが凍結の印と食い違えば（FieldsBroken）fields_broken の道（盤面を止めて BoardGap）"""
     try:
         return planmarks.rewrites(b)
     except planmarks.FieldsBroken as e:
-        why = f"{FIELDS_BROKEN}: {' '.join(str(e).split())}"
-        state = getattr(b, "state", None) or {}
-        if hasattr(b, "stop") and not (state.get("halted") or state.get("stop")):
-            try:
-                b.stop(why, by=FIELDS_STOP_BY)
-            except Reject as r:
-                why += f"（盤面を止められない: {' '.join(str(r).split())}）"
-        raise _board.BoardGap(why) from None
+        raise fields_broken(b, e) from None
 
 
 def test_permits(b, *, rulings: bool = True, source=None) -> list[dict]:

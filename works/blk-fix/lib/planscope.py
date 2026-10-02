@@ -8,10 +8,16 @@
 - 項目の範囲: allowed_paths の glob と、tests・rewrite_tests の id のファイル（planmarks.test_paths）。out_of_scope は範囲の中でも
   触らない物で、範囲より強い（修正案の受け付けが、out_of_scope と id のファイルの重なりを先に拒む）
 - 見る項目: unit_keys が行のどれかの単位と重なる項目
+- 生きた項目: unit_keys の全部が行に在り、どれも exempt でない項目。欠けを拒む側（Missing: 範囲の中の変更・adds・removes・
+  tests）は生きた項目だけを見る（止めた・外した単位の分の欠けで、残った単位を巻き添えに止めない）。範囲の外れと余分（Extra）は
+  見る項目の全部で見る
 - exempt: 範囲を見ない単位（裁定の後の受け付けで、裁定 fix_code_as・fix_test_scope・replace_query を受けた単位）
 - permits: テストの変更の許し（conflict.test_permits）の範囲のパス。範囲に入る
-- 識別子の形（IDENT）: adds の name・removes の名のうち、差分で機械が探す物。日本語や空白を含む説明の文は探さず、記録の
-  unchecked に並べる（誤った拒否を重ねて単位を止めない）
+- 識別子の形（IDENT）: adds の name・removes の名のうち、差分で機械が探す物。kind を問わず :: と . で割った最後の段で探す。
+  日本語や空白を含む説明の文と、/ を含む名（ファイルのパス）は探さず、記録の unchecked に並べる（誤った拒否を重ねて単位を
+  止めない）
+- 残った（removes）: 消した名が足した行に定義として現れる（def・class・代入・関数の形）。名を挙げるだけの行（消えたことを確かめる
+  hasattr・変更の記録の注記）は残ったと見ない
 
 拒否の行はどれも、行の単位の key か項目の unit_keys の全部を字のまま含める（輪の 3 回目に accept.bind_problems が単位に結ぶ）。
 ただし行に申告の無い変わったパスの外れは単位を名指せないので、パスだけを書く。
@@ -39,14 +45,13 @@ if str(_CORE) not in sys.path:
 import conflict  # noqa: E402
 import leftovers  # noqa: E402
 import planmarks  # noqa: E402
-import protect  # noqa: E402
+import tddloop  # noqa: E402   試験のモジュールの名の型（PYTEST_FILE）の正本
 
 REJECT = "承認済みの修正案の項目から外れた（同じ brief のまま直して出し直せ。範囲の外が要るなら変えずに食い違いの申し出で返せ）: "
 SCOPE_OP = "fix_plan_scope"   # 受けた時の盤面の trace の行（照らした印か、照らさなかった理由）
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")
 NO_PLAN = "承認済みの修正案か works の欄の控えが無い"
 NO_SCOPE = "範囲の欄の無い控え（217 番の形の盤面）"
-_TEST_MODULE = re.compile(r"^(test_.*|.*_test)\.py$")
 
 
 # ---------------------------------------------------------------- 差分の読み
@@ -86,21 +91,13 @@ def _test_ids(path: str, src: str | None) -> list[str] | None:
 def new_test_ids(path: str, base: str | None, now: str | None) -> list[str]:
     """path が試験のモジュール（.py で名が test_*.py か *_test.py）の時だけ、now に在って base に無いテストの id
     （<path>::<クラス>::<名>・<path>::<名>）。now の構文が壊れていれば []（base が壊れていれば全部を新しい物に数える）"""
-    if not _TEST_MODULE.match(posixpath.basename(path)):
+    if not tddloop.PYTEST_FILE.match(posixpath.basename(path)):
         return []
     got = _test_ids(path, now)
     if not got:
         return []
     before = set(_test_ids(path, base) or [])
     return [t for t in got if t not in before]
-
-
-def _norm_id(test_id) -> str | None:
-    """テストの id のパスの段を整えた綴り（比べるため）。形が違えば None"""
-    if not isinstance(test_id, str) or "::" not in test_id:
-        return None
-    path, rest = test_id.split("::", 1)
-    return f"{posixpath.normpath(path)}::{rest}" if path else None
 
 
 # ---------------------------------------------------------------- 照らし
@@ -124,12 +121,12 @@ def _oos(it: dict) -> list[str]:
 
 def _inside(path: str, it: dict) -> bool:
     """path が項目の範囲（allowed_paths の glob・tests と rewrite_tests の id のファイル）に入るか"""
-    return path in planmarks.test_paths(it) or any(protect.match(path, g) for g in _globs(it))
+    return path in planmarks.test_paths(it) or any(planmarks.glob_match(path, g) for g in _globs(it))
 
 
 def _oos_hit(path: str, items: list[dict]):
     """path に当たる out_of_scope の最初の (項目, glob)。無ければ None"""
-    return next(((it, g) for it in items for g in _oos(it) if protect.match(path, g)), None)
+    return next(((it, g) for it in items for g in _oos(it) if planmarks.glob_match(path, g)), None)
 
 
 def _word(name: str):
@@ -139,6 +136,20 @@ def _word(name: str):
 def _definition(name: str):
     n = re.escape(name)
     return re.compile(rf"(?:def|class)\s+{n}\b|^{n}\s*=|^(?:function\s+)?{n}\s*\(\)")
+
+
+def _lookup(name) -> str | None:
+    """adds の name・removes の名で差分を探す語（:: と . で割った最後の段）。識別子の形でない・/ を含む名は None（確かめない）"""
+    if not isinstance(name, str) or not IDENT.match(name) or "/" in name:
+        return None
+    last = re.split(r"::|\.", name)[-1]
+    return last or None
+
+
+def _test_key(test_id):
+    """テストの id を比べる形 (整えたパス, 名の段)。形が違えば None（planmarks._parse_id の型）"""
+    got = planmarks._parse_id(test_id)
+    return (posixpath.normpath(got[0]), tuple(got[1])) if got else None
 
 
 def _named_paths(text: str, paths) -> list[str]:
@@ -154,13 +165,13 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *, exempt=froze
        その単位の項目が無い行は 2 に回す）
     2. 1 で見なかった変わったパスが、全項目の範囲の和か permits に入り、どの項目の out_of_scope にも当たらない（exempt の単位の
        行だけが申告したパスは除く）
-    3. 見る項目の範囲の中に変わったパスが 1 つも無ければ Missing
-    4. adds: 識別子の形の名（kind が test なら :: の最後の段）が、どれかのパスの足した行に語の境で現れる。canonical の文に変わった
-       パスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra
-    5. removes: 識別子の形の名が、どれかのパスの消した行に現れ、どの足した行にも現れない
-    6. tests: 新しく現れたテストのうち、どの項目の tests にも無い物は Extra。見る項目の tests の各 id は、そのパスが変わり、今の
-       中身に定義の行が在る
-    exempt の単位だけが重なる項目は 3・4 を見ない。permits のパスは 1 でも範囲に入る"""
+    3. 生きた項目の範囲の中に変わったパスが 1 つも無ければ Missing
+    4. adds: 探す語（_lookup）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing）。canonical の文に
+       変わったパスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra（見る項目の全部）
+    5. removes: 生きた項目なら、探す語がどれかのパスの消した行に現れ、どの足した行にも定義として現れない
+    6. tests: 新しく現れたテストのうち、どの項目の tests にも無い物は Extra。生きた項目の tests の各 id は、そのパスが変わり、
+       今の中身に定義の行が在る
+    permits のパスは 1 でも範囲に入る"""
     exempt, permits = set(exempt), set(permits)
     out, unchecked = [], []
     row_keys = {r.get("unit_key") for r in rows if isinstance(r.get("unit_key"), str)}
@@ -201,56 +212,57 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *, exempt=froze
             out.append(oos_line("", p, hit))
         elif not any(_inside(p, it) for it in items):
             out.append(f"{p} はどの項目の allowed_paths にも無い")
-    # 3〜6. 見る項目
+    # 3〜6. 見る項目（Missing 側は生きた項目だけ）
     looked = []
-    named = {_norm_id(row.get("id")) for it in items for row in it.get("tests") or [] if isinstance(row, dict)}
+    named = {_test_key(row.get("id")) for it in items for row in it.get("tests") or [] if isinstance(row, dict)}
     for it in items:
-        live = set(_keys(it)) & row_keys
-        if not live:
+        if not set(_keys(it)) & row_keys:
             continue
         looked.append(it.get("item"))
         who = _who(it)
-        skip = live <= exempt
+        skip = not set(_keys(it)) <= (row_keys - exempt)
         if not skip and not any(_inside(p, it) for p in changes):
             out.append(f"{who}: 範囲の中に変えたファイルが無い")
         for add in it.get("adds") or []:
-            if not isinstance(add, dict) or not isinstance(add.get("name"), str):
+            raw = add.get("name") if isinstance(add, dict) else None
+            if not isinstance(raw, str):
                 continue
-            name = add["name"].split("::")[-1] if add.get("kind") == "test" else add["name"]
-            if not IDENT.match(name):
-                unchecked.append(add["name"])
-                continue
-            if skip:
+            name = _lookup(raw)
+            if name is None:
+                unchecked.append(raw)
                 continue
             word = _word(name)
-            if not any(word.search(line) for _, line in added_all):
-                out.append(f"{who}: adds の {name} が差分の足した行に無い")
+            if not skip and not any(word.search(line) for _, line in added_all):
+                out.append(f"{who}: adds の {raw} が差分の足した行に無い")
             home = _named_paths(add.get("canonical") or "", changes) if isinstance(add.get("canonical"), str) else []
             if home:
                 define = _definition(name)
                 for p in sorted({p for p, line in added_all if p not in home and define.search(line)}):
-                    out.append(f"{who}: adds の {name} の canonical（{'・'.join(home)}）の外に同名の定義（{p}）")
-        for name in it.get("removes") or []:
-            if not isinstance(name, str):
+                    out.append(f"{who}: adds の {raw} の canonical（{'・'.join(home)}）の外に同名の定義（{p}）")
+        for raw in it.get("removes") or []:
+            if not isinstance(raw, str):
                 continue
-            if not IDENT.match(name):
-                unchecked.append(name)
+            name = _lookup(raw)
+            if name is None:
+                unchecked.append(raw)
                 continue
-            word = _word(name)
-            if not any(word.search(line) for line in removed_all) or any(word.search(line) for _, line in added_all):
-                out.append(f"{who}: removes の {name} が差分で消えていない（消した行に無いか、足した行に残る）")
-        for row in it.get("tests") or []:
+            if skip:
+                continue
+            word, define = _word(name), _definition(name)
+            if not any(word.search(line) for line in removed_all) or any(define.search(line) for _, line in added_all):
+                out.append(f"{who}: removes の {raw} が差分で消えていない（消した行に無いか、足した行に定義が残る）")
+        for row in [] if skip else it.get("tests") or []:
             tid = row.get("id") if isinstance(row, dict) else None
-            norm = _norm_id(tid)
-            if norm is None:
+            key = _test_key(tid)
+            if key is None:
                 continue
-            path = norm.split("::", 1)[0]
+            path = key[0]
             now = changes.get(path, (None, None))[1]
-            if path not in changes or planmarks.line_in(now, norm) is None:
+            if path not in changes or planmarks.line_in(now, tid) is None:
                 out.append(f"{who}: tests の {tid} が修正の後の木に無い（変えたファイルにその定義が無い）")
     for p in sorted(changes):
         for tid in new_test_ids(p, *changes[p]):
-            if tid in named:
+            if _test_key(tid) in named:
                 continue
             keys = [r["unit_key"] for r in rows if isinstance(r.get("unit_key"), str) and p in (r.get("files") or [])]
             head = f"{'・'.join(dict.fromkeys(keys))}: " if keys else ""
@@ -277,14 +289,17 @@ def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *
     """盤面 b の承認済みの修正案の項目（planmarks.approved_items）と、版 rev からの変わったパス paths の版と今の中身を problems に
     渡す。テストの変更の許し（conflict.test_permits）を先に引く（欄の控えが凍結の印と食い違えば、そこで盤面を止めて BoardGap）。
     裁定の後（pass_ が ruled）は裁定を受けた単位（conflict.ruled_fix）の範囲を見ない。項目が無い・範囲の欄の無い控えなら照らさず
-    ([], {"checked": False, "why": 理由})"""
+    ([], {"checked": False, "why": 理由})。項目と控えの欄の数が違えば conflict.fields_broken（盤面を止めて BoardGap）"""
     ruled = pass_ == "ruled"
     permits = []
     for p in conflict.test_permits(b, rulings=ruled):
         got = conflict.parse_limit(p["limit"])
         if got and got[0] not in permits:
             permits.append(got[0])
-    items = planmarks.approved_items(b)
+    try:
+        items = planmarks.approved_items(b)
+    except planmarks.FieldsBroken as e:   # 控えが壊れた時の 1 本の道（盤面を止めて BoardGap）
+        raise conflict.fields_broken(b, e) from None
     if items is None:
         return [], {"checked": False, "why": NO_PLAN}
     if any("allowed_paths" not in it for it in items):

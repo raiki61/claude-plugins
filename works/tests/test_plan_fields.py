@@ -344,6 +344,9 @@ class ScopeFieldsCase(PlanFieldsCase):
             self.assertIn(w, planmarks.HEAD)
         self.assertIn("allowed_paths", planmarks.REVIEW_ASK)
 
+    def test_head_asks_for_moved_and_removed_paths(self):
+        self.assertIn("移す・消すファイルの元のパスも allowed_paths に書け", planmarks.HEAD)
+
     def test_gaps_out_of_scope_must_not_hit_named_tests(self):
         """out_of_scope の glob が、修正案の tests・rewrite_tests の id のファイルに当たる案は拒む（書けと言うファイルを触るなとも
         言う食い違いを修正の段へ渡さない）。当たらなければ通る"""

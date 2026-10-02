@@ -31,7 +31,8 @@
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
 1d. check_plan_scope: 承認済みの修正案の項目（planmarks.approved_items）と差分を照らす（planscope.check）。範囲（allowed_paths・
    out_of_scope・テストの許し）の外・adds の識別子が差分に無い・canonical の外の同名の定義・removes の識別子が残る・tests に
-   無いテストを足した・tests のテストが無い、を拒む。止めた単位は掛けず、裁定の後（ruled）は裁定を受けた単位の範囲を見ない。
+   無いテストを足した・tests のテストが無い、を拒む。修正役が変えられる物だけを照らす（TDD の輪が凍らせたファイルは見ない）。
+   止めた単位は掛けず、裁定の後（ruled）は裁定を受けた単位の範囲を見ない。
    控えに範囲の欄が無い・修正案の無い run は回さない。受けた時に trace に 1 行（SCOPE_OP）
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
    修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告
@@ -218,11 +219,13 @@ def check_tests(board: Path, base_rev: str, repo: Path, state: str) -> tuple:
 
 def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: Path, state: str, pass_: str) -> tuple:
     """承認済みの修正案の項目と差分の照らし（planscope.check）。行は changes と keys（単位の名前）を並べ、files を根からの相対に
-    揃えた物。変わったパスは版からの変更（writes.changed）から実行器が作ったファイル（tddloop.suite_made）を除いた物。
-    返り (拒否の行（最初の行の頭に planscope.REJECT）, 記録)。盤面は書かない（許しの控えの食い違いで止めるのは planscope.check）"""
+    揃えた物。照らすのは修正役が変えられる物だけ: 変わったパスは版からの変更（writes.changed）から、実行器が作ったファイル
+    （tddloop.suite_made）と TDD の輪が凍らせたファイル（輪の状態の frozen。revert_units と同じ読み口）を除いた物。
+    返り (拒否の行（最初の行の頭に planscope.REJECT）, 記録)。盤面は書かない（控えの食い違いで止めるのは planscope.check）"""
     b = entry.open_board(board)
     rows = [{"unit_key": k, "files": sorted(_files([c], repo))} for c, k in zip(reply.get("changes") or [], keys)]
-    made = set(tddloop.suite_made(state))
+    st = tddloop.load_state(state) if state else {}
+    made = set(tddloop.suite_made(state)) | (set(st.get("frozen") or {}) if st.get("frozen_tree") else set())
     rev = writes.base_rev(b, base_rev)
     paths = [p for p in writes.changed(repo, rev) if p not in made]
     problems, note = planscope.check(rows, b, repo, rev, paths, pass_=pass_)

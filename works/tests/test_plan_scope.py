@@ -123,5 +123,42 @@ class ProblemsCase(unittest.TestCase):
             self.assertTrue(MEAN in p or CLAMP in p, p)
 
 
+class FalseRejectCase(unittest.TestCase):
+    """正しい修正を誤って拒まない（審査の Important 2・3）"""
+
+    def test_absent_partner_unit_does_not_reject_live_unit(self):
+        """項目 [MEAN, CLAMP] の MEAN が行に無い（止めた・外した）とき、足す物・消す物・tests の欠けで CLAMP を拒まない
+        （Missing 側は項目の単位が全部生きている時だけ見る）。範囲の検査は残る"""
+        it = item(unit_keys=[MEAN, CLAMP], adds=[{"kind": "function", "name": "median", "canonical": "stats.py に新設"}],
+                  removes=["old_mean"], tests=[{"id": "test_stats.py::TestStats::test_mean_of_two"}])
+        rows = [{"unit_key": CLAMP, "files": ["stats.py"]}]
+        self.assertEqual(planscope.problems([it], rows, STATS)[0], [])
+        got, _ = planscope.problems([it], [{"unit_key": CLAMP, "files": ["other.py"]}], {"other.py": (None, "x\n")})
+        self.assertTrue(any(CLAMP in p and "other.py" in p for p in got), got)
+        both = [{"unit_key": MEAN, "files": ["stats.py"]}, {"unit_key": CLAMP, "files": ["stats.py"]}]
+        self.assertTrue(any("median" in p for p in planscope.problems([it], both, STATS)[0]), "全部の単位が生きていれば見る")
+
+    def test_mentioned_removed_name_is_gone(self):
+        """消した名が足した行に定義でなく現れる（消えたことを確かめる hasattr・CHANGELOG の注記）だけなら、残ったと見ない"""
+        it = item(allowed_paths=["*.py", "CHANGELOG.md"], removes=["old_mean"])
+        ch = {"stats.py": ("def old_mean():\n    pass\n", "def mean():\n    pass\n"),
+              "check_gone.py": (None, "import stats\nassert not hasattr(stats, 'old_mean')\n"),
+              "CHANGELOG.md": ("# 変更\n", "# 変更\n- `old_mean` を消した\n")}
+        rows = [{"unit_key": MEAN, "files": sorted(ch)}]
+        self.assertEqual(planscope.problems([it], rows, ch)[0], [])
+        again = {**ch, "util.py": (None, "def old_mean():\n    pass\n")}
+        got, _ = planscope.problems([it], [{"unit_key": MEAN, "files": sorted(again)}], again)
+        self.assertTrue(any("old_mean" in p for p in got), "足した行に定義が在れば残ったと見る")
+
+    def test_dotted_name_found_by_last_segment(self):
+        """名は kind を問わず :: と . で割った最後の段で探す。/ を含む名は確かめず unchecked に回す"""
+        it = item(adds=[{"kind": "function", "name": "Stats.median", "canonical": "stats.py の Stats に新設"},
+                        {"kind": "doc", "name": "docs/scope.md", "canonical": "docs/scope.md に新設"}])
+        ch = {"stats.py": ("", "class Stats:\n    def median(self):\n        pass\n")}
+        got, note = planscope.problems([it], [ROW], ch)
+        self.assertEqual(got, [])
+        self.assertEqual(note["unchecked"], ["docs/scope.md"])
+
+
 if __name__ == "__main__":
     unittest.main()

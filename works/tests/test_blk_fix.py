@@ -1021,13 +1021,51 @@ class TestAccept(BoardCase):
         self.assertIs(rows[0]["checked"], False)
         self.assertTrue(rows[0]["why"])
 
+    def accept_module(self, name):
+        """accept.py を spec_from_file_location で読む（test_fix_rules.TestThirdRejectParksBoundUnit と同じ形）"""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(name, BLK / "scripts" / "accept.py")
+        acc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(acc)
+        return acc
+
+    def test_tdd_written_files_not_charged_to_fixer(self):
+        """TDD の輪が書いて凍らせたファイル（tests に無いテスト・allowed_paths の外の補助のファイル）は、修正役が変えられない
+        ので照らさない（check_plan_scope に輪の状態を渡すと拒まない。渡さなければ同じ木を拒む）。輪の状態は凍結の印だけ
+        （実行器を走らせる受け付けの全部は test_blk_fix_tdd が見る）"""
+        import tddloop
+        acc = self.accept_module("blk_fix_accept_tdd_scope")
+        self.scope_ready(["stats.py"])
+        path = self.repo / "test_stats.py"
+        text = path.read_text(encoding="utf-8")
+        head = "class TestStats(unittest.TestCase):\n"
+        self.assertIn(head, text)
+        path.write_text(text.replace(head, head + "    def test_tdd_only(self):\n        self.assertTrue(True)\n"),
+                        encoding="utf-8")
+        (self.repo / "tdd_data.json").write_text("[1, 2]\n", encoding="utf-8")
+        state = self.tmp / "tdd-state.json"
+        state.write_text(json.dumps({"frozen": tddloop.hashes(self.repo, ["test_stats.py", "tdd_data.json"]),
+                                     "frozen_tree": tddloop.snapshot(self.repo)}), encoding="utf-8")
+        self.edit_tree(FIXED)
+        reply = load("fix2_ok")
+        keys = [c["unit_key"] for c in reply["changes"]]
+        got, note = acc.check_plan_scope(reply, keys, self.board, "", self.repo, str(state), "first")
+        self.assertEqual((got, note["checked"]), ([], True))
+        got, _ = acc.check_plan_scope(reply, keys, self.board, "", self.repo, "", "first")
+        self.assertTrue(any("test_tdd_only" in p for p in got) and any("tdd_data.json" in p for p in got), got)
+
+    def test_no_plan_traces_reason(self):
+        """修正案の欄の控えが無い run は照らさずに受け、trace に checked: false と理由（NO_PLAN）を残す"""
+        self.fix_ready()
+        self.edit_tree(FIXED)
+        self.assertTrue(json.loads(self.run_it(load("fix2_ok"))[1])["ok"])
+        rows = self.scope_rows()
+        self.assertEqual([(r["checked"], r["why"]) for r in rows], [(False, planscope.NO_PLAN)])
+
     def test_scope_problems_bind_to_one_unit(self):
         """accept.py を spec_from_file_location で読み（test_fix_rules.TestThirdRejectParksBoundUnit と同じ形）、problems の
         行 1 の外れ（MEAN の行の other.py）を accept.bind_problems に渡すと、MEAN 1 つに結ぶ"""
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("blk_fix_accept_scope", BLK / "scripts" / "accept.py")
-        acc = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(acc)
+        acc = self.accept_module("blk_fix_accept_scope")
         it = {"item": 1, "unit_keys": [MEAN, CLAMP], "adds": [], "removes": [], "tests": [], "rewrite_tests": [],
               "allowed_paths": ["stats.py"], "out_of_scope": []}
         rows = [{"unit_key": MEAN, "files": ["other.py"]}, {"unit_key": CLAMP, "files": ["stats.py"]}]

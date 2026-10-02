@@ -242,6 +242,21 @@ class TestRuledScope(ConflictBoardCase):
         self.assertTrue(any(MEAN in p and "other.py" in p for p in got), got)
 
 
+    def test_count_mismatch_halts_board(self):
+        """修正案の項目と控えの欄の数が違う盤面は、照らしが控えの壊れた時の 1 本の道（conflict.fields_broken: 盤面を止めて
+        BoardGap）に乗る"""
+        import board as _board
+        import planscope
+        self.fix_ready()
+        row = {"route": "direct", "route_why": "見本。先にテストを書かない", "tests": [], "rewrite_tests": [],
+               "refactor": {"declared": False, "why": ""}, "allowed_paths": ["stats.py"], "out_of_scope": []}
+        planmarks.save(self.board, entry.open_board(self.board).round, [row, row])
+        with self.assertRaises(_board.BoardGap) as cm:
+            planscope.check([], entry.open_board(self.board), self.repo, "HEAD", [], pass_="first")
+        self.assertIn(planmarks.FIELDS_FILE, str(cm.exception))
+        self.assertEqual(entry.open_board(self.board, allow_halted=True).state["stop"]["by"], conflict.FIELDS_STOP_BY)
+
+
 class TestAskHuman(ConflictBoardCase):
     def asked_board(self):
         self.parked()
