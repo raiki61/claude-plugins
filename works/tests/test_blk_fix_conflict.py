@@ -542,7 +542,7 @@ class TestPlanRewritePermits(ConflictBoardCase):
                                                "rewrite_tests": [self.REWRITE], "refactor": {"declared": False, "why": ""}}])
         self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]),
                          {MEAN: {"items": [1], "route": "tdd", "tests": [{"id": test["id"], "red_kind": "assertion"}],
-                                 "rewrites": [self.REWRITE["id"]], "refactor": []}})
+                                 "rewrites": [self.REWRITE["id"]], "refactor": [], "names": []}})
 
     def test_frozen_fields_halts_on_broken_ledger(self):
         """conflict.frozen_fields は凍結した欄の並び（planmarks.frozen）。控えが受け付けの後に書き換えられたら、_plan_rewrites と

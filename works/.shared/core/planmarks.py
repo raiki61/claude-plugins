@@ -71,7 +71,7 @@ HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を�
         "tests＝この項目で新しく足す受け入れのテストの並び（route が tdd なら 1 本以上）。各行は id（<パス>::<クラス>::<名前> か "
         "<パス>::<名前>。パスは作業ツリーの根からの相対で、まだ無いテストを名指す）・behavior（確かめる振る舞い）・path（本物の経路を"
         "どう通すか。mock の戻り値を断言しない）・red_kind・red_why（今のコードでなぜ赤になるか）。red_kind は断言の失敗（assertion）か"
-        "期待した例外が出ない（exception）のどちらかで、import や収集の失敗は赤に数えない。"
+        "期待した例外が出ない（exception）のどちらかで、項目の adds に宣言した名前の失敗は赤に数え、宣言の外の名前・import や収集の失敗は赤に数えない。"
         "rewrite_tests＝依頼で振る舞いが変わるため期待を書き換える既存のテストの並び。各行は id（作業ツリーに在るテストの定義）・"
         "behavior（変わる振る舞い）・old（今の期待）・new（新しい期待）。期待値を実装に合わせるための書き換えは書かない。"
         f"refactor＝整えの申告 {{declared, why}}（整えをするなら declared を true にし、why に {MIN_WHY} 字以上で理由を書く）。"
@@ -273,6 +273,7 @@ def split(reply: dict, repo: pathlib.Path) -> tuple[dict, list[dict]]:
             continue
         got = {k: it.pop(k) for k in KEYS if k in it}
         got["unit_keys"] = copy.deepcopy(it.get("unit_keys") or [])
+        got["adds"] = [a["name"] for a in it.get("adds") or [] if isinstance(a, dict) and isinstance(a.get("name"), str)]
         for row in got.get("rewrite_tests") or []:
             lim = _limit(repo, _id_of(row)) if _id_of(row) else None
             if lim:
@@ -363,14 +364,14 @@ def rewrites(b) -> list[dict]:
 
 
 def unit_contract(fields: list | None, key: str) -> dict | None:
-    """単位 key の約束 {items: 項目の番号（1 始まり）, route, tests: [{id, red_kind}], rewrites: [id], refactor: [{item, why}]}。
+    """単位 key の約束 {items: 項目の番号（1 始まり）, route, tests: [{id, red_kind}], rewrites: [id], refactor: [{item, why}], names: [adds の name]}。
     key を unit_keys に含む項目の欄を合わせる: route はどれかの項目が tdd なら tdd（ほかは direct）・tests は項目の順で id の重複を
     除く（同じ id に別の red_kind は gaps が拒む）・rewrites は範囲 limit の在る行の id だけ（rewrites と同じ選び方）・refactor は
-    refactor.declared が真の項目の番号と理由（申告が無ければ空）。
+    refactor.declared が真の項目の番号と理由（申告が無ければ空）・names は項目の adds の name を項目の順で重複を除いた列。
     fields が None か、当たる項目が無ければ None。純粋（盤面もファイルも読まない）"""
     if not isinstance(fields, list):
         return None
-    items, tests, rws = [], {}, {}
+    items, tests, rws, names = [], {}, {}, {}
     route, refactor = "direct", []
     for n, f in enumerate(fields, 1):
         keys = f.get("unit_keys") if isinstance(f, dict) else None
@@ -384,13 +385,16 @@ def unit_contract(fields: list | None, key: str) -> dict | None:
         for row in _rows(f, "rewrite_tests"):
             if _id_of(row) and isinstance(row.get("limit"), str) and row["limit"]:
                 rws.setdefault(row["id"])
+        for nm in f.get("adds") or []:
+            if isinstance(nm, str) and nm:
+                names.setdefault(nm)
         rf = f.get("refactor")
         if isinstance(rf, dict) and rf.get("declared") is True:
             refactor.append({"item": n, "why": rf.get("why").strip() if isinstance(rf.get("why"), str) else ""})
     if not items:
         return None
     return {"items": items, "route": route, "tests": [{"id": i, "red_kind": k} for i, k in tests.items()],
-            "rewrites": list(rws), "refactor": refactor}
+            "rewrites": list(rws), "refactor": refactor, "names": list(names)}
 
 
 def review_section(b) -> str:

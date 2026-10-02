@@ -307,7 +307,8 @@ class UnitContractCase(unittest.TestCase):
         got = planmarks.unit_contract(fields, MEAN)
         self.assertEqual(got, {"items": [1, 2], "route": "tdd",
                                "tests": [{"id": self.T1["id"], "red_kind": "assertion"}],
-                               "rewrites": [self.RW["id"]], "refactor": [{"item": 2, "why": "w" * 10}]})
+                               "rewrites": [self.RW["id"]], "refactor": [{"item": 2, "why": "w" * 10}],
+                               "names": []})
         self.assertEqual(planmarks.unit_contract(fields, CLAMP)["route"], "direct")
 
     def test_contract_refactor_empty_without_declaration(self):
@@ -350,6 +351,20 @@ class TestLineScenarioPlans(PlanFieldsCase):
                     with self.subTest(f"{name}/{key}/{attempt}"):
                         self.assertEqual(planmarks.gaps(reply, self.repo), [])
         self.assertGreater(seen, 0)
+
+
+class TestUnitContract(PlanFieldsCase):
+    def test_names_from_adds(self):
+        """split は項目の adds の name を写し、unit_contract の names は key を含む項目の name を順に重複なしで持つ"""
+        add = lambda n: {"kind": "function", "name": n, "source": "x" * 10}
+        reply = {"plan": [item(adds=[add("clamp"), add("mean")]), item(adds=[add("clamp")], unit_keys=[MEAN, CLAMP]),
+                          item(adds=[add("other")], unit_keys=[CLAMP]), item(adds=[], unit_keys=[MEAN])]}
+        _, fields = planmarks.split(reply, self.repo)
+        self.assertEqual(fields[0]["adds"], ["clamp", "mean"])
+        self.assertEqual(planmarks.unit_contract(fields, MEAN)["names"], ["clamp", "mean"])
+        self.assertEqual(planmarks.unit_contract(fields, CLAMP)["names"], ["clamp", "other"])
+        self.assertEqual(planmarks.unit_contract([{"unit_keys": [MEAN]}], MEAN)["names"], [])
+        self.assertIsNone(planmarks.unit_contract(fields, "無い単位"))
 
 
 if __name__ == "__main__":

@@ -1156,6 +1156,27 @@ class TestRedKind(unittest.TestCase):
             self.assertEqual(probs(declared, "AssertionError: 3.0 != 2"), [], declared)
             self.assertEqual(probs(declared, "Failed: DID NOT RAISE ValueError"), [], declared)
 
+    def test_kind_rule_declared_names(self):
+        """declared（adds の名前）に在る名前の NameError・AttributeError・ImportError・ModuleNotFoundError は拒まない。宣言の外・
+        名前の引けない message・declared が空は今どおり 1 行拒む。exception の案に断言の失敗の拒みは残る"""
+        def probs(declared, msg, want="assertion"):
+            case = {"classname": "test_stats.TestStats", "name": "test_mean_of_two", "outcome": "failure",
+                    "fail_type": "", "fail_message": msg}
+            return tddloop._kind_problems([{"id": MEAN_ID, "red_kind": want}], [case], declared)
+        hits = ("AttributeError: module 'stats' has no attribute 'clamp'", "NameError: name 'clamp' is not defined",
+                "ImportError: cannot import name 'clamp' from 'stats' (/tmp/stats.py)", "ModuleNotFoundError: No module named 'stats.clamp'")
+        for msg in hits:
+            self.assertEqual(probs(["clamp"], msg), [], msg)
+            self.assertEqual(probs(["stats.clamp(xs, lo, hi)"], msg), [], msg)
+            self.assertEqual(len(probs(["clam"], msg)), 1, msg)
+            self.assertEqual(len(probs(["clampx", "mean"], msg)), 1, msg)
+            self.assertEqual(len(probs([], msg)), 1, msg)
+            self.assertEqual(len(probs((), msg, "exception")), 1, msg)
+        self.assertEqual(len(probs(["clamp"], "NameError: boom")), 1)
+        self.assertEqual(probs(["clamp"], "AssertionError: 3.0 != 2"), [])
+        self.assertTrue(probs(["clamp"], "AssertionError: 3.0 != 2", "exception"))
+        self.assertEqual(probs(["clamp"], "NameError: name 'clamp' is not defined", "exception"), [])
+
     def test_run_suite_rows_carry_failure_attrs(self):
         """run_suite の結末の行に failure の子の type・message（無ければ空）"""
         with tempfile.TemporaryDirectory() as td:
