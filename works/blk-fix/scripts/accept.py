@@ -61,6 +61,7 @@ import re  # noqa: E402
 
 import conflict  # noqa: E402   食い違いの申し出（.shared/core）
 import impact  # noqa: E402   変更に当たる試験の選び（.shared/core）
+import planbrief  # noqa: E402   今の周の brief の行（blk-fix/lib。申し出 brief_vs_judgment の確かめ）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
 import querytest  # noqa: E402   判定者の問いを例に当てる（.shared/core）
 import recount  # noqa: E402
@@ -168,7 +169,8 @@ def _reject(reason: str) -> dict:
 
 def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     """食い違いの申し出（欄 conflicts）を外した返答と、拒否の文か止めた印。返り (返答, 結果 | None)。結果が None なら受け付けを続ける。
-    - 申し出が在れば機械が確かめる（conflict.problems: 形・今の直す義務の単位か・名指した所が現物に在るか）。外れれば普通の拒否
+    - 申し出が在れば機械が確かめる（conflict.problems: 形・今の直す義務の単位か・名指した所が現物に在るか・kind brief_vs_judgment
+      ならその単位の今の周の brief の行を名指すか（planbrief.by_unit_at））。外れれば普通の拒否
     - first: 通った申し出を盤面の控えに積み（拒否に数えない）、裁かれていない申し出が在れば（TDD の輪の分も）盤面に渡さずに
       {ok: true, parked: true, changes: []}（裁定の輪の後、2 回目の修正役が渡す）。返答は盤面の置き場に控える（PARKED_REPLY）
     - ruled: 裁定の後の新しい申し出は、裁定の輪がもう無いので機械が ask_human に裁いて積む（その単位を直した返答は
@@ -178,7 +180,8 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     b = entry.open_board(board)
     owed = conflict.owed_units_but_asked(b)
     if items:
-        bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed, try_query=querytest.judge_hits(b.record["units"]))
+        bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed, try_query=querytest.judge_hits(b.record["units"]),
+                                briefs=planbrief.by_unit_at(board))
         both = sorted({i.get("unit_key") for i in items if isinstance(i, dict)}
                       & {c.get("unit_key") for c in reply.get("changes") or [] if isinstance(c, dict)})
         if both:

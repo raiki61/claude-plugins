@@ -872,5 +872,49 @@ class TestTddKind(LoopCase):
         self.assertTrue(got["ok"], got)
 
 
+class TestBriefKind(ConflictBoardCase):
+    """修正役の申し出 brief_vs_judgment は、その単位の brief（今の周の控えの行）を名指す時だけ止めて積む"""
+
+    def briefed(self):
+        """修正役が clamp を直した、修正案の欄の控えと brief-1.md（単位 MEAN・CLAMP）の在る盤面"""
+        import planbrief
+        from test_blk_fix import PLAN_FIELDS
+        self.fix_ready()
+        self.edit_tree(CLAMP_FIX)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        planbrief.cut_at(self.board)
+
+    def test_fixer_brief_kind_parks_with_brief_line(self):
+        self.briefed()
+        brief = str(entry.open_board(self.board).work("brief-1.md"))
+        r = self.accept_script(only_clamp_reply([{**conflict_on_mean(f"{brief}:1", "stats.py:9"), "kind": "brief_vs_judgment"}]))
+        self.assertEqual((r["ok"], r.get("parked")), (True, True), r)
+        self.assertEqual(self.items()[0]["kind"], "brief_vs_judgment")
+
+    def test_fixer_brief_kind_without_plan_is_rejected(self):   # planmarks.save と cut を呼ばない盤面
+        self.fix_ready()
+        self.edit_tree(CLAMP_FIX)
+        r = self.accept_script(only_clamp_reply([{**conflict_on_mean(), "kind": "brief_vs_judgment"}]))
+        self.assertFalse(r["ok"])
+        self.assertIn("brief_vs_judgment", r["reason"])
+
+
+class TestTddBriefKind(LoopCase):
+    """TDD の輪の申し出 brief_vs_judgment も、輪の盤面の brief（planbrief.by_unit_at）の行を名指す時だけ通す"""
+
+    def test_tdd_brief_kind_needs_the_units_brief(self):
+        import tddloop
+        brief = pathlib.Path(self.st()["work"]).parent / "brief-1.md"
+        brief.write_text("# brief 1\n算術平均で割る\n範囲は stats.py だけ\n", encoding="utf-8")
+        reply = {"phase": "conflict", **conflict_on_mean(f"{brief}:1", "stats.py:9"), "kind": "brief_vs_judgment"}
+        with mock.patch.object(tddloop.planbrief, "by_unit_at", return_value={}):
+            got = tddloop_step(self, reply)
+        self.assertFalse(got["ok"], got)
+        self.assertIn("brief_vs_judgment", got["reason"])
+        with mock.patch.object(tddloop.planbrief, "by_unit_at", return_value={MEAN: [{"item": 1, "file": str(brief)}]}):
+            got = tddloop_step(self, reply)
+        self.assertTrue(got["ok"], got)
+
+
 if __name__ == "__main__":
     unittest.main()

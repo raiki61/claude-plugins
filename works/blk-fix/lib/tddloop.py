@@ -840,7 +840,7 @@ def _conflict(st, reply, repo, try_query=None) -> tuple:
     else:
         owed = {st["queue"][st["cur"]]}
     probs = conflict.problems([item], repo=repo, board_dir=pathlib.Path(st["work"]).parent, owed=owed,
-                              try_query=try_query)
+                              try_query=try_query, briefs=planbrief.by_unit_at(pathlib.Path(st["work"]).parent))
     if probs:
         return probs, None
     parked.append(item["unit_key"])

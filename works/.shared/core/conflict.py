@@ -14,9 +14,10 @@
   query_hits_fixed は which_is_right query と対、needs_context は which_is_right unknown と対
 - WORD: superpowers の実装役の状態の語（NEEDS_CONTEXT・BLOCKED）を読み替える works の語（216 の seams.json の words の値と同じ綴り）。
   この語に読み替えた出口は conflicts[] の 1 件で、kind は役が DIV_KINDS から選ぶ。機械は状態の語から種類を推さない
-- problems(items, repo=, board_dir=, owed=, try_query=): 機械の確かめ。形・義務の単位か・重なり・名指した所が在るか（<パス>:<行>。
-  依頼の行・テストの行・コードの行が現物に在る）・query の申し出の correct_lines に判定者の問いが当たるか・kind が DIV_KINDS の
-  どれかで which_is_right と対になるか。文の一覧（空なら通る）
+- problems(items, repo=, board_dir=, owed=, try_query=, briefs=): 機械の確かめ。形・義務の単位か・重なり・名指した所が在るか
+  （<パス>:<行>。依頼の行・テストの行・コードの行が現物に在る）・query の申し出の correct_lines に判定者の問いが当たるか・kind が
+  DIV_KINDS のどれかで which_is_right と対になるか・brief_vs_judgment ならその単位の brief の行を between に名指すか（briefs は
+  planbrief.by_unit_at の形 {unit_key: [{item, file}]}。None と {} は brief の無い run）。文の一覧（空なら通る）
 - cite_problem(cite, repo, roots): 1 つの名指しの確かめ
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
 - items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b)・kind_counts(b): 読む口
@@ -223,9 +224,33 @@ def _kind_problem(it, at) -> str:
     return ""
 
 
-def problems(items, *, repo, board_dir, owed, try_query=None) -> list:
+def _brief_problem(it, at, repo, briefs) -> str:
+    """kind brief_vs_judgment の確かめ（通れば空。外れなら at を頭に入れた仕上がりの文）: その単位に brief が在り（briefs は
+    planbrief.by_unit_at の形）、between の名指しのどれか 1 つのパスがその単位の brief のファイルのどれかと同じ。名指しの行が
+    ファイルに在るかは cite_problem が見る"""
+    if it.get(KIND_FIELD) != BRIEF_VS_JUDGMENT:
+        return ""
+    k = it.get("unit_key")
+    rows = ((briefs or {}).get(k) or []) if isinstance(k, str) else []
+    files = [r["file"] for r in rows if isinstance(r, dict) and isinstance(r.get("file"), str)]
+    if not files:
+        return (f"{at}: kind {BRIEF_VS_JUDGMENT} は brief の在る単位だけ（{k} に brief が無い——修正案の無い run なら brief と判定の"
+                "食い違いは起きない。ほかの種類で申し出よ）")
+    want = {pathlib.Path(f).resolve() for f in files}
+    root = pathlib.Path(repo).resolve()
+    for c in it.get("between") if isinstance(it.get("between"), list) else []:
+        m = CITE.match(c.strip()) if isinstance(c, str) else None
+        if m:
+            raw = pathlib.Path(m["path"])
+            if (raw if raw.is_absolute() else root / raw).resolve() in want:
+                return ""
+    return f"{at}: kind {BRIEF_VS_JUDGMENT} の between に、この単位の brief の行（{' か '.join(files)}:<行>）が無い"
+
+
+def problems(items, *, repo, board_dir, owed, try_query=None, briefs=None) -> list:
     """申し出の一覧の機械の確かめ（受け付けの前）。文の一覧（空なら全部通る）。try_query(unit_key, lines) は which_is_right: query
-    の申し出の correct_lines に判定者の問いを当てる口（呼ぶ側が渡す。当たれば空・外れれば文）"""
+    の申し出の correct_lines に判定者の問いを当てる口（呼ぶ側が渡す。当たれば空・外れれば文）。briefs は今の周の brief の行
+    {unit_key: [{item, file}]}（planbrief.by_unit_at。None と {} は brief の無い run で、brief_vs_judgment を通さない）"""
     if not isinstance(items, list) or not items:
         return ["食い違いの申し出は 1 件以上の配列"]
     roots = [request_file(board_dir), str(board_dir)]
@@ -249,7 +274,7 @@ def problems(items, *, repo, board_dir, owed, try_query=None) -> list:
             bad = _correct_problem(it, try_query)
             if bad:
                 out.append(f"{at}: {bad}")
-        bad = _kind_problem(it, at)
+        bad = _kind_problem(it, at) or _brief_problem(it, at, repo, briefs)
         if bad:
             out.append(bad)
         cites = it["between"]
