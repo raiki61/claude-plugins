@@ -130,6 +130,14 @@ class TestDeltaSchema(unittest.TestCase):
         self.assertNotIn("checks: []", body)
         self.assertNotIn("{{", body)
 
+    def test_delta_prompt_asks_two_verdicts(self):
+        # 1 回目の審査役に、承認済みの修正案の項目への準拠（先に）と品質（次に）の 2 判定を頼む。材料は支度（cut）の brief
+        text = (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8")
+        for w in ("plan_items", "fix_report", "compliance", "quality", "missing", "extra", "misunderstood", "unverifiable",
+                  "face_key", "not_applicable", "信じず", "先に準拠"):
+            self.assertIn(w, text)
+        self.assertIn("unverifiable の行は `face_key` を空", text)   # 穴に結べない行（deltamarks.gaps の M4 の決まり）
+
     def test_review_prompts_read_protected_files(self):
         # 支度（refix.cut）が brief に書く守りのファイル（protected_files）を、1 回目と 2 回目の審査役の指示書が読ませる
         for path in (ROOT / "blk-delta" / "commands" / "delta-review.md", ROOT / "blk-refix" / "commands" / "review2.md"):
@@ -715,6 +723,22 @@ class TestDeltaBoard(RF.DeltaBoardCase):
             brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
         self.assertEqual(brief["protected_files"], [{"path": "stats.py", "id": "seed-core", "glob": "stats.py", "why": "種の芯"}])
 
+    def test_cut_brief_carries_plan_items_and_fix_report(self):
+        """1 回目の審査役の brief に、範囲の欄の在る承認済みの修正案の項目（plan_items。無ければ空）と、直した側の報告
+        （fix_report: 今の周の p3.fix の changes・not_done）を載せる"""
+        repo = self.fixed()
+        brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(brief["plan_items"], [])
+        self.assertEqual(set(brief["fix_report"]), {"changes", "not_done"})
+        self.assertEqual([c["unit_key"] for c in brief["fix_report"]["changes"]], [c["unit_key"] for c in RF.fix_reply()["changes"]])
+        self.plan_fields(scoped=True)
+        brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual((brief["plan_items"][0]["item"], brief["plan_items"][0]["allowed_paths"]), (1, ["stats.py"]))
+        self.assertEqual(brief["plan_items"][0]["unit_keys"], [RF.K1])
+        self.plan_fields(scoped=False)   # 217 番の形の控え（範囲の欄が無い）は修正案の無い run と同じ
+        brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(brief["plan_items"], [])
+
     def test_review_faces_make_owed(self):
         """fix2_delta_review_faces（穴 1 件・塞がっていない検算 1 件）→ settle の後 loop.delta_owed に 2 件、ready に
         p3.delta_fix、collect_delta の owed ≥ 1"""
@@ -791,17 +815,6 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertFalse(got["ok"])
         self.assertTrue(got["reason"].startswith(deltamarks.REJECT), got["reason"])
         self.assertEqual(RF.TE.board_shas(self.board), before)
-
-    def plan_fields(self, scoped):
-        """盤面に修正案の欄の控えを置く（scoped が偽なら 217 番の形: 範囲の欄 allowed_paths・out_of_scope が無い）"""
-        rows = []
-        for key in (RF.K1, RF.K2):
-            row = {"route": "direct", "route_why": "見本。先にテストを書かない理由", "tests": [], "rewrite_tests": [],
-                   "refactor": {"declared": False, "why": ""}, "unit_keys": [key]}
-            if scoped:
-                row.update(allowed_paths=["stats.py"], out_of_scope=[])
-            rows.append(row)
-        planmarks.save(self.board, real_entry.open_board(self.board).round, rows)
 
     def test_old_plan_fields_accept_not_applicable(self):
         """217 番の形の控え（範囲の欄が無い）は範囲の無い run と同じ: 準拠の not_applicable を受ける。範囲の在る控えでは拒む"""
@@ -888,7 +901,7 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         b = real_entry.open_board(self.board)
         stale = {"faces": [{"key": f"前の審査の穴 {i}"} for i in range(5)], "checks": []}
         planted = [self.board / name for name in ("delta-review.json", "fix.diff", "delta-snapshot.json")]
-        planted += [b.work("reads-review.json"), b.work("review1-brief.json")]
+        planted += [b.work("reads-review.json"), b.work("review1-brief.json"), b.work(deltamarks.VERDICTS_FILE)]
         for p in planted:
             p.write_text(json.dumps(stale, ensure_ascii=False), encoding="utf-8")
         got = refix.cut(self.board, 1, repo)

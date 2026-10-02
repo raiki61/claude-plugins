@@ -9,6 +9,8 @@
   - `out.p3.fix.plan_faces`: その穴への修正役の応答（`absorbed`＝塞いだと言う・`declared`＝残す）
   - `protected_files`: 変わったファイルのうちこのラインの守りのファイル（試験・柵・受け付けの口。対象に無ければ空。`path`・`id`・`why`）。在れば、その変更が検査を緩めていないか（試験を消す・弱める・期待を書き換える・柵や受け付けを外す）を読み、緩めていれば穴にしろ（`kind` は審査の 5 つの語のどれか。守りのファイルは最後の人の関所にも必ず出る）
   - `lens`: 修正の差分に当てた修正の後のレンズ（利用者が入れた pr-review-toolkit の agent を 1 本ずつ独立に起こした局所レビュー）の行（`lens`・`state`・`reason`・`findings`）。`findings` の各行は出どころのレンズの名 `lens` つきの指摘（`where`・`cite`・`why`）。指摘を無検算で写すな——差分と今の姿で確かめ、当たっていれば穴として `faces` に挙げ（`kind` は審査の 5 つの語のどれか）、`why` にレンズの名を書け。`state` が `failed`・`not_routed` のレンズの観点は誰も見ていない（`reason` が理由）。空なら、この周はレンズを走らせていない（`lens_error` が在れば控えが読めなかった）
+  - `plan_items`: 承認済みの修正案の項目（項目の番号 `item`・直す単位 `unit_keys`・やり方 `approach`・足す物 `adds`・消す物 `removes`・受け入れのテスト `tests`・書き換えてよい既存のテスト `rewrite_tests`・範囲 `allowed_paths`・触らない物 `out_of_scope`）。空なら、この run に修正案は無い
+  - `fix_report`: 直した側の報告（`changes`・`not_done`）。主張であって証拠ではない
 - 読むのは**作業ツリーの今の姿**。見る対象は修正後で、周の頭に固めた版には修正が載っていない。穴の `cite` は今の姿で引かれる。
 
 今まで修正が作った穴は次の周の全体レビューで初めて見つかり、次の周の修正がまた次の穴を作っていた（実測 2026-09-24: 3 周目の指摘のうち 8 件が 2 周目の修正の産物）。見るのは 3 点だけ（後退 `regression`・方針 `policy`・先行例 `precedent` は事前審査だけの語で、ここでは受け付けない——修正の後の後退は後の工程が人に上げる）:
@@ -21,6 +23,19 @@
 
 差分は起点であって線ではない——読む側・呼び元まで読め。
 
+## 2 つの判定（先に準拠、次に品質）
+
+上の穴と検算を挙げたうえで、判定を 2 つ書け。先に準拠、次に品質の順で判じる（準拠の外れを品質の穴と混ぜない）。
+
+1. **準拠**（`compliance`）: `plan_items` の各項目について、`fix_report` を信じずに差分と作業ツリーの今の姿を読み、項目どおりに直したかを確かめる。外れを 1 件ごとに `compliance.items` の 1 行（`item`・`kind`・`face_key`・`why`）に書け:
+   - `missing`: 項目が足す・消す・通すと言った物（`adds`・`removes`・`tests`・範囲の中の変更）が差分に無い
+   - `extra`: 項目の外の物（範囲の外のファイル・頼まれていない機能）を足した
+   - `misunderstood`: 項目を読み違えて別の形に直した
+   - `unverifiable`: 差分と今の姿からは確かめられない（何が足りなくて確かめられないかを `why` に書く）
+
+   `missing`・`extra`・`misunderstood` の行は、差分の中の所を `faces` の 1 行に穴として挙げ（`kind` は `extra` なら `scope_creep`、ほかは `contract_drift`）、その `key` を `face_key` に**一字も変えずに**写して結べ——手直しの役がその key で答える。unverifiable の行は `face_key` を空にする（穴に結べない。結べば受け付けが拒む）。`verdict` は行から決まる: `missing`・`extra`・`misunderstood` が 1 行でも在れば `fail`、無くて `unverifiable` が在れば `unverifiable`、行が無ければ `pass`。`plan_items` が空なら `verdict` は `not_applicable`、`items` は空。`read` に、何を読んで判じたか（読んだ項目・ファイル・テスト）を書け（20 字以上）。
+2. **品質**（`quality`）: 上の 3 点（写し・入口・宣言と実装のずれ）に加えて、足したテストが本物の経路を通るか（mock の戻り値を断言していないか・文言の比べに寄っていないか）と、保守のしやすさを見る。見つけた物は穴として `faces` に挙げる。準拠の行に結んでいない穴が 1 つでも在れば `quality.verdict` は `fail`、無ければ `pass`。`why` に見た所を書け（20 字以上）。
+
 ## 返答の書き方
 
 - 穴 1 件ごとに `faces` の 1 行: `key`（8 字以上。穴を一意に呼ぶ名前）・`kind`（上の 3 つか、次の 2 つ: 修正が足したのにどこからも届かない道は `dead_path`、頼まれていない所まで広げた変更は `scope_creep`）・`where`・`cite`・`why`（20 字以上）。
@@ -28,6 +43,9 @@
 - `cite` は、そのファイルの**今の姿に在る字列そのまま**（4 字以上）。言い換え・要約・省略をしない。
 - `checks` の `key` は、材料の `out.p3.fix.plan_faces` のうち `absorbed` の行の `key` を**一字も変えずに**写す。`absorbed` の行が無ければ `checks` は空。
 - 穴が無いなら `faces` を空にし、`faces_none` に何を読んで無いと言えるかを書け（20 字以上。読んだファイル・読む側・呼び元の名前を挙げる）。
+- `compliance`（`verdict`・`items`・`read`）と `quality`（`verdict`・`why`）を必ず書け。
+- 準拠の外れ（`missing`・`extra`・`misunderstood`）は `face_key` で `faces` の穴に結べ。結ばない外れは受け付けが拒む。
+- 判定の語と行が合わなければ（行から決まる `compliance.verdict`・結ばれない穴の有無で決まる `quality.verdict` と違えば）受け付けが拒む。
 
 ## 前の返答が拒まれたとき
 

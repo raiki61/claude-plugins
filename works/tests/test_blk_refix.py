@@ -28,7 +28,9 @@ from board import BoardGap, rules_module  # noqa: E402
 import entry  # noqa: E402
 import linekit  # noqa: E402
 import node_marker  # noqa: E402
+import planmarks  # noqa: E402
 import refix  # noqa: E402
+import rulebook  # noqa: E402
 import test_entry as TE  # noqa: E402
 
 K1 = "stats.py mean: 分母が len(xs) - 1 になっている"
@@ -141,6 +143,17 @@ class DeltaBoardCase(TE.TakeCaseBase):
         self.assertTrue(got["ok"], got)
         return repo, got
 
+    def plan_fields(self, scoped):
+        """盤面に修正案の欄の控えを置く（scoped が偽なら 217 番の形: 範囲の欄 allowed_paths・out_of_scope が無い）"""
+        rows = []
+        for key in (K1, K2):
+            row = {"route": "direct", "route_why": "見本。先にテストを書かない理由", "tests": [], "rewrite_tests": [],
+                   "refactor": {"declared": False, "why": ""}, "unit_keys": [key]}
+            if scoped:
+                row.update(allowed_paths=["stats.py"], out_of_scope=[])
+            rows.append(row)
+        planmarks.save(self.board, entry.open_board(self.board).round, rows)
+
     def run_script(self, blk, name, repo, **inputs):
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         env.update({f"INPUTS_{k.upper()}": v for k, v in inputs.items()})
@@ -168,6 +181,43 @@ class RefixCase(DeltaBoardCase):
         self.assertIn("p3.delta_review2", got["ready"])
         r = refix.route(self.board)
         self.assertEqual((r["review2"], r["refix2"], r["owed"], r["owed2"]), (True, False, 2, 0))
+
+    def test_compliance_fail_reaches_refix_brief(self):
+        """準拠の外れを穴 F1 に結んだ審査 → 義務に F1、手直しの材料に plan_items と準拠の行（face_key F1）"""
+        repo = self.fixed()
+        self.plan_fields(scoped=True)
+        self.assertTrue(refix.cut(self.board, 1, repo)["ok"])
+        reply = linekit.reply("fix2_delta_review_faces")
+        reply["compliance"] = {"verdict": "fail", "read": "修正案の項目 1 と差分の stats.py を読み、項目と差分を照らした",
+                               "items": [{"item": 1, "kind": "misunderstood", "face_key": F1,
+                                          "why": "brief は docstring も直すと書くが、差分は式だけを直した"}]}
+        reply["quality"] = {"verdict": "pass", "why": "準拠に結ばれていない穴は無く、テストの形の問題も見当たらない"}
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+        brief = json.loads(pathlib.Path(refix.prep_fix(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertIn(F1, {r["key"] for r in brief["owed"]})
+        self.assertEqual([r["face_key"] for r in brief["compliance"]], [F1])
+        self.assertEqual([it["item"] for it in brief["plan_items"]], [1, 2])
+
+    def test_broken_plan_fields_halt_at_refix_prep(self):
+        """審査の後に修正案の欄の控えが凍結の印と食い違う → 手直しの支度が控えを名指す BoardGap で、手直しの段の印で盤面を止める"""
+        repo = self.fixed()
+        self.plan_fields(scoped=False)   # 範囲の欄の無い控え: 審査は not_applicable で通る
+        self.assertTrue(refix.cut(self.board, 1, repo)["ok"])
+        self.assertTrue(refix.accept_review(linekit.reply("fix2_delta_review_faces"), self.board, "", repo, n=1)["ok"])
+        (self.board / planmarks.FIELDS_FILE).write_text("{}", encoding="utf-8")
+        with self.assertRaises(BoardGap) as cm:
+            refix.prep_fix(self.board, 1, repo)
+        self.assertIn(planmarks.FIELDS_FILE, str(cm.exception))
+        self.assertEqual(entry.open_board(self.board, allow_halted=True).state["stop"]["by"], refix.REFIX_BY)
+
+    def test_refix2_brief_keeps_its_shape(self):
+        """2 回目の手直しの材料は変えない（plan_items・compliance を載せない。2 判定は 1 回目の審査だけ）"""
+        repo, _ = self.refixed()
+        self.assertTrue(refix.cut(self.board, 2, repo)["ok"])
+        self.assertTrue(refix.accept_review(linekit.reply("fix2_delta_review2_faces"), self.board, "", repo, n=2)["ok"])
+        brief = json.loads(pathlib.Path(refix.prep_fix(self.board, 2, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(set(brief), {"node", "diff_file", "owed", "reads", "policy"})
 
     def test_refix_missing_key_rejected(self):
         """義務の key を 1 つ答えない → ok False（写しの delta_fix_output の文）、盤面は前のまま"""
@@ -417,6 +467,13 @@ class RefixStaticCase(unittest.TestCase):
         for p in want.values():
             for k in ("cut", "review", "owed", "fix"):
                 self.assertNotIn(f'"{p[k]}"', src)   # 節の名前の字を refix.py に書かない
+
+    def test_refix_head_names_plan_items_and_compliance(self):
+        """1 回目の手直しの指示書の頭（節 refix-head-1）が材料の plan_items と compliance を読ませる。2 回目の頭は載せない"""
+        sec = rulebook.sections(REFIX_DIR / "rules" / "refix.md")
+        for w in ("`plan_items`", "`compliance`", "`face_key`"):
+            self.assertIn(w, sec["refix-head-1"])
+            self.assertNotIn(w, sec["refix-head-2"])
 
     def test_output_format_marks_roles(self):
         """役の output_format は mark(role_schema(節), 役の名)（TA20）。strip すれば graph の schema"""
