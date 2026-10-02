@@ -571,6 +571,22 @@ class TestGateRule(TripCase):
         got = replan.gate(b, run_id="r")
         self.assertFalse(got["ask"], self.trip_doc()["items"][0])
 
+    def test_same_rewrite_tests_is_not_a_contract_change(self):
+        """承認済みの項目の rewrite_tests の行は凍結の控えで範囲 limit を持つ（split が足す。返答の型は持てない）→ 同じ行を
+        返した直しは聞かない（limit は比べない）"""
+        row = {"id": "test_stats.py::TestStats::test_mean_of_three", "behavior": "3 つの値の平均を返す",
+               "old": "mean([1, 2, 3]) は 2", "new": "分母を len(xs) にした期待のまま"}
+        self.trip(new=red_kind_fixed(), review=no_faces())
+        b = entry.open_board(self.board)
+        doc = self.trip_doc()
+        _, fields = planmarks.split({"plan": [{**doc["items"][0]["old"], "rewrite_tests": [row]}]}, self.repo)
+        self.assertIn("limit", fields[0]["rewrite_tests"][0], "凍結の控えの形（範囲 limit つき）")
+        doc["items"][0]["old"]["rewrite_tests"] = fields[0]["rewrite_tests"]
+        doc["items"][0]["new"]["rewrite_tests"] = [row]
+        b.work(replan.TRIP_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        got = replan.gate(b, run_id="r")
+        self.assertFalse(got["ask"], self.trip_doc()["items"][0]["contract_changed"])
+
     def test_human_kind_face_asks(self):
         """手段の欄だけの直しでも、事前審査が regression の穴を挙げたら聞く"""
         self.trip(new=red_kind_fixed(), review=regression_face())
@@ -676,6 +692,16 @@ class TestAnswer(TripCase):
         self.assertEqual(replan.answer(self.board, self.repo, gate), first)
         self.assertEqual(trace_ops(self.board), before)
         self.assertEqual(before.count(planmarks.AMEND_OP), 1)
+        b = entry.open_board(self.board)
+        self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]), 1)
+        # 途中で落ちた再開（answered と result を書く前に落ちた）: 同じ答えをもう 1 度当てても行を積み増さない
+        doc = self.trip_doc()
+        del doc["answered"]
+        for r in doc["items"]:
+            r["result"] = None
+        b.work(replan.TRIP_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(replan.answer(self.board, self.repo, gate), first)
+        self.assertEqual(trace_ops(self.board).count(planmarks.AMEND_OP), 1)
         b = entry.open_board(self.board)
         self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]), 1)
 

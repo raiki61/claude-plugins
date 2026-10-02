@@ -297,11 +297,15 @@ def _canon(v) -> str:
 
 
 def _contract_value(it: dict, key: str) -> str:
-    """約束の欄 key の比べる字（欄が無い・None は空の並びと同じ。unit_keys は並べ替える）"""
+    """約束の欄 key の比べる字（欄が無い・None は空の並びと同じ。unit_keys は並べ替える。rewrite_tests の行は型の欄
+    （FIELD_SCHEMA）だけで比べる——凍結の控えの行は split が足した範囲 limit を持ち、返答の行は型で持てないので）"""
     v = it.get(key) if isinstance(it, dict) else None
     v = [] if v is None else v
     if key == "unit_keys" and isinstance(v, list):
         v = sorted(v, key=_canon)
+    if key == "rewrite_tests" and isinstance(v, list):
+        props = FIELD_SCHEMA["rewrite_tests"]["items"]["properties"]
+        v = [{k: row[k] for k in props if k in row} if isinstance(row, dict) else row for row in v]
     return _canon(v)
 
 

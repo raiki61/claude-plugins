@@ -44,7 +44,7 @@
   そのまま返す（Archon の再開）。{returned, plan_file, notes_file, stop, why}
 - lines(b): TRIP_FILE の項目ごとの 1 行（最後の関所の文と報告の冒頭 1 が見出し AMEND_HEAD の下に並べる）
 
-層 L3。entry・board・conflict・recount・planmarks・gatemarks・accept・rolekit・leftovers と L1 の answer を読み、report と blk の lib は import しない
+層 L3。entry・conflict・recount・planmarks・gatemarks・accept・rolekit・leftovers と L1 の answer を読み、report と blk の lib は import しない
 （report がこの模块を呼ぶ向きだけ。blk-plan の lib がこの模块を呼ぶ向きだけ）。期限・回数の上限は持たない（諦めの数は rolekit の物）。
 """
 from __future__ import annotations
@@ -67,7 +67,6 @@ from engine.schema import validate_schema  # noqa: E402
 from engine.util import Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
 import answer as _answer  # noqa: E402
-import board  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
@@ -473,8 +472,8 @@ def collect(board_dir) -> dict:
 
 # ---------------------------------------------------------------- 人の関所の 1 つの決まりと答え
 def human_kinds(b) -> tuple:
-    """人に聞く種類の穴（写しの rules の HUMAN_FACE_KINDS。今の policy-gate と同じ扱い）"""
-    return tuple(board.rules_module(pathlib.Path(b.state["graph"])).HUMAN_FACE_KINDS)
+    """人に聞く種類の穴（盤面が読んだ写しの rules の HUMAN_FACE_KINDS。gatemarks.plan_gate_items・今の policy-gate と同じ扱い）"""
+    return tuple(b.rules.HUMAN_FACE_KINDS)
 
 
 def _bare(item: dict) -> dict:
