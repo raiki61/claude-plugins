@@ -16,8 +16,8 @@
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 - 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の修正の差分（修正前の版
   state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を final_gate に関わらず開き、冒頭 3 行で名指して直後の最初の節に並べ、process.human_items に 1 行。h-eyes は答えを
-  その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ。食い違いの申し出の裁定（core の conflict）
-  が許したテストの変更（fix_test_scope の範囲）も守りのファイルの行として並ぶ
+  その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ。テストの変更の許し（承認済みの修正案の
+  rewrite_tests と裁定 fix_test_scope の範囲。core の conflict.test_permits）が名指したテストの変更も守りのファイルの行として並ぶ
 - 食い違いの申し出（core の conflict）: 裁定役か機械が ask_human に裁いた単位が在れば、h-final は最後の関所を final_gate に関わらず
   開き、文に「食い違いの申し出」の節を並べ、process.human_items に 1 行。答えの写しと、答えが来ない時の止めは守りのファイルと同じ
 """
@@ -515,8 +515,9 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
 
 def _protected(b, repo) -> tuple:
     """run の修正の差分（修正前の版＝state.inputs.review_rev。固まる前は record.base＝p0.base が固めた版。そこから今の作業ツリー
-    まで。commit・消した物・未追跡を含む）のうち守りのファイルに当たる物と、食い違いの裁定（fix_test_scope）が直してよいと
-    許したテストの物。変更から入る run の record.base は merge-base で、PR にもとからある変更まで数えてしまうので起点にしない。
+    まで。commit・消した物・未追跡を含む）のうち守りのファイルに当たる物と、テストの変更の許し（承認済みの修正案の rewrite_tests と
+    裁定 fix_test_scope の範囲。conflict.test_permits）が名指したテストの物。変更から入る run の record.base は merge-base で、
+    PR にもとからある変更まで数えてしまうので起点にしない。
     返り (rows, rev, 確かめられなかった理由)。一覧・版・git・申し出の控えが読めなければ rows は空で理由を返す（fail closed）"""
     rev = ""
     try:

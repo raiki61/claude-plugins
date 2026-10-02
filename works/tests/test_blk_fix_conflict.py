@@ -14,6 +14,7 @@ import os
 import pathlib
 import sys
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BLK = ROOT / "blk-fix"
@@ -25,7 +26,9 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(TESTS))
 
+import conflict  # noqa: E402
 import entry  # noqa: E402
+import planmarks  # noqa: E402
 from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, block, board_shas, find_node, load, run_script)  # noqa: E402
 from test_blk_fix_tdd import LoopCase  # noqa: E402
 
@@ -490,6 +493,62 @@ class TestYaml(unittest.TestCase):
         clean = find_node(y["nodes"], "clean")
         self.assertEqual(clean["depends_on"], ["fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop"])
         self.assertEqual(clean["trigger_rule"], "none_failed_min_one_success")
+
+
+class TestPlanRewritePermits(ConflictBoardCase):
+    """承認済みの修正案が名指した既存テストの書き換え（rewrite_tests）は、裁定 fix_test_scope の範囲と同じ 1 か所
+    （conflict.test_permits）から凍結の検査と最後の関所へ渡る"""
+    REWRITE = {"id": "test_stats.py::TestStats::test_mean_of_three", "behavior": "平均の定義が依頼で変わる",
+               "old": "mean([1, 2, 3]), 2", "new": "新しい期待は 2.0（float で返す）", "limit": "test_stats.py:8"}
+
+    def fields_saved(self):
+        self.fix_ready()
+        b = entry.open_board(self.board)
+        planmarks.save(self.board, b.round, [{"route": "tdd", "route_why": "", "tests": [], "rewrite_tests": [self.REWRITE],
+                                               "refactor": {"declared": False, "why": ""}}])
+        return entry.open_board(self.board)
+
+    def test_permits_join_plan_rewrites_and_rulings(self):
+        b = self.fields_saved()
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False), ["test_stats.py:8"])
+        self.assertEqual(conflict.ruled_test_doc(b)["rules"][0]["id"].split("-")[:2], ["plan", "rewrite"])
+
+    def test_no_plan_fields_same_as_before(self):
+        self.fix_ready()
+        self.assertIsNone(conflict.ruled_test_doc(entry.open_board(self.board)))
+
+    def test_plan_rewrite_listed_at_final_gate(self):
+        import line_edge
+        self.fields_saved()
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("mean([1, 2, 3]), 2", "mean([1, 2, 3]), 2.0"), encoding="utf-8")
+        self.edit_tree(MEAN_FIX)
+        got = line_edge.final_edge(entry.open_board(self.board), self.repo, run_id="run-12", mode="when_needed",
+                                   tests={"ok": True, "green": True})
+        self.assertTrue(got.get("ask"), got)
+        self.assertIn(conflict.PLAN_TEST_ID, got["gate_text"])
+
+
+class TestFirstPassPlanLimits(unittest.TestCase):
+    """1 回目（first）の受け付けも、修正案が名指した書き換えを凍結の検査に渡す（裁定の範囲は 2 回目だけ）。
+    盤面・git は使わない（test_fix_rules.TestThirdRejectParksBoundUnit と同じく受け付けの模块を読み、検査を mock にする）"""
+
+    def test_first_pass_hands_plan_limits_to_frozen_check(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_fix_accept_script", BLK / "scripts" / "accept.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        limits = mock.MagicMock(return_value=["test_stats.py:8"])
+        frozen = mock.MagicMock(return_value=["TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']"])
+        with mock.patch.object(mod.conflict, "ruled_test_limits", limits), \
+                mock.patch.object(mod.tddloop, "frozen_problems", frozen), \
+                mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
+                mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": "/b/tdd.json",
+                                               "INPUTS_PASS": "first"}):
+            got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
+        self.assertIs(got["ok"], False, got)
+        limits.assert_called_once_with(mock.ANY, rulings=False)
+        self.assertEqual(frozen.call_args[0][2], ["test_stats.py:8"])
 
 
 if __name__ == "__main__":

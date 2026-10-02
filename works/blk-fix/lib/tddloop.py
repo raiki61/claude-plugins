@@ -656,7 +656,8 @@ def _finish(st, repo) -> None:
 # ---------------------------------------------------------------- 輪の後
 def frozen_problems(state_file, repo, allowed=()) -> list:
     """輪で緑になった単位のテストのファイルが、輪が済んだ時から変わっていれば、その文（状態が無ければ空）。
-    allowed は裁定 fix_test_scope の範囲（conflict.ruled_test_limits）で、その中だけの変更は通す"""
+    allowed はテストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。conflict.test_permits を
+    conflict.ruled_test_limits が引く）で、その中だけの変更は通す"""
     if not state_file:
         return []
     st = _load(state_file)
