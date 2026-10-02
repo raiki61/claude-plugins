@@ -127,6 +127,19 @@ MARK_HOME = "/tmp/works-dev-test-original-home"   # 隔離の前の利用者の 
 OWN_LOGIN = '{"claudeAiOauth": {"accessToken": "sk-ant-oat01-dummy-token-for-test"}}'   # Claude Code 自身の項目の中身
 
 
+def _fix_shapes():
+    """修正の形の語（.shared/core/fixshape.py の SHAPES）。pack の中に __pycache__ を作らずに読む"""
+    import importlib.util
+    old, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+    try:
+        spec = importlib.util.spec_from_file_location("fixshape_for_dev", ROOT / ".shared" / "core" / "fixshape.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    finally:
+        sys.dont_write_bytecode = old
+    return mod.SHAPES
+
+
 def fake_security(tmp, items=None, default=""):
     """偽の `security` を tmp/fake-bin に置き、殻の env に被せる上書き（PATH の先頭と印の HOME）と、呼ばれた時の
     `$HOME<TAB>引数` を 1 行ずつ足す記録のパスを返す。`-s <項目>` が items に在ればその値、無ければ default を返し、
@@ -1135,11 +1148,13 @@ class TestDevShell(unittest.TestCase):
                 self.assertEqual(calls[0][-(len(base) + len(extra)):], base + extra)
 
     def test_dogfood_fix_shape_appends_input_only_when_asked(self):
-        """WORKS_FIX_SHAPE が空でなければ 4 つの語（current・af・g3・g1）のどれかを確かめて、ラインの引数に fix_shape=<値> を足す。
+        """WORKS_FIX_SHAPE が空でなければ 4 つの語（fixshape.SHAPES）のどれかを確かめて、ラインの引数に fix_shape=<値> を足す。
         未設定・空では引数は今と同じ。4 つの外は <dir> を作らず・Archon を呼ばずに使い方の誤り（終了コード 2）で止まる"""
         base = ["--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=optional",
                 "--input", "final_gate=always"]
-        for value, extra in ((None, []), ("", []), ("af", ["--input", "fix_shape=af"])):
+        cases = [(None, []), ("", [])] + [(s, ["--input", f"fix_shape={s}"]) for s in _fix_shapes()]
+        self.assertEqual(len(cases), 6)
+        for value, extra in cases:
             with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp_str:
                 tmp = pathlib.Path(tmp_str)
                 (tmp / "req.json").write_text("[]\n")

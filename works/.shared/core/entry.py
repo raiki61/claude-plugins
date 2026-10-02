@@ -726,13 +726,14 @@ def _resumed_shape(prev: dict, shape: str, *, named: bool) -> tuple:
     替えない）。前の版の控え（鍵が無い）は fixshape.BEFORE の盤面で、入力が空なら通し、名指した形が BEFORE と違えば拒む"""
     if fixshape.KEY in prev:
         was, note = prev[fixshape.KEY], "" if named else "（既定）"
+        began = f"fix_shape={was!r} で始めた"
     else:
         was, note = fixshape.BEFORE, "（前の版の盤面）"
         if not named:
             return was, note
+        began = f"前の版の盤面（fix_shape の記録が無く {was} として動く）"
     if was != shape:
-        raise InputRefused(f"この盤面は fix_shape={was!r} で始めた——呼び直しの fix_shape={shape!r} で修正の形を替えない"
-                           f"（同じ入力で呼び直す）")
+        raise InputRefused(f"この盤面は{began}——呼び直しの fix_shape={shape!r} で修正の形を替えない（同じ入力で呼び直す）")
     return was, note
 
 
