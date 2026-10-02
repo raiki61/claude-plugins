@@ -58,6 +58,7 @@ class DeltaMarksCase(unittest.TestCase):
         self.assertTrue(any(g.startswith("compliance.verdict") for g in deltamarks.gaps(reply(), None)))
         self.assertEqual(deltamarks.gaps(reply(compliance=NA), None), [])
         self.assertTrue(any(g.startswith("compliance.verdict") for g in deltamarks.gaps(reply(compliance=NA), ITEMS)))
+        self.assertTrue(any(g.startswith("compliance.items") for g in deltamarks.gaps(reply(compliance={**NA, "items": [UNV]}), None)))
 
     def test_fail_row_needs_face_key_in_faces(self):
         bad = {**MISS, "face_key": "nope-nope"}
@@ -74,6 +75,24 @@ class DeltaMarksCase(unittest.TestCase):
         self.assertTrue(deltamarks.gaps(reply([FACE]), ITEMS))                                     # 結ばれない穴で pass
         self.assertEqual(deltamarks.gaps(reply([FACE], quality={**GOOD_Q, "verdict": "fail"}), ITEMS), [])
         self.assertTrue(deltamarks.gaps(reply(quality={**GOOD_Q, "verdict": "fail"}), ITEMS))     # 穴が無いのに fail
+
+    def test_unverifiable_row_cannot_bind_face(self):
+        """face_key で穴に結ぶのは落ちた行だけ。unverifiable の行は face_key を空にし、穴を結べない（品質は fail のまま）"""
+        tied = {**UNV, "face_key": FACE["key"]}
+        got = deltamarks.gaps(reply([FACE], {**PASS, "verdict": "unverifiable", "items": [tied]}), ITEMS)
+        self.assertTrue(any(g.startswith("compliance.items[0].face_key") for g in got), got)
+        self.assertTrue(any(g.startswith("quality.verdict") for g in got), got)   # 結ばれない穴が在るので pass は誤り
+        self.assertEqual(deltamarks.gaps(reply([FACE], {**PASS, "verdict": "unverifiable", "items": [UNV]},
+                                               {**GOOD_Q, "verdict": "fail"}), ITEMS), [])
+
+    def test_malformed_faces(self):
+        """faces が key を持つ object の並びでない返答は、2 判定の欄を照らさない（写しの型が拒む）"""
+        for faces in ("x", None, ["x"], [{"kind": "copy"}], [{"key": 1}]):
+            with self.subTest(faces=faces):
+                self.assertTrue(deltamarks.malformed({**reply(), "faces": faces}))
+        self.assertTrue(deltamarks.malformed("x"))
+        self.assertFalse(deltamarks.malformed(reply([FACE])))
+        self.assertFalse(deltamarks.malformed(reply()))
 
     def test_item_number_in_range(self):
         far = {**UNV, "item": 2}

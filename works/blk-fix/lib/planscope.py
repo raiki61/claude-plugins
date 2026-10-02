@@ -383,7 +383,7 @@ def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *
         raise conflict.fields_broken(b, e) from None
     if items is None:
         return [], {"checked": False, "why": NO_PLAN}
-    if any("allowed_paths" not in it for it in items):
+    if not planmarks.scoped(items):
         return [], {"checked": False, "why": NO_SCOPE}
     exempt = {i["unit_key"] for i in conflict.ruled_fix(b)} if ruled else set()
     changes = {p: (_base_text(repo, rev, p), _now_text(repo, p)) for p in paths}

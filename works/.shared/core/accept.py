@@ -608,7 +608,8 @@ def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
     """審査役の返答を受け付ける。盤面に delta-snapshot.json が在れば、今の作業ツリーがその写しと同じかを先に見る
     （Ruling R3。git が無視するファイルの増減・書き換えも見る。無ければこの突き合わせは飛ばす）→ 型（graph の p3.delta_review の schema）→ rules の delta_review_output。
     触ったファイルは touched_files（git diff --name-only <base_rev> と未追跡のファイル）。
-    通れば盤面の delta-review.json に返答を書く。{"ok", "reason", "review_file"}"""
+    通れば盤面の delta-review.json に返答を書く。2 判定の欄は型だけを見てそのまま書く（v1 は plan を持たない）。
+    {"ok", "reason", "review_file"}"""
     def run():
         repo_p = pathlib.Path(repo)
         with _in_repo(repo_p):

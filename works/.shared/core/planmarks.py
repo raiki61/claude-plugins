@@ -18,6 +18,8 @@
 - glob_match(path, glob): 根からの相対のパスが glob に当たるか（* ? [..] は / を跨がない・** は段をまたぐ。守りのファイルの
   protect.match もこれを呼ぶ）。gaps は out_of_scope の glob が tests・rewrite_tests の id のファイルに当たる案を拒む
 - approved_items(b): 今の周の承認済みの修正案の項目と凍結した欄を同じ番号で合わせた並び（修正の受け付けが差分と照らす）
+- scoped(items)・scoped_items(b): 範囲の欄の在る項目の並びか（217 番の形の控えは範囲の無い run と同じに扱う 1 つの決まり。
+  修正の受け付けの範囲の照らしと差分の審査の準拠の受け付けが使う）
 
 写しの engine の型の検査と時刻（engine.schema・engine.util。L0 の写し）だけを使い、entry・conflict を import しない（conflict がこの模块を読むので、
 輪を作らない）。
@@ -467,6 +469,18 @@ def approved_items(b) -> list[dict] | None:
         f = f if isinstance(f, dict) else {}
         out.append({"item": n, **copy.deepcopy(it), **{k: copy.deepcopy(f[k]) for k in KEYS if k in f}})
     return out
+
+
+def scoped(items: list | None) -> bool:
+    """承認済みの項目の並び items が範囲の欄を持つか（並びが在り、どの項目にも allowed_paths が在る）。偽なら範囲の無い run
+    （修正案の無い run・217 番の形の控え）として扱う"""
+    return items is not None and all(isinstance(it, dict) and "allowed_paths" in it for it in items)
+
+
+def scoped_items(b) -> list[dict] | None:
+    """範囲の欄の在る承認済みの項目（approved_items が scoped の時だけ。ほかは None）。控えの食い違いは FieldsBroken"""
+    items = approved_items(b)
+    return items if scoped(items) else None
 
 
 def frozen(b) -> list | None:

@@ -338,22 +338,9 @@ def with_plan_fields(run):
             try:
                 planmarks.save(board, rnd, fields)
             except Exception as e:   # 書けない・形にできない: 受けた案に欄が無いまま進ませない
-                raise BoardGap(_halt_unsaved(board, e)) from None
+                raise BoardGap(rolekit.halt_unsaved(board, planmarks.FIELDS_FILE, e, by=STOP_BY)) from None
         return got
     return wrapped
-
-
-def _halt_unsaved(board, err) -> str:
-    """修正案の欄の控えを置けなかった盤面を止め（by works:plan。もう止まった盤面は止め直さない）、理由の 1 行を返す"""
-    why = (f"盤面が修正案を受けた後で、項目の works の欄の控え {planmarks.FIELDS_FILE} を置けない"
-           f"（欄の無いまま修正に進ませない）: {type(err).__name__}: {' '.join(str(err).split())}")
-    try:
-        b = entry.open_board(pathlib.Path(board), allow_halted=True)
-        if not (b.state.get("halted") or b.state.get("stop")):
-            b.stop(why, by=STOP_BY)
-    except Exception as e:   # 開けない・止められない: 理由に足して返す（BoardGap で 2 にする）
-        why += f"（盤面を止められない: {type(e).__name__}: {' '.join(str(e).split())}）"
-    return why
 
 
 def main_accept(role: str) -> int:

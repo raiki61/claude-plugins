@@ -32,7 +32,9 @@ sys.path.insert(0, str(CORE))
 
 from accept import role_schema, snapshot_tree, tree_state  # noqa: E402
 from board import BoardGap  # noqa: E402
+import conflict  # noqa: E402
 import deltamarks  # noqa: E402
+import planmarks  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
 import refix  # noqa: E402
@@ -788,6 +790,78 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         got = refix.accept_review(reply, self.board, "", repo, n=1)
         self.assertFalse(got["ok"])
         self.assertTrue(got["reason"].startswith(deltamarks.REJECT), got["reason"])
+        self.assertEqual(RF.TE.board_shas(self.board), before)
+
+    def plan_fields(self, scoped):
+        """盤面に修正案の欄の控えを置く（scoped が偽なら 217 番の形: 範囲の欄 allowed_paths・out_of_scope が無い）"""
+        rows = []
+        for key in (RF.K1, RF.K2):
+            row = {"route": "direct", "route_why": "見本。先にテストを書かない理由", "tests": [], "rewrite_tests": [],
+                   "refactor": {"declared": False, "why": ""}, "unit_keys": [key]}
+            if scoped:
+                row.update(allowed_paths=["stats.py"], out_of_scope=[])
+            rows.append(row)
+        planmarks.save(self.board, real_entry.open_board(self.board).round, rows)
+
+    def test_old_plan_fields_accept_not_applicable(self):
+        """217 番の形の控え（範囲の欄が無い）は範囲の無い run と同じ: 準拠の not_applicable を受ける。範囲の在る控えでは拒む"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        self.plan_fields(scoped=True)
+        got = refix.accept_review(load("fix2_delta_review_none"), self.board, "", repo, n=1)
+        self.assertFalse(got["ok"])
+        self.assertIn("compliance.verdict（not_applicable）", got["reason"])
+        self.plan_fields(scoped=False)
+        got = refix.accept_review(load("fix2_delta_review_none"), self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+
+    def test_broken_plan_fields_halt_board(self):
+        """修正案の欄の控えが凍結の印と食い違う → 控えを名指す BoardGap で盤面を止める（conflict.fields_broken の道）"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        self.plan_fields(scoped=True)
+        (self.board / planmarks.FIELDS_FILE).write_text("{}", encoding="utf-8")
+        with self.assertRaises(BoardGap) as cm:
+            refix.accept_review(load("fix2_delta_review_none"), self.board, "", repo, n=1)
+        self.assertIn(planmarks.FIELDS_FILE, str(cm.exception))
+        stop = real_entry.open_board(self.board, allow_halted=True).state["stop"]
+        self.assertEqual(stop["by"], conflict.FIELDS_STOP_BY)
+
+    def test_unsaved_verdicts_halt_board(self):
+        """盤面が審査を受けた後で 2 判定の控えを置けない（os.replace が落ちる）→ 控えを名指して盤面を止め、スクリプトは 2"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        real_entry.open_board(self.board).work(deltamarks.VERDICTS_FILE).mkdir()   # ファイルを置き換えられない所
+        r = self.run_script("blk-delta", "accept", repo, reply=json.dumps(load("fix2_delta_review_none"), ensure_ascii=False),
+                            base_rev="")
+        self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
+        self.assertIn(deltamarks.VERDICTS_FILE, r.stderr)
+        b = real_entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(b.state["stop"]["by"], refix.DELTA_BY)
+        self.assertIn(deltamarks.VERDICTS_FILE, b.state["stop"]["reason"])
+
+    def test_rejected_take_keeps_no_verdicts(self):
+        """2 判定の欄は通るが盤面が拒む（cite が差分の今の姿に無い）→ 控えを置かない"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        reply = load("fix2_delta_review_faces")
+        reply["faces"][0]["cite"] = "return hi + 1"
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertFalse(got["ok"])
+        self.assertFalse(got["reason"].startswith(deltamarks.REJECT), got["reason"])
+        self.assertIsNone(deltamarks.read(real_entry.open_board(self.board)))
+
+    def test_malformed_faces_go_to_board_check(self):
+        """faces が穴の並びの形でない → 2 判定の欄は照らさず、写しの型の拒否の文で返す（盤面は前のまま）"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        before = RF.TE.board_shas(self.board)
+        reply = load("fix2_delta_review_faces")
+        reply["faces"] = "x"
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertFalse(got["ok"])
+        self.assertFalse(got["reason"].startswith(deltamarks.REJECT), got["reason"])
+        self.assertIn("faces", got["reason"])
         self.assertEqual(RF.TE.board_shas(self.board), before)
 
     def test_delta_exit_keeps_v1_fields(self):

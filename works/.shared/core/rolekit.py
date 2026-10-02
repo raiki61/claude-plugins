@@ -20,6 +20,8 @@
 - with_done:      盤面の節でない受け付け（script_io.main の finish）に done を足す。拒否は盤面の根の控え rejects-<名>.json に
                   積み、通った時か give_up_after 回目の拒否で done（控えは intake が clear_rejects で消す）
 - given_up_reason・stop_line: 盤面の節でない受け付けの出口が、控えの最後の拒否の文を引き、ラインの盤面なら止める
+- halt_unsaved:   盤面が役の返答を受けた後で、受け付けが外した欄の控えを置けない時の 1 本の道（盤面を止め、控えを名指す理由を返す。
+                  呼び手は BoardGap で投げ、スクリプトは 2）
 - script_main:    ブロックのスクリプトの入口（ARTIFACTS_DIR と INPUTS_* を読み、fn の返りを 1 行の JSON で出す。fence なら
                   盤面のパスに $ の柵、take なら受け付けの返りに reason_file を足す）
 - parse_reply:    役の返答（$<役>.output の JSON の文字列）を dict に
@@ -312,6 +314,19 @@ def _stop_once(b, reason: str, by: str) -> None:
     """盤面を reason で止める（もう止まっていれば止め直さない。gave_up と stop_line が共に使う）"""
     if not (b.state.get("halted") or b.state.get("stop")):
         b.stop(reason, by=by)
+
+
+def halt_unsaved(board: pathlib.Path, file: str, err: BaseException, *, by: str) -> str:
+    """盤面が役の返答を受けた後で控え file を置けなかった（書けない・形にできない）盤面を止め（by。もう止まった盤面は止め直さない）、
+    控えを名指す理由の 1 行を返す（呼び手が BoardGap で投げる。控えの無いまま先へ進ませない）。開けない・止められない時は
+    理由に足して返す"""
+    why = (f"盤面が役の返答を受けた後で、受け付けが外した欄の控え {file} を置けない（控えの無いまま先へ進ませない）: "
+           f"{type(err).__name__}: {' '.join(str(err).split())}")
+    try:
+        _stop_once(entry.open_board(pathlib.Path(board), allow_halted=True), why, by)
+    except Exception as e:   # 開けない・止められない: 理由に足して返す（BoardGap で 2 にする）
+        why += f"（盤面を止められない: {type(e).__name__}: {' '.join(str(e).split())}）"
+    return why
 
 
 # ---------------------------------------------------------------- 盤面の節でない受け付けの done

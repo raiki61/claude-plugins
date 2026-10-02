@@ -7,12 +7,14 @@
 - with_verdicts(node, schema): 役の型（accept.role_schema が重ねる）
 - gaps(reply, items): 欠けと誤りの行（審査の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）。items は
   承認済みの修正案の項目（planmarks.approved_items。無い run は None か空で、準拠は not_applicable）
+- malformed(reply): faces が穴の並びの形でない返答か（真なら受け付けは 2 判定の欄を照らさず、写しの型に拒ませる）
 - split(reply)・save(b, verdicts)・read(b)・fail_rows(verdicts): 欄を外す口・盤面の外の控え・準拠の落ちた行
 語:
 - 準拠の行: compliance.items の 1 行 {item（修正案の項目の番号）, kind, face_key, why}
 - 落ちた行: kind が missing（足すと言った物が無い）・extra（範囲の外の物を足した）・misunderstood（項目の読み違え）の行。
-  差分の中の所を faces に挙げ、その key を face_key に写して結ぶ（穴は写しの規則が手直しの義務に積む形のまま）
-- 結ばれない穴: faces の key のうち、どの準拠の行の face_key にも無い物。在れば品質は fail、無ければ pass
+  差分の中の所を faces に挙げ、その key を face_key に写して結ぶ（穴は写しの規則が手直しの義務に積む形のまま）。穴に結ぶのは
+  落ちた行だけで、unverifiable の行は face_key を空にする（穴を結べない）
+- 結ばれない穴: faces の key のうち、どの落ちた行の face_key にも無い物。在れば品質は fail、無ければ pass
 
 写しの engine の型の検査（engine.schema。L0 の写し）だけを使い、accept・refix・entry を import しない（accept がこの模块を
 読むので、輪を作らない）。
@@ -70,6 +72,13 @@ def with_verdicts(node: str, schema: dict) -> dict:
 
 
 # ---------------------------------------------------------------- 受け付け
+def malformed(reply) -> bool:
+    """返答が object でないか、faces が key（文字列）を持つ object の並びでないか。真なら 2 判定の欄を照らさない（穴の key の集合が
+    決まらない。写しの型が拒み、その文で役に返す）"""
+    faces = reply.get("faces") if isinstance(reply, dict) else None
+    return not (isinstance(faces, list) and all(isinstance(f, dict) and isinstance(f.get("key"), str) for f in faces))
+
+
 def _face_keys(reply: dict) -> set:
     faces = reply.get("faces")
     return {f["key"] for f in faces if isinstance(f, dict) and isinstance(f.get("key"), str)} if isinstance(faces, list) else set()
@@ -113,10 +122,13 @@ def gaps(reply: dict, items: list | None) -> list[str]:
         if r["kind"] in FAIL_KINDS and r["face_key"] not in faces:
             out.append(f"compliance.items[{j}].face_key（{r['face_key']}）: faces の key に無い。"
                        "差分の中の所を faces に挙げて face_key で結べ")
+        if r["kind"] not in FAIL_KINDS and r["face_key"]:
+            out.append(f"compliance.items[{j}].face_key（{r['face_key']}）: unverifiable の行は穴に結ばない。face_key を空にせよ"
+                       "（穴に結ぶのは missing・extra・misunderstood の行だけ）")
     if n and verdict != "not_applicable" and verdict != _expected(rows):
         out.append(f"compliance.verdict（{verdict}）: 行から決まる値は {_expected(rows)}（missing・extra・misunderstood が"
                    "1 行でも在れば fail、無くて unverifiable が在れば unverifiable、行が無ければ pass）")
-    untied = sorted(faces - {r["face_key"] for r in rows})
+    untied = sorted(faces - {r["face_key"] for r in rows if r["kind"] in FAIL_KINDS})
     want = "fail" if untied else "pass"
     if qual["verdict"] != want:
         why = (f"準拠の行に結ばれない穴が在る（{'・'.join(untied)}）" if untied else "準拠の行に結ばれない穴が無い")

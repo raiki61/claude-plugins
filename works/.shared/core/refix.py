@@ -44,6 +44,7 @@ if str(_CORE) not in sys.path:
 from board import BoardGap, pending_instance as _pending, rules_module  # noqa: E402
 import engine.util as _util  # noqa: E402
 import accept  # noqa: E402
+import conflict  # noqa: E402
 import deltamarks  # noqa: E402
 import entry  # noqa: E402
 import lens  # noqa: E402
@@ -66,7 +67,7 @@ READS = {"review": ("review", "reviewing", "delta-loop", "review"),
          "refix": ("refix", "refixing", "refix-loop", "refix"),
          "review2": ("review2", "refixing", "review2-loop", "review2"),
          "refix2": ("refix2", "refixing", "refix2-loop", "refix2")}
-DELTA_BY = "works:delta"   # 審査役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by
+DELTA_BY = "works:delta"   # 審査役が 3 回とも拒まれて輪を抜けた・受けた審査の 2 判定の控えを置けなかった盤面の state.stop.by
 REFIX_BY = "works:refix"   # 手直し・2 回目の審査の役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by
 # 1 本目の blk-delta が盤面の根に書いた物（2 本目は書かない。残っていれば前の試みの出力なので支度が消す）
 V1_OUTPUTS = (accept.DELTA_REVIEW_FILE, accept.DIFF_FILE, accept.SNAPSHOT_FILE)
@@ -238,20 +239,21 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
 
 # ---------------------------------------------------------------- 受け付け
 def _plan_items(b) -> list[dict]:
-    """今の周の承認済みの修正案の項目（planmarks.approved_items。無い run は空）。控えが凍結の印と食い違えば BoardGap
-    （盤面を止めるのは先に起きている修正の受け付けの conflict.test_permits。ここは回す側の誤りとして 2 で抜ける）"""
+    """今の周の範囲の欄の在る承認済みの修正案の項目（planmarks.scoped_items。修正案の無い run・217 番の形の控えは空）。控えが
+    凍結の印と食い違えば conflict.fields_broken の道（盤面を止めて控えを名指す BoardGap）"""
     try:
-        return planmarks.approved_items(b) or []
+        return planmarks.scoped_items(b) or []
     except planmarks.FieldsBroken as e:
-        raise BoardGap(f"差分の審査の受け付けが承認済みの修正案の項目を読めない: {e}") from None
+        raise conflict.fields_broken(b, e) from None
 
 
 def accept_review(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path, *, n: int) -> dict:
     """n 回目の審査役の返答（読むだけの役。cut が撮った写しと今の作業ツリーを比べる）。entry.take の返り。節が
     deltamarks.NODES に在れば、先に 2 判定の欄を承認済みの修正案の項目と照らし、欠けと誤りが在れば盤面へ渡さずに
-    {ok: False, reason: deltamarks.REJECT と行}。無ければ欄を外した返答を渡し、受けた時だけ欄を控える"""
+    {ok: False, reason: deltamarks.REJECT と行}。無ければ欄を外した返答を渡し、受けた時だけ欄を控える（置けなければ
+    rolekit.halt_unsaved の道: 盤面を止めて控えを名指す BoardGap）。faces が穴の並びの形でない返答は照らさずに渡す（写しの型が拒む）"""
     nid = _pass(n)["review"]
-    if nid not in deltamarks.NODES:
+    if nid not in deltamarks.NODES or deltamarks.malformed(reply):
         return entry.take(board, nid, reply, repo, snapshot_name=snapshot_name(n))
     b = entry.open_board(board)
     gaps = deltamarks.gaps(reply, _plan_items(b))
@@ -260,7 +262,10 @@ def accept_review(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
     bare, verdicts = deltamarks.split(reply)
     out = entry.take(board, nid, bare, repo, snapshot_name=snapshot_name(n))
     if out.get("ok") is True:   # 受けた時だけ（拒否では盤面の外の控えも前のまま）
-        deltamarks.save(b, verdicts)
+        try:
+            deltamarks.save(b, verdicts)
+        except Exception as e:   # 書けない・形にできない: 受けた審査に欄が無いまま進ませない
+            raise BoardGap(rolekit.halt_unsaved(board, deltamarks.VERDICTS_FILE, e, by=DELTA_BY)) from None
     return out
 
 
