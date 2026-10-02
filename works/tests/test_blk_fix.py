@@ -47,6 +47,7 @@ if str(BLK / "lib") not in sys.path:   # 修正のブロックの模块（brief 
     sys.path.append(str(BLK / "lib"))
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
+import planscope  # noqa: E402
 
 DEADLINE = 1728000000
 # 実行器の無い run の tdd-start の出口（tddloop.start の go: false。test_blk_fix_tdd が実物で見る）
@@ -977,6 +978,64 @@ class TestAccept(BoardCase):
                 self.assertEqual(len(err.strip().splitlines()), 1, err)
                 self.assertIn("p3.fix", err)
                 self.assertEqual(board_shas(self.board), before)
+
+    def scope_ready(self, allowed, **over):
+        """p3.fix が待つ盤面に、修正案の項目の欄（PLAN_FIELDS の形に範囲の欄 allowed）を控える"""
+        self.fix_ready()
+        row = {**PLAN_FIELDS[0], "unit_keys": [MEAN, CLAMP], "route": "direct", "route_why": "見本。先にテストを書かない",
+               "tests": [], "allowed_paths": allowed, "out_of_scope": [], **over}
+        planmarks.save(self.board, entry.open_board(self.board).round, [row])
+
+    def scope_rows(self):
+        from test_edge import trace_rows
+        return [r for r in trace_rows(self.board) if r.get("op") == planscope.SCOPE_OP]
+
+    def test_scope_reject_names_file(self):
+        """承認済みの修正案の範囲（docs/**）の外の stats.py を直した返答 → 同じ brief のまま役に返す（盤面は p3.fix の待ちのまま）"""
+        self.scope_ready(["docs/**"])
+        self.edit_tree(FIXED)
+        r = json.loads(self.run_it(load("fix2_ok"))[1])
+        self.assertFalse(r["ok"])
+        text = pathlib.Path(r["reason_file"]).read_text(encoding="utf-8")
+        self.assertIn(planscope.REJECT, text)
+        self.assertIn("stats.py", text)
+        self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
+
+    def test_scope_pass_traces_note(self):
+        """範囲の中の直しは通り、受けた時の trace に照らした印を 1 行（checked: true）"""
+        self.scope_ready(["stats.py"])
+        self.edit_tree(FIXED)
+        self.assertTrue(json.loads(self.run_it(load("fix2_ok"))[1])["ok"])
+        rows = self.scope_rows()
+        self.assertEqual((len(rows), rows[0]["checked"]), (1, True))
+
+    def test_old_fields_skip_scope_check(self):
+        """範囲の欄の無い控え（217 番の形の盤面）では照らさずに受け、trace に checked: false と理由を残す"""
+        self.fix_ready()
+        old = {k: v for k, v in PLAN_FIELDS[0].items() if k not in ("allowed_paths", "out_of_scope")}
+        old.update(route="direct", route_why="見本。先にテストを書かない", tests=[])
+        planmarks.save(self.board, entry.open_board(self.board).round, [old])
+        self.edit_tree(FIXED)
+        self.assertTrue(json.loads(self.run_it(load("fix2_ok"))[1])["ok"])
+        rows = self.scope_rows()
+        self.assertIs(rows[0]["checked"], False)
+        self.assertTrue(rows[0]["why"])
+
+    def test_scope_problems_bind_to_one_unit(self):
+        """accept.py を spec_from_file_location で読み（test_fix_rules.TestThirdRejectParksBoundUnit と同じ形）、problems の
+        行 1 の外れ（MEAN の行の other.py）を accept.bind_problems に渡すと、MEAN 1 つに結ぶ"""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_fix_accept_scope", BLK / "scripts" / "accept.py")
+        acc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(acc)
+        it = {"item": 1, "unit_keys": [MEAN, CLAMP], "adds": [], "removes": [], "tests": [], "rewrite_tests": [],
+              "allowed_paths": ["stats.py"], "out_of_scope": []}
+        rows = [{"unit_key": MEAN, "files": ["other.py"]}, {"unit_key": CLAMP, "files": ["stats.py"]}]
+        found, _ = planscope.problems([it], rows, {"stats.py": ("a\n", "b\n"), "other.py": (None, "x\n")})
+        got = [p for p in found if "other.py" in p and MEAN in p]
+        self.assertEqual(len(got), 1, found)
+        bound, unbound = acc.bind_problems(got, rows, self.tmp)
+        self.assertEqual((list(bound), unbound), ([MEAN], []))
 
     def test_missing_env(self):
         self.repo = linekit.seed_repo(self.tmp / "repo")

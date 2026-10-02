@@ -344,6 +344,58 @@ class ScopeFieldsCase(PlanFieldsCase):
             self.assertIn(w, planmarks.HEAD)
         self.assertIn("allowed_paths", planmarks.REVIEW_ASK)
 
+    def test_gaps_out_of_scope_must_not_hit_named_tests(self):
+        """out_of_scope の glob が、修正案の tests・rewrite_tests の id のファイルに当たる案は拒む（書けと言うファイルを触るなとも
+        言う食い違いを修正の段へ渡さない）。当たらなければ通る"""
+        oos = [{"glob": "test_*.py", "why": "既存の試験のファイルは触らない"}]
+        got = planmarks.gaps({"plan": [item(out_of_scope=oos)]}, self.repo)
+        self.assertTrue(any(x.startswith("plan[0].out_of_scope[0]") and "test_stats.py" in x for x in got), got)
+        other = item(tests=[], route="direct", route_why="文書だけの直しで先にテストを書けない", rewrite_tests=[REWRITE])
+        got = planmarks.gaps({"plan": [item(), {**other, "out_of_scope": oos}]}, self.repo)
+        self.assertTrue(any(x.startswith("plan[1].out_of_scope[0]") for x in got), got)
+        self.assertEqual(planmarks.gaps({"plan": [item(out_of_scope=[{"glob": "docs/**", "why": "文書は今回の直しの外"}])]},
+                                        self.repo), [])
+
+    def test_glob_match_is_the_protect_matcher(self):
+        """範囲の glob の当て方は守りのファイルの当て方と 1 つ（protect.match は planmarks.glob_match を呼ぶ）"""
+        import protect
+        for path, glob, want in (("stats.py", "*.py", True), ("a/b.py", "*.py", False), ("a/b.py", "**/*.py", True),
+                                 ("docs/x/y.md", "docs/**", True), ("test_stats.py", "test_*.py", True)):
+            with self.subTest(path=path, glob=glob):
+                self.assertEqual(planmarks.glob_match(path, glob), want)
+                self.assertEqual(protect.match(path, glob), want)
+
+
+class ApprovedItemsCase(PlanFieldsCase):
+    """approved_items: 今の周の承認済みの修正案の項目と、盤面の控えの欄を同じ番号で合わせた並び"""
+
+    def board(self, plan, fields):
+        b = types.SimpleNamespace(dir=self.tmp, round=1,
+                                  output_of_round=lambda node, rnd: {"plan": plan} if plan is not None and rnd == 1 else None)
+        if fields is not None:
+            planmarks.save(self.tmp, 1, fields)
+        return b
+
+    def test_join_plan_and_fields_by_number(self):
+        _, fields = planmarks.split({"plan": [item()]}, self.repo)
+        plan = [{k: v for k, v in item().items() if k not in planmarks.KEYS}]
+        got = planmarks.approved_items(self.board(plan, fields))
+        self.assertEqual(len(got), 1)
+        self.assertEqual((got[0]["item"], got[0]["approach"], got[0]["allowed_paths"], got[0]["unit_keys"]),
+                         (1, "x" * 20, ["stats.py"], [MEAN]))
+
+    def test_none_without_plan_or_fields(self):
+        _, fields = planmarks.split({"plan": [item()]}, self.repo)
+        self.assertIsNone(planmarks.approved_items(self.board(None, fields)))
+        self.tmp = self.tmp / "other"
+        self.tmp.mkdir()
+        self.assertIsNone(planmarks.approved_items(self.board([item()], None)))
+
+    def test_count_mismatch_is_fields_broken(self):
+        _, fields = planmarks.split({"plan": [item()]}, self.repo)
+        with self.assertRaises(planmarks.FieldsBroken):
+            planmarks.approved_items(self.board([item(), item()], fields))
+
 
 if __name__ == "__main__":
     unittest.main()

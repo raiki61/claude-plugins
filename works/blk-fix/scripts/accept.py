@@ -29,6 +29,10 @@
    裁定の後（ruled）だけ。修正案の範囲は、凍結の検査が読む輪の後の木でテストの id から引き直す（tddloop.frozen_source）
 1c. check_tests: 版からの変更に当たる試験を、TDD の輪と同じ実行器で機械が走らせ、元で赤でなかった試験の赤を拒む
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
+1d. check_plan_scope: 承認済みの修正案の項目（planmarks.approved_items）と差分を照らす（planscope.check）。範囲（allowed_paths・
+   out_of_scope・テストの許し）の外・adds の識別子が差分に無い・canonical の外の同名の定義・removes の識別子が残る・tests に
+   無いテストを足した・tests のテストが無い、を拒む。止めた単位は掛けず、裁定の後（ruled）は裁定を受けた単位の範囲を見ない。
+   控えに範囲の欄が無い・修正案の無い run は回さない。受けた時に trace に 1 行（SCOPE_OP）
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
    修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告
    （closure.sites の path が覆う問いの当たりの件数・remaining・作り直した how）との食い違いを記録する。食い違いは拒否でなく記録で、写しに渡す返答は
@@ -38,7 +42,7 @@
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
 ここで出口へ運ぶ（collect が今の周の changes.json に書く）。拒んだときの changes は空。
 中身の拒否は終了コード 0 の {"ok": false, "reason", "reason_file", "changes": [], "done"} を 1 行。回す側の誤りは 2。
-done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目は、-2・1b・1c・
+done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目は、-2・1b・1c・1d・
 写しの受け付けの拒否の文が changes[].files か unit_key（写しの文の頭の unit_key[:60] も）でちょうど
 1 単位に結べれば、その単位の直しを戻して（控えの patch を盤面に置く）ask_human に止め、残りの単位で受け付けを頭から通し直す
 （park_bound_units。fail-fast: false）。通し直しが通らなければ、止めた単位の直し・食い違いの控え・裁定の文を止める前に戻す
@@ -61,6 +65,7 @@ import re  # noqa: E402
 import conflict  # noqa: E402   食い違いの申し出（.shared/core）
 import impact  # noqa: E402   変更に当たる試験の選び（.shared/core）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
+import planscope  # noqa: E402   承認済みの修正案の項目と差分の照らし（blk-fix/lib）
 import querytest  # noqa: E402   判定者の問いを例に当てる（.shared/core）
 import recount  # noqa: E402
 import tddloop  # noqa: E402
@@ -85,8 +90,8 @@ EXCUSED_DROPPED_OP = "fix_excused_dropped"   # 最後の回に、直す義務か
 CONFLICT_BAD = "食い違いの申し出を受けない（名指した所が現物に無いか、形が違う。直して丸ごと出し直せ）: "
 CLOSURE_OP = "fix_unit_rows"   # 受けた返答の単位ごとの閉鎖の表（querytest.CLOSURE_FILE）を置いた盤面の trace の行
 BOUND_PARKED = ("修正の輪の最後の回も、この単位に結べる拒否（凍ったテストの書き換え・書き込みの出どころ・元で赤でなかった試験の赤・"
-                "写しの受け付けの拒否）が残った。返答全体を拒んで盤面を止める代わりに、機械がこの単位の直しを作業ツリーから戻して"
-                "人に回し、ほかの単位の直しを受けた。拒否の文: ")
+                "承認済みの修正案の項目からの外れ・写しの受け付けの拒否）が残った。返答全体を拒んで盤面を止める代わりに、"
+                "機械がこの単位の直しを作業ツリーから戻して人に回し、ほかの単位の直しを受けた。拒否の文: ")
 BOUND_PARKED_OP = "fix_bound_parked"   # 最後の回に単位に結べた拒否でその単位を止めた盤面の trace の行（止めた単位と控えの patch）
 PARKED_PATCH = "fix-parked"            # 止めた単位の戻した直しの控え（盤面の今の周の fix-parked-<n>.patch）
 SECOND_CONFLICT = ("裁定の後の出し直しで新しく申し出た食い違い——裁定の輪は 1 周に 1 回だけなので、機械が人に回した"
@@ -209,6 +214,21 @@ def check_writes(reply: dict, board: Path, base_rev: str, repo: Path, state: str
 def check_tests(board: Path, base_rev: str, repo: Path, state: str) -> tuple:
     """版からの変更に当たる試験を機械が走らせた赤（tddloop.selected_problems）。返り (赤の文, 知らせ)。盤面は書かない"""
     return tddloop.selected_problems(state, repo, writes.base_rev(entry.open_board(board), base_rev))
+
+
+def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: Path, state: str, pass_: str) -> tuple:
+    """承認済みの修正案の項目と差分の照らし（planscope.check）。行は changes と keys（単位の名前）を並べ、files を根からの相対に
+    揃えた物。変わったパスは版からの変更（writes.changed）から実行器が作ったファイル（tddloop.suite_made）を除いた物。
+    返り (拒否の行（最初の行の頭に planscope.REJECT）, 記録)。盤面は書かない（許しの控えの食い違いで止めるのは planscope.check）"""
+    b = entry.open_board(board)
+    rows = [{"unit_key": k, "files": sorted(_files([c], repo))} for c, k in zip(reply.get("changes") or [], keys)]
+    made = set(tddloop.suite_made(state))
+    rev = writes.base_rev(b, base_rev)
+    paths = [p for p in writes.changed(repo, rev) if p not in made]
+    problems, note = planscope.check(rows, b, repo, rev, paths, pass_=pass_)
+    if problems:
+        problems = [planscope.REJECT + problems[0], *problems[1:]]
+    return problems, note
 
 
 def _files(rows, repo) -> set:
@@ -337,6 +357,7 @@ def accept_fix(reply, board, base_rev, repo):
     pass_ = os.environ.get("INPUTS_PASS") or "first"
     last = int(os.environ.get("INPUTS_ITERATION") or 0) >= GIVE_UP_AFTER
     whole = reply
+    scope_note = None   # 承認済みの修正案の項目と差分を照らした記録（受けた時に trace へ）
 
     def refuse(problems):
         """拒否。輪の最後の回は、単位に結べる拒否ならその単位だけを止めて残りで受け付けを通し直し、通らなければ止めた単位を
@@ -385,6 +406,9 @@ def accept_fix(reply, board, base_rev, repo):
             else:
                 undo()
             return out
+        scope, scope_note = check_plan_scope(reply, keys, board, base_rev, repo, state, pass_)
+        if scope:
+            return refuse(scope)
     red, note = check_tests(board, base_rev, repo, state)
     if red:
         return refuse(red)
@@ -397,6 +421,8 @@ def accept_fix(reply, board, base_rev, repo):
         b = entry.open_board(board, allow_halted=True)
         writes.trace(b, recount.ROLE, wrote)
         b.trace(TESTS_OP, node=recount.ROLE, note=note, ci_left=tddloop.ci_left(state))
+        if scope_note is not None:
+            b.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
         if rows:
             b.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(b, rows)))
     return out

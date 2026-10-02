@@ -15,6 +15,9 @@
 - HEAD・REVIEW_HEAD・REVIEW_ASK・review_section(b): 修正案の役と事前審査の役の指示書の頭に足す文
 - climbs(norm): 整えたパスが根の外へ上るか（`..` は段で見る。conflict.parse_limit も同じ物を使う）
 - glob_problem(glob): 範囲の欄（allowed_paths・out_of_scope の glob）の誤りの文（\\ の区切り・根の外・`**` のような丸ごとの許し）
+- glob_match(path, glob): 根からの相対のパスが glob に当たるか（* ? [..] は / を跨がない・** は段をまたぐ。守りのファイルの
+  protect.match もこれを呼ぶ）。gaps は out_of_scope の glob が tests・rewrite_tests の id のファイルに当たる案を拒む
+- approved_items(b): 今の周の承認済みの修正案の項目と凍結した欄を同じ番号で合わせた並び（修正の受け付けが差分と照らす）
 
 写しの engine の型の検査と時刻（engine.schema・engine.util。L0 の写し）だけを使い、entry・conflict を import しない（conflict がこの模块を読むので、
 輪を作らない）。
@@ -85,7 +88,8 @@ HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を�
         "承認された案は項目ごとの brief に切り出され、修正役・TDD の役の要求の正本になる。rewrite_tests に名指さない既存のテストは"
         "修正で変えられない。欠けや誤りは、受け付けが plan[<i>].<欄> の行を名指して拒む。"
         "allowed_paths＝その項目で書いてよいパスの glob の並び（1 つ以上。作業ツリーの根からの相対・/ 区切り・** は段をまたぐ）。"
-        "tests・rewrite_tests の id のファイルは書かなくても範囲に入る。** や * や **/* のような丸ごとの許しは拒む。"
+        "tests・rewrite_tests の id のファイルは書かなくても範囲に入り、out_of_scope の glob をそのファイルに当てた案は拒む。"
+        "** や * や **/* のような丸ごとの許しは拒む。"
         "out_of_scope＝範囲の中でも触らない物 {glob, why} の並び（why は "
         f"{MIN_WHY} 字以上。無ければ空の並び）。修正の受け付けは差分をこの範囲と照らし、外れたら同じ brief で返す。"
         "機械は差分で次を探すので、adds の name は識別子（関数・欄・CLI・テストの名）で書き、新設の物の canonical には"
@@ -147,6 +151,48 @@ def glob_problem(glob: str) -> str | None:
     if norm != glob.rstrip("/"):
         return f"整えた形でない（./・..・// を含む）。整えた形 {norm} で書け"
     return None
+
+
+def _segment(seg: str) -> str:
+    """glob の 1 区切りを正規表現に（* と ? と [..] は / を跨がない。[! は否定）"""
+    out, i = [], 0
+    while i < len(seg):
+        c = seg[i]
+        k = -1
+        if c == "[":
+            j = i + 1 + (seg[i + 1:i + 2] == "!")
+            j += seg[j:j + 1] == "]"
+            k = seg.find("]", j)
+        if c == "*":
+            out.append("[^/]*")
+        elif c == "?":
+            out.append("[^/]")
+        elif k > 0:
+            body = seg[i + 1:k]
+            out.append("[" + ("^" + body[1:] if body.startswith("!") else body).replace("\\", "\\\\") + "]")
+            i = k
+        else:
+            out.append(re.escape(c))
+        i += 1
+    return "".join(out)
+
+
+def _glob_regex(glob: str):
+    parts = glob.split("/")
+    out = []
+    for i, seg in enumerate(parts):
+        last = i == len(parts) - 1
+        if seg == "**":
+            out.append(".*" if last else "(?:[^/]+/)*")
+        else:
+            out.append(_segment(seg) + ("" if last else "/"))
+    return re.compile("".join(out) + r"\Z")
+
+
+def glob_match(path: str, glob: str) -> bool:
+    """根からの相対のパスが glob に当たるか（* ? [..] は / を跨がない・** は段をまたぐ）。範囲の欄と守りのファイルの当て方の正本
+    （protect.match はこれを呼ぶ。planmarks は protect を import しない: protect → accept → planmarks の輪になる）"""
+    return _glob_regex(glob).match(path) is not None
 
 
 def _resolve(repo: pathlib.Path, path: str):
@@ -236,6 +282,36 @@ def _id_of(row):
     return tid if isinstance(tid, str) else None
 
 
+def test_paths(it: dict) -> list[str]:
+    """項目の tests・rewrite_tests の id のファイル（整えた根からの相対の綴り・現れた順・重なりは 1 つ）。書いてよい範囲に入る"""
+    out = []
+    for key in ("tests", "rewrite_tests"):
+        for row in _rows(it, key):
+            got = _parse_id(_id_of(row))
+            if got:
+                norm = posixpath.normpath(got[0])
+                if norm not in out:
+                    out.append(norm)
+    return out
+
+
+def _scope_overlaps(plan: list) -> list[str]:
+    """out_of_scope の glob が、案のどれかの項目の tests・rewrite_tests の id のファイルに当たる行（書けと言うファイルを触るなとも
+    言う食い違い。修正の段へ渡さずに案を直させる）"""
+    out = []
+    named = [(n, p) for n, it in enumerate(plan, 1) if isinstance(it, dict) for p in test_paths(it)]
+    for i, it in enumerate(plan):
+        for j, row in enumerate(_rows(it, "out_of_scope") if isinstance(it, dict) else []):
+            g = row.get("glob") if isinstance(row, dict) else None
+            if not isinstance(g, str) or not g or glob_problem(g):
+                continue
+            for n, p in named:
+                if glob_match(p, g):
+                    out.append(f"plan[{i}].out_of_scope[{j}].glob（{g}）: 項目 {n} の tests・rewrite_tests の id のファイル {p} に"
+                               "当たる（書けと言うファイルを触るなとも言っている。glob を狭めるか、テストの置き場を変えよ）")
+    return out
+
+
 def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
     """修正案の返答の works の欄の欠けと誤りの行（"plan[<i>].<欄>…: <理由>"）。空なら通る。返答や plan が形を成さなければ空
     （写しの規則が型で拒む）。例外で拒まない"""
@@ -286,6 +362,7 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
             rwhy = rf.get("why")
             if not (isinstance(rwhy, str) and len(rwhy.strip()) >= MIN_WHY):
                 out.append(f"plan[{i}].refactor.why: declared が true なら、整えの理由を {MIN_WHY} 字以上で書く")
+    out += _scope_overlaps(plan)
     for i, it in enumerate(plan):
         for j, row in enumerate(_rows(it, "rewrite_tests") if isinstance(it, dict) else []):
             tid = _id_of(row)
@@ -369,6 +446,26 @@ def _saved_mark(b) -> dict | None:
         if isinstance(row, dict) and row.get("op") == SAVED_OP and row.get("round") == b.round:
             mark = row
     return mark
+
+
+def approved_items(b) -> list[dict] | None:
+    """今の周の承認済みの修正案の項目（今の周の p2.fix_plan の出力の plan）と凍結した欄（frozen）を同じ番号で合わせた並び
+    {"item": <1 始まり>, **案の項目, **欄の KEYS の物}（unit_keys は案の物）。どちらか無ければ None。数が違えば FieldsBroken
+    （frozen の食い違いもそのまま FieldsBroken。b は dir・round・output_of_round を読む）"""
+    fields = frozen(b)
+    doc = b.output_of_round(NODE, b.round)
+    plan = doc.get("plan") if isinstance(doc, dict) else None
+    if fields is None or not isinstance(plan, list):
+        return None
+    if len(fields) != len(plan):
+        raise FieldsBroken(f"修正案の項目の数 {len(plan)} と盤面の控え {FIELDS_FILE} の欄の数 {len(fields)} が違う"
+                           "（同じ周の受け付けが同じ並びで書く物）")
+    out = []
+    for n, (it, f) in enumerate(zip(plan, fields), 1):
+        it = it if isinstance(it, dict) else {}
+        f = f if isinstance(f, dict) else {}
+        out.append({"item": n, **copy.deepcopy(it), **{k: copy.deepcopy(f[k]) for k in KEYS if k in f}})
+    return out
 
 
 def frozen(b) -> list | None:

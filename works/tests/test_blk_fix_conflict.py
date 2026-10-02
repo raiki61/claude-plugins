@@ -218,6 +218,30 @@ class TestRuling(ConflictBoardCase):
         self.assertIn("conflict-ruling", got["gate_text"])
 
 
+class TestRuledScope(ConflictBoardCase):
+    def test_ruled_pass_exempts_ruled_units(self):
+        """fix_code_as の裁定を受けた単位は、planscope.check(…, pass_="ruled") で範囲の外のファイルを拒まない。
+        同じ盤面で pass_="first" は拒む"""
+        import planscope
+        import writes
+        self.parked()
+        cid = self.items()[0]["id"]
+        _, r = self.rule([{"id": cid, "decision": "fix_code_as", "text": RULE_TEXT, "limits": ["stats.py:9"]}])
+        self.assertTrue(r["ok"], r)
+        b = entry.open_board(self.board)
+        planmarks.save(self.board, b.round, [{"route": "direct", "route_why": "見本。先にテストを書かない", "tests": [],
+                                               "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
+                                               "allowed_paths": ["stats.py"], "out_of_scope": []}])
+        (self.repo / "other.py").write_text("x = 1\n", encoding="utf-8")
+        b = entry.open_board(self.board)
+        rows = [{"unit_key": MEAN, "files": ["other.py"]}]
+        rev = writes.base_rev(b, "")
+        got, note = planscope.check(rows, b, self.repo, rev, ["other.py"], pass_="ruled")
+        self.assertEqual((got, note["checked"]), ([], True))
+        got, _ = planscope.check(rows, b, self.repo, rev, ["other.py"], pass_="first")
+        self.assertTrue(any(MEAN in p and "other.py" in p for p in got), got)
+
+
 class TestAskHuman(ConflictBoardCase):
     def asked_board(self):
         self.parked()
