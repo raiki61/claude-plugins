@@ -482,7 +482,8 @@ class CheckInputsCase(StartCaseBase):
         repo = self.seed()
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
-                                    "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only", "fix_shape"})
+                                    "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only", "fix_shape",
+                                    "fix_fixture"})
         self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"],
                           got["lang"], got["unattended"], got["design_only"], got["fix_shape"]),
                          ("標準", "", "always", "", "", "", "", "", "", "g3"))

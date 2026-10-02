@@ -141,10 +141,11 @@ class InputNamesCase(unittest.TestCase):
             repo = pathlib.Path(tmp)
             (repo / "req.json").write_text(json.dumps([{"where": "a.py", "text": "直す"}]), encoding="utf-8")
             (repo / "policy.md").write_text("方針\n", encoding="utf-8")
+            (repo / "fx").mkdir()   # 固定材料のフォルダ（fix_fixture は在るフォルダだけを受ける）
             given = {"test_cmd": "x", "thickness": "標準", "gates": "merge", "final_gate": "when_needed", "adapter": "optional",
                      "policy_md": "policy.md", "lang": "English", "base": "main", "pr": "7", "unattended": "true",
-                     "design_only": "true", "fix_shape": "af"}
-            want = {**given, "policy_md": str(repo / "policy.md")}
+                     "design_only": "true", "fix_shape": "af", "fix_fixture": "fx"}
+            want = {**given, "policy_md": str(repo / "policy.md"), "fix_fixture": str(repo / "fx")}
             self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"} - START_ONLY, "start.py の名に、渡す値を決めていない名がある")
             base = entry.check_inputs({"request": "req.json"}, repo)
             self.assertEqual(set(base), (names - {"request"} - CHANGE_INPUTS - START_ONLY) | READ_FROM_REQUEST)
