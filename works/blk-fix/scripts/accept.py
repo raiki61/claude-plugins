@@ -42,7 +42,7 @@
    単位の全部が直す義務から外れた項目（conflict.held_by_rulings。fix_plan_item ならその項目）は範囲を与えない。裁定の後
    （ruled）に範囲が広がるのは直す裁定の limits のパスだけで、裁定を受けた単位の全部を外さない。out_of_scope はテストの許しと
    裁定の limits にも勝つ（案が外したパスが要るのは案の項目の誤りで、fix_plan_item の道）。
-   控えに範囲の欄が無い・修正案の無い run は回さない。受けた時に trace に 1 行（SCOPE_OP）
+   控えに範囲の欄が無い・修正案の無い run・平の run（修正の形 current）は回さない。受けた時に trace に 1 行（SCOPE_OP）
 1e. 事後の関門の束（fixgates.problems。計画 220 Task 4）: 修正の形に依らず、base から今の木までを相手に、承認済みの修正案の
    受け入れのテストの赤→緑（INPUTS_TDD_SUITE の実行器。無い run は帳面に飛ばした理由だけ）と、名指しの外の既存のテストの
    本体の変更を確かめる。行が在れば行ごとの文（fixgates.reject_lines。" / " でつないで 1 つの理由に全部の行が並ぶ）で拒む

@@ -1205,6 +1205,17 @@ class TestAccept(BoardCase):
         rows = self.scope_rows()
         self.assertEqual([(r["checked"], r["why"]) for r in rows], [(False, planscope.NO_PLAN)])
 
+    def test_plain_run_skips_scope_check(self):
+        """平の run（修正の形 current。計画 220）は修正の段に修正案の欄を渡さないので、範囲の外の直しも照らさずに受け、trace に
+        checked: false と理由（NO_PLAIN）を残す（事後の関門の束が平の run で修正案の欄を読まないのと同じ）"""
+        import fixshape
+        self.scope_ready(["docs/**"])
+        fixshape.choose(self.board, fixshape.PLAIN, by="試験", why="平の run の照らしを見る")
+        self.edit_tree(FIXED)
+        self.assertTrue(json.loads(self.run_it(load("fix2_ok"))[1])["ok"])
+        rows = self.scope_rows()
+        self.assertEqual([(r["checked"], r["why"]) for r in rows], [(False, planscope.NO_PLAIN)])
+
     def test_scope_problems_bind_to_one_unit(self):
         """accept.py を spec_from_file_location で読み（test_fix_rules.TestThirdRejectParksBoundUnit と同じ形）、problems の
         行 1 の外れ（MEAN の行の other.py）を accept.bind_problems に渡すと、MEAN 1 つに結ぶ"""
