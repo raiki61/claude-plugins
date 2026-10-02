@@ -925,7 +925,8 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
          protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None,
          run_place: Optional[Callable[[], Optional[str]]] = None,
          board: Optional[Callable[[], Optional[str]]] = None) -> Plan:
-    """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書くのは旗 isolated と 17 の置き場の mkdir）。
+    """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みと、18 の切符の board の修正の形の控えの
+    読み（fixshape.shape_at）だけ。書くのは旗 isolated と 17 の置き場の mkdir）。
     protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
     run_place は 17 の置き場（run_place_of の値。切符が無ければ None）を返す関数。protected と同じ切符の 1 回の読みを使う。
     board は 18 の切符の board（board_of の値。切符が無ければ None）を返す関数。同じ切符の 1 回の読みを使う。

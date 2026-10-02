@@ -1949,15 +1949,19 @@ class ShapeFenceCase(unittest.TestCase):
         deny, fence = self.launch("tdd")
         self.assertNotIn("Skill", deny)
         self.assertNotIn("shape_deny", fence)
+        deny, _ = self.launch("fix")
+        self.assertIn("Agent", deny, "控えの g3 は修正役の Agent の拒否を入れる側にも効く")
 
     def test_broken_shape_refuses_launch(self):
         self.start("x")
-        r = self.e.run(sdk_argv("works-node: tdd", tools="Read,Edit"), GIT_CEILING_DIRECTORIES=str(self.e.tmp))
-        self.assertEqual(r.returncode, 3, r.stderr)
-        self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
-        self.assertIn("fix_shape", r.stderr)
-        self.assertIsNone(self.e.child())
-        self.assertEqual(self.e.launches()[-1]["mode"], "refused")
+        for node in ("tdd", "judge"):   # 柵の表に無い節も、壊れた控えでは起こさない
+            with self.subTest(node):
+                r = self.e.run(sdk_argv(f"works-node: {node}", tools="Read,Edit"), GIT_CEILING_DIRECTORIES=str(self.e.tmp))
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+                self.assertIn("fix_shape", r.stderr)
+                self.assertIsNone(self.e.child())
+                self.assertEqual(self.e.launches()[-1]["mode"], "refused")
 
     def test_no_ticket_unchanged(self):
         adapter.ticket_path(self.e.cwd, self.e.home).unlink()
