@@ -124,6 +124,9 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(inputs["tdd_suite"].get("default"), "")
         self.assertNotIn("required", inputs["tdd_suite"])
 
+    def test_input_test_cmd_is_optional(self):
+        self.assertEqual((block()["inputs"]["test_cmd"].get("default"), "required" in block()["inputs"]["test_cmd"]), ("", False))
+
     def test_node_order(self):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
@@ -133,7 +136,8 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(start["script"], "tdd_start")
         self.assertEqual(start["depends_on"], ["ignored-before"])
         self.assertEqual(start["timeout"], DEADLINE)
-        self.assertEqual(start["with"], {"tdd_suite": "$INPUTS.tdd_suite", "open_units": "$INPUTS.open_units"})
+        self.assertEqual(start["with"], {"tdd_suite": "$INPUTS.tdd_suite", "open_units": "$INPUTS.open_units",
+                                         "test_cmd": "$INPUTS.test_cmd"})
         self.assertEqual(loop["depends_on"], ["tdd-start"])
         self.assertEqual(loop["when"], "$tdd-start.output.go == true")
         g = loop["loop_group"]
@@ -190,7 +194,7 @@ class TestYaml(unittest.TestCase):
     def test_script_inputs(self):
         import ast
         import re
-        want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
+        want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS", "INPUTS_TEST_CMD"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
                                                                                        "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
                 "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS"),
@@ -226,7 +230,7 @@ class TestNoSuite(unittest.TestCase):
             committed_copy(repo, SEED)
             art = tmp / "art"
             code, out, err = run_script("tdd_start", repo, {"INPUTS_TDD_SUITE": "", "INPUTS_OPEN_UNITS": OPEN,
-                                                            "ARTIFACTS_DIR": str(art)})
+                                                            "INPUTS_TEST_CMD": "", "ARTIFACTS_DIR": str(art)})
             self.assertEqual(code, 0, err)
             got = json.loads(out)
             self.assertEqual(got, {"go": False, "reason": tddloop.NO_SUITE, "suite": "", "state_file": "",
@@ -1154,6 +1158,117 @@ class TestRedKind(unittest.TestCase):
         self.assertEqual(why, [])
         self.assertEqual([(c["name"], c["fail_type"], c["fail_message"]) for c in cases],
                          [("t1", "x.AssertionError", "m"), ("t2", "", "")])
+
+
+LINT = "import pathlib, sys\nsys.exit(1 if 'print(' in pathlib.Path('stats.py').read_text() else 0)\n"
+
+
+class TestTestCmdGate(LoopCase):
+    """緑の後に run の test_cmd（線の入力）の緑も確かめる。元から赤なら関門を切って理由を残し、実行器が同じコマンドを
+    包んだ物なら 2 度走らせない（Review Focus 5）"""
+
+    def restart(self, cmd):
+        (self.repo / "lint.py").write_text(LINT, encoding="utf-8")
+        git(self.repo, "add", "lint.py")
+        git(self.repo, "commit", "-qm", "lint")
+        self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN, test_cmd=cmd)
+        self.state = self.start["state_file"]
+
+    def lint(self):
+        return f"{sys.executable} lint.py"
+
+    def test_fix_rejected_when_test_cmd_red(self):
+        self.restart(self.lint())
+        self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
+        self.route()
+        self.red()
+        self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "print('debug')\n    return sum(xs) / len(xs)")
+        got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を直した"})
+        self.assertFalse(got["ok"])
+        self.assertIn("test_cmd", got["reason"])
+        self.assertIn("test-cmd-", got["reason"])
+        self.assertEqual(self.st()["phase"], "fix")
+        self.assertTrue(pathlib.Path(self.st()["work"], f"test-cmd-{self.st()['runs'] - 1}.log").is_file())
+
+    def test_fix_passes_and_records(self):
+        self.restart(self.lint())
+        self.route()
+        self.red()
+        self.fix_mean()
+        self.assertEqual(self.st()["units"][MEAN]["test_cmd"], "ok")
+        self.step({"phase": "refactor", "unit_key": MEAN, "what": "整える物は無い"})
+        ex = tddloop.exit_fields(self.start)
+        self.assertEqual(ex["test_cmd"], {"gate": tddloop.GATE_ON, "note": ""})
+        rows = {u["unit_key"]: u for u in ex["units"]}
+        self.assertEqual((rows[MEAN]["test_cmd"], rows[CLAMP]["test_cmd"]), ("ok", ""))
+
+    def test_changed_refactor_rejected_when_test_cmd_red(self):
+        self.restart(self.lint())
+        self.route()
+        self.red()
+        self.fix_mean()
+        self.edit("stats.py", "return sum(xs) / len(xs)", "print('debug')\n    return sum(xs) / len(xs)")
+        got = self.step({"phase": "refactor", "unit_key": MEAN, "what": "出力を足した"})
+        self.assertFalse(got["ok"])
+        self.assertIn("test_cmd", got["reason"])
+
+    def test_baseline_red_test_cmd_turns_gate_off(self):
+        self.restart(f"{sys.executable} -c 'raise SystemExit(1)'")
+        st = self.st()
+        self.assertEqual(st["test_cmd_gate"], tddloop.GATE_OFF)
+        self.assertTrue(st["test_cmd_note"])
+        self.route()
+        self.red()
+        self.fix_mean()   # 毎単位を拒まない
+        self.assertEqual(self.st()["units"][MEAN]["test_cmd"], "")
+        self.step({"phase": "refactor", "unit_key": MEAN, "what": "整える物は無い"})
+        self.assertEqual(tddloop.exit_fields(self.start)["test_cmd"], {"gate": tddloop.GATE_OFF, "note": st["test_cmd_note"]})
+
+    def test_same_command_as_suite_runs_once(self):
+        cmd = f"{sys.executable} {self.suite}"
+        with mock.patch.object(tddloop.entry, "local_checks_material") as lcm:
+            self.suite.write_text(SUITE + f"\n# {cmd}\n", encoding="utf-8")
+            self.restart(cmd)
+            self.route()
+            self.red()
+            self.fix_mean()
+        lcm.assert_not_called()
+        self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_SAME)
+
+    def test_empty_test_cmd_is_off(self):
+        with mock.patch.object(tddloop.entry, "local_checks_material") as lcm:
+            self.restart("")
+            self.route()
+            self.red()
+            self.fix_mean()
+        lcm.assert_not_called()
+        st = self.st()
+        self.assertEqual((st["test_cmd"], st["test_cmd_gate"], st["test_cmd_note"]), ("", tddloop.GATE_OFF, ""))
+
+    def test_default_start_has_gate_off(self):
+        """LoopCase の既定（test_cmd を渡さない start）も関門は off・理由は空"""
+        st = self.st()
+        self.assertEqual((st["test_cmd"], st["test_cmd_gate"], st["test_cmd_note"]), ("", tddloop.GATE_OFF, ""))
+
+    def test_test_cmd_not_run_leaves_loop_like_runner_down(self):
+        self.restart(self.lint())
+        self.route()
+        self.red()
+        down = {"material": {"status": "not_run", "reason": "起こせない"}}
+        self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "return sum(xs) / len(xs)")
+        with mock.patch.object(tddloop.entry, "local_checks_material", return_value=down):
+            got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を直した"})
+        self.assertTrue(got["done"])
+        self.assertIn("起こせない", got["reason"])
+        self.assertEqual(self.st()["units"][MEAN]["gave_up"], "runner")
+
+    def test_start_not_run_turns_gate_off_with_reason(self):
+        down = {"material": {"status": "not_run", "reason": "起こせない"}}
+        with mock.patch.object(tddloop.entry, "local_checks_material", return_value=down):
+            self.restart(self.lint())
+        st = self.st()
+        self.assertEqual(st["test_cmd_gate"], tddloop.GATE_OFF)
+        self.assertIn("起こせない", st["test_cmd_note"])
 
 
 class TestRunSuiteSlot(unittest.TestCase):

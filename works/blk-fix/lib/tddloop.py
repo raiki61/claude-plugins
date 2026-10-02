@@ -4,7 +4,10 @@
 - tdd-start → start: 入力 tdd_suite（JUnit XML の書き先を第 1 引数に受け、リポジトリの根で走る実行ファイル。本線と同じ約束）が
   空なら何もせず go: false（全部の単位を今どおり直す）。在れば一式を 1 回走らせて元の結末を取り、盤面の tdd-<k>/ に状態を置く。
   承認済みの修正案の単位ごとの約束（plan_contract → planmarks.unit_contract。道・受け入れのテストと赤の種類）もここで 1 回だけ
-  組んで状態の contract に置く（盤面の無い置き場・欄の控えの無い run は空で、輪は約束の無い今の動きのまま）
+  組んで状態の contract に置く（盤面の無い置き場・欄の控えの無い run は空で、輪は約束の無い今の動きのまま）。
+  run のテストのコマンド（線の入力 test_cmd）の関門（test_cmd_gate）もここで 1 回だけ決める: 空なら off、実行器のファイルが
+  そのコマンドの文字列をそのまま含むなら same_as_suite（一式と同じなので 2 度走らせない）、ほかは 1 回走らせて緑なら on、
+  赤・走らないなら off にして理由を test_cmd_note に残す（元から赤の test_cmd で毎単位を拒まない）
 - tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形。頭に brief の節: 振り分けの段は
   直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run は無し）→ 役 tdd（修正役。
   同じ会話で振り分け・テスト・直し・整えを返す）→
@@ -23,7 +26,8 @@
     名指し全部の赤の種類を単位の red_kinds に残す
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems。約束の在る単位は、ほかのテストのファイル
     （TEST_FILE の名）の既存の test* 関数の本体も変えていない（_other_test_edits）・テストを飛ばした・消していない
-    （_vanished_problems）。refactor の緑の確かめも同じ
+    （_vanished_problems）。関門が on なら、そのうえで run の test_cmd も緑（_test_cmd_problems。赤は拒み、走らない時は実行器が
+    走らない時と同じに輪を抜ける）。refactor の緑の確かめも同じ
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
   - test・fix・refactor とも、名指しを絶対パスの node id で実行器の後ろに足して走らせる（段の外に書いたテストも一式の結末に載る）
   拒めば同じ段のまま、理由は次の指示書（と reason_file）に載る。段ごとに RETRY_MAX 回目の拒否で諦める: test・fix は作業ツリーを
@@ -37,7 +41,7 @@
   知らせと状態（ci_left。受け付けが盤面の trace に載せ、最後の関所が並べる）に名前で残す。元の結末に無い試験の赤は、版を
   一時の置き場に写して同じ試験を回し、版でも赤なら外す（作業ツリーは動かさない）。1 件も走らなければ「新しい赤なし」にせず
   知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
-- collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整え・direct の理由）
+- collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整え・direct の理由・test_cmd の緑。輪の test_cmd の関門と理由）
 赤・緑の判定は写しの rules（review-loop-tdd.py）の関数を呼ぶ（写さない）。版は一時の index（GIT_INDEX_FILE）で木に固める
 （本物の index・HEAD・枝は動かさない。.gitignore に当たる物は載らない）。期限は持たない。
 """
@@ -75,6 +79,9 @@ MAX_ITERATIONS = 40   # YAML の tdd-loop の max_iterations と同じ値（試�
 MIN_WHY = 10
 STATE, PROMPT, SUMMARY = "state.json", "next.md", "summary.md"
 NO_SUITE = "テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す"
+# run の test_cmd の関門（start が 1 回だけ決める）: on＝緑の後に毎回走らせる・same_as_suite＝実行器がそのコマンドを包んだ物で
+# 一式の緑と同じ（走らせない）・off＝空か、輪の頭で赤・走らない（理由は状態の test_cmd_note）
+GATE_ON, GATE_SAME, GATE_OFF = "on", "same_as_suite", "off"
 SUITE_MADE_NOTE = "一式を走らせて出来たファイル"
 
 
@@ -333,11 +340,12 @@ def _not_owed_why(st, k) -> str:
 
 def _unit(key, route, why="") -> dict:
     return {"unit_key": key, "route": route, "why": why, "tests": [], "test_files": [], "red": "", "green": "",
-            "refactor": "", "gave_up": "", "problems": [], "files": [], "what": "", "red_kinds": {}}
+            "refactor": "", "gave_up": "", "problems": [], "files": [], "what": "", "red_kinds": {}, "test_cmd": ""}
 
 
-def start(board_dir, repo, suite: str, open_units: str) -> dict:
-    """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無ければ何も書かずに go: false"""
+def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> dict:
+    """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無ければ何も書かずに go: false。
+    test_cmd は run のテストのコマンド（線の入力）で、元の結末を取った後に関門を決める（_test_cmd_gate）"""
     suite = (suite or "").strip()
     off = {"go": False, "reason": NO_SUITE, "suite": suite, "state_file": "", "summary_file": ""}
     if not suite:
@@ -361,14 +369,61 @@ def start(board_dir, repo, suite: str, open_units: str) -> dict:
     cases, code, why = run_suite(str(exe), repo, work, 0)
     if cases is None:
         return {**off, "reason": f"元の結末が取れない（{'; '.join(why)}）——全部の単位を今どおり直す"}
+    test_cmd = (test_cmd or "").strip()
+    gate, note, made = _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log")
     st = {"suite": suite, "exe": str(exe), "work": str(work), "open_units": keys, "excused": excused,
           "baseline": {_key(c): c["outcome"] for c in cases}, "baseline_exit": code,
-          "handoff": snapshot(repo), "suite_made": [], "phase": "route", "tries": 0, "reason": "", "iterations": 0,
+          "handoff": snapshot(repo), "suite_made": made, "phase": "route", "tries": 0, "reason": "", "iterations": 0,
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
-          "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract}
+          "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract,
+          "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note}
     state_file = work / STATE
     _save(state_file, st)
     return {"go": True, "reason": "", "suite": suite, "state_file": str(state_file), "summary_file": str(work / SUMMARY)}
+
+
+def _test_cmd_gate(exe: pathlib.Path, cmd: str, repo, log: pathlib.Path) -> tuple[str, str, list]:
+    """(関門, 理由, 走らせて出来たファイル)。空は (off, "", [])。実行器のファイルの中身が cmd をそのまま含めば
+    (same_as_suite, "", [])（use.sh が pytest の 1 コマンドから書いた実行器など。一式の緑が同じコマンドの緑）。ほかは機械の
+    試験の枠（entry.local_checks_material → tree_run.slotted_run）で 1 回走らせ、緑なら on、赤・走らないなら off と理由。
+    出来たファイルは状態の suite_made の頭（段が触った数えから外す）"""
+    if not cmd:
+        return GATE_OFF, "", []
+    try:
+        if cmd in exe.read_text(encoding="utf-8", errors="replace"):
+            return GATE_SAME, "", []
+    except OSError:
+        pass   # 読めない実行器は包みと見なさず、走らせて決める
+    pre = snapshot(repo)
+    mat = entry.local_checks_material(repo, cmd, log)["material"]
+    made = touched(repo, pre, snapshot(repo))
+    if mat["status"] == "clean":
+        return GATE_ON, "", made
+    if mat["status"] == "found":
+        return GATE_OFF, (f"run の test_cmd（{cmd}）が輪の頭で赤（元から赤。ログ {log}）——単位ごとに確かめると毎単位を拒むので"
+                          "この輪では確かめない（一式の緑は線の最後のテストの段が確かめる）"), made
+    return GATE_OFF, f"run の test_cmd（{cmd}）を輪の頭で走らせられない（{mat.get('reason', '')}）——この輪では確かめない", made
+
+
+def _test_cmd_problems(st, repo) -> list[str]:
+    """関門が on の時だけ run の test_cmd を 1 回走らせ（ログ work/test-cmd-<runs>.log。runs を 1 進め、出来たファイルを
+    suite_made に積む。_run と同じ）、赤ならログのパスを含む拒否の文。緑なら今の単位の test_cmd を ok にする（_green は今の
+    単位にしか呼ばれない）。走らなければ _RunnerDown（実行器が走らない時と同じ道）"""
+    if st.get("test_cmd_gate") != GATE_ON:
+        return []
+    log = pathlib.Path(st["work"]) / f"test-cmd-{st['runs']}.log"
+    pre = snapshot(repo)
+    mat = entry.local_checks_material(repo, st["test_cmd"], log)["material"]
+    st["runs"] += 1
+    st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
+    if mat["status"] == "not_run":
+        raise _RunnerDown(f"run の test_cmd（{st['test_cmd']}）: {mat.get('reason', '')}")
+    if mat["status"] == "clean":
+        _cur(st)["test_cmd"] = "ok"
+        return []
+    tail = " ".join(str(mat.get("detail", "")).split())[-400:]
+    return [f"名指しのテストと一式は緑だが、run の test_cmd（{st['test_cmd']}）が赤（輪の頭では緑。ログ {log}）——"
+            f"これも緑にせよ。末尾: {tail}"]
 
 
 # ---------------------------------------------------------------- 指示書（節 tdd-prep）
@@ -821,7 +876,7 @@ def _green(st, u, repo) -> list:
         return other
     cases, code = _run(st, repo, u["tests"])
     return rules().green_problems(u["tests"], cases, code, st["baseline"], st["baseline_exit"]) \
-        or _vanished_problems(st, u, cases, u["tests"], repo)
+        or _vanished_problems(st, u, cases, u["tests"], repo) or _test_cmd_problems(st, repo)
 
 
 def _fix(st, reply, repo) -> list:
@@ -1201,12 +1256,14 @@ def _base_reds(st, repo, rev, files, kexpr) -> tuple:
     return {_key(c) for c in cases if c["outcome"] in ("failure", "error")}, []
 
 
-FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems", "red_kinds")
+FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems", "red_kinds",
+          "test_cmd")
 
 
 def exit_fields(start_out: dict) -> dict:
     """出口の欄 tdd: {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor, gave_up, problems,
-    red_kinds（名指しの id → 見た赤の種類）}]}"""
+    red_kinds（名指しの id → 見た赤の種類）, test_cmd（"ok"＝緑の後に run の test_cmd も走らせて通った・""）}]}。
+    ran: true の出口には test_cmd: {gate（GATE_ON・GATE_SAME・GATE_OFF）, note（off の理由）} も載る"""
     if not isinstance(start_out, dict) or not start_out.get("go"):
         so = start_out if isinstance(start_out, dict) else {}
         return {"ran": False, "suite": so.get("suite", ""), "reason": so.get("reason", ""), "units": []}
@@ -1216,4 +1273,5 @@ def exit_fields(start_out: dict) -> dict:
     rows = [{f: st["units"][k][f] for f in FIELDS} for k in st["order"]]
     rows += [{**{f: _unit(k, "parked")[f] for f in FIELDS}, "why": st.get("parked_why", {}).get(k, "")}
              for k in st.get("parked", []) if k not in st["order"]]   # 振り分けの段で止めた単位
-    return {"ran": True, "suite": st["suite"], "reason": st["note"], "units": rows}
+    return {"ran": True, "suite": st["suite"], "reason": st["note"], "units": rows,
+            "test_cmd": {"gate": st.get("test_cmd_gate", GATE_OFF), "note": st.get("test_cmd_note", "")}}
