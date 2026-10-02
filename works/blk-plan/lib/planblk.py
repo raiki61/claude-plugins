@@ -9,7 +9,9 @@
             開いていない単位が在れば（stuck_reason。案の形では閉じない）盤面を止めて（by works:plan）輪を飛ばす
 - prep:     rolekit.render_prompt で本線の指示書を描き（頭に役の定義と、並行 PR の外した範囲のパス）、番号の控え（pointer_rows）を
             付けて起こした印（mark_launched）を置く。拒否の後の出し直しは、頭の 1 行が前の拒否の理由のファイルを名指す（R44）
-- accept:   rolekit.main_accept（take が狭めない案の欄を欠く narrows の行を拒み、関所の項目の決め手の欄を外して盤面に置き（gatemarks）、entry.take・読むだけの役の作業ツリーの比べ・3 回目の拒否で done・give_up。R50）
+- accept:   rolekit.main_accept（take が狭めない案の欄を欠く narrows の行を拒み、関所の項目の決め手の欄を外して盤面に置き（gatemarks）、entry.take・読むだけの役の作業ツリーの比べ・3 回目の拒否で done・give_up。R50）。
+            修正案は、項目の works の欄（route・tests・rewrite_tests・refactor）の欠けを盤面へ渡す前に拒み、欄を外した案を渡して、
+            盤面が受けた時だけ欄を盤面の plan-fields.json に控える（with_plan_fields。planmarks）。事前審査の指示書の頭にはその欄も貼る
 - reads:    2 つの役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
 - collect:  出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file}。役の節がこの周に
             待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true。
@@ -35,6 +37,7 @@ import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import libdocs  # noqa: E402
 import node_marker  # noqa: E402
+import planmarks  # noqa: E402
 import reads  # noqa: E402
 import rolekit  # noqa: E402
 import structmark  # noqa: E402
@@ -66,7 +69,8 @@ DESIGN_NOT_STANDS = ("設計の役は、目的の問いが立たないと返し�
 DESIGN_NONE = "独立設計は無い（{why}）。設計との突き合わせはせずに審査せよ。"
 HEAD = {
     "plan": ("お前は修正案の役（読むだけ）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch だけで、作業ツリーを 1 文字も変えてはいけない（受け付けは起こす前の"
-             "作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の JSON Schema に合う JSON だけを返せ。"),
+             "作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の JSON Schema に合う JSON だけを返せ。"
+             "\n\n" + planmarks.HEAD),
     "plan-review": ("お前は修正案の事前審査の役（読むだけ。判定をした役とは別の目）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch だけで、作業ツリーを 1 文字も"
                     "変えてはいけない（受け付けは起こす前の作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の"
                     " JSON Schema に合う JSON だけを返せ。"),
@@ -109,7 +113,9 @@ def _given(value) -> str:
 
 def head(role: str, excluded_file: str = "", lib_docs: str = "", design_part: str = "") -> str:
     """指示書の頭（役の定義と、並行 PR の外した範囲のパスと、ライブラリの今の文書の節 libdocs.section と、事前審査なら
-    独立設計の節 design_section・修正案なら構造の目の節 structmark.plan_section と入れてよい no の節 plan_slots_section）"""
+    独立設計の節 design_section・修正案なら構造の目の節 structmark.plan_section と入れてよい no の節 plan_slots_section）。
+    修正案の役の定義（HEAD["plan"]）は、項目の works の欄（route・tests・rewrite_tests・refactor）の節 planmarks.HEAD を含む。
+    事前審査の役は、その欄の JSON を design_section の中の planmarks.review_section で受ける"""
     text = HEAD[role] + "\n\n" + gatemarks.HEAD[role_node(role)]
     ex = _given(excluded_file)
     if ex:
@@ -169,6 +175,13 @@ def halt_if_stuck(b) -> str:
     return why
 
 
+def _resolved(b, nid: str, reply: dict) -> dict:
+    """返答の写しの no を engine の pointers.resolve で名前に戻した物（戻せない番号は番号のまま。拒否は entry.take＝engine に任せる）"""
+    got = copy.deepcopy(reply)
+    pointers.resolve(got, b.nodes[nid].get("pointers"), (b.rd["instances"].get(nid) or {}).get("pointers"))
+    return got
+
+
 def _plan_keys(got) -> list:
     """修正案の返答が案の行に挙げた単位の key（文字列）。形の崩れた行・欄は飛ばす（形の拒否は entry.take＝engine に任せる。再提出の道に乗せる）"""
     rows = got.get("plan") if isinstance(got, dict) else None
@@ -188,9 +201,7 @@ def not_allowed(b, nid: str, reply) -> list[str]:
     if not isinstance(reply, dict):
         return []
     owed, opened, units = plan_slots(b)
-    inst = b.rd["instances"].get(nid) or {}
-    got = copy.deepcopy(reply)
-    pointers.resolve(got, b.nodes[nid].get("pointers"), inst.get("pointers"))
+    got = _resolved(b, nid, reply)
     names = _names(b, nid)
     lines = []
     for k in _plan_keys(got):
@@ -202,7 +213,20 @@ def not_allowed(b, nid: str, reply) -> list[str]:
 
 
 def design_section(b) -> str:
-    """事前審査の指示書の頭に貼る独立設計の節。設計が問いは立たないと返した・設計が無い時は、突き合わせない旨と理由"""
+    """事前審査の指示書の頭に貼る節: 独立設計の節（_design_part）と、修正案の項目の works の欄の節（planmarks.review_section。
+    控えが無ければ無し）。欄の控えが凍結の印と食い違えば盤面を止めて（by works:plan）控えを名指す理由の BoardGap"""
+    try:
+        fields = planmarks.review_section(b)
+    except planmarks.FieldsBroken as e:   # 受け付けの後に欄の控えを書き換えた: 書き換えた欄を審査に見せず、盤面を止める
+        why = f"修正案の項目の works の欄の控え {planmarks.FIELDS_FILE} が凍結と食い違う: {' '.join(str(e).split())}"
+        if not (b.state.get("halted") or b.state.get("stop")):
+            b.stop(why, by=STOP_BY)
+        raise BoardGap(why) from None
+    return _design_part(b) + fields
+
+
+def _design_part(b) -> str:
+    """独立設計の節。設計が問いは立たないと返した・設計が無い時は、突き合わせない旨と理由"""
     got, _ = design.made(b.dir)
     if got is None:
         return f"{DESIGN_HEAD}\n\n" + DESIGN_NONE.format(why=design.missing(b))
@@ -285,7 +309,49 @@ def take(role: str):
         bare, marks = gatemarks.split(nid, reply)
         gatemarks.save(board, nid, entry.open_board(pathlib.Path(board)).round, marks)
         return entry.take(pathlib.Path(board), nid, bare, pathlib.Path(repo), snapshot_name=snapshot_name(role))
-    return run
+    return with_plan_fields(run) if role == "plan" else run
+
+
+def with_plan_fields(run):
+    """修正案の take の包み: 項目の works の欄（planmarks）の欠けと誤りが在れば盤面へ渡さずに拒み（planmarks.REJECT と行）、
+    無ければ欄を外した返答を run に渡す。run が受けた（ok）時だけ、欄を盤面の plan-fields.json に控える。控えの周は包みの頭で
+    1 度だけ読んだ盤面の周（受けた後に開き直さない）。控えの unit_keys は、返答の no を engine の pointers.resolve で名前に
+    戻した物（not_allowed と同じ戻し方。盤面が受けた案と同じ名前）。盤面が受けた後で控えを置けなければ、黙って欄の無い run に
+    せず盤面を止めて（by works:plan）控えを名指す理由の BoardGap"""
+    def wrapped(board, reply, repo):
+        if _plan_malformed(reply):   # 形の崩れた返答は欄を読まずに run へ（run が前段を飛ばして entry.take に拒ませる。再提出の道）
+            return run(board, reply, repo)
+        gaps = planmarks.gaps(reply, pathlib.Path(repo))
+        if gaps:
+            return {"ok": False, "reason": planmarks.REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
+        if not isinstance(reply, dict):
+            return run(board, reply, repo)
+        b = entry.open_board(pathlib.Path(board))
+        rnd = b.round
+        named = _resolved(b, planmarks.NODE, reply)
+        _, fields = planmarks.split(named, pathlib.Path(repo))
+        bare, _ = planmarks.split(reply, pathlib.Path(repo))
+        got = run(board, bare, repo)
+        if got.get("ok") is True:
+            try:
+                planmarks.save(board, rnd, fields)
+            except Exception as e:   # 書けない・形にできない: 受けた案に欄が無いまま進ませない
+                raise BoardGap(_halt_unsaved(board, e)) from None
+        return got
+    return wrapped
+
+
+def _halt_unsaved(board, err) -> str:
+    """修正案の欄の控えを置けなかった盤面を止め（by works:plan。もう止まった盤面は止め直さない）、理由の 1 行を返す"""
+    why = (f"盤面が修正案を受けた後で、項目の works の欄の控え {planmarks.FIELDS_FILE} を置けない"
+           f"（欄の無いまま修正に進ませない）: {type(err).__name__}: {' '.join(str(err).split())}")
+    try:
+        b = entry.open_board(pathlib.Path(board), allow_halted=True)
+        if not (b.state.get("halted") or b.state.get("stop")):
+            b.stop(why, by=STOP_BY)
+    except Exception as e:   # 開けない・止められない: 理由に足して返す（BoardGap で 2 にする）
+        why += f"（盤面を止められない: {type(e).__name__}: {' '.join(str(e).split())}）"
+    return why
 
 
 def main_accept(role: str) -> int:

@@ -138,7 +138,7 @@ class TestSharedSource(unittest.TestCase):
 
     def test_every_rules_file_is_cut_into_sections(self):
         for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
-                          (fixrules.PRINCIPLES, ["principles"]),
+                          (fixrules.PRINCIPLES, ["principles"]), (fixrules.BRIEF, ["brief-canon"]),
                           (fixrules.TDD, ["tdd-head", "tdd-remap", "tdd-phase", *(f"tdd-phase-{p}" for p in fixrules.PHASES),
                                           "tdd-phase-all", "tdd-end"])):
             with self.subTest(name):
@@ -204,6 +204,53 @@ class TestCompose(unittest.TestCase):
 
     def tdd(self, phase="fix", **kw):
         return fixrules.tdd_prompt(tdd_values(), phase, PHASE_TEXT, title=TITLE, **kw)
+
+    def test_brief_rule_reaches_fixer_and_tdd_only(self):
+        """brief の決まり（brief-canon）は修正役と TDD の役の頭の次にだけ載る。裁定役と手直しの役には載せない"""
+        fix = [pid for pid, _, _ in fixrules.fix_parts(VALUES)]
+        tdd = [pid for pid, _, _ in fixrules.tdd_parts(tdd_values())]
+        self.assertEqual(fix[fix.index("fix-head") + 1], "brief-canon")
+        self.assertEqual(tdd[tdd.index("tdd-head") + 1], "brief-canon")
+        ruler = [pid for pid, _, _ in fixrules.ruler_parts({k: "/b/x" for k in fixrules.RULER_VALUES})]
+        self.assertNotIn("brief-canon", ruler)
+        refix = [pid for pid, _, _ in refixrules().parts(1, {"brief_file": "", "diff_file": "", "policy_path": ""})]
+        self.assertNotIn("brief-canon", refix)
+
+    def test_brief_rule_wins_and_names_the_exit(self):
+        """brief が要求の正本で判定は背景。誤りと見たら食い違いの申し出で返し、rewrite_tests は最後の人の関所に並ぶ。
+        brief の無い run は判定のファイルが正本のまま"""
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        for w in ("要求の正本", "brief が勝つ", "背景", "食い違いの申し出", "rewrite_tests", "最後の人の関所", "判定のファイルが正本"):
+            self.assertIn(w, sec)
+
+    def test_brief_rule_one_voice_with_brief_background(self):
+        """brief と判定が食い違えば brief どおり直す（止めない）。brief そのものを誤りと見た時だけ申し出る。brief のファイルの背景の
+        見出し（planbrief.BACKGROUND）も同じ 1 つの決まりを言う"""
+        import planbrief
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        self.assertIn("brief が勝つ", planbrief.BACKGROUND)
+        self.assertIn("brief が誤りと見たら申し出よ", planbrief.BACKGROUND)
+        self.assertNotIn("自分で解かずに", planbrief.BACKGROUND)
+        self.assertIn("単位の切り方（unit）は判定どおり。何をどう直すかは brief", sec)
+
+    def test_brief_rule_names_ruling_and_range_exit(self):
+        """裁定を受けた単位は裁定の範囲で brief に勝つ。範囲の申し出の which_is_right の決め方を言う"""
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        self.assertIn("裁定を受けた単位は、裁定の範囲で裁定が brief に勝つ", sec)
+        self.assertIn("範囲の外が要るなら request", sec)
+        self.assertIn("query（`correct_lines` 付き）", sec)
+
+    def test_rewrite_tests_is_an_exception_to_frozen_tests(self):
+        """修正役の頭の「テストのファイルは変えるな」の例外に、修正案の rewrite_tests の名指しが並ぶ"""
+        head = fixrules.sections(fixrules.DIRECT)["fix-head"]
+        self.assertIn("修正案の `rewrite_tests` の名指しと、裁定 fix_test_scope の範囲だけは例外", head)
+
+    def test_judgment_is_background_in_heads(self):
+        """修正役・TDD の役の頭の判定のファイルの行は「全部読め」でなく背景"""
+        for name, sid in ((fixrules.DIRECT, "fix-head"), (fixrules.TDD, "tdd-head")):
+            line = next(ln for ln in fixrules.sections(name)[sid].splitlines() if "<<judgment_file>>" in ln)
+            self.assertNotIn("全部読め", line)
+            self.assertIn("背景", line)
 
     def test_both_prompts_carry_the_shared_source(self):
         """種類を選ばない組み立て（全部の種類）では、正本の全文がそのまま両方に入る"""
@@ -300,10 +347,16 @@ class TestCompose(unittest.TestCase):
         h = header(self.fix(kinds={"code": "判定 stats.py"}))
         self.assertEqual((h["role"], h["iteration"], h["mode"]), ("fix", 1, "full"))
         self.assertEqual([s["id"] for s in h["sections"]],
-                         ["fix-head", "core-fix", "evidence", "evidence-code", "core-conflict", "core-keep", "fix-keep",
-                          "fix-reply"])
+                         ["fix-head", "brief-canon", "core-fix", "evidence", "evidence-code", "core-conflict", "core-keep",
+                          "fix-keep", "fix-reply"])
         self.assertTrue(all(s["sent"] and s["why"] for s in h["sections"]))
         self.assertEqual(len(h["rules_sha"]), 64)
+
+    def test_tdd_brief_after_title_before_reason(self):
+        """TDD の役の指示書の頭: 題 → brief の節 → 前の回に拒んだ理由"""
+        text = fixrules.tdd_prompt(tdd_values(), "fix", PHASE_TEXT, title=TITLE, reason="R", brief="## 要求の正本（brief）\n\nX")
+        self.assertLess(text.index(TITLE), text.index("## 要求の正本（brief）"))
+        self.assertLess(text.index("## 要求の正本（brief）"), text.index("前の回の返答を機械が拒んだ理由"))
 
 
 class TestDelta(unittest.TestCase):
@@ -886,6 +939,28 @@ class TestRefixCarriesCanon(unittest.TestCase):
                 self.assertEqual(text.count(reply), 1)
                 self.assertLess(text.index(reply), text.index(tails[n]))
                 self.assertNotIn(tails[3 - n], text)
+
+
+class TestBriefCanonEdges(unittest.TestCase):
+    """brief の決まり（brief-canon）の端: 人が関所で付けた条件との強さの順と、指示書の頭の節の見出しとの重なり"""
+
+    def test_gate_notes_win_over_brief(self):
+        """修正の前に人が答えた条件（notes_file）は brief に勝つ。brief が条件を超えれば条件どおりに直し、超えた所は申し出で返す。
+        決まりの文は「関所」の語を使わない（ブロックはほかの段を知らない。test の BLOCK_KNOWN の数え）"""
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        self.assertIn("修正の前に人が答えた条件（notes_file）は brief に勝つ", sec)
+        self.assertIn("brief が条件を超えれば条件どおりに直し、超えた所は食い違いの申し出で返す", sec)
+
+    def test_rule_heading_does_not_overlap_brief_head(self):
+        """決まりの節の見出しは、指示書の頭の brief の節の見出し（planbrief.HEAD）を含まない。READ_ALL は決まりの節の名を名指す"""
+        import planbrief
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        self.assertNotIn(planbrief.HEAD, sec)
+        heading = next(ln for ln in sec.splitlines() if ln.startswith("## "))
+        self.assertIn(f"『{heading[3:]}』", planbrief.READ_ALL)
+        for name, sid in ((fixrules.DIRECT, "fix-head"), (fixrules.TDD, "tdd-head")):
+            line = next(ln for ln in fixrules.sections(name)[sid].splitlines() if "<<judgment_file>>" in ln)
+            self.assertIn(f"「{heading[3:]}」", line)
 
 
 if __name__ == "__main__":

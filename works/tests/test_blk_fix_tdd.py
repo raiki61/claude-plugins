@@ -29,7 +29,9 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
 from gitkit import committed_copy, git  # noqa: E402
+import planbrief  # noqa: E402
 import tddloop  # noqa: E402
+from unittest import mock  # noqa: E402
 
 DEADLINE = 1728000000
 MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
@@ -336,6 +338,31 @@ class TestStart(LoopCase):
     def test_second_start_gets_its_own_state(self):
         again = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
         self.assertNotEqual(again["state_file"], self.state)
+
+    def test_tdd_prep_puts_brief_of_current_unit(self):
+        """振り分けの段は直す義務の単位の全部の brief、ほかの段は今の単位の brief だけを頭で名指す"""
+        rows = [{"item": 1, "unit_keys": [MEAN], "file": "/b/r1/brief-1.md", "sha256": "a" * 64},
+                {"item": 2, "unit_keys": [CLAMP], "file": "/b/r1/brief-2.md", "sha256": "b" * 64}]
+        with mock.patch.object(tddloop.planbrief, "cut_at", return_value=rows) as cut:
+            route = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+            self.assertEqual(pathlib.Path(cut.call_args[0][0]).resolve(), self.board.resolve(), "盤面の置き場で切る")
+            self.assertIn("brief-1.md", route)
+            self.assertIn("brief-2.md", route)
+            self.route()   # MEAN は tdd、CLAMP は direct
+            test = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+            self.assertIn("brief-1.md", test)
+            self.assertNotIn("brief-2.md", test, "今の単位は MEAN だけ")
+
+    def test_tdd_prep_without_board_has_no_brief(self):
+        """盤面の無い置き場（修正案の無い run と同じ）では brief の節を置かない"""
+        self.assertNotIn(planbrief.HEAD, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"))
+
+    def test_tdd_prep_broken_ledger_stops_with_reason(self):
+        """brief の控えが壊れていれば、brief の無い指示書として続けず、控えを名指す理由の Broken で止める（traceback にしない）"""
+        broken = planbrief.LedgerBroken(f"brief の控え /b/r1/{planbrief.LEDGER} を読めない: 壊れた")
+        with mock.patch.object(tddloop.planbrief, "cut_at", side_effect=broken):
+            with self.assertRaisesRegex(tddloop.Broken, planbrief.LEDGER):
+                tddloop.prep(self.state)
 
 
 class TestRoute(LoopCase):

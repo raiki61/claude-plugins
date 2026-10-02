@@ -68,6 +68,8 @@ ROLE_KNOWN = {
     "blk-fix/rules/direct.md:判定役": (3, "判定役が切った単位を所与にする。" + ROLE_LATER),
     "blk-fix/rules/direct.md:後段": (1, "後段が在る前提で述べる。" + ROLE_LATER),
     "blk-fix/rules/direct.md:関所": (1, "人の関所が在る前提で述べる。" + ROLE_LATER),
+    "blk-fix/rules/brief.md:関所": (1, "書き換えてよいテスト（rewrite_tests）が最後の人の関所に並ぶ前提で述べる（依頼 217 の"
+                                     "brief の決まりの試験の語）。" + ROLE_LATER),
     "blk-fix/rules/principles.md:関所": (1, "最後の人の関所が在る前提で述べる。" + ROLE_LATER),
     "blk-fix/rules/ruler.md:修正役": (1, "裁く相手を修正役として述べる。" + ROLE_LATER),
     "blk-fix/rules/tdd.md:判定役": (1, "判定役が切った単位を所与にする。" + ROLE_LATER),

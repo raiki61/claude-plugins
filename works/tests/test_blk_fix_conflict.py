@@ -14,6 +14,7 @@ import os
 import pathlib
 import sys
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BLK = ROOT / "blk-fix"
@@ -25,7 +26,9 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(TESTS))
 
+import conflict  # noqa: E402
 import entry  # noqa: E402
+import planmarks  # noqa: E402
 from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, block, board_shas, find_node, load, run_script)  # noqa: E402
 from test_blk_fix_tdd import LoopCase  # noqa: E402
 
@@ -408,6 +411,16 @@ class TestTddExcused(LoopCase):
         got = tddloop_step(self, {"phase": "route", "units": [{"unit_key": MEAN, "route": "direct", "why": why}]})
         self.assertTrue(got["ok"], got)
 
+    def test_excused_unit_marked_not_now_in_brief_row(self):
+        """振り分けの段の brief の行の「単位」は直す義務の単位だけ。同じ項目の答え待ちの単位は「今は直すな」と添える"""
+        import planbrief
+        import tddloop
+        rows = [{"item": 1, "unit_keys": [MEAN, CLAMP], "file": "/b/r1/brief-1.md", "sha256": "a" * 64}]
+        with mock.patch.object(tddloop.planbrief, "cut_at", return_value=rows):
+            prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        row = next(ln for ln in prompt[prompt.index(planbrief.HEAD):].splitlines() if ln.startswith("- 項目 1:"))
+        self.assertIn(f"単位 {MEAN}・{planbrief.NOT_NOW}: {CLAMP}", row)
+
 
 def tddloop_step(case, reply):
     import tddloop
@@ -490,6 +503,274 @@ class TestYaml(unittest.TestCase):
         clean = find_node(y["nodes"], "clean")
         self.assertEqual(clean["depends_on"], ["fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop"])
         self.assertEqual(clean["trigger_rule"], "none_failed_min_one_success")
+
+
+class TestPlanRewritePermits(ConflictBoardCase):
+    """承認済みの修正案が名指した既存テストの書き換え（rewrite_tests）は、裁定 fix_test_scope の範囲と同じ 1 か所
+    （conflict.test_permits）から凍結の検査と最後の関所へ渡る"""
+    REWRITE = {"id": "test_stats.py::TestStats::test_mean_of_three", "behavior": "平均の定義が依頼で変わる",
+               "old": "mean([1, 2, 3]), 2", "new": "新しい期待は 2.0（float で返す）", "limit": "test_stats.py:8"}
+
+    def fields_saved(self):
+        self.fix_ready()
+        b = entry.open_board(self.board)
+        planmarks.save(self.board, b.round, [{"route": "tdd", "route_why": "", "tests": [], "rewrite_tests": [self.REWRITE],
+                                               "refactor": {"declared": False, "why": ""}}])
+        return entry.open_board(self.board)
+
+    def test_permits_join_plan_rewrites_and_rulings(self):
+        b = self.fields_saved()
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False), ["test_stats.py:8"])
+        self.assertEqual(conflict.ruled_test_doc(b)["rules"][0]["id"].split("-")[:2], ["plan", "rewrite"])
+
+    def test_no_plan_fields_same_as_before(self):
+        self.fix_ready()
+        self.assertIsNone(conflict.ruled_test_doc(entry.open_board(self.board)))
+
+    def test_plan_rewrite_listed_at_final_gate(self):
+        import line_edge
+        self.fields_saved()
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("mean([1, 2, 3]), 2", "mean([1, 2, 3]), 2.0"), encoding="utf-8")
+        self.edit_tree(MEAN_FIX)
+        got = line_edge.final_edge(entry.open_board(self.board), self.repo, run_id="run-12", mode="when_needed",
+                                   tests={"ok": True, "green": True})
+        self.assertTrue(got.get("ask"), got)
+        self.assertIn(conflict.PLAN_TEST_ID, got["gate_text"])
+
+    def frozen_after_test_added_above(self):
+        """修正案の時の木（limit は test_stats.py:8）の後、TDD の輪が同じファイルの上に 2 行のテスト test_empty を足して凍った
+        盤面。返り (盤面, 輪の状態のファイル)"""
+        import tddloop
+        b = self.fields_saved()
+        path = self.repo / "test_stats.py"
+        text = path.read_text(encoding="utf-8")
+        head = "class TestStats(unittest.TestCase):\n"
+        self.assertIn(head, text)
+        path.write_text(text.replace(head, head + "    def test_empty(self):\n        self.assertEqual(clamp(0, 0, 0), 0)\n"),
+                        encoding="utf-8")
+        state = self.tmp / "tdd-state.json"
+        state.write_text(json.dumps({"frozen": tddloop.hashes(self.repo, ["test_stats.py"]),
+                                     "frozen_tree": tddloop.snapshot(self.repo)}), encoding="utf-8")
+        return b, str(state)
+
+    def test_plan_limit_follows_test_id_on_frozen_tree(self):
+        """修正案の limit の行は、凍結の検査が読む輪の後の木で、テストの id から引き直す（上に足したテストを指さない）"""
+        import tddloop
+        b, state = self.frozen_after_test_added_above()
+        limits = conflict.ruled_test_limits(b, rulings=False, source=tddloop.frozen_source(state, self.repo))
+        self.assertEqual(limits, ["test_stats.py:10"])
+        path = self.repo / "test_stats.py"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace("mean([1, 2, 3]), 2)", "mean([1, 2, 3]), 2.0)"), encoding="utf-8")
+        self.assertEqual(tddloop.frozen_problems(state, self.repo, limits), [], "名指したテストの書き換えは通す")
+        path.write_text(text.replace("clamp(0, 0, 0), 0)", "clamp(0, 0, 0), 1)"), encoding="utf-8")
+        self.assertTrue(tddloop.frozen_problems(state, self.repo, limits), "名指していない test_empty の書き換えは拒む")
+
+    def test_plan_limit_dropped_when_test_missing_on_frozen_tree(self):
+        """輪の後の木で名指したテストを引けなければ、その許しを捨てる（範囲を広げない側）"""
+        import tddloop
+        b = self.fields_saved()
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("def test_mean_of_three", "def test_mean_renamed"),
+                        encoding="utf-8")
+        state = self.tmp / "tdd-state.json"
+        state.write_text(json.dumps({"frozen": tddloop.hashes(self.repo, ["test_stats.py"]),
+                                     "frozen_tree": tddloop.snapshot(self.repo)}), encoding="utf-8")
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=tddloop.frozen_source(str(state), self.repo)), [])
+        no_tree = self.tmp / "tdd-state-no-tree.json"
+        no_tree.write_text(json.dumps({"frozen": {}}), encoding="utf-8")
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=tddloop.frozen_source(str(no_tree), self.repo)), [],
+                         "輪の後の木が無ければ引けないので捨てる")
+
+    def test_fields_rewritten_after_accept_halt_the_frozen_check(self):
+        """受け付けの後に plan-fields.json へ rewrite_tests の行を足しても、凍結の検査はその許しを使わず、盤面を止めて
+        plan-fields.json を名指す 1 行で 2（黙って許しを広げない・黙って捨てない）"""
+        _, state = self.frozen_after_test_added_above()
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["rewrite_tests"].append(dict(self.REWRITE, id="test_stats.py::TestStats::test_empty",
+                                                      limit="test_stats.py:4"))
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("clamp(0, 0, 0), 0)", "clamp(0, 0, 0), 1)"), encoding="utf-8")
+        env = {"INPUTS_REPLY": json.dumps(load("fix2_ok"), ensure_ascii=False), "INPUTS_BASE_REV": "", "INPUTS_TDD_STATE": state,
+               "INPUTS_ITERATION": "1", "INPUTS_PASS": "first", "ARTIFACTS_DIR": str(self.art),
+               "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]}
+        code, out, err = run_script("accept", self.repo, env)
+        self.assertEqual((code, out), (2, ""), err)
+        self.assertIn(planmarks.FIELDS_FILE, err)
+        self.assertNotIn("Traceback", err)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        self.assertIn(planmarks.FIELDS_FILE, after.state["stop"]["reason"])
+
+    def test_same_file_by_plan_and_ruling_lists_both_reasons_at_final_gate(self):
+        """修正案と裁定 fix_test_scope が同じテストのファイルを許すと、最後の関所のその 1 行に両方の理由が並ぶ"""
+        import line_edge
+        self.parked()
+        cid = self.items()[0]["id"]
+        _, r = self.rule([{"id": cid, "decision": "fix_test_scope", "text": RULE_TEXT, "limits": ["test_stats.py:9"]}])
+        self.assertTrue(r["ok"], r)
+        b = entry.open_board(self.board)
+        planmarks.save(self.board, b.round, [{"route": "tdd", "route_why": "", "tests": [], "rewrite_tests": [self.REWRITE],
+                                               "refactor": {"declared": False, "why": ""}}])
+        b = entry.open_board(self.board)
+        self.assertEqual(len(conflict.ruled_test_doc(b)["rules"]), 1, "パスで 1 行")
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("mean([1, 2, 3]), 2", "mean([1, 2, 3]), 2.0"), encoding="utf-8")
+        self.edit_tree(MEAN_FIX)
+        got = line_edge.final_edge(b, self.repo, run_id="run-12", mode="when_needed", tests={"ok": True, "green": True})
+        self.assertTrue(got.get("ask"), got)
+        self.assertIn(conflict.PLAN_TEST_ID, got["gate_text"])
+        self.assertIn(RULE_TEXT, got["gate_text"])
+        self.assertIn(f"裁定 {cid}", got["gate_text"])
+
+
+class TestFirstPassPlanLimits(unittest.TestCase):
+    """1 回目（first）の受け付けも、修正案が名指した書き換えを凍結の検査に渡す（裁定の範囲は 2 回目だけ）。
+    盤面・git は使わない（test_fix_rules.TestThirdRejectParksBoundUnit と同じく受け付けの模块を読み、検査を mock にする）"""
+
+    def test_first_pass_hands_plan_limits_to_frozen_check(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_fix_accept_script", BLK / "scripts" / "accept.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        limits = mock.MagicMock(return_value=["test_stats.py:8"])
+        frozen = mock.MagicMock(return_value=["TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']"])
+        with mock.patch.object(mod.conflict, "ruled_test_limits", limits), \
+                mock.patch.object(mod.tddloop, "frozen_problems", frozen), \
+                mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
+                mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": "/b/tdd.json",
+                                               "INPUTS_PASS": "first"}):
+            got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
+        self.assertIs(got["ok"], False, got)
+        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY)
+        self.assertTrue(callable(limits.call_args.kwargs["source"]), "修正案の limit は輪の後の木で引き直す")
+        self.assertEqual(frozen.call_args[0][2], ["test_stats.py:8"])
+
+
+class TestPermitsOnRawBoard(unittest.TestCase):
+    """盤面の控えのファイルだけを置いた軽い盤面（dir・round・work）で、許しの行の引き方と最後の関所の行の組み方を見る"""
+    TWO = "import unittest\nclass A(unittest.TestCase):\n    def test_x(self):\n        pass\nclass B(unittest.TestCase):\n" \
+          "    def test_x(self):\n        pass\n"
+
+    def setUp(self):
+        import tempfile
+        import types
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = pathlib.Path(tmp.name)
+        self.b = types.SimpleNamespace(dir=self.dir, round=1, work=lambda name: self.dir / name)
+
+    def test_trailing_slash_id_names_the_class_at_plan_and_frozen_time(self):
+        """id のパスを書いたまま（t.py/）でなく、整えたパス（t.py）で .py かを決める（A::test_x の行に広げない）"""
+        repo = self.dir / "repo"
+        repo.mkdir()
+        (repo / "t.py").write_text(self.TWO, encoding="utf-8")
+        tid = "t.py/::B::test_x"
+        self.assertEqual(planmarks.find_test(repo, tid), 6)
+        row = {"id": tid, "behavior": "B の振る舞いが依頼で変わる", "old": "pass のまま", "new": "新しい期待を書く行に変える"}
+        _, fields = planmarks.split({"plan": [{"rewrite_tests": [row]}]}, repo)
+        self.assertEqual(fields[0]["rewrite_tests"][0]["limit"], "t.py:6", "修正案の時")
+        planmarks.save(self.dir, 1, fields)
+        self.assertEqual(conflict.ruled_test_limits(self.b, rulings=False, source=lambda p: self.TWO if p == "t.py" else None),
+                         ["t.py:6"], "凍結の検査の時")
+
+    def test_same_reason_with_slash_listed_once(self):
+        """1 つの裁定が同じファイルに 2 つの範囲を許しても、理由は 1 度だけ（理由の文に " / " が在っても）"""
+        text = "期待は float / int のどちらでもよいと依頼に在るので、範囲の 2 か所を直してよい"
+        (self.dir / conflict.FILE).write_text(json.dumps({"items": [
+            {"id": "c1-1", "unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"], "why_both_cannot_hold": WHY,
+             "which_is_right": "test", "ruling": {"decision": "fix_test_scope", "text": text,
+                                                   "limits": ["test_stats.py:8", "test_stats.py:14"]}}]}, ensure_ascii=False),
+            encoding="utf-8")
+        rows = conflict.ruled_test_doc(self.b)["rules"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["why"].count(text), 1, rows[0]["why"])
+
+
+class TestRuledPrepBrief(ConflictBoardCase):
+    """2 回目の修正役（fix-ruled-prep）の指示書の頭: 裁定の文のファイルが見出しの次の 1 行（R44）で、brief の節はその後。
+    brief の行の「単位」は直す義務の単位だけで、義務から外れた単位には「今は直すな」と添える"""
+
+    def ruled_prompt(self, decision, text):
+        import planbrief  # noqa: F401  （blk-fix の lib。test_blk_fix が sys.path に足す）
+        from test_blk_fix import PLAN_FIELDS
+        self.parked()
+        cid = self.items()[0]["id"]
+        _, r = self.rule([{"id": cid, "decision": decision, "text": text, "limits": ["stats.py:9"] if decision != "ask_human" else [],
+                           "request_searched": "依頼に分母と期待値のどちらを正とするかの答えを探したが無い"}])
+        self.assertTrue(r["ok"], r)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        code, out, err = run_script("fix_prep", self.repo, {
+            "ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "ruled",
+            **{f"INPUTS_{k.upper()}": v for k, v in {"judgment_file": "", "open_units": json.dumps([MEAN, CLAMP]),
+                                                    "plan_file": "", "policy_path": "", "notes_file": "", "summary_file": ""}.items()}})
+        self.assertEqual(code, 0, err)
+        return r, pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+
+    def test_rulings_line_before_brief_head(self):
+        import planbrief
+        r, prompt = self.ruled_prompt("fix_code_as", RULE_TEXT)
+        self.assertIn(r["rulings_file"], prompt.split("\n")[1], "裁定の文のファイルを見出しの次の 1 行で名指す")
+        self.assertLess(prompt.index(r["rulings_file"]), prompt.index(planbrief.HEAD))
+
+    def test_excused_unit_marked_not_now_in_brief_row(self):
+        import planbrief
+        _, prompt = self.ruled_prompt("ask_human", "依頼とテストのどちらが正しいかは方針の変更で、人が決める")
+        row = next(ln for ln in prompt[prompt.index(planbrief.HEAD):].splitlines() if ln.startswith("- 項目 1:"))
+        self.assertIn(f"単位 {CLAMP}", row)
+        self.assertNotIn(f"単位 {MEAN}", row)
+        self.assertIn(f"今は直すな: {MEAN}", row)
+
+
+class TestTamperedFieldsAtLineEdge(ConflictBoardCase):
+    """受け付けの後に plan-fields.json を書き換えた盤面を、線の境（h-final・h-eyes）の読むだけの確かめ（line_edge._guard）が
+    止めた時: 答えが効かない関所を開かず、2 度止めず、控えを名指す理由で止まる"""
+    REWRITE, fields_saved = TestPlanRewritePermits.REWRITE, TestPlanRewritePermits.fields_saved
+
+    def tampered(self):
+        self.fields_saved()
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["rewrite_tests"].append(dict(self.REWRITE, id="test_stats.py::TestStats::test_mean_of_two",
+                                                      limit="test_stats.py:11"))
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.edit_tree(MEAN_FIX)
+
+    def assert_halted_once(self, out):
+        import line_edge
+        self.assertTrue(out["stop"], out)
+        self.assertFalse(out.get("ask"), "答えが効かない関所を開かない")
+        self.assertIn(planmarks.FIELDS_FILE, out["why"])
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(b.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        stops = [x for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if '"op": "stop"' in x]
+        self.assertEqual(len(stops), 1, "2 度止めない")
+        self.assertFalse(b.work(line_edge.FINAL_GATE_FILE).exists())
+
+    def test_at_final_no_gate(self):
+        import line_edge
+        self.tampered()
+        out = line_edge.edge(self.board, "final", self.repo, run_id="run-12", adapter_mode="", final_gate="always",
+                             tests={"ok": True, "green": True})
+        self.assert_halted_once(out)
+
+    def test_at_eyes_without_final_no_second_stop(self):
+        """h-final が飛ばされた run の h-eyes（関所の答えが無い）"""
+        import line_edge
+        self.tampered()
+        out = line_edge.edge(self.board, "eyes", self.repo, run_id="run-12", adapter_mode="", final_gate="when_needed")
+        self.assert_halted_once(out)
+
+
+class TestParseLimitDots(unittest.TestCase):
+    def test_dotdot_prefixed_dir_kept_and_climb_dropped(self):
+        """`..foo/x.py` は根の中のディレクトリ `..foo` の物（planmarks.gaps が通す範囲を受け付けで捨てない）。`../` の上りは今どおり捨てる"""
+        self.assertEqual(conflict.parse_limit("..foo/x.py:3"), ("..foo/x.py", (3, 3)))
+        self.assertIsNone(conflict.parse_limit("../x.py:3"))
+        self.assertIsNone(conflict.parse_limit("/x.py:3"))
 
 
 if __name__ == "__main__":

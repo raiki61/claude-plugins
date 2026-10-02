@@ -46,6 +46,17 @@ plan:
     removes: []
     shrink_first: 足す物は無い。式と戻り値を 1 か所ずつ直すだけで足りる
     narrows: []
+    route: tdd
+    tests:
+    - id: test_stats.py::TestStats::test_mean_of_two
+      behavior: 2 つの値の平均がその真ん中の値になる
+      path: stats.mean を本物のまま呼び、戻り値を断言する（mock を使わない）
+      red_kind: assertion
+      red_why: 今の分母は len(xs) - 1 なので mean([1, 3]) が 4.0 を返し、2 との比べが落ちる
+    rewrite_tests: []
+    refactor:
+      declared: false
+      why: ''
 plan-accept:
   ok: false
   done: false

@@ -16,8 +16,8 @@
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 - 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の修正の差分（修正前の版
   state.inputs.review_rev から。固まる前は record.base。未追跡を含む。_protected）が一覧に当たれば最後の関所を final_gate に関わらず開き、冒頭 3 行で名指して直後の最初の節に並べ、process.human_items に 1 行。h-eyes は答えを
-  その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ。食い違いの申し出の裁定（core の conflict）
-  が許したテストの変更（fix_test_scope の範囲）も守りのファイルの行として並ぶ
+  その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ。テストの変更の許し（承認済みの修正案の
+  rewrite_tests と裁定 fix_test_scope の範囲。core の conflict.test_permits）が名指したテストの変更も守りのファイルの行として並ぶ
 - 食い違いの申し出（core の conflict）: 裁定役か機械が ask_human に裁いた単位が在れば、h-final は最後の関所を final_gate に関わらず
   開き、文に「食い違いの申し出」の節を並べ、process.human_items に 1 行。答えの写しと、答えが来ない時の止めは守りのファイルと同じ
 """
@@ -515,8 +515,9 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
 
 def _protected(b, repo) -> tuple:
     """run の修正の差分（修正前の版＝state.inputs.review_rev。固まる前は record.base＝p0.base が固めた版。そこから今の作業ツリー
-    まで。commit・消した物・未追跡を含む）のうち守りのファイルに当たる物と、食い違いの裁定（fix_test_scope）が直してよいと
-    許したテストの物。変更から入る run の record.base は merge-base で、PR にもとからある変更まで数えてしまうので起点にしない。
+    まで。commit・消した物・未追跡を含む）のうち守りのファイルに当たる物と、テストの変更の許し（承認済みの修正案の rewrite_tests と
+    裁定 fix_test_scope の範囲。conflict.test_permits）が名指したテストの物。変更から入る run の record.base は merge-base で、
+    PR にもとからある変更まで数えてしまうので起点にしない。
     返り (rows, rev, 確かめられなかった理由)。一覧・版・git・申し出の控えが読めなければ rows は空で理由を返す（fail closed）"""
     rev = ""
     try:
@@ -684,6 +685,8 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     left = rejudge.unsettled(b)
     objection = "" if left["settled"] else left["text"]
     rows, rev, err, asks = _guard(b, repo)
+    if _stopped(b) and not _ended(b):   # 確かめが盤面を止めた（修正案の欄の控えの食い違い）: 答えが効かない関所は開かない
+        return {}
     guarded = bool(rows) or bool(err)
     # 申告と数え直しが合わない単位は、前は返答全体を拒んだ形なので関所を開ける。閉じていないだけの単位（修正役が remaining で
     # 残した）は前も通っていたので、見せるだけ
@@ -883,7 +886,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        stop・reject は b.stop(一言 か FINAL_GATE_STOP_NOTE, by=FINAL_GATE_BY)——周を締めた盤面では b.stop が拒むので、
        trace に STOP_AFTER_END_OP の 1 行（by FINAL_GATE_BY）を書いて stop。守りのファイルの行（h-final が書いた）にも答えを写す。
        gate が null（関所が開かなかった）なら守りのファイルと食い違いを確かめ直し（_guard。h-final が飛ばされた run でも行を書く）、
-       今の周の行が答えを待っていれば、止める（by PROTECTED_BY・conflict.BY）
+       今の周の行が答えを待っていれば、止める（by PROTECTED_BY・conflict.BY）。at final・eyes の確かめ（_guard）が盤面を止めた
+       （修正案の欄の控え plan-fields.json の食い違い。conflict.test_permits）なら、関所を開かず止め直さずに _halted_out
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
@@ -918,6 +922,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
                 return {**out, "stop": True, "why": reason}
     if at == "eyes" and gate is None:
         _guard(b, repo)   # h-final が飛ばされた（独立の目のブロックが落ちた）run では行がまだ無い
+        if _stopped(b) and not _ended(b):   # 確かめが盤面を止めた（修正案の欄の控えの食い違い）: 2 度止めず、その理由で止まる
+            return _halted_out(b, out, flag, at)
         guarded = _protected_row(b)
         if guarded is not None and guarded.get("answer") is None:   # 守りのファイルを触ったのに最後の関所が開かなかった
             reason = f"{PROTECTED_HEAD}のに最後の関所の答えが無い（関所が開かなかった）——通すのは人の continue だけ: {guarded.get('note')}"
@@ -965,5 +971,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
     if at == "mid":
         return {**out, "go": _fixed_by_role(b), "mid_note": MID_NOTE}
     if at == "final":
-        return {**out, **final_edge(b, repo, run_id=run_id, mode=mode, tests=tests)}
+        got = final_edge(b, repo, run_id=run_id, mode=mode, tests=tests)
+        if _stopped(b) and not _ended(b):   # final_edge の確かめ（_guard）が盤面を止めた: 関所を開かず、その理由で止まる
+            return _halted_out(b, out, flag, at)
+        return {**out, **got}
     return {**out, "go": GO_NODE[at] in b.ready()}

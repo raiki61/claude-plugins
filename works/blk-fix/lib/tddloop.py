@@ -3,7 +3,8 @@
 節と関数:
 - tdd-start → start: 入力 tdd_suite（JUnit XML の書き先を第 1 引数に受け、リポジトリの根で走る実行ファイル。本線と同じ約束）が
   空なら何もせず go: false（全部の単位を今どおり直す）。在れば一式を 1 回走らせて元の結末を取り、盤面の tdd-<k>/ に状態を置く
-- tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形）→ 役 tdd（修正役。
+- tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形。頭に brief の節: 振り分けの段は
+  直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run は無し）→ 役 tdd（修正役。
   同じ会話で振り分け・テスト・直し・整えを返す）→
   tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix → refactor → 次の単位
   - route: 直す義務の単位（_owed: 開いた単位から、答え待ち・ask_human で外れた単位と食い違いで止めた単位を除く）を全部 1 度だけ
@@ -48,6 +49,7 @@ import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確�
 import entry  # noqa: E402  （.shared/core。盤面の入口）
 import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
 import impact  # noqa: E402  （.shared/core。変更に当たる試験の選び）
+import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
 import tree_run  # noqa: E402
 import writes  # noqa: E402  （.shared/core。書き込みの出どころの突き合わせ）
 from leftovers import Unreadable, git, git_names  # noqa: E402
@@ -320,20 +322,39 @@ DO = {
 }
 
 
+def _briefs(board_dir: pathlib.Path) -> list:
+    """盤面の今の周の brief（planbrief.cut_at。盤面を開き直して凍結する。盤面の無い置き場は []）。控えが壊れていれば盤面を止めて
+    （fixrules.brief_halt）理由の Broken（brief の無い指示書として続けない）"""
+    try:
+        return planbrief.cut_at(board_dir)
+    except planbrief.LedgerBroken as e:
+        try:
+            b = entry.open_board(board_dir, allow_halted=True)
+        except board.BoardGap:
+            b = None
+        raise Broken(fixrules.brief_halt(b, e)) from None
+
+
 def prep(state_file, values: dict | None = None, repo=None) -> dict:
     """節 tdd-prep。今の段の指示書を組み（fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段の約束・run の値）、状態の
     置き場の next.md（full の写し）と隣の next.full.md・next.delta.md・next.variants.json に書き、{prompt_file} を返す。
-    values は fixrules.TDD_VALUES の run の値（義務の単位は状態の物を使う。欠けは空）。repo は差分から変更の種類を選ぶ根（None は見ない）"""
+    values は fixrules.TDD_VALUES の run の値（義務の単位は状態の物を使う。欠けは空）。repo は差分から変更の種類を選ぶ根（None は見ない）。
+    題の次に brief の節（planbrief.head_text）: 振り分けの段は直す義務の単位の全部、ほかの段は今の単位 1 つの brief。行の
+    「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-prep を呼ぶ番でない）")
+    path = pathlib.Path(st["work"]) / PROMPT
+    briefs = _briefs(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
     phase = st["phase"]
     title = f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）"
     lines = ["## この段ですること", "", DO[phase], ""]
     if phase == "route":
         lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in _owed(st)] + [""]
+        brief = planbrief.head_text(planbrief.for_units(briefs, _owed(st)), _owed(st))
     else:
         u = st["units"][st["queue"][st["cur"]]]
+        brief = planbrief.head_text(planbrief.for_units(briefs, [u["unit_key"]]), [u["unit_key"]])
         lines += ["## 今の単位", "", f"- {u['unit_key']}", ""]
         if u["tests"]:
             lines += [f"- 名指しのテスト: {', '.join(u['tests'])}", f"- テストのファイル（凍っている）: {', '.join(u['test_files'])}", ""]
@@ -347,14 +368,13 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
               "## 返す JSON", "", RETURN[phase], "", RETURN_CONFLICT]
     vals = {**{k: "" for k in fixrules.TDD_VALUES}, **(values or {}),
             "open_units": json.dumps(_owed(st), ensure_ascii=False)}
-    path = pathlib.Path(st["work"]) / PROMPT
     n = st["iterations"] + 1
     lang = fixrules.lang_at(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
 
     def build(kinds, prior, rules_file):
         try:
             return fixrules.tdd_render(vals, phase, "\n".join(lines), title=title, reason=st["reason"], kinds=kinds,
-                                       prior=prior, iteration=n, rules_file=rules_file, lang=lang)
+                                       prior=prior, iteration=n, brief=brief, rules_file=rules_file, lang=lang)
         except fixrules.Unfilled as e:
             raise Broken(f"TDD の輪の指示書を組めない: {e}")
     fixrules.write_variants(path, repo, vals, build, n)
@@ -656,7 +676,8 @@ def _finish(st, repo) -> None:
 # ---------------------------------------------------------------- 輪の後
 def frozen_problems(state_file, repo, allowed=()) -> list:
     """輪で緑になった単位のテストのファイルが、輪が済んだ時から変わっていれば、その文（状態が無ければ空）。
-    allowed は裁定 fix_test_scope の範囲（conflict.ruled_test_limits）で、その中だけの変更は通す"""
+    allowed はテストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。conflict.test_permits を
+    conflict.ruled_test_limits が引く）で、その中だけの変更は通す"""
     if not state_file:
         return []
     st = _load(state_file)
@@ -679,9 +700,24 @@ def frozen_problems(state_file, repo, allowed=()) -> list:
             if bad:
                 outside[f] = bad
     out = [f"TDD の輪で凍ったテストのファイルを書き換えた: {probs}（輪で直した単位のテストは変えない）"] if probs else []
-    out += [f"TDD の輪で凍ったテストのファイル {f} を、裁定 fix_test_scope の範囲の外で書き換えた: 旧い行 {', '.join(bad)}"
+    out += [f"TDD の輪で凍ったテストのファイル {f} を、テストの変更の許し（修正案の rewrite_tests の名指しまたは裁定 fix_test_scope）"
+            f"の範囲の外で書き換えた: 旧い行 {', '.join(bad)}"
             "（範囲に並べた行だけ直してよい。.py の 1 行の指しはその行を含む関数の全体）" for f, bad in outside.items()]
     return out
+
+
+def frozen_source(state_file, repo):
+    """凍結の検査が行を読む輪の後の木（frozen_tree、無ければ handoff。_hunks_outside と同じ）から、パスの中身を読む口
+    （conflict.ruled_test_limits の source。修正案の limit をその木でテストの id から引き直す）。状態・木・パスが読めなければ
+    口は None を返す（許しを捨てる側）。状態は口を呼んだ時に読む"""
+    def read(path):
+        try:
+            st = _load(state_file) if state_file else {}
+            tree = st.get("frozen_tree") or st.get("handoff")
+            return git(repo, "show", f"{tree}:{path}") if tree else None
+        except (Broken, Unreadable):
+            return None
+    return read
 
 
 def _hunks_outside(repo, tree, path, spans) -> list:

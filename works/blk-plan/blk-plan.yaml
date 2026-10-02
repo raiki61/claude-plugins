@@ -235,6 +235,10 @@ nodes:
                   - removes
                   - shrink_first
                   - narrows
+                  - route
+                  - tests
+                  - rewrite_tests
+                  - refactor
                   properties:
                     unit_keys:
                       type: array
@@ -319,6 +323,76 @@ nodes:
                           no_narrow:
                             type: string
                             minLength: 20
+                    route:
+                      type: string
+                      enum:
+                      - tdd
+                      - direct
+                    route_why:
+                      type: string
+                    tests:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - id
+                        - behavior
+                        - path
+                        - red_kind
+                        - red_why
+                        properties:
+                          id:
+                            type: string
+                            pattern: '::'
+                          behavior:
+                            type: string
+                            minLength: 10
+                          path:
+                            type: string
+                            minLength: 10
+                          red_kind:
+                            type: string
+                            enum:
+                            - assertion
+                            - exception
+                          red_why:
+                            type: string
+                            minLength: 10
+                    rewrite_tests:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - id
+                        - behavior
+                        - old
+                        - new
+                        properties:
+                          id:
+                            type: string
+                            pattern: '::'
+                          behavior:
+                            type: string
+                            minLength: 10
+                          old:
+                            type: string
+                            minLength: 4
+                          new:
+                            type: string
+                            minLength: 10
+                    refactor:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - declared
+                      - why
+                      properties:
+                        declared:
+                          type: boolean
+                        why:
+                          type: string
         - id: plan-accept
           script: accept
           runtime: uv

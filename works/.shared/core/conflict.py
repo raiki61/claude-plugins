@@ -18,11 +18,17 @@
 - apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
   答えた問いの出どころを直す義務に戻し、ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
-- ruled_test_doc(b): fix_test_scope が名指したテストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
+- test_permits(b, rulings=, source=): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲）の
+  唯一の元。凍結の検査と最後の関所はここから引く。source を渡すと、修正案の行の範囲をその木でテストの id から引き直す。
+  修正案の欄の控え plan-fields.json が凍結の印と食い違えば（planmarks.FieldsBroken）、許しを引かずに盤面を止めて
+  （by FIELDS_STOP_BY）控えを名指す理由の BoardGap
+- ruled_test_doc(b): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指した
+  テストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
 - fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
   出どころ・depends と ask_human）を 1 回で返す正本（blk-fix の受け付け・TDD の輪が読む）。義務が空で外れた単位が在れば空の
   changes を止めない（blk-fix の assert-changed と recount.collect）
-- ruled_test_limits(b)・parse_limit(lim): fix_test_scope の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
+- ruled_test_limits(b, rulings=, source=)・parse_limit(lim): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定
+  fix_test_scope の範囲。test_permits）の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
 - human_lines(b): 最後の関所と報告に載せる ask_human の行
 標準ライブラリだけ。期限は持たない。
 """
@@ -41,6 +47,8 @@ if str(_CORE) not in sys.path:
 
 import board as _board  # noqa: E402
 import gatemarks  # noqa: E402
+import planmarks  # noqa: E402  （planmarks は conflict・entry を読まないので輪にならない）
+from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足す）
 
 FILE = "conflicts.json"                 # 盤面の今の周の作業ファイル {"items": [...]}
 RULINGS_FILE = "conflict-rulings.md"    # 裁定の文（修正役が 2 回目の起動の 1 行目で Read する。R44）
@@ -60,6 +68,10 @@ KIND = "conflict"                       # process.human_items の行の kinds
 BY = "works:conflict"                   # その行の node と、答えの無いまま止めた by
 HEAD = "食い違いの申し出"                # 最後の関所の文の節の見出し・報告の行の頭
 RULED_TEST_ID = "conflict-ruling"       # 裁定が許したテストの変更を守りのファイルの行にする時の id の頭
+PLAN_TEST_ID = "plan-rewrite"           # 承認済みの修正案が名指した既存テストの書き換えを守りのファイルの行にする時の id の頭
+FIELDS_STOP_BY = "works:fix"            # 修正案の欄の控えが凍結と食い違った盤面を止めた口（blk-fix の brief の止めと同じ修正の段の印）
+FIELDS_BROKEN = (f"承認済みの修正案の欄の控え（盤面の {planmarks.FIELDS_FILE}）が受け付けの後に書き換えられた。"
+                 "テストの変更の許しを引かずに止めた")
 PARK_OP, RULE_OP = "conflict_parked", "conflict_ruled"   # trace の行
 CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
 
@@ -404,31 +416,80 @@ def parse_limit(lim: str):
     根の外・根そのものを指す物は None"""
     m = CITE.match(lim.strip())
     path = posixpath.normpath(m["path"] if m else lim.strip())
-    if path.startswith(("/", "..")) or path == ".":
+    if planmarks.climbs(path):   # `..` は段で見る（`..foo/x.py` は根の中。planmarks.gaps が通す範囲を捨てない）
         return None
     return path, ((int(m["a"]), int(m["b"] or m["a"])) if m else None)
 
 
-def ruled_test_limits(b) -> list:
-    """fix_test_scope の裁定が直してよいとした範囲（limits の文字列。裁定の順）"""
-    return [lim for r in ruled_fix(b) if r["ruling"]["decision"] == "fix_test_scope" for lim in r["ruling"].get("limits") or []]
+def _plan_limit(r: dict, source):
+    """修正案の行の範囲。source（パス → その木での中身。読めなければ None）を渡せば、その木でテストの id の定義の行を引き直す
+    （修正案の時の木の行の番号は、後で上に足したテストでずれる）。引けなければ None（許しを捨てる）"""
+    if source is None:
+        return r["limit"]
+    got = parse_limit(r["limit"])
+    line = planmarks.line_in(source(got[0]), r["id"]) if got and isinstance(r["id"], str) else None
+    return f"{got[0]}:{line}" if line else None
 
 
-def ruled_test_doc(b):
-    """fix_test_scope の裁定が名指したテストのファイル（範囲の <パス>[:行]）を、守りのファイルの一覧の形 {rules: [...]} に。
-    無ければ None"""
-    rows, seen = [], set()
-    for r in ruled_fix(b):
-        if r["ruling"]["decision"] != "fix_test_scope":
+def _plan_rewrites(b) -> list[dict]:
+    """planmarks.rewrites。控えが凍結の印と食い違えば（FieldsBroken）盤面を止め（もう止まった盤面は止め直さない）、控えを
+    名指す理由の BoardGap（許しを黙って広げない・黙って捨てない）"""
+    try:
+        return planmarks.rewrites(b)
+    except planmarks.FieldsBroken as e:
+        why = f"{FIELDS_BROKEN}: {' '.join(str(e).split())}"
+        state = getattr(b, "state", None) or {}
+        if hasattr(b, "stop") and not (state.get("halted") or state.get("stop")):
+            try:
+                b.stop(why, by=FIELDS_STOP_BY)
+            except Reject as r:
+                why += f"（盤面を止められない: {' '.join(str(r).split())}）"
+        raise _board.BoardGap(why) from None
+
+
+def test_permits(b, *, rulings: bool = True, source=None) -> list[dict]:
+    """テストの変更の許しの唯一の元（凍結の検査と最後の関所はここから引く）。行は {limit: 範囲の文字列, id: 守りのファイルの行の
+    id の頭, why: 許した理由}。承認済みの修正案の rewrite_tests（いつも。planmarks.rewrites の順）と、rulings が真なら裁定
+    fix_test_scope の範囲（ruled_fix の順）。source（パス → 中身か None）を渡すと、修正案の行の範囲をその木でテストの id から
+    引き直し、引けない行は捨てる（凍結の検査が読む輪の後の木。tddloop.frozen_source）。裁定の行はそのまま。
+    修正案の欄の控えが凍結の印と食い違えば、盤面を止めて BoardGap（_plan_rewrites）"""
+    out = []
+    for r in _plan_rewrites(b):
+        lim = _plan_limit(r, source)
+        if lim:
+            out.append({"limit": lim, "id": f"{PLAN_TEST_ID}-{r['item']}",
+                        "why": f"承認済みの修正案の項目 {r['item']} が名指した既存テストの書き換え（{r['id']}）: {r['new']}"})
+    if rulings:
+        out += [{"limit": lim, "id": f"{RULED_TEST_ID}-{r['id']}",
+                 "why": f"{HEAD}の裁定 {r['id']}（{r['unit_key']}）が許したテストの変更: {r['ruling']['text']}"}
+                for r in ruled_fix(b) if r["ruling"]["decision"] == "fix_test_scope" for lim in r["ruling"].get("limits") or []]
+    return out
+
+
+def ruled_test_limits(b, *, rulings: bool = True, source=None) -> list[str]:
+    """テストの変更の許し（test_permits）の範囲の文字列の並び。rulings が偽なら裁定の範囲を含めない（1 回目の受け付け）。
+    source は test_permits と同じ（凍結の検査は輪の後の木の読み口を渡す）"""
+    return [p["limit"] for p in test_permits(b, rulings=rulings, source=source)]
+
+
+def ruled_test_doc(b) -> dict | None:
+    """テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指したテストの
+    ファイル（範囲の <パス>[:行]）を、守りのファイルの一覧の形 {rules: [...]} に。無ければ None。
+    パスで 1 行（protect.hits は 1 つのパスに最初の行しか返さない）。id は先に並んだ許しの物で、同じパスの許しの理由は
+    捨てずに why に " / " でつなぐ（最後の関所に許したテストの変更を全部並べる）"""
+    rows, whys = [], {}   # whys: パス → 理由の並び（同じ理由は 1 度だけ。理由の文に " / " が在っても割らない）
+    for p in test_permits(b):
+        got = parse_limit(p["limit"])
+        path = got[0] if got else None
+        if path is None:
             continue
-        for lim in r["ruling"].get("limits") or []:
-            got = parse_limit(lim)
-            path = got[0] if got else None
-            if path is None or path in seen:
-                continue
-            seen.add(path)
-            rows.append({"id": f"{RULED_TEST_ID}-{r['id']}-{len(rows) + 1}", "glob": path,
-                         "why": f"{HEAD}の裁定 {r['id']}（{r['unit_key']}）が許したテストの変更: {r['ruling']['text']}"})
+        if path not in whys:
+            whys[path] = []
+            rows.append({"id": f"{p['id']}-{len(rows) + 1}", "glob": path})
+        if p["why"] not in whys[path]:
+            whys[path].append(p["why"])
+    for row in rows:
+        row["why"] = " / ".join(whys[row["glob"]])
     return {"rules": rows} if rows else None
 
 

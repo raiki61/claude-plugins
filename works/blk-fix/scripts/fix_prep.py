@@ -10,6 +10,7 @@ INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）�
 {prompt_file, attempt, out_path, node, already, variants_file} を 1 行出して 0。役はそのパスを Read する。
 出し直しなら前の回の拒否の理由のファイルを指示書の頭で名指す（R44）。cwd（対象の worktree）の差分から変更の種類を選ぶ。
 環境変数の欠け・盤面が p3.fix を待っていない・思わぬ誤り: 標準エラーに 1 行出して 2（rolekit.script_main）。
+brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2。
 """
 import sys
 from pathlib import Path

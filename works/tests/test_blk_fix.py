@@ -43,6 +43,10 @@ from gitkit import committed_copy, git  # noqa: E402
 import linekit  # noqa: E402
 import node_marker  # noqa: E402
 import hermetic  # noqa: E402
+if str(BLK / "lib") not in sys.path:   # 修正のブロックの模块（brief の凍結）。後ろに足して core の名を隠さない
+    sys.path.append(str(BLK / "lib"))
+import planbrief  # noqa: E402
+import planmarks  # noqa: E402
 
 DEADLINE = 1728000000
 # 実行器の無い run の tdd-start の出口（tddloop.start の go: false。test_blk_fix_tdd が実物で見る）
@@ -389,6 +393,13 @@ def plan_reply(narrows=()):
                       "narrows": list(narrows)}]}
 
 
+# 修正案の項目の works の欄（盤面の plan-fields.json の行。test_plan_brief の FIELDS と同じ形）
+PLAN_FIELDS = [{"route": "tdd", "route_why": "", "tests": [{"id": "test_stats.py::TestStats::test_mean_of_two",
+                                                            "behavior": "2 つの値の平均", "path": "stats.mean を直に呼ぶ",
+                                                            "red_kind": "assertion", "red_why": "今は len-1 で割る"}],
+                "rewrite_tests": [], "refactor": {"declared": False, "why": ""}}]
+
+
 def extra_row(key):
     """fix2_ok の mean の直しの行を写し、unit_key を key に替えた行。先行例は判定の行を採らず problem・source を書き、覆いの
     問いは mean と同じ how・counts を書く（写しの fix_covers_open_units はこの行も数え直して通す——義務に無い key を見ない）"""
@@ -715,6 +726,66 @@ class TestFixPrep(BoardCase):
         code, out, err = self.prep(INPUTS_SUMMARY_FILE=None)
         self.assertEqual((code, out), (2, ""))
         self.assertIn("INPUTS_SUMMARY_FILE", err)
+
+    def test_prep_puts_briefs_of_owed_units_on_top(self):
+        """修正案の欄の控えが在る盤面: full と delta の頭（直す役の決まりより前）で、直す義務の単位の brief を名指す"""
+        self.fix_ready(launched=False)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        r = json.loads(out)
+        for path in (r["prompt_file"], json.loads(pathlib.Path(r["variants_file"]).read_text(encoding="utf-8"))["delta"]):
+            text = pathlib.Path(path).read_text(encoding="utf-8")
+            self.assertLess(text.index(planbrief.HEAD), text.index("# 修正（書く役の仕事）"))
+            self.assertIn(str(entry.open_board(self.board).work("brief-1.md")), text)
+
+    def test_prep_without_plan_fields_has_no_brief_head(self):
+        """修正案の欄の控えが無い盤面（修正案の無い run）: 指示書は今どおりで brief の節を置かない"""
+        self.fix_ready(launched=False)
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        self.assertNotIn(planbrief.HEAD, pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8"))
+
+    def test_reads_cover_briefs(self):
+        """読んだ証拠の節が読むべきパスに、今の周の brief のファイルを持つ"""
+        import fixrules
+        self.fix_ready(launched=False)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        self.assertIn(str(entry.open_board(self.board).work("brief-1.md")), fixrules.reads_more(self.board))
+
+    def test_broken_ledger_halts_with_reason(self):
+        """brief の控えが壊れている（cut の外で置いた・切った印の無い控え）: 盤面を止め（by works:fix）、控えを名指す 1 行で 2。
+        traceback にせず、brief の無い指示書として役を起こさない"""
+        self.fix_ready(launched=False)
+        b = entry.open_board(self.board)
+        planmarks.save(self.board, b.round, PLAN_FIELDS)
+        ledger = self.board / f"r{b.round}" / planbrief.LEDGER
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.write_text(json.dumps({"briefs": []}) + "\n", encoding="utf-8")
+        code, out, err = self.prep()
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn(planbrief.LEDGER, err)
+        self.assertNotIn("Traceback", err)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], "works:fix")
+        self.assertIn(planbrief.LEDGER, after.state["stop"]["reason"])
+        self.assertFalse((after.rd["instances"].get("p3.fix") or {}).get("launched_at"), "役を起こす印を置かない")
+
+    def test_reads_with_broken_ledger_halts_with_reason(self):
+        """修正役が brief の控えを書き換えた後の読んだ証拠の節: traceback にせず、盤面を止めて控えを名指す理由の BoardGap"""
+        import fixrules
+        from board import BoardGap
+        self.fix_ready(launched=False)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        ledger = self.board / f"r{entry.open_board(self.board).round}" / planbrief.LEDGER
+        ledger.write_text(ledger.read_text(encoding="utf-8") + " ", encoding="utf-8")   # 凍結の後にバイトを変えた
+        with self.assertRaisesRegex(BoardGap, planbrief.LEDGER):
+            fixrules.reads_more(self.board)
+        self.assertEqual(entry.open_board(self.board, allow_halted=True).state["stop"]["by"], "works:fix")
 
 
 def rolekit_reject_line(path):

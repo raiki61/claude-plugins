@@ -50,6 +50,7 @@ import material  # noqa: E402
 import node_marker  # noqa: E402
 import libdocs  # noqa: E402
 import planblk  # noqa: E402
+import planmarks  # noqa: E402
 import rolekit  # noqa: E402
 
 DEADLINE = 1728000000
@@ -1088,6 +1089,143 @@ class StructureHeadCase(unittest.TestCase):
         got = self.structured(self.block_exit(design_file, status="failed"))
         self.assertEqual(got["status"], "failed", got)
         self.assertIn(STRUCTURE_MISSING, self.plan_head())
+
+
+REWRITE = {"id": "test_stats.py::TestStats::test_clamp_within_range", "behavior": "上限の内側の値をそのまま返す",
+           "old": "clamp(5, 0, 10) は 5", "new": "新しい期待（依頼で変わる振る舞い）"}
+
+
+class PlanFieldsCase(unittest.TestCase):
+    """修正案の項目の works の欄（planmarks）: 受け付けが欠けを盤面へ渡す前に拒み、通った案は欄を外して盤面に渡し、欄は盤面の
+    plan-fields.json に控える（盤面が受けた時だけ）。修正案の役の頭に欄の指示、事前審査の役の頭に欄の JSON が載る"""
+
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+        ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+
+    def test_plan_without_fields_rejected_before_board(self):
+        self.judged()
+        self.ok("snap", role="plan")
+        plan = linekit.reply("plan_ok")
+        del plan["plan"][0]["tests"]
+        _, got = self.round_of("plan", plan)
+        self.assertFalse(got["ok"], got)
+        self.assertTrue(self.reason_of(got).startswith(planmarks.REJECT))
+        self.assertIn("plan[0]", self.reason_of(got))
+        self.assertEqual(entry.open_board(self.board).rd["instances"]["p2.fix_plan"]["status"], "pending")
+        self.assertFalse((self.board / planmarks.FIELDS_FILE).exists())
+
+    def test_plan_fields_saved_and_board_gets_bare_plan(self):
+        self.judged()
+        self.planned()
+        b = entry.open_board(self.board)
+        out = json.loads((self.board / b.state["outputs"]["p2.fix_plan"]["file"]).read_text(encoding="utf-8"))
+        self.assertEqual(set(out["plan"][0]), {"unit_keys", "approach", "adds", "removes", "shrink_first", "narrows"})
+        self.assertEqual(planmarks.read(b)[0]["route"], "tdd")
+
+    def test_rewrite_limit_resolved_on_accept(self):
+        self.judged()
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["rewrite_tests"] = [REWRITE]
+        self.planned(plan)
+        self.assertEqual(planmarks.read(entry.open_board(self.board))[0]["rewrite_tests"][0]["limit"], "test_stats.py:11")
+
+    def test_fields_unit_keys_are_names_when_reply_by_number(self):
+        """役が no の整数で指した案でも、控えの unit_keys は名前（盤面が受けた案の unit_keys と同じ）"""
+        self.judged()
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["unit_keys"] = [1, 2]
+        self.planned(plan)
+        b = entry.open_board(self.board)
+        out = json.loads((self.board / b.state["outputs"]["p2.fix_plan"]["file"]).read_text(encoding="utf-8"))
+        keys = planmarks.read(b)[0]["unit_keys"]
+        self.assertEqual(set(keys), {UNIT_MEAN, UNIT_CLAMP})
+        self.assertEqual(keys, out["plan"][0]["unit_keys"])
+
+    def test_rejected_by_board_leaves_no_fields(self):
+        """欄は揃っていても写しの受け付けが拒んだ案（単位の欠け）は、控えを置かない"""
+        self.judged()
+        self.ok("snap", role="plan")
+        _, got = self.round_of("plan", linekit.reply("plan_missing_unit"))
+        self.assertFalse(got["ok"], got)
+        self.assertFalse(self.reason_of(got).startswith(planmarks.REJECT))
+        self.assertIn("どの案にも入っていない単位", self.reason_of(got), "写しの受け付けの単位の欠けの拒否")
+        self.assertFalse((self.board / planmarks.FIELDS_FILE).exists())
+
+    def test_take_called_directly_strips_fields(self):
+        self.judged()
+        self.ok("snap", role="plan")
+        planblk.prep(self.board, "plan", self.repo)
+        self.assertTrue(planblk.take("plan")(self.board, linekit.reply("plan_ok"), self.repo)["ok"])
+
+    def test_heads(self):
+        self.assertIn(planmarks.HEAD, planblk.head("plan"))
+        self.assertNotIn(planmarks.HEAD, planblk.head("plan-review"))
+
+    def test_plan_review_prompt_carries_fields(self):
+        self.judged()
+        self.planned()
+        self.ok("snap", role="plan-review")
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        for w in (planmarks.REVIEW_HEAD, "test_stats.py::TestStats::test_mean_of_two", "本物の経路", "mock"):
+            self.assertIn(w, text)
+
+
+class PlanFieldsSaveCase(unittest.TestCase):
+    """修正案の欄の控えの置き方: 周は包みの頭で 1 度だけ読み、盤面が案を受けた後に控えを置けなければ盤面を止める"""
+
+    setUp, take, judged, state, run_script, ok = (ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state,
+                                                 ScriptCase.run_script, ScriptCase.ok)
+
+    def ready(self):
+        self.judged()
+        self.ok("snap", role="plan")
+        planblk.prep(self.board, "plan", self.repo)
+
+    def test_save_failure_after_board_took_plan_halts(self):
+        """盤面が案を受けた後で plan-fields.json を置けなければ、黙って欄の無い run にせず盤面を止めて（by works:plan）、
+        控えを名指す理由の BoardGap"""
+        self.ready()
+        with mock.patch.object(planblk.planmarks, "save", side_effect=OSError("書けない")):
+            with self.assertRaisesRegex(board_mod.BoardGap, planmarks.FIELDS_FILE):
+                planblk.take("plan")(self.board, linekit.reply("plan_ok"), self.repo)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], planblk.STOP_BY)
+        self.assertIn(planmarks.FIELDS_FILE, after.state["stop"]["reason"])
+
+    def test_round_read_once_at_head(self):
+        """控えに書く周は包みの頭で 1 度だけ読む（受けた後に盤面を開き直さない）"""
+        self.ready()
+        rnd = entry.open_board(self.board).round
+        with mock.patch.object(planblk.entry, "open_board", wraps=entry.open_board) as opened:
+            got = planblk.with_plan_fields(lambda board, reply, repo: {"ok": True})(
+                self.board, linekit.reply("plan_ok"), self.repo)
+        self.assertTrue(got["ok"])
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(json.loads((self.board / planmarks.FIELDS_FILE).read_text(encoding="utf-8"))["round"], rnd)
+
+
+class PlanReviewFrozenFieldsCase(unittest.TestCase):
+    """事前審査の頭の欄の節（planmarks.review_section）も凍結の印と突き合わせて読み、食い違えば盤面を止める"""
+
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+        ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+
+    def test_tampered_fields_halt_plan_review_prep(self):
+        self.judged()
+        self.planned()
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["route"] = "direct"
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.ok("snap", role="plan-review")
+        rc, out, err = self.run_script("prep", role="plan-review", excluded_file="")
+        self.assertEqual(rc, 2, err)
+        self.assertIn(planmarks.FIELDS_FILE, err)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], planblk.STOP_BY)
+        self.assertIn(planmarks.FIELDS_FILE, after.state["stop"]["reason"])
 
 
 if __name__ == "__main__":
