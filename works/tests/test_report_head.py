@@ -119,6 +119,7 @@ class FinalTestSuitesCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1,
                                        output_of_round=lambda nid, n: {})
+        self.b.work = lambda name: self.b.dir / name   # 事前審査の壁打ちの控え（converge.lines）の置き場。控えは無い
         self.enterContext(mock.patch.object(report, "_replanned", return_value=[]))   # 偽の盤面は食い違いの控えを持たない
 
     def head_text(self, tests):

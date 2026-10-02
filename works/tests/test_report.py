@@ -27,6 +27,7 @@ import accept  # noqa: E402
 import adapter  # noqa: E402
 from board import BoardGap, DiskBoard  # noqa: E402
 import ci_role  # noqa: E402
+import converge  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 import entry  # noqa: E402
 import linekit  # noqa: E402
@@ -649,6 +650,20 @@ class HeadCase(ReportBase):
         hit = [x for x in lines if "測り直せなかった" in x]
         self.assertEqual(len(hit), 1, lines)
         self.assertIn("stats.py mean", hit[0])
+
+    def test_head_lists_converge_lines(self):
+        """事前審査の壁打ちの往復（converge.lines）の各行は報告の冒頭の決めの節（head_decisions）に並ぶ"""
+        self.begin()
+        b = entry.open_board(self.board)
+        self.assertEqual(converge.lines(b), [])
+        face = {"key": "a-key-001", "kind": "regression", "where": "stats.py", "why": "穴", "severity": "block"}
+        for _ in range(2):
+            converge.record_pass(b, {"faces": [face]}, resolved=[], fence=9, files={})
+        want = converge.lines(b)
+        self.assertEqual(len(want), 3)
+        lines = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        for x in want:
+            self.assertIn(x, lines)
 
     def test_head_reads_shows_unchecked_red_green(self):
         """修正の受け付けの束が赤緑を確かめずに通した回（盤面の trace の行）は、冒頭 4 の読みの節（head_reads）に出る"""
