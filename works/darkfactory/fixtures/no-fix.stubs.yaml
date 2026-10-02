@@ -751,6 +751,13 @@ plan:
     removes: []
     shrink_first: 足す物は無い。式と戻り値を 1 か所ずつ直すだけで足りる
     narrows: []
+    route: direct
+    route_why: 見本の返答。模擬実行は受け入れのテストを先に書かない
+    tests: []
+    rewrite_tests: []
+    refactor:
+      declared: false
+      why: ''
 plan-accept:
   ok: true
   done: true

@@ -345,17 +345,19 @@ class LineFixturesCase(unittest.TestCase):
                 self.assertLessEqual(want, set(f))
 
     def test_role_stubs_pass_role_output_format(self):
-        """役の stub は役の output_format の必須の欄を持つ（見本の返答を貼った物）"""
+        """役の stub は役の output_format を入れ子まで満たす（見本の返答を貼った物。どの fixture も、修正案の項目の works の欄まで）"""
+        from engine.schema import validate_schema   # 写しの engine の型の検査（linekit が sys.path に足す）
         roles = {}
         for n in line()["nodes"]:
             if "include" in n:
                 for m, inner in walk(block(n["include"])["nodes"]):
                     if "command" in m or "prompt" in m:
                         roles[m["id"] if inner else f"{n['id']}__{m['id']}"] = m["output_format"]   # stub_keys と同じ鍵
-        f = self.fixtures()["policy-continue"]
-        for rid, fmt in roles.items():
-            with self.subTest(rid):
-                self.assertLessEqual(set(fmt.get("required") or []), set(f[rid]))
+        for name, f in self.fixtures().items():
+            for rid, fmt in roles.items():
+                with self.subTest(fixture=name, role=rid):
+                    self.assertIn(rid, f)
+                    self.assertEqual(validate_schema(f[rid], fmt), [])
 
     def test_outcomes_and_expectations(self):
         f = self.fixtures()
