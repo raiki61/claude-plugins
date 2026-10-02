@@ -31,8 +31,9 @@ MAY_LACK = {
     ("blk-spec", "spec-review"): ({"faces_none"}, "faces が空の返答だけが書く欄（pass は faces を持つ返答）"),
     ("blk-fix", "fix"): ({"conflicts"}, "食い違いの申し出を出す返答（conflict・conflict-ask）だけが持つ欄"),
     ("blk-fix", "fix-accept"): ({"parked"}, "申し出で単位を止めた受け付けの返り（conflict・conflict-ask）だけが持つ欄"),
-    ("blk-fix", "tdd"): ({"units", "unit_key", "what"},
-                         "段（phase）ごとに欄が違う（route は units、単位の段 red・green・refactor は unit_key・what）"),
+    ("blk-fix", "tdd"): ({"units", "unit_key", "what", "files", "refactor"},
+                         "段（phase）ごとに欄が違う（route は units、単位の段 red・green・refactor は unit_key・what、"
+                         "fix は files と整えの申告 refactor も）"),
     ("blk-plan", "plan-accept"): ({"asking", "halted", "out_file", "ready"},
                                   "拒否（ok: false）の返りは盤面に渡していないので、盤面の欄を持たない（give-up・plan-rejected）"),
     ("blk-fix", "collect"): ({"coverage", "fix_file", "not_done", "reads_file"},

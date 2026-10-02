@@ -154,6 +154,14 @@ nodes:
                 type: array
                 items: {type: string}
               what: {type: string}
+              # 整えの申告（phase fix の任意の欄。declared が true の単位だけ refactor の段が来る。tddloop._declared）
+              refactor:
+                type: object
+                additionalProperties: false
+                required: [declared, why]
+                properties:
+                  declared: {type: boolean}
+                  why: {type: string}
               # 食い違いの申し出（phase conflict。どの段でも。.shared/core/conflict.py の 1 件の欄）
               between:
                 type: array
@@ -866,8 +874,8 @@ nodes:
             count: {type: integer, minimum: 0}
             file: {type: string}
         # TDD の輪の結果 {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor,
-        # gave_up, problems, red_kinds, test_cmd}], test_cmd: {gate, note}}。実行器の無い run は ran: false・units は空で
-        # test_cmd の欄も無い（tddloop.exit_fields）
+        # gave_up, problems, red_kinds, test_cmd, refactor_why}], test_cmd: {gate, note}, calls: [{n, phase, unit_key, ok, runs,
+        # secs}]}。実行器の無い run は ran: false・units は空で test_cmd・calls の欄も無い（tddloop.exit_fields・FIELDS）
         tdd: {type: object}
         # 盤面の欄（〔線A計〕T17。recount.collect）: 受けた修正の返答のファイル・直せなかった単位の数・単位ごとの前後の件数・読んだ証拠
         fix_file: {type: string}

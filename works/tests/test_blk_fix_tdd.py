@@ -172,6 +172,7 @@ class TestYaml(unittest.TestCase):
         self.assertIs(of["additionalProperties"], False)
         self.assertEqual(of["required"], ["phase"])
         self.assertEqual(of["properties"]["phase"]["enum"], [*tddloop.PHASES, "conflict"], "食い違いの申し出はどの段でも")
+        self.assertEqual(of["properties"]["refactor"]["required"], ["declared", "why"], "fix の段の整えの申告")
 
     def test_accept_and_collect_get_tdd(self):
         nodes = block()["nodes"]
@@ -258,6 +259,9 @@ class TestNoSuite(unittest.TestCase):
         self.assertEqual(tddloop.frozen_problems("", pathlib.Path(".")), [])
 
 
+DECLARED = {"declared": True, "why": "分母の式を名前の付いた変数に分けたい"}   # fix の段の整えの申告（理由は MIN_WHY 字以上）
+
+
 class LoopCase(unittest.TestCase):
     """種の git と小さな実行器で輪を回す（役の代わりに作業ツリーを書き換える）"""
 
@@ -305,9 +309,13 @@ class LoopCase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
-    def fix_mean(self):
+    def fix_mean(self, refactor=None):
+        """mean を直して fix の段を返す。refactor は整えの申告（{declared, why}。None は欄を書かない）"""
         self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "return sum(xs) / len(xs)")
-        got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を len(xs) にした"})
+        reply = {"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を len(xs) にした"}
+        if refactor is not None:
+            reply["refactor"] = refactor
+        got = self.step(reply)
         self.assertTrue(got["ok"], got)
         return got
 
@@ -423,15 +431,13 @@ class TestUnitLoop(LoopCase):
         self.assertEqual(self.st()["phase"], "test")
         self.red()
         self.assertEqual(self.st()["phase"], "fix")
-        self.fix_mean()
-        self.assertEqual(self.st()["phase"], "refactor")
-        got = self.step({"phase": "refactor", "unit_key": MEAN, "what": "整える物は無い"})
-        self.assertEqual((got["ok"], got["done"]), (True, True))
+        got = self.fix_mean()
+        self.assertEqual((got["ok"], got["done"]), (True, True), "申告が無ければ整えの段は来ない")
         ex = tddloop.exit_fields(self.start)
         self.assertTrue(ex["ran"])
         rows = {u["unit_key"]: u for u in ex["units"]}
         m = rows[MEAN]
-        self.assertEqual((m["route"], m["red"], m["green"], m["refactor"], m["gave_up"]), ("tdd", "ok", "ok", "none", ""))
+        self.assertEqual((m["route"], m["red"], m["green"], m["refactor"], m["gave_up"]), ("tdd", "ok", "ok", "skipped", ""))
         self.assertEqual(m["tests"], ["test_stats.py::TestStats::test_mean_of_two"])
         self.assertEqual(m["test_files"], ["test_stats.py"])
         self.assertEqual(rows[CLAMP]["route"], "direct")
@@ -446,7 +452,7 @@ class TestUnitLoop(LoopCase):
     def test_refactor_rechecked(self):
         self.route()
         self.red()
-        self.fix_mean()
+        self.fix_mean(refactor=DECLARED)
         self.edit("stats.py", "return sum(xs) / len(xs)", "total = sum(xs)\n    return total / len(xs)")
         got = self.step({"phase": "refactor", "unit_key": MEAN, "what": "式を 2 行にした"})
         self.assertTrue(got["done"], got)
@@ -504,7 +510,7 @@ class TestUnitLoop(LoopCase):
     def test_refactor_gives_up_back_to_green_tree(self):
         self.route()
         self.red()
-        self.fix_mean()
+        self.fix_mean(refactor=DECLARED)
         green = (self.repo / "stats.py").read_text(encoding="utf-8")
         self.edit("stats.py", "return x\n", "return lo\n")   # 整えで壊す
         for _ in range(tddloop.retry_max()):
@@ -1199,7 +1205,7 @@ class TestTestCmdGate(LoopCase):
         self.restart(self.lint())
         self.route()
         self.red()
-        self.fix_mean()
+        self.fix_mean(refactor=DECLARED)
         self.assertEqual(self.st()["units"][MEAN]["test_cmd"], "ok")
         self.step({"phase": "refactor", "unit_key": MEAN, "what": "整える物は無い"})
         ex = tddloop.exit_fields(self.start)
@@ -1211,7 +1217,7 @@ class TestTestCmdGate(LoopCase):
         self.restart(self.lint())
         self.route()
         self.red()
-        self.fix_mean()
+        self.fix_mean(refactor=DECLARED)
         self.edit("stats.py", "return sum(xs) / len(xs)", "print('debug')\n    return sum(xs) / len(xs)")
         got = self.step({"phase": "refactor", "unit_key": MEAN, "what": "出力を足した"})
         self.assertFalse(got["ok"])
@@ -1224,7 +1230,7 @@ class TestTestCmdGate(LoopCase):
         self.assertTrue(st["test_cmd_note"])
         self.route()
         self.red()
-        self.fix_mean()   # 毎単位を拒まない
+        self.fix_mean(refactor=DECLARED)   # 毎単位を拒まない
         self.assertEqual(self.st()["units"][MEAN]["test_cmd"], "")
         self.step({"phase": "refactor", "unit_key": MEAN, "what": "整える物は無い"})
         self.assertEqual(tddloop.exit_fields(self.start)["test_cmd"], {"gate": tddloop.GATE_OFF, "note": st["test_cmd_note"]})
@@ -1304,7 +1310,7 @@ class TestTestCmdGate(LoopCase):
         self.assertNotIn(cmd, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"), "test の段")
         self.red()
         self.assertIn(cmd, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"), "fix の段")
-        self.fix_mean()
+        self.fix_mean(refactor=DECLARED)
         self.assertIn(cmd, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"), "refactor の段")
 
     def test_prompt_omits_test_cmd_when_gate_off(self):
@@ -1321,6 +1327,100 @@ class TestTestCmdGate(LoopCase):
         st = self.st()
         self.assertEqual(st["test_cmd_gate"], tddloop.GATE_OFF)
         self.assertIn("起こせない", st["test_cmd_note"])
+
+
+class TestRefactorGate(LoopCase):
+    """整えの段は、fix の段で役が理由つきで申告した単位か、修正案の項目が refactor.declared の単位だけに来る。来ない単位は
+    skipped。段ごとの呼び出しの記録（calls）を状態と出口に残す"""
+
+    def test_fix_without_declaration_skips_refactor(self):
+        self.route()
+        self.red()
+        got = self.fix_mean()
+        self.assertTrue(got["done"], got)
+        u = tddloop.exit_fields(self.start)["units"][0]
+        self.assertEqual((u["refactor"], u["refactor_why"]), ("skipped", ""))
+        self.assertIn("整え: skipped", pathlib.Path(self.start["summary_file"]).read_text(encoding="utf-8"))
+
+    def test_declared_fix_goes_to_refactor(self):
+        self.route()
+        self.red()
+        self.fix_mean(refactor=DECLARED)
+        self.assertEqual(self.st()["phase"], "refactor")
+        self.assertEqual(self.st()["units"][MEAN]["refactor_why"], DECLARED["why"])
+        self.assertIn("refactor", pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"))
+        self.step({"phase": "refactor", "unit_key": MEAN, "what": "整える物は無い"})
+        self.assertIn(f"整え: none（{DECLARED['why']}）", pathlib.Path(self.start["summary_file"]).read_text(encoding="utf-8"))
+
+    def test_declared_without_why_rejected(self):
+        self.route()
+        self.red()
+        self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "return sum(xs) / len(xs)")
+        got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を直した",
+                         "refactor": {"declared": True, "why": "短い"}})
+        self.assertFalse(got["ok"])
+        self.assertIn("refactor", got["reason"])
+        self.assertEqual(self.st()["phase"], "fix")
+
+    def test_malformed_declaration_rejected(self):
+        self.route()
+        self.red()
+        self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "return sum(xs) / len(xs)")
+        got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を直した",
+                         "refactor": {"declared": "yes", "why": DECLARED["why"]}})
+        self.assertFalse(got["ok"])
+        self.assertIn("refactor", got["reason"])
+
+    def test_not_declared_with_why_skips(self):
+        self.route()
+        self.red()
+        got = self.fix_mean(refactor={"declared": False, "why": ""})
+        self.assertTrue(got["done"], got)
+        self.assertEqual(self.st()["units"][MEAN]["refactor"], "skipped")
+
+    def test_plan_declared_goes_to_refactor_without_reply(self):
+        """案の項目が refactor.declared の単位は、役が申告しなくても整えの段が来る"""
+        contract = {MEAN: {"items": [1], "route": "tdd", "tests": [], "rewrites": [], "refactor": True}}
+        with mock.patch.object(tddloop, "plan_contract", return_value=contract):
+            self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
+        self.state = self.start["state_file"]
+        self.route()
+        self.red()
+        self.fix_mean()
+        self.assertEqual(self.st()["phase"], "refactor")
+        self.assertIn("修正案の項目 1", self.st()["units"][MEAN]["refactor_why"])
+
+    def test_skipped_unit_moves_to_next_unit(self):
+        """飛ばした単位の次の単位は、緑の木を頭に test の段から始まる"""
+        self.route(clamp="tdd")
+        self.red()
+        self.fix_mean()
+        st = self.st()
+        self.assertEqual((st["phase"], st["queue"][st["cur"]], st["done"]), ("test", CLAMP, False))
+        self.assertEqual(st["units"][MEAN]["refactor"], "skipped")
+
+    def test_calls_recorded(self):
+        self.route()
+        self.red()
+        self.fix_mean()
+        calls = self.st()["calls"]
+        self.assertEqual([c["n"] for c in calls], [1, 2, 3])
+        self.assertEqual([c["phase"] for c in calls], ["route", "test", "fix"])
+        self.assertEqual([c["unit_key"] for c in calls], ["", MEAN, MEAN])
+        self.assertTrue(all(c["ok"] for c in calls))
+        self.assertEqual([c["runs"] for c in calls], [0, 1, 1])
+        self.assertTrue(all(isinstance(c["secs"], float) for c in calls))
+        self.assertEqual(tddloop.exit_fields(self.start)["calls"], calls)
+
+    def test_calls_record_rejection_and_conflict_phase(self):
+        self.route()
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": []})
+        self.assertFalse(got["ok"])
+        self.step({"phase": "conflict", "unit_key": MEAN, "between": ["nope.py:1", "nope.py:2"],
+                   "why_both_cannot_hold": "試験のための申し出", "which_is_right": "unknown"})
+        calls = self.st()["calls"]
+        self.assertEqual([(c["phase"], c["ok"]) for c in calls[1:]], [("test", False), ("conflict", False)])
+        self.assertEqual(calls[1]["unit_key"], MEAN)
 
 
 class TestRunSuiteSlot(unittest.TestCase):

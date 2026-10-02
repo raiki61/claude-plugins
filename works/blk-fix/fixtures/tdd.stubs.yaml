@@ -9,10 +9,12 @@ tdd-start:
   summary_file: board/tdd-1/summary.md
 tdd-prep:
   prompt_file: board/tdd-1/next.md
-tdd:
-  phase: refactor
+tdd:   # fix の段の返答（申告が無いので整えの段は来ず、単位は skipped）
+  phase: fix
   unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
-  what: 整える物は無い
+  files: [stats.py]
+  what: 分母を len(xs) にした
+  refactor: {declared: false, why: ""}
 tdd-step:
   ok: true
   done: true
@@ -58,9 +60,13 @@ collect:
     suite: suite.py
     reason: ""
     test_cmd: {gate: "on", note: ""}
+    calls:
+      - {n: 1, phase: route, unit_key: "", ok: true, runs: 0, secs: 0.0}
+      - {n: 2, phase: test, unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", ok: true, runs: 1, secs: 0.4}
+      - {n: 3, phase: fix, unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", ok: true, runs: 2, secs: 0.9}
     units:
-      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: none, gave_up: "", problems: [], red_kinds: {"test_stats.py::TestStats::test_mean_of_two": assertion}, test_cmd: ok}
-      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: direct, why: "試験のための direct の理由（10 字以上）", tests: [], test_files: [], red: "", green: "", refactor: "", gave_up: "", problems: [], red_kinds: {}, test_cmd: ""}
+      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: skipped, gave_up: "", problems: [], red_kinds: {"test_stats.py::TestStats::test_mean_of_two": assertion}, test_cmd: ok, refactor_why: ""}
+      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: direct, why: "試験のための direct の理由（10 字以上）", tests: [], test_files: [], red: "", green: "", refactor: "", gave_up: "", problems: [], red_kinds: {}, test_cmd: "", refactor_why: ""}
 fix-reads:   # 読んだ証拠の節は盤面を要るので stub（中身は tests/test_reads.py）
   ok: true
   reads_file: ""

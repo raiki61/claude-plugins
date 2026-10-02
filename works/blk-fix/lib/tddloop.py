@@ -12,7 +12,9 @@
 - tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形。頭に brief の節: 振り分けの段は
   直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run は無し）→ 役 tdd（修正役。
   同じ会話で振り分け・テスト・直し・整えを返す）→
-  tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix → refactor → 次の単位
+  tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix →（申告の在る単位だけ）refactor → 次の単位。
+  step 1 回ごとに状態の calls に 1 行（n・確かめた段（申し出は conflict）・単位・合否・その回に起こした一式と test_cmd の数・秒）を
+  積む（秒は書くだけで止める条件に使わない）
   - route: 直す義務の単位（_owed: 開いた単位から、答え待ち・ask_human で外れた単位と食い違いで止めた単位を除く）を全部 1 度だけ
     tdd か direct（理由 10 字以上）に振る。約束で tdd の単位は direct に振れない（出口は phase conflict の申し出）
   - test: 申告したテストのファイルの外に触れていない・写しの red_problems（名指しは failure で落ち、元で通っていた物は緑）。
@@ -28,7 +30,10 @@
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems。約束の在る単位は、ほかのテストのファイル
     （TEST_FILE の名）の既存の test* 関数の本体も変えていない（_other_test_edits）・テストを飛ばした・消していない
     （_vanished_problems）。関門が on なら、そのうえで run の test_cmd も緑（_test_cmd_problems。赤は拒み、走らない時は実行器が
-    走らない時と同じに輪を抜ける）。refactor の緑の確かめも同じ
+    走らない時と同じに輪を抜ける）。refactor の緑の確かめも同じ。
+    緑の後、返答の任意の欄 refactor（{declared, why}）で役が理由（10 字以上）つきで申告した単位か、約束の refactor が真（修正案の
+    項目の refactor.declared）の単位だけ refactor の段へ進み、理由を単位の refactor_why に残す。declared が true で理由が短ければ
+    拒む（一式を走らせる前）。申告が無ければ単位の refactor を skipped にして次の単位へ（緑の木が次の単位の頭）
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
   - test・fix・refactor とも、名指しを絶対パスの node id で実行器の後ろに足して走らせる（段の外に書いたテストも一式の結末に載る）
   拒めば同じ段のまま、理由は次の指示書（と reason_file）に載る。段ごとに RETRY_MAX 回目の拒否で諦める: test・fix は作業ツリーを
@@ -42,7 +47,8 @@
   知らせと状態（ci_left。受け付けが盤面の trace に載せ、最後の関所が並べる）に名前で残す。元の結末に無い試験の赤は、版を
   一時の置き場に写して同じ試験を回し、版でも赤なら外す（作業ツリーは動かさない）。1 件も走らなければ「新しい赤なし」にせず
   知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
-- collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整え・direct の理由・test_cmd の緑。輪の test_cmd の関門と理由）
+- collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整えとその申告の理由・direct の理由・test_cmd の緑。輪の test_cmd の
+  関門と理由・段ごとの呼び出しの記録 calls）
 赤・緑の判定は写しの rules（review-loop-tdd.py）の関数を呼ぶ（写さない）。版は一時の index（GIT_INDEX_FILE）で木に固める
 （本物の index・HEAD・枝は動かさない。.gitignore に当たる物は載らない）。期限は持たない。
 """
@@ -59,6 +65,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 
 sys.dont_write_bytecode = True
@@ -347,7 +354,8 @@ def _not_owed_why(st, k) -> str:
 
 def _unit(key, route, why="") -> dict:
     return {"unit_key": key, "route": route, "why": why, "tests": [], "test_files": [], "red": "", "green": "",
-            "refactor": "", "gave_up": "", "problems": [], "files": [], "what": "", "red_kinds": {}, "test_cmd": ""}
+            "refactor": "", "gave_up": "", "problems": [], "files": [], "what": "", "red_kinds": {}, "test_cmd": "",
+            "refactor_why": ""}
 
 
 def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> dict:
@@ -383,7 +391,7 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> d
           "handoff": snapshot(repo), "suite_made": made, "phase": "route", "tries": 0, "reason": "", "iterations": 0,
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
           "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract,
-          "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note}
+          "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "calls": []}
     state_file = work / STATE
     _save(state_file, st)
     return {"go": True, "reason": "", "suite": suite, "state_file": str(state_file), "summary_file": str(work / SUMMARY)}
@@ -452,7 +460,8 @@ RETURN = {
     "test": '{"phase": "test", "unit_key": "<今の単位>", "test_files": ["<書いたテストのファイル>"], '
             '"tests": ["<パス>::<クラス>::<テストの名前>"]}  （先にテストを書けないと分かったら {"phase": "test", '
             '"unit_key": "<今の単位>", "direct_why": "<理由。10 字以上>"}）',
-    "fix": '{"phase": "fix", "unit_key": "<今の単位>", "files": ["<直したファイル>"], "what": "<何をどう直したか>"}',
+    "fix": '{"phase": "fix", "unit_key": "<今の単位>", "files": ["<直したファイル>"], "what": "<何をどう直したか>", '
+           '"refactor": {"declared": true か false, "why": "<整える理由。declared が true なら 10 字以上>"}}',
     "refactor": '{"phase": "refactor", "unit_key": "<今の単位>", "what": "<何を整えたか。整える物が無ければそう書く>"}',
 }
 RETURN_CONFLICT = ('どの段でも、緑にするためにテスト・依頼・コードのどれかを曲げるしかないと分かった単位は '
@@ -470,9 +479,11 @@ DO = {
             "import をテストの中に入れよ。機械が一式を走らせ、名指しのテストが failure で落ち、元で通っていた"
             "テストが通ることを確かめる（error・もう通る・飛ばされた、は拒む）。",
     "fix": "今の単位だけを直せ。テストのファイルは変えるな（凍っている。テストの誤りに気づいたら直さずに what に書け）。機械が一式を"
-           "走らせ、名指しのテストと元で通っていたテストが通ることを確かめる。",
-    "refactor": "緑のまま、今の単位の差分を整えよ（重複・名前・不要になったコード。テストのファイルは変えない）。整える物が無ければ"
-                "何も変えずに返せ。変えたなら機械がもう 1 回緑を確かめる。",
+           "走らせ、名指しのテストと元で通っていたテストが通ることを確かめる。緑の後に整えたい所（重複・名前・不要になったコード）が"
+           "在る時だけ refactor の declared を true にし、why に理由を 10 字以上で書け。申告が無ければ整えの段は来ない（brief の "
+           "refactor.declared が true の単位は申告なしでも来る）。",
+    "refactor": "この段は、fix の段で申告した単位か、brief で申告した単位だけに来る。申告した所を緑のまま整えよ（テストのファイルは"
+                "変えない）。整える物が無くなっていれば何も変えずに返せ。変えたなら機械がもう 1 回緑を確かめる。",
 }
 
 
@@ -901,17 +912,53 @@ def _green(st, u, repo) -> list:
         or _vanished_problems(st, u, cases, u["tests"], repo) or _test_cmd_problems(st, repo)
 
 
+def _plan_refactor_why(st, k) -> str:
+    """約束の refactor が真の単位の申告の理由（案の項目の番号で名指す）。約束が無い・偽なら空の文字列"""
+    c = st.get("contract", {}).get(k)
+    if not c or not c.get("refactor"):
+        return ""
+    items = [str(n) for n in c.get("items", [])]
+    return f"修正案の項目 {'・'.join(items)}{'（どれか）' if len(items) > 1 else ''} の申告"
+
+
+def _declared(reply) -> tuple[str, list]:
+    """fix の返答の任意の欄 refactor（{declared, why}）→ (申告の理由（申告が無ければ空の文字列）, 問題)"""
+    r = reply.get("refactor")
+    if r is None:
+        return "", []
+    if not isinstance(r, dict) or not isinstance(r.get("declared"), bool) or not isinstance(r.get("why"), str):
+        return "", ["refactor は {declared（true か false）, why（文字列）}"]
+    if not r["declared"]:
+        return "", []
+    if _blank(r["why"]):
+        return "", [f"refactor.declared が true なら why（整える理由）を {MIN_WHY} 字以上で書け（整えないなら declared を false に）"]
+    return r["why"].strip(), []
+
+
 def _fix(st, reply, repo) -> list:
+    """緑を確かめ、整えの申告（役の refactor.declared か、約束の refactor）の在る単位だけ refactor の段へ。無ければ skipped で
+    次の単位へ（緑の木が次の単位の頭）"""
     u = _cur(st)
     files = reply.get("files")
     if not isinstance(files, list) or not all(isinstance(f, str) for f in files) or not isinstance(reply.get("what"), str) \
             or not reply["what"].strip():
         return ["files（直したファイルの配列）と what（何をどう直したか）が要る"]
+    why, probs = _declared(reply)
+    if probs:
+        return probs   # 一式を走らせる前に拒む
     probs = _green(st, u, repo)
     if probs:
         return probs
-    u.update(green="ok", files=files, what=reply["what"].strip())
-    st.update(phase="refactor", tries=0, reason="", green_tree=snapshot(repo), green_run=st["last_run"])
+    why = why or _plan_refactor_why(st, u["unit_key"])
+    u.update(green="ok", files=files, what=reply["what"].strip(), refactor_why=why)
+    st.update(tries=0, reason="", green_tree=snapshot(repo), green_run=st["last_run"])
+    if why:
+        st["phase"] = "refactor"
+        return []
+    u["refactor"] = "skipped"
+    st["head_run"] = st["green_run"]   # 次の単位の頭の回（緑の木の回）
+    st["cur"] += 1
+    _next_unit(st, repo)
     return []
 
 
@@ -1016,6 +1063,10 @@ def step(state_file, reply, repo, try_query=None) -> dict:
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-step を呼ぶ番でない）")
     phase = st["phase"]
+    t0, runs0 = time.monotonic(), st["runs"]   # 段ごとの呼び出しの記録（calls）の元。秒は書くだけで止める条件に使わない
+    call = {"n": st["iterations"] + 1,
+            "phase": "conflict" if isinstance(reply, dict) and reply.get("phase") == "conflict" else phase,
+            "unit_key": "" if phase == "route" else st["queue"][st["cur"]]}
     item = None
     got = None
     if isinstance(reply, dict) and reply.get("phase") != "conflict":
@@ -1050,6 +1101,8 @@ def step(state_file, reply, repo, try_query=None) -> dict:
         _finish(st, repo)
     if got and not got["problems"]:   # 突き合わせを通った木だけ（機械が単位の頭に戻した木は _next_unit が進める）
         st["handoff"] = snapshot(repo)
+    st.setdefault("calls", []).append({**call, "ok": not probs, "runs": st["runs"] - runs0,
+                                       "secs": round(time.monotonic() - t0, 1)})
     _save(state_file, st)
     return {"ok": not probs, "done": st["done"], "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"],
             "conflict": item, "writes": got}
@@ -1068,7 +1121,8 @@ def _finish(st, repo) -> None:
     for u in passed:
         lines += [f"- {u['unit_key']}", f"  - 名指しのテスト（機械が赤→緑を確かめた）: {', '.join(u['tests'])}",
                   f"  - テストのファイル: {', '.join(u['test_files'])}", f"  - 直したファイル: {', '.join(u['files'])}",
-                  f"  - 直し: {u['what']}", f"  - 整え: {u['refactor']}"]
+                  f"  - 直し: {u['what']}",
+                  f"  - 整え: {u['refactor']}" + (f"（{u['refactor_why']}）" if u.get("refactor_why") else "")]
     parked = st.get("parked", [])
     if parked:
         lines += ["", "## 食い違いで止めた単位（直すな。輪の後に裁定役が裁き、裁定が理由のファイルで届く）", ""]
@@ -1279,13 +1333,15 @@ def _base_reds(st, repo, rev, files, kexpr) -> tuple:
 
 
 FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems", "red_kinds",
-          "test_cmd")
+          "test_cmd", "refactor_why")
 
 
 def exit_fields(start_out: dict) -> dict:
     """出口の欄 tdd: {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor, gave_up, problems,
-    red_kinds（名指しの id → 見た赤の種類）, test_cmd（"ok"＝緑の後に run の test_cmd も走らせて通った・""）}]}。
-    ran: true の出口には test_cmd: {gate（GATE_ON・GATE_SAME・GATE_OFF）, note（off の理由）} も載る"""
+    red_kinds（名指しの id → 見た赤の種類）, test_cmd（"ok"＝緑の後に run の test_cmd も走らせて通った・""）,
+    refactor_why（整えの申告の理由）}]}。refactor は ""・skipped（申告が無く整えの段を飛ばした）・none・ok・reverted。
+    ran: true の出口には test_cmd: {gate（GATE_ON・GATE_SAME・GATE_OFF）, note（off の理由）} と calls（step 1 回ごとの
+    {n, phase, unit_key, ok, runs, secs}。役の費用は Archon の出来事に在り、この行の順（tdd の節の起動の順）で後から結べる）も載る"""
     if not isinstance(start_out, dict) or not start_out.get("go"):
         so = start_out if isinstance(start_out, dict) else {}
         return {"ran": False, "suite": so.get("suite", ""), "reason": so.get("reason", ""), "units": []}
@@ -1296,4 +1352,5 @@ def exit_fields(start_out: dict) -> dict:
     rows += [{**{f: _unit(k, "parked")[f] for f in FIELDS}, "why": st.get("parked_why", {}).get(k, "")}
              for k in st.get("parked", []) if k not in st["order"]]   # 振り分けの段で止めた単位
     return {"ran": True, "suite": st["suite"], "reason": st["note"], "units": rows,
-            "test_cmd": {"gate": st.get("test_cmd_gate", GATE_OFF), "note": st.get("test_cmd_note", "")}}
+            "test_cmd": {"gate": st.get("test_cmd_gate", GATE_OFF), "note": st.get("test_cmd_note", "")},
+            "calls": st.get("calls", [])}
