@@ -89,8 +89,10 @@ class SeamCase(unittest.TestCase):
         broken["implementer"]["words"]["SKIPPED"] = "x"                            # 語が無い
         broken["implementer"]["files"].append("skills/x/y.md")                     # 固定に無いファイル
         got = "\n".join(spseam.contract_problems(src, item, broken, overlay))
-        for want in ("tdd: 錨 SUITE", "段落が固定の時と違う", "tdd: 錨 ASK", "が無い", "決まり ASK が unattended.md に無い",
-                     "implementer: 穴 [REPORT_FILE]", "implementer: 語 SKIPPED", "implementer: skills/x/y.md が pin.files に無い"):
+        for want in ("tdd: 錨 SUITE「means the project's suite」の段落が固定の時と違う", f"tdd: 錨 ASK「nope」が {TDD} に無い",
+                     "tdd: 読み替えの決まり ASK が unattended.md に無い",
+                     f"implementer: 穴 [REPORT_FILE] が {IMPL} の prompt の本文に無い", "implementer: 語 SKIPPED",
+                     "implementer: skills/x/y.md が pin.files に無い", "implementer: ファイル skills/x/y.md が無い"):
             self.assertIn(want, got)
 
     def test_fill_replaces_every_placeholder_and_checks_the_pin(self):
@@ -103,9 +105,80 @@ class SeamCase(unittest.TestCase):
         for values in ({"[BRIEF_FILE]": "x"}, {"[BRIEF_FILE]": "x", "[directory]": "y", "[REPORT_FILE]": "z"}):
             with self.subTest(values), self.assertRaises(ValueError):
                 spseam.fill("implementer", values, src, item, seams)
+        got = spseam.fill("implementer", {"[BRIEF_FILE]": "[X_Y]", "[directory]": "w"}, src, item, seams)
+        self.assertIn("Read your task brief first: [X_Y]\n", got)          # 値の中の角括弧は置き換えも残りの検査もしない
         (src / IMPL).write_text(IMPL_TEXT + "more\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "固定"):
             spseam.fill("implementer", {"[BRIEF_FILE]": "x", "[directory]": "y"}, src, item, seams)
+        (src / IMPL).write_text(IMPL_TEXT.replace("[directory]\n", "[directory] [EXTRA]\n"), encoding="utf-8")
+        item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}   # 固定し直す: 埋め残しだけが残る
+        with self.assertRaisesRegex(ValueError, r"\[EXTRA\]"):
+            spseam.fill("implementer", {"[BRIEF_FILE]": "x", "[directory]": "y"}, src, item, seams)
+
+    def test_anchor_found_twice_is_named(self):
+        src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT + "Ask your human partner.\n", IMPL: IMPL_TEXT})
+        item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}
+        seams = {"tdd": {"use_as": "skill", "files": [TDD], "words": {},
+                         "anchors": [{"rule": "ASK", "file": TDD, "quote": "Ask your human partner.", "para_sha256": "0" * 64}]}}
+        self.assertEqual(spseam.contract_problems(src, item, seams, "## ASK 聞かない\n"),
+                         [f"tdd: 錨 ASK「Ask your human partner.」が {TDD} に 2 回在る"])
+
+    def test_anchor_file_must_be_pinned(self):
+        other = "skills/brainstorming/SKILL.md"
+        src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT, IMPL: IMPL_TEXT, other: "Run it.\n"})
+        item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}
+        seams = {"tdd": {"use_as": "skill", "files": [TDD], "words": {},
+                         "anchors": [{"rule": "RUN", "file": other, "quote": "Run it.", "para_sha256": spseam.para_sha256("Run it.\n", "Run it.")}]}}
+        got = spseam.contract_problems(src, item, seams, "## RUN 回す\n")
+        self.assertEqual(len(got), 1)
+        self.assertIn(f"tdd: 錨 RUN の {other} が pin.files に無い", got[0])
+
+    def test_paths_outside_the_version_folder_are_named_not_read(self):
+        (self.tmp / "outside.md").write_text("Run it.\n", encoding="utf-8")
+        src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT, IMPL: IMPL_TEXT})
+        absolute = str(self.tmp / "outside.md")
+        item = {**ITEM, "parts": [IMPL, "../outside.md", absolute]}
+        item["pin"] = spseam.pin_of(src, item, "1.0.0", None, "2026-10-02")
+        self.assertEqual(sorted(item["pin"]["files"]), [IMPL, TDD])          # 外は数えない
+        got = spseam.pin_problems(src, item)
+        self.assertEqual(sorted(g.split(": ")[0] for g in got), sorted(["../outside.md", absolute]))
+        self.assertTrue(all("版のフォルダの外を指す" in g for g in got), got)
+        item["pin"]["files"]["../outside.md"] = "0" * 64                    # 固定の鍵が外を指す
+        self.assertEqual(len(spseam.pin_problems(src, item)), 2)
+        item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}
+        seams = {"tdd": {"use_as": "skill", "files": [TDD, "../outside.md"], "words": {},
+                         "anchors": [{"rule": "RUN", "file": absolute, "quote": "Run it.", "para_sha256": "0" * 64}]},
+                 "implementer": {"use_as": "prompt", "files": ["../outside.md"], "placeholders": [], "words": {}}}
+        got = "\n".join(spseam.contract_problems(src, item, seams, "## RUN 回す\n"))
+        self.assertIn("tdd: ../outside.md が版のフォルダの外を指す", got)
+        self.assertIn(f"tdd: 錨 RUN の {absolute} が版のフォルダの外を指す", got)
+        self.assertIn("implementer: ../outside.md が版のフォルダの外を指す", got)
+        self.assertNotIn("段落", got)                                          # 外のファイルは読まない
+        with self.assertRaisesRegex(ValueError, "外を指す"):
+            spseam.fill("implementer", {}, src, item, seams)
+
+    def test_symlinks_are_named_not_followed(self):
+        (self.tmp / "outside").mkdir()
+        (self.tmp / "outside" / "x.md").write_text("x\n", encoding="utf-8")
+        src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT, IMPL: IMPL_TEXT})
+        item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}
+        (src / "skills/test-driven-development/link.md").symlink_to(self.tmp / "outside" / "x.md")
+        (src / "skills/test-driven-development/linkdir").symlink_to(self.tmp / "outside", target_is_directory=True)
+        self.assertNotIn("skills/test-driven-development/link.md", spseam.wrapped_files(src, item))
+        got = spseam.pin_problems(src, item)
+        self.assertEqual([g.split(": ")[0] for g in got],
+                         ["skills/test-driven-development/link.md", "skills/test-driven-development/linkdir"])
+        self.assertTrue(all("symlink が在る" in g for g in got), got)
+        seams = {"implementer": {"use_as": "prompt", "files": [IMPL], "placeholders": [], "words": {}}}
+        (src / IMPL).unlink()
+        (src / IMPL).symlink_to(self.tmp / "outside" / "x.md")
+        self.assertIn(f"{IMPL}: symlink が在る", "\n".join(spseam.pin_problems(src, item)))
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            spseam.fill("implementer", {}, src, item, seams)
+
+    def test_paragraph_splits_only_on_newline(self):
+        text = "a\n\nfoo bar quote\x0cmore\nnext\n\nz\n"
+        self.assertEqual(spseam.paragraph(text, "quote"), "foo bar quote\x0cmore\nnext")
 
     def test_word_maps_known_and_refuses_unknown(self):
         seams = {"implementer": {"words": {"DONE": "done", "NEEDS_CONTEXT": "divergence"}}}

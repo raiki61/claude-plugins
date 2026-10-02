@@ -16,11 +16,13 @@
 - contract_problems: 節ごとの契約の破れ（錨・読み替えの決まり・穴・出口の語・固定に無いファイル）を 1 行ずつ
 - fill・word: 部品の型の穴を埋めた文・出口の語の対応
 
-Claude Code が版のフォルダに置く印（MARKERS）と .DS_Store（IGNORED）は数えない。標準ライブラリだけを使い、works のほかの模块を
+Claude Code が版のフォルダに置く印（MARKERS）と .DS_Store（IGNORED）は数えない。版のフォルダの外を指すパス（絶対のパス・..）と
+symlink は読まずに 1 行で名指す（たどらない）。標準ライブラリだけを使い、works のほかの模块を
 import しない。層は L3（盤面と受け付けの層。rolekit と同じく .shared/borrow を読む）。
 """
 import hashlib
 import json
+import os
 import pathlib
 import re
 import textwrap
@@ -45,26 +47,62 @@ def load_seams(borrow_dir: pathlib.Path = BORROW_DIR) -> dict:
     return json.loads((borrow_dir / SEAMS_FILE).read_text(encoding="utf-8"))
 
 
+OUTSIDE = "版のフォルダの外を指す（絶対のパスか ..）"
+LINKED = "symlink が在る（たどらない）"
+
+
 def _sha(p: pathlib.Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def wrapped_files(src: pathlib.Path, item: dict) -> dict[str, str]:
-    """版のフォルダ src の包むファイルの {相対パス（/ 区切り）: sha256}。在る物だけを数える"""
-    out = {}
+def _bad_path(src: pathlib.Path, rel: str) -> str | None:
+    """rel が版のフォルダの外を指す・途中か先が symlink なら理由（OUTSIDE・LINKED）。読んでよければ None"""
+    pure = pathlib.PurePosixPath(rel)
+    if not rel or pure.is_absolute() or pathlib.PureWindowsPath(rel).is_absolute() or ".." in pure.parts:
+        return OUTSIDE
+    at = src
+    for part in pure.parts:
+        at = at / part
+        if at.is_symlink():
+            return LINKED
+    return None
+
+
+def _scan(src: pathlib.Path, item: dict) -> tuple[dict[str, str], dict[str, str]]:
+    """包むファイルの ({相対パス: sha256}, {読まなかったパス: 理由})。symlink はたどらず、外を指すパスは読まない"""
+    files, bad = {}, {}
     for name in item["skills"]:
-        root = src / "skills" / name
+        rel = f"skills/{name}"
+        why = _bad_path(src, rel)
+        if why:
+            bad[rel] = why
+            continue
+        root = src / rel
         if not root.is_dir():
             continue
-        for p in root.rglob("*"):
-            rel = p.relative_to(src)
-            if p.is_file() and not MARKERS & set(rel.parts) and p.name not in IGNORED:
-                out[rel.as_posix()] = _sha(p)
+        for here, dirs, names in os.walk(root, followlinks=False):
+            for n in [*dirs, *names]:
+                p = pathlib.Path(here) / n
+                r = p.relative_to(src)
+                if MARKERS & set(r.parts) or n in IGNORED:
+                    continue
+                if p.is_symlink():
+                    bad[r.as_posix()] = LINKED
+                elif n in names and p.is_file():
+                    files[r.as_posix()] = _sha(p)
+            dirs[:] = [d for d in dirs if not (pathlib.Path(here) / d).is_symlink() and d not in MARKERS]
     for rel in [*item.get("parts", []), *([item["licence_file"]] if item.get("licence_file") else [])]:
-        p = src / rel
-        if p.is_file():
-            out[rel] = _sha(p)
-    return dict(sorted(out.items()))
+        why = _bad_path(src, rel)
+        if why:
+            bad[rel] = why
+        elif (src / rel).is_file():
+            files[rel] = _sha(src / rel)
+    return dict(sorted(files.items())), bad
+
+
+def wrapped_files(src: pathlib.Path, item: dict) -> dict[str, str]:
+    """版のフォルダ src の包むファイルの {相対パス（/ 区切り）: sha256}。在る物だけを数える（symlink と外を指すパスは数えない）"""
+    return _scan(src, item)[0]
 
 
 def pin_of(src: pathlib.Path, item: dict, version: str, commit: str | None, checked: str) -> dict:
@@ -77,10 +115,17 @@ def pin_problems(src: pathlib.Path, item: dict) -> list[str]:
     pin = item.get("pin")
     if not pin:
         return ["borrow.json の superpowers に pin が無い"]
-    want, have = pin.get("files", {}), wrapped_files(src, item)
+    want = pin.get("files", {})
+    have, bad = _scan(src, item)
+    for rel in want:
+        why = rel not in bad and _bad_path(src, rel)
+        if why:
+            bad[rel] = why
     out = []
-    for rel in sorted(set(want) | set(have)):
-        if rel not in have:
+    for rel in sorted(set(want) | set(have) | set(bad)):
+        if rel in bad:
+            out.append(f"{rel}: {bad[rel]}")
+        elif rel not in have:
             out.append(f"{rel}: 固定に在るのに手元に無い")
         elif rel not in want:
             out.append(f"{rel}: 固定に無いファイルが手元に在る")
@@ -89,8 +134,13 @@ def pin_problems(src: pathlib.Path, item: dict) -> list[str]:
     return out
 
 
+def _lines(text: str) -> list[str]:
+    """行に割る。割るのは \n だけ（U+2028・\x0c などでは割らない。段落の sha256 を原文のバイトに沿わせる）"""
+    return text.split("\n")
+
+
 def _hits(text: str, quote: str) -> list[int]:
-    return [i for i, line in enumerate(text.splitlines()) if quote in line]
+    return [i for i, line in enumerate(_lines(text)) if quote in line]
 
 
 def paragraph(text: str, quote: str) -> str | None:
@@ -98,7 +148,7 @@ def paragraph(text: str, quote: str) -> str | None:
     hits = _hits(text, quote)
     if len(hits) != 1:
         return None
-    lines = text.splitlines()
+    lines = _lines(text)
     lo = hi = hits[0]
     while lo > 0 and lines[lo - 1].strip():
         lo -= 1
@@ -115,7 +165,7 @@ def para_sha256(text: str, quote: str) -> str | None:
 
 def prompt_body(text: str) -> str:
     """型の最初の ``` の囲みの中の「  prompt: |」の次の行から囲みの終わりまでを dedent した物。無ければ ValueError"""
-    lines = text.splitlines()
+    lines = _lines(text)
     try:
         start = next(i for i, line in enumerate(lines) if line.startswith(FENCE))
         end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith(FENCE))
@@ -128,8 +178,9 @@ def prompt_body(text: str) -> str:
 
 
 def _read(src: pathlib.Path, rel: str) -> str | None:
+    """版のフォルダの中の在るファイルだけを読む（外を指すパス・symlink は読まずに None）"""
     p = src / rel
-    return p.read_text(encoding="utf-8") if p.is_file() else None
+    return p.read_text(encoding="utf-8") if not _bad_path(src, rel) and p.is_file() else None
 
 
 def _section(seams: dict, seam_id: str) -> dict:
@@ -146,6 +197,10 @@ def contract_problems(src: pathlib.Path, item: dict, seams: dict, overlay_text: 
         files = sec.get("files", [])
         texts = {}
         for rel in files:
+            why = _bad_path(src, rel)
+            if why:
+                out.append(f"{sid}: {rel} が{why}")
+                continue
             if rel not in pinned:
                 out.append(f"{sid}: {rel} が pin.files に無い")
             text = _read(src, rel)
@@ -157,9 +212,14 @@ def contract_problems(src: pathlib.Path, item: dict, seams: dict, overlay_text: 
             out.append(f"{sid}: use_as {sec.get('use_as')!r} が skill でも prompt でもない")
         for a in sec.get("anchors", []):
             rule, rel, quote = a["rule"], a["file"], a["quote"]
-            text = texts[rel] if rel in texts else _read(src, rel)
+            why = _bad_path(src, rel)
+            if rel not in pinned and not why:
+                out.append(f"{sid}: 錨 {rule} の {rel} が pin.files に無い")
+            text = None if why else texts[rel] if rel in texts else _read(src, rel)
             n = len(_hits(text, quote)) if text is not None else 0
-            if n != 1:
+            if why:
+                out.append(f"{sid}: 錨 {rule} の {rel} が{why}")
+            elif n != 1:
                 out.append(f"{sid}: 錨 {rule}「{quote}」が {rel} に" + ("無い" if n == 0 else f" {n} 回在る"))
             elif para_sha256(text, quote) != a.get("para_sha256"):
                 out.append(f"{sid}: 錨 {rule}「{quote}」の段落が固定の時と違う")
@@ -204,6 +264,9 @@ def fill(seam_id: str, values: dict[str, str], src: pathlib.Path, item: dict, se
         raise ValueError(f"{seam_id}: 値の鍵が穴と違う（足りない {lack} / 余る {extra}）")
     rel = sec["files"][0]
     p = src / rel
+    why = _bad_path(src, rel)
+    if why:
+        raise ValueError(f"{seam_id}: 型 {rel} が{why}")
     if not p.is_file():
         raise ValueError(f"{seam_id}: 型 {rel} が無い（版のフォルダ {src.name} の下）")
     want = (item.get("pin") or {}).get("files", {}).get(rel)
