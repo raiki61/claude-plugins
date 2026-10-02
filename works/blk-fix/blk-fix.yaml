@@ -158,6 +158,7 @@ nodes:
               correct_lines:
                 type: array
                 items: {type: string}
+              kind: {type: string, enum: [brief_vs_judgment, unnamed_test_broke, not_red, scope_needed, query_hits_fixed, needs_context]}
               # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。tdd-step が書き込みの記録と突き合わせる）
               bash_writes:
                 type: array
@@ -545,7 +546,7 @@ nodes:
                 items:
                   type: object
                   additionalProperties: false
-                  required: [unit_key, between, why_both_cannot_hold, which_is_right]
+                  required: [unit_key, between, why_both_cannot_hold, which_is_right, kind]
                   properties:
                     unit_key: {type: string, minLength: 1}
                     between:
@@ -559,6 +560,7 @@ nodes:
                       minItems: 1
                       maxItems: 20
                       items: {type: string, minLength: 1}
+                    kind: {type: string, enum: [brief_vs_judgment, unnamed_test_broke, not_red, scope_needed, query_hits_fixed, needs_context]}
               # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。受け付けが書き込みの記録と突き合わせ、盤面に渡す前に外す）
               bash_writes:
                 type: array

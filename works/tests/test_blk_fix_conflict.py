@@ -42,7 +42,7 @@ RULE_TEXT = "依頼は算術平均。test_mean_of_three の期待は正しいの
 
 def conflict_on_mean(*cites):
     return {"unit_key": MEAN, "between": list(cites or ("stats.py:9", "test_stats.py:9")), "why_both_cannot_hold": WHY,
-            "which_is_right": "request"}
+            "which_is_right": "request", "kind": "unnamed_test_broke"}
 
 
 def only_clamp_reply(conflicts=None):
@@ -352,7 +352,7 @@ class TestTddConflict(LoopCase):
         import tddloop
         how = {"patterns": ["len(xs) - 1"], "fixed": True, "paths": ["stats.py"], "count": "lines"}
         hits = querytest.judge_hits([{"key": MEAN, "class_query": {"how": how, "counts": "defects"}}])
-        item = {"phase": "conflict", **conflict_on_mean(), "which_is_right": "query"}
+        item = {"phase": "conflict", **conflict_on_mean(), "which_is_right": "query", "kind": "query_hits_fixed"}
         got = tddloop.step(self.state, {**item, "correct_lines": ["    return sum(xs) / len(xs)"]}, self.repo, try_query=hits)
         self.assertFalse(got["ok"], got)
         self.assertIn("どの行にも当たらない", got["reason"])
@@ -493,7 +493,7 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(fix["output_format"]["properties"]["conflicts"], conflict.CONFLICTS_SCHEMA)
         tdd = find_node(block()["nodes"], "tdd")
         self.assertIn("conflict", tdd["output_format"]["properties"]["phase"]["enum"])
-        for k in ("between", "why_both_cannot_hold", "which_is_right"):
+        for k in ("between", "why_both_cannot_hold", "which_is_right", "kind"):
             self.assertIn(k, tdd["output_format"]["properties"])
 
     def test_after_the_loops_read_the_later_output(self):
@@ -853,6 +853,22 @@ class TestParseLimitDots(unittest.TestCase):
         self.assertEqual(conflict.parse_limit("..foo/x.py:3"), ("..foo/x.py", (3, 3)))
         self.assertIsNone(conflict.parse_limit("../x.py:3"))
         self.assertIsNone(conflict.parse_limit("/x.py:3"))
+
+
+class TestTddKind(LoopCase):
+    """TDD の輪の申し出も、修正役の受け付けと同じ確かめ（conflict.problems）で種類の欄 kind と which_is_right との対を見る"""
+
+    def test_tdd_conflict_without_kind_is_rejected(self):
+        item = {"phase": "conflict", **conflict_on_mean()}
+        item.pop("kind")
+        got = tddloop_step(self, item)
+        self.assertFalse(got["ok"])
+        self.assertIn("kind", got["reason"])
+        got = tddloop_step(self, {**item, "kind": "query_hits_fixed"})
+        self.assertFalse(got["ok"])
+        self.assertIn("which_is_right", got["reason"])
+        got = tddloop_step(self, {**item, "kind": "unnamed_test_broke"})
+        self.assertTrue(got["ok"], got)
 
 
 if __name__ == "__main__":

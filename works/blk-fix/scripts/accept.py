@@ -315,7 +315,8 @@ def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     patch = revert_units(board, base_rev, repo, state, parked)
     for key in bound:
         why = " / ".join(bound[key])
-        conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": why, "which_is_right": "unknown"}],
+        conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": why, "which_is_right": "unknown",
+                           "kind": conflict.NEEDS_CONTEXT}],
                       source="fix", ruling={"decision": conflict.ASK, "text": f"{BOUND_PARKED}{why}（戻した直しの控え {patch}）",
                                             "limits": [], "by": "works:fix-accept"})
     conflict.write_rulings(b)

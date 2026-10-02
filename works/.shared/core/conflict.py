@@ -8,13 +8,19 @@
 裁定 replace_query が新しい問いを例（hits・misses と correct_lines）で機械に試させてから置き換える（Semgrep の規則の試験の ruleid・ok）。
 
 この模块が持つ物（盤面の今の周の作業ファイル b.work(FILE) {"items": [...]} と trace の行。どのブロック・ラインの名も書かない）:
-- ITEM_SCHEMA・CONFLICTS_SCHEMA: 1 件の形（unit_key・between・why_both_cannot_hold・which_is_right。query なら correct_lines も）と、
-  修正役の返答の欄 conflicts
+- ITEM_SCHEMA・CONFLICTS_SCHEMA: 1 件の形（unit_key・between・why_both_cannot_hold・which_is_right・kind。query なら correct_lines も）と、
+  修正役の返答の欄 conflicts。kind は食い違いの起きた場面の種類で、DIV_KINDS の 6 つ（brief_vs_judgment・unnamed_test_broke・
+  not_red・scope_needed・query_hits_fixed・needs_context）のどれか。which_is_right（どちらが正しいか）とは別の軸で、
+  query_hits_fixed は which_is_right query と対、needs_context は which_is_right unknown と対
+- WORD: superpowers の実装役の状態の語（NEEDS_CONTEXT・BLOCKED）を読み替える works の語（216 の seams.json の words の値と同じ綴り）。
+  この語に読み替えた出口は conflicts[] の 1 件で、kind は役が DIV_KINDS から選ぶ。機械は状態の語から種類を推さない
 - problems(items, repo=, board_dir=, owed=, try_query=): 機械の確かめ。形・義務の単位か・重なり・名指した所が在るか（<パス>:<行>。
-  依頼の行・テストの行・コードの行が現物に在る）・query の申し出の correct_lines に判定者の問いが当たるか。文の一覧（空なら通る）
+  依頼の行・テストの行・コードの行が現物に在る）・query の申し出の correct_lines に判定者の問いが当たるか・kind が DIV_KINDS の
+  どれかで which_is_right と対になるか。文の一覧（空なら通る）
 - cite_problem(cite, repo, roots): 1 つの名指しの確かめ
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
-- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b): 読む口
+- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b)・kind_counts(b): 読む口
+  （kind の無い前の形の控えの行も読む。種類は「無し」）
 - apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
   答えた問いの出どころを直す義務に戻し、ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
@@ -56,7 +62,8 @@ from engine.util import Reject  # noqa: E402  （board が写しの engine を s
 FILE = "conflicts.json"                 # 盤面の今の周の作業ファイル {"items": [...]}
 RULINGS_FILE = "conflict-rulings.md"    # 裁定の文（修正役が 2 回目の起動の 1 行目で Read する。R44）
 PARKED_REPLY = "fix-parked-reply.json"  # 申し出を返した回の修正役の返答（裁定の後の出し直しで読む）
-FIELDS = ("unit_key", "between", "why_both_cannot_hold", "which_is_right")
+KIND_FIELD = "kind"                      # 申し出の種類の欄（食い違いの起きた場面。which_is_right とは別の軸）
+FIELDS = ("unit_key", "between", "why_both_cannot_hold", "which_is_right", KIND_FIELD)
 CORRECT = "correct_lines"               # which_is_right: query の時だけ要る欄（直した後の正しい行の写し）
 QUERY = "query"                         # 判定者の class_query が直した後の正しい形にも当たる
 WHICH = ("request", "test", "code", "unknown", QUERY)
@@ -67,7 +74,18 @@ FIX_DECISIONS = ("fix_test_scope", "fix_code_as", REPLACE)
 MIN_WHY = 10
 MIN_CITES = 2
 MAX_LINES = 20
-KIND = "conflict"                       # process.human_items の行の kinds
+# 申し出の種類（kind の値。設計の 4 つと、今の道を残す 2 つ）
+BRIEF_VS_JUDGMENT = "brief_vs_judgment"     # brief と、判定・依頼・人が答えた条件が食い違う
+UNNAMED_TEST_BROKE = "unnamed_test_broke"   # 名指していない既存のテストが、直すと落ちる・外すしかない
+NOT_RED = "not_red"                         # 受け入れのテスト・名指しの書き換えが、案どおりに書いても赤にならない
+SCOPE_NEEDED = "scope_needed"               # brief や案の範囲の外を触らないと緑にならない・問いの数え直しが閉じない
+QUERY_HITS_FIXED = "query_hits_fixed"       # 判定の問いが直した後の正しい形にも当たる（which_is_right query と対）
+NEEDS_CONTEXT = "needs_context"             # 材料から決められず人か依頼の答えが要る（which_is_right unknown と対）
+DIV_KINDS = (BRIEF_VS_JUDGMENT, UNNAMED_TEST_BROKE, NOT_RED, SCOPE_NEEDED, QUERY_HITS_FIXED, NEEDS_CONTEXT)
+UNKNOWN = "unknown"                     # which_is_right: どれが正しいか決められない（needs_context の対）
+UNSET = "unset"                         # kind_counts の鍵: kind の無い前の形の行
+WORD = "divergence"                     # superpowers の状態の語を読み替える works の語（216 の seams.json の words と同じ綴り）
+KIND = "conflict"                       # process.human_items の行の kinds（申し出の種類 KIND_FIELD とは別物）
 BY = "works:conflict"                   # その行の node と、答えの無いまま止めた by
 HEAD = "食い違いの申し出"                # 最後の関所の文の節の見出し・報告の行の頭
 RULED_TEST_ID = "conflict-ruling"       # 裁定が許したテストの変更を守りのファイルの行にする時の id の頭
@@ -87,6 +105,7 @@ ITEM_SCHEMA = {
         "between": {"type": "array", "minItems": MIN_CITES, "items": {"type": "string", "minLength": 3}},
         "why_both_cannot_hold": {"type": "string", "minLength": MIN_WHY},
         "which_is_right": {"type": "string", "enum": list(WHICH)},
+        KIND_FIELD: {"type": "string", "enum": list(DIV_KINDS)},
         CORRECT: {"type": "array", "minItems": 1, "maxItems": MAX_LINES, "items": {"type": "string", "minLength": 1}},
     },
 }
@@ -189,6 +208,20 @@ def _correct_problem(it, try_query) -> str:
     return try_query(it["unit_key"], lines) if try_query else ""
 
 
+def _kind_problem(it) -> str:
+    """種類の欄 kind の確かめ（通れば空）: DIV_KINDS のどれかで、query_hits_fixed ⇔ which_is_right query、needs_context なら
+    which_is_right unknown。外れの文は両方の欄を名指す（修正役の受け付けと TDD の輪が同じ文を返す）"""
+    kind, which = it.get(KIND_FIELD), it.get("which_is_right")
+    if kind not in DIV_KINDS:
+        return f"{KIND_FIELD} は {' / '.join(DIV_KINDS)} のどれか（{kind!r}）"
+    if (kind == QUERY_HITS_FIXED) != (which == QUERY):
+        return (f"{KIND_FIELD} {QUERY_HITS_FIXED} と which_is_right {QUERY} は対で書く"
+                f"（{KIND_FIELD} {kind}・which_is_right {which}）")
+    if kind == NEEDS_CONTEXT and which != UNKNOWN:
+        return f"{KIND_FIELD} {NEEDS_CONTEXT} の which_is_right は {UNKNOWN}（{KIND_FIELD} {kind}・which_is_right {which}）"
+    return ""
+
+
 def problems(items, *, repo, board_dir, owed, try_query=None) -> list:
     """申し出の一覧の機械の確かめ（受け付けの前）。文の一覧（空なら全部通る）。try_query(unit_key, lines) は which_is_right: query
     の申し出の correct_lines に判定者の問いを当てる口（呼ぶ側が渡す。当たれば空・外れれば文）"""
@@ -215,6 +248,9 @@ def problems(items, *, repo, board_dir, owed, try_query=None) -> list:
             bad = _correct_problem(it, try_query)
             if bad:
                 out.append(f"{at}: {bad}")
+        bad = _kind_problem(it)
+        if bad:
+            out.append(f"{at} の {bad}" if bad.startswith(f"{KIND_FIELD} は ") else f"{at}: {bad}")
         cites = it["between"]
         if not isinstance(cites, list) or len(cites) < MIN_CITES:
             out.append(f"{at} の between は食い違う所を {MIN_CITES} つ以上（依頼の行・テストのファイル:行・コードのファイル:行）")
@@ -287,13 +323,23 @@ def counts(b) -> dict:
     return out
 
 
+def kind_counts(b) -> dict:
+    """申し出の種類の内訳 {DIV_KINDS の全部: 件数（0 も）}。kind の無い前の形の行が在る時だけ鍵 UNSET を足す"""
+    rows = items(b)
+    out = {k: sum(1 for r in rows if r.get(KIND_FIELD) == k) for k in DIV_KINDS}
+    unset = sum(1 for r in rows if not r.get(KIND_FIELD))
+    if unset:
+        out[UNSET] = unset
+    return out
+
+
 def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
     """申し出を積む（status parked・ruling は None か渡した物）。同じ単位・同じ名指し・同じ理由の申し出は積み増さない
     （Archon の呼び直し）。trace に 1 行ずつ。返りは積んだ・在った行の id"""
     doc = _load(b)
     ids = []
     for it in rows:
-        body = {k: it[k] for k in FIELDS}
+        body = {k: it.get(k) for k in FIELDS}
         same = next((r for r in doc["items"] if {k: r.get(k) for k in FIELDS} == body), None)
         if same is not None:
             ids.append(same["id"])
@@ -304,7 +350,7 @@ def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
         doc["items"].append(row)
         ids.append(row["id"])
         b.trace(PARK_OP, id=row["id"], unit_key=row["unit_key"], source=source, which_is_right=row["which_is_right"],
-                between=row["between"], ruled=bool(ruling))
+                kind=row.get(KIND_FIELD), between=row["between"], ruled=bool(ruling))
     _save(b, doc)
     return ids
 
@@ -351,7 +397,8 @@ def write_rulings(b) -> pathlib.Path:
                   *([f"- 置き換えた問い: {json.dumps(ru['query'], ensure_ascii=False)}"] if ru.get("query") else []),
                   *([f"- 申し出の正しい行: {json.dumps(r[CORRECT], ensure_ascii=False)}"] if r.get(CORRECT) else []),
                   f"- 申し出の名指し: {', '.join(r['between'])}",
-                  f"- 申し出の理由: {r['why_both_cannot_hold']}（正しいと見た側: {r['which_is_right']}）", ""]
+                  f"- 申し出の理由: {r['why_both_cannot_hold']}（正しいと見た側: {r['which_is_right']}）",
+                  f"- 申し出の種類: {r.get(KIND_FIELD) or '（無し）'}", ""]
     parked = b.work(PARKED_REPLY)
     if parked.is_file():
         lines += ["## 前の回の返答", "",
@@ -515,6 +562,7 @@ def ruled_test_doc(b) -> dict | None:
 
 def human_lines(b) -> list:
     """最後の関所と報告に載せる ask_human の行（1 件 1 行）"""
-    return [f"{r['unit_key']}: {r['ruling']['text']}（名指し {', '.join(r['between'])}・正しいと見た側 {r['which_is_right']}・"
+    return [f"{r['unit_key']}: {r['ruling']['text']}（名指し {', '.join(r['between'])}・種類 {r.get(KIND_FIELD) or '無し'}・"
+            f"正しいと見た側 {r['which_is_right']}・"
             + (f"依頼で探したこと {r['ruling']['request_searched']}・" if r["ruling"].get("request_searched") else "")
             + f"{r['id']}）" for r in asked(b)]
