@@ -5,6 +5,9 @@
 - 修正の決まりの正本（SHARED = rulebook.CANON。.shared/core/writerules/common.md）: core-fix（直し方）・core-keep（守ること）は
   本線の核でいつも載せる。evidence・evidence-<種類>（テストで赤→緑を示せない直しの証拠。決定 C8）は、単位のファイルと差分に在る
   変更の種類（KINDS）の物だけを載せる
+- rules/brief.md: 要求の正本の決まり（節 brief-canon）。頭に並んだ brief（承認済みの修正案の項目を planbrief が切り出して凍結した物）を
+  要求の正本とし、判定のファイルを背景に下げる。修正役と TDD の輪の役にだけ、頭の節の次にいつも載せる（裁定役と手直しの役には
+  載せない。頭に brief の節が無い run では、節の 6 で判定のファイルが正本のまま）
 - rules/direct.md: 直す役（節 fix）の道。fix-head（役・読む物。run の値の穴 <<名>>）・fix-keep・fix-reply（返答の欄の書き方）
 - rules/tdd.md: TDD の輪の役（節 tdd）の道。tdd-head・tdd-remap（この輪での読み替え）・tdd-phase-<段>（今の段の約束だけ）・tdd-end
 - rules/ruler.md・principles.md: 食い違いの申し出の裁定役（節 rule。読むだけ）の道と、持ち主の決まり（裁定の拠り所）。
@@ -55,6 +58,8 @@ import script_io  # noqa: E402
 RULES_DIR = pathlib.Path(__file__).resolve().parents[1] / "rules"
 SHARED = rulebook.CANON
 DIRECT, TDD = "direct.md", "tdd.md"
+BRIEF = "brief.md"   # 要求の正本（brief）と背景の決まり（修正役と TDD の輪の役にだけ載せる）
+BRIEF_WHY = "（要求の正本と背景）"
 RULER, PRINCIPLES = "ruler.md", "principles.md"   # 裁定役の道と、持ち主の決まり（裁定の拠り所）
 FIX_VALUES = ("judgment_file", "open_units", "plan_file", "policy_path", "notes_file", "summary_file")
 TDD_VALUES = ("judgment_file", "open_units", "plan_file", "policy_path", "notes_file")
@@ -171,6 +176,7 @@ def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "") -> lis
     c, d = sections(SHARED), sections(DIRECT)
     kinds = _all_kinds() if kinds is None else kinds
     return [("fix-head", fill(d["fix-head"], _pick(values, FIX_VALUES)), ALWAYS + "（役・読む物・run の値）"),
+            ("brief-canon", sections(BRIEF)["brief-canon"], ALWAYS + BRIEF_WHY),
             ("core-fix", c["core-fix"], ALWAYS + "（本線の核）"), *_evidence(c, kinds),
             ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
             ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
@@ -183,6 +189,7 @@ def tdd_parts(values: dict, kinds: dict | None = None) -> list:
     c, t = sections(SHARED), sections(TDD)
     kinds = _all_kinds() if kinds is None else kinds
     return [("tdd-head", fill(t["tdd-head"], _pick(values, TDD_VALUES)), ALWAYS + "（役・読む物・run の値）"),
+            ("brief-canon", sections(BRIEF)["brief-canon"], ALWAYS + BRIEF_WHY),
             ("core-fix", c["core-fix"], ALWAYS + "（本線の核）"), *_evidence(c, kinds),
             ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
             ("tdd-remap", t["tdd-remap"], ALWAYS + "（この輪での読み替え）")]

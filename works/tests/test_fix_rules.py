@@ -138,7 +138,7 @@ class TestSharedSource(unittest.TestCase):
 
     def test_every_rules_file_is_cut_into_sections(self):
         for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
-                          (fixrules.PRINCIPLES, ["principles"]),
+                          (fixrules.PRINCIPLES, ["principles"]), (fixrules.BRIEF, ["brief-canon"]),
                           (fixrules.TDD, ["tdd-head", "tdd-remap", "tdd-phase", *(f"tdd-phase-{p}" for p in fixrules.PHASES),
                                           "tdd-phase-all", "tdd-end"])):
             with self.subTest(name):
@@ -204,6 +204,31 @@ class TestCompose(unittest.TestCase):
 
     def tdd(self, phase="fix", **kw):
         return fixrules.tdd_prompt(tdd_values(), phase, PHASE_TEXT, title=TITLE, **kw)
+
+    def test_brief_rule_reaches_fixer_and_tdd_only(self):
+        """brief の決まり（brief-canon）は修正役と TDD の役の頭の次にだけ載る。裁定役と手直しの役には載せない"""
+        fix = [pid for pid, _, _ in fixrules.fix_parts(VALUES)]
+        tdd = [pid for pid, _, _ in fixrules.tdd_parts(tdd_values())]
+        self.assertEqual(fix[fix.index("fix-head") + 1], "brief-canon")
+        self.assertEqual(tdd[tdd.index("tdd-head") + 1], "brief-canon")
+        ruler = [pid for pid, _, _ in fixrules.ruler_parts({k: "/b/x" for k in fixrules.RULER_VALUES})]
+        self.assertNotIn("brief-canon", ruler)
+        refix = [pid for pid, _, _ in refixrules().parts(1, {"brief_file": "", "diff_file": "", "policy_path": ""})]
+        self.assertNotIn("brief-canon", refix)
+
+    def test_brief_rule_wins_and_names_the_exit(self):
+        """brief が要求の正本で判定は背景。誤りと見たら食い違いの申し出で返し、rewrite_tests は最後の人の関所に並ぶ。
+        brief の無い run は判定のファイルが正本のまま"""
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        for w in ("要求の正本", "brief が勝つ", "背景", "食い違いの申し出", "rewrite_tests", "最後の人の関所", "判定のファイルが正本"):
+            self.assertIn(w, sec)
+
+    def test_judgment_is_background_in_heads(self):
+        """修正役・TDD の役の頭の判定のファイルの行は「全部読め」でなく背景"""
+        for name, sid in ((fixrules.DIRECT, "fix-head"), (fixrules.TDD, "tdd-head")):
+            line = next(ln for ln in fixrules.sections(name)[sid].splitlines() if "<<judgment_file>>" in ln)
+            self.assertNotIn("全部読め", line)
+            self.assertIn("背景", line)
 
     def test_both_prompts_carry_the_shared_source(self):
         """種類を選ばない組み立て（全部の種類）では、正本の全文がそのまま両方に入る"""
@@ -300,8 +325,8 @@ class TestCompose(unittest.TestCase):
         h = header(self.fix(kinds={"code": "判定 stats.py"}))
         self.assertEqual((h["role"], h["iteration"], h["mode"]), ("fix", 1, "full"))
         self.assertEqual([s["id"] for s in h["sections"]],
-                         ["fix-head", "core-fix", "evidence", "evidence-code", "core-conflict", "core-keep", "fix-keep",
-                          "fix-reply"])
+                         ["fix-head", "brief-canon", "core-fix", "evidence", "evidence-code", "core-conflict", "core-keep",
+                          "fix-keep", "fix-reply"])
         self.assertTrue(all(s["sent"] and s["why"] for s in h["sections"]))
         self.assertEqual(len(h["rules_sha"]), 64)
 
