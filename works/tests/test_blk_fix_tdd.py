@@ -354,8 +354,7 @@ class TestStart(LoopCase):
 
     def test_tdd_prep_without_board_has_no_brief(self):
         """盤面の無い置き場（修正案の無い run と同じ）では brief の節を置かない"""
-        # 見出しの行で見る（決まりの節「要求の正本（brief）と背景」は brief の有無によらず載り、HEAD を頭に含む）
-        self.assertNotIn(planbrief.HEAD + "\n", pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"))
+        self.assertNotIn(planbrief.HEAD, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"))
 
     def test_tdd_prep_broken_ledger_stops_with_reason(self):
         """brief の控えが壊れていれば、brief の無い指示書として続けず、控えを名指す理由の Broken で止める（traceback にしない）"""

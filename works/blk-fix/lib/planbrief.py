@@ -53,7 +53,7 @@ HEAD = "## 要求の正本（brief）"
 RESTORED_OP = "brief_restored"
 CUT_OP = "brief_cut"   # 周の 1 回目の cut の印（trace）
 BACKGROUND = "背景（参照。brief と食い違えば brief が勝つ。brief が誤りと見たら申し出よ）"
-READ_ALL = "まず Read で全部読め。下の決まりの『要求の正本（brief）と背景』に従え"
+READ_ALL = "まず Read で全部読め。下の決まりの『brief の決まり（要求の正本と背景）』に従え"
 NONE = "無し"
 
 

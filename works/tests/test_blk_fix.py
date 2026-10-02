@@ -744,8 +744,7 @@ class TestFixPrep(BoardCase):
         self.fix_ready(launched=False)
         code, out, err = self.prep()
         self.assertEqual(code, 0, err)
-        # 見出しの行で見る（決まりの節「要求の正本（brief）と背景」は brief の有無によらず載り、HEAD を頭に含む）
-        self.assertNotIn(planbrief.HEAD + "\n", pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8"))
+        self.assertNotIn(planbrief.HEAD, pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8"))
 
     def test_reads_cover_briefs(self):
         """読んだ証拠の節が読むべきパスに、今の周の brief のファイルを持つ"""

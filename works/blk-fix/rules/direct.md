@@ -5,7 +5,7 @@
 
 ## 読む物
 
-- 判定のファイル: <<judgment_file>>——背景（要求の正本は頭の brief。頭に brief の節が無ければ判定が正本で、下の「要求の正本（brief）と背景」の 6 に従え）。brief の単位の欄を引く時に Read で読め。`units` の各単位の `key`・`label`・`disposition`・`reason`（事実と反証）・`origin_analysis`（出自）・`class_query`（同じ形を全部引く問い）・`prescriptions`（処方。零処方＝取り下げ・既存の機構 1 つで済ませる案から並ぶ）と、`framing`・`one_shot`・`questions`（問いの台帳）・`precedents`（先行例の行）が在る
+- 判定のファイル: <<judgment_file>>——背景（要求の正本は頭の brief。頭に brief の節が無ければ判定が正本で、下の「brief の決まり（要求の正本と背景）」の 6 に従え）。brief の単位の欄を引く時に Read で読め。`units` の各単位の `key`・`label`・`disposition`・`reason`（事実と反証）・`origin_analysis`（出自）・`class_query`（同じ形を全部引く問い）・`prescriptions`（処方。零処方＝取り下げ・既存の機構 1 つで済ませる案から並ぶ）と、`framing`・`one_shot`・`questions`（問いの台帳）・`precedents`（先行例の行）が在る
 - 直す義務の単位の key（JSON の配列。受け付けが読むのと同じ集合で、答え待ちの問いの出どころと ask_human の単位は載らず、人が答えて戻した単位は載る）: <<open_units>>
 - 修正案（別の役が書き、別の目が事前審査で叩いた物）: <<plan_file>>——修正案の全体は読まなくてよい（要求は brief に切り出してある。頭に brief の節が無く、ここが空でなければ Read で読め）。事前審査の返答 `p2.plan_review.json` は <<plan_file>> と同じフォルダに在り、`plan_faces` に答えるのに読め（`faces` が穴、`shrink` が別案。どちらも `key` を持つ）。空なら修正案の無い run で、事前審査への答えは要らない
 - 人の方針の文書: <<policy_path>>——空でなければ、先に全部読め

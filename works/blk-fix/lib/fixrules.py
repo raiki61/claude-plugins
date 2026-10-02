@@ -62,7 +62,7 @@ from engine.util import Reject  # noqa: E402
 RULES_DIR = pathlib.Path(__file__).resolve().parents[1] / "rules"
 SHARED = rulebook.CANON
 DIRECT, TDD = "direct.md", "tdd.md"
-BRIEF = "brief.md"   # 要求の正本（brief）と背景の決まり（修正役と TDD の輪の役にだけ載せる）
+BRIEF = "brief.md"   # brief の決まり（要求の正本と背景）（修正役と TDD の輪の役にだけ載せる）
 BRIEF_WHY = "（要求の正本と背景）"
 RULER, PRINCIPLES = "ruler.md", "principles.md"   # 裁定役の道と、持ち主の決まり（裁定の拠り所）
 FIX_VALUES = ("judgment_file", "open_units", "plan_file", "policy_path", "notes_file", "summary_file")

@@ -10,7 +10,7 @@
 
 ## 読む物
 
-- 判定のファイル: <<judgment_file>>——背景（要求の正本は頭の brief。頭に brief の節が無ければ判定が正本で、下の「要求の正本（brief）と背景」の 6 に従え）。
+- 判定のファイル: <<judgment_file>>——背景（要求の正本は頭の brief。頭に brief の節が無ければ判定が正本で、下の「brief の決まり（要求の正本と背景）」の 6 に従え）。
   brief の単位の欄を引く時に Read で読め。単位ごとの `key`・`reason`（事実と反証）・`origin_analysis`・
   `class_query`（同じ形を全部引く問い）・`prescriptions`（零処方から並ぶ処方）が在る
 - 直す義務の単位の key（JSON の配列。受け付けが読むのと同じ集合で、答え待ちの問いの出どころと ask_human の単位は載らず、人が答えて戻した単位は載る）: <<open_units>>

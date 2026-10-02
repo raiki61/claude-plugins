@@ -941,5 +941,26 @@ class TestRefixCarriesCanon(unittest.TestCase):
                 self.assertNotIn(tails[3 - n], text)
 
 
+class TestBriefCanonEdges(unittest.TestCase):
+    """brief の決まり（brief-canon）の端: 人が関所で付けた条件との強さの順と、指示書の頭の節の見出しとの重なり"""
+
+    def test_gate_notes_win_over_brief(self):
+        """人が関所で答えた条件（notes_file）は brief に勝つ。brief が条件を超えれば条件どおりに直し、超えた所は申し出で返す"""
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        self.assertIn("人が関所で答えた条件（notes_file）は brief に勝つ", sec)
+        self.assertIn("brief が条件を超えれば条件どおりに直し、超えた所は食い違いの申し出で返す", sec)
+
+    def test_rule_heading_does_not_overlap_brief_head(self):
+        """決まりの節の見出しは、指示書の頭の brief の節の見出し（planbrief.HEAD）を含まない。READ_ALL は決まりの節の名を名指す"""
+        import planbrief
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        self.assertNotIn(planbrief.HEAD, sec)
+        heading = next(ln for ln in sec.splitlines() if ln.startswith("## "))
+        self.assertIn(f"『{heading[3:]}』", planbrief.READ_ALL)
+        for name, sid in ((fixrules.DIRECT, "fix-head"), (fixrules.TDD, "tdd-head")):
+            line = next(ln for ln in fixrules.sections(name)[sid].splitlines() if "<<judgment_file>>" in ln)
+            self.assertIn(f"「{heading[3:]}」", line)
+
+
 if __name__ == "__main__":
     unittest.main()
