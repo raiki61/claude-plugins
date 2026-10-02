@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-10-03
+
 ### Added
 
 - 修正案の項目が書いてよいパス（`allowed_paths`）と触らない物（`out_of_scope`）を持ち、修正の受け付けが差分を承認済みの項目と機械で照らし、外れを同じ brief で返す。照らすのは、範囲・足す物の識別子・canonical の外の同名の定義・消す物の識別子・受け入れのテストの名。3 回目は単位に結べれば、その単位だけを止める。
