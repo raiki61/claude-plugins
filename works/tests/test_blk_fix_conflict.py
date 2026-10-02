@@ -600,6 +600,31 @@ class TestPlanRewritePermits(ConflictBoardCase):
         path.write_text(text.replace("clamp(0, 0, 0), 0)", "clamp(0, 0, 0), 1)"), encoding="utf-8")
         self.assertTrue(tddloop.frozen_problems(state, self.repo, limits), "名指していない test_empty の書き換えは拒む")
 
+    def test_rewrite_verified_in_loop_is_frozen_for_the_fixer(self):
+        """輪が赤→緑を確かめた書き換え（tddloop.verified_rewrites）は、受け付けの許しから外れる（skip_ids）。輪の後の修正役が
+        そのテストを書き換えると凍結の検査が拒む。輪で確かめていない書き換えの許しは今どおり"""
+        import tddloop
+        b, state = self.frozen_after_test_added_above()
+        rid = self.REWRITE["id"]
+        p = pathlib.Path(state)
+        st = json.loads(p.read_text(encoding="utf-8"))
+        st.update(order=[MEAN], units={MEAN: {"unit_key": MEAN, "route": "tdd", "green": "ok", "tests": [rid]}},
+                  contract={MEAN: {"items": [1], "route": "tdd", "tests": [], "rewrites": [rid], "refactor": False}})
+        p.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        skip = tddloop.verified_rewrites(state)
+        self.assertEqual(skip, [rid])
+        source = tddloop.frozen_source(state, self.repo)
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=source, skip_ids=skip), [])
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=source), ["test_stats.py:10"], "外さなければ今どおり")
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("mean([1, 2, 3]), 2)", "mean([1, 2, 3]), 2.0)"), encoding="utf-8")
+        self.assertTrue(tddloop.frozen_problems(state, self.repo, conflict.ruled_test_limits(b, rulings=False, source=source,
+                                                                                              skip_ids=skip)))
+        st["units"][MEAN]["green"] = ""   # 緑に届かなかった単位の書き換えは確かめていない
+        p.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(tddloop.verified_rewrites(state), [])
+        self.assertEqual(tddloop.verified_rewrites(""), [], "輪の無い run は空")
+
     def test_plan_limit_dropped_when_test_missing_on_frozen_tree(self):
         """輪の後の木で名指したテストを引けなければ、その許しを捨てる（範囲を広げない側）"""
         import tddloop
@@ -678,9 +703,33 @@ class TestFirstPassPlanLimits(unittest.TestCase):
                                                "INPUTS_PASS": "first"}):
             got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
         self.assertIs(got["ok"], False, got)
-        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY)
+        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY, skip_ids=[])
         self.assertTrue(callable(limits.call_args.kwargs["source"]), "修正案の limit は輪の後の木で引き直す")
         self.assertEqual(frozen.call_args[0][2], ["test_stats.py:8"])
+
+
+class TestAcceptSkipsVerifiedRewrites(unittest.TestCase):
+    """受け付けは輪が赤→緑を確かめた書き換えの id（tddloop.verified_rewrites）を許しから外して凍結の検査に渡す（1 回目も裁定の後も）"""
+
+    def test_accept_passes_verified_rewrites_as_skip_ids(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_fix_accept_script_skip", BLK / "scripts" / "accept.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for pass_ in ("first", "ruled"):
+            limits = mock.MagicMock(return_value=[])
+            frozen = mock.MagicMock(return_value=["TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']"])
+            with mock.patch.object(mod.conflict, "ruled_test_limits", limits), \
+                    mock.patch.object(mod.tddloop, "frozen_problems", frozen), \
+                    mock.patch.object(mod.tddloop, "verified_rewrites", return_value=["t.py::T::test_a"]) as vr, \
+                    mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
+                    mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": "/b/tdd.json",
+                                                   "INPUTS_PASS": pass_}):
+                got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
+            self.assertIs(got["ok"], False, got)
+            vr.assert_called_once_with("/b/tdd.json")
+            self.assertEqual(limits.call_args.kwargs["skip_ids"], ["t.py::T::test_a"], pass_)
+            self.assertEqual(limits.call_args.kwargs["rulings"], pass_ == "ruled")
 
 
 class TestPermitsOnRawBoard(unittest.TestCase):

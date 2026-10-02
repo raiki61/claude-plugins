@@ -26,7 +26,8 @@
 1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
    空・欠けは輪の無い run で見ない）。テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。
    conflict.test_permits を conflict.ruled_test_limits が引く）の中の変更を通す。修正案の名指しは 1 回目から、裁定の範囲は
-   裁定の後（ruled）だけ。修正案の範囲は、凍結の検査が読む輪の後の木でテストの id から引き直す（tddloop.frozen_source）
+   裁定の後（ruled）だけ。修正案の範囲は、凍結の検査が読む輪の後の木でテストの id から引き直す（tddloop.frozen_source）。
+   輪が赤→緑を確かめた修正案の書き換え（tddloop.verified_rewrites）は許しから外す（skip_ids。輪の後に確かめなしで書き換えさせない）
 1c. check_tests: 版からの変更に当たる試験を、TDD の輪と同じ実行器で機械が走らせ、元で赤でなかった試験の赤を拒む
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
@@ -352,7 +353,8 @@ def accept_fix(reply, board, base_rev, repo):
         return _reject(" / ".join(problems))
 
     allowed = conflict.ruled_test_limits(entry.open_board(board), rulings=pass_ == "ruled",
-                                         source=tddloop.frozen_source(state, repo)) if state else []
+                                         source=tddloop.frozen_source(state, repo),
+                                         skip_ids=tddloop.verified_rewrites(state)) if state else []
     frozen = tddloop.frozen_problems(state, repo, allowed)
     if frozen:
         return refuse(frozen)

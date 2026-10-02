@@ -765,6 +765,135 @@ class TestPlanRewrites(ContractCase):
         self.assertEqual(self.st()["runs"], runs)
 
 
+class TestPlanVanishedTests(ContractCase):
+    """約束の在る単位のテストの段: 元の結末で通っていたテストが飛ばされた・結末から消えたら拒む（名指しの外の本体を変えずに
+    クラスの setUp・モジュールの末尾で外す抜け道）"""
+    CONTRACT = TestPlanRewrites.CONTRACT
+
+    def red_with(self, old, new):
+        self.route(mean="direct", clamp="tdd")
+        self.edit("test_stats.py", "self.assertEqual(clamp(15, 0, 10), 10)", "self.assertEqual(clamp(99, 0, 10), 10)")
+        self.edit("test_stats.py", old, new)
+        return self.step({"phase": "test", "unit_key": CLAMP, "test_files": ["test_stats.py"], "tests": [REWRITE]})
+
+    def test_skipped_in_setup_rejected(self):
+        got = self.red_with("class TestStats(unittest.TestCase):\n",
+                            "class TestStats(unittest.TestCase):\n    def setUp(self):\n"
+                            "        if self._testMethodName == \"test_clamp_within_range\":\n            self.skipTest(\"外す\")\n\n")
+        self.assertFalse(got["ok"])
+        self.assertIn("test_clamp_within_range", got["reason"])
+        self.assertIn("skipped", got["reason"])
+
+    def test_removed_at_module_end_rejected(self):
+        got = self.red_with("\n\nif __name__", "\n\ndel TestStats.test_clamp_within_range\n\nif __name__")
+        self.assertFalse(got["ok"])
+        self.assertIn("test_clamp_within_range", got["reason"])
+
+
+def _with_other_test(case):
+    """case の setUp の tddloop.start の前に、対象リポジトリへ既存のテストのファイル test_other.py を置く（元の結末にも載る）"""
+    orig = tddloop.start
+
+    def start(board_dir, repo, *a, **k):
+        other = pathlib.Path(repo) / "test_other.py"
+        if not other.exists():
+            other.write_text("import unittest\n\nfrom stats import clamp\n\n\nclass TestOther(unittest.TestCase):\n"
+                             "    def test_low(self):\n        self.assertEqual(clamp(-1, 0, 10), 0)\n", encoding="utf-8")
+        return orig(board_dir, repo, *a, **k)
+    return mock.patch.object(tddloop, "start", start)
+
+
+class TestFixPhaseFreezesOtherTests(ContractCase):
+    """約束の在る単位の直し・整えの段で、単位のテストのファイルの外の既存のテスト（テストのファイルの名の .py の test* 関数）を
+    書き換えたら拒む"""
+    CONTRACT = {CLAMP: {**TestPlanRewrites.CONTRACT[CLAMP], "refactor": True}}   # 整えの段を申告で必ず通す
+    LOW = "test_other.py::TestOther::test_low"
+
+    def setUp(self):
+        with _with_other_test(self):
+            super().setUp()
+
+    def red(self):
+        self.route(mean="direct", clamp="tdd")
+        self.edit("test_stats.py", "self.assertEqual(clamp(15, 0, 10), 10)", "self.assertEqual(clamp(99, 0, 10), 10)")
+        got = self.step({"phase": "test", "unit_key": CLAMP, "test_files": ["test_stats.py"], "tests": [REWRITE]})
+        self.assertTrue(got["ok"], got)
+        self.edit("stats.py", "    if x > hi:\n        return lo", "    if x > hi:\n        return hi")
+
+    def test_fix_phase_edit_of_other_test_rejected(self):
+        self.red()
+        self.edit("test_other.py", "self.assertEqual(clamp(-1, 0, 10), 0)", "self.assertTrue(True)")
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py", "test_other.py"], "what": "上限の枝で hi を返す"})
+        self.assertFalse(got["ok"])
+        self.assertIn(self.LOW, got["reason"])
+
+    def test_refactor_phase_edit_of_other_test_rejected(self):
+        self.red()
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限の枝で hi を返す"})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.st()["phase"], "refactor")
+        self.edit("test_other.py", "self.assertEqual(clamp(-1, 0, 10), 0)", "self.assertTrue(True)")
+        got = self.step({"phase": "refactor", "unit_key": CLAMP, "what": "テストの補助を整えた"})
+        self.assertFalse(got["ok"])
+        self.assertIn(self.LOW, got["reason"])
+
+    def test_test_functions_in_implementation_files_not_frozen(self):
+        """テストのファイルの名でない .py（実装）の test* 関数は見ない"""
+        self.red()
+        self.edit("stats.py", "def mean(xs):", "def test_helper():\n    return 1\n\n\ndef mean(xs):")
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限の枝で hi を返す"})
+        self.assertTrue(got["ok"], got)
+
+
+class TestFixPhaseOtherTestsWithoutContract(LoopCase):
+    def setUp(self):
+        with _with_other_test(self):
+            super().setUp()
+
+    def test_no_contract_same_as_before(self):
+        """約束の無い run の直しの段は、ほかのテストのファイルの書き換えを今どおり見ない"""
+        self.route()
+        self.red()
+        self.edit("test_other.py", "self.assertEqual(clamp(-1, 0, 10), 0)", "self.assertTrue(True)")
+        self.fix_mean()
+
+
+class TestRewriteSharedAcrossUnits(ContractCase):
+    """1 つの項目が 2 つの単位にまたがると、同じ書き換えの名指しが両方の単位の約束に載る。前の単位で赤→緑を確かめた id は、
+    後の単位で名指しを強いない（もう通るので強いると後の単位は必ず落ちる）。確かめた後は凍っていて、後の単位では書き換えられない"""
+    CONTRACT = {CLAMP: {"items": [1], "route": "tdd", "tests": [], "rewrites": [REWRITE], "refactor": False},
+                MEAN: {"items": [1], "route": "tdd", "tests": [{"id": MEAN_ID, "red_kind": "assertion"}], "rewrites": [REWRITE],
+                       "refactor": False}}
+
+    def clamp_done(self):
+        got = self.step({"phase": "route", "units": [{"unit_key": CLAMP, "route": "tdd"}, {"unit_key": MEAN, "route": "tdd"}]})
+        self.assertTrue(got["ok"], got)
+        self.edit("test_stats.py", "self.assertEqual(clamp(15, 0, 10), 10)",
+                  "self.assertEqual(clamp(15, 0, 10), 10)\n        self.assertEqual(clamp(99, 0, 10), 10)")
+        got = self.step({"phase": "test", "unit_key": CLAMP, "test_files": ["test_stats.py"], "tests": [REWRITE]})
+        self.assertTrue(got["ok"], got)
+        self.edit("stats.py", "    if x > hi:\n        return lo", "    if x > hi:\n        return hi")
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限の枝で hi を返す"})
+        self.assertTrue(got["ok"], got)
+        if self.st()["phase"] == "refactor":
+            self.step({"phase": "refactor", "unit_key": CLAMP, "what": "整える物は無い"})
+        self.assertEqual(self.st()["queue"][self.st()["cur"]], MEAN)
+
+    def test_verified_rewrite_not_forced_in_later_unit(self):
+        self.clamp_done()
+        self.add_test(NEW_TEST)
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": [MEAN_ID]})
+        self.assertTrue(got["ok"], got)
+
+    def test_verified_rewrite_frozen_in_later_unit(self):
+        self.clamp_done()
+        self.add_test(NEW_TEST)
+        self.edit("test_stats.py", "self.assertEqual(clamp(99, 0, 10), 10)", "self.assertEqual(clamp(98, 0, 10), 10)")
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"], "tests": [MEAN_ID]})
+        self.assertFalse(got["ok"])
+        self.assertIn(REWRITE, got["reason"])
+
+
 class TestUnnamedEditsWithoutContract(LoopCase):
     def test_no_contract_does_not_freeze_existing_tests(self):
         """約束の無い run は、既存のテストの本体の書き換えも今どおり見ない"""
@@ -784,6 +913,22 @@ class TestTestFunctions(unittest.TestCase):
         self.assertTrue(got["t.py::T::test_a"].startswith("@d"))
         self.assertEqual(tddloop.test_functions("def (", "t.py"), {})
         self.assertEqual(tddloop.test_functions(src, "t.sh"), {})
+
+    def test_nested_class_ids(self):
+        """入れ子のクラスのメソッドも pytest の node id の形（<パス>::A::B::test_x）で引く"""
+        src = "class A:\n    class B:\n        def test_x(self):\n            pass\n\n    def test_y(self):\n        pass\n"
+        self.assertEqual(set(tddloop.test_functions(src, "t.py")), {"t.py::A::B::test_x", "t.py::A::test_y"})
+
+    def test_parametrized_permission_covers_function(self):
+        """許しが parametrize の id（<id>[1]）でも、その関数の書き換えは名指しの外に数えない"""
+        with tempfile.TemporaryDirectory() as td:
+            repo = pathlib.Path(td) / "repo"
+            committed_copy(repo, SEED)
+            tree = tddloop.snapshot(repo)
+            p = repo / "test_stats.py"
+            p.write_text(p.read_text(encoding="utf-8").replace("clamp(5, 0, 10), 5)", "clamp(6, 0, 10), 6)"), encoding="utf-8")
+            self.assertEqual(tddloop._unnamed_edits(repo, tree, ["test_stats.py"],
+                                                    {"test_stats.py::TestStats::test_clamp_within_range[1]"}), [])
 
     def test_unnamed_edits(self):
         """木の時に在った test* 関数の本体が変わった・消えた物のうち、許しに無い id（整えた id で比べる）"""

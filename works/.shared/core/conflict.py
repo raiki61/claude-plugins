@@ -18,8 +18,9 @@
 - apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
   答えた問いの出どころを直す義務に戻し、ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
-- test_permits(b, rulings=, source=): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲）の
+- test_permits(b, rulings=, source=, skip_ids=): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲）の
   唯一の元。凍結の検査と最後の関所はここから引く。source を渡すと、修正案の行の範囲をその木でテストの id から引き直す。
+  skip_ids に並べた id の修正案の行は外す（TDD の輪が赤→緑を確かめた書き換え。輪の後に書き換えさせない）。
   修正案の欄の控え plan-fields.json が凍結の印と食い違えば（planmarks.FieldsBroken）、許しを引かずに盤面を止めて
   （by FIELDS_STOP_BY）控えを名指す理由の BoardGap
 - frozen_fields(b): 今の周の凍結した修正案の欄の並び（TDD の輪が単位の約束を組む元）。食い違いは test_permits と同じ 1 か所の
@@ -29,7 +30,7 @@
 - fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
   出どころ・depends と ask_human）を 1 回で返す正本（blk-fix の受け付け・TDD の輪が読む）。義務が空で外れた単位が在れば空の
   changes を止めない（blk-fix の assert-changed と recount.collect）
-- ruled_test_limits(b, rulings=, source=)・parse_limit(lim): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定
+- ruled_test_limits(b, rulings=, source=, skip_ids=)・parse_limit(lim): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定
   fix_test_scope の範囲。test_permits）の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
 - human_lines(b): 最後の関所と報告に載せる ask_human の行
 標準ライブラリだけ。期限は持たない。
@@ -464,15 +465,17 @@ def frozen_fields(b) -> list | None:
         raise _fields_gap(b, e) from None
 
 
-def test_permits(b, *, rulings: bool = True, source=None) -> list[dict]:
+def test_permits(b, *, rulings: bool = True, source=None, skip_ids=()) -> list[dict]:
     """テストの変更の許しの唯一の元（凍結の検査と最後の関所はここから引く）。行は {limit: 範囲の文字列, id: 守りのファイルの行の
     id の頭, why: 許した理由}。承認済みの修正案の rewrite_tests（いつも。planmarks.rewrites の順）と、rulings が真なら裁定
     fix_test_scope の範囲（ruled_fix の順）。source（パス → 中身か None）を渡すと、修正案の行の範囲をその木でテストの id から
-    引き直し、引けない行は捨てる（凍結の検査が読む輪の後の木。tddloop.frozen_source）。裁定の行はそのまま。
+    引き直し、引けない行は捨てる（凍結の検査が読む輪の後の木。tddloop.frozen_source）。skip_ids（修正案の行の id そのまま）に
+    在る修正案の行は外す（TDD の輪が赤→緑を確かめた書き換え。tddloop.verified_rewrites）。裁定の行はそのまま。
     修正案の欄の控えが凍結の印と食い違えば、盤面を止めて BoardGap（_plan_rewrites）"""
     out = []
+    skip = set(skip_ids)
     for r in _plan_rewrites(b):
-        lim = _plan_limit(r, source)
+        lim = _plan_limit(r, source) if r["id"] not in skip else None
         if lim:
             out.append({"limit": lim, "id": f"{PLAN_TEST_ID}-{r['item']}",
                         "why": f"承認済みの修正案の項目 {r['item']} が名指した既存テストの書き換え（{r['id']}）: {r['new']}"})
@@ -483,10 +486,10 @@ def test_permits(b, *, rulings: bool = True, source=None) -> list[dict]:
     return out
 
 
-def ruled_test_limits(b, *, rulings: bool = True, source=None) -> list[str]:
+def ruled_test_limits(b, *, rulings: bool = True, source=None, skip_ids=()) -> list[str]:
     """テストの変更の許し（test_permits）の範囲の文字列の並び。rulings が偽なら裁定の範囲を含めない（1 回目の受け付け）。
-    source は test_permits と同じ（凍結の検査は輪の後の木の読み口を渡す）"""
-    return [p["limit"] for p in test_permits(b, rulings=rulings, source=source)]
+    source・skip_ids は test_permits と同じ（凍結の検査は輪の後の木の読み口と、輪が確かめた書き換えの id を渡す）"""
+    return [p["limit"] for p in test_permits(b, rulings=rulings, source=source, skip_ids=skip_ids)]
 
 
 def ruled_test_doc(b) -> dict | None:
