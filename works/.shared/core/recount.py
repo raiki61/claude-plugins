@@ -77,11 +77,14 @@ def _fix_output(b) -> tuple:
         raise Unreadable(f"盤面の {FIX_NODE} の返答 {f} が読めない: {e}") from None
 
 
-def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
+def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path, *, commit: bool = True) -> dict:
     """修正役の返答を盤面に渡す（entry.take(board, "p3.fix", reply, repo)）。結果に 1 本目の出口のための changes
     （[{unit_key, files, what}]。盤面が受けた返答の changes[] から写す）を足す。拒否のときの changes は空（1 本目と同じ）。
     base_rev は受け取るだけ（修正前の版は盤面の state.inputs.review_rev が決める。start が固めた版）。
-    BoardGap・止めた run の Reject は投げる（回す側の誤り。TA19）"""
+    BoardGap・止めた run の Reject は投げる（回す側の誤り。TA19）。
+    commit が偽なら entry.take(…, commit=False)（乾いた照らし。盤面を書かない）の返りに changes: [] を足して返す（盤面を読み直さない）"""
+    if not commit:
+        return {**entry.take(board, FIX_NODE, reply, repo, commit=False), "changes": []}
     got = entry.take(board, FIX_NODE, reply, repo)
     if not got["ok"]:
         return {**got, "changes": []}
