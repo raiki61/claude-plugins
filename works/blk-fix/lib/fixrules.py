@@ -376,7 +376,8 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     拒まれた）なら、受け付けが書いた一番新しい拒否の理由のファイルを見出しの次の 1 行で名指す（R44）。
     ruled は指示書を <名>-ruled.md に分け（輪の回を別に数える）、1 回目は裁定の文のファイル（conflict.RULINGS_FILE）を見出しの
     次の 1 行で名指す（裁定の文は貼らない。R44）。盤面が p3.fix を待っていなければ BoardGap。
-    full と delta の頭（題の次）に、直す義務の単位の brief を名指す節（planbrief.head_text）を置く（1 回目も ruled も同じ凍結の中身）。
+    full と delta の頭（題の次。ruled の 1 回目は裁定の文のファイルの行の後）に、直す義務の単位の brief を名指す節
+    （planbrief.head_text。義務から外れた単位には「今は直すな」）を置く（1 回目も ruled も同じ凍結の中身）。
     brief の控えが壊れていれば盤面を止めて BoardGap（briefs_or_halt。指示書を書かず、起こした印も置かない）"""
     if pass_ not in PASSES:
         raise Unfilled(f"pass {pass_!r} は {PASSES} のどれでもない")
@@ -398,8 +399,9 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
             rulings = conflict.write_rulings(b)
         reject, before = "", (RULINGS_LINE.format(path=rulings),)
     values = owed_values(b, values)
-    head = planbrief.head_text(planbrief.for_units(briefs, json.loads(values["open_units"])))
-    before = tuple(x for x in (head, *before) if x)
+    owed = json.loads(values["open_units"])
+    head = planbrief.head_text(planbrief.for_units(briefs, owed), owed)
+    before = tuple(x for x in (*before, head) if x)   # ruled の裁定の文の行は見出しの次の 1 行のまま（R44）。brief はその後
     docs = lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))
 

@@ -24,7 +24,7 @@
 - render: 1 項目の brief の文（純粋な関数）
 - cut / cut_at: 今の周の brief を書いて凍結する（在れば書き戻すだけ）。返りは {item, unit_keys, file（絶対パス）, sha256} の並び
 - for_units: 単位の key に当たる項目の行だけ
-- head_text: 指示書の頭に置く、brief を名指す節
+- head_text: 指示書の頭に置く、brief を名指す節（今直す単位を渡すと、項目のほかの単位に「今は直すな」と添える）
 - files: 今の周の brief のファイル（読んだ証拠に足す）
 """
 from __future__ import annotations
@@ -55,6 +55,7 @@ CUT_OP = "brief_cut"   # 周の 1 回目の cut の印（trace）
 BACKGROUND = "背景（参照。brief と食い違えば brief が勝つ。brief が誤りと見たら申し出よ）"
 READ_ALL = "まず Read で全部読め。下の決まりの『brief の決まり（要求の正本と背景）』に従え"
 NONE = "無し"
+NOT_NOW = "今は直すな"   # brief の行で、項目の単位のうち今直す単位でない物の頭（head_text）
 
 
 class LedgerBroken(ValueError):
@@ -307,13 +308,20 @@ def for_units(briefs: list, keys) -> list[dict]:
     return [r for r in briefs if want & set(r.get("unit_keys") or [])]
 
 
-def head_text(briefs: list) -> str:
-    """指示書の頭に置く、brief を名指す節。brief が無ければ空"""
+def head_text(briefs: list, owed=None) -> str:
+    """指示書の頭に置く、brief を名指す節。brief が無ければ空。owed（今直す単位の key）を渡すと、行の「単位」は owed と重なる
+    物だけにし、項目のほかの単位（義務から外れた・今の段の外）は「今は直すな」と添えて並べる。None なら項目の単位を全部"""
     if not briefs:
         return ""
-    rows = [f"- 項目 {r['item']}: {r['file']}（sha256 {r['sha256']}・単位 {'、'.join(r.get('unit_keys') or []) or NONE}）"
-            for r in briefs]
-    return f"{HEAD}\n\n" + "\n".join(rows) + f"\n\n{READ_ALL}"
+    want = None if owed is None else set(owed)
+
+    def row(r):
+        keys = list(r.get("unit_keys") or [])
+        now = keys if want is None else [k for k in keys if k in want]
+        rest = [k for k in keys if k not in now]
+        tail = f"・{NOT_NOW}: {'、'.join(rest)}" if rest else ""
+        return f"- 項目 {r['item']}: {r['file']}（sha256 {r['sha256']}・単位 {'、'.join(now) or NONE}{tail}）"
+    return f"{HEAD}\n\n" + "\n".join(row(r) for r in briefs) + f"\n\n{READ_ALL}"
 
 
 def files(b) -> list[str]:

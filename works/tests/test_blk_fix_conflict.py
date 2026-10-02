@@ -411,6 +411,16 @@ class TestTddExcused(LoopCase):
         got = tddloop_step(self, {"phase": "route", "units": [{"unit_key": MEAN, "route": "direct", "why": why}]})
         self.assertTrue(got["ok"], got)
 
+    def test_excused_unit_marked_not_now_in_brief_row(self):
+        """振り分けの段の brief の行の「単位」は直す義務の単位だけ。同じ項目の答え待ちの単位は「今は直すな」と添える"""
+        import planbrief
+        import tddloop
+        rows = [{"item": 1, "unit_keys": [MEAN, CLAMP], "file": "/b/r1/brief-1.md", "sha256": "a" * 64}]
+        with mock.patch.object(tddloop.planbrief, "cut_at", return_value=rows):
+            prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        row = next(ln for ln in prompt[prompt.index(planbrief.HEAD):].splitlines() if ln.startswith("- 項目 1:"))
+        self.assertIn(f"単位 {MEAN}・{planbrief.NOT_NOW}: {CLAMP}", row)
+
 
 def tddloop_step(case, reply):
     import tddloop
@@ -678,6 +688,41 @@ class TestPermitsOnRawBoard(unittest.TestCase):
         rows = conflict.ruled_test_doc(self.b)["rules"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["why"].count(text), 1, rows[0]["why"])
+
+
+class TestRuledPrepBrief(ConflictBoardCase):
+    """2 回目の修正役（fix-ruled-prep）の指示書の頭: 裁定の文のファイルが見出しの次の 1 行（R44）で、brief の節はその後。
+    brief の行の「単位」は直す義務の単位だけで、義務から外れた単位には「今は直すな」と添える"""
+
+    def ruled_prompt(self, decision, text):
+        import planbrief  # noqa: F401  （blk-fix の lib。test_blk_fix が sys.path に足す）
+        from test_blk_fix import PLAN_FIELDS
+        self.parked()
+        cid = self.items()[0]["id"]
+        _, r = self.rule([{"id": cid, "decision": decision, "text": text, "limits": ["stats.py:9"] if decision != "ask_human" else [],
+                           "request_searched": "依頼に分母と期待値のどちらを正とするかの答えを探したが無い"}])
+        self.assertTrue(r["ok"], r)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        code, out, err = run_script("fix_prep", self.repo, {
+            "ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "ruled",
+            **{f"INPUTS_{k.upper()}": v for k, v in {"judgment_file": "", "open_units": json.dumps([MEAN, CLAMP]),
+                                                    "plan_file": "", "policy_path": "", "notes_file": "", "summary_file": ""}.items()}})
+        self.assertEqual(code, 0, err)
+        return r, pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+
+    def test_rulings_line_before_brief_head(self):
+        import planbrief
+        r, prompt = self.ruled_prompt("fix_code_as", RULE_TEXT)
+        self.assertIn(r["rulings_file"], prompt.split("\n")[1], "裁定の文のファイルを見出しの次の 1 行で名指す")
+        self.assertLess(prompt.index(r["rulings_file"]), prompt.index(planbrief.HEAD))
+
+    def test_excused_unit_marked_not_now_in_brief_row(self):
+        import planbrief
+        _, prompt = self.ruled_prompt("ask_human", "依頼とテストのどちらが正しいかは方針の変更で、人が決める")
+        row = next(ln for ln in prompt[prompt.index(planbrief.HEAD):].splitlines() if ln.startswith("- 項目 1:"))
+        self.assertIn(f"単位 {CLAMP}", row)
+        self.assertNotIn(f"単位 {MEAN}", row)
+        self.assertIn(f"今は直すな: {MEAN}", row)
 
 
 if __name__ == "__main__":

@@ -343,8 +343,9 @@ class TestStart(LoopCase):
         """振り分けの段は直す義務の単位の全部の brief、ほかの段は今の単位の brief だけを頭で名指す"""
         rows = [{"item": 1, "unit_keys": [MEAN], "file": "/b/r1/brief-1.md", "sha256": "a" * 64},
                 {"item": 2, "unit_keys": [CLAMP], "file": "/b/r1/brief-2.md", "sha256": "b" * 64}]
-        with mock.patch.object(tddloop.planbrief, "cut_at", return_value=rows):
+        with mock.patch.object(tddloop.planbrief, "cut_at", return_value=rows) as cut:
             route = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+            self.assertEqual(pathlib.Path(cut.call_args[0][0]).resolve(), self.board.resolve(), "盤面の置き場で切る")
             self.assertIn("brief-1.md", route)
             self.assertIn("brief-2.md", route)
             self.route()   # MEAN は tdd、CLAMP は direct

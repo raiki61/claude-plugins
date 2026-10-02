@@ -339,7 +339,8 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     """節 tdd-prep。今の段の指示書を組み（fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段の約束・run の値）、状態の
     置き場の next.md（full の写し）と隣の next.full.md・next.delta.md・next.variants.json に書き、{prompt_file} を返す。
     values は fixrules.TDD_VALUES の run の値（義務の単位は状態の物を使う。欠けは空）。repo は差分から変更の種類を選ぶ根（None は見ない）。
-    題の次に brief の節（planbrief.head_text）: 振り分けの段は直す義務の単位の全部、ほかの段は今の単位 1 つの brief"""
+    題の次に brief の節（planbrief.head_text）: 振り分けの段は直す義務の単位の全部、ほかの段は今の単位 1 つの brief。行の
+    「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-prep を呼ぶ番でない）")
@@ -350,10 +351,10 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     lines = ["## この段ですること", "", DO[phase], ""]
     if phase == "route":
         lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in _owed(st)] + [""]
-        brief = planbrief.head_text(planbrief.for_units(briefs, _owed(st)))
+        brief = planbrief.head_text(planbrief.for_units(briefs, _owed(st)), _owed(st))
     else:
         u = st["units"][st["queue"][st["cur"]]]
-        brief = planbrief.head_text(planbrief.for_units(briefs, [u["unit_key"]]))
+        brief = planbrief.head_text(planbrief.for_units(briefs, [u["unit_key"]]), [u["unit_key"]])
         lines += ["## 今の単位", "", f"- {u['unit_key']}", ""]
         if u["tests"]:
             lines += [f"- 名指しのテスト: {', '.join(u['tests'])}", f"- テストのファイル（凍っている）: {', '.join(u['test_files'])}", ""]

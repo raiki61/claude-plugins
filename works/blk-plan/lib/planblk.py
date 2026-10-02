@@ -113,7 +113,9 @@ def _given(value) -> str:
 
 def head(role: str, excluded_file: str = "", lib_docs: str = "", design_part: str = "") -> str:
     """指示書の頭（役の定義と、並行 PR の外した範囲のパスと、ライブラリの今の文書の節 libdocs.section と、事前審査なら
-    独立設計の節 design_section・修正案なら構造の目の節 structmark.plan_section と入れてよい no の節 plan_slots_section）"""
+    独立設計の節 design_section・修正案なら構造の目の節 structmark.plan_section と入れてよい no の節 plan_slots_section）。
+    修正案の役の定義（HEAD["plan"]）は、項目の works の欄（route・tests・rewrite_tests・refactor）の節 planmarks.HEAD を含む。
+    事前審査の役は、その欄の JSON を design_section の中の planmarks.review_section で受ける"""
     text = HEAD[role] + "\n\n" + gatemarks.HEAD[role_node(role)]
     ex = _given(excluded_file)
     if ex:

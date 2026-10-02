@@ -1106,6 +1106,7 @@ class PlanFieldsCase(unittest.TestCase):
         _, got = self.round_of("plan", linekit.reply("plan_missing_unit"))
         self.assertFalse(got["ok"], got)
         self.assertFalse(self.reason_of(got).startswith(planmarks.REJECT))
+        self.assertIn("どの案にも入っていない単位", self.reason_of(got), "写しの受け付けの単位の欠けの拒否")
         self.assertFalse((self.board / planmarks.FIELDS_FILE).exists())
 
     def test_take_called_directly_strips_fields(self):
