@@ -143,7 +143,7 @@ class InputNamesCase(unittest.TestCase):
             (repo / "policy.md").write_text("方針\n", encoding="utf-8")
             given = {"test_cmd": "x", "thickness": "標準", "gates": "merge", "final_gate": "when_needed", "adapter": "optional",
                      "policy_md": "policy.md", "lang": "English", "base": "main", "pr": "7", "unattended": "true",
-                     "design_only": "true"}
+                     "design_only": "true", "fix_shape": "af"}
             want = {**given, "policy_md": str(repo / "policy.md")}
             self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"} - START_ONLY, "start.py の名に、渡す値を決めていない名がある")
             base = entry.check_inputs({"request": "req.json"}, repo)
@@ -173,6 +173,16 @@ class InputNamesCase(unittest.TestCase):
                 with self.assertRaises(entry.InputRefused) as cm:
                     entry.check_inputs({"request": "req.json", "pr": "main"}, repo)
                 self.assertIn("pr='main'", str(cm.exception))
+
+    def test_fix_shape_default_and_refused(self):
+        """修正の形 fix_shape: 空は既定の g3 を返し、4 つの語の外は名を言って拒む（盤面を作る前に止める）"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp)
+            (repo / "req.json").write_text(json.dumps([{"where": "a.py", "text": "直す"}]), encoding="utf-8")
+            self.assertEqual(entry.check_inputs({"request": "req.json"}, repo)["fix_shape"], "g3")
+            with self.assertRaises(entry.InputRefused) as cm:
+                entry.check_inputs({"request": "req.json", "fix_shape": "g2"}, repo)
+            self.assertIn("fix_shape", str(cm.exception))
 
 
 class LangInputCase(unittest.TestCase):

@@ -1,0 +1,88 @@
+"""修正の形（fix_shape）の読み口（.shared/core/fixshape.py）の検査。一時の置き場の JSON を読むだけ（FAST。git・子のプロセスなし）。
+
+語:
+- 形: 修正の工程の作り方の 4 つ（current・af・g3・g1）。入力が空なら既定の g3。
+- 盤面の控え: 線の start が書く r1/start.json（鍵 fix_shape）と、後の振り分けが選んだ形の控え r1/fix-shape.json。
+
+見る物:
+- word は前後の空白を除き、空は既定、4 つの外は ValueError（4 つの語を名指す）
+- shape_at は 振り分けの控え → start の控え → af（記録の無い前の版の盤面）の順に読み、壊れた控え・語の外は ValueError
+- choose が書いた控えは start の控えより勝つ。語の外・空の by・why は ValueError
+- START_REL は 1 周目の entry.START_FILE
+"""
+import json
+import pathlib
+import sys
+import tempfile
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
+sys.path.insert(0, str(ROOT / ".shared" / "core"))
+
+import entry  # noqa: E402
+import fixshape  # noqa: E402
+
+
+def put(path: pathlib.Path, doc) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+
+class FixShapeCase(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_word_default_and_refuses_outside(self):
+        self.assertEqual(fixshape.word(""), "g3")
+        self.assertEqual(fixshape.word(" af "), "af")
+        with self.assertRaises(ValueError) as cm:
+            fixshape.word("g2")
+        self.assertIn("current / af / g3 / g1", str(cm.exception))
+
+    def test_shape_at_reads_start_record(self):
+        self.assertEqual(fixshape.shape_at(self.tmp), "af")                       # start.json が無い（前の版の盤面）
+        put(self.tmp / "r1" / "start.json", {"test_cmd": ""})
+        self.assertEqual(fixshape.shape_at(self.tmp), "af")                       # 鍵が無い
+        put(self.tmp / "r1" / "start.json", {"fix_shape": "g1"})
+        self.assertEqual(fixshape.shape_at(self.tmp), "g1")
+        self.assertFalse(fixshape.plain(self.tmp))
+        for bad in ('{"fix_shape": "x"}', "{壊れた"):
+            (self.tmp / "r1" / "start.json").write_text(bad, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                fixshape.shape_at(self.tmp)
+
+    def test_choice_wins_over_input(self):
+        put(self.tmp / "r1" / "start.json", {"fix_shape": "g3"})
+        fixshape.choose(self.tmp, "af", by="test", why="振り分けの継ぎ目の確かめ")
+        self.assertEqual(fixshape.shape_at(self.tmp), "af")
+        with self.assertRaises(ValueError):
+            fixshape.choose(self.tmp, "x", by="test", why="知らない語")
+
+    def test_start_rel_is_round_one_start_file(self):
+        self.assertEqual(fixshape.START_REL, f"r1/{entry.START_FILE}")
+
+    def test_plain_only_for_current(self):
+        """平の run（current）だけが plain。choose の by・why が空なら ValueError（控えを書かない）"""
+        put(self.tmp / "r1" / "start.json", {"fix_shape": "current"})
+        self.assertTrue(fixshape.plain(self.tmp))
+        for by, why in (("", "理由"), ("test", " ")):
+            with self.subTest(by=by, why=why):
+                with self.assertRaises(ValueError):
+                    fixshape.choose(self.tmp, "af", by=by, why=why)
+        self.assertFalse((self.tmp / fixshape.CHOICE_REL).exists())
+
+    def test_broken_choice_is_refused(self):
+        """振り分けの控えが壊れている・語の外なら、start の控えへ黙って逃げずに ValueError"""
+        put(self.tmp / "r1" / "start.json", {"fix_shape": "g3"})
+        for bad in ('{"shape": "x"}', "{壊れた"):
+            with self.subTest(bad=bad):
+                (self.tmp / fixshape.CHOICE_REL).write_text(bad, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    fixshape.shape_at(self.tmp)
+
+
+if __name__ == "__main__":
+    unittest.main()

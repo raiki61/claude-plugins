@@ -1134,6 +1134,29 @@ class TestDevShell(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(calls[0][-(len(base) + len(extra)):], base + extra)
 
+    def test_dogfood_fix_shape_appends_input_only_when_asked(self):
+        """WORKS_FIX_SHAPE が空でなければ 4 つの語（current・af・g3・g1）のどれかを確かめて、ラインの引数に fix_shape=<値> を足す。
+        未設定・空では引数は今と同じ。4 つの外は <dir> を作らず・Archon を呼ばずに使い方の誤り（終了コード 2）で止まる"""
+        base = ["--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=optional",
+                "--input", "final_gate=always"]
+        for value, extra in ((None, []), ("", []), ("af", ["--input", "fix_shape=af"])):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                (tmp / "req.json").write_text("[]\n")
+                result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                                   WORKS_DEV_ADAPTER="0", WORKS_FIX_SHAPE=value)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[0][-(len(base) + len(extra)):], base + extra)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                               WORKS_DEV_ADAPTER="0", WORKS_FIX_SHAPE="g2")
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("WORKS_FIX_SHAPE", result.stderr)
+            self.assertEqual(calls, [])
+            self.assertFalse((tmp / "dog").exists())
+
     def test_dogfood_refuses_design_only_outside_one(self):
         """WORKS_DESIGN_ONLY は未設定・空・1 だけを受け、ほかの値は <dir> を作らず・clone せず・Archon を呼ばずに止まる
         （黙って捨てると設計だけのつもりの run が修正まで流れる）"""

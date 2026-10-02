@@ -1,0 +1,95 @@
+"""修正の形（fix_shape）の語と、盤面からの 1 つの読み口（計画 220 Task 1）。標準ライブラリだけ（包みが読む L2）。
+
+語:
+- 形: 修正の工程の作り方の 4 つ。current（比べの基準）・af（works 自身の文で回す今の形）・g3（af に借りたスキルの座を足した形。
+  既定）・g1（修正役 1 つが SDD の型で下請けを回す形）。
+- 盤面の控え:
+  - START_REL（r1/start.json）: 線の start が入力 fix_shape を確かめて置く控え（鍵 KEY）。
+  - CHOICE_REL（r1/fix-shape.json）: 後の振り分けが選んだ形の控え {shape, by, why}。この計画では試験のほか誰も書かない。
+
+口:
+- word(raw): 入力の値を形の語にする（空は DEFAULT。語の外は ValueError）
+- shape_at(board_dir): 盤面の形。読む順は CHOICE_REL の shape → START_REL の KEY → BEFORE（記録の無い前の版の盤面）。
+  ファイルが無い・鍵が無いなら次へ。JSON が読めない・値が語の外なら ValueError（黙って既定にしない）
+- choose(board_dir, shape, *, by, why): CHOICE_REL を書く（後の振り分けの書き口）
+- plain(board_dir): 平の run（形が current）か
+
+形はいつもこの shape_at から引く（ブロック・包み・測る関数が start.json を直に読まない）。
+"""
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+
+SHAPES = ("current", "af", "g3", "g1")
+DEFAULT = "g3"            # 入力が空の run の形
+BEFORE = "af"             # 形の記録の無い盤面（220 の前の版で作った盤面）の形
+KEY = "fix_shape"         # start の控えの鍵（ラインの入力の名と同じ）
+START_REL = "r1/start.json"       # 線の start の控え（entry.START_FILE の 1 周目。L2 なので entry は import しない）
+CHOICE_REL = "r1/fix-shape.json"  # 後の振り分けが選んだ形の控え
+
+
+def _words() -> str:
+    return " / ".join(SHAPES)
+
+
+def word(raw: str) -> str:
+    """入力の値を形の語にする。前後の空白を除き、空なら DEFAULT。SHAPES の外は ValueError"""
+    v = "" if raw is None else str(raw).strip()
+    if not v:
+        return DEFAULT
+    if v not in SHAPES:
+        raise ValueError(f"fix_shape={v} は知らない値（{_words()}）")
+    return v
+
+
+def _read(path: pathlib.Path, key: str) -> str | None:
+    """控え path の key の形の語。ファイルが無い・鍵が無いなら None。読めない・形が違う・語の外は ValueError"""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise ValueError(f"修正の形の控え {path} を読めない（{type(e).__name__}: {e}）") from None
+    try:
+        doc = json.loads(text)
+    except ValueError as e:
+        raise ValueError(f"修正の形の控え {path} が JSON として読めない（{e}）") from None
+    if not isinstance(doc, dict):
+        raise ValueError(f"修正の形の控え {path} が JSON の object でない")
+    if key not in doc:
+        return None
+    v = doc[key]
+    if not isinstance(v, str) or v not in SHAPES:
+        raise ValueError(f"修正の形の控え {path} の {key}={v!r} は知らない値（{_words()}）")
+    return v
+
+
+def shape_at(board_dir) -> str:
+    """盤面の形: CHOICE_REL の shape → START_REL の KEY → BEFORE の順に、最初に在る物"""
+    root = pathlib.Path(board_dir)
+    for rel, key in ((CHOICE_REL, "shape"), (START_REL, KEY)):
+        got = _read(root / rel, key)
+        if got is not None:
+            return got
+    return BEFORE
+
+
+def choose(board_dir, shape: str, *, by: str, why: str) -> None:
+    """後の振り分けが選んだ形を CHOICE_REL に書く。shape は SHAPES の内、by・why は空でない。外れは ValueError（書かない）"""
+    if shape not in SHAPES:
+        raise ValueError(f"fix_shape={shape} は知らない値（{_words()}）")
+    for name, v in (("by", by), ("why", why)):
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(f"修正の形の控えの {name} が空")
+    path = pathlib.Path(board_dir) / CHOICE_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps({"shape": shape, "by": by, "why": why}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def plain(board_dir) -> bool:
+    """平の run（形が current）か"""
+    return shape_at(board_dir) == "current"

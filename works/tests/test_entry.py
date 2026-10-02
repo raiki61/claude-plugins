@@ -481,7 +481,7 @@ class CheckInputsCase(StartCaseBase):
         repo = self.seed()
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
-                                    "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only"})
+                                    "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only", "fix_shape"})
         self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"],
                           got["lang"], got["unattended"], got["design_only"]),
                          ("標準", "", "always", "", "", "", "", "", ""))
@@ -842,7 +842,7 @@ class StartCase(StartCaseBase):
         repo = self.seed(declared=True)
         got = self.start(repo, thickness="標準", gates="merge")
         self.assertIn("段: 標準・", got["head_line"])
-        self.assertNotIn("（既定）", got["head_line"])
+        self.assertNotIn("標準（既定）", got["head_line"])
         self.assertIn("gates: merge", got["head_line"])
         self.assertEqual(entry.open_board(self.board).state["inputs"]["gates"], "merge")
 
@@ -1094,6 +1094,22 @@ class ResumeCase(StartCaseBase):
                 with self.assertRaises(entry.InputRefused) as cm:
                     entry.start(self.board, repo, self.raw(test_cmd=cmd), run_id="run-7")
                 self.assertIn("test_cmd", str(cm.exception))
+
+    def test_resume_with_other_fix_shape_refused(self):
+        """呼び直しで修正の形 fix_shape が最初の控えと違えば、盤面を作り直さずに拒む（腕を黙って替えない。test_cmd と同じ扱い）。
+        同じ形で呼び直せば通り、返りと控えと頭の行に形が載る"""
+        repo = self.seed()
+        first = self.start(repo, test_cmd=SEED_CMD, fix_shape="af")
+        self.assertEqual(first["fix_shape"], "af")
+        self.assertIn("修正の形: af", first["head_line"])
+        self.assertNotIn("修正の形: af（既定）", first["head_line"])
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, fix_shape="g3"), run_id="run-7")
+        self.assertIn("fix_shape", str(cm.exception))
+        again = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, fix_shape="af"), run_id="run-7")
+        self.assertEqual(again["fix_shape"], "af")
+        doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(doc["fix_shape"], "af")
 
     def test_fallback_cmd_runs_from_git_top(self):
         """任せ先の test_cmd は engine と同じく git の根（--show-toplevel）で走らせる（入力の cwd が下のフォルダでも）"""
