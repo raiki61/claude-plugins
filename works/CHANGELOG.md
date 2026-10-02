@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 工程の YAML の検査（`tests/test_yaml_rules.py`）が、loop_group の本体（入れ子の輪も）に置いた approval の節を通していた。Archon は本体が関所で終わる輪を再開すると、止まった回の会話が欠けて前の回の会話から続ける（Archon #3532 open）。本体の approval の節を違反にし、関所は輪の外の最上段に置いて答えを with の from で後ろの節へ渡す形に縛る。今の works の関所は全部輪の外なので、run の動きは変わらない。
+
 ## [0.2.18] - 2026-10-02
 
 ### Added

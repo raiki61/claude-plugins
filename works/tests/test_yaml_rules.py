@@ -37,6 +37,8 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
 - loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る。
   3 でない上限は表 LOOP_MAX の輪だけ（blk-fix の TDD の輪: 単位の数が run ごとに違う。抜けるのは until_bash の印で、
   上限に届く周で機械が印を立てる。R50）
+- loop_group の本体（入れ子の輪も）に approval の節を置かない（Archon #3532: 本体が関所で終わる輪の再開は止まった回の会話を
+  引き継がない。関所は輪の外の最上段に置き、答えは with の from で後ろの節へ渡す）
 - 上のどれでもない種類の節（loop: など）は違反（決まりを決めていない種類を黙って通さない）
 
 違反の見本は tests/yaml_bad/（1 本 1 違反。どの決まりに引っかかるべきかは BAD_EXPECT に置き、件数だけでなく文面で照合する）、
@@ -146,6 +148,7 @@ BAD_EXPECT = {
     "bash_outside_blk_ci": "節 ci: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash']）",
     "fix_outside_blk_fix": "節 fix: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash', 'Edit', 'Write']）",
     "measure_outside_blk_premises": "節 premises: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash']）",
+    "approval_in_loop": "節 judge-loop の中の節 gate: loop_group の本体に approval の節を置いた（関所の後の再開で輪の会話が欠ける",
     "loop_body_timeout": "節 judge-loop の中の節 accept: bash の節の timeout が 1728000000 でない（120000）",
     "loop_no_max": "節 judge-loop: loop_group の max_iterations が 3 でない（None）",
     "loop_no_until_bash": "節 judge-loop: loop_group に until_bash が無い",
@@ -256,6 +259,10 @@ def _check_node(node, where, place, out):
             out.append(f"{at}: loop_group の max_iterations が {want} でない（{g.get('max_iterations')!r}）")
         if not (isinstance(g.get("until_bash"), str) and g["until_bash"].strip()):
             out.append(f"{at}: loop_group に until_bash が無い")
+        for n in g.get("nodes") if isinstance(g.get("nodes"), list) else []:
+            if isinstance(n, dict) and _kind(n) == "approval":
+                out.append(f"{at} の中の節 {n.get('id')}: loop_group の本体に approval の節を置いた"
+                           "（関所の後の再開で輪の会話が欠ける。Archon #3532。関所は輪の外の最上段に置く）")
         _check_nodes(g.get("nodes"), f"{at} の中の", place, out)
 
 
