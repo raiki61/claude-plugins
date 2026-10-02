@@ -6,36 +6,54 @@ GitHub から取れる範囲で全部、決定的に集める。判断（返信�
 それは読む人か、/whose-turn の AI の仕事。母集団と、見ていないものを必ず併記する。
 各行の 2 行目はその PR / issue の URL——読む側が番号をリンクにするための材料。
 
-〈PR の番〉1 つの PR が複数人に載る。形式上の状態と会話の状態を別の信号として出す:
-  draft         作者。draft のまま
-  CI 赤         作者。head commit のチェックに SUCCESS / NEUTRAL / SKIPPED / PENDING /
+〈PR の番〉1 つの PR が複数人に載る。形式上の状態と会話の状態を別の信号として出す。
+返答できる人は User のアカウント（Bot・Mannequin・Organization・退会済みでない人）。持ち主は、
+返答できる assignee がいて作者がその中にいなければその全員（作者は渡し終えている）、それ以外は作者。
+assignee の種別が取れない GitHub（assignedActors が無い）では作者。
+持ち主の側は作者と持ち主で、スレッドではこの側が答える:
+  draft         持ち主。draft のまま
+  CI 赤         持ち主。head commit のチェックに SUCCESS / NEUTRAL / SKIPPED / PENDING /
                 EXPECTED / CANCELLED / STALE 以外の結論がある（未知の値は赤に倒す）
-  指摘対応      作者。reviewDecision が CHANGES_REQUESTED
+  指摘対応      持ち主。reviewDecision が CHANGES_REQUESTED で、最新の意見が変更要求の人のうち
+                レビュー依頼が出ていない人がいる（全員に再依頼が出ていれば番はレビュアー）
   レビュー      依頼先。Bot 以外（人か Team）へのレビュー依頼が未消化（copilot 等の Bot 宛は数えない）
-  レビュー待ち  作者。その依頼が残っている間。作者に動かせることは無いが、行を立てないと
-                open な PR が作者のどの段にも出ず、依頼を出したことごと一覧から消える
-  マージ        作者。APPROVED で依頼も残っていない（main 未追従なら併記）
-  再依頼        作者。作者以外の人のレビューが付いて依頼が消えたまま
-  レビュー依頼  作者。Bot 以外へ依頼を出したが、レビューが付かないまま依頼も消えた
-  未依頼        作者。Bot 以外へレビューを依頼したことが一度も無い。相手はこの PR を知らないので、
+  レビュー待ち  持ち主。その依頼が残っている間。持ち主に動かせることは無いが、行を立てないと
+                open な PR が持ち主のどの段にも出ず、依頼を出したことごと一覧から消える
+  マージ        持ち主。APPROVED で依頼も残っていない（main 未追従なら併記）
+  再依頼        持ち主。持ち主の側でない人のレビューが付いて依頼が消えたまま
+  レビュー依頼  持ち主。Bot 以外へ依頼を出したが、レビューが付かないまま依頼も消えた
+  未依頼        持ち主。Bot 以外へレビューを依頼したことが一度も無い。相手はこの PR を知らないので、
                 「待ち」は作成日ではなく最後に動かした日（head commit）から数える
   未送信        レビューを書いた人。下書き（PENDING）のまま送っていない。相手には届いていない
-  返答待ち      指摘した人。未解決スレッドで自分の指摘の後に作者がまだ返していない
-  スレッド返答  作者。未解決スレッドで自分の最後の発言の後に指摘が来ている
-  再確認        指摘した人。未解決スレッドで自分の指摘の後に作者が返した（再依頼は押されていない）
-  担当          assignee。作者と別の人が assignee
+  返答待ち      指摘した人。未解決スレッドで自分の指摘の後に答える側がまだ返していない。持ち主が
+                自分で立てた問いには立てない
+  スレッド返答  持ち主（側の人が立てたスレッドでは、側の残りの人）。未解決スレッドで答える側の
+                最後の発言の後に指摘が来ている
+  再確認        指摘した人。未解決スレッドで自分の指摘の後に答える側が返した（再依頼は押されていない）
+  担当          返答できる assignee のうち持ち主でない人（作者も assignee の PR の、作者と別の人）。
+                種別が取れない GitHub では作者以外の assignee 全員
+持ち主の側の人が立てたスレッドは、側の残りの人への問いとして扱う（渡した作者が受けた人の実装を
+レビューする形と、受けた人が作者に聞く形）。側の残りに返答できる人がいなければ自注で、番を立てない。
+付け替わった PR では、持ち主の行の「待ち」をその人が assignee になった日より前へは戻さない。
 「待ち」はその信号が出た日からの日数。PR の作成日ではない。信号の名前は報告に出さない——
 読む人が要るのは「今日動かせるか」と、行に添えた事実の方で、語彙を覚えることではない。
 並びは「その人が動けば進むか」の 4 段。各段の中では待ちの古い順:
   あなたを待っている人がいる            相手がその人の番で止まっている。動かせるのはその人だけ
   あなたを待っている人がいる（動ける人はほかにもいる）
-                                        同上だが、Bot 以外の依頼先が 2 人以上いるレビュー、または
-                                        同じ PR の相手にも返す番が残っているもの
-  まだ誰にも渡していない                draft・未依頼。待っている人はいないが、動かせるのはその人だけ
-  相手が動くまで進まない                その人が最後に発言して番も無い、依頼したレビューが返って
-                                        きていない、または作者しか外せない障害（その人が作者でない
-                                        PR の main 未追従・衝突・CI 赤）が残っていて、その人の
-                                        残りが再確認だけ
+                                        同上だが、Bot 以外の依頼先が 2 人以上いるレビュー、持ち主が
+                                        2 人以上いる PR で持ち主どうしが共有する行（CI 赤・指摘対応・
+                                        マージなど。draft・未依頼だけの行は下の段）、または同じ PR の
+                                        相手にも返す番が残っているもの
+  まだ誰にも渡していない                draft・未依頼・未送信のレビュー。待っている人はいないが、
+                                        動かせるのはその人だけ
+  相手が動くまで進まない                その人が最後に発言して番も無い（レビューを依頼されている人は
+                                        依頼より後の発言だけ数え、本人が解決済みスレッドに書いた
+                                        発言は数えない）、未解決スレッドで自分の問いへの返事を
+                                        待っている、依頼したレビューが返って
+                                        きていない、または持ち主しか外せない障害（その人が持ち主で
+                                        ない PR の main 未追従・衝突・CI 赤）が残っていて、その人の
+                                        残りが再確認だけ、または assignee の種別が取れない GitHub で
+                                        作者が自分を入れずに assignee を付けた未依頼の PR の作者
 上 2 段と 3 段目を分けるのは、渡していない PR は誰も待っていないが動かせるのは本人だけで、
 「相手待ち」と混ぜると本当に動かせる件が沈むため。最下段は形式上の状態だけで信号が立ち続け、
 待ちの日数だけが伸びるので、混ぜると上を占めて実際に人を止めている行が沈む。
@@ -69,12 +87,14 @@ import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/catchup と共用
+import turn  # noqa: E402 — PR の番の述語。/catchup と共用
+from turn import answerable, assigned_people, is_bot, login, owner_side, owners  # noqa: E402
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-# CANCELLED / STALE は新しい push に打ち切られた実行で、作者が直すものではない。空文字は実行中
+# CANCELLED / STALE は新しい push に打ち切られた実行で、持ち主が直すものではない。空文字は実行中
 GREEN = {
     "SUCCESS",
     "NEUTRAL",
@@ -88,8 +108,8 @@ GREEN = {
 
 MATERIALS_MARK = "==== ここから下は判定の材料。貼らない ===="
 
-# 作者しか外せないマージの障害。BEHIND は取り込み、DIRTY は衝突解消で、どちらもブランチを持つ側の仕事
-AUTHOR_ONLY_MERGE = {"BEHIND", "DIRTY"}
+# 持ち主しか外せないマージの障害。BEHIND は取り込み、DIRTY は衝突解消で、どちらもブランチを持つ側の仕事
+OWNER_ONLY_MERGE = {"BEHIND", "DIRTY"}
 
 # tier() が返す段。0〜2 は今日動かせる（自分の番）、3 は相手が動くまで進まない（相手の番）。
 # 報告は 2 つに分けて出し、段そのものは並びの鍵としてだけ使う——動かせる中での優先順は
@@ -111,12 +131,22 @@ NOT_SEEN = """\
     発言者しか見ていない（相手の指摘の後に別の話で発言すると、返したことになる）{unverified}
   - スレッドの材料は最後の発言だけ。そこまでの経緯が要るなら gh で読む
   - 逃がした先は「この PR より後に立った open な issue / PR」に限る。close 済み・
-    別リポジトリの行き先は見ない"""
+    別リポジトリの行き先は見ない{kinds}"""
+
+# assignedActors の無い GitHub（GHES。cli/cli の featuredetection も actor の API を github.com に限る）
+KINDS_NOT_SEEN = """
+  - PR の assignee が人か Bot か（この GitHub は assignedActors を返さない。assignee の種別が
+    取れないので、作者の番を assignee へ移さず起票者が持つ形で出した。Bot の assignee も人として
+    数え、担当の行を立て、起票者が assignee に入っていない未依頼の PR を渡した扱いにして相手の番に
+    置く相手にも数えた）"""
 
 ACTOR = "{ login __typename }"
 REVIEWER = "{ __typename ... on User { login } ... on Team { combinedSlug } }"
+HISTORY_WINDOW = 100
 
-PR_QUERY = f"""
+
+def pr_query(assignees):
+    return f"""
 query($owner: String!, $name: String!, $cursor: String) {{
   repository(owner: $owner, name: $name) {{
     pullRequests(first: 10, states: OPEN, after: $cursor) {{
@@ -124,15 +154,17 @@ query($owner: String!, $name: String!, $cursor: String) {{
       nodes {{
         number title url headRefName isDraft reviewDecision mergeStateStatus createdAt updatedAt
         body additions deletions changedFiles
-        author {{ login }}
-        assignees(first: 10) {{ totalCount nodes {{ login }} }}
+        author {ACTOR}
+        {assignees}
         reviewRequests(first: 20) {{ totalCount nodes {{ requestedReviewer {REVIEWER} }} }}
         reviews(last: 100) {{ totalCount nodes {{ id state createdAt submittedAt body author {ACTOR} }} }}
+        {turn.OPINIONS}
         comments(last: 100) {{ totalCount nodes {{ id createdAt body author {ACTOR} }} }}
         reviewThreads(first: 50) {{ totalCount nodes {{ isResolved isOutdated path line
           comments(first: 30) {{ totalCount nodes {{ id state createdAt body author {ACTOR} }} }} }} }}
-        timelineItems(last: 100, itemTypes: [REVIEW_REQUESTED_EVENT, READY_FOR_REVIEW_EVENT,
+        timelineItems(last: {HISTORY_WINDOW}, itemTypes: [REVIEW_REQUESTED_EVENT, READY_FOR_REVIEW_EVENT,
                                              CONVERT_TO_DRAFT_EVENT, ASSIGNED_EVENT]) {{
+          pageInfo {{ hasPreviousPage }}
           nodes {{ __typename
             ... on ReviewRequestedEvent {{ createdAt requestedReviewer {REVIEWER} }}
             ... on ReadyForReviewEvent {{ createdAt }}
@@ -144,6 +176,10 @@ query($owner: String!, $name: String!, $cursor: String) {{
             ... on StatusContext {{ context state createdAt }} }} }} }} }} }} }}
       }} }} }} }}
 """
+
+
+PR_QUERY = pr_query(turn.ASSIGNEES)
+LEGACY_PR_QUERY = pr_query(turn.LEGACY_ASSIGNEES)
 
 # 呼びかけ候補の投稿だけ、本人のリアクション（👍 で済ませた返答）を後から引く。
 # 本体クエリに入れると GraphQL の資源上限に当たる（実測: issue 40 件/頁で "Resource limits exceeded"）
@@ -166,7 +202,8 @@ query($owner: String!, $name: String!, $cursor: String) {{
         author {ACTOR}
         assignees(first: 20) {{ totalCount nodes {{ login }} }}
         comments(last: 100) {{ totalCount nodes {{ id createdAt body author {ACTOR} }} }}
-        timelineItems(last: 100, itemTypes: [ASSIGNED_EVENT, CROSS_REFERENCED_EVENT]) {{
+        timelineItems(last: {HISTORY_WINDOW}, itemTypes: [ASSIGNED_EVENT, CROSS_REFERENCED_EVENT]) {{
+          pageInfo {{ hasPreviousPage }}
           nodes {{ __typename
             ... on AssignedEvent {{ createdAt assignee {{ ... on User {{ login }} }} }}
             ... on CrossReferencedEvent {{ source {{ __typename
@@ -218,12 +255,20 @@ def gh(*args):
             continue
         if r.returncode == 0:
             return r.stdout
-        if "504" not in r.stderr or attempt == 2:
-            sys.exit(f"gh {' '.join(args[:2])} が失敗: {r.stderr.strip()}")
+        step = turn.after_gh_failure(args, attempt, r.stderr, r.stdout)
+        if step == "retry":
+            continue
+        if step == "body":
+            return r.stdout
+        sys.exit(f"gh {' '.join(args[:2])} が失敗: {r.stderr.strip()}")
     return None
 
 
-def fetch_all(query, owner, name, field):
+class MissingField(Exception):
+    pass
+
+
+def fetch_all(query, owner, name, field, optional=()):
     nodes, cursor = [], None
     while True:
         args = [
@@ -239,7 +284,10 @@ def fetch_all(query, owner, name, field):
         if cursor:
             args += ["-f", "cursor=" + cursor]
         data = json.loads(gh(*args))
-        if data.get("errors"):
+        errors = data.get("errors")
+        if turn.missing_only(errors, optional):
+            raise MissingField()
+        if errors:
             sys.exit(
                 "GraphQL エラー: " + json.dumps(data["errors"], ensure_ascii=False)
             )
@@ -248,6 +296,17 @@ def fetch_all(query, owner, name, field):
         if not conn["pageInfo"]["hasNextPage"]:
             return nodes
         cursor = conn["pageInfo"]["endCursor"]
+
+
+def fetch_prs(owner, name):
+    """止めると、その GitHub では /whose-turn が丸ごと走らない"""
+    try:
+        return fetch_all(PR_QUERY, owner, name, "pullRequests", optional={turn.KINDS_FIELD})
+    except MissingField:
+        prs = fetch_all(LEGACY_PR_QUERY, owner, name, "pullRequests")
+        for p in prs:
+            p["assigneeKindsUnknown"] = True
+        return prs
 
 
 # ---- 判定（純粋関数。tests/whose-turn-suite.py が規則を pin する） ------------------
@@ -290,24 +349,12 @@ def drop_pending(pr):
     return pr["pendingReview"]
 
 
-def login(actor):
-    # 退会済みユーザーの author は null で返る
-    return (actor or {}).get("login")
-
-
-def is_bot(actor):
-    return (actor or {}).get("__typename") == "Bot"
+def team_slug(node):
+    return node["combinedSlug"] if turn.is_team(node) else None
 
 
 def reviewer(node):
-    # User → login / Team → org/slug / それ以外（copilot 等の Bot）→ None。
-    # login の有無で見分けると、クエリのフラグメントに Bot { login } を足した途端 Bot が人になる
-    kind = (node or {}).get("__typename")
-    if kind == "User":
-        return node["login"]
-    if kind == "Team":
-        return node["combinedSlug"]
-    return None
+    return (team_slug(node) or node["login"]) if turn.is_reviewer(node) else None
 
 
 def latest(values):
@@ -315,8 +362,43 @@ def latest(values):
     return max(values) if values else None
 
 
+def to_owners(pr, rows):
+    holders = owners(pr)
+    author = login(pr["author"])
+    return [(o, kind, since) for who, kind, since in rows for o in (holders if who == author else [who])]
+
+
+def received_at(pr, who):
+    """作者が自分を assign した日へ寄せない——自分で書いた PR の待ちは assign で始まらない。"""
+    return pr["createdAt"] if who == login(pr["author"]) else assigned_at(pr, who)
+
+
+def not_before_received(pr, rows):
+    """渡した PR で、持ち主の行（写した形式上の行も、スレッドの行も）の待ちを受けた日より前に戻さない——
+    渡される前の日数まで背負わせると、受けたばかりの PR が放置に見える。merge_rows が同じ人の行の
+    最も古い日を取るので、1 行でも残すと表示の日数がそこへ戻る。"""
+    holders = owners(pr)
+    if holders == [login(pr["author"])]:
+        return rows
+    received = {o: received_at(pr, o) for o in holders}
+    return [(who, kind, latest((since, received.get(who)))) for who, kind, since in rows]
+
+
 def pr_balls(pr):
     """[(誰の番か, 種別, いつから)]。形式上の状態と会話の状態を別々に出し、同じ人は呼び出し側でまとめる。"""
+    rows = to_owners(pr, formal_rows(pr))
+    conv = conversation_balls(pr)
+    # レビュー待ちは、持ち主に他の行が 1 本も無いときだけ残す——既にある行に足すと merge_rows が since を
+    # min() で倒し、直近に動かした PR の日数が依頼日まで引き戻されて放置に見える（実測 2026-08-26・
+    # IL-SW-AI/guided-resolver: 無条件に積むと #1207 が 4 日 → 29 日、#1450 が 2 日 → 4 日になった）。
+    # 持ち主へ写した後で見る——写す前の名義（作者）で見ると、受けた人の行が有っても無いことになる
+    busy = {who for who, kind, _ in rows + conv if kind != "レビュー待ち"}
+    rows = [r for r in rows if r[1] != "レビュー待ち" or r[0] not in busy]
+    return not_before_received(pr, rows + conv)
+
+
+def formal_rows(pr):
+    """形式上の状態の行。持ち主の分は作者の名義で積み、pr_balls が持ち主へ写す。"""
     author = login(pr["author"])
     created = pr["createdAt"]
     events = pr["timelineItems"]["nodes"]
@@ -324,20 +406,18 @@ def pr_balls(pr):
     def last_event(kind):
         return latest(e["createdAt"] for e in events if e["__typename"] == kind)
 
-    # 作者がレビューコメントに返信すると、作者名義の COMMENTED レビューができる。それを
-    # 「人のレビュー」に数えると、誰にも頼んでいない PR が「再依頼」に化ける
-    reviews = [r for r in pr["reviews"]["nodes"] if login(r["author"]) != author]
+    side = owner_side(pr)
+    reviews = [r for r in pr["reviews"]["nodes"] if login(r["author"]) not in side]
 
     def last_review(pred):
         return latest(r["submittedAt"] for r in reviews if pred(r))
 
     rows = []
-    # draft は形式上の状態だけを止める。会話と assignee の行はこの後で積む——作者が下書きに
+    # draft は形式上の状態だけを止める。会話と assignee の行は pr_balls が別に積む——作者が下書きに
     # 戻しても、人が付けた未解決の指摘は生きたままで、返す番は消えない（実測 2026-08-23・
     # IL-SW-AI/guided-resolver #1308: draft のため、作者が返す番の 21 スレッドが誰の一覧にも出ていなかった）
     if pr["isDraft"]:
-        rows.append((author, "draft", last_event("ConvertToDraftEvent") or created))
-        return rows + conversation_balls(pr)
+        return [(author, "draft", last_event("ConvertToDraftEvent") or created)]
 
     red = red_checks(pr)
     if red:
@@ -349,7 +429,7 @@ def pr_balls(pr):
                 since or pr["commits"]["nodes"][0]["commit"]["committedDate"],
             )
         )
-    elif pr["reviewDecision"] == "CHANGES_REQUESTED":
+    elif turn.owes_change_requests(pr):
         since = last_review(lambda r: r["state"] == "CHANGES_REQUESTED")
         rows.append((author, "指摘対応", since or created))
 
@@ -358,16 +438,11 @@ def pr_balls(pr):
         who = reviewer(rq["requestedReviewer"])
         if who is None:
             continue
-        asked = latest(
-            e["createdAt"]
-            for e in events
-            if e["__typename"] == "ReviewRequestedEvent"
-            and reviewer(e.get("requestedReviewer")) == who
-        )
+        asked = requested_at(pr, who)
         pending.append(asked or created)
         rows.append((who, "レビュー", asked or created))
 
-    # 形式上の状態（依頼が残っていなければ作者の番）。CI 赤・指摘対応があればそちらが作者の行
+    # 形式上の状態（依頼が残っていなければ持ち主の番）。CI 赤・指摘対応があればそちらが持ち主の行
     if not pending and not rows:
         if pr["reviewDecision"] == "APPROVED":
             rows.append(
@@ -382,17 +457,18 @@ def pr_balls(pr):
         # #1478 は null、Copilot の COMMENTED だけ付いた #1476 は REVIEW_REQUIRED）。null を
         # 分類なしに落とすと、立てたばかりの PR が「未依頼」ではなく最上段に出る
         elif pr["reviewDecision"] in ("REVIEW_REQUIRED", None, ""):
-            human = last_review(lambda r: not is_bot(r["author"]))
             asked = latest(
                 e["createdAt"]
                 for e in events
                 if e["__typename"] == "ReviewRequestedEvent"
                 and reviewer(e.get("requestedReviewer"))
             )
-            if human:
-                rows.append((author, "再依頼", human))
-            elif asked:
-                rows.append((author, "レビュー依頼", asked))
+            kind = turn.split(pr, pr["reviews"]["nodes"], asked)
+            if kind == "再依頼":
+                human = turn.others_reviews(pr, pr["reviews"]["nodes"])
+                rows.append((author, kind, latest(r["submittedAt"] for r in human)))
+            elif kind == "レビュー依頼":
+                rows.append((author, kind, asked))
             else:
                 # 誰にも頼んでいない PR には待たせている相手がいない。作成日から数えると、書きかけを
                 # 寝かせた期間まで「待ち」に入る（実測: #1276 は作成 21 日前・最後の push は 3 日前で、
@@ -413,58 +489,76 @@ def pr_balls(pr):
         else:
             rows.append((author, f"分類なし({pr['reviewDecision']})", created))
 
-    conv = conversation_balls(pr)
-    # 依頼が生きている間、上の分岐は作者に 1 行も積まない。そのままだと open な PR が作者の
+    # 依頼が生きている間、上の分岐は持ち主に 1 行も積まない。そのままだと open な PR が持ち主の
     # どの段にも出ず、一覧から丸ごと消える（実測 2026-08-26・IL-SW-AI/guided-resolver
-    # #1413 #1492 #1494: 依頼を出した瞬間に作者の一覧から落ち、出したこと自体が見えなくなった）。
-    # 作者に他の行が 1 本も無いときだけ積む——既にある行に足すと merge_rows が since を min() で
-    # 倒し、直近に動かした PR の日数が依頼日まで引き戻されて放置に見える（同日の実測:
-    # 無条件に積むと #1207 が 4 日 → 29 日、#1450 が 2 日 → 4 日になった）
-    if pending and not any(who == author for who, _, _ in rows + conv):
+    # #1413 #1492 #1494: 依頼を出した瞬間に作者の一覧から落ち、出したこと自体が見えなくなった）
+    if pending:
         rows.append((author, "レビュー待ち", latest(pending) or created))
-    return rows + conv
+    return rows
+
+
+def requested_at(pr, who):
+    return latest(
+        e["createdAt"]
+        for e in pr["timelineItems"]["nodes"]
+        if e["__typename"] == "ReviewRequestedEvent"
+        and reviewer(e.get("requestedReviewer")) == who
+    )
+
+
+def review_since(pr, who):
+    """レビューを依頼されている人（formal_rows の「レビュー」の行と同じ条件）の番が始まった日時。ほかは None"""
+    if pr["isDraft"] or who not in {reviewer(rq["requestedReviewer"]) for rq in pr["reviewRequests"]["nodes"]}:
+        return None
+    return requested_at(pr, who)
+
+
+def turn_posts(pr, who):
+    """その人の番を決める発言。依頼された人の番は依頼した時点で始まるので、依頼より前の発言と、依頼の後に
+    本人が解決済みスレッドに書いた発言は数えない。依頼より前の本人の発言（変更要求の本文など）や、解決済みの
+    スレッドの「確認しました」で相手待ちに下げると、再依頼した PR が依頼した側にもされた側にも相手の番に
+    なり、誰の自分の番にも出ない"""
+    posts = posts_of_pr(pr)
+    since = review_since(pr, who)
+    if since is None:
+        return posts
+    settled = {c["id"] for t in pr["reviewThreads"]["nodes"] if t["isResolved"] for c in t["comments"]["nodes"]}
+    return [p for p in posts if p["at"] >= since and not (p["id"] in settled and login(p["author"]) == who)]
 
 
 def conversation_balls(pr):
     """未解決スレッド・未送信のレビュー・assignee から立つ行。形式上の状態と違い、draft でも消えない。
 
     1 つのスレッドは 2 人に載る——返す側と、返事を待っている側。待っている側の行を立てないと、
-    自分の指摘が何日返ってこなくても、その PR は自分の一覧のどこにも出ない。"""
-    author = login(pr["author"])
+    自分の指摘が何日返ってこなくても、その PR は自分の一覧のどこにも出ない。
+
+    持ち主には写された形式上の行があり、そこへ担当を足すと draft・未依頼が「まだ誰にも渡していない」
+    段から外れる。"""
+    holders = owners(pr)
     created = pr["createdAt"]
     rows = []
     # 下書きのレビューは相手を待たせないが、送れるのは書いた本人だけ。行を立てないと、
-    # 依頼が既に消えている PR では 16 件書いたまま誰の一覧にも出ない。作者の形式上の行とは
-    # 別人の行なので、そちらの「まだ行が無い」判定には混ぜない
+    # 依頼が既に消えている PR では 16 件書いたまま誰の一覧にも出ない。持ち主が書いた下書きは
+    # pr_balls の「まだ行が無い」判定で持ち主の行に数える
     draft = pr.get("pendingReview")
     if draft:
         rows.append((draft["by"], "未送信", draft["since"]))
     turns = thread_turns(pr)
-    for who in sorted({w for _, w, _, _ in turns if w != author}, key=str):
-        ats = [c["createdAt"] for _, w, c, _ in turns if w == who]
-        rows.append((who, f"再確認 {len(ats)} 件", min(ats)))
-    owed = [(c, waiting) for _, w, c, waiting in turns if w == author]
-    if owed:
-        rows.append(
-            (
-                author,
-                f"スレッド返答 {len(owed)} 件",
-                min(c["createdAt"] for c, _ in owed),
-            )
-        )
-    for p in sorted({p for _, waiting in owed for p in waiting}, key=str):
+    for kind, owes in (("再確認", False), ("スレッド返答", True)):
+        for who in sorted({w for _, w, _, ps in turns if bool(ps) == owes}, key=str):
+            ats = [c["createdAt"] for _, w, c, ps in turns if w == who and bool(ps) == owes]
+            rows.append((who, f"{kind} {len(ats)} 件", min(ats)))
+    # 持ち主が 2 人いて両方に返す番が立っても、待っている側から見れば 1 スレッド。持ち主が自分で
+    # 立てた問いには立てない——持ち主の形式上の行（draft・マージなど）は持ち主にしか動かせず、問いを
+    # 1 本投げただけで相手の番へ沈めたり、日数を問いの日へ戻したりすると誰も動かさない
+    owed = list({id(t): (c, ps) for t, _, c, ps in turns if ps}.values())
+    for p in sorted({p for _, waiting in owed for p in waiting} - set(holders), key=str):
         ats = [c["createdAt"] for c, waiting in owed if p in waiting]
         rows.append((p, f"返答待ち {len(ats)} 件", min(ats)))
 
-    for a in pr["assignees"]["nodes"]:
-        if a["login"] != author:
-            assigned = latest(
-                e["createdAt"]
-                for e in pr["timelineItems"]["nodes"]
-                if e["__typename"] == "AssignedEvent"
-                and (e.get("assignee") or {}).get("login") == a["login"]
-            )
-            rows.append((a["login"], "担当", assigned or created))
+    for a in assigned_people(pr):
+        if a not in holders:
+            rows.append((a, "担当", received_at(pr, a) or created))
     return rows
 
 
@@ -476,7 +570,7 @@ def owes_thread(kinds):
 def shared_balls(rows):
     """merge_rows の結果から、相手にも返す番が残っている人を返す。
 
-    会話のボールが 2 人以上に立っている PR は、その 1 人が全部片づけても終わらない。作者は
+    会話のボールが 2 人以上に立っている PR は、その 1 人が全部片づけても終わらない。答える側は
     「スレッド返答」、スレッドを立てた人は「再確認」を負うので、両方が立てば両者が該当する。"""
     owing = {who for who, (kinds, _) in rows.items() if owes_thread(kinds)}
     return owing if len(owing) > 1 else set()
@@ -490,56 +584,56 @@ def waiting_on_others(pr, who, kinds):
     """
     if owes_thread(kinds):
         return False
-    # 未解決スレッドで自分が作者の返事を待っているなら、最後に喋ったのが誰でも作者の番。
-    # 最後の発言者だけで見ると、作者が別件のコメントを 1 つ挟むだけでボールが自分に戻る。
-    # 待っている人からは作者が除かれているので、この節が作者の行で立つことはない
-    if any(who in waiting for _, _, _, waiting in thread_turns(pr)):
+    # 未解決スレッドで自分が答える側の返事を待っているなら、最後に喋ったのが誰でも答える側の番。
+    # 最後の発言者だけで見ると、答える側が別件のコメントを 1 つ挟むだけでボールが自分に戻る
+    asked = [t for t, _, _, waiting in thread_turns(pr) if who in waiting]
+    if asked and who not in owners(pr):
         return True
-    last = latest_human_post(posts_of_pr(pr))
+    # 持ち主の問いは、返答待ちを立てない（conversation_balls）のと同じ理由で段を決めない。本人の発言だけを
+    # 最後の発言者に数えない——スレッドごと外すと、相手がそこに書いた答えまで消える
+    skip = {c["id"] for t in asked for c in t["comments"]["nodes"] if login(c["author"]) == who}
+    last = latest_human_post([p for p in turn_posts(pr, who) if p["id"] not in skip])
     return bool(last) and login(last["author"]) == who
 
 
 def blocked_by_others(pr, who, kinds):
-    """作者しか外せない障害が残っていて、その人の残りが再確認だけか。
+    """持ち主しか外せない障害が残っていて、その人の残りが再確認だけか。
 
-    作者でない人にとって main 未追従・衝突・CI 赤はどれも手が出せない。それでも
-    「再確認 N 件」は立ち続けるので、上段に置くと本当に動かせる行を押し下げる。
+    持ち主でない人（渡し終えた作者も含む）にとって main 未追従・衝突・CI 赤はどれも手が出せない。
+    それでも「再確認 N 件」は立ち続けるので、上段に置くと本当に動かせる行を押し下げる。
     残りが再確認だけのときに限る——同じ PR に未消化のレビュー依頼があるなら、
-    作者が詰まっていてもその人にしかできない仕事が残っている。
+    持ち主が詰まっていてもその人にしかできない仕事が残っている。
 
     相手にも返す番が残っているだけなら降ろさない（それは shared の 1 段目）。答えの
     返ってきたスレッドを閉じるのは、相手を待たずに今できる仕事だから。"""
-    if login(pr["author"]) == who or not kinds:
+    if who in owners(pr) or not kinds:
         return False
     if not all(k.startswith(("再確認", "返答待ち")) for k in kinds):
         return False
-    return bool(pr["mergeStateStatus"] in AUTHOR_ONLY_MERGE or red_checks(pr))
+    return bool(pr["mergeStateStatus"] in OWNER_ONLY_MERGE or red_checks(pr))
 
 
 def tier(pr, who, kinds, reviewers, waiting, shared=False):
     """0 = あなたを待っている人がいて、動かせるのはその人だけ / 1 = 同じだが動ける人がほかにもいる /
-    2 = まだ誰にも渡していない（draft・未依頼） / 3 = 相手が動くまで進まない。
+    2 = まだ誰にも渡していない（draft・未依頼・未送信） / 3 = 相手が動くまで進まない。
 
     1 になるのは「レビュー」だけの行で同じ PR に Bot 以外（人か Team）のレビュー依頼先が
-    2 つ以上あるとき、または同じ PR の相手にも返す番が残っているとき（shared）。後者を 0 に
-    置くと「その人しか動かせない」が偽になる。相手が自分のスレッドに答えるまで、その人が
-    全部再確認しても PR は終わらない。
+    2 つ以上あるとき、持ち主が 2 人以上いる PR で持ち主の全員へ写した形式上の行（draft・未依頼・
+    レビュー待ちを除く）を持つとき、または同じ PR の相手にも返す番が残っているとき（shared）。
+    これらを 0 に置くと「その人しか動かせない」が偽になる。相手が自分のスレッドに答えるまで、
+    その人が全部再確認しても PR は終わらない。
 
     2 を 3 から分けるのは、渡していない PR は誰も待っていないが動かせるのは本人だけで、
     相手待ちと同じ段に置くと本当のボールが沈むため。"""
-    # 「未依頼」でも作者以外の assignee がいれば、レビュー依頼のボタンを押さずに人へ渡してある。
-    # 渡していない扱いにすると、相手が閉じるか進めるかを決める番の PR が自分の一覧に出続ける
-    # （実測 2026-08-23・IL-SW-AI/guided-resolver #1403: assignee を付けて「扱いはお任せします、
-    # 不要だったら閉じてください」と書いた PR が 6 日「まだ誰にも渡していない」に居座っていた）。
+    holders = owners(pr)
     # draft は例外にしない——作者が自分で「まだ出さない」と印を付けた状態だから
-    handed = kinds == ["未依頼"] and any(
-        a["login"] != login(pr["author"]) for a in pr["assignees"]["nodes"]
-    )
+    if kinds == ["未依頼"] and turn.author_holds_handed(pr):
+        return 3
     # 渡していない判定が先。draft・未依頼は誰も待っていないので waiting も立つが、
     # 動かせるのは本人だけで、相手待ちと同じ段に入れると本当のボールが沈む
-    if set(kinds) <= HANDOFF and not handed:
+    if set(kinds) <= HANDOFF:
         return 2
-    # 依頼中の作者は相手が返すまで手が無い。waiting は「最後に発言したのが本人」で判定するので、
+    # 依頼中の持ち主は相手が返すまで手が無い。waiting は「最後に発言したのが本人」で判定するので、
     # 依頼を出しただけでまだ誰も発言していない PR では立たず、既定の 0（自分の番）に落ちる
     if kinds == ["レビュー待ち"]:
         return 3
@@ -547,16 +641,32 @@ def tier(pr, who, kinds, reviewers, waiting, shared=False):
         return 3
     if shared or (kinds == ["レビュー"] and reviewers > 1):
         return 1
+    if len(holders) > 1:
+        # 共有する行は持ち主にしか立たないので、持ち主かは見なくてよい。本人だけの行（自分の問いの再確認など）は段 0
+        author = login(pr["author"])
+        shared_rows = {k for w, k, _ in formal_rows(pr) if w == author} - HANDOFF - {"レビュー待ち"}
+        if shared_rows & set(kinds):
+            return 1
     return 0
+
+
+def pr_tiers(pr):
+    """{誰: (段, いつから)}。PR 1 件の行を人ごとにまとめて段を決める"""
+    rows = merge_rows(pr_balls(pr))
+    owing = shared_balls(rows)
+    reviewers = sum("レビュー" in kinds for kinds, _ in rows.values())
+    return {
+        who: (tier(pr, who, kinds, reviewers, waiting_on_others(pr, who, kinds), who in owing), since)
+        for who, (kinds, since) in rows.items()
+    }
 
 
 def merge_rows(rows):
     """同じ人の行をまとめる。{誰: ([種別...], 最も古い日時)}"""
-    out = {}
+    grouped = {}
     for who, kind, since in rows:
-        kinds, old = out.get(who, ([], None))
-        out[who] = (kinds + [kind], min(since, old) if old else since)
-    return out
+        grouped.setdefault(who, []).append((kind, since))
+    return {who: ([k for k, _ in items], min(s for _, s in items)) for who, items in grouped.items()}
 
 
 def check_time(c):
@@ -592,48 +702,60 @@ def red_checks(pr):
 
 def thread_turns(pr):
     """未解決スレッドで返す番がある人と、その人が読むべき発言。
-    [(スレッド, 番の人, 読む発言, その人の返事を待っている人)]。4 つ目は作者の行だけ非空。
+    [(スレッド, 番の人, 読む発言, その人の返事を待っている人)]。4 つ目は返す番の行だけ非空で、
+    再確認の行は空。
 
-    番は人数で決まらない。1 つのスレッドが同時に複数人に載る——作者は自分の最後の発言より後に
-    来た指摘に答える番、レビュアーは自分の指摘の後に作者が返した内容を再確認する番で、レビュアーが
-    2 人以上入ると両方が同時に立つ。作者が bob に答えた後 carol が別の問いを足したら、bob は
-    再確認する番で、作者は carol に答える番である。
+    番は人数で決まらない。1 つのスレッドが同時に複数人に載る——答える側は自分たちの最後の発言より
+    後に来た指摘に答える番、レビュアーは自分の指摘の後に答える側が返した内容を再確認する番で、
+    レビュアーが 2 人以上入ると両方が同時に立つ。作者が bob に答えた後 carol が別の問いを足したら、
+    bob は再確認する番で、作者は carol に答える番である。
 
     ここを「スレッドごとに 1 人」に潰すと、潰した側が黙って落ちる。最後の発言者で決めると
     carol の相槌ひとつで bob の再確認が消え（材料も bob の指摘から carol の相槌に化ける）、
     立てた人と作者の往復だけで決めると carol の問いが誰の一覧にも出ない。
 
-    作者が立てたスレッドは見ない。指摘ではなく自注で、返す義務の起点にならない。"""
-    author = login(pr["author"])
+    答える側は持ち主の側（作者と持ち主）で、側の誰が返しても返したことになる——受けた assignee の
+    返信で、渡す前に作者が返した分も含めて済む。返す番は持ち主に立つ。側の人が立てたスレッドは
+    側の残りの人への問いで、答えるのも返す番を負うのも残りの人（作者も含む）。残りに返答できる人
+    （answerable）がいないスレッドは自注で、返す義務の起点にならないので見ない——持ち主が作者で
+    作者が立てたものと、返答できない作者（退会済み・Bot・Mannequin）の PR で受けた人が立てたもの。
+    返答できない名義に番を立てても誰も読まず、立てた人には来ない返事の返答待ちが残る。"""
+    holders = owners(pr)
+    side = owner_side(pr)
+    mute = set() if answerable(pr["author"]) else {login(pr["author"])}
     out = []
     for t in pr["reviewThreads"]["nodes"]:
         humans = [c for c in t["comments"]["nodes"] if not is_bot(c["author"])]
-        if t["isResolved"] or not humans or login(humans[0]["author"]) == author:
+        if t["isResolved"] or not humans:
             continue
-        mine = [i for i, c in enumerate(humans) if login(c["author"]) == author]
+        opener = login(humans[0]["author"])
+        if opener in side:
+            answer = owe = side - {opener} - mute
+        else:
+            answer, owe = side, set(holders)
+        if not answer:
+            continue
+        mine = [i for i, c in enumerate(humans) if login(c["author"]) in answer]
         after = humans[mine[-1] + 1 :] if mine else humans
         waiting = {login(c["author"]) for c in after}
         if after:
-            out.append((t, author, after[-1], waiting))
-        others = {login(c["author"]) for c in humans} - {author} - waiting
+            out += [(t, o, after[-1], waiting) for o in sorted(owe, key=str)]
+        others = {login(c["author"]) for c in humans} - answer - waiting
         for p in sorted(others, key=str):
             out.append((t, p, humans[mine[-1]], set()))
     return out
 
 
-def answered_threads(pr, by_author):
-    """未解決スレッドのうち、レビュアーが再確認する番の（by_author=True）/
-    作者が答える番の（False）もの。
+def answered_threads(pr):
+    """未解決スレッドの番を、(答える側が返してレビュアーが再確認する番, 答える側が返す番) に分ける。
 
-    [(その番の人, 読む発言の日時, 差分が動いたか)]。3 つ目は isOutdated——「指摘の後にその行を
+    どちらも [(その番の人, 読む発言の日時, 差分が動いたか)]。3 つ目は isOutdated——「指摘の後にその行を
     触った」印で、対応済みとは限らない（相手が別の理由で動かした行にも付く）。誰の番かは変えず、
     内訳に数だけ添える。判定に使うのは読む側。"""
-    author = login(pr["author"])
-    return [
-        (who, c["createdAt"], t["isOutdated"])
-        for t, who, c, _ in thread_turns(pr)
-        if (who != author) == by_author
-    ]
+    rechecks, owed = [], []
+    for t, who, c, waiting in thread_turns(pr):
+        (owed if waiting else rechecks).append((who, c["createdAt"], t["isOutdated"]))
+    return rechecks, owed
 
 
 def turn_threads(pr, who):
@@ -672,13 +794,13 @@ def pr_facts(pr, who=None, targets=None, repo="", intro=False):
     intro は自分の番の人の PR にだけ付ける「何の PR か」（作者の本文の 1 文）と規模——件名だけでは
     次の問いが「内容は？」になる（実測）。相手の番には付けない（読まない件で行が増える）。"""
     author = login(pr["author"])
+    holders = owners(pr)
     facts = []
     if pr["isDraft"]:
         facts.append("下書き")
-    # 一覧には自分の PR と人の PR が混ざる。やること（直す・依頼する / 読む・答える・resolve する）が
-    # 別物なので、作者が自分でないことは行から読めないといけない
+    facts += role_facts(pr, who)
+    # 担当に渡した作者は自分の PR でも直す側ではないが、本文は自分が書いたので添えない
     if who and author != who:
-        facts.append(f"作者: {author or '退会済み'}")
         if intro:
             line = intro_line(pr.get("body"))
             if line:
@@ -707,19 +829,20 @@ def pr_facts(pr, who=None, targets=None, repo="", intro=False):
         facts.append(
             "CI 赤: "
             + ", ".join(c.get("name") or c.get("context") or "?" for c in red)
-            + only_author_can(who, author)
+            + only_owner_can(who, pr)
         )
     # main 未追従はマージの段で初めて効く（branch protection の strict）。それ以前の PR に出すと全件に付いて読めなくなる
     if pr["reviewDecision"] == "APPROVED" and pr["mergeStateStatus"] == "BEHIND":
         facts.append(
             "main 未追従（BEHIND）。マージ前に取り込みが要る"
-            + only_author_can(who, author)
+            + only_owner_can(who, pr)
         )
-    others = [
-        a["login"]
-        for a in pr["assignees"]["nodes"]
-        if a["login"] != login(pr["author"])
-    ]
+    named = {author}
+    if who and who == author:
+        named |= set(holders)
+    elif who in holders:
+        named.add(who)
+    others = [n for n in turn.assignee_logins(pr) if n not in named]
     if others:
         facts.append("assignee: " + ", ".join(others))
     unresolved = [t for t in pr["reviewThreads"]["nodes"] if not t["isResolved"]]
@@ -733,29 +856,33 @@ def pr_facts(pr, who=None, targets=None, repo="", intro=False):
             for t in unresolved
         ]
         # 行は人ごとに出るので、内訳も「作者 / 相手」ではなく誰の番かで書く。作者でない人の行に
-        # 「相手の発言で止まっている」と出すと、その「相手」は読んでいる本人を指してしまう
-        answered = answered_threads(pr, by_author=True)
-        waiting = answered_threads(pr, by_author=False)
-        name = author or "作者"  # 退会済みは login が None
+        # 「相手の発言で止まっている」と出すと、その「相手」は読んでいる本人を指してしまう。
+        # 返す番も持ち主が 2 人なら人ごとに書く——名前を 1 つに結ぶと、内訳の区切りと見分けられない
+        rechecks, owed = answered_threads(pr)
 
         def part(n, label, moved=0):
             if not n:
                 return None
             return f"{label} {n}" + (f"（{moved} は差分が動いた）" if moved else "")
 
-        parts = [
-            part(
-                sum(1 for o, _, _ in answered if o == opener),
-                f"{opener or '退会済み'} が再確認",
-                sum(1 for o, _, m in answered if o == opener and m),
-            )
-            for opener in sorted({o for o, _, _ in answered}, key=str)
-        ]
+        def per_person(turns, label):
+            return [
+                part(sum(o == w for o, _, _ in turns), label(w), sum(o == w and m for o, _, m in turns))
+                for w in sorted({o for o, _, _ in turns}, key=str)
+            ]
+
+        parts = per_person(rechecks, lambda w: f"{w or '退会済み'} が再確認")
+        parts += per_person(owed, lambda w: f"{w or '作者'} が返答")
+        # 人が書いたのに番が 1 つも立たないスレッドは、答えられる人のいない自注（thread_turns）。
+        # 書いた人の名で数える——数えないと「未解決 N」の合計にだけ入り、内訳のどこにも出ない
+        turned = {id(t) for t, _, _, _ in thread_turns(pr)}
+        notes = {}
+        for t, h in zip(unresolved, humans):
+            if h and id(t) not in turned:
+                label = ", ".join(sorted({w or ("退会済み" if author else "作者") for w in h}))
+                notes[label] = notes.get(label, 0) + 1
+        parts += [part(n, f"人は {label} だけ") for label, n in sorted(notes.items())]
         parts += [
-            part(len(waiting), f"{name} が返答", sum(1 for _, _, m in waiting if m)),
-            part(
-                sum(1 for h in humans if h and set(h) == {author}), f"人は {name} だけ"
-            ),
             # Bot だけのスレッドにも差分が動いた数を添える。人が誰も発言していないので誰の番でも
             # なく、指摘した行が動いていれば対応済みで resolve するだけ——数に混ざったまま
             # 「未解決 N」を膨らませると、生きている指摘が何件なのかが読めなくなる
@@ -775,11 +902,31 @@ def pr_facts(pr, who=None, targets=None, repo="", intro=False):
     return facts
 
 
-def only_author_can(who, author):
-    """作者しか外せない障害に添える持ち主。自分が作者なら余計なので付けない"""
-    if who and author != who:
+def role_facts(pr, who):
+    """読む人から見た役割の行。
+
+    一覧には自分の PR と人の PR が混ざる。やること（直す・依頼する / 読む・答える・resolve する）が
+    別物なので、作者が自分でないことは行から読めないといけない。担当として受けた PR は作者が
+    別でも直す側なので、`作者:` と同じ字面にしない（読む側は `作者:` の有無で役割を分ける）。"""
+    if not who:
+        return []
+    author = login(pr["author"])
+    holders = owners(pr)
+    if author == who:
+        return [] if who in holders else [f"担当に渡した PR（担当は {', '.join(holders)}）"]
+    if who in holders:
+        return [f"担当として受けた PR（起票は {author or '退会済み'}）"]
+    return [f"作者: {author or '退会済み'}"]
+
+
+def only_owner_can(who, pr):
+    holders = owners(pr)
+    if not who or who in holders:
+        return ""
+    author = login(pr["author"])
+    if holders == [author]:
         return f"。外せるのは作者の {author or '退会済み'} だけ"
-    return ""
+    return f"。外せるのは担当の {', '.join(holders)} だけ"
 
 
 def review_state_fact(pr, who):
@@ -803,7 +950,10 @@ def last_speaker_facts(pr, who):
 
     自分が最後という事実だけでは催促の宛先も根拠も出ない。宛先は「返す番を負っている人」で、
     最後に喋った人ではない——別件で通りすがりに発言した人を宛先にすると、実際に止めている
-    相手が隠れる。誰も番を負っていないときだけ、直近に発言した相手に落とす。"""
+    相手が隠れる。誰も番を負っていないときだけ、直近に発言した相手に落とす。
+
+    自分が最後かは、段と同じく自分の番を決める発言（turn_posts）で見る——再依頼された人の依頼より前の
+    発言を起点にすると、段は自分の番なのに相手の無言を催促する行が出る。"""
     posts = posts_of_pr(pr)
     last = latest_human_post(posts)
     if not last:
@@ -811,11 +961,12 @@ def last_speaker_facts(pr, who):
     facts = [
         f"最後の発言: {login(last['author'])}（{local_time(last['at'])}）"
     ]
-    if not who or login(last["author"]) != who:
+    mine = latest_human_post(turn_posts(pr, who)) if who else None
+    if not mine or login(mine["author"]) != who:
         return facts
-    owing = {o for o, _, _ in answered_threads(pr, by_author=True)} - {who}
-    if answered_threads(pr, by_author=False):
-        owing.add(login(pr["author"]))
+    rechecks, owed = answered_threads(pr)
+    owing = {o for o, _, _ in rechecks} - {who}
+    owing |= {o for o, _, _ in owed}
     # 同じ人が二度喋れば上書きされ、その人の最新の発言だけが残る
     said = {}
     for p in posts:
@@ -824,10 +975,25 @@ def last_speaker_facts(pr, who):
     owing.discard(None)  # 退会済みは催促の宛先にならない
     if not owing and said:
         owing = {max(said, key=said.get)}
-    for target in sorted(owing & set(said), key=str):
-        facts.append(
-            f"{target} は {local_time(said[target])} 以降 発言なし"
+    author = login(pr["author"])
+    cut_off = any(truncated(c, w, "") for c, w in post_conns(pr))
+    for target in sorted(owing - {who}, key=str):
+        spoke = latest(
+            [said.get(target)] + [r["submittedAt"] for r in pr["reviews"]["nodes"] if login(r["author"]) == target]
         )
+        if spoke:
+            facts.append(f"{target} は {local_time(spoke)} 以降 発言なし")
+            continue
+        if target == author and not answerable(pr["author"]):
+            continue  # 返答できない作者は催促の宛先にならない（Bot は発言にも数えないので、いつも「発言が無い」になる）
+        received = received_at(pr, target)
+        # 取れた窓の外に発言か受けた日が残っていれば、無いと言えるのは見た範囲だけ。作者は作成日に本文を
+        # 書いているので、この PR で発言が無いとは言えない（「作成日 以降 発言なし」だけで真）
+        if cut_off or (received is None and turn.window_cut(pr["timelineItems"], HISTORY_WINDOW)):
+            tail = "（見た範囲で発言が無い）"
+        else:
+            tail = "" if target == author else "（この PR で発言が無い）"
+        facts.append(f"{target} は {local_time(received or pr['createdAt'])} 以降 発言なし{tail}")
     return facts
 
 
@@ -1009,10 +1175,10 @@ def open_prs_referencing(issue, prs=()):
     return sorted(refs)
 
 
-def assigned_at(issue, who):
+def assigned_at(item, who):
     return latest(
         e["createdAt"]
-        for e in issue["timelineItems"]["nodes"]
+        for e in item["timelineItems"]["nodes"]
         if e["__typename"] == "AssignedEvent"
         and (e.get("assignee") or {}).get("login") == who
     )
@@ -1025,24 +1191,32 @@ def truncated(conn, what, where):
     return None
 
 
-# timelineItems は上限検査に入れない。totalCount が itemTypes で絞る前の総数を返すため
-# （実測: #1471 は履歴 5 件のうち対象 1 件）、比べても常に「足りない」になる。代わりに last: 100 で取る
+def post_conns(pr):
+    """発言を運ぶ接続（posts_of_pr が読む物）と、上限の行に出す名前"""
+    conns = [
+        (pr["reviews"], "レビュー"),
+        (pr["comments"], "コメント"),
+        (pr["reviewThreads"], "スレッド"),
+    ]
+    return conns + [
+        (t["comments"], "スレッド内コメント") for t in pr["reviewThreads"]["nodes"]
+    ]
+
+
 def limits_of_pr(pr):
     where = f"#{pr['number']}"
     conns = [
         (pr["assignees"], "assignee"),
         (pr["reviewRequests"], "レビュー依頼"),
-        (pr["reviews"], "レビュー"),
-        (pr["comments"], "コメント"),
-        (pr["reviewThreads"], "スレッド"),
-    ]
-    conns += [
-        (t["comments"], "スレッド内コメント") for t in pr["reviewThreads"]["nodes"]
-    ]
+        (pr["latestOpinionatedReviews"], "人ごとの意見"),
+    ] + post_conns(pr)
     rollup = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]
     if rollup:
         conns.append((rollup["contexts"], "チェック"))
-    return [truncated(c, w, where) for c, w in conns]
+    lines = [truncated(c, w, where) for c, w in conns]
+    if turn.window_cut(pr["timelineItems"], HISTORY_WINDOW):
+        lines.append(f"{where}: 履歴（assign・レビュー依頼・draft の出し入れ）は新しい {HISTORY_WINDOW} 件しか見ていない")
+    return lines
 
 
 def limits_of_issue(issue):
@@ -1051,7 +1225,10 @@ def limits_of_issue(issue):
         (issue["assignees"], "担当"),
         (issue["comments"], "コメント"),
     ]
-    return [truncated(c, w, where) for c, w in conns]
+    lines = [truncated(c, w, where) for c, w in conns]
+    if turn.window_cut(issue["timelineItems"], HISTORY_WINDOW):
+        lines.append(f"{where}: 履歴（assign・参照した PR）は新しい {HISTORY_WINDOW} 件しか見ていない")
+    return lines
 
 
 def fill_reactions(waits):
@@ -1098,7 +1275,7 @@ def cut(s, w):
 
 def parser():
     ap = argparse.ArgumentParser(
-        description=__doc__ + "\n" + NOT_SEEN.format(teams="", unverified=""),
+        description=__doc__ + "\n" + NOT_SEEN.format(teams="", unverified="", kinds=""),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument(
@@ -1140,7 +1317,7 @@ def report(a):
         return (now - dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))).days
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        prs_f = pool.submit(fetch_all, PR_QUERY, owner, name, "pullRequests")
+        prs_f = pool.submit(fetch_prs, owner, name)
         issues_f = pool.submit(fetch_all, ISSUE_QUERY, owner, name, "issues")
         prs, issues = prs_f.result(), issues_f.result()
 
@@ -1149,18 +1326,12 @@ def report(a):
         drop_pending(p)
 
     limits = []
-    balls = {}  # (who, pr number) -> ([kinds], since)
-    idle = {}  # (who, pr number) -> 相手の返事待ちか
-    shared = {}  # (who, pr number) -> 相手にも返す番が残っているか
+    balls = {}  # (who, pr number) -> (段, いつから)
     pr_waits = []  # (who, info, pr)
     for p in prs:
         limits += limits_of_pr(p)
-        rows = merge_rows(pr_balls(p))
-        owing = shared_balls(rows)
-        for who, (kinds, since) in rows.items():
-            balls[(who, p["number"])] = (kinds, since)
-            idle[(who, p["number"])] = waiting_on_others(p, who, kinds)
-            shared[(who, p["number"])] = who in owing
+        for who, ball in pr_tiers(p).items():
+            balls[(who, p["number"])] = ball
         pr_waits += [(who, info, p) for who, info in unanswered(posts_of_pr(p)).items()]
     issue_waits = []
     for i in issues:
@@ -1175,26 +1346,9 @@ def report(a):
     # 逃がした先は issue とは限らない。open な PR も行き先として引ける形にする
     targets = {x["number"]: x for x in issues + prs}
 
-    reviewers = {}  # PR 番号 -> Bot 以外（人か Team）のレビュー依頼先の数
-    for (_, n), (kinds, _) in balls.items():
-        reviewers[n] = reviewers.get(n, 0) + ("レビュー" in kinds)
-
     def pr_rows(who):
         """(段, いつから, 番号) を段の順・古い順で。段は並びの鍵で、印字はしない"""
-        rows = []
-        for (w, n), (kinds, since) in balls.items():
-            if w != who:
-                continue
-            t = tier(
-                by_number[n],
-                who,
-                kinds,
-                reviewers[n],
-                idle[(who, n)],
-                shared[(who, n)],
-            )
-            rows.append((t, since, n))
-        return sorted(rows)
+        return sorted((t, since, n) for (w, n), (t, since) in balls.items() if w == who)
 
     # 各行の 2 行目は URL。読む側が番号をリンクにする材料で、番号から組み立てさせない——
     # GHES では host が違い、issue と PR で path も違う（/issues と /pull）
@@ -1229,6 +1383,8 @@ def report(a):
                 f"{indent}  #{item['number']:<5} {local_time(info['since'], '%Y-%m-%d')} から {days(info['since']):>3} 日  {cut(item['title'], 56)}"
             )
             lines.append(f"{indent}    {item['url']}")
+            if "reviewThreads" in item:
+                lines += [f"{indent}    {f}" for f in role_facts(item, who)]
             lines.append(
                 f"{indent}         {info['by']}: 「{info['excerpt']}」"
                 + (f"  [{' / '.join(tags)}]" if tags else "")
@@ -1290,30 +1446,53 @@ def report(a):
     print("\n走査の上限に当たったもの: " + ("なし" if not limits else ""))
     for w in limits:
         print("  " + w)
-    teams = sum(
-        1
-        for p in prs
-        for r in p["reviewRequests"]["nodes"]
-        if (r["requestedReviewer"] or {}).get("__typename") == "Team"
+
+    # 読む側は死角の該当の番号を自分の番へ移すことがある。役割と URL を機械が添え、読む側に引き直させない
+    def blind_spot_lines(n, who, label):
+        return [f"      #{n}{label}", f"        {by_number[n]['url']}"] + [
+            f"        {f}" for f in role_facts(by_number[n], who)
+        ]
+
+    team_asks = sorted(
+        {(p["number"], s) for p in prs for r in p["reviewRequests"]["nodes"] if (s := team_slug(r["requestedReviewer"]))}
     )
-    unverified = {}
+    # --all では Team も自分の節に番号・URL・役割の行を持つので、その分は件数だけにする。節に行の無い分
+    # （draft の PR は formal_rows が依頼の行を積まない）は、単独の出力と同じ番号の行で出す
+    listed = [(n, slug) for n, slug in team_asks if not (a.all and (slug, n) in balls)]
+    elsewhere = len(team_asks) - len(listed)
+    if not listed:
+        teams = f"（該当 {len(team_asks)} 件" + ("。番号は Team の節）" if elsewhere else "）")
+    else:
+        teams = (
+            f"\n    該当 {len(team_asks)} 件（依頼先の Team に入っていれば、その人の番"
+            + (f"。ほかの {elsewhere} 件の番号は Team の節" if elsewhere else "")
+            + "）:\n"
+            + "\n".join(
+                line for n, slug in listed for line in blind_spot_lines(n, slug if a.all else me, f" → {slug}")
+            )
+        )
+    unverified = {}  # (番号, 誰) -> 件数
     for who in sorted({w for w, _ in balls}, key=str) if a.all else [me]:
         for p in prs:
             n = len(unverified_replies(p, who))
             if n:
-                unverified[p["number"]] = unverified.get(p["number"], 0) + n
+                unverified[(p["number"], who)] = n
+    found = [
+        line
+        for n, who in sorted(unverified, key=lambda k: (k[0], str(k[1])))
+        for line in blind_spot_lines(n, who, f" → {who}" if a.all else "")
+    ]
     print(
         "\n"
         + NOT_SEEN.format(
-            teams=f"（該当 {teams} 件）",
+            teams=teams,
             unverified=(
-                "\n    該当 {} 件（返したことにしている分の在り処）: {}".format(
-                    sum(unverified.values()),
-                    " ".join(f"#{n}" for n in sorted(unverified)),
-                )
+                f"\n    該当 {sum(unverified.values())} 件（返したことにしている分の在り処）:\n"
+                + "\n".join(found)
                 if unverified
                 else "（該当 0 件）"
             ),
+            kinds=KINDS_NOT_SEEN if any(p.get("assigneeKindsUnknown") for p in prs) else "",
         )
     )
     if a.materials:

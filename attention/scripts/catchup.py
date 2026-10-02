@@ -65,6 +65,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 import changemap  # noqa: E402 — 変更の地図と手元の木の部品。/what-am-i-doing と共用
 from stance import stance  # noqa: E402 — 立場の判定。/what-am-i-doing と共用
 import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/whose-turn と共用
+import turn  # noqa: E402 — PR の番の述語。/whose-turn と共用
+from turn import is_bot  # noqa: E402
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
 # cp1252 を実測。日本語 Windows なら cp932)、日本語の出力が UnicodeEncodeError で落ちる。
@@ -84,7 +86,8 @@ APPROVAL = {
     "REVIEW_REQUIRED": "まだ承認されていない（REVIEW_REQUIRED）",
     "CHANGES_REQUESTED": "要修正が付いている（CHANGES_REQUESTED）",
     "APPROVED": "承認済み（APPROVED）",
-    None: "レビューがまだ 1 件も無い",
+    None: "承認・要修正の判定なし（reviewDecision なし——まだ誰もレビューしていないか、承認の規則が無い base。"
+          "後者では承認しても付かない）",
 }
 
 MERGEABLE = {
@@ -97,7 +100,13 @@ MERGEABLE = {
 SPOKEN, PUSH, EVENT = "spoken", "push", "event"
 
 
-QUERY = """
+# QUERY の requestEvents の窓。formal_state はこの中しか見ない
+REQUEST_WINDOW = 100
+
+
+# requestedReviewer に Bot の fragment を書かない——GHES の古い版の RequestedReviewer には Bot が無く、クエリごと落ちる
+def query(assignees):
+    return """
 query($owner:String!,$name:String!,$num:Int!){
   repository(owner:$owner,name:$name){
     issueOrPullRequest(number:$num){
@@ -113,13 +122,15 @@ query($owner:String!,$name:String!,$num:Int!){
         additions deletions changedFiles mergeable reviewDecision
         files(first:100){totalCount nodes{path changeType additions deletions}}
         author { __typename login }
-        assignees(first:10){nodes{login}}
+        """ + assignees + """
         reviewRequests(first:20){nodes{requestedReviewer{__typename
           ... on User{login} ... on Team{name}}}}
         closingIssuesReferences(first:10){nodes{number title state url body}}
         comments(last:100){totalCount nodes{createdAt body author{__typename login}}}
         reviews(last:60){totalCount nodes{submittedAt state body author{__typename login}
           commit{oid}}}
+        latestReviews(first:100){totalCount nodes{author{__typename login}}}
+        """ + turn.OPINIONS + """
         reviewThreads(last:80){totalCount nodes{isResolved isOutdated path line
           comments(first:60){nodes{createdAt body author{__typename login} originalCommit{oid}}}}}
         allCommits: commits(last:100){totalCount nodes{commit{
@@ -129,11 +140,13 @@ query($owner:String!,$name:String!,$num:Int!){
           totalCount nodes{__typename
             ... on CheckRun{name conclusion status detailsUrl}
             ... on StatusContext{context state targetUrl}}}}}}}
-        timelineItems(last:100, itemTypes:[REVIEW_REQUESTED_EVENT, ASSIGNED_EVENT,
+        requestEvents: timelineItems(last:""" + str(REQUEST_WINDOW) + """, itemTypes:[REVIEW_REQUESTED_EVENT]){
+          pageInfo{hasPreviousPage} nodes{__typename
+            ... on ReviewRequestedEvent{createdAt actor{login}
+              requestedReviewer{__typename ... on User{login} ... on Team{name}}}}}
+        timelineItems(last:100, itemTypes:[ASSIGNED_EVENT,
             READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, CROSS_REFERENCED_EVENT]){
           nodes{__typename
-            ... on ReviewRequestedEvent{createdAt actor{login}
-              requestedReviewer{__typename ... on User{login} ... on Team{name}}}
             ... on AssignedEvent{createdAt actor{login} assignee{... on User{login}}}
             ... on ReadyForReviewEvent{createdAt actor{login}}
             ... on ConvertToDraftEvent{createdAt actor{login}}
@@ -144,7 +157,7 @@ query($owner:String!,$name:String!,$num:Int!){
       ... on Issue {
         number title url state createdAt body
         author { __typename login }
-        assignees(first:10){nodes{login}}
+        """ + assignees + """
         labels(first:20){nodes{name}}
         comments(last:100){totalCount nodes{createdAt body author{__typename login}}}
         timelineItems(last:100, itemTypes:[ASSIGNED_EVENT, CROSS_REFERENCED_EVENT]){
@@ -158,6 +171,10 @@ query($owner:String!,$name:String!,$num:Int!){
   }
 }
 """
+
+
+QUERY = query(turn.ASSIGNEES)
+LEGACY_QUERY = query(turn.LEGACY_ASSIGNEES)
 
 
 # ---- 取得 ------------------------------------------------------------------
@@ -187,8 +204,12 @@ def gh(*args):
             continue
         if r.returncode == 0:
             return r.stdout
-        if "504" not in r.stderr or attempt == 2:
-            sys.exit(f"gh {' '.join(args[:2])} が失敗: {r.stderr.strip()}")
+        step = turn.after_gh_failure(args, attempt, r.stderr, r.stdout)
+        if step == "retry":
+            continue
+        if step == "body":
+            return r.stdout
+        sys.exit(f"gh {' '.join(args[:2])} が失敗: {r.stderr.strip()}")
     return None
 
 
@@ -343,14 +364,21 @@ def resolve_target(token, repo_opt):
 
 
 def fetch(owner, name, num):
-    out = gh("api", "graphql", "-f", "query=" + QUERY, "-f", "owner=" + owner,
-             "-f", "name=" + name, "-F", "num=%d" % num)
-    data = json.loads(out)
+    """止めると、その GitHub では /catchup が丸ごと走らない"""
+    def ask(q):
+        return json.loads(gh("api", "graphql", "-f", "query=" + q, "-f", "owner=" + owner,
+                             "-f", "name=" + name, "-F", "num=%d" % num))
+    data = ask(QUERY)
+    legacy = turn.missing_only(data.get("errors"), {turn.KINDS_FIELD})
+    if legacy:
+        data = ask(LEGACY_QUERY)
     if data.get("errors"):
         sys.exit("GraphQL エラー: " + json.dumps(data["errors"], ensure_ascii=False))
     node = data["data"]["repository"]["issueOrPullRequest"]
     if not node:
         sys.exit(f"{owner}/{name} に #{num} が無い")
+    if legacy:
+        node["assigneeKindsUnknown"] = True
     return node
 
 
@@ -378,10 +406,6 @@ def excerpt(body, limit, keep_quotes=False):
 
 def login_of(actor):
     return (actor or {}).get("login") or "（不明）"
-
-
-def is_bot(actor):
-    return (actor or {}).get("__typename") == "Bot"
 
 
 # ---- 出来事の並び ------------------------------------------------------------
@@ -440,13 +464,15 @@ def collect_events(node, me, my_email=""):
             f"{c['oid'][:9]} {c['messageHeadline']} (+{c['additions']}/-{c['deletions']})",
             PUSH, oid=c["oid"])
 
+    for it in node.get("requestEvents", {}).get("nodes", []):
+        r = it.get("requestedReviewer") or {}
+        to = reviewer_name(r) if turn.is_reviewer(r) else \
+            f"{r.get('__typename') or '（不明）'}（依頼に数えない）"
+        add(it["createdAt"], login_of(it.get("actor")), "レビュー依頼", "→ " + to, EVENT)
+
     for it in node.get("timelineItems", {}).get("nodes", []):
         k = it["__typename"]
-        if k == "ReviewRequestedEvent":
-            r = it.get("requestedReviewer") or {}
-            add(it["createdAt"], login_of(it.get("actor")), "レビュー依頼",
-                "→ " + (r.get("login") or r.get("name") or "（不明）"), EVENT)
-        elif k == "AssignedEvent":
+        if k == "AssignedEvent":
             add(it["createdAt"], login_of(it.get("actor")), "担当",
                 "→ " + login_of(it.get("assignee")), EVENT)
         elif k == "ReadyForReviewEvent":
@@ -524,29 +550,26 @@ def role_of(node, me, ev):
     """この件での私の立場。判定は lib/stance.py（/what-am-i-doing と共用）で、ここは GraphQL の
     node から素の値を取り出すだけ。"""
     is_pr = node["__typename"] == "PullRequest"
-    requested = [r["requestedReviewer"].get("login") for r in node["reviewRequests"]["nodes"]
-                 if r["requestedReviewer"]] if is_pr else []
+    requested = [r.get("login") for r in requested_reviewers(node)] if is_pr else []
     reviewed = is_pr and (
         any(login_of(r["author"]) == me for r in node["reviews"]["nodes"])
         or any(login_of(c["author"]) == me
                for th in node["reviewThreads"]["nodes"] for c in th["comments"]["nodes"]))
     return stance(me, login_of(node["author"]), is_pr, requested, reviewed,
-                  [a["login"] for a in node["assignees"]["nodes"]],
+                  turn.assignee_logins(node),
                   any(e["who"] == me and e["cat"] == SPOKEN for e in ev))
 
 
-def my_turn(node, me, ev, red):
+def my_turn(node, me, table):
     """「なぜ今それが私の番なのか」を機械で列挙する。空なら私の番ではない。
 
     理由を出すのは、手番だけ告げられても戻れないため——戻ったときに要るのは、自分が何を
     期待されているかの中身の方である。"""
     is_pr = node["__typename"] == "PullRequest"
-    author = login_of(node["author"])
     reasons = []
 
     if is_pr:
-        req = requested_reviewers(node)
-        if any(r.get("login") == me for r in req):
+        if any(r.get("login") == me for r in requested_reviewers(node)):
             reasons.append("レビュー依頼が私に来ている")
         if any(r["state"] == "PENDING" and login_of(r["author"]) == me
                for r in node["reviews"]["nodes"]):
@@ -562,55 +585,139 @@ def my_turn(node, me, ev, red):
                 waiting += 1
         if waiting:
             reasons.append(f"未解決スレッド {waiting} 件で相手が返している（私が返す番）")
+    return reasons + table.get(me, [])
 
-        if author == me:
-            if node["isDraft"]:
-                reasons.append("下書きのまま（渡すのは私）")
-            if red:
-                reasons.append("CI 赤は作者（私）しか外せない")
-            if node["mergeable"] == "CONFLICTING":
-                reasons.append("衝突の解消は作者（私）")
-            if node["reviewDecision"] == "CHANGES_REQUESTED":
-                reasons.append("要修正が付いている（指摘対応は私）")
-            elif node["reviewDecision"] == "APPROVED" and not req:
-                reasons.append("承認済みで依頼も残っていない（マージは私）")
-            elif unrequested(node, me):
-                # 誰にも渡していない PR は、渡すまで誰も動けない。ここを「待ち」に落とすと、
-                # 自分が止めている件が相手の番に見える
-                reasons.append("レビュー依頼が誰にも出ていない（依頼先を決めるのは私）")
-    # 自分の PR で assignee にもなっているのは普通の運用で、それだけでは私の番の理由にならない
-    # （理由になるのは上の CI・衝突・要修正の側）。issue と人の PR では担当が手番の根拠
-    if any(a["login"] == me for a in node["assignees"]["nodes"]) \
-            and not (is_pr and author == me):
-        reasons.append("私が担当（assignee）")
-    return reasons
+
+ASSIGNED = "私が担当（assignee）"
+
+
+def turn_reasons(node, red, kinds, asked):
+    """形式上の理由の表 {login: [理由]}。見る人に依らない——my_turn は自分の分を、waiting_on は待ち先を読む"""
+    author = turn.login(node["author"])
+    table = {}
+    if node["__typename"] != "PullRequest":
+        for a in turn.assignee_logins(node):
+            table.setdefault(a, []).append(ASSIGNED)
+        return table
+    holders = turn.owners(node)
+    holder = "作者" if author in holders else "担当"
+    owned = []
+    if node["isDraft"]:
+        owned.append("下書きのまま（渡すのは私）")
+    if red:
+        owned.append(f"CI 赤は{holder}（私）しか外せない")
+    if node["mergeable"] == "CONFLICTING":
+        owned.append(f"衝突の解消は{holder}（私）")
+    if turn.owes_change_requests(node):
+        owned.append("要修正が付いている（指摘対応は私）")
+    elif node["reviewDecision"] == "APPROVED" and not requested_reviewers(node):
+        owned.append("承認済みで依頼も残っていない（マージは私）")
+    for o in holders:
+        table.setdefault(o, []).extend(owned)
+    for who, kind in kinds.items():
+        if kind in ("未依頼", "レビュー依頼"):
+            # 誰にも渡していない PR は、渡すまで誰も動けない。ここを「待ち」に落とすと、
+            # 自分が止めている件が相手の番に見える
+            table.setdefault(who, []).append("レビュー依頼が誰にも出ていない（依頼先を決めるのは私）")
+        elif kind == "再依頼":
+            table.setdefault(who, []).append(
+                "作者以外の人のレビューが付き、依頼は残っていない（再依頼か指摘対応は私）" if asked else
+                "作者以外の人のレビューが付いた。人宛のレビュー依頼を出した記録は無い（依頼先を決めるか指摘対応は私）")
+    # 作者が assignee にもなっているのは普通の運用で、それだけでは番の理由にならない。持ち主でない assignee と、
+    # 作者に依頼先を決める番を残した渡した PR（handed_author_kind）の受けた人は、担当が手番の根拠
+    forked = author not in holders and kinds.get(author) in ("再依頼", "レビュー依頼")
+    for a in turn.assignee_logins(node):
+        if a != author and (a not in holders or forked):
+            table.setdefault(a, []).append(ASSIGNED)
+    return table
+
+
+def reviewer_name(reviewer):
+    return reviewer.get("login") or reviewer.get("name")
 
 
 def requested_reviewers(node):
-    return [r["requestedReviewer"] for r in node["reviewRequests"]["nodes"] if r["requestedReviewer"]]
+    return [r["requestedReviewer"] for r in node["reviewRequests"]["nodes"]
+            if turn.is_reviewer(r["requestedReviewer"])]
 
 
-def unrequested(node, me):
-    """自分の PR で、下書きでなく、誰にも依頼が出ておらず、要修正も承認も付いていない——渡すまで誰も
-    動けない状態。my_turn の理由と、render の依頼先の候補が同じ述語を見る（片方だけ直って条件がずれない）。"""
-    return (node["__typename"] == "PullRequest" and login_of(node["author"]) == me
+def handed_author_kind(node, asked):
+    """人の assignee に渡した PR の作者の分け方。持ち主でない人（担当を含む）のレビューか依頼の記録があれば、作者が
+    依頼先を決める番に残す。番を担当へ移す /whose-turn とはここが割れていて、/catchup を
+    付け替えの側に揃えるなら、ここを「担当に渡した」にし、受けた人の「私が担当」の残し方（turn_reasons）、
+    第三者の待ち先（waiting_on）、受けた担当への読み違いの注記（request_cap_note）も変える"""
+    reviews = node["latestReviews"]["nodes"]
+    if turn.others_reviews(node, reviews, {turn.login(node["author"])}):
+        return "再依頼"
+    return "レビュー依頼" if asked else "担当に渡した"
+
+
+def formal_state(node):
+    """依頼が残っていない PR を持ち主ごとに分けた {login: 種別} と、人宛のレビュー依頼を出したか（asked）の組
+    （対象外は ({}, None)）。今の依頼の一覧だけで見ないのは、レビューを送った人を GitHub が依頼から外すため
+    （REST の review-requests の頁）。レビューも依頼の出来事も人ごと・型ごとの接続から読み、他の出来事と窓を取り合わない。"""
+    if not (node["__typename"] == "PullRequest"
             and not node["isDraft"] and not requested_reviewers(node)
-            and node["reviewDecision"] not in ("CHANGES_REQUESTED", "APPROVED"))
+            and node["reviewDecision"] not in ("CHANGES_REQUESTED", "APPROVED")):
+        return {}, None
+    # 窓に無くても前が有りうるなら None。分け方は依頼していない側に倒し、見ていないものに読み違いを添える
+    asked = any(turn.is_reviewer(it.get("requestedReviewer")) for it in node["requestEvents"]["nodes"]) \
+        or (None if turn.window_cut(node["requestEvents"], REQUEST_WINDOW) else False)
+    author = turn.login(node["author"])
+    holders = turn.owners(node)
+    reviews = node["latestReviews"]["nodes"]
+    if author in holders:
+        kind = turn.split(node, reviews, asked)
+        return {author: "担当に渡した" if kind == "未依頼" and turn.author_holds_handed(node) else kind}, asked
+    kind = handed_author_kind(node, asked)
+    if kind != "担当に渡した":
+        return {author: kind}, asked
+    return {author: kind, **{o: "未依頼" for o in holders}}, asked
 
 
-def waiting_on(node, me):
+def shows_candidates(kind, asked):
+    """依頼先を決めるのは私なので、まだ決まっていない PR（依頼していない・依頼が外れてレビューが無い・人宛の
+    依頼の記録が無いまま他人のレビューが付いた）だけに出す。"""
+    return kind in ("未依頼", "レビュー依頼") or (kind == "再依頼" and not asked)
+
+
+def request_cap_note(kind, asked, author_kind):
+    """依頼の出来事の窓が切れた PR に、この PR の分け方で起きうる読み違いだけを添える。作者が持つ PR の未依頼は、
+    前に依頼していてもレビュー依頼と同じ出力なので添えない。"""
+    if asked is not None:
+        return ""
+    if kind == "再依頼":
+        return "。前に人へ依頼していれば再依頼の番で、出している依頼先の候補は要らない"
+    if kind == "担当に渡した":
+        return "。前に人へ依頼していれば、担当に渡したと分けたのは誤りで、依頼先を決めるのは私（依頼先の候補も出していない）"
+    if kind == "未依頼" and author_kind == "担当に渡した":
+        return "。前に人へ依頼していれば、依頼先を決めるのは作者で、私は担当（出している依頼先の候補は要らない）"
+    return ""
+
+
+def waiting_on(node, me, table):
     is_pr = node["__typename"] == "PullRequest"
-    author = login_of(node["author"])
+    author = turn.login(node["author"])
+    # 退会済みの作者は None で比べ、名前を出す所でだけ「（不明）」にする
+    shown = login_of(node["author"])
     if is_pr:
-        req = [r["requestedReviewer"] for r in node["reviewRequests"]["nodes"]
-               if r["requestedReviewer"]]
-        names = [r.get("login") or r.get("name") for r in req]
+        names = [reviewer_name(r) for r in requested_reviewers(node)]
         if names:
             return "レビュー待ち: " + ", ".join(names)
+        # 担当の印は番の理由ではない。印で選ぶと、依頼先を決める番が作者に残る渡した PR で、作者本人には
+        # 私の番と出しながら第三者には担当待ちと出す
+        owes = {p for p, rs in table.items() if any(r != ASSIGNED for r in rs)}
+        who = [o for o in turn.owners(node) if o in owes] \
+            or ([author] if turn.answerable(node["author"]) and author in owes else []) \
+            or [a for a in turn.assigned_people(node) if table.get(a)]
+        if who == [author]:
+            return f"作者 {shown} 待ち"
+        if who:
+            return "担当 " + ", ".join(who) + " 待ち"
         if author != me:
-            return f"作者 {author} 待ち"
+            return f"作者 {shown} 待ち"
     elif author != me:
-        return f"起票者 {author} 待ち"
+        return f"起票者 {shown} 待ち"
     return "待っている相手は記録に無い"
 
 
@@ -928,11 +1035,13 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
         return me_or(who, me)
 
     red, running, green = check_state(node) if is_pr else ([], 0, 0)
-    reasons = my_turn(node, me, ev, red)
+    kinds, asked = formal_state(node)
+    table = turn_reasons(node, red, kinds, asked)
+    reasons = my_turn(node, me, table)
 
     anchor_t = anchor["t"] if anchor else ts(node["createdAt"])
     spoke = last_spoken(ev, me)
-    own = author == me or any(a["login"] == me for a in node["assignees"]["nodes"])
+    own = author == me or me in turn.assignee_logins(node)
     ask = find_ask(ev, node, me, spoke["t"] if spoke else None, own)
     # 名指しで頼まれて返していない状態は、依頼ボタンも未解決スレッドも無いまま成立する。
     # 形式の信号が 1 つも立たないときの取りこぼしを、これで塞ぐ。他の理由があっても足す——
@@ -953,7 +1062,7 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
         w(f"  {role} · 済み — " + ("merge 済み。動くものは無い" if node["state"] == "MERGED"
                                    else "close 済み。動くものは無い"))
     elif not reasons:
-        w(f"  {role} · ○ 待ち — " + waiting_on(node, me))
+        w(f"  {role} · ○ 待ち — " + waiting_on(node, me, table))
     elif len(reasons) == 1:
         w(f"  {role} · ● 私の番 — " + reasons[0])
     else:
@@ -1025,10 +1134,10 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     state = []
     st = state.append
     if is_pr:
-        st("  承認: " + APPROVAL.get(node["reviewDecision"], str(node["reviewDecision"]))
+        st("  承認: " + approval(node["reviewDecision"])
            + " ／ 取り込み: " + MERGEABLE.get(node["mergeable"], str(node["mergeable"])))
         state.extend(base_lines(node, me))
-        if unrequested(node, me):
+        if shows_candidates(kinds.get(me), asked):
             st(suggested_line(node))
         # チェックが 1 本も無い状態を「全 pass」と言うと、検査が無いことが緑に化ける
         if not (red or running or green):
@@ -1043,7 +1152,7 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
             if green:
                 parts.append(f"緑 {green}")
             st("  CI: " + ("／".join(parts) if red or running else f"全 pass（緑 {green}）"))
-            # 赤の行き先を出す。「CI 赤は作者しか外せない」と告げておいて理由への道が無いと、
+            # 赤の行き先を出す。「CI 赤は私しか外せない」と告げておいて理由への道が無いと、
             # 読む人は自分で探しに行くことになる
             for n, url in red[:3]:
                 if url:
@@ -1058,7 +1167,7 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
         labels = [lb["name"] for lb in node.get("labels", {}).get("nodes", [])]
         if labels:
             st("  ラベル: " + ", ".join(labels))
-    assignees = [a["login"] for a in node["assignees"]["nodes"]]
+    assignees = turn.assignee_logins(node)
     # 自分だけが担当の行は、1 行目の立場と重なるので出さない
     if any(a != me for a in assignees):
         st("  担当: " + ", ".join(name(a) for a in assignees))
@@ -1088,9 +1197,18 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     w("見ていないもの:")
     # 上限は「何件切れたか」ではなく「それで何を見落としうるか」まで書く。件数だけでは、
     # 読む人がこの報告のどこを疑えばよいか分からない
-    for label, total, got in caps:
-        w(f"  - {label}の古い方 {total - got} 件（{total} 件中、新しい {got} 件だけ取った）。"
-          "私の痕跡や私宛の依頼がそこにあれば見落とす")
+    for label, total, got, newest, miss in caps:
+        w(f"  - {label}の{'古い方' if newest else '残り'} {total - got} 件（{total} 件中、"
+          f"{'新しい ' if newest else ''}{got} 件だけ取った）。{miss}")
+    if is_pr and node.get("assigneeKindsUnknown") \
+            and any(a != turn.login(node["author"]) for a in turn.assignee_logins(node)):
+        w("  - assignee が人か Bot か（この GitHub は assignedActors を返さない。CI 赤・衝突・要修正・マージ・下書きの番を"
+          "担当へ移さず作者が持つ形で出した。Bot の assignee も人として数え、作者が assignee に入っていない未依頼の"
+          "PR は担当待ちと出した）")
+    if is_pr and turn.window_cut(node["requestEvents"], REQUEST_WINDOW):
+        w(f"  - レビュー依頼の出来事の古い方（新しい {REQUEST_WINDOW} 件の窓より前が有りうる。件数は"
+          "読めない。Bot 宛の依頼もこの数に入る）。私宛の依頼がそこにだけあれば見落とす"
+          + request_cap_note(kinds.get(me), asked, kinds.get(turn.login(node["author"]))))
     w("  - GitHub の外（チャット・口頭・メール）でのやり取り")
     if is_pr:
         # 有るのに末尾に無い材料（焦点で他に絞ったとき）は、出す口を添える
@@ -1633,8 +1751,8 @@ def render_threads(node, me, read_lines, full=False, diff_since=None):
         return "\n".join(out)
     for i, th in enumerate(threads if full else threads[:THREAD_CAP], 1):
         where = th["path"] + (f":{th['line']}" if th["line"] else "")
-        turn = "← 私が返す番" if th["my_turn"] else "← 私が最後に発言している（相手の番）"
-        w(f"  === {i}/{len(threads)} {where}  {turn} {changemap.lang_tag(th['path'])}")
+        mark = "← 私が返す番" if th["my_turn"] else "← 私が最後に発言している（相手の番）"
+        w(f"  === {i}/{len(threads)} {where}  {mark} {changemap.lang_tag(th['path'])}")
         c = th["last"]
         w(f"  {login_of(c['author'])}（{hhmm(ts(c['createdAt']))}）:")
         body = [ln for ln in (c["body"] or "").splitlines() if not ln.lstrip().startswith(">")]
@@ -2275,12 +2393,23 @@ def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None, derived_
 
 
 def collect_caps(node):
+    """上限で切れた接続の (名前, 総数, 取った数, 新しい方を取ったか, それで何を見落としうるか)。発言の接続は私の痕跡と
+    依頼を、番を分ける接続は分け方を運ぶので、見落としの文が違う"""
+    spoken = "私の痕跡や私宛の依頼がそこにあれば見落とす"
+    is_pr = node["__typename"] == "PullRequest"
+    conns = [("comments", "コメント", True, spoken), ("reviews", "レビュー", True, spoken),
+             ("reviewThreads", "スレッド", True, spoken), ("allCommits", "コミット", True, spoken),
+             ("assignees", "担当", False, "私や作者がそこにいれば、担当に渡したか・誰が持つかを読み違える" if is_pr
+              else "私がそこにいれば、私が担当であることを見落とす"),
+             ("latestOpinionatedReviews", "人ごとの意見", False,
+              "要修正が付いていれば、依頼し直したかを見ずに指摘対応を持ち主の番として出している"),
+             ("latestReviews", "人ごとの最新レビュー", False,
+              "作者以外の人のレビューがそこにだけあれば、再依頼の番を未依頼・担当待ちと読み違える")]
     caps = []
-    for field, label in (("comments", "コメント"), ("reviews", "レビュー"),
-                         ("reviewThreads", "スレッド"), ("allCommits", "コミット")):
+    for field, label, newest, miss in conns:
         conn = node.get(field)
         if conn and conn.get("totalCount", 0) > len(conn["nodes"]):
-            caps.append((label, conn["totalCount"], len(conn["nodes"])))
+            caps.append((label, conn["totalCount"], len(conn["nodes"]), newest, miss))
     return caps
 
 
