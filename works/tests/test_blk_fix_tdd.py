@@ -29,6 +29,7 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
 from gitkit import committed_copy, git  # noqa: E402
+import fixshape  # noqa: E402
 import planbrief  # noqa: E402
 import tddloop  # noqa: E402
 from unittest import mock  # noqa: E402
@@ -281,6 +282,15 @@ class LoopCase(unittest.TestCase):
         self.suite.write_text(SUITE, encoding="utf-8")
         self.board = tmp / "art" / "board"
         self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
+        self.assertTrue(self.start["go"], self.start)
+        self.state = self.start["state_file"]
+
+    def shape(self, name, test_cmd=""):
+        """盤面の r1/start.json に fix_shape=name を置き、tdd-start を起こし直す（test_cmd は線の入力）"""
+        p = self.board / fixshape.START_REL
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({fixshape.KEY: name}), encoding="utf-8")
+        self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN, test_cmd=test_cmd)
         self.assertTrue(self.start["go"], self.start)
         self.state = self.start["state_file"]
 
@@ -1524,6 +1534,52 @@ class TestRefactorGate(LoopCase):
         calls = self.st()["calls"]
         self.assertEqual([(c["phase"], c["ok"]) for c in calls[1:]], [("test", False), ("conflict", False)])
         self.assertEqual(calls[1]["unit_key"], MEAN)
+
+
+class TestPlainShape(LoopCase):
+    """修正の形 current（平の run・比べの基準）: 219 の前の振る舞い。修正案の約束を読まず、整えはいつも回し、test_cmd の関門は切る"""
+
+    def setUp(self):
+        super().setUp()
+        self.shape("current")
+
+    def test_no_contract_and_always_refactor(self):
+        self.route()
+        self.red()
+        self.fix_mean()   # 申告なし
+        self.assertEqual(self.st()["phase"], "refactor")
+        self.assertEqual(self.st()["contract"], {})
+        self.assertTrue(self.st()["units"][MEAN]["refactor_why"], "整えに進んだ理由を単位に残す")
+
+    def test_plan_contract_does_not_open_board(self):
+        """盤面が在っても修正案の欄を読まない（約束は空）"""
+        (self.board / "state.json").write_text("{}", encoding="utf-8")
+        with mock.patch.object(tddloop.entry, "open_board") as ob:
+            self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]), {})
+        ob.assert_not_called()
+
+    def test_test_cmd_gate_off_with_note(self):
+        """緑の test_cmd でも走らせず、関門を切って理由を残す"""
+        self.shape("current", test_cmd=f"{sys.executable} -c pass")
+        self.assertEqual((self.st()["test_cmd_gate"], self.st()["test_cmd_note"]), (tddloop.GATE_OFF, tddloop.PLAIN_NOTE))
+        self.assertEqual(tddloop.PLAIN_NOTE, "修正の形 current——test_cmd の関門は回さない（比べの基準）")
+        self.assertFalse(pathlib.Path(self.st()["work"], "test-cmd-0.log").exists(), "輪の頭で test_cmd を走らせない")
+        self.route()
+        self.red()
+        self.fix_mean()
+        self.assertTrue(self.step({"phase": "refactor", "unit_key": MEAN, "what": "整える物は無い"})["done"])
+        self.assertEqual(self.st()["units"][MEAN]["test_cmd"], "", "緑の後も test_cmd を走らせない")
+        ex = tddloop.exit_fields(self.start)
+        self.assertEqual(ex["test_cmd"], {"gate": tddloop.GATE_OFF, "note": tddloop.PLAIN_NOTE})
+
+    def test_af_keeps_219_behavior(self):
+        """形 af の盤面は今どおり: 申告の無い単位は整えを飛ばし、緑の test_cmd は on"""
+        self.shape("af", test_cmd=f"{sys.executable} -c pass")
+        self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
+        self.route()
+        self.red()
+        self.assertTrue(self.fix_mean()["done"])
+        self.assertEqual(self.st()["units"][MEAN]["refactor"], "skipped")
 
 
 class TestRunSuiteSlot(unittest.TestCase):

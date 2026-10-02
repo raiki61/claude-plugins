@@ -414,6 +414,27 @@ class TestAcceptWiring(FixGatesCase):
         self.assertTrue(fixgates.skipped(self.board, pass_="first", attempt=1), "帳面には残る")
         self.assertEqual(report.trace_rows(b, fixgates.SKIPPED_OP), [])
 
+    def test_out_of_duty_and_real_skip_in_one_acceptance(self):
+        """1 回の受け付けに義務の外の項目（OUT_OF_DUTY）と実の飛ばし（実行器の無い run の NO_SUITE）が並ぶ: 帳面は両方を残し、
+        trace は実の飛ばしだけを載せ、報告は 1 回と数える"""
+        self.fix_ready()
+        planmarks.save(self.board, entry.open_board(self.board).round, [{**FIELDS[0], "unit_keys": ["判定に無い単位"]}, FIELDS[0]])
+        self.edit_tree(tbf.FIXED)
+        mod = self.accept_mod()
+        with self.env(), mock.patch.dict(os.environ, {"INPUTS_TDD_SUITE": ""}):
+            got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
+        self.assertIs(got["ok"], True, got)
+        why = fixgates.skipped(self.board, pass_="first", attempt=1)
+        self.assertEqual(len(why), 2, why)
+        self.assertTrue(why[0].startswith(fixgates.OUT_OF_DUTY), why)
+        self.assertEqual(why[1], fixgates.NO_SUITE)
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual([r["why"] for r in report.trace_rows(b, fixgates.SKIPPED_OP)], [[fixgates.NO_SUITE]])
+        lines = report.gates_lines(b)
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("受け付け 1 回", lines[0])
+        self.assertNotIn(fixgates.OUT_OF_DUTY, lines[0])
+
     def test_clean_battery_lets_fix_through(self):
         """束が何も見つけなければ今までどおり受ける（修正案の欄の無い run・既存のテストを変えない直し）"""
         self.fix_ready()

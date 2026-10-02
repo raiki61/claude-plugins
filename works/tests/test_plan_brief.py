@@ -19,6 +19,7 @@ sys.path.insert(0, str(TESTS))
 
 import test_blk_fix as tbf  # noqa: E402
 import entry  # noqa: E402
+import fixshape  # noqa: E402
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 
@@ -67,6 +68,14 @@ class BriefCase(tbf.BoardCase):
         self.assertEqual(planbrief.cut(b), [])
         self.assertFalse((self.board / f"r{b.round}" / planbrief.LEDGER).exists())
         self.assertEqual(planbrief.cut_at(self.tmp / "no-board"), [])
+
+    def test_plain_shape_cuts_no_brief(self):
+        """修正の形 current（平の run）は欄の控えが在っても brief を切らない（控えを書かない）"""
+        b = self.ready()
+        fixshape.choose(self.board, "current", by="試験", why="平の run の brief を見る")
+        self.assertEqual(planbrief.cut(b), [])
+        self.assertFalse((self.board / f"r{b.round}" / planbrief.LEDGER).exists())
+        self.assertEqual(planbrief.files(entry.open_board(self.board)), [])
 
     def test_for_units_picks_items_of_the_units(self):
         rows = [{"item": 1, "unit_keys": [tbf.MEAN, tbf.CLAMP], "file": "/b/brief-1.md", "sha256": "a" * 64},

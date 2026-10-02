@@ -13,6 +13,7 @@
   印の無い控え（cut の外で置いた）を LedgerBroken で止める。控えは一時のファイルから os.replace で置く
 - 呼ぶ時: cut・cut_at は今の周の p2.fix_plan の出力をそのまま凍結する。事前審査（p2.plan_review）と人の関所（p2.human_gate）を
   抜けた後にだけ呼ぶ（前に呼ぶと、承認されていない案がその周の正本になる）
+- 平の run（修正の形 current。fixshape.plain）: 修正案の欄を修正の段に渡さないので、cut は切らずに []（控えを書かない）
 
 読む物（どれも盤面の物。entry・planmarks・structmark の口だけ）:
 - 承認済みの修正案: 今の周の p2.fix_plan の出力（b.output_of_round）の plan。項目の並びは控え plan-fields.json と同じ
@@ -45,6 +46,7 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
+import fixshape  # noqa: E402  （.shared/core。盤面の修正の形）
 import planmarks  # noqa: E402
 import structmark  # noqa: E402
 
@@ -262,7 +264,9 @@ def _restore(b, rows: list) -> None:
 def cut(b) -> list[dict]:
     """今の周の brief を返す。控えが無ければ、修正案の出力と planmarks.frozen(b) が両方在る時だけ項目ごとに render して書き、控えを
     書く（どちらか無ければ [] で何も書かない。欄の控えが凍結の印と食い違えば LedgerBroken）。控えが在れば作り直さず、控えと違う
-    ファイルを書き戻す"""
+    ファイルを書き戻す。平の run（修正の形 current。fixshape.plain）は修正案の欄を修正の段に渡さないので、いつも [] で何も書かない"""
+    if fixshape.plain(b.dir):
+        return []
     rows = _ledger(b)
     if rows is not None:
         _restore(b, rows)

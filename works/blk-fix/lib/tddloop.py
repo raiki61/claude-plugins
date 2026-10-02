@@ -4,14 +4,16 @@
 - tdd-start → start: 入力 tdd_suite（JUnit XML の書き先を第 1 引数に受け、リポジトリの根で走る実行ファイル。本線と同じ約束）が
   空なら何もせず go: false（全部の単位を今どおり直す）。在れば一式を 1 回走らせて元の結末を取り、盤面の tdd-<k>/ に状態を置く。
   承認済みの修正案の単位ごとの約束（plan_contract → planmarks.unit_contract。道・受け入れのテストと赤の種類）もここで 1 回だけ
-  組んで状態の contract に置く（盤面の無い置き場・欄の控えの無い run は空で、輪は約束の無い今の動きのまま）。
+  組んで状態の contract に置く（盤面の無い置き場・欄の控えの無い run・平の run は空で、輪は約束の無い今の動きのまま）。
   run のテストのコマンド（線の入力 test_cmd）の関門（test_cmd_gate）もここで 1 回だけ決める: 空なら off、実行器のファイルが
   そのコマンドの文字列をそのまま含むなら same_as_suite（一式と同じなので 2 度走らせない）、ほかは 1 回走らせて緑なら on、
   赤・走らないなら off にして理由を test_cmd_note に残す（元から赤の test_cmd で毎単位を拒まない）。test_cmd は nice を付けて
   走らせ、既存のファイルを書き換えた回はいつも赤（書き換えた物は戻す。_cmd_run）。関門が on なら直し・整えの段の指示書に
-  そのコマンドを書く
+  そのコマンドを書く。
+  平の run（修正の形 current。fixshape.plain）は比べの基準なので 219 の前の振る舞い: 約束を読まない・test_cmd の関門は
+  走らせずに off（理由 PLAIN_NOTE）・fix の段の後はいつも refactor の段へ
 - tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形。頭に brief の節: 振り分けの段は
-  直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run は無し）→ 役 tdd（修正役。
+  直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run・平の run は無し）→ 役 tdd（修正役。
   同じ会話で振り分け・テスト・直し・整えを返す）→
   tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix →（申告の在る単位だけ）refactor → 次の単位。
   step 1 回ごとに状態の calls に 1 行（n・確かめた段（申し出は conflict、実行器・test_cmd が走らずに抜けた回は runner）・単位・
@@ -98,6 +100,9 @@ GATE_ON = "on"
 GATE_SAME = "same_as_suite"
 GATE_OFF = "off"
 SUITE_MADE_NOTE = "一式を走らせて出来たファイル"
+# 平の run（修正の形 current。fixshape.plain）: 比べの基準なので 219 の前の振る舞い（約束を読まない・整えはいつも・test_cmd の関門を切る）
+PLAIN_NOTE = "修正の形 current——test_cmd の関門は回さない（比べの基準）"
+PLAIN_REFACTOR = "修正の形 current——整えの段をいつも回す（比べの基準）"
 
 
 class Broken(Exception):
@@ -329,9 +334,9 @@ def _duty(board_dir: pathlib.Path):
 def plan_contract(board_dir: pathlib.Path, keys: list[str]) -> dict[str, dict]:
     """単位 → 承認済みの修正案の約束（planmarks.unit_contract。約束の無い単位は載せない）。盤面の無い置き場（state.json が無い）・
     欄の控えが無い run は {}。盤面が在るのに開けない・欄の控えが凍結の印と食い違う（conflict.frozen_fields が盤面を止めて
-    BoardGap）なら、理由の文のまま Broken（約束を黙って空にしない）"""
+    BoardGap）なら、理由の文のまま Broken（約束を黙って空にしない）。平の run（fixshape.plain）は欄を読まずに {}"""
     board_dir = pathlib.Path(board_dir)
-    if not (board_dir / "state.json").exists():
+    if not (board_dir / "state.json").exists() or fixshape.plain(board_dir):
         return {}
     try:
         b = entry.open_board(board_dir, allow_halted=True)
@@ -392,7 +397,8 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> d
     if cases is None:
         return {**off, "reason": f"元の結末が取れない（{'; '.join(why)}）——全部の単位を今どおり直す"}
     test_cmd = (test_cmd or "").strip()
-    gate, note, made = _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log")
+    gate, note, made = (GATE_OFF, PLAIN_NOTE, []) if fixshape.plain(board_dir) \
+        else _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log")
     st = {"suite": suite, "exe": str(exe), "work": str(work), "open_units": keys, "excused": excused,
           "baseline": {_key(c): c["outcome"] for c in cases}, "baseline_exit": code,
           "handoff": snapshot(repo), "suite_made": made, "phase": "route", "tries": 0, "reason": "", "iterations": 0,
@@ -942,7 +948,7 @@ def _declared(reply) -> tuple[str, list]:
 
 def _fix(st, reply, repo) -> list:
     """緑を確かめ、整えの申告（役の refactor.declared か、約束の refactor）の在る単位だけ refactor の段へ。無ければ skipped で
-    次の単位へ（緑の木が次の単位の頭）"""
+    次の単位へ（緑の木が次の単位の頭）。平の run（fixshape.plain。盤面は状態の work の親）は申告に依らず refactor の段へ"""
     u = _cur(st)
     files = reply.get("files")
     if not isinstance(files, list) or not all(isinstance(f, str) for f in files) or not isinstance(reply.get("what"), str) \
@@ -954,7 +960,8 @@ def _fix(st, reply, repo) -> list:
     probs = _green(st, u, repo)
     if probs:
         return probs
-    why = "；".join(filter(None, [why, _plan_refactor_why(st, u["unit_key"])]))   # 空でない申告の理由を全部
+    plain = PLAIN_REFACTOR if fixshape.plain(pathlib.Path(st["work"]).parent) else ""
+    why = "；".join(filter(None, [why, _plan_refactor_why(st, u["unit_key"]), plain]))   # 空でない申告の理由を全部
     u.update(green="ok", files=files, what=reply["what"].strip(), refactor_why=why)
     st.update(tries=0, reason="", green_tree=snapshot(repo), green_run=st["last_run"])
     if why:
