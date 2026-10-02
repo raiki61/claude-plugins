@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.18] - 2026-10-02
+
 ### Added
 
 - TDD の輪が修正案の項目の約束を機械で照らす。
