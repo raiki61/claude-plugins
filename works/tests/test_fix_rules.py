@@ -223,6 +223,28 @@ class TestCompose(unittest.TestCase):
         for w in ("要求の正本", "brief が勝つ", "背景", "食い違いの申し出", "rewrite_tests", "最後の人の関所", "判定のファイルが正本"):
             self.assertIn(w, sec)
 
+    def test_brief_rule_one_voice_with_brief_background(self):
+        """brief と判定が食い違えば brief どおり直す（止めない）。brief そのものを誤りと見た時だけ申し出る。brief のファイルの背景の
+        見出し（planbrief.BACKGROUND）も同じ 1 つの決まりを言う"""
+        import planbrief
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        self.assertIn("brief が勝つ", planbrief.BACKGROUND)
+        self.assertIn("brief が誤りと見たら申し出よ", planbrief.BACKGROUND)
+        self.assertNotIn("自分で解かずに", planbrief.BACKGROUND)
+        self.assertIn("単位の切り方（unit）は判定どおり。何をどう直すかは brief", sec)
+
+    def test_brief_rule_names_ruling_and_range_exit(self):
+        """裁定を受けた単位は裁定の範囲で brief に勝つ。範囲の申し出の which_is_right の決め方を言う"""
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        self.assertIn("裁定を受けた単位は、裁定の範囲で裁定が brief に勝つ", sec)
+        self.assertIn("範囲の外が要るなら request", sec)
+        self.assertIn("query（`correct_lines` 付き）", sec)
+
+    def test_rewrite_tests_is_an_exception_to_frozen_tests(self):
+        """修正役の頭の「テストのファイルは変えるな」の例外に、修正案の rewrite_tests の名指しが並ぶ"""
+        head = fixrules.sections(fixrules.DIRECT)["fix-head"]
+        self.assertIn("修正案の `rewrite_tests` の名指しと、裁定 fix_test_scope の範囲だけは例外", head)
+
     def test_judgment_is_background_in_heads(self):
         """修正役・TDD の役の頭の判定のファイルの行は「全部読め」でなく背景"""
         for name, sid in ((fixrules.DIRECT, "fix-head"), (fixrules.TDD, "tdd-head")):

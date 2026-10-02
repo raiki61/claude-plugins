@@ -2,7 +2,7 @@
 
 語:
 - brief: 修正案の 1 項目の要求の正本。修正役・TDD の役の指示書の頭で名指し、役はこれに従う。判定の単位は「背景」の節に参照として
-  並べる（brief と食い違えば役は自分で解かずに申し出る）
+  並べる（brief と食い違えば brief が勝つ。役は brief が誤りと見た時だけ申し出る）
 - 控え（LEDGER）: 今の周の作業ファイル r<N>/briefs.json。{"briefs": [{item, unit_keys, file, sha256, text}]}。file は周の箱
   （r<N>/）からの名、text は書いた文、sha256 はその文の UTF-8 のバイトの sha256
 - 凍結: 控えが在る周では brief を作り直さない。brief のファイルの sha256 が控えと違えば控えの text で書き戻し、盤面の trace に
@@ -52,7 +52,7 @@ NAME = "brief-{n}.md"
 HEAD = "## 要求の正本（brief）"
 RESTORED_OP = "brief_restored"
 CUT_OP = "brief_cut"   # 周の 1 回目の cut の印（trace）
-BACKGROUND = "背景（参照。brief と食い違えば自分で解かずに申し出よ）"
+BACKGROUND = "背景（参照。brief と食い違えば brief が勝つ。brief が誤りと見たら申し出よ）"
 READ_ALL = "まず Read で全部読め。下の決まりの『要求の正本（brief）と背景』に従え"
 NONE = "無し"
 
