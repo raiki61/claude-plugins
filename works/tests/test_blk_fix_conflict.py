@@ -528,6 +528,72 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.assertTrue(got.get("ask"), got)
         self.assertIn(conflict.PLAN_TEST_ID, got["gate_text"])
 
+    def frozen_after_test_added_above(self):
+        """修正案の時の木（limit は test_stats.py:8）の後、TDD の輪が同じファイルの上に 2 行のテスト test_empty を足して凍った
+        盤面。返り (盤面, 輪の状態のファイル)"""
+        import tddloop
+        b = self.fields_saved()
+        path = self.repo / "test_stats.py"
+        text = path.read_text(encoding="utf-8")
+        head = "class TestStats(unittest.TestCase):\n"
+        self.assertIn(head, text)
+        path.write_text(text.replace(head, head + "    def test_empty(self):\n        self.assertEqual(clamp(0, 0, 0), 0)\n"),
+                        encoding="utf-8")
+        state = self.tmp / "tdd-state.json"
+        state.write_text(json.dumps({"frozen": tddloop.hashes(self.repo, ["test_stats.py"]),
+                                     "frozen_tree": tddloop.snapshot(self.repo)}), encoding="utf-8")
+        return b, str(state)
+
+    def test_plan_limit_follows_test_id_on_frozen_tree(self):
+        """修正案の limit の行は、凍結の検査が読む輪の後の木で、テストの id から引き直す（上に足したテストを指さない）"""
+        import tddloop
+        b, state = self.frozen_after_test_added_above()
+        limits = conflict.ruled_test_limits(b, rulings=False, source=tddloop.frozen_source(state, self.repo))
+        self.assertEqual(limits, ["test_stats.py:10"])
+        path = self.repo / "test_stats.py"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace("mean([1, 2, 3]), 2)", "mean([1, 2, 3]), 2.0)"), encoding="utf-8")
+        self.assertEqual(tddloop.frozen_problems(state, self.repo, limits), [], "名指したテストの書き換えは通す")
+        path.write_text(text.replace("clamp(0, 0, 0), 0)", "clamp(0, 0, 0), 1)"), encoding="utf-8")
+        self.assertTrue(tddloop.frozen_problems(state, self.repo, limits), "名指していない test_empty の書き換えは拒む")
+
+    def test_plan_limit_dropped_when_test_missing_on_frozen_tree(self):
+        """輪の後の木で名指したテストを引けなければ、その許しを捨てる（範囲を広げない側）"""
+        import tddloop
+        b = self.fields_saved()
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("def test_mean_of_three", "def test_mean_renamed"),
+                        encoding="utf-8")
+        state = self.tmp / "tdd-state.json"
+        state.write_text(json.dumps({"frozen": tddloop.hashes(self.repo, ["test_stats.py"]),
+                                     "frozen_tree": tddloop.snapshot(self.repo)}), encoding="utf-8")
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=tddloop.frozen_source(str(state), self.repo)), [])
+        no_tree = self.tmp / "tdd-state-no-tree.json"
+        no_tree.write_text(json.dumps({"frozen": {}}), encoding="utf-8")
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=tddloop.frozen_source(str(no_tree), self.repo)), [],
+                         "輪の後の木が無ければ引けないので捨てる")
+
+    def test_same_file_by_plan_and_ruling_lists_both_reasons_at_final_gate(self):
+        """修正案と裁定 fix_test_scope が同じテストのファイルを許すと、最後の関所のその 1 行に両方の理由が並ぶ"""
+        import line_edge
+        self.parked()
+        cid = self.items()[0]["id"]
+        _, r = self.rule([{"id": cid, "decision": "fix_test_scope", "text": RULE_TEXT, "limits": ["test_stats.py:9"]}])
+        self.assertTrue(r["ok"], r)
+        b = entry.open_board(self.board)
+        planmarks.save(self.board, b.round, [{"route": "tdd", "route_why": "", "tests": [], "rewrite_tests": [self.REWRITE],
+                                               "refactor": {"declared": False, "why": ""}}])
+        b = entry.open_board(self.board)
+        self.assertEqual(len(conflict.ruled_test_doc(b)["rules"]), 1, "パスで 1 行")
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("mean([1, 2, 3]), 2", "mean([1, 2, 3]), 2.0"), encoding="utf-8")
+        self.edit_tree(MEAN_FIX)
+        got = line_edge.final_edge(b, self.repo, run_id="run-12", mode="when_needed", tests={"ok": True, "green": True})
+        self.assertTrue(got.get("ask"), got)
+        self.assertIn(conflict.PLAN_TEST_ID, got["gate_text"])
+        self.assertIn(RULE_TEXT, got["gate_text"])
+        self.assertIn(f"裁定 {cid}", got["gate_text"])
+
 
 class TestFirstPassPlanLimits(unittest.TestCase):
     """1 回目（first）の受け付けも、修正案が名指した書き換えを凍結の検査に渡す（裁定の範囲は 2 回目だけ）。
@@ -547,7 +613,8 @@ class TestFirstPassPlanLimits(unittest.TestCase):
                                                "INPUTS_PASS": "first"}):
             got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
         self.assertIs(got["ok"], False, got)
-        limits.assert_called_once_with(mock.ANY, rulings=False)
+        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY)
+        self.assertTrue(callable(limits.call_args.kwargs["source"]), "修正案の limit は輪の後の木で引き直す")
         self.assertEqual(frozen.call_args[0][2], ["test_stats.py:8"])
 
 

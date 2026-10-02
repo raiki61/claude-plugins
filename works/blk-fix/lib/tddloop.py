@@ -680,9 +680,24 @@ def frozen_problems(state_file, repo, allowed=()) -> list:
             if bad:
                 outside[f] = bad
     out = [f"TDD の輪で凍ったテストのファイルを書き換えた: {probs}（輪で直した単位のテストは変えない）"] if probs else []
-    out += [f"TDD の輪で凍ったテストのファイル {f} を、裁定 fix_test_scope の範囲の外で書き換えた: 旧い行 {', '.join(bad)}"
+    out += [f"TDD の輪で凍ったテストのファイル {f} を、テストの変更の許し（修正案の rewrite_tests の名指しまたは裁定 fix_test_scope）"
+            f"の範囲の外で書き換えた: 旧い行 {', '.join(bad)}"
             "（範囲に並べた行だけ直してよい。.py の 1 行の指しはその行を含む関数の全体）" for f, bad in outside.items()]
     return out
+
+
+def frozen_source(state_file, repo):
+    """凍結の検査が行を読む輪の後の木（frozen_tree、無ければ handoff。_hunks_outside と同じ）から、パスの中身を読む口
+    （conflict.ruled_test_limits の source。修正案の limit をその木でテストの id から引き直す）。状態・木・パスが読めなければ
+    口は None を返す（許しを捨てる側）。状態は口を呼んだ時に読む"""
+    def read(path):
+        try:
+            st = _load(state_file) if state_file else {}
+            tree = st.get("frozen_tree") or st.get("handoff")
+            return git(repo, "show", f"{tree}:{path}") if tree else None
+        except (Broken, Unreadable):
+            return None
+    return read
 
 
 def _hunks_outside(repo, tree, path, spans) -> list:

@@ -18,15 +18,15 @@
 - apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
   答えた問いの出どころを直す義務に戻し、ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
-- test_permits(b, rulings=): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲）の唯一の元。
-  凍結の検査と最後の関所はここから引く
+- test_permits(b, rulings=, source=): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲）の
+  唯一の元。凍結の検査と最後の関所はここから引く。source を渡すと、修正案の行の範囲をその木でテストの id から引き直す
 - ruled_test_doc(b): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指した
   テストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
 - fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
   出どころ・depends と ask_human）を 1 回で返す正本（blk-fix の受け付け・TDD の輪が読む）。義務が空で外れた単位が在れば空の
   changes を止めない（blk-fix の assert-changed と recount.collect）
-- ruled_test_limits(b, rulings=)・parse_limit(lim): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の
-  範囲。test_permits）の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
+- ruled_test_limits(b, rulings=, source=)・parse_limit(lim): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定
+  fix_test_scope の範囲。test_permits）の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
 - human_lines(b): 最後の関所と報告に載せる ask_human の行
 標準ライブラリだけ。期限は持たない。
 """
@@ -415,13 +415,27 @@ def parse_limit(lim: str):
     return path, ((int(m["a"]), int(m["b"] or m["a"])) if m else None)
 
 
-def test_permits(b, *, rulings: bool = True) -> list[dict]:
+def _plan_limit(r: dict, source):
+    """修正案の行の範囲。source（パス → その木での中身。読めなければ None）を渡せば、その木でテストの id の定義の行を引き直す
+    （修正案の時の木の行の番号は、後で上に足したテストでずれる）。引けなければ None（許しを捨てる）"""
+    if source is None:
+        return r["limit"]
+    got = parse_limit(r["limit"])
+    line = planmarks.line_in(source(got[0]), r["id"]) if got and isinstance(r["id"], str) else None
+    return f"{got[0]}:{line}" if line else None
+
+
+def test_permits(b, *, rulings: bool = True, source=None) -> list[dict]:
     """テストの変更の許しの唯一の元（凍結の検査と最後の関所はここから引く）。行は {limit: 範囲の文字列, id: 守りのファイルの行の
     id の頭, why: 許した理由}。承認済みの修正案の rewrite_tests（いつも。planmarks.rewrites の順）と、rulings が真なら裁定
-    fix_test_scope の範囲（ruled_fix の順）"""
-    out = [{"limit": r["limit"], "id": f"{PLAN_TEST_ID}-{r['item']}",
-            "why": f"承認済みの修正案の項目 {r['item']} が名指した既存テストの書き換え（{r['id']}）: {r['new']}"}
-           for r in planmarks.rewrites(b)]
+    fix_test_scope の範囲（ruled_fix の順）。source（パス → 中身か None）を渡すと、修正案の行の範囲をその木でテストの id から
+    引き直し、引けない行は捨てる（凍結の検査が読む輪の後の木。tddloop.frozen_source）。裁定の行はそのまま"""
+    out = []
+    for r in planmarks.rewrites(b):
+        lim = _plan_limit(r, source)
+        if lim:
+            out.append({"limit": lim, "id": f"{PLAN_TEST_ID}-{r['item']}",
+                        "why": f"承認済みの修正案の項目 {r['item']} が名指した既存テストの書き換え（{r['id']}）: {r['new']}"})
     if rulings:
         out += [{"limit": lim, "id": f"{RULED_TEST_ID}-{r['id']}",
                  "why": f"{HEAD}の裁定 {r['id']}（{r['unit_key']}）が許したテストの変更: {r['ruling']['text']}"}
@@ -429,22 +443,30 @@ def test_permits(b, *, rulings: bool = True) -> list[dict]:
     return out
 
 
-def ruled_test_limits(b, *, rulings: bool = True) -> list[str]:
-    """テストの変更の許し（test_permits）の範囲の文字列の並び。rulings が偽なら裁定の範囲を含めない（1 回目の受け付け）"""
-    return [p["limit"] for p in test_permits(b, rulings=rulings)]
+def ruled_test_limits(b, *, rulings: bool = True, source=None) -> list[str]:
+    """テストの変更の許し（test_permits）の範囲の文字列の並び。rulings が偽なら裁定の範囲を含めない（1 回目の受け付け）。
+    source は test_permits と同じ（凍結の検査は輪の後の木の読み口を渡す）"""
+    return [p["limit"] for p in test_permits(b, rulings=rulings, source=source)]
 
 
 def ruled_test_doc(b) -> dict | None:
     """テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指したテストの
-    ファイル（範囲の <パス>[:行]）を、守りのファイルの一覧の形 {rules: [...]} に（パスで 1 行。先に並んだ許しの行）。無ければ None"""
-    rows, seen = [], set()
+    ファイル（範囲の <パス>[:行]）を、守りのファイルの一覧の形 {rules: [...]} に。無ければ None。
+    パスで 1 行（protect.hits は 1 つのパスに最初の行しか返さない）。id は先に並んだ許しの物で、同じパスの許しの理由は
+    捨てずに why に " / " でつなぐ（最後の関所に許したテストの変更を全部並べる）"""
+    rows, by_path = [], {}
     for p in test_permits(b):
         got = parse_limit(p["limit"])
         path = got[0] if got else None
-        if path is None or path in seen:
+        if path is None:
             continue
-        seen.add(path)
-        rows.append({"id": f"{p['id']}-{len(rows) + 1}", "glob": path, "why": p["why"]})
+        if path in by_path:
+            row = by_path[path]
+            if p["why"] not in row["why"].split(" / "):
+                row["why"] += " / " + p["why"]
+            continue
+        by_path[path] = {"id": f"{p['id']}-{len(rows) + 1}", "glob": path, "why": p["why"]}
+        rows.append(by_path[path])
     return {"rules": rows} if rows else None
 
 

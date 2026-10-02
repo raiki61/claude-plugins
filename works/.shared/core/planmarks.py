@@ -7,6 +7,7 @@
 - with_fields(node, schema): 役の型（accept.role_schema が重ねる）
 - gaps(reply, repo): 欠けと誤りの行（修正案の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）
 - find_test(repo, test_id): テストの id の定義の行（rewrite_tests は在るテストだけ・tests は無いテストだけを名指す）
+- line_in(src, test_id): 渡したファイルの中身でのテストの id の定義の行（凍結の検査が輪の後の木で引き直す）
 - split(reply, repo)・save(board, rnd, fields)・read(b)・rewrites(b): 欄を外す口・盤面の控え・書き換えてよい既存のテストの並び
 - HEAD・REVIEW_HEAD・REVIEW_ASK・review_section(b): 修正案の役と事前審査の役の指示書の頭に足す文
 
@@ -126,6 +127,17 @@ def _py_line(src: str, names: list):
     return fn[0].lineno if fn else None
 
 
+def line_in(src: str, test_id: str) -> int | None:
+    """テストの id のファイルの中身 src での定義の行（1 始まり。引き方は find_test と同じ）。id の形が違う・名前が無いなら None"""
+    got = _parse_id(test_id)
+    if got is None or not isinstance(src, str):
+        return None
+    path, names = got
+    if path.endswith(".py"):
+        return _py_line(src, names)
+    return next((i for i, line in enumerate(src.splitlines(), 1) if names[-1] in line), None)
+
+
 def find_test(repo: pathlib.Path, test_id: str) -> int | None:
     """<パス>::<クラス>::<名前> か <パス>::<名前> のテストの定義の行（1 始まり）。.py は ast でクラスと関数を引き（行は def の行）、
     ほかの拡張子は名前を含む最初の行。根の外・ファイルが無い・構文が壊れている・名前が無いなら None"""
@@ -133,14 +145,11 @@ def find_test(repo: pathlib.Path, test_id: str) -> int | None:
     found = _resolve(repo, got[0]) if got else None
     if found is None:
         return None
-    names = got[1]
     try:
         src = found[1].read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-    if found[0].endswith(".py"):
-        return _py_line(src, names)
-    return next((i for i, line in enumerate(src.splitlines(), 1) if names[-1] in line), None)
+    return line_in(src, test_id)
 
 
 def _limit(repo: pathlib.Path, test_id: str):
