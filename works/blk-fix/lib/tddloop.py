@@ -15,6 +15,8 @@
     約束の在る単位は、受け入れのテストの id を全部名指し（走らせる前に見る）、各テストの赤の種類（red_kind。JUnit の failure の
     type・message から機械が分ける）が名前・import の失敗でなく、案が exception なら断言の失敗でない（_kind_problems。ほかの
     例外の型・unknown は記録だけ）。direct_why でも direct に渡せない。
+    修正案が書き換えを名指した既存のテスト（約束の rewrites）も名指しに入れ、同じ赤（名前・import の失敗でない）を通す。
+    約束の在る単位は、名指しの外の既存のテストの本体（.py の test* 関数。_unnamed_edits）を書き換えたら拒む（走らせる前）。
     名指し全部の赤の種類を単位の red_kinds に残す
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
@@ -549,6 +551,69 @@ def _plan_tests(st, k) -> list:
     return ((st.get("contract") or {}).get(k) or {}).get("tests") or []
 
 
+def _plan_rewrites(st, k) -> list:
+    """単位 k の約束の書き換えの名指し（修正案の rewrite_tests の id。planmarks.rewrites と同じ行から作った物。約束が無ければ空）"""
+    return ((st.get("contract") or {}).get(k) or {}).get("rewrites") or []
+
+
+def test_functions(src: str, path: str) -> dict[str, str]:
+    """.py の中身 src から、名前が test で始まる関数（モジュールの直下と、モジュールの直下のクラスの直下のメソッド）の
+    id（`<path>::<クラス>::<名前>` か `<path>::<名前>`）→ その関数の源（ast.get_source_segment。デコレータの行から）。
+    構文が読めない・path が .py でなければ {}。純粋"""
+    if not path.endswith(".py"):
+        return {}
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return {}
+    out = {}
+
+    def take(node, head):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            top = min([node.lineno] + [d.lineno for d in node.decorator_list])
+            span = ast.Constant(value=None, lineno=top, col_offset=node.col_offset, end_lineno=node.end_lineno,
+                                end_col_offset=node.end_col_offset)   # デコレータの行から本体の終わりまで
+            out[f"{head}::{node.name}"] = ast.get_source_segment(src, span) or ""
+
+    for node in tree.body:
+        take(node, path)
+        if isinstance(node, ast.ClassDef):
+            for sub in node.body:
+                take(sub, f"{path}::{node.name}")
+    return out
+
+
+def _unnamed_edits(repo, tree: str, files: list[str], allowed: set[str]) -> list[str]:
+    """files のうち木 tree に在った .py で、木の時の test_functions に在った id の源が変わった・消えた物のうち、allowed に無い
+    id（_norm_id で整えて比べる）。import の行・補助の関数・新しいテストは見ない。今の中身が構文として読めなければ、木の時の
+    test* 関数は全部消えた側に数える（拒む側。実行器の結末は消えたテストを数えない）。.py でないファイルは見ない（関数の幅が引けない）"""
+    ok = {_norm_id(a) for a in allowed}
+    py = [f for f in files if f.endswith(".py")]
+    there = set(git_names(repo, "ls-tree", "-r", "--name-only", tree, "--", *py)) if py else set()
+    out = []
+    for f in py:
+        if f not in there:
+            continue   # 木に無かった（この段で足した）ファイル
+        old = git(repo, "show", f"{tree}:{f}")
+        p = pathlib.Path(repo) / f
+        new = test_functions(p.read_text(encoding="utf-8", errors="replace") if p.is_file() else "", f)
+        out += [i for i, body in test_functions(old, f).items() if new.get(i) != body and _norm_id(i) not in ok]
+    return out
+
+
+def _rewrite_kind_problems(ids: list, cases: list) -> list:
+    """書き換えの名指しの赤の種類を照らし、拒む物の文。案に赤の種類の宣言が無いので、拒むのは名前・import の失敗（NAME_KINDS）
+    だけ。ほかの例外の型・unknown は記録だけ（_kind_problems の案が assertion の時と同じ線）"""
+    out = []
+    for i in ids:
+        c = rules().match_case(i, cases)
+        got = red_kind(c) if c else KIND_UNKNOWN
+        if got in NAME_KINDS:
+            out.append(f"{i}: 修正案が書き換えを名指した既存のテストの赤が {got}——名前・import の失敗は狙いの赤でない"
+                       "（機能が無い・綴りの誤り）。テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
+    return out
+
+
 def _kind_problems(want: list, cases: list) -> list:
     """約束の各テストの赤の種類（red_kind）を照らし、拒む物の文。拒むのは次の 2 つだけ（superpowers の TDD の『error でなく
     fail で落とす』）:
@@ -586,23 +651,32 @@ def _test(st, reply, repo) -> list:
         _next_unit(st, repo)
         return []
     tests = reply.get("tests")
-    errs = [] if isinstance(tests, list) and tests and all(isinstance(t, str) and t.strip() for t in tests) \
-        else ["tests は名指しのテスト（<パス>::<クラス>::<名前>）の空でない配列"]
+    ok_tests = isinstance(tests, list) and tests and all(isinstance(t, str) and t.strip() for t in tests)
+    errs = [] if ok_tests else ["tests は名指しのテスト（<パス>::<クラス>::<名前>）の空でない配列"]
     files, bad = _paths(reply.get("test_files"), "test_files")
     errs += bad
+    # 約束の名指し（形が崩れていても、名指せた分で照らして同じ返答に並べる）
+    want = _plan_tests(st, u["unit_key"])
+    rws = _plan_rewrites(st, u["unit_key"])
+    named = {_norm_id(t) for t in tests if isinstance(t, str) and t.strip()} if isinstance(tests, list) else set()
+    miss = [t["id"] for t in want if _norm_id(t["id"]) not in named]
+    if miss:
+        errs.append(f"承認済みの修正案の受け入れのテストを名指していない: {miss}——brief の tests の id の名前でテストを書き、tests に入れよ。"
+                    "案の前提が誤りなら phase conflict で申し出よ")
+    errs += [f"{i}: 承認済みの修正案が書き換えを名指した既存のテスト——書き換えて名指しに入れよ" for i in rws if _norm_id(i) not in named]
     if errs:
         return errs
     extra = sorted(set(touched(repo, st["unit_head"], snapshot(repo))) - set(files) - set(st["suite_made"]))
     if extra:
         return [f"申告したテストのファイルの外に触れた: {extra[:5]}——この段はテストだけを書く（実装は次の段）"]
-    want = _plan_tests(st, u["unit_key"])
-    named = {_norm_id(t) for t in tests}
-    miss = [t["id"] for t in want if _norm_id(t["id"]) not in named]
-    if miss:
-        return [f"承認済みの修正案の受け入れのテストを名指していない: {miss}——brief の tests の id の名前でテストを書き、tests に入れよ。"
-                "案の前提が誤りなら phase conflict で申し出よ"]
+    if u["unit_key"] in (st.get("contract") or {}):
+        frozen = _unnamed_edits(repo, st["unit_head"], files, set(rws))
+        if frozen:
+            return [f"名指しの外の既存のテスト {frozen[:10]} の本体を書き換えた——書き換えてよいのは修正案の rewrite_tests の名指しだけ"
+                    "（それ以外を変えるなら phase conflict で申し出よ）"]
     cases, code = _run(st, repo, tests)
-    probs = rules().red_problems(tests, cases, code, st["baseline"]) or _kind_problems(want, cases)
+    probs = rules().red_problems(tests, cases, code, st["baseline"]) or _kind_problems(want, cases) \
+        or _rewrite_kind_problems(rws, cases)
     if probs:
         return probs
     kinds = {t: red_kind(rules().match_case(t, cases) or {}) for t in tests}
@@ -784,7 +858,7 @@ def _finish(st, repo) -> None:
     if st["note"]:
         lines += [f"輪を途中で抜けた: {st['note']}", ""]
     lines += ["## 輪で直した単位（直さず、changes に 1 行を書け。テストのファイルは変えるな——受け付けが拒む。"
-              "食い違いの裁定 fix_test_scope が範囲に並べた所だけは例外）", ""]
+              "食い違いの裁定 fix_test_scope が範囲に並べた所だけは例外。修正案の rewrite_tests の名指しは輪で書き換えて凍結した）", ""]
     for u in passed:
         lines += [f"- {u['unit_key']}", f"  - 名指しのテスト（機械が赤→緑を確かめた）: {', '.join(u['tests'])}",
                   f"  - テストのファイル: {', '.join(u['test_files'])}", f"  - 直したファイル: {', '.join(u['files'])}",
