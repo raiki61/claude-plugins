@@ -52,6 +52,10 @@ class BriefCase(tbf.BoardCase):
             self.assertIn(w, text)
         old = {k: v for k, v in f.items() if k not in ("allowed_paths", "out_of_scope")}
         self.assertIn("## 書いてよいパス（allowed_paths）\n\n無し", planbrief.render(1, item1, old, {}, "", ""))
+        text_old = planbrief.render(1, item1, old, {}, "", "")
+        for h in ("## 書いてよいパス（allowed_paths）", "## 触らない物（out_of_scope）"):
+            self.assertIn(f"{h}\n\n無し（この案は範囲を決めていない。範囲では縛らない）", text_old)
+        self.assertIn("## 触らない物（out_of_scope）\n\n無し\n", planbrief.render(1, item1, {**f, "out_of_scope": []}, {}, "", ""))
 
     def test_cut_is_frozen_and_restores_edited_file(self):
         b = self.ready(); first = planbrief.cut(b)

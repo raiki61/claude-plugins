@@ -55,6 +55,7 @@ CUT_OP = "brief_cut"   # 周の 1 回目の cut の印（trace）
 BACKGROUND = "背景（参照。brief と食い違えば brief が勝つ。brief が誤りと見たら申し出よ）"
 READ_ALL = "まず Read で全部読め。下の決まりの『brief の決まり（要求の正本と背景）』に従え"
 NONE = "無し"
+UNSCOPED = "無し（この案は範囲を決めていない。範囲では縛らない）"   # 範囲の欄の無い項目（依頼 218 より前の案）の範囲の節
 NOT_NOW = "今は直すな"   # brief の行で、項目の単位のうち今直す単位でない物の頭（head_text）
 
 
@@ -104,6 +105,13 @@ def _scope(r) -> str:
     return str(r)
 
 
+def _scoped(fields: dict, key: str, line) -> str:
+    """範囲の欄 key の節の中身。欄の無い行（依頼 218 より前の案）は UNSCOPED（範囲で縛らない）、在って空なら無し"""
+    if key not in fields:
+        return UNSCOPED
+    return _bullets(fields.get(key) or [], line)
+
+
 def _route(fields: dict) -> str:
     route = fields.get("route")
     if route is None:
@@ -144,8 +152,8 @@ def render(n: int, item: dict, fields: dict, units: dict, purpose: str, structur
         "## 受け入れのテスト（tests）\n\n" + _bullets(fields.get("tests") or [], _test),
         "## 書き換えてよい既存のテスト（rewrite_tests）\n\n" + _bullets(fields.get("rewrite_tests") or [], _rewrite),
         "## 整えの申告（refactor）\n\n" + _refactor(fields),
-        "## 書いてよいパス（allowed_paths）\n\n" + _bullets(fields.get("allowed_paths") or [], str),
-        "## 触らない物（out_of_scope）\n\n" + _bullets(fields.get("out_of_scope") or [], _scope),
+        "## 書いてよいパス（allowed_paths）\n\n" + _scoped(fields, "allowed_paths", str),
+        "## 触らない物（out_of_scope）\n\n" + _scoped(fields, "out_of_scope", _scope),
         f"## 目的の文（凍結）\n\n{purpose or NONE}",
         structure or f"## 構造の目の行\n\n{NONE}",
         f"## {BACKGROUND}\n\n" + ("\n\n".join(_unit(k, units) for k in keys) if keys else NONE),

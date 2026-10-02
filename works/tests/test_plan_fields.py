@@ -315,7 +315,9 @@ class ScopeFieldsCase(PlanFieldsCase):
         self.assertEqual(it["properties"]["allowed_paths"]["minItems"], 1)
 
     def test_gaps_allowed_paths_must_be_relative_and_narrow(self):
-        for g in ("/abs/x.py", "../x.py", "a\\b.py", "**", "*", "**/*"):
+        for g in ("/abs/x.py", "../x.py", "a\\b.py", "**", "*", "**/*",
+                  "./x", " stats.py", "stats.py ", " ", "a/../b", "a//b",   # 整えない綴り・前後の空白（差分のパスに当たらない）
+                  "C:/x.py", "C:x.py", "~/x"):                              # ドライブ文字・~ は絶対パスとして拒む
             with self.subTest(g):
                 got = planmarks.gaps({"plan": [item(allowed_paths=[g])]}, self.repo)
                 self.assertTrue(any(x.startswith("plan[0].allowed_paths[0]") for x in got), got)

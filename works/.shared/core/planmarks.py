@@ -1,7 +1,7 @@
 """修正案の項目の works 側の欄（依頼 217 = 206 + 207）。
 
 修正案の役（p2.fix_plan）の項目の行に、直し方の道（route・route_why）・受け入れのテスト（tests）・書き換える既存のテスト
-（rewrite_tests）・整えの申告（refactor）を書かせる。承認された案は後で項目ごとの brief に切り出され、修正役・TDD の役が従う
+（rewrite_tests）・整えの申告（refactor）・書いてよいパス（allowed_paths）・触らない物（out_of_scope。依頼 218）を書かせる。承認された案は後で項目ごとの brief に切り出され、修正役・TDD の役が従う
 要求の正本になる。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、関所の決め手の欄（gatemarks）と同じく、
 役の型にだけ欄を足し、受け付けが盤面へ渡す前に外して盤面の plan-fields.json に置く。
 - with_fields(node, schema): 役の型（accept.role_schema が重ねる）
@@ -28,6 +28,7 @@ import json
 import os
 import pathlib
 import posixpath
+import re
 import sys
 
 _GL = pathlib.Path(__file__).resolve().parent / "graphloops"
@@ -128,17 +129,23 @@ def climbs(norm: str) -> bool:
 
 
 def glob_problem(glob: str) -> str | None:
-    """範囲の欄の glob（allowed_paths の行・out_of_scope の glob）の誤りの文。無ければ None。\\ の区切り・絶対パス・`..` の段で
-    根の外へ上る・全部の段が * か **（**・*・**/* のような丸ごとの許し）を拒む。ファイルの有無は見ない（新しく置くファイルも書く）"""
+    """範囲の欄の glob（allowed_paths の行・out_of_scope の glob）の誤りの文。無ければ None。前後の空白・\\ の区切り・絶対パス
+    （/・ドライブ文字・~ で始まる）・`..` の段で根の外へ上る・整えた形でない綴り（./x・a/../b・a//b）・全部の段が * か **
+    （**・*・**/* のような丸ごとの許し）を拒む。整えずに拒む（差分のパスは整えた綴りなので、整えない綴りの glob は当たらない）。
+    ファイルの有無は見ない（新しく置くファイルも書く）"""
+    if glob != glob.strip():
+        return "前後に空白が在る（空白を外した、作業ツリーの根からの相対の glob にせよ）"
     if "\\" in glob:
         return "\\ が在る（区切りは / で書け。glob は作業ツリーの根からの相対）"
-    if glob.startswith("/"):
-        return "絶対パス（作業ツリーの根からの相対の glob にせよ）"
+    if glob.startswith(("/", "~")) or re.match(r"[A-Za-z]:", glob):
+        return "絶対パス（/・ドライブ文字・~ で始まる。作業ツリーの根からの相対の glob にせよ）"
     norm = posixpath.normpath(glob)
     if climbs(norm):
         return "根の外か根そのものを指す（`..` の段で上らない、根からの相対の glob にせよ）"
     if all(seg in ("*", "**") for seg in norm.split("/")):
         return "丸ごとの許し（全部の段が * か **）は拒む。項目の直しが触るファイルかディレクトリまで狭めよ"
+    if norm != glob.rstrip("/"):
+        return f"整えた形でない（./・..・// を含む）。整えた形 {norm} で書け"
     return None
 
 
