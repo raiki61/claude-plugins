@@ -43,6 +43,9 @@ inputs:
       テストの実行器（JUnit XML の書き先を第 1 引数に受け、リポジトリの根で走る実行ファイル。本線の tdd_suite と同じ約束。
       相対なら対象リポジトリの根から。後ろに試験のファイル・node id（絶対パス）と -k を足して呼ぶことがある）。空は実行器の無い run で、TDD の輪を飛ばして全部の単位を今どおり直す。
       実行器を探して決めるのはラインの start（設計 6 節）で、ここはその結果を受けるだけ
+  test_cmd:
+    default: ""
+    description: 緑の後に TDD の輪が走らせるテストのコマンド（線の入力 `test_cmd`）。空は走らせない。実行器がこのコマンドそのものを包んだ物なら 2 度走らせない
 
 returns: collect
 outcome_field: ok
@@ -61,7 +64,8 @@ nodes:
         count: {type: integer, minimum: 0}
         file: {type: string}
 
-  # TDD の輪の頭。実行器が無ければ何も書かずに go: false（輪は飛ぶ）。在れば一式を 1 回走らせて元の結末を取る
+  # TDD の輪の頭。実行器が無ければ何も書かずに go: false（輪は飛ぶ）。在れば一式を 1 回走らせて元の結末を取り、
+  # test_cmd の関門（緑の後に毎回走らせるか）を 1 回だけ決める
   - id: tdd-start
     script: tdd_start
     runtime: uv
@@ -70,6 +74,7 @@ nodes:
     with:
       tdd_suite: $INPUTS.tdd_suite
       open_units: $INPUTS.open_units
+      test_cmd: $INPUTS.test_cmd
     output_format:
       type: object
       additionalProperties: false
@@ -149,6 +154,15 @@ nodes:
                 type: array
                 items: {type: string}
               what: {type: string}
+              # 整えの申告（phase fix の任意の欄。declared が true の単位か、修正案の項目が refactor.declared の単位だけ refactor の段が来る。
+              # tddloop._declared・_plan_refactor_why）
+              refactor:
+                type: object
+                additionalProperties: false
+                required: [declared, why]
+                properties:
+                  declared: {type: boolean}
+                  why: {type: string}
               # 食い違いの申し出（phase conflict。どの段でも。.shared/core/conflict.py の 1 件の欄）
               between:
                 type: array
@@ -861,7 +875,8 @@ nodes:
             count: {type: integer, minimum: 0}
             file: {type: string}
         # TDD の輪の結果 {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor,
-        # gave_up, problems}]}。実行器の無い run は ran: false・units は空（tddloop.exit_fields）
+        # gave_up, problems, red_kinds, test_cmd, refactor_why}], test_cmd: {gate, note}, calls: [{n, phase, unit_key, ok, runs,
+        # secs}]}。実行器の無い run は ran: false・units は空で test_cmd・calls の欄も無い（tddloop.exit_fields・FIELDS）
         tdd: {type: object}
         # 盤面の欄（〔線A計〕T17。recount.collect）: 受けた修正の返答のファイル・直せなかった単位の数・単位ごとの前後の件数・読んだ証拠
         fix_file: {type: string}

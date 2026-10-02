@@ -26,6 +26,7 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(TESTS))
 
+import board  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import planmarks  # noqa: E402
@@ -527,6 +528,38 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.fix_ready()
         self.assertIsNone(conflict.ruled_test_doc(entry.open_board(self.board)))
 
+    def test_tdd_plan_contract_reads_saved_fields_on_real_board(self):
+        """本物の盤面と受け付けが置いた欄の控え（凍結の印つき）から、TDD の輪の約束（tddloop.plan_contract）が
+        planmarks.unit_contract の形で組める。約束の無い単位は載らない"""
+        import tddloop
+        self.fix_ready()
+        b = entry.open_board(self.board)
+        test = {"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "2 つの値の平均を返す",
+                "path": "stats.mean を直に呼ぶ（mock なし）", "red_kind": "assertion", "red_why": "今は len-1 で割り 6.0 になる"}
+        planmarks.save(self.board, b.round, [{"unit_keys": [MEAN], "route": "tdd", "route_why": "", "tests": [test],
+                                               "rewrite_tests": [self.REWRITE], "refactor": {"declared": False, "why": ""}}])
+        self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]),
+                         {MEAN: {"items": [1], "route": "tdd", "tests": [{"id": test["id"], "red_kind": "assertion"}],
+                                 "rewrites": [self.REWRITE["id"]], "refactor": []}})
+
+    def test_frozen_fields_halts_on_broken_ledger(self):
+        """conflict.frozen_fields は凍結した欄の並び（planmarks.frozen）。控えが受け付けの後に書き換えられたら、_plan_rewrites と
+        同じ 1 か所の文（FIELDS_BROKEN で始まる）で盤面を止めて BoardGap"""
+        b = self.fields_saved()
+        self.assertEqual(conflict.frozen_fields(b)[0]["rewrite_tests"], [self.REWRITE])
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["route"] = "direct"
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaises(board.BoardGap) as got:
+            conflict.frozen_fields(entry.open_board(self.board))
+        self.assertTrue(str(got.exception).startswith(conflict.FIELDS_BROKEN), got.exception)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        with self.assertRaises(board.BoardGap) as again:
+            conflict.test_permits(after)
+        self.assertEqual(str(again.exception), str(got.exception), "_plan_rewrites と同じ文")
+
     def test_plan_rewrite_listed_at_final_gate(self):
         import line_edge
         self.fields_saved()
@@ -566,6 +599,31 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.assertEqual(tddloop.frozen_problems(state, self.repo, limits), [], "名指したテストの書き換えは通す")
         path.write_text(text.replace("clamp(0, 0, 0), 0)", "clamp(0, 0, 0), 1)"), encoding="utf-8")
         self.assertTrue(tddloop.frozen_problems(state, self.repo, limits), "名指していない test_empty の書き換えは拒む")
+
+    def test_rewrite_verified_in_loop_is_frozen_for_the_fixer(self):
+        """輪が赤→緑を確かめた書き換え（tddloop.verified_rewrites）は、受け付けの許しから外れる（skip_ids）。輪の後の修正役が
+        そのテストを書き換えると凍結の検査が拒む。輪で確かめていない書き換えの許しは今どおり"""
+        import tddloop
+        b, state = self.frozen_after_test_added_above()
+        rid = self.REWRITE["id"]
+        p = pathlib.Path(state)
+        st = json.loads(p.read_text(encoding="utf-8"))
+        st.update(order=[MEAN], units={MEAN: {"unit_key": MEAN, "route": "tdd", "green": "ok", "tests": [rid]}},
+                  contract={MEAN: {"items": [1], "route": "tdd", "tests": [], "rewrites": [rid], "refactor": []}})
+        p.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        skip = tddloop.verified_rewrites(state)
+        self.assertEqual(skip, [rid])
+        source = tddloop.frozen_source(state, self.repo)
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=source, skip_ids=skip), [])
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=source), ["test_stats.py:10"], "外さなければ今どおり")
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("mean([1, 2, 3]), 2)", "mean([1, 2, 3]), 2.0)"), encoding="utf-8")
+        self.assertTrue(tddloop.frozen_problems(state, self.repo, conflict.ruled_test_limits(b, rulings=False, source=source,
+                                                                                              skip_ids=skip)))
+        st["units"][MEAN]["green"] = ""   # 緑に届かなかった単位の書き換えは確かめていない
+        p.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(tddloop.verified_rewrites(state), [])
+        self.assertEqual(tddloop.verified_rewrites(""), [], "輪の無い run は空")
 
     def test_plan_limit_dropped_when_test_missing_on_frozen_tree(self):
         """輪の後の木で名指したテストを引けなければ、その許しを捨てる（範囲を広げない側）"""
@@ -645,9 +703,33 @@ class TestFirstPassPlanLimits(unittest.TestCase):
                                                "INPUTS_PASS": "first"}):
             got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
         self.assertIs(got["ok"], False, got)
-        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY)
+        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY, skip_ids=[])
         self.assertTrue(callable(limits.call_args.kwargs["source"]), "修正案の limit は輪の後の木で引き直す")
         self.assertEqual(frozen.call_args[0][2], ["test_stats.py:8"])
+
+
+class TestAcceptSkipsVerifiedRewrites(unittest.TestCase):
+    """受け付けは輪が赤→緑を確かめた書き換えの id（tddloop.verified_rewrites）を許しから外して凍結の検査に渡す（1 回目も裁定の後も）"""
+
+    def test_accept_passes_verified_rewrites_as_skip_ids(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_fix_accept_script_skip", BLK / "scripts" / "accept.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for pass_ in ("first", "ruled"):
+            limits = mock.MagicMock(return_value=[])
+            frozen = mock.MagicMock(return_value=["TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']"])
+            with mock.patch.object(mod.conflict, "ruled_test_limits", limits), \
+                    mock.patch.object(mod.tddloop, "frozen_problems", frozen), \
+                    mock.patch.object(mod.tddloop, "verified_rewrites", return_value=["t.py::T::test_a"]) as vr, \
+                    mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
+                    mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": "/b/tdd.json",
+                                                   "INPUTS_PASS": pass_}):
+                got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
+            self.assertIs(got["ok"], False, got)
+            vr.assert_called_once_with("/b/tdd.json")
+            self.assertEqual(limits.call_args.kwargs["skip_ids"], ["t.py::T::test_a"], pass_)
+            self.assertEqual(limits.call_args.kwargs["rulings"], pass_ == "ruled")
 
 
 class TestPermitsOnRawBoard(unittest.TestCase):

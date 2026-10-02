@@ -99,6 +99,13 @@ class TestGaps(PlanFieldsCase):
         self.assertTrue(any(g.startswith("plan[0].refactor") for g in got), got)
         self.assertEqual(self.gaps(item(refactor={"declared": True, "why": "名前の重なる 2 つの関数を 1 つに寄せる"})), [])
 
+    def test_gaps_same_test_id_with_two_red_kinds_rejected(self):
+        """同じ受け入れのテストの id を 2 つの項目が別の赤の種類で宣言したら拒む（黙って先の物を勝たせない）。同じ種類なら通す"""
+        t = item()["tests"][0]
+        got = self.gaps(item(), item(tests=[dict(t, red_kind="exception")]))
+        self.assertTrue(any(g.startswith("plan[1].tests[0]") and "red_kind" in g for g in got), got)
+        self.assertEqual(self.gaps(item(), item()), [])
+
     def test_gaps_type_errors_are_named(self):
         got = self.gaps(item(route="maybe", tests="test_stats.py::TestStats::test_x"))
         self.assertTrue(any(g.startswith("plan[0].route") for g in got), got)
@@ -278,6 +285,47 @@ class TestIdPaths(PlanFieldsCase):
         (d / "x.py").write_text("def test_o():\n    pass\n", encoding="utf-8")
         self.assertEqual(planmarks.find_test(self.repo, "..foo/x.py::test_o"), 1)
         self.assertIsNone(planmarks.find_test(self.repo, "../x.py::test_o"))
+
+
+CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
+
+
+class UnitContractCase(unittest.TestCase):
+    """単位の約束（planmarks.unit_contract）: その単位を unit_keys に含む項目の欄を合わせた物。純粋（盤面もファイルも読まない）"""
+    T1 = {"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "x" * 10, "path": "y" * 10,
+          "red_kind": "assertion", "red_why": "z" * 10}
+    RW = {"id": "test_stats.py::TestStats::test_clamp_above_range", "behavior": "x" * 10, "old": "lo を返す",
+          "new": "上限を超えたら hi を返す", "limit": "test_stats.py:14"}
+
+    def f(self, keys, **over):
+        return {"unit_keys": keys, "route": "tdd", "route_why": "", "tests": [], "rewrite_tests": [],
+                "refactor": {"declared": False, "why": ""}, **over}
+
+    def test_contract_joins_items_of_the_unit(self):
+        fields = [self.f([MEAN], tests=[self.T1]), self.f([MEAN, CLAMP], route="direct", route_why="w" * 10,
+                                                          rewrite_tests=[self.RW], refactor={"declared": True, "why": "w" * 10})]
+        got = planmarks.unit_contract(fields, MEAN)
+        self.assertEqual(got, {"items": [1, 2], "route": "tdd",
+                               "tests": [{"id": self.T1["id"], "red_kind": "assertion"}],
+                               "rewrites": [self.RW["id"]], "refactor": [{"item": 2, "why": "w" * 10}]})
+        self.assertEqual(planmarks.unit_contract(fields, CLAMP)["route"], "direct")
+
+    def test_contract_refactor_empty_without_declaration(self):
+        """整えの申告は申告した項目の {item, why} の並び。申告が無ければ空"""
+        self.assertEqual(planmarks.unit_contract([self.f([MEAN])], MEAN)["refactor"], [])
+
+    def test_contract_none_without_fields_or_items(self):
+        self.assertIsNone(planmarks.unit_contract(None, MEAN))
+        self.assertIsNone(planmarks.unit_contract([self.f([CLAMP])], MEAN))
+
+    def test_rewrite_without_limit_is_not_in_contract(self):
+        rw = {k: v for k, v in self.RW.items() if k != "limit"}
+        self.assertEqual(planmarks.unit_contract([self.f([MEAN], rewrite_tests=[rw])], MEAN)["rewrites"], [])
+
+    def test_same_test_id_in_two_items_listed_once(self):
+        """tests は項目の順で、id の重複を除く"""
+        fields = [self.f([MEAN], tests=[self.T1]), self.f([MEAN], tests=[dict(self.T1, red_kind="exception")])]
+        self.assertEqual(planmarks.unit_contract(fields, MEAN)["tests"], [{"id": self.T1["id"], "red_kind": "assertion"}])
 
 
 class TestLineScenarioPlans(PlanFieldsCase):
