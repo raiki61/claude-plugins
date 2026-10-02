@@ -14,7 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # blk-pla
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # core を頭に（script_io の注意。R7）
 import planblk  # noqa: E402
 
-INPUTS = ("INPUTS_ROLE", "INPUTS_REPLY")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_plan.py が見る）
+INPUTS = ("INPUTS_ROLE", "INPUTS_REPLY", "INPUTS_REPLAN")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_plan.py が見る）
+# 無くても欠けに数えない入力（後から足した replan。前の版の with: で再開した run は渡さない。無い・空は今どおり）
+OPTIONAL = frozenset({"INPUTS_REPLAN"})
 
 
 if __name__ == "__main__":
@@ -29,4 +31,4 @@ if __name__ == "__main__":
     except planblk.BoardGap as e:
         print(str(e), file=sys.stderr)
         sys.exit(2)
-    sys.exit(planblk.main_accept(os.environ["INPUTS_ROLE"]))
+    sys.exit(planblk.main_accept(os.environ["INPUTS_ROLE"], os.environ.get("INPUTS_REPLAN", "")))

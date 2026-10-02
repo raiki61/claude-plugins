@@ -81,11 +81,15 @@ def walk(nodes, inside=None):
             yield from walk(n["loop_group"].get("nodes"), n)
 
 
-def script_inputs(name):
+def script_module(name):
     spec = importlib.util.spec_from_file_location(f"_blk_plan_{name}", BLK / "scripts" / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.INPUTS
+    return mod
+
+
+def script_inputs(name):
+    return script_module(name).INPUTS
 
 
 class YamlCase(unittest.TestCase):
@@ -99,7 +103,8 @@ class YamlCase(unittest.TestCase):
 
     def test_inputs_and_exit(self):
         self.assertEqual(set(self.y["inputs"]), {"judgment_file", "base_rev", "policy_paste", "policy_path", "excluded_file",
-                                                 "include_id"})
+                                                 "include_id", "replan"})
+        self.assertEqual(self.y["inputs"]["replan"]["default"], "")
         self.assertIs(self.y["inputs"]["judgment_file"]["required"], True)
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
         self.assertEqual(set(self.top["collect"]["output_format"]["required"]),
@@ -168,7 +173,10 @@ class YamlCase(unittest.TestCase):
                 continue
             with self.subTest(n["id"]):
                 want = {f"INPUTS_{k.upper()}" for k in (n.get("with") or {})}
-                self.assertEqual(set(script_inputs(n["script"])), want)
+                mod = script_module(n["script"])
+                self.assertEqual(set(mod.INPUTS), want)
+                self.assertEqual(set(mod.OPTIONAL), {"INPUTS_REPLAN"}, "後から足した replan だけが無くてよい（無い・空は今どおり）")
+                self.assertEqual(n["with"]["replan"], "$INPUTS.replan", "同じ script を回す節は全部 replan を渡す")
                 self.assertEqual((n["timeout"], n["runtime"]), (DEADLINE, "uv"))
                 if "role" in (n.get("with") or {}):
                     self.assertEqual(n["id"].rsplit("-", 1)[0], n["with"]["role"])

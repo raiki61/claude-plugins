@@ -396,7 +396,7 @@ def plan_reply(narrows=()):
 
 # 修正案の項目の works の欄（盤面の plan-fields.json の行。test_plan_brief の FIELDS と同じ形）
 PLAN_FIELDS = [{"route": "tdd", "route_why": "", "tests": [{"id": "test_stats.py::TestStats::test_mean_of_two",
-                                                            "behavior": "2 つの値の平均", "path": "stats.mean を直に呼ぶ",
+                                                            "behavior": "2 つの値の平均を返す", "path": "stats.mean を直に呼ぶ",
                                                             "red_kind": "assertion", "red_why": "今は len-1 で割る"}],
                 "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
                 "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}]

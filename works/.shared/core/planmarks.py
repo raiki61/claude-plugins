@@ -5,7 +5,8 @@
 要求の正本になる。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、関所の決め手の欄（gatemarks）と同じく、
 役の型にだけ欄を足し、受け付けが盤面へ渡す前に外して盤面の plan-fields.json に置く。
 - with_fields(node, schema): 役の型（accept.role_schema が重ねる）
-- gaps(reply, repo): 欠けと誤りの行（修正案の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）
+- gaps(reply, repo, exists=): 欠けと誤りの行（修正案の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）。exists は
+  受け入れのテストが既に在るかを引く口（既定は作業ツリー。同じ run の中の案の直しは修正の起点の版の木）
 - find_test(repo, test_id): テストの id の定義の行（rewrite_tests は在るテストだけ・tests は無いテストだけを名指す）
 - line_in(src, test_id): 渡したファイルの中身でのテストの id の定義の行（凍結の検査が輪の後の木で引き直す）
 - split(reply, repo)・save(board, rnd, fields)・read(b)・rewrites(b): 欄を外す口・盤面の控え・書き換えてよい既存のテストの並び
@@ -362,12 +363,16 @@ def _scope_overlaps(plan: list) -> list[str]:
     return out
 
 
-def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
+def gaps(reply: dict, repo: pathlib.Path, *, exists=None) -> list[str]:
     """修正案の返答の works の欄の欠けと誤りの行（"plan[<i>].<欄>…: <理由>"）。空なら通る。返答や plan が形を成さなければ空
-    （写しの規則が型で拒む）。例外で拒まない"""
+    （写しの規則が型で拒む）。例外で拒まない。exists(test_id) -> 定義の行 | None は、受け入れのテスト（tests）が既に在るかを
+    引く口（None なら find_test で作業ツリーを引く。同じ run の中の案の直しは修正の起点の版の木で引く）"""
     plan = reply.get("plan") if isinstance(reply, dict) else None
     if not isinstance(plan, list):
         return []
+    if exists is None:
+        def exists(tid):
+            return find_test(repo, tid)
     out, new_ids, kinds = [], {}, {}
     for i, it in enumerate(plan):
         if not isinstance(it, dict):
@@ -392,7 +397,7 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
             if bad:
                 out.append(f"plan[{i}].tests[{j}].id（{tid}）: {bad}")
                 continue
-            line = find_test(repo, tid) if tid else None
+            line = exists(tid) if tid else None
             if tid:
                 new_ids.setdefault(tid, f"plan[{i}].tests[{j}]")
                 first, kind = kinds.setdefault(tid, (f"plan[{i}].tests[{j}]", row.get("red_kind")))
@@ -400,7 +405,8 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
                     out.append(f"plan[{i}].tests[{j}].id（{tid}）: 同じ id を {first} にも別の red_kind（{kind}）で書いた"
                                "（同じテストの赤の種類は 1 つにそろえよ）")
             if line is not None:
-                out.append(f"plan[{i}].tests[{j}].id（{tid}）: 既に在るテスト（{_limit(repo, tid)}）。tests はまだ無いテストを名指す。"
+                out.append(f"plan[{i}].tests[{j}].id（{tid}）: 既に在るテスト（{posixpath.normpath(_parse_id(tid)[0])}:{line}）。"
+                           "tests はまだ無いテストを名指す。"
                            "既に在るテストの期待を変えるなら rewrite_tests に書け")
         for j, g in enumerate(_rows(it, "allowed_paths")):
             bad = glob_problem(g) if isinstance(g, str) and g else None
