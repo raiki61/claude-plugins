@@ -6,6 +6,14 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- 包む 4 つの節（`.shared/borrow/seams.json`。test-driven-development・SDD の実装役と審査役の指示書の型・receiving-code-review）と読み替えの錨（読み替えの決まりの根拠になる原文の引用と、その段落の sha256）、`unattended.md` の決まり SUITE と ASK・COMMIT の行を足した。部品の型（SDD の実装役と審査役の指示書の型）を隔離した設定の `works-parts/` に写す。CLI を 3 つ足した: `toolset.py vendor`（写しと台帳と pin を取り直す）・`contract`（版のフォルダに固定と節の契約を当てる）・`newer`（開発の再開の確かめ）。`dogfood.sh` は起動の時（認証の確かめの後・clone の前）に `newer` を 1 回呼び、利用者のキャッシュと marketplace の一覧の superpowers の版を写しと比べて知らせる（落ちても run の起動は止めない）。節を役に載せる口はまだ無いので、役の振る舞いはこの版では変わらない。本流 graphloops は変えていない。CI の shellcheck の job（`.github/workflows/test.yml`）は写しの `find-polluter.sh` を除いていない。今の写しは `-S warning` で通るが、版を上げた写しが警告を持てば CI が赤になり得る（写しは直さない決まりなので、その時は job の側で写しの置き場を除く）。
+
+### Changed
+
+- AI の役が借りる superpowers は、利用者の入れた版でなく、works に写した 6.4.2 から隔離した設定へ入れる。写しの中身は使うスキル 5 本・SDD の指示書の型 2 本・LICENSE で、使用許諾は MIT、置き場は `works/.shared/borrow/superpowers/`。版・commit・ファイルごとの sha256 は `borrow.json` の `pin` が持ち、入れる前に照合する（写しの書き損じ・書き換えの見張り）。run は利用者のキャッシュの superpowers の有無・版に左右されない。版を上げるのは `toolset.py vendor` だけで、写し・台帳・pin を 1 つの commit で取り直す。coldwrite・pr-review-toolkit は今どおり利用者の入れた版を使う。前の決定「版は利用者が入れた物に従い、works は写しを持たない」は、持ち主の方針（2026-10-02: 版を固定して保ち、開発の再開の時に確かめる）で覆した。
+
 ## [0.2.15] - 2026-10-02
 
 ### Fixed

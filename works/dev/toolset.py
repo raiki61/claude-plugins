@@ -59,6 +59,12 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
   契約の破れ（spseam.contract_problems。錨・読み替えの決まり・穴・出口の語）を当てて 1 行ずつ出す。版を名指さなければ写しに、
   名指せば利用者のキャッシュのその版の置き場（vendor と同じ所。版を上げる前に、新しい版で何が崩れるかを見る）に当てる。
   破れが無ければ 1 行で終了コード 0、在れば 1、版のフォルダが無い・borrow.json に pin が無ければ 2。何も書かない。
+- 開発の再開の確かめ（newer。dev/dogfood.sh が起動の時に 1 回呼ぶ）: 利用者のキャッシュの superpowers の版のフォルダ・
+  installed_plugins.json の行の版・marketplace の一覧（plugins/known_marketplaces.json の installLocation の
+  .claude-plugin/marketplace.json）の版を、写した固定の版と数の組（6.10.0 → (6, 10, 0)）で比べる。手元にフォルダの在る新しい版
+  には固定との食い違い・節の契約の破れ・包むファイルに増えた人に聞く文（human partner を含む行）を、固定と同じ版で中身が違う
+  フォルダには食い違いを、一覧にだけ在る新しい版には 1 行を出す。入っていない・数で読めない版の名・読めない JSON は 1 行で
+  名指して続ける。版を上げるかは人が決める（上げるのは vendor）。網には出ず、何も書かず、終了コードは 0（使い方の誤りだけ 2）。
 """
 import datetime
 import hashlib
@@ -101,6 +107,7 @@ USAGE = ("toolset.py: 使い方: python3 toolset.py install [--no-plugins] [--cl
          " | python3 toolset.py guard <設定の置き場>"
          " | python3 toolset.py vendor [--user-config <利用者の設定の置き場>] <superpowers の版>"
          " | python3 toolset.py contract [--user-config <利用者の設定の置き場>] [<superpowers の版>]"
+         " | python3 toolset.py newer [--user-config <利用者の設定の置き場>]"
          "（install は --no-plugins か --claude のどちらか 1 つ）")
 VENDORED = "superpowers"                    # 写しを持つ借りる物（.shared/borrow/<この名>/<版>/）
 LEDGER = "COPIED_FROM"                      # 写しの台帳の名（.shared/borrow/superpowers/ の下。形は .shared/core/copyledger.py）
@@ -112,6 +119,9 @@ COMMIT_SHA = re.compile(r"[0-9a-f]{40}")    # 固定に書く写し元の commit
 VENDORED_FIX = ("  直す: works を入れ直す（claude plugin install works@raiki61）か、開発中なら git で写しを戻す"
                 "（git checkout -- :/works/.shared/borrow）")
 VERSION_NAME = re.compile(r"[0-9A-Za-z][0-9A-Za-z._+-]*")   # 写す版の名（フォルダの名になる。/ や .. で外を指させない）
+VERSION_NUMBER = re.compile(r"[0-9]+(?:\.[0-9]+)*")   # newer が数の組で比べられる版の名（6.10.0 → (6, 10, 0)）
+HUMAN_ASK = "human partner"                 # 原文の役が人に聞く文の印（newer が増えた行を名指す。読み替えで覆うかは人が決める）
+NEWER_LAST = "版を上げるかは人が決める（上げる時は toolset.py vendor <版> で写しと pin を取り直し、同じ commit で試験を通す）"
 
 
 class ToolsetError(Exception):
@@ -745,6 +755,151 @@ def _contract_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None", version: 
     return 1
 
 
+def _version_key(version) -> "tuple | None":
+    """版の名の数の組（"6.10.0" → (6, 10, 0)）。数で読めなければ None"""
+    if not isinstance(version, str) or not VERSION_NUMBER.fullmatch(version):
+        return None
+    return tuple(int(x) for x in version.split("."))
+
+
+def _local_versions(user_cfg: pathlib.Path, mp: str) -> tuple:
+    """利用者の手元の superpowers の ({版の名: 版のフォルダ}, [フォルダの無い installed_plugins.json の行の版], [名指す行])。
+    版のフォルダは <user_cfg>/plugins/cache/<mp>/superpowers/ の下のフォルダ（Claude Code の印と . で始まる名を除く）と、
+    installed_plugins.json の superpowers の行（scope を問わない）の installPath"""
+    folders, homeless, notes = {}, [], []
+    base = user_cfg / "plugins" / "cache" / mp / VENDORED
+    if base.is_dir():
+        for d in sorted(base.iterdir()):
+            if d.is_dir() and not d.name.startswith(".") and d.name not in MARKERS:
+                folders[d.name] = d
+    try:
+        plugins = _read_installed(user_cfg)
+    except ToolsetError as e:   # 読めない installed_plugins.json は名指して、版のフォルダだけで続ける
+        notes.append(f"installed_plugins.json を読めない（{e}）")
+        plugins = {}
+    for r in plugins.get(f"{VENDORED}@{mp}", []):
+        v, at = r.get("version"), r.get("installPath")
+        if not isinstance(v, str) or v in folders:
+            continue
+        if isinstance(at, str) and pathlib.Path(at).is_dir():
+            folders[v] = pathlib.Path(at)
+        elif v not in homeless:
+            homeless.append(v)
+    return folders, homeless, notes
+
+
+def _marketplace_versions(user_cfg: pathlib.Path, mp: str) -> tuple:
+    """marketplace の一覧に載る superpowers の ([版の名], [名指す行])。一覧は known_marketplaces.json の <mp>.installLocation の
+    .claude-plugin/marketplace.json の plugins[] の name が superpowers の行の version"""
+    km = user_cfg / "plugins" / "known_marketplaces.json"
+    known = _read_json(km)
+    if known is None:
+        return [], [f"marketplace {mp} が登録されていない（{km} が無い）"]
+    entry = known.get(mp) if known is not _BAD else None
+    loc = entry.get("installLocation") if isinstance(entry, dict) else None
+    if known is _BAD or (entry is not None and not isinstance(loc, str)):
+        return [], [f"marketplace の一覧を読めない（{km}）"]
+    if entry is None:
+        return [], [f"marketplace {mp} が登録されていない（{km} に行が無い）"]
+    p = pathlib.Path(loc) / ".claude-plugin" / "marketplace.json"
+    doc = _read_json(p)
+    rows = doc.get("plugins") if isinstance(doc, dict) else None
+    if not isinstance(rows, list):
+        return [], [f"marketplace の一覧を読めない（{p}）"]
+    return [r["version"] for r in rows if isinstance(r, dict) and r.get("name") == VENDORED
+            and isinstance(r.get("version"), str)], []
+
+
+def _new_asks(src: pathlib.Path, copy: pathlib.Path, item: dict) -> list:
+    """版のフォルダ src の包むファイルの中の人に聞く文（HUMAN_ASK を含む行）のうち、写し copy の同じファイルに無い行
+    （前後の空白を除いて比べる）の [(相対パス, 行)]"""
+    out = []
+    for rel in spseam.wrapped_files(src, item):
+        new = (src / rel).read_text(encoding="utf-8", errors="replace").split("\n")
+        old_p = copy / rel
+        old = old_p.read_text(encoding="utf-8", errors="replace").split("\n") if old_p.is_file() else []
+        have = {ln.strip() for ln in old}
+        out += [(rel, ln.strip()) for ln in new if HUMAN_ASK in ln and ln.strip() not in have]
+    return out
+
+
+def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
+    """開発の再開の確かめ。手元と marketplace の一覧の superpowers の版を写した固定の版と比べて行を出す。何も書かず、網に
+    出ず、読めない物は 1 行で名指して続け、いつも 0"""
+    user_cfg = user_cfg or user_config_dir()
+    borrow_dir = pack / ".shared" / "borrow"
+    item = load_borrow(pack)[VENDORED]
+    mp, pin = item["marketplace"], item.get("pin") or {}
+    pin_v = pin.get("version")
+    pin_key = _version_key(pin_v)
+    if pin_key is None:
+        print(f"borrow.json の {VENDORED} の pin の版 {pin_v!r} を数で読めない（比べる元が無い。dev/toolset.py vendor で写す）")
+        print(NEWER_LAST)
+        return 0
+    copy = spseam.vendored_dir(item, borrow_dir)
+    seams = spseam.load_seams(borrow_dir)
+    overlay = (borrow_dir / spseam.OVERLAY_FILE).read_text(encoding="utf-8")
+    folders, homeless, notes = _local_versions(user_cfg, mp)
+    listed, mp_notes = _marketplace_versions(user_cfg, mp)
+    for ln in notes + mp_notes:
+        print(ln)
+    if not folders and not homeless:
+        print(f"{VENDORED} が入っていない（{user_cfg / 'plugins' / 'cache' / mp / VENDORED} に版のフォルダが無く、"
+              f"installed_plugins.json に {VENDORED}@{mp} の行も無い）")
+    found = False
+    keys = {}
+    for v in sorted(folders, key=lambda n: (_version_key(n) is None, _version_key(n) or (), n)):
+        d, key = folders[v], _version_key(v)
+        keys[key] = v
+        if key is None:
+            print(f"{VENDORED} {v}（{d}）: 版の名を数で読めない（比べない）")
+            continue
+        if key < pin_key:
+            continue
+        try:
+            pp = spseam.pin_problems(d, item)
+            if key == pin_key:
+                if pp:
+                    found = True
+                    print(f"{VENDORED} {v}（{d}）: 写しと同じ版なのに中身が違う")
+                    for ln in pp:
+                        print(f"- {ln}")
+                continue
+            found = True
+            print(f"{VENDORED} {v}（{d}）: 写した {pin_v} より新しい")
+            cp = spseam.contract_problems(d, item, seams, overlay)
+            rest = cp[len(pp):] if cp[:len(pp)] == pp else [ln for ln in cp if ln not in pp]   # 頭に並ぶ食い違いを除く
+            for ln in pp:
+                print(f"- {ln}")
+            for ln in rest or ["錨・穴・語は全部そのまま在る"]:
+                print(f"- 契約: {ln}")
+            for rel, ln in _new_asks(d, copy, item):
+                print(f"- 人に聞く文が増えた: {rel}: {ln}")
+        except (OSError, ValueError) as e:   # 版のフォルダの中が読めない（文字のコードが違うなど）
+            print(f"- {VENDORED} {v}（{d}）の中を読めない（{e}）")
+    for v in homeless:
+        key = _version_key(v)
+        if key is None:
+            print(f"{VENDORED} {v}: installed_plugins.json の版の名を数で読めない（比べない）")
+        elif key > pin_key and key not in keys:
+            found = True
+            keys[key] = v
+            print(f"{VENDORED} {v}: installed_plugins.json に在るが版のフォルダが無い（契約は当てていない）")
+    for v in listed:
+        key = _version_key(v)
+        if key is None:
+            print(f"{VENDORED} {v}: marketplace の一覧の版の名を数で読めない（比べない）")
+        elif key > pin_key and key not in keys:
+            found = True
+            keys[key] = v
+            print(f"{VENDORED} {v}: marketplace の一覧に在る（手元に無いので契約は当てていない。"
+                  f"入れるなら claude plugin update {VENDORED}@{mp}）")
+    if not found:
+        print(f"{VENDORED}: 写した {pin_v} より新しい版・違う中身は、手元にも marketplace の一覧にも無い")
+    print(NEWER_LAST)
+    return 0
+
+
 def _check_user_config(user_cfg: pathlib.Path, cfg: pathlib.Path, src: str) -> None:
     """利用者の設定の置き場は絶対パスで、隔離した設定の置き場と別であること（どちらも何も写す前に名指しで止める）"""
     if not user_cfg.is_absolute():
@@ -757,7 +912,7 @@ def _check_user_config(user_cfg: pathlib.Path, cfg: pathlib.Path, src: str) -> N
 
 def main(argv: list) -> int:
     args = argv[1:]
-    if not args or args[0] not in ("install", "guard", "vendor", "contract"):
+    if not args or args[0] not in ("install", "guard", "vendor", "contract", "newer"):
         print(USAGE, file=sys.stderr)
         return 2
     cmd, rest = args[0], args[1:]
@@ -768,17 +923,20 @@ def main(argv: list) -> int:
             no_plugins = True
         elif cmd == "install" and a == "--claude" and rest:
             claude_bin = rest.pop(0)
-        elif cmd in ("install", "vendor", "contract") and a == "--user-config" and rest:
+        elif cmd in ("install", "vendor", "contract", "newer") and a == "--user-config" and rest:
             user_cfg = pathlib.Path(rest.pop(0))
         elif a.startswith("--"):
             print(USAGE, file=sys.stderr)
             return 2
         else:
             pos.append(a)
-    if len(pos) > 1 or (cmd != "contract" and not pos) or (cmd == "install" and no_plugins == bool(claude_bin)):
+    if (len(pos) > 1 or (cmd not in ("contract", "newer") and not pos) or (cmd == "newer" and pos)
+            or (cmd == "install" and no_plugins == bool(claude_bin))):
         print(USAGE, file=sys.stderr)
         return 2
     pack = pathlib.Path(__file__).resolve().parents[1]
+    if cmd == "newer":
+        return _newer_cli(pack, user_cfg)
     if cmd == "contract":
         try:
             return _contract_cli(pack, user_cfg, pos[0] if pos else None)

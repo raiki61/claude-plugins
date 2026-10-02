@@ -1144,3 +1144,120 @@ class McpCase(Base):
         (self.cfg / toolset.MCP_FILE).write_text(json.dumps({"mcpServers": {"context7": {"type": "http", "url": "https://x.invalid"}}}))
         self.install()
         self.assertEqual(json.loads((self.cfg / toolset.MCP_FILE).read_text())["mcpServers"]["context7"]["url"], CONTEXT7_URL)
+
+
+PIN_V = toolset.load_borrow(ROOT)["superpowers"]["pin"]["version"]    # 6.4.2
+
+
+class NewerCase(Base):
+    """newer（開発の再開の確かめ）: 利用者のキャッシュの superpowers の版のフォルダ・installed_plugins.json の行・marketplace の
+    一覧の版を、写した固定の版と数の組で比べ、新しい版には固定との違いと節の契約の破れと、増えた人に聞く文を出す。何も書かず、
+    読めない物は 1 行で名指して続け、終了コードは 0（使い方の誤りだけ 2）。偽の利用者の設定には偽の superpowers 9.9.0 を置かない"""
+
+    def setUp(self):
+        super().setUp()
+        shutil.rmtree(self.tmp / "user")   # Base の偽の superpowers 9.9.0 のフォルダも消す（版のフォルダは候補に数える）
+        self.user = make_user_config(self.tmp / "user", only={"coldwrite", "pr-review-toolkit"})
+        self.item = toolset.load_borrow(ROOT)["superpowers"]
+
+    def add_version(self, v, edit=None):
+        """写しを <user>/plugins/cache/superpowers-marketplace/superpowers/<v>/ に写し、edit の相対パスを書き換え、
+        installed_plugins.json に user の行を足す"""
+        d = self.user / "plugins" / "cache" / self.item["marketplace"] / "superpowers" / v
+        shutil.copytree(spseam.vendored_dir(self.item), d)
+        for rel, body in (edit or {}).items():
+            _put(d / rel, body)
+        ip = self.user / "plugins" / "installed_plugins.json"
+        doc = json.loads(ip.read_text(encoding="utf-8"))
+        doc["plugins"].setdefault(f"superpowers@{self.item['marketplace']}", []).append(
+            {"scope": "user", "installPath": str(d), "version": v, "installedAt": "2026-10-02T00:00:00.000Z"})
+        ip.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        return d
+
+    def put_marketplace_raw(self, text):
+        loc = self.tmp / "marketplaces" / self.item["marketplace"]
+        _put(self.user / "plugins" / "known_marketplaces.json",
+             json.dumps({self.item["marketplace"]: {"source": {"source": "github", "repo": self.item["marketplace_repo"]},
+                                                    "installLocation": str(loc)}}))
+        _put(loc / ".claude-plugin" / "marketplace.json", text)
+
+    def put_marketplace(self, doc):
+        self.put_marketplace_raw(json.dumps(doc))
+
+    def test_newer_compares_numerically_and_applies_the_contract(self):
+        self.add_version("6.10.0", edit={"skills/test-driven-development/SKILL.md": "Ask your human partner now.\n"})
+        self.add_version("6.3.0")
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("superpowers 6.10.0", r.stdout)
+        self.assertNotIn("superpowers 6.3.0", r.stdout)
+        self.assertIn("skills/test-driven-development/SKILL.md: 中身が固定と違う", r.stdout)
+        self.assertIn("人に聞く文が増えた: skills/test-driven-development/SKILL.md: Ask your human partner now.", r.stdout)
+        self.assertIn("tdd: 錨", r.stdout)
+        self.assertIn("版を上げるかは人が決める", r.stdout)
+
+    def test_newer_reports_same_version_with_other_content(self):
+        self.add_version(PIN_V, edit={"skills/receiving-code-review/SKILL.md": "x\n"})
+        self.assertIn("写しと同じ版なのに中身が違う", self.cli("newer").stdout)
+
+    def test_newer_lists_marketplace_only_versions(self):
+        self.add_version(PIN_V)
+        self.put_marketplace({"plugins": [{"name": "superpowers", "version": "7.0.0"}]})
+        self.assertIn("superpowers 7.0.0: marketplace の一覧に在る", self.cli("newer").stdout)
+
+    def test_newer_with_nothing_newer_says_one_line(self):
+        self.add_version(PIN_V)
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("より新しい版・違う中身は、手元にも marketplace の一覧にも無い", r.stdout)
+
+    def test_newer_names_unparsable_versions(self):
+        self.add_version("latest")
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("latest", r.stdout)
+
+    def test_newer_without_superpowers_installed(self):
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("superpowers が入っていない", r.stdout)
+
+    def test_newer_unreadable_marketplace_is_named_not_fatal(self):
+        self.add_version(PIN_V)
+        self.put_marketplace_raw("{壊れた")
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("marketplace の一覧を読めない", r.stdout)
+
+    def test_newer_writes_nothing(self):
+        self.add_version("6.10.0")
+        before = {p: p.read_bytes() for p in self.user.rglob("*") if p.is_file()}
+        pack = {p: p.read_bytes() for p in (ROOT / ".shared" / "borrow").rglob("*") if p.is_file()}
+        self.cli("newer")
+        self.assertEqual({p: p.read_bytes() for p in self.user.rglob("*") if p.is_file()}, before)
+        self.assertEqual({p: p.read_bytes() for p in (ROOT / ".shared" / "borrow").rglob("*") if p.is_file()}, pack)
+
+    def test_dogfood_start_runs_newer_once(self):
+        rows = (DEV / "dogfood.sh").read_text(encoding="utf-8").splitlines()
+        hits = [i for i, ln in enumerate(rows) if 'toolset.py" newer' in ln]
+        self.assertEqual(len(hits), 1)
+        show_end = next(i for i, ln in enumerate(rows) if "works_dev_show_synced dogfood.sh" in ln)   # --show の分岐の終わり
+        clone = next(i for i, ln in enumerate(rows) if ln.startswith("g clone "))                     # clone の行
+        self.assertTrue(show_end < hits[0] < clone)
+        self.assertIn("|| echo", rows[hits[0]])   # 落ちても起動を止めない
+
+    def test_newer_takes_no_version(self):
+        """newer は版を名指さない（比べる元は写し）。版を渡すのは使い方の誤りで 2"""
+        r = self.cli("newer", "6.10.0")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("toolset.py", r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_newer_unreadable_installed_plugins_is_named_not_fatal(self):
+        """installed_plugins.json が JSON として読めなくても、1 行で名指して版のフォルダの確かめを続ける"""
+        self.add_version("6.10.0")
+        (self.user / "plugins" / "installed_plugins.json").write_text("{壊れた", encoding="utf-8")
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("installed_plugins.json", r.stdout)
+        self.assertIn("superpowers 6.10.0", r.stdout)
