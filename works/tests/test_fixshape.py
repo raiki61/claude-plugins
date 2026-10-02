@@ -91,6 +91,27 @@ class FixShapeCase(unittest.TestCase):
         for (shape, node), want in rows.items():
             self.assertEqual(fixshape.denied_tools(shape, node), want, (shape, node))
 
+    def test_recorded_tells_key_presence_and_fixture_mark(self):
+        """recorded は start の控えの鍵の有無を隠さない（shape_at は無い時に af を返す。測る関数が記録の欠けを数える。
+        preflight F6）。固定材料の印は fixture.adopted と同じ鍵を同じ 1 つの読み口から引く"""
+        self.assertEqual(fixshape.recorded(self.tmp), {"shape": None, "fixture": None})       # 控えが無い
+        put(self.tmp / "r1" / "start.json", {"test_cmd": ""})
+        self.assertEqual(fixshape.recorded(self.tmp), {"shape": None, "fixture": None})       # 鍵が無い
+        mark = {"source_run": "run-a", "manifest_sha256": "0" * 64, "at": "2026-10-02T00:00:00"}
+        put(self.tmp / "r1" / "start.json", {"fix_shape": "g1", "fixture": mark})
+        self.assertEqual(fixshape.recorded(self.tmp), {"shape": "g1", "fixture": mark})
+        put(self.tmp / "r1" / "start.json", {"fix_shape": "af", "fixture": "壊れた印"})
+        self.assertEqual(fixshape.recorded(self.tmp), {"shape": "af", "fixture": None})       # object でない印は無い物
+        for bad in ("{壊れた", "[1]"):
+            with self.subTest(bad=bad):
+                (self.tmp / "r1" / "start.json").write_text(bad, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    fixshape.recorded(self.tmp)
+
+    def test_fixture_key_is_the_fixture_module_key(self):
+        import fixture
+        self.assertEqual(fixshape.FIXTURE_KEY, fixture.KEY)
+
     def test_agent_nodes_are_the_fix_roles(self):
         """Agent を拒む節は修正役の 2 つ（Task 7 で YAML に Agent を足す節。先に拒む）"""
         self.assertEqual(fixshape.AGENT_NODES, frozenset({"fix", "fix-ruled"}))

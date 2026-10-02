@@ -120,7 +120,7 @@ Task 8 の `fixmeasure.verdict` がこの決まりをそのまま実装し、試
    - `cost_per_item(g3) <= COST_MARGIN * cost_per_item(af)`。`COST_MARGIN = 1.10`。
    g3 と af の両方に抜けが在れば `fix_gates_first`（強みの関門に穴が在る。採否より先に直す）。
 5. g1: 既定にはしない（■8）。g1 の抜けが 0 で、勝った腕（4 の結果）に対して作り直しが少ないか、費用が `G1_MARGIN = 0.90` 倍以下なら、勝った指標の名を `import_from_g1` に並べる。G3 の節に取り込む次の依頼の種にする。
-6. current: 比べの基準。勝った腕と current の差を指標ごとに `vs_current` に出すだけで、決定には使わない。
+6. current: 比べの基準。勝った腕と current の差を指標ごとに `vs_current` に出すだけで、決定には使わない。比べの条件: current は修正の段に修正案の欄を渡さないので、束の test_edits も修正案の書き換えの名指し（`rewrite_tests`）を許しにしない（preflight F15）。要る既存テストの書き換えは current では抜けに数えられうる。current の行の `red_green_checked` は当てない（None）で、有効な行のまま。
 7. 報告だけの値（決定に使わない）: 修正の工程の AI の節の時間・裁定と申し出の件数と種類・保守量・修正だけ（`fixing__`）の費用。
 
 ## Review Focus
@@ -603,7 +603,7 @@ git commit -m "feat(works): 修正の形 current では修正案の欄を修正�
 ### Task 7: g1 の腕（TDD の輪を飛ばし、修正役が SDD の型で下請けを回す）
 
 **Files:**
-- Modify: `works/.shared/core/seat.py`（`G1_HEAD`・`G1_REPORT`・`G1_HEAD_SHA`・`G1_DIFF`・`g1_section`）
+- Modify: `works/.shared/core/seat.py`（`G1_HEAD`・`G1_REPORT`・`G1_HEAD_SHA`・`G1_PATCH`・`g1_prompt`・`g1_section`）
 - Modify: `works/blk-fix/lib/fixrules.py`（`g1_values`、`prep` の g1 の分かれ）
 - Modify: `works/blk-fix/lib/tddloop.py`（`start` の頭の g1 の分かれ、`G1_NO_LOOP`）
 - Modify: `works/blk-fix/blk-fix.yaml`（節 `fix`・`fix-ruled` の `allowed_tools` に `Agent`、注記 1 行）
@@ -613,9 +613,9 @@ git commit -m "feat(works): 修正の形 current では修正案の欄を修正�
 - Consumes: Task 2 の `seat`・`implementer_values`、Task 3 の柵（g1 の run だけ Agent が通る）、Task 4 の束（g1 の赤緑と凍結を受け持つ外側の関門）、216 の `spseam.fill("implementer", …)`・`spseam.fill("task-review", …)`、217 の `planbrief.cut`・`for_units`
 - Produces:
   - `tddloop.G1_NO_LOOP = "修正の形 g1——TDD の輪は回さない（修正役が下請けを回し、赤緑と凍結は修正の受け付けの束が事後に確かめる）"`。`start` は形が g1 なら何も書かずに `{"go": False, "reason": G1_NO_LOOP, ...}`（実行器の無い run と同じ出口の形）
-  - `fixrules.g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dict]` — brief の項目ごとに今の周の作業ファイルを 2 つ書き、`{item, impl_file, review_file}` の並びを返す。brief の無い run は判定の単位を 1 項目とみなし、`[BRIEF_FILE]` を判定のファイルにする。
+  - `fixrules.g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dict]` — brief の項目ごとに今の周の作業ファイルを 2 つ書き、`{item, impl_file, review_file, base, patch}` の並びを返す。brief の無い run は判定の単位を 1 項目とみなし、`[BRIEF_FILE]` を判定のファイルにする。
     - `g1-impl-<n>.md`: `spseam.fill("implementer", …)`。`[BRIEF_FILE]` はその項目の brief、ほかは `implementer_values` と同じ。
-    - `g1-review-<n>.md`: `spseam.fill("task-review", …)`。`[BRIEF_FILE]` は同じ brief、`[GLOBAL_CONSTRAINTS]` は人の方針の文書のパスか `（無し）`、`[REPORT_FILE]` は `seat.G1_REPORT`（「実装役の最後のメッセージを、この型の後ろに貼る」）、`[BASE_SHA]` は base_rev、`[HEAD_SHA]` は `seat.G1_HEAD_SHA`（「審査を起こす直前の git rev-parse HEAD」）、`[DIFF_FILE]` は `seat.G1_DIFF`（「審査を起こす前に git diff <BASE_SHA> を $TMPDIR/works-g1-<n>.patch に書いたパス」）。
+    - `g1-review-<n>.md`: `spseam.fill("task-review", …)`。`[BRIEF_FILE]` は同じ brief、`[GLOBAL_CONSTRAINTS]` は人の方針の文書のパスか `（無し）`、`[REPORT_FILE]` は `seat.G1_REPORT`（「実装役の最後のメッセージを、この型の後ろに貼る」）、`[BASE_SHA]` は base_rev、`[HEAD_SHA]` は `seat.G1_HEAD_SHA`（「作業ツリー（works は commit しない）」。型の `git diff <BASE_SHA>..<HEAD_SHA>` は `seat.g1_prompt` が `git diff <BASE_SHA>` に直す）、`[DIFF_FILE]` は run ごとの置き場（盤面の隣の `run-place`。`adapter.run_place_of`。盤面は守る場所で役の Bash が書けない）の `g1-<n>.patch`（`fixrules.G1_PATCH_FILE`）の絶対パス。修正役が審査の前に `seat.G1_PATCH` で書く（作業ツリーと base の差分と、未追跡の新しいファイルごとの全文の差分。最後にパスを出して 0 で終わる）。
   - `seat.G1_HEAD = "## 下請けを回す（修正の形 g1）"`・`seat.g1_section(rows: list[dict]) -> str` — 見出しの下に次を書き、項目ごとの 2 ファイルを並べ、最後に `rolekit.skill_overlay()`:
     1. 項目の順に、Agent で下請けを 1 つ起こし、prompt に `impl_file` の中身を全部渡す。
     2. 下請けの最後のメッセージを受けたら、別の Agent で審査役を起こし、`review_file` の中身とその報告を渡す。
@@ -669,30 +669,30 @@ git commit -m "feat(works): 修正の形 g1 では TDD の輪を飛ばし、修�
 **Files:**
 - Create: `works/dev/fixmeasure.py`
 - Create: `works/tests/test_fixmeasure.py`（FAST。一時の置き場に sqlite の偽の archon.db と偽の盤面を作る）
-- Modify: `works/tests/tiers.py`・`works/CHANGELOG.md`
+- Modify: `works/tests/tiers.py`・`works/CHANGELOG.md`・`works/.shared/core/fixshape.py`（`recorded`・`FIXTURE_KEY`。preflight F6）・`works/.shared/core/fixture.py`（`adopted` が `recorded` を読む）・`works/.shared/core/seat.py`（`G1_PATCH` を 0 で終える。Task 7 の持ち越し）・`works/tests/test_fixshape.py`・`works/tests/test_seat.py`
 
 **Interfaces:**
 - Consumes:
-  - archon.db: 表 `remote_agent_workflow_runs`（`id`・`status`）と `remote_agent_workflow_events`。後者は `event_type` が `node_completed` の行の `data.timing.durationMs`・`data.spend.costUsd.value`、`tool_called` の行の `data.tool_name`、どちらも `step_name`。
-  - 盤面: `fixshape.shape_at`、start の控えの `fixture`、`planmarks.frozen`、各周の `role-rejects.json`（`rolekit.REJECTS_NAME`）、`tdd-*/state.json`（219 の `units`・`calls`）、`conflict.items`、`fixgates.LEDGER`、`planbrief.LEDGER`、差分の審査の出力（`p3.delta_review` の faces）、手直しの周（`p3.delta_fix` の出力の数）。
+  - archon.db: 表 `remote_agent_workflow_runs`（`id`・`status`）と `remote_agent_workflow_events`。後者は `event_type` が `node_completed` の行の `data.node.kind`・`data.timing.durationMs`・`data.spend.costUsd.value`（`report._event_cost`）、`tool_called` の行の `data.tool_name`・`data.tool_call_id`、`tool_completed` の行の `data.tool_call_id`・`data.tool_outcome`、どれも `step_name`。輪の節（`loop_group`）の `node_completed` は中の AI の節の費用の和を持つ（実物の archon.db で見た）ので、費用と時間は `data.node.kind` が `agent` の節だけを足す。
+  - 盤面: `fixshape.shape_at`・`fixshape.recorded`（start の控えの `fix_shape` の鍵の有無と固定材料の印。preflight F6）、`planmarks.frozen`、修正の受け付けの拒否の本文 `reject-accept_fix-<n>.txt`（`script_io.REJECT_PREFIX`。修正の受け付けは `role-rejects.json` を書かない）、`tdd-*/state.json`（219 の `units`・`calls`）、`conflict.items`、`fixgates.LEDGER`、`planbrief.LEDGER`、差分の審査の出力（`p3.delta_review` の faces）、手直しの周（盤面の trace の `done` の行のうち `report.REFIX_NODES`）、束の飛ばした回の trace（`fixgates.SKIPPED_OP`）、g1 の書き込みの記録（`adapter.writes_path` の `agent_id`・`declared` の行）。
 - Produces（読むだけ。何も書かない。網に出ない）:
   - `FIX_STAGE = ("fixing__", "reviewing__", "refixing__")`・`MIN_FIXTURES = 3`・`COST_MARGIN = 1.10`・`G1_MARGIN = 0.90`
-  - `row(db: pathlib.Path, run_id: str, board: pathlib.Path) -> dict` — 1 run の行:
+  - `row(db: pathlib.Path, run_id: str, board: pathlib.Path, *, adapter_home=None) -> dict` — 1 run の行（run が db に無ければ ValueError）:
     - `run_id`・`shape`・`fixture`（`source_run` か `""`）・`complete: bool`・`items`（欄の項目の数。欄が無ければ直す義務の単位の数）
     - `redo`: `{fix_rejects, tdd_rejects, battery_rejects, delta_faces, refix_rounds}` と `redo_total`
-      - fix_rejects は p3.fix の拒否の行、tdd_rejects は 219 の `calls` の `ok: false` の行、battery_rejects は束の行の在る受け付けの回、delta_faces は差分の審査が受け付けた穴、refix_rounds は手直しの往復
-    - `cost_usd: {fix_stage, fixing}`（FIX_STAGE の頭の節の費用の和と、`fixing__` だけの和）
+      - fix_rejects は修正の受け付けの拒否の本文のファイルの数、tdd_rejects は 219 の `calls` の `ok: false` の行、battery_rejects は束の行の在る受け付けの回、delta_faces は差分の審査が受け付けた穴、refix_rounds は手直しの往復
+    - `cost_usd: {fix_stage, fixing}`（FIX_STAGE の頭の AI の節の費用の和と、`fixing__` だけの和）
     - `secs: {step_name: 秒}`（FIX_STAGE の頭の AI の節。秒は小数 1 桁）
     - `rulings: {裁定の語: 件}`・`divergences: {種類: 件}`（211 の前は種類の無い申し出を `"unkinded"` に数える）
     - `gate_misses`（束の行の数）
-    - `record_gaps: list[str]`（例: tdd の節の `node_completed` の数と `calls` の行の数が違う・tdd の項目の単位に輪の単位の行が無い・平の run でないのに修正案の欄が在って brief の控えが無い・start の控えに `fix_shape` が無い）
-    - `contamination: {"Skill": 件, "Agent": 件}`（FIX_STAGE の節の `tool_called` のうち、その形で拒む道具。`fixshape.denied_tools` と同じ表で、`step_name` の最後の区切りを印の節の名として見る）
-    - `red_green_checked: bool`（束の `skipped` に NO_SUITE が無い）
+    - `record_gaps: list[str]`（例: tdd の節の `node_completed` の数と `calls` の行の数が違う・tdd の項目の単位に輪の単位の行が無い・平の run でないのに修正案の欄が在って brief の控えが無い・start の控えに `fix_shape` が無い・AI の節の費用が取れない・盤面を開けない・g1 で Agent が走ったのに書き込みの記録に `agent_id` の行が無く申告 `declared` だけが在る（Task 7 の審査 M1））
+    - `contamination: {"Skill": 件, "Agent": 件}`（FIX_STAGE の節の `tool_called` のうち、その形で拒む道具。`fixshape.denied_tools` と同じ表で、`step_name` の最後の区切りを印の節の名として見る）で、走った物。同じ `tool_call_id` の `tool_completed` の `tool_outcome` が `error` の呼び出しは柵が拒んだ物として `refused: {"Skill": 件, "Agent": 件}` に数える（拒んだ呼び出しも skills: の一覧に残るので tool_called に出る。Task 2 の審査 M5）。素の `Skill`・`Agent` の deny が実地で拒むかは未確認（Task 3 の審査）——af・current・g1 の行で走った Skill は混ざりに出る
+    - `red_green_checked: bool | None`（束の帳面の `skipped` か受け付けの trace の `fixgates.SKIPPED_OP` に行が 1 つでも在るか、輪の状態が無ければ偽。平の run は当てないので None）
   - `maintenance(root: pathlib.Path) -> dict[str, int]` — 腕ごとの、その腕で読む文の行の数。
     - own: 修正の工程の works の決まりのファイル（`blk-fix/rules/*.md`・`blk-delta/commands/delta-review.md`・`blk-refix/rules/*.md`）。current と af は own。
     - g3: own と、座の節の `seams.json` の項目と `unattended.md` の行。
     - g1: own と、implementer・task-review の部品と `seat.G1_HEAD` の節の行。
-  - `verdict(rows: list[dict]) -> dict` — 上の「採否の決まり」のとおり。返り `{"decision": "keep_g3" | "switch_to_af" | "fix_gates_first" | "incomplete", "missing": [[腕, 固定材料]], "invalid": [[run_id, 理由]], "per_item": {腕: {redo, cost}}, "misses": {腕: 件}, "import_from_g1": [指標], "vs_current": {指標: 差}, "report_only": {...}}`
+  - `verdict(rows: list[dict]) -> dict` — 上の「採否の決まり」のとおり。返り `{"decision": "keep_g3" | "switch_to_af" | "fix_gates_first" | "incomplete", "missing": [[腕, 固定材料]], "invalid": [[run_id, 理由]], "per_item": {腕: {redo, cost}}, "misses": {腕: 件}, "import_from_g1": [指標], "vs_current": {指標: 差}, "report_only": {...}, "fixtures": [固定材料], "unverified": [確かめていない欄の印]}`。`report.COST_FIELD_VERIFIED`・`reads.EVENTS_VERIFIED` が偽の間は `incomplete`（preflight F21。試しの前に 1 本の run で欄の形を確かめて真にする）
   - CLI: `python3 works/dev/fixmeasure.py row <archon.db> <run_id> <盤面>`（JSON の 1 行）・`verdict <行の jsonl>`（JSON）・`maintenance`（JSON）。誤りは 2、ほかは 0
 
 - [ ] **Step 1: 落ちる試験を書く**
@@ -790,7 +790,7 @@ git commit -m "feat(works): 修正の形の腕ごとに作り直し・費用・�
 - 品質が落ちた時に手直しへ渡る道。
 
 **Files:**
-- Modify: `works/.shared/core/seat.py`（`SEATS` に `review`・`review2`（task-review）と `refix`・`refix2`（receiving-review）、`VERDICT_WORDS`、`words_table`）
+- Modify: `works/.shared/core/seat.py`（`SEATS` に `review`・`review2`（task-review）と `refix`・`refix2`（receiving-review）、`seat.VERDICT_WORDS`、`words_table`）
 - Modify: `works/.shared/core/fixshape.py`（`SKILL_NODES` に `refix`・`refix2`）
 - Modify: `works/.shared/core/refix.py`（`cut`: 形が g3 なら `review<n>-seat.md` を書き、brief の辞書に `seat_file`。g3 でなければ `seat_file: ""`）
 - Modify: `works/blk-delta/commands/delta-review.md`（1 行: brief の `seat_file` が空でなければ Read で全部読み、その型の手順で審査する。返す JSON の形はこのコマンドの形で、判定の語は型の後ろの対応表のとおり欄に書く）
@@ -856,7 +856,7 @@ git commit -m "feat(works): 修正の形 g3 で差分の審査役に task-review
 **前提:** 211 が取り込まれている。最初に 211 の申し出の種類の欄の名と語（設計の 4 つ: `brief_vs_judgment`・`unnamed_test_broke`・`not_red`・`scope_needed`）と、裁定 `fix_plan_item` の控えの置き場を引く。
 
 **Files:**
-- Modify: `works/.shared/core/seat.py`（`DIVERGENCE_HINT`: implementer の語 `NEEDS_CONTEXT`・`BLOCKED`（216 で `divergence`）に当たる時、どの種類で申し出るかの 4 行。座の implementer と g1 の節に載る）
+- Modify: `works/.shared/core/seat.py`（`seat.DIVERGENCE_HINT`: implementer の語 NEEDS_CONTEXT・BLOCKED（216 で `divergence`）に当たる時、どの種類で申し出るかの 4 行。座の implementer と g1 の節に載る）
 - Modify: `works/dev/fixmeasure.py`（`divergences` を 211 の種類で数える。`rulings` に `fix_plan_item`）
 - Modify: `works/tests/test_seat.py`・`works/tests/test_fixmeasure.py`・`works/CHANGELOG.md`
 

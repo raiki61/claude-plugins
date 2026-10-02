@@ -46,7 +46,7 @@ COPY = "board"                  # DIR の下の盤面の写し
 OUTSIDE = "outside"             # DIR の下の、盤面の外のファイルの写し
 BOARD_OUTSIDE = "fixture-outside"   # 取り込んだ盤面の下の、OUTSIDE の写しの置き場
 TRACE_OP = "fixture_adopted"    # 取り込んだ盤面の trace の行（entry.start が書く）
-KEY = "fixture"                 # start の控えの鍵 {source_run, manifest_sha256, at}
+KEY = fixshape.FIXTURE_KEY       # start の控えの鍵 {source_run, manifest_sha256, at}
 # 取り込みで今の値にする入力の欄（ほかの入力の欄は start の控えと今の入力が同じでなければ拒む）
 CURRENT = ("fix_shape", "run_id", "request_file", "fix_fixture")
 _STR_KEYS = ("source_run", "head", "tree", "board_root", "repo_root", "pack_root", "request_sha256", "test_cmd")
@@ -122,13 +122,12 @@ def _write_json(path: pathlib.Path, doc: dict) -> None:
 
 
 def adopted(board_dir) -> dict | None:
-    """固定材料から始めた盤面なら start の控えの KEY の欄、でなければ None（控えが無い・読めない・鍵が無いも None）"""
+    """固定材料から始めた盤面なら start の控えの KEY の欄、でなければ None（控えが無い・読めない・鍵が無いも None）。
+    読むのは fixshape.recorded（start の控えの記録の読み口は 1 つ）"""
     try:
-        doc = json.loads((pathlib.Path(board_dir) / fixshape.START_REL).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        return fixshape.recorded(board_dir)["fixture"]
+    except ValueError:
         return None
-    got = doc.get(KEY) if isinstance(doc, dict) else None
-    return got if isinstance(got, dict) else None
 
 
 def since(board_dir, created):

@@ -11,6 +11,8 @@
 - word(raw): 入力の値を形の語にする（空は DEFAULT。語の外は ValueError）
 - shape_at(board_dir): 盤面の形。読む順は CHOICE_REL の shape → START_REL の KEY → BEFORE（記録の無い前の版の盤面）。
   ファイルが無い・鍵が無いなら次へ。JSON が読めない・値が語の外なら ValueError（黙って既定にしない）
+- recorded(board_dir): start の控えの記録そのもの {shape: KEY の値か None, fixture: 固定材料の印 FIXTURE_KEY の欄か None}。
+  shape_at が隠す「鍵が無い」を測る関数が数える（preflight F6）。固定材料の印の読み口もこれ 1 つ（fixture.adopted が呼ぶ）
 - choose(board_dir, shape, *, by, why): CHOICE_REL を書く（後の振り分けの書き口）
 - plain(board_dir): 平の run（形が PLAIN＝current）か
 - SKILL_NODES: 座が skill の節の名（seat の表と試験で一致を縛る）
@@ -32,6 +34,7 @@ PLAIN = "current"         # 平の run の形（比べの基準。plain が読�
 KEY = "fix_shape"         # start の控えの鍵（ラインの入力の名と同じ）
 START_REL = "r1/start.json"       # 線の start の控え（entry.START_FILE の 1 周目。L2 なので entry は import しない）
 CHOICE_REL = "r1/fix-shape.json"  # 後の振り分けが選んだ形の控え
+FIXTURE_KEY = "fixture"           # start の控えの固定材料の印の鍵（fixture.KEY。entry.start が書く。L2 なので fixture は import しない）
 # 座が skill の節（借りたスキルを Skill の道具で読む役の印の名。seat.SEATS のうち use_as が skill の物と同じ。形ごとの道具の柵が読む）
 SKILL_NODES = frozenset({"tdd"})
 # 修正役の節（g1 の形で SDD の型の下請けを Agent で起こす役の印の名。Task 7 で YAML に Agent を足す。先に g1 の外で拒む）
@@ -52,8 +55,8 @@ def word(raw: str) -> str:
     return v
 
 
-def _read(path: pathlib.Path, key: str) -> str | None:
-    """控え path の key の形の語。ファイルが無い・鍵が無いなら None。読めない・形が違う・語の外は ValueError"""
+def _doc(path: pathlib.Path) -> dict | None:
+    """控え path の object。ファイルが無ければ None。読めない・JSON でない・object でないは ValueError"""
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -66,7 +69,13 @@ def _read(path: pathlib.Path, key: str) -> str | None:
         raise ValueError(f"修正の形の控え {path} が JSON として読めない（{e}）") from None
     if not isinstance(doc, dict):
         raise ValueError(f"修正の形の控え {path} が JSON の object でない")
-    if key not in doc:
+    return doc
+
+
+def _read(path: pathlib.Path, key: str) -> str | None:
+    """控え path の key の形の語。ファイルが無い・鍵が無いなら None。読めない・形が違う・語の外は ValueError"""
+    doc = _doc(path)
+    if doc is None or key not in doc:
         return None
     v = doc[key]
     if not isinstance(v, str) or v not in SHAPES:
@@ -82,6 +91,15 @@ def shape_at(board_dir) -> str:
         if got is not None:
             return got
     return BEFORE
+
+
+def recorded(board_dir) -> dict:
+    """start の控え（START_REL）の記録 {"shape": 鍵 KEY の値（語の確かめは shape_at）か None, "fixture": 固定材料の印
+    （FIXTURE_KEY の欄が object の時だけ）か None}。控えが無ければ両方 None。読めない・JSON の object でないは ValueError。
+    shape_at と違い、鍵が無いことを af に替えて隠さない（測る関数が「形の記録が無い」を数える）"""
+    doc = _doc(pathlib.Path(board_dir) / START_REL) or {}
+    mark = doc.get(FIXTURE_KEY)
+    return {"shape": doc.get(KEY), "fixture": mark if isinstance(mark, dict) else None}
 
 
 def choose(board_dir, shape: str, *, by: str, why: str) -> None:

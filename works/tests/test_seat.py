@@ -19,7 +19,9 @@
 import json
 import pathlib
 import re
+import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -30,12 +32,14 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import adapter  # noqa: E402
 import fixshape  # noqa: E402
 import rolekit  # noqa: E402
 import seat  # noqa: E402
 import spseam  # noqa: E402
+from gitkit import committed_copy, git  # noqa: E402
 
 HOLE = re.compile(r"\[[A-Z][A-Z_]+\]")   # 埋めていない大文字の穴（[BRIEF_FILE] の類い）
 
@@ -234,6 +238,24 @@ class G1Case(unittest.TestCase):
             self.assertIn(w, cmd)
         for t in (text, *seat.G1_EXTRA["task-review"]):
             self.assertNotIn("TMPDIR", t)
+
+    def test_g1_patch_exits_zero_with_new_files(self):
+        """差分のコマンドは、未追跡の新しいファイルが在っても 0 で終わり、最後に差分のファイルのパスを出す（最後の
+        git diff --no-index は差分が在ると 1 を返す。修正役が Bash の失敗と読まないように。Task 7 の持ち越し）"""
+        with tempfile.TemporaryDirectory() as td:
+            repo, patch = pathlib.Path(td) / "repo", pathlib.Path(td) / "run place" / "g1-1.patch"
+            base = committed_copy(repo, ROOT / "dev" / "target-seed")
+            patch.parent.mkdir()
+            (repo / "stats.py").write_text((repo / "stats.py").read_text(encoding="utf-8") + "\n# 直した\n", encoding="utf-8")
+            (repo / "test_new.py").write_text("def test_new():\n    assert True\n", encoding="utf-8")
+            cmd = seat.G1_PATCH.format(base=base, patch=shlex.quote(str(patch)))
+            got = subprocess.run(["sh", "-c", cmd], cwd=repo, capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(got.returncode, 0, got.stderr)
+            self.assertEqual(got.stdout.strip(), str(patch))
+            text = patch.read_text(encoding="utf-8")
+            for w in ("stats.py", "# 直した", "test_new.py", "def test_new"):
+                self.assertIn(w, text)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), base, "commit しない")
 
     def test_g1_overrides_the_overlay_head_line(self):
         """読み替えの頭の行は『Agent で下請けを起こすなら、その prompt に unattended.md を Read せよと書け』と言う。g1 の修正役には
