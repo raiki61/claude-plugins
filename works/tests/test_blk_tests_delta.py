@@ -825,7 +825,9 @@ class TestDeltaBoard(RF.DeltaBoardCase):
             refix.accept_review(load("fix2_delta_review_none"), self.board, "", repo, n=1)
         self.assertIn(planmarks.FIELDS_FILE, str(cm.exception))
         stop = real_entry.open_board(self.board, allow_halted=True).state["stop"]
-        self.assertEqual(stop["by"], conflict.FIELDS_STOP_BY)
+        self.assertEqual(stop["by"], refix.DELTA_BY)   # 差分の審査の段の印（修正の段の印・文でない）
+        self.assertTrue(stop["reason"].startswith(conflict.FIELDS_TAMPERED), stop["reason"])
+        self.assertNotIn("テストの変更の許し", stop["reason"])
 
     def test_unsaved_verdicts_halt_board(self):
         """盤面が審査を受けた後で 2 判定の控えを置けない（os.replace が落ちる）→ 控えを名指して盤面を止め、スクリプトは 2"""
@@ -862,6 +864,8 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertFalse(got["ok"])
         self.assertFalse(got["reason"].startswith(deltamarks.REJECT), got["reason"])
         self.assertIn("faces", got["reason"])
+        self.assertNotIn("compliance", got["reason"])   # 守る欄を消せと役に言わない（試行を 1 回むだにしない）
+        self.assertNotIn("quality", got["reason"])
         self.assertEqual(RF.TE.board_shas(self.board), before)
 
     def test_delta_exit_keeps_v1_fields(self):

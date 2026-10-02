@@ -137,9 +137,9 @@ def gaps(reply: dict, items: list | None) -> list[str]:
 
 
 def split(reply: dict) -> tuple[dict, dict]:
-    """（2 判定の欄を外した返答の写し, {compliance, quality}）。gaps を通った返答に使う（渡した返答は変えない）"""
+    """（2 判定の欄を外した返答の写し, {compliance, quality}）。渡した返答は変えない。object でない返答はそのままの写しと空"""
     out = copy.deepcopy(reply)
-    return out, {k: out.pop(k) for k in KEYS if k in out}
+    return out, ({k: out.pop(k) for k in KEYS if k in out} if isinstance(out, dict) else {})
 
 
 # ---------------------------------------------------------------- 盤面の外の控え

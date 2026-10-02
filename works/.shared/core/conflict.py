@@ -70,8 +70,8 @@ HEAD = "食い違いの申し出"                # 最後の関所の文の節�
 RULED_TEST_ID = "conflict-ruling"       # 裁定が許したテストの変更を守りのファイルの行にする時の id の頭
 PLAN_TEST_ID = "plan-rewrite"           # 承認済みの修正案が名指した既存テストの書き換えを守りのファイルの行にする時の id の頭
 FIELDS_STOP_BY = "works:fix"            # 修正案の欄の控えが凍結と食い違った盤面を止めた口（blk-fix の brief の止めと同じ修正の段の印）
-FIELDS_BROKEN = (f"承認済みの修正案の欄の控え（盤面の {planmarks.FIELDS_FILE}）が受け付けの後に書き換えられた。"
-                 "テストの変更の許しを引かずに止めた")
+FIELDS_TAMPERED = f"承認済みの修正案の欄の控え（盤面の {planmarks.FIELDS_FILE}）が受け付けの後に書き換えられた。"
+FIELDS_BROKEN = FIELDS_TAMPERED + "テストの変更の許しを引かずに止めた"   # 修正の段（by FIELDS_STOP_BY）の止めの文
 PARK_OP, RULE_OP = "conflict_parked", "conflict_ruled"   # trace の行
 CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
 
@@ -431,14 +431,16 @@ def _plan_limit(r: dict, source):
     return f"{got[0]}:{line}" if line else None
 
 
-def fields_broken(b, e: Exception) -> Exception:
-    """修正案の欄の控えが壊れた（planmarks.FieldsBroken）時の 1 本の道: 盤面を止め（もう止まった盤面は止め直さない）、控えを
-    名指す理由の BoardGap を返す（呼ぶ側が raise する。許しや照らしを黙って広げない・黙って捨てない）"""
-    why = f"{FIELDS_BROKEN}: {' '.join(str(e).split())}"
+def fields_broken(b, e: Exception, *, by: str = FIELDS_STOP_BY) -> Exception:
+    """修正案の欄の控えが壊れた（planmarks.FieldsBroken）時の 1 本の道: 盤面を by で止め（もう止まった盤面は止め直さない）、控えを
+    名指す理由の BoardGap を返す（呼ぶ側が raise する。許しや照らしを黙って広げない・黙って捨てない）。文の頭は修正の段
+    （by FIELDS_STOP_BY）なら FIELDS_BROKEN、ほかの段は段を名指さない FIELDS_TAMPERED と「読まずに止めた」"""
+    head = FIELDS_BROKEN if by == FIELDS_STOP_BY else FIELDS_TAMPERED + "控えを読まずに止めた"
+    why = f"{head}: {' '.join(str(e).split())}"
     state = getattr(b, "state", None) or {}
     if hasattr(b, "stop") and not (state.get("halted") or state.get("stop")):
         try:
-            b.stop(why, by=FIELDS_STOP_BY)
+            b.stop(why, by=by)
         except Reject as r:
             why += f"（盤面を止められない: {' '.join(str(r).split())}）"
     return _board.BoardGap(why)
