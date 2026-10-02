@@ -611,6 +611,19 @@ class LocalChecksMaterialCase(StartCaseBase):
         self.assertIn("exit 0", m["checked"])
         self.assertIn("all-green", m["detail"])
 
+    def test_niced_runs_with_lower_priority(self):
+        """niced（既定 False）が真なら nice を付けて走らせる（TDD の輪の中の test_cmd。ADR 0071 の 3 の 1）。偽なら今どおり"""
+        repo = self.seed()
+        cmd = f"{sys.executable} -c \"import os; print('NICE', os.nice(0))\""
+
+        def level(log, **kw):
+            m = entry.local_checks_material(repo, cmd, self.tmp / log, **kw)["material"]
+            self.assertEqual(m["status"], "clean", m)
+            return int((self.tmp / log).read_text(encoding="utf-8").split("NICE")[1].split()[0])
+        plain, niced = level("plain.log"), level("niced.log", niced=True)
+        self.assertEqual(plain, os.nice(0))
+        self.assertGreaterEqual(niced, min(plain + 19, 19), "nice -n 19 と同じ（上限は OS で 19 か 20）")
+
     def test_empty_cmd_not_run(self):
         m = entry.local_checks_material(self.seed(), "  ", self.tmp / "x.log")["material"]
         self.assertEqual(m["status"], "not_run")

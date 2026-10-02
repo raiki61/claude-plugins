@@ -379,7 +379,8 @@ def _tail(data: bytes) -> str:
     return "\n".join(text.splitlines()[-TAIL_LINES:])[-TAIL_BYTES:]
 
 
-def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path, *, launched: dict | None = None) -> dict:
+def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path, *, launched: dict | None = None,
+                          niced: bool = False) -> dict:
     """任せ先に落ちた CI の節に渡す素材 {"material": …} を組む（盤面なしで呼べる公開の口。線 B の申し送り 2）。
     test_cmd を tree_run.command_argv の形（direct か shell）で tree_run.slotted_run に走らせ（機械全体の試験の枠を通す・対象の根で・
     標準入力は空・環境は tree_run.outside_env。
@@ -387,7 +388,8 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
     detail はログの末尾（engine の段の末尾と同じ切り方）。起こせなければ（shell の先頭の語が tree_run.prove_launchable の証明を
     通らない回も）not_run。test_cmd が空なら走らせずに not_run。
     止められたら（tree_run.Stopped）捕まえない。launched（dict）を渡せば、起こす前に決めた起こし方を launched["how"] に置く
-    （返りの素材の形は変えない）"""
+    （返りの素材の形は変えない）。niced が真なら、起こすプロセス（枠の台本とその下の木）の優先度を nice -n 19 と同じだけ下げる
+    （TDD の輪の中の test_cmd。ADR 0071 の 3 の 1。argv・起こし方・起こせなさの証明は変えない）"""
     cmd = (test_cmd or "").strip()
     if not cmd:
         return {"material": {"status": "not_run", "reason": "テストのコマンド（test_cmd）が空で、走らせる物が無い"}}
@@ -399,10 +401,16 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
     with open(log_path, "wb") as f:
         try:
             code, _ = tree_run.slotted_run(argv, tree_run.outside_env(os.environ), stdin=subprocess.DEVNULL,
-                                           stdout=f, stderr=subprocess.STDOUT, cwd=str(repo))
+                                           stdout=f, stderr=subprocess.STDOUT, cwd=str(repo),
+                                           **({"preexec_fn": _nice19} if niced else {}))
         except OSError as e:
             return {"material": {"status": "not_run", "reason": f"{_launched(argv, how)} でテストのコマンドを起こせない: {e}"}}
     return _cmd_material(code, log_path, argv, how)
+
+
+def _nice19() -> None:
+    """子の中で exec の前に呼ぶ（Popen の preexec_fn）: nice -n 19 と同じだけ優先度を下げる"""
+    os.nice(19)
 
 
 def _launched(argv: list, how: str) -> str:

@@ -96,8 +96,8 @@ class TestBlockYaml(unittest.TestCase):
         y = block()
         self.assertEqual(y["name"], "blk-fix")
         self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "notes_file", "policy_path",
-                                            "tdd_suite"})
-        for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite"):   # 足した物は空でよい（仕様 3.2・TDD の輪）
+                                            "tdd_suite", "test_cmd"})
+        for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite", "test_cmd"):   # 足した物は空でよい（仕様 3.2・TDD の輪）
             self.assertEqual(y["inputs"][k].get("default"), "", k)
             self.assertNotIn("required", y["inputs"][k], k)
         self.assertEqual(y["returns"], "collect")

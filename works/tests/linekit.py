@@ -232,7 +232,7 @@ LINE_ORDER = [
      "with": {"judgment_file": "$h-fix.output.judgment_file", "open_units": "$h-fix.output.open_units",
               "plan_file": "$h-fix.output.plan_file", "notes_file": "$h-fix.output.notes_file",
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
-              "tdd_suite": "$INPUTS.tdd_suite"}},
+              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd"}},
     _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing"]),
     {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
      "when": "$h-rejudge.output.go == true",
