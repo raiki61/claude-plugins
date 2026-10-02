@@ -10,6 +10,8 @@
 - スクリプト: 別のプロセスで Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）に回す。盤面は linekit の種で start →
   並行 PR・前提・判定を entry.take で受けた物（p2.fix_plan が待つ）。指示書は本線の写し（gl-prompts）を rolekit の描き方で描いた物
 """
+import copy
+import fcntl
 import importlib.util
 import json
 import os
@@ -29,17 +31,22 @@ BLK = ROOT / "blk-plan"
 CORE = ROOT / ".shared" / "core"
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(BLK / "lib"))
+sys.path.insert(0, str(ROOT / "blk-eyes" / "lib"))
+sys.path.insert(0, str(ROOT / "blk-material" / "lib"))
 sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
 import accept  # noqa: E402
 import board as board_mod  # noqa: E402
 import design  # noqa: E402
+import engine.rules as engine_rules  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import entry  # noqa: E402
+import eyes  # noqa: E402
 import gatemarks  # noqa: E402
 import linekit  # noqa: E402
+import material  # noqa: E402
 import node_marker  # noqa: E402
 import libdocs  # noqa: E402
 import planblk  # noqa: E402
@@ -49,6 +56,15 @@ DEADLINE = 1728000000
 RUN_ID = "run-plan"
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
+# 義務の無い単位（受け付けが受けない）と、fork の問いの出どころ（ScriptCase.mixed が判定に足す）
+NIT = "stats.py mean: 変数名が短い"
+INFO = "stats.py: 型注釈が無い"
+DEFER = "stats.py: 他の統計の関数と書き方を揃える"
+QUESTION = "stats.py mean: 空の列の意味が決まっていない"
+ASKED = "stats.py clamp: lo > hi の扱いが割れる"
+BACK = "stats.py mean: 浮動小数の和の誤差"
+# 盤面の置き場の錠のファイル名（正本から引く）。blk-plan は錠を取らない
+BOARD_LOCKS = (eyes.LOCK_NAME, material.LOCK)
 NARROWS = [{"what": "空の列の mean", "why": "空の列の平均は 0 割りの例外のまま（前も例外で、狭まる能力は無いが人に確かめる）",
             "no_narrow": "空の列で例外を投げる今の動きを残すと、直したい呼び手の 0 返しが成り立たないので狭めない案は無い"}]
 
@@ -227,8 +243,8 @@ class ScriptCase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
-    def judged(self, policy_md=""):
-        """start → 並行 PR の任せ先・前提の役 → 判定（judge_ok）を受けた盤面（p2.fix_plan が待つ）"""
+    def judged(self, policy_md="", judge=None):
+        """start → 並行 PR の任せ先・前提の役 → 判定（judge。無ければ judge_ok）を受けた盤面（p2.fix_plan が待つ）"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True)
@@ -241,7 +257,7 @@ class ScriptCase(unittest.TestCase):
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
         self.take("p0.premises", {"constraints": []})
         linekit.pre_judge(self.board, self.repo)   # 目的の文（判定の前に盤面が待つ）
-        self.take("p2.diagnose", linekit.reply("judge_ok"))
+        self.take("p2.diagnose", judge or linekit.reply("judge_ok"))
 
     def state(self):
         return json.loads((self.board / "state.json").read_text(encoding="utf-8"))
@@ -303,6 +319,255 @@ class ScriptCase(unittest.TestCase):
         got = self.planned()
         self.assertEqual((got["done"], got["give_up"], got["reason_file"]), (True, False, ""))
         self.assertIn("p2.plan_review", got["ready"])
+
+    def test_plan_with_nit_unit_rejected_naming_label(self):
+        """義務の無い nit の単位を案に入れた返答は、理由が label を名指して拒まれる（見せる一覧と受け付けの述語を合わせる）"""
+        nit = "stats.py mean: 変数名が短い"
+        judge = linekit.reply("judge_ok")
+        judge["units"].append({"key": nit, "label": "nit", "reason": "事実: 名前が短い。反証: 無し",
+                               "origin_analysis": "命名"})
+        self.judged(judge=judge)
+        self.ok("snap", role="plan")
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["unit_keys"] = [UNIT_MEAN, UNIT_CLAMP, nit]
+        _, got = self.round_of("plan", plan)
+        self.assertFalse(got["ok"])
+        self.assertIn("label=nit", self.reason_of(got))
+
+    def test_not_allowed_skips_unit_missing_from_names(self):
+        """義務の無い単位が今の no の一覧に無くても、事前の拒否は落ちず、その単位は受け付けの写しの拒否に任せる"""
+        nit = "stats.py mean: 変数名が短い"
+        judge = linekit.reply("judge_ok")
+        judge["units"].append({"key": nit, "label": "nit", "reason": "事実: 名前が短い。反証: 無し",
+                               "origin_analysis": "命名"})
+        self.judged(judge=judge)
+        self.ok("snap", role="plan")
+        b = entry.open_board(self.board)
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["unit_keys"] = [UNIT_MEAN, UNIT_CLAMP, nit]
+        with mock.patch.object(planblk, "_names", return_value=[UNIT_MEAN, UNIT_CLAMP]), \
+                mock.patch.object(planblk.pointers, "resolve"):
+            self.assertEqual(planblk.not_allowed(b, "p2.fix_plan", plan), [])
+
+    def test_plan_reply_by_number_rejects_unowed_unit(self):
+        """本線の返答は no の整数で来る: 義務の無い単位を番号で指した案も、事前の拒否が label と no を名指して拒み、拒否文が入れてよい
+        no を並べる（役の返答は書き換わらない）"""
+        judge = linekit.reply("judge_ok")
+        judge["units"].append({"key": NIT, "label": "nit", "reason": "事実: 名前が短い。反証: 無し", "origin_analysis": "命名"})
+        self.judged(judge=judge)
+        self.ok("snap", role="plan")
+        self.ok("prep", role="plan", excluded_file="")
+        names = planblk._names(entry.open_board(self.board), "p2.fix_plan")
+        nit_no = names.index(NIT) + 1
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["unit_keys"] = [names.index(UNIT_MEAN) + 1, names.index(UNIT_CLAMP) + 1, nit_no]
+        sent = copy.deepcopy(plan)
+        got = planblk.take("plan")(self.board, plan, self.repo)
+        self.assertFalse(got["ok"])
+        self.assertIn("label=nit", got["reason"])
+        self.assertIn(f"no {nit_no} は", got["reason"])
+        allowed = sorted(names.index(k) + 1 for k in (UNIT_MEAN, UNIT_CLAMP))
+        self.assertIn(f"{planblk.NOT_OWED_REJECT} {allowed}", got["reason"])
+        self.assertNotIn("頭の節", got["reason"])
+        self.assertEqual(plan, sent)
+
+    def test_take_malformed_plan_resubmits_not_raises(self):
+        """形の崩れた修正案は例外でなく ok:false（再提出の道。accept は exit 2 で落ちない）。plan・行・narrows の形の崩れは take の頭で
+        前段（narrow_gaps・not_allowed・split・save）を飛ばし、unit_keys の形の崩れは not_allowed が読み飛ばして、形の拒否を entry.take に任せる"""
+        self.judged()
+        self.ok("snap", role="plan")
+        self.ok("prep", role="plan", excluded_file="")
+        row = linekit.reply("plan_ok")["plan"][0]
+        for name, reply in (("行が文字列", {"plan": ["x"]}), ("plan が文字列", {"plan": "s"}), ("plan が数", {"plan": 5}),
+                            ("unit_keys が数", {"plan": [{**row, "unit_keys": 5}]}),
+                            ("unit_keys が入れ子", {"plan": [{**row, "unit_keys": [[1]]}]}),
+                            ("unit_keys が dict", {"plan": [{**row, "unit_keys": [{"a": 1}]}]}),
+                            ("narrows が数", {"plan": [{**row, "narrows": 5}]})):
+            with self.subTest(name):
+                got = planblk.take("plan")(self.board, reply, self.repo)
+                self.assertFalse(got["ok"], got)
+
+    # -- 入れてよい no の節（planblk.plan_slots）と受け付けの写しの一致
+    def mixed(self, extra_questions=(), closes=()):
+        """judge_ok の 2 単位に、義務の無い単位（nit・info・suggest の defer・question）と、fork の問いの出どころ 2 つ（ASKED は
+        人の答え待ちで入れてよい・BACK は関所で答えた体で必ず入れる。答えたかは answered_patch で決める）を足した判定を受けた盤面"""
+        judge = linekit.reply("judge_ok")
+        base = {k: v for k, v in judge["units"][0].items() if k not in ("class_query", "disposition")}
+        why = "事実: 今の周の差分の範囲で読んだ形。反証: 同じ形を stats.py の他の関数に当たったが無い"
+        for key, label, disp in ((NIT, "nit", None), (INFO, "info", None), (DEFER, "suggest", "defer"),
+                                 (QUESTION, "question", None), (ASKED, "suggest", "do-now"), (BACK, "suggest", "do-now")):
+            u = {**base, "key": key, "label": label, "reason": why, "origin_analysis": "見本の単位"}
+            if disp:
+                u["disposition"] = disp
+            if disp == "do-now":
+                u["class_query"] = judge["units"][0]["class_query"]
+            judge["units"].append(u)
+        judge["questions"] = [{"key": q, "kind": "fork", "status": "held", "origin": origin, "options": ["例外", "0 を返す"],
+                               "reason": "呼び手ごとに意味が割れる。推し: 例外——呼び手が既に例外を捕まえている"}
+                              for q, origin in (("q-asked", ASKED), ("q-back", BACK), *extra_questions)]
+        judge["precedents"] += [{**judge["precedents"][0], "key": k} for k in (ASKED, BACK)]
+        judge["precedents"] += [{**judge["precedents"][0], "key": q["key"],
+                                 "undecided_because": "先行例が例外と 0 返しの 2 つに割れ、呼び手の期待も揃っていない"}
+                                for q in judge["questions"]]
+        judge["one_shot_closes"] += list(closes)
+        self.judged(judge=judge)
+
+    def judgment(self):
+        """盤面が受けた判定の返答（p2.diagnose の出力のファイル）"""
+        out = self.state()["outputs"]["p2.diagnose"]
+        return json.loads((self.board / out["file"]).read_text(encoding="utf-8"))
+
+    @staticmethod
+    def answered_patch(*keys):
+        """修正前の関所で問い keys に答えた体にする（gatemarks.answered。答えた fork の出どころは returned で直す義務に戻る）"""
+        return mock.patch.object(gatemarks, "answered", lambda b, q: q.get("key") in keys)
+
+    def test_plan_slots_equal_copy_acceptance(self):
+        """plan_slots の必ず入れる・入れてよいが、写しの受け付け fix_plan_covers_units が実際に受ける集合と一致する: どの単位も、
+        必ず入れる物に足した案が通るのは入れてよい物の時だけ・必ず入れる物を 1 つ欠いた案は拒まれる。必ず入れる ⊆ 入れてよい
+        （役を起こす盤面で成り立つ不変条件。成り立たない盤面は snap・prep が止める）。事前の拒否 not_allowed も同じ単位を名指す"""
+        self.mixed()
+        with self.answered_patch("q-back"):
+            b = entry.open_board(self.board)
+            must, may, units = planblk.plan_slots(b)
+            self.assertEqual(must, {UNIT_MEAN, UNIT_CLAMP, BACK})
+            self.assertEqual(may, {UNIT_MEAN, UNIT_CLAMP, ASKED, BACK})
+            self.assertLessEqual(must, may)
+
+            def plan(keys):
+                return {"plan": [{**linekit.reply("plan_ok")["plan"][0], "unit_keys": list(keys)}]}
+
+            def copy_takes(keys):
+                try:
+                    b.rules.fix_plan_covers_units(b, "p2.fix_plan", plan(keys), None)
+                except b.rules.Reject:
+                    return False
+                return True
+
+            self.assertTrue(copy_takes(sorted(must) + sorted(may - must)))
+            self.assertTrue(copy_takes(sorted(must)))
+            for k in sorted(units):
+                with self.subTest(add=k[:30]):
+                    keys = sorted(must) + ([] if k in must else [k])
+                    self.assertEqual(copy_takes(keys), k in may)
+                    self.assertEqual(planblk.not_allowed(b, "p2.fix_plan", plan(keys)) == [], k in may)
+            for k in sorted(must):
+                with self.subTest(drop=k[:30]):
+                    self.assertFalse(copy_takes(sorted(must - {k})))
+
+    def test_stuck_owed_unit_halts_before_role(self):
+        """必ず入れるのに開いていない単位（関所で答えた問いの出どころが defer）が在ると、写しの受け付けは入れても外しても拒む。
+        prep は役の指示書を書かずに盤面を止め（by works:plan）、理由に PLAN_STUCK とその単位の no・key を書く"""
+        self.mixed(extra_questions=(("q-defer", DEFER),))
+        with self.answered_patch("q-defer"):
+            b = entry.open_board(self.board)
+            must, may, _ = planblk.plan_slots(b)
+            self.assertIn(DEFER, must - may)
+            for keys in (sorted(must), sorted(must - {DEFER})):   # 入れても外しても写しは拒む（案の形では閉じない）
+                with self.assertRaises(b.rules.Reject):
+                    b.rules.fix_plan_covers_units(b, "p2.fix_plan", {"plan": [{"unit_keys": keys}]}, None)
+            no = planblk._names(b, "p2.fix_plan").index(DEFER) + 1
+            with self.assertRaises(board_mod.BoardGap):
+                planblk.prep(self.board, "plan", self.repo)
+        self.assertFalse(entry.open_board(self.board, allow_halted=True).work(rolekit.prompt_name("p2.fix_plan")).exists())
+        stop = self.state()["stop"]
+        self.assertEqual(stop["by"], planblk.STOP_BY)
+        self.assertIn(planblk.PLAN_STUCK, stop["reason"])
+        self.assertIn(f"no {no}（{DEFER}）", stop["reason"])
+        self.assertIn(planblk.STUCK_WHY, stop["reason"])
+
+    def test_stuck_owed_unit_skips_plan_loop_at_snap(self):
+        """行き止まりの単位が在る盤面は、輪の前の snap が盤面を止めて go: false を返す（輪の when で役を起こさない）。後の事前審査の
+        snap は輪を飛ばし、出口は止めた理由を上書きしない"""
+        self.mixed(extra_questions=(("q-defer", DEFER),))
+        with self.answered_patch("q-defer"):
+            got = planblk.snap(self.board, "plan", self.repo)
+        self.assertEqual((got["go"], got["snapshot_file"]), (False, ""))
+        self.assertFalse(planblk.snap(self.board, "plan-review", self.repo)["go"])
+        out = planblk.collect(self.board)
+        self.assertEqual((out["plan_file"], out["gave_up"]), ("", False))
+        stop = self.state()["stop"]
+        self.assertEqual(stop["by"], planblk.STOP_BY)
+        self.assertIn(planblk.PLAN_STUCK, stop["reason"])
+
+    def test_plan_slots_does_not_nest_board_lock(self):
+        """plan_slots が validator を呼ぶ瞬間、盤面の置き場の錠（BOARD_LOCKS）を別の fd で待たずに取れる（prep と take の両方）。
+        錠を握ったまま validator を読み込むと、同じ錠を取る口と入れ子で固まる"""
+        self.mixed()
+        self.ok("snap", role="plan")
+        real, seen = engine_rules.validator_module, []
+
+        def spy(b):
+            for name in BOARD_LOCKS:
+                with open(self.board / name, "a", encoding="utf-8") as f:
+                    try:
+                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        seen.append((name, False))
+                    else:
+                        fcntl.flock(f, fcntl.LOCK_UN)
+                        seen.append((name, True))
+            return real(b)
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["unit_keys"] = [UNIT_MEAN, UNIT_CLAMP, NIT]
+        with mock.patch.dict(engine_rules.INJECT, {"validator_module": spy}):
+            planblk.prep(self.board, "plan", self.repo)
+            got = planblk.take("plan")(self.board, plan, self.repo)
+        self.assertFalse(got["ok"])
+        self.assertTrue(seen)
+        self.assertEqual([n for n, free in seen if not free], [])
+
+    def test_plan_reply_with_info_defer_question_rejected_naming_label(self):
+        """nit のほかの義務の無い単位（info・suggest の defer・question）を入れた案も、受け付けの手前で label を名指して拒む"""
+        self.mixed()
+        self.ok("snap", role="plan")
+        self.ok("prep", role="plan", excluded_file="")
+        for key, want in ((INFO, "label=info"), (DEFER, "disposition=defer"), (QUESTION, "label=question")):
+            with self.subTest(want):
+                plan = linekit.reply("plan_ok")
+                plan["plan"][0]["unit_keys"] = [UNIT_MEAN, UNIT_CLAMP, key]
+                got = planblk.take("plan")(self.board, plan, self.repo)
+                self.assertFalse(got["ok"])
+                self.assertIn(planblk.NOT_OWED_REJECT, got["reason"])
+                self.assertIn(want, got["reason"])
+
+    def test_slots_section_absent_when_every_unit_may_go(self):
+        """全部の単位が入れてよい盤面（judge_ok）では節を貼らない（本文の一覧が受け付けの集合と同じ）"""
+        self.judged()
+        self.ok("snap", role="plan")
+        self.assertEqual(planblk.plan_slots_section(entry.open_board(self.board)), "")
+        text = pathlib.Path(self.ok("prep", role="plan", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(planblk.PLAN_SLOTS_HEAD, text)
+
+    def test_slots_section_lists_must_may_and_shut(self):
+        """節は必ず入れる no・入れてよい no・入れてはいけない no（label つき）を並べる。判定の one_shot_closes に nit が在っても、
+        nit の no は入れてはいけない側に在る（節が one_shot_closes より優先する）。行き止まりの行は無い（その盤面は prep が止める）"""
+        self.mixed(closes=(NIT,))
+        self.assertIn(NIT, self.judgment()["one_shot_closes"])
+        self.ok("snap", role="plan")
+        with self.answered_patch("q-back"):
+            b = entry.open_board(self.board)
+            names = planblk._names(b, "p2.fix_plan")
+            no = {k: names.index(k) + 1 for k in names}
+            text = planblk.plan_slots_section(b)
+        self.assertTrue(text.startswith(planblk.PLAN_SLOTS_HEAD))
+        self.assertIn(f"- 必ず案に入れる no: {sorted(no[k] for k in (UNIT_MEAN, UNIT_CLAMP, BACK))}", text)
+        self.assertIn(f"- 入れてもよい no（人の答え待ちの問いの出どころ・depends。入れなくてもよい）: {[no[ASKED]]}", text)
+        shut = text.split("- 入れてはいけない no（受け付けが拒む）: ", 1)[1]
+        for k, label in ((NIT, "nit"), (INFO, "info"), (DEFER, "suggest"), (QUESTION, "question")):
+            self.assertIn(f"no {no[k]}（label={label}", shut)
+        self.assertNotIn("拒まれたら理由をそのまま返せ", text)
+
+    def test_plan_review_head_unchanged(self):
+        """入れてよい no の節は修正案の頭にだけ貼り、事前審査の頭には出ない"""
+        self.mixed()
+        self.ok("snap", role="plan")
+        prep, got = self.round_of("plan", linekit.reply("plan_ok"))
+        self.assertTrue(got["ok"], got)
+        self.assertIn(planblk.PLAN_SLOTS_HEAD, pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"))
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(planblk.PLAN_SLOTS_HEAD, text)
 
     def test_plan_missing_unit_rejected(self):
         self.judged()

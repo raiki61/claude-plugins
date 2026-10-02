@@ -349,8 +349,8 @@ works_dev_show_synced() {
 
 # works_dev_ledger_bind <呼び手> <archon を呼ぶ殻> <対象の dir> <この起動の依頼の写し> [show [<差分を取り込むリポジトリ>]]:
 # use.sh・dogfood.sh・real-run.sh の起動の後に run を結ぶ口（設計書 2.3）。run の一覧を 1 回引き、launch.py ledger bind が
-# 盤面の依頼がこの起動の写し（起動ごとに一意の絶対パス）と一致する run がちょうど 1 本の時だけ結んで控え（$WORKS_DEV_HOME/runs）を書き、
-# WORKS_RUN_ROW・WORKS_RUN_ID・WORKS_RUN_STATUS を置く。5 つめに show を渡せば works_dev_show_synced に渡す（--show は控えを
+# 盤面の依頼がこの起動の写し（起動ごとに一意の絶対パス。依頼を省いた起動は GITHUB_READS の読み出しのファイル）と一致する run が
+# ちょうど 1 本の時だけ結んで控え（$WORKS_DEV_HOME/runs）を書き、WORKS_RUN_ROW・WORKS_RUN_ID・WORKS_RUN_STATUS を置く。5 つめに show を渡せば works_dev_show_synced に渡す（--show は控えを
 # 書き直さない。起動の時の started_at と herdr_pane を残す）。結べなければ一覧に触れず控えも続きの行も書かず、理由と候補の後に
 # 結べなかった 1 行を出して 1
 works_dev_ledger_bind() {
