@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shlex
 import sys
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように（必ず import より前）
@@ -56,23 +57,24 @@ G1_REPORT = "実装役の最後のメッセージを、この型の後ろに貼�
 # 審査役の型の [HEAD_SHA]。works は commit しないので差分は作業ツリーと base の間。型の `git diff [BASE_SHA]..[HEAD_SHA]` は
 # g1_prompt が `git diff <base>` に直す（commit の範囲は空になる。コマンドに文を残さない。Preflight F20）。Head の行にだけ残る
 G1_HEAD_SHA = "作業ツリー（works は commit しない）"
-# 審査役の型の [DIFF_FILE]。Read は $TMPDIR を展開しないので、修正役が展開した絶対パスを審査役の prompt の 1 行目に置く
-G1_DIFF = ("この prompt の 1 行目の絶対パス（修正役が git diff <BASE_SHA> と未追跡の新しいファイルの差分を "
-           "$TMPDIR/works-g1-<n>.patch に書き、展開して置いた物）")
 G1_IMPL_REPORT = "ファイルに書かない。報告の全部を最後のメッセージに書く（修正役が審査役にそのまま渡す）"   # 実装役の型の [REPORT_FILE]
-# 審査の前に修正役が走らせる差分のファイルのコマンド（作業ツリーと base の差分と、未追跡の新しいファイルごとの全文の差分）
-G1_PATCH = ('p="$TMPDIR/works-g1-{n}.patch"; git diff {base} > "$p"; git -c core.quotePath=false ls-files --others --exclude-standard | '
-            'while IFS= read -r f; do git diff --no-index /dev/null "$f" >> "$p"; done; echo "$p"')
+# 審査の前に修正役が走らせる差分のファイルのコマンド。{patch} は支度が決めた run ごとの置き場（盤面の隣の run-place。包みが
+# sandbox で書けるようにする所。盤面そのものは守る場所で書けない）の絶対パス（shell の字で囲んだ物）で、審査役の型の [DIFF_FILE]
+# も同じパス。リポジトリの根で、作業ツリーと base の差分と、未追跡の新しいファイルごとの全文の差分を書く
+G1_PATCH = ('p={patch}; top="$(git rev-parse --show-toplevel)"; '
+            'git -C "$top" -c core.quotePath=false diff {base} > "$p"; '
+            'git -C "$top" -c core.quotePath=false ls-files --others --exclude-standard | while IFS= read -r f; do '
+            'git -C "$top" -c core.quotePath=false diff --no-index /dev/null "$f" >> "$p"; done')
 G1_STEPS = (
     "下の項目の順に、Agent の道具で実装役の下請けを 1 つ起こし、prompt に実装役のファイルの中身を全部、字を変えずに渡す。",
-    "実装役の最後のメッセージを受けたら、その項目の差分のコマンドを Bash で走らせ（作業ツリーの外に書く。未追跡の新しいファイルも"
-    "全文の差分で入る）、最後に出た絶対パスを `Diff file: <パス>` の 1 行にする。別の Agent で審査役の下請けを起こし、prompt には"
-    "その 1 行を 1 行目に、続けて審査役のファイルの中身を全部と、その後ろに実装役の最後のメッセージを貼る（Read は $TMPDIR を"
-    "展開しない）。差分は base からの全体で、前の項目の直しも入る（審査役のファイルにもそう書いてある）。",
+    "実装役の最後のメッセージを受けたら、その項目の差分のコマンドを Bash で走らせ（run ごとの置き場の絶対パスに書く。未追跡の"
+    "新しいファイルも全文の差分で入る）、別の Agent で審査役の下請けを起こす。prompt には審査役のファイルの中身を全部と、その後ろに"
+    "実装役の最後のメッセージを貼る。差分は base からの全体で、前の項目の直しも入る（審査役のファイルにもそう書いてある）。",
     "審査の返答が `❌` か `Needs fixes` なら、指摘を添えて同じ項目の実装役を起こし直し、もう 1 度審査を起こす。実装役は項目ごとに"
-    "3 回まで。3 回目の審査も通らなければ、その項目の単位は changes に載せず、not_done に単位ごとの理由（残った指摘）を書いて"
-    "次の項目へ進む——直しを残すか戻すかは受け付けが判じる（受け付けの最後の回は、拒否を単位に結べればその単位の直しを戻して"
-    "止める）。実装役が NEEDS_CONTEXT か BLOCKED を返した項目の単位は、直さずに食い違いの申し出（conflicts）で返す（下の"
+    "3 回まで。3 回目の審査も通らなくても、その項目の直す義務の単位はどの形とも同じく changes に載せる（直す義務の単位はいつも "
+    "changes に 1 行）。残った指摘は、その行の root_or_symptom の kind を symptom にして why に書く。受け付けがその単位を拒めば、"
+    "受け付けの最後の回はその単位の直しだけを戻して止める（ほかの単位は通る）。単位をまったく直せない（人の答えが無いと直し方が"
+    "決まらない）時と、実装役が NEEDS_CONTEXT か BLOCKED を返した時だけ、直さずに食い違いの申し出（conflicts）で返す（下の"
     "読み替えの ASK）。",
     "受け付けの出し直し（指示書の頭が拒否の理由のファイルを名指す）と裁定の後の 2 回目（裁定の文のファイルを名指す）では、"
     "拒否の理由か裁定が名指す項目だけの下請けを起こし直す（ほかの項目の直しは作業ツリーに残っている）。",
@@ -103,7 +105,7 @@ G1_SUB_RULES = (
 )
 G1_EXTRA = {   # 節ごとに G1_SUB_RULES の後ろへ足す決まり（審査役だけ）
     "task-review": (
-        "差分の主の材料は、修正役が書いた差分のファイル（この prompt の 1 行目の絶対パス・上の Diff file）。先にそれを読む。"
+        "差分の主の材料は、修正役が書いた差分のファイル（上の Diff file の絶対パス）。先にそれを読む。"
         "無い・読めない時だけ、上の Base の版で `git diff <Base の版>` を走らせ（作業ツリーと base の差分。works は commit しないので、"
         "commit の範囲には差分が出ない）、`git ls-files --others --exclude-standard` で未追跡の新しいファイルの名を引いて、それぞれを"
         "Read で読む。",
@@ -184,9 +186,9 @@ def g1_prompt(seam_id: str, values: dict[str, str]) -> str:
 
 
 def g1_section(rows: list[dict]) -> str:
-    """修正の形 g1 の修正役の指示書の節。rows は項目の順の {item, impl_file, review_file, base}（fixrules.g1_values）。
+    """修正の形 g1 の修正役の指示書の節。rows は項目の順の {item, impl_file, review_file, base, patch}（fixrules.g1_values）。
     G1_HEAD → 手順（G1_STEPS）→ 項目ごとの実装役と審査役のファイル → 読み替えの上書き（G1_OVERRIDES）→ 読み替え"""
     steps = "\n".join(f"{n}. {t}" for n, t in enumerate(G1_STEPS, 1))
     files = _bullets(f"項目 {r['item']}: 実装役 {r['impl_file']}・審査役 {r['review_file']}・差分のコマンド "
-                     f"`{G1_PATCH.format(base=r['base'], n=r['item'])}`" for r in rows)
+                     f"`{G1_PATCH.format(base=r['base'], patch=shlex.quote(r['patch']))}`" for r in rows)
     return "\n\n".join([G1_HEAD, steps, files, G1_OVERRIDES, rolekit.skill_overlay().rstrip("\n")]) + "\n"

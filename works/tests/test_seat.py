@@ -159,7 +159,7 @@ class G1Case(unittest.TestCase):
     """修正の形 g1: 修正役が SDD の型で下請けを回す節と、下請けに渡すファイルの型"""
 
     def test_g1_section_lists_files_and_overlay(self):
-        rows = [{"item": 1, "impl_file": "/b/r1/g1-impl-1.md", "review_file": "/b/r1/g1-review-1.md", "base": "abc123"}]
+        rows = [{"item": 1, "impl_file": "/b/r1/g1-impl-1.md", "review_file": "/b/r1/g1-review-1.md", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}]
         text = seat.g1_section(rows)
         for w in (seat.G1_HEAD, "Agent", "/b/r1/g1-impl-1.md", "/b/r1/g1-review-1.md", rolekit.skill_overlay().strip()):
             self.assertIn(w, text)
@@ -168,14 +168,15 @@ class G1Case(unittest.TestCase):
     def test_g1_section_overrides_dispatch_by_name(self):
         """読み替えは『下請けを起こさない。ほかの役の道具に Agent は無い』と言う。g1 の節は読み替えの前で、その決まりを名指して
         修正役には効かないと書く（216 の読み替えは変えない。Preflight F18）"""
-        text = seat.g1_section([{"item": 2, "impl_file": "i", "review_file": "r", "base": "abc123"}])
+        text = seat.g1_section([{"item": 2, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}])
         self.assertIn(seat.G1_OVERRIDES, text)
         for name in ("DISPATCH", "DELEGATE"):
             self.assertIn(name, seat.G1_OVERRIDES)
         self.assertLess(text.index(seat.G1_OVERRIDES), text.index(rolekit.skill_overlay().splitlines()[0]))
 
     def test_g1_section_items_in_order(self):
-        rows = [{"item": n, "impl_file": f"/b/i{n}", "review_file": f"/b/r{n}", "base": "abc123"} for n in (2, 5)]
+        rows = [{"item": n, "impl_file": f"/b/i{n}", "review_file": f"/b/r{n}", "base": "abc123", "patch": f"/a/g1-{n}.patch"}
+                for n in (2, 5)]
         text = seat.g1_section(rows)
         self.assertLess(text.index("/b/i2"), text.index("/b/r2"))
         self.assertLess(text.index("/b/r2"), text.index("/b/i5"))
@@ -214,24 +215,25 @@ class G1Case(unittest.TestCase):
         # 差分のファイルが無い時の手: git diff <base> の後に未追跡の新しいファイルの名を引き、それぞれを Read で読む
         for w in ("git diff <Base の版>", "git ls-files --others --exclude-standard", "Read"):
             self.assertIn(w, seat.G1_EXTRA["task-review"][0])
-        # Diff file の行は prompt の 1 行目の絶対パスを指す（Read は $TMPDIR を展開しない）
-        diff = seat.G1_DIFF.replace("<BASE_SHA>", "abc123").replace("<n>", "1")
-        self.assertIn("1 行目", diff)
         # 下請けの決まりは型にも読み替え（unattended.md。GIT-RANGE の『審査役は Bash を持たない』を含む）にも勝つ
         for w in ("unattended.md", "GIT-RANGE"):
             self.assertIn(w, seat.G1_SUB_HEAD + " ".join(seat.G1_SUB_RULES))
         self.assertIn("unattended.md", seat.G1_SUB_HEAD)
 
     def test_g1_section_builds_the_patch_with_new_files(self):
-        """手順の差分のファイル: git diff <base> と、未追跡の新しいファイルごとの git diff --no-index /dev/null。展開した絶対パスを
-        審査役の prompt の 1 行目に置く（Read は $TMPDIR を展開しない）"""
-        text = seat.g1_section([{"item": 3, "impl_file": "i", "review_file": "r", "base": "abc123"}])
-        cmd = seat.G1_PATCH.format(base="abc123", n=3)
+        """手順の差分のファイル: リポジトリの根で git diff <base> と、未追跡の新しいファイルごとの git diff --no-index /dev/null を、
+        支度が決めた run ごとの置き場の絶対パスに書く（並ぶ run が同じ $TMPDIR の名でぶつからない・Read が展開を要らない）"""
+        text = seat.g1_section([{"item": 3, "impl_file": "i", "review_file": "r", "base": "abc123",
+                                 "patch": "/a b/run-place/g1-3.patch"}])
+        cmd = seat.G1_PATCH.format(base="abc123", patch="'/a b/run-place/g1-3.patch'")
         self.assertIn(cmd, text)
-        for w in ('"$TMPDIR/works-g1-3.patch"', "git diff abc123 >", "ls-files --others --exclude-standard",
-                  "git diff --no-index /dev/null", 'echo "$p"'):
+        for w in ("p='/a b/run-place/g1-3.patch'", 'top="$(git rev-parse --show-toplevel)"',
+                  'git -C "$top" -c core.quotePath=false diff abc123 > "$p"',
+                  'git -C "$top" -c core.quotePath=false ls-files --others --exclude-standard',
+                  'git -C "$top" -c core.quotePath=false diff --no-index /dev/null "$f" >> "$p"'):
             self.assertIn(w, cmd)
-        self.assertIn("1 行目", text)
+        for t in (text, *seat.G1_EXTRA["task-review"]):
+            self.assertNotIn("TMPDIR", t)
 
     def test_g1_overrides_the_overlay_head_line(self):
         """読み替えの頭の行は『Agent で下請けを起こすなら、その prompt に unattended.md を Read せよと書け』と言う。g1 の修正役には
@@ -239,15 +241,20 @@ class G1Case(unittest.TestCase):
         self.assertIn("Read せよと書け", seat.G1_OVERRIDES)
         self.assertIn("Read せよと書け", rolekit.skill_overlay().splitlines()[0])
 
-    def test_g1_steps_leave_failed_items_to_acceptance_and_redo_only_named(self):
-        """3 回の審査を通らなかった項目は not_done に理由を書いて受け付けに判じさせる（強み 4: 3 回で戻すのは受け付けの最後の回の
-        止めと戻し）。受け付けの出し直しと裁定の後は、拒否・裁定が名指す項目だけを起こし直す"""
+    def test_g1_steps_keep_failed_items_in_changes_and_redo_only_named(self):
+        """3 回の審査を通らなかった項目の直す義務の単位も、どの形とも同じく changes に載せ、残った指摘は root_or_symptom（symptom）
+        の why に書く。受け付けの最後の回がその単位に結べる拒否で、その単位の直しだけを戻して止める（強み 4。not_done に置くと
+        拒否が単位に結べず、返答全体が拒まれる）。受け付けの出し直しと裁定の後は、拒否・裁定が名指す項目だけを起こし直す"""
+        failed = next(t for t in seat.G1_STEPS if "3 回目の審査" in t)
+        for w in ("changes に載せる", "root_or_symptom", "symptom", "why", "最後の回", "戻して止める", "conflicts"):
+            self.assertIn(w, failed)
+        self.assertNotIn("not_done", failed)
         steps = " ".join(seat.G1_STEPS)
-        for w in ("not_done", "受け付けが判じる", "出し直し", "裁定", "名指す項目だけ"):
+        for w in ("出し直し", "裁定", "名指す項目だけ"):
             self.assertIn(w, steps)
 
     def test_g1_section_says_diffs_include_earlier_items(self):
-        self.assertIn("前の項目", seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123"}]))
+        self.assertIn("前の項目", seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}]))
 
     def test_g1_prompt_refuses_unreadable_query_rule(self):
         with mock.patch.object(seat.adapter, "query_rule", side_effect=adapter.Unrecognised("頭の行が無い")):

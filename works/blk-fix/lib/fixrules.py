@@ -61,6 +61,7 @@ from rulebook import EMPTY, MARK, RULES_SAME, WHY_DELTA, Unfilled, fill, join, r
 import script_io  # noqa: E402
 import seat as seatkit  # noqa: E402  （借りたスキルの座。引数の名 seat と分ける）
 import writes  # noqa: E402  （修正前の版。g1 の審査役の型の [BASE_SHA]）
+import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of。g1 の審査役の差分のファイルの置き場）
 from engine.util import Reject  # noqa: E402
 
 RULES_DIR = pathlib.Path(__file__).resolve().parents[1] / "rules"
@@ -95,6 +96,7 @@ FULL, DELTA, RULES, VARIANTS, DELIVERED = ".full.md", ".delta.md", ".rules.md", 
 WHY_FIRST = "1 回目（この輪でまだ決まりを渡していない。delta は full と同じ）"
 SEAT_BRIEFS = "seat-briefs.md"   # 修正役の座の型の [BRIEF_FILE]（今の周の作業ファイル。直す義務の単位の brief を名指す節）
 G1_IMPL, G1_REVIEW = "g1-impl-{n}.md", "g1-review-{n}.md"   # 修正の形 g1 の下請けのファイル（今の周の作業ファイル。n は項目の番号）
+G1_PATCH_FILE = "g1-{n}.patch"   # g1 の審査役の差分のファイル（run ごとの置き場 adapter.run_place_of。修正役が seat.G1_PATCH で書く）
 G1_NO_POLICY = "（無し）"   # g1 の審査役の型の [GLOBAL_CONSTRAINTS]（人の方針の文書が無い run）
 G1_REST = "修正案のどの項目にも無い直す義務の単位 {keys}（判定のファイルが要求の正本）"   # g1 の残りの項目の実装役の型の題
 BRIEF_STOP_BY = "works:fix"   # brief の控えが壊れた盤面を止めた口（assert-changed の STOP_BY と同じ修正の段の印）
@@ -406,7 +408,7 @@ def implementer_values(b, values: dict, repo, owed: list[str]) -> dict[str, str]
 
 def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dict]:
     """修正の形 g1 の下請けのファイルを、直す義務の単位の brief の項目ごとに今の周に 2 つ書き、項目の順の
-    [{item, impl_file, review_file, base}] を返す（seat.g1_section が並べる）。どの項目にも無い直す義務の単位（brief の無い run は
+    [{item, impl_file, review_file, base, patch}] を返す（seat.g1_section が並べる）。どの項目にも無い直す義務の単位（brief の無い run は
     全部）は、判定のファイルを [BRIEF_FILE] にした残りの 1 項目（番号は修正案の項目の後。題は G1_REST、brief の無い run は
     implementer_values の題）。
     - G1_IMPL: 216 の implementer の型。[BRIEF_FILE] はその項目の brief、[task name] はその項目の直す義務の単位、[REPORT_FILE] は
@@ -414,7 +416,7 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dic
     - G1_REVIEW: 216 の task-review の型。[BRIEF_FILE] は同じ brief、[GLOBAL_CONSTRAINTS] は人の方針の文書のパスか G1_NO_POLICY、
       [REPORT_FILE] は seat.G1_REPORT、[BASE_SHA] は修正前の版（writes.base_rev）、[HEAD_SHA] は seat.G1_HEAD_SHA（型の
       `git diff <版>..<HEAD_SHA>` は seat.g1_prompt が作業ツリーとの差分 `git diff <版>` に直す。Preflight F20）、[DIFF_FILE] は
-      seat.G1_DIFF の版と項目の番号を埋めた物
+      run ごとの置き場（盤面の隣。adapter.run_place_of。盤面は守る場所で役の Bash が書けない）の G1_PATCH_FILE の絶対パス
     どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊）。写しが固定と違う・穴が埋まらなければ ValueError"""
     common = implementer_values(b, values, repo, owed)
     cut = briefs_or_halt(b)
@@ -426,16 +428,18 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dic
         n = max((r["item"] for r in cut), default=0) + 1
         items.append((n, values.get("judgment_file") or "", G1_REST.format(keys="、".join(rest)) if briefs else common["[task name]"]))
     base = writes.base_rev(b, base_rev)
+    place = pathlib.Path(adapter.run_place_of({"board": str(b.dir)}))   # 盤面は守る場所で役の Bash が書けない。run ごとの置き場
     rows = []
     for n, brief, task in items:
         impl, review = b.work(G1_IMPL.format(n=n)), b.work(G1_REVIEW.format(n=n))
+        patch = str(place / G1_PATCH_FILE.format(n=n))
         impl.write_text(seatkit.g1_prompt("implementer", {**common, "[task name]": task, "[BRIEF_FILE]": brief,
                                                            "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}), encoding="utf-8")
         review.write_text(seatkit.g1_prompt("task-review", {
             "[BRIEF_FILE]": brief, "[GLOBAL_CONSTRAINTS]": values.get("policy_path") or G1_NO_POLICY,
             "[REPORT_FILE]": seatkit.G1_REPORT, "[BASE_SHA]": base, "[HEAD_SHA]": seatkit.G1_HEAD_SHA,
-            "[DIFF_FILE]": seatkit.G1_DIFF.replace("<BASE_SHA>", base).replace("<n>", str(n))}), encoding="utf-8")
-        rows.append({"item": n, "impl_file": str(impl), "review_file": str(review), "base": base})
+            "[DIFF_FILE]": patch}), encoding="utf-8")
+        rows.append({"item": n, "impl_file": str(impl), "review_file": str(review), "base": base, "patch": patch})
     return rows
 
 

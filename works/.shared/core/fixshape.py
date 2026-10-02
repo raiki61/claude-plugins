@@ -12,7 +12,7 @@
 - shape_at(board_dir): 盤面の形。読む順は CHOICE_REL の shape → START_REL の KEY → BEFORE（記録の無い前の版の盤面）。
   ファイルが無い・鍵が無いなら次へ。JSON が読めない・値が語の外なら ValueError（黙って既定にしない）
 - choose(board_dir, shape, *, by, why): CHOICE_REL を書く（後の振り分けの書き口）
-- plain(board_dir): 平の run（形が current）か
+- plain(board_dir): 平の run（形が PLAIN＝current）か
 - SKILL_NODES: 座が skill の節の名（seat の表と試験で一致を縛る）
 - AGENT_NODES: 修正役の節の名（g1 の形だけ Agent で下請けを起こす）
 - denied_tools(shape, node): 形と印の名から包みが permissions.deny で拒む道具（g3 以外の座の節で Skill・g1 以外の修正役で Agent）
@@ -28,6 +28,7 @@ import pathlib
 SHAPES = ("current", "af", "g3", "g1")
 DEFAULT = "g3"            # 入力が空の run の形
 BEFORE = "af"             # 形の記録の無い盤面（220 の前の版で作った盤面）の形
+PLAIN = "current"         # 平の run の形（比べの基準。plain が読む）
 KEY = "fix_shape"         # start の控えの鍵（ラインの入力の名と同じ）
 START_REL = "r1/start.json"       # 線の start の控え（entry.START_FILE の 1 周目。L2 なので entry は import しない）
 CHOICE_REL = "r1/fix-shape.json"  # 後の振り分けが選んだ形の控え
@@ -110,4 +111,4 @@ def denied_tools(shape: str, node: str) -> tuple[str, ...]:
 
 def plain(board_dir) -> bool:
     """平の run（形が current）か"""
-    return shape_at(board_dir) == "current"
+    return shape_at(board_dir) == PLAIN
