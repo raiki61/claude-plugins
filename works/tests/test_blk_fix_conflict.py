@@ -247,6 +247,25 @@ class TestRuledScope(ConflictBoardCase):
         got, _ = planscope.check(rows, b, self.repo, rev, ["other.py"], pass_="first")
         self.assertTrue(any(MEAN in p and "other.py" in p for p in got), got)
 
+    def test_ruling_limit_does_not_open_out_of_scope(self):
+        """直す裁定（fix_code_as）の limits が案の out_of_scope のパスを名指しても、裁定の後の照らしは拒む（out_of_scope は
+        いつも勝つ。案が外したパスが要るのは案の項目の誤りで、fix_plan_item の道）"""
+        import planscope
+        import writes
+        self.parked()
+        (self.repo / "legacy.py").write_text("x = 1\n", encoding="utf-8")
+        cid = self.items()[0]["id"]
+        _, r = self.rule([{"id": cid, "decision": "fix_code_as", "text": RULE_TEXT, "limits": ["legacy.py"]}])
+        self.assertTrue(r["ok"], r)
+        planmarks.save(self.board, entry.open_board(self.board).round,
+                       [{"route": "direct", "route_why": "見本。先にテストを書かない", "tests": [], "rewrite_tests": [],
+                         "refactor": {"declared": False, "why": ""}, "allowed_paths": ["*.py"],
+                         "out_of_scope": [{"glob": "legacy.py", "why": "古い置き場は触らない"}]}])
+        b = entry.open_board(self.board)
+        got, _ = planscope.check([{"unit_key": MEAN, "files": ["legacy.py"]}], b, self.repo, writes.base_rev(b, ""),
+                                 ["legacy.py"], pass_="ruled")
+        self.assertTrue(any(MEAN in p and "out_of_scope" in p and "legacy.py" in p for p in got), got)
+
     def test_ruled_unit_still_owes_its_item(self):
         """直す裁定（fix_code_as）を受けた単位は直す義務に残るので、その項目の欠け（tests のテストが無い）も裁定の後に拒む
         （案の項目そのものの誤りは fix_plan_item の道）"""

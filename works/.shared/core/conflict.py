@@ -47,6 +47,8 @@
 - fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
   出どころ・depends と held_by_rulings）を 1 回で返す正本（blk-fix の受け付け・TDD の輪が読む）。義務が空で外れた単位が在れば空の
   changes を止めない（blk-fix の assert-changed と recount.collect）
+- ruled_limits(b, decisions=): 直す裁定の範囲 limits を (申し出の行, 範囲) で並べる唯一の読み口（test_permits と blk-fix の
+  planscope が読む）
 - ruled_test_limits(b, rulings=, source=, skip_ids=)・parse_limit(lim): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定
   fix_test_scope の範囲。test_permits）の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
 - human_lines(b): 最後の関所と報告に載せる ask_human の行
@@ -613,8 +615,15 @@ def test_permits(b, *, rulings: bool = True, source=None, skip_ids=()) -> list[d
     if rulings:
         out += [{"limit": lim, "id": f"{RULED_TEST_ID}-{r['id']}",
                  "why": f"{HEAD}の裁定 {r['id']}（{r['unit_key']}）が許したテストの変更: {r['ruling']['text']}"}
-                for r in ruled_fix(b) if r["ruling"]["decision"] == "fix_test_scope" for lim in r["ruling"].get("limits") or []]
+                for r, lim in ruled_limits(b, decisions=("fix_test_scope",))]
     return out
+
+
+def ruled_limits(b, *, decisions=FIX_DECISIONS) -> list[tuple[dict, str]]:
+    """直す裁定（ruled_fix）のうち decision が decisions に在る行の範囲 limits の並び [(申し出の行, 範囲の文字列)]（ruled_fix の
+    順・limits の順）。裁定の範囲の唯一の読み口（テストの変更の許し test_permits は fix_test_scope だけ、blk-fix の案の項目の
+    照らし planscope は直す裁定の全部を読む）"""
+    return [(r, lim) for r in ruled_fix(b) if r["ruling"]["decision"] in decisions for lim in r["ruling"].get("limits") or []]
 
 
 def ruled_test_limits(b, *, rulings: bool = True, source=None, skip_ids=()) -> list[str]:
