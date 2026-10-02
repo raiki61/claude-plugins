@@ -6,8 +6,9 @@ TDD の輪の中にだけ在った 2 つの関門を、修正の形（fixshape�
 
 関門（GATES）:
 - red_green: 承認済みの修正案の欄（conflict.frozen_fields）の route が tdd の項目の受け入れのテスト tests[].id ごとに、今の木で
-  一式を走らせて passed、base の木で failure で、赤の種類が輪と同じ決まり（tddloop.kind_problems: 名前・import の失敗と、案が
-  exception なのに断言の失敗を拒む。ほかの例外の型・unknown は通す。preflight F11）。平の run（fixshape.plain）・欄の無い run は
+  一式を走らせて passed、base の木で failure で、赤の種類が輪と同じ決まり（tddloop.kind_problems: 宣言した名前の外の名前・import
+  の失敗と、案が exception なのに断言の失敗を拒む。ほかの例外の型・unknown は通す。preflight F11）。宣言した名前は輪と同じく
+  テストを名指した項目の単位の約束の names（planmarks.unit_contract。単位の無い項目はその項目の adds）。平の run（fixshape.plain）・欄の無い run は
   見ない。直す義務の単位（conflict.owed_units_but_asked）を 1 つも名指さない項目も見ない（最後の回に ask_human に止めて直しを
   戻した単位のテストを、通し直しで抜けに数えない。見なかった項目と単位は skipped に OUT_OF_DUTY で残す）。行には項目の単位
   （unit_keys）を載せ、拒否の文にも書く（最後の回の受け付けが行を unit_key で単位に結んで止められる）。base の木は一時の git worktree（--detach。フックは切る）に作り、今の木で
@@ -122,8 +123,9 @@ def unchecked_whys(whys) -> list[str]:
 
 
 def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:
-    """(route が tdd の項目のうち直す義務の単位を名指す物（unit_keys の無い項目も）の受け入れのテスト [{id, red_kind, unit_keys}]
-    （項目の順・id の重複は最初の物の種類で、単位は名指した項目の全部）, 義務の外の項目を見なかった理由)"""
+    """(route が tdd の項目のうち直す義務の単位を名指す物（unit_keys の無い項目も）の受け入れのテスト [{id, red_kind, unit_keys,
+    names}]（項目の順・id の重複は最初の物の種類で、単位は名指した項目の全部。names は宣言した名前: 名指した項目の adds と、
+    その単位の約束の names（planmarks.unit_contract。輪が単位ごとに _kind_problems へ渡す物と同じ））, 義務の外の項目を見なかった理由)"""
     owed = conflict.owed_units_but_asked(b) if fields else set()
     out, why = {}, []
     for n, f in enumerate(fields or [], 1):
@@ -133,10 +135,14 @@ def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:
         if keys and not set(keys) & owed:
             why.append(f"{OUT_OF_DUTY}: 修正案の項目 {n}（単位 {'、'.join(keys)}）")
             continue
+        names = [nm for nm in f.get("adds") or [] if isinstance(nm, str) and nm]
+        for k in keys:
+            names += (planmarks.unit_contract(fields, k) or {}).get("names") or []
         for t in f.get("tests") or []:
             if isinstance(t, dict) and isinstance(t.get("id"), str) and t["id"].strip():
-                got = out.setdefault(t["id"], {"id": t["id"], "red_kind": t.get("red_kind"), "unit_keys": []})
+                got = out.setdefault(t["id"], {"id": t["id"], "red_kind": t.get("red_kind"), "unit_keys": [], "names": []})
                 got["unit_keys"] += [k for k in keys if k not in got["unit_keys"]]
+                got["names"] += [nm for nm in names if nm not in got["names"]]
     return list(out.values()), why
 
 
@@ -175,7 +181,7 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
             miss("base で緑（直す前に赤でないテストは修正の証拠にならない）")
         elif c["outcome"] != "failure":
             miss(f"base で {c['outcome']}（テストの中の検査で落ちる赤でない）")
-        elif tddloop.kind_problems([t], base):
+        elif tddloop.kind_problems([t], base, t.get("names") or ()):
             miss(f"base で {tddloop.red_kind(c)}（案は {t.get('red_kind')}）")
     return rows, []
 

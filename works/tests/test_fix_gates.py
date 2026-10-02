@@ -131,6 +131,14 @@ class TestRedGreen(FixGatesCase):
         for w in ("base で", "NameError", "assertion"):
             self.assertIn(w, rows[0]["detail"])
 
+    def test_declared_name_error_is_the_wanted_red(self):
+        """base の NameError の無い名前が、項目の adds に宣言した名前なら『機能が無い』赤（輪の _kind_problems と同じ決まり。225）"""
+        self.ready_with_fields([{**FIELDS[0], "adds": ["halve"]}])
+        self.edit_tests("from stats import clamp, mean", "from stats import *  # noqa: F403")
+        self.add_test("\n    def test_mean_of_two(self):\n        self.assertEqual(halve(4), 2)  # noqa: F405\n")
+        self.edit_tree(HALVE)
+        self.assertEqual(self.problems(), [])
+
     def test_not_green_now_is_a_miss(self):
         """受け入れのテストが base で正しく赤でも、今の木で緑でなければ行（直していない）"""
         self.ready_with_fields()
@@ -432,7 +440,9 @@ class TestAcceptWiring(FixGatesCase):
         planmarks.save(self.board, entry.open_board(self.board).round, [{**FIELDS[0], "unit_keys": ["判定に無い単位"]}, FIELDS[0]])
         self.edit_tree(tbf.FIXED)
         mod = self.accept_mod()
-        with self.env(), mock.patch.dict(os.environ, {"INPUTS_TDD_SUITE": ""}):
+        # 欄の控えは 2 項目・種の修正案は 1 項目なので、案の項目と差分の照らし（218。項目と控えの数を突き合わせる）は外す
+        with self.env(), mock.patch.dict(os.environ, {"INPUTS_TDD_SUITE": ""}), \
+                mock.patch.object(mod, "check_plan_scope", return_value=([], None)):
             got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
         self.assertIs(got["ok"], True, got)
         why = fixgates.skipped(self.board, pass_="first", attempt=1)
