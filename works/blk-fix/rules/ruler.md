@@ -7,7 +7,7 @@
 ## 読む物
 
 - 申し出の控え: <<conflicts_file>>——Read で全部読め。`items` の各行の `id`・`unit_key`・`between`（名指した所）・
-  `why_both_cannot_hold`・`which_is_right`・`source`（fix か tdd）が在り、`which_is_right` が query の行には `correct_lines` も在る。
+  `why_both_cannot_hold`・`which_is_right`・`kind`（申し出の種類）・`source`（fix か tdd）が在り、`which_is_right` が query の行には `correct_lines` も在る。
   `ruling` が null の行だけを裁く
 - 裁く申し出の id: <<ids>>
 - 判定のファイル: <<judgment_file>>——単位の `reason`・`origin_analysis`・`prescriptions` を読む
@@ -19,7 +19,7 @@
 <!-- 節 ruler-reply -->
 ## 返す JSON
 
-`{"rulings": [{"id": "<申し出の id>", "decision": "fix_test_scope" か "fix_code_as" か "ask_human" か "replace_query",
+`{"rulings": [{"id": "<申し出の id>", "decision": "fix_test_scope" か "fix_code_as" か "ask_human" か "replace_query" か "fix_plan_item",
 "text": "<裁きと理由>", "limits": ["<範囲>"]}]}`——裁く申し出の id ごとにちょうど 1 件。replace_query の時だけ
 `"query": {"how": <判定の class_query の how と同じ形>, "counts": "defects" か "population", "hits": ["<当たるべき 1 行>"], "misses": ["<当たってはならない 1 行>"]}` を足す。
 どの裁定にも `"grounds": ["<パス>:<行>"]`（裁きの出どころ。依頼の行・判定のファイル・テスト・コード）を足してよく、機械が
@@ -34,6 +34,7 @@
 - `replace_query`: `which_is_right` が query の申し出で、判定者の問いが申し出の `correct_lines`（直した後の正しい行）にも当たると
   確かめた時だけ。`query` に置き換える問いを書き、機械がそれを `hits` に全部当たり・`misses` と `correct_lines` に当たらないかで
   試す（外れれば出し直し）。`text` に何を置き換えたかと理由を書く（`limits` は空でよい）
+- `fix_plan_item`: 承認済みの修正案の項目そのもの（道・受け入れのテスト・書き換えの名指し・範囲）が誤っていて、この run の中で直すと事前審査を通っていない変更になる時だけ。`text` に項目のどこをどう直すかを書く。`limits` は空。brief の無い単位には出せない。単位はこの run では直さず、次の run の修正案に渡る
 
 機械は id の過不足・語・範囲と grounds の在る無し・依頼の在る run の ask_human の出どころを確かめ、外れれば理由のファイルを名指して出し直させる。3 回とも通らなければ、
 裁かれていない申し出は全部人に回る。

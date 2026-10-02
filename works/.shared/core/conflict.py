@@ -3,7 +3,9 @@
 緑にするためにテスト・依頼・コードのどれかを曲げる代わりに、役は「どちらも同時には成り立たない」を証拠つきで返してよい
 （ImpossibleBench arXiv 2510.20270: 食い違いを申し出る道を明示すると、テストを曲げる不正が 54% から 9% に減った）。
 申し出は拒否に数えず、その単位だけを止め（parked）、ほかの単位は進む。止めた単位は読むだけの裁定役が、持ち主の決まり
-（principles）で fix_test_scope・fix_code_as・ask_human・replace_query のどれかに裁き、ask_human だけが最後の人の関所に届く。
+（principles）で fix_test_scope・fix_code_as・ask_human・replace_query・fix_plan_item のどれかに裁き、ask_human だけが最後の人の
+関所に届く。fix_plan_item は承認済みの修正案の項目そのものの誤りで、その単位はこの run では直さず（直す義務から外す）、次の run の
+修正案で項目を直して事前審査に掛ける。範囲 limits を持たず、テストの変更の許しを作らない（直す裁定 FIX_DECISIONS に入れない）。
 判定者の問い（class_query）が直した後の正しい形にも当たる時は、which_is_right: query と正しい行（correct_lines）で申し出て、
 裁定 replace_query が新しい問いを例（hits・misses と correct_lines）で機械に試させてから置き換える（Semgrep の規則の試験の ruleid・ok）。
 
@@ -20,11 +22,13 @@
   planbrief.by_unit_at の形 {unit_key: [{item, file}]}。None と {} は brief の無い run）。文の一覧（空なら通る）
 - cite_problem(cite, repo, roots): 1 つの名指しの確かめ
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
-- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b)・kind_counts(b): 読む口
+- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replanned(b)・replanned_keys(b)・replaced_queries(b)・counts(b)・
+  kind_counts(b): 読む口
   （kind の無い前の形の控えの行も読む。種類は「無し」）
-- apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く
+- apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く。
+  fix_plan_item の裁定は、受け付けた機械が欄 plan_items（その単位の brief の項目の番号）を足して渡す
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
-  答えた問いの出どころを直す義務に戻し、ask_human に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
+  答えた問いの出どころを直す義務に戻し、ask_human・fix_plan_item に裁いた単位を直す義務から外す。entry.CORE_OVERRIDES）
 - test_permits(b, rulings=, source=, skip_ids=): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲）の
   唯一の元。凍結の検査と最後の関所はここから引く。source を渡すと、修正案の行の範囲をその木でテストの id から引き直す。
   skip_ids に並べた id の修正案の行は外す（TDD の輪が赤→緑を確かめた書き換え。輪の後に書き換えさせない）。
@@ -35,7 +39,7 @@
 - ruled_test_doc(b): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指した
   テストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
 - fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
-  出どころ・depends と ask_human）を 1 回で返す正本（blk-fix の受け付け・TDD の輪が読む）。義務が空で外れた単位が在れば空の
+  出どころ・depends と ask_human・fix_plan_item）を 1 回で返す正本（blk-fix の受け付け・TDD の輪が読む）。義務が空で外れた単位が在れば空の
   changes を止めない（blk-fix の assert-changed と recount.collect）
 - ruled_test_limits(b, rulings=, source=, skip_ids=)・parse_limit(lim): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定
   fix_test_scope の範囲。test_permits）の範囲の文字列と、その 1 つの読み（TDD の輪の凍結が範囲の中の直しを通す）
@@ -69,8 +73,10 @@ CORRECT = "correct_lines"               # which_is_right: query の時だけ要�
 QUERY = "query"                         # 判定者の class_query が直した後の正しい形にも当たる
 REPLACE = "replace_query"               # 問いを置き換える裁定（新しい問いを hits・misses と申し出の correct_lines で試す）
 ASK = "ask_human"
-DECISIONS = ("fix_test_scope", "fix_code_as", ASK, REPLACE)
-FIX_DECISIONS = ("fix_test_scope", "fix_code_as", REPLACE)
+REPLAN = "fix_plan_item"                # 案の項目そのものが誤りと裁く（この run では直さず、次の run の修正案と事前審査へ）
+DECISIONS = ("fix_test_scope", "fix_code_as", ASK, REPLACE, REPLAN)
+FIX_DECISIONS = ("fix_test_scope", "fix_code_as", REPLACE)   # 直す裁定（REPLAN は直さないので入れない）
+PLAN_ITEMS = "plan_items"               # 盤面の裁定の行に機械が足す欄（REPLAN の単位の brief の項目の番号）
 MIN_WHY = 10
 MIN_CITES = 2
 MAX_LINES = 20
@@ -332,6 +338,15 @@ def asked_keys(b) -> set:
     return {i["unit_key"] for i in asked(b)}
 
 
+def replanned(b) -> list:
+    """裁定が fix_plan_item の行（案の項目の誤り。この run では直さない）"""
+    return [i for i in items(b) if (i.get("ruling") or {}).get("decision") == REPLAN]
+
+
+def replanned_keys(b) -> set:
+    return {i["unit_key"] for i in replanned(b)}
+
+
 def replaced_queries(b) -> dict:
     """裁定 replace_query が置き換えた問い {unit_key: {id, how, counts, hits, misses}}（閉鎖の数え直しが判定者の問いの代わりに使う）"""
     return {i["unit_key"]: {"id": i["id"], **i["ruling"]["query"]} for i in items(b)
@@ -339,12 +354,13 @@ def replaced_queries(b) -> dict:
 
 
 def counts(b) -> dict:
-    """{parked（申し出の件数）, fix_test_scope, fix_code_as, ask_human, unruled}。replace_query は裁いた物が在る時だけ足す"""
+    """{parked（申し出の件数）, fix_test_scope, fix_code_as, ask_human, unruled}。replace_query・fix_plan_item は裁いた物が在る
+    時だけ足す"""
     rows = items(b)
     out = {"parked": len(rows), "unruled": sum(1 for i in rows if i.get("ruling") is None)}
     for d in DECISIONS:
         n = sum(1 for i in rows if (i.get("ruling") or {}).get("decision") == d)
-        if n or d != REPLACE:
+        if n or d not in (REPLACE, REPLAN):
             out[d] = n
     return out
 
@@ -412,6 +428,8 @@ def write_rulings(b) -> pathlib.Path:
         REPLACE: "判定者の問いが直した後の正しい形にも当たると裁き、問いを「置き換えた問い」に替えた（機械が hits・misses と申し出の"
                  "正しい行で試した）。閉鎖の数え直しは機械がこの問いで数える（coverage.how は書かなくてよい）。テストは変えるな。"
                  "この単位も changes に 1 行を書け",
+        REPLAN: "案の項目そのものが誤りと裁いた。この単位は直すな（機械が直す義務から外した。次の run の修正案で項目を直し、"
+                "事前審査に掛ける）。changes に書くな",
     }
     for r in rows:
         ru = r["ruling"]
@@ -419,6 +437,7 @@ def write_rulings(b) -> pathlib.Path:
                   f"- 裁定: {ru['decision']}（{ru.get('by') or ''}）——{promise[ru['decision']]}",
                   f"- 裁定の文: {ru['text']}",
                   f"- 範囲: {', '.join(ru.get('limits') or []) or '（無い）'}",
+                  *([f"- 案の項目: {', '.join(map(str, ru[PLAN_ITEMS]))}"] if ru.get(PLAN_ITEMS) else []),
                   *([f"- 裁きの出どころ: {', '.join(ru['grounds'])}"] if ru.get("grounds") else []),
                   *([f"- 依頼で探して答えが無かったこと: {ru['request_searched']}"] if ru.get("request_searched") else []),
                   *([f"- 置き換えた問い: {json.dumps(ru['query'], ensure_ascii=False)}"] if ru.get("query") else []),
@@ -442,30 +461,34 @@ def owed_units_but_asked(b):
     （gatemarks.asks。fork も escalate も）のうち答えていない物の出どころ・depends（gatemarks.withheld。無人の run・「保留: <key>」
     も）を除き、修正前の関所で人が答えた問いの出どころ・depends（gatemarks.returned。問いの status は判定の節しか書けず held の
     まま残るので、関所の答えで見る。開いていない defer の単位も戻す。修正役への約束と受け付けも同じ集合を読む）を戻し、裁定役か
-    機械が ask_human に裁いた単位を除く（最後の人の関所で人が決める。直す義務から外すのは裁定の後だけ）。元の関数は盤面の graph の
-    RL を新しく読み込んで呼ぶ（差し替えた大域の名前を読まない）"""
+    機械が ask_human に裁いた単位と、fix_plan_item に裁いた単位（次の run の修正案で項目を直す）を除く（直す義務から外すのは
+    裁定の後だけ）。元の関数は盤面の graph の RL を新しく読み込んで呼ぶ（差し替えた大域の名前を読まない）"""
     fresh = _board.rules_module(pathlib.Path(b.state["graph"]))
     got = (fresh._owed_units(b) - gatemarks.withheld(b)) | gatemarks.returned(b)
     try:
-        return got - asked_keys(b)
+        return got - asked_keys(b) - replanned_keys(b)
     except _board.BoardGap:   # 控えが読めない盤面は外さない（義務を減らさない側）
         return got
 
 
-NOTHING_OWED = ("直す義務の単位が残っていない——開いた単位は全部、人の答え待ちか ask_human で直す義務から外れた"
-                "（changes が空なのが正しい返答。最後の人の関所で人が決める）")
+NOTHING_OWED = ("直す義務の単位が残っていない——開いた単位は全部、人の答え待ちか ask_human・fix_plan_item で直す義務から外れた"
+                "（changes が空なのが正しい返答。ask_human は最後の人の関所で人が、fix_plan_item は次の run の修正案で決める）")
 
 
 def fix_duty(b) -> tuple:
     """(直す義務 owed_units_but_asked, 直す義務から外れた単位 {key: 理由})。外れた単位は、答えていない fork・escalate の問いの
-    出どころ・depends（gatemarks.withheld_by。理由はそこが組にした問い）と、ask_human に裁いた単位（asked_keys）。owed と互いに素で、owed ∪ 外れた単位は
+    出どころ・depends（gatemarks.withheld_by。理由はそこが組にした問い）と、fix_plan_item に裁いた単位（replanned_keys。理由は
+    裁定の id と案の項目の番号）と、ask_human に裁いた単位（asked_keys）。owed と互いに素で、owed ∪ 外れた単位は
     gatemarks.fixable を覆う（写しの RL の _owed_units が外す fork の出どころは withheld か returned に在る。withheld は開いていない
-    単位も含みうる）。1 単位が withheld と ask_human の両方に当たれば ask_human の理由。控えが読めなければ ask_human を外さない
+    単位も含みうる）。1 単位がいくつにも当たれば ask_human の理由（後に書いた物が勝つ）。控えが読めなければ裁定の単位を外さない
     （owed_units_but_asked と同じ側）"""
     owed = owed_units_but_asked(b)
     out = {k: f"答え待ちの問い {q.get('key')}（{q.get('kind')}・{q.get('status')}）"
            for k, q in gatemarks.withheld_by(b).items()}
     try:
+        out.update({i["unit_key"]: f"{REPLAN} の裁定 {i['id']}（案の項目 "
+                                   f"{', '.join(map(str, i['ruling'].get(PLAN_ITEMS) or [])) or '無し'}）"
+                    for i in replanned(b)})
         ids = {i["unit_key"]: i["id"] for i in asked(b)}
         out.update({k: f"ask_human の裁定 {ids.get(k) or '（id 無し）'}" for k in asked_keys(b)})
     except _board.BoardGap:

@@ -916,5 +916,53 @@ class TestTddBriefKind(LoopCase):
         self.assertTrue(got["ok"], got)
 
 
+
+PLAN_TEXT = "項目 1 の受け入れのテストは分母の誤りを縛っていない。案の項目で既存の test_mean_of_three の書き換えを名指し直せ"
+
+
+class ReplanCase(ConflictBoardCase):
+    """裁定 fix_plan_item の盤面の口（mean を申し出た盤面に修正案の欄の控えと brief を置いてから裁く）"""
+
+    def replanned(self):
+        """mean の申し出を fix_plan_item に裁いた盤面。返りは self.rule の返り (prep, 受け付けの結果)"""
+        import planbrief
+        from test_blk_fix import PLAN_FIELDS
+        self.parked()
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        planbrief.cut_at(self.board)
+        cid = self.items()[0]["id"]
+        return self.rule([{"id": cid, "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": []}])
+
+
+class TestFixPlanItem(ReplanCase):
+    """fix_plan_item に裁いた単位は、項目の番号を控えに持ち、直す義務から外れ（直せば拒む）、残りの単位だけで通る"""
+
+    def test_ruling_stored_with_plan_items(self):
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        row = self.items()[0]
+        self.assertEqual((row["ruling"]["decision"], row["ruling"]["plan_items"]), ("fix_plan_item", [1]))
+        self.assertEqual(r["counts"]["fix_plan_item"], 1)
+        self.assertIn("直すな", pathlib.Path(r["rulings_file"]).read_text(encoding="utf-8"))
+
+    def test_fixing_a_replanned_unit_is_rejected(self):
+        self.replanned()
+        self.edit_tree(MEAN_FIX)
+        r = self.accept_script(load("fix2_ok"), pass_="ruled")
+        self.assertFalse(r["ok"]); self.assertIn("fix_plan_item", r["reason"])
+
+    def test_replanned_unit_leaves_duty_and_rest_is_accepted(self):
+        self.replanned()
+        r = self.accept_script(only_clamp_reply(), pass_="ruled")
+        self.assertTrue(r["ok"], r)
+        owed, excused = conflict.fix_duty(entry.open_board(self.board))
+        self.assertNotIn(MEAN, owed); self.assertIn("fix_plan_item", excused[MEAN])
+
+    def test_fix_plan_item_without_brief_is_rejected(self):   # brief を置かない盤面
+        self.parked()
+        _, r = self.rule([{"id": self.items()[0]["id"], "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": []}])
+        self.assertEqual((r["ok"], r["done"]), (False, False)); self.assertIn("brief", r["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()

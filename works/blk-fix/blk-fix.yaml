@@ -13,9 +13,9 @@ description: |
   run が落ちる）、出口に集める（collect。消した件数と、全件を書いた盤面のファイルも渡す）。
   食い違いの申し出（持ち主 2026-09-28）: 修正役と TDD の輪の役は、緑にするためにテスト・依頼・コードのどれかを曲げる代わりに、
   名指しつき（<パス>:<行>）の食い違いを返してよい。名指しが現物に在れば拒否に数えずその単位を止め（conflict-check）、読むだけの
-  裁定役（rule-loop。持ち主の決まり rules/principles.md）が fix_test_scope・fix_code_as・ask_human・replace_query に裁き、2 回目の修正役
+  裁定役（rule-loop。持ち主の決まり rules/principles.md）が fix_test_scope・fix_code_as・ask_human・replace_query・fix_plan_item に裁き、2 回目の修正役
   （fix-ruled-loop。修正役の会話の続き）が裁定の文のファイルを読んで直して盤面に渡す。ask_human の単位は直す義務から外れ、
-  最後の人の関所に届く（.shared/core/conflict.py）。
+  最後の人の関所に届く。fix_plan_item の単位も直す義務から外れ、次の run の修正案に渡る（.shared/core/conflict.py）。
 
 inputs:
   judgment_file:
@@ -611,7 +611,7 @@ nodes:
         file: {type: string}
 
   # 裁定の輪（持ち主 2026-09-28「おしで」）。役 rule は輪のただ 1 つの AI の節（TA13）で読むだけ。持ち主の決まり
-  # （rules/principles.md）で fix_test_scope・fix_code_as・ask_human・replace_query（置き換えた問いは機械が例で試す）のどれかに裁く。3 回目の拒否で裁かれていない申し出を人へ回し、
+  # （rules/principles.md）で fix_test_scope・fix_code_as・ask_human・replace_query（置き換えた問いは機械が例で試す）・fix_plan_item のどれかに裁く。3 回目の拒否で裁かれていない申し出を人へ回し、
   # done で抜ける（max_iterations で落とさない。R50）。理由の文は rule-prep が次の指示書の 1 行目でパスを名指す（R44）
   - id: rule-loop
     depends_on: [conflict-check]
@@ -662,7 +662,7 @@ nodes:
                   required: [id, decision, text, limits]
                   properties:
                     id: {type: string, minLength: 1}
-                    decision: {type: string, enum: [fix_test_scope, fix_code_as, ask_human, replace_query]}
+                    decision: {type: string, enum: [fix_test_scope, fix_code_as, ask_human, replace_query, fix_plan_item]}
                     text: {type: string, minLength: 10}
                     limits:
                       type: array
@@ -706,7 +706,7 @@ nodes:
               reason: {type: string}
               reason_file: {type: string}
               rulings_file: {type: string}   # 裁定の文（2 回目の修正役の指示書の 1 行目が名指す）
-              counts: {type: object}         # {parked, unruled, fix_test_scope, fix_code_as, ask_human[, replace_query]}
+              counts: {type: object}         # {parked, unruled, fix_test_scope, fix_code_as, ask_human[, replace_query][, fix_plan_item]}
 
   # 裁定の後の 2 回目の修正役（印 continue=fix: 包みが修正役の会話を継ぐ）。1 回目は裁定の文のファイルを名指し、ask_human の単位は
   # 直す義務から外れる（conflict.owed_units_but_asked）。盤面の p3.fix に渡すのはここ（1 回目は申し出で止めて渡していない）

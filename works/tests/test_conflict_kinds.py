@@ -6,6 +6,8 @@
 - 控えの行と trace の行に kind が載り、種類の内訳（kind_counts）が数える。kind の無い前の形の行も読めて「無し」と出る
 - brief_vs_judgment は、その単位の brief の行（planbrief.by_unit_at の形）を between に名指す時だけ通す。brief の無い run・
   ほかの項目の brief だけの名指しは拒む。brief の控えが壊れていれば brief は無い側（通さない側）に倒す
+- 裁定 fix_plan_item（案の項目そのものの誤り）は直す裁定でなく、範囲 limits を持たず、brief の在る単位だけに出せる。
+  役の返答の形・裁定役の決まりの節がこの語を持つ
 盤面・git・子のプロセスは使わない（関数を直に呼ぶ。一時の置き場に種のファイルと控えを書くだけ）。
 """
 import json
@@ -25,6 +27,7 @@ sys.path.insert(0, str(CORE))
 import conflict  # noqa: E402
 import fixrules  # noqa: E402
 import planbrief  # noqa: E402
+import ruling  # noqa: E402
 import tddloop  # noqa: E402
 
 KEY = "stats.py clamp: 上限を超えた値に lo を返す"
@@ -169,6 +172,38 @@ class BriefKindCase(unittest.TestCase):
         sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
         for k in ("scope_needed", "query_hits_fixed", "brief_vs_judgment"):
             self.assertIn(f"`kind` は `{k}`", sec)
+
+
+
+class FixPlanItemRulingCase(unittest.TestCase):
+    """裁定 fix_plan_item の受け付けの確かめ（ruling.problems を直に呼ぶ。plan_items は {unit_key: [項目の番号]}）"""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.repo = pathlib.Path(tmp.name)
+        seed(self.repo)
+        self.todo = {"c1-1": {"id": "c1-1", "unit_key": KEY, "which_is_right": "request", "kind": "not_red"}}
+
+    def errs(self, plan_items, **over):
+        r = {"id": "c1-1", "decision": "fix_plan_item", "text": "受け入れのテストの赤の種類を exception に直す", "limits": [], **over}
+        return ruling.problems({"rulings": [r]}, self.todo, self.repo, "", (), plan_items=plan_items)
+
+    def test_fix_plan_item_needs_a_brief_and_no_limits(self):
+        self.assertIn("fix_plan_item", conflict.DECISIONS)
+        self.assertNotIn("fix_plan_item", conflict.FIX_DECISIONS)
+        self.assertEqual(self.errs({KEY: [1]}), [])
+        self.assertTrue(any("brief" in e for e in self.errs({})))
+        self.assertTrue(any("範囲" in e for e in self.errs({KEY: [1]}, limits=["test_stats.py:2"])))
+
+    def test_rule_schema_and_yaml_carry_the_decision(self):
+        enum = ruling.RULE_OUTPUT_FORMAT["properties"]["rulings"]["items"]["properties"]["decision"]["enum"]
+        self.assertIn("fix_plan_item", enum)
+
+    def test_ruler_rules_name_fix_plan_item(self):
+        self.assertIn("`fix_plan_item`", fixrules.sections(fixrules.RULER)["ruler-reply"])
+        self.assertIn("fix_plan_item", fixrules.sections(fixrules.PRINCIPLES)["principles"])
+        self.assertIn("`kind`", fixrules.sections(fixrules.RULER)["ruler-head"])
 
 
 if __name__ == "__main__":
