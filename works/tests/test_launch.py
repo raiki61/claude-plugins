@@ -671,6 +671,36 @@ class Bind(unittest.TestCase):
         self.assertIn("JSON として読めない", err)
         self.assertEqual(json.loads((self.tmp / "unbound" / "20261002-1.json").read_text())["candidates"], ["a", "b"])
 
+    def test_unbound_save_refuses_unreadable_list_and_keeps_paths_in_unknown_control(self):
+        """一覧が読めない（JSON でない・空・runs が無い・null・dict・文字列）時は、読めた 0 本（空を返して呼び手が消す）と同じに畳まず、
+        2 で止めて、候補の無い控え（unknown）に包んだ基と読み出しを残す。読めた 0 本は今までどおり何も書かずに空を返す"""
+        path = self.tmp / "unbound" / "20261002-1.json"
+        for listed in ("not json", "", "{}", "[]", '{"runs": null}', '{"runs": {}}', '{"runs": "x"}'):
+            with self.subTest(listed=listed):
+                shutil.rmtree(self.tmp / "unbound", ignore_errors=True)
+                rc, out, err = self.unbound_save(listed)
+                self.assertEqual((rc, out), (2, ""))
+                self.assertIn("JSON として読めない", err)
+                self.assertIn(str(path), err)
+                self.assertEqual(json.loads(path.read_text()),
+                                 {"wrap_ref": "refs/works/wraps/abc", "github_reads": "/h/reads/1.json", "target": str(self.target.resolve()),
+                                  "candidates": [], "unknown": True})
+        shutil.rmtree(self.tmp / "unbound")
+        self.assertEqual(self.unbound_save('{"runs": []}'), (0, "", ""))
+        self.assertFalse((self.tmp / "unbound").exists())
+
+    def test_unbound_release_returns_unknown_control_only_when_no_run_lives(self):
+        """一覧が読めずに残した控え（unknown。どの run の物か分からない）は、clean が一覧を読めた時にこの対象の生きた run が 1 本でも
+        在れば返さず、1 本も無ければ（clean する run 自身は生きていない）返す。ほかの対象の控えは触らない"""
+        self.unbound_save("not json")
+        path = self.tmp / "unbound" / "20261002-1.json"
+        self.assertEqual(self.unbound_release("a", rows=[self.row("b")]), (0, "", ""))
+        self.assertTrue(path.exists())
+        rows = [dict(self.row("a"), status="completed")]
+        self.assertEqual(self.unbound_release("a", target=self.tmp, rows=rows), (0, "", ""))
+        self.assertEqual(self.unbound_release("a", rows=rows),
+                         (0, f"{path}\trefs/works/wraps/abc\t/h/reads/1.json\t\n", ""))
+
     def test_unbound_release_hands_back_only_safe_paths(self):
         """控えの参照は refs/works/wraps/ の下・読み出しは .json の絶対パスの時だけ返す（手で書き換えた控えで別の物を消さない）"""
         self.unbound_save(json.dumps({"runs": [self.row("bare")]}), wrap_ref="refs/heads/main", github_reads="rel.json")

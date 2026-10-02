@@ -355,13 +355,18 @@ def _run_reads(row):
     return os.path.realpath(value) if isinstance(value, str) and value else None
 
 
+def _runs_list(doc):
+    """runs --json の runs の一覧。鍵が無い・list でない（null・dict・文字列）なら ValueError——読めた 0 本と読めないを分ける"""
+    runs = doc.get("runs") if isinstance(doc, dict) else None
+    if not isinstance(runs, list):
+        raise ValueError("runs の一覧が無い")
+    return runs
+
+
 def _darkfactory_rows(stdin, here):
     """標準入力の runs --json のうち、この対象（origin の無い行は見分けられないので残す）の darkfactory の run の行。
-    JSON として読めなければ ValueError"""
-    try:
-        rows = [r for r in json.loads(stdin.read()).get("runs", []) if isinstance(r, dict)]
-    except AttributeError as e:
-        raise ValueError(e)
+    JSON として読めなければ（runs の一覧が無い・list でないのも）ValueError"""
+    rows = [r for r in _runs_list(json.loads(stdin.read())) if isinstance(r, dict)]
     return [r for r in rows if r.get("workflow_name") == "darkfactory" and _run_origin(r) in (None, here)]
 
 
@@ -405,35 +410,43 @@ def _ledger_bind(opts, environ, stdin):
                         LEDGER_BIND_NAMES)
 
 
-def _unbound_save(opts, stdin):
-    # 結べなかった起動の run は起動の関所で生きていて、包んだ基と読み出しを使う（消すと承認した run が落ちる。2026-10-01）。
-    # 結ばずに（設計書 2.3）候補と一緒に残し、use.sh clean が候補の run の片付けと一緒に消す。候補は生きた状態の物だけ（終わった
-    # 古い run を載せない）。一覧が読めない・候補が 0 本なら何も書かずに空を返す（呼び手がその場で消す）
-    here = os.path.realpath(opts["target"])
-    try:
-        rows = _darkfactory_rows(stdin, here)
-    except ValueError:
-        return ""
-    found = [r["id"] for r in _unmarked(rows)
-             if isinstance(r.get("id"), str) and r["id"] and r.get("status") in LIVE_STATUSES]
-    if not found:
-        return ""
-    doc = {"wrap_ref": opts.get("wrap-ref", ""), "github_reads": opts.get("github-reads", ""), "candidates": found,
-           "target": here}
-    os.makedirs(opts["dir"], exist_ok=True)
-    path = os.path.join(opts["dir"], opts["stamp"] + ".json")
+def _replace_json(path, doc):
     part = f"{path}.{os.getpid()}.part"
     with open(part, "w", encoding="utf-8") as f:
         f.write(json.dumps(doc, ensure_ascii=False) + "\n")
     os.replace(part, path)
+
+
+def _unbound_save(opts, stdin):
+    # 結べなかった起動の run は起動の関所で生きていて、包んだ基と読み出しを使う（消すと承認した run が落ちる。2026-10-01）。
+    # 結ばずに（設計書 2.3）候補と一緒に残し、use.sh clean が候補の run の片付けと一緒に消す。候補は生きた状態の物だけ（終わった
+    # 古い run を載せない）。読めた一覧で候補が 0 本なら何も書かずに空を返す（呼び手がその場で消す）。一覧が読めなければ生きた
+    # run が在るか分からないので消さず、候補の無い控え（unknown）に残して止める（clean と同じく迷ったら残す）
+    here = os.path.realpath(opts["target"])
+    doc = {"wrap_ref": opts.get("wrap-ref", ""), "github_reads": opts.get("github-reads", ""), "target": here}
+    path = os.path.join(opts["dir"], opts["stamp"] + ".json")
+    try:
+        rows = _darkfactory_rows(stdin, here)
+    except ValueError as e:
+        os.makedirs(opts["dir"], exist_ok=True)
+        _replace_json(path, dict(doc, candidates=[], unknown=True))
+        raise Refused(f"archon workflow runs --json の出力が JSON として読めない（{e}）。生きた run が使うかもしれないので"
+                      f"包んだ基と読み出しは消さず、控え {path} に残した")
+    found = [r["id"] for r in _unmarked(rows)
+             if isinstance(r.get("id"), str) and r["id"] and r.get("status") in LIVE_STATUSES]
+    if not found:
+        return ""
+    os.makedirs(opts["dir"], exist_ok=True)
+    _replace_json(path, dict(doc, candidates=found))
     return " ".join(found) + "\n"
 
 
 def _unbound_release(opts, stdin):
     # clean <対象> <run-id> が呼ぶ。ほかの候補がまだ生きている間はその run が包んだ基と読み出しを使うかもしれないので返さず、
     # 控えの候補からこの run だけを外して書き戻す。最後の候補の時だけ返す（消すのと控えを消すのは呼び手）。この run を候補に
-    # 持つ控えは全部回り、控えごとに 1 行を出す（印の無い起動を並べると後の控えに前の run も載る）。一覧が読めなければ
-    # 生きているかが分からないので止める
+    # 持つ控えは全部回り、控えごとに 1 行を出す（印の無い起動を並べると後の控えに前の run も載る）。候補の無い控え（unknown。
+    # start が一覧を読めずに残した）は、この対象の生きた run が 1 本も無い時に返す（どの run の物か分からないので）。
+    # 一覧が読めなければ生きているかが分からないので止める
     here, run_id = os.path.realpath(opts["target"]), opts["run-id"]
     try:
         rows = _darkfactory_rows(stdin, here)
@@ -447,18 +460,20 @@ def _unbound_release(opts, stdin):
                 doc = json.load(f)
         except (OSError, ValueError):
             continue
-        if not (isinstance(doc, dict) and doc.get("target") == here and isinstance(doc.get("candidates"), list)
-                and run_id in doc["candidates"]):
+        if not (isinstance(doc, dict) and doc.get("target") == here and isinstance(doc.get("candidates"), list)):
+            continue
+        if doc.get("unknown") is True:
+            if not live:
+                lines.append("\t".join((path, *_kept_paths(doc), "")) + "\n")
+            continue
+        if run_id not in doc["candidates"]:
             continue
         rest = [c for c in doc["candidates"] if c != run_id]
         alive = [c for c in rest if c in live]
         if not alive:
             lines.append("\t".join((path, *_kept_paths(doc), "")) + "\n")
             continue
-        part = f"{path}.{os.getpid()}.part"
-        with open(part, "w", encoding="utf-8") as f:
-            f.write(json.dumps(dict(doc, candidates=rest), ensure_ascii=False) + "\n")
-        os.replace(part, path)
+        _replace_json(path, dict(doc, candidates=rest))
         lines.append("\t".join((path, "", "", " ".join(alive))) + "\n")
     return "".join(lines)
 

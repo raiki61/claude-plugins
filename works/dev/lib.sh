@@ -90,6 +90,14 @@ def slot_mark(board):
     return dict(d, alive=alive, minutes=minutes)
 def slot_waiting(m):
     return bool(m) and m["state"] == "waiting" and m["alive"] is not False
+import datetime
+def when(v):
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.datetime.strptime(str(v), fmt).replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            pass
+    return None
 '
 
 # works_dev_herdr_sync <archon を呼ぶ殻> <控えの置き場…（改行で区切る）> [<run-id>[=<状態>]…]: herdr が在る時だけ、run を起こした
@@ -97,9 +105,10 @@ def slot_waiting(m):
 # （herdr の公式の口。source works-factory・agent works は 1 つのまま、run ごとに上書きしない）。送る枠は、名指した run を起こした枠と、
 # 打った殻の枠（HERDR_ENV=1 の HERDR_PANE_ID）だけ（昔の枠へ毎回送らない）。打った殻が枠の外でも、名指した run の起こした枠へは送る
 # （公式の手引きの「枠の外では何もしない」から外れるのは、run を起こした枠の表示を別の殻から打った続きに追わせるため。枠の外で
-# 起こした run は控えに枠が無いので、今も何も送らない）。関所で待つ・落ちた run が 1 つでも在れば blocked、無くて走っている run が
+# 起こした run は控えに枠が無いので、今も何も送らない）。関所で待つ・落ちた run（同じ枠・同じ対象で後に起こした run が在る落ちた run は
+# 終わった run に数える。比べる順は Archon の一覧の started_at で、控えの started_at ではない）が 1 つでも在れば blocked、無くて走っている run が
 # 在れば working（試験の枠を待つ run は走る run のうちに「うち枠待ち k」と数える。続き中の印の在る run は Archon がまだ paused を
-# 返しても走る run）、全部終わった時だけ pane release-agent。状態の分からない run が在る時だけ、その控えの在る家（控えの置き場の親）
+# 返しても走る run）、全部終わった時だけ pane release-agent。状態の分からない run か落ちた run が在る時だけ、その控えの在る家（控えの置き場の親）
 # ごとに一覧を 1 回引く。herdr を呼ぶのはここだけ。herdr が無い・失敗した時は何もしない（run を止めない・終了の値を変えない）
 works_dev_herdr_sync() {
   command -v herdr >/dev/null 2>&1 || return 0
@@ -108,7 +117,7 @@ works_dev_herdr_sync() {
   shift 2
   _ledgers="$(printf '%s\n' "$_runs" | while IFS= read -r _d; do
     [ -n "$_d" ] || continue
-    works_dev_ledgers "$_d" | awk -F'\t' -v home="${_d%/runs}" '$5 != "" { print home "\t" $1 "\t" $5 "\t" $6 "\t" $7 }'
+    works_dev_ledgers "$_d" | awk -F'\t' -v home="${_d%/runs}" '$5 != "" { print home "\t" $1 "\t" $2 "\t" $5 "\t" $6 "\t" $7 }'
   done)"
   [ -n "$_ledgers" ] || return 0
   _sigs="$(ARCHON_SH="$_archon" LEDGERS="$_ledgers" SLOT_PY="$WORKS_DEV_SLOT_PY" python3 -c '
@@ -117,13 +126,14 @@ e = os.environ
 exec(e["SLOT_PY"])
 me_pane = e.get("HERDR_PANE_ID", "") if e.get("HERDR_ENV") == "1" else ""
 me_sock = e.get("HERDR_SOCKET_PATH", "") if me_pane else ""
-home_of, where, cont = {}, {}, set()
+home_of, where, target_of, cont = {}, {}, {}, set()
 for line in e["LEDGERS"].splitlines():
     f = line.split("\t")
-    if len(f) < 5 or f[1] in home_of:   # 同じ run の控えが 2 つの置き場に在れば先の物
+    if len(f) < 6 or f[1] in home_of:   # 同じ run の控えが 2 つの置き場に在れば先の物
         continue
-    home, rid, pane, sock, c = f[:5]
+    home, rid, target, pane, sock, c = f[:6]
     home_of[rid] = home
+    target_of[rid] = target
     # サーバを残していない前の控えは、同じ名の枠に居る打った殻のサーバと見る（前の作りと同じ送り先）。それ以外は既定のサーバ
     where[rid] = (sock or (me_sock if pane == me_pane else ""), pane)
     if c:
@@ -150,6 +160,13 @@ for sock, pane in picked:
     if not mine:
         continue
     states = [known[r] if r in known else (listed(home_of[r]).get(r) or {}).get("status") or "" for r in mine]
+    # 同じ枠・同じ対象で後に起こした run が在る failed は、人がもう起こし直した物なので終わった run に数える（後の run の状態は問わない。
+    # 後の run がまた落ちれば、その run が人の番になる）。比べる材料が欠ける時（対象が空・時刻が読めない・同じ時刻）は人の番に倒す
+    if "failed" in states:
+        began = {r: when((listed(home_of[r]).get(r) or {}).get("started_at")) for r in mine}
+        states = ["completed" if s == "failed" and target_of[r] and began[r]
+                  and any(target_of[o] == target_of[r] and began[o] and began[o] > began[r] for o in mine)
+                  else s for r, s in zip(mine, states)]
     running = sum(s in ("running", "pending") for s in states)
     ended = sum(s in done for s in states)
     waiting = len(states) - running - ended
@@ -389,14 +406,6 @@ wp = r.get("working_path") or ""
 print("run id:", r.get("id"))
 print("状態:", r.get("status"))
 # 経過・生きているか・走っている節・節ごとの費用。欄名は本流 graphloops [0.23.0] の status（launched_min・alive・cost_usd）
-import datetime
-def when(v):
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S"):
-        try:
-            return datetime.datetime.strptime(str(v), fmt).replace(tzinfo=datetime.timezone.utc)
-        except ValueError:
-            pass
-    return None
 now = datetime.datetime.now(datetime.timezone.utc)
 began = when(r.get("started_at"))
 print("launched_min:", "{}（Archon の run の started_at から今までの分）".format(int((now - began).total_seconds() // 60))

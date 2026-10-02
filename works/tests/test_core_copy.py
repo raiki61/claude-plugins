@@ -195,7 +195,7 @@ class TestCoreCopy(unittest.TestCase):
         self.assertNotIn("archon workflow run raiki61/works:darkfactory", body)
         p = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
         self.assertEqual(p["name"], "works")
-        self.assertEqual(p["version"], "0.2.13")
+        self.assertEqual(p["version"], "0.2.15")
         self.assertTrue(p.get("description"))
 
 

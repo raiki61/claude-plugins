@@ -53,7 +53,7 @@ NONE_WORDS = ("", "null")               # 入口の「無し」（Archon の入�
 EXCLUDED_HEAD = "並行 PR の範囲。触らず、単位に入れない"
 NO_NARROW_REJECT = (f"narrows の行に狭めない案を探した結果（{gatemarks.NO_NARROW}）が無いか短い（直して done し直す）。狭めを避ける形が"
                     "在ればそれを案に採ってその行を消し、無い時だけ、どの形を当たりなぜ採れないかを書け:")
-NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit・info・defer など。受け付けが受けない）。案から外し、入れてよい no は頭の節に在る:"
+NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit・info・defer など。受け付けが受けない）。案から外せ。案に入れてよい no（必ず入れる物を含む）は"
 PLAN_STUCK = "修正案の行き止まり: 必ず案に入れる単位が開いていない"
 STUCK_WHY = ("受け付けの写しは開いていない単位を受けず、義務からも外さないので、案の形では閉じない。人が関所で問いの答えを直すか、"
              "単位を開く")
@@ -182,6 +182,19 @@ def _resolved(b, nid: str, reply: dict) -> dict:
     return got
 
 
+def _plan_keys(got) -> list:
+    """修正案の返答が案の行に挙げた単位の key（文字列）。形の崩れた行・欄は飛ばす（形の拒否は entry.take＝engine に任せる。再提出の道に乗せる）"""
+    rows = got.get("plan") if isinstance(got, dict) else None
+    return [k for p in rows if isinstance(p, dict) and isinstance(p.get("unit_keys"), list)
+            for k in p["unit_keys"] if isinstance(k, str)] if isinstance(rows, list) else []
+
+
+def allowed_nos(b, nid: str) -> list:
+    """案に入れてよい no（開いている単位の no。必ず入れる単位は開いている＝halt_if_stuck が保つ）"""
+    _, opened, _ = plan_slots(b)
+    return [i + 1 for i, k in enumerate(_names(b, nid)) if k in opened]
+
+
 def not_allowed(b, nid: str, reply) -> list[str]:
     """修正案の返答が案に入れた単位のうち、受け付けが受けない物（入れてよくなく、必ず入れる物でもない）の理由の行。no は engine の
     pointers.resolve で名前に戻す（範囲外の番号・判定に無い key の拒否は entry.take＝engine に任せる）"""
@@ -191,12 +204,11 @@ def not_allowed(b, nid: str, reply) -> list[str]:
     got = _resolved(b, nid, reply)
     names = _names(b, nid)
     lines = []
-    for p in got.get("plan") or []:
-        for k in p.get("unit_keys") or []:
-            if k in units and k in names and k not in opened and k not in owed:   # 判定に無い key・番号に無い名前は受け付けの写しの拒否に任せる
-                u = units[k]
-                lines.append(f"no {names.index(k) + 1} は label={u.get('label')}（disposition={u.get('disposition', '無し')}）"
-                             f"で直す対象でない（{k[:40]}）")
+    for k in _plan_keys(got):
+        if k in units and k in names and k not in opened and k not in owed:   # 判定に無い key・番号に無い名前は受け付けの写しの拒否に任せる
+            u = units[k]
+            lines.append(f"no {names.index(k) + 1} は label={u.get('label')}（disposition={u.get('disposition', '無し')}）"
+                         f"で直す対象でない（{k[:40]}）")
     return lines
 
 
@@ -270,20 +282,30 @@ def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
             "already": m["already"]}
 
 
+def _plan_malformed(reply) -> bool:
+    """修正案の返答の形が崩れているか（dict でない・plan が list でない・plan の行が dict でない・narrows が list でない。空の narrows は gatemarks と同じく無い物と読む）"""
+    if not isinstance(reply, dict) or not isinstance(reply.get("plan"), list):
+        return True
+    return any(not isinstance(p, dict) or not isinstance(p.get("narrows") or [], list) for p in reply["plan"])
+
+
 def take(role: str):
     """rolekit.accept_role の take: 関所の項目の行の決め手の欄（gatemarks）を外した返答を entry.take に渡す（写しの型は欄を
     持たない）。決め手は渡す前に盤面の gate-marks.json に置く（事前審査を受けた settle の中で関所が読む）。修正案の narrows の行が
-    狭めない案を探した結果を欠けば、盤面へ渡さずに拒む（gatemarks.narrow_gaps）"""
+    狭めない案を探した結果を欠けば、盤面へ渡さずに拒む（gatemarks.narrow_gaps）。形の崩れた修正案は前段を飛ばして entry.take に渡す"""
     nid = role_node(role)
 
     def run(board, reply, repo):
+        if role == "plan" and _plan_malformed(reply):   # gatemarks は形の整った返答を前提に読む（変えない部品）。形の拒否は entry.take が言い、再提出の道に乗せる
+            return entry.take(pathlib.Path(board), nid, reply, pathlib.Path(repo), snapshot_name=snapshot_name(role))
         gaps = gatemarks.narrow_gaps(nid, reply)
         if gaps:
             return {"ok": False, "reason": NO_NARROW_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
         if role == "plan":
             closed = not_allowed(entry.open_board(pathlib.Path(board)), nid, reply)
             if closed:
-                return {"ok": False, "reason": NOT_OWED_REJECT + "\n" + "\n".join(f"  - {c}" for c in closed)}
+                allowed = allowed_nos(entry.open_board(pathlib.Path(board)), nid)
+                return {"ok": False, "reason": f"{NOT_OWED_REJECT} {allowed}。外す単位:\n" + "\n".join(f"  - {c}" for c in closed)}
         bare, marks = gatemarks.split(nid, reply)
         gatemarks.save(board, nid, entry.open_board(pathlib.Path(board)).round, marks)
         return entry.take(pathlib.Path(board), nid, bare, pathlib.Path(repo), snapshot_name=snapshot_name(role))
@@ -297,6 +319,8 @@ def with_plan_fields(run):
     戻した物（not_allowed と同じ戻し方。盤面が受けた案と同じ名前）。盤面が受けた後で控えを置けなければ、黙って欄の無い run に
     せず盤面を止めて（by works:plan）控えを名指す理由の BoardGap"""
     def wrapped(board, reply, repo):
+        if _plan_malformed(reply):   # 形の崩れた返答は欄を読まずに run へ（run が前段を飛ばして entry.take に拒ませる。再提出の道）
+            return run(board, reply, repo)
         gaps = planmarks.gaps(reply, pathlib.Path(repo))
         if gaps:
             return {"ok": False, "reason": planmarks.REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}

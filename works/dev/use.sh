@@ -62,6 +62,7 @@
 set -eu
 
 USAGE="usage: use.sh start [--base <版> | --pr <番号>] [--] [<対象リポジトリ>] <依頼の JSON か -> [<test_cmd> [<tdd_suite>]] | use.sh show <対象リポジトリ> [<run-id>] | use.sh wait <対象リポジトリ> <run-id> | use.sh answer <対象リポジトリ> <run-id> continue|stop <一言> <答えた者> | use.sh approve <対象リポジトリ> <run-id> | use.sh stop <対象リポジトリ> <run-id> <理由> | use.sh apply <対象リポジトリ> <run-id> | use.sh clean <対象リポジトリ> <run-id> | use.sh check <対象リポジトリ>"
+ARCHON_BASE_BRANCH=""   # Archon の workflow run に渡す worktree の土台の枝（start・check が下で origin の既定の枝から求める。入口の旗 --base の CHANGE_INPUT とは別物）
 CHANGE_INPUT=""   # 変更の入口（ラインの入力 base か pr）。--input にそのまま渡す <鍵>=<値>
 if [ "${1:-}" = start ]; then
   shift
@@ -199,6 +200,21 @@ if [ "$CMD" = start ] || [ "$CMD" = check ]; then
   fi
   if ! git -C "$TARGET" remote get-url origin >/dev/null 2>&1; then
     problem "対象に remote の origin が無い（Archon v0.11.1 は --from を渡しても run の worktree を切れずに落ちる）。対象（${TARGET}）で入れる: git remote add origin <URL>（手元だけなら対象の外に git init --bare <対象>.origin.git を作って origin にし、git push origin HEAD の後に git remote set-head origin <push した枝>）"
+  else
+    # Archon に渡す worktree の土台の枝（入口の旗 --base <版> の CHANGE_INPUT とは別物）: origin の既定の枝。origin/HEAD が指す枝、
+    # 無ければ origin/main、次に origin/master。どれも無ければ推さずに止める（check は並べる。start は依頼の写し・読み出し・pack の
+    # 写し・包んだ参照を作る前に止まる）。origin/HEAD は --short で読まない（手元に origin/main という名の枝が在ると
+    # remotes/origin/main を返す）。指す先の追跡の枝が無い時（改名の後の fetch --prune で消えた枝を指したまま）も渡さずに次へ進む。
+    # 手元の追跡 ref だけで求める（網に出ない。check も start も origin に届かなくても動く）
+    _head="$(git -C "$TARGET" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
+    ARCHON_BASE_BRANCH=""
+    for _b in "${_head#refs/remotes/origin/}" main master; do
+      if [ -n "$_b" ] && git -C "$TARGET" show-ref --verify --quiet "refs/remotes/origin/$_b"; then
+        ARCHON_BASE_BRANCH="$_b"
+        break
+      fi
+    done
+    [ -n "$ARCHON_BASE_BRANCH" ] || problem "origin の既定の枝が分からない（origin/HEAD・origin/main・origin/master のどれも無い）。git fetch origin で追跡の枝を取り、それでも無ければ git remote set-head origin -a（または git remote set-head origin <枝>）で origin/HEAD を置いてから打ち直す"
   fi
   if [ "$CMD" = start ] && [ "$REQUEST_SRC" = - ]; then
     if [ -z "$CHANGE_INPUT" ]; then
@@ -538,20 +554,6 @@ EOF
 esac
 
 # ---- start
-# Archon に渡す worktree の土台の枝（入口の旗 --base <版> の CHANGE_INPUT とは別物）: origin の既定の枝。origin/HEAD が指す枝、
-# 無ければ origin/main、次に origin/master。どれも無ければ推さずに止める（依頼の写し・読み出し・pack の写し・包んだ参照を作る前に）。
-# origin/HEAD は --short で読まない（手元に origin/main という名の枝が在ると remotes/origin/main を返す）。指す先の追跡の枝が
-# 無い時（改名の後の fetch --prune で消えた枝を指したまま）も渡さずに次へ進む
-_head="$(git -C "$TARGET" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
-ARCHON_BASE_BRANCH=""
-for _b in "${_head#refs/remotes/origin/}" main master; do
-  if [ -n "$_b" ] && git -C "$TARGET" show-ref --verify --quiet "refs/remotes/origin/$_b"; then
-    ARCHON_BASE_BRANCH="$_b"
-    break
-  fi
-done
-[ -n "$ARCHON_BASE_BRANCH" ] || refuse "origin の既定の枝が分からない（origin/HEAD・origin/main・origin/master のどれも無い）。git fetch origin で追跡の枝を取り、それでも無ければ git remote set-head origin -a（または git remote set-head origin <枝>）で origin/HEAD を置いてから打ち直す"
-
 if [ -n "$WORKS_LAUNCH_ADAPTER_MODE" ]; then
   echo "包み無し（WORKS_DEV_ADAPTER=${WORKS_DEV_ADAPTER:-空}）: adapter=optional で回し、報告に出る"
 fi
@@ -662,19 +664,30 @@ if ! works_dev_ledger_bind use.sh "$ARCHON" "$TARGET" "$REQUEST"; then
   # 起動が 0 で終わったなら、この起動の run は起動の関所で生きていて、包んだ基と読み出しを使う（消すと承認した run が落ちる。
   # 2026-10-01 に実測）。推定では結ばず（設計書 2.3）、一覧のうち依頼の写しも読み出しも持たない生きた darkfactory の run
   # （launch.py の LIVE_STATUSES）を候補として控え <家>/unbound/<印>.json に残し、最後の候補の clean <対象> <run-id> が消す。
-  # 候補は一覧から 1 回引く（works_dev_run_json と同じ引き方。候補の判じ方と控えの形は launch.py ledger unbound-save）
+  # 候補は一覧から 1 回引く（works_dev_run_json と同じ引き方。候補の判じ方と控えの形は launch.py ledger unbound-save）。
+  # 一覧が読めなければ生きた run が在るか分からないので、候補の無い控え（unknown）に残して 1 で終わる（迷ったら残す。clean と同じ）
   UNBOUND_CANDIDATES=""
+  UNBOUND_UNREADABLE=""
   if [ "$run_status" -eq 0 ] && { [ -n "$WRAP_REF" ] || [ -n "$GITHUB_READS" ]; }; then
     UNBOUND_FILE="$WORKS_USE_HOME/unbound/$STAMP.json"
     UNBOUND_CANDIDATES="$(WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow runs --json 2>/dev/null |
       works_dev_launch ledger unbound-save --dir "$WORKS_USE_HOME/unbound" --target "$TARGET" --stamp "$STAMP" \
-        --wrap-ref "$WRAP_REF" --github-reads "$GITHUB_READS")" || UNBOUND_CANDIDATES=""
+        --wrap-ref "$WRAP_REF" --github-reads "$GITHUB_READS")" || UNBOUND_UNREADABLE=1
+  fi
+  if [ -n "$UNBOUND_UNREADABLE" ]; then
+    # 失敗の理由は launch.py の行（rc 2 は一覧が読めない・控えの書き込みの失敗の両方）。案内は控えが現に在るかで分ける
+    if [ -f "$UNBOUND_FILE" ]; then
+      echo "この起動の run を結べず、生きた run が在るか分からなかった（run の一覧が読めない）。生きた run が使うかもしれないので、包んだ基 ${WRAP_REF:-無し} と読み出し ${GITHUB_READS:-無し} は消さずに残した。この対象の run を全部片付けた後に use.sh clean ${TARGET} <run-id> で消える（控え ${UNBOUND_FILE}）"
+    else
+      echo "この起動の run を結べず、控えも書けなかった（理由は上の launch.py の行）。clean は包んだ基と読み出しを知らないが、生きた run が使うかもしれないので消さずに残した。要らなくなったら手で外す: 包んだ基 ${WRAP_REF:-無し}（git update-ref -d）・読み出し ${GITHUB_READS:-無し}"
+    fi
+    exit 1
   fi
   if [ -n "$UNBOUND_CANDIDATES" ]; then
     echo "この起動の run を結べなかった。包んだ基 ${WRAP_REF:-無し} と読み出し ${GITHUB_READS:-無し} は run が使うので残した。run を片付けた後に use.sh clean ${TARGET} <run-id> で消える（候補 ${UNBOUND_CANDIDATES}・控え ${UNBOUND_FILE}）"
     exit 1
   fi
-  # 起動が落ちたか候補が 0 本なら、控えを書けないので clean は包んだ基の参照を知らない。ここで外す（run が切った worktree の枝が
+  # 起動が落ちたか読めた一覧で候補が 0 本なら、控えを書けないので clean は包んだ基の参照を知らない。ここで外す（run が切った worktree の枝が
   # 在ればその基はそこから届く）
   if [ -n "$WRAP_REF" ]; then
     git update-ref -d "$WRAP_REF"
