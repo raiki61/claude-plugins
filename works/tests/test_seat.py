@@ -74,6 +74,16 @@ class SeatCase(unittest.TestCase):
         self.assertTrue(text.startswith(seat.HEAD))
         self.assertEqual(seat.skill_of(s), "test-driven-development")
 
+    def test_both_seat_kinds_share_the_wins_paragraph(self):
+        """借りた文に何が勝つかの段落は skill の座と prompt の座で同じ 1 つ。skill の座はその前に Skill の道具で読めの 1 文だけを足す"""
+        self.assertEqual(seat.WINS, "この指示書の段の約束（返す JSON・機械の関門・段の順）と下の読み替えは、借りた文に勝つ")
+        tdd = own_part(seat.section("tdd", "g3"))
+        self.assertIn(f"Skill の道具で `test-driven-development` を読み、その手順で進めよ。{seat.WINS}", tdd)
+        fix = own_part(seat.section("fix", "g3", self.values()))
+        self.assertEqual(fix.split("\n\n")[1], seat.WINS, "prompt の座は見出しの次がその段落")
+        for text in (tdd, fix):
+            self.assertEqual(text.count(seat.WINS), 1)
+
     def test_fix_seat_fills_implementer(self):
         text = seat.section("fix", "g3", self.values())
         self.assertIn("<1>", text)

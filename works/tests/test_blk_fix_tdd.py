@@ -377,6 +377,13 @@ class TestStart(LoopCase):
         self.assertIn("test-driven-development", prompt)
         self.assertIn(rolekit.skill_overlay().splitlines()[0], prompt)
 
+    def test_g3_tdd_seat_failure_stops_with_broken(self):
+        """座を組めない（写しが固定と違う など）g3 の盤面は、座の無い指示書に逃げず Broken（tdd_prep が 2 で落ちる）"""
+        with mock.patch.object(tddloop.fixshape, "shape_at", return_value="g3"), \
+                mock.patch.object(tddloop.seat, "section", side_effect=ValueError("implementer-prompt.md: 中身が固定と違う")):
+            with self.assertRaisesRegex(tddloop.Broken, "座を組めない"):
+                tddloop.prep(self.state)
+
     def test_af_tdd_prompt_has_no_seat(self):
         import seat
         with mock.patch.object(tddloop.fixshape, "shape_at", return_value="af"):

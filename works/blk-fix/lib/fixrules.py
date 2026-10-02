@@ -435,10 +435,13 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     owed = json.loads(values["open_units"])
     head = planbrief.head_text(planbrief.for_units(briefs, owed), owed)
     before = tuple(x for x in (*before, head) if x)   # ruled の裁定の文の行は見出しの次の 1 行のまま（R44）。brief はその後
+    mark, shape = ("fix" if pass_ == PASSES[0] else "fix-ruled"), fixshape.shape_at(board_dir)
+    seat = ""
+    if seatkit.carries(mark, shape):
+        seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みと Context7 の引き（lib_section）より前に
+        seat = seatkit.section(mark, shape, implementer_values(b, values, repo, owed))
     docs = lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))
-    mark, shape = ("fix" if pass_ == PASSES[0] else "fix-ruled"), fixshape.shape_at(board_dir)
-    seat = seatkit.section(mark, shape, implementer_values(b, values, repo, owed)) if seatkit.carries(mark, shape) else ""
 
     def build(kinds, prior, rules_file):
         return render("fix", n, fix_parts(values, kinds, docs, seat), prior=prior, rules_file=rules_file, reject_file=reject,

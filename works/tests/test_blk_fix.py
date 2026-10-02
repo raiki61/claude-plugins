@@ -757,11 +757,13 @@ class TestFixPrep(BoardCase):
         os.chdir(self.repo)
         err = io.StringIO()
         with mock.patch.dict(os.environ, env), mock.patch.object(spseam, "BORROW_DIR", borrow), \
-                contextlib.redirect_stderr(err):
+                mock.patch.object(mod.fixrules, "lib_section", return_value="") as docs, contextlib.redirect_stderr(err):
             code = rolekit.script_main(mod.run, mod.INPUTS)
         self.assertEqual(code, 2, err.getvalue())
         self.assertIn(rel, err.getvalue())
+        docs.assert_not_called()   # 照合は重い仕事（Context7 の引き）より前
         b = entry.open_board(self.board)
+        self.assertFalse(b.work(mod.fixrules.SEAT_BRIEFS).exists(), "照合は作業ファイルを書くより前")
         self.assertFalse(b.rd["instances"]["p3.fix"].get("launched_at"), "起こした印を置かない")
         self.assertFalse(b.work("prompt-p3.fix.md").exists(), "指示書を書かない")
 
