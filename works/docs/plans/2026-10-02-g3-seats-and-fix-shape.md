@@ -242,8 +242,9 @@ git commit -m "feat(works): 線の入力 fix_shape（current・af・g3・g1。�
   - `seat.HEAD = "## 借りたスキルの座（修正の形 g3）"`・`seat.SCENE`・`seat.NO_REPORT_FILE`（下の固定の文）
   - `seat.skill_of(seam: dict) -> str` — `use_as == "skill"` の節の `files[0]`（`skills/<名>/…`）の `<名>`
   - `seat.section(node: str, shape: str, values: dict[str, str] | None = None) -> str` — `shape != "g3"` か `node` が SEATS に無ければ `""`。在れば HEAD → 節の種類ごとの本文 → `rolekit.skill_overlay()`。
-    - skill の節: 「Skill の道具で `<スキル>` を読み、その手順で進めよ。下の読み替えと、この指示書の段の約束（返す JSON・機械の関門・段の順）はスキルに勝つ」の 1 段落、「効く所」に `applies` の各行、「効かない所（従わない）」に `not_applies` の各行。
-    - prompt の節: `spseam.fill(SEATS[node], values, …)` の文を「下請けの型（superpowers の <ファイル>。works の節で包んだ物）」の見出しの下に字のまま置き、頭に「型の中の報告の形・commit・人に聞く指示は下の読み替えが勝つ。返すのは指示書の『返答の欄』の JSON」の 1 段落。`values` が None なら `ValueError`
+    - どちらの種類の節も、頭に同じ 1 段落 `seat.WINS`（「この指示書の段の約束（返す JSON・機械の関門・段の順）と下の読み替えは、借りた文に勝つ」）を置く。
+    - skill の節: `seat.WINS` の前に `seat.SKILL_LEAD`（「Skill の道具で `<スキル>` を読み、その手順で進めよ。」）の 1 文だけを足した段落、「効く所」に `applies` の各行、「効かない所（従わない）」に `not_applies` の各行。
+    - prompt の節: `seat.WINS` の段落の後に、`spseam.fill(SEATS[node], values, …)` の文を「下請けの型（superpowers の <ファイル>。works の節で包んだ物）」の見出しの下に字のまま置く。`values` が None なら `ValueError`
   - `fixrules.fix_parts(values, kinds=None, libdocs="", seat="")`・`tdd_parts(values, kinds=None, seat="")` — `seat` が空でなければ節 `("seat", seat, ALWAYS + "（修正の形 g3 の座）")` を、fix は `fix-reply` の直前、tdd は `tdd-remap` の後に置く。`fix_prompt`・`tdd_prompt`・`tdd_render` は `seat=""` を素通し
   - `fixrules.implementer_values(b, values: dict, repo, owed: list[str]) -> dict[str, str]` — 216 の implementer の 5 つの穴の値。
     - `[task name]`: `直す義務の単位 <n> 件（修正案の項目 <番号の並び>）`（項目が無ければ括弧を省く）

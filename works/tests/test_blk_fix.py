@@ -742,6 +742,8 @@ class TestFixPrep(BoardCase):
         import rolekit
         import spseam
         self.fix_ready(launched=False)
+        # brief の頭が在る盤面（座の型の [BRIEF_FILE] が作業ファイル SEAT_BRIEFS を書く形。無いと下の「書かない」が縛らない）
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
         borrow = self.tmp / "borrow"
         shutil.copytree(spseam.BORROW_DIR, borrow)
         item = json.loads((borrow / "borrow.json").read_text(encoding="utf-8"))["superpowers"]
