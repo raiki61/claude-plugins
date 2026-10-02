@@ -180,6 +180,8 @@ class TestYaml(unittest.TestCase):
         nodes = block()["nodes"]
         accept = find_node(nodes, "fix-accept")
         self.assertEqual(accept["with"]["tdd_state"], "$tdd-start.output.state_file")
+        for nid in ("fix-accept", "fix-ruled-accept"):   # 事後の関門の束の実行器（計画 220 Task 4）
+            self.assertEqual(find_node(nodes, nid)["with"]["tdd_suite"], "$INPUTS.tdd_suite", nid)
         collect = find_node(nodes, "collect")
         self.assertEqual(collect["with"]["tdd"], {"from": "$tdd-start.output"})
         out = collect["output_format"]
@@ -200,7 +202,8 @@ class TestYaml(unittest.TestCase):
         want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS", "INPUTS_TEST_CMD"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
                                                                                        "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
-                "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS"),
+                "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
+                           "INPUTS_TDD_SUITE"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")}
         for name, inputs in want.items():
             with self.subTest(name):

@@ -554,6 +554,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
             mock.patch.object(self.mod, "take_conflicts", side_effect=lambda reply, *a, **k: (reply, None)),
             mock.patch.object(self.mod, "fix_unit_keys", return_value=None),
             mock.patch.object(self.mod, "check_tests", return_value=([], "")),
+            mock.patch.object(self.mod.fixgates, "problems", return_value=[]),   # 事後の関門の束（test_fix_gates が見る）
             mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.recount),
             mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
             mock.patch.object(self.mod.writes, "trace"),
@@ -751,6 +752,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         self.parked = []
         self.frozen = [[]]
         self.tests = [([], "")]
+        self.gates = [[]]   # 事後の関門の束の行（回ごと。最後の 1 つを繰り返す）
         self.revert = mock.MagicMock(return_value="/b/r1/fix-parked-1.patch")
         patches = [
             mock.patch.object(self.mod.tddloop, "frozen_problems", side_effect=lambda *a, **k: self.frozen.pop(0)
@@ -760,6 +762,8 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
             mock.patch.object(self.mod, "fix_unit_keys", return_value=None),
             mock.patch.object(self.mod, "check_tests", side_effect=lambda *a, **k: self.tests.pop(0)
                               if len(self.tests) > 1 else self.tests[0]),
+            mock.patch.object(self.mod.fixgates, "problems", side_effect=lambda *a, **k: self.gates.pop(0)
+                              if len(self.gates) > 1 else self.gates[0]),
             mock.patch.object(self.mod.recount, "accept_fix",
                               side_effect=lambda reply, *a: {"ok": True, "reason": "", "changes": [
                                   {k: c[k] for k in ("unit_key", "files", "what")} for c in reply["changes"]]}),
@@ -797,6 +801,11 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
 
     def test_third_frozen_edit_bound_to_one_unit_parks_only_that_unit(self):
         self.frozen = [[self.FROZEN], []]
+        self.assert_parked_clamp(self.run_accept("3"))
+
+    def test_third_battery_row_bound_to_one_unit_parks_only_that_unit(self):
+        """事後の関門の束の行（計画 220 Task 4）も、名指しのファイルで 1 単位に結べれば、その単位だけを止めて残りを通す"""
+        self.gates = [[{"gate": "red_green", "id": "test_clamp.py::test_clamp_above_range", "detail": "base で緑"}], []]
         self.assert_parked_clamp(self.run_accept("3"))
 
     def test_unbound_third_reject_still_gives_up(self):

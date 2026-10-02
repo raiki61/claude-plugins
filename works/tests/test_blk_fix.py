@@ -234,7 +234,8 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""
-        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS"),
+        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
+                           "INPUTS_TDD_SUITE"),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
                              "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_PASS"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED"),

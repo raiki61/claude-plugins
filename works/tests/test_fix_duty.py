@@ -89,6 +89,7 @@ class TestAcceptExcused(unittest.TestCase):
             mock.patch.object(self.mod, "fix_unit_keys", side_effect=self.keys),
             mock.patch.object(self.mod, "check_pack_copy", return_value=""),
             mock.patch.object(self.mod, "check_tests", return_value=([], "")),
+            mock.patch.object(self.mod.fixgates, "problems", return_value=[]),   # 事後の関門の束（test_fix_gates が見る）
             mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.recount),
             mock.patch.object(self.mod.entry, "open_board", return_value=self.board),
             mock.patch.object(self.mod.writes, "trace"),

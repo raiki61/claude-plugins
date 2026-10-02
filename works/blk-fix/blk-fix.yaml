@@ -597,6 +597,7 @@ nodes:
             tdd_state: $tdd-start.output.state_file   # 輪で凍ったテストのファイルを修正役が変えていないか（空は輪の無い run）
             iteration: $fix-prep.output.iteration     # 輪の何回目か（3 回目の拒否で done。R50）
             pass: "first"
+            tdd_suite: $INPUTS.tdd_suite              # 事後の関門の束の実行器（空は受け入れのテストの赤緑を確かめない run）
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
@@ -783,6 +784,7 @@ nodes:
             tdd_state: $tdd-start.output.state_file
             iteration: $fix-ruled-prep.output.iteration
             pass: "ruled"
+            tdd_suite: $INPUTS.tdd_suite
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
