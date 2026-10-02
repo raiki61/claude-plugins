@@ -22,6 +22,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 - 段ごとの呼び出しの記録（段・単位・合否・一式の回数・秒）を輪の状態と出口に残す。
 - 修正案の欄の無い run は、整えの申告のほかは今どおり。本流 graphloops の指示書と rules は変えていない。
 
+### Removed
+
+- superpowers のプラグインを入れる手順と `plugin.json` の依存を外した。run は 0.2.17 から works に写した固定の版（`.shared/borrow/superpowers/`）を使い、利用者が入れた版を読まないので、入れなくてよい（入れてあっても害は無い）。
+
 ## [0.2.17] - 2026-10-02
 
 ### Added
