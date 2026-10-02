@@ -8,6 +8,8 @@
 案の直しの役（blk-plan の replan の口。TestReplanRoles）: 待つ行を項目ごとに束ね（replan.material）、修正案の役には誤りと裁かれた
 項目・申し出・裁定の文だけを渡し、返答を渡した項目に限って受け付け、事前審査の役には独立設計の節と前後の項目だけを渡す。
 helper（fixed_item など・TripCase）は Task 7〜9 の試験も使う。
+人の関所の 1 つの決まりと答え（TestGateRule・TestAnswer）: 約束の欄が同じで人に聞く種類の穴が無い直しだけを聞かずに通し、
+それ以外は関所 replan-gate の答えで採るか諦めるか止める。stop は 1 回目の控えを盤面に渡してから run を止める。
 """
 import copy
 import json
@@ -511,6 +513,213 @@ class TestReplanRoles(ReplanCase):
         self.assertEqual((got["ok"], got["done"], got["reason_file"]), (True, True, ""))
         self.assertEqual(run("collect", replan="true")["ok"], True)
         self.assertTrue(run("reads", include_id="replanning", replan="true")["ok"])
+
+
+
+def regression_face() -> dict:
+    """事前審査が人に聞く種類（regression）の穴を 1 つ挙げた返答"""
+    return {**no_faces(), "faces": [{"key": "mean-empty-regression", "unit_keys": [MEAN], "kind": "regression",
+                                     "where": "stats.py:mean", "why": "空の列で今は 0 を返していたなら、直した後に例外へ変わる",
+                                     "severity": "block"}]}
+
+
+def means_face() -> dict:
+    """事前審査が人に聞く種類でない（copy）穴を 1 つ挙げた返答"""
+    return {**no_faces(), "faces": [{"key": "mean-copy-advice", "unit_keys": [MEAN], "kind": "copy",
+                                     "where": "stats.py:mean", "why": "分母の直しは統計の標準の実装の形を写すとよい",
+                                     "severity": "suggest"}]}
+
+
+class TestGateRule(TripCase):
+    """人に聞かずに通すのは、約束の欄が承認済みの物と字のまま同じで、事前審査が人に聞く種類の穴を挙げなかった時だけ"""
+
+    def test_means_only_passes_without_asking(self):     # 224b・225 の型（red_kind・id のクラス）
+        self.trip(new=red_kind_fixed(), review=no_faces())
+        got = replan.gate(entry.open_board(self.board), run_id="r")
+        self.assertFalse(got["ask"])
+        self.assertEqual(got["gate_file"], "")
+        row = self.trip_doc()["items"][0]
+        self.assertEqual((row["contract_changed"], row["human_faces"], row["ask"]), ([], [], False))
+
+    def test_contract_change_asks(self):                 # 195b の型（allowed_paths を広げた）
+        self.trip(new=wider_paths(), review=no_faces())
+        got = replan.gate(entry.open_board(self.board), run_id="r")
+        self.assertTrue(got["ask"])
+        text = pathlib.Path(got["gate_file"]).read_text(encoding="utf-8")
+        self.assertIn("allowed_paths", text)
+        self.assertEqual(text, got["gate_text"])
+        self.assertTrue(got["gate_text"].startswith("案の項目を run の中で直した（1 件。人に聞くのは 1 件）"))
+        head = got["gate_text"].splitlines()[:3]
+        self.assertEqual(head, [
+            "案の項目を run の中で直した（1 件。人に聞くのは 1 件）。人に聞く理由: 約束の欄が変わった・事前審査が人に聞く穴を挙げた",
+            "決めてほしいこと: 直した項目を使って修正に戻るか、run を止めるか（止めても 1 回目に直した単位の差分は報告に残る）",
+            '答え方: continue "<一言>" で直した項目を使って修正に戻る。stop "<理由>" で run を止める。approve は continue、reject は stop と同じ'])
+        for word in (PLAN_TEXT, "README.md", self.items()[0]["why_both_cannot_hold"]):
+            self.assertIn(word, text)
+        self.assertEqual(self.trip_doc()["items"][0]["contract_changed"], ["allowed_paths"])
+
+    def test_narrows_with_marks_is_not_a_contract_change(self):
+        """前と同じ narrows に決め手の欄を足した返答 → 聞かない（決め手の欄は外して比べる）"""
+        marks = {"decided_by": "依頼の 2 行目: 空の列は例外のままでよい",
+                 "no_narrow": "空の列で例外を投げる今の動きを残すほかに形が無いので、狭めない案は無い"}
+        narrow = {"what": "空の列の mean", "why": "空の列の平均は 0 割りの例外のまま"}
+        self.trip(new={**red_kind_fixed(), "narrows": [{**narrow, **marks}]}, review=no_faces())
+        b = entry.open_board(self.board)
+        doc = self.trip_doc()
+        doc["items"][0]["old"]["narrows"] = [{**narrow, **marks}]   # 承認済みの項目も同じ narrows（決め手の欄つき）
+        b.work(replan.TRIP_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        got = replan.gate(b, run_id="r")
+        self.assertFalse(got["ask"], self.trip_doc()["items"][0])
+
+    def test_human_kind_face_asks(self):
+        """手段の欄だけの直しでも、事前審査が regression の穴を挙げたら聞く"""
+        self.trip(new=red_kind_fixed(), review=regression_face())
+        got = replan.gate(entry.open_board(self.board), run_id="r")
+        self.assertTrue(got["ask"])
+        row = self.trip_doc()["items"][0]
+        self.assertEqual((row["contract_changed"], row["human_faces"]), ([], ["mean-empty-regression"]))
+        self.assertIn("mean-empty-regression", got["gate_text"])
+
+    def test_human_kinds_read_from_copied_rules(self):
+        b = entry.open_board(self.board)
+        self.assertEqual(replan.human_kinds(b), board.rules_module(pathlib.Path(b.state["graph"])).HUMAN_FACE_KINDS)
+
+
+class TestAnswer(TripCase):
+    """関所の答え（無い・continue・stop）を項目ごとに当て、採った項目を承認済みの案に差し替えて単位を直す義務に戻す"""
+
+    def test_approved_item_returns_units_and_swaps(self):
+        self.trip(new=red_kind_fixed(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        got = replan.answer(self.board, self.repo, None)
+        self.assertEqual(got["returned"], [MEAN])
+        self.assertFalse(got["stop"])
+        b = entry.open_board(self.board)
+        self.assertEqual(planmarks.approved_items(b)[0]["tests"][0]["red_kind"], "exception")
+        self.assertNotIn(MEAN, conflict.held_by_rulings(b))
+        self.assertEqual(conflict.replan_state(conflict.items(b)[0]), conflict.AMENDED)
+        self.assertEqual(got["plan_file"], str(b.dir / b.state["outputs"]["p2.fix_plan"]["file"]))
+        self.assertEqual(got["notes_file"], "")
+        self.assertEqual(self.trip_doc()["items"][0]["result"], "amended")
+        self.assertEqual((b.record.get("process") or {}).get("human_items"), [], "関所が開かなければ行を足さない")
+
+    def test_continue_takes_asked_item_and_writes_notes(self):
+        self.trip(new=wider_paths(), review=means_face())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        got = replan.answer(self.board, self.repo, {"decision": "approve", "text": "README も触ってよい"})
+        self.assertEqual(got["returned"], [MEAN])
+        b = entry.open_board(self.board)
+        self.assertIn("README.md", planmarks.approved_items(b)[0]["allowed_paths"])
+        rows = [h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]
+        self.assertEqual(rows, [{"round": b.round, "kinds": [replan.HUMAN_KIND], "asked": [replan.GATE_FILE],
+                                 "answer": "continue", "note": "README も触ってよい", "node": replan.STOP_BY}])
+        notes = pathlib.Path(got["notes_file"]).read_text(encoding="utf-8")
+        self.assertIn("README も触ってよい", notes)
+        self.assertIn("mean-copy-advice", notes)
+
+    def test_stop_stops_board_and_keeps_first_pass(self):
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        got = replan.answer(self.board, self.repo, {"decision": "stop", "text": "範囲が広い"})
+        self.assertTrue(got["stop"])
+        self.assertEqual(got["returned"], [])
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(report.stop_outcome(b)[0], "stopped_by_human")
+        self.assertEqual(b.state["stop"]["by"], replan.GATE_BY)
+        self.assertEqual([c["unit_key"] for c in recount.fix_reply(b)[0]["changes"]], [CLAMP])   # 1 回目の直しは残る
+        self.assertEqual(b.node_state("p3.fix"), "done")
+        self.assertIn("人が関所 replan-gate で run を止めた", conflict.human_lines(b)[0])
+        rows = [h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]
+        self.assertEqual([h["answer"] for h in rows], ["stop"])
+        self.assertEqual(planmarks.approved_items(b)[0]["allowed_paths"], _item(1)["allowed_paths"], "差し替えない")
+
+    def test_gave_up_paths_reach_ask_human_verbatim(self):
+        for case in ("no_gate", "plan_gave_up", "review_gave_up"):
+            with self.subTest(case):
+                if case != "no_gate":
+                    self.setUp()   # 新しい盤面（TripCase の支度）
+                if case == "no_gate":
+                    self.trip(new=wider_paths(), review=no_faces())
+                    why = replan.NO_GATE_WHY
+                elif case == "plan_gave_up":
+                    for _ in range(rolekit_give_up()):
+                        self.play_role("plan", {"plan": [fixed_item(), clamp_item()]})
+                    why = replan.PLAN_GAVE_UP_WHY.split("{")[0]
+                else:
+                    self.assertTrue(self.play_role("plan", {"plan": [fixed_item()]})["ok"])
+                    for _ in range(rolekit_give_up()):
+                        self.play_role("plan-review", {"faces": "x"})
+                    why = replan.REVIEW_GAVE_UP_WHY.split("{")[0]
+                replan.gate(entry.open_board(self.board), run_id="r")
+                got = replan.answer(self.board, self.repo, None)
+                self.assertEqual((got["returned"], got["plan_file"], got["stop"]), ([], "", False))
+                b = entry.open_board(self.board, allow_halted=True)
+                row = conflict.items(b)[0]
+                self.assertEqual(conflict.replan_state(row), conflict.GAVE_UP)
+                self.assertTrue(row[conflict.REPLAN_WHY].startswith(why), row[conflict.REPLAN_WHY])
+                line = conflict.human_lines(b)[0]
+                self.assertIn(PLAN_TEXT, line); self.assertIn(why, line)
+                self.assertEqual(self.trip_doc()["items"][0]["result"], "gave_up")
+                replan.settle(self.board, self.repo)
+                items = report.next_request(entry.open_board(self.board, allow_halted=True))
+                hit = [i for i in items if i["where"] == MEAN]
+                self.assertEqual(len(hit), 1, items)
+                self.assertIn(f"裁定の文: {PLAN_TEXT}。", hit[0]["text"])
+                self.assertIn(why, hit[0]["text"])
+
+    def test_answer_twice_is_idempotent(self):
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        gate = {"decision": "continue", "text": "広げてよい"}
+        first = replan.answer(self.board, self.repo, gate)
+        before = trace_ops(self.board)
+        self.assertEqual(replan.answer(self.board, self.repo, gate), first)
+        self.assertEqual(trace_ops(self.board), before)
+        self.assertEqual(before.count(planmarks.AMEND_OP), 1)
+        b = entry.open_board(self.board)
+        self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]), 1)
+
+    def test_stop_twice_is_idempotent(self):
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        gate = {"decision": "reject", "text": "範囲が広い"}
+        first = replan.answer(self.board, self.repo, gate)
+        self.assertEqual(replan.answer(self.board, self.repo, gate), first)
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(len([h for h in b.record["process"]["human_items"] if h.get("node") == replan.STOP_BY]), 1)
+
+    def test_lines_name_each_item(self):
+        import line_edge
+        self.approve(red_kind_fixed())
+        b = entry.open_board(self.board)
+        want = f"案の項目 1（単位 {MEAN}）: 直した——聞かずに通した（手段の欄だけ）"
+        self.assertEqual(replan.lines(b), [want])
+        heads = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        self.assertIn(f"{replan.AMEND_HEAD}: 1 件", heads)
+        self.assertIn(f"  - {want}", heads)
+        got = line_edge.final_edge(b, self.repo, run_id="run-12", mode="always", tests={"ok": True, "green": True})
+        self.assertIn(f"## {replan.AMEND_HEAD}（1 件）", got["gate_text"])
+        self.assertIn(f"- {want}", got["gate_text"])
+        self.assertNotIn(replan.AMEND_HEAD, got["gate_text"].splitlines()[0], "関所を開ける理由に数えない")
+
+    def test_lines_for_approved_and_gave_up(self):
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        replan.answer(self.board, self.repo, {"decision": "continue", "text": "広げてよい"})
+        b = entry.open_board(self.board)
+        self.assertEqual(replan.lines(b), [f"案の項目 1（単位 {MEAN}）: 直した——人が承認した"])
+        self.setUp()
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        replan.answer(self.board, self.repo, None)
+        b = entry.open_board(self.board)
+        self.assertEqual(replan.lines(b), [f"案の項目 1（単位 {MEAN}）: 直さずに諦めた: {replan.NO_GATE_WHY}"])
+
+    def test_no_trip_no_lines(self):
+        replan.settle(self.board, self.repo)
+        b = entry.open_board(self.board, allow_halted=True)
+        b.work(replan.TRIP_FILE).unlink()
+        self.assertEqual(replan.lines(b), [])
 
 
 def rolekit_give_up() -> int:

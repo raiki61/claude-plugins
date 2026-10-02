@@ -16,7 +16,7 @@
   返り {"closed": [id…], "handed": hand_held の返り}
 
 案の直しの役（blk-plan を replan の入力つきで 2 度目に include した口。blk-plan の lib が入力 replan を見てここへ回す）:
-- TRIP_FILE: 今の周の作業ファイル {"round", "items": [行]}。行は TRIP_KEYS（item・units・rows（待つ行の id）・old（承認済みの
+- TRIP_FILE: 今の周の作業ファイル {"round", "items": [行], "answered"?: answer の返り（再開で返す）}。行は TRIP_KEYS（item・units・rows（待つ行の id）・old（承認済みの
   項目）・brief・new（関所の決め手の欄を外した直した項目）・new_marks（外した欄）・review・contract_changed・human_faces・ask・
   answer・result・why）。まだ無い値は null
 - PLAN_NODE・REVIEW_NODE・ROLES: 盤面に無い節の名（拒否の控え rejects-<名>.json と指示書 prompt-<名>.md の名。1 回目の
@@ -30,7 +30,21 @@
   （諦めは盤面を止めない。後の関所が項目ごとに読む）
 - new_item(row): TRIP_FILE の行の直した項目に、外した決め手の欄を narrows の行ごとに戻した形
 
-層 L3。entry・conflict・recount・planmarks・gatemarks・accept・rolekit・leftovers を読み、report と blk の lib は import しない
+人の関所の 1 つの決まり（replan-gate）と答え:
+- 決まり: 直した項目は、約束の欄が承認済みの物と字のまま同じで（planmarks.contract_diff が空。narrows は決め手の欄を外して
+  比べる）、事前審査が人に聞く種類の穴（写しの rules の HUMAN_FACE_KINDS）を挙げなかった時だけ、人に聞かずに通す。それ以外は
+  関所 replan-gate で人に聞く。役には決めさせず、コードが欄を比べて決める
+- GATE_FILE・NOTES_FILE・HUMAN_KIND・GATE_BY: 関所の文・修正役に届ける一言と穴・process.human_items の行の kinds・stop で
+  止めた盤面の by（頭が human: なので報告の結末は stopped_by_human）
+- gate(b, *, run_id): new の無い項目・review の無い項目はその場で諦め（PLAN_GAVE_UP_WHY・REVIEW_GAVE_UP_WHY）、残りの項目の
+  contract_changed・human_faces・ask を TRIP_FILE に置き、ask の項目が在れば GATE_FILE を書く。{ask, gate_text, gate_file}
+- answer(board_dir, repo, gate): 関所の答え（無ければ None）を項目ごとに当てる。stop・reject は待つ行を STOPPED_WHY で締め、
+  1 回目の控えを盤面に渡してから盤面を止める（by GATE_BY）。そうでなければ聞かない項目と continue・approve の項目を採って
+  planmarks.amend で差し替え（行は AMENDED）、答えの無い聞く項目は NO_GATE_WHY で諦める。全項目に result が在れば前の返りを
+  そのまま返す（Archon の再開）。{returned, plan_file, notes_file, stop, why}
+- lines(b): TRIP_FILE の項目ごとの 1 行（最後の関所の文と報告の冒頭 1 が見出し AMEND_HEAD の下に並べる）
+
+層 L3。entry・board・conflict・recount・planmarks・gatemarks・accept・rolekit・leftovers と L1 の answer を読み、report と blk の lib は import しない
 （report がこの模块を呼ぶ向きだけ。blk-plan の lib がこの模块を呼ぶ向きだけ）。期限・回数の上限は持たない（諦めの数は rolekit の物）。
 """
 from __future__ import annotations
@@ -52,6 +66,8 @@ from board import BoardGap  # noqa: E402  （board が写しの engine を sys.p
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
+import answer as _answer  # noqa: E402
+import board  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
@@ -68,7 +84,7 @@ UNSETTLED = "案の直しを待つ単位を残したまま修正の段を抜け�
 HAND_REFUSED = "1 回目に受け付けた修正の返答を盤面が受けない: {reason}"
 _ENDED_BY = "stop_after_round"   # 1 周の run が周を締めた盤面の halted.by（普通の終わりで、止めたと読まない）
 
-TRIP_FILE = "replan.json"          # 今の周の作業ファイル {"round": n, "items": [行]}
+TRIP_FILE = "replan.json"          # 今の周の作業ファイル {"round": n, "items": [行], "answered"?: answer の返り}
 TRIP_KEYS = ("item", "units", "rows", "old", "brief", "new", "new_marks", "review", "contract_changed", "human_faces", "ask",
              "answer", "result", "why")
 PLAN_NODE = "replan.fix_plan"      # 盤面に無い節の名（拒否の控えと指示書の名。1 回目の p2.fix_plan と重ならない）
@@ -93,6 +109,26 @@ OLD_HEAD = "### 前の項目（承認済み。機械が貼った）"
 NEW_HEAD = "### 直した項目（修正案の役が返した形。機械が貼った）"
 ROW_HEAD = "### 修正の段の申し出と裁定（{id}）"
 MAX_TYPE_ERRORS = 10   # 型の外れを並べる行の数（accept の型の拒否と同じ数。残りは件数）
+
+GATE_FILE = "replan-gate.md"       # 関所 replan-gate の文（今の周の作業ファイル）
+NOTES_FILE = "replan-notes.md"     # 人の一言と、採った項目の事前審査の穴のうち人に聞く種類でない物（修正役に届ける）
+HUMAN_KIND = "replan"              # process.human_items の行の kinds（node は STOP_BY）
+GATE_BY = "human:replan-gate"      # 関所の stop で止めた盤面の by
+PLAN_GAVE_UP_WHY = "修正案の役の直しが 3 回とも拒まれた: {reason}"
+REVIEW_GAVE_UP_WHY = "事前審査の役の返答が 3 回とも拒まれた: {reason}"
+NO_GATE_WHY = "人に聞く直しなのに関所の答えが無い（関所が開かなかった）"
+STOPPED_WHY = "人が関所 replan-gate で run を止めた: {text}"
+NO_NOTE = "（一言なし）"            # 関所の stop に一言が無い時に STOPPED_WHY と止めの文に入れる字
+AMEND_HEAD = "同じ run の中で直した修正案の項目"
+GATE_HEAD = ("案の項目を run の中で直した（{k} 件。人に聞くのは {m} 件）。人に聞く理由: 約束の欄が変わった・"
+             "事前審査が人に聞く穴を挙げた")
+GATE_DECIDE = "決めてほしいこと: 直した項目を使って修正に戻るか、run を止めるか（止めても 1 回目に直した単位の差分は報告に残る）"
+GATE_HOW = ('答え方: continue "<一言>" で直した項目を使って修正に戻る。stop "<理由>" で run を止める。'
+            "approve は continue、reject は stop と同じ")
+GATE_ITEM_HEAD = "## 人に聞く直した項目 {n}（単位 {units}）"
+DECISIONS = {"continue": "continue", "approve": "continue", "stop": "stop", "reject": "stop"}   # 関所の答えの語 → 当て方
+AMENDED = "amended"                # TRIP_FILE の行の result（直しを採った）
+GAVE_UP = "gave_up"                # 同じく（直さずに諦めた。why に理由）
 
 
 def close(b, why: str) -> list[str]:
@@ -433,3 +469,177 @@ def collect(board_dir) -> dict:
     idx = b.work(READS_INDEX)
     return {"ok": True, "plan_file": "", "review_file": "", "asks_human": False, "gate_kinds": [],
             "reads_file": str(idx) if idx.exists() else "", "gave_up": False, "reason_file": ""}
+
+
+# ---------------------------------------------------------------- 人の関所の 1 つの決まりと答え
+def human_kinds(b) -> tuple:
+    """人に聞く種類の穴（写しの rules の HUMAN_FACE_KINDS。今の policy-gate と同じ扱い）"""
+    return tuple(board.rules_module(pathlib.Path(b.state["graph"])).HUMAN_FACE_KINDS)
+
+
+def _bare(item: dict) -> dict:
+    """項目から関所の決め手の欄（narrows の行の decided_by・no_narrow など）を外した写し"""
+    return gatemarks.split(planmarks.NODE, {"plan": [copy.deepcopy(item)]})[0]["plan"][0]
+
+
+def _units(row: dict) -> str:
+    return "、".join(str(k) for k in row.get("units") or [])
+
+
+def _give_up(b, row: dict, why: str) -> None:
+    """TRIP_FILE の行とその待つ行を諦めた形にする（set_replan は同じ状態への移りを何もしない）"""
+    conflict.set_replan(b, row.get("rows") or [], conflict.GAVE_UP, why=why)
+    row["result"], row["why"] = GAVE_UP, why
+
+
+def _gave_up_reason(b, node: str) -> str:
+    return rolekit.given_up_reason(pathlib.Path(b.dir), node) or f"拒否の控え {rolekit.rejects_path(pathlib.Path(b.dir), node).name} が無い"
+
+
+def _gate_section(row: dict, conflicts: dict) -> list:
+    """聞く項目の節: 約束の欄の変化の名・人に聞く穴・申し出の文・裁定の文（字のまま）・前の項目と直した項目の JSON"""
+    faces = {f.get("key"): f for f in (row.get("review") or {}).get("faces") or [] if isinstance(f, dict)}
+    lines = [GATE_ITEM_HEAD.format(n=row["item"], units=_units(row)), "",
+             f"- 約束の欄の変化: {'・'.join(row.get('contract_changed') or []) or '（無し）'}",
+             "- 人に聞く穴: " + ("（無し）" if not row.get("human_faces") else "／".join(
+                 f"[{faces.get(k, {}).get('kind')}] {k}: {faces.get(k, {}).get('why')}" for k in row["human_faces"]))]
+    for rid in row.get("rows") or []:
+        c = conflicts.get(rid) or {}
+        lines += [f"- 申し出の文（{rid}・単位 {c.get('unit_key')}）: {c.get('why_both_cannot_hold')}",
+                  f"- 裁定の文（{rid}）: {(c.get('ruling') or {}).get('text')}"]
+    return lines + ["", OLD_HEAD, "", *_json_block(row["old"]), "", NEW_HEAD, "", *_json_block(new_item(row)), ""]
+
+
+def gate(b, *, run_id: str) -> dict:
+    """関所 replan-gate の決まりを当てる。返り {ask, gate_text, gate_file}（聞かなければ文とファイルは空）"""
+    doc = read_trip(b)
+    if doc is None:
+        return {"ask": False, "gate_text": "", "gate_file": ""}
+    kinds = human_kinds(b)
+    for row in doc["items"]:
+        if row.get("result"):
+            continue
+        if row.get("new") is None:
+            _give_up(b, row, PLAN_GAVE_UP_WHY.format(reason=_gave_up_reason(b, PLAN_NODE)))
+        elif row.get("review") is None:
+            _give_up(b, row, REVIEW_GAVE_UP_WHY.format(reason=_gave_up_reason(b, REVIEW_NODE)))
+        else:
+            row["contract_changed"] = planmarks.contract_diff(_bare(row["old"]), _bare(row["new"]))
+            row["human_faces"] = [f.get("key") for f in row["review"].get("faces") or []
+                                  if isinstance(f, dict) and f.get("kind") in kinds]
+            row["ask"] = bool(row["contract_changed"] or row["human_faces"])
+    _write_trip(b, doc)
+    judged = [r for r in doc["items"] if isinstance(r.get("ask"), bool)]
+    asked = [r for r in judged if r["ask"]]
+    if not asked:
+        return {"ask": False, "gate_text": "", "gate_file": ""}
+    conflicts = {c.get("id"): c for c in conflict.items(b)}
+    lines = [GATE_HEAD.format(k=len(judged), m=len(asked)), GATE_DECIDE, GATE_HOW, ""]
+    for row in asked:
+        lines += _gate_section(row, conflicts)
+    lines += ["答えの行:", f"- 修正に戻る: {_answer.line(run_id, 'continue', '<一言>')}",
+              f"- 止める: {_answer.line(run_id, 'stop', '<理由>')}"]
+    text = "\n".join(lines) + "\n"
+    path = b.work(GATE_FILE)
+    path.write_text(text, encoding="utf-8")
+    return {"ask": True, "gate_text": text, "gate_file": str(path)}
+
+
+def _record_human(board_dir: pathlib.Path, ans: str, note: str) -> None:
+    """process.human_items に今の周の 1 行（node STOP_BY）。在れば積み増さない（Archon の再開）"""
+    b = entry.open_board(board_dir, allow_halted=True)
+    items = b.record["process"]["human_items"]
+    if any(isinstance(h, dict) and h.get("node") == STOP_BY and h.get("round") == b.round for h in items):
+        return
+    items.append({"round": b.round, "kinds": [HUMAN_KIND], "asked": [GATE_FILE], "answer": ans, "note": note,
+                  "node": STOP_BY})
+    b.save()
+
+
+def _notes(b, note: str, taken: list) -> str:
+    """NOTES_FILE を書いてパスを返す（人の一言も、採った項目の人に聞く種類でない穴も無ければ書かずに ""）"""
+    kinds = human_kinds(b)
+    parts = [f"## 人の一言（関所 replan-gate）\n\n{note}\n"] if note else []
+    for row in taken:
+        faces = [f for f in (row.get("review") or {}).get("faces") or [] if isinstance(f, dict) and f.get("kind") not in kinds]
+        if faces:
+            parts.append(f"## 直した項目 {row['item']}（単位 {_units(row)}）の事前審査の穴\n\n"
+                         + "\n".join(f"- [{f.get('kind')}] {f.get('key')}（{f.get('where')}）: {f.get('why')}" for f in faces)
+                         + "\n")
+    if not parts:
+        return ""
+    path = b.work(NOTES_FILE)
+    path.write_text("\n".join(parts), encoding="utf-8")
+    return str(path)
+
+
+def answer(board_dir, repo, gate: dict | None) -> dict:
+    """関所の答え gate（{decision, text}。関所が開かなかったなら None）を当てる。返り {returned: [単位…], plan_file, notes_file,
+    stop, why}。TRIP_FILE の全項目に result が在れば、何も書き換えずに前の返りを返す（Archon の再開）"""
+    board_dir = pathlib.Path(board_dir)
+    b = entry.open_board(board_dir, allow_halted=True)
+    doc = read_trip(b)
+    if doc is None:
+        return {"returned": [], "plan_file": "", "notes_file": "", "stop": False, "why": ""}
+    rows = doc["items"]
+    if isinstance(doc.get("answered"), dict) and all(r.get("result") for r in rows):
+        return copy.deepcopy(doc["answered"])
+    decision, note = None, ""
+    if gate is not None:
+        decision = DECISIONS.get(str(gate.get("decision") or ""))
+        if decision is None:
+            raise BoardGap(f"関所 replan-gate の答えの語 {gate.get('decision')!r} を知らない（{' / '.join(DECISIONS)}）")
+        note = " ".join(str(gate.get("text") or "").split())
+    open_rows = [r for r in rows if not r.get("result")]
+    if any(not isinstance(r.get("ask"), bool) for r in open_rows):
+        raise BoardGap(f"関所の決まり（replan.gate）を当てる前に答えを受けた（{TRIP_FILE} の ask が無い項目が在る）")
+    if decision is not None:
+        _record_human(board_dir, decision, note)
+    if decision == "stop":
+        why = STOPPED_WHY.format(text=note or NO_NOTE)
+        close(entry.open_board(board_dir, allow_halted=True), why)
+        for r in open_rows:
+            r["result"], r["why"], r["answer"] = GAVE_UP, why, decision
+        hand_held(board_dir, repo)
+        now = entry.open_board(board_dir, allow_halted=True)
+        if not (now.state.get("stop") or now.state.get("halted")):
+            now.stop(note or why, by=GATE_BY)
+        out = {"returned": [], "plan_file": "", "notes_file": "", "stop": True, "why": why}
+    else:
+        taken = [r for r in open_rows if not r["ask"] or decision == "continue"]
+        for r in open_rows:
+            r["answer"] = decision
+            if r not in taken:
+                _give_up(b, r, NO_GATE_WHY)
+        if taken:
+            done = planmarks.amended(b)
+            todo = {r["item"]: new_item(r) for r in taken if r["item"] not in done}
+            if todo:
+                planmarks.amend(b, todo, pathlib.Path(repo))
+            conflict.set_replan(b, [i for r in taken for i in r.get("rows") or []], conflict.AMENDED)
+            for r in taken:
+                r["result"] = AMENDED
+        whys = list(dict.fromkeys(r["why"] for r in rows if r.get("result") == GAVE_UP and r.get("why")))
+        out = {"returned": list(dict.fromkeys(k for r in taken for k in r.get("units") or [])),
+               "plan_file": str(b.dir / b.state["outputs"][planmarks.NODE]["file"]) if taken else "",
+               "notes_file": _notes(b, note, taken) if taken else "", "stop": False, "why": "・".join(whys)}
+    doc["answered"] = out
+    _write_trip(b, doc)
+    return copy.deepcopy(out)
+
+
+def lines(b) -> list[str]:
+    """TRIP_FILE の項目ごとの 1 行（無ければ []）。答えを受けずに締めた項目（settle の諦め）は待つ行の理由を引く"""
+    doc = read_trip(b)
+    if doc is None:
+        return []
+    why_of = {c.get("id"): c.get(conflict.REPLAN_WHY) for c in conflict.items(b)}
+    out = []
+    for r in doc["items"]:
+        if r.get("result") == AMENDED:
+            how = "直した——人が承認した" if r.get("ask") else "直した——聞かずに通した（手段の欄だけ）"
+        else:
+            why = r.get("why") or next((why_of[i] for i in r.get("rows") or [] if why_of.get(i)), "") or "答えを受けていない"
+            how = f"直さずに諦めた: {why}"
+        out.append(f"案の項目 {r['item']}（単位 {_units(r)}）: {how}")
+    return out

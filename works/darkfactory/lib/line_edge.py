@@ -590,7 +590,8 @@ def _unproven_text(unproven: list) -> str:
 
 
 def _closure_text(closure: list, head: str = querytest.CLOSURE_HEAD) -> str:
-    """最後の関所の文の節（修正の受け付けが判定者の問いで数え直した単位ごとの表のうち、head の見出しに載せる単位）"""
+    """最後の関所の文の節（修正の受け付けが判定者の問いで数え直した単位ごとの表のうち、head の見出しに載せる単位。
+    同じ run の中で直した修正案の項目の行も、見出し replan.AMEND_HEAD でこの形に並べる）"""
     lines = [f"## {head}（{len(closure)} 件）", ""]
     lines += [f"- {x}" for x in closure]
     return "\n".join(lines + ["", ""])
@@ -680,7 +681,7 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     走れなかった・走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
     阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る時。文は冒頭 3 行（_final_head。開けた理由・決めて
     ほしいこと・推し）で始まり、守りのファイルはその 1 行目で名指し、3 行の直後の最初の節と process.human_items の 1 行にもなる。
-    開いた関所の文は、例で証明できない単位も並べる（開ける理由には数えない）。案の直しを諦めた fix_plan_item の単位は ask_human と
+    開いた関所の文は、例で証明できない単位と、同じ run の中で直した修正案の項目（replan.lines）も並べる（開ける理由には数えない）。案の直しを諦めた fix_plan_item の単位は ask_human と
     同じ食い違いの申し出の行（conflict.human_lines）。文は b.work(FINAL_GATE_FILE) にも"""
     head = _tests_head(b, tests)
     eyes = _eyes(b)
@@ -699,10 +700,15 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
     stuck = querytest.closure_lines(b, stuck_only=True)
     closure = querytest.closure_lines(b, claimed=report.claimed_units(b))
+    try:   # 案の直しの記録の行（関所を開ける理由には数えない）。控えが読めなければその文を 1 行に
+        amend = replan.lines(b)
+    except BoardGap as e:
+        amend = [str(e)]
     text = ("\n".join(_final_head(b, head, why, guarded)) + "\n\n"
             + (_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
             + (_closure_text(stuck, querytest.STUCK_HEAD) if stuck else "")
             + (_unproven_text(unproven) if unproven else "") + (_closure_text(closure) if closure else "")
+            + (_closure_text(amend, replan.AMEND_HEAD) if amend else "")
             + _final_text(b, head, tests, objection, eyes, repo, run_id))
     _write_text(b.work(FINAL_GATE_FILE), text)
     return {"ask": True, "gate_text": text, "gate_file": str(b.work(FINAL_GATE_FILE))}

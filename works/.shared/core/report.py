@@ -527,7 +527,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・
-    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・並行 PR の
+    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
@@ -597,6 +597,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     if closure:
         lines.append(f"{querytest.CLOSURE_HEAD}: {len(closure)} 件")
         lines += [f"  - {x}" for x in closure]
+    lines += _amend_lines(b)
     lines += rejudge_lines(b)
     lines += _rejudge_changes(b)
     lines += _premise_hypotheses(b)
@@ -604,6 +605,15 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     n = len(next_items or [])
     lines.append(f"次の run に渡す物: {n} 件" + (f"（{next_file}）" if next_file else ""))
     return lines
+
+
+def _amend_lines(b) -> list:
+    """冒頭 1 の同じ run の中で直した修正案の項目（replan.lines。無ければ何も出さない。控えが読めなければその 1 行）"""
+    try:
+        got = replan.lines(b)
+    except BoardGap as e:
+        return [f"{replan.AMEND_HEAD}: 控えが読めない（{_one_line(str(e))}）"]
+    return [f"{replan.AMEND_HEAD}: {len(got)} 件", *[f"  - {x}" for x in got]] if got else []
 
 
 def _asked(b) -> list:
