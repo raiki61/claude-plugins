@@ -14,14 +14,12 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
 
 要る物: macOS（Apple silicon。Archon は固定した版の darwin-arm64 の実行ファイル）・git・uv・gh（初回に Archon の実行ファイルを GitHub の release から落とす）・Claude Code の `claude`・認証（普段の `claude` のログインで足りる。殻は `WORKS_KEYCHAIN_ITEM` の名の keychain の項目 → 共有の認証の部品の段（受け継いだ `CLAUDE_CODE_OAUTH_TOKEN` など・`CLAUDE_KEYCHAIN_SERVICE` の項目・設定の置き場から導く `claude-code-oauth-<名>`）→ Claude Code 自身が macOS の keychain に置いた項目（`CLAUDE_CONFIG_DIR` から導く）の順に、あなた自身の認証だけを拾い、拾った出どころの名を出す。ログインの項目は数時間で切れる短い物なので、長い run には `claude setup-token` で作るトークンを置く）。gh・git の資格は AI の役に渡さない（隔離した家の gh は未ログインで、並行 PR の確かめは人に回る）。
 
-1. プラグインを 4 つ Claude Code に入れる。このスキル（works）と、works の AI の役が借りる 3 つ（superpowers のスキル・coldwrite のフック・pr-review-toolkit の agent）。起動の殻 `dev/use.sh` と pack は works のプラグインの中に在り、Claude Code が入れたプラグインの置き場から使う。coldwrite・pr-review-toolkit は、あなたが入れた版をそのまま使う。superpowers は works に写した固定の版（`.shared/borrow/superpowers/<版>/`）から入れ、あなたが入れた版は run に使わない（`plugin.json` の `dependencies` が入れる物として残す。開発の再開の確かめが比べるだけ）。リポジトリの clone は要らない。
+1. プラグインを 3 つ Claude Code に入れる。このスキル（works）と、works の AI の役が借りる 2 つ（coldwrite のフック・pr-review-toolkit の agent）。起動の殻 `dev/use.sh` と pack は works のプラグインの中に在り、Claude Code が入れたプラグインの置き場から使う。coldwrite・pr-review-toolkit は、あなたが入れた版をそのまま使う。superpowers のスキルは works に写した固定の版（`.shared/borrow/superpowers/<版>/`）を使うので、入れなくてよい（入れてあっても run には使わない）。リポジトリの clone は要らない。
 
    ```
    claude plugin marketplace add raiki61/claude-plugins   # 登録済みなら: claude plugin marketplace update raiki61
    claude plugin install works@raiki61
    claude plugin install coldwrite@raiki61
-   claude plugin marketplace add obra/superpowers-marketplace
-   claude plugin install superpowers@superpowers-marketplace
    claude plugin install pr-review-toolkit@claude-plugins-official   # marketplace が無ければ先に: claude plugin marketplace add anthropics/claude-plugins-official
    ```
 
@@ -76,6 +74,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <版> | --pr <番号>] [--] 
 - remote の `origin` が要る（Archon v0.11.1 は `--from` を渡しても、origin の無い対象では run の worktree を切れずに終了コード 1 で落ちる）。無ければ `check` が並べ、`start` は Archon を起こす前に 1 行で止まり、入れ方（`git remote add origin <URL>`。手元だけなら対象の外に `git init --bare <対象>.origin.git` を作って origin にし、`git push origin HEAD` の後に `git remote set-head origin <push した枝>` で `origin/HEAD` を置く）を出す。殻は remote を足さない。あなた（Claude）も自分で remote を足さず、預ける先の URL か手元の裸のリポジトリかを依頼者に尋ねて、依頼者に決めてもらう。
 - `start` は origin の既定の枝（`origin/HEAD` が指す枝、無ければ `origin/main`、次に `origin/master`）を Archon の土台（`--base`）に毎回渡す（Archon は対象を最初に登録した時の枝を覚えて更新しないので、登録した時の枝が消えても止まらない）。どれも無ければ枝を推さず、Archon を起こす前に `git fetch origin` と、それでも無い時の `git remote set-head origin -a`（または `git remote set-head origin <枝>`）を案内して止まる（裸の origin に機能の枝だけを push した対象は、fetch しても `origin/HEAD` ができない）。`origin/HEAD` が消えた枝を指す時（改名の後の `git fetch --prune`）は、それを渡さずに `origin/main`・`origin/master` へ進む。
 - `test_cmd`（省ける）: 修正の前と最後に回すテストのコマンド（例: `python3 -m unittest -q`・`uv run pytest -q`）。在れば、対象の `.review-checks.json` の宣言が在っても宣言の一式に加えて回し、両方が緑の時だけ緑（宣言の段と同じコマンドなら 1 度だけ回す）。省くか空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
+- `.review-checks.json` の段（`suite` の `{"name", "argv"}`）は任意の `junit`（段が書く JUnit XML の、対象の根からの相対パス）を持てる。持つ段は報告の試験の件数で走ったかを見て、報告が無い・段の起動より古い・試験が 0 件・全部 error なら、赤でなく「基準の検査が走らなかった（コードの赤ではない）」に回す。持たない段の赤は赤のまま、走ったかは確かめていないと添える。
 - `tdd_suite`（省ける）: JUnit XML の書き先を第 1 引数に受ける実行ファイル（対象の根から走る）。機械は後ろに試験のファイル・node id（絶対パス）と `-k` を足して呼ぶことがある（既定の一式に足して集める。解けない実行器は無視してよい）。在れば修正の段で単位ごとの TDD の輪を回す。省くと、`test_cmd` が pytest の 1 コマンドなら殻がそれに `--junitxml` を足す実行器を書いて渡し、そうでなければ輪を飛ばして直に直す（どちらにしたかを 1 行出す）。
 - 最後の関所は既定で守りのファイルを触った時だけ開く（`protected_only`）。テストの赤・独立の目の阻害・残った異議は報告の冒頭に並ぶので、差分を当てる（`use.sh apply`）前に読む。それらでも止めるなら `WORKS_USE_FINAL_GATE=when_needed`、いつも開くなら `always` を前に付ける。
 - Claude の包み（`claude-adapter`）は既定で通す。外すなら `WORKS_DEV_ADAPTER=0`（起動の 1 行目に「包み無し」と出て、報告にも出る）。

@@ -11,7 +11,9 @@
 - prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスを brief に書き、呼び手の
                              組み立て（prompt）で指示書を書き、印を置く
 - accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる。手直しは先に書き込みの
-                             記録と突き合わせ、記録の無い変更を盤面の trace に残す）
+                             記録と突き合わせ、記録の無い変更を盤面の trace に残す）。1 回目の審査は準拠と品質の 2 判定の欄
+                             （deltamarks）を承認済みの修正案の項目（_plan_items）と照らし、欠けと誤りは盤面へ渡さずに拒み、
+                             通れば欄を外して渡し、受けた時だけ欄を今の周の delta-verdicts.json に控える
 - main_accept_review・main_accept_fix: 受け付けのスクリプトの入口（rolekit.main_accept。3 回目の拒否で done・give_up。R50）
 - route(board):              blk-refix の分かれ道 {review2, refix2, owed, owed2}（盤面の待っている節と義務の数）
 - collect_delta・collect_refix: 出口（1 本目の欄を全部残して足す）。役が 3 回とも拒まれて輪を抜けたら、最後の拒否の文で
@@ -22,9 +24,14 @@
 作業ファイル（b.work。今の周の r<N>/。周の番号を仮定しない。TA17）: review<n>-snapshot.json（計画の予約の名）・
 review<n>-brief.json・refix<n>-brief.json（役に見せる材料: graph がその節に読ませる盤面の値と、人の方針 policy.brief の
 {paste, path}。審査役の brief には、変わったファイルのうち守りのファイル（protect.hits）の protected_files も、1 回目の審査役の brief には修正の差分に当てたレンズの行（lens.brief_rows）の lens も
-（graph の reads は写しなので足せない。手直しの差分にはレンズが当たらないので 2 回目には載せない）。1 本目の blk-delta の YAML は入口 policy_paste を持たないので、審査役へは方針の本文をこの brief で届ける）・手直しの役の指示書 prompt-<節>.md（呼び手のブロックが組む）。
-支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 本目の blk-delta が盤面の根に書いた delta-review.json・fix.diff・
-delta-snapshot.json）を先に消す——新しい審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が
+（graph の reads は写しなので足せない。手直しの差分にはレンズが当たらないので 2 回目には載せない）。1 本目の blk-delta の YAML は入口 policy_paste を持たないので、審査役へは方針の本文をこの brief で届ける。
+1 回目の審査役の brief には範囲の欄の在る承認済みの修正案の項目 plan_items（_plan_items。無ければ空。裁定で外れた項目は held
+つき）と直す裁定が広げたパス ruled_paths と直した側の報告 fix_report（今の周の修正の出力の changes・not_done。無ければ空）も、
+1 回目の手直しの役の brief には同じ plan_items・ruled_paths と、審査の 2 判定の控えの準拠の落ちた行 compliance
+（deltamarks.fail_rows）も載せる。2 回目の往復には載せない）・手直しの役の指示書
+prompt-<節>.md（呼び手のブロックが組む）。
+支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 回目の審査の 2 判定の控え delta-verdicts.json・1 本目の blk-delta が
+盤面の根に書いた delta-review.json・fix.diff・delta-snapshot.json）を先に消す——新しい審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が
 踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
 """
 import functools
@@ -41,12 +48,17 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap, pending_instance as _pending, rules_module  # noqa: E402
 import engine.util as _util  # noqa: E402
+from engine.schema import validate_schema  # noqa: E402
 import accept  # noqa: E402
+import conflict  # noqa: E402
+import deltamarks  # noqa: E402
 import entry  # noqa: E402
 import lens  # noqa: E402
 import node_marker  # noqa: E402
+import planmarks  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
+import recount  # noqa: E402
 import rolekit  # noqa: E402
 import writes  # noqa: E402
 
@@ -62,8 +74,12 @@ READS = {"review": ("review", "reviewing", "delta-loop", "review"),
          "refix": ("refix", "refixing", "refix-loop", "refix"),
          "review2": ("review2", "refixing", "review2-loop", "review2"),
          "refix2": ("refix2", "refixing", "refix2-loop", "refix2")}
-DELTA_BY = "works:delta"   # 審査役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by
-REFIX_BY = "works:refix"   # 手直し・2 回目の審査の役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by
+# 差分の審査の段が盤面を止めた時の state.stop.by: 審査役が 3 回とも拒まれて輪を抜けた・受けた審査の 2 判定の控えを
+# 置けなかった・審査の支度か受け付けが修正案の欄の控えの壊れ（凍結の印との食い違い）を見た
+DELTA_BY = "works:delta"
+# 手直しの段が盤面を止めた時の state.stop.by: 手直し・2 回目の審査の役が 3 回とも拒まれて輪を抜けた・手直しの支度が
+# 修正案の欄の控えの壊れを見た
+REFIX_BY = "works:refix"
 # 1 本目の blk-delta が盤面の根に書いた物（2 本目は書かない。残っていれば前の試みの出力なので支度が消す）
 V1_OUTPUTS = (accept.DELTA_REVIEW_FILE, accept.DIFF_FILE, accept.SNAPSHOT_FILE)
 
@@ -167,7 +183,8 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
     """n 回目の差分の審査役を起こす前の支度。盤面の loop.<state_key> が今の周に無い・審査の節が待っていないなら
     {ok: False, reason}（配線の誤り。スクリプトは 2）。在れば、前の試みの自分の出力を消し、役に見せる材料を
     review<n>-brief.json に書き、作業ツリーの写し（review<n>-snapshot.json）を撮り、起こした印を置いて
-    {ok: True, files, diff_file, rev, brief_file, must} を返す。名前は盤面の値のまま（組み立てない）"""
+    {ok: True, files, diff_file, rev, brief_file, must} を返す。名前は盤面の値のまま（組み立てない）。1 回目は修正案の欄の
+    控えが凍結の印と食い違えば、差分の審査の段の印 DELTA_BY で盤面を止めて控えを名指す BoardGap（conflict.fields_broken）"""
     p = _pass(n)
     b = entry.open_board(board)
     d = _in_round(b, b.loop_state.get(p["state_key"]))
@@ -178,7 +195,8 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
         return {"ok": False, "reason": f"この周に {p['review']} が待っていない（盤面の ready に無い節の役は起こさない）"}
     role = REVIEW_ROLE[n]
     brief_name = f"review{n}-brief.json"
-    _drop_stale(b, brief_name, f"reads-{role}.json", root=V1_OUTPUTS if n == 1 else ())
+    _drop_stale(b, brief_name, f"reads-{role}.json", *((deltamarks.VERDICTS_FILE,) if n == 1 else ()),
+                root=V1_OUTPUTS if n == 1 else ())
     doc = {"node": p["review"], "diff_file": d["file"], "files": d.get("files") or [], "rev": d.get("rev"),
            "reads": _brief(b, p["review"]), "policy": policy.brief(b)}
     try:   # 変わったファイルのうち守りのファイル（protect）。審査役が検査を緩める変更を見る材料（最後の人の関所にも必ず出る）
@@ -190,6 +208,9 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
             doc["lens"] = lens.brief_rows(b)
         except ValueError as e:
             doc["lens"], doc["lens_error"] = [], str(e)
+        doc["plan_items"] = _plan_items(b)
+        doc["ruled_paths"] = conflict.ruled_paths(b)
+        doc["fix_report"] = _fix_report(b)
     brief =_write_json(b.work(brief_name), doc)
     entry.snapshot(board, snapshot_name(n), repo)
     b.mark_launched(p["review"], inst.get("attempts", 1))
@@ -202,7 +223,8 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
     （配線の誤り）。在れば前の試みの自分の出力を消し、義務と差分のパスを refix<n>-brief.json に書き、起こした印を置いて
     {ok: True, owed, diff_file, brief_file, must} を返す。prompt（呼び手のブロックの組み立て prompt(n, 値) -> 指示書の字）を
     渡せば、{brief_file, diff_file, lang（言語の 1 行。rolekit.lang_line）} と values（run の値）で組んだ指示書を今の周の prompt-<節>.md に書き、prompt_file を足す
-    （must にも。core は決まりの中身を知らない）"""
+    （must にも。core は決まりの中身を知らない）。1 回目は修正案の欄の控えが凍結の印と食い違えば、手直しの段の印 REFIX_BY で
+    盤面を止めて控えを名指す BoardGap（conflict.fields_broken）"""
     p = _pass(n)
     b = entry.open_board(board)
     inst = _pending(b, p["fix"])
@@ -216,8 +238,13 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
     brief_name = f"refix{n}-brief.json"
     prompt_file = b.work(rolekit.prompt_name(p["fix"]))
     _drop_stale(b, brief_name, f"reads-{role}.json", prompt_file.name)
-    brief = _write_json(b.work(brief_name), {"node": p["fix"], "diff_file": d.get("file") or "", "owed": rows,
-                                             "reads": _brief(b, p["fix"]), "policy": policy.brief(b)})
+    doc = {"node": p["fix"], "diff_file": d.get("file") or "", "owed": rows, "reads": _brief(b, p["fix"]),
+           "policy": policy.brief(b)}
+    if n == 1:   # 1 回目の審査の 2 判定の控えの準拠の落ちた行（face_key が owed の key と同じ行が、その項目への準拠の外れ）
+        doc["plan_items"] = _plan_items(b, by=REFIX_BY)
+        doc["ruled_paths"] = conflict.ruled_paths(b)
+        doc["compliance"] = deltamarks.fail_rows(deltamarks.read(b))
+    brief = _write_json(b.work(brief_name), doc)
     out = {"ok": True, "owed": len(rows), "diff_file": d.get("file") or "", "brief_file": str(brief),
            "must": [str(brief)] + ([d["file"]] if d.get("file") else [])}
     if prompt is not None:
@@ -233,9 +260,68 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
 
 
 # ---------------------------------------------------------------- 受け付け
+def _plan_items(b, by: str = DELTA_BY) -> list[dict]:
+    """今の周の範囲の欄の在る承認済みの修正案の項目（planmarks.scoped_items。修正案の無い run・217 番の形の控えは空）。全部の
+    項目を番号のまま返し、裁定で外れた項目（conflict.held_item）には held（外した裁定の理由）を、単位の一部だけが外れた項目には
+    held_units（conflict.held_units の {単位: 理由}）を足す。控えが
+    凍結の印と食い違えば conflict.fields_broken の道（呼んだ段の印 by で盤面を止めて控えを名指す BoardGap。差分の審査の支度と
+    受け付けは DELTA_BY、手直しの支度は REFIX_BY）"""
+    try:
+        items = planmarks.scoped_items(b) or []
+    except planmarks.FieldsBroken as e:
+        raise conflict.fields_broken(b, e, by=by) from None
+    held = conflict.held_by_rulings(b) if items else {}
+    for it in items:   # 番号は保つ（準拠の行の番号の照らし）。外れた項目は範囲を与えない（planscope と同じ conflict.held_item）
+        why = conflict.held_item(it.get("unit_keys"), held)
+        some = conflict.held_units(it.get("unit_keys"), held)
+        if why:
+            it["held"] = why
+        elif some:   # 単位の一部だけが外れた項目: 外れた単位の分は照らさない・直さない
+            it["held_units"] = some
+    return items
+
+
+def _copy_shape_errors(nid: str, bare: dict) -> list[str]:
+    """2 判定の欄を外した返答を写しの graph の型（役の型から deltamarks の欄を除いた物）で照らした誤りの行"""
+    schema = accept.role_schema(nid)
+    for k in deltamarks.KEYS:
+        schema["properties"].pop(k, None)
+    schema["required"] = [r for r in schema.get("required", []) if r not in deltamarks.KEYS]
+    return validate_schema(bare, schema)
+
+
+def _fix_report(b) -> dict:
+    """直した側の報告（今の周の修正の出力の changes・not_done）。今の周に受けていなければ空"""
+    out = b.output_of_round(recount.FIX_NODE, b.round)
+    return {k: out.get(k) or [] for k in ("changes", "not_done")} if isinstance(out, dict) else {}
+
+
 def accept_review(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path, *, n: int) -> dict:
-    """n 回目の審査役の返答（読むだけの役。cut が撮った写しと今の作業ツリーを比べる）。entry.take の返り"""
-    return entry.take(board, _pass(n)["review"], reply, repo, snapshot_name=snapshot_name(n))
+    """n 回目の審査役の返答（読むだけの役。cut が撮った写しと今の作業ツリーを比べる）。entry.take の返り。節が
+    deltamarks.NODES に在れば、先に 2 判定の欄を承認済みの修正案の項目と照らし、欠けと誤りが在れば盤面へ渡さずに
+    {ok: False, reason: deltamarks.REJECT と行}。無ければ欄を外した返答を渡し、受けた時だけ欄を控える（置けなければ
+    rolekit.halt_unsaved の道: 盤面を止めて控えを名指す BoardGap）。拒む時は、欄を外した返答の写しの型の誤りも同じ拒否に並べる
+    （1 つの返答の誤りを 1 回で返す）。修正案の欄の控えが凍結の印と食い違えば conflict.fields_broken の道（差分の審査の段の印
+    DELTA_BY で盤面を止めて控えを名指す BoardGap）。faces が穴の並びの形でない返答は照らさずに、欄を外して渡す
+    （写しの型が faces を拒む。守る 2 つの欄を知らない欄と言わせない）"""
+    nid = _pass(n)["review"]
+    if nid not in deltamarks.NODES:
+        return entry.take(board, nid, reply, repo, snapshot_name=snapshot_name(n))
+    if deltamarks.malformed(reply):
+        return entry.take(board, nid, deltamarks.split(reply)[0], repo, snapshot_name=snapshot_name(n))
+    b = entry.open_board(board)
+    gaps = deltamarks.gaps(reply, _plan_items(b))
+    bare, verdicts = deltamarks.split(reply)
+    if gaps:   # 欄を外した返答の写しの型の誤りも同じ拒否に（1 つの返答の誤りを 1 回で返す。224 と同じ形）
+        gaps += [f"返答の形: {e}" for e in _copy_shape_errors(nid, bare)]
+        return {"ok": False, "reason": deltamarks.REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
+    out = entry.take(board, nid, bare, repo, snapshot_name=snapshot_name(n))
+    if out.get("ok") is True:   # 受けた時だけ（拒否では盤面の外の控えも前のまま）
+        try:
+            deltamarks.save(b, verdicts)
+        except Exception as e:   # 書けない・形にできない: 受けた審査に欄が無いまま進ませない
+            raise BoardGap(rolekit.halt_unsaved(board, deltamarks.VERDICTS_FILE, e, by=DELTA_BY)) from None
+    return out
 
 
 def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path, *, n: int) -> dict:
@@ -252,8 +338,9 @@ def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pa
 
 def main_accept_review(n: int) -> int:
     """審査の受け付けのスクリプトの入口（rolekit.main_accept。中身の拒否は 0 と 1 行、3 回目の拒否で done・give_up、
-    配線の誤りは 2）"""
-    return rolekit.main_accept(_pass(n)["review"], snapshot_name=snapshot_name(n))
+    配線の誤りは 2）。盤面へは accept_review（2 判定の欄の照らしと控えつき。読むだけの役の写しの比べもここ）で渡す"""
+    return rolekit.main_accept(_pass(n)["review"], take=lambda board, reply, repo: accept_review(
+        reply, board, os.environ.get("INPUTS_BASE_REV", ""), repo, n=n))
 
 
 def main_accept_fix(n: int) -> int:

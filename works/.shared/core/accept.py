@@ -42,6 +42,7 @@ if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
 import engine.util as _util  # noqa: E402
+import deltamarks  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402
 import querytest  # noqa: E402
@@ -146,6 +147,8 @@ def _role_schema_json(node, numbered):
         schema = _strip_notes(gatemarks.with_marks(node, schema))
     if node in planmarks.NODES:
         schema = _strip_notes(planmarks.with_fields(node, schema))
+    if node in deltamarks.NODES:
+        schema = _strip_notes(deltamarks.with_verdicts(node, schema))
     return json.dumps(schema, ensure_ascii=False)
 
 
@@ -156,7 +159,9 @@ def role_schema(node: str, numbered: bool = False) -> dict:
     事前審査だけの語を kind から落とす（_drop_plan_only_kinds）。判定・再審の節（querytest.NODES）は class_query に例の欄
     （hits・misses）を足す（写しの型は持てない。受け付けが盤面へ渡す前に外す）。修正案と事前審査の節（gatemarks.NODES）は
     関所の項目の行に決め手の欄を足す（同じく受け付けが外して盤面の gate-marks.json に置く）。修正案の節（planmarks.NODES）は
-    項目の行に works の欄（route・tests・rewrite_tests・refactor）を足す（同じく受け付けが外して盤面の plan-fields.json に置く）"""
+    項目の行に works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）を足す（同じく受け付けが外して
+    盤面の plan-fields.json に置く）。1 回目の差分の審査の節（deltamarks.NODES）は準拠と品質の 2 判定の欄（compliance・quality）を
+    足す（同じく受け付けが外して今の周の delta-verdicts.json に置く）"""
     return json.loads(_role_schema_json(node, numbered))
 
 
@@ -603,7 +608,8 @@ def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
     """審査役の返答を受け付ける。盤面に delta-snapshot.json が在れば、今の作業ツリーがその写しと同じかを先に見る
     （Ruling R3。git が無視するファイルの増減・書き換えも見る。無ければこの突き合わせは飛ばす）→ 型（graph の p3.delta_review の schema）→ rules の delta_review_output。
     触ったファイルは touched_files（git diff --name-only <base_rev> と未追跡のファイル）。
-    通れば盤面の delta-review.json に返答を書く。{"ok", "reason", "review_file"}"""
+    通れば盤面の delta-review.json に返答を書く。2 判定の欄は型だけを見てそのまま書く（v1 は plan を持たない）。
+    {"ok", "reason", "review_file"}"""
     def run():
         repo_p = pathlib.Path(repo)
         with _in_repo(repo_p):

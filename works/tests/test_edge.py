@@ -32,6 +32,7 @@ sys.path.insert(0, str(TESTS))
 from board import GRAPH_SHA, BoardGap, DiskBoard, NodeTable, graph_expanded  # noqa: E402
 import engine.util as engine_util  # noqa: E402  （board が写しの graphloops を sys.path に足す）
 import accept  # noqa: E402
+import deltamarks  # noqa: E402
 import design  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
@@ -98,7 +99,10 @@ def fix_reply(faces: bool) -> dict:
 DELTA_REVIEW = {"faces": [{"key": DELTA_FACE, "kind": "contract_drift", "where": "stats.py",
                            "cite": "clamp: 上限を超えたときに lo を返している",
                            "why": "頭の docstring は今も lo を返すと書いていて、直した後の振る舞いと食い違う"}],
-                "checks": [{"key": FACE, "closed": True, "why": "差分で clamp の上限の枝が hi を返す形になり、人の答えどおり"}]}
+                "checks": [{"key": FACE, "closed": True, "why": "差分で clamp の上限の枝が hi を返す形になり、人の答えどおり"}],
+                # 準拠と品質の 2 判定の欄（deltamarks）。修正案の欄を控えない盤面なので準拠は not_applicable、穴は準拠に結ばないので品質は fail
+                "compliance": {"verdict": "not_applicable", "items": [], "read": "修正案の works の欄の控えが無い run なので、照らす承認済みの項目は無い。差分の stats.py を読んだ"},
+                "quality": {"verdict": "fail", "why": "faces に挙げた穴は修正案の項目への準拠の外の品質の穴で、準拠の行には結ばない"}}
 DELTA_FIX = {"handled": [{"key": DELTA_FACE, "handled": "declared", "how": "docstring は種の説明で、仕込んだバグの記録として残す"}]}
 
 
@@ -123,8 +127,12 @@ class EdgeBase(unittest.TestCase):
 
     # -- 盤面を線の順に進める（どれも self.board・self.repo を置く）
     def take(self, nid, reply):
+        """役の返答を盤面へ直に渡す（entry.take）。1 回目の差分の審査は、受け付け（refix.accept_review）と同じく 2 判定の欄を
+        外した返答を渡す（写しの型は欄を持たない）"""
         b = entry.open_board(self.board)
         b.mark_launched(nid, pending_inst(b, nid).get("attempts", 1))
+        if nid in deltamarks.NODES:
+            reply = deltamarks.split(reply)[0]
         got = entry.take(self.board, nid, reply, self.repo)
         self.assertTrue(got["ok"], got)
         return got

@@ -26,7 +26,7 @@ def item(**over):
             "route": "tdd", "route_why": "",
             "tests": [{"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "2 つの値の平均を返す",
                        "path": "stats.mean を直に呼ぶ（mock なし）", "red_kind": "assertion", "red_why": "今は len-1 で割り 3.0 になる"}],
-            "rewrite_tests": [], "refactor": {"declared": False, "why": ""}}
+            "rewrite_tests": [], "refactor": {"declared": False, "why": ""}, "allowed_paths": ["stats.py"], "out_of_scope": []}
     return {**base, **over}
 
 
@@ -307,7 +307,8 @@ class UnitContractCase(unittest.TestCase):
         got = planmarks.unit_contract(fields, MEAN)
         self.assertEqual(got, {"items": [1, 2], "route": "tdd",
                                "tests": [{"id": self.T1["id"], "red_kind": "assertion"}],
-                               "rewrites": [self.RW["id"]], "refactor": [{"item": 2, "why": "w" * 10}]})
+                               "rewrites": [self.RW["id"]], "refactor": [{"item": 2, "why": "w" * 10}],
+                               "names": []})
         self.assertEqual(planmarks.unit_contract(fields, CLAMP)["route"], "direct")
 
     def test_contract_refactor_empty_without_declaration(self):
@@ -350,6 +351,116 @@ class TestLineScenarioPlans(PlanFieldsCase):
                     with self.subTest(f"{name}/{key}/{attempt}"):
                         self.assertEqual(planmarks.gaps(reply, self.repo), [])
         self.assertGreater(seen, 0)
+
+
+class TestUnitContract(PlanFieldsCase):
+    def test_names_from_adds(self):
+        """split は項目の adds の name を写し、unit_contract の names は key を含む項目の name を順に重複なしで持つ"""
+        add = lambda n: {"kind": "function", "name": n, "source": "x" * 10}
+        reply = {"plan": [item(adds=[add("clamp"), add("mean")]), item(adds=[add("clamp")], unit_keys=[MEAN, CLAMP]),
+                          item(adds=[add("other")], unit_keys=[CLAMP]), item(adds=[], unit_keys=[MEAN])]}
+        _, fields = planmarks.split(reply, self.repo)
+        self.assertEqual(fields[0]["adds"], ["clamp", "mean"])
+        self.assertEqual(planmarks.unit_contract(fields, MEAN)["names"], ["clamp", "mean"])
+        self.assertEqual(planmarks.unit_contract(fields, CLAMP)["names"], ["clamp", "other"])
+        self.assertEqual(planmarks.unit_contract([{"unit_keys": [MEAN]}], MEAN)["names"], [])
+        self.assertIsNone(planmarks.unit_contract(fields, "無い単位"))
+
+
+class ScopeFieldsCase(PlanFieldsCase):
+    """修正案の項目の範囲の欄（allowed_paths・out_of_scope。依頼 218）: 役の型の必須・glob の誤りと丸ごとの許しの拒否・欄を外す口・
+    修正案の役と事前審査の役の頭の文"""
+
+    def test_role_schema_requires_scope_fields(self):
+        it = accept.role_schema("p2.fix_plan")["properties"]["plan"]["items"]
+        for k in ("allowed_paths", "out_of_scope"):
+            self.assertIn(k, it["required"])
+        self.assertEqual(it["properties"]["allowed_paths"]["minItems"], 1)
+
+    def test_gaps_allowed_paths_must_be_relative_and_narrow(self):
+        for g in ("/abs/x.py", "../x.py", "a\\b.py", "**", "*", "**/*",
+                  "./x", " stats.py", "stats.py ", " ", "a/../b", "a//b",   # 整えない綴り・前後の空白（差分のパスに当たらない）
+                  "C:/x.py", "C:x.py", "~/x"):                              # ドライブ文字・~ は絶対パスとして拒む
+            with self.subTest(g):
+                got = planmarks.gaps({"plan": [item(allowed_paths=[g])]}, self.repo)
+                self.assertTrue(any(x.startswith("plan[0].allowed_paths[0]") for x in got), got)
+        self.assertEqual(planmarks.gaps({"plan": [item(allowed_paths=["stats.py", "docs/**/*.md"])]}, self.repo), [])
+
+    def test_gaps_out_of_scope_rows(self):
+        bad = [{"glob": "../x.py", "why": "根の外は触らない（試験の材料）"}]
+        got = planmarks.gaps({"plan": [item(out_of_scope=bad)]}, self.repo)
+        self.assertTrue(any(x.startswith("plan[0].out_of_scope[0]") for x in got), got)
+        self.assertTrue(planmarks.gaps({"plan": [item(out_of_scope=[{"glob": "test_stats.py", "why": "短い"}])]}, self.repo))
+
+    def test_gaps_scope_fields_required(self):
+        it = item()
+        del it["allowed_paths"]
+        self.assertTrue(any(g.startswith("plan[0].allowed_paths") for g in planmarks.gaps({"plan": [it]}, self.repo)))
+
+    def test_split_keeps_scope_fields_off_the_board(self):
+        bare, fields = planmarks.split({"plan": [item()]}, self.repo)
+        self.assertEqual(set(bare["plan"][0]), {"unit_keys", "approach", "adds", "removes", "shrink_first", "narrows"})
+        self.assertEqual((fields[0]["allowed_paths"], fields[0]["out_of_scope"]), (["stats.py"], []))
+
+    def test_head_and_review_ask_name_scope_fields(self):
+        for w in ("allowed_paths", "out_of_scope", "識別子", "canonical", "removes"):
+            self.assertIn(w, planmarks.HEAD)
+        self.assertIn("allowed_paths", planmarks.REVIEW_ASK)
+
+    def test_head_asks_for_moved_and_removed_paths(self):
+        self.assertIn("移す・消すファイルの元のパスも allowed_paths に書け", planmarks.HEAD)
+
+    def test_gaps_out_of_scope_must_not_hit_named_tests(self):
+        """out_of_scope の glob が、修正案の tests・rewrite_tests の id のファイルに当たる案は拒む（書けと言うファイルを触るなとも
+        言う食い違いを修正の段へ渡さない）。当たらなければ通る"""
+        oos = [{"glob": "test_*.py", "why": "既存の試験のファイルは触らない"}]
+        got = planmarks.gaps({"plan": [item(out_of_scope=oos)]}, self.repo)
+        self.assertTrue(any(x.startswith("plan[0].out_of_scope[0]") and "test_stats.py" in x for x in got), got)
+        other = item(tests=[], route="direct", route_why="文書だけの直しで先にテストを書けない", rewrite_tests=[REWRITE])
+        got = planmarks.gaps({"plan": [item(), {**other, "out_of_scope": oos}]}, self.repo)
+        self.assertTrue(any(x.startswith("plan[1].out_of_scope[0]") for x in got), got)
+        self.assertEqual(planmarks.gaps({"plan": [item(out_of_scope=[{"glob": "docs/**", "why": "文書は今回の直しの外"}])]},
+                                        self.repo), [])
+
+    def test_glob_match_is_the_protect_matcher(self):
+        """範囲の glob の当て方は守りのファイルの当て方と 1 つ（protect.match は planmarks.glob_match を呼ぶ）"""
+        import protect
+        for path, glob, want in (("stats.py", "*.py", True), ("a/b.py", "*.py", False), ("a/b.py", "**/*.py", True),
+                                 ("docs/x/y.md", "docs/**", True), ("test_stats.py", "test_*.py", True)):
+            with self.subTest(path=path, glob=glob):
+                self.assertEqual(planmarks.glob_match(path, glob), want)
+                self.assertEqual(protect.match(path, glob), want)
+
+
+class ApprovedItemsCase(PlanFieldsCase):
+    """approved_items: 今の周の承認済みの修正案の項目と、盤面の控えの欄を同じ番号で合わせた並び"""
+
+    def board(self, plan, fields):
+        b = types.SimpleNamespace(dir=self.tmp, round=1,
+                                  output_of_round=lambda node, rnd: {"plan": plan} if plan is not None and rnd == 1 else None)
+        if fields is not None:
+            planmarks.save(self.tmp, 1, fields)
+        return b
+
+    def test_join_plan_and_fields_by_number(self):
+        _, fields = planmarks.split({"plan": [item()]}, self.repo)
+        plan = [{k: v for k, v in item().items() if k not in planmarks.KEYS}]
+        got = planmarks.approved_items(self.board(plan, fields))
+        self.assertEqual(len(got), 1)
+        self.assertEqual((got[0]["item"], got[0]["approach"], got[0]["allowed_paths"], got[0]["unit_keys"]),
+                         (1, "x" * 20, ["stats.py"], [MEAN]))
+
+    def test_none_without_plan_or_fields(self):
+        _, fields = planmarks.split({"plan": [item()]}, self.repo)
+        self.assertIsNone(planmarks.approved_items(self.board(None, fields)))
+        self.tmp = self.tmp / "other"
+        self.tmp.mkdir()
+        self.assertIsNone(planmarks.approved_items(self.board([item()], None)))
+
+    def test_count_mismatch_is_fields_broken(self):
+        _, fields = planmarks.split({"plan": [item()]}, self.repo)
+        with self.assertRaises(planmarks.FieldsBroken):
+            planmarks.approved_items(self.board([item(), item()], fields))
 
 
 if __name__ == "__main__":

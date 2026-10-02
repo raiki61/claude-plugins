@@ -430,7 +430,8 @@ def _cmd_material(code: int | None, log_path: pathlib.Path, argv: list, how: str
     ran = f"{shlex.join(argv)}（起こし方 {how}）を対象の根で走らせた: exit {code}（ログ {log_path}）"
     if kind == "clean":
         return {"material": {"status": "clean", "count": 0, "checked": ran, "detail": tail}}
-    return {"material": {"status": "found", "count": 1, "detail": f"{ran} ／ 末尾: {tail}"}}
+    return {"material": {"status": "found", "count": 1,
+                         "detail": f"{ran} ／ 末尾: {tail} ／ {gatemarks.BASELINE_UNVERIFIED}（test_cmd は shell の文字列で、試験の報告を宣言できない）"}}
 
 
 def _engine_log(b, nid: str, runs: list) -> pathlib.Path:
@@ -520,6 +521,8 @@ def baseline_line(b) -> str:
     status = base["status"]
     word = gatemarks.MATERIAL_WORDS.get(status, "表に無い状態")
     told = f"{named} の status {status}" + (f"・走らせた物 {base['checked']}" if base.get("checked") else "")
+    if status in ("not_run", "awaiting_human"):
+        return f"修正前のテスト: {word}（{told}・{base.get('reason') or '理由なし'}）——{gatemarks.BASELINE_NOT_RUN}"
     if status == "clean":
         return (f"修正前のテスト: {word}（{told}）——最後のテストの赤は修正の後に出た赤でありうる"
                 "（同じ一式とは限らない。最後のテストの一式と照らして決める）")
@@ -975,7 +978,7 @@ def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, 
     try:
         p = b.done(nid, reply)
     except AnswerReject as e:
-        return {"ok": False, "reason": str(e)}
+        return {"ok": False, "reason": str(e), **({"problems": e.problems} if e.problems else {})}
     return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),
             "out_file": b.state["outputs"][nid]["file"]}
 

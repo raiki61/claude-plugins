@@ -35,7 +35,15 @@
    輪が赤→緑を確かめた修正案の書き換え（tddloop.verified_rewrites）は許しから外す（skip_ids。輪の後に確かめなしで書き換えさせない）
 1c. check_tests: 版からの変更に当たる試験を、TDD の輪と同じ実行器で機械が走らせ、元で赤でなかった試験の赤を拒む
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
-1d. 事後の関門の束（fixgates.problems。計画 220 Task 4）: 修正の形に依らず、base から今の木までを相手に、承認済みの修正案の
+1d. check_plan_scope: 承認済みの修正案の項目（planmarks.approved_items）と差分を照らす（planscope.check）。範囲（allowed_paths・
+   out_of_scope・テストの許し）の外・adds の識別子が差分に無い・canonical の外の同名の定義・removes の識別子が残る・tests に
+   無いテストを足した・tests のテストが無い、を拒む。欠けは版からの差分の全部で見て、修正役に問う外れと余分は TDD の輪が
+   凍らせたファイルなら凍った後に変えた分だけで見る。
+   単位の全部が直す義務から外れた項目（conflict.held_by_rulings。fix_plan_item ならその項目）は範囲を与えない。裁定の後
+   （ruled）に範囲が広がるのは直す裁定の limits のパスだけで、裁定を受けた単位の全部を外さない。out_of_scope はテストの許しと
+   裁定の limits にも勝つ（案が外したパスが要るのは案の項目の誤りで、fix_plan_item の道）。
+   控えに範囲の欄が無い・修正案の無い run は回さない。受けた時に trace に 1 行（SCOPE_OP）
+1e. 事後の関門の束（fixgates.problems。計画 220 Task 4）: 修正の形に依らず、base から今の木までを相手に、承認済みの修正案の
    受け入れのテストの赤→緑（INPUTS_TDD_SUITE の実行器。無い run は帳面に飛ばした理由だけ）と、名指しの外の既存のテストの
    本体の変更を確かめる。行が在れば行ごとの文（fixgates.reject_lines。" / " でつないで 1 つの理由に全部の行が並ぶ）で拒む
    （今の拒否の道。最後の回は文ごとに unit_key か名指しのファイルで単位に結べれば止める）。盤面に done を書く 3 の前に置く
@@ -51,7 +59,7 @@
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
 ここで出口へ運ぶ（collect が今の周の changes.json に書く）。拒んだときの changes は空。
 中身の拒否は終了コード 0 の {"ok": false, "reason", "reason_file", "changes": [], "done"} を 1 行。回す側の誤りは 2。
-done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目は、-2・1b・1c・1d・
+done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目は、-2・1b・1c・1d・1e・
 写しの受け付けの拒否の文が changes[].files か unit_key（写しの文の頭の unit_key[:60] も）でちょうど
 1 単位に結べれば、その単位の直しを戻して（控えの patch を盤面に置く）ask_human に止め、残りの単位で受け付けを頭から通し直す
 （park_bound_units。fail-fast: false）。通し直しが通らなければ、止めた単位の直し・食い違いの控え・裁定の文を止める前に戻す
@@ -76,6 +84,7 @@ import fixgates  # noqa: E402   事後の関門の束（blk-fix/lib）
 import impact  # noqa: E402   変更に当たる試験の選び（.shared/core）
 import planbrief  # noqa: E402   今の周の brief の行（blk-fix/lib。申し出 brief_vs_judgment の確かめ）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
+import planscope  # noqa: E402   承認済みの修正案の項目と差分の照らし（blk-fix/lib）
 import querytest  # noqa: E402   判定者の問いを例に当てる（.shared/core）
 import recount  # noqa: E402
 import tddloop  # noqa: E402
@@ -101,8 +110,8 @@ RULED_REVERTED_OP = "fix_ruled_reverted"     # 裁定の後の受け付けで、
 CONFLICT_BAD = "食い違いの申し出を受けない（名指した所が現物に無いか、形が違う。直して丸ごと出し直せ）: "
 CLOSURE_OP = "fix_unit_rows"   # 受けた返答の単位ごとの閉鎖の表（querytest.CLOSURE_FILE）を置いた盤面の trace の行
 BOUND_PARKED = ("修正の輪の最後の回も、この単位に結べる拒否（凍ったテストの書き換え・書き込みの出どころ・元で赤でなかった試験の赤・"
-                "事後の関門の束の行・写しの受け付けの拒否）が残った。返答全体を拒んで盤面を止める代わりに、機械がこの単位の直しを作業ツリーから戻して"
-                "人に回し、ほかの単位の直しを受けた。拒否の文: ")
+                "事後の関門の束の行・承認済みの修正案の項目からの外れ・写しの受け付けの拒否）が残った。返答全体を拒んで盤面を止める代わりに、"
+                "機械がこの単位の直しを作業ツリーから戻して人に回し、ほかの単位の直しを受けた。拒否の文: ")
 BOUND_PARKED_OP = "fix_bound_parked"   # 最後の回に単位に結べた拒否でその単位を止めた盤面の trace の行（止めた単位と控えの patch）
 PARKED_PATCH = "fix-parked"            # 止めた単位の戻した直しの控え（盤面の今の周の fix-parked-<n>.patch）
 SECOND_CONFLICT = ("裁定の後の出し直しで新しく申し出た食い違い——裁定の輪は 1 周に 1 回だけなので、機械が人に回した"
@@ -137,10 +146,9 @@ def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
     return PACK_COPY + " / ".join(parts) if parts else ""
 
 
-def fix_unit_keys(reply: dict, board: Path):
-    """盤面が p3.fix を待っていれば (changes[].unit_key を名前に戻した列（changes と同じ順）, 直す義務の key の集合,
-    直す義務から外れた単位 {key: 理由})（conflict.fix_duty）。待っていない・changes の形が崩れている・番号を名前に戻せない
-    ときは None（検査せず entry.take に任せる）"""
+def resolved_changes(reply: dict, board: Path):
+    """盤面が p3.fix を待っていれば、changes の行（番号の unit_key を盤面の控えで名前に戻した写し）。待っていない・changes の形が
+    崩れている・番号を名前に戻せないときは None。番号を名前に戻す仕事は engine の pointers.resolve の 1 本で、ここに別の戻しを書かない"""
     b = entry.open_board(board)
     inst = b.rd["instances"].get(recount.FIX_NODE)
     if not inst or inst["status"] != "pending" or not inst.get("launched_at") or not b.deps_met(recount.FIX_NODE):
@@ -151,10 +159,20 @@ def fix_unit_keys(reply: dict, board: Path):
     out = {"changes": copy.deepcopy(rows)}
     if pointers.resolve(out, b.nodes[recount.FIX_NODE].get("pointers"), inst.get("pointers")):
         return None
-    keys = [c.get("unit_key") for c in out["changes"]]
+    return out["changes"]
+
+
+def fix_unit_keys(reply: dict, board: Path):
+    """盤面が p3.fix を待っていれば (changes[].unit_key を名前に戻した列（changes と同じ順）, 直す義務の key の集合,
+    直す義務から外れた単位 {key: 理由})（conflict.fix_duty）。待っていない・changes の形が崩れている・番号を名前に戻せない
+    ときは None（検査せず entry.take に任せる）"""
+    rows = resolved_changes(reply, board)
+    if rows is None:
+        return None
+    keys = [c.get("unit_key") for c in rows]
     if not all(isinstance(k, str) for k in keys):
         return None
-    return (keys, *conflict.fix_duty(b))
+    return (keys, *conflict.fix_duty(entry.open_board(board)))
 
 
 def check_unique_units(keys: list) -> list:
@@ -231,6 +249,25 @@ def check_writes(reply: dict, board: Path, base_rev: str, repo: Path, state: str
 def check_tests(board: Path, base_rev: str, repo: Path, state: str) -> tuple:
     """版からの変更に当たる試験を機械が走らせた赤（tddloop.selected_problems）。返り (赤の文, 知らせ)。盤面は書かない"""
     return tddloop.selected_problems(state, repo, writes.base_rev(entry.open_board(board), base_rev))
+
+
+def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: Path, state: str, pass_: str) -> tuple:
+    """承認済みの修正案の項目と差分の照らし（planscope.check）。行は changes と keys（単位の名前）を並べ、files を根からの相対に
+    揃えた物。変わったパスは版からの変更（writes.changed）から実行器が作ったファイル（tddloop.suite_made）を除いた物。TDD の輪が
+    凍らせたファイル（輪の状態の frozen と frozen_tree。revert_units と同じ読み口）は planscope.check に渡し、欠けは版からの
+    差分の全部で、修正役に問う外れと余分は凍った後に変えた分だけで見させる。
+    返り (拒否の行（最初の行の頭に planscope.REJECT）, 記録)。盤面は書かない（控えの食い違いで止めるのは planscope.check）"""
+    b = entry.open_board(board)
+    rows = [{"unit_key": k, "files": sorted(_files([c], repo))} for c, k in zip(reply.get("changes") or [], keys)]
+    st = tddloop.load_state(state) if state else {}
+    made = set(tddloop.suite_made(state))
+    rev = writes.base_rev(b, base_rev)
+    paths = [p for p in writes.changed(repo, rev) if p not in made]
+    problems, note = planscope.check(rows, b, repo, rev, paths, pass_=pass_, loop_tree=st.get("frozen_tree") or None,
+                                     frozen=sorted(st.get("frozen") or {}))
+    if problems:
+        problems = [planscope.REJECT + problems[0], *problems[1:]]
+    return problems, note
 
 
 def _files(rows, repo) -> set:
@@ -356,7 +393,8 @@ def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     戻して（revert_units）ask_human に裁いて止め（conflict.park）、その行（と bash_writes の申告）を外した返答と、止める前に
     戻す手（undo: 直し・食い違いの控え・裁定の文を戻し、trace に PARK_UNDONE_OP）を返す。結べない文が在る・共有のファイルが
     在る時は None（今までどおり返答全体を拒む）"""
-    rows = [c for c in reply.get("changes") or [] if isinstance(c, dict)]
+    named = resolved_changes(reply, board)   # 拒否の行は名前の unit_key[:60] を頭に持つので、番号で答えた行も名前に戻して結ぶ
+    rows = named if named is not None else [c for c in reply.get("changes") or [] if isinstance(c, dict)]
     bound, unbound = bind_problems(problems, rows, repo)
     if unbound or not bound:
         return None
@@ -395,6 +433,7 @@ def accept_fix(reply, board, base_rev, repo):
     attempt = int(os.environ.get("INPUTS_ITERATION") or 0)
     last = attempt >= GIVE_UP_AFTER
     whole = reply
+    scope_note = None   # 承認済みの修正案の項目と差分を照らした記録（受けた時に trace へ）
 
     def refuse(problems):
         """拒否。輪の最後の回は、単位に結べる拒否ならその単位だけを止めて残りで受け付けを通し直し、通らなければ止めた単位を
@@ -453,6 +492,9 @@ def accept_fix(reply, board, base_rev, repo):
             else:
                 undo()
             return out
+        scope, scope_note = check_plan_scope(reply, keys, board, base_rev, repo, state, pass_)
+        if scope:
+            return refuse(scope)
     red, note = check_tests(board, base_rev, repo, state)
     if red:
         return refuse(red)
@@ -463,11 +505,13 @@ def accept_fix(reply, board, base_rev, repo):
     reply, rows = unitrows.take(reply, b, repo)
     out = recount.accept_fix(reply, board, base_rev, repo)
     if out.get("ok") is not True and last:
-        return refuse([str(out.get("reason") or "")])
+        return refuse(out.get("problems") or [str(out.get("reason") or "")])
     if out.get("ok") is True:   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
         b = entry.open_board(board, allow_halted=True)
         writes.trace(b, recount.ROLE, wrote)
         b.trace(TESTS_OP, node=recount.ROLE, note=note, ci_left=tddloop.ci_left(state))
+        if scope_note is not None:
+            b.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
         gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt)
         if gaps:   # 束が赤緑を確かめずに受けた回（拒まないが、報告で見えるように）
             b.trace(fixgates.SKIPPED_OP, node=recount.ROLE, why=gaps)

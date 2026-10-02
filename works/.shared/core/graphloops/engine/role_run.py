@@ -520,7 +520,7 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
     プロセスグループ・期限なし・どの道で抜けても木ごと止める・pgid の印で別のプロセスが止める、を写さずに使う。
 
     shell を通さない（argv をそのまま）。標準入力は空。標準出力と標準エラーは log_dir に丸ごと置き、返り値には末尾だけ載せる。
-    返すのは段ごとの {name, argv, exit, wall_s, out, err, tail}（exit が None なら起こせなかった——error に理由）。
+    返すのは段ごとの {name, argv, started, exit, wall_s, out, err, tail}（started は段を起こした epoch 秒。exit が None なら起こせなかった——error に理由）。
     もう自分の物でなければ（still_mine が偽——起こし直された・人が止めた）Superseded を上げる。"""
     log_dir = pathlib.Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -528,7 +528,7 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
     for i, s in enumerate(steps):
         started = time.time()
         base = log_dir / f"{i + 1}"
-        row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
+        row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err", "started": started}
         try:
             rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, pgid_file=pgid_file, still_mine=still_mine)
         except OSError as e:

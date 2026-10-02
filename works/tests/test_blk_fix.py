@@ -47,6 +47,7 @@ if str(BLK / "lib") not in sys.path:   # 修正のブロックの模块（brief 
     sys.path.append(str(BLK / "lib"))
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
+import planscope  # noqa: E402
 
 DEADLINE = 1728000000
 # 実行器の無い run の tdd-start の出口（tddloop.start の go: false。test_blk_fix_tdd が実物で見る）
@@ -399,7 +400,8 @@ def plan_reply(narrows=()):
 PLAN_FIELDS = [{"route": "tdd", "route_why": "", "tests": [{"id": "test_stats.py::TestStats::test_mean_of_two",
                                                             "behavior": "2 つの値の平均", "path": "stats.mean を直に呼ぶ",
                                                             "red_kind": "assertion", "red_why": "今は len-1 で割る"}],
-                "rewrite_tests": [], "refactor": {"declared": False, "why": ""}}]
+                "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
+                "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}]
 
 
 def extra_row(key):
@@ -1086,6 +1088,136 @@ class TestAccept(BoardCase):
                 self.assertIn("p3.fix", err)
                 self.assertEqual(board_shas(self.board), before)
 
+    def scope_ready(self, allowed, **over):
+        """p3.fix が待つ盤面に、修正案の項目の欄（PLAN_FIELDS の形に範囲の欄 allowed）を控える"""
+        self.fix_ready()
+        row = {**PLAN_FIELDS[0], "unit_keys": [MEAN, CLAMP], "route": "direct", "route_why": "見本。先にテストを書かない",
+               "tests": [], "allowed_paths": allowed, "out_of_scope": [], **over}
+        planmarks.save(self.board, entry.open_board(self.board).round, [row])
+
+    def scope_rows(self):
+        from test_edge import trace_rows
+        return [r for r in trace_rows(self.board) if r.get("op") == planscope.SCOPE_OP]
+
+    def test_scope_reject_names_file(self):
+        """承認済みの修正案の範囲（docs/**）の外の stats.py を直した返答 → 同じ brief のまま役に返す（盤面は p3.fix の待ちのまま）"""
+        self.scope_ready(["docs/**"])
+        self.edit_tree(FIXED)
+        r = json.loads(self.run_it(load("fix2_ok"))[1])
+        self.assertFalse(r["ok"])
+        text = pathlib.Path(r["reason_file"]).read_text(encoding="utf-8")
+        self.assertIn(planscope.REJECT, text)
+        self.assertIn("stats.py", text)
+        self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
+
+    def test_scope_pass_traces_note(self):
+        """範囲の中の直しは通り、受けた時の trace に照らした印を 1 行（checked: true）"""
+        self.scope_ready(["stats.py"])
+        self.edit_tree(FIXED)
+        self.assertTrue(json.loads(self.run_it(load("fix2_ok"))[1])["ok"])
+        rows = self.scope_rows()
+        self.assertEqual((len(rows), rows[0]["checked"]), (1, True))
+
+    def test_old_fields_skip_scope_check(self):
+        """範囲の欄の無い控え（217 番の形の盤面）では照らさずに受け、trace に checked: false と理由を残す"""
+        self.fix_ready()
+        old = {k: v for k, v in PLAN_FIELDS[0].items() if k not in ("allowed_paths", "out_of_scope")}
+        old.update(route="direct", route_why="見本。先にテストを書かない", tests=[])
+        planmarks.save(self.board, entry.open_board(self.board).round, [old])
+        self.edit_tree(FIXED)
+        self.assertTrue(json.loads(self.run_it(load("fix2_ok"))[1])["ok"])
+        rows = self.scope_rows()
+        self.assertIs(rows[0]["checked"], False)
+        self.assertTrue(rows[0]["why"])
+
+    def accept_module(self, name):
+        """accept.py を spec_from_file_location で読む（test_fix_rules.TestThirdRejectParksBoundUnit と同じ形）"""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(name, BLK / "scripts" / "accept.py")
+        acc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(acc)
+        return acc
+
+    def tdd_frozen(self, **over):
+        """TDD の輪が回った後の形: 項目は route tdd で tests が test_mean_of_two を名指す。輪が test_stats.py に
+        test_mean_of_two（tests に名指した物）と test_tdd_only（名指さない物）を足し、allowed_paths の外の補助のファイル
+        tdd_data.json を書いて凍らせた。返りは輪の状態のファイル（frozen と frozen_tree だけ）"""
+        import tddloop
+        self.scope_ready(["stats.py"], route="tdd", route_why="", tests=[PLAN_FIELDS[0]["tests"][0]], **over)
+        path = self.repo / "test_stats.py"
+        text = path.read_text(encoding="utf-8")
+        head = "class TestStats(unittest.TestCase):\n"
+        self.assertIn(head, text)
+        path.write_text(text.replace(head, head + "    def test_mean_of_two(self):\n        self.assertEqual(mean([1, 3]), 2)\n\n"
+                                     "    def test_tdd_only(self):\n        self.assertTrue(True)\n\n"), encoding="utf-8")
+        (self.repo / "tdd_data.json").write_text("[1, 2]\n", encoding="utf-8")
+        state = self.tmp / "tdd-state.json"
+        state.write_text(json.dumps({"frozen": tddloop.hashes(self.repo, ["test_stats.py", "tdd_data.json"]),
+                                     "frozen_tree": tddloop.snapshot(self.repo)}), encoding="utf-8")
+        self.edit_tree(FIXED)
+        return str(state)
+
+    def scope_of(self, state, name):
+        acc = self.accept_module(name)
+        reply = load("fix2_ok")
+        return acc.check_plan_scope(reply, [c["unit_key"] for c in reply["changes"]], self.board, "", self.repo, state, "first")
+
+    def test_tdd_written_files_not_charged_to_fixer(self):
+        """TDD の輪が書いて凍らせ、その後に変わっていないファイル（tests の受け入れのテスト・tests に無いテスト・allowed_paths の
+        外の補助のファイル）は修正役に問わない。欠けの証拠（tests が修正の後の木に在るか）は版からの差分の全部で見る"""
+        state = self.tdd_frozen()
+        got, note = self.scope_of(state, "blk_fix_accept_tdd_scope")
+        self.assertEqual((got, note["checked"]), ([], True))
+        got, _ = self.scope_of("", "blk_fix_accept_tdd_scope_nostate")
+        self.assertTrue(any("test_tdd_only" in p for p in got) and any("tdd_data.json" in p for p in got), got)
+
+    def test_test_added_after_freeze_above_rewrite_is_rejected(self):
+        """凍った後に修正役が rewrite_tests の関数の真上へ足した新しいテストは、凍結の検査を通っても tests に無いテストとして拒む
+        （凍ったファイルの新しいテストは凍った時の中身から数える）"""
+        rewrite = {"id": "test_stats.py::TestStats::test_mean_of_three", "behavior": "平均の定義が依頼で変わる",
+                   "old": "mean([1, 2, 3]), 2", "new": "新しい期待は 2.0（float で返す）", "limit": "test_stats.py:14"}
+        state = self.tdd_frozen(rewrite_tests=[rewrite])
+        path = self.repo / "test_stats.py"
+        text = path.read_text(encoding="utf-8")
+        target = "    def test_mean_of_three(self):\n"
+        self.assertIn(target, text)
+        path.write_text(text.replace(target, "    def test_sneak(self):\n        pass\n\n" + target), encoding="utf-8")
+        got, _ = self.scope_of(state, "blk_fix_accept_sneak")
+        self.assertTrue(any("test_stats.py::TestStats::test_sneak" in p and "tests にも無い" in p for p in got), got)
+        self.assertFalse(any("test_tdd_only" in p for p in got), got)
+
+    def test_tdd_state_reaches_scope_check_through_accept_fix(self):
+        """配線: 受け付けの本体（accept_fix）が輪の状態を照らしに渡し、TDD の項目を受ける（実行器は check_tests を mock にして
+        起こさない。test_blk_fix_conflict.TestFirstPassPlanLimits と同じ型）"""
+        state = self.tdd_frozen()
+        acc = self.accept_module("blk_fix_accept_tdd_wiring")
+        with mock.patch.object(acc, "check_tests", return_value=([], "")), \
+                mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": state, "INPUTS_PASS": "first"}):
+            got = acc.accept_fix(load("fix2_ok"), self.board, "", self.repo)
+        self.assertIs(got["ok"], True, got)
+        self.assertIs(self.scope_rows()[0]["checked"], True)
+
+    def test_no_plan_traces_reason(self):
+        """修正案の欄の控えが無い run は照らさずに受け、trace に checked: false と理由（NO_PLAN）を残す"""
+        self.fix_ready()
+        self.edit_tree(FIXED)
+        self.assertTrue(json.loads(self.run_it(load("fix2_ok"))[1])["ok"])
+        rows = self.scope_rows()
+        self.assertEqual([(r["checked"], r["why"]) for r in rows], [(False, planscope.NO_PLAN)])
+
+    def test_scope_problems_bind_to_one_unit(self):
+        """accept.py を spec_from_file_location で読み（test_fix_rules.TestThirdRejectParksBoundUnit と同じ形）、problems の
+        行 1 の外れ（MEAN の行の other.py）を accept.bind_problems に渡すと、MEAN 1 つに結ぶ"""
+        acc = self.accept_module("blk_fix_accept_scope")
+        it = {"item": 1, "unit_keys": [MEAN, CLAMP], "adds": [], "removes": [], "tests": [], "rewrite_tests": [],
+              "allowed_paths": ["stats.py"], "out_of_scope": []}
+        rows = [{"unit_key": MEAN, "files": ["other.py"]}, {"unit_key": CLAMP, "files": ["stats.py"]}]
+        found, _ = planscope.problems([it], rows, {"stats.py": ("a\n", "b\n"), "other.py": (None, "x\n")})
+        got = [p for p in found if "other.py" in p and MEAN in p]
+        self.assertEqual(len(got), 1, found)
+        bound, unbound = acc.bind_problems(got, rows, self.tmp)
+        self.assertEqual((list(bound), unbound), ([MEAN], []))
+
     def test_missing_env(self):
         self.repo = linekit.seed_repo(self.tmp / "repo")
         for name in ("INPUTS_REPLY", "INPUTS_BASE_REV", "ARTIFACTS_DIR"):
@@ -1093,6 +1225,55 @@ class TestAccept(BoardCase):
                 code, out, err = self.run_it(load("fix2_ok"), **{name: None})
                 self.assertEqual((code, out), (2, ""))
                 self.assertIn(name, err)
+
+
+class ParkBoundBase(BoardCase):
+    """輪の最後の回（INPUTS_ITERATION=GIVE_UP_AFTER）の受け付け（blk-fix の fix-accept のスクリプト）を、本物の盤面・作業ツリーで子に起こす"""
+
+    run_it = TestAccept.run_it
+
+    def parked_units(self):
+        """盤面の trace の BOUND_PARKED_OP の行が止めた単位の key（行の順）"""
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        return [k for r in rows if r.get("op") == "fix_bound_parked" for k in r.get("unit_keys") or []]
+
+    def run_last(self, reply):
+        code, out, err = self.run_it(reply, INPUTS_ITERATION="3")
+        self.assertEqual(code, 0, err)
+        return json.loads(out)
+
+
+class ParkBoundMultiLineCase(ParkBoundBase):
+    def test_last_round_parks_two_units_from_one_reject(self):
+        # 2 単位の行が形の誤り（空語の bypass_tried・breaks.result）を持つ返答の最後の回: 写しの拒否が誤りを 1 行ずつ並べ、
+        # どの行も名前の頭 unit_key[:60] で単位に結べるので、両方の単位を止め（ask_human）、残りの行で通し直す
+        self.fix_ready()
+        self.edit_tree(FIXED)
+        reply = load("fix2_ok")
+        reply["changes"][0]["bypass_tried"] = "なし"
+        reply["changes"][1]["breaks"]["result"] = "なし"
+        r = self.run_last(reply)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(sorted(self.parked_units()), sorted([MEAN, CLAMP]), "両方の単位を止める")
+        self.assertEqual(r["changes"], [], "止めた単位の行は changes から外れる")
+
+
+class ParkBoundNumberedCase(ParkBoundBase):
+    def test_numbered_unit_key_reply_parks_bound_unit(self):
+        # unit_key を番号で答えた返答の最後の回: 拒否の行は engine が名前に戻した unit_key[:60] を頭に持つので、番号のままの
+        # 返答の行も名前に戻して結び、その単位だけを止める（返答全体の拒否にしない）
+        self.fix_ready(numbered=True)
+        self.edit_tree(FIXED)
+        (self.repo / "notes_clamp.txt").write_text("clamp の上限の枝の控え\n", encoding="utf-8")
+        reply = load("fix2_ok")
+        for no, c in enumerate(reply["changes"], 1):
+            c["unit_key"] = no
+        reply["changes"][1]["files"] = ["notes_clamp.txt"]   # mean の行と共有しない（共有すると結べず全体の拒否）
+        reply["changes"][1]["breaks"]["result"] = "なし"
+        r = self.run_last(reply)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.parked_units(), [CLAMP], "拒否の行に結べる単位が止まる")
+        self.assertEqual([c["unit_key"] for c in r["changes"]], [MEAN])
 
 
 class TestCollect(BoardCase):

@@ -10,6 +10,13 @@ review:
   faces: []
   checks: []
   faces_none: "stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い"
+  compliance:
+    verdict: not_applicable
+    items: []
+    read: 修正案の works の欄の控えが無い run なので、照らす承認済みの項目は無い。差分の stats.py を読んだ
+  quality:
+    verdict: pass
+    why: 差分は mean の分母と clamp の上限の枝を直すだけで、faces に挙げる穴は無い
 review-accept:
   ok: true
   done: true

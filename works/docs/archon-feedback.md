@@ -36,6 +36,7 @@ works（Archon の上の pack「darkfactory」）が、Archon の不具合や欠
 | 23 | 名前が `.js` の実行ファイルに `--no-env-file` を足す | 無い | 無し | コード |
 | 24 | 同梱の工程が validate で必ず赤 | 近い #2283・#3526 open | 無し | 記述 |
 | 25 | script の節（runtime: uv）が対象の uv の設定を読む | 無い | 余地 | 記述 |
+| 26 | 輪の本体の関所の後の再開で止まった回の会話が欠ける | #3532 open（直しの試み PR #3534） | 無し | コード |
 
 ## 送るなら先に出す物
 
@@ -122,7 +123,7 @@ works（Archon の上の pack「darkfactory」）が、Archon の不具合や欠
 - works の回り道: 無い。同梱の graphloops の写し（0.21.0）が answer_detail を持たないので、`use.sh answer` は `--exclude` を拒み、外したい単位と理由は一言に書く（修正役に届くが、直す義務の数からは外れない）。写しを answer_detail を持つ版に上げた時に口を足す。
 - Archon 側: #2707・#3140 open。
 
-### 16〜25（works に効かない・小さい物）
+### 16〜26（works に効かない・小さい物）
 - 16: 走っている run の成果物の置き場を CLI が返さない。works は `output_root` に `/artifacts/runs/<id>` を足して組む。
 - 17: 「次の境で止めて」の依頼と、取り消し後に走る最後の節が無い。works は止め札と、外から報告を組む殻で代わりにしている。
 - 18: 期限は正で有限かしか見ない。2^31−1 ms を超える値が検査を通り、実行ですぐ失敗する。
@@ -133,6 +134,7 @@ works（Archon の上の pack「darkfactory」）が、Archon の不具合や欠
 - 23: 名前が `.js` で終わる実行ファイルに `--no-env-file` を足す（provider.ts:769-843）。
 - 24: 同梱の工程 archon-smart-pr-review が validate で必ず赤（0.12.0 で古い同梱の工程は外れる予定、#3526）。
 - 25: script の節（runtime: uv）が対象の uv の設定を読む。
+- 26: 本体が approval の関所で終わる loop_group の再開が、止まった回の会話を引き継がない（#3532 open。直しの試みの PR は #3534）。works の関所は全部輪の外の最上段なので影響は無い。縛る試験は `works/tests/test_yaml_rules.py` の `YamlRulesCase.test_each_bad_yaml_is_red`（見本 `yaml_bad/approval_in_loop.yaml`）と `test_pack_yaml_is_green`。
 
 ## works 側で直す物（Archon に返す物ではない）
 

@@ -134,6 +134,69 @@ class RunEngineCase(EngineRunCase):
         self.assertIn("1 failed", m["detail"])
         self.assertEqual(b.record["process"]["checks"]["p0.local_checks"]["runs"][0]["exit"], 3)
 
+    def reported_step(self, cases: str | None, code: int, name="suite"):
+        """試験の報告 report.xml を宣言した段: cases（<testcase> の並び）を書いて code で終わる。cases が None なら何も書かずに終わる"""
+        body = "" if cases is None else f"open('report.xml','w').write({f'<testsuite>{cases}</testsuite>'!r});"
+        return {"name": name, "argv": ["python3", "-c", f"import sys;{body}sys.exit({code})"], "junit": "report.xml"}
+
+    def local_checks_for(self, step, before=None):
+        """p0.local_checks を既定の runner で走らせた素材。before は走らせる前に report.xml に置く（本文, 何秒前の更新か）"""
+        b = self.board_before(engine_run_step("p0.local_checks"), edit=minimal("p0.local_checks"))
+        self.write_decl(b, [step])
+        if before:
+            report = self.repo(b) / "report.xml"
+            report.write_text(before[0], encoding="utf-8")
+            old = report.stat().st_mtime - before[1]
+            os.utime(report, (old, old))
+        self.assertTrue(b.run_engine("p0.local_checks")["ok"])
+        return b.record["materials"]["local_checks"]
+
+    def test_unran_step_is_not_found(self):
+        """報告（junit）を宣言した段が試験を走らせていない形——件数 0・全部 error・報告が無い・段より古い報告・XML が壊れている
+        ——は、赤（found）でなく起こせない段と同じ awaiting_human（p0）。終了コードの数値でなく件数で分ける"""
+        stale = "<testsuite><testcase name='t'><failure/></testcase></testsuite>"
+        cases = [(self.reported_step("", 5), None, "試験が 0 件"),
+                 (self.reported_step("<testcase name='t'><error/></testcase>", 1), None, "全部 error"),
+                 (self.reported_step(None, 4), None, "report.xml が無い"),
+                 (self.reported_step(None, 1), (stale, 3600), "段の起動より古い"),
+                 (self.reported_step("<testcase", 2), None, "XML として読めない")]
+        for step, before, want in cases:
+            with self.subTest(want):
+                m = self.local_checks_for(step, before)
+                self.assertEqual(m["status"], "awaiting_human", m)
+                self.assertIn("基準の検査が走らなかった", m["reason"])
+                self.assertIn(want, m["reason"])
+                self.assertNotIn("count", m)
+
+    def test_ran_red_step_is_found(self):
+        """報告に走った試験が在り failure が在る段は、終了コードが何でも found（走って落ちた赤）。走ったかを疑う文は添えない"""
+        m = self.local_checks_for(self.reported_step("<testcase name='t'><failure/></testcase>", 5))
+        self.assertEqual((m["status"], m["count"]), ("found", 1))
+        self.assertNotIn("走ったかは確かめていない", m["detail"])
+
+    def test_ran_green_step_is_clean(self):
+        m = self.local_checks_for(self.reported_step("<testcase name='t'/>", 0))
+        self.assertEqual(m["status"], "clean", m)
+
+    def test_red_step_without_report_says_unverified(self):
+        """報告を宣言していない段の赤は found のまま、段ごとに走ったかは確かめていないと detail に添える"""
+        b = self.board_before(engine_run_step("p0.local_checks"), edit=minimal("p0.local_checks"))
+        self.write_decl(b, RED)
+        self.assertTrue(b.run_engine("p0.local_checks")["ok"])
+        m = b.record["materials"]["local_checks"]
+        self.assertEqual(m["status"], "found")
+        self.assertIn("走ったかは確かめていない（試験の報告の宣言が無い段: suite）", m["detail"])
+
+    def test_junit_key_is_checked_by_parse(self):
+        step = {"name": "a", "argv": ["x"]}
+        steps, err = declared.parse(json.dumps({"suite": [{**step, "junit": "out/r.xml"}]}))
+        self.assertIsNone(err)
+        self.assertEqual(steps, [{**step, "junit": "out/r.xml"}])
+        for bad in ("", "/abs.xml", "../r.xml", 3):
+            with self.subTest(bad):
+                self.assertIsNotNone(declared.parse(json.dumps({"suite": [{**step, "junit": bad}]}))[1])
+        self.assertIsNotNone(declared.parse(json.dumps({"suite": [{**step, "other": 1}]}))[1])
+
     def test_declaration_changed_refused(self):
         """撮った計画を差し込み、宣言を書き換えてから当てる → {ok: False, relaunch: True}、why は engine_run_refusal の文。
         何も走らず、盤面（state・record・trace）は前のまま、節は待ちのまま"""

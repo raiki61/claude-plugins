@@ -16,7 +16,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)・
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
-- cost_rows(events, launches) -> [{node, reported, actual, continued_from, base}]
+- cost_rows(events, launches) -> [{node, reported, actual, continued_from, base, aggregate}]
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
 - replanned_lines(b)・REPLAN_HEAD -> 食い違いの申し出を fix_plan_item（案の項目の誤り）に裁いて直さずに残した単位の行（冒頭 1 と最後の関所の文が同じ行を出す。関所を開ける理由には数えない）
@@ -1042,37 +1042,48 @@ def _completed(events) -> list:
     return [e for e in events or [] if isinstance(e, dict) and e.get("event_type") == "node_completed"]
 
 
+def _is_aggregate(e) -> bool:
+    """輪（loop_group）の集計の出来事か。Archon が data.accounting="aggregate"（か data.aggregate が真）で印を付ける。
+    印が無ければ節として数える"""
+    d = e.get("data")
+    d = d if isinstance(d, dict) else {}
+    return d.get("accounting") == "aggregate" or d.get("aggregate") is True
+
+
 def cost_rows(events, launches) -> list:
-    """[{node, reported, actual, continued_from, base}]。events の node_completed の費用の欄（COST_FIELD）を節の名で
+    """[{node, reported, actual, continued_from, base, aggregate}]。aggregate は輪の集計の行（合計に数えない）。events の node_completed の費用の欄（COST_FIELD）を節の名で
     launches（包みの起動の行。時刻の順に並べ直す。拒んだ起動は除く）と順に結ぶ。session.mode continued の起動は、continued_from に
     その会話を前に使った節、base にその時の表示を書く。costUsd が累積か 1 回分かは測れていないので引かず、actual = reported。
     events が None か費用が 1 つも取れなければ []"""
     if not events:
         return []
-    shown = [(_step_name(e.get("step_name")), _event_cost(e)[0]) for e in _completed(events)]
-    shown = [(n, v) for n, v in shown if v is not None]
+    shown = [(_step_name(e.get("step_name")), _event_cost(e)[0], _is_aggregate(e)) for e in _completed(events)]
+    shown = [(n, v, a) for n, v, a in shown if v is not None]
     if not shown:
         return []
     queues = {}
-    for n, v in shown:
-        queues.setdefault(n, []).append(v)
+    for n, v, a in shown:
+        queues.setdefault(n, []).append((v, a))
     totals, last_node, out = {}, {}, []
     for r in _live_launches(None, launches or []):
         node = r.get("node")
         q = queues.get(node) or []
         if not q:
             continue
-        v = q.pop(0)
+        v, agg = q.pop(0)
         s = r.get("session") or {}
         sid, mode = s.get("id"), s.get("mode")
         if mode == "continued" and sid in totals:
-            out.append({"node": node, "reported": v, "actual": v, "continued_from": last_node[sid], "base": totals[sid]})
+            out.append({"node": node, "reported": v, "actual": v, "continued_from": last_node[sid], "base": totals[sid],
+                        "aggregate": agg})
         else:
-            out.append({"node": node, "reported": v, "actual": v, "continued_from": None, "base": None})
+            out.append({"node": node, "reported": v, "actual": v, "continued_from": None, "base": None,
+                        "aggregate": agg})
         if sid:
             totals[sid], last_node[sid] = v, node
     for n, q in queues.items():
-        out += [{"node": n, "reported": v, "actual": v, "continued_from": None, "base": None} for v in q]
+        out += [{"node": n, "reported": v, "actual": v, "continued_from": None, "base": None, "aggregate": a}
+                for v, a in q]
     return out
 
 
@@ -1091,11 +1102,12 @@ def head_cost(board_dir, run_id: str, *, events=None, launches=None) -> list:
     lines = []
     for r in rows:
         extra = f"（{r['continued_from']} の会話を継いだ。costUsd が累積かどうか未確認で引いていない）" if r["continued_from"] else ""
-        lines.append(f"費用 {r['node']}: {r['actual']} USD{extra}{mark}")
+        agg = "（輪の和。合計に数えない）" if r["aggregate"] else ""
+        lines.append(f"費用 {r['node']}: {r['actual']} USD{extra}{agg}{mark}")
     if whys:
         lines.append(f"費用の取れない節: {missing}（合計に数えない）")
-    nodes = round(sum(r["actual"] for r in rows), 6)
-    lines.append(f"費用の合計: {nodes} USD（途中。報告は run の中で走るので run の和は読まず節の和。包みと子を二重に数えうる）{mark}")
+    nodes = round(sum(r["actual"] for r in rows if not r["aggregate"]), 6)
+    lines.append(f"費用の合計: {nodes} USD（途中。報告は run の中で走るので run の和は読まず節の和）{mark}")
     return lines
 
 

@@ -55,6 +55,10 @@ plan:
     refactor:
       declared: false
       why: ''
+    allowed_paths:
+    - stats.py
+    - test_stats.py
+    out_of_scope: []
 plan-accept:
   ok: false
   done: true

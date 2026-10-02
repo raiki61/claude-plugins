@@ -5,7 +5,8 @@
 """盤面の手本の作り手（仕様 9.2）。graphloops の写しの commit を使い捨ての場所に書き出し、台本 simulate_review.py の場面を
 1 つずつ同じプロセスで呼び、子の loop.py に sitecustomize.py（同じフォルダ）を読ませて engine の中の手を撮り、
 tests/boards/golden-a1202d0/ に置く。お金 0・AI 0（実物の claude を起こしたら印を書いて 97 で落ちる偽の claude を
-PATH の頭に置く）。graphloops の追跡ファイルには触らない。
+PATH の頭に置く）。書き出しには写しの台帳（works/.shared/core/COPIED_FROM）の手直し（! 行）を当て、works が走らせる
+写しと同じ engine で撮る。graphloops の追跡ファイルには触らない。
 
 使い方: uv run works/dev/board-goldens/make.py [--graphloops-rev <commit>] [--out <置き場>] [--work <置き場>] [場面 ...]
 --graphloops-rev の既定は写しの commit（works/.shared/core/COPIED_FROM の 1 行目）。
@@ -233,9 +234,19 @@ def refuse_claude_tmp(what, path):
 
 
 def export(rev, dest):
+    """rev を dest に書き出し、写しの台帳の手直し（! 行）を当てる——手本は works が走らせる写しと同じ engine で撮る"""
     dest.mkdir(parents=True)
     arc = subprocess.run(["git", "-C", str(ROOT), "archive", rev], capture_output=True, check=True).stdout
     subprocess.run(["tar", "-x", "-C", str(dest)], input=arc, check=True)
+    led = copyledger.read(ROOT / "works" / ".shared" / "core" / "COPIED_FROM")
+    for rel, src in led.rows:
+        if rel in led.deviations:
+            f = dest / (src or rel)
+            try:
+                f.write_bytes(copyledger.apply(led, rel, f.read_bytes()))
+            except (OSError, copyledger.LedgerError) as e:
+                print(f"make.py: 写しの手直しが {rev} の書き出しに当たらない（{e}）", file=sys.stderr)
+                sys.exit(2)
     return dest
 
 

@@ -1,0 +1,13 @@
+# 違反: loop_group の本体に人の関所（approval）の節を置いた（Archon #3532。関所は輪の外の最上段に置く）
+name: bad-approval-in-loop
+description: 違反の見本
+interactive: true
+nodes:
+  - id: judge-loop
+    loop_group:
+      max_iterations: 3
+      until_bash: test $gate.output.ok = true
+      fresh_context: false
+      nodes:
+        - id: gate
+          approval: {message: 進めてよいか}

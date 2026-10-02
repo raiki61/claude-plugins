@@ -23,10 +23,10 @@
     tdd か direct（理由 10 字以上）に振る。約束で tdd の単位は direct に振れない（出口は phase conflict の申し出）
   - test: 申告したテストのファイルの外に触れていない・写しの red_problems（名指しは failure で落ち、元で通っていた物は緑）。
     約束の在る単位は、受け入れのテストの id を全部名指し（走らせる前に見る）、各テストの赤の種類（red_kind。JUnit の failure の
-    type・message から機械が分ける）が名前・import の失敗でなく、案が exception なら断言の失敗でない（_kind_problems。ほかの
+    type・message から機械が分ける）が宣言した名前（adds）の外の名前・import の失敗でなく、案が exception なら断言の失敗でない（_kind_problems。ほかの
     例外の型・unknown は記録だけ）。direct_why でも direct に渡せない。
-    修正案が書き換えを名指した既存のテスト（約束の rewrites）も名指しに入れ、同じ赤（名前・import の失敗でない。
-    同じ _kind_problems に種類の宣言なしで渡す）を通す。
+    修正案が書き換えを名指した既存のテスト（約束の rewrites）も名指しに入れ、同じ赤（宣言した名前（names）の外の名前・import の失敗でない。
+    同じ _kind_problems に種類の宣言なしで、declared も渡す）を通す。
     約束の在る単位は、名指しの外の既存のテストの本体（.py の test* 関数。_unnamed_edits）を書き換えたら拒む（走らせる前）。
     単位の頭で通っていたテストが飛ばされた・結末から消えたら拒む（_vanished_problems。単位の頭から変わったテストの
     ファイルのモジュールだけ。居ないは同じ選びの回に居た時だけ数える）。前の単位で赤→緑を確かめた id は名指しを
@@ -199,7 +199,7 @@ def run_suite(exe: str, repo, work: pathlib.Path, n, args=()):
     """実行器を 1 回走らせる ——（結末の一覧, 終了コード, 問題）。結末が取れなければ一覧は None。
     .py はこの Python で走らせる（写しの rules の run_suite と同じ）。出力は work/suite-<n>.log に丸ごと。
     args は JUnit の書き先の後ろに足す（段の外の試験のファイル・node id を絶対パスで・受け付けの -k。works/dev/tdd-suite.sh は
-    pytest にそのまま渡す）。同じ鍵の行は 1 つにまとめる（段のファイルと足した node id が重なっても 1 件）。
+    pytest に渡し、試験の根（conftest.py の置き場）が違う名指しは根ごとに別のプロセスで流して JUnit を 1 つに合わせる）。同じ鍵の行は 1 つにまとめる（段のファイルと足した node id が重なっても 1 件）。
     輪の元の結末・各段・受け付け・版の写しの全部がここを通るので、nice -n 19 と機械の試験の枠（tree_run.slotted_run）を
     ここで付ける（ADR 0071 の 3 の 1）。枠を待った秒はログの末尾に書く（走った時間と分けて見る）"""
     argv = ["nice", "-n", "19"] + ([sys.executable] if exe.endswith(".py") else []) + [exe]
@@ -247,6 +247,7 @@ _ASSERT_NAMES = ("AssertionFailedError", "ComparisonFailure", "Failed")   # ほ�
 _NOT_RAISED = re.compile(r"DID NOT RAISE|\bnot raised\b|to be thrown, but nothing was thrown")   # 最後は JUnit 5 の assertThrows
 NAME_KINDS = ("NameError", "AttributeError", "ImportError", "ModuleNotFoundError")   # 名前・import の失敗（機能が無い・綴りの誤り）
 _HEAD_NAME = re.compile(r"^([A-Za-z_][\w.]*)(?::|$)")
+_MISSING = re.compile(r"""(?:has no attribute|cannot import name|No module named|\bname) '([^']+)'""")   # 無い名前の引用（CPython の message の形）
 
 
 def red_kind(case: dict) -> str:
@@ -511,7 +512,7 @@ DO = {
              "この段では作業ツリーを変えるな。",
     "test": "今の単位の欠陥を再現する、今は落ちるテストだけを書け（実装は直すな。テストのファイルの外を触るな）。brief に受け入れの"
             "テスト（tests）が在る単位は、その id の名前でテストを書いて名指しに入れ、brief の red_kind の形で落とせ（assertion＝断言の"
-            "失敗・exception＝期待した例外が出ない。名前・import の失敗は赤に数えない）。案どおりに書いて赤にならない・赤の形が違うなら、"
+            "失敗・exception＝期待した例外が出ない。宣言した名前（adds）の失敗は赤・宣言の外は赤に数えない）。案どおりに書いて赤にならない・赤の形が違うなら、"
             "テストを曲げず phase conflict で申し出よ。brief に受け入れのテストが無い単位は、テストを今の版に在る名前だけで再現するか、"
             "import をテストの中に入れよ。機械が一式を走らせ、名指しのテストが failure で落ち、元で通っていた"
             "テストが通ることを確かめる（error・もう通る・飛ばされた、は拒む）。",
@@ -863,10 +864,20 @@ def _vanished_problems(st, u, cases, args, repo) -> list[str]:
             "名指しの外の既存のテストを外すな（外すなら phase conflict で申し出よ）" for k, o in gone[:20]]
 
 
-def _kind_problems(want: list, cases: list) -> list:
+def _declared_hit(case: dict, declared) -> bool:
+    """名前・import の失敗の message が引く『無い名前』（'x' の引用の末尾の . の後）が、案が足すと宣言した名前（'(' より前・
+    最後の . の後）に完全一致するか。名前が引けない・declared が空なら False"""
+    m = _MISSING.search(case.get("fail_message") or "")
+    if not m:
+        return False
+    names = {str(d).split("(", 1)[0].strip().rsplit(".", 1)[-1] for d in declared or ()}
+    return m.group(1).rsplit(".", 1)[-1] in names - {""}
+
+
+def _kind_problems(want: list, cases: list, declared=()) -> list:
     """名指しの各テスト {id, red_kind（案の宣言。書き換えの名指しは None）} の赤の種類（red_kind）を照らし、拒む物の文。
     拒むのは次の 2 つだけ（superpowers の TDD の『error でなく fail で落とす』）:
-    - 名前・import の失敗（NAME_KINDS。機能が無い・綴りの誤り）。案の宣言が何でも（宣言が無くても）
+    - 名前・import の失敗（NAME_KINDS）のうち、無い名前が declared（案が足すと宣言した名前）に無い物（綴りの誤り）
     - 案が exception（期待した例外が出ない）なのに断言の失敗で落ちた
     ほかの例外の型（今のコードが例外で落ちる種類のバグ）と、案が assertion で期待した例外が出ない赤は、記録だけで通す。
     分からない（unknown）は通す"""
@@ -876,9 +887,11 @@ def _kind_problems(want: list, cases: list) -> list:
         c = rules().match_case(t["id"], cases)
         got = red_kind(c) if c else KIND_UNKNOWN
         if got in NAME_KINDS:
+            if _declared_hit(c, declared):
+                continue
             plan = f"案 {want_kind}" if want_kind in planmarks.RED_KINDS else "案に種類の宣言なし"
-            out.append(f"{t['id']}: 赤の種類が狙いと違う（{plan}・実際 {got}）——名前・import の失敗は狙いの赤でない"
-                       "（機能が無い・綴りの誤り）。テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
+            out.append(f"{t['id']}: 赤の種類が狙いと違う（{plan}・実際 {got}）——宣言した名前（adds）の外の名前・import の失敗は狙いの赤でない"
+                       "（綴りの誤り）。テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
         elif want_kind == "exception" and got == "assertion":
             out.append(f"{t['id']}: 赤の種類が案と違う（案 {want_kind}・実際 {got}）——案は期待した例外が出ない赤。"
                        "テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
@@ -928,7 +941,7 @@ def _test(st, reply, repo) -> list:
                     "（それ以外を変えるなら phase conflict で申し出よ）"]
     cases, code = _run(st, repo, tests)
     probs = rules().red_problems(tests, cases, code, st["baseline"]) \
-        or _kind_problems(want + [{"id": i, "red_kind": None} for i in rws], cases)
+        or _kind_problems(want + [{"id": i, "red_kind": None} for i in rws], cases, (_contract(st, u["unit_key"]) or {}).get("names") or ())
     probs = probs or _vanished_problems(st, u, cases, tests, repo)
     if probs:
         return probs

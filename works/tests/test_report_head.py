@@ -352,6 +352,51 @@ class HeadCostCase(unittest.TestCase):
         self.assertIn("累積かどうか未確認", hit[0])
         self.assertNotIn("を引いた", hit[0])
 
+    def test_loop_aggregate_not_double_counted(self):
+        """輪（accounting=aggregate）の行と中の節（accounting=node）が同じ費用を載せても、合計は節だけ。輪の行に『合計に数えない』"""
+        loop = node_done("lp", 0.134)
+        loop["data"].update({"accounting": "aggregate", "aggregate": True})
+        inner = node_done("lp.lb", 0.134)
+        inner["data"]["accounting"] = "node"
+        lines = report.head_cost(None, "run-1", events=[loop, inner], launches=[])
+        total = [x for x in lines if x.startswith("費用の合計")]
+        self.assertEqual(len(total), 1, lines)
+        self.assertIn("0.134 USD", total[0])
+        self.assertNotIn("0.268", total[0])
+        self.assertNotIn("二重に数えうる", total[0])
+        hit = [x for x in lines if x.startswith("費用 lp:")]
+        self.assertEqual(len(hit), 1, lines)
+        self.assertIn("合計に数えない", hit[0])
+
+    def test_recorded_loop_group_row_not_double_counted(self):
+        """録った実物（verbose-p13.json）の輪 lp の node_completed は data.accounting=aggregate・type=loop_group・aggregate=true。
+        実物の費用は全部 unavailable なので、印の欄はそのままに費用だけ provider の数に差し替える。輪の和（中の lp.lb 2 回の和）は
+        合計に数えず、合計は葉の節だけ"""
+        events = recorded_events()
+        loops = [e for e in events if e.get("event_type") == "node_completed" and e.get("step_name") == "lp"]
+        self.assertEqual(len(loops), 1)
+        self.assertEqual({k: loops[0]["data"].get(k) for k in ("accounting", "type", "aggregate")},
+                         {"accounting": "aggregate", "type": "loop_group", "aggregate": True})
+        cost = {"first": 0.01, "lp.lb": 0.02, "lp": 0.04, "blk__inner": 0.05, "sc": 0.07}
+        for e in events:
+            if e.get("event_type") == "node_completed":
+                e["data"]["spend"]["costUsd"] = {"source": "provider", "value": cost[e["step_name"]]}
+        lines = report.head_cost(None, "run-1", events=events, launches=[])
+        total = [x for x in lines if x.startswith("費用の合計")]
+        self.assertEqual(len(total), 1, lines)
+        self.assertIn("0.17 USD", total[0])   # first + lp.lb × 2 + blk__inner + sc。輪 lp の 0.04 は足さない
+        hit = [x for x in lines if x.startswith("費用 lp:")]
+        self.assertEqual(len(hit), 1, lines)
+        self.assertIn("合計に数えない", hit[0])
+
+    def test_event_without_accounting_mark_still_counted(self):
+        """accounting の印が無い出来事は従来どおり節として合計に数える。二重計上の断りは合計の行に残さない"""
+        lines = report.head_cost(None, "run-1", events=[node_done("a", 0.01), node_done("b", 0.02)], launches=[])
+        total = [x for x in lines if x.startswith("費用の合計")]
+        self.assertEqual(len(total), 1, lines)
+        self.assertIn("0.03 USD", total[0])
+        self.assertNotIn("二重に数えうる", total[0])
+
 
 # 写しの検証器（.shared/core/scripts/review-record.py）が 1 周目にいつも出す帳尻の行
 FIRST_ROUND = "前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）"
@@ -565,6 +610,25 @@ class HeadModelsCase(unittest.TestCase):
         self.assertNotIn("haiku", fix[0])
         self.assertLess(fix[0].index("sonnet"), fix[0].index("opus"))
         self.assertEqual(report._live_launches(None, launches), [launches[2], launches[0]])
+
+
+class HeadBaselineCase(unittest.TestCase):
+    """修正前のテストの行（entry.baseline_line）: 走らなかった段を、既知の基の赤と区別して書く。
+    見るのは process.baseline_checks の構造の値（status）だけで、detail や reason の文言は読まない"""
+
+    def line(self, base: dict) -> str:
+        b = types.SimpleNamespace(record={"process": {"baseline_checks": base}})
+        return entry.baseline_line(b)
+
+    def test_baseline_not_run_is_not_said_known_red(self):
+        line = self.line({"status": "not_run", "reason": "x"})
+        self.assertIn("基準の検査が走らなかった（コードの赤ではない）", line)
+        self.assertNotIn("修正前から在りうる", line)
+
+    def test_baseline_found_says_known_red(self):
+        line = self.line({"status": "found", "count": 1})
+        self.assertIn("修正前から在りうる", line)
+        self.assertNotIn("基準の検査が走らなかった", line)
 
 
 if __name__ == "__main__":

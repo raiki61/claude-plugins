@@ -241,6 +241,12 @@ class TestCompose(unittest.TestCase):
         self.assertIn("範囲の外が要るなら request", sec)
         self.assertIn("query（`correct_lines` 付き）", sec)
 
+    def test_brief_rule_names_scope(self):
+        """brief の allowed_paths の外と out_of_scope は変えない。範囲の外が要るなら食い違いの申し出で返す（依頼 218）"""
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        for w in ("allowed_paths", "out_of_scope", "範囲の外", "食い違いの申し出"):
+            self.assertIn(w, sec)
+
     def test_rewrite_tests_is_an_exception_to_frozen_tests(self):
         """修正役の頭の「テストのファイルは変えるな」の例外に、修正案の rewrite_tests の名指しが並ぶ"""
         head = fixrules.sections(fixrules.DIRECT)["fix-head"]
@@ -1181,6 +1187,42 @@ class G1ValuesCase(unittest.TestCase):
         self.assertEqual(reason(shape="g1"), "いつも（修正の形 g1 の座）")
         tdd = {pid: why for pid, _, why in fixrules.tdd_parts(tdd_values(), seat="S")}["seat"]
         self.assertEqual(tdd, "いつも（修正の形 g3 の座）")
+
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from test_edge import EdgeBase, fix_reply  # noqa: E402  （盤面を線の順に進める手助け。本物の盤面と写しの規則を通す）
+
+
+class FixCoversOpenUnitsAllErrorsCase(EdgeBase):
+    """修正の返答の受け付け（写しの fix_covers_open_units）は、形の誤りを最初の 1 つで投げず、全部を 1 回の拒否に 1 誤り 1 行で並べる
+    （3 回の枠を形の誤りだけで使い切らないため）。誤りは文でなく problems の配列でも運ぶ（受け付けが行に割らずに単位へ結ぶため）"""
+
+    HEADING = "下の行を直した返答を丸ごと出し直せ:"
+
+    def test_shape_errors_listed_one_per_line(self):
+        import entry
+        import test_edge
+        self.planned()
+        entry.open_board(self.board).answer("continue", "clamp の上限は hi でよい")
+        src = (self.repo / "stats.py").read_text(encoding="utf-8")
+        (self.repo / "stats.py").write_text(src.replace("(len(xs) - 1)", "len(xs)").replace(
+            "    if x > hi:\n        return lo", "    if x > hi:\n        return hi"), encoding="utf-8")
+        reply = fix_reply(faces=True)
+        mean, clamp = reply["changes"]
+        mean["bypass_tried"] = "なし"        # 形の誤り 1（mean の行。空語は型には通り、規則が空同然として拒む）
+        clamp["breaks"]["result"] = "なし"   # 形の誤り 2（clamp の行）
+        reply["interactions"] = []           # 2 単位が同じ stats.py を触るのに面の記録が無い（誤り 3）
+        b = entry.open_board(self.board)
+        b.mark_launched("p3.fix", test_edge.pending_inst(b, "p3.fix").get("attempts", 1))
+        got = entry.take(self.board, "p3.fix", reply, self.repo)
+        self.assertFalse(got["ok"], got)
+        lines = [ln for ln in got["reason"].splitlines() if ln.startswith("  - ")]
+        self.assertIn(self.HEADING, got["reason"])
+        self.assertEqual(len(lines), 3, got["reason"])
+        self.assertTrue(any("interactions" in ln for ln in lines), lines)
+        self.assertTrue(any("bypass_tried" in ln and ln.lstrip(" -").startswith(test_edge.UNIT_MEAN[:60]) for ln in lines), lines)
+        self.assertTrue(any("breaks.result" in ln and ln.lstrip(" -").startswith(test_edge.UNIT_CLAMP[:60]) for ln in lines), lines)
+        self.assertEqual(len(got.get("problems") or []), 3, got)
 
 
 if __name__ == "__main__":
