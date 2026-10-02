@@ -784,21 +784,42 @@ class TestPlanVanishedTests(ContractCase):
         self.assertIn("test_clamp_within_range", got["reason"])
         self.assertIn("skipped", got["reason"])
 
-    def test_removed_at_module_end_rejected(self):
-        got = self.red_with("\n\nif __name__", "\n\ndel TestStats.test_clamp_within_range\n\nif __name__")
+    def test_syntax_error_named_as_such(self):
+        """テストのファイルが構文として読めなければ、関数を全部『書き換えた』と並べず、構文の誤りとして名指す"""
+        got = self.red_with("\n\nif __name__", "\n\ndef (\n\nif __name__")
         self.assertFalse(got["ok"])
-        self.assertIn("test_clamp_within_range", got["reason"])
+        self.assertIn("構文", got["reason"])
+        self.assertNotIn("test_clamp_within_range", got["reason"])
 
 
-def _with_other_test(case):
+OTHER_TEST = ("import os\nimport unittest\n\nfrom stats import clamp\n\n\nclass TestOther(unittest.TestCase):\n"
+              "    def test_low(self):\n        self.assertEqual(clamp(-1, 0, 10), 0)\n")
+LOW_KEY = "test_other.TestOther::test_low"
+OTHER_SKIP = ("class TestOther(unittest.TestCase):\n",
+              "class TestOther(unittest.TestCase):\n    def setUp(self):\n        self.skipTest(\"外す\")\n\n")
+OTHER_DEL = ("        self.assertEqual(clamp(-1, 0, 10), 0)\n",
+             "        self.assertEqual(clamp(-1, 0, 10), 0)\n\n\ndel TestOther.test_low\n")
+# PYTEST_LIKE の写しで、後ろに node id を渡されたらその名のテストだけを走らせる実行器（`pytest --junitxml="$1" "${@:2}"` の形）
+NAMED_ONLY = PYTEST_LIKE.replace(
+    'unittest.defaultTestLoader.discover(".", pattern="test_*.py", top_level_dir=".").run(R())',
+    'def flat(s):\n'
+    '    for x in s:\n'
+    '        yield from (flat(x) if isinstance(x, unittest.TestSuite) else [x])\n'
+    'tests = list(flat(unittest.defaultTestLoader.discover(".", pattern="test_*.py", top_level_dir=".")))\n'
+    'if sys.argv[2:]:\n'
+    '    names = {a.rsplit("::", 1)[-1] for a in sys.argv[2:]}\n'
+    '    tests = [t for t in tests if t.id().rsplit(".", 1)[-1] in names]\n'
+    'unittest.TestSuite(tests).run(R())')
+
+
+def _with_other_test(case, body=OTHER_TEST):
     """case の setUp の tddloop.start の前に、対象リポジトリへ既存のテストのファイル test_other.py を置く（元の結末にも載る）"""
     orig = tddloop.start
 
     def start(board_dir, repo, *a, **k):
         other = pathlib.Path(repo) / "test_other.py"
         if not other.exists():
-            other.write_text("import unittest\n\nfrom stats import clamp\n\n\nclass TestOther(unittest.TestCase):\n"
-                             "    def test_low(self):\n        self.assertEqual(clamp(-1, 0, 10), 0)\n", encoding="utf-8")
+            other.write_text(body, encoding="utf-8")
         return orig(board_dir, repo, *a, **k)
     return mock.patch.object(tddloop, "start", start)
 
@@ -837,6 +858,43 @@ class TestFixPhaseFreezesOtherTests(ContractCase):
         self.assertFalse(got["ok"])
         self.assertIn(self.LOW, got["reason"])
 
+    def fix_with(self, old, new):
+        self.red()
+        self.edit("test_other.py", old, new)
+        return self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限の枝で hi を返す"})
+
+    def refactor_with(self, old, new):
+        self.red()
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限の枝で hi を返す"})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.st()["phase"], "refactor")
+        self.edit("test_other.py", old, new)
+        return self.step({"phase": "refactor", "unit_key": CLAMP, "what": "テストの補助を整えた"})
+
+    def assert_vanished(self, got, outcome):
+        self.assertFalse(got["ok"])
+        self.assertIn(LOW_KEY, got["reason"])
+        self.assertIn(outcome, got["reason"])
+        self.assertIn(CLAMP, got["reason"], "変えた単位を名指す")
+
+    def test_fix_phase_skip_rejected(self):
+        self.assert_vanished(self.fix_with(*OTHER_SKIP), "skipped")
+
+    def test_fix_phase_del_rejected(self):
+        self.assert_vanished(self.fix_with(*OTHER_DEL), "missing")
+
+    def test_refactor_phase_skip_rejected(self):
+        self.assert_vanished(self.refactor_with(*OTHER_SKIP), "skipped")
+
+    def test_refactor_phase_del_rejected(self):
+        self.assert_vanished(self.refactor_with(*OTHER_DEL), "missing")
+
+    def test_fix_phase_syntax_error_named_as_such(self):
+        got = self.fix_with("    def test_low(self):\n", "    def test_low(self:\n")
+        self.assertFalse(got["ok"])
+        self.assertIn("構文", got["reason"])
+        self.assertIn("test_other.py", got["reason"])
+
     def test_test_functions_in_implementation_files_not_frozen(self):
         """テストのファイルの名でない .py（実装）の test* 関数は見ない"""
         self.red()
@@ -856,6 +914,77 @@ class TestFixPhaseOtherTestsWithoutContract(LoopCase):
         self.red()
         self.edit("test_other.py", "self.assertEqual(clamp(-1, 0, 10), 0)", "self.assertTrue(True)")
         self.fix_mean()
+
+
+class TestNamedOnlyRunner(ContractCase):
+    """後ろの node id だけを走らせる実行器: 名指しの外のテストは結末に居ないが、単位の頭の結末と選び（後ろの引数）が違う回の
+    居ないは消えたに数えない（輪は通る）"""
+    CONTRACT = TestPlanRewrites.CONTRACT
+
+    def setUp(self):
+        with _with_other_test(self):
+            super().setUp()
+        self.suite.write_text(NAMED_ONLY, encoding="utf-8")
+
+    def test_loop_passes(self):
+        self.route(mean="direct", clamp="tdd")
+        self.edit("test_stats.py", "self.assertEqual(clamp(15, 0, 10), 10)", "self.assertEqual(clamp(99, 0, 10), 10)")
+        got = self.step({"phase": "test", "unit_key": CLAMP, "test_files": ["test_stats.py"], "tests": [REWRITE]})
+        self.assertTrue(got["ok"], got)
+        self.edit("stats.py", "    if x > hi:\n        return lo", "    if x > hi:\n        return hi")
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限の枝で hi を返す"})
+        self.assertTrue(got["ok"], got)
+
+
+class TestUntouchedModuleSkipIgnored(ContractCase):
+    """触れていないモジュールのテストが環境で飛ばされても（単位の頭から変わったテストのファイルの外）、消えたに数えない"""
+    CONTRACT = TestPlanRewrites.CONTRACT
+
+    def setUp(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        self.flag = pathlib.Path(td.name) / "skip.flag"
+        body = OTHER_TEST.replace("    def test_low(self):\n", "    def test_low(self):\n"
+                                  f"        if os.path.exists({str(self.flag)!r}):\n            self.skipTest(\"環境\")\n")
+        with _with_other_test(self, body):
+            super().setUp()
+
+    def test_env_skip_in_untouched_module_passes(self):
+        self.route(mean="direct", clamp="tdd")
+        self.edit("test_stats.py", "self.assertEqual(clamp(15, 0, 10), 10)", "self.assertEqual(clamp(99, 0, 10), 10)")
+        self.flag.write_text("x", encoding="utf-8")
+        got = self.step({"phase": "test", "unit_key": CLAMP, "test_files": ["test_stats.py"], "tests": [REWRITE]})
+        self.assertTrue(got["ok"], got)
+        self.edit("stats.py", "    if x > hi:\n        return lo", "    if x > hi:\n        return hi")
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限の枝で hi を返す"})
+        self.assertTrue(got["ok"], got)
+
+
+class TestVanished(unittest.TestCase):
+    """消えたテストの照らし（tddloop._vanished。純粋）"""
+    HEAD = {"outcome": {"test_x.T::test_a[1]": "passed", "test_x.T::test_b": "passed", "test_y.U::test_c": "passed",
+                        "test_x.T::test_s": "skipped"}, "args": []}
+
+    def test_parametrized_rewrite_and_verified_excluded(self):
+        now = {"test_x.T::test_a[2]": "passed", "test_x.T::test_b": "skipped", "test_y.U::test_c": "passed"}
+        self.assertEqual(tddloop._vanished(self.HEAD, [self.HEAD], now, [], None, ["t/test_x.py::T::test_a", "./test_x.py::T::test_b"]),
+                         [])
+        self.assertEqual(tddloop._vanished(self.HEAD, [self.HEAD], now, [], None, ["t/test_x.py::T::test_a"]),
+                         [("test_x.T::test_b", "skipped")])
+
+    def test_absent_counts_only_with_same_selection(self):
+        now = {"test_x.T::test_b": "passed"}
+        self.assertEqual(tddloop._vanished(self.HEAD, [self.HEAD], now, ["x::y"], None, []), [], "選びが違う")
+        self.assertEqual(sorted(tddloop._vanished(self.HEAD, [self.HEAD], now, [], None, [])),
+                         [("test_x.T::test_a[1]", "missing"), ("test_y.U::test_c", "missing")])
+
+    def test_scope_limits_modules(self):
+        now = {}
+        self.assertEqual(tddloop._vanished(self.HEAD, [self.HEAD], now, [], {"test_y"}, []), [("test_y.U::test_c", "missing")])
+
+    def test_scope_of_touched_files(self):
+        self.assertEqual(tddloop._vanish_scope(["a/test_y.py", "stats.py", "b/x_test.py"]), {"test_y", "x_test"})
+        self.assertIsNone(tddloop._vanish_scope(["test_y.py", "tests/conftest.py"]), "conftest.py に触れたら一式")
 
 
 class TestRewriteSharedAcrossUnits(ContractCase):

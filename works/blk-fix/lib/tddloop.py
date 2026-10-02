@@ -17,11 +17,13 @@
     例外の型・unknown は記録だけ）。direct_why でも direct に渡せない。
     修正案が書き換えを名指した既存のテスト（約束の rewrites）も名指しに入れ、同じ赤（名前・import の失敗でない）を通す。
     約束の在る単位は、名指しの外の既存のテストの本体（.py の test* 関数。_unnamed_edits）を書き換えたら拒む（走らせる前）。
-    元で通っていたテストが飛ばされた・結末から消えたら拒む（_vanished_problems）。前の単位で赤→緑を確かめた id は名指しを
+    単位の頭で通っていたテストが飛ばされた・結末から消えたら拒む（_vanished_problems。単位の頭から変わったテストの
+    ファイルのモジュールだけ。居ないは同じ選びの回に居た時だけ数える）。前の単位で赤→緑を確かめた id は名指しを
     強いず、書き換えさせない（_verified）
     名指し全部の赤の種類を単位の red_kinds に残す
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems。約束の在る単位は、ほかのテストのファイル
-    （TEST_FILE の名）の既存の test* 関数の本体も変えていない（_other_test_edits。refactor の緑の確かめも同じ）
+    （TEST_FILE の名）の既存の test* 関数の本体も変えていない（_other_test_edits）・テストを飛ばした・消していない
+    （_vanished_problems）。refactor の緑の確かめも同じ
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
   - test・fix・refactor とも、名指しを絶対パスの node id で実行器の後ろに足して走らせる（段の外に書いたテストも一式の結末に載る）
   拒めば同じ段のまま、理由は次の指示書（と reason_file）に載る。段ごとに RETRY_MAX 回目の拒否で諦める: test・fix は作業ツリーを
@@ -482,6 +484,7 @@ def _run(st, repo, named=()):
     st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
     if cases is None:
         raise _RunnerDown("; ".join(why))
+    st["last_run"] = {"outcome": {_key(c): c["outcome"] for c in cases}, "args": list(named)}   # 消えたテストの照らしの元
     return cases, code
 
 
@@ -632,22 +635,87 @@ def verified_rewrites(state_file) -> list[str]:
 TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")   # テストのファイルの名（実装の .py の test* 関数を凍らせない）
 
 
+def _moved_test_files(st, repo, exclude=()) -> list[str]:
+    """単位の頭から変わったテストのファイル（TEST_FILE の名。走らせて出来たファイルと exclude を除く）"""
+    moved = set(touched(repo, st["unit_head"], snapshot(repo))) - set(st["suite_made"]) - set(exclude)
+    return sorted(f for f in moved if TEST_FILE.match(posixpath.basename(f)))
+
+
+def _syntax_problems(repo, files) -> list[str]:
+    """files のうち作業ツリーに在る .py で、構文として読めない物の文（_unnamed_edits が関数を全部『書き換えた』と並べる前に、
+    構文の誤りとして名指す）"""
+    out = []
+    for f in files:
+        p = pathlib.Path(repo) / f
+        if not f.endswith(".py") or not p.is_file():
+            continue
+        try:
+            ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        except (SyntaxError, ValueError) as e:
+            where = f"{getattr(e, 'lineno', None)} 行" if getattr(e, "lineno", None) else "行は不明"
+            out.append(f"{f}: 構文が読めない（{getattr(e, 'msg', e)}・{where}）——テストのファイルを構文として読める形に直して出し直せ")
+    return out
+
+
 def _other_test_edits(st, u, repo) -> list[str]:
-    """約束の在る単位の直し・整えの段: 単位の頭から変わったテストのファイル（TEST_FILE の名。単位のテストのファイルと
-    走らせて出来たファイルを除く）の、既存の test* 関数の本体の書き換え（_unnamed_edits。許しは無し）"""
+    """約束の在る単位の直し・整えの段: 単位の頭から変わったテストのファイル（_moved_test_files。単位のテストのファイルを除く）
+    の構文の誤り（_syntax_problems）と、既存の test* 関数の本体の書き換え（_unnamed_edits。許しは無し）の文"""
     if u["unit_key"] not in (st.get("contract") or {}):
         return []
-    moved = set(touched(repo, st["unit_head"], snapshot(repo))) - set(st["suite_made"]) - set(u["test_files"])
-    return _unnamed_edits(repo, st["unit_head"], sorted(f for f in moved if TEST_FILE.match(posixpath.basename(f))), set())
+    files = _moved_test_files(st, repo, u["test_files"])
+    bad = _syntax_problems(repo, files)
+    if bad:
+        return bad
+    edits = _unnamed_edits(repo, st["unit_head"], files, set())
+    return [f"既存のテスト {edits[:10]} の本体を書き換えた——直し・整えの段ではテストを変えない"
+            "（テストの誤りは what に書け。変えるしかないなら phase conflict で申し出よ）"] if edits else []
 
 
-def _vanished_problems(st, cases) -> list[str]:
-    """元の結末で通っていたテストが、飛ばされた・結末から消えた物の文（クラスの setUp の skipTest・モジュールの末尾で
-    消すなど、名指しの外の本体を変えずに外す抜け道。写しの red_problems は落ちた物しか見ない）"""
-    now = {_key(c): c["outcome"] for c in cases}
-    gone = [k for k, o in st["baseline"].items() if o == "passed" and now.get(k, "missing") in ("skipped", "missing")]
-    return [f"元で通っていたテスト {k} が {now.get(k, 'missing')}（飛ばされた・一式の結末から消えた）——名指しの外の既存の"
-            "テストを外すな（外すなら phase conflict で申し出よ）" for k in gone[:20]]
+def _vanish_scope(files) -> set | None:
+    """消えたテストを照らすモジュール（impact._mod の名）。conftest.py に触れていれば None（一式の全部）。純粋"""
+    if any(posixpath.basename(f) == "conftest.py" for f in files):
+        return None
+    return {impact._mod(f) for f in files if TEST_FILE.match(posixpath.basename(f))}
+
+
+def _vanished(head: dict, refs: list, now: dict, args: list, scope, skip) -> list[tuple[str, str]]:
+    """単位の頭の回（head: {outcome: 鍵 → 結末, args: 実行器の後ろの引数}）で通っていたテストのうち、今の結末（now）で
+    飛ばされた物と、今の回と同じ選び（args）の回（refs のどれか）に居たのに今は居ない物の [(鍵, skipped か missing)]。
+    scope（_vanish_scope）の外のモジュールと、skip の id（_id_base で parametrize の `[…]` を落として比べる。修正案の書き換え・
+    輪が確かめた id）に当たる鍵は見ない。選びの違う回の居ないは数えない（後ろの node id だけを走らせる実行器）。純粋"""
+    same = [r for r in refs if sorted(r.get("args") or []) == sorted(args)]
+    out = []
+    for k, o in head.get("outcome", {}).items():
+        cls, _, name = k.partition("::")
+        if o != "passed" or (scope is not None and impact._junit_module({"classname": cls}) not in scope):
+            continue
+        case = {"classname": cls, "name": name.split("[", 1)[0]}
+        if any(rules().match_case(_id_base(i), [case]) for i in skip):
+            continue
+        got = now.get(k)
+        if got == "skipped" or (got is None and any(k in r.get("outcome", {}) for r in same)):
+            out.append((k, got or "missing"))
+    return out
+
+
+def _head_run(st) -> dict:
+    """単位の頭の回（前の単位の緑の回。最初の単位は元の結末。前の版の状態に無ければ元の結末）"""
+    return st.get("head_run") or {"outcome": st["baseline"], "args": []}
+
+
+def _vanished_problems(st, u, cases, args, repo) -> list[str]:
+    """約束の在る単位で、単位の頭で通っていたテストが飛ばされた・結末から消えた物の文（クラスの setUp の skipTest・モジュールの
+    末尾で消すなど、名指しの外の本体を変えずに外す抜け道。写しの red_problems・green_problems は落ちた物しか見ない）。
+    照らすのは単位の頭から変わったテストのファイルのモジュールだけ（conftest.py に触れたら全部）。居ないを数えるのは、同じ
+    選びの回（単位の頭の回か、この単位の赤の回）に居た時だけ"""
+    if u["unit_key"] not in (st.get("contract") or {}):
+        return []
+    refs = [_head_run(st)] + ([u["red_run"]] if u.get("red_run") else [])
+    skip = [*_plan_rewrites(st, u["unit_key"]), *_verified(st)]
+    gone = _vanished(_head_run(st), refs, {_key(c): c["outcome"] for c in cases}, list(args),
+                     _vanish_scope(_moved_test_files(st, repo)), skip)
+    return [f"単位 '{u['unit_key']}' の段で、単位の頭で通っていたテスト {k} が {o}（飛ばされた・一式の結末から消えた）——"
+            "名指しの外の既存のテストを外すな（外すなら phase conflict で申し出よ）" for k, o in gone[:20]]
 
 
 def _rewrite_kind_problems(ids: list, cases: list) -> list:
@@ -720,6 +788,9 @@ def _test(st, reply, repo) -> list:
     if extra:
         return [f"申告したテストのファイルの外に触れた: {extra[:5]}——この段はテストだけを書く（実装は次の段）"]
     if u["unit_key"] in (st.get("contract") or {}):
+        bad = _syntax_problems(repo, files)
+        if bad:
+            return bad
         frozen = _unnamed_edits(repo, st["unit_head"], files, set(rws))
         if frozen:
             return [f"名指しの外の既存のテスト {frozen[:10]} の本体を書き換えた——書き換えてよいのは修正案の rewrite_tests の名指しだけ"
@@ -727,12 +798,11 @@ def _test(st, reply, repo) -> list:
     cases, code = _run(st, repo, tests)
     probs = rules().red_problems(tests, cases, code, st["baseline"]) or _kind_problems(want, cases) \
         or _rewrite_kind_problems(rws, cases)
-    if not probs and u["unit_key"] in (st.get("contract") or {}):
-        probs = _vanished_problems(st, cases)
+    probs = probs or _vanished_problems(st, u, cases, tests, repo)
     if probs:
         return probs
     kinds = {t: red_kind(rules().match_case(t, cases) or {}) for t in tests}
-    u.update(tests=tests, test_files=files, red="ok", test_hashes=hashes(repo, files), red_kinds=kinds)
+    u.update(tests=tests, test_files=files, red="ok", test_hashes=hashes(repo, files), red_kinds=kinds, red_run=st["last_run"])
     st.update(phase="fix", tries=0, reason="")
     return []
 
@@ -748,10 +818,10 @@ def _green(st, u, repo) -> list:
         return [f"テストのファイルを赤の時から書き換えた: {moved}——テストは凍っている（テストの誤りは what に書け）"]
     other = _other_test_edits(st, u, repo)
     if other:
-        return [f"既存のテスト {other[:10]} の本体を書き換えた——直し・整えの段ではテストを変えない"
-                "（テストの誤りは what に書け。変えるしかないなら phase conflict で申し出よ）"]
+        return other
     cases, code = _run(st, repo, u["tests"])
-    return rules().green_problems(u["tests"], cases, code, st["baseline"], st["baseline_exit"])
+    return rules().green_problems(u["tests"], cases, code, st["baseline"], st["baseline_exit"]) \
+        or _vanished_problems(st, u, cases, u["tests"], repo)
 
 
 def _fix(st, reply, repo) -> list:
@@ -764,7 +834,7 @@ def _fix(st, reply, repo) -> list:
     if probs:
         return probs
     u.update(green="ok", files=files, what=reply["what"].strip())
-    st.update(phase="refactor", tries=0, reason="", green_tree=snapshot(repo))
+    st.update(phase="refactor", tries=0, reason="", green_tree=snapshot(repo), green_run=st["last_run"])
     return []
 
 
@@ -777,7 +847,9 @@ def _refactor(st, reply, repo) -> list:
         probs = _green(st, u, repo)
         if probs:
             return probs
+        st["green_run"] = st["last_run"]
     u["refactor"] = "ok" if moved else "none"
+    st["head_run"] = st.get("green_run")   # 次の単位の頭の回（緑の木の回）
     st["cur"] += 1
     _next_unit(st, repo)
     return []
@@ -793,6 +865,7 @@ def _give_up(st, repo, probs) -> None:
     if st["phase"] == "refactor":
         restore(repo, st["green_tree"])
         u.update(refactor="reverted", problems=probs[:10])
+        st["head_run"] = st.get("green_run")   # 緑の木に戻したので、次の単位の頭の回は緑の回
     else:
         restore(repo, st["unit_head"])
         stage = "red" if st["phase"] == "test" else "green"
