@@ -96,6 +96,7 @@ WHY_FIRST = "1 回目（この輪でまだ決まりを渡していない。delta
 SEAT_BRIEFS = "seat-briefs.md"   # 修正役の座の型の [BRIEF_FILE]（今の周の作業ファイル。直す義務の単位の brief を名指す節）
 G1_IMPL, G1_REVIEW = "g1-impl-{n}.md", "g1-review-{n}.md"   # 修正の形 g1 の下請けのファイル（今の周の作業ファイル。n は項目の番号）
 G1_NO_POLICY = "（無し）"   # g1 の審査役の型の [GLOBAL_CONSTRAINTS]（人の方針の文書が無い run）
+G1_REST = "修正案のどの項目にも無い直す義務の単位 {keys}（判定のファイルが要求の正本）"   # g1 の残りの項目の実装役の型の題
 BRIEF_STOP_BY = "works:fix"   # brief の控えが壊れた盤面を止めた口（assert-changed の STOP_BY と同じ修正の段の印）
 BRIEF_BROKEN = (f"修正案の brief の控え（今の周の {planbrief.LEDGER}）か欄の控え（盤面の {planbrief.planmarks.FIELDS_FILE}）が壊れているか"
                 "凍結の後に書き換えられ、承認した要求の正本が"
@@ -186,14 +187,14 @@ def _all_kinds() -> dict:
     return {k: "種類を選ばない組み立て（全部）" for k in KINDS}
 
 
-def _seat(seat: str) -> list:
-    """借りたスキルの座の節（seat.section の文。空なら載せない）"""
-    return [("seat", seat, ALWAYS + "（修正の形 g3・g1 の座）")] if seat else []
+def _seat(seat: str, shape: str = seatkit.SHAPE) -> list:
+    """座の節（seat.section か seat.g1_section の文。空なら載せない）。理由の文は形を名指す"""
+    return [("seat", seat, ALWAYS + f"（修正の形 {shape} の座）")] if seat else []
 
 
-def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: str = "") -> list:
+def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: str = "", shape: str = seatkit.SHAPE) -> list:
     """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの今の文書の節（libdocs.section。空なら載せない）。
-    seat は借りたスキルの座（seat.section。空なら載せない）で、返答の欄の直前に置く"""
+    seat は座（g3 は seat.section・g1 は seat.g1_section。空なら載せない）で、返答の欄の直前に置く。shape は座の形（理由の文）"""
     c, d = sections(SHARED), sections(DIRECT)
     kinds = _all_kinds() if kinds is None else kinds
     return [("fix-head", fill(d["fix-head"], _pick(values, FIX_VALUES)), ALWAYS + "（役・読む物・run の値）"),
@@ -202,7 +203,7 @@ def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: 
             ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
             ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
             *([("libdocs", libdocs, "機械が引いた（Context7。見つけた数と取れた数は節の頭）")] if libdocs else []),
-            *_seat(seat), ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
+            *_seat(seat, shape), ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
 
 
 def tdd_parts(values: dict, kinds: dict | None = None, seat: str = "") -> list:
@@ -405,7 +406,9 @@ def implementer_values(b, values: dict, repo, owed: list[str]) -> dict[str, str]
 
 def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dict]:
     """修正の形 g1 の下請けのファイルを、直す義務の単位の brief の項目ごとに今の周に 2 つ書き、項目の順の
-    [{item, impl_file, review_file}] を返す（seat.g1_section が並べる）。brief の無い run は判定の単位をまとめて 1 項目とみなす。
+    [{item, impl_file, review_file, base}] を返す（seat.g1_section が並べる）。どの項目にも無い直す義務の単位（brief の無い run は
+    全部）は、判定のファイルを [BRIEF_FILE] にした残りの 1 項目（番号は修正案の項目の後。題は G1_REST、brief の無い run は
+    implementer_values の題）。
     - G1_IMPL: 216 の implementer の型。[BRIEF_FILE] はその項目の brief、[task name] はその項目の直す義務の単位、[REPORT_FILE] は
       seat.G1_IMPL_REPORT（下請けには返答の欄が無い）、ほかは implementer_values と同じ
     - G1_REVIEW: 216 の task-review の型。[BRIEF_FILE] は同じ brief、[GLOBAL_CONSTRAINTS] は人の方針の文書のパスか G1_NO_POLICY、
@@ -414,8 +417,14 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dic
       seat.G1_DIFF の版と項目の番号を埋めた物
     どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊）。写しが固定と違う・穴が埋まらなければ ValueError"""
     common = implementer_values(b, values, repo, owed)
-    briefs = planbrief.for_units(briefs_or_halt(b), owed)
-    items = [(r["item"], r["file"], _g1_task(r, owed)) for r in briefs] or [(1, common["[BRIEF_FILE]"], common["[task name]"])]
+    cut = briefs_or_halt(b)
+    briefs = planbrief.for_units(cut, owed)
+    items = [(r["item"], r["file"], _g1_task(r, owed)) for r in briefs]
+    covered = {k for r in briefs for k in r.get("unit_keys") or []}
+    rest = [k for k in owed if k not in covered]
+    if rest:   # どの項目にも無い直す義務の単位（brief の無い run は全部）: 判定のファイルを brief にした残りの 1 項目
+        n = max((r["item"] for r in cut), default=0) + 1
+        items.append((n, values.get("judgment_file") or "", G1_REST.format(keys="、".join(rest)) if briefs else common["[task name]"]))
     base = writes.base_rev(b, base_rev)
     rows = []
     for n, brief, task in items:
@@ -426,17 +435,13 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dic
             "[BRIEF_FILE]": brief, "[GLOBAL_CONSTRAINTS]": values.get("policy_path") or G1_NO_POLICY,
             "[REPORT_FILE]": seatkit.G1_REPORT, "[BASE_SHA]": base, "[HEAD_SHA]": seatkit.G1_HEAD_SHA,
             "[DIFF_FILE]": seatkit.G1_DIFF.replace("<BASE_SHA>", base).replace("<n>", str(n))}), encoding="utf-8")
-        rows.append({"item": n, "impl_file": str(impl), "review_file": str(review)})
+        rows.append({"item": n, "impl_file": str(impl), "review_file": str(review), "base": base})
     return rows
 
 
 def _g1_task(brief: dict, owed: list[str]) -> str:
     """g1 の実装役の型の [task name]: 修正案の項目の番号と、その項目のうち今直す単位（ほかの単位は『今は直すな』）"""
-    keys = list(brief.get("unit_keys") or [])
-    now = [k for k in keys if k in set(owed)]
-    rest = [k for k in keys if k not in now]
-    return (f"修正案の項目 {brief['item']}（直す義務の単位 {'、'.join(now) or planbrief.NONE}"
-            + (f"・{planbrief.NOT_NOW}: {'、'.join(rest)}" if rest else "") + "）")
+    return f"修正案の項目 {brief['item']}（直す義務の単位 {planbrief.unit_note(brief.get('unit_keys'), owed)}）"
 
 
 def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
@@ -488,7 +493,7 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     lang = rolekit.lang_line(b.state.get("inputs"))
 
     def build(kinds, prior, rules_file):
-        return render("fix", n, fix_parts(values, kinds, docs, seat), prior=prior, rules_file=rules_file, reject_file=reject,
+        return render("fix", n, fix_parts(values, kinds, docs, seat, shape), prior=prior, rules_file=rules_file, reject_file=reject,
                       before=before, lang=lang)
     write_variants(path, repo, values, build, n)
     m = b.mark_launched(nid, inst.get("attempts", 1))

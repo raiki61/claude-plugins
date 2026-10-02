@@ -456,6 +456,17 @@ class TestStart(LoopCase):
         self.assertEqual((st["frozen"], st["order"]), ({}, []), "輪は回っていない（凍ったテストも単位も無い）")
         self.assertEqual(tddloop.exit_fields(got)["ran"], False)
 
+    def test_g1_does_not_run_test_cmd_gate(self):
+        """g1 の tdd-start は元の結末だけを取り、test_cmd の関門は決めない（輪が無いので使わない。平の run と同じ切った関門）"""
+        fixshape.choose(self.board, "g1", by="試験", why="g1 は test_cmd を走らせない")
+        mark = self.repo.parent / "test-cmd-ran"
+        got = tddloop.start(self.board, self.repo, str(self.suite), OPEN,
+                            test_cmd=f"{sys.executable} -c \"open({str(mark)!r}, 'w')\"")
+        st = json.loads(pathlib.Path(got["state_file"]).read_text(encoding="utf-8"))
+        self.assertEqual((st["test_cmd_gate"], st["test_cmd_note"]), (tddloop.GATE_OFF, tddloop.G1_NO_LOOP))
+        self.assertFalse(mark.exists(), "test_cmd を走らせない")
+        self.assertFalse(pathlib.Path(st["work"], "test-cmd-0.log").exists())
+
 
 class TestRoute(LoopCase):
     def test_rejects_bad_routing_with_reason_in_next_prompt(self):

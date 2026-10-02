@@ -1056,5 +1056,71 @@ class TestSeatParts(unittest.TestCase):
         self.assertIn(VALUES["judgment_file"], seat.section("fix", "g3", got))
 
 
+class G1ValuesCase(unittest.TestCase):
+    """修正の形 g1 の下請けのファイル（fixrules.g1_values）: brief の項目ごと・項目に無い直す義務の単位は残りの 1 項目
+    （[BRIEF_FILE] は判定のファイル）・項目のほかの単位は『今は直すな』。座の節の理由の文は形ごと（g3 は前と同じ文）"""
+
+    ROWS = [{"item": 1, "unit_keys": ["a: 分母"], "file": "/b/r1/brief-1.md", "sha256": "0" * 64},
+            {"item": 2, "unit_keys": ["b: 上限", "c: 外"], "file": "/b/r1/brief-2.md", "sha256": "1" * 64}]
+    OWED = ["a: 分母", "b: 上限", "d: 案の外"]
+
+    def board(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = pathlib.Path(tmp.name)
+
+        class B:
+            state = {"inputs": {"review_rev": "abc123"}}
+
+            def work(self, name):
+                return d / name
+        return B()
+
+    def test_items_and_remainder(self):
+        import planbrief
+        from unittest import mock
+        b = self.board()
+        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS):
+            got = fixrules.g1_values(b, VALUES, "/repo", self.OWED, "")
+        self.assertEqual([r["item"] for r in got], [1, 2, 3], "項目に無い直す義務の単位は残りの 1 項目")
+        self.assertEqual({r["base"] for r in got}, {"abc123"})
+        impl2 = pathlib.Path(got[1]["impl_file"]).read_text(encoding="utf-8")
+        for w in ("修正案の項目 2", "b: 上限", planbrief.NOT_NOW, "c: 外", "/b/r1/brief-2.md"):
+            self.assertIn(w, impl2)
+        self.assertNotIn("a: 分母", impl2)
+        for f in (got[2]["impl_file"], got[2]["review_file"]):
+            text = pathlib.Path(f).read_text(encoding="utf-8")
+            self.assertIn(VALUES["judgment_file"], text, "残りの項目の brief は判定のファイル")
+        self.assertIn("d: 案の外", pathlib.Path(got[2]["impl_file"]).read_text(encoding="utf-8"))
+
+    def test_no_remainder_when_items_cover_the_duty(self):
+        from unittest import mock
+        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS):
+            got = fixrules.g1_values(self.board(), VALUES, "/repo", self.OWED[:2], "")
+        self.assertEqual([r["item"] for r in got], [1, 2])
+
+    def test_g1_task_names_now_and_not_now(self):
+        import planbrief
+        got = fixrules._g1_task(self.ROWS[1], self.OWED)
+        self.assertEqual(got, f"修正案の項目 2（直す義務の単位 b: 上限・{planbrief.NOT_NOW}: c: 外）")
+
+    def test_unit_note_is_shared_with_head_text(self):
+        import planbrief
+        self.assertEqual(planbrief.unit_note(["a", "b"], ["a"]), f"a・{planbrief.NOT_NOW}: b")
+        self.assertEqual(planbrief.unit_note(["a", "b"]), "a、b")
+        self.assertEqual(planbrief.unit_note(["b"], ["a"]), f"{planbrief.NONE}・{planbrief.NOT_NOW}: b")
+        self.assertIn(f"単位 {planbrief.unit_note(['b: 上限', 'c: 外'], ['b: 上限'])}）",
+                      planbrief.head_text(self.ROWS[1:], ["b: 上限"]))
+
+    def test_seat_reason_names_the_shape_and_g3_is_unchanged(self):
+        """g3 の指示書は前とバイト単位で同じ（座の節の理由の文は『（修正の形 g3 の座）』のまま）。g1 は g1 と書く"""
+        def reason(**kw):
+            return {pid: why for pid, _, why in fixrules.fix_parts(VALUES, seat="S", **kw)}["seat"]
+        self.assertEqual(reason(), "いつも（修正の形 g3 の座）")
+        self.assertEqual(reason(shape="g1"), "いつも（修正の形 g1 の座）")
+        tdd = {pid: why for pid, _, why in fixrules.tdd_parts(tdd_values(), seat="S")}["seat"]
+        self.assertEqual(tdd, "いつも（修正の形 g3 の座）")
+
+
 if __name__ == "__main__":
     unittest.main()

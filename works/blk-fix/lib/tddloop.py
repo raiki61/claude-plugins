@@ -105,6 +105,9 @@ SUITE_MADE_NOTE = "一式を走らせて出来たファイル"
 PLAIN_NOTE = "修正の形 current——test_cmd の関門は回さない（比べの基準）"
 # 修正の形 g1（seat.G1_SHAPE）: 輪を回さない（start は元の結末を取って状態を書いた後、輪の出口を go: false にする）
 G1_NO_LOOP = "修正の形 g1——TDD の輪は回さない（修正役が下請けを回し、赤緑と凍結は修正の受け付けの束が事後に確かめる）"
+PLAIN_SHAPE = "current"   # 平の run の形（fixshape.plain と同じ）
+# test_cmd の関門を輪の頭で決めずに切る形と、状態の test_cmd_note に残す理由（g1 は輪が無いので関門を使わない。元の結末だけを取る）
+GATE_OFF_BY_SHAPE = {PLAIN_SHAPE: PLAIN_NOTE, seat.G1_SHAPE: G1_NO_LOOP}
 
 
 class Broken(Exception):
@@ -337,9 +340,9 @@ def plan_contract(board_dir: pathlib.Path, keys: list[str], plain: bool | None =
     """単位 → 承認済みの修正案の約束（planmarks.unit_contract。約束の無い単位は載せない）。盤面の無い置き場（state.json が無い）・
     欄の控えが無い run は {}。盤面が在るのに開けない・欄の控えが凍結の印と食い違う（conflict.frozen_fields が盤面を止めて
     BoardGap）なら、理由の文のまま Broken（約束を黙って空にしない）。平の run は欄を読まずに {}（plain は start が読んだ形。
-    None なら盤面から読む——_plain）"""
+    None なら盤面から読む——_shape）"""
     board_dir = pathlib.Path(board_dir)
-    if not (board_dir / "state.json").exists() or (_plain(board_dir) if plain is None else plain):
+    if not (board_dir / "state.json").exists() or (_shape(board_dir) == PLAIN_SHAPE if plain is None else plain):
         return {}
     try:
         b = entry.open_board(board_dir, allow_halted=True)
@@ -356,14 +359,6 @@ def _shape(board_dir: pathlib.Path) -> str:
     """盤面の修正の形（fixshape.shape_at）。形の控えが壊れていれば理由の Broken（traceback にしない）"""
     try:
         return fixshape.shape_at(board_dir)
-    except ValueError as e:
-        raise Broken(f"盤面 {board_dir} の修正の形が読めない: {e}") from None
-
-
-def _plain(board_dir: pathlib.Path) -> bool:
-    """平の run（fixshape.plain）か。形の控えが壊れていれば理由の Broken（traceback にしない）"""
-    try:
-        return fixshape.plain(board_dir)
     except ValueError as e:
         raise Broken(f"盤面 {board_dir} の修正の形が読めない: {e}") from None
 
@@ -407,7 +402,8 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> d
     if owed is not None:   # 振り分ける義務は受け付けと同じ fix_duty の owed（渡された is_open の並びに、関所で答えて戻った単位を足す）
         keys = [k for k in keys if k in owed or k in excused] + sorted(owed - set(keys))   # is_open の並び順を保つ
     excused = {k: why for k, why in excused.items() if k in keys}
-    plain = _plain(board_dir)   # 形は輪の頭で 1 回だけ読み、状態の plain に置く（段は状態から引く）
+    shape = _shape(board_dir)   # 形は輪の頭で 1 回だけ読む（平の run は状態の plain に置き、段は状態から引く。g1 は出口だけ違う）
+    plain = shape == PLAIN_SHAPE
     contract = plan_contract(board_dir, keys, plain)   # 輪の頭で 1 回だけ（欄の控えの食い違いは conflict の 1 か所で止める）
     board_dir.mkdir(parents=True, exist_ok=True)
     k = 1
@@ -419,7 +415,8 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> d
     if cases is None:
         return {**off, "reason": f"元の結末が取れない（{'; '.join(why)}）——全部の単位を今どおり直す"}
     test_cmd = (test_cmd or "").strip()
-    gate, note, made = (GATE_OFF, PLAIN_NOTE, []) if plain else _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log")
+    gate, note, made = ((GATE_OFF, GATE_OFF_BY_SHAPE[shape], []) if shape in GATE_OFF_BY_SHAPE
+                        else _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log"))
     st = {"suite": suite, "exe": str(exe), "work": str(work), "open_units": keys, "excused": excused,
           "baseline": {_key(c): c["outcome"] for c in cases}, "baseline_exit": code,
           "handoff": snapshot(repo), "suite_made": made, "phase": "route", "tries": 0, "reason": "", "iterations": 0,
@@ -428,7 +425,7 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> d
           "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "calls": []}
     state_file = work / STATE
     _save(state_file, st)
-    if _shape(board_dir) == seat.G1_SHAPE:
+    if shape == seat.G1_SHAPE:
         return {**off, "reason": G1_NO_LOOP, "state_file": str(state_file)}
     return {"go": True, "reason": "", "suite": suite, "state_file": str(state_file), "summary_file": str(work / SUMMARY)}
 

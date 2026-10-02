@@ -83,7 +83,7 @@ nodes:
         go: {type: boolean}
         reason: {type: string}
         suite: {type: string}
-        state_file: {type: string}     # 輪の状態（盤面の tdd-<k>/state.json）。go: false なら空
+        state_file: {type: string}     # 輪の状態（盤面の tdd-<k>/state.json）。実行器の無い run は空（g1 は go: false でも元の結末の状態を持つ）
         summary_file: {type: string}   # 輪の結果（修正役が読む）。go: false なら空
 
   # 単位ごとの TDD の輪（設計 2 節 3・案 (i)。graph は変えない）。役 tdd は輪のただ 1 つの AI の節（TA13）で、振り分け・
