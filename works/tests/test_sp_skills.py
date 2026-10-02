@@ -1,9 +1,13 @@
 """superpowers（Claude Code のプラグインのスキル集）から借りるスキルの一覧と、無人の役のための読み替えの検査。
 
-借りるスキルは、利用者が Claude Code に入れた superpowers から dev/toolset.py が隔離した設定の skills/ へ写す（works は写しを
-持たない。版は利用者が入れた物に従う。本線の graphloops と同じ）。確かめるのは works が名前で頼る物だけで、スキルの中身・版・
-バイトは見ない（役は読むだけなので、名前が在れば新しい版でも動く）。名前が在ることの確かめと写し入れの検査は
-tests/test_toolset.py（偽の利用者の設定で回す）。
+借りるスキルは、利用者が Claude Code に入れた superpowers から dev/toolset.py が隔離した設定の skills/ へ写す（版は利用者が
+入れた物に従う。本線の graphloops と同じ）。確かめるのは works が名前で頼る物だけで、スキルの中身・版・バイトは見ない（役は
+読むだけなので、名前が在れば新しい版でも動く）。名前が在ることの確かめと写し入れの検査は tests/test_toolset.py（偽の利用者の
+設定で回す）。
+
+- 写し（VendoredCopyCase）: works は superpowers の使うファイルと LICENSE を .shared/borrow/superpowers/<版>/ に直さずに持つ
+  （写しを作り直すのは dev/toolset.py vendor だけ）。写しのバイトは borrow.json の superpowers.pin の sha256 と同じで、
+  写しの台帳（COPIED_FROM）と 1 本ずつ合い、版のフォルダは 1 つだけ。
 
 - 借りる一覧（BORROW）: .shared/borrow/borrow.json の superpowers.skills と同じで、使わないと決めたスキル（NEVER）・
   読んで参考にするだけのスキル（REFERENCE_ONLY）と重ならない。
@@ -14,9 +18,15 @@ tests/test_toolset.py（偽の利用者の設定で回す）。
 import json
 import pathlib
 import re
+import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+if str(ROOT / ".shared" / "core") not in sys.path:
+    sys.path.insert(0, str(ROOT / ".shared" / "core"))
+import copyledger  # noqa: E402
+import spseam  # noqa: E402
 
 # 持ち主が決めた借りる一覧（2026-09-27）。requesting-code-review の code-reviewer.md はテストの審査役の手引きに使う
 BORROW = frozenset({"test-driven-development", "systematic-debugging", "verification-before-completion",
@@ -37,9 +47,27 @@ class BorrowListCase(unittest.TestCase):
         self.assertEqual(len(item["skills"]), len(BORROW), "同じスキルを 2 度並べた")
         self.assertFalse(BORROW & (NEVER | REFERENCE_ONLY))
 
-    def test_no_copy_of_superpowers_is_shipped(self):
-        """works は superpowers の写しを持たない（利用者が入れた物から取る）"""
-        self.assertFalse((ROOT / ".shared" / "superpowers").exists())
+
+class VendoredCopyCase(unittest.TestCase):
+    """本物の写し（.shared/borrow/superpowers/<版>/）を読む。手の直し・足したファイルはここで名指して赤"""
+
+    def test_vendored_copy_matches_ledger_and_pin(self):
+        sp = json.loads((ROOT / ".shared/borrow/borrow.json").read_text(encoding="utf-8"))["superpowers"]
+        base = ROOT / ".shared" / "borrow" / "superpowers"
+        v = sp["pin"]["version"]
+        self.assertEqual(sorted(p.name for p in base.iterdir()), sorted([v, "COPIED_FROM"]))   # 写しの版は 1 つだけ
+        self.assertEqual(spseam.pin_problems(base / v, sp), [])                                # バイトが pin と同じ
+        on_disk = sorted(p.relative_to(base / v).as_posix() for p in (base / v).rglob("*") if p.is_file())
+        self.assertEqual(on_disk, sorted(sp["pin"]["files"]))                                  # 余分なファイルが無い
+        led = copyledger.read(base / "COPIED_FROM")
+        self.assertEqual(led.commit, sp["pin"]["commit"])
+        self.assertEqual(led.deviations, {})                                                   # 直さない写し
+        self.assertEqual(sorted(led.rows), sorted((f"{v}/{f}", f) for f in sp["pin"]["files"]))
+
+    def test_licence_is_mit_with_the_notice(self):
+        text = (ROOT / ".shared/borrow/superpowers/6.4.2/LICENSE").read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("MIT License"))
+        self.assertIn("Copyright (c) 2025 Jesse Vincent", text)
 
 
 class UnattendedOverlayCase(unittest.TestCase):

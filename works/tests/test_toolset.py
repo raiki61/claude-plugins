@@ -34,8 +34,11 @@ DEV = ROOT / "dev"
 TOOLSET = DEV / "toolset.py"
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(DEV))
+sys.path.insert(0, str(ROOT / ".shared" / "core"))
 import toolset  # noqa: E402
 import hermetic  # noqa: E402
+import spseam  # noqa: E402
+import copyledger  # noqa: E402
 
 BORROW_SKILLS = ["test-driven-development", "systematic-debugging", "verification-before-completion",
                  "receiving-code-review", "requesting-code-review"]
@@ -68,6 +71,9 @@ def make_user_config(base: pathlib.Path, only=None, scope="user", project=None) 
             for s in BORROW_SKILLS + ["brainstorming"]:
                 _put(d / "skills" / s / "SKILL.md", f"---\nname: {s}\n---\n偽の {s}\n")
             _put(d / "skills" / "systematic-debugging" / "find-polluter.sh", "#!/bin/sh\n", 0o755)
+            _put(d / "LICENSE", "MIT License\n\nCopyright (c) 2025 Test\n")
+            for f in ("SKILL.md", "implementer-prompt.md", "task-reviewer-prompt.md"):   # 部品（parts）は 2 本だけを借りる
+                _put(d / "skills" / "subagent-driven-development" / f, f"偽の {f}\n")
         elif name == "coldwrite":
             _put(d / ".claude-plugin" / "plugin.json", json.dumps({"name": name, "version": ver}))
             _put(d / "hooks" / "hooks.json", json.dumps({"hooks": {"PreToolUse": [
@@ -229,10 +235,84 @@ class BorrowListCase(unittest.TestCase):
         self.assertEqual(sorted(used - set(toolset.load_borrow(ROOT)["pr-review-toolkit"]["agents"])), [])
 
     def test_no_vendored_copies(self):
-        """works は借りる物の写しを持たない（利用者が入れた版に従う）"""
-        for name in ("superpowers", "pr-review-toolkit", "coldwrite"):
+        """works は coldwrite・pr-review-toolkit の写しを持たない（利用者が入れた版に従う）。superpowers の写しは VendorCase と
+        test_sp_skills の VendoredCopyCase が縛る"""
+        for name in ("pr-review-toolkit", "coldwrite"):
             self.assertFalse((ROOT / ".shared" / name).exists(), name)
         self.assertFalse((ROOT / "NOTICE").exists())
+
+
+class VendorCase(Base):
+    """vendor: 利用者のキャッシュの superpowers の 1 つの版から、包むファイルだけを .shared/borrow/superpowers/<版>/ へ写し、
+    写しの台帳（COPIED_FROM）と borrow.json の pin を書き直す。偽の pack（borrow.json だけ）と偽の superpowers 9.9.0 で回す"""
+
+    def setUp(self):
+        super().setUp()
+        self.pack = self.tmp / "pack"
+        (self.pack / ".shared" / "borrow").mkdir(parents=True)
+        shutil.copy2(ROOT / ".shared" / "borrow" / "borrow.json", self.pack / ".shared" / "borrow" / "borrow.json")
+
+    def test_vendor_writes_copy_ledger_and_pin(self):
+        src = installed_dir(self.user, "superpowers")
+        pin = toolset.vendor(self.pack, src, "9.9.0", None, "2026-10-02")
+        base = self.pack / ".shared" / "borrow" / "superpowers"
+        item = json.loads((self.pack / ".shared/borrow/borrow.json").read_text())["superpowers"]
+        self.assertEqual(item["pin"], pin)
+        self.assertEqual(spseam.pin_problems(base / "9.9.0", item), [])
+        self.assertIn("LICENSE", pin["files"])
+        self.assertFalse((base / "9.9.0" / "skills" / "brainstorming").exists())        # 借りないスキルは写さない
+        self.assertFalse((base / "9.9.0" / "skills" / "subagent-driven-development" / "SKILL.md").exists())   # 部品だけ
+        led = copyledger.read(base / "COPIED_FROM")
+        self.assertEqual(sorted(r for r, _ in led.rows), sorted(f"9.9.0/{f}" for f in pin["files"]))
+        self.assertEqual(led.deviations, {})
+        self.assertIn("Copyright (c) 2025 Test", led.head)
+
+    def test_vendor_replaces_the_old_version(self):
+        toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", None, "2026-10-02")
+        newer = installed_dir(self.user, "superpowers").parent / "9.10.0"
+        shutil.copytree(installed_dir(self.user, "superpowers"), newer)
+        toolset.vendor(self.pack, newer, "9.10.0", "f" * 40, "2026-10-03")
+        self.assertEqual(sorted(p.name for p in (self.pack / ".shared/borrow/superpowers").iterdir()), ["9.10.0", "COPIED_FROM"])
+
+    def test_vendor_skips_markers(self):
+        pin = toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", None, "2026-10-02")
+        self.assertFalse(any(".in_use" in f or f.endswith(".DS_Store") for f in pin["files"]))
+
+    def test_vendor_refuses_without_mit_licence(self):
+        (installed_dir(self.user, "superpowers") / "LICENSE").write_text("Proprietary\n", encoding="utf-8")
+        before = (self.pack / ".shared/borrow/borrow.json").read_bytes()
+        with self.assertRaises(toolset.ToolsetError):
+            toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), "9.9.0", None, "2026-10-02")
+        self.assertEqual((self.pack / ".shared/borrow/borrow.json").read_bytes(), before)
+        self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())
+
+    def test_cli_vendor_missing_version_is_2(self):
+        self.assertEqual(self.cli("vendor", "0.0.1").returncode, 2)
+
+    def test_vendor_refuses_version_names_that_point_outside(self):
+        for bad in ("../9.9.0", "9.9.0/x", ".hidden", ""):
+            with self.subTest(bad):
+                with self.assertRaises(toolset.ToolsetError) as cm:
+                    toolset.vendor(self.pack, installed_dir(self.user, "superpowers"), bad, None, "2026-10-02")
+                self.assertIn("版の名", str(cm.exception))
+                self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())
+
+    def test_vendor_refuses_missing_part_or_symlink_and_writes_nothing(self):
+        """部品が無い・包むファイルが symlink、のどちらでも名指して止まり、borrow.json も写しも書かない"""
+        src = installed_dir(self.user, "superpowers")
+        before = (self.pack / ".shared/borrow/borrow.json").read_bytes()
+        part = src / "skills" / "subagent-driven-development" / "task-reviewer-prompt.md"
+        cases = {"task-reviewer-prompt.md": lambda: part.unlink(),
+                 "symlink": lambda: (src / "skills" / "test-driven-development" / "x.md").symlink_to(src / "LICENSE")}
+        for said, breakit in cases.items():
+            with self.subTest(said):
+                breakit()
+                with self.assertRaises(toolset.ToolsetError) as cm:
+                    toolset.vendor(self.pack, src, "9.9.0", None, "2026-10-02")
+                self.assertIn(said, str(cm.exception))
+                self.assertEqual((self.pack / ".shared/borrow/borrow.json").read_bytes(), before)
+                self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())
+                part.write_text("偽\n", encoding="utf-8")
 
 
 class ResolveCase(unittest.TestCase):

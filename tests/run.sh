@@ -3298,7 +3298,8 @@ if command -v shellcheck >/dev/null 2>&1; then
     sc_bad=0
     while IFS= read -r f; do
         shellcheck -S warning "$f" || sc_bad=1
-    done < <(find "$ROOT" -name "*.sh" -not -path "*/.git/*" | sort)
+    # 写した第三者の文（superpowers の写し）は直さない写しなので柵の外。写しの一致は works/tests/test_sp_skills.py の VendoredCopyCase が縛る
+    done < <(find "$ROOT" -name "*.sh" -not -path "*/.git/*" -not -path "*/.shared/borrow/superpowers/*" | sort)
     if [ "$sc_bad" -eq 0 ]; then
         echo "  ok   SHELLCHECK_OK リポジトリの .sh が shellcheck -S warning を通る"
     else
@@ -3540,6 +3541,8 @@ CODE = sorted((root / "scripts").glob("*.py")) + sorted((root / "scripts").glob(
 # 別プラグインの環境変数（`COLDREAD_*` 7 個）が 1 項で収まる。
 NAMED_IN = tuple(
     p for p in sorted(root.rglob("*.md")) if ".git" not in p.parts
+    # 写した第三者の文（superpowers の写し）は直さない写しなので柵の外。写しの一致は works/tests/test_sp_skills.py の VendoredCopyCase が縛る
+    and ".shared/borrow/superpowers/" not in p.as_posix()
 ) + tuple(sorted((root / "scripts").glob("*.py"))) + (root / "tests/run.sh",)
 # **アンダースコアを要求するな。** 要求していたとき、`MATERIALS` / `REVIEWS` / `LABELS` /
 # `STATUS` を同じ体裁で名指ししている箇所が 1 つも検査されなかった。

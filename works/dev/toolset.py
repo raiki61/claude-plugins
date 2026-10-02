@@ -2,10 +2,11 @@
 
   python3 toolset.py install [--no-plugins] [--claude <claude の実行ファイル>] [--user-config <利用者の設定の置き場>] <Claude の設定の置き場>
   python3 toolset.py guard <Claude の設定の置き場>
+  python3 toolset.py vendor [--user-config <利用者の設定の置き場>] <superpowers の版>
 
 AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CLAUDE_CONFIG_DIR を読む（P1 計画 Task 20・裁定 P1-R8）。
 そこに置くのは許す一覧 .shared/borrow/borrow.json の物だけ。借りる物（superpowers・coldwrite・pr-review-toolkit）は、利用者が
-Claude Code に入れたプラグインから取る（本線の graphloops と同じ。版は Claude Code が今に保つ。works は写しを持たない）:
+Claude Code に入れたプラグインから取る（本線の graphloops と同じ。版は Claude Code が今に保つ。superpowers の写しは下の vendor）:
 - 探す所: 利用者の設定の置き場（--user-config。無ければ env の CLAUDE_CONFIG_DIR、無ければ ~/.claude。隔離した設定ではない。
   archon.sh は隔離の前の値を渡す。絶対パスだけを受け、隔離した設定の置き場と同じなら名指しして止まる）の plugins/installed_plugins.json の <名>@<borrow の marketplace> の行。Claude Code と同じく
   local > project > user の scope の行を取る（local・project は projectPath が今の cwd（対象リポジトリ）の行だけ。勝った行の
@@ -38,16 +39,27 @@ Claude Code に入れたプラグインから取る（本線の graphloops と�
 - 記録 <置き場>/.works-toolset.json: {名: {version, source, sha256, loaded[, source_enabled]}}（見えるようにするだけ。run ごとの
   versions.json の borrowed に載る）。version は installed_plugins.json の行の version、source は入れた置き場、source_enabled は
   利用者の側の enabledPlugins の値（CLI の install が載せる。source_enabled を見よ）。
+- 写し（vendor）: 利用者のキャッシュの superpowers の 1 つの版（<利用者の設定の置き場>/plugins/cache/<marketplace>/superpowers/<版>。
+  網からは取らない。版は人が名指す）から、包むファイル（.shared/core/spseam.py の wrapped_files。借りるスキルの全ファイル・
+  部品 parts・LICENSE）だけを .shared/borrow/superpowers/<版>/ へバイトのまま・権限つきで写し、ほかの版の写しを消し、写しの台帳
+  .shared/borrow/superpowers/COPIED_FROM と borrow.json の superpowers.pin（版・commit・確かめた日・ファイルごとの sha256）を
+  書き直す。commit は installed_plugins.json の行のうち installPath がその版の置き場の行の gitCommitSha（無ければ null）。
+  使用許諾のファイルが MIT License で borrow.json の licence と合う時だけ写す（外れなら何も書かずに止まる）。写しは直さない。
+  写しを変えるのはこの口だけで、写し・台帳・pin を同じ 1 つの commit に入れる。
 """
+import datetime
 import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
 
 sys.dont_write_bytecode = True
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / ".shared" / "core"))
+import spseam  # noqa: E402
 
 MARKETPLACE = "works-local"                 # 隔離した設定の中の手元の marketplace の名
 MP_DIR = "works-marketplace"                # その置き場（<設定の置き場>/works-marketplace）
@@ -72,7 +84,14 @@ USER_CONFIG_DEFAULT = "~/.claude"
 TMP_MARK = ".works-tmp."
 USAGE = ("toolset.py: 使い方: python3 toolset.py install [--no-plugins] [--claude <claude の実行ファイル>] "
          "[--user-config <利用者の設定の置き場>] <設定の置き場>"
-         " | python3 toolset.py guard <設定の置き場>（install は --no-plugins か --claude のどちらか 1 つ）")
+         " | python3 toolset.py guard <設定の置き場>"
+         " | python3 toolset.py vendor [--user-config <利用者の設定の置き場>] <superpowers の版>"
+         "（install は --no-plugins か --claude のどちらか 1 つ）")
+VENDORED = "superpowers"                    # 写しを持つ借りる物（.shared/borrow/<この名>/<版>/）
+LEDGER = "COPIED_FROM"                      # 写しの台帳の名（.shared/borrow/superpowers/ の下。形は .shared/core/copyledger.py）
+LICENCE_HEADS = {"MIT": "MIT License"}      # borrow.json の licence → 使用許諾のファイルの頭の行（写してよい物だけ）
+UPSTREAM = "github.com/obra/superpowers"    # 写し元の系統（台帳の 1 行目に書く）
+VERSION_NAME = re.compile(r"[0-9A-Za-z][0-9A-Za-z._+-]*")   # 写す版の名（フォルダの名になる。/ や .. で外を指させない）
 
 
 class ToolsetError(Exception):
@@ -439,6 +458,107 @@ def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin,
     return rec
 
 
+def _licence_notice(src: pathlib.Path, item: dict) -> str:
+    """使用許諾のファイル（borrow.json の licence_file）の Copyright の行。ファイルが無い・頭が MIT License でない・borrow.json の
+    licence と合わない・Copyright の行が無い、のどれかなら ToolsetError（何も書く前に呼ぶ）"""
+    rel, lic = item.get("licence_file"), item.get("licence")
+    if not rel or not (src / rel).is_file() or (src / rel).is_symlink():
+        raise ToolsetError(f"{src} に使用許諾のファイル（borrow.json の licence_file {rel!r}）が無い。写さない")
+    text = (src / rel).read_text(encoding="utf-8", errors="replace")
+    head = LICENCE_HEADS.get(lic)
+    if head is None or not text.startswith(head):
+        raise ToolsetError(f"{src / rel} の頭が borrow.json の licence {lic!r} と合わない（写してよいのは "
+                           f"{'・'.join(LICENCE_HEADS.values())}）。写さない")
+    notice = next((ln.strip() for ln in text.splitlines() if ln.strip().startswith("Copyright")), None)
+    if notice is None:
+        raise ToolsetError(f"{src / rel} に Copyright の行が無い（著作権の表示を写しに残せない）。写さない")
+    return notice
+
+
+def vendor(pack: pathlib.Path, src: pathlib.Path, version: str, commit: "str | None", checked: str) -> dict:
+    """利用者のキャッシュの superpowers の版のフォルダ src の包むファイル（spseam.wrapped_files）を
+    pack/.shared/borrow/superpowers/<version>/ へバイトのまま・権限つきで写し、ほかの版のフォルダを消し、台帳 COPIED_FROM と
+    borrow.json の superpowers.pin を書き直して、新しい pin を返す。使用許諾が合わない・借りるスキルの SKILL.md か部品が無い・
+    symlink か外を指すパスが在る・パスに空白か # が在る（台帳に書けない）、のどれかなら何も書かずに ToolsetError"""
+    pack, src = pathlib.Path(pack), pathlib.Path(src)
+    _check_version_name(version)
+    bj = pack / ".shared" / "borrow" / "borrow.json"
+    borrow = json.loads(bj.read_text(encoding="utf-8"))
+    item = borrow[VENDORED]
+    if not src.is_dir():
+        raise ToolsetError(f"{VENDORED} の版のフォルダ {src} が無い")
+    notice = _licence_notice(src, item)
+    lack = [f"skills/{s}/SKILL.md" for s in item["skills"] if not (src / "skills" / s / "SKILL.md").is_file()]
+    lack += [r for r in item.get("parts", []) if not (src / r).is_file()]
+    if lack:
+        raise ToolsetError(f"{src} に借りる物が無い: {'・'.join(lack)}。写さない")
+    files = spseam.wrapped_files(src, item)
+    bad = spseam.pin_problems(src, dict(item, pin={"files": files}))   # 読まなかった物（symlink・外を指すパス）だけが残る
+    bad += [f"{r}: パスに空白か # が在る（台帳に書けない）" for r in files if any(c.isspace() or c == "#" for c in r)]
+    if bad:
+        raise ToolsetError(f"{src} を写せない: " + " / ".join(bad))
+    base = pack / ".shared" / "borrow" / VENDORED
+    base.mkdir(parents=True, exist_ok=True)
+    tmp = base / f".{version}{TMP_MARK}{os.getpid()}"
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        for rel in files:
+            (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src / rel, tmp / rel)
+        pin = spseam.pin_of(tmp, item, version, commit, checked)
+        if pin["files"] != files:
+            raise ToolsetError(f"写しの sha256 が元と違う（写している間に {src} が変わった？）。写さない")
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    head = (f"{commit or 'unknown'}  {VENDORED} {version}（{UPSTREAM}。{LICENCE_HEADS[item['licence']]}・{notice}。"
+            f"直さない写し。取り直しは dev/toolset.py vendor）")
+    ledger = "\n".join([head, *(f"{version}/{rel}  {rel}" for rel in files)]) + "\n"
+    item["pin"] = pin
+    for old in base.iterdir():
+        if old == tmp or old.name == LEDGER:
+            continue
+        if old.is_dir() and not old.is_symlink():
+            shutil.rmtree(old)
+        else:
+            old.unlink()
+    tmp.rename(base / version)
+    (base / LEDGER).write_text(ledger, encoding="utf-8")
+    bj.write_text(json.dumps(borrow, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return pin
+
+
+def _check_version_name(version: str) -> None:
+    if not VERSION_NAME.fullmatch(version or ""):
+        raise ToolsetError(f"版の名 {version!r} はフォルダの名にできない（英数字で始まり、英数字と . _ + - だけ）")
+
+
+def _commit_of(user_cfg: pathlib.Path, src: pathlib.Path) -> "str | None":
+    """installed_plugins.json の行のうち installPath が src の行の gitCommitSha（無ければ None）"""
+    for rows in _read_installed(user_cfg).values():
+        for r in rows:
+            sha = r.get("gitCommitSha")
+            if (isinstance(r.get("installPath"), str) and isinstance(sha, str) and sha
+                    and os.path.realpath(r["installPath"]) == os.path.realpath(src)):
+                return sha
+    return None
+
+
+def _vendor_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None", version: str) -> int:
+    _check_version_name(version)
+    user_cfg = user_cfg or user_config_dir()
+    item = load_borrow(pack)[VENDORED]
+    src = user_cfg / "plugins" / "cache" / item["marketplace"] / VENDORED / version
+    if not src.is_dir():
+        print(f"toolset.py: {VENDORED} {version} の版のフォルダ {src} が無い（claude plugin install で入れた版だけを写せる）",
+              file=sys.stderr)
+        return 2
+    pin = vendor(pack, src, version, _commit_of(user_cfg, src), datetime.date.today().isoformat())
+    print(f"toolset.py: {VENDORED} {pin['version']} の {len(pin['files'])} 本を .shared/borrow/{VENDORED}/{pin['version']}/ に写した"
+          f"（commit {pin['commit'] or 'unknown'}）")
+    return 0
+
+
 def _check_user_config(user_cfg: pathlib.Path, cfg: pathlib.Path, src: str) -> None:
     """利用者の設定の置き場は絶対パスで、隔離した設定の置き場と別であること（どちらも何も写す前に名指しで止める）"""
     if not user_cfg.is_absolute():
@@ -451,7 +571,7 @@ def _check_user_config(user_cfg: pathlib.Path, cfg: pathlib.Path, src: str) -> N
 
 def main(argv: list) -> int:
     args = argv[1:]
-    if not args or args[0] not in ("install", "guard"):
+    if not args or args[0] not in ("install", "guard", "vendor"):
         print(USAGE, file=sys.stderr)
         return 2
     cmd, rest = args[0], args[1:]
@@ -462,7 +582,7 @@ def main(argv: list) -> int:
             no_plugins = True
         elif cmd == "install" and a == "--claude" and rest:
             claude_bin = rest.pop(0)
-        elif cmd == "install" and a == "--user-config" and rest:
+        elif cmd in ("install", "vendor") and a == "--user-config" and rest:
             user_cfg = pathlib.Path(rest.pop(0))
         elif a.startswith("--"):
             print(USAGE, file=sys.stderr)
@@ -472,8 +592,14 @@ def main(argv: list) -> int:
     if len(pos) != 1 or (cmd == "install" and no_plugins == bool(claude_bin)):
         print(USAGE, file=sys.stderr)
         return 2
-    cfg = pathlib.Path(pos[0])
     pack = pathlib.Path(__file__).resolve().parents[1]
+    if cmd == "vendor":
+        try:
+            return _vendor_cli(pack, user_cfg, pos[0])
+        except ToolsetError as e:
+            print(f"toolset.py: {e}", file=sys.stderr)
+            return 2
+    cfg = pathlib.Path(pos[0])
     try:
         borrow = load_borrow(pack)
         if cmd == "guard":
