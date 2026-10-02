@@ -37,8 +37,8 @@
   試す（外れれば出し直し）。`text` に何を置き換えたかと理由を書く（`limits` は空でよい）
 - `fix_plan_item`: 承認済みの修正案の項目そのもの（道・受け入れのテスト・書き換えの名指し・範囲）が誤っていて、この run の中で直すと事前審査を通っていない変更になる時だけ。`text` に項目のどこをどう直すかを書く。`limits` は空。`grounds` にその単位の brief の行（`<絶対パス>:<行>`）を挙げる（brief の無い単位には出せない）。単位と、同じ項目に載るほかの単位はこの run では直さず（機械が直す義務から外す）、次の run の修正案に渡る。同じ返答で、その項目に載る単位の申し出を直す裁定（`fix_test_scope`・`fix_code_as`・`replace_query`）に裁かない
 
-直す裁定（`fix_test_scope`・`fix_code_as`・`replace_query`）の `limits` は、その単位の承認済みの修正案の項目の範囲（`allowed_paths`）に
-足すパスで、空なら足すパスは無い。足しても項目は変わらない——直しは項目の範囲の中を変え、項目の `tests`・`adds`・`removes` を
+直す裁定（`fix_test_scope`・`fix_code_as`・`replace_query`）の `limits` は、この run の承認済みの修正案の範囲（全部の項目の
+`allowed_paths` の和）に足すパスで、空なら足すパスは無い（その単位の項目だけでなく、run の全部の変更に効く）。足しても項目は変わらない——直しは項目の範囲の中を変え、項目の `tests`・`adds`・`removes` を
 満たすままである。直しが項目の範囲の外にしか置けない・範囲の外に新しいファイルが要る・項目の `out_of_scope` に当たる（`out_of_scope` は
 `limits` にも勝つ）なら、それは項目そのものの誤りで、`fix_code_as`・`replace_query` でなく `fix_plan_item` に裁け。
 

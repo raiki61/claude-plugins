@@ -48,6 +48,7 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap, pending_instance as _pending, rules_module  # noqa: E402
 import engine.util as _util  # noqa: E402
+from engine.schema import validate_schema  # noqa: E402
 import accept  # noqa: E402
 import conflict  # noqa: E402
 import deltamarks  # noqa: E402
@@ -208,7 +209,7 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
         except ValueError as e:
             doc["lens"], doc["lens_error"] = [], str(e)
         doc["plan_items"] = _plan_items(b)
-        doc["ruled_paths"] = _ruled_paths(b)
+        doc["ruled_paths"] = conflict.ruled_paths(b)
         doc["fix_report"] = _fix_report(b)
     brief =_write_json(b.work(brief_name), doc)
     entry.snapshot(board, snapshot_name(n), repo)
@@ -241,7 +242,7 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
            "policy": policy.brief(b)}
     if n == 1:   # 1 回目の審査の 2 判定の控えの準拠の落ちた行（face_key が owed の key と同じ行が、その項目への準拠の外れ）
         doc["plan_items"] = _plan_items(b, by=REFIX_BY)
-        doc["ruled_paths"] = _ruled_paths(b)
+        doc["ruled_paths"] = conflict.ruled_paths(b)
         doc["compliance"] = deltamarks.fail_rows(deltamarks.read(b))
     brief = _write_json(b.work(brief_name), doc)
     out = {"ok": True, "owed": len(rows), "diff_file": d.get("file") or "", "brief_file": str(brief),
@@ -261,7 +262,8 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
 # ---------------------------------------------------------------- 受け付け
 def _plan_items(b, by: str = DELTA_BY) -> list[dict]:
     """今の周の範囲の欄の在る承認済みの修正案の項目（planmarks.scoped_items。修正案の無い run・217 番の形の控えは空）。全部の
-    項目を番号のまま返し、裁定で外れた項目（conflict.held_item）には held（外した裁定の理由）を足す。控えが
+    項目を番号のまま返し、裁定で外れた項目（conflict.held_item）には held（外した裁定の理由）を、単位の一部だけが外れた項目には
+    held_units（conflict.held_units の {単位: 理由}）を足す。控えが
     凍結の印と食い違えば conflict.fields_broken の道（呼んだ段の印 by で盤面を止めて控えを名指す BoardGap。差分の審査の支度と
     受け付けは DELTA_BY、手直しの支度は REFIX_BY）"""
     try:
@@ -271,19 +273,21 @@ def _plan_items(b, by: str = DELTA_BY) -> list[dict]:
     held = conflict.held_by_rulings(b) if items else {}
     for it in items:   # 番号は保つ（準拠の行の番号の照らし）。外れた項目は範囲を与えない（planscope と同じ conflict.held_item）
         why = conflict.held_item(it.get("unit_keys"), held)
+        some = conflict.held_units(it.get("unit_keys"), held)
         if why:
             it["held"] = why
+        elif some:   # 単位の一部だけが外れた項目: 外れた単位の分は照らさない・直さない
+            it["held_units"] = some
     return items
 
 
-def _ruled_paths(b) -> list[str]:
-    """直す裁定（conflict.ruled_limits）の limits のパス（parse_limit。重ねない）。裁定の後に範囲が広がるのはこのパスだけ"""
-    out = []
-    for _, lim in conflict.ruled_limits(b):
-        got = conflict.parse_limit(lim)
-        if got and got[0] not in out:
-            out.append(got[0])
-    return out
+def _copy_shape_errors(nid: str, bare: dict) -> list[str]:
+    """2 判定の欄を外した返答を写しの graph の型（役の型から deltamarks の欄を除いた物）で照らした誤りの行"""
+    schema = accept.role_schema(nid)
+    for k in deltamarks.KEYS:
+        schema["properties"].pop(k, None)
+    schema["required"] = [r for r in schema.get("required", []) if r not in deltamarks.KEYS]
+    return validate_schema(bare, schema)
 
 
 def _fix_report(b) -> dict:
@@ -296,7 +300,9 @@ def accept_review(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
     """n 回目の審査役の返答（読むだけの役。cut が撮った写しと今の作業ツリーを比べる）。entry.take の返り。節が
     deltamarks.NODES に在れば、先に 2 判定の欄を承認済みの修正案の項目と照らし、欠けと誤りが在れば盤面へ渡さずに
     {ok: False, reason: deltamarks.REJECT と行}。無ければ欄を外した返答を渡し、受けた時だけ欄を控える（置けなければ
-    rolekit.halt_unsaved の道: 盤面を止めて控えを名指す BoardGap）。faces が穴の並びの形でない返答は照らさずに、欄を外して渡す
+    rolekit.halt_unsaved の道: 盤面を止めて控えを名指す BoardGap）。拒む時は、欄を外した返答の写しの型の誤りも同じ拒否に並べる
+    （1 つの返答の誤りを 1 回で返す）。修正案の欄の控えが凍結の印と食い違えば conflict.fields_broken の道（差分の審査の段の印
+    DELTA_BY で盤面を止めて控えを名指す BoardGap）。faces が穴の並びの形でない返答は照らさずに、欄を外して渡す
     （写しの型が faces を拒む。守る 2 つの欄を知らない欄と言わせない）"""
     nid = _pass(n)["review"]
     if nid not in deltamarks.NODES:
@@ -305,9 +311,10 @@ def accept_review(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
         return entry.take(board, nid, deltamarks.split(reply)[0], repo, snapshot_name=snapshot_name(n))
     b = entry.open_board(board)
     gaps = deltamarks.gaps(reply, _plan_items(b))
-    if gaps:
-        return {"ok": False, "reason": deltamarks.REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
     bare, verdicts = deltamarks.split(reply)
+    if gaps:   # 欄を外した返答の写しの型の誤りも同じ拒否に（1 つの返答の誤りを 1 回で返す。224 と同じ形）
+        gaps += [f"返答の形: {e}" for e in _copy_shape_errors(nid, bare)]
+        return {"ok": False, "reason": deltamarks.REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
     out = entry.take(board, nid, bare, repo, snapshot_name=snapshot_name(n))
     if out.get("ok") is True:   # 受けた時だけ（拒否では盤面の外の控えも前のまま）
         try:

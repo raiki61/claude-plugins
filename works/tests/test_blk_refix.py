@@ -58,6 +58,13 @@ def plan_review_reply() -> dict:
             "shrink": [], "reason": "2 つの案を読み、足す物が無いことと、docstring のずれを 1 件見た"}
 
 
+def one_item_plan_reply() -> dict:
+    """mean と clamp の 2 単位を 1 項目に載せた修正案（項目の単位の一部だけが裁定で外れる盤面の材料）"""
+    return {"plan": [
+        {"unit_keys": [K1, K2], "approach": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す", "adds": [],
+         "removes": [], "shrink_first": "足す物は無い。式と戻り値を 1 か所ずつ直すだけで足りる", "narrows": []}]}
+
+
 def _change(key, site, remaining=None) -> dict:
     c = {"unit_key": key, "what": "式を定義どおりに直した", "files": ["stats.py"],
          "closure": {"mechanism": "式の取り違え", "fix_mechanism": "式を定義どおりに", "verified_how": "退行を注入して赤→戻して緑",
@@ -109,10 +116,11 @@ def workflow_nodes(path: pathlib.Path):
 class DeltaBoardCase(TE.TakeCaseBase):
     """差分の審査の前後まで進めた盤面（置き場は self.art / board。$ARTIFACTS_DIR の形）"""
 
-    def fixed(self, *, before_fix=None):
-        """p3.fix まで受けた盤面（ready に p3.delta_review）。before_fix(repo) は修正の返答を渡す前に作業ツリーへ当てる"""
+    def fixed(self, *, before_fix=None, plan=None):
+        """p3.fix まで受けた盤面（ready に p3.delta_review）。before_fix(repo) は修正の返答を渡す前に作業ツリーへ当てる。plan は
+        修正案の返答（無ければ plan_reply）"""
         repo, _ = self.judged()
-        for nid, reply in (("p2.fix_plan", plan_reply()), ("p2.plan_review", plan_review_reply())):
+        for nid, reply in (("p2.fix_plan", plan or plan_reply()), ("p2.plan_review", plan_review_reply())):
             TE.launch(self.board, nid)
             got = entry.take(self.board, nid, reply, repo)
             self.assertTrue(got["ok"], got)
@@ -143,10 +151,11 @@ class DeltaBoardCase(TE.TakeCaseBase):
         self.assertTrue(got["ok"], got)
         return repo, got
 
-    def plan_fields(self, scoped):
-        """盤面に修正案の欄の控えを置く（scoped が偽なら 217 番の形: 範囲の欄 allowed_paths・out_of_scope が無い）"""
+    def plan_fields(self, scoped, keys=(K1, K2)):
+        """盤面に修正案の欄の控えを置く（keys の 1 つごとに 1 行。scoped が偽なら 217 番の形: 範囲の欄 allowed_paths・
+        out_of_scope が無い）"""
         rows = []
-        for key in (K1, K2):
+        for key in keys:
             row = {"route": "direct", "route_why": "見本。先にテストを書かない理由", "tests": [], "rewrite_tests": [],
                    "refactor": {"declared": False, "why": ""}, "unit_keys": [key]}
             if scoped:
@@ -471,10 +480,11 @@ class RefixStaticCase(unittest.TestCase):
     def test_refix_head_names_plan_items_and_compliance(self):
         """1 回目の手直しの指示書の頭（節 refix-head-1）が材料の plan_items と compliance を読ませる。2 回目の頭は載せない"""
         sec = rulebook.sections(REFIX_DIR / "rules" / "refix.md")
-        for w in ("`plan_items`", "`compliance`", "`face_key`"):
+        for w in ("`plan_items`", "`compliance`", "`face_key`", "`ruled_paths`"):
             self.assertIn(w, sec["refix-head-1"])
             self.assertNotIn(w, sec["refix-head-2"])
         self.assertIn("`held` の在る項目に向けて直すな", sec["refix-head-1"])
+        self.assertIn("`held_units` の単位に向けて直すな", sec["refix-head-1"])
 
     def test_output_format_marks_roles(self):
         """役の output_format は mark(role_schema(節), 役の名)（TA20）。strip すれば graph の schema"""

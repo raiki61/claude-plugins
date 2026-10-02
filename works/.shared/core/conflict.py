@@ -385,14 +385,20 @@ def held_by_rulings(b) -> dict:
     return out
 
 
+def held_units(unit_keys, held: dict) -> dict:
+    """案の項目の単位のうち裁定で外れた物 {key: 理由}（held_by_rulings の held に在る物。unit_keys の順）"""
+    return {k: held[k] for k in unit_keys or [] if isinstance(k, str) and k in held}
+
+
 def held_item(unit_keys, held: dict) -> str:
-    """案の項目が裁定で外れた項目か（unit_keys の全部が held_by_rulings の held に在る）。外れていれば外した裁定の理由を「・」で
+    """案の項目が裁定で外れた項目か（unit_keys の全部が held_units に在る）。外れていれば外した裁定の理由を「・」で
     つないだ文、外れていない・unit_keys が無ければ空。外れた項目は範囲を与えない（blk-fix の planscope と差分の審査の材料が読む
     1 つの決まり）"""
     keys = [k for k in unit_keys or [] if isinstance(k, str)]
-    if not keys or not set(keys) <= set(held):
+    got = held_units(keys, held)
+    if not keys or len(got) != len(set(keys)):
         return ""
-    return "・".join(dict.fromkeys(held[k] for k in keys))
+    return "・".join(dict.fromkeys(got.values()))
 
 
 def replaced_queries(b) -> dict:
@@ -636,6 +642,17 @@ def ruled_limits(b, *, decisions=FIX_DECISIONS) -> list[tuple[dict, str]]:
     順・limits の順）。裁定の範囲の唯一の読み口（テストの変更の許し test_permits は fix_test_scope だけ、blk-fix の案の項目の
     照らし planscope は直す裁定の全部を読む）"""
     return [(r, lim) for r in ruled_fix(b) if r["ruling"]["decision"] in decisions for lim in r["ruling"].get("limits") or []]
+
+
+def ruled_paths(b) -> list[str]:
+    """直す裁定（ruled_limits）の limits のパス（parse_limit。重ねない・並びの順）。裁定の後に範囲が広がるのはこのパスだけで、
+    run の全部の項目に足す（blk-fix の planscope と差分の審査・手直しの材料が読む 1 つの口）"""
+    out = []
+    for _, lim in ruled_limits(b):
+        got = parse_limit(lim)
+        if got and got[0] not in out:
+            out.append(got[0])
+    return out
 
 
 def ruled_test_limits(b, *, rulings: bool = True, source=None, skip_ids=()) -> list[str]:

@@ -138,7 +138,7 @@ class TestDeltaSchema(unittest.TestCase):
             self.assertIn(w, text)
         self.assertIn("unverifiable の行は `face_key` を空文字 `\"\"`", text)   # 穴に結べない行（deltamarks.gaps の M4 の決まり）
         self.assertIn("3 点と下の品質の観点", text)
-        for w in ("`held`", "`ruled_paths`"):   # 裁定で外れた項目と裁定が広げたパス（planscope と同じ決まり）
+        for w in ("`held`", "`held_units`", "`ruled_paths`"):   # 裁定で外れた項目と裁定が広げたパス（planscope と同じ決まり）
             self.assertIn(w, text)
 
     def test_review_prompts_read_protected_files(self):
@@ -766,6 +766,48 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertNotIn("held", brief["plan_items"][0])
         self.assertIn("fix_plan_item の裁定 c1-1", brief["plan_items"][1]["held"])
         self.assertEqual(brief["ruled_paths"], ["test_stats.py"])
+
+    def test_refix_brief_marks_held_items_and_ruled_paths(self):
+        """手直しの役の brief も、外れた項目の held と直す裁定が広げたパス ruled_paths を載せる"""
+        repo = self.held_board()
+        self.assertTrue(refix.cut(self.board, 1, repo)["ok"])
+        reply = load("fix2_delta_review_faces")
+        reply["compliance"] = {"verdict": "pass", "items": [], "read": "修正案の項目 1・2 と差分の stats.py を読み、項目と照らした"}
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+        brief = json.loads(pathlib.Path(refix.prep_fix(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(brief["ruled_paths"], ["test_stats.py"])
+        self.assertIn("fix_plan_item の裁定 c1-1", brief["plan_items"][1]["held"])
+        self.assertNotIn("held", brief["plan_items"][0])
+
+    def test_cut_brief_marks_partly_held_item(self):
+        """2 単位の項目のうち K1 だけが ask_human で外れた → 項目に held は無く、held_units に K1 と外した裁定が載る"""
+        repo = self.fixed(plan=RF.one_item_plan_reply())
+        self.plan_fields(scoped=True, keys=(RF.K1,))
+        b = real_entry.open_board(self.board)
+        row = {"id": "c1-1", "unit_key": RF.K1, "between": ["stats.py:3", "test_stats.py:2"],
+               "why_both_cannot_hold": "テストと依頼が両方は成り立たない", "which_is_right": "unknown", "kind": "needs_context",
+               "round": b.round, "source": "fix", "status": "ruled",
+               "ruling": {"decision": "ask_human", "text": "方針の変更で人が決める", "limits": [], "by": "x"}}
+        b.work(conflict.FILE).write_text(json.dumps({"items": [row]}, ensure_ascii=False), encoding="utf-8")
+        brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        it = brief["plan_items"][0]
+        self.assertNotIn("held", it)
+        self.assertEqual(list(it["held_units"]), [RF.K1])
+        self.assertIn("ask_human の裁定 c1-1", it["held_units"][RF.K1])
+
+    def test_verdict_gaps_and_shape_errors_in_one_rejection(self):
+        """2 判定の欄の欠けと、欄を外した返答の写しの型の誤りを 1 回の拒否に並べる（3 回の枠を誤り 1 つずつで使い切らせない）"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        reply = load("fix2_delta_review_faces")
+        del reply["quality"]
+        reply["faces"][0]["kind"] = "not_a_kind"
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertFalse(got["ok"])
+        self.assertTrue(got["reason"].startswith(deltamarks.REJECT), got["reason"])
+        self.assertIn("quality", got["reason"])
+        self.assertIn("not_a_kind", got["reason"])
 
     def test_missing_on_held_item_does_not_become_owed(self):
         """審査役が外れた項目 2 を missing と書いて穴に結ぶ → 受け付けが拒み（盤面は前のまま）、手直しの義務にならない"""
