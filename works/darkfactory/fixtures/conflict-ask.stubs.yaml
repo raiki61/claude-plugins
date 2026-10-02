@@ -940,6 +940,7 @@ fix:
     - test_stats.py:9
     why_both_cannot_hold: テストは分母 len(xs) - 1 の値を期待しているが、依頼は算術平均を求めている
     which_is_right: request
+    kind: unnamed_test_broke
 fix-accept:
   ok: true
   done: true
@@ -1432,7 +1433,7 @@ h-final:
     ## 食い違いの申し出（1 件。裁定役か機械が人に回した。単位は直さずに残した。通すのは人の continue だけ）
 
 
-    - stats.py mean: 分母が len(xs) - 1 になっている: 依頼とテストのどちらが正しいかは方針の変更で、人が決める（名指し stats.py:9, test_stats.py:9・正しいと見た側 request・c1-1）
+    - stats.py mean: 分母が len(xs) - 1 になっている: 依頼とテストのどちらが正しいかは方針の変更で、人が決める（名指し stats.py:9, test_stats.py:9・種類 unnamed_test_broke・正しいと見た側 request・c1-1）
 
 
     最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは緑

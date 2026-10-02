@@ -119,6 +119,7 @@ class FinalTestSuitesCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1,
                                        output_of_round=lambda nid, n: {})
+        self.enterContext(mock.patch.object(report, "_replanned", return_value=[]))   # 偽の盤面は食い違いの控えを持たない
 
     def head_text(self, tests):
         from unittest import mock
@@ -507,7 +508,7 @@ class NextRequestUnitRowsCase(unittest.TestCase):
                                   output_of_round=lambda nid, rnd: {"changes": [], "not_done": [{"unit_key": "u-left", "why": "範囲外"}]})
         asked = [{"unit_key": "u-asked", "ruling": {"text": "人が決める"}, "between": ["a", "b"]}]
         left = [{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {k}"} for k in ("u-left", "u-asked", "u-other")]
-        with mock.patch.object(report, "_asked", return_value=asked):
+        with mock.patch.object(report, "_asked", return_value=asked), mock.patch.object(report, "_replanned", return_value=[]):
             items = report.next_request(b, left=left)
         for k in ("u-left", "u-asked"):
             self.assertEqual(sum(k in i["text"] for i in items), 1, items)

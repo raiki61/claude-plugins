@@ -13,9 +13,9 @@ description: |
   run が落ちる）、出口に集める（collect。消した件数と、全件を書いた盤面のファイルも渡す）。
   食い違いの申し出（持ち主 2026-09-28）: 修正役と TDD の輪の役は、緑にするためにテスト・依頼・コードのどれかを曲げる代わりに、
   名指しつき（<パス>:<行>）の食い違いを返してよい。名指しが現物に在れば拒否に数えずその単位を止め（conflict-check）、読むだけの
-  裁定役（rule-loop。持ち主の決まり rules/principles.md）が fix_test_scope・fix_code_as・ask_human・replace_query に裁き、2 回目の修正役
+  裁定役（rule-loop。持ち主の決まり rules/principles.md）が fix_test_scope・fix_code_as・ask_human・replace_query・fix_plan_item に裁き、2 回目の修正役
   （fix-ruled-loop。修正役の会話の続き）が裁定の文のファイルを読んで直して盤面に渡す。ask_human の単位は直す義務から外れ、
-  最後の人の関所に届く（.shared/core/conflict.py）。
+  最後の人の関所に届く。fix_plan_item の単位も直す義務から外れ、次の run の修正案に渡る（.shared/core/conflict.py）。
 
 inputs:
   judgment_file:
@@ -43,6 +43,9 @@ inputs:
       テストの実行器（JUnit XML の書き先を第 1 引数に受け、リポジトリの根で走る実行ファイル。本線の tdd_suite と同じ約束。
       相対なら対象リポジトリの根から。後ろに試験のファイル・node id（絶対パス）と -k を足して呼ぶことがある）。空は実行器の無い run で、TDD の輪を飛ばして全部の単位を今どおり直す。
       実行器を探して決めるのはラインの start（設計 6 節）で、ここはその結果を受けるだけ
+  test_cmd:
+    default: ""
+    description: 緑の後に TDD の輪が走らせるテストのコマンド（線の入力 `test_cmd`）。空は走らせない。実行器がこのコマンドそのものを包んだ物なら 2 度走らせない
 
 returns: collect
 outcome_field: ok
@@ -61,7 +64,8 @@ nodes:
         count: {type: integer, minimum: 0}
         file: {type: string}
 
-  # TDD の輪の頭。実行器が無ければ何も書かずに go: false（輪は飛ぶ）。在れば一式を 1 回走らせて元の結末を取る
+  # TDD の輪の頭。実行器が無ければ何も書かずに go: false（輪は飛ぶ）。在れば一式を 1 回走らせて元の結末を取り、
+  # test_cmd の関門（緑の後に毎回走らせるか）を 1 回だけ決める
   - id: tdd-start
     script: tdd_start
     runtime: uv
@@ -70,6 +74,7 @@ nodes:
     with:
       tdd_suite: $INPUTS.tdd_suite
       open_units: $INPUTS.open_units
+      test_cmd: $INPUTS.test_cmd
     output_format:
       type: object
       additionalProperties: false
@@ -149,6 +154,15 @@ nodes:
                 type: array
                 items: {type: string}
               what: {type: string}
+              # 整えの申告（phase fix の任意の欄。declared が true の単位か、修正案の項目が refactor.declared の単位だけ refactor の段が来る。
+              # tddloop._declared・_plan_refactor_why）
+              refactor:
+                type: object
+                additionalProperties: false
+                required: [declared, why]
+                properties:
+                  declared: {type: boolean}
+                  why: {type: string}
               # 食い違いの申し出（phase conflict。どの段でも。.shared/core/conflict.py の 1 件の欄）
               between:
                 type: array
@@ -158,6 +172,7 @@ nodes:
               correct_lines:
                 type: array
                 items: {type: string}
+              kind: {type: string, enum: [brief_vs_judgment, unnamed_test_broke, not_red, scope_needed, query_hits_fixed, needs_context]}
               # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。tdd-step が書き込みの記録と突き合わせる）
               bash_writes:
                 type: array
@@ -545,7 +560,7 @@ nodes:
                 items:
                   type: object
                   additionalProperties: false
-                  required: [unit_key, between, why_both_cannot_hold, which_is_right]
+                  required: [unit_key, between, why_both_cannot_hold, which_is_right, kind]
                   properties:
                     unit_key: {type: string, minLength: 1}
                     between:
@@ -559,6 +574,7 @@ nodes:
                       minItems: 1
                       maxItems: 20
                       items: {type: string, minLength: 1}
+                    kind: {type: string, enum: [brief_vs_judgment, unnamed_test_broke, not_red, scope_needed, query_hits_fixed, needs_context]}
               # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。受け付けが書き込みの記録と突き合わせ、盤面に渡す前に外す）
               bash_writes:
                 type: array
@@ -609,7 +625,7 @@ nodes:
         file: {type: string}
 
   # 裁定の輪（持ち主 2026-09-28「おしで」）。役 rule は輪のただ 1 つの AI の節（TA13）で読むだけ。持ち主の決まり
-  # （rules/principles.md）で fix_test_scope・fix_code_as・ask_human・replace_query（置き換えた問いは機械が例で試す）のどれかに裁く。3 回目の拒否で裁かれていない申し出を人へ回し、
+  # （rules/principles.md）で fix_test_scope・fix_code_as・ask_human・replace_query（置き換えた問いは機械が例で試す）・fix_plan_item のどれかに裁く。3 回目の拒否で裁かれていない申し出を人へ回し、
   # done で抜ける（max_iterations で落とさない。R50）。理由の文は rule-prep が次の指示書の 1 行目でパスを名指す（R44）
   - id: rule-loop
     depends_on: [conflict-check]
@@ -660,7 +676,7 @@ nodes:
                   required: [id, decision, text, limits]
                   properties:
                     id: {type: string, minLength: 1}
-                    decision: {type: string, enum: [fix_test_scope, fix_code_as, ask_human, replace_query]}
+                    decision: {type: string, enum: [fix_test_scope, fix_code_as, ask_human, replace_query, fix_plan_item]}
                     text: {type: string, minLength: 10}
                     limits:
                       type: array
@@ -704,10 +720,10 @@ nodes:
               reason: {type: string}
               reason_file: {type: string}
               rulings_file: {type: string}   # 裁定の文（2 回目の修正役の指示書の 1 行目が名指す）
-              counts: {type: object}         # {parked, unruled, fix_test_scope, fix_code_as, ask_human[, replace_query]}
+              counts: {type: object}         # {parked, unruled, fix_test_scope, fix_code_as, ask_human[, replace_query][, fix_plan_item]}
 
-  # 裁定の後の 2 回目の修正役（印 continue=fix: 包みが修正役の会話を継ぐ）。1 回目は裁定の文のファイルを名指し、ask_human の単位は
-  # 直す義務から外れる（conflict.owed_units_but_asked）。盤面の p3.fix に渡すのはここ（1 回目は申し出で止めて渡していない）
+  # 裁定の後の 2 回目の修正役（印 continue=fix: 包みが修正役の会話を継ぐ）。1 回目は裁定の文のファイルを名指し、直す裁定でない
+  # 裁定（ask_human・fix_plan_item）の単位は直す義務から外れる（conflict.owed_units_but_asked）。盤面の p3.fix に渡すのはここ（1 回目は申し出で止めて渡していない）
   - id: fix-ruled-loop
     depends_on: [conflict-check, rule-loop]
     when: "$conflict-check.output.go == true"
@@ -861,7 +877,8 @@ nodes:
             count: {type: integer, minimum: 0}
             file: {type: string}
         # TDD の輪の結果 {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor,
-        # gave_up, problems}]}。実行器の無い run は ran: false・units は空（tddloop.exit_fields）
+        # gave_up, problems, red_kinds, test_cmd, refactor_why}], test_cmd: {gate, note}, calls: [{n, phase, unit_key, ok, runs,
+        # secs}]}。実行器の無い run は ran: false・units は空で test_cmd・calls の欄も無い（tddloop.exit_fields・FIELDS）
         tdd: {type: object}
         # 盤面の欄（〔線A計〕T17。recount.collect）: 受けた修正の返答のファイル・直せなかった単位の数・単位ごとの前後の件数・読んだ証拠
         fix_file: {type: string}

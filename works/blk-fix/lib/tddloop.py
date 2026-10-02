@@ -2,15 +2,40 @@
 
 節と関数:
 - tdd-start → start: 入力 tdd_suite（JUnit XML の書き先を第 1 引数に受け、リポジトリの根で走る実行ファイル。本線と同じ約束）が
-  空なら何もせず go: false（全部の単位を今どおり直す）。在れば一式を 1 回走らせて元の結末を取り、盤面の tdd-<k>/ に状態を置く
+  空なら何もせず go: false（全部の単位を今どおり直す）。在れば一式を 1 回走らせて元の結末を取り、盤面の tdd-<k>/ に状態を置く。
+  承認済みの修正案の単位ごとの約束（plan_contract → planmarks.unit_contract。道・受け入れのテストと赤の種類）もここで 1 回だけ
+  組んで状態の contract に置く（盤面の無い置き場・欄の控えの無い run は空で、輪は約束の無い今の動きのまま）。
+  run のテストのコマンド（線の入力 test_cmd）の関門（test_cmd_gate）もここで 1 回だけ決める: 空なら off、実行器のファイルが
+  そのコマンドの文字列をそのまま含むなら same_as_suite（一式と同じなので 2 度走らせない）、ほかは 1 回走らせて緑なら on、
+  赤・走らないなら off にして理由を test_cmd_note に残す（元から赤の test_cmd で毎単位を拒まない）。test_cmd は nice を付けて
+  走らせ、既存のファイルを書き換えた回はいつも赤（書き換えた物は戻す。_cmd_run）。関門が on なら直し・整えの段の指示書に
+  そのコマンドを書く
 - tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形。頭に brief の節: 振り分けの段は
   直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run は無し）→ 役 tdd（修正役。
   同じ会話で振り分け・テスト・直し・整えを返す）→
-  tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix → refactor → 次の単位
+  tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix →（申告の在る単位だけ）refactor → 次の単位。
+  step 1 回ごとに状態の calls に 1 行（n・確かめた段（申し出は conflict、実行器・test_cmd が走らずに抜けた回は runner）・単位・
+  合否・その回に起こした一式と test_cmd の数・秒）を積む（秒は書くだけで止める条件に使わない）
   - route: 直す義務の単位（_owed: 開いた単位から、答え待ち・ask_human で外れた単位と食い違いで止めた単位を除く）を全部 1 度だけ
-    tdd か direct（理由 10 字以上）に振る
-  - test: 申告したテストのファイルの外に触れていない・写しの red_problems（名指しは failure で落ち、元で通っていた物は緑）
-  - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems
+    tdd か direct（理由 10 字以上）に振る。約束で tdd の単位は direct に振れない（出口は phase conflict の申し出）
+  - test: 申告したテストのファイルの外に触れていない・写しの red_problems（名指しは failure で落ち、元で通っていた物は緑）。
+    約束の在る単位は、受け入れのテストの id を全部名指し（走らせる前に見る）、各テストの赤の種類（red_kind。JUnit の failure の
+    type・message から機械が分ける）が名前・import の失敗でなく、案が exception なら断言の失敗でない（_kind_problems。ほかの
+    例外の型・unknown は記録だけ）。direct_why でも direct に渡せない。
+    修正案が書き換えを名指した既存のテスト（約束の rewrites）も名指しに入れ、同じ赤（名前・import の失敗でない。
+    同じ _kind_problems に種類の宣言なしで渡す）を通す。
+    約束の在る単位は、名指しの外の既存のテストの本体（.py の test* 関数。_unnamed_edits）を書き換えたら拒む（走らせる前）。
+    単位の頭で通っていたテストが飛ばされた・結末から消えたら拒む（_vanished_problems。単位の頭から変わったテストの
+    ファイルのモジュールだけ。居ないは同じ選びの回に居た時だけ数える）。前の単位で赤→緑を確かめた id は名指しを
+    強いず、書き換えさせない（_verified）
+    名指し全部の赤の種類を単位の red_kinds に残す
+  - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems。約束の在る単位は、ほかのテストのファイル
+    （TEST_FILE の名）の既存の test* 関数の本体も変えていない（_other_test_edits）・テストを飛ばした・消していない
+    （_vanished_problems）。関門が on なら、そのうえで run の test_cmd も緑（_test_cmd_problems。赤は拒み、走らない時は実行器が
+    走らない時と同じに輪を抜ける）。refactor の緑の確かめも同じ。
+    緑の後、返答の任意の欄 refactor（{declared, why}）で役が理由（10 字以上）つきで申告した単位か、約束の refactor が真（修正案の
+    項目の refactor.declared）の単位だけ refactor の段へ進み、理由を単位の refactor_why に残す。declared が true で理由が短ければ
+    拒む（一式を走らせる前）。申告が無ければ単位の refactor を skipped にして次の単位へ（緑の木が次の単位の頭）
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
   - test・fix・refactor とも、名指しを絶対パスの node id で実行器の後ろに足して走らせる（段の外に書いたテストも一式の結末に載る）
   拒めば同じ段のまま、理由は次の指示書（と reason_file）に載る。段ごとに RETRY_MAX 回目の拒否で諦める: test・fix は作業ツリーを
@@ -24,7 +49,8 @@
   知らせと状態（ci_left。受け付けが盤面の trace に載せ、最後の関所が並べる）に名前で残す。元の結末に無い試験の赤は、版を
   一時の置き場に写して同じ試験を回し、版でも赤なら外す（作業ツリーは動かさない）。1 件も走らなければ「新しい赤なし」にせず
   知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
-- collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整え・direct の理由）
+- collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整えとその申告の理由・direct の理由・test_cmd の緑。輪の test_cmd の
+  関門と理由・段ごとの呼び出しの記録 calls）
 赤・緑の判定は写しの rules（review-loop-tdd.py）の関数を呼ぶ（写さない）。版は一時の index（GIT_INDEX_FILE）で木に固める
 （本物の index・HEAD・枝は動かさない。.gitignore に当たる物は載らない）。期限は持たない。
 """
@@ -41,6 +67,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import xml.etree.ElementTree as ET
 
 sys.dont_write_bytecode = True
 
@@ -50,6 +78,7 @@ import entry  # noqa: E402  （.shared/core。盤面の入口）
 import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
 import impact  # noqa: E402  （.shared/core。変更に当たる試験の選び）
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
+import planmarks  # noqa: E402  （.shared/core。修正案の項目の works の欄。単位の約束）
 import tree_run  # noqa: E402
 import writes  # noqa: E402  （.shared/core。書き込みの出どころの突き合わせ）
 from leftovers import Unreadable, git, git_names  # noqa: E402
@@ -60,6 +89,12 @@ MAX_ITERATIONS = 40   # YAML の tdd-loop の max_iterations と同じ値（試�
 MIN_WHY = 10
 STATE, PROMPT, SUMMARY = "state.json", "next.md", "summary.md"
 NO_SUITE = "テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す"
+# run の test_cmd の関門（start が 1 回だけ決める）: on＝緑の後に毎回走らせる・same_as_suite＝実行器がそのコマンドを包んだ物で
+# 一式の緑と同じ（走らせない）・off＝空か、輪の頭で赤・走らない（理由は状態の test_cmd_note）。1 行ずつ定義する（根の柵の
+# doc-symbols が文書の名指しを `^名前 =` の行で引く）
+GATE_ON = "on"
+GATE_SAME = "same_as_suite"
+GATE_OFF = "off"
 SUITE_MADE_NOTE = "一式を走らせて出来たファイル"
 
 
@@ -69,6 +104,12 @@ class Broken(Exception):
 
 class _RunnerDown(Exception):
     """実行器が走らない・JUnit が読めない（テストや直しの誤りではない。やり直しの回数を使わずに輪を抜ける）"""
+    head = "テストの実行器が走らない"
+
+
+class _CmdDown(_RunnerDown):
+    """run の test_cmd が走らない（実行器が走らない時と同じ道で輪を抜ける。理由の頭の語だけ違う）"""
+    head = "テストのコマンドが走らない"
 
 
 _RULES = []
@@ -165,12 +206,54 @@ def run_suite(exe: str, repo, work: pathlib.Path, n, args=()):
     if not junit.is_file():
         return None, rc, [f"テストの実行器が JUnit XML を書かなかった（exit {rc}。ログ {log}）"]
     try:
-        cases = rules().parse_junit(junit.read_text(encoding="utf-8", errors="replace"))
+        text = junit.read_text(encoding="utf-8", errors="replace")
+        cases = rules().parse_junit(text)
+        fails = _failure_attrs(text)
     except Exception as e:   # ET.ParseError（写しの rules の中の型）
         return None, rc, [f"JUnit XML が読めない（{e}。ログ {log}）"]
     finally:
         junit.unlink(missing_ok=True)
-    return _unique(cases), rc, []
+    return _unique([{**c, **fails.get(_key(c), NO_FAILURE)} for c in cases]), rc, []
+
+
+NO_FAILURE = {"fail_type": "", "fail_message": ""}
+
+
+def _failure_attrs(text: str) -> dict:
+    """JUnit XML の testcase の鍵（_key）→ {fail_type, fail_message}（failure の子の type・message の属性。同じ鍵は最初の行。
+    failure の子の無い行は載せない）。写しの parse_junit は属性を返さないので、同じ XML を ElementTree で読み直す"""
+    out = {}
+    for tc in ET.fromstring(text).iter("testcase"):
+        f = tc.find("failure")
+        if f is not None:
+            out.setdefault(_key({"classname": tc.get("classname") or "", "name": tc.get("name") or ""}),
+                           {"fail_type": f.get("type") or "", "fail_message": f.get("message") or ""})
+    return out
+
+
+KIND_UNKNOWN = "unknown"   # 実行器が failure に type も message も書かない（試験の SUITE・pytest でない JUnit）。拒まず記録だけ
+_ASSERT_NAMES = ("AssertionFailedError", "ComparisonFailure", "Failed")   # ほかに名前が AssertionError で終わる型（自前の子の型も）
+_NOT_RAISED = re.compile(r"DID NOT RAISE|\bnot raised\b|to be thrown, but nothing was thrown")   # 最後は JUnit 5 の assertThrows
+NAME_KINDS = ("NameError", "AttributeError", "ImportError", "ModuleNotFoundError")   # 名前・import の失敗（機能が無い・綴りの誤り）
+_HEAD_NAME = re.compile(r"^([A-Za-z_][\w.]*)(?::|$)")
+
+
+def red_kind(case: dict) -> str:
+    """結末の 1 行の赤の種類（上から先に当たった物）: type も message も空なら unknown／期待した例外が出ない（DID NOT RAISE・
+    not raised・JUnit 5 の to be thrown, but nothing was thrown）なら exception／message が assert で始まるか、例外の名前（type の
+    最後の . の後。type が空なら message の頭の『名前:』）が断言の失敗の型（名前が AssertionError で終わる型を含む）なら
+    assertion／ほかは例外の名前（NameError など。名前も無ければ unknown）"""
+    typ = (case.get("fail_type") or "").strip()
+    msg = (case.get("fail_message") or "").strip()
+    if not typ and not msg:
+        return KIND_UNKNOWN
+    if _NOT_RAISED.search(msg):
+        return "exception"
+    m = _HEAD_NAME.match(msg) if not typ else None
+    name = (typ or (m.group(1) if m else "")).rsplit(".", 1)[-1]
+    if msg.startswith("assert") or name.endswith("AssertionError") or name in _ASSERT_NAMES:
+        return "assertion"
+    return name or KIND_UNKNOWN
 
 
 def _key(c) -> str:
@@ -241,6 +324,24 @@ def _duty(board_dir: pathlib.Path):
         raise Broken(f"盤面 {board_dir} の直す義務が読めない: {e}") from None
 
 
+def plan_contract(board_dir: pathlib.Path, keys: list[str]) -> dict[str, dict]:
+    """単位 → 承認済みの修正案の約束（planmarks.unit_contract。約束の無い単位は載せない）。盤面の無い置き場（state.json が無い）・
+    欄の控えが無い run は {}。盤面が在るのに開けない・欄の控えが凍結の印と食い違う（conflict.frozen_fields が盤面を止めて
+    BoardGap）なら、理由の文のまま Broken（約束を黙って空にしない）"""
+    board_dir = pathlib.Path(board_dir)
+    if not (board_dir / "state.json").exists():
+        return {}
+    try:
+        b = entry.open_board(board_dir, allow_halted=True)
+    except Exception as e:
+        raise Broken(f"盤面 {board_dir} が開けず、修正案の約束が読めない: {e}") from None
+    try:
+        fields = conflict.frozen_fields(b)
+    except board.BoardGap as e:
+        raise Broken(str(e)) from None
+    return {k: c for k in keys if (c := planmarks.unit_contract(fields, k)) is not None}
+
+
 def _owed(st) -> list:
     """TDD の直す義務: start が conflict.fix_duty から組んだ単位（open_units）から、外れた単位（excused）と食い違いで止めた
     単位（parked）を除いた物"""
@@ -258,11 +359,13 @@ def _not_owed_why(st, k) -> str:
 
 def _unit(key, route, why="") -> dict:
     return {"unit_key": key, "route": route, "why": why, "tests": [], "test_files": [], "red": "", "green": "",
-            "refactor": "", "gave_up": "", "problems": [], "files": [], "what": ""}
+            "refactor": "", "gave_up": "", "problems": [], "files": [], "what": "", "red_kinds": {}, "test_cmd": "",
+            "refactor_why": ""}
 
 
-def start(board_dir, repo, suite: str, open_units: str) -> dict:
-    """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無ければ何も書かずに go: false"""
+def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> dict:
+    """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無ければ何も書かずに go: false。
+    test_cmd は run のテストのコマンド（線の入力）で、元の結末を取った後に関門を決める（_test_cmd_gate）"""
     suite = (suite or "").strip()
     off = {"go": False, "reason": NO_SUITE, "suite": suite, "state_file": "", "summary_file": ""}
     if not suite:
@@ -276,6 +379,7 @@ def start(board_dir, repo, suite: str, open_units: str) -> dict:
     if owed is not None:   # 振り分ける義務は受け付けと同じ fix_duty の owed（渡された is_open の並びに、関所で答えて戻った単位を足す）
         keys = [k for k in keys if k in owed or k in excused] + sorted(owed - set(keys))   # is_open の並び順を保つ
     excused = {k: why for k, why in excused.items() if k in keys}
+    contract = plan_contract(board_dir, keys)   # 輪の頭で 1 回だけ（欄の控えの食い違いは conflict の 1 か所で止める）
     board_dir.mkdir(parents=True, exist_ok=True)
     k = 1
     while (board_dir / f"tdd-{k}").exists():
@@ -285,14 +389,77 @@ def start(board_dir, repo, suite: str, open_units: str) -> dict:
     cases, code, why = run_suite(str(exe), repo, work, 0)
     if cases is None:
         return {**off, "reason": f"元の結末が取れない（{'; '.join(why)}）——全部の単位を今どおり直す"}
+    test_cmd = (test_cmd or "").strip()
+    gate, note, made = _test_cmd_gate(exe, test_cmd, repo, work / "test-cmd-0.log")
     st = {"suite": suite, "exe": str(exe), "work": str(work), "open_units": keys, "excused": excused,
           "baseline": {_key(c): c["outcome"] for c in cases}, "baseline_exit": code,
-          "handoff": snapshot(repo), "suite_made": [], "phase": "route", "tries": 0, "reason": "", "iterations": 0,
+          "handoff": snapshot(repo), "suite_made": made, "phase": "route", "tries": 0, "reason": "", "iterations": 0,
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
-          "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}}
+          "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract,
+          "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "calls": []}
     state_file = work / STATE
     _save(state_file, st)
     return {"go": True, "reason": "", "suite": suite, "state_file": str(state_file), "summary_file": str(work / SUMMARY)}
+
+
+def _test_cmd_gate(exe: pathlib.Path, cmd: str, repo, log: pathlib.Path) -> tuple[str, str, list]:
+    """(関門, 理由, 走らせて出来たファイル)。空は (off, "", [])。実行器のファイルの中身が cmd をそのまま含めば
+    (same_as_suite, "", [])（use.sh が pytest の 1 コマンドから書いた実行器など。一式の緑が同じコマンドの緑）。ほかは機械の
+    試験の枠（entry.local_checks_material → tree_run.slotted_run）で 1 回走らせ、緑なら on、赤・走らないなら off と理由。
+    既存のファイルを書き換えた回は赤（_cmd_run。書き換えた物は戻す）。出来たファイルは状態の suite_made の頭（段が触った数えから外す）"""
+    if not cmd:
+        return GATE_OFF, "", []
+    try:
+        if cmd in exe.read_text(encoding="utf-8", errors="replace"):
+            return GATE_SAME, "", []
+    except OSError:
+        pass   # 読めない実行器は包みと見なさず、走らせて決める
+    mat, made = _cmd_run(repo, cmd, log)
+    if mat["status"] == "clean":
+        return GATE_ON, "", made
+    if mat["status"] == "found":
+        return GATE_OFF, (f"run の test_cmd（{cmd}）が輪の頭で赤（{mat.get('rewrote') or f'元から赤。ログ {log}'}）——"
+                          "単位ごとに確かめると毎単位を拒むのでこの輪では確かめない（一式の緑は線の最後のテストの段が確かめる）"), made
+    return GATE_OFF, f"run の test_cmd（{cmd}）を輪の頭で走らせられない（{mat.get('reason', '')}）——この輪では確かめない", made
+
+
+def _cmd_run(repo, cmd: str, log: pathlib.Path) -> tuple[dict, list[str]]:
+    """test_cmd を機械の試験の枠で nice を付けて 1 回走らせる（ADR 0071 の 3 の 1）——（素材, 新しく出来たパス）。
+    決まりは 1 つ: 既存のファイルを書き換えた（変えた・消した）test_cmd は緑でない。書き換えたパスは走らせる前の木に戻し
+    （restore_paths。緑を出した木と残る木を違えない）、素材を赤（found）にして、書き換えたパスと戻したことを rewrote の文に載せる。
+    suite_made に積んでよいのは新しく出来たパスだけ（積むと書き込みの出どころの照合・凍結の照らしから外れる）"""
+    pre = snapshot(repo)
+    mat = entry.local_checks_material(repo, cmd, log, niced=True)["material"]
+    post = snapshot(repo)
+    made = sorted(set(git_names(repo, "diff-tree", "-r", "--name-only", "--no-renames", "--diff-filter=A", pre, post)))
+    rewrote = sorted(set(touched(repo, pre, post)) - set(made))
+    restore_paths(repo, pre, rewrote)
+    if rewrote:
+        why = (f"test_cmd が作業ツリーの既存のファイルを書き換える（{', '.join(rewrote[:10])}。元に戻した。ログ {log}）——"
+               "書き換えた木で出た緑は数えない（書き換えた物を書き込みの出どころの照合から外さない）")
+        mat = {**mat, "status": "found", "count": 1, "rewrote": why}
+    return mat, made
+
+
+def _test_cmd_problems(st, repo) -> list[str]:
+    """関門が on の時だけ run の test_cmd を 1 回走らせ（ログ work/test-cmd-<runs>.log。runs を 1 進め、出来たファイルを
+    suite_made に積む。書き換えた既存のファイルは _cmd_run が戻して積まない）、赤ならログのパスを含む拒否の文。緑なら今の単位の
+    test_cmd を ok にする（_green は今の単位にしか呼ばれない）。走らなければ _CmdDown（実行器が走らない時と同じ道）。
+    既存のファイルを書き換えた回は赤（_cmd_run）"""
+    if st.get("test_cmd_gate") != GATE_ON:
+        return []
+    log = pathlib.Path(st["work"]) / f"test-cmd-{st['runs']}.log"
+    mat, made = _cmd_run(repo, st["test_cmd"], log)
+    st["runs"] += 1
+    st["suite_made"] = sorted(set(st["suite_made"]) | set(made))
+    if mat["status"] == "not_run":
+        raise _CmdDown(f"run の test_cmd（{st['test_cmd']}）: {mat.get('reason', '')}")
+    if mat["status"] == "clean":
+        _cur(st)["test_cmd"] = "ok"
+        return []
+    tail = " ".join(str(mat.get("detail", "")).split())[-400:]
+    return [f"名指しのテストと一式は緑だが、run の test_cmd（{st['test_cmd']}）が赤（輪の頭では緑。ログ {log}）——"
+            f"これも緑にせよ（赤の元が凍ったテストのファイルなら phase conflict で申し出よ）。{mat.get('rewrote') or '末尾: ' + tail}"]
 
 
 # ---------------------------------------------------------------- 指示書（節 tdd-prep）
@@ -301,24 +468,32 @@ RETURN = {
     "test": '{"phase": "test", "unit_key": "<今の単位>", "test_files": ["<書いたテストのファイル>"], '
             '"tests": ["<パス>::<クラス>::<テストの名前>"]}  （先にテストを書けないと分かったら {"phase": "test", '
             '"unit_key": "<今の単位>", "direct_why": "<理由。10 字以上>"}）',
-    "fix": '{"phase": "fix", "unit_key": "<今の単位>", "files": ["<直したファイル>"], "what": "<何をどう直したか>"}',
+    "fix": '{"phase": "fix", "unit_key": "<今の単位>", "files": ["<直したファイル>"], "what": "<何をどう直したか>", '
+           '"refactor": {"declared": true か false, "why": "<整える理由。declared が true なら 10 字以上>"}}',
     "refactor": '{"phase": "refactor", "unit_key": "<今の単位>", "what": "<何を整えたか。整える物が無ければそう書く>"}',
 }
 RETURN_CONFLICT = ('どの段でも、緑にするためにテスト・依頼・コードのどれかを曲げるしかないと分かった単位は '
                    '{"phase": "conflict", "unit_key": "<単位>", "between": ["<パス>:<行>", "<パス>:<行>"], '
-                   '"why_both_cannot_hold": "<なぜ両方は成り立たないか>", "which_is_right": "request か test か code か unknown か query"}（query なら "correct_lines": ["<問いが当たる直した後の正しい行>"] も）'
-                   '（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）')
+                   '"why_both_cannot_hold": "<なぜ両方は成り立たないか>", "which_is_right": "request か test か code か unknown か query", '
+                   '"kind": "<種類: ' + " か ".join(conflict.DIV_KINDS) + '>"}'
+                   '（query なら "correct_lines": ["<問いが当たる直した後の正しい行>"] も）'
+                   '（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）。種類の意味は決まりの節「食い違いの申し出」')
 DO = {
     "route": "直す義務の単位を全部、ちょうど 1 度ずつ振り分けよ。tdd＝直す前に落ち、直した後に通るテストをリポジトリのテスト一式に"
              "書ける単位。direct＝先にテストを書けない単位（文書・指示書・注記・設定だけの直しなど）で、理由を 10 字以上で書く。"
              "この段では作業ツリーを変えるな。",
-    "test": "今の単位の欠陥を再現する、今は落ちるテストだけを書け（実装は直すな。テストのファイルの外を触るな）。テストは今の版に在る"
-            "名前だけで再現するか、import をテストの中に入れよ。機械が一式を走らせ、名指しのテストが failure で落ち、元で通っていた"
+    "test": "今の単位の欠陥を再現する、今は落ちるテストだけを書け（実装は直すな。テストのファイルの外を触るな）。brief に受け入れの"
+            "テスト（tests）が在る単位は、その id の名前でテストを書いて名指しに入れ、brief の red_kind の形で落とせ（assertion＝断言の"
+            "失敗・exception＝期待した例外が出ない。名前・import の失敗は赤に数えない）。案どおりに書いて赤にならない・赤の形が違うなら、"
+            "テストを曲げず phase conflict で申し出よ。brief に受け入れのテストが無い単位は、テストを今の版に在る名前だけで再現するか、"
+            "import をテストの中に入れよ。機械が一式を走らせ、名指しのテストが failure で落ち、元で通っていた"
             "テストが通ることを確かめる（error・もう通る・飛ばされた、は拒む）。",
     "fix": "今の単位だけを直せ。テストのファイルは変えるな（凍っている。テストの誤りに気づいたら直さずに what に書け）。機械が一式を"
-           "走らせ、名指しのテストと元で通っていたテストが通ることを確かめる。",
-    "refactor": "緑のまま、今の単位の差分を整えよ（重複・名前・不要になったコード。テストのファイルは変えない）。整える物が無ければ"
-                "何も変えずに返せ。変えたなら機械がもう 1 回緑を確かめる。",
+           "走らせ、名指しのテストと元で通っていたテストが通ることを確かめる。緑の後に整えたい所（重複・名前・不要になったコード）が"
+           "在る時だけ refactor の declared を true にし、why に理由を 10 字以上で書け。申告が無ければ整えの段は来ない（brief の "
+           "refactor.declared が true の単位は申告なしでも来る）。",
+    "refactor": "この段は、fix の段で申告した単位か、brief で申告した単位だけに来る。申告した所を緑のまま整えよ（テストのファイルは"
+                "変えない）。整える物が無くなっていれば何も変えずに返せ。変えたなら機械がもう 1 回緑を確かめる。",
 }
 
 
@@ -349,6 +524,8 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     phase = st["phase"]
     title = f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）"
     lines = ["## この段ですること", "", DO[phase], ""]
+    if phase in ("fix", "refactor") and st.get("test_cmd_gate") == GATE_ON:
+        lines += [f"緑の後に機械が run の test_cmd（`{st['test_cmd']}`）も走らせる。これも緑にせよ。", ""]
     if phase == "route":
         lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in _owed(st)] + [""]
         brief = planbrief.head_text(planbrief.for_units(briefs, _owed(st)), _owed(st))
@@ -405,6 +582,7 @@ def _run(st, repo, named=()):
     st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
     if cases is None:
         raise _RunnerDown("; ".join(why))
+    st["last_run"] = {"outcome": {_key(c): c["outcome"] for c in cases}, "args": list(named)}   # 消えたテストの照らしの元
     return cases, code
 
 
@@ -443,6 +621,9 @@ def _route(st, reply, repo) -> list:
             errs.append(f"'{r.get('unit_key')}' の route は tdd か direct（{r.get('route')!r}）")
         elif r["route"] == "direct" and _blank(r.get("why")):
             errs.append(f"'{r.get('unit_key')}' は direct なのに、先にテストを書けない理由（why。{MIN_WHY} 字以上）が無い")
+        bound = _plan_tdd(st, r["unit_key"]) if r.get("route") == "direct" else ""
+        if bound:
+            errs.append(bound)
     if errs:
         return errs
     st["order"] = keys
@@ -454,31 +635,263 @@ def _route(st, reply, repo) -> list:
     return []
 
 
+def _contract(st, k) -> dict | None:
+    """単位 k の約束（start が plan_contract で組んだ状態の contract の行）。約束の無い単位・約束の無い run は None"""
+    return (st.get("contract") or {}).get(k)
+
+
+def _plan_tdd(st, k, how="direct に振れない") -> str:
+    """約束で tdd の単位を direct へ回す返答を拒む文（約束が無いか tdd でなければ空）"""
+    c = _contract(st, k)
+    if not c or c.get("route") != "tdd":
+        return ""
+    return (f"'{k}' は承認済みの修正案で tdd（受け入れのテスト {len(c.get('tests') or [])} 本）——{how}。"
+            "案の前提が誤りなら phase conflict で申し出よ")
+
+
+def _norm_id(test_id: str) -> str:
+    """名指しのパスの部分を posixpath.normpath で整えた id（`./a.py::T::t` と `a.py::T::t` を同じに見る）"""
+    path, sep, rest = test_id.strip().partition("::")
+    return posixpath.normpath(path) + sep + rest
+
+
+def _plan_tests(st, k) -> list:
+    """単位 k の約束の受け入れのテスト [{id, red_kind}]（約束が無ければ空）"""
+    return (_contract(st, k) or {}).get("tests") or []
+
+
+def _plan_rewrites(st, k) -> list:
+    """単位 k の約束の書き換えの名指し（修正案の rewrite_tests の id。planmarks.rewrites と同じ行から作った物。約束が無ければ空）"""
+    return (_contract(st, k) or {}).get("rewrites") or []
+
+
+def test_functions(src: str, path: str) -> dict[str, str]:
+    """.py の中身 src から、名前が test で始まる関数（モジュールの直下と、クラスの直下のメソッド。入れ子のクラスも辿る）の
+    id（pytest の node id の形 `<path>::<クラス>[::<内のクラス>…]::<名前>` か `<path>::<名前>`）→ その関数の源
+    （ast.get_source_segment。デコレータの行から）。構文が読めない・path が .py でなければ {}。純粋"""
+    if not path.endswith(".py"):
+        return {}
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return {}
+    out = {}
+
+    def take(node, head):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            top = min([node.lineno] + [d.lineno for d in node.decorator_list])
+            span = ast.Constant(value=None, lineno=top, col_offset=node.col_offset, end_lineno=node.end_lineno,
+                                end_col_offset=node.end_col_offset)   # デコレータの行から本体の終わりまで
+            out[f"{head}::{node.name}"] = ast.get_source_segment(src, span) or ""
+
+    def walk(body, head):
+        for node in body:
+            take(node, head)
+            if isinstance(node, ast.ClassDef):
+                walk(node.body, f"{head}::{node.name}")
+
+    walk(tree.body, path)
+    return out
+
+
+def _unnamed_edits(repo, tree: str, files: list[str], allowed: set[str]) -> list[str]:
+    """files のうち木 tree に在った .py で、木の時の test_functions に在った id の源が変わった・消えた物のうち、allowed に無い
+    id（_id_base で整え、parametrize の `[…]` を落として比べる）。import の行・補助の関数・新しいテストは見ない。今の中身が構文として読めなければ、木の時の
+    test* 関数は全部消えた側に数える（拒む側。実行器の結末は消えたテストを数えない）。.py でないファイルは見ない（関数の幅が引けない）"""
+    ok = {_id_base(a) for a in allowed}
+    py = [f for f in files if f.endswith(".py")]
+    there = set(git_names(repo, "ls-tree", "-r", "--name-only", tree, "--", *py)) if py else set()
+    out = []
+    for f in py:
+        if f not in there:
+            continue   # 木に無かった（この段で足した）ファイル
+        old = git(repo, "show", f"{tree}:{f}")
+        p = pathlib.Path(repo) / f
+        new = test_functions(p.read_text(encoding="utf-8", errors="replace") if p.is_file() else "", f)
+        out += [i for i, body in test_functions(old, f).items() if new.get(i) != body and _id_base(i) not in ok]
+    return out
+
+
+def _id_base(test_id: str) -> str:
+    """_norm_id から parametrize の `[…]` を落とした id（`t.py::test_x[1]` の許しは関数 `t.py::test_x` の書き換えを覆う）"""
+    return _norm_id(test_id).split("[", 1)[0]
+
+
+def _verified(st) -> set:
+    """輪がもう赤→緑を確かめたテストの id（_norm_id。緑に届いた tdd の単位の名指し）"""
+    return {_norm_id(t) for u in st.get("units", {}).values() if u.get("route") == "tdd" and u.get("green") == "ok"
+            for t in u.get("tests") or []}
+
+
+def verified_rewrites(state_file) -> list[str]:
+    """約束の書き換えの名指し（修正案の rewrite_tests の id。書いたまま）のうち、輪が赤→緑を確かめた物。受け付けはこれを
+    テストの変更の許しから外す（conflict.ruled_test_limits の skip_ids。輪の後の修正役に確かめなしで書き換えさせない）。
+    状態が無い（輪の無い run）なら空"""
+    if not state_file or not pathlib.Path(state_file).is_file():
+        return []
+    st = _load(state_file)
+    done = _verified(st)
+    ids = (i for c in (st.get("contract") or {}).values() for i in c.get("rewrites") or [])
+    return [i for i in dict.fromkeys(ids) if _norm_id(i) in done]
+
+
+TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")   # テストのファイルの名（実装の .py の test* 関数を凍らせない）
+
+
+def _moved_test_files(st, repo, exclude=()) -> list[str]:
+    """単位の頭から変わったテストのファイル（TEST_FILE の名。走らせて出来たファイルと exclude を除く）"""
+    moved = set(touched(repo, st["unit_head"], snapshot(repo))) - set(st["suite_made"]) - set(exclude)
+    return sorted(f for f in moved if TEST_FILE.match(posixpath.basename(f)))
+
+
+def _syntax_problems(repo, files) -> list[str]:
+    """files のうち作業ツリーに在る .py で、構文として読めない物の文（_unnamed_edits が関数を全部『書き換えた』と並べる前に、
+    構文の誤りとして名指す）"""
+    out = []
+    for f in files:
+        p = pathlib.Path(repo) / f
+        if not f.endswith(".py") or not p.is_file():
+            continue
+        try:
+            ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        except (SyntaxError, ValueError) as e:
+            where = f"{getattr(e, 'lineno', None)} 行" if getattr(e, "lineno", None) else "行は不明"
+            out.append(f"{f}: 構文が読めない（{getattr(e, 'msg', e)}・{where}）——テストのファイルを構文として読める形に直して出し直せ")
+    return out
+
+
+def _other_test_edits(st, u, repo) -> list[str]:
+    """約束の在る単位の直し・整えの段: 単位の頭から変わったテストのファイル（_moved_test_files。単位のテストのファイルを除く）
+    の構文の誤り（_syntax_problems）と、既存の test* 関数の本体の書き換え（_unnamed_edits。許しは無し）の文"""
+    if _contract(st, u["unit_key"]) is None:
+        return []
+    files = _moved_test_files(st, repo, u["test_files"])
+    bad = _syntax_problems(repo, files)
+    if bad:
+        return bad
+    edits = _unnamed_edits(repo, st["unit_head"], files, set())
+    return [f"既存のテスト {edits[:10]} の本体を書き換えた——直し・整えの段ではテストを変えない"
+            "（テストの誤りは what に書け。変えるしかないなら phase conflict で申し出よ）"] if edits else []
+
+
+def _vanish_scope(files) -> set | None:
+    """消えたテストを照らすモジュール（impact._mod の名）。conftest.py に触れていれば None（一式の全部）。純粋"""
+    if any(posixpath.basename(f) == "conftest.py" for f in files):
+        return None
+    return {impact._mod(f) for f in files if TEST_FILE.match(posixpath.basename(f))}
+
+
+def _vanished(head: dict, refs: list, now: dict, args: list, scope, skip) -> list[tuple[str, str]]:
+    """単位の頭の回（head: {outcome: 鍵 → 結末, args: 実行器の後ろの引数}）で通っていたテストのうち、今の結末（now）で
+    飛ばされた物と、今の回と同じ選び（args）の回（refs のどれか）に居たのに今は居ない物の [(鍵, skipped か missing)]。
+    scope（_vanish_scope）の外のモジュールと、skip の id（_id_base で parametrize の `[…]` を落として比べる。修正案の書き換え・
+    輪が確かめた id）に当たる鍵は見ない。選びの違う回の居ないは数えない（後ろの node id だけを走らせる実行器）。純粋"""
+    same = [r for r in refs if sorted(r.get("args") or []) == sorted(args)]
+    out = []
+    for k, o in head.get("outcome", {}).items():
+        cls, _, name = k.partition("::")
+        if o != "passed" or (scope is not None and impact._junit_module({"classname": cls}) not in scope):
+            continue
+        case = {"classname": cls, "name": name.split("[", 1)[0]}
+        if any(rules().match_case(_id_base(i), [case]) for i in skip):
+            continue
+        got = now.get(k)
+        if got == "skipped" or (got is None and any(k in r.get("outcome", {}) for r in same)):
+            out.append((k, got or "missing"))
+    return out
+
+
+def _head_run(st) -> dict:
+    """単位の頭の回（前の単位の緑の回。最初の単位は元の結末。前の版の状態に無ければ元の結末）"""
+    return st.get("head_run") or {"outcome": st["baseline"], "args": []}
+
+
+def _vanished_problems(st, u, cases, args, repo) -> list[str]:
+    """約束の在る単位で、単位の頭で通っていたテストが飛ばされた・結末から消えた物の文（クラスの setUp の skipTest・モジュールの
+    末尾で消すなど、名指しの外の本体を変えずに外す抜け道。写しの red_problems・green_problems は落ちた物しか見ない）。
+    照らすのは単位の頭から変わったテストのファイルのモジュールだけ（conftest.py に触れたら全部）。居ないを数えるのは、同じ
+    選びの回（単位の頭の回か、この単位の赤の回）に居た時だけ"""
+    if _contract(st, u["unit_key"]) is None:
+        return []
+    refs = [_head_run(st)] + ([u["red_run"]] if u.get("red_run") else [])
+    skip = [*_plan_rewrites(st, u["unit_key"]), *_verified(st)]
+    gone = _vanished(_head_run(st), refs, {_key(c): c["outcome"] for c in cases}, list(args),
+                     _vanish_scope(_moved_test_files(st, repo)), skip)
+    return [f"単位 '{u['unit_key']}' の段で、単位の頭で通っていたテスト {k} が {o}（飛ばされた・一式の結末から消えた）——"
+            "名指しの外の既存のテストを外すな（外すなら phase conflict で申し出よ）" for k, o in gone[:20]]
+
+
+def _kind_problems(want: list, cases: list) -> list:
+    """名指しの各テスト {id, red_kind（案の宣言。書き換えの名指しは None）} の赤の種類（red_kind）を照らし、拒む物の文。
+    拒むのは次の 2 つだけ（superpowers の TDD の『error でなく fail で落とす』）:
+    - 名前・import の失敗（NAME_KINDS。機能が無い・綴りの誤り）。案の宣言が何でも（宣言が無くても）
+    - 案が exception（期待した例外が出ない）なのに断言の失敗で落ちた
+    ほかの例外の型（今のコードが例外で落ちる種類のバグ）と、案が assertion で期待した例外が出ない赤は、記録だけで通す。
+    分からない（unknown）は通す"""
+    out = []
+    for t in want:
+        want_kind = t.get("red_kind")
+        c = rules().match_case(t["id"], cases)
+        got = red_kind(c) if c else KIND_UNKNOWN
+        if got in NAME_KINDS:
+            plan = f"案 {want_kind}" if want_kind in planmarks.RED_KINDS else "案に種類の宣言なし"
+            out.append(f"{t['id']}: 赤の種類が狙いと違う（{plan}・実際 {got}）——名前・import の失敗は狙いの赤でない"
+                       "（機能が無い・綴りの誤り）。テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
+        elif want_kind == "exception" and got == "assertion":
+            out.append(f"{t['id']}: 赤の種類が案と違う（案 {want_kind}・実際 {got}）——案は期待した例外が出ない赤。"
+                       "テストの誤りなら直して出し直し、案の前提の誤りならテストを曲げず phase conflict で申し出よ")
+    return out
+
+
 def _test(st, reply, repo) -> list:
     u = _cur(st)
     if "direct_why" in reply:
         if _blank(reply["direct_why"]):
             return [f"direct_why は {MIN_WHY} 字以上"]
+        bound = _plan_tdd(st, u["unit_key"], "direct_why で direct に渡せない")
+        if bound:
+            return [bound]
         restore(repo, st["unit_head"])
         _to_direct(u, "writer", reply["direct_why"].strip())
         st["cur"] += 1
         _next_unit(st, repo)
         return []
     tests = reply.get("tests")
-    errs = [] if isinstance(tests, list) and tests and all(isinstance(t, str) and t.strip() for t in tests) \
-        else ["tests は名指しのテスト（<パス>::<クラス>::<名前>）の空でない配列"]
+    ok_tests = isinstance(tests, list) and tests and all(isinstance(t, str) and t.strip() for t in tests)
+    errs = [] if ok_tests else ["tests は名指しのテスト（<パス>::<クラス>::<名前>）の空でない配列"]
     files, bad = _paths(reply.get("test_files"), "test_files")
     errs += bad
+    # 約束の名指し（形が崩れていても、名指せた分で照らして同じ返答に並べる）
+    done = _verified(st)   # 前の単位で赤→緑を確かめた id は名指しを強いず、凍っている（同じ項目が 2 つの単位にまたがる時）
+    want = [t for t in _plan_tests(st, u["unit_key"]) if _norm_id(t["id"]) not in done]
+    rws = [i for i in _plan_rewrites(st, u["unit_key"]) if _norm_id(i) not in done]
+    named = {_norm_id(t) for t in tests if isinstance(t, str) and t.strip()} if isinstance(tests, list) else set()
+    miss = [t["id"] for t in want if _norm_id(t["id"]) not in named]
+    if miss:
+        errs.append(f"承認済みの修正案の受け入れのテストを名指していない: {miss}——brief の tests の id の名前でテストを書き、tests に入れよ。"
+                    "案の前提が誤りなら phase conflict で申し出よ")
+    errs += [f"{i}: 承認済みの修正案が書き換えを名指した既存のテスト——書き換えて名指しに入れよ" for i in rws if _norm_id(i) not in named]
     if errs:
         return errs
     extra = sorted(set(touched(repo, st["unit_head"], snapshot(repo))) - set(files) - set(st["suite_made"]))
     if extra:
         return [f"申告したテストのファイルの外に触れた: {extra[:5]}——この段はテストだけを書く（実装は次の段）"]
+    if _contract(st, u["unit_key"]) is not None:
+        bad = _syntax_problems(repo, files)
+        if bad:
+            return bad
+        frozen = _unnamed_edits(repo, st["unit_head"], files, set(rws))
+        if frozen:
+            return [f"名指しの外の既存のテスト {frozen[:10]} の本体を書き換えた——書き換えてよいのは修正案の rewrite_tests の名指しだけ"
+                    "（それ以外を変えるなら phase conflict で申し出よ）"]
     cases, code = _run(st, repo, tests)
-    probs = rules().red_problems(tests, cases, code, st["baseline"])
+    probs = rules().red_problems(tests, cases, code, st["baseline"]) \
+        or _kind_problems(want + [{"id": i, "red_kind": None} for i in rws], cases)
+    probs = probs or _vanished_problems(st, u, cases, tests, repo)
     if probs:
         return probs
-    u.update(tests=tests, test_files=files, red="ok", test_hashes=hashes(repo, files))
+    kinds = {t: red_kind(rules().match_case(t, cases) or {}) for t in tests}
+    u.update(tests=tests, test_files=files, red="ok", test_hashes=hashes(repo, files), red_kinds=kinds, red_run=st["last_run"])
     st.update(phase="fix", tries=0, reason="")
     return []
 
@@ -492,21 +905,57 @@ def _green(st, u, repo) -> list:
     moved = _frozen_moved(u, repo)
     if moved:
         return [f"テストのファイルを赤の時から書き換えた: {moved}——テストは凍っている（テストの誤りは what に書け）"]
+    other = _other_test_edits(st, u, repo)
+    if other:
+        return other
     cases, code = _run(st, repo, u["tests"])
-    return rules().green_problems(u["tests"], cases, code, st["baseline"], st["baseline_exit"])
+    return rules().green_problems(u["tests"], cases, code, st["baseline"], st["baseline_exit"]) \
+        or _vanished_problems(st, u, cases, u["tests"], repo) or _test_cmd_problems(st, repo)
+
+
+def _plan_refactor_why(st, k) -> str:
+    """約束の refactor（申告した項目の [{item, why}]）を「修正案の項目 n: <理由>」でつないだ物。申告が無ければ空の文字列"""
+    return "；".join(f"修正案の項目 {r['item']}: {r['why']}" for r in (_contract(st, k) or {}).get("refactor") or [])
+
+
+def _declared(reply) -> tuple[str, list]:
+    """fix の返答の任意の欄 refactor（{declared, why}）→ (申告の理由（申告が無ければ空の文字列）, 問題)"""
+    r = reply.get("refactor")
+    if r is None:
+        return "", []
+    if not isinstance(r, dict) or not isinstance(r.get("declared"), bool) or not isinstance(r.get("why"), str):
+        return "", ["refactor は {declared（true か false）, why（文字列）}"]
+    if not r["declared"]:
+        return "", []
+    if _blank(r["why"]):
+        return "", [f"refactor.declared が true なら why（整える理由）を {MIN_WHY} 字以上で書け（整えないなら declared を false に）"]
+    return r["why"].strip(), []
 
 
 def _fix(st, reply, repo) -> list:
+    """緑を確かめ、整えの申告（役の refactor.declared か、約束の refactor）の在る単位だけ refactor の段へ。無ければ skipped で
+    次の単位へ（緑の木が次の単位の頭）"""
     u = _cur(st)
     files = reply.get("files")
     if not isinstance(files, list) or not all(isinstance(f, str) for f in files) or not isinstance(reply.get("what"), str) \
             or not reply["what"].strip():
         return ["files（直したファイルの配列）と what（何をどう直したか）が要る"]
+    why, probs = _declared(reply)
+    if probs:
+        return probs   # 一式を走らせる前に拒む
     probs = _green(st, u, repo)
     if probs:
         return probs
-    u.update(green="ok", files=files, what=reply["what"].strip())
-    st.update(phase="refactor", tries=0, reason="", green_tree=snapshot(repo))
+    why = "；".join(filter(None, [why, _plan_refactor_why(st, u["unit_key"])]))   # 空でない申告の理由を全部
+    u.update(green="ok", files=files, what=reply["what"].strip(), refactor_why=why)
+    st.update(tries=0, reason="", green_tree=snapshot(repo), green_run=st["last_run"])
+    if why:
+        st["phase"] = "refactor"
+        return []
+    u["refactor"] = "skipped"
+    st["head_run"] = st["green_run"]   # 次の単位の頭の回（緑の木の回）
+    st["cur"] += 1
+    _next_unit(st, repo)
     return []
 
 
@@ -519,7 +968,9 @@ def _refactor(st, reply, repo) -> list:
         probs = _green(st, u, repo)
         if probs:
             return probs
+        st["green_run"] = st["last_run"]
     u["refactor"] = "ok" if moved else "none"
+    st["head_run"] = st.get("green_run")   # 次の単位の頭の回（緑の木の回）
     st["cur"] += 1
     _next_unit(st, repo)
     return []
@@ -535,6 +986,7 @@ def _give_up(st, repo, probs) -> None:
     if st["phase"] == "refactor":
         restore(repo, st["green_tree"])
         u.update(refactor="reverted", problems=probs[:10])
+        st["head_run"] = st.get("green_run")   # 緑の木に戻したので、次の単位の頭の回は緑の回
     else:
         restore(repo, st["unit_head"])
         stage = "red" if st["phase"] == "test" else "green"
@@ -580,7 +1032,7 @@ def _conflict(st, reply, repo, try_query=None) -> tuple:
     else:
         owed = {st["queue"][st["cur"]]}
     probs = conflict.problems([item], repo=repo, board_dir=pathlib.Path(st["work"]).parent, owed=owed,
-                              try_query=try_query)
+                              try_query=try_query, briefs=planbrief.by_unit_at(pathlib.Path(st["work"]).parent))
     if probs:
         return probs, None
     parked.append(item["unit_key"])
@@ -608,6 +1060,10 @@ def step(state_file, reply, repo, try_query=None) -> dict:
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-step を呼ぶ番でない）")
     phase = st["phase"]
+    t0, runs0 = time.monotonic(), st["runs"]   # 段ごとの呼び出しの記録（calls）の元。秒は書くだけで止める条件に使わない
+    call = {"n": st["iterations"] + 1,
+            "phase": "conflict" if isinstance(reply, dict) and reply.get("phase") == "conflict" else phase,
+            "unit_key": "" if phase == "route" else st["queue"][st["cur"]]}
     item = None
     got = None
     if isinstance(reply, dict) and reply.get("phase") != "conflict":
@@ -628,8 +1084,9 @@ def step(state_file, reply, repo, try_query=None) -> dict:
         try:
             probs = {"route": _route, "test": _test, "fix": _fix, "refactor": _refactor}[phase](st, reply, repo)
         except _RunnerDown as e:
-            _abort(st, repo, f"テストの実行器が走らない: {e}", "runner")
+            _abort(st, repo, f"{e.head}: {e}", "runner")
             probs = [st["note"]]
+            call["phase"] = "runner"   # 機械の止まり（役の拒否と分ける）
     if probs and not st["done"]:
         st["tries"] += 1
         st["reason"] = "\n".join(f"- {p}" for p in probs)
@@ -642,6 +1099,8 @@ def step(state_file, reply, repo, try_query=None) -> dict:
         _finish(st, repo)
     if got and not got["problems"]:   # 突き合わせを通った木だけ（機械が単位の頭に戻した木は _next_unit が進める）
         st["handoff"] = snapshot(repo)
+    st.setdefault("calls", []).append({**call, "ok": not probs, "runs": st["runs"] - runs0,
+                                       "secs": round(time.monotonic() - t0, 1)})
     _save(state_file, st)
     return {"ok": not probs, "done": st["done"], "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"],
             "conflict": item, "writes": got}
@@ -656,11 +1115,12 @@ def _finish(st, repo) -> None:
     if st["note"]:
         lines += [f"輪を途中で抜けた: {st['note']}", ""]
     lines += ["## 輪で直した単位（直さず、changes に 1 行を書け。テストのファイルは変えるな——受け付けが拒む。"
-              "食い違いの裁定 fix_test_scope が範囲に並べた所だけは例外）", ""]
+              "食い違いの裁定 fix_test_scope が範囲に並べた所だけは例外。修正案の rewrite_tests の名指しは輪で書き換えて凍結した）", ""]
     for u in passed:
         lines += [f"- {u['unit_key']}", f"  - 名指しのテスト（機械が赤→緑を確かめた）: {', '.join(u['tests'])}",
                   f"  - テストのファイル: {', '.join(u['test_files'])}", f"  - 直したファイル: {', '.join(u['files'])}",
-                  f"  - 直し: {u['what']}", f"  - 整え: {u['refactor']}"]
+                  f"  - 直し: {u['what']}",
+                  f"  - 整え: {u['refactor']}" + (f"（{u['refactor_why']}）" if u.get("refactor_why") else "")]
     parked = st.get("parked", [])
     if parked:
         lines += ["", "## 食い違いで止めた単位（直すな。輪の後に裁定役が裁き、裁定が理由のファイルで届く）", ""]
@@ -870,11 +1330,16 @@ def _base_reds(st, repo, rev, files, kexpr) -> tuple:
     return {_key(c) for c in cases if c["outcome"] in ("failure", "error")}, []
 
 
-FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems")
+FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems", "red_kinds",
+          "test_cmd", "refactor_why")
 
 
 def exit_fields(start_out: dict) -> dict:
-    """出口の欄 tdd: {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor, gave_up, problems}]}"""
+    """出口の欄 tdd: {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor, gave_up, problems,
+    red_kinds（名指しの id → 見た赤の種類）, test_cmd（"ok"＝緑の後に run の test_cmd も走らせて通った・""）,
+    refactor_why（整えの申告の理由）}]}。refactor は ""・skipped（申告が無く整えの段を飛ばした）・none・ok・reverted。
+    ran: true の出口には test_cmd: {gate（GATE_ON・GATE_SAME・GATE_OFF）, note（off の理由）} と calls（step 1 回ごとの
+    {n, phase, unit_key, ok, runs, secs}。役の費用は Archon の出来事に在り、この行の順（tdd の節の起動の順）で後から結べる）も載る"""
     if not isinstance(start_out, dict) or not start_out.get("go"):
         so = start_out if isinstance(start_out, dict) else {}
         return {"ran": False, "suite": so.get("suite", ""), "reason": so.get("reason", ""), "units": []}
@@ -884,4 +1349,6 @@ def exit_fields(start_out: dict) -> dict:
     rows = [{f: st["units"][k][f] for f in FIELDS} for k in st["order"]]
     rows += [{**{f: _unit(k, "parked")[f] for f in FIELDS}, "why": st.get("parked_why", {}).get(k, "")}
              for k in st.get("parked", []) if k not in st["order"]]   # 振り分けの段で止めた単位
-    return {"ran": True, "suite": st["suite"], "reason": st["note"], "units": rows}
+    return {"ran": True, "suite": st["suite"], "reason": st["note"], "units": rows,
+            "test_cmd": {"gate": st.get("test_cmd_gate", GATE_OFF), "note": st.get("test_cmd_note", "")},
+            "calls": st.get("calls", [])}

@@ -1,0 +1,209 @@
+{
+  "tdd": {
+    "use_as": "skill",
+    "files": [
+      "skills/test-driven-development/SKILL.md",
+      "skills/test-driven-development/writing-good-tests.md"
+    ],
+    "applies": [
+      "直す前に落ちる試験を書き、赤を見てから直す仕事",
+      "試験を書く・直すときの書き方（本物の振る舞いを試す・モックに頼らない）の手引き"
+    ],
+    "not_applies": [
+      "差分を作らず読むだけの仕事",
+      "TDD の例外に当たるかを決めること（線の route と機械の決まりが決める）"
+    ],
+    "words": {},
+    "anchors": [
+      {
+        "rule": "SUITE",
+        "file": "skills/test-driven-development/SKILL.md",
+        "quote": "\"Other tests\" means the project's suite, not just your file.",
+        "para_sha256": "ef4b078ecba769c345c7f1d2495170db8bb868bd02c3d2fb1b4afe0d72e1d719"
+      },
+      {
+        "rule": "ASK",
+        "file": "skills/test-driven-development/SKILL.md",
+        "quote": "Ask your human partner.",
+        "para_sha256": "435cb94735afd2f9124b2e3e21089d4bafbd9c92538f664f121ca01050cb7608"
+      },
+      {
+        "rule": "ASK",
+        "file": "skills/test-driven-development/SKILL.md",
+        "quote": "**Exceptions (ask your human partner):**",
+        "para_sha256": "c9bb40972ec24287771fee3adce8ecbf709ff53b9bfbcbe5d73018ae3e65ffe0"
+      },
+      {
+        "rule": "ASK",
+        "file": "skills/test-driven-development/SKILL.md",
+        "quote": "No exceptions without your human partner's permission.",
+        "para_sha256": "4df299f2809ede172f1598a400cdb227c3d7f1482611c5fdd78dd85970b49bde"
+      },
+      {
+        "rule": "QUOTE",
+        "file": "skills/test-driven-development/writing-good-tests.md",
+        "quote": "**your human partner's correction:**",
+        "para_sha256": "a8e497a422634915585c3966e73eb067b15a872652fc9f4271d7d59ab38a4f45"
+      },
+      {
+        "rule": "QUOTE",
+        "file": "skills/test-driven-development/writing-good-tests.md",
+        "quote": "**your human partner's question:**",
+        "para_sha256": "3a129fecc39609184aab74cf07d309f19a5f34685a1092a83dcba4d0a612eae6"
+      }
+    ]
+  },
+  "implementer": {
+    "use_as": "prompt",
+    "files": [
+      "skills/subagent-driven-development/implementer-prompt.md"
+    ],
+    "applies": [
+      "1 つの単位を実装し、報告をファイルに書いて短い状態の語で返す仕事の指示書の骨（型の穴を線が埋める）"
+    ],
+    "not_applies": [
+      "commit・worktree・下請けの起動（線と別の節が持つ）",
+      "人に聞いて待つこと（食い違いの申し出で返す）"
+    ],
+    "placeholders": [
+      "[task name]",
+      "[BRIEF_FILE]",
+      "[Scene-setting: where this fits, dependencies, architectural context]",
+      "[directory]",
+      "[REPORT_FILE]"
+    ],
+    "words": {
+      "DONE": "done",
+      "DONE_WITH_CONCERNS": "done_with_concerns",
+      "NEEDS_CONTEXT": "divergence",
+      "BLOCKED": "divergence"
+    },
+    "anchors": [
+      {
+        "rule": "ASK",
+        "file": "skills/subagent-driven-development/implementer-prompt.md",
+        "quote": "**Ask them now.**",
+        "para_sha256": "99977e74c3262b3ab2f17e7f0a7de8855f124f5f32e2a523c5fb6e6a0f4225f7"
+      },
+      {
+        "rule": "ASK",
+        "file": "skills/subagent-driven-development/implementer-prompt.md",
+        "quote": "It's always OK to pause and clarify.",
+        "para_sha256": "2b7182a6814e31ab1fda8149adf112de581f54be6798d7cd975a0a06b3f85b5d"
+      },
+      {
+        "rule": "COMMIT",
+        "file": "skills/subagent-driven-development/implementer-prompt.md",
+        "quote": "4. Commit your work",
+        "para_sha256": "9d74a67e7466c5bf767e78174ba0ff4e82f3a488ce23557fd58d3931ce4c0bf6"
+      },
+      {
+        "rule": "SUITE",
+        "file": "skills/subagent-driven-development/implementer-prompt.md",
+        "quote": "full suite once before committing, not after every edit.",
+        "para_sha256": "a00e00ea3dd2395b58d833b75b1ea3727c744e767308c56dda798c6115b05f45"
+      },
+      {
+        "rule": "OUTPUT",
+        "file": "skills/subagent-driven-development/implementer-prompt.md",
+        "quote": "Then report back with ONLY",
+        "para_sha256": "8eb3dc5b5e3a6f5399144cac440342b9c4b8c6ecd96b01abac71faa456be8793"
+      }
+    ]
+  },
+  "task-review": {
+    "use_as": "prompt",
+    "files": [
+      "skills/subagent-driven-development/task-reviewer-prompt.md"
+    ],
+    "applies": [
+      "1 つの単位の差分を、求めに合うかと出来の 2 つで審査する仕事の指示書の骨（型の穴を線が埋める）"
+    ],
+    "not_applies": [
+      "git を動かすこと・範囲を自分で切ること（差分は engine がファイルで渡す）",
+      "merge してよいかを決めること"
+    ],
+    "placeholders": [
+      "[BRIEF_FILE]",
+      "[GLOBAL_CONSTRAINTS]",
+      "[REPORT_FILE]",
+      "[BASE_SHA]",
+      "[HEAD_SHA]",
+      "[DIFF_FILE]"
+    ],
+    "words": {
+      "✅ Spec compliant": "compliance_pass",
+      "❌ Issues found": "compliance_fail",
+      "⚠️ Cannot verify from diff": "compliance_unverifiable",
+      "Approved": "quality_pass",
+      "Needs fixes": "quality_fail"
+    },
+    "anchors": [
+      {
+        "rule": "GIT-RANGE",
+        "file": "skills/subagent-driven-development/task-reviewer-prompt.md",
+        "quote": "If the diff file is missing, fetch the diff yourself:",
+        "para_sha256": "4e27f33c7bc660ac5d10ad140d1a1bf3ff747416a0ea46020d899990c6df947c"
+      },
+      {
+        "rule": "OUTPUT",
+        "file": "skills/subagent-driven-development/task-reviewer-prompt.md",
+        "quote": "Your final message is the report itself",
+        "para_sha256": "8635893f798f41948d284701c9fb834eab53131b76015015a8e9e8a066289304"
+      },
+      {
+        "rule": "ASK",
+        "file": "skills/subagent-driven-development/task-reviewer-prompt.md",
+        "quote": "The plan's authorship does not grade its own work",
+        "para_sha256": "2b25892e630dfcb1bdd6ad7d3f68a922b9b676bbec564c6ad2f27720c190cb67"
+      }
+    ],
+    "literals": [
+      "[1-2 sentence technical assessment]",
+      "[Approved | Needs fixes]",
+      "[What's well done? Be specific.]",
+      "[requirements you could not verify from the diff alone, and what the controller should check — report alongside the ✅/❌ verdict for everything you could verify]",
+      "[what's missing/extra/misunderstood, with file:line references]"
+    ]
+  },
+  "receiving-review": {
+    "use_as": "skill",
+    "files": [
+      "skills/receiving-code-review/SKILL.md"
+    ],
+    "applies": [
+      "審査の指摘を受けて、確かめてから直すか反論する仕事"
+    ],
+    "not_applies": [
+      "審査の指摘を出す仕事",
+      "GitHub のスレッドへの返信（外へ書き込まない）"
+    ],
+    "words": {},
+    "anchors": [
+      {
+        "rule": "ASK",
+        "file": "skills/receiving-code-review/SKILL.md",
+        "quote": "Stop and discuss with your human partner first",
+        "para_sha256": "0ff211856670a687ee6e4c5924a2d23825b5708b66862410cc518979290eca3d"
+      },
+      {
+        "rule": "QUOTE",
+        "file": "skills/receiving-code-review/SKILL.md",
+        "quote": "### From your human partner",
+        "para_sha256": "e420cf8fdfbbb7403fcce92a9bc26875f9d6c97184e821debbe09ff9bb6a6b34"
+      },
+      {
+        "rule": "PUSHBACK",
+        "file": "skills/receiving-code-review/SKILL.md",
+        "quote": "## When To Push Back",
+        "para_sha256": "e5e5ce72beb56468ec4867e16945a61d94f706563b0668b7cc549327aa942361"
+      },
+      {
+        "rule": "GITHUB",
+        "file": "skills/receiving-code-review/SKILL.md",
+        "quote": "## GitHub Thread Replies",
+        "para_sha256": "14c545e9ec993895f4905dc679d25e76e56ff30befb477ecd03d180d642e72ee"
+      }
+    ]
+  }
+}

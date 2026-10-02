@@ -26,10 +26,12 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(TESTS))
 
+import board  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import planmarks  # noqa: E402
 from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, block, board_shas, find_node, load, run_script)  # noqa: E402
+from test_blk_fix import plan_reply as PLAN_REPLY  # noqa: E402  （split_plan_reply が元の 1 項目の案から作る）
 from test_blk_fix_tdd import LoopCase  # noqa: E402
 
 DEADLINE = 1728000000
@@ -41,7 +43,7 @@ RULE_TEXT = "依頼は算術平均。test_mean_of_three の期待は正しいの
 
 def conflict_on_mean(*cites):
     return {"unit_key": MEAN, "between": list(cites or ("stats.py:9", "test_stats.py:9")), "why_both_cannot_hold": WHY,
-            "which_is_right": "request"}
+            "which_is_right": "request", "kind": "unnamed_test_broke"}
 
 
 def only_clamp_reply(conflicts=None):
@@ -390,7 +392,7 @@ class TestTddConflict(LoopCase):
         import tddloop
         how = {"patterns": ["len(xs) - 1"], "fixed": True, "paths": ["stats.py"], "count": "lines"}
         hits = querytest.judge_hits([{"key": MEAN, "class_query": {"how": how, "counts": "defects"}}])
-        item = {"phase": "conflict", **conflict_on_mean(), "which_is_right": "query"}
+        item = {"phase": "conflict", **conflict_on_mean(), "which_is_right": "query", "kind": "query_hits_fixed"}
         got = tddloop.step(self.state, {**item, "correct_lines": ["    return sum(xs) / len(xs)"]}, self.repo, try_query=hits)
         self.assertFalse(got["ok"], got)
         self.assertIn("どの行にも当たらない", got["reason"])
@@ -531,8 +533,9 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(fix["output_format"]["properties"]["conflicts"], conflict.CONFLICTS_SCHEMA)
         tdd = find_node(block()["nodes"], "tdd")
         self.assertIn("conflict", tdd["output_format"]["properties"]["phase"]["enum"])
-        for k in ("between", "why_both_cannot_hold", "which_is_right"):
+        for k in ("between", "why_both_cannot_hold", "which_is_right", "kind"):
             self.assertIn(k, tdd["output_format"]["properties"])
+        self.assertEqual(tdd["output_format"]["properties"]["kind"]["enum"], list(conflict.DIV_KINDS))
 
     def test_after_the_loops_read_the_later_output(self):
         y = block()
@@ -566,6 +569,38 @@ class TestPlanRewritePermits(ConflictBoardCase):
     def test_no_plan_fields_same_as_before(self):
         self.fix_ready()
         self.assertIsNone(conflict.ruled_test_doc(entry.open_board(self.board)))
+
+    def test_tdd_plan_contract_reads_saved_fields_on_real_board(self):
+        """本物の盤面と受け付けが置いた欄の控え（凍結の印つき）から、TDD の輪の約束（tddloop.plan_contract）が
+        planmarks.unit_contract の形で組める。約束の無い単位は載らない"""
+        import tddloop
+        self.fix_ready()
+        b = entry.open_board(self.board)
+        test = {"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "2 つの値の平均を返す",
+                "path": "stats.mean を直に呼ぶ（mock なし）", "red_kind": "assertion", "red_why": "今は len-1 で割り 6.0 になる"}
+        planmarks.save(self.board, b.round, [{"unit_keys": [MEAN], "route": "tdd", "route_why": "", "tests": [test],
+                                               "rewrite_tests": [self.REWRITE], "refactor": {"declared": False, "why": ""}}])
+        self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]),
+                         {MEAN: {"items": [1], "route": "tdd", "tests": [{"id": test["id"], "red_kind": "assertion"}],
+                                 "rewrites": [self.REWRITE["id"]], "refactor": []}})
+
+    def test_frozen_fields_halts_on_broken_ledger(self):
+        """conflict.frozen_fields は凍結した欄の並び（planmarks.frozen）。控えが受け付けの後に書き換えられたら、_plan_rewrites と
+        同じ 1 か所の文（FIELDS_BROKEN で始まる）で盤面を止めて BoardGap"""
+        b = self.fields_saved()
+        self.assertEqual(conflict.frozen_fields(b)[0]["rewrite_tests"], [self.REWRITE])
+        p = self.board / planmarks.FIELDS_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc["fields"][0]["route"] = "direct"
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaises(board.BoardGap) as got:
+            conflict.frozen_fields(entry.open_board(self.board))
+        self.assertTrue(str(got.exception).startswith(conflict.FIELDS_BROKEN), got.exception)
+        after = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(after.state["stop"]["by"], conflict.FIELDS_STOP_BY)
+        with self.assertRaises(board.BoardGap) as again:
+            conflict.test_permits(after)
+        self.assertEqual(str(again.exception), str(got.exception), "_plan_rewrites と同じ文")
 
     def test_plan_rewrite_listed_at_final_gate(self):
         import line_edge
@@ -606,6 +641,31 @@ class TestPlanRewritePermits(ConflictBoardCase):
         self.assertEqual(tddloop.frozen_problems(state, self.repo, limits), [], "名指したテストの書き換えは通す")
         path.write_text(text.replace("clamp(0, 0, 0), 0)", "clamp(0, 0, 0), 1)"), encoding="utf-8")
         self.assertTrue(tddloop.frozen_problems(state, self.repo, limits), "名指していない test_empty の書き換えは拒む")
+
+    def test_rewrite_verified_in_loop_is_frozen_for_the_fixer(self):
+        """輪が赤→緑を確かめた書き換え（tddloop.verified_rewrites）は、受け付けの許しから外れる（skip_ids）。輪の後の修正役が
+        そのテストを書き換えると凍結の検査が拒む。輪で確かめていない書き換えの許しは今どおり"""
+        import tddloop
+        b, state = self.frozen_after_test_added_above()
+        rid = self.REWRITE["id"]
+        p = pathlib.Path(state)
+        st = json.loads(p.read_text(encoding="utf-8"))
+        st.update(order=[MEAN], units={MEAN: {"unit_key": MEAN, "route": "tdd", "green": "ok", "tests": [rid]}},
+                  contract={MEAN: {"items": [1], "route": "tdd", "tests": [], "rewrites": [rid], "refactor": []}})
+        p.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        skip = tddloop.verified_rewrites(state)
+        self.assertEqual(skip, [rid])
+        source = tddloop.frozen_source(state, self.repo)
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=source, skip_ids=skip), [])
+        self.assertEqual(conflict.ruled_test_limits(b, rulings=False, source=source), ["test_stats.py:10"], "外さなければ今どおり")
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("mean([1, 2, 3]), 2)", "mean([1, 2, 3]), 2.0)"), encoding="utf-8")
+        self.assertTrue(tddloop.frozen_problems(state, self.repo, conflict.ruled_test_limits(b, rulings=False, source=source,
+                                                                                              skip_ids=skip)))
+        st["units"][MEAN]["green"] = ""   # 緑に届かなかった単位の書き換えは確かめていない
+        p.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(tddloop.verified_rewrites(state), [])
+        self.assertEqual(tddloop.verified_rewrites(""), [], "輪の無い run は空")
 
     def test_plan_limit_dropped_when_test_missing_on_frozen_tree(self):
         """輪の後の木で名指したテストを引けなければ、その許しを捨てる（範囲を広げない側）"""
@@ -686,9 +746,33 @@ class TestFirstPassPlanLimits(unittest.TestCase):
                                                "INPUTS_PASS": "first"}):
             got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
         self.assertIs(got["ok"], False, got)
-        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY)
+        limits.assert_called_once_with(mock.ANY, rulings=False, source=mock.ANY, skip_ids=[])
         self.assertTrue(callable(limits.call_args.kwargs["source"]), "修正案の limit は輪の後の木で引き直す")
         self.assertEqual(frozen.call_args[0][2], ["test_stats.py:8"])
+
+
+class TestAcceptSkipsVerifiedRewrites(unittest.TestCase):
+    """受け付けは輪が赤→緑を確かめた書き換えの id（tddloop.verified_rewrites）を許しから外して凍結の検査に渡す（1 回目も裁定の後も）"""
+
+    def test_accept_passes_verified_rewrites_as_skip_ids(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_fix_accept_script_skip", BLK / "scripts" / "accept.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for pass_ in ("first", "ruled"):
+            limits = mock.MagicMock(return_value=[])
+            frozen = mock.MagicMock(return_value=["TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']"])
+            with mock.patch.object(mod.conflict, "ruled_test_limits", limits), \
+                    mock.patch.object(mod.tddloop, "frozen_problems", frozen), \
+                    mock.patch.object(mod.tddloop, "verified_rewrites", return_value=["t.py::T::test_a"]) as vr, \
+                    mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
+                    mock.patch.dict("os.environ", {"INPUTS_ITERATION": "1", "INPUTS_TDD_STATE": "/b/tdd.json",
+                                                   "INPUTS_PASS": pass_}):
+                got = mod.accept_fix({"changes": []}, pathlib.Path("/b"), "", pathlib.Path("/r"))
+            self.assertIs(got["ok"], False, got)
+            vr.assert_called_once_with("/b/tdd.json")
+            self.assertEqual(limits.call_args.kwargs["skip_ids"], ["t.py::T::test_a"], pass_)
+            self.assertEqual(limits.call_args.kwargs["rulings"], pass_ == "ruled")
 
 
 class TestPermitsOnRawBoard(unittest.TestCase):
@@ -812,6 +896,354 @@ class TestParseLimitDots(unittest.TestCase):
         self.assertEqual(conflict.parse_limit("..foo/x.py:3"), ("..foo/x.py", (3, 3)))
         self.assertIsNone(conflict.parse_limit("../x.py:3"))
         self.assertIsNone(conflict.parse_limit("/x.py:3"))
+
+
+class TestTddKind(LoopCase):
+    """TDD の輪の申し出も、修正役の受け付けと同じ確かめ（conflict.problems）で種類の欄 kind と which_is_right との対を見る"""
+
+    def test_tdd_conflict_without_kind_is_rejected(self):
+        item = {"phase": "conflict", **conflict_on_mean()}
+        item.pop("kind")
+        got = tddloop_step(self, item)
+        self.assertFalse(got["ok"])
+        self.assertIn("kind", got["reason"])
+        got = tddloop_step(self, {**item, "kind": "query_hits_fixed"})
+        self.assertFalse(got["ok"])
+        self.assertIn("which_is_right", got["reason"])
+        got = tddloop_step(self, {**item, "kind": "unnamed_test_broke"})
+        self.assertTrue(got["ok"], got)
+
+
+class TestBriefKind(ConflictBoardCase):
+    """修正役の申し出 brief_vs_judgment は、その単位の brief（今の周の控えの行）を名指す時だけ止めて積む"""
+
+    def briefed(self):
+        """修正役が clamp を直した、修正案の欄の控えと brief-1.md（単位 MEAN・CLAMP）の在る盤面"""
+        import planbrief
+        from test_blk_fix import PLAN_FIELDS
+        self.fix_ready()
+        self.edit_tree(CLAMP_FIX)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        planbrief.cut_at(self.board)
+
+    def test_fixer_brief_kind_parks_with_brief_line(self):
+        self.briefed()
+        brief = str(entry.open_board(self.board).work("brief-1.md"))
+        r = self.accept_script(only_clamp_reply([{**conflict_on_mean(f"{brief}:1", "stats.py:9"), "kind": "brief_vs_judgment"}]))
+        self.assertEqual((r["ok"], r.get("parked")), (True, True), r)
+        self.assertEqual(self.items()[0]["kind"], "brief_vs_judgment")
+
+    def test_fixer_brief_kind_without_plan_is_rejected(self):   # planmarks.save と cut を呼ばない盤面
+        self.fix_ready()
+        self.edit_tree(CLAMP_FIX)
+        r = self.accept_script(only_clamp_reply([{**conflict_on_mean(), "kind": "brief_vs_judgment"}]))
+        self.assertFalse(r["ok"])
+        self.assertIn("brief_vs_judgment", r["reason"])
+
+
+class TestTddBriefKind(LoopCase):
+    """TDD の輪の申し出 brief_vs_judgment も、輪の盤面の brief（planbrief.by_unit_at）の行を名指す時だけ通す"""
+
+    def test_tdd_brief_kind_needs_the_units_brief(self):
+        import tddloop
+        brief = pathlib.Path(self.st()["work"]).parent / "brief-1.md"
+        brief.write_text("# brief 1\n算術平均で割る\n範囲は stats.py だけ\n", encoding="utf-8")
+        reply = {"phase": "conflict", **conflict_on_mean(f"{brief}:1", "stats.py:9"), "kind": "brief_vs_judgment"}
+        with mock.patch.object(tddloop.planbrief, "by_unit_at", return_value={}):
+            got = tddloop_step(self, reply)
+        self.assertFalse(got["ok"], got)
+        self.assertIn("brief_vs_judgment", got["reason"])
+        with mock.patch.object(tddloop.planbrief, "by_unit_at", return_value={MEAN: [{"item": 1, "file": str(brief)}]}):
+            got = tddloop_step(self, reply)
+        self.assertTrue(got["ok"], got)
+
+
+
+PLAN_TEXT = "項目 1 の受け入れのテストは分母の誤りを縛っていない。案の項目で既存の test_mean_of_three の書き換えを名指し直せ"
+
+
+def split_plan_reply(narrows=()):
+    """修正案を単位ごとの 2 項目にした返答（項目 1 は mean だけ、項目 2 は clamp だけ）"""
+    base = PLAN_REPLY(narrows)["plan"][0]
+    return {"plan": [{**base, "unit_keys": [MEAN], "approach": "mean の分母を len(xs) に直す"},
+                     {**base, "unit_keys": [CLAMP], "approach": "clamp の上限の枝の戻り値を hi に直す"}]}
+
+
+class ReplanCase(ConflictBoardCase):
+    """裁定 fix_plan_item の盤面の口（mean を申し出た盤面に修正案の欄の控えと brief を置いてから裁く）。既定の修正案は mean と clamp を
+    別の項目に置く（fix_plan_item が外すのは項目 1 の単位だけで、clamp は直す義務に残る）。SHARED_ITEM が真なら 1 項目に両方を置く"""
+    SHARED_ITEM = False
+
+    def replanned(self):
+        """mean の申し出を fix_plan_item に裁いた盤面。返りは self.rule の返り (prep, 受け付けの結果)"""
+        import planbrief
+        import test_blk_fix
+        if self.SHARED_ITEM:
+            self.parked()
+        else:
+            with mock.patch.object(test_blk_fix, "plan_reply", split_plan_reply):
+                self.parked()
+        fields = test_blk_fix.PLAN_FIELDS * (1 if self.SHARED_ITEM else 2)
+        planmarks.save(self.board, entry.open_board(self.board).round, fields)
+        planbrief.cut_at(self.board)
+        cid = self.items()[0]["id"]
+        brief = entry.open_board(self.board).work("brief-1.md")
+        return self.rule([{"id": cid, "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": [], "grounds": [f"{brief}:1"]}])
+
+
+class TestFixPlanItem(ReplanCase):
+    """fix_plan_item に裁いた単位は、項目の番号を控えに持ち、直す義務から外れ（直せば拒む）、残りの単位だけで通る"""
+
+    def test_ruling_stored_with_plan_items(self):
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        row = self.items()[0]
+        self.assertEqual((row["ruling"]["decision"], row["ruling"]["plan_items"]), ("fix_plan_item", [1]))
+        self.assertEqual(r["counts"]["fix_plan_item"], 1)
+        self.assertIn("直すな", pathlib.Path(r["rulings_file"]).read_text(encoding="utf-8"))
+
+    def test_fixing_a_replanned_unit_is_rejected(self):
+        self.replanned()
+        self.edit_tree(MEAN_FIX)
+        r = self.accept_script(load("fix2_ok"), pass_="ruled")
+        self.assertFalse(r["ok"]); self.assertIn("fix_plan_item", r["reason"])
+
+    def test_replanned_unit_leaves_duty_and_rest_is_accepted(self):
+        self.replanned()
+        r = self.accept_script(only_clamp_reply(), pass_="ruled")
+        self.assertTrue(r["ok"], r)
+        owed, excused = conflict.fix_duty(entry.open_board(self.board))
+        self.assertNotIn(MEAN, owed); self.assertIn("fix_plan_item", excused[MEAN])
+
+    def test_fix_plan_item_without_brief_is_rejected(self):   # brief を置かない盤面
+        self.parked()
+        _, r = self.rule([{"id": self.items()[0]["id"], "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": []}])
+        self.assertEqual((r["ok"], r["done"]), (False, False)); self.assertIn("brief", r["reason"])
+
+
+class TestFixPlanItemReport(ReplanCase):
+    """fix_plan_item の単位は結末を fixed・no_fix_needed にせず、次の run の依頼と報告に載り、最後の関所はほかの理由で開いた時だけ
+    単位を並べる（開ける理由には数えない）"""
+
+    @staticmethod
+    def clamp_reply():
+        """only_clamp_reply の clamp の site に path を足した返答（fix2_ok の site は path を持たず、数え直しの表が「合わない」と
+        言って最後の関所を開けるので、関所が fix_plan_item だけで開かないことを見る試験にはこの形を渡す）"""
+        reply = only_clamp_reply()
+        for s in reply["changes"][0]["closure"]["sites"]:
+            s["path"] = "stats.py"
+        return reply
+
+    def test_replanned_unit_goes_to_next_request_not_gate(self):
+        import line_edge
+        import report
+        self.replanned()
+        self.assertTrue(self.accept_script(self.clamp_reply(), pass_="ruled")["ok"])
+        b = entry.open_board(self.board)
+        got = line_edge.final_edge(b, self.repo, run_id="run-12", mode="when_needed", tests={"ok": True, "green": True})
+        self.assertFalse(got.get("ask"), "fix_plan_item だけでは最後の関所を開かない（人に回す 3 つに当たらない）")
+        b = entry.open_board(self.board, allow_halted=True)
+        items = report.next_request(b)
+        self.assertTrue(any(i["where"] == MEAN and "fix_plan_item" in i["text"] and "事前審査" in i["text"] for i in items), items)
+        self.assertEqual(report.decide_outcome(b, {"accepted": True, "round_closed": True}), "round_limit")
+
+    def test_conflict_line_has_kinds_and_replan(self):
+        import report
+        self.replanned()
+        lines = report.head_decisions(entry.open_board(self.board), {"accepted": True, "round_closed": True})
+        hit = next(x for x in lines if x.startswith(conflict.HEAD))
+        for w in ("案の項目を直す（fix_plan_item）1", "種類の内訳", "unnamed_test_broke 1", "not_red 0"):
+            self.assertIn(w, hit)
+
+    def test_gate_opened_for_other_reason_lists_replanned_units(self):
+        """最後のテストが赤で開いた関所は fix_plan_item の単位を並べ、開けた理由（冒頭の 1 行目）には数えない"""
+        import line_edge
+        self.replanned()
+        self.assertTrue(self.accept_script(self.clamp_reply(), pass_="ruled")["ok"])
+        b = entry.open_board(self.board)
+        got = line_edge.final_edge(b, self.repo, run_id="run-12", mode="when_needed", tests={"ok": True, "green": False})
+        self.assertTrue(got.get("ask"), got)
+        text = got["gate_text"]
+        self.assertNotIn("fix_plan_item", text.splitlines()[0], "開けた理由には数えない")
+        hit = [x for x in text.splitlines() if x.startswith("- ") and MEAN in x and "案の項目 1" in x]
+        self.assertEqual(len(hit), 1, text)
+        self.assertIn("fix_plan_item", text)
+
+    def test_all_units_replanned_is_not_no_fix_needed(self):
+        """直す物が無い周（need_fix 偽）でも、fix_plan_item で残した単位が在れば round_limit（no_fix_needed と言わない）"""
+        import report
+        self.replanned()
+        self.assertTrue(self.accept_script(self.clamp_reply(), pass_="ruled")["ok"])
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(report.decide_outcome(b, {"accepted": True, "round_closed": True}, judged={"need_fix": False}),
+                         "round_limit")
+        self.assertEqual(report.decide_outcome(b, {"accepted": False, "round_closed": True}), "record_invalid",
+                         "記録が通らない周は fix_plan_item より先に record_invalid")
+
+    def test_next_request_owns_validator_row_and_report_lists_unit(self):
+        """その単位の検証器の行は次の run の依頼に渡さず（単位の行が持つ）、報告の冒頭 1 には単位の行が載る"""
+        import report
+        self.replanned()
+        b = entry.open_board(self.board, allow_halted=True)
+        left = [{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {MEAN}"},
+                {"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {CLAMP}"}]
+        items = report.next_request(b, left=left)
+        self.assertFalse(any(i["where"] == report.VALIDATOR_WHERE and i["text"].endswith(MEAN) for i in items), items)
+        self.assertTrue(any(i["where"] == report.VALIDATOR_WHERE and i["text"].endswith(CLAMP) for i in items), items)
+        lines = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        self.assertTrue(any(MEAN in x and "案の項目 1" in x for x in lines), lines)
+
+
+class TestFixPlanItemWholeItem(ReplanCase):
+    """fix_plan_item は、裁いた案の項目に載る単位を全部、直す義務から外す（決まりは 1 つ: 直す裁定でない裁定は、その単位と、
+    fix_plan_item ならその項目の単位を外す）。項目の外の単位は今どおり直す"""
+
+    def test_units_sharing_the_item_are_held(self):
+        import report
+        self.SHARED_ITEM = True
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.items()[0]["ruling"]["plan_units"], [MEAN, CLAMP])
+        b = entry.open_board(self.board, allow_halted=True)
+        held = conflict.held_by_rulings(b)
+        cid = self.items()[0]["id"]
+        for k in (MEAN, CLAMP):
+            self.assertIn(f"fix_plan_item の裁定 {cid}", held[k]); self.assertIn("案の項目 1", held[k])
+        self.assertIn(CLAMP, pathlib.Path(r["rulings_file"]).read_text(encoding="utf-8"), "裁定の文が項目の単位を名指す")
+        got = self.accept_script(only_clamp_reply(), pass_="ruled")   # parked が clamp を直した作業ツリーのまま
+        self.assertFalse(got["ok"]); self.assertIn("fix_plan_item", got["reason"])
+        self.edit_tree({v: k for k, v in CLAMP_FIX.items()})   # clamp の直しを戻し、空の changes で出し直す
+        got = self.accept_script(only_clamp_reply() | {"changes": []}, pass_="ruled", iteration="2")
+        self.assertTrue(got["ok"], got)
+        b = entry.open_board(self.board, allow_halted=True)
+        items = report.next_request(b, left=[{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {CLAMP}"}])
+        for k in (MEAN, CLAMP):
+            self.assertTrue(any(i["where"] == k and "fix_plan_item" in i["text"] and "事前審査" in i["text"] for i in items),
+                            (k, items))
+        self.assertEqual(sum(CLAMP in i["where"] or CLAMP in i["text"] for i in items), 1,
+                         "項目を共にして止まった単位の検証器の行は単位の行が持つ（二重に渡さない）")
+        lines = report.replanned_lines(b)
+        self.assertEqual([x.split(": ")[0] for x in lines], [MEAN.split(": ")[0], CLAMP.split(": ")[0]])
+        self.assertTrue(any(x.startswith(CLAMP) and f"申し出の単位 {MEAN}" in x for x in lines), lines)
+        self.assertEqual(report.decide_outcome(b, {"accepted": True, "round_closed": True}), "round_limit")
+
+    def test_unit_outside_the_item_is_unaffected(self):
+        import report
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.items()[0]["ruling"]["plan_units"], [MEAN])
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(set(conflict.held_by_rulings(b)), {MEAN})
+        self.assertIn(CLAMP, conflict.fix_duty(b)[0])
+        self.assertFalse(any(i["where"] == CLAMP for i in report.next_request(b)))
+        self.assertFalse(any(x.startswith(CLAMP) for x in report.replanned_lines(b)))
+
+    def test_round_limit_heading_only_with_rows(self):
+        """fix_plan_item だけで round_limit になった報告は、残りの行が無ければ「直しきれずに残った物」の見出しを出さない"""
+        import report
+        self.replanned()
+        b = entry.open_board(self.board, allow_halted=True)
+        gate = {"accepted": True, "round_closed": True}
+        lines = report.head_decisions(b, gate, outcome="round_limit", left=[])
+        self.assertFalse(any(x.startswith("直しきれずに残った物") for x in lines), lines)
+        self.assertTrue(any(x.startswith(report.REPLAN_HEAD) for x in lines), lines)
+        lines = report.head_decisions(b, gate, outcome="round_limit", left=[{"where": "w", "text": "t"}])
+        self.assertTrue(any(x.startswith("直しきれずに残った物") for x in lines), lines)
+
+    def test_parked_fix_of_a_held_unit_is_reverted(self):
+        """1 回目に clamp を直して mean を申し出、mean が fix_plan_item に裁かれて clamp も止まった盤面で、2 回目が changes を
+        空にしただけで出しても、受け付けが控えの返答の clamp の直しを作業ツリーから戻す（止めた単位の直しを残さない）"""
+        accept_script_mod = accept_module()
+        self.SHARED_ITEM = True
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        self.assertIn("機械も戻す", pathlib.Path(r["rulings_file"]).read_text(encoding="utf-8"))
+        got = self.accept_script(only_clamp_reply() | {"changes": []}, pass_="ruled")
+        self.assertTrue(got["ok"], got)
+        self.assertNotIn("return hi", (self.repo / "stats.py").read_text(encoding="utf-8"), "clamp の直しが作業ツリーに残った")
+        b = entry.open_board(self.board, allow_halted=True)
+        parked = json.loads(b.work(conflict.PARKED_REPLY).read_text(encoding="utf-8"))
+        self.assertEqual(parked["changes"], [], "控えの返答から止めた単位の行を外す")
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        hit = [x for x in rows if x.get("op") == accept_script_mod.RULED_REVERTED_OP]
+        self.assertEqual(len(hit), 1, hit)
+        self.assertEqual(list(hit[0]["excused"]), [CLAMP])
+
+
+    def test_revert_is_undone_when_the_reply_is_rejected(self):
+        """控えの clamp の直しを戻した後で返答が拒まれれば（開いていない unit_key）、作業ツリーの直しと控えの返答を戻す前の姿に
+        戻し、trace に戻した行を残さない（拒否では盤面を前のままにする）"""
+        accept_script_mod = accept_module()
+        self.SHARED_ITEM = True
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        b = entry.open_board(self.board, allow_halted=True)
+        before = b.work(conflict.PARKED_REPLY).read_bytes()
+        reply = only_clamp_reply()
+        reply["changes"][0] |= {"unit_key": "stats.py median: 判定に無い作り話の単位", "files": ["median.py"]}
+        got = self.accept_script(reply, pass_="ruled")
+        self.assertFalse(got["ok"], got)
+        self.assertIn("return hi", (self.repo / "stats.py").read_text(encoding="utf-8"), "拒否の後に clamp の直しを戻していない")
+        self.assertEqual(b.work(conflict.PARKED_REPLY).read_bytes(), before, "拒否の後に控えの返答を戻していない")
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        self.assertFalse([x for x in rows if x.get("op") == accept_script_mod.RULED_REVERTED_OP])
+
+
+def accept_module():
+    """受け付けのスクリプト（blk-fix/scripts/accept.py。.shared/core の accept と名が重なるので別名で読む）"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("accept_script_mod", BLK / "scripts" / "accept.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestFixPlanItemBothUnits(ReplanCase):
+    """同じ項目の 2 単位を両方とも申し出て、同じ返答で裁いた盤面"""
+
+    CLAMP_WHY = "テストは上限の枝で hi を期待しているが、依頼は上限の枝を lo に寄せると書いている"
+
+    def ruled_both(self, clamp_decision="fix_plan_item"):
+        """mean と clamp を 1 項目に置いた案で、2 単位とも申し出た盤面を裁く（mean は fix_plan_item、clamp は clamp_decision）"""
+        import planbrief
+        import test_blk_fix
+        self.fix_ready()
+        clamp = {"unit_key": CLAMP, "between": ["stats.py:16", "test_stats.py:15"], "why_both_cannot_hold": self.CLAMP_WHY,
+                 "which_is_right": "request", "kind": "unnamed_test_broke"}
+        r = self.accept_script(only_clamp_reply([conflict_on_mean(), clamp]) | {"changes": []})
+        self.assertEqual((r["ok"], r.get("parked")), (True, True), r)
+        planmarks.save(self.board, entry.open_board(self.board).round, test_blk_fix.PLAN_FIELDS)
+        planbrief.cut_at(self.board)
+        brief = entry.open_board(self.board).work("brief-1.md")
+        ids = {i["unit_key"]: i["id"] for i in self.items()}
+        return self.rule([{"id": ids[MEAN], "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": [],
+                           "grounds": [f"{brief}:1"]},
+                          {"id": ids[CLAMP], "decision": clamp_decision, "text": PLAN_TEXT, "limits": [],
+                           "grounds": [f"{brief}:1"]}])
+
+    def test_each_unit_once_when_both_are_ruled(self):
+        """2 件の fix_plan_item がどちらも同じ 2 単位を外しても、報告と次の依頼は単位ごとに 1 行（単位自身の裁定の行）"""
+        import report
+        _, r = self.ruled_both()
+        self.assertTrue(r["ok"], r)
+        b = entry.open_board(self.board, allow_halted=True)
+        ids = {i["unit_key"]: i["id"] for i in self.items()}
+        lines = report.replanned_lines(b)
+        self.assertEqual([x.split(": ")[0] for x in lines], [MEAN.split(": ")[0], CLAMP.split(": ")[0]], lines)
+        for k, x in zip((MEAN, CLAMP), lines):
+            self.assertIn(ids[k], x); self.assertNotIn("申し出の単位", x)
+        head = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        self.assertIn(f"{report.REPLAN_HEAD}: 2 件", head)
+        wheres = [i["where"] for i in report.next_request(b)]
+        self.assertEqual([w for w in wheres if w in (MEAN, CLAMP)], [MEAN, CLAMP], wheres)
+
+    def test_fix_ruling_inside_a_replanned_item_is_rejected(self):
+        """同じ返答で fix_plan_item に裁いた項目の単位に直す裁定を出せば、単位と項目を名指して拒む"""
+        _, r = self.ruled_both("fix_code_as")
+        self.assertEqual((r["ok"], r["done"]), (False, False), r)
+        for w in (CLAMP, "案の項目 1", "fix_code_as", "fix_plan_item"):
+            self.assertIn(w, r["reason"])
+        self.assertTrue(all(i["ruling"] is None for i in self.items()), "拒んだ返答の裁定は積まない")
 
 
 if __name__ == "__main__":

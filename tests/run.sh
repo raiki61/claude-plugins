@@ -3298,7 +3298,8 @@ if command -v shellcheck >/dev/null 2>&1; then
     sc_bad=0
     while IFS= read -r f; do
         shellcheck -S warning "$f" || sc_bad=1
-    done < <(find "$ROOT" -name "*.sh" -not -path "*/.git/*" | sort)
+    # 写した第三者の文（superpowers の写し）は直さない写しなので柵の外。写しの一致は works/tests/test_sp_skills.py の VendoredCopyCase が縛る
+    done < <(find "$ROOT" -name "*.sh" -not -path "*/.git/*" -not -path "*/.shared/borrow/superpowers/*" | sort)
     if [ "$sc_bad" -eq 0 ]; then
         echo "  ok   SHELLCHECK_OK リポジトリの .sh が shellcheck -S warning を通る"
     else
@@ -3502,7 +3503,7 @@ root = pathlib.Path(sys.argv[1])
 # **除外は明示の表で持つ**——表に無い名前を名指しした瞬間に赤くなるので、足し忘れは
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
 EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_", "INPUTS_")
-EXTERNAL_NAMES = {"SHA", "PYTHONOPTIMIZE", "PYTHONPATH", "BASH_ENV", "CLAUDE_KEYCHAIN_SERVICE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "BASH_ENV", "CLAUDE_KEYCHAIN_SERVICE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                   # Archon が節と子に渡す環境変数・Archon の設定の環境変数・Context7 の鍵
                   "ARTIFACTS_DIR", "WORKFLOW_ID", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
                   # works の python が os.environ から・shell の殻が環境から読む環境変数（WORKS_ で始まる shell の
@@ -3540,6 +3541,8 @@ CODE = sorted((root / "scripts").glob("*.py")) + sorted((root / "scripts").glob(
 # 別プラグインの環境変数（`COLDREAD_*` 7 個）が 1 項で収まる。
 NAMED_IN = tuple(
     p for p in sorted(root.rglob("*.md")) if ".git" not in p.parts
+    # 写した第三者の文（superpowers の写し）は直さない写しなので柵の外。写しの一致は works/tests/test_sp_skills.py の VendoredCopyCase が縛る
+    and ".shared/borrow/superpowers/" not in p.as_posix()
 ) + tuple(sorted((root / "scripts").glob("*.py"))) + (root / "tests/run.sh",)
 # **アンダースコアを要求するな。** 要求していたとき、`MATERIALS` / `REVIEWS` / `LABELS` /
 # `STATUS` を同じ体裁で名指ししている箇所が 1 つも検査されなかった。

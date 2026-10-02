@@ -103,7 +103,7 @@ def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:
     絶対パス）・not_done（件数）・coverage（単位ごとの {before, after}）・reads_file（fix-reads が今の周に書いた
     reads-fix.json。無ければ空）を足す。受け付けた changes を今の周の changes.json（{"changes": [...]}。1 本目の形）に書く。
     受け付けが通っていない・assert-changed の出力が読めない・盤面が今の周の p3.fix を受けていない・changes が空（直す義務の
-    単位が残らず、答え待ちの問いの出どころか ask_human で外れた単位が在る盤面 conflict.nothing_owed_but_excused を除く）ときは
+    単位が残らず、答え待ちの問いの出どころか直す裁定でない裁定（ask_human・fix_plan_item）で外れた単位が在る盤面 conflict.nothing_owed_but_excused を除く）ときは
     Unreadable（何も書かない）"""
     if not isinstance(accepted, dict) or accepted.get("ok") is not True:
         raise Unreadable(f"受け付けが通っていない（{(accepted or {}).get('reason') if isinstance(accepted, dict) else accepted!r}）")

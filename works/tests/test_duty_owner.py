@@ -24,7 +24,7 @@ OWNERS = frozenset({"gatemarks", "conflict", "recount", "tddloop", "report"})
 SKIP_DIRS = frozenset({"tests", "dev", "fixtures", "__pycache__"})
 SKIP_PREFIXES = ((".shared", "core", "graphloops"), (".shared", "core", "scripts"))
 OPEN_CALLS = frozenset({"is_open"})
-CANON_CALLS = frozenset({"withheld", "withheld_by", "returned", "asked_keys", "asks", "pending", "fixable", "fix_duty"})
+CANON_CALLS = frozenset({"withheld", "withheld_by", "returned", "asked_keys", "asks", "pending", "fixable", "fix_duty", "held_by_rulings"})
 RAW_MARKS = ("'fork'", "'escalate'", "ASKING")
 
 # 今ある違反 {"<模块>:<関数>": 理由か直す依頼の番号}。走査が実際に挙げた物だけを、理由をつけて載せる

@@ -9,6 +9,7 @@
 - find_test(repo, test_id): テストの id の定義の行（rewrite_tests は在るテストだけ・tests は無いテストだけを名指す）
 - line_in(src, test_id): 渡したファイルの中身でのテストの id の定義の行（凍結の検査が輪の後の木で引き直す）
 - split(reply, repo)・save(board, rnd, fields)・read(b)・rewrites(b): 欄を外す口・盤面の控え・書き換えてよい既存のテストの並び
+- unit_contract(fields, key): 1 つの単位の約束（その単位を名指す項目の道・受け入れのテスト・書き換えの id・整えの申告を合わせた物。TDD の輪が読む）
 - 凍結（SAVED_OP・frozen(b)・FieldsBroken）: save は控えを置いた後、盤面の trace に印 {round, sha256（控えのバイトの sha256）} を
   1 行書く。テストの変更の許しの元（rewrites）と brief の切り出しは frozen で読み、今の周の印と控えが食い違えば（受け付けの後に
   書き換えた・消した）FieldsBroken。読む側が盤面を止める（黙って許しを広げない・黙って捨てない）。印の無い控えは無い物（None）
@@ -321,7 +322,7 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
     plan = reply.get("plan") if isinstance(reply, dict) else None
     if not isinstance(plan, list):
         return []
-    out, new_ids = [], {}
+    out, new_ids, kinds = [], {}, {}
     for i, it in enumerate(plan):
         if not isinstance(it, dict):
             out.append(f"plan[{i}]: 項目が object でない")
@@ -348,6 +349,10 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
             line = find_test(repo, tid) if tid else None
             if tid:
                 new_ids.setdefault(tid, f"plan[{i}].tests[{j}]")
+                first, kind = kinds.setdefault(tid, (f"plan[{i}].tests[{j}]", row.get("red_kind")))
+                if kind != row.get("red_kind"):
+                    out.append(f"plan[{i}].tests[{j}].id（{tid}）: 同じ id を {first} にも別の red_kind（{kind}）で書いた"
+                               "（同じテストの赤の種類は 1 つにそろえよ）")
             if line is not None:
                 out.append(f"plan[{i}].tests[{j}].id（{tid}）: 既に在るテスト（{_limit(repo, tid)}）。tests はまだ無いテストを名指す。"
                            "既に在るテストの期待を変えるなら rewrite_tests に書け")
@@ -513,6 +518,37 @@ def rewrites(b) -> list[dict]:
                 out.append({"item": n, "unit_keys": list(f.get("unit_keys") or []), "id": row.get("id"),
                             "new": row.get("new"), "limit": row["limit"]})
     return out
+
+
+def unit_contract(fields: list | None, key: str) -> dict | None:
+    """単位 key の約束 {items: 項目の番号（1 始まり）, route, tests: [{id, red_kind}], rewrites: [id], refactor: [{item, why}]}。
+    key を unit_keys に含む項目の欄を合わせる: route はどれかの項目が tdd なら tdd（ほかは direct）・tests は項目の順で id の重複を
+    除く（同じ id に別の red_kind は gaps が拒む）・rewrites は範囲 limit の在る行の id だけ（rewrites と同じ選び方）・refactor は
+    refactor.declared が真の項目の番号と理由（申告が無ければ空）。
+    fields が None か、当たる項目が無ければ None。純粋（盤面もファイルも読まない）"""
+    if not isinstance(fields, list):
+        return None
+    items, tests, rws = [], {}, {}
+    route, refactor = "direct", []
+    for n, f in enumerate(fields, 1):
+        keys = f.get("unit_keys") if isinstance(f, dict) else None
+        if not isinstance(keys, list) or key not in keys:
+            continue
+        items.append(n)
+        route = "tdd" if f.get("route") == "tdd" else route
+        for row in _rows(f, "tests"):
+            if _id_of(row):
+                tests.setdefault(row["id"], row.get("red_kind"))
+        for row in _rows(f, "rewrite_tests"):
+            if _id_of(row) and isinstance(row.get("limit"), str) and row["limit"]:
+                rws.setdefault(row["id"])
+        rf = f.get("refactor")
+        if isinstance(rf, dict) and rf.get("declared") is True:
+            refactor.append({"item": n, "why": rf.get("why").strip() if isinstance(rf.get("why"), str) else ""})
+    if not items:
+        return None
+    return {"items": items, "route": route, "tests": [{"id": i, "red_kind": k} for i, k in tests.items()],
+            "rewrites": list(rws), "refactor": refactor}
 
 
 def review_section(b) -> str:

@@ -16,17 +16,23 @@
    1 本目は check_fix が fix_plan_covers_units に読み替えてどちらも拒んでいた。works は graphloops の上にこの拒否を残す）
    - check_unique_units: 同じ unit_key を 2 行に分けた返答を拒む
    - check_opened_units: 直す義務（conflict.fix_duty の owed。検証器の is_open の単位と、関所で答えた問いの出どころ・depends
-     から、答え待ちの問いの出どころ・depends と ask_human の単位を外した物）にも、そこから外れた単位にも無い unit_key を拒む
+     から、答え待ちの問いの出どころ・depends と直す裁定でない裁定（ask_human・fix_plan_item）を受けた単位を外した物）にも、そこから外れた単位にも無い unit_key を拒む
      （関所で答えていない defer の単位・判定に無い key。1 本目の unknown = got - opened）
    - check_excused_units: 直す義務から外れた単位（fix_duty の excused）の unit_key を、外れた理由（答え待ちの問いの key・
-     ask_human の裁定 id）を名指して拒む。輪の最後の回だけは、その単位の直しを作業ツリーから戻して changes から外し
+     直さない裁定の decision と id）を名指して拒む。輪の最後の回だけは、その単位の直しを作業ツリーから戻して changes から外し
      （drop_excused_units。控えの patch を盤面に置く）、残りの単位で受け付けを頭から通し直し、通れば trace に 1 行
      （EXCUSED_DROPPED_OP）。通らなければ戻した直しを元に戻す
+   - 裁定の後（INPUTS_PASS が ruled）は、凍ったテストの検査の次に revert_ruled_units: 1 回目に申し出を返した回の返答の控え
+     （conflict.PARKED_REPLY）の行のうち、裁定が今は直す義務から外した単位（conflict.held_by_rulings。fix_plan_item が止めた同じ
+     項目の単位）の直しを作業ツリーから戻し（drop_excused_units と同じ手）、控えからその行を外して、受け付けを頭から通し直す。
+     通れば trace に 1 行（RULED_REVERTED_OP）、通らなければ戻した直しと控えを元に戻す（止めた単位の直しは changes から外した
+     だけでは残らない。決まりは輪の最後の回と同じ）
 1a. check_pack_copy: .archon/ の下（自分食いの run では動いている線の pack の写し）を申告した・変えた返答を拒む（run 26）
 1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
    空・欠けは輪の無い run で見ない）。テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。
    conflict.test_permits を conflict.ruled_test_limits が引く）の中の変更を通す。修正案の名指しは 1 回目から、裁定の範囲は
-   裁定の後（ruled）だけ。修正案の範囲は、凍結の検査が読む輪の後の木でテストの id から引き直す（tddloop.frozen_source）
+   裁定の後（ruled）だけ。修正案の範囲は、凍結の検査が読む輪の後の木でテストの id から引き直す（tddloop.frozen_source）。
+   輪が赤→緑を確かめた修正案の書き換え（tddloop.verified_rewrites）は許しから外す（skip_ids。輪の後に確かめなしで書き換えさせない）
 1c. check_tests: 版からの変更に当たる試験を、TDD の輪と同じ実行器で機械が走らせ、元で赤でなかった試験の赤を拒む
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
 1d. check_plan_scope: 承認済みの修正案の項目（planmarks.approved_items）と差分を照らす（planscope.check）。範囲（allowed_paths・
@@ -66,6 +72,7 @@ import re  # noqa: E402
 
 import conflict  # noqa: E402   食い違いの申し出（.shared/core）
 import impact  # noqa: E402   変更に当たる試験の選び（.shared/core）
+import planbrief  # noqa: E402   今の周の brief の行（blk-fix/lib。申し出 brief_vs_judgment の確かめ）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
 import planscope  # noqa: E402   承認済みの修正案の項目と差分の照らし（blk-fix/lib）
 import querytest  # noqa: E402   判定者の問いを例に当てる（.shared/core）
@@ -87,6 +94,7 @@ NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書い�
 EXCUSED = ("直す義務から外れた単位を changes に書いた（答えが届くまで・人が決めるまで直さない。changes から外し、作業ツリーの"
            "その単位の直しを戻し、not_done に理由を書け）: ")
 EXCUSED_DROPPED_OP = "fix_excused_dropped"   # 最後の回に、直す義務から外れた単位の直しを戻して changes から外した盤面の trace の行
+RULED_REVERTED_OP = "fix_ruled_reverted"     # 裁定の後の受け付けで、控えの返答の行のうち裁定が止めた単位の直しを戻した盤面の trace の行
 
 
 CONFLICT_BAD = "食い違いの申し出を受けない（名指した所が現物に無いか、形が違う。直して丸ごと出し直せ）: "
@@ -174,7 +182,8 @@ def _reject(reason: str) -> dict:
 
 def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     """食い違いの申し出（欄 conflicts）を外した返答と、拒否の文か止めた印。返り (返答, 結果 | None)。結果が None なら受け付けを続ける。
-    - 申し出が在れば機械が確かめる（conflict.problems: 形・今の直す義務の単位か・名指した所が現物に在るか）。外れれば普通の拒否
+    - 申し出が在れば機械が確かめる（conflict.problems: 形・今の直す義務の単位か・名指した所が現物に在るか・kind brief_vs_judgment
+      ならその単位の今の周の brief の行を名指すか（planbrief.by_unit_at））。外れれば普通の拒否
     - first: 通った申し出を盤面の控えに積み（拒否に数えない）、裁かれていない申し出が在れば（TDD の輪の分も）盤面に渡さずに
       {ok: true, parked: true, changes: []}（裁定の輪の後、2 回目の修正役が渡す）。返答は盤面の置き場に控える（PARKED_REPLY）
     - ruled: 裁定の後の新しい申し出は、裁定の輪がもう無いので機械が ask_human に裁いて積む（その単位を直した返答は
@@ -184,7 +193,8 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     b = entry.open_board(board)
     owed = conflict.owed_units_but_asked(b)
     if items:
-        bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed, try_query=querytest.judge_hits(b.record["units"]))
+        bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed, try_query=querytest.judge_hits(b.record["units"]),
+                                briefs=planbrief.by_unit_at(board))
         both = sorted({i.get("unit_key") for i in items if isinstance(i, dict)}
                       & {c.get("unit_key") for c in reply.get("changes") or [] if isinstance(c, dict)})
         if both:
@@ -198,12 +208,16 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
                                                           "by": "works:fix-accept"})
             conflict.write_rulings(b)
     if pass_ == "first" and conflict.unruled(b):
-        path = b.work(conflict.PARKED_REPLY)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps({**reply, "conflicts": items}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        _put_parked(b.work(conflict.PARKED_REPLY), {**reply, "conflicts": items})
         return reply, {"ok": True, "parked": True, "reason": "", "changes": []}
     return reply, None
+
+
+def _put_parked(path: Path, reply: dict) -> None:
+    """控えの返答（conflict.PARKED_REPLY）を書く（一時のファイルから置き換える）"""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(reply, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def check_writes(reply: dict, board: Path, base_rev: str, repo: Path, state: str) -> dict:
@@ -321,6 +335,40 @@ def drop_excused_units(reply: dict, keys: list, held: dict, board, base_rev, rep
     return _without_rows(reply, rest, mine, repo), patch, undo
 
 
+def revert_ruled_units(reply: dict, board, base_rev, repo, state):
+    """裁定の後の受け付け（pass ruled）: 控えの返答（conflict.PARKED_REPLY。1 回目に申し出を返した回の返答）の行のうち、裁定が
+    今は直す義務から外した単位（conflict.held_by_rulings。申し出の単位は控えの changes に無いので、fix_plan_item が止めた同じ
+    項目の単位）の直しを作業ツリーから戻し（drop_excused_units）、控えからその行を外す。返りは (戻した単位 {key: 理由}, 控えの
+    patch, 戻す手（直しと控えを元に戻す）) か None（控えが無い・戻す行が無い・戻すファイルを控えのほかの行か今の返答の行と
+    共有する）"""
+    b = entry.open_board(board)
+    path = b.work(conflict.PARKED_REPLY)
+    try:
+        parked = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    got = fix_unit_keys(parked, board)
+    if got is None:
+        return None
+    keys = got[0]
+    ruled = conflict.held_by_rulings(b)
+    held = {k: ruled[k] for k in keys if k in ruled}
+    now = [c for c in reply.get("changes") or [] if isinstance(c, dict)] if isinstance(reply, dict) else []
+    if not held or _files([c for c, k in zip(parked["changes"], keys) if k in held], repo) & _files(now, repo):
+        return None
+    dropped = drop_excused_units(parked, keys, held, board, base_rev, repo, state)
+    if dropped is None:
+        return None
+    rest, patch, undo_tree = dropped
+    saved = path.read_bytes()
+    _put_parked(path, rest)
+
+    def undo():
+        undo_tree()
+        path.write_bytes(saved)
+    return held, patch, undo
+
+
 def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     """輪の最後の回の拒否: 文が全部どれかの単位に結べ、止める単位のファイルをほかの単位と共有していなければ、その単位の直しを
     戻して（revert_units）ask_human に裁いて止め（conflict.park）、その行（と bash_writes の申告）を外した返答と、止める前に
@@ -340,7 +388,8 @@ def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     patch = revert_units(board, base_rev, repo, state, parked)
     for key in bound:
         why = " / ".join(bound[key])
-        conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": why, "which_is_right": "unknown"}],
+        conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": why, "which_is_right": conflict.UNKNOWN,
+                           "kind": conflict.NEEDS_CONTEXT}],
                       source="fix", ruling={"decision": conflict.ASK, "text": f"{BOUND_PARKED}{why}（戻した直しの控え {patch}）",
                                             "limits": [], "by": "works:fix-accept"})
     conflict.write_rulings(b)
@@ -379,10 +428,20 @@ def accept_fix(reply, board, base_rev, repo):
         return _reject(" / ".join(problems))
 
     allowed = conflict.ruled_test_limits(entry.open_board(board), rulings=pass_ == "ruled",
-                                         source=tddloop.frozen_source(state, repo)) if state else []
+                                         source=tddloop.frozen_source(state, repo),
+                                         skip_ids=tddloop.verified_rewrites(state)) if state else []
     frozen = tddloop.frozen_problems(state, repo, allowed)
     if frozen:
         return refuse(frozen)
+    got = revert_ruled_units(whole, board, base_rev, repo, state) if pass_ == "ruled" else None
+    if got is not None:   # 控えから行を外したので、通し直しの中ではもう当たらない
+        held, patch, undo = got
+        out = accept_fix(whole, board, base_rev, repo)
+        if out.get("ok") is True:
+            entry.open_board(board, allow_halted=True).trace(RULED_REVERTED_OP, node=recount.ROLE, excused=held, patch=patch)
+        else:
+            undo()
+        return out
     wrote = check_writes(reply, board, base_rev, repo, state)
     if wrote["problems"]:
         return refuse(wrote["problems"])

@@ -139,8 +139,8 @@ CORE_OVERRIDES = {
     "hook_evidence": (_hook_evidence_at_adapter,
                       "読んだ記録は盤面の隣でなく包みの置き場 adapter.reads_dir(run の worktree)/reads.jsonl に在る（Task 6 の直し 1）"),
     "_owed_units": (conflict.owed_units_but_asked,
-                    "食い違いの申し出を裁定役か機械が ask_human に裁いた単位は、直す義務から外す（最後の人の関所で人が決める。"
-                    "conflict.py）。関所に載せる問い（fork・escalate）の出どころ・depends は、答えるまで外し"
+                    "食い違いの申し出に直す裁定でない裁定（ask_human・fix_plan_item）を受けた単位は、直す義務から外す（ask_human は"
+                    "最後の人の関所で人が、fix_plan_item は次の run の修正案で決める。conflict.held_by_rulings）。関所に載せる問い（fork・escalate）の出どころ・depends は、答えるまで外し"
                     "（gatemarks.withheld）、修正前の関所で答えたら直す義務に戻す（gatemarks.returned）"),
     "_plan_gate_items": (gatemarks.plan_gate_items,
                          "決め手の出どころが在り undecided_because が空で柵の印の無い狭め・穴は、修正前の関所で人に聞かずに通し、"
@@ -363,7 +363,8 @@ def _tail(data: bytes) -> str:
     return "\n".join(text.splitlines()[-TAIL_LINES:])[-TAIL_BYTES:]
 
 
-def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path, *, launched: dict | None = None) -> dict:
+def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path, *, launched: dict | None = None,
+                          niced: bool = False) -> dict:
     """任せ先に落ちた CI の節に渡す素材 {"material": …} を組む（盤面なしで呼べる公開の口。線 B の申し送り 2）。
     test_cmd を tree_run.command_argv の形（direct か shell）で tree_run.slotted_run に走らせ（機械全体の試験の枠を通す・対象の根で・
     標準入力は空・環境は tree_run.outside_env。
@@ -371,7 +372,8 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
     detail はログの末尾（engine の段の末尾と同じ切り方）。起こせなければ（shell の先頭の語が tree_run.prove_launchable の証明を
     通らない回も）not_run。test_cmd が空なら走らせずに not_run。
     止められたら（tree_run.Stopped）捕まえない。launched（dict）を渡せば、起こす前に決めた起こし方を launched["how"] に置く
-    （返りの素材の形は変えない）"""
+    （返りの素材の形は変えない）。niced が真なら、起こすプロセス（枠の台本とその下の木）の優先度を nice -n 19 と同じだけ下げる
+    （TDD の輪の中の test_cmd。ADR 0071 の 3 の 1。argv・起こし方・起こせなさの証明は変えない）"""
     cmd = (test_cmd or "").strip()
     if not cmd:
         return {"material": {"status": "not_run", "reason": "テストのコマンド（test_cmd）が空で、走らせる物が無い"}}
@@ -383,10 +385,16 @@ def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.P
     with open(log_path, "wb") as f:
         try:
             code, _ = tree_run.slotted_run(argv, tree_run.outside_env(os.environ), stdin=subprocess.DEVNULL,
-                                           stdout=f, stderr=subprocess.STDOUT, cwd=str(repo))
+                                           stdout=f, stderr=subprocess.STDOUT, cwd=str(repo),
+                                           **({"preexec_fn": _nice19} if niced else {}))
         except OSError as e:
             return {"material": {"status": "not_run", "reason": f"{_launched(argv, how)} でテストのコマンドを起こせない: {e}"}}
     return _cmd_material(code, log_path, argv, how)
+
+
+def _nice19() -> None:
+    """子の中で exec の前に呼ぶ（Popen の preexec_fn）: nice -n 19 と同じだけ優先度を下げる"""
+    os.nice(19)
 
 
 def _launched(argv: list, how: str) -> str:

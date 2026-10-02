@@ -657,11 +657,15 @@ class TestDevShell(unittest.TestCase):
 
     def test_archon_sh_takes_borrowed_tools_from_the_users_config(self):
         """借りる物は、隔離の前の利用者の設定（CLAUDE_CONFIG_DIR、無ければ $HOME/.claude）に入れたプラグインから取る
-        （隔離した後の CLAUDE_CONFIG_DIR は選んだ物だけの設定で、利用者の物ではない）。記録の source がそこを指す"""
+        （隔離した後の CLAUDE_CONFIG_DIR は選んだ物だけの設定で、利用者の物ではない）。記録の source がそこを指す。
+        superpowers は works の写しから入れるので、利用者の設定を指さない"""
         from test_toolset import make_user_config
         result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        for name in ("superpowers", "coldwrite", "pr-review-toolkit"):
+        pin = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))["superpowers"]["pin"]
+        self.assertEqual(os.path.realpath(self.toolset_rec["superpowers"]["source"]),
+                         os.path.realpath(ROOT / ".shared" / "borrow" / "superpowers" / pin["version"]), self.toolset_rec)
+        for name in ("coldwrite", "pr-review-toolkit"):
             self.assertTrue(self.toolset_rec[name]["source"].startswith(str(self.user_cfg) + os.sep), self.toolset_rec[name])
         with tempfile.TemporaryDirectory() as home:
             dot = make_user_config(pathlib.Path(home) / ".claude")
@@ -675,20 +679,21 @@ class TestDevShell(unittest.TestCase):
         result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR="../user-claude-config",
                                             cwd_in_tmp="dev-home")
         self.assertEqual(result.returncode, 0, result.stderr)
-        for name in ("superpowers", "coldwrite", "pr-review-toolkit"):
+        for name in ("coldwrite", "pr-review-toolkit"):   # superpowers は works の写しから入れる
             src = self.toolset_rec[name]["source"]
             self.assertTrue(os.path.isabs(src), self.toolset_rec[name])
             self.assertTrue(os.path.realpath(src).startswith(os.path.realpath(self.user_cfg) + os.sep), self.toolset_rec[name])
 
     def test_archon_sh_stops_when_borrowed_tools_are_not_installed(self):
         """借りる物が利用者の設定に入っていなければ、1 物 1 行の理由と入れるコマンドを出して終了コード 2 で止まり、
-        Archon を起こさない（use.sh check・start も同じ所で止まる）"""
+        Archon を起こさない（use.sh check・start も同じ所で止まる）。superpowers は works の写しから入れるので、入れるコマンドを
+        出さない"""
         with tempfile.TemporaryDirectory() as empty:
             result, _, seen = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR=empty)
         self.assertEqual(result.returncode, 2, result.stderr)
-        for cmd in ("claude plugin install superpowers@superpowers-marketplace", "claude plugin install coldwrite@raiki61",
-                    "claude plugin install pr-review-toolkit@claude-plugins-official"):
+        for cmd in ("claude plugin install coldwrite@raiki61", "claude plugin install pr-review-toolkit@claude-plugins-official"):
             self.assertIn(cmd, result.stderr)
+        self.assertNotIn("superpowers@superpowers-marketplace", result.stderr)
         self.assertIsNone(seen, "止めるべき所で Archon を起こした")
 
     def test_archon_sh_stops_when_isolated_config_leaks_into_user_scope(self):
@@ -910,8 +915,10 @@ class TestDevShell(unittest.TestCase):
             "exit 0\n"
         )
         security, self.security_log = fake_security(tmp, keychain)
+        # 利用者の設定の置き場は一時の置き場（起動の時の toolset.py newer に利用者の本物の ~/.claude を読ませない）
         env = self._env(TMPDIR=str(tmp), WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
-                        CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true", **security)
+                        CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
+                        CLAUDE_CONFIG_DIR=str(tmp / "user-claude"), **security)
         env.pop("WORKS_DEV_NO_AUTH", None)
         env.pop("WORKS_DEV_ADAPTER", None)   # 既定（包みを通す）を見る。試験ごとに env_kw で渡す
         for name, value in env_kw.items():
@@ -1511,8 +1518,10 @@ class TestDevShell(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
             (tmp / "req.json").write_text("[]\n")
+            # 導く項目は設定の置き場の既定（~/.claude → default）から作るので、_dogfood の一時の CLAUDE_CONFIG_DIR を外す
+            # （HOME は fake_security の印の置き場なので、newer は利用者の本物の ~/.claude を読まない）
             result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
-                                               keychain={service: value}, CLAUDE_CODE_OAUTH_TOKEN=None)
+                                               keychain={service: value}, CLAUDE_CODE_OAUTH_TOKEN=None, CLAUDE_CONFIG_DIR=None)
             self.assertNotIn("認証が無い", result.stderr)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn((MARK_HOME, f"find-generic-password -s {service} -w"), security_calls(self.security_log))

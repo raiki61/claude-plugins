@@ -135,6 +135,7 @@ class TestSharedSource(unittest.TestCase):
                 text = (ROOT / rel).read_text(encoding="utf-8")
                 self.assertEqual(old.findall(text), [], "人への問い・疑いを rejudge_requested へ送る文が残った")
                 self.assertIn("which_is_right", text)
+                self.assertIn("needs_context", text)
 
     def test_every_rules_file_is_cut_into_sections(self):
         for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
@@ -707,7 +708,7 @@ class TestQueryConflictExit(unittest.TestCase):
     def item(self, **extra):
         return {"unit_key": self.KEY, "between": ["stats.py:3", "test_stats.py:2"],
                 "why_both_cannot_hold": "判定者の問い return lo は下限の枝の正しい return lo にも当たり、直しても件数が減らない",
-                "which_is_right": "query", **extra}
+                "which_is_right": "query", "kind": "query_hits_fixed", **extra}
 
     def test_query_conflict_needs_correct_lines(self):
         import conflict
