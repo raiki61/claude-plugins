@@ -61,9 +61,10 @@ G1_IMPL_REPORT = "ファイルに書かない。報告の全部を最後のメ�
 # 審査の前に修正役が走らせる差分のファイルのコマンド。{patch} は支度が決めた run ごとの置き場（盤面の隣の run-place。包みが
 # sandbox で書けるようにする所。盤面そのものは守る場所で書けない）の絶対パス（shell の字で囲んだ物）で、審査役の型の [DIFF_FILE]
 # も同じパス。リポジトリの根で、作業ツリーと base の差分と、未追跡の新しいファイルごとの全文の差分を書き、最後にそのパスを出す
-# （最後の git diff --no-index は差分が在ると 1 を返すので、echo で終えて 0 にする。修正役が Bash の失敗と読まない）
+# （最後の git diff --no-index は差分が在ると 1 を返すので、echo で終えて 0 にする。修正役が Bash の失敗と読まない）。最初の
+# git diff が落ちれば（base の版が無いなど）そこで 1 で終える（差分の無いファイルを審査役に渡さない）
 G1_PATCH = ('p={patch}; top="$(git rev-parse --show-toplevel)"; '
-            'git -C "$top" -c core.quotePath=false diff {base} > "$p"; '
+            'git -C "$top" -c core.quotePath=false diff {base} > "$p" || exit 1; '
             'git -C "$top" -c core.quotePath=false ls-files --others --exclude-standard | while IFS= read -r f; do '
             'git -C "$top" -c core.quotePath=false diff --no-index /dev/null "$f" >> "$p"; done; echo "$p"')
 G1_STEPS = (

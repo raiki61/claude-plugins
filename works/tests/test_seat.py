@@ -256,6 +256,10 @@ class G1Case(unittest.TestCase):
             for w in ("stats.py", "# 直した", "test_new.py", "def test_new"):
                 self.assertIn(w, text)
             self.assertEqual(git(repo, "rev-parse", "HEAD"), base, "commit しない")
+            bad = subprocess.run(["sh", "-c", seat.G1_PATCH.format(base="0" * 40, patch=shlex.quote(str(patch)))], cwd=repo,
+                                 capture_output=True, text=True, encoding="utf-8")
+            self.assertNotEqual(bad.returncode, 0, "base の版が無ければ差分のファイルを作れず、失敗で終わる")
+            self.assertNotIn(str(patch), bad.stdout)
 
     def test_g1_overrides_the_overlay_head_line(self):
         """読み替えの頭の行は『Agent で下請けを起こすなら、その prompt に unattended.md を Read せよと書け』と言う。g1 の修正役には

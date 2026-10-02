@@ -65,6 +65,17 @@ def tool(step, name, outcome="success"):
                      "data": {"tool_name": name, "duration_ms": 5, "tool_call_id": cid, "tool_outcome": outcome}})
 
 
+def agent_start(step):
+    """下請けが起きた印（task_activity の started・task_type local_agent。実物の archon.db の形）"""
+    return {"event_type": "task_activity", "step_name": step,
+            "data": {"task_id": f"a{next(_calls)}", "activity": "started", "description": "下請け", "task_type": "local_agent"}}
+
+
+def agent(step, outcome="success"):
+    """走った Agent の呼び出し（tool_called・tool_completed と、同じ節の local_agent の started）"""
+    return (*tool(step, "Agent", outcome), agent_start(step))
+
+
 def make_db(tmp, run="r1", events=(), status="completed", path=None):
     """Archon の 2 つの表（列は実物の名の一部）に 1 run を入れた db のパス。events の組（tuple）は平らにする"""
     db = pathlib.Path(path or tmp / "archon.db")
@@ -122,6 +133,15 @@ def make_board(tmp, shape="af", items=2, fixture="run-src", *, start=None, calls
     return board
 
 
+def accepted(board, whys):
+    """受け付けた回の束の帳面の skipped と、受け付けが盤面の trace に載せる確かめなかった理由（fixgates.unchecked と同じ決まり）"""
+    put(board / "r1" / fixgates.LEDGER, {"rows": [], "skipped": [{"pass": "first", "attempt": 1, "why": w} for w in whys]})
+    gaps = fixgates.unchecked_whys(whys)
+    if gaps:
+        with open(board / "trace.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"t": "x", "op": fixgates.SKIPPED_OP, "node": "fix", "why": gaps}, ensure_ascii=False) + "\n")
+
+
 def tdd_nodes(n):
     return [node("fixing__tdd-loop.tdd", ms=100, usd=0.01) for _ in range(n)]
 
@@ -158,13 +178,21 @@ class RowCase(unittest.TestCase):
         self.assertEqual(list(r["secs"]), ["fixing__fix-loop.fix"])
 
     def test_refused_call_is_not_contamination(self):
-        """柵が拒んだ呼び出しは skills: の一覧に残るので tool_called に出る（Task 2 の審査 M5）。完了の行の tool_outcome が error
-        なら refused に数え、混ざりに数えない。完了の行の無い呼び出しは走ったかを言えないので混ざりに数える"""
-        db = make_db(self.tmp, events=[tool("fixing__tdd-loop.tdd", "Skill", "error"), tool("fixing__fix-loop.fix", "Agent", "error"),
-                                       tool("fixing__fix-loop.fix", "Agent", None), tool("fixing__tdd-loop.tdd", "Read")])
+        """柵が拒んだ呼び出しは skills: の一覧に残るので tool_called に出る（Task 2 の審査 M5）。Skill は完了の行の tool_outcome が
+        error なら refused、完了の行の無い呼び出しは走ったかを言えないので混ざり。Agent は同じ節の local_agent の started が走った印で、
+        無ければ refused"""
+        db = make_db(self.tmp, events=[tool("fixing__tdd-loop.tdd", "Skill", "error"), tool("fixing__tdd-loop.tdd", "Skill", None),
+                                       tool("fixing__fix-loop.fix", "Agent", "error"), tool("fixing__fix-loop.fix", "Agent", None),
+                                       tool("fixing__tdd-loop.tdd", "Read")])
         r = self.row(db, make_board(self.tmp, shape="af"))
-        self.assertEqual(r["refused"], {"Skill": 1, "Agent": 1})
-        self.assertEqual(r["contamination"], {"Skill": 0, "Agent": 1})
+        self.assertEqual(r["refused"], {"Skill": 1, "Agent": 2})
+        self.assertEqual(r["contamination"], {"Skill": 1, "Agent": 0})
+
+    def test_agent_that_started_is_contamination_whatever_the_outcome(self):
+        """Agent の tool_outcome は下請けが走っても error になりうる。同じ節に local_agent の started が在れば走った物に数える"""
+        db = make_db(self.tmp, events=[agent("fixing__fix-loop.fix", "error")])
+        r = self.row(db, make_board(self.tmp, shape="af"))
+        self.assertEqual((r["contamination"]["Agent"], r["refused"]["Agent"]), (1, 0))
 
     def test_skill_that_ran_is_flagged_on_every_arm_but_g3(self):
         """柵（permissions.deny の Skill）が効くことはまだ実地で確かめていない（Task 3 の審査）。af・current・g1 の行で走った
@@ -172,7 +200,7 @@ class RowCase(unittest.TestCase):
         for shape, want in (("af", 1), ("current", 1), ("g1", 1), ("g3", 0)):
             with self.subTest(shape=shape):
                 db = make_db(self.tmp, run=f"r-{shape}", path=self.tmp / f"{shape}.db",
-                             events=[tool("fixing__tdd-loop.tdd", "Skill"), tool("fixing__fix-ruled-loop.fix-ruled", "Agent")])
+                             events=[tool("fixing__tdd-loop.tdd", "Skill"), agent("fixing__fix-ruled-loop.fix-ruled")])
                 r = self.row(db, make_board(self.tmp, shape=shape, name=f"art-{shape}"), run=f"r-{shape}")
                 self.assertEqual(r["contamination"]["Skill"], want)
                 self.assertEqual(r["contamination"]["Agent"], 0 if shape == "g1" else 1)
@@ -196,8 +224,10 @@ class RowCase(unittest.TestCase):
             f.write(json.dumps({"t": "x", "op": "done", "instance": "p3.delta_fix"}) + "\n")
         db = make_db(self.tmp, events=[*tdd_nodes(2), node("fixing__fix-loop.fix")])   # calls は 3 行・tdd の節は 2 回
         r = self.row(db, board)
-        self.assertEqual(r["redo"], {"fix_rejects": 2, "tdd_rejects": 1, "battery_rejects": 1, "delta_faces": 2, "refix_rounds": 1})
-        self.assertEqual(r["redo_total"], 7)
+        # 束の拒否も拒否の本文を書くので、fix_rejects は本文の数から束の回を引く（2 - 1）
+        self.assertEqual(r["redo"], {"fix_rejects": 1, "tdd_rejects": 1, "battery_rejects": 1, "delta_faces": 2, "refix_rounds": 1,
+                                     "subagent_redos": 0})
+        self.assertEqual(r["redo_total"], 6)
         self.assertEqual(r["rulings"], {"fix_test_scope": 1})
         self.assertEqual(r["divergences"], {"brief_vs_judgment": 1, "unkinded": 1})
         self.assertEqual(r["gate_misses"], 1)
@@ -241,17 +271,19 @@ class RowCase(unittest.TestCase):
         self.assertFalse(r["complete"])
 
     def test_red_green_checked(self):
-        """赤緑は束の帳面か受け付けの trace に飛ばした行が 1 つでも在れば偽。輪の状態が無い（実行器の無い run）も偽。平の run は
-        当てないので None（確かめたとは数えない）"""
+        """赤緑は受け付けた回の trace（fixgates.SKIPPED_OP）に飛ばした行が在れば偽。拒んだ回だけの帳面の skipped は数えない（受け付け
+        が受けた回だけを見る）。輪の状態が無い（実行器の無い run）も偽。平の run は当てないので None（確かめたとは数えない）"""
         self.assertIs(self.row(make_db(self.tmp), make_board(self.tmp, shape="g3"))["red_green_checked"], True)
         skipped = make_board(self.tmp, shape="g3", name="skipped")
-        put(skipped / "r1" / fixgates.LEDGER, {"rows": [], "skipped": [{"pass": "first", "attempt": 1, "why": fixgates.NO_SUITE}]})
+        accepted(skipped, [fixgates.NO_SUITE])
+        rejected = make_board(self.tmp, shape="g3", name="rejected")
+        put(rejected / "r1" / fixgates.LEDGER, {"rows": [], "skipped": [{"pass": "first", "attempt": 1, "why": fixgates.NO_SUITE}]})
         traced = make_board(self.tmp, shape="g1", name="traced")
         with open(traced / "trace.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"t": "x", "op": fixgates.SKIPPED_OP, "node": "fix", "why": ["実行器が走らない"]}) + "\n")
         no_suite = make_board(self.tmp, shape="af", tdd_state=False, name="nosuite")
         plain = make_board(self.tmp, shape="current", name="plain")
-        for n, (board, want) in enumerate(((skipped, False), (traced, False), (no_suite, False), (plain, None))):
+        for n, (board, want) in enumerate(((skipped, False), (rejected, True), (traced, False), (no_suite, False), (plain, None))):
             with self.subTest(board=board.parent.name):
                 got = self.row(make_db(self.tmp, path=self.tmp / f"{n}.db"), board)["red_green_checked"]
                 self.assertIs(got, want)
@@ -262,7 +294,7 @@ class RowCase(unittest.TestCase):
         for n, (why, want) in enumerate(((f"{fixgates.OUT_OF_DUTY}: 修正案の項目 2（単位 u2）", True), (fixgates.NO_SUITE, False))):
             with self.subTest(why=why[:20]):
                 board = make_board(self.tmp, shape="g3", name=f"skip-{n}")
-                put(board / "r1" / fixgates.LEDGER, {"rows": [], "skipped": [{"pass": "first", "attempt": 1, "why": why}]})
+                accepted(board, [why])
                 self.assertIs(self.row(make_db(self.tmp, path=self.tmp / f"s{n}.db"), board)["red_green_checked"], want)
 
     def test_g1_agent_without_subagent_writes_is_a_gap(self):
@@ -271,13 +303,37 @@ class RowCase(unittest.TestCase):
         board = make_board(self.tmp, shape="g1", calls=())
         log = adapter.writes_path(entry.open_board(board, allow_halted=True).state["inputs"]["cwd"], self.home)
         put(log, json.dumps({"tool_name": "declared", "path": "/x/a.py"}) + "\n")
-        db = make_db(self.tmp, events=[tool("fixing__fix-loop.fix", "Agent")])
+        db = make_db(self.tmp, events=[agent("fixing__fix-loop.fix")])
         gaps = self.row(db, board)["record_gaps"]
         self.assertEqual(len(gaps), 1, gaps)
         self.assertIn("agent_id", gaps[0])
         put(log, json.dumps({"tool_name": "Edit", "agent_id": "a1", "path": "/x/a.py"}) + "\n"
             + json.dumps({"tool_name": "declared", "path": "/x/b.py"}) + "\n")
         self.assertEqual(self.row(db, board)["record_gaps"], [])
+        log.unlink()   # 記録が無い（家を取り違えた・包みの無い起動）も黙って [] にしない
+        gaps = self.row(db, board)["record_gaps"]
+        self.assertEqual(len(gaps), 1, gaps)
+        self.assertIn("書き込みの記録が無い", gaps[0])
+
+    def test_g1_board_with_empty_units_has_no_lost_unit_gap(self):
+        """g1 は輪を回さず、輪の状態の units は空（tdd-start が元の結末だけを取る）。tdd の項目の単位の行が無いことを欠けにしない"""
+        board = make_board(self.tmp, shape="g1")
+        st = json.loads((board / "tdd-1" / "state.json").read_text(encoding="utf-8"))
+        put(board / "tdd-1" / "state.json", {**st, "units": {}})
+        self.assertEqual(self.row(make_db(self.tmp), board)["record_gaps"], [])
+
+    def test_g1_subagent_redos(self):
+        """g1 の下請けの作り直し: 修正役の節の local_agent の started のうち、項目ごとの 2 本（実装役と審査役）を超えた分の往復
+        （2 本で 1 回）。ほかの形は 0"""
+        for n, (starts, want) in enumerate(((4, 0), (7, 1), (9, 2))):
+            with self.subTest(starts=starts):
+                board = make_board(self.tmp, shape="g1", items=2, name=f"g1-{n}")
+                log = adapter.writes_path(entry.open_board(board, allow_halted=True).state["inputs"]["cwd"], self.home)
+                put(log, json.dumps({"tool_name": "Edit", "agent_id": "a1", "path": "/x/a.py"}) + "\n")
+                db = make_db(self.tmp, path=self.tmp / f"g1-{n}.db", events=[agent("fixing__fix-loop.fix") for _ in range(starts)])
+                r = self.row(db, board)
+                self.assertEqual(r["redo"]["subagent_redos"], want)
+                self.assertEqual(r["redo_total"], want)
 
     def test_unavailable_cost_of_an_ai_node_is_a_gap(self):
         db = make_db(self.tmp, events=[node("fixing__fix-loop.fix", usd=None)])
@@ -304,7 +360,7 @@ class RowCase(unittest.TestCase):
 # ---------------------------------------------------------------- 採否の決まり
 def valid_row(arm, fixture, **over):
     return {"run_id": f"{arm}-{fixture}", "shape": arm, "fixture": fixture, "complete": True, "items": 2,
-            "redo": {"fix_rejects": 1, "tdd_rejects": 1, "battery_rejects": 0, "delta_faces": 0, "refix_rounds": 0},
+            "redo": {"fix_rejects": 1, "tdd_rejects": 1, "battery_rejects": 0, "delta_faces": 0, "refix_rounds": 0, "subagent_redos": 0},
             "redo_total": 2, "cost_usd": {"fix_stage": 1.0, "fixing": 0.8}, "secs": {"fixing__fix-loop.fix": 10.0},
             "rulings": {}, "divergences": {}, "gate_misses": 0, "record_gaps": [], "contamination": {"Skill": 0, "Agent": 0},
             "refused": {"Skill": 0, "Agent": 0}, "red_green_checked": None if arm == "current" else True, **over}
@@ -318,10 +374,9 @@ def rows4(fixtures=("f1", "f2", "f3"), over=None):
 
 class VerdictCase(unittest.TestCase):
     def setUp(self):
-        for obj, name in ((report, "COST_FIELD_VERIFIED"), (reads, "EVENTS_VERIFIED")):   # 欄の形を確かめた後の判定（F21）
-            p = mock.patch.object(obj, name, True)
-            p.start()
-            self.addCleanup(p.stop)
+        p = mock.patch.dict(fixmeasure.FIELDS_CHECKED, dict.fromkeys(fixmeasure.FIELDS_CHECKED, True))   # 欄の形を確かめた後（F21）
+        p.start()
+        self.addCleanup(p.stop)
 
     def test_verdict_keeps_g3_when_not_worse(self):
         got = fixmeasure.verdict(rows4())
@@ -345,6 +400,12 @@ class VerdictCase(unittest.TestCase):
         got = fixmeasure.verdict(rows4(over={("g3", "f1"): {"gate_misses": 1}}))
         self.assertEqual(got["decision"], "switch_to_af")
         self.assertEqual(got["misses"]["g3"], 1)
+
+    def test_af_miss_keeps_g3_whatever_redo_and_cost(self):
+        """抜けの在る腕は既定にしない（決まり 3 が勝つ）。作り直しと費用の比べは抜けが 0 の腕どうしの間だけ"""
+        over = {("af", "f1"): {"gate_misses": 1}, **{("g3", f): {"redo_total": 5, "cost_usd": {"fix_stage": 3.0, "fixing": 3.0}}
+                                                     for f in ("f1", "f2", "f3")}}
+        self.assertEqual(fixmeasure.verdict(rows4(over=over))["decision"], "keep_g3")
 
     def test_verdict_both_missing_means_fix_gates_first(self):
         over = {("g3", "f1"): {"gate_misses": 1}, ("af", "f3"): {"gate_misses": 2}}
@@ -405,15 +466,26 @@ class VerdictCase(unittest.TestCase):
             self.assertIn(k, got["report_only"])
 
     def test_unverified_fields_make_it_incomplete(self):
-        """費用の欄・出来事の形を実物で確かめるまで（report.COST_FIELD_VERIFIED・reads.EVENTS_VERIFIED）判定は incomplete
-        （preflight F21）"""
-        with mock.patch.object(report, "COST_FIELD_VERIFIED", False):
+        """測る関数が頼る欄の形（FIELDS_CHECKED）を実物で確かめるまで判定は incomplete（preflight F21）。報告と読んだ証拠の印
+        （report.COST_FIELD_VERIFIED・reads.EVENTS_VERIFIED）は見ない"""
+        with mock.patch.dict(fixmeasure.FIELDS_CHECKED, {"local_agent_start": False}):
             got = fixmeasure.verdict(rows4())
-        self.assertEqual((got["decision"], got["unverified"]), ("incomplete", ["report.COST_FIELD_VERIFIED"]))
+        self.assertEqual((got["decision"], got["unverified"]), ("incomplete", ["local_agent_start"]))
+        with mock.patch.object(report, "COST_FIELD_VERIFIED", False), mock.patch.object(reads, "EVENTS_VERIFIED", False):
+            self.assertEqual(fixmeasure.verdict(rows4())["decision"], "keep_g3")
+
 
     def test_same_rows_same_output(self):
         self.assertEqual(json.dumps(fixmeasure.verdict(rows4()), ensure_ascii=False),
                          json.dumps(fixmeasure.verdict(rows4()), ensure_ascii=False))
+
+
+class FieldsCase(unittest.TestCase):
+    def test_fields_start_unchecked_and_say_what_to_look_at(self):
+        """欄の印は最初の試しの run で確かめるまで偽。docstring がどの印も、何を見て真にするかを名指す"""
+        self.assertEqual(fixmeasure.FIELDS_CHECKED, dict.fromkeys(("node_kind_cost", "tool_outcome_refusal", "local_agent_start"), False))
+        for k in fixmeasure.FIELDS_CHECKED:
+            self.assertIn(f"- {k}:", fixmeasure.__doc__)
 
 
 class MaintenanceCase(unittest.TestCase):
@@ -457,8 +529,22 @@ class CliCase(unittest.TestCase):
         self.assertEqual(json.loads(got.stdout)["decision"], "incomplete")
         self.assertEqual(tree_bytes(self.tmp), before)
 
+    def test_cli_adapter_home(self):
+        """--adapter-home で書き込みの記録の家を名指す（試しの run の家は殻の家の下で、測る側の env と違う）"""
+        board = make_board(self.tmp, shape="g1")
+        home = self.tmp / "run-home"
+        log = adapter.writes_path(entry.open_board(board, allow_halted=True).state["inputs"]["cwd"], home)
+        put(log, json.dumps({"tool_name": "declared", "path": "/x/a.py"}) + "\n")
+        db = make_db(self.tmp, events=[agent("fixing__fix-loop.fix")])
+        got = self.cli("row", "--adapter-home", home, db, "r1", board)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertIn("agent_id", " ".join(json.loads(got.stdout)["record_gaps"]))
+        got = self.cli("row", db, "r1", board)   # env の家（記録が無い）
+        self.assertIn("書き込みの記録が無い", " ".join(json.loads(got.stdout)["record_gaps"]))
+
     def test_cli_errors_exit_2(self):
-        for args in ((), ("row", self.tmp / "none.db", "r1", self.tmp), ("verdict", self.tmp / "none.jsonl"), ("nope",)):
+        for args in ((), ("row", self.tmp / "none.db", "r1", self.tmp), ("verdict", self.tmp / "none.jsonl"), ("nope",),
+                     ("row", "--adapter-home")):
             with self.subTest(args=args):
                 got = self.cli(*args)
                 self.assertEqual((got.returncode, got.stdout), (2, ""), got.stderr)

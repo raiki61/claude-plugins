@@ -1,11 +1,12 @@
 """works/dev/fixmeasure.py — 修正の形の腕ごとの測りと採否の判定（計画 220 Task 8。開発の殻。読むだけで何も書かない）。
 
-  python3 fixmeasure.py row <archon.db> <run_id> <盤面>   1 run の行（JSON の 1 行）
+  python3 fixmeasure.py row [--adapter-home <包みの家>] <archon.db> <run_id> <盤面>   1 run の行（JSON の 1 行）
   python3 fixmeasure.py verdict <行の jsonl>             採否の判定（JSON）
   python3 fixmeasure.py maintenance                      腕ごとの保守量（JSON）
 
 誤り（引数・db が開けない・run が無い・jsonl が読めない）は標準エラーに 1 行で 2、ほかは 0。網に出ない。時刻を入れず、辞書は
-書いた順（同じ入力なら同じ出力）。
+書いた順（同じ入力なら同じ出力）。--adapter-home は run の包みの家（書き込みの記録 writes.jsonl の置き場の根。試しの run は
+殻の家の下の家を使い、測る側の env の WORKS_ADAPTER_HOME と違う）。盤面も Archon も家を書かないので、省けば測る側の env の家。
 
 語:
 - 腕: 修正の形（fixshape.SHAPES の current・af・g3・g1）ごとの run。固定材料: 同じ依頼を同じ所から始める盤面の写し
@@ -14,28 +15,46 @@
   （輪の節 loop_group の node_completed は中の AI の節の費用の和を持つので、足すと 2 重になる。実物の archon.db で見た）。
 - 混ざり（contamination）: 修正の工程の節の tool_called のうち、その形でその節に拒む道具（fixshape.denied_tools。節は
   step_name の最後の区切り）の呼び出しで、走った物。柵が拒んだ呼び出しも skills: の一覧に残るので tool_called に出る（Task 2 の
-  審査 M5）。同じ tool_call_id の tool_completed の tool_outcome が REFUSED（error）なら refused に数え、混ざりにしない。完了の行
-  の無い呼び出しは走ったかを言えないので混ざりに数える。permissions.deny の素の Skill・Agent が実地で拒むかはまだ確かめていない
-  （Task 3 の審査）——af・current・g1 の行で走った Skill は混ざりに出る（最初の試しの run で refused に出るかを見る）。
+  審査 M5）。走ったかの見分けは道具ごと:
+  - Skill: 同じ tool_call_id の tool_completed の tool_outcome が REFUSED（error）なら refused に数え、混ざりにしない。完了の行の
+    無い呼び出しは走ったかを言えないので混ざりに数える。
+  - Agent: tool_outcome は下請けが走っても error になりうるので見ない。同じ節の task_activity の started・task_type LOCAL_AGENT
+    （下請けが起きた印）の数までを走った物、残りを refused に数える。
+  permissions.deny の素の Skill・Agent が実地で拒むかはまだ確かめていない（Task 3 の審査）——af・current・g1 の行で走った Skill
+  は混ざりに出る（最初の試しの run で refused に出るかを見る。下の FIELDS_CHECKED）。
 - 記録の欠け（record_gaps）: 盤面を開けない・形の控えが読めない・start の控えに fix_shape が無い（前の版の盤面。形は af と読む）・
   tdd の節の node_completed の数と輪の calls の行の数が違う・tdd の項目の単位（輪に渡した単位のうち）に輪の単位の行が無い（g1 は
   輪を回さないので見ない）・平の run でないのに修正案の欄が在って brief の控えが無い・修正の工程の AI の節の費用が取れない・g1 で
   Agent が走ったのに書き込みの記録に下請けの行（agent_id）が無く、申告（bash_writes。記録の declared の行）だけが在る（フックの
-  欠けを自己申告が隠した疑い。Task 7 の審査 M1）。
+  欠けを自己申告が隠した疑い。Task 7 の審査 M1）・g1 で Agent が走ったのに書き込みの記録が無い（家の取り違えか包みの無い起動。
+  黙って空にしない）。g1 の「Agent が走った」は修正役の節の LOCAL_AGENT の started の数。
 - 作り直し（redo）: fix_rejects は修正の受け付け（fix-accept・fix-ruled-accept。どちらも accept_fix）の拒否の本文のファイル
-  FIX_REJECTS の数（修正の受け付けは role-rejects.json を書かない）、tdd_rejects は輪の calls の ok が偽の行、battery_rejects は
+  FIX_REJECTS の数（修正の受け付けは role-rejects.json を書かない）から battery_rejects を引いた物（束の拒否も同じ本文を書くので
+  2 重に数えない）、tdd_rejects は輪の calls の ok が偽の行、battery_rejects は
   束の行の在る受け付けの回（周・pass・attempt。preflight F23）、delta_faces は差分の審査（p3.delta_review・p3.delta_review2）が
-  受け付けた穴、refix_rounds は手直し（report.REFIX_NODES）を受け付けた回（盤面の trace の done の行）。
-- red_green_checked: 束の帳面の skipped のうち確かめなかった理由（fixgates.unchecked_whys。受け付けの trace と同じ決まりで、
-  義務の外の項目の OUT_OF_DUTY は除く）か受け付けの trace（fixgates.SKIPPED_OP）に行が 1 つでも在るか、輪の状態が無い（実行器の
-  無い run）なら偽。平の run（current）は束が赤緑を当てないので None（当てない。確かめたとは数えない）。
+  受け付けた穴、refix_rounds は手直し（report.REFIX_NODES）を受け付けた回（盤面の trace の done の行）、subagent_redos は g1 の
+  下請けの作り直しの往復（修正役の節の LOCAL_AGENT の started のうち、項目ごとの 2 本（実装役と審査役）を超えた分を 2 本で 1 回。
+  g1 の作り直しは修正役の中で回り、ほかの形の拒否の数に出ないので、比べを揃える。ほかの形は 0）。
+- red_green_checked: 受け付けが受けた回に確かめなかった理由を載せる盤面の trace（fixgates.SKIPPED_OP。fixgates.unchecked の
+  決まりで、義務の外の項目の OUT_OF_DUTY は除く）に行が 1 つでも在るか、輪の状態が無い（実行器の無い run）なら偽。拒んだ回の
+  帳面の skipped は数えない（受け付けが受けた回だけを見る）。平の run（current）は束が赤緑を当てないので None（当てない。確かめたとは数えない）。
 
 比べの条件（計画の採否の決まりの 6）: current の腕は修正の段に修正案の欄を渡さないので、束の test_edits も修正案の書き換えの
 名指し（rewrite_tests）を許しにしない（fixgates。preflight F15）。要る既存テストの書き換えは current では抜けに数えられうる。
 vs_current は報告だけで決定に使わない。
 
-判定の前提（preflight F21）: 費用の欄（report.COST_FIELD_VERIFIED）と出来事の形（reads.EVENTS_VERIFIED）を実物で確かめるまで、
-verdict は incomplete を返し、確かめていない物を unverified に名指す。
+判定の前提（preflight F21）: 測る関数が頼る欄の形（FIELDS_CHECKED）を最初の試しの run（af と g1 を 1 本ずつ）の実物で確かめる
+まで、verdict は incomplete を返し、確かめていない印を unverified に名指す。報告と読んだ証拠の印（report.COST_FIELD_VERIFIED・
+reads.EVENTS_VERIFIED）とは別の表（あちらは別の物を見る）。各印を真にする前に見る物:
+- node_kind_cost: af の run の archon.db で、修正の工程の AI の節（fixing__fix-loop.fix など）の node_completed の data.node.kind が
+  agent で、data.spend.costUsd が {source: provider, value: 数} であること。輪の節（fixing__fix-loop など）は kind が loop_group
+  で、その費用が中の AI の節の費用の和であること（足していないことの根拠）。同じ節を 2 回起こした run（受け付けの出し直し）で、
+  2 回目の costUsd が 1 回分（累積でない）であること。
+- tool_outcome_refusal: af の run の TDD の役（fixing__tdd-loop.tdd）が Skill を呼んだなら、その tool_called と同じ
+  tool_call_id の tool_completed の tool_outcome が error であること（柵が拒んだ呼び出しの記録の形）。呼ばなかった run では
+  真にしない（別の run で確かめる）。
+- local_agent_start: g1 の run の修正役（fixing__fix-loop.fix）が Agent を呼んだ回ごとに、同じ step_name の task_activity に
+  activity started・task_type local_agent の行が 1 行出ること。下請けの起動の数と started の行の数が合うこと。
 """
 from __future__ import annotations
 
@@ -59,7 +78,6 @@ import fixgates  # noqa: E402
 import fixshape  # noqa: E402
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
-import reads  # noqa: E402
 import report  # noqa: E402
 import script_io  # noqa: E402
 import seat  # noqa: E402
@@ -79,6 +97,9 @@ TOOLS = ("Skill", "Agent")
 UNKINDED = "unkinded"                  # 種類の無い申し出（211 の前の形。conflict.UNSET の数）
 DECISIONS = ("keep_g3", "switch_to_af", "fix_gates_first", "incomplete")
 METRICS = ("redo_per_item", "cost_per_item")
+LOCAL_AGENT = "local_agent"            # task_activity の task_type のうち下請け（Agent）の起動
+# 測る関数が頼る欄の形の印（最初の試しの run で確かめたら真にする。何を見るかはモジュールの頭）。偽が 1 つでも在れば verdict は incomplete
+FIELDS_CHECKED = {"node_kind_cost": False, "tool_outcome_refusal": False, "local_agent_start": False}
 
 
 # ---------------------------------------------------------------- Archon の出来事
@@ -136,19 +157,31 @@ def _spend(events: list) -> tuple[dict, dict, list]:
 
 
 def _tool_calls(events: list, shape: str) -> tuple[dict, dict, int]:
-    """(混ざり {Skill, Agent}, 拒まれた呼び出し {Skill, Agent}, 修正役の節で走った Agent の数)"""
+    """(混ざり {Skill, Agent}, 拒まれた呼び出し {Skill, Agent}, 修正役の節で起きた下請けの数)。走ったかの見分けはモジュールの頭"""
     outcome = {e["data"].get("tool_call_id"): e["data"].get("tool_outcome") for e in events
                if e["event_type"] == "tool_completed" and e["data"].get("tool_call_id")}
-    ran, refused, agents = dict.fromkeys(TOOLS, 0), dict.fromkeys(TOOLS, 0), 0
+    starts, asked = {}, {}   # 節（step_name）ごとの下請けの起動の印の数・拒む Agent の呼び出しの数
+    for e in events:
+        if (e["event_type"] == "task_activity" and _in_stage(e) and e["data"].get("activity") == "started"
+                and e["data"].get("task_type") == LOCAL_AGENT):
+            starts[e["step_name"]] = starts.get(e["step_name"], 0) + 1
+    ran, refused = dict.fromkeys(TOOLS, 0), dict.fromkeys(TOOLS, 0)
     for e in events:
         if e["event_type"] != "tool_called" or not _in_stage(e):
             continue
-        name, node = e["data"].get("tool_name"), _node(e)
-        went = outcome.get(e["data"].get("tool_call_id")) != REFUSED
-        if name == "Agent" and node in fixshape.AGENT_NODES and went:
-            agents += 1
-        if name in fixshape.denied_tools(shape, node):
-            (ran if went else refused)[name] += 1
+        name = e["data"].get("tool_name")
+        if name not in fixshape.denied_tools(shape, _node(e)):
+            continue
+        if name == "Agent":
+            asked[e["step_name"]] = asked.get(e["step_name"], 0) + 1
+        else:
+            (ran if outcome.get(e["data"].get("tool_call_id")) != REFUSED else refused)[name] += 1
+    for step, n in asked.items():
+        went = min(n, starts.get(step, 0))
+        ran["Agent"] += went
+        refused["Agent"] += n - went
+    agents = sum(n for step, n in starts.items()
+                 if step.startswith(FIX_STAGE[0]) and report._step_name(step) in fixshape.AGENT_NODES)
     return ran, refused, agents
 
 
@@ -195,15 +228,14 @@ def _states(board: pathlib.Path, gaps: list) -> list:
     return out
 
 
-def _ledgers(rounds: list, gaps: list) -> tuple[list, list]:
-    """束の帳面の (行 [(周, 行)], skipped の行) を周の順に"""
-    rows, skipped = [], []
+def _ledgers(rounds: list, gaps: list) -> list:
+    """束の帳面の行 [(周, 行)] を周の順に"""
+    rows = []
     for r in rounds:
         doc = _json(r.work(fixgates.LEDGER), gaps, "束の帳面")
         if isinstance(doc, dict):
             rows += [(r.round, x) for x in doc.get("rows") or [] if isinstance(x, dict)]
-            skipped += [x for x in doc.get("skipped") or [] if isinstance(x, dict)]
-    return rows, skipped
+    return rows
 
 
 def _faces(board: pathlib.Path, gaps: list) -> int:
@@ -239,14 +271,16 @@ def _rulings(rounds: list, gaps: list) -> tuple[dict, dict]:
             dict(sorted(kinds.items(), key=lambda kv: (korder.get(kv[0], len(korder)), kv[0]))))
 
 
-def _writes_rows(b, home) -> list:
+def _writes_rows(b, home) -> tuple[pathlib.Path | None, list | None]:
+    """(書き込みの記録のパス, 行)。run の作業ツリーが盤面に無ければ (None, None)、記録が読めなければ (パス, None)"""
     cwd = (b.state.get("inputs") or {}).get("cwd")
     if not cwd:
-        return []
+        return None, None
+    path = adapter.writes_path(cwd, home)
     try:
-        lines = adapter.writes_path(cwd, home).read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return []
+        return path, None
     out = []
     for line in lines:
         try:
@@ -255,12 +289,13 @@ def _writes_rows(b, home) -> list:
             continue
         if isinstance(row, dict):
             out.append(row)
-    return out
+    return path, out
 
 
 def _empty_board() -> dict:
     return {"report": False, "items": 0,
-            "redo": {"fix_rejects": 0, "tdd_rejects": 0, "battery_rejects": 0, "delta_faces": 0, "refix_rounds": 0},
+            "redo": {"fix_rejects": 0, "tdd_rejects": 0, "battery_rejects": 0, "delta_faces": 0, "refix_rounds": 0,
+                     "subagent_redos": 0},
             "rulings": {}, "divergences": {}, "gate_misses": 0, "red_green": False, "tdd_calls": 0}
 
 
@@ -289,26 +324,32 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, ho
     if not plain and fields and not any(r.work(planbrief.LEDGER).is_file() for r in rounds):
         gaps.append("平の run でないのに修正案の欄が在って brief の控え（briefs.json）が無い")
     if shape == seat.G1_SHAPE and agents:
-        rows = _writes_rows(b, home)
-        if not any(r.get("agent_id") for r in rows) and any(r.get("tool_name") == "declared" for r in rows):
+        path, rows = _writes_rows(b, home)
+        if rows is None:
+            gaps.append(f"g1 で Agent が {agents} 回走ったのに書き込みの記録が無い（{path or '盤面に run の作業ツリーが無い'}。"
+                        "--adapter-home で run の包みの家を名指す）")
+        elif not any(r.get("agent_id") for r in rows) and any(r.get("tool_name") == "declared" for r in rows):
             gaps.append(f"g1 で Agent が {agents} 回走ったのに、書き込みの記録に下請けの行（agent_id）が無く申告（bash_writes）"
                         "だけが在る（フックの欠けを自己申告が隠した疑い）")
-    rows, skipped = _ledgers(rounds, gaps)
-    out["items"] = len(fields) if fields else len(asked)
-    out["redo"] = {"fix_rejects": len(list(board.glob(FIX_REJECTS))),
+    rows = _ledgers(rounds, gaps)
+    items = len(fields) if fields else len(asked)
+    battery = len({(n, r.get("pass"), r.get("attempt")) for n, r in rows})
+    out["items"] = items
+    out["redo"] = {"fix_rejects": max(0, len(list(board.glob(FIX_REJECTS))) - battery),
                    "tdd_rejects": sum(1 for c in calls if c.get("ok") is False),
-                   "battery_rejects": len({(n, r.get("pass"), r.get("attempt")) for n, r in rows}),
+                   "battery_rejects": battery,
                    "delta_faces": _faces(board, gaps),
-                   "refix_rounds": sum(1 for r in report.trace_rows(b, "done") if r.get("instance") in report.REFIX_NODES)}
+                   "refix_rounds": sum(1 for r in report.trace_rows(b, "done") if r.get("instance") in report.REFIX_NODES),
+                   "subagent_redos": max(0, agents - 2 * items) // 2 if shape == seat.G1_SHAPE else 0}
     out["rulings"], out["divergences"] = _rulings(rounds, gaps)
     out["gate_misses"] = len(rows)
-    unchecked = fixgates.unchecked_whys(x.get("why") for x in skipped)
-    out["red_green"] = None if plain else bool(states) and not unchecked and not report.trace_rows(b, fixgates.SKIPPED_OP)
+    out["red_green"] = None if plain else bool(states) and not report.trace_rows(b, fixgates.SKIPPED_OP)
     return out
 
 
 def row(db, run_id: str, board, *, adapter_home=None) -> dict:
-    """1 run の行（モジュールの頭の語）。adapter_home は書き込みの記録の置き場の家（省けば包みの既定の家。adapter.home）"""
+    """1 run の行（モジュールの頭の語）。adapter_home は書き込みの記録の置き場の家（省けば包みの既定の家。adapter.home）。
+    腕を回したのと同じ works の木（同じ commit）から測る（盤面を開く表の sha・形の語・保守量は測る側の works から読む）"""
     board = pathlib.Path(board)
     status, events = _events(db, run_id)
     gaps = []
@@ -403,8 +444,7 @@ def _sum_dicts(ds) -> dict:
 def verdict(rows: list[dict]) -> dict:
     """計画の「採否の決まり」のとおりに判じる。返り {decision, missing, invalid, per_item, misses, import_from_g1, vs_current,
     report_only, fixtures, unverified}。同じ（腕・固定材料）に有効な行が 2 つ在れば後の行（回し直し）を使う"""
-    unverified = [n for n, ok in (("report.COST_FIELD_VERIFIED", report.COST_FIELD_VERIFIED),
-                                  ("reads.EVENTS_VERIFIED", reads.EVENTS_VERIFIED)) if not ok]
+    unverified = [k for k, ok in FIELDS_CHECKED.items() if not ok]
     fixtures = sorted({r.get("fixture") for r in rows if r.get("fixture")})
     invalid, valid = [], {}
     for r in rows:
@@ -426,7 +466,9 @@ def verdict(rows: list[dict]) -> dict:
         g3, af = per_item["g3"], per_item["af"]
         if misses["g3"] and misses["af"]:
             decision = "fix_gates_first"
-        elif not misses["g3"] and _le(g3["redo"], af["redo"]) and _le(g3["cost"], COST_MARGIN * af["cost"]):
+        elif misses["g3"] or misses["af"]:   # 抜けの在る腕は既定にしない（決まり 3）。比べは抜けが 0 の腕どうしだけ
+            decision = "switch_to_af" if misses["g3"] else "keep_g3"
+        elif _le(g3["redo"], af["redo"]) and _le(g3["cost"], COST_MARGIN * af["cost"]):
             decision = "keep_g3"
         else:
             decision = "switch_to_af"
@@ -453,7 +495,7 @@ def verdict(rows: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------- 入口
-USAGE = ("usage: fixmeasure.py row <archon.db> <run_id> <盤面> | verdict <行の jsonl> | maintenance")
+USAGE = ("usage: fixmeasure.py row [--adapter-home <包みの家>] <archon.db> <run_id> <盤面> | verdict <行の jsonl> | maintenance")
 
 
 def _read_rows(path) -> list[dict]:
@@ -469,11 +511,14 @@ def _read_rows(path) -> list[dict]:
 
 
 def main(argv: list[str]) -> int:
+    home = None
+    if argv[:2] == ["row", "--adapter-home"] and len(argv) >= 3:
+        home, argv = argv[2], ["row", *argv[3:]]
     try:
         if argv[:1] == ["row"] and len(argv) == 4:
             if not pathlib.Path(argv[1]).is_file():
                 raise ValueError(f"archon.db {argv[1]} が無い")
-            out = json.dumps(row(argv[1], argv[2], argv[3]), ensure_ascii=False)
+            out = json.dumps(row(argv[1], argv[2], argv[3], adapter_home=home), ensure_ascii=False)
         elif argv[:1] == ["verdict"] and len(argv) == 2:
             out = json.dumps(verdict(_read_rows(argv[1])), ensure_ascii=False, indent=1)
         elif argv == ["maintenance"]:

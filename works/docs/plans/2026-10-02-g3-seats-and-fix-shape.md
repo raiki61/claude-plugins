@@ -118,7 +118,7 @@ Task 8 の `fixmeasure.verdict` がこの決まりをそのまま実装し、試
    - g3 の抜けが 0。
    - `redo_per_item(g3) <= redo_per_item(af)`。
    - `cost_per_item(g3) <= COST_MARGIN * cost_per_item(af)`。`COST_MARGIN = 1.10`。
-   g3 と af の両方に抜けが在れば `fix_gates_first`（強みの関門に穴が在る。採否より先に直す）。
+   g3 と af の両方に抜けが在れば `fix_gates_first`（強みの関門に穴が在る。採否より先に直す）。作り直しと費用の比べは抜けが 0 の腕どうしの間だけに当てる（3 が勝つ）: af だけに抜けが在れば、作り直しと費用に依らず `keep_g3`。
 5. g1: 既定にはしない（■8）。g1 の抜けが 0 で、勝った腕（4 の結果）に対して作り直しが少ないか、費用が `G1_MARGIN = 0.90` 倍以下なら、勝った指標の名を `import_from_g1` に並べる。G3 の節に取り込む次の依頼の種にする。
 6. current: 比べの基準。勝った腕と current の差を指標ごとに `vs_current` に出すだけで、決定には使わない。比べの条件: current は修正の段に修正案の欄を渡さないので、束の test_edits も修正案の書き換えの名指し（`rewrite_tests`）を許しにしない（preflight F15）。要る既存テストの書き換えは current では抜けに数えられうる。current の行の `red_green_checked` は当てない（None）で、有効な行のまま。
 7. 報告だけの値（決定に使わない）: 修正の工程の AI の節の時間・裁定と申し出の件数と種類・保守量・修正だけ（`fixing__`）の費用。
@@ -679,21 +679,21 @@ git commit -m "feat(works): 修正の形 g1 では TDD の輪を飛ばし、修�
   - `FIX_STAGE = ("fixing__", "reviewing__", "refixing__")`・`MIN_FIXTURES = 3`・`COST_MARGIN = 1.10`・`G1_MARGIN = 0.90`
   - `row(db: pathlib.Path, run_id: str, board: pathlib.Path, *, adapter_home=None) -> dict` — 1 run の行（run が db に無ければ ValueError）:
     - `run_id`・`shape`・`fixture`（`source_run` か `""`）・`complete: bool`・`items`（欄の項目の数。欄が無ければ直す義務の単位の数）
-    - `redo`: `{fix_rejects, tdd_rejects, battery_rejects, delta_faces, refix_rounds}` と `redo_total`
-      - fix_rejects は修正の受け付けの拒否の本文のファイルの数、tdd_rejects は 219 の `calls` の `ok: false` の行、battery_rejects は束の行の在る受け付けの回、delta_faces は差分の審査が受け付けた穴、refix_rounds は手直しの往復
+    - `redo`: `{fix_rejects, tdd_rejects, battery_rejects, delta_faces, refix_rounds, subagent_redos}` と `redo_total`
+      - fix_rejects は修正の受け付けの拒否の本文のファイルの数から battery_rejects を引いた物（束の拒否も本文を書くので 2 重に数えない）、tdd_rejects は 219 の `calls` の `ok: false` の行、battery_rejects は束の行の在る受け付けの回、delta_faces は差分の審査が受け付けた穴、refix_rounds は手直しの往復、subagent_redos は g1 の下請けの作り直し（修正役の節の local_agent の started のうち項目ごとの 2 本を超えた分を 2 本で 1 回。ほかの形は 0）
     - `cost_usd: {fix_stage, fixing}`（FIX_STAGE の頭の AI の節の費用の和と、`fixing__` だけの和）
     - `secs: {step_name: 秒}`（FIX_STAGE の頭の AI の節。秒は小数 1 桁）
     - `rulings: {裁定の語: 件}`・`divergences: {種類: 件}`（211 の前は種類の無い申し出を `"unkinded"` に数える）
     - `gate_misses`（束の行の数）
     - `record_gaps: list[str]`（例: tdd の節の `node_completed` の数と `calls` の行の数が違う・tdd の項目の単位に輪の単位の行が無い・平の run でないのに修正案の欄が在って brief の控えが無い・start の控えに `fix_shape` が無い・AI の節の費用が取れない・盤面を開けない・g1 で Agent が走ったのに書き込みの記録に `agent_id` の行が無く申告 `declared` だけが在る（Task 7 の審査 M1））
-    - `contamination: {"Skill": 件, "Agent": 件}`（FIX_STAGE の節の `tool_called` のうち、その形で拒む道具。`fixshape.denied_tools` と同じ表で、`step_name` の最後の区切りを印の節の名として見る）で、走った物。同じ `tool_call_id` の `tool_completed` の `tool_outcome` が `error` の呼び出しは柵が拒んだ物として `refused: {"Skill": 件, "Agent": 件}` に数える（拒んだ呼び出しも skills: の一覧に残るので tool_called に出る。Task 2 の審査 M5）。素の `Skill`・`Agent` の deny が実地で拒むかは未確認（Task 3 の審査）——af・current・g1 の行で走った Skill は混ざりに出る
-    - `red_green_checked: bool | None`（束の帳面の `skipped` のうち `fixgates.unchecked_whys` が残す理由（受け付けの trace と同じ決まり。義務の外の項目の OUT_OF_DUTY は除く）か受け付けの trace の `fixgates.SKIPPED_OP` に行が 1 つでも在るか、輪の状態が無ければ偽。平の run は当てないので None）
+    - `contamination: {"Skill": 件, "Agent": 件}`（FIX_STAGE の節の `tool_called` のうち、その形で拒む道具。`fixshape.denied_tools` と同じ表で、`step_name` の最後の区切りを印の節の名として見る）で、走った物。Skill は同じ `tool_call_id` の `tool_completed` の `tool_outcome` が `error` の呼び出しを、Agent は同じ節の `task_activity` の started・`local_agent` の数を超えた呼び出しを、柵が拒んだ物として `refused: {"Skill": 件, "Agent": 件}` に数える（Agent の tool_outcome は下請けが走っても error になりうる）（拒んだ呼び出しも skills: の一覧に残るので tool_called に出る。Task 2 の審査 M5）。素の `Skill`・`Agent` の deny が実地で拒むかは未確認（Task 3 の審査）——af・current・g1 の行で走った Skill は混ざりに出る
+    - `red_green_checked: bool | None`（受け付けが受けた回の trace の `fixgates.SKIPPED_OP`（`fixgates.unchecked` の決まり。義務の外の項目の OUT_OF_DUTY は除く）に行が 1 つでも在るか、輪の状態が無ければ偽。拒んだ回の帳面の skipped は数えない。平の run は当てないので None）
   - `maintenance(root: pathlib.Path) -> dict[str, int]` — 腕ごとの、その腕で読む文の行の数。
     - own: 修正の工程の works の決まりのファイル（`blk-fix/rules/*.md`・`blk-delta/commands/delta-review.md`・`blk-refix/rules/*.md`）。current と af は own。
     - g3: own と、座の節の `seams.json` の項目と `unattended.md` の行。
     - g1: own と、implementer・task-review の部品と `seat.G1_HEAD` の節の行。
-  - `verdict(rows: list[dict]) -> dict` — 上の「採否の決まり」のとおり。返り `{"decision": "keep_g3" | "switch_to_af" | "fix_gates_first" | "incomplete", "missing": [[腕, 固定材料]], "invalid": [[run_id, 理由]], "per_item": {腕: {redo, cost}}, "misses": {腕: 件}, "import_from_g1": [指標], "vs_current": {指標: 差}, "report_only": {...}, "fixtures": [固定材料], "unverified": [確かめていない欄の印]}`。`report.COST_FIELD_VERIFIED`・`reads.EVENTS_VERIFIED` が偽の間は `incomplete`（preflight F21。試しの前に 1 本の run で欄の形を確かめて真にする）
-  - CLI: `python3 works/dev/fixmeasure.py row <archon.db> <run_id> <盤面>`（JSON の 1 行）・`verdict <行の jsonl>`（JSON）・`maintenance`（JSON）。誤りは 2、ほかは 0
+  - `verdict(rows: list[dict]) -> dict` — 上の「採否の決まり」のとおり。返り `{"decision": "keep_g3" | "switch_to_af" | "fix_gates_first" | "incomplete", "missing": [[腕, 固定材料]], "invalid": [[run_id, 理由]], "per_item": {腕: {redo, cost}}, "misses": {腕: 件}, "import_from_g1": [指標], "vs_current": {指標: 差}, "report_only": {...}, "fixtures": [固定材料], "unverified": [確かめていない欄の印]}`。測る関数の欄の形の印 `FIELDS_CHECKED`（`node_kind_cost`・`tool_outcome_refusal`・`local_agent_start`）が 1 つでも偽の間は `incomplete`（preflight F21。最初の af と g1 の試しの run で、モジュールの docstring が名指す物を見て真にする。報告の印 `report.COST_FIELD_VERIFIED`・`reads.EVENTS_VERIFIED` とは別）
+  - CLI: `python3 works/dev/fixmeasure.py row [--adapter-home <包みの家>] <archon.db> <run_id> <盤面>`（JSON の 1 行。腕を回したのと同じ works の木から測る。g1 で下請けが走ったのに書き込みの記録が無ければ記録の欠け）・`verdict <行の jsonl>`（JSON）・`maintenance`（JSON）。誤りは 2、ほかは 0
 
 - [ ] **Step 1: 落ちる試験を書く**
 
