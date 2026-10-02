@@ -1447,7 +1447,7 @@ class TestRefactorGate(LoopCase):
     def test_calls_mark_passed_conflict(self):
         got = self.step({"phase": "conflict", "unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"],
                          "why_both_cannot_hold": "テストは分母 len(xs) - 1 の値を期待しているが、依頼は算術平均を求めている",
-                         "which_is_right": "request"})
+                         "which_is_right": "request", "kind": "unnamed_test_broke"})
         self.assertTrue(got["ok"], got)
         self.assertEqual(self.st()["calls"], [{**self.st()["calls"][0], "n": 1, "phase": "conflict", "unit_key": "",
                                                "ok": True, "runs": 0}])
