@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.17] - 2026-10-02
+
 ### Added
 
 - 包む 4 つの節（`.shared/borrow/seams.json`。test-driven-development・SDD の実装役と審査役の指示書の型・receiving-code-review）と読み替えの錨（読み替えの決まりの根拠になる原文の引用と、その段落の sha256）、`unattended.md` の決まり SUITE と ASK・COMMIT の行を足した。部品の型（SDD の実装役と審査役の指示書の型）を隔離した設定の `works-parts/` に写す。CLI を 3 つ足した: `toolset.py vendor`（写しと台帳と pin を取り直す）・`contract`（版のフォルダに固定と節の契約を当てる）・`newer`（開発の再開の確かめ）。`dogfood.sh` は起動の時（認証の確かめの後・clone の前）に `newer` を 1 回呼び、利用者のキャッシュと marketplace の一覧の superpowers の版を写しと比べて知らせる（落ちても run の起動は止めない）。節を役に載せる口はまだ無いので、役の振る舞いはこの版では変わらない。本流 graphloops は変えていない。
