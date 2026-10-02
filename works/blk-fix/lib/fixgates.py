@@ -112,7 +112,13 @@ def skipped(board_dir, *, pass_: str, attempt: int) -> list[str]:
 def unchecked(board_dir, *, pass_: str, attempt: int) -> list[str]:
     """受け付けの回 (pass_, attempt) に、確かめるはずの受け入れのテストの赤緑を確かめなかった理由（skipped から OUT_OF_DUTY を
     除いた物）。受け付けが受けた回の盤面の trace に載せる"""
-    return [w for w in skipped(board_dir, pass_=pass_, attempt=attempt) if not w.startswith(OUT_OF_DUTY)]
+    return unchecked_whys(skipped(board_dir, pass_=pass_, attempt=attempt))
+
+
+def unchecked_whys(whys) -> list[str]:
+    """飛ばした理由のうち、確かめるはずの赤緑を確かめなかった物（OUT_OF_DUTY を除く。義務の外の項目は確かめる物でない）。
+    受け付けの trace（unchecked）と測る関数（dev/fixmeasure.py の red_green_checked）が同じ決まりで読む"""
+    return [w for w in whys if isinstance(w, str) and not w.startswith(OUT_OF_DUTY)]
 
 
 def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:

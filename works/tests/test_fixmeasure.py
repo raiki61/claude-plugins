@@ -256,6 +256,15 @@ class RowCase(unittest.TestCase):
                 got = self.row(make_db(self.tmp, path=self.tmp / f"{n}.db"), board)["red_green_checked"]
                 self.assertIs(got, want)
 
+    def test_red_green_skips_follow_the_battery_rule(self):
+        """赤緑を確かめなかったかは束の受け付けと同じ決まり（fixgates.unchecked: OUT_OF_DUTY の理由は除く）で見る。義務の外の
+        項目（人に回した単位だけを名指す項目）を飛ばしただけの帳面は確かめたまま、NO_SUITE は確かめていない"""
+        for n, (why, want) in enumerate(((f"{fixgates.OUT_OF_DUTY}: 修正案の項目 2（単位 u2）", True), (fixgates.NO_SUITE, False))):
+            with self.subTest(why=why[:20]):
+                board = make_board(self.tmp, shape="g3", name=f"skip-{n}")
+                put(board / "r1" / fixgates.LEDGER, {"rows": [], "skipped": [{"pass": "first", "attempt": 1, "why": why}]})
+                self.assertIs(self.row(make_db(self.tmp, path=self.tmp / f"s{n}.db"), board)["red_green_checked"], want)
+
     def test_g1_agent_without_subagent_writes_is_a_gap(self):
         """g1 で Agent が走ったのに、書き込みの記録に agent_id の行が無く、申告（bash_writes。記録の declared の行）だけが在る →
         フックの欠けを修正役の自己申告が隠した疑い（Task 7 の審査 M1）"""

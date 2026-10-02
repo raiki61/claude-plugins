@@ -26,7 +26,8 @@
   FIX_REJECTS の数（修正の受け付けは role-rejects.json を書かない）、tdd_rejects は輪の calls の ok が偽の行、battery_rejects は
   束の行の在る受け付けの回（周・pass・attempt。preflight F23）、delta_faces は差分の審査（p3.delta_review・p3.delta_review2）が
   受け付けた穴、refix_rounds は手直し（report.REFIX_NODES）を受け付けた回（盤面の trace の done の行）。
-- red_green_checked: 束の帳面の skipped か受け付けの trace（fixgates.SKIPPED_OP）に行が 1 つでも在るか、輪の状態が無い（実行器の
+- red_green_checked: 束の帳面の skipped のうち確かめなかった理由（fixgates.unchecked_whys。受け付けの trace と同じ決まりで、
+  義務の外の項目の OUT_OF_DUTY は除く）か受け付けの trace（fixgates.SKIPPED_OP）に行が 1 つでも在るか、輪の状態が無い（実行器の
   無い run）なら偽。平の run（current）は束が赤緑を当てないので None（当てない。確かめたとは数えない）。
 
 比べの条件（計画の採否の決まりの 6）: current の腕は修正の段に修正案の欄を渡さないので、束の test_edits も修正案の書き換えの
@@ -301,7 +302,8 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, ho
                    "refix_rounds": sum(1 for r in report.trace_rows(b, "done") if r.get("instance") in report.REFIX_NODES)}
     out["rulings"], out["divergences"] = _rulings(rounds, gaps)
     out["gate_misses"] = len(rows)
-    out["red_green"] = None if plain else bool(states) and not skipped and not report.trace_rows(b, fixgates.SKIPPED_OP)
+    unchecked = fixgates.unchecked_whys(x.get("why") for x in skipped)
+    out["red_green"] = None if plain else bool(states) and not unchecked and not report.trace_rows(b, fixgates.SKIPPED_OP)
     return out
 
 

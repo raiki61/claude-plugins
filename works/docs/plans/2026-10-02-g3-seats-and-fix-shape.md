@@ -687,7 +687,7 @@ git commit -m "feat(works): 修正の形 g1 では TDD の輪を飛ばし、修�
     - `gate_misses`（束の行の数）
     - `record_gaps: list[str]`（例: tdd の節の `node_completed` の数と `calls` の行の数が違う・tdd の項目の単位に輪の単位の行が無い・平の run でないのに修正案の欄が在って brief の控えが無い・start の控えに `fix_shape` が無い・AI の節の費用が取れない・盤面を開けない・g1 で Agent が走ったのに書き込みの記録に `agent_id` の行が無く申告 `declared` だけが在る（Task 7 の審査 M1））
     - `contamination: {"Skill": 件, "Agent": 件}`（FIX_STAGE の節の `tool_called` のうち、その形で拒む道具。`fixshape.denied_tools` と同じ表で、`step_name` の最後の区切りを印の節の名として見る）で、走った物。同じ `tool_call_id` の `tool_completed` の `tool_outcome` が `error` の呼び出しは柵が拒んだ物として `refused: {"Skill": 件, "Agent": 件}` に数える（拒んだ呼び出しも skills: の一覧に残るので tool_called に出る。Task 2 の審査 M5）。素の `Skill`・`Agent` の deny が実地で拒むかは未確認（Task 3 の審査）——af・current・g1 の行で走った Skill は混ざりに出る
-    - `red_green_checked: bool | None`（束の帳面の `skipped` か受け付けの trace の `fixgates.SKIPPED_OP` に行が 1 つでも在るか、輪の状態が無ければ偽。平の run は当てないので None）
+    - `red_green_checked: bool | None`（束の帳面の `skipped` のうち `fixgates.unchecked_whys` が残す理由（受け付けの trace と同じ決まり。義務の外の項目の OUT_OF_DUTY は除く）か受け付けの trace の `fixgates.SKIPPED_OP` に行が 1 つでも在るか、輪の状態が無ければ偽。平の run は当てないので None）
   - `maintenance(root: pathlib.Path) -> dict[str, int]` — 腕ごとの、その腕で読む文の行の数。
     - own: 修正の工程の works の決まりのファイル（`blk-fix/rules/*.md`・`blk-delta/commands/delta-review.md`・`blk-refix/rules/*.md`）。current と af は own。
     - g3: own と、座の節の `seams.json` の項目と `unattended.md` の行。
