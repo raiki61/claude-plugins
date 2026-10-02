@@ -39,7 +39,8 @@
    out_of_scope・テストの許し）の外・adds の識別子が差分に無い・canonical の外の同名の定義・removes の識別子が残る・tests に
    無いテストを足した・tests のテストが無い、を拒む。欠けは版からの差分の全部で見て、修正役に問う外れと余分は TDD の輪が
    凍らせたファイルなら凍った後に変えた分だけで見る。
-   止めた単位は掛けず、裁定の後（ruled）は裁定を受けた単位の範囲を見ない。
+   単位の全部が直す義務から外れた項目（conflict.held_by_rulings。fix_plan_item ならその項目）は範囲を与えない。裁定の後
+   （ruled）に範囲が広がるのは直す裁定の limits のパスだけで、裁定を受けた単位の全部を外さない。
    控えに範囲の欄が無い・修正案の無い run は回さない。受けた時に trace に 1 行（SCOPE_OP）
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
    修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告

@@ -7,14 +7,17 @@
 - 変わったパス（changes）: 修正前の版からの変更 → (版の中身, 今の中身)。無い側は None
 - 項目の範囲: allowed_paths の glob と、tests・rewrite_tests の id のファイル（planmarks.test_paths）。out_of_scope は範囲の中でも
   触らない物で、範囲より強い（修正案の受け付けが、out_of_scope と id のファイルの重なりを先に拒む）
-- 見る項目: unit_keys が行のどれかの単位と重なる項目
-- 生きた項目: unit_keys の全部が行に在り、どれも exempt でない項目。欠けを拒む側（Missing: 範囲の中の変更・adds・removes・
-  tests）は生きた項目だけを見る（止めた・外した単位の分の欠けで、残った単位を巻き添えに止めない）。範囲の外れと余分（Extra）は
-  見る項目の全部で見る
-- exempt: 範囲を見ない単位（裁定の後の受け付けで、裁定 fix_code_as・fix_test_scope・replace_query を受けた単位）
+- 外れた項目: unit_keys の全部が、裁定で直す義務から外れた単位（held。conflict.held_by_rulings の key。fix_plan_item はその
+  項目の単位の全部を外す）の項目。範囲を与えない（範囲の和・tests の名に入れず、見る項目にしない）。out_of_scope は残す（裁定で
+  範囲を広げない）
+- 見る項目: 外れた項目でなく、unit_keys が行のどれかの単位と重なる項目
+- 生きた項目: unit_keys の全部が行に在る見る項目。欠けを拒む側（Missing: 範囲の中の変更・adds・removes・tests）は生きた項目
+  だけを見る（止めた・外した単位の分の欠けで、残った単位を巻き添えに止めない）。範囲の外れと余分（Extra）は見る項目の全部で見る
 - 凍ったファイル（loop）: TDD の輪が凍らせたファイルと凍った時の中身。欠けの証拠は版からの差分の全部で見て、修正役に問う外れと
   余分は凍った後に修正役が変えた分だけで見る（輪が書いた物を修正役のせいにしない・凍った後に足したテストを見逃さない）
-- permits: テストの変更の許し（conflict.test_permits）の範囲のパス。範囲に入る
+- permits: テストの変更の許し（conflict.test_permits の修正案の rewrite_tests）と、裁定の後なら直す裁定（conflict.ruled_fix。
+  fix_code_as・fix_test_scope・replace_query）の limits のパス。範囲に入る。裁定で範囲が広がるのはこのパスだけで、裁定を受けた
+  単位の全部を外さない（外せば fix_code_as が案の外の変更を通す）
 - 識別子の形（IDENT）: adds の name・removes の名のうち、差分で機械が探す物。kind を問わず :: と . で割った最後の段で探す。
   日本語や空白を含む説明の文と、/ を含む名（ファイルのパス）は探さず、記録の unchecked に並べる（誤った拒否を重ねて単位を
   止めない）
@@ -27,7 +30,7 @@
 
 - added_removed(base, now): 行の並びの足した行と消した行
 - new_test_ids(path, base, now): 試験のモジュールで新しく現れたテストの id
-- problems(items, rows, changes, *, exempt, permits): 拒否の行と記録（純粋な関数）
+- problems(items, rows, changes, *, held, permits): 拒否の行と記録（純粋な関数）
 - check(rows, b, repo, rev, paths, *, pass_): 盤面と作業ツリーから材料を集めて problems に渡す。照らさない盤面では理由を記録に書く
 """
 from __future__ import annotations
@@ -226,25 +229,32 @@ def _named_paths(text: str, paths) -> list[str]:
     return [p for p in paths if re.search(rf"(?<![\w./-]){re.escape(p)}(?![\w/-])", text)]
 
 
-def problems(items: list[dict], rows: list[dict], changes: dict, *, exempt=frozenset(),
+def _all_held(it: dict, held: set) -> bool:
+    """項目の unit_keys の全部が held に在る（外れた項目）。unit_keys の無い項目は外れていない"""
+    keys = set(_keys(it))
+    return bool(keys) and keys <= held
+
+
+def problems(items: list[dict], rows: list[dict], changes: dict, *, held=frozenset(),
              permits=(), loop=None) -> tuple[list[str], dict]:
     """承認済みの修正案の項目（items）と差分の外れの行と記録 {"checked": True, "unchecked": [識別子の形でない名], "items": [見た
     項目の番号]}。純粋な関数（ファイル・盤面を読まない）。見る物は模块の docstring の語と、下の 1〜6:
-    1. 行の files の各パスが、その単位の項目のどれかの範囲に入り、どの項目の out_of_scope にも当たらない（exempt の行は見ない。
-       その単位の項目が無い行は 2 に回す）
-    2. 1 で見なかった変わったパスが、全項目の範囲の和か permits に入り、どの項目の out_of_scope にも当たらない（exempt の単位の
-       行だけが申告したパスは除く）
+    1. 行の files の各パスが、その単位の項目のどれかの範囲に入り、どの項目の out_of_scope にも当たらない（その単位の項目が
+       無い行は 2 に回す）
+    2. 1 で見なかった変わったパスが、外れた項目を除く全項目の範囲の和か permits に入り、どの項目の out_of_scope にも当たらない
     3. 生きた項目の範囲の中に変わったパスが 1 つも無ければ Missing
     4. adds: 探す語（_lookup）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing）。canonical の文に
        変わったパスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra（見る項目の全部）
     5. removes: 生きた項目なら、探す語がどれかのパスの消した行に現れ、どの足した行にも定義として現れない
-    6. tests: 新しく現れたテストのうち、どの項目の tests にも無い物は Extra。生きた項目の tests の各 id は、そのパスが変わり、
-       今の中身に定義の行が在る
-    permits のパスは 1 でも範囲に入る。
+    6. tests: 新しく現れたテストのうち、外れた項目を除くどの項目の tests にも無い物は Extra。生きた項目の tests の各 id は、
+       そのパスが変わり、今の中身に定義の行が在る
+    範囲（allowed_paths・tests の名）を与えるのは外れた項目（held）を除く項目、out_of_scope は全項目の物。permits のパスは 1 でも
+    範囲に入る。
     loop は TDD の輪が凍らせたファイル（パス → 凍った時の中身。無ければ None）。規則は 1 本: 欠け（Missing）の証拠は版からの差分の
     全部（changes）で見て、修正役に問う外れと余分（1・2・6 の Extra・canonical の外の定義）は凍った後に修正役が変えた分だけ
     （凍った時の中身と今の中身の差分）で見る。凍った後に変わっていないファイルは 1・2 で照らさない"""
-    exempt, permits, loop = set(exempt), set(permits), dict(loop or {})
+    held, permits, loop = set(held), set(permits), dict(loop or {})
+    owed = [it for it in items if not _all_held(it, held)]   # 範囲を与える項目（out_of_scope は items の全部で見る）
     out, unchecked = [], []
     row_keys = {r.get("unit_key") for r in rows if isinstance(r.get("unit_key"), str)}
     diffs = {p: added_removed(*pair) for p, pair in changes.items()}
@@ -261,14 +271,10 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *, exempt=froze
 
     # 1. 行の申告したファイル
     seen = set()          # 1 で見たパス（2 で重ねて書かない）
-    exempt_only = set()   # exempt の行だけが申告したパス
     for r in rows:
         key = r.get("unit_key")
         files = [f for f in r.get("files") or [] if isinstance(f, str)]
-        if key in exempt:
-            exempt_only.update(files)
-            continue
-        mine = [it for it in items if key in _keys(it)]
+        mine = [it for it in owed if key in _keys(it)]
         if not mine:
             continue
         for f in files:
@@ -281,25 +287,24 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *, exempt=froze
             elif not (f in permits or any(_inside(f, it) for it in mine)):
                 nums = "・".join(str(it.get("item")) for it in mine)
                 out.append(f"{key}: {f} は項目 {nums} の allowed_paths の外")
-    exempt_only -= seen
     # 2. 変わったパスの全部
     for p in sorted(changes):
-        if p in seen or p in exempt_only or p in permits or p in untouched:
+        if p in seen or p in permits or p in untouched:
             continue
         hit = _oos_hit(p, items)
         if hit:
             out.append(oos_line("", p, hit))
-        elif not any(_inside(p, it) for it in items):
+        elif not any(_inside(p, it) for it in owed):
             out.append(f"{p} はどの項目の allowed_paths にも無い")
     # 3〜6. 見る項目（Missing 側は生きた項目だけ）
     looked = []
-    named = {_test_key(row.get("id")) for it in items for row in it.get("tests") or [] if isinstance(row, dict)}
-    for it in items:
+    named = {_test_key(row.get("id")) for it in owed for row in it.get("tests") or [] if isinstance(row, dict)}
+    for it in owed:
         if not set(_keys(it)) & row_keys:
             continue
         looked.append(it.get("item"))
         who = _who(it)
-        skip = not set(_keys(it)) <= (row_keys - exempt)
+        skip = not set(_keys(it)) <= row_keys
         if not skip and not any(_inside(p, it) for p in changes):
             out.append(f"{who}: 範囲の中に変えたファイルが無い")
         for add in it.get("adds") or []:
@@ -368,13 +373,16 @@ def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *
           frozen=()) -> tuple[list[str], dict]:
     """盤面 b の承認済みの修正案の項目（planmarks.approved_items）と、版 rev からの変わったパス paths の版と今の中身を problems に
     渡す。テストの変更の許し（conflict.test_permits）を先に引く（欄の控えが凍結の印と食い違えば、そこで盤面を止めて BoardGap）。
-    裁定の後（pass_ が ruled）は裁定を受けた単位（conflict.ruled_fix）の範囲を見ない。項目が無い・範囲の欄の無い控えなら照らさず
-    ([], {"checked": False, "why": 理由})。項目と控えの欄の数が違えば conflict.fields_broken（盤面を止めて BoardGap）。
+    裁定で直す義務から外れた単位（conflict.held_by_rulings）を held に渡す。裁定の後（pass_ が ruled）は直す裁定
+    （conflict.ruled_fix）の limits のパスを permits に足す（裁定を受けた単位の全部は外さない）。項目が無い・範囲の欄の無い
+    控えなら照らさず ([], {"checked": False, "why": 理由})。項目と控えの欄の数が違えば conflict.fields_broken（盤面を止めて BoardGap）。
     loop_tree（TDD の輪が凍らせた時の木）と frozen（凍らせたファイル）を渡せば、凍った時の中身を problems の loop に渡す"""
     ruled = pass_ == "ruled"
+    limits = [p["limit"] for p in conflict.test_permits(b, rulings=False)]
+    limits += [lim for i in (conflict.ruled_fix(b) if ruled else []) for lim in i["ruling"].get("limits") or []]
     permits = []
-    for p in conflict.test_permits(b, rulings=ruled):
-        got = conflict.parse_limit(p["limit"])
+    for lim in limits:
+        got = conflict.parse_limit(lim)
         if got and got[0] not in permits:
             permits.append(got[0])
     try:
@@ -385,7 +393,6 @@ def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *
         return [], {"checked": False, "why": NO_PLAN}
     if not planmarks.scoped(items):
         return [], {"checked": False, "why": NO_SCOPE}
-    exempt = {i["unit_key"] for i in conflict.ruled_fix(b)} if ruled else set()
     changes = {p: (_base_text(repo, rev, p), _now_text(repo, p)) for p in paths}
     loop = {p: _base_text(repo, loop_tree, p) for p in paths if p in set(frozen)} if loop_tree else {}
-    return problems(items, rows, changes, exempt=exempt, permits=tuple(permits), loop=loop)
+    return problems(items, rows, changes, held=set(conflict.held_by_rulings(b)), permits=tuple(permits), loop=loop)

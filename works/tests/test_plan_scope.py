@@ -85,11 +85,6 @@ class ProblemsCase(unittest.TestCase):
         it = item(tests=[{"id": "test_stats.py::TestStats::test_mean_of_two"}])
         self.assertTrue(any("test_mean_of_two" in p and MEAN in p for p in planscope.problems([it], [ROW], STATS)[0]))
 
-    def test_exempt_units_skip_path_checks(self):
-        got, _ = planscope.problems([ITEM], [{"unit_key": MEAN, "files": ["other.py"]}], {"other.py": (None, "x\n")},
-                                    exempt={MEAN})
-        self.assertEqual(got, [])
-
     def test_permit_paths_are_in_scope(self):
         ch = {**STATS, "test_stats.py": ("a\n", "b\n")}
         self.assertEqual(planscope.problems([ITEM], [ROW], ch, permits=("test_stats.py",))[0], [])
@@ -121,6 +116,36 @@ class ProblemsCase(unittest.TestCase):
         self.assertTrue(unit_lines)
         for p in unit_lines:
             self.assertTrue(MEAN in p or CLAMP in p, p)
+
+
+class HeldItemCase(unittest.TestCase):
+    """単位の全部が裁定で直す義務から外れた項目（held。conflict.held_by_rulings の key）は範囲を与えない（範囲の和と tests の名に
+    入れない）。out_of_scope は残る（裁定で範囲を広げない）"""
+
+    def test_held_item_grants_no_paths_or_tests(self):
+        mean = item(allowed_paths=["stats.py", "mean_util.py"], out_of_scope=[{"glob": "legacy.py", "why": "古い置き場は触らない"}],
+                    tests=[{"id": "test_stats.py::TestStats::test_mean_of_two"}])
+        clamp = item(item=2, unit_keys=[CLAMP], allowed_paths=["stats.py", "test_stats.py", "legacy.py"])
+        base = "class TestStats:\n    def test_a(self):\n        pass\n"
+        ch = {**STATS, "mean_util.py": (None, "x = 1\n"),
+              "test_stats.py": (base, base + "    def test_mean_of_two(self):\n        pass\n")}
+        rows = [{"unit_key": CLAMP, "files": ["stats.py", "test_stats.py"]}]
+        self.assertEqual(planscope.problems([mean, clamp], rows, ch)[0], [], "外れていなければ項目 1 の範囲と tests に入る")
+        got, note = planscope.problems([mean, clamp], rows, ch, held={MEAN})
+        self.assertTrue(any("mean_util.py" in p and "どの項目の allowed_paths にも無い" in p for p in got), got)
+        self.assertTrue(any("test_mean_of_two" in p and "どの項目の tests にも無い" in p for p in got), got)
+        self.assertEqual(note["items"], [2])
+        got, _ = planscope.problems([mean, clamp], [{"unit_key": CLAMP, "files": ["legacy.py"]}],
+                                    {"legacy.py": ("a\n", "b\n")}, held={MEAN})
+        self.assertTrue(any("out_of_scope" in p and "legacy.py" in p for p in got), "外れた項目の out_of_scope は残る")
+
+    def test_item_with_an_owed_unit_still_grants(self):
+        """項目の単位の一部だけが外れた（ask_human）項目は、残った単位のために範囲を与える"""
+        it = item(unit_keys=[MEAN, CLAMP], allowed_paths=["stats.py", "util.py"])
+        ch = {**STATS, "util.py": (None, "x = 1\n")}
+        rows = [{"unit_key": CLAMP, "files": ["stats.py"]}]
+        self.assertEqual(planscope.problems([it], rows, ch, held={MEAN})[0], [])
+        self.assertTrue(planscope.problems([it], rows, ch, held={MEAN, CLAMP})[0], "全部が外れれば範囲を与えない")
 
 
 class FalseRejectCase(unittest.TestCase):

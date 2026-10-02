@@ -30,7 +30,8 @@ import board  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import planmarks  # noqa: E402
-from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, block, board_shas, find_node, load, run_script)  # noqa: E402
+from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, PLAN_FIELDS, block, board_shas, find_node, load,  # noqa: E402
+                          run_script)
 from test_blk_fix import plan_reply as PLAN_REPLY  # noqa: E402  （split_plan_reply が元の 1 項目の案から作る）
 from test_blk_fix_tdd import LoopCase  # noqa: E402
 
@@ -221,28 +222,45 @@ class TestRuling(ConflictBoardCase):
 
 
 class TestRuledScope(ConflictBoardCase):
-    def test_ruled_pass_exempts_ruled_units(self):
-        """fix_code_as の裁定を受けた単位は、planscope.check(…, pass_="ruled") で範囲の外のファイルを拒まない。
-        同じ盤面で pass_="first" は拒む"""
+    def test_ruled_pass_widens_only_by_ruling_limits(self):
+        """裁定の後（pass_="ruled"）の planscope.check は、直す裁定（fix_code_as）の limits が名指したパスだけ範囲を広げ、裁定を
+        受けた単位の全部を外さない（limits に無い範囲の外のファイルは拒む）。limits のパスも 1 回目（pass_="first"）は拒む"""
+        import planscope
+        import writes
+        self.parked()
+        for name in ("other.py", "stray.py"):
+            (self.repo / name).write_text("x = 1\n", encoding="utf-8")
+        cid = self.items()[0]["id"]
+        _, r = self.rule([{"id": cid, "decision": "fix_code_as", "text": RULE_TEXT, "limits": ["other.py:1"]}])
+        self.assertTrue(r["ok"], r)
+        b = entry.open_board(self.board)
+        planmarks.save(self.board, b.round, [{"route": "direct", "route_why": "見本。先にテストを書かない", "tests": [],
+                                               "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
+                                               "allowed_paths": ["stats.py"], "out_of_scope": []}])
+        b = entry.open_board(self.board)
+        rows = [{"unit_key": MEAN, "files": ["other.py", "stray.py"]}]
+        rev = writes.base_rev(b, "")
+        got, note = planscope.check(rows, b, self.repo, rev, ["other.py", "stray.py"], pass_="ruled")
+        self.assertTrue(note["checked"])
+        self.assertTrue(any(MEAN in p and "stray.py" in p for p in got), got)
+        self.assertFalse(any("other.py" in p for p in got), got)
+        got, _ = planscope.check(rows, b, self.repo, rev, ["other.py"], pass_="first")
+        self.assertTrue(any(MEAN in p and "other.py" in p for p in got), got)
+
+    def test_ruled_unit_still_owes_its_item(self):
+        """直す裁定（fix_code_as）を受けた単位は直す義務に残るので、その項目の欠け（tests のテストが無い）も裁定の後に拒む
+        （案の項目そのものの誤りは fix_plan_item の道）"""
         import planscope
         import writes
         self.parked()
         cid = self.items()[0]["id"]
         _, r = self.rule([{"id": cid, "decision": "fix_code_as", "text": RULE_TEXT, "limits": ["stats.py:9"]}])
         self.assertTrue(r["ok"], r)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
         b = entry.open_board(self.board)
-        planmarks.save(self.board, b.round, [{"route": "direct", "route_why": "見本。先にテストを書かない", "tests": [],
-                                               "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
-                                               "allowed_paths": ["stats.py"], "out_of_scope": []}])
-        (self.repo / "other.py").write_text("x = 1\n", encoding="utf-8")
-        b = entry.open_board(self.board)
-        rows = [{"unit_key": MEAN, "files": ["other.py"]}]
-        rev = writes.base_rev(b, "")
-        got, note = planscope.check(rows, b, self.repo, rev, ["other.py"], pass_="ruled")
-        self.assertEqual((got, note["checked"]), ([], True))
-        got, _ = planscope.check(rows, b, self.repo, rev, ["other.py"], pass_="first")
-        self.assertTrue(any(MEAN in p and "other.py" in p for p in got), got)
-
+        rows = [{"unit_key": k, "files": ["stats.py"]} for k in (MEAN, CLAMP)]   # 案は 1 項目に mean と clamp を置く
+        got, _ = planscope.check(rows, b, self.repo, writes.base_rev(b, ""), ["stats.py"], pass_="ruled")
+        self.assertTrue(any("test_mean_of_two" in p and MEAN in p for p in got), got)
 
     def test_count_mismatch_halts_board(self):
         """修正案の項目と控えの欄の数が違う盤面は、照らしが控えの壊れた時の 1 本の道（conflict.fields_broken: 盤面を止めて
@@ -969,6 +987,12 @@ def split_plan_reply(narrows=()):
                      {**base, "unit_keys": [CLAMP], "approach": "clamp の上限の枝の戻り値を hi に直す"}]}
 
 
+# 2 項目の案の項目 2（clamp）の works の欄。項目 1 の欄 PLAN_FIELDS の tests は mean の test_mean_of_two で clamp には当たらない。
+# clamp は種の test_clamp_above_range が今も赤で直しを縛るので、新しいテストを足さない direct の道にする
+CLAMP_FIELDS = {**PLAN_FIELDS[0], "route": "direct", "tests": [],
+                "route_why": "種の test_clamp_above_range が今の上限の枝で赤になり、直しを縛る"}
+
+
 class ReplanCase(ConflictBoardCase):
     """裁定 fix_plan_item の盤面の口（mean を申し出た盤面に修正案の欄の控えと brief を置いてから裁く）。既定の修正案は mean と clamp を
     別の項目に置く（fix_plan_item が外すのは項目 1 の単位だけで、clamp は直す義務に残る）。SHARED_ITEM が真なら 1 項目に両方を置く"""
@@ -983,7 +1007,7 @@ class ReplanCase(ConflictBoardCase):
         else:
             with mock.patch.object(test_blk_fix, "plan_reply", split_plan_reply):
                 self.parked()
-        fields = test_blk_fix.PLAN_FIELDS * (1 if self.SHARED_ITEM else 2)
+        fields = test_blk_fix.PLAN_FIELDS + ([] if self.SHARED_ITEM else [CLAMP_FIELDS])
         planmarks.save(self.board, entry.open_board(self.board).round, fields)
         planbrief.cut_at(self.board)
         cid = self.items()[0]["id"]
@@ -1014,6 +1038,20 @@ class TestFixPlanItem(ReplanCase):
         self.assertTrue(r["ok"], r)
         owed, excused = conflict.fix_duty(entry.open_board(self.board))
         self.assertNotIn(MEAN, owed); self.assertIn("fix_plan_item", excused[MEAN])
+
+    def test_test_of_the_held_item_is_not_in_scope(self):
+        """fix_plan_item が外した項目の tests のテスト（項目 1 の test_mean_of_two）を、残った単位の直しが足せば拒む（外れた
+        項目は範囲を与えない）"""
+        self.replanned()
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "    def test_clamp_within_range", "    def test_mean_of_two(self):\n        self.assertEqual(mean([1, 3]), 2)\n\n"
+            "    def test_clamp_within_range"), encoding="utf-8")
+        reply = only_clamp_reply()
+        reply["changes"][0]["files"] = ["stats.py", "test_stats.py"]
+        r = self.accept_script(reply, pass_="ruled")
+        self.assertFalse(r["ok"], r)
+        self.assertIn("test_stats.py::TestStats::test_mean_of_two は修正案のどの項目の tests にも無い", r["reason"])
 
     def test_fix_plan_item_without_brief_is_rejected(self):   # brief を置かない盤面
         self.parked()
