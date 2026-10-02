@@ -106,10 +106,16 @@ def _parse_id(test_id):
     return path, names
 
 
+def _climbs(norm: str) -> bool:
+    """整えたパスが根そのもの・絶対パス・`..` の段で上る物か（`..` は段で見る。`..foo/x.py` は根の中のディレクトリ `..foo` の物）"""
+    return norm.startswith("/") or norm == "." or norm.split("/", 1)[0] == ".."
+
+
 def _resolve(repo: pathlib.Path, path: str):
-    """根の中のファイルなら (作業ツリーの根からの相対の綴り, 実体)。根の外（絶対パス・..・根の外へのリンク）・無いなら None"""
+    """根の中のファイルなら (作業ツリーの根からの相対の綴り, 実体)。根の外（絶対パス・`..` の段・根の外へのリンク）・無いなら
+    None。根の外へのリンクは解いた実体の is_relative_to で見る"""
     norm = posixpath.normpath(path)
-    if norm.startswith(("/", "..")) or norm == ".":
+    if _climbs(norm):
         return None
     root = pathlib.Path(repo).resolve()
     real = (root / norm).resolve()
@@ -160,6 +166,21 @@ def find_test(repo: pathlib.Path, test_id: str) -> int | None:
     return line_in(src, test_id)
 
 
+def _path_problem(repo: pathlib.Path, test_id: str) -> str | None:
+    """テストの id のパスの誤りの文（\\ の区切り・作業ツリーの根からの相対でない）。無ければ None。ファイルの有無は見ない
+    （tests はまだ無いテストを名指す）"""
+    if "\\" in test_id:
+        return "パスに \\ が在る（区切りは / で書け。パスは作業ツリーの根からの相対）"
+    got = _parse_id(test_id)
+    if got is None:
+        return None
+    norm = posixpath.normpath(got[0])
+    root = pathlib.Path(repo).resolve()
+    if _climbs(norm) or not (root / norm).resolve().is_relative_to(root):
+        return "パスが作業ツリーの根からの相対でない（絶対パス・根の外を指す。/ で書いた根からの相対にせよ）"
+    return None
+
+
 def _limit(repo: pathlib.Path, test_id: str):
     """書き換えてよい範囲 "<パス>:<定義の行>"（パスは根からの相対の綴り）。引けなければ None"""
     line = find_test(repo, test_id)
@@ -203,6 +224,10 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
             out.append(f"plan[{i}].route_why: route が direct の項目は、テストを先に書かない理由を {MIN_WHY} 字以上で書く")
         for j, row in enumerate(_rows(it, "tests")):
             tid = _id_of(row)
+            bad = _path_problem(repo, tid) if tid else None
+            if bad:
+                out.append(f"plan[{i}].tests[{j}].id（{tid}）: {bad}")
+                continue
             line = find_test(repo, tid) if tid else None
             if tid:
                 new_ids.setdefault(tid, f"plan[{i}].tests[{j}]")
@@ -218,6 +243,9 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
         for j, row in enumerate(_rows(it, "rewrite_tests") if isinstance(it, dict) else []):
             tid = _id_of(row)
             if tid is None:
+                continue
+            if "\\" in tid:
+                out.append(f"plan[{i}].rewrite_tests[{j}].id（{tid}）: {_path_problem(repo, tid)}")
                 continue
             if find_test(repo, tid) is None:
                 out.append(f"plan[{i}].rewrite_tests[{j}].id（{tid}）: 作業ツリーの根の中に在るテストの定義として引けない"

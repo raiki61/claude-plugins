@@ -242,5 +242,43 @@ class TestFrozenFields(PlanFieldsCase):
         self.assertIsNone(planmarks.frozen(types.SimpleNamespace(dir=self.tmp, round=2)))
 
 
+class TestIdPaths(PlanFieldsCase):
+    """テストの id のパス: 区切りは /・根からの相対（絶対パスを拒む）・`..` で始まる名前のファイルは根の中"""
+
+    def test_backslash_in_id_rejected(self):
+        """\\ の入った id は、limit がそのまま残るので受け付けで拒む（理由に「/ で書け」）"""
+        bad_rw = dict(REWRITE, id="test_stats.py\\..\\x::TestStats::test_clamp_within_range")
+        bad_new = {"id": "tests\\test_new.py::test_x", "behavior": "2 つの値の平均を返す", "path": "stats.mean を直に呼ぶ（mock なし）",
+                   "red_kind": "assertion", "red_why": "今は len-1 で割り 3.0 になる"}
+        got = self.gaps(item(tests=[bad_new], rewrite_tests=[bad_rw]))
+        rows = [g for g in got if "/ で書け" in g]
+        self.assertEqual(len(rows), 2, got)
+        self.assertTrue(any(g.startswith("plan[0].tests[0].id") for g in rows), got)
+        self.assertTrue(any(g.startswith("plan[0].rewrite_tests[0].id") for g in rows), got)
+
+    def test_absolute_tests_id_rejected(self):
+        new = {"id": str(self.repo / "test_new.py") + "::test_x", "behavior": "2 つの値の平均を返す",
+               "path": "stats.mean を直に呼ぶ（mock なし）", "red_kind": "assertion", "red_why": "今は len-1 で割り 3.0 になる"}
+        got = self.gaps(item(tests=[new]))
+        self.assertTrue(any(g.startswith("plan[0].tests[0].id") and "根からの相対" in g for g in got), got)
+
+    def test_outside_root_tests_id_rejected(self):
+        new = {"id": "../test_new.py::test_x", "behavior": "2 つの値の平均を返す",
+               "path": "stats.mean を直に呼ぶ（mock なし）", "red_kind": "assertion", "red_why": "今は len-1 で割り 3.0 になる"}
+        got = self.gaps(item(tests=[new]))
+        self.assertTrue(any(g.startswith("plan[0].tests[0].id") and "根からの相対" in g for g in got), got)
+
+    def test_relative_tests_id_passes(self):
+        self.assertEqual(self.gaps(item()), [])
+
+    def test_dotdot_prefixed_name_inside_root_found(self):
+        """`..foo/x.py` は根の中のディレクトリ `..foo` の物（`..` の上り口でない）"""
+        d = self.repo / "..foo"
+        d.mkdir()
+        (d / "x.py").write_text("def test_o():\n    pass\n", encoding="utf-8")
+        self.assertEqual(planmarks.find_test(self.repo, "..foo/x.py::test_o"), 1)
+        self.assertIsNone(planmarks.find_test(self.repo, "../x.py::test_o"))
+
+
 if __name__ == "__main__":
     unittest.main()
