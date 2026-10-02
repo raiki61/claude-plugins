@@ -165,7 +165,8 @@ class TestBlockYaml(unittest.TestCase):
         self.assertIn("`$fix-prep.output.prompt_file` を Read で", fix["prompt"])
         prep = find_node(block()["nodes"], "fix-prep")
         self.assertEqual((prep["script"], prep["timeout"]), ("fix_prep", DEADLINE))
-        self.assertEqual(fix["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch"])
+        # Agent は修正の形 g1 の下請けの口（g1 の外は包みが拒む。fixshape.denied_tools）
+        self.assertEqual(fix["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch", "Agent"])
         self.assertEqual(fix["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(fix["idle_timeout"], DEADLINE)
         of = fix["output_format"]
@@ -237,7 +238,7 @@ class TestBlockYaml(unittest.TestCase):
         want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
                            "INPUTS_TDD_SUITE"),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
-                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_PASS"),
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED"),
                 "reads": ("INPUTS_MUST",)}
         for name, inputs in want.items():
@@ -621,12 +622,14 @@ class TestFixPrep(BoardCase):
         b = entry.open_board(self.board)
         return {"judgment_file": str(self.board / b.state["outputs"]["p2.diagnose"]["file"]),
                 "open_units": json.dumps([MEAN, CLAMP], ensure_ascii=False), "plan_file": "", "policy_path": "",
-                "notes_file": "", "summary_file": ""}
+                "notes_file": "", "summary_file": "", "base_rev": ""}
 
     def prep(self, **drop):
+        """drop の鍵を外して起こす（値が None でない鍵は、その値で差し替える）"""
         env = {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "first",
                **{f"INPUTS_{k.upper()}": v for k, v in self.values().items()}}
-        return run_script("fix_prep", self.repo, {k: v for k, v in env.items() if k not in drop})
+        env = {**{k: v for k, v in env.items() if k not in drop}, **{k: v for k, v in drop.items() if v is not None}}
+        return run_script("fix_prep", self.repo, env)
 
     def reject_by_script(self):
         # 申告と数え直しの食い違いは拒まず記録する（49 件目）ので、今も拒まれる同じ unit_key の 2 行で拒ませる
@@ -732,6 +735,51 @@ class TestFixPrep(BoardCase):
         side = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
         ids = [s["id"] for s in side["sections"]]
         self.assertEqual(ids[ids.index("fix-reply") - 1], "seat")
+
+    def test_g1_prep_writes_filled_parts_per_item(self):
+        """修正の形 g1・修正案の欄の在る盤面: 項目ごとに実装役と審査役の下請けのファイルを今の周に書き、どちらも型の穴を残さない。
+        修正役の指示書は g3 の座の代わりに下請けを回す節を持ち、そのファイルを名指す。審査役の [BASE_SHA]・[HEAD_SHA] は
+        git diff の中に在るので版の値（Preflight F20）"""
+        import fixshape
+        import seat
+        import writes
+        self.fix_ready(launched=False)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        fixshape.choose(self.board, "g1", by="試験", why="g1 の支度を見る")
+        base = git(self.repo, "rev-parse", "HEAD")
+        code, out, err = self.prep(INPUTS_BASE_REV=base)
+        self.assertEqual(code, 0, err)
+        b = entry.open_board(self.board)
+        impl, review = b.work("g1-impl-1.md"), b.work("g1-review-1.md")
+        for f in (impl, review):
+            text = f.read_text(encoding="utf-8")
+            self.assertNotRegex(text, r"\[[A-Z][A-Z_]+\]", f.name)
+            self.assertIn(seat.G1_SUB_HEAD, text, f.name)
+            self.assertIn(str(b.work("brief-1.md")), text, "その項目の brief")
+        want = writes.base_rev(b, base)   # 修正前の版（盤面の review_rev が先。受け付けの突き合わせと同じ起点）
+        self.assertRegex(want, r"^[0-9a-f]{40}$")
+        self.assertIn(f"git diff {want}..{seat.G1_HEAD_SHA}`", review.read_text(encoding="utf-8"))
+        self.assertIn(str(self.repo), impl.read_text(encoding="utf-8"))
+        full = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(seat.G1_HEAD, full)
+        self.assertNotIn(seat.HEAD, full, "g3 の座は載せない")
+        for f in (impl, review):
+            self.assertIn(str(f), full)
+        side = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
+        ids = [s["id"] for s in side["sections"]]
+        self.assertEqual(ids[ids.index("fix-reply") - 1], "seat")
+
+    def test_g1_prep_without_briefs_is_one_item_on_the_judgment(self):
+        """修正案の欄の無い run: 判定の単位をまとめて 1 項目とみなし、[BRIEF_FILE] は判定のファイル"""
+        import fixshape
+        self.fix_ready(launched=False)
+        fixshape.choose(self.board, "g1", by="試験", why="g1 の支度を見る")
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        b = entry.open_board(self.board)
+        self.assertFalse(b.work("g1-impl-2.md").exists())
+        for name in ("g1-impl-1.md", "g1-review-1.md"):
+            self.assertIn(self.values()["judgment_file"], b.work(name).read_text(encoding="utf-8"), name)
 
     def test_g3_broken_pin_stops_prep_with_2(self):
         """g3 の盤面で 216 の写しが固定と 1 バイト違えば、支度は af の文へ黙って逃げず、名指して 2 で落ちる。指示書も起こした印も

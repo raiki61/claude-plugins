@@ -28,6 +28,7 @@
 
 - fix_prompt / tdd_prompt: 2 つの道の指示書（純粋な関数。prior を渡せば delta の形）
 - prep: 節 fix-prep・fix-ruled-prep の中身（盤面が p3.fix を待っていれば書き、起こした印を置く）。tddloop.prep は tdd_render を使う。
+  修正の形 g1 では、借りたスキルの座の代わりに下請けを回す節（seat.g1_section。項目ごとのファイルは g1_values）を載せる。
   どちらも指示書の頭（題の次）に、直す義務の単位の brief（planbrief.cut。承認済みの修正案の項目を凍結した物）を名指す節を置く。
   brief の控えが壊れていれば盤面を止める（brief_halt。brief の無い指示書として続けない）
 - ruler_prompt: 裁定役の指示書（ruling.prep が書く）
@@ -59,6 +60,7 @@ import rulebook  # noqa: E402
 from rulebook import EMPTY, MARK, RULES_SAME, WHY_DELTA, Unfilled, fill, join, render, shared  # noqa: E402,F401
 import script_io  # noqa: E402
 import seat as seatkit  # noqa: E402  （借りたスキルの座。引数の名 seat と分ける）
+import writes  # noqa: E402  （修正前の版。g1 の審査役の型の [BASE_SHA]）
 from engine.util import Reject  # noqa: E402
 
 RULES_DIR = pathlib.Path(__file__).resolve().parents[1] / "rules"
@@ -92,6 +94,8 @@ REJECT_GLOB = f"{script_io.REJECT_PREFIX}accept_fix-*.txt"
 FULL, DELTA, RULES, VARIANTS, DELIVERED = ".full.md", ".delta.md", ".rules.md", ".variants.json", ".delivered.json"
 WHY_FIRST = "1 回目（この輪でまだ決まりを渡していない。delta は full と同じ）"
 SEAT_BRIEFS = "seat-briefs.md"   # 修正役の座の型の [BRIEF_FILE]（今の周の作業ファイル。直す義務の単位の brief を名指す節）
+G1_IMPL, G1_REVIEW = "g1-impl-{n}.md", "g1-review-{n}.md"   # 修正の形 g1 の下請けのファイル（今の周の作業ファイル。n は項目の番号）
+G1_NO_POLICY = "（無し）"   # g1 の審査役の型の [GLOBAL_CONSTRAINTS]（人の方針の文書が無い run）
 BRIEF_STOP_BY = "works:fix"   # brief の控えが壊れた盤面を止めた口（assert-changed の STOP_BY と同じ修正の段の印）
 BRIEF_BROKEN = (f"修正案の brief の控え（今の周の {planbrief.LEDGER}）か欄の控え（盤面の {planbrief.planmarks.FIELDS_FILE}）が壊れているか"
                 "凍結の後に書き換えられ、承認した要求の正本が"
@@ -184,7 +188,7 @@ def _all_kinds() -> dict:
 
 def _seat(seat: str) -> list:
     """借りたスキルの座の節（seat.section の文。空なら載せない）"""
-    return [("seat", seat, ALWAYS + "（修正の形 g3 の座）")] if seat else []
+    return [("seat", seat, ALWAYS + "（修正の形 g3・g1 の座）")] if seat else []
 
 
 def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: str = "") -> list:
@@ -399,6 +403,41 @@ def implementer_values(b, values: dict, repo, owed: list[str]) -> dict[str, str]
             "[REPORT_FILE]": seatkit.NO_REPORT_FILE}
 
 
+def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dict]:
+    """修正の形 g1 の下請けのファイルを、直す義務の単位の brief の項目ごとに今の周に 2 つ書き、項目の順の
+    [{item, impl_file, review_file}] を返す（seat.g1_section が並べる）。brief の無い run は判定の単位をまとめて 1 項目とみなす。
+    - G1_IMPL: 216 の implementer の型。[BRIEF_FILE] はその項目の brief、[task name] はその項目の直す義務の単位、[REPORT_FILE] は
+      seat.G1_IMPL_REPORT（下請けには返答の欄が無い）、ほかは implementer_values と同じ
+    - G1_REVIEW: 216 の task-review の型。[BRIEF_FILE] は同じ brief、[GLOBAL_CONSTRAINTS] は人の方針の文書のパスか G1_NO_POLICY、
+      [REPORT_FILE] は seat.G1_REPORT、[BASE_SHA] は修正前の版（writes.base_rev）、[HEAD_SHA] は seat.G1_HEAD_SHA（どちらも型の
+      git diff のコマンドの中に在るので版の値。Preflight F20）、[DIFF_FILE] は seat.G1_DIFF の版と項目の番号を埋めた物
+    どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊）。写しが固定と違う・穴が埋まらなければ ValueError"""
+    common = implementer_values(b, values, repo, owed)
+    briefs = planbrief.for_units(briefs_or_halt(b), owed)
+    items = [(r["item"], r["file"], _g1_task(r, owed)) for r in briefs] or [(1, common["[BRIEF_FILE]"], common["[task name]"])]
+    base = writes.base_rev(b, base_rev)
+    rows = []
+    for n, brief, task in items:
+        impl, review = b.work(G1_IMPL.format(n=n)), b.work(G1_REVIEW.format(n=n))
+        impl.write_text(seatkit.g1_prompt("implementer", {**common, "[task name]": task, "[BRIEF_FILE]": brief,
+                                                           "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}), encoding="utf-8")
+        review.write_text(seatkit.g1_prompt("task-review", {
+            "[BRIEF_FILE]": brief, "[GLOBAL_CONSTRAINTS]": values.get("policy_path") or G1_NO_POLICY,
+            "[REPORT_FILE]": seatkit.G1_REPORT, "[BASE_SHA]": base, "[HEAD_SHA]": seatkit.G1_HEAD_SHA,
+            "[DIFF_FILE]": seatkit.G1_DIFF.replace("<BASE_SHA>", base).replace("<n>", str(n))}), encoding="utf-8")
+        rows.append({"item": n, "impl_file": str(impl), "review_file": str(review)})
+    return rows
+
+
+def _g1_task(brief: dict, owed: list[str]) -> str:
+    """g1 の実装役の型の [task name]: 修正案の項目の番号と、その項目のうち今直す単位（ほかの単位は『今は直すな』）"""
+    keys = list(brief.get("unit_keys") or [])
+    now = [k for k in keys if k in set(owed)]
+    rest = [k for k in keys if k not in now]
+    return (f"修正案の項目 {brief['item']}（直す義務の単位 {'、'.join(now) or planbrief.NONE}"
+            + (f"・{planbrief.NOT_NOW}: {'、'.join(rest)}" if rest else "") + "）")
+
+
 def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     """節 fix-prep（pass_ first）と fix-ruled-prep（pass_ ruled）: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。
     返り {prompt_file, attempt, out_path, node, already, variants_file, iteration}（iteration はこの輪の何回目か。受け付けが
@@ -410,8 +449,9 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     （planbrief.head_text。義務から外れた単位には「今は直すな」）を置く（1 回目も ruled も同じ凍結の中身）。
     brief の控えが壊れていれば盤面を止めて BoardGap（briefs_or_halt。指示書を書かず、起こした印も置かない）。
     修正の形（fixshape.shape_at）が座を載せる形なら、借りたスキルの座（seat.section。型の穴は implementer_values）を full と delta の
-    両方に載せる。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も置かない。支度の
-    script は 2 で落ちる）"""
+    両方に載せる。形が g1 なら、その代わりに下請けを回す節（seat.g1_section。下請けのファイルは g1_values。[BASE_SHA] は
+    values の base_rev）を載せる。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も
+    置かない。支度の script は 2 で落ちる）"""
     if pass_ not in PASSES:
         raise Unfilled(f"pass {pass_!r} は {PASSES} のどれでもない")
     nid = recount.FIX_NODE
@@ -437,7 +477,10 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     before = tuple(x for x in (*before, head) if x)   # ruled の裁定の文の行は見出しの次の 1 行のまま（R44）。brief はその後
     mark, shape = ("fix" if pass_ == PASSES[0] else "fix-ruled"), fixshape.shape_at(board_dir)
     seat = ""
-    if seatkit.carries(mark, shape):
+    if shape == seatkit.G1_SHAPE and mark in fixshape.AGENT_NODES:
+        seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みと Context7 の引き（lib_section）より前に
+        seat = seatkit.g1_section(g1_values(b, values, repo, owed, values.get("base_rev") or ""))
+    elif seatkit.carries(mark, shape):
         seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みと Context7 の引き（lib_section）より前に
         seat = seatkit.section(mark, shape, implementer_values(b, values, repo, owed))
     docs = lib_section(b, repo, values)

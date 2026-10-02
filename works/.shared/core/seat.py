@@ -11,6 +11,12 @@
 - skill_of(seam): skill の節の files[0]（skills/<名>/…）の <名>
 - pinned(): 写しが固定と合うかを照らし、(item, 写しの置き場) を返す（合わなければ ValueError）
 - section(node, shape, values): 座の文。載らなければ空。HEAD → 節の種類ごとの本文 → 読み替え
+- 修正の形 G1_SHAPE（g1）: 修正役（fixshape.AGENT_NODES）が SDD の型で項目ごとに下請け（実装役・審査役）を Agent で回す。
+  g1_prompt(seam_id, values) は下請けに渡すファイルの中身（216 の型を埋めた物の後ろに、下請けへの works の決まり G1_SUB_HEAD と
+  検索語の規律の塊）、g1_section(rows) は修正役の指示書の節（G1_HEAD → 手順 → 項目ごとのファイル → 読み替えの上書き
+  G1_OVERRIDES → 読み替え）。下請けは包みの起動でないので、包みが system prompt に足す検索語の規律（adapter.query_rule）が
+  届かない。だから型の後ろに字のまま載せる（run 221 の R4 の 3）。下請けの Edit・Write は修正役と同じ記録に載る（PostToolUse の
+  フックは subagent の呼び出しでも起きる。tests/test_writes.py）
 
 座を組む前に、写し（spseam.vendored_dir）が固定（borrow.json の superpowers.pin）と合うかを spseam.pin_problems で照らす。
 食い違い・型の穴の埋め残り（spseam.fill）は ValueError で名指す（af の文へ黙って逃げない。支度の script は 2 で落ちる）。
@@ -28,6 +34,7 @@ _CORE = pathlib.Path(__file__).resolve().parent
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
+import adapter  # noqa: E402  （L2。検索語の規律の塊 query_rule を g1 の下請けのファイルに載せる）
 import rolekit  # noqa: E402
 import spseam  # noqa: E402
 
@@ -41,6 +48,45 @@ SKILL_LEAD = "Skill の道具で `{skill}` を読み、その手順で進めよ�
 APPLIES, NOT_APPLIES = "効く所:", "効かない所（従わない）:"
 PROMPT_HEAD = "### 下請けの型（superpowers の {file}。works の節で包んだ物）"
 ITEM = "superpowers"   # borrow.json の借りる物の名
+
+# 修正の形 g1（修正役が SDD の型で下請けを回す。TDD の輪は回さず、赤緑と凍結は修正の受け付けの束 fixgates が事後に確かめる）
+G1_SHAPE = "g1"
+G1_HEAD = "## 下請けを回す（修正の形 g1）"
+G1_REPORT = "実装役の最後のメッセージを、この型の後ろに貼る"   # 審査役の型の [REPORT_FILE]
+G1_HEAD_SHA = "HEAD"   # 審査役の型の [HEAD_SHA]（型の git diff のコマンドの中に在るので版の値。Preflight F20）
+G1_DIFF = "審査を起こす前に git diff <BASE_SHA> を $TMPDIR/works-g1-<n>.patch に書いたパス"   # 審査役の型の [DIFF_FILE]
+G1_IMPL_REPORT = "ファイルに書かない。報告の全部を最後のメッセージに書く（修正役が審査役にそのまま渡す）"   # 実装役の型の [REPORT_FILE]
+G1_STEPS = (
+    "下の項目の順に、Agent の道具で実装役の下請けを 1 つ起こし、prompt に実装役のファイルの中身を全部、字を変えずに渡す。",
+    "実装役の最後のメッセージを受けたら、審査役のファイルの『Diff file』の行のとおりに差分のファイルを Bash で書き（作業ツリーの"
+    "外。未追跡の新しいファイルは git diff に出ないので、`git ls-files --others --exclude-standard` の名をそのファイルの末尾に"
+    "足す）、別の Agent で審査役の下請けを起こす。prompt には審査役のファイルの中身を全部と、その後ろに実装役の最後のメッセージを"
+    "貼る。",
+    "審査の返答が `❌` か `Needs fixes` なら、指摘を添えて同じ項目の実装役を起こし直し、もう 1 度審査を起こす。実装役は項目ごとに"
+    "3 回まで。3 回目の審査も通らなければ、残った指摘を返答の欄に書いて次の項目へ進む。実装役が NEEDS_CONTEXT か BLOCKED を"
+    "返した項目の単位は、直さずに食い違いの申し出（conflicts）で返す（下の読み替えの ASK）。",
+    "全部の項目が済んだら、作業ツリーの差分を自分で確かめ（下請けの報告を信じない。読み替えの DELEGATE）、自分は返答の欄の JSON "
+    "だけを返す。下請けが Bash で書いたと報告したファイルは、パスと理由を返答の bash_writes に書く（Edit・Write の書き込みは記録に"
+    "載る）。",
+    "機械の関門は返答の後に線が当てる: 受け入れのテストの赤→緑と既存のテストの凍結は修正の受け付けの束、test_cmd は線の最後の"
+    "テストの段。下請けの「commit」「人に聞く」は下の読み替え（COMMIT・ASK）に従う（下請けのファイルの末尾にも同じ決まりが在る）。",
+)
+G1_OVERRIDES = ("下の読み替えの DISPATCH（下請けを起こさない・ほかの役の道具に Agent は無い）と DELEGATE の「役がほかの"
+                "エージェントに仕事を任せることは無い」は、修正の形 g1 のこの修正役には効かない: この節の手順のとおり Agent で"
+                "下請けを起こす。下請けがさらに下請けを起こすことは無い（どちらの型も禁じる）")
+G1_SUB_HEAD = "## works の決まり（修正の形 g1 の下請け。上の型の文に勝つ）"
+G1_SUB_RULES = (
+    "commit・stash・reset・checkout をしない。HEAD・index・枝を動かさず、差分は作業ツリーに残す（型の「Commit your work」は"
+    "読み替える）。",
+    "人に聞かない（聞いても答えは来ない）。分からない所は止まらずに、最後のメッセージに NEEDS_CONTEXT か BLOCKED と何が"
+    "分からないかを書く。",
+    "報告はファイルに書かず、最後のメッセージに書く。",
+    "作業ツリーへの書き込みは Edit・Write の道具で（書き込みの記録に載る）。Bash で書いたファイルは、パスと Bash で書いた理由を"
+    "最後のメッセージに書く。",
+    "一式は回さない（一式と test_cmd は線が回す）。回すのは変えたファイルに当たる試験だけ。",
+    "下請けを起こさない。",
+)
+G1_QUERY_LEAD = "外のサービスへ問い合わせる時の決まり（works の包みより。この決まりは型の文に勝つ）:"
 
 
 def carries(node: str, shape: str) -> bool:
@@ -93,3 +139,24 @@ def section(node: str, shape: str, values: dict[str, str] | None = None) -> str:
         filled = spseam.fill(sid, values, src, item, seams)
         body = [WINS, PROMPT_HEAD.format(file=sec["files"][0]), filled.rstrip("\n")]
     return "\n\n".join([HEAD, *body, rolekit.skill_overlay().rstrip("\n")]) + "\n"
+
+
+def g1_prompt(seam_id: str, values: dict[str, str]) -> str:
+    """修正の形 g1 の下請けに渡すファイルの中身: 216 の部品の節 seam_id の型を values で埋めた本文、下請けへの works の決まり
+    （G1_SUB_HEAD・G1_SUB_RULES）、検索語の規律の塊（adapter.query_rule を字のまま）。写しが固定と違う・穴が埋まらない・規律の
+    正本が読めなければ ValueError（名指す）"""
+    item, src = pinned()
+    filled = spseam.fill(seam_id, values, src, item)
+    try:
+        rule = adapter.query_rule()
+    except adapter.Unrecognised as e:
+        raise ValueError(f"下請けに渡す検索語の規律を引けない: {e}") from None
+    return "\n\n".join([filled.rstrip("\n"), G1_SUB_HEAD, _bullets(G1_SUB_RULES), G1_QUERY_LEAD + "\n" + rule]) + "\n"
+
+
+def g1_section(rows: list[dict]) -> str:
+    """修正の形 g1 の修正役の指示書の節。rows は項目の順の {item, impl_file, review_file}（fixrules.g1_values）。
+    G1_HEAD → 手順（G1_STEPS）→ 項目ごとの実装役と審査役のファイル → 読み替えの上書き（G1_OVERRIDES）→ 読み替え"""
+    steps = "\n".join(f"{n}. {t}" for n, t in enumerate(G1_STEPS, 1))
+    files = _bullets(f"項目 {r['item']}: 実装役 {r['impl_file']}・審査役 {r['review_file']}" for r in rows)
+    return "\n\n".join([G1_HEAD, steps, files, G1_OVERRIDES, rolekit.skill_overlay().rstrip("\n")]) + "\n"

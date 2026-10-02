@@ -442,6 +442,17 @@ class TestStart(LoopCase):
         self.assertNotIn(seat.HEAD, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"),
                          "盤面の無い置き場（記録の無い盤面は af）も座を出さない")
 
+    def test_g1_skips_loop(self):
+        """修正の形 g1 の盤面: 実行器が在っても輪を回さず、何も書かずに実行器の無い run と同じ出口の形で go: false"""
+        fixshape.choose(self.board, "g1", by="試験", why="g1 は輪を回さない")
+        before = sorted(p.name for p in self.board.iterdir())
+        got = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
+        self.assertEqual(got, {"go": False, "reason": tddloop.G1_NO_LOOP, "suite": str(self.suite), "state_file": "",
+                               "summary_file": ""})
+        self.assertEqual(tddloop.G1_NO_LOOP, "修正の形 g1——TDD の輪は回さない（修正役が下請けを回し、赤緑と凍結は修正の受け付けの束が"
+                                             "事後に確かめる）")
+        self.assertEqual(sorted(p.name for p in self.board.iterdir()), before, "盤面の置き場に何も書かない")
+
 
 class TestRoute(LoopCase):
     def test_rejects_bad_routing_with_reason_in_next_prompt(self):

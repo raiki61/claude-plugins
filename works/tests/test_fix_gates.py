@@ -205,6 +205,17 @@ class TestRedGreen(FixGatesCase):
         self.assertEqual([r for r in self.problems(suite="") if r["gate"] == "red_green"], [])
         self.assertEqual(self.ledger()["skipped"][0]["why"], fixgates.NO_SUITE)
 
+    def test_g1_board_gets_both_gates(self):
+        """修正の形 g1（TDD の輪を回さない。受け付けに輪の凍結の控えが無い）: 束が赤緑と既存テストの変更の両方を当てる
+        （輪の凍結の検査 1b は控えの無い run で何も見ないので、g1 の凍結はこの束だけが受け持つ。Preflight F13）"""
+        self.ready_with_fields()
+        fixshape.choose(self.board, "g1", by="試験", why="g1 の束を見る")
+        self.add_test_that_passes_on_base("test_mean_of_two")
+        self.edit_tests(*THREE_EDIT)
+        rows = self.problems()
+        self.assertEqual(sorted((r["gate"], r["id"]) for r in rows), [("red_green", MEAN_ID), ("test_edits", THREE_ID)])
+        self.assertEqual({r["shape"] for r in self.ledger()["rows"]}, {"g1"})
+
     def test_plain_run_ignores_plan_fields(self):
         """平の run（修正の形 current）は修正案の欄を見ない: base で緑のテストでも red_green の行が無い"""
         self.ready_with_fields()

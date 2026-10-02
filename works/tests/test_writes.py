@@ -79,6 +79,32 @@ class TestHook(unittest.TestCase):
             self.assertEqual({r["path"] for r in rows}, {os.path.realpath(str(f))})
             self.assertEqual({r["file_sha"] for r in rows}, {sha(f)})
 
+    def test_subagent_write_lands_in_the_same_record(self):
+        """修正の形 g1 の下請け（修正役が Agent で起こす子）の Edit・Write も、修正役と同じ記録に載り、突き合わせを通る（強み 5:
+        書き込みの出どころ）。Claude Code は --settings で渡した PostToolUse のフックを subagent の道具の呼び出しでも起こし、入力に
+        agent_id を載せる（本体 2.1.287 の hook の入力の定義『Present only when the hook fires from within a subagent (e.g., a tool
+        called by an AgentTool worker)』と、record-read.py の docstring の 2026-09-22 の実測）。ここは、その形の入力を記録器が
+        親の記録と同じ置き場に分けずに書き、受け付けが申告（bash_writes）なしに通すことを縛る"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = pathlib.Path(td)
+            repo, sink = tmp / "repo", tmp / "sink"
+            rev = committed_copy(repo, SEED)
+            sink.mkdir()
+            parent, child = repo / "stats.py", repo / "test_stats.py"
+            parent.write_text("by the fix role\n", encoding="utf-8")
+            child.write_text("by the subagent\n", encoding="utf-8")
+            for path, agent in ((parent, None), (child, "a6562aad50ab27481")):
+                ev = {"tool_name": "Edit" if agent is None else "Write", "tool_input": {"file_path": str(path)},
+                      "session_id": "s-1", "tool_use_id": "toolu_1"}
+                if agent:
+                    ev.update(agent_id=agent, agent_type="general-purpose")
+                self.assertEqual(self.run_recorder(sink, ev).returncode, 0)
+            rows = [json.loads(ln) for ln in (sink / "writes.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([(r["path"], r["agent_id"]) for r in rows],
+                             [(os.path.realpath(str(parent)), None), (os.path.realpath(str(child)), "a6562aad50ab27481")])
+            got = writes.check({"changes": []}, repo, writes.changed(repo, rev), sink / "writes.jsonl")
+            self.assertEqual((got["problems"], got["note"]), ([], ""), "申告なしに、記録だけで通る")
+
     def test_recorder_writes_nothing_without_sink_or_for_other_tools(self):
         with tempfile.TemporaryDirectory() as td:
             sink, f = pathlib.Path(td) / "sink", pathlib.Path(td) / "a.py"

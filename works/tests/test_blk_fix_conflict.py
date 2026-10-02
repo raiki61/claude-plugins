@@ -164,7 +164,8 @@ class TestRuling(ConflictBoardCase):
         code, out, err = run_script("fix_prep", self.repo, {
             "ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "ruled",
             **{f"INPUTS_{k.upper()}": v for k, v in {"judgment_file": "", "open_units": json.dumps([MEAN, CLAMP]),
-                                                    "plan_file": "", "policy_path": "", "notes_file": "", "summary_file": ""}.items()}})
+                                                    "plan_file": "", "policy_path": "", "notes_file": "", "summary_file": "",
+                                                    "base_rev": ""}.items()}})
         self.assertEqual(code, 0, err)
         p = json.loads(out)
         prompt = pathlib.Path(p["prompt_file"]).read_text(encoding="utf-8")
@@ -790,7 +791,8 @@ class TestRuledPrepBrief(ConflictBoardCase):
         code, out, err = run_script("fix_prep", self.repo, {
             "ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "ruled",
             **{f"INPUTS_{k.upper()}": v for k, v in {"judgment_file": "", "open_units": json.dumps([MEAN, CLAMP]),
-                                                    "plan_file": "", "policy_path": "", "notes_file": "", "summary_file": ""}.items()}})
+                                                    "plan_file": "", "policy_path": "", "notes_file": "", "summary_file": "",
+                                                    "base_rev": ""}.items()}})
         self.assertEqual(code, 0, err)
         return r, pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
 

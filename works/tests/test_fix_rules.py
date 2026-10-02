@@ -518,8 +518,9 @@ class TestRoleNodes(unittest.TestCase):
         self.assertEqual(fp["with"], {"judgment_file": "$INPUTS.judgment_file", "open_units": "$INPUTS.open_units",
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
                                       "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
-                                      "pass": "first"})
-        self.assertEqual(set(fp["with"]) - {"pass"}, set(fixrules.FIX_VALUES))
+                                      "base_rev": "$INPUTS.base_rev", "pass": "first"})
+        # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
+        self.assertEqual(set(fp["with"]) - {"pass", "base_rev"}, set(fixrules.FIX_VALUES))
         self.assertIn("variants_file", fp["output_format"]["required"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",

@@ -12,6 +12,9 @@
 - prompt の座は 216 の fill で穴を全部埋める（残りの検査は座の本文だけに当て、読み替えの全文には当てない）。値が無ければ ValueError
 - 写しが固定（pin）と 1 バイトでも違えば ValueError（af の文へ黙って逃げない。Review Focus 5）
 - 座の skill の節は fixshape.SKILL_NODES と同じで、YAML で skills: と Skill を宣言する（prompt の座の節は skills: を持たない）
+- 修正の形 g1 の節（g1_section）: 見出し・Agent・項目ごとの実装役と審査役のファイル・読み替えを持ち、読み替えの DISPATCH を
+  名指して上書きする（Preflight F18）。下請けのファイルの型（g1_prompt）は穴を残さず、works の決まりと検索語の規律の塊を持つ
+  （run 221 の R4 の 3）。YAML で Agent を持つ節は fixshape.AGENT_NODES と同じ
 """
 import json
 import pathlib
@@ -28,6 +31,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 
+import adapter  # noqa: E402
 import fixshape  # noqa: E402
 import rolekit  # noqa: E402
 import seat  # noqa: E402
@@ -46,6 +50,14 @@ def find_node(nodes, nid):
             if got is not None:
                 return got
     return None
+
+
+def all_nodes(nodes):
+    """節の一覧（loop_group の中も）を平らにした並び"""
+    for n in nodes:
+        yield n
+        if "loop_group" in n:
+            yield from all_nodes(n["loop_group"]["nodes"])
 
 
 def own_part(text: str) -> str:
@@ -136,6 +148,58 @@ class SeatCase(unittest.TestCase):
                 else:
                     self.assertNotIn("skills", node)
                     self.assertNotIn("Skill", node["allowed_tools"])
+        # 修正役の節（fix・fix-ruled）は Agent を持ち（g1 の下請け）、Agent を持つ節の集まりは柵の表 AGENT_NODES と同じ
+        for nid in ("fix", "fix-ruled"):
+            self.assertIn("Agent", find_node(nodes, nid)["allowed_tools"], nid)
+        self.assertEqual({n["id"] for n in all_nodes(nodes) if "Agent" in (n.get("allowed_tools") or [])},
+                         set(fixshape.AGENT_NODES))
+
+
+class G1Case(unittest.TestCase):
+    """修正の形 g1: 修正役が SDD の型で下請けを回す節と、下請けに渡すファイルの型"""
+
+    def test_g1_section_lists_files_and_overlay(self):
+        rows = [{"item": 1, "impl_file": "/b/r1/g1-impl-1.md", "review_file": "/b/r1/g1-review-1.md"}]
+        text = seat.g1_section(rows)
+        for w in (seat.G1_HEAD, "Agent", "/b/r1/g1-impl-1.md", "/b/r1/g1-review-1.md", rolekit.skill_overlay().strip()):
+            self.assertIn(w, text)
+        self.assertTrue(text.startswith(seat.G1_HEAD))
+
+    def test_g1_section_overrides_dispatch_by_name(self):
+        """読み替えは『下請けを起こさない。ほかの役の道具に Agent は無い』と言う。g1 の節は読み替えの前で、その決まりを名指して
+        修正役には効かないと書く（216 の読み替えは変えない。Preflight F18）"""
+        text = seat.g1_section([{"item": 2, "impl_file": "i", "review_file": "r"}])
+        self.assertIn(seat.G1_OVERRIDES, text)
+        for name in ("DISPATCH", "DELEGATE"):
+            self.assertIn(name, seat.G1_OVERRIDES)
+        self.assertLess(text.index(seat.G1_OVERRIDES), text.index(rolekit.skill_overlay().splitlines()[0]))
+
+    def test_g1_section_items_in_order(self):
+        rows = [{"item": n, "impl_file": f"/b/i{n}", "review_file": f"/b/r{n}"} for n in (2, 5)]
+        text = seat.g1_section(rows)
+        self.assertLess(text.index("/b/i2"), text.index("/b/r2"))
+        self.assertLess(text.index("/b/r2"), text.index("/b/i5"))
+
+    def test_g1_prompts_fill_holes_and_carry_the_rules(self):
+        """下請けのファイルは型の穴を全部埋め、works の決まり（commit しない・人に聞かない・報告は最後のメッセージ）と、検索語の
+        規律の塊（包みが役の system prompt に足す物と字が同じ。Agent の子には届かないので、prompt に載せる）を持つ"""
+        seams = spseam.load_seams()
+        for sid in ("implementer", "task-review"):
+            with self.subTest(sid):
+                values = {p: f"<{i}>" for i, p in enumerate(seams[sid]["placeholders"])}
+                text = seat.g1_prompt(sid, values)
+                self.assertNotRegex(text, HOLE)
+                self.assertIn("<1>", text)
+                self.assertIn(seat.G1_SUB_HEAD, text)
+                self.assertIn(adapter.query_rule(), text)
+                self.assertLess(text.index("<1>"), text.index(seat.G1_SUB_HEAD), "型の後ろに決まり")
+        with self.assertRaises(ValueError):
+            seat.g1_prompt("implementer", {"[BRIEF_FILE]": "x"})   # 穴の値が足りない
+
+    def test_g1_prompt_refuses_unreadable_query_rule(self):
+        with mock.patch.object(seat.adapter, "query_rule", side_effect=adapter.Unrecognised("頭の行が無い")):
+            with self.assertRaisesRegex(ValueError, "検索語の規律"):
+                seat.g1_prompt("implementer", {p: "x" for p in spseam.load_seams()["implementer"]["placeholders"]})
 
 
 if __name__ == "__main__":

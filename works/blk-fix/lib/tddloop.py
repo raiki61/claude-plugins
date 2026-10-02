@@ -103,6 +103,8 @@ GATE_OFF = "off"
 SUITE_MADE_NOTE = "一式を走らせて出来たファイル"
 # 平の run（修正の形 current。fixshape.plain）: 比べの基準なので 219 の前の振る舞い（約束を読まない・整えはいつも・test_cmd の関門を切る）
 PLAIN_NOTE = "修正の形 current——test_cmd の関門は回さない（比べの基準）"
+# 修正の形 g1（seat.G1_SHAPE）: 輪を回さない（start は実行器の無い run と同じ出口の形で go: false）
+G1_NO_LOOP = "修正の形 g1——TDD の輪は回さない（修正役が下請けを回し、赤緑と凍結は修正の受け付けの束が事後に確かめる）"
 
 
 class Broken(Exception):
@@ -350,6 +352,14 @@ def plan_contract(board_dir: pathlib.Path, keys: list[str], plain: bool | None =
     return {k: c for k in keys if (c := planmarks.unit_contract(fields, k)) is not None}
 
 
+def _shape(board_dir: pathlib.Path) -> str:
+    """盤面の修正の形（fixshape.shape_at）。形の控えが壊れていれば理由の Broken（traceback にしない）"""
+    try:
+        return fixshape.shape_at(board_dir)
+    except ValueError as e:
+        raise Broken(f"盤面 {board_dir} の修正の形が読めない: {e}") from None
+
+
 def _plain(board_dir: pathlib.Path) -> bool:
     """平の run（fixshape.plain）か。形の控えが壊れていれば理由の Broken（traceback にしない）"""
     try:
@@ -380,12 +390,15 @@ def _unit(key, route, why="") -> dict:
 
 
 def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> dict:
-    """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無ければ何も書かずに go: false。
+    """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無い・修正の形が g1 なら何も書かずに go: false
+    （理由は NO_SUITE・G1_NO_LOOP。実行器の無い run は盤面を読まない）。
     test_cmd は run のテストのコマンド（線の入力）で、元の結末を取った後に関門を決める（_test_cmd_gate）"""
     suite = (suite or "").strip()
     off = {"go": False, "reason": NO_SUITE, "suite": suite, "state_file": "", "summary_file": ""}
     if not suite:
         return off
+    if _shape(pathlib.Path(board_dir)) == seat.G1_SHAPE:
+        return {**off, "reason": G1_NO_LOOP}
     keys = _open_units(open_units)
     exe = pathlib.Path(suite) if pathlib.Path(suite).is_absolute() else pathlib.Path(repo) / suite
     if not exe.is_file() or not (suite.endswith(".py") or os.access(exe, os.X_OK)):
