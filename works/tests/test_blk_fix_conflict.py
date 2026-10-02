@@ -965,5 +965,78 @@ class TestFixPlanItem(ReplanCase):
         self.assertEqual((r["ok"], r["done"]), (False, False)); self.assertIn("brief", r["reason"])
 
 
+class TestFixPlanItemReport(ReplanCase):
+    """fix_plan_item の単位は結末を fixed・no_fix_needed にせず、次の run の依頼と報告に載り、最後の関所はほかの理由で開いた時だけ
+    単位を並べる（開ける理由には数えない）"""
+
+    @staticmethod
+    def clamp_reply():
+        """only_clamp_reply の clamp の site に path を足した返答（fix2_ok の site は path を持たず、数え直しの表が「合わない」と
+        言って最後の関所を開けるので、関所が fix_plan_item だけで開かないことを見る試験にはこの形を渡す）"""
+        reply = only_clamp_reply()
+        for s in reply["changes"][0]["closure"]["sites"]:
+            s["path"] = "stats.py"
+        return reply
+
+    def test_replanned_unit_goes_to_next_request_not_gate(self):
+        import line_edge
+        import report
+        self.replanned()
+        self.assertTrue(self.accept_script(self.clamp_reply(), pass_="ruled")["ok"])
+        b = entry.open_board(self.board)
+        got = line_edge.final_edge(b, self.repo, run_id="run-12", mode="when_needed", tests={"ok": True, "green": True})
+        self.assertFalse(got.get("ask"), "fix_plan_item だけでは最後の関所を開かない（人に回す 3 つに当たらない）")
+        b = entry.open_board(self.board, allow_halted=True)
+        items = report.next_request(b)
+        self.assertTrue(any(i["where"] == MEAN and "fix_plan_item" in i["text"] and "事前審査" in i["text"] for i in items), items)
+        self.assertEqual(report.decide_outcome(b, {"accepted": True, "round_closed": True}), "round_limit")
+
+    def test_conflict_line_has_kinds_and_replan(self):
+        import report
+        self.replanned()
+        lines = report.head_decisions(entry.open_board(self.board), {"accepted": True, "round_closed": True})
+        hit = next(x for x in lines if x.startswith(conflict.HEAD))
+        for w in ("案の項目を直す（fix_plan_item）1", "種類の内訳", "unnamed_test_broke 1", "not_red 0"):
+            self.assertIn(w, hit)
+
+    def test_gate_opened_for_other_reason_lists_replanned_units(self):
+        """最後のテストが赤で開いた関所は fix_plan_item の単位を並べ、開けた理由（冒頭の 1 行目）には数えない"""
+        import line_edge
+        self.replanned()
+        self.assertTrue(self.accept_script(self.clamp_reply(), pass_="ruled")["ok"])
+        b = entry.open_board(self.board)
+        got = line_edge.final_edge(b, self.repo, run_id="run-12", mode="when_needed", tests={"ok": True, "green": False})
+        self.assertTrue(got.get("ask"), got)
+        text = got["gate_text"]
+        self.assertNotIn("fix_plan_item", text.splitlines()[0], "開けた理由には数えない")
+        hit = [x for x in text.splitlines() if x.startswith("- ") and MEAN in x and "案の項目 1" in x]
+        self.assertEqual(len(hit), 1, text)
+        self.assertIn("fix_plan_item", text)
+
+    def test_all_units_replanned_is_not_no_fix_needed(self):
+        """直す物が無い周（need_fix 偽）でも、fix_plan_item で残した単位が在れば round_limit（no_fix_needed と言わない）"""
+        import report
+        self.replanned()
+        self.assertTrue(self.accept_script(self.clamp_reply(), pass_="ruled")["ok"])
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(report.decide_outcome(b, {"accepted": True, "round_closed": True}, judged={"need_fix": False}),
+                         "round_limit")
+        self.assertEqual(report.decide_outcome(b, {"accepted": False, "round_closed": True}), "record_invalid",
+                         "記録が通らない周は fix_plan_item より先に record_invalid")
+
+    def test_next_request_owns_validator_row_and_report_lists_unit(self):
+        """その単位の検証器の行は次の run の依頼に渡さず（単位の行が持つ）、報告の冒頭 1 には単位の行が載る"""
+        import report
+        self.replanned()
+        b = entry.open_board(self.board, allow_halted=True)
+        left = [{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {MEAN}"},
+                {"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {CLAMP}"}]
+        items = report.next_request(b, left=left)
+        self.assertFalse(any(i["where"] == report.VALIDATOR_WHERE and i["text"].endswith(MEAN) for i in items), items)
+        self.assertTrue(any(i["where"] == report.VALIDATOR_WHERE and i["text"].endswith(CLAMP) for i in items), items)
+        lines = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        self.assertTrue(any(MEAN in x and "案の項目 1" in x for x in lines), lines)
+
+
 if __name__ == "__main__":
     unittest.main()

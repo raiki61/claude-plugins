@@ -119,6 +119,7 @@ class FinalTestSuitesCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1,
                                        output_of_round=lambda nid, n: {})
+        self.b.work = lambda name: self.b.dir / name   # 食い違いの控え（無ければ 0 件）を読む口
 
     def head_text(self, tests):
         from unittest import mock
@@ -505,6 +506,7 @@ class NextRequestUnitRowsCase(unittest.TestCase):
     def test_unit_rows_not_doubled(self):
         b = types.SimpleNamespace(state={"outputs": {"p3.fix": {"round": 1}}}, round=1, loop_state={}, dir=pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())),
                                   output_of_round=lambda nid, rnd: {"changes": [], "not_done": [{"unit_key": "u-left", "why": "範囲外"}]})
+        b.work = lambda name: b.dir / name   # 食い違いの控え（無ければ fix_plan_item の単位は 0 件）を読む口
         asked = [{"unit_key": "u-asked", "ruling": {"text": "人が決める"}, "between": ["a", "b"]}]
         left = [{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {k}"} for k in ("u-left", "u-asked", "u-other")]
         with mock.patch.object(report, "_asked", return_value=asked):
