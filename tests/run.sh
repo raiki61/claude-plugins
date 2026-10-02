@@ -2182,7 +2182,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=596
+EXPECTED_CHECKS=597
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3009,8 +3009,11 @@ expect_output 0 "STACKED_OK" \
     "catchup: 取り込み先が既定ブランチなら取り込み先の行は出ない" \
     "$PY_BIN" "$CU_CASE" stacked-default
 expect_output 0 "SUGGESTED_OK" \
-    "catchup: 依頼先の候補（GitHub の提案）は自分の PR で依頼が誰にも出ていないときだけ根拠つきで出し、空なら「なし」、依頼があれば出ない" \
+    "catchup: 依頼先の候補（GitHub の提案）は自分の PR で今の依頼が無く、人に依頼したことが無いか依頼が外れてレビューが付いていないときに根拠つきで出し、空なら「なし」、依頼・依頼後のレビュー・レビューの無い作者以外だけの担当なら出ない" \
     "$PY_BIN" "$CU_CASE" suggested
+expect_output 0 "FORMAL_OK" \
+    "catchup: 作者以外の人のレビューが付いて依頼が残っていない自分の PR は再依頼の番（人宛の依頼の記録が無ければ理由を言い分けて候補も出す。Bot 宛と混ざっても並びに依らず人宛を拾う）、レビューの無い作者以外だけの担当なら担当待ち、依頼が外れただけ・作者自身や Bot のレビュー・Bot 宛や依頼先が null の依頼だけなら今どおり未依頼、Team への依頼は待ちで時系列に名前で出す、reviewDecision が null でも意見から導かず再依頼の番、依頼の出来事の窓が埋まり hasPreviousPage が偽でないときだけ見ていないものに出し、自分の PR で分け方が変わる読み違いを添える、QUERY が判定の頼る選択（依頼先と作者の __typename・依頼の出来事の itemTypes と pageInfo）を取る" \
+    "$PY_BIN" "$CU_CASE" formal-state
 expect_output 0 "SINCE_OK" \
     "catchup: 私の痕跡以降に変わった file——基準がレビューなら厳密、作者側の commit だけ file を取り取り込みは数だけ、status は git の 1 文字で最後の commit のもの" \
     "$PY_BIN" "$CU_CASE" since-review
@@ -3418,7 +3421,7 @@ for word, files in [("飛び先", docs), ("figure-check.py", docs), ("（言語�
 print("DOC_WORDS_OK")
 PY
 
-expect_output 0 "DOC_NUMBERS_OK" "仕様書 7 節の上限の表が、機械の定数と同じ数値を持つ（数値の正本は仕様書。ずれたら片方が古い）" \
+expect_output 0 "DOC_NUMBERS_OK" "仕様書 7 節の上限の表が、機械の定数と同じ数値を持ち、命令書の同じ表と行ごとに一致する（数値の正本は仕様書。ずれたら片方が古い）" \
     "$PY_BIN" - "$ROOT" <<'PYNUM'
 import sys, pathlib, importlib.util
 for _s in (sys.stdout, sys.stderr):
@@ -3434,10 +3437,15 @@ cm = load("changemap", "attention/scripts/lib/changemap.py")
 cu = load("catchup", "attention/scripts/catchup.py")
 for label, value in [("本文", f"{cu.BODY_CAP} 行"), ("冒頭", f"{cu.ISSUE_HEAD_LINES} 行"), ("件数", f"{cu.ISSUE_CAP} 件"),
                      ("スレッド", f"{cu.THREAD_BODY_CAP} 行"), ("1 file", f"{cm.FRAME_FILE_CAP} 行"), ("合計", f"{cm.FRAME_TOTAL_CAP} 行"),
-                     ("指摘の件数", f"{cu.THREAD_CAP} 件"), ("帯", f"{cm.FRAME_WIDTH} 桁"), ("畳む", f"{cm.FRAME_WHOLE} 行"),
+                     ("指摘の件数", f"{cu.THREAD_CAP} 件"), ("依頼の出来事", f"{cu.REQUEST_WINDOW} 件"), ("帯", f"{cm.FRAME_WIDTH} 桁"), ("畳む", f"{cm.FRAME_WHOLE} 行"),
                      ("残す", f"{cm.FOLD_KEEP} 行"), ("散文", f"前後 {cm.PROSE_CONTEXT} 行"), ("指摘の前後", f"前後 {cu.THREAD_CONTEXT} 行"),
                      ("まとめる間", f"{cm.FRAME_GAP} 行")]:
     assert value in table, f"仕様書 7 節に {label} の {value} が無い"
+# 命令書は同じ表の写しを持つ。数値だけ照らすと「続き」の列が片方だけ古くなる（依頼の出来事の条件付きの申告）
+rows = lambda s: [l for l in s.splitlines() if l.startswith("| ") and "上限 | 続き" not in l]
+cmd = (root / "attention/commands/catchup.md").read_text(encoding="utf-8")
+cmd_table = cmd[cmd.index("上限と、続きを出す口。"):cmd.index("前後の広さ")]
+assert rows(cmd_table) == rows(table[:table.index("前後の広さ")]) != [], "命令書の上限の表が仕様書 7 節の表と違う"
 print("DOC_NUMBERS_OK")
 PYNUM
 
