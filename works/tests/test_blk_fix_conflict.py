@@ -540,7 +540,7 @@ class TestPlanRewritePermits(ConflictBoardCase):
                                                "rewrite_tests": [self.REWRITE], "refactor": {"declared": False, "why": ""}}])
         self.assertEqual(tddloop.plan_contract(self.board, [MEAN, CLAMP]),
                          {MEAN: {"items": [1], "route": "tdd", "tests": [{"id": test["id"], "red_kind": "assertion"}],
-                                 "rewrites": [self.REWRITE["id"]], "refactor": False}})
+                                 "rewrites": [self.REWRITE["id"]], "refactor": []}})
 
     def test_frozen_fields_halts_on_broken_ledger(self):
         """conflict.frozen_fields は凍結した欄の並び（planmarks.frozen）。控えが受け付けの後に書き換えられたら、_plan_rewrites と
@@ -609,7 +609,7 @@ class TestPlanRewritePermits(ConflictBoardCase):
         p = pathlib.Path(state)
         st = json.loads(p.read_text(encoding="utf-8"))
         st.update(order=[MEAN], units={MEAN: {"unit_key": MEAN, "route": "tdd", "green": "ok", "tests": [rid]}},
-                  contract={MEAN: {"items": [1], "route": "tdd", "tests": [], "rewrites": [rid], "refactor": False}})
+                  contract={MEAN: {"items": [1], "route": "tdd", "tests": [], "rewrites": [rid], "refactor": []}})
         p.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
         skip = tddloop.verified_rewrites(state)
         self.assertEqual(skip, [rid])

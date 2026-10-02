@@ -154,7 +154,8 @@ nodes:
                 type: array
                 items: {type: string}
               what: {type: string}
-              # 整えの申告（phase fix の任意の欄。declared が true の単位だけ refactor の段が来る。tddloop._declared）
+              # 整えの申告（phase fix の任意の欄。declared が true の単位か、修正案の項目が refactor.declared の単位だけ refactor の段が来る。
+              # tddloop._declared・_plan_refactor_why）
               refactor:
                 type: object
                 additionalProperties: false

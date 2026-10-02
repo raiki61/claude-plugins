@@ -99,6 +99,13 @@ class TestGaps(PlanFieldsCase):
         self.assertTrue(any(g.startswith("plan[0].refactor") for g in got), got)
         self.assertEqual(self.gaps(item(refactor={"declared": True, "why": "名前の重なる 2 つの関数を 1 つに寄せる"})), [])
 
+    def test_gaps_same_test_id_with_two_red_kinds_rejected(self):
+        """同じ受け入れのテストの id を 2 つの項目が別の赤の種類で宣言したら拒む（黙って先の物を勝たせない）。同じ種類なら通す"""
+        t = item()["tests"][0]
+        got = self.gaps(item(), item(tests=[dict(t, red_kind="exception")]))
+        self.assertTrue(any(g.startswith("plan[1].tests[0]") and "red_kind" in g for g in got), got)
+        self.assertEqual(self.gaps(item(), item()), [])
+
     def test_gaps_type_errors_are_named(self):
         got = self.gaps(item(route="maybe", tests="test_stats.py::TestStats::test_x"))
         self.assertTrue(any(g.startswith("plan[0].route") for g in got), got)
@@ -300,8 +307,12 @@ class UnitContractCase(unittest.TestCase):
         got = planmarks.unit_contract(fields, MEAN)
         self.assertEqual(got, {"items": [1, 2], "route": "tdd",
                                "tests": [{"id": self.T1["id"], "red_kind": "assertion"}],
-                               "rewrites": [self.RW["id"]], "refactor": True})
+                               "rewrites": [self.RW["id"]], "refactor": [{"item": 2, "why": "w" * 10}]})
         self.assertEqual(planmarks.unit_contract(fields, CLAMP)["route"], "direct")
+
+    def test_contract_refactor_empty_without_declaration(self):
+        """整えの申告は申告した項目の {item, why} の並び。申告が無ければ空"""
+        self.assertEqual(planmarks.unit_contract([self.f([MEAN])], MEAN)["refactor"], [])
 
     def test_contract_none_without_fields_or_items(self):
         self.assertIsNone(planmarks.unit_contract(None, MEAN))

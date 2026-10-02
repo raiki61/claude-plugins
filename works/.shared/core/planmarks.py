@@ -206,7 +206,7 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
     plan = reply.get("plan") if isinstance(reply, dict) else None
     if not isinstance(plan, list):
         return []
-    out, new_ids = [], {}
+    out, new_ids, kinds = [], {}, {}
     for i, it in enumerate(plan):
         if not isinstance(it, dict):
             out.append(f"plan[{i}]: 項目が object でない")
@@ -233,6 +233,10 @@ def gaps(reply: dict, repo: pathlib.Path) -> list[str]:
             line = find_test(repo, tid) if tid else None
             if tid:
                 new_ids.setdefault(tid, f"plan[{i}].tests[{j}]")
+                first, kind = kinds.setdefault(tid, (f"plan[{i}].tests[{j}]", row.get("red_kind")))
+                if kind != row.get("red_kind"):
+                    out.append(f"plan[{i}].tests[{j}].id（{tid}）: 同じ id を {first} にも別の red_kind（{kind}）で書いた"
+                               "（同じテストの赤の種類は 1 つにそろえよ）")
             if line is not None:
                 out.append(f"plan[{i}].tests[{j}].id（{tid}）: 既に在るテスト（{_limit(repo, tid)}）。tests はまだ無いテストを名指す。"
                            "既に在るテストの期待を変えるなら rewrite_tests に書け")
@@ -359,14 +363,15 @@ def rewrites(b) -> list[dict]:
 
 
 def unit_contract(fields: list | None, key: str) -> dict | None:
-    """単位 key の約束 {items: 項目の番号（1 始まり）, route, tests: [{id, red_kind}], rewrites: [id], refactor}。key を unit_keys に
-    含む項目の欄を合わせる: route はどれかの項目が tdd なら tdd（ほかは direct）・tests は項目の順で id の重複を除く・rewrites は
-    範囲 limit の在る行の id だけ（rewrites と同じ選び方）・refactor はどれかの項目の refactor.declared が真なら真。
+    """単位 key の約束 {items: 項目の番号（1 始まり）, route, tests: [{id, red_kind}], rewrites: [id], refactor: [{item, why}]}。
+    key を unit_keys に含む項目の欄を合わせる: route はどれかの項目が tdd なら tdd（ほかは direct）・tests は項目の順で id の重複を
+    除く（同じ id に別の red_kind は gaps が拒む）・rewrites は範囲 limit の在る行の id だけ（rewrites と同じ選び方）・refactor は
+    refactor.declared が真の項目の番号と理由（申告が無ければ空）。
     fields が None か、当たる項目が無ければ None。純粋（盤面もファイルも読まない）"""
     if not isinstance(fields, list):
         return None
     items, tests, rws = [], {}, {}
-    route, refactor = "direct", False
+    route, refactor = "direct", []
     for n, f in enumerate(fields, 1):
         keys = f.get("unit_keys") if isinstance(f, dict) else None
         if not isinstance(keys, list) or key not in keys:
@@ -380,7 +385,8 @@ def unit_contract(fields: list | None, key: str) -> dict | None:
             if _id_of(row) and isinstance(row.get("limit"), str) and row["limit"]:
                 rws.setdefault(row["id"])
         rf = f.get("refactor")
-        refactor = refactor or (isinstance(rf, dict) and rf.get("declared") is True)
+        if isinstance(rf, dict) and rf.get("declared") is True:
+            refactor.append({"item": n, "why": rf.get("why").strip() if isinstance(rf.get("why"), str) else ""})
     if not items:
         return None
     return {"items": items, "route": route, "tests": [{"id": i, "red_kind": k} for i, k in tests.items()],

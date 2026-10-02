@@ -260,6 +260,7 @@ class TestNoSuite(unittest.TestCase):
 
 
 DECLARED = {"declared": True, "why": "分母の式を名前の付いた変数に分けたい"}   # fix の段の整えの申告（理由は MIN_WHY 字以上）
+PLAN_REFACTOR = {"item": 1, "why": "分母の計算を補助の関数に寄せる"}   # 約束の refactor の 1 行（修正案の項目の申告）
 
 
 class LoopCase(unittest.TestCase):
@@ -577,7 +578,7 @@ WRONG_KIND_TEST = "\n    def test_mean_of_two(self):\n        import stats\n    
 
 class ContractCase(LoopCase):
     """約束を持つ run。tdd-start を plan_contract の差し替えで起こし直す（実行器は pytest に似せた PYTEST_LIKE）"""
-    CONTRACT = {MEAN: {"items": [1], "route": "tdd", "rewrites": [], "refactor": False,
+    CONTRACT = {MEAN: {"items": [1], "route": "tdd", "rewrites": [], "refactor": [],
                        "tests": [{"id": MEAN_ID, "red_kind": "assertion"}]}}
 
     def setUp(self):
@@ -708,7 +709,7 @@ REWRITE = "test_stats.py::TestStats::test_clamp_above_range"
 class TestPlanRewrites(ContractCase):
     """修正案が書き換えを名指した既存のテスト（約束の rewrites）は、テストの段の名指しに入れて同じ赤→緑の関門を通す。
     名指しの外の既存のテストの本体（.py の test* 関数）は凍っている"""
-    CONTRACT = {CLAMP: {"items": [1], "route": "tdd", "tests": [], "rewrites": [REWRITE], "refactor": False}}
+    CONTRACT = {CLAMP: {"items": [1], "route": "tdd", "tests": [], "rewrites": [REWRITE], "refactor": []}}
 
     def rewrite(self):
         self.edit("test_stats.py", "self.assertEqual(clamp(15, 0, 10), 10)",
@@ -837,7 +838,8 @@ def _with_other_test(case, body=OTHER_TEST):
 class TestFixPhaseFreezesOtherTests(ContractCase):
     """約束の在る単位の直し・整えの段で、単位のテストのファイルの外の既存のテスト（テストのファイルの名の .py の test* 関数）を
     書き換えたら拒む"""
-    CONTRACT = {CLAMP: {**TestPlanRewrites.CONTRACT[CLAMP], "refactor": True}}   # 整えの段を申告で必ず通す
+    CONTRACT = {CLAMP: {**TestPlanRewrites.CONTRACT[CLAMP],   # 整えの段を申告で必ず通す
+                        "refactor": [{"item": 1, "why": "テストの補助の重なりを寄せる"}]}}
     LOW = "test_other.py::TestOther::test_low"
 
     def setUp(self):
@@ -1000,9 +1002,9 @@ class TestVanished(unittest.TestCase):
 class TestRewriteSharedAcrossUnits(ContractCase):
     """1 つの項目が 2 つの単位にまたがると、同じ書き換えの名指しが両方の単位の約束に載る。前の単位で赤→緑を確かめた id は、
     後の単位で名指しを強いない（もう通るので強いると後の単位は必ず落ちる）。確かめた後は凍っていて、後の単位では書き換えられない"""
-    CONTRACT = {CLAMP: {"items": [1], "route": "tdd", "tests": [], "rewrites": [REWRITE], "refactor": False},
+    CONTRACT = {CLAMP: {"items": [1], "route": "tdd", "tests": [], "rewrites": [REWRITE], "refactor": []},
                 MEAN: {"items": [1], "route": "tdd", "tests": [{"id": MEAN_ID, "red_kind": "assertion"}], "rewrites": [REWRITE],
-                       "refactor": False}}
+                       "refactor": []}}
 
     def clamp_done(self):
         got = self.step({"phase": "route", "units": [{"unit_key": CLAMP, "route": "tdd"}, {"unit_key": MEAN, "route": "tdd"}]})
@@ -1149,8 +1151,10 @@ class TestRedKind(unittest.TestCase):
         self.assertEqual(probs("exception", "Failed: DID NOT RAISE ValueError"), [])
         self.assertEqual(probs("exception", "TypeError: bad operand"), [])
         self.assertTrue(probs("exception", "AssertionError: 3.0 != 2"))
-        self.assertEqual(probs(None, "NameError: name 'f' is not defined"), [])
-        self.assertEqual(probs("weird", "NameError: name 'f' is not defined"), [])
+        for declared in (None, "weird"):   # 宣言の無い名指し（書き換え）: 名前・import の失敗だけを拒む
+            self.assertTrue(probs(declared, "NameError: name 'f' is not defined"), declared)
+            self.assertEqual(probs(declared, "AssertionError: 3.0 != 2"), [], declared)
+            self.assertEqual(probs(declared, "Failed: DID NOT RAISE ValueError"), [], declared)
 
     def test_run_suite_rows_carry_failure_attrs(self):
         """run_suite の結末の行に failure の子の type・message（無ければ空）"""
@@ -1281,17 +1285,43 @@ class TestTestCmdGate(LoopCase):
         return f"{sys.executable} {name}"
 
     def test_rewriting_test_cmd_is_restored_and_not_excused(self):
-        """test_cmd が既存のファイルを書き換えたら、元に戻して suite_made に積まない（書き込みの出どころの照合から外さない）。
-        新しく出来たファイルは今どおり積む"""
+        """既存のファイルを書き換えた test_cmd は緑でない: 拒み、理由に書き換えたパスを載せ、元に戻して suite_made に積まない
+        （書き込みの出どころの照合から外さない）。新しく出来たファイルは今どおり積む"""
         self.restart(self.tool("fmt.py", FMT))
         self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
         self.route()
         self.red()
-        self.fix_mean()
+        self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "return sum(xs) / len(xs)")
+        got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を len(xs) にした"})
+        self.assertFalse(got["ok"], got)
+        self.assertIn("stats.py", got["reason"])
+        self.assertIn("元に戻した", got["reason"])
+        self.assertIn("phase conflict", got["reason"])
         st = self.st()
+        self.assertEqual(st["phase"], "fix")
         self.assertNotIn("stats.py", st["suite_made"])
         self.assertIn("fmt.cache", st["suite_made"])
         self.assertIn("return sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "役の直しの姿に戻す")
+
+    def test_red_test_cmd_reason_names_conflict_for_frozen_tests(self):
+        """赤の元が凍ったテストのファイルなら直しの段では直せないので、拒む文が申し出の道を名指す"""
+        self.restart(self.lint())
+        self.route()
+        self.red()
+        self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "print('debug')\n    return sum(xs) / len(xs)")
+        got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を直した"})
+        self.assertIn("赤の元が凍ったテストのファイルなら phase conflict で申し出よ", got["reason"])
+
+    def test_test_cmd_runs_niced(self):
+        """輪の中の test_cmd は nice を付けて走らせる（ADR 0071 の 3 の 1。実行器の run_suite と同じ）"""
+        clean = {"material": {"status": "clean", "count": 0, "checked": "x", "detail": ""}}
+        with mock.patch.object(tddloop.entry, "local_checks_material", return_value=clean) as lcm:
+            self.restart(self.lint())
+            self.route()
+            self.red()
+            self.fix_mean()
+        self.assertEqual(lcm.call_count, 2)
+        self.assertTrue(all(c.kwargs.get("niced") is True for c in lcm.call_args_list), lcm.call_args_list)
 
     def test_start_rewriting_test_cmd_turns_gate_off(self):
         self.restart(self.tool("fmt_always.py", FMT_ALWAYS))
@@ -1380,7 +1410,7 @@ class TestRefactorGate(LoopCase):
 
     def test_plan_declared_goes_to_refactor_without_reply(self):
         """案の項目が refactor.declared の単位は、役が申告しなくても整えの段が来る"""
-        contract = {MEAN: {"items": [1], "route": "tdd", "tests": [], "rewrites": [], "refactor": True}}
+        contract = {MEAN: {"items": [1], "route": "tdd", "tests": [], "rewrites": [], "refactor": [PLAN_REFACTOR]}}
         with mock.patch.object(tddloop, "plan_contract", return_value=contract):
             self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
         self.state = self.start["state_file"]
@@ -1388,7 +1418,49 @@ class TestRefactorGate(LoopCase):
         self.red()
         self.fix_mean()
         self.assertEqual(self.st()["phase"], "refactor")
-        self.assertIn("修正案の項目 1", self.st()["units"][MEAN]["refactor_why"])
+        self.assertIn(f"項目 1: {PLAN_REFACTOR['why']}", self.st()["units"][MEAN]["refactor_why"])
+
+    def test_role_and_plan_reasons_are_joined(self):
+        """役と修正案の両方が申告したら、空でない理由を全部つなぐ"""
+        contract = {MEAN: {"items": [1], "route": "tdd", "tests": [], "rewrites": [], "refactor": [PLAN_REFACTOR]}}
+        with mock.patch.object(tddloop, "plan_contract", return_value=contract):
+            self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
+        self.state = self.start["state_file"]
+        self.route()
+        self.red()
+        self.fix_mean(refactor=DECLARED)
+        why = self.st()["units"][MEAN]["refactor_why"]
+        self.assertIn(DECLARED["why"], why)
+        self.assertIn(f"項目 1: {PLAN_REFACTOR['why']}", why)
+
+    def test_calls_mark_runner_down(self):
+        """実行器が走らずに輪を抜けた回は、役の拒否と分けて phase runner の行"""
+        self.route()
+        self.add_test(NEW_TEST)
+        self.suite.write_text("import sys\nsys.exit(3)\n", encoding="utf-8")   # JUnit を書かない
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
+                         "tests": ["test_stats.py::TestStats::test_mean_of_two"]})
+        self.assertTrue(got["done"])
+        last = self.st()["calls"][-1]
+        self.assertEqual((last["phase"], last["unit_key"], last["ok"], last["runs"]), ("runner", MEAN, False, 1))
+
+    def test_calls_mark_passed_conflict(self):
+        got = self.step({"phase": "conflict", "unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"],
+                         "why_both_cannot_hold": "テストは分母 len(xs) - 1 の値を期待しているが、依頼は算術平均を求めている",
+                         "which_is_right": "request"})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.st()["calls"], [{**self.st()["calls"][0], "n": 1, "phase": "conflict", "unit_key": "",
+                                               "ok": True, "runs": 0}])
+
+    def test_calls_mark_give_up(self):
+        """諦めた回も、その段の ok: false の行（数えは retry_max 行）"""
+        self.route()
+        self.red()
+        for _ in range(tddloop.retry_max()):
+            got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "直せていない"})
+        self.assertTrue(got["done"])
+        rows = self.st()["calls"][2:]
+        self.assertEqual([(c["phase"], c["ok"]) for c in rows], [("fix", False)] * tddloop.retry_max())
 
     def test_skipped_unit_moves_to_next_unit(self):
         """飛ばした単位の次の単位は、緑の木を頭に test の段から始まる"""
