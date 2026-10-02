@@ -44,11 +44,14 @@ FAST = frozenset({
     "test_impact",          # 変更の周りの地図: 種の git は gitkit の型の写し・git ls-files と diff を読む（子のプロセスは git だけ）
     "test_halt",            # 線 A: 止め札を一時の盤面に置く・stop.sh を偽の Archon（sh の台本）で起こす・python を 8 本同時に起こす（git・uv・木なし）
     "test_node_marker",     # 線 A: 印の文字列を組んで読むだけ
+    "test_fixshape",        # 修正の形の読み口: 一時の置き場の JSON を読み書きするだけ（盤面・git・子のプロセスなし）
     "test_fix_rules",       # R65: 修正の決まりの正本と 2 つの指示書の組み立てを、関数を直に呼んで見る（盤面・git・子のプロセスなし）
     "test_conflict_kinds",  # 申し出の種類と裁定 fix_plan_item: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_fix_units",       # 修正の受け付けの閉鎖の表と裁定の出どころ: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_rolekit",         # P1 Task 13: 役の節の共通の口を偽の盤面と mock で見る（git・子のプロセスなし）
     "test_sp_skills",       # 借りる superpowers のスキルの一覧と無人の読み替え: borrow.json と md を読むだけ（git・子のプロセスなし）
+    "test_seat",            # 借りたスキルの座: 216 の写しと seams.json を読むだけ（写しを一時の置き場に写す 1 本と、g1 の差分のコマンドを gitkit の型の写しで sh で走らせる 1 本を含む。盤面なし）
+    "test_fixmeasure",      # 修正の形の測りと採否の判定 dev/fixmeasure.py: 一時の置き場に sqlite の偽の archon.db と盤面（DiskBoard.create。git なし）を作り、殻を子で起こす（git・Archon なし）
     "test_sp_seam",         # 借りる superpowers の照合と包みの部品: 一時の置き場の偽の版のフォルダを読むだけ（git・子のプロセスなし）
     "test_selfcheck",       # 軽い自己点検: 腕の一覧を読むだけ（--check）と、小さな偽の pack で実行器を子で起こす（git なし）
     "test_script_io",       # 2 秒（python を 1 本起こすだけ。git は使わない）
@@ -100,9 +103,11 @@ HEAVY = frozenset({
     "test_blk_ci",          # 線 A: 試験ごとの種の git（linekit.seed_repo）・スクリプトを子で起こす
     "test_blk_fix",         # 線 A Task 12: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
     "test_blk_plan",        # P1 Task 25: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
+    "test_fixture",         # 固定材料: test_blk_fix の BoardCase で試験ごとに種の git と盤面（entry.start）を作り、写して別の置き場へ取り込む
     "test_plan_brief",      # 修正案の項目ごとの brief: test_blk_fix の BoardCase で試験ごとに種の git（linekit.seed_repo）と盤面（entry.start）を作る
     "test_blk_fix_conflict",# 食い違いの申し出と裁定の輪: 試験ごとの種の git と盤面（entry.start）・スクリプトを子で起こす
     "test_blk_fix_tdd",     # 修正の段の TDD の輪: 種の git（gitkit の写し）と小さな実行器を子で起こす・一時の index で版を固める
+    "test_fix_gates",       # 事後の関門の束: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作り、小さな実行器を子で起こす・一時の git worktree
     "test_writes",          # 書き込みの出どころ: 種の git（gitkit の写し）・記録器と小さな実行器を子で起こす・TDD の輪を回す
     "test_tdd_outside",     # TDD の輪と受け付けが段の外の試験を足す: 種の git（gitkit の写し）に試験ごとに commit・小さな実行器を子で起こす（プロセスの木）・git archive で版を写す
     "test_blk_pr",          # 線 A: 試験ごとの git のリポジトリ・golden の盤面の再生（boardreplay）

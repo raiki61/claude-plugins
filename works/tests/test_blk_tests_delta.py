@@ -34,10 +34,12 @@ from accept import role_schema, snapshot_tree, tree_state  # noqa: E402
 from board import BoardGap  # noqa: E402
 import conflict  # noqa: E402
 import deltamarks  # noqa: E402
+import fixshape  # noqa: E402
 import planmarks  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
 import refix  # noqa: E402
+import seat  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 
@@ -708,7 +710,7 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         brief = json.loads(pathlib.Path(got["brief_file"]).read_text(encoding="utf-8"))
         self.assertEqual([f["key"] for f in brief["reads"]["out.p2.plan_review"]["faces"]], [RF.PR_KEY])
         self.assertEqual([(r["key"], r["handled"]) for r in brief["reads"]["out.p3.fix.plan_faces"]], [(RF.PR_KEY, "absorbed")])
-        self.assertEqual(got["must"], [got["brief_file"], d["file"]])
+        self.assertEqual(got["must"], [got["brief_file"], d["file"], brief["seat_file"]])   # 種の盤面の形は既定の g3（座のファイル）
         self.assertEqual(brief["policy"], policy.brief(b))   # 方針の本文と写しの置き場（方針の文書が無い run は両方空）
         self.assertEqual(json.loads(b.work(refix.snapshot_name(1)).read_text(encoding="utf-8")), tree_state(repo))   # entry.snapshot は共通の tree_state の形（R47。HEAD・枝を含む）
         self.assertTrue(b.rd["instances"]["p3.delta_review"].get("launched_at"))
@@ -741,6 +743,53 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.plan_fields(scoped=False)   # 217 番の形の控え（範囲の欄が無い）は修正案の無い run と同じ
         brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
         self.assertEqual(brief["plan_items"], [])
+
+    def test_cut_writes_seat_file_only_in_g3(self):
+        """修正の形 g3 の 1 回目の審査の支度だけが、task-review の型を埋めた座を review1-seat.md に書き、brief の seat_file と
+        must に名指す（型の穴は brief・方針・直した側の出力・切った版・差分のファイル）。g3 でなければ seat_file は空"""
+        repo = self.fixed()
+        fixshape.choose(self.board, "af", by="test", why="差分の審査役の座が g3 だけで出ることの確かめ")
+        brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(brief["seat_file"], "")
+        fixshape.choose(self.board, "g3", by="test", why="差分の審査役の座が g3 だけで出ることの確かめ")
+        got = refix.cut(self.board, 1, repo)
+        brief = json.loads(pathlib.Path(got["brief_file"]).read_text(encoding="utf-8"))
+        path = pathlib.Path(brief["seat_file"])
+        self.assertEqual(path.name, "review1-seat.md")
+        self.assertIn(str(path), got["must"])
+        text = path.read_text(encoding="utf-8")
+        b = real_entry.open_board(self.board)
+        d = b.loop_state["fix_delta"]
+        for w in (seat.HEAD, got["brief_file"], d["file"], d["rev"], b.loop_state["reviewed_revision"],
+                  str(self.board / b.state["outputs"]["p3.fix"]["file"]), seat.NONE, seat.words_table("task-review")):
+            self.assertIn(w, text)
+        self.assertNotRegex(text.split(refix.rolekit.skill_overlay().strip())[0], r"\[[A-Z][A-Z_]+\]")
+        self.assertEqual(refix.must(self.board, "review"), got["must"])
+        fixshape.choose(self.board, "af", by="test", why="形を戻すと前の試みの座のファイルが消えることの確かめ")
+        brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(brief["seat_file"], "")
+        self.assertFalse(path.exists())
+
+    def test_plain_run_review_has_no_plan_duty(self):
+        """平の run（修正の形 current）の修正役は修正案を見ない: 範囲の欄の在る控えが在っても、審査役の brief の plan_items は空で、
+        準拠は not_applicable だけを受け、手直しの brief にも準拠の行と項目が載らない（current を見ていない案で裁かない）"""
+        repo = self.fixed()
+        self.plan_fields(scoped=True)
+        fixshape.choose(self.board, "current", by="test", why="平の run の準拠が not_applicable になることの確かめ")
+        brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual((brief["plan_items"], brief["seat_file"]), ([], ""))
+        reply = load("fix2_delta_review_faces")
+        reply["compliance"] = {"verdict": "fail", "read": "修正案の項目 1 と差分の stats.py を読み、項目と差分を照らした",
+                               "items": [{"item": 1, "kind": "misunderstood", "face_key": RF.F1,
+                                          "why": "brief は docstring も直すと書くが、差分は式だけを直した"}]}
+        reply["quality"] = {"verdict": "pass", "why": "準拠に結ばれていない穴は無く、テストの形の問題も見当たらない"}
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertFalse(got["ok"])
+        self.assertIn("compliance.verdict（fail）", got["reason"])
+        got = refix.accept_review(load("fix2_delta_review_faces"), self.board, "", repo, n=1)   # not_applicable
+        self.assertTrue(got["ok"], got)
+        brief = json.loads(pathlib.Path(refix.prep_fix(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual((brief["plan_items"], brief["compliance"]), ([], []))
 
     def held_board(self):
         """p3.fix まで受けた盤面に、範囲の欄の控えと裁定 2 件（項目 2 の単位 K2 に fix_plan_item、K1 に fix_code_as と範囲

@@ -524,8 +524,9 @@ class TestRoleNodes(unittest.TestCase):
         self.assertEqual(fp["with"], {"judgment_file": "$INPUTS.judgment_file", "open_units": "$INPUTS.open_units",
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
                                       "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
-                                      "pass": "first"})
-        self.assertEqual(set(fp["with"]) - {"pass"}, set(fixrules.FIX_VALUES))
+                                      "base_rev": "$INPUTS.base_rev", "pass": "first"})
+        # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
+        self.assertEqual(set(fp["with"]) - {"pass", "base_rev"}, set(fixrules.FIX_VALUES))
         self.assertIn("variants_file", fp["output_format"]["required"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",
@@ -561,6 +562,8 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
             mock.patch.object(self.mod, "take_conflicts", side_effect=lambda reply, *a, **k: (reply, None)),
             mock.patch.object(self.mod, "fix_unit_keys", return_value=None),
             mock.patch.object(self.mod, "check_tests", return_value=([], "")),
+            mock.patch.object(self.mod.fixgates, "problems", return_value=[]),   # 事後の関門の束（test_fix_gates が見る）
+            mock.patch.object(self.mod.fixgates, "skipped", return_value=[]),
             mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.recount),
             mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
             mock.patch.object(self.mod.writes, "trace"),
@@ -758,6 +761,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         self.parked = []
         self.frozen = [[]]
         self.tests = [([], "")]
+        self.gates = [[]]   # 事後の関門の束の行（回ごと。最後の 1 つを繰り返す）
         self.revert = mock.MagicMock(return_value="/b/r1/fix-parked-1.patch")
         patches = [
             mock.patch.object(self.mod.tddloop, "frozen_problems", side_effect=lambda *a, **k: self.frozen.pop(0)
@@ -767,6 +771,9 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
             mock.patch.object(self.mod, "fix_unit_keys", return_value=None),
             mock.patch.object(self.mod, "check_tests", side_effect=lambda *a, **k: self.tests.pop(0)
                               if len(self.tests) > 1 else self.tests[0]),
+            mock.patch.object(self.mod.fixgates, "problems", side_effect=lambda *a, **k: self.gates.pop(0)
+                              if len(self.gates) > 1 else self.gates[0]),
+            mock.patch.object(self.mod.fixgates, "skipped", return_value=[]),
             mock.patch.object(self.mod.recount, "accept_fix",
                               side_effect=lambda reply, *a: {"ok": True, "reason": "", "changes": [
                                   {k: c[k] for k in ("unit_key", "files", "what")} for c in reply["changes"]]}),
@@ -806,6 +813,27 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         self.frozen = [[self.FROZEN], []]
         self.assert_parked_clamp(self.run_accept("3"))
 
+    def test_third_battery_row_bound_to_one_unit_parks_only_that_unit(self):
+        """事後の関門の束の行（計画 220 Task 4）も、名指しのファイルで 1 単位に結べれば、その単位だけを止めて残りを通す"""
+        self.gates = [[{"gate": "test_edits", "id": "test_clamp.py::test_clamp_above_range", "detail": "名指しの外"}], []]
+        self.assert_parked_clamp(self.run_accept("3"))
+
+    def test_third_battery_rows_of_two_units_park_both(self):
+        """束の行は行ごとの文で渡るので、別の単位を指す 2 行はそれぞれの単位に結んで両方を止める（red_green は項目の
+        unit_key で結ぶ。名指しのテストのファイルが changes に無くても）。1 回目の拒否の文には 2 行とも並ぶ"""
+        rows = [{"gate": "red_green", "id": "test_mean.py::test_mean_of_two", "detail": "base で緑", "unit_keys": [self.MEAN]},
+                {"gate": "test_edits", "id": "test_clamp.py::test_clamp_above_range", "detail": "名指しの外", "unit_keys": []}]
+        self.gates = [rows]
+        first = self.run_accept("1")
+        self.assertEqual((first["ok"], first["done"]), (False, False), first)
+        for w in ("test_mean.py::test_mean_of_two", "test_clamp.py::test_clamp_above_range"):
+            self.assertIn(w, first["reason"])
+        self.gates = [rows, []]
+        got = self.run_accept("3")
+        self.assertEqual((got["ok"], got["done"], got["changes"]), (True, True, []), got)
+        self.assertEqual(sorted(r["unit_key"] for rs, _ in self.parked for r in rs), sorted([self.MEAN, self.CLAMP]))
+        self.revert.assert_called_once()
+
     def test_unbound_third_reject_still_gives_up(self):
         self.tests = [(["受け付けが走らせた一式（環境）で、元で赤でなかった試験が赤: ['test_env.py::test_x']（1 件）"], "")]
         got = self.run_accept("3")
@@ -822,6 +850,52 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         self.assertEqual((got["ok"], got["done"]), (False, True), got)
         self.assertIn(self.CLAMP, got["reason"])
         self.assertEqual(self.parked, [])
+        self.revert.assert_not_called()
+
+    def g1_reply(self, failed_in):
+        """修正の形 g1 の修正役の返答: mean の項目は審査を通った。clamp の項目は 3 回の審査を通らなかった（failed_in が changes なら
+        行を残して root_or_symptom を symptom・why に残った指摘、not_done なら前の手順 3 の形）"""
+        why = "審査を 3 回通らなかった: 残った指摘は下限の枝の取り違え（test_clamp.py の上限の試験が赤のまま）"
+        mean = {"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"}
+        if failed_in == "changes":
+            return {"changes": [mean, {"unit_key": self.CLAMP, "files": ["clamp.py", "test_clamp.py"], "what": "上限の枝を直した",
+                                       "root_or_symptom": {"kind": "symptom", "why": why}}]}
+        return {"changes": [mean], "not_done": [{"unit_key": self.CLAMP, "why": why}]}
+
+    def run_reply(self, reply, iteration):
+        from unittest import mock
+        with mock.patch.dict("os.environ", {"INPUTS_ITERATION": iteration, "INPUTS_TDD_STATE": "/b/tdd.json",
+                                            "INPUTS_PASS": "first"}):
+            return self.mod.with_done(self.mod.accept_fix(reply, pathlib.Path("/b"), "", pathlib.Path("/r")))
+
+    def copy_owed(self):
+        """写しの受け付けの直す義務の数え（fix_covers_open_units と同じ文）: 止めた単位を除いた義務が changes に無ければ拒む"""
+        def accept(reply, *a):
+            parked = {r["unit_key"] for rs, _ in self.parked for r in rs}
+            missing = sorted({self.MEAN, self.CLAMP} - parked - {c["unit_key"] for c in reply["changes"]})
+            if missing:
+                return {"ok": False, "reason": "直していない [block] / do-now がある（writer の裁量で defer に覆せない。異議は新しい "
+                                               "judge に再判定させる）: " + "; ".join(missing)}
+            return {"ok": True, "reason": "", "changes": [{k: c[k] for k in ("unit_key", "files", "what")} for c in reply["changes"]]}
+        return accept
+
+    def test_g1_failed_item_in_changes_is_parked_alone_on_the_last_attempt(self):
+        """g1（強み 4）: 3 回の審査を通らなかった項目の単位を changes に残した返答は、最後の回の拒否（選んだ試験の赤）がその単位に
+        結べ、その単位の直しだけを戻して ask_human に止め、ほかの単位を通す"""
+        from unittest import mock
+        self.tests = [([self.RED], ""), ([], "")]
+        with mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.copy_owed()):
+            self.assert_parked_clamp(self.run_reply(self.g1_reply("changes"), "3"))
+
+    def test_g1_failed_item_in_not_done_refuses_the_whole_reply(self):
+        """同じ単位を not_done に置いた返答（前の手順 3 の形）は、拒否が changes の行に結べず、最後の回も返答全体を拒む（単位ごとに
+        戻せない）。g1 の手順 3 が changes に残す理由"""
+        from unittest import mock
+        self.tests = [([self.RED], ""), ([], "")]
+        with mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.copy_owed()):
+            got = self.run_reply(self.g1_reply("not_done"), "3")
+        self.assertEqual((got["ok"], got["done"]), (False, True), got)
+        self.assertNotIn(self.CLAMP, [r["unit_key"] for rs, _ in self.parked for r in rs])
         self.revert.assert_not_called()
 
     def test_first_bound_red_still_goes_back_to_role(self):
@@ -968,6 +1042,151 @@ class TestBriefCanonEdges(unittest.TestCase):
         for name, sid in ((fixrules.DIRECT, "fix-head"), (fixrules.TDD, "tdd-head")):
             line = next(ln for ln in fixrules.sections(name)[sid].splitlines() if "<<judgment_file>>" in ln)
             self.assertIn(f"「{heading[3:]}」", line)
+
+
+class TestSeatParts(unittest.TestCase):
+    """借りたスキルの座（seat.section の文）は、渡された時だけ節 seat として載る（修正の形 g3。計画 220 Task 2）。
+    修正役の座の型の穴の値は implementer_values が盤面と run の値から組む"""
+
+    def test_seat_part_only_when_given(self):
+        tdd = [pid for pid, _, _ in fixrules.tdd_parts(tdd_values(), seat="S")]
+        self.assertEqual(tdd[tdd.index("tdd-remap") + 1], "seat")
+        fix = [pid for pid, _, _ in fixrules.fix_parts(VALUES, seat="S")]
+        self.assertEqual(fix[fix.index("fix-reply") - 1], "seat")
+        self.assertNotIn("seat", [pid for pid, _, _ in fixrules.fix_parts(VALUES)])
+        self.assertNotIn("seat", [pid for pid, _, _ in fixrules.tdd_parts(tdd_values())])
+
+    def test_prompts_pass_the_seat_through(self):
+        self.assertIn("座の文 S", fixrules.fix_prompt(VALUES, seat="座の文 S"))
+        self.assertIn("座の文 S", fixrules.tdd_prompt(tdd_values(), "fix", PHASE_TEXT, title=TITLE, seat="座の文 S"))
+        self.assertEqual(fixrules.fix_prompt(VALUES), fixrules.fix_prompt(VALUES, seat=""))
+
+    def _values(self, rows, owed):
+        from unittest import mock
+        import seat
+        import spseam
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = pathlib.Path(tmp.name)
+        b = mock.Mock()
+        b.work.side_effect = lambda name: d / name
+        with mock.patch.object(fixrules.planbrief, "cut", return_value=rows):
+            got = fixrules.implementer_values(b, VALUES, pathlib.Path("/repo"), owed)
+        self.assertEqual(set(got), set(spseam.load_seams()["implementer"]["placeholders"]))
+        self.assertEqual(got["[REPORT_FILE]"], seat.NO_REPORT_FILE)
+        self.assertEqual(got["[directory]"], "/repo")
+        scene = got["[Scene-setting: where this fits, dependencies, architectural context]"]
+        self.assertIn(seat.SCENE, scene)
+        self.assertIn(VALUES["summary_file"], scene)
+        return got, d
+
+    def test_implementer_values_with_briefs(self):
+        import planbrief
+        owed = ["a: 分母", "b: 上限"]
+        rows = [{"item": 1, "unit_keys": ["a: 分母"], "file": "/b/r1/brief-1.md", "sha256": "a" * 64},
+                {"item": 2, "unit_keys": ["z: 外"], "file": "/b/r1/brief-2.md", "sha256": "b" * 64},
+                {"item": 3, "unit_keys": ["b: 上限", "y: 外"], "file": "/b/r1/brief-3.md", "sha256": "c" * 64}]
+        got, d = self._values(rows, owed)
+        self.assertEqual(got["[task name]"], "直す義務の単位 2 件（修正案の項目 1、3）")
+        self.assertEqual(got["[BRIEF_FILE]"], str(d / fixrules.SEAT_BRIEFS))
+        text = (d / fixrules.SEAT_BRIEFS).read_text(encoding="utf-8")
+        self.assertIn(planbrief.HEAD, text)
+        self.assertIn("brief-1.md", text)
+        self.assertIn("brief-3.md", text)
+        self.assertNotIn("brief-2.md", text, "義務の単位を持たない項目は載せない")
+
+    def test_implementer_values_without_briefs(self):
+        got, d = self._values([], ["a: 分母"])
+        self.assertEqual(got["[task name]"], "直す義務の単位 1 件")
+        self.assertEqual(got["[BRIEF_FILE]"], VALUES["judgment_file"], "brief が無い run は判定のファイル")
+        self.assertFalse((d / fixrules.SEAT_BRIEFS).exists())
+
+    def test_implementer_values_fill_the_real_template(self):
+        """組んだ値で 216 の型が埋まる（穴が残らない）"""
+        import seat
+        got, _ = self._values([], ["a: 分母"])
+        self.assertIn(VALUES["judgment_file"], seat.section("fix", "g3", got))
+
+
+class G1ValuesCase(unittest.TestCase):
+    """修正の形 g1 の下請けのファイル（fixrules.g1_values）: brief の項目ごと・項目に無い直す義務の単位は残りの 1 項目
+    （[BRIEF_FILE] は判定のファイル）・項目のほかの単位は『今は直すな』。座の節の理由の文は形ごと（g3 は前と同じ文）"""
+
+    ROWS = [{"item": 1, "unit_keys": ["a: 分母"], "file": "/b/r1/brief-1.md", "sha256": "0" * 64},
+            {"item": 2, "unit_keys": ["b: 上限", "c: 外"], "file": "/b/r1/brief-2.md", "sha256": "1" * 64}]
+    OWED = ["a: 分母", "b: 上限", "d: 案の外"]
+
+    def board(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = pathlib.Path(tmp.name)
+
+        class B:
+            state = {"inputs": {"review_rev": "abc123"}}
+            dir = d / "art" / "board"
+
+            def work(self, name):
+                return d / name
+        return B()
+
+    def test_items_and_remainder(self):
+        import planbrief
+        from unittest import mock
+        b = self.board()
+        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS):
+            got = fixrules.g1_values(b, VALUES, "/repo", self.OWED, "")
+        self.assertEqual([r["item"] for r in got], [1, 2, 3], "項目に無い直す義務の単位は残りの 1 項目")
+        self.assertEqual({r["base"] for r in got}, {"abc123"})
+        # 差分のファイルは run ごとの置き場（盤面の隣。包みが sandbox で書けるようにする所）の絶対パス。審査役の Diff file もそのパス
+        place = b.dir.parent / "run-place"
+        self.assertEqual([r["patch"] for r in got], [str(place / f"g1-{n}.patch") for n in (1, 2, 3)])
+        review = pathlib.Path(got[0]["review_file"]).read_text(encoding="utf-8")
+        self.assertIn(f"**Diff file:** {place / 'g1-1.patch'}", review)
+        impl2 = pathlib.Path(got[1]["impl_file"]).read_text(encoding="utf-8")
+        for w in ("修正案の項目 2", "b: 上限", planbrief.NOT_NOW, "c: 外", "/b/r1/brief-2.md"):
+            self.assertIn(w, impl2)
+        self.assertNotIn("a: 分母", impl2)
+        for f in (got[2]["impl_file"], got[2]["review_file"]):
+            text = pathlib.Path(f).read_text(encoding="utf-8")
+            self.assertIn(VALUES["judgment_file"], text, "残りの項目の brief は判定のファイル")
+        self.assertIn("d: 案の外", pathlib.Path(got[2]["impl_file"]).read_text(encoding="utf-8"))
+
+    def test_no_remainder_when_items_cover_the_duty(self):
+        from unittest import mock
+        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS):
+            got = fixrules.g1_values(self.board(), VALUES, "/repo", self.OWED[:2], "")
+        self.assertEqual([r["item"] for r in got], [1, 2])
+
+    def test_g1_task_names_now_and_not_now(self):
+        import planbrief
+        got = fixrules._g1_task(self.ROWS[1], self.OWED)
+        self.assertEqual(got, f"修正案の項目 2（直す義務の単位 b: 上限・{planbrief.NOT_NOW}: c: 外）")
+
+    def test_unit_note_is_shared_with_head_text(self):
+        import planbrief
+        self.assertEqual(planbrief.unit_note(["a", "b"], ["a"]), f"a・{planbrief.NOT_NOW}: b")
+        self.assertEqual(planbrief.unit_note(["a", "b"]), "a、b")
+        self.assertEqual(planbrief.unit_note(["b"], ["a"]), f"{planbrief.NONE}・{planbrief.NOT_NOW}: b")
+        self.assertIn(f"単位 {planbrief.unit_note(['b: 上限', 'c: 外'], ['b: 上限'])}）",
+                      planbrief.head_text(self.ROWS[1:], ["b: 上限"]))
+
+    def test_gate_off_shapes_use_the_fixshape_words(self):
+        """tdd-start が test_cmd の関門を切る形は fixshape の語（平の run は fixshape.PLAIN）と seat.G1_SHAPE で引く"""
+        import fixshape
+        import seat
+        import tddloop
+        self.assertEqual(set(tddloop.GATE_OFF_BY_SHAPE), {fixshape.PLAIN, seat.G1_SHAPE})
+        self.assertFalse(hasattr(tddloop, "PLAIN_SHAPE"), "形の語を写さない")
+        self.assertTrue(set(tddloop.GATE_OFF_BY_SHAPE) <= set(fixshape.SHAPES))
+
+    def test_seat_reason_names_the_shape_and_g3_is_unchanged(self):
+        """g3 の指示書は前とバイト単位で同じ（座の節の理由の文は『（修正の形 g3 の座）』のまま）。g1 は g1 と書く"""
+        def reason(**kw):
+            return {pid: why for pid, _, why in fixrules.fix_parts(VALUES, seat="S", **kw)}["seat"]
+        self.assertEqual(reason(), "いつも（修正の形 g3 の座）")
+        self.assertEqual(reason(shape="g1"), "いつも（修正の形 g1 の座）")
+        tdd = {pid: why for pid, _, why in fixrules.tdd_parts(tdd_values(), seat="S")}["seat"]
+        self.assertEqual(tdd, "いつも（修正の形 g3 の座）")
 
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))

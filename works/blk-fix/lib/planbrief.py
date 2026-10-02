@@ -13,6 +13,7 @@
   印の無い控え（cut の外で置いた）を LedgerBroken で止める。控えは一時のファイルから os.replace で置く
 - 呼ぶ時: cut・cut_at は今の周の p2.fix_plan の出力をそのまま凍結する。事前審査（p2.plan_review）と人の関所（p2.human_gate）を
   抜けた後にだけ呼ぶ（前に呼ぶと、承認されていない案がその周の正本になる）
+- 平の run（修正の形 current。fixshape.plain）: 修正案の欄を修正の段に渡さないので、cut は切らずに []（控えを書かない）
 
 読む物（どれも盤面の物。entry・planmarks・structmark の口だけ）:
 - 承認済みの修正案: 今の周の p2.fix_plan の出力（b.output_of_round）の plan。項目の並びは控え plan-fields.json と同じ
@@ -26,7 +27,7 @@
 - by_unit_at: 今の周の控えの brief を単位ごとに {unit_key: [{item, file（絶対パス）}]}（切らない・書き戻さない。食い違いの申し出の
   brief_vs_judgment の確かめが読む。盤面が開けない・控えが無い・壊れているなら {}）
 - for_units: 単位の key に当たる項目の行だけ
-- head_text: 指示書の頭に置く、brief を名指す節（今直す単位を渡すと、項目のほかの単位に「今は直すな」と添える）
+- head_text: 指示書の頭に置く、brief を名指す節（今直す単位を渡すと、項目のほかの単位に「今は直すな」と添える。単位の書き方は unit_note）
 - files: 今の周の brief のファイル（読んだ証拠に足す）
 """
 from __future__ import annotations
@@ -45,6 +46,7 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
+import fixshape  # noqa: E402  （.shared/core。盤面の修正の形）
 import planmarks  # noqa: E402
 import structmark  # noqa: E402
 
@@ -278,7 +280,14 @@ def _restore(b, rows: list) -> None:
 def cut(b) -> list[dict]:
     """今の周の brief を返す。控えが無ければ、修正案の出力と planmarks.frozen(b) が両方在る時だけ項目ごとに render して書き、控えを
     書く（どちらか無ければ [] で何も書かない。欄の控えが凍結の印と食い違えば LedgerBroken）。控えが在れば作り直さず、控えと違う
-    ファイルを書き戻す"""
+    ファイルを書き戻す。平の run（修正の形 current。fixshape.plain）は修正案の欄を修正の段に渡さないので、いつも [] で何も書かない
+    （形の控えが壊れていれば LedgerBroken）"""
+    try:
+        plain = fixshape.plain(b.dir)
+    except ValueError as e:
+        raise LedgerBroken(f"盤面の修正の形が読めない: {e}") from None
+    if plain:
+        return []
     rows = _ledger(b)
     if rows is not None:
         _restore(b, rows)
@@ -342,19 +351,24 @@ def for_units(briefs: list, keys) -> list[dict]:
     return [r for r in briefs if want & set(r.get("unit_keys") or [])]
 
 
+def unit_note(keys: list, owed=None) -> str:
+    """項目の単位の並び keys の書き方: owed（今直す単位の key）と重なる物を「、」で並べ（無ければ NONE）、ほかの単位は
+    「・今は直すな: …」と添える。owed が None なら keys を全部（head_text の行と fixrules の g1 の実装役の型の題が使う）"""
+    keys = list(keys or [])
+    want = None if owed is None else set(owed)
+    now = keys if want is None else [k for k in keys if k in want]
+    rest = [k for k in keys if k not in now]
+    return ("、".join(now) or NONE) + (f"・{NOT_NOW}: {'、'.join(rest)}" if rest else "")
+
+
 def head_text(briefs: list, owed=None) -> str:
     """指示書の頭に置く、brief を名指す節。brief が無ければ空。owed（今直す単位の key）を渡すと、行の「単位」は owed と重なる
     物だけにし、項目のほかの単位（義務から外れた・今の段の外）は「今は直すな」と添えて並べる。None なら項目の単位を全部"""
     if not briefs:
         return ""
-    want = None if owed is None else set(owed)
 
     def row(r):
-        keys = list(r.get("unit_keys") or [])
-        now = keys if want is None else [k for k in keys if k in want]
-        rest = [k for k in keys if k not in now]
-        tail = f"・{NOT_NOW}: {'、'.join(rest)}" if rest else ""
-        return f"- 項目 {r['item']}: {r['file']}（sha256 {r['sha256']}・単位 {'、'.join(now) or NONE}{tail}）"
+        return f"- 項目 {r['item']}: {r['file']}（sha256 {r['sha256']}・単位 {unit_note(r.get('unit_keys'), owed)}）"
     return f"{HEAD}\n\n" + "\n".join(row(r) for r in briefs) + f"\n\n{READ_ALL}"
 
 

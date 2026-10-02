@@ -166,7 +166,8 @@ class TestBlockYaml(unittest.TestCase):
         self.assertIn("`$fix-prep.output.prompt_file` を Read で", fix["prompt"])
         prep = find_node(block()["nodes"], "fix-prep")
         self.assertEqual((prep["script"], prep["timeout"]), ("fix_prep", DEADLINE))
-        self.assertEqual(fix["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch"])
+        # Agent は修正の形 g1 の下請けの口（g1 の外は包みが拒む。fixshape.denied_tools）
+        self.assertEqual(fix["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch", "Agent"])
         self.assertEqual(fix["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(fix["idle_timeout"], DEADLINE)
         of = fix["output_format"]
@@ -235,9 +236,10 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""
-        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS"),
+        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
+                           "INPUTS_TDD_SUITE"),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
-                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_PASS"),
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED"),
                 "reads": ("INPUTS_MUST",)}
         for name, inputs in want.items():
@@ -622,12 +624,14 @@ class TestFixPrep(BoardCase):
         b = entry.open_board(self.board)
         return {"judgment_file": str(self.board / b.state["outputs"]["p2.diagnose"]["file"]),
                 "open_units": json.dumps([MEAN, CLAMP], ensure_ascii=False), "plan_file": "", "policy_path": "",
-                "notes_file": "", "summary_file": ""}
+                "notes_file": "", "summary_file": "", "base_rev": ""}
 
     def prep(self, **drop):
+        """drop の鍵を外して起こす（値が None でない鍵は、その値で差し替える）"""
         env = {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "first",
                **{f"INPUTS_{k.upper()}": v for k, v in self.values().items()}}
-        return run_script("fix_prep", self.repo, {k: v for k, v in env.items() if k not in drop})
+        env = {**{k: v for k, v in env.items() if k not in drop}, **{k: v for k, v in drop.items() if v is not None}}
+        return run_script("fix_prep", self.repo, env)
 
     def reject_by_script(self):
         # 申告と数え直しの食い違いは拒まず記録する（49 件目）ので、今も拒まれる同じ unit_key の 2 行で拒ませる
@@ -715,6 +719,111 @@ class TestFixPrep(BoardCase):
         self.assertEqual(code, 0, err)
         rows = json.loads(pathlib.Path(json.loads(out)["reads_file"]).read_text(encoding="utf-8"))["rows"]
         self.assertEqual([r["path"] for r in rows], [judgment, prompt])
+
+    def test_g3_prompt_carries_the_implementer_seat(self):
+        """既定の形 g3 の盤面: 修正役の指示書（full）に借りたスキルの座（216 の implementer の型を埋めた物）が返答の欄の前に載る"""
+        import fixshape
+        import seat
+        self.fix_ready(launched=False)
+        self.assertEqual(fixshape.shape_at(self.board), "g3")
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        full = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(seat.HEAD, full)
+        self.assertIn(seat.NO_REPORT_FILE, full)
+        import rolekit
+        own = full[full.index(seat.HEAD):full.index(rolekit.skill_overlay().splitlines()[0])]   # 座の本文（読み替えの前まで。F8）
+        self.assertNotRegex(own, r"\[(BRIEF_FILE|REPORT_FILE|directory|task name)\]")
+        side = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
+        ids = [s["id"] for s in side["sections"]]
+        self.assertEqual(ids[ids.index("fix-reply") - 1], "seat")
+
+    def test_g1_prep_writes_filled_parts_per_item(self):
+        """修正の形 g1・修正案の欄の在る盤面: 項目ごとに実装役と審査役の下請けのファイルを今の周に書き、どちらも型の穴を残さない。
+        修正役の指示書は g3 の座の代わりに下請けを回す節を持ち、そのファイルを名指す。審査役の [BASE_SHA]・[HEAD_SHA] は
+        git diff の中に在るので版の値（Preflight F20）"""
+        import fixshape
+        import seat
+        import writes
+        self.fix_ready(launched=False)
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        fixshape.choose(self.board, "g1", by="試験", why="g1 の支度を見る")
+        base = git(self.repo, "rev-parse", "HEAD")
+        code, out, err = self.prep(INPUTS_BASE_REV=base)
+        self.assertEqual(code, 0, err)
+        b = entry.open_board(self.board)
+        impl, review = b.work("g1-impl-1.md"), b.work("g1-review-1.md")
+        for f in (impl, review):
+            text = f.read_text(encoding="utf-8")
+            self.assertNotRegex(text, r"\[[A-Z][A-Z_]+\]", f.name)
+            self.assertIn(seat.G1_SUB_HEAD, text, f.name)
+            self.assertIn(str(b.work("brief-1.md")), text, "その項目の brief")
+        want = writes.base_rev(b, base)   # 修正前の版（盤面の review_rev が先。受け付けの突き合わせと同じ起点）
+        self.assertRegex(want, r"^[0-9a-f]{40}$")
+        text = review.read_text(encoding="utf-8")
+        for cmd in (f"`git diff {want}`", f"`git diff --stat {want}`"):   # works は commit しないので作業ツリーと base の差分
+            self.assertIn(cmd, text)
+        self.assertNotIn(f"{want}..", text, "commit の範囲（..HEAD）は空になる")
+        self.assertIn(seat.G1_EXTRA["task-review"][0], text, "修正役が書く差分のファイルが主の材料")
+        self.assertNotIn(seat.G1_EXTRA["task-review"][0], impl.read_text(encoding="utf-8"))
+        self.assertIn(str(self.repo), impl.read_text(encoding="utf-8"))
+        full = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(seat.G1_HEAD, full)
+        self.assertNotIn(seat.HEAD, full, "g3 の座は載せない")
+        for f in (impl, review):
+            self.assertIn(str(f), full)
+        side = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
+        ids = [s["id"] for s in side["sections"]]
+        self.assertEqual(ids[ids.index("fix-reply") - 1], "seat")
+
+    def test_g1_prep_without_briefs_is_one_item_on_the_judgment(self):
+        """修正案の欄の無い run: 判定の単位をまとめて 1 項目とみなし、[BRIEF_FILE] は判定のファイル"""
+        import fixshape
+        self.fix_ready(launched=False)
+        fixshape.choose(self.board, "g1", by="試験", why="g1 の支度を見る")
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        b = entry.open_board(self.board)
+        self.assertFalse(b.work("g1-impl-2.md").exists())
+        for name in ("g1-impl-1.md", "g1-review-1.md"):
+            self.assertIn(self.values()["judgment_file"], b.work(name).read_text(encoding="utf-8"), name)
+
+    def test_g3_broken_pin_stops_prep_with_2(self):
+        """g3 の盤面で 216 の写しが固定と 1 バイト違えば、支度は af の文へ黙って逃げず、名指して 2 で落ちる。指示書も起こした印も
+        置かない（Review Focus 5・Preflight F9）。写しを替えるため、子でなく同じプロセスで script の入口を回す"""
+        import contextlib
+        import importlib.util
+        import io
+        import shutil
+        import rolekit
+        import spseam
+        self.fix_ready(launched=False)
+        # brief の頭が在る盤面（座の型の [BRIEF_FILE] が作業ファイル SEAT_BRIEFS を書く形。無いと下の「書かない」が縛らない）
+        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        borrow = self.tmp / "borrow"
+        shutil.copytree(spseam.BORROW_DIR, borrow)
+        item = json.loads((borrow / "borrow.json").read_text(encoding="utf-8"))["superpowers"]
+        rel = "skills/subagent-driven-development/implementer-prompt.md"
+        p = spseam.vendored_dir(item, borrow) / rel
+        p.write_bytes(p.read_bytes().replace(b"Report Format", b"Report Formax", 1))
+        spec = importlib.util.spec_from_file_location("fix_prep_script", BLK / "scripts" / "fix_prep.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        env = {"ARTIFACTS_DIR": str(self.art), "INPUTS_PASS": "first",
+               **{f"INPUTS_{k.upper()}": v for k, v in self.values().items()}}
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.repo)
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, env), mock.patch.object(spseam, "BORROW_DIR", borrow), \
+                mock.patch.object(mod.fixrules, "lib_section", return_value="") as docs, contextlib.redirect_stderr(err):
+            code = rolekit.script_main(mod.run, mod.INPUTS)
+        self.assertEqual(code, 2, err.getvalue())
+        self.assertIn(rel, err.getvalue())
+        docs.assert_not_called()   # 照合は重い仕事（Context7 の引き）より前
+        b = entry.open_board(self.board)
+        self.assertFalse(b.work(mod.fixrules.SEAT_BRIEFS).exists(), "照合は作業ファイルを書くより前")
+        self.assertFalse(b.rd["instances"]["p3.fix"].get("launched_at"), "起こした印を置かない")
+        self.assertFalse(b.work("prompt-p3.fix.md").exists(), "指示書を書かない")
 
     def test_not_waiting_is_wiring(self):
         """盤面が p3.fix を待っていない（判定の直後）→ 2（標準出力は空）"""
@@ -1095,6 +1204,17 @@ class TestAccept(BoardCase):
         self.assertTrue(json.loads(self.run_it(load("fix2_ok"))[1])["ok"])
         rows = self.scope_rows()
         self.assertEqual([(r["checked"], r["why"]) for r in rows], [(False, planscope.NO_PLAN)])
+
+    def test_plain_run_skips_scope_check(self):
+        """平の run（修正の形 current。計画 220）は修正の段に修正案の欄を渡さないので、範囲の外の直しも照らさずに受け、trace に
+        checked: false と理由（NO_PLAIN）を残す（事後の関門の束が平の run で修正案の欄を読まないのと同じ）"""
+        import fixshape
+        self.scope_ready(["docs/**"])
+        fixshape.choose(self.board, fixshape.PLAIN, by="試験", why="平の run の照らしを見る")
+        self.edit_tree(FIXED)
+        self.assertTrue(json.loads(self.run_it(load("fix2_ok"))[1])["ok"])
+        rows = self.scope_rows()
+        self.assertEqual([(r["checked"], r["why"]) for r in rows], [(False, planscope.NO_PLAIN)])
 
     def test_scope_problems_bind_to_one_unit(self):
         """accept.py を spec_from_file_location で読み（test_fix_rules.TestThirdRejectParksBoundUnit と同じ形）、problems の

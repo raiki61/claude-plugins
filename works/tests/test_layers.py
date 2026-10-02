@@ -55,6 +55,8 @@ MOD = {
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "record-write": (2, None),   # 包みが足す書き込みの記録のフック（writes が読む記録を書く）
     "no-post-bin/works-gh": (2, None),
+    "fixshape": (2, None),    # 修正の形の語と盤面からの 1 つの読み口（包みが読む。標準ライブラリだけ）
+    "fixture": (3, None),     # 固定材料（h-fix の盤面の写しと取り込み。entry と境の節が使う。entry・board を import しない）
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
     "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None), "rolekit": (3, None), "report": (3, None),
     "impact": (3, None),      # 変更の周りの地図（役が共有して読む。地図はまだどのブロックにも配線しない。libdocs が import の読み取りを使う）
@@ -69,6 +71,7 @@ MOD = {
     "rulebook": (3, None),    # 書く役の決まりの正本（writerules/common.md）と、節に切る・穴を埋める・形を描く口（blk-fix・blk-refix が使う）
     "gatemarks": (3, None),   # 修正前の関所の項目の決め手・写しの RL の _plan_gate_items の差し替え（accept の役の型・blk-plan・境の節・報告が使う）
     "spseam": (3, None),      # 借りる superpowers の写しの固定の照合・錨・穴の埋め・出口の語の対応（rolekit と同じく .shared/borrow を読む。toolset と、節を載せるブロックが共有する）
+    "seat": (3, None),        # 借りたスキルの座（修正の形 g3 の時だけ、節を役の指示書に載せる文を組む。blk-fix の支度が使う）
     "planmarks": (3, None),   # 修正案の項目の works の欄（受け入れのテスト・書き換える既存のテスト・整えの申告）の型・検査・盤面の控え（accept の役の型・blk-plan・conflict・blk-fix が使う）
     "deltamarks": (3, None),  # 差分の審査の返答の準拠と品質の 2 判定の欄の型・検査・盤面の外の控え（accept の役の型・refix の審査の受け付けが使う）
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),

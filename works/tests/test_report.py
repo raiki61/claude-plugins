@@ -650,6 +650,15 @@ class HeadCase(ReportBase):
         self.assertEqual(len(hit), 1, lines)
         self.assertIn("stats.py mean", hit[0])
 
+    def test_head_reads_shows_unchecked_red_green(self):
+        """修正の受け付けの束が赤緑を確かめずに通した回（盤面の trace の行）は、冒頭 4 の読みの節（head_reads）に出る"""
+        self.begin()
+        self.assertFalse(any("事後の関門の束" in x for x in report.head_reads(self.board, RUN_ID)))
+        entry.open_board(self.board).trace(report.impact.ACCEPT_GATES_SKIPPED_OP, node="fix", why=["テストの実行器が無い"])
+        hit = [x for x in report.head_reads(self.board, RUN_ID) if "事後の関門の束" in x]
+        self.assertEqual(len(hit), 1, hit)
+        self.assertIn("受け付け 1 回", hit[0])
+
     def test_ci_note_beside_no_adapter(self):
         """adapter optional で CI の役が走った → 冒頭 4 の「包み無し」の行の横（同じ行）に collect.note"""
         self.begin(declared=False, adapter="optional")
