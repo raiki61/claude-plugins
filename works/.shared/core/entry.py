@@ -753,27 +753,33 @@ def _request_text(inp: dict) -> str:
     return inp["request_text"] or change["text"] or f"変更（{change['from']} {change['name']}）の審査"
 
 
+def _kept(inp: dict) -> dict:
+    """check_inputs の返りのうち start の控えに残す欄（依頼の行と文は控えに残さない）"""
+    return {k: v for k, v in inp.items() if k not in ("items", "request_text")}
+
+
+def adopt_inputs(inp: dict) -> dict:
+    """固定材料の取り込み（fixture.adopt）が start の控えと照らす今の入力の欄: _kept から base_rev を除いた物（start は控えの
+    base_rev を修正の起点の版で上書きするので、入力の base_rev は控えに残らない）"""
+    return {k: v for k, v in _kept(inp).items() if k != "base_rev"}
+
+
 FIXTURE_MISMATCH = "固定材料と works の版が違う"   # 取り込んだ盤面を今の表・graph で開けない時の拒みの頭
 
 
 def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, inp: dict, *, run_id: str) -> dict:
     """入力 fix_fixture の start（DiskBoard.begin・_drain の代わり）。順:
-    1. 前の start の控えに fixture が在れば、取り込み直さない（Archon の呼び直し。取り込みは空でない置き場を拒むので、
-       ここで分けないと固定材料の run を続けられない）。前の控えの test_cmd・fix_shape と違えば InputRefused（通常の呼び直しと同じ）。
-       無ければ fixture.adopt（FixtureRefused は InputRefused。盤面は作らない）
+    1. fixture.adopted が在れば（前の start が取り込んだ）、取り込み直さない（Archon の呼び直し。取り込みは空でない置き場を
+       拒むので、ここで分けないと固定材料の run を続けられない）。前の控えの test_cmd・fix_shape と違えば InputRefused（通常の
+       呼び直しと同じ）。無ければ fixture.adopt（入力は adopt_inputs。FixtureRefused は InputRefused。盤面は作らない）
     2. open_board。表・graph が違えば（BoardMismatch）取り込んだ盤面を消して InputRefused（FIXTURE_MISMATCH）
     3. 取り込んだ時だけ盤面の trace に fixture.TRACE_OP の 1 行
     4. ticket.write、start の控えに ci_role_go（偽）・pr_go（控えの値）・頭の行を書き足す
-    返りは start と同じ形。entry・base_rev・test_cmd・final_gate・adapter・thickness・gates は取り込んだ控えの値（盤面の持つ値）"""
+    返りは start と同じ形。取り込みは start の控えの入力の欄を今の入力と照らすので、入力の欄は控えの値も今の値も同じ"""
     work = board_dir / fixshape.START_REL
-    prev = None
-    if work.is_file():
-        try:
-            prev = json.loads(work.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            prev = None
-    resumed = isinstance(prev, dict) and fixture.KEY in prev
+    resumed = fixture.adopted(board_dir) is not None
     if resumed:
+        prev = json.loads(work.read_text(encoding="utf-8"))
         if prev.get("test_cmd") != inp["test_cmd"]:
             raise InputRefused(f"この盤面は test_cmd={prev.get('test_cmd')!r} の固定材料から始めた——呼び直しの "
                                f"test_cmd={inp['test_cmd']!r} で道を替えない（同じ入力で呼び直す）")
@@ -782,7 +788,7 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
     else:
         try:
             doc = fixture.adopt(board_dir, inp["fix_fixture"], repo, run_id=run_id, pack_root=PACK,
-                                request_text=_request_text(inp), test_cmd=inp["test_cmd"], fix_shape=inp["fix_shape"])
+                                request_text=_request_text(inp), inputs=adopt_inputs(inp))
         except fixture.FixtureRefused as e:
             raise InputRefused(f"固定材料を取り込まない: {e}") from None
         shape = inp["fix_shape"]
@@ -868,7 +874,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
         ghreads.adopt(board_dir, reads_src)
     except OSError as e:
         raise InputRefused(f"隔離の前の読み出し（github_reads）を盤面へ写せない（{type(e).__name__}: {e}）") from None
-    keep = {k: v for k, v in inp.items() if k not in ("items", "request_text")}
+    keep = _kept(inp)
     work = b.work(START_FILE)
     prev = {}
     if work.is_file():

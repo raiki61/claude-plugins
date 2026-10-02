@@ -58,6 +58,7 @@ from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が
 from engine.rules import validator_module  # noqa: E402
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
+import fixture  # noqa: E402
 import lens  # noqa: E402
 import reads  # noqa: E402
 import structmark  # noqa: E402
@@ -886,8 +887,9 @@ def _time(s):
 
 
 def _since_created(b, rows) -> list:
-    """盤面を作った（state.created）後の行（reads.adapter_seen と同じ絞り方）"""
-    since = _time(b.state.get("created"))
+    """盤面を作った（state.created。固定材料から取り込んだ盤面は取り込んだ時刻。fixture.since）後の行（reads.adapter_seen と
+    同じ絞り方）"""
+    since = _time(fixture.since(b.dir, b.state.get("created")))
     if since is None:
         return []
     out = []

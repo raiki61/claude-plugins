@@ -43,6 +43,7 @@ if str(CORE) not in sys.path:
 import adapter  # noqa: E402
 from board import BoardGap, rules_module  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
+import fixture  # noqa: E402
 import script_io  # noqa: E402
 
 EVENTS_VERIFIED = False   # tool_called の Read の形を P13 の AI の分（Task 18）で確かめたら真にする
@@ -204,14 +205,14 @@ def _time(s):
 def adapter_seen(board_dir, run_id: str, *, repo=None) -> dict:
     """この run の役の起動が包みを通ったか。{seen, merged, passthrough, whys}。
     包みの起動の記録（adapter.read_launches。T5 の形で行に run の id を持たない）の、repo（省けば cwd。run ごとの worktree）の
-    行のうち、盤面を作った時（state.created）以後で tools_empty でない物を数える（前の run が同じ worktree に残した行と、
+    行のうち、盤面を作った時（state.created。固定材料から取り込んだ盤面は取り込んだ時刻。fixture.since）以後で tools_empty でない物を数える（前の run が同じ worktree に残した行と、
     題の生成の起動は数えない。tools_empty は「題の生成か、道具を持たない役」なので、道具を持たない役の起動も数えない——
     今の darkfactory の役はどれも Read を持つので当たらない）。seen はそういう行が 1 つでも在るか（素通し・拒んだ起動も
     包みが道に居た証拠）。前提は collect と同じ run ごとの worktree（同じ worktree で run が重なって走ると行が混ざる）。
     whys は素通しと拒んだ起動の理由（重ねない）と、seen が偽の時の 1 行"""
     repo = pathlib.Path(repo) if repo is not None else pathlib.Path.cwd()
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
-    since = _time(b.state.get("created"))
+    since = _time(fixture.since(board_dir, b.state.get("created")))   # 取り込んだ盤面は取り込んだ時刻から
     rows = []
     for r in adapter.read_launches(repo):
         at = _time(r.get("at"))
