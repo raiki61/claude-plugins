@@ -370,7 +370,7 @@ class RefixCase(DeltaBoardCase):
         self.assertEqual(rows["refix"][1], "refixing__refix-loop.refix")
         self.assertEqual(rows["review2"][1], "refixing__review2-loop.review2")
         self.assertEqual(rows["review2"][2], refix.must(self.board, "review2"))
-        self.assertEqual(len(rows["review2"][2]), 3)   # brief・差分・座のファイル（種の盤面の形は既定の g3）
+        self.assertEqual(len(rows["review2"][2]), 2)   # brief・差分（2 回目の審査役に座は無い）
         out = refix.collect_refix(self.board)
         self.assertEqual(out["reads_file"], got["reads_files"]["refix"])
         self.assertEqual(out["reads_files"], got["reads_files"])
@@ -423,8 +423,8 @@ class RefixCase(DeltaBoardCase):
 
     def test_prep_script_carries_refix_seat_only_in_g3(self):
         """手直しの支度（scripts/prep.py）は盤面の形を fixshape.shape_at で引き、g3 なら receiving-code-review の座を組んだ指示書の
-        refix-keep の後に載せる。g3 でなければ載せない。2 回目の審査の支度も g3 なら座のファイルを書き、型の [REPORT_FILE] は
-        1 回目の手直しの出力"""
+        refix-keep の後に載せる。g3 でなければ載せない。2 回目の審査役には座が無い（返答に判定の欄が無く、判定の語の表の型と
+        ぶつかる）ので、g3 でも 2 回目の審査の支度は座のファイルを書かない"""
         import importlib.util
         spec = importlib.util.spec_from_file_location("blk_refix_prep", REFIX_DIR / "scripts" / "prep.py")
         prep = importlib.util.module_from_spec(spec)
@@ -442,12 +442,8 @@ class RefixCase(DeltaBoardCase):
         self.assertTrue(refix.accept_fix(linekit.reply("fix2_delta_fix_ok"), self.board, "", repo, n=1)["ok"])
         got = refix.cut(self.board, 2, repo)
         brief = json.loads(pathlib.Path(got["brief_file"]).read_text(encoding="utf-8"))
-        self.assertEqual(pathlib.Path(brief["seat_file"]).name, "review2-seat.md")
-        b = entry.open_board(self.board)
-        seat_text = pathlib.Path(brief["seat_file"]).read_text(encoding="utf-8")
-        for w in (str(self.board / b.state["outputs"]["p3.delta_fix"]["file"]), b.loop_state["fix_delta"]["rev"],
-                  b.loop_state["fix_delta2"]["rev"]):
-            self.assertIn(w, seat_text)
+        self.assertEqual(brief["seat_file"], "")
+        self.assertEqual(got["must"], [got["brief_file"], got["diff_file"]])
 
 
 # ---------------------------------------------------------------- スクリプト（子で起こす）

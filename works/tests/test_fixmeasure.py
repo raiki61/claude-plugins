@@ -345,6 +345,13 @@ class RowCase(unittest.TestCase):
         woke = [{**e[-1], "data": {**e[-1]["data"], "description": "起き直し"}} for e in events]
         r = self.row(make_db(self.tmp, events=[*events, *woke]), board)
         self.assertEqual(r["redo"]["subagent_redos"], 0)
+        with self.subTest("task_id の無い started の 2 行は 2 つの起動"):
+            bare = [{**agent_start("fixing__fix-loop.fix"), "data": {"activity": "started", "task_type": "local_agent"}}
+                    for _ in range(2)]
+            db = make_db(self.tmp, path=self.tmp / "bare.db",
+                         events=[*tool("fixing__fix-loop.fix", "Agent"), *tool("fixing__fix-loop.fix", "Agent"), *bare])
+            r = self.row(db, make_board(self.tmp, shape="af", name="bare"))
+            self.assertEqual(r["contamination"]["Agent"], 2)
 
     def test_row_counts_two_verdicts(self):
         """差分の審査が受けた 2 判定の控え（盤面の trace の deltamarks.SAVED_OP）の準拠 fail と品質 fail を redo の 2 欄に数える。

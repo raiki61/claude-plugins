@@ -12,8 +12,10 @@
 - prompt の座は 216 の fill で穴を全部埋める（残りの検査は座の本文だけに当て、読み替えの全文には当てない）。値が無ければ ValueError
 - 写しが固定（pin）と 1 バイトでも違えば ValueError（af の文へ黙って逃げない。Review Focus 5）
 - 座の skill の節は fixshape.SKILL_NODES と同じで、YAML で skills: と Skill を宣言する（prompt の座の節は skills: を持たない）。
-  YAML は blk-fix（tdd・fix・fix-ruled）・blk-delta（review）・blk-refix（refix・review2・refix2）
-- 差分の審査役の座（task-review）は型の後ろに語の対応の表（型の語 → 差分の審査の返答の 2 判定の欄 deltamarks の欄と語）を持つ
+  YAML は blk-fix（tdd・fix・fix-ruled）・blk-delta（review）・blk-refix（refix・refix2）
+- 差分の審査役（1 回目だけ）の座（task-review）は型の後ろに判定の語の欄の表（型の語がどの欄のどの値に当たるか。欄の値は
+  指示書 delta-review.md の決まりで返答の行から決まる）を持ち、勝つ物の段落は指示書を名指す。型の読み方の決まり（差分の外を
+  読むな・変わったファイルを別に読むな）は指示書の読む義務に負ける（読み替えの CRAWL。型の段落は錨で縛る）
 - 修正の形 g1 の節（g1_section）: 見出し・Agent・項目ごとの実装役と審査役のファイル・読み替えを持ち、読み替えの DISPATCH を
   名指して上書きする（Preflight F18）。下請けのファイルの型（g1_prompt）は穴を残さず、works の決まりと検索語の規律の塊を持つ
   （run 221 の R4 の 3）。YAML で Agent を持つ節は fixshape.AGENT_NODES と同じ
@@ -150,11 +152,16 @@ class SeatCase(unittest.TestCase):
         """語の対応の表は型の語・works の語・欄の値の 3 列で、型の語ごとに 1 行。対応に無い語を持つ節は ValueError"""
         table = seat.words_table("task-review")
         rows = [r for r in table.splitlines() if r.startswith("| ") and "---" not in r]
-        self.assertEqual(len(rows), 1 + len(seat.VERDICT_WORDS))   # 見出しの行と語の行
         line = next(r for r in rows if "✅ Spec compliant" in r)
         self.assertIn("compliance_pass", line)
         self.assertIn("`compliance.verdict`", line)
         self.assertIn("`pass`", line)
+        # 表は型の語の欄を示すだけ。欄の値は返答の行から決まり、指示書が勝つ（項目の無い run の not_applicable・結ばれない穴の fail）
+        self.assertIn("delta-review.md", seat.WORDS_HEAD)
+        self.assertIn("指示書が勝つ", seat.WORDS_HEAD)
+        self.assertIn("`compliance.verdict`: `not_applicable`", table)
+        self.assertIn("`quality.verdict`: `fail`", table)
+        self.assertEqual(len(rows), 1 + len(seat.VERDICT_WORDS) + len(seat.NOTE_ROWS))
         with self.assertRaises(ValueError):
             seat.words_table("implementer")   # 出口の語が判定の欄でない節
 
@@ -167,7 +174,35 @@ class SeatCase(unittest.TestCase):
         self.assertIn("✅ Spec compliant", own)
         self.assertIn(seat.words_table("task-review"), own)
         self.assertLess(own.index("<5>"), own.index(seat.words_table("task-review")), "表は型の後ろ")
-        self.assertEqual(seat.section("review2", "g3", self.review_values()), text)
+        self.assertEqual(seat.section("review2", "g3", self.review_values()), "", "2 回目の審査役には座が無い（返答に判定の欄が無い）")
+        wins = own.split("\n\n")[1]
+        self.assertIn("commands/delta-review.md", wins, "勝つ物の段落は座のファイルの外の指示書を名指す")
+        self.assertIn(seat.WINS_OF["review"], own)
+
+    def test_review_seat_yields_template_reading_rules_to_the_command(self):
+        """型の『差分の外を読むな』『変わったファイルを別に読むな』は、指示書の読む義務（読む側・呼び元・今の姿）に負ける。
+        読み替えの決まり CRAWL が言い、型のその段落は task-review の錨で縛る（版を上げて段落が変われば固定の試験が赤）。
+        指示書の座の行も同じことを言う"""
+        overlay = rolekit.skill_overlay()
+        m = re.search(r"^## CRAWL .*?(?=^## |\Z)", overlay, re.M | re.S)
+        self.assertIsNotNone(m)
+        for w in ("Do not crawl the broader codebase", "delta-review.md", "呼び元"):
+            self.assertIn(w, m.group(0))
+        anchors = {a["rule"]: a for a in spseam.load_seams()["task-review"]["anchors"]}
+        self.assertEqual(anchors["CRAWL"]["quote"], "Do not crawl the broader codebase")
+        line = next(x for x in (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8").splitlines()
+                    if "`seat_file`" in x)
+        for w in ("Do not crawl", "呼び元", "このコマンドが勝つ", "not_applicable"):
+            self.assertIn(w, line)
+        with tempfile.TemporaryDirectory() as d:   # 型の錨の段落を 1 語変えると、節の契約の破れに CRAWL が出る
+            borrow = pathlib.Path(d) / "borrow"
+            shutil.copytree(spseam.BORROW_DIR, borrow)
+            item = json.loads((borrow / "borrow.json").read_text(encoding="utf-8"))["superpowers"]
+            src = spseam.vendored_dir(item, borrow)
+            p = src / anchors["CRAWL"]["file"]
+            p.write_text(p.read_text(encoding="utf-8").replace("Inspect code outside", "Inspect any code outside"), encoding="utf-8")
+            got = spseam.seam_problems(src, item, spseam.load_seams(), overlay)
+            self.assertTrue(any("CRAWL" in g for g in got), got)
         for shape in ("current", "af", "g1"):
             self.assertEqual(seat.section("review", shape, self.review_values()), "")
 

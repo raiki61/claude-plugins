@@ -789,12 +789,9 @@ git commit -m "feat(works): 修正の形の腕ごとに作り直し・費用・�
 - 外れの機械の検査が修正の受け付けで呼ばれる 1 か所: `works/blk-fix/scripts/accept.py` の段 1d（`check_plan_scope` → `planscope.check`）。平の run は 220 と 218 の継ぎ目の直し（3e3abf0d）で照らさず、trace に `NO_PLAIN` を残す。
 - 品質が落ちた時に手直しへ渡る道: 穴が義務（`p3.delta_owed`）になり、`refix.prep_fix(b, 1, repo)` が `refix1-brief.json` に `plan_items`・`compliance`（`deltamarks.fail_rows`）・`ruled_paths` を書く。
 - 平の run の準拠（持ち主の裁定）: current の修正役は修正案を見ないので、差分の審査の準拠は `not_applicable`。`refix._plan_items` が平の run で空を返し、審査役の brief・受け付けの照らし（`deltamarks.gaps`）・手直しの brief がそろって項目の無い run になる。
-- 差分の審査の返答の 2 判定の欄と語（準拠・品質）。
-- 外れの機械の検査が修正の受け付けで呼ばれる 1 か所。
-- 品質が落ちた時に手直しへ渡る道。
 
 **Files:**
-- Modify: `works/.shared/core/seat.py`（`SEATS` に `review`・`review2`（task-review）と `refix`・`refix2`（receiving-review）、`seat.VERDICT_WORDS`、`words_table`）
+- Modify: `works/.shared/core/seat.py`（`SEATS` に `review`（task-review）と `refix`・`refix2`（receiving-review）、`seat.VERDICT_WORDS`、`words_table`。2 回目の審査役 `review2` は返答に判定の欄が無く、判定の語の表を持つ型とぶつかるので座を載せない（審査の 1 回目の直しの裁定））
 - Modify: `works/.shared/core/fixshape.py`（`SKILL_NODES` に `refix`・`refix2`）
 - Modify: `works/.shared/core/refix.py`（`cut`: 形が g3 なら `review<n>-seat.md` を書き、brief の辞書に `seat_file`。g3 でなければ `seat_file: ""`）
 - Modify: `works/blk-delta/commands/delta-review.md`（1 行: brief の `seat_file` が空でなければ Read で全部読み、その型の手順で審査する。返す JSON の形はこのコマンドの形で、判定の語は型の後ろの対応表のとおり欄に書く）

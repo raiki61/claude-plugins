@@ -60,6 +60,10 @@
 
 審査役は Bash を持たない（`allowed_tools` は Read・Grep・Glob）。範囲の版と差分は engine が切ってファイルで渡すので、そのパスを Read する。`git worktree add` もしない。修正役は git で読む（`git diff`・`git log`・`git show`）のはよいが、HEAD・index・枝は動かさない（決まり COMMIT）。
 
+## CRAWL 差分の外を読むな・変わったファイルを別に読むなと言われる
+
+部品の審査役の型（`task-reviewer-prompt.md`）の「Do not crawl the broader codebase」と「do not Read a changed file separately」は、役の指示書が読む義務を定める役には効かない。差分の審査役（`blk-delta/commands/delta-review.md`）は、差分を起点に、変わったファイルの今の姿と、読む側・呼び元まで Read・Grep で読む（指示書の読む義務が勝つ）。指示書が読む義務を定めない役（修正の形 g1 の下請けの審査役）は型のとおり。
+
 ## GITHUB GitHub のスレッドに返信する
 
 しない。返答は節の `output_format` の JSON だけで、外へ書き込まない。
