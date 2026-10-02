@@ -931,7 +931,8 @@ class ReplanCase(ConflictBoardCase):
         planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
         planbrief.cut_at(self.board)
         cid = self.items()[0]["id"]
-        return self.rule([{"id": cid, "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": []}])
+        brief = entry.open_board(self.board).work("brief-1.md")
+        return self.rule([{"id": cid, "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": [], "grounds": [f"{brief}:1"]}])
 
 
 class TestFixPlanItem(ReplanCase):

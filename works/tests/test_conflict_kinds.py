@@ -6,8 +6,9 @@
 - 控えの行と trace の行に kind が載り、種類の内訳（kind_counts）が数える。kind の無い前の形の行も読めて「無し」と出る
 - brief_vs_judgment は、その単位の brief の行（planbrief.by_unit_at の形）を between に名指す時だけ通す。brief の無い run・
   ほかの項目の brief だけの名指しは拒む。brief の控えが壊れていれば brief は無い側（通さない側）に倒す
-- 裁定 fix_plan_item（案の項目そのものの誤り）は直す裁定でなく、範囲 limits を持たず、brief の在る単位だけに出せる。
-  役の返答の形・裁定役の決まりの節がこの語を持つ
+- 裁定 fix_plan_item（案の項目そのものの誤り）は直す裁定でなく、範囲 limits を持たず、grounds にその単位の brief の行を
+  名指す時だけ通る（brief_vs_judgment と同じ 1 つの決まり）。役の返答の形・裁定役の決まりの節がこの語を持つ
+- 直す義務から外す単位は「直す裁定でない裁定を受けた単位」の 1 つの決まりで、2 つ当たれば DECISIONS の順で先の理由
 盤面・git・子のプロセスは使わない（関数を直に呼ぶ。一時の置き場に種のファイルと控えを書くだけ）。
 """
 import json
@@ -131,6 +132,21 @@ class KindRowsCase(unittest.TestCase):
         self.assertIn("申し出の種類: （無し）", conflict.write_rulings(self.b).read_text(encoding="utf-8"))
 
 
+class HeldByRulingsCase(KindRowsCase):
+    """直す義務から外す単位の 1 つの決まり（直す裁定でない裁定を受けた単位）と、理由の文"""
+
+    def test_one_rule_with_sorted_reasons(self):
+        ruled = {"text": "裁きの文を十字以上で書く", "limits": [], "by": "x"}
+        self.write_items([
+            {"id": "c1-1", "unit_key": KEY, "ruling": {**ruled, "decision": "fix_plan_item", "plan_items": [2]}},
+            {"id": "c1-2", "unit_key": OTHER, "ruling": {**ruled, "decision": "fix_plan_item", "plan_items": [1, 3]}},
+            {"id": "c1-3", "unit_key": OTHER, "ruling": {**ruled, "decision": "ask_human"}},
+            {"id": "c1-4", "unit_key": "u-code", "ruling": {**ruled, "decision": "fix_code_as"}},
+            {"id": "c1-5", "unit_key": "u-open", "ruling": None}])
+        self.assertEqual(conflict.held_by_rulings(self.b),
+                         {KEY: "fix_plan_item の裁定 c1-1（案の項目 2）", OTHER: "ask_human の裁定 c1-3"})
+
+
 class BriefKindCase(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -176,25 +192,35 @@ class BriefKindCase(unittest.TestCase):
 
 
 class FixPlanItemRulingCase(unittest.TestCase):
-    """裁定 fix_plan_item の受け付けの確かめ（ruling.problems を直に呼ぶ。plan_items は {unit_key: [項目の番号]}）"""
+    """裁定 fix_plan_item の受け付けの確かめ（ruling.problems を直に呼ぶ。briefs は planbrief.by_unit_at の形）"""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.repo = pathlib.Path(tmp.name)
         seed(self.repo)
+        self.brief = self.repo / "brief-1.md"
+        self.brief.write_text("# brief 1\n受け入れのテストは assertion で赤\n", encoding="utf-8")
+        self.briefs = {KEY: [{"item": 1, "file": str(self.brief)}]}
         self.todo = {"c1-1": {"id": "c1-1", "unit_key": KEY, "which_is_right": "request", "kind": "not_red"}}
 
-    def errs(self, plan_items, **over):
-        r = {"id": "c1-1", "decision": "fix_plan_item", "text": "受け入れのテストの赤の種類を exception に直す", "limits": [], **over}
-        return ruling.problems({"rulings": [r]}, self.todo, self.repo, "", (), plan_items=plan_items)
+    def errs(self, briefs, **over):
+        r = {"id": "c1-1", "decision": "fix_plan_item", "text": "受け入れのテストの赤の種類を exception に直す", "limits": [],
+             "grounds": [f"{self.brief}:2"], **over}
+        return ruling.problems({"rulings": [r]}, self.todo, self.repo, "", (), briefs=briefs)
 
     def test_fix_plan_item_needs_a_brief_and_no_limits(self):
         self.assertIn("fix_plan_item", conflict.DECISIONS)
         self.assertNotIn("fix_plan_item", conflict.FIX_DECISIONS)
-        self.assertEqual(self.errs({KEY: [1]}), [])
+        self.assertEqual(self.errs(self.briefs), [])
         self.assertTrue(any("brief" in e for e in self.errs({})))
-        self.assertTrue(any("範囲" in e for e in self.errs({KEY: [1]}, limits=["test_stats.py:2"])))
+        self.assertTrue(any("範囲" in e for e in self.errs(self.briefs, limits=["test_stats.py:2"])))
+
+    def test_fix_plan_item_grounds_name_the_units_brief(self):
+        # brief_vs_judgment と同じ決まり: grounds が無い・その単位の brief の外だけを名指す裁定は拒み、文に brief のファイルを名指す
+        for grounds in ([], ["stats.py:3"]):
+            got = self.errs(self.briefs, grounds=grounds)
+            self.assertTrue(any("fix_plan_item" in e and "grounds" in e and str(self.brief) in e for e in got), (grounds, got))
 
     def test_rule_schema_and_yaml_carry_the_decision(self):
         enum = ruling.RULE_OUTPUT_FORMAT["properties"]["rulings"]["items"]["properties"]["decision"]["enum"]

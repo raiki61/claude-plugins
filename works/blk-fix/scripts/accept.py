@@ -16,10 +16,10 @@
    1 本目は check_fix が fix_plan_covers_units に読み替えてどちらも拒んでいた。works は graphloops の上にこの拒否を残す）
    - check_unique_units: 同じ unit_key を 2 行に分けた返答を拒む
    - check_opened_units: 直す義務（conflict.fix_duty の owed。検証器の is_open の単位と、関所で答えた問いの出どころ・depends
-     から、答え待ちの問いの出どころ・depends と ask_human の単位を外した物）にも、そこから外れた単位にも無い unit_key を拒む
+     から、答え待ちの問いの出どころ・depends と直す裁定でない裁定（ask_human・fix_plan_item）を受けた単位を外した物）にも、そこから外れた単位にも無い unit_key を拒む
      （関所で答えていない defer の単位・判定に無い key。1 本目の unknown = got - opened）
    - check_excused_units: 直す義務から外れた単位（fix_duty の excused）の unit_key を、外れた理由（答え待ちの問いの key・
-     ask_human の裁定 id）を名指して拒む。輪の最後の回だけは、その単位の直しを作業ツリーから戻して changes から外し
+     直さない裁定の decision と id）を名指して拒む。輪の最後の回だけは、その単位の直しを作業ツリーから戻して changes から外し
      （drop_excused_units。控えの patch を盤面に置く）、残りの単位で受け付けを頭から通し直し、通れば trace に 1 行
      （EXCUSED_DROPPED_OP）。通らなければ戻した直しを元に戻す
 1a. check_pack_copy: .archon/ の下（自分食いの run では動いている線の pack の写し）を申告した・変えた返答を拒む（run 26）

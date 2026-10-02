@@ -708,8 +708,8 @@ nodes:
               rulings_file: {type: string}   # 裁定の文（2 回目の修正役の指示書の 1 行目が名指す）
               counts: {type: object}         # {parked, unruled, fix_test_scope, fix_code_as, ask_human[, replace_query][, fix_plan_item]}
 
-  # 裁定の後の 2 回目の修正役（印 continue=fix: 包みが修正役の会話を継ぐ）。1 回目は裁定の文のファイルを名指し、ask_human の単位は
-  # 直す義務から外れる（conflict.owed_units_but_asked）。盤面の p3.fix に渡すのはここ（1 回目は申し出で止めて渡していない）
+  # 裁定の後の 2 回目の修正役（印 continue=fix: 包みが修正役の会話を継ぐ）。1 回目は裁定の文のファイルを名指し、直す裁定でない
+  # 裁定（ask_human・fix_plan_item）の単位は直す義務から外れる（conflict.owed_units_but_asked）。盤面の p3.fix に渡すのはここ（1 回目は申し出で止めて渡していない）
   - id: fix-ruled-loop
     depends_on: [conflict-check, rule-loop]
     when: "$conflict-check.output.go == true"

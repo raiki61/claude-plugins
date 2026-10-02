@@ -9,7 +9,8 @@
 - accept_rule(reply, board, base_rev, repo): 節 rule-accept（script_io.main が回す）。作業ツリーが変わっていない・裁く申し出の id に
   ちょうど 1 件ずつ・語・fix_test_scope の範囲が現物に在る・replace_query の問いが例（hits・misses・申し出の correct_lines）で
   外れない・裁きの出どころ（grounds）が現物に在り、依頼のファイルが在る run の ask_human は依頼の行か request_searched を持つ・
-  fix_plan_item は範囲を持たず brief の在る単位だけ（planbrief.by_unit_at）、を確かめて conflict.apply_rulings で積む
+  fix_plan_item は範囲を持たず、grounds にその単位の brief の行を名指す（planbrief.by_unit_at・conflict.brief_cite_problem）、
+  を確かめて conflict.apply_rulings で積む
   （fix_plan_item には欄 plan_items にその単位の brief の項目の番号を足す）。GIVE_UP_AFTER 回目の拒否では
   裁かれていない申し出を全部 ask_human に裁いて抜ける（決められない物は人へ。max_iterations で落とさない）
 """
@@ -125,10 +126,10 @@ def grounds_problems(r: dict, repo, request: str, roots) -> list:
     return errs
 
 
-def problems(reply, todo: dict, repo, request: str = "", roots=(), plan_items=None) -> list:
+def problems(reply, todo: dict, repo, request: str = "", roots=(), briefs=None) -> list:
     """裁定の返答の確かめ（空なら通る）。request は run の依頼のファイル（空なら依頼の無い run）、roots は grounds の絶対パスを
-    許す置き場（依頼のファイル・盤面）、plan_items は今の周の brief の項目の番号 {unit_key: [項目の番号]}（None と {} は brief の
-    無い run で、fix_plan_item を通さない）"""
+    許す置き場（依頼のファイル・盤面）、briefs は今の周の brief の行 {unit_key: [{item, file}]}（planbrief.by_unit_at。None と {}
+    は brief の無い run で、fix_plan_item を通さない）"""
     errs = validate_schema(reply, RULE_OUTPUT_FORMAT)
     if errs:
         return [f"返答の形: {e}" for e in errs]
@@ -145,9 +146,10 @@ def problems(reply, todo: dict, repo, request: str = "", roots=(), plan_items=No
         if r["decision"] == conflict.REPLAN:
             if r["limits"]:
                 errs.append(f"申し出 {r['id']}: {conflict.REPLAN} は範囲を持たない（テストの変更の許しを作らない。limits は空）")
-            key = (todo.get(r["id"]) or {}).get("unit_key")
-            if not (plan_items or {}).get(key):
-                errs.append(f"申し出 {r['id']}: {conflict.REPLAN} は brief の在る単位だけ（{key} に修正案の項目の brief が無い）")
+            bad = conflict.brief_cite_problem((todo.get(r["id"]) or {}).get("unit_key"), r.get("grounds"), repo, briefs,
+                                              conflict.REPLAN, "grounds")
+            if bad:
+                errs.append(f"申し出 {r['id']}: {bad}")
         if r["decision"] == conflict.REPLACE or "query" in r:
             errs += [f"申し出 {r['id']}: {e}" for e in query_problems(r, todo.get(r["id"]) or {})]
         errs += [f"申し出 {r['id']}: {e}" for e in grounds_problems(r, repo, request, roots)]
@@ -192,13 +194,13 @@ def accept_rule(reply, board, base_rev, repo) -> dict:
         raise BoardGap(f"{b.work(TREE)} が無い・形が違う——rule-prep が先に走る")
     moved = tree_moved({k: snap[k] for k in TREE_KEYS}, pathlib.Path(repo))
     request = conflict.request_file(board)
-    plan_items = {k: [r["item"] for r in rows] for k, rows in planbrief.by_unit_at(board).items()}
-    errs = [READONLY + "・".join(moved)] if moved else problems(reply, todo, repo, request, (request, str(board)), plan_items)
+    briefs = planbrief.by_unit_at(board)
+    errs = [READONLY + "・".join(moved)] if moved else problems(reply, todo, repo, request, (request, str(board)), briefs)
     if not errs:
         def stored(r):   # 盤面に積む欄（役の欄と、fix_plan_item には機械が足すその単位の brief の項目の番号）
             got = {k: r[k] for k in RULING_KEYS if k in r}
             if r["decision"] == conflict.REPLAN:
-                got[conflict.PLAN_ITEMS] = plan_items[todo[r["id"]]["unit_key"]]
+                got[conflict.PLAN_ITEMS] = [x["item"] for x in briefs[todo[r["id"]]["unit_key"]]]
             return got
         path = conflict.apply_rulings(b, {r["id"]: stored(r) for r in reply["rulings"]}, by=BY_ROLE)
         return {"ok": True, "done": True, "reason": "", "rulings_file": str(path), "counts": conflict.counts(b)}
