@@ -9,12 +9,19 @@
 - 裁定 fix_plan_item（案の項目そのものの誤り）は直す裁定でなく、範囲 limits を持たず、grounds にその単位の brief の行を
   名指す時だけ通る（brief_vs_judgment と同じ 1 つの決まり）。役の返答の形・裁定役の決まりの節がこの語を持つ
 - 直す義務から外す単位は「直す裁定でない裁定を受けた単位」の 1 つの決まりで、2 つ当たれば DECISIONS の順で先の理由
+- fix_plan_item の行の案の直しの状態（waiting・amended・gave_up。依頼 226）: 裁定で waiting に置き、set_replan の 1 か所で
+  amended か gave_up に移す。amended の単位は直す義務に戻り、gave_up の行は ask_human の行として字のまま並ぶ。欄の無い前の形の
+  行は waiting と読む
+- 1 回目に受け付けた返答の控え（fix-held-reply.json）: 今の周に p3.fix を受ける前だけ読み、その単位を直す義務から外し、
+  2 回目の返答に単位ごとに合わせる。役が申告した bash_writes を残す
 盤面・git・子のプロセスは使わない（関数を直に呼ぶ。一時の置き場に種のファイルと控えを書くだけ）。
 """
 import json
 import pathlib
+import shutil
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -27,6 +34,7 @@ sys.path.insert(0, str(CORE))
 
 import conflict  # noqa: E402
 import fixrules  # noqa: E402
+import gatemarks  # noqa: E402
 import planbrief  # noqa: E402
 import ruling  # noqa: E402
 import tddloop  # noqa: E402
@@ -36,6 +44,8 @@ ITEM = {"unit_key": KEY, "between": ["stats.py:3", "test_stats.py:2"],
         "why_both_cannot_hold": "テストは上限 hi を期待し、今のコードは lo を返す——両方は成り立たない",
         "which_is_right": "request", "kind": "unnamed_test_broke"}
 OTHER = "stats.py mean: 分母が len - 1"
+MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
+CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
 BRIEFS: dict = {}   # BriefKindCase.setUp が一時の置き場の brief で埋める（planbrief.by_unit_at の形）
 
 
@@ -255,6 +265,198 @@ class FixPlanItemRulingCase(unittest.TestCase):
         self.assertIn("`fix_plan_item`", fixrules.sections(fixrules.RULER)["ruler-reply"])
         self.assertIn("fix_plan_item", fixrules.sections(fixrules.PRINCIPLES)["principles"])
         self.assertIn("`kind`", fixrules.sections(fixrules.RULER)["ruler-head"])
+
+
+def fake_with_rows(rows):
+    """偽の盤面（work は一時の置き場のファイル・round 1・state の outputs は空・trace は traced に貯める）に、申し出の行
+    rows を置いた物。一時の置き場は模块の終わりに消す"""
+    root = pathlib.Path(tempfile.mkdtemp())
+    unittest.addModuleCleanup(shutil.rmtree, root, ignore_errors=True)
+    traced = []
+    b = types.SimpleNamespace(work=lambda name: root / name, trace=lambda op, **kw: traced.append((op, kw)),
+                              round=1, state={"outputs": {}}, traced=traced)
+    b.work(conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False), encoding="utf-8")
+    return b
+
+
+def row(rid, key, decision, *, state=None, text="受け入れのテストの赤の種類を exception に直す", plan_units=()):
+    """申し出の行 1 つ（decision が None なら裁いていない行。state は欄 replan の値で、None なら欄を置かない）"""
+    out = {"id": rid, "round": 1, "source": "fix", "unit_key": key, "between": ["stats.py:3", "test_stats.py:2"],
+           "why_both_cannot_hold": "テストは上限 hi を期待し、今のコードは lo を返す——両方は成り立たない",
+           "which_is_right": "request", "kind": "brief_vs_judgment", "status": "ruled" if decision else "parked",
+           "ruling": None if decision is None else
+           {"decision": decision, "text": text, "limits": [], "by": "t",
+            **({"plan_items": [1], "plan_units": list(plan_units)} if plan_units else {})}}
+    if state is not None:
+        out["replan"] = state
+    return out
+
+
+def mean_row():
+    """MEAN の changes の 1 行"""
+    return {"unit_key": MEAN, "what": "mean の分母を len(xs) に直した", "files": ["stats.py"]}
+
+
+def clamp_row():
+    """CLAMP の changes の 1 行（1 回目の控えに置く）"""
+    return {"unit_key": CLAMP, "what": "clamp の上限の枝の戻り値を hi に直した", "files": ["stats.py"]}
+
+
+def hold(b, doc):
+    """1 回目に受け付けた返答の控えを盤面に置く"""
+    b.work(conflict.HELD_REPLY).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+
+class TestReplanState(unittest.TestCase):
+    def test_ruling_starts_waiting_and_holds(self):
+        b = fake_with_rows([row("c1-1", MEAN, None)])                # 裁いていない申し出の行
+        conflict.apply_rulings(b, {"c1-1": {"decision": "fix_plan_item", "text": "x" * 20, "limits": [],
+                                            "plan_items": [1], "plan_units": [MEAN, CLAMP]}}, by="t")
+        self.assertEqual(conflict.items(b)[0]["replan"], "waiting")
+        self.assertEqual([r["id"] for r in conflict.waiting(b)], ["c1-1"])
+        self.assertEqual(set(conflict.held_by_rulings(b)), {MEAN, CLAMP})
+        self.assertEqual(conflict.asked(b), [])
+
+    def test_other_rulings_have_no_state(self):
+        b = fake_with_rows([row("c1-1", MEAN, None), row("c1-2", CLAMP, None)])
+        conflict.apply_rulings(b, {"c1-1": {"decision": "ask_human", "text": "x" * 20, "limits": []},
+                                   "c1-2": {"decision": "fix_code_as", "text": "x" * 20, "limits": []}}, by="t")
+        self.assertTrue(all("replan" not in r for r in conflict.items(b)))
+        self.assertEqual([conflict.replan_state(r) for r in conflict.items(b)], [None, None])
+        self.assertEqual(conflict.waiting(b), [])
+        self.assertEqual([r["id"] for r in conflict.asked(b)], ["c1-1"])
+
+    def test_amended_rows_return_units_to_duty(self):
+        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item", state="waiting")])
+        conflict.set_replan(b, ["c1-1"], conflict.AMENDED)
+        self.assertEqual(conflict.held_by_rulings(b), {})
+        self.assertEqual(conflict.amended_keys(b), {MEAN})
+        self.assertEqual(conflict.waiting(b), [])
+        self.assertEqual(conflict.asked(b), [])
+        self.assertEqual(b.traced, [(conflict.REPLAN_OP, {"id": "c1-1", "unit_key": MEAN, "state": "amended", "why": ""})])
+
+    def test_amended_keys_cover_the_items_units(self):
+        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item", state="amended", plan_units=[MEAN, CLAMP]),
+                            row("c1-2", "u-wait", "fix_plan_item", state="waiting")])
+        self.assertEqual(conflict.amended_keys(b), {MEAN, CLAMP})
+        self.assertEqual(set(conflict.held_by_rulings(b)), {"u-wait"})
+
+    def test_gave_up_rows_join_ask_human_verbatim(self):
+        text = "受け入れのテストの id を\nクラス付きにする（test_tiers.py:136-143）"
+        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item", state="waiting", text=text),
+                            row("c1-2", CLAMP, "ask_human")])
+        conflict.set_replan(b, ["c1-1"], conflict.GAVE_UP, why="修正案の役の直しが 3 回とも拒まれた: 数が違う")
+        line = conflict.human_lines(b)[0]
+        self.assertIn(text, line)                                  # 字のまま（改行も）
+        self.assertIn("案の直し: 修正案の役の直しが 3 回とも拒まれた: 数が違う", line)
+        self.assertTrue(line.endswith("・案の直し: 修正案の役の直しが 3 回とも拒まれた: 数が違う）"), line)
+        self.assertNotIn("案の直し", conflict.human_lines(b)[1])
+        self.assertEqual([r["id"] for r in conflict.asked(b)], ["c1-1", "c1-2"])
+        self.assertIn(MEAN, conflict.held_by_rulings(b))           # 諦めた行の単位は直す義務の外のまま
+        self.assertEqual(conflict.items(b)[0]["replan_why"], "修正案の役の直しが 3 回とも拒まれた: 数が違う")
+        self.assertEqual(b.traced[-1][1]["state"], "gave_up")
+
+    def test_bad_transition_is_board_gap(self):
+        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item", state="gave_up"),
+                            row("c1-2", CLAMP, "fix_plan_item", state="waiting"),
+                            row("c1-3", "u-ask", "ask_human")])
+        before = b.work(conflict.FILE).read_text(encoding="utf-8")
+        for ids, state, why in ((["c1-1"], conflict.AMENDED, ""),       # 諦めた行は戻さない
+                                (["c1-2"], conflict.GAVE_UP, ""),       # why の無い諦め
+                                (["c1-2"], conflict.GAVE_UP, "  "),
+                                (["c1-2"], conflict.WAITING, ""),       # waiting へは移さない
+                                (["c1-3"], conflict.AMENDED, ""),       # fix_plan_item でない行
+                                (["c9-9"], conflict.AMENDED, ""),       # 知らない id
+                                (["c1-2", "c1-1"], conflict.AMENDED, "")):   # 1 つでも外れれば何も移さない
+            with self.subTest(ids=ids, state=state, why=why), self.assertRaises(conflict._board.BoardGap):
+                conflict.set_replan(b, ids, state, why=why)
+        self.assertEqual(b.work(conflict.FILE).read_text(encoding="utf-8"), before)
+        self.assertEqual(b.traced, [])
+
+    def test_same_state_is_a_no_op(self):
+        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item", state="amended"),
+                            row("c1-2", CLAMP, "fix_plan_item", state="gave_up")])
+        conflict.set_replan(b, ["c1-1"], conflict.AMENDED)               # 再開で同じ移りが 2 度来る
+        conflict.set_replan(b, ["c1-2"], conflict.GAVE_UP, why="別の理由")
+        self.assertEqual(b.traced, [])
+        self.assertNotIn("replan_why", conflict.items(b)[1])
+
+    def test_row_without_state_reads_as_waiting(self):
+        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item")])    # この版の前の盤面の行（欄 replan が無い）
+        self.assertEqual(conflict.replan_state(conflict.items(b)[0]), "waiting")
+        self.assertEqual([r["id"] for r in conflict.waiting(b)], ["c1-1"])
+        self.assertEqual(conflict.asked(b), [])
+        self.assertIn(MEAN, conflict.held_by_rulings(b))
+        conflict.set_replan(b, ["c1-1"], conflict.AMENDED)
+        self.assertEqual(conflict.amended_keys(b), {MEAN})
+
+
+class TestHeldReply(unittest.TestCase):
+    def test_accepted_units_leave_duty_but_not_board_owed(self):
+        b = fake_with_rows([])
+        hold(b, {"changes": [clamp_row()], "not_done": []})
+        with mock.patch.object(conflict, "owed_units_but_asked", return_value={MEAN, CLAMP}), \
+             mock.patch.object(gatemarks, "withheld_by", return_value={}):
+            owed, excused = conflict.fix_duty(b)
+        self.assertEqual(owed, {MEAN})
+        self.assertIn("1 回目の修正の段で受け付けた", excused[CLAMP])
+        self.assertIn(str(b.work(conflict.HELD_REPLY)), excused[CLAMP])
+        self.assertEqual(set(excused), {CLAMP})
+
+    def test_no_held_reply_leaves_duty_as_is(self):
+        b = fake_with_rows([])
+        with mock.patch.object(conflict, "owed_units_but_asked", return_value={MEAN, CLAMP}), \
+             mock.patch.object(gatemarks, "withheld_by", return_value={}):
+            self.assertEqual(conflict.fix_duty(b), ({MEAN, CLAMP}, {}))
+        self.assertEqual(conflict.held_reply(b), (None, b.work(conflict.HELD_REPLY)))
+        self.assertEqual(conflict.accepted_units(b), set())
+        self.assertEqual(conflict.held_writes(b), [])
+
+    def test_accepted_units_read_changes_and_not_done(self):
+        b = fake_with_rows([])
+        hold(b, {"changes": [clamp_row()], "not_done": [{"unit_key": "u-left", "why": "範囲外"}]})
+        self.assertEqual(conflict.accepted_units(b), {CLAMP, "u-left"})
+
+    def test_with_held_merges_rows_by_unit(self):
+        b = fake_with_rows([])
+        hold(b, {"changes": [clamp_row(), {**mean_row(), "what": "1 回目の古い行"}], "not_done": [],
+                 "fix_closure": {"status": "open"}, "bash_writes": [{"path": "x.bin", "why": "バイナリ"}]})
+        reply = {"changes": [mean_row()], "not_done": [], "fix_closure": {"status": "clean"}}
+        merged = conflict.with_held(b, reply)
+        self.assertEqual([c["unit_key"] for c in merged["changes"]], [CLAMP, MEAN])
+        self.assertEqual(merged["changes"][1], mean_row())                # 同じ単位は返答の行
+        self.assertEqual(merged["fix_closure"], {"status": "clean"})
+        self.assertNotIn("bash_writes", merged)
+        self.assertEqual(reply["changes"], [mean_row()])                  # 返答そのものは変えない（写し）
+
+    def test_with_held_without_held_is_the_reply(self):
+        b = fake_with_rows([])
+        reply = {"changes": [mean_row()], "not_done": []}
+        self.assertIs(conflict.with_held(b, reply), reply)
+
+    def test_held_writes_are_kept(self):
+        b = fake_with_rows([])
+        writes = [{"path": "tools/run.sh", "why": "実行の権限を付けた"}]
+        hold(b, {"changes": [clamp_row()], "not_done": [], "bash_writes": writes})
+        self.assertEqual(conflict.held_writes(b), writes)
+
+    def test_held_reply_ignored_after_board_took_fix(self):
+        b = fake_with_rows([])
+        hold(b, {"changes": [clamp_row()], "not_done": []})
+        b.state["outputs"]["p3.fix"] = {"file": "outputs/p3.fix.json", "round": 0, "instance": "p3.fix"}   # 前の周
+        self.assertEqual(conflict.held_reply(b)[0]["changes"], [clamp_row()])
+        b.state["outputs"]["p3.fix"] = {"file": "outputs/p3.fix.json", "round": 1, "instance": "p3.fix"}   # 今の周
+        self.assertEqual(conflict.held_reply(b), (None, b.work(conflict.HELD_REPLY)))
+        self.assertEqual(conflict.accepted_units(b), set())
+
+    def test_broken_held_reply_is_board_gap(self):
+        b = fake_with_rows([])
+        for text in ("{", "[]", '{"changes": {}}', '{"changes": [{"what": "x"}]}', '{"not_done": ["x"]}',
+                     '{"bash_writes": {}}'):
+            with self.subTest(text=text):
+                b.work(conflict.HELD_REPLY).write_text(text, encoding="utf-8")
+                with self.assertRaises(conflict._board.BoardGap):
+                    conflict.held_reply(b)
 
 
 if __name__ == "__main__":
