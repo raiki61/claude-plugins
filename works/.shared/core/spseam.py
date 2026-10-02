@@ -15,7 +15,9 @@
 - wrapped_files・pin_of・pin_problems: 包むファイルの sha256 を集める・固定を作る・固定との食い違いをパスの順に名指す
 - paragraph・para_sha256: 引用を含む行がちょうど 1 行の時、その段落（とその sha256）
 - prompt_body: 部品の型の本文
-- contract_problems: 節ごとの契約の破れ（錨・読み替えの決まり・穴・出口の語・固定に無いファイル）を 1 行ずつ
+- listed_files: 借りる一覧と部品が名指す、固定に在るべきファイル
+- seam_problems: 節ごとの契約の破れ（錨・読み替えの決まり・穴・出口の語・固定に無いファイル）を 1 行ずつ
+- contract_problems: pin_problems と seam_problems をつないだ物
 - fill・word: 部品の型の穴を埋めた文・出口の語の対応
 
 Claude Code が版のフォルダに置く印（MARKERS）と .DS_Store（IGNORED）は数えない。版のフォルダの外を指すパス（絶対のパス・..）と
@@ -112,8 +114,14 @@ def pin_of(src: pathlib.Path, item: dict, version: str, commit: str | None, chec
     return {"version": version, "commit": commit, "checked": checked, "files": wrapped_files(src, item)}
 
 
+def listed_files(item: dict) -> list[str]:
+    """借りる一覧が名指す包むファイル（各スキルの skills/<名>/SKILL.md と部品 parts）。どれも固定（pin.files）に在るべき物"""
+    return [*(f"skills/{s}/SKILL.md" for s in item["skills"]), *item.get("parts", [])]
+
+
 def pin_problems(src: pathlib.Path, item: dict) -> list[str]:
-    """固定の files と版のフォルダ src の包むファイルの食い違いの行（パスの順）。空なら写しは固定と同じ"""
+    """固定の files と版のフォルダ src の包むファイルの食い違いの行（パスの順）。借りる一覧と部品（listed_files）が固定に
+    無ければ、それも名指す（固定に在る物は手元に在ることを下の照合が見る）。空なら写しは固定と同じ"""
     pin = item.get("pin")
     if not pin:
         return ["borrow.json の superpowers に pin が無い"]
@@ -123,10 +131,13 @@ def pin_problems(src: pathlib.Path, item: dict) -> list[str]:
         why = rel not in bad and _bad_path(src, rel)
         if why:
             bad[rel] = why
+    unpinned = {rel for rel in listed_files(item) if rel not in want}
     out = []
-    for rel in sorted(set(want) | set(have) | set(bad)):
+    for rel in sorted(set(want) | set(have) | set(bad) | unpinned):
         if rel in bad:
             out.append(f"{rel}: {bad[rel]}")
+        elif rel in unpinned:
+            out.append(f"{rel}: 借りる一覧に在るのに pin.files に無い")
         elif rel not in have:
             out.append(f"{rel}: 固定に在るのに手元に無い")
         elif rel not in want:
@@ -203,8 +214,19 @@ def _section(seams: dict, seam_id: str) -> dict:
 
 
 def contract_problems(src: pathlib.Path, item: dict, seams: dict, overlay_text: str) -> list[str]:
-    """節の契約の破れの行。固定との食い違い（pin_problems）が在れば先に並べる。空なら契約が成り立つ"""
-    out = pin_problems(src, item)
+    """固定との食い違い（pin_problems）と節の契約の破れ（seam_problems）をこの順につないだ行。空なら契約が成り立つ"""
+    return pin_problems(src, item) + seam_problems(src, item, seams, overlay_text)
+
+
+def _has_word(text: str, word: str) -> bool:
+    """word が語として在るか（前後が英大文字・_ でない。DONE は DONE_WITH_CONCERNS の中に数えない）"""
+    return re.search(rf"(?<![A-Z_]){re.escape(word)}(?![A-Z_])", text) is not None
+
+
+def seam_problems(src: pathlib.Path, item: dict, seams: dict, overlay_text: str) -> list[str]:
+    """節ごとの契約の破れの行（錨・読み替えの決まり・穴・出口の語・pin.files に無い節のファイル）。固定との食い違いは
+    含めない（それは pin_problems）"""
+    out = []
     pinned = (item.get("pin") or {}).get("files", {})
     for sid, sec in seams.items():
         files = sec.get("files", [])
@@ -241,7 +263,7 @@ def contract_problems(src: pathlib.Path, item: dict, seams: dict, overlay_text: 
         if sec.get("use_as") == "prompt" and files and files[0] in texts:
             out += _prompt_problems(sid, sec, src, item, texts[files[0]], files[0])
         for said in sec.get("words", {}):
-            if not any(said in t for t in texts.values()):
+            if not any(_has_word(t, said) for t in texts.values()):
                 out.append(f"{sid}: 語 {said} が {'・'.join(files)} に無い")
     return out
 

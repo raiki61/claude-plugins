@@ -61,10 +61,10 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
   破れが無ければ 1 行で終了コード 0、在れば 1、版のフォルダが無い・borrow.json に pin が無ければ 2。何も書かない。
 - 開発の再開の確かめ（newer。dev/dogfood.sh が起動の時に 1 回呼ぶ）: 利用者のキャッシュの superpowers の版のフォルダ・
   installed_plugins.json の行の版・marketplace の一覧（plugins/known_marketplaces.json の installLocation の
-  .claude-plugin/marketplace.json）の版を、写した固定の版と数の組（6.10.0 → (6, 10, 0)）で比べる。手元にフォルダの在る新しい版
-  には固定との食い違い・節の契約の破れ・包むファイルに増えた人に聞く文（human partner を含む行）を、固定と同じ版で中身が違う
-  フォルダには食い違いを、一覧にだけ在る新しい版には 1 行を出す。入っていない・数で読めない版の名・読めない JSON は 1 行で
-  名指して続ける。版を上げるかは人が決める（上げるのは vendor）。網には出ず、何も書かず、終了コードは 0（使い方の誤りだけ 2）。
+  .claude-plugin/marketplace.json）の版を、写した固定の版と数の組（6.10.0 → (6, 10, 0)）で比べる。決まりは 1 つで、数で読めて
+  固定より古い版だけを飛ばし、ほかの版のフォルダ（数で読めない版の名も）には固定との食い違い・節の契約の破れ・包むファイルに
+  増えた人に聞く文（human partner を含む行）を出す（固定と同じ版で違いが無ければ黙る）。フォルダの無い版（一覧にだけ在る物
+  など）は同じ決まりで 1 行を出す。入っていない・読めない JSON は 1 行で名指して続ける。版を上げるかは人が決める（上げるのは vendor）。網には出ず、何も書かず、終了コードは 0（使い方の誤りだけ 2）。
 """
 import datetime
 import hashlib
@@ -229,10 +229,8 @@ def installed_sources(user_config: pathlib.Path, borrow: dict, cwd=None) -> tupl
                 problems = [f"borrow.json の {name} に pin が無い（写しを作るのは dev/toolset.py vendor <版>）"]
             else:
                 src = spseam.vendored_dir(item)
+                # 借りる一覧と部品が固定に在り、固定のファイルが手元に同じバイトで在ること（spseam.pin_problems の 1 つの決まり）
                 problems = spseam.pin_problems(src, item) if src.is_dir() else [f"{src}: 写しのフォルダが無い"]
-                problems += [f"skills/{s}/SKILL.md: 借りる一覧に在るのに写しに無い" for s in item["skills"]
-                             if not (src / "skills" / s / "SKILL.md").is_file()
-                             and f"skills/{s}/SKILL.md" not in item["pin"].get("files", {})]
             if problems:
                 bad.append(f"{name} の写し（{src}）が borrow.json の pin と合わない:\n"
                            + "\n".join(f"  - {ln}" for ln in problems) + "\n" + VENDORED_FIX)
@@ -535,11 +533,10 @@ def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin,
         if item["kind"] != "skills":
             continue
         src = pathlib.Path(chosen[name])
-        # 無い物は何も写す前に名指す（スキルの SKILL.md と部品）
-        lack = [f"スキル {s}（{src / 'skills' / s}）" for s in item["skills"] if not (src / "skills" / s / "SKILL.md").is_file()]
-        lack += [f"部品 {rel}" for rel in item.get("parts", []) if not (src / rel).is_file()]
+        # 写しが固定と合わなければ（借りる一覧・部品の欠けも）何も写す前に名指す（installed_sources と同じ spseam.pin_problems）
+        lack = spseam.pin_problems(src, item)
         if lack:
-            raise ToolsetError(f"{name} の {'・'.join(lack)} が {src} に無い")
+            raise ToolsetError(f"{name} の写し（{src}）が borrow.json の pin と合わない: " + " / ".join(lack))
         trees = []
         for s in item["skills"]:
             d = src / "skills" / s
@@ -630,12 +627,9 @@ def vendor(pack: pathlib.Path, src: pathlib.Path, version: str, commit: str, che
     if not src.is_dir():
         raise ToolsetError(f"{VENDORED} の版のフォルダ {src} が無い")
     notice = _licence_notice(src, item)
-    lack = [f"skills/{s}/SKILL.md" for s in item["skills"] if not (src / "skills" / s / "SKILL.md").is_file()]
-    lack += [r for r in item.get("parts", []) if not (src / r).is_file()]
-    if lack:
-        raise ToolsetError(f"{src} に借りる物が無い: {'・'.join(lack)}。写さない")
     files = spseam.wrapped_files(src, item)
-    bad = spseam.pin_problems(src, dict(item, pin={"files": files}))   # 読まなかった物（symlink・外を指すパス）だけが残る
+    # 読まなかった物（symlink・外を指すパス）と、版のフォルダに無い借りる一覧・部品（pin.files に入らない）だけが残る
+    bad = spseam.pin_problems(src, dict(item, pin={"files": files}))
     bad += [f"{r}: パスに空白か # が在る（台帳に書けない）" for r in files if any(c.isspace() or c == "#" for c in r)]
     if bad:
         raise ToolsetError(f"{src} を写せない: " + " / ".join(bad))
@@ -846,56 +840,53 @@ def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
     if not folders and not homeless:
         print(f"{VENDORED} が入っていない（{user_cfg / 'plugins' / 'cache' / mp / VENDORED} に版のフォルダが無く、"
               f"installed_plugins.json に {VENDORED}@{mp} の行も無い）")
+    # 決まりは 1 つ: 数で読めて固定より古い版だけを飛ばし、ほかは全部（数で読めない版の名も）pin と節の契約を当てる。
+    # 固定と同じ版で、pin・契約・人に聞く文のどれにも違いが無い物だけは知らせることが無い
+    def older(v):
+        key = _version_key(v)
+        return key is not None and key < pin_key
+
     found = False
-    keys = {}
+    seen = set()   # 手元で当てた版（名と数の組の両方。一覧の同じ版を 2 度出さない）
     for v in sorted(folders, key=lambda n: (_version_key(n) is None, _version_key(n) or (), n)):
         d, key = folders[v], _version_key(v)
-        keys[key] = v
-        if key is None:
-            print(f"{VENDORED} {v}（{d}）: 版の名を数で読めない（比べない）")
-            continue
-        if key < pin_key:
+        seen |= {v, key} - {None}
+        if older(v):
             continue
         try:
-            if key == pin_key:
-                pp = spseam.pin_problems(d, item)
-                if pp:
-                    found = True
-                    print(f"{VENDORED} {v}（{d}）: 写しと同じ版なのに中身が違う")
-                    for ln in pp:
-                        print(f"- {ln}")
-                continue
-            found = True
-            print(f"{VENDORED} {v}（{d}）: 写した {pin_v} より新しい")
-            # contract_problems は固定との食い違い（pin_problems）を頭に並べる（spseam の docstring）。頭の分を外して契約の行にする
-            cp = spseam.contract_problems(d, item, seams, overlay)
             pp = spseam.pin_problems(d, item)
-            rest = cp[len(pp):]
-            for ln in pp:
-                print(f"- {ln}")
-            for ln in rest or ["錨・穴・語は全部そのまま在る"]:
-                print(f"- 契約: {ln}")
-            for rel, ln in _new_asks(d, copy, item):
-                print(f"- 人に聞く文が増えた: {rel}: {ln}")
+            sp = spseam.seam_problems(d, item, seams, overlay)
+            asks = _new_asks(d, copy, item)
         except (OSError, ValueError) as e:   # 版のフォルダの中が読めない（文字のコードが違うなど）
-            print(f"- {VENDORED} {v}（{d}）の中を読めない（{e}）")
-    for v in homeless:
-        key = _version_key(v)
-        if key is None:
-            print(f"{VENDORED} {v}: installed_plugins.json の版の名を数で読めない（比べない）")
-        elif key > pin_key and key not in keys:
             found = True
-            keys[key] = v
-            print(f"{VENDORED} {v}: installed_plugins.json に在るが版のフォルダが無い（契約は当てていない）")
-    for v in listed:
-        key = _version_key(v)
+            print(f"{VENDORED} {v}（{d}）の中を読めない（{e}）")
+            continue
+        if key == pin_key and not (pp or sp or asks):
+            continue
+        found = True
         if key is None:
-            print(f"{VENDORED} {v}: marketplace の一覧の版の名を数で読めない（比べない）")
-        elif key > pin_key and key not in keys:
-            found = True
-            keys[key] = v
-            print(f"{VENDORED} {v}: marketplace の一覧に在る（手元に無いので契約は当てていない。"
-                  f"入れるなら claude plugin update {VENDORED}@{mp}）")
+            print(f"{VENDORED} {v}（{d}）: 版の名を数で読めない（数で比べず、写しと照らした）")
+        elif key == pin_key:
+            print(f"{VENDORED} {v}（{d}）: 写しと同じ版なのに中身が違う")
+        else:
+            print(f"{VENDORED} {v}（{d}）: 写した {pin_v} より新しい")
+        for ln in pp:
+            print(f"- {ln}")
+        for ln in sp or ["錨・穴・語は全部そのまま在る"]:
+            print(f"- 契約: {ln}")
+        for rel, ln in asks:
+            print(f"- 人に聞く文が増えた: {rel}: {ln}")
+    # 手元にフォルダの無い版（installed_plugins.json の行・marketplace の一覧）は当てられないので、同じ決まりで名指すだけ
+    for v, where in [*((v, "installed_plugins.json に在るが版のフォルダが無い") for v in homeless),
+                     *((v, "marketplace の一覧に在る") for v in listed)]:
+        key = _version_key(v)
+        if older(v) or key == pin_key or v in seen or key in seen:
+            continue
+        found = True
+        seen |= {v, key} - {None}
+        how = "数で読めない版の名。" if key is None else ""
+        tail = f"。入れるなら claude plugin update {VENDORED}@{mp}" if where.startswith("marketplace") else ""
+        print(f"{VENDORED} {v}: {where}（{how}手元に無いので契約は当てていない{tail}）")
     if not found:
         print(f"{VENDORED}: 写した {pin_v} より新しい版・違う中身は、手元にも marketplace の一覧にも無い")
     print(NEWER_LAST)

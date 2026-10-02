@@ -915,8 +915,10 @@ class TestDevShell(unittest.TestCase):
             "exit 0\n"
         )
         security, self.security_log = fake_security(tmp, keychain)
+        # 利用者の設定の置き場は一時の置き場（起動の時の toolset.py newer に利用者の本物の ~/.claude を読ませない）
         env = self._env(TMPDIR=str(tmp), WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
-                        CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true", **security)
+                        CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
+                        CLAUDE_CONFIG_DIR=str(tmp / "user-claude"), **security)
         env.pop("WORKS_DEV_NO_AUTH", None)
         env.pop("WORKS_DEV_ADAPTER", None)   # 既定（包みを通す）を見る。試験ごとに env_kw で渡す
         for name, value in env_kw.items():
@@ -1516,8 +1518,10 @@ class TestDevShell(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
             (tmp / "req.json").write_text("[]\n")
+            # 導く項目は設定の置き場の既定（~/.claude → default）から作るので、_dogfood の一時の CLAUDE_CONFIG_DIR を外す
+            # （HOME は fake_security の印の置き場なので、newer は利用者の本物の ~/.claude を読まない）
             result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
-                                               keychain={service: value}, CLAUDE_CODE_OAUTH_TOKEN=None)
+                                               keychain={service: value}, CLAUDE_CODE_OAUTH_TOKEN=None, CLAUDE_CONFIG_DIR=None)
             self.assertNotIn("認証が無い", result.stderr)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn((MARK_HOME, f"find-generic-password -s {service} -w"), security_calls(self.security_log))

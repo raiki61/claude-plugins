@@ -66,7 +66,8 @@ class VendoredCopyCase(unittest.TestCase):
         v = sp["pin"]["version"]
         self.assertEqual(sorted(p.name for p in base.iterdir()), sorted([v, "COPIED_FROM"]))   # 写しの版は 1 つだけ
         self.assertEqual(spseam.pin_problems(base / v, sp), [])                                # バイトが pin と同じ
-        on_disk = sorted(p.relative_to(base / v).as_posix() for p in (base / v).rglob("*") if p.is_file())
+        on_disk = sorted(r.as_posix() for r in (p.relative_to(base / v) for p in (base / v).rglob("*") if p.is_file())
+                         if r.name not in spseam.IGNORED and not spseam.MARKERS & set(r.parts))   # spseam と同じく数えない物を除く
         self.assertEqual(on_disk, sorted(sp["pin"]["files"]))                                  # 余分なファイルが無い
         led = copyledger.read(base / "COPIED_FROM")
         self.assertEqual(led.commit, sp["pin"]["commit"])

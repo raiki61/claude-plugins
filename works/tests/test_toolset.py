@@ -716,7 +716,7 @@ class InstallCase(Base):
 
         cases = {
             "skills/verification-before-completion/SKILL.md: 固定に在るのに手元に無い": no_skill_dir,
-            "skills/brainstorming/SKILL.md: 借りる一覧に在るのに写しに無い": listed_but_not_pinned,
+            "skills/brainstorming/SKILL.md: 借りる一覧に在るのに pin.files に無い": listed_but_not_pinned,
             "borrow.json の superpowers に pin が無い": no_pin,
             "写しのフォルダが無い": no_copy_dir,
         }
@@ -760,7 +760,7 @@ class InstallCase(Base):
         (copy / part).unlink()
         with self.assertRaises(toolset.ToolsetError) as cm:
             toolset.install(self.cfg, dict(found, superpowers=copy), self.borrow, claude_bin=str(self.claude), versions=vers)
-        self.assertIn(f"部品 {part}", str(cm.exception))
+        self.assertIn(f"{part}: 固定に在るのに手元に無い", str(cm.exception))
         self.assertEqual(files_under(self.cfg), [])
 
     def test_dropped_part_is_pruned_on_reinstall(self):
@@ -768,7 +768,10 @@ class InstallCase(Base):
         self.install()
         dropped = self.borrow["superpowers"]["parts"][1]
         _put(self.cfg / "works-parts" / "superpowers" / "old" / "gone.md", "前の版の部品\n")
-        smaller = dict(self.borrow, superpowers=dict(self.borrow["superpowers"], parts=self.borrow["superpowers"]["parts"][:1]))
+        # 版上げでは vendor が一覧と pin を一緒に取り直すので、外れた部品は pin.files からも外れる
+        sp = self.borrow["superpowers"]
+        pin = dict(sp["pin"], files={f: h for f, h in sp["pin"]["files"].items() if f != dropped})
+        smaller = dict(self.borrow, superpowers=dict(sp, parts=sp["parts"][:1], pin=pin))
         found, vers = self.sources()
         toolset.install(self.cfg, found, smaller, claude_bin=str(self.claude), versions=vers)
         self.assertFalse((self.cfg / "works-parts" / "superpowers" / dropped).exists())
@@ -1216,6 +1219,14 @@ class NewerCase(Base):
         r = self.cli("newer")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("latest", r.stdout)
+        # 数で読めない名の版のフォルダも素通しせず、pin と節の契約を当てて名指し、締めの『違いは無い』を出さない
+        self.add_version("8ca22dba9a94", edit={"skills/test-driven-development/SKILL.md": "x\n"})
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("superpowers 8ca22dba9a94", r.stdout)
+        self.assertIn("skills/test-driven-development/SKILL.md: 中身が固定と違う", r.stdout)
+        self.assertIn("tdd: 錨", r.stdout)
+        self.assertNotIn("より新しい版・違う中身は", r.stdout)
 
     def test_newer_without_superpowers_installed(self):
         r = self.cli("newer")
@@ -1283,3 +1294,12 @@ class NewerCase(Base):
         self.assertIn("読めない物に当たった", r.stdout)
         self.assertIn("版を上げるかは人が決める", r.stdout)
         self.assertNotIn("Traceback", r.stderr)
+
+    def test_newer_marketplace_unparsable_version_is_not_closed_as_nothing(self):
+        """一覧にだけ在る数で読めない版も、同じ決まりで名指し、締めの『違いは無い』を出さない"""
+        self.add_version(PIN_V)
+        self.put_marketplace({"plugins": [{"name": "superpowers", "version": "nightly"}]})
+        r = self.cli("newer")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("superpowers nightly: marketplace の一覧に在る", r.stdout)
+        self.assertNotIn("より新しい版・違う中身は", r.stdout)

@@ -208,5 +208,37 @@ class SeamCase(unittest.TestCase):
             spseam.word("implementer", "MAYBE", seams)
 
 
+    def test_word_must_be_a_whole_word(self):
+        """出口の語は語として在ること。DONE は DONE_WITH_CONCERNS の中に数えない"""
+        only_long = IMPL_TEXT.replace("DONE | DONE_WITH_CONCERNS", "DONE_WITH_CONCERNS")
+        src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT, IMPL: only_long})
+        item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}
+        seams = {"implementer": {"use_as": "prompt", "files": [IMPL], "anchors": [], "placeholders": ["[BRIEF_FILE]", "[directory]"],
+                                 "words": {"DONE": "done", "DONE_WITH_CONCERNS": "done", "BLOCKED": "divergence"}}}
+        got = spseam.seam_problems(src, item, seams, "")
+        self.assertEqual([g for g in got if "語 " in g], [f"implementer: 語 DONE が {IMPL} に無い"])
+
+    def test_seam_problems_leave_pin_lines_to_pin_problems(self):
+        """contract_problems は pin_problems と seam_problems をこの順につないだ物。seam_problems は固定との食い違いを含まない"""
+        src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT, IMPL: IMPL_TEXT})
+        item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}
+        seams = {"tdd": {"use_as": "skill", "files": [TDD], "words": {}, "anchors": []}}
+        (src / TDD).write_text("changed\n", encoding="utf-8")
+        pp = spseam.pin_problems(src, item)
+        sp = spseam.seam_problems(src, item, seams, "")
+        self.assertTrue(pp)
+        self.assertFalse(any("中身が固定と違う" in ln for ln in sp))
+        self.assertEqual(spseam.contract_problems(src, item, seams, ""), pp + sp)
+
+    def test_pin_problems_names_listed_files_missing_from_the_pin(self):
+        """借りる一覧のスキルの SKILL.md と部品は pin.files に在るべき。無ければ（手元にも無くても）名指す"""
+        src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT, IMPL: IMPL_TEXT})
+        item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}
+        wider = dict(item, skills=[*item["skills"], "brainstorming"], parts=[*item["parts"], "skills/x/part.md"])
+        self.assertEqual(spseam.pin_problems(src, wider),
+                         ["skills/brainstorming/SKILL.md: 借りる一覧に在るのに pin.files に無い",
+                          "skills/x/part.md: 借りる一覧に在るのに pin.files に無い"])
+
+
 if __name__ == "__main__":
     unittest.main()
