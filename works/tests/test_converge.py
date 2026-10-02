@@ -112,19 +112,13 @@ class RecordCase(BoardCase):
                          [(1, 1, converge.AGAIN, ["a"], []), (1, 2, converge.PERSISTED, ["a"], ["a"])])
         self.assertEqual(list((self.tmp / "r1").glob("*.tmp")), [])
 
-    def test_drop_last_undoes_one_pass(self):
-        self.record(["a"])
-        converge.note_answers(self.b, [answer("a")])
-        self.record(["b"])
-        converge.drop_last(self.b)
-        doc = converge.read(self.b)
-        self.assertEqual([p["pass"] for p in doc["passes"]], [1])
-        self.assertEqual(doc["outcome"], converge.AGAIN)
-        self.assertEqual(doc["open"]["answers"], [answer("a")])
-        self.assertEqual(converge.held(self.b)["pass"], 1)
-        converge.drop_last(self.b)
-        doc = converge.read(self.b)
-        self.assertEqual((doc["passes"], doc["outcome"]), ([], None))
+    def test_record_pass_reads_faces_through_one_guard(self):
+        """faces が list でない返答も block と suggest を同じ柵で読む（どちらも空。落ちない）"""
+        for bad in (7, "faces", {"key": "a"}, None):
+            with self.subTest(bad=bad):
+                b = self.board(len(self.traces) + 1)
+                row = converge.record_pass(b, {"faces": bad}, resolved=[], fence=3, files={})
+                self.assertEqual((row["blocks"], row["suggests"], row["outcome"]), ([], [], converge.CLEAN))
 
     def test_answers_move_from_open_to_pass(self):
         self.record(["a"])

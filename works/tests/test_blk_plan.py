@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -38,6 +39,7 @@ sys.path.insert(0, str(TESTS))
 
 import accept  # noqa: E402
 import board as board_mod  # noqa: E402
+import converge  # noqa: E402
 import design  # noqa: E402
 import engine.rules as engine_rules  # noqa: E402
 import engine.util as engine_util  # noqa: E402
@@ -221,6 +223,14 @@ class YamlCase(unittest.TestCase):
                 if role in f:
                     with self.subTest(f"{name}:{role}"):
                         self.assertEqual(validate_schema(f[role], planblk.output_format(role)), [])
+
+
+def suggest_regression() -> dict:
+    """plan_review_regression の穴を severity suggest にした返答（kind regression の穴は関所で聞く。block の穴は壁打ちで修正案へ
+    返るので、1 往復で関所まで進む試験はこの形を使う。block の往復は ConvergeReviewCase）"""
+    review = linekit.reply("plan_review_regression")
+    review["faces"][0]["severity"] = "suggest"
+    return review
 
 
 class ScriptCase(unittest.TestCase):
@@ -741,7 +751,7 @@ class ScriptCase(unittest.TestCase):
 
     def test_plan_review_regression_decided_passes_gate(self):
         """事前審査の regression の穴も、決め手が在り柵の印が無ければ人に聞かない"""
-        review = linekit.reply("plan_review_regression")
+        review = suggest_regression()
         review["faces"][0].update({"decided_by": "依頼の本文: clamp は上限を超えたら hi を返す", "undecided_because": "",
                                    "fences": []})
         got, out = self.gate_after([], review)
@@ -772,7 +782,7 @@ class ScriptCase(unittest.TestCase):
         self.judged()
         self.planned()
         self.ok("snap", role="plan-review")
-        _, got = self.round_of("plan-review", linekit.reply("plan_review_regression"))
+        _, got = self.round_of("plan-review", suggest_regression())
         self.assertTrue(got["ok"] and got["asking"], got)
         out = self.ok("collect")
         self.assertIs(out["asks_human"], True)
@@ -838,7 +848,7 @@ class ScriptCase(unittest.TestCase):
         self.judged()
         self.planned()
         self.ok("snap", role="plan-review")
-        review = linekit.reply("plan_review_regression")
+        review = suggest_regression()
         review["faces"][0]["unit_keys"] = [1]
         self.assertEqual(validate_schema(review, node_marker.strip(planblk.output_format("plan-review"))), [])
         _, got = self.round_of("plan-review", review)
@@ -1269,6 +1279,164 @@ class PlanReviewFrozenFieldsCase(unittest.TestCase):
         after = entry.open_board(self.board, allow_halted=True)
         self.assertEqual(after.state["stop"]["by"], planblk.STOP_BY)
         self.assertIn(planmarks.FIELDS_FILE, after.state["stop"]["reason"])
+
+
+class ConvergeReviewCase(unittest.TestCase):
+    """事前審査の壁打ち（依頼 231）: どの往復の事前審査も盤面が settle なしで受けて往復を記録し、again（新しい block）なら役の
+    節 2 つ（修正案・事前審査）を同じ周の待ちに戻す。盤面は ScriptCase と同じ種（p2.fix_plan を受けた所）、支度と受け付けは子の
+    プロセス。ScriptCase を継がずに helper だけを借りる（継ぐと ScriptCase の試験が 2 度回る）"""
+
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+        ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+    KEY = linekit.reply("plan_review_regression")["faces"][0]["key"]   # 見本の block の key（F13）
+
+    def board_obj(self):
+        return entry.open_board(self.board, allow_halted=True)
+
+    def ready(self):
+        """修正案を受けた盤面（p2.plan_review が待つ）"""
+        self.judged()
+        self.planned()
+
+    def review(self, reply, *, ready=True):
+        """事前審査の 1 往復（snap → prep → accept）の受け付けの出口"""
+        if ready:
+            self.ready()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        _, got = self.round_of("plan-review", reply)
+        return got
+
+    def again(self):
+        """1 往復目が block（again）→ 修正案を直に受け直した盤面（Task 4 の前なので entry.take で直に渡す）"""
+        got = self.review(linekit.reply("plan_review_regression"))
+        self.assertTrue(got.get("again"), got)
+        self.assertTrue(self.ok("snap", role="plan")["go"])
+        bare, _ = planmarks.split(linekit.reply("plan_ok"), self.repo)
+        self.take("p2.fix_plan", bare)
+
+    def test_clean_review_taken_as_today(self):
+        got = self.review(linekit.reply("plan_review_ok"))
+        b = self.board_obj()
+        self.assertTrue(got["done"])
+        self.assertEqual((got["ok"], got["asking"], got.get("again")), (True, False, None))
+        self.assertEqual(b.node_state("p2.plan_review"), "done")
+        self.assertEqual(converge.read(b)["outcome"], converge.CLEAN)
+        self.assertIn("p3.fix", b.settle()["ready"])
+
+    def test_again_does_not_settle_human_gate(self):
+        got = self.review(linekit.reply("plan_review_regression"))
+        b = self.board_obj()
+        self.assertTrue(got["done"])
+        self.assertTrue(got.get("again"))
+        self.assertEqual((got["ok"], got["asking"], got["halted"], got["ready"]), (True, False, False, []))
+        self.assertNotIn("p2.human_gate", b.rd["done"])
+        self.assertFalse(b.state.get("pending_human"))
+        self.assertIsNotNone(planblk._pending(b, "p2.fix_plan"))          # 修正案は同じ周の待ちに戻った
+        self.assertIsNone(planblk._pending(b, "p2.plan_review"))          # 審査の待ちは案を受けるまで出ない
+        self.assertEqual(converge.read(b)["outcome"], converge.AGAIN)
+        pass1 = b.work(converge.PASS_DIR) / "pass-1"
+        for name in ("p2.fix_plan.json", "p2.plan_review.json", "plan-fields.json", "prompt-p2.plan_review.md"):
+            self.assertTrue((pass1 / name).is_file(), name)
+        self.assertEqual(json.loads((pass1 / "p2.plan_review.json").read_text(encoding="utf-8"))["faces"][0]["key"], self.KEY)
+        self.assertIs(self.ok("snap", role="plan-review")["go"], False)
+        self.assertIs(self.ok("snap", role="plan")["go"], True)
+
+    def test_again_reply_still_checked_by_board_and_tree(self):
+        """block を持つ返答も (a) 読むだけの役の作業ツリーの比べと (b) 盤面の受け付けを通る。拒めば往復は記録されず、修正案は戻らない"""
+        self.ready()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        self.ok("prep", role="plan-review", excluded_file="")
+        (self.repo / "stats.py").write_text("# 変えた\n", encoding="utf-8")
+        raw = json.dumps(linekit.reply("plan_review_regression"), ensure_ascii=False)
+        got = self.ok("accept", role="plan-review", reply=raw)
+        self.assertFalse(got["ok"])
+        self.assertTrue(self.reason_of(got).startswith(entry.READONLY_MOVED))
+        linekit.git(self.repo, "checkout", "-q", "--", "stats.py")
+        bad = linekit.reply("plan_review_regression")
+        bad["faces"][0]["unit_keys"] = ["判定に無い単位の key"]
+        got = self.ok("accept", role="plan-review", reply=json.dumps(bad, ensure_ascii=False))
+        self.assertFalse(got["ok"])
+        self.assertIn("判定に無い単位の key", self.reason_of(got))
+        b = self.board_obj()
+        self.assertEqual(converge.read(b)["passes"], [])
+        self.assertEqual(b.node_state("p2.fix_plan"), "done")
+        self.assertIsNotNone(planblk._pending(b, "p2.plan_review"))
+
+    def test_rewind_refused_when_later_node_done(self):
+        """後ろの節（p2.human_gate・p3.lane_merge）が今の周に受けた後は戻さない: 盤面を止めて BoardGap（F7）"""
+        self.ready()
+        b = entry.open_board(self.board)
+        b.rd["done"]["p2.human_gate"] = {"at": "偽"}
+        with self.assertRaises(planblk.BoardGap):
+            planblk.rewind_roles(b)
+        after = self.board_obj()
+        self.assertEqual(after.state["stop"]["by"], converge.BY)
+        self.assertEqual(after.node_state("p2.fix_plan"), "done")
+        for later in planblk.LATER_NODES:
+            with self.subTest(later):
+                calls = []
+                fake = types.SimpleNamespace(rd={"done": {later: {}}}, state={}, stop=lambda why, by: calls.append(by),
+                                             rewind=lambda *a, **k: self.fail("戻した"), settle=lambda: self.fail("進めた"))
+                with self.assertRaises(planblk.BoardGap):
+                    planblk.rewind_roles(fake)
+                self.assertEqual(calls, [converge.BY])
+
+    def test_rejects_restart_per_pass(self):
+        """1 往復目に事前審査を 2 回拒ませてから again → 控えに事前審査の行は残らず、往復の行の rejects に 2 行"""
+        self.ready()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        for _ in range(2):
+            _, got = self.round_of("plan-review", linekit.reply("plan_review_no_add"))
+            self.assertFalse(got["ok"])
+        _, got = self.round_of("plan-review", linekit.reply("plan_review_regression"))
+        self.assertTrue(got.get("again"), got)
+        b = self.board_obj()
+        self.assertEqual(rolekit.rejects(b, "p2.plan_review"), [])
+        rows = converge.read(b)["passes"][0]["rejects"]
+        self.assertEqual([r["node"] for r in rows], ["p2.plan_review"] * 2)
+
+    def test_persisted_review_taken_and_gate_opens_design_item(self):
+        self.again()
+        got = self.review(linekit.reply("plan_review_regression"), ready=False)
+        self.assertTrue(got["ok"], got)
+        self.assertTrue(got["asking"])
+        self.assertIsNone(got.get("again"))
+        b = self.board_obj()
+        self.assertEqual(converge.read(b)["outcome"], converge.PERSISTED)
+        items = b.state["pending_human"]["items"]
+        self.assertTrue(any(i.startswith(gatemarks.DESIGN_ONLY_ITEM + "。理由: ") for i in items), items)
+
+    def test_rereview_must_account_for_every_previous_block(self):
+        self.again()
+        got = self.review(linekit.reply("plan_review_ok"), ready=False)
+        self.assertFalse(got["ok"])
+        self.assertTrue(self.reason_of(got).startswith(planblk.RESOLVED_REJECT), self.reason_of(got))
+        self.assertIn(self.KEY, self.reason_of(got))
+        self.assertEqual(len(converge.read(self.board_obj())["passes"]), 1)
+        _, got = self.round_of("plan-review", {**linekit.reply("plan_review_ok"), converge.RESOLVED: [self.KEY]})
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        doc = converge.read(self.board_obj())
+        self.assertEqual((len(doc["passes"]), doc["outcome"], doc["passes"][1]["resolved"]), (2, converge.CLEAN, [self.KEY]))
+
+    def test_rereview_prompt_carries_previous_blocks_and_answers(self):
+        self.again()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        face = linekit.reply("plan_review_regression")["faces"][0]
+        for w in (converge.REREVIEW_ASK, face["key"], face["where"], face["why"], "修正案の役の答え:"):
+            self.assertIn(w, text)
+
+    def test_first_pass_prompt_unchanged(self):
+        """1 往復目の事前審査の指示書は今の版と同じバイト（壁打ちの節が空）"""
+        self.ready()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        b = entry.open_board(self.board)
+        want, _ = rolekit.render_body(b, "p2.plan_review")
+        head = planblk.head("plan-review", "", planblk.lib_section(b, self.repo), planblk.design_section(b))
+        self.assertEqual(text, head + "\n\n" + want)
+        self.assertNotIn(converge.REREVIEW_ASK, text)
 
 
 if __name__ == "__main__":

@@ -1337,6 +1337,18 @@ class TakeCase(TakeCaseBase):
         self.assertTrue((self.board / got["out_file"]).is_file())
         self.assertEqual(b.node_state("p2.diagnose"), "done")
 
+    def test_take_without_settle_accepts_but_does_not_advance(self):
+        """settle=False: 盤面は返答を受けて保存するが進めない（後ろの節の待ちを出さない）。返りの ready は空。後の settle が進める"""
+        repo = self.judge_ready()
+        launch(self.board, "p2.diagnose")
+        got = entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, settle=False)
+        b = entry.open_board(self.board)
+        self.assertEqual(got, {"ok": True, "reason": "", "ready": [], "asking": False, "halted": False,
+                               "out_file": b.state["outputs"]["p2.diagnose"]["file"]})
+        self.assertEqual(b.node_state("p2.diagnose"), "done")
+        self.assertNotIn("p2.fix_plan", b.rd["instances"])
+        self.assertIn("p2.fix_plan", b.settle()["ready"])
+
     def test_take_reject_leaves_board(self):
         repo = self.judge_ready()
         launch(self.board, "p2.diagnose")

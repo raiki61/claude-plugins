@@ -14,6 +14,7 @@
 - accept_role:    出し直しの輪の受け付け（entry.take）。拒否は理由の本文を盤面の reject-take_<節>-<連番>.txt に書き
                   （script_io が理由の本文を書く名）、この周の拒否の控え role-rejects.json に積み、give_up_after 回目で done・give_up
                   （輪を max_iterations で落とさない。裁定 R50）
+- take_rejects:   この周の拒否の控えから名指した節の行を外して返す（同じ周に役の節を待ちに戻した時、出し直しを数え直す）
 - main_accept:    accept_role の節の入口（INPUTS_REPLY・ARTIFACTS_DIR。after で出口の欄を足せる）
 - gave_up:        出口（collect）の諦めの腕: この周のこの節の拒否が give_up_after 件あれば、最後の拒否の文で盤面を止める
                   （止まっていなければ）。返りは止めた理由（届いていなければ空。呼び手は配線の誤りとして扱う）
@@ -224,6 +225,17 @@ def rejects(b, nid: str) -> list:
     """この周のこの節の拒否の控え（古い順）"""
     rows = _read_json(b.work(REJECTS_NAME), [])
     return [r for r in rows if isinstance(r, dict) and r.get("node") == nid]
+
+
+def take_rejects(b, nids) -> list:
+    """この周の拒否の控えから、節が nids の行を外して書き直し、外した行を古い順に返す（同じ周に役の節を待ちに戻した時、戻した
+    後の出し直しを改めて give_up_after 回まで数える。外した行は呼び手が自分の記録に残す）。ほかの行は順のまま残す"""
+    path = b.work(REJECTS_NAME)
+    rows = _read_json(path, [])
+    gone = [r for r in rows if isinstance(r, dict) and r.get("node") in nids]
+    if gone:
+        _write_json(path, [r for r in rows if not (isinstance(r, dict) and r.get("node") in nids)])
+    return gone
 
 
 def last_reject_file(b, nid: str) -> str:

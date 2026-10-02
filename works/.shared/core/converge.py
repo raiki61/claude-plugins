@@ -12,7 +12,7 @@
 k 往復目の行の answers と resolved は、k-1 往復目の block への修正案の役の答えと、直した案を読んだ審査の言い分。
 
 - block_faces(review)・decide(passes, fence=): block の face と、続けるか止めるかの語（CLEAN・AGAIN・PERSISTED・UNSETTLED）
-- read(b)・pass_no(b)・note_answers(b, answers)・record_pass(b, review, ...)・drop_last(b)・stash_rejects(b, rows)・held(b):
+- read(b)・pass_no(b)・note_answers(b, answers)・record_pass(b, review, ...)・stash_rejects(b, rows)・held(b):
   控えの読み書き
 - answer_gaps(b, answers)・resolved_gaps(b, faces, resolved): 修正案の役と事前審査の役の返答の欄の欠けと誤りの行
 - with_fields(role, schema)・split(role, reply): 役の型に欄を足す・返答から欄を外す
@@ -66,12 +66,17 @@ FIELDS = {"plan-revise": (ANSWERS, ANSWER_SCHEMA, True), "plan-review": (RESOLVE
 
 
 # ---------------------------------------------------------------- 決まり
+def _faces(review) -> list[dict]:
+    """審査の返答の face の行（返答が dict でない・faces が list でない・行が dict でない物は読まない）"""
+    faces = review.get("faces") if isinstance(review, dict) else None
+    return [f for f in faces if isinstance(f, dict)] if isinstance(faces, list) else []
+
+
 def block_faces(review: dict) -> list[dict]:
     """審査の返答の severity が block の face（key で重複を除き、順を保つ）"""
-    faces = review.get("faces") if isinstance(review, dict) else None
     out = {}
-    for f in faces if isinstance(faces, list) else []:
-        if isinstance(f, dict) and f.get("severity") == "block" and f.get("key") not in out:
+    for f in _faces(review):
+        if f.get("severity") == "block" and f.get("key") not in out:
             out[f.get("key")] = f
     return list(out.values())
 
@@ -131,7 +136,7 @@ def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict) -> 
     faces = block_faces(review)
     blocks = [f.get("key") for f in faces]
     earlier = {key for p in passes for key in p.get("blocks", [])}
-    suggests = [f.get("key") for f in (review.get("faces") or []) if isinstance(f, dict) and f.get("severity") != "block"]
+    suggests = [f.get("key") for f in _faces(review) if f.get("severity") != "block"]
     row = {"pass": k, "blocks": blocks, "faces": [{n: f.get(n, "") for n in FACE_KEYS} for f in faces],
            "suggests": list(dict.fromkeys(suggests)), "answers": doc["open"].get("answers", []),
            "resolved": list(resolved), "persists": [key for key in blocks if key in earlier], "outcome": None,
@@ -148,17 +153,6 @@ def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict) -> 
     _write(b, doc)
     b.trace(OP, round=b.round, pass_=k, outcome=row["outcome"], blocks=blocks, persists=row["persists"])
     return row
-
-
-def drop_last(b) -> None:
-    """最後の往復の行を外し、抜け方を 1 つ前の行の物に、修正案の役の答えを open に戻す（盤面が返答を受けなかった時の取り消し）"""
-    doc = read(b)
-    if not doc["passes"]:
-        return
-    gone = doc["passes"].pop()
-    doc["outcome"] = doc["passes"][-1]["outcome"] if doc["passes"] else None
-    doc["open"] = {"answers": gone.get("answers", [])} if gone.get("answers") else {}
-    _write(b, doc)
 
 
 def stash_rejects(b, rows: list) -> None:

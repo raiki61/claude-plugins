@@ -12,7 +12,9 @@
 - accept:   rolekit.main_accept（take が狭めない案の欄を欠く narrows の行を拒み、関所の項目の決め手の欄を外して盤面に置き（gatemarks）、entry.take・読むだけの役の作業ツリーの比べ・3 回目の拒否で done・give_up。R50）。
             修正案は、項目の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）の欠けを
             盤面へ渡す前に拒み、欄を外した案を渡して、
-            盤面が受けた時だけ欄を盤面の plan-fields.json に控える（with_plan_fields。planmarks）。事前審査の指示書の頭にはその欄も貼る
+            盤面が受けた時だけ欄を盤面の plan-fields.json に控える（with_plan_fields。planmarks）。事前審査の指示書の頭にはその欄も貼る。
+            事前審査はどの往復も盤面が settle なしで受けて往復を記録し（with_converge。core の converge）、新しい block が在れば
+            役の節 2 つを同じ周の待ちに戻す（rewind_roles）。2 往復目からの指示書の頭には前の往復の block と答えを貼る
 - reads:    2 つの役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
 - collect:  出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file}。役の節がこの周に
             待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true。
@@ -32,6 +34,7 @@ if str(_CORE) not in sys.path:
 
 import accept  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
+import converge  # noqa: E402
 import design  # noqa: E402
 from engine import pointers  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
@@ -55,6 +58,8 @@ EXCLUDED_HEAD = "並行 PR の範囲。触らず、単位に入れない"
 NO_NARROW_REJECT = (f"narrows の行に狭めない案を探した結果（{gatemarks.NO_NARROW}）が無いか短い（直して done し直す）。狭めを避ける形が"
                     "在ればそれを案に採ってその行を消し、無い時だけ、どの形を当たりなぜ採れないかを書け:")
 NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit・info・defer など。受け付けが受けない）。案から外せ。案に入れてよい no（必ず入れる物を含む）は"
+RESOLVED_REJECT = "前の往復の block の行き先が書かれていない（下の行を全部直して出し直せ）:"
+LATER_NODES = ("p2.human_gate", "p3.lane_merge")   # 役の節 2 つを戻す前に、今の周に受けていてはいけない後ろの節（戻しは後ろへ伝わらない）
 PLAN_STUCK = "修正案の行き止まり: 必ず案に入れる単位が開いていない"
 STUCK_WHY = ("受け付けの写しは開いていない単位を受けず、義務からも外さないので、案の形では閉じない。人が関所で問いの答えを直すか、"
              "単位を開く")
@@ -100,7 +105,7 @@ def output_format(role: str) -> dict:
     独立設計の役は番号の欄を持たず、道具ゼロの旗 isolated を付ける"""
     if role == DESIGN_ROLE:
         return node_marker.mark(accept.role_schema(design.NODE), role, flags=(ISOLATED_FLAG,))
-    return node_marker.mark(accept.role_schema(role_node(role), numbered=True), role)
+    return converge.with_fields(role, node_marker.mark(accept.role_schema(role_node(role), numbered=True), role))
 
 
 def _pending(b, nid: str) -> dict | None:
@@ -275,7 +280,8 @@ def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
         why = halt_if_stuck(b)
         if why:   # snap が先に止めて輪を飛ばすので、ここに届くのは配線の誤り。指示書を書かずに 2 で落とす（役を起こさせない）
             raise BoardGap(why)
-    part = design_section(b) if role == "plan-review" else "\n\n".join(x for x in (structmark.plan_section(b.dir), plan_slots_section(b)) if x)
+    part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b)) if role == "plan-review"
+                                    else (structmark.plan_section(b.dir), plan_slots_section(b))) if x)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
     ptrs = b.pointer_rows(nid)["pointers"]
     inst = _pending(b, nid)
@@ -291,15 +297,18 @@ def _plan_malformed(reply) -> bool:
     return any(not isinstance(p, dict) or not isinstance(p.get("narrows") or [], list) for p in reply["plan"])
 
 
-def take(role: str):
+def take(role: str, *, snapshot: str | None = None, settle: bool = True):
     """rolekit.accept_role の take: 関所の項目の行の決め手の欄（gatemarks）を外した返答を entry.take に渡す（写しの型は欄を
     持たない）。決め手は渡す前に盤面の gate-marks.json に置く（事前審査を受けた settle の中で関所が読む）。修正案の narrows の行が
-    狭めない案を探した結果を欠けば、盤面へ渡さずに拒む（gatemarks.narrow_gaps）。形の崩れた修正案は前段を飛ばして entry.take に渡す"""
+    狭めない案を探した結果を欠けば、盤面へ渡さずに拒む（gatemarks.narrow_gaps）。形の崩れた修正案は前段を飛ばして entry.take に渡す。
+    snapshot は entry.take が作業ツリーを比べる写しの名（既定は snapshot_name(role)）、settle はそのまま entry.take へ
+    （偽なら盤面は受けるが進めない。事前審査の壁打ち with_converge が往復を記録してから進める）"""
     nid = role_node(role)
+    snap_name = snapshot or snapshot_name(role)
 
     def run(board, reply, repo):
         if role == "plan" and _plan_malformed(reply):   # gatemarks は形の整った返答を前提に読む（変えない部品）。形の拒否は entry.take が言い、再提出の道に乗せる
-            return entry.take(pathlib.Path(board), nid, reply, pathlib.Path(repo), snapshot_name=snapshot_name(role))
+            return entry.take(pathlib.Path(board), nid, reply, pathlib.Path(repo), snapshot_name=snap_name, settle=settle)
         gaps = gatemarks.narrow_gaps(nid, reply)
         if gaps:
             return {"ok": False, "reason": NO_NARROW_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
@@ -310,8 +319,58 @@ def take(role: str):
                 return {"ok": False, "reason": f"{NOT_OWED_REJECT} {allowed}。外す単位:\n" + "\n".join(f"  - {c}" for c in closed)}
         bare, marks = gatemarks.split(nid, reply)
         gatemarks.save(board, nid, entry.open_board(pathlib.Path(board)).round, marks)
-        return entry.take(pathlib.Path(board), nid, bare, pathlib.Path(repo), snapshot_name=snapshot_name(role))
+        return entry.take(pathlib.Path(board), nid, bare, pathlib.Path(repo), snapshot_name=snap_name, settle=settle)
     return with_plan_fields(run) if role == "plan" else run
+
+
+def rewind_roles(b) -> None:
+    """壁打ちの again で役の節 2 つ（修正案・事前審査）を同じ周の待ちに戻して settle する（修正案の待ちが出る。事前審査の待ちは
+    案を受けるまで出ない）。後ろの節（LATER_NODES）が今の周に受けていれば、戻しは後ろへ伝わらないので戻さずに盤面を止めて
+    （by converge.BY。もう止まっていれば止め直さない）BoardGap。機械の節は渡さない（engine が戻さずに落ちる）"""
+    later = [n for n in LATER_NODES if n in b.rd["done"]]
+    if later:
+        why = f"事前審査の壁打ちで修正案と事前審査を戻せない: 後ろの節 {'・'.join(later)} がこの周に受けた後（戻しは後ろへ伝わらない）"
+        if not (b.state.get("halted") or b.state.get("stop")):
+            b.stop(why, by=converge.BY)
+        raise BoardGap(why)
+    b.rewind([NODE_OF["plan"], NODE_OF["plan-review"]], by=converge.BY)
+    b.settle()
+
+
+def with_converge(run):
+    """事前審査の take の包み（依頼 231 の壁打ち）。run は take("plan-review", settle=False)。どの往復も盤面が settle なしで
+    受けてから往復を記録する（again の返答も作業ツリーの比べと盤面の受け付けを通る）:
+    1. 形の崩れた返答（dict でない・faces が list でない）は run に渡す（entry.take が拒み、出し直しの道に乗せる）
+    2. 壁打ちの欄 resolved を外し、前の往復の block の行き先の欠けと誤り（converge.resolved_gaps）が在れば盤面へ渡さずに拒む
+    3. 外した返答を run に渡す。拒まれたら往復を記録せずに拒否を返す
+    4. 受けたら往復を記録する（converge.record_pass。今の周の修正案・事前審査の出力、盤面の根の欄の控え、指示書を写す）
+    5. 抜け方が again なら、今の周の役の節 2 つの拒否の控えを往復の行へ移し（出し直しを往復ごとに数え直す）、役の節 2 つを
+       戻す（rewind_roles）。返りの again が真（受け付けは done で、事前審査の輪を抜ける）
+    6. ほかの抜け方は settle して（関所が記録を読んで設計だけの行を組む）、その進みを返す"""
+    def wrapped(board, reply, repo):
+        if not isinstance(reply, dict) or not isinstance(reply.get("faces"), list):
+            return run(board, reply, repo)
+        bare, resolved = converge.split("plan-review", reply)
+        gaps = converge.resolved_gaps(entry.open_board(pathlib.Path(board)), bare["faces"], resolved)
+        if gaps:
+            return {"ok": False, "reason": RESOLVED_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
+        got = run(board, bare, repo)
+        if got.get("ok") is not True:
+            return got
+        b = entry.open_board(pathlib.Path(board))
+        plan_out = (b.state["outputs"].get(NODE_OF["plan"]) or {}).get("file")
+        files = {"p2.fix_plan.json": str(b.dir / plan_out) if plan_out else "",
+                 "p2.plan_review.json": str(b.dir / got["out_file"]),
+                 planmarks.FIELDS_FILE: str(b.dir / planmarks.FIELDS_FILE),
+                 rolekit.prompt_name(NODE_OF["plan-review"]): str(b.work(rolekit.prompt_name(NODE_OF["plan-review"])))}
+        row = converge.record_pass(b, bare, resolved=resolved, fence=GIVE_UP_AFTER, files=files)
+        if row["outcome"] == converge.AGAIN:
+            converge.stash_rejects(b, rolekit.take_rejects(b, [NODE_OF["plan"], NODE_OF["plan-review"]]))
+            rewind_roles(b)
+            return {"ok": True, "again": True, "reason": "", "ready": [], "asking": False, "halted": False, "out_file": ""}
+        p = b.settle()
+        return {**got, "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"])}
+    return wrapped
 
 
 def with_plan_fields(run):
@@ -350,7 +409,7 @@ def main_accept(role: str) -> int:
         return rolekit.script_main(lambda board, repo, env: design.accept_reply(board, env["INPUTS_REPLY"], repo),
                                    ("INPUTS_REPLY",), fence=True, take="plan")
     return rolekit.main_accept(role_node(role), snapshot_name=snapshot_name(role), give_up_after=GIVE_UP_AFTER,
-                               take=take(role))
+                               take=with_converge(take(role, settle=False)) if role == "plan-review" else take(role))
 
 
 def _write_json(path: pathlib.Path, doc) -> None:
