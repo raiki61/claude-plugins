@@ -13,7 +13,7 @@ sys.path.append(str(HERE.parents[1] / "graphloops" / "tests" / "py"))
 import fence  # noqa: E402
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 181
+EXPECTED_ITEMS = 695
 
 
 def pytest_configure(config):

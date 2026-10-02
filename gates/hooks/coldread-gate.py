@@ -68,13 +68,16 @@ gh でその「画面」を取り、読み手に既知として渡す(新規作�
 
 記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に 3 本:
   denies.log  allow / deny / skip の別(deny はタブ区切りで種別も。maxlen・parse-fail・
-              blocked・reader-down・finding)。finding と allow には本文の長さと読み方
+              blocked・reader-down・finding)。blocked には止めた理由の語(, 区切り。値は
+              書かない)も付く——どの形の止めが多いかを数えるため。finding と allow には本文の長さと読み方
               (screen=画面を渡した / cold=文脈ゼロ)も付く——連続 deny の間に本文が
               どれだけ膨れたかを書き手に示すため。各行の末尾に sid=(session id の先頭 8 字)
               v=(この門番の版) to=(投稿先。種別:repo:番号、新規作成はサブコマンド)
   skip.log    逃げ道を使った投稿のコマンド先頭 200 字
   misses.log  本文旗の綴りが在るのに候補も blocked も空だった素通し=網から落ちた疑い。
-              「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す
+              「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す。
+              下限より短いコマンドの解析が落ちて本文ファイルを審査せずに通した回も
+              parse-error<タブ><種類>(例外の型名か unparseable。値は書かない)として残す
 
 環境変数:
   COLDREAD_SKIP=1            この 1 回だけゲートを通す(記録が残る)
@@ -83,17 +86,19 @@ gh でその「画面」を取り、読み手に既知として渡す(新規作�
                              sh -c 実行。$1 以降に gh の引数列)。テスト用
   COLDREAD_MODEL             既定 sonnet
   COLDREAD_EFFORT            既定 medium
-  COLDREAD_MIN_LEN           これ未満のコマンドは素通し。既定 400
-  COLDREAD_MAX_LEN           これを超えるコマンドは解析せず deny。既定 100000
+  COLDREAD_MIN_LEN           これ未満のコマンドは素通し(本文旗のファイルから読めた 200 字以上の本文だけは審査する)。既定 400
+  COLDREAD_MAX_LEN           これを超えるコマンドは解析せず deny(先頭に置いた COLDREAD_SKIP=1 だけはこの前に効く)。既定 100000
   COLDREAD_IN_READER=1       読み役の中であることの印(自動で付く)。入れ子の再発火を防ぐ
   COLDREAD_KEYCHAIN_SERVICE  macOS Keychain の OAuth トークンのサービス名(未指定なら
                              CLAUDE_CONFIG_DIR の末尾から推定: ~/.claude-p1 → claude-code-oauth-p1)
 """
+import collections
+import itertools
 import json
 import os
 import re
-import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -116,7 +121,8 @@ SKIP_LOG = os.path.join(STATE_DIR, "skip.log")
 DENY_LOG = os.path.join(STATE_DIR, "denies.log")
 MISS_LOG = os.path.join(STATE_DIR, "misses.log")
 MIN_LEN = int(os.environ.get("COLDREAD_MIN_LEN", "400"))
-# 上限。これを超える文字列は正規表現の後方追跡(HEREDOC_RE)が重くなりうるので解析せず deny
+# 上限。これを超える文字列は解析せず deny——解析は長さに比例して重くなり、
+# フックの timeout を超えると無検査で通る
 MAX_LEN = int(os.environ.get("COLDREAD_MAX_LEN", "100000"))
 READER_TIMEOUT = 210
 GH_TIMEOUT = 12   # 画面取得の gh 呼び出し 1 回分
@@ -128,16 +134,35 @@ DENY_STREAK_WINDOW = 30 * 60
 # ---- 投稿の判定 ------------------------------------------------------------
 # 「gh らしさ」と「旗らしさ」を文字列全体へ独立に照合する方式は、複合コマンドで別コマンドの
 # 旗を gh の物と誤認し(git checkout -b)、引用・短縮形で取りこぼした(0.2.x で実測)。
-# 代わりに、ヒアドキュメントを盾置換 → shlex でトークン化 → 単純コマンドに区切り、gh の
+# 代わりに、字句の走査 → トークン化 → 単純コマンドに区切り、gh の
 # 引数列の中だけで「本文を運ぶ旗」を見る。単純コマンド分割と旗表は自作なので網羅性はテストで
 # 守る。なぜこの方式か・いつ乗り換えるかは docs/coldread-gate-next.md(正本)。
 # 対象外と受容した形は gates/README.md「網の射程」。
-# デリミタは引用の有無(' か " か無し)と . - を許し、<<- の字下げ終端も拾う。
-# 行末は \r?\n。コマンド文字列が CRLF で届くと \n 固定では開始行も終端行もマッチせず、
-# 正しく書いたヒアドキュメントが「stdin 渡し」という嘘の理由で止まる(実測)。
-HEREDOC_RE = re.compile(
-    r"""<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1\r?\n(.*?)\r?\n[ \t]*\2(?:\r?\n|\r?$)""", re.S
-)
+# bash の字句の文脈(引用・置換・注釈・行継続・ヒアドキュメント・IO_NUMBER・展開)を読むのは字句の走査
+# scan_shell の 1 本だけで、ほかの段はその結果(印に置き換えた文字列と、印ごとの中身)を読むだけにする。
+# 段ごとに文脈を読み直すと読みが互いにずれ、審査した本文と投稿される本文が離れるか、bash が走らせる gh が
+# 両方のゲートから消える(2026-10-02 に 6 形を実測)。読みが bash と合うかは tests/py/test_coldread_gate.py が
+# bash を判定役にして突き合わせる。写していない構文(case の枝の `)` を置換の中に置く形など)は、読みを推さずに
+# 解析できないものとして止める。
+Heredoc = collections.namedtuple("Heredoc", "mark value")
+# 生きた展開 1 つ。kind は sub($(…))・bt(`…`)・procsub(<(…) >(…))・funsub(${ …; })・param(${…} と $名前)・
+# arith($((…)))・arithb($[…])。span は元の字の (文字列, 始め, 終わり)——入れ子の置換ごとに切り出すと長さの 2 乗に
+# なるので、写すのは unmark の時だけにする。inner は命令を走らせる種類の中身を同じ走査で書き換えた文字列(ほかは None)
+Expansion = collections.namedtuple("Expansion", "mark kind span inner in_dq")
+Scanned = collections.namedtuple("Scanned", "text docs exps marks")
+COMMAND_KINDS = {"sub", "bt", "procsub", "funsub"}
+# 印の綴り。呼び出しごとの nonce を付けるのは、本文に字で書いた印が本物に化けないようにするため
+MARK_TAGS = "HEREDOC|EXPAND|FD"
+MARK = "__%s%s_%d__"
+# 読めなかった本文 1 つと、止めた理由の語。本文ファイル(_Files)・stdin(stdin_source)・置換の値の読めなさは、
+# すべてこの形で返す
+Unread = collections.namedtuple("Unread", "reason")
+# 本文候補 1 つ。from_file は本文旗のファイルから読んだもの——コマンド長の下限(MIN_LEN)を当てず、
+# 審査を通っても権限の確認を飛ばさない(main)
+Body = collections.namedtuple("Body", "text from_file")
+# gh の呼び出し 1 つ。args は静的な置換を値に解いた後の語で、解けない展開は書かれたとおりの字に戻す。prefix は gh より
+# 前の語(NAME=値・包みとその旗)を同じ規則で戻したもの——destgate が gh 自身に効く GH_REPO・env -u・env -C を読む
+Call = collections.namedtuple("Call", "args candidates blocked prefix", defaults=((),))
 
 # 本文を運ぶ旗の表(非 api 経路はこれを引く。api・gist 経路は下でハードコード)。
 # text=次の値が本文 / file=ファイル指定(- は stdin)。
@@ -172,9 +197,14 @@ SHORT_TEXT_FLAGS = {
                     ("discussion", "comment"), ("discussion", "create"), ("discussion", "edit"),
                     ("release", "create"), ("release", "edit")}),
 }
-# 値を取る global 旗(サブコマンド語の特定でだけ読み飛ばす)。-H/-X は api の前置で挟まりうる。
+# 値を取る global 旗(サブコマンド語の特定と -R の読みで読み飛ばす)。-H/-X は api の前置で挟まりうる。
 GLOBAL_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-X", "--method"}
+# gh api で値を取る旗のうち、classify が読む物(key=値 のフィールド)。--input は API_BODY_FLAGS
+API_FIELD_FLAGS = {"-f", "-F", "--field", "--raw-field"}
 WRAPPERS = {"env", "command", "exec", "nohup", "time"}
+# 包みの旗のうち値を取るもの(env -u NAME・-C DIR・-P PATH・-S STRING、exec -a NAME)。値を命令名と読まない
+WRAPPER_VALUE_FLAGS = {"-u", "--unset", "-C", "--chdir", "-P", "-S", "--split-string", "-a"}
+WRAPPER_CHDIR = ("-C", "--chdir")   # env -C DIR は命令の cwd を変える
 # シェルの予約語。単純コマンドの先頭語になりうるが、コマンド名ではないので読み飛ばす。
 # 飛ばさないと `{ gh …; }`・`if …; then gh …`・`while …; do gh …`・`! gh …` の gh が
 # 見えず、投稿が無検査・無記録で通る(両ゲートとも。実測)。同じ意味の `( gh … )` は
@@ -183,9 +213,13 @@ WRAPPERS = {"env", "command", "exec", "nohup", "time"}
 # 入れない(入れても発火させられず、表の全メンバーを検査する回帰が張れない)。
 RESERVED = {"{", "!", "then", "else", "elif", "do"}
 OP_CHARS = set("();<>|&\n")
-# リダイレクト演算子(演算子と行き先を読み飛ばす)。&> >& <& は & を含むが区切りではない。
-REDIRECT_OPS = {"<", ">", ">>", "<<", "<<<", "<&", ">&", "&>", "&>>", ">|"}
-VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
+# リダイレクト演算子。&> >& <& は & を含むが区切りではない。
+# <> は fd 0 を読み書きで開く——区切りと読むと、後ろの行き先が stdin を差し替えたことを見失う
+REDIRECT_OPS = {"<", ">", ">>", "<<", "<<<", "<&", ">&", "&>", "&>>", ">|", "<>"}
+# 引用していない演算子の字の並び(;改行・改行改行・&&改行・)>)を bash の演算子に割る表で、長いものから当てる。
+# <( >( は区切りとして読む——1 字ずつ割ると < が ( を行き先として食い、後ろの gh が前の命令の
+# 引数に呑まれる(走査はプロセス置換を印に替えるので、ふつうはここに届かない)
+_OPS = sorted(REDIRECT_OPS | {"&&", "||", ";;", ";&", ";;&", "|&", "<(", ">("}, key=len, reverse=True)
 # 環境変数の前置(NAME=値)。単純コマンドの先頭で読み飛ばす範囲を決める
 ENV_PREFIX_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 # 前段の粗選別。部分文字列だと highlight・through 等の語で解析に入ってしまう
@@ -205,232 +239,717 @@ BODY_FLAG_RE = re.compile(
 # 下限しか出さないことの内訳で、押し出しの量は「これ以上」としてしか読めない。
 
 
-HEREDOC_MARK = "__HEREDOC%d__"
+# 走査が止まる字。それ以外の字は文脈を変えないので一括で写す
+_EVENT_RE = re.compile(r"""[\\'"`$()}\[\]<>#\n]""")
+_DELIM_STOP = set(" \t\n;&|<>()")
+# この字の直後は語頭(注釈の #・算術の命令の ((・IO_NUMBER の数字を見分ける)。見るのは出力側の直前の字で、
+# 行継続で連結した `echo x\<改行>#y` の # は語中になる
+_WORD_BREAK = " \t\n;&|()<>"
+_CODE = {"code", "sub", "bt", "procsub", "funsub"}   # 命令として読む文脈(<<・注釈・IO_NUMBER が構文になる)
+_PARAM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?$!-]")
+# 置換の中の case と esac(命令の位置の語)。閉じる ) の時点で case が esac より多ければ、その ) は枝の型の閉じ
+_CASE_RE = re.compile(r"(?:^|[;&|(){}\n]|\b(?:then|do|else)\s)\s*case\s+\S+\s+in\s")
+_ESAC_RE = re.compile(r"(?:^|[;&|(){}\n])\s*esac(?=$|[\s;&|)])")
+# 数える前に 1 字の語の字へ潰す、引用と \ の退避。`echo '; esac '`・`echo \; esac` の esac は命令の位置の語でない
+_QUOTED_RE = re.compile(r"""\\.|\$'(?:\\.|[^'\\])*'|'[^']*'|"(?:\\.|[^"\\])*\"""", re.S)
+# 開始行で見つけ、中身をまだ読んでいない << 。開いた文脈の _Frame が持つ
+_Pending = collections.namedtuple("_Pending", "mark delim quoted strip")
+_MAX_HEREDOC_NEST = 8   # 区切りを引用しないヒアドキュメントの中身の、置換の中のヒアドキュメント…の深さ
 
 
-def shield_heredocs(command):
-    """ヒアドキュメント本文を取り出し、解析用の文字列では番号付きの印に置き換える。
+class _Buf:
+    """1 つの命令の文脈の出力。引用の文脈は外側の _Buf に書く(トークン化が引用を読めるように)。"""
 
-    番号を振るのは、どの単純コマンドに付いたヒアドキュメントかを後で見分けるため。
-    番号が無いと、同じ行の別コマンド(cat > f <<EOF)の中身まで gh の本文候補に混ざる。
+    __slots__ = ("parts", "last")
+
+    def __init__(self):
+        self.parts, self.last = [], ""
+
+    def emit(self, s):
+        if s:
+            self.parts.append(s)
+            self.last = s[-1]
+
+    def at_word_start(self):
+        return not self.last or self.last in _WORD_BREAK
+
+    def take_io_number(self):
+        """末尾の数字の並びが語頭から始まっていれば外して返す(POSIX 2.10.1 の IO_NUMBER)。違えば None。
+
+        数字は部品を後ろから集めて最後に 1 回だけ連結する——前へ足して伸ばすと、行継続で 1 字ずつの部品に割った
+        数字の並びで長さの 2 乗になる。
+        """
+        runs, k, before = [], len(self.parts), ""
+        while k:
+            s = self.parts[k - 1]
+            j = len(s)
+            while j and s[j - 1] in "0123456789":
+                j -= 1
+            runs.append(s[j:])
+            if j:
+                before = s[j - 1]
+                break
+            k -= 1
+        run = "".join(reversed(runs))
+        if not run or (before and before not in _WORD_BREAK):
+            return None
+        cut = len(run)
+        while cut:
+            s = self.parts.pop()
+            if len(s) > cut:
+                self.parts.append(s[:-cut])
+                break
+            cut -= len(s)
+        self.last = self.parts[-1][-1] if self.parts else ""
+        return run
+
+
+class _Frame:
+    __slots__ = ("kind", "buf", "depth", "start", "in_dq", "pending")
+
+    def __init__(self, kind, buf, start=0, in_dq=False):
+        self.kind, self.buf, self.start, self.in_dq = kind, buf, start, in_dq
+        self.depth, self.pending = 0, []
+
+
+class _Scanner:
+    """bash の字句の文脈を読み、生きた展開・ヒアドキュメント・IO_NUMBER を印に置き換える。
+
+    区切りを引用しないヒアドキュメントの中身は、入れ子ごとに読み直す(深さは _MAX_HEREDOC_NEST まで)。
     """
-    bodies = []
 
-    def repl(m):
-        bodies.append(m.group(3))
-        return " " + (HEREDOC_MARK % (len(bodies) - 1)) + " \n"
+    def __init__(self, nonce):
+        self.nonce, self.docs, self.exps, self.ndocs = nonce, {}, [], 0
+        self.nest, self.unparsable = 0, False
 
-    return HEREDOC_RE.sub(repl, command), bodies
+    def mark(self, tag, k):
+        return MARK % (tag, k, self.nonce)
 
+    def scan(self, text, base):
+        """text を base の文脈(code か、区切りを引用しないヒアドキュメントの中身 hd)で読む → 置き換えた文字列。
 
-def own_heredocs(args, heredoc_bodies):
-    """この単純コマンドに付いたヒアドキュメント本文だけを返す。"""
-    return [heredoc_bodies[i] for i in range(len(heredoc_bodies))
-            if (HEREDOC_MARK % i) in args]
+        文脈が閉じないまま終われば None(bash も構文の誤りで走らせない)。
+        """
+        stack = [_Frame(base, _Buf())]
+        i, n = 0, len(text)
+        while i < n:
+            f = stack[-1]
+            kind, buf = f.kind, f.buf
+            if kind == "sq":
+                j = text.find("'", i)
+                if j < 0:
+                    return None
+                buf.emit(text[i:j + 1])
+                stack.pop()
+                i = j + 1
+                continue
+            m = _EVENT_RE.search(text, i)
+            if m is None:
+                buf.emit(text[i:])
+                break
+            buf.emit(text[i:m.start()])
+            i, c = m.start(), m.group()
+            if c == "\\":
+                i = self.backslash(text, i, f)
+            elif kind == "ansi":
+                buf.emit(c)
+                i += 1
+                if c == "'":
+                    stack.pop()
+            elif kind in ("dq", "hd") and c not in "$`":
+                buf.emit(c)
+                i += 1
+                if c == '"' and kind == "dq":
+                    stack.pop()
+            elif c == "$":
+                i = self.dollar(text, i, stack)
+            elif c == "`":
+                if kind == "bt":
+                    i += 1
+                    self.close(stack, text, i)
+                else:
+                    self.open(stack, "bt", i)
+                    i += 1
+            elif c in "'\"":
+                buf.emit(c)
+                stack.append(_Frame("sq" if c == "'" else "dq", buf))
+                i += 1
+            elif c in "()[]}":
+                i = self.bracket(text, i, stack)
+            elif kind not in _CODE:
+                buf.emit(c)   # 算術・パラメータの中の < > # 改行は字
+                i += 1
+            elif c == "#":
+                if buf.at_word_start():
+                    i = self.comment_end(text, i, kind)
+                else:
+                    buf.emit(c)
+                    i += 1
+            elif c in "<>":
+                i = self.redirect(text, i, stack)
+            else:   # 改行
+                buf.emit(c)
+                i += 1
+                if f.pending:
+                    i = self.bodies(text, i, f)
+        if len(stack) != 1:
+            return None
+        return "".join(stack[0].buf.parts)
 
+    def backslash(self, text, i, f):
+        kind, buf, nxt = f.kind, f.buf, text[i + 1:i + 2]
+        if kind not in ("ansi", "hd") and (nxt == "\n" or text.startswith("\r\n", i + 1)):
+            return i + (3 if nxt == "\r" else 2)   # 行継続は前後を連結するので buf.last は据え置く
+        if kind == "dq" and nxt in "$`" and nxt:
+            buf.emit(nxt)   # トークン化は二重引用の中の \$ を字のまま残すので、bash の値の字にして渡す
+        elif kind == "hd" and nxt in "$`\\" and nxt:
+            buf.emit(nxt)
+        else:
+            buf.emit(text[i:i + 2])
+        return i + 2
 
-def has_live_substitution(text):
-    """引用の外(または二重引用の中)に $( や ` があるか。単一引用の中は展開されない。
+    @staticmethod
+    def joined(text, j, kind):
+        """先読みの位置 j から行継続を飛ばした位置。先読みは必ずここを通す——生の字を見ると `$\\<改行>(` を
+        展開と読まず、bash が投稿する置換の値を字面のまま審査する。
 
-    引用の種別は shlex が落としてしまうので、生の文字列の側で見る。これを見ないと、
-    本文に ``` や `--body` を含むだけの普通の文章まで「置換渡し」と誤判定する。
-    """
-    i, quote = 0, None
-    while i < len(text):
-        c = text[i]
-        if quote == "'":
-            if c == "'":
-                quote = None
-        elif c == "\\" and quote != "'":
-            i += 1
-        elif quote == '"':
-            if c == '"':
-                quote = None
-            elif c == "`" or text.startswith("$(", i):
-                return True
-        elif c in "'\"":
-            quote = c
-        elif c == "`" or text.startswith("$(", i):
-            return True
-        i += 1
-    return False
+        区切りを引用しないヒアドキュメントの中身は読む前に連結済み(_logical_line)で、$'…' の中は行継続でない。
+        """
+        return j if kind in ("hd", "ansi") else _skip_joins(text, j)
 
+    def dollar(self, text, i, stack):
+        f = stack[-1]
+        j = self.joined(text, i + 1, f.kind)
+        nxt = text[j:j + 1]
+        if nxt == "(":
+            k = self.joined(text, j + 1, f.kind)
+            if text.startswith("(", k):
+                self.open(stack, "arith", i)
+                return k + 1
+            self.open(stack, "sub", i)
+            return j + 1
+        if nxt == "[":
+            self.open(stack, "arithb", i)
+            return j + 1
+        if nxt == "{":
+            k = self.joined(text, j + 1, f.kind)
+            if text[k:k + 1] in (" ", "\t", "\n", "|"):
+                self.open(stack, "funsub", i)   # bash 5.3 の ${ 命令; } と ${| 命令; }
+                return k + 1 if text[k] == "|" else k
+            self.open(stack, "param", i)
+            return j + 1
+        if nxt == "'" and f.kind not in ("dq", "hd"):
+            f.buf.emit("$'")
+            stack.append(_Frame("ansi", f.buf))
+            return j + 1
+        if nxt == '"' and f.kind not in ("dq", "hd"):
+            end = i + 1   # $"…" は訳文に置き換わる。$ だけを展開にして、引用は続けて読む
+        else:
+            m = _PARAM_RE.match(text, j)
+            if m is None:
+                f.buf.emit("$")   # 後ろが名前でも括弧でもない $ は字(5$・US$ 5)
+                return i + 1
+            end = m.end()
+        mark = self.mark("EXPAND", len(self.exps))
+        self.exps.append(Expansion(mark, "param", (text, i, end), None, f.kind == "dq"))
+        f.buf.emit(mark)
+        return end
 
-# 正規化で出力が実際に変わるのは注釈と行継続の 2 事象だけ。事象の起きうる文字へ正規表現で
-# 跳び、その間はスライスで一括複製する。1 文字ずつ積むと 100KB の本文で 5ms/回掛かる
-_EVENT_RE = re.compile(r"""[#\\'"]""")
+    def bracket(self, text, i, stack):
+        f = stack[-1]
+        kind, buf, c = f.kind, f.buf, text[i]
+        if c == "(":
+            k = self.joined(text, i + 1, kind)
+            if kind in _CODE and buf.at_word_start() and text.startswith("(", k):
+                buf.emit("((")   # 命令の位置の (( は算術の命令。中の << はシフト
+                stack.append(_Frame("arithcmd", buf))
+                return k + 1
+            if kind in _CODE or kind in ("arith", "arithcmd"):
+                f.depth += 1
+        elif c == ")":
+            if f.depth and kind != "param":
+                f.depth -= 1
+            elif kind in ("sub", "procsub"):
+                inner = _QUOTED_RE.sub("_", "".join(buf.parts))
+                if len(_CASE_RE.findall(inner)) > len(_ESAC_RE.findall(inner)):
+                    # bash は置換の中の case の枝の型 `x)` で置換を閉じない。その読みは写していないので、推さずに止める
+                    self.unparsable = True
+                self.close(stack, text, i + 1)
+                return i + 1
+            elif kind in ("arith", "arithcmd"):
+                k = self.joined(text, i + 1, kind)
+                end = k + 1 if text.startswith(")", k) else i + 1
+                if kind == "arith":
+                    self.close(stack, text, end)
+                else:
+                    buf.emit("))" if end > i + 1 else ")")
+                    stack.pop()
+                return end
+        elif c == "[":
+            if kind == "arithb":
+                f.depth += 1
+        elif c == "]":
+            if kind == "arithb":
+                if not f.depth:
+                    self.close(stack, text, i + 1)
+                    return i + 1
+                f.depth -= 1
+        elif kind == "param" or (kind == "funsub" and not f.depth and buf.at_word_start()):
+            self.close(stack, text, i + 1)   # }
+            return i + 1
+        buf.emit(c)
+        return i + 1
 
+    def comment_end(self, text, i, kind):
+        """語頭の # から注釈の終わり(改行の手前。改行は残す)。`…` の中の注釈は閉じる ` で終わる。"""
+        nl = text.find("\n", i)
+        end = len(text) if nl < 0 else nl
+        if kind == "bt":
+            tick = text.find("`", i, end)
+            if tick >= 0:
+                end = tick
+        return end
 
-def normalize_shell(text):
-    r"""字句解析の前に、bash が入力段で落とす 2 つ(行継続・注釈)を 1 度の走査で落とす。
+    def redirect(self, text, i, stack):
+        f = stack[-1]
+        buf = f.buf
+        j = self.joined(text, i + 1, f.kind)
+        if text.startswith("(", j):
+            self.open(stack, "procsub", i)
+            return j + 1
+        fd = buf.take_io_number()
+        if fd is not None:
+            buf.emit(self.mark("FD", fd))
+        if text[i] == "<" and text.startswith("<", j):
+            k = self.joined(text, j + 1, f.kind)
+            if text.startswith("<", k):
+                buf.emit("<<<")
+                return k + 1
+            word = _delim_word(text, k)
+            if word is None:
+                buf.emit("<<")
+                return k
+            delim, quoted, strip, end = word
+            mark = self.mark("HEREDOC", self.ndocs)
+            self.ndocs += 1
+            f.pending.append(_Pending(mark, delim, quoted, strip))
+            # 印を << の行き先として残すのは、stdin を fd 0 への最後のリダイレクトで決めるため(_fd0_source)
+            buf.emit("<< %s " % mark)
+            return end
+        buf.emit(text[i])
+        return i + 1
 
-    bash は行継続の除去と注釈の認識を同じ 1 パスでやる。こちらも 1 パスにしないと、
-    どちらを先に置いても bash が実行する gh を見失う形が残る(両方とも bash で実測):
-      注釈が先   `echo x\<改行>#y; gh …` の gh が消える。bash は行を連結するので #y は
-                 語中の # であって注釈ではない
-      行継続が先 `echo a # メモ \<改行>gh …` の gh が消える。bash は注釈を行末で切るので
-                 その \ は注釈の一部であって行継続ではない
-    どちらも「gh は実行されるのにゲートには見えない」= 無検査・無記録の素通しになる。
-    1 パスなら両方が自然に出る——注釈の判定に使う直前の 1 文字を、入力側ではなく
-    出力側(prev)で見るため。行継続を落としても prev を据え置くので前後の語が連結し、
-    注釈を落とす枝は行末までしか進まないので次の行は残る。
-
-    落とすもの:
-      行継続 …… 引用の外と二重引用の中の `\`+改行。空白に置換せず削除する
-                 (POSIX の行継続は前後の語を連結する。`--bo\<改行>dy` は `--body`)。
-                 単一引用の中は行継続にならないので残す
-      注釈 …… 引用の外の、語頭の # から行末まで。改行は区切りとして残す
-
-    落とさないと何が起きるか:
-      行継続 …… tokenize は改行を区切りの演算子として残すので、1 つの gh 呼び出しが複数の
-        単純コマンドに割れる。旗だけが載った断片は gh 呼び出しと認識されず(gh_args が None)、
-        本文を運ぶ旗が引数列から消えて、候補も blocked も無い状態=投稿でないとして素通しになる。
-        2026-09-03 の issue 3 本(skip.log 53-55 行)は逃げ道 COLDREAD_SKIP=1 で通ったので記録は
-        残るが、同じ 3 本から逃げ道を外して掛け直すと、この経路で記録の無い素通しになることを
-        実測した——同じコマンドに独立した穴が 2 つ在り、こちらは黙って外れる方である。
-        同じ解析層を import している destgate の宛先検査も同時に外れていた。
-      注釈 …… shlex の既定の注釈処理は readline() で改行ごと捨てるので、改行を区切りにしている
-        tokenize では 2 つの単純コマンドが 1 本に融合し、先頭語が cd や echo になって gh が
-        見えなくなる。かといって注釈をただ切ると、注釈の語が引数として残り、gist create のように
-        位置引数を本文と見る経路で嘘の deny が出る。bash と同じ「語頭の # から行末まで」だけを
-        落とすのが、どちらにも倒れない唯一の形。
-    """
-    out, i, n, quote, copied, gap = [], 0, len(text), None, 0, ""
-    while True:
-        m = _EVENT_RE.search(text, i)
-        if m is None:
-            break
-        i = m.start()
-        c = text[i]
-        if quote == "'":
-            if c == "'":
-                quote = None
-            i += 1
-        elif c == "\\":
-            if text.startswith(("\\\r\n", "\\\n"), i):
-                # 連結するので gap(直前に出力した 1 文字)は据え置く。ここを改行や空白に
-                # すると `echo x\<改行>#y` の # が語頭に見え、注釈として次の gh まで消える
-                gap = text[i - 1] if i > copied else gap
-                out.append(text[copied:i])
-                i += 3 if text[i + 1] == "\r" else 2
-                copied = i
+    def bodies(self, text, pos, f):
+        """開始行の改行の次から、その文脈で開いたヒアドキュメントの中身を順に読む → 読み終えた位置。"""
+        todo, f.pending = f.pending, []
+        for p in todo:
+            body, pos = _read_body(text, pos, p)
+            if body is None:
+                return len(text)   # 終端行が無い: bash は入力の終わりまでを中身にする(印は Heredoc を持たない)
+            if p.quoted:
+                value = body
+            elif self.nest >= _MAX_HEREDOC_NEST:
+                # 中身の $( の中のヒアドキュメントの中身…は入れ子の深さぶん読み直す。深さを縛らないと、入れ子を
+                # 重ねた入力の重さが長さの 2 乗になり、フックの timeout で無検査で通る。読めないものとして止める
+                self.unparsable = True
+                return len(text)
             else:
-                i += 2  # 退避された 1 文字は事象として見ない(`\#` は注釈の開始ではない)
+                # 区切りを引用しなければ中身は展開を受ける。展開が 1 つでも在れば値は実行するまで決まらない
+                before = len(self.exps)
+                self.nest += 1
+                value = self.scan(body, "hd")
+                self.nest -= 1
+                if len(self.exps) > before:
+                    value = None
+            self.docs[p.mark] = Heredoc(p.mark, value)
+        return pos
+
+    def open(self, stack, kind, start):
+        stack.append(_Frame(kind, _Buf(), start, stack[-1].kind == "dq"))
+
+    def close(self, stack, text, end):
+        """展開の文脈を閉じ、外側に印を書く。中で開いて中身がまだ始まっていない << は捨てる。"""
+        f = stack.pop()
+        mark = self.mark("EXPAND", len(self.exps))
+        inner = "".join(f.buf.parts) if f.kind in COMMAND_KINDS else None
+        self.exps.append(Expansion(mark, f.kind, (text, f.start, end), inner, f.in_dq))
+        stack[-1].buf.emit(mark)
+
+
+def _nonce(command):
+    """コマンドに _数字__ として現れない最小の数。印がコマンドの字と取り違わないようにする。"""
+    used = {int(d) for d in re.findall(r"_(\d+)__", command)}
+    return next(k for k in itertools.count() if k not in used)
+
+
+def _skip_joins(text, j):
+    """j から行継続(\\ と改行)を飛ばした位置(POSIX 2.2.1)。"""
+    while text.startswith("\\", j):
+        if text.startswith("\n", j + 1):
+            j += 2
+        elif text.startswith("\r\n", j + 1):
+            j += 3
+        else:
+            break
+    return j
+
+
+def _delim_word(command, j):
+    """<< の後の区切りの語 → (引用を外した語, どこかが引用されていたか, <<- か, 語の終わり)。読めなければ None。"""
+    n = len(command)
+    strip = command.startswith("-", j)
+    if strip:
+        j += 1
+    while j < n and command[j] in " \t":
+        j += 1
+    out, quoted = [], False
+    while j < n and command[j] not in _DELIM_STOP:
+        c = command[j]
+        if c == "\\" and _skip_joins(command, j) > j:
+            j = _skip_joins(command, j)
+        elif c == "'":
+            k = command.find("'", j + 1)
+            if k < 0:
+                return None
+            out.append(command[j + 1:k])
+            quoted, j = True, k + 1
         elif c == '"':
-            quote = None if quote == '"' else '"'
-            i += 1
-        elif c == "'" and quote is None:
-            quote = "'"
-            i += 1
-        elif c == "#" and quote is None and _head(text, i, copied, gap):
-            gap = text[i - 1] if i > copied else gap
-            out.append(text[copied:i])
-            nl = text.find("\n", i)
-            i = n if nl < 0 else nl  # 改行は残す(単純コマンドの区切り)
-            copied = i
-        else:  # 二重引用の中の '、引用の中の #、語中の # はどれも構文ではない
-            i += 1
-    if not out:
-        return text  # 落とす物が 1 件も無ければ複製しない
-    out.append(text[copied:])
-    return "".join(out)
+            k = j + 1
+            while k < n and command[k] != '"':
+                if command[k] == "\\" and command[k + 1:k + 2] in ("$", "`", '"', "\\", "\n"):
+                    k += 1
+                out.append(command[k])
+                k += 1
+            if k >= n:
+                return None
+            quoted, j = True, k + 1
+        elif c == "\\":
+            if j + 1 >= n:
+                return None
+            out.append(command[j + 1])
+            quoted, j = True, j + 2
+        elif c == "`" or (c == "$" and command[j + 1:j + 2] in ("(", "{", "[")):
+            return None   # 置換を含む区切りは読みを推さず、ヒアドキュメントにしない(後ろは命令として見える)
+        else:
+            out.append(c)
+            j += 1
+    if not out and not quoted:
+        return None
+    return "".join(out), quoted, strip, j
 
 
-def _head(text, i, copied, gap):
-    r"""text[i] が語頭か——注釈の始まりかどうかの判定。
+def _logical_line(text, pos, join):
+    """pos から 1 行 → (行, 次の位置)。join なら、行末の退避されていない \\ で次の行と連結する(POSIX 2.2.1)。
 
-    見るのは「直前に出力した 1 文字」で、入力側の text[i-1] ではない。複製待ちの区間が
-    残っていればその末尾が直前の出力、区間が空なら直前の削除の手前の 1 文字(gap)。
-    この違いが出るのが `echo x\<改行>#y` で、行継続を落とした後の直前の出力は x なので
-    # は語中=注釈ではない。入力側で見ると改行が直前になり、注釈として後ろの gh まで消える。
+    区切りを引用しないヒアドキュメントでは、bash は連結した後の行を終端と照合する。中身の値も連結した行で持つ。
     """
-    prev = text[i - 1] if i > copied else gap
-    return not prev or prev in " \t\n;|&()"
+    parts = []
+    while True:
+        nl = text.find("\n", pos)
+        end = len(text) if nl < 0 else nl + 1
+        line, pos = text[pos:end], end
+        if join and nl >= 0:
+            head = line[:-1]
+            if (len(head) - len(head.rstrip("\\"))) % 2:
+                parts.append(head[:-1])
+                if pos < len(text):
+                    continue
+                return "".join(parts), pos
+        parts.append(line)
+        return "".join(parts), pos
 
 
-def prepare(command):
-    r"""生のコマンド → (解析用に正規化した文字列, ヒアドキュメント本文)。解析する側は必ずここを通る。
+def _read_body(text, pos, p):
+    """1 本のヒアドキュメントの中身 → (中身, 終端行の後)。終端行が無ければ (None, 入力の終わり)。
 
-    盾置換が先で正規化が後。順序は入れ替えられない——ヒアドキュメント本文の中の # や
-    `\`+改行 は構文ではなく投稿する散文の中身なので、先に正規化すると本文が壊れる。
-    字句解析(tokenize)と生の文字列を見る検査(has_live_substitution)が同じ 1 本の文字列を
-    見ることを、この入口で構成として保証する——別々に正規化させると、片方だけ更新されて
-    食い違う(destgate が現にそうなっていた)。
+    終端行は字のまま照合する(<<- は先頭のタブを落として)。字下げした終端行を寛容に終端と読むと、
+    bash が投稿する長い本文でなく、投稿されない短い本文を審査することになる。
     """
-    shielded, bodies = shield_heredocs(command)
-    return normalize_shell(shielded), bodies
+    lines = []
+    while pos < len(text):
+        line, pos = _logical_line(text, pos, not p.quoted)
+        if p.strip:
+            line = line.lstrip("\t")
+        if line.rstrip("\n") == p.delim:
+            return "".join(lines), pos
+        lines.append(line)
+    return None, len(text)
+
+
+def scan_shell(command):
+    """生のコマンド → Scanned。字句の文脈が閉じないか、写していない構文に当たれば None。
+
+    text は生きた展開・ヒアドキュメント・IO_NUMBER を印に置き換え、注釈と行継続を落とした文字列で、
+    tokenize にそのまま渡す。exps の inner(命令を走らせる展開の中身)も同じ規則の文字列。
+    """
+    nonce = _nonce(command)
+    scanner = _Scanner(nonce)
+    text = scanner.scan(command, "code")
+    if text is None or scanner.unparsable:
+        return None
+    marks = re.compile(r"__(%s)(\d+)_%d__" % (MARK_TAGS, nonce))
+    return Scanned(text, scanner.docs, scanner.exps, marks)
+
+
+def _target_fd(fd, op):
+    """リダイレクトが差し替える fd(POSIX 2.7: 番号が無ければ < の類は 0、ほかは 1。&> は 1 と 2)。"""
+    return fd or ("0" if op.startswith("<") else "1")
+
+
+def _fd0_source(redirects, docs):
+    """fd 0 に最後に効いたリダイレクト → Heredoc か Unread。fd 0 へのリダイレクトが無ければ None。
+
+    bash はリダイレクトを左から順に効かせるので、stdin は最後のものが決める——ヒアドキュメントの後ろの
+    `< file`・`<<< "$X"`・`<&3`・2 本目のヒアドキュメントが、審査した中身と別の物を投稿させる。
+    """
+    src = None
+    for fd, op, target in redirects:
+        if _target_fd(fd, op) == "0":
+            if op != "<<":
+                src = Unread("ヒアドキュメント以外の stdin のリダイレクト")
+            else:
+                src = docs.get(target) or Unread("終端行の無いヒアドキュメント")
+    return src
+
+
+def _cat_heredoc(simple, docs):
+    """単純コマンドが `cat <<'EOF' … EOF` 1 本(fd 0 の最後がヒアドキュメントで、fd 0 と 1 をほかに差し替えない)なら
+    その Heredoc。違えば None。2>/dev/null は出力を変えない。置換の中とパイプの左の両方がこれを引く。
+    """
+    doc = _fd0_source(simple.redirects, docs)
+    if simple.args != ["cat"] or not isinstance(doc, Heredoc):
+        return None
+    for fd, op, target in simple.redirects:
+        if op == "<<" and target == doc.mark:
+            continue
+        if op in ("&>", "&>>") or _target_fd(fd, op) in ("0", "1"):
+            return None
+    return doc
+
+
+Token = collections.namedtuple("Token", "text op")
+# 語の中で読み方が変わる字。ほかの字は語の字として一括で写す
+_WORD_STOP_RE = re.compile(r"""[ \t\r();<>|&\n'"\\]""")
+_DQ_STOP_RE = re.compile(r'["\\]')
 
 
 def tokenize(text):
-    """POSIX の引用規則でトークン化する。引用が閉じない等で解析できなければ None。
+    """走査が書き換えた文字列 → Token の列。引用が閉じない等で解析できなければ None。
 
-    渡すのは prepare() を通した文字列。ここで正規化しないのは、生の文字列を見る検査
-    (has_live_substitution)と同じ 1 本を共有させるため——ここに隠すと呼び出し側ごとに
-    正規化を掛け直すことになり、100KB の本文で 1 回 6ms を余分に払う。
+    引用は POSIX の規則で外す(単一引用は字のまま、二重引用の中の \\ は " と \\ の前でだけ退避)。改行は区切りの
+    演算子として残し、空白は空白・タブ・CR。引用しない演算子の字の並びだけを演算子にする——`--title ';'` の ; は語で、
+    区切りと読むと後ろの本文旗と -R が gh の引数から外れる。語は部分の列に積んで最後に連結する(字を足して伸ばすと
+    語の長さの 2 乗になり、上限の無い destgate がフックの timeout で外れる)。
     """
-    lex = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
-    lex.whitespace = " \t\r"  # 改行は区切りの演算子として残す
-    # shlex 自身の注釈処理は使わない(上で bash の規則どおりに落とした)。既定のままだと
-    # 語の途中の # でも行末まで読み捨てるので、`--title fix#123 \` の次行の本文旗が消える。
-    lex.commenters = ""
-    lex.whitespace_split = True
-    try:
-        return list(lex)
-    except ValueError:
-        return None
+    tokens, word, in_word, i, n = [], [], False, 0, len(text)
+    while i < n:
+        m = _WORD_STOP_RE.search(text, i)
+        j = n if m is None else m.start()
+        if j > i:
+            word.append(text[i:j])
+            in_word = True
+        if m is None:
+            break
+        c = text[j]
+        if c in " \t\r" or c in OP_CHARS:
+            if in_word:
+                tokens.append(Token("".join(word), False))
+                word, in_word = [], False
+            i = j + 1
+            if c in OP_CHARS:
+                while i < n and text[i] in OP_CHARS:
+                    i += 1
+                tokens.extend(Token(op, True) for op in _split_ops(text[j:i]))
+        elif c == "'":
+            end = text.find("'", j + 1)
+            if end < 0:
+                return None
+            word.append(text[j + 1:end])
+            in_word, i = True, end + 1
+        elif c == '"':
+            i = j + 1
+            while True:
+                e = _DQ_STOP_RE.search(text, i)
+                if e is None:
+                    return None
+                k = e.start()
+                word.append(text[i:k])
+                if text[k] == '"':
+                    i = k + 1
+                    break
+                nxt = text[k + 1:k + 2]
+                if not nxt:
+                    return None
+                word.append(nxt if nxt in '"\\' else "\\" + nxt)
+                i = k + 2
+            in_word = True
+        else:   # 引用の外の \ は次の 1 字を字にする
+            if j + 1 >= n:
+                return None
+            word.append(text[j + 1])
+            in_word, i = True, j + 2
+    if in_word:
+        tokens.append(Token("".join(word), False))
+    return tokens
 
 
-def simple_commands(tokens):
-    """演算子で区切った単純コマンドのトークン列を返す。リダイレクトは演算子と行き先ごと除く。"""
-    cmds, cur, i = [], [], 0
+def _split_ops(run):
+    out, i = [], 0
+    while i < len(run):
+        op = next((o for o in _OPS if run.startswith(o, i)), run[i])
+        out.append(op)
+        i += len(op)
+    return out
+
+
+# 単純コマンド 1 件。before は前の単純コマンドとの間の区切りの並び(パイプの左を確かめる stdin_source が読む)
+Simple = collections.namedtuple("Simple", "args redirects before")
+# |・&&・|| の後の改行は区切りでなく、前の区切りの続き(POSIX の linebreak)
+_LINEBREAK_AFTER = {"|", "|&", "&&", "||"}
+
+
+def split_commands(tokens, marks=None):
+    """演算子で区切った単純コマンドの列と、区切りの演算子の列を返す。
+
+    リダイレクトは引数から除き、(fd か None, 演算子, 行き先) の順の列として単純コマンドに付ける
+    (stdin がどこから来るかは _fd0_source が fd 0 への最後のリダイレクトで決める)。fd は走査が IO_NUMBER の
+    印にした語だけ——空白で離れた数字(`… 123 <<'EOF'`・`cat 1 > p`)は引数のまま残る(POSIX 2.10.1)。
+    引数の無いリダイレクトだけの単純コマンド(`> P`)も積む——落とすと、その書き込みが本文ファイルの
+    「cd と cat だけ」の検査からも書き手の走査からも見えない。
+    """
+    cmds, seps, cur, redirects, before, i = [], [], [], [], [], 0
     while i < len(tokens):
         tok = tokens[i]
-        if tok and all(c in OP_CHARS for c in tok):
-            if tok in REDIRECT_OPS:
-                # 2>&1 の 2 のような先行 fd 番号はリダイレクトの一部で、引数ではない
-                if cur and cur[-1].isdigit():
+        if tok.op:
+            if tok.text in REDIRECT_OPS:
+                fd = None
+                m = marks.fullmatch(cur[-1]) if marks and cur else None
+                if m and m.group(1) == "FD":
+                    fd = m.group(2)
                     cur.pop()
-                i += 2  # 演算子とその行き先(fd かファイル名)を読み飛ばす
+                redirects.append((fd, tok.text, tokens[i + 1].text if i + 1 < len(tokens) else ""))
+                i += 2   # 行き先は redirects に積んだ
                 continue
             # ; | & && || 改行 () は単純コマンドの区切り
-            if cur:
-                cmds.append(cur)
-                cur = []
+            seps.append(tok.text)
+            if cur or redirects:
+                cmds.append(Simple(cur, redirects, tuple(before)))
+                before = []
+            cur, redirects = [], []
+            if not (tok.text == "\n" and before[-1:] and before[-1] in _LINEBREAK_AFTER):
+                before.append(tok.text)
             i += 1
             continue
         # 予約語はコマンド位置(蓄積中の単純コマンドが空)でだけ読み飛ばす。ここで捌くのは、
         # 同じ意味の `( gh … )` が `(` の区切りとして既に通っていたのに `{ gh …; }` は
         # 抜ける、という非対称を構成として消すため。gh_args と wants_skip の両方が
-        # simple_commands を通るので、表の読者が増えても片方だけ外れることが起きない。
+        # split_commands を通るので、表の読者が増えても片方だけ外れることが起きない。
         # 全トークンから除いてはいけない——`--body do` の本文が空になる(実測)。
-        if not cur and tok in RESERVED:
+        if not cur and tok.text in RESERVED:
             i += 1
             continue
-        cur.append(tok)
+        cur.append(tok.text)
         i += 1
-    if cur:
-        cmds.append(cur)
-    return cmds
+    if cur or redirects:
+        cmds.append(Simple(cur, redirects, tuple(before)))
+    return cmds, seps
+
+
+# 字列 1 つ(地の字列か、命令を走らせる展開の中身)の読み
+Segment = collections.namedtuple("Segment", "exp tokens cmds seps")
+# 値の決まる置換を解いた読み(_resolve)。parsed は解いた後の字列
+Words = collections.namedtuple("Words", "parsed statics unsure distrust")
+# 1 つのコマンドの解析。走査とトークン化と置換の解きは analyze の 1 回だけにし、gh_calls・wants_skip・destgate が
+# 同じ結果を読む(parsed は解く前、words は解いた後)
+Analysis = collections.namedtuple("Analysis", "scanned parsed words")
+
+
+def _segments(scanned):
+    """(展開か None, 字列) の列。地の字列と、命令を走らせる展開の中身。どの字列の中の gh も同じ手順で読む。"""
+    return [(None, scanned.text)] + [(e, e.inner) for e in scanned.exps if e.inner is not None]
+
+
+def _parse(scanned):
+    """字列ごとの Segment の列。どれかが解析できなければ None。"""
+    out = []
+    for exp, text in _segments(scanned):
+        tokens = tokenize(text)
+        if tokens is None:
+            return None
+        out.append(Segment(exp, tokens, *split_commands(tokens, scanned.marks)))
+    return out
+
+
+def analyze(command):
+    """コマンド → Analysis。解析できなければ None。"""
+    scanned = scan_shell(command)
+    parsed = _parse(scanned) if scanned is not None else None
+    return None if parsed is None else Analysis(scanned, parsed, _resolve(parsed, scanned))
+
+
+def unmark(args, scanned, limit=200):
+    """解けなかった印を元の字へ戻す。記録と案内は書かれたとおりの字で見せ、destgate は展開を含む宛先を字で見て止める。
+
+    展開の元の字は頭の limit 字まで——入れ子の置換の中の gh ごとに外側の長い字を写すと、長さの 2 乗になる。
+    """
+    def back(m):
+        if m.group(1) == "EXPAND":
+            text, start, end = scanned.exps[int(m.group(2))].span
+            return text[start:min(end, start + limit)]
+        return m.group(2) if m.group(1) == "FD" else m.group(0)
+    return [scanned.marks.sub(back, a) for a in args]
+
+
+# 単純コマンドの前置の読み。at は命令名の位置(無ければ語の数)、assigns は NAME=値 の語、flags は包みの旗の
+# (旗, 値か None) の列
+Prefix = collections.namedtuple("Prefix", "at assigns flags")
+
+
+def read_prefix(tokens, start=0):
+    """単純コマンドの前置(NAME=値・WRAPPERS とその旗)を tokens[start] から読む → Prefix。前置の読みはここ 1 本。"""
+    i, after_wrapper, assigns, flags = start, False, [], []
+    while i < len(tokens):
+        tok = tokens[i]
+        if ENV_PREFIX_RE.match(tok):
+            assigns.append(tok)
+            i += 1
+        elif tok in WRAPPERS:
+            i, after_wrapper = i + 1, True
+        elif after_wrapper and tok.startswith("-"):
+            i += 1
+            if tok.startswith("--") or tok == "-":
+                flag, eq, value = tok.partition("=")
+                value = value if eq else None
+                if value is None and flag in WRAPPER_VALUE_FLAGS:
+                    value, i = (tokens[i] if i < len(tokens) else ""), i + 1
+                flags.append((flag, value))
+                continue
+            # 短い旗は束ねて書ける(env -iC DIR・-0uNAME)。値を取る最初の字が旗で、後ろに字が残ればそれが値
+            for j, c in enumerate(tok[1:], 1):
+                if "-" + c not in WRAPPER_VALUE_FLAGS:
+                    flags.append(("-" + c, None))
+                    continue
+                value = tok[j + 1:]
+                if not value:
+                    value, i = (tokens[i] if i < len(tokens) else ""), i + 1
+                flags.append(("-" + c, value))
+                break
+        else:
+            break
+    return Prefix(i, assigns, flags)
+
+
+def command_at(tokens):
+    """単純コマンドの前置を読み飛ばした命令名の位置と、前置が cwd を変えるか(env -C)。命令名が無ければ位置は len(tokens)。"""
+    prefix = read_prefix(tokens)
+    return prefix.at, any(flag in WRAPPER_CHDIR for flag, _value in prefix.flags)
 
 
 def gh_args(tokens):
     """単純コマンド 1 件が gh 呼び出しなら gh より後のトークン列を、違えば None を返す。"""
-    i, after_wrapper = 0, False
-    while i < len(tokens):
-        tok = tokens[i]
-        if tok == "gh" or tok.endswith("/gh"):
-            return tokens[i + 1:]
-        if ENV_PREFIX_RE.match(tok):
-            i += 1
-            continue
-        if tok in WRAPPERS:
-            after_wrapper = True
-            i += 1
-            continue
-        if after_wrapper and tok.startswith("-"):
-            i += 1
-            continue
-        return None
+    i, _moved = command_at(tokens)
+    if i < len(tokens) and (tokens[i] == "gh" or tokens[i].endswith("/gh")):
+        return tokens[i + 1:]
     return None
 
 
@@ -459,11 +978,45 @@ def subcommand(args):
     return tuple(words)
 
 
-def classify(args, heredoc_bodies, live_substitution=False):
-    """gh の引数列から (本文候補, 検査できない本文の説明) を返す。"""
-    heredoc_bodies = own_heredocs(args, heredoc_bodies)
-    # 倒れ先はすべて blocked.append に集める。テスト側が理由の一覧を実装から機械で読み、
-    # 一つずつ実際に発火させて突合するため、ここだけは別経路(return の直書き)を作らない。
+def _flag_name(tok):
+    """旗の語 → (名前, 密着した値か None)。--旗=値 と -b本文 の密着形を割る。"""
+    if tok.startswith("--"):
+        name, eq, value = tok.partition("=")
+        return name, (value if eq else None)
+    return (tok[:2], tok[2:]) if len(tok) > 2 else (tok, None)
+
+
+def body_flag_kind(name, sub):
+    """api でない gh の旗の名前 → 本文の種別(text・file)。本文旗でなければ None。"""
+    if (name, sub) in LONG_FLAG_NOT_BODY:
+        return None
+    kind = LONG_TEXT_FLAGS.get(name)
+    if kind is None and name in SHORT_TEXT_FLAGS:
+        short_kind, posting = SHORT_TEXT_FLAGS[name]
+        kind = short_kind if sub in posting else None
+    return kind
+
+
+def takes_value(name, sub):
+    """旗の名前が、密着した値が無ければ次の語を値に取るか。classify が値を読む旗と GLOBAL_VALUE_FLAGS の 1 本の読み。"""
+    if name in GLOBAL_VALUE_FLAGS:
+        return True
+    if sub[:1] == ("api",):
+        return name in API_FIELD_FLAGS or name in API_BODY_FLAGS
+    return body_flag_kind(name, sub) is not None
+
+
+def classify(args, stdin=None, read_file=None, inherited=False, marks=None, unsure=None):
+    """gh の引数列から (本文候補 Body の列, 検査できない本文の説明) を返す。
+
+    args は値の決まる置換を値に解いた後の語で、解けない展開は marks(その呼び出しの nonce の印)のまま残る。
+    unsure は、値の決まる形なのに信じられない置換の印 → Unread。stdin は Heredoc・Unread か、fd 0 を差し替えない
+    None。read_file はパス → 本文の字か Unread(渡さなければファイルは読まない)。inherited は、stdin が
+    フックを起こした側から受け継いだまま(差し替えも本文も無い)と確かめられたときだけ真。
+    """
+    # 倒れ先はすべて blocked.append に集める(読めなかった本文は Unread の語をそのまま積む)。テスト側が理由の一覧を
+    # 実装の blocked.append("…") と Unread("…") から機械で読み、一つずつ実際に発火させて突合するため、
+    # ここだけは別経路(return の直書き)を作らない。
     # 縛れるのは倒れ先だけで、候補(candidates)側の網羅は機械では言えない——抽出した文字列が
     # 本文かどうかは判定できないので、候補を足す経路は人が読んで守る。
     candidates, blocked = [], []
@@ -479,6 +1032,33 @@ def classify(args, heredoc_bodies, live_substitution=False):
     is_graphql = sub == ("api", "graphql")
     saw_mutation = False
 
+    def heredoc_text(doc):
+        """ヒアドキュメントの bash の値。展開を受けて決まらなければ止めた理由を積んで None。"""
+        if doc.value is None:
+            blocked.append("区切りを引用しないヒアドキュメントの展開")
+            return None
+        return Body(doc.value, False)
+
+    def stdin_text():
+        if stdin is None:
+            # fd 0 を差し替えていないので、中身はフックを起こした側か、囲む構文の外のパイプから来る
+            blocked.append("別プロセスからの stdin 渡し")
+            return None
+        if isinstance(stdin, Unread):
+            blocked.append(stdin.reason)
+            return None
+        return heredoc_text(stdin)
+
+    def file_text(path):
+        got = read_file(path) if read_file else None
+        if got is None:
+            blocked.append("実ファイル指定")
+            return None
+        if isinstance(got, Unread):
+            blocked.append(got.reason)
+            return None
+        return Body(got, True)
+
     def add(kind, value):
         """本文旗 1 つ分を判定し、candidates(読ませる)か blocked(止める)へ必ず積む。
 
@@ -492,47 +1072,37 @@ def classify(args, heredoc_bodies, live_substitution=False):
         if kind == "json":
             # gh api --input の中身は本文とは限らない(secrets の暗号値・設定の JSON 等)。
             # .body を持つときだけ本文として読ませ、持たない JSON は読み役へ送らない。
-            if value in ("-", ""):
-                if not heredoc_bodies:
-                    # パイプ・別プロセスからの stdin と、ヒアドキュメントを取り損ねた形は
-                    # ここでは区別できない。兄弟の file 分岐と同じ向きに倒す。
-                    blocked.append("別プロセスからの stdin 渡し")
-                for raw in heredoc_bodies:
-                    try:
-                        obj = json.loads(raw)
-                    except ValueError:
-                        blocked.append("JSON として読めない --input")
-                        continue
+            raw = stdin_text() if value in ("-", "") else file_text(value)
+            if raw is not None:
+                try:
+                    obj = json.loads(raw.text)
+                except ValueError:
+                    blocked.append("JSON として読めない --input")
+                else:
                     body = obj.get("body") if isinstance(obj, dict) else None
                     if isinstance(body, str):
-                        candidates.append(body)
+                        candidates.append(Body(body, raw.from_file))
                     elif json_has_long_text(obj):
                         # .body 以外の場所に長い文字列がある。投稿本文なのか設定値なのか
                         # 判らないので、読み役へ送らず「検査できない」として止める。
                         blocked.append("JSON の本文の位置を特定できない")
                     else:
                         not_body = True  # 本文らしい長さの文字列を持たない JSON
-            else:
-                blocked.append("実ファイル指定")
         elif kind == "text":
-            # 変数・コマンド置換は実行時まで中身が無く、検査できない。
-            # 引用されていない $(...) や `...` は shlex が演算子で割るので、値が "$" や
-            # "`cat" のような断片になって届く。断片かどうかは形だけでは決まらない
-            # (単一引用の中の ``` や $ は普通の文字)ので、生の文字列側の判定と併せて見る。
-            looks_sub = (value in ("$", "") or value.endswith("$")
-                         or value.startswith("`") or value.startswith("$("))
-            if VAR_RE.match(value) or (live_substitution and looks_sub):
+            live = [m.group(0) for m in marks.finditer(value)] if marks else []
+            why = next((unsure[m] for m in live if m in (unsure or {})), None)
+            if why is not None:
+                blocked.append(why.reason)
+            elif live:
+                # 値のどこかに解けない展開が在る。bash は展開してから渡すので、字面は投稿される本文でない
+                # (前後に字を伴う置換・$NAME・$1 も。単一引用の中の $ や ` は走査が展開にしない)
                 blocked.append("変数・コマンド置換渡し")
             else:
-                candidates.append(value)
+                candidates.append(Body(value, False))
         elif kind == "file":
-            if value in ("-", "@-"):
-                if heredoc_bodies:
-                    candidates.extend(heredoc_bodies)
-                else:
-                    blocked.append("別プロセスからの stdin 渡し")
-            else:
-                blocked.append("実ファイル指定")
+            text = stdin_text() if value in ("-", "@-") else file_text(value)
+            if text is not None:
+                candidates.append(text)
         if not not_body and len(candidates) + len(blocked) == mark:
             # 引き金は 2 つ: 表に知らない種別が足された・分岐が倒れ先を書き忘れた。
             blocked.append("本文旗の値を判定できない")
@@ -543,13 +1113,9 @@ def classify(args, heredoc_bodies, live_substitution=False):
         if tok == "--":
             seen_ddash = True
         elif not seen_ddash and tok.startswith("-") and tok != "-":
-            name, val = tok, None
-            if tok.startswith("--") and "=" in tok:
-                name, val = tok.split("=", 1)
-            elif not tok.startswith("--") and len(tok) > 2:
-                name, val = tok[:2], tok[2:]  # -b本文 の密着形
+            name, val = _flag_name(tok)
             if is_api:
-                if name in ("-f", "-F", "--field", "--raw-field"):
+                if name in API_FIELD_FLAGS:
                     if val is None and i + 1 < n:
                         i += 1
                         val = args[i]
@@ -568,18 +1134,13 @@ def classify(args, heredoc_bodies, live_substitution=False):
                                 add("file", "@-" if fval == "@-" else fval[1:])
                             else:
                                 add("text", fval)
-                elif name == "--input":
+                elif name in API_BODY_FLAGS:
                     if val is None and i + 1 < n:
                         i += 1
                         val = args[i]
                     add("json", val or "")
             else:
-                kind = LONG_TEXT_FLAGS.get(name)
-                if (name, sub) in LONG_FLAG_NOT_BODY:
-                    kind = None
-                if kind is None and name in SHORT_TEXT_FLAGS:
-                    short_kind, posting = SHORT_TEXT_FLAGS[name]
-                    kind = short_kind if sub in posting else None
+                kind = body_flag_kind(name, sub)
                 if kind:
                     if val is None and i + 1 < n:
                         i += 1
@@ -587,8 +1148,9 @@ def classify(args, heredoc_bodies, live_substitution=False):
                     add(kind, val or "")
         i += 1
 
-    # gist は本文旗を持たず、位置引数(- は stdin)が本文そのもの。
-    # -d/--desc・-f/--filename は値を取るので、その値を位置引数と数えない。
+    # gist は本文旗を持たず、位置引数(- は stdin、それ以外はファイル)が本文そのもの。位置引数が
+    # 無ければ stdin を読む。-d/--desc・-f/--filename は値を取るので、その値を位置引数と数えない。
+    # stdin を読まないのは、受け継いだままと確かめられたとき(inherited。定義は gh_calls)だけ
     if sub == ("gist", "create"):
         pos, j = [], 2
         while j < len(args):
@@ -601,10 +1163,10 @@ def classify(args, heredoc_bodies, live_substitution=False):
                 continue
             pos.append(t)
             j += 1
-        if "-" in pos or any(t.startswith("__HEREDOC") for t in pos):
+        for t in pos:
+            add("file", t)
+        if not pos and not inherited:
             add("file", "-")
-        elif pos:
-            blocked.append("実ファイル指定")
 
     if saw_mutation:
         blocked.append("graphql mutation の本文を取り出せない")
@@ -623,24 +1185,374 @@ def json_has_long_text(obj, limit=200):
     return False
 
 
-def posting_bodies(command):
-    """コマンド文字列から (本文候補, 検査できない本文の説明, 解析成否) を返す。"""
-    norm, heredoc_bodies = prepare(command)
-    tokens = tokenize(norm)
-    if tokens is None:
-        return [], [], False
-    # 字句解析と同じ 1 本を見る。生の側を見ていると `--body "$\<改行>(cat x)"` が
-    # 置換渡しと判定されず、実行時まで中身の無い文字列が本文候補として読み役へ回る
-    live = has_live_substitution(norm)
-    candidates, blocked = [], []
-    for simple in simple_commands(tokens):
-        args = gh_args(simple)
-        if args is None:
+def flatten(calls):
+    """gh_calls の結果 → (本文候補 Body の列, 止めた理由の列)。"""
+    return [b for c in calls for b in c.candidates], [r for c in calls for r in c.blocked]
+
+
+SHELL_STATE = Unread("同じコマンドがシェルの状態を書く")
+OTHER_COMMANDS = Unread("同じコマンドの別の命令がファイルを変えうる")
+_PIPES = {"|", "|&"}
+
+
+def gh_calls(command, cwd=None, read_files=False, analysis=None):
+    """コマンドの gh 呼び出しごとの Call の列。解析できなければ None。
+
+    唯一の入口で、coldread の main と destgate が同じ 1 本を通る(analysis を渡せば解析し直さない)。地の字列と、
+    命令を走らせる展開の中身のどちらの gh も返す。read_files は main だけが渡す——リテラルのパスのファイルを開いて読む。
+    """
+    analysis = analysis or analyze(command)
+    if analysis is None:
+        return None
+    scanned = analysis.scanned
+    parsed, statics, unsure, distrust = analysis.words
+    # 命令を走らせる展開は、フックが読んだ後でファイルを書き換えうる(cd "$(cp evil body; echo /)" の形)
+    runs = any(e.kind in COMMAND_KINDS and e.mark not in statics for e in scanned.exps)
+    why = SHELL_STATE if distrust else OTHER_COMMANDS if runs else None
+    cache = _FileCache() if read_files else None
+    calls = []
+    for seg in parsed:
+        # 受け継いだ stdin と言えるのは、地の字列にパイプも背景の & も無く、どの単純コマンドも fd 0 を
+        # 差し替えないときだけ(囲む { } < f・( ) < f・exec < f・done < f の差し替えもここで落ちる)。字列ごとに 1 回決める
+        inherited = (seg.exp is None and set(seg.seps) <= _INHERITS_STDIN
+                     and not any(_target_fd(fd, op) == "0" for c in seg.cmds for fd, op, _t in c.redirects))
+        files = _Files(seg, scanned, cwd, cache, why) if read_files else None
+        for k, simple in enumerate(seg.cmds):
+            args = gh_args(simple.args)
+            if args is None:
+                continue
+            reader = (lambda path, k=k, files=files: files.read(path, k)) if files else None
+            stdin = stdin_source(seg.cmds, k, scanned.docs, distrust)
+            c, b = classify(args, stdin, reader, inherited, scanned.marks, unsure)
+            prefix = simple.args[:len(simple.args) - len(args) - 1]
+            calls.append(Call(unmark(args, scanned), c, b, tuple(unmark(prefix, scanned))))
+    return calls
+
+
+def static_subst_doc(seg, docs):
+    """二重引用の中の $(cat <<'EOF' … EOF) のように値が静的に決まる形の置換なら、その cat が読む Heredoc。違えば None。
+
+    中身は単純コマンド 1 本の `cat <<'EOF'`(_cat_heredoc)。引用の外の置換は語に割れるので読まない。
+    """
+    exp = seg.exp
+    if exp.kind != "sub" or not exp.in_dq or len(seg.cmds) != 1 or not set(seg.seps) <= {"\n"}:
+        return None
+    return _cat_heredoc(seg.cmds[0], docs)
+
+
+def _resolve(parsed, scanned):
+    """字列の列 → Words。値の決まる置換は、どの読み手(命令名・旗・本文・パス・書き手の行き先・destgate の宛先と
+    GH_REPO)よりも先に値へ解く。意味を決めてから解くと、gh が読む字(-F body=@path のファイル・置換の値が本文旗・
+    env の前置の GH_REPO=…)と別の字を審査する。
+    """
+    distrust = _rebinds_commands(parsed, scanned)
+    statics, unsure = _static_values(parsed, scanned, distrust)
+    if statics:
+        resolved = [seg._replace(cmds=[_resolved(c, statics, scanned.marks) for c in seg.cmds]) for seg in parsed]
+        if not distrust and _rebinds_commands(resolved, scanned):
+            # 解いた値が命令名になってシェルの状態を書く(source など)。置換の中の cat も信じない
+            unsure.update(dict.fromkeys(statics, SHELL_STATE))
+            return Words(parsed, {}, unsure, True)
+        parsed = resolved
+    return Words(parsed, statics, unsure, distrust)
+
+
+def _static_values(parsed, scanned, distrust):
+    """(値の決まる置換の印 → 値, 値の決まる形なのに信じられない置換の印 → Unread)。
+
+    値は末尾の改行を全部落とした字(POSIX 2.6.3)。distrust なら cat が別物になりうるので信じない。
+    """
+    statics, unsure = {}, {}
+    for seg in parsed:
+        doc = static_subst_doc(seg, scanned.docs) if seg.exp is not None else None
+        if doc is None:
             continue
-        c, b = classify(args, heredoc_bodies, live)
-        candidates.extend(c)
-        blocked.extend(b)
-    return candidates, blocked, True
+        if distrust:
+            unsure[seg.exp.mark] = SHELL_STATE
+        elif doc.value is None:
+            unsure[seg.exp.mark] = Unread("区切りを引用しないヒアドキュメントの展開")
+        else:
+            statics[seg.exp.mark] = doc.value.rstrip("\n")
+    return statics, unsure
+
+
+def _resolved(simple, statics, marks):
+    """単純コマンドの語と書き手の行き先の、値の決まる置換の印を値に置き換えたもの。
+
+    二重引用の中の置換だけを解くので、値の中の空白で語は割れない(前後の字と連結しても bash の値と同じ)。
+    """
+    def word(w):
+        return marks.sub(lambda m: statics.get(m.group(0), m.group(0)), w)
+    return simple._replace(args=[word(a) for a in simple.args],
+                           redirects=[(fd, op, word(t)) for fd, op, t in simple.redirects])
+
+
+def stdin_source(cmds, k, docs, distrust):
+    """k 番目の単純コマンドの stdin → Heredoc か Unread。fd 0 を差し替えなければ None(受け継いだ stdin)。
+
+    fd 0 へのリダイレクトが在れば最後のものが決める。無くて直前がパイプなら、パイプの左が `cat <<'EOF'` 1 本だけで、
+    その cat 自身はパイプの右になく、cat を別物にしうる形がコマンドに無いときだけ、その中身を読む(パイプは
+    末尾の改行を落とさない。POSIX 2.9.2)。( … ) | や 2 段のパイプは、左の単純コマンドの出力だけでないので読まない。
+    """
+    src = _fd0_source(cmds[k].redirects, docs)
+    if src is not None:
+        return src
+    before = cmds[k].before
+    if not _PIPES.intersection(before):
+        return None
+    if before == ("|",) and k and not distrust and not _PIPES.intersection(cmds[k - 1].before):
+        doc = _cat_heredoc(cmds[k - 1], docs)
+        if doc is not None:
+            return doc
+    return Unread("パイプからの stdin 渡し")
+
+
+# 今のシェルの中で走る語(bash の組み込みと予約語。bash の man の SHELL BUILTIN COMMANDS と RESERVED WORDS)。
+# シェルの状態(変数・関数・探し先の表・fd)を書けるのはこれらと代入と展開だけで、ほかの命令は子のプロセスで走る
+SHELL_WORDS = {
+    ".", ":", "[", "alias", "bg", "bind", "break", "builtin", "caller", "cd", "command", "compgen", "complete",
+    "compopt", "continue", "declare", "dirs", "disown", "echo", "enable", "eval", "exec", "exit", "export",
+    "false", "fc", "fg", "getopts", "hash", "help", "history", "jobs", "kill", "let", "local", "logout",
+    "mapfile", "popd", "printf", "pushd", "pwd", "read", "readarray", "readonly", "return", "set", "shift",
+    "shopt", "source", "suspend", "test", "times", "trap", "true", "type", "typeset", "ulimit", "umask",
+    "unalias", "unset", "wait",
+    "!", "[[", "]]", "case", "coproc", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in",
+    "select", "then", "time", "until", "while", "{", "}",
+}
+# そのうち、シェルの状態を書かないと言える語(printf は -v を取らないときだけ。} は { } の閉じ)
+PURE_SHELL_WORDS = {":", "[", "cd", "echo", "false", "printf", "pwd", "test", "true", "}"}
+# 代入も評価もしない展開($NAME・${NAME}・$1・$@ 等と、訳文の $"…" の $)。${x:=…}・${a[i]}・${x:n}・$((…)) は
+# 変数を書くか算術を評価する
+_PLAIN_PARAM_RE = re.compile(r"\$(?:{0}|\{{(?:{0})\}})?".format(_PARAM_RE.pattern))
+
+
+def _rebinds_commands(parsed, scanned):
+    """コマンドのどこかで cat や cd が別物になりうるか(シェルの状態を書かないと言えない形が在るか)。
+
+    書かないと言えるのは、子のプロセスで走る命令(前置の代入はその命令にだけ効く)・PURE_SHELL_WORDS・
+    代入も評価もしない展開だけ。ほか(関数の定義・代入だけの単純コマンド・ほかの組み込みと予約語・(( ))・
+    代入や算術の展開)が 1 つでも在れば真——PATH を書く経路(read・printf -v・for・declare -n・
+    BASH_CMDS[cat]=…・$((PATH=0)) …)を数え上げずに閉じる。
+    真なら、置換の中の cat もファイルの書き手も信じない——フックが読んだ本文と bash が投稿する本文がずれる。
+    """
+    if any(e.kind not in COMMAND_KINDS and not _PLAIN_PARAM_RE.fullmatch(e.span[0][e.span[1]:e.span[2]])
+           for e in scanned.exps):
+        return True
+    for seg in parsed:
+        if any(a.op and a.text == "(" and b.op and b.text in ("(", ")") for a, b in zip(seg.tokens, seg.tokens[1:])):
+            return True   # name() の関数の定義と (( )) の算術
+        if any(not _pure(c.args) for c in seg.cmds):
+            return True
+    return False
+
+
+def _pure(args):
+    """単純コマンド 1 件がシェルの状態を書かないと言えるか(_rebinds_commands)。"""
+    i, _moved = command_at(args)
+    if i == len(args):
+        return not args   # リダイレクトだけなら書かない。代入だけ・exec だけは書く
+    name = args[i]
+    if "=" in name:
+        return False   # PATH+=…・a[i]=… の代入(ENV_PREFIX_RE に掛からない形)
+    if name not in SHELL_WORDS:
+        return True
+    return name in PURE_SHELL_WORDS and not i and not (name == "printf" and args[1:2] and args[1].startswith("-v"))
+
+
+# 本文ファイルのパスで、bash の展開を受けるので字面と gh が開くパスが一致しない字
+# ($ ` は展開、* ? [ { はグロブとブレース。先頭の ~ はホームの展開で別に見る)
+_EXPANDED_PATH_RE = re.compile(r"[$`*?\[{]")
+# 前が終わってから次が始まる区切り。| と & は並行に走り、|| は前の失敗で走る
+_SEQUENTIAL = {";", "\n", "&&"}
+# 各コマンドが地のシェルの stdin を受け継ぐ区切り。| は前の出力を、& は /dev/null を stdin にする
+_INHERITS_STDIN = _SEQUENTIAL | {"||", "(", ")"}
+
+
+def literal_path(path, marks=None):
+    return (bool(path) and not path.startswith("~") and not _EXPANDED_PATH_RE.search(path)
+            and not (marks and marks.search(path)))
+
+
+def writes_file(op, target):
+    """このリダイレクトがファイルを書く(開くときに作る・消す)か。/dev/null と fd の複製(>&2・>&-)は書かない。"""
+    if ">" not in op:
+        return False
+    return target != "/dev/null" and not (op == ">&" and (target.isdigit() or target == "-"))
+
+
+class _Files:
+    """1 つの字列の中で gh が本文として読むファイル。gh の位置に依らない判定(ほかの命令・書き手の行き先)は
+    字列ごとに 1 回だけ作る——gh の呼び出しごとに作り直すと、gh を並べた入力で重さが 2 乗になる。
+    """
+
+    def __init__(self, seg, scanned, cwd, cache, why):
+        self.seg, self.marks, self.docs, self.cwd, self.cache = seg, scanned.marks, scanned.docs, cwd, cache
+        # why は gh_calls が決める字列の外の理由(シェルの状態を書く・命令を走らせる展開)。区切りは順に走るものだけ
+        self.why = why or (None if set(seg.seps) <= _SEQUENTIAL else OTHER_COMMANDS)
+        self.others = None
+        self.writers = {}
+
+    def read(self, path, k):
+        """k 番目の単純コマンド(gh)が本文として読むファイル path の中身の字か、フックの時点で決まらない理由(Unread)。
+
+        同じ命令の他の単純コマンドは cd と cat だけを許す——それ以外のコマンドはどのファイルを書くか
+        分からない(cp・sed -i・git checkout・gh release download …)。
+        path を書くリダイレクトが無ければ、今のファイルを読む。前の `cat > path <<'EOF'` 1 本だけが
+        書くなら、gh が読むのはそのヒアドキュメントの値(フックの時点のファイルは古い中身)。
+        フックが読んだ後で gh が読むまでに別のプロセスが書き換える余地(CWE-367)は残る(gates/README.md)。
+        """
+        if self.why:
+            return self.why
+        cmds = self.seg.cmds
+        if self.others is None:
+            self.others = [j for j, c in enumerate(cmds) if not _cd_or_cat(c.args)][:2]
+            self.cd = any(c.args[:1] == ["cd"] for c in cmds)
+        if any(j != k for j in self.others):
+            return OTHER_COMMANDS
+        moved = self.cd or command_at(cmds[k].args)[1]   # cd・env -C
+        target = self.resolve(path, moved)
+        if target is None:
+            return Unread("字のまま決まらないパス")
+        writers = self.writers_of(moved)
+        if isinstance(writers, Unread):
+            return writers
+        hits = writers.get(target, set()) | writers.get(_inode(target), set())   # ハードリンクは realpath で揃わない
+        if not hits:
+            return self.cache.read(target)
+        if len(hits) > 1:
+            return OTHER_COMMANDS
+        (j, n), = hits
+        c = cmds[j]
+        fd, op, _dest = c.redirects[n]
+        doc = _fd0_source(c.redirects, self.docs)
+        if (j > k or c.args != ["cat"] or op not in (">", ">|") or _target_fd(fd, op) != "1"
+                or not isinstance(doc, Heredoc)
+                or sum(writes_file(o, d) for _fd, o, d in c.redirects) != 1 or not writable(target)):
+            return OTHER_COMMANDS
+        if doc.value is None:
+            return Unread("区切りを引用しないヒアドキュメントの展開")
+        return doc.value
+
+    def resolve(self, p, moved):
+        """パス → 実パス。字のまま決まらない(展開・グロブ・~・cd の後の相対パス・cwd の無い相対パス)なら None。"""
+        if not literal_path(p, self.marks):
+            return None
+        if os.path.isabs(p):
+            return os.path.realpath(p)
+        if moved or not (self.cwd and os.path.isabs(self.cwd)):
+            return None   # cd の後の相対パスは、どこを指すかが cd の成否で変わる
+        return os.path.realpath(os.path.join(self.cwd, p))
+
+    def writers_of(self, moved):
+        """ファイルを書くリダイレクトの、実パスと (st_dev, st_ino) → {(単純コマンドの位置, リダイレクトの位置)}。
+        行き先の決まらない書き込みが 1 つでも在れば Unread(その書き込みは path かもしれない)。"""
+        if moved not in self.writers:
+            index = {}
+            for j, c in enumerate(self.seg.cmds):
+                for n, (_fd, op, dest) in enumerate(c.redirects):
+                    if not writes_file(op, dest):
+                        continue
+                    where = self.resolve(dest, moved)
+                    if where is None:
+                        self.writers[moved] = OTHER_COMMANDS
+                        return OTHER_COMMANDS
+                    for key in (where, _inode(where)):
+                        if key is not None:
+                            index.setdefault(key, set()).add((j, n))
+            self.writers[moved] = index
+        return self.writers[moved]
+
+
+def _cd_or_cat(args):
+    """本文ファイルと同じコマンドに並べてよい単純コマンド(cd と、書き手になりうる素の cat)か。"""
+    return args[:1] == ["cd"] or args == ["cat"]
+
+
+def _inode(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None   # まだ無い
+    return st.st_dev, st.st_ino
+
+
+def writable(path):
+    """`cat > path` が書けるか。書けずに失敗すると、; と改行の後の gh は前からある中身を読む。"""
+    if os.path.lexists(path):
+        return os.path.isfile(path) and os.access(path, os.W_OK)
+    parent = os.path.dirname(path)
+    return os.path.isdir(parent) and os.access(parent, os.W_OK)
+
+
+class _FileCache:
+    """gh_calls 1 回の中で読んだ本文ファイル。同じ実パスは 1 度だけ開き、読むバイトの合計を 1 ファイルの上限
+    までに縛る——同じ大きなファイルや別々のファイルを位置引数に数万並べると、読む量でフックの timeout に届き、
+    無検査で通る。
+    """
+
+    def __init__(self):
+        self.got, self.left = {}, MAX_LEN * 4
+
+    def read(self, path):
+        if path not in self.got:
+            got = read_body_file(path, self.left)
+            if isinstance(got, str):
+                self.left -= len(got.encode("utf-8"))
+            self.got[path] = got
+        return self.got[path]
+
+
+# 本文ファイルを読まなかった原因。直し方が違うので語を分ける(無い・権限・読む間の書き換え／ディレクトリ・FIFO／
+# 大きさ／文字コード)
+UNREADABLE = Unread("本文ファイルを読めない")
+NOT_REGULAR = Unread("本文ファイルが通常のファイルでない")
+TOO_LARGE = Unread("本文ファイルが上限より大きい")
+NOT_UTF8 = Unread("本文ファイルが UTF-8 でない")
+
+
+def read_body_file(path, budget=None):
+    """通常のファイルを UTF-8 で読む → 字か Unread。開けない・読み切れない・通常のファイルでない・大きすぎる・
+    UTF-8 でない、または budget(この呼び出しで読んでよい残りのバイト数)を超えるなら読まない。
+
+    開いてから fstat で確かめる(stat と open の間に差し替えられても FIFO を掴まない)。O_NONBLOCK で
+    開くのは、FIFO が書き手を待ってフックを止めないため——止まるとフックの timeout で無検査で通る。
+    期限は足さない。大きさの食い違いは、読む間の書き換えと、大きさ 0 で中身の在る類(/proc)を除く。
+    """
+    limit = MAX_LEN * 4   # UTF-8 の 1 字は 4 バイトまで
+    flags = os.O_RDONLY
+    for name in ("O_NONBLOCK", "O_NOCTTY", "O_BINARY"):
+        flags |= getattr(os, name, 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return NOT_REGULAR if os.path.isdir(path) else UNREADABLE   # Windows はディレクトリを開けない
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return NOT_REGULAR
+        if st.st_size > limit:
+            return TOO_LARGE
+        if budget is not None and st.st_size > budget:
+            return Unread("本文ファイルの合計が上限を超える")
+        chunks, got = [], 0
+        while got <= limit:
+            chunk = os.read(fd, limit + 1 - got)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            got += len(chunk)
+    except OSError:
+        return UNREADABLE
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    if len(data) != st.st_size:
+        return UNREADABLE
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return NOT_UTF8
+    return text if len(text) <= MAX_LEN else TOO_LARGE
 
 
 # ---- 投稿先の画面 ------------------------------------------------------------
@@ -729,17 +1641,61 @@ class Screen:
         return out
 
 
-def repo_flag(args):
-    """-R/--repo の値。無ければ None(gh はカレントの git remote を使う)。"""
-    for i, tok in enumerate(args):
-        if tok in ("-R", "--repo") and i + 1 < len(args):
-            return args[i + 1]
-        for f in ("-R", "--repo"):
-            if tok.startswith(f + "="):
-                return tok[len(f) + 1:]
-        if tok.startswith("-R") and tok != "-R":
-            return tok[2:]
-    return None
+def repo_flags(args, sub):
+    """-R/--repo の値を書かれた順に(gh は最後の値を使う)。destgate と repo_flag が引く -R の読みの 1 本。
+
+    ほかの旗の値の位置と -- より後ろは読まない。値の読み飛ばしは classify と同じ表(takes_value)で決める——値を取る
+    旗を取らないと読み違えるのは止める側(値の位置の語を -R と数える)、逆は素通し(後ろの -R を値として飛ばす)なので、
+    表に無い旗は値を取らないと見る。
+    """
+    sub = sub or ()
+    out, i = [], 0
+    while i < len(args):
+        tok = args[i]
+        i += 1
+        if tok == "--":
+            break
+        if not tok.startswith("-") or tok == "-":
+            continue
+        if tok.startswith("--"):
+            name, value = _flag_name(tok)
+            if name != "--repo" and not takes_value(name, sub):
+                continue
+        else:
+            name, value = _short_bundle(tok, sub)
+            if name is None:
+                continue
+        if value is None:
+            value = args[i] if i < len(args) else ""
+            i += 1
+        if name in ("-R", "--repo"):
+            out.append(value)
+    return out
+
+
+def _short_bundle(tok, sub):
+    """短い旗の束(-aR evil/x・-Rx・-bR)→ (値を取る旗, 密着した値か None)。値を取る旗が無ければ (None, None)。
+
+    pflag と同じく、値を取らない字を飛ばし、値を取る最初の字の後ろの字(先頭の = は落とす)をその値にする。
+    """
+    for j, c in enumerate(tok[1:], 1):
+        if c == "R" or takes_value("-" + c, sub):
+            rest = tok[j + 1:]
+            return "-" + c, (rest[1:] if rest.startswith("=") else rest) or None
+    return None, None
+
+
+def repo_flag(args, sub):
+    """gh が使う -R/--repo の値(最後のもの)。無ければ None(gh はカレントの git remote を使う)。"""
+    values = repo_flags(args, sub)
+    return values[-1] if values else None
+
+
+def api_path(sub):
+    """gh api のパス(スキームとホスト・先頭の /・? 以降を落とす)。api のパスでなければ None。"""
+    if sub[:1] != ("api",) or len(sub) < 2:
+        return None
+    return re.sub(r"^[a-z+]+://[^/]+", "", sub[1]).lstrip("/").split("?", 1)[0]
 
 
 def positional_after(args, sub):
@@ -766,7 +1722,7 @@ def positional_after(args, sub):
             after_flag = "=" not in tok  # --旗=値 は値込みなので次の語は位置引数
         elif after_flag:
             after_flag = False  # 直前の旗の値
-        elif not tok.startswith("__HEREDOC"):
+        else:
             return tok
         i += 1
     return None
@@ -777,37 +1733,19 @@ def destination(args, sub):
     if not sub:
         return None
     if sub[0] == "api":
-        if len(sub) < 2:
+        path = api_path(sub)
+        if path is None:
             return None
-        path = re.sub(r"^[a-z+]+://[^/]+", "", sub[1]).lstrip("/").split("?", 1)[0]
         for rx, kind in API_DEST_RES:
             m = rx.match(path)
             if m:
                 return (kind, m.group(1) + "/" + m.group(2), m.group(3))
         return None
     if sub in PR_THREAD_SUBS:
-        return ("pr", repo_flag(args), positional_after(args, sub))
+        return ("pr", repo_flag(args, sub), positional_after(args, sub))
     if sub in ISSUE_THREAD_SUBS:
-        return ("issue", repo_flag(args), positional_after(args, sub))
+        return ("issue", repo_flag(args, sub), positional_after(args, sub))
     return None
-
-
-def posting_target(command, body):
-    """読ませる本文を運んでいた gh 呼び出しの (サブコマンド, 投稿先)。見つからなければ (None, None)。"""
-    norm, heredoc_bodies = prepare(command)
-    tokens = tokenize(norm)
-    if tokens is None:
-        return None, None
-    live = has_live_substitution(norm)
-    for simple in simple_commands(tokens):
-        args = gh_args(simple)
-        if args is None:
-            continue
-        cands, _blocked = classify(args, heredoc_bodies, live)
-        if body in cands:
-            sub = subcommand(args)
-            return sub, destination(args, sub)
-    return None, None
 
 
 def target_label(sub, dest):
@@ -1237,28 +2175,21 @@ SKIP_TOKEN = "COLDREAD_SKIP=1"
 SKIP_PREFIX_RE = re.compile(r"\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*" + SKIP_TOKEN + r"(?=\s|$)")
 
 
-def wants_skip(command):
+def wants_skip(command, analysis=None):
     """逃げ道が書き手の前置として置かれているか。本文に文字列が入っているだけでは効かせない。
 
     部分文字列一致にすると、門番自身の話題を投稿する本文で門番が黙って外れる(実測)。
     2 段構えなのは、逃げ道の主用途が「解析できないコマンドを通す」ことだから——
     解析前の先頭一致は必ず効かせ、解析できたときに限って cd や && の先の前置も拾う。
+    解析は gh_calls と同じ走査と字列の列を通る(置換の中の gh に門番が掛かるなら、逃げ道もそこで効く)。
     """
     if SKIP_PREFIX_RE.match(command):
         return True
-    tokens = tokenize(prepare(command)[0])
-    if tokens is None:
+    analysis = analysis or analyze(command)
+    if analysis is None:
         return False
-    for cmd in simple_commands(tokens):
-        for tok in cmd:
-            if tok == SKIP_TOKEN:
-                return True
-            # 読み飛ばす範囲は gh_args と同じにする。ここだけ env を透かさないと、
-            # ゲートが投稿と認めた形なのに逃げ道だけ効かず、案内どおり書いた人が嵌まる
-            # (予約語は simple_commands が先に落とすので、ここに書かなくても揃う)
-            if tok not in WRAPPERS and not ENV_PREFIX_RE.match(tok):
-                break  # 前置が途切れたら、そこから先は引数か本文
-    return False
+    # 前置が途切れたら、そこから先は引数か本文
+    return any(SKIP_TOKEN in cmd.args[:command_at(cmd.args)[0]] for seg in analysis.parsed for cmd in seg.cmds)
 
 
 ESCAPE_NOTE = (
@@ -1296,18 +2227,22 @@ def main() -> None:
         log_line(SKIP_LOG, "in-reader: " + command[:150].replace("\n", " "))
         allow()
 
-    if len(command) < MIN_LEN or not GH_WORD_RE.search(command):
+    if not GH_WORD_RE.search(command):
         allow()
 
-    if wants_skip(command):
+    def skip():
         log_line(SKIP_LOG, command[:200].replace("\n", " "))
         record("skip")
         allow()
 
-    # 解析の失敗は例外の形でも起こりうる(壊れた JSON の再帰・想定外の入力)。
-    # 「引用が閉じない」を deny にしているのに例外だけ素通りでは、検査を避ける口になる。
-    # 捕まえるのは Exception 全体で、ValueError に狭めるな——狭めた瞬間に、それ以外の例外は
-    # フックのクラッシュ(=PreToolUse は続行)になって無検査で通る。
+    # 下限は「コマンドが短ければ本文も短い」を前提にした定型返信の素通し。本文旗のファイルから読んだ本文は
+    # この前提に乗らないので、短いコマンドでもそれだけは審査に回す(下で from_file の本文だけを残す)
+    short = len(command) < MIN_LEN
+    # 解析を使わない先頭一致の逃げ道だけを上限より前に見る。解析は上限と try の内側でしか走らせない——
+    # 走査の例外がフックの外へ抜けるとフックのクラッシュ(=PreToolUse は続行)、重い入力は timeout で、
+    # どちらも無検査で通る
+    if SKIP_PREFIX_RE.match(command) and not short:
+        skip()
     if len(command) > MAX_LEN:
         record("deny\tmaxlen")
         deny(
@@ -1318,31 +2253,65 @@ def main() -> None:
             "コマンド先頭に書いてもフック自身には届かない)。\n" + ESCAPE_NOTE
         )
 
+    # 解析の失敗は例外の形でも起こりうる(壊れた JSON の再帰・想定外の入力)。
+    # 「引用が閉じない」を deny にしているのに例外だけ素通りでは、検査を避ける口になる。
+    # 捕まえるのは Exception 全体で、ValueError に狭めるな——狭めた瞬間に、それ以外の例外は
+    # フックのクラッシュ(=PreToolUse は続行)になって無検査で通る。
     try:
-        candidates, blocked, parsed = posting_bodies(command)
+        analysis = analyze(command)
+        wants = wants_skip(command, analysis) if analysis else bool(SKIP_PREFIX_RE.match(command))
+        calls = (None if analysis is None or (wants and not short)
+                 else gh_calls(command, payload.get("cwd") or None, read_files=True, analysis=analysis))
     except Exception as exc:
-        parsed, candidates, blocked = False, [], []
-        parse_error = str(exc)[:150]
+        wants, calls, parse_error, parse_kind = False, None, str(exc)[:150], type(exc).__name__
     else:
-        parse_error = "引用が閉じていない等"
-    if not parsed:
+        parse_error, parse_kind = "引用が閉じていない・写していない構文等", "unparseable"
+    if short:
+        # 短いコマンドで止めるのはファイルの本文の詰まりだけ。読めなかった物・止めた理由では止めない
+        if calls is None:
+            # 本文ファイルの審査が外れた回を数えられるよう残す(値は書かない)
+            log_line(MISS_LOG, "parse-error\t" + parse_kind)
+            allow()
+        candidates = [b for b in flatten(calls)[0] if b.from_file and len(b.text.strip()) >= 200]
+        if not candidates:
+            allow()
+        blocked = []
+    if wants:
+        skip()
+    if calls is None:
         record("deny\tparse-fail")
         deny(
             "外部投稿ゲート: このコマンドは解析できない(%s)。" % parse_error
             + "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
-            "引用を直して再実行すること。\n" + ESCAPE_NOTE
+            "引用を直して再実行すること(置換の中の case は、枝の型を (型) と括弧で囲めば読める)。"
+            "宛先の許可制(destgate)が有効なら、解析できないコマンドは destgate も止め、そちらは COLDREAD_SKIP=1 では"
+            "外れない。\n" + ESCAPE_NOTE
         )
 
+    if not short:
+        candidates, blocked = flatten(calls)
     # 「検査できない本文がある」は、別の本文が読めたかどうかと独立に止める。
     # ここを bodies の有無に従属させると、読める本文と同居した投稿が無検査で通る。
     if blocked:
-        record("deny\tblocked")
+        # 記録の列は語彙に出ない , で連結する(理由の語が「・」を含むので、表示と同じ連結では数えられない)
+        record("deny\tblocked\t" + ",".join(sorted(set(blocked))))   # 理由は classify の固定の語彙で、値は含まない
         deny(
             "外部投稿ゲート: この投稿は本文をコマンドから取り出せない形をしている(%s)。"
             "検査できないものは通せない。\n"
-            "本文はヒアドキュメント(<<'EOF' ... EOF)か、そのサブコマンドの本文旗"
-            "(--body / --notes 等)に直接書いて再実行すること。\n"
-            % "・".join(sorted(set(blocked))) + ESCAPE_NOTE
+            "本文は静的に読める形で渡して再実行すること: 本文旗(--body / --notes 等)に直接書く・"
+            "--body-file - <<'EOF' … EOF・gh gist create - <<'EOF' … EOF・"
+            "本文旗の値を \"$(cat <<'EOF' … EOF)\" にする。"
+            "<<'EOF' と区切りを引用すれば、同じ本文を字のまま出せる"
+            "(<<EOF と引用しないと bash が $ と ` を展開するので止まる。引用しない <<EOF で行末の \\ は"
+            "次の行とつながるので、字のまま出すなら \\\\ と退避する)。"
+            "ファイルで渡すなら、$ や ~ を含まないパスの、UTF-8 で上限(%d 字)以内の通常のファイルにする"
+            "(同じ命令に並べてよいのは cd と、そのファイルを書く cat > パス <<'EOF' だけ。"
+            "変数のパスは読まない)。"
+            "パイプで渡すなら、cat <<'EOF' 1 本から gh 1 本へ直接つなぐ。"
+            "ヒアドキュメントの終端行は字下げせず、区切りの語だけの行にする。"
+            "同じコマンドに set・export・source・関数の定義・代入・for や if などが在ると、置換もファイルも読まない"
+            "(それらは別のコマンドに分ける)。\n"
+            % ("・".join(sorted(set(blocked))), MAX_LEN) + ESCAPE_NOTE
         )
 
     # 素通しの理由が「投稿でない」なのか「網から落ちた」なのかを後から数えられるようにする。
@@ -1355,19 +2324,22 @@ def main() -> None:
         # 書いている当の値が平文で溜まる。狙いは押し出しの量を測ることなので綴りで足りる。
         log_line(MISS_LOG, miss.group(0))
 
-    bodies = [b for b in candidates if len(b.strip()) >= 200]
+    bodies = [b for b in candidates if len(b.text.strip()) >= 200]
     if not bodies:
         allow()
     # 複数の本文が同居するときは最長を代表として読ませる(全部読ませると読み役の回数と
     # 待ち時間が本文の数だけ増える)。取りこぼしの受容は gates/README.md「網の射程」。
-    body = max(bodies, key=len)
+    chosen = max(bodies, key=lambda b: len(b.text))
+    body = chosen.text
 
     # 投稿先がスレッドなら、読み手が画面で既に見ているものを取って渡す。取れなければ
     # 文脈ゼロに倒す——検査は走らせ、画面に有るものへの詰まりは無視してよいと書き手に伝える
     # 投稿先の解釈で例外が出ても門番を落とさない(落ちるとフックのクラッシュ=無検査で通る)。
     # 解釈できないときは文脈ゼロ側(厳しい側)へ倒れる
     try:
-        sub, dest = posting_target(command, body)
+        args = next(c.args for c in calls if chosen in c.candidates)
+        sub = subcommand(args)
+        dest = destination(args, sub)
     except Exception:
         sub, dest = None, None
     target = target_label(sub, dest)
@@ -1432,14 +2404,13 @@ def main() -> None:
             section("投稿は通したが、coldreader(初見の読み手)に残った疑問"
                     "(必要なら本文に反映して編集してよい):", questions),
         )))
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-                "permissionDecisionReason": "coldreader の検査を通過(詰まりゼロ)",
-                "additionalContext": extra,
-            }
-        }, ensure_ascii=False))
+        out = {"hookEventName": "PreToolUse", "additionalContext": extra}
+        # 審査の通過は権限の付与ではない。本文がコマンドの字に無い(ファイルから読んだ)投稿と、下限より短い
+        # コマンドは、人の権限の確認を残す(allow は確認を飛ばす)。本文がコマンドの字に在る長いコマンドの allow は
+        # 0.11 系からの振る舞い
+        if not short and not any(b.from_file for b in candidates):
+            out.update(permissionDecision="allow", permissionDecisionReason="coldreader の検査を通過(詰まりゼロ)")
+        print(json.dumps({"hookSpecificOutput": out}, ensure_ascii=False))
         sys.exit(0)
 
     streak, lens = deny_streak(sid, target)

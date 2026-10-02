@@ -2189,6 +2189,9 @@ EXPECTED_CHECKS=596
 # 実際の LLM 読み役を通した実測は配布前に手元で行う。
 CR_CASE="$ROOT/tests/coldread-case.sh"
 CR_CFG="$WORK/coldread-cfg"; mkdir -p "$CR_CFG"
+# 実ファイル指定で止める検査のパス。門番はリテラルのパスの通常のファイルを読むので、機械に偶然在る
+# /tmp/… を指すと期待が揺れる。作らない置き場を指す
+CR_ABSENT="$WORK/coldread-absent"
 CR_PAD=$("$PY_BIN" -c "print('x'*420)")
 # 生成側の stdout を UTF-8 に固定する。Windows の既定 code page(cp1252/cp932)では
 # 日本語が UnicodeEncodeError で落ち、CR_BODY が空のまま以降のテストが走っていた
@@ -2295,7 +2298,7 @@ expect_output 0 "ALLOW_EMPTY" "&& の先に前置しても通る" \
 expect_output 0 "ALLOW_EMPTY" "解析できないコマンドでも前置なら通る(逃げ道の主用途)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 gh issue comment 1 --body '引用が閉じない $CR_BODY $CR_PAD"
 expect_output 0 "取り出せない" "本文を取り出せない形は deny" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file /tmp/real.md # $CR_PAD"
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file $CR_ABSENT/real.md # $CR_PAD"
 expect_output 0 "通じやすさのみ" "読み役が CLEAN なら通り、保証範囲の注が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN" "$CR_POST"
 expect_output 0 "詰まり" "読み役の詰まりで deny になり指摘が載る" \
@@ -2362,8 +2365,8 @@ expect_output 0 "畳まれずに届いた" "単一引用の中の改行は畳ま
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FOLD" "gh issue comment 1 --body 'まえ\\
 うしろ $CR_BODY $CR_PAD'"
 
-# 注釈(#)。shlex の既定は行末まで読み捨てるので、区切りにしている改行まで消えて
-# 単純コマンドが融合し、先頭語が cd や echo になって gh が見えなくなる。
+# 注釈(#)。走査(scan_shell)は語頭の # から改行の手前までを落とし、改行は区切りとして残す。改行まで
+# 落とすと単純コマンドが融合し、先頭語が cd や echo になって gh が見えなくなる。
 # 行継続を畳むようにしたぶん融合の射程が「物理行」から「論理行」へ広がるので、
 # 塞ぐ側を張る(1 件目は今回の変更が入れた退行、2 件目は元から在った穴)
 expect_output 0 "詰まり" "語中の # があっても行継続の先の本文旗を見失わない" \
@@ -2428,7 +2431,7 @@ expect_output 0 "ALLOW_EMPTY" "gh secret set は投稿でないので素通し" 
 expect_output 1 "0" "misses.log に秘密の値を残さない" \
     grep -c "sk-secret-value" "$CR_CFG/coldread-gate/misses.log"
 
-# 網: 「本文を運ぶ旗」を、ヒアドキュメント盾置換+shlex トークン化+単純コマンド単位の帰属で見る
+# 網: 「本文を運ぶ旗」を、字句の走査(scan_shell)+トークン化+単純コマンド単位の帰属で見る
 CR_NOTES="gh release create v9.9.9 --notes-file - <<'EOF'
 $CR_BODY
 $CR_PAD
@@ -2475,7 +2478,7 @@ expect_output 0 "詰まり" "gist create - のヒアドキュメントも網に�
 # 帰属の負例: 旗が gh 以外のコマンドに付いていても巻き込まない
 expect_output 0 "ALLOW_EMPTY" "別コマンドの -b を gh の旗と誤認しない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr list --limit 100 && git checkout -b feature/x && echo '$CR_PAD'"
-expect_output 0 "ALLOW_EMPTY" "引用の中の gh はコマンドと見なさない" \
+expect_output 0 "ALLOW_EMPTY" "単一引用の文字列の中の gh はコマンドと見なさない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "grep -r 'gh issue comment --body' . # $CR_PAD"
 # --comment が真偽旗と分かっていないと、次の -b を値として食い、本文が位置引数に落ちて取りこぼす
 expect_output 0 "詰まり" "pr review の --comment は真偽旗なので後続の -b を本文として拾う" \
@@ -2619,10 +2622,10 @@ expect_output 0 "ALLOW_EMPTY" "gist create の説明文(-d)だけでは本文と
 expect_output 0 "ALLOW_EMPTY" "gh を含む語(highlight 等)だけでは解析に入らない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "echo it's a highlight of the day # $CR_PAD"
 # 検査できない本文は、読める本文が同居していても握り潰さない
-expect_output 0 "取り出せない" "読める本文と同居しても実ファイル指定は止める" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD' && gh pr comment 2 --body-file /tmp/x.md"
-expect_output 0 "取り出せない" "--input 実ファイルは検査できないので deny" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api repos/o/r/issues/1/comments --input /tmp/payload.json # $CR_PAD"
+expect_output 0 "取り出せない" "読める本文と同居しても読めない本文ファイルは止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD' && gh pr comment 2 --body-file $CR_ABSENT/x.md"
+expect_output 0 "取り出せない" "--input の無いファイルは読めないので deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api repos/o/r/issues/1/comments --input $CR_ABSENT/payload.json # $CR_PAD"
 # --input - でヒアドキュメントを取り損ねると候補ゼロ・止めた理由ゼロになり、「投稿でない」と
 # 読まれて無検査で通る。兄弟の --body-file - と同じ向きに倒すことの検査
 expect_output 0 "取り出せない" "--input - にヒアドキュメントが無ければ検査できないので deny" \
@@ -2636,7 +2639,7 @@ CR_CRLF_INPUT=$(printf 'gh api repos/o/r/issues/1/comments --input - <<'\''EOF'\
 expect_output 0 "詰まり" "CRLF のヒアドキュメントを --input - で渡しても本文を検査する" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_CRLF_INPUT"
 expect_output 0 "取り出せない" "-F 実ファイル(--body-file 短縮形)は検査できないので deny" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr create -t T -F /tmp/body.md # $CR_PAD"
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr create -t T -F $CR_ABSENT/body.md # $CR_PAD"
 expect_output 0 "取り出せない" "パイプの stdin は検査できないので deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat /tmp/b.md | gh issue comment 1 --body-file - # $CR_PAD"
 expect_output 0 "取り出せない" "変数渡しの本文は検査できないので deny" \

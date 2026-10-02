@@ -16,6 +16,7 @@ import importlib.util
 import io
 import os
 import sys
+import tempfile
 
 gate_path = os.path.join(os.path.dirname(__file__), "..", "gates", "hooks", "coldread-gate.py")
 spec = importlib.util.spec_from_file_location("coldread_gate", gate_path)
@@ -118,6 +119,15 @@ WRAPPER_CASES = [
     ("exec", "exec gh issue comment 1 --body %s" % TEXT),
     ("nohup", "nohup gh issue comment 1 --body %s" % TEXT),
     ("time", "time gh issue comment 1 --body %s" % TEXT),
+    # 値を取る包みの旗 1 メンバー = ここ 1 行。値を命令名と読むと gh が見えなくなる
+    ("-u", "env -u X gh issue comment 1 --body %s" % TEXT),
+    ("--unset", "env --unset X gh issue comment 1 --body %s" % TEXT),
+    ("-C", "env -C /tmp gh issue comment 1 --body %s" % TEXT),
+    ("--chdir", "env --chdir /tmp gh issue comment 1 --body %s" % TEXT),
+    ("-P", "env -P /usr/bin gh issue comment 1 --body %s" % TEXT),
+    ("-S", "env -S -i gh issue comment 1 --body %s" % TEXT),
+    ("--split-string", "env --split-string -i gh issue comment 1 --body %s" % TEXT),
+    ("-a", "exec -a name gh issue comment 1 --body %s" % TEXT),
 ]
 # シェルの予約語 1 メンバー = ここ 1 行。( gh … ) は元から網に入るのに { gh …; } は抜ける、
 # という「書き方だけで片方が抜ける」状態だったので、全メンバーを実際に発火させて突合する
@@ -139,6 +149,15 @@ GLOBAL_FLAG_CASES = [
     ("--method", "gh --method POST api repos/o/r/issues/1/comments -f body=%s" % TEXT),
 ]
 
+# gh api で値を取るフィールドの旗 1 メンバー = ここ 1 行(同上。classify と destgate の -R の読み飛ばしが同じ表を引く。
+# 綴りは gh api の manual の -f/--raw-field と -F/--field)
+API_FIELD_CASES = [
+    ("-f", "gh api repos/o/r/issues/1/comments -f body=%s" % TEXT),
+    ("-F", "gh api repos/o/r/issues/1/comments -F body=%s" % TEXT),
+    ("--field", "gh api repos/o/r/issues/1/comments --field body=%s" % TEXT),
+    ("--raw-field", "gh api repos/o/r/issues/1/comments --raw-field body=%s" % TEXT),
+]
+
 # 投稿でない形(値を読み役へ送らない・止めない)
 QUIET = [
     ("gh pr checkout 1 -b feature/%s" % ("x" * 300), "pr checkout -b はブランチ名"),
@@ -152,19 +171,25 @@ QUIET = [
     ("gh api graphql -f query='query { repository { name } }' # %s" % PAD, "graphql の読み取り"),
 ]
 
-# 倒れ先 1 つ = ここ 1 行。実装の blocked.append の文言集合と一致することを下で検査する。
+# 倒れ先 1 つ = ここ 1 行。実装の blocked.append と Unread の文言集合と一致することを下で検査する。
 # 「本文旗の値を判定できない」は表に知らない種別が入ったときの唯一の倒れ先なので、
 # 検査用の旗を一時的に表へ挿して発火させる(下の PATCH_FLAG)。
 PATCH_FLAG = "--zz-test-unknown-kind"
+SUBST = "\"$(cat <<'EOF'\n%s\nEOF\n)\"" % BODY
 BLOCKED_CASES = [
     ("サブコマンドを特定できない", "gh --unknown-flag=x issue comment 1 -b %s" % TEXT),
-    ("別プロセスからの stdin 渡し", "cat /tmp/b.md | gh issue comment 1 --body-file - # %s" % PAD),
+    ("別プロセスからの stdin 渡し", "gh issue comment 1 --body-file - # %s" % PAD),
     # --input - は別分岐。理由まで見ないと、末尾のガード(本文旗の値を判定できない)が
     # 肩代わりして deny になるので、分岐を消しても気付けない(5 巡目に変異で実測)
-    ("別プロセスからの stdin 渡し",
-     "cat /tmp/p.json | gh api repos/o/r/issues/1/comments --input - # %s" % PAD),
+    ("別プロセスからの stdin 渡し", "gh api repos/o/r/issues/1/comments --input - # %s" % PAD),
+    ("パイプからの stdin 渡し", "cat /tmp/b.md | gh issue comment 1 --body-file - # %s" % PAD),
+    ("ヒアドキュメント以外の stdin のリダイレクト", "gh issue comment 1 --body-file - < /tmp/b.md # %s" % PAD),
+    ("終端行の無いヒアドキュメント", "gh issue comment 1 --body-file - <<'EOF'\n%s\n  EOF" % BODY),
+    ("同じコマンドがシェルの状態を書く", "set -e; gh issue comment 1 --body %s" % SUBST),
     ("実ファイル指定", "gh issue comment 1 --body-file /tmp/real.md # %s" % PAD),
     ("変数・コマンド置換渡し", 'gh issue comment 1 --body "$BODY" # %s' % PAD),
+    ("区切りを引用しないヒアドキュメントの展開",
+     "gh issue comment 1 --body-file - <<EOF\n$(cat /tmp/b.md) %s\nEOF" % PAD),
     ("JSON として読めない --input",
      "gh api repos/o/r/issues/1/comments --input - <<'EOF'\n{\"body\": ここは JSON でない %s\nEOF" % PAD),
     ("JSON の本文の位置を特定できない",
@@ -173,12 +198,34 @@ BLOCKED_CASES = [
      "gh api graphql -f query='mutation { addComment(input:{body: \"%s\"}) }'" % PAD),
     ("本文旗の値を判定できない", "gh issue comment 1 %s %s" % (PATCH_FLAG, TEXT)),
 ]
+# 本文ファイルを読む(フックの main と同じ read_files)ときだけ出る倒れ先。{d} は一時ディレクトリで、
+# 中に body.md(本文)・part0.md〜part4.md(上限を縮めた回で、合計が上限を超える大きさ)・sjis.md(Shift_JIS)・
+# big.md(上限を縮めた回の 1 ファイルの上限より大きい)を置く
+FILE_BLOCKED_CASES = [
+    ("字のまま決まらないパス", "gh issue comment 1 --body-file {d}/$NAME"),
+    ("同じコマンドの別の命令がファイルを変えうる", "git push && gh issue comment 1 --body-file {d}/body.md"),
+    ("本文ファイルを読めない", "gh issue comment 1 --body-file {d}/absent.md"),
+    ("本文ファイルが通常のファイルでない", "gh issue comment 1 --body-file {d}"),
+    ("本文ファイルが上限より大きい", "gh issue comment 1 --body-file {d}/big.md"),
+    ("本文ファイルが UTF-8 でない", "gh issue comment 1 --body-file {d}/sjis.md"),
+    ("本文ファイルの合計が上限を超える",
+     "gh gist create " + " ".join("{d}/part%d.md" % k for k in range(5))),
+]
 
 failures = []
 
 
+def parsed_of(command, cwd=None, read_files=False):
+    """(本文候補の字の全部, 止めた理由, 解析成否)。既定ではファイルは開かない(実ファイル指定は止める側で固定)。"""
+    calls = gate.gh_calls(command, cwd, read_files)
+    if calls is None:
+        return [], [], False
+    bodies, blocked = gate.flatten(calls)
+    return [b.text for b in bodies], blocked, True
+
+
 def bodies_of(command):
-    candidates, blocked, parsed = gate.posting_bodies(command)
+    candidates, blocked, parsed = parsed_of(command)
     return [c for c in candidates if len(c.strip()) >= 200], blocked, parsed
 
 
@@ -198,9 +245,10 @@ for flag, (_kind, subs) in gate.SHORT_TEXT_FLAGS.items():
 compare_keys("本文を運ぶ旗", {key for key, _ in FLAG_CASES}, impl_flag_keys)
 compare_keys("長い旗の本文でない例外", {key for key, _ in NOT_BODY_CASES}, set(gate.LONG_FLAG_NOT_BODY))
 compare_keys("投稿でないサブコマンド", {key for key, _ in NON_POSTING_CASES}, set(gate.NON_POSTING))
-compare_keys("前置ラッパー", {key for key, _ in WRAPPER_CASES}, set(gate.WRAPPERS))
+compare_keys("前置ラッパー", {key for key, _ in WRAPPER_CASES}, set(gate.WRAPPERS) | gate.WRAPPER_VALUE_FLAGS)
 compare_keys("シェルの予約語", {key for key, _ in RESERVED_CASES}, set(gate.RESERVED))
 compare_keys("値を取る global 旗", {key for key, _ in GLOBAL_FLAG_CASES}, set(gate.GLOBAL_VALUE_FLAGS))
+compare_keys("api の値を取る旗", {key for key, _ in API_FIELD_CASES}, set(gate.API_FIELD_FLAGS))
 
 # 取りこぼし計器(misses.log)の綴りは権威表から導出しているが、導出を手書きに戻されたら
 # 気付けるよう、表の全メンバーを計器に当てて突合する。計器が旗を知らないまま増えると、
@@ -210,30 +258,35 @@ for _flag in set(gate.LONG_TEXT_FLAGS) | gate.API_BODY_FLAGS:
         failures.append("miss 計器: 本文旗 %s を知らない(権威表とずれた)" % _flag)
 
 # 倒れ先の文言も同じ形で突合する。実装から機械で読むので、理由を足したら検査も足すまで赤い。
+# 集めるのは blocked.append("…") と、読めなかった本文の Unread("…") の字
 tree = ast.parse(io.open(gate_path, encoding="utf-8").read())
 impl_reasons = {
     node.args[0].value
     for node in ast.walk(tree)
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    and node.func.attr == "append" and isinstance(node.func.value, ast.Name)
-    and node.func.value.id == "blocked" and node.args
+    if isinstance(node, ast.Call) and node.args
     and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)
+    and ((isinstance(node.func, ast.Attribute) and node.func.attr == "append"
+          and isinstance(node.func.value, ast.Name) and node.func.value.id == "blocked")
+         or (isinstance(node.func, ast.Name) and node.func.id == "Unread"))
 }
-compare_keys("止めた理由", {reason for reason, _ in BLOCKED_CASES}, impl_reasons)
+compare_keys("止めた理由", {reason for reason, _ in BLOCKED_CASES + FILE_BLOCKED_CASES}, impl_reasons)
+# denies.log は理由の語を , で連結し、列をタブで分ける。語にその字が入ると数えられなくなる
+for _reason in impl_reasons:
+    if "," in _reason or "\t" in _reason:
+        failures.append("止めた理由 %r が記録の区切り(, かタブ)を含む" % _reason)
 
 # 本文を拾えるべき形
 for _key, command in FLAG_CASES:
     bodies, blocked, parsed = bodies_of(command)
     if not bodies:
         failures.append("%s: 本文を拾えていない (blocked=%s parsed=%s)" % (_key, blocked, parsed))
-for command, why in POSTING + [(c, str(k)) for k, c in WRAPPER_CASES + RESERVED_CASES]:
+for command, why in POSTING + [(c, str(k)) for k, c in WRAPPER_CASES + RESERVED_CASES + API_FIELD_CASES]:
     bodies, blocked, parsed = bodies_of(command)
     if not bodies:
         failures.append("%s: 本文を拾えていない (blocked=%s parsed=%s)" % (why, blocked, parsed))
 
 # 門番が発火する前置では、逃げ道 COLDREAD_SKIP=1 も必ず効かなければならない。片方だけ効くと、
-# ゲートに止められた人が案内どおり書いても通せない(予約語を gh_args にだけ足したとき実際にそうなった)。
-# 前置の読み飛ばしを simple_commands の 1 箇所に寄せてあることを、表の全メンバーで縛る
+# ゲートに止められた人が案内どおり書いても通せない(予約語を gh_args にだけ足したとき実際にそうなった)
 for _key, command in WRAPPER_CASES + RESERVED_CASES:
     if not gate.wants_skip(command.replace("gh ", "COLDREAD_SKIP=1 gh ", 1)):
         failures.append("%s: 門番は発火するのに逃げ道が効かない" % _key)
@@ -251,7 +304,7 @@ for command, why in QUIET + [(c, str(k)) for k, c in NOT_BODY_CASES + NON_POSTIN
 SECRET = "DB_PASSWORD=hunter2"
 MUTATION = ("gh api graphql -f query='mutation { u(input:{subjectId: \"\"\"%s%s\"\"\", "
             "body: \"\"\"%s\"\"\"}) }'" % (SECRET, PAD, BODY))
-mutation_candidates = gate.posting_bodies(MUTATION)[0]
+mutation_candidates = parsed_of(MUTATION)[0]
 if mutation_candidates:
     failures.append("graphql mutation から本文候補を取り出している(非 body の値が読み役へ渡る) — %s"
                     % [c[:40] for c in mutation_candidates])
@@ -265,6 +318,27 @@ try:
             failures.append("倒れ先 %r で止まらない (blocked=%s parsed=%s)" % (reason, blocked, parsed))
 finally:
     del gate.LONG_TEXT_FLAGS[PATCH_FLAG]
+
+_max_len = gate.MAX_LEN
+with tempfile.TemporaryDirectory() as _d:
+    _d = _d.replace(os.sep, "/")
+    with open(os.path.join(_d, "body.md"), "w", encoding="utf-8") as _f:
+        _f.write(BODY)
+    for _k in range(5):
+        with open(os.path.join(_d, "part%d.md" % _k), "w", encoding="utf-8") as _f:
+            _f.write("y" * 90)
+    with open(os.path.join(_d, "big.md"), "w", encoding="utf-8") as _f:
+        _f.write("y" * 500)
+    with open(os.path.join(_d, "sjis.md"), "wb") as _f:
+        _f.write("本文".encode("shift_jis"))
+    gate.MAX_LEN = 100   # 合計の上限(MAX_LEN * 4 バイト)を part を 5 本読めない大きさに縮める
+    try:
+        for reason, template in FILE_BLOCKED_CASES:
+            _bodies, blocked, parsed = parsed_of(template.format(d=_d), _d, read_files=True)
+            if reason not in blocked:
+                failures.append("倒れ先 %r で止まらない (blocked=%s parsed=%s)" % (reason, blocked, parsed))
+    finally:
+        gate.MAX_LEN = _max_len
 
 if failures:
     for f in failures:
