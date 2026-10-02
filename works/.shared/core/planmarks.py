@@ -19,6 +19,10 @@
 - glob_match(path, glob): 根からの相対のパスが glob に当たるか（* ? [..] は / を跨がない・** は段をまたぐ。守りのファイルの
   protect.match もこれを呼ぶ）。gaps は out_of_scope の glob が tests・rewrite_tests の id のファイルに当たる案を拒む
 - approved_items(b): 今の周の承認済みの修正案の項目と凍結した欄を同じ番号で合わせた並び（修正の受け付けが差分と照らす）
+- 約束の欄と手段の欄（依頼 226）: CONTRACT_KEYS・CONTRACT_TEST_KEYS（tests[] の行の約束の欄）は変えると関所に戻す物、
+  MEANS_KEYS は修正案の役が同じ run の中で直してよい物。contract_diff(old, new) が違う約束の欄の名を返す
+- 承認済みの項目の差し替え（依頼 226）: amend(b, items, repo) が直した項目の欄の行を split で作り直し、核の欄（CORE_KEYS）を
+  控えの AMENDED_KEY に置いて save し直し（凍結し直し）、trace に AMEND_OP を書く。amended(b)・plan_items(b) が読む
 - scoped(items)・scoped_items(b): 範囲の欄の在る項目の並びか（217 番の形の控えは範囲の無い run と同じに扱う 1 つの決まり。
   修正の受け付けの範囲の照らしと差分の審査の準拠の受け付けが使う）
 
@@ -46,9 +50,18 @@ from engine.util import now  # noqa: E402
 
 NODE = "p2.fix_plan"
 NODES = (NODE,)
-FIELDS_FILE = "plan-fields.json"   # 盤面の根の控え {"round": 周, "fields": [項目ごとの欄]}
+FIELDS_FILE = "plan-fields.json"   # 盤面の根の控え {"round": 周, "fields": [項目ごとの欄], "amended"?: {番号: 核の欄}}
 SAVED_OP = "plan_fields_saved"     # save が盤面の trace に書く凍結の印 {round, sha256}
 KEYS = ("route", "route_why", "tests", "rewrite_tests", "refactor", "allowed_paths", "out_of_scope")
+# 写しの graph の修正案の項目の欄（核）。差し替えた項目のこの欄を控えの AMENDED_KEY に置く（approved_items が足す鍵 item は外す）
+CORE_KEYS = ("unit_keys", "approach", "adds", "removes", "shrink_first", "narrows")
+# 約束の欄（変えると関所に戻す物）と手段の欄（同じ run の中で修正案の役が直してよい物）。tests[] の行は CONTRACT_TEST_KEYS の
+# 欄だけが約束で、ほかの欄（id・path・red_kind・red_why）は手段
+CONTRACT_KEYS = ("unit_keys", "narrows", "removes", "allowed_paths", "out_of_scope", "rewrite_tests")
+CONTRACT_TEST_KEYS = ("behavior",)
+MEANS_KEYS = ("approach", "adds", "shrink_first", "route", "route_why", "tests", "refactor")
+AMENDED_KEY = "amended"            # 控えの鍵 {"<項目の番号>": {CORE_KEYS の欄}}（差し替えた項目の核の欄）
+AMEND_OP = "plan_amended"          # amend だけが書く trace の行 {round, items: [番号…]}（SAVED_OP の行の直後）
 # route_why は route が direct の時だけ要る（gaps が見る）
 REQUIRED = ("route", "tests", "rewrite_tests", "refactor", "allowed_paths", "out_of_scope")
 ROUTES = ("tdd", "direct")
@@ -277,6 +290,37 @@ def _limit(repo: pathlib.Path, test_id: str):
     return f"{posixpath.normpath(_parse_id(test_id)[0])}:{line}" if line else None
 
 
+# ---------------------------------------------------------------- 約束の欄の比べ
+def _canon(v) -> str:
+    return json.dumps(v, sort_keys=True, ensure_ascii=False)
+
+
+def _contract_value(it: dict, key: str) -> str:
+    """約束の欄 key の比べる字（欄が無い・None は空の並びと同じ。unit_keys は並べ替える）"""
+    v = it.get(key) if isinstance(it, dict) else None
+    v = [] if v is None else v
+    if key == "unit_keys" and isinstance(v, list):
+        v = sorted(v, key=_canon)
+    return _canon(v)
+
+
+def _test_contract(it: dict) -> str:
+    """tests[] の行の約束の欄（CONTRACT_TEST_KEYS）の並べ替えた並びの字"""
+    rows = [{k: row.get(k) for k in CONTRACT_TEST_KEYS} for row in _rows(it, "tests") if isinstance(row, dict)] \
+        if isinstance(it, dict) else []
+    return _canon(sorted(rows, key=_canon))
+
+
+def contract_diff(old: dict, new: dict) -> list[str]:
+    """2 つの項目の約束の欄のうち違う物の名（CONTRACT_KEYS の順。最後に tests[] の behavior の並びが違えば "tests.behavior"）。
+    手段の欄（MEANS_KEYS・tests[] の id・path・red_kind・red_why）だけの違いは空。比べは json.dumps（sort_keys）の字で、
+    unit_keys と tests の行は並べ替えて比べ、欄が無いのと空の並びは同じと読む。narrows は関所の決め手の欄を外した形で渡す。純粋"""
+    out = [k for k in CONTRACT_KEYS if _contract_value(old, k) != _contract_value(new, k)]
+    if _test_contract(old) != _test_contract(new):
+        out.append("tests.behavior")
+    return out
+
+
 # ---------------------------------------------------------------- 受け付け
 def _rows(it: dict, key: str) -> list:
     rows = it.get(key)
@@ -415,11 +459,15 @@ class FieldsBroken(ValueError):
     """盤面の控え plan-fields.json が今の周の凍結の印（SAVED_OP）と合わない（受け付けの後に書き換えた・消した・読めない）"""
 
 
-def save(board, rnd: int, fields: list) -> None:
+def save(board, rnd: int, fields: list, amended: dict | None = None) -> None:
     """盤面の plan-fields.json を今の周の欄で置き換え（一時のファイルから os.replace。リンクの先へ書かない）、盤面の trace に
-    凍結の印 SAVED_OP {round, sha256（置いたバイトの sha256）} を 1 行足す（DiskBoard.trace と同じ行の形 {t, op, …}）"""
+    凍結の印 SAVED_OP {round, sha256（置いたバイトの sha256）} を 1 行足す（DiskBoard.trace と同じ行の形 {t, op, …}）。
+    amended（{番号: 核の欄}）が在れば鍵 AMENDED_KEY に番号を字にして置く（無ければ鍵を書かない）"""
     d = pathlib.Path(board)
-    raw = (json.dumps({"round": rnd, "fields": fields}, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+    doc = {"round": rnd, "fields": fields}
+    if amended is not None:
+        doc[AMENDED_KEY] = {str(n): core for n, core in amended.items()}
+    raw = (json.dumps(doc, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     p = d / FIELDS_FILE
     tmp = p.with_name(p.name + ".tmp")
     tmp.unlink(missing_ok=True)
@@ -430,8 +478,8 @@ def save(board, rnd: int, fields: list) -> None:
                            ensure_ascii=False) + "\n")
 
 
-def read(b) -> list | None:
-    """今の周（b.round）の欄の並び。控えが無い・周が違う・読めないなら None（b.dir・b.round だけを読む）"""
+def _doc(b) -> dict | None:
+    """今の周（b.round）の控えの全体。控えが無い・周が違う・読めない・fields が並びでないなら None"""
     p = pathlib.Path(b.dir) / FIELDS_FILE
     try:
         doc = json.loads(p.read_text(encoding="utf-8"))
@@ -439,7 +487,13 @@ def read(b) -> list | None:
         return None
     if not isinstance(doc, dict) or doc.get("round") != b.round or not isinstance(doc.get("fields"), list):
         return None
-    return doc["fields"]
+    return doc
+
+
+def read(b) -> list | None:
+    """今の周（b.round）の欄の並び。控えが無い・周が違う・読めないなら None（b.dir・b.round だけを読む）"""
+    doc = _doc(b)
+    return doc["fields"] if doc else None
 
 
 def _saved_mark(b) -> dict | None:
@@ -460,13 +514,12 @@ def _saved_mark(b) -> dict | None:
 
 
 def approved_items(b) -> list[dict] | None:
-    """今の周の承認済みの修正案の項目（今の周の p2.fix_plan の出力の plan）と凍結した欄（frozen）を同じ番号で合わせた並び
+    """今の周の承認済みの修正案の項目（plan_items。差し替えた項目は直した核の欄）と凍結した欄（frozen）を同じ番号で合わせた並び
     {"item": <1 始まり>, **案の項目, **欄の KEYS の物}（unit_keys は案の物）。どちらか無ければ None。数が違えば FieldsBroken
     （frozen の食い違いもそのまま FieldsBroken。b は dir・round・output_of_round を読む）"""
     fields = frozen(b)
-    doc = b.output_of_round(NODE, b.round)
-    plan = doc.get("plan") if isinstance(doc, dict) else None
-    if fields is None or not isinstance(plan, list):
+    plan = plan_items(b)
+    if fields is None or plan is None:
         return None
     if len(fields) != len(plan):
         raise FieldsBroken(f"修正案の項目の数 {len(plan)} と盤面の控え {FIELDS_FILE} の欄の数 {len(fields)} が違う"
@@ -494,6 +547,12 @@ def scoped_items(b) -> list[dict] | None:
 def frozen(b) -> list | None:
     """今の周の凍結した欄の並び（read と同じ物）。今の周の印が無ければ None（印の無い控えは無い物: 変更前の盤面・save の外で
     置いた控え）。印が在るのに控えが読めない・控えのバイトの sha256 が印と違えば FieldsBroken"""
+    doc = _frozen_doc(b)
+    return doc["fields"] if doc else None
+
+
+def _frozen_doc(b) -> dict | None:
+    """今の周の凍結した控えの全体（frozen の決まりで読む: 印が無ければ None・食い違えば FieldsBroken）"""
     mark = _saved_mark(b)
     if mark is None:
         return None
@@ -505,7 +564,66 @@ def frozen(b) -> list | None:
     if hashlib.sha256(raw).hexdigest() != mark.get("sha256"):
         raise FieldsBroken(f"盤面の控え {p}（{FIELDS_FILE}）のバイトの sha256 が周 {b.round} の {SAVED_OP} の印と違う"
                            "（受け付けの後に書き換えた）")
-    return read(b)
+    return _doc(b)
+
+
+def amended(b) -> dict[int, dict]:
+    """今の周の凍結した控えの差し替えた項目の核の欄 {番号（int）: {CORE_KEYS の欄}}。控えか鍵 AMENDED_KEY が無ければ {}。
+    印と食い違えば・形が違えば FieldsBroken"""
+    doc = _frozen_doc(b)
+    got = doc.get(AMENDED_KEY) if doc else None
+    if got is None:
+        return {}
+    try:
+        out = {int(n): core for n, core in got.items()}
+    except (AttributeError, TypeError, ValueError):
+        out = None
+    if out is None or not all(isinstance(c, dict) for c in out.values()):
+        raise FieldsBroken(f"盤面の控え {FIELDS_FILE} の {AMENDED_KEY} の形が違う（{{番号: 核の欄}} でない）")
+    return out
+
+
+def plan_items(b) -> list | None:
+    """今の周の修正案の項目の並び: p2.fix_plan の出力の plan に、amended(b) の核の欄を番号ごとに重ねた物（差し替えの後の案）。
+    出力の plan が無ければ None。控えの番号が案の外なら FieldsBroken（b は dir・round・output_of_round を読む）"""
+    doc = b.output_of_round(NODE, b.round)
+    plan = doc.get("plan") if isinstance(doc, dict) else None
+    if not isinstance(plan, list):
+        return None
+    out = copy.deepcopy(plan)
+    for n, core in amended(b).items():
+        if not 1 <= n <= len(out):
+            raise FieldsBroken(f"盤面の控え {FIELDS_FILE} の {AMENDED_KEY} の項目 {n} が修正案の項目（{len(out)} 個）の外")
+        base = out[n - 1] if isinstance(out[n - 1], dict) else {}
+        out[n - 1] = {**base, **copy.deepcopy(core)}
+    return out
+
+
+def amend(b, items: dict, repo) -> None:
+    """承認済みの項目を直した項目に差し替えて凍結し直す。items は {番号: 直した項目（CORE_KEYS と KEYS の欄の全部。鍵 item は
+    外す）}。直した項目を split に通して欄の行を作り直し（adds の名と rewrite_tests[].limit を repo から引き直す）、今の控え
+    （frozen。食い違えば FieldsBroken）の fields[n-1] をその行に替え、核の欄を AMENDED_KEY[n] に置いて save し直し、trace に
+    AMEND_OP {round, items} を書く。知らない番号・unit_keys が元と違う項目は ValueError（受け付けが先に拒む物）で、その時は控えも
+    trace も変えない。b は dir・round・output_of_round だけを読む"""
+    current = approved_items(b)
+    if current is None:
+        raise ValueError(f"差し替える承認済みの修正案が無い（周 {b.round} の案か凍結した控え {FIELDS_FILE} が無い）")
+    fields = copy.deepcopy(frozen(b))
+    done = amended(b)
+    for n in items:
+        if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= len(current):
+            raise ValueError(f"知らない項目の番号 {n!r}（承認済みの項目は 1〜{len(current)}）")
+        it = {k: copy.deepcopy(v) for k, v in items[n].items() if k != "item"}
+        if _contract_value(it, "unit_keys") != _contract_value(current[n - 1], "unit_keys"):
+            raise ValueError(f"項目 {n} の unit_keys が元と違う（元 {current[n - 1].get('unit_keys')!r}・"
+                             f"直した物 {it.get('unit_keys')!r}。差し替えは同じ単位の項目だけ）")
+        _, rows = split({"plan": [it]}, repo)
+        fields[n - 1] = rows[0]
+        done[n] = {k: it[k] for k in CORE_KEYS if k in it}
+    save(b.dir, b.round, fields, amended=dict(sorted(done.items())))
+    with open(pathlib.Path(b.dir) / "trace.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"t": now(), "op": AMEND_OP, "round": b.round, "items": sorted(items)},
+                           ensure_ascii=False) + "\n")
 
 
 def rewrites(b) -> list[dict]:
