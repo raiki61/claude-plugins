@@ -978,6 +978,16 @@ class CliCase(Base):
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("toolset.py", r.stderr)
 
+    def test_cli_contract_on_the_vendored_copy_is_0(self):
+        r = self.cli("contract")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("全部そろう", r.stdout)
+
+    def test_cli_contract_on_a_cache_version_names_broken_anchors(self):   # 偽のキャッシュの 9.9.0 は錨の文を持たない
+        r = self.cli("contract", "9.9.0")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tdd: 錨 SUITE", r.stdout)
+
 
 class RepoDenyCase(unittest.TestCase):
     """対象の持ち主の禁止: 役は settingSources: [user] とこの隔離した設定で起きるので、対象リポジトリの .claude/settings.json・

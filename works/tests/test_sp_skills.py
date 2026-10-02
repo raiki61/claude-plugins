@@ -1,13 +1,16 @@
-"""superpowers（Claude Code のプラグインのスキル集）から借りるスキルの一覧と、無人の役のための読み替えの検査。
+"""superpowers（Claude Code のプラグインのスキル集）から借りるスキルの一覧と、借りた物を包む節（seams.json）の契約と、
+無人の役のための読み替えの検査。
 
-借りるスキルは、利用者が Claude Code に入れた superpowers から dev/toolset.py が隔離した設定の skills/ へ写す（版は利用者が
-入れた物に従う。本線の graphloops と同じ）。確かめるのは works が名前で頼る物だけで、スキルの中身・版・バイトは見ない（役は
-読むだけなので、名前が在れば新しい版でも動く）。名前が在ることの確かめと写し入れの検査は tests/test_toolset.py（偽の利用者の
-設定で回す）。
+借りるスキルは、works に写した superpowers（.shared/borrow/superpowers/<版>/）から dev/toolset.py が隔離した設定の skills/ へ写す。
+写しの版・commit・ファイルごとの sha256 は borrow.json の superpowers.pin に固定し、入れる前に写しのバイトを固定と照合する
+（利用者が Claude Code に入れた版は run に使わない）。隔離した設定への写し入れの検査は tests/test_toolset.py（偽の利用者の設定で回す）。
 
 - 写し（VendoredCopyCase）: works は superpowers の使うファイルと LICENSE を .shared/borrow/superpowers/<版>/ に直さずに持つ
   （写しを作り直すのは dev/toolset.py vendor だけ）。写しのバイトは borrow.json の superpowers.pin の sha256 と同じで、
   写しの台帳（COPIED_FROM）と 1 本ずつ合い、版のフォルダは 1 つだけ。
+- 節（SeamTableCase）: .shared/borrow/seams.json の 4 つの節（tdd・implementer・task-review・receiving-review）の錨・穴・出口の語が
+  本物の写しで成り立つ（spseam.contract_problems）。部品（PARTS）は使わないと決めたスキルのファイルで、ちょうど 1 つの節が包む。
+  部品の型の本文の角括弧の語は、どれも節の穴（placeholders）か、埋めない語として節に並べた物（literals）。
 
 - 借りる一覧（BORROW）: .shared/borrow/borrow.json の superpowers.skills と同じで、使わないと決めたスキル（NEVER）・
   読んで参考にするだけのスキル（REFERENCE_ONLY）と重ならない。
@@ -33,9 +36,15 @@ import spseam  # noqa: E402
 BORROW = frozenset({"test-driven-development", "systematic-debugging", "verification-before-completion",
                     "receiving-code-review", "requesting-code-review"})
 REFERENCE_ONLY = frozenset({"writing-plans"})       # 読んで参考にするだけ。借りない
+# スキルとして読まない（skills: に宣言しない・隔離した設定の skills/ に写さない）。部品のファイルは PARTS に並べ、sha256 で
+# 固定して節で包む場合に限り使う
 NEVER = frozenset({"brainstorming", "subagent-driven-development", "executing-plans", "using-git-worktrees",
                    "finishing-a-development-branch", "dispatching-parallel-agents", "writing-skills",
                    "using-superpowers", "diagnosing-superpowers"})
+
+# 部品（parts）: スキルとしては使わず、中の文（部品の型）を役の指示書に使うファイル。スキルの名 → ファイルの名
+PARTS = {"subagent-driven-development": frozenset({"implementer-prompt.md", "task-reviewer-prompt.md"})}
+BRACKETED = re.compile(r"\[[^\[\]]+\]")   # 部品の型の本文の角括弧の語（行をまたぐ物も 1 つに数える）
 
 OVERLAY = ROOT / ".shared" / "borrow" / "unattended.md"
 ROUTING_HEAD = "**義務の単位の行き先**: "   # 読み替えと修正の決まりの正本 .shared/core/writerules/common.md が同じ行で持つ決まりの頭
@@ -128,6 +137,58 @@ class UnattendedOverlayCase(unittest.TestCase):
         m = re.search(r"^## ASK .*?(?=^## )", OVERLAY.read_text(encoding="utf-8"), re.M | re.S)
         self.assertNotIn("省くなら", m.group(0))
         self.assertIn("役は決めない", m.group(0))
+
+
+class SeamTableCase(unittest.TestCase):
+    def setUp(self):
+        self.sp = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))["superpowers"]
+        self.seams = spseam.load_seams()
+
+    def test_contract_holds_on_the_vendored_copy(self):          # 錨・穴・語を本物の写しに当てる（CI でも回る）
+        overlay = OVERLAY.read_text(encoding="utf-8")
+        self.assertEqual(spseam.contract_problems(spseam.vendored_dir(self.sp), self.sp, self.seams, overlay), [])
+
+    def test_parts_are_only_the_wrapped_files_of_never_skills(self):
+        self.assertEqual(set(self.sp["parts"]), {f"skills/{s}/{f}" for s, fs in PARTS.items() for f in fs})
+        self.assertTrue(set(PARTS) <= NEVER)                       # 部品を借りても、スキルとしては使わない
+        self.assertFalse(any(p.endswith("/SKILL.md") for p in self.sp["parts"]))
+        used = [f for s in self.seams.values() if s["use_as"] == "prompt" for f in s["files"]]
+        self.assertEqual(sorted(used), sorted(self.sp["parts"]))   # 部品はちょうど 1 つの節が包む
+
+    def test_every_seam_file_is_pinned_and_skill_seams_use_borrowed_skills(self):
+        self.assertEqual(set(self.seams), {"tdd", "implementer", "task-review", "receiving-review"})
+        for name, s in self.seams.items():
+            with self.subTest(name):
+                self.assertTrue(set(s["files"]) <= set(self.sp["pin"]["files"]))
+                self.assertTrue(s["applies"] and s["not_applies"] and s["anchors"])
+                if s["use_as"] == "skill":
+                    self.assertTrue(all(f.split("/")[1] in BORROW for f in s["files"]))
+                else:
+                    self.assertTrue(s["placeholders"] and s["words"])
+
+    def test_status_words_cover_the_four_and_route_asks_to_divergence(self):
+        w = self.seams["implementer"]["words"]
+        self.assertEqual(set(w), {"DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"})
+        self.assertEqual((w["NEEDS_CONTEXT"], w["BLOCKED"]), ("divergence", "divergence"))
+
+    def test_every_bracketed_token_in_part_bodies_is_a_placeholder_or_listed_literal(self):
+        """部品の型の本文（役に渡す文）の角括弧の語を、本物の写しで全部数える。どれも節の穴か、埋めない語（literals）に並べた物。
+        fill の埋め残しの検査（spseam.HOLE は [大文字の名] だけ）より広い形の穴（[task name] など）を、言わずに残させない。
+        literals の語は空白の続きを 1 つの空白にした形で比べる（行をまたぐ語も 1 行で書ける）"""
+        src = spseam.vendored_dir(self.sp)
+
+        def norm(t):
+            return " ".join(t.split())
+        for name, s in self.seams.items():
+            if s["use_as"] != "prompt":
+                continue
+            with self.subTest(name):
+                body = spseam.prompt_body((src / s["files"][0]).read_text(encoding="utf-8"))
+                found = {norm(t) for t in BRACKETED.findall(body)}
+                declared = {norm(h) for h in s["placeholders"]}
+                literals = {norm(t) for t in s.get("literals", [])}
+                self.assertFalse(declared & literals, "穴と埋めない語の両方に並べた")
+                self.assertEqual(found, declared | literals)    # 余る literals も赤（版を上げて消えた語を残さない）
 
 
 

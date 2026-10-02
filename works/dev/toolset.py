@@ -3,6 +3,7 @@
   python3 toolset.py install [--no-plugins] [--claude <claude の実行ファイル>] [--user-config <利用者の設定の置き場>] <Claude の設定の置き場>
   python3 toolset.py guard <Claude の設定の置き場>
   python3 toolset.py vendor [--user-config <利用者の設定の置き場>] <superpowers の版>
+  python3 toolset.py contract [--user-config <利用者の設定の置き場>] [<superpowers の版>]
 
 AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CLAUDE_CONFIG_DIR を読む（P1 計画 Task 20・裁定 P1-R8）。
 そこに置くのは許す一覧 .shared/borrow/borrow.json の物だけ。借りる物の取り元は 2 つに分かれる:
@@ -54,6 +55,10 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
   書き直す。commit は installed_plugins.json の行のうち installPath がその版の置き場の行の gitCommitSha（無ければ写さずに止まる）。
   使用許諾のファイルが MIT License で borrow.json の licence と合う時だけ写す（外れなら何も書かずに止まる）。写しは直さない。
   写しを変えるのはこの口だけで、写し・台帳・pin を同じ 1 つの commit に入れる。
+- 契約の確かめ（contract）: 版のフォルダに、固定との食い違い（spseam.pin_problems）と、包む節の表 .shared/borrow/seams.json の
+  契約の破れ（spseam.contract_problems。錨・読み替えの決まり・穴・出口の語）を当てて 1 行ずつ出す。版を名指さなければ写しに、
+  名指せば利用者のキャッシュのその版の置き場（vendor と同じ所。版を上げる前に、新しい版で何が崩れるかを見る）に当てる。
+  破れが無ければ 1 行で終了コード 0、在れば 1、版のフォルダが無ければ 2。何も書かない。
 """
 import datetime
 import hashlib
@@ -95,6 +100,7 @@ USAGE = ("toolset.py: 使い方: python3 toolset.py install [--no-plugins] [--cl
          "[--user-config <利用者の設定の置き場>] <設定の置き場>"
          " | python3 toolset.py guard <設定の置き場>"
          " | python3 toolset.py vendor [--user-config <利用者の設定の置き場>] <superpowers の版>"
+         " | python3 toolset.py contract [--user-config <利用者の設定の置き場>] [<superpowers の版>]"
          "（install は --no-plugins か --claude のどちらか 1 つ）")
 VENDORED = "superpowers"                    # 写しを持つ借りる物（.shared/borrow/<この名>/<版>/）
 LEDGER = "COPIED_FROM"                      # 写しの台帳の名（.shared/borrow/superpowers/ の下。形は .shared/core/copyledger.py）
@@ -710,6 +716,32 @@ def _vendor_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None", version: st
     return 0
 
 
+def _contract_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None", version: "str | None") -> int:
+    """版のフォルダ（version が無ければ写し、在れば利用者のキャッシュのその版）に固定と節の契約を当てて行を出す。
+    破れが無ければ 0、在れば 1、版のフォルダが無ければ 2"""
+    item = load_borrow(pack)[VENDORED]
+    if version is None:
+        src, version = spseam.vendored_dir(item, pack / ".shared" / "borrow"), item["pin"]["version"]
+    else:
+        _check_version_name(version)
+        src = (user_cfg or user_config_dir()) / "plugins" / "cache" / item["marketplace"] / VENDORED / version
+    if not src.is_dir():
+        print(f"toolset.py: {VENDORED} {version} の版のフォルダ {src} が無い", file=sys.stderr)
+        return 2
+    borrow_dir = pack / ".shared" / "borrow"
+    seams = spseam.load_seams(borrow_dir)
+    overlay = (borrow_dir / spseam.OVERLAY_FILE).read_text(encoding="utf-8")
+    bad = spseam.contract_problems(src, item, seams, overlay)   # 固定との食い違い（pin_problems）が先に並ぶ
+    if not bad:
+        print(f"契約: {VENDORED} {version}（{src}）の錨・穴・語・sha256 は全部そろう")
+        return 0
+    print(f"契約: {VENDORED} {version}（{src}）の破れ {len(bad)} 件（固定 {item['pin']['version']} と "
+          f"{spseam.SEAMS_FILE} に照らして）:")
+    for line in bad:
+        print(f"- {line}")
+    return 1
+
+
 def _check_user_config(user_cfg: pathlib.Path, cfg: pathlib.Path, src: str) -> None:
     """利用者の設定の置き場は絶対パスで、隔離した設定の置き場と別であること（どちらも何も写す前に名指しで止める）"""
     if not user_cfg.is_absolute():
@@ -722,7 +754,7 @@ def _check_user_config(user_cfg: pathlib.Path, cfg: pathlib.Path, src: str) -> N
 
 def main(argv: list) -> int:
     args = argv[1:]
-    if not args or args[0] not in ("install", "guard", "vendor"):
+    if not args or args[0] not in ("install", "guard", "vendor", "contract"):
         print(USAGE, file=sys.stderr)
         return 2
     cmd, rest = args[0], args[1:]
@@ -733,17 +765,23 @@ def main(argv: list) -> int:
             no_plugins = True
         elif cmd == "install" and a == "--claude" and rest:
             claude_bin = rest.pop(0)
-        elif cmd in ("install", "vendor") and a == "--user-config" and rest:
+        elif cmd in ("install", "vendor", "contract") and a == "--user-config" and rest:
             user_cfg = pathlib.Path(rest.pop(0))
         elif a.startswith("--"):
             print(USAGE, file=sys.stderr)
             return 2
         else:
             pos.append(a)
-    if len(pos) != 1 or (cmd == "install" and no_plugins == bool(claude_bin)):
+    if len(pos) > 1 or (cmd != "contract" and not pos) or (cmd == "install" and no_plugins == bool(claude_bin)):
         print(USAGE, file=sys.stderr)
         return 2
     pack = pathlib.Path(__file__).resolve().parents[1]
+    if cmd == "contract":
+        try:
+            return _contract_cli(pack, user_cfg, pos[0] if pos else None)
+        except ToolsetError as e:
+            print(f"toolset.py: {e}", file=sys.stderr)
+            return 2
     if cmd == "vendor":
         try:
             return _vendor_cli(pack, user_cfg, pos[0])
