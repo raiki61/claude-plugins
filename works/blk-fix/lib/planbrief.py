@@ -11,11 +11,16 @@
 - 切った印（CUT_OP）: 周の 1 回目の cut が trace に 1 行 {round, ledger_sha256（控えのファイルのバイトの sha256）, files} を書く。
   後の cut は、印の在る周で控えが無い（消して作り直させる）・控えのバイトの sha256 が印と違う（text と sha256 を揃えて書き換えた）・
   印の無い控え（cut の外で置いた）を LedgerBroken で止める。控えは一時のファイルから os.replace で置く
-- 呼ぶ時: cut・cut_at は今の周の p2.fix_plan の出力をそのまま凍結する。事前審査（p2.plan_review）と人の関所（p2.human_gate）を
+- 切り直し（RECUT_OP。依頼 226）: 今の周の trace で、承認済みの項目の差し替えの印（planmarks.AMEND_OP）の行が最後の CUT_OP の行
+  より後に在る時だけ、その行（後に在る物全部）の items の項目を今の承認済みの項目（planmarks.plan_items と凍結した欄）から描き
+  直し、文が変わった項目だけファイルを書き、控えを置き直して trace に RECUT_OP {round, items} と CUT_OP の行を書く。行の前後は
+  trace の行の並びで決める（時刻で比べない）。amend を通らない save し直しでは切り直さない（凍結のまま）
+- 呼ぶ時: cut・cut_at は今の周の承認済みの修正案（差し替えを重ねた物）を凍結する。事前審査（p2.plan_review）と人の関所（p2.human_gate）を
   抜けた後にだけ呼ぶ（前に呼ぶと、承認されていない案がその周の正本になる）
 
 読む物（どれも盤面の物。entry・planmarks・structmark の口だけ）:
-- 承認済みの修正案: 今の周の p2.fix_plan の出力（b.output_of_round）の plan。項目の並びは控え plan-fields.json と同じ
+- 承認済みの修正案: planmarks.plan_items(b)（今の周の p2.fix_plan の出力の plan に、差し替えた項目の核の欄を重ねた物）。
+  項目の並びは控え plan-fields.json と同じ
 - 項目の works の欄: planmarks.frozen(b)（今の周の plan-fields.json。凍結の印と食い違えば LedgerBroken に替えて止める）
 - 判定の単位 b.record["units"]・凍結した目的の文（record.process.purpose.purpose_text）・構造の目の行（structmark.plan_section）
 
@@ -48,12 +53,12 @@ import entry  # noqa: E402
 import planmarks  # noqa: E402
 import structmark  # noqa: E402
 
-PLAN_NODE = "p2.fix_plan"
 LEDGER = "briefs.json"
 NAME = "brief-{n}.md"
 HEAD = "## 要求の正本（brief）"
 RESTORED_OP = "brief_restored"
-CUT_OP = "brief_cut"   # 周の 1 回目の cut の印（trace）
+CUT_OP = "brief_cut"   # 周の 1 回目の cut と切り直しの印（trace）
+RECUT_OP = "brief_recut"   # 差し替えの印の後の切り直しの印 {round, items: [番号…]}（trace。直後に CUT_OP の行）
 BACKGROUND = "背景（参照。brief と食い違えば brief が勝つ。brief が誤りと見たら申し出よ）"
 READ_ALL = "まず Read で全部読め。下の決まりの『brief の決まり（要求の正本と背景）』に従え"
 NONE = "無し"
@@ -63,7 +68,7 @@ NOT_NOW = "今は直すな"   # brief の行で、項目の単位のうち今直
 
 class LedgerBroken(ValueError):
     """控え briefs.json が読めない・形が違う・text と sha256 が合わない・切った印と合わない・brief の置き場がディレクトリ・
-    1 回目の cut で読む欄の控え plan-fields.json が凍結の印と合わない（planmarks.FieldsBroken。凍結を作り直して隠さず、ここで止める）"""
+    cut・切り直しで読む欄の控え plan-fields.json が凍結の印と合わない（planmarks.FieldsBroken。凍結を作り直して隠さず、ここで止める）"""
 
 
 # ---------------------------------------------------------------- 文
@@ -173,28 +178,61 @@ def _box(b) -> pathlib.Path:
     return pathlib.Path(b.dir) / f"r{b.round}"
 
 
-def _plan(b) -> list | None:
-    """今の周の承認済みの修正案の plan。今の周に出していない・plan が並びでないなら None"""
-    doc = b.output_of_round(PLAN_NODE, b.round)
-    plan = doc.get("plan") if isinstance(doc, dict) else None
-    return plan if isinstance(plan, list) else None
+def _drawn(b) -> list[tuple[list, str]] | None:
+    """今の周の承認済みの修正案の項目ごとの (unit_keys, brief の文)。案（planmarks.plan_items）か凍結した欄（planmarks.frozen）が
+    無ければ None。控えが凍結の印と食い違う・項目と欄の数が違えば LedgerBroken"""
+    try:
+        fields = planmarks.frozen(b)
+        plan = planmarks.plan_items(b)
+    except planmarks.FieldsBroken as e:
+        raise LedgerBroken(str(e)) from None
+    if plan is None or fields is None:
+        return None
+    if len(fields) != len(plan):
+        raise LedgerBroken(f"修正案の項目の数 {len(plan)} と盤面の控え {planmarks.FIELDS_FILE} の欄の数 {len(fields)} が違う"
+                           "（同じ周の受け付けが同じ並びで書く物）")
+    units = {u["key"]: u for u in b.record.get("units") or [] if isinstance(u, dict) and isinstance(u.get("key"), str)}
+    purpose = ((b.record.get("process") or {}).get("purpose") or {}).get("purpose_text") or ""
+    structure = structmark.plan_section(b.dir)
+    out = []
+    for n, (item, f) in enumerate(zip(plan, fields), 1):
+        item = item if isinstance(item, dict) else {}
+        out.append(([k for k in item.get("unit_keys") or [] if isinstance(k, str)],
+                    render(n, item, f if isinstance(f, dict) else {}, units, purpose, structure)))
+    return out
 
 
-def _cut_mark(b) -> dict | None:
-    """今の周の切った印（trace の CUT_OP の行の最後の物）。無ければ None"""
+def _trace_rows(b) -> list[dict]:
+    """今の周の trace の行（行の並びのまま。読めない行は飛ばす）"""
     try:
         lines = (pathlib.Path(b.dir) / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     except OSError:
-        return None
-    mark = None
+        return []
+    out = []
     for line in lines:
         try:
             row = json.loads(line)
         except ValueError:
             continue
-        if isinstance(row, dict) and row.get("op") == CUT_OP and row.get("round") == b.round:
-            mark = row
-    return mark
+        if isinstance(row, dict) and row.get("round") == b.round:
+            out.append(row)
+    return out
+
+
+def _cut_mark(b) -> dict | None:
+    """今の周の切った印（trace の CUT_OP の行の最後の物）。無ければ None"""
+    return next((r for r in reversed(_trace_rows(b)) if r.get("op") == CUT_OP), None)
+
+
+def _amended_since_cut(b) -> list[int]:
+    """今の周の最後の CUT_OP の行より後に在る差し替えの印（planmarks.AMEND_OP）の行の items の番号（重ねずに昇順）。無ければ []"""
+    got: set = set()
+    for r in reversed(_trace_rows(b)):
+        if r.get("op") == CUT_OP:
+            break
+        if r.get("op") == planmarks.AMEND_OP:
+            got.update(n for n in r.get("items") or [] if isinstance(n, int) and not isinstance(n, bool))
+    return sorted(got)
 
 
 def _row_ok(r) -> bool:
@@ -275,39 +313,58 @@ def _restore(b, rows: list) -> None:
         b.trace(RESTORED_OP, files=fixed)
 
 
-def cut(b) -> list[dict]:
-    """今の周の brief を返す。控えが無ければ、修正案の出力と planmarks.frozen(b) が両方在る時だけ項目ごとに render して書き、控えを
-    書く（どちらか無ければ [] で何も書かない。欄の控えが凍結の印と食い違えば LedgerBroken）。控えが在れば作り直さず、控えと違う
-    ファイルを書き戻す"""
-    rows = _ledger(b)
-    if rows is not None:
-        _restore(b, rows)
-        return _out(b, rows)
-    try:
-        fields = planmarks.frozen(b)
-    except planmarks.FieldsBroken as e:
-        raise LedgerBroken(str(e)) from None
-    plan = _plan(b)
-    if plan is None or fields is None:
-        return []
-    if len(fields) != len(plan):
-        raise LedgerBroken(f"修正案の項目の数 {len(plan)} と盤面の控え {planmarks.FIELDS_FILE} の欄の数 {len(fields)} が違う"
-                           "（同じ周の受け付けが同じ並びで書く物）")
-    units = {u["key"]: u for u in b.record.get("units") or [] if isinstance(u, dict) and isinstance(u.get("key"), str)}
-    purpose = ((b.record.get("process") or {}).get("purpose") or {}).get("purpose_text") or ""
-    structure = structmark.plan_section(b.dir)
-    rows = []
-    for n, (item, f) in enumerate(zip(plan, fields), 1):
-        item = item if isinstance(item, dict) else {}
-        text = render(n, item, f if isinstance(f, dict) else {}, units, purpose, structure)
-        name = NAME.format(n=n)
-        _put(b.work(name), text.encode("utf-8"))
-        rows.append({"item": n, "unit_keys": [k for k in item.get("unit_keys") or [] if isinstance(k, str)], "file": name,
-                     "sha256": _sha(text), "text": text})
+def _freeze(b, rows: list, recut: list[int] | None = None) -> list[dict]:
+    """控えを置き、trace に切った印 CUT_OP を書いて返りの並びを返す。recut（切り直した項目の番号）を渡すと、控えを置いた後・
+    CUT_OP の前に RECUT_OP の行を書く"""
     raw = _write_ledger(b.work(LEDGER), rows)
+    if recut is not None:
+        b.trace(RECUT_OP, round=b.round, items=recut)
     out = _out(b, rows)
     b.trace(CUT_OP, round=b.round, ledger_sha256=hashlib.sha256(raw).hexdigest(), files=[r["file"] for r in out])
     return out
+
+
+def _recut(b, rows: list, items: list[int]) -> list:
+    """差し替えた項目 items を今の承認済みの項目から描き直し、文が変わった項目だけファイルを書いて控えの行を替え、trace に
+    RECUT_OP と CUT_OP を書く。描き直す元が無い・項目の数が控えと違う・番号が控えに無ければ LedgerBroken"""
+    drawn = _drawn(b)
+    if drawn is None or len(drawn) != len(rows):
+        raise LedgerBroken(f"周 {b.round} の差し替えの印 {planmarks.AMEND_OP} の後に、brief の控えと同じ数の承認済みの項目が無い"
+                           f"（控え {len(rows)} 個・今の項目 {'無し' if drawn is None else len(drawn)}）")
+    rows = [dict(r) for r in rows]
+    by_item = {r["item"]: r for r in rows}
+    for n in items:
+        r = by_item.get(n)
+        if r is None or not 1 <= n <= len(drawn):
+            raise LedgerBroken(f"差し替えの印 {planmarks.AMEND_OP} の項目 {n} が brief の控えに無い")
+        keys, text = drawn[n - 1]
+        if text != r["text"]:
+            _put(_box(b) / r["file"], text.encode("utf-8"))
+            r.update(unit_keys=keys, sha256=_sha(text), text=text)
+    _freeze(b, rows, recut=items)
+    return rows
+
+
+def cut(b) -> list[dict]:
+    """今の周の brief を返す。控えが無ければ、修正案（planmarks.plan_items）と planmarks.frozen(b) が両方在る時だけ項目ごとに
+    render して書き、控えを書く（どちらか無ければ [] で何も書かない。欄の控えが凍結の印と食い違えば LedgerBroken）。控えが在れば
+    作り直さず、最後の切った印の後に差し替えの印が在る時だけ差し替えた項目を切り直し（_recut）、控えと違うファイルを書き戻す"""
+    rows = _ledger(b)
+    if rows is not None:
+        items = _amended_since_cut(b)
+        if items:
+            rows = _recut(b, rows, items)
+        _restore(b, rows)
+        return _out(b, rows)
+    drawn = _drawn(b)
+    if drawn is None:
+        return []
+    rows = []
+    for n, (keys, text) in enumerate(drawn, 1):
+        name = NAME.format(n=n)
+        _put(b.work(name), text.encode("utf-8"))
+        rows.append({"item": n, "unit_keys": keys, "file": name, "sha256": _sha(text), "text": text})
+    return _freeze(b, rows)
 
 
 def cut_at(board_dir) -> list[dict]:
