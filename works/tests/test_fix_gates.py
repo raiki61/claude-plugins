@@ -67,7 +67,7 @@ class FixGatesCase(tbf.BoardCase):
         self.fix_ready()
         b = entry.open_board(self.board)
         planmarks.save(self.board, b.round, FIELDS if fields is None else fields)
-        self.base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, capture_output=True, text=True,
+        self.base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, capture_output=True, text=True, encoding="utf-8",
                                    check=True).stdout.strip()
         return entry.open_board(self.board)
 
@@ -87,7 +87,7 @@ class FixGatesCase(tbf.BoardCase):
         self.add_test(f"\n    def {name}(self):\n        self.assertEqual(clamp(5, 0, 10), 5)\n")
 
     def git(self, *args):
-        return subprocess.run(["git", *args], cwd=self.repo, capture_output=True, text=True, check=True).stdout.strip()
+        return subprocess.run(["git", *args], cwd=self.repo, capture_output=True, text=True, encoding="utf-8", check=True).stdout.strip()
 
     def fields_for(self, test_id):
         """受け入れのテスト test_id を 1 本持つ tdd の項目（単位は mean）"""
@@ -100,7 +100,7 @@ class FixGatesCase(tbf.BoardCase):
         return json.loads(entry.open_board(self.board).work(fixgates.LEDGER).read_text(encoding="utf-8"))
 
     def worktrees(self):
-        out = subprocess.run(["git", "worktree", "list"], cwd=self.repo, capture_output=True, text=True, check=True).stdout
+        out = subprocess.run(["git", "worktree", "list"], cwd=self.repo, capture_output=True, text=True, encoding="utf-8", check=True).stdout
         return out.strip().splitlines()
 
 
