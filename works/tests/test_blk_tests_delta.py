@@ -745,7 +745,7 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertEqual(brief["plan_items"], [])
 
     def test_cut_writes_seat_file_only_in_g3(self):
-        """修正の形 g3 の 1 回目・2 回目の審査の支度は、task-review の型を埋めた座を review<n>-seat.md に書き、brief の seat_file と
+        """修正の形 g3 の 1 回目の審査の支度だけが、task-review の型を埋めた座を review1-seat.md に書き、brief の seat_file と
         must に名指す（型の穴は brief・方針・直した側の出力・切った版・差分のファイル）。g3 でなければ seat_file は空"""
         repo = self.fixed()
         fixshape.choose(self.board, "af", by="test", why="差分の審査役の座が g3 だけで出ることの確かめ")

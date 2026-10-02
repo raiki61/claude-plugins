@@ -85,7 +85,7 @@ works の中の語:
 ## Global Constraints
 
 - 本流 `graphloops/` と、works の中の写し `works/.shared/core/graphloops/`・`works/.shared/core/gl-prompts/` は変えない（`CLAUDE.md:20`）。
-- 216 の物は使うだけで変えない: `works/.shared/borrow/**`（`seams.json`・`unattended.md`・`borrow.json`・写し）・`works/.shared/core/spseam.py`・`works/dev/toolset.py`。節の名と欄（`use_as`・`files`・`applies`・`not_applies`・`placeholders`・`words`）は 216 の計画の Task 1・4 のとおり。
+- 216 の物は使うだけで変えない: `works/.shared/borrow/**`（`seams.json`・`unattended.md`・`borrow.json`・写し）・`works/.shared/core/spseam.py`・`works/dev/toolset.py`。例外（出荷した形）: Task 9 の審査の裁定（I1）で、審査役の型の「Do not crawl the broader codebase」を読み替える決まり CRAWL を足すため、`seams.json` に CRAWL の錨の 1 行と `unattended.md` に CRAWL の節を足した。最後の審査の直しで `unattended.md` の頭の、読み替えが載る役の説明を今の姿（TDD の役・手直しの役・座・g1 の修正役の節）に直した。写し・pin・`borrow.json`・`spseam.py`・`toolset.py` は変えていない。節の名と欄（`use_as`・`files`・`applies`・`not_applies`・`placeholders`・`words`）は 216 の計画の Task 1・4 のとおり。
 - works の強み 11 項目はどの腕でも外さない: 赤緑の機械の判定・元から赤の区別・凍結と許しの 1 本の道・3 回で戻す・書き込みの出どころ・受け付けで選んで回す試験・class_query の数え直し・申し出と裁定・独立設計と R1〜R4・守りのファイルと最後の関所・単位ごとの記録。どの腕も同じ外側の関門（修正の受け付け・束・差分の審査・最後のテスト・最後の関所）を通る。g1 では赤緑と凍結が輪の中に無いので、束がそれを受け持つ。g1 の「3 回で戻す」は、受け付けの最後の回の止めと戻し（`accept.park_bound_units` → `revert_units`）が受け持つ。修正役はどの形とも同じく、直す義務の単位をいつも changes に載せる（3 回の審査を通らなかった項目の単位も changes に残し、残った指摘は `root_or_symptom` の symptom の why に書く）。最後の回の拒否はその行に結べ、その単位の直しだけを戻して ask_human に止める。not_done に置くと拒否が単位に結べず返答全体が拒まれるので使わない。単位をまったく直せない時は食い違いの申し出（ASK）で返す。g1 の「受け付けで選んで回す試験」は、tdd-start が g1 でも取る元の結末で受け付けが回す。
 - 期限・タイムアウトを新しく足さない。止めるのは条件だけ。時間は測って報告するだけで、採否の条件にしない。
 - 今ある能力を減らさない: `fix_shape` が空の run は g3、前の版で作った盤面（`r1/start.json` に `fix_shape` が無い）は af として動く（座は出ず、道具の振る舞いは 220 の前と同じ）。
@@ -680,12 +680,12 @@ git commit -m "feat(works): 修正の形 g1 では TDD の輪を飛ばし、修�
   - `row(db: pathlib.Path, run_id: str, board: pathlib.Path, *, adapter_home=None) -> dict` — 1 run の行（run が db に無ければ ValueError）:
     - `run_id`・`shape`・`fixture`（`source_run` か `""`）・`complete: bool`・`items`（欄の項目の数。欄が無ければ直す義務の単位の数）
     - `redo`: `{fix_rejects, tdd_rejects, battery_rejects, delta_faces, refix_rounds, subagent_redos}` と `redo_total`
-      - fix_rejects は修正の受け付けの拒否の本文のファイルの数から battery_rejects を引いた物（束の拒否も本文を書くので 2 重に数えない）、tdd_rejects は 219 の `calls` の `ok: false` の行、battery_rejects は束の行の在る受け付けの回、delta_faces は差分の審査が受け付けた穴、refix_rounds は手直しの往復、subagent_redos は g1 の下請けの作り直し（修正役の節の local_agent の started のうち項目ごとの 2 本を超えた分を 2 本で 1 回。ほかの形は 0）
+      - fix_rejects は修正の受け付けの拒否の本文のファイルの数から battery_rejects を引いた物（束の拒否も本文を書くので 2 重に数えない）、tdd_rejects は 219 の `calls` の `ok: false` の行、battery_rejects は束の行の在る受け付けの回、delta_faces は差分の審査が受け付けた穴、refix_rounds は手直しの往復、subagent_redos は g1 の下請けの作り直し（最初の周の修正役の節 `fix` の最初の回（その節の最初の `node_completed` まで）の local_agent の started のうち、下請けを起こした項目（修正案の項目と、どの項目にも無い単位の残りの 1 項目）ごとの 2 本を超えた分を 2 本で 1 回。受け付けの拒否の後の出し直しは fix_rejects に数えたので数えず、裁定の後の 2 回目 `fix-ruled` はどの形でも作り直しに数えない。ほかの形は 0。最後の審査 I1 の直し）
     - `cost_usd: {fix_stage, fixing}`（FIX_STAGE の頭の AI の節の費用の和と、`fixing__` だけの和）
     - `secs: {step_name: 秒}`（FIX_STAGE の頭の AI の節。秒は小数 1 桁）
     - `rulings: {裁定の語: 件}`・`divergences: {種類: 件}`（211 の前は種類の無い申し出を `"unkinded"` に数える）
     - `gate_misses`（束の行の数）
-    - `record_gaps: list[str]`（例: tdd の節の `node_completed` の数と `calls` の行の数が違う・tdd の項目の単位に輪の単位の行が無い・平の run でないのに修正案の欄が在って brief の控えが無い・start の控えに `fix_shape` が無い・AI の節の費用が取れない・盤面を開けない・g1 で Agent が走ったのに書き込みの記録に `agent_id` の行が無く申告 `declared` だけが在る（Task 7 の審査 M1））
+    - `record_gaps: list[str]`（例: tdd の節の `node_completed` の数と `calls` の行の数が違う・tdd の項目の単位に輪の単位の行が無い・平の run でないのに修正案の欄が在って brief の控えが無い・start の控えに `fix_shape` が無い・AI の節の費用が取れない・盤面を開けない・g1 で Agent が走ったのに書き込みの記録に `agent_id` の行が無く申告 `declared` だけが在る（Task 7 の審査 M1）・g1 で Agent が走ったのに書き込みの記録そのものが無い（家の取り違えか包みの無い起動））
     - `contamination: {"Skill": 件, "Agent": 件}`（FIX_STAGE の節の `tool_called` のうち、その形で拒む道具。`fixshape.denied_tools` と同じ表で、`step_name` の最後の区切りを印の節の名として見る）で、走った物。Skill は同じ `tool_call_id` の `tool_completed` の `tool_outcome` が `error` の呼び出しを、Agent は同じ節の `task_activity` の started・`local_agent` の数を超えた呼び出しを、柵が拒んだ物として `refused: {"Skill": 件, "Agent": 件}` に数える（Agent の tool_outcome は下請けが走っても error になりうる）（拒んだ呼び出しも skills: の一覧に残るので tool_called に出る。Task 2 の審査 M5）。素の `Skill`・`Agent` の deny が実地で拒むかは未確認（Task 3 の審査）——af・current・g1 の行で走った Skill は混ざりに出る
     - `red_green_checked: bool | None`（受け付けが受けた回の trace の `fixgates.SKIPPED_OP`（`fixgates.unchecked` の決まり。義務の外の項目の OUT_OF_DUTY は除く）に行が 1 つでも在るか、輪の状態が無ければ偽。拒んだ回の帳面の skipped は数えない。平の run は当てないので None）
   - `maintenance(root: pathlib.Path) -> dict[str, int]` — 腕ごとの、その腕で読む文の行の数。
@@ -857,7 +857,7 @@ git commit -m "feat(works): 修正の形 g3 で差分の審査役に task-review
 **前提:** 211 が取り込まれている。最初に 211 の申し出の種類の欄の名と語（設計の 4 つ: `brief_vs_judgment`・`unnamed_test_broke`・`not_red`・`scope_needed`）と、裁定 `fix_plan_item` の控えの置き場を引く。
 
 **Files:**
-- Modify: `works/.shared/core/seat.py`（`seat.DIVERGENCE_HINT`: implementer の語 NEEDS_CONTEXT・BLOCKED（216 で `divergence`）に当たる時、どの種類で申し出るかの 4 行。座の implementer と g1 の節に載る）
+- Modify: `works/.shared/core/seat.py`（`seat.DIVERGENCE_HINT`: implementer の語 NEEDS_CONTEXT・BLOCKED（216 で `divergence`）に当たる時、どの種類で申し出るかの、頭の 1 行と種類ごとの行（`conflict.DIV_KINDS` の 6 種類）。座の implementer と g1 の節に載る）
 - Modify: `works/dev/fixmeasure.py`（`divergences` を 211 の種類で数える。`rulings` に `fix_plan_item`）
 - Modify: `works/tests/test_seat.py`・`works/tests/test_fixmeasure.py`・`works/CHANGELOG.md`
 
@@ -913,7 +913,7 @@ git commit -m "feat(works): 座の文に申し出の種類を名指し、測る�
 
 ## この計画が扱わない物
 
-- 216 の物（写し・pin・節の中身・`unattended.md` の決まり・`toolset.py`）。借りる一覧のうち座の無いスキル（systematic-debugging・verification-before-completion・requesting-code-review）を一覧から外すかは 216 か別の依頼。
+- 216 の物（写し・pin・節の中身・`unattended.md` の決まり・`toolset.py`）。ただし CRAWL の錨と節（Task 9 の審査の裁定 I1）と `unattended.md` の頭の説明の直しだけは、この計画が足した（制約の節の 216 の行）。借りる一覧のうち座の無いスキル（systematic-debugging・verification-before-completion・requesting-code-review）を一覧から外すかは 216 か別の依頼。
 - `use.sh`（利用者の殻）に `fix_shape`・`fix_fixture` を出すこと。試しは自分食いの殻 `dogfood.sh` だけで回す。
 - 試しの実行そのもの・固定材料の依頼の選定（持ち主）。
 - 振り分け（router）と SDD の道（lane）（221）。

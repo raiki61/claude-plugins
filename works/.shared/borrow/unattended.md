@@ -2,7 +2,7 @@
 
 対象は、works に写した superpowers（`.shared/borrow/superpowers/<版>/`。版・commit・ファイルごとの sha256 は `borrow.json` の `pin`）のスキルのうち、借りる 5 本（`.shared/borrow/borrow.json` の `skills`。`dev/toolset.py` が隔離した設定の `skills/` に写す）と、部品（スキルとしては使わず、中の型を役の指示書の骨に使うファイル。`borrow.json` の `parts`）。写しは直さない。版を上げるのは `dev/toolset.py vendor` だけ。借りた物を役に載せる時の包み方（節ごとの使い道・錨・穴・出口の語）は、包む節の表 `.shared/borrow/seams.json` が持つ。スキルの文が人（your human partner）や調整役（下請けの AI を起こす親の会話）を前提にしている所は、works の無人の役ではこのファイルの決まりで読み替える。スキルの文とこのファイルがぶつかったら、このファイルが勝つ。さらに、役の指示書（`blk-*/commands/*.md` と、支度の節が組んで役に読ませる指示書）と節の `output_format` は、このファイルより勝つ。
 
-このファイルは、借りたスキルを読める役（道具に Skill を持つ役。今は素材集めの局所レビュー）の指示書の末尾に、機械が全文を載せる（`.shared/core/rolekit.py` の `skill_overlay`。superpowers の using-superpowers は、役への直の指示がスキルに勝つと定める）。載ることは `tests/test_sp_skills.py` の `OverlayDeliveryCase` が見張る。
+このファイルは、借りたスキルを読める役（道具に Skill を持つ役。素材集めの局所レビューと、TDD の役・手直しの役（`tdd`・`refix`・`refix2`。Skill を使えるのは修正の形 `g3` の時だけ））の指示書の末尾と、借りた型を骨にする座（修正の形 `g3` の修正役と 1 回目の差分の審査役。`.shared/core/seat.py` の `section`）と `g1` の修正役の節（`seat.g1_section`）の末尾に、機械が全文を載せる（`.shared/core/rolekit.py` の `skill_overlay`。superpowers の using-superpowers は、役への直の指示がスキルに勝つと定める）。載ることは `tests/test_sp_skills.py` の `OverlayDeliveryCase` が見張る。
 
 ## 読み方
 

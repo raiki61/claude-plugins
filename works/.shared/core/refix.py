@@ -206,10 +206,12 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
     role = REVIEW_ROLE[n]
     brief_name, seat_name = f"review{n}-brief.json", f"review{n}-seat.md"
     pol = policy.brief(b)
-    seat_text = seat.section(role, fixshape.shape_at(b.dir), {   # 写しの照合（pinned）を書き込みの前に
-        "[BRIEF_FILE]": str(b.work(brief_name)), "[GLOBAL_CONSTRAINTS]": pol["path"] or seat.NONE,
-        "[REPORT_FILE]": _out_file(b, recount.FIX_NODE if n == 1 else _pass(n - 1)["fix"]) or seat.NONE,
-        "[BASE_SHA]": _cut_base(b, n) or seat.NONE, "[HEAD_SHA]": d.get("rev") or seat.NONE, "[DIFF_FILE]": d["file"]})
+    shape, seat_text = fixshape.shape_at(b.dir), ""
+    if seat.carries(role, shape):   # 座は 1 回目の審査役だけ（2 回目の review2 には座が無い。seat の頭）。穴の値も 1 回目の物
+        seat_text = seat.section(role, shape, {   # 写しの照合（pinned）を書き込みの前に
+            "[BRIEF_FILE]": str(b.work(brief_name)), "[GLOBAL_CONSTRAINTS]": pol["path"] or seat.NONE,
+            "[REPORT_FILE]": _out_file(b, recount.FIX_NODE) or seat.NONE,
+            "[BASE_SHA]": _cut_base(b) or seat.NONE, "[HEAD_SHA]": d.get("rev") or seat.NONE, "[DIFF_FILE]": d["file"]})
     _drop_stale(b, brief_name, seat_name, f"reads-{role}.json", *((deltamarks.VERDICTS_FILE,) if n == 1 else ()),
                 root=V1_OUTPUTS if n == 1 else ())
     seat_file = str(_write_text(b.work(seat_name), seat_text)) if seat_text else ""
@@ -234,12 +236,10 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
             "brief_file": str(brief), "must": [str(brief), d["file"]] + ([seat_file] if seat_file else [])}
 
 
-def _cut_base(b, n) -> str:
-    """n 回目の審査の差分の起点の版（写しの RL の fix_delta と同じ決まり。.shared/core/graphloops/rules/review-loop.py:1578 の
-    rev の行: 1 回目は周の頭に固めた版 reviewed_revision、2 回目は 1 回目に固めた修正後の版）。無ければ空"""
-    if n == 1:
-        return b.loop_state.get("reviewed_revision") or ""
-    return (_in_round(b, b.loop_state.get(_pass(n - 1)["state_key"])) or {}).get("rev") or ""
+def _cut_base(b) -> str:
+    """1 回目の審査の差分の起点の版（写しの RL の fix_delta と同じ決まり。.shared/core/graphloops/rules/review-loop.py:1578 の
+    rev の行の 1 回目: 周の頭に固めた版 reviewed_revision）。無ければ空。座の載る審査役は 1 回目だけなので 2 回目の起点は作らない"""
+    return b.loop_state.get("reviewed_revision") or ""
 
 
 def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, values=None) -> dict:

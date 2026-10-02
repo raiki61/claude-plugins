@@ -23,9 +23,9 @@
 - 修正の形 G1_SHAPE（g1）: 修正役（fixshape.AGENT_NODES）が SDD の型で項目ごとに下請け（実装役・審査役）を Agent で回す。
   g1_prompt(seam_id, values) は下請けに渡すファイルの中身（216 の型を埋めた物の後ろに、下請けへの works の決まり G1_SUB_HEAD と
   検索語の規律の塊）、g1_section(rows) は修正役の指示書の節（G1_HEAD → 手順 → 項目ごとのファイル → 申し出の種類の手引き
-  DIVERGENCE_HINT → 読み替えの上書き G1_OVERRIDES → 読み替え）。下請けは包みの起動でないので、包みが system prompt に足す検索語の規律（adapter.query_rule）が
-  届かない。だから型の後ろに字のまま載せる（run 221 の R4 の 3）。下請けの Edit・Write は修正役と同じ記録に載る（PostToolUse の
-  フックは subagent の呼び出しでも起きる。tests/test_writes.py）
+  DIVERGENCE_HINT → 読み替えの上書き G1_OVERRIDES → 読み替え）。下請けは包みの起動でないので、包みが system prompt に
+  足す検索語の規律（adapter.query_rule）が届かない。だから型の後ろに字のまま載せる（run 221 の R4 の 3）。下請けの
+  Edit・Write は修正役と同じ記録に載る（PostToolUse のフックは subagent の呼び出しでも起きる。tests/test_writes.py）
 
 座を組む前に、写し（spseam.vendored_dir）が固定（borrow.json の superpowers.pin）と合うかを spseam.pin_problems で照らす。
 食い違い・型の穴の埋め残り（spseam.fill）は ValueError で名指す（af の文へ黙って逃げない。支度の script は 2 で落ちる）。
@@ -46,10 +46,11 @@ if str(_CORE) not in sys.path:
 
 import adapter  # noqa: E402  （L2。検索語の規律の塊 query_rule を g1 の下請けのファイルに載せる）
 import conflict  # noqa: E402  （同じ L3。申し出の種類の語 DIV_KINDS と状態の語の読み替え WORD）
+import fixshape  # noqa: E402  （L2。形の語 SEAT_SHAPE・AGENT_SHAPE の正本）
 import rolekit  # noqa: E402
 import spseam  # noqa: E402
 
-SHAPE = "g3"   # 座が載る修正の形
+SHAPE = fixshape.SEAT_SHAPE   # 座が載る修正の形（g3）
 SEATS = {"tdd": "tdd", "fix": "implementer", "fix-ruled": "implementer",   # 役の印の名 → 節の名
          "review": "task-review", "refix": "receiving-review", "refix2": "receiving-review"}
 NONE = "（無し）"   # 型の穴に入れる物が無い時の値（人の方針の文書が無い run の [GLOBAL_CONSTRAINTS] など）
@@ -92,7 +93,7 @@ PROMPT_HEAD = "### 下請けの型（superpowers の {file}。works の節で包
 ITEM = "superpowers"   # borrow.json の借りる物の名
 
 # 修正の形 g1（修正役が SDD の型で下請けを回す。TDD の輪は回さず、赤緑と凍結は修正の受け付けの束 fixgates が事後に確かめる）
-G1_SHAPE = "g1"
+G1_SHAPE = fixshape.AGENT_SHAPE   # g1
 G1_HEAD = "## 下請けを回す（修正の形 g1）"
 G1_REPORT = "実装役の最後のメッセージを、この型の後ろに貼る"   # 審査役の型の [REPORT_FILE]
 # 審査役の型の [HEAD_SHA]。works は commit しないので差分は作業ツリーと base の間。型の `git diff [BASE_SHA]..[HEAD_SHA]` は

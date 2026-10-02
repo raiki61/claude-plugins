@@ -17,7 +17,9 @@
 - plain(board_dir): 平の run（形が PLAIN＝current）か
 - SKILL_NODES: 座が skill の節の名（seat の表と試験で一致を縛る）
 - AGENT_NODES: 修正役の節の名（g1 の形だけ Agent で下請けを起こす）
-- denied_tools(shape, node): 形と印の名から包みが permissions.deny で拒む道具（g3 以外の座の節で Skill・g1 以外の修正役で Agent）
+- SEAT_SHAPE・AGENT_SHAPE・DENY: 座の載る形・下請けを起こす形と、形ごとの道具の柵の表（seat がこの語を引く）
+- denied_tools(shape, node): 形と印の名から包みが permissions.deny で拒む道具（DENY を引く。g3 以外の座の節で Skill・g1 以外の
+  修正役で Agent）
 
 形はいつもこの shape_at から引く（ブロック・包み・測る関数が start.json を直に読まない）。
 """
@@ -39,6 +41,11 @@ FIXTURE_KEY = "fixture"           # start の控えの固定材料の印の鍵�
 SKILL_NODES = frozenset({"tdd", "refix", "refix2"})
 # 修正役の節（g1 の形で SDD の型の下請けを Agent で起こす役の印の名。Task 7 で YAML に Agent を足す。先に g1 の外で拒む）
 AGENT_NODES = frozenset({"fix", "fix-ruled"})
+SEAT_SHAPE = "g3"         # 座が載る形（seat.SHAPE）
+AGENT_SHAPE = "g1"        # 修正役が下請けを Agent で起こす形（seat.G1_SHAPE）
+# 形ごとの道具の柵の表: 道具 → (その道具を持つ節の名, その道具を持たせる形)。節の役に、形が持たせる形の外なら拒む。
+# 腕の違いはこの表の行だけ（denied_tools は表を引くだけ）
+DENY = {"Skill": (SKILL_NODES, frozenset({SEAT_SHAPE})), "Agent": (AGENT_NODES, frozenset({AGENT_SHAPE}))}
 
 
 def _words() -> str:
@@ -117,14 +124,9 @@ def choose(board_dir, shape: str, *, by: str, why: str) -> None:
 
 
 def denied_tools(shape: str, node: str) -> tuple[str, ...]:
-    """形 shape の盤面で印 node の役に拒む道具（包みが permissions.deny に足す）。座の節は g3 の外で Skill、修正役は g1 の外で
-    Agent（この順）。ほかの節は ()"""
-    out = []
-    if node in SKILL_NODES and shape != "g3":
-        out.append("Skill")
-    if node in AGENT_NODES and shape != "g1":
-        out.append("Agent")
-    return tuple(out)
+    """形 shape の盤面で印 node の役に拒む道具（包みが permissions.deny に足す）。表 DENY の順に、node がその道具を持つ節で
+    shape が持たせる形の外なら拒む（座の節は g3 の外で Skill、修正役は g1 の外で Agent）。ほかの節は ()"""
+    return tuple(tool for tool, (nodes, allowed) in DENY.items() if node in nodes and shape not in allowed)
 
 
 def plain(board_dir) -> bool:
