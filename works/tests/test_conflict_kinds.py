@@ -191,6 +191,31 @@ class BriefKindCase(unittest.TestCase):
 
 
 
+class RulingLimitsTextCase(KindRowsCase):
+    """裁定の limits が広げるのは案の項目の範囲に足すパスだけ（planscope の継ぎ目の決まり）を、裁定役の決まり・裁定の文・
+    修正役の brief の決まりが同じく言う"""
+
+    def test_ruler_says_limits_only_add_paths(self):
+        sec = fixrules.sections(fixrules.RULER)["ruler-reply"]
+        for w in ("空なら足すパスは無い", "新しいファイル", "`out_of_scope`", "`tests`・`adds`・`removes`"):
+            self.assertIn(w, sec)
+
+    def test_rulings_file_says_only_ruled_paths_widen(self):
+        rows = [{"id": f"c1-{i}", "round": 1, "source": "fix", **ITEM, "status": "ruled",
+                 "ruling": {"decision": d, "text": "裁きの文を十字以上で書く", "limits": [], "by": "x"}}
+                for i, d in enumerate(("fix_code_as", conflict.REPLACE), 1)]
+        self.write_items(rows)
+        text = conflict.write_rulings(self.b).read_text(encoding="utf-8")
+        self.assertEqual(text.count("「範囲」に並べたパスだけ"), 2, text)
+
+    def test_ruler_opens_brief_for_limits_too(self):
+        # 範囲（limits）を書く時も fix_plan_item を考える時も、その単位の brief を開く
+        self.assertIn("`limits` を書く時と `fix_plan_item` を考える時は", fixrules.sections(fixrules.RULER)["ruler-head"])
+
+    def test_brief_rule_names_ruling_limits(self):
+        self.assertIn("裁定の「範囲」", fixrules.sections(fixrules.BRIEF)["brief-canon"])
+
+
 class FixPlanItemRulingCase(unittest.TestCase):
     """裁定 fix_plan_item の受け付けの確かめ（ruling.problems を直に呼ぶ。briefs は planbrief.by_unit_at の形）"""
 

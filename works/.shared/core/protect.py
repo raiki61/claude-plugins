@@ -11,16 +11,16 @@ works 自身の試験・柵を書き換えられる（run 24 の修正役は Bas
 - MANIFEST:            一覧のファイル（これ自身も一覧に入る）
 - load(path=None):     一覧を読んで形を確かめる。崩れていれば Broken（黙って空にしない）
 - rules(doc):          当てる行（rules と copies）の並び
-- match(path, pattern): git の :(glob) と同じ当たり方（** は 0 個以上のフォルダ・* と ? と [..] は / を跨がない）
+- match(path, pattern): git の :(glob) と同じ当たり方（** は 0 個以上のフォルダ・* と ? と [..] は / を跨がない。正本は
+                       planmarks.glob_match）
 - hits(paths, doc=None): パスごとに最初に当たった行 [{path, id, glob, why}]（差分を切った後の変わったファイルの一覧に当てる）
 - touched(repo, rev, doc=None): 数える版 rev から今の作業ツリーまで（commit・消した物・未追跡を含む）の差分のうち一覧に当たる物と
                        行数 [{path, id, glob, why, added, deleted}]（added・deleted はバイナリ・入れ子の git なら None）
 - lines(rows):         関所の文と盤面の問いに載せる 1 行ずつの文
-標準ライブラリだけ。git は repo を cwd にして呼ぶ（期限は足さない）。
+標準ライブラリと core の accept・planmarks だけ。git は repo を cwd にして呼ぶ（期限は足さない）。
 """
 import json
 import pathlib
-import re
 import subprocess
 import sys
 
@@ -31,6 +31,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 import accept  # noqa: E402
+import planmarks  # noqa: E402   glob の当て方の正本
 
 MANIFEST = _CORE / "protected.json"
 RULE_KEYS = {"id", "glob", "why"}
@@ -89,44 +90,9 @@ def rules(doc) -> list:
     return list(doc["rules"]) + list(doc.get("copies") or [])
 
 
-def _segment(seg: str) -> str:
-    """1 区切りの型を正規表現に（* と ? と [..] は / を跨がない。[! は否定）"""
-    out, i = [], 0
-    while i < len(seg):
-        c = seg[i]
-        k = -1
-        if c == "[":
-            j = i + 1 + (seg[i + 1:i + 2] == "!")
-            j += seg[j:j + 1] == "]"
-            k = seg.find("]", j)
-        if c == "*":
-            out.append("[^/]*")
-        elif c == "?":
-            out.append("[^/]")
-        elif k > 0:
-            body = seg[i + 1:k]
-            out.append("[" + ("^" + body[1:] if body.startswith("!") else body).replace("\\", "\\\\") + "]")
-            i = k
-        else:
-            out.append(re.escape(c))
-        i += 1
-    return "".join(out)
-
-
-def _regex(pattern: str):
-    parts = pattern.split("/")
-    out = []
-    for i, seg in enumerate(parts):
-        last = i == len(parts) - 1
-        if seg == "**":
-            out.append(".*" if last else "(?:[^/]+/)*")
-        else:
-            out.append(_segment(seg) + ("" if last else "/"))
-    return re.compile("".join(out) + r"\Z")
-
-
 def match(path: str, pattern: str) -> bool:
-    return _regex(pattern).match(path) is not None
+    """根からの相対のパスが型に当たるか（当て方の正本は planmarks.glob_match。修正案の範囲の欄と同じ当て方）"""
+    return planmarks.glob_match(path, pattern)
 
 
 def hits(paths, doc=None) -> list:

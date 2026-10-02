@@ -64,6 +64,8 @@ nodes:
             required:
             - faces
             - checks
+            - compliance
+            - quality
             properties:
               faces:
                 type: array
@@ -117,6 +119,65 @@ nodes:
                     why:
                       type: string
                       minLength: 20
+              compliance:
+                type: object
+                additionalProperties: false
+                required:
+                - verdict
+                - items
+                - read
+                properties:
+                  verdict:
+                    type: string
+                    enum:
+                    - pass
+                    - fail
+                    - unverifiable
+                    - not_applicable
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - item
+                      - kind
+                      - face_key
+                      - why
+                      properties:
+                        item:
+                          type: integer
+                          minimum: 1
+                        kind:
+                          type: string
+                          enum:
+                          - missing
+                          - extra
+                          - misunderstood
+                          - unverifiable
+                        face_key:
+                          type: string
+                        why:
+                          type: string
+                          minLength: 20
+                  read:
+                    type: string
+                    minLength: 20
+              quality:
+                type: object
+                additionalProperties: false
+                required:
+                - verdict
+                - why
+                properties:
+                  verdict:
+                    type: string
+                    enum:
+                    - pass
+                    - fail
+                  why:
+                    type: string
+                    minLength: 20
         - id: review-accept
           script: accept
           runtime: uv

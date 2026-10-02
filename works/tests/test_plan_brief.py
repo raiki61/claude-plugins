@@ -24,7 +24,7 @@ import planmarks  # noqa: E402
 
 FIELDS = [{"route": "tdd", "route_why": "", "tests": [{"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "2 つの値の平均",
            "path": "stats.mean を直に呼ぶ", "red_kind": "assertion", "red_why": "今は len-1 で割る"}], "rewrite_tests": [],
-           "refactor": {"declared": False, "why": ""}}]
+           "refactor": {"declared": False, "why": ""}, "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}]
 
 
 class BriefCase(tbf.BoardCase):
@@ -42,6 +42,20 @@ class BriefCase(tbf.BoardCase):
         self.assertEqual(got[0]["sha256"], hashlib.sha256(text.encode("utf-8")).hexdigest())
         args = (1, tbf.plan_reply()["plan"][0], FIELDS[0], {u["key"]: u for u in b.record["units"]}, "目的の文", "")
         self.assertEqual(planbrief.render(*args), planbrief.render(*args))
+
+    def test_render_shows_scope(self):
+        """brief に書いてよいパス（allowed_paths）と触らない物（out_of_scope）の節が並ぶ。欄の無い行（217 番の形）は無し"""
+        item1 = tbf.plan_reply()["plan"][0]
+        f = {**FIELDS[0], "allowed_paths": ["stats.py"], "out_of_scope": [{"glob": "test_stats.py", "why": "既存の試験は触らない"}]}
+        text = planbrief.render(1, item1, f, {}, "", "")
+        for w in ("## 書いてよいパス（allowed_paths）", "- stats.py", "## 触らない物（out_of_scope）", "test_stats.py——既存の試験は触らない"):
+            self.assertIn(w, text)
+        old = {k: v for k, v in f.items() if k not in ("allowed_paths", "out_of_scope")}
+        self.assertIn("## 書いてよいパス（allowed_paths）\n\n無し", planbrief.render(1, item1, old, {}, "", ""))
+        text_old = planbrief.render(1, item1, old, {}, "", "")
+        for h in ("## 書いてよいパス（allowed_paths）", "## 触らない物（out_of_scope）"):
+            self.assertIn(f"{h}\n\n無し（この案は範囲を決めていない。範囲では縛らない）", text_old)
+        self.assertIn("## 触らない物（out_of_scope）\n\n無し\n", planbrief.render(1, item1, {**f, "out_of_scope": []}, {}, "", ""))
 
     def test_cut_is_frozen_and_restores_edited_file(self):
         b = self.ready(); first = planbrief.cut(b)

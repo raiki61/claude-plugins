@@ -93,19 +93,27 @@ def conflict_fix():
     return r
 
 
-# 修正案の役の返答の works の欄（route・tests・rewrite_tests・refactor。planmarks）。線を本物のスクリプトで回すと、修正案は
+# 修正案の役の返答の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope。planmarks）。線を本物のスクリプトで回すと、修正案は
 # blk-plan の受け付け（planmarks.gaps）を通り、欄が欠ければ 3 回とも拒まれて盤面が止まる（by works:plan）。test_edge.plan_reply は
 # 受け付けが欄を外した後の形（entry.take を直に呼ぶ linekit の道の物）なので、ここで欄を足す。種の test_stats.py は 3 件のうち
 # 2 件が今の 2 つのバグで赤なので、受け入れのテストを先に足さず direct で直す（TDD の輪の返答 TDD_ALL_DIRECT とも揃う）
 PLAN_FIELDS = {"route": "direct",
                "route_why": "種の test_stats.py の 3 件のうち 2 件が今の 2 つのバグで赤になり、直した後の振る舞いを既に確かめている",
-               "tests": [], "rewrite_tests": [], "refactor": {"declared": False, "why": ""}}
+               "tests": [], "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
+               "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}
+
+
+# 修正案の works の欄を控えた run の 1 回目の差分の審査の準拠（deltamarks。承認済みの項目と照らし、落ちた行は無い）
+REVIEW_COMPLIANCE = {"verdict": "pass", "items": [],
+                     "read": "承認済みの修正案の項目 1 の approach・allowed_paths と差分の stats.py を読み、足りない物も範囲の外の物も無い"}
 
 
 def line_replies(**kw) -> dict:
-    """TL.replies の修正案を、役そのものの返答（項目に works の欄 PLAN_FIELDS を足した物）に替えた返答の組"""
+    """TL.replies の修正案を、役そのものの返答（項目に works の欄 PLAN_FIELDS を足した物）に替え、1 回目の差分の審査の準拠を
+    控えの在る run の pass（REVIEW_COMPLIANCE）に替えた返答の組（品質は TL.replies の物のまま: 穴が在れば fail）"""
     r = TL.replies(**kw)
     r["plan"] = {"plan": [{**row, **PLAN_FIELDS} for row in r["plan"]["plan"]]}
+    r["review"] = {**r["review"], "compliance": REVIEW_COMPLIANCE}
     return r
 
 

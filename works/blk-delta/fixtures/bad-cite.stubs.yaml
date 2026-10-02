@@ -17,6 +17,13 @@ review:
       cite: "return hi + 1"
       why: 上限を超えた値に hi でない値を返しており、docstring の約束とずれている
   checks: []
+  compliance:
+    verdict: not_applicable
+    items: []
+    read: 修正案の works の欄の控えが無い run なので、照らす承認済みの項目は無い。差分の stats.py を読んだ
+  quality:
+    verdict: fail
+    why: faces に挙げた穴は修正案の項目への準拠の外の品質の穴で、準拠の行には結ばない
 review-accept:
   ok: false
   done: false

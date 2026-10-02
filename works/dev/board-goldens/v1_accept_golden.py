@@ -78,9 +78,14 @@ def load(name):
     return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
 
 
+def _verdicts():
+    """穴の在る 1 回目の差分の審査の返答の 2 判定の欄（準拠は delta_ok の not_applicable、品質は穴が在るので delta_bad_cite の fail）"""
+    return {"compliance": load("delta_ok")["compliance"], "quality": load("delta_bad_cite")["quality"]}
+
+
 def _plan_only(kind):
     return {"faces": [{"key": f"stats.py の {kind} の穴", "kind": kind, "where": "stats.py", "cite": "def clamp(x, lo, hi):",
-                       "why": "修正差分のレビューが事前審査だけの語で穴を挙げている"}], "checks": []}
+                       "why": "修正差分のレビューが事前審査だけの語で穴を挙げている"}], "checks": [], **_verdicts()}
 
 
 def _without(name, key):
@@ -111,7 +116,7 @@ VARIANTS = {
     "fix_ok+not_object": lambda: ["changes"],
     "delta_ok+helper_face": lambda: {"faces": [{"key": "helper.py 使われない関数", "kind": "dead_path", "where": "helper.py",
                                                 "cite": "def helper():", "why": "どこからも呼ばれない関数を修正が足している"}],
-                                     "checks": []},
+                                     "checks": [], **_verdicts()},
     "delta_ok+stray_check": lambda: {**load("delta_ok"), "checks": [{"key": "stats.py 塞いだと言われていない穴", "closed": True,
                                                                       "why": "修正が塞いだと言っていない穴を審査役が検算している"}]},
     "delta_ok+no_faces_none": lambda: _without("delta_ok", "faces_none"),

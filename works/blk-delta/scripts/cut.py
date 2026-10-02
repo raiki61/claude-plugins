@@ -4,10 +4,12 @@
 # ///
 """1 回目の差分の審査役を起こす前の支度（refix.cut(n=1)。blk-delta の節 cut）。
 差分を切るのは盤面の機械の節 p3.fix_delta（写しの RL の fix_delta。修正を受けた後の settle）で、ここは盤面の loop.fix_delta の
-ファイルと触ったファイルを出し、役に見せる材料（事前審査の穴と修正役の plan_faces）を review1-brief.json に書き、読むだけの役の
+ファイルと触ったファイルを出し、役に見せる材料（盤面の reads・人の方針・守りのファイル・レンズの行・承認済みの修正案の項目
+plan_items・直す裁定が広げたパス ruled_paths・直した側の報告 fix_report）を review1-brief.json に書き、読むだけの役の
 前の作業ツリーの写し（review1-snapshot.json）を撮り、起こした印を置く。前の試みの自分の出力は先に消す。
 出口: {"ok": true, "files", "diff_file", "rev", "brief_file", "must"} を 1 行。盤面に今の周の差分が無い・審査の節が待っていない・
-環境変数の欠け・止めた run は標準エラーに 1 行で 2（配線の誤り。TA19）"""
+環境変数の欠け・止めた run は標準エラーに 1 行で 2（配線の誤り。TA19）。修正案の欄の控えが凍結の印と食い違えば、盤面を
+差分の審査の段の印で止めて控えを名指し、標準エラーに 1 行で 2"""
 import sys
 from pathlib import Path
 
