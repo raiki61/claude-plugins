@@ -11,7 +11,7 @@
   外れない・裁きの出どころ（grounds）が現物に在り、依頼のファイルが在る run の ask_human は依頼の行か request_searched を持つ・
   fix_plan_item は範囲を持たず、grounds にその単位の brief の行を名指す（planbrief.by_unit_at・conflict.brief_cite_problem）、
   を確かめて conflict.apply_rulings で積む
-  （fix_plan_item には欄 plan_items にその単位の brief の項目の番号を足す）。GIVE_UP_AFTER 回目の拒否では
+  （fix_plan_item には欄 plan_items にその単位の brief の項目の番号を、欄 plan_units にその項目に載る単位の全部を足す）。GIVE_UP_AFTER 回目の拒否では
   裁かれていない申し出を全部 ask_human に裁いて抜ける（決められない物は人へ。max_iterations で落とさない）
 """
 import json
@@ -197,10 +197,12 @@ def accept_rule(reply, board, base_rev, repo) -> dict:
     briefs = planbrief.by_unit_at(board)
     errs = [READONLY + "・".join(moved)] if moved else problems(reply, todo, repo, request, (request, str(board)), briefs)
     if not errs:
-        def stored(r):   # 盤面に積む欄（役の欄と、fix_plan_item には機械が足すその単位の brief の項目の番号）
+        def stored(r):   # 盤面に積む欄（役の欄と、fix_plan_item には機械が足すその単位の brief の項目の番号と、その項目の単位の全部）
             got = {k: r[k] for k in RULING_KEYS if k in r}
             if r["decision"] == conflict.REPLAN:
-                got[conflict.PLAN_ITEMS] = [x["item"] for x in briefs[todo[r["id"]]["unit_key"]]]
+                nums = [x["item"] for x in briefs[todo[r["id"]]["unit_key"]]]
+                got[conflict.PLAN_ITEMS] = nums
+                got[conflict.PLAN_UNITS] = [k for k, rows in briefs.items() if any(x["item"] in nums for x in rows)]
             return got
         path = conflict.apply_rulings(b, {r["id"]: stored(r) for r in reply["rulings"]}, by=BY_ROLE)
         return {"ok": True, "done": True, "reason": "", "rulings_file": str(path), "counts": conflict.counts(b)}

@@ -26,10 +26,12 @@
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
 - items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replanned(b)・replanned_keys(b)・replaced_queries(b)・counts(b)・
   kind_counts(b): 読む口
-- held_by_rulings(b): 直す義務から外す単位と理由。決まりは「直す裁定（FIX_DECISIONS）でない裁定を受けた単位は直さない」の 1 つ
+- held_by_rulings(b)・ruled_units(row): 直す義務から外す単位と理由。決まりは「直す裁定（FIX_DECISIONS）でない裁定は、それが外す
+  単位（申し出の単位と、fix_plan_item ならその項目に載る単位の全部）を直させない」の 1 つ
   （kind の無い前の形の控えの行も読む。種類は「無し」）
 - apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く。
-  fix_plan_item の裁定は、受け付けた機械が欄 plan_items（その単位の brief の項目の番号）を足して渡す
+  fix_plan_item の裁定は、受け付けた機械が欄 plan_items（その単位の brief の項目の番号）と plan_units（その項目に載る単位の全部）を
+  足して渡す
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
   答えた問いの出どころを直す義務に戻し、直す裁定でない裁定（ask_human・fix_plan_item）を受けた単位を直す義務から外す。
   entry.CORE_OVERRIDES）
@@ -81,6 +83,7 @@ REPLAN = "fix_plan_item"                # 案の項目そのものが誤りと�
 DECISIONS = ("fix_test_scope", "fix_code_as", ASK, REPLACE, REPLAN)
 FIX_DECISIONS = ("fix_test_scope", "fix_code_as", REPLACE)   # 直す裁定（REPLAN は直さないので入れない）
 PLAN_ITEMS = "plan_items"               # 盤面の裁定の行に機械が足す欄（REPLAN の単位の brief の項目の番号）
+PLAN_UNITS = "plan_units"               # 同じく機械が足す欄（PLAN_ITEMS の項目に載る単位の全部。held_by_rulings が外す）
 MIN_WHY = 10
 MIN_CITES = 2
 MAX_LINES = 20
@@ -353,13 +356,20 @@ def replanned(b) -> list:
 
 
 def replanned_keys(b) -> set:
-    return {i["unit_key"] for i in replanned(b)}
+    """fix_plan_item が外す単位の全部（申し出の単位と、その項目の単位）"""
+    return {k for i in replanned(b) for k in ruled_units(i)}
+
+
+def ruled_units(row) -> list:
+    """1 件の裁定が外す単位（申し出の単位と、fix_plan_item ならその項目に載る単位 PLAN_UNITS。重ねない・申し出の単位が先）"""
+    return list(dict.fromkeys([row["unit_key"], *((row.get("ruling") or {}).get(PLAN_UNITS) or [])]))
 
 
 def held_by_rulings(b) -> dict:
-    """直す義務から外す単位 {unit_key: 理由}。決まりは 1 つ: 直す裁定（FIX_DECISIONS）でない裁定を受けた単位は直さない
-    （ask_human は最後の人の関所で人が、fix_plan_item は次の run の修正案で決める）。理由は「<decision> の裁定 <id>」に、
-    在れば案の項目を添える。1 単位に 2 つ当たれば DECISIONS の順で先の裁定の理由（並べ替えで決める）"""
+    """直す義務から外す単位 {unit_key: 理由}。決まりは 1 つ: 直す裁定（FIX_DECISIONS）でない裁定は、それが外す単位（ruled_units。
+    fix_plan_item は誤りと裁いた項目の単位の全部）を直させない（ask_human は最後の人の関所で人が、fix_plan_item は次の run の
+    修正案で決める）。理由は「<decision> の裁定 <id>」に、在れば案の項目を添える。1 単位に 2 つ当たれば DECISIONS の順で先の
+    裁定の理由（並べ替えで決める）"""
     rank = {d: n for n, d in enumerate(DECISIONS)}
     rows = sorted((i for i in items(b) if (i.get("ruling") or {}).get("decision") not in (None, *FIX_DECISIONS)),
                   key=lambda i: rank.get(i["ruling"]["decision"], len(rank)))
@@ -367,8 +377,9 @@ def held_by_rulings(b) -> dict:
     for i in rows:
         ru = i["ruling"]
         nums = ", ".join(map(str, ru.get(PLAN_ITEMS) or []))
-        out.setdefault(i["unit_key"], f"{ru['decision']} の裁定 {i.get('id') or '（id 無し）'}"
-                                      + (f"（案の項目 {nums}）" if nums else ""))
+        why = f"{ru['decision']} の裁定 {i.get('id') or '（id 無し）'}" + (f"（案の項目 {nums}）" if nums else "")
+        for k in ruled_units(i):
+            out.setdefault(k, why)
     return out
 
 
@@ -453,8 +464,8 @@ def write_rulings(b) -> pathlib.Path:
         REPLACE: "判定者の問いが直した後の正しい形にも当たると裁き、問いを「置き換えた問い」に替えた（機械が hits・misses と申し出の"
                  "正しい行で試した）。閉鎖の数え直しは機械がこの問いで数える（coverage.how は書かなくてよい）。テストは変えるな。"
                  "この単位も changes に 1 行を書け",
-        REPLAN: "案の項目そのものが誤りと裁いた。この単位は直すな（機械が直す義務から外した。次の run の修正案で項目を直し、"
-                "事前審査に掛ける）。changes に書くな",
+        REPLAN: "案の項目そのものが誤りと裁いた。この単位も「項目の単位」に並べた同じ項目の単位も直すな（機械が直す義務から"
+                "外した。次の run の修正案で項目を直し、事前審査に掛ける）。changes に書くな",
     }
     for r in rows:
         ru = r["ruling"]
@@ -463,6 +474,7 @@ def write_rulings(b) -> pathlib.Path:
                   f"- 裁定の文: {ru['text']}",
                   f"- 範囲: {', '.join(ru.get('limits') or []) or '（無い）'}",
                   *([f"- 案の項目: {', '.join(map(str, ru[PLAN_ITEMS]))}"] if ru.get(PLAN_ITEMS) else []),
+                  *([f"- 項目の単位（どれも直すな）: {', '.join(ru[PLAN_UNITS])}"] if ru.get(PLAN_UNITS) else []),
                   *([f"- 裁きの出どころ: {', '.join(ru['grounds'])}"] if ru.get("grounds") else []),
                   *([f"- 依頼で探して答えが無かったこと: {ru['request_searched']}"] if ru.get("request_searched") else []),
                   *([f"- 置き換えた問い: {json.dumps(ru['query'], ensure_ascii=False)}"] if ru.get("query") else []),

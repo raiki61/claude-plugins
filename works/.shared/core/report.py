@@ -462,11 +462,11 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
         items.append({"where": str(tests.get("log") or "最後のテスト"),
                       "text": f"最後のテストが{head}（{tests.get('reason') or 'ログを読む'}）"})
     asked = _asked(b)
-    replanned = _replanned(b)
+    replanned = _replanned_units(b)
     settled, settled_keys = _rejudge_next(b)
     # 単位の行（not_done・人に回した単位・再審が開いた・下げた単位）を自分の字で持つ単位は、検証器の『[block] 未解消: <key>』を二重に渡さない
     owned = {nd["unit_key"] for nd in fix.get("not_done") or [] if isinstance(nd, dict) and isinstance(nd.get("unit_key"), str)} \
-        | {r["unit_key"] for r in asked} | {r["unit_key"] for r in replanned} | settled_keys
+        | {r["unit_key"] for r in asked} | {k for k, _ in replanned} | settled_keys
     items += [r for r in left or [] if r["where"].startswith((VALIDATOR_WHERE, EYES_WHERE))
               and not any(_unit_row_of(r["text"], k) for k in owned)]
     req = (b.loop_state or {}).get("rejudge_requested") or {}
@@ -477,11 +477,11 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
         items.append({"where": r["unit_key"],
                       "text": f"{r['unit_key']}（{conflict.HEAD}を人に回した——直さずに残した: {_one_line(r['ruling']['text'])}。"
                               f"名指し {', '.join(r['between'])}）"})
-    for r in replanned:
-        items.append({"where": r["unit_key"],
-                      "text": f"{r['unit_key']}（{conflict.HEAD}で案の項目 {_plan_nums(r)} の誤りと裁いた（{conflict.REPLAN}）"
+    for k, r in replanned:
+        items.append({"where": k,
+                      "text": f"{k}（{conflict.HEAD}で案の項目 {_plan_nums(r)} の誤りと裁いた（{conflict.REPLAN}）"
                               f"——直さずに残した。次の run の修正案で項目を直して事前審査に掛ける: {_one_line(r['ruling']['text'])}。"
-                              f"名指し {', '.join(r['between'])}）"})
+                              f"名指し {', '.join(r['between'])}{_from_unit(k, r)}）"})
     ph = b.state.get("pending_human") or {}
     if ph.get("question"):
         asked = "・".join(str(x) for x in ph.get("items") or [])
@@ -538,7 +538,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
             lines += ["検証器の出力の末尾:", *[f"    {x}" for x in gate["tail"].splitlines()]]
         for field, val in (gate.get("traces") or {}).items():
             lines.append(f"記録の痕跡 {field}: {json.dumps(val, ensure_ascii=False)[:400]}")
-    if outcome == "round_limit":
+    if outcome == "round_limit" and left:   # 残りの行が無い round_limit（fix_plan_item だけ）は下の REPLAN_HEAD の節が持つ
         lines.append("直しきれずに残った物（結末を「直した」と名乗らない）:")
         lines += [f"  - {r['where']}: {r['text']}" for r in left or []]
     proc = b.record.get("process") or {}
@@ -627,15 +627,27 @@ def _replanned(b) -> list:
         return []
 
 
+def _replanned_units(b) -> list:
+    """fix_plan_item が外した単位ごとの (単位, 裁定の行)（conflict.ruled_units。申し出の単位と、その項目に載る単位の全部）"""
+    return [(k, r) for r in _replanned(b) for k in conflict.ruled_units(r)]
+
+
+def _from_unit(key: str, r) -> str:
+    """申し出の単位でなく、項目を共にして外れた単位の行に添える「・申し出の単位 <key>」（申し出の単位なら空）"""
+    return "" if key == r["unit_key"] else f"・申し出の単位 {r['unit_key']}"
+
+
 def _plan_nums(r) -> str:
     """fix_plan_item の行の案の項目の番号（裁定の行の plan_items。無ければ「番号なし」）"""
     return ", ".join(map(str, r["ruling"].get(conflict.PLAN_ITEMS) or [])) or "番号なし"
 
 
 def replanned_lines(b) -> list:
-    """冒頭 1 と最後の関所の文に載せる fix_plan_item の単位の行（1 件 1 行。関所を開ける理由には数えない）"""
-    return [f"{r['unit_key']}: {_one_line(r['ruling']['text'])}（案の項目 {_plan_nums(r)}・名指し {', '.join(r['between'])}・"
-            f"種類 {r.get(conflict.KIND_FIELD) or '無し'}・{r.get('id') or 'id 無し'}）" for r in _replanned(b)]
+    """冒頭 1 と最後の関所の文に載せる fix_plan_item の単位の行（外した単位 1 つに 1 行。項目を共にして外れた単位は申し出の単位を
+    添える。関所を開ける理由には数えない）"""
+    return [f"{k}: {_one_line(r['ruling']['text'])}（案の項目 {_plan_nums(r)}・名指し {', '.join(r['between'])}・"
+            f"種類 {r.get(conflict.KIND_FIELD) or '無し'}・{r.get('id') or 'id 無し'}{_from_unit(k, r)}）"
+            for k, r in _replanned_units(b)]
 
 
 def _conflict_line(b) -> str:

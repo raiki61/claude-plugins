@@ -135,6 +135,7 @@ class TestSharedSource(unittest.TestCase):
                 text = (ROOT / rel).read_text(encoding="utf-8")
                 self.assertEqual(old.findall(text), [], "人への問い・疑いを rejudge_requested へ送る文が残った")
                 self.assertIn("which_is_right", text)
+                self.assertIn("needs_context", text)
 
     def test_every_rules_file_is_cut_into_sections(self):
         for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),

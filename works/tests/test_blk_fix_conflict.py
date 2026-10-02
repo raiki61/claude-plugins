@@ -31,6 +31,7 @@ import conflict  # noqa: E402
 import entry  # noqa: E402
 import planmarks  # noqa: E402
 from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, block, board_shas, find_node, load, run_script)  # noqa: E402
+from test_blk_fix import plan_reply as PLAN_REPLY  # noqa: E402  （split_plan_reply が元の 1 項目の案から作る）
 from test_blk_fix_tdd import LoopCase  # noqa: E402
 
 DEADLINE = 1728000000
@@ -920,15 +921,29 @@ class TestTddBriefKind(LoopCase):
 PLAN_TEXT = "項目 1 の受け入れのテストは分母の誤りを縛っていない。案の項目で既存の test_mean_of_three の書き換えを名指し直せ"
 
 
+def split_plan_reply(narrows=()):
+    """修正案を単位ごとの 2 項目にした返答（項目 1 は mean だけ、項目 2 は clamp だけ）"""
+    base = PLAN_REPLY(narrows)["plan"][0]
+    return {"plan": [{**base, "unit_keys": [MEAN], "approach": "mean の分母を len(xs) に直す"},
+                     {**base, "unit_keys": [CLAMP], "approach": "clamp の上限の枝の戻り値を hi に直す"}]}
+
+
 class ReplanCase(ConflictBoardCase):
-    """裁定 fix_plan_item の盤面の口（mean を申し出た盤面に修正案の欄の控えと brief を置いてから裁く）"""
+    """裁定 fix_plan_item の盤面の口（mean を申し出た盤面に修正案の欄の控えと brief を置いてから裁く）。既定の修正案は mean と clamp を
+    別の項目に置く（fix_plan_item が外すのは項目 1 の単位だけで、clamp は直す義務に残る）。SHARED_ITEM が真なら 1 項目に両方を置く"""
+    SHARED_ITEM = False
 
     def replanned(self):
         """mean の申し出を fix_plan_item に裁いた盤面。返りは self.rule の返り (prep, 受け付けの結果)"""
         import planbrief
-        from test_blk_fix import PLAN_FIELDS
-        self.parked()
-        planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
+        import test_blk_fix
+        if self.SHARED_ITEM:
+            self.parked()
+        else:
+            with mock.patch.object(test_blk_fix, "plan_reply", split_plan_reply):
+                self.parked()
+        fields = test_blk_fix.PLAN_FIELDS * (1 if self.SHARED_ITEM else 2)
+        planmarks.save(self.board, entry.open_board(self.board).round, fields)
         planbrief.cut_at(self.board)
         cid = self.items()[0]["id"]
         brief = entry.open_board(self.board).work("brief-1.md")
@@ -1036,6 +1051,61 @@ class TestFixPlanItemReport(ReplanCase):
         self.assertTrue(any(i["where"] == report.VALIDATOR_WHERE and i["text"].endswith(CLAMP) for i in items), items)
         lines = report.head_decisions(b, {"accepted": True, "round_closed": True})
         self.assertTrue(any(MEAN in x and "案の項目 1" in x for x in lines), lines)
+
+
+class TestFixPlanItemWholeItem(ReplanCase):
+    """fix_plan_item は、裁いた案の項目に載る単位を全部、直す義務から外す（決まりは 1 つ: 直す裁定でない裁定は、その単位と、
+    fix_plan_item ならその項目の単位を外す）。項目の外の単位は今どおり直す"""
+
+    def test_units_sharing_the_item_are_held(self):
+        import report
+        self.SHARED_ITEM = True
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.items()[0]["ruling"]["plan_units"], [MEAN, CLAMP])
+        b = entry.open_board(self.board, allow_halted=True)
+        held = conflict.held_by_rulings(b)
+        cid = self.items()[0]["id"]
+        for k in (MEAN, CLAMP):
+            self.assertIn(f"fix_plan_item の裁定 {cid}", held[k]); self.assertIn("案の項目 1", held[k])
+        self.assertIn(CLAMP, pathlib.Path(r["rulings_file"]).read_text(encoding="utf-8"), "裁定の文が項目の単位を名指す")
+        got = self.accept_script(only_clamp_reply(), pass_="ruled")   # parked が clamp を直した作業ツリーのまま
+        self.assertFalse(got["ok"]); self.assertIn("fix_plan_item", got["reason"])
+        self.edit_tree({v: k for k, v in CLAMP_FIX.items()})   # clamp の直しを戻し、空の changes で出し直す
+        got = self.accept_script(only_clamp_reply() | {"changes": []}, pass_="ruled", iteration="2")
+        self.assertTrue(got["ok"], got)
+        b = entry.open_board(self.board, allow_halted=True)
+        items = report.next_request(b)
+        for k in (MEAN, CLAMP):
+            self.assertTrue(any(i["where"] == k and "fix_plan_item" in i["text"] and "事前審査" in i["text"] for i in items),
+                            (k, items))
+        lines = report.replanned_lines(b)
+        self.assertEqual([x.split(": ")[0] for x in lines], [MEAN.split(": ")[0], CLAMP.split(": ")[0]])
+        self.assertTrue(any(x.startswith(CLAMP) and f"申し出の単位 {MEAN}" in x for x in lines), lines)
+        self.assertEqual(report.decide_outcome(b, {"accepted": True, "round_closed": True}), "round_limit")
+
+    def test_unit_outside_the_item_is_unaffected(self):
+        import report
+        _, r = self.replanned()
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.items()[0]["ruling"]["plan_units"], [MEAN])
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(set(conflict.held_by_rulings(b)), {MEAN})
+        self.assertIn(CLAMP, conflict.fix_duty(b)[0])
+        self.assertFalse(any(i["where"] == CLAMP for i in report.next_request(b)))
+        self.assertFalse(any(x.startswith(CLAMP) for x in report.replanned_lines(b)))
+
+    def test_round_limit_heading_only_with_rows(self):
+        """fix_plan_item だけで round_limit になった報告は、残りの行が無ければ「直しきれずに残った物」の見出しを出さない"""
+        import report
+        self.replanned()
+        b = entry.open_board(self.board, allow_halted=True)
+        gate = {"accepted": True, "round_closed": True}
+        lines = report.head_decisions(b, gate, outcome="round_limit", left=[])
+        self.assertFalse(any(x.startswith("直しきれずに残った物") for x in lines), lines)
+        self.assertTrue(any(x.startswith(report.REPLAN_HEAD) for x in lines), lines)
+        lines = report.head_decisions(b, gate, outcome="round_limit", left=[{"where": "w", "text": "t"}])
+        self.assertTrue(any(x.startswith("直しきれずに残った物") for x in lines), lines)
 
 
 if __name__ == "__main__":
