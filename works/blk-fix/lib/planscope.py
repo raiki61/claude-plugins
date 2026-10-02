@@ -18,8 +18,8 @@
 - 識別子の形（IDENT）: adds の name・removes の名のうち、差分で機械が探す物。kind を問わず :: と . で割った最後の段で探す。
   日本語や空白を含む説明の文と、/ を含む名（ファイルのパス）は探さず、記録の unchecked に並べる（誤った拒否を重ねて単位を
   止めない）
-- 残った（removes）: 修正の後の .py を ast で読み、名（. か :: を含めば クラス.名）がまだ定義されている（名を消した行か定義を
-  足した行を持つファイルで）。.py でない・構文が読めないファイルは、足した行に定義の行（def・class・代入・関数の形）が在れば
+- 残った（removes）: 修正の後の .py を ast で読み、名がまだ定義されている（名を消した行か定義を足した行を持つファイルで）。
+  . か :: の修飾子は、そのファイルの最上位のクラスなら クラス.名、モジュール名か :: の前のパスなら最上位の素の名で照らす。.py でない・構文が読めないファイルは、足した行に定義の行（def・class・代入・関数の形）が在れば
   残る。名を挙げるだけの行（消えたことを確かめる hasattr・変更の記録の注記）は残ったと見ない
 
 拒否の行はどれも、行の単位の key か項目の unit_keys の全部を字のまま含める（輪の 3 回目に accept.bind_problems が単位に結ぶ）。
@@ -150,8 +150,8 @@ def _lookup(name) -> str | None:
 
 
 def _defined_names(src: str | None):
-    """.py の中身で定義された名 (素の名の集合（最上位の def・class・代入）, クラス.名 の集合（最上位のクラスの中の def・代入）)。
-    構文が読めなければ None"""
+    """.py の中身で定義された名 (素の名の集合（最上位の def・class・代入）, クラス.名 の集合（最上位のクラスの中の def・代入）,
+    最上位のクラスの名の集合)。構文が読めなければ None"""
     try:
         tree = ast.parse(src or "")
     except (SyntaxError, ValueError):
@@ -169,15 +169,35 @@ def _defined_names(src: str | None):
         return got
     bare = names(tree.body)
     qual = {f"{c.name}.{m}" for c in tree.body if isinstance(c, ast.ClassDef) for m in names(c.body)}
-    return bare, qual
+    return bare, qual, {c.name for c in tree.body if isinstance(c, ast.ClassDef)}
+
+
+def _qualifier(raw: str) -> str | None:
+    """名の修飾子（最後の :: か . より前）。修飾子の無い名は None"""
+    cut = max(raw.rfind("::"), raw.rfind("."))
+    return raw[:cut] if cut > 0 else None
+
+
+def _owns(qual: str, raw: str, path: str, classes: set) -> str | None:
+    """修飾子をファイルごとに解く（1 本の規則）: 修飾子の最後の段がそのファイルの最上位のクラスなら "class"（クラス.名 で照らす）、
+    修飾子がそのファイルのモジュール名（拡張子を除いたファイル名・/ を . にした根からのパス）か :: の前のパスなら "module"
+    （最上位の素の名で照らす）、どちらでもなければ None（そのファイルの名ではない）"""
+    if re.split(r"::|\.", qual)[-1] in classes:
+        return "class"
+    stem = posixpath.splitext(path)[0]
+    if qual in (posixpath.basename(stem), stem.replace("/", ".")):
+        return "module"
+    if "::" in raw and posixpath.normpath(raw.split("::", 1)[0]) == path and qual == raw.split("::", 1)[0]:
+        return "module"
+    return None
 
 
 def _remains(raw: str, name: str, changes: dict, diffs: dict) -> bool:
     """removes の名が修正の後も残っているか。変わった .py は今の中身を ast で読み、その名を消した行か定義を足した行を持つファイルで、
-    名（. か :: を含めば クラス.名、無ければ素の名）がまだ定義されていれば残る。.py でない・構文が読めないファイルは、足した行に
+    名がまだ定義されていれば残る。修飾子の無い名は最上位の素の名で照らし、修飾子の在る名はファイルごとに解く（_owns: クラスなら
+    クラス.名、モジュールなら最上位の素の名、どちらでもないファイルは見ない）。.py でない・構文が読めないファイルは、足した行に
     定義の行（_definition）が在れば残る"""
-    segs = re.split(r"::|\.", raw)
-    qualified = f"{segs[-2]}.{segs[-1]}" if len(segs) >= 2 else None
+    qual = _qualifier(raw)
     word, define = _word(name), _definition(name)
     for p, (_, now) in changes.items():
         added, removed = diffs[p]
@@ -188,7 +208,9 @@ def _remains(raw: str, name: str, changes: dict, diffs: dict) -> bool:
             continue
         if not (any(word.search(line) for line in removed) or any(define.search(line) for line in added)):
             continue
-        if (qualified in defs[1]) if qualified else (name in defs[0]):
+        bare, qualified, classes = defs
+        how = _owns(qual, raw, p, classes) if qual else "module"
+        if (how == "class" and f"{re.split(r'::|[.]', qual)[-1]}.{name}" in qualified) or (how == "module" and name in bare):
             return True
     return False
 
@@ -229,9 +251,10 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *, exempt=froze
     added_all = [(p, line) for p, (add, _) in diffs.items() for line in add]
     removed_all = [line for _, rem in diffs.values() for line in rem]
     # 修正役に問う側の差分: 凍ったファイルは凍った時の中身から今まで
-    since = {p: (loop[p], pair[1]) if p in loop else pair for p, pair in changes.items()}
+    # 凍った時の中身が無い（凍った時の木で読めない）ファイルは版からの差分に戻す
+    since = {p: (loop[p], pair[1]) if loop.get(p) is not None else pair for p, pair in changes.items()}
     fixer_added = [(p, line) for p, pair in since.items() for line in added_removed(*pair)[0]]
-    untouched = {p for p in loop if p in changes and changes[p][1] == loop[p]}
+    untouched = {p for p in loop if loop[p] is not None and p in changes and changes[p][1] == loop[p]}
 
     def oos_line(head, path, hit):
         return f"{head}{path} は項目 {hit[0].get('item')} の out_of_scope（{hit[1]}）に当たる"

@@ -198,5 +198,70 @@ class LoopFrozenCase(unittest.TestCase):
         self.assertTrue(any("old_mean" in p for p in got), got)
 
 
+class Round3Case(unittest.TestCase):
+    """修飾子をファイルごとに解く規則・凍った時の中身が無いファイル・凍ったファイルの外れと余分（審査の M1〜M4）"""
+    FROZEN_HELPER = "def median(xs):\n    return xs[0]\n"
+
+    def test_module_qualified_moved_definition_remains(self):
+        """stats.old_mean（モジュール名の修飾子）・stats.py::old_mean の定義を同じファイルの中で移しただけの差分は拒む"""
+        base = "def old_mean():\n    pass\n\n\ndef a():\n    pass\n\n\ndef b():\n    pass\n"
+        now = "def a():\n    pass\n\n\ndef b():\n    pass\n\n\ndef old_mean():\n    pass\n"
+        self.assertIn("def old_mean():", planscope.added_removed(base, now)[1], "定義の行は消した行にも出る（移した）")
+        for raw in ("stats.old_mean", "stats.py::old_mean"):
+            with self.subTest(raw):
+                got = planscope.problems([item(removes=[raw])], [ROW], {"stats.py": (base, now)})[0]
+                self.assertTrue(any(raw in p for p in got), got)
+
+    def test_module_qualified_other_module_keeps_own_name(self):
+        """legacy.median を消し、stats.py が自前の median を残す（その名を含む行は消した）差分は通る"""
+        it = item(allowed_paths=["*.py"], removes=["legacy.median"])
+        ch = {"legacy.py": ("def median(xs):\n    return 0\n", "x = 1\n"),
+              "stats.py": ("def median(xs):\n    return 0\n\n\ny = median([1])\n", "def median(xs):\n    return 0\n")}
+        rows = [{"unit_key": MEAN, "files": ["legacy.py", "stats.py"]}]
+        self.assertEqual(planscope.problems([it], rows, ch)[0], [])
+
+    def test_unreadable_frozen_content_falls_back_to_base(self):
+        """凍った時の中身が無い（None）ファイルは、版からの差分で数える（版から在るテストを足した物と見ない）"""
+        base = "class TestStats:\n    def test_a(self):\n        pass\n"
+        ch = {**STATS, "test_stats.py": (base, base + "    def test_b(self):\n        pass\n")}
+        it = item(allowed_paths=["stats.py", "test_stats.py"], tests=[{"id": "test_stats.py::TestStats::test_b"}])
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "test_stats.py"]}]
+        self.assertEqual(planscope.problems([it], rows, ch, loop={"test_stats.py": None})[0], [])
+
+    def test_canonical_elsewhere_in_frozen_file(self):
+        """輪が書いて凍らせたファイルの同名の定義は canonical の外として問わない。凍った後に修正役が足した物は拒む"""
+        it = item(allowed_paths=["*.py"], adds=[{"kind": "function", "name": "median", "canonical": "stats.py に新設"}])
+        stats = ("", "def median(xs):\n    return xs[0]\n")
+        rows = [{"unit_key": MEAN, "files": ["stats.py"]}]
+        loop_written = {"stats.py": stats, "helper.py": (None, self.FROZEN_HELPER)}
+        self.assertEqual(planscope.problems([it], rows, loop_written, loop={"helper.py": self.FROZEN_HELPER})[0], [])
+        after = {"stats.py": stats, "helper.py": (None, "x = 1\n" + self.FROZEN_HELPER)}
+        got = planscope.problems([it], rows, after, loop={"helper.py": "x = 1\n"})[0]
+        self.assertTrue(any("helper.py" in p and "canonical" in p for p in got), got)
+
+    def test_tdd_shape_with_test_adds_passes(self):
+        """TDD の形: adds の kind test の test_mean_of_two は輪が書いて凍らせ、凍った後に変わっていなくても、版からの差分で在る"""
+        base = "class TestStats:\n    def test_a(self):\n        pass\n"
+        frozen = base + "    def test_mean_of_two(self):\n        pass\n"
+        it = item(allowed_paths=["stats.py"], tests=[{"id": "test_stats.py::TestStats::test_mean_of_two"}],
+                  adds=[{"kind": "test", "name": "test_stats.py::TestStats::test_mean_of_two", "canonical": "test_stats.py に新設"}])
+        ch = {**STATS, "test_stats.py": (base, frozen)}
+        self.assertEqual(planscope.problems([it], [ROW], ch, loop={"test_stats.py": frozen})[0], [])
+
+    def test_declared_untouched_frozen_file_not_rejected(self):
+        """行が凍った後に変わっていないファイル（範囲の外）を申告しても拒まない"""
+        ch = {**STATS, "data.json": (None, "[]\n")}
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "data.json"]}]
+        self.assertEqual(planscope.problems([ITEM], rows, ch, loop={"data.json": "[]\n"})[0], [])
+
+    def test_same_name_in_untouched_lines_of_other_file_is_gone(self):
+        """名を含む行に触れていない別の .py に同じ名の定義が在っても、残ったとは見ない"""
+        it = item(allowed_paths=["*.py"], removes=["old_mean"])
+        ch = {"stats.py": ("def old_mean():\n    pass\n", "def mean():\n    pass\n"),
+              "util.py": ("def old_mean():\n    pass\n\n\nA = 1\n", "def old_mean():\n    pass\n\n\nA = 2\n")}
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "util.py"]}]
+        self.assertEqual(planscope.problems([it], rows, ch)[0], [])
+
+
 if __name__ == "__main__":
     unittest.main()
