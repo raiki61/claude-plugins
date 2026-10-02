@@ -258,13 +258,22 @@ def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
             "already": m["already"]}
 
 
+def _plan_malformed(reply) -> bool:
+    """修正案の返答の形が崩れているか（dict でない・plan が list でない・plan の行が dict でない・narrows が list でない。空の narrows は gatemarks と同じく無い物と読む）"""
+    if not isinstance(reply, dict) or not isinstance(reply.get("plan"), list):
+        return True
+    return any(not isinstance(p, dict) or not isinstance(p.get("narrows") or [], list) for p in reply["plan"])
+
+
 def take(role: str):
     """rolekit.accept_role の take: 関所の項目の行の決め手の欄（gatemarks）を外した返答を entry.take に渡す（写しの型は欄を
     持たない）。決め手は渡す前に盤面の gate-marks.json に置く（事前審査を受けた settle の中で関所が読む）。修正案の narrows の行が
-    狭めない案を探した結果を欠けば、盤面へ渡さずに拒む（gatemarks.narrow_gaps）"""
+    狭めない案を探した結果を欠けば、盤面へ渡さずに拒む（gatemarks.narrow_gaps）。形の崩れた修正案は前段を飛ばして entry.take に渡す"""
     nid = role_node(role)
 
     def run(board, reply, repo):
+        if role == "plan" and _plan_malformed(reply):   # gatemarks は形の整った返答を前提に読む（変えない部品）。形の拒否は entry.take が言い、再提出の道に乗せる
+            return entry.take(pathlib.Path(board), nid, reply, pathlib.Path(repo), snapshot_name=snapshot_name(role))
         gaps = gatemarks.narrow_gaps(nid, reply)
         if gaps:
             return {"ok": False, "reason": NO_NARROW_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}

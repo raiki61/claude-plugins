@@ -372,8 +372,8 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(plan, sent)
 
     def test_take_malformed_plan_resubmits_not_raises(self):
-        """形の崩れた修正案は例外でなく ok:false（再提出の道。accept は exit 2 で落ちない）。前段の 3 つの読み（narrow_gaps・split・
-        not_allowed）が全部、形の崩れを読み飛ばして形の拒否を entry.take に任せる"""
+        """形の崩れた修正案は例外でなく ok:false（再提出の道。accept は exit 2 で落ちない）。plan・行・narrows の形の崩れは take の頭で
+        前段（narrow_gaps・not_allowed・split・save）を飛ばし、unit_keys の形の崩れは not_allowed が読み飛ばして、形の拒否を entry.take に任せる"""
         self.judged()
         self.ok("snap", role="plan")
         self.ok("prep", role="plan", excluded_file="")
