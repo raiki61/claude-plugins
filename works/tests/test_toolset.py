@@ -669,7 +669,10 @@ class InstallCase(Base):
         (tdd / "extra.md").write_text("余分\n", encoding="utf-8")
         polluter = self.cfg / "skills" / "systematic-debugging" / "find-polluter.sh"
         polluter.chmod(0o644)
+        part = self.borrow["superpowers"]["parts"][0]
+        (self.cfg / "works-parts" / "superpowers" / part).write_text("古い\n", encoding="utf-8")
         self.install()
+        self.assertEqual((self.cfg / "works-parts" / "superpowers" / part).read_bytes(), (sp / part).read_bytes())
         self.assertEqual(files_under(tdd), files_under(sp / "skills" / "test-driven-development"))
         self.assertEqual((tdd / "SKILL.md").read_bytes(), (sp / "skills" / "test-driven-development" / "SKILL.md").read_bytes())
         self.assertTrue(os.access(polluter, os.X_OK))
@@ -694,6 +697,84 @@ class InstallCase(Base):
             toolset.installed_sources(self.user, self.borrow)
         self.assertIn("skills/test-driven-development/SKILL.md: 中身が固定と違う", str(cm.exception))
         self.assertEqual(files_under(self.cfg), [])
+
+    def test_vendored_copy_breaks_are_named_in_one_group(self):
+        """写しの壊れ方ごとに、superpowers のまとまりの中で該当の行を名指し、直し方を添えて、何も写す前に止まる"""
+        def no_skill_dir(copy, item):
+            shutil.rmtree(copy / "skills" / "verification-before-completion")
+            return item
+
+        def listed_but_not_pinned(copy, item):
+            return dict(item, skills=[*item["skills"], "brainstorming"])
+
+        def no_pin(copy, item):
+            return {k: v for k, v in item.items() if k != "pin"}
+
+        def no_copy_dir(copy, item):
+            shutil.rmtree(copy)
+            return item
+
+        cases = {
+            "skills/verification-before-completion/SKILL.md: 固定に在るのに手元に無い": no_skill_dir,
+            "skills/brainstorming/SKILL.md: 借りる一覧に在るのに写しに無い": listed_but_not_pinned,
+            "borrow.json の superpowers に pin が無い": no_pin,
+            "写しのフォルダが無い": no_copy_dir,
+        }
+        for want, breakit in cases.items():
+            with self.subTest(want):
+                copy = self.tmp / f"vendored-{breakit.__name__}"
+                shutil.copytree(VENDORED, copy)
+                borrow = dict(self.borrow, superpowers=breakit(copy, dict(self.borrow["superpowers"])))
+                with mock.patch.object(toolset.spseam, "vendored_dir", return_value=copy), \
+                        self.assertRaises(toolset.ToolsetError) as cm:
+                    toolset.installed_sources(self.user, borrow)
+                msg = str(cm.exception)
+                group = msg[msg.index("- superpowers の写し"):]
+                self.assertIn("が borrow.json の pin と合わない:\n", group)
+                self.assertTrue(any(ln.startswith("  - ") and want in ln for ln in group.splitlines()), msg)
+                self.assertIn("claude plugin install works@raiki61", group)
+                self.assertEqual(files_under(self.cfg), [])
+
+    def test_vendored_copy_break_and_missing_plugins_join_in_one_error(self):
+        """写しの食い違いと、入っていないプラグインの行は、同じ 1 つの ToolsetError に並ぶ"""
+        copy = self.tmp / "vendored"
+        shutil.copytree(VENDORED, copy)
+        (copy / "skills" / "test-driven-development" / "SKILL.md").write_text("書き換え\n", encoding="utf-8")
+        empty = self.tmp / "empty"
+        empty.mkdir()
+        with mock.patch.object(toolset.spseam, "vendored_dir", return_value=copy), self.assertRaises(toolset.ToolsetError) as cm:
+            toolset.installed_sources(empty, self.borrow)
+        heads = [ln for ln in str(cm.exception).splitlines() if ln.startswith("- ")]
+        self.assertEqual(len(heads), 3, heads)
+        self.assertTrue(heads[0].startswith("- superpowers の写し"), heads)
+        self.assertIn("coldwrite が入っていない", heads[1])
+        self.assertIn("pr-review-toolkit が入っていない", heads[2])
+        self.assertIn("  - skills/test-driven-development/SKILL.md: 中身が固定と違う", str(cm.exception))
+
+    def test_install_names_missing_part_before_writing(self):
+        """install に渡した写しに部品が無ければ、名指して何も写さずに止まる"""
+        found, vers = self.sources()
+        copy = self.tmp / "vendored"
+        shutil.copytree(VENDORED, copy)
+        part = self.borrow["superpowers"]["parts"][0]
+        (copy / part).unlink()
+        with self.assertRaises(toolset.ToolsetError) as cm:
+            toolset.install(self.cfg, dict(found, superpowers=copy), self.borrow, claude_bin=str(self.claude), versions=vers)
+        self.assertIn(f"部品 {part}", str(cm.exception))
+        self.assertEqual(files_under(self.cfg), [])
+
+    def test_dropped_part_is_pruned_on_reinstall(self):
+        """版上げで部品が一覧から外れても、入れ直しは柵に止まらずに通り、古い部品と空になったフォルダは消える"""
+        self.install()
+        dropped = self.borrow["superpowers"]["parts"][1]
+        _put(self.cfg / "works-parts" / "superpowers" / "old" / "gone.md", "前の版の部品\n")
+        smaller = dict(self.borrow, superpowers=dict(self.borrow["superpowers"], parts=self.borrow["superpowers"]["parts"][:1]))
+        found, vers = self.sources()
+        toolset.install(self.cfg, found, smaller, claude_bin=str(self.claude), versions=vers)
+        self.assertFalse((self.cfg / "works-parts" / "superpowers" / dropped).exists())
+        self.assertFalse((self.cfg / "works-parts" / "superpowers" / "old").exists())
+        self.assertTrue((self.cfg / "works-parts" / "superpowers" / smaller["superpowers"]["parts"][0]).is_file())
+        self.assertEqual(toolset.guard(self.cfg, smaller), [])
 
     def test_parts_go_to_works_parts_and_record_has_commit(self):
         """部品は works-parts/superpowers/<相対パス> へバイトのまま写り、スキルとしては入らない。記録は pin の commit を持ち、
@@ -749,6 +830,11 @@ class GuardCase(Base):
             "output-styles/": lambda: self.put("output-styles/a.md"),
             "skills/mine/": lambda: self.put("skills/mine/SKILL.md"),
             "works-parts/other/a.md": lambda: self.put("works-parts/other/a.md"),
+            "works-parts（フォルダでない）": lambda: self.put("works-parts"),
+            "works-parts/superpowers/link": lambda: (self.put("target.md"),
+                                                     (self.cfg / "works-parts" / "superpowers").mkdir(parents=True),
+                                                     (self.cfg / "works-parts" / "superpowers" / "link").symlink_to(
+                                                         self.cfg / "target.md")),
             "settings.json の鍵 permissions": lambda: self.put("settings.json", '{"permissions": {"allow": []}}'),
             "settings.json の鍵 hooks": lambda: self.put("settings.json", '{"hooks": {}}'),
             "有効なプラグイン other@x": lambda: self.put("settings.json", '{"enabledPlugins": {"other@x": true}}'),

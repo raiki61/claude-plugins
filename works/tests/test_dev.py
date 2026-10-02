@@ -662,7 +662,9 @@ class TestDevShell(unittest.TestCase):
         from test_toolset import make_user_config
         result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(self.toolset_rec["superpowers"]["source"].startswith(str(self.user_cfg) + os.sep), self.toolset_rec)
+        pin = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))["superpowers"]["pin"]
+        self.assertEqual(os.path.realpath(self.toolset_rec["superpowers"]["source"]),
+                         os.path.realpath(ROOT / ".shared" / "borrow" / "superpowers" / pin["version"]), self.toolset_rec)
         for name in ("coldwrite", "pr-review-toolkit"):
             self.assertTrue(self.toolset_rec[name]["source"].startswith(str(self.user_cfg) + os.sep), self.toolset_rec[name])
         with tempfile.TemporaryDirectory() as home:

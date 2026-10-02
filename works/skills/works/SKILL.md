@@ -31,7 +31,7 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
    sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" check <対象リポジトリ>
    ```
 
-   uv・claude・認証・対象の条件で足りない物があれば、入れ方つきで全部並べて 0 以外で終わる。最後の行が `Results: 1 valid, 0 with errors, …` なら入っている。その上に出る `WARNING [skills]` の 3 行（`code-review`・`simplify`・`security-review`）は Claude Code に組み込みのスキルで、出てよい。coldwrite・pr-review-toolkit のどちらかが入っていない（か、works が名前で使う agent・hook が無い）と、`toolset.py: 借りる物が足りない` の下に足りない物ごとの 1 行と入れるコマンドを出して止まる。そのコマンドで入れてから打ち直す（`start` も AI を起こす前に同じ所で止まる）。
+   uv・claude・認証・対象の条件で足りない物があれば、入れ方つきで全部並べて 0 以外で終わる。最後の行が `Results: 1 valid, 0 with errors, …` なら入っている。その上に出る `WARNING [skills]` の 3 行（`code-review`・`simplify`・`security-review`）は Claude Code に組み込みのスキルで、出てよい。coldwrite・pr-review-toolkit のどちらかが入っていない（か、works が名前で使う agent・hook が無い）と、`toolset.py: 借りる物が足りない` の下に足りない物ごとの 1 行と入れるコマンドを出して止まる。そのコマンドで入れてから打ち直す（`start` も AI を起こす前に同じ所で止まる）。`superpowers の写し（…）が borrow.json の pin と合わない` の行が出たら、works のプラグインの中の superpowers の写しが壊れているので、`claude plugin install works@raiki61` で works を入れ直す。
 
 このスキルの行の `use.sh`・`stop.sh`・`report.sh` のパスは、Claude Code がこのスキルを読む時に、入れたプラグインの置き場の絶対パス（`~/.claude/plugins/cache/raiki61/works/<版>/` の形。設定の置き場を変えていればその下）へ置き換えてある。元の文はプラグインのスキルの置き換え CLAUDE_PLUGIN_ROOT で、Bash の環境変数には無い。手で打つ時は、その置き場のパスで打つ。
 

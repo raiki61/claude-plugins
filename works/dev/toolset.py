@@ -102,6 +102,9 @@ LICENCE_HEADS = {"MIT": "MIT License"}      # borrow.json の licence → 使用
 UPSTREAM = "github.com/obra/superpowers"    # 写し元の系統（台帳の 1 行目に書く）
 OLD_MARK = ".works-old."                    # 入れ替えの間、前の版の写しと台帳を脇へ退ける名の印
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")    # 固定に書く写し元の commit（installed_plugins.json の gitCommitSha）
+# 写しが pin と合わない時の直し方（写しは works の置き場の一部なので、works の置き場が壊れている）
+VENDORED_FIX = ("  直す: works を入れ直す（claude plugin install works@raiki61）か、開発中なら git で写しを戻す"
+                "（git checkout -- works/.shared/borrow）")
 VERSION_NAME = re.compile(r"[0-9A-Za-z][0-9A-Za-z._+-]*")   # 写す版の名（フォルダの名になる。/ や .. で外を指させない）
 
 
@@ -164,8 +167,6 @@ def source_enabled(user_config: pathlib.Path, key: str, cwd) -> "bool | None":
 def _missing_names(name: str, item: dict, src: pathlib.Path) -> list:
     """works が名前で頼る物のうち、入れた置き場 src に無い物（中身・版は見ない）"""
     out = []
-    if item["kind"] == "skills":
-        out += [f"スキル {s}（skills/{s}/SKILL.md）" for s in item["skills"] if not (src / "skills" / s / "SKILL.md").is_file()]
     if item["kind"] == "plugin" and not (src / ".claude-plugin" / "plugin.json").is_file():
         out.append("プラグインの定義（.claude-plugin/plugin.json）")
     out += [f"agent {a}（agents/{a}.md）" for a in item.get("agents", []) if not (src / "agents" / f"{a}.md").is_file()]
@@ -206,15 +207,19 @@ def installed_sources(user_config: pathlib.Path, borrow: dict, cwd=None) -> tupl
         if item["kind"] not in ("skills", "plugin"):
             raise ToolsetError(f"borrow.json の {name} の kind {item['kind']!r} を知らない（skills・plugin・mcp）")
         if item["kind"] == "skills":
-            if not isinstance(item.get("pin"), dict) or not item["pin"].get("version"):
-                bad.append(f"borrow.json の {name} に pin（版・sha256）が無い。写しを作るのは dev/toolset.py vendor <版>")
-                continue
-            src = spseam.vendored_dir(item)
-            problems = spseam.pin_problems(src, item) if src.is_dir() else [f"{src}: 写しのフォルダが無い"]
-            problems += [f"skills/{s}/SKILL.md: 借りる一覧に在るのに写しに無い" for s in item["skills"]
-                         if not (src / "skills" / s / "SKILL.md").is_file() and f"skills/{s}/SKILL.md" not in item["pin"].get("files", {})]
+            pinned = isinstance(item.get("pin"), dict) and bool(item["pin"].get("version"))
+            if not pinned:
+                src = spseam.BORROW_DIR / name
+                problems = [f"borrow.json の {name} に pin が無い（写しを作るのは dev/toolset.py vendor <版>）"]
+            else:
+                src = spseam.vendored_dir(item)
+                problems = spseam.pin_problems(src, item) if src.is_dir() else [f"{src}: 写しのフォルダが無い"]
+                problems += [f"skills/{s}/SKILL.md: 借りる一覧に在るのに写しに無い" for s in item["skills"]
+                             if not (src / "skills" / s / "SKILL.md").is_file()
+                             and f"skills/{s}/SKILL.md" not in item["pin"].get("files", {})]
             if problems:
-                bad.append(f"{name} の写し（{src}）が borrow.json の pin と合わない:\n" + "\n".join(f"  - {ln}" for ln in problems))
+                bad.append(f"{name} の写し（{src}）が borrow.json の pin と合わない:\n"
+                           + "\n".join(f"  - {ln}" for ln in problems) + "\n" + VENDORED_FIX)
                 continue
             chosen[name] = src
             versions[name] = item["pin"]["version"]
@@ -379,6 +384,34 @@ def guard(config_dir: pathlib.Path, borrow: dict) -> list:
     return out
 
 
+def _prune_parts(cfg: pathlib.Path, borrow: dict) -> None:
+    """works-parts/<kind "skills" の名>/ の下の、parts の外の普通のファイルを消し、それで空になったフォルダも消す（版上げで部品が
+    一覧から外れても柵に止まらない。works-parts/ は works だけが書き、Claude Code は読まない）。symlink・フォルダでない物・
+    works-parts/ 直下の知らない名・一時のファイル（_clean_tmp が消す）は触らず、柵に任せる"""
+    root = cfg / PARTS_DIR
+    if root.is_symlink() or not root.is_dir():
+        return
+    for name, item in borrow.items():
+        base = root / name
+        if item["kind"] != "skills" or base.is_symlink() or not base.is_dir():
+            continue
+        keep = set(item.get("parts", []))
+        for here, dirs, names in os.walk(base, topdown=False, followlinks=False):
+            at = pathlib.Path(here)
+            for n in names:
+                p = at / n
+                if (p.is_symlink() or not p.is_file() or TMP_MARK in n
+                        or p.relative_to(base).as_posix() in keep):
+                    continue
+                p.unlink()
+            for d in dirs:
+                p = at / d
+                if not p.is_symlink() and p.is_dir() and not any(p.iterdir()):
+                    p.rmdir()
+        if not any(base.iterdir()):
+            base.rmdir()
+
+
 def _foreign_parts(cfg: pathlib.Path, borrow: dict) -> list:
     """works-parts/ の下の、borrow.json の parts の外のファイル（と symlink）を works-parts/<相対パス> で（パスの順）。
     .DS_Store（IGNORED_IN_SKILLS）は数えない"""
@@ -469,12 +502,14 @@ def _install_plugins(cfg: pathlib.Path, srcs: dict, claude_bin: str) -> None:
 def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin, plugins: bool = True,
             versions: "dict | None" = None, enabled: "dict | None" = None) -> dict:
     """隔離した設定を組む。chosen・versions は installed_sources の返り（versions に無い名は置き場の名・plugin.json の version）。
+    chosen は installed_sources を通った物だけを渡す（superpowers の写しを pin と照らし直さずに写す）。
     enabled は 名 → source_enabled の値（渡された kind "plugin" の名だけ記録に source_enabled として載せる）。
     返りと <置き場>/.works-toolset.json は {名: {version, source, sha256, loaded[, commit][, source_enabled]}}"""
     versions = versions or {}
     enabled_src = enabled or {}
     cfg = pathlib.Path(config_dir)
     _clean_tmp(cfg)
+    _prune_parts(cfg, borrow)
     bad = guard(cfg, borrow)
     if bad:
         raise ToolsetError(_refusal(cfg, bad))
