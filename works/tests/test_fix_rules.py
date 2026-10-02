@@ -352,6 +352,12 @@ class TestCompose(unittest.TestCase):
         self.assertTrue(all(s["sent"] and s["why"] for s in h["sections"]))
         self.assertEqual(len(h["rules_sha"]), 64)
 
+    def test_tdd_brief_after_title_before_reason(self):
+        """TDD の役の指示書の頭: 題 → brief の節 → 前の回に拒んだ理由"""
+        text = fixrules.tdd_prompt(tdd_values(), "fix", PHASE_TEXT, title=TITLE, reason="R", brief="## 要求の正本（brief）\n\nX")
+        self.assertLess(text.index(TITLE), text.index("## 要求の正本（brief）"))
+        self.assertLess(text.index("## 要求の正本（brief）"), text.index("前の回の返答を機械が拒んだ理由"))
+
 
 class TestDelta(unittest.TestCase):
     """2 回目からの delta の形: 変わった物と、渡した決まりの sha256 の 1 行だけ"""
