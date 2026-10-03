@@ -147,10 +147,10 @@ def reads_role(tag: str = "") -> str:
     return f"{ROLE}.{tag}" if tag else ROLE
 
 
-def collect(board: pathlib.Path, accepted: dict, changed: dict, tag: str = "") -> dict:
+def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:
     """集める節の中身。1 本目の {ok, files, changes_file} を全部残し、fix_file（fix_reply が読んだ方のファイル: 盤面の
     state.outputs["p3.fix"]["file"] か 1 回目に受け付けた返答の控えの絶対パス）・not_done（件数）・coverage（単位ごとの {before, after}）・reads_file（fix-reads が今の周に書いた
-    reads-fix.json。回の印 tag が在れば reads-fix.<tag>.json。無ければ空）を足す。受け付けた changes を今の周の changes.json（{"changes": [...]}。1 本目の形）に書く。
+    今の scope の reads-fix.json。無ければ空）を足す。受け付けた changes を今の周の changes.json（{"changes": [...]}。1 本目の形）に書く。
     受け付けが通っていない・assert-changed の出力が読めない・盤面が今の周の p3.fix を受けておらず控えも無い・changes が空（直す義務の
     単位が残らず、答え待ちの問いの出どころか直す裁定でない裁定（ask_human・fix_plan_item）で外れた単位が在る盤面 conflict.nothing_owed_but_excused を除く）ときは
     Unreadable（何も書かない）"""
@@ -171,7 +171,7 @@ def collect(board: pathlib.Path, accepted: dict, changed: dict, tag: str = "") -
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps({"changes": changes}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-    reads = b.work(f"reads-{reads_role(tag)}.json")
+    reads = b.work(f"reads-{ROLE}.json")
     return {"ok": True, "files": files, "changes_file": str(path), "fix_file": str(fix_file),
             "not_done": len(out.get("not_done") or []), "coverage": _coverage(b),
             "reads_file": str(reads) if reads.is_file() else ""}
