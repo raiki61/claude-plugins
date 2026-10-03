@@ -1183,6 +1183,8 @@ class StructureHeadCase(unittest.TestCase):
         scope = scriptline.Scope("darkfactory", {})
         if exit_ is not None:
             scope.out[inc], scope.status[inc] = exit_, "ok"
+        # 計画を起こす周の形: h-plan が走り go が真（飛ばされた h-plan は if_skipped の false で skipped の印になる）
+        scope.out["h-plan"], scope.status["h-plan"] = {"go": True}, "ok"
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         env.update({"WORKS_ADAPTER_HOME": str(self.home), "ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": RUN_ID,
                     "PYTHONDONTWRITEBYTECODE": "1"})

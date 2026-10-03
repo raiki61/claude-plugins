@@ -491,7 +491,8 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
         items.append({"where": k,
                       "text": f"{k}（{conflict.HEAD}を人に回した——直さずに残した。裁定の文: {r['ruling']['text']}。"
                               f"名指し {', '.join(r['between'])}"
-                              + (f"。案の直し: {r[conflict.REPLAN_WHY]}" if r.get(conflict.REPLAN_WHY) else "") + "）"})
+                              + (f"。案の直し: {r[conflict.REPLAN_WHY]}。{conflict.HELD_WORK_KEPT}" if r.get(conflict.REPLAN_WHY)
+                                 else "") + "）"})
     ph = b.state.get("pending_human") or {}
     if ph.get("question"):
         asked = "・".join(str(x) for x in ph.get("items") or [])

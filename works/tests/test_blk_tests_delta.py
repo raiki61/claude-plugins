@@ -140,7 +140,7 @@ class TestDeltaSchema(unittest.TestCase):
             self.assertIn(w, text)
         self.assertIn("unverifiable の行は `face_key` を空文字 `\"\"`", text)   # 穴に結べない行（deltamarks.gaps の M4 の決まり）
         self.assertIn("3 点と下の品質の観点", text)
-        for w in ("`held`", "`held_units`", "`ruled_paths`"):   # 裁定で外れた項目と裁定が広げたパス（planscope と同じ決まり）
+        for w in ("`held`", "`held_units`", "`ruled_paths`"):   # 裁定で外れた項目（conflict.held_item）と裁定が広げたパス（planscope と同じ ruled_paths）
             self.assertIn(w, text)
 
     def test_review_prompts_read_protected_files(self):

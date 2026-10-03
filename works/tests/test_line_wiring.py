@@ -78,6 +78,19 @@ def line_stub_owner():
     return owner
 
 
+def node_defs():
+    """{(ブロック, 節の id): 節}。ラインは "darkfactory"。輪の中は入れ子の深さに依らず辿る（blk-plan の converge-loop）"""
+    def deep(nodes):
+        for n in nodes:
+            yield n
+            yield from deep((n.get("loop_group") or {}).get("nodes") or ())
+    out = {("darkfactory", n["id"]): n for n in deep(line()["nodes"])}
+    for p in ROOT.glob("*/*.yaml"):
+        if p.stem == p.parent.name and p.parent.name != "darkfactory":
+            out.update({(p.stem, n["id"]): n for n in deep(load(p).get("nodes") or ())})
+    return out
+
+
 def fixture_files():
     return sorted(ROOT.glob("*/fixtures/*.stubs.yaml"))
 
@@ -144,6 +157,19 @@ class FixtureStubKeysCase(unittest.TestCase):
                 self.assertEqual(bad, {}, f"同じ節の stub に欄の欠け（筋書き: 欠けた欄）。欠けた欄を足すか、筋書きによって"
                                           f"無くてよい欄なら MAY_LACK に理由つきで名指す（全部の鍵: {sorted(full)}）")
 
+    def test_stubs_carry_required_fields(self):
+        """stub は節の output_format の required を全部持つ（Archon の模擬実行は欠けた欄を読む節を理由なしで落とす。blk-refix の
+        refix-prep が prompt_file を足した後も筋書き 14 本が欄を欠いたまま残り、dev/check.sh でしか見えなかった）"""
+        defs = node_defs()
+        for nid, per_file in sorted(stub_key_sets().items()):
+            node = defs.get(nid) or next((n for (b, i), n in defs.items() if i == nid[1] and nid[0] == "darkfactory"), None)
+            required = set(((node or {}).get("output_format") or {}).get("required") or ())
+            for f, keys in per_file.items():
+                if keys is None:
+                    continue
+                with self.subTest(f"{f}: {nid[1]}"):
+                    self.assertEqual(sorted(required - keys), [], "stub が節の output_format の required を欠く")
+
     def test_may_lack_is_live(self):
         """MAY_LACK の欄は、その節の stub のどれかに在り、どれかに無い（揃ったら消す。減らす方向だけ）。理由は空でない"""
         seen = stub_key_sets()
@@ -170,6 +196,21 @@ class ReportAfterFailureCase(unittest.TestCase):
                     self.assertIsInstance(v, dict)
                     self.assertIn("if_skipped", v)
                     self.assertIsNone(v["if_skipped"])
+
+    def test_all_done_reads_upstream_with_if_skipped(self):
+        """all_done の節（report・result・h-structure）は、start と all_done の節のほかの出力を if_skipped つきの binding で受ける。
+        上流が飛ばされた run で字の参照を解けずに落ちる（start が入力を拒んだ run で h-structure が $h-plan.output.go で落ちた）"""
+        nodes = line()["nodes"]
+        always = {"start"} | {n["id"] for n in nodes if n.get("trigger_rule") == "all_done"}
+        for n in nodes:
+            if n.get("trigger_rule") != "all_done":
+                continue
+            for k, v in (n.get("with") or {}).items():
+                src = v.get("from") if isinstance(v, dict) else v if isinstance(v, str) else ""
+                if set(re.findall(r"\$([A-Za-z][\w-]*)\.output", src)) - always:
+                    with self.subTest(f"{n['id']}.{k}"):
+                        self.assertIsInstance(v, dict)
+                        self.assertIn("if_skipped", v)
 
     def test_after_report_matches_line(self):
         """報告の節の AFTER_REPORT（report より下流の節の写し）が darkfactory.yaml の depends_on から引いた report の子孫と同じ

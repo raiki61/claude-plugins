@@ -571,6 +571,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
             mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
             # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
             mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
+            mock.patch.object(self.mod, "_parked_reply", return_value=None),   # 申し出の回の控えも無い
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
         ]
@@ -676,7 +677,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
         with mock.patch.object(self.mod.entry, "open_board", return_value=b), \
                 mock.patch.object(self.mod.conflict, "park", side_effect=park), \
                 mock.patch.object(self.mod.conflict, "write_rulings",
-                                  side_effect=lambda b_, tag="": (work / self.mod.conflict.RULINGS_FILE).write_text("止めた\n", encoding="utf-8")), \
+                                  side_effect=lambda b_: (work / self.mod.conflict.RULINGS_FILE).write_text("止めた\n", encoding="utf-8")), \
                 mock.patch.object(self.mod.recount, "accept_fix", side_effect=recount), \
                 mock.patch.object(self.mod, "revert_units", return_value="/b/r1/fix-parked-1.patch"), \
                 mock.patch.object(self.mod, "unrevert_units") as unrevert:
@@ -786,6 +787,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
             mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
             # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
             mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
+            mock.patch.object(self.mod, "_parked_reply", return_value=None),   # 申し出の回の控えも無い
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
             mock.patch.object(self.mod, "revert_units", self.revert, create=True),
