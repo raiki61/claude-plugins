@@ -1169,6 +1169,14 @@ class TestHeldWorkStays(ReplanCase):
         self.assert_held_for_replan(got)
         self.assertIn(touched, (self.repo / "stats.py").read_text(encoding="utf-8"), "外れた単位のファイルを戻した")
 
+    def test_rulings_say_keep_held_work(self):
+        self.held_tdd_board()
+        text = entry.open_board(self.board).work(conflict.RULINGS_FILE).read_text(encoding="utf-8")
+        self.assertIn("作業ツリーにそのまま残す（戻すな・触るな", text)
+        self.assertNotIn("機械も戻す", text)
+        self.assertNotIn("作業ツリーから戻す", conflict.LATE_REPLAN_PROMISE)
+        self.assertIn(conflict.HELD_WORK_KEPT, conflict.GAVE_UP_PROMISE)
+
     def test_shared_file_with_owed_unit_keeps_both(self):
         """輪で緑にした MEAN を輪の後に申し出て fix_plan_item に裁かれ（項目 1 だけ外れ、項目 2 の CLAMP は義務に残る）、外れた
         MEAN の輪の直しと義務の CLAMP の直しが stats.py を共にする（195d の report.py）。CLAMP の行だけの返答で通り、両方が残る"""
@@ -1262,6 +1270,8 @@ class TestFixPlanItemReport(ReplanCase):
         self.assertEqual(len(hit), 1, items)
         self.assertIn(f"裁定の文: {PLAN_TEXT}。", hit[0]["text"])
         self.assertIn(f"案の直し: {replan_close_why()}", hit[0]["text"])
+        for text in (got["gate_text"], hit[0]["text"]):   # 諦めた単位の 1 回目の直しは作業ツリーに残っている（依頼 241）
+            self.assertIn(conflict.HELD_WORK_KEPT, text)
         self.assertFalse(hasattr(report, "REPLAN_HEAD"))
         self.assertFalse(hasattr(report, "replanned_lines"))
 

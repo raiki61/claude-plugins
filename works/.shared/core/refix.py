@@ -296,7 +296,7 @@ def _plan_items(b, by: str = DELTA_BY) -> list[dict]:
     except planmarks.FieldsBroken as e:
         raise conflict.fields_broken(b, e, by=by) from None
     held = conflict.held_by_rulings(b) if items else {}
-    for it in items:   # 番号は保つ（準拠の行の番号の照らし）。外れた項目は範囲を与えない（planscope と同じ conflict.held_item）
+    for it in items:   # 番号は保つ（準拠の行の番号の照らし）。外れた項目は照らさず直させない（conflict.held_item の 1 つの決まり）
         why = conflict.held_item(it.get("unit_keys"), held)
         some = conflict.held_units(it.get("unit_keys"), held)
         if why:

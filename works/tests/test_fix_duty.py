@@ -128,6 +128,7 @@ class TestAcceptExcused(unittest.TestCase):
         self.assertEqual((got["ok"], got["done"]), (False, False), got)
         self.assertIn(self.mod.EXCUSED, got["reason"])
         self.assertIn(self.WHY, got["reason"])
+        self.assertNotIn("戻し", self.mod.EXCUSED, "外れた単位の直しを戻させない（依頼 241）")
         self.assertNotIn(self.mod.NOT_OPENED, got["reason"])
         self.revert.assert_not_called()
 
