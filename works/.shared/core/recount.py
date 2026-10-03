@@ -10,7 +10,8 @@ done("p3.fix") に替える。graph の p3.fix の受け付けの検査は写し
 
 ここに在る物:
 - FIX_NODE・ROLE・FIX_OUTPUT_FORMAT: 節の名前、役の名前（印の名）、役の output_format（graph の p3.fix の schema に
-  印 works-node: fix と食い違いの申し出の欄 conflicts・Bash で書いたファイルの申告の欄 bash_writes を足した物。blk-fix.yaml の fix に貼る）。RULED_OUTPUT_FORMAT は裁定の後の
+  印 works-node: fix と食い違いの申し出の欄 conflicts・Bash で書いたファイルの申告の欄 bash_writes・closure.sites[] の欄 path・
+  changes[].precedent の条件付き必須 allOf（_precedent_conditions）を足した物。blk-fix.yaml の fix に貼る）。RULED_OUTPUT_FORMAT は裁定の後の
   2 回目の修正役（印 works-node: fix-ruled continue=fix）の物
 - READS: 読んだ証拠の節 fix-reads が reads.main_for に渡す (役, include, 輪, 節)。reads_role(tag) は回の印で分けた役の名（2 回目の修正の段の reads-fix.<印>.json）
 - accept_fix: 節 fix-accept の中身。entry.take に渡し、1 本目の出口のための changes を足す（v1_changes）
@@ -45,10 +46,29 @@ SITE_PATH = "path"   # closure.sites[] の works だけの欄: site が在るフ
 SITE_PATH_SCHEMA = {"type": "string"}
 
 
+PRECEDENT_MIN_LEN = 4 # 写しの _precedent_gap・blank(problem, 4) の下限（テストが写しと突き合わせる）
+
+
+def _precedent_conditions() -> list:
+    """changes[].precedent の条件付き必須（draft-07 の if/then）。写しの受け付け（_precedent_gap）と同じ決まり:
+    from_judge_row が真でない限り problem を求め、verdict が not_found なら searched、それ以外なら source を求める。
+    写しの engine の型検査は if/then を読まないので、役に渡る型（claude の --json-schema）にだけ効く"""
+    not_judge_row = {"not": {"required": ["from_judge_row"], "properties": {"from_judge_row": {"const": True}}}}
+    is_not_found = {"required": ["verdict"], "properties": {"verdict": {"const": "not_found"}}}
+    isnt_not_found = {"required": ["verdict"], "properties": {"verdict": {"not": {"const": "not_found"}}}}
+
+    def needs(field: str) -> dict:
+        return {"required": [field], "properties": {field: {"type": "string", "minLength": PRECEDENT_MIN_LEN}}}
+    return [{"if": not_judge_row, "then": needs("problem")},
+            {"if": {"allOf": [not_judge_row, is_not_found]}, "then": needs("searched")},
+            {"if": {"allOf": [not_judge_row, isnt_not_found]}, "then": needs("source")}]
+
+
 def fix_output_format(name: str = ROLE, cont: str | None = None) -> dict:
     """修正役の output_format: 写しの p3.fix の schema に印と、食い違いの申し出の欄 conflicts・Bash で書いたファイルの申告の欄
-    bash_writes・closure.sites[] の欄 path（どれも任意。受け付けが盤面へ渡す前に外す）"""
+    bash_writes・closure.sites[] の欄 path（どれも任意。受け付けが盤面へ渡す前に外す）・changes[].precedent の条件付き必須 allOf"""
     out = node_marker.mark(role_schema(FIX_NODE), name, cont=cont)
+    out["properties"]["changes"]["items"]["properties"]["precedent"]["allOf"] = _precedent_conditions()
     out["properties"]["conflicts"] = conflict.CONFLICTS_SCHEMA
     out["properties"][writes.FIELD] = writes.BASH_WRITES_SCHEMA
     site = out["properties"]["changes"]["items"]["properties"]["closure"]["properties"]["sites"]["items"]

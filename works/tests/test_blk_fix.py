@@ -228,6 +228,9 @@ class TestBlockYaml(unittest.TestCase):
         site = got["properties"]["changes"]["items"]["properties"]["closure"]["properties"]["sites"]["items"]
         self.assertEqual(site["properties"].pop(recount.SITE_PATH), recount.SITE_PATH_SCHEMA,
                          "site が在るファイルのパスの欄（unitrows が問いの当たりに結び、写しに渡す前に外す）")
+        precedent = got["properties"]["changes"]["items"]["properties"]["precedent"]
+        self.assertEqual(precedent.pop("allOf"), recount._precedent_conditions(),
+                         "precedent の条件付き必須（写しの engine の型検査は if/then を読まないので graph の schema には無い）")
         self.assertEqual(got, role_schema("p3.fix"))
         mark = node_marker.parse(recount.FIX_OUTPUT_FORMAT["description"])
         self.assertEqual((mark["name"], mark["cont"], mark["flags"]), ("fix", None, frozenset()))
@@ -236,6 +239,68 @@ class TestBlockYaml(unittest.TestCase):
                      "fix2_rejudge_requested"):
             with self.subTest(name):
                 self.assertEqual(validate_schema(load(name), role_schema("p3.fix")), [], "見本は graph の型を通る")
+
+    def test_fix_precedent_schema_requires_problem_and_source(self):
+        """p3.fix と p3.fix-ruled の型（recount と blk-fix.yaml）の changes[].precedent は、from_judge_row が真でない時に problem を、
+        verdict が not_found なら searched を、それ以外なら source を（どれも 4 字以上）求める。下限と可否は受け付けの
+        _precedent_gap（写しの review-loop.py）と同じ"""
+        import recount
+
+        def ok(schema, value):   # draft-07 の小さな評価（この型が使う語だけ）
+            if "allOf" in schema and not all(ok(s, value) for s in schema["allOf"]):
+                return False
+            if "not" in schema and ok(schema["not"], value):
+                return False
+            if "if" in schema and ok(schema["if"], value) and not ok(schema.get("then", {}), value):
+                return False
+            if "const" in schema and value != schema["const"]:
+                return False
+            if isinstance(value, dict):
+                if any(k not in value for k in schema.get("required", [])):
+                    return False
+                if any(k in value and not ok(s, value[k]) for k, s in schema.get("properties", {}).items()):
+                    return False
+            if isinstance(value, str) and len(value) < schema.get("minLength", 0):
+                return False
+            return True
+
+        from board import rules_module
+        rules = rules_module()   # 写しの rules（review-loop.py）を受け付けと同じ経路で読む
+
+        def accepted(row):   # 受け付けの確かめ（写しの review-loop.py の fix の precedent の枝）の可否
+            return bool(row.get("from_judge_row")) or not (rules.blank(row.get("problem"), 4) or rules._precedent_gap(row))
+
+        ruled_schema = {"allOf": recount._precedent_conditions()}
+        ok_text = "text-4+"
+        rows = [
+            {"verdict": "does_not_apply", "reason": "reason-ok"},
+            {"verdict": "not_found", "problem": ok_text, "reason": "reason-ok"},
+            {"verdict": "adopt", "problem": ok_text, "reason": "reason-ok"},
+            {"verdict": "adopt", "problem": ok_text, "source": "abc", "reason": "reason-ok"},
+            {"verdict": "not_found", "problem": ok_text, "searched": "abc", "reason": "reason-ok"},
+            {"verdict": "adapt", "problem": "abc", "source": ok_text, "reason": "reason-ok"},
+            {"verdict": "adopt", "problem": ok_text, "source": ok_text, "reason": "reason-ok"},
+            {"verdict": "not_found", "problem": ok_text, "searched": ok_text, "reason": "reason-ok"},
+            {"verdict": "does_not_apply", "problem": ok_text, "source": ok_text, "searched": ok_text, "reason": "reason-ok"},
+            {"verdict": "adopt", "reason": "reason-ok", "from_judge_row": True},
+            {"verdict": "adopt", "reason": "reason-ok", "from_judge_row": False},
+        ]
+        self.assertEqual(recount.PRECEDENT_MIN_LEN, 4)
+        yaml_fix = find_node(block()["nodes"], "fix")["output_format"]
+        yaml_ruled = find_node(block()["nodes"], "fix-ruled")["output_format"]
+        for label, fmt in (("recount.FIX", recount.FIX_OUTPUT_FORMAT), ("recount.RULED", recount.RULED_OUTPUT_FORMAT),
+                           ("yaml fix", yaml_fix), ("yaml fix-ruled", yaml_ruled)):
+            precedent = fmt["properties"]["changes"]["items"]["properties"]["precedent"]
+            self.assertEqual(precedent["allOf"], recount._precedent_conditions(), label)
+            for row in rows:
+                with self.subTest(label, row=row):
+                    self.assertEqual(ok(precedent, row), accepted(row))
+            self.assertFalse(ok(precedent, rows[0]), "does_not_apply だけの返答は型で落ちる")
+            self.assertFalse(ok(precedent, rows[1]), "searched 無しの not_found は型で落ちる")
+            self.assertFalse(ok(precedent, rows[2]), "source 無しの adopt は型で落ちる")
+            self.assertTrue(ok(precedent, rows[9]), "from_judge_row が真の行は problem・source が要らない")
+            self.assertTrue(ok(precedent, rows[6]) and ok(precedent, rows[7]))
+        self.assertTrue(ok(ruled_schema, rows[9]))
 
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""

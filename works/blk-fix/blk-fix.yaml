@@ -441,6 +441,62 @@ nodes:
                           type: string
                         from_judge_row:
                           type: boolean
+                      allOf:
+                      - if:
+                          not:
+                            required:
+                            - from_judge_row
+                            properties:
+                              from_judge_row:
+                                const: true
+                        then:
+                          required:
+                          - problem
+                          properties:
+                            problem:
+                              type: string
+                              minLength: 4
+                      - if:
+                          allOf:
+                          - not:
+                              required:
+                              - from_judge_row
+                              properties:
+                                from_judge_row:
+                                  const: true
+                          - required:
+                            - verdict
+                            properties:
+                              verdict:
+                                const: not_found
+                        then:
+                          required:
+                          - searched
+                          properties:
+                            searched:
+                              type: string
+                              minLength: 4
+                      - if:
+                          allOf:
+                          - not:
+                              required:
+                              - from_judge_row
+                              properties:
+                                from_judge_row:
+                                  const: true
+                          - required:
+                            - verdict
+                            properties:
+                              verdict:
+                                not:
+                                  const: not_found
+                        then:
+                          required:
+                          - source
+                          properties:
+                            source:
+                              type: string
+                              minLength: 4
               not_done:
                 type: array
                 items:
