@@ -104,6 +104,87 @@ flowchart TD
 20. **最後の関所（final-gate）**: テストの結果・審査の穴・独立の目の判定を並べて人が確かめる。毎回止まるか、聞くことがある時だけ止まるかは run の設定で決まる。作り直しが要る時は取り込まず、設計からやり直す次の依頼の下書きを作る（予定）。
 21. **報告（report・reporting）**: 何をしたか・何が残ったか・人が決めることを報告にまとめ、初めて読む人に通じるかを別の AI が確かめる。直せずに残った物とテストの赤は、次の run に渡す依頼の下書き（next-request.json）にする。途中の工程が落ちた run でも報告は必ず走る。
 
+## 部品の置き場と宣言
+
+部品（`blk-*/` のブロック。線 `darkfactory/darkfactory.yaml` が `include` の節で差し込む節の束）は、run の記録の置き場（盤面。`$ARTIFACTS_DIR/board/`）を 1 つの決まりで使う（依頼 239）。同じ部品を 1 run で 2 度差し込んでも（今は修正の部品 `blk-fix` の `fixing` と `refitting`、修正案の部品 `blk-plan` の `planning` と `replanning`）、2 度目が 1 度目のファイルを上書きしない。
+
+### 1 つの決まり
+
+部品が盤面で読み書きしてよいのは次の 3 つだけ。
+
+1. 自分の置き場（scope の根）: `board/<include の名>/` の下の全部。include の名は線の `include` の節の id（`fixing` など）で、ここではこれを scope と呼ぶ。
+2. 宣言した入力（consumes）: ほかの部品か線が宣言した出力。
+3. 宣言した出力（produces）: 自分が外に出す物。
+
+ほかに、core（`.shared/core/` の共通の部品）・写しの engine・rules が書く共有の記録（`state.json`・`record.json`・`trace.jsonl`・`out/`・`runs/`・`prompts/`・修正の部品の試験の輪の `tdd-<k>/` など）は、どの部品の間に変わってもよい。全部の形は `.shared/core/scopes.py` の `SHARED` の 1 つの組に在る。
+
+部品のコードは置き場を知らない。今までどおり `b.work(名)`（周 N の作業ファイルのパス）と `script_io.scope_dir(盤面)`（周をまたぐ私物の置き場）を使えば、盤面を開く口 `entry.open_board` が名を見て置き場を決める。
+
+### 置き場の絵
+
+```
+board/
+  state.json  record.json  trace.jsonl  out/  runs/ ...   共有の記録（core・engine・rules が書く）
+  scope-window.json                                       今の窓（下の「照らし」）
+  judgment.json  design.json ...                          at が root の宣言した出力（盤面の根）
+  r1/                                                     周 1 の公開の置き場
+    scopes.json                                           その周に居た include と、公開の名の持ち主（owns）
+    lens.json  fix-shape.json ...                         at が round の宣言した出力（周ごとに書き手の scope は 1 つ）
+    conflicts.json  libdocs.json                          周ごとの共有の記録
+  fixing/                                                 include fixing の scope の根（私物と per_include の出力）
+    reject-accept_fix-1.txt                               周をまたぐ私物（script_io.scope_dir）
+    r1/rule-tree.json  r1/reads-fix.json ...              周ごとの私物と per_include の出力
+  refitting/                                              同じ blk-fix の 2 度目の include（fixing と分かれる）
+```
+
+線の最上段の節（`start`・境の節 `h-*`）は scope が空で、盤面の根と `r<N>/` に今までどおり書く。
+
+### manifest の書き方
+
+宣言は部品のフォルダごとの `manifest.json`（線は `darkfactory/manifest.json`）。形の正本は `.shared/core/manifest.schema.json`。
+
+- `consumes`: `[{"name": <名>}]`。ほかの部品が公開した名だけを書く。出す部品の名は書かない（名から引く）。
+- `produces`: `[{"name", "format": "md"|"json", "schema"?, "per_include"?, "required"?, "at"?}]`。
+  - `name` は置き場からの名か、`/` で区切った段ごとの形（`*` は段をまたがない。末尾の `**` は下の全部）。字のままの名が形より勝つ。
+  - `format` が `json` なら `schema`（部品のフォルダからの JSON Schema のパス）が要る。
+  - `at`: `round`（既定）は周の置き場 `r<N>/<名>`、`root` は盤面の根 `<名>`。
+  - `per_include` が真なら公開の置き場でなく各 include の scope の根に残す（同じ部品の 2 つの include がそれぞれ出す物。読む側は `scopes.each`・`scopes.all_rounds` で集める）。偽なら公開の置き場に置き、周ごとに書き手の scope は 1 つ。
+  - `required` が真なら、窓を閉じる時に無ければ誤り。
+- 宣言しない名は全部、scope の根の中の私物。
+
+### 照らし（宣言の外の書き込みで run を止める）
+
+窓は、1 つの scope が盤面を開いてから、別の scope か線が盤面を開くまでの間。`entry.open_board` は開くたびに `scopes.enter` を呼び、scope が替わる時に前の窓の盤面の変化（パス・大きさ・mtime_ns）を前の部品の manifest に照らす。照らすのは窓ごとに 1 度で、同じ scope が開き直しても窓は開き直さない（Archon の再開で同じ節が走り直しても、1 回目からの書き込みを照らし続ける）。誤りが在れば BoardGap で run が止まり、窓は開き直さない（走り直しても同じ誤りで止まる）。
+
+誤りの文の読み方（1 行が 1 つのパス）:
+
+- `planning/r1/z.json: scope fixing（blk-fix） が宣言の外に書いた。宣言: <produces の名の並び>` — include `fixing`（部品 `blk-fix`）の窓の間に、自分の scope の根でも宣言した出力でも共有の記録でもない `planning/r1/z.json` が変わった。直し方は、外が読む物なら manifest の produces に足す（JSON なら Schema も）、部品の私物なら `b.work`（周ごと）か `script_io.scope_dir`（周をまたぐ）に書き先を移す。
+- `… が宣言の外に書いた（この周の持ち主は scope fixing。周ごとに書き手は 1 つ）` — 公開の名を同じ周に 2 つの scope が書いた。片方の書き手を外すか、per_include にする。
+- `r1/lens.json: scope lensing（blk-lens） が必須の出力（required）を書いていない` — required の出力が窓の終わりに無い。
+- `… の lens.json が Schema <パス> に合わない: <誤り>` — JSON の出力が宣言の Schema に合わない。
+
+宣言の外の読み（部品の読んだ証拠 `reads-<役>.json` に、consumes に無い盤面のパスが在る）は止めない。trace の行 `scope_read_outside`（`{scope, paths}`）と、報告の冒頭の読んだ証拠の節の「宣言の外の読み」の行に出る。
+
+盤面を開く前に自分の scope の根に書く節（依頼の受け付けの intake・テストの走らせ）の物は、次に盤面を開いたその scope の物として通す。run の外で盤面を読むだけの道具（`dev/fixmeasure.py`）は `open_board(..., window=False)` で開き、窓に触らない。
+
+### 部品を足す・廃止する
+
+- 足す: 部品のフォルダに `manifest.json` を書き、コードは `b.work(名)` と `script_io.scope_dir` だけで盤面に書く。試験 `tests/test_scopes.py`（manifest の形・持ち主が 1 つ・consumes が在る出力を指す）と `tests/test_block_scope.py`（2 度の include で上書きしない・宣言の外の書き込みで止まる）が全部の部品に掛かる。works を直したら今の手順どおり `.archon/workflows/works` へ写す（manifest も一緒に写る）。
+- 廃止する: その部品の `manifest.json` と、線の YAML の `include` の節を消すだけ。scope ごとに片付ける処理は無く、run の置き場を丸ごと消せば片付く。
+- run を調べる: `r<N>/scopes.json` で、その周にどの include が居たかと公開の名の持ち主が分かる。`<scope>/` の下にその include の私物と per_include の出力が全部残る。
+
+### 聞き直しの形（作っていない）
+
+後の節が前の節の AI に聞き直す道は塞がないが、まだ作らない。流れの道具に触る口 `.shared/core/flow_adapter.py` の `session_handle`・`resume` は NotImplementedError。形だけを決めた: 役を起こした節ごとに `<scope の根>/r<N>/session.json`（`.shared/core/session.schema.json`）、問いは自分の scope の根の `questions/<相手 scope>/<連番>.md`、答えは相手の scope の根の `answers/<問いの scope>/<連番>.md`。
+
+### 設計から外した 5 点（外れ D1〜D5）
+
+- D1: 私物は `<scope>/r<N>/<名>` に置く（設計の `r<N>/<scope>/<名>` でなく）。scope が空なら今の置き場とバイトまで同じになる。
+- D2: 宣言した出力は初めから公開の置き場 `r<N>/<名>` に書き、周ごとの持ち主を `r<N>/scopes.json` の `owns` に記録する（写す手順を作らない）。
+- D3: 照らしは窓ごとに `entry.open_board` の 1 か所で、パス・大きさ・mtime_ns で比べる（ハッシュは取らない。159 ファイルの dogfood の盤面で 1 回の控えが約 1.2 ms）。
+- D4: 宣言の外の読みは落とさず、trace と報告に載せるだけ。
+- D5: 線の最上段（scope が空）の窓は照らさない。線の窓の間に部品の節が盤面を開く前に書いた物（盤面の根の錠のファイルなど）と、線の最後の include の最後の書き込みも照らさない。
+
 ## 保守のための注
 
 - 元にした版: wip/works-next の aa07f883 の設定ファイル（2026-10-03。0.2.19 の後）に、依頼 226 の計画の項目の直し（replanning・replan-gate・refitting。2026-10-03）と、依頼 231 の事前審査の壁打ちの輪（wip/sdd-231 の 72a9bb94）を足した。手で描いた図なので、`darkfactory/darkfactory.yaml` の工程の並びを変えたらこの図も直す。

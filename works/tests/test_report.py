@@ -693,6 +693,18 @@ class HeadCase(ReportBase):
         self.assertEqual(len(hit), 1, hit)
         self.assertIn("受け付け 1 回", hit[0])
 
+    def test_head_reads_shows_reads_outside(self):
+        """窓の宣言の外の読み（照らしが trace に積んだ scope_read_outside）は冒頭 4 の読みの節に数とパスが出る（無ければ行を出さない）"""
+        self.begin()
+        self.assertFalse(any("宣言の外の読み" in x for x in report.head_reads(self.board, RUN_ID)))
+        b = entry.open_board(self.board)
+        b.trace(scopes.READ_OUTSIDE_OP, scope="fixing", paths=["planning/r1/y.md", "r1/x.json"])
+        b.trace(scopes.READ_OUTSIDE_OP, scope="refitting", paths=["fixing/r1/a.md"])
+        hit = [x for x in report.head_reads(self.board, RUN_ID) if "宣言の外の読み" in x]
+        self.assertEqual(len(hit), 1, hit)
+        for part in ("3 件", "fixing: planning/r1/y.md", "fixing: r1/x.json", "refitting: fixing/r1/a.md"):
+            self.assertIn(part, hit[0])
+
     def test_ci_note_beside_no_adapter(self):
         """adapter optional で CI の役が走った → 冒頭 4 の「包み無し」の行の横（同じ行）に collect.note"""
         self.begin(declared=False, adapter="optional")

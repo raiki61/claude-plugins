@@ -6,6 +6,21 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- 部品（`blk-*` のブロック）の盤面の置き場を、線が差し込む `include` の名（scope）ごとに分けた。部品の私物は `board/<include の名>/` の下に置かれ、同じ部品を 1 run で 2 度差し込んでも（`fixing` と `refitting`、`planning` と `replanning`）、2 度目が 1 度目のファイルを上書きしない。部品のコードは置き場を知らず、盤面を開く口が決める。周ごとにどの include が居たかは `r<N>/scopes.json` に残る。この版より前に始めた run を、include の中から続けることはできない（始め直す）。
+- 部品と線ごとの宣言 `manifest.json`（読む物 `consumes`・外に出す物 `produces`。形は `.shared/core/manifest.schema.json`）。外に出す物は JSON なら JSON Schema を持ち、周ごとに書き手は 1 つ。宣言の型は superpowers 6.4.2（MIT）の writing-plans の Interfaces の節から写した。
+- 宣言の照らし: 部品が盤面を開いてから次の部品か線が開くまでの間の盤面の変化を、その部品の宣言に照らす。宣言の外の書き込み・同じ周の公開の名の 2 つ目の書き手・必須の出力の欠け・JSON の出力の Schema の外れが在れば、どのパスを・どの include が・何を宣言していたかを並べて run を止める。宣言の外の読みは止めず、trace の行 `scope_read_outside` と報告の冒頭の読んだ証拠の節に出す。決まりと誤りの文の読み方は `docs/darkfactory-flow.md` の「部品の置き場と宣言」。
+- 流れの道具（Archon）に触る口 `.shared/core/flow_adapter.py`。今の節が居る include の名を、Archon が script の節ごとに渡す節の居場所（step の名）から読む。後の節が前の節の AI に聞き直す口（`session_handle`・`resume`）は形だけで、まだ作らない。
+
+### Changed
+
+- `dev/fixmeasure.py` は、修正の受け付けの拒否の本文と修正の部品の帳面を、include ごとの置き場からも数える。
+
+### Removed
+
+- 2 度目の修正の段（`refitting`）のファイルに回の印 `.refit` を足して分けていた仕組み（YAML の入力 `pass_tag` と、それを読む全部の配線）。置き場の分けが代わりに分ける。2 回目の修正の段かどうかは、今の周の裁定の行の事実から引く。
+
 ## [0.2.20] - 2026-10-03
 
 ### Added

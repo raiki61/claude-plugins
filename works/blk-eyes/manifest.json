@@ -3,5 +3,8 @@
  "consumes": [
   {"name": "design-premises.json"}
  ],
- "produces": []
+ "produces": [
+  {"name": "eyes-exit.json", "format": "json", "schema": "schemas/eyes-exit.schema.json", "per_include": true},
+  {"name": "eyes-lanes.json", "format": "json", "schema": "schemas/eyes-lanes.schema.json", "per_include": true}
+ ]
 }

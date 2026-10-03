@@ -24,8 +24,11 @@
 - shared(path): 盤面の根からのパスが共有の記録に当たるか
 - snapshot(board_dir): 盤面の下の全部のファイルの相対パス → [大きさ, mtime_ns]（窓の控え）
 - check_window(board_dir, window, pack): 窓を開いてからの盤面の変化を窓の scope のブロックの宣言に照らした誤りの全部
-  （宣言の外の書き込み・公開の名の持ち主の重なり・必須の出力の欠け・JSON の出力の Schema。線の窓は照らさない）
+  （宣言の外の書き込み・公開の名の持ち主の重なり・必須の出力の欠け・JSON の出力の Schema。線の窓は照らさない。opener の
+  scope の根は、盤面を開く前に書いたその scope の物として通す）
 - reads_outside(board_dir, window, pack): 窓の間の読んだ証拠のうち、宣言の外の盤面のパス（落とさない。外れ D4）
+- enter(board_dir, round_, scope, block): 盤面を開く口が呼ぶ。scope が替われば前の窓を照らし（誤りは BoardGap）、宣言の外の
+  読みを trace の行 READ_OUTSIDE_OP に積み、今の scope の窓 scope-window.json を開く
 
 名の形は段ごとに当てる（* が / をまたぐ fnmatch のままだと、rejects-*.json が rejects-a/b.json のような scope の下の私物まで
 公開の名に数える）。形の字は manifest を読む時に照らす: 空の段・"."・".."・頭の "/" を持たず、** は末尾の段そのものだけ。
@@ -48,6 +51,7 @@ if str(_GL) not in sys.path:
 
 from board import BoardGap, name_matches  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+from engine.util import now  # noqa: E402
 
 PACK = _CORE.parents[1]                       # works/（.shared/core の 2 つ上）
 MANIFEST = "manifest.json"                    # owner のフォルダの宣言のファイル
@@ -60,6 +64,7 @@ REGISTRY_LOCK = "scopes.json.lock"            # 登録の読み書きの錠（fc
 SCRIPTS_DIR = "scripts"                       # ブロックのスクリプトの置き場（<pack>/<名>/scripts/<x>.py）
 WINDOW = "scope-window.json"                  # 盤面の根の今の窓 {scope, block, round, files: snapshot}（enter が書く）
 WINDOW_LOCK = "scope-window.json.lock"        # 窓の読み書きの錠（fcntl.flock。待つ上限は持たない）
+READ_OUTSIDE_OP = "scope_read_outside"        # 窓の宣言の外の読みの trace の行 {scope, paths}（落とさない。外れ D4）
 OWNS = "owns"                                 # 周の scopes.json の鍵: 公開の名 → それを書いた scope（周ごとに持ち主は 1 つ）
 _ROUND_DIR = "r[0-9]*"                        # 周の置き場 r<N> の段の形（共有の記録の形の頭）
 _ROUND_NAME = re.compile(r"r\d+")              # 周の置き場 r<N> の段そのもの（board._ROUND_NAME と同じ字）
@@ -69,7 +74,8 @@ SHARED = ("state.json", "record.json", "trace.jsonl", "STOP", "query-examples.js
           "diff-r*.patch", "changed-r*.txt", "*-r*.patch",
           "out/**", "runs/**", "rounds/**", "prompts/**", "roles/**", "items/**", "policy/**", "lanes/**", "tdd-*/**",
           f"{_ROUND_DIR}/conflicts.json", f"{_ROUND_DIR}/libdocs.json", f"{_ROUND_DIR}/libdocs/**",
-          f"{_ROUND_DIR}/{REGISTRY}", f"{_ROUND_DIR}/{REGISTRY_LOCK}", WINDOW, WINDOW_LOCK)
+          f"{_ROUND_DIR}/{REGISTRY}", f"{_ROUND_DIR}/{REGISTRY_LOCK}", f"{_ROUND_DIR}/{REGISTRY}.tmp",
+          WINDOW, WINDOW_LOCK, f"{WINDOW}.tmp")
 # 共有の記録のうち周の置き場 r<N>/ に置く名（scope の根に分けない。盤面の work が r<N>/ に置く）
 SHARED_ROUND = frozenset(p.split("/", 1)[1] for p in SHARED if p.startswith(_ROUND_DIR + "/"))
 # 盤面の根に core・engine・rules・部品が作るフォルダの名の形（共有の記録の <頭>/** の頭）。scope の名がこれに当たると、私物が
@@ -396,13 +402,15 @@ def _own(board_dir: pathlib.Path, n: int, name: str, scope: str) -> str | None:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def check_window(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PACK) -> list[str]:
+def check_window(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PACK, *, opener: str = "") -> list[str]:
     """窓 window（{scope, block, round, files: snapshot}）を開いてからの盤面の変化を、窓の scope のブロックの宣言に照らした誤りの
     全部（最初の 1 つで止めない。無ければ []）。scope が空（線）の窓は照らさない（外れ D5）。変わった・増えた・消えたパスごとに:
     scope の根の下・共有の記録は可。周の置き場 r<N>/<名> はブロックの per_include でなく at が round の produces なら可で、
     r<N>/scopes.json の owns に持ち主の scope を記録し、別の scope が持ち主なら誤り（周ごとに書き手は 1 つ）。盤面の根の <名> は
     at が root の produces なら可（周を持たないので持ち主は記録しない）。ほかは誤り。あわせて、窓の周の required の produces が
-    無い・format が json の produces（scope の根の per_include の物も）が読めないか Schema に合わない、も誤り"""
+    無い・format が json の produces（scope の根の per_include の物も）が読めないか Schema に合わない、も誤り。
+    opener は今盤面を開いて窓を閉じる scope（enter が渡す）で、その scope の根の変化は照らさない: 盤面を開く前に自分の scope の根に
+    書く節（依頼の受け付けの intake・テストの走らせ（script_io.scope_dir））の物で、閉じる窓の物ではない"""
     scope, block, n = window.get("scope") or "", window.get("block") or "", window.get("round")
     if not scope:
         return []
@@ -413,6 +421,8 @@ def check_window(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PAC
     errs = []
     for rel in _changed(window.get("files") or {}, now_files):
         segs = rel.split("/")
+        if opener and segs[0] == opener:
+            continue
         if segs[0] == scope:
             inner = "/".join(segs[1:])
             at, name = ("round", "/".join(segs[2:])) if len(segs) > 2 and _ROUND_NAME.fullmatch(segs[1]) else ("root", inner)
@@ -486,3 +496,50 @@ def reads_outside(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PA
                 continue
             out.add(got)
     return sorted(out)
+
+
+def _read_window(d: pathlib.Path) -> dict | None:
+    """盤面の根の今の窓（無ければ None。読めない・形が違えば BoardGap）"""
+    p = d / WINDOW
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as e:
+        raise BoardGap(f"scope の窓 {p} が読めない: {e}") from None
+    if not (isinstance(doc, dict) and isinstance(doc.get("scope"), str) and isinstance(doc.get("block"), str)
+            and isinstance(doc.get("round"), int) and isinstance(doc.get("files"), dict)):
+        raise BoardGap(f"scope の窓 {p} の形が違う（{{scope, block, round, files}}）")
+    return doc
+
+
+def enter(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> None:
+    """盤面を開く口（entry.open_board）が scope（線の最上段は空）で開くたびに呼ぶ。錠 scope-window.json.lock の下で、盤面の根の
+    今の窓 scope-window.json を読み、窓の scope が今の scope と違えば（窓が閉じる）check_window で照らし、誤りが在れば全行を
+    並べた BoardGap（窓は開き直さない: 走り直しても同じ誤りで止まる）。無ければ前の窓の宣言の外の読み（reads_outside）を trace の
+    行 READ_OUTSIDE_OP {scope, paths} に積み、今の scope の窓を snapshot で開き直す。同じ scope なら何もしない（Archon の再開で
+    同じ include が走り直しても 1 回目からの書き込みを照らし続ける。照らすのは窓ごとに 1 度——外れ D3）"""
+    d = pathlib.Path(board_dir)
+    with open(d / WINDOW_LOCK, "a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            window = _read_window(d)
+            if window is not None and window["scope"] == scope:
+                return
+            if window is not None:
+                errs = check_window(d, window, opener=scope)
+                if errs:
+                    raise BoardGap(f"scope {window['scope']} の窓（周 {window['round']}・ブロック {window['block'] or '不明'}）の"
+                                   f"盤面の変化が宣言に合わない（{len(errs)} 件。manifest.json に宣言するか、書き先を scope の根へ移す）:\n"
+                                   + "\n".join(f"  - {e}" for e in errs))
+                outside = reads_outside(d, window)
+                if outside:
+                    with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"t": now(), "op": READ_OUTSIDE_OP, "scope": window["scope"], "paths": outside},
+                                           ensure_ascii=False) + "\n")
+            doc = {"scope": scope, "block": block, "round": round_, "files": snapshot(d)}
+            tmp = d / (WINDOW + ".tmp")
+            tmp.write_text(json.dumps(doc, ensure_ascii=False) + "\n", encoding="utf-8")
+            tmp.replace(d / WINDOW)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)

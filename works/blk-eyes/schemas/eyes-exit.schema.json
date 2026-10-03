@@ -1,0 +1,32 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "独立の目の出口 <scope>/r<N>/eyes-exit.json（書き手は blk-eyes の eyes。読み手は線の最後の関所の文 line_edge が scopes.all_rounds で集める）",
+ "type": "object",
+ "required": [
+  "ok",
+  "reason",
+  "complete",
+  "eyes",
+  "exit_file"
+ ],
+ "properties": {
+  "ok": {
+   "type": "boolean"
+  },
+  "reason": {
+   "type": "string"
+  },
+  "complete": {
+   "type": "boolean"
+  },
+  "eyes": {
+   "type": "object"
+  },
+  "exit_file": {
+   "type": "string"
+  },
+  "premise_inputs": {
+   "type": "object"
+  }
+ }
+}

@@ -436,6 +436,26 @@ class GateCase(unittest.TestCase):
         self.assertTrue(any("loose.txt" in g for g in got), got)
         self.assertTrue(any("r1/start.json" in g for g in got), got)
 
+    def test_opener_own_root_not_charged_to_closing_window(self):
+        # 盤面を開く前に自分の scope の根に書く節（依頼の受け付けの intake）の物は、次に開く scope（opener）の物で、閉じる窓の物でない
+        w = self.window("gathering", "blk-fix")
+        self.put("judging/judge-snapshot.json")
+        self.assertEqual(scopes.check_window(self.board, w, self.pack, opener="judging"), [])
+        got = self.check(w)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("judging/judge-snapshot.json", got[0])
+
+    def test_unknown_block_checked_by_published_owner(self):
+        # 起こされたブロックが分からない窓（running_block が ""）は、公開の名の持ち主で照らす（ブロックの名に頼らない）
+        w = self.window("fixing", "")
+        self.put("r1/fix-held-reply.json")
+        self.put("fixing/r1/x.json")
+        self.assertEqual(self.check(w), [])
+        self.put("r1/rule-tree.json")
+        got = self.check(w)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("r1/rule-tree.json", got[0])
+
     def test_line_window_not_checked(self):
         w = self.window("", "darkfactory")
         self.put("refitting/r1/x.json")

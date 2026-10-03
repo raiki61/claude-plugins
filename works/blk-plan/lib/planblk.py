@@ -445,7 +445,7 @@ def with_plan_fields(run):
         got = run(board, bare, repo)
         if got.get("ok") is True:
             try:
-                planmarks.save(board, rnd, fields)
+                planmarks.save(board, rnd, fields, trace=b.trace)
             except Exception as e:   # 書けない・形にできない: 受けた案に欄が無いまま進ませない
                 raise BoardGap(rolekit.halt_unsaved(board, planmarks.FIELDS_FILE, e, by=STOP_BY)) from None
         return got

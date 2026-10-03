@@ -98,6 +98,7 @@ import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import report  # noqa: E402
 import script_io  # noqa: E402
+import scopes  # noqa: E402
 import seat  # noqa: E402
 import spseam  # noqa: E402
 
@@ -109,7 +110,7 @@ ARMS = fixshape.SHAPES
 AI_KIND = "agent"                      # node_completed の data.node.kind のうち AI の節
 REFUSED = "error"                      # tool_completed の tool_outcome のうち、呼び出しが走らなかった（拒まれた）印
 TDD_NODE = "tdd"                       # TDD の役の印の名（step_name の最後の区切り）
-FIX_REJECTS = f"{script_io.REJECT_PREFIX}accept_fix-*.txt"   # 修正の受け付けの拒否の本文（盤面の根。script_io._write_reason）
+FIX_REJECTS = f"{script_io.REJECT_PREFIX}accept_fix-*.txt"   # 修正の受け付けの拒否の本文（scope の根。script_io._write_reason）
 REVIEW_NODES = ("p3.delta_review", "p3.delta_review2")      # 差分の審査の節（出力の faces が受け付けた穴）
 TOOLS = ("Skill", "Agent")
 UNKINDED = "unkinded"                  # 種類の無い申し出（211 の前の形。conflict.UNSET の数）
@@ -263,10 +264,17 @@ def _ledgers(rounds: list, gaps: list) -> list:
     """束の帳面の行 [(周, 行)] を周の順に"""
     rows = []
     for r in rounds:
-        doc = _json(r.work(fixgates.LEDGER), gaps, "束の帳面")
-        if isinstance(doc, dict):
-            rows += [(r.round, x) for x in doc.get("rows") or [] if isinstance(x, dict)]
+        for p in scopes.each(r, fixgates.LEDGER):   # 修正のブロックの私物は include ごとの scope の根の周の置き場
+            doc = _json(p, gaps, "束の帳面")
+            if isinstance(doc, dict):
+                rows += [(r.round, x) for x in doc.get("rows") or [] if isinstance(x, dict)]
     return rows
+
+
+def _fix_rejects(rounds: list) -> int:
+    """修正の受け付けの拒否の本文 FIX_REJECTS の数（盤面の根と、どれかの周に登録した scope の根。script_io.scope_dir）"""
+    roots = dict.fromkeys(root for r in rounds for root in scopes.scope_roots(r))
+    return sum(len(list(root.glob(FIX_REJECTS))) for root in roots)
 
 
 def _faces(board: pathlib.Path, gaps: list) -> int:
@@ -343,7 +351,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
     out = _empty_board()
     out["report"] = (board / report.REPORT_FILE).is_file()
     try:
-        b = entry.open_board(board, allow_halted=True)
+        b = entry.open_board(board, allow_halted=True, window=False)   # 読むだけ（run の外。部品の窓に触らない）
     except Exception as e:
         gaps.append(f"盤面を開けない: {' '.join(str(e).split())}")
         return out
@@ -361,7 +369,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
                 for k in f.get("unit_keys") or [] if k in asked and k not in have]
         if lost:
             gaps.append(f"tdd の項目の単位に輪の単位の行が無い: {'、'.join(dict.fromkeys(lost))}")
-    if not plain and fields and not any(r.work(planbrief.LEDGER).is_file() for r in rounds):
+    if not plain and fields and not any(scopes.each(r, planbrief.LEDGER) for r in rounds):
         gaps.append("平の run でないのに修正案の欄が在って brief の控え（briefs.json）が無い")
     if shape == seat.G1_SHAPE and agents:
         path, rows = _writes_rows(b, home)
@@ -375,7 +383,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
     items = len(fields) if fields else len(asked)
     battery = len({(n, r.get("pass"), r.get("attempt")) for n, r in rows})
     out["items"] = items
-    out["redo"] = {"fix_rejects": max(0, len(list(board.glob(FIX_REJECTS))) - battery),
+    out["redo"] = {"fix_rejects": max(0, _fix_rejects(rounds) - battery),
                    "tdd_rejects": sum(1 for c in calls if c.get("ok") is False),
                    "battery_rejects": battery,
                    "delta_faces": _faces(board, gaps),
