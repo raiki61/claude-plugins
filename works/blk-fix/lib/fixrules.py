@@ -32,6 +32,13 @@
   brief の控えが壊れていれば盤面を止める（brief_halt。brief の無い指示書として続けない）
 - ruler_prompt: 裁定役の指示書（ruling.prep が書く）
 - reads_more: 節 fix-reads が読んだ証拠を集めるパスに足す物（今の周に組んだ指示書と brief のファイル）
+- tagged: 回の印（pass_tag。依頼 226 の 2 回目の修正の段は refit）をファイルの名の拡張子の前に足す唯一の口（script_io.tagged。
+  core の conflict の裁定の文・申し出の回の控えと、拒否の理由のファイルも同じ決まり）。同じ周に修正役を 2 度起こす段が、指示書
+  （と隣の .full.md・.delta.md・.variants.json・.delivered.json・.rules.md）・裁定の後の尾・拒否の理由・裁定の文・申し出の回の
+  控えの名を分ける。印が空なら今の名のまま。2 回目の段は自分の数えから始まり、3 回の諦めを回ごとに数え、最初の指示書は
+  新しい役が見ていない会話への差分（delta）にならない
+- 1 回目の修正の段で受け付けた返答の控え（conflict.held_reply）が在る時だけ、修正役の指示書の brief の節の後に HELD_HEAD の節
+  （HELD_ASK）を置く（2 回目の修正の段）
 """
 import json
 import pathlib
@@ -73,6 +80,12 @@ PASSES = ("first", "ruled")   # 修正役の 1 回目と、裁定の後の 2 回
 RULED_TAIL = "-ruled.md"      # 2 回目の指示書の名の尾（1 回目の <名>.md の隣。輪の控えを分ける）
 RULINGS_LINE = ("食い違いの申し出への裁定を書いたファイル {path} を、先に Read で全部読め。裁定に従って直し、返答を丸ごと出し直せ"
                 "（裁定の文そのものはここに貼らない）")
+tagged = script_io.tagged   # 回の印をファイルの名に足す唯一の口（tagged(name, pass_tag)。core も同じ決まりを使うので本体は script_io）
+HELD_HEAD = "## 1 回目の修正の段で受け付けた返答（機械が貼った）"
+HELD_ASK = ("控え {path} を Read で読め。直す義務は下の『直す義務の単位』（案を直して戻った単位）だけで、控えの単位の行は機械が"
+            "足す——changes と not_done に控えの単位を書くな。changes と not_done の外の欄（fix_closure・mechanism_changed・"
+            "plan_faces など）は、1 回目と今回を合わせた差分の全体について書け（控えの値から始めよ）。")
+HELD_WHY = "1 回目の修正の段で受け付けた返答の控えが在る（2 回目の修正の段）"
 KINDS = ("docs", "prompts", "config", "code")   # 変更の種類 → 節 evidence-<種類>
 PHASES = ("route", "test", "fix", "refactor")
 # 種類の見分け（パスの形だけで決める。当たらない物は種類なし）
@@ -179,12 +192,19 @@ def _all_kinds() -> dict:
     return {k: "種類を選ばない組み立て（全部）" for k in KINDS}
 
 
-def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "") -> list:
-    """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの今の文書の節（libdocs.section。空なら載せない）"""
+def held_text(held_path) -> str:
+    """1 回目に受け付けた返答の控えの節（HELD_HEAD と HELD_ASK。held_path が空なら空）"""
+    return f"{HELD_HEAD}\n\n{HELD_ASK.format(path=held_path)}" if held_path else ""
+
+
+def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", held: str = "") -> list:
+    """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの今の文書の節（libdocs.section。空なら載せない）。
+    held は 1 回目に受け付けた返答の控えの節（held_text。空なら載せない）で、brief の節の後に置く"""
     c, d = sections(SHARED), sections(DIRECT)
     kinds = _all_kinds() if kinds is None else kinds
     return [("fix-head", fill(d["fix-head"], _pick(values, FIX_VALUES)), ALWAYS + "（役・読む物・run の値）"),
             ("brief-canon", sections(BRIEF)["brief-canon"], ALWAYS + BRIEF_WHY),
+            *([("held", held, HELD_WHY)] if held else []),
             ("core-fix", c["core-fix"], ALWAYS + "（本線の核）"), *_evidence(c, kinds),
             ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
             ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
@@ -323,17 +343,21 @@ def lib_section(b, repo, values: dict) -> str:
     return text + (f"\n- 単位のファイルの引き: {why}" if why else "")
 
 
-def prompt_path(b) -> pathlib.Path:
-    return b.work(rolekit.prompt_name(recount.FIX_NODE))
+def prompt_path(b, pass_tag: str = "") -> pathlib.Path:
+    """修正役の指示書（回の印 pass_tag で名を分ける）"""
+    return b.work(tagged(rolekit.prompt_name(recount.FIX_NODE), pass_tag))
 
 
-def last_reject(board_dir) -> str:
-    """受け付けが書いた一番新しい拒否の理由のファイル（無ければ空）"""
+def last_reject(board_dir, pass_tag: str = "") -> str:
+    """受け付けが回の印 pass_tag で書いた一番新しい拒否の理由のファイル（無ければ空。ほかの回の印の物は見ない）"""
+    glob = tagged(REJECT_GLOB, pass_tag)
+    head, _, tail = glob.partition("*")   # 連番の前と後（後は回の印と拡張子）
+
     def n(p):
-        tail = p.stem.rsplit("-", 1)[-1]
-        return int(tail) if tail.isdigit() else -1
-    got = sorted(pathlib.Path(board_dir).glob(REJECT_GLOB), key=n)
-    return str(got[-1]) if got else ""
+        num = p.name[len(head):-len(tail)] if p.name.startswith(head) and p.name.endswith(tail) else ""
+        return int(num) if num.isdigit() else None
+    got = sorted((n(p), p) for p in pathlib.Path(board_dir).glob(glob) if n(p) is not None)
+    return str(got[-1][1]) if got else ""
 
 
 def owed_values(b, values: dict) -> dict:
@@ -369,7 +393,7 @@ def briefs_or_halt(b) -> list:
         raise BoardGap(brief_halt(b, e)) from None
 
 
-def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
+def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], pass_tag: str = "") -> dict:
     """節 fix-prep（pass_ first）と fix-ruled-prep（pass_ ruled）: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。
     返り {prompt_file, attempt, out_path, node, already, variants_file, iteration}（iteration はこの輪の何回目か。受け付けが
     3 回目の拒否で done を立てる。R50）。同じ試行の出し直し（印が既に在る。通れば輪を抜けるので、前の回の返答は受け付けで
@@ -378,7 +402,10 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     次の 1 行で名指す（裁定の文は貼らない。R44）。盤面が p3.fix を待っていなければ BoardGap。
     full と delta の頭（題の次。ruled の 1 回目は裁定の文のファイルの行の後）に、直す義務の単位の brief を名指す節
     （planbrief.head_text。義務から外れた単位には「今は直すな」）を置く（1 回目も ruled も同じ凍結の中身）。
-    brief の控えが壊れていれば盤面を止めて BoardGap（briefs_or_halt。指示書を書かず、起こした印も置かない）"""
+    brief の控えが壊れていれば盤面を止めて BoardGap（briefs_or_halt。指示書を書かず、起こした印も置かない）。
+    pass_tag は回の印（tagged。依頼 226 の 2 回目の修正の段）: 指示書・裁定の後の尾・拒否の理由・裁定の文の名を分け、数えと
+    拒否の名指しはその印の物だけを見る（起こした印は 1 回目の段が置いた物のまま）。1 回目に受け付けた返答の控え
+    （conflict.held_reply）が在れば、brief の節の後に控えの節（held_text）を置く"""
     if pass_ not in PASSES:
         raise Unfilled(f"pass {pass_!r} は {PASSES} のどれでもない")
     nid = recount.FIX_NODE
@@ -387,16 +414,17 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     if not inst or inst.get("status") != "pending":
         raise BoardGap(f"この周に節 {nid} の待っている instance が無い（修正役を起こす番でない）")
     briefs = briefs_or_halt(b)   # 開いたばかりの盤面で（裁定の文を書く・起こした印を置くより前に）凍結する
-    path = prompt_path(b)
+    name = rolekit.prompt_name(nid)
     before = ()
     if pass_ == "ruled":
-        path = path.with_name(path.name[:-len(".md")] + RULED_TAIL)
+        name = name[:-len(".md")] + RULED_TAIL
+    path = b.work(tagged(name, pass_tag))
     n = iteration_next(path)
-    reject = last_reject(board_dir) if inst.get("launched_at") else ""
+    reject = last_reject(board_dir, pass_tag) if inst.get("launched_at") else ""
     if pass_ == "ruled" and n == 1:
-        rulings = b.work(conflict.RULINGS_FILE)
+        rulings = b.work(tagged(conflict.RULINGS_FILE, pass_tag))
         if not rulings.is_file():
-            rulings = conflict.write_rulings(b)
+            rulings = conflict.write_rulings(b, pass_tag)
         reject, before = "", (RULINGS_LINE.format(path=rulings),)
     values = owed_values(b, values)
     owed = json.loads(values["open_units"])
@@ -404,9 +432,11 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     before = tuple(x for x in (*before, head) if x)   # ruled の裁定の文の行は見出しの次の 1 行のまま（R44）。brief はその後
     docs = lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))
+    held, held_path = conflict.held_reply(b)
+    held = held_text(held_path if held is not None else "")
 
     def build(kinds, prior, rules_file):
-        return render("fix", n, fix_parts(values, kinds, docs), prior=prior, rules_file=rules_file, reject_file=reject,
+        return render("fix", n, fix_parts(values, kinds, docs, held), prior=prior, rules_file=rules_file, reject_file=reject,
                       before=before, lang=lang)
     write_variants(path, repo, values, build, n)
     m = b.mark_launched(nid, inst.get("attempts", 1))
@@ -423,11 +453,12 @@ def lang_at(board_dir) -> str:
     return rolekit.lang_line(b.state.get("inputs"))
 
 
-def reads_more(board_dir) -> list:
-    """節 fix-reads が読んだ証拠を集めるパスに足す物: 今の周に組んだ指示書（在れば）と今の周の brief のファイル（planbrief.files）。
-    brief の控えが壊れていれば盤面を止めて理由の BoardGap（fix-prep と同じ。reads.main_for が 1 行で 2 にする）"""
+def reads_more(board_dir, pass_tag: str = "") -> list:
+    """節 fix-reads が読んだ証拠を集めるパスに足す物: 今の周に組んだ指示書（回の印 pass_tag の物。在れば）と今の周の brief の
+    ファイル（planbrief.files）。brief の控えが壊れていれば盤面を止めて理由の BoardGap（fix-prep と同じ。reads.main_for が 1 行で
+    2 にする）"""
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
-    p = prompt_path(b)
+    p = prompt_path(b, pass_tag)
     try:
         briefs = planbrief.files(b)
     except planbrief.LedgerBroken as e:

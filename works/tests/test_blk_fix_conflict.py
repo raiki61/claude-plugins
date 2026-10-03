@@ -58,10 +58,11 @@ def only_clamp_reply(conflicts=None):
 
 
 class ConflictBoardCase(BoardCase):
-    def accept_script(self, reply, *, iteration="1", pass_="first"):
+    def accept_script(self, reply, *, iteration="1", pass_="first", pass_tag=""):
+        """受け付けのスクリプトを子で起こす。pass_tag は回の印（2 回目の修正の段の refit。空なら環境変数を渡さない＝1 回目）"""
         env = {"INPUTS_REPLY": json.dumps(reply, ensure_ascii=False), "INPUTS_BASE_REV": "", "INPUTS_TDD_STATE": "",
                "INPUTS_ITERATION": iteration, "INPUTS_PASS": pass_, "ARTIFACTS_DIR": str(self.art),
-               "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]}
+               "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], **({"INPUTS_PASS_TAG": pass_tag} if pass_tag else {})}
         code, out, err = run_script("accept", self.repo, env)
         self.assertEqual(code, 0, err)
         return json.loads(out)

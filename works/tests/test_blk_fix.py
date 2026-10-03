@@ -235,11 +235,14 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""
-        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS"),
+        tail = ("INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID")   # 2 回目の修正の段の回の印と include の名（OPTIONAL。依頼 226）
+        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", *tail),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
-                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_PASS"),
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_PASS", *tail),
+                "rule_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_POLICY_PATH", *tail),
+                "rule_accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_ITERATION", *tail),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED"),
-                "reads": ("INPUTS_MUST",)}
+                "reads": ("INPUTS_MUST", *tail)}
         for name, inputs in want.items():
             with self.subTest(name):
                 src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
@@ -247,6 +250,31 @@ class TestBlockYaml(unittest.TestCase):
                           and [getattr(t, "id", None) for t in n.targets] == ["INPUTS"]]
                 self.assertEqual(consts, [inputs])
                 self.assertLessEqual(set(re.findall(r"INPUTS_[A-Z_]+", src)), set(inputs), "定数に無い INPUTS_* を読まない")
+
+    def test_pass_inputs_are_optional(self):
+        """後から足した回の印と include の名は OPTIONAL（無い・空は今どおり。前の版の with: で再開した run は渡さない）。
+        YAML の with: に無くてよい物として test_line_inputs の OPTIONAL_INPUTS に並ぶ"""
+        import test_line_inputs
+        for name in ("accept", "fix_prep", "rule_prep", "rule_accept", "reads"):
+            with self.subTest(name):
+                src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
+                consts = [n.value for n in ast.parse(src).body if isinstance(n, ast.Assign)
+                          and [getattr(t, "id", None) for t in n.targets] == ["OPTIONAL"]]
+                self.assertEqual(len(consts), 1)
+                self.assertEqual(set(ast.literal_eval(consts[0].args[0])), {"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"})
+                self.assertEqual(test_line_inputs.OPTIONAL_INPUTS[("blk-fix", name)], {"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"})
+
+    def test_tagged_names(self):
+        """回の印は 1 つの口（fixrules.tagged）で、拡張子の前に .<印>。空なら名のまま"""
+        import conflict
+        import fixrules
+        self.assertEqual(fixrules.tagged("prompt-p3_fix.md", ""), "prompt-p3_fix.md")
+        self.assertEqual(fixrules.tagged("prompt-p3_fix.md", "refit"), "prompt-p3_fix.refit.md")
+        self.assertEqual(fixrules.tagged(fixrules.REJECT_GLOB, "refit"), "reject-accept_fix-*.refit.txt")
+        self.assertEqual(fixrules.tagged(conflict.RULINGS_FILE, "refit"), "conflict-rulings.refit.md")
+        self.assertEqual(fixrules.tagged(conflict.PARKED_REPLY, "refit"), "fix-parked-reply.refit.json")
+        with self.assertRaises(ValueError):
+            fixrules.tagged("a.md", "../x")
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}

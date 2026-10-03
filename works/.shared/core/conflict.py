@@ -29,7 +29,9 @@
 - held_by_rulings(b)・ruled_units(row): 直す義務から外す単位と理由。決まりは「直す裁定（FIX_DECISIONS）でない裁定は、それが外す
   単位（申し出の単位と、fix_plan_item ならその項目に載る単位の全部）を直させない」の 1 つ
   （kind の無い前の形の控えの行も読む。種類は「無し」）
-- apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で渡す）を書く。
+- apply_rulings(b, rulings, by=, pass_tag=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で
+  渡す）を書く。裁定の文と申し出の回の控え（PARKED_REPLY）の名は修正の段の回の印 pass_tag で分ける（script_io.tagged。
+  blk-fix の fixrules.tagged と同じ口。write_rulings）。
   fix_plan_item の裁定は、受け付けた機械が欄 plan_items（その単位の brief の項目の番号）と plan_units（その項目に載る単位の全部）を
   足して渡す
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
@@ -76,11 +78,12 @@ if str(_CORE) not in sys.path:
 import board as _board  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402  （planmarks は conflict・entry を読まないので輪にならない）
+from script_io import tagged  # noqa: E402  （回の印の決まり。blk-fix の fixrules.tagged と同じ 1 つの口）
 from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足す）
 
 FILE = "conflicts.json"                 # 盤面の今の周の作業ファイル {"items": [...]}
-RULINGS_FILE = "conflict-rulings.md"    # 裁定の文（修正役が 2 回目の起動の 1 行目で Read する。R44）
-PARKED_REPLY = "fix-parked-reply.json"  # 申し出を返した回の修正役の返答（裁定の後の出し直しで読む）
+RULINGS_FILE = "conflict-rulings.md"    # 裁定の文（修正役が 2 回目の起動の 1 行目で Read する。R44）。修正の段の回の印で名を分ける
+PARKED_REPLY = "fix-parked-reply.json"  # 申し出を返した回の修正役の返答（裁定の後の出し直しで読む）。同じく回の印で名を分ける
 KIND_FIELD = "kind"                      # 申し出の種類の欄（食い違いの起きた場面。which_is_right とは別の軸）
 FIELDS = ("unit_key", "between", "why_both_cannot_hold", "which_is_right", KIND_FIELD)
 CORRECT = "correct_lines"               # which_is_right: query の時だけ要る欄（直した後の正しい行の写し）
@@ -518,10 +521,11 @@ def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
     return ids
 
 
-def apply_rulings(b, rulings: dict, *, by: str) -> pathlib.Path:
+def apply_rulings(b, rulings: dict, *, by: str, pass_tag: str = "") -> pathlib.Path:
     """裁定 {id: {decision, text, limits[, grounds, request_searched, query]}} を今の周の申し出に積み（裁かれていない物だけ。
     fix_plan_item の行には案の直しの状態 WAITING を置く）、trace に 1 行ずつ、
-    裁定の文のファイル（RULINGS_FILE）を書き直してパスを返す。知らない id は BoardGap（回す側が確かめてから渡す）"""
+    裁定の文のファイル（RULINGS_FILE。pass_tag は修正の段の回の印。write_rulings）を書き直してパスを返す。知らない id は
+    BoardGap（回す側が確かめてから渡す）"""
     doc = _load(b)
     by_id = {r["id"]: r for r in doc["items"]}
     unknown = sorted(set(rulings) - set(by_id))
@@ -536,11 +540,12 @@ def apply_rulings(b, rulings: dict, *, by: str) -> pathlib.Path:
             row[REPLAN_STATE] = WAITING
         b.trace(RULE_OP, id=rid, unit_key=row["unit_key"], decision=ruling["decision"], by=by)
     _save(b, doc)
-    return write_rulings(b)
+    return write_rulings(b, pass_tag)
 
 
-def write_rulings(b) -> pathlib.Path:
-    """裁定の文（修正役が Read する。1 件ずつ単位・名指し・理由・裁定・範囲と、裁定ごとの約束）"""
+def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
+    """裁定の文（修正役が Read する。1 件ずつ単位・名指し・理由・裁定・範囲と、裁定ごとの約束）。ファイルの名と、名指す申し出の回の
+    控え（PARKED_REPLY）の名は、修正の段の回の印 pass_tag で分ける（tagged。2 回目の修正の段は 1 回目の物を上書きも名指しもしない）"""
     rows = [r for r in items(b) if r.get("ruling")]
     lines = [f"# {HEAD}の裁定（機械が書いた。裁いたのは読むだけの裁定役か機械）", ""]
     promise = {
@@ -572,12 +577,12 @@ def write_rulings(b) -> pathlib.Path:
                   f"- 申し出の名指し: {', '.join(r['between'])}",
                   f"- 申し出の理由: {r['why_both_cannot_hold']}（正しいと見た側: {r['which_is_right']}）",
                   f"- 申し出の種類: {r.get(KIND_FIELD) or '（無し）'}", ""]
-    parked = b.work(PARKED_REPLY)
+    parked = b.work(tagged(PARKED_REPLY, pass_tag))
     if parked.is_file():
         lines += ["## 前の回の返答", "",
                   f"申し出を返した回の返答は {parked} に在る。ほかの単位の直しは作業ツリーに残っている。裁定に従って直し、"
                   "直す義務の単位の全部（直さない裁定 ask_human・fix_plan_item の単位は除く）の changes を持つ返答を丸ごと出し直せ", ""]
-    p = b.work(RULINGS_FILE)
+    p = b.work(tagged(RULINGS_FILE, pass_tag))
     _write(p, "\n".join(lines))
     return p
 

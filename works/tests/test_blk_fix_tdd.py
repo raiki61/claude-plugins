@@ -198,7 +198,8 @@ class TestYaml(unittest.TestCase):
         want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS", "INPUTS_TEST_CMD"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
                                                                                        "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
-                "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS"),
+                "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
+                           "INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")}
         for name, inputs in want.items():
             with self.subTest(name):
@@ -1514,6 +1515,102 @@ class TestRefactorGate(LoopCase):
         calls = self.st()["calls"]
         self.assertEqual([(c["phase"], c["ok"]) for c in calls[1:]], [("test", False), ("conflict", False)])
         self.assertEqual(calls[1]["unit_key"], MEAN)
+
+
+FAR_TEST = """
+    def test_clamp_far_above(self):
+        self.assertEqual(clamp(20, 0, 10), 10)
+"""
+FAR_ID = "test_stats.py::TestStats::test_clamp_far_above"
+
+
+class TestCrossLoopFreeze(LoopCase):
+    """凍結は run の全部の輪で効く（依頼 226 の 2 回目の修正の段）: 1 回目の段の輪（tdd-1）が凍らせたテストのファイルは、2 回目の
+    段の輪（tdd-2）の後も、2 回目の輪の状態の handoff の木（since）からの変更で見る。2 回目の輪が同じファイルに足したテストは
+    2 回目の輪の凍結で見る。直した項目の単位の tdd-1 の受け入れのテストの関数（skip_spans）だけは書き直してよい"""
+
+    def first_loop(self):
+        """tdd-1: MEAN を tdd で緑にして test_stats.py を凍らせる"""
+        self.route()
+        self.red()
+        self.assertTrue(self.fix_mean()["done"])
+        self.assertEqual(list(self.st()["frozen"]), ["test_stats.py"])
+
+    def second_loop(self, keys, route="direct") -> str:
+        """tdd-2 を keys で起こして振り分ける（direct なら輪は済む）。返りは tdd-2 の状態のファイル"""
+        got = tddloop.start(self.board, self.repo, str(self.suite), json.dumps(keys, ensure_ascii=False))
+        self.assertTrue(got["go"], got)
+        rows = [{"unit_key": k, "route": route, **({"why": "2 回目の段で先にテストを書かない単位"} if route == "direct" else {})}
+                for k in keys]
+        self.assertTrue(tddloop.step(got["state_file"], {"phase": "route", "units": rows}, self.repo)["ok"])
+        return got["state_file"]
+
+    def since(self, state2) -> str:
+        return tddloop.load_state(state2)["handoff"]
+
+    def test_states_in_order_and_suite_made_all(self):
+        self.first_loop()
+        state2 = self.second_loop([CLAMP])
+        self.assertEqual(tddloop.states(self.board), [pathlib.Path(self.state), pathlib.Path(state2)])
+        for f, made in ((self.state, ["one.log"]), (state2, ["two.log"])):
+            st = tddloop.load_state(f)
+            st["suite_made"] = made
+            pathlib.Path(f).write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(tddloop.suite_made_all(self.board), {"one.log", "two.log"})
+        self.assertEqual(tddloop.states(self.tmp_board()), [])
+
+    def tmp_board(self):
+        return pathlib.Path(self._tmp.name) / "no-board"
+
+    def test_second_pass_cannot_touch_first_loop_frozen_tests(self):
+        self.first_loop()
+        state2 = self.second_loop([CLAMP])
+        since = self.since(state2)
+        self.assertEqual(tddloop.frozen_problems(self.state, self.repo, since=since), [])
+        self.edit("test_stats.py", "mean([2, 4]), 3", "mean([2, 4]), 3.0")   # 2 回目の修正役が tdd-1 の凍ったテストを変えた
+        got = tddloop.frozen_problems(self.state, self.repo, since=since)
+        self.assertTrue(got and "test_stats.py" in got[0], got)
+        self.assertEqual(tddloop.frozen_problems(state2, self.repo), [], "tdd-2 は何も凍らせていない")
+
+    def test_second_loop_may_add_test_to_first_loop_file(self):
+        self.first_loop()
+        state2 = self.second_loop([CLAMP], route="tdd")
+        self.add_test(FAR_TEST)
+        got = tddloop.step(state2, {"phase": "test", "unit_key": CLAMP, "test_files": ["test_stats.py"], "tests": [FAR_ID]},
+                           self.repo)
+        self.assertTrue(got["ok"], got)
+        self.edit("stats.py", "    if x > hi:\n        return lo", "    if x > hi:\n        return hi")
+        got = tddloop.step(state2, {"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限で hi を返す"},
+                           self.repo)
+        self.assertTrue(got["done"], got)
+        self.assertTrue(tddloop.frozen_problems(self.state, self.repo), "since が無ければ tdd-1 の凍った時の木で見る")
+        self.assertEqual(tddloop.frozen_problems(self.state, self.repo, since=self.since(state2)), [])
+        self.edit("test_stats.py", "clamp(20, 0, 10), 10", "clamp(20, 0, 10), 0")
+        self.assertTrue(tddloop.frozen_problems(state2, self.repo), "足したテストは tdd-2 の凍結で見る")
+
+    def test_amended_units_old_test_span_is_not_frozen(self):
+        self.first_loop()
+        state2 = self.second_loop([MEAN])
+        since = self.since(state2)
+        spans = tddloop.test_spans(self.state, {MEAN})
+        self.assertEqual(spans, [("test_stats.py", "TestStats::test_mean_of_two")])
+        self.assertEqual(tddloop.test_spans(self.state, {CLAMP}), [], "tdd-1 で緑にしていない単位の関数は無い")
+        self.edit("test_stats.py", "mean([2, 4]), 3", "mean([2, 4, 6]), 4")
+        self.assertTrue(tddloop.frozen_problems(self.state, self.repo, since=since))
+        self.assertEqual(tddloop.frozen_problems(self.state, self.repo, since=since, skip_spans=spans), [])
+        self.edit("test_stats.py", "clamp(5, 0, 10), 5", "clamp(6, 0, 10), 6")   # 関数の範囲の外
+        got = tddloop.frozen_problems(self.state, self.repo, since=since, skip_spans=spans)
+        self.assertTrue(got and "範囲の外" in got[0], got)
+
+    def test_frozen_source_reads_since_tree(self):
+        """テストの変更の許しの行を引き直す木は、凍結の検査が比べる木（since）と同じ"""
+        self.first_loop()
+        state2 = self.second_loop([CLAMP])
+        since = self.since(state2)
+        self.edit("test_stats.py", "mean([2, 4]), 3", "mean([2, 4]), 3.0")
+        read = tddloop.frozen_source(self.state, self.repo, since=since)
+        self.assertEqual(read("test_stats.py").rstrip("\n"), git(self.repo, "show", f"{since}:test_stats.py").rstrip("\n"))
+        self.assertIn("mean([2, 4]), 3)", read("test_stats.py"))
 
 
 class TestRunSuiteSlot(unittest.TestCase):

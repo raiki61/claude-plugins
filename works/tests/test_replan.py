@@ -10,6 +10,8 @@
 helper（fixed_item など・TripCase）は Task 7〜9 の試験も使う。
 人の関所の 1 つの決まりと答え（TestGateRule・TestAnswer）: 約束の欄が同じで人に聞く種類の穴が無い直しだけを聞かずに通し、
 それ以外は関所 replan-gate の答えで採るか諦めるか止める。stop は 1 回目の控えを盤面に渡してから run を止める。
+2 回目の修正の段（TestSecondPass）: 回の印 refit で指示書・拒否の理由・数えを 1 回目と分け、直す義務は案を直して戻った単位だけ。
+1 回目に受け付けた行と Bash の書き込みの申告は機械が合わせて渡す。
 """
 import copy
 import json
@@ -26,9 +28,9 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(TESTS))
 sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
 
-from test_blk_fix_conflict import (CLAMP, CLAMP_FIELDS, MEAN, PLAN_TEXT, ReplanCase, accept_module,  # noqa: E402,F401
-                                   only_clamp_reply, split_plan_reply)
-from test_blk_fix import PLAN_FIELDS, PLAN_REVIEW_OK, load  # noqa: E402
+from test_blk_fix_conflict import (CLAMP, CLAMP_FIELDS, MEAN, MEAN_FIX, PLAN_TEXT, ReplanCase,  # noqa: E402,F401
+                                   accept_module, only_clamp_reply, split_plan_reply)
+from test_blk_fix import PLAN_FIELDS, PLAN_REVIEW_OK, load, run_script  # noqa: E402
 
 import board  # noqa: E402
 import conflict  # noqa: E402
@@ -247,10 +249,11 @@ def no_faces() -> dict:
 
 
 def only_mean_reply() -> dict:
-    """fix2_ok の mean の行だけ（only_clamp_reply の MEAN 版）"""
+    """fix2_ok の mean の行だけ（only_clamp_reply の MEAN 版。2 回目の修正の段の返答）。interactions は fix2_ok のまま（stats.py の
+    面）: 2 回目の段の役は changes と not_done の外の欄を 1 回目と今回を合わせた差分の全体について書き（fixrules.HELD_ASK）、
+    受け付けは合わせた返答の changes（1 回目の clamp と今回の mean が同じ stats.py を触る）で面を求める"""
     reply = load("fix2_ok")
     reply["changes"] = [c for c in reply["changes"] if c["unit_key"] == MEAN]
-    reply["interactions"] = []
     return reply
 
 
@@ -746,6 +749,123 @@ class TestAnswer(TripCase):
         b = entry.open_board(self.board, allow_halted=True)
         b.work(replan.TRIP_FILE).unlink()
         self.assertEqual(replan.lines(b), [])
+
+
+class TestSecondPass(TripCase):
+    """2 回目の修正の段（回の印 refit）: 直す義務は案を直して戻った単位だけ。受け付けは役の返答そのものを確かめ、1 回目に受け付けた
+    行を機械が合わせて盤面に渡す。指示書・拒否の理由の名は回の印で分け、数えは 1 から"""
+    TAG = "refit"
+
+    def values(self):
+        b = entry.open_board(self.board)
+        return {"judgment_file": str(self.board / b.state["outputs"]["p2.diagnose"]["file"]),
+                "open_units": json.dumps([MEAN, CLAMP], ensure_ascii=False), "plan_file": "", "policy_path": "",
+                "notes_file": "", "summary_file": ""}
+
+    def prep_script(self, tag=""):
+        """支度の節 fix-prep を子で起こす（tag は回の印。空なら環境変数を渡さない）。返りは出口の JSON"""
+        env = {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "first",
+               **{f"INPUTS_{k.upper()}": v for k, v in self.values().items()}, **({"INPUTS_PASS_TAG": tag} if tag else {})}
+        code, out, err = run_script("fix_prep", self.repo, env)
+        self.assertEqual(code, 0, err)
+        return json.loads(out)
+
+    def fix_mean(self):
+        """2 回目の修正役の直し: mean の分母と、直した項目 1 の受け入れのテスト test_mean_of_two（案の tests。範囲の照らしが
+        修正の後の木に定義を求める）"""
+        self.edit_tree(MEAN_FIX)
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "    def test_clamp_within_range", "    def test_mean_of_two(self):\n        self.assertEqual(mean([1, 3]), 2)\n\n"
+            "    def test_clamp_within_range"), encoding="utf-8")
+
+    def test_second_pass_duty_is_returned_units_and_merges(self):
+        self.approve(red_kind_fixed())                       # Task 7 の answer まで通した盤面
+        owed, excused = conflict.fix_duty(entry.open_board(self.board))
+        self.assertEqual(owed, {MEAN}); self.assertIn("1 回目の修正の段で受け付けた", excused[CLAMP])
+        self.fix_mean()
+        r = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
+        self.assertTrue(r["ok"], r)
+        b = entry.open_board(self.board)
+        out, _ = recount._fix_output(b)
+        self.assertEqual(sorted(c["unit_key"] for c in out["changes"]), sorted([MEAN, CLAMP]))
+        self.assertIn("len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"))   # 差分が空でない
+        self.assertEqual(sorted(c["unit_key"] for c in r["changes"]), sorted([MEAN, CLAMP]), "出口も合わせた行")
+        self.assertNotIn("bash_writes", out)
+
+    def test_second_pass_counts_its_own_tries(self):
+        """1 回目の拒否の理由・delivered が在っても、回の印の付いた 1 回目は iteration 1・前の理由を名指さない。2 回目の段の拒否は
+        回の印の付いた名で書き、次の支度がそれを名指す"""
+        first = self.prep_script()                                         # 1 回目の段の指示書と delivered
+        old_reject = self.board / "reject-accept_fix-7.txt"
+        old_reject.write_text("1 回目の段の拒否\n", encoding="utf-8")
+        self.approve(red_kind_fixed())
+        got = self.prep_script(self.TAG)
+        prompt = pathlib.Path(got["prompt_file"])
+        self.assertEqual(prompt.name, "prompt-p3.fix.refit.md")
+        self.assertNotEqual(got["prompt_file"], first["prompt_file"])
+        self.assertEqual(got["iteration"], 1)
+        side = json.loads(pathlib.Path(got["variants_file"]).read_text(encoding="utf-8"))
+        self.assertTrue(side["delta_is_full"], "新しい役が見ていない会話への差分にしない")
+        text = prompt.read_text(encoding="utf-8")
+        self.assertNotIn(str(old_reject), text)
+        self.assertNotIn("reject-accept_fix", text)
+        self.edit_tree(MEAN_FIX)
+        r = self.accept_script(load("fix2_ok"), pass_="first", pass_tag=self.TAG)   # 控えの単位の行を書いた → 拒む
+        self.assertFalse(r["ok"], r)
+        self.assertTrue(pathlib.Path(r["reason_file"]).name.endswith(".refit.txt"), r["reason_file"])
+        again = self.prep_script(self.TAG)
+        self.assertEqual(again["iteration"], 2)
+        text = pathlib.Path(again["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(r["reason_file"], text)
+        self.assertNotIn(str(old_reject), text)
+        self.assertEqual(self.prep_script()["iteration"], 2, "1 回目の段の数えは 1 回目の名のまま")
+
+    def test_second_pass_rejects_rows_for_accepted_units(self):
+        self.approve(red_kind_fixed())
+        self.edit_tree(MEAN_FIX)
+        r = self.accept_script(load("fix2_ok"), pass_="first", pass_tag=self.TAG)
+        self.assertFalse(r["ok"], r)
+        self.assertIn(CLAMP, r["reason"])
+        self.assertIn("1 回目の修正の段で受け付けた", r["reason"])
+        self.assertNotIn("p3.fix", entry.open_board(self.board).state["outputs"])
+
+    def test_first_pass_bash_writes_pass_second_check(self):
+        """控えの bash_writes のファイル（1 回目に Bash で書いた）を 2 回目の書き込みの出どころの突き合わせが拒まない"""
+        import adapter
+        b = entry.open_board(self.board)
+        held = json.loads(b.work(conflict.HELD_REPLY).read_text(encoding="utf-8"))
+        held["bash_writes"] = [{"path": "stats.py", "why": "1 回目に sed で上限の枝を直した"}]
+        b.work(conflict.HELD_REPLY).write_text(json.dumps(held, ensure_ascii=False), encoding="utf-8")
+        self.approve(red_kind_fixed())
+        log = adapter.writes_path(self.repo)
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("", encoding="utf-8")                # 記録を取っている run（記録の無い変更は拒む）
+        (self.repo / "notes.txt").write_text("記録の無い書き込み\n", encoding="utf-8")
+        r = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
+        self.assertFalse(r["ok"], r)
+        import writes
+        self.assertIn("notes.txt", r["reason"]); self.assertNotIn("stats.py", r["reason"].split(writes.REJECT)[-1])
+        (self.repo / "notes.txt").unlink()
+        self.fix_mean()
+        reply = only_mean_reply()
+        reply["bash_writes"] = [{"path": "test_stats.py", "why": "2 回目に受け入れのテストを sed で足した"}]
+        r = self.accept_script(reply, pass_="first", pass_tag=self.TAG)   # 役の申告（test_stats.py）と控えの申告（stats.py）
+        self.assertTrue(r["ok"], r)
+
+    def test_fix_prompt_names_held_reply(self):
+        import fixrules
+        self.approve(red_kind_fixed())
+        text = pathlib.Path(self.prep_script(self.TAG)["prompt_file"]).read_text(encoding="utf-8")
+        b = entry.open_board(self.board)
+        self.assertIn(fixrules.HELD_HEAD, text)
+        self.assertIn(fixrules.HELD_ASK.format(path=b.work(conflict.HELD_REPLY)), text)
+        self.assertLess(text.index(planbrief_head()), text.index(fixrules.HELD_HEAD), "brief の節の後")
+
+
+def planbrief_head() -> str:
+    import planbrief
+    return planbrief.HEAD
 
 
 def rolekit_give_up() -> int:
