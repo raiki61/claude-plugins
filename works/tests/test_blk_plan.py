@@ -1463,6 +1463,20 @@ class ConvergeReviewCase(unittest.TestCase):
         self.assertEqual(b.node_state("p2.fix_plan"), "done")
         self.assertIsNotNone(planblk._pending(b, "p2.plan_review"))
 
+    def test_record_failure_after_board_took_review_halts(self):
+        """盤面が事前審査を settle なしで受けた後で往復を控え（converge.RECORD）に書けなければ、往復の行の無いまま節を抜けさせず
+        盤面を止めて（by works:plan）控えを名指す理由の BoardGap（直しの役の答えの控えと同じ。231 の最後の審査の f1）"""
+        self.ready()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        planblk.prep(self.board, "plan-review", self.repo)
+        run = planblk.with_converge(planblk.take("plan-review", settle=False))
+        with mock.patch.object(planblk.converge, "record_pass", side_effect=OSError("書けない")):
+            with self.assertRaisesRegex(board_mod.BoardGap, converge.RECORD):
+                run(self.board, linekit.reply("plan_review_ok"), self.repo)
+        after = self.board_obj()
+        self.assertEqual(after.state["stop"]["by"], planblk.STOP_BY)
+        self.assertIn(converge.RECORD, after.state["stop"]["reason"])
+
     def test_rewind_refused_when_later_node_done(self):
         """後ろの節（p2.human_gate・p3.lane_merge）が今の周に受けた後は戻さない: 盤面を止めて BoardGap（F7）"""
         self.ready()
@@ -1505,7 +1519,7 @@ class ConvergeReviewCase(unittest.TestCase):
         b = self.board_obj()
         self.assertEqual(converge.read(b)["outcome"], converge.PERSISTED)
         items = b.state["pending_human"]["items"]
-        self.assertTrue(any(i.startswith(gatemarks.DESIGN_ONLY_ITEM + "。理由: ") for i in items), items)
+        self.assertTrue(any(i.startswith(gatemarks.STUCK_ITEM + "。理由: ") for i in items), items)
         self.assertTrue(any(i.startswith("事前審査の穴 [regression] " + self.KEY) for i in items), items)   # block の穴も関所へ
 
     def test_rereview_must_account_for_every_previous_block(self):

@@ -404,7 +404,7 @@ class DesignOnlyCase(GateBase):
 
 
 class ConvergeGateCase(GateBase):
-    """事前審査の壁打ちが止まった（converge の控えの抜け方が persisted・unsettled）案: 修正前の関所を設計だけの行で開け、行の尾に
+    """事前審査の壁打ちが止まった（converge の控えの抜け方が persisted・unsettled）案: 修正前の関所を修正に進まない行で開け、行の尾に
     止まった理由（converge.stuck_reason）を付ける。入力 design_only と重なっても行は 1 つ。無人の run でも載る。その行の全文に
     continue を受けた後は 2 度聞かず、理由が変われば聞き直す"""
 
@@ -428,9 +428,10 @@ class ConvergeGateCase(GateBase):
         got, b = self.gate()
         self.assertEqual(got.get("decision"), "ask", got)
         self.assertEqual(got["ask"]["kinds"], ["design_only"])
-        self.assertTrue(got["ask"]["items"][0].startswith(gatemarks.DESIGN_ONLY_ITEM + "。理由: "), got["ask"]["items"])
+        self.assertTrue(got["ask"]["items"][0].startswith(gatemarks.STUCK_ITEM + "。理由: "), got["ask"]["items"])
         self.assertIn("a-key-001", got["ask"]["items"][0])
-        self.assertEqual(got["ask"]["items"][0], f"{gatemarks.DESIGN_ONLY_ITEM}。理由: {converge.stuck_reason(b)}")
+        self.assertEqual(got["ask"]["items"][0], f"{gatemarks.STUCK_ITEM}。理由: {converge.stuck_reason(b)}")
+        self.assertNotIn("設計だけの run", got["ask"]["items"][0])   # 普通の run の止まりは設計だけの行と名乗らない（f2）
 
     def test_clean_or_again_does_not_open(self):
         for outcome in (converge.CLEAN, converge.AGAIN):
@@ -452,7 +453,7 @@ class ConvergeGateCase(GateBase):
         got, _ = self.gate()
         self.assertEqual(got["ask"]["kinds"], ["design_only"])
         self.assertEqual(len(got["ask"]["items"]), 1)
-        self.assertIn("。理由: ", got["ask"]["items"][0])
+        self.assertTrue(got["ask"]["items"][0].startswith(gatemarks.DESIGN_ONLY_ITEM + "。理由: "), got["ask"]["items"])
 
     def test_design_only_alone_keeps_todays_text(self):
         self.start(design_only="true")

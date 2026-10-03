@@ -389,7 +389,8 @@ def with_converge(run):
     1. 形の崩れた返答（dict でない・faces が list でない）は run に渡す（entry.take が拒み、出し直しの道に乗せる）
     2. 壁打ちの欄 resolved を外し、前の往復の block の行き先の欠けと誤り（converge.resolved_gaps）が在れば盤面へ渡さずに拒む
     3. 外した返答を run に渡す。拒まれたら往復を記録せずに拒否を返す
-    4. 受けたら往復を記録する（converge.record_pass。今の周の修正案・事前審査の出力、盤面の根の欄の控え、指示書を写す）
+    4. 受けたら往復を記録する（converge.record_pass。今の周の修正案・事前審査の出力、盤面の根の欄の控え、指示書を写す）。
+       記録できなければ盤面を止めて BoardGap（revise_take の答えの控えと同じ）
     5. 抜け方が again なら、今の周の役の節 2 つの拒否の控えを往復の行へ移し（出し直しを往復ごとに数え直す）、役の節 2 つを
        戻す（rewind_roles）。返りの again が真（受け付けは done で、事前審査の輪を抜ける）
     6. ほかの抜け方は settle して（関所が記録を読んで設計だけの行を組む）、その進みを返す"""
@@ -409,7 +410,10 @@ def with_converge(run):
                  "p2.plan_review.json": str(b.dir / got["out_file"]),
                  planmarks.FIELDS_FILE: str(b.dir / planmarks.FIELDS_FILE),
                  rolekit.prompt_name(NODE_OF["plan-review"]): str(b.work(rolekit.prompt_name(NODE_OF["plan-review"])))}
-        row = converge.record_pass(b, bare, resolved=resolved, fence=GIVE_UP_AFTER, files=files)
+        try:
+            row = converge.record_pass(b, bare, resolved=resolved, fence=GIVE_UP_AFTER, files=files)
+        except Exception as e:   # 書けない: 盤面は受けたが往復の行が無い（settle もしない）まま節を抜けさせない
+            raise BoardGap(rolekit.halt_unsaved(board, converge.RECORD, e, by=STOP_BY)) from None
         if row["outcome"] == converge.AGAIN:
             converge.stash_rejects(b, rolekit.take_rejects(b, [NODE_OF["plan"], NODE_OF["plan-review"]]))
             rewind_roles(b)

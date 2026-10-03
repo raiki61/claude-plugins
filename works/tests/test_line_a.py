@@ -50,7 +50,7 @@ REVIEW_COMPLIANCE = {"verdict": "pass", "items": [],
 def replies(review="plan_review_regression"):
     """役の返答の組。修正案は役そのものの返答（項目に works の欄 PLAN_FIELDS）、1 回目の差分の審査の準拠は控えの在る run の
     pass（REVIEW_COMPLIANCE。品質は DELTA_REVIEW のまま: 穴が在れば fail）。見本の事前審査は後退の穴を block で挙げるので、
-    壁打ち（依頼 231）で同じ block が続いて、修正前の関所に後退の項目と設計だけの行が載る"""
+    壁打ち（依頼 231）で同じ block が続いて、修正前の関所に後退の項目と修正に進まない行が載る"""
     return {"judge": linekit.reply("judge_ok"), "plan": {"plan": [{**row, **PLAN_FIELDS} for row in plan_reply()["plan"]]},
             "plan-review": linekit.reply(review) if isinstance(review, str) else review,
             "fix": fix_reply(faces=review == "plan_review_regression"),
@@ -92,7 +92,7 @@ class LineBase(unittest.TestCase):
 
 class LineCase(LineBase):
     def test_standard_full_path(self):
-        """修正案 → 事前審査（後退の穴。壁打ちで同じ block が続く）→ policy-gate continue（後退の項目と設計だけの行）→ 修正 →
+        """修正案 → 事前審査（後退の穴。壁打ちで同じ block が続く）→ policy-gate continue（後退の項目と修正に進まない行）→ 修正 →
         差分の審査（穴）→ 手直し → 最後のテスト（緑）→ 最後の関所 continue → 報告 fixed。trail は LINE_ORDER の順、報告と
         次の依頼の下書きが盤面に在る"""
         got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}})
@@ -653,7 +653,7 @@ def drift_review(key: str, resolved=()) -> dict:
 
 class ConvergeLineCase(LineBase):
     """事前審査の壁打ち（依頼 231）を線で通す: 184i の型（2 往復目に block が消えて直しへ）・止まる型（同じ block が続く・
-    柵の往復でも消えない → 修正前の関所が設計だけの行で開く）・無人の run（止まって報告へ）"""
+    柵の往復でも消えない → 修正前の関所が修正に進まない行で開く）・無人の run（止まって報告へ）"""
 
     def record(self, got) -> dict:
         return converge.read(entry.open_board(got["board_dir"], allow_halted=True))
@@ -676,11 +676,11 @@ class ConvergeLineCase(LineBase):
         self.assertEqual(got["outcome"], "fixed", self.report_text(got))
 
     def test_same_block_stops_at_policy_gate_then_report(self):
-        """同じ block が 2 往復続く → 修正前の関所が設計だけの行（理由つき）で開き、stop なら修正から後を飛ばして報告へ。
+        """同じ block が 2 往復続く → 修正前の関所が修正に進まない行（理由つき）で開き、stop なら修正から後を飛ばして報告へ。
         報告の冒頭 1 に壁打ちの頭の行（抜け方 persisted）"""
         got = self.run_line(gates={"policy-gate": {"decision": "stop", "text": "設計を見直す"}})
         self.order_ok(got["trail"])
-        self.assertIn(gatemarks.DESIGN_ONLY_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
+        self.assertIn(gatemarks.STUCK_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
         for nid in ("fixing", "reviewing", "testing", "final-gate"):
             self.assertNotIn(nid, got["trail"])
         self.assertEqual(got["outcome"], "stopped_by_human")
@@ -695,7 +695,7 @@ class ConvergeLineCase(LineBase):
         """同じ block が続いた案に関所で continue → 直しへ進み（関所は 1 度）、修正役は残った block を plan_faces で受ける"""
         got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": ""}})
         self.order_ok(got["trail"])
-        self.assertIn(gatemarks.DESIGN_ONLY_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
+        self.assertIn(gatemarks.STUCK_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
         self.assertEqual(got["trail"].count("policy-gate"), 1)
         self.assertIn("fixing", got["trail"])
         b = entry.open_board(got["board_dir"], allow_halted=True)
@@ -706,7 +706,7 @@ class ConvergeLineCase(LineBase):
         self.assertEqual(got["outcome"], "fixed", self.report_text(got))
 
     def test_unattended_same_block_stops(self):
-        """無人の run（unattended=true）で同じ block が続く → 関所に設計だけの行が載り、無人の殻（use.sh）の stop で直しへ
+        """無人の run（unattended=true）で同じ block が続く → 関所に修正に進まない行が載り、無人の殻（use.sh）の stop で直しへ
         進まずに報告へ（依頼 231 で変わった振る舞い: 前は block が残っても直しへ進んだ）。穴は人に聞く語でない kind なので、
         関所を開ける理由は壁打ちの止まりだけ"""
         r = replies()
@@ -714,7 +714,7 @@ class ConvergeLineCase(LineBase):
         got = self.run_line(replies=r, inputs={"unattended": "true"},
                             gates={"policy-gate": {"decision": "stop", "text": USE_SH_STOP}})
         self.assertIs(got["out"]["h-gate"]["ask"], True)
-        self.assertIn(gatemarks.DESIGN_ONLY_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
+        self.assertIn(gatemarks.STUCK_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
         for nid in ("fixing", "reviewing", "testing", "final-gate"):
             self.assertNotIn(nid, got["trail"])
         self.assertEqual(got["outcome"], "stopped_by_human")
@@ -729,7 +729,8 @@ class ConvergeLineCase(LineBase):
         doc = self.record(got)
         self.assertEqual([p["outcome"] for p in doc["passes"]], [converge.AGAIN, converge.AGAIN, converge.UNSETTLED])
         why = converge.UNSETTLED_WHY.split("（往復ごとに")[0].format(n=3)
-        self.assertIn(f"{gatemarks.DESIGN_ONLY_ITEM}。理由: {why}", got["out"]["h-gate"]["gate_text"])
+        self.assertIn(f"{gatemarks.STUCK_ITEM}。理由: {why}", got["out"]["h-gate"]["gate_text"])
+        self.assertNotIn("設計だけの run", got["out"]["h-gate"]["gate_text"])   # 普通の run に設計だけの語を出さない（f2）
         self.assertNotIn("fixing", got["trail"])
         self.assertEqual(got["outcome"], "stopped_by_human")
 

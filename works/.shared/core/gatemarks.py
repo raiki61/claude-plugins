@@ -31,7 +31,8 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 調べた改造の案を、直す前の判定・修正案・事前審査・独立設計だけに流して見る）。continue で今どおり修正へ進み、stop で報告へ進む。
 この行は決め手の濾しにも無人の濾しにも掛けない（無人の殻は関所で stop を返すので、無人の設計だけの run も止まって報告へ進む）。
 直す義務が 0 件の周は関所の節が走らず、修正もしない。設計だけの行の出どころは 2 つ（入力 design_only と、事前審査の壁打ちが
-止まった事実＝converge.stuck_reason）。行は design_item の 1 か所で組む。
+止まった事実＝converge.stuck_reason）。行は design_item の 1 か所で組む（設計だけでない run の止まりは頭を STUCK_ITEM にし、
+設計だけの run と名乗らない。種類の kinds は同じ design_only）。
 - asks(b)・answered(b, q)・pending(b)・withheld_by(b)・withheld(b): 関所に載せる問い・関所で答えたか・まだ答えていない
   問い・それで直す義務から外す単位と外した問い（conflict.fix_duty が理由に使う）・その単位だけ（義務の数えと held_lines が読む）
 - hold_keys(note, keys): 一言の「保留:」から台帳の key を最長一致で拾う（answered が読む）
@@ -123,8 +124,9 @@ START_FILE = "r1/start.json"           # 盤面の start の控え（書き手�
 UNATTENDED = "true"                   # 入力 unattended の無人の語（entry.UNATTENDED_WORDS）
 DESIGN_ONLY = "true"                  # 入力 design_only の設計だけの語（entry.DESIGN_ONLY_WORDS）
 DESIGN_ONLY_KIND = "design_only"      # 関所の項目の kinds（設計だけの行）
-DESIGN_ONLY_ITEM = ("設計だけの run: 修正に進まない（continue で修正へ進む・stop で報告へ。判定・修正案・事前審査・独立設計は"
-                    "報告の見る所に並ぶ）")
+_NO_FIX = "修正に進まない（continue で修正へ進む・stop で報告へ。判定・修正案・事前審査・独立設計は報告の見る所に並ぶ）"
+DESIGN_ONLY_ITEM = "設計だけの run: " + _NO_FIX
+STUCK_ITEM = "事前審査の壁打ちが止まった案: " + _NO_FIX   # 設計だけでない run の止まり（設計だけの run と名乗らない）
 ASK_GATE_HEAD = ("判定の役が人に聞くと保留にした問い（問いの台帳）が在る。continue の一言に問いごとに選んだ選択肢を書け。"
                  "一言が問いに触れなければ、修正役はその問いの理由の推しで直す（continue でその問いの出どころ・depends は直す義務に戻る）。"
                  "保留を続けたい問いは一言に「保留: <問いの key>」と書け（複数は「・」で並べてよい。その出どころはこの run では直さず、報告の冒頭に並ぶ）")
@@ -166,7 +168,7 @@ PUSH_IN = re.compile(r"推し\s*[:：]\s*([^／\n]+)")
 # 関所の項目の種類（写しの RL の human_gate と gatemarks の問いの kinds）→ 平易な言い方
 KIND_WORDS = {"regression": "今ある能力を減らす・狭める変更", "policy": "人の方針とぶつかる変更",
               "policy_changed": "人の方針の文書が変わった", ASK_KINDS[0]: "判定の役が人に聞くと保留にした問い",
-              ASK_KINDS[1]: "人でないと決められない問い", DESIGN_ONLY_KIND: "設計だけの run の見せ場"}
+              ASK_KINDS[1]: "人でないと決められない問い", DESIGN_ONLY_KIND: "修正に進まない行"}
 
 
 def quote(question) -> list:
@@ -394,10 +396,10 @@ def design_only(b) -> bool:
 
 def design_item(b) -> str:
     """関所に載せる設計だけの行。入力 design_only だけなら DESIGN_ONLY_ITEM のまま、事前審査の壁打ちが止まっていれば
-    （入力と重なっても 1 行で）尾に止まった理由を付ける。どちらも無ければ空"""
+    （入力と重なっても 1 行で）尾に止まった理由を付ける。設計だけでない run の止まりは頭を STUCK_ITEM にする。どちらも無ければ空"""
     reason = converge.stuck_reason(b)
     if reason:
-        return f"{DESIGN_ONLY_ITEM}。理由: {reason}"
+        return f"{DESIGN_ONLY_ITEM if design_only(b) else STUCK_ITEM}。理由: {reason}"
     return DESIGN_ONLY_ITEM if design_only(b) else ""
 
 

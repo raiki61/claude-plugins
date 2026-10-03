@@ -15,7 +15,7 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 - no-fix・policy-stop・stop-flag: 修正の無い周・修正の前の関所の stop・止め札
 - plan-converge（依頼 231）: 事前審査が block を挙げ、壁打ちの外の輪が直しの役（修正案の役の会話の続き）を起こし、直した案を
   2 度目の事前審査が同じ穴を suggest に下げて通す（輪の中の輪・converge-check の done で抜ける）→ 報告 fixed
-- plan-converge-stuck: 同じ block が 2 往復続く → converge-check が persisted で done、修正前の関所が設計だけの行で開き、
+- plan-converge-stuck: 同じ block が 2 往復続く → converge-check が persisted で done、修正前の関所が修正に進まない行で開き、
   stop で報告へ（stopped_by_human）
 - conflict: 修正役が食い違いを申し出て parked → 裁定の輪（1 回目は拒む）→ fix_code_as → 2 回目の修正役が全部を直す
 - rejudge（run 28）: 修正役が判定に異議 → 再審の輪（1 回目は拒む。判定役の会話の続き）→ 差分の審査 → 手直し → 2 回目の審査 →
@@ -298,13 +298,13 @@ class ScriptContractCase(unittest.TestCase):
 
     def test_plan_converge_stuck_opens_policy_gate(self):
         """同じ block が続く壁打ちを本物のスクリプトで: converge-check が again の後に persisted で done 真を返して外の輪を抜け、
-        h-gate が設計だけの行（止まった理由つき）で修正前の関所を開け、stop で修正から後は起きない（Task 5 の持ち越し m1）"""
+        h-gate が修正に進まない行（止まった理由つき）で修正前の関所を開け、stop で修正から後は起きない（Task 5 の持ち越し m1）"""
         got = self.got["plan-converge-stuck"]
         checks = [r["out"] for r in got["runs"] if r["node"] == "converge-check"]
         self.assertEqual([(c["done"], c["outcome"]) for c in checks], [(False, "again"), (True, "persisted")])
         self.assertEqual(got["trail"].count("blk-plan/plan-revise"), 1)
         self.assertIs(got["out"]["h-gate"]["ask"], True)
-        self.assertIn(gatemarks.DESIGN_ONLY_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
+        self.assertIn(gatemarks.STUCK_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
         self.assertNotIn("blk-fix/fix", got["trail"])
 
     def test_role_gives_up_after_three_rejections(self):
