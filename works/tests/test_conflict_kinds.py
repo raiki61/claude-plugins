@@ -537,6 +537,17 @@ class TestReplanWords(unittest.TestCase):
         first = self.section(conflict.write_rulings(fake_with_rows([waiting])).read_text(encoding="utf-8"), "c2-1")
         self.assertIn("2 回目の修正の段で直す", first, "1 回目の段の待つ行は今どおり")
 
+    def test_ask_human_promise_keeps_held_work_conditionally(self):
+        """ask_human の約束は、直しが作業ツリーに在ればそのまま残す（戻すな・触るな。機械が戻した時は控えの patch を当て直すな）と
+        条件の形で言い、changes に書くなも残す。約束は decision だけで選ぶので、機械が戻した行（by=works:fix-accept）にも同じ文が
+        届く——だから直しを残したと過去の事実を言い切る HELD_WORK_KEPT は使わない"""
+        b = fake_with_rows([row("c1-1", MEAN, "ask_human")])
+        mine = self.section(conflict.write_rulings(b).read_text(encoding="utf-8"), "c1-1")
+        self.assertIn("この単位の直しが作業ツリーに在れば、そのまま残す（戻すな・触るな", mine)
+        self.assertIn("当て直すな", mine)
+        self.assertIn("changes に書くな", mine)
+        self.assertNotIn(conflict.HELD_WORK_KEPT, mine)
+
     def test_held_ask_points_at_the_owed_keys_above(self):
         """控えの節の『直す義務』の名指しは、指示書でその節より前（上）に在る読む物の行を指す"""
         self.assertNotIn("下の『直す義務の単位』", fixrules.HELD_ASK)
