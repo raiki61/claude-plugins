@@ -979,9 +979,12 @@ class TestLineReplay(ReplanCase):
     def e(self, at, **kw):
         return line_edge.edge(self.board, at, self.repo, run_id="r", adapter_mode="optional", final_gate="", **kw)
 
-    def run_trip(self, new_item, gate=None):
+    def run_trip(self, new_item, gate=None, fix_notes=""):
+        """fix_notes は h-fix が書いた修正の前の関所の一言（line_edge.NOTES_FILE。空なら書かない）"""
         self.replanned(); self.accept_script(only_clamp_reply(), pass_="ruled")
         b = entry.open_board(self.board)   # h-plan が控える判定の出口（後ろの境の節が judgment_file を運ぶ）
+        if fix_notes:
+            line_edge._write_text(b.work(line_edge.NOTES_FILE), fix_notes)
         self.judgment = str(self.board / b.state["outputs"]["p2.diagnose"]["file"])
         line_edge._write_json(b.work(line_edge.JUDGED_FILE), {"judgment_file": self.judgment, "open_units": [MEAN, CLAMP]})
         self.assertTrue(self.e("replan")["go"])
@@ -1026,6 +1029,21 @@ class TestLineReplay(ReplanCase):
         self.assertTrue(g["ask"]); self.assertTrue(r["go"]); self.assertEqual(json.loads(r["open_units"]), [MEAN])
         self.assertIn("README も触ってよい", pathlib.Path(r["notes_file"]).read_text(encoding="utf-8"))
         self.fixed_in_same_run()
+
+    def test_policy_gate_note_reaches_second_pass(self):
+        """修正の前の関所（policy-gate）で人が答えた条件は、同じ run の 2 回目の修正の段にも効く: h-fix が書いた一言のファイル
+        （line_edge.NOTES_FILE）の中身が、h-refit の notes_file の頭に載る（関所 replan-gate が開かなかった周でも）"""
+        g, r = self.run_trip(red_kind_fixed(), fix_notes="テストの名は変えるな")
+        self.assertFalse(g["ask"]); self.assertTrue(r["go"])
+        self.assertTrue(r["notes_file"], "h-fix の一言が在れば notes_file を空にしない")
+        text = pathlib.Path(r["notes_file"]).read_text(encoding="utf-8")
+        self.assertIn("テストの名は変えるな", text)
+
+    def test_policy_gate_note_comes_before_replan_gate_note(self):
+        _, r = self.run_trip(wider_paths(), gate={"decision": "continue", "text": "README も触ってよい"},
+                             fix_notes="テストの名は変えるな")
+        text = pathlib.Path(r["notes_file"]).read_text(encoding="utf-8")
+        self.assertLess(text.index("テストの名は変えるな"), text.index("README も触ってよい"))
 
     def test_refit_open_units_hold_back_first_pass_units(self):
         """2 回目の段の直す義務の並び（h-refit の open_units）は戻った単位だけ。TDD の輪の頭がそれを受けると、1 回目に受け付けた

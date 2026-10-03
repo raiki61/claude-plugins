@@ -82,8 +82,8 @@ RULINGS_LINE = ("食い違いの申し出への裁定を書いたファイル {p
                 "（裁定の文そのものはここに貼らない）")
 tagged = script_io.tagged   # 回の印をファイルの名に足す唯一の口（tagged(name, pass_tag)。core も同じ決まりを使うので本体は script_io）
 HELD_HEAD = "## 1 回目の修正の段で受け付けた返答（機械が貼った）"
-HELD_ASK = ("控え {path} を Read で読め。直す義務は下の『直す義務の単位』（案を直して戻った単位）だけで、控えの単位の行は機械が"
-            "足す——changes と not_done に控えの単位を書くな。changes と not_done の外の欄（fix_closure・mechanism_changed・"
+HELD_ASK = ("控え {path} を Read で読め。直す義務は上の「読む物」の「直す義務の単位の key」（案を直して戻った単位）だけで、"
+            "控えの単位の行は機械が足す——changes と not_done に控えの単位を書くな。changes と not_done の外の欄（fix_closure・mechanism_changed・"
             "plan_faces など）は、1 回目と今回を合わせた差分の全体について書け（控えの値から始めよ）。")
 HELD_WHY = "1 回目の修正の段で受け付けた返答の控えが在る（2 回目の修正の段）"
 KINDS = ("docs", "prompts", "config", "code")   # 変更の種類 → 節 evidence-<種類>

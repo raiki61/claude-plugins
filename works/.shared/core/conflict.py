@@ -4,8 +4,9 @@
 （ImpossibleBench arXiv 2510.20270: 食い違いを申し出る道を明示すると、テストを曲げる不正が 54% から 9% に減った）。
 申し出は拒否に数えず、その単位だけを止め（parked）、ほかの単位は進む。止めた単位は読むだけの裁定役が、持ち主の決まり
 （principles）で fix_test_scope・fix_code_as・ask_human・replace_query・fix_plan_item のどれかに裁き、ask_human だけが最後の人の
-関所に届く。fix_plan_item は承認済みの修正案の項目そのものの誤りで、その単位はこの run では直さず（直す義務から外す）、次の run の
-修正案で項目を直して事前審査に掛ける。範囲 limits を持たず、テストの変更の許しを作らない（直す裁定 FIX_DECISIONS に入れない）。
+関所に届く。fix_plan_item は承認済みの修正案の項目そのものの誤りで、その単位は直す義務から外し、同じ run の中で修正案の役が
+その項目だけを直して事前審査と人の関所の決まり（replan-gate）を通ってから、2 回目の修正の段で直す（依頼 226。案を直せなければ
+諦めて ask_human の道に合流する）。範囲 limits を持たず、テストの変更の許しを作らない（直す裁定 FIX_DECISIONS に入れない）。
 判定者の問い（class_query）が直した後の正しい形にも当たる時は、which_is_right: query と正しい行（correct_lines）で申し出て、
 裁定 replace_query が新しい問いを例（hits・misses と correct_lines）で機械に試させてから置き換える（Semgrep の規則の試験の ruleid・ok）。
 
@@ -90,7 +91,7 @@ CORRECT = "correct_lines"               # which_is_right: query の時だけ要�
 QUERY = "query"                         # 判定者の class_query が直した後の正しい形にも当たる
 REPLACE = "replace_query"               # 問いを置き換える裁定（新しい問いを hits・misses と申し出の correct_lines で試す）
 ASK = "ask_human"
-REPLAN = "fix_plan_item"                # 案の項目そのものが誤りと裁く（この run では直さず、次の run の修正案と事前審査へ）
+REPLAN = "fix_plan_item"                # 案の項目そのものが誤りと裁く（同じ run の中で案を直して事前審査に掛けてから直す）
 DECISIONS = ("fix_test_scope", "fix_code_as", ASK, REPLACE, REPLAN)
 FIX_DECISIONS = ("fix_test_scope", "fix_code_as", REPLACE)   # 直す裁定（REPLAN は直さないので入れない）
 PLAN_ITEMS = "plan_items"               # 盤面の裁定の行に機械が足す欄（REPLAN の単位の brief の項目の番号）
@@ -130,6 +131,9 @@ FIX_NODE = "p3.fix"                     # 修正の段の節（recount を読ま
 HELD_REPLY = "fix-held-reply.json"      # 1 回目に受け付けた返答の控え（盤面に渡す形に、役が申告した bash_writes を残した物）
 AMENDED_PROMISE = ("案の項目そのものが誤りと裁いたが、同じ run で案を直して直す義務に戻った。直した項目（頭の brief）のとおりに"
                    "直し、この単位も changes に 1 行を書け")   # 裁定の文の AMENDED の行の約束（write_rulings）
+GAVE_UP_PROMISE = ("案の項目そのものが誤りと裁いたが、同じ run の中で案を直せなかった（諦めた。理由は「案の直しを諦めた理由」）。"
+                   "この単位も「項目の単位」に並べた同じ項目の単位も直すな（機械が直す義務から外した。最後の人の関所で人が"
+                   "決める）。changes に書くな")   # 裁定の文の GAVE_UP の行の約束（write_rulings）
 ACCEPTED_WHY = "1 回目の修正の段で受け付けた（控え {path}。この単位の行は機械が足す）"
 _HELD_ROWS = ("changes", "not_done")    # 控えと返答を単位で合わせる欄
 CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
@@ -439,9 +443,10 @@ def ruled_units(row) -> list:
 
 def held_by_rulings(b) -> dict:
     """直す義務から外す単位 {unit_key: 理由}。決まりは 1 つ: 直す裁定（FIX_DECISIONS）でない裁定は、それが外す単位（ruled_units。
-    fix_plan_item は誤りと裁いた項目の単位の全部）を直させない（ask_human は最後の人の関所で人が、fix_plan_item は次の run の
-    修正案で決める）。案の項目を直した行（状態 AMENDED）は外さない（その単位は直す義務に戻る）。理由は「<decision> の裁定 <id>」に、在れば案の項目を添える。1 単位に 2 つ当たれば DECISIONS の順で先の
-    裁定の理由（並べ替えで決める）"""
+    fix_plan_item は誤りと裁いた項目の単位の全部）を直させない（ask_human は最後の人の関所で人が決め、fix_plan_item は同じ
+    run の中で案の項目を直すのを待つ）。案の項目を直した行（状態 AMENDED）は外さない（その単位は直す義務に戻る）。理由は
+    「<decision> の裁定 <id>」に、在れば案の項目を添える。1 単位に 2 つ当たれば DECISIONS の順で先の裁定の理由（並べ替えで
+    決める）"""
     rank = {d: n for n, d in enumerate(DECISIONS)}
     rows = sorted((i for i in items(b) if (i.get("ruling") or {}).get("decision") not in (None, *FIX_DECISIONS)
                    and replan_state(i) != AMENDED),
@@ -547,8 +552,8 @@ def apply_rulings(b, rulings: dict, *, by: str, pass_tag: str = "") -> pathlib.P
 
 def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
     """裁定の文（修正役が Read する。1 件ずつ単位・名指し・理由・裁定・範囲と、裁定ごとの約束）。約束は裁定の decision で決まり、
-    fix_plan_item の行のうち案を直した行（状態 AMENDED）だけは AMENDED_PROMISE（直す義務に戻った。held_by_rulings と同じ決まり）。
-    ファイルの名と、名指す申し出の回の
+    fix_plan_item の行のうち案を直した行（状態 AMENDED）は AMENDED_PROMISE（直す義務に戻った。held_by_rulings と同じ決まり）、
+    諦めた行（GAVE_UP）は GAVE_UP_PROMISE（ask_human と同じく最後の関所へ。諦めた理由を添える）。ファイルの名と、名指す申し出の回の
     控え（PARKED_REPLY）の名は、修正の段の回の印 pass_tag で分ける（tagged。2 回目の修正の段は 1 回目の物を上書きも名指しもしない）"""
     rows = [r for r in items(b) if r.get("ruling")]
     lines = [f"# {HEAD}の裁定（機械が書いた。裁いたのは読むだけの裁定役か機械）", ""]
@@ -562,20 +567,23 @@ def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
                  "正しい行で試した）。閉鎖の数え直しは機械がこの問いで数える（coverage.how は書かなくてよい）。案の項目の範囲の"
                  "外で変えてよいのは「範囲」に並べたパスだけ（無ければ範囲の外は変えるな）。テストは変えるな。"
                  "この単位も changes に 1 行を書け",
-        REPLAN: "案の項目そのものが誤りと裁いた。この単位も「項目の単位」に並べた同じ項目の単位も直すな（機械が直す義務から"
-                "外した。次の run の修正案で項目を直し、事前審査に掛ける）。changes に書くな。1 回目に直した項目の単位の直しは"
-                "作業ツリーから戻す（機械も戻す）",
+        REPLAN: "案の項目そのものが誤りと裁いた。この単位も「項目の単位」に並べた同じ項目の単位も、今は直すな（機械が直す義務から"
+                "外した）。この run の中で修正案の役がこの項目だけを直し、事前審査と人の関所の決まりを通ってから、2 回目の修正の段で"
+                "直す。changes に書くな。1 回目に直した項目の単位の直しは作業ツリーから戻す（機械も戻す）",
     }
     for r in rows:
         ru = r["ruling"]
-        amended = replan_state(r) == AMENDED
+        state = replan_state(r)
+        amended = state == AMENDED
+        said = {AMENDED: AMENDED_PROMISE, GAVE_UP: GAVE_UP_PROMISE}.get(state) or promise[ru['decision']]
         lines += [f"## {r['id']}: {r['unit_key']}", "",
-                  f"- 裁定: {ru['decision']}（{ru.get('by') or ''}）——{AMENDED_PROMISE if amended else promise[ru['decision']]}",
+                  f"- 裁定: {ru['decision']}（{ru.get('by') or ''}）——{said}",
                   f"- 裁定の文: {ru['text']}",
                   f"- 範囲: {', '.join(ru.get('limits') or []) or '（無い）'}",
                   *([f"- 案の項目: {', '.join(map(str, ru[PLAN_ITEMS]))}"] if ru.get(PLAN_ITEMS) else []),
                   *([f"- 項目の単位（{'直す義務に戻った' if amended else 'どれも直すな'}）: {', '.join(ru[PLAN_UNITS])}"]
                     if ru.get(PLAN_UNITS) else []),
+                  *([f"- 案の直しを諦めた理由: {r.get(REPLAN_WHY) or '（無し）'}"] if state == GAVE_UP else []),
                   *([f"- 裁きの出どころ: {', '.join(ru['grounds'])}"] if ru.get("grounds") else []),
                   *([f"- 依頼で探して答えが無かったこと: {ru['request_searched']}"] if ru.get("request_searched") else []),
                   *([f"- 置き換えた問い: {json.dumps(ru['query'], ensure_ascii=False)}"] if ru.get("query") else []),
@@ -587,8 +595,9 @@ def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
     if parked.is_file():
         lines += ["## 前の回の返答", "",
                   f"申し出を返した回の返答は {parked} に在る。ほかの単位の直しは作業ツリーに残っている。裁定に従って直し、"
-                  "直す義務の単位の全部（直さない裁定 ask_human と、案の直しを待つ fix_plan_item の単位は除く）の changes を持つ返答を"
-                  "丸ごと出し直せ", ""]
+                  "直す義務の単位の全部の changes を持つ返答を丸ごと出し直せ。直す義務の外の単位はすべて除く（直さない裁定 "
+                  "ask_human の単位・fix_plan_item の単位（案の直しを待つ物も諦めた物も）・1 回目の修正の段で受け付けた単位。"
+                  "案を直して戻った単位は直す義務に入る）", ""]
     p = b.work(tagged(RULINGS_FILE, pass_tag))
     _write(p, "\n".join(lines))
     return p
@@ -611,7 +620,8 @@ def owed_units_but_asked(b):
 
 
 NOTHING_OWED = ("直す義務の単位が残っていない——開いた単位は全部、人の答え待ちか ask_human・fix_plan_item で直す義務から外れた"
-                "（changes が空なのが正しい返答。ask_human は最後の人の関所で人が、fix_plan_item は次の run の修正案で決める）")
+                "（changes が空なのが正しい返答。ask_human は最後の人の関所で人が決め、fix_plan_item は同じ run の中で案の項目を"
+                "直してから 2 回目の修正の段で直す。直せなければ最後の人の関所へ）")
 
 
 def fix_duty(b) -> tuple:

@@ -18,6 +18,7 @@
 """
 import json
 import pathlib
+import re
 import shutil
 import sys
 import tempfile
@@ -27,6 +28,9 @@ from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BLK = ROOT / "blk-fix"
+BLK_FIX = BLK
+BLK_REFIX = ROOT / "blk-refix"
+BLK_DELTA = ROOT / "blk-delta"
 CORE = ROOT / ".shared" / "core"
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(BLK / "lib"))
@@ -457,6 +461,56 @@ class TestHeldReply(unittest.TestCase):
                 b.work(conflict.HELD_REPLY).write_text(text, encoding="utf-8")
                 with self.assertRaises(conflict._board.BoardGap):
                     conflict.held_reply(b)
+
+
+class TestReplanWords(unittest.TestCase):
+    """fix_plan_item の意味は「同じ run の中で案を直す」（依頼 226）。持ち越しの語が残らず、裁定の文の約束が状態ごとに正しい"""
+
+    @staticmethod
+    def flat(p):
+        return re.sub(r'[\s"]', "", p.read_text(encoding="utf-8"))
+
+    def test_no_carry_over_words_left(self):
+        for p in (CORE / "conflict.py", CORE / "entry.py", CORE / "deltamarks.py", BLK_FIX / "rules" / "principles.md",
+                  BLK_FIX / "rules" / "ruler.md", BLK_FIX / "blk-fix.yaml", BLK_REFIX / "rules" / "refix.md",
+                  BLK_DELTA / "commands" / "delta-review.md"):
+            with self.subTest(p.name):
+                self.assertNotIn("次のrunの修正案", self.flat(p))
+
+    def test_ruler_says_same_run(self):
+        self.assertIn("同じ run の中で修正案の役", fixrules.sections(fixrules.RULER)["ruler-reply"])
+
+    def test_replan_promise_says_same_run(self):
+        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item", state="waiting", plan_units=[MEAN, CLAMP])])
+        text = conflict.write_rulings(b).read_text(encoding="utf-8")
+        self.assertIn("この run の中で修正案の役がこの項目だけを直し、事前審査と人の関所の決まりを通ってから、2 回目の修正の段で直す",
+                      text)
+
+    def test_gave_up_rows_promise_the_last_gate(self):
+        """諦めた行（gave_up）は案の直しを約束しない。ask_human と同じく最後の人の関所で人が決め、諦めた理由を添える"""
+        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item", state="waiting", plan_units=[MEAN, CLAMP])])
+        conflict.set_replan(b, ["c1-1"], conflict.GAVE_UP, why="修正案の役の直しが 3 回とも拒まれた: 数が違う")
+        text = conflict.write_rulings(b).read_text(encoding="utf-8")
+        self.assertNotIn("2 回目の修正の段で直す", text)
+        self.assertIn("最後の人の関所で人が決める", text)
+        self.assertIn("修正案の役の直しが 3 回とも拒まれた: 数が違う", text)
+
+    def test_parked_note_excludes_every_unit_outside_duty(self):
+        """申し出の回の返答を出し直す注記は、直す義務の外の単位すべて（ask_human・fix_plan_item のどの状態も・1 回目に
+        受け付けた単位）を除くと言う"""
+        b = fake_with_rows([row("c1-1", MEAN, "ask_human")])
+        b.work(conflict.PARKED_REPLY).write_text("{}", encoding="utf-8")
+        text = conflict.write_rulings(b).read_text(encoding="utf-8")
+        self.assertIn("直す義務の外の単位はすべて除く", text)
+        self.assertIn("1 回目の修正の段で受け付けた単位", text)
+
+    def test_held_ask_points_at_the_owed_keys_above(self):
+        """控えの節の『直す義務』の名指しは、指示書でその節より前（上）に在る読む物の行を指す"""
+        self.assertNotIn("下の『直す義務の単位』", fixrules.HELD_ASK)
+        self.assertIn("上の「読む物」の「直す義務の単位の key」", fixrules.HELD_ASK)
+        parts = [i for i, _, _ in fixrules.fix_parts({k: "" for k in fixrules.FIX_VALUES}, held="x")]
+        self.assertLess(parts.index("fix-head"), parts.index("held"))
+        self.assertIn("直す義務の単位の key", fixrules.sections(fixrules.DIRECT)["fix-head"])
 
 
 if __name__ == "__main__":

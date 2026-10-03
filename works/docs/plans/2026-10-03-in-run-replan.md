@@ -43,12 +43,12 @@ works の中の語:
 持ち主の手元の資料（要る所はこの文書に書き写した）:
 - `~/.cache/works-dogfood/req-226.json`・`req-226b.json`・`req-226c.json`: 依頼の文。226b の関所の答え「上限で諦めた時は裁定の文を ask_human の行と次の run の依頼に字のまま載せる。REPLAN_HEAD の専用の節と line_edge の専用の文は消してよい」。
 - run 226（設計だけ）の独立設計 `.../run-226/.../board/design.json`: この計画の主な拠り所。節を ■1〜■8 で呼ぶ。要点は Architecture と下の外れ D1〜D4 に書き写した。
-- run 226c の独立設計（■0〜■7）と最後の関所 `final-gate.md`: R2 の 4 点の出どころ（下の「R2 の 4 点の受け持ち」に書き写した）。226c の差分は、やらない事の見本（盤面の節を戻す・写しの `board.py` を `!` 行なしで変える・新しい定数 `REPLAN_LIMIT`・戻る道より先に持ち越しの道を消す）。
+- run 226c の独立設計（■0〜■7）と最後の関所 `final-gate.md`: R2 の 4 点の出どころ（下の「R2 の 4 点の受け持ち」に書き写した）。226c の差分は、やらない事の見本（盤面の節を戻す・写しの `board.py` を `!` 行なしで変える・新しい定数 REPLAN_LIMIT・戻る道より先に持ち越しの道を消す）。
 - 事前の照らし `.superpowers/sdd/2026-10-03-in-run-replan/preflight.md` の P1〜P23 と、運び役（会話で SDD を回す controller）の裁定（同じ置き場の `progress.md`）。この計画の今の版は P1〜P23 の全部と 3 つの裁定を本文に入れた。
 
 ---
 
-**Goal:** `fix_plan_item` の裁定が出た時、その項目を次の run に持ち越さず、同じ run の中で修正案の役に戻して項目だけを直させ、事前審査と、1 つの決まりで開く人の関所を通してから、2 回目の修正の段で直す。持ち越しの専用の道（報告の `REPLAN_HEAD` の節・最後の関所の専用の文・結末 `round_limit` の分かれ）を消し、直せなかった単位は既存の ask_human の道に合流させる。
+**Goal:** `fix_plan_item` の裁定が出た時、その項目を次の run に持ち越さず、同じ run の中で修正案の役に戻して項目だけを直させ、事前審査と、1 つの決まりで開く人の関所を通してから、2 回目の修正の段で直す。持ち越しの専用の道（報告の REPLAN_HEAD の節・最後の関所の専用の文・結末 `round_limit` の分かれ）を消し、直せなかった単位は既存の ask_human の道に合流させる。
 
 **Architecture:**
 
@@ -347,7 +347,7 @@ git commit -m "feat(works): fix_plan_item の裁定の行に案の直しの状�
 **Files:**
 - Create: `works/.shared/core/replan.py`（この Task では `STOP_BY`・`CLOSE_WHY`・`HALTED_WHY`・`UNSETTLED`・`close`・`close_at`・`settle` だけ）
 - Modify: `works/darkfactory/lib/line_edge.py`（`edge` の at `rejudge` の頭で `replan.settle`。`_replan_text` と `final_edge` の `replanned` を消す）
-- Modify: `works/.shared/core/report.py`（`REPLAN_HEAD`・`replanned_lines`・`_replanned`・`_replanned_units`・`_plan_nums`・`_from_unit`・`decide_outcome` の `round_limit` の分かれ・`next_request` の fix_plan_item の行・冒頭 1 の節を消す。ask_human の行は `ruled_units` の全部の単位に、裁定の文を字のまま載せる。`build` の頭で `replan.close_at`）
+- Modify: `works/.shared/core/report.py`（REPLAN_HEAD・`replanned_lines`・`_replanned`・`_replanned_units`・`_plan_nums`・`_from_unit`・`decide_outcome` の `round_limit` の分かれ・`next_request` の fix_plan_item の行・冒頭 1 の節を消す。ask_human の行は `ruled_units` の全部の単位に、裁定の文を字のまま載せる。`build` の頭で `replan.close_at`）
 - Modify: `works/tests/test_layers.py`（`MOD` に `"replan": (3, None)`）
 - Create: `works/tests/test_replan.py`（HEAVY。`works/tests/tiers.py` の HEAVY に `"test_replan"` を足す）
 - Modify（持ち越しを縛る試験を、諦めの道を縛る試験に書き換える）: `works/tests/test_blk_fix_conflict.py` の `TestFixPlanItemReport`・`TestFixPlanItemWholeItem`・`TestFixPlanItemBothUnits`（:1281 の 2 件の裁定の報告と次の依頼の試験）、`works/tests/test_report_head.py` の :122 と :556（`report._replanned` を `mock.patch.object` で差す 2 か所。差しを外し、試験の言う事を新しい道に合わせる）

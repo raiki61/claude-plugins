@@ -15,7 +15,8 @@ description: |
   名指しつき（<パス>:<行>）の食い違いを返してよい。名指しが現物に在れば拒否に数えずその単位を止め（conflict-check）、読むだけの
   裁定役（rule-loop。持ち主の決まり rules/principles.md）が fix_test_scope・fix_code_as・ask_human・replace_query・fix_plan_item に裁き、2 回目の修正役
   （fix-ruled-loop。修正役の会話の続き）が裁定の文のファイルを読んで直して盤面に渡す。ask_human の単位は直す義務から外れ、
-  最後の人の関所に届く。fix_plan_item の単位も直す義務から外れ、次の run の修正案に渡る（.shared/core/conflict.py）。
+  最後の人の関所に届く。fix_plan_item の単位も直す義務から外れ、同じ run の中で修正案の役がその項目を直してから、この
+  ブロックの 2 度目の include（回の印 pass_tag。2 回目の修正の段）で直す（.shared/core/conflict.py・replan.py）。
 
 inputs:
   judgment_file:
@@ -738,7 +739,7 @@ nodes:
               counts: {type: object}         # {parked, unruled, fix_test_scope, fix_code_as, ask_human[, replace_query][, fix_plan_item]}
 
   # 裁定の後の 2 回目の修正役（印 continue=fix: 包みが修正役の会話を継ぐ）。1 回目は裁定の文のファイルを名指し、直す裁定でない
-  # 裁定（ask_human・fix_plan_item）の単位は直す義務から外れる（conflict.owed_units_but_asked）。盤面の p3.fix に渡すのはここ（1 回目は申し出で止めて渡していない）
+  # 裁定（ask_human・fix_plan_item。fix_plan_item は案を直して戻るまで）の単位は直す義務から外れる（conflict.owed_units_but_asked）。盤面の p3.fix に渡すのはここ（1 回目は申し出で止めて渡していない）
   - id: fix-ruled-loop
     depends_on: [conflict-check, rule-loop]
     when: "$conflict-check.output.go == true"

@@ -34,13 +34,15 @@
 - 決まり: 直した項目は、約束の欄が承認済みの物と字のまま同じで（planmarks.contract_diff が空。narrows は決め手の欄を外して
   比べる）、事前審査が人に聞く種類の穴（写しの rules の HUMAN_FACE_KINDS）を挙げなかった時だけ、人に聞かずに通す。それ以外は
   関所 replan-gate で人に聞く。役には決めさせず、コードが欄を比べて決める
-- GATE_FILE・NOTES_FILE・HUMAN_KIND・GATE_BY: 関所の文・修正役に届ける一言と穴・process.human_items の行の kinds・stop で
+- GATE_FILE・NOTES_FILE・FIX_NOTES_HEAD・HUMAN_KIND・GATE_BY: 関所の文・修正役に届ける一言と穴・その頭の修正の前の関所の条件の見出し・process.human_items の行の kinds・stop で
   止めた盤面の by（頭が human: なので報告の結末は stopped_by_human）
 - gate(b, *, run_id): new の無い項目・review の無い項目はその場で諦め（PLAN_GAVE_UP_WHY・REVIEW_GAVE_UP_WHY）、残りの項目の
   contract_changed・human_faces・ask を TRIP_FILE に置き、ask の項目が在れば GATE_FILE を書く。{ask, gate_text, gate_file}
-- answer(board_dir, repo, gate): 関所の答え（無ければ None）を項目ごとに当てる。stop・reject は待つ行を STOPPED_WHY で締め、
+- answer(board_dir, repo, gate, fix_notes=): 関所の答え（無ければ None）を項目ごとに当てる。stop・reject は待つ行を STOPPED_WHY で締め、
   1 回目の控えを盤面に渡してから盤面を止める（by GATE_BY）。そうでなければ聞かない項目と continue・approve の項目を採って
-  planmarks.amend で差し替え（行は AMENDED）、答えの無い聞く項目は NO_GATE_WHY で諦める。全項目に result が在れば前の返りを
+  planmarks.amend で差し替え（行は AMENDED）、答えの無い聞く項目は NO_GATE_WHY で諦める。NOTES_FILE の頭には、修正の前の
+  関所（policy-gate）で人が答えた条件を書いたファイル fix_notes（線の h-fix が 1 回目の修正の段に渡した物）の中身を写す（人の
+  条件は同じ run の 2 回目の修正の段にも効く）。全項目に result が在れば前の返りを
   そのまま返す（Archon の再開）。{returned, plan_file, notes_file, stop, why}
 - lines(b): TRIP_FILE の項目ごとの 1 行（最後の関所の文と報告の冒頭 1 が見出し AMEND_HEAD の下に並べる）
 
@@ -110,7 +112,8 @@ ROW_HEAD = "### 修正の段の申し出と裁定（{id}）"
 MAX_TYPE_ERRORS = 10   # 型の外れを並べる行の数（accept の型の拒否と同じ数。残りは件数）
 
 GATE_FILE = "replan-gate.md"       # 関所 replan-gate の文（今の周の作業ファイル）
-NOTES_FILE = "replan-notes.md"     # 人の一言と、採った項目の事前審査の穴のうち人に聞く種類でない物（修正役に届ける）
+NOTES_FILE = "replan-notes.md"     # 修正の前の関所の条件・人の一言と、採った項目の事前審査の穴のうち人に聞く種類でない物（修正役に届ける）
+FIX_NOTES_HEAD = "## 修正の前の関所（policy-gate）で人が答えた条件（1 回目の修正の段と同じく、この段にも効く）"
 HUMAN_KIND = "replan"              # process.human_items の行の kinds（node は STOP_BY）
 GATE_BY = "human:replan-gate"      # 関所の stop で止めた盤面の by
 PLAN_GAVE_UP_WHY = "修正案の役の直しが 3 回とも拒まれた: {reason}"
@@ -559,10 +562,15 @@ def _record_human(board_dir: pathlib.Path, ans: str, note: str) -> None:
     b.save()
 
 
-def _notes(b, note: str, taken: list) -> str:
-    """NOTES_FILE を書いてパスを返す（人の一言も、採った項目の人に聞く種類でない穴も無ければ書かずに ""）"""
+def _notes(b, note: str, taken: list, fix_notes="") -> str:
+    """NOTES_FILE を書いてパスを返す。頭に修正の前の関所の条件（ファイル fix_notes の中身。空・無ければ載せない）、次に
+    人の一言（関所 replan-gate）、採った項目の人に聞く種類でない穴。どれも無ければ書かずに空の文字列を返す"""
     kinds = human_kinds(b)
-    parts = [f"## 人の一言（関所 replan-gate）\n\n{note}\n"] if note else []
+    prior = pathlib.Path(fix_notes) if fix_notes else None
+    prior_text = prior.read_text(encoding="utf-8").strip() if prior is not None and prior.is_file() else ""
+    parts = [f"{FIX_NOTES_HEAD}\n\n{prior_text}\n"] if prior_text else []
+    if note:
+        parts.append(f"## 人の一言（関所 replan-gate）\n\n{note}\n")
     for row in taken:
         faces = [f for f in (row.get("review") or {}).get("faces") or [] if isinstance(f, dict) and f.get("kind") not in kinds]
         if faces:
@@ -576,9 +584,10 @@ def _notes(b, note: str, taken: list) -> str:
     return str(path)
 
 
-def answer(board_dir, repo, gate: dict | None) -> dict:
+def answer(board_dir, repo, gate: dict | None, *, fix_notes="") -> dict:
     """関所の答え gate（{decision, text}。関所が開かなかったなら None）を当てる。返り {returned: [単位…], plan_file, notes_file,
-    stop, why}。TRIP_FILE の全項目に result が在れば、何も書き換えずに前の返りを返す（Archon の再開）"""
+    stop, why}。fix_notes は修正の前の関所の条件を書いたファイルのパス（空・無ければ無い。notes_file の頭に写す）。
+    TRIP_FILE の全項目に result が在れば、何も書き換えずに前の返りを返す（Archon の再開）"""
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
     doc = read_trip(b)
@@ -625,7 +634,7 @@ def answer(board_dir, repo, gate: dict | None) -> dict:
         whys = list(dict.fromkeys(r["why"] for r in rows if r.get("result") == GAVE_UP and r.get("why")))
         out = {"returned": list(dict.fromkeys(k for r in taken for k in r.get("units") or [])),
                "plan_file": str(b.dir / b.state["outputs"][planmarks.NODE]["file"]) if taken else "",
-               "notes_file": _notes(b, note, taken) if taken else "", "stop": False, "why": "・".join(whys)}
+               "notes_file": _notes(b, note, taken, fix_notes) if taken else "", "stop": False, "why": "・".join(whys)}
     doc["answered"] = out
     _write_trip(b, doc)
     return copy.deepcopy(out)

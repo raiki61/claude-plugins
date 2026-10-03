@@ -848,9 +848,11 @@ def refit_edge(board_dir, repo, gate) -> dict:
     replan.answer で当てる。stop（答えが盤面を止めた）なら {"stop": True}。そうでなければ go は戻った単位が在り p3.fix が盤面で
     待っているか、open_units は戻った単位だけの JSON の配列（1 回目に受け付けた単位を 2 回目の段の直す義務の並びに入れない——
     TDD の輪の頭が『直すな・not_done に書け』と並べ、受け付けがその行を拒むので）、plan_file は差し替えた承認済みの修正案、
-    notes_file は人の一言と採った項目の事前審査の穴。今の周の replan.json が無ければ go 偽"""
+    notes_file は修正の前の関所の条件（h-fix が書いた NOTES_FILE。2 回目の段にも効く）・人の一言・採った項目の事前審査の穴。
+    今の周の replan.json が無ければ go 偽"""
     board_dir = pathlib.Path(board_dir)
-    got = replan.answer(board_dir, repo, gate)
+    fix_notes = entry.open_board(board_dir, allow_halted=True).work(NOTES_FILE)
+    got = replan.answer(board_dir, repo, gate, fix_notes=str(fix_notes))
     if got["stop"]:
         return {"stop": True}
     b = entry.open_board(board_dir, allow_halted=True)

@@ -9,7 +9,7 @@
   - `out.p3.fix.plan_faces`: その穴への修正役の応答（`absorbed`＝塞いだと言う・`declared`＝残す）
   - `protected_files`: 変わったファイルのうちこのラインの守りのファイル（試験・柵・受け付けの口。対象に無ければ空。`path`・`id`・`why`）。在れば、その変更が検査を緩めていないか（試験を消す・弱める・期待を書き換える・柵や受け付けを外す）を読み、緩めていれば穴にしろ（`kind` は審査の 5 つの語のどれか。守りのファイルは最後の人の関所にも必ず出る）
   - `lens`: 修正の差分に当てた修正の後のレンズ（利用者が入れた pr-review-toolkit の agent を 1 本ずつ独立に起こした局所レビュー）の行（`lens`・`state`・`reason`・`findings`）。`findings` の各行は出どころのレンズの名 `lens` つきの指摘（`where`・`cite`・`why`）。指摘を無検算で写すな——差分と今の姿で確かめ、当たっていれば穴として `faces` に挙げ（`kind` は審査の 5 つの語のどれか）、`why` にレンズの名を書け。`state` が `failed`・`not_routed` のレンズの観点は誰も見ていない（`reason` が理由）。空なら、この周はレンズを走らせていない（`lens_error` が在れば控えが読めなかった）
-  - `plan_items`: 承認済みの修正案の項目（項目の番号 `item`・直す単位 `unit_keys`・やり方 `approach`・足す物 `adds`・消す物 `removes`・受け入れのテスト `tests`・書き換えてよい既存のテスト `rewrite_tests`・範囲 `allowed_paths`・触らない物 `out_of_scope`）。空なら、この run に修正案は無い。`held` の在る項目は、裁定で直す義務から外れた項目（`held` は外した裁定。次の run の修正案で決める）。`held_units` の在る項目は、単位の一部だけが外れた項目（`held_units` は外れた単位と外した裁定）。`held_units` の単位の分は missing・extra・misunderstood に書くな。残りの単位の分だけ照らす
+  - `plan_items`: 承認済みの修正案の項目（項目の番号 `item`・直す単位 `unit_keys`・やり方 `approach`・足す物 `adds`・消す物 `removes`・受け入れのテスト `tests`・書き換えてよい既存のテスト `rewrite_tests`・範囲 `allowed_paths`・触らない物 `out_of_scope`）。空なら、この run に修正案は無い。`held` の在る項目は、裁定で直す義務から外れた項目（`held` は外した裁定。この run では直さず、最後に人が決める）。`held_units` の在る項目は、単位の一部だけが外れた項目（`held_units` は外れた単位と外した裁定）。`held_units` の単位の分は missing・extra・misunderstood に書くな。残りの単位の分だけ照らす
   - `ruled_paths`: 直す裁定が項目の範囲に足したパス（裁定の `limits`）。範囲が広がるのはこのパスだけ
   - `fix_report`: 直した側の報告（`changes`・`not_done`）。主張であって証拠ではない
 - 読むのは**作業ツリーの今の姿**。見る対象は修正後で、周の頭に固めた版には修正が載っていない。穴の `cite` は今の姿で引かれる。
