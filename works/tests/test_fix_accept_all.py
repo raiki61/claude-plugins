@@ -5,11 +5,13 @@
 - 拒否の見出しと id の表・並べ方（Task 2）: accept.CHECKS・note・render_rejects・rejected が、確かめごとに見出しを立てて
   文を並べ、rejects に 1 行ずつ id を付ける
 - 申し出より後の確かめを全部回す（Task 3）: accept_fix が確かめを返さずに積み、写しの照らしも乾いた形で当てて 1 回の拒否に
-  並べる。最後の回は止めてよい確かめの行だけで単位を止める
+  並べる
 - 凍結と書き込みの出どころも積む（Task 4）: 凍ったテストのファイル・書き込みの出どころの誤りも積んで先へ進み、食い違いの申し出は
   積んだ誤りに依らず裁定へ渡す（run 222f の 3 回の拒否を 1 回に並べる）
 - 待つ単位の控え（Task 5。226 との継ぎ目）: 案の直しを待つ単位が在る盤面で、控える（hold_fix）のは積んだ行が無く写しの照らしも
   乾いた形で通る返答だけ。誤りが在れば控えずに並べて拒む（控えた返答を hand_held が渡して拒まれ盤面が止まる前に役へ返す）
+- 止まっても仕事を捨てない（依頼 242 Task 1。StopsKeepWorkCase）: 最後の回は拒否の行を単位に結んで止めて持ち越し、受けた単位で
+  通す。赤の試験は import で届く単位に結び、戻す先は段の頭の木
 盤面は test_blk_fix の BoardCase（本物の darkfactory の表・種の git）で作る。
 """
 import hashlib
@@ -25,11 +27,15 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(TESTS))
 
 import test_blk_fix  # noqa: E402  （core・blk-fix/lib を sys.path に足す）
+import test_blk_fix_tdd  # noqa: E402
 import entry  # noqa: E402
+import linekit  # noqa: E402
 import recount  # noqa: E402
 import conflict  # noqa: E402
+import tddloop  # noqa: E402
 from test_blk_fix import CLAMP, FIXED, INVENTED, MEAN, extra_row, load  # noqa: E402
-from test_blk_fix_conflict import ReplanCase, conflict_on_mean, only_clamp_reply  # noqa: E402
+from test_blk_fix_conflict import CLAMP_FIX, MEAN_FIX, ReplanCase, conflict_on_mean, only_clamp_reply  # noqa: E402
+import test_replan  # noqa: E402
 
 FROZEN_LINE = "TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']（輪で直した単位のテストは変えない）"
 WRITES_LINE = "書き込みの出どころの記録が無い変更: stats.py"
@@ -154,8 +160,8 @@ class AllChecksCase(test_blk_fix.BoardCase):
         self.assertTrue(r["ok"], r)
         self.assertEqual(sorted(self.parked_units()), sorted([MEAN, CLAMP]))
 
-    def test_last_round_unbindable_line_rejects_whole(self):
-        # 最後の回: 重なり（止めない確かめ）と clamp の写しの誤り（止めてよい確かめ）→ 何も止めず全体を拒み、両方を並べる
+    def test_last_round_duplicate_and_copy_park_their_units(self):
+        # 最後の回: 重なり（MEAN に結ぶ）と clamp の写しの誤り（CLAMP に結ぶ）→ 両方を止め、空の changes で通る
         self.fix_ready(); self.edit_tree(FIXED)
         reply = load("fix2_ok")
         reply["changes"][1]["breaks"]["result"] = "なし"
@@ -163,11 +169,8 @@ class AllChecksCase(test_blk_fix.BoardCase):
         code, out, err = self.run_it(reply, INPUTS_ITERATION="3")
         self.assertEqual(code, 0, err)
         r = json.loads(out)
-        self.assertEqual((r["ok"], r["done"]), (False, True), r)
-        self.assertEqual(self.parked_units(), [])
-        checks = [x["check"] for x in r["rejects"]]
-        self.assertTrue({"duplicate", "copy"} <= set(checks), checks)
-        self.assertEqual(list(self.board.rglob(conflict.FILE)), [])
+        self.assertEqual((r["ok"], r["done"], r["changes"]), (True, True, []), r)
+        self.assertEqual(sorted(self.parked_units()), sorted([MEAN, CLAMP]))
 
 
 class SeamCase(test_blk_fix.BoardCase):
@@ -242,7 +245,7 @@ class RenderCase(unittest.TestCase):
         self.acc.note(found, "copy", ["c1"]); self.acc.note(found, "frozen", ["f1", ""]); self.acc.note(found, "copy", ["c2", "c1"])
         text = self.acc.render_rejects(found)
         self.assertTrue(text.startswith(self.acc.REJECT_HEAD))
-        self.assertLess(text.index(self.acc.CHECKS["frozen"][0]), text.index(self.acc.CHECKS["copy"][0]))
+        self.assertLess(text.index(self.acc.CHECKS["frozen"]), text.index(self.acc.CHECKS["copy"]))
         self.assertIn("（確かめ copy・2 件）", text)
         self.assertEqual([x for x in text.splitlines() if x.startswith("  - ")], ["  - f1", "  - c1", "  - c2"])
 
@@ -265,10 +268,11 @@ class RenderCase(unittest.TestCase):
             self.acc.note([], "nope", ["x"])
 
     def test_table_values_are_the_ruled_ones(self):
-        # 236 が role-rejects の行の確かめの id に引く表。id・並び（受け付けが回す順）・止めてよいかを固める
-        self.assertEqual([(k, stop) for k, (_, stop) in self.acc.CHECKS.items()], [
-            ("frozen", True), ("writes", True), ("conflict", False), ("pack", False), ("duplicate", False),
-            ("not_opened", False), ("accepted", False), ("excused", False), ("scope", True), ("tests", True), ("gates", True), ("copy", True)])
+        # 236 が role-rejects の行の確かめの id に引く表。id・並び（受け付けが回す順）と、値が見出しの文字列だけであることを固める
+        # （最後の回はどの確かめの行も同じ決まりで単位に結ぶので、止めてよいかの列は無い。依頼 242）
+        self.assertEqual(list(self.acc.CHECKS), ["frozen", "writes", "conflict", "pack", "duplicate", "not_opened", "accepted",
+                                                 "excused", "scope", "tests", "gates", "copy"])
+        self.assertTrue(all(isinstance(v, str) and v for v in self.acc.CHECKS.values()), self.acc.CHECKS)
 
     def test_yaml_names_rejects_on_both_accept_nodes(self):
         nodes = test_blk_fix.block()["nodes"]
@@ -277,6 +281,201 @@ class RenderCase(unittest.TestCase):
                 fmt = test_blk_fix.find_node(nodes, nid)["output_format"]
                 self.assertEqual(fmt["properties"].get("rejects"), {"type": "array"})
                 self.assertNotIn("rejects", fmt["required"])
+
+
+BOUNDS = "def width(lo, hi):\n    return hi - lo\n"
+TEST_BOUNDS = ("import unittest\n\nfrom bounds import width\n\n\nclass TestBounds(unittest.TestCase):\n"
+               "    def test_width(self):\n        self.assertEqual(width(2, 5), 3)\n")
+DIRECT_WHY = "文書の直しと同じで、先にテストを書けない単位"
+
+
+def parking():
+    """blk-fix/lib/parking（Task 1 の前は無い。呼ぶ試験だけが ImportError で落ちる）"""
+    import parking as mod
+    return mod
+
+
+def bounds_seed():
+    """linekit.seed_repo を包み、種の commit に bounds.py と test_bounds.py（修正前の版で緑）を足す"""
+    real = linekit.seed_repo
+
+    def seed(into, **kw):
+        repo = real(into, **kw)
+        (repo / "bounds.py").write_text(BOUNDS, encoding="utf-8")
+        (repo / "test_bounds.py").write_text(TEST_BOUNDS, encoding="utf-8")
+        linekit.git(repo, "add", "-A")
+        linekit.git(repo, "commit", "-q", "--amend", "--no-edit")
+        return repo
+    return mock.patch.object(linekit, "seed_repo", side_effect=seed)
+
+
+class StopsKeepWorkCase(ReplanCase):
+    """run 195f の型: 修正役の直しが既存の試験を赤にし、3 回とも同じ返答を出す。最後の回は赤の試験を import で届く単位に結び、
+    その単位だけを止めて持ち越し、受けた単位で通す。盤面は止まらない（依頼 242 Task 1。ReplanCase は BoardCase の子で、2 回目の
+    修正の段の盤面を作る手も持つ）"""
+
+    run_it = test_blk_fix.TestAccept.run_it
+    parked_units = test_blk_fix.ParkBoundBase.parked_units
+    changed = test_blk_fix.TestGiveUpOnBoard.changed
+    fix_ready_with_pack_copy = test_blk_fix.TestAccept.fix_ready_with_pack_copy
+    play_role = test_replan.TripCase.play_role
+    trip = test_replan.TripCase.trip
+    approve = test_replan.TripCase.approve
+
+    def start_loop(self) -> str:
+        """修正の節が待つ盤面で TDD の輪を起こす（実行器は test_blk_fix_tdd.SUITE）。返りは輪の状態のファイル"""
+        suite = self.tmp / "suite.py"
+        suite.write_text(test_blk_fix_tdd.SUITE, encoding="utf-8")
+        start = tddloop.start(self.board, self.repo, str(suite), test_blk_fix_tdd.OPEN)
+        self.assertTrue(start["go"], start)
+        return start["state_file"]
+
+    def step(self, state, reply):
+        got = tddloop.step(state, reply, self.repo)
+        self.assertTrue(got["ok"], got)
+        return got
+
+    def redden_bounds(self):
+        (self.repo / "bounds.py").write_text(BOUNDS.replace("hi - lo", "lo - hi"), encoding="utf-8")
+
+    def reddening_fixer(self) -> tuple:
+        """(輪の状態のファイル, 返答)。輪は MEAN と CLAMP を direct に振る。言うことを聞かない修正役は mean の 1 か所だけを直し、
+        bounds.py を書き換えて既存の test_width を赤にし、CLAMP の行の files を bounds.py にした返答を 3 回とも出す"""
+        with bounds_seed():
+            self.fix_ready()
+        state = self.start_loop()
+        self.step(state, {"phase": "route", "units": [{"unit_key": MEAN, "route": "direct", "why": DIRECT_WHY},
+                                                      {"unit_key": CLAMP, "route": "direct", "why": DIRECT_WHY}]})
+        self.edit_tree(MEAN_FIX)
+        self.redden_bounds()
+        reply = load("fix2_ok")
+        reply["changes"][1]["files"] = ["bounds.py"]
+        return state, reply
+
+    def trace_rows(self, op):
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        return [r for r in rows if r.get("op") == op]
+
+    def unchanged(self, name) -> bool:
+        """作業ツリーの name が修正前の版（HEAD）と同じ"""
+        return linekit.git(self.repo, "status", "--porcelain", "--", name) == ""
+
+    def test_reddened_existing_test_parks_its_unit_and_keeps_the_rest(self):
+        state, reply = self.reddening_fixer()
+        for it in ("1", "2"):
+            r = json.loads(self.run_it(reply, INPUTS_ITERATION=it, INPUTS_TDD_STATE=state)[1])
+            self.assertEqual((r["ok"], r["done"]), (False, False), r)
+            self.assertIn("test_bounds.py", r["reason"], "赤の行はテストのファイルのパスを名指す")
+        r = json.loads(self.run_it(reply, INPUTS_ITERATION="3", INPUTS_TDD_STATE=state)[1])
+        self.assertEqual((r["ok"], r["done"]), (True, True), r)
+        self.assertEqual([c["unit_key"] for c in r["changes"]], [MEAN], "受けた単位は残る")
+        self.assertEqual(self.parked_units(), [CLAMP], "赤の試験 test_bounds.py は bounds.py を触った CLAMP にだけ届く")
+        self.assertEqual((self.repo / "bounds.py").read_text(encoding="utf-8"), BOUNDS, "止めた単位は段の頭の木に戻る")
+        self.assertIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"))
+        patch = next(self.board.rglob("fix-parked-1.patch")).read_text(encoding="utf-8")
+        self.assertIn("return lo - hi", patch, "止めた直しは控えに残る")
+        b = entry.open_board(self.board)
+        self.assertFalse(b.state.get("stop") or b.state.get("halted"), "盤面は止まらない")
+        self.assertIn(CLAMP, conflict.fix_duty(b)[1], "止めた単位は義務の外（ask_human）")
+        self.assertIs(json.loads(self.changed(r)[1])["ok"], True)
+
+    def test_shared_test_file_parks_both_and_leaves_no_red(self):
+        # Review Focus 1: 輪で緑にした MEAN の受け入れのテスト test_stats.py を、bounds.py を赤にした CLAMP の行も名指す。
+        # 共有の閉包で両方を止め、3 つのファイルを段の頭の木（ここでは修正前の版）に戻す（一方だけを戻して赤を残さない）
+        with bounds_seed():
+            self.fix_ready()
+        state = self.start_loop()
+        self.step(state, {"phase": "route", "units": [{"unit_key": MEAN, "route": "tdd"},
+                                                      {"unit_key": CLAMP, "route": "direct", "why": DIRECT_WHY}]})
+        path = self.repo / "test_stats.py"
+        path.write_text(path.read_text(encoding="utf-8").replace("\n\nif __name__", test_blk_fix_tdd.NEW_TEST + "\n\nif __name__"),
+                        encoding="utf-8")
+        self.step(state, {"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
+                          "tests": ["test_stats.py::TestStats::test_mean_of_two"]})
+        self.edit_tree(MEAN_FIX)
+        got = self.step(state, {"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を len(xs) にした"})
+        self.assertTrue(got["done"], got)
+        self.edit_tree(CLAMP_FIX)
+        path.write_text(path.read_text(encoding="utf-8") + "\n# 凍った後の書き換え\n", encoding="utf-8")
+        self.redden_bounds()
+        reply = load("fix2_ok")
+        reply["changes"][1]["files"] = ["stats.py", "test_stats.py", "bounds.py"]
+        rows = []
+        for it in ("1", "3"):
+            r = json.loads(self.run_it(reply, INPUTS_ITERATION=it, INPUTS_TDD_STATE=state)[1])
+            rows.append({x["check"] for x in r.get("rejects") or []})
+        self.assertTrue({"frozen", "tests"} <= rows[0], rows)
+        self.assertEqual((r["ok"], r["done"], r["changes"]), (True, True, []), r)
+        self.assertEqual(sorted(self.parked_units()), sorted([MEAN, CLAMP]))
+        for name in ("test_stats.py", "stats.py", "bounds.py"):
+            self.assertTrue(self.unchanged(name), name)
+
+    def test_second_pass_park_keeps_first_pass_work(self):
+        # Review Focus 2: 1 回目の段で CLAMP の返答を受けて控え、MEAN の案を直して戻った 2 回目の修正の段（include refitting）。
+        # 2 回目の修正役は MEAN を直しつつ bounds.py を赤にし、MEAN の行は CLAMP の 1 回目の直しと同じ stats.py を名指す。
+        # 最後の回は MEAN だけを止め、段の頭の木（1 回目の直しを含む）に戻すので CLAMP の直しは残り、patch は 2 回目の変更だけ
+        with bounds_seed():
+            self.replanned()
+        self.assertTrue(self.accept_script(only_clamp_reply(), pass_="ruled")["ok"])
+        import replan
+        self.assertTrue(replan.material(entry.open_board(self.board))["go"])
+        self.approve(test_replan.red_kind_fixed())
+        test_replan.refit_ignored_before(self.board, self.repo)
+        self.assertEqual(conflict.fix_duty(entry.open_board(self.board))[0], {MEAN})
+        state = self.start_loop()
+        self.edit_tree(MEAN_FIX)
+        self.redden_bounds()
+        reply = test_replan.only_mean_reply()
+        reply["changes"][0]["files"] = ["stats.py", "bounds.py"]
+        r = self.accept_script(reply, iteration="3", include=test_replan.REFIT, tdd_state=state)
+        self.assertEqual((r["ok"], r["done"]), (True, True), r)
+        self.assertEqual(self.parked_units(), [MEAN])
+        text = (self.repo / "stats.py").read_text(encoding="utf-8")
+        self.assertIn("return hi", text, "1 回目に受けた CLAMP の直しは段の頭の木に在るので残る")
+        self.assertNotIn("sum(xs) / len(xs)", text, "止めた MEAN の 2 回目の直しは戻る")
+        self.assertEqual((self.repo / "bounds.py").read_text(encoding="utf-8"), BOUNDS)
+        patch = next(self.board.rglob("fix-parked-1.patch")).read_text(encoding="utf-8")
+        self.assertIn("sum(xs) / len(xs)", patch)
+        self.assertNotIn("+        return hi", patch, "1 回目の直しは控えに入らない")
+
+    def test_pack_row_parks_all_and_never_touches_archon(self):
+        # Review Focus 3: .archon/ の下を変えた最後の回。pack の行は誰にも結べないので義務の全部を止め、.archon/ の下は戻さない
+        copy = self.fix_ready_with_pack_copy()
+        changed = "def mean(xs):\n    return sum(xs) / len(xs)\n"
+        copy.write_text(changed, encoding="utf-8")
+        r = json.loads(self.run_it(load("fix2_ok"), INPUTS_ITERATION="3")[1])
+        self.assertEqual((r["ok"], r["done"], r["changes"]), (True, True, []), r)
+        self.assertEqual(sorted(self.parked_units()), sorted([MEAN, CLAMP]))
+        rows = self.trace_rows("fix_bound_parked")
+        self.assertTrue(any(t.startswith("修正役は .archon/ の下を変えてはいけない") for row in rows for t in row.get("unbound") or {}),
+                        rows)
+        self.assertEqual(copy.read_text(encoding="utf-8"), changed, ".archon/ の下は戻さない")
+
+    def test_red_test_binds_by_import_closure(self):
+        with bounds_seed():
+            repo = linekit.seed_repo(self.tmp / "repo")
+        mod = parking()
+        feet = {MEAN: {"stats.py"}, CLAMP: {"bounds.py"}}
+        reached = {k: mod.reach(repo, "HEAD", f, self.tmp / "impact") for k, f in feet.items()}
+        self.assertIn("test_bounds.py", reached[CLAMP])
+        keys = {MEAN, CLAMP}
+        self.assertEqual(mod.bind("赤（ファイル test_bounds.py）: ['test_bounds.TestBounds::test_width']", keys, feet, reached),
+                         {CLAMP})
+        self.assertEqual(mod.bind("赤（ファイル test_stats.py）: ['test_stats.TestStats::test_x']", keys, feet, reached), {MEAN})
+        self.assertEqual(mod.bind(f"{CLAMP[:60]}: 閉鎖の実証で赤を一度も見ていない", keys, feet, reached), {CLAMP})
+
+    def test_unbound_row_parks_every_owed_unit_and_says_why(self):
+        mod = parking()
+        feet = {MEAN: {"stats.py"}, CLAMP: {"bounds.py"}}
+        reached = {MEAN: {"test_stats.py"}, CLAMP: {"test_bounds.py"}}
+        text = "誰も名指さない文"
+        got = mod.settle([text], keys={MEAN, CLAMP}, feet=feet, reached=reached, owed={MEAN, CLAMP}, out_of_duty=set(),
+                         changed=set())
+        self.assertEqual(set(got.park), {MEAN, CLAMP})
+        self.assertEqual(got.unbound, {text: mod.unbound_why(text)})
+        got = mod.settle([f"{CLAMP[:60]}: 直さない単位の行"], keys={MEAN, CLAMP}, feet=feet, reached=reached, owed={MEAN},
+                         out_of_duty={CLAMP}, changed=set())
+        self.assertEqual((got.park, got.absorbed), ({}, [f"{CLAMP[:60]}: 直さない単位の行"]))
 
 
 class HoldCase(ReplanCase):

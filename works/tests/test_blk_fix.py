@@ -1114,12 +1114,12 @@ class TestAccept(BoardCase):
 
     def test_done_when_accepted_or_third_reject(self):
         """輪は done で抜ける（R50。max_iterations に当てて run を落とさない）: 通れば done、拒否は輪の 3 回目（fix-prep の
-        iteration）で done（読めない返答の拒否も同じ）。iteration が数でなければ回す側の誤り（2）"""
+        iteration）で done。3 回目の読める返答は単位を止めて通る（依頼 242。StopsKeepWorkCase が見る）ので、ここで 3 回目以降に
+        拒むのは読めない返答。iteration が数でなければ回す側の誤り（2）"""
         self.fix_ready()
         bad = load("fix2_ok")
         del bad["changes"][0]
-        for it, reply, done in (("1", bad, False), ("2", bad, False), ("3", bad, True), ("3", "not json", True),
-                                ("4", bad, True)):
+        for it, reply, done in (("1", bad, False), ("2", bad, False), ("3", "not json", True), ("4", "not json", True)):
             with self.subTest(iteration=it, reply=str(reply)[:20]):
                 code, out, err = self.run_it(reply, INPUTS_ITERATION=it)
                 self.assertEqual(code, 0, err)
@@ -1290,17 +1290,16 @@ class TestAccept(BoardCase):
         self.assertEqual([(r["checked"], r["why"]) for r in rows], [(False, planscope.NO_PLAIN)])
 
     def test_scope_problems_bind_to_one_unit(self):
-        """accept.py を spec_from_file_location で読み（test_fix_rules.TestThirdRejectParksBoundUnit と同じ形）、problems の
-        行 1 の外れ（MEAN の行の other.py）を accept.bind_problems に渡すと、MEAN 1 つに結ぶ"""
-        acc = self.accept_module("blk_fix_accept_scope")
+        """planscope.problems の行 1 の外れ（MEAN の行の other.py）を、最後の回の結び（parking.bind。足跡は返答の行の files）に
+        渡すと、MEAN 1 つに結ぶ"""
+        import parking
         it = {"item": 1, "unit_keys": [MEAN, CLAMP], "adds": [], "removes": [], "tests": [], "rewrite_tests": [],
               "allowed_paths": ["stats.py"], "out_of_scope": []}
         rows = [{"unit_key": MEAN, "files": ["other.py"]}, {"unit_key": CLAMP, "files": ["stats.py"]}]
         found, _ = planscope.problems([it], rows, {"stats.py": ("a\n", "b\n"), "other.py": (None, "x\n")})
         got = [p for p in found if "other.py" in p and MEAN in p]
         self.assertEqual(len(got), 1, found)
-        bound, unbound = acc.bind_problems(got, rows, self.tmp)
-        self.assertEqual((list(bound), unbound), ([MEAN], []))
+        self.assertEqual(parking.bind(got[0], {MEAN, CLAMP}, parking.footprint(rows, [], self.tmp), {}), {MEAN})
 
     def test_missing_env(self):
         self.repo = linekit.seed_repo(self.tmp / "repo")
@@ -1317,7 +1316,7 @@ class ParkBoundBase(BoardCase):
     run_it = TestAccept.run_it
 
     def parked_units(self):
-        """盤面の trace の BOUND_PARKED_OP の行が止めた単位の key（行の順）"""
+        """盤面の trace の PARKED_OP の行が止めた単位の key（行の順）"""
         rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
         return [k for r in rows if r.get("op") == "fix_bound_parked" for k in r.get("unit_keys") or []]
 
