@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.20] - 2026-10-03
+
 ### Added
 
 - run の入力 `fix_shape`（`current`・`af`・`g3`・`g1`。既定 `g3`）で、修正の段の進め方を切り替えられる。
