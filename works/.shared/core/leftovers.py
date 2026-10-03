@@ -8,6 +8,9 @@
                       控える（節 ignored-before）
 - remove_new_ignored: 控えに無かった無視されるファイルだけを消す。前から在った丸ごと無視されるフォルダ（.venv など）の下は触らない。
                       消した全件は盤面の fix-removed.json に書き、件数とそのパスだけを返す（節 clean）
+控えと消した物のファイルの名は呼ぶ側が渡せる（before_name・removed_name。既定は IGNORED_BEFORE_FILE・REMOVED_FILE）。blk-fix の 2 回目の
+修正の段は回の印を足した名（script_io.tagged）を渡し、1 回目の物を上書きしない（この模块は core の他の模块を読まないので、名は
+呼ぶ側が作る）。
 失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリだけ（core の他の模块も読まない。tests/test_blk_fix が縛る）。
 """
 import hashlib
@@ -69,8 +72,8 @@ def _ignored_dirs(repo) -> list:
                                         "--full-name", "--", ":/") if n.endswith("/")})
 
 
-def _board_path(board) -> pathlib.Path:
-    return pathlib.Path(board) / IGNORED_BEFORE_FILE
+def _board_path(board, before: str = IGNORED_BEFORE_FILE) -> pathlib.Path:
+    return pathlib.Path(board) / before
 
 
 def _is_bytecode(rel: str) -> bool:
@@ -96,12 +99,12 @@ def archon_digests(repo) -> dict:
     return out
 
 
-def record_ignored(board, repo) -> dict:
+def record_ignored(board, repo, before_name: str = IGNORED_BEFORE_FILE) -> dict:
     """修正役を起こす前の ignored_files と丸ごと無視されるフォルダと untracked_dirs と .archon/ の下の姿（archon_digests）を
-    盤面の fix-ignored-before.json に控える。{"ok": True, "count", "file"} を返す（count は無視されるファイルの数）"""
+    盤面の fix-ignored-before.json（before_name）に控える。{"ok": True, "count", "file"} を返す（count は無視されるファイルの数）"""
     before = {"ignored": ignored_files(repo), "ignored_dirs": _ignored_dirs(repo), "dirs": untracked_dirs(repo),
               "archon": archon_digests(repo)}
-    return {"ok": True, "count": len(before["ignored"]), "file": _write_json(_board_path(board), before)}
+    return {"ok": True, "count": len(before["ignored"]), "file": _write_json(_board_path(board, before_name), before)}
 
 
 def _write_json(path: pathlib.Path, data) -> str:
@@ -113,42 +116,42 @@ def _write_json(path: pathlib.Path, data) -> str:
     return str(path)
 
 
-def _read_before(board) -> dict:
-    path = _board_path(board)
+def _read_before(board, before_name: str = IGNORED_BEFORE_FILE) -> dict:
+    path = _board_path(board, before_name)
     if not path.is_file():
-        raise Unreadable(f"盤面に {IGNORED_BEFORE_FILE} が無い——修正役の前の控えが無いので、どれが修正役の生成物か分からない")
+        raise Unreadable(f"盤面に {before_name} が無い——修正役の前の控えが無いので、どれが修正役の生成物か分からない")
     try:
         before = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        raise Unreadable(f"盤面の {IGNORED_BEFORE_FILE} が読めない（{e}）")
+        raise Unreadable(f"盤面の {before_name} が読めない（{e}）")
     # 古い形（dirs・ignored_dirs の無い控え）も拒む。フォルダの控えが無いと、前から在った空のフォルダや .venv の中身を消しうる
     for key in ("ignored", "ignored_dirs", "dirs"):
         v = before.get(key) if isinstance(before, dict) else None
         if not isinstance(v, list) or not all(isinstance(s, str) for s in v):
-            raise Unreadable(f"盤面の {IGNORED_BEFORE_FILE} の型が合わない（{key} が文字列の配列でない）")
+            raise Unreadable(f"盤面の {before_name} の型が合わない（{key} が文字列の配列でない）")
     return before
 
 
-def archon_changes(board, repo) -> list:
-    """修正役の前の控え（record_ignored の archon）から .archon/ の下で中身が変わった・足した・消したパス（名前の順）。
+def archon_changes(board, repo, before_name: str = IGNORED_BEFORE_FILE) -> list:
+    """修正役の前の控え（record_ignored の archon。before_name）から .archon/ の下で中身が変わった・足した・消したパス（名前の順）。
     控えが無い・読めない・archon の欄が無い（古い形）なら Unreadable"""
-    before = _read_before(board).get("archon")
+    before = _read_before(board, before_name).get("archon")
     if not isinstance(before, dict):
-        raise Unreadable(f"盤面の {IGNORED_BEFORE_FILE} に .archon/ の姿（archon）が無い——修正役の前の控えが古い形")
+        raise Unreadable(f"盤面の {before_name} に .archon/ の姿（archon）が無い——修正役の前の控えが古い形")
     now = archon_digests(repo)
     return sorted(k for k in set(before) | set(now) if before.get(k) != now.get(k))
 
 
-def remove_new_ignored(board, repo) -> dict:
+def remove_new_ignored(board, repo, before_name: str = IGNORED_BEFORE_FILE, removed_name: str = REMOVED_FILE) -> dict:
     """修正役が残した、git が無視するファイルを消す（テストの節を生成物の無い木で回すため）。
     今の ignored_files のうち、控えに無かった物（ARCHON_PREFIX の下と、控えの ignored_dirs——前から在った丸ごと無視される
     フォルダ——の下を除く）だけを消し、それで空になった親のフォルダも消す。ただし控えの dirs のどれか（前から在った
     未追跡のフォルダ）かその下に来たら、そこで止める。前から在った物は、中身が増えた・変わっていても消さない（元に戻す
     写しが無い。git clean -ffdX を丸ごと走らせると、対象の .venv など前から在った物まで消えてテストが走らなくなる）。
-    消したパスの全件（名前の順）は盤面の fix-removed.json に {"removed": [...]} で書き、{"ok": True, "count", "file"} を返す
-    （件数に上限が無いので、子の stdout・節の出口には載せない）。控えが無い・読めない・git が効かなければ Unreadable（何も消さない）"""
+    控えは盤面の before_name を読む。消したパスの全件（名前の順）は盤面の fix-removed.json（removed_name）に {"removed": [...]}
+    で書き、{"ok": True, "count", "file"} を返す（件数に上限が無いので、子の stdout・節の出口には載せない）。控えが無い・読めない・git が効かなければ Unreadable（何も消さない）"""
     repo = pathlib.Path(repo)
-    before = _read_before(board)
+    before = _read_before(board, before_name)
     root = repo.resolve()
     kept_dirs = tuple(before["dirs"])
     kept = (ARCHON_PREFIX, *before["ignored_dirs"])
@@ -169,4 +172,4 @@ def remove_new_ignored(board, repo) -> dict:
                 break
             parent.rmdir()
             parent = parent.parent
-    return {"ok": True, "count": len(removed), "file": _write_json(pathlib.Path(board) / REMOVED_FILE, {"removed": removed})}
+    return {"ok": True, "count": len(removed), "file": _write_json(pathlib.Path(board) / removed_name, {"removed": removed})}

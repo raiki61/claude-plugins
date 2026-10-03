@@ -246,7 +246,8 @@ class TestBlockYaml(unittest.TestCase):
                 "rule_accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_ITERATION", *tail),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED",
                             "INPUTS_PASS_TAG"),
-                "reads": ("INPUTS_MUST", *tail)}
+                "reads": ("INPUTS_MUST", *tail),
+                "ignored_before": ("INPUTS_PASS_TAG",), "clean": ("INPUTS_PASS_TAG",)}
         for name, inputs in want.items():
             with self.subTest(name):
                 src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
@@ -259,10 +260,11 @@ class TestBlockYaml(unittest.TestCase):
         """後から足した回の印と include の名は OPTIONAL（無い・空は今どおり。前の版の with: で再開した run は渡さない）。
         YAML の with: はブロックの入力 pass_tag・include_id をそのまま渡す（依頼 226 Task 9。collect は回の印だけ）"""
         names = {"accept": ("fix-accept", "fix-ruled-accept"), "fix_prep": ("fix-prep", "fix-ruled-prep"),
-                 "rule_prep": ("rule-prep",), "rule_accept": ("rule-accept",), "reads": ("fix-reads",), "collect": ("collect",)}
+                 "rule_prep": ("rule-prep",), "rule_accept": ("rule-accept",), "reads": ("fix-reads",), "collect": ("collect",),
+                 "ignored_before": ("ignored-before",), "clean": ("clean",)}
         nodes = {nid: find_node(block()["nodes"], nid) for ids in names.values() for nid in ids}
         for name, ids in names.items():
-            want = {"INPUTS_PASS_TAG"} if name == "collect" else {"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"}
+            want = {"INPUTS_PASS_TAG"} if name in ("collect", "ignored_before", "clean") else {"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"}
             with self.subTest(name):
                 src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
                 consts = [n.value for n in ast.parse(src).body if isinstance(n, ast.Assign)
@@ -1509,6 +1511,30 @@ class TestCleanIgnored(ScriptCase):
         self.assertEqual((code, out), (1, ""))
         self.assertIn("fix-ignored-before.json", err)
         self.assertTrue((self.repo / "__pycache__" / "x.pyc").exists(), "控えが無ければ何も消さない")
+
+    def test_second_pass_keeps_first_pass_files(self):
+        """回の印（2 回目の修正の段の refit）が在れば、控えと消した物のファイルは印を足した名に書き、1 回目の物を上書きしない。
+        2 回目の clean は 2 回目の控えで消す"""
+        self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "a.pyc").write_bytes(b"a")
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual((code, self.removed(out)), (0, ["__pycache__/a.pyc"]), err)
+        first = {n: (self.board / n).read_bytes() for n in ("fix-ignored-before.json", "fix-removed.json")}
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "keep.pyc").write_bytes(b"k")   # 2 回目の段の前から在った物
+        tag = {**self.env(), "INPUTS_PASS_TAG": "refit"}
+        code, out, err = run_script("ignored_before", self.repo, tag)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(pathlib.Path(json.loads(out)["file"]).name, "fix-ignored-before.refit.json")
+        (self.repo / "sub" / "__pycache__").mkdir(parents=True)
+        (self.repo / "sub" / "__pycache__" / "b.pyc").write_bytes(b"b")
+        code, out, err = run_script("clean", self.repo, tag)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(pathlib.Path(json.loads(out)["file"]).name, "fix-removed.refit.json")
+        self.assertEqual(self.removed(out), ["sub/__pycache__/b.pyc"])
+        self.assertTrue((self.repo / "__pycache__" / "keep.pyc").exists())
+        self.assertEqual({n: (self.board / n).read_bytes() for n in first}, first, "1 回目の控えと消した物は残る")
 
     def test_missing_env(self):
         self.assertEqual(run_script("ignored_before", self.repo, {})[0], 2)

@@ -190,11 +190,26 @@ def _output(b, nid: str):
 
 
 def _fix(b):
-    """今の周の修正の返答（recount.fix_reply: 盤面の p3.fix か、1 回目に受け付けた返答の控え）。どちらも無ければ None"""
+    """今の周の修正の返答（recount.fix_reply: 盤面の p3.fix か、1 回目に受け付けた返答の控え）。どちらも無い・控えが読めなければ
+    None（読めない控えは冒頭 1 の _held_gap_lines が 1 行で言う）"""
     try:
         return recount.fix_reply(b)[0]
-    except recount.Unreadable:
+    except (recount.Unreadable, BoardGap):
         return None
+
+
+HELD_HEAD = "1 回目に受け付けた修正の返答"
+
+
+def _held_gap_lines(b) -> list:
+    """冒頭 1 の、修正の返答を 1 回目に受け付けた返答の控えから読もうとして読めなかった 1 行（読めれば・無ければ何も出さない）"""
+    try:
+        recount.fix_reply(b)
+    except recount.Unreadable:
+        return []
+    except BoardGap as e:
+        return [f"{HELD_HEAD}: 控えが読めない（{_one_line(str(e))}）"]
+    return []
 
 
 def _one_line(text) -> str:
@@ -598,6 +613,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines.append(f"{querytest.CLOSURE_HEAD}: {len(closure)} 件")
         lines += [f"  - {x}" for x in closure]
     lines += _amend_lines(b)
+    lines += _held_gap_lines(b)
     lines += rejudge_lines(b)
     lines += _rejudge_changes(b)
     lines += _premise_hypotheses(b)

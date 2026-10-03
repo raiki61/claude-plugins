@@ -35,8 +35,8 @@
    今どおり、前の輪（1 回目の修正の段の輪）の状態は今の輪の状態の handoff の木（since）からの変更で見て、直した項目の単位
    （conflict.amended_keys）の前の輪の受け入れのテストの関数（tddloop.test_spans）の中だけの変更は通す。前の輪の許しの行は
    since の木で引き直す（比べる木と行を引く木を揃える）。テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。
-   conflict.test_permits を conflict.ruled_test_limits が引く）の中の変更を通す。修正案の名指しは 1 回目から、裁定の範囲は
-   裁定の後（ruled）だけ。修正案の範囲は、凍結の検査が読む輪の後の木でテストの id から引き直す（tddloop.frozen_source）。
+   conflict.test_permits を conflict.ruled_test_limits が引く）の中の変更を通す。修正案の名指しは 1 回目から、今の輪の裁定の範囲は
+   裁定の後（ruled）だけ（前の輪は前の段の裁定の範囲をいつも許す）。修正案の範囲は、凍結の検査が読む輪の後の木でテストの id から引き直す（tddloop.frozen_source）。
    輪が赤→緑を確かめた修正案の書き換え（tddloop.verified_rewrites）は許しから外す（skip_ids。輪の後に確かめなしで書き換えさせない）
 1c. check_tests: 版からの変更に当たる試験を、TDD の輪と同じ実行器で機械が走らせ、元で赤でなかった試験の赤を拒む
    （tddloop.selected_problems。実行器の無い run は走らせない。一式の緑は線の最後のテストの段が確かめる）
@@ -149,7 +149,7 @@ def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
             f = posixpath.normpath(f)
             if f == leftovers.ARCHON_PREFIX.rstrip("/") or f.startswith(leftovers.ARCHON_PREFIX):
                 declared.add(f)
-    changed = leftovers.archon_changes(board, repo)
+    changed = leftovers.archon_changes(board, repo, fixrules.tagged(leftovers.IGNORED_BEFORE_FILE, _tag()))
     parts = []
     if declared:
         parts.append(f"changes[].files に申告した {sorted(declared)}（申告から外す）")
@@ -304,22 +304,23 @@ def check_frozen(board: Path, state: str, repo: Path, pass_: str) -> list:
     輪の受け入れのテストの関数（tddloop.test_spans）の中の変更は通す。テストの変更の許し（conflict.ruled_test_limits）は輪ごとに、
     凍結の検査が比べる木で修正案の行を引き直す（今の輪は輪の後の木、前の輪は since の木。tddloop.frozen_source）。輪が赤→緑を
     確かめた書き換えは、どの輪の物でも許しから外す。今の輪が無い（2 回目の段の輪が走らなかった）時、前の輪は輪の後の木で見る。
-    輪が 1 つも無ければ空。盤面は書かない"""
+    裁定の範囲は今の輪だけ pass_ で決め（1 回目の受け付けは含めない）、前の輪はいつも含める（前の段で裁いた fix_test_scope の
+    直しは、今の段の受け付けが first でも許し）。輪が 1 つも無ければ空。盤面は書かない"""
     loops = _loop_states(board, state)
     if not loops:
         return []
     b = entry.open_board(board)
     skip = [i for p in loops for i in tddloop.verified_rewrites(p)]
 
-    def allowed(source):
-        return conflict.ruled_test_limits(b, rulings=pass_ == "ruled", source=source, skip_ids=skip)
-    out = tddloop.frozen_problems(state, repo, allowed(tddloop.frozen_source(state, repo))) if state else []
+    def allowed(source, rulings):
+        return conflict.ruled_test_limits(b, rulings=rulings, source=source, skip_ids=skip)
+    out = tddloop.frozen_problems(state, repo, allowed(tddloop.frozen_source(state, repo), pass_ == "ruled")) if state else []
     old = loops[:-1] if state else loops
     if old:
         since = tddloop.load_state(state).get("handoff") if state else None
         amended = conflict.amended_keys(b)
         for p in old:
-            out += tddloop.frozen_problems(p, repo, allowed(tddloop.frozen_source(p, repo, since=since)), since=since,
+            out += tddloop.frozen_problems(p, repo, allowed(tddloop.frozen_source(p, repo, since=since), True), since=since,
                                            skip_spans=tddloop.test_spans(p, amended))
     return out
 

@@ -135,6 +135,12 @@ GAVE_UP_PROMISE = ("案の項目そのものが誤りと裁いたが、同じ ru
                    "この単位も「項目の単位」に並べた同じ項目の単位も直すな（機械が直す義務から外した。最後の人の関所で人が"
                    "決める）。changes に書くな")   # 裁定の文の GAVE_UP の行の約束（write_rulings）
 ACCEPTED_WHY = "1 回目の修正の段で受け付けた（控え {path}。この単位の行は機械が足す）"
+ACCEPTED_PROMISE = ("この単位は 1 回目の修正の段で受け付けた（控え {path}）。changes にも not_done にも書くな（この単位の行は機械が"
+                    "控えから足す。書いた返答は拒まれる）")   # 裁定の文の、控えの単位の行の約束（write_rulings。ACCEPTED_WHY と同じ扱い）
+LATE_REPLAN_PROMISE = ("案の項目そのものが誤りと裁いたが、この run の案の直しはもう済んだ（案の段に戻るのは 1 run に 1 回）。この単位も"
+                       "「項目の単位」に並べた同じ項目の単位も直すな（機械が直す義務から外した）。修正の段を抜ける時に機械が諦めた"
+                       "行にし、最後の人の関所で人が決める。changes に書くな。この段で直した項目の単位の直しは作業ツリーから戻す"
+                       "（機械も戻す）")   # 2 回目の修正の段で新しく fix_plan_item と裁いた行（状態 WAITING）の約束（write_rulings）
 _HELD_ROWS = ("changes", "not_done")    # 控えと返答を単位で合わせる欄
 CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
 
@@ -553,9 +559,15 @@ def apply_rulings(b, rulings: dict, *, by: str, pass_tag: str = "") -> pathlib.P
 def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
     """裁定の文（修正役が Read する。1 件ずつ単位・名指し・理由・裁定・範囲と、裁定ごとの約束）。約束は裁定の decision で決まり、
     fix_plan_item の行のうち案を直した行（状態 AMENDED）は AMENDED_PROMISE（直す義務に戻った。held_by_rulings と同じ決まり）、
-    諦めた行（GAVE_UP）は GAVE_UP_PROMISE（ask_human と同じく最後の関所へ。諦めた理由を添える）。ファイルの名と、名指す申し出の回の
-    控え（PARKED_REPLY）の名は、修正の段の回の印 pass_tag で分ける（tagged。2 回目の修正の段は 1 回目の物を上書きも名指しもしない）"""
+    諦めた行（GAVE_UP）は GAVE_UP_PROMISE（ask_human と同じく最後の関所へ。諦めた理由を添える）、2 回目の修正の段（pass_tag が在る）で
+    案の直しを待つ行（WAITING。この段で新しく裁いた行）は LATE_REPLAN_PROMISE（案の段には戻らず、修正の段を抜ける時に
+    replan.settle が諦めた行にする）。1 回目に受け付けた返答の控えの単位（accepted_units）の行は、どの裁定でも ACCEPTED_PROMISE
+    （行は機械が足す。fix_duty の ACCEPTED_WHY と同じくほかの約束より先。控えが壊れていれば held_reply の BoardGap）。
+    ファイルの名と、名指す申し出の回の控え（PARKED_REPLY）の名は、修正の段の回の印 pass_tag で分ける（tagged。2 回目の修正の段は
+    1 回目の物を上書きも名指しもしない）"""
     rows = [r for r in items(b) if r.get("ruling")]
+    held, held_path = held_reply(b)
+    accepted = _held_keys(held)
     lines = [f"# {HEAD}の裁定（機械が書いた。裁いたのは読むだけの裁定役か機械）", ""]
     promise = {
         "fix_test_scope": "テストが誤った動きを書いていると裁いた。テストを直してよいのは「範囲」に並べた所だけで、直したテストは"
@@ -575,7 +587,9 @@ def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
         ru = r["ruling"]
         state = replan_state(r)
         amended = state == AMENDED
-        said = {AMENDED: AMENDED_PROMISE, GAVE_UP: GAVE_UP_PROMISE}.get(state) or promise[ru['decision']]
+        said = (ACCEPTED_PROMISE.format(path=held_path) if r["unit_key"] in accepted
+                else LATE_REPLAN_PROMISE if pass_tag and state == WAITING
+                else {AMENDED: AMENDED_PROMISE, GAVE_UP: GAVE_UP_PROMISE}.get(state) or promise[ru['decision']])
         lines += [f"## {r['id']}: {r['unit_key']}", "",
                   f"- 裁定: {ru['decision']}（{ru.get('by') or ''}）——{said}",
                   f"- 裁定の文: {ru['text']}",

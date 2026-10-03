@@ -453,6 +453,11 @@ class TestHeldReply(unittest.TestCase):
         self.assertEqual(conflict.held_reply(b), (None, b.work(conflict.HELD_REPLY)))
         self.assertEqual(conflict.accepted_units(b), set())
 
+    def test_fix_node_matches_recount(self):
+        """conflict は recount を読まずに修正の段の節の名を字で持つ（held_reply が盤面の受けを見る）。字は recount の物と同じ"""
+        import recount
+        self.assertEqual(conflict.FIX_NODE, recount.FIX_NODE)
+
     def test_broken_held_reply_is_board_gap(self):
         b = fake_with_rows([])
         for text in ("{", "[]", '{"changes": {}}', '{"changes": [{"what": "x"}]}', '{"not_done": ["x"]}',
@@ -503,6 +508,32 @@ class TestReplanWords(unittest.TestCase):
         text = conflict.write_rulings(b).read_text(encoding="utf-8")
         self.assertIn("直す義務の外の単位はすべて除く", text)
         self.assertIn("1 回目の修正の段で受け付けた単位", text)
+
+    @staticmethod
+    def section(text, rid):
+        return text.split(f"## {rid}:", 1)[1].split("\n## ", 1)[0]
+
+    def test_accepted_unit_rows_say_do_not_write(self):
+        """1 回目に受け付けた控えの単位の裁定の行（直す裁定でも）は「changes に 1 行を書け」と言わず、受け付けが拒む
+        （accept.ACCEPTED_ROWS）のと同じく、書くな・行は機械が足すと言う（fix_duty の ACCEPTED_WHY と同じ扱い）"""
+        b = fake_with_rows([row("c1-1", CLAMP, "fix_code_as"), row("c1-2", MEAN, "fix_code_as")])
+        hold(b, {"changes": [clamp_row()], "not_done": []})
+        text = conflict.write_rulings(b, "refit").read_text(encoding="utf-8")
+        mine = self.section(text, "c1-1")
+        self.assertNotIn("changes に 1 行を書け", mine)
+        self.assertIn(conflict.ACCEPTED_PROMISE.format(path=b.work(conflict.HELD_REPLY)), mine)
+        self.assertIn("changes に 1 行を書け", self.section(text, "c1-2"), "控えに無い単位は今どおり")
+
+    def test_second_pass_new_replan_rows_promise_the_last_gate(self):
+        """2 回目の修正の段（回の印が在る）で新しく fix_plan_item と裁いた行（待つ行）は、無い 3 回目の修正の段を約束せず、
+        修正の段を抜ける時に諦めた行になり最後の人の関所へ行くと言う（replan.settle が締める）"""
+        b = fake_with_rows([row("c2-1", MEAN, "fix_plan_item", state="waiting", plan_units=[MEAN])])
+        mine = self.section(conflict.write_rulings(b, "refit").read_text(encoding="utf-8"), "c2-1")
+        self.assertNotIn("2 回目の修正の段で直す", mine)
+        self.assertIn(conflict.LATE_REPLAN_PROMISE, mine)
+        self.assertIn("最後の人の関所で人が決める", mine)
+        first = self.section(conflict.write_rulings(b).read_text(encoding="utf-8"), "c2-1")
+        self.assertIn("2 回目の修正の段で直す", first, "1 回目の段の待つ行は今どおり")
 
     def test_held_ask_points_at_the_owed_keys_above(self):
         """控えの節の『直す義務』の名指しは、指示書でその節より前（上）に在る読む物の行を指す"""

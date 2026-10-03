@@ -59,11 +59,14 @@ returns: collect
 outcome_field: ok
 
 nodes:
-  # 修正役の前の git が無視するファイルの控え（盤面の fix-ignored-before.json）。clean はこれに無かった物だけを消す
+  # 修正役の前の git が無視するファイルの控え（盤面の fix-ignored-before.json。回の印が在れば fix-ignored-before.<印>.json）。
+  # clean はこれに無かった物だけを消す
   - id: ignored-before
     script: ignored_before
     runtime: uv
     timeout: 1728000000
+    with:
+      pass_tag: $INPUTS.pass_tag
     output_format:
       type: object
       required: [ok, count, file]
@@ -821,7 +824,9 @@ nodes:
     depends_on: [fix-loop, conflict-check, rule-loop, fix-ruled-loop]
     trigger_rule: none_failed_min_one_success   # 申し出が無い run は裁定の輪と 2 回目の修正の輪が飛ばされる
     timeout: 1728000000
-    # 消したパスの全件は盤面の fix-removed.json に書き、出口は件数とそのパスだけ（件数に上限が無く、子の stdout には上限が在る）
+    with:
+      pass_tag: $INPUTS.pass_tag   # 控えと消した物のファイルはその回の物（1 回目の物を上書きしない）
+    # 消したパスの全件は盤面の fix-removed.json（回の印が在れば fix-removed.<印>.json）に書き、出口は件数とそのパスだけ（件数に上限が無く、子の stdout には上限が在る）
     output_format:
       type: object
       required: [ok, count, file]

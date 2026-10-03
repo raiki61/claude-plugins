@@ -813,6 +813,36 @@ class TestAcceptSkipsVerifiedRewrites(unittest.TestCase):
             self.assertEqual(limits.call_args.kwargs["rulings"], pass_ == "ruled")
 
 
+class TestPriorLoopsKeepRulings(unittest.TestCase):
+    """前の輪（1 回目の修正の段の輪）の凍結の検査は、前の段の裁定 fix_test_scope の範囲をいつも許す。今の受け付けが first でも
+    （2 回目の修正の段に輪が無い run・輪が在る run のどちらも）。今の輪の許しだけが pass で決まる"""
+
+    def check(self, state, pass_):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_fix_accept_script_prior", BLK / "scripts" / "accept.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        limits = mock.MagicMock(return_value=[])
+        with mock.patch.object(mod.conflict, "ruled_test_limits", limits), \
+                mock.patch.object(mod.conflict, "amended_keys", return_value=set()), \
+                mock.patch.object(mod.tddloop, "states", return_value=[pathlib.Path("/b/tdd-1/state.json")]), \
+                mock.patch.object(mod.tddloop, "frozen_problems", return_value=[]), \
+                mock.patch.object(mod.tddloop, "frozen_source", return_value=lambda *a: None), \
+                mock.patch.object(mod.tddloop, "verified_rewrites", return_value=[]), \
+                mock.patch.object(mod.tddloop, "test_spans", return_value={}), \
+                mock.patch.object(mod.tddloop, "load_state", return_value={"handoff": "h" * 40}), \
+                mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()):
+            self.assertEqual(mod.check_frozen(pathlib.Path("/b"), state, pathlib.Path("/r"), pass_), [])
+        return [c.kwargs["rulings"] for c in limits.call_args_list]
+
+    def test_second_pass_without_loop_keeps_prior_rulings(self):
+        self.assertEqual(self.check("", "first"), [True])
+
+    def test_second_pass_with_loop_keeps_prior_rulings(self):
+        self.assertEqual(self.check("/b/tdd-2/state.json", "first"), [False, True], "今の輪は first で裁定を含めず、前の輪は含める")
+        self.assertEqual(self.check("/b/tdd-2/state.json", "ruled"), [True, True])
+
+
 class TestPermitsOnRawBoard(unittest.TestCase):
     """盤面の控えのファイルだけを置いた軽い盤面（dir・round・work）で、許しの行の引き方と最後の関所の行の組み方を見る"""
     TWO = "import unittest\nclass A(unittest.TestCase):\n    def test_x(self):\n        pass\nclass B(unittest.TestCase):\n" \

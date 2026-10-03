@@ -72,7 +72,7 @@ def collect():
         if stop:   # 修正の段が諦めた（assert-changed が止めた）。後ろの段は境の節が飛ばし、報告が走る
             return {"ok": False, "files": [], "changes_file": "", "removed": removed, "tdd": tddloop.exit_fields(tdd),
                     "reason": f"盤面は止まっている（{stop.get('by')}）: {stop.get('reason') or ''}"}
-    out = recount.collect(board, accepted, changed, tag=os.environ.get(INPUTS[5], ""))
+    out = recount.collect(board, accepted, changed, tag=os.environ.get("INPUTS_PASS_TAG", ""))
     return {**out, "removed": removed, "tdd": tddloop.exit_fields(tdd)}
 
 

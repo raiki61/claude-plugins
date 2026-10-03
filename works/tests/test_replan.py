@@ -175,6 +175,17 @@ class TestHold(ReplanCase):
         self.assertEqual(report.claimed_units(b), [CLAMP])
         self.assertFalse(report._no_fix(b, None))
 
+    def test_report_survives_broken_held_reply(self):
+        """控えが壊れていても報告は落ちず、修正の返答を無い物と読み、冒頭 1 に「控えが読めない」を 1 行だけ出す"""
+        self.held()
+        b = entry.open_board(self.board)
+        b.work(conflict.HELD_REPLY).write_text("{", encoding="utf-8")
+        self.assertIsNone(report._fix(b))
+        self.assertEqual(report.claimed_units(b), [])
+        heads = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        got = [x for x in heads if x.startswith(f"{report.HELD_HEAD}: 控えが読めない")]
+        self.assertEqual(len(got), 1, heads)
+
     def test_settle_twice_hands_once(self):
         self.held()
         self.assertTrue(replan.settle(self.board, self.repo)["handed"])
@@ -262,6 +273,14 @@ def only_mean_reply() -> dict:
     return reply
 
 
+def refit_ignored_before(board, repo) -> None:
+    """2 回目の修正の段の頭の節 refitting__ignored-before: 回の印 refit の付いた修正役の前の控え（1 回目の物を上書きしない。
+    受け付けの .archon/ の検査が読む）"""
+    import leftovers
+    import script_io
+    leftovers.record_ignored(board, repo, script_io.tagged(leftovers.IGNORED_BEFORE_FILE, "refit"))
+
+
 class TripCase(ReplanCase):
     """mean を fix_plan_item に裁き、1 回目の受け付けが clamp の返答を控え、replan.material が束ねた盤面"""
 
@@ -324,6 +343,16 @@ class TestReplanRoles(ReplanCase):
         self.assertEqual(row["old"], {k: v for k, v in planmarks.approved_items(self.b)[0].items() if k != "item"})
         self.assertEqual(row["brief"], str(self.b.work("brief-1.md")))
         self.assertIsNone(row["new"]); self.assertIsNone(row["review"])
+
+    def test_material_drops_rewrite_limits_from_old(self):
+        """承認済みの項目の rewrite_tests の行の範囲 limit（凍結の控えで split が足す。返答の型は持てない）は、役に渡す old から外す"""
+        row = {"id": "test_stats.py::TestStats::test_mean_of_three", "behavior": "3 つの値の平均を返す",
+               "old": "mean([1, 2, 3]) は 2", "new": "分母を len(xs) にした期待のまま"}
+        items = planmarks.approved_items(self.b)
+        items[0]["rewrite_tests"] = [{**row, "limit": "test_stats.py:8"}]
+        with mock.patch.object(planmarks, "approved_items", return_value=items):
+            replan.material(self.b)
+        self.assertEqual(self.trip()["items"][0]["old"]["rewrite_tests"], [row])
 
     def test_material_keeps_trip_on_resume(self):
         replan.material(self.b)
@@ -783,6 +812,12 @@ class TestSecondPass(TripCase):
     行を機械が合わせて盤面に渡す。指示書・拒否の理由の名は回の印で分け、数えは 1 から"""
     TAG = "refit"
 
+    def approve(self, new):
+        """TripCase.approve に、2 回目の修正の段の頭の節 refitting__ignored-before（refit_ignored_before）を足す"""
+        got = super().approve(new)
+        refit_ignored_before(self.board, self.repo)
+        return got
+
     def values(self):
         b = entry.open_board(self.board)
         return {"judgment_file": str(self.board / b.state["outputs"]["p2.diagnose"]["file"]),
@@ -991,6 +1026,7 @@ class TestLineReplay(ReplanCase):
         self.play_role("plan", {"plan": [new_item]}); self.play_role("plan-review", no_faces())
         g = self.e("regate")
         r = self.e("refit", gate=gate if g["ask"] else None)
+        refit_ignored_before(self.board, self.repo)
         return g, r
 
     def fixed_in_same_run(self):

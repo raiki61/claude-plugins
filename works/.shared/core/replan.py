@@ -231,9 +231,19 @@ def _closed(b) -> bool:
     return took.get("round") == b.round
 
 
+def _role_item(item: dict) -> dict:
+    """承認済みの項目（planmarks.approved_items の 1 つ）から、役の返答の型が持てない欄を外した写し: 鍵 item と、
+    rewrite_tests の行の範囲 limit（凍結の控えで split が足した物。約束の欄の比べも limit を見ない）"""
+    out = {k: v for k, v in item.items() if k != "item"}
+    if isinstance(out.get("rewrite_tests"), list):
+        out["rewrite_tests"] = [{k: v for k, v in r.items() if k != "limit"} if isinstance(r, dict) else r
+                                for r in out["rewrite_tests"]]
+    return out
+
+
 def material(b) -> dict:
     """待つ行（conflict.waiting）を裁定の欄 plan_items の番号ごとに束ねて TRIP_FILE を書く（項目 1 つに行 1 つ。単位は束ねた行の
-    ruled_units の和。old は承認済みの項目から鍵 item を外した物）。TRIP_FILE が今の周に在れば書き直さない（再開）。
+    ruled_units の和。old は承認済みの項目を役に渡す形にした物: _role_item）。TRIP_FILE が今の周に在れば書き直さない（再開）。
     盤面が止まっている・今の周の p3.fix を受けた・束ねる行が無いなら go False。返り {"go", "items": [番号…]}"""
     if _closed(b):
         return {"go": False, "items": []}
@@ -259,7 +269,7 @@ def material(b) -> dict:
             items.append({**dict.fromkeys(TRIP_KEYS), "item": n,
                           "units": list(dict.fromkeys(k for r in rows for k in conflict.ruled_units(r))),
                           "rows": [r["id"] for r in rows],
-                          "old": {k: v for k, v in current[n - 1].items() if k != "item"},
+                          "old": _role_item(current[n - 1]),
                           "brief": str(brief) if brief.is_file() else ""})
         doc = {"round": b.round, "items": items}
         _write_trip(b, doc)
