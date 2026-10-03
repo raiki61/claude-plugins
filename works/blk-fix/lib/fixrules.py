@@ -361,9 +361,9 @@ def lib_section(b, repo, values: dict) -> str:
     return text + (f"\n- 単位のファイルの引き: {why}" if why else "")
 
 
-def prompt_path(b, pass_tag: str = "") -> pathlib.Path:
-    """修正役の指示書（回の印 pass_tag で名を分ける）"""
-    return b.work(tagged(rolekit.prompt_name(recount.FIX_NODE), pass_tag))
+def prompt_path(b) -> pathlib.Path:
+    """修正役の指示書（今の scope の周の置き場）"""
+    return b.work(rolekit.prompt_name(recount.FIX_NODE))
 
 
 def last_reject(board_dir) -> str:
@@ -404,15 +404,15 @@ def briefs_or_halt(b) -> list:
         raise BoardGap(brief_halt(b, e)) from None
 
 
-def implementer_values(b, values: dict, repo, owed: list[str], pass_tag: str = "") -> dict[str, str]:
+def implementer_values(b, values: dict, repo, owed: list[str]) -> dict[str, str]:
     """修正役の座（216 の節 implementer の型）の 5 つの穴の値。owed は今直す単位の key。直す義務の単位の brief を名指す節
-    （planbrief.head_text）を今の周の作業ファイル SEAT_BRIEFS（回の印 pass_tag を足した名。tagged）に書いて [BRIEF_FILE] にする
+    （planbrief.head_text）を今の周の作業ファイル SEAT_BRIEFS（今の scope の周の置き場）に書いて [BRIEF_FILE] にする
     （brief の無い run は判定のファイル）。brief の控えが壊れていれば盤面を止めて BoardGap（briefs_or_halt）"""
     briefs = planbrief.for_units(briefs_or_halt(b), owed)
     head = planbrief.head_text(briefs, owed)
     brief_file = values.get("judgment_file") or ""
     if head:
-        path = b.work(tagged(SEAT_BRIEFS, pass_tag))
+        path = b.work(SEAT_BRIEFS)
         path.write_text(head + "\n", encoding="utf-8")
         brief_file = str(path)
     items = "、".join(str(r["item"]) for r in briefs)
@@ -425,7 +425,7 @@ def implementer_values(b, values: dict, repo, owed: list[str], pass_tag: str = "
             "[REPORT_FILE]": seatkit.NO_REPORT_FILE}
 
 
-def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, pass_tag: str = "") -> list[dict]:
+def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dict]:
     """修正の形 g1 の下請けのファイルを、直す義務の単位の brief の項目ごとに今の周に 2 つ書き、項目の順の
     [{item, impl_file, review_file, base, patch}] を返す（seat.g1_section が並べる）。どの項目にも無い直す義務の単位（brief の無い run は
     全部）は、判定のファイルを [BRIEF_FILE] にした残りの 1 項目（番号は修正案の項目の後。題は G1_REST、brief の無い run は
@@ -436,9 +436,9 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, pass_tag: s
       [REPORT_FILE] は seat.G1_REPORT、[BASE_SHA] は修正前の版（writes.base_rev）、[HEAD_SHA] は seat.G1_HEAD_SHA（型の
       `git diff <版>..<HEAD_SHA>` は seat.g1_prompt が作業ツリーとの差分 `git diff <版>` に直す。Preflight F20）、[DIFF_FILE] は
       run ごとの置き場（盤面の隣。adapter.run_place_of。盤面は守る場所で役の Bash が書けない）の今の scope の下の G1_PATCH_FILE の絶対パス
-    どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊）。3 つのファイルの名には回の印 pass_tag を足す
-    （tagged。2 回目の修正の段は 1 回目の物を上書きしない）。写しが固定と違う・穴が埋まらなければ ValueError"""
-    common = implementer_values(b, values, repo, owed, pass_tag)
+    どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊）。3 つのファイルは今の scope の下に置く
+    （同じブロックの 2 度目の include は 1 度目の物を上書きしない）。写しが固定と違う・穴が埋まらなければ ValueError"""
+    common = implementer_values(b, values, repo, owed)
     cut = briefs_or_halt(b)
     briefs = planbrief.for_units(cut, owed)
     items = [(r["item"], r["file"], _g1_task(r, owed)) for r in briefs]
@@ -454,8 +454,8 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, pass_tag: s
         place.mkdir(parents=True, exist_ok=True)   # 役の Bash の差分のコマンドはフォルダを作らない
     rows = []
     for n, brief, task in items:
-        impl, review = b.work(tagged(G1_IMPL.format(n=n), pass_tag)), b.work(tagged(G1_REVIEW.format(n=n), pass_tag))
-        patch = str(place / tagged(G1_PATCH_FILE.format(n=n), pass_tag))
+        impl, review = b.work(G1_IMPL.format(n=n)), b.work(G1_REVIEW.format(n=n))
+        patch = str(place / G1_PATCH_FILE.format(n=n))
         impl.write_text(seatkit.g1_prompt("implementer", {**common, "[task name]": task, "[BRIEF_FILE]": brief,
                                                            "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}), encoding="utf-8")
         review.write_text(seatkit.g1_prompt("task-review", {
@@ -471,7 +471,7 @@ def _g1_task(brief: dict, owed: list[str]) -> str:
     return f"修正案の項目 {brief['item']}（直す義務の単位 {planbrief.unit_note(brief.get('unit_keys'), owed)}）"
 
 
-def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], pass_tag: str = "") -> dict:
+def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     """節 fix-prep（pass_ first）と fix-ruled-prep（pass_ ruled）: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。
     返り {prompt_file, attempt, out_path, node, already, variants_file, iteration}（iteration はこの輪の何回目か。受け付けが
     3 回目の拒否で done を立てる。R50）。同じ試行の出し直し（印が既に在る。通れば輪を抜けるので、前の回の返答は受け付けで
@@ -481,8 +481,8 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], pass_tag: str = 
     full と delta の頭（題の次。ruled の 1 回目は裁定の文のファイルの行の後）に、直す義務の単位の brief を名指す節
     （planbrief.head_text。義務から外れた単位には「今は直すな」）を置く（1 回目も ruled も同じ凍結の中身）。
     brief の控えが壊れていれば盤面を止めて BoardGap（briefs_or_halt。指示書を書かず、起こした印も置かない）。
-    pass_tag は回の印（tagged。依頼 226 の 2 回目の修正の段）: 指示書・裁定の後の尾・拒否の理由・裁定の文・座の作業ファイルの名を
-    分け、数えと拒否の名指しはその印の物だけを見る（起こした印は 1 回目の段が置いた物のまま）。1 回目に受け付けた返答の控え
+    同じブロックの 2 度目の include（依頼 226 の 2 回目の修正の段）の指示書・裁定の後の尾・拒否の理由・裁定の文・座の作業ファイルは
+    その scope の根に書き、数えと拒否の名指しはその scope の物だけを見る（起こした印は 1 回目の段が置いた物のまま）。1 回目に受け付けた返答の控え
     （conflict.held_reply）が在れば、brief の節の後に控えの節（held_text）を置く。
     修正の形（fixshape.shape_at）が座を載せる形なら、借りたスキルの座（seat.section。型の穴は implementer_values）を full と delta の
     両方に載せる。形が g1 なら、その代わりに下請けを回す節（seat.g1_section。下請けのファイルは g1_values。[BASE_SHA] は
@@ -500,13 +500,13 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], pass_tag: str = 
     before = ()
     if pass_ == "ruled":
         name = name[:-len(".md")] + RULED_TAIL
-    path = b.work(tagged(name, pass_tag))
+    path = b.work(name)
     n = iteration_next(path)
     reject = last_reject(board_dir) if inst.get("launched_at") else ""
     if pass_ == "ruled" and n == 1:
-        rulings = b.work(tagged(conflict.RULINGS_FILE, pass_tag))
+        rulings = b.work(conflict.RULINGS_FILE)
         if not rulings.is_file():
-            rulings = conflict.write_rulings(b, pass_tag)
+            rulings = conflict.write_rulings(b)
         reject, before = "", (RULINGS_LINE.format(path=rulings),)
     values = owed_values(b, values)
     owed = json.loads(values["open_units"])
@@ -516,10 +516,10 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], pass_tag: str = 
     seat = ""
     if shape == seatkit.G1_SHAPE and mark in fixshape.AGENT_NODES:
         seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みと Context7 の引き（lib_section）より前に
-        seat = seatkit.g1_section(g1_values(b, values, repo, owed, values.get("base_rev") or "", pass_tag))
+        seat = seatkit.g1_section(g1_values(b, values, repo, owed, values.get("base_rev") or ""))
     elif seatkit.carries(mark, shape):
         seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みと Context7 の引き（lib_section）より前に
-        seat = seatkit.section(mark, shape, implementer_values(b, values, repo, owed, pass_tag))
+        seat = seatkit.section(mark, shape, implementer_values(b, values, repo, owed))
     docs = lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))
     held, held_path = conflict.held_reply(b)
@@ -543,12 +543,12 @@ def lang_at(board_dir) -> str:
     return rolekit.lang_line(b.state.get("inputs"))
 
 
-def reads_more(board_dir, pass_tag: str = "") -> list:
-    """節 fix-reads が読んだ証拠を集めるパスに足す物: 今の周に組んだ指示書（回の印 pass_tag の物。在れば）と今の周の brief の
+def reads_more(board_dir) -> list:
+    """節 fix-reads が読んだ証拠を集めるパスに足す物: 今の scope の周に組んだ指示書（在れば）と今の周の brief の
     ファイル（planbrief.files）。brief の控えが壊れていれば盤面を止めて理由の BoardGap（fix-prep と同じ。reads.main_for が 1 行で
     2 にする）"""
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
-    p = prompt_path(b, pass_tag)
+    p = prompt_path(b)
     try:
         briefs = planbrief.files(b)
     except planbrief.LedgerBroken as e:

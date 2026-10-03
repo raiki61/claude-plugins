@@ -16,7 +16,6 @@ INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）�
 brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2。
 修正の形 g3・g1 の盤面で、借りた superpowers の写しが固定（pin）と違う・型の穴が埋まらなければ、座の無い指示書に逃げずに 2。
 """
-import os
 import sys
 from pathlib import Path
 
@@ -36,7 +35,7 @@ VALUES = tuple(n for n in INPUTS if n not in OPTIONAL and n != "INPUTS_PASS")   
 
 def run(board, repo, env):
     values = {n[len("INPUTS_"):].lower(): env[n] for n in VALUES}
-    return fixrules.prep(board, repo, values, env["INPUTS_PASS"], os.environ.get("INPUTS_PASS_TAG", ""))
+    return fixrules.prep(board, repo, values, env["INPUTS_PASS"])
 
 
 if __name__ == "__main__":

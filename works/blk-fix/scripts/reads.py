@@ -27,4 +27,4 @@ if __name__ == "__main__":
     _, loop, node = recount.READS
     tag = os.environ.get("INPUTS_PASS_TAG", "")
     sys.exit(reads.main_for(recount.reads_role(tag), loop, node,
-                            more=lambda board: fixrules.reads_more(board, tag)))
+                            more=fixrules.reads_more))
