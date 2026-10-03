@@ -3,7 +3,8 @@ description: |
   ダークファクトリーのライン（C18 の順。P1 計画 Task 28・29）。人の修正依頼を、盤面（graphloops の review-loop の写しの
   graph と規則。works/.shared/core/board.py）の上で 1 周回す:
   起動の関所 → start（盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 目的の文 → 素材集め（P1 の目）→ 判定 →
-  独立設計（R2 の設計の半分。目的だけから）と修正案と事前審査（設計と突き合わせる）→ 修正の前の人の関所（要る時だけ）→ 修正（TDD の輪）→ 判定への異議の再審（異議が在る時だけ）→
+  独立設計（R2 の設計の半分。目的だけから）と修正案と事前審査（設計と突き合わせる）→ 修正の前の人の関所（要る時だけ）→
+  修正（TDD の輪）→（裁定が案の項目の誤りなら）案の直し → 案の直しの関所（要る時だけ）→ 2 回目の修正 → 判定への異議の再審（異議が在る時だけ）→
   中の検査の枠 → 修正の後のレンズ（局所レビュー）→ 差分の審査 → 手直し →
   最後のテスト → 独立の目 → 最後の人の関所（目の結果を載せる）→ 機械の報告 → AI の報告と初見の検査（盤面が報告の節を出した時）→ 出口。
   境の節（h-*。scripts/edge.py を at を替えて使う。いつも走る）が盤面の ready から次のブロックを回すかを決め、関所の答えと
@@ -508,12 +509,193 @@ nodes:
       tdd_suite: $INPUTS.tdd_suite
       test_cmd: $start.output.test_cmd
 
+  # 案の直しを回すか（依頼 226。修正の段で裁定役が fix_plan_item と裁いた項目を束ねる。1 run に 1 回。replan.material）
+  - id: h-replan
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-fix, fixing]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "replan"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
+        structure_units_file: {type: string}
+
+  # 同じ run の中の案の直し（blk-plan の 2 度目の include。replan の口: 修正案と事前審査の役は fix_plan_item と裁かれた項目だけを
+  # 直し・審査し、盤面の節へ渡さずに今の周の replan.json に置く）
+  - id: replanning
+    include: blk-plan
+    depends_on: [h-replan]
+    when: "$h-replan.output.go == true"
+    with:
+      judgment_file: $h-replan.output.judgment_file
+      base_rev: $start.output.base_rev
+      policy_paste: $start.output.policy_paste
+      policy_path: $start.output.policy_path
+      include_id: "replanning"
+      replan: "true"
+
+  # 直した項目に関所の 1 つの決まりを当てる（約束の欄が同じで人に聞く穴が無い直しだけを聞かずに通す。replan.gate）
+  - id: h-regate
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-replan, replanning]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "regate"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
+        structure_units_file: {type: string}
+
+  # 案の直しの関所（要る時だけ）。approve・continue は直した項目を使って修正に戻る、stop・reject は run を止める
+  - id: replan-gate
+    depends_on: [h-regate]
+    when: "$h-regate.output.ask == true"
+    approval:
+      message: |
+        修正の段で誤りと裁いた修正案の項目を、run の中で直した。約束の欄が変わったか、事前審査が人に聞く穴を挙げた。
+        全文と答え方: $h-regate.output.gate_file（Read して答える）。
+        continue "<一言>" で直した項目を使って修正に戻る。stop "<理由>" で run を止める（1 回目に直した単位の差分は報告に残る）。approve は continue、reject は stop と同じ。
+      decisions:
+        - {id: approve}
+        - {id: continue}
+        - {id: stop}
+        - {id: reject}
+      # decisions を書いた関所の出口はいつも {decision, text}（capture_response は Archon が捨てる古い鍵なので書かない）
+
+  # 関所の答えを当て（関所が開かなかった周も）、直した項目を承認済みの案に差し替えて、戻った単位だけを 2 回目の修正の段へ渡す
+  # （replan.answer。stop は盤面を止める）
+  - id: h-refit
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-regate, replan-gate]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "refit"
+      judged: "null"
+      premised: "null"
+      gate: {from: $replan-gate.output, if_skipped: null}
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
+        structure_units_file: {type: string}
+
+  # 2 回目の修正の段（blk-fix の 2 度目の include。回の印 refit で指示書・拒否の理由・読んだ証拠の名を 1 回目と分け、直す義務は
+  # 案を直して戻った単位だけ。1 回目に受け付けた行は機械が合わせて盤面に渡す）
+  - id: refitting
+    include: blk-fix
+    depends_on: [h-refit]
+    when: "$h-refit.output.go == true"
+    with:
+      judgment_file: $h-refit.output.judgment_file
+      open_units: $h-refit.output.open_units
+      plan_file: $h-refit.output.plan_file
+      notes_file: $h-refit.output.notes_file
+      base_rev: $start.output.base_rev
+      policy_path: $start.output.policy_path
+      tdd_suite: $INPUTS.tdd_suite
+      test_cmd: $start.output.test_cmd
+      include_id: "refitting"
+      pass_tag: "refit"
+
   # 修正役が判定に異議を出した周の再審を回すか（盤面が p2.rejudge を待つ時。判定役の会話が無ければ止める）
   - id: h-rejudge
     script: edge
     runtime: uv
     timeout: 1728000000
-    depends_on: [start, h-fix, fixing]
+    depends_on: [start, h-fix, fixing, h-refit, refitting]
     trigger_rule: none_failed_min_one_success
     with:
       at: "rejudge"

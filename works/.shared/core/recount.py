@@ -12,7 +12,7 @@ done("p3.fix") に替える。graph の p3.fix の受け付けの検査は写し
 - FIX_NODE・ROLE・FIX_OUTPUT_FORMAT: 節の名前、役の名前（印の名）、役の output_format（graph の p3.fix の schema に
   印 works-node: fix と食い違いの申し出の欄 conflicts・Bash で書いたファイルの申告の欄 bash_writes を足した物。blk-fix.yaml の fix に貼る）。RULED_OUTPUT_FORMAT は裁定の後の
   2 回目の修正役（印 works-node: fix-ruled continue=fix）の物
-- READS: 読んだ証拠の節 fix-reads が reads.main_for に渡す (役, include, 輪, 節)
+- READS: 読んだ証拠の節 fix-reads が reads.main_for に渡す (役, include, 輪, 節)。reads_role(tag) は回の印で分けた役の名（2 回目の修正の段の reads-fix.<印>.json）
 - accept_fix: 節 fix-accept の中身。entry.take に渡し、1 本目の出口のための changes を足す（v1_changes）
 - fix_reply: 修正の返答を読む 1 つの口（今の周の盤面の p3.fix か、無ければ 1 回目に受け付けた返答の控え conflict.held_reply）。
   集める節と報告が読む
@@ -118,10 +118,16 @@ def _coverage(b) -> dict:
     return {i["unit_key"]: {"before": i["total"], "after": i["after"]} for i in cov.get("items") or []}
 
 
-def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:
+def reads_role(tag: str = "") -> str:
+    """読んだ証拠の役の名（reads.collect が reads-<役>.json に書く）。回の印が在れば fix.<印>（書く先は
+    script_io.tagged("reads-fix.json", 印)。2 回目の修正の段が 1 回目の証拠を上書きしない）"""
+    return f"{ROLE}.{tag}" if tag else ROLE
+
+
+def collect(board: pathlib.Path, accepted: dict, changed: dict, tag: str = "") -> dict:
     """集める節の中身。1 本目の {ok, files, changes_file} を全部残し、fix_file（fix_reply が読んだ方のファイル: 盤面の
     state.outputs["p3.fix"]["file"] か 1 回目に受け付けた返答の控えの絶対パス）・not_done（件数）・coverage（単位ごとの {before, after}）・reads_file（fix-reads が今の周に書いた
-    reads-fix.json。無ければ空）を足す。受け付けた changes を今の周の changes.json（{"changes": [...]}。1 本目の形）に書く。
+    reads-fix.json。回の印 tag が在れば reads-fix.<tag>.json。無ければ空）を足す。受け付けた changes を今の周の changes.json（{"changes": [...]}。1 本目の形）に書く。
     受け付けが通っていない・assert-changed の出力が読めない・盤面が今の周の p3.fix を受けておらず控えも無い・changes が空（直す義務の
     単位が残らず、答え待ちの問いの出どころか直す裁定でない裁定（ask_human・fix_plan_item）で外れた単位が在る盤面 conflict.nothing_owed_but_excused を除く）ときは
     Unreadable（何も書かない）"""
@@ -142,7 +148,7 @@ def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps({"changes": changes}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-    reads = b.work(f"reads-{ROLE}.json")
+    reads = b.work(f"reads-{reads_role(tag)}.json")
     return {"ok": True, "files": files, "changes_file": str(path), "fix_file": str(fix_file),
             "not_done": len(out.get("not_done") or []), "coverage": _coverage(b),
             "reads_file": str(reads) if reads.is_file() else ""}

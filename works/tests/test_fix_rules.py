@@ -524,8 +524,9 @@ class TestRoleNodes(unittest.TestCase):
         self.assertEqual(fp["with"], {"judgment_file": "$INPUTS.judgment_file", "open_units": "$INPUTS.open_units",
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
                                       "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
-                                      "pass": "first"})
-        self.assertEqual(set(fp["with"]) - {"pass"}, set(fixrules.FIX_VALUES))
+                                      "pass": "first", "pass_tag": "$INPUTS.pass_tag", "include_id": "$INPUTS.include_id"})
+        # 回の印と include の名（依頼 226 の 2 回目の修正の段）は指示書に埋める run の値でない
+        self.assertEqual(set(fp["with"]) - {"pass", "pass_tag", "include_id"}, set(fixrules.FIX_VALUES))
         self.assertIn("variants_file", fp["output_format"]["required"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",

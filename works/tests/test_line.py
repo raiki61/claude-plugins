@@ -5,8 +5,12 @@
 - script の節の with: の鍵とスクリプトの定数 INPUTS の突き合わせ（TA16）と入力の名の集合は、速い段の test_line_inputs が見る
 - when: と関所の文言は、いつも走る節（start・境の節）の欄と $INPUTS だけを読む（TA1。〔試P: P7〕）。飛ばされうる節の出力を
   script の with: で読むなら if_skipped を持つ（P16）。when: を持つ節に依る節は trigger_rule を持つ
-- include の id はブロックの中の節の id と重ならない（R17）。輪の中の節の id はライン全体で一意（模擬実行の stub の鍵）
-- 関所は decisions に reject を持つ（P8）。役の節は全部印（works-node）を持ち、印の名はブロックをまたいで一意
+- include の id はブロックの中の節の id と重ならない（R17）。輪の中の節の id はブロックをまたいで一意（模擬実行の stub の鍵。
+  同じブロックを 2 度 include した輪の中の節は 1 つの鍵を分け合う）
+- 関所は decisions に reject を持つ（P8）。役の節は全部印（works-node）を持ち、印の名はブロックをまたいで一意（同じブロックの
+  2 度目の include は 1 度目と同じ印。包みの会話の置き場は印の名で、後の起動が置き場を替える）
+- 同じ run の中の案の直し（依頼 226）: 修正の段の後に h-replan → replanning（blk-plan の 2 度目の include）→ h-regate →
+  replan-gate（関所）→ h-refit → refitting（blk-fix の 2 度目の include。回の印 refit）→ h-rejudge（test_replan_wiring）
 - 筋書き（fixtures/）: 本物で回す start の筋書き（standard・start-refused）のほかは、走る script と役の節を全部 stub する。
   判定の stub の鍵は blk-judge.yaml から組む（test_judging_stubs_follow_block）
 """
@@ -71,13 +75,15 @@ UNMARKED_ROLES = frozenset()
 
 def stub_keys():
     """模擬実行が stub を引く鍵（Archon 0.11.1 の dry-run: include の中の節は <include>__<節>、輪の中は名前空間なしの id。
-    approval・loop_group は stub を取らない）"""
-    keys = []
+    approval・loop_group は stub を取らない）。同じブロックを 2 度 include すると、輪の中の節の鍵は 2 つの include で同じなので
+    ブロックごとに 1 度だけ数える（本物の run の出来事の名は <include>__<輪>.<節> で分かれる。依頼 226 の P4 の測り）"""
+    keys, seen = [], set()
     for n in line()["nodes"]:
         if "include" in n:
             for m, inner in walk(block(n["include"])["nodes"]):
-                if "loop_group" in m:
+                if "loop_group" in m or (inner and (n["include"], m["id"]) in seen):
                     continue
+                seen.add((n["include"], m["id"]))
                 keys.append(m["id"] if inner else f"{n['id']}__{m['id']}")
         elif "approval" not in n:
             keys.append(n["id"])
@@ -196,7 +202,7 @@ class LineShapeCase(unittest.TestCase):
 
     def test_gates_have_reject_and_text_by_path(self):
         """関所は reject を持ち（無いと reject で run が cancelled になり報告が出ない。P8）、文言は置き場（gate_file）だけを載せる"""
-        for gid, edge_id in (("policy-gate", "h-gate"), ("final-gate", "h-final")):
+        for gid, edge_id in (("policy-gate", "h-gate"), ("replan-gate", "h-regate"), ("final-gate", "h-final")):
             with self.subTest(gid):
                 g = node(gid)
                 self.assertEqual([d["id"] for d in g["approval"]["decisions"]], ["approve", "continue", "stop", "reject"])
@@ -226,11 +232,12 @@ class LineShapeCase(unittest.TestCase):
 
     def test_role_marks_unique(self):
         """役の節（AI）は全部 output_format に印 works-node: <名> を持ち、印の名はブロックをまたいで一意（包みの会話の置き場が
-        節の名で分かれる）"""
-        seen = {}
+        節の名で分かれる）。同じブロックの 2 度目の include（replanning・refitting）は 1 度目と同じ印なので、ブロックごとに 1 度数える"""
+        seen, blocks = {}, set()
         for n in line()["nodes"]:
-            if "include" not in n:
+            if "include" not in n or n["include"] in blocks:
                 continue
+            blocks.add(n["include"])
             for m, _ in walk(block(n["include"])["nodes"]):
                 if "command" not in m and "prompt" not in m:
                     continue
@@ -287,6 +294,46 @@ class LineShapeCase(unittest.TestCase):
         self.assertNotIn("trigger_rule", planning)
         self.assertEqual(planning["when"], "$h-plan.output.go == true")
         self.assertIn("h-structure", node("h-gate")["depends_on"])
+
+
+    def test_replan_wiring(self):
+        """修正の段の後・再審の前に、案の直し（依頼 226。1 run に 1 回）: h-replan → replanning（blk-plan の 2 度目の include。
+        replan の口）→ h-regate → replan-gate（線の最上段の関所。輪の外）→ h-refit（関所の答えを受ける）→ refitting（blk-fix の
+        2 度目の include。回の印 refit・出来事を引く include の名 refitting）→ h-rejudge（2 回目の段の後を待つ）"""
+        ids = [n["id"] for n in line()["nodes"]]
+        i = ids.index("fixing")
+        self.assertEqual(ids[i:i + 8], ["fixing", "h-replan", "replanning", "h-regate", "replan-gate", "h-refit", "refitting",
+                                        "h-rejudge"])
+        self.assertEqual([(node(x).get("script"), node(x)["with"]["at"]) for x in ("h-replan", "h-regate", "h-refit")],
+                         [("edge", "replan"), ("edge", "regate"), ("edge", "refit")])
+        self.assertEqual(node("h-replan")["depends_on"], ["start", "h-fix", "fixing"])
+        self.assertEqual(node("h-refit")["with"]["gate"], {"from": "$replan-gate.output", "if_skipped": None})
+        self.assertEqual(node("h-rejudge")["depends_on"], ["start", "h-fix", "fixing", "h-refit", "refitting"])
+        re_ = node("replanning")
+        self.assertEqual((re_["include"], re_["when"]), ("blk-plan", "$h-replan.output.go == true"))
+        self.assertEqual((re_["with"]["replan"], re_["with"]["include_id"]), ("true", "replanning"))
+        self.assertEqual({k: v for k, v in re_["with"].items() if k not in ("replan", "include_id", "judgment_file")},
+                         {k: v for k, v in node("planning")["with"].items() if k not in ("include_id", "judgment_file")})
+        gate = node("replan-gate")
+        self.assertNotIn("loop_group", gate)
+        self.assertEqual((gate["depends_on"], gate["when"]), (["h-regate"], "$h-regate.output.ask == true"))
+        self.assertEqual(gate["approval"]["message"],
+                         "修正の段で誤りと裁いた修正案の項目を、run の中で直した。約束の欄が変わったか、事前審査が人に聞く穴を挙げた。\n"
+                         "全文と答え方: $h-regate.output.gate_file（Read して答える）。\n"
+                         'continue "<一言>" で直した項目を使って修正に戻る。stop "<理由>" で run を止める（1 回目に直した単位の差分は'
+                         "報告に残る）。approve は continue、reject は stop と同じ。\n")
+        fit, fixing = node("refitting"), node("fixing")
+        self.assertEqual((fit["include"], fit["when"]), ("blk-fix", "$h-refit.output.go == true"))
+        self.assertEqual(set(fit["with"]), set(fixing["with"]) | {"include_id", "pass_tag"})
+        self.assertEqual((fit["with"]["include_id"], fit["with"]["pass_tag"]), ("refitting", "refit"))
+        for k in ("open_units", "plan_file", "notes_file", "judgment_file"):
+            self.assertEqual(fit["with"][k], f"$h-refit.output.{k}", k)
+        for k in set(fixing["with"]) - {"open_units", "plan_file", "notes_file", "judgment_file"}:
+            self.assertEqual(fit["with"][k], fixing["with"][k], k)
+        import recount
+        self.assertEqual(recount.reads_role("refit"), "fix.refit")
+        self.assertIn("修正（TDD の輪）→（裁定が案の項目の誤りなら）案の直し → 案の直しの関所（要る時だけ）→ 2 回目の修正 →",
+                      line()["description"])
 
 
 class LensWiringCase(unittest.TestCase):
@@ -410,6 +457,17 @@ class LineFixturesCase(unittest.TestCase):
         for name in set(FIXTURES) - {"rejudge", "rejudge-no-session", "start-refused"}:
             with self.subTest(name):
                 self.assertIs(f[name]["h-rejudge"]["go"], False)
+        # 案の直し（依頼 226）はどの筋書きでも起きない（修正の段で fix_plan_item と裁いた項目が無い）。3 つの境の節は走り、
+        # 2 度目の include は飛ぶ
+        for name in set(FIXTURES) - {"start-refused"}:
+            with self.subTest(name):
+                self.assertEqual((f[name]["h-replan"]["go"], f[name]["h-regate"]["ask"], f[name]["h-refit"]["go"]),
+                                 (False, False, False))
+                reached = f[name]["fixture"]["reached"]
+                self.assertFalse({"replanning__collect", "refitting__collect"} & set(reached))
+                if "h-rejudge" in reached:
+                    i = reached.index("h-rejudge")
+                    self.assertEqual(reached[i - 3:i], ["h-replan", "h-regate", "h-refit"])
         self.assertTrue(f["policy-continue"]["h-fix"]["notes_file"])
 
 

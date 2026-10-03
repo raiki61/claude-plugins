@@ -46,6 +46,13 @@ inputs:
   test_cmd:
     default: ""
     description: 緑の後に TDD の輪が走らせるテストのコマンド（線の入力 `test_cmd`）。空は走らせない。実行器がこのコマンドそのものを包んだ物なら 2 度走らせない
+  # 同じ run の中の案の直し（依頼 226）でラインがこのブロックを 2 度目に include した 2 回目の修正の段の口。1 度目は既定のまま
+  include_id:
+    default: fixing
+    description: ラインがこのブロックを include した id（読んだ証拠が Archon の出来事の節の名 <include>__<輪>.<役> を引くため）
+  pass_tag:
+    default: ""
+    description: 回の印（2 回目の修正の段は refit）。指示書・拒否の理由・裁定の文・回の数え・読んだ証拠のファイルの名に足し、1 回目の物と分ける。空は 1 回目
 
 returns: collect
 outcome_field: ok
@@ -225,6 +232,8 @@ nodes:
             notes_file: $INPUTS.notes_file
             summary_file: $tdd-start.output.summary_file
             pass: "first"
+            pass_tag: $INPUTS.pass_tag
+            include_id: $INPUTS.include_id
           output_format:
             type: object
             additionalProperties: false
@@ -597,6 +606,8 @@ nodes:
             tdd_state: $tdd-start.output.state_file   # 輪で凍ったテストのファイルを修正役が変えていないか（空は輪の無い run）
             iteration: $fix-prep.output.iteration     # 輪の何回目か（3 回目の拒否で done。R50）
             pass: "first"
+            pass_tag: $INPUTS.pass_tag
+            include_id: $INPUTS.include_id
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
@@ -642,6 +653,8 @@ nodes:
           with:
             judgment_file: $INPUTS.judgment_file
             policy_path: $INPUTS.policy_path
+            pass_tag: $INPUTS.pass_tag
+            include_id: $INPUTS.include_id
           output_format:
             type: object
             additionalProperties: false
@@ -711,6 +724,8 @@ nodes:
             reply: {from: "$rule.output"}
             base_rev: $INPUTS.base_rev
             iteration: $rule-prep.output.iteration
+            pass_tag: $INPUTS.pass_tag
+            include_id: $INPUTS.include_id
           output_format:
             type: object
             required: [ok, done, reason, reason_file, rulings_file, counts]
@@ -744,6 +759,8 @@ nodes:
             notes_file: $INPUTS.notes_file
             summary_file: $tdd-start.output.summary_file
             pass: "ruled"
+            pass_tag: $INPUTS.pass_tag
+            include_id: $INPUTS.include_id
           output_format:
             type: object
             additionalProperties: false
@@ -783,6 +800,8 @@ nodes:
             tdd_state: $tdd-start.output.state_file
             iteration: $fix-ruled-prep.output.iteration
             pass: "ruled"
+            pass_tag: $INPUTS.pass_tag
+            include_id: $INPUTS.include_id
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
@@ -831,7 +850,7 @@ nodes:
           items: {type: string}
         reason: {type: string}
 
-  # 読んだ証拠（受け付けの条件にしない。今の周の reads-fix.json。collect が reads_file で出口に出す）。機械が渡したパスは判定のファイルと、
+  # 読んだ証拠（受け付けの条件にしない。今の周の reads-fix.json。回の印が在れば reads-fix.<印>.json。collect が reads_file で出口に出す）。機械が渡したパスは判定のファイルと、
   # fix-prep が今の周に組んだ指示書（fixrules.reads_more。輪の外の節は輪の中の出力を引けないので盤面の置き場から）
   - id: fix-reads
     script: reads
@@ -840,6 +859,8 @@ nodes:
     timeout: 1728000000
     with:
       must: '["$INPUTS.judgment_file"]'
+      pass_tag: $INPUTS.pass_tag
+      include_id: $INPUTS.include_id
     output_format:
       type: object
       additionalProperties: false
@@ -861,6 +882,7 @@ nodes:
       changed: {from: "$assert-changed.output"}
       cleaned: {from: "$clean.output"}
       tdd: {from: "$tdd-start.output"}   # tdd-start はいつも走る（飛ばされない）
+      pass_tag: $INPUTS.pass_tag          # 読んだ証拠（reads_file）はその回の物
     output_format:
       type: object
       required: [ok, files, changes_file, removed, tdd]

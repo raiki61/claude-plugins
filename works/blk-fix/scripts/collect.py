@@ -11,6 +11,7 @@
 - INPUTS_CLEANED: clean の出力（{ok, count, file} の JSON の文字列。修正役が残した git が無視するファイルのうち消した物の
   件数と、全件を書いた盤面のファイル。出口の removed に {count, file} でそのまま通し、ファイルは開かない）
 - INPUTS_TDD: tdd-start の出力（{go, reason, suite, state_file, summary_file} の JSON の文字列。いつも走る節）
+- INPUTS_PASS_TAG: 回の印（依頼 226 の 2 回目の修正の段は refit。無い・空は 1 回目）。reads_file はその回の読んだ証拠
 - ARTIFACTS_DIR: 盤面はその下の board/
 中身は recount.collect: 受け付けた changes を今の周の changes.json（{"changes": [...]}）に書き、1 本目の欄
 {"ok": true, "files", "changes_file", "removed"} に、盤面から fix_file・not_done・coverage・reads_file を、TDD の輪から tdd
@@ -34,7 +35,10 @@ import script_io  # noqa: E402
 import tddloop  # noqa: E402
 from board import BoardGap  # noqa: E402  （BoardMismatch も含む）
 
-INPUTS = ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")   # 最後の 1 つは任意（飛ばされれば null）
+INPUTS = ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED",   # RULED は飛ばされれば null
+          "INPUTS_PASS_TAG")
+# 無くても欠けに数えない入力（依頼 226 で後から足した回の印。前の版の with: で再開した run は渡さない。無い・空は 1 回目）
+OPTIONAL = frozenset({"INPUTS_PASS_TAG"})
 
 
 def env_json(name, raw=None):
@@ -68,7 +72,7 @@ def collect():
         if stop:   # 修正の段が諦めた（assert-changed が止めた）。後ろの段は境の節が飛ばし、報告が走る
             return {"ok": False, "files": [], "changes_file": "", "removed": removed, "tdd": tddloop.exit_fields(tdd),
                     "reason": f"盤面は止まっている（{stop.get('by')}）: {stop.get('reason') or ''}"}
-    out = recount.collect(board, accepted, changed)
+    out = recount.collect(board, accepted, changed, tag=os.environ.get(INPUTS[5], ""))
     return {**out, "removed": removed, "tdd": tddloop.exit_fields(tdd)}
 
 

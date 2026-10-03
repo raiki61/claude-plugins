@@ -33,10 +33,8 @@ sys.path.insert(0, str(TESTS))
 import entry  # noqa: E402
 import linekit  # noqa: E402
 
-# 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}
-# blk-fix の回の印と include の名（依頼 226 Task 8。無い・空は 1 回目の修正の段。線の with: の配線は Task 9）
-_PASS_INPUTS = {"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"}
-OPTIONAL_INPUTS = {("blk-fix", s): _PASS_INPUTS for s in ("accept", "fix_prep", "rule_prep", "rule_accept", "reads")}
+# 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}（減らす方向にだけ変える）
+OPTIONAL_INPUTS = {}
 # 定数 INPUTS をまだ持たないスクリプト（裁定 TA16 の縛りの外。減らす方向にだけ変える。持ったら消す）
 NO_INPUTS_CONSTANT = frozenset({
     "blk-fix/scripts/ignored_before.py", "blk-fix/scripts/clean.py", "blk-fix/scripts/assert_changed.py",

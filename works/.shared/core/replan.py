@@ -64,7 +64,7 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す。engine より先に）
 from engine.schema import validate_schema  # noqa: E402
-from engine.util import Reject, safe_name  # noqa: E402
+from engine.util import Reject, dump, safe_name  # noqa: E402
 import accept  # noqa: E402
 import answer as _answer  # noqa: E402
 import conflict  # noqa: E402
@@ -331,7 +331,9 @@ def _section(row: dict, conflicts: dict, role: str) -> str:
 def prep(board_dir, role: str, repo, *, head: str, design_part: str = "") -> dict:
     """指示書を書く（作業ツリーの写しは snap が輪の前に置いた物のまま）。返り {prompt_file, attempt, out_path, node, already}（planblk.prep と同じ鍵。
     out_path は受け付けが置く TRIP_FILE）。指示書は head（呼び手の planblk.head）・役の頼み（plan は REPLAN_ASK、plan-review は
-    design_part と REVIEW_ASK_REPLAN と planmarks.REVIEW_ASK）・項目ごとの節だけ。拒否の後は 1 行目で前の理由のファイルを名指す。
+    design_part と REVIEW_ASK_REPLAN と planmarks.REVIEW_ASK）・項目ごとの節と、末尾に言語の 1 行（rolekit.lang_line）と受け付けが
+    当てる型の JSON Schema（accept.role_schema。番号の欄は名前の型。YAML の output_format は 1 回目の include と同じで番号も
+    通すので、名前で書けと型で言うのはここ）だけ。拒否の後は 1 行目で前の理由のファイルを名指す。
     渡す項目が無ければ BoardGap（snap が go の時だけ支度する）"""
     node = node_of(role)
     board_dir = pathlib.Path(board_dir)
@@ -341,7 +343,9 @@ def prep(board_dir, role: str, repo, *, head: str, design_part: str = "") -> dic
         raise BoardGap(f"{node} に渡す項目が無い（{TRIP_FILE} を snap が go と言った時だけ支度する）")
     conflicts = {c.get("id"): c for c in conflict.items(b)}
     ask = [REPLAN_ASK] if role == "plan" else [design_part, REVIEW_ASK_REPLAN, planmarks.REVIEW_ASK]
-    parts = [head.rstrip("\n"), *ask, *(_section(r, conflicts, role) for r in rows)]
+    schema = accept.role_schema(planmarks.NODE if role == "plan" else REVIEW_GRAPH_NODE)   # 受け付けが当てる型（名前の型）
+    parts = [head.rstrip("\n"), *ask, *(_section(r, conflicts, role) for r in rows),
+             rolekit.lang_line(b.state.get("inputs")) + rolekit.SCHEMA_NOTE + dump(schema)]
     rejects = _rejects(board_dir, node)
     reject_file = ""
     if rejects:   # 拒否の控えは文で積む（盤面の節でない受け付け）。役が Read で読むファイルに置いて名指す（文は貼らない。R44）

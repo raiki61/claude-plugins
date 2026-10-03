@@ -12,6 +12,8 @@ helper（fixed_item など・TripCase）は Task 7〜9 の試験も使う。
 それ以外は関所 replan-gate の答えで採るか諦めるか止める。stop は 1 回目の控えを盤面に渡してから run を止める。
 2 回目の修正の段（TestSecondPass）: 回の印 refit で指示書・拒否の理由・数えを 1 回目と分け、直す義務は案を直して戻った単位だけ。
 1 回目に受け付けた行と Bash の書き込みの申告は機械が合わせて渡す。
+線の境の節（TestLineReplay。224b・225 の型）: h-replan・h-regate・h-refit の 3 つの at で、案の直し・その関所・2 回目の修正を
+同じ run の中で回し、直す義務に戻った単位を同じ run で直す。
 """
 import copy
 import json
@@ -27,6 +29,7 @@ ROOT = TESTS.parent
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(TESTS))
 sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
+sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 
 from test_blk_fix_conflict import (CLAMP, CLAMP_FIELDS, MEAN, MEAN_FIX, PLAN_TEXT, ReplanCase,  # noqa: E402,F401
                                    accept_module, only_clamp_reply, split_plan_reply)
@@ -38,6 +41,8 @@ import entry  # noqa: E402
 import planblk  # noqa: E402
 import planmarks  # noqa: E402
 import recount  # noqa: E402
+import line_edge  # noqa: E402
+import linekit  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
 
@@ -351,6 +356,28 @@ class TestReplanRoles(ReplanCase):
         row = self.items()[0]
         for text in (row["why_both_cannot_hold"], row["kind"], *row["between"], str(self.b.work("brief-1.md"))):
             self.assertIn(text, p)
+
+    def test_prompts_carry_schema_and_lang(self):
+        """2 つの役の指示書は、受け付けが当てる型（番号の欄を名前の型に絞った写しの schema。unit_keys は文字列だけ）の JSON Schema の
+        文と、言語の 1 行（rolekit.lang_line）を持つ。YAML の output_format は 1 回目の include と同じ（番号でも返せる）なので、
+        名前で書けと型で言うのは指示書"""
+        import accept
+        import rolekit
+        from engine.util import dump
+        replan.material(self.b)
+        plan = pathlib.Path(self.prep("plan")["prompt_file"]).read_text(encoding="utf-8")
+        self.assertTrue(self.accept("plan", {"plan": [fixed_item()]})["ok"])
+        review = pathlib.Path(self.prep("plan-review")["prompt_file"]).read_text(encoding="utf-8")
+        lang = rolekit.lang_line(self.b.state.get("inputs"))
+        for text, node in ((plan, planmarks.NODE), (review, replan.REVIEW_GRAPH_NODE)):
+            with self.subTest(node):
+                schema = accept.role_schema(node)
+                self.assertIn(lang, text)
+                self.assertTrue(text.endswith(rolekit.SCHEMA_NOTE + dump(schema)), text[-300:])
+                self.assertLess(text.index(lang), text.index(rolekit.SCHEMA_NOTE))
+        for node, arr in ((planmarks.NODE, "plan"), (replan.REVIEW_GRAPH_NODE, "faces")):
+            keys = accept.role_schema(node)["properties"][arr]["items"]["properties"]["unit_keys"]["items"]
+            self.assertEqual(keys.get("type"), "string", keys)
 
     def test_reply_limited_to_handed_items(self):
         replan.material(self.b); self.prep("plan")
@@ -905,6 +932,33 @@ class TestSecondPass(TripCase):
         r = self.accept_script(reply, pass_="first", pass_tag=self.TAG)   # 役の申告（test_stats.py）と控えの申告（stats.py）
         self.assertTrue(r["ok"], r)
 
+    def test_second_pass_reads_do_not_overwrite_first_pass_reads(self):
+        """2 回目の段の読んだ証拠（fix-reads・回の印 refit）は reads-fix.refit.json に書き、1 回目の reads-fix.json を上書きしない。
+        集める節は回の印の付いた方を出口に出し、報告（冒頭 4）は両方を読む"""
+        import script_io
+        b = entry.open_board(self.board)
+        first = b.work("reads-fix.json")
+        first.write_text('{"role": "fix", "first": true}\n', encoding="utf-8")
+        before = first.read_bytes()
+        self.approve(red_kind_fixed())
+        env = {"ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": "run-12", "INPUTS_MUST": json.dumps([self.values()["judgment_file"]]),
+               "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS_TAG": self.TAG,
+               "INPUTS_INCLUDE_ID": "refitting"}
+        code, out, err = run_script("reads", self.repo, env)
+        self.assertEqual(code, 0, err)
+        got = pathlib.Path(json.loads(out)["reads_file"])
+        self.assertEqual(got.name, script_io.tagged("reads-fix.json", self.TAG))
+        self.assertEqual(json.loads(got.read_text(encoding="utf-8"))["node_path"], "refitting__fix-loop.fix")
+        self.assertEqual(first.read_bytes(), before)
+        self.fix_mean()
+        acc = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
+        self.assertTrue(acc["ok"], acc)
+        out = recount.collect(self.board, acc, {"ok": True, "files": ["stats.py"]}, tag=self.TAG)
+        self.assertEqual(out["reads_file"], str(got))
+        self.assertEqual(recount.collect(self.board, acc, {"ok": True, "files": ["stats.py"]})["reads_file"], str(first))
+        lines = [x for x in report.head_reads(self.board, "") if x.startswith("読んだ証拠 ")]
+        self.assertEqual(len(lines), 2, lines)
+
     def test_fix_prompt_names_held_reply(self):
         import fixrules
         self.approve(red_kind_fixed())
@@ -913,6 +967,134 @@ class TestSecondPass(TripCase):
         self.assertIn(fixrules.HELD_HEAD, text)
         self.assertIn(fixrules.HELD_ASK.format(path=b.work(conflict.HELD_REPLY)), text)
         self.assertLess(text.index(planbrief_head()), text.index(fixrules.HELD_HEAD), "brief の節の後")
+
+
+class TestLineReplay(ReplanCase):
+    """224b・225 の型: 唯一直す項目の受け入れのテストの赤の種類・id の形が誤りと裁かれても、同じ run で直して差分が空でない。
+    線の境の節（h-replan・h-regate・h-refit）を line_edge.edge で、ブロックの中を口の関数とスクリプトで回す"""
+    play_role = TripCase.play_role
+    fix_mean = TestSecondPass.fix_mean
+    TAG = "refit"
+
+    def e(self, at, **kw):
+        return line_edge.edge(self.board, at, self.repo, run_id="r", adapter_mode="optional", final_gate="", **kw)
+
+    def run_trip(self, new_item, gate=None):
+        self.replanned(); self.accept_script(only_clamp_reply(), pass_="ruled")
+        b = entry.open_board(self.board)   # h-plan が控える判定の出口（後ろの境の節が judgment_file を運ぶ）
+        self.judgment = str(self.board / b.state["outputs"]["p2.diagnose"]["file"])
+        line_edge._write_json(b.work(line_edge.JUDGED_FILE), {"judgment_file": self.judgment, "open_units": [MEAN, CLAMP]})
+        self.assertTrue(self.e("replan")["go"])
+        self.play_role("plan", {"plan": [new_item]}); self.play_role("plan-review", no_faces())
+        g = self.e("regate")
+        r = self.e("refit", gate=gate if g["ask"] else None)
+        return g, r
+
+    def fixed_in_same_run(self):
+        """2 回目の修正の段で mean を直して受け付けを通し、h-rejudge の締めの後に差分と裁定の行を確かめる"""
+        self.fix_mean()
+        got = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
+        self.assertTrue(got["ok"], got)
+        self.e("rejudge")
+        self.assertNotEqual(linekit.git(self.repo, "diff", "--", "stats.py"), "")
+        self.assertIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "mean を同じ run で直した")
+        b = entry.open_board(self.board)
+        self.assertEqual(conflict.asked(b), [])
+        self.assertTrue(any("直した" in x for x in replan.lines(b)), replan.lines(b))
+        self.assertEqual(sorted(c["unit_key"] for c in recount.fix_reply(b)[0]["changes"]), sorted([MEAN, CLAMP]))
+        return b
+
+    def test_means_only_fix_same_run(self):
+        g, r = self.run_trip(red_kind_fixed())
+        self.assertFalse(g["ask"]); self.assertTrue(r["go"]); self.assertEqual(json.loads(r["open_units"]), [MEAN])
+        self.assertEqual(r["plan_file"], str(self.board / entry.open_board(self.board).state["outputs"]["p2.fix_plan"]["file"]))
+        self.assertEqual(r["judgment_file"], self.judgment, "h-plan の控えの判定のファイルを運ぶ")
+        self.fixed_in_same_run()
+
+    def test_contract_change_stop_stops_run_keeps_first_pass(self):
+        g, r = self.run_trip(wider_paths(), gate={"decision": "stop", "text": "範囲が広い"})
+        self.assertTrue(g["ask"]); self.assertEqual((r["stop"], r["go"]), (True, False))
+        self.assertTrue(pathlib.Path(g["gate_file"]).is_file())
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(report.stop_outcome(b)[0], "stopped_by_human")
+        self.assertIn(CLAMP, [c["unit_key"] for c in recount.fix_reply(b)[0]["changes"]])
+        self.assertFalse(pathlib.Path(b.work(line_edge.FINAL_GATE_ANSWER)).exists())   # 最後の関所の答えを上書きしない
+        self.assertTrue(self.e("rejudge")["stop"], "止めた run の後ろの境の節も止まる")
+
+    def test_contract_change_continue_fixes_same_run(self):
+        g, r = self.run_trip(wider_paths(), gate={"decision": "continue", "text": "README も触ってよい"})
+        self.assertTrue(g["ask"]); self.assertTrue(r["go"]); self.assertEqual(json.loads(r["open_units"]), [MEAN])
+        self.assertIn("README も触ってよい", pathlib.Path(r["notes_file"]).read_text(encoding="utf-8"))
+        self.fixed_in_same_run()
+
+    def test_refit_open_units_hold_back_first_pass_units(self):
+        """2 回目の段の直す義務の並び（h-refit の open_units）は戻った単位だけ。TDD の輪の頭がそれを受けると、1 回目に受け付けた
+        単位を『直す義務から外れた単位（直すな・not_done に書け）』に並べない（受け付けは not_done のその行を拒む）"""
+        import tddloop
+        from test_blk_fix_tdd import SUITE
+        _, r = self.run_trip(red_kind_fixed())
+        suite = self.repo.parent / "suite.py"
+        suite.write_text(SUITE, encoding="utf-8")
+        got = tddloop.start(self.board, self.repo, str(suite), r["open_units"])
+        self.assertTrue(got["go"], got)
+        st = tddloop.load_state(got["state_file"])
+        self.assertEqual((st["open_units"], st["excused"]), ([MEAN], {}))
+
+    def test_second_ruling_in_refit_gives_up(self):
+        """2 回目の段で同じ単位が再び fix_plan_item に裁かれたら、案の段には戻らず h-rejudge の締めが CLOSE_WHY で諦める"""
+        _, r = self.run_trip(red_kind_fixed())
+        self.assertTrue(r["go"])
+        claim = {"unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"], "which_is_right": "request",
+                 "why_both_cannot_hold": "2 回目の段でも、直した項目の受け入れのテストの赤の理由が今のコードと合わない",
+                 "kind": "unnamed_test_broke"}
+        reply = only_mean_reply()
+        reply["changes"], reply["conflicts"] = [], [claim]
+        got = self.accept_script(reply, pass_="first", pass_tag=self.TAG)
+        self.assertEqual((got["ok"], got.get("parked")), (True, True), got)
+        new = [i for i in self.items() if i.get("ruling") is None]
+        self.assertEqual(len(new), 1, self.items())
+        tag = {"INPUTS_PASS_TAG": self.TAG}
+        code, out, err = run_script("rule_prep", self.repo, {**self.rule_env(), **tag})
+        self.assertEqual(code, 0, err)
+        brief = entry.open_board(self.board).work("brief-1.md")
+        code, out, err = run_script("rule_accept", self.repo, {**self.rule_env({"rulings": [
+            {"id": new[0]["id"], "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": [],
+             "grounds": [f"{brief}:1"]}]}), **tag})
+        self.assertEqual(code, 0, err)
+        self.assertTrue(json.loads(out)["ok"], out)
+        ruled = only_mean_reply()
+        ruled["changes"] = []
+        got = self.accept_script(ruled, pass_="ruled", pass_tag=self.TAG)
+        self.assertTrue(got["ok"], got)
+        self.e("rejudge")
+        b = entry.open_board(self.board)
+        row = next(i for i in conflict.items(b) if i["id"] == new[0]["id"])
+        self.assertEqual((conflict.replan_state(row), row[conflict.REPLAN_WHY]), (conflict.GAVE_UP, replan.CLOSE_WHY))
+        self.assertIn(new[0]["id"], [i["id"] for i in conflict.asked(b)])
+        self.assertIn(CLAMP, [c["unit_key"] for c in recount.fix_reply(b)[0]["changes"]], "1 回目の直しは盤面に渡る")
+
+    def test_ruled_continuation_follows_second_fix_session(self):
+        """2 回目の段の役の節は 1 回目と同じ印（works-node: fix・fix-ruled continue=fix）。包みは印の名で会話の id を置くので、
+        2 回目の段の fix が置き場を自分の会話に替え、その後の fix-ruled は 2 回目の fix の会話を継ぐ（1 回目の会話でない）"""
+        import yaml
+        from test_adapter import Env, sdk_argv
+        nodes = {}
+        for n in yaml.safe_load((ROOT / "blk-fix" / "blk-fix.yaml").read_text(encoding="utf-8"))["nodes"]:
+            for m in (n.get("loop_group") or {}).get("nodes") or []:
+                nodes[m["id"]] = m
+        fix, ruled = (nodes[k]["output_format"]["description"] for k in ("fix", "fix-ruled"))
+        env = Env(self)
+        firsts = []
+        for _ in range(2):   # 1 回目の段（fixing）と 2 回目の段（refitting）。どちらも fix の後に fix-ruled
+            got = env.run(sdk_argv(fix))
+            self.assertEqual(got.returncode, 0, got.stderr)
+            firsts.append(env.session_id("fix"))
+            got = env.run(sdk_argv(ruled))
+            self.assertEqual(got.returncode, 0, got.stderr)
+            self.assertEqual(env.child()["argv"][-2:], ["--resume", firsts[-1]])
+        self.assertNotEqual(firsts[0], firsts[1])
+        self.assertEqual(env.session_id("fix"), firsts[1], "会話の置き場は 2 回目の段の fix の会話")
+        self.assertEqual(env.launches()[-1]["session"], {"mode": "continued", "id": firsts[1], "of": "fix", "from": firsts[1]})
 
 
 def planbrief_head() -> str:

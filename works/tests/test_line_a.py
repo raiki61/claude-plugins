@@ -570,7 +570,8 @@ class RefixToTestsCase(LineBase):
         got = self.run_line(replies=r, edits={"fix": fix_tree, "refix": refix_tree}, inputs={"test_cmd": TEST_CMD},
                             sessions=True)
         ids = got["trail"]
-        self.assertEqual(ids[ids.index("fixing"):ids.index("h-mid") + 1], ["fixing", "h-rejudge", "rejudging", "h-mid"])
+        self.assertEqual(ids[ids.index("fixing"):ids.index("h-mid") + 1],
+                         ["fixing", "h-replan", "h-regate", "h-refit", "h-rejudge", "rejudging", "h-mid"])   # 案の直しは無い周
         self.assertIs(got["out"]["h-rejudge"]["go"], True)
         self.assertEqual((got["out"]["rejudging"]["ok"], got["out"]["rejudging"]["passes"]), (True, 1), got["out"]["rejudging"])
         b = self.reached_tests(got)
