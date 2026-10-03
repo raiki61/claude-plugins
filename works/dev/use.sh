@@ -15,7 +15,9 @@
 #   use.sh apply <対象リポジトリ> <run-id>                                  その run の差分を書き直し、git apply --check の後に対象へ当てる
 #                                                                           （commit しない。消す行は WORKS_USE_ALLOW_DELETE=1 の時だけ。
 #                                                                           記録が止まりを示す run は WORKS_USE_ALLOW_STOPPED=1 の時だけ）
-#   use.sh clean <対象リポジトリ> <run-id>                                  終わった run の worktree と枝を消す（走っている・関所で待つ run は拒む）
+#   use.sh clean <対象リポジトリ> <run-id>                                  終わった run の worktree と枝を消す（走っている・関所で待つ run は拒む）。
+#                                                                           completed・cancelled の run は wait・show が差分を書いた後に自動で消し、
+#                                                                           failed などの残った run は次の start が差分を書いてから消す
 #   use.sh check <対象リポジトリ>                                           AI を起こさずに、pack を置いて Archon の validate を回し、
 #                                                                           start に足りない物（uv・claude・認証・対象の条件）を全部並べる
 #
@@ -249,15 +251,20 @@ place_pack() {
   mv "$_wf/.works.new.$$" "$_wf/works"
 }
 
-# run_row <run-id か空>: この対象の run（空なら一番新しい物）の「id<TAB>status<TAB>working_path」。見つからない・一覧が
-# 読めなければ 1 行の理由で 1（呼び手は ROW="$(run_row …)" || exit 2）。選ぶのは lib.sh works_dev_run_json
-run_row() {
-  _json="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "$1")" || return 1
-  printf '%s\n' "$_json" | python3 -c '
+# row_of: 標準入力の run の行（lib.sh works_dev_run_json の JSON の 1 行）を「id<TAB>status<TAB>working_path」に直す。読めなければ 1
+row_of() {
+  python3 -c '
 import json, sys
 r = json.load(sys.stdin)
 print("\t".join([r.get("id") or "", r.get("status") or "", r.get("working_path") or ""]))
 '
+}
+
+# run_row <run-id か空>: この対象の run（空なら一番新しい物）の行（row_of の形）。見つからない・一覧が
+# 読めなければ 1 行の理由で 1（呼び手は ROW="$(run_row …)" || exit 2）。選ぶのは lib.sh works_dev_run_json
+run_row() {
+  _json="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" "$1")" || return 1
+  printf '%s\n' "$_json" | row_of
 }
 
 # run の控え <家>/runs/<run-id>.json: start で選んだ模型（明示しなければ start の時の既定）・claude の実行ファイル・keychain の項目の名（値でなく名）・包みを残し、
@@ -316,6 +323,126 @@ load_ledger() {
 
 . "$DEV_DIR/lib.sh"
 
+# clean_run <run-id> <run の行（row_of の形）>: 終わった run の worktree・枝・控えを消す。手の道（clean）と自動の道（auto_clean・
+# sweep_old_runs）が呼ぶ片付けの本体の 1 か所。生きた run かの判定は呼び手が済ませる。cd "$TARGET" した殻から呼ぶ
+clean_run() {
+  GOT="$(printf '%s' "$2" | cut -f3)"
+  # start が包んだ run の基を守った参照（控えの wrap_ref）と隔離の前の読み出しのファイル（github_reads）も一緒に消す
+  # （参照は refs/works/wraps/ の下・読み出しは .json の絶対パスの時だけ。読み出しは start が盤面へ写す前に止まった run の残り）
+  # drop_kept <run-id> <包んだ基の参照> <読み出しのファイル>
+  drop_kept() {
+    if [ -n "$2" ] && git show-ref --verify --quiet "$2"; then
+      git update-ref -d "$2"
+      echo "run $1 の基を守った参照を消した: ${2}"
+    fi
+    if [ -n "$3" ] && [ -f "$3" ]; then
+      rm -f "$3"
+      echo "run $1 の隔離の前の読み出しのファイルを消した: ${3}"
+    fi
+  }
+  LEDGER_ROW="$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$1")"
+  drop_kept "$1" "$(printf '%s' "$LEDGER_ROW" | cut -f4)" "$(printf '%s' "$LEDGER_ROW" | cut -f8)"
+  # 控えが無ければ、start が結べずに残した控え（<家>/unbound/<印>.json）のうち、候補にこの run を持ちこの対象の物を全部引く
+  # （launch.py ledger unbound-release。控えごとに 1 行）。ほかの候補がまだ生きている間は、その run が使うかもしれないので
+  # 包んだ基と読み出しを消さず、控えの候補からこの run だけを外す。最後の候補で全部消す
+  if [ -z "$LEDGER_ROW" ] && [ -d "$WORKS_USE_HOME/unbound" ]; then
+    UNBOUND_ROWS="$(WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow runs --json 2>/dev/null |
+      works_dev_launch ledger unbound-release --dir "$WORKS_USE_HOME/unbound" --target "$TARGET" --run-id "$1")" || return 2
+    while IFS= read -r _row; do
+      [ -n "$_row" ] || continue
+      _file="$(printf '%s' "$_row" | cut -f1)"
+      _alive="$(printf '%s' "$_row" | cut -f4)"
+      if [ -n "$_alive" ]; then
+        echo "start が結べずに残した控えの候補から run $1 を外した。包んだ基と読み出しは、まだ生きている候補 ${_alive} が使うかもしれないので残した（最後の候補の clean で消える）: ${_file}"
+        continue
+      fi
+      drop_kept "$1" "$(printf '%s' "$_row" | cut -f2)" "$(printf '%s' "$_row" | cut -f3)"
+      rm -f "$_file"
+      echo "start が結べずに残した控えを消した: ${_file}"
+    done <<EOF
+$UNBOUND_ROWS
+EOF
+  fi
+  if [ -z "$GOT" ] || [ ! -d "$GOT" ]; then
+    echo "run $1 の worktree（${GOT:-無し}）はもう無い"
+    return 0
+  fi
+  # 呼び手は `|| …` で呼ぶので set -e が効かない。落ちたら次へ進まず return で返す
+  BRANCH="$(git -C "$GOT" rev-parse --abbrev-ref HEAD)" || return $?
+  git worktree remove --force "$GOT" || return $?
+  echo "run $1 の worktree を消した: ${GOT}"
+  if [ "$BRANCH" != HEAD ] && git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    git branch -D "$BRANCH" >/dev/null || return $?
+    echo "run $1 の枝を消した: ${BRANCH}"
+  fi
+  return 0
+}
+
+# is_done <状態>: 終わった状態（launch.py の DONE_STATUSES。ledger done）なら 0。
+# 確かめが落ちた時は終わったと読まない（片付けず・止めを拒まない側）
+is_done() {
+  [ -n "$(works_dev_launch ledger "done" --status "$1" 2>/dev/null)" ]
+}
+
+# auto_clean <run-id> <run の行> <差分を書いた works_dev_show_run の終了コード>: 終わった run（呼び手が is_done で済ませる）を、
+# 差分を書き終えた後に片付ける。消してよいかは「差分の書き出しが 0」だけで決める。failed は呼ばれず残る
+# （Archon の resume は前の worktree を使い直すので、消すと commit されない修正が再開で戻らない。残した failed は次の start の
+# sweep_old_runs が消す）
+auto_clean() {
+  if [ "$3" -ne 0 ]; then
+    echo "run $1: 差分を書けなかった（works_dev_show_run が終了コード ${3}）ので worktree・枝・控えを片付けなかった"
+    return 0
+  fi
+  echo "run $1: 終わって差分を書き終えたので worktree・枝・控えを片付ける（差分のファイルは残す）"
+  clean_run "$1" "$2" || echo "run $1: 片付けが終了コード $? で止まった（use.sh clean で打ち直せる）"
+  return 0
+}
+
+# sweep_old_runs: start が Archon を起こす前に、この対象の生きていない run（failed も含む。持ち主の決め: 次の start が前の run を片付ける。古い run は
+# resume しない）の worktree・枝・控えを clean_run で消す。生きた状態は launch.py の LIVE_STATUSES（ledger live）の 1 か所で決め、
+# 状態が読めない・確かめが落ちた run は残す（迷ったら残す）。消す前に差分を <家>/diffs に書き、書けなければ残して理由を出す。
+# 片付けた run の id と状態は 1 行ずつ出し、「<id>（<状態>）」を・で並べて CLEANED_RUNS に置く（start が入力 cleaned_runs で
+# 報告の冒頭 2 へ渡す）。cd "$TARGET" した殻から呼ぶ
+sweep_old_runs() {
+  CLEANED_RUNS=""
+  # 一覧が引けない・読めない時は、片付けが走らなかったことと理由（run_json の 1 行）を出す（黙って 0 で返さない）
+  _sw_json="$(works_dev_run_json use.sh "$ARCHON" "$TARGET" all 2>&1)" || {
+    echo "前の run の片付けは走らなかった（run の一覧を引けない）: ${_sw_json}"
+    return 0
+  }
+  while IFS= read -r _sw_one; do
+    [ -n "$_sw_one" ] || continue
+    _sw_row="$(printf '%s\n' "$_sw_one" | row_of)" || {
+      echo "前の run の片付けを 1 行飛ばした（一覧の行が JSON として読めない）: ${_sw_one}"
+      continue
+    }
+    _sw_id="$(printf '%s' "$_sw_row" | cut -f1)"
+    _sw_st="$(printf '%s' "$_sw_row" | cut -f2)"
+    { [ -n "$_sw_id" ] && [ -n "$_sw_st" ]; } || continue
+    _sw_live="$(works_dev_launch ledger live --status "$_sw_st")" || {
+      echo "前の run ${_sw_id}（${_sw_st}）: 生きた状態かを確かめられなかったので片付けなかった"
+      continue
+    }
+    [ -z "$_sw_live" ] || continue
+    _sw_diff=0
+    # 呼び手の殻に WORKS_RUN_ROW が残っていても、この前の run の行で上書きする（でないと別の run の差分を書いて片付けの門を通る）
+    WORKS_RUN_ID="$_sw_id" WORKS_RUN_ROW="$_sw_one" works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" >/dev/null || _sw_diff=$?
+    if [ "$_sw_diff" -ne 0 ]; then
+      echo "前の run ${_sw_id}（${_sw_st}）: 差分を書けなかった（works_dev_show_run が終了コード ${_sw_diff}）ので片付けなかった"
+      continue
+    fi
+    echo "前の run ${_sw_id}（${_sw_st}）を片付ける（差分は ${WORKS_USE_HOME}/diffs/run-${_sw_id}.diff。resume はしない）"
+    if clean_run "$_sw_id" "$_sw_row"; then
+      CLEANED_RUNS="${CLEANED_RUNS:+${CLEANED_RUNS}・}${_sw_id}（${_sw_st}）"
+    else
+      echo "前の run ${_sw_id}: 片付けが終了コード $? で止まった（use.sh clean で打ち直せる）"
+    fi
+  done <<EOF
+$_sw_json
+EOF
+  return 0
+}
+
 case "$CMD" in
   check)
     place_pack
@@ -343,6 +470,9 @@ case "$CMD" in
     export WORKS_RUN_ID
     show_status=0
     works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" || show_status=$?
+    if [ -n "${ROW:-}" ] && is_done "$(printf '%s' "$ROW" | cut -f2)"; then
+      auto_clean "$(printf '%s' "$ROW" | cut -f1)" "$ROW" "$show_status"
+    fi
     if [ -n "${ROW:-}" ]; then herdr_sync "$(printf '%s' "$ROW" | cut -f1)=$(printf '%s' "$ROW" | cut -f2)"; fi
     exit "$show_status"
     ;;
@@ -362,15 +492,20 @@ case "$CMD" in
       if [ "$STATUS" = paused ] && [ "$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$3" | cut -f7)" = 1 ]; then
         STATUS=running
       fi
+      if is_done "$STATUS"; then
+        echo "run $3: ${STATUS}（終わった。報告と差分は use.sh show で出す）"
+        wait_status=5
+        # 出力は捨てる（wait は状態を 1 行で返す）。show_run は CLAUDE_BIN_PATH を読むので wait でも解く
+        resolve_claude
+        diff_status=0
+        WORKS_RUN_ID="$3" works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" >/dev/null || diff_status=$?
+        auto_clean "$(printf '%s' "$ROW" | cut -f1)" "$ROW" "$diff_status"
+        break
+      fi
       case $STATUS in
         paused)
           echo "run $3: paused（関所で人の答えを待つ。use.sh show $TARGET $3 で関所の文と答えの行を出す）"
           wait_status=0
-          break
-          ;;
-        completed | cancelled)
-          echo "run $3: ${STATUS}（終わった。報告と差分は use.sh show で出す）"
-          wait_status=5
           break
           ;;
         running | pending) ;;
@@ -437,12 +572,12 @@ print(json.dumps(row, ensure_ascii=False))
     cd "$TARGET"
     ROW="$(run_row "$3")" || exit 2
     STATUS="$(printf '%s' "$ROW" | cut -f2)"
+    ! is_done "$STATUS" || refuse "run $3 は既に ${STATUS}——止める物が無い"
     case "$STATUS" in
       paused)
         load_ledger "$3"
         detach_archon "$3" workflow respond "$3" stop "$4"
         ;;
-      completed | cancelled) refuse "run $3 は既に ${STATUS}——止める物が無い" ;;
       *) WORKS_DEV_ARCHON="$ARCHON" exec sh "$DEV_DIR/stop.sh" "$3" "$4" ;;
     esac
     ;;
@@ -452,7 +587,9 @@ print(json.dumps(row, ensure_ascii=False))
     cd "$TARGET"
     WORKS_RUN_ID="$3"
     export WORKS_RUN_ID
-    works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" >/dev/null
+    diff_status=0
+    works_dev_show_run use.sh "$ARCHON" "$TARGET" "$TARGET" "$WORKS_USE_HOME/diffs" >/dev/null || diff_status=$?
+    [ "$diff_status" -eq 0 ] || refuse "run $3 の差分を書き直せなかった（works_dev_show_run が終了コード ${diff_status}）。前の差分は当てない。use.sh show ${TARGET} $3 で理由を見る"
     DIFF="$WORKS_USE_HOME/diffs/run-$3.diff"
     [ -s "$DIFF" ] || refuse "run $3 の差分が空か書けていない（${DIFF}）。use.sh show ${TARGET} $3 で理由を見る"
     GONE="$(git apply --numstat --summary "$DIFF" | sed -n 's/^ delete mode [0-9]* //p' | tr '\n' ' ')"
@@ -495,61 +632,15 @@ elif got:
     cd "$TARGET"
     ROW="$(run_row "$3")" || exit 2
     STATUS="$(printf '%s' "$ROW" | cut -f2)"
-    GOT="$(printf '%s' "$ROW" | cut -f3)"
     # 生きた状態の一覧は launch.py の LIVE_STATUSES の 1 か所（ledger live）。確かめが落ちたら生きていないと読まずに止める
     # （生きた run の使う物を消すか決める所は、迷ったら残す）
     LIVE="$(works_dev_launch ledger live --status "$STATUS")" || exit 2
     if [ -n "$LIVE" ]; then
       refuse "run $3 は ${STATUS}。止めるか終わってから片付ける"
     fi
-    # start が包んだ run の基を守った参照（控えの wrap_ref）と隔離の前の読み出しのファイル（github_reads）も一緒に消す
-    # （参照は refs/works/wraps/ の下・読み出しは .json の絶対パスの時だけ。読み出しは start が盤面へ写す前に止まった run の残り）
-    # drop_kept <run-id> <包んだ基の参照> <読み出しのファイル>
-    drop_kept() {
-      if [ -n "$2" ] && git show-ref --verify --quiet "$2"; then
-        git update-ref -d "$2"
-        echo "run $1 の基を守った参照を消した: ${2}"
-      fi
-      if [ -n "$3" ] && [ -f "$3" ]; then
-        rm -f "$3"
-        echo "run $1 の隔離の前の読み出しのファイルを消した: ${3}"
-      fi
-    }
-    LEDGER_ROW="$(works_dev_ledgers "$WORKS_USE_HOME/runs" "$3")"
-    drop_kept "$3" "$(printf '%s' "$LEDGER_ROW" | cut -f4)" "$(printf '%s' "$LEDGER_ROW" | cut -f8)"
-    # 控えが無ければ、start が結べずに残した控え（<家>/unbound/<印>.json）のうち、候補にこの run を持ちこの対象の物を全部引く
-    # （launch.py ledger unbound-release。控えごとに 1 行）。ほかの候補がまだ生きている間は、その run が使うかもしれないので
-    # 包んだ基と読み出しを消さず、控えの候補からこの run だけを外す。最後の候補で全部消す
-    if [ -z "$LEDGER_ROW" ] && [ -d "$WORKS_USE_HOME/unbound" ]; then
-      UNBOUND_ROWS="$(WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow runs --json 2>/dev/null |
-        works_dev_launch ledger unbound-release --dir "$WORKS_USE_HOME/unbound" --target "$TARGET" --run-id "$3")" || exit 2
-      while IFS= read -r _row; do
-        [ -n "$_row" ] || continue
-        _file="$(printf '%s' "$_row" | cut -f1)"
-        _alive="$(printf '%s' "$_row" | cut -f4)"
-        if [ -n "$_alive" ]; then
-          echo "start が結べずに残した控えの候補から run $3 を外した。包んだ基と読み出しは、まだ生きている候補 ${_alive} が使うかもしれないので残した（最後の候補の clean で消える）: ${_file}"
-          continue
-        fi
-        drop_kept "$3" "$(printf '%s' "$_row" | cut -f2)" "$(printf '%s' "$_row" | cut -f3)"
-        rm -f "$_file"
-        echo "start が結べずに残した控えを消した: ${_file}"
-      done <<EOF
-$UNBOUND_ROWS
-EOF
-    fi
-    if [ -z "$GOT" ] || [ ! -d "$GOT" ]; then
-      echo "run $3 の worktree（${GOT:-無し}）はもう無い"
-      exit 0
-    fi
-    BRANCH="$(git -C "$GOT" rev-parse --abbrev-ref HEAD)"
-    git worktree remove --force "$GOT"
-    echo "run $3 の worktree を消した: ${GOT}"
-    if [ "$BRANCH" != HEAD ] && git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-      git branch -D "$BRANCH" >/dev/null
-      echo "run $3 の枝を消した: ${BRANCH}"
-    fi
-    exit 0
+    clean_status=0
+    clean_run "$(printf '%s' "$ROW" | cut -f1)" "$ROW" || clean_status=$?
+    exit "$clean_status"
     ;;
 esac
 
@@ -635,6 +726,8 @@ else
   echo "対象: ${TARGET}（run の worktree は HEAD ${BASE_REV} から切る）"
 fi
 
+sweep_old_runs
+
 set -- workflow run darkfactory --from "$BASE_REV" --input request="$REQUEST" --input test_cmd="$TEST_CMD" \
   --input tdd_suite="$TDD_SUITE" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE" --input final_gate="${WORKS_USE_FINAL_GATE:-protected_only}"
 # Archon は対象を codebase に登録した時の枝を覚えて更新せず、起動のたびにその枝を fetch する（その枝が消えると起動が止まる）。
@@ -651,6 +744,7 @@ if [ -n "$CHANGE_INPUT" ]; then
   set -- "$@" --input "$CHANGE_INPUT"
 fi
 if [ -n "$GITHUB_READS" ]; then set -- "$@" --input github_reads="$GITHUB_READS"; fi
+if [ -n "$CLEANED_RUNS" ]; then set -- "$@" --input cleaned_runs="$CLEANED_RUNS"; fi
 set +e
 sh "$ARCHON" "$@"
 run_status=$?

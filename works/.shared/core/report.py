@@ -12,7 +12,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
 - stop_outcome(b) -> 盤面の止めの (結末の語, by, 一言) か ()・stopped_run(board_dir) -> 当てる前に見る記録の止まり（記録が無いか読めなければ None）
-- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2。Context7 の枠切れの 1 行を含む）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
+- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None, cleaned_runs="")（冒頭 2。Context7 の枠切れの 1 行を含む）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)・
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
@@ -20,7 +20,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
-  failed=None, retried=None, eyeing=None) -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
+  failed=None, retried=None, eyeing=None, cleaned_runs="") -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
@@ -116,6 +116,7 @@ WHERE = tuple((gatemarks.PLAIN[n], n) for n in ("p2.diagnose", "p2.fix_plan", "p
                                                    "p3.delta_fix", "p3.delta_review2", "p3.delta_fix2", "p4.ci"))
 DIFFS = (("修正の差分", "fix_delta"), ("手直しの差分", "fix_delta2"))
 REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
+CLEANED_HEAD = "起動の前に片付けた前の run（use.sh start が worktree・枝・控えを消した。差分のファイルと盤面は残る）"
 INTERRUPTED_HEAD = "run が途中で終わった"
 RETRIED_HEAD = "前の試みで落ち、続きで済んだ節"
 AI_FIRST_NODE = "report.human_items"   # 盤面が報告の役の節を出したか（AI の報告を回すか。ai_report_go）
@@ -791,9 +792,10 @@ def declared_downgrades(line: str, *, pack: pathlib.Path = PACK) -> list:
     return [{k: r[k] for k in DOWNGRADE_KEYS} for r in doc]
 
 
-def head_entry(b, start: dict | None, *, mid: dict | None = None) -> list:
+def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: str = "") -> list:
     """冒頭 2: 入口・段・gates・最後の関所の形・決めた人（関所の答えの数）・このラインに無い節の数と一覧のパス・下げている所・
-    中の検査の枠の行（境の節の mid_note）・ライブラリの文書の枠切れの 1 行（印が在る時だけ。libdocs.notice）"""
+    中の検査の枠の行（境の節の mid_note）・ライブラリの文書の枠切れの 1 行（印が在る時だけ。libdocs.notice）・起動の前に
+    片付けた前の run の 1 行（入力 cleaned_runs。空なら出さない）"""
     s = _start_doc(b, start)
     reqs = s.get("requests")
     if reqs is None:
@@ -821,6 +823,8 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None) -> list:
     quota = libdocs.notice(b)
     if quota:
         lines.append(quota)
+    if cleaned_runs:
+        lines.append(f"{CLEANED_HEAD}: {cleaned_runs}")
     return lines
 
 
@@ -1159,7 +1163,7 @@ def _finish_fields(b, judged, outcome) -> dict:
 
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None, mid: dict | None = None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
-          failed: list | None = None, retried: list | None = None, eyeing: dict | None = None) -> dict:
+          failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "") -> dict:
     """gate_record → decide_outcome（eyeing＝独立の目のブロックの出口。残りに数える）→ 部品で <盤面>/report.md と
     <盤面>/next-request.json（と、包みが即時の死を記録した run は <盤面>/NO_TURN_FILE）を書き、1 本目の finish の欄に
     report_file・next_request_file・tests_green・validator_exit と、書き出しの節が読む export_input {outcome, report_file,
@@ -1189,7 +1193,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     rid = run_id or _start_doc(b, start).get("run_id") or ""
     body = [f"# 報告（run {rid or '—'}）", "", *head3(b, outcome, left=left, next_items=items), ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
-             head_entry(b, start, mid=mid), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
+             head_entry(b, start, mid=mid, cleaned_runs=cleaned_runs), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
              head_reads(board_dir, rid, ci=ci), head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]

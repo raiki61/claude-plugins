@@ -600,6 +600,14 @@ class HeadCase(ReportBase):
         self.assertIn(f"中の検査の枠: {note}", report.head_entry(b, None, mid={"go": True, "mid_note": note}))
         self.assertTrue(any("届いていない" in x for x in report.head_entry(b, None, mid=None)))
 
+    def test_cleaned_runs_line_in_head_entry(self):
+        """use.sh start が起動の前に片付けた前の run（入力 cleaned_runs）は冒頭 2 に 1 行で出る。空なら行を出さない"""
+        self.judged()
+        b = entry.open_board(self.board)
+        self.assertFalse(any(x.startswith(report.CLEANED_HEAD) for x in report.head_entry(b, None)))
+        lines = report.head_entry(b, None, cleaned_runs="run-f（failed）・run-c（completed）")
+        self.assertIn(f"{report.CLEANED_HEAD}: run-f（failed）・run-c（completed）", lines)
+
     def test_context7_quota_line_in_head_entry(self):
         """Context7 が 429（枠切れ）を返した盤面では冒頭 2 に枠切れの 1 行が在り、返さなかった盤面では無い"""
         import libdocs
@@ -957,7 +965,7 @@ class ScriptCase(ReportBase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         self.assertEqual(mod.INPUTS, ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI",
-                                      "INPUTS_EYES", "INPUTS_EYEING"))
+                                      "INPUTS_EYES", "INPUTS_EYEING", "INPUTS_CLEANED_RUNS"))
         r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_TESTS=json.dumps(RED),
                             INPUTS_MID=json.dumps({"go": False, "mid_note": "枠のみ"}), INPUTS_CI="")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -966,6 +974,17 @@ class ScriptCase(ReportBase):
         self.assertEqual(out["outcome"], "record_invalid")
         self.assertEqual(out["export_input"]["board_dir"], str(self.board.resolve()))
         self.assertIn("中の検査の枠: 枠のみ", pathlib.Path(out["report_file"]).read_text(encoding="utf-8"))
+
+    def test_script_cleaned_runs_reach_report(self):
+        """入力 cleaned_runs（文字列。JSON でない）は報告の冒頭 2 に届く。前の版の with: で再開した run は渡さないので、無くても 0"""
+        self.judged()
+        r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_CLEANED_RUNS="run-f（failed）")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"{report.CLEANED_HEAD}: run-f（failed）",
+                      pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8"))
+        r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_CLEANED_RUNS=None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn(report.CLEANED_HEAD, pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8"))
 
     def test_script_interrupted_by_missing_exit_marks(self):
         """上流の節が落ちた run（run 30・31 の形）: 出来事が取れなくても、h-eyes の出口が無い・目を回すと言ったのに blk-eyes の

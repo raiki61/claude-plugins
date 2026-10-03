@@ -13,6 +13,8 @@
 - INPUTS_CI:     CI の任せ先の役のブロック（blk-ci）の collect の出口（{ok, reason, note, …}。包み無しの知らせ）
 - INPUTS_EYES:   最後の境の節 h-eyes の出口（{go, …}）
 - INPUTS_EYEING: 独立の目のブロック（blk-eyes）の出口
+- INPUTS_CLEANED_RUNS: use.sh start が起動の前に片付けた前の run（「<id>（<状態>）」を・で並べた文字列。JSON でない）。冒頭 2 に
+  1 行で出す。無いのは空と同じ（後から足した入力。前の版の with: で再開した run は渡さない）
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（Archon の出来事を読む run。空なら start の控えの run_id）
 途中で終わった run（上流の節が落ちても報告の節は all_done で走る）: Archon の出来事で最後の状態が落ちた節か、出口の印の欠け
 （h-eyes の出口が無い・h-eyes が目を回すと言ったのに blk-eyes の出口が無い）が在れば、結末 interrupted の報告を組み、冒頭 3 に
@@ -35,7 +37,9 @@ import os  # noqa: E402
 import script_io  # noqa: E402
 
 # 裁定 TA16: 読む INPUTS_* の組（YAML の with: の鍵と突き合わせる）
-INPUTS = ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI", "INPUTS_EYES", "INPUTS_EYEING")
+INPUTS = ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI", "INPUTS_EYES", "INPUTS_EYEING",
+          "INPUTS_CLEANED_RUNS")
+CLEANED_RUNS = "INPUTS_CLEANED_RUNS"   # 文字列の入力（ほかは JSON）。無くても欠けに数えない
 NULL = "null"   # 飛ばされた節の出力（if_skipped: null）が届く字
 RUN_ID_ENV = "WORKFLOW_ID"
 # darkfactory.yaml で report に依る節（reporting: [report]・result: [report, reporting]）。この節が走る時には今の試みで
@@ -74,14 +78,14 @@ def unreached(eyes, eyeing) -> list:
 
 
 def main() -> int:
-    missing = [n for n in INPUTS if n not in os.environ]
+    missing = [n for n in INPUTS if n not in os.environ and n != CLEANED_RUNS]
     if not os.environ.get(script_io.ARTIFACTS_ENV):
         missing.append(script_io.ARTIFACTS_ENV)
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
     try:
-        judged, tests, start, mid, ci, eyes, eyeing = (_json_or_none(n) for n in INPUTS)
+        judged, tests, start, mid, ci, eyes, eyeing = (_json_or_none(n) for n in INPUTS if n != CLEANED_RUNS)
     except Broken as e:
         print(f"report: {_line(e)}", file=sys.stderr)
         return 2
@@ -98,7 +102,8 @@ def main() -> int:
         failed = reads.failed_nodes(events, after=AFTER_REPORT) or unreached(eyes, eyeing)
         out = report.build(board.resolve(), judged=judged, tests=tests, start=start, mid=mid, ci=ci, run_id=run_id,
                            events=events, interrupted="" if failed else None, failed=failed,
-                           retried=reads.retried_nodes(events, after=AFTER_REPORT), eyeing=eyeing)
+                           retried=reads.retried_nodes(events, after=AFTER_REPORT), eyeing=eyeing,
+                           cleaned_runs=" ".join(os.environ.get(CLEANED_RUNS, "").split()))
     except (BoardGap, Reject) as e:
         print(f"報告を組めない（{type(e).__name__}）: {_line(e)}", file=sys.stderr)
         return 1

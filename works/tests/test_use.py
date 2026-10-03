@@ -108,6 +108,10 @@ class UseShell(unittest.TestCase):
             "EOF\n"
             "exit 0\n")
 
+    def started(self):
+        """偽の archon への呼び出しのうち、最初の起動（workflow run）。start は起動の前に前の run の片付けで一覧を引く"""
+        return next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
+
     def set_runs(self, **run):
         self.runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused", **run}]}))
 
@@ -184,7 +188,7 @@ class UseShell(unittest.TestCase):
         t = self.target()
         r = self.use("start", str(t), str(self.request))
         self.assertEqual(r.returncode, 0, r.stderr)
-        run = self.calls()[0]
+        run = self.started()
         self.assertIn("test_cmd=", run)
         self.assertIn("tdd_suite=", run)
         self.assertIn("test_cmd を省いた", r.stdout)
@@ -192,7 +196,7 @@ class UseShell(unittest.TestCase):
         self.log.unlink()
         r = self.use("start", str(self.request), cwd=str(t / "sub"))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.calls()[0][0], str(t))
+        self.assertEqual(self.started()[0], str(t))
 
     def test_start_change_entry_flags(self):
         """変更から入る口: 先頭の --base <版>・--pr <番号>（と --）を旗として読み、残りの位置引数に対象を省ける決まりを当てる。
@@ -204,7 +208,7 @@ class UseShell(unittest.TestCase):
         r = self.use("start", "--base", "main", "-", cwd=str(t))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("結べなかった", r.stdout)
-        run = self.calls()[0]
+        run = self.started()
         self.assertEqual(run[0], str(t))
         self.assertIn("base=main", run)
         self.assertIn("request=", run)
@@ -213,20 +217,20 @@ class UseShell(unittest.TestCase):
         self.log.unlink()
         r = self.use("start", "--pr", "7", "--", str(t), "-", "true", **self.gh_env())   # --pr は隔離の前に読める PR
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)   # 依頼を省いても読み出しのファイルで結ぶ
-        run = self.calls()[0]
+        run = self.started()
         self.assertIn("pr=7", run)
         self.assertIn("test_cmd=true", run)
         self.assertIn("入口: 変更から（pr=7）", r.stdout)
         self.log.unlink()
         r = self.use("start", "--base", "main", str(t), str(self.request))   # 依頼と変更の両方
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        run = self.calls()[0]
+        run = self.started()
         self.assertIn("base=main", run)
         self.assertTrue(any(a.startswith("request=" + str(self.home / "requests")) for a in run), run)
         self.log.unlink()
         r = self.use("start", str(t), str(self.request), "--base", "main")   # 位置引数の後: test_cmd と tdd_suite
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        run = self.calls()[0]
+        run = self.started()
         self.assertIn("test_cmd=--base", run)
         self.assertNotIn("base=main", run)
         self.assertNotIn("入口: 変更から", r.stdout)
@@ -251,7 +255,7 @@ class UseShell(unittest.TestCase):
                                   ensure_ascii=False))
         r = self.use("start", str(t), str(req), **self.gh_env())
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        run = self.calls()[0]
+        run = self.started()
         given = [a for a in run if a.startswith("github_reads=")]
         self.assertEqual(len(given), 1, run)
         self.assertNotEqual(given[0], "github_reads=", run)
@@ -272,8 +276,8 @@ class UseShell(unittest.TestCase):
         r = self.use("start", "--pr", "7", str(t), "-", "true", "", **self.gh_env())
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("結べなかった", r.stdout)
-        given = [a.split("=", 1)[1] for a in self.calls()[0] if a.startswith("github_reads=")]
-        self.assertEqual(len(given), 1, self.calls()[0])
+        given = [a.split("=", 1)[1] for a in self.started() if a.startswith("github_reads=")]
+        self.assertEqual(len(given), 1, self.started())
         led = json.loads((self.home / "runs" / "run-1.json").read_text())
         self.assertEqual(led["github_reads"], given[0])
         self.assertEqual(self.reads_left(), [pathlib.Path(given[0]).name])
@@ -300,7 +304,7 @@ class UseShell(unittest.TestCase):
         head = git(t, "rev-parse", "HEAD")
         r = self.use("start", str(t / "sub"), str(self.request), "true")   # 下のフォルダは拒まず、git の根で回す
         self.assertEqual(r.returncode, 0, r.stderr)
-        run = self.calls()[0]
+        run = self.started()
         self.assertEqual(run[0], str(t))
         self.assertEqual(run[run.index("--from") + 1], head)
         self.assertIn(f"git のリポジトリの根（{t}）で回す", r.stdout)
@@ -316,7 +320,7 @@ class UseShell(unittest.TestCase):
         before = git(t, "status", "--porcelain", "--untracked-files=all")
         r = self.use("start", str(t), str(self.request), "true")
         self.assertEqual(r.returncode, 0, r.stderr)
-        run = self.calls()[0]
+        run = self.started()
         base = run[run.index("--from") + 1]
         self.assertNotEqual(base, head)
         self.assertEqual(git(t, "rev-parse", f"{base}^"), head)
@@ -341,7 +345,7 @@ class UseShell(unittest.TestCase):
         (t / "stats.py").write_text((t / "stats.py").read_text() + "# 手元の書き換え\n")
         r = self.use("start", str(t), str(self.request), "true", "")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        run = self.calls()[0]
+        run = self.started()
         base = run[run.index("--from") + 1]
         refs = git(t, "for-each-ref", "--format=%(objectname) %(refname)", "refs/works/").splitlines()
         self.assertIn(base, [ln.split()[0] for ln in refs], refs)
@@ -385,7 +389,7 @@ class UseShell(unittest.TestCase):
         self.runs.write_text(json.dumps({"runs": []}))
         r = self.use("start", str(t), str(self.named_request()), "true", "", **self.gh_env())
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertTrue(any(a.startswith("github_reads=") and a != "github_reads=" for a in self.calls()[0]), self.calls())
+        self.assertTrue(any(a.startswith("github_reads=") and a != "github_reads=" for a in self.started()), self.calls())
         self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
         self.assertEqual(self.reads_left(), [])
 
@@ -736,7 +740,7 @@ class UseShell(unittest.TestCase):
                 self.log.unlink(missing_ok=True)
                 r = self.use("start", str(t), str(self.request), "true", "", WORKS_DEV_ADAPTER=value)
                 self.assertEqual(r.returncode, 0, r.stderr)
-                self.assertIn("adapter=optional", self.calls()[0])
+                self.assertIn("adapter=optional", self.started())
                 self.assertTrue(r.stdout.startswith("包み無し"), r.stdout)
                 self.assertNotIn("WORKS_DEV_ADAPTER=1 ", r.stdout)
 
@@ -745,7 +749,7 @@ class UseShell(unittest.TestCase):
         r = self.use("start", str(t), str(self.request), "true", "", WORKS_USE_FINAL_GATE="always",
                      WORKS_USE_POLICY_MD="/p/policy.md", WORKS_USE_GATES="merge", WORKS_USE_THICKNESS="x")
         self.assertEqual(r.returncode, 0, r.stderr)
-        run = self.calls()[0]
+        run = self.started()
         for want in ("final_gate=always", "policy_md=/p/policy.md", "gates=merge", "thickness=x"):
             self.assertIn(want, run)
 
@@ -957,8 +961,9 @@ class UseShell(unittest.TestCase):
         self.assertFalse(self.dev_home.exists())   # 自分食いの家（WORKS_DEV_HOME）は継がない
         self.assertEqual(git(t, "status", "--porcelain"), "")   # 対象には何も書かない
         calls = self.calls()
-        self.assertEqual(len(calls), 2, calls)
-        run, runs = calls
+        self.assertEqual(len(calls), 3, calls)
+        sweep, run, runs = calls   # 起動の前の片付けが一覧を引き、起動の後に結ぶのがもう 1 度引く
+        self.assertEqual(sweep, runs)
         self.assertEqual(run[:3], [str(t), "", str(self.home)])
         req = pathlib.Path(run[run.index("--input") + 1].split("=", 1)[1])
         self.assertTrue(req.is_absolute())
@@ -1005,7 +1010,7 @@ class UseShell(unittest.TestCase):
                 self.log.unlink(missing_ok=True)
                 r = self.use("start", str(t), str(self.request), cmd, *(() if given is None else (given,)))
                 self.assertEqual(r.returncode, 0, r.stderr)
-                run = self.calls()[0]
+                run = self.started()
                 suite = next(a.split("=", 1)[1] for a in run if a.startswith("tdd_suite="))
                 if want == "write":
                     p = pathlib.Path(suite)
@@ -1024,7 +1029,7 @@ class UseShell(unittest.TestCase):
         t = self.target()
         r = self.use("start", str(t), str(self.request), "true", "", WORKS_USE_FINAL_GATE="when_needed", WORKS_DEV_ADAPTER="1")
         self.assertEqual(r.returncode, 0, r.stderr)
-        run = self.calls()[0]
+        run = self.started()
         self.assertIn("final_gate=when_needed", run)
         self.assertIn("adapter=", run)
         self.assertIn("WORKS_DEV_ADAPTER=1 ", r.stdout)
@@ -1478,6 +1483,167 @@ class UseShell(unittest.TestCase):
         self.assertFalse(wt.exists())
         self.assertEqual(git(t, "branch", "--list", "archon/task-darkfactory-1"), "")
 
+    def finished_run_worktree(self, t, base_rev=None, status="completed", start_json=True):
+        """対象の本物の git worktree と枝を作り、盤面に周の頭の版（base_rev。省けば対象の HEAD）を書いた run
+        （status。既定は終わった completed）を偽の一覧に置く（start_json=False は周の頭の版を書かない）。worktree には未コミットの修正を 1 行足す"""
+        wt = self.tmp / "run-wt"
+        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
+        (wt / "stats.py").write_text((wt / "stats.py").read_text() + "# 直した\n")
+        board = self.tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
+        (board / "r1").mkdir(parents=True)
+        if start_json:
+            (board / "r1" / "start.json").write_text(json.dumps({"base_rev": base_rev or git(t, "rev-parse", "HEAD")}))
+        self.set_runs(status=status, working_path=str(wt), output_root=str(self.tmp / "out"))
+        return wt
+
+    def test_wait_completed_cleans_worktree_and_branch_after_diff_written(self):
+        t = self.target()
+        wt = self.finished_run_worktree(t)
+        r = self.use("wait", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1")
+        self.assertNotEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("completed", r.stdout)
+        diff = self.home / "diffs" / "run-run-1.diff"
+        self.assertIn("+# 直した", diff.read_text())
+        self.assertFalse(wt.exists(), r.stdout + r.stderr)
+        self.assertEqual(git(t, "branch", "--list", "archon/task-darkfactory-1"), "")
+        # 片付けた後も差分のファイルが残るので、取り込みは当たる
+        r = self.use("apply", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("# 直した", (t / "stats.py").read_text())
+
+    def test_wait_completed_keeps_worktree_when_diff_write_fails(self):
+        t = self.target()
+        wt = self.finished_run_worktree(t, base_rev="0" * 40)
+        diff = self.home / "diffs" / "run-run-1.diff"
+        diff.parent.mkdir(parents=True)
+        diff.write_text("前の差分\n")
+        r = self.use("wait", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1")
+        self.assertNotEqual(r.returncode, 2, r.stdout + r.stderr)
+        # worktree に取られた枝は git branch --list が先頭に "+ " を付けて出すので、枝の参照が在るかで見る（無ければ git が 0 以外で落ちる）
+        git(t, "show-ref", "--verify", "--quiet", "refs/heads/archon/task-darkfactory-1")
+        self.assertTrue(wt.exists())
+        self.assertEqual(diff.read_text(), "前の差分\n")
+        self.assertTrue(any("片付けなかった" in l for l in (r.stdout + r.stderr).splitlines()), r.stdout + r.stderr)
+
+    def test_show_keeps_previous_diff_and_fails_when_git_diff_fails(self):
+        t = self.target()
+        self.finished_run_worktree(t, base_rev="0" * 40)
+        diff = self.home / "diffs" / "run-run-1.diff"
+        diff.parent.mkdir(parents=True)
+        diff.write_text("前の差分\n")
+        r = self.use("show", str(t), CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertTrue(diff.exists(), r.stdout + r.stderr)
+        self.assertEqual(diff.read_text(), "前の差分\n")
+        self.assertIn("書けなかった", r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+
+    def test_apply_refuses_when_diff_rewrite_fails(self):
+        t = self.target()
+        self.finished_run_worktree(t, base_rev="0" * 40)
+        diff = self.home / "diffs" / "run-run-1.diff"
+        diff.parent.mkdir(parents=True)
+        diff.write_text(
+            "--- a/stats.py\n+++ b/stats.py\n@@ -1 +1,2 @@\n " + (t / "stats.py").read_text().splitlines()[0] + "\n+# 古い差分\n")
+        r = self.use("apply", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("書き直せなかった", r.stderr)
+        self.assertEqual(git(t, "status", "--porcelain"), "")
+
+    def branch_exists(self, t):
+        return subprocess.run(["git", "-C", str(t), "show-ref", "--verify", "--quiet", "refs/heads/archon/task-darkfactory-1"]).returncode == 0
+
+    def test_wait_and_show_keep_worktree_of_not_done_runs(self):
+        """消してよいのは終わった状態（completed・cancelled）だけ。failed・paused・running・pending は wait・show を通しても worktree と枝を残す"""
+        t = self.target()
+        wt = self.finished_run_worktree(t)
+        for status in ("failed", "paused", "running", "pending"):
+            for cmd in ("wait", "show"):
+                with self.subTest(status=status, cmd=cmd):
+                    self.set_runs(status=status, working_path=str(wt), output_root=str(self.tmp / "out"))
+                    r = self.use(cmd, str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1")
+                    self.assertTrue(wt.exists(), r.stdout + r.stderr)
+                    self.assertTrue(self.branch_exists(t))
+                    self.assertNotIn("片付ける（差分のファイルは残す）", r.stdout)
+
+    def test_show_cleans_done_run_after_diff_written_and_does_not_offer_clean(self):
+        """show も、completed・cancelled の run を差分を書いた後に片付ける。片付けた後の出力は clean の行を勧めず、自動で片付くと言う"""
+        for status in ("completed", "cancelled"):
+            with self.subTest(status=status):
+                t = self.target(name="target-" + status)
+                self.tmp.joinpath("run-wt").exists() and git(t, "worktree", "prune")
+                wt = self.finished_run_worktree(t, status=status)
+                r = self.use("show", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertIn("+# 直した", (self.home / "diffs" / "run-run-1.diff").read_text())
+                self.assertFalse(wt.exists(), r.stdout + r.stderr)
+                self.assertNotIn("終わった run の worktree と枝を片付ける:", r.stdout)
+                self.assertIn("自動で片付ける", r.stdout)
+                self.assertFalse(self.branch_exists(t))
+                shutil.rmtree(self.tmp / "out")
+
+    def test_show_offers_clean_for_not_done_run(self):
+        t = self.target()
+        self.finished_run_worktree(t, status="failed")
+        r = self.use("show", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertIn("終わった run の worktree と枝を片付ける:", r.stdout)
+
+    def test_show_keeps_worktree_when_base_rev_is_unreadable(self):
+        """start の控えの base_rev が読めない時、worktree 自身の HEAD を基に代用して commit 済みの修正が空に見えても 0 にしない
+        （片付けの門を通さない）。show は 4 で終わり、worktree と枝は残る"""
+        t = self.target()
+        wt = self.finished_run_worktree(t, start_json=False)
+        git(wt, "commit", "-qam", "commit 済みの修正")
+        r = self.use("wait", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_USE_WAIT_SECONDS="1")
+        self.assertTrue(wt.exists(), r.stdout + r.stderr)
+        self.assertTrue(self.branch_exists(t))
+        self.assertIn("片付けなかった", r.stdout)
+        r = self.use("show", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("が読めないので worktree 自身の HEAD を基にした", r.stdout)
+        self.assertTrue(wt.exists())
+
+    def test_start_sweeps_old_non_live_runs_and_keeps_live_or_undiffable(self):
+        """start が Archon を起こす前に、前の run のうち生きていない物（failed も）を差分を書いてから片付ける。生きた run と、差分を書けなかった
+        run は残し、書けなかった理由を出す。片付けた run の id と状態は、入力 cleaned_runs で報告（冒頭 2）へ渡す"""
+        t = self.target()
+        out = self.tmp / "old-out"
+        def old(name, status, base_rev):
+            wt = self.tmp / ("wt-" + name)
+            git(t, "worktree", "add", "-q", "-b", "archon/old-" + name, str(wt))
+            (wt / "stats.py").write_text((wt / "stats.py").read_text() + "# " + name + "\n")
+            board = out / name / "artifacts" / "runs" / name / "board"
+            (board / "r2").mkdir(parents=True)
+            (board / "r2" / "start.json").write_text(json.dumps({"base_rev": base_rev}))
+            # 偽の archon は起動の依頼を各 run の r1/start.json に書く。前の run は依頼が違うので、書かせない（書けない置き場にする）
+            (board / "r1").mkdir()
+            (board / "r1").chmod(0o555)
+            self.addCleanup((board / "r1").chmod, 0o755)
+            return {"id": name, "workflow_name": "darkfactory", "status": status, "working_path": str(wt),
+                    "output_root": str(out / name)}, wt
+        failed, wt_failed = old("run-f", "failed", git(t, "rev-parse", "HEAD"))
+        running, wt_running = old("run-r", "running", git(t, "rev-parse", "HEAD"))
+        bad, wt_bad = old("run-b", "failed", "0" * 40)
+        new = {"id": "run-1", "workflow_name": "darkfactory", "status": "paused", "working_path": "/wt/run-1", "output_root": str(self.out)}
+        self.runs.write_text(json.dumps({"runs": [new, failed, running, bad]}))
+        r = self.use("start", str(t), str(self.request))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(wt_failed.exists(), r.stdout + r.stderr)
+        self.assertIn("+# run-f", (self.home / "diffs" / "run-run-f.diff").read_text())
+        self.assertTrue(wt_running.exists())
+        self.assertTrue(wt_bad.exists())
+        self.assertIn("前の run run-b（failed）: 差分を書けなかった", r.stdout)
+        run = next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
+        self.assertIn("cleaned_runs=run-f（failed）", run)
+
+    def test_start_without_old_runs_passes_no_cleaned_runs(self):
+        """片付ける前の run が無ければ、start は入力 cleaned_runs を渡さず、片付けが走らなかったとも言わない"""
+        t = self.target()
+        self.runs.write_text(json.dumps({"runs": []}))
+        r = self.use("start", str(t), str(self.request))
+        run = next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
+        self.assertFalse(any(a.startswith("cleaned_runs=") for a in run), run)
+        self.assertNotIn("片付けは走らなかった", r.stdout + r.stderr)
+
     def test_check_lists_missing_auth_without_ai(self):
         """認証が無ければ、AI を起こさず（validate だけを認証を読ませずに呼ぶ）入れ方の 1 行つきで並べ、0 以外で終わる。
         ほかの欠け（uv・claude）も同じ出力に並べる。認証が在れば 0 で validate だけを呼ぶ"""
@@ -1595,7 +1761,8 @@ class UseShell(unittest.TestCase):
         copy, env = self.plugin_copy()
         r = self.use("start", str(t), str(self.request), "true", "", **env)
         self.assertEqual(r.returncode, 0, r.stderr)
-        run, runs = self.calls()
+        sweep, run, runs = self.calls()
+        self.assertEqual(sweep, runs)
         self.assertEqual(run[:9], [str(t), "", str(self.home), "workflow", "run", "darkfactory", "--from", head, "--input"])
         self.assertEqual(runs, [str(t), "1", str(self.home), "workflow", "runs", "--json"])
         self.assert_ran_from_copy(copy)
