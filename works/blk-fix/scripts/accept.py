@@ -47,9 +47,17 @@
    単位の全部が直す義務から外れた項目（conflict.held_by_rulings。fix_plan_item ならその項目）は範囲を与えない。裁定の後
    （ruled）に範囲が広がるのは直す裁定の limits のパスだけで、裁定を受けた単位の全部を外さない。out_of_scope はテストの許しと
    裁定の limits にも勝つ（案が外したパスが要るのは案の項目の誤りで、fix_plan_item の道）。
-   控えに範囲の欄が無い・修正案の無い run は回さない。受けた時に trace に 1 行（SCOPE_OP）
+   控えに範囲の欄が無い・修正案の無い run・平の run（修正の形 current）は回さない。受けた時に trace に 1 行（SCOPE_OP）
+1e. 事後の関門の束（fixgates.problems。計画 220 Task 4）: 修正の形に依らず、base から今の木までを相手に、承認済みの修正案の
+   受け入れのテストの赤→緑（INPUTS_TDD_SUITE の実行器。無い run は帳面に飛ばした理由だけ）と、名指しの外の既存のテストの
+   本体の変更を確かめる。行が在れば行ごとの文（fixgates.reject_lines。" / " でつないで 1 つの理由に全部の行が並ぶ）で拒む
+   （今の拒否の道。最後の回は文ごとに unit_key か名指しのファイルで単位に結べれば止める）。盤面に done を書く 3 の前に置く
+   （拒否では盤面を前のままにする。束の帳面 fixgates.LEDGER と一式のログは残す）。受けた回に束が赤緑を確かめずに飛ばした
+   理由（fixgates.unchecked。義務の外の項目を見なかった理由は除く）は盤面の trace の fixgates.SKIPPED_OP の行に載せる
+   （報告と最後の人の関所の文が数える）。2 回目の修正の段は回の印（INPUTS_PASS_TAG）で帳面の回を分け、裁定の範囲は
+   1 回目の段の物をいつも許す（fixgates.problems の tag）
 2 の前. 2 回目の修正の段（1 回目に受け付けた返答の控えが在る）: 返答を名前に戻し、控えの行を単位で合わせる（conflict.with_held）。
-   -3〜1d の検査は役の返答そのものに当て、合わせた返答を 2・2a・3 と盤面に渡す。2 回目の段の受け付けは控えの単位を changes か
+   -3〜1e の検査は役の返答そのものに当て、合わせた返答を 2・2a・3 と盤面に渡す。2 回目の段の受け付けは控えの単位を changes か
    not_done に書いた返答を、直しを戻させない自分の文（ACCEPTED_ROWS。check_accepted_rows）で拒み、輪の最後の回でもその直しを
    作業ツリーから戻さない。止める単位の直しを戻す時（drop_excused_units・park_bound_units）、控えの行のファイルを共にする単位は戻さない
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
@@ -58,14 +66,14 @@
    写しの数え合わせの拒否が発火しないように揃える
 2a. 案の直しを待つ単位（conflict.waiting。裁定 fix_plan_item の WAITING の行）が在り、盤面が p3.fix を待っていれば（named_reply）、
    盤面に渡さずに控える（hold_fix）: 盤面に渡す形の返答（番号は名前に戻す）に役が申告した bash_writes を残して
-   conflict.HELD_REPLY に置き、受けた時と同じ trace（書き込みの出どころ・TESTS_OP・SCOPE_OP・CLOSURE_OP）と HELD_OP を書いて
+   conflict.HELD_REPLY に置き、受けた時と同じ trace（書き込みの出どころ・TESTS_OP・SCOPE_OP・fixgates.SKIPPED_OP・CLOSURE_OP）と HELD_OP を書いて
    {ok: true, done: true, parked: true, changes: 1 本目の行}。盤面へは h-rejudge の replan.settle（hand_held）が渡す
 3. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が同じ問いで数え直す（仕様 3.2）。通れば 1 本目の
    出口のための changes（unit_key・files・what）を足し、表を盤面に置く
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
 ここで出口へ運ぶ（collect が今の周の changes.json に書く）。拒んだときの changes は空。
 中身の拒否は終了コード 0 の {"ok": false, "reason", "reason_file", "changes": [], "done"} を 1 行。回す側の誤りは 2。
-done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目は、-2・1b・1c・1d・
+done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目は、-2・1b・1c・1d・1e・
 写しの受け付けの拒否の文が changes[].files か unit_key（写しの文の頭の unit_key[:60] も）でちょうど
 1 単位に結べれば、その単位の直しを戻して（控えの patch を盤面に置く）ask_human に止め、残りの単位で受け付けを頭から通し直す
 （park_bound_units。fail-fast: false）。通し直しが通らなければ、止めた単位の直し・食い違いの控え・裁定の文を止める前に戻す
@@ -86,6 +94,7 @@ import posixpath  # noqa: E402
 import re  # noqa: E402
 
 import conflict  # noqa: E402   食い違いの申し出（.shared/core）
+import fixgates  # noqa: E402   事後の関門の束（blk-fix/lib）
 import fixrules  # noqa: E402   回の印の口 tagged（blk-fix/lib）
 import impact  # noqa: E402   変更に当たる試験の選び（.shared/core）
 import planbrief  # noqa: E402   今の周の brief の行（blk-fix/lib。申し出 brief_vs_judgment の確かめ）
@@ -100,8 +109,8 @@ import writes  # noqa: E402   書き込みの出どころの突き合わせ（.s
 from leftovers import git  # noqa: E402
 from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
 
-INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", "INPUTS_PASS_TAG",
-          "INPUTS_INCLUDE_ID")
+INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", "INPUTS_TDD_SUITE",
+          "INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID")
 # 無くても欠けに数えない入力（依頼 226 で後から足した回の印と include の名。前の版の with: で再開した run は渡さない。無い・空は今どおり）。
 # 回の印（INPUTS_PASS_TAG）は申し出の回の控え・裁定の文・拒否の理由のファイルの名を分ける（fixrules.tagged）。include の名は受けるだけ
 OPTIONAL = frozenset({"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"})
@@ -123,7 +132,7 @@ HELD_OP = "fix_held"   # 待つ単位が在る間、盤面に渡さずに返答�
 CONFLICT_BAD = "食い違いの申し出を受けない（名指した所が現物に無いか、形が違う。直して丸ごと出し直せ）: "
 CLOSURE_OP = "fix_unit_rows"   # 受けた返答の単位ごとの閉鎖の表（querytest.CLOSURE_FILE）を置いた盤面の trace の行
 BOUND_PARKED = ("修正の輪の最後の回も、この単位に結べる拒否（凍ったテストの書き換え・書き込みの出どころ・元で赤でなかった試験の赤・"
-                "承認済みの修正案の項目からの外れ・写しの受け付けの拒否）が残った。返答全体を拒んで盤面を止める代わりに、"
+                "事後の関門の束の行・承認済みの修正案の項目からの外れ・写しの受け付けの拒否）が残った。返答全体を拒んで盤面を止める代わりに、"
                 "機械がこの単位の直しを作業ツリーから戻して人に回し、ほかの単位の直しを受けた。拒否の文: ")
 BOUND_PARKED_OP = "fix_bound_parked"   # 最後の回に単位に結べた拒否でその単位を止めた盤面の trace の行（止めた単位と控えの patch）
 PARKED_PATCH = "fix-parked"            # 止めた単位の戻した直しの控え（盤面の今の周の fix-parked-<n>.patch）
@@ -550,7 +559,8 @@ def hold_fix(named: dict, whole: dict, b, traced) -> dict:
 def accept_fix(reply, board, base_rev, repo):
     state = os.environ.get("INPUTS_TDD_STATE", "")
     pass_ = os.environ.get("INPUTS_PASS") or "first"
-    last = int(os.environ.get("INPUTS_ITERATION") or 0) >= GIVE_UP_AFTER
+    attempt = int(os.environ.get("INPUTS_ITERATION") or 0)
+    last = attempt >= GIVE_UP_AFTER
     whole = reply
     scope_note = None   # 承認済みの修正案の項目と差分を照らした記録（受けた時に trace へ）
 
@@ -617,6 +627,9 @@ def accept_fix(reply, board, base_rev, repo):
     red, note = check_tests(board, base_rev, repo, state)
     if red:
         return refuse(red)
+    gates = fixgates.problems(board, repo, base_rev, os.environ.get("INPUTS_TDD_SUITE", ""), attempt, pass_=pass_, tag=_tag())
+    if gates:   # 盤面に done("p3.fix") を書く recount.accept_fix の前（preflight F12）
+        return refuse(fixgates.reject_lines(gates))
     b = entry.open_board(board)
     if conflict.held_reply(b)[0] is not None:   # 2 回目の修正の段: 名前に戻して 1 回目の控えの行を合わせる（検査は済んだ役の返答に当てた）
         named = named_reply(reply, board)
@@ -629,6 +642,9 @@ def accept_fix(reply, board, base_rev, repo):
         tb.trace(TESTS_OP, node=recount.ROLE, note=note, ci_left=tddloop.ci_left(state))
         if scope_note is not None:
             tb.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
+        gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt, tag=_tag())
+        if gaps:   # 束が赤緑を確かめずに受けた回（拒まないが、報告で見えるように）
+            tb.trace(fixgates.SKIPPED_OP, node=recount.ROLE, why=gaps)
         if rows:
             tb.trace(CLOSURE_OP, node=recount.ROLE, file=str(querytest.save_closure(tb, rows)))
         return tb

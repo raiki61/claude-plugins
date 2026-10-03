@@ -29,6 +29,7 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
 from gitkit import committed_copy, git  # noqa: E402
+import fixshape  # noqa: E402
 import planbrief  # noqa: E402
 import tddloop  # noqa: E402
 from unittest import mock  # noqa: E402
@@ -164,7 +165,9 @@ class TestYaml(unittest.TestCase):
         self.assertNotIn("command", role)
         self.assertIn("`$tdd-prep.output.prompt_file` を Read で", role["prompt"])
         self.assertEqual(role["settingSources"], ["user"])
-        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch"])
+        # Skill と skills: は借りたスキルの座（修正の形 g3。計画 220 Task 2。test_seat が座の表と縛る）
+        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch", "Skill"])
+        self.assertEqual(role["skills"], ["test-driven-development"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["idle_timeout"], DEADLINE)
         of = role["output_format"]
@@ -178,6 +181,8 @@ class TestYaml(unittest.TestCase):
         nodes = block()["nodes"]
         accept = find_node(nodes, "fix-accept")
         self.assertEqual(accept["with"]["tdd_state"], "$tdd-start.output.state_file")
+        for nid in ("fix-accept", "fix-ruled-accept"):   # 事後の関門の束の実行器（計画 220 Task 4）
+            self.assertEqual(find_node(nodes, nid)["with"]["tdd_suite"], "$INPUTS.tdd_suite", nid)
         collect = find_node(nodes, "collect")
         self.assertEqual(collect["with"]["tdd"], {"from": "$tdd-start.output"})
         out = collect["output_format"]
@@ -199,7 +204,7 @@ class TestYaml(unittest.TestCase):
                                                                                        "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
                 "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
-                           "INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"),
+                           "INPUTS_TDD_SUITE", "INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED",
                             "INPUTS_PASS_TAG")}
         for name, inputs in want.items():
@@ -278,6 +283,15 @@ class LoopCase(unittest.TestCase):
         self.suite.write_text(SUITE, encoding="utf-8")
         self.board = tmp / "art" / "board"
         self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
+        self.assertTrue(self.start["go"], self.start)
+        self.state = self.start["state_file"]
+
+    def shape(self, name, test_cmd=""):
+        """盤面の r1/start.json に fix_shape=name を置き、tdd-start を起こし直す（test_cmd は線の入力）"""
+        p = self.board / fixshape.START_REL
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({fixshape.KEY: name}), encoding="utf-8")
+        self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN, test_cmd=test_cmd)
         self.assertTrue(self.start["go"], self.start)
         self.state = self.start["state_file"]
 
@@ -402,6 +416,57 @@ class TestStart(LoopCase):
         with mock.patch.object(tddloop.planbrief, "cut_at", side_effect=broken):
             with self.assertRaisesRegex(tddloop.Broken, planbrief.LEDGER):
                 tddloop.prep(self.state)
+
+    def test_g3_tdd_prompt_carries_seat(self):
+        """修正の形 g3 の盤面: TDD の役の指示書に借りたスキルの座（test-driven-development）と読み替えの頭の行が載る"""
+        import rolekit
+        import seat
+        with mock.patch.object(tddloop.fixshape, "shape_at", return_value="g3") as at:
+            prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertEqual(pathlib.Path(at.call_args[0][0]).resolve(), self.board.resolve(), "盤面の置き場で形を読む")
+        self.assertIn(seat.HEAD, prompt)
+        self.assertIn("test-driven-development", prompt)
+        self.assertIn(rolekit.skill_overlay().splitlines()[0], prompt)
+
+    def test_g3_tdd_seat_failure_stops_with_broken(self):
+        """座を組めない（写しが固定と違う など）g3 の盤面は、座の無い指示書に逃げず Broken（tdd_prep が 2 で落ちる）"""
+        with mock.patch.object(tddloop.fixshape, "shape_at", return_value="g3"), \
+                mock.patch.object(tddloop.seat, "section", side_effect=ValueError("implementer-prompt.md: 中身が固定と違う")):
+            with self.assertRaisesRegex(tddloop.Broken, "座を組めない"):
+                tddloop.prep(self.state)
+
+    def test_af_tdd_prompt_has_no_seat(self):
+        import seat
+        with mock.patch.object(tddloop.fixshape, "shape_at", return_value="af"):
+            prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(seat.HEAD, prompt)
+        self.assertNotIn(seat.HEAD, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"),
+                         "盤面の無い置き場（記録の無い盤面は af）も座を出さない")
+
+    def test_g1_skips_loop(self):
+        """修正の形 g1 の盤面: 輪の頭と同じ元の結末を取って状態を書き（受け付けの選んで回す試験が読む）、輪だけを回さない
+        （go: false・理由 G1_NO_LOOP・輪の要約は無い）"""
+        fixshape.choose(self.board, "g1", by="試験", why="g1 は輪を回さない")
+        got = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
+        self.assertEqual({k: got[k] for k in ("go", "reason", "suite", "summary_file")},
+                         {"go": False, "reason": tddloop.G1_NO_LOOP, "suite": str(self.suite), "summary_file": ""})
+        self.assertEqual(tddloop.G1_NO_LOOP, "修正の形 g1——TDD の輪は回さない（修正役が下請けを回し、赤緑と凍結は修正の受け付けの束が"
+                                             "事後に確かめる）")
+        st = json.loads(pathlib.Path(got["state_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(st["baseline"], self.st()["baseline"], "輪の頭と同じ元の結末")
+        self.assertEqual((st["frozen"], st["order"]), ({}, []), "輪は回っていない（凍ったテストも単位も無い）")
+        self.assertEqual(tddloop.exit_fields(got)["ran"], False)
+
+    def test_g1_does_not_run_test_cmd_gate(self):
+        """g1 の tdd-start は元の結末だけを取り、test_cmd の関門は決めない（輪が無いので使わない。平の run と同じ切った関門）"""
+        fixshape.choose(self.board, "g1", by="試験", why="g1 は test_cmd を走らせない")
+        mark = self.repo.parent / "test-cmd-ran"
+        got = tddloop.start(self.board, self.repo, str(self.suite), OPEN,
+                            test_cmd=f"{sys.executable} -c \"open({str(mark)!r}, 'w')\"")
+        st = json.loads(pathlib.Path(got["state_file"]).read_text(encoding="utf-8"))
+        self.assertEqual((st["test_cmd_gate"], st["test_cmd_note"]), (tddloop.GATE_OFF, tddloop.G1_NO_LOOP))
+        self.assertFalse(mark.exists(), "test_cmd を走らせない")
+        self.assertFalse(pathlib.Path(st["work"], "test-cmd-0.log").exists())
 
 
 class TestRoute(LoopCase):
@@ -1612,6 +1677,86 @@ class TestCrossLoopFreeze(LoopCase):
         read = tddloop.frozen_source(self.state, self.repo, since=since)
         self.assertEqual(read("test_stats.py").rstrip("\n"), git(self.repo, "show", f"{since}:test_stats.py").rstrip("\n"))
         self.assertIn("mean([2, 4]), 3)", read("test_stats.py"))
+
+
+class TestPlainShape(LoopCase):
+    """修正の形 current（平の run・比べの基準）: 219 の前の振る舞い。修正案の約束を読まず、整えはいつも回し、test_cmd の関門は切る"""
+
+    def setUp(self):
+        super().setUp()
+        self.shape("current")
+
+    def test_always_refactor_without_declaration(self):
+        """申告が無くても整えの段へ。refactor_why は役の申告のまま（空。形の名を役に渡さない）"""
+        self.route()
+        self.red()
+        self.fix_mean()   # 申告なし
+        self.assertEqual(self.st()["phase"], "refactor")
+        self.assertEqual(self.st()["units"][MEAN]["refactor_why"], "")
+
+    def test_contract_depends_on_shape(self):
+        """盤面と欄の控えが在っても、current は欄を読まず約束が空。同じ盤面で af は約束を組む"""
+        (self.board / "state.json").write_text("{}", encoding="utf-8")
+        fields = [{"unit_keys": [MEAN], "route": "tdd", "route_why": "", "rewrite_tests": [],
+                   "tests": [{"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "2 つの値の平均",
+                              "path": "stats.mean を直に呼ぶ", "red_kind": "assertion", "red_why": "今は len-1 で割る"}],
+                   "refactor": {"declared": False, "why": ""}}]
+        with mock.patch.object(tddloop.entry, "open_board"), \
+                mock.patch.object(tddloop.conflict, "fix_duty", return_value=([MEAN, CLAMP], {})), \
+                mock.patch.object(tddloop.conflict, "frozen_fields", return_value=fields) as ff:
+            self.shape("current")
+            self.assertEqual(self.st()["contract"], {})
+            ff.assert_not_called()
+            self.shape("af")
+            self.assertEqual(list(self.st()["contract"]), [MEAN])
+
+    def test_prompts_use_pre_219_wording(self):
+        """fix・refactor の段の指示書は 219 の前の文（申告の決まりの文を出さず、整えがいつも来ることを添える）"""
+        self.route()
+        self.red()
+        fix = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(tddloop.DO["fix"], fix)
+        self.assertIn("機械が一式を走らせ、名指しのテストと元で通っていたテストが通ることを確かめる。", fix)
+        self.assertIn(tddloop.PLAIN_DO["fix"], fix)
+        self.fix_mean()
+        ref = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(tddloop.DO["refactor"], ref)
+        self.assertIn("緑のまま、今の単位の差分を整えよ（重複・名前・不要になったコード。テストのファイルは変えない）", ref)
+        for text in (fix, ref):
+            self.assertNotIn("current", text, "形の名を役に渡さない")
+
+    def test_broken_shape_stops_start(self):
+        """形の控えが壊れていれば、traceback でなく理由の Broken で止める"""
+        p = self.board / fixshape.CHOICE_REL
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("壊れた", encoding="utf-8")
+        with self.assertRaisesRegex(tddloop.Broken, "修正の形"):
+            tddloop.start(self.board, self.repo, str(self.suite), OPEN, test_cmd=f"{sys.executable} -c pass")
+
+    def test_test_cmd_gate_off_with_note(self):
+        """緑の test_cmd でも走らせず、関門を切って理由を残す"""
+        self.shape("current", test_cmd=f"{sys.executable} -c pass")
+        self.assertEqual((self.st()["test_cmd_gate"], self.st()["test_cmd_note"]), (tddloop.GATE_OFF, tddloop.PLAIN_NOTE))
+        self.assertEqual(tddloop.PLAIN_NOTE, "修正の形 current——test_cmd の関門は回さない（比べの基準）")
+        self.assertFalse(pathlib.Path(self.st()["work"], "test-cmd-0.log").exists(), "輪の頭で test_cmd を走らせない")
+        self.route()
+        self.red()
+        self.fix_mean()
+        self.assertTrue(self.step({"phase": "refactor", "unit_key": MEAN, "what": "整える物は無い"})["done"])
+        self.assertEqual(self.st()["units"][MEAN]["test_cmd"], "", "緑の後も test_cmd を走らせない")
+        ex = tddloop.exit_fields(self.start)
+        self.assertEqual(ex["test_cmd"], {"gate": tddloop.GATE_OFF, "note": tddloop.PLAIN_NOTE})
+
+    def test_af_keeps_219_behavior(self):
+        """形 af の盤面は今どおり: 申告の無い単位は整えを飛ばし、緑の test_cmd は on"""
+        self.shape("af", test_cmd=f"{sys.executable} -c pass")
+        self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
+        self.route()
+        self.red()
+        fix = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(tddloop.DO["fix"], fix)
+        self.assertTrue(self.fix_mean()["done"])
+        self.assertEqual(self.st()["units"][MEAN]["refactor"], "skipped")
 
 
 class TestRunSuiteSlot(unittest.TestCase):

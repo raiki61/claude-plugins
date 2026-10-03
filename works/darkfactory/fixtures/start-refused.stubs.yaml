@@ -1192,7 +1192,7 @@ h-refit:
 refitting__ignored-before:
   ok: true
   count: 0
-  file: board/fix-ignored-before.json
+  file: board/fix-ignored-before.refit.json
 refitting__tdd-start:
   go: false
   reason: テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す
@@ -1206,7 +1206,7 @@ refitting__conflict-check:
 refitting__clean:
   ok: true
   count: 1
-  file: board/fix-removed.json
+  file: board/fix-removed.refit.json
 refitting__assert-changed:
   ok: true
   files:
@@ -1221,7 +1221,7 @@ refitting__collect:
   changes_file: board/changes.json
   removed:
     count: 1
-    file: board/fix-removed.json
+    file: board/fix-removed.refit.json
   tdd:
     ran: false
     suite: ''

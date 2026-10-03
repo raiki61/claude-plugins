@@ -10,6 +10,7 @@ next.md（full の写し）と隣の 2 つの形に書き、{"prompt_file"} を 
 $LOOP_PREV で貼らない。R44）。cwd（対象の worktree）の差分から変更の種類を選ぶ。
 環境変数が欠けた・状態が読めない・輪が済んでいる: 標準エラーに 1 行出して 2。
 brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2。
+修正の形 g3 の盤面で、借りた superpowers の写しが固定（pin）と違えば、座の無い指示書に逃げずに 2。
 """
 import sys
 from pathlib import Path

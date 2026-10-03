@@ -94,7 +94,7 @@ nodes:
         go: {type: boolean}
         reason: {type: string}
         suite: {type: string}
-        state_file: {type: string}     # 輪の状態（盤面の tdd-<k>/state.json）。go: false なら空
+        state_file: {type: string}     # 輪の状態（盤面の tdd-<k>/state.json）。実行器の無い run は空（g1 は go: false でも元の結末の状態を持つ）
         summary_file: {type: string}   # 輪の結果（修正役が読む）。go: false なら空
 
   # 単位ごとの TDD の輪（設計 2 節 3・案 (i)。graph は変えない）。役 tdd は輪のただ 1 つの AI の節（TA13）で、振り分け・
@@ -132,7 +132,9 @@ nodes:
           prompt: 指示書 `$tdd-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
+          # 借りたスキルの座（.shared/core/seat.py）: 修正の形 g3 の時だけ tdd-prep が指示書に座と読み替えを載せる。宣言は静的で、ほかの形の柵は包みが持つ
+          skills: [test-driven-development]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # 印 works-node: tdd（包みが会話を節の名で分け、続きの起動で指示書の形を選ぶ）
@@ -235,6 +237,7 @@ nodes:
             policy_path: $INPUTS.policy_path
             notes_file: $INPUTS.notes_file
             summary_file: $tdd-start.output.summary_file
+            base_rev: $INPUTS.base_rev   # 修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
             pass: "first"
             pass_tag: $INPUTS.pass_tag
             include_id: $INPUTS.include_id
@@ -255,7 +258,8 @@ nodes:
           prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
+          # Agent は修正の形 g1 で SDD の型の下請けを起こす口（seat.g1_section）。宣言は静的で、g1 の外は包みが拒む（fixshape.denied_tools）
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # recount.FIX_OUTPUT_FORMAT（写しの p3.fix の schema に印 works-node: fix）を貼った物（tests/test_blk_fix.py が一致を見る）
@@ -607,9 +611,10 @@ nodes:
           with:
             reply: {from: "$fix.output"}
             base_rev: $INPUTS.base_rev
-            tdd_state: $tdd-start.output.state_file   # 輪で凍ったテストのファイルを修正役が変えていないか（空は輪の無い run）
+            tdd_state: $tdd-start.output.state_file   # 輪で凍ったテストのファイルを修正役が変えていないか・選んで回す試験の元の結末（空は実行器の無い run）
             iteration: $fix-prep.output.iteration     # 輪の何回目か（3 回目の拒否で done。R50）
             pass: "first"
+            tdd_suite: $INPUTS.tdd_suite              # 事後の関門の束の実行器（空は受け入れのテストの赤緑を確かめない run）
             pass_tag: $INPUTS.pass_tag
             include_id: $INPUTS.include_id
           output_format:
@@ -762,6 +767,7 @@ nodes:
             policy_path: $INPUTS.policy_path
             notes_file: $INPUTS.notes_file
             summary_file: $tdd-start.output.summary_file
+            base_rev: $INPUTS.base_rev
             pass: "ruled"
             pass_tag: $INPUTS.pass_tag
             include_id: $INPUTS.include_id
@@ -782,7 +788,7 @@ nodes:
           prompt: 指示書 `$fix-ruled-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-ruled-prep]
           settingSources: [user]
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]   # 修正役と同じ
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]   # 修正役と同じ
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # recount.RULED_OUTPUT_FORMAT（修正役と同じ欄。印だけが違う）
@@ -804,6 +810,7 @@ nodes:
             tdd_state: $tdd-start.output.state_file
             iteration: $fix-ruled-prep.output.iteration
             pass: "ruled"
+            tdd_suite: $INPUTS.tdd_suite
             pass_tag: $INPUTS.pass_tag
             include_id: $INPUTS.include_id
           output_format:

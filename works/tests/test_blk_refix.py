@@ -26,11 +26,13 @@ sys.path.insert(0, str(TESTS))
 import accept  # noqa: E402
 from board import BoardGap, rules_module  # noqa: E402
 import entry  # noqa: E402
+import fixshape  # noqa: E402
 import linekit  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
 import refix  # noqa: E402
 import rulebook  # noqa: E402
+import seat  # noqa: E402
 import test_entry as TE  # noqa: E402
 
 K1 = "stats.py mean: 分母が len(xs) - 1 になっている"
@@ -102,6 +104,14 @@ def apply_refix(repo: pathlib.Path) -> None:
     """手直しの役の代わり: clamp の docstring の 1 行だけを書き直す"""
     p = repo / "stats.py"
     p.write_text(p.read_text(encoding="utf-8").replace(FIXED_DOC, REFIXED_DOC), encoding="utf-8")
+
+
+def load_refixrules():
+    """手直しの役の組み立て（blk-refix/lib/refixrules.py）"""
+    if str(REFIX_DIR / "lib") not in sys.path:
+        sys.path.insert(0, str(REFIX_DIR / "lib"))
+    import refixrules
+    return refixrules
 
 
 def workflow_nodes(path: pathlib.Path):
@@ -360,7 +370,7 @@ class RefixCase(DeltaBoardCase):
         self.assertEqual(rows["refix"][1], "refixing__refix-loop.refix")
         self.assertEqual(rows["review2"][1], "refixing__review2-loop.review2")
         self.assertEqual(rows["review2"][2], refix.must(self.board, "review2"))
-        self.assertEqual(len(rows["review2"][2]), 2)
+        self.assertEqual(len(rows["review2"][2]), 2)   # brief・差分（2 回目の審査役に座は無い）
         out = refix.collect_refix(self.board)
         self.assertEqual(out["reads_file"], got["reads_files"]["refix"])
         self.assertEqual(out["reads_files"], got["reads_files"])
@@ -410,6 +420,30 @@ class RefixCase(DeltaBoardCase):
         self.assertNotIn("prompt_file", again)
         self.assertFalse(pathlib.Path(got["prompt_file"]).exists())
         self.assertEqual(refix.must(self.board, "refix"), again["must"])
+
+    def test_prep_script_carries_refix_seat_only_in_g3(self):
+        """手直しの支度（scripts/prep.py）は盤面の形を fixshape.shape_at で引き、g3 なら receiving-code-review の座を組んだ指示書の
+        refix-keep の後に載せる。g3 でなければ載せない。2 回目の審査役には座が無い（返答に判定の欄が無く、判定の語の表の型と
+        ぶつかる）ので、g3 でも 2 回目の審査の支度は座のファイルを書かない"""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_refix_prep", REFIX_DIR / "scripts" / "prep.py")
+        prep = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(prep)
+        repo, _ = self.reviewed()
+        env = {"INPUTS_PASS": "1", "INPUTS_POLICY_PATH": ""}
+        fixshape.choose(self.board, "af", by="test", why="手直しの役の座が g3 だけで出ることの確かめ")
+        plain = pathlib.Path(prep.run(self.board, repo, env)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(seat.HEAD, plain)
+        fixshape.choose(self.board, "g3", by="test", why="手直しの役の座が g3 だけで出ることの確かめ")
+        text = pathlib.Path(prep.run(self.board, repo, env)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(seat.section("refix", "g3"), text)
+        self.assertIn("receiving-code-review", text)
+        apply_refix(repo)
+        self.assertTrue(refix.accept_fix(linekit.reply("fix2_delta_fix_ok"), self.board, "", repo, n=1)["ok"])
+        got = refix.cut(self.board, 2, repo)
+        brief = json.loads(pathlib.Path(got["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(brief["seat_file"], "")
+        self.assertEqual(got["must"], [got["brief_file"], got["diff_file"]])
 
 
 # ---------------------------------------------------------------- スクリプト（子で起こす）
@@ -476,6 +510,16 @@ class RefixStaticCase(unittest.TestCase):
         for p in want.values():
             for k in ("cut", "review", "owed", "fix"):
                 self.assertNotIn(f'"{p[k]}"', src)   # 節の名前の字を refix.py に書かない
+
+    def test_refix_seat_after_keep(self):
+        """手直しの役の座は手直しだけの決まり（refix-keep）の次に載る。空の座は載せない"""
+        mod = load_refixrules()
+        values = {"brief_file": "/b.json", "diff_file": "/d.patch", "policy_path": ""}
+        ids = [pid for pid, _, _ in mod.parts(1, values, seat="S")]
+        self.assertEqual(ids[ids.index("refix-keep") + 1], "seat")
+        self.assertEqual(dict((pid, t) for pid, t, _ in mod.parts(2, values, seat="S"))["seat"], "S")
+        self.assertNotIn("seat", [pid for pid, _, _ in mod.parts(1, values)])
+        self.assertIn("S", mod.build(1, values, seat="S"))
 
     def test_refix_head_names_plan_items_and_compliance(self):
         """1 回目の手直しの指示書の頭（節 refix-head-1）が材料の plan_items と compliance を読ませる。2 回目の頭は載せない"""

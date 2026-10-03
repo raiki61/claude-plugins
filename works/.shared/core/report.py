@@ -52,6 +52,7 @@ import adapter  # noqa: E402
 import conflict  # noqa: E402
 import design  # noqa: E402
 import gatemarks  # noqa: E402
+import impact  # noqa: E402
 import libdocs  # noqa: E402
 import querytest  # noqa: E402
 import recount  # noqa: E402
@@ -60,6 +61,7 @@ from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が
 from engine.rules import validator_module  # noqa: E402
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
+import fixture  # noqa: E402
 import lens  # noqa: E402
 import reads  # noqa: E402
 import structmark  # noqa: E402
@@ -905,6 +907,7 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
             lines.append("包みが通っていない")
         lines += [f"  - {w}" for w in seen["whys"]]
     lines += write_lines(b)
+    lines += gates_lines(b)
     by, reason, _ = _stop_info(b)
     if by == ADAPTER_BY:
         lines.append(f"包みの確かめで止めた: {reason}")
@@ -930,6 +933,17 @@ def write_lines(b) -> list:
     return lines
 
 
+def gates_lines(b) -> list:
+    """修正の受け付けの事後の関門の束が、受け入れのテストの赤緑を確かめずに受けた回の行（blk-fix の受け付けが盤面の trace に
+    impact.ACCEPT_GATES_SKIPPED_OP で積んだ物）: 回の数と理由（同じ理由は 1 度）。報告の冒頭（head_reads）と最後の人の関所の
+    文（darkfactory の line_edge._final_text）が載せる"""
+    rows = trace_rows(b, impact.ACCEPT_GATES_SKIPPED_OP)
+    if not rows:
+        return []
+    whys = list(dict.fromkeys(w for r in rows for w in r.get("why") or [] if isinstance(w, str)))
+    return [f"事後の関門の束: 受け付け {len(rows)} 回が受け入れのテストの赤緑を確かめずに通した（理由: {' / '.join(whys)[:600]}）"]
+
+
 def _time(s):
     try:
         t = datetime.datetime.fromisoformat(str(s).replace("Z", "+00:00"))
@@ -939,8 +953,9 @@ def _time(s):
 
 
 def _since_created(b, rows) -> list:
-    """盤面を作った（state.created）後の行（reads.adapter_seen と同じ絞り方）"""
-    since = _time(b.state.get("created"))
+    """盤面を作った（state.created。固定材料から取り込んだ盤面は取り込んだ時刻。fixture.since）後の行（reads.adapter_seen と
+    同じ絞り方）"""
+    since = _time(fixture.since(b.dir, b.state.get("created")))
     if since is None:
         return []
     out = []

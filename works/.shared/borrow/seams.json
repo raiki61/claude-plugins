@@ -146,6 +146,12 @@
         "para_sha256": "4e27f33c7bc660ac5d10ad140d1a1bf3ff747416a0ea46020d899990c6df947c"
       },
       {
+        "rule": "CRAWL",
+        "file": "skills/subagent-driven-development/task-reviewer-prompt.md",
+        "quote": "Do not crawl the broader codebase",
+        "para_sha256": "4e27f33c7bc660ac5d10ad140d1a1bf3ff747416a0ea46020d899990c6df947c"
+      },
+      {
         "rule": "OUTPUT",
         "file": "skills/subagent-driven-development/task-reviewer-prompt.md",
         "quote": "Your final message is the report itself",

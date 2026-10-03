@@ -10,8 +10,8 @@ SDK が組んだ argv に Read のフック・会話の継ぎ・起動ごとの�
 - 本物の claude: env の WORKS_REAL_CLAUDE（絶対パス）、無ければ PATH の実行ファイル `claude`（この包み自身は飛ばす）。
   見つからなければ 1 行を出して終了コード 127
 - 置き場: env の WORKS_ADAPTER_HOME（無ければ ${XDG_STATE_HOME:-~/.local/state}/works/adapter）。絶対パスでなければ 1 行を出して終了コード 2
-- 印のある起動で、continue=X の X の id が無い・印が読めない・--settings を混ぜられない・切符が読めない・会話の id を
-  記録できない時は、子を起こさずに 1 行を出して終了コード 3（fail closed）
+- 印のある起動で、continue=X の X の id が無い・印が読めない・--settings を混ぜられない・切符が読めない・盤面の修正の形の
+  控えが読めない・会話の id を記録できない時は、子を起こさずに 1 行を出して終了コード 3（fail closed）
 - 印のある起動は stdin を中継し、最初の指示文で指示書の全文版か差分版を決めてから子へ渡す（adapter.py の頭の 9）
 - stream-json の起動は stdout を同じバイトで写し、1 手も進まずに終わった子は result を写さずに終了コード 75
   （adapter.NO_TURN_EXIT。Archon が transient として起こし直す）。result の全文は exits/<cwd の hash>.jsonl に残す（頭の 16）
@@ -87,7 +87,7 @@ def run(home_dir, cwd, real, p, on_line=None):
 
 
 def ticket_reader(cwd, home_dir):
-    """切符を 1 回だけ読む関数（protected と run_place が同じ読みを使う。入口を 2 つにしない）"""
+    """切符を 1 回だけ読む関数（protected・run_place・board が同じ読みを使う。入口を 2 つにしない）"""
     cache = []
     def read():
         if not cache:
@@ -132,6 +132,7 @@ def main():
     p = adapter.plan(argv, cwd, home_dir, adapter.hook_command(sys.executable, RECORDER, sink),
                      protected=lambda: protected(cwd, home_dir, read),
                      run_place=lambda: adapter.run_place_of(read()),
+                     board=lambda: adapter.board_of(read()),
                      write_command=adapter.hook_command(sys.executable, WRITE_RECORDER, sink))
     if p.mode == "refused":
         log_launch(home_dir, cwd, p)

@@ -822,7 +822,7 @@ class TestSecondPass(TripCase):
         b = entry.open_board(self.board)
         return {"judgment_file": str(self.board / b.state["outputs"]["p2.diagnose"]["file"]),
                 "open_units": json.dumps([MEAN, CLAMP], ensure_ascii=False), "plan_file": "", "policy_path": "",
-                "notes_file": "", "summary_file": ""}
+                "notes_file": "", "summary_file": "", "base_rev": ""}
 
     def prep_script(self, tag=""):
         """支度の節 fix-prep を子で起こす（tag は回の印。空なら環境変数を渡さない）。返りは出口の JSON"""
