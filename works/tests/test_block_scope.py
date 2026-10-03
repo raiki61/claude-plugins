@@ -9,6 +9,7 @@ fixing の fix-unit-rows.json・r1/brief-1.md・r1/briefs.json・r1/changes.json
 落ちた時の文は上書きしたファイルを全部名指す。
 """
 import hashlib
+import json
 import pathlib
 import sys
 import tempfile
@@ -21,7 +22,8 @@ sys.path.insert(0, str(TESTS))
 
 import linekit  # noqa: E402
 import scriptline  # noqa: E402
-import scopes  # noqa: E402  （scriptline が core を sys.path に足す）
+import report  # noqa: E402  （scriptline が core を sys.path に足す）
+import scopes  # noqa: E402
 import test_blk_fix_conflict as fc  # noqa: E402
 import test_line_a as TL  # noqa: E402
 import test_replan as tr  # noqa: E402
@@ -146,23 +148,30 @@ class TwoIncludesCase(unittest.TestCase):
 
 
 class UndeclaredWriteCase(unittest.TestCase):
-    """部品が宣言の外に書けば、次に盤面を開く口（entry.open_board の scopes.enter）が窓を照らして run を止める"""
+    """部品が宣言の外に書けば、次に盤面を開く節（entry.open_board の scopes.enter）が窓を照らして盤面を止め、報告は止めた後も書かれる"""
 
     def test_undeclared_write_stops_run(self):
         with tempfile.TemporaryDirectory(dir=linekit.work_home()) as t:
             board = pathlib.Path(t) / "run" / "art" / "board"
 
             def stray(repo):
-                """修正役の節（include fixing の窓の中）が別の include の置き場に書く"""
+                """修正役の節（include fixing の窓の中）が直すべき所を直し（受け付けを通る）、別の include の置き場にも書く"""
+                TL.fix_tree(repo)
                 p = board / "planning" / "r1" / "z.json"
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text("{}", encoding="utf-8")
 
             got = scriptline.ScriptLine(pathlib.Path(t) / "run", replies=line_replies(), edits={"fix": stray}).run()
-        self.assertFalse(got["completed"])
-        self.assertIn("planning/r1/z.json", got["failure"])
-        self.assertIn("scope fixing", got["failure"])
-
+            state = json.loads((board / "state.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["stop"]["by"], scopes.SCOPE_CHECK_BY, got["failure"])   # 次に開いた節が盤面を止めた
+            self.assertIn("planning/r1/z.json", state["stop"]["reason"])
+            self.assertIn("scope fixing", state["stop"]["reason"])
+            self.assertIn("darkfactory/reporting", got["trail"])   # 報告は止めた後も走る
+            self.assertNotIn("blk-delta/review", got["trail"])     # 修正の後の段へは進まない
+            self.assertIn("planning/r1/z.json", (board / report.REPORT_FILE).read_text(encoding="utf-8"))
+            window = (board / scopes.WINDOW).read_bytes()
+            report.build(board, judged=None, tests=None, start=None, run_id=scriptline.RUN_ID)   # run の外の dev/report.sh と同じ呼び
+            self.assertEqual((board / scopes.WINDOW).read_bytes(), window)   # run の外の呼びは窓に触らない
 
 if __name__ == "__main__":
     unittest.main()

@@ -172,17 +172,18 @@ def open_kwargs(line: str, table: NodeTable | None = None) -> dict:
     return {**kw, "overrides": {**CORE_OVERRIDES, **(kw.get("overrides") or {})}}
 
 
-def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False, window: bool = True) -> DiskBoard:
+def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBoard:
     """盤面を開く。表は state.works.line のラインの nodes.json。表の sha が盤面を作った時の state.works.table_sha と違えば
     BoardMismatch（run の途中で表が替わった盤面を、替わった表で回さない）。open_kwargs の返りを DiskBoard.open に渡す。
     scope は今の script が居る include の名（flow_adapter.current_scope。線の最上段は空）。空でなければ、部品の私物を scope の根に
     分ける置き場の版（state.works.layout が board.LAYOUT）でない盤面は BoardMismatch（この版より前に始めた盤面。移し替えない）、
     そうなら今の周の scopes.json に scope と起こされたブロックを登録し（scopes.claim）、周の置き場に置く名（scopes.round_names）
     と一緒に盤面に渡す（盤面の work が私物を <scope>/r<N>/ に置く）。部品のコードは scope を知らない。
-    置き場の版の盤面は、scope が空でも scopes.enter を呼ぶ: 前の scope の窓（盤面を開いてから次の scope が開くまで）の盤面の
-    変化を前の部品の宣言に照らし、宣言の外の書き込み・公開の名の持ち主の重なり・必須の出力の欠け・Schema の外れが在れば
-    BoardGap で止め、無ければ今の scope の窓を開く。window が偽なら窓に触らない（run の外で盤面を読むだけの道具。
-    dev/fixmeasure.py。窓を閉じると盤面に書き、線の最後の include の窓を run の外の物として照らしてしまう）"""
+    流れの道具の節（flow_adapter.in_flow_node）が置き場の版の盤面を開く時だけ、scope が空でも scopes.enter を呼ぶ: 前の scope の
+    窓（盤面を開いてから次の scope が開くまで）の盤面の変化を前の部品の宣言に照らし、今の scope の窓を開く。宣言の外の書き込み・
+    公開の名の持ち主の重なり・Schema の外れが在れば盤面を止め（_halt_scope_check。by SCOPE_CHECK_BY）、allow_halted で開いて
+    いなければ BoardGap（開いた節が落ちる。報告と結果の節は allow_halted で開くので走る）。run の外の道具（dev/report.sh・
+    dev/fixmeasure.py）と試験の手は窓に触らない"""
     d = pathlib.Path(board_dir)
     scope = flow_adapter.current_scope()
     try:
@@ -206,10 +207,26 @@ def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False, window: b
                                 f"——include {scope!r} の私物を分けて置けない。移し替えない（この版で run を始め直す）")
         scopes.claim(d, state["round"], scope, block)
         names = scopes.round_names()
-    if window and works.get("layout") == board.LAYOUT:   # 前の窓を閉じて照らし、今の scope の窓を開く（線の最上段も。前の版の盤面は照らさない）
-        scopes.enter(d, state["round"], scope, block)
-    return DiskBoard.open(d, table=table, allow_halted=allow_halted, scope=scope, published=names,
-                          **open_kwargs(line, table))
+    errs = []
+    if flow_adapter.in_flow_node() and works.get("layout") == board.LAYOUT:   # 前の窓を閉じて照らし、今の scope の窓を開く
+        errs = scopes.enter(d, state["round"], scope, block)
+    b = DiskBoard.open(d, table=table, allow_halted=allow_halted, scope=scope, published=names, **open_kwargs(line, table))
+    if errs:
+        reason = (f"部品が宣言の外に書いた（{len(errs)} 件。manifest.json に宣言するか、書き先を scope の根へ移す）:\n"
+                  + "\n".join(f"  - {e}" for e in errs))
+        _halt_scope_check(b, scope or LINE, reason)
+        if not allow_halted:
+            raise BoardGap(reason)
+    return b
+
+
+def _halt_scope_check(b: DiskBoard, at: str, reason: str) -> None:
+    """窓の照らしの誤りで盤面を止める（by scopes.SCOPE_CHECK_BY）。止められない盤面（周を締めた・もう止まった・終わった run。
+    b.stop が Reject）には止めた事実を trace に 1 行（scopes.STOP_AFTER_END_OP。at・reason・by。line_edge と同じ逃げ）"""
+    try:
+        b.stop(reason, by=scopes.SCOPE_CHECK_BY)
+    except Reject:
+        b.trace(scopes.STOP_AFTER_END_OP, at=at, reason=reason, by=scopes.SCOPE_CHECK_BY)
 
 
 

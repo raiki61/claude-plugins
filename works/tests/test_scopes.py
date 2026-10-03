@@ -462,15 +462,17 @@ class GateCase(unittest.TestCase):
         self.put("r1/rule-tree.json")
         self.assertEqual(self.check(w), [])
 
-    def test_missing_required_produce_refused(self):
+    def test_missing_required_listed_not_refused(self):
+        # required の出力の欠けは照らしの誤りにしない（役が落ちた部品の窓を止めると、落ちた理由が隠れ報告も書けない）。
+        # missing_required が並べ、呼び手が trace と報告に載せる
         w = self.window("lensing", "blk-lens")
-        got = self.check(w)
-        self.assertEqual(len(got), 1, got)
-        self.assertIn("lens.json", got[0])
-        self.assertIn("lensing", got[0])
-        self.put("r1/lens.json")
         self.assertEqual(self.check(w), [])
-        self.assertEqual(self.check(self.window("fixing", "blk-fix")), [])   # required でない物は無くてよい
+        self.assertEqual(scopes.missing_required(self.board, w, self.pack), ["r1/lens.json"])
+        self.put("r1/lens.json")
+        self.assertEqual(scopes.missing_required(self.board, w, self.pack), [])
+        fixing = self.window("fixing", "blk-fix")   # required でない物は無くてよい
+        self.assertEqual((self.check(fixing), scopes.missing_required(self.board, fixing, self.pack)), ([], []))
+        self.assertEqual(scopes.missing_required(self.board, self.window("lensing", ""), self.pack), [])
 
     def test_json_produce_schema_mismatch_refused(self):
         w = self.window("fixing", "blk-fix")

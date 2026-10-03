@@ -351,7 +351,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
     out = _empty_board()
     out["report"] = (board / report.REPORT_FILE).is_file()
     try:
-        b = entry.open_board(board, allow_halted=True, window=False)   # 読むだけ（run の外。部品の窓に触らない）
+        b = entry.open_board(board, allow_halted=True)
     except Exception as e:
         gaps.append(f"盤面を開けない: {' '.join(str(e).split())}")
         return out

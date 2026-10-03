@@ -705,6 +705,15 @@ class HeadCase(ReportBase):
         for part in ("3 件", "fixing: planning/r1/y.md", "fixing: r1/x.json", "refitting: fixing/r1/a.md"):
             self.assertIn(part, hit[0])
 
+    def test_head_reads_shows_required_missing(self):
+        """窓の終わりに無かった必須の出力（照らしが trace に積んだ scope_required_missing）は冒頭 4 に数と名が出る（止めない）"""
+        self.begin()
+        self.assertFalse(any("必須の出力の欠け" in x for x in report.head_reads(self.board, RUN_ID)))
+        entry.open_board(self.board).trace(scopes.REQUIRED_MISSING_OP, scope="lensing", names=["r1/lens.json"])
+        hit = [x for x in report.head_reads(self.board, RUN_ID) if "必須の出力の欠け" in x]
+        self.assertEqual(len(hit), 1, hit)
+        self.assertIn("1 件 lensing: r1/lens.json", hit[0])
+
     def test_ci_note_beside_no_adapter(self):
         """adapter optional で CI の役が走った → 冒頭 4 の「包み無し」の行の横（同じ行）に collect.note"""
         self.begin(declared=False, adapter="optional")

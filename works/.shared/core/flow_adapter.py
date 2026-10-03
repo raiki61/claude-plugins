@@ -1,8 +1,9 @@
 """流れの道具（今は Archon v0.11.1）に触る口（依頼 239 の設計 §6）。層 L1（works の物を何も知らない）。標準ライブラリだけ。
 
 部品の中身と引き継ぎの文書は、流れの道具の事をこの口だけを通して知る。別の道具へ乗り換える時に書き直すのはこの模块の中身だけ。
-口は 5 つに限る:
+口は 6 つに限る:
 - current_scope() -> str: 今の script が居る include の名（線の最上段なら ""）。盤面の部品の置き場（scope）の名になる
+- in_flow_node() -> bool: 今のプロセスが流れの道具の節として起こされたか（run の外の道具・試験の手は偽）。盤面の窓を動かすのは節だけ
 - artifact_root() -> Path | None: run の成果物の置き場（無い・空は None）
 - input(name) -> str | None: 節に渡された入力の値（無ければ None。既定の空は "" のまま届く）
 - session_handle()・resume(handle, prompt): 聞き直しの口。まだ作らない（NotImplementedError。形は下と session.schema.json）
@@ -80,6 +81,12 @@ def _scope_from(env) -> str:
 def current_scope() -> str:
     """今の script が居る include の名（線の最上段・流れの道具の外なら ""）"""
     return _scope_from(os.environ)
+
+
+def in_flow_node() -> bool:
+    """今のプロセスが流れの道具の節として起こされたか（Archon はどの script の節にも ARCHON_NODE_EXECUTION を渡す。測り M1）。
+    run の外で盤面を読む道具（dev/report.sh・dev/fixmeasure.py）と試験の手は偽"""
+    return bool(os.environ.get(NODE_EXECUTION_ENV, ""))
 
 
 def artifact_root() -> pathlib.Path | None:

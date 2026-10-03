@@ -24,11 +24,12 @@
 - shared(path): 盤面の根からのパスが共有の記録に当たるか
 - snapshot(board_dir): 盤面の下の全部のファイルの相対パス → [大きさ, mtime_ns]（窓の控え）
 - check_window(board_dir, window, pack): 窓を開いてからの盤面の変化を窓の scope のブロックの宣言に照らした誤りの全部
-  （宣言の外の書き込み・公開の名の持ち主の重なり・必須の出力の欠け・JSON の出力の Schema。線の窓は照らさない。opener の
+  （宣言の外の書き込み・公開の名の持ち主の重なり・JSON の出力の Schema。線の窓は照らさない。opener の
   scope の根は、盤面を開く前に書いたその scope の物として通す）
 - reads_outside(board_dir, window, pack): 窓の間の読んだ証拠のうち、宣言の外の盤面のパス（落とさない。外れ D4）
-- enter(board_dir, round_, scope, block): 盤面を開く口が呼ぶ。scope が替われば前の窓を照らし（誤りは BoardGap）、宣言の外の
-  読みを trace の行 READ_OUTSIDE_OP に積み、今の scope の窓 scope-window.json を開く
+- missing_required(board_dir, window, pack): 窓の終わりに無い必須の出力（止めない。trace と報告に載せる）
+- enter(board_dir, round_, scope, block): 盤面を開く口が節の中で呼ぶ。scope が替われば前の窓を照らして誤りを返し（呼び手が
+  盤面を止める）、必須の出力の欠けと宣言の外の読みを trace に積み、今の scope の窓 scope-window.json を開く
 
 名の形は段ごとに当てる（* が / をまたぐ fnmatch のままだと、rejects-*.json が rejects-a/b.json のような scope の下の私物まで
 公開の名に数える）。形の字は manifest を読む時に照らす: 空の段・"."・".."・頭の "/" を持たず、** は末尾の段そのものだけ。
@@ -65,6 +66,9 @@ SCRIPTS_DIR = "scripts"                       # ブロックのスクリプト�
 WINDOW = "scope-window.json"                  # 盤面の根の今の窓 {scope, block, round, files: snapshot}（enter が書く）
 WINDOW_LOCK = "scope-window.json.lock"        # 窓の読み書きの錠（fcntl.flock。待つ上限は持たない）
 READ_OUTSIDE_OP = "scope_read_outside"        # 窓の宣言の外の読みの trace の行 {scope, paths}（落とさない。外れ D4）
+REQUIRED_MISSING_OP = "scope_required_missing"  # 窓の終わりに無かった必須の出力の trace の行 {scope, names}（止めない）
+SCOPE_CHECK_BY = "works:scope-check"          # 窓の照らしが盤面を止めた state.stop.by
+STOP_AFTER_END_OP = "stop_after_round_end"    # 周を締めた盤面に止めが来た印の trace の行（line_edge・report と同じ語。b.stop は拒む）
 OWNS = "owns"                                 # 周の scopes.json の鍵: 公開の名 → それを書いた scope（周ごとに持ち主は 1 つ）
 _ROUND_DIR = "r[0-9]*"                        # 周の置き場 r<N> の段の形（共有の記録の形の頭）
 _ROUND_NAME = re.compile(r"r\d+")              # 周の置き場 r<N> の段そのもの（board._ROUND_NAME と同じ字）
@@ -407,8 +411,8 @@ def check_window(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PAC
     全部（最初の 1 つで止めない。無ければ []）。scope が空（線）の窓は照らさない（外れ D5）。変わった・増えた・消えたパスごとに:
     scope の根の下・共有の記録は可。周の置き場 r<N>/<名> はブロックの per_include でなく at が round の produces なら可で、
     r<N>/scopes.json の owns に持ち主の scope を記録し、別の scope が持ち主なら誤り（周ごとに書き手は 1 つ）。盤面の根の <名> は
-    at が root の produces なら可（周を持たないので持ち主は記録しない）。ほかは誤り。あわせて、窓の周の required の produces が
-    無い・format が json の produces（scope の根の per_include の物も）が読めないか Schema に合わない、も誤り。
+    at が root の produces なら可（周を持たないので持ち主は記録しない）。ほかは誤り。あわせて、format が json の produces（scope の
+    根の per_include の物も）が読めないか Schema に合わない、も誤り（required の欠けは誤りにしない: missing_required）。
     opener は今盤面を開いて窓を閉じる scope（enter が渡す）で、その scope の根の変化は照らさない: 盤面を開く前に自分の scope の根に
     書く節（依頼の受け付けの intake・テストの走らせ（script_io.scope_dir））の物で、閉じる窓の物ではない"""
     scope, block, n = window.get("scope") or "", window.get("block") or "", window.get("round")
@@ -443,14 +447,25 @@ def check_window(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PAC
                 errs.append(f"{rel}: {who} が宣言の外に書いた（この周の持ち主は scope {other}。周ごとに書き手は 1 つ）。宣言: {decl}")
                 continue
         errs += [f"{rel}: {who} の {name} が {e}" for e in _schema_errors(d, rel, *hit, pack)]
-    if block:
-        for p in _loaded(str(pathlib.Path(pack).resolve())).get(block, {}).get("produces", []):
-            if not p.get("required"):
-                continue
-            place = (f"{scope}/" if p.get("per_include") else "") + (f"r{n}/" if p.get("at", "round") == "round" else "")
-            if not any(matches(rel, place + p["name"]) for rel in now_files):
-                errs.append(f"{place}{p['name']}: {who} が必須の出力（required）を書いていない。宣言: {decl}")
     return errs
+
+
+def missing_required(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PACK) -> list[str]:
+    """窓の scope のブロックの required の produces のうち、窓の周の置き場に今無い物の盤面の根からの名（形のままの名も）。止めない:
+    役が落ちた・諦めた部品の出力は無くなるので、止めると落ちた理由が BoardGap の陰に隠れ報告も書けない。呼び手（enter）が trace の
+    行 REQUIRED_MISSING_OP と報告に載せる。scope が空の窓・ブロックが分からない窓は []"""
+    scope, block, n = window.get("scope") or "", window.get("block") or "", window.get("round")
+    if not (scope and block):
+        return []
+    now_files = snapshot(board_dir)
+    out = []
+    for p in _loaded(str(pathlib.Path(pack).resolve())).get(block, {}).get("produces", []):
+        if not p.get("required"):
+            continue
+        place = (f"{scope}/" if p.get("per_include") else "") + (f"r{n}/" if p.get("at", "round") == "round" else "")
+        if not any(matches(rel, place + p["name"]) for rel in now_files):
+            out.append(place + p["name"])
+    return out
 
 
 def _consumed(block: str, pack, name: str) -> bool:
@@ -513,11 +528,12 @@ def _read_window(d: pathlib.Path) -> dict | None:
     return doc
 
 
-def enter(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> None:
-    """盤面を開く口（entry.open_board）が scope（線の最上段は空）で開くたびに呼ぶ。錠 scope-window.json.lock の下で、盤面の根の
-    今の窓 scope-window.json を読み、窓の scope が今の scope と違えば（窓が閉じる）check_window で照らし、誤りが在れば全行を
-    並べた BoardGap（窓は開き直さない: 走り直しても同じ誤りで止まる）。無ければ前の窓の宣言の外の読み（reads_outside）を trace の
-    行 READ_OUTSIDE_OP {scope, paths} に積み、今の scope の窓を snapshot で開き直す。同じ scope なら何もしない（Archon の再開で
+def enter(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> list[str]:
+    """盤面を開く口（entry.open_board）が流れの道具の節として scope（線の最上段は空）で開くたびに呼ぶ。錠 scope-window.json.lock
+    の下で、盤面の根の今の窓 scope-window.json を読み、窓の scope が今の scope と違えば（窓が閉じる）前の窓を照らす:
+    check_window の誤りを返し（呼び手が盤面を止める）、必須の出力の欠け（missing_required）を trace の行 REQUIRED_MISSING_OP
+    {scope, names} に、宣言の外の読み（reads_outside）を READ_OUTSIDE_OP {scope, paths} に積み、誤りが在っても今の scope の窓を
+    snapshot で開き直す（後の開きが同じ誤りで落ち続けない。止めた事実は盤面に残る）。同じ scope なら何もせず []（Archon の再開で
     同じ include が走り直しても 1 回目からの書き込みを照らし続ける。照らすのは窓ごとに 1 度——外れ D3）"""
     d = pathlib.Path(board_dir)
     with open(d / WINDOW_LOCK, "a", encoding="utf-8") as lock:
@@ -525,21 +541,21 @@ def enter(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> None:
         try:
             window = _read_window(d)
             if window is not None and window["scope"] == scope:
-                return
+                return []
+            errs = []
             if window is not None:
                 errs = check_window(d, window, opener=scope)
-                if errs:
-                    raise BoardGap(f"scope {window['scope']} の窓（周 {window['round']}・ブロック {window['block'] or '不明'}）の"
-                                   f"盤面の変化が宣言に合わない（{len(errs)} 件。manifest.json に宣言するか、書き先を scope の根へ移す）:\n"
-                                   + "\n".join(f"  - {e}" for e in errs))
-                outside = reads_outside(d, window)
-                if outside:
-                    with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
-                        f.write(json.dumps({"t": now(), "op": READ_OUTSIDE_OP, "scope": window["scope"], "paths": outside},
-                                           ensure_ascii=False) + "\n")
+                rows = [(REQUIRED_MISSING_OP, "names", missing_required(d, window)),
+                        (READ_OUTSIDE_OP, "paths", reads_outside(d, window))]
+                with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
+                    for op, key, got in rows:
+                        if got:
+                            f.write(json.dumps({"t": now(), "op": op, "scope": window["scope"], key: got},
+                                               ensure_ascii=False) + "\n")
             doc = {"scope": scope, "block": block, "round": round_, "files": snapshot(d)}
             tmp = d / (WINDOW + ".tmp")
             tmp.write_text(json.dumps(doc, ensure_ascii=False) + "\n", encoding="utf-8")
             tmp.replace(d / WINDOW)
+            return errs
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)

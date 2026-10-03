@@ -329,20 +329,69 @@ class BoardCase(unittest.TestCase):
     def window(self, d) -> dict:
         return json.loads((d / scopes.WINDOW).read_text(encoding="utf-8"))
 
+    def line(self, node: str = "h-fix"):
+        """線の最上段の script の節として開く文脈（ARCHON_NODE_EXECUTION の path に __ が無い）"""
+        return self.scoped(node, block="darkfactory")
+
+    def trace_ops(self, d, op: str) -> list:
+        rows = [json.loads(x) for x in (d / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        return [r for r in rows if r.get("op") == op]
+
     def test_enter_checks_previous_window_on_scope_change(self):
-        # include fixing の窓の間に別の include の置き場へ書く → 次に盤面を開く口（線の最上段）が窓を照らして止める
+        # include fixing の窓の間に別の include の置き場へ書く → 次に盤面を開く節（線の最上段）が窓を照らし、盤面を止めて落ちる
         d = self.create()
         with self.scoped("fixing__fix-loop.fix-prep"):
             entry.open_board(d)
         self.assertEqual((self.window(d)["scope"], self.window(d)["block"]), ("fixing", "blk-fix"))
         self.put(d, "refitting/r1/x.json")
-        with self.assertRaises(BoardGap) as cm:
+        with self.line(), self.assertRaises(BoardGap) as cm:
             entry.open_board(d)
         self.assertIn("refitting/r1/x.json", str(cm.exception))
         self.assertIn("fixing", str(cm.exception))
-        with self.assertRaises(BoardGap):   # 窓は開き直さない（Archon の再開で同じ節が走り直しても照らし続ける）
+        st = json.loads((d / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(st["stop"]["by"], scopes.SCOPE_CHECK_BY)
+        self.assertIn("refitting/r1/x.json", st["stop"]["reason"])
+        self.assertEqual(self.window(d)["scope"], "")   # 窓は開いた節へ移る（後の開きが同じ誤りで落ち続けない）
+        with self.line("h-mid"):
             entry.open_board(d)
-        self.assertEqual(self.window(d)["scope"], "fixing")
+        with self.scoped("reporting__report-write", block="blk-report"):   # 報告の節は止めた盤面を allow_halted で開ける
+            self.assertTrue(entry.open_board(d, allow_halted=True).allow_halted)
+
+    def test_failed_check_found_by_report_does_not_stop_report(self):
+        # 照らしの誤りを見つけたのが報告の節（allow_halted で開く）なら、盤面を止めても報告の節は落ちない
+        d = self.create()
+        with self.scoped("eyeing__eyes-enter", block="blk-eyes"):
+            entry.open_board(d)
+        self.put(d, "r1/stray.json")
+        with self.scoped("reporting__report-write", block="blk-report"):
+            b = entry.open_board(d, allow_halted=True)
+        self.assertEqual(b.state["stop"]["by"], scopes.SCOPE_CHECK_BY)
+        self.assertEqual(self.window(d)["scope"], "reporting")
+
+    def test_failed_check_on_stopped_board_goes_to_trace(self):
+        # 止められない盤面（もう止まった・周を締めた。b.stop が Reject）には、止めた事実を trace に 1 行（line_edge と同じ逃げ）
+        d = self.create()
+        with self.scoped("fixing__fix-loop.fix-prep"):
+            entry.open_board(d)
+        entry.open_board(d).stop("先に人が止めた", by="test")
+        self.put(d, "planning/r1/z.json")
+        with self.line(), self.assertRaises(BoardGap):
+            entry.open_board(d)
+        got = self.trace_ops(d, scopes.STOP_AFTER_END_OP)
+        self.assertEqual([(r["by"], r["at"]) for r in got], [(scopes.SCOPE_CHECK_BY, "darkfactory")])
+        self.assertIn("planning/r1/z.json", got[0]["reason"])
+        self.assertEqual(json.loads((d / "state.json").read_text(encoding="utf-8"))["stop"]["by"], "test")
+
+    def test_missing_required_output_reaches_trace_not_stop(self):
+        # 必須の出力（blk-lens の lens.json）が窓の終わりに無くても止めない: trace の行に残り、報告が載せる
+        d = self.create()
+        with self.scoped("lensing__lens-route", block="blk-lens"):
+            entry.open_board(d)
+        with self.line("h-review"):
+            entry.open_board(d)
+        self.assertNotIn("stop", json.loads((d / "state.json").read_text(encoding="utf-8")))
+        got = self.trace_ops(d, scopes.REQUIRED_MISSING_OP)
+        self.assertEqual([(r["scope"], r["names"]) for r in got], [("lensing", ["r1/lens.json"])])
 
     def test_enter_same_scope_again_keeps_window(self):
         d = self.create()
@@ -354,18 +403,21 @@ class BoardCase(unittest.TestCase):
             entry.open_board(d)
         self.assertEqual(self.window(d), first)   # 同じ scope は窓を開き直さない（1 回目からの書き込みを照らし続ける）
         self.assertNotIn("fixing/r1/a.json", self.window(d)["files"])
-        entry.open_board(d)   # 線の最上段: scope の根の書き込みは通り、線の窓を開く
+        with self.line():
+            entry.open_board(d)   # 線の最上段: scope の根の書き込みは通り、線の窓を開く
         self.assertEqual(self.window(d)["scope"], "")
         self.assertIn("fixing/r1/a.json", self.window(d)["files"])
 
-    def test_open_board_without_window_writes_nothing(self):
-        # run の外で盤面を読むだけの道具（dev/fixmeasure.py）は窓に触らない（盤面に書かず、最後の include の窓を照らさない）
+    def test_open_board_outside_flow_node_leaves_window(self):
+        # 流れの道具の節でない開き（run の外の dev/report.sh・dev/fixmeasure.py、試験の手）は窓に触らない（盤面に書かず照らさない）
         d = self.create()
-        with self.scoped("reporting__report-write"):
+        entry.open_board(d)
+        self.assertFalse((d / scopes.WINDOW).exists())
+        with self.scoped("reporting__report-write", block="blk-report"):
             entry.open_board(d)
         before = scopes.snapshot(d)
         self.put(d, "fixing/r1/x.json")
-        self.assertEqual(entry.open_board(d, window=False).scope, "")
+        self.assertEqual(entry.open_board(d, allow_halted=True).scope, "")
         self.assertEqual(scopes.snapshot(d), {**before, "fixing/r1/x.json": scopes.snapshot(d)["fixing/r1/x.json"]})
         self.assertEqual(self.window(d)["scope"], "reporting")
 
@@ -378,9 +430,9 @@ class BoardCase(unittest.TestCase):
         self.put(d, "fixing/r1/reads-fix.json", json.dumps({
             "role": "fix", "node_path": "fixing__fix-loop.fix", "rows": rows,
             "sources": {"hook": True, "events": "none"}, "missing": []}))
-        entry.open_board(d)   # 次の窓へ移る時に、前の窓の宣言の外の読みを trace に積む（落とさない）
-        rows = [json.loads(line) for line in (d / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
-        got = [r for r in rows if r.get("op") == scopes.READ_OUTSIDE_OP]
+        with self.line():
+            entry.open_board(d)   # 次の窓へ移る時に、前の窓の宣言の外の読みを trace に積む（落とさない）
+        got = self.trace_ops(d, scopes.READ_OUTSIDE_OP)
         self.assertEqual([(r["scope"], r["paths"]) for r in got], [("fixing", ["planning/r1/y.md"])])
 
     def test_old_board_refused_when_scoped(self):

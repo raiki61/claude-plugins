@@ -147,25 +147,30 @@ board/
 - `produces`: `[{"name", "format": "md"|"json", "schema"?, "per_include"?, "required"?, "at"?}]`。
   - `name` は置き場からの名か、`/` で区切った段ごとの形（`*` は段をまたがない。末尾の `**` は下の全部）。字のままの名が形より勝つ。
   - `format` が `json` なら `schema`（部品のフォルダからの JSON Schema のパス）が要る。
-  - `at`: `round`（既定）は周の置き場 `r<N>/<名>`、`root` は盤面の根 `<名>`。
+  - `at`: `round`（既定）は周の置き場 `r<N>/<名>`、`root` は盤面の根 `<名>`。`root` の名は周を持たないので持ち主を記録しない（照らすのは名と Schema だけ）。同じ部品の 2 つの include が同じ周に書き直してよく、今は `blk-plan` の `planning` と `replanning` が `plan-fields.json`・`design.json` などを書き直す。
   - `per_include` が真なら公開の置き場でなく各 include の scope の根に残す（同じ部品の 2 つの include がそれぞれ出す物。読む側は `scopes.each`・`scopes.all_rounds` で集める）。偽なら公開の置き場に置き、周ごとに書き手の scope は 1 つ。
-  - `required` が真なら、窓を閉じる時に無ければ誤り。
+  - `required` が真なら、窓を閉じる時に無ければ trace と報告に載る（run は止めない。役が落ちた・諦めた部品の出力は無くなるので、止めると落ちた理由が隠れて報告も書けない）。
 - 宣言しない名は全部、scope の根の中の私物。
 
 ### 照らし（宣言の外の書き込みで run を止める）
 
-窓は、1 つの scope が盤面を開いてから、別の scope か線が盤面を開くまでの間。`entry.open_board` は開くたびに `scopes.enter` を呼び、scope が替わる時に前の窓の盤面の変化（パス・大きさ・mtime_ns）を前の部品の manifest に照らす。照らすのは窓ごとに 1 度で、同じ scope が開き直しても窓は開き直さない（Archon の再開で同じ節が走り直しても、1 回目からの書き込みを照らし続ける）。誤りが在れば BoardGap で run が止まり、窓は開き直さない（走り直しても同じ誤りで止まる）。
+窓は、1 つの scope が盤面を開いてから、別の scope か線が盤面を開くまでの間。Archon の節（Archon が節の居場所を環境変数で渡したプロセス。`flow_adapter.in_flow_node`）が `entry.open_board` で盤面を開くたびに `scopes.enter` を呼び、scope が替わる時に前の窓の盤面の変化（パス・大きさ・mtime_ns）を前の部品の manifest に照らす。照らすのは窓ごとに 1 度で、同じ scope が開き直しても窓は開き直さない（Archon の再開で同じ節が走り直しても、1 回目からの書き込みを照らし続ける）。誤りが在れば盤面を止め（`state.stop.by` が `works:scope-check`。周を締めた・もう止まった盤面は止められないので、trace の行 `stop_after_round_end` に残す）、窓は開いた節へ移す（後の開きが同じ誤りで落ち続けない）。開いた節は BoardGap で落ちる。報告と結果の節は `allow_halted` で開くので落ちずに走り、報告の結末に止めた理由が載る。run の外の道具（`dev/report.sh`・`dev/fixmeasure.py`）と試験の手は節でないので窓に触らない。
 
 誤りの文の読み方（1 行が 1 つのパス）:
 
 - `planning/r1/z.json: scope fixing（blk-fix） が宣言の外に書いた。宣言: <produces の名の並び>` — include `fixing`（部品 `blk-fix`）の窓の間に、自分の scope の根でも宣言した出力でも共有の記録でもない `planning/r1/z.json` が変わった。直し方は、外が読む物なら manifest の produces に足す（JSON なら Schema も）、部品の私物なら `b.work`（周ごと）か `script_io.scope_dir`（周をまたぐ）に書き先を移す。
 - `… が宣言の外に書いた（この周の持ち主は scope fixing。周ごとに書き手は 1 つ）` — 公開の名を同じ周に 2 つの scope が書いた。片方の書き手を外すか、per_include にする。
-- `r1/lens.json: scope lensing（blk-lens） が必須の出力（required）を書いていない` — required の出力が窓の終わりに無い。
 - `… の lens.json が Schema <パス> に合わない: <誤り>` — JSON の出力が宣言の Schema に合わない。
 
-宣言の外の読み（部品の読んだ証拠 `reads-<役>.json` に、consumes に無い盤面のパスが在る）は止めない。trace の行 `scope_read_outside`（`{scope, paths}`）と、報告の冒頭の読んだ証拠の節の「宣言の外の読み」の行に出る。
+宣言の外の読み（部品の読んだ証拠 `reads-<役>.json` に、consumes に無い盤面のパスが在る）と必須の出力の欠けは止めない。trace の行 `scope_read_outside`（`{scope, paths}`）・`scope_required_missing`（`{scope, names}`）と、報告の冒頭の読んだ証拠の節の「宣言の外の読み」「必須の出力の欠け」の行に出る。
 
-盤面を開く前に自分の scope の根に書く節（依頼の受け付けの intake・テストの走らせ）の物は、次に盤面を開いたその scope の物として通す。run の外で盤面を読むだけの道具（`dev/fixmeasure.py`）は `open_board(..., window=False)` で開き、窓に触らない。
+盤面を開く前に自分の scope の根に書く節（依頼の受け付けの intake・テストの走らせ）の物は、次に盤面を開いたその scope の物として通す。
+
+照らしが見ない所（死角）:
+
+- (a) 部品の節が盤面を初めて開く前に書いた物は、その前の窓の物に数える。前の窓が線の物なら照らさない（多くの部品の前には線の境の節 `h-*` が在る）。盤面の根の錠のファイル（`board.lock`・`.works-material.lock`）はこれで通っている。
+- (b) 上の「自分の置き場」の決まりで、閉じる窓が、次に盤面を開く scope の置き場に書いた物は通る。
+- (c) 起こされた部品の名は、スクリプトのパス（`sys.argv[0]` の `<部品>/scripts/<x>.py`）から引く。uv の起動などでこれが空になると、照らしは公開の名の持ち主で照らすが、必須の出力の欠け・scope の根の per_include の出力の Schema・同じ scope を 2 つの部品が名乗る確かめが弱まる。
 
 ### 部品を足す・廃止する
 
@@ -183,7 +188,7 @@ board/
 - D2: 宣言した出力は初めから公開の置き場 `r<N>/<名>` に書き、周ごとの持ち主を `r<N>/scopes.json` の `owns` に記録する（写す手順を作らない）。
 - D3: 照らしは窓ごとに `entry.open_board` の 1 か所で、パス・大きさ・mtime_ns で比べる（ハッシュは取らない。159 ファイルの dogfood の盤面で 1 回の控えが約 1.2 ms）。
 - D4: 宣言の外の読みは落とさず、trace と報告に載せるだけ。
-- D5: 線の最上段（scope が空）の窓は照らさない。線の窓の間に部品の節が盤面を開く前に書いた物（盤面の根の錠のファイルなど）と、線の最後の include の最後の書き込みも照らさない。
+- D5: 線の最上段（scope が空）の窓は照らさない。線の窓の間に部品の節が盤面を開く前に書いた物（死角 (a)）と、線の最後の include の最後の書き込みも照らさない。
 
 ## 保守のための注
 
