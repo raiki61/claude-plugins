@@ -1,0 +1,8 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "h-plan が受けた判定のブロックの出口の控え r<N>/judged.json（書き手は line_edge.plan_edge）",
+ "type": "object",
+ "properties": {
+  "judgment_file": {"type": "string"}
+ }
+}

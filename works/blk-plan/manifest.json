@@ -1,0 +1,21 @@
+{
+ "owner": "blk-plan",
+ "consumes": [
+  {"name": "structure-state.json"}
+ ],
+ "produces": [
+  {"name": "design-premises.json", "format": "json", "schema": "schemas/design-premises.schema.json", "at": "root"},
+  {"name": "design.json", "format": "json", "schema": "schemas/design.schema.json", "at": "root"},
+  {"name": "gate-marks.json", "format": "json", "schema": "schemas/gate-marks.schema.json", "at": "root"},
+  {"name": "plan-fields.json", "format": "json", "schema": "schemas/plan-fields.schema.json", "at": "root"},
+  {"name": "plan-converge.json", "format": "json", "schema": "schemas/plan-converge.schema.json"},
+  {"name": "plan-converge/**", "format": "md"},
+  {"name": "replan.json", "format": "json", "schema": "schemas/replan.schema.json"},
+  {"name": "rejects-r2.design.json", "format": "json", "schema": "../.shared/core/rejects.schema.json", "at": "root"},
+  {"name": "rejects-replan.fix_plan.json", "format": "json", "schema": "../.shared/core/rejects.schema.json", "at": "root"},
+  {"name": "rejects-replan.plan_review.json", "format": "json", "schema": "../.shared/core/rejects.schema.json", "at": "root"},
+  {"name": "reads-*.json", "format": "json", "schema": "../.shared/core/reads.schema.json", "per_include": true},
+  {"name": "reads-plan-block.json", "format": "json", "schema": "schemas/reads-index.schema.json", "per_include": true},
+  {"name": "reads-replan-block.json", "format": "json", "schema": "schemas/reads-index.schema.json", "per_include": true}
+ ]
+}

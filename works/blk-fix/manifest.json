@@ -1,0 +1,14 @@
+{
+ "owner": "blk-fix",
+ "consumes": [
+  {"name": "structure-state.json"},
+  {"name": "fix-shape.json"}
+ ],
+ "produces": [
+  {"name": "brief-*.md", "format": "md", "per_include": true},
+  {"name": "fix-held-reply.json", "format": "json", "schema": "schemas/fix-held-reply.schema.json", "per_include": true},
+  {"name": "changes.json", "format": "json", "schema": "schemas/changes.schema.json", "per_include": true},
+  {"name": "fix-unit-rows.json", "format": "json", "schema": "schemas/fix-unit-rows.schema.json", "per_include": true, "at": "root"},
+  {"name": "reads-fix.json", "format": "json", "schema": "../.shared/core/reads.schema.json", "per_include": true}
+ ]
+}

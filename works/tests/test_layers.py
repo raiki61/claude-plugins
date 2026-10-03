@@ -52,6 +52,7 @@ MOD = {
     "claude_auth": (1, None),  # 本流 scripts/claude_auth.py の写し（shared-copies.py が同一を縛る。works の物を何も知らない）
     "auth_launch": (1, None),  # 殻の認証の起こし役（claude_auth の写しだけを import する。works の物を何も知らない）
     "ghreads": (1, None),     # 依頼のファイルの形（findings の配列か {findings, pr, issue}）を解く 1 か所（works の物を何も知らない）
+    "flow_adapter": (1, None),  # 流れの道具（Archon）に触る口（依頼 239。scope・置き場・入力・聞き直しの口。works の物を何も知らない）
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "record-write": (2, None),   # 包みが足す書き込みの記録のフック（writes が読む記録を書く）
     "no-post-bin/works-gh": (2, None),
@@ -76,6 +77,7 @@ MOD = {
     "converge": (3, None),    # 事前審査の壁打ち（依頼 231）の決まり・往復の控え・役の型の欄・関所と報告の文（標準ライブラリだけ。gatemarks・修正案のブロックが使う）
     "replan": (3, None),      # 同じ run の中の案の直し（依頼 226）: 待つ fix_plan_item の行を締めて ask_human の道に載せる（境の節 h-rejudge と報告が使う）
     "deltamarks": (3, None),  # 差分の審査の返答の準拠と品質の 2 判定の欄の型・検査・盤面の外の控え（accept の役の型・refix の審査の受け付けが使う）
+    "scopes": (3, None),      # 部品の置き場と宣言（依頼 239。manifest の読み・公開の名・持ち主。まだ配線しない）
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
     "premises": (4, "blk-premises"),
 }

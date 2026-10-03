@@ -1,0 +1,8 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "役ごとの読んだ証拠の索引 r<N>/reads-plan-block.json・reads-replan-block.json（書き手は blk-plan の planblk.collect_reads。役 → reads-<役>.json のパス）",
+ "type": "object",
+ "patternProperties": {
+  ".": {"type": "string"}
+ }
+}

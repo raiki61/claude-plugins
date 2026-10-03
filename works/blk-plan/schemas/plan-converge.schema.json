@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "事前審査の壁打ちの往復の控え r<N>/plan-converge.json（書き手は core の converge）",
+ "type": "object",
+ "required": ["round", "passes"],
+ "properties": {
+  "round": {"type": "integer", "minimum": 1},
+  "passes": {"type": "array", "items": {"type": "object", "properties": {"pass": {"type": "integer"}, "blocks": {"type": "array"}, "outcome": {"type": ["string", "null"]}}}},
+  "outcome": {"type": ["string", "null"]},
+  "open": {"type": "object"}
+ }
+}

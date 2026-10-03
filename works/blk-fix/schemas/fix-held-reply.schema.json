@@ -1,0 +1,9 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "待つ単位が在る間に控えた修正役の返答 r<N>/fix-held-reply.json（書き手は blk-fix の accept の hold_fix。盤面に渡す形の返答に bash_writes を残した物）",
+ "type": "object",
+ "properties": {
+  "changes": {"type": "array"},
+  "bash_writes": {"type": "array"}
+ }
+}

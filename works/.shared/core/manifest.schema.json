@@ -1,0 +1,110 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "部品（ブロック）と線の宣言 <owner のフォルダ>/manifest.json（依頼 239）",
+ "description": "部品が盤面で読み書きしてよいのは、自分の scope の根・宣言した入力（consumes）・宣言した出力（produces）の 3 つだけ。宣言しない名は scope の根に閉じた私物（private は書かなくてよい）。consumes／produces の 2 つの節の名と書き方（読む物も出す物も、後の者が頼る名で書く）は superpowers 6.4.2 の skills/writing-plans/SKILL.md の Interfaces の節（Consumes・Produces）の型を写した。superpowers は MIT License（Copyright (c) 2025 Jesse Vincent）で、著作権の表示と許諾の文の全文は works の .shared/borrow/superpowers/6.4.2/LICENSE に在る。name は at の置き場からの名（at が round（既定）なら周の置き場 r<N>/、root なら盤面の根）か、/ で区切った段ごとの fnmatch の形（* は段をまたがない。** は末尾の段だけで、下の全部）。per_include が偽の produces は scope の外の公開の置き場に置き、周ごとに書き手の scope は 1 つ。consumes は名だけを書き、出す owner は名から引く（部品はほかの部品の名を書かない）。真なら各 include の scope の根に残す。format が json の produces は schema（owner のフォルダからの相対パスの JSON Schema）が要る。照らすのは写しの engine の engine.schema.validate_schema が見る語と、下の allOf の if／then（works の scopes が当てる）。",
+ "type": "object",
+ "required": [
+  "owner",
+  "consumes",
+  "produces"
+ ],
+ "additionalProperties": false,
+ "properties": {
+  "owner": {
+   "type": "string",
+   "pattern": "^[A-Za-z0-9_-]+$",
+   "description": "ブロックか線のフォルダの名（manifest.json の置き場と同じ）"
+  },
+  "consumes": {
+   "type": "array",
+   "description": "読む物。ほかの owner が per_include でなく produces に宣言した名（出す owner は名から引く。周ごとに持ち主は 1 つ）。部品はほかの部品の名を書かない",
+   "items": {
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "どれか 1 つの owner の公開の produces の name と同じ字"
+     }
+    }
+   }
+  },
+  "produces": {
+   "type": "array",
+   "description": "外に出す物。AI が読む物は md、機械が照らす物は json と JSON Schema",
+   "items": {
+    "type": "object",
+    "required": [
+     "name",
+     "format"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "name": {
+      "type": "string",
+      "minLength": 1
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "md",
+       "json"
+      ]
+     },
+     "schema": {
+      "type": "string",
+      "minLength": 1,
+      "description": "owner のフォルダからの相対パス（json の時だけ）"
+     },
+     "per_include": {
+      "type": "boolean",
+      "description": "真なら各 include の scope の根に残す（既定は偽）"
+     },
+     "required": {
+      "type": "boolean",
+      "description": "真なら窓の終わりに無ければ誤り（既定は偽。条件つきでしか出ない物は書かない）"
+     },
+     "at": {
+      "type": "string",
+      "enum": [
+       "round",
+       "root"
+      ],
+      "description": "置き場。round（既定）は周の置き場 r<N>/<name>、root は盤面の根 <name>"
+     }
+    },
+    "allOf": [
+     {
+      "if": {
+       "required": [
+        "format"
+       ],
+       "properties": {
+        "format": {
+         "const": "json"
+        }
+       }
+      },
+      "then": {
+       "required": [
+        "schema"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "private": {
+   "type": "array",
+   "description": "書いてよいが外に出さない名（任意。書かなければ scope の根の中は全部私物）",
+   "items": {
+    "type": "string",
+    "minLength": 1
+   }
+  }
+ }
+}

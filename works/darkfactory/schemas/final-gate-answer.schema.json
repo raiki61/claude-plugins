@@ -1,0 +1,10 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "最後の関所 final-gate の答え r<N>/final-gate-answer.json（書き手は line_edge。stop・reject も書く）",
+ "type": "object",
+ "required": ["decision", "text"],
+ "properties": {
+  "decision": {"type": "string"},
+  "text": {"type": "string"}
+ }
+}

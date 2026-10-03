@@ -1,0 +1,7 @@
+{
+ "owner": "blk-eyes",
+ "consumes": [
+  {"name": "design-premises.json"}
+ ],
+ "produces": []
+}

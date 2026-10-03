@@ -1,0 +1,11 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "再審の役に続けさせる判定役の会話の確かめ r<N>/rejudge-session.json（書き手は core の rejudge.route）",
+ "type": "object",
+ "required": ["id", "path", "launch_at"],
+ "properties": {
+  "id": {"type": ["string", "null"]},
+  "path": {"type": "string"},
+  "launch_at": {"type": ["string", "null"]}
+ }
+}

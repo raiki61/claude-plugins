@@ -1,0 +1,6 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "次の run に渡す依頼の下書き next-request.json（盤面の根。書き手は core の report.build。依頼の型 [{where, text}]）",
+ "type": "array",
+ "items": {"type": "object", "properties": {"where": {"type": "string"}, "text": {"type": "string"}}}
+}

@@ -1,0 +1,214 @@
+"""部品の置き場（依頼 239）の口の検査: 流れの道具の口 flow_adapter と、部品ごとの宣言 manifest の読み口 scopes。
+
+- AdapterCase: flow_adapter が Archon の環境変数だけから scope・置き場・入力を読むこと、聞き直しの口（session_handle・resume）が
+  まだ作られず、誰にも呼ばれていないこと
+- ManifestCase: 全部のブロックと線の manifest.json が manifest.schema.json に合い、公開の名の持ち主が 1 つで、Consumes が
+  在る Produces を指し、JSON の Produces が Schema を持ち、測り M2（台帳の inventory.json）の公開の名が宣言されていること
+
+盤面・git・子のプロセスを使わない（一時の置き場のファイルだけ）。
+"""
+import json
+import os
+import pathlib
+import re
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+CORE = ROOT / ".shared" / "core"
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(CORE))
+sys.path.insert(0, str(CORE / "graphloops"))
+
+import flow_adapter  # noqa: E402
+import scopes  # noqa: E402
+from board import BoardGap  # noqa: E402
+from engine.schema import validate_schema  # noqa: E402
+
+NODE_EXECUTION = "ARCHON_NODE_EXECUTION"
+
+# 測り M2（.superpowers/sdd/2026-10-03-block-scope/inventory.json）の class published と per_include の名を字のまま
+INVENTORY_PUBLISHED = (
+    "design-premises.json", "design.json", "fixture-outside/**", "gate-marks.json", "github.json", "judgment.json",
+    "next-request.json", "no-turn-exits.json", "plan-fields.json", "premises.json", "purpose.json", "rejects-*.json",
+    "report.md", "structure-state.json", "brief-*.md", "briefs.json", "delta-verdicts.json", "final-gate-answer.json",
+    "final-gate.md", "fix-held-reply.json", "fix-shape.json", "gate.md", "human-notes.md", "judged.json", "lens.json",
+    "plan-converge.json", "plan-converge/**", "pr-excluded.json", "reads-pr-check.json", "reads-rejudge.json",
+    "rejudge-diff.json", "rejudge-exit.json", "rejudge-session.json", "replan-gate.md", "replan-notes.md", "replan.json",
+    "start.json", "structure-units.json")
+INVENTORY_PER_INCLUDE = ("fix-unit-rows.json", "changes.json", "reads-*.json", "reads-fix.json", "reads-plan-block.json",
+                         "reads-replan-block.json")
+# M2 の where が root の名（盤面の根。manifest の at: root）。rejects-*.json は持ち主ごとの名に割って宣言する
+INVENTORY_ROOT = ("design-premises.json", "design.json", "fixture-outside/**", "gate-marks.json", "github.json", "judgment.json",
+                  "next-request.json", "no-turn-exits.json", "plan-fields.json", "premises.json", "purpose.json",
+                  "rejects-*.json", "report.md", "structure-state.json", "fix-unit-rows.json")
+# M2 の published から振り直した名（blk-fix の 2 つの include が同じ周に両方書くので、公開の名にすると持ち主が 2 つになる）:
+# 外が読む物は per_include（各 include の写しが scope に残る）、blk-fix の中だけが読む物は私物（宣言しない）
+RECLASSIFIED = {"brief-*.md": "per_include",          # replan.material（線の h-replan）が読む
+                "fix-held-reply.json": "per_include",  # replan.hand_held（線の h-rejudge）と報告が読む
+                "briefs.json": "private"}              # 読むのは blk-fix の planbrief・fixrules・スクリプトだけ
+
+
+def _execution(path: str) -> str:
+    """Archon v0.11.1 が script の節に渡す ARCHON_NODE_EXECUTION の形（測り M1。path 以外の欄は値を問わない）"""
+    return json.dumps({"runId": "r", "path": path, "invocation": {"id": "i", "loopPath": []}, "attempt": {"id": "a"}})
+
+
+class AdapterCase(unittest.TestCase):
+    def _with(self, env: dict):
+        """os.environ を env だけにして返す文脈（試験の外の値を混ぜない）"""
+        return mock.patch.dict(os.environ, env, clear=True)
+
+    def test_current_scope_reads_measured_source(self):
+        # 形 A（測り M1）: path の最初の "__" の前が include の名。輪の中は <include>__<輪>.<節>、線の最上段は "__" を持たない
+        for path, want in (("fixing__fix-prep", "fixing"), ("refitting__fix-loop.fix-accept", "refitting"),
+                           ("planning__envpost", "planning"), ("h-fix", ""), ("start", "")):
+            with self._with({NODE_EXECUTION: _execution(path)}):
+                self.assertEqual(flow_adapter.current_scope(), want, path)
+        for env in ({}, {NODE_EXECUTION: ""}):
+            with self._with(env):
+                self.assertEqual(flow_adapter.current_scope(), "")
+        # 読むのは 1 つの出どころだけ: 形 B の入力 INPUTS_INCLUDE_ID は今は読まない
+        with self._with({"INPUTS_INCLUDE_ID": "refitting"}):
+            self.assertEqual(flow_adapter.current_scope(), "")
+        with self._with({NODE_EXECUTION: _execution("fixing__x"), "INPUTS_INCLUDE_ID": "refitting"}):
+            self.assertEqual(flow_adapter.current_scope(), "fixing")
+
+    def test_current_scope_refuses_unreadable_execution(self):
+        # 在るのに読めない値は黙って線（空の scope）に落とさない（2 度目の include が 1 度目の置き場に書く穴になる）
+        for raw in ("{", "[]", json.dumps({"runId": "r"}), json.dumps({"path": 3})):
+            with self._with({NODE_EXECUTION: raw}):
+                with self.assertRaises(ValueError) as cm:
+                    flow_adapter.current_scope()
+                self.assertIn(NODE_EXECUTION, str(cm.exception))
+
+    def test_artifact_root_none_when_missing_or_empty(self):
+        for env in ({}, {"ARTIFACTS_DIR": ""}):
+            with self._with(env):
+                self.assertIsNone(flow_adapter.artifact_root())
+        with self._with({"ARTIFACTS_DIR": "/tmp/art"}):
+            self.assertEqual(flow_adapter.artifact_root(), pathlib.Path("/tmp/art"))
+
+    def test_input_reads_inputs_env(self):
+        with self._with({"INPUTS_JUDGMENT_FILE": "/x", "INPUTS_BASE_REV": ""}):
+            self.assertEqual(flow_adapter.input("judgment_file"), "/x")
+            self.assertEqual(flow_adapter.input("base_rev"), "")   # 既定の空は届く（測り M1 の (c)）。無いとは分ける
+            self.assertIsNone(flow_adapter.input("reply"))
+
+    def test_ask_back_mouths_not_built(self):
+        for call in (flow_adapter.session_handle, lambda: flow_adapter.resume({}, "q")):
+            with self.assertRaises(NotImplementedError) as cm:
+                call()
+            self.assertEqual(str(cm.exception), "聞き直しはまだ作らない（依頼 239 の §5。形は session.schema.json）")
+        self.assertTrue((CORE / "session.schema.json").is_file())
+
+    def test_ask_back_mouths_have_no_callers(self):
+        callers = re.compile(r"session_handle|flow_adapter\s*\.\s*resume\b|from\s+flow_adapter\s+import[^\n]*\bresume\b")
+        found = [str(p.relative_to(ROOT)) for p in sorted(ROOT.rglob("*.py"))
+                 if "tests" not in p.relative_to(ROOT).parts and p.name != "flow_adapter.py"
+                 and callers.search(p.read_text(encoding="utf-8"))]
+        self.assertEqual(found, [])
+
+
+class ManifestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.all = scopes.manifests()
+
+    def _declared(self):
+        """(owner, produce の行) の全部"""
+        return [(owner, p) for owner, m in self.all.items() for p in m["produces"]]
+
+    def test_every_owner_has_valid_manifest(self):
+        want = {p.name for p in ROOT.glob("blk-*") if p.is_dir()} | {p.parent.name for p in ROOT.glob("*/nodes.json")}
+        self.assertEqual(set(self.all), want)
+        self.assertIn("darkfactory", self.all)
+        for owner, m in self.all.items():
+            self.assertEqual(m["owner"], owner)
+            self.assertEqual(scopes.manifest(ROOT / owner), m)
+
+    def test_published_name_has_one_owner(self):
+        seen = {}
+        for owner, p in self._declared():
+            if p.get("per_include"):
+                continue
+            self.assertNotIn(p["name"], seen, f"{p['name']} を {seen.get(p['name'])} と {owner} が出す")
+            seen[p["name"]] = owner
+            self.assertEqual(scopes.owner_of(p["name"]), owner, p["name"])   # ほかの owner の形の陰にも入らない
+        self.assertEqual(scopes.published(), frozenset(seen))
+        self.assertIsNone(scopes.owner_of("rule-tree.json"))   # 宣言していない名は持ち主が無い（私物）
+
+    def test_consumes_point_at_a_producer(self):
+        # consumes は名だけ（部品はほかの部品の名を書かない）。出す owner は名から引き、ちょうど 1 つで、自分ではない
+        for owner, m in self.all.items():
+            for c in m["consumes"]:
+                self.assertEqual(set(c), {"name"}, f"{owner} の consumes {c}")
+                got = scopes.owner_of(c["name"])
+                self.assertIsNotNone(got, f"{owner} の consumes {c} を公開の名に出す owner が無い")
+                self.assertNotEqual(got, owner, f"{owner} の consumes {c}（自分の物は読むのに宣言しない）")
+
+    def test_json_produces_have_schema(self):
+        for owner, p in self._declared():
+            if p["format"] != "json":
+                self.assertNotIn("schema", p, f"{owner} の {p['name']}")
+                continue
+            path = ROOT / owner / p["schema"]
+            self.assertTrue(path.is_file(), f"{owner} の {p['name']}: {path}")
+            schema = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIsInstance(schema, dict)
+            self.assertIsInstance(validate_schema({}, schema), list)
+            self.assertIsNot(schema.get("additionalProperties"), False, f"{path}: 今の書き手を落とさないよう閉じない")
+
+    def test_inventory_names_are_declared(self):
+        decl = self._declared()
+        for names, per in ((INVENTORY_PUBLISHED, False), (INVENTORY_PER_INCLUDE, True)):
+            for name in names:
+                # 字のまま宣言しているか、M2 の形（rejects-*.json）を持ち主ごとの名に割って宣言している
+                hit = [(o, p) for o, p in decl if p["name"] == name] or [(o, p) for o, p in decl if scopes.matches(p["name"], name)]
+                want = RECLASSIFIED.get(name, "per_include" if per else "published")
+                if want == "private":
+                    self.assertEqual(hit, [], name)
+                    continue
+                self.assertTrue(hit, name)
+                self.assertTrue(all(bool(p.get("per_include")) is (want == "per_include") for _, p in hit), f"{name}: {hit}")
+                at = "root" if name in INVENTORY_ROOT else "round"
+                self.assertTrue(all(p.get("at", "round") == at for _, p in hit), f"{name}: {hit}（M2 の where は {at}）")
+
+    def test_borrowed_shape_keeps_notice(self):
+        doc = json.loads((CORE / "manifest.schema.json").read_text(encoding="utf-8"))
+        self.assertIn("writing-plans", doc["description"])
+        self.assertIn(".shared/borrow/superpowers/6.4.2/LICENSE", doc["description"])
+        lic = (ROOT / ".shared/borrow/superpowers/6.4.2/LICENSE").read_text(encoding="utf-8")
+        self.assertIn("Copyright (c) 2025 Jesse Vincent", lic)
+        self.assertIn("Permission is hereby granted", lic)
+
+    def test_broken_manifest_names_path_and_errors(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = pathlib.Path(t) / "blk-x"
+            d.mkdir()
+            with self.assertRaises(scopes.ManifestBroken) as cm:
+                scopes.manifest(d)
+            self.assertIn(str(d / "manifest.json"), str(cm.exception))
+            self.assertIsInstance(cm.exception, BoardGap)
+            (d / "manifest.json").write_text(json.dumps({
+                "owner": "blk-y", "consumes": [{"name": "x.json", "from": "blk-z"}],
+                "produces": [{"name": "a.md"}, {"name": "b.json", "format": "json"}, {"name": "c/*/../d.md", "format": "md"},
+                             {"name": "e.json", "format": "json", "schema": "schemas/none.schema.json"}]}), encoding="utf-8")
+            with self.assertRaises(scopes.ManifestBroken) as cm:
+                scopes.manifest(d)
+            msg = str(cm.exception)
+            for part in (str(d / "manifest.json"), "blk-y", "blk-x", "'format'", "'schema'", "'from'", "c/*/../d.md",
+                         "schemas/none.schema.json"):
+                self.assertIn(part, msg)
+
+    def test_patterns_match_per_segment(self):
+        self.assertTrue(scopes.matches("rejects-r2.design.json", "rejects-*.json"))
+        self.assertFalse(scopes.matches("rejects-a/b.json", "rejects-*.json"))   # * は段をまたがない
+        self.assertTrue(scopes.matches("plan-converge/p1/x.md", "plan-converge/**"))
+        self.assertFalse(scopes.matches("plan-converge", "plan-converge/**"))
+
+
+if __name__ == "__main__":
+    unittest.main()
