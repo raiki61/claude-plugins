@@ -1,0 +1,8 @@
+{
+ "owner": "blk-purpose",
+ "consumes": [],
+ "produces": [
+  {"name": "purpose.json", "format": "json", "schema": "schemas/purpose.schema.json", "at": "root"},
+  {"name": "rejects-p0.purpose.json", "format": "json", "schema": "../.shared/core/rejects.schema.json", "at": "root"}
+ ]
+}

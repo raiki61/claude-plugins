@@ -66,14 +66,20 @@ def only_clamp_reply(conflicts=None):
     return reply
 
 
+def in_include(include: str, node: str) -> dict:
+    """include の名 include の中の節 node の居場所（Archon が script の節に渡す ARCHON_NODE_EXECUTION。依頼 239 の測り M1）。
+    include が空なら線の最上段（変数を渡さない）"""
+    return {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": f"{include}__{node}"})} if include else {}
+
+
 class ConflictBoardCase(BoardCase):
-    def accept_script(self, reply, *, iteration="1", pass_="first", pass_tag="", tdd_state="", tdd_suite=""):
-        """受け付けのスクリプトを子で起こす。pass_tag は回の印（2 回目の修正の段の refit。空なら環境変数を渡さない＝1 回目）。
+    def accept_script(self, reply, *, iteration="1", pass_="first", include="", tdd_state="", tdd_suite=""):
+        """受け付けのスクリプトを子で起こす。include は修正の段の include の名（2 回目の修正の段は refitting。空なら線の最上段）。
         tdd_state は輪の状態のファイル（INPUTS_TDD_STATE）、tdd_suite は試験の実行器（INPUTS_TDD_SUITE）。空は輪の無い run"""
         env = {"INPUTS_REPLY": json.dumps(reply, ensure_ascii=False), "INPUTS_BASE_REV": "", "INPUTS_TDD_STATE": tdd_state,
                "INPUTS_TDD_SUITE": tdd_suite,
                "INPUTS_ITERATION": iteration, "INPUTS_PASS": pass_, "ARTIFACTS_DIR": str(self.art),
-               "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], **({"INPUTS_PASS_TAG": pass_tag} if pass_tag else {})}
+               "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], **in_include(include, "fix-loop.fix-accept")}
         code, out, err = run_script("accept", self.repo, env)
         self.assertEqual(code, 0, err)
         return json.loads(out)
@@ -1220,8 +1226,7 @@ class TestHeldWorkStays(ReplanCase):
         state, _ = self.held_tdd_board()
         residue = "stats.py residue: 残りの単位"
         reply = {"changes": [{"unit_key": residue, "files": ["stats.py"], "what": "残りを直した"}]}
-        with mock.patch.dict("os.environ", {"INPUTS_PASS_TAG": ""}):
-            got = accept_mod.park_bound_units(reply, [f"{residue}: 元で赤でなかった試験が赤"], self.board, "", self.repo, state)
+        got = accept_mod.park_bound_units(reply, [f"{residue}: 元で赤でなかった試験が赤"], self.board, "", self.repo, state)
         self.assertIsNone(got)
         self.assertIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "外れた単位の直しを戻した")
 

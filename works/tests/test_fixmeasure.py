@@ -37,6 +37,7 @@ import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import reads  # noqa: E402
 import script_io  # noqa: E402
+import scopes  # noqa: E402
 import report  # noqa: E402
 from board import DiskBoard  # noqa: E402
 
@@ -211,10 +212,11 @@ class RowCase(unittest.TestCase):
         calls = [{"n": 1, "phase": "route", "ok": True}, {"n": 2, "phase": "test", "ok": False},
                  {"n": 3, "phase": "test", "ok": True}]
         board = make_board(self.tmp, shape="g3", items=2, calls=calls)
-        for n in (1, 2):   # 修正の受け付けの拒否の本文（script_io が盤面の根に書く reject-accept_fix-<n>.txt）
-            put(board / f"reject-accept_fix-{n}.txt", "拒否の理由")
-        put(board / "reject-tdd_step-1.txt", "輪の拒否は calls で数える")
-        put(board / "r1" / fixgates.LEDGER, {"rows": [{"pass": "first", "attempt": 1, "shape": "g3", "gate": "test_edits",
+        scopes.claim(board, 1, "fixing", "blk-fix")   # 修正のブロックの私物は include の scope の根（script_io.scope_dir・b.work）
+        put(board / "fixing" / "reject-accept_fix-1.txt", "拒否の理由")   # 拒否の本文（script_io が scope の根に書く）
+        put(board / "reject-accept_fix-2.txt", "拒否の理由")              # 置き場の版の前の盤面の根の物も数える
+        put(board / "fixing" / "reject-tdd_step-1.txt", "輪の拒否は calls で数える")
+        put(board / "fixing" / "r1" / fixgates.LEDGER, {"rows": [{"pass": "first", "attempt": 1, "shape": "g3", "gate": "test_edits",
                                                        "id": "test_x.py::test_old", "detail": "変えた", "unit_keys": []}],
                                              "skipped": []})
         item = {"id": "c1-1", "round": 1, "source": "fix", "unit_key": "u1", "between": "brief と判定", "kind": "brief_vs_judgment",

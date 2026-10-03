@@ -33,6 +33,7 @@ import urllib.parse
 import urllib.request
 
 import impact
+import scopes
 
 API = "https://context7.com/api"
 ENV_KEY = "CONTEXT7_API_KEY"
@@ -352,13 +353,9 @@ def _cache_name(lib: dict) -> str:
     return re.sub(r"[^A-Za-z0-9._@-]", "_", f"{lib['name']}@{lib['version'] or 'any'}") + ".json"
 
 
-def _round_of(p: pathlib.Path) -> int:
-    tail = p.parent.parent.name[1:]
-    return int(tail) if tail.isdigit() else -1
-
-
 def _cached(board, name: str):
-    for p in sorted(pathlib.Path(board.dir).glob(f"r*/{CACHE_DIR}/{name}"), key=_round_of, reverse=True):
+    """一番新しい周の控え（scopes.all_rounds。scope の根に分かれた物も見る）"""
+    for p in reversed(scopes.all_rounds(pathlib.Path(board.dir), f"{CACHE_DIR}/{name}")):
         try:
             doc = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -379,7 +376,7 @@ def _mark_quota(board, reason: str) -> None:
 
 def notice(board) -> str | None:
     """枠切れの印が盤面（どの周でも）に在れば、人にも見せる 1 行。無ければ None"""
-    if any(pathlib.Path(board.dir).glob(f"r*/{CACHE_DIR}/{QUOTA_MARK}")):
+    if scopes.all_rounds(pathlib.Path(board.dir), f"{CACHE_DIR}/{QUOTA_MARK}"):
         return QUOTA_NOTICE
     return None
 

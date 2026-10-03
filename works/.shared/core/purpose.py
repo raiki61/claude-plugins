@@ -21,6 +21,7 @@ from accept import (TREE_KEYS, TREE_SCHEMA, _graph, _guard, _in_repo, _read_boar
                     _type_errors, _write_board, role_schema, tree_moved, tree_state)
 from board import DiskBoard  # noqa: E402  （規則に渡す入れ物は accept.py と同じ盤面の層の scratch）
 from engine.util import Reject  # noqa: E402
+import script_io  # noqa: E402
 
 NODE = "p0.purpose"
 STOP_BY = "works:purpose"   # 目的の文が盤面に無い・諦めた盤面の state.stop.by（blk-purpose の collect とラインの h-mat が共に使う）
@@ -56,7 +57,7 @@ def _tree_unchanged(repo, board):
     accept.tree_moved（裁定 R47。porcelain・差分・git が無視するパスの増減・HEAD・枝のどれが変わったかを言う）で今と比べ、
     無ければ作業ツリーが綺麗（共通の tree_state の porcelain と git が無視するパスが空。前提の実測役の確かめと同じ形）であることを求める。
     違えば Reject"""
-    snap = _read_board(board, SNAPSHOT_FILE)
+    snap = _read_board(script_io.scope_dir(board), SNAPSHOT_FILE)   # intake が今の include の置き場に置いた写し
     if snap is None:
         now = tree_state(repo)   # 共通の姿（Claude Code の控えのフォルダ accept.CLI_OWNED を数えない。R47）
         dirty = now["porcelain"].splitlines() + [f"!! {n}" for n in now["ignored"]]

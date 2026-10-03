@@ -1,0 +1,9 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "受け付けた修正の changes r<N>/changes.json（書き手は core の recount.collect。1 本目の出口の形）",
+ "type": "object",
+ "required": ["changes"],
+ "properties": {
+  "changes": {"type": "array", "items": {"type": "object", "properties": {"unit_key": {"type": "string"}, "files": {"type": "array"}, "what": {"type": "string"}}}}
+ }
+}

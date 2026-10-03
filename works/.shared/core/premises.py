@@ -30,6 +30,7 @@ if str(CORE) not in sys.path:
 from accept import (TREE_KEYS, TREE_SCHEMA, guard, in_repo, read_board, resolve_rev,  # noqa: E402
                     tree_moved, tree_state, type_errors, write_board)
 from board import DiskBoard  # noqa: E402
+import script_io  # noqa: E402
 from engine.rules import registry  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
@@ -48,7 +49,7 @@ def _tree_unchanged(repo, board, rev):
     役が作った物を commit しても head で見える）。古い形（head の無い写し）は型で拒み、intake から取り直させる。
     無ければ作業ツリーが綺麗（git status --porcelain と git が無視するパスが空）で、HEAD が数える版 rev のままであることを
     求める（判定役の見張りと同じ。dogfood run 21）。違えば Reject"""
-    snap = read_board(board, PREMISES_SNAPSHOT_FILE)
+    snap = read_board(script_io.scope_dir(board), PREMISES_SNAPSHOT_FILE)   # intake が今の include の置き場に置いた写し
     if snap is None:
         now = tree_state(repo, bytecode=False)
         dirty = now["porcelain"].splitlines() + [f"!! {n}" for n in now["ignored"]]
@@ -84,7 +85,7 @@ def claims(items: list) -> list:
 def request_items(board: pathlib.Path) -> list | None:
     """intake が控えた依頼の行（無い・読めないなら None）"""
     try:
-        doc = json.loads((pathlib.Path(board) / PREMISES_REQUEST_FILE).read_text(encoding="utf-8"))
+        doc = json.loads((script_io.scope_dir(board) / PREMISES_REQUEST_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return doc if isinstance(doc, list) else None

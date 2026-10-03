@@ -23,9 +23,10 @@
 - failed_nodes(events, *, after=()) -> [{node, error}]（最後の状態が落ちた節。下流の節 after は除く。機械の報告の冒頭 3）
 - retried_nodes(events, *, after=()) -> [{node, failures, error}]（前の試みで落ち、後で済んだ節。冒頭 3 の試みの記録）
 - node_path(include, loop, node) -> str
+- node_here(loop, node) -> str（今の script が居る include の名 flow_adapter.current_scope で組んだ node_path）
 - collect(board_dir, role, node_path, must_read, events, *, repo=None) -> {ok: True, sources, missing, reads_file}
 - adapter_seen(board_dir, run_id, *, repo=None) -> {seen, merged, passthrough, whys}
-- main_for(role, include, loop, node) -> int（ブロックの `<役>-reads` の節のスクリプトの入口）
+- main_for(role, loop, node) -> int（ブロックの `<役>-reads` の節のスクリプトの入口。include の名は flow_adapter.current_scope）
 """
 import datetime
 import json
@@ -44,6 +45,7 @@ import adapter  # noqa: E402
 from board import BoardGap, rules_module  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
 import fixture  # noqa: E402
+import flow_adapter  # noqa: E402
 import script_io  # noqa: E402
 
 EVENTS_VERIFIED = False   # tool_called の Read の形を P13 の AI の分（Task 18）で確かめたら真にする
@@ -130,6 +132,11 @@ def node_path(include: str, loop: str, node: str) -> str:
     `blk__inner`・`lp.lb`・`rounds.judging__ja-redo.ja-try`）ので、輪の外の include の中の輪の節は `<include>__<輪>.<節>`。
     推測（AI の節の名前は P13 の AI の分で確かめる）"""
     return f"{include}__{loop}.{node}"
+
+
+def node_here(loop: str, node: str) -> str:
+    """今の script が居る include（flow_adapter.current_scope）の中の輪 loop の節 node の出来事の上の名前（node_path）"""
+    return node_path(flow_adapter.current_scope(), loop, node)
 
 
 def _read_paths(events, node_path: str) -> set:
@@ -233,15 +240,24 @@ def _fail(why: str) -> int:
     return 2
 
 
-def main_for(role: str, include: str, loop: str, node: str, *, more=None) -> int:
+def main_for(role: str, loop: str, node: str, *, more=None) -> int:
     """ブロックの `<役>-reads` の節のスクリプトの入口。ARTIFACTS_DIR（盤面はその下の board/）・WORKFLOW_ID（出来事を読む run）・
-    INPUTS_MUST（読むべきパスの JSON の配列）を読み、collect の結果を 1 行の JSON で出して 0。more(盤面) が在れば、その返す
+    INPUTS_MUST（読むべきパスの JSON の配列）を読み、collect の結果を 1 行の JSON で出して 0。出来事を引く include の名は
+    今の script が居る include（flow_adapter.current_scope）。more(盤面) が在れば、その返す
     パスの一覧を読むべきパスに足す（ブロックが盤面の置き場に書いた物。YAML の with: で渡せない輪の中の出力など）。変数が欠けた
-    （空も欠け）・INPUTS_MUST が文字列の配列でない・盤面を開けない時は、標準出力に何も出さずに標準エラーに 1 行で 2"""
+    （空も欠け）・include の中でない（scope が空）・INPUTS_MUST が文字列の配列でない・盤面を開けない時は、標準出力に何も出さずに
+    標準エラーに 1 行で 2"""
     env = {k: os.environ.get(k) for k in (script_io.ARTIFACTS_ENV, RUN_ENV, MUST_ENV)}
     lack = [k for k, v in env.items() if not v]
     if lack:
         return _fail(f"環境変数が無い: {', '.join(lack)}")
+    try:
+        include = flow_adapter.current_scope()
+    except ValueError as e:
+        return _fail(f"{role}-reads を回せない: {e}")
+    if not include:
+        return _fail(f"{role}-reads を回せない: include の中の節でない（環境変数 {flow_adapter.NODE_EXECUTION_ENV} の"
+                     "節の名に include の名が無い）")
     try:
         must = json.loads(env[MUST_ENV])
     except ValueError:

@@ -34,9 +34,6 @@ inputs:
   excluded_file:
     default: ""
     description: 並行 PR の外した範囲のファイル（無ければ空か文字列 null）。在れば 2 つの役の指示書の頭にパスを名指す
-  include_id:
-    default: planning
-    description: ラインがこのブロックを include した id（読んだ証拠が Archon の出来事の節の名 <include>__<輪>.<役> を引くため）
   replan:
     default: ""
     description: >-
@@ -797,7 +794,6 @@ nodes:
     depends_on: [converge-loop]
     trigger_rule: none_failed_min_one_success
     with:
-      include_id: $INPUTS.include_id
       replan: $INPUTS.replan
     output_format:
       type: object

@@ -193,7 +193,7 @@ class ClosureLinesCase(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
 
-        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1)
+        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1, scope_root=pathlib.Path(tmp.name))
         self.assertEqual(querytest.closure_lines(b), [])
         rows = [{"unit_key": "a", "closed": True, "discrepancies": []},
                 {"unit_key": "b", "closed": False, "discrepancies": []},
@@ -206,6 +206,26 @@ class ClosureLinesCase(unittest.TestCase):
         self.assertEqual(querytest.closure_lines(b), [], "前の周の表は読まない")
 
 
+class ClosureScopesCase(unittest.TestCase):
+    def test_rows_come_from_the_last_include_with_this_round(self):
+        """閉鎖の表は修正のブロックの include ごとに scope の根に在る（依頼 239）。今の周の表のうち最後に登録した include の物を
+        読み、前の周の表しか無い include は飛ばす（後に登録した include の古い表で今の周の行を消さない）"""
+        import scopes
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = pathlib.Path(tmp.name)
+        for scope in ("fixing", "refitting"):
+            scopes.claim(d, 2, scope, "blk-fix")
+        for scope, rnd, key in (("fixing", 2, "a"), ("refitting", 1, "b")):
+            querytest.save_closure(types.SimpleNamespace(dir=d, round=rnd, scope_root=d / scope),
+                                   [{"unit_key": key, "closed": False, "discrepancies": []}])
+        b = types.SimpleNamespace(dir=d, round=2, scope_root=d)
+        self.assertEqual([r["unit_key"] for r in querytest.closure_rows(b)], ["a"])
+        querytest.save_closure(types.SimpleNamespace(dir=d, round=2, scope_root=d / "refitting"),
+                               [{"unit_key": "c", "closed": True, "discrepancies": []}])
+        self.assertEqual([r["unit_key"] for r in querytest.closure_rows(b)], ["c"])
+
+
 class StuckLinesCase(unittest.TestCase):
     """直したのに判定の問いの当たりが減っていない単位（defects で total>0 かつ after>=total）は、申告と合わない単位と別の見出しに出す"""
 
@@ -215,7 +235,7 @@ class StuckLinesCase(unittest.TestCase):
             self.fail("closure_lines が減っていない単位だけを返す口（stuck_only）を持たない: 合わない単位と同じ 1 節に埋もれる")
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1)
+        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1, scope_root=pathlib.Path(tmp.name))
         querytest.save_closure(b, rows)
         return [x.split(":")[0] for x in querytest.closure_lines(b, **kw)]
 

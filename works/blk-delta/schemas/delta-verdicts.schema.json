@@ -1,0 +1,11 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "1 回目の差分の審査の 2 判定の控え r<N>/delta-verdicts.json（書き手は core の deltamarks.save）",
+ "type": "object",
+ "required": ["round", "compliance", "quality"],
+ "properties": {
+  "round": {"type": "integer", "minimum": 1},
+  "compliance": {"type": "object", "required": ["verdict"], "properties": {"verdict": {"type": "string", "enum": ["pass", "fail", "unverifiable", "not_applicable"]}}},
+  "quality": {"type": "object", "required": ["verdict"], "properties": {"verdict": {"type": "string", "enum": ["pass", "fail"]}}}
+ }
+}

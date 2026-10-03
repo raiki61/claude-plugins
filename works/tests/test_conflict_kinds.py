@@ -108,10 +108,11 @@ class KindCase(unittest.TestCase):
 
 
 class FakeBoard:
-    """盤面の代わり: work(name) は一時の置き場のファイル、round は 1、trace(op, **kw) は (op, kw) を traced に貯める"""
+    """盤面の代わり: work(name) は一時の置き場のファイル、round は 1、trace(op, **kw) は (op, kw) を traced に貯める。
+    dir は盤面の根（scope の登録が無いので、include ごとに分かれた物を集める口 scopes.each は work の置き場に落ちる）"""
 
     def __init__(self, root: pathlib.Path):
-        self.root = root
+        self.root = self.dir = root
         self.round = 1
         self.traced = []
 
@@ -278,7 +279,7 @@ def fake_with_rows(rows):
     unittest.addModuleCleanup(shutil.rmtree, root, ignore_errors=True)
     traced = []
     b = types.SimpleNamespace(work=lambda name: root / name, trace=lambda op, **kw: traced.append((op, kw)),
-                              round=1, state={"outputs": {}}, traced=traced)
+                              round=1, state={"outputs": {}}, traced=traced, dir=root)
     b.work(conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False), encoding="utf-8")
     return b
 
@@ -518,21 +519,22 @@ class TestReplanWords(unittest.TestCase):
         （accept.ACCEPTED_ROWS）のと同じく、書くな・行は機械が足すと言う（fix_duty の ACCEPTED_WHY と同じ扱い）"""
         b = fake_with_rows([row("c1-1", CLAMP, "fix_code_as"), row("c1-2", MEAN, "fix_code_as")])
         hold(b, {"changes": [clamp_row()], "not_done": []})
-        text = conflict.write_rulings(b, "refit").read_text(encoding="utf-8")
+        text = conflict.write_rulings(b).read_text(encoding="utf-8")
         mine = self.section(text, "c1-1")
         self.assertNotIn("changes に 1 行を書け", mine)
         self.assertIn(conflict.ACCEPTED_PROMISE.format(path=b.work(conflict.HELD_REPLY)), mine)
         self.assertIn("changes に 1 行を書け", self.section(text, "c1-2"), "控えに無い単位は今どおり")
 
     def test_second_pass_new_replan_rows_promise_the_last_gate(self):
-        """2 回目の修正の段（回の印が在る）で新しく fix_plan_item と裁いた行（待つ行）は、無い 3 回目の修正の段を約束せず、
-        修正の段を抜ける時に諦めた行になり最後の人の関所へ行くと言う（replan.settle が締める）"""
-        b = fake_with_rows([row("c2-1", MEAN, "fix_plan_item", state="waiting", plan_units=[MEAN])])
-        mine = self.section(conflict.write_rulings(b, "refit").read_text(encoding="utf-8"), "c2-1")
+        """2 回目の修正の段（案を直した行が在る。conflict.second_pass）で新しく fix_plan_item と裁いた行（待つ行）は、無い 3 回目の
+        修正の段を約束せず、修正の段を抜ける時に諦めた行になり最後の人の関所へ行くと言う（replan.settle が締める）"""
+        waiting = row("c2-1", MEAN, "fix_plan_item", state="waiting", plan_units=[MEAN])
+        b = fake_with_rows([row("c1-1", CLAMP, "fix_plan_item", state="amended", plan_units=[CLAMP]), waiting])
+        mine = self.section(conflict.write_rulings(b).read_text(encoding="utf-8"), "c2-1")
         self.assertNotIn("2 回目の修正の段で直す", mine)
         self.assertIn(conflict.LATE_REPLAN_PROMISE, mine)
         self.assertIn("最後の人の関所で人が決める", mine)
-        first = self.section(conflict.write_rulings(b).read_text(encoding="utf-8"), "c2-1")
+        first = self.section(conflict.write_rulings(fake_with_rows([waiting])).read_text(encoding="utf-8"), "c2-1")
         self.assertIn("2 回目の修正の段で直す", first, "1 回目の段の待つ行は今どおり")
 
     def test_held_ask_points_at_the_owed_keys_above(self):

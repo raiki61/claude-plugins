@@ -1,0 +1,10 @@
+{
+ "owner": "blk-rejudge",
+ "consumes": [],
+ "produces": [
+  {"name": "reads-rejudge.json", "format": "json", "schema": "../.shared/core/reads.schema.json"},
+  {"name": "rejudge-diff.json", "format": "json", "schema": "schemas/rejudge-diff.schema.json"},
+  {"name": "rejudge-exit.json", "format": "json", "schema": "schemas/rejudge-exit.schema.json", "required": true},
+  {"name": "rejudge-session.json", "format": "json", "schema": "schemas/rejudge-session.schema.json"}
+ ]
+}

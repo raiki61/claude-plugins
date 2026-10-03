@@ -1,0 +1,10 @@
+{
+ "owner": "blk-delta",
+ "consumes": [
+  {"name": "lens.json"}
+ ],
+ "produces": [
+  {"name": "delta-verdicts.json", "format": "json", "schema": "schemas/delta-verdicts.schema.json"},
+  {"name": "reads-review.json", "format": "json", "schema": "../.shared/core/reads.schema.json", "per_include": true}
+ ]
+}

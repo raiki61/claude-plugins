@@ -8,10 +8,11 @@
                       控える（節 ignored-before）
 - remove_new_ignored: 控えに無かった無視されるファイルだけを消す。前から在った丸ごと無視されるフォルダ（.venv など）の下は触らない。
                       消した全件は盤面の fix-removed.json に書き、件数とそのパスだけを返す（節 clean）
-控えと消した物のファイルの名は呼ぶ側が渡せる（before_name・removed_name。既定は IGNORED_BEFORE_FILE・REMOVED_FILE）。blk-fix の 2 回目の
-修正の段は回の印を足した名（script_io.tagged）を渡し、1 回目の物を上書きしない（この模块は core の他の模块を読まないので、名は
-呼ぶ側が作る）。
-失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリだけ（core の他の模块も読まない。tests/test_blk_fix が縛る）。
+控えと消した物のファイルの名は呼ぶ側が渡せる（before_name・removed_name。既定は IGNORED_BEFORE_FILE・REMOVED_FILE）。控えと消した物のファイルは
+盤面の今の scope の根（script_io.scope_dir。include の中なら <盤面>/<include の名>/）に置く（同じブロックの 2 度目の include が
+1 度目の控えを上書きしない）。
+失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリと層 L1 の script_io だけ（core のほかの模块は読まない。
+tests/test_blk_fix が縛る）。
 """
 import hashlib
 import json
@@ -22,6 +23,8 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
+
+from script_io import scope_dir  # noqa: E402  （盤面の今の scope の根。層 L1・標準ライブラリと流れの道具の口だけ）
 
 GIT_TIMEOUT = 120
 ARCHON_PREFIX = ".archon/"   # Archon が run の作業ツリーに写す工程の置き場（自分食いでは線を動かしている pack の写しもここ）
@@ -73,7 +76,8 @@ def _ignored_dirs(repo) -> list:
 
 
 def _board_path(board, before: str = IGNORED_BEFORE_FILE) -> pathlib.Path:
-    return pathlib.Path(board) / before
+    """盤面 board の今の scope の根の before（script_io.scope_dir）"""
+    return scope_dir(board) / before
 
 
 def _is_bytecode(rel: str) -> bool:
@@ -172,4 +176,4 @@ def remove_new_ignored(board, repo, before_name: str = IGNORED_BEFORE_FILE, remo
                 break
             parent.rmdir()
             parent = parent.parent
-    return {"ok": True, "count": len(removed), "file": _write_json(pathlib.Path(board) / removed_name, {"removed": removed})}
+    return {"ok": True, "count": len(removed), "file": _write_json(_board_path(board, removed_name), {"removed": removed})}

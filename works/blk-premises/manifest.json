@@ -1,0 +1,8 @@
+{
+ "owner": "blk-premises",
+ "consumes": [],
+ "produces": [
+  {"name": "premises.json", "format": "json", "schema": "schemas/premises.schema.json", "at": "root"},
+  {"name": "rejects-p0.premises.json", "format": "json", "schema": "../.shared/core/rejects.schema.json", "at": "root"}
+ ]
+}

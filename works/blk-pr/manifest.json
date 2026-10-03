@@ -1,0 +1,8 @@
+{
+ "owner": "blk-pr",
+ "consumes": [],
+ "produces": [
+  {"name": "pr-excluded.json", "format": "json", "schema": "schemas/pr-excluded.schema.json"},
+  {"name": "reads-pr-check.json", "format": "json", "schema": "../.shared/core/reads.schema.json"}
+ ]
+}

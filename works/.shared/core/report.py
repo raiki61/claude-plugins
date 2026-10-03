@@ -65,6 +65,7 @@ import entry  # noqa: E402
 import fixture  # noqa: E402
 import lens  # noqa: E402
 import reads  # noqa: E402
+import scopes  # noqa: E402
 import structmark  # noqa: E402
 import writes  # noqa: E402
 
@@ -142,13 +143,10 @@ def _write_text(path: pathlib.Path, text: str) -> None:
 
 
 def _latest(board_dir: pathlib.Path, name: str) -> pathlib.Path | None:
-    """周の作業ファイル r<N>/<name> のうち、周の番号が一番大きい物（周を仮定しない）。無ければ None"""
-    found = []
-    for p in pathlib.Path(board_dir).glob(f"r*/{name}"):
-        tail = p.parent.name[1:]
-        if tail.isdigit() and p.is_file():
-            found.append((int(tail), p))
-    return max(found)[1] if found else None
+    """周の作業ファイル r<N>/<name>（scope の根の物も。scopes.all_rounds）のうち、周の番号が一番大きい物（同じ周は最後に
+    登録した include の物。周を仮定しない）。無ければ None"""
+    found = scopes.all_rounds(pathlib.Path(board_dir), name)
+    return found[-1] if found else None
 
 
 def final_gate_answer(board_dir) -> tuple:
@@ -175,13 +173,8 @@ def _gate_answer_note(board_dir) -> str:
 
 
 def _all_rounds(board_dir: pathlib.Path, pattern: str) -> list:
-    """周の作業ファイル r<N>/<pattern> の全部（周の順）"""
-    rows = []
-    for p in pathlib.Path(board_dir).glob(f"r*/{pattern}"):
-        tail = p.parent.name[1:]
-        if tail.isdigit() and p.is_file():
-            rows.append((int(tail), str(p), p))
-    return [p for _, _, p in sorted(rows)]
+    """周の作業ファイル r<N>/<pattern> の全部（include ごとに scope の根に残る物も。周の順。scopes.all_rounds）"""
+    return scopes.all_rounds(pathlib.Path(board_dir), pattern)
 
 
 def _output(b, nid: str):
@@ -876,7 +869,8 @@ def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, 
 
 
 def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
-    """冒頭 4: 読んだ証拠（各役の reads-<役>.json）と包みの行。出来事が unverified なら「出来事: 未確認（P13）」。
+    """冒頭 4: 読んだ証拠（各役の reads-<役>.json）と包みの行。出来事が unverified なら「出来事: 未確認（P13）」。部品の窓の
+    宣言の外の読み（trace の scopes.READ_OUTSIDE_OP）と必須の出力の欠け（scopes.REQUIRED_MISSING_OP）。どちらも無ければ行を出さない。
     包み無し（adapter optional）の run は「包み無し」の行の横に CI の役の知らせ（blk の collect.note）。包みを通す run で起動の
     記録が無ければ「包みが通っていない」。書き込みの記録の無い run と拒まずに残した変更（write_lines）。包みの確かめで止めた盤面は
     止めた理由。会話を継いだ起動の数。起動の即時の失敗（包みの終わりの記録の no_turn。節ごとの回と、build が盤面に写した
@@ -896,6 +890,16 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
         lines.append("読んだ証拠: 集めていない（役の読んだ証拠の節が走っていない）")
     if unverified:
         lines.append("出来事: 未確認（P13）——出来事の行の形を確かめるまで、読んでいない証拠に使わない")
+    outside = [f"{r.get('scope')}: {x}" for r in trace_rows(b, scopes.READ_OUTSIDE_OP) for x in r.get("paths") or []
+               if isinstance(x, str)]
+    if outside:
+        lines.append(f"宣言の外の読み（部品が manifest の consumes に無い盤面のファイルを読んだ。落とさない）: {len(outside)} 件 "
+                     + "・".join(outside))
+    lacking = [f"{r.get('scope')}: {x}" for r in trace_rows(b, scopes.REQUIRED_MISSING_OP) for x in r.get("names") or []
+               if isinstance(x, str)]
+    if lacking:
+        lines.append(f"必須の出力の欠け（部品の窓の終わりに manifest の required の出力が無かった。役が落ちたか諦めた。止めない）: "
+                     f"{len(lacking)} 件 " + "・".join(lacking))
     mode = _start_doc(b, None).get("adapter")
     repo = pathlib.Path((b.state.get("inputs") or {}).get("cwd") or ".")
     note = (ci or {}).get("note") if isinstance(ci, dict) else ""

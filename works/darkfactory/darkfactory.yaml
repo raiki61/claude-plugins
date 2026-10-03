@@ -398,7 +398,6 @@ nodes:
       base_rev: $start.output.base_rev
       policy_paste: $start.output.policy_paste
       policy_path: $start.output.policy_path
-      include_id: "planning"
 
   # 盤面が人に聞いていれば関所を開く（文は r<N>/gate.md。文言には置き場だけを載せる）
   - id: h-gate
@@ -574,7 +573,6 @@ nodes:
       base_rev: $start.output.base_rev
       policy_paste: $start.output.policy_paste
       policy_path: $start.output.policy_path
-      include_id: "replanning"
       replan: "true"
 
   # 直した項目に関所の 1 つの決まりを当てる（約束の欄が同じで人に聞く穴が無い直しだけを聞かずに通す。replan.gate）
@@ -682,8 +680,8 @@ nodes:
         mat_go: {type: boolean}
         structure_units_file: {type: string}
 
-  # 2 回目の修正の段（blk-fix の 2 度目の include。回の印 refit で指示書・拒否の理由・読んだ証拠の名を 1 回目と分け、直す義務は
-  # 案を直して戻った単位だけ。1 回目に受け付けた行は機械が合わせて盤面に渡す）
+  # 2 回目の修正の段（blk-fix の 2 度目の include。指示書・拒否の理由・読んだ証拠は include の名 refitting の置き場（scope）で
+  # 1 回目と分かれ、直す義務は案を直して戻った単位だけ。1 回目に受け付けた行は機械が合わせて盤面に渡す）
   - id: refitting
     include: blk-fix
     depends_on: [h-refit]
@@ -697,8 +695,6 @@ nodes:
       policy_path: $start.output.policy_path
       tdd_suite: $INPUTS.tdd_suite
       test_cmd: $start.output.test_cmd
-      include_id: "refitting"
-      pass_tag: "refit"
 
   # 修正役が判定に異議を出した周の再審を回すか（盤面が p2.rejudge を待つ時。判定役の会話が無ければ止める）
   - id: h-rejudge

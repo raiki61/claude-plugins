@@ -515,7 +515,11 @@ class TestAmend(PlanFieldsCase):
         bare, fields = planmarks.split(reply, self.repo)
         planmarks.save(self.tmp, 1, fields)
         plan = bare["plan"]
-        return types.SimpleNamespace(dir=self.tmp, round=1,
+        def trace(op, **kw):   # 盤面の書き口（DiskBoard.trace）と同じ行の形
+            with open(self.tmp / "trace.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps({"t": "now", "op": op, **kw}, ensure_ascii=False) + "\n")
+
+        return types.SimpleNamespace(dir=self.tmp, round=1, trace=trace,
                                      output_of_round=lambda node, rnd: {"plan": copy.deepcopy(plan)} if rnd == 1 else None)
 
     def fixed(self, b, n, **over):

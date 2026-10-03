@@ -1,0 +1,18 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "再審のブロックの出口の写し r<N>/rejudge-exit.json（書き手は core の rejudge.collect）",
+ "type": "object",
+ "required": ["ok", "reason", "passes", "verdicts", "new_open_units", "lowered", "unnamed_changed", "diff_file", "reads_file"],
+ "properties": {
+  "ok": {"type": "boolean"},
+  "reason": {"type": "string"},
+  "passes": {"type": "integer", "minimum": 0},
+  "verdicts": {"type": "array", "items": {"type": "string"}},
+  "objection": {"type": "string"},
+  "new_open_units": {"type": "array", "items": {"type": "string"}},
+  "lowered": {"type": "array", "items": {"type": "string"}},
+  "unnamed_changed": {"type": "array"},
+  "diff_file": {"type": "string"},
+  "reads_file": {"type": "string"}
+ }
+}

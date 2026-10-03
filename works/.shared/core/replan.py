@@ -76,6 +76,7 @@ import leftovers  # noqa: E402
 import planmarks  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
+import scopes  # noqa: E402
 import writes  # noqa: E402
 
 STOP_BY = "works:replan"
@@ -265,12 +266,12 @@ def material(b) -> dict:
             if not 1 <= n <= len(current):
                 raise BoardGap(f"裁定の欄 {conflict.PLAN_ITEMS} の項目 {n!r} が承認済みの修正案（{len(current)} 項目）の外")
             rows = by_item[n]
-            brief = b.work(BRIEF_NAME.format(n=n))
+            briefs = scopes.each(b, BRIEF_NAME.format(n=n))   # 修正のブロックの include の scope の根に在る（最後が一番新しい）
             items.append({**dict.fromkeys(TRIP_KEYS), "item": n,
                           "units": list(dict.fromkeys(k for r in rows for k in conflict.ruled_units(r))),
                           "rows": [r["id"] for r in rows],
                           "old": _role_item(current[n - 1]),
-                          "brief": str(brief) if brief.is_file() else ""})
+                          "brief": str(briefs[-1]) if briefs else ""})
         doc = {"round": b.round, "items": items}
         _write_trip(b, doc)
     return {"go": bool(doc["items"]), "items": [it["item"] for it in doc["items"]]}

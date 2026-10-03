@@ -1,0 +1,5 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "受け付けた目的の返答 purpose.json（盤面の根。中身の型は写しの graph の p0.purpose の schema が縛る）",
+ "type": "object"
+}

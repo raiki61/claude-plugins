@@ -46,6 +46,7 @@ import deltamarks  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402
 import querytest  # noqa: E402
+import script_io  # noqa: E402
 from engine.rules import load_rules, validator_module  # noqa: E402
 from engine.schema import expand_refs, validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
@@ -208,6 +209,12 @@ def _read_board(board, name):
         return json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         raise Reject(f"盤面の {name} が読めない（{e}）")
+
+
+def _own(board) -> pathlib.Path:
+    """受け付けの私物（依頼の一覧・作業ツリーの写し・差分・審査の返答）の置き場: 盤面の今の scope の根（script_io.scope_dir。
+    線の最上段・単独の run なら盤面の根）。判定の返答 JUDGMENT_FILE は盤面の根のまま（線が読む公開の名）"""
+    return script_io.scope_dir(pathlib.Path(board))
 
 
 def _write_board(board, name, obj):
@@ -487,10 +494,12 @@ def cut_delta(board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
         diff += r.stdout
     board = pathlib.Path(board)
     board.mkdir(parents=True, exist_ok=True)
-    (board / DELTA_REVIEW_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ
-    path = board / DIFF_FILE
+    own = _own(board)
+    own.mkdir(parents=True, exist_ok=True)
+    (own / DELTA_REVIEW_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ
+    path = own / DIFF_FILE
     path.write_bytes(diff)
-    _write_board(board, SNAPSHOT_FILE, snapshot_tree(repo))
+    _write_board(own, SNAPSHOT_FILE, snapshot_tree(repo))
     return {"ok": True, "files": sorted(set(tracked) | set(untracked)), "diff_file": str(path)}
 
 
@@ -499,14 +508,14 @@ def check_request(items: list, board: pathlib.Path, reason: str) -> dict:
     """依頼を rules の add（graphloops の loop.py add と同じ型: [{where, text, mechanism?, measured?, false_positive_if?}]）に通す。
     通れば盤面の request.json（依頼のバッチの一覧）に積む。{"ok", "reason"}"""
     def run():
-        pathlib.Path(board).mkdir(parents=True, exist_ok=True)
+        _own(board).mkdir(parents=True, exist_ok=True)
         rec = _rules().init_record(None, None)
-        cur = _read_board(board, REQUEST_FILE)
+        cur = _read_board(_own(board), REQUEST_FILE)
         if cur is not None:
             rec["process"]["request_findings"] = cur
         b = DiskBoard.scratch(board, review_rev="", record=rec)
         _rules().add(b, items, reason)
-        _write_board(board, REQUEST_FILE, b.record["process"]["request_findings"])
+        _write_board(_own(board), REQUEST_FILE, b.record["process"]["request_findings"])
         return {"ok": True, "reason": ""}
     return _guard(run)
 
@@ -527,7 +536,7 @@ def _judge_tree_unchanged(repo, board, rev):
     （R47）で HEAD・枝の移動も見る。snapshot_tree の形（前の版の盤面）は porcelain・ignored・diff_sha256 だけを比べる。
     無ければ作業ツリーが綺麗（snapshot_tree の porcelain と git が無視するパスが空）で、HEAD が数える版 rev の
     ままであることを求める（_head_at_rev）。違えば Reject"""
-    snap = _read_board(board, JUDGE_SNAPSHOT_FILE)
+    snap = _read_board(_own(board), JUDGE_SNAPSHOT_FILE)
     if snap is None:
         now = snapshot_tree(repo)   # 共通の姿（Claude Code の控えのフォルダ CLI_OWNED を数えない）
         dirty = now["porcelain"].splitlines() + [f"!! {n}" for n in now["ignored"]]
@@ -559,7 +568,7 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             _type_errors(reply, role_schema("p2.diagnose"), "判定の返答")
             rules = _rules()
             rec = rules.init_record(None, None)
-            req = _read_board(board, REQUEST_FILE)
+            req = _read_board(_own(board), REQUEST_FILE)
             if req is not None:
                 rec["process"]["request_findings"] = req
             b = DiskBoard.scratch(board, review_rev=rev, record=rec)
@@ -614,7 +623,7 @@ def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
         repo_p = pathlib.Path(repo)
         with _in_repo(repo_p):
             rev = _rev(repo_p, base_rev)
-            snap = _read_board(board, SNAPSHOT_FILE)
+            snap = _read_board(_own(board), SNAPSHOT_FILE)
             if snap is not None:
                 _assert_same_tree(repo_p, snap, SNAPSHOT_FILE, "差分を切った後", "審査役")
             _type_errors(reply, role_schema("p3.delta_review"), "差分の審査の返答")
@@ -623,6 +632,6 @@ def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             b = DiskBoard.scratch(board, review_rev=rev, loop_state={st: {"round": 1, "files": touched_files(repo_p, rev)}})
             rules.POST_CHECKS["delta_review_output"](b, "p3.delta_review", reply, None)
             pathlib.Path(board).mkdir(parents=True, exist_ok=True)
-            path = _write_board(board, DELTA_REVIEW_FILE, reply)
+            path = _write_board(_own(board), DELTA_REVIEW_FILE, reply)
         return {"ok": True, "reason": "", "review_file": str(path)}
     return _guard(run, review_file="")

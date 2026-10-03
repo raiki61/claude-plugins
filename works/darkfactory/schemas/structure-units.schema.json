@@ -1,0 +1,7 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "判定の単位を構造の目の契約の形に写した物 r<N>/structure-units.json（書き手は line_edge.structure_units）",
+ "type": "array",
+ "items": {"type": "object", "required": ["id", "paths", "summary"],
+           "properties": {"id": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "summary": {"type": "string"}}}
+}

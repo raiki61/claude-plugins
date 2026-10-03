@@ -1,0 +1,6 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "包みの終わりの記録の即時の死の行の写し no-turn-exits.json（盤面の根。書き手は core の report.build。在る時だけ書く）",
+ "type": "array",
+ "items": {"type": "object", "properties": {"kind": {"type": "string", "const": "no_turn"}}}
+}

@@ -1,0 +1,8 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "修正前の関所の項目の決め手 gate-marks.json（盤面の根。書き手は core の gatemarks.save。節の名 → その節の分）",
+ "type": "object",
+ "patternProperties": {
+  ".": {"type": "object", "required": ["round", "marks"], "properties": {"round": {"type": "integer", "minimum": 1}, "marks": {"type": "array"}}}
+ }
+}

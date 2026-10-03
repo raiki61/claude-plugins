@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "構造のブロックの出口の控え structure-state.json（盤面の根。書き手は core の structmark.write）",
+ "type": "object",
+ "required": ["status", "reason", "design_file", "wall_s"],
+ "properties": {
+  "status": {"type": "string", "enum": ["ok", "failed"]},
+  "reason": {"type": "string"},
+  "design_file": {"type": "string"},
+  "wall_s": {"type": ["number", "null"]}
+ }
+}

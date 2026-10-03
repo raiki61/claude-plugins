@@ -204,9 +204,8 @@ class TestYaml(unittest.TestCase):
                                                                                        "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
                 "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
-                           "INPUTS_TDD_SUITE", "INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"),
-                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED",
-                            "INPUTS_PASS_TAG")}
+                           "INPUTS_TDD_SUITE"),
+                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")}
         for name, inputs in want.items():
             with self.subTest(name):
                 src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")

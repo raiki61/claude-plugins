@@ -1,0 +1,5 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "受け付けた判定の返答 judgment.json（盤面の根。中身の型は写しの graph の判定の節の schema が縛る）",
+ "type": "object"
+}

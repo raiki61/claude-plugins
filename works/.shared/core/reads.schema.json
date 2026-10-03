@@ -1,0 +1,15 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "読んだ証拠 reads-<役>.json（書き手は core の reads.collect。どのブロックの物も同じ形）",
+ "type": "object",
+ "required": ["role", "node_path", "rows", "sources", "missing"],
+ "properties": {
+  "role": {"type": "string"},
+  "node_path": {"type": "string"},
+  "rows": {"type": "array", "items": {"type": "object", "required": ["path", "hook", "event"],
+           "properties": {"path": {"type": "string"}, "hook": {"type": "string"}, "event": {"type": ["boolean", "null"]}}}},
+  "sources": {"type": "object", "required": ["hook", "events"],
+              "properties": {"hook": {"type": "boolean"}, "events": {"type": "string", "enum": ["none", "unverified", "verified"]}}},
+  "missing": {"type": "array", "items": {"type": "string"}}
+ }
+}

@@ -35,6 +35,7 @@ import prcheck  # noqa: E402
 import refix  # noqa: E402
 import rejudge  # noqa: E402
 import report  # noqa: E402
+import scopes  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
 import test_entry as TE  # noqa: E402
 import hermetic  # noqa: E402
@@ -531,6 +532,24 @@ class HeadCase(ReportBase):
         self.assertIn(f"run の作業ツリー: {b.state['inputs']['cwd']}", where)
         self.assertTrue(any(x.startswith("判定: ") for x in where))
 
+    def test_reads_lines_cover_scoped_reads(self):
+        """同じブロックの 2 つの include（fixing・refitting）がそれぞれ scope の根に書いた reads-fix.json は、冒頭 4 の読みの節に
+        両方の行が出る（登録の順。盤面の根の周の置き場の物が先）"""
+        self.full()
+        for scope in ("fixing", "refitting"):
+            scopes.claim(self.board, 1, scope, "blk-fix")
+        made = []
+        for rel, role in (("r1/reads-plan.json", "plan"), ("fixing/r1/reads-fix.json", "fix"),
+                          ("refitting/r1/reads-fix.json", "fix.refit")):
+            p = self.board / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({"role": role, "rows": [], "missing": [], "sources": {"hook": False, "events": "none"}}),
+                         encoding="utf-8")
+            made.append(p)
+        rows = [x for x in report.head_reads(self.board, RUN_ID) if x.startswith("読んだ証拠 ")]
+        self.assertEqual([x.split(":")[0] for x in rows], ["読んだ証拠 plan", "読んだ証拠 fix", "読んだ証拠 fix.refit"])
+        self.assertEqual([x.rsplit("。", 1)[1].rstrip("）") for x in rows], [str(p) for p in made])
+
     def test_round_two_paths(self):
         """周 2 の出力（state.outputs[節]["file"] が out/r2/）→ 見る所のパスは out/r2/ の下（周を仮定しない）"""
         self.full()
@@ -673,6 +692,27 @@ class HeadCase(ReportBase):
         hit = [x for x in report.head_reads(self.board, RUN_ID) if "事後の関門の束" in x]
         self.assertEqual(len(hit), 1, hit)
         self.assertIn("受け付け 1 回", hit[0])
+
+    def test_head_reads_shows_reads_outside(self):
+        """窓の宣言の外の読み（照らしが trace に積んだ scope_read_outside）は冒頭 4 の読みの節に数とパスが出る（無ければ行を出さない）"""
+        self.begin()
+        self.assertFalse(any("宣言の外の読み" in x for x in report.head_reads(self.board, RUN_ID)))
+        b = entry.open_board(self.board)
+        b.trace(scopes.READ_OUTSIDE_OP, scope="fixing", paths=["planning/r1/y.md", "r1/x.json"])
+        b.trace(scopes.READ_OUTSIDE_OP, scope="refitting", paths=["fixing/r1/a.md"])
+        hit = [x for x in report.head_reads(self.board, RUN_ID) if "宣言の外の読み" in x]
+        self.assertEqual(len(hit), 1, hit)
+        for part in ("3 件", "fixing: planning/r1/y.md", "fixing: r1/x.json", "refitting: fixing/r1/a.md"):
+            self.assertIn(part, hit[0])
+
+    def test_head_reads_shows_required_missing(self):
+        """窓の終わりに無かった必須の出力（照らしが trace に積んだ scope_required_missing）は冒頭 4 に数と名が出る（止めない）"""
+        self.begin()
+        self.assertFalse(any("必須の出力の欠け" in x for x in report.head_reads(self.board, RUN_ID)))
+        entry.open_board(self.board).trace(scopes.REQUIRED_MISSING_OP, scope="lensing", names=["r1/lens.json"])
+        hit = [x for x in report.head_reads(self.board, RUN_ID) if "必須の出力の欠け" in x]
+        self.assertEqual(len(hit), 1, hit)
+        self.assertIn("1 件 lensing: r1/lens.json", hit[0])
 
     def test_ci_note_beside_no_adapter(self):
         """adapter optional で CI の役が走った → 冒頭 4 の「包み無し」の行の横（同じ行）に collect.note"""

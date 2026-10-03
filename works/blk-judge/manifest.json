@@ -1,0 +1,7 @@
+{
+ "owner": "blk-judge",
+ "consumes": [],
+ "produces": [
+  {"name": "judgment.json", "format": "json", "schema": "schemas/judgment.schema.json", "at": "root"}
+ ]
+}

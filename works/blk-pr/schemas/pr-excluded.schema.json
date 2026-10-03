@@ -1,0 +1,11 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "並行 PR の任せ先が外した hunk r<N>/pr-excluded.json（書き手は core の prcheck.take）",
+ "type": "object",
+ "required": ["node", "head", "excluded"],
+ "properties": {
+  "node": {"type": "string"},
+  "head": {"type": "string"},
+  "excluded": {"type": "array"}
+ }
+}

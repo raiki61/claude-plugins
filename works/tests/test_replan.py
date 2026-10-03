@@ -10,7 +10,7 @@
 helper（fixed_item など・TripCase）は Task 7〜9 の試験も使う。
 人の関所の 1 つの決まりと答え（TestGateRule・TestAnswer）: 約束の欄が同じで人に聞く種類の穴が無い直しだけを聞かずに通し、
 それ以外は関所 replan-gate の答えで採るか諦めるか止める。stop は 1 回目の控えを盤面に渡してから run を止める。
-2 回目の修正の段（TestSecondPass）: 回の印 refit で指示書・拒否の理由・数えを 1 回目と分け、直す義務は案を直して戻った単位だけ。
+2 回目の修正の段（TestSecondPass）: include refitting の scope の根で指示書・拒否の理由・数えを 1 回目と分け、直す義務は案を直して戻った単位だけ。
 1 回目に受け付けた行と Bash の書き込みの申告は機械が合わせて渡す。
 線の境の節（TestLineReplay。224b・225 の型）: h-replan・h-regate・h-refit の 3 つの at で、案の直し・その関所・2 回目の修正を
 同じ run の中で回し、直す義務に戻った単位を同じ run で直す。
@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
 sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 
 from test_blk_fix_conflict import (CLAMP, CLAMP_FIELDS, MEAN, MEAN_FIX, PLAN_TEXT, ReplanCase,  # noqa: E402,F401
-                                   accept_module, only_clamp_reply, split_plan_reply)
+                                   accept_module, in_include, only_clamp_reply, split_plan_reply)
 from test_blk_fix import PLAN_FIELDS, PLAN_REVIEW_OK, load, run_script  # noqa: E402
 
 import board  # noqa: E402
@@ -45,6 +45,10 @@ import line_edge  # noqa: E402
 import linekit  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
+
+REFIT = "refitting"   # 2 回目の修正の段の線の include の名（その scope の根に 2 回目の段の物を書く。依頼 239）
+# 2 回目の修正の段の中の節の居場所（Archon が script の節に渡す ARCHON_NODE_EXECUTION。依頼 239 の測り M1）
+REFITTING = in_include(REFIT, "fix-loop.fix-reads")
 
 
 class TestSettle(ReplanCase):
@@ -274,11 +278,11 @@ def only_mean_reply() -> dict:
 
 
 def refit_ignored_before(board, repo) -> None:
-    """2 回目の修正の段の頭の節 refitting__ignored-before: 回の印 refit の付いた修正役の前の控え（1 回目の物を上書きしない。
+    """2 回目の修正の段の頭の節 refitting__ignored-before: その scope の根の修正役の前の控え（1 回目の物を上書きしない。
     受け付けの .archon/ の検査が読む）"""
     import leftovers
-    import script_io
-    leftovers.record_ignored(board, repo, script_io.tagged(leftovers.IGNORED_BEFORE_FILE, "refit"))
+    with mock.patch.dict(os.environ, in_include(REFIT, "ignored-before")):
+        leftovers.record_ignored(board, repo)
 
 
 class TripCase(ReplanCase):
@@ -542,7 +546,9 @@ class TestReplanRoles(ReplanCase):
         replan.material(b); self.prep("plan")
         self.assertTrue(self.accept("plan", {"plan": [fixed_item()]})["ok"])
         self.prep("plan-review")
-        got = planblk.collect_reads(self.board, self.repo, "", "replanning", replan="true")
+        with mock.patch.object(planblk.reads, "node_here",
+                               lambda loop, node: planblk.reads.node_path("replanning", loop, node)):
+            got = planblk.collect_reads(self.board, self.repo, "", replan="true")
         self.assertEqual(pathlib.Path(got["reads_file"]).name, "reads-replan-block.json")
         index = json.loads(pathlib.Path(got["reads_file"]).read_text(encoding="utf-8"))
         self.assertEqual({k: pathlib.Path(v).name for k, v in index.items()},
@@ -808,9 +814,8 @@ class TestAnswer(TripCase):
 
 
 class TestSecondPass(TripCase):
-    """2 回目の修正の段（回の印 refit）: 直す義務は案を直して戻った単位だけ。受け付けは役の返答そのものを確かめ、1 回目に受け付けた
-    行を機械が合わせて盤面に渡す。指示書・拒否の理由の名は回の印で分け、数えは 1 から"""
-    TAG = "refit"
+    """2 回目の修正の段（include refitting）: 直す義務は案を直して戻った単位だけ。受け付けは役の返答そのものを確かめ、1 回目に
+    受け付けた行を機械が合わせて盤面に渡す。指示書・拒否の理由は 1 回目と同じ名でその scope の根に書き、数えは 1 から"""
 
     def approve(self, new):
         """TripCase.approve に、2 回目の修正の段の頭の節 refitting__ignored-before（refit_ignored_before）を足す"""
@@ -824,10 +829,10 @@ class TestSecondPass(TripCase):
                 "open_units": json.dumps([MEAN, CLAMP], ensure_ascii=False), "plan_file": "", "policy_path": "",
                 "notes_file": "", "summary_file": "", "base_rev": ""}
 
-    def prep_script(self, tag=""):
-        """支度の節 fix-prep を子で起こす（tag は回の印。空なら環境変数を渡さない）。返りは出口の JSON"""
+    def prep_script(self, include=""):
+        """支度の節 fix-prep を子で起こす（include は修正の段の include の名。空なら線の最上段）。返りは出口の JSON"""
         env = {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "first",
-               **{f"INPUTS_{k.upper()}": v for k, v in self.values().items()}, **({"INPUTS_PASS_TAG": tag} if tag else {})}
+               **{f"INPUTS_{k.upper()}": v for k, v in self.values().items()}, **in_include(include, "fix-loop.fix-prep")}
         code, out, err = run_script("fix_prep", self.repo, env)
         self.assertEqual(code, 0, err)
         return json.loads(out)
@@ -841,12 +846,24 @@ class TestSecondPass(TripCase):
             "    def test_clamp_within_range", "    def test_mean_of_two(self):\n        self.assertEqual(mean([1, 3]), 2)\n\n"
             "    def test_clamp_within_range"), encoding="utf-8")
 
+    def test_second_pass_fact_follows_amended_rows(self):
+        """2 回目の修正の段かは裁定の行の事実（AMENDED の行が在る）で引く。行が無い・WAITING だけは 1 回目の段"""
+        b = entry.open_board(self.board)
+        doc = json.loads(b.work(conflict.FILE).read_text(encoding="utf-8"))
+        b.work(conflict.FILE).write_text(json.dumps({"items": []}), encoding="utf-8")
+        self.assertFalse(conflict.second_pass(b))
+        b.work(conflict.FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual([conflict.replan_state(i) for i in conflict.items(b)], [conflict.WAITING])
+        self.assertFalse(conflict.second_pass(b))
+        self.approve(red_kind_fixed())                       # replan.answer が行を AMENDED にする
+        self.assertTrue(conflict.second_pass(entry.open_board(self.board)))
+
     def test_second_pass_duty_is_returned_units_and_merges(self):
         self.approve(red_kind_fixed())                       # Task 7 の answer まで通した盤面
         owed, excused = conflict.fix_duty(entry.open_board(self.board))
         self.assertEqual(owed, {MEAN}); self.assertIn("1 回目の修正の段で受け付けた", excused[CLAMP])
         self.fix_mean()
-        r = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
+        r = self.accept_script(only_mean_reply(), pass_="first", include=REFIT)
         self.assertTrue(r["ok"], r)
         b = entry.open_board(self.board)
         out, _ = recount._fix_output(b)
@@ -856,15 +873,15 @@ class TestSecondPass(TripCase):
         self.assertNotIn("bash_writes", out)
 
     def test_second_pass_counts_its_own_tries(self):
-        """1 回目の拒否の理由・delivered が在っても、回の印の付いた 1 回目は iteration 1・前の理由を名指さない。2 回目の段の拒否は
-        回の印の付いた名で書き、次の支度がそれを名指す"""
+        """1 回目の拒否の理由・delivered が在っても、2 回目の段の 1 回目は iteration 1・前の理由を名指さない。2 回目の段の拒否は
+        その scope の根に書き、次の支度がそれを名指す"""
         first = self.prep_script()                                         # 1 回目の段の指示書と delivered
         old_reject = self.board / "reject-accept_fix-7.txt"
         old_reject.write_text("1 回目の段の拒否\n", encoding="utf-8")
         self.approve(red_kind_fixed())
-        got = self.prep_script(self.TAG)
+        got = self.prep_script(REFIT)
         prompt = pathlib.Path(got["prompt_file"])
-        self.assertEqual(prompt.name, "prompt-p3.fix.refit.md")
+        self.assertEqual(prompt, self.board / REFIT / "r1" / "prompt-p3.fix.md")
         self.assertNotEqual(got["prompt_file"], first["prompt_file"])
         self.assertEqual(got["iteration"], 1)
         side = json.loads(pathlib.Path(got["variants_file"]).read_text(encoding="utf-8"))
@@ -873,10 +890,10 @@ class TestSecondPass(TripCase):
         self.assertNotIn(str(old_reject), text)
         self.assertNotIn("reject-accept_fix", text)
         self.edit_tree(MEAN_FIX)
-        r = self.accept_script(load("fix2_ok"), pass_="first", pass_tag=self.TAG)   # 控えの単位の行を書いた → 拒む
+        r = self.accept_script(load("fix2_ok"), pass_="first", include=REFIT)   # 控えの単位の行を書いた → 拒む
         self.assertFalse(r["ok"], r)
-        self.assertTrue(pathlib.Path(r["reason_file"]).name.endswith(".refit.txt"), r["reason_file"])
-        again = self.prep_script(self.TAG)
+        self.assertEqual(pathlib.Path(r["reason_file"]).parent, self.board / REFIT, r["reason_file"])
+        again = self.prep_script(REFIT)
         self.assertEqual(again["iteration"], 2)
         text = pathlib.Path(again["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn(r["reason_file"], text)
@@ -886,7 +903,7 @@ class TestSecondPass(TripCase):
     def test_second_pass_rejects_rows_for_accepted_units(self):
         self.approve(red_kind_fixed())
         self.edit_tree(MEAN_FIX)
-        r = self.accept_script(load("fix2_ok"), pass_="first", pass_tag=self.TAG)
+        r = self.accept_script(load("fix2_ok"), pass_="first", include=REFIT)
         self.assertFalse(r["ok"], r)
         self.assertIn(CLAMP, r["reason"])
         self.assertIn("1 回目の修正の段で受け付けた", r["reason"])
@@ -898,7 +915,7 @@ class TestSecondPass(TripCase):
         self.fix_mean()
         reply = only_mean_reply()
         reply["not_done"] = [{"unit_key": CLAMP, "why": "1 回目に直したので今回は直さなかった"}]
-        r = self.accept_script(reply, pass_="first", pass_tag=self.TAG)
+        r = self.accept_script(reply, pass_="first", include=REFIT)
         self.assertFalse(r["ok"], r)
         self.assertEqual(r["rejects"], [{"check": "accepted", "text": accept_module().ACCEPTED_ROWS + CLAMP}],
                          "合わせた返答を盤面に拒ませる前に、自分の文だけで拒む（写しの照らしは控えの行を見る）")
@@ -910,7 +927,7 @@ class TestSecondPass(TripCase):
         """控えの単位を changes に書いた返答の拒否の文は、その直しを作業ツリーから戻せと言わない（機械が行を足す）"""
         self.approve(red_kind_fixed())
         self.fix_mean()
-        r = self.accept_script(load("fix2_ok"), pass_="first", pass_tag=self.TAG)
+        r = self.accept_script(load("fix2_ok"), pass_="first", include=REFIT)
         self.assertFalse(r["ok"], r)
         self.assertEqual(r["rejects"], [{"check": "accepted", "text": accept_module().ACCEPTED_ROWS + CLAMP}])
         self.assertNotIn("戻", r["reason"])
@@ -923,11 +940,11 @@ class TestSecondPass(TripCase):
                  "kind": "unnamed_test_broke"}
         reply = only_mean_reply()
         reply["changes"], reply["conflicts"] = [], [claim]
-        r = self.accept_script(reply, pass_="first", pass_tag=self.TAG)
+        r = self.accept_script(reply, pass_="first", include=REFIT)
         self.assertEqual((r["ok"], r.get("parked")), (True, True), r)
         new = [i for i in self.items() if i.get("ruling") is None]
         self.assertEqual(len(new), 1, self.items())
-        tag = {"INPUTS_PASS_TAG": self.TAG}
+        tag = in_include(REFIT, "rule-loop.rule-prep")
         code, out, err = run_script("rule_prep", self.repo, {**self.rule_env(), **tag})
         self.assertEqual(code, 0, err)
         code, out, err = run_script("rule_accept", self.repo, {**self.rule_env({"rulings": [
@@ -937,7 +954,7 @@ class TestSecondPass(TripCase):
         got = json.loads(out)
         self.assertTrue(got["ok"], got)
         path = pathlib.Path(got["rulings_file"])
-        self.assertTrue(path.name.endswith(".refit.md"), path)
+        self.assertEqual(path, self.board / REFIT / "r1" / conflict.RULINGS_FILE)
         amended = next(i for i in self.items() if conflict.replan_state(i) == conflict.AMENDED)
         text = path.read_text(encoding="utf-8")
         section = text.split(f"## {amended['id']}:", 1)[1].split("\n## ", 1)[0]
@@ -957,7 +974,7 @@ class TestSecondPass(TripCase):
         log.parent.mkdir(parents=True, exist_ok=True)
         log.write_text("", encoding="utf-8")                # 記録を取っている run（記録の無い変更は拒む）
         (self.repo / "notes.txt").write_text("記録の無い書き込み\n", encoding="utf-8")
-        r = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
+        r = self.accept_script(only_mean_reply(), pass_="first", include=REFIT)
         self.assertFalse(r["ok"], r)
         import writes
         wrote = [x["text"] for x in r["rejects"] if x["check"] == "writes"]
@@ -966,32 +983,33 @@ class TestSecondPass(TripCase):
         self.fix_mean()
         reply = only_mean_reply()
         reply["bash_writes"] = [{"path": "test_stats.py", "why": "2 回目に受け入れのテストを sed で足した"}]
-        r = self.accept_script(reply, pass_="first", pass_tag=self.TAG)   # 役の申告（test_stats.py）と控えの申告（stats.py）
+        r = self.accept_script(reply, pass_="first", include=REFIT)   # 役の申告（test_stats.py）と控えの申告（stats.py）
         self.assertTrue(r["ok"], r)
 
     def test_second_pass_reads_do_not_overwrite_first_pass_reads(self):
-        """2 回目の段の読んだ証拠（fix-reads・回の印 refit）は reads-fix.refit.json に書き、1 回目の reads-fix.json を上書きしない。
-        集める節は回の印の付いた方を出口に出し、報告（冒頭 4）は両方を読む"""
-        import script_io
+        """2 回目の段の読んだ証拠（fix-reads・include refitting）はその scope の根の reads-fix.json に書き、1 回目の reads-fix.json を
+        上書きしない。集める節は今の scope の方を出口に出し、報告（冒頭 4）は両方を読む"""
         b = entry.open_board(self.board)
         first = b.work("reads-fix.json")
         first.write_text('{"role": "fix", "first": true}\n', encoding="utf-8")
         before = first.read_bytes()
         self.approve(red_kind_fixed())
         env = {"ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": "run-12", "INPUTS_MUST": json.dumps([self.values()["judgment_file"]]),
-               "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS_TAG": self.TAG,
-               "INPUTS_INCLUDE_ID": "refitting"}
+               "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"],
+               "ARCHON_NODE_EXECUTION": REFITTING["ARCHON_NODE_EXECUTION"]}   # 2 回目の段の include の中の節（Archon と同じ形）
         code, out, err = run_script("reads", self.repo, env)
         self.assertEqual(code, 0, err)
         got = pathlib.Path(json.loads(out)["reads_file"])
-        self.assertEqual(got.name, script_io.tagged("reads-fix.json", self.TAG))
+        self.assertEqual(got, self.board / REFIT / "r1" / "reads-fix.json")
         self.assertEqual(json.loads(got.read_text(encoding="utf-8"))["node_path"], "refitting__fix-loop.fix")
         self.assertEqual(first.read_bytes(), before)
         self.fix_mean()
-        acc = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
+        acc = self.accept_script(only_mean_reply(), pass_="first", include=REFIT)
         self.assertTrue(acc["ok"], acc)
-        out = recount.collect(self.board, acc, {"ok": True, "files": ["stats.py"]}, tag=self.TAG)
+        with mock.patch.dict(os.environ, REFITTING), mock.patch.object(sys, "argv", [str(ROOT / "blk-fix" / "scripts" / "collect.py")]):
+            out = recount.collect(self.board, acc, {"ok": True, "files": ["stats.py"]})   # 同じ include の集める節
         self.assertEqual(out["reads_file"], str(got))
+        self.assertEqual(got.parent, self.board / "refitting" / "r1")   # 2 回目の段の物は include の scope の根
         self.assertEqual(recount.collect(self.board, acc, {"ok": True, "files": ["stats.py"]})["reads_file"], str(first))
         lines = [x for x in report.head_reads(self.board, "") if x.startswith("読んだ証拠 ")]
         self.assertEqual(len(lines), 2, lines)
@@ -999,7 +1017,7 @@ class TestSecondPass(TripCase):
     def test_fix_prompt_names_held_reply(self):
         import fixrules
         self.approve(red_kind_fixed())
-        text = pathlib.Path(self.prep_script(self.TAG)["prompt_file"]).read_text(encoding="utf-8")
+        text = pathlib.Path(self.prep_script(REFIT)["prompt_file"]).read_text(encoding="utf-8")
         b = entry.open_board(self.board)
         self.assertIn(fixrules.HELD_HEAD, text)
         self.assertIn(fixrules.HELD_ASK.format(path=b.work(conflict.HELD_REPLY)), text)
@@ -1011,7 +1029,8 @@ class TestLineReplay(ReplanCase):
     線の境の節（h-replan・h-regate・h-refit）を line_edge.edge で、ブロックの中を口の関数とスクリプトで回す"""
     play_role = TripCase.play_role
     fix_mean = TestSecondPass.fix_mean
-    TAG = "refit"
+    values = TestSecondPass.values
+    prep_script = TestSecondPass.prep_script
 
     def e(self, at, **kw):
         return line_edge.edge(self.board, at, self.repo, run_id="r", adapter_mode="optional", final_gate="", **kw)
@@ -1034,7 +1053,7 @@ class TestLineReplay(ReplanCase):
     def fixed_in_same_run(self):
         """2 回目の修正の段で mean を直して受け付けを通し、h-rejudge の締めの後に差分と裁定の行を確かめる"""
         self.fix_mean()
-        got = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
+        got = self.accept_script(only_mean_reply(), pass_="first", include=REFIT)
         self.assertTrue(got["ok"], got)
         self.e("rejudge")
         self.assertNotEqual(linekit.git(self.repo, "diff", "--", "stats.py"), "")
@@ -1100,19 +1119,20 @@ class TestLineReplay(ReplanCase):
         """2 回目の段で同じ単位が再び fix_plan_item に裁かれたら、案の段には戻らず h-rejudge の締めが CLOSE_WHY で諦める"""
         _, r = self.run_trip(red_kind_fixed())
         self.assertTrue(r["go"])
+        self.prep_script(REFIT)   # 2 回目の段の支度（その scope の根に brief を切る）
         claim = {"unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"], "which_is_right": "request",
                  "why_both_cannot_hold": "2 回目の段でも、直した項目の受け入れのテストの赤の理由が今のコードと合わない",
                  "kind": "unnamed_test_broke"}
         reply = only_mean_reply()
         reply["changes"], reply["conflicts"] = [], [claim]
-        got = self.accept_script(reply, pass_="first", pass_tag=self.TAG)
+        got = self.accept_script(reply, pass_="first", include=REFIT)
         self.assertEqual((got["ok"], got.get("parked")), (True, True), got)
         new = [i for i in self.items() if i.get("ruling") is None]
         self.assertEqual(len(new), 1, self.items())
-        tag = {"INPUTS_PASS_TAG": self.TAG}
+        tag = in_include(REFIT, "rule-loop.rule-prep")
         code, out, err = run_script("rule_prep", self.repo, {**self.rule_env(), **tag})
         self.assertEqual(code, 0, err)
-        brief = entry.open_board(self.board).work("brief-1.md")
+        brief = self.board / REFIT / "r1" / "brief-1.md"
         code, out, err = run_script("rule_accept", self.repo, {**self.rule_env({"rulings": [
             {"id": new[0]["id"], "decision": "fix_plan_item", "text": PLAN_TEXT, "limits": [],
              "grounds": [f"{brief}:1"]}]}), **tag})
@@ -1120,7 +1140,7 @@ class TestLineReplay(ReplanCase):
         self.assertTrue(json.loads(out)["ok"], out)
         ruled = only_mean_reply()
         ruled["changes"] = []
-        got = self.accept_script(ruled, pass_="ruled", pass_tag=self.TAG)
+        got = self.accept_script(ruled, pass_="ruled", include=REFIT)
         self.assertTrue(got["ok"], got)
         self.e("rejudge")
         b = entry.open_board(self.board)

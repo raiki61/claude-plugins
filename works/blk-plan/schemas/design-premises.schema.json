@@ -1,0 +1,9 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "独立設計 r2.design に渡した前提の入力の控え design-premises.json（盤面の根。書き手は core の design.prep）",
+ "type": "object",
+ "required": ["node"],
+ "properties": {
+  "node": {"type": "string", "const": "r2.design"}
+ }
+}

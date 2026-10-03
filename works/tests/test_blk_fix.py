@@ -97,9 +97,9 @@ class TestBlockYaml(unittest.TestCase):
         y = block()
         self.assertEqual(y["name"], "blk-fix")
         self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "notes_file", "policy_path",
-                                            "tdd_suite", "test_cmd", "include_id", "pass_tag"})
-        # 2 回目の修正の段（依頼 226）の口。1 度目の include は既定のまま（include の名 fixing・回の印なし）
-        self.assertEqual((y["inputs"]["include_id"]["default"], y["inputs"]["pass_tag"]["default"]), ("fixing", ""))
+                                            "tdd_suite", "test_cmd"})
+        # 2 回目の修正の段（依頼 226）は同じ入力の 2 度目の include。include の名は入力に持たない（core が Archon の節の居場所から
+        # 引き、その scope の置き場で 1 度目と分かれる。依頼 239）
         for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite", "test_cmd"):   # 足した物は空でよい（仕様 3.2・TDD の輪）
             self.assertEqual(y["inputs"][k].get("default"), "", k)
             self.assertNotIn("required", y["inputs"][k], k)
@@ -128,9 +128,9 @@ class TestBlockYaml(unittest.TestCase):
         # TDD の輪の節は test_blk_fix_tdd、食い違いの申し出の 3 節は test_blk_fix_conflict が見る
         before, _start, _tdd, loop, _check, _rule, _ruled, clean, changed, reads, collect = nodes
         self.assertEqual((reads["script"], reads["depends_on"]), ("reads", ["assert-changed"]))
-        self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]', "pass_tag": "$INPUTS.pass_tag",
-                                         "include_id": "$INPUTS.include_id"})
+        self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]'})
         self.assertNotIn("depends_on", before)
+        self.assertNotIn("with", before)
         self.assertEqual(before["script"], "ignored_before")
         self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop"], "控えは修正役より前（tdd-start が ignored-before の後）")
         self.assertEqual(clean["script"], "clean")
@@ -304,17 +304,15 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""
-        tail = ("INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID")   # 2 回目の修正の段の回の印と include の名（OPTIONAL。依頼 226）
         want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
-                           "INPUTS_TDD_SUITE", *tail),
+                           "INPUTS_TDD_SUITE"),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
-                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS", *tail),
-                "rule_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_POLICY_PATH", *tail),
-                "rule_accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_ITERATION", *tail),
-                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED",
-                            "INPUTS_PASS_TAG"),
-                "reads": ("INPUTS_MUST", *tail),
-                "ignored_before": ("INPUTS_PASS_TAG",), "clean": ("INPUTS_PASS_TAG",)}
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS"),
+                "rule_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_POLICY_PATH"),
+                "rule_accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_ITERATION"),
+                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED"),
+                "reads": ("INPUTS_MUST",),
+                "ignored_before": (), "clean": ()}
         for name, inputs in want.items():
             with self.subTest(name):
                 src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
@@ -322,37 +320,6 @@ class TestBlockYaml(unittest.TestCase):
                           and [getattr(t, "id", None) for t in n.targets] == ["INPUTS"]]
                 self.assertEqual(consts, [inputs])
                 self.assertLessEqual(set(re.findall(r"INPUTS_[A-Z_]+", src)), set(inputs), "定数に無い INPUTS_* を読まない")
-
-    def test_pass_inputs_are_optional(self):
-        """後から足した回の印と include の名は OPTIONAL（無い・空は今どおり。前の版の with: で再開した run は渡さない）。
-        YAML の with: はブロックの入力 pass_tag・include_id をそのまま渡す（依頼 226 Task 9。collect は回の印だけ）"""
-        names = {"accept": ("fix-accept", "fix-ruled-accept"), "fix_prep": ("fix-prep", "fix-ruled-prep"),
-                 "rule_prep": ("rule-prep",), "rule_accept": ("rule-accept",), "reads": ("fix-reads",), "collect": ("collect",),
-                 "ignored_before": ("ignored-before",), "clean": ("clean",)}
-        nodes = {nid: find_node(block()["nodes"], nid) for ids in names.values() for nid in ids}
-        for name, ids in names.items():
-            want = {"INPUTS_PASS_TAG"} if name in ("collect", "ignored_before", "clean") else {"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"}
-            with self.subTest(name):
-                src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
-                consts = [n.value for n in ast.parse(src).body if isinstance(n, ast.Assign)
-                          and [getattr(t, "id", None) for t in n.targets] == ["OPTIONAL"]]
-                self.assertEqual(len(consts), 1)
-                self.assertEqual(set(ast.literal_eval(consts[0].args[0])), want)
-                for nid in ids:
-                    got = {k: v for k, v in nodes[nid]["with"].items() if f"INPUTS_{k.upper()}" in want}
-                    self.assertEqual(got, {k[len("INPUTS_"):].lower(): f"$INPUTS.{k[len('INPUTS_'):].lower()}" for k in want}, nid)
-
-    def test_tagged_names(self):
-        """回の印は 1 つの口（fixrules.tagged）で、拡張子の前に .<印>。空なら名のまま"""
-        import conflict
-        import fixrules
-        self.assertEqual(fixrules.tagged("prompt-p3_fix.md", ""), "prompt-p3_fix.md")
-        self.assertEqual(fixrules.tagged("prompt-p3_fix.md", "refit"), "prompt-p3_fix.refit.md")
-        self.assertEqual(fixrules.tagged(fixrules.REJECT_GLOB, "refit"), "reject-accept_fix-*.refit.txt")
-        self.assertEqual(fixrules.tagged(conflict.RULINGS_FILE, "refit"), "conflict-rulings.refit.md")
-        self.assertEqual(fixrules.tagged(conflict.PARKED_REPLY, "refit"), "fix-parked-reply.refit.json")
-        with self.assertRaises(ValueError):
-            fixrules.tagged("a.md", "../x")
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
@@ -813,13 +780,15 @@ class TestFixPrep(BoardCase):
     def test_reads_cover_the_composed_prompt(self):
         """読んだ証拠（fix-reads）は、判定のファイルに加えて fix-prep が組んだ指示書を読むべきパスに持つ"""
         self.fix_ready(launched=False)
-        code, out, err = self.prep()
+        where = lambda nid: json.dumps({"runId": "r", "path": f"fixing__fix-loop.{nid}"})   # 線の include fixing の中の節
+        code, out, err = self.prep(ARCHON_NODE_EXECUTION=where("fix-prep"))
         self.assertEqual(code, 0, err)
         prompt = json.loads(out)["prompt_file"]
         judgment = self.values()["judgment_file"]
         code, out, err = run_script("reads", self.repo, {"ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": "run-12",
                                                          "INPUTS_MUST": json.dumps([judgment]),
-                                                         "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]})
+                                                         "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"],
+                                                         "ARCHON_NODE_EXECUTION": where("fix-reads")})
         self.assertEqual(code, 0, err)
         rows = json.loads(pathlib.Path(json.loads(out)["reads_file"]).read_text(encoding="utf-8"))["rows"]
         self.assertEqual([r["path"] for r in rows], [judgment, prompt])
@@ -920,7 +889,7 @@ class TestFixPrep(BoardCase):
         err = io.StringIO()
         with mock.patch.dict(os.environ, env), mock.patch.object(spseam, "BORROW_DIR", borrow), \
                 mock.patch.object(mod.fixrules, "lib_section", return_value="") as docs, contextlib.redirect_stderr(err):
-            code = rolekit.script_main(mod.run, tuple(n for n in mod.INPUTS if n not in mod.OPTIONAL))   # script の入口と同じ
+            code = rolekit.script_main(mod.run, mod.INPUTS)   # script の入口と同じ
         self.assertEqual(code, 2, err.getvalue())
         self.assertIn(rel, err.getvalue())
         docs.assert_not_called()   # 照合は重い仕事（Context7 の引き）より前
@@ -1549,7 +1518,9 @@ class TestLeftoversModule(unittest.TestCase):
         names = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         names |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.level == 0}
         self.assertTrue(names)
-        self.assertEqual(sorted(names - set(sys.stdlib_module_names)), [], "標準ライブラリだけ（pack の core の他の模块も読まない）")
+        # 標準ライブラリと、盤面の scope の根を引く層 L1 の script_io だけ（pack の core のほかの模块は読まない。依頼 239）
+        self.assertEqual(sorted(names - set(sys.stdlib_module_names) - {"script_io"}), [],
+                         "標準ライブラリと script_io だけ（pack の core の他の模块も読まない）")
         self.assertFalse(any(isinstance(n, ast.ImportFrom) and n.level for n in ast.walk(tree)))
 
     def test_leftovers_callers_import_from_core(self):
@@ -1698,7 +1669,7 @@ class TestCleanIgnored(ScriptCase):
         self.assertTrue((self.repo / "__pycache__" / "x.pyc").exists(), "控えが無ければ何も消さない")
 
     def test_second_pass_keeps_first_pass_files(self):
-        """回の印（2 回目の修正の段の refit）が在れば、控えと消した物のファイルは印を足した名に書き、1 回目の物を上書きしない。
+        """2 回目の修正の段（include refitting）の控えと消した物のファイルは同じ名でその scope の根に書き、1 回目の物を上書きしない。
         2 回目の clean は 2 回目の控えで消す"""
         self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
         (self.repo / "__pycache__").mkdir()
@@ -1708,15 +1679,16 @@ class TestCleanIgnored(ScriptCase):
         first = {n: (self.board / n).read_bytes() for n in ("fix-ignored-before.json", "fix-removed.json")}
         (self.repo / "__pycache__").mkdir()
         (self.repo / "__pycache__" / "keep.pyc").write_bytes(b"k")   # 2 回目の段の前から在った物
-        tag = {**self.env(), "INPUTS_PASS_TAG": "refit"}
-        code, out, err = run_script("ignored_before", self.repo, tag)
+        refit = {**self.env(), "ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": "refitting__ignored-before"})}
+        code, out, err = run_script("ignored_before", self.repo, refit)
         self.assertEqual(code, 0, err)
-        self.assertEqual(pathlib.Path(json.loads(out)["file"]).name, "fix-ignored-before.refit.json")
+        self.assertEqual(pathlib.Path(json.loads(out)["file"]), self.board / "refitting" / "fix-ignored-before.json")
         (self.repo / "sub" / "__pycache__").mkdir(parents=True)
         (self.repo / "sub" / "__pycache__" / "b.pyc").write_bytes(b"b")
-        code, out, err = run_script("clean", self.repo, tag)
+        code, out, err = run_script("clean", self.repo, {**refit, "ARCHON_NODE_EXECUTION": refit["ARCHON_NODE_EXECUTION"].replace(
+            "ignored-before", "clean")})
         self.assertEqual(code, 0, err)
-        self.assertEqual(pathlib.Path(json.loads(out)["file"]).name, "fix-removed.refit.json")
+        self.assertEqual(pathlib.Path(json.loads(out)["file"]), self.board / "refitting" / "fix-removed.json")
         self.assertEqual(self.removed(out), ["sub/__pycache__/b.pyc"])
         self.assertTrue((self.repo / "__pycache__" / "keep.pyc").exists())
         self.assertEqual({n: (self.board / n).read_bytes() for n in first}, first, "1 回目の控えと消した物は残る")

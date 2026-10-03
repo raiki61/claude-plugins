@@ -306,21 +306,28 @@ class TestTestEdits(FixGatesCase):
         self.assertEqual([(r["gate"], r["id"]) for r in self.problems(pass_="first")], [("test_edits", THREE_ID)])
 
     def test_second_pass_keeps_first_pass_ruled_limit(self):
-        """2 回目の修正の段（回の印 refit。依頼 226）の受け付けは、裁定の前（first）でも 1 回目の段の裁定 fix_test_scope の範囲の
-        直しを通す（base からの差分に 1 回目の直しが在る）"""
+        """2 回目の修正の段（案を直した行が在る。conflict.second_pass。依頼 226）の受け付けは、裁定の前（first）でも 1 回目の段の
+        裁定 fix_test_scope の範囲の直しを通す（base からの差分に 1 回目の直しが在る）"""
         self.ready_with_fields(direct_fields())
         self.rule(["test_stats.py:9"])
         self.edit_tests(*THREE_EDIT)
-        self.assertEqual(self.problems(pass_="first", tag="refit"), [])
         self.assertEqual([(r["gate"], r["id"]) for r in self.problems(pass_="first")], [("test_edits", THREE_ID)],
                          "1 回目の段の裁定の前は今どおり")
+        self.rule(["test_stats.py:9"], amended=True)
+        self.assertEqual(self.problems(pass_="first"), [])
 
-    def rule(self, limits):
-        entry.open_board(self.board).work(conflict.FILE).write_text(json.dumps({"items": [
-            {"id": "c1-1", "unit_key": tbf.MEAN, "between": ["stats.py:9", "test_stats.py:9"],
-             "why_both_cannot_hold": "期待の型が依頼と食い違う", "which_is_right": "test", "status": "ruled",
-             "ruling": {"decision": "fix_test_scope", "text": "期待を float で書いてよい", "limits": limits}}]},
-            ensure_ascii=False), encoding="utf-8")
+    def rule(self, limits, *, amended=False):
+        """裁定 fix_test_scope の行（範囲 limits）を置く。amended なら案を直した fix_plan_item の行も（2 回目の修正の段の盤面）"""
+        rows = [{"id": "c1-1", "unit_key": tbf.MEAN, "between": ["stats.py:9", "test_stats.py:9"],
+                 "why_both_cannot_hold": "期待の型が依頼と食い違う", "which_is_right": "test", "status": "ruled",
+                 "ruling": {"decision": "fix_test_scope", "text": "期待を float で書いてよい", "limits": limits}}]
+        if amended:
+            rows.append({"id": "c1-2", "unit_key": tbf.CLAMP, "between": ["stats.py:12", "test_stats.py:12"],
+                         "why_both_cannot_hold": "案の項目が誤り", "which_is_right": "request", "status": "ruled",
+                         "ruling": {"decision": conflict.REPLAN, "text": "項目を直せ", "limits": []},
+                         conflict.REPLAN_STATE: conflict.AMENDED})
+        entry.open_board(self.board).work(conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False),
+                                                                    encoding="utf-8")
 
     def test_ruled_scope_reads_like_the_frozen_check(self):
         """範囲の読みは輪の凍結の検査と同じ: ファイルだけは全部・1 行の指しは関数の全体・`<行>-<行>` は書いたとおり"""
@@ -351,17 +358,24 @@ class TestLedgerAndText(FixGatesCase):
         self.problems(attempt=1, pass_="ruled")
         self.assertEqual(len(self.ledger()["rows"]), 4, "裁定の後の 1 回目は別の回")
 
-    def test_second_pass_rows_carry_the_tag(self):
-        """2 回目の修正の段の行と飛ばした理由は回の印 tag を持ち、1 回目の段の同じ (pass, attempt) の物と混ざらない"""
+    def test_second_pass_rows_live_under_its_scope(self):
+        """2 回目の修正の段（include refitting）の行と飛ばした理由はその scope の帳面に積み、1 回目の段の同じ (pass, attempt) の
+        物と混ざらない（行に回の印の鍵を置かない）"""
         self.ready_with_fields()
         self.edit_tests(*THREE_EDIT)
         self.problems(suite="", attempt=1)
-        self.problems(suite="", attempt=1, tag="refit")
-        rows = self.ledger()["rows"]
-        self.assertEqual(sorted(r.get("tag", "") for r in rows), ["", "refit"], rows)
+        refit = {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": "refitting__fix-loop.fix-accept"})}
+        accept = str(ROOT / "blk-fix" / "scripts" / "accept.py")
+        with mock.patch.dict(os.environ, refit), mock.patch.object(sys, "argv", [accept]):
+            self.problems(suite="", attempt=1)
+            self.assertEqual(fixgates.skipped(self.board, pass_="first", attempt=1), [fixgates.NO_SUITE])
+            second = json.loads(entry.open_board(self.board).work(fixgates.LEDGER).read_text(encoding="utf-8"))
+        self.assertEqual(entry.open_board(self.board).work(fixgates.LEDGER).parent.parent, self.board)
+        self.assertEqual(self.ledger()["skipped"], second["skipped"], "同じ回の印・同じ中身（置き場だけが違う）")
+        self.assertEqual(len(self.ledger()["skipped"]), 1)
         self.assertEqual(fixgates.skipped(self.board, pass_="first", attempt=1), [fixgates.NO_SUITE])
-        self.assertEqual(fixgates.skipped(self.board, pass_="first", attempt=1, tag="refit"), [fixgates.NO_SUITE])
-        self.assertEqual(len(self.ledger()["skipped"]), 2)
+        self.assertTrue((self.board / "refitting" / "r1" / fixgates.LEDGER).is_file())
+        self.assertNotIn("tag", {k for r in self.ledger()["rows"] + second["rows"] for k in r})
 
     def test_reject_text_lists_every_row(self):
         rows = [{"gate": "red_green", "id": MEAN_ID, "detail": "base で緑", "unit_keys": [tbf.MEAN]},
@@ -413,7 +427,7 @@ class TestAcceptWiring(FixGatesCase):
             got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
         self.assertIs(got["ok"], False, got)
         self.assertIn(fixgates.REJECT, got["reason"])
-        gates.assert_called_once_with(self.board, self.repo, "", self.SUITE, 1, pass_="first", tag="")
+        gates.assert_called_once_with(self.board, self.repo, "", self.SUITE, 1, pass_="first")
         recount.assert_called_once()   # 写しの照らしは乾いた形だけ（盤面に done("p3.fix") を書く前に拒む。preflight F12）
         self.assertIs(recount.call_args.kwargs["commit"], False)
         self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")

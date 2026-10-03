@@ -9,7 +9,7 @@
 - 同じ run の中の案の直し（依頼 226。core の replan）: h-replan（at replan）は修正の段で fix_plan_item と裁かれた項目を束ね
   （replan.material）、案の直しのブロック（blk-plan の 2 度目の include）を回すか。h-regate（at regate）は直した項目に関所の
   決まりを当て（replan.gate）、関所 replan-gate を開くか。h-refit（at refit）は関所の答えを当て（refit_edge・replan.answer）、
-  2 回目の修正の段（blk-fix の 2 度目の include。回の印 refit）を回すか。どれも今の周の replan.json が無ければ何もしない
+  2 回目の修正の段（blk-fix の 2 度目の include refitting。その物は scope で 1 回目と分かれる）を回すか。どれも今の周の replan.json が無ければ何もしない
 - eyes_edge(b): h-look の固有の仕事（独立の目を回すか。計画 P1 Task 33）。h-eyes も同じ go を返す（関所の後にまだ目が待つか——報告が
   blk-eyes の落ちを見分ける）。h-look は先に、blk-plan が修正の前に控えた独立設計（core の design。design.json）を、盤面が r2.design を
   待っていれば渡す（目的の文を h-mat が渡すのと同じ形）
@@ -64,6 +64,7 @@ import reads  # noqa: E402
 import rejudge  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
+import scopes  # noqa: E402
 import structmark  # noqa: E402
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
@@ -440,7 +441,7 @@ ROLE_WORDS = {"design": "独立の設計を作る役", "compare": "独立の設�
 def _r2_inputs(b) -> list:
     """R2 の行の下に、R2 が『渡されていない』と書いた文と、そのうち渡していた物（compare の claims_given）と、支度の時に R2 の 2 つの役へ渡した前提の入力の控え（独立の目の出口の
     premise_inputs。一番新しい周の eyes-exit.json）と、独立設計の後に来た人の答え（compare の after_design）を並べる。人が同じ枚で突き合わせる（受け付けは拒まない）"""
-    exits = sorted(b.dir.glob("r*/eyes-exit.json"), key=lambda p: int(p.parent.name[1:]) if p.parent.name[1:].isdigit() else -1)
+    exits = scopes.all_rounds(b.dir, "eyes-exit.json")   # 独立の目の include の scope の根に在る（周の順）
     try:
         pi = json.loads(exits[-1].read_text(encoding="utf-8")).get("premise_inputs") if exits else None
     except (OSError, ValueError):
