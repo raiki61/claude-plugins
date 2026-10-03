@@ -30,7 +30,9 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 設計だけの run（入力 design_only）では、修正前の関所を項目の有無に関わらず開け、設計だけの行を 1 行載せる（持ち主 2026-09-30。
 調べた改造の案を、直す前の判定・修正案・事前審査・独立設計だけに流して見る）。continue で今どおり修正へ進み、stop で報告へ進む。
 この行は決め手の濾しにも無人の濾しにも掛けない（無人の殻は関所で stop を返すので、無人の設計だけの run も止まって報告へ進む）。
-直す義務が 0 件の周は関所の節が走らず、修正もしない。
+直す義務が 0 件の周は関所の節が走らず、修正もしない。設計だけの行の出どころは 2 つ（入力 design_only と、事前審査の壁打ちが
+止まった事実＝converge.stuck_reason）。行は design_item の 1 か所で組む（設計だけでない run の止まりは頭を STUCK_ITEM にし、
+設計だけの run と名乗らない。種類の kinds は同じ design_only）。
 - asks(b)・answered(b, q)・pending(b)・withheld_by(b)・withheld(b): 関所に載せる問い・関所で答えたか・まだ答えていない
   問い・それで直す義務から外す単位と外した問い（conflict.fix_duty が理由に使う）・その単位だけ（義務の数えと held_lines が読む）
 - hold_keys(note, keys): 一言の「保留:」から台帳の key を最長一致で拾う（answered が読む）
@@ -42,14 +44,14 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 - held_lines(b)・answered_lines(b)・returned_lines(b)・unreturned_lines(b): 最後の関所の文と報告に並べる、関所で答えていない
   聞いたままの問いと戻せなかった単位（保留の件数）・関所で答えた問い（件数に数えない）・修正役に渡す義務に戻った単位・答えたが
   今の周の units に無いので戻せなかった単位
-- design_only(b): 設計だけの run か
+- design_only(b)・design_item(b): 設計だけの run か・関所に載せる設計だけの行（載せなければ空）
 - unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
 - PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
 - LANES_NAME・fell_lanes(b): 独立の目の筋が落ちた文の置き場と読み手（blk-eyes が書き、最後の関所の目の行の下に並ぶ）
 - quote(question)・QUOTE_NOTE: 盤面の問いの文を引用として載せる行と、関所で添える答え方の読み替えの 1 行
 - head3(happened, decide, push)・pushes(texts)・push_of(texts): 関所の文と報告の冒頭 3 行（起きたこと・決めてほしいこと・推し）と、推しを記録から拾う口
 - gate_text(asking, *, run_id, node, record_name): 答えを受ける関所の文（修正前の関所と仕様の関所が呼ぶ 1 つの組み立て）
-標準ライブラリと core の answer（L1。答えの行）だけ。
+標準ライブラリと core の answer（L1。答えの行）・converge（L3。事前審査の壁打ち。標準ライブラリだけ）だけ。
 """
 import copy
 import json
@@ -57,6 +59,7 @@ import pathlib
 import re
 
 import answer
+import converge
 
 MARKS_FILE = "gate-marks.json"
 FIELDS = ("decided_by", "undecided_because", "fences", "world")
@@ -121,8 +124,9 @@ START_FILE = "r1/start.json"           # 盤面の start の控え（書き手�
 UNATTENDED = "true"                   # 入力 unattended の無人の語（entry.UNATTENDED_WORDS）
 DESIGN_ONLY = "true"                  # 入力 design_only の設計だけの語（entry.DESIGN_ONLY_WORDS）
 DESIGN_ONLY_KIND = "design_only"      # 関所の項目の kinds（設計だけの行）
-DESIGN_ONLY_ITEM = ("設計だけの run: 修正に進まない（continue で修正へ進む・stop で報告へ。判定・修正案・事前審査・独立設計は"
-                    "報告の見る所に並ぶ）")
+_NO_FIX = "修正に進まない（continue で修正へ進む・stop で報告へ。判定・修正案・事前審査・独立設計は報告の見る所に並ぶ）"
+DESIGN_ONLY_ITEM = "設計だけの run: " + _NO_FIX
+STUCK_ITEM = "事前審査の壁打ちが止まった案: " + _NO_FIX   # 設計だけでない run の止まり（設計だけの run と名乗らない）
 ASK_GATE_HEAD = ("判定の役が人に聞くと保留にした問い（問いの台帳）が在る。continue の一言に問いごとに選んだ選択肢を書け。"
                  "一言が問いに触れなければ、修正役はその問いの理由の推しで直す（continue でその問いの出どころ・depends は直す義務に戻る）。"
                  "保留を続けたい問いは一言に「保留: <問いの key>」と書け（複数は「・」で並べてよい。その出どころはこの run では直さず、報告の冒頭に並ぶ）")
@@ -164,7 +168,7 @@ PUSH_IN = re.compile(r"推し\s*[:：]\s*([^／\n]+)")
 # 関所の項目の種類（写しの RL の human_gate と gatemarks の問いの kinds）→ 平易な言い方
 KIND_WORDS = {"regression": "今ある能力を減らす・狭める変更", "policy": "人の方針とぶつかる変更",
               "policy_changed": "人の方針の文書が変わった", ASK_KINDS[0]: "判定の役が人に聞くと保留にした問い",
-              ASK_KINDS[1]: "人でないと決められない問い", DESIGN_ONLY_KIND: "設計だけの run の見せ場"}
+              ASK_KINDS[1]: "人でないと決められない問い", DESIGN_ONLY_KIND: "修正に進まない行"}
 
 
 def quote(question) -> list:
@@ -379,8 +383,9 @@ def plan_gate_items(b) -> list:
     items = [(kind, text + _world(m) + _no_narrow(m)) for kind, text, m in rows if not decided(m)]
     if not unattended(b):
         items += [(_ask_kind(q), ask_text(q)) for q in asks(b) if not answered(b, q)]
-    if design_only(b) and not _design_only_answered(b):
-        items.append((DESIGN_ONLY_KIND, DESIGN_ONLY_ITEM))
+    item = design_item(b)
+    if item and not _design_only_answered(b, item):
+        items.append((DESIGN_ONLY_KIND, item))
     return items
 
 
@@ -389,10 +394,20 @@ def design_only(b) -> bool:
     return start_doc(b.dir).get("design_only") == DESIGN_ONLY
 
 
-def _design_only_answered(b) -> bool:
-    """修正前の関所が設計だけの行に continue を受けた（同じ周で関所を評価し直しても 2 度聞かない）"""
+def design_item(b) -> str:
+    """関所に載せる設計だけの行。入力 design_only だけなら DESIGN_ONLY_ITEM のまま、事前審査の壁打ちが止まっていれば
+    （入力と重なっても 1 行で）尾に止まった理由を付ける。設計だけでない run の止まりは頭を STUCK_ITEM にする。どちらも無ければ空"""
+    reason = converge.stuck_reason(b)
+    if reason:
+        return f"{DESIGN_ONLY_ITEM if design_only(b) else STUCK_ITEM}。理由: {reason}"
+    return DESIGN_ONLY_ITEM if design_only(b) else ""
+
+
+def _design_only_answered(b, item: str) -> bool:
+    """修正前の関所がこの設計だけの行（行の全文が同じ物）に continue を受けた（同じ周で関所を評価し直しても 2 度聞かない。
+    止まった理由が変われば行が変わるので聞き直す）"""
     return any(isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "continue"
-               and DESIGN_ONLY_ITEM in (h.get("asked") or [])
+               and item in (h.get("asked") or [])
                for h in (b.record.get("process") or {}).get("human_items") or [])
 
 

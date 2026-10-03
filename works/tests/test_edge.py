@@ -32,6 +32,7 @@ sys.path.insert(0, str(TESTS))
 from board import GRAPH_SHA, BoardGap, DiskBoard, NodeTable, graph_expanded  # noqa: E402
 import engine.util as engine_util  # noqa: E402  （board が写しの graphloops を sys.path に足す）
 import accept  # noqa: E402
+import converge  # noqa: E402
 import deltamarks  # noqa: E402
 import design  # noqa: E402
 import entry  # noqa: E402
@@ -383,6 +384,21 @@ class FinalGateCase(EdgeBase):
         rest = "\n".join(lines[3:])
         for want in (tests["log"], str(self.repo), "差分の審査の穴: 0 件", line_edge.answer.line(RUN_ID, "continue", "<一言>")):
             self.assertIn(want, rest)
+
+    def test_final_text_lists_converge_lines(self):
+        """事前審査の壁打ちの往復（converge.lines）は最後の関所の文に並ぶ。頭の行に「- 」を足し、往復ごとの行は自分の
+        「  - 」のまま（「-   - 」と重ねない）"""
+        tests = self.closed()
+        b = entry.open_board(self.board, allow_halted=True)
+        face = {"key": "a-key-001", "kind": "regression", "where": "stats.py", "why": "穴", "severity": "block"}
+        for _ in range(2):
+            converge.record_pass(b, {"faces": [face]}, resolved=[], fence=9, files={})
+        text = self.edge("final", tests=tests, final_gate="always")["gate_text"]
+        lines = text.splitlines()
+        self.assertTrue(any(x.startswith("- 事前審査の壁打ち: ") for x in lines), text)
+        self.assertFalse(any(x.startswith("-   - ") for x in lines), text)
+        for x in converge.lines(b)[1:]:
+            self.assertIn(x, lines)
 
     def test_final_gate_words_match_entry(self):
         """ラインの入力 final_gate の語は、start（entry.check_inputs）が受ける語と境の節が読む語で同じ（C18。mid_gate は無い）"""

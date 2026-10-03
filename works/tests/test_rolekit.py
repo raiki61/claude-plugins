@@ -196,6 +196,18 @@ class AcceptCase(Base):
         self.assertEqual(rolekit.gave_up(self.b.dir, "p9.role", by="works:t3"), why)
         self.assertEqual(stops, [(why, "works:t")])
 
+    def test_take_rejects_moves_only_named_nodes(self):
+        """take_rejects: 今の周の拒否の控えから名指した節の行だけを外して返し、ほかの節の行は順のまま残す"""
+        self.assertEqual(rolekit.take_rejects(self.b, ["p9.role"]), [])   # 控えが無い
+        rows = [{"node": "p9.role", "attempt": 1}, {"node": "p8.other", "attempt": 1}, "形の崩れた行",
+                {"node": "p7.more", "attempt": 2}, {"node": "p9.role", "attempt": 2}]
+        self.b.work(rolekit.REJECTS_NAME).write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+        got = rolekit.take_rejects(self.b, ["p9.role", "p7.more"])
+        self.assertEqual(got, [rows[0], rows[3], rows[4]])
+        self.assertEqual(json.loads(self.b.work(rolekit.REJECTS_NAME).read_text(encoding="utf-8")), [rows[1], rows[2]])
+        self.assertEqual(rolekit.rejects(self.b, "p9.role"), [])
+        self.assertEqual(rolekit.take_rejects(self.b, ["p9.role"]), [])
+
     def test_unreadable_reply_is_a_reject(self):
         with mock.patch.object(rolekit.entry, "take", side_effect=AssertionError("take を呼んだ")):
             got = rolekit.accept_role(self.b.dir, "p9.role", "{JSON でない", self.tmp)

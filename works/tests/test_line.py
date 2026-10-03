@@ -59,13 +59,12 @@ def node(nid):
     return next(n for n in line()["nodes"] if n["id"] == nid)
 
 
-def walk(nodes):
-    """(節, 輪の中か) を入れ子も辿って"""
+def walk(nodes, inside=False):
+    """(節, 輪の中か) を入れ子の輪の中まで辿って（輪の中の輪の節も、輪の中）"""
     for n in nodes:
-        yield n, False
+        yield n, inside
         if "loop_group" in n:
-            for m in n["loop_group"]["nodes"]:
-                yield m, True
+            yield from walk(n["loop_group"]["nodes"], True)
 
 
 # 印（works-node）をまだ持たない役（包みが会話を節の名で分けられない。減らす方向にだけ変える）
@@ -74,9 +73,10 @@ UNMARKED_ROLES = frozenset()
 
 
 def stub_keys():
-    """模擬実行が stub を引く鍵（Archon 0.11.1 の dry-run: include の中の節は <include>__<節>、輪の中は名前空間なしの id。
-    approval・loop_group は stub を取らない）。同じブロックを 2 度 include すると、輪の中の節の鍵は 2 つの include で同じなので
-    ブロックごとに 1 度だけ数える（本物の run の出来事の名は <include>__<輪>.<節> で分かれる。依頼 226 の P4 の測り）"""
+    """模擬実行が stub を引く鍵（Archon 0.11.1 の dry-run: include の頭の節は <include>__<節>、輪の中は入れ子の深さに依らず
+    名前空間なしの id（依頼 231 の測り 3）。approval・loop_group は stub を取らない）。同じブロックを 2 度 include すると、輪の中の
+    節の鍵は 2 つの include で同じなのでブロックごとに 1 度だけ数える（本物の run の出来事の名は <include>__<輪>.<節> で分かれる。
+    依頼 226 の P4 の測り）"""
     keys, seen = [], set()
     for n in line()["nodes"]:
         if "include" in n:
@@ -230,6 +230,16 @@ class LineShapeCase(unittest.TestCase):
     def test_stub_keys_are_unique(self):
         keys = stub_keys()
         self.assertEqual(len(keys), len(set(keys)), sorted(k for k in keys if keys.count(k) > 1))
+
+    def test_nested_loop_stub_keys_are_bare(self):
+        """入れ子の輪（blk-plan の壁打ちの輪 converge-loop の中の輪）の節も名前空間なしの鍵。輪そのものは stub を取らない（測り 3）"""
+        keys = set(stub_keys())
+        self.assertLessEqual({"plan-revise-snap", "plan-revise-prep", "plan-revise", "plan-revise-accept", "plan-review-snap",
+                              "plan-review", "converge-check"}, keys)
+        self.assertEqual({"planning__plan-review-snap", "planning__converge-check", "converge-loop", "plan-revise-loop",
+                          "planning__converge-loop", "replanning__plan-review-snap", "replanning__converge-check"} & keys, set())
+        self.assertLessEqual({"planning__plan-snap", "planning__plan-reads", "planning__collect"}, keys)
+        self.assertLessEqual({"replanning__plan-snap", "replanning__plan-reads", "replanning__collect"}, keys)   # 2 度目の include の頭
 
     def test_role_marks_unique(self):
         """役の節（AI）は全部 output_format に印 works-node: <名> を持ち、印の名はブロックをまたいで一意（包みの会話の置き場が

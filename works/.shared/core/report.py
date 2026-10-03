@@ -50,6 +50,7 @@ if str(CORE) not in sys.path:
 
 import adapter  # noqa: E402
 import conflict  # noqa: E402
+import converge  # noqa: E402
 import design  # noqa: E402
 import gatemarks  # noqa: E402
 import impact  # noqa: E402
@@ -543,7 +544,7 @@ def head3(b, outcome: str, *, left: list | None = None, next_items: list | None 
 def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "", next_items: list | None = None,
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
-    関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・
+    関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・事前審査の壁打ちの往復（converge.lines）・
     人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
@@ -563,6 +564,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
             lines.append(f"{gatemarks.named(h.get('node'))}の答え: {h.get('answer')}「{h.get('note') or ''}」")
     lines += gatemarks.unread_hold_lines(b)
     lines += gatemarks.lines(b)
+    lines += converge.lines(b)
     got, doc, ans = final_gate_answer(b.dir)
     if got == "answered":
         lines.append(f"最後の関所の答え: {doc['decision']}「{doc.get('text') or ''}」（{ans}）")

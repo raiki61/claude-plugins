@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 import board  # noqa: E402
 import conflict  # noqa: E402
+import converge  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import line_edge  # noqa: E402
@@ -400,6 +401,79 @@ class DesignOnlyCase(GateBase):
         got, _ = self.gate(questions=[FORK], units=UNITS)
         self.assertEqual(got.get("decision"), "ask", got)
         self.assertEqual(got["ask"]["kinds"], ["design_only"])
+
+
+class ConvergeGateCase(GateBase):
+    """事前審査の壁打ちが止まった（converge の控えの抜け方が persisted・unsettled）案: 修正前の関所を修正に進まない行で開け、行の尾に
+    止まった理由（converge.stuck_reason）を付ける。入力 design_only と重なっても行は 1 つ。無人の run でも載る。その行の全文に
+    continue を受けた後は 2 度聞かず、理由が変われば聞き直す"""
+
+    def converged(self, outcome, blocks=("a-key-001",)):
+        """b.work の控えに往復と抜け方を置く（converge.record_pass を往復の数だけ。偽の盤面は今の周 1・置き場 self.tmp）"""
+        fake = types.SimpleNamespace(round=1, dir=self.tmp, work=lambda name: self.tmp / name, trace=lambda op, **kw: None)
+        faces = [{"key": k, "kind": "regression", "where": "stats.py", "why": "穴", "severity": "block"} for k in blocks]
+        reviews = {converge.CLEAN: [[]], converge.AGAIN: [faces], converge.PERSISTED: [faces, faces]}[outcome]
+        for review in reviews:
+            row = converge.record_pass(fake, {"faces": review}, resolved=[], fence=9, files={})
+        self.assertEqual(row["outcome"], outcome)
+
+    start = DesignOnlyCase.start
+
+    def answer(self, b, got):
+        b.record["process"]["human_items"].append({"round": 1, "kinds": got["ask"]["kinds"], "asked": got["ask"]["items"],
+                                                   "answer": "continue", "note": "", "node": "p2.human_gate"})
+
+    def test_stuck_opens_design_item_with_reason(self):
+        self.converged(converge.PERSISTED)
+        got, b = self.gate()
+        self.assertEqual(got.get("decision"), "ask", got)
+        self.assertEqual(got["ask"]["kinds"], ["design_only"])
+        self.assertTrue(got["ask"]["items"][0].startswith(gatemarks.STUCK_ITEM + "。理由: "), got["ask"]["items"])
+        self.assertIn("a-key-001", got["ask"]["items"][0])
+        self.assertEqual(got["ask"]["items"][0], f"{gatemarks.STUCK_ITEM}。理由: {converge.stuck_reason(b)}")
+        self.assertNotIn("設計だけの run", got["ask"]["items"][0])   # 普通の run の止まりは設計だけの行と名乗らない（f2）
+
+    def test_clean_or_again_does_not_open(self):
+        for outcome in (converge.CLEAN, converge.AGAIN):
+            with self.subTest(outcome=outcome):
+                (self.tmp / converge.RECORD).unlink(missing_ok=True)
+                self.converged(outcome)
+                got, _ = self.gate()
+                self.assertEqual(got, {"ok": True})
+
+    def test_stuck_opens_even_when_unattended(self):
+        self.start(unattended="true")
+        self.converged(converge.PERSISTED)
+        got, _ = self.gate(questions=[FORK], units=UNITS)
+        self.assertEqual(got["ask"]["kinds"], ["design_only"])
+
+    def test_design_only_and_stuck_give_one_line(self):
+        self.start(design_only="true")
+        self.converged(converge.PERSISTED)
+        got, _ = self.gate()
+        self.assertEqual(got["ask"]["kinds"], ["design_only"])
+        self.assertEqual(len(got["ask"]["items"]), 1)
+        self.assertTrue(got["ask"]["items"][0].startswith(gatemarks.DESIGN_ONLY_ITEM + "。理由: "), got["ask"]["items"])
+
+    def test_design_only_alone_keeps_todays_text(self):
+        self.start(design_only="true")
+        got, b = self.gate()
+        self.assertEqual(got["ask"]["items"], [gatemarks.DESIGN_ONLY_ITEM])
+        self.assertEqual(gatemarks.design_item(b), gatemarks.DESIGN_ONLY_ITEM)
+
+    def test_continue_answers_only_that_reason(self):
+        self.converged(converge.PERSISTED)
+        got, b = self.gate()
+        self.answer(b, got)
+        self.assertEqual(gatemarks.plan_gate_items(b), [])   # 同じ理由の行に continue を受けた: 2 度聞かない
+        fake = types.SimpleNamespace(round=1, dir=self.tmp, work=lambda name: self.tmp / name, trace=lambda op, **kw: None)
+        face = {"key": "b-key-002", "kind": "regression", "where": "stats.py", "why": "別の穴", "severity": "block"}
+        for _ in range(2):
+            converge.record_pass(fake, {"faces": [face]}, resolved=[], fence=9, files={})
+        self.assertEqual(converge.read(fake)["outcome"], converge.PERSISTED)
+        again = gatemarks.plan_gate_items(b)   # 別の key で止まった: 理由が変わったのでもう一度聞く
+        self.assertEqual([k for k, _ in again], ["design_only"])
+        self.assertIn("b-key-002", again[0][1])
 
 
 RECORD_NAME = re.compile(r"(?<![A-Za-z0-9_.])(?:(?:p\d|spec|report)\.[a-z0-9_]+|process\.[a-z_.]+[a-z]|fix_test_scope|fix_code_as|ask_human)")

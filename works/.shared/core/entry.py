@@ -959,14 +959,15 @@ tree_moved_since = _tree_moved   # 盤面の節へ渡さない受け付け（先
 
 
 def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, snapshot_name: str | None = None,
-         commit: bool = True) -> dict:
+         commit: bool = True, settle: bool = True) -> dict:
     """役の返答を盤面に渡す（各ブロックの受け付けが使う 1 つの口）。順:
     1. 盤面を開く（open_board）。止めた run はここで Reject（役に返さない。作業ツリーの比べより先）
     2. snapshot_name が在れば、役を起こす前の写し（snapshot）と今の作業ツリーを比べ、違えば
        {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: …"}（盤面は書かない。TA11）
-    3. b.done(nid, reply)（写しの schema → 番号の読み替え → post_check → writes → check_record → 保存 → settle）
+    3. b.done(nid, reply)（写しの schema → 番号の読み替え → post_check → writes → check_record → 保存 → settle）。
+       settle が偽なら b.accept(nid, reply)（同じ順で保存まで。settle しない＝後ろの節は進めない。呼び手が後で settle する）
     通れば {"ok": True, "reason": "", "ready", "asking", "halted", "out_file"}（out_file は state.outputs[nid]["file"]。
-    盤面の置き場からの相対。周を仮定しない）。写しの AnswerReject（返答の中身の誤り）だけを {"ok": False, "reason": 文} に
+    盤面の置き場からの相対。周を仮定しない。settle が偽なら進んだ物は無いので ready は空・asking と halted は偽）。写しの AnswerReject（返答の中身の誤り）だけを {"ok": False, "reason": 文} に
     する（盤面は書かれない。入れ物は捨てる——盤仕様 4.1）。ほかの Reject（止めた run への書き込みなど）と BoardGap（表で
     受けない節・印の無い試行・写しの欠け）は投げ直す（回す側の誤りで、役に返しても直らない。TA19）。
     commit が偽なら 3 の代わりに b.vet(nid, reply)（同じ検査を当てて保存しない。開いた入れ物は捨てる）で、返りは
@@ -984,7 +985,11 @@ def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, 
             return {"ok": True, "reason": "", "dry": True}
         return {"ok": False, "reason": str(e), "dry": True, "problems": e.problems or [str(e)]}
     try:
-        p = b.done(nid, reply)
+        if settle:
+            p = b.done(nid, reply)
+        else:
+            b.accept(nid, reply)
+            p = {"ready": [], "asking": False, "halted": False}
     except AnswerReject as e:
         return {"ok": False, "reason": str(e), **({"problems": e.problems} if e.problems else {})}
     return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),

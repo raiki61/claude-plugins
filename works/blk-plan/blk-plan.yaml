@@ -1,6 +1,6 @@
 name: blk-plan
 description: |
-  修正案と事前審査のブロック（P1 計画 Task 25。〔線A計〕T11）。判定の後、修正役が直す前に、役を 3 つ縦に回す:
+  修正案と事前審査のブロック（P1 計画 Task 25。〔線A計〕T11）。判定の後、修正役が直す前に、役を 3 つ縦に回す（壁打ちの直しの役は下）:
   独立設計（写しの graph の r2.design。道具ゼロの blind-judge が目的と実測した制約・人の関所の答え・依頼が名指した設計書の節から理想解を作る。修正案を見ない）・
   修正案（p2.fix_plan）・判定をした役とは別の目の事前審査（p2.plan_review。指示書の頭に独立設計を貼り、案と設計の構造の
   食い違いを穴に挙げさせる）。独立設計は盤面の節がまだ待っていない（graph では修正の後）ので、受け付けた返答を盤面の根の
@@ -9,6 +9,10 @@ description: |
   P1-R10）。人の関所の項目（案の narrows・事前審査の後退と方針の穴・方針の文書の変化）は盤面の p2.human_gate が組み（決め手の出どころが在り
   undecided_because が空で柵の印の無い行は聞かずに通す。欄は受け付けが外して盤面の gate-marks.json に置く。gatemarks.py）、
   出口の asks_human・gate_kinds に出る（関所そのものはラインが開く）。検査の計画の欄は持たない（Phase 3）。
+  壁打ち（依頼 231。core の converge）: 事前審査は外の輪 converge-loop の中に居る。事前審査が block（直しへ進めない穴）を挙げたら、
+  直しの役（plan-revise。修正案の役の会話の続き continue=plan で、盤面の節は p2.fix_plan）に返して案を直させ、新しい会話の
+  事前審査に掛け直す（輪の中の輪）。抜けるのは converge-check の done（block が無い・同じ block が続いた・柵の往復・役の諦め・
+  盤面が止まった。外の輪も max_iterations で落とさない）。block が残ったまま止まった案は、ラインの修正前の関所が設計だけの行で止める。
   受け付けは写しの schema・post_check・記録の検査をそのまま当て、役を起こす前と後で作業ツリー（porcelain・差分・git が無視する
   パス・HEAD・枝）が変わっていれば拒む。拒否の理由は盤面のファイルに書き、次の回の指示書の頭の 1 行がそのパスを名指す
   （$LOOP_PREV で貼らない。裁定 R44）。3 回とも拒まれたら輪を抜け（max_iterations で落とさない。裁定 R50）、collect が盤面を止める。
@@ -233,7 +237,7 @@ nodes:
             required:
             - plan
             properties:
-              plan:
+              plan: &plan_field   # 直しの役 plan-revise の plan の欄も同じ型（*plan_field）
                 type: array
                 minItems: 1
                 items:
@@ -451,200 +455,346 @@ nodes:
               halted: {type: boolean}
               out_file: {type: string}
 
-  # 事前審査を起こす前の作業ツリーの写し。p2.plan_review が待っていなければ（修正案が 3 回とも拒まれた）go: false で輪を飛ばす
-  - id: plan-review-snap
-    script: snap
-    runtime: uv
-    timeout: 1728000000
+  # 壁打ち: 事前審査が block を挙げたら修正案の役に同じ会話で返して直させ、新しい会話で審査し直す（依頼 231。core の converge）。
+  # 抜けるのは converge-check の done（block が無い・同じ block が続いた・柵の往復・役の諦め・盤面が止まった）。max_iterations で
+  # 落とさない（R50）。独立設計と最初の修正案はこの輪の外で先に 1 度だけ回る（独立設計は案を見ない）
+  - id: converge-loop
     depends_on: [plan-snap, plan-loop]
     trigger_rule: none_failed_min_one_success
-    with:
-      role: plan-review
-      replan: $INPUTS.replan
-    output_format:
-      type: object
-      additionalProperties: false
-      required: [ok, go, snapshot_file]
-      properties:
-        ok: {type: boolean}
-        go: {type: boolean}
-        snapshot_file: {type: string}
-
-  - id: plan-review-loop
-    depends_on: [plan-review-snap]
-    when: "$plan-review-snap.output.go == true"
     loop_group:
       max_iterations: 3
       fresh_context: true
-      until_bash: test $plan-review-accept.output.done = true
+      until_bash: test $converge-check.output.done = true
       nodes:
-        - id: plan-review-prep
-          script: prep
+        # 直しの役を起こす前の作業ツリーの写し。壁打ちの控えの抜け方が again で p2.fix_plan が待つ時だけ go: true（1 周目は
+        # 返した block がまだ無いので go: false で直しの輪を飛ばし、最初の修正案をそのまま審査する）
+        - id: plan-revise-snap
+          script: snap
           runtime: uv
           timeout: 1728000000
           with:
-            role: plan-review
-            excluded_file: $INPUTS.excluded_file
+            role: plan-revise
             replan: $INPUTS.replan
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file, attempt, out_path, node, already]
+            required: [ok, go, snapshot_file]
             properties:
-              prompt_file: {type: string}
-              attempt: {type: integer}
-              out_path: {type: string}
-              node: {type: string}
-              already: {type: boolean}
-        - id: plan-review
-          model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
-          effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
-          prompt: 指示書 `$plan-review-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
-          depends_on: [plan-review-prep]
-          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
-          mutates_checkout: false
-          sandbox: {enabled: true, allowUnsandboxedCommands: false}
-          idle_timeout: 1728000000
-          # planblk.output_format("plan-review")（写しの p2.plan_review の schema に印 works-node: plan-review）を貼った物
-          output_format:
-            description: 'works-node: plan-review'
-            type: object
-            additionalProperties: false
-            required:
-            - faces
-            - shrink
-            - reason
-            properties:
-              faces:
-                type: array
-                items:
+              ok: {type: boolean}
+              go: {type: boolean}
+              snapshot_file: {type: string}
+
+        # 直しの輪。出し直しも修正案の役の会話に積む（fresh_context: false・印 continue=plan。会話を継ぐのは包みで、節に context は
+        # 書かない）。3 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（R50）
+        - id: plan-revise-loop
+          depends_on: [plan-revise-snap]
+          when: "$plan-revise-snap.output.go == true"
+          loop_group:
+            max_iterations: 3
+            fresh_context: false
+            until_bash: test $plan-revise-accept.output.done = true
+            nodes:
+              - id: plan-revise-prep
+                script: prep
+                runtime: uv
+                timeout: 1728000000
+                with:
+                  role: plan-revise
+                  excluded_file: $INPUTS.excluded_file
+                  replan: $INPUTS.replan
+                output_format:
+                  type: object
+                  additionalProperties: false
+                  required: [prompt_file, attempt, out_path, node, already]
+                  properties:
+                    prompt_file: {type: string}
+                    attempt: {type: integer}
+                    out_path: {type: string}
+                    node: {type: string}
+                    already: {type: boolean}
+              - id: plan-revise
+                prompt: 指示書 `$plan-revise-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
+                depends_on: [plan-revise-prep]
+                settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+                allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]   # 修正案の役と同じ
+                mutates_checkout: false
+                sandbox: {enabled: true, allowUnsandboxedCommands: false}
+                idle_timeout: 1728000000
+                # planblk.output_format("plan-revise")（写しの p2.fix_plan の schema に、返した block への答えの欄 block_answers
+                # （converge.with_fields）と印 works-node: plan-revise continue=plan を足した物）を貼った物
+                output_format:
+                  description: 'works-node: plan-revise continue=plan'
                   type: object
                   additionalProperties: false
                   required:
-                  - key
-                  - unit_keys
-                  - kind
-                  - where
-                  - why
-                  - severity
+                  - plan
+                  - block_answers
                   properties:
-                    key:
-                      type: string
-                      minLength: 8
-                    unit_keys:
+                    plan: *plan_field
+                    block_answers:
                       type: array
-                      minItems: 1
                       items:
-                        type: [integer, string]
-                        minLength: 1
-                        minimum: 1
-                    kind:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - key
+                        - handled
+                        - how
+                        properties:
+                          key:
+                            type: string
+                            minLength: 8
+                          handled:
+                            type: string
+                            enum:
+                            - fixed
+                            - disputed
+                          how:
+                            type: string
+                            minLength: 10
+              - id: plan-revise-accept
+                script: accept
+                runtime: uv
+                timeout: 1728000000
+                depends_on: [plan-revise]
+                with:
+                  role: plan-revise
+                  reply: {from: "$plan-revise.output"}
+                  replan: $INPUTS.replan
+                output_format:
+                  type: object
+                  required: [ok, done, give_up, reason_file]
+                  properties:
+                    ok: {type: boolean}
+                    done: {type: boolean}
+                    give_up: {type: boolean}
+                    reason: {type: string}
+                    reason_file: {type: string}
+                    node: {type: string}
+                    ready: {type: array, items: {type: string}}
+                    asking: {type: boolean}
+                    halted: {type: boolean}
+                    out_file: {type: string}
+
+        # 事前審査を起こす前の作業ツリーの写し。p2.plan_review が待っていなければ（修正案か直しが 3 回とも拒まれた）go: false で輪を飛ばす
+        - id: plan-review-snap
+          script: snap
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [plan-revise-snap, plan-revise-loop]
+          trigger_rule: none_failed_min_one_success
+          with:
+            role: plan-review
+            replan: $INPUTS.replan
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [ok, go, snapshot_file]
+            properties:
+              ok: {type: boolean}
+              go: {type: boolean}
+              snapshot_file: {type: string}
+
+        - id: plan-review-loop
+          depends_on: [plan-review-snap]
+          when: "$plan-review-snap.output.go == true"
+          loop_group:
+            max_iterations: 3
+            fresh_context: true
+            until_bash: test $plan-review-accept.output.done = true
+            nodes:
+              - id: plan-review-prep
+                script: prep
+                runtime: uv
+                timeout: 1728000000
+                with:
+                  role: plan-review
+                  excluded_file: $INPUTS.excluded_file
+                  replan: $INPUTS.replan
+                output_format:
+                  type: object
+                  additionalProperties: false
+                  required: [prompt_file, attempt, out_path, node, already]
+                  properties:
+                    prompt_file: {type: string}
+                    attempt: {type: integer}
+                    out_path: {type: string}
+                    node: {type: string}
+                    already: {type: boolean}
+              - id: plan-review
+                model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
+                effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
+                prompt: 指示書 `$plan-review-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
+                depends_on: [plan-review-prep]
+                settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+                allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+                mutates_checkout: false
+                sandbox: {enabled: true, allowUnsandboxedCommands: false}
+                idle_timeout: 1728000000
+                # planblk.output_format("plan-review")（写しの p2.plan_review の schema に印 works-node: plan-review と、壁打ちの任意の欄
+                # resolved（前の往復の block のうち消えた key。converge.with_fields）を足した物）を貼った物
+                output_format:
+                  description: 'works-node: plan-review'
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - faces
+                  - shrink
+                  - reason
+                  properties:
+                    faces:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - key
+                        - unit_keys
+                        - kind
+                        - where
+                        - why
+                        - severity
+                        properties:
+                          key:
+                            type: string
+                            minLength: 8
+                          unit_keys:
+                            type: array
+                            minItems: 1
+                            items:
+                              type: [integer, string]
+                              minLength: 1
+                              minimum: 1
+                          kind:
+                            type: string
+                            enum:
+                            - copy
+                            - entrance
+                            - contract_drift
+                            - dead_path
+                            - scope_creep
+                            - regression
+                            - policy
+                            - precedent
+                          where:
+                            type: string
+                            minLength: 4
+                          why:
+                            type: string
+                            minLength: 20
+                          severity:
+                            type: string
+                            enum:
+                            - block
+                            - suggest
+                          no_add:
+                            type: string
+                          decided_by:
+                            type: string
+                          undecided_because:
+                            type: string
+                          fences:
+                            type: array
+                            uniqueItems: true
+                            items:
+                              type: string
+                              enum:
+                              - external_write
+                              - irreversible
+                              - policy_doc
+                              - widen_protection
+                              - web_doubt
+                          world:
+                            type: string
+                          no_narrow:
+                            type: string
+                            minLength: 20
+                    shrink:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - key
+                        - unit_keys
+                        - alternative
+                        - why
+                        properties:
+                          key:
+                            type: string
+                            minLength: 8
+                          unit_keys:
+                            type: array
+                            minItems: 1
+                            items:
+                              type: [integer, string]
+                              minLength: 1
+                              minimum: 1
+                          alternative:
+                            type: string
+                            minLength: 20
+                          why:
+                            type: string
+                            minLength: 20
+                    faces_none:
                       type: string
-                      enum:
-                      - copy
-                      - entrance
-                      - contract_drift
-                      - dead_path
-                      - scope_creep
-                      - regression
-                      - policy
-                      - precedent
-                    where:
-                      type: string
-                      minLength: 4
-                    why:
+                    reason:
                       type: string
                       minLength: 20
-                    severity:
-                      type: string
-                      enum:
-                      - block
-                      - suggest
-                    no_add:
-                      type: string
-                    decided_by:
-                      type: string
-                    undecided_because:
-                      type: string
-                    fences:
+                    resolved:
                       type: array
-                      uniqueItems: true
                       items:
                         type: string
-                        enum:
-                        - external_write
-                        - irreversible
-                        - policy_doc
-                        - widen_protection
-                        - web_doubt
-                    world:
-                      type: string
-                    no_narrow:
-                      type: string
-                      minLength: 20
-              shrink:
-                type: array
-                items:
+              - id: plan-review-accept
+                script: accept
+                runtime: uv
+                timeout: 1728000000
+                depends_on: [plan-review]
+                with:
+                  role: plan-review
+                  reply: {from: "$plan-review.output"}
+                  replan: $INPUTS.replan
+                output_format:
                   type: object
-                  additionalProperties: false
-                  required:
-                  - key
-                  - unit_keys
-                  - alternative
-                  - why
+                  required: [ok, done, give_up, reason_file]
                   properties:
-                    key:
-                      type: string
-                      minLength: 8
-                    unit_keys:
-                      type: array
-                      minItems: 1
-                      items:
-                        type: [integer, string]
-                        minLength: 1
-                        minimum: 1
-                    alternative:
-                      type: string
-                      minLength: 20
-                    why:
-                      type: string
-                      minLength: 20
-              faces_none:
-                type: string
-              reason:
-                type: string
-                minLength: 20
-        - id: plan-review-accept
-          script: accept
+                    ok: {type: boolean}
+                    done: {type: boolean}
+                    give_up: {type: boolean}
+                    reason: {type: string}
+                    reason_file: {type: string}
+                    node: {type: string}
+                    ready: {type: array, items: {type: string}}
+                    asking: {type: boolean}
+                    halted: {type: boolean}
+                    out_file: {type: string}
+
+        # 壁打ちの出口。抜け方が again でない・今の往復の役が諦めた・盤面が止まった時に done（外の輪の until_bash が読む）。
+        # 2 度目の include（replan）では壁打ちを回さない: 直しの snap は go: false、ここはいつも 1 往復で done
+        - id: converge-check
+          script: converge
           runtime: uv
           timeout: 1728000000
-          depends_on: [plan-review]
+          depends_on: [plan-review-snap, plan-review-loop]
+          trigger_rule: none_failed_min_one_success
           with:
-            role: plan-review
-            reply: {from: "$plan-review.output"}
             replan: $INPUTS.replan
           output_format:
             type: object
-            required: [ok, done, give_up, reason_file]
+            additionalProperties: false
+            required: [ok, done, outcome, record_file]
             properties:
               ok: {type: boolean}
               done: {type: boolean}
-              give_up: {type: boolean}
-              reason: {type: string}
-              reason_file: {type: string}
-              node: {type: string}
-              ready: {type: array, items: {type: string}}
-              asking: {type: boolean}
-              halted: {type: boolean}
-              out_file: {type: string}
+              outcome: {type: string}
+              record_file: {type: string}
 
-  # 読んだ証拠（受け付けの条件にはしない。reads-plan-block.json に {役: reads-<役>.json}）
+  # 読んだ証拠（受け付けの条件にはしない。reads-plan-block.json に {役: reads-<役>.json}。直しの役は起きた周だけ）
   - id: plan-reads
     script: reads
     runtime: uv
     timeout: 1728000000
-    depends_on: [plan-review-snap, plan-review-loop]
+    depends_on: [converge-loop]
     trigger_rule: none_failed_min_one_success
     with:
       include_id: $INPUTS.include_id

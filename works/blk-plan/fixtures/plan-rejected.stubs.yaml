@@ -2,6 +2,8 @@
 # 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1。線 C の MG25）。だから輪の後ろの stub は、
 # 出し直した返答が通った後の姿。拒否の後に輪が回り直す式と 3 回目の諦めは tests/test_blk_plan.py の test_give_up_ends_loop が、
 # Archon と同じ順でスクリプトを回し、until_bash の式を sh で評価して見る。
+# 壁打ちの輪 converge-loop の 1 周目は返した block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽で、直しの役の stub を
+# 置かない）。dry-run は until_bash を回さないので、converge-check の done は輪を抜けた後の姿（真）
 r2-design-snap:
   ok: true
   go: true
@@ -68,6 +70,10 @@ plan-accept:
   reason: 受け付けが拒んだ
   reason_file: board/reject-take_p2_fix_plan-1.txt
   node: p2.fix_plan
+plan-revise-snap:
+  ok: true
+  go: false
+  snapshot_file: ''
 plan-review-snap:
   ok: true
   go: true
@@ -95,6 +101,11 @@ plan-review-accept:
   asking: false
   halted: false
   out_file: out/r1/p2.plan_review.json
+converge-check:
+  ok: true
+  done: true
+  outcome: clean
+  record_file: board/r1/plan-converge.json
 plan-reads:
   ok: true
   reads_file: board/r1/reads-plan-block.json
@@ -120,9 +131,11 @@ fixture:
   - plan-prep
   - plan
   - plan-accept
+  - plan-revise-snap
   - plan-review-snap
   - plan-review-prep
   - plan-review
   - plan-review-accept
+  - converge-check
   - plan-reads
   - collect

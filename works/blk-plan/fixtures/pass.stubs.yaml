@@ -1,6 +1,8 @@
 # 筋書き pass: 独立設計・修正案・事前審査が 1 回ずつ受け付けを通り、穴も narrows も無いので人に聞かない。
 # 役の返答は tests/replies/plan_ok.json・plan_review_ok.json と同じ中身（tests/test_blk_plan.py が一致を見る）。スクリプトの節は全部 stub
 # （盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_plan.py が子のプロセスで回す）。
+# 壁打ちの輪 converge-loop の 1 周目は返した block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽で、直しの役の stub を
+# 置かない）。dry-run は until_bash を回さないので、converge-check の done は輪を抜けた後の姿（真）
 r2-design-snap:
   ok: true
   go: true
@@ -72,6 +74,10 @@ plan-accept:
   asking: false
   halted: false
   out_file: out/r1/p2.fix_plan.json
+plan-revise-snap:
+  ok: true
+  go: false
+  snapshot_file: ''
 plan-review-snap:
   ok: true
   go: true
@@ -99,6 +105,11 @@ plan-review-accept:
   asking: false
   halted: false
   out_file: out/r1/p2.plan_review.json
+converge-check:
+  ok: true
+  done: true
+  outcome: clean
+  record_file: board/r1/plan-converge.json
 plan-reads:
   ok: true
   reads_file: board/r1/reads-plan-block.json
@@ -124,9 +135,11 @@ fixture:
   - plan-prep
   - plan
   - plan-accept
+  - plan-revise-snap
   - plan-review-snap
   - plan-review-prep
   - plan-review
   - plan-review-accept
+  - converge-check
   - plan-reads
   - collect

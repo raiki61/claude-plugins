@@ -55,7 +55,7 @@ inputs:
     description: 無人の run か。空は人の居る run。true は人が答えない run（use.sh の WORKS_USE_UNATTENDED=1）で、判定の保留の問いだけでは修正前の関所を開かず、問いの出どころを飛ばして修正へ進み、問いを報告の冒頭に並べる（design_only=true と組めば関所は開き、use.sh が stop で報告へ進める）
   design_only:
     default: ""
-    description: 設計だけの run か。空は今どおり。true は修正前の関所を項目の有無に関わらず開けて止める（殻の WORKS_DESIGN_ONLY=1）。continue で今どおり修正へ進み、stop で報告へ進む（判定・修正案・事前審査・独立設計が報告の見る所に並ぶ）。直す義務が 0 件の周は関所が走らず、修正もしない
+    description: 設計だけの run か。空は今どおり。true は修正前の関所を項目の有無に関わらず開けて止める（殻の WORKS_DESIGN_ONLY=1）。continue で今どおり修正へ進み、stop で報告へ進む（判定・修正案・事前審査・独立設計が報告の見る所に並ぶ）。直す義務が 0 件の周は関所が走らず、修正もしない。事前審査の壁打ちが止まった run も、入力に依らず同じ行で止まる
   fix_shape:
     default: ""
     description: 修正の形。current（比べの基準。修正案の欄を修正の段で使わない）・af（works 自身の文で回す今の形）・g3（af に借りたスキルの座を足した形）・g1（修正役 1 つが SDD の型で下請けを回す形）のどれか。空は既定の g3。start が確かめて盤面の控え r1/start.json に置き、呼び直しで替えれば止める
@@ -449,7 +449,7 @@ nodes:
     when: "$h-gate.output.ask == true"
     approval:
       message: |
-        修正の前に人に聞くことがある（狭める能力・事前審査の後退と方針の穴・方針の文書の変化・判定の保留の問い・設計だけの run）。
+        修正の前に人に聞くことがある（狭める能力・事前審査の後退と方針の穴・方針の文書の変化・判定の保留の問い・設計だけの run・事前審査の block が残った案）。
         全文と答え方: $h-gate.output.gate_file（Read して答える）。
         continue "<通す範囲と条件>" で修正へ、stop "<理由>" で止めて報告へ。approve は continue、reject は stop と同じ。
       decisions:

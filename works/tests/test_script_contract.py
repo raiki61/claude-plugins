@@ -13,6 +13,10 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 - fix-give-up・unchanged-file: 修正の輪が 3 回とも拒まれる・申告したファイルが変わっていない（run 26）→ assert-changed が
   盤面を止め、run は落ちずに報告まで届く（R50）
 - no-fix・policy-stop・stop-flag: 修正の無い周・修正の前の関所の stop・止め札
+- plan-converge（依頼 231）: 事前審査が block を挙げ、壁打ちの外の輪が直しの役（修正案の役の会話の続き）を起こし、直した案を
+  2 度目の事前審査が同じ穴を suggest に下げて通す（輪の中の輪・converge-check の done で抜ける）→ 報告 fixed
+- plan-converge-stuck: 同じ block が 2 往復続く → converge-check が persisted で done、修正前の関所が修正に進まない行で開き、
+  stop で報告へ（stopped_by_human）
 - conflict: 修正役が食い違いを申し出て parked → 裁定の輪（1 回目は拒む）→ fix_code_as → 2 回目の修正役が全部を直す
 - rejudge（run 28）: 修正役が判定に異議 → 再審の輪（1 回目は拒む。判定役の会話の続き）→ 差分の審査 → 手直し → 2 回目の審査 →
   2 回目の手直し → 最後のテスト（ラインの test_cmd）→ 独立の目 → 最後の関所 → 報告 fixed
@@ -38,6 +42,7 @@ sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
 
+import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import scriptline  # noqa: E402
 import test_blk_fix_tdd as TT  # noqa: E402
@@ -93,28 +98,29 @@ def conflict_fix():
     return r
 
 
-# 修正案の役の返答の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope。planmarks）。線を本物のスクリプトで回すと、修正案は
-# blk-plan の受け付け（planmarks.gaps）を通り、欄が欠ければ 3 回とも拒まれて盤面が止まる（by works:plan）。test_edge.plan_reply は
-# 受け付けが欄を外した後の形（entry.take を直に呼ぶ linekit の道の物）なので、ここで欄を足す。種の test_stats.py は 3 件のうち
-# 2 件が今の 2 つのバグで赤なので、受け入れのテストを先に足さず direct で直す（TDD の輪の返答 TDD_ALL_DIRECT とも揃う）
-PLAN_FIELDS = {"route": "direct",
-               "route_why": "種の test_stats.py の 3 件のうち 2 件が今の 2 つのバグで赤になり、直した後の振る舞いを既に確かめている",
-               "tests": [], "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
-               "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}
-
-
-# 修正案の works の欄を控えた run の 1 回目の差分の審査の準拠（deltamarks。承認済みの項目と照らし、落ちた行は無い）
-REVIEW_COMPLIANCE = {"verdict": "pass", "items": [],
-                     "read": "承認済みの修正案の項目 1 の approach・allowed_paths と差分の stats.py を読み、足りない物も範囲の外の物も無い"}
-
-
 def line_replies(**kw) -> dict:
-    """TL.replies の修正案を、役そのものの返答（項目に works の欄 PLAN_FIELDS を足した物）に替え、1 回目の差分の審査の準拠を
-    控えの在る run の pass（REVIEW_COMPLIANCE）に替えた返答の組（品質は TL.replies の物のまま: 穴が在れば fail）"""
+    """TL.replies（修正案は works の欄 TL.PLAN_FIELDS つき・差分の審査の準拠は TL.REVIEW_COMPLIANCE）の事前審査の穴を severity
+    suggest にした返答の組（block の穴は壁打ちで修正案の役へ返るので、1 往復で関所まで進む筋書きはこの形。kind regression
+    の穴は suggest でも関所で聞く。壁打ちの往復は筋書き plan-converge と plan-converge-stuck）"""
     r = TL.replies(**kw)
-    r["plan"] = {"plan": [{**row, **PLAN_FIELDS} for row in r["plan"]["plan"]]}
-    r["review"] = {**r["review"], "compliance": REVIEW_COMPLIANCE}
+    r["plan-review"] = {**r["plan-review"], "faces": [{**f, "severity": "suggest"} for f in r["plan-review"]["faces"]]}
     return r
+
+
+# 事前審査の壁打ち（依頼 231）: 1 往復目の審査は regression の穴を block で挙げ、直しの役（修正案の役の会話の続き）が直した案を
+# 2 往復目の審査が読んで、同じ key の穴を suggest に下げる（block が消えて直しへ進む。穴は関所で聞き、修正役が塞ぐのは
+# ほかの筋書きと同じ）
+CONVERGE_BLOCK = linekit.reply("plan_review_regression")
+CONVERGE_KEY = CONVERGE_BLOCK["faces"][0]["key"]
+
+
+def converge_review(n: int) -> dict:
+    return CONVERGE_BLOCK if n == 1 else line_replies()["plan-review"]
+
+
+def converge_revise() -> dict:
+    return {**line_replies()["plan"], "block_answers": [{"key": CONVERGE_KEY, "handled": "fixed",
+                                                         "how": "clamp の上限の枝を hi に直すと決めた理由を approach に書き足した"}]}
 
 
 PR_AWAITING = {"material": {"status": "awaiting_human", "reason": "origin が GitHub でないローカルの bare リポジトリで、PR の一覧を読めない"},
@@ -166,6 +172,11 @@ def scenarios(tmp: pathlib.Path) -> dict:
         "fix-give-up": dict(replies={**line_replies(), "fix": lambda n: {}}, edits=edits),
         "unchanged-file": dict(replies={**line_replies(), "fix": unchanged_file_fix()}, edits=edits),
         "no-fix": dict(replies=nofix, edits={}),
+        "plan-converge": dict(replies={**line_replies(), "plan-review": converge_review,
+                                       "plan-revise": converge_revise(), "refix": REFIX_FIXED, "review2": REVIEW2_OK},
+                              edits={**edits, "refix": refix_edit}),
+        "plan-converge-stuck": dict(replies={**line_replies(), "plan-review": CONVERGE_BLOCK, "plan-revise": converge_revise()},
+                                    edits=edits, gates={"policy-gate": {"decision": "stop", "text": "設計を見直す"}}),
         "policy-stop": dict(replies=line_replies(), edits=edits, gates={"policy-gate": {"decision": "stop", "text": "範囲が広い"}}),
         "stop-flag": dict(replies=line_replies(), edits=edits, stop_at="h-review"),
         # 食い違いの申し出: 1 回目の修正役が mean を申し出て parked → 裁定役（1 回目は拒む）が fix_code_as → 2 回目の修正役が全部を直す
@@ -181,7 +192,8 @@ def scenarios(tmp: pathlib.Path) -> dict:
     }
 
 
-OUTCOMES = {"material-give-up": "stopped_by_line", "material-give-up-awaiting": "stopped_by_line", "conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
+OUTCOMES = {"plan-converge": "fixed", "plan-converge-stuck": "stopped_by_human",
+            "material-give-up": "stopped_by_line", "material-give-up-awaiting": "stopped_by_line", "conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
             "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request", "rejudge": "fixed",
             "rejudge-no-session": "stopped_by_line",
             **{name: "stopped_by_line" for name in GIVE_UPS.values()}}
@@ -267,6 +279,33 @@ class ScriptContractCase(unittest.TestCase):
                                           if m["id"] == r["node"])}
         missing = sorted(f"{b}/{s}" for b, s, _ in want - ran)
         self.assertEqual(missing, [])
+
+    def test_plan_converge_loops_back_to_revise(self):
+        """事前審査の壁打ち（依頼 231）を本物のスクリプトで: 1 往復目の block で converge-check が done 偽を返して外の輪が回り、
+        2 周目に直しの役（plan-revise）が 1 度起き、事前審査が 2 度目に同じ穴を suggest に下げて done 真で抜ける。
+        ほかの筋書きは 1 周目で抜け、直しの役は起きない"""
+        got = self.got["plan-converge"]
+        checks = [r["out"] for r in got["runs"] if r["node"] == "converge-check"]
+        self.assertEqual([(c["done"], c["outcome"]) for c in checks], [(False, "again"), (True, "clean")])
+        self.assertEqual(got["trail"].count("blk-plan/plan-revise"), 1)
+        self.assertEqual(got["trail"].count("blk-plan/plan-review"), 2)
+        snaps = [r["out"]["go"] for r in got["runs"] if r["node"] == "plan-revise-snap"]
+        self.assertEqual(snaps, [False, True])
+        for name, other in self.got.items():
+            if name not in ("plan-converge", "plan-converge-stuck"):
+                with self.subTest(name):
+                    self.assertNotIn("blk-plan/plan-revise", other["trail"])
+
+    def test_plan_converge_stuck_opens_policy_gate(self):
+        """同じ block が続く壁打ちを本物のスクリプトで: converge-check が again の後に persisted で done 真を返して外の輪を抜け、
+        h-gate が修正に進まない行（止まった理由つき）で修正前の関所を開け、stop で修正から後は起きない（Task 5 の持ち越し m1）"""
+        got = self.got["plan-converge-stuck"]
+        checks = [r["out"] for r in got["runs"] if r["node"] == "converge-check"]
+        self.assertEqual([(c["done"], c["outcome"]) for c in checks], [(False, "again"), (True, "persisted")])
+        self.assertEqual(got["trail"].count("blk-plan/plan-revise"), 1)
+        self.assertIs(got["out"]["h-gate"]["ask"], True)
+        self.assertIn(gatemarks.STUCK_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
+        self.assertNotIn("blk-fix/fix", got["trail"])
 
     def test_role_gives_up_after_three_rejections(self):
         """3 回とも拒まれた役は 3 回だけ起き（輪は done で抜ける）、盤面が止まった後はどの役も起きない（報告の役を除く）"""
