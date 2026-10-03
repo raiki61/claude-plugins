@@ -971,7 +971,38 @@ class DiskBoard(_EngineBoard):
         BoardGap。
         engine の受け付けのうち、描画・起動に関わる所（read_from・agent_id・tree_before の突合・save_text_as）は持たない
         （再生の比べない欄 tests/boardreplay.py の NOT_REPRODUCED）。扇の節・段の昇格を持つ節は受けずに BoardGap。
-        本文を返す節の返答は {text} だけ（engine と同じく他の鍵は届かない形。余分な鍵は BoardGap）"""
+        本文を返す節の返答は {text} だけ（engine と同じく他の鍵は届かない形。余分な鍵は BoardGap）。
+        当てる所（止めた run の拒否から check_record まで）は _vetted、ここはその後の書く所"""
+        output, notes, inst = self._vetted(nid, output, engine_reply=engine_reply)
+        n = self.nodes[nid]
+        f = self.dir / "out" / f"r{self.round}" / (safe_name(nid) + ".json")
+        write_json(f, output)
+        rel = str(f.relative_to(self.dir))
+        self.state["outputs"][nid] = {"file": rel, "round": self.round, "instance": nid}
+        inst.update({"status": "done", "done_at": now(), "output_file": rel})
+        if "fan_out" not in n:
+            self.rd["done"][nid] = {"at": now(), "instance": nid}
+            self.state["done_ever"][nid] = self.round
+        text = output["text"] if not n.get("schema") else json.dumps(output, ensure_ascii=False, sort_keys=True)
+        self.trace("done", instance=nid, sha=_util.sha(text))
+        self.save()
+        return "。".join([f"ok {nid} を受け付けた", *notes])
+
+    def vet(self, nid: str, output: dict) -> AnswerReject | None:
+        """受け付け（accept）と同じ検査を当てて、保存しない（乾いた照らし）。返答の中身の誤りは AnswerReject を投げずに返し、
+        通れば None。配線の誤り（BoardGap）とほかの Reject（止めた run など）は accept と同じく投げる。settle・save・trace を
+        呼ばない。post_check・writes は記憶の入れ物の中を書きうるので、呼んだ後の入れ物は捨てる（開き直してから受ける）。
+        乾いた照らしを通って控えた返答は、後で replan.hand_held が盤面に渡す時に写しの数え合わせをもう一度走らせ、周の数える量
+        （写しの規則の COUNT_BUDGET）をもう一度使う"""
+        try:
+            self._vetted(nid, output, engine_reply=False)
+        except AnswerReject as e:
+            return e
+        return None
+
+    def _vetted(self, nid: str, output: dict, *, engine_reply: bool) -> tuple[dict, list[str], dict]:
+        """_accept の当てる所（止めた run の拒否 → instance → 依存 → 型 → 番号の読み替え → post_check → writes → check_record）。
+        (読み替えた返答, post_check の notes, instance) を返す。保存しない（記憶の入れ物の中は書きうる）"""
         _refuse_halted(self)
         n = self.nodes.get(nid)
         if n is None:
@@ -1035,18 +1066,7 @@ class DiskBoard(_EngineBoard):
             if errs:
                 raise AnswerReject("記録の整合が取れない（役に返させ直す。回す側が補ってはいけない）:\n"
                                    + "\n".join(f"  - {e}" for e in errs))
-        f = self.dir / "out" / f"r{self.round}" / (safe_name(nid) + ".json")
-        write_json(f, output)
-        rel = str(f.relative_to(self.dir))
-        self.state["outputs"][nid] = {"file": rel, "round": self.round, "instance": nid}
-        inst.update({"status": "done", "done_at": now(), "output_file": rel})
-        if "fan_out" not in n:
-            self.rd["done"][nid] = {"at": now(), "instance": nid}
-            self.state["done_ever"][nid] = self.round
-        text = output["text"] if not n.get("schema") else json.dumps(output, ensure_ascii=False, sort_keys=True)
-        self.trace("done", instance=nid, sha=_util.sha(text))
-        self.save()
-        return "。".join([f"ok {nid} を受け付けた", *notes])
+        return output, notes, inst
 
     # -- 機械の節と settle（engine の advance の輪）
     def _entry(self, nid: str) -> NodeEntry:

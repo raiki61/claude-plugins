@@ -900,7 +900,8 @@ class TestSecondPass(TripCase):
         reply["not_done"] = [{"unit_key": CLAMP, "why": "1 回目に直したので今回は直さなかった"}]
         r = self.accept_script(reply, pass_="first", pass_tag=self.TAG)
         self.assertFalse(r["ok"], r)
-        self.assertEqual(r["reason"], accept_module().ACCEPTED_ROWS + CLAMP, "合わせた返答を盤面に拒ませる前に、自分の文で拒む")
+        self.assertEqual(r["rejects"], [{"check": "accepted", "text": accept_module().ACCEPTED_ROWS + CLAMP}],
+                         "合わせた返答を盤面に拒ませる前に、自分の文だけで拒む（写しの照らしは控えの行を見る）")
         b = entry.open_board(self.board)
         self.assertNotIn("p3.fix", b.state["outputs"])
         self.assertEqual([c["unit_key"] for c in recount.fix_reply(b)[0]["changes"]], [CLAMP], "控えの行は残る")
@@ -911,7 +912,7 @@ class TestSecondPass(TripCase):
         self.fix_mean()
         r = self.accept_script(load("fix2_ok"), pass_="first", pass_tag=self.TAG)
         self.assertFalse(r["ok"], r)
-        self.assertEqual(r["reason"], accept_module().ACCEPTED_ROWS + CLAMP)
+        self.assertEqual(r["rejects"], [{"check": "accepted", "text": accept_module().ACCEPTED_ROWS + CLAMP}])
         self.assertNotIn("戻", r["reason"])
 
     def test_rulings_text_does_not_hold_amended_unit(self):
@@ -959,7 +960,8 @@ class TestSecondPass(TripCase):
         r = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
         self.assertFalse(r["ok"], r)
         import writes
-        self.assertIn("notes.txt", r["reason"]); self.assertNotIn("stats.py", r["reason"].split(writes.REJECT)[-1])
+        wrote = [x["text"] for x in r["rejects"] if x["check"] == "writes"]
+        self.assertIn("notes.txt", " ".join(wrote)); self.assertNotIn("stats.py", " ".join(wrote).split(writes.REJECT)[-1])
         (self.repo / "notes.txt").unlink()
         self.fix_mean()
         reply = only_mean_reply()

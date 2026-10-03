@@ -626,6 +626,7 @@ nodes:
               reason: {type: string}
               reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               changes: {type: array}
+              rejects: {type: array}          # 拒否の行ごとの確かめの id と文（[{check, text}]。reason の行と同じ並び。表は accept.CHECKS）
               parked: {type: boolean}         # 食い違いの申し出で単位を止め、盤面に渡さずに抜けた（裁定の輪の後に渡す）
 
   # 食い違いの申し出（修正役か TDD の輪の役が返し、名指しが現物に在った物）で止めた単位が在るか。裁定の輪と 2 回目の修正役の
@@ -822,6 +823,7 @@ nodes:
               reason: {type: string}
               reason_file: {type: string}
               changes: {type: array}
+              rejects: {type: array}
               parked: {type: boolean}
 
   # 修正役が残した git が無視するファイル（控えに無かった物だけ）を消す。差分には載らないが、テストの緑赤を左右する

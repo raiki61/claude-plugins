@@ -15,7 +15,7 @@
   （入力 fix_fixture が在れば、core の fixture.adopt で h-fix の盤面の写しを取り込み、判定・修正案を作り直さずに修正の前から）
 - resume_after_ci(b): 任せ先の CI の役が p0.local_checks を渡した後、ラインが start の輪（run_engine → settle）に戻る口
 - snapshot(board_dir, name, repo): 読むだけの役を起こす前に、作業ツリーの姿（accept.tree_state）を今の周の b.work(name) に
-- take(board_dir, nid, reply, repo, *, snapshot_name): 各ブロックの受け付けが使う 1 つの口。役の返答を盤面の done に渡す
+- take(board_dir, nid, reply, repo, *, snapshot_name, commit): 各ブロックの受け付けが使う 1 つの口。役の返答を盤面の done に渡す
   （写しの AnswerReject だけを {ok: False} で役に返す。裁定 TA19）
 - hand(b, board_dir, nid, reply, repo): 機械が返答を渡す 1 つの口（待っている試行 board.pending_instance に起こした印を置いてから take）
 - empty_fix_reply(): 直す義務 0 件の周に機械が渡す p3.fix の空の返答（裁定 TA6）
@@ -958,7 +958,8 @@ def _tree_moved(b, name: str, repo: pathlib.Path) -> str:
 tree_moved_since = _tree_moved   # 盤面の節へ渡さない受け付け（先に起こす役）が同じ比べを使う公開の名（層の決まり private）
 
 
-def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, snapshot_name: str | None = None) -> dict:
+def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, snapshot_name: str | None = None,
+         commit: bool = True) -> dict:
     """役の返答を盤面に渡す（各ブロックの受け付けが使う 1 つの口）。順:
     1. 盤面を開く（open_board）。止めた run はここで Reject（役に返さない。作業ツリーの比べより先）
     2. snapshot_name が在れば、役を起こす前の写し（snapshot）と今の作業ツリーを比べ、違えば
@@ -968,6 +969,8 @@ def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, 
     盤面の置き場からの相対。周を仮定しない）。写しの AnswerReject（返答の中身の誤り）だけを {"ok": False, "reason": 文} に
     する（盤面は書かれない。入れ物は捨てる——盤仕様 4.1）。ほかの Reject（止めた run への書き込みなど）と BoardGap（表で
     受けない節・印の無い試行・写しの欠け）は投げ直す（回す側の誤りで、役に返しても直らない。TA19）。
+    commit が偽なら 3 の代わりに b.vet(nid, reply)（同じ検査を当てて保存しない。開いた入れ物は捨てる）で、返りは
+    {"ok", "reason", "dry": True}。拒否なら problems（AnswerReject の problems。空なら [reason]）も。1・2 は commit に依らず当てる。
     DiskBoard.edit は使わない（done の中で保存される）。起こした印（mark_launched）は役を起こす前にブロックの snap の節が置く"""
     b = open_board(board_dir)
     _refuse_halted(b)
@@ -975,6 +978,11 @@ def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, 
         moved = _tree_moved(b, snapshot_name, repo)
         if moved:
             return {"ok": False, "reason": READONLY_MOVED + moved}
+    if not commit:
+        e = b.vet(nid, reply)
+        if e is None:
+            return {"ok": True, "reason": "", "dry": True}
+        return {"ok": False, "reason": str(e), "dry": True, "problems": e.problems or [str(e)]}
     try:
         p = b.done(nid, reply)
     except AnswerReject as e:
