@@ -33,11 +33,10 @@
   brief の控えが壊れていれば盤面を止める（brief_halt。brief の無い指示書として続けない）
 - ruler_prompt: 裁定役の指示書（ruling.prep が書く）
 - reads_more: 節 fix-reads が読んだ証拠を集めるパスに足す物（今の周に組んだ指示書と brief のファイル）
-- tagged: 回の印（pass_tag。依頼 226 の 2 回目の修正の段は refit）をファイルの名の拡張子の前に足す唯一の口（script_io.tagged。
-  core の conflict の裁定の文・申し出の回の控えと、拒否の理由のファイルも同じ決まり）。同じ周に修正役を 2 度起こす段が、指示書
-  （と隣の .full.md・.delta.md・.variants.json・.delivered.json・.rules.md）・裁定の後の尾・拒否の理由・裁定の文・申し出の回の
-  控えの名を分ける。印が空なら今の名のまま。2 回目の段は自分の数えから始まり、3 回の諦めを回ごとに数え、最初の指示書は
-  新しい役が見ていない会話への差分（delta）にならない
+- 同じ周に修正役を 2 度起こす段（依頼 226 の 2 回目の修正の段。ブロックの 2 度目の include）の指示書（と隣の .full.md・.delta.md・
+  .variants.json・.delivered.json・.rules.md）・裁定の後の尾・拒否の理由・裁定の文・申し出の回の控えは、名を変えずに include の
+  名の置き場（scope。盤面の work と script_io.scope_dir）で 1 回目の物と分かれる。2 回目の段は自分の数えから始まり、3 回の諦めを
+  回ごとに数え、最初の指示書は新しい役が見ていない会話への差分（delta）にならない
 - 1 回目の修正の段で受け付けた返答の控え（conflict.held_reply）が在る時だけ、修正役の指示書の brief の節の後に HELD_HEAD の節
   （HELD_ASK）を置く（2 回目の修正の段）
 """
@@ -85,7 +84,6 @@ PASSES = ("first", "ruled")   # 修正役の 1 回目と、裁定の後の 2 回
 RULED_TAIL = "-ruled.md"      # 2 回目の指示書の名の尾（1 回目の <名>.md の隣。輪の控えを分ける）
 RULINGS_LINE = ("食い違いの申し出への裁定を書いたファイル {path} を、先に Read で全部読め。裁定に従って直し、返答を丸ごと出し直せ"
                 "（裁定の文そのものはここに貼らない）")
-tagged = script_io.tagged   # 回の印をファイルの名に足す唯一の口（tagged(name, pass_tag)。core も同じ決まりを使うので本体は script_io）
 HELD_HEAD = "## 1 回目の修正の段で受け付けた返答（機械が貼った）"
 HELD_ASK = ("控え {path} を Read で読め。直す義務は上の「読む物」の「直す義務の単位の key」（案を直して戻った単位）だけで、"
             "控えの単位の行は機械が足す——changes と not_done に控えの単位を書くな。changes と not_done の外の欄（fix_closure・mechanism_changed・"

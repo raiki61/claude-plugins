@@ -97,10 +97,9 @@ class TestBlockYaml(unittest.TestCase):
         y = block()
         self.assertEqual(y["name"], "blk-fix")
         self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "notes_file", "policy_path",
-                                            "tdd_suite", "test_cmd", "pass_tag"})
-        # 2 回目の修正の段（依頼 226）の口。1 度目の include は既定のまま（回の印なし）。include の名は入力に持たない
-        # （core が Archon の節の居場所から引く。依頼 239）
-        self.assertEqual(y["inputs"]["pass_tag"]["default"], "")
+                                            "tdd_suite", "test_cmd"})
+        # 2 回目の修正の段（依頼 226）は同じ入力の 2 度目の include。include の名は入力に持たない（core が Archon の節の居場所から
+        # 引き、その scope の置き場で 1 度目と分かれる。依頼 239）
         for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite", "test_cmd"):   # 足した物は空でよい（仕様 3.2・TDD の輪）
             self.assertEqual(y["inputs"][k].get("default"), "", k)
             self.assertNotIn("required", y["inputs"][k], k)
@@ -129,8 +128,9 @@ class TestBlockYaml(unittest.TestCase):
         # TDD の輪の節は test_blk_fix_tdd、食い違いの申し出の 3 節は test_blk_fix_conflict が見る
         before, _start, _tdd, loop, _check, _rule, _ruled, clean, changed, reads, collect = nodes
         self.assertEqual((reads["script"], reads["depends_on"]), ("reads", ["assert-changed"]))
-        self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]', "pass_tag": "$INPUTS.pass_tag"})
+        self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]'})
         self.assertNotIn("depends_on", before)
+        self.assertNotIn("with", before)
         self.assertEqual(before["script"], "ignored_before")
         self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop"], "控えは修正役より前（tdd-start が ignored-before の後）")
         self.assertEqual(clean["script"], "clean")
@@ -304,17 +304,15 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""
-        tail = ("INPUTS_PASS_TAG",)   # 2 回目の修正の段の回の印（OPTIONAL。依頼 226）
         want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
-                           "INPUTS_TDD_SUITE", *tail),
+                           "INPUTS_TDD_SUITE"),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
-                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS", *tail),
-                "rule_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_POLICY_PATH", *tail),
-                "rule_accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_ITERATION", *tail),
-                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED",
-                            "INPUTS_PASS_TAG"),
-                "reads": ("INPUTS_MUST", *tail),
-                "ignored_before": ("INPUTS_PASS_TAG",), "clean": ("INPUTS_PASS_TAG",)}
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS"),
+                "rule_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_POLICY_PATH"),
+                "rule_accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_ITERATION"),
+                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED"),
+                "reads": ("INPUTS_MUST",),
+                "ignored_before": (), "clean": ()}
         for name, inputs in want.items():
             with self.subTest(name):
                 src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
@@ -322,32 +320,6 @@ class TestBlockYaml(unittest.TestCase):
                           and [getattr(t, "id", None) for t in n.targets] == ["INPUTS"]]
                 self.assertEqual(consts, [inputs])
                 self.assertLessEqual(set(re.findall(r"INPUTS_[A-Z_]+", src)), set(inputs), "定数に無い INPUTS_* を読まない")
-
-    def test_pass_inputs_are_optional(self):
-        """後から足した回の印は OPTIONAL（無い・空は今どおり。前の版の with: で再開した run は渡さない）。
-        YAML の with: はブロックの入力 pass_tag をそのまま渡す（依頼 226 Task 9）"""
-        names = {"accept": ("fix-accept", "fix-ruled-accept"), "fix_prep": ("fix-prep", "fix-ruled-prep"),
-                 "rule_prep": ("rule-prep",), "rule_accept": ("rule-accept",), "reads": ("fix-reads",), "collect": ("collect",),
-                 "ignored_before": ("ignored-before",), "clean": ("clean",)}
-        nodes = {nid: find_node(block()["nodes"], nid) for ids in names.values() for nid in ids}
-        for name, ids in names.items():
-            want = {"INPUTS_PASS_TAG"}
-            with self.subTest(name):
-                src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
-                consts = [n.value for n in ast.parse(src).body if isinstance(n, ast.Assign)
-                          and [getattr(t, "id", None) for t in n.targets] == ["OPTIONAL"]]
-                self.assertEqual(len(consts), 1)
-                self.assertEqual(set(ast.literal_eval(consts[0].args[0])), want)
-                for nid in ids:
-                    got = {k: v for k, v in nodes[nid]["with"].items() if f"INPUTS_{k.upper()}" in want}
-                    self.assertEqual(got, {k[len("INPUTS_"):].lower(): f"$INPUTS.{k[len('INPUTS_'):].lower()}" for k in want}, nid)
-
-    def test_tagged_names(self):
-        """回の印の口（fixrules.tagged）は恒等（印を名に足さない。2 度目の include の物は scope の根で分かれる。依頼 239）"""
-        import conflict
-        import fixrules
-        for name in ("prompt-p3_fix.md", fixrules.REJECT_GLOB, conflict.RULINGS_FILE, conflict.PARKED_REPLY):
-            self.assertEqual(fixrules.tagged(name, "refit"), name)
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
@@ -917,7 +889,7 @@ class TestFixPrep(BoardCase):
         err = io.StringIO()
         with mock.patch.dict(os.environ, env), mock.patch.object(spseam, "BORROW_DIR", borrow), \
                 mock.patch.object(mod.fixrules, "lib_section", return_value="") as docs, contextlib.redirect_stderr(err):
-            code = rolekit.script_main(mod.run, tuple(n for n in mod.INPUTS if n not in mod.OPTIONAL))   # script の入口と同じ
+            code = rolekit.script_main(mod.run, mod.INPUTS)   # script の入口と同じ
         self.assertEqual(code, 2, err.getvalue())
         self.assertIn(rel, err.getvalue())
         docs.assert_not_called()   # 照合は重い仕事（Context7 の引き）より前

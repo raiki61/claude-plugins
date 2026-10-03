@@ -21,9 +21,7 @@ import os  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
 from leftovers import Unreadable, record_ignored  # noqa: E402   .shared/core の模块（V13）
 
-INPUTS = ("INPUTS_PASS_TAG",)
-# 無くても欠けに数えない入力（依頼 226 で後から足した回の印。前の版の with: で再開した run は渡さない。無い・空は 1 回目）
-OPTIONAL = frozenset({"INPUTS_PASS_TAG"})
+INPUTS = ()   # 読む入力は無い（置き場は今の scope の根。script_io.scope_dir）
 
 
 def main() -> int:

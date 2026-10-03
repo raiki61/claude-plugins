@@ -17,9 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import fixrules  # noqa: E402
 import recount  # noqa: E402
 
-INPUTS = ("INPUTS_MUST", "INPUTS_PASS_TAG")
-# 無くても欠けに数えない入力（依頼 226 で後から足した回の印。前の版の with: で再開した run は渡さない。無い・空は今どおり）
-OPTIONAL = frozenset({"INPUTS_PASS_TAG"})
+INPUTS = ("INPUTS_MUST",)
 
 if __name__ == "__main__":
     import reads  # noqa: E402  （線 A Task 6 の物。入るまでこの節は走らせない——YAML は Task 17）

@@ -13,7 +13,7 @@ done("p3.fix") に替える。graph の p3.fix の受け付けの検査は写し
   印 works-node: fix と食い違いの申し出の欄 conflicts・Bash で書いたファイルの申告の欄 bash_writes・closure.sites[] の欄 path・
   changes[].precedent の条件付き必須 allOf（_precedent_conditions）を足した物。blk-fix.yaml の fix に貼る）。RULED_OUTPUT_FORMAT は裁定の後の
   2 回目の修正役（印 works-node: fix-ruled continue=fix）の物
-- READS: 読んだ証拠の節 fix-reads が reads.main_for に渡す (役, 輪, 節)（include の名は reads が今の scope から引く）。reads_role(tag) は回の印で分けた役の名（2 回目の修正の段の reads-fix.<印>.json）
+- READS: 読んだ証拠の節 fix-reads が reads.main_for に渡す (役, 輪, 節)（include の名と書く先の scope は reads が今の節の居場所から引く。2 回目の修正の段の reads-fix.json は 1 回目と分かれる）
 - accept_fix: 節 fix-accept の中身。entry.take に渡し、1 本目の出口のための changes を足す（v1_changes）
 - fix_reply: 修正の返答を読む 1 つの口（今の周の盤面の p3.fix か、無ければ 1 回目に受け付けた返答の控え conflict.held_reply）。
   集める節と報告が読む
@@ -139,12 +139,6 @@ def _coverage(b) -> dict:
     if cov.get("round") != b.round:
         return {}
     return {i["unit_key"]: {"before": i["total"], "after": i["after"]} for i in cov.get("items") or []}
-
-
-def reads_role(tag: str = "") -> str:
-    """読んだ証拠の役の名（reads.collect が reads-<役>.json に書く）。回の印が在れば fix.<印>（書く先は
-    script_io.tagged("reads-fix.json", 印)。2 回目の修正の段が 1 回目の証拠を上書きしない）"""
-    return f"{ROLE}.{tag}" if tag else ROLE
 
 
 def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:

@@ -34,10 +34,7 @@ import script_io  # noqa: E402
 import tddloop  # noqa: E402
 from board import BoardGap  # noqa: E402  （BoardMismatch も含む）
 
-INPUTS = ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED",   # RULED は飛ばされれば null
-          "INPUTS_PASS_TAG")
-# 無くても欠けに数えない入力（依頼 226 で後から足した回の印。前の版の with: で再開した run は渡さない。無い・空は 1 回目）
-OPTIONAL = frozenset({"INPUTS_PASS_TAG"})
+INPUTS = ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")   # RULED は飛ばされれば null
 
 
 def env_json(name, raw=None):

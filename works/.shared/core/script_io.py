@@ -64,13 +64,6 @@ BASE_REV_ENV = "INPUTS_BASE_REV"
 ARTIFACTS_ENV = flow_adapter.ARTIFACTS_ENV
 BOARD_DIR = "board"
 REJECT_PREFIX = "reject-"
-TAG_FORM = re.compile(r"^[A-Za-z0-9_-]+$")   # 回の印の字（ファイルの名の 1 段に入れる）
-
-
-def tagged(name: str, tag: str) -> str:
-    """name のまま（回の印 tag は名に足さない）。同じブロックの 2 度目の include（blk-fix の 2 回目の修正の段）のファイルは
-    scope の根の分け（scope_dir・board の work）で 1 度目の物と分かれる。呼び出しを消すまでの恒等の口（依頼 239）"""
-    return name
 
 
 def _emit(obj) -> None:

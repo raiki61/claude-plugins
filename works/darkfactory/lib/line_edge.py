@@ -9,7 +9,7 @@
 - 同じ run の中の案の直し（依頼 226。core の replan）: h-replan（at replan）は修正の段で fix_plan_item と裁かれた項目を束ね
   （replan.material）、案の直しのブロック（blk-plan の 2 度目の include）を回すか。h-regate（at regate）は直した項目に関所の
   決まりを当て（replan.gate）、関所 replan-gate を開くか。h-refit（at refit）は関所の答えを当て（refit_edge・replan.answer）、
-  2 回目の修正の段（blk-fix の 2 度目の include。回の印 refit）を回すか。どれも今の周の replan.json が無ければ何もしない
+  2 回目の修正の段（blk-fix の 2 度目の include refitting。その物は scope で 1 回目と分かれる）を回すか。どれも今の周の replan.json が無ければ何もしない
 - eyes_edge(b): h-look の固有の仕事（独立の目を回すか。計画 P1 Task 33）。h-eyes も同じ go を返す（関所の後にまだ目が待つか——報告が
   blk-eyes の落ちを見分ける）。h-look は先に、blk-plan が修正の前に控えた独立設計（core の design。design.json）を、盤面が r2.design を
   待っていれば渡す（目的の文を h-mat が渡すのと同じ形）

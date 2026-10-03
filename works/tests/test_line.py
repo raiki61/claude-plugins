@@ -10,7 +10,7 @@
 - 関所は decisions に reject を持つ（P8）。役の節は全部印（works-node）を持ち、印の名はブロックをまたいで一意（同じブロックの
   2 度目の include は 1 度目と同じ印。包みの会話の置き場は印の名で、後の起動が置き場を替える）
 - 同じ run の中の案の直し（依頼 226）: 修正の段の後に h-replan → replanning（blk-plan の 2 度目の include）→ h-regate →
-  replan-gate（関所）→ h-refit → refitting（blk-fix の 2 度目の include。回の印 refit）→ h-rejudge（test_replan_wiring）
+  replan-gate（関所）→ h-refit → refitting（blk-fix の 2 度目の include。物は scope で分かれる）→ h-rejudge（test_replan_wiring）
 - 筋書き（fixtures/）: 本物で回す start の筋書き（standard・start-refused）のほかは、走る script と役の節を全部 stub する。
   判定の stub の鍵は blk-judge.yaml から組む（test_judging_stubs_follow_block）
 """
@@ -323,7 +323,7 @@ class LineShapeCase(unittest.TestCase):
     def test_replan_wiring(self):
         """修正の段の後・再審の前に、案の直し（依頼 226。1 run に 1 回）: h-replan → replanning（blk-plan の 2 度目の include。
         replan の口）→ h-regate → replan-gate（線の最上段の関所。輪の外）→ h-refit（関所の答えを受ける）→ refitting（blk-fix の
-        2 度目の include。回の印 refit。出来事を引く include の名は core が今の scope から引く）→ h-rejudge（2 回目の段の後を待つ）"""
+        2 度目の include。出来事を引く include の名と物の置き場は core が今の scope から引く）→ h-rejudge（2 回目の段の後を待つ）"""
         ids = [n["id"] for n in line()["nodes"]]
         i = ids.index("fixing")
         self.assertEqual(ids[i:i + 8], ["fixing", "h-replan", "replanning", "h-regate", "replan-gate", "h-refit", "refitting",
@@ -346,18 +346,36 @@ class LineShapeCase(unittest.TestCase):
                          "全文と答え方: $h-regate.output.gate_file（Read して答える）。\n"
                          'continue "<一言>" で直した項目を使って修正に戻る。stop "<理由>" で run を止める（1 回目に直した単位の差分は'
                          "報告に残る）。approve は continue、reject は stop と同じ。\n")
-        fit, fixing = node("refitting"), node("fixing")
+        fit = node("refitting")
         self.assertEqual((fit["include"], fit["when"]), ("blk-fix", "$h-refit.output.go == true"))
-        self.assertEqual(set(fit["with"]), set(fixing["with"]) | {"pass_tag"})
-        self.assertEqual(fit["with"]["pass_tag"], "refit")
-        for k in ("open_units", "plan_file", "notes_file", "judgment_file"):
-            self.assertEqual(fit["with"][k], f"$h-refit.output.{k}", k)
-        for k in set(fixing["with"]) - {"open_units", "plan_file", "notes_file", "judgment_file"}:
-            self.assertEqual(fit["with"][k], fixing["with"][k], k)
-        import recount
-        self.assertEqual(recount.reads_role("refit"), "fix.refit")
         self.assertIn("修正（TDD の輪）→（裁定が案の項目の誤りなら）案の直し → 案の直しの関所（要る時だけ）→ 2 回目の修正 →",
                       line()["description"])
+
+
+    def test_refitting_passes_only_scope(self):
+        """2 回目の修正の段（include refitting）の with: は 1 回目（fixing）と同じ鍵で、違いは渡す値（判定・未直しの単位・案・
+        覚え書き）だけ。2 回の段を分けるのは include の名（scope。依頼 239）で、回の印 pass_tag は渡さない"""
+        fit, fixing = node("refitting"), node("fixing")
+        self.assertNotIn("pass_tag", fit["with"])
+        self.assertEqual(set(fit["with"]), set(fixing["with"]))
+        passed = ("open_units", "plan_file", "notes_file", "judgment_file")
+        self.assertEqual({k for k in fit["with"] if fit["with"][k] != fixing["with"][k]}, set(passed))
+        for k in passed:
+            self.assertEqual(fit["with"][k], f"$h-refit.output.{k}", k)
+        self.assertNotEqual(fit["id"], fixing["id"], "scope の名は include の id")
+
+    def test_no_pass_tag_left(self):
+        """回の印（依頼 226 の pass_tag・INPUTS_PASS_TAG・script_io.tagged）は pack の .py と .yaml に残らない（docs/・CHANGELOG.md・
+        tests/ を除く。依頼 239）"""
+        left = []
+        for p in sorted(ROOT.rglob("*")):
+            rel = p.relative_to(ROOT)
+            if p.suffix not in (".py", ".yaml") or not p.is_file() or rel.parts[0] in ("docs", "tests"):
+                continue
+            for n, text in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                if any(w in text for w in ("pass_tag", "PASS_TAG", "tagged(")):
+                    left.append(f"{rel}:{n}: {text.strip()}")
+        self.assertEqual(left, [], "\n".join(left))
 
 
 class LensWiringCase(unittest.TestCase):
