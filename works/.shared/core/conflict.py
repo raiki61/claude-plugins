@@ -30,9 +30,9 @@
 - held_by_rulings(b)・ruled_units(row): 直す義務から外す単位と理由。決まりは「直す裁定（FIX_DECISIONS）でない裁定は、それが外す
   単位（申し出の単位と、fix_plan_item ならその項目に載る単位の全部）を直させない」の 1 つ
   （kind の無い前の形の控えの行も読む。種類は「無し」）
-- apply_rulings(b, rulings, by=, pass_tag=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で
-  渡す）を書く。裁定の文と申し出の回の控え（PARKED_REPLY）の名は修正の段の回の印 pass_tag で分ける（script_io.tagged。
-  blk-fix の fixrules.tagged と同じ口。write_rulings）。
+- apply_rulings(b, rulings, by=): 裁定を積み、trace に 1 行、裁定の文のファイル（RULINGS_FILE。修正役に reason_file で
+  渡す）を書く。裁定の文と申し出の回の控え（PARKED_REPLY）は今の scope の周の置き場の物（2 回目の修正の段は 1 回目と分かれる。
+  write_rulings）。
   fix_plan_item の裁定は、受け付けた機械が欄 plan_items（その単位の brief の項目の番号）と plan_units（その項目に載る単位の全部）を
   足して渡す
 - owed_units_but_asked(b): 写しの RL の _owed_units の差し替え（答えていない fork・escalate の問いの出どころを外し、修正前の関所で
@@ -80,7 +80,6 @@ import board as _board  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402  （planmarks は conflict・entry を読まないので輪にならない）
 import scopes  # noqa: E402
-from script_io import tagged  # noqa: E402  （回の印の決まり。blk-fix の fixrules.tagged と同じ 1 つの口）
 from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足す）
 
 FILE = "conflicts.json"                 # 盤面の今の周の作業ファイル {"items": [...]}
@@ -541,10 +540,10 @@ def park(b, rows, *, source: str, ruling: dict | None = None) -> list:
     return ids
 
 
-def apply_rulings(b, rulings: dict, *, by: str, pass_tag: str = "") -> pathlib.Path:
+def apply_rulings(b, rulings: dict, *, by: str) -> pathlib.Path:
     """裁定 {id: {decision, text, limits[, grounds, request_searched, query]}} を今の周の申し出に積み（裁かれていない物だけ。
     fix_plan_item の行には案の直しの状態 WAITING を置く）、trace に 1 行ずつ、
-    裁定の文のファイル（RULINGS_FILE。pass_tag は修正の段の回の印。write_rulings）を書き直してパスを返す。知らない id は
+    裁定の文のファイル（RULINGS_FILE。write_rulings）を書き直してパスを返す。知らない id は
     BoardGap（回す側が確かめてから渡す）"""
     doc = _load(b)
     by_id = {r["id"]: r for r in doc["items"]}
@@ -560,18 +559,18 @@ def apply_rulings(b, rulings: dict, *, by: str, pass_tag: str = "") -> pathlib.P
             row[REPLAN_STATE] = WAITING
         b.trace(RULE_OP, id=rid, unit_key=row["unit_key"], decision=ruling["decision"], by=by)
     _save(b, doc)
-    return write_rulings(b, pass_tag)
+    return write_rulings(b)
 
 
-def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
+def write_rulings(b) -> pathlib.Path:
     """裁定の文（修正役が Read する。1 件ずつ単位・名指し・理由・裁定・範囲と、裁定ごとの約束）。約束は裁定の decision で決まり、
     fix_plan_item の行のうち案を直した行（状態 AMENDED）は AMENDED_PROMISE（直す義務に戻った。held_by_rulings と同じ決まり）、
     諦めた行（GAVE_UP）は GAVE_UP_PROMISE（ask_human と同じく最後の関所へ。諦めた理由を添える）、2 回目の修正の段（second_pass）で
     案の直しを待つ行（WAITING。この段で新しく裁いた行）は LATE_REPLAN_PROMISE（案の段には戻らず、修正の段を抜ける時に
     replan.settle が諦めた行にする）。1 回目に受け付けた返答の控えの単位（accepted_units）の行は、どの裁定でも ACCEPTED_PROMISE
     （行は機械が足す。fix_duty の ACCEPTED_WHY と同じくほかの約束より先。控えが壊れていれば held_reply の BoardGap）。
-    ファイルの名と、名指す申し出の回の控え（PARKED_REPLY）の名は、修正の段の回の印 pass_tag で分ける（tagged。2 回目の修正の段は
-    1 回目の物を上書きも名指しもしない）"""
+    ファイルと、名指す申し出の回の控え（PARKED_REPLY）は今の scope の周の置き場の物（同じブロックの 2 度目の include である
+    2 回目の修正の段は 1 回目の物を上書きも名指しもしない）"""
     rows = [r for r in items(b) if r.get("ruling")]
     held, held_path = held_reply(b)
     accepted = _held_keys(held)
@@ -612,14 +611,14 @@ def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
                   f"- 申し出の名指し: {', '.join(r['between'])}",
                   f"- 申し出の理由: {r['why_both_cannot_hold']}（正しいと見た側: {r['which_is_right']}）",
                   f"- 申し出の種類: {r.get(KIND_FIELD) or '（無し）'}", ""]
-    parked = b.work(tagged(PARKED_REPLY, pass_tag))
+    parked = b.work(PARKED_REPLY)
     if parked.is_file():
         lines += ["## 前の回の返答", "",
                   f"申し出を返した回の返答は {parked} に在る。ほかの単位の直しは作業ツリーに残っている。裁定に従って直し、"
                   "直す義務の単位の全部の changes を持つ返答を丸ごと出し直せ。直す義務の外の単位はすべて除く（直さない裁定 "
                   "ask_human の単位・fix_plan_item の単位（案の直しを待つ物も諦めた物も）・1 回目の修正の段で受け付けた単位。"
                   "案を直して戻った単位は直す義務に入る）", ""]
-    p = b.work(tagged(RULINGS_FILE, pass_tag))
+    p = b.work(RULINGS_FILE)
     _write(p, "\n".join(lines))
     return p
 

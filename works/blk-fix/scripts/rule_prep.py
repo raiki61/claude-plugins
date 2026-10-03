@@ -10,7 +10,6 @@ INPUTS_PASS_TAG（回の印。無い・空は 1 回目の修正の段。指示�
 prompt-rule.md（回の印が在れば prompt-rule.<印>.md）に書き、{prompt_file, iteration} を 1 行出して 0。出し直しなら前の拒否の理由のファイルを 1 行目で名指す（R44）。
 環境変数の欠け・裁く申し出が無い・思わぬ誤り: 標準エラーに 1 行出して 2（rolekit.script_main）。
 """
-import os
 import sys
 from pathlib import Path
 
@@ -26,8 +25,7 @@ OPTIONAL = frozenset({"INPUTS_PASS_TAG"})
 
 
 def run(board, repo, env):
-    return ruling.prep(board, repo, {n[len("INPUTS_"):].lower(): env[n] for n in INPUTS if n not in OPTIONAL},
-                       pass_tag=os.environ.get("INPUTS_PASS_TAG", ""))
+    return ruling.prep(board, repo, {n[len("INPUTS_"):].lower(): env[n] for n in INPUTS if n not in OPTIONAL})
 
 
 if __name__ == "__main__":

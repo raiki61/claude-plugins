@@ -346,7 +346,7 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
         else:
             conflict.park(b, items, source="fix", ruling={"decision": conflict.ASK, "text": SECOND_CONFLICT, "limits": [],
                                                           "by": "works:fix-accept"})
-            conflict.write_rulings(b, _tag())
+            conflict.write_rulings(b)
     if pass_ == "first" and conflict.unruled(b):
         _put_parked(b.work(fixrules.tagged(conflict.PARKED_REPLY, _tag())), {**reply, "conflicts": items})
         return reply, {"ok": True, "parked": True, "reason": "", "changes": []}
@@ -597,7 +597,7 @@ def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
                            "kind": conflict.NEEDS_CONTEXT}],
                       source="fix", ruling={"decision": conflict.ASK, "text": f"{BOUND_PARKED}{why}（戻した直しの控え {patch}）",
                                             "limits": [], "by": "works:fix-accept"})
-    conflict.write_rulings(b, _tag())
+    conflict.write_rulings(b)
     b.trace(BOUND_PARKED_OP, node=recount.ROLE, unit_keys=list(bound), patch=patch)
     out = _without_rows(reply, rest, mine, repo)
 
