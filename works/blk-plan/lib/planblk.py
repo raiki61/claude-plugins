@@ -493,16 +493,30 @@ def converge_check(board_dir) -> dict:
             "record_file": str(b.work(converge.RECORD))}
 
 
+def _accept_args(role: str) -> tuple[str, dict]:
+    """役の受け付けの（盤面の節, rolekit.accept_role の引数）。直しの役は盤面の節 p2.fix_plan へ revise_take で渡す（take を
+    渡すので作業ツリーの比べは take の中）。事前審査は壁打ちの包み with_converge で渡す"""
+    if role == REVISE_ROLE:
+        return NODE_OF["plan"], {"take": revise_take()}
+    return role_node(role), {"snapshot_name": snapshot_name(role),
+                             "take": with_converge(take(role, settle=False)) if role == "plan-review" else take(role)}
+
+
+def accept_reply(board_dir, role: str, raw: str, repo) -> dict:
+    """<役>-accept の本体（rolekit.accept_role。独立設計の役は除く）。main_accept と同じ口を、ラインの試験（tests/linekit.py）が
+    子のプロセスを起こさずに回す"""
+    nid, kw = _accept_args(role)
+    return rolekit.accept_role(pathlib.Path(board_dir), nid, raw, pathlib.Path(repo), give_up_after=GIVE_UP_AFTER, **kw)
+
+
 def main_accept(role: str) -> int:
     """<役>-accept の入口（rolekit.main_accept）。独立設計の役は core の design.accept_reply（盤面の節へ渡さない。拒否の理由は
-    reason_file に書く）。直しの役は盤面の節 p2.fix_plan へ revise_take で渡す（take を渡すので作業ツリーの比べは take の中）"""
-    if role == REVISE_ROLE:
-        return rolekit.main_accept(NODE_OF["plan"], give_up_after=GIVE_UP_AFTER, take=revise_take())
+    reason_file に書く）。ほかの役は _accept_args の口"""
     if role == DESIGN_ROLE:
         return rolekit.script_main(lambda board, repo, env: design.accept_reply(board, env["INPUTS_REPLY"], repo),
                                    ("INPUTS_REPLY",), fence=True, take="plan")
-    return rolekit.main_accept(role_node(role), snapshot_name=snapshot_name(role), give_up_after=GIVE_UP_AFTER,
-                               take=with_converge(take(role, settle=False)) if role == "plan-review" else take(role))
+    nid, kw = _accept_args(role)
+    return rolekit.main_accept(nid, give_up_after=GIVE_UP_AFTER, **kw)
 
 
 def _write_json(path: pathlib.Path, doc) -> None:

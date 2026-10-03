@@ -436,24 +436,55 @@ class LineRun:
                 break
         return judgetake.collect(self.board)
 
-    def blk_plan(self):
-        """blk-plan の中の節の順（独立設計の輪 → 修正案 → 事前審査）。独立設計は core の design の口で盤面の根に控える（返答は
-        replies["r2-design"]、無ければ design_ok）。修正案が待たない周（直す物の無い判定）は設計だけを作る"""
-        import design
+    def _nth(self, role, k):
+        """役の k 番目（0 から）の返答。replies[役] は 1 つか列で、列が尽きたら最後の物を繰り返す（blk_judge と同じ読み方）"""
+        got = self.replies[role]
+        return got[min(k, len(got) - 1)] if isinstance(got, list) else got
+
+    def _revise_body(self) -> dict:
+        """直しの役の既定の返答: 修正案の見本に、返された block の key ごとの disputed の答えを足した物"""
+        import converge
         import entry
+        held = converge.held(entry.open_board(self.board)) or {}
+        return {**self._nth("plan", 0), converge.ANSWERS: [
+            {"key": k, "handled": "disputed", "how": "案のままで穴にならない（見本の直しの役は異を唱える）"}
+            for k in held.get("blocks") or []]}
+
+    def _plan_role(self, role, body) -> None:
+        """blk-plan の役の輪 1 つ（snap → go なら支度・受け付けを done まで。輪は受け付けの done で抜ける。R50）。返答は body()"""
+        import planblk
+        if not planblk.snap(self.board, role, self.repo)["go"]:
+            return
+        for _ in range(planblk.GIVE_UP_AFTER):
+            planblk.prep(self.board, role, self.repo)
+            if planblk.accept_reply(self.board, role, json.dumps(body(), ensure_ascii=False), self.repo)["done"]:
+                return
+
+    def blk_plan(self):
+        """blk-plan の中の節の順（独立設計の輪 → 修正案の輪 → 壁打ちの輪 converge-loop〔直しの役の輪 → 事前審査の輪 →
+        converge-check〕→ 出口 collect）を planblk の支度と受け付けの口で回す。独立設計は core の design の口で盤面の根に控える
+        （返答は replies["r2-design"]、無ければ design_ok）。事前審査の返答は replies["plan-review"]（1 つか往復ごとの列）、直しの
+        役は replies["plan-revise"]（同じ。無ければ _revise_body）。壁打ちの輪は converge-check の done で抜ける。
+        修正案が待たない周（直す物の無い判定）は設計だけを作る"""
+        if str(ROOT / "blk-plan" / "lib") not in sys.path:
+            sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
+        import design
+        import planblk
         if design.snap(self.board, self.repo)["go"]:
             design.prep(self.board, self.repo)
             got = design.accept_reply(self.board, json.dumps(self.replies.get("r2-design", reply("design_ok")),
                                                              ensure_ascii=False), self.repo)
             if not got["ok"]:
                 raise AssertionError(f"r2-design: {got['reason']}")
-        b = entry.open_board(self.board)
-        if b.node_state("p2.fix_plan") == "na":
-            return {"ok": True, "plan_file": "", "asks_human": False}
-        self.take("p2.fix_plan", self.replies["plan"])
-        got = self.take("p2.plan_review", self.replies["plan-review"])
-        b = entry.open_board(self.board)
-        return {"ok": True, "plan_file": str(b.dir / b.state["outputs"]["p2.fix_plan"]["file"]), "asks_human": got["asking"]}
+        self._plan_role("plan", lambda: self._nth("plan", 0))
+        for k in range(planblk.GIVE_UP_AFTER):   # converge-loop の max_iterations（tests/test_blk_plan.py が YAML と突き合わせる）
+            # 直しの役は 2 往復目から（1 往復目は snap が go 偽）。k 番目の往復の直しは replies["plan-revise"] の k-1 番目
+            self._plan_role(planblk.REVISE_ROLE, lambda: self._nth("plan-revise", k - 1) if "plan-revise" in self.replies
+                            else self._revise_body())
+            self._plan_role("plan-review", lambda: self._nth("plan-review", k))
+            if planblk.converge_check(self.board)["done"]:
+                break
+        return planblk.collect(self.board)
 
     def blk_structure(self):
         """blk-structure の節の順（stage-a → 目を起こす周なら eye_prep・目の返答・eye_accept → collect）。本物のスクリプトを子の

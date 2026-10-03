@@ -18,8 +18,9 @@ sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
 
-import engine.util as engine_util  # noqa: E402,F401  （linekit が .shared/core を足した後）
+import converge  # noqa: E402
 import entry  # noqa: E402
+import engine.util as engine_util  # noqa: E402,F401  （entry が写しの engine を sys.path に足した後。単独で起こしても読める）
 import gatemarks  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
@@ -33,16 +34,33 @@ def fix_tree(repo):
         "    if x > hi:\n        return lo", "    if x > hi:\n        return hi"), encoding="utf-8")
 
 
+# 修正案の役の返答の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope。planmarks）。線は修正案を
+# blk-plan の受け付け（planmarks.gaps）に通すので、欄が欠ければ 3 回とも拒まれて盤面が止まる（by works:plan）。test_edge.plan_reply は
+# 受け付けが欄を外した後の形（entry.take を直に呼ぶ道の物）なので、ここで欄を足す。種の test_stats.py は 3 件のうち
+# 2 件が今の 2 つのバグで赤なので、受け入れのテストを先に足さず direct で直す
+PLAN_FIELDS = {"route": "direct",
+               "route_why": "種の test_stats.py の 3 件のうち 2 件が今の 2 つのバグで赤になり、直した後の振る舞いを既に確かめている",
+               "tests": [], "rewrite_tests": [], "refactor": {"declared": False, "why": ""},
+               "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}
+# 修正案の works の欄を控えた run の 1 回目の差分の審査の準拠（deltamarks。承認済みの項目と照らし、落ちた行は無い）
+REVIEW_COMPLIANCE = {"verdict": "pass", "items": [],
+                     "read": "承認済みの修正案の項目 1 の approach・allowed_paths と差分の stats.py を読み、足りない物も範囲の外の物も無い"}
+
+
 def replies(review="plan_review_regression"):
-    return {"judge": linekit.reply("judge_ok"), "plan": plan_reply(),
+    """役の返答の組。修正案は役そのものの返答（項目に works の欄 PLAN_FIELDS）、1 回目の差分の審査の準拠は控えの在る run の
+    pass（REVIEW_COMPLIANCE。品質は DELTA_REVIEW のまま: 穴が在れば fail）。見本の事前審査は後退の穴を block で挙げるので、
+    壁打ち（依頼 231）で同じ block が続いて、修正前の関所に後退の項目と設計だけの行が載る"""
+    return {"judge": linekit.reply("judge_ok"), "plan": {"plan": [{**row, **PLAN_FIELDS} for row in plan_reply()["plan"]]},
             "plan-review": linekit.reply(review) if isinstance(review, str) else review,
-            "fix": fix_reply(faces=review == "plan_review_regression"), "review": DELTA_REVIEW, "refix": DELTA_FIX}
+            "fix": fix_reply(faces=review == "plan_review_regression"),
+            "review": {**DELTA_REVIEW, "compliance": REVIEW_COMPLIANCE}, "refix": DELTA_FIX}
 
 
 def clean_replies():
     """事前審査に穴の無い返し。修正役は塞いだ穴を言わないので、差分の審査も塞いだ穴を確かめない（checks は空）"""
     r = replies(review=CLEAN_REVIEW)
-    r["review"] = {**DELTA_REVIEW, "checks": []}
+    r["review"] = {**r["review"], "checks": []}
     return r
 
 
@@ -74,8 +92,9 @@ class LineBase(unittest.TestCase):
 
 class LineCase(LineBase):
     def test_standard_full_path(self):
-        """修正案 → 事前審査（後退の穴）→ policy-gate continue → 修正 → 差分の審査（穴）→ 手直し → 最後のテスト（緑）→
-        最後の関所 continue → 報告 fixed。trail は LINE_ORDER の順、報告と次の依頼の下書きが盤面に在る"""
+        """修正案 → 事前審査（後退の穴。壁打ちで同じ block が続く）→ policy-gate continue（後退の項目と設計だけの行）→ 修正 →
+        差分の審査（穴）→ 手直し → 最後のテスト（緑）→ 最後の関所 continue → 報告 fixed。trail は LINE_ORDER の順、報告と
+        次の依頼の下書きが盤面に在る"""
         got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}})
         self.order_ok(got["trail"])
         for nid in ("start", "premising", "judging", "planning", "policy-gate", "fixing", "reviewing", "refixing", "testing",
@@ -528,7 +547,7 @@ REFIX2_DECLARED = {"handled": [{"key": DELTA_FACE2, "handled": "declared",
 CLEAN_DELTA_REVIEW = {"faces": [], "faces_none": "stats.py の差分 2 行（mean の分母・clamp の上限の戻り値）と test_stats.py を読んだ。"
                                                "写し・入口・宣言とのずれは無い",
                       "checks": [{"key": FACE, "closed": True, "why": "clamp の上限の枝が hi を返す形になり、人の答えどおり"}],
-                      "compliance": DELTA_REVIEW["compliance"],
+                      "compliance": REVIEW_COMPLIANCE,
                       "quality": {"verdict": "pass", "why": "差分は mean の分母と clamp の上限の枝を直すだけで、faces に挙げる穴は無い"}}
 
 
@@ -614,6 +633,104 @@ class RefixToTestsCase(LineBase):
         self.assertEqual(got["outcome"], "stopped_by_line")
         self.assertEqual(self.state(got)["stop"]["by"], rejudge.STOP_BY_SESSION)
         self.assertIn(OBJECTION, pathlib.Path(got["report"]["next_request_file"]).read_text(encoding="utf-8"))
+
+
+# 事前審査の壁打ち（依頼 231）の見本: 見本の後退の穴の key（F13）と、人に聞く語でない kind の block の穴（関所を開ける理由が
+# 壁打ちの止まりだけになる）
+BLOCK_KEY = linekit.reply("plan_review_regression")["faces"][0]["key"]
+USE_SH_STOP = "無人の run（WORKS_USE_UNATTENDED=1）: 人が決める関所に着いたので止めて報告へ"   # dev/use.sh が無人の run の関所に返す一言
+
+
+def drift_review(key: str, resolved=()) -> dict:
+    """key の契約のずれ（contract_drift）の穴を block で挙げる事前審査の返答。resolved は前の往復の block のうち消えたと言う key"""
+    sample = linekit.reply("plan_review_regression")
+    face = {**sample["faces"][0], "key": key, "kind": "contract_drift",
+            "why": f"{key}: 案の直し方が clamp の呼び手との約束を黙って変える"}
+    out = {**sample, "faces": [face]}
+    return {**out, converge.RESOLVED: list(resolved)} if resolved else out
+
+
+class ConvergeLineCase(LineBase):
+    """事前審査の壁打ち（依頼 231）を線で通す: 184i の型（2 往復目に block が消えて直しへ）・止まる型（同じ block が続く・
+    柵の往復でも消えない → 修正前の関所が設計だけの行で開く）・無人の run（止まって報告へ）"""
+
+    def record(self, got) -> dict:
+        return converge.read(entry.open_board(got["board_dir"], allow_halted=True))
+
+    def report_text(self, got) -> str:
+        return pathlib.Path(got["report"]["machine_report_file"]).read_text(encoding="utf-8")
+
+    def test_block_fixed_on_second_pass_goes_to_fix(self):
+        """184i の型: 1 往復目に block、直しの役（既定の見本は disputed の答え）、2 往復目の審査が resolved → 関所を開かずに直しへ"""
+        r = clean_replies()
+        r["plan-review"] = [linekit.reply("plan_review_regression"), {**CLEAN_REVIEW, converge.RESOLVED: [BLOCK_KEY]}]
+        got = self.run_line(replies=r)
+        self.order_ok(got["trail"])
+        self.assertNotIn("policy-gate", got["trail"])
+        self.assertIn("fixing", got["trail"])
+        doc = self.record(got)
+        self.assertEqual(doc["outcome"], converge.CLEAN)
+        self.assertEqual([p["outcome"] for p in doc["passes"]], [converge.AGAIN, converge.CLEAN])
+        self.assertEqual([(a["key"], a["handled"]) for a in doc["passes"][1]["answers"]], [(BLOCK_KEY, "disputed")])
+        self.assertEqual(got["outcome"], "fixed", self.report_text(got))
+
+    def test_same_block_stops_at_policy_gate_then_report(self):
+        """同じ block が 2 往復続く → 修正前の関所が設計だけの行（理由つき）で開き、stop なら修正から後を飛ばして報告へ。
+        報告の冒頭 1 に壁打ちの頭の行（抜け方 persisted）"""
+        got = self.run_line(gates={"policy-gate": {"decision": "stop", "text": "設計を見直す"}})
+        self.order_ok(got["trail"])
+        self.assertIn(gatemarks.DESIGN_ONLY_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
+        for nid in ("fixing", "reviewing", "testing", "final-gate"):
+            self.assertNotIn(nid, got["trail"])
+        self.assertEqual(got["outcome"], "stopped_by_human")
+        doc = self.record(got)
+        self.assertEqual([p["outcome"] for p in doc["passes"]], [converge.AGAIN, converge.PERSISTED])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        head = converge.lines(b)[0]
+        self.assertIn("（記録の名 persisted）", head)
+        self.assertIn(head, self.report_text(got))
+
+    def test_same_block_continue_goes_to_fix(self):
+        """同じ block が続いた案に関所で continue → 直しへ進み（関所は 1 度）、修正役は残った block を plan_faces で受ける"""
+        got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": ""}})
+        self.order_ok(got["trail"])
+        self.assertIn(gatemarks.DESIGN_ONLY_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
+        self.assertEqual(got["trail"].count("policy-gate"), 1)
+        self.assertIn("fixing", got["trail"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        review = b.output_of_round("p2.plan_review", 1)
+        self.assertEqual([(f["key"], f["severity"]) for f in review["faces"]], [(BLOCK_KEY, "block")])
+        fix = b.output_of_round("p3.fix", 1)
+        self.assertEqual([f["key"] for f in fix["plan_faces"]], [BLOCK_KEY])
+        self.assertEqual(got["outcome"], "fixed", self.report_text(got))
+
+    def test_unattended_same_block_stops(self):
+        """無人の run（unattended=true）で同じ block が続く → 関所に設計だけの行が載り、無人の殻（use.sh）の stop で直しへ
+        進まずに報告へ（依頼 231 で変わった振る舞い: 前は block が残っても直しへ進んだ）。穴は人に聞く語でない kind なので、
+        関所を開ける理由は壁打ちの止まりだけ"""
+        r = replies()
+        r["plan-review"] = drift_review("契約のずれ: clamp の上限")
+        got = self.run_line(replies=r, inputs={"unattended": "true"},
+                            gates={"policy-gate": {"decision": "stop", "text": USE_SH_STOP}})
+        self.assertIs(got["out"]["h-gate"]["ask"], True)
+        self.assertIn(gatemarks.DESIGN_ONLY_ITEM + "。理由: ", got["out"]["h-gate"]["gate_text"])
+        for nid in ("fixing", "reviewing", "testing", "final-gate"):
+            self.assertNotIn(nid, got["trail"])
+        self.assertEqual(got["outcome"], "stopped_by_human")
+        self.assertEqual(self.record(got)["outcome"], converge.PERSISTED)
+
+    def test_new_blocks_each_pass_unsettled_at_fence(self):
+        """往復ごとに別の key の block（前の block は resolved）→ 柵の 3 往復で unsettled。関所の行の理由は UNSETTLED_WHY の頭"""
+        keys = ["契約のずれ: 1 往復目の穴", "契約のずれ: 2 往復目の穴", "契約のずれ: 3 往復目の穴"]
+        r = replies()
+        r["plan-review"] = [drift_review(k, resolved=keys[:i]) for i, k in enumerate(keys)]
+        got = self.run_line(replies=r, gates={"policy-gate": {"decision": "stop", "text": "設計を見直す"}})
+        doc = self.record(got)
+        self.assertEqual([p["outcome"] for p in doc["passes"]], [converge.AGAIN, converge.AGAIN, converge.UNSETTLED])
+        why = converge.UNSETTLED_WHY.split("（往復ごとに")[0].format(n=3)
+        self.assertIn(f"{gatemarks.DESIGN_ONLY_ITEM}。理由: {why}", got["out"]["h-gate"]["gate_text"])
+        self.assertNotIn("fixing", got["trail"])
+        self.assertEqual(got["outcome"], "stopped_by_human")
 
 
 def fix_only_replies():

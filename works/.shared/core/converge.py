@@ -16,7 +16,8 @@ k 往復目の行の answers と resolved は、k-1 往復目の block への修
   控えの読み書き
 - answer_gaps(b, answers)・resolved_gaps(b, faces, resolved): 修正案の役と事前審査の役の返答の欄の欠けと誤りの行
 - with_fields(role, schema)・split(role, reply): 役の型に欄を足す・返答から欄を外す
-- revise_section(b)・review_section(b)・stuck_reason(b)・lines(b): 指示書に足す文・関所の理由・報告の行
+- revise_section(b)・review_section(b)・stuck_reason(b)・lines(b): 指示書に足す文・関所の理由・報告の行（往復ごとの行は
+  前の往復の block を審査が suggest に下げた key も名指す）
 
 盤面の b のうち round・dir・work・trace だけを使い、標準ライブラリだけを import する（gatemarks がこの模块を読み、entry が
 gatemarks を読むので、entry・rolekit・gatemarks を import すると輪になる）。
@@ -53,7 +54,8 @@ UNSETTLED_WHY = ("事前審査（記録の名 p2.plan_review）の block が、�
                  "最後の block: {keys}。往復ごとの案と審査: {path}）")
 LINE_HEAD = ("事前審査の壁打ち: {n} 往復・抜け方は{word}（記録の名 {outcome}）・続いた block: {persists}"
              "（往復ごとの案と審査: {path}）")
-LINE_PASS = "  - {k} 往復目: block {keys}・修正案の役の答え fixed {f} 件・disputed {d} 件・審査が消えたと言った key {resolved}"
+LINE_PASS = ("  - {k} 往復目: block {keys}・修正案の役の答え fixed {f} 件・disputed {d} 件・審査が消えたと言った key {resolved}"
+             "・審査が suggest に下げた key {down}")
 WORDS = {CLEAN: "block が消えた", PERSISTED: "同じ block が続いた", UNSETTLED: "柵の往復でも block が消えない", AGAIN: "途中"}
 NONE = "無い"
 
@@ -284,8 +286,11 @@ def lines(b) -> list[str]:
     persists = list(dict.fromkeys(key for p in passes for key in p.get("persists", [])))
     out = [LINE_HEAD.format(n=len(passes), word=WORDS.get(doc["outcome"], doc["outcome"]), outcome=doc["outcome"],
                             persists=_keys(persists), path=b.work(PASS_DIR))]
+    earlier = set()
     for p in passes:
         handled = [a.get("handled") for a in p.get("answers", []) if isinstance(a, dict)]
+        down = [key for key in p.get("suggests", []) if key in earlier]   # 前の往復の block を suggest に下げた key
         out.append(LINE_PASS.format(k=p["pass"], keys=_keys(p["blocks"]), f=handled.count("fixed"),
-                                    d=handled.count("disputed"), resolved=_keys(p.get("resolved", []))))
+                                    d=handled.count("disputed"), resolved=_keys(p.get("resolved", [])), down=_keys(down)))
+        earlier.update(p.get("blocks", []))
     return out

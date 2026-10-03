@@ -218,8 +218,19 @@ class TextCase(BoardCase):
         self.assertEqual(got[0], converge.LINE_HEAD.format(n=2, word="同じ block が続いた", outcome="persisted",
                                                            persists="key-alpha", path=path))
         self.assertEqual(got[1:], [
-            converge.LINE_PASS.format(k=1, keys="key-alpha", f=0, d=0, resolved="無い"),
-            converge.LINE_PASS.format(k=2, keys="key-alpha", f=1, d=0, resolved="無い")])
+            converge.LINE_PASS.format(k=1, keys="key-alpha", f=0, d=0, resolved="無い", down="無い"),
+            converge.LINE_PASS.format(k=2, keys="key-alpha", f=1, d=0, resolved="無い", down="無い")])
+
+    def test_lines_name_blocks_downgraded_to_suggest(self):
+        """前の往復の block を審査が suggest に下げた key は、その往復の行に出る（block から消えたのが resolved でなく格下げだと
+        報告で分かる。Task 1 の持ち越し m2）。前の往復で block でなかった suggest は出さない"""
+        self.record(["key-alpha"])
+        converge.note_answers(self.b, [answer("key-alpha")])
+        self.record([], extra=[face("key-alpha", severity="suggest"), face("key-gamma", severity="suggest")])
+        got = converge.lines(self.b)
+        self.assertEqual(got[2], converge.LINE_PASS.format(k=2, keys="無い", f=1, d=0, resolved="無い", down="key-alpha"))
+        self.assertIn("key-alpha", got[2])
+        self.assertNotIn("key-gamma", got[2])
 
     def test_texts_keep_record_names_in_parens(self):
         self.record(["key-alpha"])
