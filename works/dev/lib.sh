@@ -288,8 +288,8 @@ print("cd {} && {}WORKS_DEV_HOME={} {}WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}{}
 
 # works_dev_run_json <呼び手> <archon を呼ぶ殻> <対象の dir> [<run-id>]: Archon の run の一覧を 1 回引き、その対象の
 # darkfactory の run を 1 つ選んで行を JSON の 1 行で出す（起動の後でない引き方。起動の後に結ぶのは works_dev_ledger_bind）。
-# run-id を渡せばその run（この対象の物でなければ見つからない）。無ければ一番新しい run。
-# 見つからない・一覧が読めなければ 1 行の理由で 1。問い合わせは認証が要らないので認証を読ませない
+# run-id を渡せばその run（この対象の物でなければ見つからない）。無ければ一番新しい run。4 つめが all なら、この対象の全部の run を 1 行ずつ出す
+# （1 本も無ければ何も出さずに 0）。見つからない・一覧が読めなければ 1 行の理由で 1。問い合わせは認証が要らないので認証を読ませない
 works_dev_run_json() {
   WORKS_DEV_NO_AUTH=1 sh "$2" workflow runs --json 2>/dev/null |
     CALLER="$1" DIR="$3" RUN_ID="${4:-}" python3 -c '
@@ -306,12 +306,16 @@ def origin(r):
     o = ((r.get("metadata") or {}).get("workflow_source") or {}).get("origin")
     return os.path.realpath(o) if isinstance(o, str) and o else None
 here, rid = os.path.realpath(e["DIR"]), e["RUN_ID"]
+every = rid == "all"
+if every:
+    rid = ""
 runs = [r for r in listed.get("runs", []) if r.get("workflow_name") == "darkfactory" and origin(r) in (None, here)]
 if rid:
     runs = [r for r in runs if r.get("id") == rid]
-if not runs:
+if not runs and not every:
     sys.exit("{}: darkfactory の run が見つからない（対象 {}{}）".format(caller, here, "・run id " + rid if rid else ""))
-print(json.dumps(runs[0], ensure_ascii=False))
+for r in runs if every else runs[:1]:
+    print(json.dumps(r, ensure_ascii=False))
 '
 }
 
@@ -375,6 +379,8 @@ works_dev_ledger_bind() {
 # <対象の dir の親>）/run-<id>.diff に書き、取り込むと消えるファイルを 1 本ずつ名指しし、git apply で取り込むコマンドも出し、対象に pack の写し（.archon/workflows/works）が在って
 # 修正がその .archon/ に触れていれば取り込まないよう 1 行で注意する。差分が空（起動の直後の関所など）なら書かず、前に書いた
 # 同じ名のファイルを消し、取り込むコマンドも出さない（0 バイトの差分は「修正なし」に見え、取り込みを誤る）。
+# 差分を書く git（read-tree・add -A・diff）のどれかが落ちた時は、前の差分ファイルを消さず「書けなかった」と出して終了コード 4 で
+# 終わる（空の差分と取り違えない）。差分を書き終えた・本当に空と確かめられた時だけ 0（use.sh の片付けと apply が頼る口はこの値だけ）。
 # 承認・拒否・続きのコマンドは、呼び手の WORKS_KEYCHAIN_ITEM を sh の直前に載せ、export の無い殻でもそのまま打てる形で出す。
 # 呼び手が WORKS_DEV_SHOW_CMD（この関数を同じ対象で呼び直す殻の口。字句で組んだ 1 行で、後ろに run id を足して打つ）を export
 # すれば、承認・関所の答え・続き・拒否・取り消しの行の後ろに同じ前置きでそれを付け、Archon が戻った後に差分を書き直す（行の終了は続きが落ちれば
@@ -392,9 +398,11 @@ works_dev_show_run() {
   if [ -z "$_row" ]; then
     _row="$(works_dev_run_json "$1" "$2" "$3" "${WORKS_RUN_ID:-}")" || return $?
   fi
+  _done_st="$(printf '%s\n' "$_row" | works_dev_id_status)"
+  _is_done="$(works_dev_launch ledger "done" --status "${_done_st#*=}" 2>/dev/null)" || _is_done=""
   # shellcheck disable=SC2016  # python の中の $? は、出す続きの行が打たれる殻で展開する字
   printf '%s\n' "$_row" |
-    CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" DIFF_DIR="${5:-}" GO="$_go" REDO="$_redo" \
+    IS_DONE="$_is_done" CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" DIFF_DIR="${5:-}" GO="$_go" REDO="$_redo" \
     CORE_DIR="${DEV_DIR:-}/../.shared/core" SLOT_PY="$WORKS_DEV_SLOT_PY" PYTHONDONTWRITEBYTECODE=1 python3 -c '
 import json, os, shlex, subprocess, sys
 exec(os.environ["SLOT_PY"])
@@ -502,6 +510,7 @@ if os.environ.get("WORKS_USE_SH"):
           shlex.quote("<通す範囲と条件>"), shlex.quote("<答えた者>"))
     print("止める（関所で待つ run は respond stop、走っている run は止め札。報告は出る）:", use.format("stop"), shlex.quote("<理由>"))
 print("報告（report の節まで済んだ後）:", os.path.join(board, "report.md"))
+rc = 0
 if os.environ["BRING_BACK"]:
     # 修正の差分は run の worktree の今の姿と周の頭の版（start の控え r<N>/start.json の base_rev）の差（未追跡も入れる。
     # 盤面の fix.diff は審査の段の物で、手直しの後の姿を持たないので読まない）。一時の index で数え、worktree の index は動かさない。
@@ -518,30 +527,48 @@ if os.environ["BRING_BACK"]:
     os.makedirs(diff_dir, exist_ok=True)
     diff = os.path.join(diff_dir, "run-{}.diff".format(r.get("id")))
     empty = False
-    if os.path.isdir(wp):
-        base = base or subprocess.run(["git", "-C", wp, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    if os.path.isdir(wp) and os.path.exists(os.path.join(wp, ".git")):
+        if not base:
+            # 基が読めない時に worktree 自身の HEAD で代用すると、commit 済みの修正が差分に出ず 0 になり、片付けの門を通ってしまう。
+            # 差分は見せるが、書けた物と言わず終了コード 4 にする
+            base = subprocess.run(["git", "-C", wp, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+            rc = 4
+            print("修正の差分: 周の頭の版（start の控えの base_rev）が読めないので worktree 自身の HEAD を基にした。commit 済みの修正は差分に出ない（書き終えた物と見ず、終了コード 4）")
+        failed = None
         with tempfile.TemporaryDirectory() as td:
             env = dict(os.environ, GIT_INDEX_FILE=os.path.join(td, "index"))
-            subprocess.run(["git", "-C", wp, "read-tree", "HEAD"], env=env, capture_output=True)
-            subprocess.run(["git", "-C", wp, "add", "-A"], env=env, capture_output=True)
-            got = subprocess.run(["git", "-C", wp, "diff", "--cached", "--binary", base], env=env, capture_output=True)
-            gone = subprocess.run(["git", "-C", wp, "diff", "--cached", "--diff-filter=D", "--name-only", "-z", base],
-                                  env=env, capture_output=True, text=True).stdout.split("\0")
-        empty = not got.stdout
-        if empty:
+            for step, args in (("read-tree", ["read-tree", "HEAD"]), ("add -A", ["add", "-A"]),
+                               ("diff", ["diff", "--cached", "--binary", base]),
+                               ("diff --name-only", ["diff", "--cached", "--diff-filter=D", "--name-only", "-z", base])):
+                got = subprocess.run(["git", "-C", wp] + args, env=env, capture_output=True)
+                if got.returncode:
+                    failed = (step, got.returncode)
+                    break
+                if step == "diff":
+                    body = got.stdout
+            if not failed:
+                gone = got.stdout.decode("utf-8", "replace").split("\0")
+        if failed:
+            # git の失敗を空の差分と読むと前の差分ファイルを消す。書けなかった印は終了コード 4（呼び手が片付けてよいかを決める口）
+            rc = 4
+            empty = True
+            print("修正の差分: 書けなかった（git {} が終了コード {}）。前の差分ファイルは消さずに残した: {}".format(
+                failed[0], failed[1], diff))
+        elif not body:
+            empty = True
             if os.path.isfile(diff):
                 os.remove(diff)
             print("修正の差分: まだ無い（run の worktree と周の頭の版 {} の差が空。書く先: {}）".format(base[:12], diff))
         else:
             with open(diff, "wb") as f:
-                f.write(got.stdout)
+                f.write(body)
             print("修正の差分（run の worktree と周の頭の版 {} の差。未追跡も入れる）: {}".format(base[:12], diff))
         wrapped = os.path.join(os.environ.get("WORKS_WRAPS_DIR", ""), base + ".txt")
         if os.environ.get("WORKS_WRAPS_DIR") and base and os.path.isfile(wrapped):
             with open(wrapped, encoding="utf-8") as f:
                 print("包んだ（wrapped）: 起動の時の対象の手元の変更・未追跡を commit {} に包んで run の基にした: {}".format(
                     base[:12], " ".join(f.read().split())))
-        for p in filter(None, gone):
+        for p in filter(None, [] if failed else gone):
             print("取り込むと消えるファイル:", p)
     else:
         print("修正の差分: run の worktree（{}）が無いので書いていない".format(wp))
@@ -564,13 +591,18 @@ if os.environ["BRING_BACK"]:
     if os.environ.get("WORKS_USE_SH"):
         use = "sh {} {{}} {} {}".format(shlex.quote(os.environ["WORKS_USE_SH"]), shlex.quote(os.environ["DIR"]), r.get("id"))
         print("殻で取り込む（当たるかを先に見る・消す行は止まる・止まりの run は止まる）:", use.format("apply"))
-        print("終わった run の worktree と枝を片付ける:", use.format("clean"))
+        if os.environ["IS_DONE"] and not rc:
+            # use.sh の show・wait は終わった run を差分を書いた直後に片付ける。ここで clean を勧めると消えた worktree へ打たせる
+            print("終わった run の worktree と枝: use.sh の show・wait が差分を書いた後に自動で片付ける（残っていれば手で:", use.format("clean") + "）")
+        else:
+            print("終わった run の worktree と枝を片付ける:", use.format("clean"))
     touched = False
     # 注意は対象に pack の写しが在る時だけ（自分食い・使い捨ての対象）。ほかのリポジトリの .archon/ は対象自身の物
-    if os.path.isfile(diff) and os.path.isdir(os.path.join(os.environ["DIR"], ".archon", "workflows", "works")):
+    if not rc and os.path.isfile(diff) and os.path.isdir(os.path.join(os.environ["DIR"], ".archon", "workflows", "works")):
         with open(diff, encoding="utf-8", errors="replace") as f:
             touched = any(l.startswith(("diff --git a/.archon/", "--- a/.archon/", "+++ b/.archon/")) for l in f)
     if touched:
         print("注意: 修正が works/ でなく pack の写し（.archon/）に触れている。その部分は元のリポジトリへ取り込まない")
+sys.exit(rc)
 '
 }

@@ -62,6 +62,9 @@ inputs:
   fix_fixture:
     default: ""
     description: 固定材料のフォルダ（前の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した盤面と控え。相対なら対象の根から）。空は今どおり。在れば start が写しを取り込み、判定と修正案を作り直さずに修正から始める。木・依頼・test_cmd が写した時と違う・写しを書き換えた なら止める。腕（fix_shape）ごとに同じ所から回して比べるのに使う
+  cleaned_runs:
+    default: ""
+    description: 殻（use.sh start）が Archon を起こす前に片付けた同じ対象の前の run（「<id>（<状態>）」を・で並べた 1 行）。報告の冒頭 2 に 1 行で出す。空なら出さない
   tdd_suite:
     default: ""
     description: テストの実行器（JUnit XML の書き先を第 1 引数に受ける実行ファイル。対象の根から。後ろに試験のファイル・node id（絶対パス）と -k を足して呼ぶことがある）。空なら修正の段の TDD の輪を飛ばす
@@ -1134,6 +1137,7 @@ nodes:
       ci: {from: $ci-checking.output, if_skipped: null}
       eyes: {from: $h-eyes.output, if_skipped: null}
       eyeing: {from: $eyeing.output, if_skipped: null}
+      cleaned_runs: $INPUTS.cleaned_runs
     output_format:
       type: object
       required: [ok, outcome, judgment_file, report_file, next_request_file, tests_green, validator_exit]
