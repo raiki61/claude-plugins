@@ -830,6 +830,58 @@ class TestSecondPass(TripCase):
         self.assertIn("1 回目の修正の段で受け付けた", r["reason"])
         self.assertNotIn("p3.fix", entry.open_board(self.board).state["outputs"])
 
+    def test_held_unit_in_not_done_is_rejected_and_kept(self):
+        """控えの単位を not_done に書いた返答も拒み、控えの changes の行を落とさない（合わせる前に拒む）"""
+        self.approve(red_kind_fixed())
+        self.fix_mean()
+        reply = only_mean_reply()
+        reply["not_done"] = [{"unit_key": CLAMP, "why": "1 回目に直したので今回は直さなかった"}]
+        r = self.accept_script(reply, pass_="first", pass_tag=self.TAG)
+        self.assertFalse(r["ok"], r)
+        self.assertEqual(r["reason"], accept_module().ACCEPTED_ROWS + CLAMP, "合わせた返答を盤面に拒ませる前に、自分の文で拒む")
+        b = entry.open_board(self.board)
+        self.assertNotIn("p3.fix", b.state["outputs"])
+        self.assertEqual([c["unit_key"] for c in recount.fix_reply(b)[0]["changes"]], [CLAMP], "控えの行は残る")
+
+    def test_held_unit_reject_does_not_ask_to_revert(self):
+        """控えの単位を changes に書いた返答の拒否の文は、その直しを作業ツリーから戻せと言わない（機械が行を足す）"""
+        self.approve(red_kind_fixed())
+        self.fix_mean()
+        r = self.accept_script(load("fix2_ok"), pass_="first", pass_tag=self.TAG)
+        self.assertFalse(r["ok"], r)
+        self.assertEqual(r["reason"], accept_module().ACCEPTED_ROWS + CLAMP)
+        self.assertNotIn("戻", r["reason"])
+
+    def test_rulings_text_does_not_hold_amended_unit(self):
+        """2 回目の段の新しい申し出の裁定の文で、案を直して直す義務に戻った単位（AMENDED の行）に「直すな・戻す」と言わない"""
+        self.approve(red_kind_fixed())
+        claim = {"unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"], "which_is_right": "request",
+                 "why_both_cannot_hold": "2 回目の段で、直した項目の受け入れのテストと既存のテストの期待が両立しない",
+                 "kind": "unnamed_test_broke"}
+        reply = only_mean_reply()
+        reply["changes"], reply["conflicts"] = [], [claim]
+        r = self.accept_script(reply, pass_="first", pass_tag=self.TAG)
+        self.assertEqual((r["ok"], r.get("parked")), (True, True), r)
+        new = [i for i in self.items() if i.get("ruling") is None]
+        self.assertEqual(len(new), 1, self.items())
+        tag = {"INPUTS_PASS_TAG": self.TAG}
+        code, out, err = run_script("rule_prep", self.repo, {**self.rule_env(), **tag})
+        self.assertEqual(code, 0, err)
+        code, out, err = run_script("rule_accept", self.repo, {**self.rule_env({"rulings": [
+            {"id": new[0]["id"], "decision": "fix_code_as", "text": "コードの分母を len(xs) に直せ。テストの期待は正しい",
+             "limits": []}]}), **tag})
+        self.assertEqual(code, 0, err)
+        got = json.loads(out)
+        self.assertTrue(got["ok"], got)
+        path = pathlib.Path(got["rulings_file"])
+        self.assertTrue(path.name.endswith(".refit.md"), path)
+        amended = next(i for i in self.items() if conflict.replan_state(i) == conflict.AMENDED)
+        text = path.read_text(encoding="utf-8")
+        section = text.split(f"## {amended['id']}:", 1)[1].split("\n## ", 1)[0]
+        self.assertNotIn("直すな", section)
+        self.assertNotIn("戻す", section); self.assertNotIn("戻せ", section)
+        self.assertIn(conflict.AMENDED_PROMISE, section)
+
     def test_first_pass_bash_writes_pass_second_check(self):
         """控えの bash_writes のファイル（1 回目に Bash で書いた）を 2 回目の書き込みの出どころの突き合わせが拒まない"""
         import adapter

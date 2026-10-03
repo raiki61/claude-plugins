@@ -98,7 +98,8 @@ CODE_SUFFIXES = frozenset({".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", 
                            ".sh", ".bash", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".swift", ".php", ".scala", ".lua"})
 PATH_TOKEN = re.compile(r"[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z][A-Za-z0-9]*")
 # 受け付け（scripts/accept.py の accept_fix を script_io.main が回す）が拒否の理由を書くファイル（script_io の名の決まり）
-REJECT_GLOB = f"{script_io.REJECT_PREFIX}accept_fix-*.txt"
+REJECT_FN = "accept_fix"   # 受け付けの関数の名（拒否の理由のファイルの名。script_io.reject_name）
+REJECT_GLOB = script_io.reject_name(REJECT_FN, "*")
 # 並べて書く形の名の尾（<名>.md の隣）
 FULL, DELTA, RULES, VARIANTS, DELIVERED = ".full.md", ".delta.md", ".rules.md", ".variants.json", ".delivered.json"
 WHY_FIRST = "1 回目（この輪でまだ決まりを渡していない。delta は full と同じ）"
@@ -349,15 +350,8 @@ def prompt_path(b, pass_tag: str = "") -> pathlib.Path:
 
 
 def last_reject(board_dir, pass_tag: str = "") -> str:
-    """受け付けが回の印 pass_tag で書いた一番新しい拒否の理由のファイル（無ければ空。ほかの回の印の物は見ない）"""
-    glob = tagged(REJECT_GLOB, pass_tag)
-    head, _, tail = glob.partition("*")   # 連番の前と後（後は回の印と拡張子）
-
-    def n(p):
-        num = p.name[len(head):-len(tail)] if p.name.startswith(head) and p.name.endswith(tail) else ""
-        return int(num) if num.isdigit() else None
-    got = sorted((n(p), p) for p in pathlib.Path(board_dir).glob(glob) if n(p) is not None)
-    return str(got[-1][1]) if got else ""
+    """受け付けが回の印 pass_tag で書いた一番新しい拒否の理由のファイル（無ければ空。ほかの回の印の物は見ない。script_io.last_reject）"""
+    return script_io.last_reject(board_dir, REJECT_FN, pass_tag)
 
 
 def owed_values(b, values: dict) -> dict:

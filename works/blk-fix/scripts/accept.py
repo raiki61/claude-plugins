@@ -49,9 +49,9 @@
    裁定の limits にも勝つ（案が外したパスが要るのは案の項目の誤りで、fix_plan_item の道）。
    控えに範囲の欄が無い・修正案の無い run は回さない。受けた時に trace に 1 行（SCOPE_OP）
 2 の前. 2 回目の修正の段（1 回目に受け付けた返答の控えが在る）: 返答を名前に戻し、控えの行を単位で合わせる（conflict.with_held）。
-   -3〜1d の検査は役の返答そのものに当て、合わせた返答を 2・2a・3 と盤面に渡す。2 回目の段の受け付けは控えの単位の行を書いた
-   返答を拒み（check_excused_units。直す義務から外れた理由は conflict.ACCEPTED_WHY）、輪の最後の回でもその直しを作業ツリーから
-   戻さない。止める単位の直しを戻す時（drop_excused_units・park_bound_units）、控えの行のファイルを共にする単位は戻さない
+   -3〜1d の検査は役の返答そのものに当て、合わせた返答を 2・2a・3 と盤面に渡す。2 回目の段の受け付けは控えの単位を changes か
+   not_done に書いた返答を、直しを戻させない自分の文（ACCEPTED_ROWS。check_accepted_rows）で拒み、輪の最後の回でもその直しを
+   作業ツリーから戻さない。止める単位の直しを戻す時（drop_excused_units・park_bound_units）、控えの行のファイルを共にする単位は戻さない
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
    修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告
    （closure.sites の path が覆う問いの当たりの件数・remaining・作り直した how）との食い違いを記録する。食い違いは拒否でなく記録で、写しに渡す返答は
@@ -113,6 +113,8 @@ NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書い�
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
 EXCUSED = ("直す義務から外れた単位を changes に書いた（答えが届くまで・人が決めるまで直さない。changes から外し、作業ツリーの"
            "その単位の直しを戻し、not_done に理由を書け）: ")
+ACCEPTED_ROWS = ("1 回目の修正の段で受け付けた単位を changes か not_done に書いた（その単位の行は機械が 1 回目の控えから足す。"
+                 "changes からも not_done からも外せ。作業ツリーのその単位の直しはそのまま残せ）: ")
 EXCUSED_DROPPED_OP = "fix_excused_dropped"   # 最後の回に、直す義務から外れた単位の直しを戻して changes から外した盤面の trace の行
 RULED_REVERTED_OP = "fix_ruled_reverted"     # 裁定の後の受け付けで、控えの返答の行のうち裁定が止めた単位の直しを戻した盤面の trace の行
 HELD_OP = "fix_held"   # 待つ単位が在る間、盤面に渡さずに返答を控えた（conflict.HELD_REPLY）盤面の trace の行
@@ -207,6 +209,18 @@ def check_unique_units(keys: list) -> list:
 def check_opened_units(keys: list, opened: set) -> list:
     """直す義務にもそこから外れた単位にも無い unit_key（現れた順・重なりは 1 つ）"""
     return list(dict.fromkeys(k for k in keys if k not in opened))
+
+
+def check_accepted_rows(reply: dict, board) -> list:
+    """2 回目の修正の段: 1 回目に受け付けた返答の控えの単位（conflict.accepted_units）を changes か not_done に書いた unit_key
+    （名前に戻して見る。現れた順・重なりは 1 つ）。控えが無ければ空。合わせる（conflict.with_held）前に見る——合わせると控えの
+    行が役の行に負けて落ちる"""
+    kept = conflict.accepted_units(entry.open_board(board))
+    if not kept:
+        return []
+    named = named_reply(reply, board) or reply
+    keys = [r.get("unit_key") for f in ("changes", "not_done") for r in named.get(f) or [] if isinstance(r, dict)]
+    return [k for k in dict.fromkeys(keys) if k in kept]
 
 
 def check_excused_units(keys: list, owed: set, excused: dict) -> dict:
@@ -580,11 +594,12 @@ def accept_fix(reply, board, base_rev, repo):
         for words, bad in ((DUPLICATE, check_unique_units(keys)), (NOT_OPENED, check_opened_units(keys, owed | set(excused)))):
             if bad:   # key の形の拒否は単位に結んで止めない（開いていない単位を ask_human に積まない）
                 return _reject(" / ".join(words + k for k in bad))
+        mine = check_accepted_rows(reply, board)   # 1 回目に受け付けた単位の直しは戻させない（拒むだけ）
+        if mine:
+            return _reject(" / ".join(ACCEPTED_ROWS + k for k in mine))
         held = check_excused_units(keys, owed, excused)
         if held:
-            kept = conflict.accepted_units(entry.open_board(board))   # 1 回目に受け付けた単位の直しは戻さない（拒むだけ）
-            got = drop_excused_units(whole, keys, held, board, base_rev, repo, state) \
-                if last and isinstance(whole, dict) and not set(held) & kept else None
+            got = drop_excused_units(whole, keys, held, board, base_rev, repo, state) if last and isinstance(whole, dict) else None
             if got is None:
                 return _reject(" / ".join(f"{EXCUSED}{k}（{why}）" for k, why in held.items()))
             rest, patch, undo = got

@@ -46,7 +46,7 @@ BY_ROLE = "role:rule"
 BY_GIVE_UP = "works:rule-give-up"
 GIVE_UP_TEXT = f"裁定役の返答が {GIVE_UP_AFTER} 回とも受け付けを通らなかった——材料から決められない物として人に回した"
 READONLY = "裁定役は読むだけで、作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない: "
-REJECT_GLOB = f"{script_io.REJECT_PREFIX}accept_rule-*.txt"
+REJECT_FN = "accept_rule"   # 受け付けの関数の名（拒否の理由のファイルの名。script_io.reject_name）
 RULING_KEYS = ("decision", "text", "limits", "grounds", "request_searched", "query")   # 盤面の控えに積む裁定の欄
 RULE_OUTPUT_FORMAT = node_marker.mark({
     "type": "object", "additionalProperties": False, "required": ["rulings"],
@@ -68,14 +68,8 @@ def check(board_dir) -> dict:
 
 
 def _last_reject(board_dir, pass_tag: str = "") -> str:
-    """裁定の受け付けが回の印 pass_tag で書いた一番新しい拒否の理由のファイル（ほかの回の印の物は見ない）"""
-    head, _, tail = fixrules.tagged(REJECT_GLOB, pass_tag).partition("*")
-
-    def n(p):
-        num = p.name[len(head):-len(tail)] if p.name.startswith(head) and p.name.endswith(tail) else ""
-        return int(num) if num.isdigit() else None
-    got = sorted((n(p), p) for p in pathlib.Path(board_dir).glob(head + "*" + tail) if n(p) is not None)
-    return str(got[-1][1]) if got else ""
+    """裁定の受け付けが回の印 pass_tag で書いた一番新しい拒否の理由のファイル（ほかの回の印の物は見ない。script_io.last_reject）"""
+    return script_io.last_reject(board_dir, REJECT_FN, pass_tag)
 
 
 def prep(board_dir, repo, values: dict, pass_tag: str = "") -> dict:

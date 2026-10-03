@@ -85,14 +85,32 @@ def _emit(obj) -> None:
     out.flush()
 
 
+def reject_name(fn, n, tag: str = "") -> str:
+    """拒否の理由のファイルの名 reject-<fn の名>-<n>.txt（回の印 tag は拡張子の前。tagged）。fn は関数（その __name__）か名前の
+    文字列。n に "*" を渡せば glob。名の綴りはここだけ"""
+    name = re.sub(r"[^A-Za-z0-9_-]", "_", (fn if isinstance(fn, str) else getattr(fn, "__name__", "")) or "fn")
+    return tagged(f"{REJECT_PREFIX}{name}-{n}.txt", tag)
+
+
+def last_reject(board, fn, tag: str = "") -> str:
+    """盤面 board に fn の受け付けが回の印 tag で書いた一番新しい拒否の理由のファイル（連番の一番大きい物。無ければ空）。
+    ほかの回の印の物は見ない（連番の所が数字でない名は採らない）"""
+    head, _, tail = reject_name(fn, "*", tag).partition("*")
+
+    def n(p):
+        num = p.name[len(head):-len(tail)] if p.name.startswith(head) and p.name.endswith(tail) else ""
+        return int(num) if num.isdigit() else None
+    got = sorted((n(p), str(p)) for p in pathlib.Path(board).glob(head + "*" + tail) if n(p) is not None)
+    return got[-1][1] if got else ""
+
+
 def _write_reason(board: pathlib.Path, fn, reason: str, tag: str = "") -> str:
     """拒否の理由の本文を盤面の新しいファイルに書き、その絶対パスを返す（受け付けごと・書くたびに別の名前）。
     board は board_dir が解決して $ の柵を当てた値。ここでもう一度 resolve すると柵を当てていない字を返すので、しない。
-    fn は関数（その __name__ を使う）か名前の文字列。tag は回の印（tagged。reject-<名>-<連番>.<tag>.txt）"""
-    name = re.sub(r"[^A-Za-z0-9_-]", "_", (fn if isinstance(fn, str) else getattr(fn, "__name__", "")) or "fn")
+    fn は関数（その __name__ を使う）か名前の文字列。tag は回の印（reject_name）"""
     n = 1
     while True:
-        p = board / tagged(f"{REJECT_PREFIX}{name}-{n}.txt", tag)
+        p = board / reject_name(fn, n, tag)
         try:
             with open(p, "x", encoding="utf-8", newline="") as f:
                 f.write(reason)

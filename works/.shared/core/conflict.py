@@ -128,6 +128,8 @@ REPLAN_WHY = "replan_why"               # 移した理由の欄（諦めた理�
 REPLAN_OP = "replan_state"              # trace の行 {id, unit_key, state, why}
 FIX_NODE = "p3.fix"                     # 修正の段の節（recount を読まずに字で持つ。held_reply が盤面の受けを見る）
 HELD_REPLY = "fix-held-reply.json"      # 1 回目に受け付けた返答の控え（盤面に渡す形に、役が申告した bash_writes を残した物）
+AMENDED_PROMISE = ("案の項目そのものが誤りと裁いたが、同じ run で案を直して直す義務に戻った。直した項目（頭の brief）のとおりに"
+                   "直し、この単位も changes に 1 行を書け")   # 裁定の文の AMENDED の行の約束（write_rulings）
 ACCEPTED_WHY = "1 回目の修正の段で受け付けた（控え {path}。この単位の行は機械が足す）"
 _HELD_ROWS = ("changes", "not_done")    # 控えと返答を単位で合わせる欄
 CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
@@ -544,7 +546,9 @@ def apply_rulings(b, rulings: dict, *, by: str, pass_tag: str = "") -> pathlib.P
 
 
 def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
-    """裁定の文（修正役が Read する。1 件ずつ単位・名指し・理由・裁定・範囲と、裁定ごとの約束）。ファイルの名と、名指す申し出の回の
+    """裁定の文（修正役が Read する。1 件ずつ単位・名指し・理由・裁定・範囲と、裁定ごとの約束）。約束は裁定の decision で決まり、
+    fix_plan_item の行のうち案を直した行（状態 AMENDED）だけは AMENDED_PROMISE（直す義務に戻った。held_by_rulings と同じ決まり）。
+    ファイルの名と、名指す申し出の回の
     控え（PARKED_REPLY）の名は、修正の段の回の印 pass_tag で分ける（tagged。2 回目の修正の段は 1 回目の物を上書きも名指しもしない）"""
     rows = [r for r in items(b) if r.get("ruling")]
     lines = [f"# {HEAD}の裁定（機械が書いた。裁いたのは読むだけの裁定役か機械）", ""]
@@ -564,12 +568,14 @@ def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
     }
     for r in rows:
         ru = r["ruling"]
+        amended = replan_state(r) == AMENDED
         lines += [f"## {r['id']}: {r['unit_key']}", "",
-                  f"- 裁定: {ru['decision']}（{ru.get('by') or ''}）——{promise[ru['decision']]}",
+                  f"- 裁定: {ru['decision']}（{ru.get('by') or ''}）——{AMENDED_PROMISE if amended else promise[ru['decision']]}",
                   f"- 裁定の文: {ru['text']}",
                   f"- 範囲: {', '.join(ru.get('limits') or []) or '（無い）'}",
                   *([f"- 案の項目: {', '.join(map(str, ru[PLAN_ITEMS]))}"] if ru.get(PLAN_ITEMS) else []),
-                  *([f"- 項目の単位（どれも直すな）: {', '.join(ru[PLAN_UNITS])}"] if ru.get(PLAN_UNITS) else []),
+                  *([f"- 項目の単位（{'直す義務に戻った' if amended else 'どれも直すな'}）: {', '.join(ru[PLAN_UNITS])}"]
+                    if ru.get(PLAN_UNITS) else []),
                   *([f"- 裁きの出どころ: {', '.join(ru['grounds'])}"] if ru.get("grounds") else []),
                   *([f"- 依頼で探して答えが無かったこと: {ru['request_searched']}"] if ru.get("request_searched") else []),
                   *([f"- 置き換えた問い: {json.dumps(ru['query'], ensure_ascii=False)}"] if ru.get("query") else []),
@@ -581,7 +587,8 @@ def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
     if parked.is_file():
         lines += ["## 前の回の返答", "",
                   f"申し出を返した回の返答は {parked} に在る。ほかの単位の直しは作業ツリーに残っている。裁定に従って直し、"
-                  "直す義務の単位の全部（直さない裁定 ask_human・fix_plan_item の単位は除く）の changes を持つ返答を丸ごと出し直せ", ""]
+                  "直す義務の単位の全部（直さない裁定 ask_human と、案の直しを待つ fix_plan_item の単位は除く）の changes を持つ返答を"
+                  "丸ごと出し直せ", ""]
     p = b.work(tagged(RULINGS_FILE, pass_tag))
     _write(p, "\n".join(lines))
     return p
