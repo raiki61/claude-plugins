@@ -353,7 +353,7 @@ class TestReplanState(unittest.TestCase):
         line = conflict.human_lines(b)[0]
         self.assertIn(text, line)                                  # 字のまま（改行も）
         self.assertIn("案の直し: 修正案の役の直しが 3 回とも拒まれた: 数が違う", line)
-        self.assertTrue(line.endswith("・案の直し: 修正案の役の直しが 3 回とも拒まれた: 数が違う）"), line)
+        self.assertTrue(line.endswith(f"・案の直し: 修正案の役の直しが 3 回とも拒まれた: 数が違う・{conflict.HELD_WORK_KEPT}）"), line)
         self.assertNotIn("案の直し", conflict.human_lines(b)[1])
         self.assertEqual([r["id"] for r in conflict.asked(b)], ["c1-1", "c1-2"])
         self.assertIn(MEAN, conflict.held_by_rulings(b))           # 諦めた行の単位は直す義務の外のまま

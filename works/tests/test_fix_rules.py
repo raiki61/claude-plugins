@@ -572,6 +572,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
             mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
             # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
             mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
+            mock.patch.object(self.mod, "_parked_reply", return_value=None),   # 申し出の回の控えも無い
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
         ]
@@ -787,6 +788,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
             mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
             # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
             mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
+            mock.patch.object(self.mod, "_parked_reply", return_value=None),   # 申し出の回の控えも無い
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
             mock.patch.object(self.mod, "revert_units", self.revert, create=True),

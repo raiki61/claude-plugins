@@ -39,7 +39,7 @@
     "works": "blk-fix/scripts/accept.py:check_excused_units",
     "gl": "",
     "status": "works-only",
-    "note": "直す義務から外れた単位（conflict.fix_duty の excused: 答え待ちの fork・escalate の問いの出どころ・depends と ask_human の単位）の unit_key を書いた修正の返答を、外れた理由（問いの key・裁定の id）を名指して拒む。輪の最後の回は、その単位の直しを作業ツリーから戻して changes から外し、残りの単位で受け付けを通し直す（drop_excused_units）。写しの fix_covers_open_units は義務に無い key を見ないので、盤面の done の前に blk-fix の受け付けのスクリプトが見る。"
+    "note": "直す義務から外れた単位（conflict.fix_duty の excused: 答え待ちの fork・escalate の問いの出どころ・depends と ask_human の単位）の unit_key を書いた修正の返答を、外れた理由（問いの key・裁定の id）を名指して拒む。輪の最後の回は、その単位の行を changes から外し（直しは作業ツリーに残す）、残りの単位で受け付けを通し直す（drop_excused_units）。写しの fix_covers_open_units は義務に無い key を見ないので、盤面の done の前に blk-fix の受け付けのスクリプトが見る。"
   },
   {
     "works": "blk-fix/scripts/accept.py:check_pack_copy",

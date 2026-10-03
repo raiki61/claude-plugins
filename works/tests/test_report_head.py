@@ -581,7 +581,7 @@ class NextRequestUnitRowsCase(unittest.TestCase):
         self.assertIn(left[-1], items)
         item = next(i for i in items if i["where"] == "u-item")
         self.assertEqual(item["text"], "u-item（食い違いの申し出を人に回した——直さずに残した。裁定の文: 項目を直せ。名指し c, d。"
-                                       "案の直し: 直せなかった）")
+                                       f"案の直し: 直せなかった。{conflict.HELD_WORK_KEPT}）")
 
 
 class HeadModelsCase(unittest.TestCase):
