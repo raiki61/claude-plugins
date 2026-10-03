@@ -3,6 +3,10 @@
 # どちらも落ちる（報告の無い run を成功と言わない。自分食い 32 件目で report を all_done にした）
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
+# blk-plan の壁打ちの輪 converge-loop の中の節（plan-revise-snap・直しの輪の中・plan-review-snap・事前審査の輪の中・converge-check）
+# の鍵は、入れ子の深さに依らず名前空間なし（依頼 231 の測り 3・6）。blk-plan を 2 度 include すると（依頼 226 の replanning）
+# 同じ鍵を両方の include が引き、1 つの stub の値が両方の go・done に効く（include ごとに違う値を置けない）。1 周目は返した
+# block が無いので直しの輪は飛ぶ（plan-revise-snap の go は偽。輪の中の stub は使われない）
 ci-checking__ci-fence:
   go: true
   reason: ''
@@ -763,7 +767,54 @@ plan-accept:
   asking: false
   halted: false
   out_file: out/r1/p2.fix_plan.json
-planning__plan-review-snap:
+plan-revise-snap:
+  ok: true
+  go: false
+  snapshot_file: ''
+plan-revise-prep:
+  prompt_file: board/r1/prompt-plan-revise-2.md
+  attempt: 1
+  out_path: board/out/r1/p2.fix_plan.json
+  node: p2.fix_plan
+  already: false
+plan-revise:
+  plan:
+  - unit_keys:
+    - 'stats.py mean: 分母が len(xs) - 1 になっている'
+    - 'stats.py clamp: 上限を超えた値に lo を返す'
+    approach: mean の分母を len(xs) に、clamp の上限の枝を hi に直す（定義どおり）
+    adds: []
+    removes: []
+    shrink_first: 足す物は無い。式と戻り値を 1 か所ずつ直すだけで足りる
+    narrows: []
+    route: direct
+    route_why: 見本の返答。模擬実行は受け入れのテストを先に書かない
+    tests: []
+    rewrite_tests: []
+    refactor:
+      declared: false
+      why: ''
+    allowed_paths:
+    - stats.py
+    - test_stats.py
+    out_of_scope: []
+  block_answers:
+  - key: plan-review-block-1
+    handled: fixed
+    how: 返された block の所を案の approach で直した
+plan-revise-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: p2.fix_plan
+  ready:
+  - p2.plan_review
+  asking: false
+  halted: false
+  out_file: out/r1/p2.fix_plan.json
+plan-review-snap:
   ok: true
   go: true
   snapshot_file: board/r1/plan-review-snapshot.json
@@ -790,6 +841,11 @@ plan-review-accept:
   asking: false
   halted: false
   out_file: out/r1/p2.plan_review.json
+converge-check:
+  ok: true
+  done: true
+  outcome: clean
+  record_file: board/r1/plan-converge.json
 planning__plan-reads:
   ok: true
   reads_file: board/r1/reads-plan-block.json

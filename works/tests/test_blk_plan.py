@@ -5,8 +5,9 @@
   run は起こさない（写しの p4.assemble と同じ式を、p4.assemble より前に元の出典から出す）
 
 - YAML の形: 役の output_format が planblk.output_format（写しの schema に印）と同じ・輪の中の id が全部のブロックをまたいで一意・
-  輪は fresh_context で AI の節は 1 つ・諦めの数と max_iterations が同じ・until_bash は同じ輪の受け付けの done・スクリプトが読む
-  INPUTS_* と with: の鍵が同じ・役に届く文に $LOOP_PREV が無い・筋書き 3 本
+  役の輪は 1 輪 1 AI の節で fresh_context（直しの役の輪だけは会話の続きで false）・諦めの数と max_iterations が同じ・until_bash は
+  同じ輪の受け付けの done・事前審査は壁打ちの外の輪 converge-loop の中（輪の中の輪。依頼 231）・スクリプトが読む INPUTS_* と
+  with: の鍵が同じ・役に届く文に $LOOP_PREV が無い・筋書き 3 本
 - スクリプト: 別のプロセスで Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）に回す。盤面は linekit の種で start →
   並行 PR・前提・判定を entry.take で受けた物（p2.fix_plan が待つ）。指示書は本線の写し（gl-prompts）を rolekit の描き方で描いた物
 """
@@ -97,8 +98,12 @@ class YamlCase(unittest.TestCase):
         self.top = {n["id"]: n for n in self.y["nodes"]}
 
     def loops(self):
-        """修正案と事前審査の輪（盤面の節へ渡す役。独立設計の輪は別に見る）"""
-        return [n for n in self.y["nodes"] if "loop_group" in n and n["id"] != f"{planblk.DESIGN_ROLE}-loop"]
+        """修正案・直し・事前審査の輪と、それを包む壁打ちの輪 converge-loop（入れ子も辿る。独立設計の輪は別に見る）"""
+        return [n for n, _ in walk(self.y["nodes"]) if "loop_group" in n and n["id"] != f"{planblk.DESIGN_ROLE}-loop"]
+
+    def every(self):
+        """{id: 節}（入れ子の輪の中も）"""
+        return {n["id"]: n for n, _ in walk(self.y["nodes"])}
 
     def test_inputs_and_exit(self):
         self.assertEqual(set(self.y["inputs"]), {"judgment_file", "base_rev", "policy_paste", "policy_path", "excluded_file",
@@ -109,21 +114,74 @@ class YamlCase(unittest.TestCase):
                          {"ok", "plan_file", "review_file", "asks_human", "gate_kinds", "reads_file", "gave_up", "reason_file"})
 
     def test_output_format_matches_graph(self):
-        """役の output_format を strip した値 == 写しの role_schema、印の名は plan・plan-review・r2-design（道具ゼロの旗 isolated）"""
+        """役の output_format（入れ子の輪の中も）== planblk.output_format。壁打ちの欄（converge.with_fields）を外して strip した値
+        == 写しの role_schema。印の名は plan・plan-revise（修正案の役の会話の続き continue=plan）・plan-review・r2-design（道具ゼロの
+        旗 isolated）"""
         got = {}
-        for grp in (n for n in self.y["nodes"] if "loop_group" in n):
+        for grp in self.loops() + [self.top[f"{planblk.DESIGN_ROLE}-loop"]]:
             ai = [m for m in grp["loop_group"]["nodes"] if "prompt" in m or "command" in m]
-            got[ai[0]["id"]] = ai[0]["output_format"]
-        self.assertEqual(set(got), {"plan", "plan-review", planblk.DESIGN_ROLE})
+            if ai:
+                got[ai[0]["id"]] = ai[0]["output_format"]
+        self.assertEqual(set(got), {"plan", planblk.REVISE_ROLE, "plan-review", planblk.DESIGN_ROLE})
         of = got.pop(planblk.DESIGN_ROLE)
         self.assertEqual(of, planblk.output_format(planblk.DESIGN_ROLE))
         self.assertEqual(node_marker.strip(of), accept.role_schema(design.NODE))
         self.assertEqual(of["description"], f"works-node: {planblk.DESIGN_ROLE} isolated")
+        marks = {"plan": "works-node: plan", planblk.REVISE_ROLE: "works-node: plan-revise continue=plan",
+                 "plan-review": "works-node: plan-review"}
         for role, of in got.items():
             with self.subTest(role):
                 self.assertEqual(of, planblk.output_format(role))
-                self.assertEqual(node_marker.strip(of), accept.role_schema(planblk.NODE_OF[role], numbered=True))
-                self.assertEqual(of["description"], f"works-node: {role}")
+                bare = node_marker.strip(of)
+                if role in converge.FIELDS:
+                    name = converge.FIELDS[role][0]
+                    self.assertIn(name, bare["properties"])
+                    del bare["properties"][name]
+                    bare["required"] = [k for k in bare["required"] if k != name]
+                self.assertEqual(bare, accept.role_schema(planblk.known_role(role), numbered=True))
+                self.assertEqual(of["description"], marks[role])
+
+    def test_converge_loop_wraps_revise_and_review(self):
+        """壁打ちの輪: 中は直しの役の写し・輪・事前審査の写し・輪・出口の順。抜けるのは converge-check の done（max_iterations で
+        落とさない。R50）。独立設計と最初の修正案は輪の外で先に 1 度"""
+        inner = {m["id"]: m for m in self.top["converge-loop"]["loop_group"]["nodes"]}
+        self.assertEqual(list(inner), ["plan-revise-snap", "plan-revise-loop", "plan-review-snap", "plan-review-loop",
+                                       "converge-check"])
+        g = self.top["converge-loop"]["loop_group"]
+        self.assertEqual(g["max_iterations"], planblk.GIVE_UP_AFTER)
+        self.assertEqual(g["until_bash"], "test $converge-check.output.done = true")
+        self.assertIs(g["fresh_context"], True)
+        ids = [n["id"] for n in self.y["nodes"]]
+        self.assertLess(ids.index(f"{planblk.DESIGN_ROLE}-loop"), ids.index("converge-loop"))   # 独立設計は輪の外で先に 1 度
+        self.assertLess(ids.index("plan-loop"), ids.index("converge-loop"))
+        self.assertEqual(self.top["converge-loop"]["depends_on"], ["plan-snap", "plan-loop"])
+        self.assertEqual(self.top["converge-loop"]["trigger_rule"], "none_failed_min_one_success")
+        self.assertNotIn("when", self.top["converge-loop"])
+        self.assertEqual(inner["plan-revise-snap"]["with"], {"role": planblk.REVISE_ROLE})
+        self.assertNotIn("depends_on", inner["plan-revise-snap"])
+        self.assertEqual(inner["plan-review-snap"]["depends_on"], ["plan-revise-snap", "plan-revise-loop"])
+        self.assertEqual(inner["converge-check"]["script"], "converge")
+        self.assertEqual(inner["converge-check"]["depends_on"], ["plan-review-snap", "plan-review-loop"])
+        self.assertEqual(set(inner["converge-check"]["output_format"]["required"]), {"ok", "done", "outcome", "record_file"})
+        self.assertEqual(self.top["plan-reads"]["depends_on"], ["converge-loop"])
+        self.assertEqual(planblk.READS_LOOP["plan-review"], "converge-loop.plan-review-loop")   # 読んだ証拠が引く輪の名と同じ形
+
+    def test_revise_continues_plan_conversation(self):
+        """直しの役 plan-revise: 修正案の役の会話の続き（印 continue=plan。会話を継ぐのは包みで、節に context は書かない）。輪は
+        fresh_context false（出し直しも同じ会話に積む。blk-fix の fix-ruled-loop と同じ）。道具と段は修正案の節と同じ"""
+        every = self.every()
+        role, plan, loop = every[planblk.REVISE_ROLE], every["plan"], every["plan-revise-loop"]
+        self.assertEqual(role["output_format"], planblk.output_format(planblk.REVISE_ROLE))
+        self.assertEqual(node_marker.parse(role["output_format"]["description"])["cont"], "plan")
+        self.assertNotIn("context", role)
+        self.assertIs(loop["loop_group"]["fresh_context"], False)
+        self.assertEqual(loop["when"], "$plan-revise-snap.output.go == true")
+        self.assertEqual(loop["depends_on"], ["plan-revise-snap"])
+        for k in ("allowed_tools", "settingSources", "sandbox", "mutates_checkout", "idle_timeout", "model", "effort"):
+            self.assertEqual(role.get(k), plan.get(k), k)
+        self.assertEqual(every["plan-revise-prep"]["with"], {"role": planblk.REVISE_ROLE, "excluded_file": "$INPUTS.excluded_file"})
+        self.assertEqual(every["plan-revise-accept"]["with"],
+                         {"role": planblk.REVISE_ROLE, "reply": {"from": f"${planblk.REVISE_ROLE}.output"}})
 
     def test_design_loop_first_and_tool_less(self):
         """独立設計の輪は修正案より前（plan-snap がその後を待つ）。道具ゼロで印に旗 isolated、指示書の本文は commands/r2-design.md が
@@ -148,11 +206,22 @@ class YamlCase(unittest.TestCase):
         self.assertNotIn("{{", text)
 
     def test_loops_fresh_single_ai_and_give_up(self):
+        """役の輪（入れ子も）は 1 輪 1 AI の節・諦めの数 == max_iterations・until_bash は同じ輪の受け付けの done。外れは 2 つだけで、
+        ここに名指す（決まりを弱めたのではない。F10）:
+        - converge-loop は AI の節を直に持たない外の輪。見るのは中の節の並び・until_bash・max_iterations だけ
+          （test_converge_loop_wraps_revise_and_review）
+        - plan-revise-loop は fresh_context false（blk-fix の fix-ruled-loop と同じ。会話を継ぐのは印 continue=plan）"""
+        outer, carried = "converge-loop", f"{planblk.REVISE_ROLE}-loop"
+        seen = set()
         for grp in self.loops():
             g = grp["loop_group"]
+            if grp["id"] == outer:
+                self.assertEqual([m for m in g["nodes"] if "prompt" in m or "command" in m], [])
+                continue
             role = next(m for m in g["nodes"] if "prompt" in m or "command" in m)
+            seen.add(grp["id"])
             with self.subTest(role["id"]):
-                self.assertIs(g["fresh_context"], True)
+                self.assertIs(g["fresh_context"], grp["id"] != carried)
                 self.assertEqual(g["max_iterations"], planblk.GIVE_UP_AFTER, "諦めの数は輪の上限と同じ（上限で輪を落とさない）")
                 self.assertEqual(len([m for m in g["nodes"] if "prompt" in m or "command" in m]), 1)
                 self.assertEqual([m["id"] for m in g["nodes"]], [f"{role['id']}-prep", role["id"], f"{role['id']}-accept"])
@@ -164,6 +233,7 @@ class YamlCase(unittest.TestCase):
                 self.assertNotIn("context", role)
                 self.assertIn(f"${role['id']}-prep.output.prompt_file", role["prompt"])
                 self.assertEqual(grp["when"], f"${role['id']}-snap.output.go == true")
+        self.assertEqual(seen, {"plan-loop", carried, "plan-review-loop"})
 
     def test_script_inputs_match_with(self):
         for n, _ in walk(self.y["nodes"]):
@@ -185,9 +255,10 @@ class YamlCase(unittest.TestCase):
         self.assertNotIn("$LOOP_PREV", (BLK / "commands" / f"{planblk.DESIGN_ROLE}.md").read_text(encoding="utf-8"))
 
     def test_after_loop_nodes_join(self):
-        for nid in ("plan-snap", "plan-review-snap", "plan-reads"):
-            self.assertEqual(self.top[nid]["trigger_rule"], "none_failed_min_one_success", nid)
-            self.assertNotIn("when", self.top[nid])
+        every = self.every()
+        for nid in ("plan-snap", "converge-loop", "plan-review-snap", "converge-check", "plan-reads"):
+            self.assertEqual(every[nid]["trigger_rule"], "none_failed_min_one_success", nid)
+            self.assertNotIn("when", every[nid])
 
     def test_loop_ids_unique_across_blocks(self):
         """blk-plan の輪の中の id が、ほかの全部のブロック・ラインの輪の中の id と重ならない（R19）"""
@@ -220,6 +291,13 @@ class YamlCase(unittest.TestCase):
         self.assertEqual((g["collect"]["ok"], g["collect"]["gave_up"]), (False, True))
         for name, f in fx.items():
             self.assertIn("r2-design-snap", f["fixture"]["reached"], name)
+            # 壁打ちの輪の 1 周目: 返した block の控えがまだ無いので直しの役の輪は飛ぶ（go: false）。dry-run は until_bash を
+            # 回さないので出口の done は抜けた後の姿（真）
+            self.assertIs(f["plan-revise-snap"]["go"], False, name)
+            self.assertNotIn(planblk.REVISE_ROLE, f, name)
+            self.assertIs(f["converge-check"]["done"], True, name)
+            for nid in ("plan-revise-snap", "converge-check"):
+                self.assertIn(nid, f["fixture"]["reached"], name)
             for role in ("plan", "plan-review", planblk.DESIGN_ROLE):
                 if role in f:
                     with self.subTest(f"{name}:{role}"):

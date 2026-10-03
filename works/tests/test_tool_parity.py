@@ -90,11 +90,12 @@ ROLE_NODES = {
 
 
 # 本線の graph に無い works だけの役の節 → 本線のどの役に当たるか（食い違いの申し出の出口。持ち主 2026-09-28）:
-# 2 回目の修正役は p3.fix の続き（writer）、裁定役は読むだけで裁く目（judge）、報告の書き手の出した物を確かめる初見の読み手は
+# 2 回目の修正役は p3.fix の続き（writer）、裁定役は読むだけで裁く目（judge）、事前審査の壁打ちの直しの役（blk-plan の plan-revise）は
+# p2.fix_plan の続き（writer。依頼 231）、報告の書き手の出した物を確かめる初見の読み手は
 # report.cold_check と同じ cold-reader（道具なし）。構造の目は道具ゼロの目で blind-judge。修正の後のレンズは借りた
 # agent そのもの（前付けが core/agents に無いので段に model: を書かず、run の既定（dev/guard.sh の WORKS_DEV_MODEL_DEFAULT）で
 # 走る。ADR 0072 の「測るまで Opus」は持ち主 2026-10-01 が費用を先に取って覆した。模型を固定するなら行を前付けの在る役にする）
-EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge",
+EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge", ("blk-plan", "plan-revise"): "writer",
                ("blk-report", "report-write-cold"): "cold-reader", ("blk-structure", "structure-eye"): "blind-judge",
                ("blk-lens", "lens-silent-failure-hunter"): "silent-failure-hunter"}
 
@@ -170,6 +171,8 @@ class ToolParityCase(unittest.TestCase):
                 self.assertEqual(sorted(required(rb) - have), [], f"{place} の道具が本線の {rb} より少ない")
         self.assertEqual(set(self.nodes[("blk-fix", "fix-ruled")]["allowed_tools"]),
                          set(self.nodes[("blk-fix", "fix")]["allowed_tools"]), "2 回目の修正役は修正役と同じ道具")
+        self.assertEqual(set(self.nodes[("blk-plan", "plan-revise")]["allowed_tools"]),
+                         set(self.nodes[("blk-plan", "plan")]["allowed_tools"]), "事前審査の壁打ちの直しの役は修正案の役と同じ道具")
 
     def test_table_covers_every_ai_node(self):
         self.assertEqual(sorted(set(self.nodes) - set(ROLE_NODES.values()) - set(EXTRA_ROLES)), [],

@@ -20,7 +20,7 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     利用者が入れた物（許す一覧 borrow.json）から dev/toolset.py が隔離した設定に入れる）
   - 読む道具に web（WebSearch・WebFetch）を足す節（WEB_READERS。本線の run_by が judge か、読むだけの writer か、全部の道具を
     持つ定義を読むだけに狭めた目。書く道具と shell は持たない。tests/test_tool_parity.py が本線の道具以上かを見る）:
-    blk-eyes の r1-minimality・premise-check・r1-comments、blk-judge の judge、blk-plan の plan・plan-review、blk-rejudge の
+    blk-eyes の r1-minimality・premise-check・r1-comments、blk-judge の judge、blk-plan の plan・plan-revise・plan-review、blk-rejudge の
     rejudge・rejudge-third、blk-purpose の purpose、blk-report の report-items・report-write、blk-spec の spec-review
   - blk-premises/blk-premises.yaml の節 premises（測る役）: 読む道具に Bash と web（測るためにコマンドを走らせるが書く道具は
     持たない。Bash は狭い sandbox の中。作業ツリーを変えれば受け付けが写しと比べて拒む）
@@ -99,6 +99,7 @@ WEB_READERS = (("blk-fix", "blk-fix.yaml", "rule"),   # 食い違いの裁定役
                ("blk-eyes", "blk-eyes.yaml", "r1-minimality"), ("blk-eyes", "blk-eyes.yaml", "premise-check"),
                ("blk-eyes", "blk-eyes.yaml", "r1-comments"), ("blk-judge", "blk-judge.yaml", "judge"),
                ("blk-plan", "blk-plan.yaml", "plan"), ("blk-plan", "blk-plan.yaml", "plan-review"),
+               ("blk-plan", "blk-plan.yaml", "plan-revise"),   # 事前審査の壁打ちの直しの役（修正案の役の会話の続き。読むだけ）
                ("blk-rejudge", "blk-rejudge.yaml", "rejudge"), ("blk-rejudge", "blk-rejudge.yaml", "rejudge-third"),
                ("blk-purpose", "blk-purpose.yaml", "purpose"), ("blk-report", "blk-report.yaml", "report-items"),
                ("blk-report", "blk-report.yaml", "report-write"), ("blk-spec", "blk-spec.yaml", "spec-review"))
@@ -567,6 +568,19 @@ def _ancestors(nid, by_id):
     return seen
 
 
+def _loop_chains(nodes, rid, chain=()):
+    """役 rid を直に持つ輪までの包みの列 ((その段の節の並び, 輪), …)（入れ子の輪も辿る。外から内の順）"""
+    for n in nodes or []:
+        if _kind(n) != "loop_group":
+            continue
+        inner = n["loop_group"]["nodes"]
+        here = (*chain, (nodes, n))
+        if any(m.get("id") == rid for m in inner):
+            yield here
+        else:
+            yield from _loop_chains(inner, rid, here)
+
+
 class RoleSessionCase(unittest.TestCase):
     """役の節は、CLAUDE.md を読んだ前の会話を引き継がない（settingSources: [user] が効くのは新しい会話だけ）。
 
@@ -580,16 +594,18 @@ class RoleSessionCase(unittest.TestCase):
         for folder, name, rid in ROLES:
             with self.subTest(f"{folder}/{rid}"):
                 doc = yaml.safe_load((ROOT / folder / name).read_text(encoding="utf-8"))
-                top = {n["id"]: n for n in doc["nodes"]}
-                loops = [n for n in doc["nodes"] if _kind(n) == "loop_group"
-                         and any(m.get("id") == rid for m in n["loop_group"]["nodes"])]
-                self.assertEqual(len(loops), 1, f"{rid} が輪の中にちょうど 1 つ居ない")
-                grp = loops[0]
+                chains = list(_loop_chains(doc["nodes"], rid))
+                self.assertEqual(len(chains), 1, f"{rid} が輪の中にちょうど 1 つ居ない")
+                grp = chains[0][-1][1]
                 inner = {m["id"]: m for m in grp["loop_group"]["nodes"]}
                 role = inner[rid]
                 self.assertEqual(role.get("settingSources"), ["user"])
                 self.assertNotIn("context", role, "輪の中の役に context を書くと同じ会話での出し直しが壊れる")
-                before = [inner[a] for a in _ancestors(rid, inner)] + [top[a] for a in _ancestors(grp["id"], top)]
+                # 役の輪の中の前と、役の輪を包む各段（入れ子の輪の外の輪・ブロックの頭）で輪より前に在る節
+                before = [inner[a] for a in _ancestors(rid, inner)]
+                for level, g in chains[0]:
+                    by_id = {n["id"]: n for n in level}
+                    before += [by_id[a] for a in _ancestors(g["id"], by_id)]
                 self.assertEqual([n["id"] for n in before if _is_ai(n)], [],
                                  f"{rid} より前に AI の節か include が在る（前の会話を引き継ぐ恐れ）")
                 others = [m["id"] for m in inner.values() if m["id"] != rid and _is_ai(m)]
