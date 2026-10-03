@@ -306,21 +306,28 @@ class TestTestEdits(FixGatesCase):
         self.assertEqual([(r["gate"], r["id"]) for r in self.problems(pass_="first")], [("test_edits", THREE_ID)])
 
     def test_second_pass_keeps_first_pass_ruled_limit(self):
-        """2 回目の修正の段（回の印 refit。依頼 226）の受け付けは、裁定の前（first）でも 1 回目の段の裁定 fix_test_scope の範囲の
-        直しを通す（base からの差分に 1 回目の直しが在る）"""
+        """2 回目の修正の段（案を直した行が在る。conflict.second_pass。依頼 226）の受け付けは、裁定の前（first）でも 1 回目の段の
+        裁定 fix_test_scope の範囲の直しを通す（base からの差分に 1 回目の直しが在る）"""
         self.ready_with_fields(direct_fields())
         self.rule(["test_stats.py:9"])
         self.edit_tests(*THREE_EDIT)
-        self.assertEqual(self.problems(pass_="first", tag="refit"), [])
         self.assertEqual([(r["gate"], r["id"]) for r in self.problems(pass_="first")], [("test_edits", THREE_ID)],
                          "1 回目の段の裁定の前は今どおり")
+        self.rule(["test_stats.py:9"], amended=True)
+        self.assertEqual(self.problems(pass_="first"), [])
 
-    def rule(self, limits):
-        entry.open_board(self.board).work(conflict.FILE).write_text(json.dumps({"items": [
-            {"id": "c1-1", "unit_key": tbf.MEAN, "between": ["stats.py:9", "test_stats.py:9"],
-             "why_both_cannot_hold": "期待の型が依頼と食い違う", "which_is_right": "test", "status": "ruled",
-             "ruling": {"decision": "fix_test_scope", "text": "期待を float で書いてよい", "limits": limits}}]},
-            ensure_ascii=False), encoding="utf-8")
+    def rule(self, limits, *, amended=False):
+        """裁定 fix_test_scope の行（範囲 limits）を置く。amended なら案を直した fix_plan_item の行も（2 回目の修正の段の盤面）"""
+        rows = [{"id": "c1-1", "unit_key": tbf.MEAN, "between": ["stats.py:9", "test_stats.py:9"],
+                 "why_both_cannot_hold": "期待の型が依頼と食い違う", "which_is_right": "test", "status": "ruled",
+                 "ruling": {"decision": "fix_test_scope", "text": "期待を float で書いてよい", "limits": limits}}]
+        if amended:
+            rows.append({"id": "c1-2", "unit_key": tbf.CLAMP, "between": ["stats.py:12", "test_stats.py:12"],
+                         "why_both_cannot_hold": "案の項目が誤り", "which_is_right": "request", "status": "ruled",
+                         "ruling": {"decision": conflict.REPLAN, "text": "項目を直せ", "limits": []},
+                         conflict.REPLAN_STATE: conflict.AMENDED})
+        entry.open_board(self.board).work(conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False),
+                                                                    encoding="utf-8")
 
     def test_ruled_scope_reads_like_the_frozen_check(self):
         """範囲の読みは輪の凍結の検査と同じ: ファイルだけは全部・1 行の指しは関数の全体・`<行>-<行>` は書いたとおり"""

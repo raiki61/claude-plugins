@@ -401,6 +401,12 @@ def waiting(b) -> list:
     return [i for i in items(b) if replan_state(i) == WAITING]
 
 
+def second_pass(b) -> bool:
+    """今の周が 2 回目の修正の段か: 今の周の裁定の行に案を直した行（状態 AMENDED）が 1 つでも在る（案を直して直す義務に戻った
+    単位を直すのは 2 回目の修正の段だけ。1 回目の段の行は WAITING か裁定が fix_plan_item でない）"""
+    return any(replan_state(i) == AMENDED for i in items(b))
+
+
 def amended_keys(b) -> set:
     """項目を直した行（状態 AMENDED）が外していた単位の全部（ruled_units。直す義務に戻った単位）"""
     return {k for i in items(b) if replan_state(i) == AMENDED for k in ruled_units(i)}
@@ -560,7 +566,7 @@ def apply_rulings(b, rulings: dict, *, by: str, pass_tag: str = "") -> pathlib.P
 def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
     """裁定の文（修正役が Read する。1 件ずつ単位・名指し・理由・裁定・範囲と、裁定ごとの約束）。約束は裁定の decision で決まり、
     fix_plan_item の行のうち案を直した行（状態 AMENDED）は AMENDED_PROMISE（直す義務に戻った。held_by_rulings と同じ決まり）、
-    諦めた行（GAVE_UP）は GAVE_UP_PROMISE（ask_human と同じく最後の関所へ。諦めた理由を添える）、2 回目の修正の段（pass_tag が在る）で
+    諦めた行（GAVE_UP）は GAVE_UP_PROMISE（ask_human と同じく最後の関所へ。諦めた理由を添える）、2 回目の修正の段（second_pass）で
     案の直しを待つ行（WAITING。この段で新しく裁いた行）は LATE_REPLAN_PROMISE（案の段には戻らず、修正の段を抜ける時に
     replan.settle が諦めた行にする）。1 回目に受け付けた返答の控えの単位（accepted_units）の行は、どの裁定でも ACCEPTED_PROMISE
     （行は機械が足す。fix_duty の ACCEPTED_WHY と同じくほかの約束より先。控えが壊れていれば held_reply の BoardGap）。
@@ -589,7 +595,7 @@ def write_rulings(b, pass_tag: str = "") -> pathlib.Path:
         state = replan_state(r)
         amended = state == AMENDED
         said = (ACCEPTED_PROMISE.format(path=held_path) if r["unit_key"] in accepted
-                else LATE_REPLAN_PROMISE if pass_tag and state == WAITING
+                else LATE_REPLAN_PROMISE if second_pass(b) and state == WAITING
                 else {AMENDED: AMENDED_PROMISE, GAVE_UP: GAVE_UP_PROMISE}.get(state) or promise[ru['decision']])
         lines += [f"## {r['id']}: {r['unit_key']}", "",
                   f"- 裁定: {ru['decision']}（{ru.get('by') or ''}）——{said}",

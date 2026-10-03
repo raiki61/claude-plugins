@@ -83,7 +83,7 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
         got, why = _red_green(repo, rev, suite, tests, b.work(script_io.tagged(f"{RUN}-{pass_}-{attempt}", tag)))
         rows += got
         gaps += why
-    rows += _test_edits(b, repo, rev, plain, pass_ == "ruled" or bool(tag))
+    rows += _test_edits(b, repo, rev, plain, pass_ == "ruled" or conflict.second_pass(b))
     _record(b, _mark(pass_, attempt, tag), fixshape.shape_at(board_dir), rows, gaps)
     return rows
 

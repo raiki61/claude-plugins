@@ -846,6 +846,18 @@ class TestSecondPass(TripCase):
             "    def test_clamp_within_range", "    def test_mean_of_two(self):\n        self.assertEqual(mean([1, 3]), 2)\n\n"
             "    def test_clamp_within_range"), encoding="utf-8")
 
+    def test_second_pass_fact_follows_amended_rows(self):
+        """2 回目の修正の段かは裁定の行の事実（AMENDED の行が在る）で引く。行が無い・WAITING だけは 1 回目の段"""
+        b = entry.open_board(self.board)
+        doc = json.loads(b.work(conflict.FILE).read_text(encoding="utf-8"))
+        b.work(conflict.FILE).write_text(json.dumps({"items": []}), encoding="utf-8")
+        self.assertFalse(conflict.second_pass(b))
+        b.work(conflict.FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual([conflict.replan_state(i) for i in conflict.items(b)], [conflict.WAITING])
+        self.assertFalse(conflict.second_pass(b))
+        self.approve(red_kind_fixed())                       # replan.answer が行を AMENDED にする
+        self.assertTrue(conflict.second_pass(entry.open_board(self.board)))
+
     def test_second_pass_duty_is_returned_units_and_merges(self):
         self.approve(red_kind_fixed())                       # Task 7 の answer まで通した盤面
         owed, excused = conflict.fix_duty(entry.open_board(self.board))
