@@ -67,9 +67,9 @@ def check(board_dir) -> dict:
     return {"go": bool(todo), "count": len(todo), "file": str(b.work(conflict.FILE)) if todo else ""}
 
 
-def _last_reject(board_dir, pass_tag: str = "") -> str:
-    """裁定の受け付けが回の印 pass_tag で書いた一番新しい拒否の理由のファイル（ほかの回の印の物は見ない。script_io.last_reject）"""
-    return script_io.last_reject(board_dir, REJECT_FN, pass_tag)
+def _last_reject(board_dir) -> str:
+    """裁定の受け付けが今の scope の根に書いた一番新しい拒否の理由のファイル（ほかの scope の物は見ない。script_io.last_reject）"""
+    return script_io.last_reject(board_dir, REJECT_FN)
 
 
 def prep(board_dir, repo, values: dict, pass_tag: str = "") -> dict:
@@ -85,7 +85,7 @@ def prep(board_dir, repo, values: dict, pass_tag: str = "") -> dict:
     entry.snapshot(board_dir, TREE, pathlib.Path(repo))
     vals = {**values, "conflicts_file": str(b.work(conflict.FILE)), "ids": ", ".join(i["id"] for i in todo),
             "request_file": conflict.request_file(board_dir)}
-    text = fixrules.ruler_prompt(vals, reject_file=_last_reject(board_dir, pass_tag) if n > 1 else "", iteration=n,
+    text = fixrules.ruler_prompt(vals, reject_file=_last_reject(board_dir) if n > 1 else "", iteration=n,
                                  lang=fixrules.lang_at(board_dir))
     path = b.work(fixrules.tagged(PROMPT, pass_tag))
     path.write_text(text, encoding="utf-8")

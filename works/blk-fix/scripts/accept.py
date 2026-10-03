@@ -752,4 +752,4 @@ def with_done(out: dict) -> dict:
 
 
 if __name__ == "__main__":
-    sys.exit(recount.main_accept(accept_fix, finish=with_done, tag=_tag()))
+    sys.exit(recount.main_accept(accept_fix, finish=with_done))

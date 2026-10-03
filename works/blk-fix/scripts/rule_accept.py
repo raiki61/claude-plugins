@@ -30,7 +30,7 @@ def main() -> int:
         print("rule-accept: 環境変数が無い: INPUTS_ITERATION", file=sys.stderr)
         return 2
     try:
-        return script_io.main(ruling.accept_rule, tag=os.environ.get("INPUTS_PASS_TAG", ""))
+        return script_io.main(ruling.accept_rule)
     except Exception as e:   # 盤面の欠け（BoardGap）・写しの Reject・思わぬ誤りは 1 行と 2
         print(f"rule-accept: {type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
         return 2

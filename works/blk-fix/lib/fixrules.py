@@ -366,9 +366,9 @@ def prompt_path(b, pass_tag: str = "") -> pathlib.Path:
     return b.work(tagged(rolekit.prompt_name(recount.FIX_NODE), pass_tag))
 
 
-def last_reject(board_dir, pass_tag: str = "") -> str:
-    """受け付けが回の印 pass_tag で書いた一番新しい拒否の理由のファイル（無ければ空。ほかの回の印の物は見ない。script_io.last_reject）"""
-    return script_io.last_reject(board_dir, REJECT_FN, pass_tag)
+def last_reject(board_dir) -> str:
+    """受け付けが今の scope の根に書いた一番新しい拒否の理由のファイル（無ければ空。ほかの scope の物は見ない。script_io.last_reject）"""
+    return script_io.last_reject(board_dir, REJECT_FN)
 
 
 def owed_values(b, values: dict) -> dict:
@@ -502,7 +502,7 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], pass_tag: str = 
         name = name[:-len(".md")] + RULED_TAIL
     path = b.work(tagged(name, pass_tag))
     n = iteration_next(path)
-    reject = last_reject(board_dir, pass_tag) if inst.get("launched_at") else ""
+    reject = last_reject(board_dir) if inst.get("launched_at") else ""
     if pass_ == "ruled" and n == 1:
         rulings = b.work(tagged(conflict.RULINGS_FILE, pass_tag))
         if not rulings.is_file():
