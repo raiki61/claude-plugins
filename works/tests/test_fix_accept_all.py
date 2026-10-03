@@ -199,16 +199,6 @@ class SeamCase(test_blk_fix.BoardCase):
         self.assertTrue(any(r["text"].startswith(CLAMP[:60]) for r in got["rejects"] if r["check"] == "copy"))
         self.assertEqual(sha(self.board / "state.json"), before)
 
-    def test_frozen_error_does_not_stop_ruled_revert(self):
-        # 決め 5: ruled で凍結の誤りが在っても revert_ruled_units は今の位置で呼ばれる（224e の事前審査の穴 3）
-        self.fix_ready(); self.edit_tree(FIXED)
-        with mock.patch.object(self.acc, "check_frozen", return_value=[FROZEN_LINE]), \
-                mock.patch.object(self.acc, "revert_ruled_units", return_value=None) as revert:
-            got = self.accept_direct(load("fix2_ok"), pass_="ruled")
-        self.assertFalse(got["ok"])
-        revert.assert_called_once()
-        self.assertIn("frozen", [r["check"] for r in got["rejects"]])
-
     def first_pass_conflict(self) -> dict:
         """凍結の誤りが在る 1 回目に、名指しの在る食い違いの申し出（mean）を出す"""
         with mock.patch.object(self.acc, "check_frozen", return_value=[FROZEN_LINE]), self.env():

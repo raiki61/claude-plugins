@@ -29,11 +29,6 @@
      直さない裁定の decision と id）を名指して拒む。輪の最後の回だけは、その単位の直しを作業ツリーから戻して changes から外し
      （drop_excused_units。控えの patch を盤面に置く）、残りの単位で受け付けを頭から通し直し、通れば trace に 1 行
      （EXCUSED_DROPPED_OP）。通らなければ戻した直しを元に戻す。止めてよくない確かめの行が既に積まれていれば戻さずに拒む
-   - 裁定の後（INPUTS_PASS が ruled）は、凍ったテストの検査の次に revert_ruled_units: 1 回目に申し出を返した回の返答の控え
-     （conflict.PARKED_REPLY）の行のうち、裁定が今は直す義務から外した単位（conflict.held_by_rulings。fix_plan_item が止めた同じ
-     項目の単位）の直しを作業ツリーから戻し（drop_excused_units と同じ手）、控えからその行を外して、受け付けを頭から通し直す。
-     通れば trace に 1 行（RULED_REVERTED_OP）、通らなければ戻した直しと控えを元に戻す（止めた単位の直しは changes から外した
-     だけでは残らない。決まりは輪の最後の回と同じ）
 1a. check_pack_copy: .archon/ の下（自分食いの run では動いている線の pack の写し）を申告した・変えた返答を拒む（run 26）
 1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
    空・欠けは輪の無い run で見ない。check_frozen）。凍結は run の全部の輪で効く（盤面の tdd-<k>。tddloop.states）: 今の輪の状態は
@@ -49,7 +44,7 @@
    out_of_scope・テストの許し）の外・adds の識別子が差分に無い・canonical の外の同名の定義・removes の識別子が残る・tests に
    無いテストを足した・tests のテストが無い、を拒む。欠けは版からの差分の全部で見て、修正役に問う外れと余分は TDD の輪が
    凍らせたファイルなら凍った後に変えた分だけで見る。
-   単位の全部が直す義務から外れた項目（conflict.held_by_rulings。fix_plan_item ならその項目）は範囲を与えない。裁定の後
+   外れた単位の項目も範囲を与える（裁定の後の段は外れた単位の 1 回目の直しを戻さない。依頼 241）。裁定の後
    （ruled）に範囲が広がるのは直す裁定の limits のパスだけで、裁定を受けた単位の全部を外さない。out_of_scope はテストの許しと
    裁定の limits にも勝つ（案が外したパスが要るのは案の項目の誤りで、fix_plan_item の道）。
    控えに範囲の欄が無い・修正案の無い run・平の run（修正の形 current）は回さない。受けた時に trace に 1 行（SCOPE_OP）
@@ -132,7 +127,6 @@ EXCUSED = ("直す義務から外れた単位を changes に書いた（答え�
 ACCEPTED_ROWS = ("1 回目の修正の段で受け付けた単位を changes か not_done に書いた（その単位の行は機械が 1 回目の控えから足す。"
                  "changes からも not_done からも外せ。作業ツリーのその単位の直しはそのまま残せ）: ")
 EXCUSED_DROPPED_OP = "fix_excused_dropped"   # 最後の回に、直す義務から外れた単位の直しを戻して changes から外した盤面の trace の行
-RULED_REVERTED_OP = "fix_ruled_reverted"     # 裁定の後の受け付けで、控えの返答の行のうち裁定が止めた単位の直しを戻した盤面の trace の行
 HELD_OP = "fix_held"   # 待つ単位が在る間、盤面に渡さずに返答を控えた（conflict.HELD_REPLY）盤面の trace の行
 
 
@@ -538,40 +532,6 @@ def drop_excused_units(reply: dict, keys: list, held: dict, board, base_rev, rep
     return _without_rows(reply, rest, mine, repo), patch, undo
 
 
-def revert_ruled_units(reply: dict, board, base_rev, repo, state):
-    """裁定の後の受け付け（pass ruled）: 控えの返答（conflict.PARKED_REPLY。1 回目に申し出を返した回の返答）の行のうち、裁定が
-    今は直す義務から外した単位（conflict.held_by_rulings。申し出の単位は控えの changes に無いので、fix_plan_item が止めた同じ
-    項目の単位）の直しを作業ツリーから戻し（drop_excused_units）、控えからその行を外す。返りは (戻した単位 {key: 理由}, 控えの
-    patch, 戻す手（直しと控えを元に戻す）) か None（控えが無い・戻す行が無い・戻すファイルを控えのほかの行か今の返答の行と
-    共有する）"""
-    b = entry.open_board(board)
-    path = b.work(fixrules.tagged(conflict.PARKED_REPLY, _tag()))
-    try:
-        parked = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    got = fix_unit_keys(parked, board)
-    if got is None:
-        return None
-    keys = got[0]
-    ruled = conflict.held_by_rulings(b)
-    held = {k: ruled[k] for k in keys if k in ruled}
-    now = [c for c in reply.get("changes") or [] if isinstance(c, dict)] if isinstance(reply, dict) else []
-    if not held or _files([c for c, k in zip(parked["changes"], keys) if k in held], repo) & _files(now, repo):
-        return None
-    dropped = drop_excused_units(parked, keys, held, board, base_rev, repo, state)
-    if dropped is None:
-        return None
-    rest, patch, undo_tree = dropped
-    saved = path.read_bytes()
-    _put_parked(path, rest)
-
-    def undo():
-        undo_tree()
-        path.write_bytes(saved)
-    return held, patch, undo
-
-
 def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     """輪の最後の回の拒否: 文が全部どれかの単位に結べ、止める単位のファイルをほかの単位と共有していなければ、その単位の直しを
     戻して（revert_units）ask_human に裁いて止め（conflict.park）、その行（と bash_writes の申告）を外した返答と、止める前に
@@ -657,15 +617,6 @@ def accept_fix(reply, board, base_rev, repo):
         return rejected(found)
 
     note(found, "frozen", check_frozen(board, state, repo, pass_))
-    got = revert_ruled_units(whole, board, base_rev, repo, state) if pass_ == "ruled" else None
-    if got is not None:   # 控えから行を外したので、通し直しの中ではもう当たらない（積んだ凍結の行は通し直しがもう一度当てる）
-        held, patch, undo = got
-        out = accept_fix(whole, board, base_rev, repo)
-        if out.get("ok") is True:
-            entry.open_board(board, allow_halted=True).trace(RULED_REVERTED_OP, node=recount.ROLE, excused=held, patch=patch)
-        else:
-            undo()
-        return out
     wrote = check_writes(reply, board, base_rev, repo, state)
     note(found, "writes", wrote["problems"])
     reply = wrote["reply"]   # 誤りが在っても bash_writes を外した返答（後の確かめはこれを使う）
