@@ -364,7 +364,8 @@ nodes:
   # 構造の境。構造のブロックが落ちても走り（all_done。Airflow の teardown と同じ）、出口を盤面の根の控えにする。落ちた周は
   # status failed で、planning は構造の目の行なしで走る。この節そのものが落ちた周は h-gate が飛び、計画なしで修正へ進まない。
   # when を持たない（planning がこの節に依るので、持つと planning の trigger_rule を変えることになる）。計画を起こさない周
-  # （h-plan の go が偽）は控えを書かずに status skipped で抜ける
+  # （h-plan の go が偽）は控えを書かずに status skipped で抜ける。h-plan そのものが飛ばされた周（start が入力を拒んだ run）も
+  # go を偽として受ける（if_skipped。字の参照のままだと解けずにこの節が落ちる）
   - id: h-structure
     script: structure
     runtime: uv
@@ -373,7 +374,7 @@ nodes:
     trigger_rule: all_done
     with:
       structured: {from: $structuring.output, if_skipped: null}
-      plan_go: $h-plan.output.go
+      plan_go: {from: $h-plan.output.go, if_skipped: false}
     output_format:
       type: object
       additionalProperties: false
