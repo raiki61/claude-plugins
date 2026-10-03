@@ -316,6 +316,25 @@ class TestAskHuman(ConflictBoardCase):
         self.assertEqual(b.node_state("p3.fix"), "done")
         self.assertIn("_owed_units", [o["name"] for o in b.state["works"]["overrides"]])
 
+    def test_resent_conflict_on_parked_unit_does_not_halt_last_round(self):
+        """run 195d の 3 回目の型: 裁定の後の段で拒まれた返答の新しい申し出は機械が ask_human に裁いて積む。「丸ごと出し直せ」の
+        とおり同じ申し出を最後の回に出し直しても、その単位はもう裁定が外した単位（held_by_rulings）なので、知っている申し出として
+        外し、止めてよくない確かめで線を止めない"""
+        import conflict
+        self.parked()
+        _, r = self.rule([{"id": self.items()[0]["id"], "decision": "fix_code_as", "text": RULE_TEXT, "limits": ["stats.py:9"]}])
+        self.assertTrue(r["ok"], r)
+        again = {**conflict_on_mean(), "why_both_cannot_hold": WHY + "（裁定の後にもう一度）"}
+        reply = only_clamp_reply([again])
+        doubled = dict(reply, changes=reply["changes"] * 2)   # 申し出は積まれ、返答はほかの確かめで拒まれる
+        got = self.accept_script(doubled, pass_="ruled")
+        self.assertFalse(got["ok"], got)
+        self.assertIn(MEAN, conflict.held_by_rulings(entry.open_board(self.board)))
+        got = self.accept_script(reply, pass_="ruled", iteration="3")
+        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "done")
+        self.assertEqual([i["ruling"]["decision"] for i in self.items()], ["fix_code_as", "ask_human"], "積み増さない")
+
     def test_fixing_an_asked_unit_is_rejected(self):
         self.parked()
         cid = self.items()[0]["id"]

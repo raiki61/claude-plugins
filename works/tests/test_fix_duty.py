@@ -207,6 +207,7 @@ class TestAcceptReadsDuty(unittest.TestCase):
         seen = {}
         with mock.patch.object(self.mod.entry, "open_board", return_value=self.board), \
                 mock.patch.object(self.mod.conflict, "owed_units_but_asked", return_value={self.MEAN}), \
+                mock.patch.object(self.mod.conflict, "held_by_rulings", return_value={}), \
                 mock.patch.object(self.mod.conflict, "asked_keys", return_value=set()), \
                 mock.patch.object(gatemarks, "fixable", return_value={self.MEAN, self.HELD}), \
                 mock.patch.object(self.mod.querytest, "judge_hits", return_value=None), \

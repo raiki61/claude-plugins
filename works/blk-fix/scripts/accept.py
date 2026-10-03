@@ -14,8 +14,8 @@
 -1. 食い違いの申し出（欄 conflicts。INPUTS_PASS が first か ruled。id conflict）: take_conflicts。積んだ誤りに依らず回す。
    名指しが現物に無ければ普通の拒否、在れば拒否に数えずその単位を止める。1 回目（first）で裁かれていない申し出が在れば、
    積んだ誤りが在っても盤面に渡さずに {ok: true, parked: true}（輪を抜け、裁定の輪 → 2 回目の修正役 fix-ruled が渡す。
-   積んだ誤りはその受け付けがもう一度当てる）。ruled の新しい申し出は拒否の後も積んだまま残す。盤面に渡す返答からは
-   conflicts を外す（写しの schema に無い欄）
+   積んだ誤りはその受け付けがもう一度当てる）。ruled の新しい申し出は拒否の後も積んだまま残す。裁定がもう外した単位の
+   申し出は、出し直されても知っている申し出として確かめずに外す。盤面に渡す返答からは conflicts を外す（写しの schema に無い欄）
 0. 盤面が p3.fix を待っている（instance が待ち・起こした印が在る・依存が済んだ）ときだけ、返答の changes[].unit_key を盤面の
    控え（graph の pointers。mark_launched が固めた一覧）で名前に戻した列を作り、次の 2 つの works だけの検査に当てる。
    待っていない・番号を名前に戻せないときは検査せず 2 に進む（entry.take が回す側の誤り（2）か型・番号の文で拒む）
@@ -315,6 +315,8 @@ def _tag() -> str:
 
 def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     """食い違いの申し出（欄 conflicts）を外した返答と、拒否の文か止めた印。返り (返答, 結果 | None)。結果が None なら受け付けを続ける。
+    - 裁定がもう外した単位（conflict.held_by_rulings）の申し出は知っている申し出として先に外す（確かめも積み増しもしない。
+      拒まれた返答の申し出は積まれて残り、「丸ごと出し直せ」で同じ単位に出し直されるので。run 195d）
     - 申し出が在れば機械が確かめる（conflict.problems: 形・今の直す義務の単位か・名指した所が現物に在るか・kind brief_vs_judgment
       ならその単位の今の周の brief の行を名指すか（planbrief.by_unit_at））。外れれば普通の拒否
     - first: 通った申し出を盤面の控えに積み（拒否に数えない）、裁かれていない申し出が在れば（TDD の輪の分も）盤面に渡さずに
@@ -325,6 +327,9 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     reply = dict(reply)
     items = reply.pop("conflicts", None) or []
     b = entry.open_board(board)
+    if isinstance(items, list) and items:   # 形の崩れた欄は problems に任せる
+        known = conflict.held_by_rulings(b)
+        items = [i for i in items if not (isinstance(i, dict) and i.get("unit_key") in known)]
     owed = conflict.owed_units_but_asked(b)
     if items:
         bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed, try_query=querytest.judge_hits(b.record["units"]),
