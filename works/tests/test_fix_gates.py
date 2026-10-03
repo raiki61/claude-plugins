@@ -358,17 +358,24 @@ class TestLedgerAndText(FixGatesCase):
         self.problems(attempt=1, pass_="ruled")
         self.assertEqual(len(self.ledger()["rows"]), 4, "裁定の後の 1 回目は別の回")
 
-    def test_second_pass_rows_carry_the_tag(self):
-        """2 回目の修正の段の行と飛ばした理由は回の印 tag を持ち、1 回目の段の同じ (pass, attempt) の物と混ざらない"""
+    def test_second_pass_rows_live_under_its_scope(self):
+        """2 回目の修正の段（include refitting）の行と飛ばした理由はその scope の帳面に積み、1 回目の段の同じ (pass, attempt) の
+        物と混ざらない（行に回の印の鍵を置かない）"""
         self.ready_with_fields()
         self.edit_tests(*THREE_EDIT)
         self.problems(suite="", attempt=1)
-        self.problems(suite="", attempt=1, tag="refit")
-        rows = self.ledger()["rows"]
-        self.assertEqual(sorted(r.get("tag", "") for r in rows), ["", "refit"], rows)
+        refit = {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": "refitting__fix-loop.fix-accept"})}
+        accept = str(ROOT / "blk-fix" / "scripts" / "accept.py")
+        with mock.patch.dict(os.environ, refit), mock.patch.object(sys, "argv", [accept]):
+            self.problems(suite="", attempt=1)
+            self.assertEqual(fixgates.skipped(self.board, pass_="first", attempt=1), [fixgates.NO_SUITE])
+            second = json.loads(entry.open_board(self.board).work(fixgates.LEDGER).read_text(encoding="utf-8"))
+        self.assertEqual(entry.open_board(self.board).work(fixgates.LEDGER).parent.parent, self.board)
+        self.assertEqual(self.ledger()["skipped"], second["skipped"], "同じ回の印・同じ中身（置き場だけが違う）")
+        self.assertEqual(len(self.ledger()["skipped"]), 1)
         self.assertEqual(fixgates.skipped(self.board, pass_="first", attempt=1), [fixgates.NO_SUITE])
-        self.assertEqual(fixgates.skipped(self.board, pass_="first", attempt=1, tag="refit"), [fixgates.NO_SUITE])
-        self.assertEqual(len(self.ledger()["skipped"]), 2)
+        self.assertTrue((self.board / "refitting" / "r1" / fixgates.LEDGER).is_file())
+        self.assertNotIn("tag", {k for r in self.ledger()["rows"] + second["rows"] for k in r})
 
     def test_reject_text_lists_every_row(self):
         rows = [{"gate": "red_green", "id": MEAN_ID, "detail": "base で緑", "unit_keys": [tbf.MEAN]},
