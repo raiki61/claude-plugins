@@ -279,6 +279,8 @@ class ClaimCase(unittest.TestCase):
             with self.subTest(scope=scope), self.assertRaises(BoardGap) as cm:
                 scopes.claim(self.board, 1, scope, "blk-fix")
             self.assertIn(str(self.board / scope), str(cm.exception))
+        with self.assertRaises(BoardGap):   # 登録の持ち主の鍵（照らしが書く owns）と同じ名
+            scopes.claim(self.board, 1, scopes.OWNS, "blk-fix")
         self.put("notes")   # 根の同じ名のフォルダでない物
         with self.assertRaises(BoardGap):
             scopes.claim(self.board, 1, "notes", "blk-fix")
@@ -327,6 +329,159 @@ class ClaimCase(unittest.TestCase):
                             ("-m", ""), ("/x/unittest/__main__.py", ""), ("", "")):
             with self.subTest(argv0=argv0), mock.patch.object(sys, "argv", [argv0]):
                 self.assertEqual(scopes.running_block(), want)
+
+
+def _fake_pack(root: pathlib.Path) -> pathlib.Path:
+    """偽の pack: blk-fix（公開の fix-held-reply.json・per_include の reads-fix.json）と blk-lens（required の lens.json）"""
+    pack = root / "pack"
+    loose = {"type": "object", "required": ["ok"], "properties": {"ok": {"type": "boolean"}}}
+    for owner, doc in (
+            ("blk-fix", {"owner": "blk-fix", "consumes": [{"name": "lens.json"}],
+                         "produces": [{"name": "fix-held-reply.json", "format": "json", "schema": "schemas/x.schema.json"},
+                                      {"name": "reads-fix.json", "format": "json", "schema": "schemas/o.schema.json",
+                                       "per_include": True}]}),
+            ("blk-lens", {"owner": "blk-lens", "consumes": [],
+                          "produces": [{"name": "lens.json", "format": "json", "schema": "schemas/x.schema.json",
+                                        "required": True}]})):
+        d = pack / owner
+        (d / "schemas").mkdir(parents=True)
+        (d / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
+        (d / "schemas" / "x.schema.json").write_text(json.dumps(loose), encoding="utf-8")
+        (d / "schemas" / "o.schema.json").write_text(json.dumps({"type": "object"}), encoding="utf-8")
+    return pack
+
+
+class GateCase(unittest.TestCase):
+    """窓（scope が盤面を開いてから次の scope が開くまで）の間の盤面の変化を、その scope のブロックの宣言に照らす（偽の盤面と偽の pack）"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = pathlib.Path(self._tmp.name)
+        self.pack = _fake_pack(root)
+        self.board = root / "board"
+        for rel in ("state.json", "trace.jsonl", "r1/start.json"):
+            self.put(rel, "{}")
+
+    def put(self, rel: str, text: str = '{"ok": true}') -> pathlib.Path:
+        p = self.board / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def window(self, scope: str, block: str) -> dict:
+        return {"scope": scope, "block": block, "round": 1, "files": scopes.snapshot(self.board)}
+
+    def check(self, window: dict) -> list:
+        return scopes.check_window(self.board, window, self.pack)
+
+    def test_snapshot_lists_every_file_with_size_and_mtime(self):
+        snap = scopes.snapshot(self.board)
+        self.assertEqual(set(snap), {"state.json", "trace.jsonl", "r1/start.json"})
+        st = (self.board / "r1" / "start.json").stat()
+        self.assertEqual(snap["r1/start.json"], [st.st_size, st.st_mtime_ns])
+        self.assertEqual(scopes.snapshot(self.board / "none"), {})
+
+    def test_write_in_own_scope_root_passes(self):
+        w = self.window("fixing", "blk-fix")
+        self.put("fixing/r1/x.json")
+        self.put("fixing/r1/deep/y.md", "y")
+        self.assertEqual(self.check(w), [])
+
+    def test_write_in_other_scope_refused(self):
+        w = self.window("fixing", "blk-fix")
+        self.put("refitting/r1/x.json")
+        got = self.check(w)
+        self.assertEqual(len(got), 1, got)
+        for part in ("refitting/r1/x.json", "fixing", "blk-fix", "fix-held-reply.json", "reads-fix.json"):
+            self.assertIn(part, got[0])
+
+    def test_write_to_shared_record_passes(self):
+        w = self.window("fixing", "blk-fix")
+        self.put("state.json", '{"round": 1, "more": true}')
+        self.put("trace.jsonl", '{"op": "x"}\n')
+        self.put("out/r1/p3.fix.json")
+        self.put("r1/conflicts.json")
+        self.put("r1/scopes.json", '{"fixing": {"block": "blk-fix", "order": 1}}')
+        self.put("scope-window.json")
+        self.assertEqual(self.check(w), [])
+
+    def test_published_name_records_owner(self):
+        w = self.window("fixing", "blk-fix")
+        self.put("r1/fix-held-reply.json")
+        self.assertEqual(self.check(w), [])
+        reg = json.loads((self.board / "r1" / "scopes.json").read_text(encoding="utf-8"))
+        self.assertEqual(reg["owns"], {"fix-held-reply.json": "fixing"})
+        self.assertEqual(self.check(w), [])   # 同じ窓を照らし直しても同じ持ち主
+
+    def test_second_owner_of_published_name_refused(self):
+        w = self.window("fixing", "blk-fix")
+        self.put("r1/fix-held-reply.json")
+        self.assertEqual(self.check(w), [])
+        w2 = self.window("refitting", "blk-fix")
+        self.put("r1/fix-held-reply.json", '{"ok": false, "again": 1}')
+        got = self.check(w2)
+        self.assertEqual(len(got), 1, got)
+        for part in ("r1/fix-held-reply.json", "fixing", "refitting"):
+            self.assertIn(part, got[0])
+
+    def test_undeclared_round_place_write_refused(self):
+        w = self.window("fixing", "blk-fix")
+        self.put("r1/rule-tree.json")
+        self.put("loose.txt", "x")       # 盤面の根の宣言していない名
+        (self.board / "r1" / "start.json").unlink()   # 消えたも変化に数える
+        got = self.check(w)
+        self.assertEqual(len(got), 3, got)   # 最初の 1 つで止めずに全部を並べる
+        self.assertTrue(any("r1/rule-tree.json" in g for g in got), got)
+        self.assertTrue(any("loose.txt" in g for g in got), got)
+        self.assertTrue(any("r1/start.json" in g for g in got), got)
+
+    def test_line_window_not_checked(self):
+        w = self.window("", "darkfactory")
+        self.put("refitting/r1/x.json")
+        self.put("r1/rule-tree.json")
+        self.assertEqual(self.check(w), [])
+
+    def test_missing_required_produce_refused(self):
+        w = self.window("lensing", "blk-lens")
+        got = self.check(w)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("lens.json", got[0])
+        self.assertIn("lensing", got[0])
+        self.put("r1/lens.json")
+        self.assertEqual(self.check(w), [])
+        self.assertEqual(self.check(self.window("fixing", "blk-fix")), [])   # required でない物は無くてよい
+
+    def test_json_produce_schema_mismatch_refused(self):
+        w = self.window("fixing", "blk-fix")
+        self.put("r1/fix-held-reply.json", '{"ok": "yes"}')
+        self.put("fixing/r1/reads-fix.json", "{")   # per_include の物も照らす（読めない JSON）
+        got = self.check(w)
+        self.assertEqual(len(got), 2, got)
+        held = next(g for g in got if "fix-held-reply.json" in g)
+        self.assertIn("$.ok", held)
+        self.assertIn("x.schema.json", held)
+        self.assertTrue(any("fixing/r1/reads-fix.json" in g for g in got), got)
+
+    def test_reads_outside_listed_not_refused(self):
+        w = self.window("fixing", "blk-fix")
+        rows = [{"path": str(self.board / p), "hook": "read", "event": None}
+                for p in ("refitting/r1/y.md", "fixing/r1/brief-1.md", "r1/lens.json", "r1/start.json", "out/r1/p1.json")]
+        rows.append({"path": "src/app.py", "hook": "read", "event": None})   # 盤面の外（リポジトリの相対）は数えない
+        self.put("fixing/r1/reads-fix.json", json.dumps({"role": "fix", "node_path": "fixing__fix", "rows": rows,
+                                                         "sources": {"hook": True, "events": "none"}, "missing": []}))
+        self.assertEqual(self.check(w), [])
+        self.assertEqual(scopes.reads_outside(self.board, w, self.pack), ["r1/start.json", "refitting/r1/y.md"])
+        self.assertEqual(scopes.reads_outside(self.board, self.window("", "darkfactory"), self.pack), [])
+
+    def test_shared_patterns_cover_round_and_root_records(self):
+        for path in ("state.json", "out/r1/a.json", "r12/libdocs/x.md", "r1/scopes.json.lock", "scope-window.json",
+                     "diff-r1.patch", "prompts/r1/fix.md"):
+            self.assertTrue(scopes.shared(path), path)
+        for path in ("r1/rule-tree.json", "fixing/r1/a.json", "r1/x-r1.patch"):
+            self.assertFalse(scopes.shared(path), path)
+        self.assertEqual(scopes.SHARED_ROUND, frozenset(p.split("/", 1)[1] for p in scopes.SHARED if p.startswith("r[0-9]*/")))
+        self.assertLessEqual({"out", "runs", "prompts"}, scopes.ROOT_DIRS)
 
 
 if __name__ == "__main__":

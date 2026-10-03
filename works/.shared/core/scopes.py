@@ -10,6 +10,7 @@
 - manifest(owner_dir): 1 つの owner の manifest を読んで照らした dict
 - manifests(pack): 全部の owner（blk-*/ と線のフォルダ）の名 → manifest（読んで照らすのはプロセスごとに 1 度）
 - published(pack): per_include でなく周の置き場（at が round）に置く produces の名（fnmatch の形を含む）の集合
+- SHARED: 共有の記録（core・engine・rules が書き、どの scope の窓で変わってもよい物）の形。SHARED_ROUND と ROOT_DIRS はここから引く
 - SHARED_ROUND: core が書き、どの scope からも同じ周の置き場 r<N>/ に置く共有の記録の名（scope の根に分けない）
 - round_names(pack): 盤面の work が scope の根でなく r<N>/ に置く名（published と SHARED_ROUND の和。entry.open_board が渡す）
 - owner_of(name, pack): その名を per_include でなく出す owner（無ければ None）
@@ -20,6 +21,11 @@
 - all_rounds(board_dir, pattern): 全部の周の r<N>/<pattern> と <scope>/r<N>/<pattern>（周の順、同じ周は線・登録の順）
 - scope_roots(b): 盤面の根と、今の周に登録した scope の根（線・登録の順。盤面の根に置く per_include の物を集める口）
 - each(b, name): 今の周の r<N>/<name> と、登録した scope の根の r<N>/<name> のうち在る物（線・登録の順。最後が一番新しい include）
+- shared(path): 盤面の根からのパスが共有の記録に当たるか
+- snapshot(board_dir): 盤面の下の全部のファイルの相対パス → [大きさ, mtime_ns]（窓の控え）
+- check_window(board_dir, window, pack): 窓を開いてからの盤面の変化を窓の scope のブロックの宣言に照らした誤りの全部
+  （宣言の外の書き込み・公開の名の持ち主の重なり・必須の出力の欠け・JSON の出力の Schema。線の窓は照らさない）
+- reads_outside(board_dir, window, pack): 窓の間の読んだ証拠のうち、宣言の外の盤面のパス（落とさない。外れ D4）
 
 名の形は段ごとに当てる（* が / をまたぐ fnmatch のままだと、rejects-*.json が rejects-a/b.json のような scope の下の私物まで
 公開の名に数える）。形の字は manifest を読む時に照らす: 空の段・"."・".."・頭の "/" を持たず、** は末尾の段そのものだけ。
@@ -30,7 +36,9 @@ import copy
 import fcntl
 import functools
 import json
+import os
 import pathlib
+import re
 import sys
 
 _CORE = pathlib.Path(__file__).resolve().parent
@@ -50,11 +58,23 @@ ANY_BELOW = "**"                              # 名の形の末尾の段だけ�
 REGISTRY = "scopes.json"                      # 周の置き場の scope の登録 {<scope>: {"block": <名>, "order": <登録の順>}}
 REGISTRY_LOCK = "scopes.json.lock"            # 登録の読み書きの錠（fcntl.flock。待つ上限は持たない）
 SCRIPTS_DIR = "scripts"                       # ブロックのスクリプトの置き場（<pack>/<名>/scripts/<x>.py）
-# core が書き、どの scope の窓でも同じ周の置き場 r<N>/ に置く共有の記録（測り M2 の class shared のうち where が work の物）
-SHARED_ROUND = frozenset({"conflicts.json", "libdocs.json", "libdocs/**"})
-# 盤面の根に core・engine・rules・部品が作るフォルダの名の形（測り M2 の class shared の where が root のフォルダと、修正の
-# ブロックの試験の輪の置き場 tdd-<k>）。scope の名がこれに当たると、私物が根の記録に混ざるので登録しない
-ROOT_DIRS = frozenset({"out", "runs", "rounds", "prompts", "roles", "items", "policy", "lanes", "tdd-*"})
+WINDOW = "scope-window.json"                  # 盤面の根の今の窓 {scope, block, round, files: snapshot}（enter が書く）
+WINDOW_LOCK = "scope-window.json.lock"        # 窓の読み書きの錠（fcntl.flock。待つ上限は持たない）
+OWNS = "owns"                                 # 周の scopes.json の鍵: 公開の名 → それを書いた scope（周ごとに持ち主は 1 つ）
+_ROUND_DIR = "r[0-9]*"                        # 周の置き場 r<N> の段の形（共有の記録の形の頭）
+_ROUND_NAME = re.compile(r"r\d+")              # 周の置き場 r<N> の段そのもの（board._ROUND_NAME と同じ字）
+# 共有の記録: core・engine・rules が書き、どの scope の窓で変わってもよい物の形（測り M2 の class shared と scope の登録・窓。
+# 盤面の根からのパスに段ごとに当てる。/ を持たない形は盤面の根の名にしか当たらない）。照らし・周の置き場の名・根のフォルダの 1 つの組
+SHARED = ("state.json", "record.json", "trace.jsonl", "STOP", "query-examples.json", "count-cache.json", "count-budget.json",
+          "diff-r*.patch", "changed-r*.txt", "*-r*.patch",
+          "out/**", "runs/**", "rounds/**", "prompts/**", "roles/**", "items/**", "policy/**", "lanes/**", "tdd-*/**",
+          f"{_ROUND_DIR}/conflicts.json", f"{_ROUND_DIR}/libdocs.json", f"{_ROUND_DIR}/libdocs/**",
+          f"{_ROUND_DIR}/{REGISTRY}", f"{_ROUND_DIR}/{REGISTRY_LOCK}", WINDOW, WINDOW_LOCK)
+# 共有の記録のうち周の置き場 r<N>/ に置く名（scope の根に分けない。盤面の work が r<N>/ に置く）
+SHARED_ROUND = frozenset(p.split("/", 1)[1] for p in SHARED if p.startswith(_ROUND_DIR + "/"))
+# 盤面の根に core・engine・rules・部品が作るフォルダの名の形（共有の記録の <頭>/** の頭）。scope の名がこれに当たると、私物が
+# 根の記録に混ざるので登録しない
+ROOT_DIRS = frozenset(p.split("/")[0] for p in SHARED if p.count("/") == 1 and p.endswith("/" + ANY_BELOW))
 
 
 class ManifestBroken(BoardGap):
@@ -188,16 +208,24 @@ def running_block() -> str:
 
 
 def _read_registry(path: pathlib.Path) -> dict:
-    """周の scopes.json（無ければ空。読めない・形が違えば BoardGap）"""
+    """周の scopes.json（無ければ空。読めない・形が違えば BoardGap）。鍵 OWNS は公開の名の持ち主 {<名>: <scope>}（照らしが書く）"""
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as e:
         raise BoardGap(f"scope の登録 {path} が読めない: {e}") from None
-    if not isinstance(doc, dict) or not all(isinstance(v, dict) and isinstance(v.get("order"), int) for v in doc.values()):
-        raise BoardGap(f"scope の登録 {path} の形が違う（{{<scope>: {{block, order}}}}）")
+    owns = doc.get(OWNS, {}) if isinstance(doc, dict) else None
+    if not isinstance(doc, dict) or not isinstance(owns, dict) or not all(isinstance(v, str) for v in owns.values()) \
+            or not all(isinstance(v, dict) and isinstance(v.get("order"), int) for k, v in doc.items() if k != OWNS):
+        raise BoardGap(f"scope の登録 {path} の形が違う（{{<scope>: {{block, order}}, {OWNS}: {{<名>: <scope>}}}}）")
     return doc
+
+
+def _write_registry(box: pathlib.Path, doc: dict) -> None:
+    tmp = box / (REGISTRY + ".tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(box / REGISTRY)
 
 
 def _rounds(board_dir: pathlib.Path) -> list[int]:
@@ -208,7 +236,7 @@ def _rounds(board_dir: pathlib.Path) -> list[int]:
 def _registered(board_dir: pathlib.Path, round_: int) -> list[str]:
     """周 round_ に登録した scope（登録の順）"""
     doc = _read_registry(pathlib.Path(board_dir) / f"r{round_}" / REGISTRY)
-    return [k for k, _ in sorted(doc.items(), key=lambda kv: kv[1]["order"])]
+    return [k for k, _ in sorted(((k, v) for k, v in doc.items() if k != OWNS), key=lambda kv: kv[1]["order"])]
 
 
 def _all_registered(board_dir: pathlib.Path) -> list[str]:
@@ -229,6 +257,8 @@ def claim(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> None:
     （両方の block の名）。scope の名が盤面の根の物とぶつかれば BoardGap: 根に作るフォルダの形（ROOT_DIRS と、manifest の
     at: root の produces のフォルダ）に当たるか、根に同じ名のフォルダでない物が在る。根に同じ名のフォルダが在るだけでは拒まない
     （盤面を開かない節——依頼の受け付けの intake など——が script_io.scope_dir に先に書いて作る）"""
+    if scope == OWNS:
+        raise BoardGap(f"scope の名 {OWNS!r} は登録の持ち主の鍵に使っている（include の名を替える）")
     d = pathlib.Path(board_dir)
     root_entry = _root_entry(scope)   # 錠の外で（manifest はプロセスごとに 1 度読む）
     box = d / f"r{round_}"
@@ -250,10 +280,8 @@ def claim(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> None:
                                    "——include の名が重なっている")
             if root_entry or ((d / scope).exists() and not (d / scope).is_dir()):
                 raise BoardGap(f"scope {scope!r} が盤面の根の物 {d / scope} とぶつかる（根の記録のフォルダか、フォルダでない物）")
-            doc[scope] = {"block": block, "order": 1 + max((v["order"] for v in doc.values()), default=0)}
-            tmp = box / (REGISTRY + ".tmp")
-            tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-            tmp.replace(box / REGISTRY)
+            doc[scope] = {"block": block, "order": 1 + max((v["order"] for k, v in doc.items() if k != OWNS), default=0)}
+            _write_registry(box, doc)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
@@ -282,3 +310,179 @@ def each(b, name: str) -> list[pathlib.Path]:
     順。最後が一番新しく登録した include の物）。同じブロックの 2 つの include がそれぞれ書く物（per_include）を、ほかの
     include や線が読む口"""
     return [p for p in (root / f"r{b.round}" / name for root in scope_roots(b)) if p.is_file()]
+
+
+# ---------------------------------------------------------------- 窓の照らし（宣言の外の書き込み）
+def shared(path: str) -> bool:
+    """盤面の根からのパス path（posix）が共有の記録（SHARED のどれかの形）に当たるか"""
+    return any(matches(path, pat) for pat in SHARED)
+
+
+def snapshot(board_dir: pathlib.Path) -> dict[str, list[int]]:
+    """盤面の下の全部のファイルの相対パス（posix）→ [大きさ, mtime_ns]（リンクは辿らずにそのものを測る。無い盤面は空）"""
+    d = str(pathlib.Path(board_dir))
+    out = {}
+    for root, _, files in os.walk(d):
+        for f in files:
+            full = os.path.join(root, f)
+            try:
+                st = os.lstat(full)
+            except FileNotFoundError:   # 測る間に消えた（窓の間の変化として次の照らしが見る）
+                continue
+            out[pathlib.PurePath(os.path.relpath(full, d)).as_posix()] = [st.st_size, st.st_mtime_ns]
+    return out
+
+
+def _changed(before: dict, after: dict) -> list[str]:
+    """2 つの snapshot の間で変わった・増えた・消えたパス（名の順）"""
+    return sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+
+
+def _pick(rows: list, name: str) -> dict | None:
+    """rows（produces の行）のうち name に当たる物。字のままの名が形より勝つ（blk-plan の reads-plan-block.json と reads-*.json）"""
+    return next((r for r in rows if r["name"] == name), None) or next((r for r in rows if matches(name, r["name"])), None)
+
+
+def _rows(block: str, name: str, pack, *, per_include: bool, at: str) -> tuple[str, dict] | None:
+    """name に当たる (owner, produces の行)（per_include と置き場 at が合う物だけ）。block が空（起こされたブロックが分からない）
+    なら公開の名から持ち主を引き、ブロックの名に頼らない（per_include の物は引かない）"""
+    all_ = _loaded(str(pathlib.Path(pack).resolve()))
+    owner = block or (None if per_include else owner_of(name, pack))
+    if owner not in all_:
+        return None
+    row = _pick([p for p in all_[owner]["produces"]
+                 if bool(p.get("per_include")) is per_include and p.get("at", "round") == at], name)
+    return (owner, row) if row else None
+
+
+def _declared(block: str, pack) -> str:
+    """誤りの文に載せる宣言（ブロックの produces の名の並び）"""
+    if not block:
+        return "（起こされたブロックが分からない。公開の名の持ち主で照らした）"
+    rows = _loaded(str(pathlib.Path(pack).resolve())).get(block, {}).get("produces", [])
+    return ", ".join(p["name"] for p in rows) or "なし"
+
+
+def _schema_errors(board_dir: pathlib.Path, rel: str, owner: str, row: dict, pack) -> list[str]:
+    """format が json の produces のファイル rel が読めない・Schema に合わない誤り（json でない・消えた物は照らさない）"""
+    p = pathlib.Path(board_dir) / rel
+    if row["format"] != "json" or not p.is_file():
+        return []
+    schema_path = pathlib.Path(pack) / owner / row["schema"]
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        return [f"JSON として読めない: {type(e).__name__}: {e}"]
+    return [f"Schema {schema_path} に合わない: " + "; ".join(errs)
+            for errs in [validate_schema(doc, json.loads(schema_path.read_text(encoding="utf-8")))] if errs]
+
+
+def _own(board_dir: pathlib.Path, n: int, name: str, scope: str) -> str | None:
+    """周 n の公開の名 name の持ち主を scope にする（錠 scopes.json.lock の下）。別の scope が持ち主ならその名を返し、書き換えない"""
+    box = pathlib.Path(board_dir) / f"r{n}"
+    box.mkdir(parents=True, exist_ok=True)
+    with open(box / REGISTRY_LOCK, "a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            doc = _read_registry(box / REGISTRY)
+            owns = doc.setdefault(OWNS, {})
+            if owns.get(name, scope) != scope:
+                return owns[name]
+            if owns.get(name) != scope:
+                owns[name] = scope
+                _write_registry(box, doc)
+            return None
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def check_window(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PACK) -> list[str]:
+    """窓 window（{scope, block, round, files: snapshot}）を開いてからの盤面の変化を、窓の scope のブロックの宣言に照らした誤りの
+    全部（最初の 1 つで止めない。無ければ []）。scope が空（線）の窓は照らさない（外れ D5）。変わった・増えた・消えたパスごとに:
+    scope の根の下・共有の記録は可。周の置き場 r<N>/<名> はブロックの per_include でなく at が round の produces なら可で、
+    r<N>/scopes.json の owns に持ち主の scope を記録し、別の scope が持ち主なら誤り（周ごとに書き手は 1 つ）。盤面の根の <名> は
+    at が root の produces なら可（周を持たないので持ち主は記録しない）。ほかは誤り。あわせて、窓の周の required の produces が
+    無い・format が json の produces（scope の根の per_include の物も）が読めないか Schema に合わない、も誤り"""
+    scope, block, n = window.get("scope") or "", window.get("block") or "", window.get("round")
+    if not scope:
+        return []
+    d = pathlib.Path(board_dir)
+    now_files = snapshot(d)
+    who = f"scope {scope}（{block or 'ブロック不明'}）"
+    decl = _declared(block, pack)
+    errs = []
+    for rel in _changed(window.get("files") or {}, now_files):
+        segs = rel.split("/")
+        if segs[0] == scope:
+            inner = "/".join(segs[1:])
+            at, name = ("round", "/".join(segs[2:])) if len(segs) > 2 and _ROUND_NAME.fullmatch(segs[1]) else ("root", inner)
+            hit = _rows(block, name, pack, per_include=True, at=at) if block else None
+            errs += [f"{rel}: {who} の {name} が {e}" for e in (_schema_errors(d, rel, *hit, pack) if hit else [])]
+            continue
+        if shared(rel):
+            continue
+        in_round = len(segs) > 1 and _ROUND_NAME.fullmatch(segs[0])
+        name = "/".join(segs[1:]) if in_round else rel
+        hit = _rows(block, name, pack, per_include=False, at="round" if in_round else "root")
+        if hit is None:
+            errs.append(f"{rel}: {who} が宣言の外に書いた。宣言: {decl}")
+            continue
+        if in_round:
+            other = _own(d, int(segs[0][1:]), name, scope)
+            if other is not None:
+                errs.append(f"{rel}: {who} が宣言の外に書いた（この周の持ち主は scope {other}。周ごとに書き手は 1 つ）。宣言: {decl}")
+                continue
+        errs += [f"{rel}: {who} の {name} が {e}" for e in _schema_errors(d, rel, *hit, pack)]
+    if block:
+        for p in _loaded(str(pathlib.Path(pack).resolve())).get(block, {}).get("produces", []):
+            if not p.get("required"):
+                continue
+            place = (f"{scope}/" if p.get("per_include") else "") + (f"r{n}/" if p.get("at", "round") == "round" else "")
+            if not any(matches(rel, place + p["name"]) for rel in now_files):
+                errs.append(f"{place}{p['name']}: {who} が必須の出力（required）を書いていない。宣言: {decl}")
+    return errs
+
+
+def _consumed(block: str, pack, name: str) -> bool:
+    """block の consumes か per_include でない produces が name に当たるか（block が空なら公開の名の全部）"""
+    if not block:
+        return owner_of(name, pack) is not None
+    m = _loaded(str(pathlib.Path(pack).resolve())).get(block, {"consumes": [], "produces": []})
+    pats = [c["name"] for c in m["consumes"]] + [p["name"] for p in m["produces"] if not p.get("per_include")]
+    return any(matches(name, pat) for pat in pats)
+
+
+def reads_outside(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PACK) -> list[str]:
+    """窓の間に scope の根の下で書かれた読んだ証拠（reads-*.json の rows）のうち、盤面の下のパスで、scope の根・consumes の名・
+    自分の produces・共有の記録（out/ を含む）のどれでもない物の盤面の根からのパス（名の順・重ねない）。落とさない（外れ D4。
+    呼び手が trace の行 scope_read_outside と報告に載せる）。scope が空の窓は []"""
+    scope, block = window.get("scope") or "", window.get("block") or ""
+    if not scope:
+        return []
+    d = pathlib.Path(board_dir)
+    real = pathlib.Path(os.path.realpath(d))
+    changed = _changed(window.get("files") or {}, snapshot(d))
+    out = set()
+    for rel in changed:
+        segs = rel.split("/")
+        if not (len(segs) == 3 and segs[0] == scope and _ROUND_NAME.fullmatch(segs[1]) and matches(segs[2], "reads-*.json")):
+            continue
+        try:
+            doc = json.loads((d / rel).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue   # 消えた・読めない読んだ証拠は照らしの誤り（Schema）の方が見る
+        rows = doc.get("rows") if isinstance(doc, dict) else None
+        for row in rows if isinstance(rows, list) else []:
+            path = row.get("path") if isinstance(row, dict) else None
+            if not isinstance(path, str) or not os.path.isabs(path):
+                continue
+            full = pathlib.Path(os.path.realpath(path))
+            if not full.is_relative_to(real):
+                continue
+            got = full.relative_to(real).as_posix()
+            gsegs = got.split("/")
+            name = "/".join(gsegs[1:]) if len(gsegs) > 1 and _ROUND_NAME.fullmatch(gsegs[0]) else got
+            if gsegs[0] == scope or shared(got) or _consumed(block, pack, name):
+                continue
+            out.add(got)
+    return sorted(out)
