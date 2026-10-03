@@ -31,12 +31,12 @@
 - TDD の輪: 修正役の前に、単位ごとにテストを先に書いて赤（直す前の版で落ちる）を機械が確かめ、直して緑を確かめる段（`works/blk-fix/lib/tddloop.py`）。輪の状態のファイルに、緑にした単位の受け入れのテストのファイルの hash（`frozen`）と、輪が済んだ時の木（`frozen_tree`）を残す。受け付けはそのファイルの書き換えを拒む（凍結）。
 - 1 回目の直し: 裁定の前に TDD の輪と 1 回目の修正役が作業ツリーに書いた直し。
 - 範囲の照らし: `works/blk-fix/lib/planscope.py`。承認済みの修正案の各項目の `allowed_paths`（書いてよいパス）と、版からの変わったパスを照らす。今、単位の全部が外れた項目は範囲を与えず（関数 `_all_held`）、拒んだパスがその項目の範囲に入れば「その項目の直しなら作業ツリーから戻せ」と添える（関数 `_held_note`）。
-- `revert_ruled_units`（`accept.py:541-572`）: 今、裁定の後の受け付けの頭で、申し出を返した回の返答の控え（`conflict.PARKED_REPLY`）の行のうち、外れた単位の行のファイルを修正前の版に戻し（凍ったテストのファイルは `frozen_tree` に戻す）、受け付けを頭から通し直す手。戻すファイルをほかの単位の行と共にすれば何もしない。trace の行の名は `RULED_REVERTED_OP`（`"fix_ruled_reverted"`）。
+- `revert_ruled_units`（`accept.py:541-572`）: 今、裁定の後の受け付けの頭で、申し出を返した回の返答の控え（`conflict.PARKED_REPLY`）の行のうち、外れた単位の行のファイルを修正前の版に戻し（凍ったテストのファイルは `frozen_tree` に戻す）、受け付けを頭から通し直す手。戻すファイルをほかの単位の行と共にすれば何もしない。trace の行の名は `accept.RULED_REVERTED_OP`（`"fix_ruled_reverted"`）。
 
 試験の手助け（どれも `works/tests/` に在る既存の物）:
 - `test_blk_fix.py`: `BoardCase`（種の git と盤面を試験ごとに作る。`fix_ready` は修正の節が待つ盤面、`edit_tree` は `stats.py` の書き換え）・`load("fix2_ok")`（修正役の返答の見本。行は MEAN と CLAMP の 2 つ）・`PLAN_FIELDS`（修正案の項目の欄の見本。受け入れのテスト `test_stats.py::TestStats::test_mean_of_two`）。
 - `test_blk_fix_tdd.py`: `SUITE`（小さな試験の実行器の本文）・`OPEN`（開いた単位の JSON）・`NEW_TEST`（`test_mean_of_two` の本文）・`LoopCase`（輪を回す手 `route`・`red`・`fix_mean`）。
-- `test_blk_fix_conflict.py`: `ConflictBoardCase.accept_script`（受け付けのスクリプトを子のプロセスで起こす）・`conflict_on_mean()`（MEAN の申し出）・`only_clamp_reply()`（CLAMP の行だけの返答）・`CLAMP_FIX`（CLAMP の直しの置き換え）・`ReplanCase`（`fix_plan_item` に裁いた盤面を作る。`SHARED_ITEM` が真なら MEAN と CLAMP を 1 項目に載せる）・`split_plan_reply`（2 項目の修正案）・`CLAMP_FIELDS`（項目 2 の欄）。
+- `test_blk_fix_conflict.py`: `ConflictBoardCase.accept_script`（受け付けのスクリプトを子のプロセスで起こす）・`conflict_on_mean()`（MEAN の申し出）・`only_clamp_reply()`（CLAMP の行だけの返答）・`CLAMP_FIX`（CLAMP の直しの置き換え）・`ReplanCase`（`fix_plan_item` に裁いた盤面を作る。`ReplanCase.SHARED_ITEM` が真なら MEAN と CLAMP を 1 項目に載せる）・`split_plan_reply`（2 項目の修正案）・`CLAMP_FIELDS`（項目 2 の欄）。
 
 ## 根本の原因（run 195d）
 
@@ -94,7 +94,7 @@ keep-essence は `works/docs/keep-essence.md` の、どの作りでも残す wor
 ### Task 1: 裁定の後の段は外れた単位の直しを戻さず、範囲は外れた項目も与える（195d の型）
 
 **Files:**
-- Modify: `works/blk-fix/scripts/accept.py`（`revert_ruled_units`（541-572 行）と `accept_fix` の中の呼び（660-668 行）と `RULED_REVERTED_OP`（135 行）を消す。docstring の 32-36 行・52 行）
+- Modify: `works/blk-fix/scripts/accept.py`（`revert_ruled_units`（541-572 行）と `accept_fix` の中の呼び（660-668 行）と `accept.RULED_REVERTED_OP`（135 行）を消す。docstring の 32-36 行・52 行）
 - Modify: `works/blk-fix/lib/planscope.py`（`_all_held`・`_held_note` を消し、`problems` の引数 `held` を消して範囲を全部の項目から与える。`check` の `held=conflict.held_by_rulings(b)` も消す）
 - Modify: `works/tests/test_blk_fix_conflict.py`（`ConflictBoardCase.accept_script` に引数 `tdd_state`・`tdd_suite`。新しい class `TestHeldWorkStays(ReplanCase)`。下の Step 5 の既存の試験の直し）
 - Modify: `works/tests/test_plan_scope.py`（class `HeldItemCase`）
@@ -106,7 +106,7 @@ keep-essence は `works/docs/keep-essence.md` の、どの作りでも残す wor
   - `ConflictBoardCase.accept_script(self, reply, *, iteration="1", pass_="first", pass_tag="", tdd_state="", tdd_suite="")` — `tdd_state` を環境変数 `INPUTS_TDD_STATE`（輪の状態のファイル）に、`tdd_suite` を `INPUTS_TDD_SUITE`（試験の実行器）に渡す。空は今どおり
   - `TestHeldWorkStays.held_tdd_board(self) -> tuple[str, str]` — (輪の状態のファイル, 実行器のパス)。Task 2 も使う
   - `planscope.problems(items, rows, changes, *, permits=(), loop=None) -> tuple[list[str], dict]` — 範囲（`allowed_paths`・tests の名）は全部の項目が与える。ほかの決まりと文は今のまま
-  - `accept.py` に `revert_ruled_units` と `RULED_REVERTED_OP` は無い。盤面の trace に `fix_ruled_reverted` の行は書かれない
+  - `accept.py` に `revert_ruled_units` と `accept.RULED_REVERTED_OP` は無い。盤面の trace に `fix_ruled_reverted` の行は書かれない
 
 - [ ] **Step 1: 落ちる試験を書く**（`works/tests/test_blk_fix_conflict.py`。`ReplanCase` の後に置く）
 
@@ -139,7 +139,7 @@ class TestHeldWorkStays(ReplanCase):
         self.assertNotIn("fix_ruled_reverted", ops)
 ```
 
-`test_shared_file_with_owed_unit_keeps_both`（今も通る守りの試験。直しの後も通ることを見る）: `held_tdd_board` の 1・2 を使い（`SHARED_ITEM` は偽で、`split_plan_reply` の 2 項目。項目 1 は MEAN、項目 2 は CLAMP）、3 は木に `CLAMP_FIX` を当ててから `only_clamp_reply([conflict_on_mean()])`（輪で緑にした MEAN を、輪の後に申し出る）、4 は `planmarks.save` に `test_blk_fix.PLAN_FIELDS + [CLAMP_FIELDS]` を置いて MEAN の申し出を `fix_plan_item` に裁く（`ReplanCase.replanned` の既定と同じ）。外れた MEAN の輪の直しと義務の CLAMP の直しが `stats.py` を共にする。裁定の後の返答は `only_clamp_reply()`（`tdd_state`・`tdd_suite` つき）。断言は `ok` が真・`stats.py` に `sum(xs) / len(xs)` と `return hi` の両方が在る。
+`test_shared_file_with_owed_unit_keeps_both`（今も通る守りの試験。直しの後も通ることを見る）: `held_tdd_board` の 1・2 を使い（`ReplanCase.SHARED_ITEM` は偽で、`split_plan_reply` の 2 項目。項目 1 は MEAN、項目 2 は CLAMP）、3 は木に `CLAMP_FIX` を当ててから `only_clamp_reply([conflict_on_mean()])`（輪で緑にした MEAN を、輪の後に申し出る）、4 は `planmarks.save` に `test_blk_fix.PLAN_FIELDS + [CLAMP_FIELDS]` を置いて MEAN の申し出を `fix_plan_item` に裁く（`ReplanCase.replanned` の既定と同じ）。外れた MEAN の輪の直しと義務の CLAMP の直しが `stats.py` を共にする。裁定の後の返答は `only_clamp_reply()`（`tdd_state`・`tdd_suite` つき）。断言は `ok` が真・`stats.py` に `sum(xs) / len(xs)` と `return hi` の両方が在る。
 
 - [ ] **Step 2: 落ちることを確かめる**
 
@@ -148,7 +148,7 @@ Expected: 主の試験は FAIL（`ok` が偽で、理由に「元で赤でなか
 
 - [ ] **Step 3: `accept.py` から `revert_ruled_units` を消す**
 
-`accept_fix` の `note(found, "frozen", …)` の次の 9 行（`got = revert_ruled_units(…)` から `return out` まで）・関数 `revert_ruled_units`・定数 `RULED_REVERTED_OP` を消す。模块の docstring の「裁定の後（INPUTS_PASS が ruled）は、凍ったテストの検査の次に revert_ruled_units …」の 5 行（32-36 行）を消し、1d の「単位の全部が直す義務から外れた項目（conflict.held_by_rulings。fix_plan_item ならその項目）は範囲を与えない。」（52 行）を「外れた単位の項目も範囲を与える（裁定の後の段は外れた単位の 1 回目の直しを戻さない。依頼 241）。」に替える。`drop_excused_units` と `_held_files` は今のまま。
+`accept_fix` の `note(found, "frozen", …)` の次の 9 行（`got = revert_ruled_units(…)` から `return out` まで）・関数 `revert_ruled_units`・定数 `accept.RULED_REVERTED_OP` を消す。模块の docstring の「裁定の後（INPUTS_PASS が ruled）は、凍ったテストの検査の次に revert_ruled_units …」の 5 行（32-36 行）を消し、1d の「単位の全部が直す義務から外れた項目（conflict.held_by_rulings。fix_plan_item ならその項目）は範囲を与えない。」（52 行）を「外れた単位の項目も範囲を与える（裁定の後の段は外れた単位の 1 回目の直しを戻さない。依頼 241）。」に替える。`drop_excused_units` と `_held_files` は今のまま。
 
 - [ ] **Step 4: `planscope.py` の外れた項目の分かれを消す**
 
