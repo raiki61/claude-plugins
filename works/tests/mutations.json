@@ -101,7 +101,7 @@
    "id": "fx3",
    "title": "輪の後の修正役が、輪で凍ったテストのファイルを変えたら拒む（frozen_problems）",
    "file": "blk-fix/lib/tddloop.py",
-   "old": "    moved = [f for f, h in st[\"frozen\"].items() if now[f] != h]",
+   "old": "    moved = [f for f in st[\"frozen\"] if now[f] != then[f]]",
    "new": "    moved = []",
    "tests": {
     "tests/test_blk_fix_tdd.py": [

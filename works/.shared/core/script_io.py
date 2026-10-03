@@ -61,6 +61,19 @@ BASE_REV_ENV = "INPUTS_BASE_REV"
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
 BOARD_DIR = "board"
 REJECT_PREFIX = "reject-"
+TAG_FORM = re.compile(r"^[A-Za-z0-9_-]+$")   # 回の印の字（ファイルの名の 1 段に入れる）
+
+
+def tagged(name: str, tag: str) -> str:
+    """回の印 tag をファイルの名 name の拡張子の前に足した名（`a.md` → `a.<tag>.md`。拡張子が無ければ尾に足す）。tag が空なら
+    name のまま。同じ周に同じ役を 2 度起こす段（blk-fix の 2 回目の修正の段）が、1 回ごとのファイルの名を分ける唯一の決まり
+    （blk-fix の fixrules.tagged はこれ。core の conflict と拒否の理由の名もこれで作る）。tag が英数字・_・- でなければ ValueError"""
+    if not tag:
+        return name
+    if not TAG_FORM.match(tag):
+        raise ValueError(f"回の印 {tag!r} は英数字・_・- だけ")
+    stem, dot, ext = name.rpartition(".")
+    return f"{stem}.{tag}.{ext}" if dot and stem and "/" not in ext else f"{name}.{tag}"
 
 
 def _emit(obj) -> None:
@@ -72,14 +85,32 @@ def _emit(obj) -> None:
     out.flush()
 
 
-def _write_reason(board: pathlib.Path, fn, reason: str) -> str:
+def reject_name(fn, n, tag: str = "") -> str:
+    """拒否の理由のファイルの名 reject-<fn の名>-<n>.txt（回の印 tag は拡張子の前。tagged）。fn は関数（その __name__）か名前の
+    文字列。n に "*" を渡せば glob。名の綴りはここだけ"""
+    name = re.sub(r"[^A-Za-z0-9_-]", "_", (fn if isinstance(fn, str) else getattr(fn, "__name__", "")) or "fn")
+    return tagged(f"{REJECT_PREFIX}{name}-{n}.txt", tag)
+
+
+def last_reject(board, fn, tag: str = "") -> str:
+    """盤面 board に fn の受け付けが回の印 tag で書いた一番新しい拒否の理由のファイル（連番の一番大きい物。無ければ空）。
+    ほかの回の印の物は見ない（連番の所が数字でない名は採らない）"""
+    head, _, tail = reject_name(fn, "*", tag).partition("*")
+
+    def n(p):
+        num = p.name[len(head):-len(tail)] if p.name.startswith(head) and p.name.endswith(tail) else ""
+        return int(num) if num.isdigit() else None
+    got = sorted((n(p), str(p)) for p in pathlib.Path(board).glob(head + "*" + tail) if n(p) is not None)
+    return got[-1][1] if got else ""
+
+
+def _write_reason(board: pathlib.Path, fn, reason: str, tag: str = "") -> str:
     """拒否の理由の本文を盤面の新しいファイルに書き、その絶対パスを返す（受け付けごと・書くたびに別の名前）。
     board は board_dir が解決して $ の柵を当てた値。ここでもう一度 resolve すると柵を当てていない字を返すので、しない。
-    fn は関数（その __name__ を使う）か名前の文字列"""
-    name = re.sub(r"[^A-Za-z0-9_-]", "_", (fn if isinstance(fn, str) else getattr(fn, "__name__", "")) or "fn")
+    fn は関数（その __name__ を使う）か名前の文字列。tag は回の印（reject_name）"""
     n = 1
     while True:
-        p = board / f"{REJECT_PREFIX}{name}-{n}.txt"
+        p = board / reject_name(fn, n, tag)
         try:
             with open(p, "x", encoding="utf-8", newline="") as f:
                 f.write(reason)
@@ -102,17 +133,18 @@ def board_dir():
     return board
 
 
-def emit_result(board: pathlib.Path, fn, out: dict) -> int:
+def emit_result(board: pathlib.Path, fn, out: dict, *, tag: str = "") -> int:
     """受け付けの出口（1 本）: out に reason_file を足し（拒否なら reason の本文を盤面の reject-<fn の名>-<連番>.txt に
     字のまま書いてその絶対パス、通れば空）、1 行の JSON を出して 0 を返す。board は board_dir が返した値。
-    fn は関数か名前の文字列（ファイルの名前に使う）。main を通らない受け付けの入口もここを通す（_emit を直に呼ぶと
+    fn は関数か名前の文字列（ファイルの名前に使う）。tag は回の印（空でなければ名の拡張子の前に .<tag>。tagged）。
+    main を通らない受け付けの入口もここを通す（_emit を直に呼ぶと
     reason_file が出ず、指示書が理由の本文を $LOOP_PREV で貼るしかなくなる）"""
     out = dict(out)
     if out.get("ok") is True:
         out["reason_file"] = ""
     else:
         board.mkdir(parents=True, exist_ok=True)
-        out["reason_file"] = _write_reason(board, fn, str(out.get("reason", "")))
+        out["reason_file"] = _write_reason(board, fn, str(out.get("reason", "")), tag)
     _emit(out)
     return 0
 
@@ -125,9 +157,10 @@ def later_output(first: str, later) -> str:
     return first
 
 
-def main(fn, reply_env: str = "INPUTS_REPLY", *, finish=None) -> int:
+def main(fn, reply_env: str = "INPUTS_REPLY", *, finish=None, tag: str = "") -> int:
     """環境変数を読み fn(reply, board, base_rev, repo) を呼んで 1 行の JSON を出す。終了コードを返す（0 か 2）。
-    finish(out) -> out は出す前に全部の出口（読めない返答の拒否も）に当てる（blk-fix の fix-accept が輪を抜ける旗 done を足す）"""
+    finish(out) -> out は出す前に全部の出口（読めない返答の拒否も）に当てる（blk-fix の fix-accept が輪を抜ける旗 done を足す）。
+    tag は拒否の理由のファイルの名の回の印（emit_result）"""
     missing = [n for n in (reply_env, BASE_REV_ENV, ARTIFACTS_ENV) if n not in os.environ]
     if ARTIFACTS_ENV not in missing and not os.environ[ARTIFACTS_ENV]:
         missing.append(ARTIFACTS_ENV)
@@ -150,4 +183,4 @@ def main(fn, reply_env: str = "INPUTS_REPLY", *, finish=None) -> int:
             out = dict(fn(reply, board, os.environ[BASE_REV_ENV], pathlib.Path.cwd()))
     if finish is not None:
         out = dict(finish(out))
-    return emit_result(board, fn, out)
+    return emit_result(board, fn, out, tag=tag)

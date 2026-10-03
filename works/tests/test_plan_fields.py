@@ -1,6 +1,7 @@
 """修正案の項目の works 側の欄（planmarks）。役の型への重ね・欠けと誤りの行・テストの定義の行の引き・欄を外す受け付けの口・
 盤面の控えの周つきの読み書きを、関数を直に呼んで見る（FAST。種は dev の target-seed を一時の置き場に写すだけ。git・盤面・
 子のプロセスなし）。test_stats.py の test_mean_of_three の定義は 8 行目、test_clamp_within_range は 11 行目"""
+import copy
 import json
 import pathlib
 import shutil
@@ -465,6 +466,114 @@ class ApprovedItemsCase(PlanFieldsCase):
         _, fields = planmarks.split({"plan": [item()]}, self.repo)
         with self.assertRaises(planmarks.FieldsBroken):
             planmarks.approved_items(self.board([item(), item()], fields))
+
+
+class TestContractFields(PlanFieldsCase):
+    """約束の欄（変えると関所に戻す物）と手段の欄（修正案の役が直してよい物）の表と、欄の比べ contract_diff"""
+
+    def test_keys_cover_item_schema(self):
+        it = accept.role_schema("p2.fix_plan")["properties"]["plan"]["items"]["properties"]
+        self.assertEqual(set(planmarks.CONTRACT_KEYS) | set(planmarks.MEANS_KEYS), set(it))
+        self.assertFalse(set(planmarks.CONTRACT_KEYS) & set(planmarks.MEANS_KEYS))
+        self.assertEqual(set(planmarks.CORE_KEYS), PLAN_KEYS)
+
+    def test_means_only_change_is_empty(self):
+        old = item()
+        new = copy.deepcopy(old)
+        new["tests"][0]["red_kind"] = "exception"      # 224b の型
+        new["tests"][0]["id"] = "test_stats.py::TestStats::test_mean_of_two_values"   # 225 の型
+        new["approach"] = new["approach"] + "（直した）"
+        self.assertEqual(planmarks.contract_diff(old, new), [])
+
+    def test_contract_change_is_named(self):
+        old = item()
+        self.assertEqual(planmarks.contract_diff(old, item(allowed_paths=["stats.py", "lib/**/*.py"])), ["allowed_paths"])  # 195b の型
+        self.assertEqual(planmarks.contract_diff(old, item(rewrite_tests=[REWRITE])), ["rewrite_tests"])                    # 194c の型
+        beh = copy.deepcopy(old)
+        beh["tests"][0]["behavior"] = "3 つの値の平均"
+        self.assertEqual(planmarks.contract_diff(old, beh), ["tests.behavior"])
+
+    def test_order_and_absence_do_not_count(self):
+        """unit_keys の並べ替え・tests の並べ替え・欄が無いのと空の並びは違いに数えない。違いは CONTRACT_KEYS の順で並ぶ"""
+        old = item(unit_keys=[MEAN, CLAMP])
+        t2 = dict(old["tests"][0], id="test_stats.py::TestStats::test_mean_of_one", behavior="1 つの値の平均はその値")
+        old["tests"].append(t2)
+        new = copy.deepcopy(old)
+        new["unit_keys"].reverse()
+        new["tests"].reverse()
+        del new["narrows"]
+        self.assertEqual(planmarks.contract_diff(old, new), [])
+        both = item(unit_keys=[CLAMP], out_of_scope=[{"glob": "docs/**", "why": "文書は今回の直しの外"}])
+        self.assertEqual(planmarks.contract_diff(item(), both), ["unit_keys", "out_of_scope"])
+
+
+class TestAmend(PlanFieldsCase):
+    """承認済みの項目の差し替え（amend）: 直した項目の欄の行を split で作り直し、核の欄を控えの amended に置いて凍結し直す"""
+
+    def board(self):
+        reply = {"plan": [item(), item(unit_keys=[CLAMP], allowed_paths=["stats.py", "test_stats.py"])]}
+        bare, fields = planmarks.split(reply, self.repo)
+        planmarks.save(self.tmp, 1, fields)
+        plan = bare["plan"]
+        return types.SimpleNamespace(dir=self.tmp, round=1,
+                                     output_of_round=lambda node, rnd: {"plan": copy.deepcopy(plan)} if rnd == 1 else None)
+
+    def fixed(self, b, n, **over):
+        it = {k: v for k, v in planmarks.approved_items(b)[n - 1].items() if k != "item"}
+        return {**copy.deepcopy(it), **over}
+
+    def trace_ops(self):
+        rows = [json.loads(x) for x in (self.tmp / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        return [r for r in rows if r.get("op") in (planmarks.SAVED_OP, planmarks.AMEND_OP)]
+
+    def test_amend_swaps_one_item_and_refreezes(self):
+        b = self.board()
+        before = planmarks.approved_items(b)
+        new = self.fixed(b, 2, approach="直した手立て" * 4)
+        new["tests"] = [dict(new["tests"][0], red_kind="exception")]
+        planmarks.amend(b, {2: new}, self.repo)
+        got = planmarks.approved_items(b)
+        self.assertEqual(got[0], before[0])
+        self.assertEqual((got[1]["approach"], got[1]["tests"][0]["red_kind"]), ("直した手立て" * 4, "exception"))
+        self.assertEqual(got[1]["unit_keys"], [CLAMP])
+        self.assertIsNotNone(planmarks.frozen(b))
+        ops = self.trace_ops()
+        self.assertEqual([r["op"] for r in ops], [planmarks.SAVED_OP, planmarks.SAVED_OP, planmarks.AMEND_OP])
+        self.assertEqual((ops[2]["round"], ops[2]["items"]), (1, [2]))
+        doc = json.loads((self.tmp / planmarks.FIELDS_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(set(doc[planmarks.AMENDED_KEY]), {"2"})
+        self.assertNotIn("item", doc[planmarks.AMENDED_KEY]["2"])
+        self.assertEqual(set(doc[planmarks.AMENDED_KEY]["2"]), PLAN_KEYS)
+        self.assertEqual(planmarks.amended(b)[2]["approach"], "直した手立て" * 4)
+        doc[planmarks.AMENDED_KEY]["2"]["approach"] = "手で書き換えた"
+        (self.tmp / planmarks.FIELDS_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        for fn in (planmarks.approved_items, planmarks.amended, planmarks.plan_items):
+            with self.subTest(fn.__name__), self.assertRaises(planmarks.FieldsBroken):
+                fn(b)
+
+    def test_amend_rebuilds_rewrite_limit_and_adds(self):
+        b = self.board()
+        add = {"kind": "function", "name": "clamp_hi", "source": "x" * 10}
+        planmarks.amend(b, {2: self.fixed(b, 2, rewrite_tests=[REWRITE], adds=[add])}, self.repo)
+        self.assertEqual(planmarks.rewrites(b), [{"item": 2, "unit_keys": [CLAMP], "id": REWRITE["id"], "new": REWRITE["new"],
+                                                  "limit": "test_stats.py:11"}])
+        self.assertEqual(planmarks.frozen(b)[1]["adds"], ["clamp_hi"])
+        self.assertEqual(planmarks.plan_items(b)[1]["adds"], [add])
+
+    def test_amend_refuses_changed_unit_keys(self):
+        b = self.board()
+        with self.assertRaisesRegex(ValueError, "unit_keys"):
+            planmarks.amend(b, {2: self.fixed(b, 2, unit_keys=[CLAMP + "（別）"])}, self.repo)
+        with self.assertRaises(ValueError):
+            planmarks.amend(b, {3: self.fixed(b, 2)}, self.repo)
+        self.assertEqual([r["op"] for r in self.trace_ops()], [planmarks.SAVED_OP])   # 拒んだ時は控えも trace も変えない
+
+    def test_old_fields_file_has_no_amendments(self):
+        """鍵 amended の無い控え（この版の前の盤面）は直しの無い案と読む（落ちない）"""
+        b = self.board()
+        self.assertNotIn(planmarks.AMENDED_KEY, json.loads((self.tmp / planmarks.FIELDS_FILE).read_text(encoding="utf-8")))
+        self.assertEqual(planmarks.amended(b), {})
+        self.assertEqual(planmarks.plan_items(b), b.output_of_round(planmarks.NODE, 1)["plan"])
 
 
 if __name__ == "__main__":

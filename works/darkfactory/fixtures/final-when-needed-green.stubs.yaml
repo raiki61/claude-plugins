@@ -1105,6 +1105,140 @@ fixing__collect:
     suite: ''
     reason: テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す
     units: []
+h-replan:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+  structure_units_file: ''
+replanning__r2-design-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/design-snapshot.json
+replanning__plan-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/plan-snapshot.json
+replanning__plan-review-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/plan-review-snapshot.json
+replanning__plan-reads:
+  ok: true
+  reads_file: board/r1/reads-plan-block.json
+replanning__collect:
+  ok: true
+  plan_file: board/out/r1/p2.fix_plan.json
+  review_file: board/out/r1/p2.plan_review.json
+  asks_human: false
+  gate_kinds: []
+  reads_file: board/r1/reads-plan-block.json
+  gave_up: false
+  reason_file: ''
+h-regate:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+  structure_units_file: ''
+h-refit:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+  structure_units_file: ''
+refitting__ignored-before:
+  ok: true
+  count: 0
+  file: board/fix-ignored-before.refit.json
+refitting__tdd-start:
+  go: false
+  reason: テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す
+  suite: ''
+  state_file: ''
+  summary_file: ''
+refitting__conflict-check:
+  go: false
+  count: 0
+  file: ''
+refitting__clean:
+  ok: true
+  count: 1
+  file: board/fix-removed.refit.json
+refitting__assert-changed:
+  ok: true
+  files:
+  - stats.py
+refitting__fix-reads:
+  ok: true
+  reads_file: ''
+refitting__collect:
+  ok: true
+  files:
+  - stats.py
+  changes_file: board/changes.json
+  removed:
+    count: 1
+    file: board/fix-removed.refit.json
+  tdd:
+    ran: false
+    suite: ''
+    reason: テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す
+    units: []
 h-rejudge:
   ok: true
   stop: false
@@ -1891,6 +2025,9 @@ fixture:
   - h-gate
   - h-fix
   - fixing__collect
+  - h-replan
+  - h-regate
+  - h-refit
   - h-rejudge
   - h-mid
   - h-review

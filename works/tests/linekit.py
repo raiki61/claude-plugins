@@ -233,7 +233,25 @@ LINE_ORDER = [
               "plan_file": "$h-fix.output.plan_file", "notes_file": "$h-fix.output.notes_file",
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
               "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd"}},
-    _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing"]),
+    # 同じ run の中の案の直し（依頼 226。1 run に 1 回）: blk-plan と blk-fix の 2 度目の include
+    _edge("h-replan", "replan", ["start", "h-fix", "fixing"]),
+    {"id": "replanning", "kind": "include", "block": "blk-plan", "depends_on": ["h-replan"],
+     "when": "$h-replan.output.go == true",
+     "with": {"judgment_file": "$h-replan.output.judgment_file", "base_rev": "$start.output.base_rev",
+              "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path",
+              "include_id": "replanning", "replan": "true"}},
+    _edge("h-regate", "regate", ["start", "h-replan", "replanning"]),
+    {"id": "replan-gate", "kind": "approval", "depends_on": ["h-regate"], "when": "$h-regate.output.ask == true",
+     "decisions": ["approve", "continue", "stop", "reject"]},
+    _edge("h-refit", "refit", ["start", "h-regate", "replan-gate"], gate=_skippable("$replan-gate.output")),
+    {"id": "refitting", "kind": "include", "block": "blk-fix", "depends_on": ["h-refit"],
+     "when": "$h-refit.output.go == true",
+     "with": {"judgment_file": "$h-refit.output.judgment_file", "open_units": "$h-refit.output.open_units",
+              "plan_file": "$h-refit.output.plan_file", "notes_file": "$h-refit.output.notes_file",
+              "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
+              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd",
+              "include_id": "refitting", "pass_tag": "refit"}},
+    _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing", "h-refit", "refitting"]),
     {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
      "when": "$h-rejudge.output.go == true",
      "with": {"base_rev": "$start.output.base_rev", "policy_paste": "$start.output.policy_paste"}},
@@ -275,6 +293,9 @@ LINE_ORDER = [
 
 # ---------------------------------------------------------------- 線を Archon 無しで通す（P1 計画 Task 28・〔線A計〕T16）
 RUN_ID = "run-line-a"
+# 同じブロックの 2 度目の include（依頼 226 の案の直し）。LineRun の筋書きは修正の段で fix_plan_item に裁かないので届かない
+# （届けば赤）。中身は境の節と口の関数で test_replan.TestLineReplay が回す
+SECOND_INCLUDES = {"replanning": "案の直し", "refitting": "2 回目の修正の段"}
 GATES = frozenset(r["id"] for r in LINE_ORDER if r["kind"] == "approval" and r.get("decisions"))
 
 
@@ -624,6 +645,8 @@ class LineRun:
             elif row["kind"] == "include":
                 if not self._when(row) or self._after_failed(row):
                     continue
+                if nid in SECOND_INCLUDES:   # 同じブロックの 2 度目の include は、1 度目の口で回さない
+                    raise AssertionError(f"LineRun は {nid}（{SECOND_INCLUDES[nid]}）を回さない")
                 if row["block"] not in blocks:
                     raise AssertionError(f"LineRun は {row['block']} を回せない（{nid}）")
                 self.out[nid] = blocks[row["block"]]()

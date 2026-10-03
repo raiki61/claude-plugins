@@ -1189,15 +1189,21 @@ def _finish(st, repo) -> None:
 
 
 # ---------------------------------------------------------------- 輪の後
-def frozen_problems(state_file, repo, allowed=()) -> list:
+def frozen_problems(state_file, repo, allowed=(), *, since=None, skip_spans=()) -> list:
     """輪で緑になった単位のテストのファイルが、輪が済んだ時から変わっていれば、その文（状態が無ければ空）。
     allowed はテストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。conflict.test_permits を
-    conflict.ruled_test_limits が引く）で、その中だけの変更は通す"""
+    conflict.ruled_test_limits が引く）で、その中だけの変更は通す。
+    since（木の sha）が在れば、凍結の基準を輪が済んだ時の中身でなくその木のファイルにする（後の輪の状態の handoff を渡す。
+    後の輪が同じファイルに足したテストは後の輪の凍結で見る）。skip_spans は [(パス, 関数の名)]（名は `<クラス>::<名前>` か
+    `<名前>`。test_spans の形）で、基準の木のその関数の範囲（_function_span）の変更だけを通す（直した項目の単位の古い受け入れの
+    テストの関数）"""
     if not state_file:
         return []
     st = _load(state_file)
     now = hashes(repo, st["frozen"])
-    moved = [f for f, h in st["frozen"].items() if now[f] != h]
+    then = _tree_hashes(repo, since, st["frozen"]) if since else st["frozen"]
+    moved = [f for f in st["frozen"] if now[f] != then[f]]
+    base = since or st.get("frozen_tree") or st.get("handoff")
     scope = {}
     for lim in allowed:
         got = conflict.parse_limit(lim)
@@ -1205,13 +1211,18 @@ def frozen_problems(state_file, repo, allowed=()) -> list:
             m = conflict.CITE.match(lim.strip())
             # 1 行の指し（`<パス>:<行>`）だけが関数の幅に広がる。`<行>-<行>` は書いたとおり
             scope.setdefault(got[0], []).append(got[1] and (*got[1], bool(m) and not m["b"]))
+    for path, name in skip_spans:
+        if path in moved:
+            line = _def_line(_tree_text(repo, base, path), name)
+            if line:
+                scope.setdefault(path, []).append((line, line, True))   # def の行の 1 行の指し（関数の幅に広がる）
     probs, outside = [], {}
     for f in moved:
         spans = scope.get(f)
         if not spans:
             probs.append(f)
         elif None not in spans:
-            bad = _hunks_outside(repo, st.get("frozen_tree") or st.get("handoff"), f, spans)
+            bad = _hunks_outside(repo, base, f, spans)
             if bad:
                 outside[f] = bad
     out = [f"TDD の輪で凍ったテストのファイルを書き換えた: {probs}（輪で直した単位のテストは変えない）"] if probs else []
@@ -1221,14 +1232,74 @@ def frozen_problems(state_file, repo, allowed=()) -> list:
     return out
 
 
-def frozen_source(state_file, repo):
-    """凍結の検査が行を読む輪の後の木（frozen_tree、無ければ handoff。_hunks_outside と同じ）から、パスの中身を読む口
-    （conflict.ruled_test_limits の source。修正案の limit をその木でテストの id から引き直す）。状態・木・パスが読めなければ
-    口は None を返す（許しを捨てる側）。状態は口を呼んだ時に読む"""
+def _tree_text(repo, tree, path):
+    """木 tree の path の中身（無い・読めなければ None）"""
+    try:
+        return git(repo, "show", f"{tree}:{path}") if tree else None
+    except Unreadable:
+        return None
+
+
+def _tree_hashes(repo, tree, files) -> dict:
+    """ファイル → 木 tree での中身の sha256（無ければ None。hashes と同じ形で比べる）"""
+    out = {}
+    for f in files:
+        try:
+            out[f] = hashlib.sha256(git(repo, "show", f"{tree}:{f}", text=False)).hexdigest()
+        except Unreadable:
+            out[f] = None
+    return out
+
+
+def _def_line(src, name: str):
+    """.py の中身 src の関数 name（`<クラス>::<名前>` か `<名前>`。test_functions の id のパスの後ろ）の頭の行（デコレータが在れば
+    その行）。無い・構文が読めなければ None"""
+    if src is None:
+        return None
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return None
+    want = name.split("::")
+
+    def walk(body, chain):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and [*chain, node.name] == want:
+                return min([node.lineno] + [d.lineno for d in node.decorator_list])
+            if isinstance(node, ast.ClassDef):
+                got = walk(node.body, [*chain, node.name])
+                if got:
+                    return got
+        return None
+    return walk(tree.body, [])
+
+
+def test_spans(state_file, keys) -> list:
+    """輪が tdd で緑にした単位のうち keys の単位の受け入れのテスト（単位の tests。名指しの id）を [(パス, 関数の名)] に
+    （frozen_problems の skip_spans の形。名は id のパスの後ろ。parametrize の `[…]` は落とす）。状態が無ければ空"""
+    if not state_file:
+        return []
+    st = _load(state_file)
+    out = []
+    for k in keys:
+        u = st.get("units", {}).get(k) or {}
+        if u.get("route") != "tdd" or u.get("green") != "ok":
+            continue
+        for t in u.get("tests") or []:
+            path, sep, rest = _id_base(t).partition("::")
+            if sep and (path, rest) not in out:
+                out.append((path, rest))
+    return out
+
+
+def frozen_source(state_file, repo, *, since=None):
+    """凍結の検査が行を読む輪の後の木（since が在ればその木。無ければ frozen_tree、それも無ければ handoff。frozen_problems の
+    基準の木と同じ）から、パスの中身を読む口（conflict.ruled_test_limits の source。修正案の limit をその木でテストの id から
+    引き直す）。状態・木・パスが読めなければ口は None を返す（許しを捨てる側）。状態は口を呼んだ時に読む"""
     def read(path):
         try:
             st = _load(state_file) if state_file else {}
-            tree = st.get("frozen_tree") or st.get("handoff")
+            tree = since or st.get("frozen_tree") or st.get("handoff")
             return git(repo, "show", f"{tree}:{path}") if tree else None
         except (Broken, Unreadable):
             return None
@@ -1288,6 +1359,22 @@ def _function_span(old, line):
 def suite_made(state_file) -> list:
     """実行器を走らせて出来たファイル（書き込みの出どころの突き合わせから外す。状態が無ければ空）"""
     return _load(state_file).get("suite_made", []) if state_file else []
+
+
+def states(board_dir) -> list:
+    """盤面の根の輪の状態 tdd-<k>/state.json を番号の順に（run の全部の輪。2 回目の修正の段の輪は 1 回目の後に起きる）。
+    置き場が無ければ空"""
+    got = []
+    for d in pathlib.Path(board_dir).glob("tdd-*"):
+        k = d.name[len("tdd-"):]
+        if k.isdigit() and (d / STATE).is_file():
+            got.append((int(k), d / STATE))
+    return [p for _, p in sorted(got)]
+
+
+def suite_made_all(board_dir) -> set:
+    """run の全部の輪（states）の suite_made の和（書き込みの出どころの突き合わせと案の項目の照らしが外す）"""
+    return {f for p in states(board_dir) for f in suite_made(p)}
 
 
 ACCEPT_RUN = "accept"   # 受け付けが走らせた回のログ・JUnit の名（suite-accept.log）

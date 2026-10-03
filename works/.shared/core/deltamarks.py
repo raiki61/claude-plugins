@@ -123,7 +123,7 @@ def gaps(reply: dict, items: list | None) -> list[str]:
             out.append(f"compliance.items[{j}].item（{r['item']}）: 承認済みの修正案の項目の番号は 1〜{n}")
         if r["kind"] in FAIL_KINDS and r["item"] in held:
             out.append(f"compliance.items[{j}].item（{r['item']}）: 項目 {r['item']} は裁定で直す義務から外れた（held: "
-                       f"{held[r['item']]}）。外れた項目に {r['kind']} の行を書くな（手直しに直させない。次の run の修正案で決める）")
+                       f"{held[r['item']]}）。外れた項目に {r['kind']} の行を書くな（手直しに直させない。最後の人の関所で人が決める）")
         if r["kind"] in FAIL_KINDS and r["face_key"] not in faces:
             out.append(f"compliance.items[{j}].face_key（{r['face_key']}）: faces の key に無い。"
                        "差分の中の所を faces に挙げて face_key で結べ")

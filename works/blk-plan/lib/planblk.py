@@ -17,6 +17,10 @@
 - collect:  出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file}。役の節がこの周に
             待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true。
             独立設計が 3 回とも拒まれたのは止めず、盤面の trace に設計が無いことを書く（最後の R2 が目の層で言う）
+- replan:   入力 replan が空でなく文字列 null でもなければ（ラインが同じブロックを 2 度目に include した、同じ run の中の案の直し。
+            依頼 226）、snap・prep・main_accept・collect を core の replan の同名の口へ回す（prep は head と、事前審査なら独立設計の節
+            design_only を組んで渡す）。独立設計の輪は今どおり design.due で飛ぶ。collect_reads は役の名 replan-<役> で読んだ証拠を
+            reads-replan-<役>.json に、索引を replan.READS_INDEX に書く（1 回目の reads-<役>.json・reads-plan-block.json を上書きしない）
 """
 import copy
 import json
@@ -40,6 +44,7 @@ import libdocs  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
 import reads  # noqa: E402
+import replan as replan_mod  # noqa: E402  （入力の名 replan と分ける）
 import rolekit  # noqa: E402
 import structmark  # noqa: E402
 
@@ -215,7 +220,7 @@ def not_allowed(b, nid: str, reply) -> list[str]:
 
 
 def design_section(b) -> str:
-    """事前審査の指示書の頭に貼る節: 独立設計の節（_design_part）と、修正案の項目の works の欄の節（planmarks.review_section。
+    """事前審査の指示書の頭に貼る節: 独立設計の節（design_only）と、修正案の項目の works の欄の節（planmarks.review_section。
     控えが無ければ無し）。欄の控えが凍結の印と食い違えば盤面を止めて（by works:plan）控えを名指す理由の BoardGap"""
     try:
         fields = planmarks.review_section(b)
@@ -224,11 +229,12 @@ def design_section(b) -> str:
         if not (b.state.get("halted") or b.state.get("stop")):
             b.stop(why, by=STOP_BY)
         raise BoardGap(why) from None
-    return _design_part(b) + fields
+    return design_only(b) + fields
 
 
-def _design_part(b) -> str:
-    """独立設計の節。設計が問いは立たないと返した・設計が無い時は、突き合わせない旨と理由"""
+def design_only(b) -> str:
+    """独立設計の節だけ（項目の works の欄の節は入れない）。設計が問いは立たないと返した・設計が無い時は、突き合わせない旨と理由。
+    同じ run の中の案の直しの事前審査の指示書にも貼る"""
     got, _ = design.made(b.dir)
     if got is None:
         return f"{DESIGN_HEAD}\n\n" + DESIGN_NONE.format(why=design.missing(b))
@@ -248,11 +254,19 @@ def lib_section(b, repo) -> str:
 
 
 # ---------------------------------------------------------------- 節
-def snap(board_dir, role: str, repo) -> dict:
+def replanning(replan) -> bool:
+    """入力 replan が同じ run の中の案の直しの口を指すか（空でも文字列 null でもない）"""
+    return bool(_given(replan))
+
+
+def snap(board_dir, role: str, repo, replan: str = "") -> dict:
     """<役>-snap: 節が待っていれば作業ツリーの写しを置いて go: true。待っていなければ写しを置かずに go: false。修正案の
-    行き止まりの盤面（stuck_reason）は止めて go: false。独立設計の役は core の design.snap（起こすかは design.due）"""
+    行き止まりの盤面（stuck_reason）は止めて go: false。独立設計の役は core の design.snap（起こすかは design.due）。
+    replan なら core の replan.snap"""
     if role == DESIGN_ROLE:
         return design.snap(board_dir, repo)
+    if replanning(replan):
+        return replan_mod.snap(board_dir, role, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
     if _pending(b, nid) is None:
@@ -263,14 +277,18 @@ def snap(board_dir, role: str, repo) -> dict:
     return {"ok": True, "go": True, "snapshot_file": str(p)}
 
 
-def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
+def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "") -> dict:
     """<役>-prep: 描く → 番号の控え → 起こした印。返り {prompt_file, attempt, out_path, node, already}。
     独立設計の役は core の design.prep（返り {prompt, prompt_file, node, attempt, already, role_def, role_def_missing}。
-    道具ゼロなので指示書の本文を返し、commands/r2-design.md が直の参照で貼る）"""
+    道具ゼロなので指示書の本文を返し、commands/r2-design.md が直の参照で貼る）。replan なら core の replan.prep に、頭
+    （head。修正案の頭は planmarks.HEAD を含む）と、事前審査なら独立設計の節だけ（design_only）を渡す"""
     if role == DESIGN_ROLE:
         return design.prep(board_dir, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
+    if replanning(replan):
+        return replan_mod.prep(board_dir, role, repo, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo))),
+                               design_part=design_only(b) if role == "plan-review" else "")
     if role == "plan":
         why = halt_if_stuck(b)
         if why:   # snap が先に止めて輪を飛ばすので、ここに届くのは配線の誤り。指示書を書かずに 2 で落とす（役を起こさせない）
@@ -343,11 +361,15 @@ def with_plan_fields(run):
     return wrapped
 
 
-def main_accept(role: str) -> int:
+def main_accept(role: str, replan: str = "") -> int:
     """<役>-accept の入口（rolekit.main_accept）。独立設計の役は core の design.accept_reply（盤面の節へ渡さない。拒否の理由は
-    reason_file に書く）"""
+    reason_file に書く）。replan なら core の replan.accept_reply（同じ包み）"""
     if role == DESIGN_ROLE:
         return rolekit.script_main(lambda board, repo, env: design.accept_reply(board, env["INPUTS_REPLY"], repo),
+                                   ("INPUTS_REPLY",), fence=True, take="plan")
+    if replanning(replan):
+        role_node(role)
+        return rolekit.script_main(lambda board, repo, env: replan_mod.accept_reply(board, role, env["INPUTS_REPLY"], repo),
                                    ("INPUTS_REPLY",), fence=True, take="plan")
     return rolekit.main_accept(role_node(role), snapshot_name=snapshot_name(role), give_up_after=GIVE_UP_AFTER,
                                take=take(role))
@@ -359,22 +381,26 @@ def _write_json(path: pathlib.Path, doc) -> None:
     os.replace(tmp, path)
 
 
-def collect_reads(board_dir, repo, run_id: str, include: str) -> dict:
+def collect_reads(board_dir, repo, run_id: str, include: str, replan: str = "") -> dict:
     """plan-reads: この周に描いた役ごとに、機械が渡したパス（描いた指示書・方針の文書）を読んだ証拠を reads.collect で集め、
-    {役: reads-<役>.json} を reads-plan-block.json に書く。受け付けの条件にはしない。返り {ok: True, reads_file}"""
+    {役: reads-<役>.json} を reads-plan-block.json に書く。受け付けの条件にはしない。返り {ok: True, reads_file}。
+    replan なら案の直しの役の指示書について、役の名 replan-<役> で reads-replan-<役>.json に、索引を replan.READS_INDEX に書く
+    （1 回目の控えを上書きしない）"""
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     events = reads.events_for(run_id) if run_id else None
     policy = _given(b.state["inputs"].get("policy_md"))
+    again = replanning(replan)
     files = {}
     for role in ROLES:
-        prompt = b.work(rolekit.prompt_name(role_node(role)))
+        prompt = b.work(rolekit.prompt_name(replan_mod.node_of(role) if again else role_node(role)))
         if not prompt.exists():
             continue
         must = [str(prompt)] + ([policy] if policy else [])
-        got = reads.collect(pathlib.Path(board_dir), role, reads.node_path(include, f"{role}-loop", role), must, events,
+        name = f"{replan_mod.READS_PREFIX}{role}" if again else role
+        got = reads.collect(pathlib.Path(board_dir), name, reads.node_path(include, f"{role}-loop", role), must, events,
                             repo=pathlib.Path(repo))
-        files[role] = got["reads_file"]
-    out = b.work(READS_INDEX)
+        files[name] = got["reads_file"]
+    out = b.work(replan_mod.READS_INDEX if again else READS_INDEX)
     _write_json(out, files)
     return {"ok": True, "reads_file": str(out)}
 
@@ -387,8 +413,11 @@ def _first_line(path: str) -> str:
     return (text.strip().splitlines() or [""])[0]
 
 
-def collect(board_dir) -> dict:
-    """出口。役の節がこの周に待ったままなら（3 回とも拒まれた・輪が回らなかった）最後の拒否の理由で盤面を止める"""
+def collect(board_dir, replan: str = "") -> dict:
+    """出口。役の節がこの周に待ったままなら（3 回とも拒まれた・輪が回らなかった）最後の拒否の理由で盤面を止める。replan なら
+    core の replan.collect（役の諦めは盤面を止めない）"""
+    if replanning(replan):
+        return replan_mod.collect(board_dir)
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     out = {"ok": True, "plan_file": "", "review_file": "", "asks_human": False, "gate_kinds": [], "reads_file": "",
            "gave_up": False, "reason_file": ""}

@@ -106,6 +106,7 @@ HEAVY = frozenset({
     "test_fixture",         # 固定材料: test_blk_fix の BoardCase で試験ごとに種の git と盤面（entry.start）を作り、写して別の置き場へ取り込む
     "test_plan_brief",      # 修正案の項目ごとの brief: test_blk_fix の BoardCase で試験ごとに種の git（linekit.seed_repo）と盤面（entry.start）を作る
     "test_blk_fix_conflict",# 食い違いの申し出と裁定の輪: 試験ごとの種の git と盤面（entry.start）・スクリプトを子で起こす
+    "test_replan",          # 案の直しの締め（依頼 226）: test_blk_fix_conflict の ReplanCase で試験ごとに種の git と盤面を作る
     "test_blk_fix_tdd",     # 修正の段の TDD の輪: 種の git（gitkit の写し）と小さな実行器を子で起こす・一時の index で版を固める
     "test_fix_gates",       # 事後の関門の束: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作り、小さな実行器を子で起こす・一時の git worktree
     "test_writes",          # 書き込みの出どころ: 種の git（gitkit の写し）・記録器と小さな実行器を子で起こす・TDD の輪を回す
