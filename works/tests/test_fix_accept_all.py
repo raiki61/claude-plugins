@@ -8,6 +8,8 @@
   並べる。最後の回は止めてよい確かめの行だけで単位を止める
 - 凍結と書き込みの出どころも積む（Task 4）: 凍ったテストのファイル・書き込みの出どころの誤りも積んで先へ進み、食い違いの申し出は
   積んだ誤りに依らず裁定へ渡す（run 222f の 3 回の拒否を 1 回に並べる）
+- 待つ単位の控え（Task 5。226 との継ぎ目）: 案の直しを待つ単位が在る盤面で、控える（hold_fix）のは積んだ行が無く写しの照らしも
+  乾いた形で通る返答だけ。誤りが在れば控えずに並べて拒む（控えた返答を hand_held が渡して拒まれ盤面が止まる前に役へ返す）
 盤面は test_blk_fix の BoardCase（本物の darkfactory の表・種の git）で作る。
 """
 import hashlib
@@ -27,7 +29,7 @@ import entry  # noqa: E402
 import recount  # noqa: E402
 import conflict  # noqa: E402
 from test_blk_fix import CLAMP, FIXED, INVENTED, MEAN, extra_row, load  # noqa: E402
-from test_blk_fix_conflict import conflict_on_mean, only_clamp_reply  # noqa: E402
+from test_blk_fix_conflict import ReplanCase, conflict_on_mean, only_clamp_reply  # noqa: E402
 
 FROZEN_LINE = "TDD の輪で凍ったテストのファイルを書き換えた: ['test_stats.py']（輪で直した単位のテストは変えない）"
 WRITES_LINE = "書き込みの出どころの記録が無い変更: stats.py"
@@ -285,6 +287,54 @@ class RenderCase(unittest.TestCase):
                 fmt = test_blk_fix.find_node(nodes, nid)["output_format"]
                 self.assertEqual(fmt["properties"].get("rejects"), {"type": "array"})
                 self.assertNotIn("rejects", fmt["required"])
+
+
+class HoldCase(ReplanCase):
+    """案の直しを待つ単位（mean を fix_plan_item に裁いた盤面）が在る間の受け付け（2 回目の受け付け ruled）"""
+
+    acc = AllChecksCase.acc
+    env = AllChecksCase.env
+
+    def accept_held(self, reply):
+        """受け付けの本体を ruled で直に呼ぶ。返り (結果, hold_fix の mock, recount.accept_fix の mock)"""
+        self.replanned()
+        self.assertTrue(conflict.waiting(entry.open_board(self.board)))
+        with mock.patch.object(self.acc, "hold_fix", wraps=self.acc.hold_fix) as hold, \
+                mock.patch.object(self.acc.recount, "accept_fix", wraps=self.acc.recount.accept_fix) as rc, \
+                self.env(pass_="ruled"):
+            got = self.acc.accept_fix(reply, self.board, "", self.repo)
+        return got, hold, rc
+
+    def assert_not_held(self, got, hold, rc):
+        self.assertIs(got["ok"], False, got)
+        hold.assert_not_called()
+        self.assertFalse(entry.open_board(self.board).work(conflict.HELD_REPLY).exists())
+        rc.assert_called_once(); self.assertIs(rc.call_args.kwargs["commit"], False)
+        self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
+
+    def test_waiting_board_rejects_instead_of_holding(self):
+        reply = only_clamp_reply()
+        reply["changes"].append(reply["changes"][0])          # 重なりの誤り
+        got, hold, rc = self.accept_held(reply)
+        self.assert_not_held(got, hold, rc)
+        self.assertIn("duplicate", [r["check"] for r in got["rejects"]])
+
+    def test_waiting_board_rejects_copy_error_before_holding(self):
+        # 積んだ行が無くても、写しの照らしの誤りが在れば控えない（乾いた照らしで役へ返す。裁定 F6）
+        reply = only_clamp_reply()
+        reply["changes"][0]["breaks"]["result"] = "なし"
+        got, hold, rc = self.accept_held(reply)
+        self.assert_not_held(got, hold, rc)
+        self.assertEqual({r["check"] for r in got["rejects"]}, {"copy"}, got["rejects"])
+
+    def test_waiting_board_holds_clean_reply(self):
+        got, hold, rc = self.accept_held(only_clamp_reply())
+        self.assertEqual((got["ok"], got.get("parked"), got["done"]), (True, True, True), got)
+        hold.assert_called_once()
+        rc.assert_called_once(); self.assertIs(rc.call_args.kwargs["commit"], False)   # 乾いた照らしだけで、盤面には渡さない
+        b = entry.open_board(self.board)
+        self.assertTrue(b.work(conflict.HELD_REPLY).is_file())
+        self.assertNotIn("p3.fix", b.state["outputs"])
 
 
 if __name__ == "__main__":

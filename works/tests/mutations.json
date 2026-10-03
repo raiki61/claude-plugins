@@ -135,7 +135,7 @@
   },
   {
    "id": "fx6",
-   "title": "修正の受け付けは積んだ拒否の行が在れば写しの照らしを乾いた形（commit=False）で当て、盤面に done を書かない（依頼 224）",
+   "title": "修正の受け付けは積んだ拒否の行が在るか待つ単位の間に控える時は写しの照らしを乾いた形（commit=False）で当て、盤面に done を書かない（依頼 224）",
    "file": "blk-fix/scripts/accept.py",
    "old": "    out = recount.accept_fix(reply, board, base_rev, repo, commit=not found and named is None)\n",
    "new": "    out = recount.accept_fix(reply, board, base_rev, repo, commit=True)\n",
@@ -154,6 +154,18 @@
    "tests": {
     "tests/test_fix_accept_all.py": [
      "AllChecksCase.test_last_round_unbindable_line_rejects_whole"
+    ]
+   }
+  },
+  {
+   "id": "fx8",
+   "title": "案の直しを待つ単位の間に控える（hold_fix）のは、積んだ行が無く写しの照らしも乾いた形で通る返答だけ（依頼 224 Task 5）",
+   "file": "blk-fix/scripts/accept.py",
+   "old": "    named = named_reply(reply, board) if conflict.waiting(b) else None\n",
+   "new": "    named = named_reply(reply, board) if conflict.waiting(b) else None\n    if named is not None:\n        return hold_fix(named, whole, b, traced)\n",
+   "tests": {
+    "tests/test_fix_accept_all.py": [
+     "HoldCase.test_waiting_board_rejects_copy_error_before_holding"
     ]
    }
   },
