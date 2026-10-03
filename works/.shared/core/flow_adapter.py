@@ -43,17 +43,23 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 
 NODE_EXECUTION_ENV = "ARCHON_NODE_EXECUTION"   # 形 A の出どころ（JSON。欄 path が include の名を頭に持つ step の名）
 INCLUDE_SEP = "__"                             # Archon が include の名と節の名をつなぐ字
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
 INPUTS_PREFIX = "INPUTS_"
 ASK_BACK = "聞き直しはまだ作らない（依頼 239 の §5。形は session.schema.json）"
+# scope の名の決まり（盤面の board.SCOPE_RULE と同じ字の組。board はこの模块を読まないので字で持つ）: 英字で始まり英数字・_・-
+# だけで、周の置き場 r<N> と紛れない名
+SCOPE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+ROUND_NAME = re.compile(r"r\d+")
 
 
 def _scope_from(env) -> str:
     """scope の読み口（ここ 1 か所。形 B へ移すならこの中身だけを替える）。形 A: ARCHON_NODE_EXECUTION の path の最初の `__` の前。
-    変数が無い・空は ""。在るのに JSON のオブジェクトでない・path が文字列でないなら ValueError（黙って線の置き場に落とさない）"""
+    変数が無い・空は ""。在るのに JSON のオブジェクトでない・path が文字列でない・include の名が scope の名の決まり（SCOPE_NAME で
+    ROUND_NAME でない）に外れるなら ValueError（黙って線の置き場に落とさない・盤面の置き場に書く前に止める）"""
     raw = env.get(NODE_EXECUTION_ENV, "")
     if not raw:
         return ""
@@ -65,6 +71,9 @@ def _scope_from(env) -> str:
     if not isinstance(path, str):
         raise ValueError(f"環境変数 {NODE_EXECUTION_ENV} に文字列の欄 path が無い: {raw[:200]}")
     head, sep, _ = path.partition(INCLUDE_SEP)
+    if sep and not (SCOPE_NAME.fullmatch(head) and not ROUND_NAME.fullmatch(head)):
+        raise ValueError(f"環境変数 {NODE_EXECUTION_ENV} の include の名 {head!r} は scope に使えない（英字で始まり英数字・_・- だけで、"
+                         f"r<数字> でない名。周の置き場や盤面の根の外に私物を書かない）: {path}")
     return head if sep else ""
 
 

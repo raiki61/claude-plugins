@@ -231,6 +231,7 @@ def save_closure(b, rows: list) -> pathlib.Path:
     site のパス、bound は site を当たりのファイルに結べたか。結べなければ covered は claimed と同じ）。（受けた返答の分で上書きする。読む側は今の周の表だけを読む）。
     置き場は盤面の今の scope の根（b.scope_root。修正のブロックの include ごとに分かれ、2 回目の修正の段が 1 回目の表を上書きしない）"""
     p = pathlib.Path(b.scope_root) / CLOSURE_FILE
+    p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + ".tmp")
     tmp.write_text(json.dumps({"round": b.round, "rows": rows}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     tmp.replace(p)
@@ -246,17 +247,17 @@ def _stuck(r: dict) -> bool:
 
 def closure_rows(b) -> list:
     """今の周の閉鎖の表の行（表が無い・読めない・前の周の物なら空）。表は include ごとに scope の根に在るので、盤面の根と
-    今の周に登録した scope の根（scopes.scope_roots）のうち最後に登録した物から読む（2 回目の修正の段の表が在ればそれ）"""
-    roots = [r for r in scopes.scope_roots(b) if (r / CLOSURE_FILE).is_file()]
-    if not roots:
-        return []
-    try:
-        doc = json.loads((roots[-1] / CLOSURE_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    if not isinstance(doc, dict) or doc.get("round") != getattr(b, "round", None):
-        return []
-    return [r for r in doc.get("rows") or [] if isinstance(r, dict)]
+    今の周に登録した scope の根（scopes.scope_roots）の表のうち、今の周の物で最後に登録した物から読む（2 回目の修正の段の
+    表が在ればそれ。読めない表・前の周の表は飛ばす）"""
+    docs = []
+    for root in scopes.scope_roots(b):
+        try:
+            doc = json.loads((root / CLOSURE_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(doc, dict) and doc.get("round") == getattr(b, "round", None):
+            docs.append(doc)
+    return [r for r in (docs[-1].get("rows") or []) if isinstance(r, dict)] if docs else []
 
 
 def closure_lines(b, *, mismatched_only: bool = False, stuck_only: bool = False, claimed=()) -> list:

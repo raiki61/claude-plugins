@@ -333,6 +333,25 @@ class FixtureStartCase(FixtureBase):
         self.assertIn("固定材料と works の版が違う", str(cm.exception))
         self.assertFalse(new_board.exists())
 
+    def test_start_refuses_fixture_before_scope_layout(self):
+        """この版より前に写した固定材料（盤面の state.works.layout が無い。部品の私物を include の scope の根に分けていない）→
+        取り込んだ所で「固定材料と works の版が違う」で拒み、取り込んだ盤面を残さない（後の include の中の節で盤面が開けずに
+        止まる run にしない。依頼 239）"""
+        _, src = self.captured()
+        state = src / "board" / "state.json"
+        doc = json.loads(state.read_text(encoding="utf-8"))
+        doc["works"].pop("layout")
+        state.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        man = json.loads((src / fixture.MANIFEST).read_text(encoding="utf-8"))
+        man["files"][f"{fixture.COPY}/state.json"] = hashlib.sha256(state.read_bytes()).hexdigest()
+        (src / fixture.MANIFEST).write_text(json.dumps(man, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        new_board = self.tmp / "b2" / "board"
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.start(new_board, self.clone_same_tree(), self.raw(src), run_id="run-2")
+        self.assertIn("固定材料と works の版が違う", str(cm.exception))
+        self.assertIn("layout", str(cm.exception))
+        self.assertFalse(new_board.exists())
+
     def test_check_inputs_fix_fixture(self):
         """fix_fixture は空か在るフォルダ。相対なら対象の根から絶対にする。無いフォルダは InputRefused"""
         self.fix_ready()

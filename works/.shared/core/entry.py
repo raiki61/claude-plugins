@@ -799,7 +799,8 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
     1. fixture.adopted が在れば（前の start が取り込んだ）、取り込み直さない（Archon の呼び直し。取り込みは空でない置き場を
        拒むので、ここで分けないと固定材料の run を続けられない）。前の控えの test_cmd・fix_shape と違えば InputRefused（通常の
        呼び直しと同じ）。無ければ fixture.adopt（入力は adopt_inputs。FixtureRefused は InputRefused。盤面は作らない）
-    2. open_board。表・graph が違えば（BoardMismatch）取り込んだ盤面を消して InputRefused（FIXTURE_MISMATCH）
+    2. open_board。表・graph が違う、か部品の置き場の版（state.works.layout）が今の board.LAYOUT でなければ（BoardMismatch）
+       取り込んだ盤面を消して InputRefused（FIXTURE_MISMATCH）
     3. 取り込んだ時だけ盤面の trace に fixture.TRACE_OP の 1 行
     4. ticket.write、start の控えに ci_role_go（偽）・pr_go（控えの値）・頭の行を書き足す
     返りは start と同じ形。取り込みは start の控えの入力の欄を今の入力と照らすので、入力の欄は控えの値も今の値も同じ"""
@@ -821,6 +822,10 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
         shape = inp["fix_shape"]
     try:
         b = open_board(board_dir)
+        layout = b.state["works"].get("layout")
+        if layout != board.LAYOUT:   # 線の最上段は scope なしで開けるので、後の include の中で開けなくなる前にここで止める
+            raise BoardMismatch(f"盤面 {board_dir} はこの版より前の固定材料（state.works.layout {layout!r}。今は "
+                                f"{board.LAYOUT!r}）——部品の私物を include の置き場に分けていない。この版で写し直す")
     except BoardMismatch as e:
         if not resumed:
             shutil.rmtree(board_dir, ignore_errors=True)   # 取り込んだ盤面を残さない（直して呼び直せるように）

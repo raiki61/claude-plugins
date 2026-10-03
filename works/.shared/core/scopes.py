@@ -8,7 +8,7 @@
 - PACK: works の pack の根（blk-*/ と線のフォルダ＝nodes.json を持つフォルダの親）
 - ManifestBroken(BoardGap): manifest が無い・読めない・形が合わない（パスと誤りの全部を文に載せる）
 - manifest(owner_dir): 1 つの owner の manifest を読んで照らした dict
-- manifests(pack): 全部の owner（blk-*/ と線のフォルダ）の名 → manifest
+- manifests(pack): 全部の owner（blk-*/ と線のフォルダ）の名 → manifest（読んで照らすのはプロセスごとに 1 度）
 - published(pack): per_include でなく周の置き場（at が round）に置く produces の名（fnmatch の形を含む）の集合
 - SHARED_ROUND: core が書き、どの scope からも同じ周の置き場 r<N>/ に置く共有の記録の名（scope の根に分けない）
 - round_names(pack): 盤面の work が scope の根でなく r<N>/ に置く名（published と SHARED_ROUND の和。entry.open_board が渡す）
@@ -26,7 +26,9 @@
 """
 from __future__ import annotations
 
+import copy
 import fcntl
+import functools
 import json
 import pathlib
 import sys
@@ -133,11 +135,11 @@ def _owner_dirs(pack: pathlib.Path) -> list[pathlib.Path]:
     return sorted(set(blocks) | set(lines))
 
 
-def manifests(pack: pathlib.Path = PACK) -> dict[str, dict]:
-    """pack の全部の owner（blk-*/ と nodes.json を持つ線のフォルダ）の名 → manifest。壊れた物が在れば、全部の文を 1 つの
-    ManifestBroken に並べる"""
+@functools.lru_cache(maxsize=None)
+def _loaded(pack: str) -> dict[str, dict]:
+    """pack の全部の manifest を読んで照らした物（プロセスごとに 1 度。盤面を開くたびに読み直さない。呼び手は書き換えない）"""
     out, broken = {}, []
-    for d in _owner_dirs(pack):
+    for d in _owner_dirs(pathlib.Path(pack)):
         try:
             out[d.name] = manifest(d)
         except ManifestBroken as e:
@@ -147,10 +149,16 @@ def manifests(pack: pathlib.Path = PACK) -> dict[str, dict]:
     return out
 
 
+def manifests(pack: pathlib.Path = PACK) -> dict[str, dict]:
+    """pack の全部の owner（blk-*/ と nodes.json を持つ線のフォルダ）の名 → manifest。壊れた物が在れば、全部の文を 1 つの
+    ManifestBroken に並べる。読むのはプロセスごとに 1 度（_loaded）で、返すのは写し（呼び手が書き換えても控えは変わらない）"""
+    return copy.deepcopy(_loaded(str(pathlib.Path(pack).resolve())))
+
+
 def published(pack: pathlib.Path = PACK) -> frozenset[str]:
     """per_include でなく at が round（既定）の produces の名（形を含む）の和。盤面の公開の置き場 r<N>/ に置く名
     （at が root の名は盤面の根に書かれ、work を通らない）"""
-    return frozenset(p["name"] for m in manifests(pack).values() for p in m["produces"]
+    return frozenset(p["name"] for m in _loaded(str(pathlib.Path(pack).resolve())).values() for p in m["produces"]
                      if not p.get("per_include") and p.get("at", "round") == "round")
 
 
@@ -162,7 +170,7 @@ def round_names(pack: pathlib.Path = PACK) -> frozenset[str]:
 def owner_of(name: str, pack: pathlib.Path = PACK) -> str | None:
     """name を per_include でなく出す owner（どの produces の形にも当たらなければ None）。2 つの owner の形に当たれば
     ManifestBroken（持ち主は 1 つ）"""
-    hits = sorted({owner for owner, m in manifests(pack).items() for p in m["produces"]
+    hits = sorted({owner for owner, m in _loaded(str(pathlib.Path(pack).resolve())).items() for p in m["produces"]
                    if not p.get("per_include") and matches(name, p["name"])})
     if len(hits) > 1:
         raise ManifestBroken(f"名 {name!r} を 2 つ以上の owner が公開の名に宣言している: {', '.join(hits)}")
@@ -210,7 +218,7 @@ def _all_registered(board_dir: pathlib.Path) -> list[str]:
 
 def _root_entry(scope: str) -> bool:
     """scope の名が盤面の根に作るフォルダの形（ROOT_DIRS と、manifest の at: root の produces の頭の段）に当たるか"""
-    heads = {p["name"].split("/")[0] for m in manifests().values() for p in m["produces"]
+    heads = {p["name"].split("/")[0] for m in _loaded(str(PACK.resolve())).values() for p in m["produces"]
              if p.get("at") == "root" and "/" in p["name"]}
     return any(matches(scope, pat) for pat in ROOT_DIRS | heads)
 
@@ -222,6 +230,7 @@ def claim(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> None:
     at: root の produces のフォルダ）に当たるか、根に同じ名のフォルダでない物が在る。根に同じ名のフォルダが在るだけでは拒まない
     （盤面を開かない節——依頼の受け付けの intake など——が script_io.scope_dir に先に書いて作る）"""
     d = pathlib.Path(board_dir)
+    root_entry = _root_entry(scope)   # 錠の外で（manifest はプロセスごとに 1 度読む）
     box = d / f"r{round_}"
     box.mkdir(parents=True, exist_ok=True)
     with open(box / REGISTRY_LOCK, "a", encoding="utf-8") as lock:
@@ -239,7 +248,7 @@ def claim(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> None:
                 if other is not None and other.get("block") != block:
                     raise BoardGap(f"scope {scope!r} を 2 つのブロックが名乗った（周 {n} に {other.get('block')!r}・今 {block!r}）"
                                    "——include の名が重なっている")
-            if _root_entry(scope) or ((d / scope).exists() and not (d / scope).is_dir()):
+            if root_entry or ((d / scope).exists() and not (d / scope).is_dir()):
                 raise BoardGap(f"scope {scope!r} が盤面の根の物 {d / scope} とぶつかる（根の記録のフォルダか、フォルダでない物）")
             doc[scope] = {"block": block, "order": 1 + max((v["order"] for v in doc.values()), default=0)}
             tmp = box / (REGISTRY + ".tmp")

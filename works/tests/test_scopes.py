@@ -87,6 +87,23 @@ class AdapterCase(unittest.TestCase):
                     flow_adapter.current_scope()
                 self.assertIn(NODE_EXECUTION, str(cm.exception))
 
+    def test_current_scope_refuses_bad_include_names(self):
+        # include の名が scope の名の決まり（board.SCOPE_RULE と同じ字の組）に外れれば、置き場に書く・登録する前に拒む。
+        # r2 は周の置き場 r<N> に私物を書き込む名
+        import script_io
+        for path in ("r2__fix-prep", "1fix__x", "-x__y", "a.b__c"):
+            with self.subTest(path=path), self._with({NODE_EXECUTION: _execution(path)}):
+                with self.assertRaises(ValueError) as cm:
+                    flow_adapter.current_scope()
+                self.assertIn(path.split("__")[0], str(cm.exception))
+                with self.assertRaises(ValueError):
+                    script_io.scope_dir(pathlib.Path("/b"))
+        with self._with({NODE_EXECUTION: _execution("r2x__y")}):
+            self.assertEqual(flow_adapter.current_scope(), "r2x")
+        import board   # 盤面の scope の名の決まりと同じ字の組（board は flow_adapter を読まないので両方が字で持つ）
+        self.assertEqual((flow_adapter.SCOPE_NAME.pattern, flow_adapter.ROUND_NAME.pattern),
+                         (board._SCOPE_NAME.pattern, board._ROUND_NAME.pattern))
+
     def test_artifact_root_none_when_missing_or_empty(self):
         for env in ({}, {"ARTIFACTS_DIR": ""}):
             with self._with(env):
@@ -290,6 +307,19 @@ class ClaimCase(unittest.TestCase):
         line = self.put("r1/fix-held-reply.json")   # scope の無い盤面（線・今までの置き場）の物が先
         self.assertEqual(scopes.each(b, "fix-held-reply.json"), [line, first, second])
         self.assertEqual(scopes.scope_roots(b), [self.board, self.board / "fixing", self.board / "refitting"])
+
+    def test_manifests_read_once_per_process(self):
+        # 盤面を開くたび（公開の名・根の物とのぶつかり）に全部の manifest を読み直して照らさない。返す写しを書き換えても控えは変わらない
+        scopes._loaded.cache_clear()
+        self.addCleanup(scopes._loaded.cache_clear)
+        with mock.patch.object(scopes, "manifest", wraps=scopes.manifest) as read:
+            scopes.round_names()
+            scopes.claim(self.board, 1, "fixing", "blk-fix")
+            scopes.round_names()
+            got = scopes.manifests()
+            got["blk-fix"]["produces"].clear()
+            self.assertEqual(read.call_count, len(scopes.manifests()))
+        self.assertTrue(scopes.manifests()["blk-fix"]["produces"])
 
     def test_running_block_reads_script_place(self):
         for argv0, want in ((str(ROOT / "blk-fix" / "scripts" / "accept.py"), "blk-fix"),
