@@ -85,11 +85,15 @@ def walk(nodes, inside=None):
             yield from walk(n["loop_group"].get("nodes"), n)
 
 
-def script_inputs(name):
+def script_module(name):
     spec = importlib.util.spec_from_file_location(f"_blk_plan_{name}", BLK / "scripts" / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.INPUTS
+    return mod
+
+
+def script_inputs(name):
+    return script_module(name).INPUTS
 
 
 class YamlCase(unittest.TestCase):
@@ -107,7 +111,8 @@ class YamlCase(unittest.TestCase):
 
     def test_inputs_and_exit(self):
         self.assertEqual(set(self.y["inputs"]), {"judgment_file", "base_rev", "policy_paste", "policy_path", "excluded_file",
-                                                 "include_id"})
+                                                 "include_id", "replan"})
+        self.assertEqual(self.y["inputs"]["replan"]["default"], "")
         self.assertIs(self.y["inputs"]["judgment_file"]["required"], True)
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
         self.assertEqual(set(self.top["collect"]["output_format"]["required"]),
@@ -157,7 +162,8 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(self.top["converge-loop"]["depends_on"], ["plan-snap", "plan-loop"])
         self.assertEqual(self.top["converge-loop"]["trigger_rule"], "none_failed_min_one_success")
         self.assertNotIn("when", self.top["converge-loop"])
-        self.assertEqual(inner["plan-revise-snap"]["with"], {"role": planblk.REVISE_ROLE})
+        self.assertEqual(inner["plan-revise-snap"]["with"], {"role": planblk.REVISE_ROLE, "replan": "$INPUTS.replan"})
+        self.assertEqual(inner["converge-check"]["with"], {"replan": "$INPUTS.replan"})   # 2 度目の include では 1 往復で done
         self.assertNotIn("depends_on", inner["plan-revise-snap"])
         self.assertEqual(inner["plan-review-snap"]["depends_on"], ["plan-revise-snap", "plan-revise-loop"])
         self.assertEqual(inner["converge-check"]["script"], "converge")
@@ -179,9 +185,11 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(loop["depends_on"], ["plan-revise-snap"])
         for k in ("allowed_tools", "settingSources", "sandbox", "mutates_checkout", "idle_timeout", "model", "effort"):
             self.assertEqual(role.get(k), plan.get(k), k)
-        self.assertEqual(every["plan-revise-prep"]["with"], {"role": planblk.REVISE_ROLE, "excluded_file": "$INPUTS.excluded_file"})
+        self.assertEqual(every["plan-revise-prep"]["with"], {"role": planblk.REVISE_ROLE, "excluded_file": "$INPUTS.excluded_file",
+                                                            "replan": "$INPUTS.replan"})
         self.assertEqual(every["plan-revise-accept"]["with"],
-                         {"role": planblk.REVISE_ROLE, "reply": {"from": f"${planblk.REVISE_ROLE}.output"}})
+                         {"role": planblk.REVISE_ROLE, "reply": {"from": f"${planblk.REVISE_ROLE}.output"},
+                          "replan": "$INPUTS.replan"})
 
     def test_design_loop_first_and_tool_less(self):
         """独立設計の輪は修正案より前（plan-snap がその後を待つ）。道具ゼロで印に旗 isolated、指示書の本文は commands/r2-design.md が
@@ -241,7 +249,10 @@ class YamlCase(unittest.TestCase):
                 continue
             with self.subTest(n["id"]):
                 want = {f"INPUTS_{k.upper()}" for k in (n.get("with") or {})}
-                self.assertEqual(set(script_inputs(n["script"])), want)
+                mod = script_module(n["script"])
+                self.assertEqual(set(mod.INPUTS), want)
+                self.assertEqual(set(mod.OPTIONAL), {"INPUTS_REPLAN"}, "後から足した replan だけが無くてよい（無い・空は今どおり）")
+                self.assertEqual(n["with"]["replan"], "$INPUTS.replan", "同じ script を回す節は全部 replan を渡す")
                 self.assertEqual((n["timeout"], n["runtime"]), (DEADLINE, "uv"))
                 if "role" in (n.get("with") or {}):
                     self.assertEqual(n["id"].rsplit("-", 1)[0], n["with"]["role"])
@@ -1727,6 +1738,28 @@ class ConvergeReviseCase(unittest.TestCase):
         self.assertEqual(review["node_path"], "planning__converge-loop.plan-review-loop.plan-review")
         plan = json.loads(pathlib.Path(idx["plan"]).read_text(encoding="utf-8"))
         self.assertEqual(plan["node_path"], "planning__plan-loop.plan")
+
+    def test_replan_include_does_not_converge(self):
+        """2 度目の include（依頼 226 の replanning。入力 replan）では壁打ちを回さない: 同じ周の 1 回目の控えの抜け方が again で
+        p2.fix_plan が待っていても、直しの役の snap は go 偽で写しを置かず、converge-check は 1 往復で done（outcome・record_file は
+        空）。読んだ証拠は直しの役を数えず、案の直しの役の節の名は READS_LOOP の入れ子の輪で組む（F9）"""
+        role = planblk.REVISE_ROLE
+        self.again()
+        b = self.board_obj()
+        self.assertEqual(converge.read(b)["outcome"], converge.AGAIN)
+        self.assertIs(self.check()["done"], False)   # 1 回目の include なら壁打ちは続く
+        self.assertEqual(self.ok("snap", role=role, replan="true"), {"ok": True, "go": False, "snapshot_file": ""})
+        self.assertFalse(b.work(planblk.snapshot_name(role)).exists())
+        self.assertEqual(self.ok("converge", replan="true"), {"ok": True, "done": True, "outcome": "", "record_file": ""})
+        self.assertEqual(converge.read(b)["outcome"], converge.AGAIN)   # 控えに触れない
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        self.ok("prep", role=role, excluded_file="")   # 1 回目の直しの役の指示書が同じ周に在る
+        b.work(rolekit.prompt_name(planblk.replan_mod.REVIEW_NODE)).write_text("案の直しの事前審査\n", encoding="utf-8")
+        idx = json.loads(pathlib.Path(planblk.collect_reads(self.board, self.repo, "", "replanning", "true")["reads_file"])
+                         .read_text(encoding="utf-8"))
+        self.assertEqual(set(idx), {f"{planblk.replan_mod.READS_PREFIX}plan-review"})
+        got = json.loads(pathlib.Path(idx[f"{planblk.replan_mod.READS_PREFIX}plan-review"]).read_text(encoding="utf-8"))
+        self.assertEqual(got["node_path"], "replanning__converge-loop.plan-review-loop.plan-review")
 
     def test_revise_mark_continues_plan(self):
         of = planblk.output_format(planblk.REVISE_ROLE)

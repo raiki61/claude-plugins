@@ -21,11 +21,16 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
             直しの役は block への答え（converge の block_answers）の欠けと誤りを盤面へ渡す前に拒み、答えを外した案を修正案と同じ口
             （with_plan_fields。比べる作業ツリーの写しは直しの役の snap が置いた物）に渡し、盤面が受けたら答えを控えに置く（revise_take）
 - converge-check: 壁打ちの出口 {ok, done, outcome, record_file}。抜け方が again でない・今の往復の役が諦めた・盤面が止まった時に
-            done（converge_check。輪を max_iterations で落とさない。R50）
+            done（converge_check。輪を max_iterations で落とさない。R50）。replan では壁打ちを回さない（直しの役の snap は
+            go: false、converge-check はいつも 1 往復で done）
 - reads:    役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
 - collect:  出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file}。役の節がこの周に
             待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true。
             独立設計が 3 回とも拒まれたのは止めず、盤面の trace に設計が無いことを書く（最後の R2 が目の層で言う）
+- replan:   入力 replan が空でなく文字列 null でもなければ（ラインが同じブロックを 2 度目に include した、同じ run の中の案の直し。
+            依頼 226）、snap・prep・main_accept・collect を core の replan の同名の口へ回す（prep は head と、事前審査なら独立設計の節
+            design_only を組んで渡す）。独立設計の輪は今どおり design.due で飛ぶ。collect_reads は役の名 replan-<役> で読んだ証拠を
+            reads-replan-<役>.json に、索引を replan.READS_INDEX に書く（1 回目の reads-<役>.json・reads-plan-block.json を上書きしない）
 """
 import copy
 import json
@@ -50,6 +55,7 @@ import libdocs  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
 import reads  # noqa: E402
+import replan as replan_mod  # noqa: E402  （入力の名 replan と分ける）
 import rolekit  # noqa: E402
 import structmark  # noqa: E402
 
@@ -240,7 +246,7 @@ def not_allowed(b, nid: str, reply) -> list[str]:
 
 
 def design_section(b) -> str:
-    """事前審査の指示書の頭に貼る節: 独立設計の節（_design_part）と、修正案の項目の works の欄の節（planmarks.review_section。
+    """事前審査の指示書の頭に貼る節: 独立設計の節（design_only）と、修正案の項目の works の欄の節（planmarks.review_section。
     控えが無ければ無し）。欄の控えが凍結の印と食い違えば盤面を止めて（by works:plan）控えを名指す理由の BoardGap"""
     try:
         fields = planmarks.review_section(b)
@@ -249,11 +255,12 @@ def design_section(b) -> str:
         if not (b.state.get("halted") or b.state.get("stop")):
             b.stop(why, by=STOP_BY)
         raise BoardGap(why) from None
-    return _design_part(b) + fields
+    return design_only(b) + fields
 
 
-def _design_part(b) -> str:
-    """独立設計の節。設計が問いは立たないと返した・設計が無い時は、突き合わせない旨と理由"""
+def design_only(b) -> str:
+    """独立設計の節だけ（項目の works の欄の節は入れない）。設計が問いは立たないと返した・設計が無い時は、突き合わせない旨と理由。
+    同じ run の中の案の直しの事前審査の指示書にも貼る"""
     got, _ = design.made(b.dir)
     if got is None:
         return f"{DESIGN_HEAD}\n\n" + DESIGN_NONE.format(why=design.missing(b))
@@ -273,14 +280,23 @@ def lib_section(b, repo) -> str:
 
 
 # ---------------------------------------------------------------- 節
-def snap(board_dir, role: str, repo) -> dict:
+def replanning(replan) -> bool:
+    """入力 replan が同じ run の中の案の直しの口を指すか（空でも文字列 null でもない）"""
+    return bool(_given(replan))
+
+
+def snap(board_dir, role: str, repo, replan: str = "") -> dict:
     """<役>-snap: 節が待っていれば作業ツリーの写しを置いて go: true。待っていなければ写しを置かずに go: false。修正案の
     行き止まりの盤面（stuck_reason）は止めて go: false。独立設計の役は core の design.snap（起こすかは design.due）。
-    直しの役は壁打ちの抜け方が again（converge.held）で p2.fix_plan が待つ時だけ go: true（写しは plan-revise-snapshot.json）"""
+    直しの役は壁打ちの抜け方が again（converge.held）で p2.fix_plan が待つ時だけ go: true（写しは plan-revise-snapshot.json）。
+    replan なら直しの役はいつも go: false（案の直しは壁打ちを回さない。事前審査の穴は関所 replan-gate が項目ごとに読む）、
+    ほかの役は core の replan.snap"""
     if role == REVISE_ROLE:
-        return _revise_snap(board_dir, repo)
+        return {"ok": True, "go": False, "snapshot_file": ""} if replanning(replan) else _revise_snap(board_dir, repo)
     if role == DESIGN_ROLE:
         return design.snap(board_dir, repo)
+    if replanning(replan):
+        return replan_mod.snap(board_dir, role, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
     if _pending(b, nid) is None:
@@ -291,16 +307,21 @@ def snap(board_dir, role: str, repo) -> dict:
     return {"ok": True, "go": True, "snapshot_file": str(p)}
 
 
-def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
+def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "") -> dict:
     """<役>-prep: 描く → 番号の控え → 起こした印。返り {prompt_file, attempt, out_path, node, already}。
     独立設計の役は core の design.prep（返り {prompt, prompt_file, node, attempt, already, role_def, role_def_missing}。
-    道具ゼロなので指示書の本文を返し、commands/r2-design.md が直の参照で貼る）。直しの役は _revise_prep"""
+    道具ゼロなので指示書の本文を返し、commands/r2-design.md が直の参照で貼る）。直しの役は _revise_prep（replan では snap が
+    go: false なので届かない）。replan なら core の replan.prep に、頭（head。修正案の頭は planmarks.HEAD を含む）と、事前審査
+    なら独立設計の節だけ（design_only）を渡す"""
     if role == REVISE_ROLE:
         return _revise_prep(board_dir)
     if role == DESIGN_ROLE:
         return design.prep(board_dir, repo)
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
+    if replanning(replan):
+        return replan_mod.prep(board_dir, role, repo, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo))),
+                               design_part=design_only(b) if role == "plan-review" else "")
     if role == "plan":
         why = halt_if_stuck(b)
         if why:   # snap が先に止めて輪を飛ばすので、ここに届くのは配線の誤り。指示書を書かずに 2 で落とす（役を起こさせない）
@@ -480,11 +501,15 @@ def revise_take():
     return wrapped
 
 
-def converge_check(board_dir) -> dict:
+def converge_check(board_dir, replan: str = "") -> dict:
     """converge-check: 壁打ちの出口。done は「控えの抜け方が again でない」か「今の往復で p2.fix_plan か p2.plan_review の拒否が
     GIVE_UP_AFTER 件に達した」か「盤面が止まっている」（止まった盤面では役が起きず抜け方が again のまま残るので、輪を
     max_iterations で落とさずに抜ける。R50。報告は collect が出す）。止めた盤面でも開ける。
+    replan ならいつも 1 往復で done（outcome・record_file は空。同じ周の 1 回目の控えを読まない。案の直しは壁打ちを回さず、
+    事前審査の穴は関所 replan-gate が項目ごとに読む）。
     返り {ok: True, done, outcome（控えの語。無ければ ""）, record_file}"""
+    if replanning(replan):
+        return {"ok": True, "done": True, "outcome": "", "record_file": ""}
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     outcome = converge.read(b)["outcome"]
     gave = any(len(rolekit.rejects(b, nid)) >= GIVE_UP_AFTER for nid in NODE_OF.values())
@@ -509,11 +534,16 @@ def accept_reply(board_dir, role: str, raw: str, repo) -> dict:
     return rolekit.accept_role(pathlib.Path(board_dir), nid, raw, pathlib.Path(repo), give_up_after=GIVE_UP_AFTER, **kw)
 
 
-def main_accept(role: str) -> int:
+def main_accept(role: str, replan: str = "") -> int:
     """<役>-accept の入口（rolekit.main_accept）。独立設計の役は core の design.accept_reply（盤面の節へ渡さない。拒否の理由は
-    reason_file に書く）。ほかの役は _accept_args の口"""
+    reason_file に書く）。replan なら core の replan.accept_reply（同じ包み。直しの役は replan では snap が go: false なので
+    届かず、役の名の誤りとして落とす）。ほかの役は _accept_args の口"""
     if role == DESIGN_ROLE:
         return rolekit.script_main(lambda board, repo, env: design.accept_reply(board, env["INPUTS_REPLY"], repo),
+                                   ("INPUTS_REPLY",), fence=True, take="plan")
+    if replanning(replan):
+        role_node(role)
+        return rolekit.script_main(lambda board, repo, env: replan_mod.accept_reply(board, role, env["INPUTS_REPLY"], repo),
                                    ("INPUTS_REPLY",), fence=True, take="plan")
     nid, kw = _accept_args(role)
     return rolekit.main_accept(nid, give_up_after=GIVE_UP_AFTER, **kw)
@@ -525,27 +555,31 @@ def _write_json(path: pathlib.Path, doc) -> None:
     os.replace(tmp, path)
 
 
-def collect_reads(board_dir, repo, run_id: str, include: str) -> dict:
+def collect_reads(board_dir, repo, run_id: str, include: str, replan: str = "") -> dict:
     """plan-reads: この周に描いた役ごとに、機械が渡したパス（描いた指示書・方針の文書）を読んだ証拠を reads.collect で集め、
     {役: reads-<役>.json} を reads-plan-block.json に書く。直しの役は今の周に書いた往復ごとの指示書（方針の文書は修正案の
-    会話に在るので求めない）。出来事の節の名は READS_LOOP の輪の名で組む。受け付けの条件にはしない。返り {ok: True, reads_file}"""
+    会話に在るので求めない）。出来事の節の名は READS_LOOP の輪の名で組む。受け付けの条件にはしない。返り {ok: True, reads_file}。
+    replan なら案の直しの役（直しの役は replan で起きないので数えない）の指示書について、役の名 replan-<役> で
+    reads-replan-<役>.json に、索引を replan.READS_INDEX に書く（1 回目の控えを上書きしない）"""
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     events = reads.events_for(run_id) if run_id else None
     policy = _given(b.state["inputs"].get("policy_md"))
+    again = replanning(replan)
     files = {}
-    for role in (*ROLES, REVISE_ROLE):
+    for role in ROLES if again else (*ROLES, REVISE_ROLE):
         if role == REVISE_ROLE:
             prompts = [b.work(REVISE_PROMPT.format(k=k)) for k in range(1, converge.pass_no(b) + 1)]
         else:
-            prompts = [b.work(rolekit.prompt_name(role_node(role)))]
+            prompts = [b.work(rolekit.prompt_name(replan_mod.node_of(role) if again else role_node(role)))]
         must = [str(p) for p in prompts if p.exists()]
         if not must:
             continue
         must += [policy] if policy and role != REVISE_ROLE else []
-        got = reads.collect(pathlib.Path(board_dir), role, reads.node_path(include, READS_LOOP[role], role), must, events,
+        name = f"{replan_mod.READS_PREFIX}{role}" if again else role
+        got = reads.collect(pathlib.Path(board_dir), name, reads.node_path(include, READS_LOOP[role], role), must, events,
                             repo=pathlib.Path(repo))
-        files[role] = got["reads_file"]
-    out = b.work(READS_INDEX)
+        files[name] = got["reads_file"]
+    out = b.work(replan_mod.READS_INDEX if again else READS_INDEX)
     _write_json(out, files)
     return {"ok": True, "reads_file": str(out)}
 
@@ -558,8 +592,11 @@ def _first_line(path: str) -> str:
     return (text.strip().splitlines() or [""])[0]
 
 
-def collect(board_dir) -> dict:
-    """出口。役の節がこの周に待ったままなら（3 回とも拒まれた・輪が回らなかった）最後の拒否の理由で盤面を止める"""
+def collect(board_dir, replan: str = "") -> dict:
+    """出口。役の節がこの周に待ったままなら（3 回とも拒まれた・輪が回らなかった）最後の拒否の理由で盤面を止める。replan なら
+    core の replan.collect（役の諦めは盤面を止めない）"""
+    if replanning(replan):
+        return replan_mod.collect(board_dir)
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     out = {"ok": True, "plan_file": "", "review_file": "", "asks_human": False, "gate_kinds": [], "reads_file": "",
            "gave_up": False, "reason_file": ""}

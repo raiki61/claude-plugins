@@ -31,7 +31,7 @@
 - 作り直し（redo）: fix_rejects は修正の受け付け（fix-accept・fix-ruled-accept。どちらも accept_fix）の拒否の本文のファイル
   FIX_REJECTS の数（修正の受け付けは role-rejects.json を書かない）から battery_rejects を引いた物（束の拒否も同じ本文を書くので
   2 重に数えない）、tdd_rejects は輪の calls の ok が偽の行、battery_rejects は
-  束の行の在る受け付けの回（周・pass・attempt。preflight F23）、delta_faces は差分の審査（p3.delta_review・p3.delta_review2）が
+  束の行の在る受け付けの回（周・pass・回の印 tag（2 回目の修正の段。依頼 226）・attempt。preflight F23）、delta_faces は差分の審査（p3.delta_review・p3.delta_review2）が
   受け付けた穴、refix_rounds は手直し（report.REFIX_NODES）を受け付けた回（盤面の trace の done の行）、subagent_redos は g1 の
   下請けの作り直しの往復（数え方は下）。compliance_fails・quality_fails（VERDICT_FAILS）は 1 回目の差分の
   審査が受けた 2 判定（盤面の trace の deltamarks.SAVED_OP）の準拠と品質の fail の数。どちらも delta_faces と同じ穴を判定で数え
@@ -373,7 +373,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
                         "だけが在る（フックの欠けを自己申告が隠した疑い）")
     rows = _ledgers(rounds, gaps)
     items = len(fields) if fields else len(asked)
-    battery = len({(n, r.get("pass"), r.get("attempt")) for n, r in rows})
+    battery = len({(n, r.get("pass"), r.get("tag"), r.get("attempt")) for n, r in rows})
     out["items"] = items
     out["redo"] = {"fix_rejects": max(0, len(list(board.glob(FIX_REJECTS))) - battery),
                    "tdd_rejects": sum(1 for c in calls if c.get("ok") is False),

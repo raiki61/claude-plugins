@@ -333,7 +333,9 @@ class GateCase(EdgeBase):
                  ("gate", {"gate": {"decision": "continue"}}), ("review", {"gate": {"decision": "continue"}}),
                  ("fix", {"tests": {"ok": True}}), ("tests", {"tests": {"ok": True}}),
                  ("fix", {"judged": {"judgment_file": "x"}}), ("final", {"tests": {"ok": True}, "final_gate": "sometimes"}),
-                 ("final", {"tests": "green"}), ("plan", {"judged": "x"})]
+                 ("final", {"tests": "green"}), ("plan", {"judged": "x"}),
+                 ("replan", {"gate": {"decision": "continue"}}), ("regate", {"gate": {"decision": "continue"}}),
+                 ("refit", {"gate": {"decision": "maybe"}}), ("refit", {"tests": {"ok": True}})]
         for at, kw in cases:
             with self.subTest(at=at, kw=kw):
                 with self.assertRaises(BoardGap):
@@ -692,6 +694,32 @@ class EntryMidCase(EdgeBase):
             with self.subTest(at=at):
                 got = self.edge(at)
                 self.assertEqual((got["go"], got["stop"]), (False, False))
+
+
+class ReplanEdgeCase(EdgeBase):
+    """案の直しの 3 つの境の節（依頼 226。h-replan・h-regate・h-refit）: 修正の段で fix_plan_item に裁いた項目が無い周（今の周の
+    replan.json が無い）は何もしない。関所の答えは at refit だけが受け、最後の関所の答えのファイルに書かない。中身の筋書き
+    （直す・聞く・止める）は test_replan.TestLineReplay"""
+
+    def test_nothing_to_replan(self):
+        self.fixed()
+        for at in ("replan", "regate", "refit"):
+            with self.subTest(at=at):
+                got = self.edge(at)
+                self.assertEqual((got["stop"], got["go"], got["ask"]), (False, False, False))
+        got = self.edge("refit", gate={"decision": "stop", "text": "止める"})   # 控えの無い周に届いた答え: 当てる項目が無い
+        self.assertEqual((got["stop"], got["go"]), (False, False))
+        b = entry.open_board(self.board)
+        self.assertFalse(b.work(line_edge.FINAL_GATE_ANSWER).exists())
+        self.assertFalse(b.work("replan.json").exists())
+        self.assertIsNone(b.state.get("stop"))
+
+    def test_gate_branches_are_named_per_at(self):
+        """関所の答えを受ける境の節は at ごとに名指す（fix は policy-gate、refit は replan-gate、eyes は final-gate）"""
+        self.assertEqual(line_edge.GATE_AT, ("fix", "refit", "eyes"))
+        self.assertLess(line_edge.AT.index("fix"), line_edge.AT.index("replan"))
+        self.assertEqual(line_edge.AT[line_edge.AT.index("replan"):line_edge.AT.index("rejudge") + 1],
+                         ("replan", "regate", "refit", "rejudge"))
 
 
 class RejudgeEdgeCase(EdgeBase):

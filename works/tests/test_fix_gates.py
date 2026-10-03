@@ -305,6 +305,16 @@ class TestTestEdits(FixGatesCase):
         self.assertEqual(self.problems(pass_="ruled"), [])
         self.assertEqual([(r["gate"], r["id"]) for r in self.problems(pass_="first")], [("test_edits", THREE_ID)])
 
+    def test_second_pass_keeps_first_pass_ruled_limit(self):
+        """2 回目の修正の段（回の印 refit。依頼 226）の受け付けは、裁定の前（first）でも 1 回目の段の裁定 fix_test_scope の範囲の
+        直しを通す（base からの差分に 1 回目の直しが在る）"""
+        self.ready_with_fields(direct_fields())
+        self.rule(["test_stats.py:9"])
+        self.edit_tests(*THREE_EDIT)
+        self.assertEqual(self.problems(pass_="first", tag="refit"), [])
+        self.assertEqual([(r["gate"], r["id"]) for r in self.problems(pass_="first")], [("test_edits", THREE_ID)],
+                         "1 回目の段の裁定の前は今どおり")
+
     def rule(self, limits):
         entry.open_board(self.board).work(conflict.FILE).write_text(json.dumps({"items": [
             {"id": "c1-1", "unit_key": tbf.MEAN, "between": ["stats.py:9", "test_stats.py:9"],
@@ -340,6 +350,18 @@ class TestLedgerAndText(FixGatesCase):
         self.assertEqual(set(rows[0]), {"pass", "attempt", "shape", "gate", "id", "detail", "unit_keys"})
         self.problems(attempt=1, pass_="ruled")
         self.assertEqual(len(self.ledger()["rows"]), 4, "裁定の後の 1 回目は別の回")
+
+    def test_second_pass_rows_carry_the_tag(self):
+        """2 回目の修正の段の行と飛ばした理由は回の印 tag を持ち、1 回目の段の同じ (pass, attempt) の物と混ざらない"""
+        self.ready_with_fields()
+        self.edit_tests(*THREE_EDIT)
+        self.problems(suite="", attempt=1)
+        self.problems(suite="", attempt=1, tag="refit")
+        rows = self.ledger()["rows"]
+        self.assertEqual(sorted(r.get("tag", "") for r in rows), ["", "refit"], rows)
+        self.assertEqual(fixgates.skipped(self.board, pass_="first", attempt=1), [fixgates.NO_SUITE])
+        self.assertEqual(fixgates.skipped(self.board, pass_="first", attempt=1, tag="refit"), [fixgates.NO_SUITE])
+        self.assertEqual(len(self.ledger()["skipped"]), 2)
 
     def test_reject_text_lists_every_row(self):
         rows = [{"gate": "red_green", "id": MEAN_ID, "detail": "base で緑", "unit_keys": [tbf.MEAN]},
@@ -391,7 +413,7 @@ class TestAcceptWiring(FixGatesCase):
             got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
         self.assertIs(got["ok"], False, got)
         self.assertTrue(got["reason"].startswith(fixgates.REJECT), got["reason"])
-        gates.assert_called_once_with(self.board, self.repo, "", self.SUITE, 1, pass_="first")
+        gates.assert_called_once_with(self.board, self.repo, "", self.SUITE, 1, pass_="first", tag="")
         recount.assert_not_called()   # 盤面に done("p3.fix") を書く前に拒む（preflight F12）
         self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
 

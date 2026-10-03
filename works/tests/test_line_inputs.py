@@ -33,11 +33,11 @@ sys.path.insert(0, str(TESTS))
 import entry  # noqa: E402
 import linekit  # noqa: E402
 
-# 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}
+# 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}（減らす方向にだけ変える）
 OPTIONAL_INPUTS = {}
 # 定数 INPUTS をまだ持たないスクリプト（裁定 TA16 の縛りの外。減らす方向にだけ変える。持ったら消す）
 NO_INPUTS_CONSTANT = frozenset({
-    "blk-fix/scripts/ignored_before.py", "blk-fix/scripts/clean.py", "blk-fix/scripts/assert_changed.py",
+    "blk-fix/scripts/assert_changed.py",
     "blk-judge/scripts/intake.py", "blk-judge/scripts/accept.py", "blk-judge/scripts/collect.py",
     "blk-purpose/scripts/intake.py", "blk-purpose/scripts/accept.py", "blk-purpose/scripts/collect.py",
 })

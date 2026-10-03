@@ -37,6 +37,12 @@ inputs:
   include_id:
     default: planning
     description: ラインがこのブロックを include した id（読んだ証拠が Archon の出来事の節の名 <include>__<輪>.<役> を引くため）
+  replan:
+    default: ""
+    description: >-
+      同じ run の中の案の直し（依頼 226）の口。空か文字列 null なら今どおり。そのほかの値なら、ラインが同じブロックを 2 度目に
+      include した案の直しで、修正案と事前審査の役は修正の段で fix_plan_item と裁かれた項目だけを直し・審査する（core の replan。
+      盤面の節へ渡さず、今の周の replan.json に置く。独立設計の輪は今どおり控えが在れば飛ぶ）
 
 returns: collect
 outcome_field: ok
@@ -51,6 +57,7 @@ nodes:
     timeout: 1728000000
     with:
       role: r2-design
+      replan: $INPUTS.replan
     output_format:
       type: object
       additionalProperties: false
@@ -75,6 +82,7 @@ nodes:
           with:
             role: r2-design
             excluded_file: $INPUTS.excluded_file
+            replan: $INPUTS.replan
           output_format:
             type: object
             additionalProperties: false
@@ -138,6 +146,7 @@ nodes:
           with:
             role: r2-design
             reply: {from: "$r2-design.output"}
+            replan: $INPUTS.replan
           output_format:
             type: object
             additionalProperties: false
@@ -174,6 +183,7 @@ nodes:
     trigger_rule: none_failed_min_one_success
     with:
       role: plan
+      replan: $INPUTS.replan
     output_format:
       type: object
       additionalProperties: false
@@ -200,6 +210,7 @@ nodes:
           with:
             role: plan
             excluded_file: $INPUTS.excluded_file
+            replan: $INPUTS.replan
           output_format:
             type: object
             additionalProperties: false
@@ -428,6 +439,7 @@ nodes:
           with:
             role: plan
             reply: {from: "$plan.output"}
+            replan: $INPUTS.replan
           output_format:
             type: object
             required: [ok, done, give_up, reason_file]
@@ -462,6 +474,7 @@ nodes:
           timeout: 1728000000
           with:
             role: plan-revise
+            replan: $INPUTS.replan
           output_format:
             type: object
             additionalProperties: false
@@ -488,6 +501,7 @@ nodes:
                 with:
                   role: plan-revise
                   excluded_file: $INPUTS.excluded_file
+                  replan: $INPUTS.replan
                 output_format:
                   type: object
                   additionalProperties: false
@@ -546,6 +560,7 @@ nodes:
                 with:
                   role: plan-revise
                   reply: {from: "$plan-revise.output"}
+                  replan: $INPUTS.replan
                 output_format:
                   type: object
                   required: [ok, done, give_up, reason_file]
@@ -570,6 +585,7 @@ nodes:
           trigger_rule: none_failed_min_one_success
           with:
             role: plan-review
+            replan: $INPUTS.replan
           output_format:
             type: object
             additionalProperties: false
@@ -594,6 +610,7 @@ nodes:
                 with:
                   role: plan-review
                   excluded_file: $INPUTS.excluded_file
+                  replan: $INPUTS.replan
                 output_format:
                   type: object
                   additionalProperties: false
@@ -736,6 +753,7 @@ nodes:
                 with:
                   role: plan-review
                   reply: {from: "$plan-review.output"}
+                  replan: $INPUTS.replan
                 output_format:
                   type: object
                   required: [ok, done, give_up, reason_file]
@@ -751,13 +769,16 @@ nodes:
                     halted: {type: boolean}
                     out_file: {type: string}
 
-        # 壁打ちの出口。抜け方が again でない・今の往復の役が諦めた・盤面が止まった時に done（外の輪の until_bash が読む）
+        # 壁打ちの出口。抜け方が again でない・今の往復の役が諦めた・盤面が止まった時に done（外の輪の until_bash が読む）。
+        # 2 度目の include（replan）では壁打ちを回さない: 直しの snap は go: false、ここはいつも 1 往復で done
         - id: converge-check
           script: converge
           runtime: uv
           timeout: 1728000000
           depends_on: [plan-review-snap, plan-review-loop]
           trigger_rule: none_failed_min_one_success
+          with:
+            replan: $INPUTS.replan
           output_format:
             type: object
             additionalProperties: false
@@ -777,6 +798,7 @@ nodes:
     trigger_rule: none_failed_min_one_success
     with:
       include_id: $INPUTS.include_id
+      replan: $INPUTS.replan
     output_format:
       type: object
       additionalProperties: false
@@ -791,6 +813,8 @@ nodes:
     runtime: uv
     timeout: 1728000000
     depends_on: [plan-reads]
+    with:
+      replan: $INPUTS.replan
     output_format:
       type: object
       additionalProperties: false
