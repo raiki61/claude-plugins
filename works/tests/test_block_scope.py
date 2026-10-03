@@ -1,8 +1,9 @@
 """部品の置き場（依頼 239）の適合: 同じブロックを 1 run で 2 度 include しても、2 度目が 1 度目のファイルを上書きしない。
 
 線 darkfactory を本物のスクリプトで回し（tests/scriptline.py。役と関所だけを見本で置き換える）、線の最上段の include の節の
-前後で盤面の全部のファイルの中身（sha256）を控える。1 度目の窓（planning・fixing）で作った・変えたファイルのうち、共有の記録
-（core が書き、どの scope の窓でも変わってよい物）の外の物が、2 度目の窓（replanning・refitting）の前後で中身が違えば上書き。
+前後で盤面の全部のファイルの中身（sha256）と mtime を控える。1 度目の窓（planning・fixing）で作った・変えたファイルのうち、
+共有の記録（core が書き、どの scope の窓でも変わってよい物）の外の物が、2 度目の窓（replanning・refitting）の前後で中身か
+mtime が違えば上書き（同じ中身の書き直しも数える）。
 今は置き場を分けていないので落ちる（0.2.20 で refitting が fixing の fix-unit-rows.json・r1/brief-1.md・r1/briefs.json・
 r1/changes.json・r1/fix-gates.json・r1/rule-tree.json を上書きする。replanning は planning の物を上書きしない）。落ちた時の文が
 上書きしたファイルを全部名指すので、置き場の分けが進むにつれ一覧が縮むのを見られる。Task 5 で置き場の分けが効いたら
@@ -27,32 +28,44 @@ import test_line_a as TL  # noqa: E402
 import test_replan as tr  # noqa: E402
 from test_script_contract import line_replies  # noqa: E402
 
-# 共有の記録（Task 1 の M2 の class shared を fnmatch の形で字のまま。where が work の名は周の置き場 r<N>/ の下）。
-# Task 9 で scopes の定数に替える
+# 共有の記録（Task 1 の M2 の class shared を字のまま。where が work の名は周の置き場 r<N>/ の下）。照らしは "/" で区切った
+# 段ごとの fnmatch（* は段をまたがない。末尾の ** だけが下の全部の段に当たる）なので、/ を持たない形は盤面の根の名にしか当たらず、
+# r1/ の下の私物が *-r*.patch のような形の陰に隠れない。Task 9 で scopes の定数に替える
 SHARED = ("state.json", "record.json", "trace.jsonl", "out/**", "runs/**", "rounds/**", "STOP", "query-examples.json",
           "prompts/**", "roles/**", "items/**", "policy/**", "lanes/**", "diff-r*.patch", "changed-r*.txt", "*-r*.patch",
           "count-cache.json", "count-budget.json",
-          "r*/conflicts.json", "r*/libdocs.json", "r*/libdocs/**")
+          "r[0-9]*/conflicts.json", "r[0-9]*/libdocs.json", "r[0-9]*/libdocs/**")
 
 # 2 度 include するブロックの (1 度目, 2 度目) の節
 PAIRS = (("planning", "replanning"), ("fixing", "refitting"))
 
 
 def snapshot(board: pathlib.Path) -> dict:
-    """盤面の下の全部のファイルの相対パス → sha256"""
+    """盤面の下の全部のファイルの相対パス → "<sha256>:<st_mtime_ns>"（同じ中身の書き直しも違いに数える）"""
     board = pathlib.Path(board)
     if not board.is_dir():
         return {}
-    return {p.relative_to(board).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+    return {p.relative_to(board).as_posix(): f"{hashlib.sha256(p.read_bytes()).hexdigest()}:{p.stat().st_mtime_ns}"
             for p in sorted(board.rglob("*")) if p.is_file()}
 
 
+def _matches(path: str, pattern: str) -> bool:
+    """path が pattern に当たるか（"/" で区切った段ごとの fnmatch。末尾の ** は 1 段以上の残りの全部）"""
+    segs, pats = path.split("/"), pattern.split("/")
+    if pats[-1] == "**":
+        pats = pats[:-1]
+        if len(segs) <= len(pats):
+            return False
+        segs = segs[:len(pats)]
+    return len(segs) == len(pats) and all(fnmatch.fnmatchcase(s, p) for s, p in zip(segs, pats))
+
+
 def _shared(path: str, shared) -> bool:
-    return any(fnmatch.fnmatchcase(path, pat) for pat in shared)
+    return any(_matches(path, pat) for pat in shared)
 
 
 def clobbered(snaps: dict, first: str, second: str, shared) -> list:
-    """first の窓で作った・変えたファイルのうち、共有の記録の外で、second の窓の前後で中身が違う（消えたも含む）物の相対パス。
+    """first の窓で作った・変えたファイルのうち、共有の記録の外で、second の窓の前後で中身か mtime が違う（消えたも含む）物の相対パス。
     名の順"""
     before, after = snaps[(first, "start")], snaps[(first, "done")]
     mine = [p for p, h in after.items() if before.get(p) != h and not _shared(p, shared)]
