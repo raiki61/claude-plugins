@@ -46,7 +46,7 @@ BY_ROLE = "role:rule"
 BY_GIVE_UP = "works:rule-give-up"
 GIVE_UP_TEXT = f"裁定役の返答が {GIVE_UP_AFTER} 回とも受け付けを通らなかった——材料から決められない物として人に回した"
 READONLY = "裁定役は読むだけで、作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない: "
-REJECT_GLOB = f"{script_io.REJECT_PREFIX}accept_rule-*.txt"
+REJECT_FN = "accept_rule"   # 受け付けの関数の名（拒否の理由のファイルの名。script_io.reject_name）
 RULING_KEYS = ("decision", "text", "limits", "grounds", "request_searched", "query")   # 盤面の控えに積む裁定の欄
 RULE_OUTPUT_FORMAT = node_marker.mark({
     "type": "object", "additionalProperties": False, "required": ["rulings"],
@@ -67,29 +67,27 @@ def check(board_dir) -> dict:
     return {"go": bool(todo), "count": len(todo), "file": str(b.work(conflict.FILE)) if todo else ""}
 
 
-def _last_reject(board_dir) -> str:
-    def n(p):
-        tail = p.stem.rsplit("-", 1)[-1]
-        return int(tail) if tail.isdigit() else -1
-    got = sorted(pathlib.Path(board_dir).glob(REJECT_GLOB), key=n)
-    return str(got[-1]) if got else ""
+def _last_reject(board_dir, pass_tag: str = "") -> str:
+    """裁定の受け付けが回の印 pass_tag で書いた一番新しい拒否の理由のファイル（ほかの回の印の物は見ない。script_io.last_reject）"""
+    return script_io.last_reject(board_dir, REJECT_FN, pass_tag)
 
 
-def prep(board_dir, repo, values: dict) -> dict:
-    """節 rule-prep: {prompt_file, iteration}。裁く申し出が無ければ BoardGap（配線の誤り）"""
+def prep(board_dir, repo, values: dict, pass_tag: str = "") -> dict:
+    """節 rule-prep: {prompt_file, iteration}。裁く申し出が無ければ BoardGap（配線の誤り）。pass_tag は修正の段の回の印
+    （fixrules.tagged。指示書・回の数えの控え・拒否の理由の名を分け、2 回目の修正の段の裁定の輪は 1 から数える）"""
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir)
     todo = conflict.unruled(b)
     if not todo:
         raise BoardGap("裁く申し出が無い（conflict-check の go が偽なのに裁定の輪を回した）")
-    ledger = b.work(LEDGER)
+    ledger = b.work(fixrules.tagged(LEDGER, pass_tag))
     n = ((_read_json(ledger) or {}).get("iterations") or 0) + 1
     entry.snapshot(board_dir, TREE, pathlib.Path(repo))
     vals = {**values, "conflicts_file": str(b.work(conflict.FILE)), "ids": ", ".join(i["id"] for i in todo),
             "request_file": conflict.request_file(board_dir)}
-    text = fixrules.ruler_prompt(vals, reject_file=_last_reject(board_dir) if n > 1 else "", iteration=n,
+    text = fixrules.ruler_prompt(vals, reject_file=_last_reject(board_dir, pass_tag) if n > 1 else "", iteration=n,
                                  lang=fixrules.lang_at(board_dir))
-    path = b.work(PROMPT)
+    path = b.work(fixrules.tagged(PROMPT, pass_tag))
     path.write_text(text, encoding="utf-8")
     ledger.write_text(json.dumps({"iterations": n}) + "\n", encoding="utf-8")
     return {"prompt_file": str(path), "iteration": n}
@@ -214,7 +212,8 @@ def query_problems(r: dict, item: dict) -> list:
 
 
 def accept_rule(reply, board, base_rev, repo) -> dict:
-    """節 rule-accept の中身。{ok, done, reason, rulings_file, counts}"""
+    """節 rule-accept の中身。{ok, done, reason, rulings_file, counts}。裁定の文の名は修正の段の回の印（環境変数 INPUTS_PASS_TAG）で分ける"""
+    tag = os.environ.get("INPUTS_PASS_TAG", "")
     b = entry.open_board(pathlib.Path(board))
     todo = {i["id"]: i for i in conflict.unruled(b)}
     it = int(os.environ["INPUTS_ITERATION"])
@@ -231,11 +230,11 @@ def accept_rule(reply, board, base_rev, repo) -> dict:
             if r["decision"] == conflict.REPLAN:
                 got[conflict.PLAN_ITEMS], got[conflict.PLAN_UNITS] = plan_item_units(todo[r["id"]]["unit_key"], briefs)
             return got
-        path = conflict.apply_rulings(b, {r["id"]: stored(r) for r in reply["rulings"]}, by=BY_ROLE)
+        path = conflict.apply_rulings(b, {r["id"]: stored(r) for r in reply["rulings"]}, by=BY_ROLE, pass_tag=tag)
         return {"ok": True, "done": True, "reason": "", "rulings_file": str(path), "counts": conflict.counts(b)}
     out = {"ok": False, "done": False, "reason": " / ".join(errs), "rulings_file": "", "counts": conflict.counts(b)}
     if it >= GIVE_UP_AFTER:
         path = conflict.apply_rulings(b, {i: {"decision": conflict.ASK, "text": GIVE_UP_TEXT, "limits": []} for i in todo},
-                                      by=BY_GIVE_UP)
+                                      by=BY_GIVE_UP, pass_tag=tag)
         out.update(done=True, rulings_file=str(path), counts=conflict.counts(b))
     return out

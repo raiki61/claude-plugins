@@ -524,9 +524,11 @@ class TestRoleNodes(unittest.TestCase):
         self.assertEqual(fp["with"], {"judgment_file": "$INPUTS.judgment_file", "open_units": "$INPUTS.open_units",
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
                                       "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
-                                      "base_rev": "$INPUTS.base_rev", "pass": "first"})
-        # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
-        self.assertEqual(set(fp["with"]) - {"pass", "base_rev"}, set(fixrules.FIX_VALUES))
+                                      "base_rev": "$INPUTS.base_rev", "pass": "first", "pass_tag": "$INPUTS.pass_tag",
+                                      "include_id": "$INPUTS.include_id"})
+        # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）。回の印と include の名
+        # （依頼 226 の 2 回目の修正の段）も指示書に埋める run の値でない
+        self.assertEqual(set(fp["with"]) - {"pass", "base_rev", "pass_tag", "include_id"}, set(fixrules.FIX_VALUES))
         self.assertIn("variants_file", fp["output_format"]["required"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",
@@ -567,6 +569,9 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
             mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.recount),
             mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
             mock.patch.object(self.mod.writes, "trace"),
+            mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
+            # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
+            mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
         ]
@@ -672,7 +677,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
         with mock.patch.object(self.mod.entry, "open_board", return_value=b), \
                 mock.patch.object(self.mod.conflict, "park", side_effect=park), \
                 mock.patch.object(self.mod.conflict, "write_rulings",
-                                  side_effect=lambda b_: (work / self.mod.conflict.RULINGS_FILE).write_text("止めた\n", encoding="utf-8")), \
+                                  side_effect=lambda b_, tag="": (work / self.mod.conflict.RULINGS_FILE).write_text("止めた\n", encoding="utf-8")), \
                 mock.patch.object(self.mod.recount, "accept_fix", side_effect=recount), \
                 mock.patch.object(self.mod, "revert_units", return_value="/b/r1/fix-parked-1.patch"), \
                 mock.patch.object(self.mod, "unrevert_units") as unrevert:
@@ -779,6 +784,9 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
                                   {k: c[k] for k in ("unit_key", "files", "what")} for c in reply["changes"]]}),
             mock.patch.object(self.mod.entry, "open_board", return_value=mock.MagicMock()),
             mock.patch.object(self.mod.writes, "trace"),
+            mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
+            # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
+            mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
             mock.patch.object(self.mod, "revert_units", self.revert, create=True),
@@ -1151,6 +1159,23 @@ class G1ValuesCase(unittest.TestCase):
             text = pathlib.Path(f).read_text(encoding="utf-8")
             self.assertIn(VALUES["judgment_file"], text, "残りの項目の brief は判定のファイル")
         self.assertIn("d: 案の外", pathlib.Path(got[2]["impl_file"]).read_text(encoding="utf-8"))
+
+    def test_second_pass_files_carry_the_tag(self):
+        """2 回目の修正の段（回の印 refit。依頼 226）の下請けのファイル・差分のファイル・座の brief は印を足した名に書き、1 回目の物を
+        上書きしない"""
+        from unittest import mock
+        b = self.board()
+        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS), \
+                mock.patch.object(fixrules.planbrief, "cut", return_value=self.ROWS):
+            first = fixrules.g1_values(b, VALUES, "/repo", self.OWED[:2], "")
+            second = fixrules.g1_values(b, VALUES, "/repo", self.OWED[:1], "", "refit")
+            seat_brief = fixrules.implementer_values(b, VALUES, "/repo", self.OWED[:1], "refit")["[BRIEF_FILE]"]
+        self.assertEqual([pathlib.Path(second[0][k]).name for k in ("impl_file", "review_file", "patch")],
+                         ["g1-impl-1.refit.md", "g1-review-1.refit.md", "g1-1.refit.patch"])
+        self.assertEqual(pathlib.Path(seat_brief).name, "seat-briefs.refit.md")
+        self.assertIn("b: 上限", pathlib.Path(first[0]["impl_file"]).parent.joinpath("g1-impl-2.md").read_text(encoding="utf-8"),
+                      "1 回目の段のファイルは残る")
+        self.assertTrue(pathlib.Path(first[0]["impl_file"]).is_file())
 
     def test_no_remainder_when_items_cover_the_duty(self):
         from unittest import mock

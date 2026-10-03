@@ -95,6 +95,9 @@ class TestAcceptExcused(unittest.TestCase):
             mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.recount),
             mock.patch.object(self.mod.entry, "open_board", return_value=self.board),
             mock.patch.object(self.mod.writes, "trace"),
+            mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
+            # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
+            mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
             mock.patch.object(self.mod, "revert_units", self.revert),
             mock.patch.object(self.mod, "unrevert_units", self.unrevert),
         ]

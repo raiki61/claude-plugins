@@ -6,6 +6,10 @@
 - judge_edge(b, …): h-judge の固有の仕事（包みの確かめ・前提の実測が盤面に在るか。計画 P1 Task 24・P1-R9）
 - mat_edge(b, …): h-mat の固有の仕事（目的の文を盤面へ渡し、P1 の目を回すか。計画 P1 Task 32・33）
 - rejudge_edge(board_dir, repo): h-rejudge の固有の仕事（修正役の異議の再審を回すか。判定役の会話が無ければ止める。計画 P1 Task 31）
+- 同じ run の中の案の直し（依頼 226。core の replan）: h-replan（at replan）は修正の段で fix_plan_item と裁かれた項目を束ね
+  （replan.material）、案の直しのブロック（blk-plan の 2 度目の include）を回すか。h-regate（at regate）は直した項目に関所の
+  決まりを当て（replan.gate）、関所 replan-gate を開くか。h-refit（at refit）は関所の答えを当て（refit_edge・replan.answer）、
+  2 回目の修正の段（blk-fix の 2 度目の include。回の印 refit）を回すか。どれも今の周の replan.json が無ければ何もしない
 - eyes_edge(b): h-look の固有の仕事（独立の目を回すか。計画 P1 Task 33）。h-eyes も同じ go を返す（関所の後にまだ目が待つか——報告が
   blk-eyes の落ちを見分ける）。h-look は先に、blk-plan が修正の前に控えた独立設計（core の design。design.json）を、盤面が r2.design を
   待っていれば渡す（目的の文を h-mat が渡すのと同じ形）
@@ -57,6 +61,7 @@ import purpose  # noqa: E402
 import querytest  # noqa: E402
 import reads  # noqa: E402
 import rejudge  # noqa: E402
+import replan  # noqa: E402
 import report  # noqa: E402
 import structmark  # noqa: E402
 
@@ -65,9 +70,11 @@ import structmark  # noqa: E402
 # 人が止まれる所は最後の人の関所 final-gate。P1-R3）。when: と関所の文は境の節の欄だけを読み、go は盤面の ready から決める（TA1）。
 # rejudge は修正役の異議の再審を回すかを決める（計画 P1 Task 31）。look は最後のテストの後に独立の目を回すかを決め、eyes は
 # 独立の目と最後の関所の後に関所の答えを受ける（人は目の結果を見てから答える。本線の r4.human_gate と同じ順。名 h-eyes は前の並びのまま）
-AT = ("entry", "judge", "mat", "plan", "gate", "fix", "rejudge", "mid", "review", "refix", "tests", "look", "final", "eyes")
+# replan・regate・refit は修正の段の後・再審の前の案の直し（依頼 226。1 run に 1 回）
+AT = ("entry", "judge", "mat", "plan", "gate", "fix", "replan", "regate", "refit", "rejudge", "mid", "review", "refix", "tests",
+      "look", "final", "eyes")
 GO_NODE = {"plan": "p2.fix_plan", "fix": "p3.fix", "review": "p3.delta_review", "refix": "p3.delta_fix", "tests": "p4.ci"}
-GATE_AT = ("fix", "eyes")            # 関所の答えを受ける境の節（fix は policy-gate、eyes は final-gate）
+GATE_AT = ("fix", "refit", "eyes")   # 関所の答えを受ける境の節（fix は policy-gate、refit は replan-gate、eyes は final-gate）
 GATE_GO = ("approve", "continue")    # approve は continue と、reject は stop と同じ（台帳 R32）
 GATE_STOP = ("stop", "reject")
 GATE_STOP_NOTE = "関所で止めた"              # policy-gate の stop・reject に一言が無い時の理由
@@ -591,13 +598,6 @@ def _conflict_text(asks: list) -> str:
     return "\n".join(lines + ["", ""])
 
 
-def _replan_text(replanned: list) -> str:
-    """最後の関所の文の節（食い違いの申し出を fix_plan_item に裁いて直さずに残した単位。関所を開ける理由には数えない）"""
-    lines = [f"## {report.REPLAN_HEAD}（{len(replanned)} 件。この節だけでは関所を開けない）", ""]
-    lines += [f"- {x}" for x in replanned]
-    return "\n".join(lines + ["", ""])
-
-
 def _unproven_text(unproven: list) -> str:
     """最後の関所の文の節（判定者の問いを例で試していない単位。閉鎖の数え直しはその問いのまま）"""
     lines = [f"## {querytest.UNPROVEN_HEAD}（{len(unproven)} 件。閉鎖の数え直しは例で試していない問いのまま）", ""]
@@ -606,7 +606,8 @@ def _unproven_text(unproven: list) -> str:
 
 
 def _closure_text(closure: list, head: str = querytest.CLOSURE_HEAD) -> str:
-    """最後の関所の文の節（修正の受け付けが判定者の問いで数え直した単位ごとの表のうち、head の見出しに載せる単位）"""
+    """最後の関所の文の節（修正の受け付けが判定者の問いで数え直した単位ごとの表のうち、head の見出しに載せる単位。
+    同じ run の中で直した修正案の項目の行も、見出し replan.AMEND_HEAD でこの形に並べる）"""
     lines = [f"## {head}（{len(closure)} 件）", ""]
     lines += [f"- {x}" for x in closure]
     return "\n".join(lines + ["", ""])
@@ -696,8 +697,8 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     走れなかった・走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
     阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る時。文は冒頭 3 行（_final_head。開けた理由・決めて
     ほしいこと・推し）で始まり、守りのファイルはその 1 行目で名指し、3 行の直後の最初の節と process.human_items の 1 行にもなる。
-    開いた関所の文は、食い違いの申し出を fix_plan_item に裁いて直さずに残した単位と、例で証明できない単位も並べる（どちらも開ける
-    理由には数えない）。文は b.work(FINAL_GATE_FILE) にも"""
+    開いた関所の文は、例で証明できない単位と、同じ run の中で直した修正案の項目（replan.lines）も並べる（開ける理由には数えない）。案の直しを諦めた fix_plan_item の単位は ask_human と
+    同じ食い違いの申し出の行（conflict.human_lines）。文は b.work(FINAL_GATE_FILE) にも"""
     head = _tests_head(b, tests)
     eyes = _eyes(b)
     left = rejudge.unsettled(b)
@@ -713,14 +714,17 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     if (mode == "when_needed" and not why) or (mode == "protected_only" and not guarded):
         return {}
     unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
-    replanned = report.replanned_lines(b)          # 同じく見せるだけ（次の run の修正案で直す。人に回す物ではない）
     stuck = querytest.closure_lines(b, stuck_only=True)
     closure = querytest.closure_lines(b, claimed=report.claimed_units(b))
+    try:   # 案の直しの記録の行（関所を開ける理由には数えない）。控えが読めなければその文を 1 行に
+        amend = replan.lines(b)
+    except BoardGap as e:
+        amend = [str(e)]
     text = ("\n".join(_final_head(b, head, why, guarded)) + "\n\n"
             + (_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
-            + (_replan_text(replanned) if replanned else "")
             + (_closure_text(stuck, querytest.STUCK_HEAD) if stuck else "")
             + (_unproven_text(unproven) if unproven else "") + (_closure_text(closure) if closure else "")
+            + (_closure_text(amend, replan.AMEND_HEAD) if amend else "")
             + _final_text(b, head, tests, objection, eyes, repo, run_id))
     _write_text(b.work(FINAL_GATE_FILE), text)
     return {"ask": True, "gate_text": text, "gate_file": str(b.work(FINAL_GATE_FILE))}
@@ -879,6 +883,24 @@ def rejudge_edge(board_dir, repo) -> dict:
     return {"go": bool(got["next"])}
 
 
+def refit_edge(board_dir, repo, gate) -> dict:
+    """h-refit の固有の仕事（関所 replan-gate の後・2 回目の修正の段の前。依頼 226）: 関所の答え gate（開かなかったなら None）を
+    replan.answer で当てる。stop（答えが盤面を止めた）なら {"stop": True}。そうでなければ go は戻った単位が在り p3.fix が盤面で
+    待っているか、open_units は戻った単位だけの JSON の配列（1 回目に受け付けた単位を 2 回目の段の直す義務の並びに入れない——
+    TDD の輪の頭が『直すな・not_done に書け』と並べ、受け付けがその行を拒むので）、plan_file は差し替えた承認済みの修正案、
+    notes_file は修正の前の関所の条件（h-fix が書いた NOTES_FILE。2 回目の段にも効く）・人の一言・採った項目の事前審査の穴。
+    今の周の replan.json が無ければ go 偽"""
+    board_dir = pathlib.Path(board_dir)
+    fix_notes = entry.open_board(board_dir, allow_halted=True).work(NOTES_FILE)
+    got = replan.answer(board_dir, repo, gate, fix_notes=str(fix_notes))
+    if got["stop"]:
+        return {"stop": True}
+    b = entry.open_board(board_dir, allow_halted=True)
+    return {"go": bool(got["returned"]) and GO_NODE["fix"] in b.ready(),
+            "open_units": json.dumps(got["returned"], ensure_ascii=False),
+            "plan_file": got["plan_file"], "notes_file": got["notes_file"], "why": got["why"]}
+
+
 def eyes_edge(b) -> dict:
     """h-look の固有の仕事（最後のテストの後・最後の関所の前。計画 P1 Task 33）: go は独立の目（表の where が blk-eyes の役の節）が
     盤面で 1 つでも待っているか（p4.assemble が済み、条件に当たった目）。r4.human_gate が人に聞いたら、残りの目は答えるまで出ない——
@@ -927,11 +949,14 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
          gate: dict | None = None, tests: dict | None = None, premised: dict | None = None) -> dict:
     """境の節（計画 Task 10a。並びは C18 の順・計画 P1 Task 26）。返りは EMPTY の欄の全部（使わない欄は空の値。judgment_file・
     open_units はどの at でも h-plan の控え b.work(JUDGED_FILE) から）。盤面を開くのは 1 回（渡し替えの後は開き直す）。順:
+    0. at rejudge は、盤面を開く前に replan.settle（案の直しを待つ行を諦めた行にする。止まった盤面でも。待つ行が残れば BoardGap）。
     1. 盤面を allow_halted で開く。もう止まっている（halted・state.stop）なら、止め札の理由は trace にだけ書いて stop（M3）。
        ただし at look・final・eyes は、1 周の run が周を締めた盤面（halted.by stop_after_round。最後のテストの後の普通の終わり）を
        止めたと読まない
     2. at fix の gate（policy-gate の出口。None は開かなかった）: approve・continue は b.answer("continue", 一言)、
-       stop・reject は b.answer("stop", 一言 か GATE_STOP_NOTE)（盤面は halted.by == "answer"）
+       stop・reject は b.answer("stop", 一言 か GATE_STOP_NOTE)（盤面は halted.by == "answer"）。at refit の gate（replan-gate の
+       出口）は refit_edge（replan.answer。stop・reject は盤面を止める——止めた盤面を _halted_out で返す）。最後の関所の答えの
+       ファイル（FINAL_GATE_ANSWER）には書かない
     3. at eyes の gate（final-gate の出口）: どの答えも b.work(FINAL_GATE_ANSWER) に {decision, text} と human_items に 1 行。
        stop・reject は b.stop(一言 か FINAL_GATE_STOP_NOTE, by=FINAL_GATE_BY)——周を締めた盤面では b.stop が拒むので、
        trace に STOP_AFTER_END_OP の 1 行（by FINAL_GATE_BY）を書いて stop。守りのファイルの行（h-final が書いた）にも答えを写す。
@@ -947,24 +972,35 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        go なら _capture_fixture（1 周目の盤面を固定材料に写す。写せなくても止めない）。
        mat: mat_edge（目的の文を盤面へ・mat_go）。look・eyes: eyes_edge（go は独立の目が待っているか。look は先に design.hand で
        修正の前に控えた独立設計を盤面へ渡す）。rejudge: rejudge_edge
-       （go は再審の節が待っているか。判定役の会話を確かめられなければ止める）。mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
+       （go は再審の節が待っているか。判定役の会話を確かめられなければ止める）。replan: go は replan.material の go（案の直しを
+       待つ行が在り、今の周の p3.fix をまだ受けていない）。regate: replan.gate の ask・gate_text・gate_file（今の周の replan.json が
+       無ければ何もせず ask 偽）。refit: refit_edge（関所が開かなかった周も答え None で当てる）。
+       mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
        見分ける）・runtime_go・holdout_go は False・mid_note。review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。
        final: final_edge（final_gate と最後のテストの出口 tests と独立の目の判定から ask と文）。
     ready は DiskBoard.ready（書かない。開き直した盤面でも explicit の機械の節を落とさない）。
     配線の誤り（知らない at・場違いの入力・形の崩れ・知らない final_gate・adapter）は BoardGap"""
     mode = _check_args(at, final_gate=final_gate, judged=judged, gate=gate, tests=tests, premised=premised,
                        adapter_mode=adapter_mode)
+    if at == "rejudge":   # 修正の段を抜ける所: 止まっているかを見る前に、案の直しを待つ行を締める（止まった盤面でも）
+        replan.settle(board_dir, repo)
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     out = {**EMPTY, **_carried(b)}
     flag = halt.seen(board_dir)
     if _stopped(b) and not (at in ENDED_AT and _ended(b)):
         return _halted_out(b, out, flag, at)
+    refit = None
     if gate is not None:
         if at == "fix":
             _answer_policy_gate(b, gate)
             if _stopped(b):
                 return _halted_out(b, out, flag, at)
-        else:
+        elif at == "refit":
+            refit = refit_edge(board_dir, repo, gate)
+            b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
+            if refit.get("stop"):
+                return _halted_out(b, out, flag, at)
+        elif at == "eyes":
             stop, reason = _answer_final_gate(b, gate)
             if stop:
                 _stop_board(b, at, reason, FINAL_GATE_BY)
@@ -1012,6 +1048,12 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         if go:
             _capture_fixture(b, board_dir, repo, run_id)
         return {**out, "go": go, "notes": notes, "notes_file": notes_file, "plan_file": _out_file(b, "p2.fix_plan")}
+    if at == "replan":
+        return {**out, "go": replan.material(b)["go"]}
+    if at == "regate":
+        return {**out, **replan.gate(b, run_id=run_id)}
+    if at == "refit":
+        return {**out, **(refit if refit is not None else refit_edge(board_dir, repo, None))}
     if at == "rejudge":
         return {**out, **rejudge_edge(board_dir, repo)}
     if at == "mat":

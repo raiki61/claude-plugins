@@ -25,7 +25,9 @@ TDD の輪の中にだけ在った 2 つの関門を、修正の形（fixshape�
   修正案の名指しを許しにしない（current の腕の比べの条件。preflight F15）
 
 帳面（LEDGER。今の周の作業ファイル）: {"rows": [{pass, attempt, shape, gate, id, detail, unit_keys}], "skipped": [{pass, attempt, why}]}。
-受け付けの回の印は (pass, attempt)（裁定の後の輪は回を 1 から数え直す）。最後の回の通し直し（accept_fix が自分を呼び直す）で
+受け付けの回の印は (pass, attempt)（裁定の後の輪は回を 1 から数え直す）に、2 回目の修正の段（依頼 226）は回の印 tag を足す
+（行に鍵 tag。1 回目の段の行は鍵を持たない。一式のログの置き場の名も分ける）。2 回目の修正の段の test_edits は、base からの
+差分に 1 回目の段で裁定 fix_test_scope の範囲として直したテストが在るので、裁定の範囲をいつも許す（受け付けの凍結の検査の前の輪と同じ）。最後の回の通し直し（accept_fix が自分を呼び直す）で
 束が同じ回に 2 度走っても、同じ行・同じ skipped は 1 度だけ積む（preflight F23）。積む物が無ければ書かない。
 飛ばした理由は拒まない（受け付けの回数を使わない）が、見えなくしない: 受け付けが受けた時に unchecked(…)（skipped から
 OUT_OF_DUTY を除いた物。義務の外の項目は確かめる物でなく、ほかの項目は確かめた）を盤面の trace の SKIPPED_OP の行に載せ、
@@ -46,6 +48,7 @@ import entry  # noqa: E402  （.shared/core。盤面の入口）
 import fixshape  # noqa: E402  （.shared/core。盤面の修正の形）
 import impact  # noqa: E402  （.shared/core。受け付けの盤面の trace の行の名）
 import planmarks  # noqa: E402  （.shared/core。修正案の書き換えの名指し・テストの定義の行）
+import script_io  # noqa: E402  （.shared/core。回の印をファイルの名に足す唯一の口 tagged）
 import tddloop  # noqa: E402  （同じブロックの lib。輪の関門の読み口をそのまま使う）
 import writes  # noqa: E402  （.shared/core。修正前の版）
 from leftovers import Unreadable, git  # noqa: E402
@@ -63,10 +66,10 @@ SKIPPED_OP = impact.ACCEPT_GATES_SKIPPED_OP   # 受けた受け付けの回に�
 RUN = "gates"   # 一式のログ・JUnit の名（suite-gates-<回>-now.log・…-base.log）
 
 
-def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_: str = "first") -> list[dict]:
+def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_: str = "first", tag: str = "") -> list[dict]:
     """束の行 [{gate, id, detail, unit_keys（red_green は項目の単位・test_edits は空）}]（GATES の順）。行と飛ばした理由を
     帳面（LEDGER）に積む（飛ばした理由は skipped で読み直す）。盤面の欄の控えが凍結の印と食い違えば conflict.frozen_fields が
-    盤面を止めて BoardGap（受け付けの入口が 2 にする）"""
+    盤面を止めて BoardGap（受け付けの入口が 2 にする）。tag は修正の段の回の印（2 回目の段は refit。空は 1 回目の段）"""
     b = entry.open_board(board_dir)
     repo = pathlib.Path(repo)
     rev = writes.base_rev(b, base_rev)
@@ -77,11 +80,11 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
     if tests and not suite:
         gaps.append(NO_SUITE)
     elif tests:
-        got, why = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"))
+        got, why = _red_green(repo, rev, suite, tests, b.work(script_io.tagged(f"{RUN}-{pass_}-{attempt}", tag)))
         rows += got
         gaps += why
-    rows += _test_edits(b, repo, rev, plain, pass_ == "ruled")
-    _record(b, {"pass": pass_, "attempt": attempt}, fixshape.shape_at(board_dir), rows, gaps)
+    rows += _test_edits(b, repo, rev, plain, pass_ == "ruled" or bool(tag))
+    _record(b, _mark(pass_, attempt, tag), fixshape.shape_at(board_dir), rows, gaps)
     return rows
 
 
@@ -100,20 +103,26 @@ def reject_text(rows: list[dict]) -> str:
     return " / ".join(reject_lines(rows))
 
 
-def skipped(board_dir, *, pass_: str, attempt: int) -> list[str]:
-    """帳面の、受け付けの回 (pass_, attempt) に飛ばした理由（帳面が無い・その回の行が無ければ空）"""
+def _mark(pass_: str, attempt: int, tag: str = "") -> dict:
+    """帳面の行の受け付けの回の印（tag は 2 回目の修正の段だけ鍵に置く。1 回目の段の行は前の形のまま）"""
+    return {"pass": pass_, "attempt": attempt, **({"tag": tag} if tag else {})}
+
+
+def skipped(board_dir, *, pass_: str, attempt: int, tag: str = "") -> list[str]:
+    """帳面の、受け付けの回 (pass_, attempt, tag) に飛ばした理由（帳面が無い・その回の行が無ければ空）"""
     path = entry.open_board(board_dir, allow_halted=True).work(LEDGER)
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
-    return [r["why"] for r in doc.get("skipped") or [] if (r.get("pass"), r.get("attempt")) == (pass_, attempt)]
+    want = _mark(pass_, attempt, tag)
+    return [r["why"] for r in doc.get("skipped") or [] if {k: v for k, v in r.items() if k != "why"} == want]
 
 
-def unchecked(board_dir, *, pass_: str, attempt: int) -> list[str]:
+def unchecked(board_dir, *, pass_: str, attempt: int, tag: str = "") -> list[str]:
     """受け付けの回 (pass_, attempt) に、確かめるはずの受け入れのテストの赤緑を確かめなかった理由（skipped から OUT_OF_DUTY を
     除いた物）。受け付けが受けた回の盤面の trace に載せる"""
-    return unchecked_whys(skipped(board_dir, pass_=pass_, attempt=attempt))
+    return unchecked_whys(skipped(board_dir, pass_=pass_, attempt=attempt, tag=tag))
 
 
 def unchecked_whys(whys) -> list[str]:

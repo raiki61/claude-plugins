@@ -200,7 +200,7 @@ class SeamCase(test_blk_fix.BoardCase):
     def test_frozen_error_does_not_stop_ruled_revert(self):
         # 決め 5: ruled で凍結の誤りが在っても revert_ruled_units は今の位置で呼ばれる（224e の事前審査の穴 3）
         self.fix_ready(); self.edit_tree(FIXED)
-        with mock.patch.object(self.acc.tddloop, "frozen_problems", return_value=[FROZEN_LINE]), \
+        with mock.patch.object(self.acc, "check_frozen", return_value=[FROZEN_LINE]), \
                 mock.patch.object(self.acc, "revert_ruled_units", return_value=None) as revert:
             got = self.accept_direct(load("fix2_ok"), pass_="ruled")
         self.assertFalse(got["ok"])
@@ -209,7 +209,7 @@ class SeamCase(test_blk_fix.BoardCase):
 
     def first_pass_conflict(self) -> dict:
         """凍結の誤りが在る 1 回目に、名指しの在る食い違いの申し出（mean）を出す"""
-        with mock.patch.object(self.acc.tddloop, "frozen_problems", return_value=[FROZEN_LINE]), self.env():
+        with mock.patch.object(self.acc, "check_frozen", return_value=[FROZEN_LINE]), self.env():
             return self.acc.accept_fix(only_clamp_reply([conflict_on_mean()]), self.board, "", self.repo)
 
     def test_first_pass_conflict_reaches_ruling_with_frozen_error(self):
@@ -276,7 +276,7 @@ class RenderCase(unittest.TestCase):
         # 236 が role-rejects の行の確かめの id に引く表。id・並び（受け付けが回す順）・止めてよいかを固める
         self.assertEqual([(k, stop) for k, (_, stop) in self.acc.CHECKS.items()], [
             ("frozen", True), ("writes", True), ("conflict", False), ("pack", False), ("duplicate", False),
-            ("not_opened", False), ("excused", False), ("scope", True), ("tests", True), ("gates", True), ("copy", True)])
+            ("not_opened", False), ("accepted", False), ("excused", False), ("scope", True), ("tests", True), ("gates", True), ("copy", True)])
 
     def test_yaml_names_rejects_on_both_accept_nodes(self):
         nodes = test_blk_fix.block()["nodes"]

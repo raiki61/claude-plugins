@@ -20,8 +20,17 @@ GUESSED_CAUSES = "取り消し・abandon・役の出し直しの上限のどれ�
 
 
 def fake_board(tmp) -> types.SimpleNamespace:
-    """止めていない盤面（stop・halted なし。trace.jsonl なし）"""
-    return types.SimpleNamespace(state={}, dir=pathlib.Path(tmp))
+    """止めていない盤面（stop・halted なし。trace.jsonl なし。周は 1）"""
+    b = types.SimpleNamespace(state={}, dir=pathlib.Path(tmp), round=1)
+    b.work = lambda name: b.dir / name
+    return b
+
+
+def put_fix(b, doc: dict, rnd: int = 1) -> None:
+    """偽の盤面に今の周の p3.fix の返答を置く（recount.fix_reply が読む形: state.outputs の file と round）"""
+    (b.dir / "fix-out.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    b.round = rnd
+    b.state = {**b.state, "outputs": {"p3.fix": {"round": rnd, "file": "fix-out.json"}}}
 
 
 class HeadStopInterruptedCase(unittest.TestCase):
@@ -119,7 +128,7 @@ class FinalTestSuitesCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1,
                                        output_of_round=lambda nid, n: {})
-        self.enterContext(mock.patch.object(report, "_replanned", return_value=[]))   # 偽の盤面は食い違いの控えを持たない
+        self.b.work = lambda name: self.b.dir / name
 
     def head_text(self, tests):
         from unittest import mock
@@ -479,9 +488,7 @@ class ResidueOutcomeCase(unittest.TestCase):
         import querytest
         key = "stats.py clamp: 上限を超えた値に lo を返す"
         row = f"[block] 未解消: {key}"
-        self.b.round = 1
-        self.b.state = {"outputs": {"p3.fix": {"round": 1}}}
-        self.b.output_of_round = lambda nid, rnd: {"changes": [{"unit_key": key}]}
+        put_fix(self.b, {"changes": [{"unit_key": key}]})
         querytest.save_closure(self.b, [{"unit_key": key, "counts": "population", "total": 3, "after": 1, "claimed": 3,
                                          "covered": 2, "out_of_query": [], "bound": True, "closed": False,
                                          "discrepancies": []}])
@@ -493,9 +500,7 @@ class ResidueOutcomeCase(unittest.TestCase):
         """changes に載って閉鎖の表に行が無い単位は検証器の未解消から外す（名指しは ClaimedWithoutTableRowCase）"""
         key = "stats.py clamp: 上限を超えた値に lo を返す"
         row = f"[block] 未解消: {key}"
-        self.b.round = 1
-        self.b.state = {"outputs": {"p3.fix": {"round": 1}}}
-        self.b.output_of_round = lambda nid, rnd: {"changes": [{"unit_key": key}]}
+        put_fix(self.b, {"changes": [{"unit_key": key}]})
         self.assertEqual(report.residue(self.b, gate(1, validator_out(row, FIRST_ROUND))), [])
 
     def test_first_round_constant_matches_validator(self):
@@ -514,10 +519,10 @@ class ClaimedWithoutTableRowCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.b = types.SimpleNamespace(state={"outputs": {"p3.fix": {"round": 1}}}, dir=pathlib.Path(self._tmp.name),
-                                       record={"process": {}}, round=1, loop_state={},
-                                       output_of_round=lambda nid, n: {"changes": [{"unit_key": self.KEY}]})
+        self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1, loop_state={},
+                                       output_of_round=lambda nid, n: {})
         self.b.work = lambda name: self.b.dir / name
+        put_fix(self.b, {"changes": [{"unit_key": self.KEY}]})
 
     def head_text(self):
         with mock.patch.object(report, "_stop_info", return_value=("", "", None)), \
@@ -554,19 +559,29 @@ class ClaimedWithoutTableRowCase(unittest.TestCase):
 
 
 class NextRequestUnitRowsCase(unittest.TestCase):
-    """修正の not_done と人に回した単位は、next_request が単位の行を 1 つ持つ。検証器の『[block] 未解消: <key>』を残りから
-    もう 1 行渡さない（同じ単位が次の run に 2 件の依頼で届かない）。ほかの阻害の行は渡す"""
+    """修正の not_done と人に回した単位（ask_human と、案の直しを諦めた fix_plan_item の項目の単位の全部）は、next_request が
+    単位の行を 1 つ持つ。検証器の『[block] 未解消: <key>』を残りからもう 1 行渡さない（同じ単位が次の run に 2 件の依頼で
+    届かない）。ほかの阻害の行は渡す"""
 
     def test_unit_rows_not_doubled(self):
-        b = types.SimpleNamespace(state={"outputs": {"p3.fix": {"round": 1}}}, round=1, loop_state={}, dir=pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())),
-                                  output_of_round=lambda nid, rnd: {"changes": [], "not_done": [{"unit_key": "u-left", "why": "範囲外"}]})
-        asked = [{"unit_key": "u-asked", "ruling": {"text": "人が決める"}, "between": ["a", "b"]}]
-        left = [{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {k}"} for k in ("u-left", "u-asked", "u-other")]
-        with mock.patch.object(report, "_asked", return_value=asked), mock.patch.object(report, "_replanned", return_value=[]):
+        import conflict
+        b = types.SimpleNamespace(state={}, round=1, loop_state={}, dir=pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())),
+                                  output_of_round=lambda nid, rnd: {})
+        b.work = lambda name: b.dir / name
+        put_fix(b, {"changes": [], "not_done": [{"unit_key": "u-left", "why": "範囲外"}]})
+        asked = [{"unit_key": "u-asked", "ruling": {"text": "人が決める"}, "between": ["a", "b"]},
+                 {"unit_key": "u-gave", "ruling": {"decision": conflict.REPLAN, "text": "項目を直せ", conflict.PLAN_UNITS: ["u-gave", "u-item"]},
+                  "between": ["c", "d"], conflict.REPLAN_STATE: conflict.GAVE_UP, conflict.REPLAN_WHY: "直せなかった"}]
+        keys = ("u-left", "u-asked", "u-gave", "u-item")
+        left = [{"where": report.VALIDATOR_WHERE, "text": f"[block] 未解消: {k}"} for k in (*keys, "u-other")]
+        with mock.patch.object(report, "_asked", return_value=asked):
             items = report.next_request(b, left=left)
-        for k in ("u-left", "u-asked"):
-            self.assertEqual(sum(k in i["text"] for i in items), 1, items)
-        self.assertIn(left[2], items)
+        for k in keys:
+            self.assertEqual(sum(f"{k}（" in i["text"] or i["text"].endswith(k) for i in items), 1, (k, items))
+        self.assertIn(left[-1], items)
+        item = next(i for i in items if i["where"] == "u-item")
+        self.assertEqual(item["text"], "u-item（食い違いの申し出を人に回した——直さずに残した。裁定の文: 項目を直せ。名指し c, d。"
+                                       "案の直し: 直せなかった）")
 
 
 class HeadModelsCase(unittest.TestCase):

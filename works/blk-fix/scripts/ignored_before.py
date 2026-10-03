@@ -7,6 +7,8 @@
 cwd（対象リポジトリの根）の git ls-files --others --ignored --exclude-standard と、丸ごと未追跡のフォルダ（空の物も）を、
 盤面（$ARTIFACTS_DIR/board/）の fix-ignored-before.json に書く（leftovers の record_ignored）。修正の後の節 clean は、
 これに無かった物だけを消す（前から在ったフォルダは空になっても残す）。
+回の印 INPUTS_PASS_TAG（2 回目の修正の段は refit。無い・空は 1 回目）が在れば、盤面のファイルの名に足す（script_io.tagged。
+1 回目の物を上書きしない）。
 - 書けた: {"ok": true, "count", "file"} を 1 行出して 0
 - ARTIFACTS_DIR が無い・空: 標準エラーに名前を出して 2
 - git が効かない・書けない: 標準エラーに理由を 1 行出して 1（修正役の前で止める。控えが無いと後始末ができない）
@@ -19,7 +21,12 @@ import json  # noqa: E402
 import os  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
-from leftovers import Unreadable, record_ignored  # noqa: E402   .shared/core の模块（V13）
+import script_io  # noqa: E402
+from leftovers import IGNORED_BEFORE_FILE, Unreadable, record_ignored  # noqa: E402   .shared/core の模块（V13）
+
+INPUTS = ("INPUTS_PASS_TAG",)
+# 無くても欠けに数えない入力（依頼 226 で後から足した回の印。前の版の with: で再開した run は渡さない。無い・空は 1 回目）
+OPTIONAL = frozenset({"INPUTS_PASS_TAG"})
 
 
 def main() -> int:
@@ -28,8 +35,9 @@ def main() -> int:
         print("環境変数が無い: ARTIFACTS_DIR", file=sys.stderr)
         return 2
     try:
-        out = record_ignored(Path(artifacts) / "board", Path.cwd())
-    except (Unreadable, OSError) as e:
+        tag = os.environ.get("INPUTS_PASS_TAG", "")
+        out = record_ignored(Path(artifacts) / "board", Path.cwd(), script_io.tagged(IGNORED_BEFORE_FILE, tag))
+    except (Unreadable, OSError, ValueError) as e:   # ValueError は回の印の字の誤り（script_io.tagged）
         print(f"ignored-before: {' '.join(str(e).split())}", file=sys.stderr)
         return 1
     sys.stdout.reconfigure(encoding="utf-8")

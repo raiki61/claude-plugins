@@ -28,6 +28,13 @@ FIELDS = [{"route": "tdd", "route_why": "", "tests": [{"id": "test_stats.py::Tes
            "refactor": {"declared": False, "why": ""}, "allowed_paths": ["stats.py", "test_stats.py"], "out_of_scope": []}]
 
 
+def count_ops(board, op) -> int:
+    """盤面の trace.jsonl の、今の周の op の行の数"""
+    rnd = entry.open_board(board).round
+    rows = [json.loads(line) for line in (pathlib.Path(board) / "trace.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    return sum(1 for r in rows if r.get("op") == op and r.get("round") == rnd)
+
+
 class BriefCase(tbf.BoardCase):
     def ready(self):
         self.fix_ready()
@@ -250,6 +257,51 @@ class BriefFreezeEdgeCase(tbf.BoardCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(outside.read_text(encoding="utf-8"), "外のファイル")
         self.assertFalse((box / planbrief.LEDGER).is_symlink())
+
+
+class TestRecutAfterAmend(tbf.BoardCase):
+    """承認済みの項目の差し替え（planmarks.amend の AMEND_OP の印）の後の cut だけが、差し替えた項目の brief を切り直す"""
+    ready = BriefCase.ready
+
+    def amend_first(self, b):
+        new = {k: v for k, v in planmarks.approved_items(b)[0].items() if k != "item"}
+        new["tests"] = [{**new["tests"][0], "red_kind": "exception", "red_why": "今は ZeroDivisionError が出ない"}]
+        planmarks.amend(b, {1: new}, self.repo)
+
+    def test_recut_after_amend(self):
+        b = self.ready()
+        first = planbrief.cut(b)
+        self.amend_first(b)
+        again = planbrief.cut(entry.open_board(self.board))
+        text = pathlib.Path(again[0]["file"]).read_text(encoding="utf-8")
+        self.assertIn("exception", text)
+        self.assertNotEqual(first[0]["sha256"], again[0]["sha256"])
+        self.assertEqual(count_ops(self.board, planbrief.RECUT_OP), 1)
+        self.assertEqual(count_ops(self.board, planbrief.CUT_OP), 2)
+        self.assertEqual(hashlib.sha256(text.encode("utf-8")).hexdigest(), again[0]["sha256"])
+        # 切り直した後は凍結に戻る（もう 1 度 cut しても切り直さない・控えは新しい CUT_OP の印と合う）
+        self.assertEqual(planbrief.cut(entry.open_board(self.board)), again)
+        self.assertEqual(count_ops(self.board, planbrief.RECUT_OP), 1)
+        self.assertEqual(count_ops(self.board, planbrief.CUT_OP), 2)
+
+    def test_no_recut_without_amend(self):
+        b = self.ready()
+        planbrief.cut(b); planbrief.cut(entry.open_board(self.board))
+        self.assertEqual(count_ops(self.board, planbrief.RECUT_OP), 0)
+        self.assertEqual(count_ops(self.board, planbrief.CUT_OP), 1)
+
+    def test_tamper_after_recut_is_restored(self):
+        b = self.ready()
+        planbrief.cut(b)
+        self.amend_first(b)
+        again = planbrief.cut(entry.open_board(self.board))
+        brief = pathlib.Path(again[0]["file"])
+        brief.write_text("役が書き換えた", encoding="utf-8")
+        self.assertEqual(planbrief.cut(entry.open_board(self.board)), again)
+        self.assertEqual(hashlib.sha256(brief.read_bytes()).hexdigest(), again[0]["sha256"])
+        self.assertIn("exception", brief.read_text(encoding="utf-8"))
+        self.assertIn(planbrief.RESTORED_OP, (self.board / "trace.jsonl").read_text(encoding="utf-8"))
+        self.assertEqual(count_ops(self.board, planbrief.RECUT_OP), 1)
 
 
 if __name__ == "__main__":
