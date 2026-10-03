@@ -23,6 +23,7 @@ import pathlib
 import re
 import subprocess
 import sys
+from typing import Callable
 
 import yaml
 
@@ -115,11 +116,13 @@ class ScriptLine:
     declared が偽なら種にテストの宣言（.review-checks.json）を置かない（CI の任せ先の役 blk-ci が回る）。
     sessions なら start の後に包みの家へ判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run）。
     inputs に無いラインの入力は yaml の inputs の default に落ちる（adapter だけ optional——この器は包みを通さずに回す）。
-    runs は起こした script の節の記録 {block, node, rc, out, errors, stderr}（errors は output_format に当てた食い違い）"""
+    runs は起こした script の節の記録 {block, node, rc, out, errors, stderr}（errors は output_format に当てた食い違い）。
+    watch(<節>, "start"|"done") は線の最上段の include の節ごとに、走らせる直前と出口が ok の直後に呼ぶ（飛ばした節では呼ばない）"""
 
     def __init__(self, tmp, *, replies=None, gates=None, inputs=None, edits=None, bad_first=(), bad=None, stop_at=None,
-                 declared=True, sessions=False):
+                 declared=True, sessions=False, watch: Callable[[str, str], None] | None = None):
         self.tmp = pathlib.Path(tmp)
+        self.watch = watch
         self.replies, self.gates, self.edits = replies or {}, gates or {}, edits or {}
         self.bad_first, self.bad = set(bad_first), bad if bad is not None else {}
         self.stop_at = stop_at
@@ -251,7 +254,12 @@ class ScriptLine:
                 if self.sessions and scope.block == LINE and nid == "start":
                     self._put_session()
             elif "include" in n:
+                top = self.watch is not None and scope.block == LINE
+                if top:
+                    self.watch(nid, "start")
                 out = self._include(scope, n)
+                if top:
+                    self.watch(nid, "done")
             elif "loop_group" in n:
                 out = self._loop(scope, n)
             elif any(k in n for k in AI_KEYS):
