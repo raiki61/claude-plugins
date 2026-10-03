@@ -53,6 +53,7 @@ MOD = {
     "auth_launch": (1, None),  # 殻の認証の起こし役（claude_auth の写しだけを import する。works の物を何も知らない）
     "ghreads": (1, None),     # 依頼のファイルの形（findings の配列か {findings, pr, issue}）を解く 1 か所（works の物を何も知らない）
     "flow_adapter": (1, None),  # 流れの道具（Archon）に触る口（依頼 239。scope・置き場・入力・聞き直しの口。works の物を何も知らない）
+    "unittrees": (1, None),   # 修正の単位ごとの小さい git worktree（切る・差分・当てる・片付け。works の物を何も知らない）
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "record-write": (2, None),   # 包みが足す書き込みの記録のフック（writes が読む記録を書く）
     "no-post-bin/works-gh": (2, None),
