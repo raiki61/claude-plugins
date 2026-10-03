@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.23] - 2026-10-04
+
 ### Added
 
 - 部品（`blk-*` のブロック）の盤面の置き場を、線が差し込む `include` の名（scope）ごとに分けた。部品の私物は `board/<include の名>/` の下に置かれ、同じ部品を 1 run で 2 度差し込んでも（`fixing` と `refitting`、`planning` と `replanning`）、2 度目が 1 度目のファイルを上書きしない。部品のコードは置き場を知らず、盤面を開く口が決める。周ごとにどの include が居たかは `r<N>/scopes.json` に残る。この版より前に始めた run を、include の中から続けることはできない（始め直す）。
