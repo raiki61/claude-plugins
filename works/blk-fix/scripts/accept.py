@@ -59,8 +59,8 @@
    （今の拒否の道。最後の回は文ごとに unit_key か名指しのファイルで単位に結べれば止める）。盤面に done を書く 3 の前に置く
    （拒否では盤面を前のままにする。束の帳面 fixgates.LEDGER と一式のログは残す）。受けた回に束が赤緑を確かめずに飛ばした
    理由（fixgates.unchecked。義務の外の項目を見なかった理由は除く）は盤面の trace の fixgates.SKIPPED_OP の行に載せる
-   （報告と最後の人の関所の文が数える）。2 回目の修正の段は回の印（INPUTS_PASS_TAG）で帳面の回を分け、裁定の範囲は
-   1 回目の段の物をいつも許す（fixgates.problems の tag）
+   （報告と最後の人の関所の文が数える）。2 回目の修正の段（同じブロックの 2 度目の include）の帳面はその scope の物で、
+   裁定の範囲は 1 回目の段の物をいつも許す（fixgates.problems が conflict.second_pass で引く）
 2 の前. 2 回目の修正の段（1 回目に受け付けた返答の控えが在る）: 返答を名前に戻し、控えの行を単位で合わせる（conflict.with_held）。
    -3〜1e の検査は役の返答そのものに当て、合わせた返答を 2・2a・3 と盤面に渡す。2 回目の段の受け付けは控えの単位を changes か
    not_done に書いた返答を、直しを戻させない自分の文（ACCEPTED_ROWS。check_accepted_rows。id accepted）で拒み、輪の最後の回でもその直しを
@@ -102,7 +102,6 @@ import re  # noqa: E402
 
 import conflict  # noqa: E402   食い違いの申し出（.shared/core）
 import fixgates  # noqa: E402   事後の関門の束（blk-fix/lib）
-import fixrules  # noqa: E402   回の印の口 tagged（blk-fix/lib）
 import impact  # noqa: E402   変更に当たる試験の選び（.shared/core）
 import planbrief  # noqa: E402   今の周の brief の行（blk-fix/lib。申し出 brief_vs_judgment の確かめ）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
@@ -118,8 +117,7 @@ from engine import pointers  # noqa: E402  （recount が import した board �
 
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", "INPUTS_TDD_SUITE",
           "INPUTS_PASS_TAG")
-# 無くても欠けに数えない入力（依頼 226 で後から足した回の印。前の版の with: で再開した run は渡さない。無い・空は今どおり）。
-# 回の印（INPUTS_PASS_TAG）は申し出の回の控え・裁定の文・拒否の理由のファイルの名を分ける（fixrules.tagged）
+# 無くても欠けに数えない入力（依頼 226 で後から足した回の印。前の版の with: で再開した run は渡さない。無い・空は今どおり）
 OPTIONAL = frozenset({"INPUTS_PASS_TAG"})
 GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
 TESTS_OP = impact.ACCEPT_TRACE_OP   # 受け付けが選んだ試験を走らせた盤面の trace の行（ci_left を最後の関所が読む）
@@ -219,7 +217,7 @@ def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
             f = posixpath.normpath(f)
             if f == leftovers.ARCHON_PREFIX.rstrip("/") or f.startswith(leftovers.ARCHON_PREFIX):
                 declared.add(f)
-    changed = leftovers.archon_changes(board, repo, fixrules.tagged(leftovers.IGNORED_BEFORE_FILE, _tag()))
+    changed = leftovers.archon_changes(board, repo)
     parts = []
     if declared:
         parts.append(f"changes[].files に申告した {sorted(declared)}（申告から外す）")
@@ -314,18 +312,13 @@ def _reject(reason: str) -> dict:
     return {"ok": False, "reason": reason, "changes": []}
 
 
-def _tag() -> str:
-    """修正の段の回の印（INPUTS_PASS_TAG。無い・空は 1 回目の段）"""
-    return os.environ.get("INPUTS_PASS_TAG", "")
-
-
 def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
     """食い違いの申し出（欄 conflicts）を外した返答と、拒否の文か止めた印。返り (返答, 結果 | None)。結果が None なら受け付けを続ける。
     - 申し出が在れば機械が確かめる（conflict.problems: 形・今の直す義務の単位か・名指した所が現物に在るか・kind brief_vs_judgment
       ならその単位の今の周の brief の行を名指すか（planbrief.by_unit_at））。外れれば普通の拒否
     - first: 通った申し出を盤面の控えに積み（拒否に数えない）、裁かれていない申し出が在れば（TDD の輪の分も）盤面に渡さずに
       {ok: true, parked: true, changes: []}（裁定の輪の後、2 回目の修正役が渡す）。返答は盤面の置き場に控える（PARKED_REPLY。
-      名は回の印で分ける）
+      今の scope の周の置き場）
     - ruled: 裁定の後の新しい申し出は、裁定の輪がもう無いので機械が ask_human に裁いて積む（その単位を直した返答は
       check_excused_units が拒む）"""
     reply = dict(reply)
@@ -348,7 +341,7 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
                                                           "by": "works:fix-accept"})
             conflict.write_rulings(b)
     if pass_ == "first" and conflict.unruled(b):
-        _put_parked(b.work(fixrules.tagged(conflict.PARKED_REPLY, _tag())), {**reply, "conflicts": items})
+        _put_parked(b.work(conflict.PARKED_REPLY), {**reply, "conflicts": items})
         return reply, {"ok": True, "parked": True, "reason": "", "changes": []}
     return reply, None
 
@@ -545,7 +538,7 @@ def revert_ruled_units(reply: dict, board, base_rev, repo, state):
     patch, 戻す手（直しと控えを元に戻す）) か None（控えが無い・戻す行が無い・戻すファイルを控えのほかの行か今の返答の行と
     共有する）"""
     b = entry.open_board(board)
-    path = b.work(fixrules.tagged(conflict.PARKED_REPLY, _tag()))
+    path = b.work(conflict.PARKED_REPLY)
     try:
         parked = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -588,7 +581,7 @@ def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     if mine & (_files(rest, repo) | _held_files(board, repo)):
         return None
     b = entry.open_board(board)
-    rulings = b.work(fixrules.tagged(conflict.RULINGS_FILE, _tag()))
+    rulings = b.work(conflict.RULINGS_FILE)
     saved = {p: p.read_bytes() if p.is_file() else None for p in (b.work(conflict.FILE), rulings)}
     patch = revert_units(board, base_rev, repo, state, parked)
     for key in bound:
@@ -706,7 +699,7 @@ def accept_fix(reply, board, base_rev, repo):
         note(found, "scope", scope)
     red, tests_note = check_tests(board, base_rev, repo, state)
     note(found, "tests", red)
-    gates = fixgates.problems(board, repo, base_rev, os.environ.get("INPUTS_TDD_SUITE", ""), attempt, pass_=pass_, tag=_tag())
+    gates = fixgates.problems(board, repo, base_rev, os.environ.get("INPUTS_TDD_SUITE", ""), attempt, pass_=pass_)
     note(found, "gates", fixgates.reject_lines(gates) if gates else [])
     b = entry.open_board(board)
     if conflict.held_reply(b)[0] is not None:   # 2 回目の修正の段: 名前に戻して 1 回目の控えの行を合わせる（検査は済んだ役の返答に当てた）
@@ -720,7 +713,7 @@ def accept_fix(reply, board, base_rev, repo):
         tb.trace(TESTS_OP, node=recount.ROLE, note=tests_note, ci_left=tddloop.ci_left(state))
         if scope_note is not None:
             tb.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
-        gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt, tag=_tag())
+        gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt)
         if gaps:   # 束が赤緑を確かめずに受けた回（拒まないが、報告で見えるように）
             tb.trace(fixgates.SKIPPED_OP, node=recount.ROLE, why=gaps)
         if rows:

@@ -420,7 +420,7 @@ class TestAcceptWiring(FixGatesCase):
             got = mod.accept_fix(tbf.load("fix2_ok"), self.board, "", self.repo)
         self.assertIs(got["ok"], False, got)
         self.assertIn(fixgates.REJECT, got["reason"])
-        gates.assert_called_once_with(self.board, self.repo, "", self.SUITE, 1, pass_="first", tag="")
+        gates.assert_called_once_with(self.board, self.repo, "", self.SUITE, 1, pass_="first")
         recount.assert_called_once()   # 写しの照らしは乾いた形だけ（盤面に done("p3.fix") を書く前に拒む。preflight F12）
         self.assertIs(recount.call_args.kwargs["commit"], False)
         self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
