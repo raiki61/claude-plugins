@@ -43,7 +43,8 @@
   - 裁定の後の 2 回目（fix-ruled）の下請けは数えない。裁定の後の 2 回目はどの形でも作り直しに数えず（裁定は報告だけ）、2 回目の
     受け付けの拒否は fix_rejects でどの形も同じに数える。
   - 項目ごとの 2 本（実装役と審査役）を超えた分を 2 本で 1 回。項目は最初の周に下請けを起こした項目の数: 修正案の項目のうち単位が
-    輪に渡した単位（輪の状態の open_units。直す義務の単位）と重なる物と、どの項目にも無い単位が在れば残りの 1 項目
+    輪に渡した単位（輪の状態の open_units）と重なる物と、どの項目にも無い直す義務の単位（open_units から excused を除いた物。
+    fixrules.g1_values の owed）が在れば残りの 1 項目
     （fixrules.G1_REST。その 2 本は作り直しにしない）。輪の状態が無ければ修正案の項目の数。行の items（項目あたりの比べの
     分母）はどの腕も修正案の項目の数のままで、この数に替えない。
   - 下請けの数は task_id の数で、起き直した下請けの 2 行目の started を数えない。
@@ -338,13 +339,13 @@ def _empty_board() -> dict:
             "rulings": {}, "divergences": {}, "gate_misses": 0, "red_green": False, "tdd_calls": 0}
 
 
-def _g1_items(fields: list, asked: set) -> int:
+def _g1_items(fields: list, asked: set, owed: set) -> int:
     """g1 の修正役が最初の周に下請けを起こした項目の数（fixrules.g1_values の項目の決まり。モジュールの頭の subagent_redos）"""
     if not asked:
         return len(fields)
     hit = [f for f in fields if isinstance(f, dict) and asked & set(f.get("unit_keys") or [])]
     covered = {k for f in hit for k in f.get("unit_keys") or []}
-    return len(hit) + (1 if asked - covered else 0)
+    return len(hit) + (1 if owed - covered else 0)
 
 
 def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, first: int, home, gaps: list) -> dict:
@@ -361,6 +362,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
     states = _states(board, gaps)
     calls = [c for st in states for c in st.get("calls") or [] if isinstance(c, dict)]
     asked = {k for st in states for k in st.get("open_units") or []}
+    owed = {k for st in states for k in st.get("open_units") or [] if k not in (st.get("excused") or {})}
     if tdd_done != len(calls):
         gaps.append(f"tdd の節の node_completed {tdd_done} 件と輪の calls {len(calls)} 行が違う")
     if states and shape != seat.G1_SHAPE:
@@ -388,7 +390,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
                    "battery_rejects": battery,
                    "delta_faces": _faces(board, gaps),
                    "refix_rounds": sum(1 for r in report.trace_rows(b, "done") if r.get("instance") in report.REFIX_NODES),
-                   "subagent_redos": max(0, first - 2 * _g1_items(fields, asked)) // 2 if shape == seat.G1_SHAPE else 0,
+                   "subagent_redos": max(0, first - 2 * _g1_items(fields, asked, owed)) // 2 if shape == seat.G1_SHAPE else 0,
                    **_verdict_fails(b)}
     out["rulings"], out["divergences"] = _rulings(rounds, gaps)
     out["gate_misses"] = len(rows)
