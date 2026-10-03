@@ -375,7 +375,9 @@ class TreeRunCase(unittest.TestCase):
                 t_gone = time.monotonic()
                 self.assertEqual(p.wait(archon_grace), 128 + signal.SIGTERM)
                 t_exit = time.monotonic()
-                self.assertGreaterEqual(t_exit - t_gone, tree_run.LINGER - 0.1, "木を止めた後すぐに抜けた")
+                # 木が消えたと見えた時刻 t_gone は見張りの間隔と負荷の分だけ遅れる（CI の macOS で 0.88 秒の実測）。
+                # 守りたいのは「すぐ抜けない」ことなので、LINGER の半分を下限にする
+                self.assertGreaterEqual(t_exit - t_gone, tree_run.LINGER / 2, "木を止めた後すぐに抜けた")
                 self.assertLess(t_exit - t0, archon_grace, "Archon の猶予の内に抜けなかった")
 
     def test_normal_exit_does_not_linger(self):
