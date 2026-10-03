@@ -991,7 +991,9 @@ class DiskBoard(_EngineBoard):
     def vet(self, nid: str, output: dict) -> AnswerReject | None:
         """受け付け（accept）と同じ検査を当てて、保存しない（乾いた照らし）。返答の中身の誤りは AnswerReject を投げずに返し、
         通れば None。配線の誤り（BoardGap）とほかの Reject（止めた run など）は accept と同じく投げる。settle・save・trace を
-        呼ばない。post_check・writes は記憶の入れ物の中を書きうるので、呼んだ後の入れ物は捨てる（開き直してから受ける）"""
+        呼ばない。post_check・writes は記憶の入れ物の中を書きうるので、呼んだ後の入れ物は捨てる（開き直してから受ける）。
+        乾いた照らしを通って控えた返答は、後で replan.hand_held が盤面に渡す時に写しの数え合わせをもう一度走らせ、周の数える量
+        （写しの規則の COUNT_BUDGET）をもう一度使う"""
         try:
             self._vetted(nid, output, engine_reply=False)
         except AnswerReject as e:

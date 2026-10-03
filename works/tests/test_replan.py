@@ -108,11 +108,6 @@ class TestSettle(ReplanCase):
         self.assertFalse([n for n in dir(replan) if "LIMIT" in n or n == "GIVE_UP_AFTER"])
 
 
-def accepted_rows(r) -> list:
-    """受け付けの拒否の行のうち、1 回目に受け付けた単位の確かめ（accept.CHECKS の accepted）の文"""
-    return [x["text"] for x in r.get("rejects") or [] if x["check"] == "accepted"]
-
-
 def trace_ops(board_dir) -> list:
     """盤面の trace.jsonl の op の並び"""
     return [json.loads(x).get("op") for x in (pathlib.Path(board_dir) / "trace.jsonl").read_text(encoding="utf-8").splitlines()
@@ -905,7 +900,8 @@ class TestSecondPass(TripCase):
         reply["not_done"] = [{"unit_key": CLAMP, "why": "1 回目に直したので今回は直さなかった"}]
         r = self.accept_script(reply, pass_="first", pass_tag=self.TAG)
         self.assertFalse(r["ok"], r)
-        self.assertEqual(accepted_rows(r), [accept_module().ACCEPTED_ROWS + CLAMP], "合わせた返答を盤面に拒ませる前に、自分の文で拒む")
+        self.assertEqual(r["rejects"], [{"check": "accepted", "text": accept_module().ACCEPTED_ROWS + CLAMP}],
+                         "合わせた返答を盤面に拒ませる前に、自分の文だけで拒む（写しの照らしは控えの行を見る）")
         b = entry.open_board(self.board)
         self.assertNotIn("p3.fix", b.state["outputs"])
         self.assertEqual([c["unit_key"] for c in recount.fix_reply(b)[0]["changes"]], [CLAMP], "控えの行は残る")
@@ -916,8 +912,8 @@ class TestSecondPass(TripCase):
         self.fix_mean()
         r = self.accept_script(load("fix2_ok"), pass_="first", pass_tag=self.TAG)
         self.assertFalse(r["ok"], r)
-        self.assertEqual(accepted_rows(r), [accept_module().ACCEPTED_ROWS + CLAMP])
-        self.assertNotIn("戻", accepted_rows(r)[0])
+        self.assertEqual(r["rejects"], [{"check": "accepted", "text": accept_module().ACCEPTED_ROWS + CLAMP}])
+        self.assertNotIn("戻", r["reason"])
 
     def test_rulings_text_does_not_hold_amended_unit(self):
         """2 回目の段の新しい申し出の裁定の文で、案を直して直す義務に戻った単位（AMENDED の行）に「直すな・戻す」と言わない"""

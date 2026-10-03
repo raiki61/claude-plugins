@@ -76,7 +76,7 @@ class DryTakeCase(test_blk_fix.BoardCase):
         self.assertIs(recount.accept_fix(test_blk_fix.load("fix2_ok"), self.board, "", self.repo)["ok"], True)
         self.assertNotEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
 
-    def test_schema_errors_carry_one_problem_each(self):
+    def test_schema_errors_come_as_one_problem(self):
         # 型の誤りの拒否は problems を持たない（commit の道の形を全部の節で今のまま保つ）ので、乾いた道は文を 1 要素で返す。
         # 欠けた 2 つの鍵は、その 1 つの文に並ぶ
         self.fix_ready(); self.edit_tree(test_blk_fix.FIXED)

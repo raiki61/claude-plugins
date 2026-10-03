@@ -64,7 +64,7 @@
 2 の前. 2 回目の修正の段（1 回目に受け付けた返答の控えが在る）: 返答を名前に戻し、控えの行を単位で合わせる（conflict.with_held）。
    -3〜1e の検査は役の返答そのものに当て、合わせた返答を 2・2a・3 と盤面に渡す。2 回目の段の受け付けは控えの単位を changes か
    not_done に書いた返答を、直しを戻させない自分の文（ACCEPTED_ROWS。check_accepted_rows。id accepted）で拒み、輪の最後の回でもその直しを
-   作業ツリーから戻さない。止める単位の直しを戻す時（drop_excused_units・park_bound_units）、控えの行のファイルを共にする単位は戻さない
+   作業ツリーから戻さない。その単位の役の行は積んだ後に返答から外し（drop_accepted_rows）、後の確かめと合わせた返答の照らしに当てない。止める単位の直しを戻す時（drop_excused_units・park_bound_units）、控えの行のファイルを共にする単位は戻さない
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
    修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告
    （closure.sites の path が覆う問いの当たりの件数・remaining・作り直した how）との食い違いを記録する。食い違いは拒否でなく記録で、写しに渡す返答は
@@ -291,6 +291,18 @@ def check_accepted_rows(reply: dict, board) -> list:
     named = named_reply(reply, board) or reply
     keys = [r.get("unit_key") for f in ("changes", "not_done") for r in named.get(f) or [] if isinstance(r, dict)]
     return [k for k in dict.fromkeys(keys) if k in kept]
+
+
+def drop_accepted_rows(reply: dict, keys: list, mine: list, board) -> tuple:
+    """2 回目の修正の段: 1 回目に受け付けた単位（mine。check_accepted_rows）の役の行を changes と not_done から外した返答と、
+    changes と同じ順の名前の keys。その単位の拒否は accepted の行だけに並べ、後の確かめ（外れた単位・範囲）と、控えの行を
+    合わせた（conflict.with_held）写しの照らしに役の行を当てない。not_done は check_accepted_rows と同じく名前に戻して見る"""
+    out = {**reply, "changes": [c for c, k in zip(reply.get("changes") or [], keys) if k not in mine]}
+    if isinstance(reply.get("not_done"), list):
+        named = (named_reply(reply, board) or reply).get("not_done") or []
+        out["not_done"] = [r for r, n in zip(reply["not_done"], named)
+                           if not (isinstance(n, dict) and n.get("unit_key") in mine)]
+    return out, [k for k in keys if k not in mine]
 
 
 def check_excused_units(keys: list, owed: set, excused: dict) -> dict:
@@ -670,8 +682,11 @@ def accept_fix(reply, board, base_rev, repo):
         # key の形の行は単位に結んで止めない（開いていない単位を ask_human に積まない。表 CHECKS で止めてよくない物）
         note(found, "duplicate", [DUPLICATE + k for k in check_unique_units(keys)])
         note(found, "not_opened", [NOT_OPENED + k for k in check_opened_units(keys, owed | set(excused))])
-        # 1 回目に受け付けた単位の直しは戻させない（並べるだけで、最後の回も止めない）
-        note(found, "accepted", [ACCEPTED_ROWS + k for k in check_accepted_rows(reply, board)])
+        # 1 回目に受け付けた単位の直しは戻させない（並べるだけで、最後の回も止めない）。その単位の役の行は外して後へ渡す
+        mine = check_accepted_rows(reply, board)
+        note(found, "accepted", [ACCEPTED_ROWS + k for k in mine])
+        if mine:
+            reply, keys = drop_accepted_rows(reply, keys, mine, board)
         held = check_excused_units(keys, owed, excused)
         if held:
             # 止めてよくない行が既に在れば外さない（通し直しても同じ行で拒むので、直しを戻さずに並べる）
