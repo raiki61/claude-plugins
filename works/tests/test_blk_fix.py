@@ -343,16 +343,11 @@ class TestBlockYaml(unittest.TestCase):
                     self.assertEqual(got, {k[len("INPUTS_"):].lower(): f"$INPUTS.{k[len('INPUTS_'):].lower()}" for k in want}, nid)
 
     def test_tagged_names(self):
-        """回の印は 1 つの口（fixrules.tagged）で、拡張子の前に .<印>。空なら名のまま"""
+        """回の印の口（fixrules.tagged）は恒等（印を名に足さない。2 度目の include の物は scope の根で分かれる。依頼 239）"""
         import conflict
         import fixrules
-        self.assertEqual(fixrules.tagged("prompt-p3_fix.md", ""), "prompt-p3_fix.md")
-        self.assertEqual(fixrules.tagged("prompt-p3_fix.md", "refit"), "prompt-p3_fix.refit.md")
-        self.assertEqual(fixrules.tagged(fixrules.REJECT_GLOB, "refit"), "reject-accept_fix-*.refit.txt")
-        self.assertEqual(fixrules.tagged(conflict.RULINGS_FILE, "refit"), "conflict-rulings.refit.md")
-        self.assertEqual(fixrules.tagged(conflict.PARKED_REPLY, "refit"), "fix-parked-reply.refit.json")
-        with self.assertRaises(ValueError):
-            fixrules.tagged("a.md", "../x")
+        for name in ("prompt-p3_fix.md", fixrules.REJECT_GLOB, conflict.RULINGS_FILE, conflict.PARKED_REPLY):
+            self.assertEqual(fixrules.tagged(name, "refit"), name)
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
@@ -1702,7 +1697,7 @@ class TestCleanIgnored(ScriptCase):
         self.assertTrue((self.repo / "__pycache__" / "x.pyc").exists(), "控えが無ければ何も消さない")
 
     def test_second_pass_keeps_first_pass_files(self):
-        """回の印（2 回目の修正の段の refit）が在れば、控えと消した物のファイルは印を足した名に書き、1 回目の物を上書きしない。
+        """2 回目の修正の段（include refitting）の控えと消した物のファイルは同じ名でその scope の根に書き、1 回目の物を上書きしない。
         2 回目の clean は 2 回目の控えで消す"""
         self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
         (self.repo / "__pycache__").mkdir()
@@ -1712,15 +1707,16 @@ class TestCleanIgnored(ScriptCase):
         first = {n: (self.board / n).read_bytes() for n in ("fix-ignored-before.json", "fix-removed.json")}
         (self.repo / "__pycache__").mkdir()
         (self.repo / "__pycache__" / "keep.pyc").write_bytes(b"k")   # 2 回目の段の前から在った物
-        tag = {**self.env(), "INPUTS_PASS_TAG": "refit"}
-        code, out, err = run_script("ignored_before", self.repo, tag)
+        refit = {**self.env(), "ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": "refitting__ignored-before"})}
+        code, out, err = run_script("ignored_before", self.repo, refit)
         self.assertEqual(code, 0, err)
-        self.assertEqual(pathlib.Path(json.loads(out)["file"]).name, "fix-ignored-before.refit.json")
+        self.assertEqual(pathlib.Path(json.loads(out)["file"]), self.board / "refitting" / "fix-ignored-before.json")
         (self.repo / "sub" / "__pycache__").mkdir(parents=True)
         (self.repo / "sub" / "__pycache__" / "b.pyc").write_bytes(b"b")
-        code, out, err = run_script("clean", self.repo, tag)
+        code, out, err = run_script("clean", self.repo, {**refit, "ARCHON_NODE_EXECUTION": refit["ARCHON_NODE_EXECUTION"].replace(
+            "ignored-before", "clean")})
         self.assertEqual(code, 0, err)
-        self.assertEqual(pathlib.Path(json.loads(out)["file"]).name, "fix-removed.refit.json")
+        self.assertEqual(pathlib.Path(json.loads(out)["file"]), self.board / "refitting" / "fix-removed.json")
         self.assertEqual(self.removed(out), ["sub/__pycache__/b.pyc"])
         self.assertTrue((self.repo / "__pycache__" / "keep.pyc").exists())
         self.assertEqual({n: (self.board / n).read_bytes() for n in first}, first, "1 回目の控えと消した物は残る")

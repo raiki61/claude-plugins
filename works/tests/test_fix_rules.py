@@ -12,6 +12,7 @@
 盤面・子のプロセスは使わない（組み立ての関数を直に呼ぶ。盤面の上の fix-prep は test_blk_fix、tdd-prep は test_blk_fix_tdd が見る）。
 """
 import json
+import os
 import pathlib
 import re
 import sys
@@ -1124,17 +1125,21 @@ class G1ValuesCase(unittest.TestCase):
             {"item": 2, "unit_keys": ["b: 上限", "c: 外"], "file": "/b/r1/brief-2.md", "sha256": "1" * 64}]
     OWED = ["a: 分母", "b: 上限", "d: 案の外"]
 
-    def board(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        d = pathlib.Path(tmp.name)
+    def board(self, d=None, scope=""):
+        """盤面の替わり（work は scope の根の下。d を渡せば同じ置き場の別の scope の入れ物）"""
+        if d is None:
+            tmp = tempfile.TemporaryDirectory()
+            self.addCleanup(tmp.cleanup)
+            d = pathlib.Path(tmp.name)
 
         class B:
             state = {"inputs": {"review_rev": "abc123"}}
             dir = d / "art" / "board"
 
             def work(self, name):
-                return d / name
+                p = d / scope / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                return p
         return B()
 
     def test_items_and_remainder(self):
@@ -1159,22 +1164,30 @@ class G1ValuesCase(unittest.TestCase):
             self.assertIn(VALUES["judgment_file"], text, "残りの項目の brief は判定のファイル")
         self.assertIn("d: 案の外", pathlib.Path(got[2]["impl_file"]).read_text(encoding="utf-8"))
 
-    def test_second_pass_files_carry_the_tag(self):
-        """2 回目の修正の段（回の印 refit。依頼 226）の下請けのファイル・差分のファイル・座の brief は印を足した名に書き、1 回目の物を
-        上書きしない"""
+    def test_second_pass_files_live_under_its_scope(self):
+        """2 回目の修正の段（include refitting。依頼 226・239）の下請けのファイル・差分のファイル・座の brief は 1 回目と同じ名で
+        その scope の根の下に書き、1 回目の物を上書きしない"""
         from unittest import mock
         b = self.board()
+        refit = self.board(b.dir.parent.parent, "refitting")
+        place = b.dir.parent / "run-place"
+        node = {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": "refitting__fix-loop.fix-prep"})}
         with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS), \
                 mock.patch.object(fixrules.planbrief, "cut", return_value=self.ROWS):
             first = fixrules.g1_values(b, VALUES, "/repo", self.OWED[:2], "")
-            second = fixrules.g1_values(b, VALUES, "/repo", self.OWED[:1], "", "refit")
-            seat_brief = fixrules.implementer_values(b, VALUES, "/repo", self.OWED[:1], "refit")["[BRIEF_FILE]"]
-        self.assertEqual([pathlib.Path(second[0][k]).name for k in ("impl_file", "review_file", "patch")],
-                         ["g1-impl-1.refit.md", "g1-review-1.refit.md", "g1-1.refit.patch"])
-        self.assertEqual(pathlib.Path(seat_brief).name, "seat-briefs.refit.md")
+            with mock.patch.dict(os.environ, node):
+                second = fixrules.g1_values(refit, VALUES, "/repo", self.OWED[:1], "")
+                seat_brief = fixrules.implementer_values(refit, VALUES, "/repo", self.OWED[:1])["[BRIEF_FILE]"]
+        self.assertEqual([second[0][k] for k in ("impl_file", "review_file", "patch")],
+                         [str(refit.work("g1-impl-1.md")), str(refit.work("g1-review-1.md")),
+                          str(place / "refitting" / "g1-1.patch")])
+        self.assertTrue((place / "refitting").is_dir(), "役の差分のコマンドが書ける")
+        self.assertEqual(first[0]["patch"], str(place / "g1-1.patch"))
+        self.assertEqual(seat_brief, str(refit.work("seat-briefs.md")))
         self.assertIn("b: 上限", pathlib.Path(first[0]["impl_file"]).parent.joinpath("g1-impl-2.md").read_text(encoding="utf-8"),
                       "1 回目の段のファイルは残る")
-        self.assertTrue(pathlib.Path(first[0]["impl_file"]).is_file())
+        self.assertNotEqual(first[0]["impl_file"], second[0]["impl_file"])
+        self.assertIn("a: 分母", pathlib.Path(first[0]["impl_file"]).read_text(encoding="utf-8"))
 
     def test_no_remainder_when_items_cover_the_duty(self):
         from unittest import mock

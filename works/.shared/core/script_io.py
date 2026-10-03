@@ -68,15 +68,9 @@ TAG_FORM = re.compile(r"^[A-Za-z0-9_-]+$")   # 回の印の字（ファイルの
 
 
 def tagged(name: str, tag: str) -> str:
-    """回の印 tag をファイルの名 name の拡張子の前に足した名（`a.md` → `a.<tag>.md`。拡張子が無ければ尾に足す）。tag が空なら
-    name のまま。同じ周に同じ役を 2 度起こす段（blk-fix の 2 回目の修正の段）が、1 回ごとのファイルの名を分ける唯一の決まり
-    （blk-fix の fixrules.tagged はこれ。core の conflict と拒否の理由の名もこれで作る）。tag が英数字・_・- でなければ ValueError"""
-    if not tag:
-        return name
-    if not TAG_FORM.match(tag):
-        raise ValueError(f"回の印 {tag!r} は英数字・_・- だけ")
-    stem, dot, ext = name.rpartition(".")
-    return f"{stem}.{tag}.{ext}" if dot and stem and "/" not in ext else f"{name}.{tag}"
+    """name のまま（回の印 tag は名に足さない）。同じブロックの 2 度目の include（blk-fix の 2 回目の修正の段）のファイルは
+    scope の根の分け（scope_dir・board の work）で 1 度目の物と分かれる。呼び出しを消すまでの恒等の口（依頼 239）"""
+    return name
 
 
 def _emit(obj) -> None:

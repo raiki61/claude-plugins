@@ -435,7 +435,7 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, pass_tag: s
     - G1_REVIEW: 216 の task-review の型。[BRIEF_FILE] は同じ brief、[GLOBAL_CONSTRAINTS] は人の方針の文書のパスか G1_NO_POLICY、
       [REPORT_FILE] は seat.G1_REPORT、[BASE_SHA] は修正前の版（writes.base_rev）、[HEAD_SHA] は seat.G1_HEAD_SHA（型の
       `git diff <版>..<HEAD_SHA>` は seat.g1_prompt が作業ツリーとの差分 `git diff <版>` に直す。Preflight F20）、[DIFF_FILE] は
-      run ごとの置き場（盤面の隣。adapter.run_place_of。盤面は守る場所で役の Bash が書けない）の G1_PATCH_FILE の絶対パス
+      run ごとの置き場（盤面の隣。adapter.run_place_of。盤面は守る場所で役の Bash が書けない）の今の scope の下の G1_PATCH_FILE の絶対パス
     どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊）。3 つのファイルの名には回の印 pass_tag を足す
     （tagged。2 回目の修正の段は 1 回目の物を上書きしない）。写しが固定と違う・穴が埋まらなければ ValueError"""
     common = implementer_values(b, values, repo, owed, pass_tag)
@@ -448,7 +448,10 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, pass_tag: s
         n = max((r["item"] for r in cut), default=0) + 1
         items.append((n, values.get("judgment_file") or "", G1_REST.format(keys="、".join(rest)) if briefs else common["[task name]"]))
     base = writes.base_rev(b, base_rev)
-    place = pathlib.Path(adapter.run_place_of({"board": str(b.dir)}))   # 盤面は守る場所で役の Bash が書けない。run ごとの置き場
+    run_place = pathlib.Path(adapter.run_place_of({"board": str(b.dir)}))   # 盤面は守る場所で役の Bash が書けない。run ごとの置き場
+    place = script_io.scope_dir(run_place)   # 同じブロックの 2 度目の include の差分は 1 度目の物を上書きしない（最上段なら置き場のまま）
+    if place != run_place:
+        place.mkdir(parents=True, exist_ok=True)   # 役の Bash の差分のコマンドはフォルダを作らない
     rows = []
     for n, brief, task in items:
         impl, review = b.work(tagged(G1_IMPL.format(n=n), pass_tag)), b.work(tagged(G1_REVIEW.format(n=n), pass_tag))
