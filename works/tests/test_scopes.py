@@ -9,6 +9,7 @@
 
 盤面・git・子のプロセスを使わない（一時の置き場のファイルだけ）。
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -78,6 +79,32 @@ class AdapterCase(unittest.TestCase):
             self.assertEqual(flow_adapter.current_scope(), "")
         with self._with({NODE_EXECUTION: _execution("fixing__x"), "INPUTS_INCLUDE_ID": "refitting"}):
             self.assertEqual(flow_adapter.current_scope(), "fixing")
+
+    def test_fan_out_child_scope_is_fan_node_and_item_mark(self):
+        # fan_out の子（2026-10-04 に実測。印は items の値の sha256 の頭 16 字）: scope は <fan の節>--<印の頭 8 字>。子ごとに分かれ、
+        # 同じ値なら走り直しても同じ。輪の中の子の節（<輪>.<節>）も同じ scope
+        mark = hashlib.sha256(b"a").hexdigest()[:16]
+        for node in ("work", "fix-loop.fix-accept"):
+            with self._with({NODE_EXECUTION: _execution(f"__archon_fan_out__fan__root__{mark}__fan__{mark}__{node}")}):
+                self.assertEqual(flow_adapter.current_scope(), f"fan--{mark[:8]}")
+        other = hashlib.sha256(b"b").hexdigest()[:16]
+        with self._with({NODE_EXECUTION: _execution(f"__archon_fan_out__fan__root__{other}__fan__{other}__work")}):
+            self.assertEqual(flow_adapter.current_scope(), f"fan--{other[:8]}")
+        self.assertEqual((flow_adapter.fan_node(f"fan--{mark[:8]}"), flow_adapter.fan_node("fixing"), flow_adapter.fan_node("")),
+                         ("fan", "", ""))
+
+    def test_fan_out_unmeasured_shapes_refused(self):
+        # 測っていない形（root でない親・入れ子の中の fan_out・印の食い違い）と、fan_out の子の名と紛れる include の名は拒む
+        m = "ca978112ca1bbdca"
+        for path in (f"__archon_fan_out__fan__fixing__{m}__fan__{m}__work",
+                     f"fixing____archon_fan_out__fan__root__{m}__fan__{m}__work",
+                     f"fixing__inner__archon_fan_out__fan__root__{m}__fan__{m}__work",
+                     f"__archon_fan_out__fan__root__{m}__fan__3e23e8160039594a__work",
+                     f"__archon_fan_out__r2__root__{m}__r2__{m}__work",
+                     "fix--x__y"):
+            with self.subTest(path=path), self._with({NODE_EXECUTION: _execution(path)}):
+                with self.assertRaises(ValueError):
+                    flow_adapter.current_scope()
 
     def test_current_scope_refuses_unreadable_execution(self):
         # 在るのに読めない値は黙って線（空の scope）に落とさない（2 度目の include が 1 度目の置き場に書く穴になる）
@@ -496,14 +523,76 @@ class GateCase(unittest.TestCase):
         self.assertEqual(scopes.reads_outside(self.board, w, self.pack), ["r1/start.json", "refitting/r1/y.md"])
         self.assertEqual(scopes.reads_outside(self.board, self.window("", "darkfactory"), self.pack), [])
 
+    def test_fan_children_share_one_window(self):
+        # fan_out の子は 1 つの窓（鍵 <fan の節>--*）を分け合う: どの子の scope の根も窓の scope の根として通り、公開の名の持ち主は
+        # 鍵で記録する。子の外（ほかの include の根・宣言の外の名）への書き込みは今までどおり誤り
+        key = scopes.window_key("fan--aaaa1111")
+        self.assertEqual((key, scopes.window_key("fixing"), scopes.window_key("")), ("fan--*", "fixing", ""))
+        w = self.window(key, "blk-fix")
+        self.put("fan--aaaa1111/r1/notes.md", "a")
+        self.put("fan--bbbb2222/r1/reads-fix.json")
+        self.put("r1/fix-held-reply.json")
+        self.assertEqual(self.check(w), [])
+        reg = json.loads((self.board / "r1" / "scopes.json").read_text(encoding="utf-8"))
+        self.assertEqual(reg["owns"], {"fix-held-reply.json": key})
+        self.put("refitting/r1/x.json")
+        self.put("fan/r1/x.json")   # fan の節の名そのものの置き場は子の物でない
+        got = self.check(w)
+        self.assertEqual(len(got), 2, got)
+        self.assertTrue(all("fan--*" in g for g in got), got)
+        # 子が盤面を開く前に自分の根に書いた物は、子が閉じる前の窓の物に数えない（どの子が先に開いても）
+        prev = self.window("judging", "blk-fix")
+        self.put("fan--cccc3333/r1/early.md", "c")
+        self.assertEqual(scopes.check_window(self.board, prev, self.pack, opener=key), [])
+
     def test_shared_patterns_cover_round_and_root_records(self):
-        for path in ("state.json", "out/r1/a.json", "r12/libdocs/x.md", "r1/scopes.json.lock", "scope-window.json",
+        for path in ("state.json", "out/r1/a.json", "r12/libdocs/x.md", "r1/scopes.json.lock", "scope-window.json", "state.json.lock",
                      "diff-r1.patch", "prompts/r1/fix.md"):
             self.assertTrue(scopes.shared(path), path)
         for path in ("r1/rule-tree.json", "fixing/r1/a.json", "r1/x-r1.patch"):
             self.assertFalse(scopes.shared(path), path)
         self.assertEqual(scopes.SHARED_ROUND, frozenset(p.split("/", 1)[1] for p in scopes.SHARED if p.startswith("r[0-9]*/")))
         self.assertLessEqual({"out", "runs", "prompts"}, scopes.ROOT_DIRS)
+
+
+class EnterCase(unittest.TestCase):
+    """scopes.enter が fan_out の子の同時の開きで窓を互いに閉じないこと（本物の pack の blk-fix の宣言。一時の盤面のファイルだけ）"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.board = pathlib.Path(self._tmp.name) / "board"
+        for rel in ("state.json", "trace.jsonl"):
+            self.put(rel, "{}")
+
+    def put(self, rel: str, text: str = "x") -> None:
+        p = self.board / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+
+    def window(self) -> dict:
+        return json.loads((self.board / scopes.WINDOW).read_text(encoding="utf-8"))
+
+    def test_sibling_does_not_close_first_childs_window(self):
+        a, b = "fan--aaaa1111", "fan--bbbb2222"
+        self.assertEqual(scopes.enter(self.board, 1, "", "darkfactory"), [])
+        self.assertEqual(scopes.enter(self.board, 1, a, "blk-fix"), [])
+        self.put(f"{a}/r1/notes.md")
+        opened = self.window()
+        self.assertEqual(scopes.enter(self.board, 1, b, "blk-fix"), [])   # 後の子は前の子の窓を閉じない
+        self.assertEqual(self.window(), opened)
+        self.assertEqual(opened["scope"], "fan--*")
+        self.put(f"{b}/r1/notes.md")
+        self.put(f"{a}/r1/later.md")   # 前の子が、後の子が開いた後に自分の根に書く
+        self.assertEqual(scopes.enter(self.board, 1, "", "darkfactory"), [])
+
+    def test_fan_window_still_checks_declaration(self):
+        self.assertEqual(scopes.enter(self.board, 1, "fan--aaaa1111", "blk-fix"), [])
+        self.put("r1/rule-tree.json", "{}")
+        got = scopes.enter(self.board, 1, "", "darkfactory")
+        self.assertEqual(len(got), 1, got)
+        for part in ("r1/rule-tree.json", "fan--*", "blk-fix"):
+            self.assertIn(part, got[0])
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 ### Added
 
 - 修正の単位ごとに小さい git worktree を切る土台 `.shared/core/unittrees.py`（run の作業ツリーの未 commit の姿を base の commit にする・単位の worktree を切る・差分を取る・run の作業ツリーへ 3 方向で当てる・片付ける）。本物の index・HEAD・枝は動かさず、当たらない差分は作業ツリーを変えずに理由を返す。まだどの部品にも配線しない。
+- Archon の `fan_out` を付けた include の子も、部品の置き場（scope）が子ごとに分かれる（`<fan の節>--<子の印>`）。同時に走る子は照らしの窓を 1 つ分け合い、子の全部を合わせた変化を部品の宣言に照らす（子の間は照らさない。`docs/darkfactory-flow.md` の死角 (d)）。盤面の保存は版の比べと書き込みを 1 つの錠（`state.json.lock`）の中で行い、同時に保存した節の後の方が先の保存を消さずに `BoardConflict` になる。
 
 ### Changed
 
