@@ -26,9 +26,9 @@
      から、答え待ちの問いの出どころ・depends と直す裁定でない裁定（ask_human・fix_plan_item）を受けた単位を外した物）にも、そこから外れた単位にも無い unit_key を拒む
      （関所で答えていない defer の単位・判定に無い key。1 本目の unknown = got - opened）
    - check_excused_units: 直す義務から外れた単位（fix_duty の excused）の unit_key を、外れた理由（答え待ちの問いの key・
-     直さない裁定の decision と id）を名指して拒む。輪の最後の回だけは、その単位の直しを作業ツリーから戻して changes から外し
-     （drop_excused_units。控えの patch を盤面に置く）、残りの単位で受け付けを頭から通し直し、通れば trace に 1 行
-     （EXCUSED_DROPPED_OP）。通らなければ戻した直しを元に戻す。止めてよくない確かめの行が既に積まれていれば戻さずに拒む
+     直さない裁定の decision と id）を名指して拒む。輪の最後の回だけは、その単位の行を changes から外し（drop_excused_units。
+     直しは作業ツリーに残す。戻せば外れた単位の 1 回目の直しが消える。依頼 241）、残りの単位で受け付けを頭から通し直し、
+     通れば trace に 1 行（EXCUSED_DROPPED_OP）。止めてよくない確かめの行が既に積まれていれば外さずに拒む
 1a. check_pack_copy: .archon/ の下（自分食いの run では動いている線の pack の写し）を申告した・変えた返答を拒む（run 26）
 1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
    空・欠けは輪の無い run で見ない。check_frozen）。凍結は run の全部の輪で効く（盤面の tdd-<k>。tddloop.states）: 今の輪の状態は
@@ -59,7 +59,8 @@
 2 の前. 2 回目の修正の段（1 回目に受け付けた返答の控えが在る）: 返答を名前に戻し、控えの行を単位で合わせる（conflict.with_held）。
    -3〜1e の検査は役の返答そのものに当て、合わせた返答を 2・2a・3 と盤面に渡す。2 回目の段の受け付けは控えの単位を changes か
    not_done に書いた返答を、直しを戻させない自分の文（ACCEPTED_ROWS。check_accepted_rows。id accepted）で拒み、輪の最後の回でもその直しを
-   作業ツリーから戻さない。その単位の役の行は積んだ後に返答から外し（drop_accepted_rows）、後の確かめと合わせた返答の照らしに当てない。止める単位の直しを戻す時（drop_excused_units・park_bound_units）、控えの行のファイルを共にする単位は戻さない
+   作業ツリーから戻さない。その単位の役の行は積んだ後に返答から外し（drop_accepted_rows）、後の確かめと合わせた返答の照らしに当てない。止める単位の直しを戻す時（park_bound_units）、控えの行のファイルと、裁定が外した単位の申し出の回の控えの行のファイル
+   （_held_files）を共にする単位は戻さない
 2. unitrows.take: 閉鎖の数え直しの前段。判定者の class_query（replace_query の裁定を受けた単位は置き換えた問い）を修正前の版と
    修正後の作業ツリーで機械が数え、単位ごとの表（querytest.CLOSURE_FILE。最後の関所と報告が読む）に closed と、修正役の申告
    （closure.sites の path が覆う問いの当たりの件数・remaining・作り直した how）との食い違いを記録する。食い違いは拒否でなく記録で、写しに渡す返答は
@@ -126,7 +127,7 @@ EXCUSED = ("直す義務から外れた単位を changes に書いた（答え�
            "理由を書け）: ")
 ACCEPTED_ROWS = ("1 回目の修正の段で受け付けた単位を changes か not_done に書いた（その単位の行は機械が 1 回目の控えから足す。"
                  "changes からも not_done からも外せ。作業ツリーのその単位の直しはそのまま残せ）: ")
-EXCUSED_DROPPED_OP = "fix_excused_dropped"   # 最後の回に、直す義務から外れた単位の直しを戻して changes から外した盤面の trace の行
+EXCUSED_DROPPED_OP = "fix_excused_dropped"   # 最後の回に、直す義務から外れた単位の行を changes から外した盤面の trace の行
 HELD_OP = "fix_held"   # 待つ単位が在る間、盤面に渡さずに返答を控えた（conflict.HELD_REPLY）盤面の trace の行
 
 
@@ -512,36 +513,47 @@ def _without_rows(reply: dict, rest: list, mine: set, repo) -> dict:
     return out
 
 
-def _held_files(board, repo) -> set:
-    """1 回目に受け付けた返答の控え（conflict.held_reply）の changes の行のファイル（控えが無ければ空）。2 回目の修正の段で止める
-    単位の直しを戻す時、控えの単位の直しを巻き添えに戻さない"""
-    held, _ = conflict.held_reply(entry.open_board(board, allow_halted=True))
-    return _files([c for c in (held or {}).get("changes") or [] if isinstance(c, dict)], repo)
-
-
-def drop_excused_units(reply: dict, keys: list, held: dict, board, base_rev, repo, state):
-    """輪の最後の回: 直す義務から外れた単位（held。keys は changes と同じ順の名前）の行の直しを戻し（revert_units）、その行を
-    外した返答・控えの patch・戻す手（undo: 直しを元に戻して控えを消す）を返す。外す行のファイルをほかの行か、1 回目に受け付けた
-    返答の控えの行（_held_files）と共有していれば None（返答全体を拒む）"""
-    rows = reply.get("changes") or []
-    gone = [c for c, k in zip(rows, keys) if k in held]
-    rest = [c for c, k in zip(rows, keys) if k not in held]
-    mine = _files(gone, repo)
-    if mine & (_files(rest, repo) | _held_files(board, repo)):
+def _parked_reply(b):
+    """今の回の申し出の回の控え（conflict.PARKED_REPLY。回の印で名を分ける）。無い・読めない・形が違えば None"""
+    try:
+        got = json.loads(b.work(fixrules.tagged(conflict.PARKED_REPLY, _tag())).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return None
-    patch = revert_units(board, base_rev, repo, state, gone)
+    return got if isinstance(got, dict) else None
 
-    def undo():
-        unrevert_units(board, base_rev, repo, patch, gone)
-        Path(patch).unlink(missing_ok=True)
-    return _without_rows(reply, rest, mine, repo), patch, undo
+
+def _held_files(board, repo) -> set:
+    """止める単位の直しを戻す時に巻き添えにしないファイル: 1 回目に受け付けた返答の控え（conflict.held_reply）の changes の行と、
+    今の回の申し出の回の控え（conflict.PARKED_REPLY）の changes の行のうち裁定が外した単位（conflict.held_by_rulings）の行の
+    ファイル（控えが無ければ空）。外れた単位の 1 回目の直しは作業ツリーに残す（依頼 241）。番号の行は盤面の控えで名前に戻し
+    （resolved_changes）、戻せなければ控えの行を全部数える（戻さない側）"""
+    b = entry.open_board(board, allow_halted=True)
+    held, _ = conflict.held_reply(b)
+    rows = [c for c in (held or {}).get("changes") or [] if isinstance(c, dict)]
+    parked = _parked_reply(b)
+    if parked is not None:
+        named = resolved_changes(parked, board)
+        if named is None:
+            rows += [c for c in parked.get("changes") or [] if isinstance(c, dict)]
+        else:
+            excused = conflict.held_by_rulings(b)
+            rows += [c for c in named if c.get("unit_key") in excused]
+    return _files(rows, repo)
+
+
+def drop_excused_units(reply: dict, keys: list, held: dict) -> dict:
+    """輪の最後の回: 直す義務から外れた単位（held。keys は changes と同じ順の名前）の行だけを changes から外した返答。直しは
+    作業ツリーに残し、bash_writes の申告も残す（残した直しの書き込みの出どころ）。戻さないので、ファイルを共にする行が在っても外せる"""
+    rows = reply.get("changes") or []
+    return {**reply, "changes": [c for c, k in zip(rows, keys) if k not in held]}
 
 
 def park_bound_units(reply: dict, problems: list, board, base_rev, repo, state):
     """輪の最後の回の拒否: 文が全部どれかの単位に結べ、止める単位のファイルをほかの単位と共有していなければ、その単位の直しを
     戻して（revert_units）ask_human に裁いて止め（conflict.park）、その行（と bash_writes の申告）を外した返答と、止める前に
     戻す手（undo: 直し・食い違いの控え・裁定の文を戻し、trace に PARK_UNDONE_OP）を返す。結べない文が在る・共有のファイルが
-    在る（1 回目に受け付けた返答の控えの行のファイルも。_held_files）時は None（今までどおり返答全体を拒む）"""
+    在る（1 回目に受け付けた返答の控えの行と、裁定が外した単位の申し出の回の控えの行のファイルも。_held_files）時は None（今までどおり
+    返答全体を拒む）"""
     named = resolved_changes(reply, board)   # 拒否の行は名前の unit_key[:60] を頭に持つので、番号で答えた行も名前に戻して結ぶ
     rows = named if named is not None else [c for c in reply.get("changes") or [] if isinstance(c, dict)]
     bound, unbound = bind_problems(problems, rows, repo)
@@ -645,18 +657,13 @@ def accept_fix(reply, board, base_rev, repo):
             reply, keys = drop_accepted_rows(reply, keys, mine, board)
         held = check_excused_units(keys, owed, excused)
         if held:
-            # 止めてよくない行が既に在れば外さない（通し直しても同じ行で拒むので、直しを戻さずに並べる）
-            got = drop_excused_units(whole, keys, held, board, base_rev, repo, state) if parkable() else None
-            if got is None:
+            # 止めてよくない行が既に在れば外さない（通し直しても同じ行で拒むので、並べて拒む）
+            if not parkable():
                 note(found, "excused", [f"{EXCUSED}{k}（{why}）" for k, why in held.items()])
             else:   # 通し直しの結果をそのまま返す（ここまでに積んだ行は通し直しがもう一度当てる）
-                rest, patch, undo = got
-                out = accept_fix(rest, board, base_rev, repo)
+                out = accept_fix(drop_excused_units(whole, keys, held), board, base_rev, repo)
                 if out.get("ok") is True:
-                    entry.open_board(board, allow_halted=True).trace(EXCUSED_DROPPED_OP, node=recount.ROLE, excused=held,
-                                                                      patch=patch)
-                else:
-                    undo()
+                    entry.open_board(board, allow_halted=True).trace(EXCUSED_DROPPED_OP, node=recount.ROLE, excused=held)
                 return out
         scope, scope_note = check_plan_scope(reply, keys, board, base_rev, repo, state, pass_)
         note(found, "scope", scope)

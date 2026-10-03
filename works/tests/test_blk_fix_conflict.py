@@ -42,6 +42,15 @@ CLAMP_FIX = {"    if x > hi:\n        return lo": "    if x > hi:\n        retur
 RULE_TEXT = "依頼は算術平均。test_mean_of_three の期待は正しいので、コードの分母を len(xs) に直せ"
 
 
+def accept_script_module():
+    """blk-fix の受け付けのスクリプトを同じプロセスに読み込んだ物（定数と関数を直に呼ぶ試験の口）"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("blk_fix_accept_in_conflict", BLK / "scripts" / "accept.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def conflict_on_mean(*cites):
     return {"unit_key": MEAN, "between": list(cites or ("stats.py:9", "test_stats.py:9")), "why_both_cannot_hold": WHY,
             "which_is_right": "request", "kind": "unnamed_test_broke"}
@@ -1187,6 +1196,34 @@ class TestHeldWorkStays(ReplanCase):
         got = self.ruled_until_through(only_clamp_reply() | {"changes": []}, state, suite)
         self.assert_held_for_replan(got)
         self.assertIn(touched, (self.repo / "stats.py").read_text(encoding="utf-8"), "外れた単位のファイルを戻した")
+
+    def test_last_round_row_for_held_unit_is_dropped_without_revert(self):
+        """裁定の後の段の 3 回目の返答が外れた MEAN を changes に書いた: 機械はその行だけを外して通し直し（drop_excused_units）、
+        MEAN の 1 回目の直しを作業ツリーに残したまま控えて案の直しへ渡す。trace の行は戻した直しの控え（patch）を持たない"""
+        accept_mod = accept_script_module()
+        state, suite = self.held_tdd_board()
+        reply = load("fix2_ok")
+        reply["changes"] = [{**c, "files": ["stats.py", "test_stats.py"]} for c in reply["changes"] if c["unit_key"] == MEAN]
+        reply["interactions"] = []
+        got = self.accept_script(reply, pass_="ruled", iteration="3", tdd_state=state, tdd_suite=suite)
+        self.assert_held_for_replan(got)
+        self.assertIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "外れた単位の直しを戻した")
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        dropped = [r for r in rows if r.get("op") == accept_mod.EXCUSED_DROPPED_OP]
+        self.assertEqual(len(dropped), 1, rows)
+        self.assertNotIn("patch", dropped[0])
+
+    def test_bound_unit_sharing_a_file_with_held_unit_is_not_reverted(self):
+        """最後の回に単位に結べた拒否で止める単位（残りの単位 RESIDUE）が、外れた単位 MEAN（申し出の回の控えの行に在る）と
+        stats.py を共にする: 止めて戻せば MEAN の直しも消えるので、止めずに返答全体を拒み（None）、stats.py を戻さない"""
+        accept_mod = accept_script_module()
+        state, _ = self.held_tdd_board()
+        residue = "stats.py residue: 残りの単位"
+        reply = {"changes": [{"unit_key": residue, "files": ["stats.py"], "what": "残りを直した"}]}
+        with mock.patch.dict("os.environ", {"INPUTS_PASS_TAG": ""}):
+            got = accept_mod.park_bound_units(reply, [f"{residue}: 元で赤でなかった試験が赤"], self.board, "", self.repo, state)
+        self.assertIsNone(got)
+        self.assertIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "外れた単位の直しを戻した")
 
     def test_rulings_say_keep_held_work(self):
         self.held_tdd_board()
