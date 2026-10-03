@@ -41,11 +41,13 @@ v1 の受け付けの入れ物（scratch）は表を持たないので review-lo
 import contextlib
 import dataclasses
 import datetime
+import fnmatch
 import hashlib
 import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -85,6 +87,9 @@ VALIDATOR_PATH = CORE / "scripts" / "review-record.py"  # 写しの RR（検証�
 GRAPH_SHA = _util.sha(graph_text(GRAPH_PATH))         # 既定の graph の sha（盤面の state.graph_sha と比べる値。engine の init と同じ求め方）
 BOARD_VERSION = 1                                     # state.works.board_version。知らない版の盤面は開かない
 LANG_DEFAULT = "依頼文の言語（利用者の言語）"          # engine の cmd_init が inputs.lang に置く既定の文
+SCOPE_RULE = "空か、英字で始まり英数字・_・- だけの名で r<数字> でない名"   # 部品の置き場（scope）の名の決まり（ValueError の文に載せる）
+_SCOPE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+_ROUND_NAME = re.compile(r"r\d+")                     # 周の置き場 r<N> と紛れる名は scope にしない
 
 
 # ---------------------------------------------------------------- 誤りの型
@@ -511,13 +516,23 @@ def _rebind_tables(rules, old, new) -> None:
 
 class DiskBoard(_EngineBoard):
     """ディスクの盤面（仕様 4.1）。写した engine の Board を継ぎ、engine の属性と関数はそのまま使う。
-    上書きするのは __init__・save・run_validator だけ。開く・作るは open・create、v1 の受け付けの入れ物は scratch"""
+    上書きするのは __init__・save・run_validator・_write_trace だけ。開く・作るは open・create、v1 の受け付けの入れ物は scratch。
+    scope は部品の置き場（include の単位。空なら盤面の根で今の置き場のまま）、published は scope の外の r<N>/ に置く名の形
+    （fnmatch の形）の集合"""
 
     AFTER_ROUND = "after_round"   # state.works の欄: report_after_round が退けた周の締めの止め（halted.by stop_after_round の dict）
 
-    def __init__(self, d, *, state, record, table, overrides=None, validator_runner=None, allow_halted=False, scratch=False):
+    def __init__(self, d, *, state, record, table, overrides=None, validator_runner=None, allow_halted=False, scratch=False,
+                 scope: str = "", published: frozenset[str] = frozenset()):
         """渡された state・record の dict から組む（engine の Board.__init__ と同じ順）。state の中の pack のパスは
-        写しのパスに記憶の中だけで読み替え（仕様 4.4 の 4）、overrides を当てる（4.4 の 5）。scratch の入れ物は GIT_CWD を触らない"""
+        写しのパスに記憶の中だけで読み替え（仕様 4.4 の 4）、overrides を当てる（4.4 の 5）。scratch の入れ物は GIT_CWD を触らない。
+        scope の名が決まり（SCOPE_RULE）に外れれば ValueError"""
+        if not isinstance(scope, str) or (scope and not (_SCOPE_NAME.fullmatch(scope) and not _ROUND_NAME.fullmatch(scope))):
+            raise ValueError(f"scope の名 {scope!r} は使えない（{SCOPE_RULE}）")
+        if isinstance(published, str):
+            raise ValueError(f"published は名の形の集合（文字列 {published!r} 1 つではない）")
+        self.scope = scope
+        self.published = frozenset(published)
         self.dir = pathlib.Path(d)
         self.state = state
         self._graph_path = graph_path(table.graph) if table is not None else GRAPH_PATH   # scratch は表を持たない（既定の graph）
@@ -612,12 +627,13 @@ class DiskBoard(_EngineBoard):
 
     # -- 開く・作る
     @classmethod
-    def open(cls, d, *, table, repo=None, overrides=None, validator_runner=None, allow_halted=False) -> "DiskBoard":
+    def open(cls, d, *, table, repo=None, overrides=None, validator_runner=None, allow_halted=False, scope: str = "",
+             published: frozenset[str] = frozenset()) -> "DiskBoard":
         """盤面を開く（仕様 4.4 の順: graph_sha → board_version → 検証器の包みの宣言 → 表の縛り → パスの読み替え → overrides）。
         graph_sha は表の graph（table.graph）の sha と照らす——盤面を作った時と別の graph を名指す表では開かない。
         util.GIT_CWD は inputs.cwd（repo を渡せばそれ）。state.works.core を今の写しで書き直す（保存すれば残る）。
         包みを渡して作った盤面（state.works.validator_hook。create が書く）を validator_runner 無しで開けば BoardGap
-        （包みの無い盤面を包みつきで開くのは拒まない）"""
+        （包みの無い盤面を包みつきで開くのは拒まない）。scope・published は入れ物の欄（work と trace の行が使う。盤面には書かない）"""
         d = pathlib.Path(d)
         state = _read_json(d / "state.json")
         if not isinstance(table, NodeTable):
@@ -639,7 +655,7 @@ class DiskBoard(_EngineBoard):
         _check_table(table)
         record = _read_json(d / "record.json")
         b = cls(d, state=state, record=record, table=table, overrides=overrides, validator_runner=validator_runner,
-                allow_halted=allow_halted)
+                allow_halted=allow_halted, scope=scope, published=published)
         if repo is not None:
             _util.GIT_CWD = str(pathlib.Path(repo).resolve())
         b.state["works"]["core"] = _core()
@@ -721,7 +737,8 @@ class DiskBoard(_EngineBoard):
     def scratch(cls, board, *, review_rev, record=None, loop_state=None) -> "DiskBoard":
         """v1 の受け付け（accept.py）の入れ物（仕様 7 節）。周 1・空の周の箱の engine の形を記憶の中だけに組む。
         dir は渡された盤面の置き場（RL の count-cache・hook_evidence が読み書きする）、state.validator は写しの RR。
-        保存できない（save は BoardGap）。GIT_CWD は触らない（v1 は _in_repo で向ける）。instance は持たない（BL24）"""
+        保存できない（save は BoardGap）。GIT_CWD は触らない（v1 は _in_repo で向ける）。instance は持たない（BL24）。
+        scope は空（渡された置き場の scope は継がない）"""
         graph = graph_expanded()
         state = {"loop_name": graph["loop"], "run_id": "scratch", "graph": str(GRAPH_PATH), "graph_sha": GRAPH_SHA,
                  "status": "running", "round": 1, "rounds": [empty_round(1)], "thickness": None,
@@ -1707,8 +1724,19 @@ class DiskBoard(_EngineBoard):
         return p
 
     # -- works の作業ファイル
+    @property
+    def scope_root(self) -> pathlib.Path:
+        """この入れ物の部品の置き場（scope が空なら盤面の根）"""
+        return self.dir / self.scope
+
     def work(self, name: str) -> pathlib.Path:
-        """今の周の作業ファイルの置き場 r<N>/<name>（ディレクトリを作る）"""
-        p = self.dir / f"r{self.round}" / name
+        """今の周の作業ファイルの置き場（ディレクトリを作る）。published の形に合う名か scope が空なら r<N>/<name>、
+        他は <scope>/r<N>/<name>"""
+        public = not self.scope or any(fnmatch.fnmatchcase(name, pat) for pat in self.published)
+        p = (self.dir if public else self.scope_root) / f"r{self.round}" / name
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
+
+    def _write_trace(self, row):
+        """trace の行を書く（写しの engine の _write_trace）。scope が空でなければ行に scope を足す（空なら今のバイトのまま）"""
+        super()._write_trace({**row, "scope": self.scope} if self.scope else row)
