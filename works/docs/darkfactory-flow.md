@@ -154,7 +154,7 @@ board/
 
 ### 照らし（宣言の外の書き込みで run を止める）
 
-窓は、1 つの scope が盤面を開いてから、別の scope か線が盤面を開くまでの間。Archon の節（Archon が節の居場所を環境変数で渡したプロセス。`flow_adapter.in_flow_node`）が `entry.open_board` で盤面を開くたびに `scopes.enter` を呼び、scope が替わる時に前の窓の盤面の変化（パス・大きさ・mtime_ns）を前の部品の manifest に照らす。照らすのは窓ごとに 1 度で、同じ scope が開き直しても窓は開き直さない（Archon の再開で同じ節が走り直しても、1 回目からの書き込みを照らし続ける）。誤りが在れば盤面を止め（`state.stop.by` が `works:scope-check`。周を締めた・もう止まった盤面は止められないので、trace の行 `stop_after_round_end` に残す）、窓は開いた節へ移す（後の開きが同じ誤りで落ち続けない）。開いた節は BoardGap で落ちる。報告と結果の節は `allow_halted` で開くので落ちずに走り、報告の結末に止めた理由が載る。run の外の道具（`dev/report.sh`・`dev/fixmeasure.py`）と試験の手は節でないので窓に触らない。
+窓は、1 つの scope が盤面を開いてから、別の scope か線が盤面を開くまでの間。Archon の節（Archon が節の居場所を環境変数で渡したプロセス。`flow_adapter.in_flow_node`）が `entry.open_board` で盤面を開くたびに `scopes.enter` を呼び、scope が替わる時に前の窓の盤面の変化（パス・大きさ・mtime_ns）を前の部品の manifest に照らす。照らすのは窓ごとに 1 度で、同じ scope が開き直しても窓は開き直さない（Archon の再開で同じ節が走り直しても、1 回目からの書き込みを照らし続ける）。誤りが在れば盤面を止め（`state.stop.by` が `works:scope-check`。周を締めた・もう止まった盤面は止められないので、trace の行 `stop_after_round_end` に残す。周を締めた盤面では境の節がこの行を止まりと読み、最後の関所を開かずにその理由で止まる）、窓は開いた節へ移す（後の開きが同じ誤りで落ち続けない）。開いた節は BoardGap で落ちる。報告と結果の節は `allow_halted` で開くので落ちずに走り、報告の結末に止めた理由が載る。run の外の道具（`dev/report.sh`・`dev/fixmeasure.py`）と試験の手は節でないので窓に触らない。
 
 誤りの文の読み方（1 行が 1 つのパス）:
 

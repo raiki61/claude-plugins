@@ -197,18 +197,28 @@ def _carried(b) -> dict:
             "open_units": json.dumps(units, ensure_ascii=False) if isinstance(units, list) else ""}
 
 
+def _closed_round_stop(b) -> dict | None:
+    """周を締めた盤面（halted.by stop_after_round。b.stop が拒む）に、盤面を開く口の照らし（entry.open_board）が止めた事実として
+    書いた trace の行（STOP_AFTER_END_OP・by scopes.SCOPE_CHECK_BY）の最後の物。無ければ None"""
+    if (b.state.get("halted") or {}).get("by") != ENDED_BY:
+        return None
+    rows = [r for r in report.trace_rows(b, STOP_AFTER_END_OP) if r.get("by") == scopes.SCOPE_CHECK_BY]
+    return rows[-1] if rows else None
+
+
 def _stopped(b) -> dict | None:
-    """盤面がもう止まっているなら止めた事実（state.stop か halted）。まだなら None"""
+    """盤面がもう止まっているなら止めた事実（state.stop か、周を締めた後の照らしの止め _closed_round_stop か halted）。まだなら None"""
     st = b.state
     if st.get("halted") or st.get("stop"):
-        return st.get("stop") or st.get("halted")
+        return st.get("stop") or _closed_round_stop(b) or st.get("halted")
     return None
 
 
 def _ended(b) -> bool:
-    """1 周の run が周を締めた（halted.by stop_after_round で、人も線も止めていない）。最後のテストの後の普通の終わり"""
+    """1 周の run が周を締めた（halted.by stop_after_round で、人も線も、周を締めた後の照らしも止めていない）。最後のテストの後の
+    普通の終わり"""
     st = b.state
-    return (st.get("halted") or {}).get("by") == ENDED_BY and not st.get("stop")
+    return (st.get("halted") or {}).get("by") == ENDED_BY and not st.get("stop") and _closed_round_stop(b) is None
 
 
 def _stop_board(b, at: str, reason: str, by: str) -> None:
