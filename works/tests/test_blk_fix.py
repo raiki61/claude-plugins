@@ -97,9 +97,10 @@ class TestBlockYaml(unittest.TestCase):
         y = block()
         self.assertEqual(y["name"], "blk-fix")
         self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "notes_file", "policy_path",
-                                            "tdd_suite", "test_cmd", "include_id", "pass_tag"})
-        # 2 回目の修正の段（依頼 226）の口。1 度目の include は既定のまま（include の名 fixing・回の印なし）
-        self.assertEqual((y["inputs"]["include_id"]["default"], y["inputs"]["pass_tag"]["default"]), ("fixing", ""))
+                                            "tdd_suite", "test_cmd", "pass_tag"})
+        # 2 回目の修正の段（依頼 226）の口。1 度目の include は既定のまま（回の印なし）。include の名は入力に持たない
+        # （core が Archon の節の居場所から引く。依頼 239）
+        self.assertEqual(y["inputs"]["pass_tag"]["default"], "")
         for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite", "test_cmd"):   # 足した物は空でよい（仕様 3.2・TDD の輪）
             self.assertEqual(y["inputs"][k].get("default"), "", k)
             self.assertNotIn("required", y["inputs"][k], k)
@@ -128,8 +129,7 @@ class TestBlockYaml(unittest.TestCase):
         # TDD の輪の節は test_blk_fix_tdd、食い違いの申し出の 3 節は test_blk_fix_conflict が見る
         before, _start, _tdd, loop, _check, _rule, _ruled, clean, changed, reads, collect = nodes
         self.assertEqual((reads["script"], reads["depends_on"]), ("reads", ["assert-changed"]))
-        self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]', "pass_tag": "$INPUTS.pass_tag",
-                                         "include_id": "$INPUTS.include_id"})
+        self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]', "pass_tag": "$INPUTS.pass_tag"})
         self.assertNotIn("depends_on", before)
         self.assertEqual(before["script"], "ignored_before")
         self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop"], "控えは修正役より前（tdd-start が ignored-before の後）")
@@ -304,7 +304,7 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""
-        tail = ("INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID")   # 2 回目の修正の段の回の印と include の名（OPTIONAL。依頼 226）
+        tail = ("INPUTS_PASS_TAG",)   # 2 回目の修正の段の回の印（OPTIONAL。依頼 226）
         want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
                            "INPUTS_TDD_SUITE", *tail),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
@@ -324,14 +324,14 @@ class TestBlockYaml(unittest.TestCase):
                 self.assertLessEqual(set(re.findall(r"INPUTS_[A-Z_]+", src)), set(inputs), "定数に無い INPUTS_* を読まない")
 
     def test_pass_inputs_are_optional(self):
-        """後から足した回の印と include の名は OPTIONAL（無い・空は今どおり。前の版の with: で再開した run は渡さない）。
-        YAML の with: はブロックの入力 pass_tag・include_id をそのまま渡す（依頼 226 Task 9。collect は回の印だけ）"""
+        """後から足した回の印は OPTIONAL（無い・空は今どおり。前の版の with: で再開した run は渡さない）。
+        YAML の with: はブロックの入力 pass_tag をそのまま渡す（依頼 226 Task 9）"""
         names = {"accept": ("fix-accept", "fix-ruled-accept"), "fix_prep": ("fix-prep", "fix-ruled-prep"),
                  "rule_prep": ("rule-prep",), "rule_accept": ("rule-accept",), "reads": ("fix-reads",), "collect": ("collect",),
                  "ignored_before": ("ignored-before",), "clean": ("clean",)}
         nodes = {nid: find_node(block()["nodes"], nid) for ids in names.values() for nid in ids}
         for name, ids in names.items():
-            want = {"INPUTS_PASS_TAG"} if name in ("collect", "ignored_before", "clean") else {"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"}
+            want = {"INPUTS_PASS_TAG"}
             with self.subTest(name):
                 src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
                 consts = [n.value for n in ast.parse(src).body if isinstance(n, ast.Assign)
@@ -813,13 +813,15 @@ class TestFixPrep(BoardCase):
     def test_reads_cover_the_composed_prompt(self):
         """読んだ証拠（fix-reads）は、判定のファイルに加えて fix-prep が組んだ指示書を読むべきパスに持つ"""
         self.fix_ready(launched=False)
-        code, out, err = self.prep()
+        where = lambda nid: json.dumps({"runId": "r", "path": f"fixing__fix-loop.{nid}"})   # 線の include fixing の中の節
+        code, out, err = self.prep(ARCHON_NODE_EXECUTION=where("fix-prep"))
         self.assertEqual(code, 0, err)
         prompt = json.loads(out)["prompt_file"]
         judgment = self.values()["judgment_file"]
         code, out, err = run_script("reads", self.repo, {"ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": "run-12",
                                                          "INPUTS_MUST": json.dumps([judgment]),
-                                                         "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]})
+                                                         "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"],
+                                                         "ARCHON_NODE_EXECUTION": where("fix-reads")})
         self.assertEqual(code, 0, err)
         rows = json.loads(pathlib.Path(json.loads(out)["reads_file"]).read_text(encoding="utf-8"))["rows"]
         self.assertEqual([r["path"] for r in rows], [judgment, prompt])
@@ -1549,7 +1551,9 @@ class TestLeftoversModule(unittest.TestCase):
         names = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         names |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.level == 0}
         self.assertTrue(names)
-        self.assertEqual(sorted(names - set(sys.stdlib_module_names)), [], "標準ライブラリだけ（pack の core の他の模块も読まない）")
+        # 標準ライブラリと、盤面の scope の根を引く層 L1 の script_io だけ（pack の core のほかの模块は読まない。依頼 239）
+        self.assertEqual(sorted(names - set(sys.stdlib_module_names) - {"script_io"}), [],
+                         "標準ライブラリと script_io だけ（pack の core の他の模块も読まない）")
         self.assertFalse(any(isinstance(n, ast.ImportFrom) and n.level for n in ast.walk(tree)))
 
     def test_leftovers_callers_import_from_core(self):

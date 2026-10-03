@@ -559,10 +559,10 @@ def _write_json(path: pathlib.Path, doc) -> None:
     os.replace(tmp, path)
 
 
-def collect_reads(board_dir, repo, run_id: str, include: str, replan: str = "") -> dict:
+def collect_reads(board_dir, repo, run_id: str, replan: str = "") -> dict:
     """plan-reads: この周に描いた役ごとに、機械が渡したパス（描いた指示書・方針の文書）を読んだ証拠を reads.collect で集め、
     {役: reads-<役>.json} を reads-plan-block.json に書く。直しの役は今の周に書いた往復ごとの指示書（方針の文書は修正案の
-    会話に在るので求めない）。出来事の節の名は READS_LOOP の輪の名で組む。受け付けの条件にはしない。返り {ok: True, reads_file}。
+    会話に在るので求めない）。出来事の節の名は READS_LOOP の輪の名で組む（include の名は core の reads.node_here が引く）。受け付けの条件にはしない。返り {ok: True, reads_file}。
     replan なら案の直しの役（直しの役は replan で起きないので数えない）の指示書について、役の名 replan-<役> で
     reads-replan-<役>.json に、索引を replan.READS_INDEX に書く（1 回目の控えを上書きしない）"""
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
@@ -580,7 +580,7 @@ def collect_reads(board_dir, repo, run_id: str, include: str, replan: str = "") 
             continue
         must += [policy] if policy and role != REVISE_ROLE else []
         name = f"{replan_mod.READS_PREFIX}{role}" if again else role
-        got = reads.collect(pathlib.Path(board_dir), name, reads.node_path(include, READS_LOOP[role], role), must, events,
+        got = reads.collect(pathlib.Path(board_dir), name, reads.node_here(READS_LOOP[role], role), must, events,
                             repo=pathlib.Path(repo))
         files[name] = got["reads_file"]
     out = b.work(replan_mod.READS_INDEX if again else READS_INDEX)

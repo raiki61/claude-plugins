@@ -1,5 +1,7 @@
 {
  "owner": "blk-report",
  "consumes": [],
- "produces": []
+ "produces": [
+  {"name": "report-ai.md", "format": "md", "at": "root"}
+ ]
 }

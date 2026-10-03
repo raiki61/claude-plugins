@@ -24,6 +24,7 @@ import json  # noqa: E402
 import os  # noqa: E402
 
 import conflict  # noqa: E402
+import script_io  # noqa: E402
 
 from accept import JUDGE_SNAPSHOT_FILE, JUDGMENT_FILE, check_request, tree_state  # noqa: E402
 from engine.util import Reject  # noqa: E402
@@ -72,7 +73,9 @@ def main() -> int:
     except (Reject, OSError) as e:
         return _stop(f"作業ツリーの写しが取れない（{e}）")
     (board / JUDGMENT_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ
-    (board / JUDGE_SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
+    own = script_io.scope_dir(board)   # 盤面の今の include の置き場（受け付けの check_judge が同じ口で読む）
+    own.mkdir(parents=True, exist_ok=True)
+    (own / JUDGE_SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({"ok": True, "reason": "", "request": rel}, ensure_ascii=False), flush=True)
     return 0

@@ -29,6 +29,7 @@ import os  # noqa: E402
 from purpose import NODE, SNAPSHOT_FILE, check_constraints, refuse_if_frozen, tree_state  # noqa: E402
 import conflict  # noqa: E402
 import rolekit  # noqa: E402
+import script_io  # noqa: E402
 import conflict  # noqa: E402
 from engine.util import Reject  # noqa: E402  purpose の後（purpose を読むと写しの graphloops が sys.path に入る）
 
@@ -78,7 +79,9 @@ def main() -> int:
         return _stop(f"作業ツリーの写しが取れない（{e}）")
     board.mkdir(parents=True, exist_ok=True)
     rolekit.clear_rejects(board, NODE)
-    (board / SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
+    own = script_io.scope_dir(board)   # 盤面の今の include の置き場（受け付けが同じ口で読む）
+    own.mkdir(parents=True, exist_ok=True)
+    (own / SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({"ok": True, "reason": "", "request": rel, "constraints_file": cf}, ensure_ascii=False), flush=True)
     return 0

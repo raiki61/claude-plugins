@@ -270,17 +270,30 @@ class LineShapeCase(unittest.TestCase):
         self.assertEqual(report.FINAL_GATE_FILE, line_edge.FINAL_GATE_FILE)
         self.assertEqual(report.FINAL_GATE_BY, line_edge.FINAL_GATE_BY)
 
-    def test_reads_include_ids_match_line(self):
-        """読んだ証拠の節が Archon の出来事を引く include の id（core の READS）が、線の include の id と同じ（V5〜V7 の当座の形）"""
-        import prcheck
-        import recount
-        import refix
-        ids = {n["id"]: n.get("include") for n in line()["nodes"]}
-        self.assertEqual(ids[recount.READS[1]], "blk-fix")
-        self.assertEqual(ids[prcheck.READS[1]], "blk-pr")
-        for role, (_, inc, _, _) in refix.READS.items():
-            self.assertEqual(ids[inc], "blk-delta" if role == "review" else "blk-refix", role)
-        self.assertEqual(node("planning")["with"]["include_id"], "planning")
+    def test_every_include_names_its_own_scope(self):
+        """部品の置き場（依頼 239 の測り M1 の形 A）: scope は Archon が節に渡す step の名の include の頭から core が引くので、
+        YAML は scope を渡さない。線の include の id は全部違い（2 つの include が同じ scope を名乗らない）、scope の名の決まり
+        （英字で始まり英数字・_・- だけ・r<数字> でない）に合い、`__` を持たない（step の名の区切りと紛れない）。ブロックは
+        include の名を入力に持たない（読んだ証拠の節も core が今の scope から引く）"""
+        ids = [n["id"] for n in line()["nodes"] if "include" in n]
+        self.assertEqual(len(ids), len(set(ids)), ids)
+        for i in ids:
+            with self.subTest(i):
+                self.assertRegex(i, r"^[A-Za-z][A-Za-z0-9_-]*$")
+                self.assertNotRegex(i, r"^r\d+$")
+                self.assertNotIn("__", i)
+        for n in line()["nodes"]:
+            if "include" in n:
+                self.assertNotIn("include_id", n.get("with") or {}, n["id"])
+                self.assertNotIn("include_id", block(n["include"]).get("inputs") or {}, n["include"])
+
+    def test_block_code_has_no_scope_code(self):
+        """部品のコード（blk-*/lib・blk-*/scripts の .py）は scope を知らない: 流れの道具の口・scope の模块・include の名の入力を
+        書かない（置き場の分け・登録・集めは core の共通の口だけ。依頼 239 の Global Constraints）"""
+        found = [f"{p.relative_to(ROOT)}: {word}" for p in sorted(ROOT.glob("blk-*/*/*.py")) if p.parent.name in ("lib", "scripts")
+                 for word in ("flow_adapter", "import scopes", "INCLUDE_ID") if word in p.read_text(encoding="utf-8")]
+        self.assertEqual(found, [])
+        self.assertTrue(list(ROOT.glob("blk-*/lib/*.py")) and list(ROOT.glob("blk-*/scripts/*.py")))
 
     def test_structure_block_wired_between_plan_and_planning(self):
         """構造のブロック（blk-structure）は h-plan の直後に include 1 つで入り、h-plan が写した判定の単位のファイルを units に
@@ -310,7 +323,7 @@ class LineShapeCase(unittest.TestCase):
     def test_replan_wiring(self):
         """修正の段の後・再審の前に、案の直し（依頼 226。1 run に 1 回）: h-replan → replanning（blk-plan の 2 度目の include。
         replan の口）→ h-regate → replan-gate（線の最上段の関所。輪の外）→ h-refit（関所の答えを受ける）→ refitting（blk-fix の
-        2 度目の include。回の印 refit・出来事を引く include の名 refitting）→ h-rejudge（2 回目の段の後を待つ）"""
+        2 度目の include。回の印 refit。出来事を引く include の名は core が今の scope から引く）→ h-rejudge（2 回目の段の後を待つ）"""
         ids = [n["id"] for n in line()["nodes"]]
         i = ids.index("fixing")
         self.assertEqual(ids[i:i + 8], ["fixing", "h-replan", "replanning", "h-regate", "replan-gate", "h-refit", "refitting",
@@ -322,9 +335,9 @@ class LineShapeCase(unittest.TestCase):
         self.assertEqual(node("h-rejudge")["depends_on"], ["start", "h-fix", "fixing", "h-refit", "refitting"])
         re_ = node("replanning")
         self.assertEqual((re_["include"], re_["when"]), ("blk-plan", "$h-replan.output.go == true"))
-        self.assertEqual((re_["with"]["replan"], re_["with"]["include_id"]), ("true", "replanning"))
-        self.assertEqual({k: v for k, v in re_["with"].items() if k not in ("replan", "include_id", "judgment_file")},
-                         {k: v for k, v in node("planning")["with"].items() if k not in ("include_id", "judgment_file")})
+        self.assertEqual(re_["with"]["replan"], "true")
+        self.assertEqual({k: v for k, v in re_["with"].items() if k not in ("replan", "judgment_file")},
+                         {k: v for k, v in node("planning")["with"].items() if k != "judgment_file"})
         gate = node("replan-gate")
         self.assertNotIn("loop_group", gate)
         self.assertEqual((gate["depends_on"], gate["when"]), (["h-regate"], "$h-regate.output.ask == true"))
@@ -335,8 +348,8 @@ class LineShapeCase(unittest.TestCase):
                          "報告に残る）。approve は continue、reject は stop と同じ。\n")
         fit, fixing = node("refitting"), node("fixing")
         self.assertEqual((fit["include"], fit["when"]), ("blk-fix", "$h-refit.output.go == true"))
-        self.assertEqual(set(fit["with"]), set(fixing["with"]) | {"include_id", "pass_tag"})
-        self.assertEqual((fit["with"]["include_id"], fit["with"]["pass_tag"]), ("refitting", "refit"))
+        self.assertEqual(set(fit["with"]), set(fixing["with"]) | {"pass_tag"})
+        self.assertEqual(fit["with"]["pass_tag"], "refit")
         for k in ("open_units", "plan_file", "notes_file", "judgment_file"):
             self.assertEqual(fit["with"][k], f"$h-refit.output.{k}", k)
         for k in set(fixing["with"]) - {"open_units", "plan_file", "notes_file", "judgment_file"}:

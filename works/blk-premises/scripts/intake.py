@@ -32,6 +32,7 @@ from ghreads import request_parts  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_REQUEST_FILE, PREMISES_SNAPSHOT_FILE  # noqa: E402
 import conflict  # noqa: E402
 import rolekit  # noqa: E402
+import script_io  # noqa: E402
 import conflict  # noqa: E402
 
 REQUEST_ENV = "INPUTS_REQUEST"
@@ -86,8 +87,10 @@ def main() -> int:
         snap = tree_state(Path.cwd(), bytecode=False)
     except (Reject, OSError) as e:
         return _stop(f"作業ツリーの写しが取れない（{e}）")
-    (board / PREMISES_SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
-    (board / PREMISES_REQUEST_FILE).write_text(json.dumps(items, ensure_ascii=False) + "\n", encoding="utf-8")   # 受け付けの check_claims が読む
+    own = script_io.scope_dir(board)   # 盤面の今の include の置き場（受け付けが同じ口で読む）
+    own.mkdir(parents=True, exist_ok=True)
+    (own / PREMISES_SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
+    (own / PREMISES_REQUEST_FILE).write_text(json.dumps(items, ensure_ascii=False) + "\n", encoding="utf-8")   # 受け付けの check_claims が読む
     return _emit({"ok": True, "reason": "", "request": rel, "go": True})
 
 

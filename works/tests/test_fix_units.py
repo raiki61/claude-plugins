@@ -193,7 +193,7 @@ class ClosureLinesCase(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
 
-        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1)
+        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1, scope_root=pathlib.Path(tmp.name))
         self.assertEqual(querytest.closure_lines(b), [])
         rows = [{"unit_key": "a", "closed": True, "discrepancies": []},
                 {"unit_key": "b", "closed": False, "discrepancies": []},
@@ -215,7 +215,7 @@ class StuckLinesCase(unittest.TestCase):
             self.fail("closure_lines が減っていない単位だけを返す口（stuck_only）を持たない: 合わない単位と同じ 1 節に埋もれる")
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1)
+        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1, scope_root=pathlib.Path(tmp.name))
         querytest.save_closure(b, rows)
         return [x.split(":")[0] for x in querytest.closure_lines(b, **kw)]
 

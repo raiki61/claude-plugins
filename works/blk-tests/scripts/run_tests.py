@@ -7,7 +7,7 @@
 plain（既定。1 本目と線 C の mutgate の約束のまま。INPUTS_MODE が無い・空の呼び出しもこれ）:
   INPUTS_CMD（節の with: の cmd）を対象リポジトリの根（cwd）で tree_run.command_argv の形（シェルが要る時だけ `bash -c`、
   ほかは直に）で起こし、標準出力と標準エラーを
-  $ARTIFACTS_DIR/board/tests.log に置き、標準入力は閉じる（入力待ちで止まらない）。盤面は開かない。コマンドは本文に
+  盤面（$ARTIFACTS_DIR/board）の今の include の置き場（script_io.scope_dir）の tests.log に置き、標準入力は閉じる（入力待ちで止まらない）。盤面は開かない。コマンドは本文に
   差し込まず環境変数のまま渡すので、値がシェルの記号を含んでもデータのまま届く。
   起こす前にログの頭へ起こし方の行（『== 起こし方 {how}: {argv の JSON}』）を書く。
   出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>, "how": <起こし方>} を 1 行。コマンドを起こせない
@@ -83,9 +83,9 @@ def _suite(name, how, code) -> dict:
 
 
 def run_plain(cmd: str, artifacts: Path) -> dict:
-    board = artifacts / script_io.BOARD_DIR
-    board.mkdir(parents=True, exist_ok=True)
-    log = board / LOG_NAME
+    own = script_io.scope_dir(artifacts / script_io.BOARD_DIR)   # 盤面の今の include の置き場
+    own.mkdir(parents=True, exist_ok=True)
+    log = own / LOG_NAME
     argv, how = tree_run.command_argv(cmd)
     with open(log, "wb") as f:
         f.write(f"== 起こし方 {how}: {json.dumps(argv, ensure_ascii=False)}\n".encode("utf-8"))

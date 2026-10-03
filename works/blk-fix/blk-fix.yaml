@@ -48,9 +48,6 @@ inputs:
     default: ""
     description: 緑の後に TDD の輪が走らせるテストのコマンド（線の入力 `test_cmd`）。空は走らせない。実行器がこのコマンドそのものを包んだ物なら 2 度走らせない
   # 同じ run の中の案の直し（依頼 226）でラインがこのブロックを 2 度目に include した 2 回目の修正の段の口。1 度目は既定のまま
-  include_id:
-    default: fixing
-    description: ラインがこのブロックを include した id（読んだ証拠が Archon の出来事の節の名 <include>__<輪>.<役> を引くため）
   pass_tag:
     default: ""
     description: 回の印（2 回目の修正の段は refit）。指示書・拒否の理由・裁定の文・回の数え・読んだ証拠のファイルの名に足し、1 回目の物と分ける。空は 1 回目
@@ -240,7 +237,6 @@ nodes:
             base_rev: $INPUTS.base_rev   # 修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
             pass: "first"
             pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             additionalProperties: false
@@ -672,7 +668,6 @@ nodes:
             pass: "first"
             tdd_suite: $INPUTS.tdd_suite              # 事後の関門の束の実行器（空は受け入れのテストの赤緑を確かめない run）
             pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
@@ -720,7 +715,6 @@ nodes:
             judgment_file: $INPUTS.judgment_file
             policy_path: $INPUTS.policy_path
             pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             additionalProperties: false
@@ -791,7 +785,6 @@ nodes:
             base_rev: $INPUTS.base_rev
             iteration: $rule-prep.output.iteration
             pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             required: [ok, done, reason, reason_file, rulings_file, counts]
@@ -827,7 +820,6 @@ nodes:
             base_rev: $INPUTS.base_rev
             pass: "ruled"
             pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             additionalProperties: false
@@ -869,7 +861,6 @@ nodes:
             pass: "ruled"
             tdd_suite: $INPUTS.tdd_suite
             pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
@@ -931,7 +922,6 @@ nodes:
     with:
       must: '["$INPUTS.judgment_file"]'
       pass_tag: $INPUTS.pass_tag
-      include_id: $INPUTS.include_id
     output_format:
       type: object
       additionalProperties: false

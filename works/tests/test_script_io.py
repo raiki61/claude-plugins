@@ -81,6 +81,21 @@ class ScriptIoCase(unittest.TestCase):
         self.assertEqual(p.parent.resolve(), (self.tmp / "artifacts" / "board").resolve())
         self.assertEqual(p.read_text(encoding="utf-8"), reason)
 
+    def test_reject_goes_to_scope_dir(self):
+        # include の中の節の拒否の理由は盤面の scope の根に置く（同じブロックの 2 度目の include が 1 度目の連番と混ざらない）。
+        # 線の最上段（scope なし）は今どおり盤面の根
+        board = self.tmp / "artifacts" / "board"
+        for path, home in (("refitting__fix-loop.fix-accept", board / "refitting"), ("h-fix", board)):
+            with self.subTest(path=path):
+                env = {**self.env, "ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": path})}
+                code, out, _ = run_main(lambda *a: {"ok": False, "reason": "r"}, env)
+                self.assertEqual(code, 0)
+                got = pathlib.Path(json.loads(out)["reason_file"])
+                self.assertEqual(got, home / "reject-_lambda_-1.txt")
+                with mock.patch.dict(os.environ, env, clear=True):
+                    self.assertEqual(script_io.scope_dir(board), home)
+                    self.assertEqual(script_io.last_reject(board, "<lambda>"), str(got))
+
     def test_each_reject_gets_its_own_file(self):
         outs = [json.loads(run_main(lambda *a: {"ok": False, "reason": f"r{i}"}, self.env)[1]) for i in (1, 2)]
         self.assertNotEqual(outs[0]["reason_file"], outs[1]["reason_file"], "前の周の理由を上書きしない")

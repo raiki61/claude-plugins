@@ -4,10 +4,9 @@
 前後で盤面の全部のファイルの中身（sha256）と mtime を控える。1 度目の窓（planning・fixing）で作った・変えたファイルのうち、
 共有の記録（core が書き、どの scope の窓でも変わってよい物）の外の物が、2 度目の窓（replanning・refitting）の前後で中身か
 mtime が違えば上書き（同じ中身の書き直しも数える）。
-今は置き場を分けていないので落ちる（0.2.20 で refitting が fixing の fix-unit-rows.json・r1/brief-1.md・r1/briefs.json・
-r1/changes.json・r1/fix-gates.json・r1/rule-tree.json を上書きする。replanning は planning の物を上書きしない）。落ちた時の文が
-上書きしたファイルを全部名指すので、置き場の分けが進むにつれ一覧が縮むのを見られる。Task 5 で置き場の分けが効いたら
-expectedFailure を外す。
+盤面を開く口（entry.open_board）が include の名を scope にして部品の私物を <scope>/ の下に分けるので通る（0.2.20 では refitting が
+fixing の fix-unit-rows.json・r1/brief-1.md・r1/briefs.json・r1/changes.json・r1/fix-gates.json・r1/rule-tree.json を上書きした）。
+落ちた時の文は上書きしたファイルを全部名指す。
 """
 import fnmatch
 import hashlib
@@ -34,7 +33,8 @@ from test_script_contract import line_replies  # noqa: E402
 SHARED = ("state.json", "record.json", "trace.jsonl", "out/**", "runs/**", "rounds/**", "STOP", "query-examples.json",
           "prompts/**", "roles/**", "items/**", "policy/**", "lanes/**", "diff-r*.patch", "changed-r*.txt", "*-r*.patch",
           "count-cache.json", "count-budget.json",
-          "r[0-9]*/conflicts.json", "r[0-9]*/libdocs.json", "r[0-9]*/libdocs/**")
+          "r[0-9]*/conflicts.json", "r[0-9]*/libdocs.json", "r[0-9]*/libdocs/**",
+          "r[0-9]*/scopes.json", "r[0-9]*/scopes.json.lock")   # scope の登録（盤面を開く口 entry.open_board が書く。Task 5）
 
 # 2 度 include するブロックの (1 度目, 2 度目) の節
 PAIRS = (("planning", "replanning"), ("fixing", "refitting"))
@@ -110,7 +110,7 @@ def scenario(board: pathlib.Path) -> dict:
     edits = {"fix": by_pass("fix", lambda repo: edit_tree(repo, fc.CLAMP_FIX), add_test),
              "fix-ruled": by_pass("fix-ruled", lambda repo: None, lambda repo: edit_tree(repo, fc.MEAN_FIX))}
 
-    brief = f"{board / 'r1' / 'brief-1.md'}:1"
+    brief = f"{board / 'fixing' / 'r1' / 'brief-1.md'}:1"   # 1 回目の修正の段（include fixing）の scope の根の brief
     rulings = [{"id": "c1-1", "decision": "fix_plan_item", "text": tr.PLAN_TEXT, "limits": [], "grounds": [brief]},
                {"id": "c1-2", "decision": "fix_code_as", "text": "依頼が正しい。分母を len(xs) に直せ", "limits": ["stats.py:9"]}]
     replies = {**line_replies(),
@@ -154,7 +154,6 @@ class TwoIncludesCase(unittest.TestCase):
         self.assertIn(("refitting", "done"), self.snaps)      # 2 度目の blk-fix まで走った
         self.assertIn(("replanning", "done"), self.snaps)     # 2 度目の blk-plan まで走った
 
-    @unittest.expectedFailure   # Task 5 で外す（置き場の分けが効くまでは rule-tree.json などを上書きする）
     def test_second_include_overwrites_nothing_of_first(self):
         for first, second in PAIRS:
             with self.subTest(first=first, second=second):

@@ -86,10 +86,24 @@ GRAPH_PATH = GRAPHS_DIR / DEFAULT_GRAPH               # 既定の写しの graph
 VALIDATOR_PATH = CORE / "scripts" / "review-record.py"  # 写しの RR（検証器）
 GRAPH_SHA = _util.sha(graph_text(GRAPH_PATH))         # 既定の graph の sha（盤面の state.graph_sha と比べる値。engine の init と同じ求め方）
 BOARD_VERSION = 1                                     # state.works.board_version。知らない版の盤面は開かない
+LAYOUT = "scope-1"                                    # state.works.layout。部品の私物を scope の根に分ける置き場の版（依頼 239）
+ANY_BELOW = "**"                                      # 名の形の末尾の段だけに置ける「下の全部」（name_matches）
 LANG_DEFAULT = "依頼文の言語（利用者の言語）"          # engine の cmd_init が inputs.lang に置く既定の文
 SCOPE_RULE = "空か、英字で始まり英数字・_・- だけの名で r<数字> でない名"   # 部品の置き場（scope）の名の決まり（ValueError の文に載せる）
 _SCOPE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 _ROUND_NAME = re.compile(r"r\d+")                     # 周の置き場 r<N> と紛れる名は scope にしない
+
+
+def name_matches(name: str, pattern: str) -> bool:
+    """name が pattern に当たるか（"/" で区切った段ごとの fnmatchcase。* は段をまたがない。末尾の ** は 1 段以上の残りの全部）。
+    公開の名の形の当て方はこれ 1 つ（scopes.matches もこれ）"""
+    segs, pats = name.split("/"), pattern.split("/")
+    if pats[-1] == ANY_BELOW:
+        pats = pats[:-1]
+        if len(segs) <= len(pats):
+            return False
+        segs = segs[:len(pats)]
+    return len(segs) == len(pats) and all(fnmatch.fnmatchcase(s, p) for s, p in zip(segs, pats))
 
 
 # ---------------------------------------------------------------- 誤りの型
@@ -518,7 +532,7 @@ class DiskBoard(_EngineBoard):
     """ディスクの盤面（仕様 4.1）。写した engine の Board を継ぎ、engine の属性と関数はそのまま使う。
     上書きするのは __init__・save・run_validator・_write_trace だけ。開く・作るは open・create、v1 の受け付けの入れ物は scratch。
     scope は部品の置き場（include の単位。空なら盤面の根で今の置き場のまま）、published は scope の外の r<N>/ に置く名の形
-    （fnmatch の形）の集合"""
+    （段ごとの fnmatch の形。name_matches）の集合"""
 
     AFTER_ROUND = "after_round"   # state.works の欄: report_after_round が退けた周の締めの止め（halted.by stop_after_round の dict）
 
@@ -713,7 +727,7 @@ class DiskBoard(_EngineBoard):
                 "inputs": ins, "validator": str(VALIDATOR_PATH), "outputs": {}, "done_ever": {}, "loop": {},
                 **({"notes": notes} if notes else {}),
                 # 5: works の欄
-                "works": {"board_version": BOARD_VERSION, "line": table.line, "table_sha": table.sha(), "core": _core(),
+                "works": {"board_version": BOARD_VERSION, "layout": LAYOUT, "line": table.line, "table_sha": table.sha(), "core": _core(),
                           "not_in_line": table.absent(), "overrides": [],
                           **({"validator_hook": _hook_name(validator_runner)} if validator_runner is not None else {})},
             }
@@ -1729,11 +1743,12 @@ class DiskBoard(_EngineBoard):
         """この入れ物の部品の置き場（scope が空なら盤面の根）"""
         return self.dir / self.scope
 
-    def work(self, name: str) -> pathlib.Path:
-        """今の周の作業ファイルの置き場（ディレクトリを作る）。published の形に合う名か scope が空なら r<N>/<name>、
-        他は <scope>/r<N>/<name>"""
-        public = not self.scope or any(fnmatch.fnmatchcase(name, pat) for pat in self.published)
-        p = (self.dir if public else self.scope_root) / f"r{self.round}" / name
+    def work(self, name: str, round_: int | None = None) -> pathlib.Path:
+        """周の作業ファイルの置き場（ディレクトリを作る）。周は round_（省けば今の周）。published の形に段ごとに合う名
+        （name_matches）か scope が空なら r<N>/<name>、他は <scope>/r<N>/<name>"""
+        public = not self.scope or any(name_matches(name, pat) for pat in self.published)
+        n = self.round if round_ is None else round_
+        p = (self.dir if public else self.scope_root) / f"r{n}" / name
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
 

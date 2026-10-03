@@ -35,6 +35,7 @@ import prcheck  # noqa: E402
 import refix  # noqa: E402
 import rejudge  # noqa: E402
 import report  # noqa: E402
+import scopes  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
 import test_entry as TE  # noqa: E402
 import hermetic  # noqa: E402
@@ -530,6 +531,24 @@ class HeadCase(ReportBase):
         self.assertEqual(TE.board_shas(self.board), before)
         self.assertIn(f"run の作業ツリー: {b.state['inputs']['cwd']}", where)
         self.assertTrue(any(x.startswith("判定: ") for x in where))
+
+    def test_reads_lines_cover_scoped_reads(self):
+        """同じブロックの 2 つの include（fixing・refitting）がそれぞれ scope の根に書いた reads-fix.json は、冒頭 4 の読みの節に
+        両方の行が出る（登録の順。盤面の根の周の置き場の物が先）"""
+        self.full()
+        for scope in ("fixing", "refitting"):
+            scopes.claim(self.board, 1, scope, "blk-fix")
+        made = []
+        for rel, role in (("r1/reads-plan.json", "plan"), ("fixing/r1/reads-fix.json", "fix"),
+                          ("refitting/r1/reads-fix.json", "fix.refit")):
+            p = self.board / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({"role": role, "rows": [], "missing": [], "sources": {"hook": False, "events": "none"}}),
+                         encoding="utf-8")
+            made.append(p)
+        rows = [x for x in report.head_reads(self.board, RUN_ID) if x.startswith("読んだ証拠 ")]
+        self.assertEqual([x.split(":")[0] for x in rows], ["読んだ証拠 plan", "読んだ証拠 fix", "読んだ証拠 fix.refit"])
+        self.assertEqual([x.rsplit("。", 1)[1].rstrip("）") for x in rows], [str(p) for p in made])
 
     def test_round_two_paths(self):
         """周 2 の出力（state.outputs[節]["file"] が out/r2/）→ 見る所のパスは out/r2/ の下（周を仮定しない）"""

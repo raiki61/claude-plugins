@@ -79,6 +79,7 @@ if str(_CORE) not in sys.path:
 import board as _board  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402  （planmarks は conflict・entry を読まないので輪にならない）
+import scopes  # noqa: E402
 from script_io import tagged  # noqa: E402  （回の印の決まり。blk-fix の fixrules.tagged と同じ 1 つの口）
 from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足す）
 
@@ -662,9 +663,13 @@ def fix_duty(b) -> tuple:
 
 
 def held_reply(b) -> tuple:
-    """(1 回目に受け付けた返答の控え, そのパス b.work(HELD_REPLY))。今の周に盤面が p3.fix を受けた後・控えが無いなら控えは None。
-    形（{changes: [{unit_key, ...}], not_done: [{unit_key, ...}], bash_writes: [...]}。どの欄も任意）が違う・読めなければ BoardGap"""
-    path = b.work(HELD_REPLY)
+    """(1 回目に受け付けた返答の控え, そのパス)。控えは修正のブロックの include ごとに scope の根に残る（per_include）ので、
+    今の周の物を scopes.each で集めた最後（一番新しく登録した include の物。2 回目の修正の段も 1 回目の段の控えを読む）。
+    どこにも無ければパスは b.work(HELD_REPLY)（今の scope が書く置き場）。今の周に盤面が p3.fix を受けた後・控えが無いなら
+    控えは None。形（{changes: [{unit_key, ...}], not_done: [{unit_key, ...}], bash_writes: [...]}。どの欄も任意）が違う・
+    読めなければ BoardGap"""
+    found = scopes.each(b, HELD_REPLY)
+    path = found[-1] if found else b.work(HELD_REPLY)
     took = ((getattr(b, "state", None) or {}).get("outputs") or {}).get(FIX_NODE) or {}
     if took.get("round") == b.round:
         return None, path

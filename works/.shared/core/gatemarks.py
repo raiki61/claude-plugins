@@ -60,6 +60,7 @@ import re
 
 import answer
 import converge
+import scopes
 
 MARKS_FILE = "gate-marks.json"
 FIELDS = ("decided_by", "undecided_because", "fences", "world")
@@ -187,9 +188,11 @@ def eye_named(name: str, status) -> str:
 
 
 def fell_lanes(b) -> str:
-    """今の周の箱の LANES_NAME の文（独立の目の筋が落ちた理由）。無ければ空"""
+    """今の周の LANES_NAME の文（独立の目の筋が落ちた理由。独立の目の include の scope の根の物も見る: scopes.each の最後）。
+    無ければ空"""
+    found = scopes.each(b, LANES_NAME)
     try:
-        return str(json.loads((b.dir / f"r{b.round}" / LANES_NAME).read_text(encoding="utf-8")).get("why") or "")
+        return str(json.loads(found[-1].read_text(encoding="utf-8")).get("why") or "") if found else ""
     except (OSError, ValueError, AttributeError):
         return ""
 

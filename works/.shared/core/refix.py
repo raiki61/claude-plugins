@@ -71,19 +71,18 @@ FIX_ROLE = {1: "refix", 2: "refix2"}        # 手直しの役の名
 # blk-refix の中の輪（T17 で YAML に書く。輪の中の id は全部の include をまたいで一意。台帳 R19）
 LOOPS = {"refix-loop": ("refix", "refix-accept"), "review2-loop": ("review2", "review2-accept"),
          "refix2-loop": ("refix2", "refix2-accept")}
-# 読んだ証拠の節（reads.main_for の引数: 役・ラインの include の id・輪・節。Task 6 の reads.py の口。include の id は仕様 2 節の
-# ライン（reviewing・refixing）の名）
-READS = {"review": ("review", "reviewing", "delta-loop", "review"),
-         "refix": ("refix", "refixing", "refix-loop", "refix"),
-         "review2": ("review2", "refixing", "review2-loop", "review2"),
-         "refix2": ("refix2", "refixing", "refix2-loop", "refix2")}
+# 読んだ証拠の節（reads.main_for の引数: 役・輪・節。Task 6 の reads.py の口。include の名は reads が今の scope から引く）
+READS = {"review": ("review", "delta-loop", "review"),
+         "refix": ("refix", "refix-loop", "refix"),
+         "review2": ("review2", "review2-loop", "review2"),
+         "refix2": ("refix2", "refix2-loop", "refix2")}
 # 差分の審査の段が盤面を止めた時の state.stop.by: 審査役が 3 回とも拒まれて輪を抜けた・受けた審査の 2 判定の控えを
 # 置けなかった・審査の支度か受け付けが修正案の欄の控えの壊れ（凍結の印との食い違い）を見た
 DELTA_BY = "works:delta"
 # 手直しの段が盤面を止めた時の state.stop.by: 手直し・2 回目の審査の役が 3 回とも拒まれて輪を抜けた・手直しの支度が
 # 修正案の欄の控えの壊れを見た
 REFIX_BY = "works:refix"
-# 1 本目の blk-delta が盤面の根に書いた物（2 本目は書かない。残っていれば前の試みの出力なので支度が消す）
+# 1 本目の blk-delta が盤面の scope の根に書いた物（2 本目は書かない。残っていれば前の試みの出力なので支度が消す）
 V1_OUTPUTS = (accept.DELTA_REVIEW_FILE, accept.DIFF_FILE, accept.SNAPSHOT_FILE)
 
 
@@ -180,8 +179,8 @@ def _write_json(path: pathlib.Path, doc) -> pathlib.Path:
 
 
 def _drop_stale(b, *names, root=()):
-    """前の試みの自分の出力を消す（今の周の作業ファイルの names と、盤面の根の root）"""
-    for p in [b.work(x) for x in names] + [b.dir / x for x in root]:
+    """前の試みの自分の出力を消す（今の周の作業ファイルの names と、盤面の今の scope の根の root。accept.cut_delta の置き場）"""
+    for p in [b.work(x) for x in names] + [b.scope_root / x for x in root]:
         p.unlink(missing_ok=True)
 
 
@@ -463,8 +462,8 @@ def reads_all(board: pathlib.Path, reads_mod, run_id: str) -> dict:
     events = reads_mod.events_for(run_id) if run_id else None
     files = {}
     for role in ran:
-        _, include, loop, node = READS[role]
-        got = reads_mod.collect(board, role, reads_mod.node_path(include, loop, node), must(board, role), events)
+        _, loop, node = READS[role]
+        got = reads_mod.collect(board, role, reads_mod.node_here(loop, node), must(board, role), events)
         files[role] = got.get("reads_file", "")
     return {"ok": True, "reads_files": files}
 

@@ -354,8 +354,8 @@ class RefixCase(DeltaBoardCase):
                 return []
 
             @staticmethod
-            def node_path(include, loop, node):
-                return f"{include}__{loop}.{node}"
+            def node_here(loop, node):   # 今の scope（Archon の節の居場所）は線の include refixing
+                return f"refixing__{loop}.{node}"
 
             @staticmethod
             def collect(board_dir, role, node_path, must_read, events):
@@ -377,7 +377,9 @@ class RefixCase(DeltaBoardCase):
         # スクリプトは core の reads.py（Task 6）を読む（スクリプト自身を読まない。R7）。出来事は ARCHON_CLI_COMMAND が無いので none
         with mock.patch.dict(os.environ, {"WORKFLOW_ID": "run-7"}):
             os.environ.pop("ARCHON_CLI_COMMAND", None)
-            delta = self.run_script("blk-delta", "reads", repo, must="[]")
+            # 審査の読んだ証拠の節は線の include reviewing の中の節（出来事を引く include の名を core が Archon の居場所から引く）
+            with mock.patch.dict(os.environ, {"ARCHON_NODE_EXECUTION": json.dumps({"path": "reviewing__delta-loop.review-reads"})}):
+                delta = self.run_script("blk-delta", "reads", repo, must="[]")
             again = self.run_script("blk-refix", "reads", repo)
         self.assertEqual(delta.returncode, 0, delta.stderr)
         self.assertEqual(pathlib.Path(json.loads(delta.stdout)["reads_file"]).name, "reads-review.json")

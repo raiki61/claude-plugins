@@ -5,6 +5,7 @@
 p2.rejudge・p2.rejudge_third は役（blk-rejudge。包みが判定役の会話を継ぐ）、p0.purpose は線 B が足すので absent、手厚さは標準だけ。
 盤面を作る試験は linekit の種（dev/target-seed/）を使い捨ての家（linekit.work_home()）の下に置いて回す。
 """
+import contextlib
 import json
 import os
 import pathlib
@@ -289,6 +290,43 @@ class BoardCase(unittest.TestCase):
         self.edit_state(d, lambda st: st["works"].pop("line"))
         with self.assertRaises(BoardGap):
             entry.open_board(d)
+
+    def scoped(self, path: str, block: str = "blk-fix"):
+        """include の中の script として開く文脈（Archon の ARCHON_NODE_EXECUTION と、起こされたスクリプトの場所）"""
+        env = mock.patch.dict(os.environ, {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": path})})
+        argv = mock.patch.object(sys, "argv", [str(ROOT / block / "scripts" / "x.py")])
+        stack = contextlib.ExitStack()
+        stack.enter_context(env)
+        stack.enter_context(argv)
+        return stack
+
+    def test_open_board_scoped_places_private_names_under_scope(self):
+        d = self.create()
+        self.assertEqual(json.loads((d / "state.json").read_text(encoding="utf-8"))["works"]["layout"], board.LAYOUT)
+        with self.scoped("fixing__fix-loop.fix-prep"):
+            b = entry.open_board(d)
+        self.assertEqual((b.scope, b.scope_root), ("fixing", d / "fixing"))
+        self.assertEqual(b.work("rule-tree.json"), d / "fixing" / "r1" / "rule-tree.json")   # 私物は scope の根
+        self.assertEqual(b.work("fix-held-reply.json"), d / "fixing" / "r1" / "fix-held-reply.json")   # per_include も
+        self.assertEqual(b.work("fix-shape.json"), d / "r1" / "fix-shape.json")    # 線の公開の名は周の置き場
+        self.assertEqual(b.work("conflicts.json"), d / "r1" / "conflicts.json")    # 共有の記録も周の置き場
+        self.assertEqual(b.work("rejects-a/b.json"), d / "fixing" / "r1" / "rejects-a" / "b.json")   # * は段をまたがない
+        reg = json.loads((d / "r1" / "scopes.json").read_text(encoding="utf-8"))
+        self.assertEqual(reg, {"fixing": {"block": "blk-fix", "order": 1}})
+        line = entry.open_board(d)   # 線の最上段（scope なし）は今の置き場のまま・登録しない
+        self.assertEqual((line.scope, line.work("rule-tree.json")), ("", d / "r1" / "rule-tree.json"))
+        with self.scoped("fixing__fix-loop.fix-prep", block="blk-plan"), self.assertRaises(BoardGap) as cm:
+            entry.open_board(d)   # 同じ include の名を別のブロックが名乗る
+        self.assertIn("blk-plan", str(cm.exception))
+
+    def test_old_board_refused_when_scoped(self):
+        d = self.create()
+        self.edit_state(d, lambda st: st["works"].pop("layout"))
+        with self.scoped("fixing__fix-prep"), self.assertRaises(BoardMismatch) as cm:
+            entry.open_board(d)
+        self.assertIn("移し替えない", str(cm.exception))
+        self.assertFalse((d / "r1" / "scopes.json").exists())
+        self.assertEqual(entry.open_board(d).scope, "")   # scope なし（線の最上段）は今どおり開ける
 
     def test_open_board_passes_allow_halted(self):
         d = self.create()

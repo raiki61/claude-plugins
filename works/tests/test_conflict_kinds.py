@@ -108,10 +108,11 @@ class KindCase(unittest.TestCase):
 
 
 class FakeBoard:
-    """盤面の代わり: work(name) は一時の置き場のファイル、round は 1、trace(op, **kw) は (op, kw) を traced に貯める"""
+    """盤面の代わり: work(name) は一時の置き場のファイル、round は 1、trace(op, **kw) は (op, kw) を traced に貯める。
+    dir は盤面の根（scope の登録が無いので、include ごとに分かれた物を集める口 scopes.each は work の置き場に落ちる）"""
 
     def __init__(self, root: pathlib.Path):
-        self.root = root
+        self.root = self.dir = root
         self.round = 1
         self.traced = []
 
@@ -278,7 +279,7 @@ def fake_with_rows(rows):
     unittest.addModuleCleanup(shutil.rmtree, root, ignore_errors=True)
     traced = []
     b = types.SimpleNamespace(work=lambda name: root / name, trace=lambda op, **kw: traced.append((op, kw)),
-                              round=1, state={"outputs": {}}, traced=traced)
+                              round=1, state={"outputs": {}}, traced=traced, dir=root)
     b.work(conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False), encoding="utf-8")
     return b
 

@@ -77,7 +77,7 @@ MOD = {
     "converge": (3, None),    # 事前審査の壁打ち（依頼 231）の決まり・往復の控え・役の型の欄・関所と報告の文（標準ライブラリだけ。gatemarks・修正案のブロックが使う）
     "replan": (3, None),      # 同じ run の中の案の直し（依頼 226）: 待つ fix_plan_item の行を締めて ask_human の道に載せる（境の節 h-rejudge と報告が使う）
     "deltamarks": (3, None),  # 差分の審査の返答の準拠と品質の 2 判定の欄の型・検査・盤面の外の控え（accept の役の型・refix の審査の受け付けが使う）
-    "scopes": (3, None),      # 部品の置き場と宣言（依頼 239。manifest の読み・公開の名・持ち主。まだ配線しない）
+    "scopes": (3, None),      # 部品の置き場と宣言（依頼 239。manifest の読み・公開の名・持ち主・scope の登録と集め）
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
     "premises": (4, "blk-premises"),
 }
@@ -128,10 +128,6 @@ MARKERS = {
 KNOWN = {
     "name entry:LINE 'darkfactory'": "V2",
     "name entry:ORIGIN 'works/darkfactory'": "V2",
-    "name recount:READS 'fixing'": "V5",
-    "name refix:READS 'reviewing'": "V6",
-    "name refix:READS 'refixing'": "V6",
-    "name prcheck:READS 'pr-checking'": "V7",
     "name ci_role:PROMPTS 'blk-ci'": "V8",
     "up ci_role -> entry.resume_after_ci": "V10",
     "up ci_role -> entry.declared_adapter": "V10",   # 調べ（survey）に無かった同じ形の辺（start の控えを blk-ci が読む）

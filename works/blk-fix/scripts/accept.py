@@ -117,10 +117,10 @@ from leftovers import git  # noqa: E402
 from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
 
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", "INPUTS_TDD_SUITE",
-          "INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID")
-# 無くても欠けに数えない入力（依頼 226 で後から足した回の印と include の名。前の版の with: で再開した run は渡さない。無い・空は今どおり）。
-# 回の印（INPUTS_PASS_TAG）は申し出の回の控え・裁定の文・拒否の理由のファイルの名を分ける（fixrules.tagged）。include の名は受けるだけ
-OPTIONAL = frozenset({"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"})
+          "INPUTS_PASS_TAG")
+# 無くても欠けに数えない入力（依頼 226 で後から足した回の印。前の版の with: で再開した run は渡さない。無い・空は今どおり）。
+# 回の印（INPUTS_PASS_TAG）は申し出の回の控え・裁定の文・拒否の理由のファイルの名を分ける（fixrules.tagged）
+OPTIONAL = frozenset({"INPUTS_PASS_TAG"})
 GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
 TESTS_OP = impact.ACCEPT_TRACE_OP   # 受け付けが選んだ試験を走らせた盤面の trace の行（ci_left を最後の関所が読む）
 PARK_UNDONE_OP = "fix_mismatch_park_undone"   # 最後の回に止めた単位を、返答が通らなかったので戻した盤面の trace の行

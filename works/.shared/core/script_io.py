@@ -8,7 +8,8 @@ main(fn) が読む環境変数:
 出口: fn の結果を ensure_ascii=False の 1 行の JSON で標準出力に出し、0 で終わる（拒否 {"ok": false, "reason": …} も 0）。
 返答が JSON として読めない・JSON のオブジェクトでないときは fn を呼ばずに ok: false を出して 0。
 出口は 1 本（emit_result。main を通らない受け付けの入口も盤面を board_dir で引いてこれを通す）で、どの結果にも reason_file を足す。拒否（ok が true でない）なら reason の本文を盤面の
-reject-<fn の名>-<連番>.txt に UTF-8 で字のまま書いてその絶対パスを、通れば空の文字列を入れる。
+scope の根（scope_dir。include の中なら <盤面>/<include の名>/、線の最上段なら盤面の根）の reject-<fn の名>-<連番>.txt に
+UTF-8 で字のまま書いてその絶対パスを、通れば空の文字列を入れる。
 盤面のパスは board_dir で一度だけ resolve し（シンボリックリンクを辿り、相対なら cwd を足す）、下の $ の柵も、fn へ渡す board も、
 reason_file も、その同じ解決した後の値から作る（検査した字と外へ出す字を揃える。正規化してから検査する）。
 次の周の役へ理由を届けるのは reason_file の方。指示書は $LOOP_PREV.<役>-accept.output.reason_file だけを差し込み、
@@ -57,8 +58,10 @@ import sys
 
 sys.dont_write_bytecode = True   # 念押し（上の注意: この物自身の .pyc を止めるのは import する側）
 
+import flow_adapter  # noqa: E402  （流れの道具の口。層 L1・標準ライブラリだけ）
+
 BASE_REV_ENV = "INPUTS_BASE_REV"
-ARTIFACTS_ENV = "ARTIFACTS_DIR"
+ARTIFACTS_ENV = flow_adapter.ARTIFACTS_ENV
 BOARD_DIR = "board"
 REJECT_PREFIX = "reject-"
 TAG_FORM = re.compile(r"^[A-Za-z0-9_-]+$")   # 回の印の字（ファイルの名の 1 段に入れる）
@@ -92,25 +95,33 @@ def reject_name(fn, n, tag: str = "") -> str:
     return tagged(f"{REJECT_PREFIX}{name}-{n}.txt", tag)
 
 
+def scope_dir(board: pathlib.Path) -> pathlib.Path:
+    """盤面 board の今の scope の根（board / flow_adapter.current_scope()。線の最上段なら board そのもの）。周をまたぐ部品の
+    私物（拒否の理由・後始末の控えなど、盤面の根に書いていた物）の置き場。作らない"""
+    return pathlib.Path(board) / flow_adapter.current_scope()
+
+
 def last_reject(board, fn, tag: str = "") -> str:
-    """盤面 board に fn の受け付けが回の印 tag で書いた一番新しい拒否の理由のファイル（連番の一番大きい物。無ければ空）。
-    ほかの回の印の物は見ない（連番の所が数字でない名は採らない）"""
+    """盤面 board の今の scope の根（scope_dir）に fn の受け付けが回の印 tag で書いた一番新しい拒否の理由のファイル（連番の
+    一番大きい物。無ければ空）。ほかの回の印の物は見ない（連番の所が数字でない名は採らない）"""
     head, _, tail = reject_name(fn, "*", tag).partition("*")
 
     def n(p):
         num = p.name[len(head):-len(tail)] if p.name.startswith(head) and p.name.endswith(tail) else ""
         return int(num) if num.isdigit() else None
-    got = sorted((n(p), str(p)) for p in pathlib.Path(board).glob(head + "*" + tail) if n(p) is not None)
+    got = sorted((n(p), str(p)) for p in scope_dir(board).glob(head + "*" + tail) if n(p) is not None)
     return got[-1][1] if got else ""
 
 
 def _write_reason(board: pathlib.Path, fn, reason: str, tag: str = "") -> str:
-    """拒否の理由の本文を盤面の新しいファイルに書き、その絶対パスを返す（受け付けごと・書くたびに別の名前）。
-    board は board_dir が解決して $ の柵を当てた値。ここでもう一度 resolve すると柵を当てていない字を返すので、しない。
-    fn は関数（その __name__ を使う）か名前の文字列。tag は回の印（reject_name）"""
+    """拒否の理由の本文を盤面の今の scope の根（scope_dir）の新しいファイルに書き、その絶対パスを返す（受け付けごと・書くたびに
+    別の名前）。board は board_dir が解決して $ の柵を当てた値。ここでもう一度 resolve すると柵を当てていない字を返すので、しない
+    （scope の名は英数字・_・- だけ。$ を足さない）。fn は関数（その __name__ を使う）か名前の文字列。tag は回の印（reject_name）"""
+    home = scope_dir(board)
+    home.mkdir(parents=True, exist_ok=True)
     n = 1
     while True:
-        p = board / reject_name(fn, n, tag)
+        p = home / reject_name(fn, n, tag)
         try:
             with open(p, "x", encoding="utf-8", newline="") as f:
                 f.write(reason)
@@ -123,10 +134,11 @@ def board_dir():
     """ARTIFACTS_DIR の下の盤面を一度だけ resolve した値（シンボリックリンクを辿り、相対なら cwd を足す）。
     ARTIFACTS_DIR が欠け・空、または解決した後のパスが $ を含むときは標準エラーに名前を出して None（呼ぶ側は 2 で終わる）。
     main と、main を通らない受け付けの入口（rolekit.main_accept など）が同じ柵をここで当てる"""
-    if not os.environ.get(ARTIFACTS_ENV):
+    root = flow_adapter.artifact_root()
+    if root is None:
         print(f"環境変数が無い: {ARTIFACTS_ENV}", file=sys.stderr)
         return None
-    board = (pathlib.Path(os.environ[ARTIFACTS_ENV]) / BOARD_DIR).resolve()   # 柵も fn も reason_file もこの値から
+    board = (root / BOARD_DIR).resolve()   # 柵も fn も reason_file もこの値から
     if "$" in str(board):
         print(f"{ARTIFACTS_ENV} が $ を含む（reason_file のパスが置き換えに通る）: {board}", file=sys.stderr)
         return None
@@ -134,7 +146,7 @@ def board_dir():
 
 
 def emit_result(board: pathlib.Path, fn, out: dict, *, tag: str = "") -> int:
-    """受け付けの出口（1 本）: out に reason_file を足し（拒否なら reason の本文を盤面の reject-<fn の名>-<連番>.txt に
+    """受け付けの出口（1 本）: out に reason_file を足し（拒否なら reason の本文を盤面の scope の根の reject-<fn の名>-<連番>.txt に
     字のまま書いてその絶対パス、通れば空）、1 行の JSON を出して 0 を返す。board は board_dir が返した値。
     fn は関数か名前の文字列（ファイルの名前に使う）。tag は回の印（空でなければ名の拡張子の前に .<tag>。tagged）。
     main を通らない受け付けの入口もここを通す（_emit を直に呼ぶと

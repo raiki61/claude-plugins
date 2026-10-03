@@ -177,9 +177,8 @@ def _pending(b, nid):
 
 
 def _work(b, rnd, name) -> pathlib.Path:
-    p = b.dir / f"r{rnd}" / name
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+    """入口の周 rnd の作業ファイルの置き場（盤面の b.work と同じ置き場。周だけを入口の周に固める）"""
+    return b.work(name, round_=rnd)
 
 
 def _read_json(path, default):

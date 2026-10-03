@@ -65,6 +65,7 @@ import entry  # noqa: E402
 import fixture  # noqa: E402
 import lens  # noqa: E402
 import reads  # noqa: E402
+import scopes  # noqa: E402
 import structmark  # noqa: E402
 import writes  # noqa: E402
 
@@ -142,13 +143,10 @@ def _write_text(path: pathlib.Path, text: str) -> None:
 
 
 def _latest(board_dir: pathlib.Path, name: str) -> pathlib.Path | None:
-    """周の作業ファイル r<N>/<name> のうち、周の番号が一番大きい物（周を仮定しない）。無ければ None"""
-    found = []
-    for p in pathlib.Path(board_dir).glob(f"r*/{name}"):
-        tail = p.parent.name[1:]
-        if tail.isdigit() and p.is_file():
-            found.append((int(tail), p))
-    return max(found)[1] if found else None
+    """周の作業ファイル r<N>/<name>（scope の根の物も。scopes.all_rounds）のうち、周の番号が一番大きい物（同じ周は最後に
+    登録した include の物。周を仮定しない）。無ければ None"""
+    found = scopes.all_rounds(pathlib.Path(board_dir), name)
+    return found[-1] if found else None
 
 
 def final_gate_answer(board_dir) -> tuple:
@@ -175,13 +173,8 @@ def _gate_answer_note(board_dir) -> str:
 
 
 def _all_rounds(board_dir: pathlib.Path, pattern: str) -> list:
-    """周の作業ファイル r<N>/<pattern> の全部（周の順）"""
-    rows = []
-    for p in pathlib.Path(board_dir).glob(f"r*/{pattern}"):
-        tail = p.parent.name[1:]
-        if tail.isdigit() and p.is_file():
-            rows.append((int(tail), str(p), p))
-    return [p for _, _, p in sorted(rows)]
+    """周の作業ファイル r<N>/<pattern> の全部（include ごとに scope の根に残る物も。周の順。scopes.all_rounds）"""
+    return scopes.all_rounds(pathlib.Path(board_dir), pattern)
 
 
 def _output(b, nid: str):

@@ -64,6 +64,7 @@ import reads  # noqa: E402
 import rejudge  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
+import scopes  # noqa: E402
 import structmark  # noqa: E402
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
@@ -440,7 +441,7 @@ ROLE_WORDS = {"design": "独立の設計を作る役", "compare": "独立の設�
 def _r2_inputs(b) -> list:
     """R2 の行の下に、R2 が『渡されていない』と書いた文と、そのうち渡していた物（compare の claims_given）と、支度の時に R2 の 2 つの役へ渡した前提の入力の控え（独立の目の出口の
     premise_inputs。一番新しい周の eyes-exit.json）と、独立設計の後に来た人の答え（compare の after_design）を並べる。人が同じ枚で突き合わせる（受け付けは拒まない）"""
-    exits = sorted(b.dir.glob("r*/eyes-exit.json"), key=lambda p: int(p.parent.name[1:]) if p.parent.name[1:].isdigit() else -1)
+    exits = scopes.all_rounds(b.dir, "eyes-exit.json")   # 独立の目の include の scope の根に在る（周の順）
     try:
         pi = json.loads(exits[-1].read_text(encoding="utf-8")).get("premise_inputs") if exits else None
     except (OSError, ValueError):

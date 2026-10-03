@@ -2,7 +2,8 @@
 
 - load_table(line):   PACK/<line>/nodes.json を読み、盤面の層の縛り 1〜5（NodeTable.check）を当てる。破れは全部を 1 つの BoardGap に
 - open_board(dir):    盤面の state.works.line から表を引き、表の sha が state.works.table_sha と合わなければ BoardMismatch。
-                      open_kwargs(line, table)（board_hook.py の返りと核の差し替え）を DiskBoard.open に渡す
+                      open_kwargs(line, table)（board_hook.py の返りと核の差し替え）を DiskBoard.open に渡す。include の中の
+                      script なら scope（flow_adapter.current_scope）を登録して渡し、部品の私物を盤面の <scope>/ の下に分ける
 - hook_kwargs(line):  board_hook.py の読み込みだけ（無ければ {}）
 - open_kwargs(line):  hook_kwargs に線 A の核の差し替え CORE_OVERRIDES（読んだ記録の置き場・直す義務・関所の項目の決め手・R3・R4 の起動条件）を重ねた物。open_board と start が
                       同じ物を DiskBoard.open・begin に渡す（開くたびに同じ overrides。BL-R3）
@@ -49,11 +50,13 @@ import accept  # noqa: E402
 import conflict  # noqa: E402
 import fixshape  # noqa: E402
 import fixture  # noqa: E402
+import flow_adapter  # noqa: E402
 import gatemarks  # noqa: E402
 import ghreads  # noqa: E402
 from ghreads import request_parts  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
+import scopes  # noqa: E402
 import ticket  # noqa: E402
 import tree_run  # noqa: E402
 
@@ -171,8 +174,13 @@ def open_kwargs(line: str, table: NodeTable | None = None) -> dict:
 
 def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBoard:
     """盤面を開く。表は state.works.line のラインの nodes.json。表の sha が盤面を作った時の state.works.table_sha と違えば
-    BoardMismatch（run の途中で表が替わった盤面を、替わった表で回さない）。open_kwargs の返りを DiskBoard.open に渡す"""
+    BoardMismatch（run の途中で表が替わった盤面を、替わった表で回さない）。open_kwargs の返りを DiskBoard.open に渡す。
+    scope は今の script が居る include の名（flow_adapter.current_scope。線の最上段は空）。空でなければ、部品の私物を scope の根に
+    分ける置き場の版（state.works.layout が board.LAYOUT）でない盤面は BoardMismatch（この版より前に始めた盤面。移し替えない）、
+    そうなら今の周の scopes.json に scope と起こされたブロックを登録し（scopes.claim）、周の置き場に置く名（scopes.round_names）
+    と一緒に盤面に渡す（盤面の work が私物を <scope>/r<N>/ に置く）。部品のコードは scope を知らない"""
     d = pathlib.Path(board_dir)
+    scope = flow_adapter.current_scope()
     try:
         state = json.loads((d / "state.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -186,7 +194,15 @@ def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBo
     if want != got:
         raise BoardMismatch(f"盤面 {d} の表の sha {want} が今のライン {line} の表の {got} と違う"
                             f"（盤面を作った後に {line}/{TABLE_NAME} が替わった。替わった表で回さない）")
-    return DiskBoard.open(d, table=table, allow_halted=allow_halted, **open_kwargs(line, table))
+    names = frozenset()
+    if scope:
+        if works.get("layout") != board.LAYOUT:
+            raise BoardMismatch(f"盤面 {d} はこの版より前の盤面（state.works.layout {works.get('layout')!r}。今は {board.LAYOUT!r}）"
+                                f"——include {scope!r} の私物を分けて置けない。移し替えない（この版で run を始め直す）")
+        scopes.claim(d, state["round"], scope, scopes.running_block())
+        names = scopes.round_names()
+    return DiskBoard.open(d, table=table, allow_halted=allow_halted, scope=scope, published=names,
+                          **open_kwargs(line, table))
 
 
 

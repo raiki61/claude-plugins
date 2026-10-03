@@ -4,6 +4,8 @@
   まだ作られず、誰にも呼ばれていないこと
 - ManifestCase: 全部のブロックと線の manifest.json が manifest.schema.json に合い、公開の名の持ち主が 1 つで、Consumes が
   在る Produces を指し、JSON の Produces が Schema を持ち、測り M2（台帳の inventory.json）の公開の名が宣言されていること
+- ClaimCase: 盤面の周の scopes.json への scope の登録（同じ scope の 2 つ目のブロックと盤面の根の物とのぶつかりを拒む）と、
+  scope の根に分かれた同じ名のファイルを集める口（all_rounds・each）
 
 盤面・git・子のプロセスを使わない（一時の置き場のファイルだけ）。
 """
@@ -13,6 +15,7 @@ import pathlib
 import re
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -137,7 +140,12 @@ class ManifestCase(unittest.TestCase):
             self.assertNotIn(p["name"], seen, f"{p['name']} を {seen.get(p['name'])} と {owner} が出す")
             seen[p["name"]] = owner
             self.assertEqual(scopes.owner_of(p["name"]), owner, p["name"])   # ほかの owner の形の陰にも入らない
-        self.assertEqual(scopes.published(), frozenset(seen))
+        # published は盤面の work が周の置き場 r<N>/ に置く名だけ（at: root の名は盤面の根に直に書かれ、work を通らない）
+        rounds = {name for owner, p in self._declared() if not p.get("per_include") and p.get("at", "round") == "round"
+                  for name in [p["name"]]}
+        self.assertEqual(scopes.published(), frozenset(rounds))
+        self.assertLess(scopes.published(), frozenset(seen))
+        self.assertEqual(scopes.round_names(), scopes.published() | scopes.SHARED_ROUND)
         self.assertIsNone(scopes.owner_of("rule-tree.json"))   # 宣言していない名は持ち主が無い（私物）
 
     def test_consumes_point_at_a_producer(self):
@@ -208,6 +216,87 @@ class ManifestCase(unittest.TestCase):
         self.assertFalse(scopes.matches("rejects-a/b.json", "rejects-*.json"))   # * は段をまたがない
         self.assertTrue(scopes.matches("plan-converge/p1/x.md", "plan-converge/**"))
         self.assertFalse(scopes.matches("plan-converge", "plan-converge/**"))
+
+
+class ClaimCase(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.board = pathlib.Path(self._tmp.name) / "board"
+        self.board.mkdir()
+        self.addCleanup(self._tmp.cleanup)
+
+    def registry(self, n=1) -> dict:
+        return json.loads((self.board / f"r{n}" / "scopes.json").read_text(encoding="utf-8"))
+
+    def put(self, rel: str) -> pathlib.Path:
+        p = self.board / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}", encoding="utf-8")
+        return p
+
+    def test_claim_same_scope_same_block_twice_is_ok(self):
+        # Archon の再開で同じ include が同じ周に走り直す: 2 度目も通り、登録は 1 行のまま
+        scopes.claim(self.board, 1, "fixing", "blk-fix")
+        (self.board / "fixing" / "r1").mkdir(parents=True)   # 1 度目の書き込みで scope の根が出来ている
+        scopes.claim(self.board, 1, "fixing", "blk-fix")
+        self.assertEqual(self.registry(), {"fixing": {"block": "blk-fix", "order": 1}})
+        scopes.claim(self.board, 1, "refitting", "blk-fix")
+        self.assertEqual(self.registry()["refitting"], {"block": "blk-fix", "order": 2})
+        scopes.claim(self.board, 2, "fixing", "blk-fix")   # 次の周も同じ scope は通る（根の物は前の周の登録）
+        self.assertEqual(self.registry(2), {"fixing": {"block": "blk-fix", "order": 1}})
+
+    def test_claim_other_block_same_scope_refused(self):
+        scopes.claim(self.board, 1, "fixing", "blk-fix")
+        with self.assertRaises(BoardGap) as cm:
+            scopes.claim(self.board, 1, "fixing", "blk-plan")
+        self.assertIn("blk-fix", str(cm.exception))
+        self.assertIn("blk-plan", str(cm.exception))
+        with self.assertRaises(BoardGap) as cm:   # 別の周に名乗り直しても同じ
+            scopes.claim(self.board, 2, "fixing", "blk-plan")
+        self.assertIn("blk-fix", str(cm.exception))
+        self.assertEqual(self.registry(), {"fixing": {"block": "blk-fix", "order": 1}})
+
+    def test_claim_refuses_root_entry_that_is_not_a_scope(self):
+        self.put("out/r1/p3.fix.json")
+        for scope in ("out", "prompts", "tdd-3", "fixture-outside"):   # 根の記録のフォルダ（在っても無くても）
+            with self.subTest(scope=scope), self.assertRaises(BoardGap) as cm:
+                scopes.claim(self.board, 1, scope, "blk-fix")
+            self.assertIn(str(self.board / scope), str(cm.exception))
+        self.put("notes")   # 根の同じ名のフォルダでない物
+        with self.assertRaises(BoardGap):
+            scopes.claim(self.board, 1, "notes", "blk-fix")
+        self.assertFalse((self.board / "r1" / "scopes.json").exists())
+        self.put("judging/judge-snapshot.json")   # 盤面を開かない節が先に scope の根に書いた（intake）
+        scopes.claim(self.board, 1, "judging", "blk-judge")
+        self.assertEqual(self.registry(), {"judging": {"block": "blk-judge", "order": 1}})
+
+    def test_all_rounds_covers_scoped_files(self):
+        scopes.claim(self.board, 1, "fixing", "blk-fix")
+        scopes.claim(self.board, 1, "refitting", "blk-fix")
+        want = [self.put("r1/reads-x.json"), self.put("fixing/r1/reads-fix.json"), self.put("refitting/r1/reads-fix.json")]
+        r2 = self.put("r2/reads-y.json")
+        self.put("unregistered/r1/reads-z.json")    # 登録の無い置き場は scope でない
+        self.put("refitting/reads-w.json")          # 周の置き場の外は数えない
+        self.assertEqual(scopes.all_rounds(self.board, "reads-*.json"), want + [r2])
+
+    def test_each_reads_round_place_then_scopes_in_claim_order(self):
+        b = types.SimpleNamespace(dir=self.board, round=1)
+        self.assertEqual(scopes.each(b, "fix-held-reply.json"), [])
+        scopes.claim(self.board, 1, "fixing", "blk-fix")
+        scopes.claim(self.board, 1, "refitting", "blk-fix")
+        second = self.put("refitting/r1/fix-held-reply.json")
+        first = self.put("fixing/r1/fix-held-reply.json")
+        self.assertEqual(scopes.each(b, "fix-held-reply.json"), [first, second])
+        line = self.put("r1/fix-held-reply.json")   # scope の無い盤面（線・今までの置き場）の物が先
+        self.assertEqual(scopes.each(b, "fix-held-reply.json"), [line, first, second])
+        self.assertEqual(scopes.scope_roots(b), [self.board, self.board / "fixing", self.board / "refitting"])
+
+    def test_running_block_reads_script_place(self):
+        for argv0, want in ((str(ROOT / "blk-fix" / "scripts" / "accept.py"), "blk-fix"),
+                            (str(ROOT / "darkfactory" / "scripts" / "edge.py"), "darkfactory"),
+                            ("-m", ""), ("/x/unittest/__main__.py", ""), ("", "")):
+            with self.subTest(argv0=argv0), mock.patch.object(sys, "argv", [argv0]):
+                self.assertEqual(scopes.running_block(), want)
 
 
 if __name__ == "__main__":

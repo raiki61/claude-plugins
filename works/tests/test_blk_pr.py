@@ -748,8 +748,8 @@ class DeclaredCase(unittest.TestCase):
             self.assertEqual(got, [inputs], name)
 
     def test_reads_script_names(self):
-        """読んだ証拠の節（pr-reads）が渡す名前: 役 pr-check・include pr-checking・輪 pr-loop・節 pr-check"""
-        self.assertEqual(prcheck.READS, ("pr-check", "pr-checking", "pr-loop", "pr-check"))
+        """読んだ証拠の節（pr-reads）が渡す名前: 役 pr-check・輪 pr-loop・節 pr-check（include の名は core の reads が今の scope から引く）"""
+        self.assertEqual(prcheck.READS, ("pr-check", "pr-loop", "pr-check"))
         self.assertIn("reads.main_for(*prcheck.READS)", (SCRIPTS / "reads.py").read_text(encoding="utf-8"))
 
 

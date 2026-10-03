@@ -20,8 +20,8 @@ GUESSED_CAUSES = "取り消し・abandon・役の出し直しの上限のどれ�
 
 
 def fake_board(tmp) -> types.SimpleNamespace:
-    """止めていない盤面（stop・halted なし。trace.jsonl なし。周は 1）"""
-    b = types.SimpleNamespace(state={}, dir=pathlib.Path(tmp), round=1)
+    """止めていない盤面（stop・halted なし。trace.jsonl なし。周は 1。scope は無い＝scope の根は盤面の根）"""
+    b = types.SimpleNamespace(state={}, dir=pathlib.Path(tmp), round=1, scope_root=pathlib.Path(tmp))
     b.work = lambda name: b.dir / name
     return b
 
@@ -127,7 +127,7 @@ class FinalTestSuitesCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1,
-                                       output_of_round=lambda nid, n: {})
+                                       output_of_round=lambda nid, n: {}, scope_root=pathlib.Path(self._tmp.name))
         self.b.work = lambda name: self.b.dir / name   # 事前審査の壁打ちの控え（converge.lines）・案の直しの控えの置き場。控えは無い
 
     def head_text(self, tests):
@@ -520,7 +520,7 @@ class ClaimedWithoutTableRowCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1, loop_state={},
-                                       output_of_round=lambda nid, n: {})
+                                       output_of_round=lambda nid, n: {}, scope_root=pathlib.Path(self._tmp.name))
         self.b.work = lambda name: self.b.dir / name
         put_fix(self.b, {"changes": [{"unit_key": self.KEY}]})
 

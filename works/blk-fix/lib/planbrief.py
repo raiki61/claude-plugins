@@ -176,8 +176,8 @@ def _sha(text: str) -> str:
 
 
 def _box(b) -> pathlib.Path:
-    """今の周の箱 r<N>/（作らない。b.work と同じ置き場）"""
-    return pathlib.Path(b.dir) / f"r{b.round}"
+    """控えと brief の置き場（b.work が控えに返す今の周の箱。ディレクトリは b.work が作る）"""
+    return pathlib.Path(b.work(LEDGER)).parent
 
 
 def _drawn(b) -> list[tuple[list, str]] | None:
@@ -221,16 +221,24 @@ def _trace_rows(b) -> list[dict]:
     return out
 
 
+def _mine(b, row: dict) -> bool:
+    """CUT_OP の行がこの控えの置き場（_box）の物か。行の ledger（控えの絶対パス）が在れば同じパス、無い行（前の版の盤面）は
+    どれも自分の物（同じ周の同じブロックの 2 度目の段は自分の置き場に自分の控えを切る。1 度目の控えの印を自分の物と読まない）"""
+    ledger = row.get("ledger")
+    return ledger is None or pathlib.Path(ledger) == (_box(b) / LEDGER).resolve()
+
+
 def _cut_mark(b) -> dict | None:
-    """今の周の切った印（trace の CUT_OP の行の最後の物）。無ければ None"""
-    return next((r for r in reversed(_trace_rows(b)) if r.get("op") == CUT_OP), None)
+    """今の周のこの控えの切った印（trace の CUT_OP の行のうち _mine の最後の物）。無ければ None"""
+    return next((r for r in reversed(_trace_rows(b)) if r.get("op") == CUT_OP and _mine(b, r)), None)
 
 
 def _amended_since_cut(b) -> list[int]:
-    """今の周の最後の CUT_OP の行より後に在る差し替えの印（planmarks.AMEND_OP）の行の items の番号（重ねずに昇順）。無ければ []"""
+    """今の周のこの控えの最後の CUT_OP の行より後に在る差し替えの印（planmarks.AMEND_OP）の行の items の番号（重ねずに昇順）。
+    無ければ []"""
     got: set = set()
     for r in reversed(_trace_rows(b)):
-        if r.get("op") == CUT_OP:
+        if r.get("op") == CUT_OP and _mine(b, r):
             break
         if r.get("op") == planmarks.AMEND_OP:
             got.update(n for n in r.get("items") or [] if isinstance(n, int) and not isinstance(n, bool))
@@ -318,11 +326,13 @@ def _restore(b, rows: list) -> None:
 def _freeze(b, rows: list, recut: list[int] | None = None) -> list[dict]:
     """控えを置き、trace に切った印 CUT_OP を書いて返りの並びを返す。recut（切り直した項目の番号）を渡すと、控えを置いた後・
     CUT_OP の前に RECUT_OP の行を書く"""
-    raw = _write_ledger(b.work(LEDGER), rows)
+    ledger = b.work(LEDGER)
+    raw = _write_ledger(ledger, rows)
     if recut is not None:
         b.trace(RECUT_OP, round=b.round, items=recut)
     out = _out(b, rows)
-    b.trace(CUT_OP, round=b.round, ledger_sha256=hashlib.sha256(raw).hexdigest(), files=[r["file"] for r in out])
+    b.trace(CUT_OP, round=b.round, ledger_sha256=hashlib.sha256(raw).hexdigest(), files=[r["file"] for r in out],
+            ledger=str(ledger.resolve()))
     return out
 
 

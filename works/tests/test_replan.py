@@ -46,6 +46,9 @@ import linekit  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
 
+# 2 回目の修正の段（線の include refitting）の中の節の居場所（Archon が script の節に渡す ARCHON_NODE_EXECUTION。依頼 239 の測り M1）
+REFITTING = {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": "refitting__fix-loop.fix-reads"})}
+
 
 class TestSettle(ReplanCase):
     """settle と close_at が待つ行を締め、諦めた行は ask_human の道（human_lines・next_request）に裁定の文のまま載る"""
@@ -542,7 +545,9 @@ class TestReplanRoles(ReplanCase):
         replan.material(b); self.prep("plan")
         self.assertTrue(self.accept("plan", {"plan": [fixed_item()]})["ok"])
         self.prep("plan-review")
-        got = planblk.collect_reads(self.board, self.repo, "", "replanning", replan="true")
+        with mock.patch.object(planblk.reads, "node_here",
+                               lambda loop, node: planblk.reads.node_path("replanning", loop, node)):
+            got = planblk.collect_reads(self.board, self.repo, "", replan="true")
         self.assertEqual(pathlib.Path(got["reads_file"]).name, "reads-replan-block.json")
         index = json.loads(pathlib.Path(got["reads_file"]).read_text(encoding="utf-8"))
         self.assertEqual({k: pathlib.Path(v).name for k, v in index.items()},
@@ -980,7 +985,7 @@ class TestSecondPass(TripCase):
         self.approve(red_kind_fixed())
         env = {"ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": "run-12", "INPUTS_MUST": json.dumps([self.values()["judgment_file"]]),
                "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS_TAG": self.TAG,
-               "INPUTS_INCLUDE_ID": "refitting"}
+               "ARCHON_NODE_EXECUTION": REFITTING["ARCHON_NODE_EXECUTION"]}   # 2 回目の段の include の中の節（Archon と同じ形）
         code, out, err = run_script("reads", self.repo, env)
         self.assertEqual(code, 0, err)
         got = pathlib.Path(json.loads(out)["reads_file"])
@@ -990,8 +995,10 @@ class TestSecondPass(TripCase):
         self.fix_mean()
         acc = self.accept_script(only_mean_reply(), pass_="first", pass_tag=self.TAG)
         self.assertTrue(acc["ok"], acc)
-        out = recount.collect(self.board, acc, {"ok": True, "files": ["stats.py"]}, tag=self.TAG)
+        with mock.patch.dict(os.environ, REFITTING), mock.patch.object(sys, "argv", [str(ROOT / "blk-fix" / "scripts" / "collect.py")]):
+            out = recount.collect(self.board, acc, {"ok": True, "files": ["stats.py"]}, tag=self.TAG)   # 同じ include の集める節
         self.assertEqual(out["reads_file"], str(got))
+        self.assertEqual(got.parent, self.board / "refitting" / "r1")   # 2 回目の段の物は include の scope の根
         self.assertEqual(recount.collect(self.board, acc, {"ok": True, "files": ["stats.py"]})["reads_file"], str(first))
         lines = [x for x in report.head_reads(self.board, "") if x.startswith("読んだ証拠 ")]
         self.assertEqual(len(lines), 2, lines)

@@ -7,6 +7,9 @@ Archon の模擬実行（dev/check.sh）は script の節を stub で置き換�
 そこでは見えない。ここがそれを見る（tests/test_script_contract.py）。
 
 Archon の約束のうち、ここで写す物（darkfactory と include のブロックが使う物だけ）:
+- script の節の環境変数 ARCHON_NODE_EXECUTION（JSON）の欄 path は Archon の step の名（測り M1）: 線の最上段は `<節>`、
+  include の中は `<include の節の id>__<節>`、輪の中は `<include の節の id>__<輪>.<節>`（線の最上段の輪は `<輪>.<節>`）。
+  core の flow_adapter はここから scope（include の名）を引く
 - 節の順は YAML の並び（depends_on が前の節を指すことを確かめる）。trigger_rule は all_success（既定）・
   none_failed_min_one_success・all_done。when: は `$<節>.output.<欄> == true|false|'<語>'`
 - with: の値: 文字列の中の `$INPUTS.<名>`・`$<節>.output[.<欄>]` を置き換える（文字列はそのまま、ほかは JSON）。
@@ -47,6 +50,7 @@ INPUT_REF = re.compile(r"\$INPUTS\.([A-Za-z_][A-Za-z0-9_]*)")
 WHEN = re.compile(r"^\$([A-Za-z0-9_-]+)\.output\.([A-Za-z0-9_]+) == (true|false|'[^']*')$")
 UNTIL = re.compile(r"^test \$([A-Za-z0-9_-]+)\.output\.([A-Za-z0-9_]+) = (\S+)$")
 AI_KEYS = ("command", "prompt")
+NODE_EXECUTION = "ARCHON_NODE_EXECUTION"   # Archon が script の節に渡す節の居場所（JSON。欄 path が step の名）
 
 
 def flow(name: str) -> dict:
@@ -79,11 +83,15 @@ class Failed(Exception):
 
 
 class Scope:
-    """1 つの工程（線かブロック）の節の出力と状態"""
+    """1 つの工程（線かブロック）の節の出力と状態。include は線がこの工程を差し込んだ include の節の id（線そのものは空）"""
 
-    def __init__(self, block, inputs):
-        self.block, self.inputs = block, inputs
+    def __init__(self, block, inputs, include=""):
+        self.block, self.inputs, self.include = block, inputs, include
         self.out, self.status = {}, {}
+
+    def step(self, nid: str, loop: str = "") -> str:
+        """Archon の step の名（ARCHON_NODE_EXECUTION の path）: [<include>__][<輪>.]<節>"""
+        return (f"{self.include}__" if self.include else "") + (f"{loop}." if loop else "") + nid
 
     def sub(self, s: str) -> str:
         s = INPUT_REF.sub(lambda m: _text(self.inputs.get(m.group(1), "")), s)
@@ -160,8 +168,9 @@ class ScriptLine:
         return got(n) if callable(got) else got
 
     # -- 節
-    def _script(self, scope, n):
+    def _script(self, scope, n, loop=""):
         env = dict(self.env)
+        env[NODE_EXECUTION] = json.dumps({"runId": RUN_ID, "path": scope.step(n["id"], loop)})
         env.update({f"INPUTS_{k.upper()}": scope.value(v) for k, v in (n.get("with") or {}).items()})
         path = ROOT / scope.block / "scripts" / f"{n['script']}.py"
         p = subprocess.run([sys.executable, str(path)], cwd=str(self.repo), env=env, capture_output=True, text=True, encoding="utf-8",
@@ -197,7 +206,7 @@ class ScriptLine:
         doc = flow(name)
         given = {k: scope.value(v) for k, v in (n.get("with") or {}).items()}
         inputs = {k: given.get(k, (spec or {}).get("default", "")) for k, spec in (doc.get("inputs") or {}).items()}
-        inner = Scope(name, inputs)
+        inner = Scope(name, inputs, include=n["id"])
         self._nodes(inner, doc["nodes"])
         ret = doc["returns"]
         if inner.status.get(ret) != "ok":
@@ -213,7 +222,7 @@ class ScriptLine:
             for k in [c["id"] for c in lg["nodes"]]:
                 scope.status.pop(k, None)
                 scope.out.pop(k, None)
-            self._nodes(scope, lg["nodes"], loop=True)
+            self._nodes(scope, lg["nodes"], loop=n["id"])
             nid, field, want = m.groups()
             if scope.status.get(nid) == "ok" and _text(scope.out[nid].get(field)) == want:
                 return scope.out[lg["nodes"][-1]["id"]]
@@ -241,7 +250,7 @@ class ScriptLine:
             go = (have is True) if want == "true" else (have is False) if want == "false" else have == want.strip("'")
         return go
 
-    def _nodes(self, scope, nodes, loop=False):
+    def _nodes(self, scope, nodes, loop=""):
         for n in nodes:
             nid = n["id"]
             if not self._runs(scope, n, loop):
@@ -250,7 +259,7 @@ class ScriptLine:
             if "script" in n:
                 if n["script"] == "edge":
                     self._edge_stop(n)
-                out = self._script(scope, n)
+                out = self._script(scope, n, loop)
                 if self.sessions and scope.block == LINE and nid == "start":
                     self._put_session()
             elif "include" in n:
