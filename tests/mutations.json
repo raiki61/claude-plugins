@@ -6735,6 +6735,24 @@
    "expect": "CI の設定が shellcheck を回す"
   },
   {
+   "id": "CO1",
+   "title": "CI の突合: test.yml が枝を絞らずに push のたびに走れば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "  push:\n    branches: [\"release/**\"]\n",
+   "new": "  push:\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CO2",
+   "title": "CI の突合: test.yml が手で起こせなければ赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "    branches: [\"release/**\"]\n  workflow_dispatch:\n",
+   "new": "    branches: [\"release/**\"]\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
    "id": "CK3",
    "title": "判定の受け付けが、人待ちの素材を出どころにする問いを台帳に載せない返答を拒む",
    "file": "graphloops/rules/review-loop.py",
