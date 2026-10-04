@@ -10,7 +10,9 @@ fixing の fix-unit-rows.json・r1/brief-1.md・r1/briefs.json・r1/changes.json
 """
 import hashlib
 import json
+import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import types
@@ -172,6 +174,109 @@ class UndeclaredWriteCase(unittest.TestCase):
             window = (board / scopes.WINDOW).read_bytes()
             report.build(board, judged=None, tests=None, start=None, run_id=scriptline.RUN_ID)   # run の外の dev/report.sh と同じ呼び
             self.assertEqual((board / scopes.WINDOW).read_bytes(), window)   # run の外の呼びは窓に触らない
+
+
+# fan_out の子の節の代わり: 盤面を開き（entry.open_board が scope を登録し窓に入る）、自分の根に書き、盤面に印を足して保存する。
+# 保存が BoardConflict なら開き直して当て直す（works の入れ物の当て直しと同じ）。標準出力に当て直した回数
+CHILD = """
+import json, os, sys
+sys.path.insert(0, os.environ["CORE"])
+sys.path.insert(0, os.path.join(os.environ["CORE"], "graphloops"))
+import entry, script_io
+from engine.util import BoardConflict
+board, me = sys.argv[1], sys.argv[2]
+sys.stdin.readline()   # 全部の子がそろってから同時に開く
+tries = 0
+while True:
+    b = entry.open_board(board)
+    (script_io.scope_dir(board) / "r1").mkdir(parents=True, exist_ok=True)
+    (script_io.scope_dir(board) / "r1" / "notes.md").write_text(me, encoding="utf-8")
+    b.state["works"].setdefault("fan_probe", []).append(me)
+    try:
+        b.save()
+        break
+    except BoardConflict:
+        tries += 1
+print(tries)
+"""
+
+
+class FanOutOpenCase(unittest.TestCase):
+    """fan_out の子が同時に盤面を開いて保存しても、盤面（state.json・scopes.json・窓）が壊れない（子ごとの scope・1 つの窓・
+    保存の錠 board.SAVE_LOCK で後勝ちの消えが無い）。本物の表で作った盤面（git なし）を、子の数だけ同時に起こした python で開く"""
+
+    def test_concurrent_children_open_and_save(self):
+        import entry
+        from board import DiskBoard
+        n = 6
+        with tempfile.TemporaryDirectory(dir=linekit.work_home()) as t:
+            t = pathlib.Path(t)
+            (t / "repo").mkdir()
+            board = t / "board"
+            table = entry.load_table(entry.LINE)
+            DiskBoard.create(board, repo=t / "repo", table=table, inputs={}, request_text="依頼",
+                             **entry.open_kwargs(entry.LINE, table))
+            rev = json.loads((board / "state.json").read_text(encoding="utf-8"))["rev"]
+            script = t / "blk-fix" / "scripts" / "fan_child.py"   # scopes.running_block が blk-fix と読む置き場
+            script.parent.mkdir(parents=True)
+            script.write_text(CHILD, encoding="utf-8")
+            marks = [hashlib.sha256(str(k).encode()).hexdigest()[:16] for k in range(n)]
+            procs = []
+            for m in marks:
+                path = f"__archon_fan_out__fan__root__{m}__fan__{m}__work"
+                env = {**os.environ, "CORE": str(scriptline.CORE), "ARCHON_NODE_EXECUTION": json.dumps({"path": path})}
+                procs.append(subprocess.Popen([sys.executable, str(script), str(board), m], env=env, text=True,
+                                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+            for p in procs:
+                p.stdin.write("go\n")
+                p.stdin.flush()
+            outs = [p.communicate() for p in procs]
+            self.assertEqual([p.returncode for p in procs], [0] * n, [e for _, e in outs])
+            state = json.loads((board / "state.json").read_text(encoding="utf-8"))
+            self.assertEqual(sorted(state["works"]["fan_probe"]), sorted(marks))   # 後勝ちで消えた保存が無い
+            self.assertEqual(state["rev"], rev + n)
+            self.assertNotIn("stop", state)
+            reg = json.loads((board / "r1" / "scopes.json").read_text(encoding="utf-8"))
+            self.assertEqual(sorted(k for k in reg if k != scopes.OWNS), sorted(f"fan--{m[:8]}" for m in marks))
+            self.assertTrue(all(v["block"] == "blk-fix" for k, v in reg.items() if k != scopes.OWNS))
+            self.assertEqual(json.loads((board / scopes.WINDOW).read_text(encoding="utf-8"))["scope"], "fan--*")
+            for m in marks:
+                self.assertEqual((board / f"fan--{m[:8]}" / "r1" / "notes.md").read_text(encoding="utf-8"), m)
+            self.assertEqual(scopes.enter(board, 1, "", "darkfactory"), [])   # 線が窓を閉じても誤りは無い
+
+    def test_save_compare_and_write_under_one_lock(self):
+        """engine の save は版の比べと書き込みの間に錠を持たないので、同じ版を読んだ 2 つの入れ物が両方とも比べを通ると後勝ちで
+        先の保存が消える（上の同時の子の試験では間が短く、錠を外しても 6 回とも当たらなかった）。間を 0.3 秒に広げ、先の保存が
+        書いている間の後の保存が、待ってから BoardConflict になることを縛る（錠を外すと後の保存が通って赤）"""
+        import threading
+        import time
+        from unittest import mock
+        import entry
+        import engine.board as engine_board
+        from board import DiskBoard
+        from engine.util import BoardConflict
+        with tempfile.TemporaryDirectory(dir=linekit.work_home()) as t:
+            t = pathlib.Path(t)
+            (t / "repo").mkdir()
+            table = entry.load_table(entry.LINE)
+            DiskBoard.create(t / "board", repo=t / "repo", table=table, inputs={}, request_text="依頼",
+                             **entry.open_kwargs(entry.LINE, table))
+            first, second = entry.open_board(t / "board"), entry.open_board(t / "board")
+            real, writing = engine_board.write_json, threading.Event()
+
+            def slow(path, obj):
+                if threading.current_thread().name == "first" and pathlib.Path(path).name == "record.json":
+                    writing.set()
+                    time.sleep(0.3)
+                real(path, obj)
+            with mock.patch.object(engine_board, "write_json", slow):
+                th = threading.Thread(target=first.save, name="first")
+                th.start()
+                writing.wait()
+                with self.assertRaises(BoardConflict):
+                    second.save()
+                th.join()
+
 
 if __name__ == "__main__":
     unittest.main()

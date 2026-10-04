@@ -28,8 +28,15 @@
   scope の根は、盤面を開く前に書いたその scope の物として通す）
 - reads_outside(board_dir, window, pack): 窓の間の読んだ証拠のうち、宣言の外の盤面のパス（落とさない。外れ D4）
 - missing_required(board_dir, window, pack): 窓の終わりに無い必須の出力（止めない。trace と報告に載せる）
-- enter(board_dir, round_, scope, block): 盤面を開く口が節の中で呼ぶ。scope が替われば前の窓を照らして誤りを返し（呼び手が
-  盤面を止める）、必須の出力の欠けと宣言の外の読みを trace に積み、今の scope の窓 scope-window.json を開く
+- window_key(scope): 窓の鍵（fan_out の子は同じ fan の子の全部に当たる形 <fan の節>--*。ほかは scope のまま）
+- enter(board_dir, round_, scope, block): 盤面を開く口が節の中で呼ぶ。窓の鍵が替われば前の窓を照らして誤りを返し（呼び手が
+  盤面を止める）、必須の出力の欠けと宣言の外の読みを trace に積み、今の鍵の窓 scope-window.json を開く
+
+fan_out の子（flow_adapter.fan_node）: 同じ fan の子は同時に走り、1 つの盤面の窓を分け合う。窓を子ごとに分けると、後から開いた子が
+前の子の窓を閉じ、前の子が後で書く自分の scope の根の物を後の子の宣言の外の書き込みと読む（盤面の変化を書いた子に結び付ける
+手が無い）。なので窓は fan ごとに 1 つ（鍵 <fan の節>--*）にし、子の全部の scope の根を窓の scope の根として通し、公開の名の持ち主も
+鍵で記録する。照らすのは fan の子の全部を合わせた変化と、子が差し込む部品の宣言（同じ fan の子は同じ部品）。子の間は照らさない:
+子がほかの子の scope の根に書く・同じ周の同じ公開の名を 2 つの子が書く、は見えない（docs/darkfactory-flow.md の死角）。
 
 名の形は段ごとに当てる（* が / をまたぐ fnmatch のままだと、rejects-*.json が rejects-a/b.json のような scope の下の私物まで
 公開の名に数える）。形の字は manifest を読む時に照らす: 空の段・"."・".."・頭の "/" を持たず、** は末尾の段そのものだけ。
@@ -50,7 +57,8 @@ _GL = _CORE / "graphloops"
 if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
-from board import BoardGap, name_matches  # noqa: E402
+import flow_adapter  # noqa: E402
+from board import SAVE_LOCK, BoardGap, name_matches  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import now  # noqa: E402
 
@@ -79,7 +87,7 @@ SHARED = ("state.json", "record.json", "trace.jsonl", "STOP", "query-examples.js
           "out/**", "runs/**", "rounds/**", "prompts/**", "roles/**", "items/**", "policy/**", "lanes/**", "tdd-*/**",
           f"{_ROUND_DIR}/conflicts.json", f"{_ROUND_DIR}/libdocs.json", f"{_ROUND_DIR}/libdocs/**",
           f"{_ROUND_DIR}/{REGISTRY}", f"{_ROUND_DIR}/{REGISTRY_LOCK}", f"{_ROUND_DIR}/{REGISTRY}.tmp",
-          WINDOW, WINDOW_LOCK, f"{WINDOW}.tmp")
+          WINDOW, WINDOW_LOCK, f"{WINDOW}.tmp", SAVE_LOCK)
 # 共有の記録のうち周の置き場 r<N>/ に置く名（scope の根に分けない。盤面の work が r<N>/ に置く）
 SHARED_ROUND = frozenset(p.split("/", 1)[1] for p in SHARED if p.startswith(_ROUND_DIR + "/"))
 # 盤面の根に core・engine・rules・部品が作るフォルダの名の形（共有の記録の <頭>/** の頭）。scope の名がこれに当たると、私物が
@@ -413,8 +421,9 @@ def check_window(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PAC
     r<N>/scopes.json の owns に持ち主の scope を記録し、別の scope が持ち主なら誤り（周ごとに書き手は 1 つ）。盤面の根の <名> は
     at が root の produces なら可（周を持たないので持ち主は記録しない）。ほかは誤り。あわせて、format が json の produces（scope の
     根の per_include の物も）が読めないか Schema に合わない、も誤り（required の欠けは誤りにしない: missing_required）。
-    opener は今盤面を開いて窓を閉じる scope（enter が渡す）で、その scope の根の変化は照らさない: 盤面を開く前に自分の scope の根に
-    書く節（依頼の受け付けの intake・テストの走らせ（script_io.scope_dir））の物で、閉じる窓の物ではない"""
+    opener は今盤面を開いて窓を閉じる scope の窓の鍵（enter が渡す）で、その scope の根の変化は照らさない: 盤面を開く前に自分の
+    scope の根に書く節（依頼の受け付けの intake・テストの走らせ（script_io.scope_dir））の物で、閉じる窓の物ではない。
+    窓の scope と opener は窓の鍵（window_key）で、fan_out の子の鍵 <fan の節>--* はその fan の子の全部の scope の根に当たる"""
     scope, block, n = window.get("scope") or "", window.get("block") or "", window.get("round")
     if not scope:
         return []
@@ -425,9 +434,9 @@ def check_window(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PAC
     errs = []
     for rel in _changed(window.get("files") or {}, now_files):
         segs = rel.split("/")
-        if opener and segs[0] == opener:
+        if opener and matches(segs[0], opener):
             continue
-        if segs[0] == scope:
+        if matches(segs[0], scope):
             inner = "/".join(segs[1:])
             at, name = ("round", "/".join(segs[2:])) if len(segs) > 2 and _ROUND_NAME.fullmatch(segs[1]) else ("root", inner)
             hit = _rows(block, name, pack, per_include=True, at=at) if block else None
@@ -459,7 +468,7 @@ def missing_required(board_dir: pathlib.Path, window: dict, pack: pathlib.Path =
         return []
     now_files = snapshot(board_dir)
     out = []
-    for p in _loaded(str(pathlib.Path(pack).resolve())).get(block, {}).get("produces", []):
+    for p in _loaded(str(pathlib.Path(pack).resolve())).get(block, {}).get("produces", []):   # fan の窓はどれかの子に在れば足りる
         if not p.get("required"):
             continue
         place = (f"{scope}/" if p.get("per_include") else "") + (f"r{n}/" if p.get("at", "round") == "round" else "")
@@ -490,7 +499,7 @@ def reads_outside(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PA
     out = set()
     for rel in changed:
         segs = rel.split("/")
-        if not (len(segs) == 3 and segs[0] == scope and _ROUND_NAME.fullmatch(segs[1]) and matches(segs[2], "reads-*.json")):
+        if not (len(segs) == 3 and matches(segs[0], scope) and _ROUND_NAME.fullmatch(segs[1]) and matches(segs[2], "reads-*.json")):
             continue
         try:
             doc = json.loads((d / rel).read_text(encoding="utf-8"))
@@ -507,7 +516,7 @@ def reads_outside(board_dir: pathlib.Path, window: dict, pack: pathlib.Path = PA
             got = full.relative_to(real).as_posix()
             gsegs = got.split("/")
             name = "/".join(gsegs[1:]) if len(gsegs) > 1 and _ROUND_NAME.fullmatch(gsegs[0]) else got
-            if gsegs[0] == scope or shared(got) or _consumed(block, pack, name):
+            if matches(gsegs[0], scope) or shared(got) or _consumed(block, pack, name):
                 continue
             out.add(got)
     return sorted(out)
@@ -528,23 +537,33 @@ def _read_window(d: pathlib.Path) -> dict | None:
     return doc
 
 
+def window_key(scope: str) -> str:
+    """窓の鍵: fan_out の子の scope（flow_adapter.fan_node が名を返す物）は同じ fan の子の全部に当たる形 <fan の節>--*、ほかは
+    scope のまま（ふつうの scope の名は glob の字を持たないので、matches は字のままの一致）"""
+    fan = flow_adapter.fan_node(scope)
+    return f"{fan}{flow_adapter.FAN_SEP}*" if fan else scope
+
+
 def enter(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> list[str]:
     """盤面を開く口（entry.open_board）が流れの道具の節として scope（線の最上段は空）で開くたびに呼ぶ。錠 scope-window.json.lock
     の下で、盤面の根の今の窓 scope-window.json を読み、窓の scope が今の scope と違えば（窓が閉じる）前の窓を照らす:
     check_window の誤りを返し（呼び手が盤面を止める）、必須の出力の欠け（missing_required）を trace の行 REQUIRED_MISSING_OP
     {scope, names} に、宣言の外の読み（reads_outside）を READ_OUTSIDE_OP {scope, paths} に積み、誤りが在っても今の scope の窓を
     snapshot で開き直す（後の開きが同じ誤りで落ち続けない。止めた事実は盤面に残る）。同じ scope なら何もせず []（Archon の再開で
-    同じ include が走り直しても 1 回目からの書き込みを照らし続ける。照らすのは窓ごとに 1 度——外れ D3）"""
+    同じ include が走り直しても 1 回目からの書き込みを照らし続ける。照らすのは窓ごとに 1 度——外れ D3）。
+    比べるのは scope でなく窓の鍵（window_key）: 同じ fan の子が同時に開いても、最初の子が開いた窓を後の子は閉じない（モジュールの
+    docstring の「fan_out の子」）"""
     d = pathlib.Path(board_dir)
+    mine = window_key(scope)
     with open(d / WINDOW_LOCK, "a", encoding="utf-8") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             window = _read_window(d)
-            if window is not None and window["scope"] == scope:
+            if window is not None and window["scope"] == mine:
                 return []
             errs = []
             if window is not None:
-                errs = check_window(d, window, opener=scope)
+                errs = check_window(d, window, opener=mine)
                 rows = [(REQUIRED_MISSING_OP, "names", missing_required(d, window)),
                         (READ_OUTSIDE_OP, "paths", reads_outside(d, window))]
                 with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
@@ -552,7 +571,7 @@ def enter(board_dir: pathlib.Path, round_: int, scope: str, block: str) -> list[
                         if got:
                             f.write(json.dumps({"t": now(), "op": op, "scope": window["scope"], key: got},
                                                ensure_ascii=False) + "\n")
-            doc = {"scope": scope, "block": block, "round": round_, "files": snapshot(d)}
+            doc = {"scope": mine, "block": block, "round": round_, "files": snapshot(d)}
             tmp = d / (WINDOW + ".tmp")
             tmp.write_text(json.dumps(doc, ensure_ascii=False) + "\n", encoding="utf-8")
             tmp.replace(d / WINDOW)

@@ -40,6 +40,7 @@ v1 の受け付けの入れ物（scratch）は表を持たないので review-lo
 """
 import contextlib
 import dataclasses
+import fcntl
 import datetime
 import fnmatch
 import hashlib
@@ -87,6 +88,9 @@ VALIDATOR_PATH = CORE / "scripts" / "review-record.py"  # 写しの RR（検証�
 GRAPH_SHA = _util.sha(graph_text(GRAPH_PATH))         # 既定の graph の sha（盤面の state.graph_sha と比べる値。engine の init と同じ求め方）
 BOARD_VERSION = 1                                     # state.works.board_version。知らない版の盤面は開かない
 LAYOUT = "scope-1"                                    # state.works.layout。部品の私物を scope の根に分ける置き場の版（依頼 239）
+# 保存（版の突き合わせと書き込み）の錠（fcntl.flock。待つ上限は持たない）。ブロックが盤面の読み書きの全部を包む錠（blk-eyes の
+# board.lock）とは別のファイル: その錠の中から save を呼ぶので、同じファイルを取ると自分を待って止まる
+SAVE_LOCK = "state.json.lock"
 ANY_BELOW = "**"                                      # 名の形の末尾の段だけに置ける「下の全部」（name_matches）
 LANG_DEFAULT = "依頼文の言語（利用者の言語）"          # engine の cmd_init が inputs.lang に置く既定の文
 SCOPE_RULE = "空か、英字で始まり英数字・_・- だけの名で r<数字> でない名"   # 部品の置き場（scope）の名の決まり（ValueError の文に載せる）
@@ -850,7 +854,15 @@ class DiskBoard(_EngineBoard):
         読み直すので、止めた手の後の手は必ず halted を読んで拒まれる。同じ入れ物で続ける works もそれに揃える"""
         if self._scratch:
             raise BoardGap("scratch の入れ物（v1 の受け付け）は保存しない")
-        super().save()
+        # engine の save は「今の版を読む → 読んだ版と比べる → 書く」を錠なしで行い、2 つのプロセスが同じ版を読んで両方が比べを
+        # 通ると後勝ちで先の書き込みが消える（fan_out の子のように同時に開いて保存する節）。比べと書き込みを 1 つの錠の中に置き、
+        # 後の方を必ず BoardConflict にする
+        with open(self.dir / SAVE_LOCK, "a", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                super().save()
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
         self.halted_at_read = bool(self.state.get("halted"))
 
     def run_validator(self, target=None):

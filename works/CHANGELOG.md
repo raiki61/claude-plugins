@@ -6,6 +6,11 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- 修正の単位ごとに小さい git worktree を切る土台 `.shared/core/unittrees.py`（run の作業ツリーの未 commit の姿を base の commit にする・単位の worktree を切る・差分を取る・run の作業ツリーへ 3 方向で当てる・片付ける）。本物の index・HEAD・枝は動かさず、当たらない差分は作業ツリーを変えずに理由を返す。まだどの部品にも配線しない。
+- Archon の `fan_out` を付けた include の子も、部品の置き場（scope）が子ごとに分かれる（`<fan の節>--<子の印>`）。同時に走る子は照らしの窓を 1 つ分け合い、子の全部を合わせた変化を部品の宣言に照らす（子の間は照らさない。`docs/darkfactory-flow.md` の死角 (d)）。盤面の保存は版の比べと書き込みを 1 つの錠（`state.json.lock`）の中で行い、同時に保存した節の後の方が先の保存を消さずに `BoardConflict` になる。
+
 ### Changed
 
 - `dev/use.sh` が run の worktree・枝・控え（包んだ基を守る参照と読み出しのファイル）を自動で片付ける。正常に終わった・取り消した run（状態 completed・cancelled）は `wait`・`show` が差分を `<家>/diffs/` に書き終えた後に消し、落ちた run（failed）などの生きていない run は次の `start` が Archon を起こす前に差分を書いてから消す。走っている・関所で待つ run と、差分を書けなかった run は残す。差分のファイルと盤面は消さない。片付けた run は Archon の resume で続けられない（修正は差分のファイルから `apply` で取り戻す）。片付けの中身は手で打つ `use.sh clean` と同じ 1 つの関数。`start` が片付けた run の id と状態は、`start` の出力と、線の入力 `cleaned_runs` を通して報告の冒頭 2 に 1 行で出る（自分食い 229 の差分に、報告へ出す口と独立の目の削りを足した）。
