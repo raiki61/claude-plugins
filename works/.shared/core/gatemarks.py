@@ -44,6 +44,10 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 - held_lines(b)・answered_lines(b)・returned_lines(b)・unreturned_lines(b): 最後の関所の文と報告に並べる、関所で答えていない
   聞いたままの問いと戻せなかった単位（保留の件数）・関所で答えた問い（件数に数えない）・修正役に渡す義務に戻った単位・答えたが
   今の周の units に無いので戻せなかった単位
+- request_answers(b)・request_answer(b, q)・answer_note(a)・unmatched_answer_lines(b): 依頼の answers（start の控えの欄。依頼者の
+  答え）・q の key か出どころ origin と question が字のまま等しい答え（answered と _gate_answered が読む。関所の continue と同じく
+  答えた扱い）・答えの名乗りの文・台帳のどの問いにも当たらない答えの行（報告の冒頭と最後の関所が名指す。保留の件数に数えない）。
+  ANSWERED_HEAD は答えた行の見出し、ANSWER_HOW は保留の行の下に出す答え方の 1 行
 - design_only(b)・design_item(b): 設計だけの run か・関所に載せる設計だけの行（載せなければ空）
 - unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
 - PLAIN・named(node)・eye_named(name, status): 関所の文と報告が主語にする平易な名（内部の名は括弧へ。plan・specblk・境の節・報告が使う）
@@ -122,6 +126,9 @@ HOLD_END = re.compile(r"[。；;\n]")   # HOLD が読む文の終わり（unread
 KEY_CHAR = re.compile(r"[A-Za-z0-9_-]")   # 台帳の key の一致の前後にこれが続けば、もっと長い key の断片
 HOLD_ITEM = re.compile(r"(?:^|[・、,，])\s*([A-Za-z0-9_-]*[A-Za-z0-9][A-Za-z0-9_-]*)")   # 「保留:」に並べた項の頭の key らしい並び
 START_FILE = "r1/start.json"           # 盤面の start の控え（書き手は entry.start。conflict・report も start_doc で読む）
+ANSWERED_HEAD = "答えた問い（関所の continue か依頼の answers）"   # 答えた行（answered_lines）の見出し（報告の冒頭と最後の関所）
+ANSWER_HOW = ('答え方: 次の run の依頼を {"findings": [...], "answers": [{"question": "<問いの key か出どころ>", "text": "<答え>"}]} '
+              'の形にすれば、その問いを人に聞き直さない（手元で測ったなら "command" と "output" も書く）')
 UNATTENDED = "true"                   # 入力 unattended の無人の語（entry.UNATTENDED_WORDS）
 DESIGN_ONLY = "true"                  # 入力 design_only の設計だけの語（entry.DESIGN_ONLY_WORDS）
 DESIGN_ONLY_KIND = "design_only"      # 関所の項目の kinds（設計だけの行）
@@ -464,8 +471,43 @@ def ask_text(q) -> str:
             + f"／答えが無いと直さない単位: {'・'.join(_skips(q)) or '（無し）'}")
 
 
+def request_answers(b) -> list:
+    """依頼の answers（start の控えの欄。無い・配列でなければ空。dict でない行は読まない）"""
+    rows = start_doc(b.dir).get("answers")
+    return [a for a in rows if isinstance(a, dict)] if isinstance(rows, list) else []
+
+
+def request_answer(b, q):
+    """依頼の答えのうち question が q の key か出どころ origin と字のまま等しい最初の物（無ければ None）"""
+    names = {str(q.get(k)) for k in ("key", "origin") if isinstance(q.get(k), str) and q.get(k)}
+    return next((a for a in request_answers(b) if a.get("question") in names), None)
+
+
+def answer_note(a: dict) -> str:
+    """依頼の答えの名乗り: 依頼者の答え: <text>（手元で測った物は命令と出力を添える。空白は 1 つに詰め、切らない）"""
+    text = f"依頼者の答え: {_squeeze(a.get('text'))}"
+    if a.get("command"):
+        text += f"（人が手元で実行: `{_squeeze(a.get('command'))}`・出力: {_squeeze(a.get('output'))}）"
+    return text
+
+
+def _squeeze(v) -> str:
+    return " ".join(str(v or "").split())
+
+
+def unmatched_answer_lines(b) -> list:
+    """依頼の答えのうち、台帳のどの問いの key にも出どころにも当たらない物（1 件 1 行。黙って答えた扱いにしない）"""
+    names = {str(q.get(k)) for q in b.record.get("questions") or [] if isinstance(q, dict)
+             for k in ("key", "origin") if isinstance(q.get(k), str) and q.get(k)}
+    return [f"依頼の答えに当たる問いが台帳に無い（判定が問いを立てなかったか、字が違う）: {a.get('question')}——{answer_note(a)}"
+            for a in request_answers(b) if a.get("question") not in names]
+
+
 def answered(b, q) -> bool:
-    """修正前の関所の continue がこの問いの行を聞いていて、一言が「保留: <key>」と名指していない"""
+    """依頼の answers がこの問いに当たる（request_answer）か、修正前の関所の continue がこの問いの行を聞いていて、一言が
+    「保留: <key>」と名指していない"""
+    if request_answer(b, q) is not None:
+        return True
     key = str(q.get("key") or "")
     return any(key not in hold_keys(str(h.get("note") or ""), _ledger_keys(b))
                for h in _gate_continues(b) if _asked_in(h, q))
@@ -577,11 +619,19 @@ def fixable(b) -> set:
 
 
 def returned_lines(b) -> list:
-    """修正役に渡す行: 関所で答えた問いと、それで直す義務に戻った単位（1 問 1 行。今の周の units に無い単位は約束しない）"""
-    return [f"関所で答えた{ASK_HEAD} {q.get('key')} の出どころ・depends は直す義務に戻った（保留の問いの出どころとして飛ばさない）: "
-            f"{'・'.join(keep)}——一言に案が無ければ問いの理由の推しで直す（問いの理由: {q.get('reason') or ''}）。"
-            "判定者の class_query が無い単位は coverage.how と counts を書け（写しの受け付けが求める）"
-            for q, keep, _ in _answered_skips(b) if keep]
+    """修正役に渡す行: 関所か依頼の answers で答えた問いと、それで直す義務に戻った単位（1 問 1 行。今の周の units に無い単位は
+    約束しない）。依頼の答えの問いは推しでなく答えの文で直させる"""
+    out = []
+    for q, keep, _ in _answered_skips(b):
+        if not keep:
+            continue
+        a = request_answer(b, q)
+        how = (f"——答え: {answer_note(a)}" if a is not None else
+               f"——一言に案が無ければ問いの理由の推しで直す（問いの理由: {q.get('reason') or ''}）")
+        out.append(f"{'依頼' if a is not None else '関所'}で答えた{ASK_HEAD} {q.get('key')} の出どころ・depends は直す義務に戻った"
+                   f"（保留の問いの出どころとして飛ばさない）: {'・'.join(keep)}{how}。"
+                   "判定者の class_query が無い単位は coverage.how と counts を書け（写しの受け付けが求める）")
+    return out
 
 
 def unreturned_lines(b) -> list:
@@ -591,7 +641,8 @@ def unreturned_lines(b) -> list:
 
 
 def _gate_answered(b, q) -> bool:
-    return q in asks(b) and q not in pending(b)
+    """保留の行と答えた行の分け目: 依頼の answers が当たるか、関所に載せる問いで答えた（answered と同じ答えを読む）"""
+    return request_answer(b, q) is not None or (q in asks(b) and answered(b, q))
 
 
 def _ledger_line(q, mark: str = "", skip: list | None = None) -> str:
@@ -609,8 +660,10 @@ def held_lines(b) -> list:
 
 
 def answered_lines(b) -> list:
-    """held_lines と同じ所に別の見出しで並べ、保留の件数に数えない行: 関所で continue を受けた台帳の問い"""
-    return [_ledger_line(q, "・関所で continue を受けた") for q in _asking(b) if _gate_answered(b, q)]
+    """held_lines と同じ所に別の見出し（ANSWERED_HEAD）で並べ、保留の件数に数えない行: 関所で continue を受けたか、依頼の
+    answers が答えた台帳の問い（印は答えの出どころを名乗る）"""
+    return [_ledger_line(q, "・" + answer_note(a) if (a := request_answer(b, q)) is not None else "・関所で continue を受けた")
+            for q in _asking(b) if _gate_answered(b, q)]
 
 
 def _keep(b, row: dict) -> None:

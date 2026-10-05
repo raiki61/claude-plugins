@@ -1,7 +1,9 @@
 """依頼のファイルの形と、依頼が名指した PR・issue を隔離の前に読む 1 か所（設計書 2.8）。層 L1（works の物を何も知らない）。
 標準ライブラリだけ（Python 3.9 で動く）。殻（use.sh・dogfood.sh）は `python3 -I ghreads.py read …` でファイルとして呼ぶ。
 
-依頼のファイルは findings の JSON の配列か、{"findings": [...], "pr": [<番号>…], "issue": [<番号>…]} の形。読み手
+依頼のファイルは findings の JSON の配列か、{"findings": [...], "pr": [<番号>…], "issue": [<番号>…], "answers": [...]} の形。
+answers は依頼者が前の run の問いに答えた物 [{question, text, command?, output?}]（question は問いの key か出どころ。
+command・output は人が手元で測った命令と出力で、両方か無し）。読み手
 （entry・判定と前提の intake）はここで解き、graphloops の規則（check_request・add_request・REQUEST_SCHEMA）に渡すのは
 findings だけにする（容器の形を規則の側へ漏らさない）。
 
@@ -9,7 +11,7 @@ findings だけにする（容器の形を規則の側へ漏らさない）。
 exit 4）。だから殻が Archon を起こす前に、利用者の env のまま 1 回だけ読み、結果のファイルをラインの入力 github_reads で
 渡す。名指しは依頼の欄 pr・issue と --pr に限る（本文の中の URL は拾わない）。トークンの値は読まない（gh 自身の設定に任せる）。
 
-- request_parts(doc) -> {"findings": list, "pr": [int], "issue": [int]}: 解けなければ ValueError（1 行）
+- request_parts(doc) -> {"findings": list, "pr": [int], "issue": [int], "answers": [dict]}: 解けなければ ValueError（1 行）
 - read(repo, request, pr, out) -> int: 名指した物を読んで out に置く。終了コード（0 以外は --pr の base・head が読めない時だけ）
 - load(board_dir, src) -> doc|None: 盤面の根の github.json を先に、無ければ src を読むだけ（盤面を作る前に入力を確かめる）
 - adopt(board_dir, src) -> doc|None: 盤面の根の github.json を先に使い、無ければ src を写して元を消す
@@ -24,7 +26,8 @@ import sys
 
 sys.dont_write_bytecode = True
 
-KEYS = ("findings", "pr", "issue")
+KEYS = ("findings", "pr", "issue", "answers")
+ANSWER_KEYS = ("question", "text", "command", "output")
 GITHUB_READS_VERSION = 1
 BOARD_FILE = "github.json"   # 盤面の根に置く読み出しの写し
 PR_FIELDS = "baseRefOid,headRefOid,title,body,comments,reviews"
@@ -34,9 +37,9 @@ UNREADABLE = "unreadable"
 
 def request_parts(doc) -> dict:
     if isinstance(doc, list):
-        return {"findings": doc, "pr": [], "issue": []}
+        return {"findings": doc, "pr": [], "issue": [], "answers": []}
     if not isinstance(doc, dict):
-        raise ValueError(f"findings の配列か {{findings, pr, issue}} の形でない（{type(doc).__name__}）")
+        raise ValueError(f"findings の配列か {{findings, pr, issue, answers}} の形でない（{type(doc).__name__}）")
     extra = sorted(set(doc) - set(KEYS))
     if extra:
         raise ValueError(f"知らない鍵 {extra}（使えるのは {list(KEYS)}）")
@@ -49,7 +52,31 @@ def request_parts(doc) -> dict:
         if not isinstance(nums, list) or any(type(n) is not int or n <= 0 for n in nums):
             raise ValueError(f"{key} が正の整数の配列でない（{nums!r}）")
         out[key] = nums
+    out["answers"] = _answers(doc.get("answers", []))
     return out
+
+
+def _answers(rows) -> list:
+    """依頼の answers を確かめてそのまま返す。question・text は空でない文字列、command・output は両方か無し、
+    知らない欄と同じ question の 2 度書きは拒む（ValueError。1 行）"""
+    if not isinstance(rows, list):
+        raise ValueError(f"answers が配列でない（{type(rows).__name__}）")
+    seen = set()
+    for i, a in enumerate(rows):
+        if not isinstance(a, dict):
+            raise ValueError(f"answers[{i}] が {{question, text, command?, output?}} の object でない（{type(a).__name__}）")
+        extra = sorted(set(a) - set(ANSWER_KEYS))
+        if extra:
+            raise ValueError(f"answers[{i}] の知らない欄 {extra}（使えるのは {list(ANSWER_KEYS)}）")
+        for key in ANSWER_KEYS:
+            if (key in a or key in ("question", "text")) and not (isinstance(a.get(key), str) and a[key].strip()):
+                raise ValueError(f"answers[{i}] の {key} が空でない文字列でない（{a.get(key)!r}）")
+        if ("command" in a) != ("output" in a):
+            raise ValueError(f"answers[{i}] の command と output は両方書くか、どちらも書かない")
+        if a["question"] in seen:
+            raise ValueError(f"answers[{i}] の question {a['question']!r} が 2 度目（1 つの問いに答えは 1 つ）")
+        seen.add(a["question"])
+    return rows
 
 
 def _line(text) -> str:

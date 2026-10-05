@@ -28,6 +28,7 @@ import engine.declared as engine_declared  # noqa: E402  （board が写しの g
 import engine.util as engine_util  # noqa: E402
 import entry  # noqa: E402
 import fixshape  # noqa: E402
+import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import scopes  # noqa: E402
 
@@ -631,13 +632,42 @@ class StartCaseBase(unittest.TestCase):
 
 
 class CheckInputsCase(StartCaseBase):
+    ANSWERS = [{"question": "parallel_pr", "text": "並行する PR は無い"},
+               {"question": "q-sock", "text": "通った", "command": "go test ./internal/sock/...", "output": "ok  sock 0.2s"}]
+
+    def test_request_answers_reach_start_doc(self):
+        """object の形の依頼の answers は check_inputs の返りと start の控えに字のまま載り、固定材料の照らしには入らない"""
+        repo = self.seed()
+        rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+        req = request_file(self.tmp / "ans.json", {"findings": rows, "answers": self.ANSWERS})
+        got = entry.check_inputs({"request": str(req)}, repo)
+        self.assertEqual((got["items"], got["answers"]), (rows, self.ANSWERS))
+        self.assertNotIn("answers", entry.adopt_inputs(got))
+        self.start(repo, raw=self.raw(request=str(req)))
+        self.assertEqual(gatemarks.start_doc(self.board)["answers"], self.ANSWERS)
+
+    def test_request_answers_bad_shape_refused(self):
+        repo = self.seed()
+        rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+        one = {"question": "x", "text": "y"}
+        for name, ans in (("not-list", one), ("empty-text", [{**one, "text": ""}]), ("no-question", [{"text": "y"}]),
+                          ("command-only", [{**one, "command": "ls"}]), ("output-only", [{**one, "output": "a"}]),
+                          ("extra", [{**one, "by": "人"}]), ("dup", [one, {**one, "text": "z"}]), ("not-dict", ["x"])):
+            with self.subTest(name):
+                req = request_file(self.tmp / f"{name}.json", {"findings": rows, "answers": ans})
+                with self.assertRaises(entry.InputRefused) as cm:
+                    entry.check_inputs({"request": str(req)}, repo)
+                self.assertIn("answers", str(cm.exception))
+                self.assertNotIn("\n", str(cm.exception))
+
     def test_inputs_defaults(self):
         """依頼だけ → thickness 標準・gates ""・final_gate always・adapter ""・lang ""。返りに thickness_decider が無い"""
         repo = self.seed()
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
                                     "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only", "fix_shape",
-                                    "fix_fixture"})
+                                    "fix_fixture", "answers"})
+        self.assertEqual(got["answers"], [])
         self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"],
                           got["lang"], got["unattended"], got["design_only"], got["fix_shape"]),
                          ("標準", "", "always", "", "", "", "", "", "", "g3"))
