@@ -116,6 +116,63 @@ class TierListCase(unittest.TestCase):
             self.assertIn("test_new", "".join(c.args[0] for c in err.write.call_args_list))
 
 
+class ShardCase(unittest.TestCase):
+    """組（WORKS_SHARD=<番号>/<組の数>）: 組の和はちょうど全部で重ならない。CI の works の job は組ごとに別の runner で回すので、
+    ここが緩むと試験が黙ってどの組からも落ちる"""
+
+    def test_union_is_every_module_for_each_total(self):
+        mods = tiers.modules()
+        for total in range(1, 9):
+            groups = tiers.shard_of(mods, total)
+            self.assertEqual(sorted(groups), list(range(total)))
+            got = [m for g in groups.values() for m in g]
+            self.assertEqual(sorted(got), sorted(mods), f"組の数 {total} の和が全部のモジュールでない")
+            self.assertEqual(len(got), len(set(got)), f"組の数 {total} で 2 つの組に入るモジュールが在る")
+            if total <= 4:
+                self.assertTrue(all(groups.values()), f"組の数 {total} で空の組が在る")
+
+    def test_same_table_every_time(self):
+        self.assertEqual(tiers.shard_of(tiers.modules(), 4), tiers.shard_of(list(reversed(tiers.modules())), 4))
+
+    def test_new_module_lands_in_some_shard(self):
+        names = ["test_a", "test_b", "test_new"]
+        with mock.patch.object(tiers, "weight", side_effect=lambda m: 1.0):
+            groups = tiers.shard_of(names, 2)
+        self.assertEqual(sorted(m for g in groups.values() for m in g), names)
+
+    def test_loader_shards_split_discover_exactly(self):
+        # 名前の和だけでなく、discover が拾う試験の id の和が全部と同じ（組ごとの読み込みは TierLoader）
+        full = collect_ids(unittest.TestLoader().discover(str(TESTS), tiers.PATTERN))
+        parts = [collect_ids(tiers.TierLoader(set(g)).discover(str(TESTS), tiers.PATTERN))
+                 for g in tiers.shard_of(tiers.modules(), 4).values()]
+        self.assertEqual(set().union(*parts), full)
+        self.assertEqual(sum(len(p) for p in parts), len(set().union(*parts)))
+
+    def test_env_form(self):
+        self.assertIsNone(tiers.shard_env({}))
+        self.assertIsNone(tiers.shard_env({"WORKS_SHARD": ""}))
+        self.assertEqual(tiers.shard_env({"WORKS_SHARD": "3/4"}), (3, 4))
+        for bad in ("4/4", "1", "a/4", "1/0", "-1/4", "1/4/2"):
+            with self.assertRaises(ValueError, msg=bad):
+                tiers.shard_env({"WORKS_SHARD": bad})
+
+    def test_main_lists_the_shard_and_drops_the_env(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"WORKS_SHARD": "1/4"}), contextlib.redirect_stdout(out), mock.patch("sys.stderr"):
+            self.assertEqual(tiers.main(["tiers.py", "list", "all"]), 0)
+            self.assertNotIn("WORKS_SHARD", os.environ, "中の試験に組が継がれる")
+        self.assertEqual(out.getvalue().split(), tiers.shard_of(tiers.modules(), 4)[1])
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"WORKS_SHARD": "0/2"}), contextlib.redirect_stdout(out), mock.patch("sys.stderr"):
+            self.assertEqual(tiers.main(["tiers.py", "list", "fast"]), 0)
+        self.assertEqual(set(out.getvalue().split()), set(tiers.shard_of(tiers.modules(), 2)[0]) & tiers.FAST)
+
+    def test_main_refuses_bad_shard(self):
+        with mock.patch.dict(os.environ, {"WORKS_SHARD": "4/4"}), mock.patch("sys.stderr") as err:
+            self.assertEqual(tiers.main(["tiers.py", "all"]), 2)
+        self.assertIn("WORKS_SHARD", "".join(c.args[0] for c in err.write.call_args_list))
+
+
 class TierPathsCase(unittest.TestCase):
     """dev/tdd-suite.sh（pytest で回す TDD の実行器）が段のファイルを引く口 `python3 tests/tiers.py paths <段>`"""
 

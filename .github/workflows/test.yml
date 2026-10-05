@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 # **job は 4 種**（2026-09-29）: 重い筋書きの台本の一式を OS × 組（shard）に分けて並べる test、pytest の置き場を丸ごと回す pytest、
-# 全組の名簿を集めて件数の和と全台本の和で見る検査を 1 か所で当てる shards、works の試験の全段を回す works。1 job に閉じていた頃は Windows が 18 分で律速だった
+# 全組の名簿を集めて件数の和と全台本の和で見る検査を 1 か所で当てる shards、works の試験の全段を組に分けて回す works。1 job に閉じていた頃は Windows が 18 分で律速だった
 # （tests/run.sh 962 秒のうち graphloops の台本が 808 秒。runner の CPU は 4 で、job の中の並列はそこで頭打ち）。
 # 組の数 4 は macOS の同時実行の枠 5（組 4＋pytest 1）と全体の枠 20（組 12＋pytest 3＋まとめ 1）から。works の 1 本を足すと
 # macOS は 6 本で 1 本が列に並び、全体は 17 本（待ちの延びは持ち主が通した。2026-09-29）。
@@ -142,6 +142,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest]
+        # **組（shard）に分けて並べる**（2026-10-06）: 1 本で回すと 4293 秒（3431 本）で、出荷の CI の律速だった。組の番号は 0..N-1 を
+        # 欠けなく並べ、N を下の段の WORKS_SHARD の「/N」に書く（tests/run.sh の CI_LINT_OK が縛る）。分け方は works/tests/tiers.py の
+        # shard_of（全部のモジュールを重さの目安で配る。組の和がちょうど全部なのは works/tests/test_tiers.py の ShardCase が縛る）。
+        # macOS の同時実行の枠は 5 で、test の macOS 4 組・pytest 1 本と合わせて列に並ぶ組が出る（出荷の 1 回だけなので待ちは許す）
+        shard: [0, 1, 2, 3]
         # 許しの一覧は works の job が自前で持ち、works が実際に出す能力の名前だけを OS ごとに include に書く（共有の *skip_allow は引かない
         # ——works が出さない名前まで許す）。鍵の名前と 1 行の形は共有の一覧と分けるため（graphloops/tests/py/test_mutate_shard.py
         # が「- os: … / skip_allow:」の行を共有の一覧として読む）。名前は works/tests の見送りの「SKIP <能力>:」の頭:
@@ -178,6 +183,7 @@ jobs:
           UV_PYTHON_DOWNLOADS: never
           SKIP_ALLOW: ${{ matrix.works_skip_allow }}
           FAIL_ON_SKIP: "1"
+          WORKS_SHARD: ${{ matrix.shard }}/4
         run: sh works/tests/run.sh
   # **全組を待って和を検算する。** 組は自分の分しか数えないので、件数の柵（EXPECTED_CHECKS・EXPECTED_TESTS）と全台本の和で見る
   # 検査（判定語彙の到達・渡し方の当たり）はここでしか当たらない。--groups は test の matrix の os と同じ並び（CI_LINT_OK が縛る）

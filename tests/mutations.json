@@ -6595,8 +6595,8 @@
    "title": "CI の突合: 組の番号が欠ければ赤",
    "file": ".github/workflows/test.yml",
    "suite": "root",
-   "old": "shard: [0, 1, 2, 3]",
-   "new": "shard: [0, 1, 3]",
+   "old": "shard: [0, 1, 2, 3]\n        # **欠けてよい",
+   "new": "shard: [0, 1, 3]\n        # **欠けてよい",
    "expect": "CI の設定が shellcheck を回す"
   },
   {
@@ -6667,8 +6667,8 @@
    "title": "CI の突合: works の全段が見送りを失敗に数えなければ赤",
    "file": ".github/workflows/test.yml",
    "suite": "root",
-   "old": "          FAIL_ON_SKIP: \"1\"\n        run: sh works/tests/run.sh",
-   "new": "          FAIL_ON_SKIP: \"0\"\n        run: sh works/tests/run.sh",
+   "old": "          FAIL_ON_SKIP: \"1\"\n          WORKS_SHARD:",
+   "new": "          FAIL_ON_SKIP: \"0\"\n          WORKS_SHARD:",
    "expect": "CI の設定が shellcheck を回す"
   },
   {
@@ -6732,6 +6732,33 @@
    "suite": "root",
    "old": "          version: \"0.11.29\"\n",
    "new": "          version: \"0.11.28\"\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW11",
+   "title": "CI の突合: works の job が組を段に渡さなければ赤（どの組も全部を回し、組に分けた意味が消える）",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          WORKS_SHARD: ${{ matrix.shard }}/4\n",
+   "new": "",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW12",
+   "title": "CI の突合: works の組の番号が欠ければ赤（欠けた組のモジュールがどこでも回らない）",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "shard: [0, 1, 2, 3]\n        # 許しの一覧は works",
+   "new": "shard: [0, 1, 3]\n        # 許しの一覧は works",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CW13",
+   "title": "CI の突合: works の組の数と段の WORKS_SHARD の「/N」が割れれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "${{ matrix.shard }}/4",
+   "new": "${{ matrix.shard }}/3",
    "expect": "CI の設定が shellcheck を回す"
   },
   {
