@@ -534,6 +534,34 @@ def _briefs(board_dir: pathlib.Path) -> list:
         raise Broken(fixrules.brief_halt(b, e)) from None
 
 
+# 前に済んだ単位の引き継ぎ（依頼 243 の 2）。単位ごとに新しい会話で起こしても、前の単位が何を変えたかを会話の履歴でなく
+# 機械が状態から書いて渡す（prep の今の単位の節の後）
+HANDOFF_HEAD = "## 前の単位の引き継ぎ（機械が状態から書いた物）"
+
+
+def handoff_lines(st) -> list:
+    """今の単位より前に済んだ単位の 1 行ずつ（単位の key・直したファイル・緑にしたテスト・整え・direct に回した理由）。無ければ空"""
+    rows = []
+    for k in st["queue"][:st["cur"]]:
+        u = st["units"].get(k)
+        if not u:
+            continue
+        if u.get("gave_up"):
+            rows.append(f"- {k}: 諦めて direct に回した（木は単位の頭に戻した。修正役が直す）: {u.get('why', '')[:200]}")
+            continue
+        if u.get("route") == "parked":
+            rows.append(f"- {k}: 食い違いの申し出で止めた（木は単位の頭に戻した）")
+            continue
+        bits = [f"直したファイル {', '.join(u.get('files') or []) or 'なし'}",
+                f"緑にしたテスト {', '.join(u.get('tests') or []) or 'なし'}"]
+        if u.get("refactor"):
+            bits.append(f"整え {u['refactor']}")
+        rows.append(f"- {k}: " + "・".join(bits))
+    if not rows:
+        return []
+    return [HANDOFF_HEAD, "", "前の単位の直しは作業ツリーに在る（緑の木）。戻したり作り直したりするな。", ""] + rows + [""]
+
+
 def prep(state_file, values: dict | None = None, repo=None) -> dict:
     """節 tdd-prep。今の段の指示書を組み（fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段の約束・run の値）、状態の
     置き場の next.md（full の写し）と隣の next.full.md・next.delta.md・next.variants.json に書き、{prompt_file} を返す。
@@ -561,6 +589,7 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
         lines += ["## 今の単位", "", f"- {u['unit_key']}", ""]
         if u["tests"]:
             lines += [f"- 名指しのテスト: {', '.join(u['tests'])}", f"- テストのファイル（凍っている）: {', '.join(u['test_files'])}", ""]
+        lines += handoff_lines(st)
         left = st["queue"][st["cur"] + 1:]
         if left:
             lines += ["この後の tdd の単位（今は手を付けるな）: " + " / ".join(left), ""]

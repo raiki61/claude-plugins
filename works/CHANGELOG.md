@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- TDD の輪の役の指示書（tdd-prep）に、前に済んだ単位の引き継ぎの節を機械が書くようにした（単位の key・直したファイル・緑にしたテスト・整えの結末。諦めて direct に回した単位・申し出で止めた単位はそう書く）。最初の単位と振り分けの段には載らない。単位ごとに新しい会話で起こす準備で、会話はまだ今までどおり継ぐ（設計は docs/plans/2026-10-06-fresh-session.md）。
+
 ## [0.2.27] - 2026-10-05
 
 ### Added
