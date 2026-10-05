@@ -14,6 +14,7 @@ INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）�
 出し直しなら前の回の拒否の理由のファイルを指示書の頭で名指す（R44）。cwd（対象の worktree）の差分から変更の種類を選ぶ。
 環境変数の欠け・盤面が p3.fix を待っていない・思わぬ誤り: 標準エラーに 1 行出して 2（rolekit.script_main）。
 brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2。
+輪の要約（INPUTS_SUMMARY_FILE）の隣の状態から輪が緑にした単位を引き、g3 の修正役の下請けから外す（依頼 243 の 2）。
 修正の形 g3・g1 の盤面で、借りた superpowers の写しが固定（pin）と違う・型の穴が埋まらなければ、座の無い指示書に逃げずに 2。
 """
 import sys
@@ -23,6 +24,7 @@ sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # ブロックの模块（lib/ は Archon が探さない）
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
 import fixrules  # noqa: E402
+import tddloop  # noqa: E402  （輪が緑にした単位。g3 の修正役はその単位に下請けを起こさない）
 import rolekit  # noqa: E402
 
 # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_fix.py が見る）
@@ -33,7 +35,7 @@ VALUES = tuple(n for n in INPUTS if n != "INPUTS_PASS")   # 指示書に埋め�
 
 def run(board, repo, env):
     values = {n[len("INPUTS_"):].lower(): env[n] for n in VALUES}
-    return fixrules.prep(board, repo, values, env["INPUTS_PASS"])
+    return fixrules.prep(board, repo, values, env["INPUTS_PASS"], green=tddloop.green_units(values["summary_file"]))
 
 
 if __name__ == "__main__":

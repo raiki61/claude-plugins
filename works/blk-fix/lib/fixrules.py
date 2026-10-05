@@ -474,20 +474,18 @@ def _g1_task(brief: dict, owed: list[str]) -> str:
     return f"修正案の項目 {brief['item']}（直す義務の単位 {planbrief.unit_note(brief.get('unit_keys'), owed)}）"
 
 
-def dispatched(shape: str, mark: str, owed: list[str], values: dict) -> list[str]:
+def dispatched(shape: str, mark: str, owed: list[str], green=frozenset()) -> list[str]:
     """修正役 mark が下請けを起こす単位（owed の順）。下請けを起こす形（fixshape.AGENT_SHAPES）の修正役（AGENT_NODES）だけ。g1 は
-    owed の全部、g3 は TDD の輪が緑にした単位（tddloop.green_units。輪の要約は values の summary_file）を除いた物（依頼 243 の 2）。
-    ほかは []"""
+    owed の全部、g3 は TDD の輪が緑にした単位 green（支度の script が tddloop.green_units で引く。tddloop が fixrules を import
+    するので、ここでは引かない）を除いた物（依頼 243 の 2）。ほかは []"""
     if shape not in fixshape.AGENT_SHAPES or mark not in fixshape.AGENT_NODES:
         return []
     if shape == seatkit.G1_SHAPE:
         return list(owed)
-    import tddloop   # 同じブロックの lib（tddloop が fixrules を import するので、呼ぶ時に引く）
-    green = tddloop.green_units(values.get("summary_file") or "")
     return [k for k in owed if k not in green]
 
 
-def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
+def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset()) -> dict:
     """節 fix-prep（pass_ first）と fix-ruled-prep（pass_ ruled）: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。
     返り {prompt_file, attempt, out_path, node, already, variants_file, iteration}（iteration はこの輪の何回目か。受け付けが
     3 回目の拒否で done を立てる。R50）。同じ試行の出し直し（印が既に在る。通れば輪を抜けるので、前の回の返答は受け付けで
@@ -500,6 +498,7 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     同じブロックの 2 度目の include（依頼 226 の 2 回目の修正の段）の指示書・裁定の後の尾・拒否の理由・裁定の文・座の作業ファイルは
     その scope の根に書き、数えと拒否の名指しはその scope の物だけを見る（起こした印は 1 回目の段が置いた物のまま）。1 回目に受け付けた返答の控え
     （conflict.held_reply）が在れば、brief の節の後に控えの節（held_text）を置く。
+    green は TDD の輪が緑にした単位（dispatched）。
     修正の形（fixshape.shape_at）が座を載せる形なら、借りたスキルの座（seat.section。型の穴は implementer_values）を full と delta の
     両方に載せる。修正役が下請けを起こす単位（dispatched。g1 は全部、g3 は輪が緑にした単位の外）が在れば、その代わりに下請けを
     回す節（seat.g1_section。下請けのファイルは g1_values。[BASE_SHA] は values の base_rev）を載せる（依頼 243 の 2: g3 も単位
@@ -531,7 +530,7 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     before = tuple(x for x in (*before, head) if x)   # ruled の裁定の文の行は見出しの次の 1 行のまま（R44）。brief はその後
     mark, shape = ("fix" if pass_ == PASSES[0] else "fix-ruled"), fixshape.shape_at(board_dir)
     seat = ""
-    subs = dispatched(shape, mark, owed, values)
+    subs = dispatched(shape, mark, owed, green)
     if subs:
         seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みと Context7 の引き（lib_section）より前に
         seat = seatkit.g1_section(g1_values(b, values, repo, subs, values.get("base_rev") or "", shape), shape)
