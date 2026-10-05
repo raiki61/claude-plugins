@@ -45,8 +45,9 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
   聞いたままの問いと戻せなかった単位（保留の件数）・関所で答えた問い（件数に数えない）・修正役に渡す義務に戻った単位・答えたが
   今の周の units に無いので戻せなかった単位
 - request_answers(b)・request_answer(b, q)・answer_note(a)・unmatched_answer_lines(b): 依頼の answers（start の控えの欄。依頼者の
-  答え）・q の key か出どころ origin と question が字のまま等しい答え（answered と _gate_answered が読む。関所の continue と同じく
-  答えた扱い）・答えの名乗りの文・台帳のどの問いにも当たらない答えの行（報告の冒頭と最後の関所が名指す。保留の件数に数えない）。
+  答え）・q の key か出どころ origin と question が字のまま等しく、q だけに当たる答え（answered と _gate_answered が読む。関所の
+  continue と同じく答えた扱い。出どころで複数の問いに当たる答えはどれにも答えない）・答えの名乗りの文・答えた行に載らない答えの行
+  （台帳のどの問いにも当たらない・複数の問いに当たった・決着済みの問いに当たった。報告の冒頭と最後の関所が名指す。保留の件数に数えない）。
   ANSWERED_HEAD は答えた行の見出し、ANSWER_HOW は保留の行の下に出す答え方の 1 行
 - design_only(b)・design_item(b): 設計だけの run か・関所に載せる設計だけの行（載せなければ空）
 - unattended(b)・start_doc(board_dir): 無人の run か・盤面の start の控え（START_FILE の読み手はこれ 1 つ。conflict・report も使う）
@@ -477,10 +478,19 @@ def request_answers(b) -> list:
     return [a for a in rows if isinstance(a, dict)] if isinstance(rows, list) else []
 
 
+def _hits(b, a) -> list:
+    """依頼の答え a が当たる台帳の問い: question と key が字のまま等しい問いが在ればそれだけ、無ければ出どころ origin が等しい
+    問いの全部（同じ単位の fork と escalate のように複数に当たることがある）"""
+    qs = [q for q in b.record.get("questions") or [] if isinstance(q, dict)]
+    name = a.get("question")
+    by_key = [q for q in qs if isinstance(q.get("key"), str) and q.get("key") and q.get("key") == name]
+    return by_key or [q for q in qs if isinstance(q.get("origin"), str) and q.get("origin") and q.get("origin") == name]
+
+
 def request_answer(b, q):
-    """依頼の答えのうち question が q の key か出どころ origin と字のまま等しい最初の物（無ければ None）"""
-    names = {str(q.get(k)) for k in ("key", "origin") if isinstance(q.get(k), str) and q.get(k)}
-    return next((a for a in request_answers(b) if a.get("question") in names), None)
+    """依頼の答えのうち q だけに当たる（_hits が q 1 つ）最初の物（無ければ None）。複数の問いに当たる答えはどれにも答えない
+    （1 つの答えを別の問いの答えとして修正役に渡さない。unmatched_answer_lines が名指す）"""
+    return next((a for a in request_answers(b) if (h := _hits(b, a)) and len(h) == 1 and h[0] is q), None)
 
 
 def answer_note(a: dict) -> str:
@@ -496,11 +506,21 @@ def _squeeze(v) -> str:
 
 
 def unmatched_answer_lines(b) -> list:
-    """依頼の答えのうち、台帳のどの問いの key にも出どころにも当たらない物（1 件 1 行。黙って答えた扱いにしない）"""
-    names = {str(q.get(k)) for q in b.record.get("questions") or [] if isinstance(q, dict)
-             for k in ("key", "origin") if isinstance(q.get(k), str) and q.get(k)}
-    return [f"依頼の答えに当たる問いが台帳に無い（判定が問いを立てなかったか、字が違う）: {a.get('question')}——{answer_note(a)}"
-            for a in request_answers(b) if a.get("question") not in names]
+    """答えた行（answered_lines）に載らない依頼の答え（1 件 1 行。黙って答えた扱いにも、黙って捨てもしない）: 台帳のどの問いの
+    key にも出どころにも当たらない物・出どころで複数の問いに当たった物（どれにも答えない）・決着済み（人に聞く状態でない）の
+    問いに当たった物（答えは直しに使わない）"""
+    out = []
+    for a in request_answers(b):
+        hits, note = _hits(b, a), answer_note(a)
+        if not hits:
+            out.append(f"依頼の答えに当たる問いが台帳に無い（判定が問いを立てなかったか、字が違う）: {a.get('question')}——{note}")
+        elif len(hits) > 1:
+            out.append(f"依頼の答えが複数の問いに当たった: {a.get('question')} → {'・'.join(str(q.get('key')) for q in hits)}"
+                       f"（どれにも答えた扱いにしない。question に問いの key を書く）——{note}")
+        elif hits[0] not in _asking(b):
+            out.append(f"決着済みの問いに当たった答え: {a.get('question')} → {hits[0].get('key')}（{hits[0].get('status')}）"
+                       f"（答えは直しに使わない）——{note}")
+    return out
 
 
 def answered(b, q) -> bool:

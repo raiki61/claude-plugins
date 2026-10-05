@@ -700,6 +700,38 @@ class RequestAnswersCase(GateBase):
             self.assertIn("依頼の答えに当たる問いが台帳に無い", text)
             self.assertIn(gatemarks.ANSWER_HOW, text)
 
+    def test_answer_hitting_several_questions_answers_none(self):
+        """出どころで当てた答えが同じ単位の別の問い（fork と escalate）に当たれば、どれにも答えた扱いにせず名指す"""
+        self.answers({"question": FORK_UNIT, "text": "例外のまま"})
+        got, b = self.gate(questions=[FORK, ESCALATE], units=UNITS)
+        self.assertEqual(got.get("decision"), "ask", "どちらの問いも関所に載る")
+        self.assertEqual(gatemarks.answered_lines(b), [])
+        self.assertEqual(gatemarks.returned_lines(b), [])
+        self.assertEqual(len(gatemarks.held_lines(b)), 2)
+        line = "\n".join(gatemarks.unmatched_answer_lines(b))
+        self.assertIn(f"複数の問いに当たった: {FORK_UNIT} → {FORK['key']}・{ESCALATE['key']}", line)
+        for text in (self.final_text(b), self.head(b)):
+            self.assertIn("複数の問いに当たった", text)
+
+    def test_answer_by_key_is_not_ambiguous(self):
+        """key で当てた答えは、同じ出どころの問いが他に在ってもその問いだけに当たる"""
+        self.answers({"question": ESCALATE["key"], "text": "直さない"})
+        _, b = self.gate(questions=[FORK, ESCALATE], units=UNITS)
+        self.assertIn("依頼者の答え: 直さない", "\n".join(gatemarks.answered_lines(b)))
+        self.assertEqual(len(gatemarks.held_lines(b)), 1)
+        self.assertEqual(gatemarks.unmatched_answer_lines(b), [])
+
+    def test_answer_hitting_settled_question_is_shown(self):
+        """決着済みの問いに当たった答えも、答えた行・当たらなかった行のどちらからも落とさず名指す"""
+        self.answers({"question": "parallel_pr", "text": "無い"})
+        _, b = self.gate(questions=[{**AWAITING_PR, "status": "decided"}], units=UNITS)
+        self.assertEqual(gatemarks.answered_lines(b), [])
+        line = "\n".join(gatemarks.unmatched_answer_lines(b))
+        self.assertIn(f"決着済みの問いに当たった答え: parallel_pr → {AWAITING_PR['key']}（decided）", line)
+        self.assertIn("依頼者の答え: 無い", line)
+        for text in (self.final_text(b), self.head(b)):
+            self.assertIn("決着済みの問いに当たった答え", text)
+
 
 if __name__ == "__main__":
     unittest.main()
