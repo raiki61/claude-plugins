@@ -169,7 +169,7 @@ class TestBlockYaml(unittest.TestCase):
         self.assertIn("`$fix-prep.output.prompt_file` を Read で", fix["prompt"])
         prep = find_node(block()["nodes"], "fix-prep")
         self.assertEqual((prep["script"], prep["timeout"]), ("fix_prep", DEADLINE))
-        # Agent は修正の形 g1 の下請けの口（g1 の外は包みが拒む。fixshape.denied_tools）
+        # Agent は修正の形 g1・g3 の下請けの口（ほかの形は包みが拒む。fixshape.denied_tools）
         self.assertEqual(fix["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch", "Agent"])
         self.assertEqual(fix["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(fix["idle_timeout"], DEADLINE)

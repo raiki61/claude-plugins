@@ -1891,7 +1891,7 @@ class DevWiringCase(unittest.TestCase):
 
 class ShapeFenceCase(unittest.TestCase):
     """形ごとの道具の柵（計画 220 Task 3）: 切符の board の修正の形（fixshape.shape_at）を読み、g3 以外の座の節（tdd）は Skill を、
-    g1 以外の修正役（fix・fix-ruled）は Agent を permissions.deny に足し、足した数を fence.shape_deny に残す。
+    g1・g3 の外の修正役（fix・fix-ruled）は Agent を permissions.deny に足し、足した数を fence.shape_deny に残す。
     形の控えが壊れていれば起こさない（理由に fix_shape）。切符の無い起動は今どおり"""
 
     def setUp(self):
@@ -1927,14 +1927,18 @@ class ShapeFenceCase(unittest.TestCase):
         deny, fence = self.launch("tdd")
         self.assertNotIn("Skill", deny)
         self.assertNotIn("shape_deny", fence)
-        with self.subTest("g1 の修正役は Agent を拒まない・g3 の修正役は拒む"):
+        with self.subTest("g1・g3 の修正役は Agent を拒まない・af の修正役は拒む（依頼 243 の 2）"):
             self.start("g1")
             deny, _ = self.launch("fix-ruled")
             self.assertNotIn("Agent", deny)
             self.start("g3")
             deny, fence = self.launch("fix")
-            self.assertIn("Agent", deny)
+            self.assertNotIn("Agent", deny)
             self.assertNotIn("Skill", deny)
+            self.assertNotIn("shape_deny", fence)
+            self.start("af")
+            deny, fence = self.launch("fix")
+            self.assertIn("Agent", deny)
             self.assertEqual(fence["shape_deny"], 1)
 
     def test_no_record_means_af(self):
@@ -1950,7 +1954,7 @@ class ShapeFenceCase(unittest.TestCase):
         self.assertNotIn("Skill", deny)
         self.assertNotIn("shape_deny", fence)
         deny, _ = self.launch("fix")
-        self.assertIn("Agent", deny, "控えの g3 は修正役の Agent の拒否を入れる側にも効く")
+        self.assertNotIn("Agent", deny, "控えの g3 は修正役の Agent の拒否を外す側にも効く")
 
     def test_broken_shape_refuses_launch(self):
         self.start("x")

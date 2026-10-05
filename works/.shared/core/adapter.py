@@ -126,7 +126,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    向けるので向けず、WORKS_DEV_HOME・XDG_CACHE_HOME は run をまたぐ共有の置き場なので向けない。allowWrite に `/` が在る
    起動（任せ先）・道具ゼロ・Bash の無い役・網を閉じた役・切符の無い起動は sandbox も env も変えない
 18. **形ごとの道具の柵**（印のある起動で、切符が在る時だけ。計画 220）: 切符の board の修正の形（fixshape.shape_at。形はいつも
-   この口から引く）と印の名から fixshape.denied_tools が返す道具——g3 以外の座の節（SKILL_NODES）の `Skill`、g1 以外の修正役
+   この口から引く）と印の名から fixshape.denied_tools が返す道具——g3 以外の座の節（SKILL_NODES）の `Skill`、g1 と g3 の外の修正役
    （AGENT_NODES）の `Agent`——を `permissions.deny` の後ろに足し、足した数を fence.shape_deny に残す（拒む物が無ければ鍵を
    持たない）。形の控えが壊れている（読めない・語の外）なら、壊れた切符と同じく claude を起こさない（理由に fix_shape）。
    deny は道具の呼びを拒むだけで、YAML の `skills:` が載せたスキルの一覧は system prompt に残る（拒まれた呼びが Archon の
