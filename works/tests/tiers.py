@@ -11,6 +11,13 @@ fast と heavy は重ならず、合わせるとちょうど全部（tests/test_
 どちらかに書く。書き忘れ・両方に書いた・消したモジュールが残っている、のどれかがあると、段を選んだ実行は
 終了コード 2 で止まり、test_tiers も赤になる（新しい重いテストが黙って fast に入らないように）。
 
+組（shard）: 環境変数 WORKS_SHARD=<番号>/<組の数>（番号は 0 起点）で、段の中のモジュールを組に分けてその 1 組だけを回す
+（CI の works の job が組ごとに別の runner で並べる）。分け方は shard_of で、discover が拾う全部のモジュールを重さの
+目安（weight）の大きい順に、その時いちばん軽い組へ配る（決まっていて、どの runner でも同じ表になる）。組の和は
+ちょうど全部で重ならない（test_tiers が組の数 1〜8 で縛る。新しいモジュールは書き足さなくてもどれかの組に入る）。
+読んだ WORKS_SHARD は消してから試験を起こす（中の試験が起こす run.sh・tiers.py に組を継がせない）。
+`python3 tests/tiers.py list <段>` は回すモジュールの名前を 1 行ずつ出すだけ（WORKS_SHARD が在れば組の分だけ）。
+
 heavy に置く物: 試験ごとに git のリポジトリを作る（git init・commit・mktarget・dogfood の clone）・uv run を起こす・
 Archon を起こす・golden を再生する・プロセスの木を起こす・決まった秒を待つ。短くても、これらを使うモジュールは heavy に置く
 （負荷の高い機械では git と子のプロセスが遅れの元になる）。種の git を tests/gitkit.py の型（プロセスに 1 回だけ作る）の
@@ -23,6 +30,7 @@ import os
 import pathlib
 import re
 import sys
+import time
 import unittest
 
 TESTS = pathlib.Path(__file__).resolve().parent
@@ -149,6 +157,42 @@ HEAVY = frozenset({
 
 TIERS = {"fast": FAST, "heavy": HEAVY}
 
+# 組に配る重さの目安: 試験の数（def test_ の行）× 段の倍率。重い段の 1 本は git・子のプロセス・決まった秒の待ちを使うので
+# 速い段の 1 本より桁で重い（CI の全段 3431 本・4293 秒のうち、速い段は手元で数分）。モジュールごとの実測の秒が
+# 取れたら SECONDS に書き、在ればそちらを使う（走りの終わりに出る「モジュールごとの秒」の行から写す）
+HEAVY_FACTOR = 10
+SECONDS = {}
+
+
+def weight(name):
+    if name in SECONDS:
+        return float(SECONDS[name])
+    src = (TESTS / f"{name}.py").read_text(encoding="utf-8")
+    n = max(1, len(re.findall(r"^\s*def test_", src, re.M)))
+    return float(n * (HEAVY_FACTOR if name in HEAVY else 1))
+
+
+def shard_of(names, total):
+    """名前の一覧を total 組に分けた {組の番号: [名前…]}。重い順（同じ重さは名前の順）に、その時いちばん軽い組（同じなら番号の小さい組）へ配る"""
+    groups = {i: [] for i in range(total)}
+    load = [0.0] * total
+    for name in sorted(names, key=lambda m: (-weight(m), m)):
+        i = min(range(total), key=lambda k: (load[k], k))
+        groups[i].append(name)
+        load[i] += weight(name)
+    return {i: sorted(g) for i, g in groups.items()}
+
+
+def shard_env(environ):
+    """WORKS_SHARD（<番号>/<組の数>。番号は 0 起点）を (番号, 組の数) で返す。無ければ None、形が違えば ValueError"""
+    raw = environ.get("WORKS_SHARD", "")
+    if raw == "":
+        return None
+    m = re.fullmatch(r"([0-9]+)/([1-9][0-9]*)", raw)
+    if not m or int(m.group(1)) >= int(m.group(2)):
+        raise ValueError(f"WORKS_SHARD は <番号>/<組の数>（番号は 0 起点で組の数より小さい。例 0/4）（今の値: {raw}）")
+    return int(m.group(1)), int(m.group(2))
+
 
 def modules():
     """unittest discover（-s tests -p test_*.py）が拾うモジュールの名前。tests/ の下に package は置かない"""
@@ -193,8 +237,25 @@ class SkipGateResult(unittest.TextTestResult):
 
     skip_gate_failed = 0
 
+    def startTest(self, test):
+        self._works_t0 = time.monotonic()
+        super().startTest(test)
+
+    def stopTest(self, test):
+        super().stopTest(test)
+        secs = getattr(self, "_works_secs", None)
+        if secs is None:
+            secs = self._works_secs = {}
+        mod = type(test).__module__
+        secs[mod] = secs.get(mod, 0.0) + time.monotonic() - getattr(self, "_works_t0", time.monotonic())
+
     def printErrors(self):
         super().printErrors()
+        # モジュールごとの秒（setUpClass の秒は入らない）。組の重さの目安 SECONDS へ写す材料
+        secs = getattr(self, "_works_secs", {})
+        if secs:
+            self.stream.writeln("モジュールごとの秒: " + " ".join(
+                f"{m}={v:.0f}" for m, v in sorted(secs.items(), key=lambda kv: (-kv[1], kv[0]))))
         # 環境は走りの中で 1 回だけ読む（wasSuccessful は走りの後にも呼ばれる）
         allow = set(re.split(r"[\s,]+", os.environ.get("SKIP_ALLOW", ""))) - {""}
         strict = os.environ.get("FAIL_ON_SKIP") == "1"
@@ -244,17 +305,34 @@ def main(argv):
             return 2
         print("\n".join(paths(argv[2])))
         return 0
+    listing = len(argv) >= 2 and argv[1] == "list"
+    if listing:
+        argv = argv[1:]
     if len(argv) < 2 or argv[1] not in (*TIERS, "all"):
-        print("tiers: 段は fast・heavy・all（使い方: python3 tests/tiers.py <段> [unittest の引数]）", file=sys.stderr)
+        print("tiers: 段は fast・heavy・all（使い方: python3 tests/tiers.py [list] <段> [unittest の引数]）", file=sys.stderr)
         return 2
-    if argv[1] == "all":
-        loader = unittest.TestLoader()
-    else:
+    try:
+        shard = shard_env(os.environ)
+    except ValueError as e:
+        print(f"tiers: {e}", file=sys.stderr)
+        return 2
+    # 中の試験が起こす run.sh・tiers.py に組を継がせない（継ぐと中の一式が組の分だけになる）
+    os.environ.pop("WORKS_SHARD", None)
+    if argv[1] != "all":
         bad = problems()
         if bad:
             print("tiers: " + " / ".join(bad), file=sys.stderr)
             return 2
-        loader = TierLoader(TIERS[argv[1]])
+    keep = set(modules()) if argv[1] == "all" else set(TIERS[argv[1]])
+    if shard is not None:
+        index, total = shard
+        # 組は段に依らず全部のモジュールで分ける（段ごとに分けると、同じ組の番号が段で別のモジュールを指す）
+        keep &= set(shard_of(modules(), total)[index])
+        print(f"tiers: 組 {index}/{total}（{len(keep)} 本のモジュール）", file=sys.stderr)
+    if listing:
+        print("\n".join(sorted(keep)))
+        return 0
+    loader = unittest.TestLoader() if argv[1] == "all" and shard is None else TierLoader(keep)
     # `python3 -m unittest` と同じ sys.path の頭（作業フォルダ）にする。tests/ は discover が頭に足す
     sys.path[0] = os.getcwd()
     unittest.main(module=None, testLoader=loader, testRunner=SkipGateRunner,

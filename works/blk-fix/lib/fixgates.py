@@ -13,7 +13,11 @@ TDD の輪の中にだけ在った 2 つの関門を、修正の形（fixshape�
   戻した単位のテストを、通し直しで抜けに数えない。見なかった項目と単位は skipped に OUT_OF_DUTY で残す）。行には項目の単位
   （unit_keys）を載せ、拒否の文にも書く（最後の回の受け付けが行を unit_key で単位に結んで止められる）。base の木は一時の git worktree（--detach。フックは切る）に作り、今の木で
   base から変わったテストのファイル（tddloop.TEST_FILE の名）と名指しのファイルだけを写して走らせる。今の木で走らせて出来た
-  ファイルは消す（書き込みの出どころの突き合わせに載せない）。実行器（入力 tdd_suite）が無ければ帳面の skipped に NO_SUITE。
+  ファイルは消す（書き込みの出どころの突き合わせに載せない）。base の木の結末は名指しごとの鍵（base の版・実行器・名指し・その
+  テストのファイルと写す conftest.py の今の中身。_base_keys）で盤面の根の周の置き場の BASE_CACHE に残し、控えに無い名指しだけを
+  base の木で走らせる（base は run の中で動かないので、受け付けの回・最後の回の通し直し・2 回目の修正の段をまたいで使い回す。
+  決まりは変えない）。今の木の側は回ごとに走らせる（実行器の約束では名指しを足しても既定の一式も走る。名指しだけを走らせる口が
+  実行器に出来れば、ここで now の一式を名指しだけに絞れる）。実行器（入力 tdd_suite）が無ければ帳面の skipped に NO_SUITE。
   実行器が走らない・base の木を作れない時も skipped に理由（拒まない。輪の実行器が走らない時と同じく、回す側の事情で
   受け付けの回数を使わない）
 - test_edits: base から今の木で変わったテストのファイル（tddloop.TEST_FILE の名）のうち、base に在ったテストの関数
@@ -36,6 +40,7 @@ OUT_OF_DUTY を除いた物。義務の外の項目は確かめる物でなく�
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -62,6 +67,7 @@ NO_RUN = "受け入れのテストの事後の赤緑を確かめられない"   
 EDITED = "名指しの外の既存のテストの本体を変えた・消した（変えてよいのは修正案の rewrite_tests の名指しと裁定 fix_test_scope の範囲だけ）"
 OUT_OF_DUTY = "直す義務の外の単位（止めた・答え待ち・人に回した）だけを名指す項目——受け入れのテストの事後の赤緑は確かめない"
 SKIPPED_OP = impact.ACCEPT_GATES_SKIPPED_OP   # 受けた受け付けの回に飛ばした理由を載せる盤面の trace の行（報告が数える）
+BASE_CACHE = "fixgates-base.json"   # base の木の結末の控え {鍵: JUnit の行か null}（_base_keys。周の置き場の根）
 RUN = "gates"   # 一式のログ・JUnit の名（suite-gates-<回>-now.log・…-base.log）
 
 
@@ -79,12 +85,19 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
     if tests and not suite:
         gaps.append(NO_SUITE)
     elif tests:
-        got, why = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"))
+        got, why = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"), _base_cache(b))
         rows += got
         gaps += why
     rows += _test_edits(b, repo, rev, plain, pass_ == "ruled" or conflict.second_pass(b))
     _record(b, _mark(pass_, attempt), fixshape.shape_at(board_dir), rows, gaps)
     return rows
+
+
+def _base_cache(b) -> pathlib.Path:
+    """base の木の結末の控え（盤面の根の今の周の置き場。scope に依らないので 1 回目と 2 回目の修正の段が同じ物を読む）"""
+    p = pathlib.Path(b.dir) / f"r{b.round}" / BASE_CACHE
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 def reject_lines(rows: list[dict]) -> list[str]:
@@ -159,8 +172,9 @@ def _test_files(repo, rev: str, tree: str) -> list[str]:
     return [f for f in tddloop.touched(repo, rev, tree) if tddloop.TEST_FILE.match(posixpath.basename(f))]
 
 
-def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: pathlib.Path) -> tuple[list, list]:
-    """(行, 飛ばした理由)。今の木で一式（名指しを絶対パスの node id で後ろに足す）を 1 回、base の木で 1 回走らせて比べる"""
+def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: pathlib.Path, cache: pathlib.Path) -> tuple[list, list]:
+    """(行, 飛ばした理由)。今の木で一式（名指しを絶対パスの node id で後ろに足す）を 1 回走らせ、base の木の結末は控え（cache。
+    _base_keys の鍵ごと）に無い名指しだけを base の木で走らせて控えに足し、比べる"""
     work.mkdir(parents=True, exist_ok=True)
     ids = [t["id"] for t in tests]
     tree = tddloop.snapshot(repo)
@@ -171,10 +185,16 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
     if now is None:
         return [], [f"{NO_RUN}（今の木で実行器が走らない: {'; '.join(why)}）"]
     copy = sorted(set(_test_files(repo, rev, tree)) | {posixpath.normpath(i.partition("::")[0]) for i in ids})
-    base, why = _base_run(repo, rev, suite, ids, copy, work)
-    if base is None:
-        return [], [f"{NO_RUN}（base の木: {'; '.join(why)}）"]
+    keys = _base_keys(repo, rev, suite, ids, copy)
+    seen = tddloop.load_json(cache, {})
+    need = [i for i in ids if keys[i] not in seen]
     rules = tddloop.rules()
+    if need:
+        base, why = _base_run(repo, rev, suite, need, copy, work)
+        if base is None:
+            return [], [f"{NO_RUN}（base の木: {'; '.join(why)}）"]
+        seen = {**tddloop.load_json(cache, {}), **{keys[i]: rules.match_case(i, base) for i in need}}
+        tddloop.save_json(cache, seen)
     rows = []
     for t in tests:
         def miss(detail):
@@ -182,6 +202,7 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
         c = rules.match_case(t["id"], now)
         if c is None or c["outcome"] != "passed":
             miss(f"今の木で {c['outcome'] if c else '一式の結末に居ない'}（受け入れのテストが緑でない）")
+        base = [seen[keys[t["id"]]]] if seen.get(keys[t["id"]]) else []   # base の木の結末のうちこのテストに当たる行（無ければ空）
         c = rules.match_case(t["id"], base)
         if c is None:
             miss("base で一式の結末に居ない（読み込みで落ちたか、名指しが実行器の識別子と違う）")
@@ -192,6 +213,21 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
         elif tddloop.kind_problems([t], base, t.get("names") or ()):
             miss(f"base で {tddloop.red_kind(c)}（案は {t.get('red_kind')}）")
     return rows, []
+
+
+def _base_keys(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list) -> dict:
+    """名指し → base の木の結末の控えの鍵。base の木は base の版に copy（今の木で base から変わったテストのファイルと名指しの
+    ファイル）を写した物なので、1 件の結末を決めるのは base の版（commit の sha）・実行器（tddloop.exe_id）・名指し・そのテストの
+    ファイルの今の中身・写す conftest.py の中身。ほかの写すテストのファイルは鍵に入れない（テストのファイルが別のテストの
+    ファイルを import する形は見ない。入れると修正役がどれか 1 つのテストのファイルを触るたびに全部を走らせ直す）"""
+    head = [tddloop.rev_id(repo, rev), tddloop.exe_id(repo, suite),
+            sorted(tddloop.hashes(repo, [f for f in copy if posixpath.basename(f) == "conftest.py"]).items())]
+    out = {}
+    for i in ids:
+        f = posixpath.normpath(i.partition("::")[0])
+        raw = json.dumps([*head, i, tddloop.hashes(repo, [f])[f]], ensure_ascii=False)
+        out[i] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return out
 
 
 def _base_run(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list, work: pathlib.Path) -> tuple:

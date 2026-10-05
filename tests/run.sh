@@ -3316,7 +3316,7 @@ ran=$((ran + 1))
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が works/tests/run.sh の全段を、全履歴・同じ python・版を固定した依存と mutation.yml と同じ uv で、FAIL_ON_SKIP=1 と自前の許しの一覧を渡して回す。どの job の頭にも if: と continue-on-error: が無い。起こすのは release/** への push と手での起動だけ（出荷の時の 1 回）" \
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が works/tests/run.sh の全段を 0..N-1 の組に分けて組の数を段に渡し、全履歴・同じ python・版を固定した依存と mutation.yml と同じ uv で、FAIL_ON_SKIP=1 と自前の許しの一覧を渡して回す。どの job の頭にも if: と continue-on-error: が無い。起こすのは release/** への push と手での起動だけ（出荷の時の 1 回）" \
     "$PY_BIN" - "$ROOT" <<'PYCI'
 import pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -3421,6 +3421,11 @@ assert len(wos) == 1 and re.fullmatch(r"os: \[[^\]]+\]", wos[0]), f"{wf}: works 
 wos = [x.strip() for x in wos[0][len("os: ["):-1].split(",")]
 assert set(wos) <= set(oses), f"{wf}: works の job の os {wos} が test の os（{oses}）の外に在る"
 assert "runs-on: ${{ matrix.os }}" in wk["head"], f"{wf}: works の job が matrix の os で起きていない: {wk['head']}"
+# **works の組（shard）**: 番号は 0..N-1 を欠けなく並べ、N を段の WORKS_SHARD の「/N」と揃える（欠けた組のモジュールはどの runner でも回らない）
+wsh = [x for x in wk["head"] if x.startswith("shard:")]
+assert len(wsh) == 1 and re.fullmatch(r"shard: \[[0-9, ]+\]", wsh[0]), f"{wf}: works の job の matrix に組の一覧（shard: [0, 1, ...]）が無い: {wk['head']}"
+wshards = [int(x) for x in wsh[0][len("shard: ["):-1].split(",")]
+assert wshards == list(range(len(wshards))) and len(wshards) >= 2, f"{wf}: works の組の一覧 {wshards} が 0..N-1 の並びでない"
 # 許しの一覧は works の job が自前で持つ——共有の錨を引くと works が出さない名前（version-bump など）まで許す
 assert not any("*skip_allow" in x for x in wk["head"]), f"{wf}: works の job が共有の許しの一覧（*skip_allow）を引いている: {wk['head']}"
 pyv = [x for s in jobs["test"]["steps"] for x in s if x.startswith("python-version:")]
@@ -3437,7 +3442,8 @@ want_works = [["- uses: actions/checkout@v5", "with:", "fetch-depth: 0"],
               deps[0],
               [f"- uses: {uvm.group(1)}", "with:", uvm.group(2)],
               ["- name: works/tests/run.sh", "shell: bash", "env:", "UV_PYTHON: ${{ steps.python.outputs.python-path }}",
-               "UV_PYTHON_DOWNLOADS: never", "SKIP_ALLOW: ${{ matrix.works_skip_allow }}", 'FAIL_ON_SKIP: "1"', "run: sh works/tests/run.sh"]]
+               "UV_PYTHON_DOWNLOADS: never", "SKIP_ALLOW: ${{ matrix.works_skip_allow }}", 'FAIL_ON_SKIP: "1"',
+               f"WORKS_SHARD: ${{{{ matrix.shard }}}}/{len(wshards)}", "run: sh works/tests/run.sh"]]
 assert wk["steps"] == want_works, (f"{wf}: works の job の段が、全履歴・{pyv[0]}・版を固定した依存・mutation.yml と同じ uv を用意して"
     f" works/tests/run.sh の全段を FAIL_ON_SKIP=1 と OS ごとの許しの一覧で回す形（{want_works}）と違う: {wk['steps']}")
 # **engine が走らせる宣言は CI の段の写し**（手元は pytest を uv で入れ、CI は pip で入れるので語は揃わない）。名前だけ突き合わせる
@@ -5224,6 +5230,7 @@ NOT_RATCHET = {
     "ARGV_MAX": "tests/mutate.py が pytest の node id を並べる引数の字数の上限（超えればテストのファイル単位に落とす）。件数の突合ではない",
     "DEADLINE": "works/tests の各試験が、流れの節の timeout・idle_timeout に宣言されているはずの時間切れ（20 日・ms）の期待値。件数の突合ではない",
     "LIMIT": "works/tests/test_board_goldens_fixture.py が盤面の見本の圧縮した総量に課す上限（バイト）。件数の突合ではない",
+    "HEAVY_FACTOR": "works/tests/tiers.py が組（shard）に配る重さの目安で、重い段の試験 1 本を速い段の何本分と見るかの倍率。件数の突合ではない",
     "MIN_LINE": "works/tests/test_fix_rules.py が写しを探す行・文の長さの下限（字数。短い語の偶然の重なりを除く）。件数の突合ではない",
     "PYTHONDONTWRITEBYTECODE": "works/tests/run.sh が子へ渡す環境変数（.pyc を書かせない印）。件数の突合ではない",
 }

@@ -8,6 +8,8 @@
 # 絞る。書き先と、呼ぶ側の cwd から在るパス（node id は :: の前）の相対パスは呼ぶ側の cwd から解く（pytest は works で起こす）。
 # 試験の根（パスから上へ辿って最初に conftest.py が在る置き場。辿り着かなければ works の根）が違う名指しは、1 つのプロセスに 2 つの
 # engine を載せないよう根ごとに別の pytest で流し（works の根を先に）、根ごとの JUnit は junitparser merge で書き先の 1 つに合わせる。
+# TDD_SUITE_ONLY=1 で起こされたら（TDD の輪の赤・緑の回）、段の一覧を集めず、後ろに足した試験（ファイル・node id）だけを走らせる
+# （足した試験が 1 つも無ければ合図は効かず段の一覧のまま。外の根の名指しだけなら works の根の pytest は起こさない）。
 # 外の根の名指しが無ければ pytest 1 本（merge しない）。合わせた終了コードは各プロセスの最大で、-k などで 0 件（5）の根は、
 # ほかの根が 1 つでも走っていれば赤にしない。
 # 終了コードは pytest のまま（0 = 全部通った・1 = 落ちた試験が在る・…）。書き先が無い・段の値が違う・段の一覧が崩れている
@@ -84,6 +86,10 @@ while [ "$n" -gt 0 ]; do
   esac
   prev=$a
 done
+# 輪の赤・緑の回の合図: 足した試験が在れば段の一覧を集めない（無ければ段の一覧のまま）
+if [ "${TDD_SUITE_ONLY-}" = 1 ] && { [ -s "$tmp/inner" ] || [ -s "$tmp/outer" ]; }; then
+  files=
+fi
 # shellcheck disable=SC2046,SC2086  # 段のファイル・node id は空白を含まない。1 本ずつ別の引数にする
 if [ ! -s "$tmp/outer" ]; then
   inner=$(cat "$tmp/inner")
@@ -104,8 +110,10 @@ run_root() { # <cwd> <node id…>
   if [ "$rc" = 5 ]; then zero=1; else ran=1; fi
   if [ "$rc" != 5 ] && [ "$rc" -gt "$code" ]; then code=$rc; fi
 }
-# shellcheck disable=SC2046,SC2086
-run_root "$works" $files $(cat "$tmp/inner") "$@"
+if [ -n "$files" ] || [ -s "$tmp/inner" ]; then
+  # shellcheck disable=SC2046,SC2086
+  run_root "$works" $files $(cat "$tmp/inner") "$@"
+fi
 for r in $(cut -f1 "$tmp/outer" | sort -u); do
   # shellcheck disable=SC2046,SC2086
   run_root "$r" $(awk -F'\t' -v r="$r" '$1 == r { print $2 }' "$tmp/outer") "$@"
