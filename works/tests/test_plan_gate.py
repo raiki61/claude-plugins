@@ -650,5 +650,56 @@ class R4GateCase(GateBase):
                 self.assertEqual(got.get("decision"), "ask", got)
 
 
+AWAITING_PR = {"key": "q-awaiting-pr", "kind": "awaiting", "status": "held", "origin": "parallel_pr",
+               "reason": "人が確かめる。測り方: `gh pr list --state open`"}
+
+
+class RequestAnswersCase(GateBase):
+    """依頼の answers が台帳の問いの key か出どころに当たれば、関所の continue と同じ 1 つの述語で答えたと読む"""
+    answer, owed, final_text, head = (LedgerAsksCase.answer, LedgerAsksCase.owed, LedgerAsksCase.final_text,
+                                      LedgerAsksCase.head)
+
+    def answers(self, *rows):
+        (self.tmp / "r1").mkdir(exist_ok=True)
+        (self.tmp / "r1" / "start.json").write_text(json.dumps({"answers": list(rows)}, ensure_ascii=False), encoding="utf-8")
+
+    def test_requester_answer_by_origin_moves_awaiting_out_of_held(self):
+        self.answers({"question": "parallel_pr", "text": "並行する PR は無い"})
+        _, b = self.gate(questions=[AWAITING_PR], units=UNITS)
+        self.assertEqual(gatemarks.held_lines(b), [])
+        done = "\n".join(gatemarks.answered_lines(b))
+        self.assertIn("依頼者の答え: 並行する PR は無い", done)
+        self.assertNotIn("関所で continue を受けた", done)
+        for name, text in (("最後の関所", self.final_text(b)), ("報告の冒頭", self.head(b))):
+            with self.subTest(name):
+                self.assertIn(gatemarks.ANSWERED_HEAD, text)
+                self.assertNotIn("保留にしたままの問い", text)
+
+    def test_requester_answer_by_key_skips_gate_and_returns_origin(self):
+        self.answers({"question": FORK["key"], "text": "例外のまま"})
+        got, b = self.gate(questions=[FORK], units=UNITS)
+        self.assertEqual(got, {"ok": True}, "答えた問いは修正前の関所に載せない")
+        self.assertEqual(gatemarks.pending(b), [])
+        self.assertEqual(self.owed(b), {FORK_UNIT, OTHER_UNIT})
+        self.assertIn("依頼者の答え: 例外のまま", "\n".join(gatemarks.returned_lines(b)))
+
+    def test_measured_answer_shows_command_and_output(self):
+        self.answers({"question": "parallel_pr", "text": "一覧は空", "command": "gh pr list --state open",
+                      "output": "no open pull requests"})
+        _, b = self.gate(questions=[AWAITING_PR], units=UNITS)
+        line = gatemarks.answered_lines(b)[0]
+        self.assertIn("人が手元で実行: `gh pr list --state open`", line)
+        self.assertIn("no open pull requests", line)
+
+    def test_unmatched_answer_is_shown_and_question_stays_held(self):
+        self.answers({"question": "parallel-pr", "text": "無い"})
+        _, b = self.gate(questions=[AWAITING_PR], units=UNITS)
+        self.assertEqual(len(gatemarks.held_lines(b)), 1)
+        self.assertIn("parallel-pr", "\n".join(gatemarks.unmatched_answer_lines(b)))
+        for text in (self.final_text(b), self.head(b)):
+            self.assertIn("依頼の答えに当たる問いが台帳に無い", text)
+            self.assertIn(gatemarks.ANSWER_HOW, text)
+
+
 if __name__ == "__main__":
     unittest.main()

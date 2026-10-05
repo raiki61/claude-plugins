@@ -609,7 +609,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
     clean が消したファイル・レンズ・仕組みの異常・残りの件数（always_rows。結末に依らず常に）・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・事前審査の壁打ちの往復（converge.lines）・
-    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
+    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
@@ -663,10 +663,12 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     if held:
         lines.append(f"判定の役が人に聞くと保留にしたままの問い（問いの台帳・{len(held)} 件）:")
         lines += [f"  - {x}" for x in held]
+        lines.append(f"  {gatemarks.ANSWER_HOW}")
     done = gatemarks.answered_lines(b)
     if done:
-        lines.append(f"関所で答えた問い（問いの台帳・{len(done)} 件。保留の件数には数えない）:")
+        lines.append(f"{gatemarks.ANSWERED_HEAD}（問いの台帳・{len(done)} 件。保留の件数には数えない）:")
         lines += [f"  - {x}" for x in done]
+    lines += gatemarks.unmatched_answer_lines(b)
     lines.append(_conflict_line(b))
     unproven = querytest.unproven_lines(b.dir)
     if unproven:
