@@ -17,7 +17,8 @@ Archon を知らない関数だけを出す。
 - premises:      R2 の 2 つの役（r2.design・r2.compare）に共通して貼る節の並びと、貼った入力の控え {given, withheld, seen}（kind は PREMISE_KINDS の中だけ）。
                  human_answers（人の関所の答え。asked は写さず、answer の無い機械の行は withheld。seen は貼った答えの数と
                  最後の round の印で、突き合わせの側が独立設計の後に来た答えを分けて並べる）と named_sections（依頼が
-                 名指した設計書の節の本文。リンク・`<path>.md#<見出し>`・`<path>.md` N 節・パスの無い N 節（依頼が名指した設計書が
+                 名指した設計書の節の本文。文書の拡張子（impact.DOC_EXT）のパスのリンク・`<path>#<見出し>`・`<path>` N 節と、
+                 パスの無い <名前> N 節・<名前> の「見出し」（追跡の文書の名で引く）・パスの無い N 節（依頼が名指した設計書が
                  ただ 1 本の時だけそれに結び付ける）の名指しを、固めた版 HEAD のファイルから、当たった行の形（行頭の記号の並び・
                  次の行の下線）で切る。貼る見出しに出どころのパス:行を添える。引けなかった・結び付けられなかった名指しは理由の
                  1 行で withheld。1 節は engine が役に貼る本文の上限 FILE_CAP バイトまで。超えた残りは行の範囲で withheld）
@@ -45,6 +46,7 @@ from engine.render import FILE_CAP, cap_bytes  # noqa: E402
 from engine.util import Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
 import entry  # noqa: E402
+import impact  # noqa: E402
 import rolekit  # noqa: E402
 
 NODE = "r2.design"
@@ -68,9 +70,14 @@ DESIGN_PREMISE_REREAD = ("下の指示書の「渡すのは元の目的と実測
                          "依頼が名指した設計書の節）も渡していると読み替えよ。")
 NAMED_HEAD = "### 依頼が名指した設計書の節"
 NAMED_ASK = "依頼が名指した設計書の節の本文（依頼を固めた版のファイルから機械が抜いた）。目的の文と同じく依頼の一部として読め。"
-CODE_SPAN_MD = re.compile(r"`([^`\s]+\.md#[^`\s]+)`")
-# 持ち主の地の文の名指し: 「`<path>.md` 3 節」「`<path>.md` の §3」（見出しの頭の番号で引く）
-CODE_SPAN_NUM = re.compile(r"`([^`\s#]+\.md)`\s*(?:の\s*)?(?:§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節)")
+CODE_SPAN_ANCHOR = re.compile(r"`([^`\s]+\.[A-Za-z0-9]+#[^`\s]+)`")
+# 持ち主の地の文の名指し: 「`<path>` 3 節」「`<path>` の §3」（見出しの頭の番号で引く。パスは拡張子つき）
+CODE_SPAN_NUM = re.compile(r"`([^`\s#]+\.[A-Za-z0-9]+)`\s*(?:の\s*)?(?:§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節)")
+# パスの無い名前の名指し: 「<名前> 3 節」「<名前> の §3」「<名前> の「<見出し>」」。名前は英数字で始まる [\w.-] の並びで、前が英数字・/・.・-
+# でない（パスの途中を拾わない）。名前は追跡の文書の名から引く（_docs_named）
+_NAME = r"(?<![^\W_]|[/.\-])([^\W_][\w.\-]*?)"
+NAME_NUM = re.compile(_NAME + r"(?:\s+|\s*の\s*)(?:§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節)")
+NAME_QUOTE = re.compile(_NAME + r"\s*の\s*「([^」\n]+)」")
 # パスの無い「§3」「8 節」（依頼が別の所で名指した設計書がただ 1 本の時だけ、それの節に結び付ける）
 BARE_NUM = re.compile(r"§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節")
 UNPASSED = re.compile(r"渡されていない|渡っていない")
@@ -105,13 +112,33 @@ def human_answers(b) -> tuple:
     return text, rows, machine, {"count": len(rows), "last_round": last}
 
 
-def _named_targets(b, text) -> tuple:
-    """(依頼の文が .md の見出しを名指す相対の指し先, 結び付けられなかった名指しの [(元の文字列, 理由)])。指し先は
-    Markdown のリンク・コードスパンの `<path>.md#<見出し>` と、コードスパンの後の「N 節」「§N」とパスの無い「N 節」「§N」。
-    番号の名指しは `<path>.md N 節` の形で返す。パスの無い名指しは、依頼が名指した設計書のパスがただ 1 本の時だけそれに
-    結び付け、0 本か 2 本以上なら推測せずに理由と返す（_head_file が末尾の一致が複数の時に決めないのと同じ）。出た順・重複なし"""
-    found = [m.group(1) or m.group(2) for m in b.rules.MD_LINK.finditer(text)] + CODE_SPAN_MD.findall(text)
-    out, docs = [], []
+def _is_doc(path) -> bool:
+    """名指しのパスを設計書に数えるか: URL でなく、拡張子が文書の拡張子（impact.DOC_EXT。コードを含まない）に在る"""
+    return "://" not in path and pathlib.PurePosixPath(path).suffix[1:].lower() in impact.DOC_EXT
+
+
+def _tracked(repo) -> list:
+    """固めた版 HEAD の追跡ファイルの名（根からの相対。並べた順）"""
+    got = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "--name-only", "-z", "HEAD"], capture_output=True)
+    return [n for n in got.stdout.decode("utf-8", "replace").split("\0") if n] if got.returncode == 0 else []
+
+
+def _docs_named(repo, name) -> list:
+    """固めた版の追跡ファイルのうち、設計書に数える拡張子で、拡張子を除いた名が name と等しいか -・_・. の後に name で終わる物
+    （日付を頭に付けた設計書に届くため）"""
+    return [n for n in _tracked(repo) if _is_doc(n)
+            and ((stem := pathlib.PurePosixPath(n).stem) == name or any(stem.endswith(f"{c}{name}") for c in "-_."))]
+
+
+def _named_targets(b, text, repo) -> tuple:
+    """(依頼の文が設計書の節を名指す相対の指し先, 結び付けられなかった名指しの [(元の文字列, 理由)])。設計書は拡張子が文書の物
+    （_is_doc）だけで、コードへのリンクは数えない。拾う順は Markdown のリンク・コードスパンの `<path>#<見出し>` → コードスパンの後の
+    「N 節」「§N」→ パスの無い名前の「<名前> N 節」「<名前> の「<見出し>」」（名の一致する追跡の文書がただ 1 本ならそれ。2 本以上は
+    推測せずに理由と返し、0 本は名前に数えない）→ パスの無い「N 節」「§N」。番号の名指しは `<path> N 節` の形で返す。パスの無い番号は、
+    依頼が名指した設計書のパスがただ 1 本の時だけそれに結び付け、0 本か 2 本以上なら推測せずに理由と返す（_head_file が末尾の一致が
+    複数の時に決めないのと同じ）。出た順・重複なし"""
+    found = [m.group(1) or m.group(2) for m in b.rules.MD_LINK.finditer(text)] + CODE_SPAN_ANCHOR.findall(text)
+    out, docs, unbound = [], [], []
 
     def add(t, path):
         if path not in docs:
@@ -121,19 +148,34 @@ def _named_targets(b, text) -> tuple:
 
     for t in found:
         path, _, anchor = t.partition("#")
-        if path.endswith(".md") and "://" not in path:
+        if _is_doc(path):
             add(t if anchor else "", path)
     for m in CODE_SPAN_NUM.finditer(text):
-        if "://" not in m.group(1):
+        if _is_doc(m.group(1)):
             add(f"{m.group(1)} {m.group(2) or m.group(3)} 節", m.group(1))
-    bare = list(BARE_NUM.finditer(CODE_SPAN_NUM.sub("", b.rules.MD_LINK.sub("", text))))
+    rest = list(CODE_SPAN_NUM.sub("", b.rules.MD_LINK.sub("", text)))
+    plain = "".join(rest)
+    for rx in (NAME_NUM, NAME_QUOTE):
+        for m in rx.finditer(plain):
+            name = m.group(1)
+            cands = [] if re.fullmatch(r"[\d.]+", name) else _docs_named(repo, name)
+            if not cands:
+                continue
+            rest[m.start():m.end()] = " " * (m.end() - m.start())   # パスの無い番号に回さない
+            if len(cands) > 1:
+                unbound.append((m.group(0), f"名の一致する追跡の文書が {len(cands)} 本あって決められない（候補: {', '.join(cands)}）"))
+            elif rx is NAME_NUM:
+                add(f"{cands[0]} {m.group(2) or m.group(3)} 節", cands[0])
+            else:
+                add(f"{cands[0]}#{m.group(2)}", cands[0])
+    bare = list(BARE_NUM.finditer("".join(rest)))
     if len(docs) == 1:
         for m in bare:
             add(f"{docs[0]} {m.group(1) or m.group(2)} 節", docs[0])
-        return out, []
+        return out, unbound
     why = (f"依頼が名指した設計書のパスが {len(docs)} 本あって決められない" if docs else
-           "結び付けられる形の設計書のパスの名指しが依頼に無い（リンク・`<path>.md#<見出し>`・`<path>.md` N 節 の形だけを数える）")
-    return out, [(w, why) for w in dict.fromkeys(m.group(0) for m in bare)]
+           "結び付けられる形の設計書の名指しが依頼に無い（リンク・`<path>#<見出し>`・`<path>` N 節・<名前> N 節 の形だけを数える）")
+    return out, unbound + [(w, why) for w in dict.fromkeys(m.group(0) for m in bare)]
 
 
 def _head_file(repo, path) -> str:
@@ -142,8 +184,7 @@ def _head_file(repo, path) -> str:
     rel = pathlib.PurePosixPath(urllib.parse.unquote(path))
     if rel.is_absolute() or ".." in rel.parts or ".git" in rel.parts:
         raise ValueError("作業ツリーの根の外か .git を指す")
-    got = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "--name-only", "-z", "HEAD"], capture_output=True)
-    names = got.stdout.decode("utf-8", "replace").split("\0") if got.returncode == 0 else []
+    names = _tracked(repo)
     if str(rel) in names:
         return str(rel)
     tail = [n for n in names if n.endswith(f"/{rel}")]
@@ -275,7 +316,7 @@ def named_sections(b, repo) -> tuple:
     """(R2 の 2 つの役に貼る、依頼（盤面の inputs.request）が名指した設計書の節の本文 か 空, 控えの given, 控えの withheld)。
     引けなかった名指しは本文を貼らずに理由の 1 行にする。貼る見出しと切った残りには出どころの行の範囲を添える"""
     parts, given, withheld = [], [], []
-    targets, unbound = _named_targets(b, (b.state.get("inputs") or {}).get("request") or "")
+    targets, unbound = _named_targets(b, (b.state.get("inputs") or {}).get("request") or "", repo)
     for t, why in unbound:
         parts.append(f"- 依頼が名指したが引けなかった: {t}（{why}）")
         withheld.append({"kind": "named_section", "what": t, "why": why})

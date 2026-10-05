@@ -186,6 +186,15 @@ def fake_plugin(root: pathlib.Path):
     return root
 
 
+def commit_file(repo, rel: str, text: str) -> None:
+    """作業ツリーに rel を書いて add と commit をする（固めた版 HEAD の追跡ファイルにする）"""
+    f = pathlib.Path(repo) / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text, encoding="utf-8")
+    for args in (["add", rel], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", rel]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
 class _Case(unittest.TestCase):
     def setUp(self):
         self._plug = tempfile.TemporaryDirectory()
@@ -438,15 +447,18 @@ class PrepCase(_Case):
 
     def _with_named_section(self):
         """依頼が設計書の節を名指す盤面: 作業ツリーに設計書を commit し、盤面の依頼の文をそれを名指す文にする"""
-        doc = pathlib.Path(self.repo) / "docs" / "spec.md"
-        doc.parent.mkdir(parents=True, exist_ok=True)
-        doc.write_text(self.SPEC, encoding="utf-8")
-        for args in (["add", "docs/spec.md"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "spec"]):
-            subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+        commit_file(self.repo, "docs/spec.md", self.SPEC)
+        self._request(self.NAMED_REQUEST)
+
+    def _request(self, text):
+        """盤面の依頼の文（inputs.request）を text に差し替える"""
         p = pathlib.Path(self.bd) / "state.json"
         st = json.loads(p.read_text(encoding="utf-8"))
-        st["inputs"]["request"] = self.NAMED_REQUEST
+        st["inputs"]["request"] = text
         p.write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def _named(self):
+        return design.named_sections(entry.open_board(self.bd), self.repo)
 
     def _assert_only_named_section(self, text):
         self.assertIn("SECTION-2-BODY 上限は呼び手ごとに持つ", text, "依頼が名指した節の本文が道具ゼロの役に届く")
@@ -533,6 +545,58 @@ class PrepCase(_Case):
         self.assertEqual(given, [])
         self.assertTrue([w for w in withheld if w["kind"] == "named_section" and "3 節" in w["what"] and w["why"]],
                         withheld)
+
+    def test_adoc_link_section_is_given(self):
+        """文書の拡張子（impact.DOC_EXT）のリンクなら .md でなくても名指しに数え、当たった行の形で節を切る"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/spec.adoc",
+                    "= 文書\n\n== 1 目的\n\nA\n\n== 2 上限\n\nADOC-2-BODY\n\n=== 2.1 細目\n\nC\n\n== 3 撤収\n\nD\n")
+        self._request("[上限](docs/spec.adoc#上限) のとおり")
+        text, given, withheld = self._named()
+        self.assertIn("ADOC-2-BODY", text)
+        self.assertEqual([g["what"] for g in given], ["docs/spec.adoc#上限"])
+        self.assertEqual(withheld, [])
+
+    def test_pathless_name_resolves_dated_spec(self):
+        """パスの無い「<名前> N 節」は、拡張子を除いた名が名前で終わる追跡の文書（日付を頭に付けた設計書）に解く"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/specs/2026-09-29-structure-block-design.md", "## 7 隔て\n\nSEVEN-BODY\n\n## 8 次\n\nX\n")
+        self._request("structure-block-design 7 節 を崩さない")
+        text, given, withheld = self._named()
+        self.assertIn("SEVEN-BODY", text)
+        self.assertEqual([g["what"] for g in given], ["docs/specs/2026-09-29-structure-block-design.md 7 節"])
+
+    def test_pathless_name_with_two_candidates_is_withheld(self):
+        """名の一致する追跡の文書が 2 本以上なら推測せず、候補を並べて withheld に載せる"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "a/notes.md", "## 1 x\n")
+        commit_file(self.repo, "b/notes.adoc", "## 1 x\n")
+        self._request("notes 1 節")
+        text, given, withheld = self._named()
+        self.assertEqual(given, [])
+        self.assertEqual(len(withheld), 1, withheld)
+        self.assertIn("2 本あって決められない", withheld[0]["why"])
+        for c in ("a/notes.md", "b/notes.adoc"):
+            self.assertIn(c, withheld[0]["why"])
+
+    def test_pathless_name_without_candidates_falls_back_to_bare_number(self):
+        """名の一致する文書が無い名前は名指しに数えず、「N 節」は今どおりパスの無い番号として 1 本の設計書に結ぶ"""
+        self.NAMED_REQUEST = "[docs/spec.md の 2 節](docs/spec.md#2-上限) と nothing-here 3 節"
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        text, given, withheld = self._named()
+        self.assertIn("docs/spec.md 3 節", [g["what"] for g in given])
+        self.assertEqual(withheld, [])
+
+    def test_code_link_is_not_a_named_doc(self):
+        """コードへのリンクは設計書に数えない（実装を独立設計に貼らない・パスの無い番号の結び付けを外さない）"""
+        self.NAMED_REQUEST = "[x](works/.shared/core/design.py#L70) と `docs/spec.md` 2 節、§3 も"
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        text, given, withheld = self._named()
+        self.assertNotIn("def premises", text)
+        self.assertEqual([g["what"] for g in given], ["docs/spec.md 2 節", "docs/spec.md 3 節"])
+        self.assertEqual(withheld, [])
 
     STRUCTURE_MARK = "STRUCTURE-MARK-u-417"
     DESIGN_ROW_MARK = "DESIGN-ROW-MARK-u-417"
