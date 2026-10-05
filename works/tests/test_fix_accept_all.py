@@ -338,11 +338,15 @@ class StopsKeepWorkCase(ReplanCase):
     def redden_bounds(self):
         (self.repo / "bounds.py").write_text(BOUNDS.replace("hi - lo", "lo - hi"), encoding="utf-8")
 
-    def reddening_fixer(self) -> tuple:
+    def reddening_fixer(self, faces: bool = False) -> tuple:
         """(輪の状態のファイル, 返答)。輪は MEAN と CLAMP を direct に振る。言うことを聞かない修正役は mean の 1 か所だけを直し、
-        bounds.py を書き換えて既存の test_width を赤にし、CLAMP の行の files を bounds.py にした返答を 3 回とも出す"""
+        bounds.py を書き換えて既存の test_width を赤にし、CLAMP の行の files を bounds.py にした返答を 3 回とも出す。
+        faces が真なら事前審査は穴を 1 つ持つ見本（plan_review_regression。関所に continue で答えた盤面）"""
         with bounds_seed():
-            self.fix_ready()
+            if faces:
+                self.fix_ready(review=linekit.reply("plan_review_regression"), answer=("continue", "clamp の上限は hi でよい"))
+            else:
+                self.fix_ready()
         state = self.start_loop()
         self.step(state, {"phase": "route", "units": [{"unit_key": MEAN, "route": "direct", "why": DIRECT_WHY},
                                                       {"unit_key": CLAMP, "route": "direct", "why": DIRECT_WHY}]})
@@ -476,6 +480,24 @@ class StopsKeepWorkCase(ReplanCase):
         got = mod.settle([f"{CLAMP[:60]}: 直さない単位の行"], keys={MEAN, CLAMP}, feet=feet, reached=reached, owed={MEAN},
                          out_of_duty={CLAMP}, changed=set())
         self.assertEqual((got.park, got.absorbed), ({}, [f"{CLAMP[:60]}: 直さない単位の行"]))
+
+    def test_reply_level_rows_hand_the_machine_empty_reply(self):
+        """run 222f の型: 修正案の事前審査への応答（plan_faces）を 3 回とも欠いた返答。最後の回は義務の全部を止め、
+        機械の空の返答を盤面に渡す。h-mid は役の修正と数えない"""
+        accept_mod = accept_module("blk_fix_accept_stops")
+        state, reply = self.reddening_fixer(faces=True)
+        reply["plan_faces"] = []
+        r = json.loads(self.run_it(reply, INPUTS_ITERATION="3", INPUTS_TDD_STATE=state)[1])
+        self.assertEqual((r["ok"], r["done"], r["changes"]), (True, True, []), r)
+        self.assertEqual(sorted(self.parked_units()), sorted([MEAN, CLAMP]))
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state("p3.fix"), "done")
+        out = json.loads((self.board / b.state["outputs"]["p3.fix"]["file"]).read_text(encoding="utf-8"))
+        self.assertTrue(out["plan_faces"] and all(f["handled"] == "declared" for f in out["plan_faces"]))
+        self.assertIn(accept_mod.EMPTY_HANDED, out["fix_closure"]["reason"])
+        ops = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        self.assertTrue(any(o.get("op") == entry.EMPTY_FIX_OP and o.get("by") == entry.EMPTY_FIX_BY for o in ops))
+        self.assertIs(json.loads(self.changed(r)[1])["ok"], True, "空の申告は義務の外の単位だけの正しい返答")
 
 
 class HoldCase(ReplanCase):

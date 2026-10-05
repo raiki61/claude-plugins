@@ -76,7 +76,9 @@ done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_
 拒否の行は parking.settle で単位に結ぶ: 文が名指す単位（unit_key・足跡・届く試験のパス）に、結べない行は直す義務の全部の単位に結び、
 義務の外の単位にだけ結んだ行は数えない（その単位の行を changes から外し、直しは作業ツリーに残す。trace に ABSORBED_OP）。
 結んだ義務の単位は足跡を共にする単位と一緒に止め、足跡を段の頭の木（leftovers.head_tree）に戻して控えの patch に移し、ask_human に
-裁いて（trace に PARKED_OP）残りの単位で受け付けを頭から通し直す（park_units）。止めた単位は義務の外になるので通し直しは終わる
+裁いて（trace に PARKED_OP）残りの単位で受け付けを頭から通し直す（park_units）。止めた単位は義務の外になるので通し直しは終わる。
+止める単位が無いのに写しが拒めば（義務の全部を止めた後も返答の欄が写しの型・規則に合わない。run 222f の型）、役の返答の代わりに
+機械の空の返答を渡す（hand_empty。盤面を止めない）
 """
 import copy
 import json
@@ -127,6 +129,8 @@ BOUND_PARKED = ("修正の輪の最後の回も、この単位に結んだ拒否
                 "戻して控えの patch に移し、人に回し、ほかの単位の直しを受けた。拒否の文: ")
 PARKED_OP = "fix_bound_parked"   # 最後の回に止めた単位の盤面の trace の行（unit_keys・patch・reasons {key: [文]}・unbound {文: 理由}）
 PARKED_PATCH = "fix-parked"            # 止めた単位の戻した直しの控え（盤面の今の周の fix-parked-<n>.patch）
+EMPTY_HANDED = ("修正の輪の最後の回に、直す義務の単位を全部止めても返答が写しの受け付けを通らなかったので、役の返答の代わりに"
+                "機械の空の返答を渡した: ")   # 後ろに残った行を " / " でつなぐ（hand_empty。盤面の p3.fix の fix_closure.reason）
 SECOND_CONFLICT = ("裁定の後の出し直しで新しく申し出た食い違い——裁定の輪は 1 周に 1 回だけなので、機械が人に回した"
                    "（最後の人の関所で人が決める）")
 
@@ -517,6 +521,18 @@ def park_units(settled, out: set, whole: dict, board, base_rev, repo, parked: se
     return accept_fix(_without_rows(whole, rest, settled.files, repo), board, base_rev, repo, parked=now)
 
 
+def hand_empty(found: list, board, base_rev, repo) -> dict:
+    """最後の回に止める単位が無いのに写しが拒んだ（義務の単位は全部止めたか、行が義務の外の単位にだけ結んだ）: 役の返答の代わりに
+    機械の空の返答（entry.empty_fix_reply。理由は EMPTY_HANDED と残った行）を盤面に渡し、trace に entry.trace_empty_fix の印。
+    返りは写しの受け付けの返り。それも写しが受けなければ回す側の誤り（ValueError。入口が 2 にする）"""
+    why = EMPTY_HANDED + " / ".join(t for _, t in reject_rows(found))
+    out = recount.accept_fix(entry.empty_fix_reply(entry.open_board(board), why=why), board, base_rev, repo, commit=True)
+    if out.get("ok") is not True:
+        raise ValueError(f"機械の空の返答も写しが受けない（回す側の誤り）: {' '.join(str(out.get('reason') or '').split())}")
+    entry.trace_empty_fix(entry.open_board(board))
+    return out
+
+
 def hold_fix(named: dict, whole: dict, b, traced) -> dict:
     """待つ単位（conflict.waiting）が在る間の受け付け: 盤面に渡す形の返答（named。番号は名前に戻した）に、役が申告した
     bash_writes（whole の欄。前の控えの申告 conflict.held_writes を先に）を残して 1 回目に受け付けた返答の控え
@@ -619,10 +635,9 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     out = recount.accept_fix(reply, board, base_rev, repo, commit=not found and named is None)
     if out.get("ok") is not True:
         note(found, "copy", out.get("problems") or [str(out.get("reason") or "")])
-    if last and found:   # 最後の回の写しの拒否も同じ決まりで結ぶ（止める単位が無ければ並べて拒む）
+    if last and found:   # 最後の回の写しの拒否も同じ決まりで結ぶ（止める単位が無ければ機械の空の返答を渡す）
         got = settle([t for _, t in reject_rows(found)])
-        if got is not None:
-            return got
+        return got if got is not None else hand_empty(found, board, base_rev, repo)
     if found:
         return rejected(found)
     if out.get("ok") is not True:   # 文の無い拒否（積む行が無い）はそのまま返す

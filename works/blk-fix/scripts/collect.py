@@ -15,10 +15,11 @@
 中身は recount.collect: 受け付けた changes を今の周の changes.json（{"changes": [...]}）に書き、1 本目の欄
 {"ok": true, "files", "changes_file", "removed"} に、盤面から fix_file・not_done・coverage・reads_file を、TDD の輪から tdd
 （tddloop.exit_fields。実行器の無い run は ran: false）を足して 1 行出して 0。
-修正の段が諦めた（受け付けか assert-changed の出力が ok: false で、盤面が止まっている——止めるのは assert-changed。R50）ときは、
+修正の段が諦めた（assert-changed の出力が ok: false で、盤面が止まっている——止めるのは assert-changed。R50）ときは、
 1 本目の欄を持つ {"ok": false, "files": [], "changes_file": "", "removed", "tdd", "reason": 盤面が止まった理由} を出して 0。
-受け付けが通っていないのに盤面が止まっていない・入力が読めない・盤面が今の周の p3.fix を受けていないときは、標準エラーに理由を
-1 行出して 2（何も書かない）。
+受け付けは最後の回に必ず通る（義務の単位を全部止めても写しが返答を受けなければ、受け付けが機械の空の返答を渡す。依頼 242 決め 5）
+ので、受け付けの出力が ok: false なら入力の誤り。それと、assert-changed が通っていないのに盤面が止まっていない・入力が読めない・
+盤面が今の周の p3.fix を受けていないときは、標準エラーに理由を 1 行出して 2（何も書かない）。
 """
 import json
 import os
@@ -62,7 +63,9 @@ def collect():
         raise recount.Unreadable(f"clean の出力に count・file が無い（{cleaned!r}）")
     removed = {"count": count, "file": file}
     board = pathlib.Path(artifacts) / "board"
-    if accepted.get("ok") is not True or changed.get("ok") is not True:
+    if accepted.get("ok") is not True:   # 受け付けは最後の回に必ず通る（決め 5）。ok: false は回す側の誤り
+        raise recount.Unreadable(f"受け付けの出力が ok: true でない（修正の輪は受け付けが通って抜ける。{str(accepted)[:200]!r}）")
+    if changed.get("ok") is not True:
         st = entry.open_board(board, allow_halted=True).state
         stop = st.get("stop") or st.get("halted")
         if stop:   # 修正の段が諦めた（assert-changed が止めた）。後ろの段は境の節が飛ばし、報告が走る
