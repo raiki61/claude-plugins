@@ -1072,7 +1072,7 @@ class ScriptCase(unittest.TestCase):
         self.planned()
         self.ok("snap", role="plan-review")
         text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
-        self.assertIn(planblk.DESIGN_NOT_STANDS.format(reason="識別子は既にある"), text)
+        self.assertIn(planblk.DESIGN_NOT_STANDS.format(reason="識別子は既にある（根拠の実物の名指しなし）"), text)
         self.assertNotIn(planblk.DESIGN_ASK, text)
         self.assertNotIn("precedent の穴", text)
 

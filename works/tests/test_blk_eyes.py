@@ -355,6 +355,18 @@ class SectionShapeCase(unittest.TestCase):
             self.span("本文だけ\n", num="1")
 
 
+class AnchorCase(unittest.TestCase):
+    """問いが立たない根拠の名指し（パス:行）の拾い方（依頼 238）"""
+
+    def test_path_line_and_range_are_anchors(self):
+        self.assertEqual(design.anchors("design.py:70 と works/.shared/core/design.py:70-75 を見よ"),
+                         [("design.py", 70, 70), ("works/.shared/core/design.py", 70, 75)])
+
+    def test_url_and_time_are_not_anchors(self):
+        self.assertEqual(design.anchors("https://example.com:443/a の応答の時刻 10:15 を使う"), [])
+        self.assertEqual(design.anchor_note("https://example.com:443/a"), f"（{design.UNANCHORED}）")
+
+
 class PrepCase(_Case):
     def test_prep_renders_engine_prompt_with_role_definition(self):
         self.board("r1r2")
@@ -760,6 +772,34 @@ class AcceptCase(_Case):
         self.assertIn("question_stands", out["reason"], "設計の最後の拒否の文を運ぶ")
         self.assertEqual(out["eyes"]["r2-compare"], "waiting")
         self.assertEqual(state(self.bd)["stop"]["by"], eyes.STOP_BY)
+
+    def _premise_reply(self, why):
+        """設計書 docs/spec.md（3 行）を固めた版に置き、問いが立たない返答を premise_invalid_reason=why で受け付けに通す"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/spec.md", "一\n二\n三\n")
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        reply = {**DESIGN_INVALID, "premise_invalid_reason": why} if why is not None else DESIGN_INVALID
+        return design.accept_reply(self.bd, json.dumps(reply, ensure_ascii=False), self.repo)
+
+    def test_premise_anchor_in_range_is_accepted(self):
+        got = self._premise_reply("docs/spec.md:2-3 に既に在る")
+        self.assertTrue(got["ok"], got)
+
+    def test_premise_anchor_out_of_range_is_rejected(self):
+        got = self._premise_reply("docs/spec.md:9 に既に在る")
+        self.assertFalse(got["ok"])
+        self.assertIn(design.PREMISE_MISS, got["reason"])
+        self.assertIn("docs/spec.md:9（行の範囲の外（ファイルは 3 行））", got["reason"])
+
+    def test_premise_anchor_untracked_is_rejected(self):
+        got = self._premise_reply("nowhere.md:1 に在る")
+        self.assertFalse(got["ok"])
+        self.assertIn("固めた版にファイルが無い", got["reason"])
+
+    def test_premise_without_anchor_is_accepted(self):
+        """名指しの無い根拠は拒まない（事前審査と報告が「根拠の実物の名指しなし」と名指す）"""
+        got = self._premise_reply(None)
+        self.assertTrue(got["ok"], got)
 
     def test_tree_change_is_rejected(self):
         self.board("r1r2")

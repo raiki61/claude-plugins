@@ -24,7 +24,8 @@ Archon を知らない関数だけを出す。
                  1 行で withheld。1 節は engine が役に貼る本文の上限 FILE_CAP バイトまで。超えた残りは行の範囲で withheld）と
                  repo_map（対象のリポジトリの根の MAP_NAMES を地図として毎回貼る。無ければ「地図なし」の 1 行と withheld）
 - claims_unpassed: R2 の返答のうち『渡されていない』『渡っていない』と書いた文（独立の目の出口が控えと並べる）
-- accept:        返答を型（写しの schema）と作業ツリーの比べに通し、通れば design.json。拒否は盤面の根の控えに積み、
+- anchors・anchor_misses・anchor_note: 問いが立たない根拠の文の名指し（パス:行）を拾い、固めた版で検算し、無ければ名指しなしと添える
+- accept:        返答を型（写しの schema）と作業ツリーの比べと根拠の名指しの検算に通し、通れば design.json。拒否は盤面の根の控えに積み、
                  GIVE_UP_AFTER 回目で done（輪を抜ける。諦めても線は止めない——事前審査は設計なしで進み、最後の R2 が言う）
 - read_design:   design.json（無ければ None。壊れていれば Reject）。made は (中身 か None, 壊れている理由) で拒まない
 - missing(b):    設計が無い理由の 1 文（諦めた・目的が使えない・控えが無い）。事前審査の指示書と独立の目の出口が使う
@@ -81,6 +82,12 @@ NAME_NUM = re.compile(_NAME + r"(?:\s+|\s*の\s*)(?:§\s*(\d+(?:\.\d+)*)|(\d+(?:
 NAME_QUOTE = re.compile(_NAME + r"\s*の\s*「([^」\n]+)」")
 # パスの無い「§3」「8 節」（依頼が別の所で名指した設計書がただ 1 本の時だけ、それの節に結び付ける）
 BARE_NUM = re.compile(r"§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節")
+# 問いが立たない根拠の名指し「<パス>:<行>」「<パス>:<開始>-<終了>」。パスは拡張子つきで / 区切りの段を持ってよい。前が英数字・/・.・:・-
+# の当たりは拾わない（URL の host:port を外す。拡張子の無い時刻 10:15 も、拡張子が英字で始まらない版の番号 3.12:1 も拾わない）。パスの字は ASCII に限る（日本語の地の文に続けて
+# 書いたパスの頭に地の文を混ぜない）
+ANCHOR = re.compile(r"(?<![A-Za-z0-9_/.:\-])((?:[A-Za-z0-9_.\-]+/)*[A-Za-z0-9_.\-]*[A-Za-z0-9_\-]\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?(?![\d:])")
+UNANCHORED = "根拠の実物の名指しなし"
+PREMISE_MISS = "premise_invalid_reason の名指しが固めた版の実物に当たらない（追跡されたファイルと、その行の範囲を名指せ）: "
 UNPASSED = re.compile(r"渡されていない|渡っていない")
 # 『渡されていない』の文が控えの given の kind を指す語。制約・前提のずれは「目的と実測した制約しか渡されていない」のような
 # 地の文によく出て無関係の行まで当たるので語では当てず、what そのものが文に在る時だけ当てる。設計書の節も「設計書」の語は
@@ -490,14 +497,50 @@ def prep(board_dir, repo) -> dict:
             "role_def": def_file, "role_def_missing": missing}
 
 
+def anchors(text) -> list:
+    """文の中の `パス:行` と `パス:開始-終了` を (パス, 開始, 終了) で出た順に（`パス:行` は開始と終了が同じ）"""
+    return [(m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))) for m in ANCHOR.finditer(str(text or ""))]
+
+
+def anchor_misses(text, repo) -> list:
+    """anchors のうち固めた版 HEAD の追跡ファイルと行の範囲に当たらない物ごとに「<パス>:<開始>[-<終了>]（<理由>）」（字は文のまま）"""
+    out = []
+    for m in ANCHOR.finditer(str(text or "")):
+        start, end = int(m.group(2)), int(m.group(3) or m.group(2))
+        try:
+            rel = _head_file(repo, m.group(1))
+            got = subprocess.run(["git", "-C", str(repo), "show", f"HEAD:{rel}"],
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if got.returncode != 0:
+                raise ValueError("固めた版にファイルが無い")
+            n = len(got.stdout.splitlines())
+            if not 1 <= start <= end <= n:
+                raise ValueError(f"行の範囲の外（ファイルは {n} 行）")
+        except ValueError as e:
+            row = f"{m.group(0)}（{e}）"
+            if row not in out:
+                out.append(row)
+    return out
+
+
+def anchor_note(text) -> str:
+    """根拠の文に名指し（anchors）が無ければ「（根拠の実物の名指しなし）」、在れば ""（事前審査の指示書と報告が添える）"""
+    return "" if anchors(text) else f"（{UNANCHORED}）"
+
+
 def check_design(reply, board_dir, repo) -> dict:
-    """型（写しの r2.design の schema）→ 作業ツリー（役を起こす前の写しと同じ）。通れば design.json。{ok, reason, design_file}"""
+    """型（写しの r2.design の schema）→ 作業ツリー（役を起こす前の写しと同じ）→ 問いが立たない時は根拠の名指し（パス:行）が固めた版の
+    追跡ファイルと行の範囲に当たるか（名指しが無ければ拒まない）。通れば design.json。{ok, reason, design_file}"""
     def run():
         b = entry.open_board(pathlib.Path(board_dir))
         moved = entry.tree_moved_since(b, SNAPSHOT_NAME, pathlib.Path(repo))
         if moved:
             raise Reject(entry.READONLY_MOVED + moved)
         accept.type_errors(reply, accept.role_schema(NODE), "独立設計の返答")
+        if not reply["question_stands"]:
+            misses = anchor_misses(reply.get("premise_invalid_reason") or reply["reason"], repo)
+            if misses:
+                raise Reject(PREMISE_MISS + "・".join(misses))
         return {"ok": True, "reason": "", "design_file": str(accept.write_board(board_dir, DESIGN_FILE, reply))}
     return accept.guard(run, design_file="")
 
