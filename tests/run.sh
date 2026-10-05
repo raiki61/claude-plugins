@@ -3517,7 +3517,7 @@ root = pathlib.Path(sys.argv[1])
 EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_", "INPUTS_")
 EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "BASH_ENV", "CLAUDE_KEYCHAIN_SERVICE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                   # Archon が節と子に渡す環境変数・Archon の設定の環境変数・Context7 の鍵
-                  "ARTIFACTS_DIR", "WORKFLOW_ID", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
+                  "ARTIFACTS_DIR", "WORKFLOW_ID", "ARCHON_NODE_EXECUTION", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
                   # works の python が os.environ から・shell の殻が環境から読む環境変数（WORKS_ で始まる shell の
                   # 定数が在るので接頭辞では外さない）
                   "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_DEV_MODEL", "WORKS_GH", "WORKS_GOLDEN_OUT",
