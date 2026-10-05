@@ -6,7 +6,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
-## [0.2.24] - 2026-10-05
+## [0.2.25] - 2026-10-05
 
 ### Added
 
