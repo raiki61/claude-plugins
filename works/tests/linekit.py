@@ -304,9 +304,10 @@ class LineRun:
     出す）を見る。start へ渡す入力の鍵は LINE_ORDER の start の with から導く（既定は空。adapter だけ optional——この器は
     包みを通さずに回す）。呼び手の inputs はその上に重ねる。役の返答は replies[役]、役が作業ツリーに当てる変更は edits[役]（repo を受ける関数）、関所の答えは
     gates[関所]（無ければ continue・空の一言）、stop_at の境の節の前に止め札を置く。sessions なら start の後に包みの家へ
-    判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run。無ければ包みを通らない run と同じ）"""
+    判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run。無ければ包みを通らない run と同じ）。request は依頼の
+    ファイルに書く中身（JSON の値。無ければ種の request_ok.json）"""
 
-    def __init__(self, tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False):
+    def __init__(self, tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False, request=None):
         import entry  # noqa: F401  （.shared/core は頭で sys.path に足してある）
         self.tmp = pathlib.Path(tmp)
         self.replies, self.gates, self.edits = replies, gates or {}, edits or {}
@@ -317,7 +318,8 @@ class LineRun:
         self.repo = seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True, exist_ok=True)
-        req.write_text((SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
+        req.write_text((SEED / "request_ok.json").read_text(encoding="utf-8") if request is None
+                       else json.dumps(request, ensure_ascii=False), encoding="utf-8")
         self.request = req
         self.board = self.tmp / "art" / "board"
         self.out, self.trail = {}, []
@@ -695,7 +697,8 @@ class LineRun:
                 "judge_takes": self.judge_takes, "rejudge_roles": self.rejudge_roles}
 
 
-def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False) -> dict:
+def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False, request=None) -> dict:
     """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles, mat_roles, judge_brief, judge_takes,
     rejudge_roles}"""
-    return LineRun(tmp, replies=replies, gates=gates, inputs=inputs, stop_at=stop_at, edits=edits, sessions=sessions).run()
+    return LineRun(tmp, replies=replies, gates=gates, inputs=inputs, stop_at=stop_at, edits=edits, sessions=sessions,
+                   request=request).run()

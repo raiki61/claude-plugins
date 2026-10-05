@@ -497,6 +497,20 @@ class JudgeAwaitingCase(LineBase):
         self.assertIn(("awaiting", "parallel_pr"), [(q["kind"], q.get("origin")) for q in b.record["questions"]])
         self.assertIn("planning", got["trail"])
 
+    def test_requester_answer_closes_awaiting_without_asking(self):
+        """依頼の answers が素材の名 parallel_pr で答えると、判定の awaiting の問いは台帳に残ったまま、報告は依頼者の答えとして並べ、
+        保留に数えない（依頼のファイル → start → 盤面 → 判定 → 報告の本物の道）"""
+        rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+        ans = [{"question": "parallel_pr", "text": "並行する PR は無い（依頼者が GitHub の一覧で確かめた）"}]
+        got = self.run_line(replies={**replies(), "pr-check": PR_AWAITING, "judge": judge_awaiting()},
+                            request={"findings": rows, "answers": ans})
+        text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
+        self.assertIn("依頼者の答え: 並行する PR は無い", text)
+        self.assertNotIn("保留にしたままの問い", text)
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertIn(("awaiting", "parallel_pr"), [(q["kind"], q.get("origin")) for q in b.record["questions"]],
+                      "台帳の行は残る（写しの検証器は変えない）")
+
     def test_reply_without_awaiting_goes_back_to_judge(self):
         """awaiting の無い判定（run 27 の返答の形）は受け付けが拒んで判定役へ返す（理由はファイルで。R44）——線は止めない。
         直した 2 回目は通る"""
