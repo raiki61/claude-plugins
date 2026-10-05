@@ -144,8 +144,11 @@ class UnitTrees(unittest.TestCase):
         shutil.rmtree(p2)   # 止まった run の残り（置き場だけ消えた）も片付く
         unittrees.sweep(self.repo)
         self.assertEqual(git(self.repo, "for-each-ref", "--format=%(refname)", mine), "")
-        listed = git(self.repo, "worktree", "list", "--porcelain")
-        self.assertNotIn(str(p2.name), listed)
+        listed = {str(pathlib.Path(ln[len("worktree "):]).resolve())
+                  for ln in git(self.repo, "worktree", "list", "--porcelain").splitlines()
+                  if ln.startswith("worktree ")}
+        self.assertIn(str(self.repo.resolve()), listed)   # 切り出しが空振りしていない
+        self.assertNotIn(str(p2.resolve()), listed)
         self.assertTrue(op.exists())   # ほかの作業ツリーの単位は残る
         self.assertNotEqual(git(other, "for-each-ref", "--format=%(refname)", f"{unittrees.REF_ROOT}/"), "")
         self.assertEqual(sorted(unittrees.sweep(other)), sorted([str(op.resolve())]))
