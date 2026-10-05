@@ -301,41 +301,53 @@ def _brief_problem(it, at, repo, briefs) -> str:
 
 
 def problems(items, *, repo, board_dir, owed, try_query=None, briefs=None) -> list:
-    """申し出の一覧の機械の確かめ（受け付けの前）。文の一覧（空なら全部通る）。try_query(unit_key, lines) は which_is_right: query
-    の申し出の correct_lines に判定者の問いを当てる口（呼ぶ側が渡す。当たれば空・外れれば文）。briefs は今の周の brief の行
-    {unit_key: [{item, file}]}（planbrief.by_unit_at。None と {} は brief の無い run で、brief_vs_judgment を通さない）"""
+    """申し出の一覧の機械の確かめ（受け付けの前）。文の一覧（空なら全部通る）。problems_by_entry の文を順につないだ物"""
+    return [t for _, _, lines in problems_by_entry(items, repo=repo, board_dir=board_dir, owed=owed, try_query=try_query,
+                                                   briefs=briefs) for t in lines]
+
+
+def problems_by_entry(items, *, repo, board_dir, owed, try_query=None, briefs=None) -> list:
+    """申し出ごとの機械の確かめ。[(i, 読めた unit_key か None, 文の並び)]（申し出の順。通れば文の並びは空）。key が読めるのは
+    dict の申し出の unit_key が str で owed に在る時だけ（欄の崩れ・owed に無い key は None）。配列全体の誤りは [(None, None, [文])]。
+    try_query(unit_key, lines) は which_is_right: query の申し出の correct_lines に判定者の問いを当てる口（呼ぶ側が渡す。当たれば空・
+    外れれば文）。briefs は今の周の brief の行 {unit_key: [{item, file}]}（planbrief.by_unit_at。None と {} は brief の無い run で、
+    brief_vs_judgment を通さない）"""
     if not isinstance(items, list) or not items:
-        return ["食い違いの申し出は 1 件以上の配列"]
+        return [(None, None, ["食い違いの申し出は 1 件以上の配列"])]
     roots = [request_file(board_dir), str(board_dir)]
-    out, seen = [], set()
-    for i, it in enumerate(items):
-        at = f"食い違い[{i}]"
-        if not isinstance(it, dict) or set(it) - {*FIELDS, CORRECT} or any(k not in it for k in FIELDS):
-            out.append(f"{at} の欄は {list(FIELDS)}（which_is_right が {QUERY} の時は {CORRECT} も）")
-            continue
-        k = it["unit_key"]
-        if k not in owed:
-            out.append(f"{at} の unit_key {k!r} は今の直す義務の単位に無い（貼られた単位の key を一字も変えずに写す）")
-        elif k in seen:
-            out.append(f"{at} の unit_key {k!r} を 2 度申し出た（1 単位 1 件。名指しを between に並べる）")
-        seen.add(k)
-        if not isinstance(it["why_both_cannot_hold"], str) or len(it["why_both_cannot_hold"].strip()) < MIN_WHY:
-            out.append(f"{at} の why_both_cannot_hold が {MIN_WHY} 字に足りない（なぜ両方は同時に成り立たないか）")
-        if it["which_is_right"] not in WHICH:
-            out.append(f"{at} の which_is_right は {' / '.join(WHICH)} のどれか（{it['which_is_right']!r}）")
-        else:
-            bad = _correct_problem(it, try_query)
-            if bad:
-                out.append(f"{at}: {bad}")
-        bad = _kind_problem(it, at) or _brief_problem(it, at, repo, briefs)
+    seen = set()
+    return [(i, *_entry_problems(i, it, repo, roots, owed, seen, try_query, briefs)) for i, it in enumerate(items)]
+
+
+def _entry_problems(i, it, repo, roots, owed, seen, try_query, briefs) -> tuple:
+    """申し出 1 件の (読めた unit_key か None, 文の並び)。seen は今までの申し出の owed の key（2 度申し出た検査）"""
+    at = f"食い違い[{i}]"
+    if not isinstance(it, dict) or set(it) - {*FIELDS, CORRECT} or any(k not in it for k in FIELDS):
+        return None, [f"{at} の欄は {list(FIELDS)}（which_is_right が {QUERY} の時は {CORRECT} も）"]
+    out, k = [], it["unit_key"]
+    if k not in owed:
+        out.append(f"{at} の unit_key {k!r} は今の直す義務の単位に無い（貼られた単位の key を一字も変えずに写す）")
+    elif k in seen:
+        out.append(f"{at} の unit_key {k!r} を 2 度申し出た（1 単位 1 件。名指しを between に並べる）")
+    seen.add(k)
+    key = k if isinstance(k, str) and k in owed else None
+    if not isinstance(it["why_both_cannot_hold"], str) or len(it["why_both_cannot_hold"].strip()) < MIN_WHY:
+        out.append(f"{at} の why_both_cannot_hold が {MIN_WHY} 字に足りない（なぜ両方は同時に成り立たないか）")
+    if it["which_is_right"] not in WHICH:
+        out.append(f"{at} の which_is_right は {' / '.join(WHICH)} のどれか（{it['which_is_right']!r}）")
+    else:
+        bad = _correct_problem(it, try_query)
         if bad:
-            out.append(bad)
-        cites = it["between"]
-        if not isinstance(cites, list) or len(cites) < MIN_CITES:
-            out.append(f"{at} の between は食い違う所を {MIN_CITES} つ以上（依頼の行・テストのファイル:行・コードのファイル:行）")
-            continue
-        out += [f"{at}: {e}" for e in (cite_problem(c, repo, roots) for c in cites) if e]
-    return out
+            out.append(f"{at}: {bad}")
+    bad = _kind_problem(it, at) or _brief_problem(it, at, repo, briefs)
+    if bad:
+        out.append(bad)
+    cites = it["between"]
+    if not isinstance(cites, list) or len(cites) < MIN_CITES:
+        out.append(f"{at} の between は食い違う所を {MIN_CITES} つ以上（依頼の行・テストのファイル:行・コードのファイル:行）")
+        return key, out
+    out += [f"{at}: {e}" for e in (cite_problem(c, repo, roots) for c in cites) if e]
+    return key, out
 
 
 # ---------------------------------------------------------------- 盤面の作業ファイル

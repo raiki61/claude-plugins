@@ -93,6 +93,22 @@ class KindCase(unittest.TestCase):
             self.assertTrue(any("kind" in e and "which_is_right" in e for e in got), (over, got))
         self.assertEqual(self.errs(kind="needs_context", which_is_right="unknown"), [])
 
+    def test_problems_by_entry_names_the_unit_of_each_entry(self):
+        # 申し出ごとに (i, 読めた unit_key か None, 文の並び)。key は dict の unit_key が str で owed に在る時だけ読める
+        items = [{**ITEM, "kind": "other"},                        # 欄は揃う（key は読める）が kind の文
+                 {**ITEM, "unit_key": "stats.py ghost: 無い単位"},   # owed に無い key
+                 {"unit_key": KEY},                                 # 欄の崩れ
+                 "dict でない"]
+        got = conflict.problems_by_entry(items, repo=self.repo, board_dir=self.repo, owed={KEY})
+        self.assertEqual([(i, k) for i, k, _ in got], [(0, KEY), (1, None), (2, None), (3, None)])
+        self.assertTrue(all(lines for _, _, lines in got), got)
+        self.assertTrue(all(line.startswith(f"食い違い[{i}]") for i, _, lines in got for line in lines), got)
+        flat = [line for _, _, lines in got for line in lines]
+        self.assertEqual(conflict.problems(items, repo=self.repo, board_dir=self.repo, owed={KEY}), flat)
+        self.assertEqual(conflict.problems_by_entry([ITEM], repo=self.repo, board_dir=self.repo, owed={KEY}), [(0, KEY, [])])
+        self.assertEqual([(i, k) for i, k, _ in conflict.problems_by_entry([], repo=self.repo, board_dir=self.repo, owed={KEY})],
+                         [(None, None)], "配列全体の誤りは i も None")
+
     def test_word_names_the_outlet(self):
         self.assertEqual(conflict.WORD, "divergence")
 

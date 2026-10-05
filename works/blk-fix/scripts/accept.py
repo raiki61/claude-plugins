@@ -73,7 +73,8 @@ loop_group の外の節は中の節の出力を引けず、輪の出力は最後
 ここで出口へ運ぶ（collect が今の周の changes.json に書く）。拒んだときの changes は空。
 中身の拒否は終了コード 0 の {"ok": false, "reason", "rejects", "reason_file", "changes": [], "done"} を 1 行。回す側の誤りは 2。
 done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_iterations に当てて run を落とさない）。3 回目（最後の回）の積んだ行と写しの
-拒否の行は parking.settle で単位に結ぶ: 文が名指す単位（unit_key・足跡・届く試験のパス）に、結べない行は直す義務の全部の単位に結び、
+拒否の行は parking.settle で単位に結ぶ: 形の誤りで拒んだ食い違いの申し出の行は申し出た単位（take_conflicts が行ごとに渡す unit_key。
+読めない時だけ文の名指しへ）に、ほかの行は文が名指す単位（unit_key・足跡・届く試験のパス）に、結べない行は直す義務の全部の単位に結び、
 義務の外の単位にだけ結んだ行は数えない（その単位の行を changes から外し、直しは作業ツリーに残す。trace に ABSORBED_OP）。
 結んだ義務の単位は足跡を共にする単位と一緒に止め、足跡を段の頭の木（leftovers.head_tree）に戻して控えの patch に移し、ask_human に
 裁いて（trace に PARKED_OP）残りの単位で受け付けを頭から通し直す（park_units）。止めた単位は義務の外になるので通し直しは終わる。
@@ -127,7 +128,7 @@ CLOSURE_OP = "fix_unit_rows"   # 受けた返答の単位ごとの閉鎖の表�
 BOUND_PARKED = ("修正の輪の最後の回も、この単位に結んだ拒否が残った（文がこの単位か、その足跡・届く試験を名指す。どの単位にも"
                 "結べない拒否は直す義務の全部の単位に結ぶ）。返答全体を拒んで盤面を止める代わりに、機械がこの単位の直しを段の頭の木に"
                 "戻して控えの patch に移し、人に回し、ほかの単位の直しを受けた。拒否の文: ")
-PARKED_OP = "fix_bound_parked"   # 最後の回に止めた単位の盤面の trace の行（unit_keys・patch・reasons {key: [文]}・unbound {文: 理由}）
+PARKED_OP = "fix_bound_parked"   # 最後の回に止めた単位の盤面の trace の行（unit_keys・patch・reasons {key: [文]}・unbound {文: 理由}・how {文: 結び方}）
 PARKED_PATCH = "fix-parked"            # 止めた単位の戻した直しの控え（盤面の今の周の fix-parked-<n>.patch）
 EMPTY_HANDED = ("修正の輪の最後の回に、直す義務の単位を全部止めても返答が写しの受け付けを通らなかったので、役の返答の代わりに"
                 "機械の空の返答を渡した: ")   # 後ろに残った行を " / " でつなぐ（hand_empty。盤面の p3.fix の fix_closure.reason）
@@ -321,14 +322,20 @@ def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
         items = [i for i in items if not (isinstance(i, dict) and i.get("unit_key") in known)]
     owed = conflict.owed_units_but_asked(b)
     if items:
-        bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed, try_query=querytest.judge_hits(b.record["units"]),
-                                briefs=planbrief.by_unit_at(board))
+        entries = conflict.problems_by_entry(items, repo=repo, board_dir=board, owed=owed,
+                                             try_query=querytest.judge_hits(b.record["units"]), briefs=planbrief.by_unit_at(board))
+        # 結果の lines: [(申し出た単位の key か None, 文)]。key が読める申し出は 1 件 1 行（最後の回に止める単位を結ぶ）
+        lines = [(key, CONFLICT_BAD + " / ".join(texts)) for _, key, texts in entries if key and texts] \
+            + [(None, CONFLICT_BAD + t) for _, key, texts in entries if not key for t in texts]
         both = sorted({i.get("unit_key") for i in items if isinstance(i, dict)}
                       & {c.get("unit_key") for c in reply.get("changes") or [] if isinstance(c, dict)})
+        bad = [t for _, _, texts in entries for t in texts]
         if both:
             bad.append(f"申し出た単位を changes にも書いた: {both}（申し出た単位は直さない）")
+            lines += [(k if k in owed else None, f"{CONFLICT_BAD}申し出た単位を changes にも書いた: {k}（申し出た単位は直さない）")
+                      for k in both]
         if bad:
-            return reply, _reject(CONFLICT_BAD + " / ".join(bad))
+            return reply, {**_reject(CONFLICT_BAD + " / ".join(bad)), "lines": lines}
         if pass_ == "first":
             conflict.park(b, items, source="fix")
         else:
@@ -456,7 +463,8 @@ def _rows_without(reply: dict, board, drop: set) -> list:
     return [c for c, k in zip(raw, names) if k not in drop]
 
 
-def last_settle(texts: list, reply: dict, board, base_rev, repo, state, parked: set, by_copy: bool = False) -> tuple:
+def last_settle(texts: list, reply: dict, board, base_rev, repo, state, parked: set, by_copy: bool = False,
+                declared: dict = None) -> tuple:
     """輪の最後の回の拒否の文 texts を単位に結ぶ（parking.settle）。返り (Settlement, 義務の外の単位の key の集合)。
     by_copy が真（写しの拒否）で止める単位が無いのに義務の残りが在れば、その全部を止める（parking.park_owed。写しは受けないので
     空の返答へ落ちて受けた直しを捨てない）。
@@ -473,7 +481,7 @@ def last_settle(texts: list, reply: dict, board, base_rev, repo, state, parked: 
     out = set(excused) | parked
     keys = {u.get("key") for u in b.record.get("units") or [] if isinstance(u, dict)} | {c.get("unit_key") for c in rows}
     got = parking.settle(texts, keys={k for k in keys if isinstance(k, str)}, feet=feet, reached=reached, owed=owed - out,
-                         out_of_duty=out, changed=set(writes.changed(repo, rev)))
+                         out_of_duty=out, changed=set(writes.changed(repo, rev)), declared=declared)
     if by_copy and not got.park and owed - out:
         got = parking.park_owed(texts, feet=feet, owed=owed, out_of_duty=out)
     return got, out
@@ -519,7 +527,7 @@ def park_units(settled, out: set, whole: dict, board, base_rev, repo, parked: se
                                             "limits": [], "by": "works:fix-accept"})
     conflict.write_rulings(b)
     b.trace(PARKED_OP, node=recount.ROLE, unit_keys=list(settled.park), patch=patch, reasons=settled.park,
-            unbound=settled.unbound)
+            unbound=settled.unbound, how=settled.how)
     now = parked | set(settled.park)
     rest = _rows_without(whole, board, out | now)
     return accept_fix(_without_rows(whole, rest, settled.files, repo), board, base_rev, repo, parked=now)
@@ -576,12 +584,14 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     absorbed = {"dropped": [], "absorbed": []}   # 最後の回に数えなかった物（受けた時に trace へ）
 
     found = []   # 積んだ拒否の行 (確かめの id, 文)。申し出より後の確かめは返さずにここへ積み、最後に 1 回だけ拒む
+    declared = {}   # 文 → 結び先の単位 key（申し出の行。申し出た単位を最後の回に止める）
 
     def settle(texts, by_copy=False):
         """最後の回: 行を単位に結ぶ。止める単位が在れば止めて通し直した返り、無ければ None（義務の外の単位の行を外した返答で先へ）。
         by_copy は写しの拒否の行（止める単位が無くても義務の残りが在れば止める。last_settle）"""
         nonlocal reply
-        settled, out = last_settle(texts, whole, board, base_rev, repo, state, set(parked), by_copy=by_copy)
+        extra = {"declared": declared} if declared else {}   # 申し出の行が無い回は last_settle の既定のまま
+        settled, out = last_settle(texts, whole, board, base_rev, repo, state, set(parked), by_copy=by_copy, **extra)
         if settled.park:
             return park_units(settled, out, whole, board, base_rev, repo, set(parked))
         rest = _rows_without(reply, board, out)
@@ -599,7 +609,10 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     if done is not None:
         if done.get("ok") is not False:   # 1 回目に裁かれていない申し出を止めた出口（積んだ誤りが在っても返す）
             return done
-        note(found, "conflict", [done["reason"]])
+        for key, text in done.get("lines") or [(None, done["reason"])]:
+            note(found, "conflict", text)
+            if key:
+                declared.setdefault(text, set()).add(key)
     got = fix_unit_keys(reply, board)
     if got is not None:
         note(found, "pack", check_pack_copy(reply, board, repo))
