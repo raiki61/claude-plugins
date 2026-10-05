@@ -598,6 +598,42 @@ class PrepCase(_Case):
         self.assertEqual([g["what"] for g in given], ["docs/spec.md 2 節", "docs/spec.md 3 節"])
         self.assertEqual(withheld, [])
 
+    def test_design_prompt_carries_repo_map(self):
+        """対象のリポジトリの根の ARCHITECTURE.md を地図として、出どころのパス:行つきで独立設計に貼り、控えの given に載せる"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "ARCHITECTURE.md", "# 全体\n\nMAP-BODY 信用の起点は署名\n")
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        text = design.prep(self.bd, self.repo)["prompt"]
+        self.assertIn("MAP-BODY", text)
+        self.assertIn("ARCHITECTURE.md:1-3", text)
+        self.assertIn(design.MAP_HEAD, text)
+        ledger = json.loads((pathlib.Path(self.bd) / design.PREMISES_FILE).read_text(encoding="utf-8"))
+        self.assertIn({"kind": "repo_map", "what": "ARCHITECTURE.md:1-3"}, ledger["given"])
+
+    def test_compare_prompt_carries_repo_map(self):
+        """突き合わせ（r2.compare）にも同じ地図を貼る"""
+        self.board("r1r2")
+        commit_file(self.repo, "ARCHITECTURE.md", "# 全体\n\nMAP-BODY 信用の起点は署名\n")
+        self.enter()
+        self.assertIn("MAP-BODY", eyes.prep(self.bd, "r2-compare", self.rnd, self.repo)["prompt"])
+
+    def test_no_map_is_named_not_silent(self):
+        """地図が 1 つも無ければ『地図なし』を貼り、渡していない物に理由を残す（黙って落とさない）"""
+        self.board("r1r2", made=None)
+        text, given, withheld = design.repo_map(self.repo)
+        self.assertIn("地図なし", text)
+        self.assertEqual(given, [])
+        self.assertEqual(withheld, [{"kind": "repo_map", "what": "ARCHITECTURE.md・AGENTS.md",
+                                     "why": "対象のリポジトリの根に追跡されていない"}])
+
+    def test_map_only_from_root(self):
+        """地図は根のパスだけを読む（docs/AGENTS.md は地図にしない）"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/AGENTS.md", "SUBDIR-MAP\n")
+        text, _, _ = design.repo_map(self.repo)
+        self.assertNotIn("SUBDIR-MAP", text)
+        self.assertIn("地図なし", text)
+
     STRUCTURE_MARK = "STRUCTURE-MARK-u-417"
     DESIGN_ROW_MARK = "DESIGN-ROW-MARK-u-417"
 
@@ -619,7 +655,7 @@ class PrepCase(_Case):
         ledger = json.loads((pathlib.Path(self.bd) / design.PREMISES_FILE).read_text(encoding="utf-8"))
         kinds = getattr(design, "PREMISE_KINDS", None)
         self.assertIsNotNone(kinds, "独立設計に渡す入力の種類の一覧（design.PREMISE_KINDS）が無い")
-        self.assertEqual(set(kinds), {"human_answer", "named_section"})
+        self.assertEqual(set(kinds), {"human_answer", "named_section", "repo_map"})
         self.assertLessEqual({g["kind"] for g in ledger["given"]}, set(kinds))
         self.assertIn(self.HUMAN_ITEM["note"], text, "一覧の中の種類（人の答え）は届く")
         dumped = json.dumps(ledger, ensure_ascii=False)
@@ -805,6 +841,10 @@ class PathCase(_Case):
         miss = ["別の設計書の節が渡されていない", "設計書が渡っていない", "12 節が渡されていない", "§3.1 が渡っていない"]
         got = {c for c in hit + miss if design.claims_given([c], given)}
         self.assertEqual(got, set(hit))
+
+    def test_unpassed_map_claim_matches_repo_map(self):
+        """『地図が渡されていない』の文は、貼った地図（kind repo_map）の行に当たる"""
+        self.assertEqual(len(design.claims_given(["地図が渡されていない"], [{"kind": "repo_map", "what": "ARCHITECTURE.md:1-3"}])), 1)
 
     def test_no_unpassed_claim_leaves_claims_empty(self):
         _, out = self._compare_with(COMPARE_OK)

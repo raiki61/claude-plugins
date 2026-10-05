@@ -14,14 +14,15 @@ Archon を知らない関数だけを出す。
 - prep:          r2.design の指示書を engine と同じ描き方で描き（節はまだ待っていない。rolekit.render_body の ahead）、役の定義を
                  頭に置く。人が決めた前提（premises）と前の拒否の文は頭に貼る（役は道具を持たないのでファイルを読めない）。
                  貼った入力の控えを盤面の根の design-premises.json に書く
-- premises:      R2 の 2 つの役（r2.design・r2.compare）に共通して貼る節の並びと、貼った入力の控え {given, withheld, seen}（kind は PREMISE_KINDS の中だけ）。
+- premises:      R2 の 2 つの役（r2.design・r2.compare）に共通して貼る節の並び（人の答え → 名指しの節 → 地図）と、貼った入力の控え {given, withheld, seen}（kind は PREMISE_KINDS の中だけ）。
                  human_answers（人の関所の答え。asked は写さず、answer の無い機械の行は withheld。seen は貼った答えの数と
                  最後の round の印で、突き合わせの側が独立設計の後に来た答えを分けて並べる）と named_sections（依頼が
                  名指した設計書の節の本文。文書の拡張子（impact.DOC_EXT）のパスのリンク・`<path>#<見出し>`・`<path>` N 節と、
                  パスの無い <名前> N 節・<名前> の「見出し」（追跡の文書の名で引く）・パスの無い N 節（依頼が名指した設計書が
                  ただ 1 本の時だけそれに結び付ける）の名指しを、固めた版 HEAD のファイルから、当たった行の形（行頭の記号の並び・
                  次の行の下線）で切る。貼る見出しに出どころのパス:行を添える。引けなかった・結び付けられなかった名指しは理由の
-                 1 行で withheld。1 節は engine が役に貼る本文の上限 FILE_CAP バイトまで。超えた残りは行の範囲で withheld）
+                 1 行で withheld。1 節は engine が役に貼る本文の上限 FILE_CAP バイトまで。超えた残りは行の範囲で withheld）と
+                 repo_map（対象のリポジトリの根の MAP_NAMES を地図として毎回貼る。無ければ「地図なし」の 1 行と withheld）
 - claims_unpassed: R2 の返答のうち『渡されていない』『渡っていない』と書いた文（独立の目の出口が控えと並べる）
 - accept:        返答を型（写しの schema）と作業ツリーの比べに通し、通れば design.json。拒否は盤面の根の控えに積み、
                  GIVE_UP_AFTER 回目で done（輪を抜ける。諦めても線は止めない——事前審査は設計なしで進み、最後の R2 が言う）
@@ -67,7 +68,7 @@ HUMAN_ASK = ("人が関所で答えた前提（run の中で人が決めた物�
 DESIGN_PREMISE_HEAD = "## 人が決めた前提（機械が貼った）"
 # 写しの指示書は 1 バイトも変えない（gl-prompts/COPIED_FROM）ので、入力を言う写しの文をこの節で読み替える
 DESIGN_PREMISE_REREAD = ("下の指示書の「渡すのは元の目的と実測した制約だけである」は、この run では、この節（人の関所の答え・"
-                         "依頼が名指した設計書の節）も渡していると読み替えよ。")
+                         "依頼が名指した設計書の節・対象のリポジトリの地図）も渡していると読み替えよ。")
 NAMED_HEAD = "### 依頼が名指した設計書の節"
 NAMED_ASK = "依頼が名指した設計書の節の本文（依頼を固めた版のファイルから機械が抜いた）。目的の文と同じく依頼の一部として読め。"
 CODE_SPAN_ANCHOR = re.compile(r"`([^`\s]+\.[A-Za-z0-9]+#[^`\s]+)`")
@@ -84,12 +85,19 @@ UNPASSED = re.compile(r"渡されていない|渡っていない")
 # 『渡されていない』の文が控えの given の kind を指す語。制約・前提のずれは「目的と実測した制約しか渡されていない」のような
 # 地の文によく出て無関係の行まで当たるので語では当てず、what そのものが文に在る時だけ当てる。設計書の節も「設計書」の語は
 # 別の設計書の文にも出るので語では当てず、what のパスか節番号が文に在る時だけ当てる（_named_hit）
-CLAIM_WORDS = {"human_answer": ("人の答え", "関所")}
+# 地図は「地図」の語か、what のパスの部分（`:` の前）が文に在る時に当てる
+CLAIM_WORDS = {"human_answer": ("人の答え", "関所"), "repo_map": ("地図",)}
 PREMISES_FILE = "design-premises.json"   # r2.design に渡した前提の入力の控え（盤面の根。design.json と同じく run に 1 つ）
 # 独立設計の指示書の頭に機械が貼ってよい前提の種類（premises の控えの kind の許す一覧）。一覧の外（ほかのブロックの出力など）を
 # 貼る口は作らない（独立設計の隔て。設計書 structure-block-design 7 節）。graph の reads で描く本文はこの柵の外（graph の reads が縛り、
 # その reads と prompt_append などの入口は tests/test_blk_eyes.py の test_r2_design_inputs_are_exactly_the_allowlist が許可の一覧の等式で縛る）
-PREMISE_KINDS = ("human_answer", "named_section")
+PREMISE_KINDS = ("human_answer", "named_section", "repo_map")
+# 対象のリポジトリの地図として根から読む名（関所の決め: 根の 2 つだけ。docs/ の下や README は読まない）。中身は分類せず丸ごと貼る。
+# AGENTS.md は blk-fix の fixrules.PROMPT_NAMES（役の指示書として読む名）とも重なる（core から blk-fix へは依らないので別に置く）
+MAP_NAMES = ("ARCHITECTURE.md", "AGENTS.md")
+MAP_HEAD = "### 対象のリポジトリの地図"
+MAP_ASK = ("対象のリポジトリの根に在る地図の文書（依頼を固めた版のファイルから機械が貼った。見出しは出どころのパス:行）。"
+           "依頼が名指していなくても、仕組みの中に既に在る実物（信用の起点・外との通信の経路・守る物）から設計を始めよ。")
 
 
 def human_answers(b) -> tuple:
@@ -335,17 +343,49 @@ def named_sections(b, repo) -> tuple:
     return text, given, withheld
 
 
+def repo_map(repo) -> tuple:
+    """(R2 の 2 つの役に貼る対象のリポジトリの地図の節（空にならない）, 控えの given, 控えの withheld)。固めた版 HEAD の根に追跡されて
+    いる MAP_NAMES を出どころのパス:行つきで丸ごと貼る。FILE_CAP を超えたら切り、切った行の範囲を withheld に書く。1 つも無ければ
+    「地図なし」の 1 行を貼る。根のパスだけを読む（_head_file の末尾の一致は使わない）"""
+    names = set(_tracked(repo))
+    parts, given, withheld = [], [], []
+    for n in MAP_NAMES:
+        if n not in names:
+            continue
+        got = subprocess.run(["git", "-C", str(repo), "show", f"HEAD:{n}"], capture_output=True, text=True, encoding="utf-8")
+        if got.returncode != 0:
+            continue
+        body = got.stdout.rstrip("\n")
+        total = len(body.splitlines())
+        if not total:
+            withheld.append({"kind": "repo_map", "what": n, "why": "空のファイル"})
+            continue
+        cut = []
+        parts.append(f"#### {n}:1-{total}\n\n{cap_bytes(body, n, cut)}")
+        given.append({"kind": "repo_map", "what": f"{n}:1-{total}"})
+        if cut:   # 切った後の本文に丸ごと残った行の数の次の行から
+            k = 1 + body.encode("utf-8")[:FILE_CAP].decode("utf-8", "ignore").count("\n")
+            withheld.append({"kind": "repo_map", "what": n, "why": f"{FILE_CAP} バイトを超えた残り（{n}:{k}-{total}）"})
+    if not parts:
+        parts.append(f"- 地図なし: 根の {'・'.join(MAP_NAMES)} は固めた版に無い")
+        if not withheld:
+            withheld.append({"kind": "repo_map", "what": "・".join(MAP_NAMES), "why": "対象のリポジトリの根に追跡されていない"})
+    return f"{MAP_HEAD}\n\n{MAP_ASK}\n\n" + "\n\n".join(parts), given, withheld
+
+
 def premises(b, repo) -> tuple:
-    """(R2 の 2 つの役に共通して貼る、人が決めた前提の節の並び（人の関所の答え・依頼が名指した設計書の節。空の節は除く）,
+    """(R2 の 2 つの役に共通して貼る、人が決めた前提の節の並び（人の関所の答え・依頼が名指した設計書の節・対象のリポジトリの地図。
+    空の節は除く。地図の節は空にならない）,
     控え {given, withheld, seen})。控えは貼った本文と同じ呼び出しから作る（別の源から組み直さない）"""
     human, rows, machine, seen = human_answers(b)
     named, given, withheld = named_sections(b, repo)
-    given = [{"kind": "human_answer", "what": r} for r in rows] + given
+    mapped, map_given, map_withheld = repo_map(repo)
+    given = [{"kind": "human_answer", "what": r} for r in rows] + given + map_given
     outside = sorted({g["kind"] for g in given} - set(PREMISE_KINDS))
     if outside:   # 一覧の外の源（ほかのブロックの出力など）から貼る口を作らない
         raise BoardGap(f"独立設計に渡す入力の種類が許す一覧（{' / '.join(PREMISE_KINDS)}）の外: {', '.join(outside)}")
-    withheld = [{"kind": "human_item", "what": m, "why": "answer の無い行（機械が積んだ。人の答えでない）"} for m in machine] + withheld
-    return [s for s in (human, named) if s], {"given": given, "withheld": withheld, "seen": seen}
+    withheld = [{"kind": "human_item", "what": m, "why": "answer の無い行（機械が積んだ。人の答えでない）"} for m in machine] + withheld + map_withheld
+    return [s for s in (human, named, mapped) if s], {"given": given, "withheld": withheld, "seen": seen}
 
 
 def claims_unpassed(reply) -> list:
@@ -360,7 +400,8 @@ def claims_given(claims, given) -> list:
     （設計書の節は what のパスか節番号）か given の kind の語（CLAIM_WORDS）を含めば当たる。判定はせず、並べて人に突き合わせさせる"""
     return [{"claim": c, "kind": g.get("kind"), "what": g.get("what")} for c in claims for g in given or []
             if isinstance(g, dict) and (str(g.get("what")) in c or any(w in c for w in CLAIM_WORDS.get(g.get("kind"), ()))
-                                        or g.get("kind") == "named_section" and _named_hit(str(g.get("what")), c))]
+                                        or g.get("kind") == "named_section" and _named_hit(str(g.get("what")), c)
+                                        or g.get("kind") == "repo_map" and str(g.get("what")).partition(":")[0] in c)]
 
 
 def _named_hit(what, claim) -> bool:
