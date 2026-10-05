@@ -69,7 +69,7 @@
 関わる keep-essence は 3（テストの凍結）・4（3 回拒まれたら、作業ツリーをその単位を始めた時の版に戻し、理由を残す）・6（受け付けで変更に当たる試験を回す）。この計画は 4 を、TDD の輪だけでなく修正の受け付けにも同じ形で当てる。
 
 - **決め 1（決まりは 1 つ）:** 最後の回の行を `parking.bind` で単位の集合に結ぶ。結び先は、文が名指す `unit_key`（か `unit_key[:60]`）と、文が名指すパスを足跡か届く試験に持つ単位の和。空なら直す義務の全部の単位（理由を名指す）。結び先から義務の外の単位を引いて残った単位を止める。残らない行は拒否に数えない。止めた単位は義務の外になるので、受け付けを頭から通し直すと同じ行は数えずに済み、通し直しは必ず終わる。
-  - これで消える物: 表 `CHECKS` の真偽の列と `parkable()`、`park_bound_units` の None の出口、`_held_files`、`unrevert_units` と戻す手（`undo`）と `PARK_UNDONE_OP`、最後の回の `drop_excused_units` の別の道（義務の外の単位の行を外すのは同じ決まりの半分になる）、`bind_problems` の「ちょうど 1 単位」。
+  - これで消える物: 表 `CHECKS` の真偽の列と `parkable()`、`park_bound_units` の None の出口、`_held_files`、`unrevert_units` と戻す手（`undo`）と PARK_UNDONE_OP、最後の回の `drop_excused_units` の別の道（義務の外の単位の行を外すのは同じ決まりの半分になる）、`bind_problems` の「ちょうど 1 単位」。
   - 足す分かれは無い。止めてよくない確かめも、行が結べる単位で同じに扱う（duplicate・not_opened・conflict は文が `unit_key` を名指す。pack は誰にも結べないので義務の全部）。
 - **決め 2（試験の赤の結び）:** tests の行はテストのファイルごとに 1 行にし、文にテストのファイルのパス（根からの相対）を書く。結びは決め 1 のパスの結びと同じ 1 本で、TDD の輪の `test_files`（足跡）と、import で届く試験（届く試験）がそのパスを持つ単位に結ぶ。traceback の中のパスは使わない（同じファイルを共にする単位は決め 3 でどうせ一緒に止まり、精度が上がらない）。
 - **決め 3（ファイルの共有）:** ファイルは単位ごとに分けて戻せない。だから止める単位と今の段の足跡を共にする単位も一緒に止める（共有の閉包）。今は諦めていた形（222・184・195f）が、その組だけを止める形になる。義務の外の単位（依頼 241 で作業ツリーに残す外れた単位の直し）が閉包に入れば、そのファイルの直しも控えの patch に移り、止める単位の文にその名を載せる。何も消えない。
@@ -103,7 +103,7 @@
 
 **Files:**
 - Create: `blk-fix/lib/parking.py`
-- Modify: `blk-fix/scripts/accept.py`（`CHECKS` の値を見出しの文字列だけにする・`accept_fix` の `parkable`・`refuse`・`excused` の分かれ（648-657 行）・`bind_problems`（446-461）・`revert_units`（464-486）・`unrevert_units`（489-494）・`_held_files`（515-531）・`drop_excused_units`（534-538）・`park_bound_units`（541-579）・`PARK_UNDONE_OP`（117）・docstring の 29-31・62-63・78-85 行）
+- Modify: `blk-fix/scripts/accept.py`（`CHECKS` の値を見出しの文字列だけにする・`accept_fix` の `parkable`・`refuse`・`excused` の分かれ（648-657 行）・`bind_problems`（446-461）・`revert_units`（464-486）・`unrevert_units`（489-494）・`_held_files`（515-531）・`drop_excused_units`（534-538）・`park_bound_units`（541-579）・PARK_UNDONE_OP（117）・docstring の 29-31・62-63・78-85 行）
 - Modify: `blk-fix/lib/tddloop.py`（`selected_problems` の赤の文をテストのファイルごとの行にする。`snapshot` を `leftovers` へ移して名を残す）
 - Modify: `blk-fix/lib/planscope.py`（27 行の docstring の名指しだけ）
 - Modify: `.shared/core/leftovers.py`（`snapshot` を受け、`record_ignored` が段の頭の木を控える）
@@ -123,7 +123,7 @@
   - `leftovers.snapshot(repo) -> str`（`tddloop.snapshot` から移す。`tddloop.snapshot` は同じ物の別名として残す）
   - `leftovers.head_tree(board, before_name: str = IGNORED_BEFORE_FILE) -> str | None` — `record_ignored` が `fix-ignored-before.json` に書いた欄 `head_tree`。無ければ None（古い盤面。呼び手は修正前の版の木に倒す）
   - `accept.CHECKS: dict[str, str]`（id → 見出し）。`accept.note` と `found`（`(id, 文)` の列）の形は今のまま
-  - `accept.PARKED_OP = "fix_bound_parked"`（今の `BOUND_PARKED_OP` を名替え。値は同じ。行の欄は `unit_keys`・`patch`・`reasons`（{key: [文]}）・`unbound`（{文: 理由}））、`accept.ABSORBED_OP = "fix_excused_dropped"`（今の `EXCUSED_DROPPED_OP` を名替え。欄 `dropped`（行を外した義務の外の単位の key）・`absorbed`（数えなかった文））
+  - `accept.PARKED_OP = "fix_bound_parked"`（今の BOUND_PARKED_OP を名替え。値は同じ。行の欄は `unit_keys`・`patch`・`reasons`（{key: [文]}）・`unbound`（{文: 理由}））、`accept.ABSORBED_OP = "fix_excused_dropped"`（今の EXCUSED_DROPPED_OP を名替え。欄 `dropped`（行を外した義務の外の単位の key）・`absorbed`（数えなかった文））
   - `accept.revert_units(board, base_rev, repo, files: set[str]) -> str`（控えの patch のパス）
   - 最後の回の `accept_fix` の返りは、Task 2 の土台を除けば必ず `ok: True`
 
@@ -190,13 +190,13 @@ Expected: 主の試験は 3 回目に FAIL（`(ok, done)` が `(False, True)`。
 4. `settle.park` が空なら、義務の外の単位の行を `changes` から外し（直しは作業ツリーに残す）、`found` を空にして先へ進む（写しの照らしは commit=True で回る）。外した単位か数えなかった文が在れば、受けた時に trace へ `ABSORBED_OP` を 1 行。
 5. 写しの受け付けが最後の回に拒めば、その行を 2 と同じに回す（3 か 4）。止める単位が無いのに写しが拒むなら、この Task では今どおり `rejected(found)` を返す（Task 2 が土台に替える）。
 
-`render_rejects` の `for check, (head, _)` を `CHECKS` の新しい形に合わせる。`bind_problems`・`unrevert_units`・`_held_files`・`drop_excused_units`・`park_bound_units`・`parkable`・`PARK_UNDONE_OP` を消す。`revert_units` から `frozen_tree` の分かれを消す。模块の docstring の 29-31・62-63・78-85 行を、決め 1・3・4 の 3 行に替える。`planscope.py:27` の「accept.bind_problems が単位に結ぶ」を「最後の回に parking.bind が単位に結ぶ」に直す。
+`render_rejects` の `for check, (head, _)` を `CHECKS` の新しい形に合わせる。`bind_problems`・`unrevert_units`・`_held_files`・`drop_excused_units`・`park_bound_units`・`parkable`・PARK_UNDONE_OP を消す。`revert_units` から `frozen_tree` の分かれを消す。模块の docstring の 29-31・62-63・78-85 行を、決め 1・3・4 の 3 行に替える。`planscope.py:27` の「accept.bind_problems が単位に結ぶ」を「最後の回に parking.bind が単位に結ぶ」に直す。
 
 - [ ] **Step 5: 今の振る舞いを縛っていた試験を直す**
   - `test_fix_accept_all.AllChecksCase.test_last_round_unbindable_line_rejects_whole` → 名を `test_last_round_duplicate_and_copy_park_their_units` にし、`(ok, done)` が `(True, True)`・止めた単位が MEAN と CLAMP・`changes` が空。
   - `test_fix_accept_all.RenderCase.test_table_values_are_the_ruled_ones` → `CHECKS` の値が見出しの文字列だけ。
   - `test_blk_fix.py` の `bind_problems` を呼ぶ試験（1294 行の辺り）→ `parking.bind` を呼び、結果が `{MEAN}`。
-  - `test_fix_rules.py` の `revert_units`・`unrevert_units`・`PARK_UNDONE_OP` を mock する試験（645-688 行と 750-800 行の class）→ 戻す手の取り消しを縛る試験は消し、ほかは `revert_units` の新しい引数に合わせる。
+  - `test_fix_rules.py` の `revert_units`・`unrevert_units`・PARK_UNDONE_OP を mock する試験（645-688 行と 750-800 行の class）→ 戻す手の取り消しを縛る試験は消し、ほかは `revert_units` の新しい引数に合わせる。
   - `test_fix_duty.TestAcceptExcused`: `test_last_round_with_failing_rest_touches_nothing` は消す。`test_last_round_with_unparkable_row_keeps_the_excused_fix` → 名を `test_last_round_duplicate_parks_and_excused_row_is_absorbed` にし、`ok` 真・MEAN を止め・HELD の行は外れて直しは残る。`test_key_outside_duty_and_excused_is_not_opened` → `ok` 真・作り話の単位を止める（`x.py` が戻る）。`test_last_round_drops_only_the_excused_unit` の trace の op は `ABSORBED_OP`。
   - `test_blk_fix_conflict.py:1229` の `park_bound_units` の直の呼び → 受け付けのスクリプトの最後の回で同じ盤面を回し、同じ単位が止まることを見る。
   - `test_writes.py:420-437`・`test_tdd_outside.py:145-183` の赤の文の断言 → 行がテストのファイルごとで、文がそのパスを名指す。

@@ -5,12 +5,14 @@
 - 2 つの単位が同じ行を直す → 2 つ目は当たらず (False, 理由)、作業ツリーは 1 つ目を当てたまま
 - run の作業ツリーの未 commit の直し（tracked の変更・untracked の新しいファイル）が単位の worktree に見える
 - どの口も本物の index・HEAD・枝を動かさない
+- index を切ったのと同じ秒に同じ大きさで書き換えたファイルも、次の秒に取った差分に入る（git の racy な行の読み直し）
 - remove・sweep が worktree と守りの参照を片付け、同じリポジトリのほかの作業ツリーの単位には触らない
 """
 import pathlib
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -68,6 +70,15 @@ class UnitTrees(unittest.TestCase):
         self.assertEqual((self.repo / "b.txt").read_text(), "b1\nb2\nB3\n")
         self.assertEqual((self.repo / "new.txt").read_text(), "new\n")
         self.assertEqual(self.real_state(), state)
+
+    def test_same_second_same_size_edit_reaches_diff_next_second(self):
+        """index の写しが mtime を今にすると、git は同じ秒に書いたファイルを stat で信じて直しを落とした（1 回に 1 度ほどの赤）"""
+        base = unittrees.snapshot(self.repo)
+        path, _ = self.unit(base, "u1", {"a.txt": "a1\nA2\na3\n"})
+        wrote = int((path / "a.txt").stat().st_mtime)
+        while int(time.time()) <= wrote:   # 書いた秒を跨いでから差分を取る（長くて 1 秒）
+            time.sleep(0.05)
+        self.assertIn("+A2", unittrees.diff(path, base))
 
     def test_same_line_second_does_not_apply_and_tree_keeps_first(self):
         state = self.real_state()

@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 
@@ -77,9 +78,10 @@ def _tree_now(tree, tmp: str) -> str:
     """tree の作業ツリーの今の姿の木（一時の index に本物の index を写して add -A。本物の index は動かさない）"""
     index = os.path.join(tmp, "index")
     real = _out(tree, "rev-parse", "--path-format=absolute", "--git-path", "index")
-    if os.path.isfile(real):   # 写すと stat の控えが効き、変わったファイルだけを読み直す
-        with open(real, "rb") as src, open(index, "wb") as dst:
-            dst.write(src.read())
+    if os.path.isfile(real):   # 写すと stat の控えが効き、変わったファイルだけを読み直す。写しの mtime は本物に揃える
+        # （git は index の mtime と同じ秒に書かれたファイルを stat で信じずに中身を読む。写しの mtime が今になると、
+        # 同じ秒・同じ大きさで書き換えたファイルを変わっていないと読み、直しを落とす）
+        shutil.copy2(real, index)
     _git(tree, "add", "-A", index=index)
     return _out(tree, "write-tree", index=index)
 

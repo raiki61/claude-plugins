@@ -10,7 +10,6 @@ fixing の fix-unit-rows.json・r1/brief-1.md・r1/briefs.json・r1/changes.json
 """
 import hashlib
 import json
-import os
 import pathlib
 import subprocess
 import sys
@@ -22,6 +21,7 @@ TESTS = pathlib.Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(TESTS))
 
+import hermetic  # noqa: E402
 import linekit  # noqa: E402
 import scriptline  # noqa: E402
 import report  # noqa: E402  （scriptline が core を sys.path に足す）
@@ -224,8 +224,8 @@ class FanOutOpenCase(unittest.TestCase):
             procs = []
             for m in marks:
                 path = f"__archon_fan_out__fan__root__{m}__fan__{m}__work"
-                env = {**os.environ, "CORE": str(scriptline.CORE), "ARCHON_NODE_EXECUTION": json.dumps({"path": path})}
-                procs.append(subprocess.Popen([sys.executable, str(script), str(board), m], env=env, text=True,
+                env = hermetic.child_env(CORE=str(scriptline.CORE), ARCHON_NODE_EXECUTION=json.dumps({"path": path}))
+                procs.append(subprocess.Popen([sys.executable, str(script), str(board), m], env=env, text=True, encoding="utf-8",
                                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
             for p in procs:
                 p.stdin.write("go\n")

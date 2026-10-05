@@ -147,13 +147,13 @@
   },
   {
    "id": "fx7",
-   "title": "輪の最後の回に単位を止める・外して通し直すのは、積んだ行の確かめが全部止めてよい物（表 CHECKS）の時だけ（依頼 224）",
-   "file": "blk-fix/scripts/accept.py",
-   "old": "        return last and isinstance(whole, dict) and all(CHECKS[c][1] for c, _ in found)\n",
-   "new": "        return last and isinstance(whole, dict) and True\n",
+   "title": "輪の最後の回に単位に結べない拒否の行は、捨てずに直す義務の全部の単位を止める（依頼 242。224 の「結べない行は丸ごと拒む」の後継）",
+   "file": "blk-fix/lib/parking.py",
+   "old": "            hit, why = set(owed), f\"{text}（{unbound[text]}）\"\n",
+   "new": "            hit, why = set(), text\n",
    "tests": {
     "tests/test_fix_accept_all.py": [
-     "AllChecksCase.test_last_round_unbindable_line_rejects_whole"
+     "StopsKeepWorkCase.test_unbound_row_parks_every_owed_unit_and_says_why"
     ]
    }
   },
