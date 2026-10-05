@@ -40,7 +40,12 @@
     項目の refactor.declared）の単位だけ refactor の段へ進み、理由を単位の refactor_why に残す。declared が true で理由が短ければ
     拒む（一式を走らせる前）。申告が無ければ単位の refactor を skipped にして次の単位へ（緑の木が次の単位の頭）
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
-  - test・fix・refactor とも、名指しを絶対パスの node id で実行器の後ろに足して走らせる（段の外に書いたテストも一式の結末に載る）
+  - test・fix・refactor とも、名指しを絶対パスの node id で実行器の後ろに足し、合図 TDD_SUITE_ONLY=1（ONLY_ENV）を付けて走らせる
+    （一式を回さない。解かない実行器は今どおり一式に足して走らせる）。赤の回は名指しだけ。緑の回（fix・変えた refactor）は名指しに、
+    単位の頭からの変更が届く試験（impact.select_tests）のうち元の結末に載ったモジュールの pytest のファイルを絶対パスで足す
+    （_reached。元で通っていたテストの緑と消えたテストの照らしは、この回でファイルごと走ったモジュールで見る）。地図が引けない・
+    分からない物が近くに在る（run_all）時は合図なしの一式。届かない試験・元の結末の外の試験は受け付け（selected_problems）と
+    線の最後のテストの段（一式）が確かめる
   拒めば同じ段のまま、理由は次の指示書（と reason_file）に載る。段ごとに RETRY_MAX 回目の拒否で諦める: test・fix は作業ツリーを
   単位の頭に戻して direct へ、refactor は緑の時の木に戻す。実行器が走らない・回数の上限に届いた時は、残りを全部 direct にして抜ける
   （輪は done の印で抜け、max_iterations に届いて落ちない。R50）
@@ -96,6 +101,9 @@ MAX_ITERATIONS = 40   # YAML の tdd-loop の max_iterations と同じ値（試�
 MIN_WHY = 10
 STATE, PROMPT, SUMMARY = "state.json", "next.md", "summary.md"
 NO_SUITE = "テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す"
+# 実行器への合図（env）: 1 なら後ろに足した試験（ファイル・node id）だけを走らせてよい（既定の一式を集めない）。輪の赤・緑の回だけが
+# 付ける（元の結末・受け付け・版の写しは付けない）。解かない実行器は無視してよい（一式に足して走らせても確かめは同じ）
+ONLY_ENV = "TDD_SUITE_ONLY"
 # run の test_cmd の関門（start が 1 回だけ決める）: on＝緑の後に毎回走らせる・same_as_suite＝実行器がそのコマンドを包んだ物で
 # 一式の緑と同じ（走らせない）・off＝空か、輪の頭で赤・走らない（理由は状態の test_cmd_note）。1 行ずつ定義する（根の柵の
 # doc-symbols が文書の名指しを `^名前 =` の行で引く）
@@ -182,17 +190,19 @@ def hashes(repo, files) -> dict:
 
 
 # ---------------------------------------------------------------- 一式を走らせる
-def run_suite(exe: str, repo, work: pathlib.Path, n, args=()):
+def run_suite(exe: str, repo, work: pathlib.Path, n, args=(), only=False):
     """実行器を 1 回走らせる ——（結末の一覧, 終了コード, 問題）。結末が取れなければ一覧は None。
     .py はこの Python で走らせる（写しの rules の run_suite と同じ）。出力は work/suite-<n>.log に丸ごと。
     args は JUnit の書き先の後ろに足す（段の外の試験のファイル・node id を絶対パスで・受け付けの -k。works/dev/tdd-suite.sh は
     pytest に渡し、試験の根（conftest.py の置き場）が違う名指しは根ごとに別のプロセスで流して JUnit を 1 つに合わせる）。同じ鍵の行は 1 つにまとめる（段のファイルと足した node id が重なっても 1 件）。
     輪の元の結末・各段・受け付け・版の写しの全部がここを通るので、nice -n 19 と機械の試験の枠（tree_run.slotted_run）を
-    ここで付ける（ADR 0071 の 3 の 1）。枠を待った秒はログの末尾に書く（走った時間と分けて見る）"""
+    ここで付ける（ADR 0071 の 3 の 1）。枠を待った秒はログの末尾に書く（走った時間と分けて見る）。
+    only なら env に合図 ONLY_ENV=1 を付ける（後ろの試験だけでよい。輪の赤・緑の回）。付けない回は外の env の合図も落とす"""
     argv = ["nice", "-n", "19"] + ([sys.executable] if exe.endswith(".py") else []) + [exe]
     junit = work / f"junit-{n}.xml"
     log = work / f"suite-{n}.log"
-    env = {**tree_run.outside_env(os.environ), "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {k: v for k, v in tree_run.outside_env(os.environ).items() if k != ONLY_ENV}
+    env.update({"PYTHONDONTWRITEBYTECODE": "1", **({ONLY_ENV: "1"} if only else {})})
     with open(log, "wb") as out:
         try:
             rc, wait = tree_run.slotted_run([*argv, str(junit), *args], env, stdin=subprocess.DEVNULL, stdout=out,
@@ -602,18 +612,51 @@ def _paths(v, name) -> tuple:
     return out, ([f"{name} はリポジトリの根からの相対パス（{bad}）"] if bad else [])
 
 
-def _run(st, repo, named=()):
-    """一式を走らせ、走らせて出来たファイルを suite_made に積む（テストを書く段が触ったファイルの数えから外す）。
-    名指しは絶対パスの node id で実行器の後ろに足し、段の外に書いたテストも同じ 1 回で集める（段の中の名指しとの重なりは
-    run_suite が 1 件にまとめる。後ろの引数を解かない実行器なら段の外の名指しは居ないままで、赤・緑の確認が今どおり拒む）"""
+def _run(st, repo, named=(), files=(), full=False):
+    """実行器を 1 回走らせ、走らせて出来たファイルを suite_made に積む（テストを書く段が触ったファイルの数えから外す）。
+    名指しは絶対パスの node id、files（根からの相対の試験のファイル）は絶対パスで実行器の後ろに足す（段の外に書いたテストも
+    同じ 1 回で集める。段の中の名指しとの重なりは run_suite が 1 件にまとめる。後ろの引数を解かない実行器なら段の外の名指しは
+    居ないままで、赤・緑の確認が今どおり拒む）。full でなければ合図 ONLY_ENV を付ける（後ろの試験だけ）。
+    last_run（消えたテストの照らしの元）: outcome・args（名指しと files）・whole（ファイルごと足したモジュール）・full"""
     pre = snapshot(repo)
-    cases, code, why = run_suite(st["exe"], repo, pathlib.Path(st["work"]), st["runs"], _abs_ids(repo, named))
+    cases, code, why = run_suite(st["exe"], repo, pathlib.Path(st["work"]), st["runs"],
+                                 _abs_ids(repo, named) + _abs_paths(repo, files), only=not full)
     st["runs"] += 1
     st["suite_made"] = sorted(set(st["suite_made"]) | set(touched(repo, pre, snapshot(repo))))
     if cases is None:
         raise _RunnerDown("; ".join(why))
-    st["last_run"] = {"outcome": {_key(c): c["outcome"] for c in cases}, "args": list(named)}   # 消えたテストの照らしの元
+    st["last_run"] = {"outcome": {_key(c): c["outcome"] for c in cases}, "args": [*named, *files],
+                      "whole": sorted({impact._mod(f) for f in files}), "full": bool(full)}
     return cases, code
+
+
+def _reached(st, repo) -> tuple[list, bool]:
+    """緑の回に足す試験 ——（根からの相対の pytest の試験のファイル, 一式を回すか）。単位の頭からの変更（走らせて出来たファイルを
+    除く）を起点に地図を引き（impact.map の seeds。置き場は work/impact）、届いた試験（impact.select_tests）のうち作業ツリーに在り、
+    元の結末に載ったモジュール（元の一式が走らせた物。元で赤だった試験が届いただけで拒まれない）のファイル。地図が引けない・
+    run_all なら ([], True)（合図なしの一式）"""
+    seeds = sorted(set(touched(repo, st["unit_head"], snapshot(repo))) - set(st["suite_made"]))
+    try:
+        sel = impact.select_tests(impact.map(repo, seeds=seeds, cache_dir=pathlib.Path(st["work"]) / "impact"))
+    except (RuntimeError, OSError, ValueError):
+        return [], True
+    if sel["run_all"]:
+        return [], True
+    base = {impact._junit_module({"classname": k.partition("::")[0]}) for k in st["baseline"]}
+    return [f for f in sel["selected"] if PYTEST_FILE.match(posixpath.basename(f)) and (pathlib.Path(repo) / f).is_file()
+            and impact._mod(f) in base], False
+
+
+def _next_head(prev: dict, run: dict) -> dict:
+    """次の単位の頭の回（純粋）: 一式の回（full）はそのまま。絞った回は、前の頭の結末に、その回の結末を重ねた物（ファイルごと
+    走ったモジュール（whole）の前の行は捨てる。走っていないモジュールは前の頭の結末のまま）。重ねた回は同じ選びの回に数えない
+    （args は None）"""
+    if not run or run.get("full", True):
+        return run
+    whole = set(run.get("whole") or [])
+    kept = {k: o for k, o in prev.get("outcome", {}).items()
+            if impact._junit_module({"classname": k.partition("::")[0]}) not in whole}
+    return {"outcome": {**kept, **run["outcome"]}, "args": None, "whole": [], "full": False}
 
 
 def _cur(st) -> dict:
@@ -811,12 +854,15 @@ def _vanish_scope(files) -> set | None:
     return {impact._mod(f) for f in files if TEST_FILE.match(posixpath.basename(f))}
 
 
-def _vanished(head: dict, refs: list, now: dict, args: list, scope, skip) -> list[tuple[str, str]]:
+def _vanished(head: dict, refs: list, now: dict, args: list, scope, skip, whole=()) -> list[tuple[str, str]]:
     """単位の頭の回（head: {outcome: 鍵 → 結末, args: 実行器の後ろの引数}）で通っていたテストのうち、今の結末（now）で
     飛ばされた物と、今の回と同じ選び（args）の回（refs のどれか）に居たのに今は居ない物の [(鍵, skipped か missing)]。
     scope（_vanish_scope）の外のモジュールと、skip の id（_id_base で parametrize の `[…]` を落として比べる。修正案の書き換え・
-    輪が確かめた id）に当たる鍵は見ない。選びの違う回の居ないは数えない（後ろの node id だけを走らせる実行器）。純粋"""
-    same = [r for r in refs if sorted(r.get("args") or []) == sorted(args)]
+    輪が確かめた id）に当たる鍵は見ない。選びの違う回の居ないは数えない（後ろの node id だけを走らせる実行器）。ただし今の回で
+    ファイルごと走ったモジュール（whole。impact._mod の名）の居ないは、選びに依らず数える。args が None の回（重ねた頭）は
+    どの回とも同じ選びでない。純粋"""
+    same = [r for r in refs if r.get("args") is not None and sorted(r["args"]) == sorted(args)]
+    whole = set(whole)
     out = []
     for k, o in head.get("outcome", {}).items():
         cls, _, name = k.partition("::")
@@ -826,7 +872,8 @@ def _vanished(head: dict, refs: list, now: dict, args: list, scope, skip) -> lis
         if any(rules().match_case(_id_base(i), [case]) for i in skip):
             continue
         got = now.get(k)
-        if got == "skipped" or (got is None and any(k in r.get("outcome", {}) for r in same)):
+        if got == "skipped" or (got is None and (any(k in r.get("outcome", {}) for r in same)
+                                                  or impact._junit_module({"classname": cls}) in whole)):
             out.append((k, got or "missing"))
     return out
 
@@ -840,13 +887,13 @@ def _vanished_problems(st, u, cases, args, repo) -> list[str]:
     """約束の在る単位で、単位の頭で通っていたテストが飛ばされた・結末から消えた物の文（クラスの setUp の skipTest・モジュールの
     末尾で消すなど、名指しの外の本体を変えずに外す抜け道。写しの red_problems・green_problems は落ちた物しか見ない）。
     照らすのは単位の頭から変わったテストのファイルのモジュールだけ（conftest.py に触れたら全部）。居ないを数えるのは、同じ
-    選びの回（単位の頭の回か、この単位の赤の回）に居た時だけ"""
+    選びの回（単位の頭の回か、この単位の赤の回）に居た時と、今の回（last_run）でファイルごと走ったモジュールの時"""
     if _contract(st, u["unit_key"]) is None:
         return []
     refs = [_head_run(st)] + ([u["red_run"]] if u.get("red_run") else [])
     skip = [*_plan_rewrites(st, u["unit_key"]), *_verified(st)]
     gone = _vanished(_head_run(st), refs, {_key(c): c["outcome"] for c in cases}, list(args),
-                     _vanish_scope(_moved_test_files(st, repo)), skip)
+                     _vanish_scope(_moved_test_files(st, repo)), skip, st["last_run"].get("whole") or ())
     return [f"単位 '{u['unit_key']}' の段で、単位の頭で通っていたテスト {k} が {o}（飛ばされた・一式の結末から消えた）——"
             "名指しの外の既存のテストを外すな（外すなら phase conflict で申し出よ）" for k, o in gone[:20]]
 
@@ -950,9 +997,10 @@ def _green(st, u, repo) -> list:
     other = _other_test_edits(st, u, repo)
     if other:
         return other
-    cases, code = _run(st, repo, u["tests"])
+    files, full = _reached(st, repo)
+    cases, code = _run(st, repo, u["tests"], files, full)
     return rules().green_problems(u["tests"], cases, code, st["baseline"], st["baseline_exit"]) \
-        or _vanished_problems(st, u, cases, u["tests"], repo) or _test_cmd_problems(st, repo)
+        or _vanished_problems(st, u, cases, st["last_run"]["args"], repo) or _test_cmd_problems(st, repo)
 
 
 def _plan_refactor_why(st, k) -> str:
@@ -995,7 +1043,7 @@ def _fix(st, reply, repo) -> list:
         st["phase"] = "refactor"
         return []
     u["refactor"] = "skipped"
-    st["head_run"] = st["green_run"]   # 次の単位の頭の回（緑の木の回）
+    st["head_run"] = _next_head(_head_run(st), st["green_run"])   # 次の単位の頭の回（緑の木の回）
     st["cur"] += 1
     _next_unit(st, repo)
     return []
@@ -1012,7 +1060,7 @@ def _refactor(st, reply, repo) -> list:
             return probs
         st["green_run"] = st["last_run"]
     u["refactor"] = "ok" if moved else "none"
-    st["head_run"] = st.get("green_run")   # 次の単位の頭の回（緑の木の回）
+    st["head_run"] = _next_head(_head_run(st), st.get("green_run"))   # 次の単位の頭の回（緑の木の回）
     st["cur"] += 1
     _next_unit(st, repo)
     return []
@@ -1028,7 +1076,7 @@ def _give_up(st, repo, probs) -> None:
     if st["phase"] == "refactor":
         restore(repo, st["green_tree"])
         u.update(refactor="reverted", problems=probs[:10])
-        st["head_run"] = st.get("green_run")   # 緑の木に戻したので、次の単位の頭の回は緑の回
+        st["head_run"] = _next_head(_head_run(st), st.get("green_run"))   # 緑の木に戻したので、次の単位の頭の回は緑の回
     else:
         restore(repo, st["unit_head"])
         stage = "red" if st["phase"] == "test" else "green"
@@ -1381,7 +1429,8 @@ def selected_problems(state_file, repo, rev) -> tuple:
     """(赤の文の一覧, 知らせ)。実行器の後ろに足すのは、選んだ試験のうちこの run で変えた・足したファイルだけ（ADR 0071 の
     3 の 1。届いただけの段の外の試験は手元で走らせない）。実行器の既定の一式の中は -k で選んだ全部のモジュールに絞る。
     実行器の無い run（状態が無い）・当たる試験が無い・実行器が走らない・選んだ試験が 1 件も走らなかった時は赤にせず知らせだけ。
-    元の結末に無い試験の赤は、版の写しで同じ試験を回して、版でも赤なら外す"""
+    元の結末に無い試験の赤は、版の写しで同じ試験を回して、版でも赤なら外す（版の写しの結末は _base_reds が盤面の根に控え、
+    受け付けの回をまたいで使い回す）"""
     if not state_file:
         return [], NO_SUITE
     st = _load(state_file)
@@ -1455,10 +1504,55 @@ def ci_left(state_file) -> list:
     return _load(state_file).get("ci_left", []) if state_file and pathlib.Path(state_file).is_file() else []
 
 
+REV_CACHE = "accept-rev-cache.json"   # 版の写しの結末の控え（盤面の根。run の全部の輪と受け付けの回が使い回す）
+
+
+def rev_id(repo, rev: str) -> str:
+    """版 rev の commit の sha（引けなければ rev のまま。控えの鍵に使う: 名前が同じでも指す版が変われば別の鍵）"""
+    try:
+        return git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").strip() or rev
+    except Unreadable:
+        return rev
+
+
+def exe_id(repo, exe) -> list:
+    """実行器の控えの鍵: repo の中なら根からの相対パス（中身は版が決める。版の木の中の同じ物を走らせる）、外なら絶対パスと中身の sha"""
+    p = pathlib.Path(exe)
+    try:
+        return ["repo", p.absolute().relative_to(pathlib.Path(repo).absolute()).as_posix()]
+    except ValueError:
+        return ["abs", str(p.absolute()), hashes(p.parent, [p.name])[p.name]]
+
+
+def load_json(path: pathlib.Path, default):
+    """控えのファイル（無い・読めない・形が違えば default。控えは使い回しの手がかりで、無くても走らせ直すだけ）"""
+    try:
+        got = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+    return got if isinstance(got, type(default)) else default
+
+
+def save_json(path: pathlib.Path, doc) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _base_reds(st, repo, rev, files, kexpr) -> tuple:
     """(版 rev の姿で同じ試験を回して赤だった鍵の集合か None, 問題)。版の姿は一時の置き場に git archive で写して走らせ、
     作業ツリー・index・枝は動かさない。実行器が repo の中に在れば写しの中の同じ物を走らせる（自分の置き場から根を引く実行器が
-    写しの根で走るように）"""
+    写しの根で走るように）。
+    写しは版の姿だけ（今の木から何も写さない）なので、結末は版・実行器・後ろの引数（ファイルと -k）で決まる。走らせた結末は
+    盤面の根の REV_CACHE に残し、同じ版・同じ実行器・同じ -k で、名指したファイルが前に走らせた回のファイルに含まれれば
+    走らせずに使う（run の中で版は動かないので、受け付けの回・2 回目の修正の段をまたいで 1 回で足りる。195g は回ごとに 3 分半）。
+    結末が取れなかった回は残さない"""
+    cache = pathlib.Path(st["work"]).parent / REV_CACHE
+    key = {"rev": rev_id(repo, rev), "exe": exe_id(repo, st["exe"]), "kexpr": kexpr}
+    rows = load_json(cache, [])
+    for r in rows:
+        if isinstance(r, dict) and {k: r.get(k) for k in key} == key and set(files) <= set(r.get("files") or []):
+            return set(r.get("reds") or []), []
     with tempfile.TemporaryDirectory(prefix="works-tdd-rev-") as td:
         copy = pathlib.Path(td) / "repo"
         try:
@@ -1476,7 +1570,9 @@ def _base_reds(st, repo, rev, files, kexpr) -> tuple:
         cases, _, why = run_suite(str(exe), copy, pathlib.Path(st["work"]), f"{ACCEPT_RUN}-rev", _args(copy, files, kexpr))
     if cases is None:
         return None, why
-    return {_key(c) for c in cases if c["outcome"] in ("failure", "error")}, []
+    reds = {_key(c) for c in cases if c["outcome"] in ("failure", "error")}
+    save_json(cache, [*rows, {**key, "files": sorted(set(files)), "reds": sorted(reds)}])
+    return reds, []
 
 
 FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems", "red_kinds",

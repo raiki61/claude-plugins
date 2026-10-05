@@ -169,6 +169,25 @@ class TddSuiteCase(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_b": "failure", "test_other": "passed"})
 
+    def test_only_env_runs_just_the_given_tests(self):
+        # 輪の赤・緑の回は TDD_SUITE_ONLY=1 で起こす: 段の一覧を集めず、後ろに足した試験（node id・ファイル）だけを走らせる
+        other = f"{self.root / 'tests' / 'test_other.py'}::OtherCase::test_other"
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, other, TDD_SUITE_ONLY="1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_other": "passed"})
+        r = self.run_suite(out, str(self.root / "tests" / "test_other.py"), TDD_SUITE_ONLY="1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_other": "passed"})
+
+    def test_only_env_without_tests_keeps_the_tier(self):
+        # 足した試験が無ければ合図は効かない（works の根の全部を集める pytest にしない。段の一覧のまま）
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, TDD_SUITE_ONLY="1")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()},
+                         {"test_pass": "passed", "test_fail": "failure", "test_error": "failure", "test_skip": "skipped"})
+
     def test_k_value_is_not_taken_as_a_path(self):
         # -k の値が呼ぶ側の cwd に在るファイルの名と同じでも、パスに書き換えない（絞る式のまま）
         (self.caller / "test_pass").write_text("", encoding="utf-8")
@@ -223,6 +242,14 @@ class TddSuiteCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()},
                          {"test_works_engine": "passed", "test_outside_engine": "passed"})
+
+    def test_only_env_with_outer_root_ids_runs_only_them(self):
+        # 外の根の名指しだけを TDD_SUITE_ONLY=1 で渡せば、works の根の段の一覧は走らせない
+        out_test = self._two_worlds()
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out, f"{out_test}::WorldCase::test_outside_engine", TDD_SUITE_ONLY="1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual({n: o for n, (_, o) in self.outcomes(out).items()}, {"test_outside_engine": "passed"})
 
     def test_merged_exit_code_ignores_zero_selected_root(self):
         out_test = self._two_worlds()

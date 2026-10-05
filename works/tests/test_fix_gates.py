@@ -277,6 +277,110 @@ class TestRedGreen(FixGatesCase):
         self.assertFalse((self.repo / "made.txt").exists())
 
 
+class TestBaseCache(FixGatesCase):
+    """base の木の結末は base の版（writes.base_rev）・実行器・受け入れのテストの id・そのテストのファイル（と写す conftest.py）の
+    中身で鍵を作り、盤面の周の置き場に残して受け付けの回・1 回目と 2 回目の修正の段をまたいで使い回す（base は run の中で
+    動かない。195g は回ごとに base の worktree で一式を 1 分半走らせ直した）。決まり（今の木で緑・base で案の種類の赤）は変えない"""
+
+    def counted(self):
+        """tddloop.run_suite を数える {"now": 今の木の回数, "base": それ以外の回数}"""
+        real = fixgates.tddloop.run_suite
+        calls = {"now": 0, "base": 0}
+
+        def run(exe, repo, *a, **k):
+            calls["now" if pathlib.Path(repo).resolve() == self.repo.resolve() else "base"] += 1
+            return real(exe, repo, *a, **k)
+        return calls, mock.patch.object(fixgates.tddloop, "run_suite", side_effect=run)
+
+    def test_base_runs_once_across_attempts(self):
+        self.ready_with_fields()
+        self.add_test_mean_of_two()
+        self.edit_tree(MEAN_FIX)
+        calls, patch = self.counted()
+        with patch:
+            self.assertEqual(self.problems(attempt=1), [])
+            self.assertEqual(self.problems(attempt=2), [])
+            self.assertEqual(self.problems(attempt=1, pass_="ruled"), [])
+        self.assertEqual(calls, {"now": 3, "base": 1}, "今の木は回ごと・base は 1 回")
+
+    def test_cached_base_keeps_the_rule(self):
+        """使い回した base の結末でも決まりは同じ: base で緑なら回をまたいでも行"""
+        self.ready_with_fields()
+        self.add_test_that_passes_on_base("test_mean_of_two")
+        calls, patch = self.counted()
+        with patch:
+            first = self.problems(attempt=1)
+            second = self.problems(attempt=2)
+        self.assertEqual([(r["gate"], r["id"], r["detail"]) for r in first],
+                         [(r["gate"], r["id"], r["detail"]) for r in second])
+        self.assertIn("base で緑", second[0]["detail"])
+        self.assertEqual(calls["base"], 1)
+
+    def test_changed_test_file_reruns_base(self):
+        """受け入れのテストのファイルの中身が変われば鍵が変わり、base を走らせ直す（古い結末で通さない）"""
+        self.ready_with_fields()
+        self.add_test_mean_of_two()
+        self.edit_tree(MEAN_FIX)
+        calls, patch = self.counted()
+        with patch:
+            self.assertEqual(self.problems(attempt=1), [])
+            self.edit_tests("self.assertEqual(mean([2, 4]), 3)", "self.assertEqual(clamp(5, 0, 10), 5)")
+            rows = self.problems(attempt=2)
+        self.assertEqual([(r["gate"], r["id"]) for r in rows], [("red_green", MEAN_ID)])
+        self.assertIn("base で緑", rows[0]["detail"])
+        self.assertEqual(calls["base"], 2)
+
+    def test_other_base_rev_reruns_base(self):
+        self.ready_with_fields()
+        self.add_test_mean_of_two()
+        self.edit_tree(MEAN_FIX)
+        calls, patch = self.counted()
+        with patch:
+            self.assertEqual(self.problems(attempt=1), [])
+            (self.repo / "note.txt").write_text("x", encoding="utf-8")
+            self.git("add", "note.txt")
+            self.git("commit", "-q", "-m", "版を進める")
+            head = self.git("rev-parse", "HEAD")
+            with mock.patch.object(fixgates.writes, "base_rev", return_value=head):
+                self.problems(attempt=2)
+        self.assertEqual(calls["base"], 2)
+
+    def test_second_pass_reuses_first_pass_base(self):
+        """2 回目の修正の段（include refitting。帳面は別の置き場）も、同じ鍵なら 1 回目の段の base の結末を使う"""
+        self.ready_with_fields()
+        self.add_test_mean_of_two()
+        self.edit_tree(MEAN_FIX)
+        calls, patch = self.counted()
+        refit = {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": "refitting__fix-loop.fix-accept"})}
+        accept = str(ROOT / "blk-fix" / "scripts" / "accept.py")
+        with patch:
+            self.assertEqual(self.problems(attempt=1), [])
+            with mock.patch.dict(os.environ, refit), mock.patch.object(sys, "argv", [accept]):
+                self.assertEqual(self.problems(attempt=1), [])
+        self.assertEqual(calls["base"], 1)
+
+    def test_failed_base_run_is_not_cached(self):
+        """base で実行器が結末を出さなかった回は残さない（次の回は走らせ直す）"""
+        self.ready_with_fields()
+        self.add_test_mean_of_two()
+        self.edit_tree(MEAN_FIX)
+        real = fixgates.tddloop.run_suite
+        calls = {"base": 0}
+
+        def run(exe, repo, *a, **k):
+            if pathlib.Path(repo).resolve() != self.repo.resolve():
+                calls["base"] += 1
+                if calls["base"] == 1:
+                    return None, None, ["base で JUnit を書かなかった"]
+            return real(exe, repo, *a, **k)
+        with mock.patch.object(fixgates.tddloop, "run_suite", side_effect=run):
+            self.assertEqual(self.problems(attempt=1), [])
+            self.assertTrue(fixgates.skipped(self.board, pass_="first", attempt=1))
+            self.assertEqual(self.problems(attempt=2), [])
+        self.assertEqual(calls["base"], 2)
+        self.assertEqual(fixgates.skipped(self.board, pass_="first", attempt=2), [])
+
+
 class TestTestEdits(FixGatesCase):
     def test_unnamed_existing_edit_is_a_miss(self):
         self.ready_with_fields(direct_fields())
