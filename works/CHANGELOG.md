@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.26] - 2026-10-05
+
 ### Added
 
 - 独立設計（r2.design）と突き合わせ（r2.compare）に、対象のリポジトリの根に追跡されている `ARCHITECTURE.md`・`AGENTS.md` を地図として毎回貼る（出どころのパス:行つき。上限を超えた残りは行の範囲で名指す）。無ければ「地図なし」と貼り、渡した物の控えにも理由を残す。
