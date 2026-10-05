@@ -34,13 +34,13 @@ UNITS = [{"key": k, "label": "block"} for k in (FORK_UNIT, OTHER_UNIT, ESC_UNIT,
 def fake_settle(mod, owed, excused):
     """受け付けの last_settle の代わり（盤面・git を読まない）: 足跡は返答の行の files だけ、届く試験は無し、直す義務は owed、
     義務の外は excused とこの受け付けがもう止めた単位。by_copy（写しの拒否）で止める単位が無いのに義務の残りが在れば park_owed"""
-    def settle(texts, reply, board, base_rev, repo, state, parked, by_copy=False):
+    def settle(texts, reply, board, base_rev, repo, state, parked, by_copy=False, declared=None):
         rows = [c for c in reply.get("changes") or [] if isinstance(c, dict)]
         out = set(excused) | set(parked)
         keys = set(owed) | set(excused) | {c.get("unit_key") for c in rows}
         feet = mod.parking.footprint(rows, [], repo)
         got = mod.parking.settle(texts, keys=keys, feet=feet, reached={}, owed=set(owed) - out, out_of_duty=out,
-                                 changed=set())
+                                 changed=set(), declared=declared)
         if by_copy and not got.park and set(owed) - out:
             got = mod.parking.park_owed(texts, feet=feet, owed=set(owed), out_of_duty=out)
         return got, out
@@ -222,6 +222,29 @@ class TestAcceptReadsDuty(unittest.TestCase):
             got = self.mod.fix_unit_keys(reply, pathlib.Path("/b"))
         self.assertEqual(got, ([self.MEAN, self.HELD], {self.MEAN}, {self.HELD: self.WHY}))
 
+    def test_declared_keys_bind_without_text_matching(self):
+        """declared の文は文照合を使わず declared の単位に結ぶ（別の単位の足跡のパスを名指しても）。declared に無い文は今の bind"""
+        import inspect
+        parking = self.mod.parking
+        self.assertIn("declared", inspect.signature(parking.settle).parameters)
+        A, B = "a.py f: 直す", "b.py g: 直す"
+        feet = {A: {"a.py"}, B: {"b.py"}}
+        base = dict(keys={A, B}, feet=feet, reached={}, owed={A, B}, out_of_duty=set(), changed=set())
+        declared_text = "食い違い[0]: 名指し 'b.py:99' の行がファイルに無い"
+        by_path = "b.py を直した行の拒否"
+        nothing = "どの単位も名指さない行"
+        got = parking.settle([declared_text], declared={declared_text: {A}}, **base)
+        self.assertEqual(sorted(got.park), [A], got)
+        self.assertEqual(got.unbound, {})
+        self.assertEqual(got.how, {declared_text: "declared"})
+        got = parking.settle([declared_text, by_path], declared={declared_text: {A}}, **base)
+        self.assertEqual(sorted(got.park), [A, B], got)
+        self.assertEqual(got.how, {declared_text: "declared", by_path: "text"})
+        got = parking.settle([nothing], declared={declared_text: {A}}, **base)
+        self.assertEqual(sorted(got.park), [A, B], "declared に無い文は結べず義務の全部")
+        self.assertEqual(got.how, {nothing: "unbound"})
+        self.assertEqual(list(got.unbound), [nothing])
+
     def test_conflicts_are_checked_against_the_duty(self):
         """食い違いの申し出は直す義務の単位にだけ受ける（答え待ちの単位は義務に無い）"""
         seen = {}
@@ -231,10 +254,11 @@ class TestAcceptReadsDuty(unittest.TestCase):
                 mock.patch.object(self.mod.conflict, "asked_keys", return_value=set()), \
                 mock.patch.object(gatemarks, "fixable", return_value={self.MEAN, self.HELD}), \
                 mock.patch.object(self.mod.querytest, "judge_hits", return_value=None), \
-                mock.patch.object(self.mod.conflict, "problems", side_effect=lambda items, **k: seen.update(k) or ["x"]):
+                mock.patch.object(self.mod.conflict, "problems_by_entry", create=True,
+                                  side_effect=lambda items, **k: seen.update(k) or [(0, None, ["x"])]):
             self.mod.take_conflicts({"changes": [], "conflicts": [{"unit_key": self.HELD}]}, pathlib.Path("/b"),
                                     pathlib.Path("/r"), "first")
-        self.assertEqual(seen["owed"], {self.MEAN})
+        self.assertEqual(seen.get("owed"), {self.MEAN})
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 """修正の輪の最後の回に止める単位を選ぶ（依頼 242。修正の受け付け blk-fix/scripts/accept.py が 1 か所で呼ぶ）。
 
-決まりは 1 つ: 最後の回の拒否の行は、文が名指す単位に結ぶ（bind）。結べない行は直す義務の全部の単位に結ぶ（理由は unbound_why）。
+決まりは 2 つの道: 最後の回の拒否の行は、(1) 呼び手が結び先の単位 key を渡した行（declared。申し出の行。key が単位の集合に在る時だけ）はその単位に、
+(2) それ以外は文が名指す単位に結ぶ（bind）。結べない行は直す義務の全部の単位に結ぶ（理由は unbound_why）。
+結び方は Settlement.how に行ごとに残る: declared（(1)）・text（(2)）・unbound（結べず義務の全部）・owed（park_owed）。
 結んだ単位から義務の外の単位を引いて残った単位を止め、残らない行は拒否に数えない（absorbed）。止める単位と足跡を共にする
 単位も一緒に止める（closure。ファイルは単位ごとに分けて戻せない）。閉包は義務の外の単位を通って広がらない（義務の外の単位の
 足跡のうち止める単位と共にしないパスは戻さない）。settle がこれを 1 回で組み、戻すパスも返す。写しの拒否が義務の外の単位に
@@ -39,6 +41,7 @@ class Settlement(NamedTuple):
     absorbed: list  # 数えない行の文（義務の外の単位にだけ結んだ）
     unbound: dict   # 結べなかった行の文 → 理由
     files: set      # 戻すパス（閉包の足跡 ∪ 結べなかった行が名指した変わったパス。.archon/ の下は除く）
+    how: dict       # 文 → 結び方（declared＝呼び手が結び先を渡した・text＝文の名指し・unbound＝結べず義務の全部・owed＝park_owed）
 
 
 def _rel(path: str, repo) -> str:
@@ -113,12 +116,19 @@ def closure(keys: set, feet: dict, stop=frozenset()) -> set:
     return out
 
 
-def settle(texts: list, *, keys: set, feet: dict, reached: dict, owed: set, out_of_duty: set, changed: set) -> Settlement:
-    """最後の回の拒否の行 texts を単位に結び、止める単位・数えない行・結べなかった行・戻すパスを返す（モジュールの頭の決まり）"""
-    park, absorbed, unbound, named = {}, [], {}, set()
+def settle(texts: list, *, keys: set, feet: dict, reached: dict, owed: set, out_of_duty: set, changed: set,
+           declared: dict = None) -> Settlement:
+    """最後の回の拒否の行 texts を単位に結び、止める単位・数えない行・結べなかった行・戻すパスを返す（モジュールの頭の決まり）。
+    declared（文 → 結び先の単位 key。省略可）に文が在り key が空でなければ、その文は bind を使わずその key に結ぶ
+    （申し出の作り手が結び先を構造のまま渡す。足跡を共にする単位は閉包が足す）"""
+    park, absorbed, unbound, named, how = {}, [], {}, set(), {}
     for text in texts:
-        hit, why = bind(text, keys, feet, reached), text
+        hit, why = set((declared or {}).get(text) or ()) & keys, text   # 単位でない key は結ばない（bind と同じ集合）
+        how[text] = "declared"
+        if not hit:   # declared に無い・declared の key が単位の集合に無い文は文の名指しで結ぶ
+            hit, how[text] = bind(text, keys, feet, reached), "text"
         if not hit:
+            how[text] = "unbound"
             unbound[text] = unbound_why(text)
             named |= {p for p in changed if _names(text, p)}
             hit, why = set(owed), f"{text}（{unbound[text]}）"
@@ -127,7 +137,7 @@ def settle(texts: list, *, keys: set, feet: dict, reached: dict, owed: set, out_
             absorbed.append(text)
         for key in mine:
             park.setdefault(key, []).append(why)
-    return _settled(park, absorbed, unbound, named, feet, out_of_duty)
+    return _settled(park, absorbed, unbound, named, feet, out_of_duty, how)
 
 
 def park_owed(texts: list, *, feet: dict, owed: set, out_of_duty: set) -> Settlement:
@@ -137,10 +147,10 @@ def park_owed(texts: list, *, feet: dict, owed: set, out_of_duty: set) -> Settle
     for text in texts:
         for key in sorted(owed - out_of_duty):
             park.setdefault(key, []).append(f"{text}（{OUT_ONLY}）")
-    return _settled(park, [], {}, set(), feet, out_of_duty)
+    return _settled(park, [], {}, set(), feet, out_of_duty, dict.fromkeys(texts, "owed"))
 
 
-def _settled(park: dict, absorbed: list, unbound: dict, named: set, feet: dict, out_of_duty: set) -> Settlement:
+def _settled(park: dict, absorbed: list, unbound: dict, named: set, feet: dict, out_of_duty: set, how: dict) -> Settlement:
     """止める単位 park に閉包（義務の外の単位は通らない）の単位を足し、戻すパス（義務の外でない閉包の単位の足跡 ∪ named。
     義務の外の単位と止める単位が共にするパスは止める単位の足跡に在る）を添えた Settlement"""
     group = closure(set(park), feet, stop=out_of_duty) if park else set()
@@ -154,4 +164,4 @@ def _settled(park: dict, absorbed: list, unbound: dict, named: set, feet: dict, 
             if p in park:
                 park[p].append(f"{SHARED_OUT}{key}（共にするパス {sorted(feet[p] & feet[key])}）")
     files = set().union(*(feet.get(k, set()) for k in group - out_of_duty)) | named
-    return Settlement(park, absorbed, unbound, {p for p in files if _ours(p)})
+    return Settlement(park, absorbed, unbound, {p for p in files if _ours(p)}, how)

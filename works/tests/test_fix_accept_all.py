@@ -383,6 +383,24 @@ class StopsKeepWorkCase(ReplanCase):
         self.assertIn(CLAMP, conflict.fix_duty(b)[1], "止めた単位は義務の外（ask_human）")
         self.assertIs(json.loads(self.changed(r)[1])["ok"], True)
 
+    def test_bad_conflict_parks_only_the_offering_unit_on_last_pass(self):
+        # run 195g の型: MEAN だけが盤面にも足跡にも無い行を名指して崩れた申し出を出し続け、CLAMP の直しは正しい。
+        # 最後の回は申し出た MEAN だけを止め（how は declared で unbound に載らない）、CLAMP は受ける
+        self.fix_ready()
+        self.edit_tree(CLAMP_FIX)
+        reply = only_clamp_reply([conflict_on_mean("ghost/brief.md:1", "ghost/other.md:2")])
+        for it in ("1", "2"):
+            r = json.loads(self.run_it(reply, INPUTS_ITERATION=it)[1])
+            self.assertFalse(r["ok"], r)
+            self.assertIn("ghost/brief.md:1", r["reason"])
+        r = json.loads(self.run_it(reply, INPUTS_ITERATION="3")[1])
+        self.assertEqual((r["ok"], r["done"]), (True, True), r)
+        self.assertEqual([c["unit_key"] for c in r["changes"]], [CLAMP], "申し出ていない CLAMP は受ける")
+        self.assertEqual(self.parked_units(), [MEAN], "止めるのは申し出た MEAN だけ")
+        row = self.trace_rows("fix_bound_parked")[0]
+        self.assertEqual(row["unbound"], {}, "申し出の行は単位に結べている")
+        self.assertEqual(set(row["how"].values()), {"declared"}, row)
+
     def test_shared_test_file_parks_both_and_leaves_no_red(self):
         # Review Focus 1: 輪で緑にした MEAN の受け入れのテスト test_stats.py を、bounds.py を赤にした CLAMP の行も名指す。
         # 共有の閉包で両方を止め、3 つのファイルを段の頭の木（ここでは修正前の版）に戻す（一方だけを戻して赤を残さない）
