@@ -7,7 +7,8 @@ description: |
   changes に行を書くだけ）、
   2 つの役（tdd・fix）の指示書は、その前の script の節（tdd-prep・fix-prep）が修正の決まりの正本（.shared/core/writerules/common.md）と道ごとの決まりと
   run の値から機械で組む（lib/fixrules.py。裁定 R65。役の節の指示は「組んだ指示書を Read で読め」の 1 行）、
-  返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回）、修正役が残した git が
+  返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回。3 回目の拒否は行を名指しの単位・テストが
+  import で届く単位に結んで、その単位だけを段の頭の木に戻して控えに残し、ほかの単位は受けて先へ進む）、修正役が残した git が
   無視するファイル（テストを回して出来た __pycache__ など）のうち控えに無かった物だけを消し（clean。後のテストの節を
   生成物の無い木で回す）、申告したファイルが実際に変わったかを確かめ（assert-changed。何も変えずに済んだと言えば
   run が落ちる）、出口に集める（collect。消した件数と、全件を書いた盤面のファイルも渡す）。
@@ -213,7 +214,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $fix-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
+      until_bash: test $fix-accept.output.done = true   # 通った時か、3 回目の拒否で結べる単位を止めて通した時（max_iterations で落とさない。R50）
       nodes:
         # 指示書を組み（fixrules.prep: 修正の決まりの正本・直す役の決まり・run の値。prompt_file は full の写しで、隣に .full.md・
         # .delta.md・.variants.json）、起こした印を置く（盤面は印の無い返答を受けない）。
@@ -666,7 +667,7 @@ nodes:
             required: [ok, reason, reason_file, changes, done]
             properties:
               ok: {type: boolean}
-              done: {type: boolean}           # 輪を抜ける旗（通った時か 3 回目の拒否。諦めた輪は assert-changed が盤面を止める）
+              done: {type: boolean}           # 輪を抜ける旗（通った時か 3 回目。3 回目は拒否の行を単位に結んで止め、受けた単位で通す）
               reason: {type: string}
               reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               changes: {type: array}
@@ -887,7 +888,7 @@ nodes:
       base_rev: $INPUTS.base_rev
       accepted: $fix-loop.output
       ruled: {from: "$fix-ruled-loop.output", if_skipped: null}   # 2 回目の修正の輪が走れば、その受け付けの出力を使う
-    # 通らない（申告が空（直す義務が残らず、答え待ち・ask_human で外れた単位が在る時を除く）・申告したのに変わっていない・輪が 3 回とも拒まれて諦めた）時は run を落とさずに盤面を理由つきで止め
+    # 通らない（申告が空（直す義務が残らず、答え待ち・ask_human で外れた単位が在る時を除く）・申告したのに変わっていない）時は run を落とさずに盤面を理由つきで止め
     # （by works:fix。R50）、ok: false と reason を出す。後ろの段は境の節が飛ばし、報告と書き出しは走る（run 26）
     output_format:
       type: object
@@ -953,4 +954,4 @@ nodes:
         not_done: {type: integer, minimum: 0}
         coverage: {type: object}
         reads_file: {type: string}
-        reason: {type: string}          # 諦めた出口（ok: false。assert-changed が止めた盤面の理由）
+        reason: {type: string}          # 止めた出口（ok: false。assert-changed が止めた盤面の理由）
