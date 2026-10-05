@@ -1436,6 +1436,21 @@ def states(board_dir) -> list:
     return [p for _, p in sorted(got)]
 
 
+def green_units(summary_file) -> set:
+    """輪の要約 summary_file の隣の状態で、輪が緑にした単位（route が tdd・green が ok・諦めていない）の key。要約が空・状態が
+    無い・読めない時は空（修正役の下請けを起こす単位を絞る節約の口なので、読めなくても止めず、全部の単位に下請けを起こす。
+    依頼 243 の 2）"""
+    if not summary_file:
+        return set()
+    try:
+        st = _load(pathlib.Path(summary_file).parent / STATE)
+    except Broken:
+        return set()
+    units = st.get("units") if isinstance(st, dict) else None
+    return {k for k, u in (units or {}).items()
+            if isinstance(u, dict) and u.get("route") == "tdd" and u.get("green") == "ok" and not u.get("gave_up")}
+
+
 def suite_made_all(board_dir) -> set:
     """run の全部の輪（states）の suite_made の和（書き込みの出どころの突き合わせと案の項目の照らしが外す）"""
     return {f for p in states(board_dir) for f in suite_made(p)}

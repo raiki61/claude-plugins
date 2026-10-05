@@ -792,8 +792,18 @@ class TestFixPrep(BoardCase):
         rows = json.loads(pathlib.Path(json.loads(out)["reads_file"]).read_text(encoding="utf-8"))["rows"]
         self.assertEqual([r["path"] for r in rows], [judgment, prompt])
 
-    def test_g3_prompt_carries_the_implementer_seat(self):
-        """既定の形 g3 の盤面: 修正役の指示書（full）に借りたスキルの座（216 の implementer の型を埋めた物）が返答の欄の前に載る"""
+    def loop_state(self, green):
+        """輪の状態（盤面の tdd-1/state.json）を、green の単位が輪で緑になった形で置き、輪の要約のパスを返す"""
+        work = self.board / "tdd-1"
+        work.mkdir(parents=True, exist_ok=True)
+        units = {k: {"unit_key": k, "route": "tdd", "green": "ok", "gave_up": False} for k in green}
+        (work / "state.json").write_text(json.dumps({"units": units, "done": True}, ensure_ascii=False), encoding="utf-8")
+        (work / "summary.md").write_text("輪の要約\n", encoding="utf-8")
+        return str(work / "summary.md")
+
+    def test_g3_prompt_dispatches_a_fresh_subagent_per_unit(self):
+        """既定の形 g3 の盤面: 修正役は直す単位を 1 つの会話に積まず、単位ごとに新しい会話の下請けを起こす（依頼 243 の 2。g1 と
+        同じ節を g3 の名で載せる）。修正案の項目に無い単位は 1 単位 1 項目で、実装役のファイルはその単位を名指す"""
         import fixshape
         import seat
         self.fix_ready(launched=False)
@@ -801,14 +811,40 @@ class TestFixPrep(BoardCase):
         code, out, err = self.prep()
         self.assertEqual(code, 0, err)
         full = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
-        self.assertIn(seat.HEAD, full)
-        self.assertIn(seat.NO_REPORT_FILE, full)
-        import rolekit
-        own = full[full.index(seat.HEAD):full.index(rolekit.skill_overlay().splitlines()[0])]   # 座の本文（読み替えの前まで。F8）
-        self.assertNotRegex(own, r"\[(BRIEF_FILE|REPORT_FILE|directory|task name)\]")
+        self.assertIn(seat.G1_HEAD_OF.format(shape="g3"), full)
+        self.assertNotIn(seat.HEAD, full, "単位を自分で直す座の型は載せない")
+        b = entry.open_board(self.board)
+        for n, key in ((1, MEAN), (2, CLAMP)):
+            impl = b.work(f"g1-impl-{n}.md").read_text(encoding="utf-8")
+            self.assertIn(key, impl)
+            self.assertIn(seat.G1_SUB_HEAD_OF.format(shape="g3"), impl)
+            self.assertIn(str(b.work(f"g1-impl-{n}.md")), full)
         side = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
         ids = [s["id"] for s in side["sections"]]
         self.assertEqual(ids[ids.index("fix-reply") - 1], "seat")
+
+    def test_g3_skips_units_the_loop_made_green(self):
+        """g3 で TDD の輪が緑にした単位には下請けを起こさない（輪の状態は輪の要約の隣）。残りの単位だけが項目になる"""
+        import seat
+        self.fix_ready(launched=False)
+        code, out, err = self.prep(INPUTS_SUMMARY_FILE=self.loop_state([MEAN]))
+        self.assertEqual(code, 0, err)
+        full = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(seat.G1_LOOP_NOTE, full)
+        b = entry.open_board(self.board)
+        self.assertIn(CLAMP, b.work("g1-impl-1.md").read_text(encoding="utf-8"))
+        self.assertFalse(b.work("g1-impl-2.md").exists())
+
+    def test_g3_all_units_green_in_the_loop_keeps_the_implementer_seat(self):
+        """g3 で輪が直す単位を全部緑にした周は下請けを起こす項目が無いので、前と同じ借りたスキルの座（implementer の型）を載せる"""
+        import seat
+        self.fix_ready(launched=False)
+        code, out, err = self.prep(INPUTS_SUMMARY_FILE=self.loop_state([MEAN, CLAMP]))
+        self.assertEqual(code, 0, err)
+        full = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(seat.HEAD, full)
+        self.assertIn(seat.NO_REPORT_FILE, full)
+        self.assertNotIn(seat.G1_HEAD_OF.format(shape="g3"), full)
 
     def test_g1_prep_writes_filled_parts_per_item(self):
         """修正の形 g1・修正案の欄の在る盤面: 項目ごとに実装役と審査役の下請けのファイルを今の周に書き、どちらも型の穴を残さない。

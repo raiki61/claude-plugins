@@ -28,7 +28,8 @@
 
 - fix_prompt / tdd_prompt: 2 つの道の指示書（純粋な関数。prior を渡せば delta の形）
 - prep: 節 fix-prep・fix-ruled-prep の中身（盤面が p3.fix を待っていれば書き、起こした印を置く）。tddloop.prep は tdd_render を使う。
-  修正の形 g1 では、借りたスキルの座の代わりに下請けを回す節（seat.g1_section。項目ごとのファイルは g1_values）を載せる。
+  修正の形 g1 と既定の g3 では、借りたスキルの座の代わりに下請けを回す節（seat.g1_section。項目ごとのファイルは g1_values。
+  下請けを起こす単位は dispatched: g3 は TDD の輪が緑にした単位を除く。依頼 243 の 2）を載せる。
   どちらも指示書の頭（題の次）に、直す義務の単位の brief（planbrief.cut。承認済みの修正案の項目を凍結した物）を名指す節を置く。
   brief の控えが壊れていれば盤面を止める（brief_halt。brief の無い指示書として続けない）
 - ruler_prompt: 裁定役の指示書（ruling.prep が書く）
@@ -423,7 +424,7 @@ def implementer_values(b, values: dict, repo, owed: list[str]) -> dict[str, str]
             "[REPORT_FILE]": seatkit.NO_REPORT_FILE}
 
 
-def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dict]:
+def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str = seatkit.G1_SHAPE) -> list[dict]:
     """修正の形 g1 の下請けのファイルを、直す義務の単位の brief の項目ごとに今の周に 2 つ書き、項目の順の
     [{item, impl_file, review_file, base, patch}] を返す（seat.g1_section が並べる）。どの項目にも無い直す義務の単位（brief の無い run は
     全部）は、判定のファイルを [BRIEF_FILE] にした残りの 1 項目（番号は修正案の項目の後。題は G1_REST、brief の無い run は
@@ -434,7 +435,9 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dic
       [REPORT_FILE] は seat.G1_REPORT、[BASE_SHA] は修正前の版（writes.base_rev）、[HEAD_SHA] は seat.G1_HEAD_SHA（型の
       `git diff <版>..<HEAD_SHA>` は seat.g1_prompt が作業ツリーとの差分 `git diff <版>` に直す。Preflight F20）、[DIFF_FILE] は
       run ごとの置き場（盤面の隣。adapter.run_place_of。盤面は守る場所で役の Bash が書けない）の今の scope の下の G1_PATCH_FILE の絶対パス
-    どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊）。3 つのファイルは今の scope の下に置く
+    shape が g1 でない（依頼 243 の 2 の g3）なら、どの項目にも無い単位は 1 単位 1 項目（題は G1_REST でその単位だけを名指す。
+    単位ごとに新しい会話の下請けにする）。g1 は前のとおり残りを 1 項目にまとめる（比べの腕を変えない）。
+    どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊。決まりの見出しは shape を名指す）。3 つのファイルは今の scope の下に置く
     （同じブロックの 2 度目の include は 1 度目の物を上書きしない）。写しが固定と違う・穴が埋まらなければ ValueError"""
     common = implementer_values(b, values, repo, owed)
     cut = briefs_or_halt(b)
@@ -442,8 +445,10 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dic
     items = [(r["item"], r["file"], _g1_task(r, owed)) for r in briefs]
     covered = {k for r in briefs for k in r.get("unit_keys") or []}
     rest = [k for k in owed if k not in covered]
-    if rest:   # どの項目にも無い直す義務の単位（brief の無い run は全部）: 判定のファイルを brief にした残りの 1 項目
-        n = max((r["item"] for r in cut), default=0) + 1
+    n = max((r["item"] for r in cut), default=0) + 1
+    if rest and shape != seatkit.G1_SHAPE:   # 1 単位 1 項目（判定のファイルを brief に）
+        items += [(n + i, values.get("judgment_file") or "", G1_REST.format(keys=k)) for i, k in enumerate(rest)]
+    elif rest:   # どの項目にも無い直す義務の単位（brief の無い run は全部）: 判定のファイルを brief にした残りの 1 項目
         items.append((n, values.get("judgment_file") or "", G1_REST.format(keys="、".join(rest)) if briefs else common["[task name]"]))
     base = writes.base_rev(b, base_rev)
     run_place = pathlib.Path(adapter.run_place_of({"board": str(b.dir)}))   # 盤面は守る場所で役の Bash が書けない。run ごとの置き場
@@ -455,11 +460,11 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dic
         impl, review = b.work(G1_IMPL.format(n=n)), b.work(G1_REVIEW.format(n=n))
         patch = str(place / G1_PATCH_FILE.format(n=n))
         impl.write_text(seatkit.g1_prompt("implementer", {**common, "[task name]": task, "[BRIEF_FILE]": brief,
-                                                           "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}), encoding="utf-8")
+                                                           "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}, shape), encoding="utf-8")
         review.write_text(seatkit.g1_prompt("task-review", {
             "[BRIEF_FILE]": brief, "[GLOBAL_CONSTRAINTS]": values.get("policy_path") or G1_NO_POLICY,
             "[REPORT_FILE]": seatkit.G1_REPORT, "[BASE_SHA]": base, "[HEAD_SHA]": seatkit.G1_HEAD_SHA,
-            "[DIFF_FILE]": patch}), encoding="utf-8")
+            "[DIFF_FILE]": patch}, shape), encoding="utf-8")
         rows.append({"item": n, "impl_file": str(impl), "review_file": str(review), "base": base, "patch": patch})
     return rows
 
@@ -467,6 +472,19 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str) -> list[dic
 def _g1_task(brief: dict, owed: list[str]) -> str:
     """g1 の実装役の型の [task name]: 修正案の項目の番号と、その項目のうち今直す単位（ほかの単位は『今は直すな』）"""
     return f"修正案の項目 {brief['item']}（直す義務の単位 {planbrief.unit_note(brief.get('unit_keys'), owed)}）"
+
+
+def dispatched(shape: str, mark: str, owed: list[str], values: dict) -> list[str]:
+    """修正役 mark が下請けを起こす単位（owed の順）。下請けを起こす形（fixshape.AGENT_SHAPES）の修正役（AGENT_NODES）だけ。g1 は
+    owed の全部、g3 は TDD の輪が緑にした単位（tddloop.green_units。輪の要約は values の summary_file）を除いた物（依頼 243 の 2）。
+    ほかは []"""
+    if shape not in fixshape.AGENT_SHAPES or mark not in fixshape.AGENT_NODES:
+        return []
+    if shape == seatkit.G1_SHAPE:
+        return list(owed)
+    import tddloop   # 同じブロックの lib（tddloop が fixrules を import するので、呼ぶ時に引く）
+    green = tddloop.green_units(values.get("summary_file") or "")
+    return [k for k in owed if k not in green]
 
 
 def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
@@ -483,8 +501,9 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     その scope の根に書き、数えと拒否の名指しはその scope の物だけを見る（起こした印は 1 回目の段が置いた物のまま）。1 回目に受け付けた返答の控え
     （conflict.held_reply）が在れば、brief の節の後に控えの節（held_text）を置く。
     修正の形（fixshape.shape_at）が座を載せる形なら、借りたスキルの座（seat.section。型の穴は implementer_values）を full と delta の
-    両方に載せる。形が g1 なら、その代わりに下請けを回す節（seat.g1_section。下請けのファイルは g1_values。[BASE_SHA] は
-    values の base_rev）を載せる。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も
+    両方に載せる。修正役が下請けを起こす単位（dispatched。g1 は全部、g3 は輪が緑にした単位の外）が在れば、その代わりに下請けを
+    回す節（seat.g1_section。下請けのファイルは g1_values。[BASE_SHA] は values の base_rev）を載せる（依頼 243 の 2: g3 も単位
+    ごとに新しい会話。g3 で輪が全部を緑にした周は前の座のまま）。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も
     置かない。支度の script は 2 で落ちる）"""
     if pass_ not in PASSES:
         raise Unfilled(f"pass {pass_!r} は {PASSES} のどれでもない")
@@ -512,9 +531,10 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
     before = tuple(x for x in (*before, head) if x)   # ruled の裁定の文の行は見出しの次の 1 行のまま（R44）。brief はその後
     mark, shape = ("fix" if pass_ == PASSES[0] else "fix-ruled"), fixshape.shape_at(board_dir)
     seat = ""
-    if shape == seatkit.G1_SHAPE and mark in fixshape.AGENT_NODES:
+    subs = dispatched(shape, mark, owed, values)
+    if subs:
         seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みと Context7 の引き（lib_section）より前に
-        seat = seatkit.g1_section(g1_values(b, values, repo, owed, values.get("base_rev") or ""))
+        seat = seatkit.g1_section(g1_values(b, values, repo, subs, values.get("base_rev") or "", shape), shape)
     elif seatkit.carries(mark, shape):
         seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みと Context7 の引き（lib_section）より前に
         seat = seatkit.section(mark, shape, implementer_values(b, values, repo, owed))
