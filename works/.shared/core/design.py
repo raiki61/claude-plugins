@@ -20,11 +20,12 @@ Archon を知らない関数だけを出す。
                  名指した設計書の節の本文。文書の拡張子（impact.DOC_EXT）のパスのリンク・`<path>#<見出し>`・`<path>` N 節と、
                  パスの無い <名前> N 節・<名前> の「見出し」（追跡の文書の名で引く）・パスの無い N 節（依頼が名指した設計書が
                  ただ 1 本の時だけそれに結び付ける）の名指しを、固めた版 HEAD のファイルから、当たった行の形（行頭の記号の並び・
-                 次の行の下線）で切る。貼る見出しに出どころのパス:行を添える。引けなかった・結び付けられなかった名指しは理由の
+                 次の行の下線・上線と下線。.md・.markdown は囲いの外の # の見出し）で切る。貼る見出しに出どころのパス:行を添える。引けなかった・結び付けられなかった名指しは理由の
                  1 行で withheld。1 節は engine が役に貼る本文の上限 FILE_CAP バイトまで。超えた残りは行の範囲で withheld）と
                  repo_map（対象のリポジトリの根の MAP_NAMES を地図として毎回貼る。無ければ「地図なし」の 1 行と withheld）
 - claims_unpassed: R2 の返答のうち『渡されていない』『渡っていない』と書いた文（独立の目の出口が控えと並べる）
-- anchors・anchor_misses・anchor_note: 問いが立たない根拠の文の名指し（パス:行）を拾い、固めた版で検算し、無ければ名指しなしと添える
+- anchors・anchor_misses・anchor_note: 問いが立たない根拠の文の名指し（パス:行。拡張子が ANCHOR_EXT の物）を拾い、固めた版で検算し、
+                 無ければ名指しなしと添える
 - accept:        返答を型（写しの schema）と作業ツリーの比べと根拠の名指しの検算に通し、通れば design.json。拒否は盤面の根の控えに積み、
                  GIVE_UP_AFTER 回目で done（輪を抜ける。諦めても線は止めない——事前審査は設計なしで進み、最後の R2 が言う）
 - read_design:   design.json（無ければ None。壊れていれば Reject）。made は (中身 か None, 壊れている理由) で拒まない
@@ -75,19 +76,25 @@ NAMED_ASK = "依頼が名指した設計書の節の本文（依頼を固めた�
 CODE_SPAN_ANCHOR = re.compile(r"`([^`\s]+\.[A-Za-z0-9]+#[^`\s]+)`")
 # 持ち主の地の文の名指し: 「`<path>` 3 節」「`<path>` の §3」（見出しの頭の番号で引く。パスは拡張子つき）
 CODE_SPAN_NUM = re.compile(r"`([^`\s#]+\.[A-Za-z0-9]+)`\s*(?:の\s*)?(?:§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節)")
-# パスの無い名前の名指し: 「<名前> 3 節」「<名前> の §3」「<名前> の「<見出し>」」。名前は英数字で始まる [\w.-] の並びで、前が英数字・/・.・-
-# でない（パスの途中を拾わない）。名前は追跡の文書の名から引く（_docs_named）
-_NAME = r"(?<![^\W_]|[/.\-])([^\W_][\w.\-]*?)"
+# パスの無い名前の名指し: 「<名前> 3 節」「<名前> の §3」「<名前> の「<見出し>」」。名前は ASCII の英数字で始まる [\w.-] の並びで、前が
+# ASCII の英数字・/・.・- でない（パスの途中を拾わない。仮名・漢字は頭にも前にも数えないので、日本語の地の文に続けて書いた名前
+# 「詳しくはstructure-design 2 節」から地の文を名に混ぜない）。名前は追跡の文書の名から引く（_docs_named）
+_NAME = r"(?<![A-Za-z0-9/.\-])([A-Za-z0-9][\w.\-]*?)"
 NAME_NUM = re.compile(_NAME + r"(?:\s+|\s*の\s*)(?:§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節)")
 NAME_QUOTE = re.compile(_NAME + r"\s*の\s*「([^」\n]+)」")
 # パスの無い「§3」「8 節」（依頼が別の所で名指した設計書がただ 1 本の時だけ、それの節に結び付ける）
 BARE_NUM = re.compile(r"§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節")
 # 問いが立たない根拠の名指し「<パス>:<行>」「<パス>:<開始>-<終了>」。パスは拡張子つきで / 区切りの段を持ってよい。前が英数字・/・.・:・-
 # の当たりは拾わない（URL の host:port を外す。拡張子の無い時刻 10:15 も、拡張子が英字で始まらない版の番号 3.12:1 も拾わない）。パスの字は ASCII に限る（日本語の地の文に続けて
-# 書いたパスの頭に地の文を混ぜない）
+# 書いたパスの頭に地の文を混ぜない）。当たりのうち拡張子が ANCHOR_EXT（impact のコード・設定・文書の拡張子の表）に在る物だけを名指しに
+# 数える（db.internal:5432・foo.bar:12 のような host:port やドット付きの名を、固めた版に無いファイルとして拒み続けない）
 ANCHOR = re.compile(r"(?<![A-Za-z0-9_/.:\-])((?:[A-Za-z0-9_.\-]+/)*[A-Za-z0-9_.\-]*[A-Za-z0-9_\-]\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?(?![\d:])")
+ANCHOR_EXT = impact.PY_EXT | impact.PATHREF_EXT | impact.DOC_EXT | impact.OTHER_CODE_EXT
 UNANCHORED = "根拠の実物の名指しなし"
 PREMISE_MISS = "premise_invalid_reason の名指しが固めた版の実物に当たらない（追跡されたファイルと、その行の範囲を名指せ）: "
+# Markdown として見出しを数える拡張子（_md_heads）と ATX 見出しの行（写しの rules の _md_slugs と同じ形）
+MD_SUFFIXES = (".md", ".markdown")
+MD_HEAD = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
 UNPASSED = re.compile(r"渡されていない|渡っていない")
 # 『渡されていない』の文が控えの given の kind を指す語。制約・前提のずれは「目的と実測した制約しか渡されていない」のような
 # 地の文によく出て無関係の行まで当たるので語では当てず、what そのものが文に在る時だけ当てる。設計書の節も「設計書」の語は
@@ -218,19 +225,39 @@ def _marks(line) -> tuple:
     return s[0], n, s[n:]
 
 
+def _md_heads(text, md_lines) -> list:
+    """Markdown の見出しの行（_heads と同じ形）。写しの rules の _md_lines（``` / ~~~ の囲いの外の行）の ATX 見出しだけを数える
+    （下線の見出しも箇条・引用・表の行も数えない。依頼 238 の前の .md の数え方と同じ）"""
+    out = []
+    for n, line in md_lines(text):
+        m = MD_HEAD.match(line)
+        if m:
+            out.append({"line": n, "kind": "prefix", "mark": "#", "depth": len(m.group(1)), "title": m.group(2)})
+    return out
+
+
 def _heads(lines) -> list:
     """見出しの行 [{line（1 始まり）, kind（prefix: 行頭の同じ記号の並びと空白と題 / under: 題の行の次の行が 1 種類の記号の
-    3 文字以上だけ）, mark, depth, title}]。形式の名前は持たない。記号だけの行が挟む区間（囲み）の中は数えず、隣の行と同じ記号・
-    同じ長さの前置きの行は列（箇条・表）とみなして数えない。depth は前置きなら並びの長さ、下線なら下線の記号が文書の中で下線として
-    初めて現れた順（0 始まり）。囲みと列の見分けは形式に依る推測（docs/language-neutral-inventory.md 7-7）"""
+    3 文字以上だけ。上線と下線が同じ記号で 1 行を挟む題も under で、mark は記号を 2 つ重ねた物）, mark, depth, title}]。
+    Markdown でない文書に使う（Markdown は _md_heads）。形式の名前は持たない。記号だけの行が挟む区間（囲み）の中は数えず、
+    隣の行と同じ記号・同じ長さの前置きの行は列（箇条・表）とみなして数えない。depth は前置きなら並びの長さ、下線なら下線の
+    mark が文書の中で初めて現れた順（0 始まり）。囲みと列の見分けは形式に依る推測（docs/language-neutral-inventory.md 7-7）"""
     marks = [_marks(x) for x in lines]
     only = [n >= 3 and not rest.strip() for _, n, rest in marks]
 
     def body(i):
         return bool(lines[i].strip()) and not only[i]
 
-    inside, i = set(), 0
+    def over(i):   # 上線つきの題: 記号だけの行・題の 1 行・同じ記号だけの行（前の行が本文なら上線でなく前の題の下線）
+        return (only[i] and i + 2 < len(lines) and only[i + 2] and marks[i + 2][0] == marks[i][0] and body(i + 1)
+                and not (i > 0 and body(i - 1)))
+
+    inside, titled, i = set(), set(), 0
     while i < len(lines):   # 囲み: 3 文字以上の記号の並び（と空白の無い 1 語）で開き、下線でなく、次の行が空でない
+        if over(i):
+            titled.add(i)
+            i += 3
+            continue
         c, n, rest = marks[i]
         word = rest.rstrip()   # 並びの直後に空白を挟む行（`### A`）は前置きの形で、囲みを開かない
         opens = (n >= 3 and not any(ch.isspace() for ch in word) and not (only[i] and i > 0 and body(i - 1))
@@ -247,16 +274,24 @@ def _heads(lines) -> list:
         c, n, rest = marks[i]
         return n > 0 and i not in inside and rest[:1].isspace() and bool(rest.strip())
 
-    out, order = [], []
+    out, order, skip = [], [], set()
     for i in range(len(lines)):
-        if i in inside:
+        if i in inside or i in skip:
+            continue
+        if i in titled:
+            c = marks[i][0] * 2
+            if c not in order:
+                order.append(c)
+            out.append({"line": i + 1, "kind": "under", "mark": c, "depth": order.index(c), "title": lines[i + 1].strip()})
+            skip.update((i + 1, i + 2))
             continue
         if prefix(i):
             c, n, rest = marks[i]
             if any(0 <= j < len(lines) and prefix(j) and marks[j][:2] == (c, n) for j in (i - 1, i + 1)):
                 continue
             out.append({"line": i + 1, "kind": "prefix", "mark": c, "depth": n, "title": rest.strip().rstrip(c).strip()})
-        elif (i + 1 < len(lines) and i + 1 not in inside and only[i + 1] and body(i) and not prefix(i)):
+        elif (i + 1 < len(lines) and i + 1 not in inside and i + 1 not in titled and only[i + 1] and body(i)
+              and not prefix(i)):
             c = marks[i + 1][0]
             if c not in order:
                 order.append(c)
@@ -264,11 +299,12 @@ def _heads(lines) -> list:
     return out
 
 
-def _section_lines(text, *, num="", anchor="", slugs=None) -> tuple:
+def _section_lines(text, *, num="", anchor="", slugs=None, md_lines=None) -> tuple:
     """名指し（番号 num か見出しのアンカー anchor）に当たる節の (開始行, 終了行)。1 始まりで両端を含む。引けなければ ValueError（理由）。
-    アンカーは slugs（写しの rules の _md_slugs。GitHub の書き方で重複は -1）で作った物と等しい見出し、無ければ題がアンカーを含む見出し"""
+    アンカーは slugs（写しの rules の _md_slugs。GitHub の書き方で重複は -1）で作った物と等しい見出し、無ければ題がアンカーを含む見出し。
+    md_lines（写しの rules の _md_lines）を渡せば Markdown として _md_heads で、渡さなければ行の形の推測 _heads で見出しを数える"""
     lines = text.splitlines()
-    heads = _heads(lines)
+    heads = _md_heads(text, md_lines) if md_lines else _heads(lines)
     if num:
         by_num = re.compile(rf"(?:第)?{re.escape(num)}(?:\.?(?:\s|$)|節)")
         hits = [h for h in heads if by_num.match(h["title"].lstrip("§ \t"))]
@@ -316,7 +352,8 @@ def _section(b, repo, target) -> tuple:
                          capture_output=True, text=True, encoding="utf-8")
     if got.returncode != 0:
         raise ValueError("固めた版にファイルが無い")
-    start, end = _section_lines(got.stdout, num=num, anchor=anchor, slugs=b.rules._md_slugs)
+    md = b.rules._md_lines if pathlib.PurePosixPath(rel).suffix.lower() in MD_SUFFIXES else None
+    start, end = _section_lines(got.stdout, num=num, anchor=anchor, slugs=b.rules._md_slugs, md_lines=md)
     body = "\n".join(got.stdout.splitlines()[start - 1:end])
     cut = []
     capped = cap_bytes(body, target, cut)
@@ -497,15 +534,21 @@ def prep(board_dir, repo) -> dict:
             "role_def": def_file, "role_def_missing": missing}
 
 
+def _anchor_matches(text) -> list:
+    """ANCHOR の当たりのうち、拡張子が ANCHOR_EXT に在る物（出た順）"""
+    return [m for m in ANCHOR.finditer(str(text or ""))
+            if pathlib.PurePosixPath(m.group(1)).suffix[1:].lower() in ANCHOR_EXT]
+
+
 def anchors(text) -> list:
-    """文の中の `パス:行` と `パス:開始-終了` を (パス, 開始, 終了) で出た順に（`パス:行` は開始と終了が同じ）"""
-    return [(m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))) for m in ANCHOR.finditer(str(text or ""))]
+    """文の中の `パス:行` と `パス:開始-終了` を (パス, 開始, 終了) で出た順に（`パス:行` は開始と終了が同じ。_anchor_matches の物だけ）"""
+    return [(m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))) for m in _anchor_matches(text)]
 
 
 def anchor_misses(text, repo) -> list:
     """anchors のうち固めた版 HEAD の追跡ファイルと行の範囲に当たらない物ごとに「<パス>:<開始>[-<終了>]（<理由>）」（字は文のまま）"""
     out = []
-    for m in ANCHOR.finditer(str(text or "")):
+    for m in _anchor_matches(text):
         start, end = int(m.group(2)), int(m.group(3) or m.group(2))
         try:
             rel = _head_file(repo, m.group(1))

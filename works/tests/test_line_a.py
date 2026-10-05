@@ -242,7 +242,8 @@ class LineCase(LineBase):
         self.assertIn("レンズの集め役が終わらなかった", pathlib.Path(got["report"]["machine_report_file"]).read_text(encoding="utf-8"))
 
     def test_rollback_without_lens_block(self):
-        """撤収（lensing を外し reviewing の依存を [h-review] に戻す）の線でも run は fixed で、レンズの節は報告に出ない"""
+        """撤収（lensing を外し reviewing の依存を [h-review] に戻す）の線でも run は fixed で、報告のレンズの節は走らせていないと言う
+        （節は常に出す。report.always_rows と同じく 0 件・走らせていないも黙らない）"""
         order = [{**r} for r in linekit.LINE_ORDER if r["id"] != "lensing"]
         rv = next(r for r in order if r["id"] == "reviewing")
         rv["depends_on"] = ["h-review"]
@@ -251,7 +252,9 @@ class LineCase(LineBase):
             got = self.run_line()
         self.assertIn("reviewing", got["trail"])
         self.assertEqual(got["outcome"], "fixed")
-        self.assertNotIn("## 未確認のレンズ", pathlib.Path(got["report"]["machine_report_file"]).read_text(encoding="utf-8"))
+        text = pathlib.Path(got["report"]["machine_report_file"]).read_text(encoding="utf-8")
+        section = text.split("## 未確認のレンズ", 1)[1].split("\n## ", 1)[0]
+        self.assertEqual(section.strip(), "- レンズを走らせていない（控えが無い）")
 
     def test_premises_before_judge(self):
         """前提の実測は判定より前で、判定の入口の premises_file は盤面の p0.premises の出力"""

@@ -345,6 +345,30 @@ class SectionShapeCase(unittest.TestCase):
         text = "## 1 目的\n\n- 2 つ目\n- 3 つ目\n\n| 2 | x |\n| 3 | y |\n\n## 2 上限\n\nB\n"
         self.assertEqual(self.span(text, num="2"), (9, 11))
 
+    def test_rst_overline_title_is_a_heading_not_a_fence(self):
+        """上線と下線で 1 行を挟む題（reST）は見出しで、囲みに数えて節を隠さない"""
+        text = "*****\n1 Intro\n*****\n\nA\n\n*****\n2 Next\n*****\n\nB\n"
+        self.assertEqual(self.span(text, num="1"), (1, 5))
+        self.assertEqual(self.span(text, num="2"), (7, 11))
+
+    def md(self, text, **kw):
+        return design._section_lines(text, slugs=self.slugs, md_lines=rules_module()._md_lines, **kw)
+
+    def test_md_fence_with_spaced_info_string_hides_comment(self):
+        """Markdown は写しの rules の _md_lines で囲いの外の ATX 見出しだけを数える（情報文字列に空白が在っても囲い）"""
+        text = "# 1 目的\n\n```js title=x\n# comment\n```\n\nA\n\n# 2 上限\n\nB\n"
+        self.assertEqual(self.md(text, num="1"), (1, 7))
+        with self.assertRaisesRegex(ValueError, "見出しが無い"):
+            self.md(text, anchor="comment")
+
+    def test_md_fence_with_blank_line_after_opener(self):
+        text = "# 1 目的\n\n```\n\n# 2 偽\n```\n\nA\n\n# 2 上限\n\nB\n"
+        self.assertEqual(self.md(text, num="2"), (10, 12))
+
+    def test_md_single_list_quote_table_rows_are_not_headings(self):
+        text = "## 1 目的\n\n- 2 つ目\n\n> 2 引用\n\n| 2 | x |\n\n## 2 上限\n\nB\n"
+        self.assertEqual(self.md(text, num="2"), (9, 11))
+
     def test_ambiguous_hit_names_candidate_lines(self):
         text = "## 上限 A\n\nA\n\n## 上限 B\n\nB\n"
         with self.assertRaisesRegex(ValueError, r"2 個あって決められない（行 1, 5）"):
@@ -361,6 +385,10 @@ class AnchorCase(unittest.TestCase):
     def test_path_line_and_range_are_anchors(self):
         self.assertEqual(design.anchors("design.py:70 と works/.shared/core/design.py:70-75 を見よ"),
                          [("design.py", 70, 70), ("works/.shared/core/design.py", 70, 75)])
+
+    def test_host_port_and_dotted_names_are_not_anchors(self):
+        """拡張子がコード・文書・設定の物（impact の表）でないドット付きの名と番号（host:port など）は名指しに数えない"""
+        self.assertEqual(design.anchors("db.internal:5432 と foo.bar:12 に繋ぐ"), [])
 
     def test_url_and_time_are_not_anchors(self):
         self.assertEqual(design.anchors("https://example.com:443/a の応答の時刻 10:15 を使う"), [])
@@ -577,6 +605,24 @@ class PrepCase(_Case):
         text, given, withheld = self._named()
         self.assertIn("SEVEN-BODY", text)
         self.assertEqual([g["what"] for g in given], ["docs/specs/2026-09-29-structure-block-design.md 7 節"])
+
+    def test_pathless_name_after_japanese_text(self):
+        """日本語の地の文に続けて書いた名前（「詳しくはstructure-design 2 節」）は、地の文を名に混ぜずに引く"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/specs/2026-09-29-structure-design.md", "## 2 隔て\n\nTWO-BODY\n\n## 3 次\n\nX\n")
+        self._request("詳しくはstructure-design 2 節を見よ")
+        text, given, withheld = self._named()
+        self.assertIn("TWO-BODY", text)
+        self.assertEqual([g["what"] for g in given], ["docs/specs/2026-09-29-structure-design.md 2 節"])
+
+    def test_md_named_section_skips_fence_with_info_string(self):
+        """.md の名指しの節は囲いの中の # 行で切れない（情報文字列に空白が在っても）"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/spec.md", "## 2 上限\n\n```js title=x\n## 3 偽\n```\n\nBODY-2-TAIL\n\n## 3 撤収\n\nS3\n")
+        self._request("`docs/spec.md` 2 節 のとおり")
+        text, given, withheld = self._named()
+        self.assertIn("BODY-2-TAIL", text)
+        self.assertNotIn("S3", text)
 
     def test_pathless_name_with_two_candidates_is_withheld(self):
         """名の一致する追跡の文書が 2 本以上なら推測せず、候補を並べて withheld に載せる"""
@@ -795,6 +841,11 @@ class AcceptCase(_Case):
         got = self._premise_reply("nowhere.md:1 に在る")
         self.assertFalse(got["ok"])
         self.assertIn("固めた版にファイルが無い", got["reason"])
+
+    def test_premise_host_port_is_not_rejected(self):
+        """host:port は根拠の名指しでないので拒まない（拒み続けて設計を諦めない）"""
+        got = self._premise_reply("db.internal:5432 の接続は既に在る")
+        self.assertTrue(got["ok"], got)
 
     def test_premise_without_anchor_is_accepted(self):
         """名指しの無い根拠は拒まない（事前審査と報告が「根拠の実物の名指しなし」と名指す）"""

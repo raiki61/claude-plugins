@@ -318,7 +318,7 @@ def _lines(rows) -> str:
 
 def premise_section(b, repo) -> tuple:
     """(r2.compare の頭に貼る節, 貼った入力の控え {node, given, withheld, seen, after_design})。節は人が決めた前提
-    （design.premises の関所の答え・依頼が名指した設計書の節。在る時だけ、先に読ませる）・修正の中の前提のずれ
+    （design.premises の関所の答え・依頼が名指した設計書の節（この 2 つは在る時だけ）と対象のリポジトリの地図 repo_map（無ければ「地図なし」の 1 行）。先に読ませる）・修正の中の前提のずれ
     （loop.drift_notes）・記録の制約（record.process.constraints）。after_design は、独立設計の控え（design-premises.json）の
     seen の数より後に来た人の答えで、比べる時点の答えまで読むので compare にだけ渡った物（独立設計の控えが在る時だけ。
     節にも LATE_HEAD で分けて貼る）"""
