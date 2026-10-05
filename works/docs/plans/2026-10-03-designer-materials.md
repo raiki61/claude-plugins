@@ -94,7 +94,7 @@ keep-essence は `works/docs/keep-essence.md` の、どの作りでも残す wor
 
 **Files:**
 - Modify: `works/.shared/core/design.py`
-  - `HEADING`（75 行）を消す。
+  - 見出しの正規表現の定数 HEADING（75 行）を消す（この Task で消したので、名に括弧の印を付けない）。
   - 新しい関数 `_heads`・`_section_lines`・`_split_target` を足す。
   - `_section`（155-177 行）を差し替え、返りを変える。
   - `named_sections`（180-200 行）を新しい返りに合わせる。
@@ -187,7 +187,7 @@ class SectionShapeCase(unittest.TestCase):
 Run: `works/` から `PYTHONDONTWRITEBYTECODE=1 WORKS_TESTSLOT= python3 -m unittest tests.test_blk_eyes.SectionShapeCase tests.test_blk_eyes.PrepCase.test_named_section_over_cap_names_cut_lines`
 Expected: FAIL。`SectionShapeCase` は `_section_lines` が無い AttributeError。PrepCase の 1 本は why に範囲が無い断言の失敗。
 
-- [ ] **Step 3: `_heads`・`_section_lines`・`_split_target` を足し、`_section`・`named_sections`・`_named_hit` をそれらに載せ替え、`HEADING` を消す**
+- [ ] **Step 3: `_heads`・`_section_lines`・`_split_target` を足し、`_section`・`named_sections`・`_named_hit` をそれらに載せ替え、定数 HEADING を消す**
 
 `_section` は `_split_target` → `_head_file` → `git show HEAD:<path>` → `_section_lines(text, num=…, anchor=…, slugs=b.rules._md_slugs)` の順で呼ぶ。cut は `cap_bytes` に任せる。切った範囲の開始行 k は、切った後の本文に丸ごと残った行の数の次の行。`_named_hit` は `_split_target` で path・番号を取る（`.md` の決め打ちを外す）。名指しを拾う側（`_named_targets`）は Task 2 で直すので、この Task では `.md` だけが届く。
 
@@ -218,7 +218,7 @@ git commit -m "feat(works): 名指しの節を当たった行の形（前置き�
 
 **Files:**
 - Modify: `works/.shared/core/design.py`
-  - `CODE_SPAN_MD`（70 行）を `CODE_SPAN_ANCHOR` に置き換え、`CODE_SPAN_NUM`（72 行）の `\.md` を任意の拡張子にする。
+  - コードスパンの `.md` の見出しの名指しの定数 CODE_SPAN_MD（70 行。この Task で消した）を `CODE_SPAN_ANCHOR` に置き換え、`CODE_SPAN_NUM`（72 行）の `\.md` を任意の拡張子にする。
   - 新しい定数 `NAME_NUM`・`NAME_QUOTE` と関数 `_is_doc`・`_docs_named` を足す。
   - `_named_targets`（108-136 行）は引数に repo を足し、`named_sections` の呼びを合わせる。
   - `import impact` を足す。
