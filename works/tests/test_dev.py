@@ -1284,6 +1284,9 @@ class TestDevShell(unittest.TestCase):
                                                                  "status": "paused", "working_path": str(repo),
                                                                  "output_root": str(tmp / "out")}]}))
             (repo / "fixed.txt").write_text("承認の後の修正\n")
+            # 線の start が盤面に置く周の頭の版（base_rev）。読めなければ差分の口は書き終えた物と見ず終了コード 4 にする
+            start = tmp / "out" / "artifacts" / "runs" / "run-1" / "board" / "r1" / "start.json"
+            start.write_text(json.dumps(dict(json.loads(start.read_text()), base_rev=git(repo, "rev-parse", "HEAD"))))
             (tmp / "fake-archon.sh").write_text(
                 f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;;\n'
                 '*) printf "%s|%s|%s\\n" "${WORKS_KEYCHAIN_ITEM:-}" "$(pwd -P)" "$*" ;; esac\n')
@@ -1303,6 +1306,10 @@ class TestDevShell(unittest.TestCase):
             (tmp / "req.json").write_text("[]\n")
             wt = tmp / "wt"
             committed_copy(wt, DEV / "target-seed")
+            # 線の start が盤面に置く周の頭の版（base_rev）。読めなければ差分の口は書き終えた物と見ず終了コード 4 にする
+            board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
+            (board / "r1").mkdir(parents=True)
+            (board / "r1" / "start.json").write_text(json.dumps({"base_rev": git(wt, "rev-parse", "HEAD")}))
             result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
                                                working_path=wt, output_root=tmp / "out")
             self.assertEqual(result.returncode, 0, result.stderr)

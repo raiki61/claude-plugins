@@ -280,7 +280,7 @@ LINE_ORDER = [
      "with": {"judged": _skippable("$judging.output"), "tests": _skippable("$testing.output"),
               "start": {"from": "$start.output"}, "mid": _skippable("$h-mid.output"),
               "ci": _skippable("$ci-checking.output"), "eyes": _skippable("$h-eyes.output"),
-              "eyeing": _skippable("$eyeing.output")}},
+              "eyeing": _skippable("$eyeing.output"), "cleaned_runs": "$INPUTS.cleaned_runs"}},
     {"id": "reporting", "kind": "include", "block": "blk-report", "depends_on": ["report"],
      "when": "$report.output.ai_report_go == true", "with": {"machine_report": "$report.output.report_file"}},
     # 出口（returns）。AI の報告のブロックが落ちても機械の報告で出口を出す（all_done: 前の節の成否に依らず走る）

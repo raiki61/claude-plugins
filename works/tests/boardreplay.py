@@ -119,6 +119,8 @@ NOT_REPRODUCED = {
     "段の昇格（thickness_from）": "段の昇格を持たない（a1202d0 の graph は段を持たない）",
     "disk:report.md": "本文の保存（節の save_text_as）を持たない。報告の本文は works のブロックが書く",
     "disk:rounds/works/": "works の周の添え書き（仕様 4.5。engine の盤面に無い。RR は rounds/ の下のディレクトリを読み飛ばす）",
+    "disk:state.json.lock": "盤面の保存の錠（board.SAVE_LOCK。fcntl.flock の空のファイル）。engine は保存に錠を取らないので手本に無い。"
+                            "錠を外した後に消すと、待っていた別の保存が消えたファイルの錠を取って二重に書けるので、盤面は消さない",
     "disk:trace.jsonl": "手本が撮っていない（時刻の痕跡。作り手の目録の範囲の外）。DiskBoard も engine と同じ行の形で書くが比べない",
     "trace の done の行の sha（schema の節）": "engine は役が返した生の本文の sha、DiskBoard は本文を受け取らず返答の dict を"
                                           "並べ直した JSON の sha（本文を返す節は同じ本文の sha）。trace は比べない（disk:trace.jsonl）",
