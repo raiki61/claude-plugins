@@ -48,7 +48,8 @@
   範囲の中の変更は、輪が済んだ時の木（frozen_tree）との差分の塊の旧い側の行で見て通す）
 - fix-accept → selected_problems: 版からの変更に当たる試験（impact.select_tests。分からない物が近くに在れば全部）を同じ実行器で
   走らせ（選んだ .py のうち変えた・足したファイルだけを一式を回す時も絶対パスで後ろに足し、一式でない時は -k で絞る。届いただけの
-  段の外の試験は手元で走らせない。ADR 0071 の 3 の 1）、元で赤でなかった試験の赤を返す。走らせなかった試験は『手元で回さなかった』として
+  段の外の試験は手元で走らせない。ADR 0071 の 3 の 1）、元で赤でなかった試験の赤をテストのファイルごとの行で返す（行はそのパスを
+  名指す。ファイルの分からない赤は 1 行にまとめてパスを名指さない）。走らせなかった試験は『手元で回さなかった』として
   知らせと状態（ci_left。受け付けが盤面の trace に載せ、最後の関所が並べる）に名前で残す。元の結末に無い試験の赤は、版を
   一時の置き場に写して同じ試験を回し、版でも赤なら外す（作業ツリーは動かさない）。1 件も走らなければ「新しい赤なし」にせず
   知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
@@ -86,6 +87,7 @@ import planmarks  # noqa: E402  （.shared/core。修正案の項目の works �
 import seat  # noqa: E402  （.shared/core。借りたスキルの座）
 import tree_run  # noqa: E402
 import writes  # noqa: E402  （.shared/core。書き込みの出どころの突き合わせ）
+import leftovers  # noqa: E402
 from leftovers import Unreadable, git, git_names  # noqa: E402
 
 RULES_GRAPH = "review-loop-tdd.json"
@@ -138,22 +140,7 @@ def retry_max() -> int:
 
 
 # ---------------------------------------------------------------- 版を木に固める・戻す
-def snapshot(repo) -> str:
-    """作業ツリーの今の姿（未追跡の新しいファイルも。.gitignore に当たる物は除く）の木の sha。本物の index は触らない"""
-    with tempfile.TemporaryDirectory(prefix="works-tdd-index-") as td:
-        env = {**os.environ, "GIT_INDEX_FILE": str(pathlib.Path(td) / "index")}
-        if _has_head(repo):
-            git(repo, "read-tree", "HEAD", env=env)
-        git(repo, "add", "-A", "--", ":/", env=env)
-        return git(repo, "write-tree", env=env).strip()
-
-
-def _has_head(repo) -> bool:
-    try:
-        git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
-        return True
-    except Unreadable:
-        return False
+snapshot = leftovers.snapshot   # 作業ツリーの今の姿の木の sha（正本は leftovers。輪の中の名は変えない）
 
 
 def touched(repo, a: str, b: str) -> list:
@@ -1419,8 +1406,9 @@ def selected_problems(state_file, repo, rev) -> tuple:
     if not cases:
         return [], (f"{what}が一式の結末に 0 件——選んだ試験が 1 件も走らなかった（-k が何にも当たらない・実行器が足した試験を"
                     f"拾わない。ログ {work / f'suite-{ACCEPT_RUN}.log'}）。新しい赤が無いことは確かめていない{ci}")
-    red = [_key(c) for c in cases if c["outcome"] in ("failure", "error")
-           and st["baseline"].get(_key(c)) not in ("failure", "error")]
+    reds = {_key(c): c for c in cases if c["outcome"] in ("failure", "error")
+            and st["baseline"].get(_key(c)) not in ("failure", "error")}
+    red = list(reds)
     fresh = [k for k in red if k not in st["baseline"]]
     tail = ""
     if fresh:
@@ -1431,8 +1419,27 @@ def selected_problems(state_file, repo, rev) -> tuple:
             red = [k for k in red if k not in old]
     if not red:
         return [], f"{what}: {len(cases)} 件で新しい赤なし{ci}"
-    return [f"受け付けが走らせた{what}で、元で赤でなかった試験が赤: {red[:20]}（{len(red)} 件。ログ {work / f'suite-{ACCEPT_RUN}.log'}"
-            f"{tail}）——直した単位のどこかを直して出し直せ"], ""
+    # 行はテストのファイルごと（修正の受け付けが最後の回にパスで単位に結ぶ）。頭に選んだファイルの一覧を置かない（ほかの
+    # ファイルの赤の行がそのパスを名指して、関わらない単位に結ばないように）
+    label = "一式" if sel["run_all"] else f"選んだ試験（-k {kexpr[:300]}）"
+    return [f"受け付けが走らせた{label}で、元で赤でなかった試験が赤{where}: {ids[:20]}（{len(ids)} 件。"
+            f"ログ {work / f'suite-{ACCEPT_RUN}.log'}{tail}）——直した単位のどこかを直して出し直せ"
+            for where, ids in _by_test_file(repo, [reds[k] for k in red]).items()], ""
+
+
+def _by_test_file(repo, cases) -> dict:
+    """赤の case をテストのファイルごとに分けた {「（ファイル <根からのパス>）」: [id]}（現れた順）。ファイルは case の模块
+    （impact._junit_module）が impact._mod に等しいテストのファイル（impact.tree_files と impact.is_test）で、同じ名の模块が
+    2 つ以上在れば全部を名指す。見つからない case の鍵は ""（パスを名指さない）"""
+    files = {}
+    for p in impact.tree_files(repo) or []:
+        if impact.is_test(p) == "module":
+            files.setdefault(impact._mod(p), []).append(p)
+    out = {}
+    for c in cases:
+        hit = files.get(impact._junit_module(c) or "", [])
+        out.setdefault(f"（ファイル {', '.join(hit)}）" if hit else "", []).append(_key(c))
+    return out
 
 
 def _left_to_ci(selected, run_files, cases) -> list:

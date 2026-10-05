@@ -11,15 +11,15 @@
 - INPUTS_CLEANED: clean の出力（{ok, count, file} の JSON の文字列。修正役が残した git が無視するファイルのうち消した物の
   件数と、全件を書いた盤面のファイル。出口の removed に {count, file} でそのまま通し、ファイルは開かない）
 - INPUTS_TDD: tdd-start の出力（{go, reason, suite, state_file, summary_file} の JSON の文字列。いつも走る節）
-- INPUTS_PASS_TAG: 回の印（依頼 226 の 2 回目の修正の段は refit。無い・空は 1 回目）。reads_file はその回の読んだ証拠
 - ARTIFACTS_DIR: 盤面はその下の board/
 中身は recount.collect: 受け付けた changes を今の周の changes.json（{"changes": [...]}）に書き、1 本目の欄
 {"ok": true, "files", "changes_file", "removed"} に、盤面から fix_file・not_done・coverage・reads_file を、TDD の輪から tdd
 （tddloop.exit_fields。実行器の無い run は ran: false）を足して 1 行出して 0。
-修正の段が諦めた（受け付けか assert-changed の出力が ok: false で、盤面が止まっている——止めるのは assert-changed。R50）ときは、
+修正の段が諦めた（assert-changed の出力が ok: false で、盤面が止まっている——止めるのは assert-changed。R50）ときは、
 1 本目の欄を持つ {"ok": false, "files": [], "changes_file": "", "removed", "tdd", "reason": 盤面が止まった理由} を出して 0。
-受け付けが通っていないのに盤面が止まっていない・入力が読めない・盤面が今の周の p3.fix を受けていないときは、標準エラーに理由を
-1 行出して 2（何も書かない）。
+受け付けは最後の回に必ず通る（義務の単位を全部止めても写しが返答を受けなければ、受け付けが機械の空の返答を渡す。依頼 242 決め 5）
+ので、受け付けの出力が ok: false なら入力の誤り。それと、assert-changed が通っていないのに盤面が止まっていない・入力が読めない・
+盤面が今の周の p3.fix を受けていないときは、標準エラーに理由を 1 行出して 2（何も書かない）。
 """
 import json
 import os
@@ -35,10 +35,7 @@ import script_io  # noqa: E402
 import tddloop  # noqa: E402
 from board import BoardGap  # noqa: E402  （BoardMismatch も含む）
 
-INPUTS = ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED",   # RULED は飛ばされれば null
-          "INPUTS_PASS_TAG")
-# 無くても欠けに数えない入力（依頼 226 で後から足した回の印。前の版の with: で再開した run は渡さない。無い・空は 1 回目）
-OPTIONAL = frozenset({"INPUTS_PASS_TAG"})
+INPUTS = ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")   # RULED は飛ばされれば null
 
 
 def env_json(name, raw=None):
@@ -66,13 +63,15 @@ def collect():
         raise recount.Unreadable(f"clean の出力に count・file が無い（{cleaned!r}）")
     removed = {"count": count, "file": file}
     board = pathlib.Path(artifacts) / "board"
-    if accepted.get("ok") is not True or changed.get("ok") is not True:
+    if accepted.get("ok") is not True:   # 受け付けは最後の回に必ず通る（決め 5）。ok: false は回す側の誤り
+        raise recount.Unreadable(f"受け付けの出力が ok: true でない（修正の輪は受け付けが通って抜ける。{str(accepted)[:200]!r}）")
+    if changed.get("ok") is not True:
         st = entry.open_board(board, allow_halted=True).state
         stop = st.get("stop") or st.get("halted")
         if stop:   # 修正の段が諦めた（assert-changed が止めた）。後ろの段は境の節が飛ばし、報告が走る
             return {"ok": False, "files": [], "changes_file": "", "removed": removed, "tdd": tddloop.exit_fields(tdd),
                     "reason": f"盤面は止まっている（{stop.get('by')}）: {stop.get('reason') or ''}"}
-    out = recount.collect(board, accepted, changed, tag=os.environ.get("INPUTS_PASS_TAG", ""))
+    out = recount.collect(board, accepted, changed)   # reads_file は今の scope（同じ include の fix-reads）の読んだ証拠
     return {**out, "removed": removed, "tdd": tddloop.exit_fields(tdd)}
 
 

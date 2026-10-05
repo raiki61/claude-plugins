@@ -1,0 +1,10 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "単位ごとの閉鎖の表 fix-unit-rows.json（盤面の根。書き手は core の querytest.save_closure）",
+ "type": "object",
+ "required": ["round", "rows"],
+ "properties": {
+  "round": {"type": "integer", "minimum": 1},
+  "rows": {"type": "array", "items": {"type": "object", "properties": {"unit_key": {"type": "string"}}}}
+ }
+}

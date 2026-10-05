@@ -1,0 +1,10 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GitHub の読み出しの写し github.json（盤面の根。書き手は core の ghreads.adopt）",
+ "type": "object",
+ "properties": {
+  "version": {"type": "integer"},
+  "pr": {"type": "object"},
+  "issue": {"type": "object"}
+ }
+}

@@ -1,0 +1,12 @@
+{
+ "owner": "blk-refix",
+ "consumes": [
+  {"name": "lens.json"},
+  {"name": "delta-verdicts.json"}
+ ],
+ "produces": [
+  {"name": "reads-refix.json", "format": "json", "schema": "../.shared/core/reads.schema.json", "per_include": true},
+  {"name": "reads-review2.json", "format": "json", "schema": "../.shared/core/reads.schema.json", "per_include": true},
+  {"name": "reads-refix2.json", "format": "json", "schema": "../.shared/core/reads.schema.json", "per_include": true}
+ ]
+}

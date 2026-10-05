@@ -7,7 +7,8 @@ description: |
   changes に行を書くだけ）、
   2 つの役（tdd・fix）の指示書は、その前の script の節（tdd-prep・fix-prep）が修正の決まりの正本（.shared/core/writerules/common.md）と道ごとの決まりと
   run の値から機械で組む（lib/fixrules.py。裁定 R65。役の節の指示は「組んだ指示書を Read で読め」の 1 行）、
-  返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回）、修正役が残した git が
+  返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回。3 回目の拒否は行を名指しの単位・テストが
+  import で届く単位に結んで、その単位だけを段の頭の木に戻して控えに残し、ほかの単位は受けて先へ進む）、修正役が残した git が
   無視するファイル（テストを回して出来た __pycache__ など）のうち控えに無かった物だけを消し（clean。後のテストの節を
   生成物の無い木で回す）、申告したファイルが実際に変わったかを確かめ（assert-changed。何も変えずに済んだと言えば
   run が落ちる）、出口に集める（collect。消した件数と、全件を書いた盤面のファイルも渡す）。
@@ -16,7 +17,8 @@ description: |
   裁定役（rule-loop。持ち主の決まり rules/principles.md）が fix_test_scope・fix_code_as・ask_human・replace_query・fix_plan_item に裁き、2 回目の修正役
   （fix-ruled-loop。修正役の会話の続き）が裁定の文のファイルを読んで直して盤面に渡す。ask_human の単位は直す義務から外れ、
   最後の人の関所に届く。fix_plan_item の単位も直す義務から外れ、同じ run の中で修正案の役がその項目を直してから、この
-  ブロックの 2 度目の include（回の印 pass_tag。2 回目の修正の段）で直す（.shared/core/conflict.py・replan.py）。
+  ブロックの 2 度目の include（2 回目の修正の段。その物は include の名の置き場 scope で 1 回目と分かれる）で直す
+  （.shared/core/conflict.py・replan.py）。
 
 inputs:
   judgment_file:
@@ -47,26 +49,17 @@ inputs:
   test_cmd:
     default: ""
     description: 緑の後に TDD の輪が走らせるテストのコマンド（線の入力 `test_cmd`）。空は走らせない。実行器がこのコマンドそのものを包んだ物なら 2 度走らせない
-  # 同じ run の中の案の直し（依頼 226）でラインがこのブロックを 2 度目に include した 2 回目の修正の段の口。1 度目は既定のまま
-  include_id:
-    default: fixing
-    description: ラインがこのブロックを include した id（読んだ証拠が Archon の出来事の節の名 <include>__<輪>.<役> を引くため）
-  pass_tag:
-    default: ""
-    description: 回の印（2 回目の修正の段は refit）。指示書・拒否の理由・裁定の文・回の数え・読んだ証拠のファイルの名に足し、1 回目の物と分ける。空は 1 回目
 
 returns: collect
 outcome_field: ok
 
 nodes:
-  # 修正役の前の git が無視するファイルの控え（盤面の fix-ignored-before.json。回の印が在れば fix-ignored-before.<印>.json）。
+  # 修正役の前の git が無視するファイルの控え（盤面の今の scope の根の fix-ignored-before.json）。
   # clean はこれに無かった物だけを消す
   - id: ignored-before
     script: ignored_before
     runtime: uv
     timeout: 1728000000
-    with:
-      pass_tag: $INPUTS.pass_tag
     output_format:
       type: object
       required: [ok, count, file]
@@ -221,7 +214,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $fix-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
+      until_bash: test $fix-accept.output.done = true   # 通った時か、3 回目の拒否で結べる単位を止めて通した時（max_iterations で落とさない。R50）
       nodes:
         # 指示書を組み（fixrules.prep: 修正の決まりの正本・直す役の決まり・run の値。prompt_file は full の写しで、隣に .full.md・
         # .delta.md・.variants.json）、起こした印を置く（盤面は印の無い返答を受けない）。
@@ -239,8 +232,6 @@ nodes:
             summary_file: $tdd-start.output.summary_file
             base_rev: $INPUTS.base_rev   # 修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
             pass: "first"
-            pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             additionalProperties: false
@@ -671,14 +662,12 @@ nodes:
             iteration: $fix-prep.output.iteration     # 輪の何回目か（3 回目の拒否で done。R50）
             pass: "first"
             tdd_suite: $INPUTS.tdd_suite              # 事後の関門の束の実行器（空は受け入れのテストの赤緑を確かめない run）
-            pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
             properties:
               ok: {type: boolean}
-              done: {type: boolean}           # 輪を抜ける旗（通った時か 3 回目の拒否。諦めた輪は assert-changed が盤面を止める）
+              done: {type: boolean}           # 輪を抜ける旗（通った時か 3 回目。3 回目は拒否の行を単位に結んで止め、受けた単位で通す）
               reason: {type: string}
               reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               changes: {type: array}
@@ -719,8 +708,6 @@ nodes:
           with:
             judgment_file: $INPUTS.judgment_file
             policy_path: $INPUTS.policy_path
-            pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             additionalProperties: false
@@ -790,8 +777,6 @@ nodes:
             reply: {from: "$rule.output"}
             base_rev: $INPUTS.base_rev
             iteration: $rule-prep.output.iteration
-            pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             required: [ok, done, reason, reason_file, rulings_file, counts]
@@ -826,8 +811,6 @@ nodes:
             summary_file: $tdd-start.output.summary_file
             base_rev: $INPUTS.base_rev
             pass: "ruled"
-            pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             additionalProperties: false
@@ -868,8 +851,6 @@ nodes:
             iteration: $fix-ruled-prep.output.iteration
             pass: "ruled"
             tdd_suite: $INPUTS.tdd_suite
-            pass_tag: $INPUTS.pass_tag
-            include_id: $INPUTS.include_id
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
@@ -889,9 +870,7 @@ nodes:
     depends_on: [fix-loop, conflict-check, rule-loop, fix-ruled-loop]
     trigger_rule: none_failed_min_one_success   # 申し出が無い run は裁定の輪と 2 回目の修正の輪が飛ばされる
     timeout: 1728000000
-    with:
-      pass_tag: $INPUTS.pass_tag   # 控えと消した物のファイルはその回の物（1 回目の物を上書きしない）
-    # 消したパスの全件は盤面の fix-removed.json（回の印が在れば fix-removed.<印>.json）に書き、出口は件数とそのパスだけ（件数に上限が無く、子の stdout には上限が在る）
+    # 消したパスの全件は盤面の今の scope の根の fix-removed.json に書き、出口は件数とそのパスだけ（件数に上限が無く、子の stdout には上限が在る）
     output_format:
       type: object
       required: [ok, count, file]
@@ -909,7 +888,7 @@ nodes:
       base_rev: $INPUTS.base_rev
       accepted: $fix-loop.output
       ruled: {from: "$fix-ruled-loop.output", if_skipped: null}   # 2 回目の修正の輪が走れば、その受け付けの出力を使う
-    # 通らない（申告が空（直す義務が残らず、答え待ち・ask_human で外れた単位が在る時を除く）・申告したのに変わっていない・輪が 3 回とも拒まれて諦めた）時は run を落とさずに盤面を理由つきで止め
+    # 通らない（申告が空（直す義務が残らず、答え待ち・ask_human で外れた単位が在る時を除く）・申告したのに変わっていない）時は run を落とさずに盤面を理由つきで止め
     # （by works:fix。R50）、ok: false と reason を出す。後ろの段は境の節が飛ばし、報告と書き出しは走る（run 26）
     output_format:
       type: object
@@ -921,7 +900,7 @@ nodes:
           items: {type: string}
         reason: {type: string}
 
-  # 読んだ証拠（受け付けの条件にしない。今の周の reads-fix.json。回の印が在れば reads-fix.<印>.json。collect が reads_file で出口に出す）。機械が渡したパスは判定のファイルと、
+  # 読んだ証拠（受け付けの条件にしない。今の scope の周の reads-fix.json。collect が reads_file で出口に出す）。機械が渡したパスは判定のファイルと、
   # fix-prep が今の周に組んだ指示書（fixrules.reads_more。輪の外の節は輪の中の出力を引けないので盤面の置き場から）
   - id: fix-reads
     script: reads
@@ -930,8 +909,6 @@ nodes:
     timeout: 1728000000
     with:
       must: '["$INPUTS.judgment_file"]'
-      pass_tag: $INPUTS.pass_tag
-      include_id: $INPUTS.include_id
     output_format:
       type: object
       additionalProperties: false
@@ -953,7 +930,6 @@ nodes:
       changed: {from: "$assert-changed.output"}
       cleaned: {from: "$clean.output"}
       tdd: {from: "$tdd-start.output"}   # tdd-start はいつも走る（飛ばされない）
-      pass_tag: $INPUTS.pass_tag          # 読んだ証拠（reads_file）はその回の物
     output_format:
       type: object
       required: [ok, files, changes_file, removed, tdd]
@@ -978,4 +954,4 @@ nodes:
         not_done: {type: integer, minimum: 0}
         coverage: {type: object}
         reads_file: {type: string}
-        reason: {type: string}          # 諦めた出口（ok: false。assert-changed が止めた盤面の理由）
+        reason: {type: string}          # 止めた出口（ok: false。assert-changed が止めた盤面の理由）

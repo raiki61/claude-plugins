@@ -1,0 +1,11 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "修正案の項目の works の欄の控え plan-fields.json（盤面の根。書き手は core の planmarks.save）",
+ "type": "object",
+ "required": ["round", "fields"],
+ "properties": {
+  "round": {"type": "integer", "minimum": 1},
+  "fields": {"type": "array"},
+  "amended": {"type": "object"}
+ }
+}

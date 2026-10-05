@@ -15,9 +15,11 @@ for _works_env in \
   ARTIFACTS_DIR WORKFLOW_ID; do
   unset "$_works_env"
 done
-# ラインの節（tdd-suite.sh）から起こすと Archon が INPUTS_* を渡す。script_io は INPUTS_BASE_REV などを env から読むので、
-# 自分で置かない試験が run の値を拾う。名は節ごとに違うので接頭辞で落とす
-for _works_env in $(env | sed -n 's/^\(INPUTS_[A-Za-z0-9_]*\)=.*/\1/p'); do
+# ラインの節（tdd-suite.sh・試験の節の run.sh）から起こすと Archon が INPUTS_* と ARCHON_*（節ごとの ARCHON_NODE_EXECUTION・
+# ARCHON_CLI_COMMAND・殻の ARCHON_HOME）を渡す。script_io は INPUTS_BASE_REV などを、flow_adapter は ARCHON_NODE_EXECUTION の path
+# から include の名（盤面の scope）を env から読むので、自分で置かない試験が run の値を拾う（置き場が <include>/ の下にずれる）。
+# 名は節ごとに違うので接頭辞で落とす（試験の子に向けた hermetic.py の DROPPED_PREFIXES と同じ向き）
+for _works_env in $(env | sed -n 's/^\(INPUTS_[A-Za-z0-9_]*\)=.*/\1/p; s/^\(ARCHON_[A-Za-z0-9_]*\)=.*/\1/p'); do
   unset "$_works_env"
 done
 unset _works_env

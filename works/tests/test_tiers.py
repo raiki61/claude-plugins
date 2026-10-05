@@ -266,6 +266,16 @@ class RunShCase(unittest.TestCase):
             self.skipTest("SKIP dash: dash が無い")
         self.assertEqual(subprocess.run([dash, "-n", str(RUN_SH)], capture_output=True).returncode, 0)
 
+    def test_archon_node_env_does_not_reach_tests(self):
+        """線の試験の節（Archon の script の節）から起こすと、Archon は節ごとの ARCHON_NODE_EXECUTION（path に include の名）などを
+        渡す。試験は同じプロセスで flow_adapter を読むので、継ぐと scope が付いて盤面の置き場がずれ、run の中でだけ赤くなる（dogfood 195g）"""
+        (pathlib.Path(self._tmp.name) / "bin" / "uv").write_text(
+            '#!/bin/sh\nenv | sed -n "s/^\\(ARCHON_[A-Za-z0-9_]*\\)=.*/\\1/p" >> "$FAKE_LOG"\n')
+        r = self.run_sh(WORKS_TESTS="fast", ARCHON_NODE_EXECUTION='{"path":"testing__run"}',
+                        ARCHON_CLI_COMMAND='["archon"]', ARCHON_HOME="/nonexistent")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(), [])
+
 
 BARE_ENVIRON = __import__("re").compile(r"(?<![\w.])dict\(os\.environ\b|os\.environ\.copy\(\)|\{\*\*os\.environ\b")
 

@@ -37,6 +37,7 @@ import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import reads  # noqa: E402
 import script_io  # noqa: E402
+import scopes  # noqa: E402
 import report  # noqa: E402
 from board import DiskBoard  # noqa: E402
 
@@ -211,10 +212,11 @@ class RowCase(unittest.TestCase):
         calls = [{"n": 1, "phase": "route", "ok": True}, {"n": 2, "phase": "test", "ok": False},
                  {"n": 3, "phase": "test", "ok": True}]
         board = make_board(self.tmp, shape="g3", items=2, calls=calls)
-        for n in (1, 2):   # 修正の受け付けの拒否の本文（script_io が盤面の根に書く reject-accept_fix-<n>.txt）
-            put(board / f"reject-accept_fix-{n}.txt", "拒否の理由")
-        put(board / "reject-tdd_step-1.txt", "輪の拒否は calls で数える")
-        put(board / "r1" / fixgates.LEDGER, {"rows": [{"pass": "first", "attempt": 1, "shape": "g3", "gate": "test_edits",
+        scopes.claim(board, 1, "fixing", "blk-fix")   # 修正のブロックの私物は include の scope の根（script_io.scope_dir・b.work）
+        put(board / "fixing" / "reject-accept_fix-1.txt", "拒否の理由")   # 拒否の本文（script_io が scope の根に書く）
+        put(board / "reject-accept_fix-2.txt", "拒否の理由")              # 置き場の版の前の盤面の根の物も数える
+        put(board / "fixing" / "reject-tdd_step-1.txt", "輪の拒否は calls で数える")
+        put(board / "fixing" / "r1" / fixgates.LEDGER, {"rows": [{"pass": "first", "attempt": 1, "shape": "g3", "gate": "test_edits",
                                                        "id": "test_x.py::test_old", "detail": "変えた", "unit_keys": []}],
                                              "skipped": []})
         item = {"id": "c1-1", "round": 1, "source": "fix", "unit_key": "u1", "between": "brief と判定", "kind": "brief_vs_judgment",
@@ -354,10 +356,10 @@ class RowCase(unittest.TestCase):
                 self.assertEqual(r["redo"]["subagent_redos"], want)
                 self.assertEqual(r["redo_total"], want)
 
-    def g1_board(self, name, items=2, owed=None):
+    def g1_board(self, name, items=2, open_units=None):
         board = make_board(self.tmp, shape="g1", items=items, name=name)
-        if owed is not None:   # 輪に渡した単位（直す義務の単位）を欄の単位の外まで広げる
-            put(board / "tdd-1" / "state.json", {"open_units": owed, "units": {}, "calls": []})
+        if open_units is not None:   # 輪の状態の open_units（excused も含む）を欄の単位の外まで広げる
+            put(board / "tdd-1" / "state.json", {"open_units": open_units, "units": {}, "calls": []})
         log = adapter.writes_path(entry.open_board(board, allow_halted=True).state["inputs"]["cwd"], self.home)
         put(log, json.dumps({"tool_name": "Edit", "agent_id": "a1", "path": "/x/a.py"}) + "\n")
         return board
@@ -388,7 +390,7 @@ class RowCase(unittest.TestCase):
 
     def test_g1_rest_item_is_not_a_redo(self):
         """修正案のどの項目にも無い直す義務の単位は残りの 1 項目（fixrules.G1_REST）で下請けを 2 本起こす。作り直しに数えない"""
-        board = self.g1_board("rest", items=2, owed=["u1", "u2", "u3"])
+        board = self.g1_board("rest", items=2, open_units=["u1", "u2", "u3"])
         db = make_db(self.tmp, events=[agent("fixing__fix-loop.fix") for _ in range(6)])
         r = self.row(db, board)
         self.assertEqual(r["items"], 2)   # 項目あたりの比べの分母は腕を通して修正案の項目のまま
@@ -396,6 +398,46 @@ class RowCase(unittest.TestCase):
         with self.subTest("残りの項目の作り直しは数える"):
             db = make_db(self.tmp, path=self.tmp / "rest2.db", events=[agent("fixing__fix-loop.fix") for _ in range(8)])
             self.assertEqual(self.row(db, board)["redo"]["subagent_redos"], 1)
+
+    def test_g1_excused_unit_is_not_rest_item(self):
+        """直す義務から外れた（excused）単位は修正案のどの項目にも無くても残りの 1 項目を起こさない。項目 2 つ分の 4 本を超えた
+        2 本で作り直し 1 回（excused を残りの項目に数えると 6 本が項目 3 つ分に収まり 0 になる）"""
+        board = self.g1_board("excused", items=2, open_units=["u1", "u2", "u3"])
+        st = json.loads((board / "tdd-1" / "state.json").read_text(encoding="utf-8"))
+        put(board / "tdd-1" / "state.json", {**st, "excused": {"u3": "直す義務から外れた"}})
+        db = make_db(self.tmp, events=[agent("fixing__fix-loop.fix") for _ in range(6)])
+        self.assertEqual(self.row(db, board)["redo"]["subagent_redos"], 1)
+
+    def test_g1_no_excused_keeps_rest_item(self):
+        """excused が無い（鍵が無い・{}・None）時と、parked だけの単位（parked は直す義務から除かない）は今どおり残りの 1 項目を
+        起こす: 6 本は項目 3 つ分で作り直し 0、8 本で 1"""
+        for name, extra in (("none", {}), ("empty", {"excused": {}}), ("null", {"excused": None}),
+                            ("parked", {"parked": ["u3"], "parked_why": {"u3": "食い違い"}})):
+            with self.subTest(name):
+                board = self.g1_board(f"keep-{name}", items=2, open_units=["u1", "u2", "u3"])
+                st = json.loads((board / "tdd-1" / "state.json").read_text(encoding="utf-8"))
+                put(board / "tdd-1" / "state.json", {**st, **extra})
+                for starts, want in ((6, 0), (8, 1)):
+                    db = make_db(self.tmp, path=self.tmp / f"keep-{name}-{starts}.db",
+                                 events=[agent("fixing__fix-loop.fix") for _ in range(starts)])
+                    self.assertEqual(self.row(db, board)["redo"]["subagent_redos"], want)
+
+    def test_g1_excused_unit_in_an_item_is_a_hit(self):
+        """修正案の項目が受け持つ excused の単位は、今どおりその項目を hit に数える: 項目 2 つ分の 4 本で作り直し 0
+        （hit から外すと項目 1 つで 1 になる）"""
+        board = self.g1_board("excused-hit", items=2, open_units=["u1", "u2"])
+        st = json.loads((board / "tdd-1" / "state.json").read_text(encoding="utf-8"))
+        put(board / "tdd-1" / "state.json", {**st, "excused": {"u2": "直す義務から外れた"}})
+        db = make_db(self.tmp, events=[agent("fixing__fix-loop.fix") for _ in range(4)])
+        self.assertEqual(self.row(db, board)["redo"]["subagent_redos"], 0)
+
+    def test_g1_excused_is_per_state(self):
+        """excused を除くのは状態ごと: 別の状態（tdd-2）で excused の u3 は、tdd-1 で直す義務の u3 を消さない。残りの 1 項目を
+        起こし、6 本は項目 3 つ分で作り直し 0（和集合で引くと項目 2 つで 1 になる）"""
+        board = self.g1_board("excused-per-state", items=2, open_units=["u1", "u2", "u3"])
+        put(board / "tdd-2" / "state.json", {"open_units": ["u3"], "excused": {"u3": "直す義務から外れた"}, "units": {}, "calls": []})
+        db = make_db(self.tmp, events=[agent("fixing__fix-loop.fix") for _ in range(6)])
+        self.assertEqual(self.row(db, board)["redo"]["subagent_redos"], 0)
 
     def test_g1_subagent_wake_up_is_not_a_second_start(self):
         """下請けが起き直すと同じ task_id の started がもう 1 行出る。起動は節ごとの task_id の数で数える（作り直しにしない）"""

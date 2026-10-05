@@ -1809,7 +1809,7 @@ PY
 # convergence-loops が 0.40.0 のままで、graphloops 0.21.5 の engine がその関数を見つけられずに止まった）。
 # 見るのは commit 済みの履歴だけ——作業ツリーの未 commit の変更は見ない。
 # **据え置きを赤にするのは、CI が main か release/* の枝を見ているとき（GITHUB_REF_NAME）と、手元で VERSION_BUMP_STRICT=1 を
-# 渡したときだけ。** 作業枝（wip）は版を上げずに run ごとに push して CI を回すので、そこで赤にすると毎回赤になる。それ以外では
+# 渡したときだけ。** 作業枝（wip）は版を上げずに手で CI を起こす（test.yml の workflow_dispatch）ので、そこで赤にすると毎回赤になる。それ以外では
 # 柵の標本だけを走らせ、据え置きの一覧を「# SKIP version-bump:」の見送りの行で出す（CI は 3 OS とも SKIP_ALLOW でこの能力を許す）。
 # 赤にする枝で浅い clone（履歴の無い checkout）なら測れないので、黙って緑にせず赤にする（CI の test の job は fetch-depth: 0 で取る）。
 expect_output 0 "VERSION_BUMP_OK" "配る plugin の置き場のファイルが、その plugin.json の version を最後に変えた commit より後に変わっていれば、version も上がっている（main・release/* の CI と VERSION_BUMP_STRICT=1 のときだけ赤）" \
@@ -3316,7 +3316,7 @@ ran=$((ran + 1))
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が works/tests/run.sh の全段を、全履歴・同じ python・版を固定した依存と mutation.yml と同じ uv で、FAIL_ON_SKIP=1 と自前の許しの一覧を渡して回す。どの job の頭にも if: と continue-on-error: が無い" \
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。works の job が works/tests/run.sh の全段を、全履歴・同じ python・版を固定した依存と mutation.yml と同じ uv で、FAIL_ON_SKIP=1 と自前の許しの一覧を渡して回す。どの job の頭にも if: と continue-on-error: が無い。起こすのは release/** への push と手での起動だけ（出荷の時の 1 回）" \
     "$PY_BIN" - "$ROOT" <<'PYCI'
 import pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -3353,6 +3353,18 @@ for l in txt.splitlines():
         cur["steps"][-1].append(t)
     else:
         cur["head"].append(t)
+# **起こすのは出荷の時の 1 回だけ**（持ち主の決め 2026-10-04）: release/** への push と手での起動。push の枝の絞りが外れると wip の push の
+# たびに全部が走り、release/** が外れると版の据え置きを赤にする枝（VERSION_BUMP_OK の release/*）で CI が起きない
+on_block, in_on = [], False
+for l in txt.splitlines():
+    if l.rstrip() == "on:":
+        in_on = True
+    elif in_on and l and not l[0].isspace() and not l.startswith("#"):
+        break
+    if in_on and l.strip() and not l.strip().startswith("#"):
+        on_block.append(l.rstrip())
+want_on = ["on:", "  push:", '    branches: ["release/**"]', "  workflow_dispatch:"]
+assert on_block == want_on, f"{wf}: 起こす条件が release/** への push と手での起動だけの形（{want_on}）でない: {on_block}"
 assert {"test", "pytest", "shards"} <= set(jobs), f"{wf}: job の test・pytest・shards が揃っていない（{sorted(jobs)}）"
 steps = [s for j in jobs.values() for s in j["steps"]]
 def step(name):
@@ -3505,7 +3517,7 @@ root = pathlib.Path(sys.argv[1])
 EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_", "INPUTS_")
 EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "BASH_ENV", "CLAUDE_KEYCHAIN_SERVICE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                   # Archon が節と子に渡す環境変数・Archon の設定の環境変数・Context7 の鍵
-                  "ARTIFACTS_DIR", "WORKFLOW_ID", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
+                  "ARTIFACTS_DIR", "WORKFLOW_ID", "ARCHON_NODE_EXECUTION", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
                   # works の python が os.environ から・shell の殻が環境から読む環境変数（WORKS_ で始まる shell の
                   # 定数が在るので接頭辞では外さない）
                   "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_DEV_MODEL", "WORKS_GH", "WORKS_GOLDEN_OUT",

@@ -529,6 +529,79 @@ class SavedBoardCase(TmpCase):
         self.assertEqual(calls[-1], (b, None))
 
 
+# ---------------------------------------------------------------- 部品の置き場（scope）と公開の名（published）
+def last_trace_row(b):
+    return json.loads((b.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+
+
+class ScopeCase(TmpCase):
+    """scope は include の単位の置き場。空なら今の置き場のまま。published の形に合う名は scope の外の r<N>/ に置く"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._cls_tmp = tempfile.TemporaryDirectory()
+        tmp = pathlib.Path(cls._cls_tmp.name)
+        with git_cwd_kept():
+            cls.repo = make_repo(tmp)
+            cls.template = DiskBoard.create(tmp / "board", repo=cls.repo, table=full_table(), inputs={}, request_text="依頼").dir
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._cls_tmp.cleanup()
+
+    def open(self, **kw):
+        d = self.tmp / "board"
+        if not d.exists():
+            shutil.copytree(self.template, d)
+        return DiskBoard.open(d, table=full_table(), repo=self.repo, **kw)
+
+    def test_empty_scope_keeps_today_paths(self):
+        b = self.open()
+        self.assertEqual(b.scope, "")
+        self.assertEqual(b.published, frozenset())
+        self.assertEqual(b.work("rule-tree.json"), b.dir / "r1" / "rule-tree.json")
+        self.assertEqual(b.scope_root, b.dir)
+        b.trace("probe")
+        self.assertNotIn("scope", last_trace_row(b))
+
+    def test_scoped_private_name_goes_under_scope_root(self):
+        b = self.open(scope="fixing")
+        self.assertEqual(b.work("rule-tree.json"), b.dir / "fixing" / "r1" / "rule-tree.json")
+        self.assertTrue((b.dir / "fixing" / "r1").is_dir())
+        self.assertEqual(b.scope_root, b.dir / "fixing")
+
+    def test_published_name_stays_in_round_place(self):
+        b = self.open(scope="fixing", published=frozenset({"fix-held-reply.json", "prompt-*.md"}))
+        self.assertEqual(b.work("fix-held-reply.json"), b.dir / "r1" / "fix-held-reply.json")
+        self.assertEqual(b.work("prompt-p3.fix.md"), b.dir / "r1" / "prompt-p3.fix.md")
+        self.assertEqual(b.work("rule-tree.json"), b.dir / "fixing" / "r1" / "rule-tree.json")
+
+    def test_trace_row_carries_scope_when_scoped(self):
+        b = self.open(scope="refitting")
+        b.trace("probe")
+        self.assertEqual(last_trace_row(b)["scope"], "refitting")
+
+    def test_held_trace_carries_scope_at_save(self):
+        """save まで控えた trace の行も、書く時に scope が付く（engine の save が _write_trace を呼ぶ）"""
+        b = self.open(scope="refitting")
+        b.held_trace = []
+        b.trace("held")
+        b.save()
+        row = last_trace_row(b)
+        self.assertEqual((row["op"], row["scope"]), ("held", "refitting"))
+
+    def test_bad_scope_names_refused(self):
+        for s in ("r2", "a/b", "..", "x y", "-x", "1fix"):
+            with self.subTest(s=s), self.assertRaises(ValueError) as cm:
+                self.open(scope=s)
+            self.assertIn(repr(s), str(cm.exception))
+
+    def test_scratch_has_empty_scope(self):
+        b = DiskBoard.scratch(self.tmp, review_rev="")
+        self.assertEqual((b.scope, b.published), ("", frozenset()))
+        self.assertEqual(b.scope_root, self.tmp)
+
+
 # ---------------------------------------------------------------- 盤面なしで写しを読む口
 class CopyReadCase(unittest.TestCase):
     def test_rules_module_fresh(self):

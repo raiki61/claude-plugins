@@ -1,0 +1,11 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "同じ run の中の案の直しの控え r<N>/replan.json（書き手は core の replan。線の境の節が作り、案の直しのブロックが埋める）",
+ "type": "object",
+ "required": ["round", "items"],
+ "properties": {
+  "round": {"type": "integer", "minimum": 1},
+  "items": {"type": "array", "items": {"type": "object", "required": ["item", "old"], "properties": {"item": {"type": "integer"}, "old": {"type": "object"}}}},
+  "answered": {"type": "object"}
+ }
+}

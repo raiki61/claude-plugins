@@ -281,8 +281,15 @@ class AdapterSeenTest(BoardCase):
         self.assertIn("run-6", got["whys"][0])
 
 
+INCLUDES = {"blk-fix": "fixing", "blk-delta": "reviewing", "blk-pr": "pr-checking"}   # 線がブロックを差し込む include の名
+
+
 def run_block_script(block, repo, env):
-    full = {"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1", **env}
+    """ブロックの <役>-reads の節を子のプロセスで起こす。Archon と同じく、節の居場所（ARCHON_NODE_EXECUTION の path）は
+    線の include の中（env に在ればそれ。None なら渡さない＝線の最上段）"""
+    where = {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": f"{INCLUDES[block]}__loop.reads"})}
+    full = {k: v for k, v in {"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1", **where, **env}.items()
+            if v is not None}
     r = subprocess.run([sys.executable, str(ROOT / block / "scripts" / "reads.py")], cwd=str(repo), env=full,
                        capture_output=True, text=True, encoding="utf-8")
     return r.returncode, r.stdout, r.stderr
@@ -332,6 +339,11 @@ class MainForTest(BoardCase):
             code, out, err = run_block_script("blk-fix", self.repo, self.env(INPUTS_MUST=bad))
             self.assertEqual((code, out), (2, ""), bad)
             self.assertIn("INPUTS_MUST", err)
+        # include の中でない（線の最上段・流れの道具の外）: 出来事を引く include の名が無いので回さない
+        for where in (None, json.dumps({"runId": "r", "path": "fix-reads"})):
+            code, out, err = run_block_script("blk-fix", self.repo, {**self.env(), "ARCHON_NODE_EXECUTION": where})
+            self.assertEqual((code, out), (2, ""), where)
+            self.assertIn("include の中の節でない", err)
 
     def test_refix_reads_all_uses_core_interface(self):
         """blk-refix の reads_all（Task 13）が core の reads をそのまま受ける（この盤面はまだ手直しを受けていないので役は 0）"""

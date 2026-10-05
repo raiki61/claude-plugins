@@ -37,7 +37,9 @@ FAST = frozenset({
     "test_core_verbatim",   # 写しと元の commit のバイト一致（git show で読むだけ。リポジトリを作らない）
     "test_core_sync",       # 写し直しの道具: 偽の正本の git はモジュールに 1 回だけ作り、試験は道具を子で起こして git show で読むだけ
     "test_gl_map",          # 線 A: 対応表の JSON と accept.py を読むだけ
+    "test_scopes",          # 部品の置き場（依頼 239）: flow_adapter の env の読みと manifest の照らし（一時の置き場のファイルだけ）
     "test_gitkit",          # 1 秒未満（gitkit の型を 1 回作って 2 回写す）
+    "test_unittrees",       # 3 秒: 単位の worktree（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git だけ）
     "test_blk_eyes_lanes",  # 独立の目の筋の順: YAML と Archon の trigger_rule の写しで節を回す（盤面の fixture を読むだけ。git・子のプロセスを使わない）
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
     "test_block_blind",     # ブロックの散文のほかのブロックの名指しの柵と、役の指示書のほかの役・段の語の柵: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
@@ -139,6 +141,7 @@ HEAVY = frozenset({
     "test_script_headers",  # 5 秒（負荷 64）git・uv run
     "test_tree_run",        # 20 秒（負荷 62）プロセスの木
     "test_script_contract", # script の節の本物の出力と output_format: 種の git と本物の盤面で線を本物のスクリプトで 6 回通す（scriptline）
+    "test_block_scope",     # 部品の置き場（依頼 239）: 種の git と本物の盤面で線を本物のスクリプトで 1 回通す（scriptline）
     "test_use",             # 起動の殻 dev/use.sh: 偽の Archon で殻を子で起こす・answer と approve が切り離しの後に 1 秒待つ・眠る子を切り離して残す（プロセスの木）
     "test_use_homes",       # 既定の家を clone ごとに分けた後の家をまたぐ面: 偽の Archon・herdr で use.sh を子で起こす（対象は種の git の写し）
     "test_tdd_suite",       # TDD の実行器 dev/tdd-suite.sh: uv run で本物の pytest を起こす（偽の小さな試験だけを回す）

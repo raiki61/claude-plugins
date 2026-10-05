@@ -35,6 +35,7 @@ import prcheck  # noqa: E402
 import refix  # noqa: E402
 import rejudge  # noqa: E402
 import report  # noqa: E402
+import scopes  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
 import test_entry as TE  # noqa: E402
 import hermetic  # noqa: E402
@@ -531,6 +532,24 @@ class HeadCase(ReportBase):
         self.assertIn(f"run の作業ツリー: {b.state['inputs']['cwd']}", where)
         self.assertTrue(any(x.startswith("判定: ") for x in where))
 
+    def test_reads_lines_cover_scoped_reads(self):
+        """同じブロックの 2 つの include（fixing・refitting）がそれぞれ scope の根に書いた reads-fix.json は、冒頭 4 の読みの節に
+        両方の行が出る（登録の順。盤面の根の周の置き場の物が先）"""
+        self.full()
+        for scope in ("fixing", "refitting"):
+            scopes.claim(self.board, 1, scope, "blk-fix")
+        made = []
+        for rel, role in (("r1/reads-plan.json", "plan"), ("fixing/r1/reads-fix.json", "fix"),
+                          ("refitting/r1/reads-fix.json", "fix.refit")):
+            p = self.board / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({"role": role, "rows": [], "missing": [], "sources": {"hook": False, "events": "none"}}),
+                         encoding="utf-8")
+            made.append(p)
+        rows = [x for x in report.head_reads(self.board, RUN_ID) if x.startswith("読んだ証拠 ")]
+        self.assertEqual([x.split(":")[0] for x in rows], ["読んだ証拠 plan", "読んだ証拠 fix", "読んだ証拠 fix.refit"])
+        self.assertEqual([x.rsplit("。", 1)[1].rstrip("）") for x in rows], [str(p) for p in made])
+
     def test_round_two_paths(self):
         """周 2 の出力（state.outputs[節]["file"] が out/r2/）→ 見る所のパスは out/r2/ の下（周を仮定しない）"""
         self.full()
@@ -580,6 +599,14 @@ class HeadCase(ReportBase):
         note = "中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）"
         self.assertIn(f"中の検査の枠: {note}", report.head_entry(b, None, mid={"go": True, "mid_note": note}))
         self.assertTrue(any("届いていない" in x for x in report.head_entry(b, None, mid=None)))
+
+    def test_cleaned_runs_line_in_head_entry(self):
+        """use.sh start が起動の前に片付けた前の run（入力 cleaned_runs）は冒頭 2 に 1 行で出る。空なら行を出さない"""
+        self.judged()
+        b = entry.open_board(self.board)
+        self.assertFalse(any(x.startswith(report.CLEANED_HEAD) for x in report.head_entry(b, None)))
+        lines = report.head_entry(b, None, cleaned_runs="run-f（failed）・run-c（completed）")
+        self.assertIn(f"{report.CLEANED_HEAD}: run-f（failed）・run-c（completed）", lines)
 
     def test_context7_quota_line_in_head_entry(self):
         """Context7 が 429（枠切れ）を返した盤面では冒頭 2 に枠切れの 1 行が在り、返さなかった盤面では無い"""
@@ -673,6 +700,27 @@ class HeadCase(ReportBase):
         hit = [x for x in report.head_reads(self.board, RUN_ID) if "事後の関門の束" in x]
         self.assertEqual(len(hit), 1, hit)
         self.assertIn("受け付け 1 回", hit[0])
+
+    def test_head_reads_shows_reads_outside(self):
+        """窓の宣言の外の読み（照らしが trace に積んだ scope_read_outside）は冒頭 4 の読みの節に数とパスが出る（無ければ行を出さない）"""
+        self.begin()
+        self.assertFalse(any("宣言の外の読み" in x for x in report.head_reads(self.board, RUN_ID)))
+        b = entry.open_board(self.board)
+        b.trace(scopes.READ_OUTSIDE_OP, scope="fixing", paths=["planning/r1/y.md", "r1/x.json"])
+        b.trace(scopes.READ_OUTSIDE_OP, scope="refitting", paths=["fixing/r1/a.md"])
+        hit = [x for x in report.head_reads(self.board, RUN_ID) if "宣言の外の読み" in x]
+        self.assertEqual(len(hit), 1, hit)
+        for part in ("3 件", "fixing: planning/r1/y.md", "fixing: r1/x.json", "refitting: fixing/r1/a.md"):
+            self.assertIn(part, hit[0])
+
+    def test_head_reads_shows_required_missing(self):
+        """窓の終わりに無かった必須の出力（照らしが trace に積んだ scope_required_missing）は冒頭 4 に数と名が出る（止めない）"""
+        self.begin()
+        self.assertFalse(any("必須の出力の欠け" in x for x in report.head_reads(self.board, RUN_ID)))
+        entry.open_board(self.board).trace(scopes.REQUIRED_MISSING_OP, scope="lensing", names=["r1/lens.json"])
+        hit = [x for x in report.head_reads(self.board, RUN_ID) if "必須の出力の欠け" in x]
+        self.assertEqual(len(hit), 1, hit)
+        self.assertIn("1 件 lensing: r1/lens.json", hit[0])
 
     def test_ci_note_beside_no_adapter(self):
         """adapter optional で CI の役が走った → 冒頭 4 の「包み無し」の行の横（同じ行）に collect.note"""
@@ -917,7 +965,7 @@ class ScriptCase(ReportBase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         self.assertEqual(mod.INPUTS, ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI",
-                                      "INPUTS_EYES", "INPUTS_EYEING"))
+                                      "INPUTS_EYES", "INPUTS_EYEING", "INPUTS_CLEANED_RUNS"))
         r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_TESTS=json.dumps(RED),
                             INPUTS_MID=json.dumps({"go": False, "mid_note": "枠のみ"}), INPUTS_CI="")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -926,6 +974,17 @@ class ScriptCase(ReportBase):
         self.assertEqual(out["outcome"], "record_invalid")
         self.assertEqual(out["export_input"]["board_dir"], str(self.board.resolve()))
         self.assertIn("中の検査の枠: 枠のみ", pathlib.Path(out["report_file"]).read_text(encoding="utf-8"))
+
+    def test_script_cleaned_runs_reach_report(self):
+        """入力 cleaned_runs（文字列。JSON でない）は報告の冒頭 2 に届く。前の版の with: で再開した run は渡さないので、無くても 0"""
+        self.judged()
+        r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_CLEANED_RUNS="run-f（failed）")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"{report.CLEANED_HEAD}: run-f（failed）",
+                      pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8"))
+        r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_CLEANED_RUNS=None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn(report.CLEANED_HEAD, pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8"))
 
     def test_script_interrupted_by_missing_exit_marks(self):
         """上流の節が落ちた run（run 30・31 の形）: 出来事が取れなくても、h-eyes の出口が無い・目を回すと言ったのに blk-eyes の

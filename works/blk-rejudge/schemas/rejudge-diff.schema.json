@@ -1,0 +1,7 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "再審ごとの単位の差 r<N>/rejudge-diff.json（書き手は core の rejudge の受け付け。再審 1 回に 1 行）",
+ "type": "array",
+ "items": {"type": "object", "required": ["round", "pass", "node", "verdict"],
+           "properties": {"round": {"type": "integer"}, "pass": {"type": "string"}, "node": {"type": "string"}, "verdict": {"type": "string"}}}
+}

@@ -14,14 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import planblk  # noqa: E402
 import rolekit  # noqa: E402
 
-INPUTS = ("INPUTS_INCLUDE_ID", "INPUTS_REPLAN")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_plan.py が見る）
+INPUTS = ("INPUTS_REPLAN",)   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_plan.py が見る）
 # 無くても欠けに数えない入力（後から足した replan。前の版の with: で再開した run は渡さない。無い・空は今どおり）
 OPTIONAL = frozenset({"INPUTS_REPLAN"})
 
 
 def run(board, repo, env):
-    return planblk.collect_reads(board, repo, os.environ.get("WORKFLOW_ID", ""), env["INPUTS_INCLUDE_ID"],
-                                 os.environ.get("INPUTS_REPLAN", ""))
+    return planblk.collect_reads(board, repo, os.environ.get("WORKFLOW_ID", ""), os.environ.get("INPUTS_REPLAN", ""))
 
 
 if __name__ == "__main__":

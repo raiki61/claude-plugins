@@ -469,9 +469,10 @@ class FieldsBroken(ValueError):
     """盤面の控え plan-fields.json が今の周の凍結の印（SAVED_OP）と合わない（受け付けの後に書き換えた・消した・読めない）"""
 
 
-def save(board, rnd: int, fields: list, amended: dict | None = None) -> None:
+def save(board, rnd: int, fields: list, amended: dict | None = None, *, trace=None) -> None:
     """盤面の plan-fields.json を今の周の欄で置き換え（一時のファイルから os.replace。リンクの先へ書かない）、盤面の trace に
-    凍結の印 SAVED_OP {round, sha256（置いたバイトの sha256）} を 1 行足す（DiskBoard.trace と同じ行の形 {t, op, …}）。
+    凍結の印 SAVED_OP {round, sha256（置いたバイトの sha256）} を 1 行足す。trace は開いた盤面の書き口（DiskBoard.trace。行に
+    部品の scope が載る）で、渡さなければ同じ行の形 {t, op, …} で trace.jsonl に直に足す。
     amended（{番号: 核の欄}）が在れば鍵 AMENDED_KEY に番号を字にして置く（無ければ鍵を書かない）"""
     d = pathlib.Path(board)
     doc = {"round": rnd, "fields": fields}
@@ -483,9 +484,12 @@ def save(board, rnd: int, fields: list, amended: dict | None = None) -> None:
     tmp.unlink(missing_ok=True)
     tmp.write_bytes(raw)
     os.replace(tmp, p)
+    row = {"round": rnd, "sha256": hashlib.sha256(raw).hexdigest()}
+    if trace is not None:
+        trace(SAVED_OP, **row)
+        return
     with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"t": now(), "op": SAVED_OP, "round": rnd, "sha256": hashlib.sha256(raw).hexdigest()},
-                           ensure_ascii=False) + "\n")
+        f.write(json.dumps({"t": now(), "op": SAVED_OP, **row}, ensure_ascii=False) + "\n")
 
 
 def _doc(b) -> dict | None:
@@ -614,7 +618,7 @@ def amend(b, items: dict, repo) -> None:
     外す）}。直した項目を split に通して欄の行を作り直し（adds の名と rewrite_tests[].limit を repo から引き直す）、今の控え
     （frozen。食い違えば FieldsBroken）の fields[n-1] をその行に替え、核の欄を AMENDED_KEY[n] に置いて save し直し、trace に
     AMEND_OP {round, items} を書く。知らない番号・unit_keys が元と違う項目は ValueError（受け付けが先に拒む物）で、その時は控えも
-    trace も変えない。b は dir・round・output_of_round だけを読む"""
+    trace も変えない。b は dir・round・output_of_round・trace（盤面の trace の書き口）だけを使う"""
     current = approved_items(b)
     if current is None:
         raise ValueError(f"差し替える承認済みの修正案が無い（周 {b.round} の案か凍結した控え {FIELDS_FILE} が無い）")
@@ -630,10 +634,8 @@ def amend(b, items: dict, repo) -> None:
         _, rows = split({"plan": [it]}, repo)
         fields[n - 1] = rows[0]
         done[n] = {k: it[k] for k in CORE_KEYS if k in it}
-    save(b.dir, b.round, fields, amended=dict(sorted(done.items())))
-    with open(pathlib.Path(b.dir) / "trace.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"t": now(), "op": AMEND_OP, "round": b.round, "items": sorted(items)},
-                           ensure_ascii=False) + "\n")
+    save(b.dir, b.round, fields, amended=dict(sorted(done.items())), trace=b.trace)
+    b.trace(AMEND_OP, round=b.round, items=sorted(items))
 
 
 def rewrites(b) -> list[dict]:

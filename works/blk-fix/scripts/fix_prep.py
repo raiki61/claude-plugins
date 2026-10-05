@@ -6,8 +6,8 @@
 
 読む環境変数: ARTIFACTS_DIR（盤面はその下の board/）と run の値 INPUTS_JUDGMENT_FILE・INPUTS_OPEN_UNITS・INPUTS_PLAN_FILE・
 INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）・INPUTS_BASE_REV（空でよい。修正の形 g1 の審査役の
-型の版）と INPUTS_PASS（first か、裁定の後の 2 回目の ruled）と INPUTS_PASS_TAG（回の印。無い・空は 1 回目の修正の段。依頼 226 の
-2 回目の段は refit で、指示書と数えと座の作業ファイルを分ける）。INPUTS_INCLUDE_ID は受けるだけ（読んだ証拠の節と同じ入力の組）。
+型の版）と INPUTS_PASS（first か、裁定の後の 2 回目の ruled）。2 回目の修正の段（依頼 226。ブロックの 2 度目の include）の指示書と
+数えと座の作業ファイルは、その include の名の置き場（scope）で 1 回目と分かれる。
 修正の決まりの正本・直す役の決まり・run の値を組み、
 盤面の今の周の prompt-p3_fix.md（full の写し）と隣の 2 つの形に書き、起こした印を置いて
 {prompt_file, attempt, out_path, node, already, variants_file} を 1 行出して 0。役はそのパスを Read する。
@@ -16,7 +16,6 @@ INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）�
 brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2。
 修正の形 g3・g1 の盤面で、借りた superpowers の写しが固定（pin）と違う・型の穴が埋まらなければ、座の無い指示書に逃げずに 2。
 """
-import os
 import sys
 from pathlib import Path
 
@@ -28,16 +27,14 @@ import rolekit  # noqa: E402
 
 # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_fix.py が見る）
 INPUTS = ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE",
-          "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS", "INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID")
-# 無くても欠けに数えない入力（依頼 226 で後から足した回の印と include の名。前の版の with: で再開した run は渡さない。無い・空は今どおり）
-OPTIONAL = frozenset({"INPUTS_PASS_TAG", "INPUTS_INCLUDE_ID"})
-VALUES = tuple(n for n in INPUTS if n not in OPTIONAL and n != "INPUTS_PASS")   # 指示書に埋める run の値
+          "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS")
+VALUES = tuple(n for n in INPUTS if n != "INPUTS_PASS")   # 指示書に埋める run の値
 
 
 def run(board, repo, env):
     values = {n[len("INPUTS_"):].lower(): env[n] for n in VALUES}
-    return fixrules.prep(board, repo, values, env["INPUTS_PASS"], os.environ.get("INPUTS_PASS_TAG", ""))
+    return fixrules.prep(board, repo, values, env["INPUTS_PASS"])
 
 
 if __name__ == "__main__":
-    sys.exit(rolekit.script_main(run, tuple(n for n in INPUTS if n not in OPTIONAL)))
+    sys.exit(rolekit.script_main(run, INPUTS))

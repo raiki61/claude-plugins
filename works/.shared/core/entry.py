@@ -2,7 +2,8 @@
 
 - load_table(line):   PACK/<line>/nodes.json を読み、盤面の層の縛り 1〜5（NodeTable.check）を当てる。破れは全部を 1 つの BoardGap に
 - open_board(dir):    盤面の state.works.line から表を引き、表の sha が state.works.table_sha と合わなければ BoardMismatch。
-                      open_kwargs(line, table)（board_hook.py の返りと核の差し替え）を DiskBoard.open に渡す
+                      open_kwargs(line, table)（board_hook.py の返りと核の差し替え）を DiskBoard.open に渡す。include の中の
+                      script なら scope（flow_adapter.current_scope）を登録して渡し、部品の私物を盤面の <scope>/ の下に分ける
 - hook_kwargs(line):  board_hook.py の読み込みだけ（無ければ {}）
 - open_kwargs(line):  hook_kwargs に線 A の核の差し替え CORE_OVERRIDES（読んだ記録の置き場・直す義務・関所の項目の決め手・R3・R4 の起動条件）を重ねた物。open_board と start が
                       同じ物を DiskBoard.open・begin に渡す（開くたびに同じ overrides。BL-R3）
@@ -18,7 +19,8 @@
 - take(board_dir, nid, reply, repo, *, snapshot_name, commit): 各ブロックの受け付けが使う 1 つの口。役の返答を盤面の done に渡す
   （写しの AnswerReject だけを {ok: False} で役に返す。裁定 TA19）
 - hand(b, board_dir, nid, reply, repo): 機械が返答を渡す 1 つの口（待っている試行 board.pending_instance に起こした印を置いてから take）
-- empty_fix_reply(): 直す義務 0 件の周に機械が渡す p3.fix の空の返答（裁定 TA6）
+- empty_fix_reply(b, why): 直す義務 0 件の周（と、修正の輪の最後の回に義務の全部を止めた周）に機械が渡す p3.fix の空の返答
+  （裁定 TA6）。trace_empty_fix(b) がその印を trace に 1 行（EMPTY_FIX_OP・EMPTY_FIX_BY）
 
 ブロックのスクリプトは open_board で盤面を開く。線 B のライン（darkfactory-rounds）でも同じブロックが同じ口で動く。
 """
@@ -49,11 +51,13 @@ import accept  # noqa: E402
 import conflict  # noqa: E402
 import fixshape  # noqa: E402
 import fixture  # noqa: E402
+import flow_adapter  # noqa: E402
 import gatemarks  # noqa: E402
 import ghreads  # noqa: E402
 from ghreads import request_parts  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
+import scopes  # noqa: E402
 import ticket  # noqa: E402
 import tree_run  # noqa: E402
 
@@ -171,8 +175,18 @@ def open_kwargs(line: str, table: NodeTable | None = None) -> dict:
 
 def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBoard:
     """盤面を開く。表は state.works.line のラインの nodes.json。表の sha が盤面を作った時の state.works.table_sha と違えば
-    BoardMismatch（run の途中で表が替わった盤面を、替わった表で回さない）。open_kwargs の返りを DiskBoard.open に渡す"""
+    BoardMismatch（run の途中で表が替わった盤面を、替わった表で回さない）。open_kwargs の返りを DiskBoard.open に渡す。
+    scope は今の script が居る include の名（flow_adapter.current_scope。線の最上段は空）。空でなければ、部品の私物を scope の根に
+    分ける置き場の版（state.works.layout が board.LAYOUT）でない盤面は BoardMismatch（この版より前に始めた盤面。移し替えない）、
+    そうなら今の周の scopes.json に scope と起こされたブロックを登録し（scopes.claim）、周の置き場に置く名（scopes.round_names）
+    と一緒に盤面に渡す（盤面の work が私物を <scope>/r<N>/ に置く）。部品のコードは scope を知らない。
+    流れの道具の節（flow_adapter.in_flow_node）が置き場の版の盤面を開く時だけ、scope が空でも scopes.enter を呼ぶ: 前の scope の
+    窓（盤面を開いてから次の scope が開くまで）の盤面の変化を前の部品の宣言に照らし、今の scope の窓を開く。宣言の外の書き込み・
+    公開の名の持ち主の重なり・Schema の外れが在れば盤面を止め（_halt_scope_check。by SCOPE_CHECK_BY）、allow_halted で開いて
+    いなければ BoardGap（開いた節が落ちる。報告と結果の節は allow_halted で開くので走る）。run の外の道具（dev/report.sh・
+    dev/fixmeasure.py）と試験の手は窓に触らない"""
     d = pathlib.Path(board_dir)
+    scope = flow_adapter.current_scope()
     try:
         state = json.loads((d / "state.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -186,7 +200,34 @@ def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBo
     if want != got:
         raise BoardMismatch(f"盤面 {d} の表の sha {want} が今のライン {line} の表の {got} と違う"
                             f"（盤面を作った後に {line}/{TABLE_NAME} が替わった。替わった表で回さない）")
-    return DiskBoard.open(d, table=table, allow_halted=allow_halted, **open_kwargs(line, table))
+    names = frozenset()
+    block = scopes.running_block()
+    if scope:
+        if works.get("layout") != board.LAYOUT:
+            raise BoardMismatch(f"盤面 {d} はこの版より前の盤面（state.works.layout {works.get('layout')!r}。今は {board.LAYOUT!r}）"
+                                f"——include {scope!r} の私物を分けて置けない。移し替えない（この版で run を始め直す）")
+        scopes.claim(d, state["round"], scope, block)
+        names = scopes.round_names()
+    errs = []
+    if flow_adapter.in_flow_node() and works.get("layout") == board.LAYOUT:   # 前の窓を閉じて照らし、今の scope の窓を開く
+        errs = scopes.enter(d, state["round"], scope, block)
+    b = DiskBoard.open(d, table=table, allow_halted=allow_halted, scope=scope, published=names, **open_kwargs(line, table))
+    if errs:
+        reason = (f"部品が宣言の外に書いた（{len(errs)} 件。manifest.json に宣言するか、書き先を scope の根へ移す）:\n"
+                  + "\n".join(f"  - {e}" for e in errs))
+        _halt_scope_check(b, scope or LINE, reason)
+        if not allow_halted:
+            raise BoardGap(reason)
+    return b
+
+
+def _halt_scope_check(b: DiskBoard, at: str, reason: str) -> None:
+    """窓の照らしの誤りで盤面を止める（by scopes.SCOPE_CHECK_BY）。止められない盤面（周を締めた・もう止まった・終わった run。
+    b.stop が Reject）には止めた事実を trace に 1 行（scopes.STOP_AFTER_END_OP。at・reason・by。line_edge と同じ逃げ）"""
+    try:
+        b.stop(reason, by=scopes.SCOPE_CHECK_BY)
+    except Reject:
+        b.trace(scopes.STOP_AFTER_END_OP, at=at, reason=reason, by=scopes.SCOPE_CHECK_BY)
 
 
 
@@ -783,7 +824,8 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
     1. fixture.adopted が在れば（前の start が取り込んだ）、取り込み直さない（Archon の呼び直し。取り込みは空でない置き場を
        拒むので、ここで分けないと固定材料の run を続けられない）。前の控えの test_cmd・fix_shape と違えば InputRefused（通常の
        呼び直しと同じ）。無ければ fixture.adopt（入力は adopt_inputs。FixtureRefused は InputRefused。盤面は作らない）
-    2. open_board。表・graph が違えば（BoardMismatch）取り込んだ盤面を消して InputRefused（FIXTURE_MISMATCH）
+    2. open_board。表・graph が違う、か部品の置き場の版（state.works.layout）が今の board.LAYOUT でなければ（BoardMismatch）
+       取り込んだ盤面を消して InputRefused（FIXTURE_MISMATCH）
     3. 取り込んだ時だけ盤面の trace に fixture.TRACE_OP の 1 行
     4. ticket.write、start の控えに ci_role_go（偽）・pr_go（控えの値）・頭の行を書き足す
     返りは start と同じ形。取り込みは start の控えの入力の欄を今の入力と照らすので、入力の欄は控えの値も今の値も同じ"""
@@ -805,6 +847,10 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
         shape = inp["fix_shape"]
     try:
         b = open_board(board_dir)
+        layout = b.state["works"].get("layout")
+        if layout != board.LAYOUT:   # 線の最上段は scope なしで開けるので、後の include の中で開けなくなる前にここで止める
+            raise BoardMismatch(f"盤面 {board_dir} はこの版より前の固定材料（state.works.layout {layout!r}。今は "
+                                f"{board.LAYOUT!r}）——部品の私物を include の置き場に分けていない。この版で写し直す")
     except BoardMismatch as e:
         if not resumed:
             shutil.rmtree(board_dir, ignore_errors=True)   # 取り込んだ盤面を残さない（直して呼び直せるように）
@@ -1007,13 +1053,26 @@ def hand(b, board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path) 
 
 
 EMPTY_FIX_REASON = "直す義務 0 件の周（p2.fix_plan が条件で na）——修正の役を起こさず、機械が空の返答を渡した"
+EMPTY_FIX_OP = "empty_fix"                   # 機械が p3.fix の空の返答を渡した印の trace の行（TA6）
+EMPTY_FIX_BY = "works:empty-fix"
 
 
-def empty_fix_reply() -> dict:
-    """直す義務 0 件の周に機械が渡す p3.fix の返答（TA6）。changes は空、fix_closure は not_applicable（写しの graph の
+def empty_fix_reply(b=None, why: str = EMPTY_FIX_REASON) -> dict:
+    """機械が渡す p3.fix の空の返答（TA6）。changes は空、fix_closure は not_applicable で理由は why（写しの graph の
     p3.fix は na_self_ok を宣言し、fix_covers_open_units は changes が空なら義務 0 件の周を通す）、他の必須の欄は空の値。
-    呼ぶたびに新しい dict"""
-    return {"changes": [], "fix_closure": {"status": "not_applicable", "reason": EMPTY_FIX_REASON},
+    盤面 b が在り、今の周の p2.plan_review の出力が在れば、plan_faces にその faces と shrink の key ごとに declared の行
+    （how は why。写しの型は how に 20 字以上を求める）。呼ぶたびに新しい dict"""
+    review = b.output_of_round("p2.plan_review", b.round) if b is not None else None
+    faces = [{"key": r["key"], "handled": "declared", "how": why}
+             for r in ((review or {}).get("faces") or []) + ((review or {}).get("shrink") or [])
+             if isinstance(r, dict) and isinstance(r.get("key"), str)]
+    return {"changes": [], "fix_closure": {"status": "not_applicable", "reason": why},
             "gates_changed": False, "interactions": [], "mechanism_changed": False, "not_done": [], "path_changed": False,
-            "plan_faces": [], "premise_drift": False, "seams_changed": False, "security_surface_changed": False,
+            "plan_faces": faces, "premise_drift": False, "seams_changed": False, "security_surface_changed": False,
             "wrote_refs": []}
+
+
+def trace_empty_fix(b) -> None:
+    """機械が p3.fix の空の返答を渡した印を trace に 1 行（h-plan と修正の受け付けが take の後に呼ぶ。TA6）。
+    at mid は、この印の在る周の p3.fix を「役が出した修正」と数えない"""
+    b.trace(EMPTY_FIX_OP, node="p3.fix", by=EMPTY_FIX_BY, round=b.round)

@@ -12,7 +12,7 @@ bind は標準入力の run の一覧から、盤面の依頼がこの起動の�
 unbound-save は結べなかった起動の後に、標準入力の run の一覧の候補（依頼の写しも読み出しも持たない run のうち生きた状態の物）が
 在れば、起動が使う包んだ基と読み出しを候補と一緒に結べない控え <置き場>/<印>.json に書いて候補を空白区切りの 1 行で出す。
 unbound-release は候補にその run を持ちその対象の結べない控えを全部回り、控えごとにパス・包んだ基・読み出し・まだ生きている
-ほかの候補をタブ区切りの 1 行で出す（生きた候補が在れば包んだ基と読み出しは空にし、控えの候補からその run だけを外す）。live は状態が生きた状態（LIVE_STATUSES）なら 1 を出す。
+ほかの候補をタブ区切りの 1 行で出す（生きた候補が在れば包んだ基と読み出しは空にし、控えの候補からその run だけを外す）。live は状態が生きた状態（LIVE_STATUSES）、done は終わった状態（DONE_STATUSES）なら 1 を出す。
 代入の行を返す動詞の 1 行目は版の行 WORKS_LAUNCH_FORMAT=1。値は shlex.quote で囲み、名は動詞ごとの許した一覧に在る物だけを出す
 （shlex.quote は名を守らない）。
 claude が見つからなくても WORKS_LAUNCH_CLAUDE を空で返して 0 で終わる。止めるか・どの文言で止めるかは殻の今の場所が決める。
@@ -41,6 +41,10 @@ LEDGER_BIND_NAMES = frozenset({"WORKS_RUN_ROW", "WORKS_RUN_ID", "WORKS_RUN_STATU
 LEDGER_SCHEMA = 1
 # 生きた run の状態（走っている・関所で待つ）。use.sh clean の拒みも ledger live でここを読む（一覧を 1 か所に）
 LIVE_STATUSES = ("running", "paused", "pending")
+# 終わった run の状態（正常に終わった・取り消した）。use.sh の is_done（wait・show の自動の片付けと stop の拒み）と lib.sh の
+# works_dev_show_run（clean の行を勧めるか）が ledger done でここを読む。
+# failed は含めない（Archon の resume が前の worktree を使い直すので、次の use.sh start の sweep_old_runs まで残す）
+DONE_STATUSES = ("completed", "cancelled")
 USAGE = ("launch.py env --for=<use.sh|dogfood.sh|real-run.sh|archon.sh> [--claude] [--show] [--target <path>]"
          " [--adapter <path>]")
 LEDGER_USAGE = ("launch.py ledger save --dir <置き場> --run-id <id> --target <dir> --model-value <値> --model-from <出どころ>"
@@ -49,7 +53,7 @@ LEDGER_USAGE = ("launch.py ledger save --dir <置き場> --run-id <id> --target 
                 " --model-from <出どころ> [--wrap-ref <参照>] [--github-reads <読み出しのファイル>]（標準入力に archon workflow runs --json）"
                 " | ledger unbound-save --dir <置き場> --target <dir> --stamp <印> [--wrap-ref <参照>] [--github-reads <読み出しのファイル>]"
                 "（標準入力に archon workflow runs --json） | ledger unbound-release --dir <置き場> --target <dir> --run-id <id>"
-                "（標準入力に archon workflow runs --json） | ledger live --status <状態>")
+                "（標準入力に archon workflow runs --json） | ledger live --status <状態> | ledger done --status <状態>")
 
 
 class Refused(Exception):
@@ -176,6 +180,7 @@ LEDGER_OPTIONS = {
     "unbound-save": ({"dir", "target", "stamp"}, {"wrap-ref", "github-reads"}),
     "unbound-release": ({"dir", "target", "run-id"}, set()),
     "live": ({"status"}, set()),
+    "done": ({"status"}, set()),
 }
 
 
@@ -493,6 +498,8 @@ def ledger(args, environ, err, stdin):
         return _unbound_release(opts, stdin)
     if sub == "live":
         return "1\n" if opts["status"] in LIVE_STATUSES else ""
+    if sub == "done":
+        return "1\n" if opts["status"] in DONE_STATUSES else ""
     return _ledger_bind(opts, environ, stdin)
 
 

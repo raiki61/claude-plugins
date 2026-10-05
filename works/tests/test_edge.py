@@ -40,6 +40,8 @@ import gatemarks  # noqa: E402
 import halt  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
+import report  # noqa: E402
+import scopes  # noqa: E402
 import plan  # noqa: E402
 import protect  # noqa: E402
 
@@ -477,6 +479,32 @@ class FinalGateCase(EdgeBase):
         rows = trace_rows(self.board, line_edge.STOP_AFTER_END_OP)
         self.assertEqual([(r["at"], r["reason"], r["by"]) for r in rows], [("eyes", "直し方が違う", line_edge.FINAL_GATE_BY)])
         self.assertEqual(self.state()["halted"]["by"], line_edge.ENDED_BY)
+
+    def node(self, path: str, block: str):
+        """Archon の script の節として盤面を開く文脈（節の居場所と、起こされたスクリプトの場所）"""
+        return mock.patch.dict(os.environ, {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": path})}), \
+            mock.patch.object(sys, "argv", [str(ROOT / block / "scripts" / "x.py")])
+
+    def test_scope_breach_after_round_closed_does_not_open_final_gate(self):
+        """周を締めた盤面（b.stop が拒む）で独立の目の窓が宣言の外に書いた → 次に開いた境の節 h-final が照らしで止めた事実
+        （trace の stop_after_round_end・by works:scope-check）を止まりと読み、最後の関所を開かずその理由で止まる。報告も同じ理由を名指す"""
+        tests = self.closed()
+        env, argv = self.node("eyeing__eyes-collect", "blk-eyes")
+        with env, argv:
+            entry.open_board(self.board, allow_halted=True)
+        (self.board / "r1" / "stray.json").write_text("{}", encoding="utf-8")
+        env, argv = self.node("h-final", "darkfactory")
+        with env, argv:
+            got = self.edge("final", tests=tests, final_gate="always")
+        self.assertEqual((got["stop"], got["ask"], got["go"]), (True, False, False), got)
+        self.assertIn("r1/stray.json", got["why"])
+        self.assertEqual(self.state()["halted"]["by"], line_edge.ENDED_BY)
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertFalse(b.work(line_edge.FINAL_GATE_FILE).exists(), "最後の関所の文を書かない（開かない）")
+        by, reason, _ = report._stop_info(b)
+        self.assertEqual(by, scopes.SCOPE_CHECK_BY)
+        self.assertIn("r1/stray.json", reason)
+        self.assertTrue(self.edge("eyes")["stop"], "後の境の節も止まりと読む")
 
     def test_final_gate_continue_on_closed_board(self):
         """周を締めた盤面で at eyes・gate continue → 答えのファイルと human_items の continue の行、stop False・go False（目は枠）。

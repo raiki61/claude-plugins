@@ -9,7 +9,7 @@
 - 同じ run の中の案の直し（依頼 226。core の replan）: h-replan（at replan）は修正の段で fix_plan_item と裁かれた項目を束ね
   （replan.material）、案の直しのブロック（blk-plan の 2 度目の include）を回すか。h-regate（at regate）は直した項目に関所の
   決まりを当て（replan.gate）、関所 replan-gate を開くか。h-refit（at refit）は関所の答えを当て（refit_edge・replan.answer）、
-  2 回目の修正の段（blk-fix の 2 度目の include。回の印 refit）を回すか。どれも今の周の replan.json が無ければ何もしない
+  2 回目の修正の段（blk-fix の 2 度目の include refitting。その物は scope で 1 回目と分かれる）を回すか。どれも今の周の replan.json が無ければ何もしない
 - eyes_edge(b): h-look の固有の仕事（独立の目を回すか。計画 P1 Task 33）。h-eyes も同じ go を返す（関所の後にまだ目が待つか——報告が
   blk-eyes の落ちを見分ける）。h-look は先に、blk-plan が修正の前に控えた独立設計（core の design。design.json）を、盤面が r2.design を
   待っていれば渡す（目的の文を h-mat が渡すのと同じ形）
@@ -17,7 +17,7 @@
   独立設計（design.due）のどちらかを blk-plan で起こす周
 - structure_edge(board_dir, structured): h-structure（構造の境の節。darkfactory/scripts/structure.py の中身）。構造のブロックの出口を
   確かめ、盤面の根の控え（core の structmark）を書く。planning はこの節を待つ
-- trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
+- trace_empty_fix(b): 機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける。entry.trace_empty_fix の別名）
 - 固定材料（core の fixture。計画 220 Task 5）: h-fix は go の後、1 周目なら盤面を $ARTIFACTS_DIR/fix-fixture へ写す
   （固定材料から始めた盤面は capture が写さない。写せなくても run は止めない）。包みの確かめは「この run で役が 1 つ起きた
   後の最初の境の節で止める」（_adapter_guard）: 通常の盤面は h-judge、固定材料から始めた盤面（fixture.adopted）は h-mid。
@@ -64,6 +64,7 @@ import reads  # noqa: E402
 import rejudge  # noqa: E402
 import replan  # noqa: E402
 import report  # noqa: E402
+import scopes  # noqa: E402
 import structmark  # noqa: E402
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
@@ -98,8 +99,8 @@ MID_NOTE = "中の検査: 枠のみ（動かす確かめ・holdout は Task 36�
 FLAG_BY_PREFIX = "request:"                  # 止め札で止めた盤面の state.stop.by は "request:<札の by>"（報告の stopped_by_request）
 FLAG_SEEN_OP = "stop_flag_seen"              # 止め札を見て止めた境の節の trace の行（op・at・reason・by）
 AFTER_HALT_OP = "stop_flag_after_halt"       # 止まった後に見た止め札の trace の行（b.stop は呼ばない。M3）
-EMPTY_FIX_OP = "empty_fix"                   # 直す物の無い周に機械が p3.fix の空の返答を渡した印の trace の行（T10b が書く。TA6）
-EMPTY_FIX_BY = "works:empty-fix"
+EMPTY_FIX_OP = entry.EMPTY_FIX_OP           # 機械が p3.fix の空の返答を渡した印の trace の行（正本は entry。TA6）
+EMPTY_FIX_BY = entry.EMPTY_FIX_BY
 JUDGE_BRIDGE_BY = "works:judge-bridge"       # 判定のブロックの出口を盤面が受けなかった時の state.stop.by（h-plan）
 ADAPTER_BY = "works:adapter"                 # 包みが通っていない run を止めた state.stop.by（h-judge。blk-ci の柵と同じ名）
 PREMISES_BY = premises.STOP_BY                # 前提の実測が盤面に無い・盤面が受けない時の state.stop.by（h-judge）
@@ -196,18 +197,28 @@ def _carried(b) -> dict:
             "open_units": json.dumps(units, ensure_ascii=False) if isinstance(units, list) else ""}
 
 
+def _closed_round_stop(b) -> dict | None:
+    """周を締めた盤面（halted.by stop_after_round。b.stop が拒む）に、盤面を開く口の照らし（entry.open_board）が止めた事実として
+    書いた trace の行（STOP_AFTER_END_OP・by scopes.SCOPE_CHECK_BY）の最後の物。無ければ None"""
+    if (b.state.get("halted") or {}).get("by") != ENDED_BY:
+        return None
+    rows = [r for r in report.trace_rows(b, STOP_AFTER_END_OP) if r.get("by") == scopes.SCOPE_CHECK_BY]
+    return rows[-1] if rows else None
+
+
 def _stopped(b) -> dict | None:
-    """盤面がもう止まっているなら止めた事実（state.stop か halted）。まだなら None"""
+    """盤面がもう止まっているなら止めた事実（state.stop か、周を締めた後の照らしの止め _closed_round_stop か halted）。まだなら None"""
     st = b.state
     if st.get("halted") or st.get("stop"):
-        return st.get("stop") or st.get("halted")
+        return st.get("stop") or _closed_round_stop(b) or st.get("halted")
     return None
 
 
 def _ended(b) -> bool:
-    """1 周の run が周を締めた（halted.by stop_after_round で、人も線も止めていない）。最後のテストの後の普通の終わり"""
+    """1 周の run が周を締めた（halted.by stop_after_round で、人も線も、周を締めた後の照らしも止めていない）。最後のテストの後の
+    普通の終わり"""
     st = b.state
-    return (st.get("halted") or {}).get("by") == ENDED_BY and not st.get("stop")
+    return (st.get("halted") or {}).get("by") == ENDED_BY and not st.get("stop") and _closed_round_stop(b) is None
 
 
 def _stop_board(b, at: str, reason: str, by: str) -> None:
@@ -287,10 +298,7 @@ def _notes(b) -> str:
                      if isinstance(h, dict) and h.get("round") == b.round and isinstance(h.get("note"), str) and h["note"])
 
 
-def trace_empty_fix(b) -> None:
-    """直す物の無い周に機械が p3.fix の空の返答を渡した印を trace に 1 行（T10b の h-plan が take の後に呼ぶ。TA6）。
-    at mid は、この印の在る周の p3.fix を「役が出した修正」と数えない"""
-    b.trace(EMPTY_FIX_OP, node="p3.fix", by=EMPTY_FIX_BY, round=b.round)
+trace_empty_fix = entry.trace_empty_fix     # 機械が p3.fix の空の返答を渡した印（正本は entry。h-plan が take の後に呼ぶ）
 
 
 def _unit_file_paths(u: dict, repo) -> tuple:
@@ -440,7 +448,7 @@ ROLE_WORDS = {"design": "独立の設計を作る役", "compare": "独立の設�
 def _r2_inputs(b) -> list:
     """R2 の行の下に、R2 が『渡されていない』と書いた文と、そのうち渡していた物（compare の claims_given）と、支度の時に R2 の 2 つの役へ渡した前提の入力の控え（独立の目の出口の
     premise_inputs。一番新しい周の eyes-exit.json）と、独立設計の後に来た人の答え（compare の after_design）を並べる。人が同じ枚で突き合わせる（受け付けは拒まない）"""
-    exits = sorted(b.dir.glob("r*/eyes-exit.json"), key=lambda p: int(p.parent.name[1:]) if p.parent.name[1:].isdigit() else -1)
+    exits = scopes.all_rounds(b.dir, "eyes-exit.json")   # 独立の目の include の scope の根に在る（周の順）
     try:
         pi = json.loads(exits[-1].read_text(encoding="utf-8")).get("premise_inputs") if exits else None
     except (OSError, ValueError):
@@ -682,12 +690,15 @@ def _final_needs(b, head: str, objection: str, eyes: tuple, rows, err: str, asks
 
 
 def _final_head(b, head: str, why: list, guarded: bool) -> list:
-    """最後の関所の冒頭 3 行（gatemarks.head3）。起きたこと＝関所を開けた理由（_final_needs。守りのファイルはこの行で名指す）・
+    """最後の関所の冒頭 3 行（gatemarks.head3）。起きたこと＝関所を開けた理由（_final_needs。守りのファイルはこの行で名指す）と、
+    修正の段が単位を止めて持ち越したなら受けた単位と止めた単位の 1 文（report.split_line）・
     決めてほしいこと＝報告へ進めるか止めるか・推し＝判定の役が問いの理由に書いた推し（機械は作らない）"""
     held = gatemarks.held_lines(b)
     happened = (f"最後のテストと独立の目が済み、報告の前で止まった。テストは{head}。"
                 + ("開けた理由: " + "・".join(why) if why else "関所はいつも開く設定（final_gate always）で、ほかに開けた理由は無い")
                 + (f"。判定の役が人に聞くと保留にしたままの問いも在る（{len(held)} 件。関所を開ける理由には数えない）" if held else ""))
+    split = report.split_line(b)   # 修正の段が受けた単位と止めて持ち越した単位（止めていなければ空）
+    happened += f"。{split}" if split else ""
     decide = ("報告へ進めて run を終えるか、止めるか（打つ行は末尾の答え方）"
               + ("。守りのファイルの変更は下の最初の節を確かめてから通す" if guarded else ""))
     asking = b.state.get("pending_human") or {}

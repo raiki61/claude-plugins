@@ -13,7 +13,7 @@ done("p3.fix") に替える。graph の p3.fix の受け付けの検査は写し
   印 works-node: fix と食い違いの申し出の欄 conflicts・Bash で書いたファイルの申告の欄 bash_writes・closure.sites[] の欄 path・
   changes[].precedent の条件付き必須 allOf（_precedent_conditions）を足した物。blk-fix.yaml の fix に貼る）。RULED_OUTPUT_FORMAT は裁定の後の
   2 回目の修正役（印 works-node: fix-ruled continue=fix）の物
-- READS: 読んだ証拠の節 fix-reads が reads.main_for に渡す (役, include, 輪, 節)。reads_role(tag) は回の印で分けた役の名（2 回目の修正の段の reads-fix.<印>.json）
+- READS: 読んだ証拠の節 fix-reads が reads.main_for に渡す (役, 輪, 節)（include の名と書く先の scope は reads が今の節の居場所から引く。2 回目の修正の段の reads-fix.json は 1 回目と分かれる）
 - accept_fix: 節 fix-accept の中身。entry.take に渡し、1 本目の出口のための changes を足す（v1_changes）
 - fix_reply: 修正の返答を読む 1 つの口（今の周の盤面の p3.fix か、無ければ 1 回目に受け付けた返答の控え conflict.held_reply）。
   集める節と報告が読む
@@ -78,7 +78,7 @@ def fix_output_format(name: str = ROLE, cont: str | None = None) -> dict:
 
 FIX_OUTPUT_FORMAT = fix_output_format()
 RULED_OUTPUT_FORMAT = fix_output_format(RULED_ROLE, ROLE)
-READS = (ROLE, "fixing", "fix-loop", ROLE)   # reads.main_for の (役, include, 輪, 節)。include の名は darkfactory の fixing
+READS = (ROLE, "fix-loop", ROLE)   # reads.main_for の (役, 輪, 節)。include の名は reads が今の scope（flow_adapter）から引く
 V1_CHANGE_KEYS = ("unit_key", "files", "what")   # 1 本目の出口の changes の欄（assert-changed・changes.json が読む）
 CHANGES_FILE = "changes.json"
 
@@ -141,16 +141,10 @@ def _coverage(b) -> dict:
     return {i["unit_key"]: {"before": i["total"], "after": i["after"]} for i in cov.get("items") or []}
 
 
-def reads_role(tag: str = "") -> str:
-    """読んだ証拠の役の名（reads.collect が reads-<役>.json に書く）。回の印が在れば fix.<印>（書く先は
-    script_io.tagged("reads-fix.json", 印)。2 回目の修正の段が 1 回目の証拠を上書きしない）"""
-    return f"{ROLE}.{tag}" if tag else ROLE
-
-
-def collect(board: pathlib.Path, accepted: dict, changed: dict, tag: str = "") -> dict:
+def collect(board: pathlib.Path, accepted: dict, changed: dict) -> dict:
     """集める節の中身。1 本目の {ok, files, changes_file} を全部残し、fix_file（fix_reply が読んだ方のファイル: 盤面の
     state.outputs["p3.fix"]["file"] か 1 回目に受け付けた返答の控えの絶対パス）・not_done（件数）・coverage（単位ごとの {before, after}）・reads_file（fix-reads が今の周に書いた
-    reads-fix.json。回の印 tag が在れば reads-fix.<tag>.json。無ければ空）を足す。受け付けた changes を今の周の changes.json（{"changes": [...]}。1 本目の形）に書く。
+    今の scope の reads-fix.json。無ければ空）を足す。受け付けた changes を今の周の changes.json（{"changes": [...]}。1 本目の形）に書く。
     受け付けが通っていない・assert-changed の出力が読めない・盤面が今の周の p3.fix を受けておらず控えも無い・changes が空（直す義務の
     単位が残らず、答え待ちの問いの出どころか直す裁定でない裁定（ask_human・fix_plan_item）で外れた単位が在る盤面 conflict.nothing_owed_but_excused を除く）ときは
     Unreadable（何も書かない）"""
@@ -171,21 +165,21 @@ def collect(board: pathlib.Path, accepted: dict, changed: dict, tag: str = "") -
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps({"changes": changes}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-    reads = b.work(f"reads-{reads_role(tag)}.json")
+    reads = b.work(f"reads-{ROLE}.json")
     return {"ok": True, "files": files, "changes_file": str(path), "fix_file": str(fix_file),
             "not_done": len(out.get("not_done") or []), "coverage": _coverage(b),
             "reads_file": str(reads) if reads.is_file() else ""}
 
 
-def main_accept(fn=accept_fix, *, finish=None, tag: str = "") -> int:
+def main_accept(fn=accept_fix, *, finish=None) -> int:
     """節 fix-accept のスクリプトの入口。script_io.main（INPUTS_REPLY・INPUTS_BASE_REV・ARTIFACTS_DIR）で fn を呼ぶ:
     中身の拒否（読めない返答を含む）は終了コード 0 の 1 行で、reason_file に理由の本文のパス（裁定 R44）。
     環境変数の欠けは script_io.main の 2。fn が投げた BoardGap・Reject（判定の前・止めた run など。TA19）と思わぬ誤りは、
-    標準出力に何も出さずに標準エラーに 1 行で 2（rolekit.main_accept と同じ分け方）。finish と tag（拒否の理由のファイルの名の
-    回の印）は script_io.main に渡す"""
+    標準出力に何も出さずに標準エラーに 1 行で 2（rolekit.main_accept と同じ分け方）。finish は
+    script_io.main に渡す"""
     import script_io
     try:
-        return script_io.main(fn, finish=finish, tag=tag)
+        return script_io.main(fn, finish=finish)
     except (BoardGap, Reject) as e:
         print(f"{FIX_NODE} の受け付けを回せない（{type(e).__name__}）: {' '.join(str(e).split())}", file=sys.stderr)
     except Exception as e:   # 思わぬ誤りも 1 行と 2（traceback を出さない）

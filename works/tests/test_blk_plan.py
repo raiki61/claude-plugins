@@ -54,6 +54,7 @@ import node_marker  # noqa: E402
 import libdocs  # noqa: E402
 import planblk  # noqa: E402
 import planmarks  # noqa: E402
+import reads  # noqa: E402
 import report  # noqa: E402
 import rolekit  # noqa: E402
 
@@ -96,6 +97,13 @@ def script_inputs(name):
     return script_module(name).INPUTS
 
 
+def in_include(include: str, fn, *args):
+    """fn(*args) を、読んだ証拠の出来事の節の名の include を include に固めて呼ぶ（core の reads.node_here は Archon が渡す
+    今の scope から引く。盤面の置き場は今の試験の置き場のまま）"""
+    with mock.patch.object(reads, "node_here", lambda loop, node: reads.node_path(include, loop, node)):
+        return fn(*args)
+
+
 class YamlCase(unittest.TestCase):
     def setUp(self):
         self.y = workflow()
@@ -111,7 +119,7 @@ class YamlCase(unittest.TestCase):
 
     def test_inputs_and_exit(self):
         self.assertEqual(set(self.y["inputs"]), {"judgment_file", "base_rev", "policy_paste", "policy_path", "excluded_file",
-                                                 "include_id", "replan"})
+                                                 "replan"})   # include の名は入力に持たない（core が引く。依頼 239）
         self.assertEqual(self.y["inputs"]["replan"]["default"], "")
         self.assertIs(self.y["inputs"]["judgment_file"]["required"], True)
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
@@ -1175,6 +1183,8 @@ class StructureHeadCase(unittest.TestCase):
         scope = scriptline.Scope("darkfactory", {})
         if exit_ is not None:
             scope.out[inc], scope.status[inc] = exit_, "ok"
+        # 計画を起こす周の形: h-plan が走り go が真（飛ばされた h-plan は if_skipped の false で skipped の印になる）
+        scope.out["h-plan"], scope.status["h-plan"] = {"go": True}, "ok"
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         env.update({"WORKS_ADAPTER_HOME": str(self.home), "ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": RUN_ID,
                     "PYTHONDONTWRITEBYTECODE": "1"})
@@ -1736,13 +1746,13 @@ class ConvergeReviseCase(unittest.TestCase):
     def test_reads_include_revise_prompt(self):
         role = planblk.REVISE_ROLE
         self.ready()
-        idx = json.loads(pathlib.Path(planblk.collect_reads(self.board, self.repo, "", "planning")["reads_file"]).read_text(
+        idx = json.loads(pathlib.Path(in_include("planning", planblk.collect_reads, self.board, self.repo, "")["reads_file"]).read_text(
             encoding="utf-8"))
         self.assertNotIn(role, idx)   # 直しの役の指示書がまだ無い
         self.again(ready=False)
         self.assertTrue(self.ok("snap", role=role)["go"])
         prompt = self.ok("prep", role=role, excluded_file="")["prompt_file"]
-        idx = json.loads(pathlib.Path(planblk.collect_reads(self.board, self.repo, "", "planning")["reads_file"]).read_text(
+        idx = json.loads(pathlib.Path(in_include("planning", planblk.collect_reads, self.board, self.repo, "")["reads_file"]).read_text(
             encoding="utf-8"))
         self.assertEqual(set(idx), {"plan", "plan-review", role})
         got = json.loads(pathlib.Path(idx[role]).read_text(encoding="utf-8"))
@@ -1769,7 +1779,7 @@ class ConvergeReviseCase(unittest.TestCase):
         self.assertTrue(self.ok("snap", role=role)["go"])
         self.ok("prep", role=role, excluded_file="")   # 1 回目の直しの役の指示書が同じ周に在る
         b.work(rolekit.prompt_name(planblk.replan_mod.REVIEW_NODE)).write_text("案の直しの事前審査\n", encoding="utf-8")
-        idx = json.loads(pathlib.Path(planblk.collect_reads(self.board, self.repo, "", "replanning", "true")["reads_file"])
+        idx = json.loads(pathlib.Path(in_include("replanning", planblk.collect_reads, self.board, self.repo, "", "true")["reads_file"])
                          .read_text(encoding="utf-8"))
         self.assertEqual(set(idx), {f"{planblk.replan_mod.READS_PREFIX}plan-review"})
         got = json.loads(pathlib.Path(idx[f"{planblk.replan_mod.READS_PREFIX}plan-review"]).read_text(encoding="utf-8"))

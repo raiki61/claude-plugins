@@ -27,6 +27,7 @@ import accept as core_accept  # noqa: E402
 import entry  # noqa: E402
 import querytest  # noqa: E402
 import rolekit  # noqa: E402
+import script_io  # noqa: E402
 from engine.rules import validator_module  # noqa: E402  （board が写しの engine を sys.path に足した後）
 
 NODE = "p2.diagnose"
@@ -83,7 +84,7 @@ def with_done(board, out: dict) -> dict:
     この返りの拒否はまだ書かれていないので 1 を足す）が GIVE_UP_AFTER 回に達した時"""
     if out.get("ok") is True:
         return {**out, "done": True}
-    n = len(list(pathlib.Path(board).glob(f"reject-{STANDALONE_FN}-*.txt"))) + 1
+    n = len(list(script_io.scope_dir(board).glob(f"reject-{STANDALONE_FN}-*.txt"))) + 1   # 拒否の理由の置き場（script_io）
     return {**out, "done": n >= GIVE_UP_AFTER}
 
 

@@ -4,14 +4,17 @@
                       決まりはここの 1 本。自分食いの run では pack の写し .archon/workflows/works/** が在る——protected.json の copies の pack-copy）
 - archon_digests・archon_changes: .archon/ の下の姿（パスと中身の sha256）と、修正役の前の控えからの違い（fix-accept が拒む）
 - git・git_names:     git を呼ぶ手続き（-z で読むパスの一覧も。Unreadable・GIT_TIMEOUT と合わせて、blk-fix の正本はここの 1 本）
-- record_ignored:     修正役の前の git が無視するファイル・丸ごと無視されるフォルダと未追跡のフォルダを盤面の fix-ignored-before.json に
-                      控える（節 ignored-before）
+- snapshot:           作業ツリーの今の姿（未追跡の新しいファイルも）を一時の index で固めた木の sha（本物の index は触らない）
+- record_ignored:     修正役の前の git が無視するファイル・丸ごと無視されるフォルダと未追跡のフォルダと、段の頭の木（snapshot）を
+                      盤面の fix-ignored-before.json に控える（節 ignored-before）
+- head_tree:          控えた段の頭の木（修正の受け付けが最後の回に止めた単位の足跡を戻す先）。控えに無い古い盤面は None
 - remove_new_ignored: 控えに無かった無視されるファイルだけを消す。前から在った丸ごと無視されるフォルダ（.venv など）の下は触らない。
                       消した全件は盤面の fix-removed.json に書き、件数とそのパスだけを返す（節 clean）
-控えと消した物のファイルの名は呼ぶ側が渡せる（before_name・removed_name。既定は IGNORED_BEFORE_FILE・REMOVED_FILE）。blk-fix の 2 回目の
-修正の段は回の印を足した名（script_io.tagged）を渡し、1 回目の物を上書きしない（この模块は core の他の模块を読まないので、名は
-呼ぶ側が作る）。
-失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリだけ（core の他の模块も読まない。tests/test_blk_fix が縛る）。
+控えと消した物のファイルの名は呼ぶ側が渡せる（before_name・removed_name。既定は IGNORED_BEFORE_FILE・REMOVED_FILE）。控えと消した物のファイルは
+盤面の今の scope の根（script_io.scope_dir。include の中なら <盤面>/<include の名>/）に置く（同じブロックの 2 度目の include が
+1 度目の控えを上書きしない）。
+失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリと層 L1 の script_io だけ（core のほかの模块は読まない。
+tests/test_blk_fix が縛る）。
 """
 import hashlib
 import json
@@ -20,12 +23,16 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
 
 sys.dont_write_bytecode = True
 
+from script_io import scope_dir  # noqa: E402  （盤面の今の scope の根。層 L1・標準ライブラリと流れの道具の口だけ）
+
 GIT_TIMEOUT = 120
 ARCHON_PREFIX = ".archon/"   # Archon が run の作業ツリーに写す工程の置き場（自分食いでは線を動かしている pack の写しもここ）
-IGNORED_BEFORE_FILE = "fix-ignored-before.json"   # {"ignored": [str], "ignored_dirs": [str], "dirs": [str], "archon": {str: str}}
+IGNORED_BEFORE_FILE = "fix-ignored-before.json"   # {"ignored": [str], "ignored_dirs": [str], "dirs": [str], "archon": {str: str},
+                                                  #  "head_tree": str}
 REMOVED_FILE = "fix-removed.json"   # {"removed": [str]}（clean が消したパスの全件）
 
 
@@ -52,6 +59,24 @@ def git_names(repo, *args) -> list:
     return [os.fsdecode(n) for n in git(repo, args[0], "-z", *args[1:], text=False).split(b"\0") if n]
 
 
+def _has_head(repo) -> bool:
+    try:
+        git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+        return True
+    except Unreadable:
+        return False
+
+
+def snapshot(repo) -> str:
+    """作業ツリーの今の姿（未追跡の新しいファイルも。.gitignore に当たる物は除く）の木の sha。本物の index は触らない"""
+    with tempfile.TemporaryDirectory(prefix="works-tdd-index-") as td:
+        env = {**os.environ, "GIT_INDEX_FILE": str(pathlib.Path(td) / "index")}
+        if _has_head(repo):
+            git(repo, "read-tree", "HEAD", env=env)
+        git(repo, "add", "-A", "--", ":/", env=env)
+        return git(repo, "write-tree", env=env).strip()
+
+
 def ignored_files(repo) -> list:
     """git が無視する未追跡のファイル（repo の根から。1 本ずつで、フォルダに畳まない。名前の順）。
     git ls-files --others --ignored --exclude-standard（git-ls-files(1)）。入れ子の git リポジトリは `sub/` の 1 本"""
@@ -73,7 +98,8 @@ def _ignored_dirs(repo) -> list:
 
 
 def _board_path(board, before: str = IGNORED_BEFORE_FILE) -> pathlib.Path:
-    return pathlib.Path(board) / before
+    """盤面 board の今の scope の根の before（script_io.scope_dir）"""
+    return scope_dir(board) / before
 
 
 def _is_bytecode(rel: str) -> bool:
@@ -100,10 +126,11 @@ def archon_digests(repo) -> dict:
 
 
 def record_ignored(board, repo, before_name: str = IGNORED_BEFORE_FILE) -> dict:
-    """修正役を起こす前の ignored_files と丸ごと無視されるフォルダと untracked_dirs と .archon/ の下の姿（archon_digests）を
-    盤面の fix-ignored-before.json（before_name）に控える。{"ok": True, "count", "file"} を返す（count は無視されるファイルの数）"""
+    """修正役を起こす前の ignored_files と丸ごと無視されるフォルダと untracked_dirs と .archon/ の下の姿（archon_digests）と
+    段の頭の木（snapshot。欄 head_tree）を盤面の fix-ignored-before.json（before_name）に控える。{"ok": True, "count", "file"} を
+    返す（count は無視されるファイルの数）"""
     before = {"ignored": ignored_files(repo), "ignored_dirs": _ignored_dirs(repo), "dirs": untracked_dirs(repo),
-              "archon": archon_digests(repo)}
+              "archon": archon_digests(repo), "head_tree": snapshot(repo)}
     return {"ok": True, "count": len(before["ignored"]), "file": _write_json(_board_path(board, before_name), before)}
 
 
@@ -130,6 +157,13 @@ def _read_before(board, before_name: str = IGNORED_BEFORE_FILE) -> dict:
         if not isinstance(v, list) or not all(isinstance(s, str) for s in v):
             raise Unreadable(f"盤面の {before_name} の型が合わない（{key} が文字列の配列でない）")
     return before
+
+
+def head_tree(board, before_name: str = IGNORED_BEFORE_FILE) -> str | None:
+    """record_ignored が控えた段の頭の木（欄 head_tree）。欄の無い古い控えは None（呼び手は修正前の版の木に倒す）。控えが無い・
+    読めなければ Unreadable"""
+    tree = _read_before(board, before_name).get("head_tree")
+    return tree if isinstance(tree, str) and tree else None
 
 
 def archon_changes(board, repo, before_name: str = IGNORED_BEFORE_FILE) -> list:
@@ -172,4 +206,4 @@ def remove_new_ignored(board, repo, before_name: str = IGNORED_BEFORE_FILE, remo
                 break
             parent.rmdir()
             parent = parent.parent
-    return {"ok": True, "count": len(removed), "file": _write_json(pathlib.Path(board) / removed_name, {"removed": removed})}
+    return {"ok": True, "count": len(removed), "file": _write_json(_board_path(board, removed_name), {"removed": removed})}

@@ -1,0 +1,7 @@
+{
+ "owner": "blk-lens",
+ "consumes": [],
+ "produces": [
+  {"name": "lens.json", "format": "json", "schema": "schemas/lens.schema.json", "required": true}
+ ]
+}

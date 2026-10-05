@@ -3,9 +3,9 @@
 - fix_duty: 答え待ちの fork・escalate の出どころ・ask_human の単位・関所で答えて戻した単位を混ぜた盤面で、owed と excused は
   互いに素で、合わせて修正役が書いてよい単位（gatemarks.fixable）を覆い、excused は問いの key・裁定の id を理由に持つ。
   写しの RL と線 A の核の差し替えを偽の盤面に当てる（test_plan_gate と同じ口。盤面・git・子のプロセスなし）
-- 受け付け: excused の単位を changes に書いた返答は、NOT_OPENED と別の文で理由を名指して拒む。輪の最後の回だけは、その単位の
-  行を changes から外し（直しは作業ツリーに残す。依頼 241）、残りで受け付けを通し直す（人の答え 2026-10-02: 審査が示した狭めない案）。
-  受け付けの部品は mock にする
+- 受け付け: excused の単位を changes に書いた返答は、NOT_OPENED と別の文で理由を名指して拒む。輪の最後の回は、その行を数えずに
+  単位の行を changes から外し（直しは作業ツリーに残す。依頼 241）、ほかの単位に結んだ行の単位は止める（依頼 242）。
+  受け付けの部品は mock にする（最後の回の結びは fake_settle。足跡は返答の行の files だけ）
 """
 import json
 import pathlib
@@ -29,6 +29,22 @@ BACK_UNIT = "stats.py mode: 同数の時の選び方"
 ESC = {"key": "q-median", "kind": "stuck", "status": "escalate", "origin": ESC_UNIT, "reason": "推し: 平均を返す"}
 BACK = {**FORK, "key": "q-mode", "origin": BACK_UNIT}
 UNITS = [{"key": k, "label": "block"} for k in (FORK_UNIT, OTHER_UNIT, ESC_UNIT, ASKED_UNIT, BACK_UNIT)]
+
+
+def fake_settle(mod, owed, excused):
+    """受け付けの last_settle の代わり（盤面・git を読まない）: 足跡は返答の行の files だけ、届く試験は無し、直す義務は owed、
+    義務の外は excused とこの受け付けがもう止めた単位。by_copy（写しの拒否）で止める単位が無いのに義務の残りが在れば park_owed"""
+    def settle(texts, reply, board, base_rev, repo, state, parked, by_copy=False):
+        rows = [c for c in reply.get("changes") or [] if isinstance(c, dict)]
+        out = set(excused) | set(parked)
+        keys = set(owed) | set(excused) | {c.get("unit_key") for c in rows}
+        feet = mod.parking.footprint(rows, [], repo)
+        got = mod.parking.settle(texts, keys=keys, feet=feet, reached={}, owed=set(owed) - out, out_of_duty=out,
+                                 changed=set())
+        if by_copy and not got.park and set(owed) - out:
+            got = mod.parking.park_owed(texts, feet=feet, owed=set(owed), out_of_duty=out)
+        return got, out
+    return settle
 
 
 class TestFixDuty(GateBase):
@@ -80,11 +96,13 @@ class TestAcceptExcused(unittest.TestCase):
         spec.loader.exec_module(self.mod)
         self.board = mock.MagicMock()
         self.recounted = []
+        self.parked = []
+        self.declared = []   # 書き込みの出どころの突き合わせが見た bash_writes
         self.revert = mock.MagicMock(return_value="/b/r1/fix-parked-1.patch")
-        self.unrevert = mock.MagicMock()
         patches = [
             mock.patch.object(self.mod.tddloop, "frozen_problems", return_value=[]),
-            mock.patch.object(self.mod, "check_writes", side_effect=lambda reply, *a, **k: {"problems": [], "reply": reply}),
+            mock.patch.object(self.mod, "check_writes", side_effect=lambda reply, *a, **k: self.declared.append(
+                reply.get(self.mod.writes.FIELD)) or {"problems": [], "reply": reply}),
             mock.patch.object(self.mod, "take_conflicts", side_effect=lambda reply, *a, **k: (reply, None)),
             mock.patch.object(self.mod, "fix_unit_keys", side_effect=self.keys),
             mock.patch.object(self.mod, "check_pack_copy", return_value=""),
@@ -99,7 +117,10 @@ class TestAcceptExcused(unittest.TestCase):
             # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
             mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
             mock.patch.object(self.mod, "revert_units", self.revert),
-            mock.patch.object(self.mod, "unrevert_units", self.unrevert),
+            mock.patch.object(self.mod, "last_settle", fake_settle(self.mod, {self.MEAN}, {self.HELD: self.WHY})),
+            mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.extend(
+                r["unit_key"] for r in rows)),
+            mock.patch.object(self.mod.conflict, "write_rulings"),
         ]
         for p in patches:
             p.start()
@@ -138,23 +159,14 @@ class TestAcceptExcused(unittest.TestCase):
         self.assertEqual([c["unit_key"] for c in got["changes"]], [self.MEAN])
         self.assertEqual(self.recounted, [[self.MEAN]])
         self.revert.assert_not_called()   # 外れた単位の直しは作業ツリーに残す（依頼 241）
-        self.board.trace.assert_any_call(self.mod.EXCUSED_DROPPED_OP, node=self.mod.recount.ROLE,
-                                         excused={self.HELD: self.WHY})
+        self.assertEqual(self.parked, [])
+        self.board.trace.assert_any_call(self.mod.ABSORBED_OP, node=self.mod.recount.ROLE, dropped=[self.HELD],
+                                         absorbed=[f"{self.mod.EXCUSED}{self.HELD}（{self.WHY}）"])
 
     def test_last_round_keeps_bash_writes_of_the_dropped_unit(self):
-        """外した行の直しは残るので、その書き込みの申告（bash_writes）も通し直しの返答に残す"""
-        seen = []
-        real = self.mod.accept_fix
-        with mock.patch.object(self.mod, "accept_fix", side_effect=lambda r, *a: seen.append(r) or real(r, *a)):
-            self.run_accept("3")
-        self.assertEqual(seen[-1][self.mod.writes.FIELD], [{"path": "clamp.py", "why": "整形の道具で書いた"}])
-
-    def test_last_round_with_failing_rest_touches_nothing(self):
-        self.accept_ok = False
-        got = self.run_accept("3")
-        self.assertEqual((got["ok"], got["done"]), (False, True), got)
-        self.revert.assert_not_called(); self.unrevert.assert_not_called()
-        self.assertNotIn(self.mod.EXCUSED_DROPPED_OP, repr(self.board.trace.call_args_list))
+        """外した行の直しは残るので、その書き込みの申告（bash_writes）も突き合わせに渡したまま（通し直さない）"""
+        self.run_accept("3")
+        self.assertEqual(self.declared, [[{"path": "clamp.py", "why": "整形の道具で書いた"}]])
 
     def test_last_round_with_shared_file_drops_the_row(self):
         """戻さないので、外す行がファイルをほかの行と共にしても行だけを外して通す"""
@@ -165,25 +177,27 @@ class TestAcceptExcused(unittest.TestCase):
         self.assertEqual(self.recounted, [[self.MEAN]])
         self.revert.assert_not_called()
 
-    def test_last_round_with_unparkable_row_keeps_the_excused_fix(self):
-        # 最後の回でも、止めてよくない確かめの行（重なり）が既に積まれていれば外れた単位の直しを戻さず、丸ごと拒んで
-        # 外れた単位の行も並べる（作業ツリーに触らない。通し直しの数え直しも回さない）
+    def test_last_round_duplicate_parks_and_excused_row_is_absorbed(self):
+        # 最後の回: 重なりの行は MEAN に結んで止め（stats.py を戻す）、外れた単位の行は数えずに行だけを外す（clamp.py は戻さない）
         rows = [{"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"},
                 {"unit_key": self.HELD, "files": ["clamp.py"], "what": "上限の枝を直した"},
                 {"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"}]
         got = self.run_accept("3", rows)
-        self.assertEqual((got["ok"], got["done"]), (False, True), got)
-        self.assertEqual({r["check"] for r in got["rejects"]}, {"duplicate", "excused"}, got)
-        self.revert.assert_not_called()
-        self.unrevert.assert_not_called()
+        self.assertEqual((got["ok"], got["done"], got["changes"]), (True, True, []), got)
+        self.assertEqual(self.parked, [self.MEAN])
+        self.revert.assert_called_once()
+        self.assertEqual(self.revert.call_args.args[3], {"stats.py"}, "外れた単位の直しは戻さない")
+        self.assertEqual(self.recounted, [[]])
 
     def test_key_outside_duty_and_excused_is_not_opened(self):
+        # 最後の回: 開いていない作り話の単位の行はその単位に結んで止め、その足跡 x.py を戻す。MEAN は受ける
         rows = [{"unit_key": self.MEAN, "files": ["stats.py"], "what": "分母を直した"},
                 {"unit_key": "作り話の単位", "files": ["x.py"], "what": "x"}]
         got = self.run_accept("3", rows)
-        self.assertEqual((got["ok"], got["done"]), (False, True), got)
-        self.assertIn(self.mod.NOT_OPENED, got["reason"])
-        self.revert.assert_not_called()
+        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        self.assertEqual([c["unit_key"] for c in got["changes"]], [self.MEAN])
+        self.assertEqual(self.parked, ["作り話の単位"])
+        self.assertEqual(self.revert.call_args.args[3], {"x.py"})
 
 
 class TestAcceptReadsDuty(unittest.TestCase):

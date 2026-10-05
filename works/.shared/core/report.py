@@ -12,7 +12,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - residue(b, gate, *, tests=None, eyeing=None) -> fixed を名乗らせない残り [{where, text}]
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
 - stop_outcome(b) -> 盤面の止めの (結末の語, by, 一言) か ()・stopped_run(board_dir) -> 当てる前に見る記録の止まり（記録が無いか読めなければ None）
-- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2。Context7 の枠切れの 1 行を含む）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
+- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None, cleaned_runs="")（冒頭 2。Context7 の枠切れの 1 行を含む）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)・
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
@@ -20,7 +20,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
-  failed=None, retried=None, eyeing=None) -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
+  failed=None, retried=None, eyeing=None, cleaned_runs="") -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
@@ -65,6 +65,7 @@ import entry  # noqa: E402
 import fixture  # noqa: E402
 import lens  # noqa: E402
 import reads  # noqa: E402
+import scopes  # noqa: E402
 import structmark  # noqa: E402
 import writes  # noqa: E402
 
@@ -115,6 +116,7 @@ WHERE = tuple((gatemarks.PLAIN[n], n) for n in ("p2.diagnose", "p2.fix_plan", "p
                                                    "p3.delta_fix", "p3.delta_review2", "p3.delta_fix2", "p4.ci"))
 DIFFS = (("修正の差分", "fix_delta"), ("手直しの差分", "fix_delta2"))
 REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
+CLEANED_HEAD = "起動の前に片付けた前の run（use.sh start が worktree・枝・控えを消した。差分のファイルと盤面は残る）"
 INTERRUPTED_HEAD = "run が途中で終わった"
 RETRIED_HEAD = "前の試みで落ち、続きで済んだ節"
 AI_FIRST_NODE = "report.human_items"   # 盤面が報告の役の節を出したか（AI の報告を回すか。ai_report_go）
@@ -142,13 +144,10 @@ def _write_text(path: pathlib.Path, text: str) -> None:
 
 
 def _latest(board_dir: pathlib.Path, name: str) -> pathlib.Path | None:
-    """周の作業ファイル r<N>/<name> のうち、周の番号が一番大きい物（周を仮定しない）。無ければ None"""
-    found = []
-    for p in pathlib.Path(board_dir).glob(f"r*/{name}"):
-        tail = p.parent.name[1:]
-        if tail.isdigit() and p.is_file():
-            found.append((int(tail), p))
-    return max(found)[1] if found else None
+    """周の作業ファイル r<N>/<name>（scope の根の物も。scopes.all_rounds）のうち、周の番号が一番大きい物（同じ周は最後に
+    登録した include の物。周を仮定しない）。無ければ None"""
+    found = scopes.all_rounds(pathlib.Path(board_dir), name)
+    return found[-1] if found else None
 
 
 def final_gate_answer(board_dir) -> tuple:
@@ -175,13 +174,8 @@ def _gate_answer_note(board_dir) -> str:
 
 
 def _all_rounds(board_dir: pathlib.Path, pattern: str) -> list:
-    """周の作業ファイル r<N>/<pattern> の全部（周の順）"""
-    rows = []
-    for p in pathlib.Path(board_dir).glob(f"r*/{pattern}"):
-        tail = p.parent.name[1:]
-        if tail.isdigit() and p.is_file():
-            rows.append((int(tail), str(p), p))
-    return [p for _, _, p in sorted(rows)]
+    """周の作業ファイル r<N>/<pattern> の全部（include ごとに scope の根に残る物も。周の順。scopes.all_rounds）"""
+    return scopes.all_rounds(pathlib.Path(board_dir), pattern)
 
 
 def _output(b, nid: str):
@@ -524,8 +518,40 @@ OUTCOME_WORDS = {"fixed": "直して、最後のテストまで通った", "no_f
                  "interrupted": "run が途中で終わった"}
 
 
+PARKED_OP = "fix_bound_parked"   # 修正の受け付けが最後の回に止めた単位の trace の行（blk-fix の accept.PARKED_OP と同じ語）
+
+
+def fix_split(b) -> dict:
+    """今の周の修正の段が受けた単位と止めて持ち越した単位: {"kept": [修正の返答（_fix）の changes の unit_key],
+    "parked": [{unit_key, why, patch}]}。parked は trace の PARKED_OP の行のうち、控えの patch が今の周の作業の置き場
+    （r<今の周>/）に在る行から、行の順に。why は単位に結んだ拒否の行を「 / 」でつないだ物"""
+    fix = _fix(b) or {}
+    kept = [c["unit_key"] for c in fix.get("changes") or [] if isinstance(c, dict) and isinstance(c.get("unit_key"), str)]
+    parked = []
+    for row in trace_rows(b, PARKED_OP):
+        patch = str(row.get("patch") or "")
+        if pathlib.Path(patch).parent.name != f"r{b.round}":
+            continue
+        reasons = row.get("reasons") if isinstance(row.get("reasons"), dict) else {}
+        parked += [{"unit_key": k, "why": " / ".join(str(t) for t in reasons.get(k) or []), "patch": patch}
+                   for k in row.get("unit_keys") or [] if isinstance(k, str)]
+    return {"kept": kept, "parked": parked}
+
+
+def split_line(b) -> str:
+    """冒頭 1 行目に添える、修正の段が受けた単位と止めて持ち越した単位の 1 文（fix_split。止めた単位が無ければ ""）"""
+    got = fix_split(b)
+    if not got["parked"]:
+        return ""
+    parked = [p["unit_key"] for p in got["parked"]]
+    patches = list(dict.fromkeys(p["patch"] for p in got["parked"]))
+    return (f"修正の段は {len(got['kept'])} 単位（{'・'.join(got['kept']) or 'なし'}）を受け、{len(parked)} 単位"
+            f"（{'・'.join(parked)}）を止めて持ち越した（直しの控え {'・'.join(patches)}。次の run の依頼に載る）")
+
+
 def head3(b, outcome: str, *, left: list | None = None, next_items: list | None = None) -> list:
-    """報告の冒頭 3 行（gatemarks.head3）: 起きたこと＝結末・決めてほしいこと＝冒頭 1 に並ぶ人が決める物の件数（盤面の問い・保留の
+    """報告の冒頭 3 行（gatemarks.head3）: 起きたこと＝結末（修正の段が単位を止めて持ち越したら、受けた単位と止めた単位の 1 文
+    split_line を「。」でつなぐ）・決めてほしいこと＝冒頭 1 に並ぶ人が決める物の件数（盤面の問い・保留の
     問い・人に回した食い違い・直しきれずに残った物・記録が通らないこと。無ければ 2 行目は次の run に渡す物の件数）・推し＝判定の役が
     問いの理由に書いた推し（機械は作らない）"""
     ph = b.state.get("pending_human") or {}
@@ -537,7 +563,8 @@ def head3(b, outcome: str, *, left: list | None = None, next_items: list | None 
     parts = [(w, n) for w, n in parts if n]
     decide = (f"{sum(n for _, n in parts)} 件——" + "・".join(f"{w} {n} 件" for w, n in parts) + "（下の「1. 人が決めること」）"
               if parts else "")
-    return gatemarks.head3(f"{OUTCOME_WORDS.get(outcome, '結末が決まらない')}（{outcome}）", decide,
+    split = split_line(b)
+    return gatemarks.head3(f"{OUTCOME_WORDS.get(outcome, '結末が決まらない')}（{outcome}）" + (f"。{split}" if split else ""), decide,
                            gatemarks.pushes([*held, *(ph.get("items") or [])]),
                            other=f"次の run に渡す物: {len(next_items or [])} 件")
 
@@ -798,9 +825,10 @@ def declared_downgrades(line: str, *, pack: pathlib.Path = PACK) -> list:
     return [{k: r[k] for k in DOWNGRADE_KEYS} for r in doc]
 
 
-def head_entry(b, start: dict | None, *, mid: dict | None = None) -> list:
+def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: str = "") -> list:
     """冒頭 2: 入口・段・gates・最後の関所の形・決めた人（関所の答えの数）・このラインに無い節の数と一覧のパス・下げている所・
-    中の検査の枠の行（境の節の mid_note）・ライブラリの文書の枠切れの 1 行（印が在る時だけ。libdocs.notice）"""
+    中の検査の枠の行（境の節の mid_note）・ライブラリの文書の枠切れの 1 行（印が在る時だけ。libdocs.notice）・起動の前に
+    片付けた前の run の 1 行（入力 cleaned_runs。空なら出さない）"""
     s = _start_doc(b, start)
     reqs = s.get("requests")
     if reqs is None:
@@ -828,6 +856,8 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None) -> list:
     quota = libdocs.notice(b)
     if quota:
         lines.append(quota)
+    if cleaned_runs:
+        lines.append(f"{CLEANED_HEAD}: {cleaned_runs}")
     return lines
 
 
@@ -876,7 +906,8 @@ def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, 
 
 
 def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
-    """冒頭 4: 読んだ証拠（各役の reads-<役>.json）と包みの行。出来事が unverified なら「出来事: 未確認（P13）」。
+    """冒頭 4: 読んだ証拠（各役の reads-<役>.json）と包みの行。出来事が unverified なら「出来事: 未確認（P13）」。部品の窓の
+    宣言の外の読み（trace の scopes.READ_OUTSIDE_OP）と必須の出力の欠け（scopes.REQUIRED_MISSING_OP）。どちらも無ければ行を出さない。
     包み無し（adapter optional）の run は「包み無し」の行の横に CI の役の知らせ（blk の collect.note）。包みを通す run で起動の
     記録が無ければ「包みが通っていない」。書き込みの記録の無い run と拒まずに残した変更（write_lines）。包みの確かめで止めた盤面は
     止めた理由。会話を継いだ起動の数。起動の即時の失敗（包みの終わりの記録の no_turn。節ごとの回と、build が盤面に写した
@@ -896,6 +927,16 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
         lines.append("読んだ証拠: 集めていない（役の読んだ証拠の節が走っていない）")
     if unverified:
         lines.append("出来事: 未確認（P13）——出来事の行の形を確かめるまで、読んでいない証拠に使わない")
+    outside = [f"{r.get('scope')}: {x}" for r in trace_rows(b, scopes.READ_OUTSIDE_OP) for x in r.get("paths") or []
+               if isinstance(x, str)]
+    if outside:
+        lines.append(f"宣言の外の読み（部品が manifest の consumes に無い盤面のファイルを読んだ。落とさない）: {len(outside)} 件 "
+                     + "・".join(outside))
+    lacking = [f"{r.get('scope')}: {x}" for r in trace_rows(b, scopes.REQUIRED_MISSING_OP) for x in r.get("names") or []
+               if isinstance(x, str)]
+    if lacking:
+        lines.append(f"必須の出力の欠け（部品の窓の終わりに manifest の required の出力が無かった。役が落ちたか諦めた。止めない）: "
+                     f"{len(lacking)} 件 " + "・".join(lacking))
     mode = _start_doc(b, None).get("adapter")
     repo = pathlib.Path((b.state.get("inputs") or {}).get("cwd") or ".")
     note = (ci or {}).get("note") if isinstance(ci, dict) else ""
@@ -1155,7 +1196,7 @@ def _finish_fields(b, judged, outcome) -> dict:
 
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None, mid: dict | None = None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
-          failed: list | None = None, retried: list | None = None, eyeing: dict | None = None) -> dict:
+          failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "") -> dict:
     """gate_record → decide_outcome（eyeing＝独立の目のブロックの出口。残りに数える）→ 部品で <盤面>/report.md と
     <盤面>/next-request.json（と、包みが即時の死を記録した run は <盤面>/NO_TURN_FILE）を書き、1 本目の finish の欄に
     report_file・next_request_file・tests_green・validator_exit と、書き出しの節が読む export_input {outcome, report_file,
@@ -1185,7 +1226,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     rid = run_id or _start_doc(b, start).get("run_id") or ""
     body = [f"# 報告（run {rid or '—'}）", "", *head3(b, outcome, left=left, next_items=items), ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
-             head_entry(b, start, mid=mid), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
+             head_entry(b, start, mid=mid, cleaned_runs=cleaned_runs), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
              head_reads(board_dir, rid, ci=ci), head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]

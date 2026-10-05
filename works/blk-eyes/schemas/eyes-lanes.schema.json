@@ -1,0 +1,20 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "独立の目の落ちた筋 <scope>/r<N>/eyes-lanes.json（書き手は blk-eyes の eyes。読み手は gatemarks.fell_lanes が scopes.each で引く）",
+ "type": "object",
+ "required": [
+  "fell",
+  "why"
+ ],
+ "properties": {
+  "fell": {
+   "type": "array"
+  },
+  "why": {
+   "type": [
+    "string",
+    "null"
+   ]
+  }
+ }
+}
