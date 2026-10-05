@@ -424,6 +424,25 @@ class TestStart(LoopCase):
             self.assertIn(w, part)
         self.assertNotIn(CLAMP, part, "今の単位は引き継ぎに載せない")
 
+    def test_tdd_prep_writes_the_unit_key_for_the_adapter(self):
+        """依頼 243 の 2: 支度は包みが会話を切る切れ目の鍵（輪の置き場の名と、振り分けの段は route・ほかは今の単位の key）を
+        run ごとの置き場（adapter.session_key_path）に書く。単位が替わると鍵が替わる"""
+        import adapter
+        key = pathlib.Path(adapter.session_key_path(str(self.board), "tdd"))
+        self.assertIn(tddloop.UNIT_NODE, adapter.KEYED_NODES, "包みが切れ目を見る節の名と同じ")
+        tddloop.prep(self.state)
+        work = pathlib.Path(self.st()["work"]).name
+        self.assertEqual(key.read_text(encoding="utf-8").strip(), f"{work}:route")
+        self.route(clamp="tdd")
+        tddloop.prep(self.state)
+        self.assertEqual(key.read_text(encoding="utf-8").strip(), f"{work}:{MEAN}")
+        self.red()
+        tddloop.prep(self.state)
+        self.assertEqual(key.read_text(encoding="utf-8").strip(), f"{work}:{MEAN}", "同じ単位の段は同じ鍵（会話を継ぐ）")
+        self.fix_mean()
+        tddloop.prep(self.state)
+        self.assertEqual(key.read_text(encoding="utf-8").strip(), f"{work}:{CLAMP}")
+
     def test_tdd_prep_without_board_has_no_brief(self):
         """盤面の無い置き場（修正案の無い run と同じ）では brief の節を置かない"""
         self.assertNotIn(planbrief.HEAD, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"))

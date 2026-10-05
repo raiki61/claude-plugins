@@ -15,7 +15,7 @@
   形は start が 1 回だけ読んで状態の plain に置く（控えが壊れていれば Broken）
 - tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形。頭に brief の節: 振り分けの段は
   直す義務の単位の全部、ほかの段は今の単位の brief。盤面の無い置き場・修正案の欄の控えの無い run・平の run は無し）→ 役 tdd（修正役。
-  同じ会話で振り分け・テスト・直し・整えを返す）→
+  単位の中の段は同じ会話で、単位が替わると包みが新しい会話で起こす（支度が書く単位の鍵。依頼 243 の 2）。振り分け・テスト・直し・整えを返す）→
   tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix →（申告の在る単位だけ）refactor → 次の単位。
   step 1 回ごとに状態の calls に 1 行（n・確かめた段（申し出は conflict、実行器・test_cmd が走らずに抜けた回は runner）・単位・
   合否・その回に起こした一式と test_cmd の数・秒）を積む（秒は書くだけで止める条件に使わない）
@@ -81,6 +81,7 @@ import xml.etree.ElementTree as ET
 
 sys.dont_write_bytecode = True
 
+import adapter  # noqa: E402  （.shared/core。包みが会話を切る単位の鍵の置き場 session_key_path）
 import board  # noqa: E402
 import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確かめ・直す義務から外れた単位）
 import entry  # noqa: E402  （.shared/core。盤面の入口）
@@ -100,6 +101,7 @@ PHASES = ("route", "test", "fix", "refactor")
 MAX_ITERATIONS = 40   # YAML の tdd-loop の max_iterations と同じ値（試験が縛る）。この周に届いたら残りを direct にして抜ける
 MIN_WHY = 10
 STATE, PROMPT, SUMMARY = "state.json", "next.md", "summary.md"
+UNIT_NODE = "tdd"   # 輪の役の印の名（包みの adapter.KEYED_NODES の 1 つ。単位の切れ目で会話を切る）
 NO_SUITE = "テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す"
 # 実行器への合図（env）: 1 なら後ろに足した試験（ファイル・node id）だけを走らせてよい（既定の一式を集めない）。輪の赤・緑の回だけが
 # 付ける（元の結末・受け付け・版の写しは付けない）。解かない実行器は無視してよい（一式に足して走らせても確かめは同じ）
@@ -579,7 +581,9 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     題の次に brief の節（planbrief.head_text）: 振り分けの段は直す義務の単位の全部、ほかの段は今の単位 1 つの brief。行の
     「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える。
     盤面の修正の形（fixshape.shape_at。盤面の無い置き場は記録の無い盤面と同じ af）が座を載せる形なら、借りたスキルの座
-    （seat.section）を載せる。形の控え・写しが壊れていれば Broken"""
+    （seat.section）を載せる。形の控え・写しが壊れていれば Broken。
+    書いた後に、包みが単位の切れ目で会話を切る鍵（_write_unit_key）を書く。単位が替わった周の役は新しい会話で起き（依頼 243 の 2）、
+    前の単位の物は引き継ぎの節（handoff_lines）だけで渡る"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-prep を呼ぶ番でない）")
@@ -624,7 +628,25 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
         except fixrules.Unfilled as e:
             raise Broken(f"TDD の輪の指示書を組めない: {e}")
     fixrules.write_variants(path, repo, vals, build, n)
+    _write_unit_key(path.parent.parent, f"{path.parent.name}:{'route' if phase == 'route' else st['queue'][st['cur']]}")
     return {"prompt_file": str(path)}
+
+
+def _write_unit_key(board_dir: pathlib.Path, key: str) -> None:
+    """包みが単位の切れ目で会話を切る鍵（UNIT_NODE の adapter.session_key_path）を書く（依頼 243 の 2）。鍵は輪の置き場の名と
+    今の単位（振り分けの段は route）。書けなければ古い鍵を消す（包みは鍵が読めない時に今どおり会話を継ぐ。会話を切るのは節約で
+    守りでないので、支度を止めない）"""
+    path = pathlib.Path(adapter.session_key_path(str(board_dir), UNIT_NODE))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(" ".join(key.split()) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------- 返答の確かめ（節 tdd-step）

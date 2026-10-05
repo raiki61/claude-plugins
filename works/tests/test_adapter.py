@@ -1977,6 +1977,65 @@ class ShapeFenceCase(unittest.TestCase):
                 self.assertNotIn("shape_deny", fence)
 
 
+class UnitSessionCase(unittest.TestCase):
+    """単位の切れ目で会話を切る（依頼 243 の 2・道 B）: 印の名が KEYED_NODES（tdd）の起動は、支度が run ごとの置き場に書いた
+    今の単位の鍵（session_key_path）を、この節の会話の id と一緒に記録した鍵と比べる。違えば SDK の会話の旗を外して新しい会話で
+    起こし（mode new・unit.cut true）、同じなら今どおり継ぐ。鍵が読めない時は継ぐ（節約なので止めない。理由は unit.skipped）"""
+    FORK = ["--resume", "aaaaaaaa-0000-4000-8000-000000000001", "--fork-session"]
+
+    def setUp(self):
+        self.e = Env(self)
+        self.board = self.e.tmp / "board"
+        self.board.mkdir()
+        t = adapter.ticket_path(self.e.cwd, self.e.home)
+        t.parent.mkdir(parents=True)
+        t.write_text(json.dumps({"run_id": "r1", "board": str(self.board), "cwd": str(self.e.cwd),
+                                 "protected": [str(self.board)], "written_at": "2026-10-06T00:00:00+09:00"}),
+                     encoding="utf-8")
+
+    def key(self, node, value):
+        p = pathlib.Path(adapter.session_key_path(str(self.board), node))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(value + "\n", encoding="utf-8")
+
+    def launch(self, node="tdd"):
+        r = self.e.run(sdk_argv(f"works-node: {node}", tools="Read,Edit", extra=self.FORK),
+                       GIT_CEILING_DIRECTORIES=str(self.e.tmp))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return self.e.child()["argv"], self.e.launches()[-1]["session"]
+
+    def test_new_unit_cuts_the_conversation(self):
+        self.key("tdd", "tdd-1:route")
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "sdk-fork", "最初の起動は記録した鍵が無いので継ぐ（切らない）")
+        self.assertEqual(session["unit"], {"key": "tdd-1:route", "was": None, "cut": False})
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "sdk-fork", "同じ単位の周は継ぐ")
+        self.key("tdd", "tdd-1:mean")
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "new")
+        self.assertEqual(session["unit"], {"key": "tdd-1:mean", "was": "tdd-1:route", "cut": True})
+        self.assertNotIn("--fork-session", argv)
+        self.assertNotIn("--resume", argv)
+        self.assertEqual([a for a in argv if a.startswith("--session-id=")], ["--session-id=" + session["id"]])
+        self.assertEqual(self.e.session_id("tdd"), session["id"])
+        self.assertNotIn("from", session)
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "sdk-fork", "切った後の周は新しい会話の続き")
+
+    def test_unreadable_key_keeps_the_conversation(self):
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "sdk-fork")
+        self.assertIn("skipped", session["unit"])
+        self.assertIn("--fork-session", argv)
+
+    def test_other_nodes_are_not_keyed(self):
+        self.key("judge", "x")
+        argv, session = self.launch("judge")
+        self.assertNotIn("unit", session)
+        self.assertEqual(session["mode"], "sdk-fork")
+
+
 class LaunchRowModelCase(unittest.TestCase):
     def test_launch_row_carries_requested_model_from_argv(self):
         """起動の行の model は Archon が渡した --model（CLI と同じく後の指定が勝つ。無ければ None）。argv は読むだけ"""
