@@ -1204,8 +1204,8 @@ class TestHeldWorkStays(ReplanCase):
         self.assertIn(touched, (self.repo / "stats.py").read_text(encoding="utf-8"), "外れた単位のファイルを戻した")
 
     def test_last_round_row_for_held_unit_is_dropped_without_revert(self):
-        """裁定の後の段の 3 回目の返答が外れた MEAN を changes に書いた: 機械はその行だけを外して通し直し（drop_excused_units）、
-        MEAN の 1 回目の直しを作業ツリーに残したまま控えて案の直しへ渡す。trace の行は戻した直しの控え（patch）を持たない"""
+        """裁定の後の段の 3 回目の返答が外れた MEAN を changes に書いた: 機械はその行を数えずに changes から外し（義務の外の単位に
+        だけ結んだ行）、MEAN の 1 回目の直しを作業ツリーに残したまま控えて案の直しへ渡す。trace の行は戻した直しの控え（patch）を持たない"""
         accept_mod = accept_script_module()
         state, suite = self.held_tdd_board()
         reply = load("fix2_ok")
@@ -1215,20 +1215,29 @@ class TestHeldWorkStays(ReplanCase):
         self.assert_held_for_replan(got)
         self.assertIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "外れた単位の直しを戻した")
         rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
-        dropped = [r for r in rows if r.get("op") == accept_mod.EXCUSED_DROPPED_OP]
+        dropped = [r for r in rows if r.get("op") == accept_mod.ABSORBED_OP]
         self.assertEqual(len(dropped), 1, rows)
+        self.assertEqual(dropped[0]["dropped"], [MEAN])
         self.assertNotIn("patch", dropped[0])
 
-    def test_bound_unit_sharing_a_file_with_held_unit_is_not_reverted(self):
-        """最後の回に単位に結べた拒否で止める単位（残りの単位 RESIDUE）が、外れた単位 MEAN（申し出の回の控えの行に在る）と
-        stats.py を共にする: 止めて戻せば MEAN の直しも消えるので、止めずに返答全体を拒み（None）、stats.py を戻さない"""
-        accept_mod = accept_script_module()
-        state, _ = self.held_tdd_board()
+    def test_bound_unit_sharing_a_file_with_held_unit_moves_both_to_the_patch(self):
+        """最後の回に単位に結んだ拒否で止める単位（開いていない残りの単位 RESIDUE）が、外れた単位 MEAN（輪で緑にした足跡）と
+        stats.py を共にする: ファイルは単位ごとに分けて戻せないので、MEAN の直しも段の頭の木に戻して控えの patch に移し（消えない）、
+        RESIDUE の裁定の文に MEAN を名指す。受け付けのスクリプトの最後の回で回す"""
+        import parking
+        state, suite = self.held_tdd_board()
         residue = "stats.py residue: 残りの単位"
-        reply = {"changes": [{"unit_key": residue, "files": ["stats.py"], "what": "残りを直した"}]}
-        got = accept_mod.park_bound_units(reply, [f"{residue}: 元で赤でなかった試験が赤"], self.board, "", self.repo, state)
-        self.assertIsNone(got)
-        self.assertIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "外れた単位の直しを戻した")
+        reply = load("fix2_ok")
+        reply["changes"] = [{**reply["changes"][0], "unit_key": residue}]
+        reply["interactions"] = []
+        got = self.accept_script(reply, pass_="ruled", iteration="3", tdd_state=state, tdd_suite=suite)
+        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        parked = [r for r in rows if r.get("op") == "fix_bound_parked"]
+        self.assertEqual([r["unit_keys"] for r in parked], [[residue]])
+        self.assertTrue(any(t.startswith(parking.SHARED_OUT + MEAN) for t in parked[0]["reasons"][residue]), parked)
+        self.assertNotIn("sum(xs) / len(xs)", (self.repo / "stats.py").read_text(encoding="utf-8"), "足跡は段の頭の木に戻る")
+        self.assertIn("sum(xs) / len(xs)", pathlib.Path(parked[0]["patch"]).read_text(encoding="utf-8"), "外れた単位の直しは控えに残る")
 
     def test_rulings_say_keep_held_work(self):
         self.held_tdd_board()

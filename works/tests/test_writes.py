@@ -427,10 +427,10 @@ class TestSelectedTests(unittest.TestCase):
         self.assertIn("    return x\n", text)
         p.write_text(text.replace("    return x\n", "    return lo\n", 1), encoding="utf-8")
         red, _ = tddloop.selected_problems(self.state, self.repo, self.rev)
-        self.assertEqual(len(red), 1)
+        self.assertEqual(len(red), 1, "行はテストのファイルごと")
         self.assertIn("test_clamp_within_range", red[0])
         self.assertNotIn("test_mean_of_three", red[0], "元から赤の試験は数えない")
-        self.assertIn("元で赤でなかった試験が赤", red[0])
+        self.assertIn("元で赤でなかった試験が赤（ファイル test_stats.py）", red[0], "行はテストのファイルのパスを名指す")
 
     def test_nothing_selected_runs_nothing(self):
         (self.repo / "notes.txt").write_text("x\n", encoding="utf-8")

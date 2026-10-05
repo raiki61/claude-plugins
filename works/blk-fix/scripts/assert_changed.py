@@ -17,12 +17,12 @@ clean が消す（盤面の fix-ignored-before.json の控えに無かった物�
 - 申告が空でも、直す義務の単位が残らず、答え待ちの fork・escalate の出どころか直す裁定でない裁定（ask_human・fix_plan_item）で外れた単位が在る盤面
   （conflict.nothing_owed_but_excused）なら正しい返答: {"ok": true, "files": [], "reason"（外れた単位と理由）} を 1 行出して 0、
   盤面の trace に 1 行（止めずに最後の人の関所へ届ける）
-- 申告が空（上の場合を除く）・申告したのに変わっていないファイルが在る・受け付けが通らないまま輪を抜けた（修正の輪が 3 回とも拒まれ、
-  3 回目の拒否がどの単位にも結べなかった——結べた単位は受け付けがその単位だけを止めて残りを通す。輪の出力が ok: false）: run を落とさずに盤面（$ARTIFACTS_DIR/board）を理由つきで止め（by works:fix。R50）、
+- 申告が空（上の場合を除く）・申告したのに変わっていないファイルが在る: run を落とさずに盤面（$ARTIFACTS_DIR/board）を理由つきで止め（by works:fix。R50）、
   {"ok": false, "files": [], "reason"} を 1 行出して 0。後ろの段は境の節が飛ばし、報告と書き出しは走る（run 26）。
   盤面が開けない（盤面の無いブロックだけの模擬実行）なら、標準エラーに理由を 1 行出して 1（1 本目のまま）
-- 環境変数が無い・INPUTS_ACCEPTED が読めない・changes[].files の形が違う・版として引けない・git が効かない:
-  標準エラーに理由を 1 行出して 2
+- 受け付けは最後の回に必ず通る（義務の単位を全部止めても写しが返答を受けなければ、受け付けが機械の空の返答を渡す。依頼 242 決め 5）
+  ので、輪の出力が ok: false なら入力の誤り。それと、環境変数が無い・INPUTS_ACCEPTED が読めない・changes[].files の形が違う・
+  版として引けない・git が効かない: 標準エラーに理由を 1 行出して 2
 base_rev が空ならその場の HEAD（Ruling R2）。cwd が対象リポジトリ（Archon は対象で起こす）。標準ライブラリだけ。
 """
 import json
@@ -103,13 +103,8 @@ def declared_files(raw):
         raise Unreadable(f"INPUTS_ACCEPTED が JSON として読めない: {e}（頭: {raw[:200]!r}）")
     if not isinstance(accepted, dict):
         raise Unreadable(f"INPUTS_ACCEPTED が JSON のオブジェクトでない（{str(accepted)[:200]!r}）")
-    if accepted.get("ok") is False:
-        last = accepted.get("reason_file") or ""
-        raise GiveUp("修正役の返答が受け付けを通らないまま修正の輪を抜けた（3 回拒まれ、どの単位にも結べない拒否で諦めた）。最後の理由: "
-                     + (" ".join(str(accepted.get("reason") or "").split())[:300] or "（無し）")
-                     + (f"（全文 {last}）" if last else ""))
-    if accepted.get("ok") is not True:
-        raise Unreadable(f"受け付けの出力に ok が無い（{str(accepted)[:200]!r}）")
+    if accepted.get("ok") is not True:   # 受け付けは最後の回に必ず通る（決め 5）。ok: false も回す側の誤り
+        raise Unreadable(f"受け付けの出力が ok: true でない（{str(accepted)[:200]!r}）")
     changes = accepted.get("changes")
     if not isinstance(changes, list) or not all(isinstance(c, dict) and isinstance(c.get("files"), list) for c in changes):
         raise Unreadable("受け付けの出力に changes[].files が無い")

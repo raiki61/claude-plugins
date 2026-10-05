@@ -17,7 +17,7 @@
   独立設計（design.due）のどちらかを blk-plan で起こす周
 - structure_edge(board_dir, structured): h-structure（構造の境の節。darkfactory/scripts/structure.py の中身）。構造のブロックの出口を
   確かめ、盤面の根の控え（core の structmark）を書く。planning はこの節を待つ
-- trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
+- trace_empty_fix(b): 機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける。entry.trace_empty_fix の別名）
 - 固定材料（core の fixture。計画 220 Task 5）: h-fix は go の後、1 周目なら盤面を $ARTIFACTS_DIR/fix-fixture へ写す
   （固定材料から始めた盤面は capture が写さない。写せなくても run は止めない）。包みの確かめは「この run で役が 1 つ起きた
   後の最初の境の節で止める」（_adapter_guard）: 通常の盤面は h-judge、固定材料から始めた盤面（fixture.adopted）は h-mid。
@@ -99,8 +99,8 @@ MID_NOTE = "中の検査: 枠のみ（動かす確かめ・holdout は Task 36�
 FLAG_BY_PREFIX = "request:"                  # 止め札で止めた盤面の state.stop.by は "request:<札の by>"（報告の stopped_by_request）
 FLAG_SEEN_OP = "stop_flag_seen"              # 止め札を見て止めた境の節の trace の行（op・at・reason・by）
 AFTER_HALT_OP = "stop_flag_after_halt"       # 止まった後に見た止め札の trace の行（b.stop は呼ばない。M3）
-EMPTY_FIX_OP = "empty_fix"                   # 直す物の無い周に機械が p3.fix の空の返答を渡した印の trace の行（T10b が書く。TA6）
-EMPTY_FIX_BY = "works:empty-fix"
+EMPTY_FIX_OP = entry.EMPTY_FIX_OP           # 機械が p3.fix の空の返答を渡した印の trace の行（正本は entry。TA6）
+EMPTY_FIX_BY = entry.EMPTY_FIX_BY
 JUDGE_BRIDGE_BY = "works:judge-bridge"       # 判定のブロックの出口を盤面が受けなかった時の state.stop.by（h-plan）
 ADAPTER_BY = "works:adapter"                 # 包みが通っていない run を止めた state.stop.by（h-judge。blk-ci の柵と同じ名）
 PREMISES_BY = premises.STOP_BY                # 前提の実測が盤面に無い・盤面が受けない時の state.stop.by（h-judge）
@@ -298,10 +298,7 @@ def _notes(b) -> str:
                      if isinstance(h, dict) and h.get("round") == b.round and isinstance(h.get("note"), str) and h["note"])
 
 
-def trace_empty_fix(b) -> None:
-    """直す物の無い周に機械が p3.fix の空の返答を渡した印を trace に 1 行（T10b の h-plan が take の後に呼ぶ。TA6）。
-    at mid は、この印の在る周の p3.fix を「役が出した修正」と数えない"""
-    b.trace(EMPTY_FIX_OP, node="p3.fix", by=EMPTY_FIX_BY, round=b.round)
+trace_empty_fix = entry.trace_empty_fix     # 機械が p3.fix の空の返答を渡した印（正本は entry。h-plan が take の後に呼ぶ）
 
 
 def _unit_file_paths(u: dict, repo) -> tuple:
@@ -693,12 +690,15 @@ def _final_needs(b, head: str, objection: str, eyes: tuple, rows, err: str, asks
 
 
 def _final_head(b, head: str, why: list, guarded: bool) -> list:
-    """最後の関所の冒頭 3 行（gatemarks.head3）。起きたこと＝関所を開けた理由（_final_needs。守りのファイルはこの行で名指す）・
+    """最後の関所の冒頭 3 行（gatemarks.head3）。起きたこと＝関所を開けた理由（_final_needs。守りのファイルはこの行で名指す）と、
+    修正の段が単位を止めて持ち越したなら受けた単位と止めた単位の 1 文（report.split_line）・
     決めてほしいこと＝報告へ進めるか止めるか・推し＝判定の役が問いの理由に書いた推し（機械は作らない）"""
     held = gatemarks.held_lines(b)
     happened = (f"最後のテストと独立の目が済み、報告の前で止まった。テストは{head}。"
                 + ("開けた理由: " + "・".join(why) if why else "関所はいつも開く設定（final_gate always）で、ほかに開けた理由は無い")
                 + (f"。判定の役が人に聞くと保留にしたままの問いも在る（{len(held)} 件。関所を開ける理由には数えない）" if held else ""))
+    split = report.split_line(b)   # 修正の段が受けた単位と止めて持ち越した単位（止めていなければ空）
+    happened += f"。{split}" if split else ""
     decide = ("報告へ進めて run を終えるか、止めるか（打つ行は末尾の答え方）"
               + ("。守りのファイルの変更は下の最初の節を確かめてから通す" if guarded else ""))
     asking = b.state.get("pending_human") or {}

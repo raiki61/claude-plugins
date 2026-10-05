@@ -144,7 +144,9 @@ class TestAcceptOutsideTier(OutsideCase):
         self.write(OUTSIDE, OUTSIDE_PASSING.replace("1 + 1, 2", "1 + 1, 3"))
         probs, note = tddloop.selected_problems(state, self.repo, "HEAD")
         self.assertTrue(probs, f"版で通っていた段の外の試験の赤を受け付けが拾わない（知らせ: {note}）")
-        self.assertIn("test_sum", " ".join(probs))
+        self.assertEqual(len(probs), 1, "行はテストのファイルごと")
+        self.assertIn("test_sum", probs[0])
+        self.assertIn(f"（ファイル {OUTSIDE}）", probs[0], "行は段の外のテストのファイルのパスを名指す")
         self.assertEqual(git(self.repo, "diff", "--name-only"), OUTSIDE, "比べた後も作業ツリーは直した後の姿のまま")
 
     def test_zero_selected_cases_are_not_reported_as_no_new_red(self):

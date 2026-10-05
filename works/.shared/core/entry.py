@@ -19,7 +19,8 @@
 - take(board_dir, nid, reply, repo, *, snapshot_name, commit): 各ブロックの受け付けが使う 1 つの口。役の返答を盤面の done に渡す
   （写しの AnswerReject だけを {ok: False} で役に返す。裁定 TA19）
 - hand(b, board_dir, nid, reply, repo): 機械が返答を渡す 1 つの口（待っている試行 board.pending_instance に起こした印を置いてから take）
-- empty_fix_reply(): 直す義務 0 件の周に機械が渡す p3.fix の空の返答（裁定 TA6）
+- empty_fix_reply(b, why): 直す義務 0 件の周（と、修正の輪の最後の回に義務の全部を止めた周）に機械が渡す p3.fix の空の返答
+  （裁定 TA6）。trace_empty_fix(b) がその印を trace に 1 行（EMPTY_FIX_OP・EMPTY_FIX_BY）
 
 ブロックのスクリプトは open_board で盤面を開く。線 B のライン（darkfactory-rounds）でも同じブロックが同じ口で動く。
 """
@@ -1052,13 +1053,26 @@ def hand(b, board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path) 
 
 
 EMPTY_FIX_REASON = "直す義務 0 件の周（p2.fix_plan が条件で na）——修正の役を起こさず、機械が空の返答を渡した"
+EMPTY_FIX_OP = "empty_fix"                   # 機械が p3.fix の空の返答を渡した印の trace の行（TA6）
+EMPTY_FIX_BY = "works:empty-fix"
 
 
-def empty_fix_reply() -> dict:
-    """直す義務 0 件の周に機械が渡す p3.fix の返答（TA6）。changes は空、fix_closure は not_applicable（写しの graph の
+def empty_fix_reply(b=None, why: str = EMPTY_FIX_REASON) -> dict:
+    """機械が渡す p3.fix の空の返答（TA6）。changes は空、fix_closure は not_applicable で理由は why（写しの graph の
     p3.fix は na_self_ok を宣言し、fix_covers_open_units は changes が空なら義務 0 件の周を通す）、他の必須の欄は空の値。
-    呼ぶたびに新しい dict"""
-    return {"changes": [], "fix_closure": {"status": "not_applicable", "reason": EMPTY_FIX_REASON},
+    盤面 b が在り、今の周の p2.plan_review の出力が在れば、plan_faces にその faces と shrink の key ごとに declared の行
+    （how は why。写しの型は how に 20 字以上を求める）。呼ぶたびに新しい dict"""
+    review = b.output_of_round("p2.plan_review", b.round) if b is not None else None
+    faces = [{"key": r["key"], "handled": "declared", "how": why}
+             for r in ((review or {}).get("faces") or []) + ((review or {}).get("shrink") or [])
+             if isinstance(r, dict) and isinstance(r.get("key"), str)]
+    return {"changes": [], "fix_closure": {"status": "not_applicable", "reason": why},
             "gates_changed": False, "interactions": [], "mechanism_changed": False, "not_done": [], "path_changed": False,
-            "plan_faces": [], "premise_drift": False, "seams_changed": False, "security_surface_changed": False,
+            "plan_faces": faces, "premise_drift": False, "seams_changed": False, "security_surface_changed": False,
             "wrote_refs": []}
+
+
+def trace_empty_fix(b) -> None:
+    """機械が p3.fix の空の返答を渡した印を trace に 1 行（h-plan と修正の受け付けが take の後に呼ぶ。TA6）。
+    at mid は、この印の在る周の p3.fix を「役が出した修正」と数えない"""
+    b.trace(EMPTY_FIX_OP, node="p3.fix", by=EMPTY_FIX_BY, round=b.round)

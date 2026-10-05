@@ -571,7 +571,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
             mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
             # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
             mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
-            mock.patch.object(self.mod, "_parked_reply", return_value=None),   # 申し出の回の控えも無い
+            mock.patch.object(self.mod, "last_settle", fake_settle(self.mod, {self.MEAN, self.CLAMP}, {})),
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
         ]
@@ -652,42 +652,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
         self.assertEqual([r.get("decision") for r in rulings], ["ask_human"])
         self.assertIn("fix_closure=clean", rulings[0].get("text", ""), "人に回す裁定の文に、単位に結んだ拒否の文を載せる")
         revert.assert_called_once()
-        self.assertIn(self.CLAMP, repr(revert.call_args), "止めた単位の直しを作業ツリーから戻す")
-        self.assertNotIn(self.MEAN, repr(revert.call_args), "通した単位の直しは戻さない")
-
-    def test_third_park_then_other_reject_undoes_the_park(self):
-        # 止めた後の通し直しがどの単位にも結べない文で拒めば、止めた単位の直し・食い違いの控え・裁定の文を止める前に戻す
-        # （拒否では盤面を前のままにする）
-        from unittest import mock
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        work = pathlib.Path(tmp.name)
-        (work / self.mod.conflict.RULINGS_FILE).write_text("前の裁定\n", encoding="utf-8")
-        b = mock.MagicMock()
-        b.work.side_effect = lambda name: work / name
-
-        def park(b_, rows, **k):
-            (work / self.mod.conflict.FILE).write_text(json.dumps({"items": rows}, ensure_ascii=False), encoding="utf-8")
-
-        def recount(reply, *a, **k):
-            if self.CLAMP in [c["unit_key"] for c in reply["changes"]]:
-                return self.recount(reply, *a, **k)
-            return {"ok": False, "changes": [], "reason": "閉鎖の実証で赤を一度も見ていないのに fix_closure=clean"}
-
-        with mock.patch.object(self.mod.entry, "open_board", return_value=b), \
-                mock.patch.object(self.mod.conflict, "park", side_effect=park), \
-                mock.patch.object(self.mod.conflict, "write_rulings",
-                                  side_effect=lambda b_: (work / self.mod.conflict.RULINGS_FILE).write_text("止めた\n", encoding="utf-8")), \
-                mock.patch.object(self.mod.recount, "accept_fix", side_effect=recount), \
-                mock.patch.object(self.mod, "revert_units", return_value="/b/r1/fix-parked-1.patch"), \
-                mock.patch.object(self.mod, "unrevert_units") as unrevert:
-            got = self.accept_split("3")
-        self.assertEqual((got["ok"], got["done"]), (False, True), got)
-        self.assertFalse((work / self.mod.conflict.FILE).exists(), "止める前に無かった食い違いの控えは消す")
-        self.assertEqual((work / self.mod.conflict.RULINGS_FILE).read_text(encoding="utf-8"), "前の裁定\n")
-        b.trace.assert_any_call(self.mod.PARK_UNDONE_OP, node=self.mod.recount.ROLE, unit_keys=[self.CLAMP])
-        unrevert.assert_called_once()
-        self.assertIn(self.CLAMP, repr(unrevert.call_args), "戻した単位の直しを作業ツリーに戻す")
+        self.assertEqual(revert.call_args.args[3], {"clamp.py"}, "止めた単位の足跡だけを戻す（通した単位の直しは戻さない）")
 
     def test_count_mismatch_phrase_matching_is_gone(self):
         # 閉鎖は前段の表（unitrows）が数え直しで決め、写しの拒否の文の句を照らして後から単位を外す継ぎ目は持たない
@@ -747,9 +712,9 @@ class TestQueryConflictExit(unittest.TestCase):
 
 class TestThirdRejectParksBoundUnit(unittest.TestCase):
     """修正の受け付けの輪の 3 回目: 数え合わせ以外の拒否（凍ったテストの書き換え・元で赤でなかった試験の赤）も、changes[].files で
-    ちょうど 1 単位に結べれば、その単位だけを ask_human に止め（conflict.park）、その単位の直しを作業ツリーから戻し（revert_units）、
-    残りの単位で受け付けを通し直す。どの単位にも結べない拒否は今までどおり返答全体を拒んで輪を抜ける（assert-changed が止める）。
-    盤面・git は使わない（検査・数え直し・戻しを mock にする）"""
+    結べる単位だけを ask_human に止め（conflict.park）、その単位の足跡を段の頭の木に戻し（revert_units）、残りの単位で受け付けを
+    通し直す。どの単位にも結べない拒否は直す義務の全部の単位に結ぶ（依頼 242）。盤面・git は使わない（検査・数え直し・戻しを
+    mock にし、結びの入力は fake_settle が返答の行の files から組む）"""
 
     MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
     CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
@@ -787,10 +752,10 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
             mock.patch.object(self.mod.conflict, "waiting", return_value=[]),   # 案の直しを待つ単位は無い（控えない）
             # 1 回目に受け付けた返答の控えは無い（1 回目の修正の段。盤面は mock なので控えを読ませない）
             mock.patch.object(self.mod.conflict, "held_reply", return_value=(None, pathlib.Path("/b/r1/fix-held-reply.json"))),
-            mock.patch.object(self.mod, "_parked_reply", return_value=None),   # 申し出の回の控えも無い
+            mock.patch.object(self.mod, "last_settle", fake_settle(self.mod, {self.MEAN, self.CLAMP}, {})),
             mock.patch.object(self.mod.conflict, "park", side_effect=lambda b, rows, **k: self.parked.append((rows, k))),
             mock.patch.object(self.mod.conflict, "write_rulings"),
-            mock.patch.object(self.mod, "revert_units", self.revert, create=True),
+            mock.patch.object(self.mod, "revert_units", self.revert),
         ]
         for p in patches:
             p.start()
@@ -811,8 +776,8 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         self.assertEqual([r["unit_key"] for r in rows], [self.CLAMP])
         self.assertEqual([(k.get("ruling") or {}).get("decision") for _, k in self.parked], ["ask_human"])
         self.revert.assert_called_once()
-        self.assertIn(self.CLAMP, repr(self.revert.call_args), "止めた単位の直しを作業ツリーから戻す")
-        self.assertNotIn(self.MEAN, repr(self.revert.call_args), "通した単位の直しは戻さない")
+        self.assertEqual(self.revert.call_args.args[3], {"clamp.py", "test_clamp.py"},
+                         "止めた単位の足跡だけを戻す（通した単位の直しは戻さない）")
 
     def test_third_red_test_bound_to_one_unit_parks_only_that_unit(self):
         self.tests = [([self.RED], ""), ([], "")]
@@ -843,24 +808,23 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         self.assertEqual(sorted(r["unit_key"] for rs, _ in self.parked for r in rs), sorted([self.MEAN, self.CLAMP]))
         self.revert.assert_called_once()
 
-    def test_unbound_third_reject_still_gives_up(self):
-        self.tests = [(["受け付けが走らせた一式（環境）で、元で赤でなかった試験が赤: ['test_env.py::test_x']（1 件）"], "")]
+    def test_unbound_third_reject_parks_every_owed_unit(self):
+        # どの単位にも結べない行は直す義務の全部の単位に結ぶ: 両方を止め、両方の足跡を戻して空の changes で通る（盤面は止めない）
+        self.tests = [(["受け付けが走らせた一式（環境）で、元で赤でなかった試験が赤: ['test_env.py::test_x']（1 件）"], ""), ([], "")]
         got = self.run_accept("3")
-        self.assertEqual((got["ok"], got["done"]), (False, True), got)
-        self.assertEqual(self.parked, [])
-        self.revert.assert_not_called()
+        self.assertEqual((got["ok"], got["done"], got["changes"]), (True, True, []), got)
+        self.assertEqual(sorted(r["unit_key"] for rs, _ in self.parked for r in rs), sorted([self.MEAN, self.CLAMP]))
+        self.assertIn(self.mod.parking.UNBOUND, self.parked[0][1]["ruling"]["text"], "結べなかった訳を文に残す")
+        self.assertEqual(self.revert.call_args.args[3], {"stats.py", "clamp.py", "test_clamp.py"})
 
-    def test_third_not_opened_key_is_not_parked(self):
-        # 今の周に開いていない unit_key は、3 回目でも ask_human に積まず返答全体を拒む（直す義務の外の単位を人に回さない）
+    def test_third_not_opened_key_is_parked_alone(self):
+        # 今の周に開いていない unit_key の行は、3 回目はその単位に結んで止める（ほかの単位は受ける）
         from unittest import mock
         with mock.patch.object(self.mod, "fix_unit_keys", return_value=([self.MEAN, self.CLAMP], {self.MEAN}, {})), \
                 mock.patch.object(self.mod, "check_pack_copy", return_value=""), \
                 mock.patch.object(self.mod, "check_plan_scope", return_value=([], None)):   # 積んだ後も範囲の照らしまで回る
             got = self.run_accept("3")
-        self.assertEqual((got["ok"], got["done"]), (False, True), got)
-        self.assertIn(self.CLAMP, got["reason"])
-        self.assertEqual(self.parked, [])
-        self.revert.assert_not_called()
+        self.assert_parked_clamp(got)
 
     def g1_reply(self, failed_in):
         """修正の形 g1 の修正役の返答: mean の項目は審査を通った。clamp の項目は 3 回の審査を通らなかった（failed_in が changes なら
@@ -897,16 +861,15 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         with mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.copy_owed()):
             self.assert_parked_clamp(self.run_reply(self.g1_reply("changes"), "3"))
 
-    def test_g1_failed_item_in_not_done_refuses_the_whole_reply(self):
-        """同じ単位を not_done に置いた返答（前の手順 3 の形）は、拒否が changes の行に結べず、最後の回も返答全体を拒む（単位ごとに
-        戻せない）。g1 の手順 3 が changes に残す理由"""
+    def test_g1_failed_item_in_not_done_parks_every_owed_unit(self):
+        """同じ単位を not_done に置いた返答（前の手順 3 の形）は、拒否が changes の行の足跡に結べず、最後の回は直す義務の全部の
+        単位を止める（通った mean の直しも持ち越しになる）。g1 の手順 3 が changes に残す理由"""
         from unittest import mock
         self.tests = [([self.RED], ""), ([], "")]
         with mock.patch.object(self.mod.recount, "accept_fix", side_effect=self.copy_owed()):
             got = self.run_reply(self.g1_reply("not_done"), "3")
-        self.assertEqual((got["ok"], got["done"]), (False, True), got)
-        self.assertNotIn(self.CLAMP, [r["unit_key"] for rs, _ in self.parked for r in rs])
-        self.revert.assert_not_called()
+        self.assertEqual((got["ok"], got["done"], got["changes"]), (True, True, []), got)
+        self.assertEqual(sorted(r["unit_key"] for rs, _ in self.parked for r in rs), sorted([self.MEAN, self.CLAMP]))
 
     def test_first_bound_red_still_goes_back_to_role(self):
         self.tests = [([self.RED], "")]
@@ -1230,6 +1193,7 @@ class G1ValuesCase(unittest.TestCase):
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from test_edge import EdgeBase, fix_reply  # noqa: E402  （盤面を線の順に進める手助け。本物の盤面と写しの規則を通す）
+from test_fix_duty import fake_settle  # noqa: E402  （受け付けの最後の回の結びの代わり。盤面・git を読まない）
 
 
 class FixCoversOpenUnitsAllErrorsCase(EdgeBase):
