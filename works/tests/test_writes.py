@@ -233,12 +233,13 @@ class TestNoRecordRun(RepoCase):
             dir = self.tmp
         rows = [{"op": writes.NO_RECORD_OP, "node": "fix"}, {"op": writes.LEFT_OP, "node": "refix", "paths": ["a.py"]}]
         (self.tmp / "trace.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-        lines = report.write_lines(B)
+        lines = [x for x in report.anomaly_lines(B) if x.startswith(("書き込みの記録が無い run", "記録の無い変更"))]
         self.assertEqual(len(lines), 2)
-        self.assertTrue(lines[0].startswith("書き込みの記録が無い run"))
-        self.assertIn("a.py", lines[1])
+        self.assertIn(": 1 件 fix", lines[0])
+        self.assertIn(": 1 件 a.py", lines[1])
         (self.tmp / "trace.jsonl").write_text("", encoding="utf-8")
-        self.assertEqual(report.write_lines(B), [])
+        zero = [x for x in report.anomaly_lines(B) if x.startswith(("書き込みの記録が無い run", "記録の無い変更"))]
+        self.assertEqual([x.rsplit(": ", 1)[1] for x in zero], ["0 件", "0 件"])
 
 
 def _nodes(nodes):

@@ -1,9 +1,10 @@
 # graphloops の実物の盤面の写し。1 行 1 個: 置き場<TAB>元のパス<TAB>state.graph_sha<TAB>元の state.json の sha256
 # real/ は state.json・record.json・out/・rounds/（reads.jsonl・policy/ は元に無い）。foreign/ は state.json を graph_sha の鍵だけに削った物（値は元と同じ。開くときは graph_sha で断るので足りる〔BL-R1〕）。
 # 写し元: 〔盤見本〕scratchpad/board-fixtures/（review-loop 多周の盤面 37 個と sim/）。見本は書き換えない。
+# real/ の 2 個は graph_sha f9897bb07384 の graph で走った。写しの graph（review-loop.json）の差分の審査の faces に任意の欄 lens を足した時（自分食い 195g）に、state.json の graph_sha だけを今の写しの sha に書き換え、4 列目の sha256 も書き換えた後の物にした（足した欄は任意で、この盤面の中身は今の graph でも同じに読める）。
 # sim__* は graphloops fbd40e3（0.20.3）の tests/simulate_review.py の場面を回した盤面（元の一時の置き場は消えている）。
-real/wt-ci-skip	/Users/p03623/src/claude-plugins/.git/worktrees/wt-ci-skip/graphloops/review-loop/20260926-103155	f9897bb07384	50508bdea0b121f3d79158be1dbbfe16bf727792dce81417edd19d8b385977c7
-real/wt-layer1	/Users/p03623/src/claude-plugins/.git/worktrees/wt-layer1/graphloops/review-loop/20260926-103145	f9897bb07384	b11b2ba5e1f69bd4acaa468854b3dad25604a34a4d18149af903646e7342ce19
+real/wt-ci-skip	/Users/p03623/src/claude-plugins/.git/worktrees/wt-ci-skip/graphloops/review-loop/20260926-103155	9a1e3957f23d	9b9b224f5aa48ff09002e20c9dd35b6a6f8a3137043c58763bf3b680d6fa3949
+real/wt-layer1	/Users/p03623/src/claude-plugins/.git/worktrees/wt-layer1/graphloops/review-loop/20260926-103145	9a1e3957f23d	7d555d13016000bd112011d2a314d2f70e2f630d432d55dcb32e9df4a6266f87
 foreign/claude-plugins-work1__20260913-230750	/Users/p03623/src/claude-plugins-work1/.git/graphloops/review-loop/20260913-230750	970adbf96217	8c11babfb72b99339b0574747996b94d0ff45cbdf6e6fab84008466304be680e
 foreign/claude-plugins__20260915-193936	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260915-193936	b004881a2e3b	cf7e43f47cc1ae0e66ef6027d5bdbcf9a30d1b34c8afeeff0533c931578e4c64
 foreign/claude-plugins__20260918-140703	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260918-140703	7e46a227e5de	f198f79100332c7052f553bb63272d8f1f7c8c0d0b8d8743bf27573e557d2c7b

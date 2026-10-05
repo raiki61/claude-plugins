@@ -99,6 +99,8 @@ nodes:
                     why:
                       type: string
                       minLength: 20
+                    lens:
+                      type: string
               faces_none:
                 type: string
               checks:

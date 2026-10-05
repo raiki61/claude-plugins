@@ -39,6 +39,9 @@ import scopes  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
 import test_entry as TE  # noqa: E402
 import hermetic  # noqa: E402
+import writes  # noqa: E402
+import leftovers  # noqa: E402
+import lens  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "report.py"
 REPORT_SH = ROOT / "dev" / "report.sh"
@@ -151,6 +154,13 @@ class ReportBase(RF.DeltaBoardCase):
 
     def stop(self, reason, by):
         entry.open_board(self.board).stop(reason, by=by)
+
+    def without_node_env(self):
+        """試験を Archon の節の中（ARCHON_NODE_EXECUTION が立つ）で回しても、scope の無い所の読みを試せるよう環境から外す"""
+        env = mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("ARCHON_NODE_EXECUTION", None)
 
 
 H1, H2, H3, H4, H5 = report.HEADINGS
@@ -519,6 +529,121 @@ class ResidueCase(ReportBase):
 
 # ---------------------------------------------------------------- 冒頭の部品
 class HeadCase(ReportBase):
+    def clean_in(self, repo, scope, board, ignored="x.log"):
+        """scope（fixing・refitting）の clean を本物の remove_new_ignored で回し、ignored の名のファイルを消させる"""
+        (repo / ".gitignore").write_text("*.log\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": f"{scope}__clean"})}):
+            leftovers.record_ignored(board, repo)
+            if ignored:
+                (repo / ignored).write_text("g\n", encoding="utf-8")
+            return leftovers.remove_new_ignored(board, repo)
+
+    def test_removed_reads_scope_roots_not_run_vs_zero(self):
+        """clean が scope の根（<盤面>/fixing/・<盤面>/refitting/）に書いた fix-removed.json を、scope の環境の無い所から
+        leftovers.removed が読んで件数と全パスを返す。ファイルが無ければ ran=False（走らせていない）、空なら ran=True・0 本。
+        読めないファイルは投げずに readable=False"""
+        self.without_node_env()
+        board = self.tmp / "b"
+        board.mkdir()
+        self.assertEqual(leftovers.removed(board), {"ran": False, "readable": True, "reason": "", "count": 0, "paths": [], "by_scope": {}})
+        subprocess.run(["git", "init", "-q", str(self.tmp / "r")], check=True)
+        repo = self.tmp / "r"
+        self.assertEqual(self.clean_in(repo, "fixing", board)["count"], 1)
+        got = leftovers.removed(board)
+        self.assertEqual((got["ran"], got["count"], got["paths"], got["by_scope"]), (True, 1, ["x.log"], {"fixing": ["x.log"]}))
+        self.assertEqual(self.clean_in(repo, "refitting", board, ignored="")["count"], 0)
+        got = leftovers.removed(board)
+        self.assertEqual((got["ran"], got["count"], sorted(got["by_scope"])), (True, 1, ["fixing", "refitting"]))
+        empty = self.tmp / "e"
+        (empty / "fixing").mkdir(parents=True)
+        (empty / "fixing" / leftovers.REMOVED_FILE).write_text('{"removed": []}', encoding="utf-8")
+        self.assertEqual((leftovers.removed(empty)["ran"], leftovers.removed(empty)["count"]), (True, 0))
+        (board / "fixing" / leftovers.REMOVED_FILE).write_text("{", encoding="utf-8")
+        broken = leftovers.removed(board)
+        self.assertEqual((broken["ran"], broken["readable"]), (True, False))
+        self.assertIn("読めない", broken["reason"])
+
+    def test_always_rows_show_zero_and_not_run(self):
+        """異常が 0 件・レンズの控えも消した物のファイルも無い盤面でも、always_rows が 4 つの行を出す。控えの無いレンズと無い
+        fix-removed.json は「走らせていない」。left を渡さない呼びは残りを「数えない」と言い、渡せば件数を言う。報告にも載る"""
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        rows = report.always_rows(b)
+        self.assertEqual([r for r in rows if not r.startswith("  ")],
+                         ["clean が消したファイル: 走らせていない（fix-removed.json が無い。修正の段が無い run か、clean の前に止まった）",
+                          "レンズ: 走らせていない（控えが無い）",
+                          "仕組みの異常: 合計 0 件（" + "・".join(f"{n} 0" for n, _, _ in report.ANOMALY_OPS)
+                          + "。所在の全件は仕組みの異常の節）",
+                          "残り: 最後の関所の時点では検証器を回していないので数えない（報告の冒頭 1 が数える）"])
+        self.assertIn("残り: 0 件", "\n".join(report.always_rows(b, left=[])))
+        self.assertIn("残り: 2 件", "\n".join(report.always_rows(b, left=[{"where": "w", "text": "a"}, {"where": "w", "text": "b"}])))
+        _, text, h = self.build()
+        for row in ("clean が消したファイル: 走らせていない", "レンズ: 走らせていない", "仕組みの異常: 合計 0 件", "残り: 0 件"):
+            self.assertIn(row, h[H1])
+        self.assertIn("## 仕組みの異常\n\n- 宣言の外の読み（", text)
+        self.assertIn("## 未確認のレンズ\n\n- レンズを走らせていない", text)
+
+    def test_anomalies_unexamined_when_trace_missing_or_broken(self):
+        """trace.jsonl が無い盤面では anomalies が種別ごとに None（調べていない。0 件でない）を返す。壊れた行が混ざれば飛ばした数
+        skipped を返して行に出す。読めた盤面でだけ種別ごとの件数（0 も）を出す。always_rows の異常の行も同じ区別をする"""
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        trace = self.board / "trace.jsonl"
+        good = [{"op": scopes.READ_OUTSIDE_OP, "scope": "fixing", "paths": ["a.md"]}, {"op": writes.NO_RECORD_OP, "node": "p3.fix"},
+                {"op": writes.LEFT_OP, "node": "p3.delta_fix", "paths": ["b.py", "b.py"]}]
+        trace.write_text("{\n" + "".join(json.dumps(r) + "\n" for r in good) + "[1]\n", encoding="utf-8")
+        got = report.anomalies(b)
+        self.assertEqual((got["examined"], got["skipped"], got["total"]), (True, 2, 3))
+        self.assertEqual({n: k["count"] for n, k in got["kinds"].items()},
+                         {"宣言の外の読み": 1, "必須の出力の欠け": 0, "書き込みの記録が無い run": 1, "記録の無い変更": 1})
+        self.assertEqual(got["kinds"]["宣言の外の読み"]["where"], ["fixing: a.md"])
+        self.assertTrue(any("壊れた行 2 行を飛ばした" in x for x in report.anomaly_lines(b)))
+        self.assertTrue(any("壊れた行 2 行を飛ばした" in x for x in report.always_rows(b)))
+        trace.write_text("", encoding="utf-8")
+        zero = report.anomalies(b)
+        self.assertEqual((zero["examined"], zero["total"], {k["count"] for k in zero["kinds"].values()}), (True, 0, {0}))
+        trace.unlink()
+        missing = report.anomalies(b)
+        self.assertEqual((missing["examined"], missing["total"], {k["count"] for k in missing["kinds"].values()}), (False, None, {None}))
+        self.assertEqual(report.anomaly_lines(b), ["仕組みの異常: 調べていない（盤面の trace.jsonl が無い・読めない）"])
+        self.assertIn("仕組みの異常: 調べていない", "\n".join(report.always_rows(b)))
+
+    def test_final_gate_text_has_always_rows(self):
+        """最後の関所の文（line_edge._final_text）に、消したファイルの件数と全パス・レンズの件数・仕組みの異常の種別ごとの件数と合計・
+        残りは「数えない」と書いた行が 0 件でも載る。関所は検証器を回さない（gate_record を呼ばない）。壊れた lens.json・
+        fix-removed.json の盤面でも落ちずに「読めない」と言う（build も同じ）"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge  # noqa: E402
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        with mock.patch.object(report, "gate_record") as gate:
+            text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        gate.assert_not_called()
+        for row in ("- clean が消したファイル: 走らせていない", "- レンズ: 走らせていない", "- 仕組みの異常: 合計 0 件",
+                    "- 残り: 最後の関所の時点では検証器を回していないので数えない"):
+            self.assertIn(row, text)
+        (self.board / "fixing").mkdir()
+        (self.board / "fixing" / leftovers.REMOVED_FILE).write_text(json.dumps({"removed": ["x.log", "d/y.log"]}), encoding="utf-8")
+        lens.write_routes(b, [{"lens": "silent-failure-hunter", "agent": "a", "go": True}])
+        lens.collect(b, {"silent-failure-hunter": {"findings": [{"where": "w", "cite": "c", "why": "y"}, {"where": ""}]}})
+        text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        for part in ("clean が消したファイル: 2 本", "  - fixing: x.log", "  - fixing: d/y.log", "- レンズの発見: 差分の審査が走っていないので採った・採らなかったは調べていない・形の誤りで捨てた 1 件",
+                     "  - silent-failure-hunter: 調べていない・形の誤りで捨てた 1（出した発見 1）"):
+            self.assertIn(part, text)
+        (self.board / "fixing" / leftovers.REMOVED_FILE).write_text("{", encoding="utf-8")
+        b.work(lens.LENS_FILE).write_text("[]", encoding="utf-8")
+        text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        self.assertIn("- clean が消したファイル: 読めない（", text)
+        self.assertIn("- レンズ: 読めない（", text)
+        _, built, h = self.build()
+        self.assertIn("clean が消したファイル: 読めない（", h[H1])
+        self.assertIn("レンズ: 読めない（", h[H1])
+        self.assertTrue(any("レンズの控えが読めない" in x["text"] for x in json.loads(
+            pathlib.Path(self.build()[0]["next_request_file"]).read_text(encoding="utf-8"))))
+
     def test_head_parts_callable(self):
         """head_reads・head_where・head_cost を盤面だけで呼べ、盤面の全部のファイルの sha が変わらない（線 B が呼ぶ）"""
         self.full()
@@ -702,9 +827,12 @@ class HeadCase(ReportBase):
         self.assertIn("受け付け 1 回", hit[0])
 
     def test_head_reads_shows_reads_outside(self):
-        """窓の宣言の外の読み（照らしが trace に積んだ scope_read_outside）は冒頭 4 の読みの節に数とパスが出る（無ければ行を出さない）"""
+        """窓の宣言の外の読み（照らしが trace に積んだ scope_read_outside）は冒頭 4 の読みの節に、無くても件数 0 の行が出て、積めば数とパスが載る"""
         self.begin()
-        self.assertFalse(any("宣言の外の読み" in x for x in report.head_reads(self.board, RUN_ID)))
+        self.without_node_env()
+        zero = [x for x in report.head_reads(self.board, RUN_ID) if "宣言の外の読み" in x]
+        self.assertEqual(len(zero), 1, zero)
+        self.assertIn(": 0 件", zero[0])
         b = entry.open_board(self.board)
         b.trace(scopes.READ_OUTSIDE_OP, scope="fixing", paths=["planning/r1/y.md", "r1/x.json"])
         b.trace(scopes.READ_OUTSIDE_OP, scope="refitting", paths=["fixing/r1/a.md"])
@@ -714,9 +842,12 @@ class HeadCase(ReportBase):
             self.assertIn(part, hit[0])
 
     def test_head_reads_shows_required_missing(self):
-        """窓の終わりに無かった必須の出力（照らしが trace に積んだ scope_required_missing）は冒頭 4 に数と名が出る（止めない）"""
+        """窓の終わりに無かった必須の出力（照らしが trace に積んだ scope_required_missing）は冒頭 4 に、無くても件数 0 の行が出て、積めば数と名が載る（止めない）"""
         self.begin()
-        self.assertFalse(any("必須の出力の欠け" in x for x in report.head_reads(self.board, RUN_ID)))
+        self.without_node_env()
+        zero = [x for x in report.head_reads(self.board, RUN_ID) if "必須の出力の欠け" in x]
+        self.assertEqual(len(zero), 1, zero)
+        self.assertIn(": 0 件", zero[0])
         entry.open_board(self.board).trace(scopes.REQUIRED_MISSING_OP, scope="lensing", names=["r1/lens.json"])
         hit = [x for x in report.head_reads(self.board, RUN_ID) if "必須の出力の欠け" in x]
         self.assertEqual(len(hit), 1, hit)
@@ -805,6 +936,25 @@ class NextRequestCase(ReportBase):
             self.assertEqual(accept.check_request(items, pathlib.Path(d), "次の run"), {"ok": True, "reason": ""})
         self.assertIn(f"次の run に渡す物: {len(items)} 件", h[H1])
         self.assertIn("最後のテストが赤", h[H1])
+
+    def test_next_request_carries_failed_lens_not_anomalies_and_red_once(self):
+        """next_request は落ちたレンズを「再実行の要あり」の行で運び、trace の異常は運ばず、検証器・独立の目のほかの where の left の
+        行も全件運び、最後のテストの赤は二重にならず 1 行になる"""
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        lens.write_routes(b, [{"lens": "silent-failure-hunter", "agent": "a", "go": True}])
+        lens.collect(b, {"silent-failure-hunter": None})
+        b.trace(scopes.READ_OUTSIDE_OP, scope="fixing", paths=["planning/r1/y.md"])
+        left = [{"where": report.VALIDATOR_WHERE, "text": "[block] 未解消: u-a"}, {"where": "別の所", "text": "別の行"},
+                {"where": report.EYES_WHERE, "text": "R1 が blocks"}, {"where": RED["log"], "text": "最後のテストが赤"}]
+        items = report.next_request(b, tests=RED, left=left)
+        texts = [i["text"] for i in items]
+        self.assertTrue(any("再実行の要あり" in t and "silent-failure-hunter" in t for t in texts), items)
+        self.assertFalse(any("宣言の外の読み" in t or "planning/r1/y.md" in t for t in texts), items)
+        for row in left[:3]:
+            self.assertIn(row, [{"where": i["where"], "text": i["text"]} for i in items])
+        self.assertEqual(len([t for t in texts if t.startswith("最後のテストが赤")]), 1, items)
 
     def test_next_request_keys_roundtrip(self):
         """穴の key に引用符・日本語・$( → next-request.json の text に 1 バイトも同じで在る"""

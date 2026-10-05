@@ -86,6 +86,20 @@ class LensYamlCase(unittest.TestCase):
         self.assertNotIn("`lens`", (ROOT / "blk-refix" / "commands" / "review2.md").read_text(encoding="utf-8"))
 
 
+    def test_delta_review_reply_has_optional_lens(self):
+        """faces の項は出どころのレンズの欄 lens（string・任意）を持つ。写しの $defs と、貼り写しの blk-delta.yaml（review）・
+        blk-refix.yaml（review2）の output_format が同じ欄を持つ"""
+        graph = json.loads((ROOT / ".shared" / "core" / "graphloops" / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+        items = [graph["$defs"]["delta_review_reply"]["properties"]["faces"]["items"]]
+        for path, nid in (("blk-delta/blk-delta.yaml", "review"), ("blk-refix/blk-refix.yaml", "review2")):
+            y = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
+            n = next(m for top in y["nodes"] for m in [top, *top.get("loop_group", {}).get("nodes", [])] if m["id"] == nid)
+            items.append(n["output_format"]["properties"]["faces"]["items"])
+        for it in items:
+            self.assertEqual(it["properties"]["lens"], {"type": "string"})
+            self.assertNotIn("lens", it["required"])
+
+
 class LensBoardCase(RF.DeltaBoardCase):
     def setUp(self):
         super().setUp()
@@ -232,12 +246,68 @@ class LensBoardCase(RF.DeltaBoardCase):
         self.assertNotIn("lens", brief)
         self.assertNotIn("lens_error", brief)
 
+    # -- 集計
+    def test_findings_keeps_valid_and_counts_dropped(self):
+        """1 件の形の誤りは捨てて件数を行の dropped に書き、形の合った発見は残す。findings が配列でなければ今どおり failed"""
+        self.fixed()
+        lenses.route(self.board)
+        bad = {"where": "stats.py", "cite": "", "why": "cite が空の発見"}
+        lenses.collect(self.board, {"INPUTS_SILENT_FAILURE_HUNTER": json.dumps({"findings": [FINDING, bad, "x"]}, ensure_ascii=False)})
+        row = lens.read(self.board_obj())[0]
+        self.assertEqual((row["state"], row["dropped"], row["findings"]), ("ran", 2, [{"lens": "silent-failure-hunter", **FINDING}]))
+        lenses.route(self.board)
+        lenses.collect(self.board, {"INPUTS_SILENT_FAILURE_HUNTER": json.dumps({"findings": "x"})})
+        row = lens.read(self.board_obj())[0]
+        self.assertEqual(row["state"], "failed")
+        self.assertNotIn("dropped", row)
+
+    def reviewed_with_lens(self, faces_lens):
+        """レンズが findings を 2 件出し、差分の審査が faces の lens 欄を faces_lens の並びで書いた盤面"""
+        repo = self.fixed()
+        self.assertFalse(lens.summary(self.board_obj())["ran"], "振り分ける前はレンズを走らせていない")
+        lenses.route(self.board)
+        second = {**FINDING, "where": "other.py"}
+        lenses.collect(self.board, {"INPUTS_SILENT_FAILURE_HUNTER": json.dumps({"findings": [FINDING, second]}, ensure_ascii=False)})
+        self.assertTrue(refix.cut(self.board, 1, repo)["ok"])
+        reply = linekit.reply("fix2_delta_review_faces")
+        base = reply["faces"][0]
+        reply["faces"] = [{**base, "key": f"{base['key']} {i}", **({"lens": v} if v else {})} for i, v in enumerate(faces_lens)]
+        got = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+        return self.board_obj()
+
+    def test_summary_counts_adopted_by_lens_field(self):
+        """採った件数は faces の lens 欄がレンズの名の穴の数、採らなかった件数は findings の残り。レンズの名に当たらない lens 欄は
+        数えに入れず unmatched に出す。控えの無い盤面は ran=False"""
+        b = self.reviewed_with_lens(["silent-failure-hunter", None, "no-such-lens"])
+        s = lens.summary(b)
+        self.assertEqual((s["ran"], s["readable"], s["adopted"], s["not_adopted"], s["unmatched"], s["dropped"], s["failed"]),
+                         (True, True, 1, 1, 1, 0, []))
+        self.assertEqual(s["rows"], [{"lens": "silent-failure-hunter", "findings": 2, "adopted": 1, "not_adopted": 1, "dropped": 0}])
+        self.assertIn("採った 1 件・採らなかった 1 件", lens.report_lines(b)[-1])
+
+    def test_summary_unexamined_when_delta_review_did_not_run(self):
+        """レンズは走ったが今の周の p3.delta_review の出力が無い（止め札・境の stop）盤面は、採った・採らなかったが 0 でなく
+        None（調べていない）で、report_lines の行も「調べていない」と言う。控えが壊れていれば投げずに readable=False"""
+        self.fixed()
+        lenses.route(self.board)
+        lenses.collect(self.board, {"INPUTS_SILENT_FAILURE_HUNTER": json.dumps({"findings": [FINDING, FINDING]}, ensure_ascii=False)})
+        b = self.board_obj()
+        s = lens.summary(b)
+        self.assertEqual((s["ran"], s["adopted"], s["not_adopted"], s["unmatched"]), (True, None, None, None))
+        self.assertIn("採った・採らなかったは調べていない", lens.report_lines(b)[-1])
+        b.work(lens.LENS_FILE).write_text("{", encoding="utf-8")
+        broken = lens.summary(b)
+        self.assertEqual((broken["ran"], broken["readable"]), (True, False))
+        self.assertIn("読めない", broken["reason"])
+
     # -- 報告
     def test_report_lists_unseen_lenses(self):
-        """報告の「未確認のレンズ」に落ちたレンズと理由、手直しの差分の 1 行。レンズを走らせない run は節を出さない"""
+        """報告の「未確認のレンズ」に落ちたレンズと理由、手直しの差分の 1 行。レンズを走らせない run も節を出し「走らせていない」と言う"""
         repo = self.fixed()
         rep = report.build(self.board.resolve(), judged=None, tests=None, start=None)
-        self.assertNotIn("## 未確認のレンズ", pathlib.Path(rep["report_file"]).read_text(encoding="utf-8"))
+        text = pathlib.Path(rep["report_file"]).read_text(encoding="utf-8")
+        self.assertIn("レンズを走らせていない", text.split("## 未確認のレンズ", 1)[1].split("\n## ", 1)[0])
         lenses.route(self.board)
         lenses.collect(self.board, {"INPUTS_SILENT_FAILURE_HUNTER": "null"})
         text = pathlib.Path(report.build(self.board.resolve(), judged=None, tests=None, start=None)["report_file"]).read_text(
@@ -253,7 +323,9 @@ class LensBoardCase(RF.DeltaBoardCase):
         self.assertIn("レンズの控え", lens.report_lines(b)[0])
         lenses.route(self.board)
         lenses.collect(self.board, {"INPUTS_SILENT_FAILURE_HUNTER": json.dumps(linekit.LENS_REPLY, ensure_ascii=False)})
-        self.assertEqual(lens.report_lines(self.board_obj()), ["なし（振り分けたレンズは全部走った）", lens.REFIX_NOTE])
+        self.assertEqual(lens.report_lines(self.board_obj()),
+                         ["なし（振り分けたレンズは全部走った）", lens.REFIX_NOTE,
+                          "レンズの発見: 差分の審査が走っていないので採った・採らなかったは調べていない・形の誤りで捨てた 0 件"])
 
 
 if __name__ == "__main__":

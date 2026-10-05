@@ -1,6 +1,6 @@
 {
   "line": "engine-run-on-plain",
-  "graph_sha": "f9897bb07384",
+  "graph_sha": "9a1e3957f23d",
   "nodes": {
     "p0.base": {"by": "role"},
     "p0.local_checks": {"by": "engine_run", "fallback": "machine"},

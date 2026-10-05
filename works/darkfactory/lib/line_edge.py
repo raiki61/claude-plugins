@@ -480,7 +480,8 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     """最後の関所の文: 最後のテストと修正前のテスト（entry.baseline_line）・受け付けが手元で回さなかった試験・受け付けの束が
     赤緑を確かめずに通した回（report.gates_lines）・差分の審査の穴の数・手直しの結果・止めずに残った異議・
     決着した再審の結果（report.rejudge_lines。関所を開ける理由には数えない）・構造のブロックが落ちた周の印
-    （structmark.note）・事前審査の壁打ちの往復（converge.lines）・独立の目の判定・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・読めなかった保留（gatemarks.unread_hold_lines）を 1 枚に。「盤面の問い: 無い」はどれも無い時だけ。行の主語は平易な名で、
+    （structmark.note）・事前審査の壁打ちの往復（converge.lines）・独立の目の判定・clean が消したファイル・レンズ・仕組みの異常・
+    残りの件数（report.always_rows。結末に依らず常に）・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・読めなかった保留（gatemarks.unread_hold_lines）を 1 枚に。「盤面の問い: 無い」はどれも無い時だけ。行の主語は平易な名で、
     盤面の節・目の名・状態の語は括弧に回す（gatemarks.named・eye_named）"""
     tests = tests or {}
     lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", ""]
@@ -516,6 +517,8 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     rows, blocked = eyes
     lines.append(f"- 独立の目の判定（阻害: {'・'.join(blocked) or '無い'}）:")
     lines += rows
+    # clean が消したファイル・レンズ・仕組みの異常・残りの件数（0 も、走らせていない・調べていない・読めないも。報告の冒頭 1 と同じ行）
+    lines += [x if x[:1].isspace() else f"- {x}" for x in report.always_rows(b)]
     asking = b.state.get("pending_human")
     if asking:
         lines.append(f"- {gatemarks.named(asking.get('node'))}が人に聞いている問い（記録のまま引く）:")
