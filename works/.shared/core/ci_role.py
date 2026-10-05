@@ -62,6 +62,7 @@ from engine.rules import validator_module  # noqa: E402
 from engine.util import AnswerReject, now, safe_name  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import script_io  # noqa: E402
 from rolekit import parse_reply, script_main  # noqa: E402,F401  （スクリプトの入口と返答の読み方は共通の rolekit）
 
 NODES = ("p0.local_checks", "p4.ci")   # 写しの graph の CI の節（engine_run.builtin が declared_checks）
@@ -259,7 +260,14 @@ def _reject(b, node: str, reason: str) -> dict:
     rows.append({"node": node, "attempt": inst.get("attempts", 1), "at": now(), "reason": reason})
     _write_json(b.work(REJECTS), rows)
     give_up = sum(1 for r in rows if r.get("node") == node) >= GIVE_UP_AFTER
-    return {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "node": node, "status": ""}
+    return _noted(b, node, {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "node": node, "status": ""})
+
+
+def _noted(b, node: str, out: dict) -> dict:
+    """受け付けの最後の結果を scope の根の accept-last.json の行 ci_<節> に上書きして out を返す（script_io.note_last。
+    拒否の文は作業ファイルに積むので、行の reason が本文の写し）"""
+    script_io.note_last(b.dir, f"ci_{node}", out)
+    return out
 
 
 def take(board_dir, node: str, reply: dict, repo, mode: str) -> dict:
@@ -286,7 +294,7 @@ def take(board_dir, node: str, reply: dict, repo, mode: str) -> dict:
     if why:
         reason = f"{why}——返答を受けず盤面を止める"
         b.stop(reason, by=FENCE_BY)
-        return {"ok": False, "done": True, "give_up": False, "reason": reason, "node": node, "status": ""}
+        return _noted(b, node, {"ok": False, "done": True, "give_up": False, "reason": reason, "node": node, "status": ""})
     before = {k: snap[k] for k in TREE_KEYS}
     moved = tree_moved(before, pathlib.Path(repo))   # 共通の比べ（R47。HEAD が引けなくなったのもここで 1 行になる）
     if moved:
@@ -297,8 +305,8 @@ def take(board_dir, node: str, reply: dict, repo, mode: str) -> dict:
         b.done(node, reply)
     except AnswerReject as e:
         return _reject(b, node, str(e))
-    return {"ok": True, "done": True, "give_up": False, "reason": "", "node": node,
-            "status": reply["material"]["status"]}
+    return _noted(b, node, {"ok": True, "done": True, "give_up": False, "reason": "", "node": node,
+                            "status": reply["material"]["status"]})
 
 
 def refuse(board_dir, node: str, reason: str) -> dict:

@@ -237,6 +237,8 @@ class RouteCase(_Case):
         got = rejudge.prep(self.bd, "rejudge-third", self.repo)
         self.assertIn("第三の目", pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8"))
         self.assertTrue(rejudge.take(self.bd, "p2.rejudge_third", load("rejudge_third_ok"), self.repo)["ok"])
+        self.assertIs(json.loads((pathlib.Path(self.bd) / "accept-last.json").read_text(encoding="utf-8"))
+                      ["rejudge_p2_rejudge_third"]["ok"], True)
         rows = json.loads(self.work(rejudge.DIFF_NAME).read_text(encoding="utf-8"))
         self.assertEqual([(r["pass"], r["verdict"]) for r in rows], [("rejudge-third", "退ける")])
         out = rejudge.collect(self.bd)
@@ -399,6 +401,8 @@ class TakeCase(_Case):
             r = rejudge.take(self.bd, "p2.rejudge", load("rejudge_empty_facts"), self.repo)
             got.append((r["ok"], r["done"], r["give_up"]))
         self.assertEqual(got, [(False, False, False)] * (rejudge.GIVE_UP_AFTER - 1) + [(False, True, True)])
+        row = json.loads((pathlib.Path(self.bd) / "accept-last.json").read_text(encoding="utf-8"))["rejudge_p2_rejudge"]
+        self.assertEqual((row["ok"], row["reason"]), (False, r["reason"]))   # 受け付けの最後の結果の控え（script_io.note_last）
 
     def test_type_rejected(self):
         self.board("objection")

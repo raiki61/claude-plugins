@@ -406,7 +406,14 @@ def _reject(b, nid, reason):
     rows.append({"node": nid, "attempt": inst.get("attempts", 1), "at": now(), "reason": reason})
     _write_json(b.work(REJECTS_NAME), rows)
     give_up = sum(1 for r in rows if r.get("node") == nid) >= GIVE_UP_AFTER
-    return {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "node": nid, "verdict": ""}
+    return _noted(b, nid, {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "node": nid, "verdict": ""})
+
+
+def _noted(b, nid, out) -> dict:
+    """受け付けの最後の結果を scope の根の accept-last.json の行 rejudge_<節> に上書きして out を返す（script_io.note_last。
+    拒否の文は作業ファイルに積むので、行の reason が本文の写し）"""
+    script_io.note_last(b.dir, f"rejudge_{nid}", out)
+    return out
 
 
 def take(board_dir, nid, reply, repo, *, snapshot_name=SNAPSHOT_NAME) -> dict:
@@ -448,8 +455,8 @@ def take(board_dir, nid, reply, repo, *, snapshot_name=SNAPSHOT_NAME) -> dict:
         rows = _read_json(b.work(DIFF_NAME), [])
         rows.append(row)
         _write_json(b.work(DIFF_NAME), rows)
-    return {"ok": True, "done": True, "give_up": False, "reason": "。".join(progress["notes"]), "node": nid,
-            "verdict": verdict}
+    return _noted(b, nid, {"ok": True, "done": True, "give_up": False, "reason": "。".join(progress["notes"]), "node": nid,
+                           "verdict": verdict})
 
 
 # ---------------------------------------------------------------- 単位の差分

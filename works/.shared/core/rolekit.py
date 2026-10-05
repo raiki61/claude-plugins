@@ -247,7 +247,8 @@ def accept_role(board_dir: pathlib.Path, nid: str, raw: str, repo: pathlib.Path,
                 give_up_after: int = GIVE_UP_AFTER, take=None) -> dict:
     """役の返答 raw（JSON の文字列）を entry.take で盤面に渡す。返り {ok, done, give_up, reason, reason_file, node} と、通れば
     entry.take の欄（ready・asking・halted・out_file）。拒否（読めない返答・写しの AnswerReject・読むだけの役の作業ツリーの変化）は
-    理由の本文を盤面の reject-take_<節>-<連番>.txt に字のまま書き、この周の拒否の控えに積む。この周のこの節の拒否が
+    理由の本文を盤面の reject-take_<節>-<連番>.txt に字のまま書き、この周の拒否の控えに積む。通っても拒んでも最後の結果を
+    scope の根の accept-last.json の行 take_<節> に上書きする（script_io.note_last）。この周のこの節の拒否が
     give_up_after 回に達したら done・give_up（輪はそこで抜け、出口が盤面を止める）。board_dir は script_io.board_dir が
     返した値（$ の柵を当てた後）。take(board_dir, reply, repo) -> dict は entry.take の代わりに盤面へ渡す口（ブロックだけの
     検査を前に置く時。返りは entry.take と同じ形）。BoardGap・ほかの Reject（止めた run など）は投げる"""
@@ -259,9 +260,11 @@ def accept_role(board_dir: pathlib.Path, nid: str, raw: str, repo: pathlib.Path,
     else:
         out = entry.take(board_dir, nid, reply, repo, snapshot_name=snapshot_name)
     if out.get("ok") is True:
+        script_io.note_last(board_dir, f"take_{nid}", out)
         return {**out, "done": True, "give_up": False, "reason_file": "", "node": nid}
     b = entry.open_board(board_dir)
     rf = script_io._write_reason(pathlib.Path(board_dir), f"take_{nid}", str(out.get("reason", "")))
+    script_io.note_last(board_dir, f"take_{nid}", {**out, "reason_file": rf})
     inst = b.rd["instances"].get(nid) or {}
     path = b.work(REJECTS_NAME)
     rows = _read_json(path, [])
