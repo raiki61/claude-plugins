@@ -149,6 +149,33 @@ class TestAcceptOutsideTier(OutsideCase):
         self.assertIn(f"（ファイル {OUTSIDE}）", probs[0], "行は段の外のテストのファイルのパスを名指す")
         self.assertEqual(git(self.repo, "diff", "--name-only"), OUTSIDE, "比べた後も作業ツリーは直した後の姿のまま")
 
+    def test_base_copy_runs_once_per_rev_and_args(self):
+        """元の結末に無い赤を版の写しで比べる回（_base_reds）は、版と実行器と後ろの引数が同じなら run に 1 回だけ走らせ、
+        受け付けの回をまたいで結末を使い回す（版は run の中で動かない。195g は回ごとに一式を版の写しで 3 分半走らせ直した）。
+        版が変われば走らせ直す"""
+        self.write(OUTSIDE, OUTSIDE_PASSING)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "段の外の試験")
+        cwd_log = self.tmp / "cwd.txt"
+        state = self.begin("import os\nopen(%r, 'a').write(os.getcwd() + '\\n')\n" % str(cwd_log) + RUNNER)
+        self.write(OUTSIDE, OUTSIDE_PASSING.replace("1 + 1, 2", "1 + 1, 3"))
+
+        def copies():
+            return [d for d in cwd_log.read_text(encoding="utf-8").splitlines()
+                    if pathlib.Path(d).resolve() != self.repo.resolve()]
+        first = tddloop.selected_problems(state, self.repo, "HEAD")
+        self.assertTrue(first[0], first)
+        self.assertEqual(len(copies()), 1, "版の写しで 1 回走る")
+        again = tddloop.selected_problems(state, self.repo, "HEAD")
+        self.assertEqual(again, first, "使い回しても判定は同じ")
+        self.assertEqual(len(copies()), 1, "同じ版・同じ引数の 2 回目は版の写しを走らせない")
+        (self.repo / "note.txt").write_text("x", encoding="utf-8")
+        git(self.repo, "add", "note.txt")
+        git(self.repo, "commit", "-q", "-m", "版を進める")
+        self.write(OUTSIDE, OUTSIDE_PASSING.replace("1 + 1, 2", "1 + 1, 3"))
+        tddloop.selected_problems(state, self.repo, "HEAD~0")
+        self.assertEqual(len(copies()), 2, "版が変われば走らせ直す")
+
     def test_zero_selected_cases_are_not_reported_as_no_new_red(self):
         state = self.begin(EMPTY_RUNNER)
         p = self.repo / "stats.py"
