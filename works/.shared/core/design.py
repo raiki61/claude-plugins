@@ -18,8 +18,9 @@ Archon を知らない関数だけを出す。
                  human_answers（人の関所の答え。asked は写さず、answer の無い機械の行は withheld。seen は貼った答えの数と
                  最後の round の印で、突き合わせの側が独立設計の後に来た答えを分けて並べる）と named_sections（依頼が
                  名指した設計書の節の本文。リンク・`<path>.md#<見出し>`・`<path>.md` N 節・パスの無い N 節（依頼が名指した設計書が
-                 ただ 1 本の時だけそれに結び付ける）の名指しを、固めた版 HEAD のファイルから見出しで抜く。引けなかった・結び付け
-                 られなかった名指しは理由の 1 行で withheld。1 節は engine が役に貼る本文の上限 FILE_CAP バイトまで）
+                 ただ 1 本の時だけそれに結び付ける）の名指しを、固めた版 HEAD のファイルから、当たった行の形（行頭の記号の並び・
+                 次の行の下線）で切る。貼る見出しに出どころのパス:行を添える。引けなかった・結び付けられなかった名指しは理由の
+                 1 行で withheld。1 節は engine が役に貼る本文の上限 FILE_CAP バイトまで。超えた残りは行の範囲で withheld）
 - claims_unpassed: R2 の返答のうち『渡されていない』『渡っていない』と書いた文（独立の目の出口が控えと並べる）
 - accept:        返答を型（写しの schema）と作業ツリーの比べに通し、通れば design.json。拒否は盤面の根の控えに積み、
                  GIVE_UP_AFTER 回目で done（輪を抜ける。諦めても線は止めない——事前審査は設計なしで進み、最後の R2 が言う）
@@ -72,7 +73,6 @@ CODE_SPAN_MD = re.compile(r"`([^`\s]+\.md#[^`\s]+)`")
 CODE_SPAN_NUM = re.compile(r"`([^`\s#]+\.md)`\s*(?:の\s*)?(?:§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節)")
 # パスの無い「§3」「8 節」（依頼が別の所で名指した設計書がただ 1 本の時だけ、それの節に結び付ける）
 BARE_NUM = re.compile(r"§\s*(\d+(?:\.\d+)*)|(\d+(?:\.\d+)*)\s*節")
-HEADING = re.compile(r"^\s{0,3}(#{1,6})\s")
 UNPASSED = re.compile(r"渡されていない|渡っていない")
 # 『渡されていない』の文が控えの given の kind を指す語。制約・前提のずれは「目的と実測した制約しか渡されていない」のような
 # 地の文によく出て無関係の行まで当たるので語では当てず、what そのものが文に在る時だけ当てる。設計書の節も「設計書」の語は
@@ -152,34 +152,128 @@ def _head_file(repo, path) -> str:
     raise ValueError("固めた版にファイルが無い" if not tail else f"同じ末尾の追跡ファイルが {len(tail)} 本あって決められない")
 
 
+def _marks(line) -> tuple:
+    """(記号 1 文字, 並びの長さ, 並びの後の残り)。行頭の空白 3 つまでを除いた後が英数字でも空白でもない同じ文字の連なりで
+    なければ ("", 0, "")"""
+    s = line[len(line) - len(line.lstrip(" ")):] if len(line) - len(line.lstrip(" ")) <= 3 else ""
+    if not s or s[0].isalnum() or s[0].isspace():
+        return "", 0, ""
+    n = len(s) - len(s.lstrip(s[0]))
+    return s[0], n, s[n:]
+
+
+def _heads(lines) -> list:
+    """見出しの行 [{line（1 始まり）, kind（prefix: 行頭の同じ記号の並びと空白と題 / under: 題の行の次の行が 1 種類の記号の
+    3 文字以上だけ）, mark, depth, title}]。形式の名前は持たない。記号だけの行が挟む区間（囲み）の中は数えず、隣の行と同じ記号・
+    同じ長さの前置きの行は列（箇条・表）とみなして数えない。depth は前置きなら並びの長さ、下線なら下線の記号が文書の中で下線として
+    初めて現れた順（0 始まり）。囲みと列の見分けは形式に依る推測（docs/language-neutral-inventory.md 7-7）"""
+    marks = [_marks(x) for x in lines]
+    only = [n >= 3 and not rest.strip() for _, n, rest in marks]
+
+    def body(i):
+        return bool(lines[i].strip()) and not only[i]
+
+    inside, i = set(), 0
+    while i < len(lines):   # 囲み: 3 文字以上の記号の並び（と空白の無い 1 語）で開き、下線でなく、次の行が空でない
+        c, n, rest = marks[i]
+        word = rest.rstrip()   # 並びの直後に空白を挟む行（`### A`）は前置きの形で、囲みを開かない
+        opens = (n >= 3 and not any(ch.isspace() for ch in word) and not (only[i] and i > 0 and body(i - 1))
+                 and i + 1 < len(lines) and lines[i + 1].strip())
+        close = next((j for j in range(i + 1, len(lines)) if only[j] and marks[j][0] == c and marks[j][1] >= n),
+                     None) if opens else None
+        if close is None:
+            i += 1
+            continue
+        inside.update(range(i, close + 1))
+        i = close + 1
+
+    def prefix(i):
+        c, n, rest = marks[i]
+        return n > 0 and i not in inside and rest[:1].isspace() and bool(rest.strip())
+
+    out, order = [], []
+    for i in range(len(lines)):
+        if i in inside:
+            continue
+        if prefix(i):
+            c, n, rest = marks[i]
+            if any(0 <= j < len(lines) and prefix(j) and marks[j][:2] == (c, n) for j in (i - 1, i + 1)):
+                continue
+            out.append({"line": i + 1, "kind": "prefix", "mark": c, "depth": n, "title": rest.strip().rstrip(c).strip()})
+        elif (i + 1 < len(lines) and i + 1 not in inside and only[i + 1] and body(i) and not prefix(i)):
+            c = marks[i + 1][0]
+            if c not in order:
+                order.append(c)
+            out.append({"line": i + 1, "kind": "under", "mark": c, "depth": order.index(c), "title": lines[i].strip()})
+    return out
+
+
+def _section_lines(text, *, num="", anchor="", slugs=None) -> tuple:
+    """名指し（番号 num か見出しのアンカー anchor）に当たる節の (開始行, 終了行)。1 始まりで両端を含む。引けなければ ValueError（理由）。
+    アンカーは slugs（写しの rules の _md_slugs。GitHub の書き方で重複は -1）で作った物と等しい見出し、無ければ題がアンカーを含む見出し"""
+    lines = text.splitlines()
+    heads = _heads(lines)
+    if num:
+        by_num = re.compile(rf"(?:第)?{re.escape(num)}(?:\.?(?:\s|$)|節)")
+        hits = [h for h in heads if by_num.match(h["title"].lstrip("§ \t"))]
+    else:
+        want = urllib.parse.unquote(anchor).lower()
+        hits = []
+        if slugs is not None:
+            for k, h in enumerate(heads):
+                before = "\n".join(f"# {x['title']}" for x in heads[:k])
+                if want in slugs(before + "\n# " + h["title"]) - slugs(before):
+                    hits.append(h)
+        if not hits:
+            hits = [h for h in heads if want and want in h["title"].lower()]
+    if not hits:
+        raise ValueError("見出しが無い")
+    if len(hits) > 1:
+        raise ValueError(f"当たる見出しが {len(hits)} 個あって決められない（行 {', '.join(str(h['line']) for h in hits)}）")
+    hit = hits[0]
+
+    def ends(h):
+        if hit["kind"] == "prefix":
+            return h["kind"] == "prefix" and h["mark"] == hit["mark"] and h["depth"] <= hit["depth"]
+        return h["kind"] == "under" and (h["mark"] == hit["mark"] or h["depth"] < hit["depth"])
+    end = next((h["line"] - 1 for h in heads if h["line"] > hit["line"] and ends(h)), len(lines))
+    while end > hit["line"] and not lines[end - 1].strip():
+        end -= 1
+    return hit["line"], end
+
+
+def _split_target(target) -> tuple:
+    """名指しの文字列 `<path>#<anchor>` か `<path> <N> 節` を (path, anchor, num) に分ける（path の拡張子は問わない）"""
+    num = re.fullmatch(r"(.+) (\S+) 節", target)
+    if num:
+        return num.group(1), "", num.group(2)
+    path, _, anchor = target.partition("#")
+    return path, anchor, ""
+
+
 def _section(b, repo, target) -> tuple:
-    """(名指し 1 つの節の本文（依頼を固めた版 HEAD のファイルから）, engine の FILE_CAP で切ったか)。引けなければ ValueError（理由）"""
-    num = re.fullmatch(r"(.+\.md) (\S+) 節", target)
-    path, _, anchor = (num.group(1), "", "") if num else target.partition("#")
-    got = subprocess.run(["git", "-C", str(repo), "show", f"HEAD:{_head_file(repo, path)}"],
+    """(名指し 1 つの節の本文（依頼を固めた版 HEAD のファイルから）, 出どころ `<パス>:<開始>-<終了>`,
+    engine の FILE_CAP で切った残りの範囲 `<パス>:<k>-<終了>` か "")。引けなければ ValueError（理由）"""
+    path, anchor, num = _split_target(target)
+    rel = _head_file(repo, path)
+    got = subprocess.run(["git", "-C", str(repo), "show", f"HEAD:{rel}"],
                          capture_output=True, text=True, encoding="utf-8")
     if got.returncode != 0:
         raise ValueError("固めた版にファイルが無い")
-    text, slug = got.stdout, urllib.parse.unquote(anchor).lower()
-    # 見出しの形は CommonMark の ATX 見出しで、写しの rules と同じ囲いの外の行だけ。節の境（同じか浅い次の見出しの前まで）は
-    # CommonMark に無く works が決めた規則
-    heads = [(i, len(m.group(1)), line) for i, line in b.rules._md_lines(text) if (m := HEADING.match(line))]
-    lines = text.splitlines()
-    by_num = num and re.compile(rf"^\s{{0,3}}#{{1,6}}\s+(?:§\s*)?{re.escape(num.group(2))}(?:\.?(?:\s|$)|節)")
-    for k, (i, level, line) in enumerate(heads):   # アンカーは写しの rules と同じ GitHub の書き方（重複の -1 も同じ数え方）
-        before = "\n".join(h for _, _, h in heads[:k])
-        if (by_num.match(line) if by_num else
-                slug in b.rules._md_slugs(before + "\n" + line) - b.rules._md_slugs(before)):
-            end = next((j for j, lv, _ in heads[k + 1:] if lv <= level), len(lines) + 1)
-            body = "\n".join(lines[i - 1:end - 1]).strip()
-            cut = []
-            return cap_bytes(body, target, cut), bool(cut)
-    raise ValueError("見出しが無い")
+    start, end = _section_lines(got.stdout, num=num, anchor=anchor, slugs=b.rules._md_slugs)
+    body = "\n".join(got.stdout.splitlines()[start - 1:end])
+    cut = []
+    capped = cap_bytes(body, target, cut)
+    rest = ""
+    if cut:   # 切った後の本文に丸ごと残った行の数の次の行から
+        kept = body.encode("utf-8")[:FILE_CAP].decode("utf-8", "ignore").count("\n")
+        rest = f"{rel}:{start + kept}-{end}"
+    return capped, f"{rel}:{start}-{end}", rest
 
 
 def named_sections(b, repo) -> tuple:
     """(R2 の 2 つの役に貼る、依頼（盤面の inputs.request）が名指した設計書の節の本文 か 空, 控えの given, 控えの withheld)。
-    引けなかった名指しは本文を貼らずに理由の 1 行にする"""
+    引けなかった名指しは本文を貼らずに理由の 1 行にする。貼る見出しと切った残りには出どころの行の範囲を添える"""
     parts, given, withheld = [], [], []
     targets, unbound = _named_targets(b, (b.state.get("inputs") or {}).get("request") or "")
     for t, why in unbound:
@@ -187,15 +281,15 @@ def named_sections(b, repo) -> tuple:
         withheld.append({"kind": "named_section", "what": t, "why": why})
     for t in targets:
         try:
-            body, cut = _section(b, repo, t)
+            body, src, rest = _section(b, repo, t)
         except ValueError as e:
             parts.append(f"- 依頼が名指したが引けなかった: {t}（{e}）")
             withheld.append({"kind": "named_section", "what": t, "why": str(e)})
             continue
-        parts.append(f"#### {t}\n\n{body}")
+        parts.append(f"#### {t}（{src}）\n\n{body}")
         given.append({"kind": "named_section", "what": t})
-        if cut:
-            withheld.append({"kind": "named_section", "what": t, "why": f"{FILE_CAP} バイトを超えた残り"})
+        if rest:
+            withheld.append({"kind": "named_section", "what": t, "why": f"{FILE_CAP} バイトを超えた残り（{rest}）"})
     text = (f"{NAMED_HEAD}\n\n{NAMED_ASK}\n\n" + "\n\n".join(parts)) if parts else ""
     return text, given, withheld
 
@@ -229,10 +323,9 @@ def claims_given(claims, given) -> list:
 
 
 def _named_hit(what, claim) -> bool:
-    """設計書の節の what（`<path>.md#<見出し>` か `<path>.md N 節`）のパスか節番号（見出しの頭の番号）が claim に在るか"""
-    num = re.fullmatch(r"(.+\.md) (\S+) 節", what)
-    path, _, anchor = (num.group(1), "", "") if num else what.partition("#")
-    n = num.group(2) if num else (re.match(r"\d+", anchor) or [""])[0]
+    """設計書の節の what（`<path>#<見出し>` か `<path> N 節`）のパスか節番号（見出しの頭の番号）が claim に在るか"""
+    path, anchor, num = _split_target(what)
+    n = num or (re.match(r"\d+", anchor) or [""])[0]
     return path in claim or bool(n and re.search(rf"§\s*{re.escape(n)}(?![\d.])|(?<![\d.]){re.escape(n)}\s*節", claim))
 
 

@@ -46,7 +46,7 @@ import design  # noqa: E402
 import entry  # noqa: E402
 import eyes  # noqa: E402
 from accept import role_schema  # noqa: E402
-from board import BoardGap, NodeTable, graph_expanded, GRAPH_SHA  # noqa: E402
+from board import BoardGap, NodeTable, graph_expanded, GRAPH_SHA, rules_module  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import node_marker  # noqa: E402
 
@@ -303,6 +303,49 @@ class EnterRouteCase(_Case):
         self.assertFalse(eyes.route(self.bd, "r1-comments", self.rnd + 1)["go"], "入口の周でない周の目は起こさない")
 
 
+class SectionShapeCase(unittest.TestCase):
+    """名指しの節を、当たった行そのものの形（前置き・下線）で切る。形式の名前も拡張子の表も使わない（依頼 238）"""
+    slugs = staticmethod(rules_module()._md_slugs)
+
+    def span(self, text, **kw):
+        return design._section_lines(text, slugs=self.slugs, **kw)
+
+    def test_atx_section_runs_to_same_or_shallower_heading(self):
+        text = "# 設計書\n\n## 1 目的\n\nA\n\n## 2 上限\n\nB\n\n### 2.1 細目\n\nC\n\n## 3 撤収\n\nD\n"
+        self.assertEqual(self.span(text, num="2"), (7, 13))
+        self.assertEqual(self.span(text, anchor="2-上限"), (7, 13))
+
+    def test_setext_and_rst_underlines_end_by_first_seen_order(self):
+        text = "題\n=====\n\n一\n-----\n\nA\n\n二\n-----\n\nB\n\n次\n=====\n\nC\n"
+        self.assertEqual(self.span(text, anchor="一"), (4, 7))
+        self.assertEqual(self.span(text, anchor="二"), (9, 12))
+
+    def test_adoc_equals_prefix(self):
+        text = "= 文書\n\n== 1 目的\n\nA\n\n== 2 上限\n\nB\n\n=== 2.1 細目\n\nC\n\n== 3 撤収\n\nD\n"
+        self.assertEqual(self.span(text, num="2"), (7, 13))
+
+    def test_fenced_comment_does_not_end_section(self):
+        text = "# 1 目的\n\n```py\n# コメント\nx = 1\n```\n\nA\n\n# 2 上限\n\nB\n"
+        self.assertEqual(self.span(text, num="1"), (1, 8))
+
+    def test_thematic_breaks_do_not_hide_headings(self):
+        text = "## A\n\nA\n\n---\n\n## B\n\nB\n\n---\n\n## C\n\nC\n"
+        self.assertEqual(self.span(text, anchor="b"), (7, 11))
+
+    def test_list_and_table_rows_are_not_headings(self):
+        text = "## 1 目的\n\n- 2 つ目\n- 3 つ目\n\n| 2 | x |\n| 3 | y |\n\n## 2 上限\n\nB\n"
+        self.assertEqual(self.span(text, num="2"), (9, 11))
+
+    def test_ambiguous_hit_names_candidate_lines(self):
+        text = "## 上限 A\n\nA\n\n## 上限 B\n\nB\n"
+        with self.assertRaisesRegex(ValueError, r"2 個あって決められない（行 1, 5）"):
+            self.span(text, anchor="上限")
+
+    def test_no_heading_is_value_error(self):
+        with self.assertRaisesRegex(ValueError, "見出しが無い"):
+            self.span("本文だけ\n", num="1")
+
+
 class PrepCase(_Case):
     def test_prep_renders_engine_prompt_with_role_definition(self):
         self.board("r1r2")
@@ -438,6 +481,19 @@ class PrepCase(_Case):
         self.assertIn("TAIL-OF-SECTION-2", text, "FILE_CAP 以内の節は末尾まで貼る")
         self.assertEqual([g["kind"] for g in given], ["named_section"])
         self.assertEqual(withheld, [], "FILE_CAP 以内の節を渡していない物に数えない")
+
+    def test_named_section_over_cap_names_cut_lines(self):
+        """FILE_CAP を超えた節は切り、切った残りを出どころの行の範囲で withheld に名指す。貼る見出しにも出どころの行の範囲を添える"""
+        from engine.render import FILE_CAP
+        long = "長い本文の行。\n" * 4000
+        self.assertGreater(len(long.encode("utf-8")), FILE_CAP)
+        self.SPEC = f"# 設計書\n\n## 1 目的\n\nSECTION-1-BODY\n\n## 2 上限\n\n{long}TAIL-OF-SECTION-2\n\n## 3 撤収\n\nSECTION-3-BODY\n"
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        text, given, withheld = design.named_sections(entry.open_board(self.bd), self.repo)
+        self.assertEqual(len(withheld), 1, withheld)
+        self.assertTrue(withheld[0]["why"].startswith(f"{FILE_CAP} バイトを超えた残り（docs/spec.md:"), withheld)
+        self.assertIn("（docs/spec.md:", text.split("#### ", 1)[1].splitlines()[0])
 
     def test_design_head_rereads_copy_inputs_sentence(self):
         """人の答えを貼る run では、写しの指示書の『渡すのは元の目的と実測した制約だけ』を、貼った節も渡していると読み替える
