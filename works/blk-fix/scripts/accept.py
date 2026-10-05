@@ -128,7 +128,7 @@ CLOSURE_OP = "fix_unit_rows"   # 受けた返答の単位ごとの閉鎖の表�
 BOUND_PARKED = ("修正の輪の最後の回も、この単位に結んだ拒否が残った（文がこの単位か、その足跡・届く試験を名指す。どの単位にも"
                 "結べない拒否は直す義務の全部の単位に結ぶ）。返答全体を拒んで盤面を止める代わりに、機械がこの単位の直しを段の頭の木に"
                 "戻して控えの patch に移し、人に回し、ほかの単位の直しを受けた。拒否の文: ")
-PARKED_OP = "fix_bound_parked"   # 最後の回に止めた単位の盤面の trace の行（unit_keys・patch・reasons {key: [文]}・unbound {文: 理由}・how {文: 結び方}）
+PARKED_OP = conflict.ACCEPT_PARKED_OP   # 最後の回に止めた単位の盤面の trace の行（unit_keys・patch・reasons {key: [文]}・unbound {文: 理由}・how {文: 結び方}）
 PARKED_PATCH = "fix-parked"            # 止めた単位の戻した直しの控え（盤面の今の周の fix-parked-<n>.patch）
 EMPTY_HANDED = ("修正の輪の最後の回に、直す義務の単位を全部止めても返答が写しの受け付けを通らなかったので、役の返答の代わりに"
                 "機械の空の返答を渡した: ")   # 後ろに残った行を " / " でつなぐ（hand_empty。盤面の p3.fix の fix_closure.reason）

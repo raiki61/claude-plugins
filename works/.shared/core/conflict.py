@@ -91,6 +91,7 @@ CORRECT = "correct_lines"               # which_is_right: query の時だけ要�
 QUERY = "query"                         # 判定者の class_query が直した後の正しい形にも当たる
 REPLACE = "replace_query"               # 問いを置き換える裁定（新しい問いを hits・misses と申し出の correct_lines で試す）
 ASK = "ask_human"
+ACCEPT_PARKED_OP = "fix_bound_parked"   # 修正の受け付け（blk-fix）が最後の回に止めた単位の trace の行の語。書くのは accept、読むのは報告と最後の関所
 REPLAN = "fix_plan_item"                # 案の項目そのものが誤りと裁く（同じ run の中で案を直して事前審査に掛けてから直す）
 DECISIONS = ("fix_test_scope", "fix_code_as", ASK, REPLACE, REPLAN)
 FIX_DECISIONS = ("fix_test_scope", "fix_code_as", REPLACE)   # 直す裁定（REPLAN は直さないので入れない）

@@ -556,17 +556,14 @@ OUTCOME_WORDS = {"fixed": "直して、最後のテストまで通った", "no_f
                  "interrupted": "run が途中で終わった"}
 
 
-PARKED_OP = "fix_bound_parked"   # 修正の受け付けが最後の回に止めた単位の trace の行（blk-fix の accept.PARKED_OP と同じ語）
-
-
 def fix_split(b) -> dict:
     """今の周の修正の段が受けた単位と止めて持ち越した単位: {"kept": [修正の返答（_fix）の changes の unit_key],
-    "parked": [{unit_key, why, patch}]}。parked は trace の PARKED_OP の行のうち、控えの patch が今の周の作業の置き場
+    "parked": [{unit_key, why, patch}]}。parked は trace の conflict.ACCEPT_PARKED_OP の行のうち、控えの patch が今の周の作業の置き場
     （r<今の周>/）に在る行から、行の順に。why は単位に結んだ拒否の行を「 / 」でつないだ物"""
     fix = _fix(b) or {}
     kept = [c["unit_key"] for c in fix.get("changes") or [] if isinstance(c, dict) and isinstance(c.get("unit_key"), str)]
     parked = []
-    for row in trace_rows(b, PARKED_OP):
+    for row in trace_rows(b, conflict.ACCEPT_PARKED_OP):
         patch = str(row.get("patch") or "")
         if pathlib.Path(patch).parent.name != f"r{b.round}":
             continue

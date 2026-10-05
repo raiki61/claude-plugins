@@ -1526,5 +1526,19 @@ class TestFixPlanItemBothUnits(ReplanCase):
         self.assertTrue(all(i["ruling"] is None for i in self.items()), "拒んだ返答の裁定は積まない")
 
 
+class TestParkedOpSingleSource(unittest.TestCase):
+    """止めた単位の trace の語 fix_bound_parked の正本は core の conflict に 1 つ。書く accept と読む report は字の写しを持たない"""
+
+    WORD = "fix_bound_parked"
+
+    def test_word_has_one_source_in_core(self):
+        self.assertEqual(getattr(conflict, "ACCEPT_PARKED_OP", None), self.WORD)
+        self.assertEqual(accept_script_module().PARKED_OP, getattr(conflict, "ACCEPT_PARKED_OP", None))
+        for path in (CORE / "report.py", BLK / "scripts" / "accept.py"):
+            src = path.read_text(encoding="utf-8")
+            self.assertNotIn(f'"{self.WORD}"', src, f"{path.name} に字の写しが残っている")
+            self.assertNotIn(f"'{self.WORD}'", src, f"{path.name} に字の写しが残っている")
+
+
 if __name__ == "__main__":
     unittest.main()
