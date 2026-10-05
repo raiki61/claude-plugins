@@ -46,7 +46,7 @@ import design  # noqa: E402
 import entry  # noqa: E402
 import eyes  # noqa: E402
 from accept import role_schema  # noqa: E402
-from board import BoardGap, NodeTable, graph_expanded, GRAPH_SHA  # noqa: E402
+from board import BoardGap, NodeTable, graph_expanded, GRAPH_SHA, rules_module  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import node_marker  # noqa: E402
 
@@ -186,6 +186,15 @@ def fake_plugin(root: pathlib.Path):
     return root
 
 
+def commit_file(repo, rel: str, text: str) -> None:
+    """作業ツリーに rel を書いて add と commit をする（固めた版 HEAD の追跡ファイルにする）"""
+    f = pathlib.Path(repo) / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text, encoding="utf-8")
+    for args in (["add", rel], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", rel]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
 class _Case(unittest.TestCase):
     def setUp(self):
         self._plug = tempfile.TemporaryDirectory()
@@ -303,6 +312,61 @@ class EnterRouteCase(_Case):
         self.assertFalse(eyes.route(self.bd, "r1-comments", self.rnd + 1)["go"], "入口の周でない周の目は起こさない")
 
 
+class SectionShapeCase(unittest.TestCase):
+    """名指しの節を、当たった行そのものの形（前置き・下線）で切る。形式の名前も拡張子の表も使わない（依頼 238）"""
+    slugs = staticmethod(rules_module()._md_slugs)
+
+    def span(self, text, **kw):
+        return design._section_lines(text, slugs=self.slugs, **kw)
+
+    def test_atx_section_runs_to_same_or_shallower_heading(self):
+        text = "# 設計書\n\n## 1 目的\n\nA\n\n## 2 上限\n\nB\n\n### 2.1 細目\n\nC\n\n## 3 撤収\n\nD\n"
+        self.assertEqual(self.span(text, num="2"), (7, 13))
+        self.assertEqual(self.span(text, anchor="2-上限"), (7, 13))
+
+    def test_setext_and_rst_underlines_end_by_first_seen_order(self):
+        text = "題\n=====\n\n一\n-----\n\nA\n\n二\n-----\n\nB\n\n次\n=====\n\nC\n"
+        self.assertEqual(self.span(text, anchor="一"), (4, 7))
+        self.assertEqual(self.span(text, anchor="二"), (9, 12))
+
+    def test_adoc_equals_prefix(self):
+        text = "= 文書\n\n== 1 目的\n\nA\n\n== 2 上限\n\nB\n\n=== 2.1 細目\n\nC\n\n== 3 撤収\n\nD\n"
+        self.assertEqual(self.span(text, num="2"), (7, 13))
+
+    def test_fenced_comment_does_not_end_section(self):
+        text = "# 1 目的\n\n```py\n# コメント\nx = 1\n```\n\nA\n\n# 2 上限\n\nB\n"
+        self.assertEqual(self.span(text, num="1"), (1, 8))
+
+    def test_thematic_breaks_do_not_hide_headings(self):
+        text = "## A\n\nA\n\n---\n\n## B\n\nB\n\n---\n\n## C\n\nC\n"
+        self.assertEqual(self.span(text, anchor="b"), (7, 11))
+
+    def test_list_and_table_rows_are_not_headings(self):
+        text = "## 1 目的\n\n- 2 つ目\n- 3 つ目\n\n| 2 | x |\n| 3 | y |\n\n## 2 上限\n\nB\n"
+        self.assertEqual(self.span(text, num="2"), (9, 11))
+
+    def test_ambiguous_hit_names_candidate_lines(self):
+        text = "## 上限 A\n\nA\n\n## 上限 B\n\nB\n"
+        with self.assertRaisesRegex(ValueError, r"2 個あって決められない（行 1, 5）"):
+            self.span(text, anchor="上限")
+
+    def test_no_heading_is_value_error(self):
+        with self.assertRaisesRegex(ValueError, "見出しが無い"):
+            self.span("本文だけ\n", num="1")
+
+
+class AnchorCase(unittest.TestCase):
+    """問いが立たない根拠の名指し（パス:行）の拾い方（依頼 238）"""
+
+    def test_path_line_and_range_are_anchors(self):
+        self.assertEqual(design.anchors("design.py:70 と works/.shared/core/design.py:70-75 を見よ"),
+                         [("design.py", 70, 70), ("works/.shared/core/design.py", 70, 75)])
+
+    def test_url_and_time_are_not_anchors(self):
+        self.assertEqual(design.anchors("https://example.com:443/a の応答の時刻 10:15 を使う"), [])
+        self.assertEqual(design.anchor_note("https://example.com:443/a"), f"（{design.UNANCHORED}）")
+
+
 class PrepCase(_Case):
     def test_prep_renders_engine_prompt_with_role_definition(self):
         self.board("r1r2")
@@ -395,15 +459,18 @@ class PrepCase(_Case):
 
     def _with_named_section(self):
         """依頼が設計書の節を名指す盤面: 作業ツリーに設計書を commit し、盤面の依頼の文をそれを名指す文にする"""
-        doc = pathlib.Path(self.repo) / "docs" / "spec.md"
-        doc.parent.mkdir(parents=True, exist_ok=True)
-        doc.write_text(self.SPEC, encoding="utf-8")
-        for args in (["add", "docs/spec.md"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "spec"]):
-            subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+        commit_file(self.repo, "docs/spec.md", self.SPEC)
+        self._request(self.NAMED_REQUEST)
+
+    def _request(self, text):
+        """盤面の依頼の文（inputs.request）を text に差し替える"""
         p = pathlib.Path(self.bd) / "state.json"
         st = json.loads(p.read_text(encoding="utf-8"))
-        st["inputs"]["request"] = self.NAMED_REQUEST
+        st["inputs"]["request"] = text
         p.write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def _named(self):
+        return design.named_sections(entry.open_board(self.bd), self.repo)
 
     def _assert_only_named_section(self, text):
         self.assertIn("SECTION-2-BODY 上限は呼び手ごとに持つ", text, "依頼が名指した節の本文が道具ゼロの役に届く")
@@ -438,6 +505,19 @@ class PrepCase(_Case):
         self.assertIn("TAIL-OF-SECTION-2", text, "FILE_CAP 以内の節は末尾まで貼る")
         self.assertEqual([g["kind"] for g in given], ["named_section"])
         self.assertEqual(withheld, [], "FILE_CAP 以内の節を渡していない物に数えない")
+
+    def test_named_section_over_cap_names_cut_lines(self):
+        """FILE_CAP を超えた節は切り、切った残りを出どころの行の範囲で withheld に名指す。貼る見出しにも出どころの行の範囲を添える"""
+        from engine.render import FILE_CAP
+        long = "長い本文の行。\n" * 4000
+        self.assertGreater(len(long.encode("utf-8")), FILE_CAP)
+        self.SPEC = f"# 設計書\n\n## 1 目的\n\nSECTION-1-BODY\n\n## 2 上限\n\n{long}TAIL-OF-SECTION-2\n\n## 3 撤収\n\nSECTION-3-BODY\n"
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        text, given, withheld = design.named_sections(entry.open_board(self.bd), self.repo)
+        self.assertEqual(len(withheld), 1, withheld)
+        self.assertTrue(withheld[0]["why"].startswith(f"{FILE_CAP} バイトを超えた残り（docs/spec.md:"), withheld)
+        self.assertIn("（docs/spec.md:", text.split("#### ", 1)[1].splitlines()[0])
 
     def test_design_head_rereads_copy_inputs_sentence(self):
         """人の答えを貼る run では、写しの指示書の『渡すのは元の目的と実測した制約だけ』を、貼った節も渡していると読み替える
@@ -478,6 +558,94 @@ class PrepCase(_Case):
         self.assertTrue([w for w in withheld if w["kind"] == "named_section" and "3 節" in w["what"] and w["why"]],
                         withheld)
 
+    def test_adoc_link_section_is_given(self):
+        """文書の拡張子（impact.DOC_EXT）のリンクなら .md でなくても名指しに数え、当たった行の形で節を切る"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/spec.adoc",
+                    "= 文書\n\n== 1 目的\n\nA\n\n== 2 上限\n\nADOC-2-BODY\n\n=== 2.1 細目\n\nC\n\n== 3 撤収\n\nD\n")
+        self._request("[上限](docs/spec.adoc#上限) のとおり")
+        text, given, withheld = self._named()
+        self.assertIn("ADOC-2-BODY", text)
+        self.assertEqual([g["what"] for g in given], ["docs/spec.adoc#上限"])
+        self.assertEqual(withheld, [])
+
+    def test_pathless_name_resolves_dated_spec(self):
+        """パスの無い「<名前> N 節」は、拡張子を除いた名が名前で終わる追跡の文書（日付を頭に付けた設計書）に解く"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/specs/2026-09-29-structure-block-design.md", "## 7 隔て\n\nSEVEN-BODY\n\n## 8 次\n\nX\n")
+        self._request("structure-block-design 7 節 を崩さない")
+        text, given, withheld = self._named()
+        self.assertIn("SEVEN-BODY", text)
+        self.assertEqual([g["what"] for g in given], ["docs/specs/2026-09-29-structure-block-design.md 7 節"])
+
+    def test_pathless_name_with_two_candidates_is_withheld(self):
+        """名の一致する追跡の文書が 2 本以上なら推測せず、候補を並べて withheld に載せる"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "a/notes.md", "## 1 x\n")
+        commit_file(self.repo, "b/notes.adoc", "## 1 x\n")
+        self._request("notes 1 節")
+        text, given, withheld = self._named()
+        self.assertEqual(given, [])
+        self.assertEqual(len(withheld), 1, withheld)
+        self.assertIn("2 本あって決められない", withheld[0]["why"])
+        for c in ("a/notes.md", "b/notes.adoc"):
+            self.assertIn(c, withheld[0]["why"])
+
+    def test_pathless_name_without_candidates_falls_back_to_bare_number(self):
+        """名の一致する文書が無い名前は名指しに数えず、「N 節」は今どおりパスの無い番号として 1 本の設計書に結ぶ"""
+        self.NAMED_REQUEST = "[docs/spec.md の 2 節](docs/spec.md#2-上限) と nothing-here 3 節"
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        text, given, withheld = self._named()
+        self.assertIn("docs/spec.md 3 節", [g["what"] for g in given])
+        self.assertEqual(withheld, [])
+
+    def test_code_link_is_not_a_named_doc(self):
+        """コードへのリンクは設計書に数えない（実装を独立設計に貼らない・パスの無い番号の結び付けを外さない）"""
+        self.NAMED_REQUEST = "[x](works/.shared/core/design.py#L70) と `docs/spec.md` 2 節、§3 も"
+        self.board("r1r2", made=None)
+        self._with_named_section()
+        text, given, withheld = self._named()
+        self.assertNotIn("def premises", text)
+        self.assertEqual([g["what"] for g in given], ["docs/spec.md 2 節", "docs/spec.md 3 節"])
+        self.assertEqual(withheld, [])
+
+    def test_design_prompt_carries_repo_map(self):
+        """対象のリポジトリの根の ARCHITECTURE.md を地図として、出どころのパス:行つきで独立設計に貼り、控えの given に載せる"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "ARCHITECTURE.md", "# 全体\n\nMAP-BODY 信用の起点は署名\n")
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        text = design.prep(self.bd, self.repo)["prompt"]
+        self.assertIn("MAP-BODY", text)
+        self.assertIn("ARCHITECTURE.md:1-3", text)
+        self.assertIn(design.MAP_HEAD, text)
+        ledger = json.loads((pathlib.Path(self.bd) / design.PREMISES_FILE).read_text(encoding="utf-8"))
+        self.assertIn({"kind": "repo_map", "what": "ARCHITECTURE.md:1-3"}, ledger["given"])
+
+    def test_compare_prompt_carries_repo_map(self):
+        """突き合わせ（r2.compare）にも同じ地図を貼る"""
+        self.board("r1r2")
+        commit_file(self.repo, "ARCHITECTURE.md", "# 全体\n\nMAP-BODY 信用の起点は署名\n")
+        self.enter()
+        self.assertIn("MAP-BODY", eyes.prep(self.bd, "r2-compare", self.rnd, self.repo)["prompt"])
+
+    def test_no_map_is_named_not_silent(self):
+        """地図が 1 つも無ければ『地図なし』を貼り、渡していない物に理由を残す（黙って落とさない）"""
+        self.board("r1r2", made=None)
+        text, given, withheld = design.repo_map(self.repo)
+        self.assertIn("地図なし", text)
+        self.assertEqual(given, [])
+        self.assertEqual(withheld, [{"kind": "repo_map", "what": "ARCHITECTURE.md・AGENTS.md",
+                                     "why": "対象のリポジトリの根に追跡されていない"}])
+
+    def test_map_only_from_root(self):
+        """地図は根のパスだけを読む（docs/AGENTS.md は地図にしない）"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/AGENTS.md", "SUBDIR-MAP\n")
+        text, _, _ = design.repo_map(self.repo)
+        self.assertNotIn("SUBDIR-MAP", text)
+        self.assertIn("地図なし", text)
+
     STRUCTURE_MARK = "STRUCTURE-MARK-u-417"
     DESIGN_ROW_MARK = "DESIGN-ROW-MARK-u-417"
 
@@ -499,7 +667,7 @@ class PrepCase(_Case):
         ledger = json.loads((pathlib.Path(self.bd) / design.PREMISES_FILE).read_text(encoding="utf-8"))
         kinds = getattr(design, "PREMISE_KINDS", None)
         self.assertIsNotNone(kinds, "独立設計に渡す入力の種類の一覧（design.PREMISE_KINDS）が無い")
-        self.assertEqual(set(kinds), {"human_answer", "named_section"})
+        self.assertEqual(set(kinds), {"human_answer", "named_section", "repo_map"})
         self.assertLessEqual({g["kind"] for g in ledger["given"]}, set(kinds))
         self.assertIn(self.HUMAN_ITEM["note"], text, "一覧の中の種類（人の答え）は届く")
         dumped = json.dumps(ledger, ensure_ascii=False)
@@ -605,6 +773,34 @@ class AcceptCase(_Case):
         self.assertEqual(out["eyes"]["r2-compare"], "waiting")
         self.assertEqual(state(self.bd)["stop"]["by"], eyes.STOP_BY)
 
+    def _premise_reply(self, why):
+        """設計書 docs/spec.md（3 行）を固めた版に置き、問いが立たない返答を premise_invalid_reason=why で受け付けに通す"""
+        self.board("r1r2", made=None)
+        commit_file(self.repo, "docs/spec.md", "一\n二\n三\n")
+        entry.snapshot(pathlib.Path(self.bd), design.SNAPSHOT_NAME, pathlib.Path(self.repo))
+        reply = {**DESIGN_INVALID, "premise_invalid_reason": why} if why is not None else DESIGN_INVALID
+        return design.accept_reply(self.bd, json.dumps(reply, ensure_ascii=False), self.repo)
+
+    def test_premise_anchor_in_range_is_accepted(self):
+        got = self._premise_reply("docs/spec.md:2-3 に既に在る")
+        self.assertTrue(got["ok"], got)
+
+    def test_premise_anchor_out_of_range_is_rejected(self):
+        got = self._premise_reply("docs/spec.md:9 に既に在る")
+        self.assertFalse(got["ok"])
+        self.assertIn(design.PREMISE_MISS, got["reason"])
+        self.assertIn("docs/spec.md:9（行の範囲の外（ファイルは 3 行））", got["reason"])
+
+    def test_premise_anchor_untracked_is_rejected(self):
+        got = self._premise_reply("nowhere.md:1 に在る")
+        self.assertFalse(got["ok"])
+        self.assertIn("固めた版にファイルが無い", got["reason"])
+
+    def test_premise_without_anchor_is_accepted(self):
+        """名指しの無い根拠は拒まない（事前審査と報告が「根拠の実物の名指しなし」と名指す）"""
+        got = self._premise_reply(None)
+        self.assertTrue(got["ok"], got)
+
     def test_tree_change_is_rejected(self):
         self.board("r1r2")
         self.enter()
@@ -685,6 +881,10 @@ class PathCase(_Case):
         miss = ["別の設計書の節が渡されていない", "設計書が渡っていない", "12 節が渡されていない", "§3.1 が渡っていない"]
         got = {c for c in hit + miss if design.claims_given([c], given)}
         self.assertEqual(got, set(hit))
+
+    def test_unpassed_map_claim_matches_repo_map(self):
+        """『地図が渡されていない』の文は、貼った地図（kind repo_map）の行に当たる"""
+        self.assertEqual(len(design.claims_given(["地図が渡されていない"], [{"kind": "repo_map", "what": "ARCHITECTURE.md:1-3"}])), 1)
 
     def test_no_unpassed_claim_leaves_claims_empty(self):
         _, out = self._compare_with(COMPARE_OK)

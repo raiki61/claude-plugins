@@ -265,7 +265,8 @@ def design_only(b) -> str:
     if got is None:
         return f"{DESIGN_HEAD}\n\n" + DESIGN_NONE.format(why=design.missing(b))
     if not got["question_stands"]:
-        return f"{DESIGN_HEAD}\n\n" + DESIGN_NOT_STANDS.format(reason=got.get("premise_invalid_reason") or got["reason"])
+        r = got.get("premise_invalid_reason") or got["reason"]
+        return f"{DESIGN_HEAD}\n\n" + DESIGN_NOT_STANDS.format(reason=r + design.anchor_note(r))
     return (f"{DESIGN_HEAD}\n\n{DESIGN_ASK}\n\n設計の役の理由: {got['reason']}\n\n=====独立設計ここから=====\n"
             f"{got['design']}\n=====独立設計ここまで=====")
 

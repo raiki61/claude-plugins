@@ -887,6 +887,25 @@ class HeadWhereDesignCase(unittest.TestCase):
             where = report.head_where(self.board(tmp))
             self.assertFalse(any(str(tmp / "design.json") in x for x in where), where)
 
+    def _unanchored(self, reply):
+        with tempfile.TemporaryDirectory() as t:
+            tmp = pathlib.Path(t)
+            (tmp / "design.json").write_text(json.dumps(reply, ensure_ascii=False), encoding="utf-8")
+            return report._design_unanchored(self.board(tmp))
+
+    def test_unanchored_premise_is_named(self):
+        """独立設計が問いは立たないと返し、根拠にパス:行の名指しが無ければ、冒頭 1 に「根拠の実物の名指しなし」の 1 行"""
+        got = self._unanchored({"question_stands": False, "reason": "立たない", "premise_invalid_reason": "識別子は既にある",
+                                "design": ""})
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("根拠の実物の名指しなし", got[0])
+        self.assertIn("識別子は既にある", got[0])
+
+    def test_anchored_or_standing_design_adds_nothing(self):
+        self.assertEqual(self._unanchored({"question_stands": False, "reason": "立たない",
+                                           "premise_invalid_reason": "docs/spec.md:2 に在る", "design": ""}), [])
+        self.assertEqual(self._unanchored({"question_stands": True, "reason": "立つ", "design": "x"}), [])
+
 
 class CostCase(unittest.TestCase):
     # 節の費用は data.spend.costUsd（Archon v0.11.1）。**推測**: 数が入る時の形は録った実物（tests/events）に 0 件で、有限の数と置いた
