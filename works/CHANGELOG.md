@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.24] - 2026-10-05
+
 ### Added
 
 - 修正の単位ごとに小さい git worktree を切る土台 `.shared/core/unittrees.py`（run の作業ツリーの未 commit の姿を base の commit にする・単位の worktree を切る・差分を取る・run の作業ツリーへ 3 方向で当てる・片付ける）。本物の index・HEAD・枝は動かさず、当たらない差分は作業ツリーを変えずに理由を返す。まだどの部品にも配線しない。
