@@ -19,6 +19,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base, aggregate}]
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
+- always_rows(b, left=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、走らせていない・調べていない・
+  読めないも。冒頭 1 と最後の関所の文が同じ行を出す）・anomalies(b)・anomaly_lines(b, *, full=False)（仕組みの異常。報告の「仕組みの異常」の節）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
   failed=None, retried=None, eyeing=None, cleaned_runs="") -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
@@ -63,6 +65,7 @@ from engine.rules import validator_module  # noqa: E402
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
 import fixture  # noqa: E402
+import leftovers  # noqa: E402
 import lens  # noqa: E402
 import reads  # noqa: E402
 import scopes  # noqa: E402
@@ -245,21 +248,29 @@ def _halted(b) -> dict:
     return b.state.get("halted") or (b.state.get("works") or {}).get(DiskBoard.AFTER_ROUND) or {}
 
 
-def trace_rows(b, op: str) -> list:
-    """盤面の trace.jsonl のうち op の行（読めない・壊れた行は飛ばす）"""
+def trace_scan(b) -> tuple:
+    """盤面の trace.jsonl の読み手の本体: (行の一覧, 調べたか, 飛ばした行の数)。ファイルが読めなければ ([], False, 0)——0 件では
+    ない。JSON でない行・オブジェクトでない行は飛ばして数える"""
     try:
         lines = (b.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
-    rows = []
+    except (OSError, UnicodeDecodeError):
+        return [], False, 0
+    rows, skipped = [], 0
     for line in lines:
         try:
             row = json.loads(line)
         except ValueError:
-            continue
-        if isinstance(row, dict) and row.get("op") == op:
+            row = None
+        if isinstance(row, dict):
             rows.append(row)
-    return rows
+        elif line.strip():
+            skipped += 1
+    return rows, True, skipped
+
+
+def trace_rows(b, op: str) -> list:
+    """盤面の trace.jsonl のうち op の行（読めない・壊れた行は飛ばす。数えたい読み手は trace_scan）"""
+    return [r for r in trace_scan(b)[0] if r.get("op") == op]
 
 
 # ---------------------------------------------------------------- 報告の前の関所（TA15）
@@ -350,6 +361,13 @@ def _review_status(b) -> dict:
     return validator_module(holder).REVIEW_STATUS
 
 
+TESTS_TEXT = "最後のテストが"   # residue のテストの赤の行の text の頭（carry_left が落とす行を見分ける）
+
+
+def _tests_where(tests: dict) -> str:
+    return str(tests.get("log") or "最後のテスト")
+
+
 def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = None) -> list:
     """fixed を名乗らせない残りの行（字のまま冒頭 1 と次の run の依頼に出す）: 検証器の阻害（exit 1 の箇条から名指しの帳尻の行
     FIRST_ROUND_LINE と、この周の受け付けを通った修正で閉じた単位の行だけを除いた物。読めなければ fail-closed で 1 行）・
@@ -365,7 +383,7 @@ def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = N
                      if x != FIRST_ROUND_LINE and not any(_unit_row_of(x, k) for k in closed)]
     if isinstance(tests, dict) and not (tests.get("ok") is True and tests.get("green") is True):
         head = "赤" if tests.get("ok") is True else "走れなかった"
-        rows.append({"where": str(tests.get("log") or "最後のテスト"), "text": f"最後のテストが{head}"})
+        rows.append({"where": _tests_where(tests), "text": f"{TESTS_TEXT}{head}"})
     if isinstance(eyeing, dict):
         if eyeing.get("ok") is not True:
             rows.append({"where": EYES_WHERE, "text": f"独立の目のブロックが ok でない: {_one_line(eyeing.get('reason') or '理由なし')}"})
@@ -445,11 +463,31 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
 
 
 # ---------------------------------------------------------------- 次の run に渡す依頼
+def carry_left(left: list | None, owned: set, tests: dict | None) -> list:
+    """残り left（residue の返り）の全件を次の依頼へ運ぶ。落とすのは次の 2 つの重複だけ: ①最後のテストの赤の行（tests が赤・
+    走れなかった時に residue が足す行。next_request が理由つきの自前の行を持つ）②owned の単位の『[block] 未解消: <key>』の行
+    （その単位は not_done・人に回した単位・再審の行が自分の字で持つ）"""
+    red = (_tests_where(tests), TESTS_TEXT) if isinstance(tests, dict) else None
+    return [r for r in left or []
+            if not (red and r["where"] == red[0] and r["text"].startswith(red[1]))
+            and not any(_unit_row_of(r["text"], k) for k in owned)]
+
+
+def lens_next_items(b) -> list:
+    """レンズの落ちた（観点を誰も見ていない）物を「再実行の要あり」の行で運ぶ。控えが読めなければ、どのレンズが見たか確かめられて
+    いないので、それも同じ言い方で運ぶ（読めない物を 0 件に見せない）。仕組みの異常は運ばない（works の不具合で利用者の依頼ではない）"""
+    s = lens.summary(b)
+    if not s["readable"]:
+        return [{"where": "レンズ", "text": f"レンズの控えが読めない——再実行の要あり: {_one_line(s['reason'])}"}]
+    return [{"where": f"レンズ {f['lens']}", "text": f"{f['lens']}（再実行の要あり: 落ちて観点を誰も見ていない。理由: {_one_line(f['reason'])}）"}
+            for f in s["failed"]]
+
+
 def next_request(b, *, tests: dict | None = None, left: list | None = None) -> list:
     """次の run に渡す依頼（1 本目の依頼の型 [{where, text}]。key・一言は字のまま）:
     手直し 2 回目が fixed と言った穴（検算が要る）・declared で残した穴・修正の not_done・最後のテストの赤・
-    残り（left＝residue の返り）のうち検証器の阻害と独立の目の block（テストの赤は上の行が持つ。not_done と人に回した単位の
-    検証器の単位の行は、その単位の行が持つので渡さない）・
+    残り（left＝residue の返り）の全件（carry_left。テストの赤は上の行が持つ。not_done と人に回した単位の検証器の単位の行は、
+    その単位の行が持つので渡さない）・落ちたレンズの「再実行の要あり」（lens_next_items）・
     再審されずに残った異議（loop.rejudge_requested。写し直しの前で再審の節が無い run と、会話が無くて止めた run）・
     決着した再審の結果（rejudge-exit.json の判定と異議の文・再審が直す単位にした単位・block から下げた単位。単位の行を持つ
     単位は検証器の単位の行を渡さない）・
@@ -482,8 +520,8 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     # 単位の行（not_done・人に回した単位・再審が開いた・下げた単位）を自分の字で持つ単位は、検証器の『[block] 未解消: <key>』を二重に渡さない
     owned = {nd["unit_key"] for nd in fix.get("not_done") or [] if isinstance(nd, dict) and isinstance(nd.get("unit_key"), str)} \
         | {k for k, _ in asked} | settled_keys
-    items += [r for r in left or [] if r["where"].startswith((VALIDATOR_WHERE, EYES_WHERE))
-              and not any(_unit_row_of(r["text"], k) for k in owned)]
+    items += carry_left(left, owned, tests)
+    items += lens_next_items(b)
     req = (b.loop_state or {}).get("rejudge_requested") or {}
     if isinstance(req, dict) and isinstance(req.get("text"), str) and req["text"]:
         items.append({"where": "判定（再審されずに残った異議）", "text": req["text"]})
@@ -572,6 +610,7 @@ def head3(b, outcome: str, *, left: list | None = None, next_items: list | None 
 def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "", next_items: list | None = None,
                    next_file: str = "", left: list | None = None) -> list:
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
+    clean が消したファイル・レンズ・仕組みの異常・残りの件数（always_rows。結末に依らず常に）・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・事前審査の壁打ちの往復（converge.lines）・
     人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）・関所で答えた問い（gatemarks.answered_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
@@ -651,6 +690,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     lines += _premise_hypotheses(b)
     lines += _pr_lines(b)
     n = len(next_items or [])
+    lines += always_rows(b, left=left)
     lines.append(f"次の run に渡す物: {n} 件" + (f"（{next_file}）" if next_file else ""))
     return lines
 
@@ -907,9 +947,8 @@ def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, 
 
 def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
     """冒頭 4: 読んだ証拠（各役の reads-<役>.json）と包みの行。出来事が unverified なら「出来事: 未確認（P13）」。部品の窓の
-    宣言の外の読み（trace の scopes.READ_OUTSIDE_OP）と必須の出力の欠け（scopes.REQUIRED_MISSING_OP）。どちらも無ければ行を出さない。
     包み無し（adapter optional）の run は「包み無し」の行の横に CI の役の知らせ（blk の collect.note）。包みを通す run で起動の
-    記録が無ければ「包みが通っていない」。書き込みの記録の無い run と拒まずに残した変更（write_lines）。包みの確かめで止めた盤面は
+    記録が無ければ「包みが通っていない」。仕組みの異常の種別ごとの件数（anomaly_lines。0 件も、調べていなければ「調べていない」も）。包みの確かめで止めた盤面は
     止めた理由。会話を継いだ起動の数。起動の即時の失敗（包みの終わりの記録の no_turn。節ごとの回と、build が盤面に写した
     NO_TURN_FILE）。盤面を書かない"""
     board_dir = pathlib.Path(board_dir)
@@ -927,16 +966,6 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
         lines.append("読んだ証拠: 集めていない（役の読んだ証拠の節が走っていない）")
     if unverified:
         lines.append("出来事: 未確認（P13）——出来事の行の形を確かめるまで、読んでいない証拠に使わない")
-    outside = [f"{r.get('scope')}: {x}" for r in trace_rows(b, scopes.READ_OUTSIDE_OP) for x in r.get("paths") or []
-               if isinstance(x, str)]
-    if outside:
-        lines.append(f"宣言の外の読み（部品が manifest の consumes に無い盤面のファイルを読んだ。落とさない）: {len(outside)} 件 "
-                     + "・".join(outside))
-    lacking = [f"{r.get('scope')}: {x}" for r in trace_rows(b, scopes.REQUIRED_MISSING_OP) for x in r.get("names") or []
-               if isinstance(x, str)]
-    if lacking:
-        lines.append(f"必須の出力の欠け（部品の窓の終わりに manifest の required の出力が無かった。役が落ちたか諦めた。止めない）: "
-                     f"{len(lacking)} 件 " + "・".join(lacking))
     mode = _start_doc(b, None).get("adapter")
     repo = pathlib.Path((b.state.get("inputs") or {}).get("cwd") or ".")
     note = (ci or {}).get("note") if isinstance(ci, dict) else ""
@@ -950,7 +979,7 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
         else:
             lines.append("包みが通っていない")
         lines += [f"  - {w}" for w in seen["whys"]]
-    lines += write_lines(b)
+    lines += anomaly_lines(b)
     lines += gates_lines(b)
     by, reason, _ = _stop_info(b)
     if by == ADAPTER_BY:
@@ -965,16 +994,94 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
     return lines
 
 
-def write_lines(b) -> list:
-    """書き込みの出どころの行（writes.trace が盤面の trace に積んだ物）: 記録の無い run と、拒まずに残した記録の無い変更"""
-    none, left = trace_rows(b, writes.NO_RECORD_OP), trace_rows(b, writes.LEFT_OP)
+# 仕組みの異常の種別（名・trace の op・説明）。trace に異常の op を足す時はここに 1 行足せば、冒頭 4・仕組みの異常の節・関所の合計に出る
+ANOMALY_OPS = (
+    ("宣言の外の読み", scopes.READ_OUTSIDE_OP, "部品が manifest の consumes に無い盤面のファイルを読んだ。落とさない"),
+    ("必須の出力の欠け", scopes.REQUIRED_MISSING_OP, "部品の窓の終わりに manifest の required の出力が無かった。役が落ちたか諦めた。止めない"),
+    ("書き込みの記録が無い run", writes.NO_RECORD_OP, "包みが無い起動。受け付けが書き込みの出どころを突き合わせずに通した回"),
+    ("記録の無い変更", writes.LEFT_OP, "書き込みの記録（Edit・Write）も申告も無い変更を、手直しの役で拒まずに残した"),
+)
+ANOMALY_SHOWN = 10   # 冒頭 4 の 1 行に並べる所在の数（全件は仕組みの異常の節）
+
+
+def _anomaly_where(op: str, rows: list) -> list:
+    """trace の異常の行から所在の一覧: 読み・欠けは「<scope>: <パスか名>」、記録の無い run は節の名（回ごと）、記録の無い変更は
+    パス（重複は 1 本）"""
+    if op == writes.NO_RECORD_OP:
+        return [str(r.get("node") or "—") for r in rows]
+    if op == writes.LEFT_OP:
+        return sorted({p for r in rows for p in r.get("paths") or [] if isinstance(p, str)})
+    key = "paths" if op == scopes.READ_OUTSIDE_OP else "names"
+    return [f"{r.get('scope')}: {x}" for r in rows for x in r.get(key) or [] if isinstance(x, str)]
+
+
+def anomalies(b) -> dict:
+    """仕組みの異常（ANOMALY_OPS）の種別ごとの件数と所在の全件。trace.jsonl を調べられなければ examined=False で、種別ごとの
+    件数は 0 でなく None（調べていない）。読めた時だけ 0 件も 0 と言う。壊れた行は飛ばして skipped に数える（0 件に見せない）。
+    返り: {examined, skipped, total, kinds: {種別: {count, where}}}"""
+    rows, examined, skipped = trace_scan(b)
+    kinds = {}
+    for name, op, _ in ANOMALY_OPS:
+        where = _anomaly_where(op, [r for r in rows if r.get("op") == op]) if examined else []
+        kinds[name] = {"count": len(where) if examined else None, "where": where}
+    return {"examined": examined, "skipped": skipped, "total": sum(k["count"] for k in kinds.values()) if examined else None,
+            "kinds": kinds}
+
+
+def anomaly_lines(b, *, full: bool = False) -> list:
+    """仕組みの異常の行（anomalies を文にするだけ）。冒頭 4 は種別ごとに 1 行（0 件も。所在は ANOMALY_SHOWN 件まで）、full なら
+    所在を 1 件 1 行で全件（仕組みの異常の節）。調べていなければ「調べていない」の 1 行"""
+    a = anomalies(b)
+    if not a["examined"]:
+        return ["仕組みの異常: 調べていない（盤面の trace.jsonl が無い・読めない）"]
     lines = []
-    if none:
-        lines.append(f"書き込みの記録が無い run（包みが無い起動）: 受け付け {len(none)} 回が書き込みの出どころを突き合わせずに通した")
-    paths = sorted({p for r in left for p in r.get("paths") or [] if isinstance(p, str)})
-    if paths:
-        lines.append(f"書き込みの記録の無い変更（手直しの役。拒まずに残した）: {len(paths)} 件 {paths[:10]}")
+    for name, _, note in ANOMALY_OPS:
+        k = a["kinds"][name]
+        shown = k["where"] if full else k["where"][:ANOMALY_SHOWN]
+        if full:
+            lines += [f"{name}（{note}）: {k['count']} 件", *[f"  - {w}" for w in shown]]
+            continue
+        more = f" ほか {k['count'] - len(shown)} 件" if k["count"] > len(shown) else ""
+        lines.append(f"{name}（{note}）: {k['count']} 件" + (" " + "・".join(shown) + more if shown else ""))
+    if a["skipped"]:
+        lines.append(f"trace.jsonl の壊れた行 {a['skipped']} 行を飛ばした（上の件数に入らない）")
     return lines
+
+
+def always_rows(b, left: list | None = None) -> list:
+    """人が決めるのに要る 4 つ（clean が消したファイル・レンズ・仕組みの異常・残り）の行を、0 件でも、走らせていない・調べていない・
+    読めないを 0 件と分けて返す。報告の冒頭 1 と最後の関所の文が同じ戻り値を読む（検証器は回さない）。インデントの付いた行は
+    直前の行の内訳。left は residue の返り——渡せば件数、None なら最後の関所の時点では数えない"""
+    rows = []
+    gone = leftovers.removed(b.dir)
+    if not gone["readable"]:
+        rows.append(f"clean が消したファイル: 読めない（{_one_line(gone['reason'])}）")
+    elif not gone["ran"]:
+        rows.append("clean が消したファイル: 走らせていない（fix-removed.json が無い。修正の段が無い run か、clean の前に止まった）")
+    else:
+        rows.append(f"clean が消したファイル: {gone['count']} 本（修正の段ごとに最後に clean が走った周の分だけ。前の周の分は上書きで残っていない）")
+        for scope, names in gone["by_scope"].items():
+            rows += [f"  - {scope or '（盤面の直下）'}: {n}" for n in names]
+    s = lens.summary(b)
+    if not s["readable"]:
+        rows.append(f"レンズ: 読めない（{_one_line(s['reason'])}）——どのレンズが見たかを確かめられない")
+    elif not s["ran"]:
+        rows.append("レンズ: 走らせていない（控えが無い）")
+    else:
+        rows.append(lens.count_line(s))
+        for r in s["rows"]:
+            got = "調べていない" if r["adopted"] is None else f"採った {r['adopted']}・採らなかった {r['not_adopted']}"
+            rows.append(f"  - {r['lens']}: {got}・形の誤りで捨てた {r['dropped']}（出した発見 {r['findings']}）")
+        rows += [f"  - 落ちたレンズ {f['lens']}（再実行の要あり）: {_one_line(f['reason'])}" for f in s["failed"]]
+    a = anomalies(b)
+    if not a["examined"]:
+        rows.append("仕組みの異常: 調べていない（盤面の trace.jsonl が無い・読めない）")
+    else:
+        rows.append(f"仕組みの異常: 合計 {a['total']} 件（" + "・".join(f"{n} {k['count']}" for n, k in a["kinds"].items()) + "。所在の全件は仕組みの異常の節）"
+                    + (f"。壊れた行 {a['skipped']} 行を飛ばした" if a["skipped"] else ""))
+    rows.append("残り: 最後の関所の時点では検証器を回していないので数えない（報告の冒頭 1 が数える）" if left is None
+                else f"残り: {len(left)} 件（検証器の阻害・最後のテストの赤・独立の目の阻害）")
+    return rows
 
 
 def gates_lines(b) -> list:
@@ -1238,9 +1345,8 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     structure = structmark.report_lines(board_dir)
     if structure:
         body += ["## 構造の目", "", *[f"- {r}" for r in structure], ""]
-    unseen = lens.report_lines(b)
-    if unseen:
-        body += ["## 未確認のレンズ", "", *[f"- {r}" for r in unseen], ""]
+    body += ["## 未確認のレンズ", "", *[f"- {r}" for r in lens.report_lines(b)], ""]
+    body += ["## 仕組みの異常", "", *[r if r.startswith("  ") else f"- {r}" for r in anomaly_lines(b, full=True)], ""]
     body += ["## このラインに無い節", "", *[f"- {r}" for r in absent_lines(b)], ""]
     _write_text(rep_p, "\n".join(body))
     green = isinstance(tests, dict) and tests.get("ok") is True and tests.get("green") is True

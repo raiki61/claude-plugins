@@ -433,6 +433,9 @@
        "why": {
         "type": "string",
         "minLength": 20
+       },
+       "lens": {
+        "type": "string"
        }
       }
      }

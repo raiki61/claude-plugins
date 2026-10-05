@@ -10,6 +10,9 @@
 - head_tree:          控えた段の頭の木（修正の受け付けが最後の回に止めた単位の足跡を戻す先）。控えに無い古い盤面は None
 - remove_new_ignored: 控えに無かった無視されるファイルだけを消す。前から在った丸ごと無視されるフォルダ（.venv など）の下は触らない。
                       消した全件は盤面の fix-removed.json に書き、件数とそのパスだけを返す（節 clean）
+- removed:            scope の環境の無い所（報告・最後の関所）から、盤面の根とその直下の scope の根の fix-removed.json を全部読み、
+                      件数・全パス・scope ごとのパスを返す。ファイルが 1 つも無ければ走らせていない（0 本と分ける）。読めなければ
+                      投げずに読めないと理由を返す
 控えと消した物のファイルの名は呼ぶ側が渡せる（before_name・removed_name。既定は IGNORED_BEFORE_FILE・REMOVED_FILE）。控えと消した物のファイルは
 盤面の今の scope の根（script_io.scope_dir。include の中なら <盤面>/<include の名>/）に置く（同じブロックの 2 度目の include が
 1 度目の控えを上書きしない）。
@@ -207,3 +210,33 @@ def remove_new_ignored(board, repo, before_name: str = IGNORED_BEFORE_FILE, remo
             parent.rmdir()
             parent = parent.parent
     return {"ok": True, "count": len(removed), "file": _write_json(_board_path(board, removed_name), {"removed": removed})}
+
+
+def removed(board, removed_name: str = REMOVED_FILE) -> dict:
+    """盤面 board の根とその直下のフォルダ（include の scope の根）に clean が書いた removed_name を全部読む。投げない。
+    返り {ran, readable, reason, count, paths, by_scope}: ran はファイルが 1 つでも在る（clean が走った）。readable が偽なら
+    reason に読めないファイルと理由（0 本に見せない）。by_scope は {scope の名（盤面の直下は ""）: [消したパス]}（名前の順）、
+    paths はその全部をつないだ物、count はその数。scope ごとに最後に clean が走った周の分だけ（前の周の分は上書きで残らない）"""
+    out = {"ran": False, "readable": True, "reason": "", "count": 0, "paths": [], "by_scope": {}}
+    board = pathlib.Path(board)
+    try:
+        found = sorted(p for p in [board / removed_name, *board.glob(f"*/{removed_name}")] if p.is_file())
+    except OSError as e:
+        return {**out, "ran": True, "readable": False, "reason": f"盤面の {removed_name} を探せない（{e}）"}
+    bad = []
+    for p in found:
+        scope = "" if p.parent == board else p.parent.name
+        try:
+            names = json.loads(p.read_text(encoding="utf-8")).get("removed")
+        except (OSError, ValueError, AttributeError) as e:
+            bad.append(f"{p}: {type(e).__name__}: {e}")
+            continue
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            bad.append(f"{p}: removed が文字列の配列でない")
+            continue
+        out["by_scope"][scope] = names
+    paths = [n for names in out["by_scope"].values() for n in names]
+    out.update(ran=bool(found), count=len(paths), paths=paths)
+    if bad:
+        out.update(readable=False, reason=f"{removed_name} が読めない（" + "／".join(bad) + "）")
+    return out

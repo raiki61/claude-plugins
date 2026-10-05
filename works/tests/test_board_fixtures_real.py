@@ -1,6 +1,7 @@
 """graphloops の実物の盤面の写し（tests/boards/real/・tests/boards/foreign/）の検査。
 
-real/ は写しの graph（a1202d0、graph_sha f9897bb07384）と同じ graph で走った実物の 2 個で、線 A の節を通っている（仕様 1 の 14）。
+real/ は写しの graph（a1202d0、走った時の graph_sha f9897bb07384）で走った実物の 2 個で、線 A の節を通っている（仕様 1 の 14）。
+写しの graph に任意の欄 lens を足した時に、state.json の graph_sha だけを今の写しの sha 9a1e3957f23d に書き換えた（README）。
 foreign/ は graph の違う実物 35 個と、fbd40e3 の simulator の 4 個の state.json（開くと BoardMismatch になる試験に使う）。
 開くときは最初に state.graph_sha を写しの graph の sha(graph_text(...)) と比べて断る（仕様 4.4）ので、foreign/ の state.json は
 graph_sha の 1 つの鍵だけに削ってある（値は元と同じ）。削る前の元の state.json の sha256 は README に残す〔BL-R1〕。
@@ -17,7 +18,7 @@ BOARDS = pathlib.Path(__file__).resolve().parent / "boards"
 REAL = BOARDS / "real"
 FOREIGN = BOARDS / "foreign"
 README = BOARDS / "README"
-GRAPH_SHA = "f9897bb07384"
+GRAPH_SHA = "9a1e3957f23d"
 REAL_NAMES = ("wt-ci-skip", "wt-layer1")
 TRACK_A = ("p2.fix_plan", "p2.plan_review", "p2.human_gate", "p3.fix", "p3.delta_owed2")
 CORE = pathlib.Path(__file__).resolve().parents[1] / ".shared" / "core"
@@ -89,7 +90,7 @@ class RealBoardsCase(unittest.TestCase):
             self.assertTrue(origin, place)
             self.assertEqual(gsha, state_of(BOARDS / place)["graph_sha"], place)
             self.assertTrue(re.fullmatch(r"[0-9a-f]{64}", src_sha256), place)
-            if place.startswith("real/"):  # real/ は削っていないので、写しの sha256 が元と同じ
+            if place.startswith("real/"):  # real/ は削っていないので、写しの sha256 が README の値と同じ（graph_sha を書き換えた後の値）
                 data = (BOARDS / place / "state.json").read_bytes()
                 self.assertEqual(hashlib.sha256(data).hexdigest(), src_sha256, place)
 

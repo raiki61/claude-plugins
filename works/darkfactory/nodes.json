@@ -1,4 +1,4 @@
-{"line": "darkfactory", "graph_sha": "f9897bb07384",
+{"line": "darkfactory", "graph_sha": "9a1e3957f23d",
  "nodes": {
    "p0.base":                 {"by": "machine", "where": "start", "reason": "start が DiskBoard.begin の base_output で版の根を渡す"},
    "p0.local_checks":         {"by": "engine_run", "fallback": "machine", "where": "start", "reason": "start が run_engine で走らせる。任せ先に落ちたら、test_cmd が在れば start がそれを走らせた素材を渡し、test_cmd も空なら start の ci_role_go が真で、ラインが blk-ci（CI の任せ先の役。読むだけ＋Bash の run の既定の模型の役が CI の定義を読み、作業ツリーの写しで走らせる）を node: p0.local_checks で回す（裁定 R52）"},

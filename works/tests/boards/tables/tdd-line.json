@@ -1,7 +1,7 @@
 {
   "line": "tdd-line",
   "graph": "review-loop-tdd.json",
-  "graph_sha": "d0a37c8d3cae",
+  "graph_sha": "5577cf9a990f",
   "nodes": {
     "p0.base": {"by": "machine", "where": "begin（base_output）"},
     "p0.local_checks": {"by": "engine_run", "fallback": "machine", "where": "begin の後（修正前の CI）"},
