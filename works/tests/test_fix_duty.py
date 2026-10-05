@@ -33,13 +33,17 @@ UNITS = [{"key": k, "label": "block"} for k in (FORK_UNIT, OTHER_UNIT, ESC_UNIT,
 
 def fake_settle(mod, owed, excused):
     """受け付けの last_settle の代わり（盤面・git を読まない）: 足跡は返答の行の files だけ、届く試験は無し、直す義務は owed、
-    義務の外は excused とこの受け付けがもう止めた単位"""
-    def settle(texts, reply, board, base_rev, repo, state, parked):
+    義務の外は excused とこの受け付けがもう止めた単位。by_copy（写しの拒否）で止める単位が無いのに義務の残りが在れば park_owed"""
+    def settle(texts, reply, board, base_rev, repo, state, parked, by_copy=False):
         rows = [c for c in reply.get("changes") or [] if isinstance(c, dict)]
         out = set(excused) | set(parked)
         keys = set(owed) | set(excused) | {c.get("unit_key") for c in rows}
-        return mod.parking.settle(texts, keys=keys, feet=mod.parking.footprint(rows, [], repo), reached={},
-                                  owed=set(owed) - out, out_of_duty=out, changed=set()), out
+        feet = mod.parking.footprint(rows, [], repo)
+        got = mod.parking.settle(texts, keys=keys, feet=feet, reached={}, owed=set(owed) - out, out_of_duty=out,
+                                 changed=set())
+        if by_copy and not got.park and set(owed) - out:
+            got = mod.parking.park_owed(texts, feet=feet, owed=set(owed), out_of_duty=out)
+        return got, out
     return settle
 
 

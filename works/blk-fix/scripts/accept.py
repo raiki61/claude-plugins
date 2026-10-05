@@ -456,15 +456,17 @@ def _rows_without(reply: dict, board, drop: set) -> list:
     return [c for c, k in zip(raw, names) if k not in drop]
 
 
-def last_settle(texts: list, reply: dict, board, base_rev, repo, state, parked: set) -> tuple:
+def last_settle(texts: list, reply: dict, board, base_rev, repo, state, parked: set, by_copy: bool = False) -> tuple:
     """輪の最後の回の拒否の文 texts を単位に結ぶ（parking.settle）。返り (Settlement, 義務の外の単位の key の集合)。
-    足跡は返答の行（名前に戻した changes）と run の全部の輪の状態、届く試験は単位ごとの impact の地図（版は writes.base_rev、
+    by_copy が真（写しの拒否）で止める単位が無いのに義務の残りが在れば、その全部を止める（parking.park_owed。写しは受けないので
+    空の返答へ落ちて受けた直しを捨てない）。
+    足跡は返答の行（名前に戻した changes）と今の段の輪の状態（state。前の周・1 回目の段の輪は入れない）、届く試験は単位ごとの impact の地図（版は writes.base_rev、
     置き場は今の輪の work の下の impact。輪が無ければ盤面の今の scope の impact）。義務の外は conflict.fix_duty の外れた単位と、
     この受け付けがもう止めた単位（parked。止めた単位を同じ受け付けで 2 度止めない）。単位の key は盤面の単位と返答の行の和"""
     b = entry.open_board(board)
     rev = writes.base_rev(b, base_rev)
     rows = _named_rows(reply, board)
-    feet = parking.footprint(rows, _loop_states(board, state), repo)
+    feet = parking.footprint(rows, [state] if state else [], repo)
     cache = (Path(tddloop.load_state(state)["work"]) if state else script_io.scope_dir(board)) / "impact"
     reached = {k: parking.reach(repo, rev, f, cache) for k, f in feet.items()}
     owed, excused = conflict.fix_duty(b)
@@ -472,6 +474,8 @@ def last_settle(texts: list, reply: dict, board, base_rev, repo, state, parked: 
     keys = {u.get("key") for u in b.record.get("units") or [] if isinstance(u, dict)} | {c.get("unit_key") for c in rows}
     got = parking.settle(texts, keys={k for k in keys if isinstance(k, str)}, feet=feet, reached=reached, owed=owed - out,
                          out_of_duty=out, changed=set(writes.changed(repo, rev)))
+    if by_copy and not got.park and owed - out:
+        got = parking.park_owed(texts, feet=feet, owed=owed, out_of_duty=out)
     return got, out
 
 
@@ -522,14 +526,25 @@ def park_units(settled, out: set, whole: dict, board, base_rev, repo, parked: se
 
 
 def hand_empty(found: list, board, base_rev, repo) -> dict:
-    """最後の回に止める単位が無いのに写しが拒んだ（義務の単位は全部止めたか、行が義務の外の単位にだけ結んだ）: 役の返答の代わりに
-    機械の空の返答（entry.empty_fix_reply。理由は EMPTY_HANDED と残った行）を盤面に渡し、trace に entry.trace_empty_fix の印。
+    """最後の回に止める単位が無いのに写しが拒んだ（義務の単位は全部止めた）: 役の返答の代わりに機械の空の返答
+    （entry.empty_fix_reply。理由は EMPTY_HANDED と残った行）を盤面に渡す。2 回目の修正の段は 1 回目に受け付けた返答の控えの
+    行を合わせる（conflict.with_held。写しの義務は 1 回目の単位を引かない）。控えに changes が在れば、行の外の欄
+    （fix_closure など。plan_faces と bash_writes は除く）も控えの物にする（残る差分は 1 回目の直しだけなので、その返答が
+    差分の全体を述べている）。合わせた changes が空の時だけ trace に
+    entry.trace_empty_fix の印（1 回目の単位の行が在れば役の直しを含むので、h-mid が差分の審査を飛ばさない）。
     返りは写しの受け付けの返り。それも写しが受けなければ回す側の誤り（ValueError。入口が 2 にする）"""
     why = EMPTY_HANDED + " / ".join(t for _, t in reject_rows(found))
-    out = recount.accept_fix(entry.empty_fix_reply(entry.open_board(board), why=why), board, base_rev, repo, commit=True)
+    b = entry.open_board(board)
+    reply = entry.empty_fix_reply(b, why=why)
+    held, _ = conflict.held_reply(b)
+    if held is not None and held.get("changes"):
+        reply.update({k: v for k, v in held.items() if k not in (writes.FIELD, "plan_faces")})
+    reply = conflict.with_held(b, reply)
+    out = recount.accept_fix(reply, board, base_rev, repo, commit=True)
     if out.get("ok") is not True:
         raise ValueError(f"機械の空の返答も写しが受けない（回す側の誤り）: {' '.join(str(out.get('reason') or '').split())}")
-    entry.trace_empty_fix(entry.open_board(board))
+    if not reply.get("changes"):
+        entry.trace_empty_fix(entry.open_board(board))
     return out
 
 
@@ -562,10 +577,11 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
 
     found = []   # 積んだ拒否の行 (確かめの id, 文)。申し出より後の確かめは返さずにここへ積み、最後に 1 回だけ拒む
 
-    def settle(texts):
-        """最後の回: 行を単位に結ぶ。止める単位が在れば止めて通し直した返り、無ければ None（義務の外の単位の行を外した返答で先へ）"""
+    def settle(texts, by_copy=False):
+        """最後の回: 行を単位に結ぶ。止める単位が在れば止めて通し直した返り、無ければ None（義務の外の単位の行を外した返答で先へ）。
+        by_copy は写しの拒否の行（止める単位が無くても義務の残りが在れば止める。last_settle）"""
         nonlocal reply
-        settled, out = last_settle(texts, whole, board, base_rev, repo, state, set(parked))
+        settled, out = last_settle(texts, whole, board, base_rev, repo, state, set(parked), by_copy=by_copy)
         if settled.park:
             return park_units(settled, out, whole, board, base_rev, repo, set(parked))
         rest = _rows_without(reply, board, out)
@@ -636,7 +652,7 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     if out.get("ok") is not True:
         note(found, "copy", out.get("problems") or [str(out.get("reason") or "")])
     if last and found:   # 最後の回の写しの拒否も同じ決まりで結ぶ（止める単位が無ければ機械の空の返答を渡す）
-        got = settle([t for _, t in reject_rows(found)])
+        got = settle([t for _, t in reject_rows(found)], by_copy=True)
         return got if got is not None else hand_empty(found, board, base_rev, repo)
     if found:
         return rejected(found)

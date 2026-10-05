@@ -2,10 +2,12 @@
 
 決まりは 1 つ: 最後の回の拒否の行は、文が名指す単位に結ぶ（bind）。結べない行は直す義務の全部の単位に結ぶ（理由は unbound_why）。
 結んだ単位から義務の外の単位を引いて残った単位を止め、残らない行は拒否に数えない（absorbed）。止める単位と足跡を共にする
-単位も一緒に止める（closure。ファイルは単位ごとに分けて戻せない）。settle がこれを 1 回で組み、戻すパスも返す。
+単位も一緒に止める（closure。ファイルは単位ごとに分けて戻せない）。閉包は義務の外の単位を通って広がらない（義務の外の単位の
+足跡のうち止める単位と共にしないパスは戻さない）。settle がこれを 1 回で組み、戻すパスも返す。写しの拒否が義務の外の単位に
+だけ結んで止める単位が残らない時は、park_owed が義務の残りを全部止める（受けた直しを黙って捨てない）。
 
 語:
-- 足跡（footprint）: 単位が今の段で触ったパス（根からの相対）= 返答の行の files ∪ run の輪の状態の単位の files・test_files。
+- 足跡（footprint）: 単位が今の段で触ったパス（根からの相対）= 返答の行の files ∪ 今の段の輪の状態の単位の files・test_files。
   .archon/（leftovers.ARCHON_PREFIX）の下は入れない（修正役の物でなく、機械も戻さない）
 - 届く試験（reach）: 足跡を起点にした impact.map の tests（import と言及を逆に辿って届くテストのファイル）
 - 名指す: 文の中に unit_key か unit_key[:60]（写しの受け付けの文の頭）が在る、か、前後がパスの字でない所にパスが在る。
@@ -24,6 +26,8 @@ import impact  # noqa: E402  （.shared/core。変更に当たる試験の選び
 import leftovers  # noqa: E402  （.shared/core。.archon/ の決まり）
 import tddloop  # noqa: E402  （同じブロックの lib。輪の状態の読み口）
 
+OUT_ONLY = ("写しの拒否の行が義務の外の単位にだけ結び、写しは受けないので、義務の残りの単位を全部止めた"
+            "（受けた直しを黙って捨てない）")
 UNBOUND = "行が単位の key も、どの単位の足跡・届く試験のパスも名指さない（直す義務の全部の単位に結んだ）"
 SHARED = "止める単位と足跡（今の段で触ったパス）を共にするので一緒に止めた（ファイルは単位ごとに分けて戻せない）: "
 SHARED_OUT = "足跡を共にする義務の外の単位の直しも段の頭の木に戻し、控えの patch に移した: "
@@ -96,15 +100,16 @@ def unbound_why(text: str) -> str:
     return f"{UNBOUND}（文が名指したパス: {', '.join(paths[:20])}）" if paths else UNBOUND
 
 
-def closure(keys: set, feet: dict) -> set:
-    """keys から、足跡を共にする単位を辿った閉包（keys を含む）"""
-    out, todo = set(keys), list(keys)
+def closure(keys: set, feet: dict, stop=frozenset()) -> set:
+    """keys から、足跡を共にする単位を辿った閉包（keys を含む）。stop の単位は閉包に入るが、そこからは辿らない"""
+    out, todo = set(keys), [k for k in keys if k not in stop]
     while todo:
         mine = feet.get(todo.pop(), set())
         for other, theirs in feet.items():
             if other not in out and mine & theirs:
                 out.add(other)
-                todo.append(other)
+                if other not in stop:
+                    todo.append(other)
     return out
 
 
@@ -122,7 +127,23 @@ def settle(texts: list, *, keys: set, feet: dict, reached: dict, owed: set, out_
             absorbed.append(text)
         for key in mine:
             park.setdefault(key, []).append(why)
-    group = closure(set(park), feet) if park else set()
+    return _settled(park, absorbed, unbound, named, feet, out_of_duty)
+
+
+def park_owed(texts: list, *, feet: dict, owed: set, out_of_duty: set) -> Settlement:
+    """写しの拒否の行 texts が義務の外の単位にだけ結んで止める単位が残らない時: 行を義務の残り（owed − out_of_duty）の全部に
+    結んで止める（理由は文の後に OUT_ONLY）。閉包と戻すパスは settle と同じ"""
+    park = {}
+    for text in texts:
+        for key in sorted(owed - out_of_duty):
+            park.setdefault(key, []).append(f"{text}（{OUT_ONLY}）")
+    return _settled(park, [], {}, set(), feet, out_of_duty)
+
+
+def _settled(park: dict, absorbed: list, unbound: dict, named: set, feet: dict, out_of_duty: set) -> Settlement:
+    """止める単位 park に閉包（義務の外の単位は通らない）の単位を足し、戻すパス（義務の外でない閉包の単位の足跡 ∪ named。
+    義務の外の単位と止める単位が共にするパスは止める単位の足跡に在る）を添えた Settlement"""
+    group = closure(set(park), feet, stop=out_of_duty) if park else set()
 
     def near(key):
         return sorted(o for o in group if o != key and feet.get(o, set()) & feet.get(key, set()))
@@ -132,5 +153,5 @@ def settle(texts: list, *, keys: set, feet: dict, reached: dict, owed: set, out_
         for p in near(key):
             if p in park:
                 park[p].append(f"{SHARED_OUT}{key}（共にするパス {sorted(feet[p] & feet[key])}）")
-    files = set().union(*(feet.get(k, set()) for k in group)) | named
+    files = set().union(*(feet.get(k, set()) for k in group - out_of_duty)) | named
     return Settlement(park, absorbed, unbound, {p for p in files if _ours(p)})

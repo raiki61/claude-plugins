@@ -414,10 +414,9 @@ class StopsKeepWorkCase(ReplanCase):
         for name in ("test_stats.py", "stats.py", "bounds.py"):
             self.assertTrue(self.unchanged(name), name)
 
-    def test_second_pass_park_keeps_first_pass_work(self):
-        # Review Focus 2: 1 回目の段で CLAMP の返答を受けて控え、MEAN の案を直して戻った 2 回目の修正の段（include refitting）。
-        # 2 回目の修正役は MEAN を直しつつ bounds.py を赤にし、MEAN の行は CLAMP の 1 回目の直しと同じ stats.py を名指す。
-        # 最後の回は MEAN だけを止め、段の頭の木（1 回目の直しを含む）に戻すので CLAMP の直しは残り、patch は 2 回目の変更だけ
+    def second_pass(self) -> tuple:
+        """(輪の状態のファイル, 返答)。1 回目の段で CLAMP の返答を受けて控え、MEAN の案を直して戻った 2 回目の修正の段
+        （include refitting）。2 回目の修正役は MEAN を直しつつ bounds.py を赤にし、MEAN の行は stats.py と bounds.py を名指す"""
         with bounds_seed():
             self.replanned()
         self.assertTrue(self.accept_script(only_clamp_reply(), pass_="ruled")["ok"])
@@ -431,6 +430,13 @@ class StopsKeepWorkCase(ReplanCase):
         self.redden_bounds()
         reply = test_replan.only_mean_reply()
         reply["changes"][0]["files"] = ["stats.py", "bounds.py"]
+        return state, reply
+
+    def test_second_pass_park_keeps_first_pass_work(self):
+        # Review Focus 2: 1 回目の段で CLAMP の返答を受けて控え、MEAN の案を直して戻った 2 回目の修正の段（include refitting）。
+        # 2 回目の修正役は MEAN を直しつつ bounds.py を赤にし、MEAN の行は CLAMP の 1 回目の直しと同じ stats.py を名指す。
+        # 最後の回は MEAN だけを止め、段の頭の木（1 回目の直しを含む）に戻すので CLAMP の直しは残り、patch は 2 回目の変更だけ
+        state, reply = self.second_pass()
         r = self.accept_script(reply, iteration="3", include=test_replan.REFIT, tdd_state=state)
         self.assertEqual((r["ok"], r["done"]), (True, True), r)
         self.assertEqual(self.parked_units(), [MEAN])
@@ -481,6 +487,30 @@ class StopsKeepWorkCase(ReplanCase):
                          out_of_duty={CLAMP}, changed=set())
         self.assertEqual((got.park, got.absorbed), ({}, [f"{CLAMP[:60]}: 直さない単位の行"]))
 
+    def test_closure_does_not_walk_through_out_of_duty_units(self):
+        """閉包は義務の外の単位を通って広がらない: X={a.py}・P={a.py, b.py}（義務の外）・Y={b.py} で行が X を名指せば
+        止めるのは X だけ。P は戻すパスに X と共にする a.py だけを足し、Y の b.py は戻さない"""
+        mod = parking()
+        feet = {"X": {"a.py"}, "P": {"a.py", "b.py"}, "Y": {"b.py"}}
+        got = mod.settle(["X: 赤"], keys=set(feet), feet=feet, reached={}, owed={"X", "Y"}, out_of_duty={"P"},
+                         changed=set())
+        self.assertEqual(set(got.park), {"X"})
+        self.assertEqual(got.files, {"a.py"})
+
+    def test_footprints_come_from_this_stage_loop_only(self):
+        """足跡は今の段の輪（INPUTS_TDD_STATE）だけから: 盤面の根に前の輪の状態が在っても、その単位の files は足跡に入らない"""
+        state, reply = self.reddening_fixer()
+        old = self.board / "tdd-0" / "state.json"
+        old.parent.mkdir()
+        doc = json.loads(pathlib.Path(state).read_text(encoding="utf-8"))
+        doc["units"][CLAMP]["files"] = ["stats.py"]
+        old.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        acc = accept_module("blk_fix_accept_stage_feet")
+        with mock.patch.object(acc.parking, "footprint", wraps=acc.parking.footprint) as feet, \
+                mock.patch.dict(os.environ, {"INPUTS_TDD_STATE": state}):
+            acc.last_settle(["x"], reply, self.board, "", self.repo, state, set())
+        self.assertEqual([str(p) for p in feet.call_args.args[1]], [state])
+
     def test_reply_level_rows_hand_the_machine_empty_reply(self):
         """run 222f の型: 修正案の事前審査への応答（plan_faces）を 3 回とも欠いた返答。最後の回は義務の全部を止め、
         機械の空の返答を盤面に渡す。h-mid は役の修正と数えない"""
@@ -498,6 +528,45 @@ class StopsKeepWorkCase(ReplanCase):
         ops = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
         self.assertTrue(any(o.get("op") == entry.EMPTY_FIX_OP and o.get("by") == entry.EMPTY_FIX_BY for o in ops))
         self.assertIs(json.loads(self.changed(r)[1])["ok"], True, "空の申告は義務の外の単位だけの正しい返答")
+
+    def test_second_pass_reply_level_rows_keep_first_pass_rows(self):
+        """2 回目の修正の段（ruled）で返答の欄の誤りを 3 回とも出す。最後の回は義務の MEAN を止め、機械の空の返答に 1 回目に
+        受けた CLAMP の行を合わせて盤面に渡す（写しの fix_covers_open_units は 1 回目の単位を引かない）。CLAMP の行が残るので
+        h-mid は役の修正と数え、差分の審査を飛ばさない"""
+        state, reply = self.second_pass()
+        reply["changes"][0]["files"] = ["stats.py"]
+        reply["fix_closure"] = {"status": "nonsense"}
+        r = self.accept_script(reply, iteration="3", pass_="ruled", include=test_replan.REFIT, tdd_state=state)
+        self.assertEqual((r["ok"], r["done"]), (True, True), r)
+        self.assertEqual(self.parked_units(), [MEAN])
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state("p3.fix"), "done")
+        out = json.loads((self.board / b.state["outputs"]["p3.fix"]["file"]).read_text(encoding="utf-8"))
+        self.assertEqual([c["unit_key"] for c in out["changes"]], [CLAMP], "1 回目に受けた単位の行は残る")
+        self.assertFalse(self.trace_rows(entry.EMPTY_FIX_OP), "役の直し（1 回目）を含む返答は空の返答と数えない")
+        self.assertIn("return hi", (self.repo / "stats.py").read_text(encoding="utf-8"))
+
+    def test_copy_rows_on_out_of_duty_units_park_the_owed_rest(self):
+        """最後の回の写しの拒否が義務の外の単位（1 回目に受けた CLAMP）にだけ結んだ: 止める単位が無いまま空の返答へ落ちず、
+        義務の残り（MEAN）を止める（受けた MEAN の直しを黙って捨てない）"""
+        state, reply = self.second_pass()
+        reply["changes"][0]["files"] = ["stats.py"]
+        (self.repo / "bounds.py").write_text(BOUNDS, encoding="utf-8")
+        acc = accept_module("blk_fix_accept_out_only")
+        real, calls = acc.recount.accept_fix, []
+
+        def copy(*a, **kw):
+            calls.append(kw.get("commit"))
+            if len(calls) == 1:
+                return {"ok": False, "reason": "x", "problems": [f"{CLAMP[:60]}: 写しが 1 回目の単位の行を拒んだ"]}
+            return real(*a, **kw)
+        env = {"INPUTS_ITERATION": "3", "INPUTS_TDD_STATE": state, "INPUTS_PASS": "ruled", "INPUTS_TDD_SUITE": "",
+               **test_replan.in_include(test_replan.REFIT, "fix-loop.fix-accept")}
+        with mock.patch.dict(os.environ, env), mock.patch.object(acc.recount, "accept_fix", side_effect=copy), \
+                mock.patch.object(acc, "check_plan_scope", return_value=([], None)):
+            r = acc.accept_fix(reply, self.board, "", self.repo)
+        self.assertIs(r["ok"], True, r)
+        self.assertEqual(self.parked_units(), [MEAN], "義務の残りを止める")
 
     @staticmethod
     def edge_modules() -> tuple:
