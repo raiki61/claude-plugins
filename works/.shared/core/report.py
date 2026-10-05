@@ -517,8 +517,40 @@ OUTCOME_WORDS = {"fixed": "直して、最後のテストまで通った", "no_f
                  "interrupted": "run が途中で終わった"}
 
 
+PARKED_OP = "fix_bound_parked"   # 修正の受け付けが最後の回に止めた単位の trace の行（blk-fix の accept.PARKED_OP と同じ語）
+
+
+def fix_split(b) -> dict:
+    """今の周の修正の段が受けた単位と止めて持ち越した単位: {"kept": [修正の返答（_fix）の changes の unit_key],
+    "parked": [{unit_key, why, patch}]}。parked は trace の PARKED_OP の行のうち、控えの patch が今の周の作業の置き場
+    （r<今の周>/）に在る行から、行の順に。why は単位に結んだ拒否の行を「 / 」でつないだ物"""
+    fix = _fix(b) or {}
+    kept = [c["unit_key"] for c in fix.get("changes") or [] if isinstance(c, dict) and isinstance(c.get("unit_key"), str)]
+    parked = []
+    for row in trace_rows(b, PARKED_OP):
+        patch = str(row.get("patch") or "")
+        if pathlib.Path(patch).parent.name != f"r{b.round}":
+            continue
+        reasons = row.get("reasons") if isinstance(row.get("reasons"), dict) else {}
+        parked += [{"unit_key": k, "why": " / ".join(str(t) for t in reasons.get(k) or []), "patch": patch}
+                   for k in row.get("unit_keys") or [] if isinstance(k, str)]
+    return {"kept": kept, "parked": parked}
+
+
+def split_line(b) -> str:
+    """冒頭 1 行目に添える、修正の段が受けた単位と止めて持ち越した単位の 1 文（fix_split。止めた単位が無ければ ""）"""
+    got = fix_split(b)
+    if not got["parked"]:
+        return ""
+    parked = [p["unit_key"] for p in got["parked"]]
+    patches = list(dict.fromkeys(p["patch"] for p in got["parked"]))
+    return (f"修正の段は {len(got['kept'])} 単位（{'・'.join(got['kept']) or 'なし'}）を受け、{len(parked)} 単位"
+            f"（{'・'.join(parked)}）を止めて持ち越した（直しの控え {'・'.join(patches)}。次の run の依頼に載る）")
+
+
 def head3(b, outcome: str, *, left: list | None = None, next_items: list | None = None) -> list:
-    """報告の冒頭 3 行（gatemarks.head3）: 起きたこと＝結末・決めてほしいこと＝冒頭 1 に並ぶ人が決める物の件数（盤面の問い・保留の
+    """報告の冒頭 3 行（gatemarks.head3）: 起きたこと＝結末（修正の段が単位を止めて持ち越したら、受けた単位と止めた単位の 1 文
+    split_line を「。」でつなぐ）・決めてほしいこと＝冒頭 1 に並ぶ人が決める物の件数（盤面の問い・保留の
     問い・人に回した食い違い・直しきれずに残った物・記録が通らないこと。無ければ 2 行目は次の run に渡す物の件数）・推し＝判定の役が
     問いの理由に書いた推し（機械は作らない）"""
     ph = b.state.get("pending_human") or {}
@@ -530,7 +562,8 @@ def head3(b, outcome: str, *, left: list | None = None, next_items: list | None 
     parts = [(w, n) for w, n in parts if n]
     decide = (f"{sum(n for _, n in parts)} 件——" + "・".join(f"{w} {n} 件" for w, n in parts) + "（下の「1. 人が決めること」）"
               if parts else "")
-    return gatemarks.head3(f"{OUTCOME_WORDS.get(outcome, '結末が決まらない')}（{outcome}）", decide,
+    split = split_line(b)
+    return gatemarks.head3(f"{OUTCOME_WORDS.get(outcome, '結末が決まらない')}（{outcome}）" + (f"。{split}" if split else ""), decide,
                            gatemarks.pushes([*held, *(ph.get("items") or [])]),
                            other=f"次の run に渡す物: {len(next_items or [])} 件")
 
