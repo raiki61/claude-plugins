@@ -477,6 +477,43 @@ class StopsKeepWorkCase(ReplanCase):
                          out_of_duty={CLAMP}, changed=set())
         self.assertEqual((got.park, got.absorbed), ({}, [f"{CLAMP[:60]}: 直さない単位の行"]))
 
+    @staticmethod
+    def edge_modules() -> tuple:
+        """(line_edge, report)。line_edge は darkfactory/lib を sys.path に足して読む（test_edge.py と同じ手）"""
+        lib = str(TESTS.parent / "darkfactory" / "lib")
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        import line_edge
+        import report
+        return line_edge, report
+
+    def test_line_continues_with_kept_and_parked_named(self):
+        state, reply = self.reddening_fixer()
+        for it in ("1", "2", "3"):
+            self.run_it(reply, INPUTS_ITERATION=it, INPUTS_TDD_STATE=state)
+        line_edge, report = self.edge_modules()
+        mid = line_edge.edge(self.board, "mid", self.repo, run_id="run-12", adapter_mode="optional", final_gate="when_needed")
+        self.assertEqual((mid["stop"], mid["go"]), (False, True), "差分の審査へ進む")
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual(report.fix_split(b)["kept"], [MEAN])
+        self.assertEqual([p["unit_key"] for p in report.fix_split(b)["parked"]], [CLAMP])
+        self.assertEqual(report.decide_outcome(b, {"accepted": True, "round_closed": True}), "needs_human")
+        head = report.head3(b, "needs_human", next_items=report.next_request(b))
+        self.assertIn("1 単位", head[0]); self.assertIn("止めて持ち越した", head[0])
+
+    def test_parked_patch_reaches_next_request_and_gate(self):
+        state, reply = self.reddening_fixer()
+        for it in ("1", "2", "3"):
+            self.run_it(reply, INPUTS_ITERATION=it, INPUTS_TDD_STATE=state)
+        line_edge, report = self.edge_modules()
+        b = entry.open_board(self.board, allow_halted=True)
+        patch = report.fix_split(b)["parked"][0]["patch"]
+        items = [i for i in report.next_request(b) if i["where"] == CLAMP]
+        self.assertTrue(items and patch in items[0]["text"], items)
+        gate = line_edge.final_edge(b, self.repo, run_id="run-12", mode="when_needed", tests={"ok": True, "green": True})
+        self.assertTrue(gate["ask"])
+        self.assertIn("止めて持ち越した", gate["gate_text"].splitlines()[0]); self.assertIn(patch, gate["gate_text"])
+
 
 class HoldCase(ReplanCase):
     """案の直しを待つ単位（mean を fix_plan_item に裁いた盤面）が在る間の受け付け（2 回目の受け付け ruled）"""

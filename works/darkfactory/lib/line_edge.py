@@ -693,12 +693,15 @@ def _final_needs(b, head: str, objection: str, eyes: tuple, rows, err: str, asks
 
 
 def _final_head(b, head: str, why: list, guarded: bool) -> list:
-    """最後の関所の冒頭 3 行（gatemarks.head3）。起きたこと＝関所を開けた理由（_final_needs。守りのファイルはこの行で名指す）・
+    """最後の関所の冒頭 3 行（gatemarks.head3）。起きたこと＝関所を開けた理由（_final_needs。守りのファイルはこの行で名指す）と、
+    修正の段が単位を止めて持ち越したなら受けた単位と止めた単位の 1 文（report.split_line）・
     決めてほしいこと＝報告へ進めるか止めるか・推し＝判定の役が問いの理由に書いた推し（機械は作らない）"""
     held = gatemarks.held_lines(b)
     happened = (f"最後のテストと独立の目が済み、報告の前で止まった。テストは{head}。"
                 + ("開けた理由: " + "・".join(why) if why else "関所はいつも開く設定（final_gate always）で、ほかに開けた理由は無い")
                 + (f"。判定の役が人に聞くと保留にしたままの問いも在る（{len(held)} 件。関所を開ける理由には数えない）" if held else ""))
+    split = report.split_line(b)   # 修正の段が受けた単位と止めて持ち越した単位（止めていなければ空）
+    happened += f"。{split}" if split else ""
     decide = ("報告へ進めて run を終えるか、止めるか（打つ行は末尾の答え方）"
               + ("。守りのファイルの変更は下の最初の節を確かめてから通す" if guarded else ""))
     asking = b.state.get("pending_human") or {}
