@@ -876,17 +876,25 @@ OTHER_SKIP = ("class TestOther(unittest.TestCase):\n",
               "class TestOther(unittest.TestCase):\n    def setUp(self):\n        self.skipTest(\"外す\")\n\n")
 OTHER_DEL = ("        self.assertEqual(clamp(-1, 0, 10), 0)\n",
              "        self.assertEqual(clamp(-1, 0, 10), 0)\n\n\ndel TestOther.test_low\n")
-# PYTEST_LIKE の写しで、後ろに node id を渡されたらその名のテストだけを走らせる実行器（`pytest --junitxml="$1" "${@:2}"` の形）
-NAMED_ONLY = PYTEST_LIKE.replace(
-    'unittest.defaultTestLoader.discover(".", pattern="test_*.py", top_level_dir=".").run(R())',
-    'def flat(s):\n'
-    '    for x in s:\n'
-    '        yield from (flat(x) if isinstance(x, unittest.TestSuite) else [x])\n'
-    'tests = list(flat(unittest.defaultTestLoader.discover(".", pattern="test_*.py", top_level_dir=".")))\n'
-    'if sys.argv[2:]:\n'
-    '    names = {a.rsplit("::", 1)[-1] for a in sys.argv[2:]}\n'
-    '    tests = [t for t in tests if t.id().rsplit(".", 1)[-1] in names]\n'
-    'unittest.TestSuite(tests).run(R())')
+# PYTEST_LIKE の写しで、後ろに試験を渡されたらそれだけを走らせる実行器（`pytest --junitxml="$1" "${@:2}"` の形。node id は
+# その名のテスト、:: の無いパスはそのファイルのモジュールの全部）。gate が真なら、後ろの試験だけにするのは TDD_SUITE_ONLY=1 の時だけ
+def _only_runner(gate):
+    return PYTEST_LIKE.replace(
+        'unittest.defaultTestLoader.discover(".", pattern="test_*.py", top_level_dir=".").run(R())',
+        'import os, pathlib\n'
+        'def flat(s):\n'
+        '    for x in s:\n'
+        '        yield from (flat(x) if isinstance(x, unittest.TestSuite) else [x])\n'
+        'tests = list(flat(unittest.defaultTestLoader.discover(".", pattern="test_*.py", top_level_dir=".")))\n'
+        'if sys.argv[2:] and ' + ('os.environ.get("TDD_SUITE_ONLY") == "1"' if gate else 'True') + ':\n'
+        '    names = {a.rsplit("::", 1)[-1] for a in sys.argv[2:] if "::" in a}\n'
+        '    mods = {pathlib.Path(a).stem for a in sys.argv[2:] if "::" not in a}\n'
+        '    tests = [t for t in tests if t.id().rsplit(".", 1)[-1] in names or t.id().split(".", 1)[0] in mods]\n'
+        'unittest.TestSuite(tests).run(R())')
+
+
+NAMED_ONLY = _only_runner(False)
+ONLY_AWARE = _only_runner(True)   # TDD_SUITE_ONLY=1 を解く実行器（輪の赤・緑の回は後ろの試験だけ。元の結末は一式）
 
 
 def _with_other_test(case, body=OTHER_TEST):
@@ -981,6 +989,23 @@ class TestFixPhaseFreezesOtherTests(ContractCase):
         self.assertTrue(got["ok"], got)
 
 
+class TestFixPhaseFreezesOtherTestsOnlyRunner(TestFixPhaseFreezesOtherTests):
+    """同じ確かめを TDD_SUITE_ONLY=1 を解く実行器で: 緑の回は名指しと届いたモジュールのファイルだけなので、消えた（missing）は
+    同じ選びの回でなく、その回にファイルごと走ったモジュール（whole）から外れた物として拾う"""
+
+    def setUp(self):
+        super().setUp()
+        self.suite.write_text(ONLY_AWARE, encoding="utf-8")
+
+    def test_green_run_was_narrowed(self):
+        self.red()
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限の枝で hi を返す"})
+        self.assertTrue(got["ok"], got)
+        run = self.st()["green_run"]
+        self.assertFalse(run["full"])
+        self.assertEqual(sorted(run["whole"]), ["test_other", "test_stats"])
+
+
 class TestFixPhaseOtherTestsWithoutContract(LoopCase):
     def setUp(self):
         with _with_other_test(self):
@@ -1055,6 +1080,21 @@ class TestVanished(unittest.TestCase):
         self.assertEqual(tddloop._vanished(self.HEAD, [self.HEAD], now, ["x::y"], None, []), [], "選びが違う")
         self.assertEqual(sorted(tddloop._vanished(self.HEAD, [self.HEAD], now, [], None, [])),
                          [("test_x.T::test_a[1]", "missing"), ("test_y.U::test_c", "missing")])
+
+    def test_absent_counts_in_module_run_whole(self):
+        now = {"test_x.T::test_b": "passed"}
+        self.assertEqual(tddloop._vanished(self.HEAD, [self.HEAD], now, ["x::y"], None, [], whole={"test_x"}),
+                         [("test_x.T::test_a[1]", "missing")], "ファイルごと走ったモジュールから消えた（test_y は走っていない）")
+
+    def test_head_merges_partial_green_run(self):
+        prev = {"outcome": {"test_x.T::a": "passed", "test_x.T::gone": "passed", "test_y.U::c": "passed"}, "args": []}
+        run = {"outcome": {"test_x.T::a": "failure", "test_x.T::new": "passed"}, "args": ["test_x.py"], "whole": ["test_x"],
+               "full": False}
+        self.assertEqual(tddloop._next_head(prev, run),
+                         {"outcome": {"test_x.T::a": "failure", "test_x.T::new": "passed", "test_y.U::c": "passed"},
+                          "args": None, "whole": [], "full": False})
+        full = {**run, "full": True, "whole": []}
+        self.assertEqual(tddloop._next_head(prev, full), full, "一式の回はそのまま次の単位の頭")
 
     def test_scope_limits_modules(self):
         now = {}
