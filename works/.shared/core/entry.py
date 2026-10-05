@@ -264,13 +264,14 @@ def _word(raw: dict, key: str) -> str:
 
 def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md, lang,
-    unattended, design_only, fix_shape, fix_fixture} を返す（unattended・design_only は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む。
+    unattended, design_only, fix_shape, fix_fixture, answers} を返す（unattended・design_only は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む。
     fix_shape は修正の形の語で、空は既定の g3。同じ控えに残り、fixshape.shape_at が読む。fix_fixture は固定材料のフォルダ
     （core の fixture。h-fix の盤面の写し）で、空か在るフォルダの絶対パス。相対なら対象の根から）。
     変更（base の版か pr の番号）を名指せば {base_rev, change} も足す（base_rev は base と HEAD の merge-base）。依頼と変更は
-    少なくとも 1 つが要り、依頼が無ければ request_file・request_text は空・items は []。
+    少なくとも 1 つが要り、依頼が無ければ request_file・request_text は空・items と answers は []。answers は依頼の欄 answers
+    （依頼者の答え。配列の形の依頼は []）で、start の控えに残り、gatemarks が問いの答えたかで読む。
     盤面は作らない。拒む物（InputRefused）: 依頼も変更も無い・base と pr の両方・版や PR が引けない・PR の head が HEAD でない、
-    依頼が読めない・findings の配列でも {findings, pr, issue} の形でもない・findings が依頼の型（写しの RL の REQUEST_SCHEMA）に
+    依頼が読めない・findings の配列でも {findings, pr, issue, answers} の形でもない・answers の形が違う・findings が依頼の型（写しの RL の REQUEST_SCHEMA）に
     合わない、thickness が軽量・重厚・知らない値、final_gate・adapter・unattended・design_only・fix_shape・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書・固定材料のフォルダが無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
     p0.local_checks・p4.ci が任せ先の役に落ち、役がリポジトリを読んでテストの走らせ方を探す）。
@@ -310,9 +311,9 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     if not rel:
         if change is None:
             raise InputRefused("依頼（request）も変更（base・pr）も名指されていない——少なくとも 1 つを名指す")
-        path, text, items = None, "", []
+        path, text, items, answers = None, "", [], []
     else:
-        path, text, items = _read_request(rel, repo, rules)
+        path, text, items, answers = _read_request(rel, repo, rules)
     pol = _word(raw, "policy_md")
     if pol:
         pp = pathlib.Path(pol) if pathlib.Path(pol).is_absolute() else repo / pol
@@ -328,7 +329,8 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     out = {"request_file": str(path.resolve()) if path else "", "items": items, "request_text": text,
            "test_cmd": _word(raw, "test_cmd"), "thickness": thickness, "gates": gates, "final_gate": final_gate,
            "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang"), "unattended": unattended,
-           "design_only": design_only, "fix_shape": fix_shape, "fix_fixture": fx}
+           "design_only": design_only, "fix_shape": fix_shape, "fix_fixture": fx,
+           "answers": answers}
     if change is not None:
         out.update(change)
     return out
@@ -381,8 +383,8 @@ def _change_base(raw: dict, repo: pathlib.Path, reads=None):
 
 
 def _read_request(rel: str, repo: pathlib.Path, rules):
-    """依頼のファイルを読んで (path, text, items)。items は findings の行（配列の形も {findings, pr, issue} の形も
-    request_parts で解く）。読めない・どちらの形でもない・依頼の型に合わない は InputRefused"""
+    """依頼のファイルを読んで (path, text, items, answers)。items は findings の行、answers は依頼者の答え（配列の形も
+    {findings, pr, issue, answers} の形も request_parts で解く）。読めない・どちらの形でもない・依頼の型に合わない は InputRefused"""
     path = pathlib.Path(rel) if pathlib.Path(rel).is_absolute() else repo / rel
     try:
         text = path.read_text(encoding="utf-8")
@@ -393,14 +395,15 @@ def _read_request(rel: str, repo: pathlib.Path, rules):
     except json.JSONDecodeError as e:
         raise InputRefused(f"依頼のファイル {rel} が JSON として読めない（{e}）") from None
     try:
-        items = request_parts(doc)["findings"]
+        parts = request_parts(doc)
     except ValueError as e:
         raise InputRefused(f"依頼のファイル {rel} の形: {e}") from None
+    items = parts["findings"]
     errs = validate_schema([{"round": 1, "origin": ORIGIN, "findings": items}], rules.REQUEST_SCHEMA)
     if errs:
-        raise InputRefused(f"依頼のファイル {rel} の形: findings の配列か {{findings, pr, issue}} の形で、findings は "
+        raise InputRefused(f"依頼のファイル {rel} の形: findings の配列か {{findings, pr, issue, answers}} の形で、findings は "
                            "[{where, text, mechanism?, measured?, false_positive_if?}] の配列（空でない）: " + "; ".join(errs))
-    return path, text, items
+    return path, text, items, parts["answers"]
 
 
 def board_rules():
@@ -811,9 +814,10 @@ def _kept(inp: dict) -> dict:
 
 
 def adopt_inputs(inp: dict) -> dict:
-    """固定材料の取り込み（fixture.adopt）が start の控えと照らす今の入力の欄: _kept から base_rev を除いた物（start は控えの
-    base_rev を修正の起点の版で上書きするので、入力の base_rev は控えに残らない）"""
-    return {k: v for k, v in _kept(inp).items() if k != "base_rev"}
+    """固定材料の取り込み（fixture.adopt）が start の控えと照らす今の入力の欄: _kept から base_rev と answers を除いた物（start は控えの
+    base_rev を修正の起点の版で上書きするので、入力の base_rev は控えに残らない。answers は依頼の文の sha256 が照らすので二重に
+    照らさず、欄の無い前の版の固定材料も読める）"""
+    return {k: v for k, v in _kept(inp).items() if k not in ("base_rev", "answers")}
 
 
 FIXTURE_MISMATCH = "固定材料と works の版が違う"   # 取り込んだ盤面を今の表・graph で開けない時の拒みの頭
