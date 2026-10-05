@@ -435,11 +435,10 @@ class TestAssertChanged(ScriptCase):
         self.assertEqual(self.run_it("no-such-rev")[0], 2)
         self.assertEqual(run_script("assert_changed", self.repo, {})[0], 2)
         self.assertEqual(run_script("assert_changed", self.repo, {"INPUTS_BASE_REV": ""})[0], 2)
-        for bad in ("not json", {"ok": True, "reason": ""}):
+        # 受け付けの ok: false も入力の誤り（受け付けは最後の回に必ず通る。依頼 242 決め 5）
+        for bad in ("not json", {"ok": True, "reason": ""}, {"ok": False, "reason": "拒んだ", "changes": []}):
             with self.subTest(accepted=bad):
                 self.assertEqual(self.run_it(accepted=bad)[0], 2)
-        # 輪が諦めた出力（ok: false）は盤面を止める道。盤面の無いブロックだけの模擬実行では止められず 1 行で 1
-        self.assert_refused(self.run_it(accepted={"ok": False, "reason": "拒んだ", "changes": []}), "拒ま")
 
 
 # ---------------------------------------------------------------- 盤面の上の受け付け（線 A Task 12。仕様 3.2）
@@ -542,12 +541,12 @@ class BoardCase(unittest.TestCase):
         linekit.pre_judge(self.board, self.repo)   # 目的の文（判定の前に盤面が待つ）
         self.take("p2.diagnose", judge or load(JUDGE))
 
-    def fix_ready(self, narrows=(), answer=None, judge=None, numbered=False, launched=True):
+    def fix_ready(self, narrows=(), answer=None, judge=None, numbered=False, launched=True, review=None):
         """p3.fix が待ち、起こした印の在る盤面（修正案 → 事前審査。narrows なら p2.human_gate が聞き、answer で答える）。
-        launched が偽なら印を置かない（fix-prep が置く）"""
+        launched が偽なら印を置かない（fix-prep が置く）。review は事前審査の返答（既定は穴の無い PLAN_REVIEW_OK）"""
         self.judged(judge)
         self.take("p2.fix_plan", plan_reply(narrows))
-        got = self.take("p2.plan_review", PLAN_REVIEW_OK)
+        got = self.take("p2.plan_review", PLAN_REVIEW_OK if review is None else review)
         if answer is not None:
             self.assertTrue(got["asking"], got)
             entry.open_board(self.board).answer(*answer)
@@ -1446,8 +1445,9 @@ class TestCollect(BoardCase):
 
 
 class TestGiveUpOnBoard(BoardCase):
-    """修正の段で諦める道（R50）: assert-changed が通らない・修正の輪が 3 回とも拒まれた時は、run を落とさずに盤面を理由つきで
-    止め（by works:fix）、collect は 1 本目の欄を持つ ok: false の出口を出す。後ろの段は境の節が飛ばし、報告と書き出しは走る（run 26）"""
+    """修正の段で諦める道（R50）: assert-changed が通らない時は、run を落とさずに盤面を理由つきで止め（by works:fix）、collect は
+    1 本目の欄を持つ ok: false の出口を出す。後ろの段は境の節が飛ばし、報告と書き出しは走る（run 26）。受け付けは最後の回に必ず
+    通る（依頼 242 決め 5）ので、受け付けの ok: false は止める道でなく入力の誤り（2）"""
 
     def changed(self, accepted):
         return run_script("assert_changed", self.repo, {"INPUTS_BASE_REV": "", "ARTIFACTS_DIR": str(self.art),
@@ -1484,19 +1484,18 @@ class TestGiveUpOnBoard(BoardCase):
         self.assertIn("変わっていない", c["reason"])
         self.assertEqual(c["tdd"]["ran"], False, "1 本目の欄と tdd を持つ")
 
-    def test_given_up_fix_loop_halts_board(self):
-        """修正の輪が 3 回とも拒まれて抜けた（輪の出力 = 最後の fix-accept の ok: false・done: true）→ 最後の理由のファイルを名指して止める"""
+    def test_not_ok_accept_is_input_error_not_halt(self):
+        """輪の出力が受け付けの ok: false（受け付けは最後の回に必ず通るので来ないはず）→ assert-changed も collect も 2、盤面は止めない"""
         self.fix_ready()
         accepted = {"ok": False, "done": True, "reason": "今の周に直す単位に無い", "reason_file": "/b/reject-accept_fix-3.txt",
                     "changes": []}
         code, out, err = self.changed(accepted)
-        self.assertEqual(code, 0, err)
-        r = json.loads(out)
-        self.assertFalse(r["ok"])
-        self.assert_halted("reject-accept_fix-3.txt", "3 回")
-        code, out, err = self.collect(accepted, r)
-        self.assertEqual(code, 0, err)
-        self.assertFalse(json.loads(out)["ok"])
+        self.assertEqual((code, out), (2, ""), err)
+        self.assertIn("ok: true でない", err)
+        code, out, err = self.collect(accepted, {"ok": True, "files": []})
+        self.assertEqual((code, out), (2, ""), err)
+        st = entry.open_board(self.board).state
+        self.assertFalse(st.get("stop") or st.get("halted"), "盤面は止まらない")
 
     def test_collect_refuses_not_ok_on_live_board(self):
         """盤面が止まっていないのに ok: false の入力 → 2（止める口は assert-changed だけ。配線の誤り）"""
