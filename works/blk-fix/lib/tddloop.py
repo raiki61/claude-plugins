@@ -1381,7 +1381,8 @@ def selected_problems(state_file, repo, rev) -> tuple:
     """(赤の文の一覧, 知らせ)。実行器の後ろに足すのは、選んだ試験のうちこの run で変えた・足したファイルだけ（ADR 0071 の
     3 の 1。届いただけの段の外の試験は手元で走らせない）。実行器の既定の一式の中は -k で選んだ全部のモジュールに絞る。
     実行器の無い run（状態が無い）・当たる試験が無い・実行器が走らない・選んだ試験が 1 件も走らなかった時は赤にせず知らせだけ。
-    元の結末に無い試験の赤は、版の写しで同じ試験を回して、版でも赤なら外す"""
+    元の結末に無い試験の赤は、版の写しで同じ試験を回して、版でも赤なら外す（版の写しの結末は _base_reds が盤面の根に控え、
+    受け付けの回をまたいで使い回す）"""
     if not state_file:
         return [], NO_SUITE
     st = _load(state_file)
@@ -1455,10 +1456,55 @@ def ci_left(state_file) -> list:
     return _load(state_file).get("ci_left", []) if state_file and pathlib.Path(state_file).is_file() else []
 
 
+REV_CACHE = "accept-rev-cache.json"   # 版の写しの結末の控え（盤面の根。run の全部の輪と受け付けの回が使い回す）
+
+
+def rev_id(repo, rev: str) -> str:
+    """版 rev の commit の sha（引けなければ rev のまま。控えの鍵に使う: 名前が同じでも指す版が変われば別の鍵）"""
+    try:
+        return git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").strip() or rev
+    except Unreadable:
+        return rev
+
+
+def exe_id(repo, exe) -> list:
+    """実行器の控えの鍵: repo の中なら根からの相対パス（中身は版が決める。版の木の中の同じ物を走らせる）、外なら絶対パスと中身の sha"""
+    p = pathlib.Path(exe)
+    try:
+        return ["repo", p.absolute().relative_to(pathlib.Path(repo).absolute()).as_posix()]
+    except ValueError:
+        return ["abs", str(p.absolute()), hashes(p.parent, [p.name])[p.name]]
+
+
+def load_json(path: pathlib.Path, default):
+    """控えのファイル（無い・読めない・形が違えば default。控えは使い回しの手がかりで、無くても走らせ直すだけ）"""
+    try:
+        got = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+    return got if isinstance(got, type(default)) else default
+
+
+def save_json(path: pathlib.Path, doc) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _base_reds(st, repo, rev, files, kexpr) -> tuple:
     """(版 rev の姿で同じ試験を回して赤だった鍵の集合か None, 問題)。版の姿は一時の置き場に git archive で写して走らせ、
     作業ツリー・index・枝は動かさない。実行器が repo の中に在れば写しの中の同じ物を走らせる（自分の置き場から根を引く実行器が
-    写しの根で走るように）"""
+    写しの根で走るように）。
+    写しは版の姿だけ（今の木から何も写さない）なので、結末は版・実行器・後ろの引数（ファイルと -k）で決まる。走らせた結末は
+    盤面の根の REV_CACHE に残し、同じ版・同じ実行器・同じ -k で、名指したファイルが前に走らせた回のファイルに含まれれば
+    走らせずに使う（run の中で版は動かないので、受け付けの回・2 回目の修正の段をまたいで 1 回で足りる。195g は回ごとに 3 分半）。
+    結末が取れなかった回は残さない"""
+    cache = pathlib.Path(st["work"]).parent / REV_CACHE
+    key = {"rev": rev_id(repo, rev), "exe": exe_id(repo, st["exe"]), "kexpr": kexpr}
+    rows = load_json(cache, [])
+    for r in rows:
+        if isinstance(r, dict) and {k: r.get(k) for k in key} == key and set(files) <= set(r.get("files") or []):
+            return set(r.get("reds") or []), []
     with tempfile.TemporaryDirectory(prefix="works-tdd-rev-") as td:
         copy = pathlib.Path(td) / "repo"
         try:
@@ -1476,7 +1522,9 @@ def _base_reds(st, repo, rev, files, kexpr) -> tuple:
         cases, _, why = run_suite(str(exe), copy, pathlib.Path(st["work"]), f"{ACCEPT_RUN}-rev", _args(copy, files, kexpr))
     if cases is None:
         return None, why
-    return {_key(c) for c in cases if c["outcome"] in ("failure", "error")}, []
+    reds = {_key(c) for c in cases if c["outcome"] in ("failure", "error")}
+    save_json(cache, [*rows, {**key, "files": sorted(set(files)), "reds": sorted(reds)}])
+    return reds, []
 
 
 FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "refactor", "gave_up", "problems", "red_kinds",
