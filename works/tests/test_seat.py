@@ -294,6 +294,32 @@ class G1Case(unittest.TestCase):
             self.assertIn(name, seat.G1_OVERRIDES)
         self.assertLess(text.index(seat.G1_OVERRIDES), text.index(rolekit.skill_overlay().splitlines()[0]))
 
+    def test_g3_section_names_its_shape_and_the_loop_units(self):
+        """既定の形 g3 の修正役も同じ下請けの節で単位ごとに新しい会話を起こす（依頼 243 の 2）。見出しと読み替えの上書きは形を
+        名指し、輪で直した単位には下請けを起こさない旨（G1_LOOP_NOTE）を持つ。g1 の節は前と同じ見出しで、その旨を持たない"""
+        rows = [{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}]
+        g3 = seat.g1_section(rows, "g3")
+        self.assertTrue(g3.startswith("## 下請けを回す（修正の形 g3）"))
+        self.assertIn("修正の形 g3 のこの修正役", g3)
+        self.assertNotRegex(g3, r"修正の形 g1(?!・g3)")   # 読み替えの「g1・g3」の外に g1 を名指さない
+        self.assertIn(seat.G1_LOOP_NOTE, g3)
+        g1 = seat.g1_section(rows)
+        self.assertEqual(g1, seat.g1_section(rows, "g1"))
+        self.assertTrue(g1.startswith(seat.G1_HEAD))
+        self.assertNotIn(seat.G1_LOOP_NOTE, g1)
+        with self.assertRaises(ValueError):
+            seat.g1_section(rows, "af")   # 下請けを起こさない形（包みが Agent を拒む）には組まない
+
+    def test_g1_section_hands_off_earlier_items(self):
+        """2 つ目からの項目の実装役には、前の項目の実装役の報告から変えたファイルと緑にしたテストを渡す（会話の履歴でなく引き継ぎ）"""
+        text = seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/g1-1.patch"}])
+        self.assertIn(seat.G1_HANDOFF_HEAD, text)
+
+    def test_g3_prompts_name_their_shape(self):
+        values = {p: "x" for p in spseam.load_seams()["implementer"]["placeholders"]}
+        self.assertIn("修正の形 g3 の下請け", seat.g1_prompt("implementer", values, "g3"))
+        self.assertEqual(seat.g1_prompt("implementer", values), seat.g1_prompt("implementer", values, "g1"))
+
     def test_g1_section_items_in_order(self):
         rows = [{"item": n, "impl_file": f"/b/i{n}", "review_file": f"/b/r{n}", "base": "abc123", "patch": f"/a/g1-{n}.patch"}
                 for n in (2, 5)]
