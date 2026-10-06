@@ -7,6 +7,7 @@
 偽の盤面は test_plan_gate の GateBase（写しの RL を差し替えて読む）を借りる。盤面を組む実物の検査は test_edge・test_report（HEAVY）
 """
 import importlib.util
+import json
 import pathlib
 import sys
 import unittest
@@ -82,9 +83,15 @@ class AskGateCase(unittest.TestCase):
         self.assertIn("仕様の承認の関所", text.splitlines()[0])
 
 
+def final_needs(b, head, blocked, rows, err, asks, mismatched):
+    """_final_needs を呼ぶ。head の語と阻害の目の名から report.Rest（検証器の外の残り）を組んで渡す"""
+    counts = report.EyeCounts([{"name": n, "status": "redesign-needed", "reason": ""} for n in blocked], [], [])
+    return line_edge._final_needs(b, report.Rest(head, counts, []), "", rows, err, asks, mismatched)
+
+
 class FinalHeadCase(GateBase):
     def head(self, b, *, head="緑", rows=(), err="", asks=(), eyes=((), []), mismatched=()):
-        why = line_edge._final_needs(b, head, "", eyes, list(rows), err, list(asks), list(mismatched))
+        why = final_needs(b, head, eyes[1], list(rows), err, list(asks), list(mismatched))
         return line_edge._final_head(b, head, why, bool(rows) or bool(err))
 
     def test_three_lines_and_reasons(self):
@@ -106,11 +113,11 @@ class FinalHeadCase(GateBase):
         self.assertNotIn("守りのファイル", self.head(b)[0] + self.head(b)[1])
 
     def test_final_edge_puts_the_head_before_the_sections(self):
-        """final_edge の文: 冒頭 3 行 → 空行 → 守りのファイルの節（最初の見出し）→ 今の本文。盤面の読み口は偽物に差し替える"""
+        """final_edge の文: 冒頭 3 行 → 空行 → 守りのファイルの節（最初の見出し）→ 今の本文。盤面の読み口は偽物に差し替える
+        （テストの語は report.tests_word・残りは report.rest_outside_validator を通る。目は line_edge.Eyes の形）"""
         _, b = self.gate()
         row = {"path": "works/tests/test_edge.py", "added": 1, "deleted": 0, "id": "edge-test", "about": "試験"}
-        with mock.patch.object(line_edge, "_tests_head", return_value="緑"), \
-                mock.patch.object(line_edge, "_eyes", return_value=([], [])), \
+        with mock.patch.object(line_edge, "_eyes", return_value=line_edge.Eyes([], report.EyeCounts([], [], []))), \
                 mock.patch.object(line_edge.rejudge, "unsettled", return_value={"settled": True, "text": ""}), \
                 mock.patch.object(line_edge, "_guard", return_value=([row], "abc", "", [])), \
                 mock.patch.object(line_edge.protect, "lines", return_value=["works/tests/test_edge.py（+1 −0）"]), \
@@ -131,8 +138,7 @@ class FinalHeadCase(GateBase):
 
         def final(why):
             with mock.patch.object(line_edge, "_final_needs", return_value=why), \
-                    mock.patch.object(line_edge, "_tests_head", return_value="緑"), \
-                    mock.patch.object(line_edge, "_eyes", return_value=([], [])), \
+                    mock.patch.object(line_edge, "_eyes", return_value=line_edge.Eyes([], report.EyeCounts([], [], []))), \
                     mock.patch.object(line_edge.rejudge, "unsettled", return_value={"settled": True, "text": ""}), \
                     mock.patch.object(line_edge, "_guard", return_value=([], "", "", [])), \
                     mock.patch.object(line_edge.querytest, "closure_lines", return_value=[]), \
@@ -148,10 +154,41 @@ class FinalHeadCase(GateBase):
     def test_held_questions_shown_but_not_a_reason(self):
         """保留にしたままの問いは 1 行目に出るが、開けた理由には数えない（when_needed で関所を開けない）"""
         _, b = self.gate(questions=[FORK])
-        self.assertEqual(line_edge._final_needs(b, "緑", "", ([], []), [], "", [], []), [])
+        green_rest = report.Rest("緑", report.EyeCounts([], [], []), [])
+        self.assertEqual(line_edge._final_needs(b, green_rest, "", [], "", [], []), [])
         first = self.head(b)[0]
         self.assertIn("保留にしたままの問いも在る（1 件。関所を開ける理由には数えない）", first)
         self.assertNotIn("開けた理由: ", first)
+
+    def test_unknown_eye_status_opens_when_needed(self):
+        """表に無い status を返した目（R3）が在る盤面では、本物の _eyes と rest_outside_validator から作った rest で _final_needs が
+        『独立の目が阻害を返した』を開ける理由に入れる（when_needed で関所が開く）"""
+        _, b = self.gate()
+        rounds = self.tmp / "rounds"
+        rounds.mkdir()
+        reviews = {n: {"status": "pass", "reason": "見本"} for n in ("R1", "R2", "R4")}
+        reviews["R3"] = {"status": "not-in-the-status-table", "reason": "表に無い"}
+        (rounds / f"round-{b.round}.json").write_text(json.dumps({"reviews": reviews}, ensure_ascii=False), encoding="utf-8")
+        eyes = line_edge._eyes(b)
+        rest = report.rest_outside_validator(b, tests={"ok": True, "green": True}, counts=eyes.counts)
+        why = line_edge._final_needs(b, rest, "", [], "", [], [])
+        self.assertEqual(why, ["独立の目が阻害を返した（R3）"])
+
+    def test_gate_rest_row_says_the_total_with_the_tests(self):
+        """関所の残りの行は、目の欄の件数とテストの語に添えて、数えられる分の合計（rest.rows の件数。最後のテストが緑でなければ
+        1 件に数える）を言う。冒頭 1 の『残り: N 件』と同じ行の数え方"""
+        _, b = self.gate()
+        rounds = self.tmp / "rounds"
+        rounds.mkdir()
+        reviews = {n: {"status": "pass", "reason": "見本"} for n in ("R1", "R2", "R4")}
+        reviews["R3"] = {"status": "not-in-the-status-table", "reason": "表に無い"}
+        (rounds / f"round-{b.round}.json").write_text(json.dumps({"reviews": reviews}, ensure_ascii=False), encoding="utf-8")
+        eyes = line_edge._eyes(b)
+        for tests, total in (({"ok": True, "green": True}, 1), ({"ok": False, "reason": "落ちた"}, 2)):
+            rest = report.rest_outside_validator(b, tests=tests, counts=eyes.counts)
+            row = [x for x in report.always_rows(b, rest=rest) if x.startswith("残り（最後の関所で数えられる分）")]
+            self.assertEqual(len(row), 1, row)
+            self.assertIn(f"最後のテスト: {rest.tests_word}。数えられる分の合計 {total} 件", row[0])
 
     def test_push_from_held_questions(self):
         _, b = self.gate(questions=[FORK])

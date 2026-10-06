@@ -33,6 +33,7 @@ import json
 import os
 import pathlib
 import sys
+from typing import NamedTuple
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
 
@@ -43,7 +44,6 @@ for _p in (_LIB, _CORE):   # core を頭に（節のスクリプトと同じ順�
         sys.path.insert(0, str(_p))
 
 from board import BoardGap  # noqa: E402
-from engine.rules import validator_module  # noqa: E402  （board が写しの engine を sys.path に足した後）
 from engine.util import Reject  # noqa: E402
 import accept  # noqa: E402
 import answer  # noqa: E402
@@ -412,24 +412,6 @@ def _fixed_by_role(b) -> bool:
             and not _traced(b, EMPTY_FIX_OP, by=EMPTY_FIX_BY, round=b.round))
 
 
-def _tests_head(b, tests) -> str:
-    """最後のテストの頭の語: 緑・赤・環境で起こせなかった（赤が全部、起こせない段 entry.env_only_red）・走れなかった・
-    走らなかった（出口が無い）。任せ先の CI の役が走らせた回（by role_needed）は、
-    盤面の p4.ci が済んでいれば素材 materials.local_checks の status（blk-tests の final と同じ読み）"""
-    if tests is None:
-        return "走らなかった"
-    if tests.get("by") == "role_needed":
-        status = entry.role_ci_status(b, tests)
-        if status is None:
-            return "走れなかった"
-        return "緑" if status == "clean" else "赤"
-    if tests.get("ok") is not True:
-        return "走れなかった"
-    if tests.get("green") is True:
-        return "緑"
-    return "環境で起こせなかった（コードの赤ではない）" if entry.env_only_red(tests) else "赤"
-
-
 def _faces(b, nid: str) -> int:
     out = b.output_of_round(nid, b.round) or {}
     return len(out.get("faces") or [])
@@ -444,35 +426,31 @@ def _eye_reviews(b) -> dict:
     return rounded.get("reviews") or {}
 
 
-def _eyes_missing(b) -> list:
-    """結果が無い目（R1〜R4 のうち控えに行が無い物）の名。_eyes の blocked には入らない"""
-    reviews = _eye_reviews(b)
-    return [n for n in ("R1", "R2", "R3", "R4") if not isinstance(reviews.get(n), dict)]
+class Eyes(NamedTuple):
+    """独立の目の判定の行（rows）と、目を blocked・not_run・missing に分けた数え（counts。report.EyeCounts）。1 度の盤面の読みから作る"""
+    rows: list
+    counts: report.EyeCounts
 
 
-def _eyes(b) -> tuple:
-    """独立の目（R1〜R4）の判定の行と、目が阻害を返した R の名。判定は周の記録（rounds/round-<N>.json。目の受け付けの settle が
-    周を締めて書く）か、まだ無ければ盤面の記録から。not_run は目の判定でなく機械が書く欠け（返答が無い・止めた周）なので、行には
-    出すが阻害に数えない"""
+def _eyes(b) -> Eyes:
+    """独立の目（R1〜R4）の判定の行と、目の数え（report.eye_counts。関所の文・関所を開ける理由・冒頭 1 の残りの正本）。判定は周の記録
+    （rounds/round-<N>.json。目の受け付けの settle が周を締めて書く）か、まだ無ければ盤面の記録から。not_run は目の判定でなく機械が書く欠け
+    （返答が無い・止めた周）なので、行には出すが関所を開ける理由には数えない（report.NOT_RUN_GATE_NOTE）。結果が無い目も同じ（report.MISSING_GATE_NOTE）"""
     reviews = _eye_reviews(b)
-    status = validator_module(b).REVIEW_STATUS
-    lines, blocked = [], []
-    for name in ("R1", "R2", "R3", "R4"):
+    lines = []
+    for name in report.EYES:
         r = reviews.get(name)
         if not isinstance(r, dict):
             lines.append(f"  - {gatemarks.EYES[name]}（{name}）: 結果が無い")
             continue
-        st = r.get("status")
-        if st in status and status[st].blocks and st != "not_run":
-            blocked.append(name)
         reason = " ".join(str(r.get("reason") or "").split())
-        lines.append(f"  - {gatemarks.eye_named(name, st)}" + (f"——理由: {reason}" if reason else ""))
+        lines.append(f"  - {gatemarks.eye_named(name, r.get('status'))}" + (f"——理由: {reason}" if reason else ""))
         if name == "R2":
             lines += _r2_inputs(b)
     fell = gatemarks.fell_lanes(b)
     if fell:
         lines.append(f"  - 落ちた筋: {fell}")
-    return lines, blocked
+    return Eyes(lines, report.eye_counts(b, reviews))
 
 
 ROLE_WORDS = {"design": "独立の設計を作る役", "compare": "独立の設計と差分を比べる役"}   # R2 の 2 つの役の平易な名（記録の名は括弧に回す）
@@ -509,7 +487,7 @@ def _r2_inputs(b) -> list:
     return out
 
 
-def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
+def _final_text(b, tests, objection: str, eyes: Eyes, rest: report.Rest, repo, run_id: str) -> str:
     """最後の関所の文: 最後のテストと修正前のテスト（entry.baseline_line）・受け付けが手元で回さなかった試験・最後のテストの段に任せた試験・受け付けの束が
     赤緑を確かめずに通した回（report.gates_lines）・差分の審査の穴の数・穴と独立の目の行の枝の名札（report.branch_rows）・手直しの結果・止めずに残った異議・
     決着した再審の結果（report.rejudge_lines。関所を開ける理由には数えない）・構造のブロックが落ちた周の印
@@ -517,7 +495,7 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     残りの件数（report.always_rows。結末に依らず常に）・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・読めなかった保留（gatemarks.unread_hold_lines）を 1 枚に。「盤面の問い: 無い」はどれも無い時だけ。行の主語は平易な名で、
     盤面の節・目の名・状態の語は括弧に回す（gatemarks.named・eye_named）"""
     tests = tests or {}
-    lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{head}", ""]
+    lines = [f"最後の人の関所（最後のテストと独立の目の後・報告の前）: テストは{rest.tests_word}", ""]
     if tests.get("by"):
         lines.append(f"- テストの一式: {entry.suites_line(tests, role_status=entry.role_ci_status(b, tests))}")
     lines.append(f"- {entry.baseline_line(b)}")
@@ -557,11 +535,10 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
         lines.append(f"- 直す前の関所で通した項目（決め手が在るので聞かずに通した行と、人が通したので後の関所で聞き直さなかった行。{len(passed)} 件）:")
         lines += [f"  - {x}" for x in passed]
     lines += [x if x[:1].isspace() else f"- {x}" for x in converge.lines(b)]   # 往復ごとの行は自分の「  - 」を持つ
-    rows, blocked = eyes
-    lines.append(f"- 独立の目の判定（阻害: {'・'.join(blocked) or '無い'}）:")
-    lines += rows
+    lines.append(f"- 独立の目の判定（阻害: {'・'.join(e['name'] for e in eyes.counts.blocked) or '無い'}）:")
+    lines += eyes.rows
     # clean が消したファイル・レンズ・仕組みの異常・残りの数えられる分（0 も、走らせていない・調べていない・読めないも。検証器は数えない）
-    lines += [x if x[:1].isspace() else f"- {x}" for x in report.always_rows(b, tests_word=head, blocked=blocked, missing=_eyes_missing(b))]
+    lines += [x if x[:1].isspace() else f"- {x}" for x in report.always_rows(b, rest=rest)]
     asking = b.state.get("pending_human")
     if asking:
         lines.append(f"- {gatemarks.named(asking.get('node'))}が人に聞いている問い（記録のまま引く）:")
@@ -715,7 +692,7 @@ def _guard(b, repo) -> tuple:
     return rows, rev, err, asks
 
 
-def _final_needs(b, head: str, objection: str, eyes: tuple, rows, err: str, asks: list, mismatched: list) -> list:
+def _final_needs(b, rest: report.Rest, objection: str, rows, err: str, asks: list, mismatched: list) -> list:
     """最後の関所を開ける理由（1 件 1 句）。when_needed で開くかはこの列の空でなさだけで決め、_final_head の 1 行目もこの列を
     並べる（理由を足すのはここだけ）"""
     why = []
@@ -723,12 +700,12 @@ def _final_needs(b, head: str, objection: str, eyes: tuple, rows, err: str, asks
         why.append(f"{PROTECTED_UNKNOWN}（人の確かめが要る）")
     elif rows:
         why.append(f"{PROTECTED_HEAD}（{len(rows)} 件。人の確かめが要る）")
-    if head != "緑":
-        why.append(f"最後のテストが{head}")
+    if rest.tests_word != "緑":
+        why.append(f"最後のテストが{rest.tests_word}")
     if asks:
         why.append(f"食い違いの申し出を人に回した（{len(asks)} 件）")
-    if eyes[1]:
-        why.append(f"独立の目が阻害を返した（{'・'.join(eyes[1])}）")
+    if rest.counts.blocked:
+        why.append(f"独立の目が阻害を返した（{'・'.join(e['name'] for e in rest.counts.blocked)}）")
     if mismatched:
         why.append(f"直したという申告と機械の数え直しが合わない単位が在る（{len(mismatched)} 件）")
     if b.state.get("pending_human"):
@@ -760,9 +737,11 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る時。文は冒頭 3 行（_final_head。開けた理由・決めて
     ほしいこと・推し）で始まり、守りのファイルはその 1 行目で名指し、3 行の直後の最初の節と process.human_items の 1 行にもなる。
     開いた関所の文は、例で証明できない単位と、同じ run の中で直した修正案の項目（replan.lines）も並べる（開ける理由には数えない）。案の直しを諦めた fix_plan_item の単位は ask_human と
-    同じ食い違いの申し出の行（conflict.human_lines）。文は b.work(FINAL_GATE_FILE) にも"""
-    head = _tests_head(b, tests)
+    同じ食い違いの申し出の行（conflict.human_lines）。文は b.work(FINAL_GATE_FILE) にも。残りは report.rest_outside_validator を 1 度だけ作り（検証器は
+    数えない）、exit_problem は渡さない: ok でない目の出口は eyes.collect が b.stop し、この関所は開かない"""
     eyes = _eyes(b)
+    rest = report.rest_outside_validator(b, tests=tests, counts=eyes.counts)
+    head = rest.tests_word
     left = rejudge.unsettled(b)
     objection = "" if left["settled"] else left["text"]
     rows, rev, err, asks = _guard(b, repo)
@@ -772,7 +751,7 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     # 申告と数え直しが合わない単位は、前は返答全体を拒んだ形なので関所を開ける。閉じていないだけの単位（修正役が remaining で
     # 残した）は前も通っていたので、見せるだけ
     mismatched = querytest.closure_lines(b, mismatched_only=True)
-    why = _final_needs(b, head, objection, eyes, rows, err, asks, mismatched)
+    why = _final_needs(b, rest, objection, rows, err, asks, mismatched)
     if (mode == "when_needed" and not why) or (mode == "protected_only" and not guarded):
         return {}
     unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
@@ -787,7 +766,7 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
             + (_closure_text(stuck, querytest.STUCK_HEAD) if stuck else "")
             + (_unproven_text(unproven) if unproven else "") + (_closure_text(closure) if closure else "")
             + (_closure_text(amend, replan.AMEND_HEAD) if amend else "")
-            + _final_text(b, head, tests, objection, eyes, repo, run_id))
+            + _final_text(b, tests, objection, eyes, rest, repo, run_id))
     _write_text(b.work(FINAL_GATE_FILE), text)
     return {"ask": True, "gate_text": text, "gate_file": str(b.work(FINAL_GATE_FILE))}
 

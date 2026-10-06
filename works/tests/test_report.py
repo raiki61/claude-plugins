@@ -576,7 +576,7 @@ class HeadCase(ReportBase):
                           "レンズ: 走らせていない（控えが無い）",
                           "仕組みの異常: 合計 0 件（" + "・".join(f"{n} 0" for n, _, _ in report.ANOMALY_OPS)
                           + "。所在の全件は仕組みの異常の節）",
-                          "残り: 最後の関所の時点では検証器を回していないので数えない（報告の冒頭 1 が数える）"])
+                          "残り: 数えを渡されていない（always_rows に left も rest も無い——呼び元の渡し忘れで、0 件ではない）"])
         self.assertIn("残り: 0 件", "\n".join(report.always_rows(b, left=[])))
         self.assertIn("残り: 2 件", "\n".join(report.always_rows(b, left=[{"where": "w", "text": "a"}, {"where": "w", "text": "b"}])))
         _, text, h = self.build()
@@ -584,6 +584,109 @@ class HeadCase(ReportBase):
             self.assertIn(row, h[H1])
         self.assertIn("## 仕組みの異常\n\n- 宣言の外の読み（", text)
         self.assertIn("## 未確認のレンズ\n\n- レンズを走らせていない", text)
+
+    def final_text(self, b, tests):
+        """最後の関所の文を本物の作り手（line_edge._eyes と report.rest_outside_validator）が作った eyes・rest で組む"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge  # noqa: E402
+        eyes = line_edge._eyes(b)
+        rest = report.rest_outside_validator(b, tests=tests, counts=eyes.counts)
+        return line_edge._final_text(b, tests, "", eyes, rest, self.tmp, "run-1")
+
+    def write_eye_reviews(self, b, reviews):
+        rounds = self.board / "rounds"
+        rounds.mkdir(exist_ok=True)
+        (rounds / f"round-{b.round}.json").write_text(json.dumps({"reviews": reviews}, ensure_ascii=False), encoding="utf-8")
+
+    def test_gate_and_head_one_count_the_same_rest(self):
+        """1 つの盤面（R1 redesign-needed・R2 not_run・R3 表に無い status・R4 結果が無い。テストは緑）で、最後の関所の文の残りの行と
+        報告の冒頭 1 の residue の目の行が同じ 4 つの目を同じ数で数える。関所は阻害 R1・R3・走っていない目 R2・結果が無い目 R4 と
+        言い、residue の目の行の名は {R1,R2,R3,R4}。R1 の行の文は今の形『R1 が redesign-needed: <reason>』のまま"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge  # noqa: E402
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        reviews = {"R1": {"status": "redesign-needed", "reason": "目の見本"}, "R2": {"status": "not_run", "reason": "返答が無い"},
+                   "R3": {"status": "not-in-the-status-table", "reason": "表に無い"}}
+        self.write_eye_reviews(b, reviews)
+        with mock.patch.object(report, "gate_record"):
+            eyes = line_edge._eyes(b)
+            rest = report.rest_outside_validator(b, tests=GREEN, counts=eyes.counts)
+            text = line_edge._final_text(b, GREEN, "", eyes, rest, self.tmp, "run-1")
+            rows = report.residue(b, {"exit": 0}, tests=GREEN, eyeing={"ok": True, "reason": "", "reviews": reviews})
+        self.assertIn("- 残り（最後の関所で数えられる分）: 独立の目の阻害 2 件（R1・R3）・走っていない目 1 件（R2）・"
+                      "結果が無い目 1 件（R4。阻害 0 件ではなく判定が無い）・最後のテスト: 緑", text)
+        eye_rows = {r["where"]: r["text"] for r in rows if r["where"].startswith(f"{report.EYES_WHERE} ")}
+        self.assertEqual(set(eye_rows), {f"{report.EYES_WHERE} {n}" for n in report.EYES})
+        self.assertEqual(len(eye_rows), sum(len(x) for x in rest.counts))
+        self.assertEqual(eye_rows[f"{report.EYES_WHERE} R1"], "R1 が redesign-needed: 目の見本")
+
+    def test_final_text_reads_missing_eyes_only_from_given_eyes(self):
+        """_final_text は渡された eyes と rest だけを読む。目の結果が無い盤面で作った eyes を渡した後に周の記録（全部 pass）を書いても、
+        関所の文は結果が無い目 4 件と言い、盤面を読み直して 0 件にしない"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge  # noqa: E402
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        eyes = line_edge._eyes(b)
+        rest = report.rest_outside_validator(b, tests=GREEN, counts=eyes.counts)
+        self.write_eye_reviews(b, EYES_PASS)
+        text = line_edge._final_text(b, GREEN, "", eyes, rest, self.tmp, "run-1")
+        self.assertIn("結果が無い目 4 件（R1・R2・R3・R4。阻害 0 件ではなく判定が無い）", text)
+        self.assertNotIn("結果が無い目 0 件", text)
+
+    def test_always_rows_without_counts_names_the_missing_args(self):
+        """left も rest も渡さない always_rows(b) の残りの行は、呼び元の渡し忘れ（left・rest）を名指し、0 件でないと言う。
+        検証器を回していないという事実でない理由は言わない"""
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        rest_rows = [r for r in report.always_rows(b) if r.startswith("残り")]
+        self.assertEqual(len(rest_rows), 1)
+        row = rest_rows[0]
+        for part in ("left", "rest", "渡し忘れ", "0 件ではない"):
+            self.assertIn(part, row)
+        self.assertNotIn("検証器を回していない", row)
+
+    def test_head_one_rest_row_names_the_not_run_exception_like_the_gate(self):
+        """報告の冒頭 1 の残りの行（always_rows の left の枝）も、最後の関所の残りの行と同じ NOT_RUN_GATE_NOTE の一文で、走っていない目
+        （not_run）を関所では開ける理由に数えないことを名指す"""
+        self.begin()
+        self.without_node_env()
+        _, _, h = self.build()
+        rest_rows = [x for x in h[H1].splitlines() if x.startswith("- 残り")]
+        self.assertEqual(len(rest_rows), 1)
+        self.assertIn(report.NOT_RUN_GATE_NOTE, rest_rows[0])
+        self.assertIn(report.MISSING_GATE_NOTE, rest_rows[0])
+
+    def test_gate_rest_row_names_why_missing_eyes_do_not_open_the_gate(self):
+        """結果が無い目は関所を開ける理由に数えない（not_run と同じ例外）。その理由（MISSING_GATE_NOTE）を、関所の文の残りの行が言う"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge  # noqa: E402
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        eyes = line_edge._eyes(b)
+        rest = report.rest_outside_validator(b, tests=GREEN, counts=eyes.counts)
+        self.assertEqual(len(eyes.counts.missing), 4)
+        self.assertEqual(line_edge._final_needs(b, rest, "", [], "", [], []), [])
+        self.assertIn(report.MISSING_GATE_NOTE, line_edge._final_text(b, GREEN, "", eyes, rest, self.tmp, "run-1"))
+
+    def test_residue_dedupe_needs_the_same_status_as_the_validator_row(self):
+        """検証器の行が同じ目の同じ status を既に出していれば目の行は二重に数えないが、status が違えば理由つきの目の行を落とさない"""
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        reviews = {**EYES_PASS, "R3": {"status": "redesign-needed", "reason": "見本の阻害"}}
+        eyeing = {"ok": True, "reason": "", "reviews": reviews}
+        r3 = lambda rows: [r for r in rows if r["where"] == f"{report.EYES_WHERE} R3"]
+        same = {"exit": 1, "out": validator_out("R3 が redesign-needed（理由: 見本の阻害）")}
+        self.assertEqual(r3(report.residue(b, same, tests=GREEN, eyeing=eyeing)), [])
+        other = {"exit": 1, "out": validator_out("R3 が not_run（理由: 別の status）")}
+        self.assertEqual([r["text"] for r in r3(report.residue(b, other, tests=GREEN, eyeing=eyeing))],
+                         ["R3 が redesign-needed: 見本の阻害"])
 
     def test_anomalies_unexamined_when_trace_missing_or_broken(self):
         """trace.jsonl が無い盤面では anomalies が種別ごとに None（調べていない。0 件でない）を返す。壊れた行が混ざれば飛ばした数
@@ -615,29 +718,28 @@ class HeadCase(ReportBase):
         """最後の関所の文（line_edge._final_text）に、消したファイルの件数と全パス・レンズの件数（落ちたレンズの件数も）・仕組みの異常の
         種別ごとの件数と合計・残りの数えられる分（目の阻害の件数と最後のテストの語。検証器は数えないと書く）が 0 件でも載る。
         関所は検証器を回さない（gate_record を呼ばない）。壊れた lens.json・
-        fix-removed.json の盤面でも落ちずに「読めない」と言う（build も同じ）"""
-        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
-        import line_edge  # noqa: E402
+        fix-removed.json の盤面でも落ちずに「読めない」と言う（build も同じ）。走っていない目の件数と NOT_RUN_GATE_NOTE も載る"""
         self.begin()
         self.without_node_env()
         b = entry.open_board(self.board, allow_halted=True)
         with mock.patch.object(report, "gate_record") as gate:
-            text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+            text = self.final_text(b, GREEN)
         gate.assert_not_called()
         for row in ("- clean が消したファイル: 走らせていない", "- レンズ: 走らせていない", "- 仕組みの異常: 合計 0 件",
-                    "- 残り（最後の関所で数えられる分）: 独立の目の阻害 0 件（無し）・結果が無い目 4 件（R1・R2・R3・R4。阻害 0 件ではなく判定が無い）・最後のテスト: 緑"):
+                    "- 残り（最後の関所で数えられる分）: 独立の目の阻害 0 件（無し）・走っていない目 0 件（無し）・結果が無い目 4 件（R1・R2・R3・R4。阻害 0 件ではなく判定が無い）・最後のテスト: 緑"):
             self.assertIn(row, text)
+        self.assertIn(report.NOT_RUN_GATE_NOTE, text)
         (self.board / "fixing").mkdir()
         (self.board / "fixing" / leftovers.REMOVED_FILE).write_text(json.dumps({"removed": ["x.log", "d/y.log"]}), encoding="utf-8")
         lens.write_routes(b, [{"lens": "silent-failure-hunter", "agent": "a", "go": True}])
         lens.collect(b, {"silent-failure-hunter": {"findings": [{"where": "w", "cite": "c", "why": "y"}, {"where": ""}]}})
-        text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        text = self.final_text(b, GREEN)
         for part in ("clean が消したファイル: 2 本", "  - fixing: x.log", "  - fixing: d/y.log", "- レンズの発見: 差分の審査が走っていないので採った・採らなかったは調べていない・形の誤りで捨てた 1 件・落ちたレンズ 0 件",
                      "  - silent-failure-hunter: 調べていない・形の誤りで捨てた 1（出した発見 1）"):
             self.assertIn(part, text)
         (self.board / "fixing" / leftovers.REMOVED_FILE).write_text("{", encoding="utf-8")
         b.work(lens.LENS_FILE).write_text("[]", encoding="utf-8")
-        text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        text = self.final_text(b, GREEN)
         self.assertIn("- clean が消したファイル: 読めない（", text)
         self.assertIn("- レンズ: 読めない（", text)
         _, built, h = self.build()
@@ -650,31 +752,86 @@ class HeadCase(ReportBase):
         """最後の関所の文の残りの行が、目の阻害の件数（名つき・無しなら 0 件）・結果が無い目の件数と最後のテストの頭の語を並べ、
         検証器は数えないと書く。目の結果は盤面の周の記録から _eyes で読んだ物を渡す（阻害と結果が無いが同じ控えから出る）。
         目の結果が無い盤面は阻害 0 件と結果が無い目 4 件を分けて言う。テストの頭が「走らなかった」なら語で言い 0 件に見せない。
-        引数なしの always_rows(b) は今の「数えない」の文のまま。落ちたレンズ 1 本の盤面ではレンズの行に「落ちたレンズ 1 件」が出る"""
+        引数なしの always_rows(b) は渡し忘れを名指す。落ちたレンズ 1 本の盤面ではレンズの行に「落ちたレンズ 1 件」が出る"""
         sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
         import line_edge  # noqa: E402
         self.begin()
         self.without_node_env()
         b = entry.open_board(self.board, allow_halted=True)
         with mock.patch.object(report, "gate_record") as gate:
-            none = line_edge._final_text(b, "走らなかった", None, "", line_edge._eyes(b), self.tmp, "run-1")
+            none = self.final_text(b, None)
             rounds = self.board / "rounds"
             rounds.mkdir(exist_ok=True)
             (rounds / f"round-{b.round}.json").write_text(json.dumps(
                 {"reviews": {**EYES_PASS, "R1": {"status": "redesign-needed", "reason": "目の見本"}}}, ensure_ascii=False), encoding="utf-8")
             eyes = line_edge._eyes(b)
-            self.assertEqual(eyes[1], ["R1"])
-            red = line_edge._final_text(b, "赤", {"ok": True, "green": False}, "", eyes, self.tmp, "run-1")
+            self.assertEqual([e["name"] for e in eyes.counts.blocked], ["R1"])
+            red = self.final_text(b, {"ok": True, "green": False})
         gate.assert_not_called()
-        self.assertIn("- 残り（最後の関所で数えられる分）: 独立の目の阻害 1 件（R1）・結果が無い目 0 件（無し。阻害 0 件ではなく判定が無い）・最後のテスト: 赤", red)
-        self.assertIn("- 残り（最後の関所で数えられる分）: 独立の目の阻害 0 件（無し）・結果が無い目 4 件（R1・R2・R3・R4。阻害 0 件ではなく判定が無い）・最後のテスト: 走らなかった", none)
+        self.assertIn("- 残り（最後の関所で数えられる分）: 独立の目の阻害 1 件（R1）・走っていない目 0 件（無し）・結果が無い目 0 件（無し。阻害 0 件ではなく判定が無い）・最後のテスト: 赤", red)
+        self.assertIn("- 残り（最後の関所で数えられる分）: 独立の目の阻害 0 件（無し）・走っていない目 0 件（無し）・結果が無い目 4 件（R1・R2・R3・R4。阻害 0 件ではなく判定が無い）・最後のテスト: 走らなかった", none)
         self.assertIn("検証器の阻害は最後の関所では数えない", red)
         self.assertNotIn("最後の関所の時点では検証器を回していないので数えない", red)
-        self.assertIn("残り: 最後の関所の時点では検証器を回していないので数えない", "\n".join(report.always_rows(b)))
+        self.assertIn("残り: 数えを渡されていない（always_rows に left も rest も無い", "\n".join(report.always_rows(b)))
         lens.write_routes(b, [{"lens": "silent-failure-hunter", "agent": "a", "go": True}])
         lens.collect(b, {})
-        text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        text = self.final_text(b, GREEN)
         self.assertIn("落ちたレンズ 1 件", text)
+
+    def test_head_one_names_refitting_removed_paths(self):
+        """clean が fixing と refitting の両方の scope で消した盤面は、報告の冒頭 1（report.md の h[H1]）が scope ごとの全パスを
+        『  - fixing: <パス>』『  - refitting: <パス>』で出す（件数は 2 本。refitting の分が冒頭 1 に届く）"""
+        self.begin()
+        self.without_node_env()
+        subprocess.run(["git", "init", "-q", str(self.tmp / "r")], check=True)
+        repo = self.tmp / "r"
+        self.assertEqual(self.clean_in(repo, "fixing", self.board, ignored="x.log")["count"], 1)
+        self.assertEqual(self.clean_in(repo, "refitting", self.board, ignored="d.log")["count"], 1)
+        _, _, h = self.build()
+        self.assertIn("clean が消したファイル: 2 本", h[H1])
+        self.assertIn("  - fixing: x.log", h[H1])
+        self.assertIn("  - refitting: d.log", h[H1])
+
+    def test_lens_count_line_zero_and_one_on_both_sides(self):
+        """レンズを走らせた盤面で、形の誤りで捨てた 0 件の盤面と 1 件の盤面のそれぞれが、報告の冒頭 1（h[H1]）と最後の関所の文
+        （eyes は line_edge._eyes、rest は report.rest_outside_validator で組む）の両方に lens.count_line の行（捨てた N 件・落ちたレンズ
+        0 件）を出す。0 件も黙らない"""
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        good = {"where": "w", "cite": "c", "why": "y"}
+        for dropped, findings in ((0, [good]), (1, [good, {"where": ""}])):
+            lens.write_routes(b, [{"lens": "silent-failure-hunter", "agent": "a", "go": True}])
+            lens.collect(b, {"silent-failure-hunter": {"findings": findings}})
+            s = lens.summary(b)
+            self.assertEqual((s["dropped"], len(s["failed"])), (dropped, 0))
+            line = lens.count_line(s)
+            self.assertIn(f"形の誤りで捨てた {dropped} 件・落ちたレンズ 0 件", line)
+            _, _, h = self.build()
+            self.assertIn(f"- {line}", h[H1].splitlines())
+            with mock.patch.object(report, "gate_record"):
+                text = self.final_text(b, GREEN)
+            self.assertIn(f"- {line}", text.splitlines())
+
+    def test_anomaly_section_lists_each_kind_with_location(self):
+        """仕組みの異常の 4 種（宣言の外の読み・必須の出力の欠け・書き込みの記録が無い run・記録の無い変更）がどれも 1 件以上の trace の盤面で、
+        report.md の『## 仕組みの異常』の節が種ごとの件数の行と所在の行（1 件 1 行。記録の無い変更はパスの重複を 1 本に）を出す。
+        冒頭 1 の仕組みの異常の行は合計を言う"""
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        b.trace(scopes.READ_OUTSIDE_OP, scope="fixing", paths=["a.md", "c.md"])
+        b.trace(scopes.REQUIRED_MISSING_OP, scope="lensing", names=["r1/lens.json"])
+        b.trace(writes.NO_RECORD_OP, node="p3.fix")
+        b.trace(writes.LEFT_OP, node="p3.delta_fix", paths=["b.py", "b.py", "d.py"])
+        _, text, h = self.build()
+        notes = {n: note for n, _, note in report.ANOMALY_OPS}
+        want = [f"- 宣言の外の読み（{notes['宣言の外の読み']}）: 2 件", "  - fixing: a.md", "  - fixing: c.md",
+                f"- 必須の出力の欠け（{notes['必須の出力の欠け']}）: 1 件", "  - lensing: r1/lens.json",
+                f"- 書き込みの記録が無い run（{notes['書き込みの記録が無い run']}）: 1 件", "  - p3.fix",
+                f"- 記録の無い変更（{notes['記録の無い変更']}）: 2 件", "  - b.py", "  - d.py"]
+        self.assertEqual(h["## 仕組みの異常"].strip("\n").splitlines(), want)
+        self.assertIn("仕組みの異常: 合計 6 件（宣言の外の読み 2・必須の出力の欠け 1・書き込みの記録が無い run 1・記録の無い変更 2", h[H1])
 
     def test_head_parts_callable(self):
         """head_reads・head_where・head_cost を盤面だけで呼べ、盤面の全部のファイルの sha が変わらない（線 B が呼ぶ）"""
@@ -997,6 +1154,21 @@ class NextRequestCase(ReportBase):
         for row in left[:3]:
             self.assertIn(row, [{"where": i["where"], "text": i["text"]} for i in items])
         self.assertEqual(len([t for t in texts if t.startswith("最後のテストが赤")]), 1, items)
+
+    def test_next_request_file_carries_left_rows(self):
+        """R1 が redesign-needed の独立の目の出口（eyeing）と赤のテストの盤面で build を回すと、next-request.json の findings に
+        残りの目の行が where『独立の目 R1』・text『R1 が redesign-needed: …』のまま 1 行で載る。テストの赤は next_request の自前の行
+        『最後のテストが赤（…）』の 1 行だけで、residue の『最後のテストが赤』の行は carry_left が落とす（重複落としは仕様）"""
+        self.begin()
+        self.without_node_env()
+        eyeing = {"ok": True, "reason": "", "reviews": {**EYES_PASS, "R1": {"status": "redesign-needed", "reason": "目の見本"}}}
+        out, _, _ = self.build(tests=RED, eyeing=eyeing)
+        doc = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
+        items = [{"where": i["where"], "text": i["text"]} for i in doc["findings"]]
+        self.assertEqual([i for i in items if i["where"].startswith(report.EYES_WHERE)],
+                         [{"where": f"{report.EYES_WHERE} R1", "text": "R1 が redesign-needed: 目の見本"}])
+        reds = [i for i in items if i["text"].startswith(report.TESTS_TEXT)]
+        self.assertEqual(reds, [{"where": RED["log"], "text": f"{report.TESTS_TEXT}赤（ログを読む）"}])
 
     def test_next_request_keys_roundtrip(self):
         """穴の key に引用符・日本語・$( → next-request.json の text に 1 バイトも同じで在る"""

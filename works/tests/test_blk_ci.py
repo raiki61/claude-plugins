@@ -648,7 +648,9 @@ class P4Case(unittest.TestCase):
             head = report.head_decisions(after, {}, tests=tests)
         self.assertTrue(any(x.startswith("最後のテストが赤") for x in head), head)
         self.assertTrue(any(x.startswith("修正前のテスト: 緑") for x in head), head)
-        gate = line_edge._final_text(after, line_edge._tests_head(after, tests), tests, "", ([], []), repo, "run-1")
+        eyes = line_edge._eyes(after)
+        rest = report.rest_outside_validator(after, tests=tests, counts=eyes.counts)
+        gate = line_edge._final_text(after, tests, "", eyes, rest, repo, "run-1")
         self.assertIn("テストは赤", gate)
         self.assertIn("修正前のテスト: 緑", gate)
 

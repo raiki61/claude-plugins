@@ -129,7 +129,7 @@ class R4AfterR1R2Case(TB._Case):
         out = run.out["eyes-collect"]
         self.assertTrue(out["asking"], out)
         self.assertIsInstance(out["reviews"]["R1"], dict, out["reviews"])
-        rows, _ = line_edge()._eyes(entry.open_board(self.bd, allow_halted=True))
+        rows = line_edge()._eyes(entry.open_board(self.bd, allow_halted=True)).rows
         self.assertFalse([r for r in rows if "（R1）" in r and "結果が無い" in r], rows)
 
     def test_h_look_not_go_leaves_eyes_unstarted(self):
@@ -155,7 +155,7 @@ class FallenLaneCase(TB._Case):
         self.assertIn(f"{lane} の筋が落ち", out["reason"])
         self.assertNotIn("stop", TB.state(self.bd))
         self.assertIs(eyes.LANES_NAME, gatemarks.LANES_NAME, "書き手と最後の関所の読み手は同じ名前の正本を引く")
-        rows, _ = line_edge()._eyes(entry.open_board(self.bd, allow_halted=True))
+        rows = line_edge()._eyes(entry.open_board(self.bd, allow_halted=True)).rows
         self.assertTrue([r for r in rows if r.startswith("  - 落ちた筋: ") and f"{lane} の筋が落ちたまま R4 を回した" in r], rows)
         # 線の最後の関所の境 h-final は、include eyeing をブロックの sink 全部として待つ。落ちた筋の失敗がそこへ連鎖しない
         h_final = next(n for n in scriptline.flow("darkfactory")["nodes"] if n["id"] == "h-final")

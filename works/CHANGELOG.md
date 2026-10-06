@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 検証器の外の残り（最後のテストの語・独立の目の阻害と走っていない目と結果が無い目）の数えを `report.rest_outside_validator`（語は `report.tests_word`、目の分けは `report.eye_counts` の `EyeCounts`）の 1 か所にし、最後の関所と報告の冒頭 1・次の run の依頼が同じ口を読むようにした。今までは関所（`line_edge._eyes`・`_tests_head`）と冒頭 1（`residue`・`next_request`）が別の規則で、表に無い status の目を関所は阻害に数えず、結果が無い目を冒頭 1 は数えず、任せ先の CI が clean を渡した回を冒頭 1 は赤と数えていた。これで表に無い status の目も阻害に数えて関所が開き、結果が無い目は冒頭 1 と次の依頼に「再実行の要あり」の行で出る。走っていない目（not_run）は関所を開ける理由に数えず、冒頭 1 の残りには表どおり数える（理由は `report.NOT_RUN_GATE_NOTE` が両方の残りの行で言う）。結果が無い目も同じ例外で、理由は `report.MISSING_GATE_NOTE` が言う。関所の残りの行は、目の欄の件数とテストの語に添えて、数えられる分の合計（最後のテストが緑でなければ 1 件に数える）も言う。`always_rows` は left も rest も渡されない呼びに、検証器を回していないという事実でない理由でなく、渡し忘れを名指す行を出す。`line_edge._eyes` は名前の付いた `Eyes(rows, counts)` を返し、`_final_text` は渡された eyes と rest だけを読んで盤面を読み直さない
+
 ## [0.2.35] - 2026-10-06
 
 ### Added

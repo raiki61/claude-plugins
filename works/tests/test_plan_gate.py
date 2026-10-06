@@ -117,7 +117,9 @@ class LedgerAsksCase(GateBase):
 
     def final_text(self, b):
         b.state["outputs"] = {}
-        return line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        eyes = line_edge._eyes(b)   # 本物の作り手が作った eyes・rest で組む
+        rest = report.rest_outside_validator(b, tests={}, counts=eyes.counts)
+        return line_edge._final_text(b, {}, "", eyes, rest, self.tmp, "run-1")
 
     def head(self, b):
         with mock.patch.object(report, "_stop_info", return_value=("", "", None)), \
@@ -541,7 +543,9 @@ class PlainSubjectCase(GateBase):
         outs = {"p3.delta_fix": {"handled": [{"key": "単位 A", "handled": "直した", "how": "境の値を足した"}]}}
         b.output_of_round = lambda nid, rnd: outs.get(nid)
         b.state["pending_human"] = {"node": "p2.human_gate", "question": "狭まる能力を代償に採るか", "items": ["項目 A"]}
-        text = line_edge._final_text(b, "緑", {}, "", line_edge._eyes(b), self.tmp, "run-1")
+        eyes = line_edge._eyes(b)
+        rest = report.rest_outside_validator(b, tests={}, counts=eyes.counts)
+        text = line_edge._final_text(b, {}, "", eyes, rest, self.tmp, "run-1")
         self.assertEqual(internal_subjects(text), [])
 
     def test_report_head_subjects_are_plain(self):
@@ -606,7 +610,9 @@ class QuotedQuestionCase(GateBase):
         _, b = self.gate()
         b.state["pending_human"] = self.asking()
         b.output_of_round = lambda nid, rnd: None
-        text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        eyes = line_edge._eyes(b)
+        rest = report.rest_outside_validator(b, tests={}, counts=eyes.counts)
+        text = line_edge._final_text(b, {}, "", eyes, rest, self.tmp, "run-1")
         self.assertEqual(unquoted_mainline(text), [])
         self.assertTrue(any(x.lstrip().startswith(">") for x in text.splitlines()), text)
 

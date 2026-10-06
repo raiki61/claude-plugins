@@ -3,7 +3,7 @@
 **記録が検証器を通らない run に fixed・no_fix_needed を出す道を作らない**（審査 I3）: build は必ず gate_record で
 settle → finalize → run_validator を 1 度踏み、受理集合（report_accepts）の外か、今の周の記録（record_round と converge）が
 済んでいなければ record_invalid にする。検証器は validator_runner の包み（board_hook.py）が効く b.run_validator で回す。
-**残り（検証器の阻害・最後のテストの赤・独立の目の block）が在る run に fixed を出さない**: 直した周で residue が 1 行でも
+**残り（検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）が在る run に fixed を出さない**: 直した周で residue が 1 行でも
 返せば round_limit にし、冒頭 1 と次の run の依頼に残りの行を字のまま出す（直す物が無い周は no_fix_needed のまま。赤は冒頭 1 に出る）。
 
 口（線 B の報告も呼ぶ。線 B の申し送り 3・TA18。どの head_* も盤面を書かない）:
@@ -23,8 +23,10 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - branch_rows(b)・eye_ties(b) -> 差分の審査の穴と独立の目が場所を挙げた行の枝の名札の行（線の木の段 4a。冒頭 1 と最後の関所の文が同じ行を出す。穴も行も無ければ空）
 - verify_lines(b) -> 判定の単位の裏取りの行（周ごと。根本でない・証拠が無い・場所が違う・確かめられなかった単位と単位どうしの重複・
   順番。全部の単位が根本で合えば件数の 1 行。単位は消さないので、人が単位を減らすかを決める材料）
-- always_rows(b, left=None, *, tests_word=None, blocked=None, missing=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
-  走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は tests_word・blocked を渡して数えられる分を言う）・anomalies(b)・anomaly_lines(b, *, full=False)（仕組みの異常。報告の「仕組みの異常」の節）
+- tests_word(b, tests)・eye_counts(b, reviews) -> EyeCounts(blocked, not_run, missing)・rest_outside_validator(b, *, tests, counts, exit_problem="") -> Rest(tests_word, counts, rows)
+  （検証器の外の残りの数えの正本。最後の関所と冒頭 1・次の依頼が同じ口を読む。NOT_RUN_GATE_NOTE が not_run の例外の理由）
+- always_rows(b, left=None, *, rest=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
+  走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は rest を渡して数えられる分を言う。どちらも無い呼びは渡し忘れを名指す）・anomalies(b)・anomaly_lines(b, *, full=False)（仕組みの異常。報告の「仕組みの異常」の節）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
   failed=None, retried=None, eyeing=None, cleaned_runs="") -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
@@ -48,6 +50,7 @@ import pathlib
 import re
 import sys
 import types
+from typing import NamedTuple
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
 
@@ -381,10 +384,91 @@ def _tests_where(tests: dict) -> str:
     return str(tests.get("log") or "最後のテスト")
 
 
+NOT_RUN_GATE_NOTE = ("走っていない目（not_run）は目の判定でなく機械が書く欠け（返答が無い・止めた周）なので、最後の関所を開ける理由（阻害）には数えない。"
+                     "報告の冒頭 1 の残りには状態の表（REVIEW_STATUS）どおり数える")
+MISSING_GATE_NOTE = ("結果が無い目（missing）は阻害を返したのではなく判定が無い（記録を書く前の盤面・目を回さなかった線）ので、最後の関所を開ける理由（阻害）には数えない。"
+                     "代わりに関所の文の残りの行と報告の冒頭 1 の残り（fixed を名乗らせない）が『再実行の要あり』と名指す")
+
+
+def tests_word(b, tests) -> str:
+    """最後のテストの頭の語（最後の関所・冒頭 1 の残り・次の依頼・冒頭 1 のテストの行が同じ口を読む）: 緑・赤・環境で起こせなかった
+    （赤が全部、起こせない段 entry.env_only_red）・走れなかった・走らなかった（tests が None＝出口が無い）。任せ先の CI の役が走らせた回
+    （by role_needed）は、盤面の p4.ci が済んでいれば素材 materials.local_checks の status（blk-tests の final と同じ読み）"""
+    if tests is None:
+        return "走らなかった"
+    if tests.get("by") == "role_needed":
+        status = entry.role_ci_status(b, tests)
+        if status is None:
+            return "走れなかった"
+        return "緑" if status == "clean" else "赤"
+    if tests.get("ok") is not True:
+        return "走れなかった"
+    if tests.get("green") is True:
+        return "緑"
+    return "環境で起こせなかった（コードの赤ではない）" if entry.env_only_red(tests) else "赤"
+
+
+class EyeCounts(NamedTuple):
+    """独立の目（R1〜R4）を 1 回ずつ見て分けた 3 つの欄。各欄は目ごとの {name, status, reason} の list。
+    blocked: 表（REVIEW_STATUS）の blocks が真の status か、表に無い status（fail-closed）。
+    not_run: status が not_run。目の判定でなく機械が書く欠け（返答が無い・止めた周）なので、最後の関所を開ける理由には数えないが、
+    冒頭 1 の残りには表どおり数える（NOT_RUN_GATE_NOTE）。
+    missing: 結果の行が無い目（阻害 0 件ではなく判定が無い）。not_run と同じく関所を開ける理由には数えず冒頭 1 の残りには数える（MISSING_GATE_NOTE）。
+    表の skipped（軽量で省いた。blocks=False）はどの欄にも入れない。欄の名は表の status の名に合わせ、skipped の語と取り違えない"""
+    blocked: list
+    not_run: list
+    missing: list
+
+
+def eye_counts(b, reviews) -> EyeCounts:
+    """独立の目の結果の控え reviews（{R: {status, reason}}）を EyeCounts に分ける。関所（line_edge._eyes）と冒頭 1（residue）が同じ口を読む"""
+    table = _review_status(b)
+    blocked, not_run, missing = [], [], []
+    for name in EYES:
+        r = (reviews or {}).get(name)
+        if not isinstance(r, dict):
+            missing.append({"name": name, "status": None, "reason": ""})
+            continue
+        status = r.get("status")
+        got = {"name": name, "status": status, "reason": _one_line(r.get("reason") or "")}
+        if status == "not_run":
+            not_run.append(got)
+            continue
+        rule = table.get(status) if isinstance(status, str) else None
+        if rule is None or rule.blocks:
+            blocked.append(got)
+    return EyeCounts(blocked, not_run, missing)
+
+
+class Rest(NamedTuple):
+    """検証器の外の残り: tests_word（最後のテストの頭の語）・counts（EyeCounts）・rows（[{where, text}]）"""
+    tests_word: str
+    counts: EyeCounts
+    rows: list
+
+
+def rest_outside_validator(b, *, tests, counts: EyeCounts, exit_problem: str = "") -> Rest:
+    """検証器の外の残りの数えの正本（最後の関所と冒頭 1 の residue が同じ口を読む。検証器の行は持たない: 関所は検証器を回さない）。
+    rows: tests が dict で tests_word が緑でなければ『最後のテストが<語>』・exit_problem（独立の目のブロックの出口が ok でない理由）が
+    在れば『独立の目のブロックが ok でない: …』・目の行（blocked・not_run は『<R> が <status>: <reason>』、missing は
+    『<R> の結果が無い——再実行の要あり』。where は『独立の目 <R>』）"""
+    word = tests_word(b, tests)
+    rows = []
+    if isinstance(tests, dict) and word != "緑":
+        rows.append({"where": _tests_where(tests), "text": f"{TESTS_TEXT}{word}"})
+    if exit_problem:
+        rows.append({"where": EYES_WHERE, "text": f"独立の目のブロックが ok でない: {exit_problem}"})
+    said = {e["name"]: f"{e['name']} が {e['status']}: {e['reason']}" for e in [*counts.blocked, *counts.not_run]}
+    lost = {e["name"]: f"{e['name']} の結果が無い——再実行の要あり" for e in counts.missing}
+    rows += [{"where": f"{EYES_WHERE} {n}", "text": said.get(n) or lost[n]} for n in EYES if n in said or n in lost]
+    return Rest(word, counts, rows)
+
+
 def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = None) -> list:
     """fixed を名乗らせない残りの行（字のまま冒頭 1 と次の run の依頼に出す）: 検証器の阻害（exit 1 の箇条から名指しの帳尻の行
-    FIRST_ROUND_LINE と、この周の受け付けを通った修正で閉じた単位の行だけを除いた物。読めなければ fail-closed で 1 行）・
-    最後のテストの赤か走れなかった（tests が None＝飛ばされた時は数えない）・独立の目（blk-eyes の出口）が ok でない・目の status が blocks（表に無い status も数える）。返りは [{where, text}]"""
+    FIRST_ROUND_LINE と、この周の受け付けを通った修正で閉じた単位の行だけを除いた物。読めなければ fail-closed で 1 行）と、
+    検証器の外の残り（rest_outside_validator。最後のテストが緑でない・走れなかった（tests が None＝飛ばされた時は数えない）・
+    独立の目（blk-eyes の出口）が ok でない・目の阻害と走っていない目と結果が無い目）。返りは [{where, text}]"""
     rows = []
     if gate.get("exit") == 1:
         found = _validator_blockers(str(gate.get("out") or ""))
@@ -394,24 +478,16 @@ def residue(b, gate: dict, *, tests: dict | None = None, eyeing: dict | None = N
             closed = _closed_units(b)
             rows += [{"where": VALIDATOR_WHERE, "text": x} for x in found
                      if x != FIRST_ROUND_LINE and not any(_unit_row_of(x, k) for k in closed)]
-    if isinstance(tests, dict) and not (tests.get("ok") is True and tests.get("green") is True):
-        head = "赤" if tests.get("ok") is True else "走れなかった"
-        rows.append({"where": _tests_where(tests), "text": f"{TESTS_TEXT}{head}"})
+    counts, problem = EyeCounts([], [], []), ""
     if isinstance(eyeing, dict):
-        if eyeing.get("ok") is not True:
-            rows.append({"where": EYES_WHERE, "text": f"独立の目のブロックが ok でない: {_one_line(eyeing.get('reason') or '理由なし')}"})
-        table = _review_status(b)
-        for r in EYES:
-            rv = (eyeing.get("reviews") or {}).get(r)
-            if not isinstance(rv, dict):
-                continue
-            rule = table.get(rv.get("status"))
-            said = f"{r} が {rv.get('status')}"   # 検証器の blockers が同じ周の記録から既に出した目の行は二重に数えない
-            if any(x["where"] == VALIDATOR_WHERE and x["text"].startswith(said) for x in rows):
-                continue
-            if rule is None or rule.blocks:
-                rows.append({"where": f"{EYES_WHERE} {r}",
-                             "text": f"{r} が {rv.get('status')}: {_one_line(rv.get('reason') or '')}"})
+        counts = eye_counts(b, eyeing.get("reviews"))
+        problem = "" if eyeing.get("ok") is True else _one_line(eyeing.get("reason") or "理由なし")
+    named = {f"{EYES_WHERE} {e['name']}": f"{e['name']} が {e['status']}" for e in [*counts.blocked, *counts.not_run]}
+    for r in rest_outside_validator(b, tests=tests, counts=counts, exit_problem=problem).rows:
+        said = named.get(r["where"])   # 検証器の blockers が同じ周の記録から既に出した目の行（名と status が同じ）は二重に数えない。status が違う行は残す
+        if said and any(x["where"] == VALIDATOR_WHERE and x["text"].startswith(said) for x in rows):
+            continue
+        rows.append(r)
     return rows
 
 
@@ -455,7 +531,7 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
     機械の止め（by works:）→ stopped_by_line、人に聞いたまま（pending_human）か食い違いの申し出を人に回した（ask_human と、案の直しを
     諦めた fix_plan_item。conflict.asked）→ needs_human、関所が通らない（accepted か round_closed が偽）→ record_invalid、
     直す物が無い周 → no_fix_needed、残り（residue:
-    検証器の阻害・最後のテストの赤・独立の目の block）が在る → round_limit、他 → fixed。
+    検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）が在る → round_limit、他 → fixed。
     **fixed・no_fix_needed は accepted と round_closed が真の時だけ、fixed はさらに残りが無い時だけ**。直す物が無い周の赤は
     直しが起こした物でないので no_fix_needed のまま冒頭 1 に出す。report_accepts が 1 を受けるのは 1 周で止める
     run の帳尻の行を通すためで、1 の中身は residue が見る。needs_human を record_invalid の前に置くのは、人に聞いて
@@ -530,7 +606,7 @@ def prior_lines(rows: list) -> list:
 
 def carry_left(left: list | None, owned: set, tests: dict | None) -> list:
     """残り left（residue の返り）の全件を次の依頼へ運ぶ。落とすのは R2 の作り直しの行（findings でなく prior_failures に
-    載せる。findings は目的の役が生のまま読み、独立設計の入力に流れるため）と、次の 2 つの重複だけ: ①最後のテストの赤の行（tests が赤・
+    載せる。findings は目的の役が生のまま読み、独立設計の入力に流れるため）と、次の 2 つの重複だけ: ①最後のテストが緑でない行（tests が赤・
     走れなかった時に residue が足す行。next_request が理由つきの自前の行を持つ）②owned の単位の『[block] 未解消: <key>』の行
     （その単位は not_done・人に回した単位・再審の行が自分の字で持つ）"""
     red = (_tests_where(tests), TESTS_TEXT) if isinstance(tests, dict) else None
@@ -552,7 +628,7 @@ def lens_next_items(b) -> list:
 
 def next_request(b, *, tests: dict | None = None, left: list | None = None) -> list:
     """次の run に渡す依頼（1 本目の依頼の型 [{where, text}]。key・一言は字のまま）:
-    手直し 2 回目が fixed と言った穴（検算が要る）・declared で残した穴（どちらも枝の名札 _tie_notes を text の終わりに添える）・修正の not_done・最後のテストの赤・
+    手直し 2 回目が fixed と言った穴（検算が要る）・declared で残した穴（どちらも枝の名札 _tie_notes を text の終わりに添える）・修正の not_done・最後のテストが緑でない行・
     残り（left＝residue の返り）の全件（carry_left。テストの赤は上の行が持つ。not_done と人に回した単位の検証器の単位の行は、
     その単位の行が持つので渡さない）・落ちたレンズの「再実行の要あり」（lens_next_items）・
     再審されずに残った異議（loop.rejudge_requested。写し直しの前で再審の節が無い run と、会話が無くて止めた run）・
@@ -580,10 +656,9 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     for nd in fix.get("not_done") or []:
         if isinstance(nd, dict) and isinstance(nd.get("unit_key"), str):
             items.append({"where": nd["unit_key"], "text": f"{nd['unit_key']}（修正がやらなかった: {nd.get('why') or ''}）"})
-    if isinstance(tests, dict) and not (tests.get("ok") is True and tests.get("green") is True):
-        head = "赤" if tests.get("ok") is True else "走れなかった"
+    if isinstance(tests, dict) and tests_word(b, tests) != "緑":
         items.append({"where": str(tests.get("log") or "最後のテスト"),
-                      "text": f"最後のテストが{head}（{tests.get('reason') or 'ログを読む'}）"})
+                      "text": f"{TESTS_TEXT}{tests_word(b, tests)}（{tests.get('reason') or 'ログを読む'}）"})
     asked = _asked_units(_asked(b))
     settled, settled_keys = _rejudge_next(b)
     # 単位の行（not_done・人に回した単位・再審が開いた・下げた単位）を自分の字で持つ単位は、検証器の『[block] 未解消: <key>』を二重に渡さない
@@ -710,15 +785,15 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines.append(f"関所で止めた（{by}）: 「{reason}」")
     if by == REJUDGE_SESSION_BY:
         lines.append(f"再審の会話を確かめられずに止めた: 異議を再審するか、新しい run で判定し直すかを決める（{_one_line(reason)}）")
-    # by role_needed で任せ先の CI の役が p4.ci を渡し終えていれば、緑・赤は素材の status（最後の関所の頭と同じ読み）
+    # 緑・赤の語は最後の関所と同じ口（tests_word。by role_needed で p4.ci が済んでいれば素材の status）
     role = entry.role_ci_status(b, tests) if tests is not None else None
-    green = role == "clean" if role is not None else (tests or {}).get("green") is True
+    word = tests_word(b, tests)
     if tests is None:
         lines.append("最後のテスト: 走っていない")
-    elif tests.get("ok") is not True:
+    elif word == "走れなかった":
         lines.append(f"最後のテスト: 走れなかった（{tests.get('reason') or '理由なし'}・ログ {tests.get('log') or '無い'}）")
-    elif not green:
-        head = "最後のテスト: 環境で起こせなかった（コードの赤ではない）" if entry.env_only_red(tests) else "最後のテストが赤"
+    elif word != "緑":
+        head = f"最後のテスト: {word}" if word.startswith("環境") else f"{TESTS_TEXT}{word}"
         lines.append(f"{head}: {entry.suites_line(tests, role_status=role)}・ログ {tests.get('log') or '無い'}")
     else:
         lines.append(f"最後のテスト: 緑（{entry.suites_line(tests, role_status=role)}・ログ {tests.get('log') or '無い'}）")
@@ -1229,12 +1304,12 @@ def branch_rows(b) -> list:
     return rows
 
 
-def always_rows(b, left: list | None = None, *, tests_word: str | None = None, blocked: list | None = None,
-                missing: list | None = None) -> list:
+def always_rows(b, left: list | None = None, *, rest: Rest | None = None) -> list:
     """人が決めるのに要る 4 つ（clean が消したファイル・レンズ・仕組みの異常・残り）の行を、0 件でも、走らせていない・調べていない・
     読めないを 0 件と分けて返す。報告の冒頭 1 と最後の関所の文が同じ戻り値を読む（検証器は回さない）。インデントの付いた行は
-    直前の行の内訳。left は residue の返り——渡せば件数。None なら、最後の関所が tests_word（最後のテストの頭の語。line_edge._tests_head の返り）と
-    blocked（line_edge._eyes の blocked）を両方渡した時（missing は結果が無い目の名で、渡せば阻害 0 件と分けて件数を添える）だけ数えられる分を件数と語で言い、どちらかが無ければ数えない"""
+    直前の行の内訳。残りの行は、冒頭 1 が渡す left（residue の返り。検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と
+    結果が無い目）なら件数、最後の関所が渡す rest（rest_outside_validator の返り）なら数えられる分を件数と語で言う（検証器は数えない）。
+    どちらも無い呼びは、呼び元の渡し忘れを名指す（0 件に見せない）"""
     rows = []
     gone = leftovers.removed(b.dir)
     if not gone["readable"]:
@@ -1263,13 +1338,16 @@ def always_rows(b, left: list | None = None, *, tests_word: str | None = None, b
         rows.append(f"仕組みの異常: 合計 {a['total']} 件（" + "・".join(f"{n} {k['count']}" for n, k in a["kinds"].items()) + "。所在の全件は仕組みの異常の節）"
                     + (f"。壊れた行 {a['skipped']} 行を飛ばした" if a["skipped"] else ""))
     if left is not None:
-        rows.append(f"残り: {len(left)} 件（検証器の阻害・最後のテストの赤・独立の目の阻害）")
-    elif tests_word is not None and blocked is not None:
-        absent = f"・結果が無い目 {len(missing)} 件（{'・'.join(missing) or '無し'}。阻害 0 件ではなく判定が無い）" if missing is not None else ""
-        rows.append(f"残り（最後の関所で数えられる分）: 独立の目の阻害 {len(blocked)} 件（{'・'.join(blocked) or '無し'}）{absent}・最後のテスト: {tests_word}。"
-                    "検証器の阻害は最後の関所では数えない（報告の冒頭 1 の残りは検証器の箇条も数え、目の阻害は重なる。not_run の目は関所では阻害に数えない）")
-    else:
-        rows.append("残り: 最後の関所の時点では検証器を回していないので数えない（報告の冒頭 1 が数える）")
+        rows.append(f"残り: {len(left)} 件（検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}")
+    if rest is not None:
+        def counted(found, tail=""):
+            return f"{len(found)} 件（{'・'.join(e['name'] for e in found) or '無し'}{tail}）"
+        rows.append(f"残り（最後の関所で数えられる分）: 独立の目の阻害 {counted(rest.counts.blocked)}・走っていない目 {counted(rest.counts.not_run)}・"
+                    f"結果が無い目 {counted(rest.counts.missing, '。阻害 0 件ではなく判定が無い')}・最後のテスト: {rest.tests_word}。"
+                    f"数えられる分の合計 {len(rest.rows)} 件（目の 3 つの欄と、最後のテストが緑でなければその 1 件）。"
+                    f"検証器の阻害は最後の関所では数えない（報告の冒頭 1 の残りは検証器の箇条も数え、目の阻害は重なる）。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}")
+    if left is None and rest is None:
+        rows.append("残り: 数えを渡されていない（always_rows に left も rest も無い——呼び元の渡し忘れで、0 件ではない）")
     return rows
 
 

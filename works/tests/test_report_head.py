@@ -144,7 +144,9 @@ class FinalTestSuitesCase(unittest.TestCase):
     def gate_text(self, tests):
         sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
         import line_edge
-        text = line_edge._final_text(self.b, "緑", tests, "", ([], []), self._tmp.name, "run-1")
+        eyes = line_edge._eyes(self.b)   # 本物の作り手が作った eyes・rest で組む
+        rest = report.rest_outside_validator(self.b, tests=tests, counts=eyes.counts)
+        text = line_edge._final_text(self.b, tests, "", eyes, rest, self._tmp.name, "run-1")
         return text.split("- run の作業ツリー")[0]
 
     def test_gate_shows_unchecked_red_green(self):
@@ -183,10 +185,22 @@ class FinalTestSuitesCase(unittest.TestCase):
         self.b.record["materials"] = {"local_checks": {"status": "clean"}}
         tests = {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"}
         text = self.gate_text(tests)
-        import line_edge  # （gate_text が sys.path に足した後）
-        self.assertEqual(line_edge._tests_head(self.b, tests), "緑")
+        self.assertEqual(report.tests_word(self.b, tests), "緑")
         self.assertNotIn("blk-ci が走らせる", text)
         self.assertIn("status clean", text)
+
+    def test_residue_and_next_request_read_role_needed_like_the_gate(self):
+        """by role_needed で blk-ci が clean を渡し終えた盤面（関所の頭は緑）では、冒頭 1 の残り（residue）にも次の依頼
+        （next_request）にも『最後のテストが赤』の行が出ない（ok・green だけを見て赤と読まない）"""
+        self.b.node_state = lambda nid: "done"
+        self.b.record["materials"] = {"local_checks": {"status": "clean"}}
+        self.b.loop_state = {}
+        tests = {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"}
+        rows = report.residue(self.b, {"exit": 0}, tests=tests)
+        self.assertEqual([r for r in rows if r["text"].startswith(report.TESTS_TEXT)], [])
+        with mock.patch.object(report, "_asked", return_value=[]):
+            items = report.next_request(self.b, tests=tests, left=rows)
+        self.assertEqual([i for i in items if i["text"].startswith(report.TESTS_TEXT)], [])
 
     def test_report_head_role_needed_after_blk_ci_matches_final_gate(self):
         """報告の冒頭も関所と同じ盤面を読む: blk-ci が clean で渡し終えた後は『緑』で、関所と同じ一式の行を出す"""
@@ -552,10 +566,10 @@ class ClaimedWithoutTableRowCase(unittest.TestCase):
             return "\n".join(report.head_decisions(self.b, {}, tests=None))
 
     def gate_text(self):
+        """final_edge の関所の文。テストの語は report.tests_word・残りは report.rest_outside_validator を通り、_eyes は Eyes を返す"""
         sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
         import line_edge
-        with mock.patch.object(line_edge, "_tests_head", return_value="緑"), \
-                mock.patch.object(line_edge, "_eyes", return_value=([], [])), \
+        with mock.patch.object(line_edge, "_eyes", return_value=line_edge.Eyes([], report.EyeCounts([], [], []))), \
                 mock.patch.object(line_edge.rejudge, "unsettled", return_value={"settled": True, "text": ""}), \
                 mock.patch.object(line_edge, "_guard", return_value=([], "", "", [])), \
                 mock.patch.object(line_edge.querytest, "unproven_lines", return_value=[]), \
