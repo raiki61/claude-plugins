@@ -14,13 +14,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import planblk  # noqa: E402
 import rolekit  # noqa: E402
 
-INPUTS = ("INPUTS_ROLE", "INPUTS_EXCLUDED_FILE", "INPUTS_REPLAN")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_plan.py が見る）
-# 無くても欠けに数えない入力（後から足した replan。前の版の with: で再開した run は渡さない。無い・空は今どおり）
-OPTIONAL = frozenset({"INPUTS_REPLAN"})
+INPUTS = ("INPUTS_ROLE", "INPUTS_EXCLUDED_FILE", "INPUTS_REPLAN", "INPUTS_VERIFY_FILE")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_plan.py が見る）
+# 無くても欠けに数えない入力（後から足した replan・verify_file。前の版の with: で再開した run は渡さない。無い・空は今どおり）
+OPTIONAL = frozenset({"INPUTS_REPLAN", "INPUTS_VERIFY_FILE"})
 
 
 def run(board, repo, env):
-    return planblk.prep(board, env["INPUTS_ROLE"], repo, env["INPUTS_EXCLUDED_FILE"], os.environ.get("INPUTS_REPLAN", ""))
+    return planblk.prep(board, env["INPUTS_ROLE"], repo, env["INPUTS_EXCLUDED_FILE"], os.environ.get("INPUTS_REPLAN", ""),
+                        os.environ.get("INPUTS_VERIFY_FILE", ""))
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ RUN_ID = "run-7"
 OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
             "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note", "purpose_file", "mat_go",
-            "structure_units_file", "ripple_file"}
+            "structure_units_file", "ripple_file", "verify_file"}
 BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mat_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
@@ -1039,6 +1039,15 @@ class PlanEdgeCase(EdgeBase):
         for r in rows:
             self.assertEqual(set(r), {"id", "paths", "summary"})
             self.assertIsInstance(r["summary"], str)
+
+    def test_plan_hands_verify_notes(self):
+        """go の h-plan は判定のブロックが今の周に置いた単位の裏取りの申し送り（judge-verify.json）を verify_file で返す（無ければ空。
+        線の木の段 3）"""
+        self.premised()
+        self.assertEqual(self.edge("plan", judged=self.judge_exit())["verify_file"], "")
+        b = entry.open_board(self.board)
+        b.work(line_edge.VERIFY_FILE).write_text('{"units": [], "synergy": {"state": "unverified"}}\n', encoding="utf-8")
+        self.assertEqual(self.edge("plan", judged=self.judge_exit())["verify_file"], str(b.work(line_edge.VERIFY_FILE)))
 
     def test_bridge_skips_when_done(self):
         """盤面に p2.diagnose が今の周に在る → 2 度受けない（読めない judgment_file でも読まない。trace の done は 1 行）"""

@@ -1,0 +1,17 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "判定の単位の裏取りの申し送り r<N>/judge-verify.json（書き手は blk-judge の verify の節。lib/judgeverify.py。単位は消さない）",
+ "type": "object",
+ "required": ["units", "synergy"],
+ "properties": {
+  "units": {"type": "array", "items": {"type": "object", "required": ["n", "key", "state"],
+   "properties": {"n": {"type": "integer", "minimum": 1}, "key": {"type": "string"},
+                  "state": {"type": "string", "enum": ["checked", "unverified"]},
+                  "verdict": {"type": "string", "enum": ["root", "not_root", "unsure"]},
+                  "errors": {"type": "array", "items": {"type": "string"}}}}},
+  "synergy": {"type": "object", "required": ["state"],
+   "properties": {"state": {"type": "string", "enum": ["checked", "unverified"]},
+                  "duplicates": {"type": "array"}, "relations": {"type": "array"}, "order": {"type": "array"},
+                  "errors": {"type": "array", "items": {"type": "string"}}}}
+ }
+}

@@ -10,6 +10,7 @@
   例は外して写しの受け付けに渡し、通れば盤面の query-examples.json に置く（単独の run は core の check_judge が同じことをする）
 - finish(board, out): accept の後ろ半分（rolekit.main_accept の after）。例を judgment.json に戻す
 - with_done(board, out): 盤面の無い単独の run（check_judge）の受け付けに輪を抜ける旗 done を足す（この run の拒否の数で数える）
+- is_open(unit): 単位が直す義務を残すか（検証器の is_open。出口と裏取りの支度 judgeverify が使う）
 - collect(board): 出口 {ok, open_units, need_fix, judgment_file, one_shot}。judgment.json が無い時、ラインの盤面なら最後の拒否の
   文で盤面を止めて（by works:judge）ok false、単独なら Unreadable（スクリプトは 1）
 """
@@ -39,6 +40,11 @@ STANDALONE_FN = "check_judge"            # 単独の run の拒否の理由の�
 
 class Unreadable(Exception):
     """出口を組めない（単独の run で受け付けを通った判定が無い・judgment.json の形が崩れた）。文は 1 行にして標準エラーへ"""
+
+
+def is_open(unit) -> bool:
+    """単位が直す義務を残すか（検証器の is_open。盤面を開かずに引く。裏取りの支度と出口が同じ述語を使う）"""
+    return validator_module(_Validator).is_open(unit)
 
 
 def on_line(board) -> bool:
@@ -123,8 +129,7 @@ def collect(board) -> dict:
     if not isinstance(units, list) or not all(isinstance(u, dict) and "key" in u and "label" in u for u in units) \
             or not isinstance(one_shot, str):
         raise Unreadable(f"盤面の {core_accept.JUDGMENT_FILE} の形が崩れている（units[].key・label と one_shot が要る）: {path}")
-    V = validator_module(_Validator)
-    open_units = [u["key"] for u in units if V.is_open(u)]
+    open_units = [u["key"] for u in units if is_open(u)]
     return {"ok": True, "open_units": open_units, "need_fix": bool(open_units), "judgment_file": str(path),
             "one_shot": one_shot}
 

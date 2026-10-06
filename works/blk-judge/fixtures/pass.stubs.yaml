@@ -8,6 +8,7 @@ fixture:
   - judge-brief
   - judge
   - judge-accept
+  - verify-prep
   - collect
   inputs:
     request: request_ok.json

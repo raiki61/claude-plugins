@@ -163,6 +163,8 @@ class ScriptLine:
             got = self.replies[key]
         elif (block, nid) == ("blk-structure", "structure-eye"):   # 単位の id は run ごとに決まるので、実測から組む
             got = linekit.structure_eye_reply(self.art / "structure" / "structure.json")
+        elif (block, nid) == ("blk-judge", "judge-verify"):   # 判定の裏取りの束ね役: 下請けの代わりに答えのファイルを書く（線の木の段 3）
+            got = linekit.verify_answers(self.board)
         else:
             got = default_reply(block, nid)
         return got(n) if callable(got) else got

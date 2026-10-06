@@ -21,6 +21,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - prior_failures(b, left=None) -> この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]（次の依頼の prior_failures）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
 - branch_rows(b)・eye_ties(b) -> 差分の審査の穴と独立の目が場所を挙げた行の枝の名札の行（線の木の段 4a。冒頭 1 と最後の関所の文が同じ行を出す。穴も行も無ければ空）
+- verify_lines(b) -> 判定の単位の裏取りの行（周ごと。根本でない・証拠が無い・場所が違う・確かめられなかった単位と単位どうしの重複・
+  順番。全部の単位が根本で合えば件数の 1 行。単位は消さないので、人が単位を減らすかを決める材料）
 - always_rows(b, left=None, *, tests_word=None, blocked=None, missing=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
   走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は tests_word・blocked を渡して数えられる分を言う）・anomalies(b)・anomaly_lines(b, *, full=False)（仕組みの異常。報告の「仕組みの異常」の節）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
@@ -28,7 +30,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
-並行 PR の外した範囲 pr-excluded.json、再審の差分 rejudge-diff.json と出口 rejudge-exit.json）は書き手の模块（ライン・ブロック）を import せずに
+並行 PR の外した範囲 pr-excluded.json、再審の差分 rejudge-diff.json と出口 rejudge-exit.json、判定の単位の裏取りの申し送り
+judge-verify.json）は書き手の模块（ライン・ブロック）を import せずに
 ファイルの名前として読む（層 L3 は上の層を import しない。裁定 R59）。書き手と名前を揃えるのは試験（test_report）。
 
 この版で持たない物（報告に書く）: 版の一覧の行（P1 Task 18・19 の works_version・書き出しの manifest が無い）、
@@ -119,6 +122,7 @@ FLAG_SEEN_OP = "stop_flag_seen"                # 止め札を見て止めた境�
 PR_NODE = "p0.parallel_pr"
 PR_EXCLUDED = "pr-excluded.json"               # 並行 PR の外した hunk {node, head, excluded}
 REJUDGE_DIFF = "rejudge-diff.json"             # 再審の単位の差分の行の列
+VERIFY_NOTES = "judge-verify.json"             # 判定の単位の裏取りの申し送り（線の木の段 3。単位ごとの state・verdict と相乗り）
 REJUDGE_EXIT = "rejudge-exit.json"             # 再審のブロックの出口（決着した結果 verdicts・objection・new_open_units・lowered）
 REJUDGE_WHERE = "判定（再審の結果）"           # 次の run の依頼の再審の結果の行の where
 DOWNGRADES = "downgrades.json"
@@ -674,7 +678,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
     clean が消したファイル・レンズ・仕組みの異常・残りの件数（always_rows。結末に依らず常に）・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・事前審査の壁打ちの往復（converge.lines）・
-    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
+    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・判定の単位の裏取り（verify_lines）・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
@@ -752,6 +756,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     lines += rejudge_lines(b)
     lines += _rejudge_changes(b)
     lines += _premise_hypotheses(b)
+    lines += verify_lines(b)
     lines += _design_unanchored(b)
     lines += _pr_lines(b)
     lines += branch_rows(b)
@@ -900,6 +905,46 @@ def _premise_hypotheses(b) -> list:
                 if f["where"] in str(c.get("text") or ""):
                     lines.append(f"依頼の実測を測り直せなかった（前提は仮説）: {f['where']}——{c.get('text')}")
                     break
+    return lines
+
+
+def verify_lines(b) -> list:
+    """周ごとの判定の単位の裏取りの申し送り（VERIFY_NOTES）の行。読めない控えはその 1 行（黙って飛ばさない）"""
+    lines = []
+    for p in _all_rounds(b.dir, VERIFY_NOTES):
+        doc = _read_json(p)
+        rnd = p.parent.name
+        if not isinstance(doc, dict) or not isinstance(doc.get("units"), list):
+            lines.append(f"判定の単位の裏取り（{rnd}）: 申し送りが読めない（{p}）")
+            continue
+        units = [u for u in doc["units"] if isinstance(u, dict)]
+        notes = []
+        for u in units:
+            key = u.get("key")
+            if u.get("state") != "checked":
+                notes.append(f"確かめられなかった: {key}（{_one_line('・'.join(map(str, u.get('errors') or [])))}）")
+                continue
+            if u.get("verdict") == "not_root":
+                notes.append(f"根本でない: {key}（本当の根: {_one_line(u.get('real_root'))}。{_one_line(u.get('why'))}）")
+            elif u.get("verdict") == "unsure":
+                notes.append(f"根本か決められない: {key}（{_one_line(u.get('why'))}）")
+            if u.get("evidence_found") is False:
+                notes.append(f"証拠が無い: {key}（{_one_line(u.get('evidence'))}）")
+            if u.get("location_ok") is False:
+                notes.append(f"場所が違う: {key}（正しい場所: {_one_line(u.get('location'))}）")
+        syn = doc.get("synergy") if isinstance(doc.get("synergy"), dict) else {}
+        if syn.get("state") == "checked":
+            notes += [f"重複: {'・'.join(map(str, r.get('units') or []))}（{_one_line(r.get('why'))}）"
+                      for r in syn.get("duplicates") or [] if isinstance(r, dict)]
+            notes += [f"順番: {r.get('first')} → {r.get('then')}（{_one_line(r.get('why'))}）"
+                      for r in syn.get("order") or [] if isinstance(r, dict)]
+        else:
+            notes.append("単位どうしの相乗りは確かめられなかった")
+        if not notes:
+            lines.append(f"判定の単位の裏取り（{rnd}）: {len(units)} 単位とも根本・証拠・場所が合った（重複・順番の名指しなし）")
+            continue
+        lines.append(f"判定の単位の裏取り（{rnd}・{len(units)} 単位。単位は消していない。減らすなら関所か再審で）:")
+        lines += [f"  - {x}" for x in notes]
     return lines
 
 

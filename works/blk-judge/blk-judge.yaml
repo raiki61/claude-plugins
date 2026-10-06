@@ -3,6 +3,9 @@ description: |
   判定のブロック。人の修正依頼（findings の JSON の配列か、{findings, pr, issue} の形）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ
   （ラインの盤面が在れば、凍結した目的の文と素材も盤面から描いて読ませる。judge-brief）、
   受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回。ラインの盤面が在れば受け付けは盤面の p2.diagnose の done——本線と同じ）。
+  判定の根を開く（線の木の段 3。設計 docs/plans/2026-10-06-judge-verify.md）: 開いた単位が 2 つ以上なら、受け付けた判定の後に
+  束ね役（judge-verify）が単位ごとの裏取りの下請け（根本か・証拠・場所）と単位どうしの相乗りの下請け（重複・関わり・順番）を
+  Agent で並べて起こし、機械がその答えを今の周の申し送り judge-verify.json にまとめる。単位は消さない（申し送りになるだけ）。
   ラインから include で使う。
   出口は盤面の judgment.json のパスと、直す義務の残る単位の key の一覧と、直す物が在るか（need_fix）。
 
@@ -248,14 +251,77 @@ nodes:
               open_units: {type: array, items: {type: string}}
             required: [ok, done, reason, reason_file, open_units]
 
+  # 判定の根を開く（線の木の段 3）の支度: 受け付けた判定の開いた単位ごとの裏取りの下請けのファイル・相乗りのファイル・束ね役の
+  # 指示書を書き、申し送りの初めの形（全部「確かめられなかった」）を置く。開いた単位が 2 つ未満・盤面が無い・止まった盤面・判定が
+  # 無い（輪が 3 回とも拒んだ）なら go: false で束ね役を起こさない（1 単位は相乗りが無く、事前審査の下請けと重なる。設計書）
+  - id: verify-prep
+    script: verify
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [judge-brief, judge-loop]
+    trigger_rule: none_failed_min_one_success   # 止まった盤面では輪が飛ぶ（支度の go 偽）
+    with:
+      stage: prep
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, go, prompt_file]
+      properties:
+        ok: {type: boolean}
+        go: {type: boolean}
+        prompt_file: {type: string}
+
+  # 裏取りの束ね役: 下請けを Agent で 1 つのメッセージに並べて起こし（型は全部 general-purpose）、下請けは答えを盤面の外の run ごとの
+  # 置き場に Write で書く。返答は 1 行の要約だけ（答えの中身は機械がまとめる）。判定役とは別の目なので判定役の会話を継がない
+  # （context: fresh）。作業ツリーは書かない（mutates_checkout: false。変わればまとめが盤面を止める）
+  - id: judge-verify
+    model: opus                 # 確かめる目の役（本線の judge に当たる。tests/test_tool_parity.py の RoleModelCase が縛る）
+    effort: high
+    prompt: 指示書 `$verify-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
+    depends_on: [verify-prep]
+    when: "$verify-prep.output.go == true"
+    context: fresh
+    settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+    allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch, Agent, Write]
+    mutates_checkout: false
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
+    idle_timeout: 1728000000
+    # judgeverify.output_format()（tests/test_blk_judge.py が一致を見る）
+    output_format:
+      description: 'works-node: judge-verify'
+      type: object
+      additionalProperties: false
+      required: [summary]
+      properties:
+        summary: {type: string, minLength: 10}
+
+  # 裏取りのまとめ: 束ね役が通った時だけ走る（落ちた・飛んだ時は支度の置いた初めの申し送りが残る）。答えのファイルを型で確かめ、
+  # 単位ごとの行と相乗り（番号を単位の key に戻す）を今の周の judge-verify.json に書く。作業ツリーが変わっていれば盤面を止める
+  - id: verify-merge
+    script: verify
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [judge-verify]
+    with:
+      stage: merge
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, verify_file, verified, unverified]
+      properties:
+        ok: {type: boolean}
+        verify_file: {type: string}
+        verified: {type: integer, minimum: 0}
+        unverified: {type: integer, minimum: 0}
+
   # loop_group の出力は型を持てないので、輪の後ろで盤面の judgment.json から出口を組む。受け付けを通った判定が無ければ
   # （輪が 3 回とも拒んで抜けた・止まった盤面で輪が飛んだ）ラインの盤面は（止まっていなければ最後の拒否の文で止めて）ok: false、単独の run は 1
   - id: collect
     script: collect
     runtime: uv
     timeout: 1728000000
-    depends_on: [judge-brief, judge-loop]
-    trigger_rule: none_failed_min_one_success   # 止まった盤面では輪が飛ぶ（支度の go 偽）
+    depends_on: [judge-brief, judge-loop, verify-merge]
+    trigger_rule: none_failed_min_one_success   # 止まった盤面では輪が飛ぶ（支度の go 偽）。裏取りのまとめが飛んでも走る
     output_format:
       type: object
       properties:

@@ -126,10 +126,12 @@ EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", 
          "plan_file": "", "notes": "", "notes_file": "", "why": "", "gate_file": "", "premises_file": "",
          "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False,
          "runtime_go": False, "holdout_go": False, "mid_note": "", "purpose_file": "", "mat_go": False,
-         "structure_units_file": "", "ripple_file": ""}
+         "structure_units_file": "", "ripple_file": "", "verify_file": ""}
 # 修正案のブロックが今の周に置く波及の一覧（その manifest の produces。h-fix・h-refit が修正の段へパスで渡す。線の木の段 1）
 RIPPLE_FILE = "ripple.json"
 RIPPLE_REPLAN_FILE = "ripple/replan.json"   # 同じブロックの 2 度目の include（案の直し）が直した項目で作り直した一覧（同じ produces ripple/**）
+# 判定のブロックが今の周に置く単位の裏取りの申し送り（その manifest の produces。h-plan が修正案のブロックへパスで渡す。線の木の段 3）
+VERIFY_FILE = "judge-verify.json"
 
 
 def _gap(msg):
@@ -146,6 +148,10 @@ def refit_ripple_file(b) -> str:
     """2 回目の修正の段（refitting）へ渡す波及の一覧: 案の直しが作り直した RIPPLE_REPLAN_FILE が在ればそれ、無ければ 1 回目の
     RIPPLE_FILE（どちらも無ければ空）。1 回目の案の一覧は直した項目の範囲で照らしていない"""
     return _ripple_file(b, RIPPLE_REPLAN_FILE) or _ripple_file(b)
+def _verify_file(b) -> str:
+    """今の周の判定の単位の裏取りの申し送りの置き場（無ければ空。単位が 2 つ未満の周は判定のブロックが置かない）"""
+    p = b.work(VERIFY_FILE)
+    return str(p) if p.is_file() else ""
 
 
 def _write_json(path: pathlib.Path, doc) -> None:
@@ -976,7 +982,8 @@ def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> 
     3. p2.fix_plan が ready なら go。p3.fix が ready で p2.fix_plan が na（直す物が無い周）なら、機械が空の返答
        （entry.empty_fix_reply）を渡して trace_empty_fix
     4. 修正案が無くても、独立設計を修正の前に作る周（design.due）なら go（最後の R2 の比較が設計を要る。blk-plan は設計の輪だけを回す）
-    5. go なら判定の単位を構造のブロックの入力の契約に写し（structure_units）、structure_units_file で返す"""
+    5. go なら判定の単位を構造のブロックの入力の契約に写し（structure_units）、structure_units_file で返す。判定のブロックが今の周に
+       置いた単位の裏取りの申し送りが在れば verify_file で返す（修正案の役の指示書に貼る。線の木の段 3）"""
     if judged is not None:
         _write_json(b.work(JUDGED_FILE), judged)
     carried = _carried(b)
@@ -1000,7 +1007,7 @@ def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> 
         b = entry.open_board(pathlib.Path(board_dir))
         if not design.due(b)[0]:
             return {"go": False, **carried}
-    return {"go": True, **carried, "structure_units_file": structure_units(b, carried, repo)}
+    return {"go": True, **carried, "structure_units_file": structure_units(b, carried, repo), "verify_file": _verify_file(b)}
 
 
 def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate: str, judged: dict | None = None,
