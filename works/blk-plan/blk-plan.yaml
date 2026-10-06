@@ -666,15 +666,16 @@ nodes:
                 prompt: 指示書 `$plan-review-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
                 depends_on: [plan-review-prep]
                 settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-                # Agent は束ね役が項目ごとの下請けと相乗りの審査の下請けを 1 つのメッセージに並べて起こす口（線の木の段 1）。下請けも
-                # 読むだけ（作業ツリーが変われば受け付けが拒む）
-                allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch, Agent]
+                # Agent は束ね役が項目ごとの下請けと相乗りの審査の下請けを 1 つのメッセージに並べて起こす口（線の木の段 1）。Write は
+                # 下請けが答えを盤面の外の run ごとの置き場（planblk.answers_dir）に書く口（受け付けの機械がまとめる）。作業ツリーは
+                # 変えない（mutates_checkout: false で Archon も守り、変われば受け付けが拒む。盤面は包みの切符が守る）
+                allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch, Agent, Write]
                 mutates_checkout: false
                 sandbox: {enabled: true, allowUnsandboxedCommands: false}
                 idle_timeout: 1728000000
                 # planblk.output_format("plan-review")（写しの p2.plan_review の schema に印 works-node: plan-review と、壁打ちの任意の欄
-                # resolved（前の往復の block のうち消えた key）・束ね役の任意の欄 items（項目ごとの答え）・synergy（相乗りの審査）
-                # （converge.with_fields）を足した物）を貼った物
+                # resolved（前の往復の block のうち消えた key）・束ね役の任意の欄 items（項目ごとの判定の要約。当たりの答えと
+                # 相乗りは下請けの答えのファイルから受け付けがまとめる）（converge.with_fields）を足した物）を貼った物
                 output_format:
                   description: 'works-node: plan-review'
                   type: object
@@ -794,54 +795,30 @@ nodes:
                         additionalProperties: false
                         required:
                         - item
-                        - checked
-                        - hits
+                        - verdict
+                        - blocks
                         properties:
                           item:
                             type: integer
                             minimum: 1
-                          checked:
+                          verdict:
                             type: string
-                            minLength: 10
-                          hits:
+                            enum:
+                            - clean
+                            - block
+                          blocks:
                             type: array
                             items:
                               type: object
                               additionalProperties: false
                               required:
-                              - id
-                              - answer
+                              - key
                               - why
                               properties:
-                                id:
+                                key:
                                   type: string
-                                  minLength: 2
-                                answer:
-                                  type: string
-                                  enum:
-                                  - covered
-                                  - no_effect
-                                  - block
                                 why:
                                   type: string
-                                  minLength: 10
-                    synergy:
-                      type: object
-                      additionalProperties: false
-                      required:
-                      - ran
-                      - keys
-                      - why
-                      properties:
-                        ran:
-                          type: boolean
-                        keys:
-                          type: array
-                          items:
-                            type: string
-                        why:
-                          type: string
-                          minLength: 10
               - id: plan-review-accept
                 script: accept
                 runtime: uv

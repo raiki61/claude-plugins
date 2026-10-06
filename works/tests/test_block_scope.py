@@ -62,15 +62,10 @@ def clobbered(snaps: dict, first: str, second: str, shared) -> list:
 
 
 def tree_review(board: pathlib.Path) -> dict:
-    """1 度目の include（planning）の事前審査の空の返答に、束ね役の欄を足した物（2 項目の案なので、受け付けは開いた項目ごとの
-    items の行・覆っていない当たりの全部の答え・相乗りの審査 synergy を求める。planblk.tree_gaps）。当たりは節 review-ripple が
-    盤面に置いた往復 1 の波及の一覧から引き、全部 no_effect と答える"""
-    doc = json.loads(max(board.glob("r*/ripple/pass-1.json")).read_text(encoding="utf-8"))
-    items = [{"item": it["item"], "checked": "項目の案を stats.py と test_stats.py で読み、呼び出し元と試験の期待を確かめた",
-              "hits": [{"id": h["id"], "answer": "no_effect", "why": "直した後の値だけを断言していて期待は変わらない"}
-                       for h in it["uncovered"]]} for it in doc["items"]]
-    return {**tr.no_faces(), "items": items,
-            "synergy": {"ran": True, "keys": [], "why": "2 つの項目は stats.py の別の関数を直し、順番の依存も重複も無い"}}
+    """1 度目の include（planning）の事前審査の束ね役の返答（2 項目の案なので、受け付けは開いた項目ごとの下請けの答えのファイルと
+    相乗りの審査のファイルを求める。planblk.tree_merge）。下請けの代わりに linekit.tree_review が答えのファイルを書く（当たりは
+    全部 no_effect）"""
+    return linekit.tree_review(board)
 
 
 def scenario(board: pathlib.Path) -> dict:

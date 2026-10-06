@@ -248,9 +248,11 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual([m["id"] for m in g["nodes"]], [f"{role['id']}-prep", role["id"], f"{role['id']}-accept"])
                 self.assertEqual(grp["id"], f"{role['id']}-loop")
                 self.assertEqual(g["until_bash"], f"test ${role['id']}-accept.output.done = true")
-                # 事前審査の束ね役だけは項目ごとの下請けを起こす Agent を持つ（線の木の段 1）
+                # 事前審査の束ね役だけは項目ごとの下請けを起こす Agent と、下請けが盤面の外の答えのファイルを書く Write を持つ
+                # （線の木の段 1。作業ツリーは書かないので mutates_checkout: false のまま）
                 self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
-                                 + (["Agent"] if role["id"] == "plan-review" else []))
+                                 + (["Agent", "Write"] if role["id"] == "plan-review" else []))
+                self.assertIs(role["mutates_checkout"], False)
                 self.assertEqual(role["settingSources"], ["user"])
                 self.assertEqual(role["idle_timeout"], DEADLINE)
                 self.assertNotIn("context", role)
@@ -1815,12 +1817,16 @@ def two_items() -> dict:
 
 CHECKED = "項目の案を stats.py と test_stats.py で読み、呼び出し元と試験の期待を確かめた"
 NO_EFFECT = "上限の枝の外の値か、直した後の値だけを断言していて期待は変わらない"
+SUMMARY_REASON = "項目ごとの下請けの答えのファイルを受け、項目ごとの判定をまとめた"
+MEAN_BLOCK = {**linekit.reply("plan_review_regression")["faces"][0], "key": "item1-mean-empty-division",
+              "unit_keys": [UNIT_MEAN], "kind": "regression"}
 
 
 class TreeReviewCase(unittest.TestCase):
     """修正案の事前審査を木にする（線の木の段 1。設計 docs/plans/2026-10-06-tree-line.md の 2.3）: 波及の一覧の節が項目ごとの
-    覆っていない当たりを名指し、事前審査の役は束ね役として項目ごとの下請けのファイルを受け取る。受け付けは開いた項目の全部の答え・
-    覆っていない当たりの全部の答え・全部の項目が clean の往復の相乗りの審査を確かめ、閉じた項目を直しの役が変えたら拒む。
+    覆っていない当たりを名指し、事前審査の役は束ね役として項目ごとの下請けを起こす。下請けは答えを機械の決めたファイルに書き、
+    受け付け（機械）がそのファイルを確かめて審査の返答にまとめる（当たりの答え・項目の状態・相乗り）。束ね役の返答は項目ごとの
+    判定の要約だけ。確かめを通らない答えは、その項目の下請けにだけ機械の読める形で返す。閉じた項目を直しの役が変えたら拒む。
     helper は ScriptCase・ConvergeReviewCase から借りる"""
 
     setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
@@ -1836,26 +1842,35 @@ class TreeReviewCase(unittest.TestCase):
         got = self.ok("ripple", stage="items")
         return json.loads(pathlib.Path(got["ripple_file"]).read_text(encoding="utf-8"))
 
-    def items_rows(self, doc, only=None):
-        return [{"item": it["item"], "checked": CHECKED,
-                 "hits": [{"id": h["id"], "answer": "no_effect", "why": NO_EFFECT} for h in it["uncovered"]]}
-                for it in doc["items"] if only is None or it["item"] in only]
+    def answer(self, n, doc, faces=(), resolved=(), why=NO_EFFECT):
+        """項目 n の下請けの答え（覆っていない当たりは全部 no_effect）"""
+        return {"item": n, "checked": CHECKED, "faces": list(faces), "shrink": [], "resolved": list(resolved),
+                "hits": [{"id": h["id"], "answer": "no_effect", "why": why} for h in planblk.ripple.uncovered(doc, n)]}
+
+    def write_answers(self, k, rows, synergy=None):
+        """下請けが書く答えのファイル（指示書が名指すパス）"""
+        b = self.board_obj()
+        for n, row in rows.items():
+            p = planblk.answer_file(b, k, n)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
+        if synergy is not None:
+            planblk.synergy_file(b, k).write_text(json.dumps(synergy, ensure_ascii=False), encoding="utf-8")
+
+    @staticmethod
+    def synergy(faces=()):
+        return {"why": "2 つの項目は stats.py の別の関数を直し、順番の依存も重複も無い", "faces": list(faces)}
+
+    @staticmethod
+    def summary(verdicts):
+        """束ね役の返答（項目ごとの判定の要約だけ。faces・shrink は空。verdicts は {項目: [block の key]}）"""
+        return {"faces": [], "shrink": [], "reason": SUMMARY_REASON,
+                "items": [{"item": n, "verdict": "block" if keys else "clean",
+                           "blocks": [{"key": k, "why": "下請けが挙げた穴"} for k in keys]} for n, keys in verdicts.items()]}
 
     def review(self, reply):
         self.assertTrue(self.ok("snap", role="plan-review")["go"])
         return self.round_of("plan-review", reply)
-
-    def clean_reply(self, doc, only=None, synergy=True):
-        out = {**linekit.reply("plan_review_ok"), "items": self.items_rows(doc, only)}
-        if synergy:
-            out["synergy"] = {"ran": True, "keys": [], "why": "2 つの項目は stats.py の別の関数を直し、順番の依存も重複も無い"}
-        return out
-
-    def block_mean(self, doc):
-        face = {**linekit.reply("plan_review_regression")["faces"][0], "key": "mean の空の列の割り算が残る",
-                "unit_keys": [UNIT_MEAN], "kind": "regression"}
-        return {**linekit.reply("plan_review_regression"), "faces": [face], "items": self.items_rows(doc),
-                "synergy": {"ran": False, "keys": [], "why": "開いた項目に block が在るので相乗りの審査は次の往復"}}
 
     def test_units_ripple_reaches_plan_prompt(self):
         self.judged()
@@ -1877,55 +1892,118 @@ class TreeReviewCase(unittest.TestCase):
         self.assertEqual(self.ok("ripple", stage="items", replan="true"), {"ok": True, "ripple_file": ""})
 
     def test_review_prompt_spawns_item_subagents_and_synergy(self):
+        """束ね役の指示書が項目ごとの下請けの指示書を名指し、下請けの指示書が答えを書くファイル（盤面の外の run ごとの置き場）を名指す"""
         self.ready()
         self.ripple_doc()
         self.assertTrue(self.ok("snap", role="plan-review")["go"])
         prep = self.ok("prep", role="plan-review", excluded_file="")
         prompt = pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn(planblk.AGG_HEAD, prompt)
-        folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=1))
+        b = self.board_obj()
+        folder = b.work(planblk.ITEMS_DIR.format(k=1))
         self.assertEqual(sorted(p.name for p in folder.iterdir()), ["item-1.md", "item-2.md", "synergy.md"])
         for name in ("item-1.md", "item-2.md", "synergy.md"):
             self.assertIn(str(folder / name), prompt)
-            self.assertIn(prep["prompt_file"], (folder / name).read_text(encoding="utf-8"))
+        for n in (1, 2):
+            path = planblk.answer_file(b, 1, n)
+            self.assertIn(str(path), (folder / f"item-{n}.md").read_text(encoding="utf-8"))
+            self.assertFalse(str(path).startswith(str(self.board) + os.sep), path)   # 盤面は守る場所で役が書けない
+        self.assertIn(str(planblk.synergy_file(b, 1)), (folder / "synergy.md").read_text(encoding="utf-8"))
         self.assertIn("test_clamp_above_range", (folder / "item-2.md").read_text(encoding="utf-8"))
         self.assertIn("stats.py: 項目 1, 2", (folder / "synergy.md").read_text(encoding="utf-8"))
 
-    def test_review_must_answer_every_open_item_and_hit(self):
+    def test_machine_merges_item_answers_into_review(self):
+        """受け付けが下請けの答えのファイルから当たりの答え・faces・相乗りをまとめる。束ね役は当たりを写さない"""
         self.ready()
         doc = self.ripple_doc()
-        _, got = self.review(linekit.reply("plan_review_ok"))
+        self.write_answers(1, {1: self.answer(1, doc), 2: self.answer(2, doc)}, synergy=self.synergy())
+        _, got = self.review(self.summary({1: [], 2: []}))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        rec = converge.read(self.board_obj())
+        self.assertEqual(rec["outcome"], converge.CLEAN)
+        items = rec["passes"][-1]["items"]
+        self.assertEqual([it["state"] for it in items], [converge.CLOSED, converge.CLOSED])
+        self.assertEqual([h["id"] for h in items[1]["hits"]], [h["id"] for h in planblk.ripple.uncovered(doc, 2)])
+        self.assertIn("item-2.json", rec["passes"][-1]["files"])
+        out = self.board_obj().output_of_round("p2.plan_review", 1)
+        self.assertEqual(out["faces"], [])
+        self.assertNotIn("items", out)
+
+    def test_invalid_answer_goes_back_to_its_item_only(self):
+        """答えのファイルの誤り（短い理由・欠けた当たり）は、その項目の下請けにだけ機械の読める形で返す。通った項目は起こし直さない"""
+        self.ready()
+        doc = self.ripple_doc()
+        bad = self.answer(2, doc, why="同上")
+        self.assertTrue(bad["hits"])
+        self.write_answers(1, {1: self.answer(1, doc), 2: bad}, synergy=self.synergy())
+        _, got = self.review(self.summary({1: [], 2: []}))
         self.assertFalse(got["ok"])
         text = self.reason_of(got)
         self.assertTrue(text.startswith(planblk.TREE_REJECT), text)
-        self.assertIn("項目 1", text)
-        reply = self.clean_reply(doc)
-        reply["items"][1]["hits"] = reply["items"][1]["hits"][1:]
-        _, got = self.review(reply)
+        self.assertIn("項目 2", text)
+        self.assertNotIn("項目 1（", text)
+        prep = self.ok("prep", role="plan-review", excluded_file="")
+        prompt = pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8")
+        folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=1))
+        redo = prompt[prompt.index(planblk.REDO_HEAD):]
+        self.assertIn(str(folder / "item-2.md"), redo)
+        self.assertNotIn(str(folder / "item-1.md"), redo)
+        brief = (folder / "item-2.md").read_text(encoding="utf-8")
+        errs = json.loads(brief[brief.index(planblk.ERRORS_HEAD):].split("```json\n", 1)[1].split("\n```", 1)[0])
+        self.assertEqual(errs["item"], 2)
+        self.assertTrue(any("why" in e for e in errs["errors"]), errs)
+        self.write_answers(1, {2: self.answer(2, doc)})
+        _, got = self.round_of("plan-review", self.summary({1: [], 2: []}))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+
+    def test_aggregator_reply_is_summary_only(self):
+        """束ね役が faces を写した・項目の判定が答えのファイルと食い違う返答は拒む"""
+        self.ready()
+        doc = self.ripple_doc()
+        self.write_answers(1, {1: self.answer(1, doc, faces=[MEAN_BLOCK]), 2: self.answer(2, doc)})
+        _, got = self.review({**self.summary({1: [MEAN_BLOCK["key"]], 2: []}), "faces": [MEAN_BLOCK]})
         self.assertFalse(got["ok"])
-        self.assertIn("h1", self.reason_of(got))
+        self.assertIn("faces", self.reason_of(got))
+        _, got = self.round_of("plan-review", self.summary({1: [], 2: []}))
+        self.assertFalse(got["ok"])
+        self.assertIn("項目 1", self.reason_of(got))
+        _, got = self.round_of("plan-review", self.summary({1: [MEAN_BLOCK["key"]], 2: []}))
+        self.assertTrue(got.get("again"), self.reason_of(got) if got.get("reason_file") else got)
 
     def test_all_clean_pass_needs_synergy(self):
         self.ready()
         doc = self.ripple_doc()
-        _, got = self.review(self.clean_reply(doc, synergy=False))
+        self.write_answers(1, {1: self.answer(1, doc), 2: self.answer(2, doc)})
+        _, got = self.review(self.summary({1: [], 2: []}))
         self.assertFalse(got["ok"])
-        self.assertIn("synergy", self.reason_of(got))
-        _, got = self.review(self.clean_reply(doc))
+        self.assertIn("相乗り", self.reason_of(got))
+        self.write_answers(1, {}, synergy=self.synergy())
+        _, got = self.round_of("plan-review", self.summary({1: [], 2: []}))
         self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
         rec = converge.read(self.board_obj())
         self.assertEqual(rec["outcome"], converge.CLEAN)
         self.assertEqual([it["state"] for it in rec["passes"][-1]["items"]], [converge.CLOSED, converge.CLOSED])
 
+    def test_item_answer_cannot_name_other_items(self):
+        """項目の下請けの face は自分の項目の単位だけを名指す（項目どうしの穴は相乗りの審査の物）"""
+        self.ready()
+        doc = self.ripple_doc()
+        other = {**MEAN_BLOCK, "key": "item1-names-clamp", "unit_keys": [UNIT_CLAMP]}
+        self.write_answers(1, {1: self.answer(1, doc, faces=[other]), 2: self.answer(2, doc)})
+        _, got = self.review(self.summary({1: [other["key"]], 2: []}))
+        self.assertFalse(got["ok"])
+        self.assertIn("項目 1", self.reason_of(got))
+
     def test_block_closes_other_item_and_revise_cannot_change_it(self):
         self.ready()
         doc = self.ripple_doc()
-        _, got = self.review(self.block_mean(doc))
+        self.write_answers(1, {1: self.answer(1, doc, faces=[MEAN_BLOCK]), 2: self.answer(2, doc)})
+        _, got = self.review(self.summary({1: [MEAN_BLOCK["key"]], 2: []}))
         self.assertTrue(got.get("again"), got)
         b = self.board_obj()
         self.assertEqual(converge.open_items(b), [1])
         role = planblk.REVISE_ROLE
-        answers = [{"key": "mean の空の列の割り算が残る", "handled": "fixed", "how": "空の列を先に弾く手順を案に足した"}]
+        answers = [{"key": MEAN_BLOCK["key"], "handled": "fixed", "how": "空の列を先に弾く手順を案に足した"}]
         changed = two_items()
         changed["plan"][1]["approach"] = "clamp の上限の枝で hi を返し、下限の枝も見直す"
         self.assertTrue(self.ok("snap", role=role)["go"])
@@ -1941,19 +2019,15 @@ class TreeReviewCase(unittest.TestCase):
         self.ok("prep", role="plan-review", excluded_file="")
         folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=2))
         self.assertEqual(sorted(p.name for p in folder.iterdir()), ["item-1.md", "synergy.md"])
-        on_closed = {**linekit.reply("plan_review_regression")["faces"][0], "key": "clamp と mean の直しの順番が食い違う",
+        on_closed = {**linekit.reply("plan_review_regression")["faces"][0], "key": "synergy-clamp-mean-order",
                      "unit_keys": [UNIT_CLAMP]}
-        reply = {**self.clean_reply(doc, only=[1]), "faces": [on_closed], converge.RESOLVED: ["mean の空の列の割り算が残る"]}
-        reply["synergy"] = {"ran": True, "keys": [], "why": "相乗りの審査は穴を挙げなかった"}
-        _, got = self.round_of("plan-review", reply)
-        self.assertFalse(got["ok"])
-        self.assertIn("項目 2", self.reason_of(got))
-        reply["synergy"]["keys"] = [on_closed["key"]]
-        _, got = self.round_of("plan-review", reply)
+        self.write_answers(2, {1: self.answer(1, doc, resolved=[MEAN_BLOCK["key"]])}, synergy=self.synergy([on_closed]))
+        _, got = self.round_of("plan-review", self.summary({1: []}))
         self.assertTrue(got.get("again"), self.reason_of(got) if got.get("reason_file") else got)
         rec = converge.read(self.board_obj())
         self.assertEqual([it["state"] for it in rec["passes"][-1]["items"]], [converge.CLOSED, converge.OPEN])
         self.assertTrue(rec["passes"][-1]["items"][1]["reopened"])
+        self.assertEqual(rec["passes"][-1]["synergy"], [on_closed["key"]])
 
     def test_reads_trace_agent_launches_against_item_files(self):
         """読んだ証拠の節が、束ね役の Agent の呼びの数と下請けのファイルの数を盤面の trace に並べる（拒まない。測る）"""
@@ -1970,10 +2044,11 @@ class TreeReviewCase(unittest.TestCase):
         self.assertEqual([(r["launched"], r["item_files"], r["synergy_files"]) for r in got], [(2, 2, 1)])
 
     def test_single_item_plan_needs_no_synergy(self):
+        """1 項目で覆っていない当たりの無い案は、下請けの答えのファイルが無ければ返答の全体がその項目の答え"""
         self.judged()
         self.planned()
-        doc = self.ripple_doc()
-        _, got = self.review(self.clean_reply(doc, synergy=False))
+        self.ripple_doc()
+        _, got = self.review(linekit.reply("plan_review_ok"))
         self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
 
 

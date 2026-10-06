@@ -28,7 +28,9 @@ note_plan の無い控え（行に items が無い）は今までどおり全体
 - answer_gaps(b, answers)・resolved_gaps(b, faces, resolved): 修正案の役と事前審査の役の返答の欄の欠けと誤りの行（項目の在る
   控えでは、今の往復で開いている項目の分だけ）
 - with_fields(role, schema)・split(role, reply): 役の型に欄を足す・返答から欄を外す（事前審査の型には項目ごとの審査の欄
-  ITEMS・SYNERGY も任意で足す。tree_split が外す・drop_fields が壁打ちの欄を全部外す）
+  ITEMS（項目ごとの判定の要約）も任意で足す。tree_split が外す・drop_fields が壁打ちの欄を全部外す。下請けの答えのファイルの
+  当たりの答えの型は HITS_SCHEMA）
+- item_blocks(b, n): 項目 n が答える前の往復の block の key（受け付けが下請けの答えの resolved を確かめる）
 - face_items(b, faces): 名前に戻した face の key → 項目の番号（_attributed と同じ決まり）
 - revise_section(b)・review_section(b)・stuck_reason(b)・lines(b): 指示書に足す文・関所の理由・報告の行（往復ごとの行は
   前の往復の block を審査が suggest に下げた key も名指す）
@@ -91,22 +93,25 @@ ANSWER_SCHEMA = {"type": "array", "items": {
                    "how": {"type": "string", "minLength": 10}}}}
 RESOLVED_SCHEMA = {"type": "array", "items": {"type": "string"}}
 FIELDS = {"plan-revise": (ANSWERS, ANSWER_SCHEMA, True), "plan-review": (RESOLVED, RESOLVED_SCHEMA, False)}
-# 事前審査の束ね役の欄（線の木の段 1。役の型にだけ在り、盤面へ渡す前に外す。写しの graph は変えない）
+# 事前審査の束ね役の欄（線の木の段 1。役の型にだけ在り、盤面へ渡す前に外す。写しの graph は変えない）。束ね役は項目ごとの判定の
+# 要約（ITEMS）だけを返し、当たりの答え・faces・相乗りは下請けが答えのファイルに書いて受け付け（機械）がまとめる（run 68f35d6b:
+# 束ね役が当たりの答え 141〜197 行を返答に写して 1 往復に 119〜194 秒を使い、短く写した理由で型に拒まれて書き直した）
 ITEMS = "items"
 SYNERGY = "synergy"
-HIT_ANSWERS = ("covered", "no_effect", "block")
+VERDICTS = ("clean", "block")
 ITEMS_SCHEMA = {"type": "array", "items": {
-    "type": "object", "additionalProperties": False, "required": ["item", "checked", "hits"],
-    "properties": {"item": {"type": "integer", "minimum": 1}, "checked": {"type": "string", "minLength": 10},
-                   "hits": {"type": "array", "items": {
-                       "type": "object", "additionalProperties": False, "required": ["id", "answer", "why"],
-                       "properties": {"id": {"type": "string", "minLength": 2},
-                                      "answer": {"type": "string", "enum": list(HIT_ANSWERS)},
-                                      "why": {"type": "string", "minLength": 10}}}}}}}
-SYNERGY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["ran", "keys", "why"],
-                  "properties": {"ran": {"type": "boolean"}, "keys": {"type": "array", "items": {"type": "string"}},
-                                 "why": {"type": "string", "minLength": 10}}}
-TREE_FIELDS = {"plan-review": {ITEMS: ITEMS_SCHEMA, SYNERGY: SYNERGY_SCHEMA}}
+    "type": "object", "additionalProperties": False, "required": ["item", "verdict", "blocks"],
+    "properties": {"item": {"type": "integer", "minimum": 1}, "verdict": {"type": "string", "enum": list(VERDICTS)},
+                   "blocks": {"type": "array", "items": {
+                       "type": "object", "additionalProperties": False, "required": ["key", "why"],
+                       "properties": {"key": {"type": "string"}, "why": {"type": "string"}}}}}}}
+# 下請けの答えのファイルの当たりの答えの欄（受け付けが項目ごとに確かめる。理由は 10 字以上）
+HIT_ANSWERS = ("covered", "no_effect", "block")
+HITS_SCHEMA = {"type": "array", "items": {
+    "type": "object", "additionalProperties": False, "required": ["id", "answer", "why"],
+    "properties": {"id": {"type": "string", "minLength": 2}, "answer": {"type": "string", "enum": list(HIT_ANSWERS)},
+                   "why": {"type": "string", "minLength": 10}}}}
+TREE_FIELDS = {"plan-review": {ITEMS: ITEMS_SCHEMA}}
 
 
 # ---------------------------------------------------------------- 決まり
@@ -245,6 +250,21 @@ def open_items(b) -> list[int]:
             if (last.get(it["id"]) or {}).get("state") not in (CLOSED, HELD)]
 
 
+def item_blocks(b, n: int) -> list:
+    """項目 n（1 始まり。今の案の項目の控え）が答える前の往復の block の key（resolved_gaps と同じ決まり: unit_keys が項目と
+    重なる block と、どの項目とも重ならない block。出た順・重なりは 1 つ）。控えか往復が無ければ []"""
+    doc = read(b)
+    plan = doc.get("plan") or []
+    if not doc["passes"] or not 1 <= n <= len(plan):
+        return []
+    mine = {str(k) for k in plan[n - 1]["unit_keys"]}
+    every = {str(k) for it in plan for k in it["unit_keys"]}
+    out = [key for p in doc["passes"] for key in p.get("blocks", [])
+           if (set((p.get("face_units") or {}).get(key) or []) & mine)
+           or not (set((p.get("face_units") or {}).get(key) or []) & every)]
+    return list(dict.fromkeys(out))
+
+
 def closed_gaps(b, rows: list) -> list[str]:
     """直した案（名前に戻した行の並び）が、最後の往復で閉じた項目を変えた・消した（組み直した）行"""
     doc = read(b)
@@ -260,10 +280,12 @@ def closed_gaps(b, rows: list) -> list[str]:
     return out
 
 
-def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict, synergy: list | None = None) -> dict:
+def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict, synergy: list | None = None,
+                hits: dict | None = None) -> dict:
     """事前審査の返答 1 つを往復の行として足し、decide で抜け方を決めて控えを書く。files（{名: パス}）の在るファイルを
     pass-<k>/ に写し、写した先を行に置く。盤面の trace に OP の行を書く。控えに項目（note_plan）が在れば行に items・
-    synergy（相乗りの審査が挙げた key）・face_units を置く。返りは足した行"""
+    synergy（相乗りの審査が挙げた key）・face_units を置き、hits（{項目の番号: 当たりの答えの行}。受け付けが下請けの答えの
+    ファイルから引いた物）を審査した項目の items の行に置く。返りは足した行"""
     doc = read(b)
     passes = doc["passes"]
     k = len(passes) + 1
@@ -279,6 +301,9 @@ def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict, syn
         row["face_units"] = {f.get("key"): [str(k) for k in f.get("unit_keys") or []] for f in faces}
         row["items"] = _item_states(doc["plan"], faces, row["face_units"],
                                     list(_last_items(doc).values()), earlier)
+        for it in row["items"]:
+            if it["n"] in (hits or {}):
+                it["hits"] = copy.deepcopy(hits[it["n"]])
         row["synergy"] = list(synergy or [])
     passes.append(row)
     row["outcome"] = decide(passes, fence=fence)

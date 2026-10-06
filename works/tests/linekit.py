@@ -60,6 +60,36 @@ def reply(name: str) -> dict:
     return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
 
 
+TREE_CHECKED = "項目の案を stats.py と test_stats.py で読み、呼び出し元と試験の期待を確かめた"
+TREE_NO_EFFECT = "直した後の値だけを断言していて期待は変わらない"
+
+
+def tree_review(board, k: int = 1, synergy_why: str = "2 つの項目は stats.py の別の関数を直し、順番の依存も重複も無い") -> dict:
+    """事前審査の束ね役の見本（線の木の段 1）: 往復 k の下請けのファイル（盤面の plan-review-items/pass-<k>/）が名指す答えの
+    ファイルに、下請けの代わりに答えを書き（覆っていない当たりは全部 no_effect・faces は空。相乗りの審査も穴なし）、項目ごとの
+    判定の要約（全部 clean）を返す。当たりは節 review-ripple が盤面に置いた往復 k の波及の一覧から引く"""
+    board = pathlib.Path(board)
+    if str(ROOT / "blk-plan" / "lib") not in sys.path:
+        sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
+    import planblk
+    doc = json.loads(max(board.rglob(f"ripple/pass-{k}.json")).read_text(encoding="utf-8"))
+    hits = {it["item"]: it["uncovered"] for it in doc["items"]}
+    rows = []
+    for brief in sorted(board.rglob(f"plan-review-items/pass-{k}/*.md")):
+        path = pathlib.Path(planblk.answer_in(brief.read_text(encoding="utf-8")))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if brief.stem == "synergy":
+            body = {"why": synergy_why, "faces": []}
+        else:
+            n = int(brief.stem.split("-")[1])
+            rows.append(n)
+            body = {"item": n, "checked": TREE_CHECKED, "faces": [], "shrink": [], "resolved": [],
+                    "hits": [{"id": h["id"], "answer": "no_effect", "why": TREE_NO_EFFECT} for h in hits.get(n, [])]}
+        path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+    return {"faces": [], "shrink": [], "reason": "項目ごとの下請けの答えのファイルを受け、項目ごとの判定をまとめた",
+            "items": [{"item": n, "verdict": "clean", "blocks": []} for n in rows]}
+
+
 def structure_eye_reply(structure_file) -> dict:
     """構造の目の見本の返答: structure.json の実測できた単位ごとに、根拠つきの汚れないの 1 行（単位の id は run ごとに決まる）"""
     doc = json.loads(pathlib.Path(structure_file).read_text(encoding="utf-8"))
