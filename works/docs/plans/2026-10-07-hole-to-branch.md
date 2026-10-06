@@ -64,7 +64,7 @@
 
 - 単位の worktree: `.shared/core/unittrees.py`（`snapshot`・`add`・`diff`・`apply`・`applied`・`remove`・`sweep`。共通の .git を書かない objects の口つき）。
 - 分け方と当て方: `works/blk-fix/lib/unitlanes.py`（`overlap`・`lanes`・`plant`・`merge`・`command`・`settle`）。**ブロックの lib に在る**ので、ほかのブロックからは使えない（ブロックはほかのブロックを名指さない）。TDD の輪の並べ（`blk-fix/lib/tddlanes.py`）も同じ物を使う。
-- 下請けの起こし方: 修正役（`seat.g1_section`。下請けのファイルは `fixrules.g1_values`）・TDD の輪のまとめ役（`fixrules.tdd_lane_render`）・事前審査の束ね役（`blk-plan/lib/planblk.py` の `answers_dir`・`tree_merge`）。事前審査の木（線の木の 8 節）で、下請けは答えを盤面の外の答えのファイルに書き、機械がまとめる形に直した（束ね役が答えを写すと遅く、写しの誤りで拒まれた）。
+- 下請けの起こし方: 修正役（`seat.g1_section`。下請けのファイルは `fixrules.g1_values`）・TDD の輪の並べの枝の支度（`tddlanes.lane_prep`。単位の決まりのファイルは `fixrules.tdd_lane_render`。枝は Archon の節）・事前審査の束ね役（`blk-plan/lib/planblk.py` の `answers_dir`・`tree_merge`）。事前審査の木（線の木の 8 節）で、下請けは答えを盤面の外の答えのファイルに書き、機械がまとめる形に直した（束ね役が答えを写すと遅く、写しの誤りで拒まれた）。
 - 道具の柵: `fixshape.DENY`・`denied_tools`。Agent は修正役（fix・fix-ruled）が g1・g3 で、TDD の輪の役（tdd）が g3 でだけ持つ。
 
 ### 1.5 時間の実測
