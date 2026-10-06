@@ -85,6 +85,69 @@ class FrozenRuledScopeCase(unittest.TestCase):
         self.assertTrue(got, "未追跡のファイルでも範囲の外の行の変更は拒む")
         self.assertIn(NEW_FILE, " ".join(got))
 
+    # 足しただけの変更（依頼 195i の 2）: 凍ったファイルの既存の文（関数・クラスの頭・モジュールの文・コメント）を 1 つも変えず、
+    # 新しい関数・クラス（既存のクラスの中の新しいメソッドも）と、新しい名の import・代入を足しただけなら凍結に数えない。
+    # 既存のテストが読む名・枠の掛け金（setUp・pytestmark・autouse の fixture など）に当たる追加は今どおり拒む
+    ADDED_METHOD = ("    def test_clamp_below_range(self):\n        self.assertEqual(clamp(-5, 0, 10), 0)\n\n"
+                    "    def test_clamp_far_above(self):\n        self.assertEqual(clamp(20, 0, 10), 10)\n")
+    ADDED_TOP = ("\n\n# 測りの補い\ndef make_values(n):\n    return list(range(n))\n\n\nLIMIT = 10\n\n\n"
+                 "class TestMeasure(unittest.TestCase):\n    def test_values(self):\n        self.assertEqual(len(make_values(3)), 3)\n")
+
+    def test_pure_additions_are_not_frozen(self):
+        self.edit("        self.assertEqual(clamp(15, 0, 10), 10)\n",
+                  "        self.assertEqual(clamp(15, 0, 10), 10)\n\n" + self.ADDED_METHOD)
+        self.edit("\n\nif __name__", self.ADDED_TOP + "\n\nif __name__")
+        self.edit("from stats import clamp, mean\n", "from stats import clamp, mean\nimport json\n")
+        self.assertEqual(self.frozen([]), [], "既存の文を変えずに足しただけは凍結に数えない")
+        self.edit("    def test_values(self):\n", "    def setUp(self):\n        pass\n\n    def test_values(self):\n")
+        self.assertEqual(self.frozen([]), [], "新しいクラスの中は自由（既存のテストに効かない）")
+
+    def test_additions_with_an_edit_of_existing_lines_are_rejected(self):
+        for old, new in [("clamp(5, 0, 10), 5)", "clamp(5, 0, 10), 5.0)"),               # 既存のテストの本体
+                         ("class TestStats(unittest.TestCase):", "@unittest.skip('x')\nclass TestStats(unittest.TestCase):"),
+                         ("    def test_mean_of_three(self):\n", "    @unittest.skip('x')\n    def test_mean_of_three(self):\n"),
+                         ("    def test_clamp_within_range(self):\n        self.assertEqual(clamp(5, 0, 10), 5)\n\n", ""),  # 消した
+                         ("if __name__", "# 末尾の書き足し\nif __name__"),                    # 追加に付かないコメント
+                         ('"""stats.py の単体テスト。', '"""stats.py の単体テスト（直した）。')]:
+            with self.subTest(old=old):
+                self.setUp()
+                self.edit("\n\nif __name__", self.ADDED_TOP + "\n\nif __name__")
+                self.edit(old, new)
+                got = self.frozen([])
+                self.assertTrue(got and TEST_FILE in got[0], got)
+
+    def test_additions_that_reach_existing_tests_are_rejected(self):
+        hooks = [
+            "\n\ndef mean(xs):\n    return 2\n",                                   # 既存のテストが読む名を上書き
+            "\n\ndef setUpModule():\n    pass\n",                                  # モジュールの掛け金
+            "\n\npytestmark = None\n",                                             # pytest の印
+            "\n\nimport pytest\n\n\n@pytest.fixture(autouse=True)\ndef _quiet():\n    yield\n",   # 全部のテストに効く fixture
+            "\n\nprint('import の時に走る')\n",                                     # 関数・クラス・import・代入でない文
+            "\n\ndef test_mean_of_three():\n    pass\n",                             # 既存の名
+        ]
+        for added in hooks:
+            with self.subTest(added=added):
+                self.setUp()
+                self.edit("\n\nif __name__", added + "\n\nif __name__")
+                got = self.frozen([])
+                self.assertTrue(got and TEST_FILE in got[0], got)
+        for method in ("    def setUp(self):\n        pass\n", "    def assertListEqual(self, a, b):\n        pass\n",
+                       "    def _helper(self):\n        pass\n", "    maxDiff = None\n"):
+            with self.subTest(method=method):
+                self.setUp()
+                self.edit("        self.assertEqual(clamp(15, 0, 10), 10)\n",
+                          "        self.assertEqual(clamp(15, 0, 10), 10)\n\n" + method)
+                got = self.frozen([])
+                self.assertTrue(got and TEST_FILE in got[0], f"既存のクラスの掛け金・継いだメソッド・属性: {got}")
+
+    def test_additions_next_to_ruled_lines_are_allowed(self):
+        """許しの範囲の中の直しと、範囲の外への足しただけの変更が同じファイルに在っても、足した分は凍結に数えない"""
+        self.edit("mean([1, 2, 3]), 2)", "mean([1, 2, 3]), 2.0)")   # 9 行目（範囲の中）
+        self.edit("\n\nif __name__", self.ADDED_TOP + "\n\nif __name__")
+        self.assertEqual(self.frozen([f"{TEST_FILE}:9"]), [])
+        self.edit("clamp(5, 0, 10), 5)", "clamp(5, 0, 10), 5.0)")   # 範囲の外の既存の行
+        self.assertTrue(self.frozen([f"{TEST_FILE}:9"]))
+
     def test_old_state_without_frozen_tree_falls_back_to_handoff(self):
         self.freeze(handoff=tddloop.snapshot(self.repo))
         self.edit("mean([1, 2, 3]), 2)", "mean([1, 2, 3]), 2.0)")

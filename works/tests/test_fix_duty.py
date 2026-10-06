@@ -199,6 +199,60 @@ class TestAcceptExcused(unittest.TestCase):
         self.assertEqual(self.parked, ["作り話の単位"])
         self.assertEqual(self.revert.call_args.args[3], {"x.py"})
 
+    # 1 回目に受け付けた返答の控え（依頼 195i の 1）: 控えは役が書いた形（site の path・役の coverage）のまま残し、写しに渡す形
+    # （unitrows.take が path を外し coverage を揃えた行）は欄 conflict.HANDED に別に置く。2 回目の段の数え直しは書いた形に当てる
+    SITE = {"site": "分母", "red_seen": True, "path": "stats.py"}
+
+    def written(self, key):
+        return {"unit_key": key, "files": ["stats.py"], "what": "直した",
+                "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v", "sites": [dict(self.SITE)]}}
+
+    def test_held_reply_keeps_rows_as_written(self):
+        put = []
+        with mock.patch.object(self.mod.conflict, "waiting", return_value=[{"id": "c1-1"}]), \
+                mock.patch.object(self.mod, "named_reply", side_effect=lambda r, b: json.loads(json.dumps(r))), \
+                mock.patch.object(self.mod, "_put_parked", side_effect=lambda p, doc: put.append(doc)):
+            got = self.run_accept("1", [self.written(self.MEAN)])
+        self.assertEqual((got["ok"], got.get("parked")), (True, True), got)
+        self.assertEqual(put[0]["changes"][0]["closure"]["sites"], [self.SITE], "控えの行は役が書いた形（path が在る）")
+        self.assertNotIn("coverage", put[0]["changes"][0], "機械が揃えた coverage を控えの行に書かない")
+        handed = put[0][conflict.HANDED]
+        self.assertEqual(handed[0]["closure"]["sites"], [{"site": "分母", "red_seen": True}], "渡す形の行は写しの型（path 無し）")
+        self.assertEqual(self.recounted, [], "控える周は盤面に渡さない")
+
+    def test_second_pass_recounts_held_rows_as_written(self):
+        held = {"changes": [self.written(self.HELD)], "not_done": [],
+                conflict.HANDED: [{**self.written(self.HELD), "closure": {"sites": [{"site": "分母", "red_seen": True}]}}]}
+        seen, sent = [], []
+        take = self.mod.unitrows.take
+
+        def spy(reply, b, repo):
+            seen.append(json.loads(json.dumps(reply)))
+            return take(reply, b, repo)
+        with mock.patch.object(self.mod.conflict, "held_reply", return_value=(held, pathlib.Path("/b/r1/fix-held-reply.json"))), \
+                mock.patch.object(self.mod, "named_reply", side_effect=lambda r, b: json.loads(json.dumps(r))), \
+                mock.patch.object(self.mod, "check_accepted_rows", return_value=[]), \
+                mock.patch.object(self.mod.unitrows, "take", side_effect=spy), \
+                mock.patch.object(self.mod.recount, "accept_fix",
+                                  side_effect=lambda reply, *a, **k: sent.append(reply) or {"ok": True, "changes": []}):
+            got = self.run_accept("1", [self.written(self.MEAN)])
+        self.assertIs(got["ok"], True, got)
+        by_key = {c["unit_key"]: c for c in seen[0]["changes"]}
+        self.assertEqual(by_key[self.HELD]["closure"]["sites"], [self.SITE], "控えの行は書いた形のまま数え直しに当てる")
+        self.assertFalse(any("path" in s for c in sent[0]["changes"] for s in c["closure"]["sites"]), "盤面には写しの型で渡す")
+
+    def test_hand_empty_hands_the_board_rows_of_the_held_reply(self):
+        board_row = {**self.written(self.HELD), "closure": {"sites": [{"site": "分母", "red_seen": True}]}}
+        held = {"changes": [self.written(self.HELD)], "not_done": [], "fix_closure": {"status": "open"},
+                "bash_writes": [{"path": "x", "why": "y"}], conflict.HANDED: [board_row]}
+        sent = []
+        with mock.patch.object(self.mod.conflict, "held_reply", return_value=(held, pathlib.Path("/b/r1/fix-held-reply.json"))), \
+                mock.patch.object(self.mod.entry, "empty_fix_reply", return_value={"changes": [], "not_done": []}), \
+                mock.patch.object(self.mod.recount, "accept_fix",
+                                  side_effect=lambda reply, *a, **k: sent.append(reply) or {"ok": True, "changes": []}):
+            self.mod.hand_empty([("copy", "拒んだ")], pathlib.Path("/b"), "", pathlib.Path("/r"))
+        self.assertEqual(sent, [{"changes": [board_row], "not_done": [], "fix_closure": {"status": "open"}}])
+
 
 class TestAcceptReadsDuty(unittest.TestCase):
     MEAN, HELD, WHY = TestAcceptExcused.MEAN, TestAcceptExcused.HELD, TestAcceptExcused.WHY

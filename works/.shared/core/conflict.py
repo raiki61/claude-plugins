@@ -60,7 +60,8 @@
   移す（trace の行 REPLAN_OP）。欄の無い前の形の行は WAITING と読む。読む口は replan_state(row)・waiting(b)・amended_keys(b)
 - 1 回目に受け付けた返答の控え（HELD_REPLY。待つ単位が在る間、受け付けが盤面に渡さずに置いた返答で、役の bash_writes を残す）:
   held_reply(b)（今の周に p3.fix を受ける前だけ読む）・accepted_units(b)（fix_duty が直す義務から外す）・held_writes(b)・
-  with_held(b, reply)（2 回目の返答に単位ごとに合わせる）
+  with_held(b, reply, as_handed=)（2 回目の返答に単位ごとに合わせる）・handed(held)（盤面に渡す形）。控えの changes は役が書いた形
+  （site の path・役の coverage。2 回目の段の数え直しがファイルに結べる）で、写しに渡す形に揃えた行は欄 HANDED に別に置く
 標準ライブラリだけ。期限は持たない。
 """
 import json
@@ -133,7 +134,9 @@ GAVE_UP = "gave_up"                     # 諦めた（ask_human の行として�
 REPLAN_WHY = "replan_why"               # 移した理由の欄（諦めた理由。human_lines が末尾に添える）
 REPLAN_OP = "replan_state"              # trace の行 {id, unit_key, state, why}
 FIX_NODE = "p3.fix"                     # 修正の段の節（recount を読まずに字で持つ。held_reply が盤面の受けを見る）
-HELD_REPLY = "fix-held-reply.json"      # 1 回目に受け付けた返答の控え（盤面に渡す形に、役が申告した bash_writes を残した物）
+HELD_REPLY = "fix-held-reply.json"      # 1 回目に受け付けた返答の控え（役が書いた形の返答に、役が申告した bash_writes と渡す形の行 HANDED を残した物）
+HANDED = "handed_changes"               # 控えの works だけの欄: 写しに渡す形に揃えた changes（path を外し coverage を揃えた行。盤面に渡す口が読む）
+_HELD_EXTRA = ("bash_writes", HANDED)   # 控えの works だけの欄（盤面に渡す形から外す）
 AMENDED_PROMISE = ("案の項目そのものが誤りと裁いたが、同じ run で案を直して直す義務に戻った。直した項目（頭の brief）のとおりに"
                    "直し、この単位も changes に 1 行を書け")   # 裁定の文の AMENDED の行の約束（write_rulings）
 HELD_WORK_KEPT = "この run の修正の段で直した分は作業ツリーに残した"   # 諦めた行の直しの在りか（1 回目・2 回目の段のどちらで諦めても。約束・関所・次の依頼）
@@ -691,8 +694,8 @@ def held_reply(b) -> tuple:
     """(1 回目に受け付けた返答の控え, そのパス)。控えは修正のブロックの include ごとに scope の根に残る（per_include）ので、
     今の周の物を scopes.each で集めた最後（一番新しく登録した include の物。2 回目の修正の段も 1 回目の段の控えを読む）。
     どこにも無ければパスは b.work(HELD_REPLY)（今の scope が書く置き場）。今の周に盤面が p3.fix を受けた後・控えが無いなら
-    控えは None。形（{changes: [{unit_key, ...}], not_done: [{unit_key, ...}], bash_writes: [...]}。どの欄も任意）が違う・
-    読めなければ BoardGap"""
+    控えは None。形（{changes: [{unit_key, ...}], not_done: [{unit_key, ...}], bash_writes: [...], HANDED: [{unit_key, ...}]}。
+    どの欄も任意）が違う・読めなければ BoardGap"""
     found = scopes.each(b, HELD_REPLY)
     path = found[-1] if found else b.work(HELD_REPLY)
     took = ((getattr(b, "state", None) or {}).get("outputs") or {}).get(FIX_NODE) or {}
@@ -707,10 +710,11 @@ def held_reply(b) -> tuple:
     ok = isinstance(doc, dict) and isinstance(doc.get("bash_writes", []), list) and all(
         isinstance(doc.get(f, []), list)
         and all(isinstance(r, dict) and isinstance(r.get("unit_key"), str) for r in doc.get(f, []))
-        for f in _HELD_ROWS)
+        for f in (*_HELD_ROWS, HANDED))
     if not ok:
         raise _board.BoardGap(f"1 回目に受け付けた返答の控え {path} の形が違う"
-                              "（{changes: [{unit_key, ...}], not_done: [{unit_key, ...}], bash_writes: [...]}）")
+                              f"（{{changes: [{{unit_key, ...}}], not_done: [{{unit_key, ...}}], bash_writes: [...], "
+                              f"{HANDED}: [{{unit_key, ...}}]}}）")
     return doc, path
 
 
@@ -730,12 +734,23 @@ def held_writes(b) -> list:
     return list((held_reply(b)[0] or {}).get("bash_writes") or [])
 
 
-def with_held(b, reply: dict) -> dict:
+def handed(held: dict) -> dict:
+    """控え（held_reply の 1 つ目）の盤面に渡す形: works だけの欄（bash_writes・HANDED）を外し、changes を渡す形の行（HANDED）に
+    した写し。HANDED の無い前の形の控えは changes が渡す形なので、そのまま"""
+    out = {k: v for k, v in held.items() if k not in _HELD_EXTRA}
+    if HANDED in held:
+        out["changes"] = list(held[HANDED])
+    return out
+
+
+def with_held(b, reply: dict, *, as_handed: bool = False) -> dict:
     """2 回目の返答 reply に 1 回目の控え（held_reply）を単位で合わせた写し。控えが無ければ reply そのもの。在れば changes・
-    not_done を「控えの行のうち reply（changes・not_done のどちらか）に無い単位の行」＋「reply の行」にし、ほかの欄は reply の物"""
+    not_done を「控えの行のうち reply（changes・not_done のどちらか）に無い単位の行」＋「reply の行」にし、ほかの欄は reply の物。
+    控えの行は役が書いた形（数え直しに当て直す時）。as_handed が真なら盤面に渡す形（handed(held)。数え直しを通さずに盤面へ渡す時）"""
     held, _ = held_reply(b)
     if held is None:
         return reply
+    held = handed(held) if as_handed else held
     mine = _held_keys(reply)
     out = dict(reply)
     for f in _HELD_ROWS:

@@ -178,6 +178,26 @@ class SitePathCase(unittest.TestCase):
         self.assertTrue(any("ファイルごとの数が合計と合わない" in d for d in row["discrepancies"]), row)
         self.assertTrue(any("超える" in d for d in row["discrepancies"]), "今の数え方（len(sites)）で比べる")
 
+    def test_shaping_leaves_the_callers_rows_as_written(self):
+        """写しに渡す形に揃える（path を外す・coverage.how と remaining を書く・sites を切る）のは写しの上で、渡した行は変えない
+        （受け付けは揃える前の行を 1 回目の返答の控えに残し、2 回目の修正の段がそれを数え直しに当て直す。依頼 195i の 1）"""
+        sites = [{"site": f"s{i}", "red_seen": i == 0, "path": "stats.py"} for i in range(3)]
+        c = {"unit_key": KEY, "files": ["stats.py"], "what": "直した",
+             "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v", "sites": sites},
+             "coverage": {"counts": "defects"}}
+        before = json.loads(json.dumps(c))
+        out, rows = unitrows.build([c], {KEY: {"how": HOW, "counts": "defects"}}, count=lambda h, r: (1, ""), blank=blank,
+                                   per_file=lambda h, r: ({"stats.py": 1} if r else {}, ""))
+        self.assertEqual(c, before, "揃えは写しの上で（渡した行を変えない）")
+        self.assertNotEqual(out[0], before)
+        self.assertIs(rows[0]["bound"], True)
+        again, rows2 = unitrows.build([c], {KEY: {"how": HOW, "counts": "defects"}}, count=lambda h, r: (1, ""), blank=blank,
+                                      per_file=lambda h, r: ({"stats.py": 1} if r else {}, ""))
+        self.assertEqual((again, rows2), (out, rows), "書いた形の行に当て直せば 1 回目と同じ表（2 回目の段の数え直し）")
+        _, shaped_rows = unitrows.build(out, {KEY: {"how": HOW, "counts": "defects"}}, count=lambda h, r: (1, ""),
+                                        blank=blank, per_file=lambda h, r: ({"stats.py": 1} if r else {}, ""))
+        self.assertIs(shaped_rows[0]["bound"], False, "揃えた後の行（path が無い）では結べない（だから控えは書いた形で残す）")
+
     def test_uncountable_row_still_drops_path_before_the_copy(self):
         c = {"unit_key": KEY, "files": ["stats.py"], "what": "直した",
              "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v",

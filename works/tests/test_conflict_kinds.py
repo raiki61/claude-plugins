@@ -450,6 +450,55 @@ class TestHeldReply(unittest.TestCase):
         self.assertNotIn("bash_writes", merged)
         self.assertEqual(reply["changes"], [mean_row()])                  # 返答そのものは変えない（写し）
 
+    def test_held_keeps_rows_as_written_and_hands_the_board_rows(self):
+        """控えの changes は役が書いた形（site の path・役の coverage）のまま、写しに渡した形の行は欄 HANDED に置く（依頼 195i の 1）。
+        2 回目の段の合わせ（with_held）は書いた形を、盤面に渡す口（handed・with_held(as_handed=True)）は渡した形を読む"""
+        b = fake_with_rows([])
+        written = {**clamp_row(), "closure": {"sites": [{"site": "上限の枝", "red_seen": True, "path": "stats.py"}]}}
+        board_row = {**clamp_row(), "closure": {"sites": [{"site": "上限の枝", "red_seen": True}]},
+                     "coverage": {"how": {"patterns": ["return lo"]}}}
+        hold(b, {"changes": [written], "not_done": [], "fix_closure": {"status": "open"},
+                 "bash_writes": [{"path": "x.bin", "why": "バイナリ"}], conflict.HANDED: [board_row]})
+        self.assertEqual(conflict.with_held(b, {"changes": [mean_row()]})["changes"], [written, mean_row()])
+        self.assertEqual(conflict.with_held(b, {"changes": [mean_row()]}, as_handed=True)["changes"], [board_row, mean_row()])
+        got = conflict.handed(conflict.held_reply(b)[0])
+        self.assertEqual(got, {"changes": [board_row], "not_done": [], "fix_closure": {"status": "open"}},
+                         "盤面に渡す形は渡した行で、works だけの欄（bash_writes・HANDED）を外す")
+        self.assertEqual(conflict.accepted_units(b), {CLAMP})
+
+    def test_held_without_handed_rows_is_the_board_form(self):
+        """欄 HANDED の無い前の形の控え（changes が渡した形）は、そのまま盤面に渡す形"""
+        b = fake_with_rows([])
+        hold(b, {"changes": [clamp_row()], "not_done": [], "bash_writes": []})
+        self.assertEqual(conflict.handed(conflict.held_reply(b)[0]), {"changes": [clamp_row()], "not_done": []})
+        self.assertEqual(conflict.with_held(b, {"changes": []}, as_handed=True)["changes"], [clamp_row()])
+
+    def test_broken_handed_rows_are_board_gap(self):
+        b = fake_with_rows([])
+        for bad in ({}, [{"what": "x"}], ["x"]):
+            with self.subTest(bad=bad):
+                hold(b, {"changes": [clamp_row()], conflict.HANDED: bad})
+                with self.assertRaises(conflict._board.BoardGap):
+                    conflict.held_reply(b)
+
+    def test_hand_held_and_fix_reply_read_the_board_form(self):
+        """控えを盤面に渡す口（replan.hand_held）と修正の返答を読む口（recount.fix_reply）は、渡した形の行を読む"""
+        import recount
+        import replan
+        b = fake_with_rows([])
+        written = {**clamp_row(), "closure": {"sites": [{"site": "s", "red_seen": True, "path": "stats.py"}]}}
+        board_row = {**clamp_row(), "closure": {"sites": [{"site": "s", "red_seen": True}]}}
+        hold(b, {"changes": [written], "not_done": [], "bash_writes": [], conflict.HANDED: [board_row]})
+        b.state.update(stop=None, halted=None)
+        handed = []
+        with mock.patch.object(replan.entry, "open_board", return_value=b), \
+             mock.patch.object(replan.recount, "accept_fix",
+                               side_effect=lambda reply, *a, **k: handed.append(reply) or {"ok": True}):
+            self.assertTrue(replan.hand_held(b.dir, b.dir))
+        self.assertEqual(handed, [{"changes": [board_row], "not_done": []}])
+        with mock.patch.object(recount, "_fix_output", side_effect=recount.Unreadable("無い")):
+            self.assertEqual(recount.fix_reply(b)[0], {"changes": [board_row], "not_done": []})
+
     def test_with_held_without_held_is_the_reply(self):
         b = fake_with_rows([])
         reply = {"changes": [mean_row()], "not_done": []}

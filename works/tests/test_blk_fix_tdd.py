@@ -1785,7 +1785,8 @@ class TestCrossLoopFreeze(LoopCase):
         got = tddloop.step(state2, {"phase": "fix", "unit_key": CLAMP, "files": ["stats.py"], "what": "上限で hi を返す"},
                            self.repo)
         self.assertTrue(got["done"], got)
-        self.assertTrue(tddloop.frozen_problems(self.state, self.repo), "since が無ければ tdd-1 の凍った時の木で見る")
+        self.assertEqual(tddloop.frozen_problems(self.state, self.repo), [],
+                         "tdd-1 の関数を変えずに足しただけは since が無くても凍結に数えない（依頼 195i の 2）")
         self.assertEqual(tddloop.frozen_problems(self.state, self.repo, since=self.since(state2)), [])
         self.edit("test_stats.py", "clamp(20, 0, 10), 10", "clamp(20, 0, 10), 0")
         self.assertTrue(tddloop.frozen_problems(state2, self.repo), "足したテストは tdd-2 の凍結で見る")
