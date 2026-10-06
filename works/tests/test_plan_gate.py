@@ -167,6 +167,16 @@ class LedgerAsksCase(GateBase):
         self.assertEqual(gatemarks.plan_gate_items(b), [])   # 答えた問いは関所に 2 度出さない
         self.assertIn("関所で continue を受けた", self.final_text(b))
 
+    def test_branch_rows_in_final_text_and_head(self):
+        """差分の審査の穴と目の行の枝の名札（report.branch_rows。線の木の段 4a）は最後の関所の文と報告の冒頭の両方に出る"""
+        _, b = self.gate(questions=[FORK], units=UNITS)
+        rows = ["差分の審査の穴の枝: 見本の 1 行", "  - k: 項目 1"]
+        with mock.patch.object(report, "branch_rows", return_value=rows):
+            for name, text in (("最後の関所", self.final_text(b)), ("報告の冒頭", self.head(b))):
+                with self.subTest(name):
+                    self.assertIn("差分の審査の穴の枝: 見本の 1 行", text)
+                    self.assertIn("  - k: 項目 1", text)
+
     def test_continue_returns_a_deferred_origin_the_fixer_was_promised(self):
         """開いていない単位（suggest の defer）を出どころに持つ fork に関所で答えると、修正役への約束（returned_lines）に載った
         単位が直す義務（owed_units_but_asked）にも入る。約束と義務の数えが別の集合だと、約束どおり直した返答が拒まれる"""

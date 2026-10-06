@@ -498,7 +498,7 @@ def _r2_inputs(b) -> list:
 
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
     """最後の関所の文: 最後のテストと修正前のテスト（entry.baseline_line）・受け付けが手元で回さなかった試験・最後のテストの段に任せた試験・受け付けの束が
-    赤緑を確かめずに通した回（report.gates_lines）・差分の審査の穴の数・手直しの結果・止めずに残った異議・
+    赤緑を確かめずに通した回（report.gates_lines）・差分の審査の穴の数・穴と独立の目の行の枝の名札（report.branch_rows）・手直しの結果・止めずに残った異議・
     決着した再審の結果（report.rejudge_lines。関所を開ける理由には数えない）・構造のブロックが落ちた周の印
     （structmark.note）・事前審査の壁打ちの往復（converge.lines）・独立の目の判定・clean が消したファイル・レンズ・仕組みの異常・
     残りの件数（report.always_rows。結末に依らず常に）・盤面の問い・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・読めなかった保留（gatemarks.unread_hold_lines）を 1 枚に。「盤面の問い: 無い」はどれも無い時だけ。行の主語は平易な名で、
@@ -527,6 +527,7 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
         lines.append(f"- 走れなかった理由: {tests['reason']}")
     lines.append(f"- run の作業ツリー: {pathlib.Path(repo).resolve()}")
     lines.append(f"- 差分の審査の穴: {_faces(b, 'p3.delta_review')} 件（2 回目の審査: {_faces(b, 'p3.delta_review2')} 件）")
+    lines += [x if x[:1].isspace() else f"- {x}" for x in report.branch_rows(b)]   # 穴と目の行の枝の名札（線の木の段 4a）
     handled = (b.output_of_round("p3.delta_fix", b.round) or {}).get("handled") or []
     lines.append(f"- {gatemarks.named('p3.delta_fix')}の結果（{len(handled)} 件）:")
     lines += [f"  - {h.get('key')}: {gatemarks.HANDLED_WORDS.get(h.get('handled'), '')}（{h.get('handled')}）——{h.get('how')}"

@@ -77,6 +77,7 @@ MOD = {
     "planmarks": (3, None),   # 修正案の項目の works の欄（受け入れのテスト・書き換える既存のテスト・整えの申告）の型・検査・盤面の控え（accept の役の型・blk-plan・conflict・blk-fix が使う）
     "converge": (3, None),    # 事前審査の壁打ち（依頼 231）の決まり・往復の控え・役の型の欄・関所と報告の文（標準ライブラリだけ。gatemarks・修正案のブロックが使う）
     "replan": (3, None),      # 同じ run の中の案の直し（依頼 226）: 待つ fix_plan_item の行を締めて ask_human の道に載せる（境の節 h-rejudge と報告が使う）
+    "holeties": (3, None),    # 差分の審査の穴の枝の名札（純粋な関数。refix が集め、手直しの支度・報告・最後の関所の文が読む）
     "deltamarks": (3, None),  # 差分の審査の返答の準拠と品質の 2 判定の欄の型・検査・盤面の外の控え（accept の役の型・refix の審査の受け付けが使う）
     "scopes": (3, None),      # 部品の置き場と宣言（依頼 239。manifest の読み・公開の名・持ち主・scope の登録と集め）
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),

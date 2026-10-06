@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- 差分の審査の穴に枝の名札を付けるようにした（線の木の段 4a。設計は docs/plans/2026-10-07-hole-to-branch.md）。機械が穴 1 件ごとに、準拠の行・事前審査の穴の単位・穴のファイルと修正案の項目の書いてよいパス・修正の変更から、どの項目（枝）の直しから出た穴かを結ぶ。名札は手直しの役の材料（brief の ties）・報告の冒頭 1 と最後の関所の文（穴ごとの行と、枝 1 つ・2 つ以上・結べない・裁定で外れた項目だけの件数）・次の run の依頼の下書き（手直しが残した穴の行の終わり）に載る。独立の目が場所を挙げた行（R1 の削除候補・R4 の浮かんだ物）にも同じ名札を最後の関所と報告に添える。答え方と直す義務は変えない。記録の残る 13 本の run で測ると穴の在る組が 2 つ以上の run は無く、枝ごとの手直しの下請け（段 4b）は作らずに置く。
+
 ### Changed
 
 - AI の段の全部に `model:` と `effort:` を書き、run の既定（`dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT`）と Claude Code の既定の effort に頼らないようにした（持ち主 2026-10-06）。前付けを持つ役（judge・blind-judge は opus・high、inspector・investigator・cold-reader は sonnet・medium）は今までどおり。前付けの無い役は試験の表（`tests/test_tool_parity.py` の `STAGE_MODEL`）で決め、修正案・仕様を書く役（plan・plan-revise・spec-write・spec-revise）を sonnet から opus・medium へ上げ、コードとテストを書く役（tdd・fix・fix-ruled・refix・refix2）は sonnet・high を明示し、読んで確かめる・まとめる軽い役（借りたレンズ・r1-comments・CI と pr-check の任せ先・前提の実測・目的の文・素材集めの任せ先と局所レビュー・報告の書き手）は sonnet・medium にした（今までは sonnet の既定の high）。`WORKS_DEV_MODEL` が効くのは run の題だけになり、`WORKS_DEV_MODEL=opus` で前付けの無い段を opus に戻す道は無くなった（段を替えるときは表と段を一緒に直す）。

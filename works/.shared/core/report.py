@@ -20,6 +20,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く）
 - prior_failures(b, left=None) -> この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]（次の依頼の prior_failures）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
+- branch_rows(b)・eye_ties(b) -> 差分の審査の穴と独立の目が場所を挙げた行の枝の名札の行（線の木の段 4a。冒頭 1 と最後の関所の文が同じ行を出す。穴も行も無ければ空）
 - always_rows(b, left=None, *, tests_word=None, blocked=None, missing=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
   走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は tests_word・blocked を渡して数えられる分を言う）・anomalies(b)・anomaly_lines(b, *, full=False)（仕組みの異常。報告の「仕組みの異常」の節）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
@@ -66,9 +67,11 @@ from engine.rules import validator_module  # noqa: E402
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
 import fixture  # noqa: E402
+import holeties  # noqa: E402
 import leftovers  # noqa: E402
 import lens  # noqa: E402
 import reads  # noqa: E402
+import refix  # noqa: E402  （差分の審査の穴の枝の名札 hole_ties・項目 tie_items）
 import scopes  # noqa: E402
 import script_io  # noqa: E402
 import structmark  # noqa: E402
@@ -545,7 +548,7 @@ def lens_next_items(b) -> list:
 
 def next_request(b, *, tests: dict | None = None, left: list | None = None) -> list:
     """次の run に渡す依頼（1 本目の依頼の型 [{where, text}]。key・一言は字のまま）:
-    手直し 2 回目が fixed と言った穴（検算が要る）・declared で残した穴・修正の not_done・最後のテストの赤・
+    手直し 2 回目が fixed と言った穴（検算が要る）・declared で残した穴（どちらも枝の名札 _tie_notes を text の終わりに添える）・修正の not_done・最後のテストの赤・
     残り（left＝residue の返り）の全件（carry_left。テストの赤は上の行が持つ。not_done と人に回した単位の検証器の単位の行は、
     その単位の行が持つので渡さない）・落ちたレンズの「再実行の要あり」（lens_next_items）・
     再審されずに残った異議（loop.rejudge_requested。写し直しの前で再審の節が無い run と、会話が無くて止めた run）・
@@ -556,17 +559,19 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     食い違いの申し出を人に回して直さずに残した単位（conflict.asked: ask_human と、案の直しを諦めた fix_plan_item。裁定が外した
     単位 conflict.ruled_units ごとに 1 行。裁定の文は字のまま）"""
     items = []
-    for nid in REFIX_NODES:
+    for n, nid in enumerate(REFIX_NODES, 1):
         out = _output(b, nid) or {}
+        tags = _tie_notes(b, n) if out.get("handled") else {}
         for h in out.get("handled") or []:
             if not isinstance(h, dict) or not isinstance(h.get("key"), str):
                 continue
             where = (h.get("files") or [None])[0] or h["key"]
+            tag = f"（枝: {tags[h['key']]}）" if h["key"] in tags else ""
             if h.get("handled") == "declared":
-                items.append({"where": str(where), "text": f"{h['key']}（手直しが declared で残した穴: {h.get('how') or ''}）"})
+                items.append({"where": str(where), "text": f"{h['key']}（手直しが declared で残した穴: {h.get('how') or ''}）{tag}"})
             elif h.get("handled") == "fixed" and nid == REFIX_NODES[-1]:
                 items.append({"where": str(where),
-                              "text": f"{h['key']}（手直し 2 回目が fixed と言ったが、3 回目の審査は無い——検算が要る: {h.get('how') or ''}）"})
+                              "text": f"{h['key']}（手直し 2 回目が fixed と言ったが、3 回目の審査は無い——検算が要る: {h.get('how') or ''}）{tag}"})
     fix = _fix(b) or {}
     for nd in fix.get("not_done") or []:
         if isinstance(nd, dict) and isinstance(nd.get("unit_key"), str):
@@ -749,6 +754,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     lines += _premise_hypotheses(b)
     lines += _design_unanchored(b)
     lines += _pr_lines(b)
+    lines += branch_rows(b)
     n = len(next_items or [])
     lines += always_rows(b, left=left)
     lines.append(f"次の run に渡す物: {n} 件" + (f"（{next_file}）" if next_file else ""))
@@ -1118,6 +1124,64 @@ def anomaly_lines(b, *, full: bool = False) -> list:
     if a["skipped"]:
         lines.append(f"trace.jsonl の壊れた行 {a['skipped']} 行を飛ばした（上の件数に入らない）")
     return lines
+
+
+BRANCH_HEAD = {1: "差分の審査の穴の枝（機械が修正案の項目に結んだ名札。手直しの役にも同じ名札を渡した）",
+               2: "2 回目の審査の穴の枝"}
+EYE_HEAD = "独立の目が場所を挙げた行の枝（R1 の削除候補・R4 の浮かんだ物。場所の無い R2・R3 は全体）"
+EYE_ROWS = (("R1", "r1.minimality", "deletions", "why"), ("R4", "r4.hidden_scope", "surfaced", "text"))
+
+
+def _ties(b, n: int):
+    """n 回目の手直しの穴の名札（refix.hole_ties）か、組めなければ誤りの文（報告を落とさない）"""
+    try:
+        return refix.hole_ties(b, n)
+    except Exception as e:   # 名札は材料。組めない理由を行に出して報告は続ける
+        return f"{type(e).__name__}: {_one_line(str(e))}"
+
+
+def _tie_notes(b, n: int) -> dict:
+    """n 回目の手直しの穴の key → 名札の字（holeties.note）。組めなければ空"""
+    got = _ties(b, n)
+    return {t["key"]: holeties.note(t) for t in got} if isinstance(got, list) else {}
+
+
+def eye_ties(b) -> list:
+    """独立の目が場所を挙げた行（R1 の deletions・R4 の surfaced。今の周の出力）の名札（holeties.tie の path・change・unit の規則。
+    key は「R<n>: <場所の先頭 80 字>」、where は場所の頭のパス holeties.lead_path）。行が無ければ空"""
+    holes = []
+    for name, nid, field, _ in EYE_ROWS:
+        for r in (b.output_of_round(nid, b.round) or {}).get(field) or []:
+            if isinstance(r, dict) and isinstance(r.get("where"), str) and r["where"].strip():
+                holes.append({"key": f"{name}: {_one_line(r['where'])[:80]}", "from": nid,
+                              "where": holeties.lead_path(r["where"])})
+    if not holes:
+        return []
+    fix = b.output_of_round(recount.FIX_NODE, b.round) or {}
+    return holeties.tie(holes, refix.tie_items(b), changes=fix.get("changes") or [])
+
+
+def branch_rows(b) -> list:
+    """枝の名札の行（線の木の段 4a。設計 docs/plans/2026-10-07-hole-to-branch.md の 2.6）: 手直しの往復ごとに件数の 1 行
+    （holeties.count_line）と穴ごとの行、独立の目が場所を挙げた行の名札。穴も行も無ければ空（行を足さない）。名札が組めなければ
+    理由の 1 行。冒頭 1 と最後の関所の文が同じ行を出す"""
+    rows = []
+    for n in (1, 2):
+        got = _ties(b, n)
+        if isinstance(got, str):
+            rows.append(f"{BRANCH_HEAD[n]}: 組めない（{got}）")
+        elif got:
+            rows.append(f"{BRANCH_HEAD[n]}: {holeties.count_line(got)}")
+            rows += [f"  - {x}" for x in holeties.lines(got)]
+    try:
+        eyes = eye_ties(b)
+    except Exception as e:   # 名札は材料。組めない理由を行に出して報告は続ける
+        rows.append(f"{EYE_HEAD}: 組めない（{type(e).__name__}: {_one_line(str(e))}）")
+        eyes = []
+    if eyes:
+        rows.append(f"{EYE_HEAD}: {len(eyes)} 件")
+        rows += [f"  - {x}" for x in holeties.lines(eyes)]
+    return rows
 
 
 def always_rows(b, left: list | None = None, *, tests_word: str | None = None, blocked: list | None = None,

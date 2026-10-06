@@ -8,13 +8,14 @@
 - fix_delta(b):              今の周の修正の差分（盤面の loop.<1 回目の state_key>。{file, files, rev, …}）か None
 - cut(board, n, repo):      n 回目の審査役を起こす前の支度。盤面の loop.<state_key>（今の周）の差分のファイルと触ったファイルを
                              返し、役に見せる材料（brief）を書き、読むだけの役の前の作業ツリーの写しを撮り、起こした印を置く
-- prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスを brief に書き、呼び手の
+- prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスと穴ごとの枝の名札（ties）を brief に書き、呼び手の
                              組み立て（prompt）で指示書を書き、印を置く
 - accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる。手直しは先に書き込みの
                              記録と突き合わせ、記録の無い変更を盤面の trace に残す）。1 回目の審査は準拠と品質の 2 判定の欄
                              （deltamarks）を承認済みの修正案の項目（_plan_items）と照らし、欠けと誤りは盤面へ渡さずに拒み、
                              通れば欄を外して渡し、受けた時だけ欄を今の周の delta-verdicts.json に控える
 - main_accept_review・main_accept_fix: 受け付けのスクリプトの入口（rolekit.main_accept。3 回目の拒否で done・give_up。R50）
+- hole_ties(b, n)・tie_items(b)・brief_ties(ties): n 回目の手直しの穴ごとの枝の名札（holeties.tie。線の木の段 4a）・名札に使う項目・brief の欄
 - route(board):              blk-refix の分かれ道 {review2, refix2, owed, owed2}（盤面の待っている節と義務の数）
 - collect_delta・collect_refix: 出口（1 本目の欄を全部残して足す）。役が 3 回とも拒まれて輪を抜けたら、最後の拒否の文で
                              盤面を止めて ok: false（rolekit.gave_up。by は DELTA_BY・REFIX_BY）
@@ -55,6 +56,7 @@ import conflict  # noqa: E402
 import deltamarks  # noqa: E402
 import entry  # noqa: E402
 import fixshape  # noqa: E402
+import holeties  # noqa: E402
 import lens  # noqa: E402
 import node_marker  # noqa: E402
 import planmarks  # noqa: E402
@@ -263,6 +265,10 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
     _drop_stale(b, brief_name, f"reads-{role}.json", prompt_file.name)
     doc = {"node": p["fix"], "diff_file": d.get("file") or "", "owed": rows, "reads": _brief(b, p["fix"]),
            "policy": policy.brief(b)}
+    try:   # 穴ごとの枝の名札（線の木の段 4a。材料だけで、答え方は変えない。組めなければ理由を置いて手直しは起こす）
+        doc["ties"] = brief_ties(hole_ties(b, n))
+    except Exception as e:
+        doc["ties"], doc["ties_error"] = [], f"{type(e).__name__}: {' '.join(str(e).split())}"
     if n == 1:   # 1 回目の審査の 2 判定の控えの準拠の落ちた行（face_key が owed の key と同じ行が、その項目への準拠の外れ）
         doc["plan_items"] = _plan_items(b, by=REFIX_BY)
         doc["ruled_paths"] = conflict.ruled_paths(b)
@@ -277,6 +283,51 @@ def prep_fix(board: pathlib.Path, n: int, repo: pathlib.Path, *, prompt=None, va
         out["must"].append(str(prompt_file))
     b.mark_launched(p["fix"], inst.get("attempts", 1))
     return out
+
+
+PLAN_REVIEW = "p2.plan_review"   # 事前審査の節（穴の unit_keys。塞がっていない検算を枝に結ぶ）
+
+
+def tie_items(b) -> list[dict]:
+    """名札に使う承認済みの修正案の項目（planmarks.approved_items）に、裁定で外れた項目の held（conflict.held_item）を足した物。
+    引けない・控えが壊れている・食い違いの控えが読めない時は []（名札は材料で、盤面を止めない。止めるのは _plan_items の道）"""
+    try:
+        items = planmarks.approved_items(b) or []
+        held = conflict.held_by_rulings(b) if items else {}
+    except (planmarks.FieldsBroken, BoardGap, OSError, ValueError):
+        return []
+    for it in items:
+        why = conflict.held_item(it.get("unit_keys"), held)
+        if why:
+            it["held"] = why
+    return items
+
+
+def hole_ties(b, n: int) -> list[dict]:
+    """n 回目の手直しの義務（loop.<owed_key>）の穴ごとの枝の名札（holeties.tie）。義務が今の周に無ければ []。
+    where は n 回目の差分の審査の faces から（義務の行の text からは引かない）。1 回目は準拠の落ちた行（deltamarks）・事前審査の穴の
+    unit_keys・修正の changes を、2 回目は 1 回目の名札と 1 回目の手直しの handled（holeties.earlier）を使う。盤面は読むだけ"""
+    p = _pass(n)
+    rows = _owed_rows(b, n)
+    if not rows:
+        return []
+    rv = b.output_of_round(p["review"], b.round) or {}
+    where = {f.get("key"): f.get("where") for f in rv.get("faces") or [] if isinstance(f, dict)}
+    holes = [{"key": r.get("key"), "from": r.get("from") or "", "where": where.get(r.get("key")) or "",
+              "check": str(r.get("from") or "").endswith(".checks")} for r in rows if isinstance(r, dict)]
+    items = tie_items(b)
+    if n == 1:
+        return holeties.tie(holes, items, compliance=deltamarks.fail_rows(deltamarks.read(b)),
+                            plan_faces=(b.output_of_round(PLAN_REVIEW, b.round) or {}).get("faces") or [],
+                            changes=(b.output_of_round(recount.FIX_NODE, b.round) or {}).get("changes") or [])
+    handled = (b.output_of_round(_pass(n - 1)["fix"], b.round) or {}).get("handled") or []
+    return holeties.tie(holes, items, earlier=holeties.earlier(hole_ties(b, n - 1), handled))
+
+
+def brief_ties(ties: list) -> list[dict]:
+    """手直しの役の brief の ties の欄: 穴ごとの {key, branches（人が読む枝の名）, note（holeties.note）, via}"""
+    return [{"key": t["key"], "branches": [holeties.label(x) for x in t["branches"]], "note": holeties.note(t),
+             "via": t["via"]} for t in ties]
 
 
 # ---------------------------------------------------------------- 受け付け
