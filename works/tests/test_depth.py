@@ -51,10 +51,33 @@ class UnitDepthCase(unittest.TestCase):
             "glob": ([item([U1], paths=("tests/*.json",))], True),
             "3 本": ([item([U1], tests=2, rewrites=1)], True),
             "約束の形": ([item([U1], paths=("blk-x/schemas/a.schema.json",))], True),
-            ".yaml": ([item([U1], paths=("darkfactory/darkfactory.yaml",))], True),
+            ".yml": ([item([U1], paths=(".github/workflows/test.yml",))], True),
+            "darkfactory.yaml": ([item([U1], paths=("a.py", "darkfactory/darkfactory.yaml"))], True),   # 配線とコードを一緒に触る
             "機械の確かめ": ([item([U1])], False),
         }
         for word, (items, checked) in cases.items():
+            with self.subTest(word=word):
+                got, why = depth.unit_depth(items, U1, checked=checked)
+                self.assertEqual(got, depth.STANDARD)
+                self.assertTrue(any(word in w for w in why), why)
+
+    def test_wiring_only_unit_is_light(self):
+        """配線だけの単位（線とブロックの YAML（<名>/<名>.yaml）と manifest.json だけを触る）は、約束の形の条件に数えず軽量"""
+        for paths in (("darkfactory/darkfactory.yaml",), ("blk-fix/blk-fix.yaml", "blk-fix/manifest.json"),
+                      ("works/blk-plan/blk-plan.yml", "works/darkfactory/manifest.json", "works/darkfactory/darkfactory.yaml")):
+            with self.subTest(paths=paths):
+                got, why = depth.unit_depth([item([U1], paths=paths, tests=0)], U1, checked=True)
+                self.assertEqual(got, depth.LIGHT, why)
+                self.assertTrue(any("配線だけ" in w for w in why), why)
+
+    def test_wiring_only_still_needs_the_other_conditions(self):
+        for word, (items, checked) in {
+            "4 個": ([item([U1], paths=("a/a.yaml", "b/b.yaml", "c/c.yaml", "d/manifest.json"))], True),
+            "3 本": ([item([U1], paths=("a/a.yaml",), tests=3)], True),
+            "機械の確かめ": ([item([U1], paths=("a/a.yaml",))], False),
+            "約束の形": ([item([U1], paths=("a/a.yaml", "a/schemas/x.yaml"))], True),   # schemas/ の下は配線でない
+            "nodes.json": ([item([U1], paths=("a/a.yaml", "a/nodes.json"))], True),     # 表は配線でない
+        }.items():
             with self.subTest(word=word):
                 got, why = depth.unit_depth(items, U1, checked=checked)
                 self.assertEqual(got, depth.STANDARD)
