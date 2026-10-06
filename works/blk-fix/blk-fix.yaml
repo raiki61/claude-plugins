@@ -155,7 +155,7 @@ nodes:
               prompt_file: {type: string}
 
         - id: tdd
-          model: sonnet               # コードとテストを書く役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+          model: sonnet               # コードとテストを書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
           prompt: 指示書 `$tdd-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-prep]
@@ -284,7 +284,7 @@ nodes:
               iteration: {type: integer, minimum: 1}   # この周の輪の何回目か（fix-accept が 3 回目の拒否で done を立てる）
 
         - id: fix
-          model: sonnet               # コードとテストを書く役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+          model: sonnet               # コードとテストを書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
           prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-prep]
@@ -889,7 +889,7 @@ nodes:
               iteration: {type: integer, minimum: 1}
 
         - id: fix-ruled
-          model: sonnet               # コードとテストを書く役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+          model: sonnet               # コードとテストを書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
           prompt: 指示書 `$fix-ruled-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-ruled-prep]

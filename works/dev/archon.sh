@@ -5,7 +5,8 @@
 # 確かめてから、HOME・ARCHON_HOME・CLAUDE_CONFIG_DIR・XDG_* を全部そこへ向けて隔離した
 # 状態で実行ファイルを exec する。works/ のパックには入らない（77MB 級のため）。
 # 認証を使う実行では、隔離した Archon の設定に模型（WORKS_DEV_MODEL。既定は guard.sh の WORKS_DEV_MODEL_DEFAULT）を毎回書く。
-# YAML の段に model: を書いた段（役の前付けに model の在る役の段。試験の宣言 PINNED）には、この値は効かない。
+# YAML は AI の段の全部に model: を書くので、この設定の値は段に効かない。明示した WORKS_DEV_MODEL は、包み（WORKS_DEV_ADAPTER=1）が
+# 前付けの無い役の段（.shared/core/stage-models.json）をその模型で起こす（adapter.py の頭の 19）。
 set -eu
 
 ARCHON_VERSION="v0.11.1"
@@ -130,11 +131,11 @@ fi
 # 認証を使う（AI を呼びうる）実行は毎回、隔離した Archon の全体設定に既定の模型を書き、run の題を作る
 # 模型も同じにする（TITLE_GENERATION_MODEL。設定済みならそのまま）。書かないと Claude CLI の既定の模型で
 # 黙って回る。模型は WORKS_DEV_MODEL（空か未設定なら guard.sh の WORKS_DEV_MODEL_DEFAULT。既定を埋めるのはここだけ）で、
-# 明示か既定かを WORKS_MODEL_FROM に残して下へ渡す。works の YAML は、役の前付け（.shared/core/agents/<役>.md）に
-# model の在る役（試験の宣言 PINNED、tests/test_tool_parity.py）の段だけ、前付けと同じ model: を書く（持ち主の決定
-# 2026-10-01）。Archon は段の値をこの設定より先に使うので、その段にはここで書く値が効かない。ほかの段は利用者の
-# 選択を残すため書かない。
-# 解いた値は WORKS_DEV_MODEL に書き戻さず（書き戻すと Archon の下で起こす殻に既定が明示として届く）、別の名
+# 明示か既定かを WORKS_MODEL_FROM に残して下へ渡す。works の YAML は AI の段の全部に model: を書く（持ち主 2026-10-06。
+# 前付けを持つ役の段は前付けの値、ほかは表 .shared/core/stage-models.json の値）。Archon は段の値をこの設定より先に使うので、
+# ここで書く値が効くのは run の題（TITLE_GENERATION_MODEL）だけ。明示した値（WORKS_DEV_MODEL が空でない）は、包みが
+# 前付けの無い役の段をその模型で起こす（adapter.py の頭の 19。effort は段の値のまま）。包みの無い run には効かないので 1 行で言う。
+# 解いた値は WORKS_DEV_MODEL に書き戻さず（書き戻すと Archon の下で起こす殻と包みに既定が明示として届く）、別の名
 # WORKS_MODEL_RESOLVED で渡す（run の版の控え versions.json の model が読む）。
 # 認証の要らない道（WORKS_DEV_NO_AUTH=1。テスト・validate・workflow test）は変えない（書かない・模型も要らない）。
 WORKS_MODEL_FROM="$(works_dev_model_from)"
@@ -151,6 +152,9 @@ assistants:
 EOF
   TITLE_GENERATION_MODEL="${TITLE_GENERATION_MODEL:-$WORKS_MODEL_RESOLVED}"
   export TITLE_GENERATION_MODEL
+  if [ -n "${WORKS_DEV_MODEL:-}" ] && [ -z "$WORKS_DEV_ADAPTER" ]; then
+    echo "archon.sh: WORKS_DEV_MODEL=${WORKS_DEV_MODEL} は包みを通した run（WORKS_DEV_ADAPTER=1）でだけ前付けの無い役の段に効く。包み無しのこの起動では、段は YAML の model: で走る（効くのは run の題だけ）" >&2
+  fi
   # 本物の claude（頭の launch.py env が WORKS_REAL_CLAUDE、CLAUDE_BIN_PATH（包み自身を差していれば使わない）、PATH の順で解いた）。
   # 隔離した設定にプラグインを入れる（下の toolset.py）のにも、包みが起こすのにも使う
   REAL_CLAUDE="$WORKS_LAUNCH_CLAUDE"

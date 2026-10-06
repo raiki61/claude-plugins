@@ -39,9 +39,9 @@ nodes:
         prompt_silent_failure_hunter: {type: string}
 
   # レンズ pr-review-toolkit:silent-failure-hunter（黙った失敗）。前付けが core/agents に無いので、model・effort は
-  # tests/test_tool_parity.py の表 STAGE_MODEL の値を段に書く（run の既定に頼らない）
+  # 表 .shared/core/stage-models.json の値を段に書く（run の既定に頼らない）
   - id: lens-silent-failure-hunter
-    model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+    model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
     effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
     command: lens-silent-failure-hunter
     depends_on: [lens-route]

@@ -10,7 +10,10 @@
 # （use.sh load_ledger・lib.sh works_dev_go だけが置く。入口の殻 use.sh・dogfood.sh・real-run.sh は起動の時に外し、
 # 利用者の殻に残った値を受けない）、archon.sh が読んで外す（run の途中で既定を解き直さない）。
 # works の YAML は AI の段の全部に model:・effort: を書く（持ち主 2026-10-06。tests/test_tool_parity.py が欠けを名指す）ので、
-# この既定が効くのは run の題（TITLE_GENERATION_MODEL）だけ。段の模型は替わらない。費用を先に取る（持ち主 2026-10-01）
+# この既定が効くのは run の題（TITLE_GENERATION_MODEL）だけ。段の模型は替わらない。費用を先に取る（持ち主 2026-10-01）。
+# 明示した WORKS_DEV_MODEL は、包み（WORKS_DEV_ADAPTER=1）が前付けの無い役の段（.shared/core/stage-models.json）を、その run の
+# 間（続き・答えの行も同じ値で）その模型で起こす（adapter.py の頭の 19。effort は段の値のまま。前付けを持つ役の段は替えない）。
+# 既定はここでも段に効かせない（archon.sh が WORKS_DEV_MODEL に書き戻さないので、包みには明示だけが届く）
 WORKS_DEV_MODEL_DEFAULT=sonnet
 
 # works_dev_model_value / works_dev_model_from: 全体の模型の値と出どころ。空でなければ明示、次に start の時の既定

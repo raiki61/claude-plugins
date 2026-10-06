@@ -1467,7 +1467,8 @@ def head_cost(board_dir, run_id: str, *, events=None, launches=None) -> list:
 # ---------------------------------------------------------------- 模型
 def head_models(board_dir, launches=None) -> list:
     """費用の前の模型の行。全体は <盤面の親＝ARTIFACTS_DIR>/versions.json の model（start の時に archon.sh が渡した要求と
-    出どころ）、節ごとは包みの起動の記録の model（Archon が節に渡した --model。応答が名乗る模型は読まない）。同じ節で値が
+    出どころ）、節ごとは包みの起動の記録の model（子に渡した --model。包みが run の明示の模型で替えた段は model_declared の
+    段の宣言も添える。応答が名乗る模型は読まない）。同じ節で値が
     替われば順に全部並べる。取れない値は理由を書き、全体の値で埋めない。launches を渡さなければ head_cost と同じ起動の記録"""
     path = pathlib.Path(board_dir).parent / "versions.json"
     try:
@@ -1484,6 +1485,8 @@ def head_models(board_dir, launches=None) -> list:
     for r in _live_launches(board_dir, launches):
         seen = per.setdefault(r.get("node") or "（印の無い起動）", [])
         m = r.get("model") if "model" in r else "（記録の無い版の包み）"
+        if r.get("model_declared"):   # 包みが run の明示の模型で替えた段（adapter.py の頭の 19）
+            m = f"{m}（段の宣言 {r['model_declared']} を run の明示の模型で替えた）"
         if not seen or seen[-1] != m:
             seen.append(m)
     if not per:

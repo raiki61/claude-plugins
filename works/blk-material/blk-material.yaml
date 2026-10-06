@@ -444,7 +444,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: local-review
-        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: local-review
         depends_on:
@@ -1335,7 +1335,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: gate-efficacy
-        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: gate-efficacy
         depends_on:
@@ -1506,7 +1506,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: test-double-fidelity
-        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: test-double-fidelity
         depends_on:
@@ -1672,7 +1672,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: main-path-observation
-        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: main-path-observation
         depends_on:
@@ -1834,7 +1834,7 @@ nodes:
               type: boolean
       # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: provenance
-        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+        model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
         effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
         command: provenance
         depends_on:

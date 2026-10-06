@@ -65,7 +65,7 @@ nodes:
               node: {type: string}
               already: {type: boolean}
         - id: spec-write
-          model: opus                 # 修正案・仕様を書く役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+          model: opus                 # 修正案・仕様を書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: spec-write
           depends_on: [write-prep]
@@ -306,7 +306,7 @@ nodes:
               node: {type: string}
               already: {type: boolean}
         - id: spec-revise
-          model: opus                 # 修正案・仕様を書く役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+          model: opus                 # 修正案・仕様を書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: spec-revise
           depends_on: [revise-prep]

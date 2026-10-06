@@ -625,6 +625,15 @@ class HeadModelsCase(unittest.TestCase):
         self.assertTrue(judge and "opus" in judge[0], lines)
         self.assertTrue(fix and "sonnet" in fix[0] and "opus" in fix[0], lines)
 
+    def test_run_model_override_shows_declared(self):
+        """run の明示の模型で包みが替えた段は、子に渡した模型と段の宣言を両方出す（替えていない段は今のまま）"""
+        lines = report.head_models(self.board, [{"node": "fix", "model": "opus", "model_declared": "sonnet", "at": "1"},
+                                                {"node": "judge", "model": "opus", "at": "2"}])
+        fix = [l for l in lines if "fix" in l]
+        judge = [l for l in lines if "judge" in l]
+        self.assertTrue(fix and "opus" in fix[0] and "段の宣言 sonnet" in fix[0], lines)
+        self.assertTrue(judge and "段の宣言" not in judge[0], lines)
+
     def test_missing_records_are_named_not_guessed(self):
         lines = report.head_models(self.board, [{"node": "eyes", "model": None, "at": "1"}])
         self.assertIn("取れない", "\n".join(lines))   # versions.json が無い

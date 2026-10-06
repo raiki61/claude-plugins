@@ -1,0 +1,36 @@
+{
+  "about": "役の前付け（agents/<役>.md の model・effort）を持たない役の AI の段の模型と effort の正本（持ち主 2026-10-06）。キーは <フォルダ>/<段>、値は classes の名。段の YAML の model:・effort: はこの値を書き、tests/test_tool_parity.py が欠けと食い違いを名指す（値を替えるときは段の YAML と一緒に替える）。前付けを持つ役の段は載せない（前付けが正本）。包み（claude-adapter・adapter.py の頭の 19）は、run の模型を明示した run（env の WORKS_DEV_MODEL が空でない）で、ここに載った段だけを明示の模型で起こす（effort は段の値のまま）。段の名は段の印（works-node: <名>）の名と同じ",
+  "classes": {
+    "plan_writer": {"model": "opus", "effort": "medium", "about": "修正案・仕様を書く役"},
+    "code_writer": {"model": "sonnet", "effort": "high", "about": "コードとテストを書く役"},
+    "light": {"model": "sonnet", "effort": "medium", "about": "読んで確かめる・まとめる軽い役"}
+  },
+  "stages": {
+    "blk-plan/plan": "plan_writer",
+    "blk-plan/plan-revise": "plan_writer",
+    "blk-spec/spec-write": "plan_writer",
+    "blk-spec/spec-revise": "plan_writer",
+    "blk-fix/tdd": "code_writer",
+    "blk-fix/fix": "code_writer",
+    "blk-fix/fix-ruled": "code_writer",
+    "blk-refix/refix": "code_writer",
+    "blk-refix/refix2": "code_writer",
+    "blk-ci/ci": "light",
+    "blk-eyes/r1-comments": "light",
+    "blk-lens/lens-silent-failure-hunter": "light",
+    "blk-material/gate-efficacy": "light",
+    "blk-material/local-review": "light",
+    "blk-material/main-path-observation": "light",
+    "blk-material/provenance": "light",
+    "blk-material/test-double-fidelity": "light",
+    "blk-pr/pr-check": "light",
+    "blk-premises/premises": "light",
+    "blk-purpose/purpose": "light",
+    "blk-report/report-items": "light",
+    "blk-report/report-write": "light"
+  },
+  "notes": {
+    "blk-spec/spec-write": "受け入れ条件のテストも書くが、主は仕様（要件）を書く役",
+    "blk-ci/ci": "CI の任せ先（定義を読んで写しの上で走らせ、素材を返す）"
+  }
+}

@@ -85,8 +85,10 @@ class ArchonShModelFrom(unittest.TestCase):
         seen = tmp / "model-from.txt"
         fake_archon = dev_home / "bin" / "archon-darwin-arm64"
         self.pinned_seen = tmp / "pinned.txt"
+        self.dev_model_seen = tmp / "dev-model.txt"
         fake_archon.write_text("#!/bin/sh\n" f'printf \'%s\\n\' "${{WORKS_MODEL_FROM-(unset)}}" > "{seen}"\n'
-                               f'printf \'%s\\n\' "${{WORKS_MODEL_PINNED-(unset)}}" > "{self.pinned_seen}"\n')
+                               f'printf \'%s\\n\' "${{WORKS_MODEL_PINNED-(unset)}}" > "{self.pinned_seen}"\n'
+                               f'printf \'%s\\n\' "${{WORKS_DEV_MODEL:-(empty)}}" > "{self.dev_model_seen}"\n')
         fake_bin = tmp / "fake-bin"
         from test_toolset import make_user_config, write_fake_claude
         write_fake_claude(fake_bin)
@@ -134,6 +136,29 @@ class ArchonShModelFrom(unittest.TestCase):
         self.assertIn("WORKS_MODEL_PINNED", from_pinned)
         self.assertNotEqual(from_pinned, from_default)
         self.assertEqual(self.pinned_seen.read_text().strip(), "(unset)")
+
+
+    def test_only_explicit_model_reaches_archon(self):
+        """包みは Archon の下で WORKS_DEV_MODEL が空でない時だけ前付けの無い段を明示の模型で起こす（adapter.py の頭の 19）ので、
+        archon.sh は明示の値だけを Archon へ継ぎ、既定・start の時の既定の釘を WORKS_DEV_MODEL に書き戻さない"""
+        default, probe = hermetic.dev_model_default(), hermetic.other_model()
+        for kw, want in (({}, "(empty)"), ({"WORKS_DEV_MODEL": "", "WORKS_MODEL_PINNED": probe}, "(empty)"),
+                         ({"WORKS_DEV_MODEL": probe}, probe), ({"WORKS_DEV_MODEL": default}, default)):
+            with self.subTest(**kw):
+                result, _config, _from = self.exec_archon_sh(**kw)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.dev_model_seen.read_text().strip(), want)
+
+    def test_explicit_model_without_adapter_says_so(self):
+        """包みを外した run（WORKS_DEV_ADAPTER が空・0）では明示の模型が段に届かない。黙らずに 1 行で言う。明示しない run は言わない"""
+        probe = hermetic.other_model()
+        result, _config, _from = self.exec_archon_sh(WORKS_DEV_MODEL=probe)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"WORKS_DEV_MODEL={probe}", result.stderr)
+        self.assertIn("WORKS_DEV_ADAPTER=1", result.stderr)
+        result, _config, _from = self.exec_archon_sh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("WORKS_DEV_ADAPTER=1", result.stderr)
 
 
 class UseShDefaultModel(unittest.TestCase):

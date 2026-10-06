@@ -216,35 +216,28 @@ EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 
 # 前付けの無い役（writer・skill・借りたレンズ・comment-analyzer など）の段の (model, effort)。AI の段の全部に model・effort を
 # 書き、run の既定（dev/guard.sh の WORKS_DEV_MODEL_DEFAULT）と Claude Code の既定の effort に黙って頼らない（持ち主 2026-10-06）。
-# 仕分け: 修正案・仕様を書く役は opus・medium、コードとテストを書く役は sonnet・high、読んで確かめる・まとめる軽い役は sonnet・medium。
-# 前付けの在る役の段はここに書かない（前付けが正本。下の試験が重なりを名指す）。値を替えるときは段の YAML と一緒に替える
-_PLAN_WRITER = ("opus", "medium")
-_CODE_WRITER = ("sonnet", "high")
-_LIGHT = ("sonnet", "medium")
-STAGE_MODEL = {
-    ("blk-plan", "plan"): _PLAN_WRITER,
-    ("blk-plan", "plan-revise"): _PLAN_WRITER,
-    ("blk-spec", "spec-write"): _PLAN_WRITER,          # 受け入れ条件のテストも書くが、主は仕様（要件）を書く役
-    ("blk-spec", "spec-revise"): _PLAN_WRITER,
-    ("blk-fix", "tdd"): _CODE_WRITER,
-    ("blk-fix", "fix"): _CODE_WRITER,
-    ("blk-fix", "fix-ruled"): _CODE_WRITER,
-    ("blk-refix", "refix"): _CODE_WRITER,
-    ("blk-refix", "refix2"): _CODE_WRITER,
-    ("blk-ci", "ci"): _LIGHT,                          # CI の任せ先（定義を読んで写しの上で走らせ、素材を返す）
-    ("blk-eyes", "r1-comments"): _LIGHT,
-    ("blk-lens", "lens-silent-failure-hunter"): _LIGHT,
-    ("blk-material", "gate-efficacy"): _LIGHT,
-    ("blk-material", "local-review"): _LIGHT,
-    ("blk-material", "main-path-observation"): _LIGHT,
-    ("blk-material", "provenance"): _LIGHT,
-    ("blk-material", "test-double-fidelity"): _LIGHT,
-    ("blk-pr", "pr-check"): _LIGHT,
-    ("blk-premises", "premises"): _LIGHT,
-    ("blk-purpose", "purpose"): _LIGHT,
-    ("blk-report", "report-items"): _LIGHT,
-    ("blk-report", "report-write"): _LIGHT,
-}
+# 表の正本は core の stage-models.json（包みも読む: run の模型を明示した run では、この表の段だけを明示の模型で起こす）。
+# 仕分け（classes）: 修正案・仕様を書く役は opus・medium、コードとテストを書く役は sonnet・high、読んで確かめる・まとめる軽い役は
+# sonnet・medium。前付けの在る役の段は表に書かない（前付けが正本。下の試験が重なりを名指す）。値を替えるときは段の YAML と一緒に替える
+STAGE_MODELS_FILE = ROOT / ".shared" / "core" / "stage-models.json"
+
+
+def load_stage_model(path=STAGE_MODELS_FILE) -> dict:
+    """{(フォルダ, 節): (model, effort)}（stage-models.json の stages を classes で引く）"""
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    classes = doc["classes"]
+    return {tuple(key.split("/", 1)): (classes[c]["model"], classes[c]["effort"]) for key, c in doc["stages"].items()}
+
+
+STAGE_MODEL = load_stage_model()
+
+
+def marker_name(node: dict):
+    """段の output_format の印（works-node: <名> …）の名。印が無ければ None"""
+    desc = (node.get("output_format") or {}).get("description") if isinstance(node.get("output_format"), dict) else None
+    if not isinstance(desc, str) or not desc.startswith("works-node: "):
+        return None
+    return desc[len("works-node: "):].split(" ")[0]
 
 
 def stage_roles() -> dict:
@@ -364,6 +357,27 @@ class RoleModelCase(unittest.TestCase):
             with self.subTest(place):
                 self.assertIn(model, PINNED)
                 self.assertIn(effort, EFFORTS)
+
+    def test_stage_markers_name_their_stage(self):
+        """包みは起動を印の名で見分けて表 STAGE_MODEL の段だけを run の明示の模型で起こすので、表の段の印の名は段の名と同じ。
+        前付けを持つ役の段（表の外）の印の名は表の段の名と重ならない（重なると前付けの役まで替わる）"""
+        wrong = [f"{place[0]} の段 {place[1]}: 印の名 {marker_name(self.nodes[place])!r}"
+                 for place in sorted(STAGE_MODEL) if marker_name(self.nodes[place]) != place[1]]
+        self.assertEqual(wrong, [])
+        names = {place[1] for place in STAGE_MODEL}
+        shared = sorted(f"{place[0]} の段 {place[1]}" for place, n in self.nodes.items()
+                        if place not in STAGE_MODEL and marker_name(n) in names)
+        self.assertEqual(shared, [], "表の外の段が表の段と同じ印の名を持つ")
+
+    def test_stage_model_file_shape(self):
+        """stage-models.json の stages は classes に在る名だけを指し、classes は model・effort を持つ"""
+        doc = json.loads(STAGE_MODELS_FILE.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(set(doc["stages"].values()) - set(doc["classes"])), [])
+        for name, c in sorted(doc["classes"].items()):
+            with self.subTest(name):
+                self.assertIn(c["model"], PINNED)
+                self.assertIn(c["effort"], EFFORTS)
+        self.assertEqual([k for k in doc["stages"] if k.count("/") != 1], [])
 
     def test_no_workflow_level_model(self):
         for p in workflow_files():

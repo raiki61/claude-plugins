@@ -58,8 +58,8 @@
 #   外から打っても、起こした枠へ送る。数える控えは今の家と既定の家の全部の物。
 # - 差分（run の worktree と周の頭の版の差）は <家>/diffs/run-<id>.diff に書き、対象へ当てる apply の行を出す。当てるのは人。
 # 認証の順は起こし役 .shared/core/auth_launch.py（WORKS_KEYCHAIN_ITEM → 本流 claude_auth.py の写しの auth_env → Claude Code 自身の
-# keychain の項目）。ここは出どころの名だけを受け、値は受けない。模型は WORKS_DEV_MODEL（ここでは埋めない。未設定なら archon.sh が既定を解く。YAML の段に
-# model: を書いた役の段は、段の値が先に効く）。
+# keychain の項目）。ここは出どころの名だけを受け、値は受けない。模型は WORKS_DEV_MODEL（ここでは埋めない。未設定なら archon.sh が既定を解く。YAML の段は
+# 段の model: で走り、明示した値は包みが前付けの無い役の段に効かせる。adapter.py の頭の 19）。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_use.py が偽物を差す）。
 set -eu
 
@@ -318,7 +318,7 @@ load_ledger() {
   _ll_out=$(works_dev_launch ledger load --dir "$WORKS_USE_HOME/runs" --run-id "$1") || exit $?
   works_dev_launch_eval use.sh "$_ll_out" || exit $?
   unset _ll_out
-  echo "run $1 の控え（模型 ${WORKS_DEV_MODEL:-既定 $(works_dev_model_value)}・包み ${WORKS_DEV_ADAPTER:-無し}）で${2:- Archon を起こす}（YAML の段に model: を書いた役の段は段の値）"
+  echo "run $1 の控え（模型 ${WORKS_DEV_MODEL:-既定 $(works_dev_model_value)}・包み ${WORKS_DEV_ADAPTER:-無し}）で${2:- Archon を起こす}（段は YAML の model:。明示した模型は包みを通せば前付けの無い役の段に効く）"
 }
 
 . "$DEV_DIR/lib.sh"

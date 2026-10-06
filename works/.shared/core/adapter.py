@@ -10,8 +10,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    PostToolUse:Edit|Write|NotebookEdit のフック（record-write.py。書いた後の中身の sha を writes_path に残し、書く役の受け付けが
    版からの変更と突き合わせる。.shared/core/writes.py）を足す。
    SDK は sandbox を持つ節にだけ `--settings {"sandbox":{…}}` を付けるので、在ればマージ（SDK の鍵は上書きしない）、
-   無ければフックだけの `--settings` を足す。`--setting-sources`（SDK は `=` でつないで必ず渡す）と `--model`・`--effort` は
-   触らない（`--model`・`--effort` は読んで起動の記録に残すだけ。launch_row）。
+   無ければフックだけの `--settings` を足す。`--setting-sources`（SDK は `=` でつないで必ず渡す）と `--effort` は
+   触らない（読んで起動の記録に残すだけ。launch_row）。`--model` は 19 の時だけ替え、ほかは読んで記録に残すだけ。
    CLAUDE.md を止めるのは YAML の `settingSources: [user]` と、開発の殻が組む隔離した設定の柵（dev/toolset.py）の役目
    （Archon の検証と実際を食い違わせない）。
 2. **会話の継ぎ**: 役の節の output_format（JSON Schema）の一番上の `description` に置いた印
@@ -138,6 +138,15 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    持たない）。形の控えが壊れている（読めない・語の外）なら、壊れた切符と同じく claude を起こさない（理由に fix_shape）。
    deny は道具の呼びを拒むだけで、YAML の `skills:` が載せたスキルの一覧は system prompt に残る（拒まれた呼びが Archon の
    events に tool_called として出うる。一覧を外すのは YAML の側）
+19. **run の明示の模型**（印のある起動だけ）: 段の YAML は AI の段の全部に `model:` を書く（持ち主 2026-10-06）ので、Archon の
+   設定の模型（開発の殻 archon.sh が書く run の模型）は段に効かない。run の模型を明示した run（env の WORKS_DEV_MODEL が空で
+   ない。archon.sh は既定を WORKS_DEV_MODEL に書き戻さないので、空でなければ利用者の明示。続き・答えの行は控えの値で同じ名を
+   置く）では、前付けを持たない役の段（同じ置き場の表 stage-models.json の stages。段の名は印の名と同じ）の起動の `--model` の
+   値を全部、明示の値に替える（前は前付けの無い段が設定の模型で走り、明示がその段に効いた。その力を戻す）。`--effort` は段の
+   値のまま。前付けを持つ役の段（表の外）・印の無い起動・明示の無い run・宣言と同じ値の起動は替えない。替えた起動だけ起動の
+   記録に `model_declared`（Archon が渡した段の宣言）を足し、`model` は子に渡した値。明示が在るのに表が読めない・形が違う
+   起動は claude を起こさない（明示を黙って落とさない）。明示が無ければ表を読まない。包み無しの run には効かない（archon.sh が
+   1 行で言う）
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
 変えない（stdin も中継しない。stdout は 16 のとおり同じバイトで写す）。見分けられない形
@@ -215,6 +224,9 @@ RUN_PLACE_ENV = {"UV_CACHE_DIR": "uv-cache", "WORKS_RUN_PLACE": ""}   # 子の e
 # gh の名で置き、前方一致をすり抜ける呼び方（command gh・xargs gh・sh -c "gh …"）も同じ一覧に通す。git push も拒む
 NO_POST_DENY = ("Bash(gh:*)", "Bash(git push:*)")
 NO_POST_BIN = pathlib.Path(__file__).resolve().parent / "no-post-bin"
+# 19. run の明示の模型（開発の殻が既定を書き戻さない名。空でなければ明示）と、それで起こす段の表（前付けを持たない役の段）
+ENV_RUN_MODEL = "WORKS_DEV_MODEL"
+STAGE_MODELS_FILE = pathlib.Path(__file__).resolve().parent / "stage-models.json"
 _ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 
 
@@ -247,6 +259,7 @@ class Plan(NamedTuple):
     env: Optional[dict] = None      # 子の env に上書きする物（印のある起動。ENGINE_CHILD_ENV と、no-post の口）
     strict_net: Optional[bool] = None   # 網: True は strictAllowlist で閉じた起動、False は `*` の網、None は網の一覧が無い
     cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
+    model_declared: Optional[str] = None   # 19 で --model を替えた起動の、Archon が渡した段の宣言（替えなければ None）
 
 
 def marker_text(name: str, cont: Optional[str] = None, flags: Sequence[str] = ()) -> str:
@@ -430,11 +443,15 @@ def launch_row(p: "Plan", cwd, pid: int, at: str) -> dict:
     `session` は {mode, id, of?, from?}: mode は new・sdk-resume・sdk-session・sdk-fork・continued・refused。
     `from` は既に在る会話を開いた起動（sdk-resume・sdk-fork・continued）の元の会話の id（sdk-fork だけ id と違う）。
     `model` は Archon がこの起動に渡した `--model`（要求した模型。応答が名乗る模型ではない。無ければ None＝CLI の既定）。
+    19 で替えた起動は `model` が子に渡した値（run の明示の模型）で、`model_declared` に Archon が渡した段の宣言を足す。
     `effort` は同じく Archon がこの起動に渡した `--effort`（無ければ None＝CLI の既定か設定。SDK が旗でない経路で渡しても None）"""
-    return {"at": at, "pid": pid, "cwd": os.path.realpath(str(cwd)), "node": p.node, "continue": p.cont,
-            "mode": p.mode, "why": p.why, "hook": p.hook, "tools_empty": p.tools_empty, "session": p.session,
-            "fence": p.fence, "strict_net": p.strict_net, "model": requested_flag(p.argv, "--model"),
-            "effort": requested_flag(p.argv, "--effort")}
+    row = {"at": at, "pid": pid, "cwd": os.path.realpath(str(cwd)), "node": p.node, "continue": p.cont,
+           "mode": p.mode, "why": p.why, "hook": p.hook, "tools_empty": p.tools_empty, "session": p.session,
+           "fence": p.fence, "strict_net": p.strict_net, "model": requested_flag(p.argv, "--model"),
+           "effort": requested_flag(p.argv, "--effort")}
+    if p.model_declared is not None:
+        row["model_declared"] = p.model_declared
+    return row
 
 
 def requested_flag(argv: Sequence[str], flag: str) -> Optional[str]:
@@ -1103,6 +1120,10 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             out, fence["query_rule"] = with_query_rule(out)
         except Unrecognised as e:
             return _refuse(argv, node, cont, tools_empty, f"検索語の規律を足せない（{e}）")
+    try:   # 19
+        out, declared = with_run_model(out, node, env)
+    except Unrecognised as e:
+        return _refuse(argv, node, cont, tools_empty, f"run の明示の模型を段に当てられない（{e}）")
     child_env = {**(no_post_env(env, gh) if gh is not None else {}), ENGINE_CHILD_ENV: "1", NO_BG_ENV: "1"}
     if isinstance(fence.get("run_place"), str):   # 17。外から立っていた値は置き場の物に替わる（替えた名を記録に残す）
         child_env.update({k: os.path.join(fence["run_place"], rel).rstrip("/") for k, rel in RUN_PLACE_ENV.items()})
@@ -1110,7 +1131,40 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         if replaced:
             fence["run_place_replaced_env"] = replaced
     return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env,
-                strict_net=strict, cwd=child_cwd)
+                strict_net=strict, cwd=child_cwd, model_declared=declared)
+
+
+def run_model_nodes(path: Optional[pathlib.Path] = None) -> frozenset:
+    """19. run の明示の模型で起こす段の名（表 stage-models.json の stages の <フォルダ>/<段> の段）。読めない・形が違えば
+    Unrecognised（表の名を言う）"""
+    path = STAGE_MODELS_FILE if path is None else path
+    try:
+        stages = json.loads(path.read_text(encoding="utf-8")).get("stages")
+    except (OSError, ValueError, AttributeError) as e:
+        raise Unrecognised(f"{path} が読めない（{type(e).__name__}）") from None
+    if not (isinstance(stages, dict) and stages
+            and all(isinstance(k, str) and k.count("/") == 1 and _NAME_RE.fullmatch(k.split("/")[1]) for k in stages)):
+        raise Unrecognised(f"{path} の stages が <フォルダ>/<段> の鍵の表でない")
+    return frozenset(k.split("/")[1] for k in stages)
+
+
+def with_run_model(argv: List[str], node: str, env) -> Tuple[List[str], Optional[str]]:
+    """19. (子に渡す argv, 替えた時の段の宣言か None)。明示の模型（env の ENV_RUN_MODEL が空でない）が在り、node が表の段で、
+    Archon が渡した --model（後の指定が勝つ）が明示と違う時だけ、--model の値を全部明示の値に替える。--model の無い起動は
+    替えない（Archon の設定の模型＝run の模型で走る）。表が読めなければ Unrecognised（明示が無ければ表を読まない）"""
+    want = (env.get(ENV_RUN_MODEL) or "").strip()
+    if not want or node not in run_model_nodes():
+        return argv, None
+    found = find_opt(argv, "--model")
+    if not found or found[-1][2] == want:
+        return argv, None
+    out = list(argv)
+    for i, _n, _v, eq in found:
+        if eq:
+            out[i] = "--model=" + want
+        else:
+            out[i + 1] = want
+    return out, found[-1][2]
 
 
 def _tools(argv: Sequence[str]) -> set:

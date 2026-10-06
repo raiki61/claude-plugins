@@ -102,6 +102,7 @@ FAST = frozenset({
     "test_duty_owner",      # 直す義務の集合を持ち主の外で作り直す式を止める検査: works の .py を AST で読むだけ（git・子のプロセスなし）
     "test_report_cold",     # 報告の書き手の輪の初見の確かめ: YAML と偽の盤面・mock の entry.take（盤面・git・子のプロセスなし）
     "test_report_rejects",  # run をまたぐ拒否の集計 dev/report_rejects.py: 一時の置き場の JSON を python で子で読む（git なし）
+    "test_model_override",  # run の明示の模型で前付けの無い段を起こす: adapter.plan を直に呼ぶ・包みを子で起こし偽の claude（python）が argv を書く（子のプロセスは包みと git rev-parse だけ。Archon・待ちなし）
     "test_dev_model",       # 殻の全体の模型の明示と既定: 殻を読む・archon.sh と use.sh を偽の Archon で子で起こす（種の git は gitkit の型の写し・切り離し・待ちなし）
 })
 
