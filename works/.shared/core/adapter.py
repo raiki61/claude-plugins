@@ -36,7 +36,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    SDK が sandbox の塊を渡した起動だけ `sandbox.filesystem.denyWrite` にも足す（sandbox の無い節に sandbox の鍵を作らない）。
    どちらも SDK の配列の後ろに足し、SDK の項目は消さない。今の worktree のうち、17 の run ごとの置き場の下に在り、役の cwd の
    作業ツリーの単位の守りの参照（unittrees。共通の .git の中で役は作れない）を持つ単位の worktree は足さない（修正役の下請けが
-   範囲の重ならない項目を並べて書く所。依頼 243 の並べ。live_worktrees）
+   項目を並べて書く所。依頼 243 の並べ。live_worktrees）
 
 4. **木ごと止める**: 本物の claude は exec せずに子として新しいセッションで起こし（標準入出力は 9・16 のほかは継ぐ）、走っている間
    POLL 秒ごとに木の仲間（tree_run._tree_members: グループ・セッションの番号・親子の鎖・前に数えた物。開始時刻で番号の

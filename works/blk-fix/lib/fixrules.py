@@ -67,7 +67,7 @@ import askplan  # noqa: E402  （同じブロックの lib。範囲の相談の�
 import libdocs  # noqa: E402
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
 import planmarks  # noqa: E402  （項目の範囲: allowed_paths と受け入れのテストのファイル。並べる項目の分け方）
-import unitlanes  # noqa: E402  （同じブロックの lib。範囲の重ならない項目の単位の worktree。依頼 243 の並べ）
+import unitlanes  # noqa: E402  （同じブロックの lib。範囲の在る項目の単位の worktree。依頼 243 の並べ）
 import recount  # noqa: E402
 import rolekit  # noqa: E402
 import rulebook  # noqa: E402
@@ -604,7 +604,7 @@ def overlap_line(b) -> str:
 
 
 def side_on(shape: str, pass_: str, iteration: int) -> bool:
-    """範囲の重ならない項目を単位の worktree で並べるか（依頼 243 の並べ）: 既定の形 g3 の 1 回目の修正役（pass first）の、輪の
+    """範囲の在る項目を単位の worktree で並べるか（依頼 243 の並べ）: 既定の形 g3 の 1 回目の修正役（pass first）の、輪の
     1 回目の周だけ。出し直しと裁定の後は前の直しの在る作業ツリーで名指す項目だけを起こし直し、g1 は比べの腕なので順のまま"""
     return shape == seatkit.SHAPE and pass_ == PASSES[0] and iteration == 1
 
@@ -647,7 +647,7 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     修正の形（fixshape.shape_at）が座を載せる形なら、借りたスキルの座（seat.section。型の穴は implementer_values）を full と delta の
     両方に載せる。修正役が下請けを起こす単位（dispatched。g1 は全部、g3 は輪が緑にした単位の外）が在れば、その代わりに下請けを
     回す節（seat.g1_section。下請けのファイルは g1_values。[BASE_SHA] は values の base_rev）を載せる（依頼 243 の 2: g3 も単位
-    ごとに新しい会話。g3 で輪が全部を緑にした周は前の座のまま）。g3 の 1 回目の周（side_on）は範囲の重ならない項目に単位の
+    ごとに新しい会話。g3 で輪が全部を緑にした周は前の座のまま）。g3 の 1 回目の周（side_on）は範囲の在る項目に単位の
     worktree を切り、節に当てるコマンド（merge_line）を載せる（依頼 243 の並べ）。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も
     置かない。支度の script は 2 で落ちる）"""
     if pass_ not in PASSES:
