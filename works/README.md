@@ -201,6 +201,23 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 - run の明示の模型（印のある起動だけ）: env の `WORKS_DEV_MODEL` が空でない run（利用者の明示。`archon.sh` は既定を書き戻さない）では、表 `.shared/core/stage-models.json` の段（前付けを持たない役の段。段の名は印の名）の起動の `--model` を全部その値に替える。`--effort` は段の値のまま、前付けを持つ役の段・印の無い起動は替えない。替えた起動は起動の記録に `model_declared`（段の宣言）を足し、`model` は子に渡した値。明示が在るのに表が読めない起動は起こさない（明示を黙って落とさない）。包みを外した run には効かない（`.shared/core/adapter.py` の頭の 19）。
 - 修正役は run の worktree に `__pycache__` などの git が無視するファイルを残すことがある。fix.diff には載らないが、テストの節の緑赤を左右した（自分食いの run で、バイトコードが無いことを見る試験が偽の赤になった）。今は blk-fix が修正役の前に git が無視するファイルを控え（節 `ignored-before`）、修正役の後、テストの前に、控えに無かった物だけを消す（節 `clean`。消した物の全件は盤面の `fix-removed.json` に書き、出口には件数とそのファイルを出す。報告の冒頭と最後の関所には、0 本でも件数と全パスが出る）。判定・審査の読むだけの検査（作業ツリーの写し）も、git が無視するファイルの増減・書き換えを見る。
 
+## canary（版ごとの確かめの 1 run）
+
+普段の依頼ではたまにしか通らない道を、決まった小さな対象と決まった依頼で 1 run にまとめて通す殻が `works/dev/canary.sh`（費用が掛かる。回す前に持ち主の了承を取る）。種は `works/dev/canary-seed/`（標準ライブラリだけの `calc.py`・`textfmt.py` とそのテスト・`CHANGELOG.md`。種のテストは緑で、バグを突くテストはまだ無い）、依頼は `works/dev/canary-request.json`（3 件）。狙う道:
+
+- (a) 別のファイルの 2 項目以上（`calc.py:mean` と `textfmt.py` の 2 件）: TDD の輪の枝と修正役の項目の並べ
+- (b) 同じファイルの 2 項目（`textfmt.py` の頭の `pad_left` と末尾の `truncate`。直しの塊は離れていて、足すテストは同じ `test_textfmt.py` の末尾の挿しだけ）: 重なる枝の 3 方向の合わせと試験のファイルの union
+- (c) 範囲の外が要る直し（`mean` の直しに要る `CHANGELOG.md` の 1 行。依頼が修正案に `allowed_paths` へも `out_of_scope` へも入れさせない）: 範囲の相談
+- (d) run の中の案の直し: 起きてもよい（起こさせない）
+
+回し方:
+
+1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/canary.sh [<置き場>]` を裏で起こす（無人の run で報告まで前景で回るので、Claude Code からは `run_in_background` か切り離しの殻で起こす）。置き場の既定は `~/.cache/works-canary/<日時>-<pid>` で、`repo/`（対象。枝 `main`）・`origin.git/`・`home/`（利用の家 `WORKS_USE_HOME`）を作り、`use.sh start` を `WORKS_USE_UNATTENDED=1`・test_cmd `python3 -m pytest -q`（`use.sh` が JUnit の実行器を書くので TDD の輪が回る）で起こす。`python3 -I` で pytest が読めない・`WORKS_KEYCHAIN_ITEM` が空・置き場に前の回の物が在る時は、何も作らずに止まる。`--build-only` は対象と origin を作って起動の行を出すだけ（認証も Archon も使わない）。
+2. 走っている間の run id と状態は、殻が最初に出す `use.sh show` の行で見る。終わると殻が run id と確かめの行を出す。
+3. `python3 works/dev/canary_check.py <置き場> [<run-id>]` で、何が実際に通ったかを出す（読むだけ。`--json` で JSON。`--db <archon.db> --run <run-id>` でほかの run も読める）。(a)〜(c) が yes・attempted・no のどれかと証拠（TDD の輪の枝の数と下請けの同時の最大・修正役が当てた項目・重なりのファイルと union・相談の答え）、(d) の数、修正案の項目と `allowed_paths`、AI の節の費用の和と時間、差分のファイルを出す。終了コードは (a)〜(c) が全部 yes なら 0、どれかが違えば 1、引数や db の誤りは 2。
+
+種のテストが緑でバグが在ること・試験の中だけに持つ参照の直しで各件が独立に直ること・(b) の前提（直しの塊が食い違わず、足すテストは挿しだけの食い違い）・依頼が入口の型を通ることは `tests/test_canary.py`（FAST）が縛る。依頼が修正案の決めを文で言うだけなので、計画役が従わなければ (b)・(c) は通らない（その時は確かめ役が no か attempted と出す）。
+
 ## 足りない所
 
 - 修正の受け付けは、直す義務の残る単位ごとに修正の行が在るか（`fix_plan_covers_units`）までを見る。graphloops の `fix_covers_open_units`（修正の後に判定の `class_query` を機械で数え直し、単位が閉じたかを見る）とは違う。修正の後の機械による数え直しは未実装（周の輪の段で入れる予定）。

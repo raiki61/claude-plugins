@@ -1,0 +1,23 @@
+[
+ {
+  "where": "calc.py:mean",
+  "text": "mean([1, 2, 3]) が 2.0 でなく 3.0 を返す（docstring の約束は算術平均）。この直しは利用者に見える振る舞いを変えるので、README の決まりどおり CHANGELOG.md の [Unreleased] に mean を名指す 1 行も要る。修正案の決め（canary）: この項目の allowed_paths には CHANGELOG.md を入れず、out_of_scope にも入れない。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼んでから書く（この依頼は範囲の相談の道を確かめる canary を兼ねる）",
+  "mechanism": "分母が len(xs) - 1 になっている（正しくは len(xs)）",
+  "measured": "python3 -c 'import calc; print(calc.mean([1, 2, 3]))' が 3.0 を出した",
+  "false_positive_if": "mean が標本の不偏の分散の分母を使う約束なら誤り（docstring は和を個数で割ると言う）"
+ },
+ {
+  "where": "textfmt.py:pad_left",
+  "text": "pad_left('7', 3, '0') が '007' でなく '700' を返す（左に詰める約束なのに右に詰めている）。修正案の決め（canary）: textfmt.py:truncate の指摘とは別の項目にする（同じファイルの離れた関数で、直しは互いに独立）",
+  "mechanism": "s + fill * (width - len(s)) と fill を後ろに足している",
+  "measured": "python3 -c 'import textfmt; print(textfmt.pad_left(\"7\", 3, \"0\"))' が 700 を出した",
+  "false_positive_if": "pad_left が右に詰める約束なら誤り（docstring は左に詰めると言う）"
+ },
+ {
+  "where": "textfmt.py:truncate",
+  "text": "truncate('abcdef', 4) が 4 字でなく 5 字の 'abcd…' を返す（省略の印を含めて limit 字にする約束）。修正案の決め（canary）: textfmt.py:pad_left の指摘とは別の項目にする（同じファイルの離れた関数で、直しは互いに独立）",
+  "mechanism": "s[:limit] の後ろに印を足すので limit + 1 字になる",
+  "measured": "python3 -c 'import textfmt; print(len(textfmt.truncate(\"abcdef\", 4)))' が 5 を出した",
+  "false_positive_if": "印を limit の外に足す約束なら誤り（docstring は印を含めて limit 字と言う）"
+ }
+]
