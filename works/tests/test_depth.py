@@ -122,8 +122,9 @@ class LinesCase(unittest.TestCase):
         self.assertIn("軽量", reason)
         text = "\n".join(depth.lines(doc))
         self.assertIn("軽量で省いた: ", text)
-        self.assertIn("レンズ", text)
-        self.assertIn("r1.comment_candidates", text)
+        for word in ("差分の審査", "レンズ", "r1.comment_candidates", "R1", "R2", "R3", "R4"):
+            self.assertIn(word, text)
+        self.assertNotIn("AI の報告", text, "AI の報告は省かない（計画の決め 10）")
 
     def test_standard_run_skips_nothing(self):
         doc = depth.decide_doc([item([U1], tests=4)], [U1], forced="", checked=True)
@@ -131,6 +132,13 @@ class LinesCase(unittest.TestCase):
         text = "\n".join(depth.lines(doc))
         self.assertNotIn("軽量で省いた", text)
         self.assertIn("標準", text)
+
+
+class WordsCase(unittest.TestCase):
+    def test_skipped_review_has_plain_word(self):
+        """省いた目（記録の reviews の skipped）は、最後の関所と報告の目の行に平易な語で出る"""
+        import gatemarks
+        self.assertEqual(gatemarks.eye_named("R1", "skipped"), f"{gatemarks.EYES['R1']}（R1）: 軽量で省いた（skipped）")
 
 
 class FileCase(unittest.TestCase):
@@ -154,7 +162,10 @@ class BoardReadCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.dir = pathlib.Path(self._tmp.name)
-        self.b = types.SimpleNamespace(dir=self.dir, round=1, record={"questions": []}, state={})
+        self.skipped = {}
+        self.b = types.SimpleNamespace(dir=self.dir, round=1, record={"questions": []}, state={},
+                                       node_state=lambda nid: "done" if nid in self.skipped else "pending",
+                                       skip=lambda nid, why: self.skipped.__setitem__(nid, why))
         put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1]), item([U2], tests=4)]})
 
     def start(self, **kw):
@@ -208,6 +219,17 @@ class BoardReadCase(unittest.TestCase):
         self.assertEqual(depth.run_depth(doc), depth.STANDARD)
         self.assertTrue(any("案の直し" in r for r in doc["raised"]))
         self.assertEqual(depth.read(self.dir), doc)
+
+    def test_raise_light_skips_pending_delta_review_only(self):
+        """run が軽量のままなら、待っている差分の審査を省く理由で盤面から省く。標準なら省かない"""
+        self.start(test_cmd="sh t.sh")
+        put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1])]})
+        depth.decide(self.b, json.dumps([U1]), tdd_suite="")
+        doc = depth.raise_(self.b, replanned=False, rejudged=False)
+        self.assertEqual(self.skipped, {depth.DELTA_NODE: depth.skip_reason(doc)})
+        self.skipped.clear()
+        depth.raise_(self.b, replanned=True, rejudged=False)
+        self.assertEqual(self.skipped, {})
 
     def test_raise_without_file_is_standard(self):
         doc = depth.raise_(self.b, replanned=False, rejudged=True)

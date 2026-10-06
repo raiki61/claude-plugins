@@ -159,9 +159,12 @@ class TableCase(unittest.TestCase):
                          {"p0.local_checks", "p0.parallel_pr", "p4.ci"})
 
     def test_only_optional_comment_candidates_skippable(self):
-        """graph で optional でない節は省かない（持ち主の答え 1。軽量の深さも graph の optional だけを省く）。skippable は graph で optional の r1.comment_candidates だけ
+        """graph で optional でない節は省かない（持ち主の答え 1）。skippable は graph で optional の r1.comment_candidates と、軽量の深さで
+        省ける差分の審査と独立の目 R1〜R4（持ち主の決定 2026-10-06。写しの graph の ! 行で optional にした）
         （3 回とも拒まれたら省いて R1 の本体へ。graph: 取れなくても R1 を not_run に倒さない）"""
-        self.assertEqual([n for n, e in self.nodes.items() if e.skippable], ["r1.comment_candidates"])
+        self.assertEqual({n for n, e in self.nodes.items() if e.skippable},
+                         {"r1.comment_candidates", "p3.delta_review", "r1.minimality", "r2.compare", "r3.coherence",
+                          "r4.hidden_scope"})
 
     def test_report_rows_are_blk_report(self):
         """報告の役の 3 節は blk-report の役（計画 P1 Task 34。ml-report の案の行）。graph の pre: finalize の節は report だけ——

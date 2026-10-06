@@ -151,7 +151,7 @@ EYES = {"R1": "直しが最小か・注記が正しいかを見る目", "R2": "�
         "R3": "前提と全体の筋を見る目", "R4": "依頼の範囲を超えていないかを見る目"}
 REVIEW_WORDS = {"pass": "通った", "redesign-needed": "作り直しが要る", "unverifiable": "確かめられない",
                 "premise-invalid": "前提が崩れている", "carried_over": "前の周から持ち越した", "not_applicable": "当てはまらない",
-                "not_run": "走っていない"}
+                "not_run": "走っていない", "skipped": "軽量で省いた"}
 # 素材の状態の語（写しの graph の material.status の enum）→ 平易な言い方。目の判定と共通の語は REVIEW_WORDS から引く
 MATERIAL_WORDS = {"found": "赤", "clean": "緑", "awaiting_human": "走らせられず人に諮った",
                   **{k: REVIEW_WORDS[k] for k in ("carried_over", "not_applicable", "not_run")}}

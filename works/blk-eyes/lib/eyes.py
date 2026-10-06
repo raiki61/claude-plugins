@@ -77,6 +77,9 @@ TOOLS = {"judge": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"], "inspector"
 ISOLATED_RUN_BY = frozenset({"blind-judge"})
 ISOLATED_FLAG = "isolated"
 GIVE_UP_AFTER = 3        # 輪の max_iterations と同じ数。この数だけ拒んだら done を出し、輪を失敗で抜けさせない（裁定 R50）
+# 諦めたら省く目（graph: 取れなくても R1 を not_run に倒さない）。表で skippable のほかの目は、入力 skip_optional の理由が在る時だけ
+# 省き、諦めた時は今どおり出口が盤面を止める
+GIVE_UP_SKIPS = frozenset({"r1.comment_candidates"})
 REJECT_HEADING = rolekit.REJECT_HEADING
 R4_NODE = "r4.hidden_scope"   # 直す前の関所で人が通した狭まりを頭に貼る目（gatemarks.carried_section）
 PREMISE_NODE = "r2.compare"   # 設計を作った後に分かった前提を頭に貼る目
@@ -383,7 +386,7 @@ def prep(board_dir, role, rnd, repo) -> dict:
 # ---------------------------------------------------------------- 受け付け
 def _reject(board_dir, nid, reason) -> dict:
     """拒否の文を入口の周の eyes-rejects.json に積む。この周のこの目の拒否が GIVE_UP_AFTER 回に達したら諦めの印（done）。
-    表で skippable の目は諦めたら省く（board.skip → settle。後ろの目が出る）"""
+    GIVE_UP_SKIPS の目（表で skippable）は諦めたら省く（board.skip → settle。後ろの目が出る）"""
     b = entry.open_board(board_dir)
     rnd = b.round
     path = _work(b, rnd, REJECTS_NAME)
@@ -393,7 +396,7 @@ def _reject(board_dir, nid, reason) -> dict:
     _write_json(path, rows)
     give_up = sum(1 for r in rows if r.get("node") == nid) >= GIVE_UP_AFTER
     skipped = False
-    if give_up and b.table.nodes[nid].skippable:
+    if give_up and nid in GIVE_UP_SKIPS and b.table.nodes[nid].skippable:
         b.skip(nid, f"独立の目 {ROLE_OF[nid]} の返答が {GIVE_UP_AFTER} 回とも受け付けで拒まれた（最後の拒否: {reason}）")
         skipped = True
     return {"ok": False, "done": give_up, "give_up": give_up, "skipped": skipped, "reason": reason, "node": nid}

@@ -34,7 +34,7 @@ inputs:
     description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）。在れば、対象の .review-checks.json の宣言が在っても宣言の一式に加えて走らせ、両方が緑の時だけ緑（宣言の段と同じコマンドなら 1 度だけ）。宣言が無ければ test_cmd だけ。空なら宣言を engine が走らせ、宣言も無ければ CI の任せ先の役（blk-ci）
   thickness:
     default: ""
-    description: 手厚さ（深さ）。空は自動（h-depth が判定の単位ごとに軽量か標準を機械で決める）。軽量・標準は全部の単位をその深さに固定する（軽量でも修正の後の信号で標準へ上がる）。標準は今の振る舞いのすべてで、軽量は全部の単位が軽量の run だけレンズと独立の目のコメントの削除候補を省き、報告の冒頭 2 に名指す。重厚は受けない（足す工程がまだ無い）。持ち主の依頼 2026-10-06（docs/plans/2026-10-06-variable-depth.md）
+    description: 手厚さ（深さ）。空は自動（h-depth が判定の単位ごとに軽量か標準を機械で決める）。軽量・標準は全部の単位をその深さに固定する（軽量でも修正の後の信号で標準へ上がる）。標準は今の振る舞いのすべてで、軽量は全部の単位が軽量の run だけ差分の審査（とレンズ・手直し）と独立の目（コメントの削除候補と R1〜R4）を省き、報告の冒頭 2 に名指す（AI の報告は省かない）。重厚は受けない（足す工程がまだ無い）。持ち主の依頼 2026-10-06（docs/plans/2026-10-06-variable-depth.md）
   gates:
     default: ""
     description: graphloops の gates（空か merge）
@@ -825,7 +825,8 @@ nodes:
         structure_units_file: {type: string}
 
   # 修正の後の信号で深さを標準へ上げる（いつも走る。決め 4・5）。食い違いの申し出・止めた単位・答えていない問い・案の直し・再審。
-  # 全部の単位が軽量のままなら skip に省く理由を出し、レンズ（skip）と独立の目（skip_optional）に平の入力で渡す。lines は機械の報告の冒頭 2
+  # 全部の単位が軽量のままなら、待っている差分の審査（p3.delta_review）を盤面で省き（h-review が差分の審査・レンズ・手直しを回さない）、
+  # skip に省く理由を出してレンズ（skip）と独立の目（skip_optional）に平の入力で渡す（決め 6・9）。lines は機械の報告の冒頭 2
   - id: h-redepth
     script: depth
     runtime: uv
@@ -1072,7 +1073,7 @@ nodes:
     when: "$h-look.output.go == true"
     with:
       base_rev: $start.output.base_rev
-      skip_optional: $h-redepth.output.skip   # 全部の単位が軽量の run は表で skippable の目（r1.comment_candidates）を省く
+      skip_optional: $h-redepth.output.skip   # 全部の単位が軽量の run は表で skippable の目（コメントの削除候補と R1〜R4。持ち主の決定 2026-10-06）を省く
 
   # 最後の人の関所を開くか（final_gate: always か when_needed。C18・P1-R3。独立の目が阻害を返しても開く）
   - id: h-final

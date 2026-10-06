@@ -2,7 +2,7 @@
   "loop_name": "review-loop",
   "run_id": "20260926-103145",
   "graph": "/private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins/799d1c5c-a888-4cdb-bf0a-ac1aea9c5577/scratchpad/eng-next4/graphloops/graphs/review-loop.json",
-  "graph_sha": "9a1e3957f23d",
+  "graph_sha": "2eb140b879e5",
   "created": "2026-09-26T10:31:45+09:00",
   "status": "stopped",
   "round": 2,

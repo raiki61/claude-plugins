@@ -4137,6 +4137,7 @@
    "reads": []
   },
   "p3.delta_review": {
+   "optional": true,
    "stage": "P3",
    "run_by": "inspector",
    "fresh_context": true,
@@ -4669,6 +4670,7 @@
    "cond": "r1_refire"
   },
   "r1.minimality": {
+   "optional": true,
    "stage": "P-R",
    "run_by": "judge",
    "fresh_context": true,
@@ -4883,6 +4885,7 @@
    ]
   },
   "r2.compare": {
+   "optional": true,
    "stage": "P-R",
    "run_by": "blind-judge",
    "fresh_context": true,
@@ -4968,6 +4971,7 @@
    "cond": "r2_compare_due"
   },
   "r3.coherence": {
+   "optional": true,
    "stage": "P-R",
    "run_by": "inspector",
    "fresh_context": true,
@@ -5030,6 +5034,7 @@
    ]
   },
   "r4.hidden_scope": {
+   "optional": true,
    "stage": "P-R",
    "run_by": "inspector",
    "fresh_context": true,

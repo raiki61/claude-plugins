@@ -244,7 +244,9 @@ class TableCase(unittest.TestCase):
             with self.subTest(nid):
                 self.assertEqual(now[nid], ROWS[nid], "ラインの表は案の行と同じ")
                 self.assertEqual((ROWS[nid]["by"], ROWS[nid]["where"]), ("role", "blk-eyes"))
-        self.assertEqual({nid for nid, r in ROWS.items() if r.get("skippable")}, {"r1.comment_candidates"})
+        # 軽量の深さで省ける目（持ち主の決定 2026-10-06。写しの graph で optional にした）。stop.premise_check は R2 が立てた時だけ
+        self.assertEqual({nid for nid, r in ROWS.items() if r.get("skippable")},
+                         {"r1.comment_candidates", "r1.minimality", "r2.compare", "r3.coherence", "r4.hidden_scope"})
         self.assertNotEqual(now[design.NODE]["where"], "blk-eyes", "設計の半分は修正の前に作る（目のブロックで起こさない）")
         for nid in (eyes.ENTRY_NODE, eyes.GATE_NODE):
             self.assertEqual(now[nid]["by"], "builtin")
@@ -311,19 +313,27 @@ class EnterRouteCase(_Case):
         self.assertFalse(eyes.route(self.bd, "r3-coherence", self.rnd)["go"])   # na（cond overview_due）
         self.assertFalse(eyes.route(self.bd, "r1-comments", self.rnd + 1)["go"], "入口の周でない周の目は起こさない")
 
-    def test_route_skip_reason_skips_only_skippable_eye(self):
-        """入力 skip_optional に理由が在れば、表で skippable の目（r1.comment_candidates）は起こさずに盤面で省き（記録の省略した
-        機構に理由）、R1 の本体が待つ。skippable でない目は理由が在っても今どおり起こす"""
+    def test_route_skip_reason_skips_skippable_eyes(self):
+        """入力 skip_optional に理由が在れば、表で skippable の目（コメントの削除候補と R1 の本体・R2 の比較。持ち主の決定 2026-10-06）は
+        起こさずに盤面で省き（記録の省略した機構に理由）、筋の次の目が待つ。出口は止めずに ok"""
         self.board("r1r2")
         self.enter()
         why = "軽量で省いた（試し）"
-        r = eyes.route(self.bd, "r1-comments", self.rnd, skip=why)
-        self.assertEqual((r["go"], r["stopped"]), (False, False))
-        self.assertIn(why, r["why"])
-        b = entry.open_board(self.bd)
-        self.assertEqual(b.rd["skipped"].get("r1.comment_candidates"), why)
-        self.assertTrue(eyes.route(self.bd, "r1-minimality", self.rnd, skip=why)["go"])
-        self.assertTrue(eyes.route(self.bd, "r2-compare", self.rnd, skip=why)["go"])
+        for role, nid in (("r1-comments", "r1.comment_candidates"), ("r1-minimality", "r1.minimality"),
+                          ("r2-compare", "r2.compare")):
+            with self.subTest(role):
+                r = eyes.route(self.bd, role, self.rnd, skip=why)
+                self.assertEqual((r["go"], r["stopped"]), (False, False))
+                self.assertIn(why, r["why"])
+                self.assertEqual(state(self.bd)["rounds"][self.rnd - 1]["skipped"].get(nid), why)   # 周が締まっても入口の周の箱で見る
+        self.assertTrue(eyes.collect(self.bd, self.rnd)["ok"])
+
+    def test_route_without_skip_reason_raises_skippable_eye(self):
+        """理由が空なら skippable の目も今どおり起こす（標準の深さは今の振る舞い）"""
+        self.board("r1r2")
+        self.enter()
+        self.assertTrue(eyes.route(self.bd, "r2-compare", self.rnd, skip="")["go"])
+        self.assertEqual(entry.open_board(self.bd).rd["skipped"], {})
 
 
 class SectionShapeCase(unittest.TestCase):

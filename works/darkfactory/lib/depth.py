@@ -1,9 +1,10 @@
 """単位ごとの深さ（計画 docs/plans/2026-10-06-variable-depth.md。ライン darkfactory の模块・層 L6）。使うのは darkfactory/scripts/depth.py。
 
 判定が切った単位ごとに、修正案の項目の欄（plan-fields.json）の形から深さ（軽量か標準）を機械が決め、修正の後の信号で標準へ上げる。
-標準は今の振る舞いのすべて。軽量は、測りで何も見つけなかった確かめ（レンズ・独立の目のコメントの削除候補）を省く。省くのは
-graph の外の物と graph が optional と言う物だけ（写しの graph と盤面の層は変えない）。ブロックはこの控えを読まない——線が
-省く理由の文（skip_reason）を平の入力として渡す。
+標準は今の振る舞いのすべて。軽量は、測りで何も見つけなかった確かめ（SKIPPED: 差分の審査とレンズ・手直し、独立の目の R1〜R4 と
+コメントの削除候補）を省く。省くのは graph の外の物と graph が optional と言う物だけ（R1〜R4 本体と差分の審査は持ち主の決定
+2026-10-06 で写しの graph の ! 行で optional にした）。ブロックはこの控えを読まない——線が省く理由の文（skip_reason）を平の入力
+として渡し、差分の審査だけは線の h-redepth が盤面で省く（差分の審査のブロックを起こす前に、境の節 h-review が盤面の待ちを見るため）。
 
 - unit_depth(items, key, *, checked): 単位 1 つの (深さ, 理由の並び)。決め 3 の 5 つの条件を全部満たす時だけ軽量
 - decide_doc(items, open_units, *, forced, checked): 直す義務の単位の全部の深さ（控えの形）。forced は入力 thickness の語
@@ -19,7 +20,8 @@ graph の外の物と graph が optional と言う物だけ（写しの graph �
 - signals(b): 修正の後の上げる信号 ({単位: 理由}, [run の理由])。食い違いの申し出（各 scope の今の周の conflicts.json）・止めた単位
   （trace の conflict.ACCEPT_PARKED_OP の行）・答えていない問い（gatemarks.pending）
 - raise_(b, *, replanned, rejudged): 盤面を読む口（修正の後の節 h-redepth）。signals と線の信号（案の直し・再審が走った）で上げて
-  控えを書き直す。控えが無い（h-depth が走らなかった）run は単位なし（標準）
+  控えを書き直す。控えが無い（h-depth が走らなかった）run は単位なし（標準）。run が軽量のままなら、待っている差分の審査
+  （DELTA_NODE）を省く理由（skip_reason）で盤面から省く（board.skip。記録の省略した機構に残る）
 """
 import json
 import os
@@ -46,8 +48,14 @@ CONTRACT_SUFFIXES = (".json", ".yaml", ".yml", ".toml")
 CONTRACT_DIR = "schemas/"
 GLOB_CHARS = ("*", "?", "[")
 # 軽量の run で省く物（報告の冒頭 2 に 1 行ずつ名指す）。どれも 2026-10-05 の自分食いの小さい run で何も見つけなかった
-SKIPPED = ("レンズ（修正の後の局所レビューの全部。graph の外）",
-           "独立の目の r1.comment_candidates（コメントの削除候補。graph で optional。R1 の本体は回す）")
+# 決め 6 は 2026-10-05 の測り、決め 9 は持ち主の決定 2026-10-06（写しの graph の ! 行で optional にした節）。AI の報告は省かない（決め 10）
+SKIPPED = ("差分の審査（p3.delta_review）と、それに続くレンズ・手直し（修正の後の局所レビューの全部を含む）",
+           "独立の目の r1.comment_candidates（コメントの削除候補）",
+           "独立の目 R1（r1.minimality。冗長と最小性）",
+           "独立の目 R2（r2.compare。独立設計との突き合わせ。独立設計そのものは修正の前に作る）",
+           "独立の目 R3（r3.coherence。全体の整合）",
+           "独立の目 R4（r4.hidden_scope。見えていない範囲）")
+DELTA_NODE = "p3.delta_review"   # 軽量の run で線の h-redepth が盤面で省く節（ほかの省く節は目のブロックが入力で受けて省く）
 
 
 def _items_of(items, key: str) -> list:
@@ -244,6 +252,9 @@ def raise_(b, *, replanned: bool, rejudged: bool) -> dict:
         run.append("判定への異議の再審が走った")
     doc = raise_doc(doc, units=units, run=run)
     write(b.dir, doc)
+    why = skip_reason(doc)
+    if why and b.node_state(DELTA_NODE) == "pending":
+        b.skip(DELTA_NODE, why)
     return doc
 
 

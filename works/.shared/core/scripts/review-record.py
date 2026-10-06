@@ -175,6 +175,8 @@ REVIEW_STATUS = _rows("俯瞰の判定", RRule, {
     # R3 / R4 だけ。[block] が残り P-R に到達していない。
     "not_applicable": (("reason",), False, False, ("R3", "R4"), True),
     "not_run": (("reason",), True, False, REVIEWS, False),  # やるべきだったが飛ばした
+    # works の手直し: 回す側が深さ（軽量）で省いた R。役は走らず機械が理由つきで書く。収束を止めない（持ち主の決定 2026-10-06）
+    "skipped": (("reason",), False, False, REVIEWS, True),
 })
 # 収束を宣言せずユーザーに諮る値 → それを載せる台帳の種類。同じ対応が集合・順方向・逆方向の
 # 3 表現に散っていると、逆向きだけ直し忘れたときに落ちない穴になる（表 1 つに畳む）。
