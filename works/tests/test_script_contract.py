@@ -42,6 +42,7 @@ sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
 
+import depth  # noqa: E402
 import gatemarks  # noqa: E402
 import linekit  # noqa: E402
 import scriptline  # noqa: E402
@@ -156,8 +157,10 @@ def scenarios(tmp: pathlib.Path) -> dict:
                  "rejudge": {"verdict": "退ける", "new_facts": "stats.py の clamp の上限の枝を読み、hi を返すのが定義だと確かめた",
                              "units": [{k: u[k] for k in ("key", "label", "disposition", "reason") if k in u} for u in judged]}}
     return {
+        # 全部の役を起こす筋書き: 単位の形が軽量でも入力 thickness で標準に固定する（軽量は独立の目の R1〜R4 を省き、目の
+        # 受け付けの拒む出口を誰も通らなくなる。計画 2026-10-06-variable-depth）
         "full": dict(replies=full, edits={**edits, "refix": refix_edit}, bad_first=ai_keys(),
-                     inputs={"tdd_suite": str(suite)}, gates={"policy-gate": {"decision": "continue", "text": "$x `y` \"z\""}}),
+                     inputs={"tdd_suite": str(suite), "thickness": depth.STANDARD}, gates={"policy-gate": {"decision": "continue", "text": "$x `y` \"z\""}}),
         "ci-final-stop": dict(replies={**line_replies(), "ci": linekit.reply("ci_found")}, edits=edits, declared=False,
                               bad_first={"blk-ci/ci", "blk-report/report-items", "blk-report/report-cold", "blk-report/report-write"},
                               gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}}),
