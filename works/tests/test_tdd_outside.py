@@ -301,3 +301,73 @@ class TestAcceptOutsideTier(OutsideCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+WRAP = "from stats import mean\n\n\ndef mean_twice(xs):\n    return 2 * mean(xs)\n"
+FAR = "test_far.py"   # stats を wrap 越しに読む（深さ 2。変更に直には関わらない）
+FAR_TEST = '''import unittest
+
+from wrap import mean_twice
+
+
+class TestFar(unittest.TestCase):
+    def test_twice(self):
+        self.assertEqual(mean_twice([2, 4]), 6)
+'''
+
+
+class TestDirectOnly(OutsideCase):
+    """受け付けと輪の緑は、変更に直に関わる試験（変えた試験・変えた file を直に読む・言及する試験・修正案が名指す試験）だけを
+    回す。届いただけの先の試験は回さず、受け付けは『最後のテストの段に任せた』として名前で残す（一式は線の最後のテストの段で 1 回）"""
+
+    def setUp(self):
+        super().setUp()
+        self.write("wrap.py", WRAP)
+        self.write(FAR, FAR_TEST)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "stats に深さ 2 で届く試験")
+        self.log = self.tmp / "runs.jsonl"
+        self.state = self.begin("import json, os, sys\nopen(%r, 'a').write(json.dumps([os.environ.get('TDD_SUITE_ONLY'), "
+                                "sys.argv[2:]]) + '\\n')\n" % str(self.log)
+                                + RUNNER.replace('TIER = ["test_stats.py"]', f'TIER = ["test_stats.py", "{FAR}"]'))
+
+    def runs(self):
+        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+
+    def fix_stats(self):
+        p = self.repo / "stats.py"
+        p.write_text(p.read_text(encoding="utf-8").replace("(len(xs) - 1)", "len(xs)"), encoding="utf-8")
+
+    def test_accept_runs_only_direct_tests_and_leaves_far_ones_to_final_stage(self):
+        self.fix_stats()
+        probs, note = tddloop.selected_problems(self.state, self.repo, "HEAD")
+        self.assertEqual(probs, [], note)
+        self.assertEqual(self.runs()[-1], [None, ["-k", "test_stats"]], "先の試験を -k に入れた")
+        self.assertEqual(tddloop.final_left(self.state), [FAR])
+        self.assertIn("最後のテストの段に任せた", note)
+        self.assertIn(FAR, note.split("最後のテストの段に任せた", 1)[1])
+
+    def test_accept_runs_tests_named_by_the_plan(self):
+        st = tddloop.load_state(self.state)
+        st["contract"] = {MEAN: {"route": "tdd", "tests": [{"id": f"{FAR}::TestFar::test_twice"}], "rewrites": []}}
+        pathlib.Path(self.state).write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        self.fix_stats()
+        tddloop.selected_problems(self.state, self.repo, "HEAD")
+        self.assertEqual(self.runs()[-1], [None, ["-k", "test_far or test_stats"]], "修正案が名指す試験を回さない")
+        self.assertEqual(tddloop.final_left(self.state), [])
+
+    def test_green_adds_only_direct_files_of_the_baseline(self):
+        self.assertTrue(tddloop.step(self.state, {"phase": "route", "units": [{"unit_key": MEAN, "route": "tdd"}]},
+                                     self.repo)["ok"])
+        p = self.repo / "test_stats.py"
+        p.write_text(p.read_text(encoding="utf-8").replace("\n\nif __name__", NEW_TEST + "\n\nif __name__"), encoding="utf-8")
+        got = tddloop.step(self.state, {"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
+                                        "tests": [NAMED_IN_TIER]}, self.repo)
+        self.assertTrue(got["ok"], got)
+        self.fix_stats()
+        got = tddloop.step(self.state, {"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を len(xs) にした"},
+                           self.repo)
+        self.assertTrue(got["ok"], got)
+        only, args = self.runs()[-1]
+        self.assertEqual(only, "1")
+        self.assertFalse([a for a in args if a.endswith(FAR)], f"深さ 2 の試験を緑の回に足した: {args}")

@@ -42,7 +42,8 @@
   - refactor: 緑の時から何も変えていなければ none。変えたなら fix と同じ確かめをもう 1 回
   - test・fix・refactor とも、名指しを絶対パスの node id で実行器の後ろに足し、合図 TDD_SUITE_ONLY=1（ONLY_ENV）を付けて走らせる
     （一式を回さない。解かない実行器は今どおり一式に足して走らせる）。赤の回は名指しだけ。緑の回（fix・変えた refactor）は名指しに、
-    単位の頭からの変更が届く試験（impact.select_tests）のうち元の結末に載ったモジュールの pytest のファイルを絶対パスで足す
+    単位の頭からの変更に直に関わる試験（impact.select_tests の direct_only: 変えた試験・変えた file を直に読む・言及する試験）の
+    うち元の結末に載ったモジュールの pytest のファイルを絶対パスで足す
     （_reached。元で通っていたテストの緑と消えたテストの照らしは、この回でファイルごと走ったモジュールで見る）。地図が引けない・
     分からない物が近くに在る（run_all）時は合図なしの一式。届かない試験・元の結末の外の試験は受け付け（selected_problems）と
     線の最後のテストの段（一式）が確かめる
@@ -51,11 +52,15 @@
   （輪は done の印で抜け、max_iterations に届いて落ちない。R50）
 - fix-accept → frozen_problems: 輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（裁定 fix_test_scope の
   範囲の中の変更は、輪が済んだ時の木（frozen_tree）との差分の塊の旧い側の行で見て通す）
-- fix-accept → selected_problems: 版からの変更に当たる試験（impact.select_tests。分からない物が近くに在れば全部）を同じ実行器で
+- fix-accept → selected_problems: 版からの変更に直に関わる試験（impact.select_tests の direct_only: 変えた・足した試験・変えた file を
+  直に読む・言及する試験（深さ 1）と、修正案の受け入れ・書き換えのテストと輪で名指したテストのファイル。分からない物が近くに
+  在れば全部）を同じ実行器で
   走らせ（選んだ .py のうち変えた・足したファイルだけを一式を回す時も絶対パスで後ろに足し、一式でない時は -k で絞る。届いただけの
   段の外の試験は手元で走らせない。ADR 0071 の 3 の 1）、元で赤でなかった試験の赤をテストのファイルごとの行で返す（行はそのパスを
   名指す。ファイルの分からない赤は 1 行にまとめてパスを名指さない）。走らせなかった試験は『手元で回さなかった』として
-  知らせと状態（ci_left。受け付けが盤面の trace に載せ、最後の関所が並べる）に名前で残す。元の結末に無い試験の赤は、版を
+  知らせと状態（ci_left。受け付けが盤面の trace に載せ、最後の関所が並べる）に名前で残す。届くだけで直に関わらない試験は
+  受け付けで回さず、『最後のテストの段に任せた』として知らせと状態（final_left。同じ trace の行・最後の関所）に名前で残す
+  （一式は線の最後のテストの段で 1 回。そこでの赤は最後の関所と報告・次の依頼の下書きに載る）。元の結末に無い試験の赤は、版を
   一時の置き場に写して同じ試験を回し、版でも赤なら外す（作業ツリーは動かさない）。1 件も走らなければ「新しい赤なし」にせず
   知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
 - collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整えとその申告の理由・direct の理由・test_cmd の緑。輪の test_cmd の
@@ -683,12 +688,14 @@ def _run(st, repo, named=(), files=(), full=False):
 
 def _reached(st, repo) -> tuple[list, bool]:
     """緑の回に足す試験 ——（根からの相対の pytest の試験のファイル, 一式を回すか）。単位の頭からの変更（走らせて出来たファイルを
-    除く）を起点に地図を引き（impact.map の seeds。置き場は work/impact）、届いた試験（impact.select_tests）のうち作業ツリーに在り、
+    除く）を起点に地図を引き（impact.map の seeds。置き場は work/impact）、直に関わる試験（impact.select_tests の direct_only。
+    起点か深さ 1。先の試験は受け付けと同じく線の最後のテストの段に任せる）のうち作業ツリーに在り、
     元の結末に載ったモジュール（元の一式が走らせた物。元で赤だった試験が届いただけで拒まれない）のファイル。地図が引けない・
     run_all なら ([], True)（合図なしの一式）"""
     seeds = sorted(set(touched(repo, st["unit_head"], snapshot(repo))) - set(st["suite_made"]))
     try:
-        sel = impact.select_tests(impact.map(repo, seeds=seeds, cache_dir=pathlib.Path(st["work"]) / "impact"))
+        sel = impact.select_tests(impact.map(repo, seeds=seeds, cache_dir=pathlib.Path(st["work"]) / "impact"),
+                                  direct_only=True)
     except (RuntimeError, OSError, ValueError):
         return [], True
     if sel["run_all"]:
@@ -1492,7 +1499,8 @@ def _args(root, files, kexpr) -> list:
 
 
 def selected_problems(state_file, repo, rev) -> tuple:
-    """(赤の文の一覧, 知らせ)。実行器の後ろに足すのは、選んだ試験のうちこの run で変えた・足したファイルだけ（ADR 0071 の
+    """(赤の文の一覧, 知らせ)。選ぶのは変更に直に関わる試験と名指しの試験（_named_files）だけで、届くだけの先の試験は
+    final_left に残す。実行器の後ろに足すのは、選んだ試験のうちこの run で変えた・足したファイルだけ（ADR 0071 の
     3 の 1。届いただけの段の外の試験は手元で走らせない）。実行器の既定の一式の中は -k で選んだ全部のモジュールに絞る。
     実行器の無い run（状態が無い）・当たる試験が無い・実行器が走らない・選んだ試験が 1 件も走らなかった時は赤にせず知らせだけ。
     元の結末に無い試験の赤は、版の写しで同じ試験を回して、版でも赤なら外す（版の写しの結末は _base_reds が盤面の根に控え、
@@ -1502,9 +1510,14 @@ def selected_problems(state_file, repo, rev) -> tuple:
     st = _load(state_file)
     work = pathlib.Path(st["work"])
     m = impact.map(repo, rev=rev, diff=True, cache_dir=work / "impact")
-    sel = impact.select_tests(m)
+    sel = impact.select_tests(m, direct_only=True, named=_named_files(st))
+    st["final_left"] = sel["left"]
+    final = (f"。最後のテストの段に任せた {len(sel['left'])} 件（変更に直には関わらず届くだけ。受け付けは回さない）: "
+             f"{', '.join(sel['left'])[:300]}") if sel["left"] else ""
     if not sel["run_all"] and not sel["modules"]:
-        return [], NO_SELECTED
+        st["ci_left"] = []
+        _save(state_file, st)
+        return [], NO_SELECTED + final
     changed = set(m["seeds"]["from_diff"])
     files = [f for f in sel["selected"] if f in changed]
     kexpr = "" if sel["run_all"] else " or ".join(sel["modules"])
@@ -1516,6 +1529,7 @@ def selected_problems(state_file, repo, rev) -> tuple:
     what = "一式（" + "・".join(sel["reasons"])[:200] + "）" if sel["run_all"] else \
         f"選んだ試験（ファイル {', '.join(files)[:300]}・-k {kexpr[:300]}）"
     ci = f"。手元で回さなかった {len(st['ci_left'])} 件（run はその緑を確かめない）: {', '.join(st['ci_left'])[:300]}" if st["ci_left"] else ""
+    ci += final
     if cases is None:
         return [], f"{what}を走らせられない（{'; '.join(why)}）{ci}"
     if not cases:
@@ -1562,6 +1576,19 @@ def _left_to_ci(selected, run_files, cases) -> list:
     既定の段は対象ごとに違うので、段の一覧を写さず結末から決める。結末が無ければ名指さなかった物は全部"""
     ran = {impact._junit_module(c) for c in cases or []}
     return [t for t in selected if t not in run_files and impact._mod(t) not in ran]
+
+
+def _named_files(st) -> list:
+    """修正案の約束の受け入れ・書き換えのテストと、輪で名指したテストのファイル（根からの相対。受け付けは直に関わる試験に足す）"""
+    ids = [t.get("id", "") if isinstance(t, dict) else str(t)
+           for c in (st.get("contract") or {}).values() for t in [*(c.get("tests") or []), *(c.get("rewrites") or [])]]
+    ids += [t for u in (st.get("units") or {}).values() for t in [*(u.get("tests") or []), *(u.get("test_files") or [])]]
+    return sorted({posixpath.normpath(i.partition("::")[0]) for i in ids if i and i.strip()})
+
+
+def final_left(state_file) -> list:
+    """受け付けが直に関わらないので回さず、線の最後のテストの段に任せた試験（状態が無い・まだ選んでいなければ空）"""
+    return _load(state_file).get("final_left", []) if state_file and pathlib.Path(state_file).is_file() else []
 
 
 def ci_left(state_file) -> list:
