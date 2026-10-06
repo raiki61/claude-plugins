@@ -221,7 +221,7 @@ class TestYaml(unittest.TestCase):
                 "tdd_lane_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE", "INPUTS_LANE"),
                 "tdd_join": ("INPUTS_STATE_FILE",),
                 "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
-                           "INPUTS_TDD_SUITE"),
+                           "INPUTS_TDD_SUITE", "INPUTS_CONSULTED"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")}
         for name, inputs in want.items():
             with self.subTest(name):

@@ -18,8 +18,9 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
 - (b) overlap（同じファイルの枝の合わせ）: TDD の輪の締めの重なりのファイル（lanes.shared）か、枝の合わせの結末に union が在る、
   または修正役の締めの行の shared・union が空でない。同じファイルを見込んだ組（lanes.expect）が在るのに合わせが字・意味の食い違いで
   戻っただけなら attempted
-- (c) consult（範囲の相談）: 相談の記録（盤面の trace の plan_scope_asked と、まだ写していない run-place/<scope>/ask-plan/
-  exchanges.jsonl）に answered の行が在る。refused・invalid・unavailable だけなら attempted
+- (c) consult（範囲の相談）: 相談の記録（盤面の trace の plan_scope_asked。修正の輪の確かめの節 fix-consult-check が書く。
+  前の形 askplan.py（0.2.32〜0.2.35）の run は、まだ写していない run-place/<scope>/ask-plan/exchanges.jsonl も読む）に
+  answered の行が在る。refused・invalid・unavailable だけなら attempted
 - (d) replan（run の中の案の直し。起きなくてよい）: trace の replan_state・plan_amended・conflict_parked・conflict_ruled の数を出すだけ
 ほか: 修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）と allowed_paths、節の同時の最大（node_started から
 node_completed・node_failed まで）、AI の節の費用の和（node_completed の data.node.kind が agent の物。輪の節 loop_group は中の
@@ -45,9 +46,9 @@ for _p in (PACK / "blk-fix" / "lib", PACK / ".shared" / "core"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-import askplan  # noqa: E402   相談の記録の置き場の名（PLACE・LOG）と status の語
 import conflict  # noqa: E402  trace の行の語（ASKED_OP・PARK_OP・RULE_OP・REPLAN_OP）
 import fixrules  # noqa: E402  修正役の締めの trace の行の語（UNITS_OP）
+import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERED）
 import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
 import report  # noqa: E402    節の名の最後の語（_step_name）と費用の読み（_event_cost）
 import tddlanes  # noqa: E402  合わせの結末の語（UNION・CLASH・SEMANTIC）
@@ -59,6 +60,7 @@ NODE_ENDS = ("node_completed", "node_failed")
 AI_KIND = "agent"
 FIX_NODE = "fix"
 LANE_NODE = re.compile(r"tdd-lane-(?:loop-|prep-|step-)?(\d+)")   # 枝の輪とその中の節の名（最後の 1 語）。番号は枝
+OLD_ASK_PLACE, OLD_ASK_LOG = "ask-plan", "exchanges.jsonl"   # 前の形 askplan.py の run ごとの置き場の相談の記録（受け付けが trace へ写す前）
 REPLAN_OPS = (conflict.REPLAN_OP, planmarks.AMEND_OP, conflict.PARK_OP, conflict.RULE_OP)
 USAGE = ("usage: canary_check.py <canary の置き場> [<run-id>] [--json] | "
          "canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--json]")
@@ -162,7 +164,7 @@ def tdd_lanes(board: pathlib.Path) -> list:
 
 
 def consults(board: pathlib.Path, trace: list) -> list:
-    """範囲の相談の行（trace の ASKED_OP と、run-place のまだ写していない記録）[{scope, id, item, status, decision, paths,
+    """範囲の相談の行（trace の ASKED_OP と、前の形の run-place のまだ写していない記録）[{scope, id, item, status, decision, paths,
     granted_paths, settled}]。同じ scope と id は trace の行だけ"""
     rows, seen = [], set()
     for r in trace:
@@ -170,7 +172,7 @@ def consults(board: pathlib.Path, trace: list) -> list:
             seen.add((r.get("scope", ""), r.get("id")))
             rows.append((r.get("scope", ""), r, True))
     place = board.parent / "run-place"
-    for log in sorted(place.glob(f"**/{askplan.PLACE}/{askplan.LOG}")):
+    for log in sorted(place.glob(f"**/{OLD_ASK_PLACE}/{OLD_ASK_LOG}")):
         scope = "/".join(log.parent.parent.relative_to(place).parts)
         for r in _jsonl(log):
             if (scope, r.get("id")) not in seen:
@@ -315,7 +317,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
     else:
         b = {"status": NO, "why": "同じファイルを触る枝が無かった（重なりの見込みも合わせの記録も無い）"}
 
-    answered = [r for r in asks if r["status"] == askplan.ANSWERED]
+    answered = [r for r in asks if r["status"] == consult.ANSWERED]
     if answered:
         c = {"status": YES, "why": "答えた相談 {}（{}）".format(
             len(answered), "・".join(f"項目 {r['item']} {r['decision']} {r['granted_paths']}" for r in answered))}
