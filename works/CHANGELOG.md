@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 範囲の相談（`blk-fix/lib/askplan.py`）が、修正役の sandbox の中で必ず「認証が無い」で聞けなかったのを直した。初めの形は keychain の項目の名指し（WORKS_KEYCHAIN_ITEM）を親の環境より先に見ており、sandbox は keychain を読ませない（run 68f35d6b の `keychain-miss`）。修正役の環境が継いだ認証（修正役の claude 自身の認証）を先に使い、無い時だけ keychain を読む。記録には出どころの名（`env:CLAUDE_CODE_OAUTH_TOKEN`）だけを残す。あわせて、相談の claude の子の HOME を相談の置き場の下へ向け、自動更新を止めた（HOME の下のキャッシュに書けずに落ちないように）。
+
 ## [0.2.33] - 2026-10-06
 
 ### Added
