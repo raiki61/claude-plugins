@@ -236,11 +236,18 @@ ANSWERED = {"id": 1, "item": "1", "status": "answered", "decision": "allow", "pa
             "granted_paths": ["CHANGELOG.md"]}
 
 
+def lane(n, start, end, usd=0.25):
+    """枝の輪 n（輪の節と中の支度・役・確かめ。docs/plans/2026-10-07-lane-nodes.md）"""
+    loop = f"fixing__tdd-lane-loop-{n}"
+    return [*node(loop, start, end, usd=None, kind="loop_group"), *node(f"{loop}.tdd-lane-prep-{n}", start, start + 1, kind="exec"),
+            *node(f"{loop}.tdd-lane-{n}", start + 1, end - 1, usd=usd), *node(f"{loop}.tdd-lane-step-{n}", end - 1, end, kind="exec")]
+
+
 def full_events():
     tdd = "fixing__tdd-loop.tdd"
     fix = "fixing__fix-loop.fix"
-    return [*node("start", 0, 5, kind="exec"), *node(tdd, 10, 200, usd=1.25),
-            *task(tdd, "t1", 20, 100), *task(tdd, "t2", 21, 90), *task(tdd, "t3", 22, 80),
+    return [*node("start", 0, 5, kind="exec"), *node(tdd, 10, 15, usd=0.5),
+            *lane(1, 20, 100), *lane(2, 21, 90), *lane(3, 22, 80),
             *node(fix, 210, 400, usd=2.0), *task(fix, "f1", 220, 300), *task(fix, "f2", 250, 380),
             *node("fixing__fix-loop", 205, 405, usd=3.25, kind="loop_group"), *node("report", 410, 420, usd=None),
             ev("tool_called", fix, 600)]
@@ -277,14 +284,14 @@ class CheckTest(unittest.TestCase):
         f = doc["features"]
         self.assertEqual([f[k]["status"] for k in ("a_parallel", "b_overlap", "c_consult", "d_replan")],
                          ["yes", "yes", "yes", "no"])
-        self.assertIn("TDD の輪の枝 3 本・輪の下請けの同時の最大 3", f["a_parallel"]["why"])
+        self.assertIn("TDD の輪の枝 3 本・枝の輪の同時の最大 3", f["a_parallel"]["why"])
         self.assertIn("修正役が当てた項目 2・修正役の下請けの同時の最大 2", f["a_parallel"]["why"])
-        self.assertEqual(doc["agents"], {"fixing__fix-loop.fix": {"tasks": 2, "parallel": 2},
-                                         "fixing__tdd-loop.tdd": {"tasks": 3, "parallel": 3}})
+        self.assertEqual(doc["agents"], {"fixing__fix-loop.fix": {"tasks": 2, "parallel": 2}})
+        self.assertEqual(doc["lane_nodes"], {"lanes": 3, "parallel": 3}, "枝の輪と中の節は枝ごとに 1 本の区間")
         self.assertEqual([i["allowed_paths"][0] for i in doc["plan_items"]], ["calc.py", "textfmt.py", "textfmt.py"])
         # 費用は AI の節だけ（loop_group と exec は足さない）・報告の無い節は数える・時間は出来事の最初から最後まで
         self.assertEqual(doc["spend"], {"cost_usd": 3.25, "cost_missing_nodes": 1, "minutes": 10.0})
-        self.assertEqual(doc["nodes"]["parallel"], 2)
+        self.assertEqual(doc["nodes"]["parallel"], 6, "22 秒: 枝の輪 3 本と中の役 2 つと支度 1 つ（輪の節と中の節を別に数える）")
         self.assertEqual(doc["diff_files"], ["calc.py", "CHANGELOG.md"])
         self.assertEqual(doc["tdd_lanes"][0]["loop"], "tdd-1")
         self.assertEqual(len(doc["tdd_lanes"]), 1)
@@ -305,10 +312,9 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(snap(), before)
 
     def test_serial_lanes_and_unanswered_consults_are_not_yes(self):
-        """枝が 2 本でも下請けが順（端が触れるだけ）なら (a) は no。見込みだけで字の食い違いで戻ったなら (b) は attempted。
+        """枝が 2 本でも枝の輪が順（端が触れるだけ）なら (a) は no。見込みだけで字の食い違いで戻ったなら (b) は attempted。
         断った・聞けなかった相談だけなら (c) は attempted。終了コードは 1"""
-        tdd = "fixing__tdd-loop.tdd"
-        make_db(self.db, self.out_root, [*task(tdd, "t1", 10, 50), *task(tdd, "t2", 50, 90)])
+        make_db(self.db, self.out_root, [*lane(1, 10, 50), *lane(2, 50, 90)])
         lanes = {"rows": [{"n": 1}, {"n": 2}], "shared": [], "expect": [[1, 2]],
                  "out": [{"lane": 1, "outcome": "merged", "merge": "clean"}, {"lane": 2, "outcome": "serial", "merge": "conflict"}]}
         make_board(self.board, lanes=lanes, asks=[{**ANSWERED, "status": "refused", "decision": ""}],

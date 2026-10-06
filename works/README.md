@@ -217,7 +217,7 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 
 1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/canary.sh [<置き場>]` を裏で起こす（無人の run で報告まで前景で回るので、Claude Code からは `run_in_background` か切り離しの殻で起こす）。置き場の既定は `~/.cache/works-canary/<日時>-<pid>` で、`repo/`（対象。枝 `main`）・`origin.git/`・`home/`（利用の家 `WORKS_USE_HOME`）を作り、`use.sh start` を `WORKS_USE_UNATTENDED=1`・test_cmd `python3 -m pytest -q`（`use.sh` が JUnit の実行器を書くので TDD の輪が回る）で起こす。`python3 -I` で pytest が読めない・`WORKS_KEYCHAIN_ITEM` が空・置き場に前の回の物が在る時は、何も作らずに止まる。`--build-only` は対象と origin を作って起動の行を出すだけ（認証も Archon も使わない）。
 2. 走っている間の run id と状態は、殻が最初に出す `use.sh show` の行で見る。終わると殻が run id と確かめの行を出す。
-3. `python3 works/dev/canary_check.py <置き場> [<run-id>]` で、何が実際に通ったかを出す（読むだけ。`--json` で JSON。`--db <archon.db> --run <run-id>` でほかの run も読める）。(a)〜(c) が yes・attempted・no のどれかと証拠（TDD の輪の枝の数と下請けの同時の最大・修正役が当てた項目・重なりのファイルと union・相談の答え）、(d) の数、修正案の項目と `allowed_paths`、AI の節の費用の和と時間、差分のファイルを出す。終了コードは (a)〜(c) が全部 yes なら 0、どれかが違えば 1、引数や db の誤りは 2。
+3. `python3 works/dev/canary_check.py <置き場> [<run-id>]` で、何が実際に通ったかを出す（読むだけ。`--json` で JSON。`--db <archon.db> --run <run-id>` でほかの run も読める）。(a)〜(c) が yes・attempted・no のどれかと証拠（TDD の輪の枝の数と枝の輪の節の同時の最大・修正役が当てた項目と修正役の下請けの同時の最大・重なりのファイルと union・相談の答え）、(d) の数、修正案の項目と `allowed_paths`、AI の節の費用の和と時間、差分のファイルを出す。終了コードは (a)〜(c) が全部 yes なら 0、どれかが違えば 1、引数や db の誤りは 2。
 
 種のテストが緑でバグが在ること・試験の中だけに持つ参照の直しで各件が独立に直ること・(b) の前提（直しの塊が食い違わず、足すテストは挿しだけの食い違い）・依頼が入口の型を通ることは `tests/test_canary.py`（FAST）が縛る。依頼が修正案の決めを文で言うだけなので、計画役が従わなければ (b)・(c) は通らない（その時は確かめ役が no か attempted と出す）。
 

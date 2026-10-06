@@ -9,10 +9,12 @@ home/runs の一番新しい控えの run。盤面は Archon の run の行の o
 db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（盤面の隣の run-place）はファイルを読むだけ。
 
 見る道（canary.sh の頭の (a)〜(d)）と、通ったと言う決まり:
-- (a) parallel（別のファイルの 2 項目以上の並べ）: TDD の輪の並べの周の目録が枝 2 本以上で、輪の節（節の名の最後が tdd）の下請けが
-  同時に 2 本以上走った。または修正役の締めの trace の行（units_settled）が 2 項目以上を当てて、修正役の節（最後が fix）の下請けが
-  同時に 2 本以上走った。同時は Archon の出来事 task_activity（task_type local_agent の started と、同じ task_id の completed・
-  failed・stopped）の created_at の区間の重なり（秒の粒。端が触れるだけは重ならない）
+- (a) parallel（別のファイルの 2 項目以上の並べ）: TDD の輪の並べの周の目録が枝 2 本以上で、枝の輪（節の名の最後が
+  tdd-lane-loop-<n>・tdd-lane-prep-<n>・tdd-lane-<n>・tdd-lane-step-<n>。docs/plans/2026-10-07-lane-nodes.md）が同時に 2 本以上
+  走った。枝ごとの区間は枝 n の節の node_started の最初から終わり（node_completed・node_failed）の最後まで。または修正役の締めの
+  trace の行（units_settled）が 2 項目以上を当てて、修正役の節（最後が fix）の下請けが同時に 2 本以上走った。下請けの同時は
+  Archon の出来事 task_activity（task_type local_agent の started と、同じ task_id の completed・failed・stopped）の created_at の
+  区間の重なり（秒の粒。端が触れるだけは重ならない。枝の区間も同じ）
 - (b) overlap（同じファイルの枝の合わせ）: TDD の輪の締めの重なりのファイル（lanes.shared）か、枝の合わせの結末に union が在る、
   または修正役の締めの行の shared・union が空でない。同じファイルを見込んだ組（lanes.expect）が在るのに合わせが字・意味の食い違いで
   戻っただけなら attempted
@@ -32,6 +34,7 @@ import argparse
 import datetime
 import json
 import pathlib
+import re
 import sqlite3
 import sys
 
@@ -54,7 +57,8 @@ LOCAL_AGENT = "local_agent"
 TASK_ENDS = ("completed", "failed", "stopped")
 NODE_ENDS = ("node_completed", "node_failed")
 AI_KIND = "agent"
-TDD_NODE, FIX_NODE = "tdd", "fix"
+FIX_NODE = "fix"
+LANE_NODE = re.compile(r"tdd-lane-(?:loop-|prep-|step-)?(\d+)")   # 枝の輪とその中の節の名（最後の 1 語）。番号は枝
 REPLAN_OPS = (conflict.REPLAN_OP, planmarks.AMEND_OP, conflict.PARK_OP, conflict.RULE_OP)
 USAGE = ("usage: canary_check.py <canary の置き場> [<run-id>] [--json] | "
          "canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--json]")
@@ -208,6 +212,23 @@ def agent_spans(events: list) -> dict:
     return out
 
 
+def lane_peak(events: list) -> dict:
+    """TDD の輪の枝の輪の同時の最大 {lanes, parallel}。枝 n の区間は枝 n の節（LANE_NODE）の started の最初から終わりの最後まで
+    （輪の節と中の節の区間が重なっても 1 本に数える）。終わりの行の無い枝は数えない"""
+    first, last = {}, {}
+    for e in events:
+        m = LANE_NODE.fullmatch(report._step_name(e["step_name"]))
+        if not m or e["at"] is None:
+            continue
+        n = int(m.group(1))
+        if e["event_type"] == "node_started":
+            first[n] = min(first.get(n, e["at"]), e["at"])
+        elif e["event_type"] in NODE_ENDS:
+            last[n] = max(last.get(n, e["at"]), e["at"])
+    spans = [(n, first[n], last[n]) for n in sorted(first) if n in last]
+    return {"lanes": len(spans), "parallel": _peak(spans)[0]}
+
+
 def node_peak(events: list) -> dict:
     """節の同時の最大 {parallel, nodes}（同じ節の名の started と終わりを順に組む）"""
     open_, spans = {}, []
@@ -265,7 +286,8 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
              for r in trace if r.get("op") == fixrules.UNITS_OP]
     asks = consults(board, trace)
     spans = agent_spans(events)
-    tdd_par, fix_par = _max_parallel(spans, TDD_NODE), _max_parallel(spans, FIX_NODE)
+    lane_nodes = lane_peak(events)
+    tdd_par, fix_par = lane_nodes["parallel"], _max_parallel(spans, FIX_NODE)
 
     tdd_lanes_n = max([lp["lanes"] for lp in loops] or [0])
     fix_items_n = max([len(u["applied"]) for u in units] or [0])
@@ -275,11 +297,11 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         for lp in loops:
             for u in lp["units"]:
                 ends[u.get("outcome") or "?"] = ends.get(u.get("outcome") or "?", 0) + 1
-        why.append(f"TDD の輪の枝 {tdd_lanes_n} 本・輪の下請けの同時の最大 {tdd_par}・単位の結末 {ends}")
+        why.append(f"TDD の輪の枝 {tdd_lanes_n} 本・枝の輪の同時の最大 {tdd_par}・単位の結末 {ends}")
     if fix_items_n >= 2 and fix_par >= 2:
         why.append(f"修正役が当てた項目 {fix_items_n}・修正役の下請けの同時の最大 {fix_par}")
     a = {"status": YES if why else NO,
-         "why": "・".join(why) or (f"並べの証拠が足りない（TDD の輪の枝 {tdd_lanes_n}・輪の下請けの同時 {tdd_par}・"
+         "why": "・".join(why) or (f"並べの証拠が足りない（TDD の輪の枝 {tdd_lanes_n}・枝の輪の同時 {tdd_par}・"
                                    f"修正役が当てた項目 {fix_items_n}・修正役の下請けの同時 {fix_par}）")}
 
     shared = sorted({f for lp in loops for f in lp["shared"]} | {f for u in units for f in u["shared"]})
@@ -316,6 +338,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         "fix_units": units,
         "consults": asks,
         "agents": spans,
+        "lane_nodes": lane_nodes,
         "nodes": node_peak(events),
         "spend": spend(events),
         "diff_files": changed,

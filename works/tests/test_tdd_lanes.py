@@ -213,6 +213,10 @@ class TestLanesSwitchedOff(LaneCase):
         self.assertFalse(self.st()["lanes_on"])
         got = self.route()
         self.assertEqual(got["phase"], "test")
+        self.assertFalse(got["done"], "輪 tdd-loop は振り分けの周で抜けず、順に回し続ける")
+        self.assertFalse(self.st().get("lanes"), "枝の目録を置かない")
+        self.assertEqual(tddlanes.fork(self.state), {"go": False, "lanes": 0, "lane_1": False, "lane_2": False, "lane_3": False},
+                         "節 tdd-fork は枝の輪を起こさない（tdd-join・tdd-rest-loop も飛ぶ）")
 
 
 class TestLanesUnknownWord(unittest.TestCase):
