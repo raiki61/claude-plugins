@@ -9,6 +9,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 ### Changed
 
 - AI の段の全部に `model:` と `effort:` を書き、run の既定（`dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT`）と Claude Code の既定の effort に頼らないようにした（持ち主 2026-10-06）。前付けを持つ役（judge・blind-judge は opus・high、inspector・investigator・cold-reader は sonnet・medium）は今までどおり。前付けの無い役は試験の表（`tests/test_tool_parity.py` の `STAGE_MODEL`）で決め、修正案・仕様を書く役（plan・plan-revise・spec-write・spec-revise）を sonnet から opus・medium へ上げ、コードとテストを書く役（tdd・fix・fix-ruled・refix・refix2）は sonnet・high を明示し、読んで確かめる・まとめる軽い役（借りたレンズ・r1-comments・CI と pr-check の任せ先・前提の実測・目的の文・素材集めの任せ先と局所レビュー・報告の書き手）は sonnet・medium にした（今までは sonnet の既定の high）。`WORKS_DEV_MODEL` が効くのは run の題だけになり、`WORKS_DEV_MODEL=opus` で前付けの無い段を opus に戻す道は無くなった（段を替えるときは表と段を一緒に直す）。
+- 最後の関所の文の残りの行が、固定文「数えない」でなく、関所の時点で数えられる分（独立の目の阻害の件数と名・結果が無い目の件数と名・最後のテストの頭の語）を言う。検証器の阻害は関所では数えないと名指す（報告の冒頭 1 の残りは今どおり検証器も数える）。レンズの発見の行の末尾に「落ちたレンズ N 件」を 0 件でも出す（報告の冒頭 1・最後の関所・未確認のレンズの節が同じ行を読む）。
 
 ## [0.2.34] - 2026-10-06
 

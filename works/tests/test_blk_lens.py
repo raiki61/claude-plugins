@@ -343,7 +343,22 @@ class LensBoardCase(RF.DeltaBoardCase):
         lenses.collect(self.board, {"INPUTS_SILENT_FAILURE_HUNTER": json.dumps(linekit.LENS_REPLY, ensure_ascii=False)})
         self.assertEqual(lens.report_lines(self.board_obj()),
                          ["なし（振り分けたレンズは全部走った）", lens.REFIX_NOTE,
-                          "レンズの発見: 差分の審査が走っていないので採った・採らなかったは調べていない・形の誤りで捨てた 0 件"])
+                          "レンズの発見: 差分の審査が走っていないので採った・採らなかったは調べていない・形の誤りで捨てた 0 件・落ちたレンズ 0 件"])
+
+    def test_count_line_always_names_failed_lens_count(self):
+        """count_line の行は、落ちたレンズが 0 件でも「落ちたレンズ 0 件」を言い、出口が無いレンズ 1 本の盤面では 1 件と言う。
+        report_lines の最後の行も同じ count_line"""
+        self.fixed()
+        lenses.route(self.board)
+        lenses.collect(self.board, {"INPUTS_SILENT_FAILURE_HUNTER": json.dumps(linekit.LENS_REPLY, ensure_ascii=False)})
+        b = self.board_obj()
+        self.assertIn("落ちたレンズ 0 件", lens.count_line(lens.summary(b)))
+        self.assertIn("落ちたレンズ 0 件", lens.report_lines(b)[-1])
+        lenses.route(self.board)
+        lenses.collect(self.board, {"INPUTS_SILENT_FAILURE_HUNTER": "null"})
+        b = self.board_obj()
+        self.assertIn("落ちたレンズ 1 件", lens.count_line(lens.summary(b)))
+        self.assertIn("落ちたレンズ 1 件", lens.report_lines(b)[-1])
 
 
 if __name__ == "__main__":

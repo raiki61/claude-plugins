@@ -422,15 +422,26 @@ def _faces(b, nid: str) -> int:
     return len(out.get("faces") or [])
 
 
-def _eyes(b) -> tuple:
-    """独立の目（R1〜R4）の判定の行と、目が阻害を返した R の名。判定は周の記録（rounds/round-<N>.json。目の受け付けの settle が
-    周を締めて書く）か、まだ無ければ盤面の記録から。not_run は目の判定でなく機械が書く欠け（返答が無い・止めた周）なので、行には
-    出すが阻害に数えない"""
+def _eye_reviews(b) -> dict:
+    """独立の目の結果の控え（周の記録 rounds/round-<N>.json か、まだ無ければ盤面の記録の reviews）"""
     try:
         rounded = json.loads((b.dir / "rounds" / f"round-{b.round}.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         rounded = b.record
-    reviews = rounded.get("reviews") or {}
+    return rounded.get("reviews") or {}
+
+
+def _eyes_missing(b) -> list:
+    """結果が無い目（R1〜R4 のうち控えに行が無い物）の名。_eyes の blocked には入らない"""
+    reviews = _eye_reviews(b)
+    return [n for n in ("R1", "R2", "R3", "R4") if not isinstance(reviews.get(n), dict)]
+
+
+def _eyes(b) -> tuple:
+    """独立の目（R1〜R4）の判定の行と、目が阻害を返した R の名。判定は周の記録（rounds/round-<N>.json。目の受け付けの settle が
+    周を締めて書く）か、まだ無ければ盤面の記録から。not_run は目の判定でなく機械が書く欠け（返答が無い・止めた周）なので、行には
+    出すが阻害に数えない"""
+    reviews = _eye_reviews(b)
     status = validator_module(b).REVIEW_STATUS
     lines, blocked = [], []
     for name in ("R1", "R2", "R3", "R4"):
@@ -535,8 +546,8 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     rows, blocked = eyes
     lines.append(f"- 独立の目の判定（阻害: {'・'.join(blocked) or '無い'}）:")
     lines += rows
-    # clean が消したファイル・レンズ・仕組みの異常・残りの件数（0 も、走らせていない・調べていない・読めないも。報告の冒頭 1 と同じ行）
-    lines += [x if x[:1].isspace() else f"- {x}" for x in report.always_rows(b)]
+    # clean が消したファイル・レンズ・仕組みの異常・残りの数えられる分（0 も、走らせていない・調べていない・読めないも。検証器は数えない）
+    lines += [x if x[:1].isspace() else f"- {x}" for x in report.always_rows(b, tests_word=head, blocked=blocked, missing=_eyes_missing(b))]
     asking = b.state.get("pending_human")
     if asking:
         lines.append(f"- {gatemarks.named(asking.get('node'))}が人に聞いている問い（記録のまま引く）:")

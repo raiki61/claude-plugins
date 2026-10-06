@@ -20,8 +20,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く）
 - prior_failures(b, left=None) -> この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]（次の依頼の prior_failures）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
-- always_rows(b, left=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、走らせていない・調べていない・
-  読めないも。冒頭 1 と最後の関所の文が同じ行を出す）・anomalies(b)・anomaly_lines(b, *, full=False)（仕組みの異常。報告の「仕組みの異常」の節）
+- always_rows(b, left=None, *, tests_word=None, blocked=None, missing=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
+  走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は tests_word・blocked を渡して数えられる分を言う）・anomalies(b)・anomaly_lines(b, *, full=False)（仕組みの異常。報告の「仕組みの異常」の節）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
   failed=None, retried=None, eyeing=None, cleaned_runs="") -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
@@ -1120,10 +1120,12 @@ def anomaly_lines(b, *, full: bool = False) -> list:
     return lines
 
 
-def always_rows(b, left: list | None = None) -> list:
+def always_rows(b, left: list | None = None, *, tests_word: str | None = None, blocked: list | None = None,
+                missing: list | None = None) -> list:
     """人が決めるのに要る 4 つ（clean が消したファイル・レンズ・仕組みの異常・残り）の行を、0 件でも、走らせていない・調べていない・
     読めないを 0 件と分けて返す。報告の冒頭 1 と最後の関所の文が同じ戻り値を読む（検証器は回さない）。インデントの付いた行は
-    直前の行の内訳。left は residue の返り——渡せば件数、None なら最後の関所の時点では数えない"""
+    直前の行の内訳。left は residue の返り——渡せば件数。None なら、最後の関所が tests_word（最後のテストの頭の語。line_edge._tests_head の返り）と
+    blocked（line_edge._eyes の blocked）を両方渡した時（missing は結果が無い目の名で、渡せば阻害 0 件と分けて件数を添える）だけ数えられる分を件数と語で言い、どちらかが無ければ数えない"""
     rows = []
     gone = leftovers.removed(b.dir)
     if not gone["readable"]:
@@ -1151,8 +1153,14 @@ def always_rows(b, left: list | None = None) -> list:
     else:
         rows.append(f"仕組みの異常: 合計 {a['total']} 件（" + "・".join(f"{n} {k['count']}" for n, k in a["kinds"].items()) + "。所在の全件は仕組みの異常の節）"
                     + (f"。壊れた行 {a['skipped']} 行を飛ばした" if a["skipped"] else ""))
-    rows.append("残り: 最後の関所の時点では検証器を回していないので数えない（報告の冒頭 1 が数える）" if left is None
-                else f"残り: {len(left)} 件（検証器の阻害・最後のテストの赤・独立の目の阻害）")
+    if left is not None:
+        rows.append(f"残り: {len(left)} 件（検証器の阻害・最後のテストの赤・独立の目の阻害）")
+    elif tests_word is not None and blocked is not None:
+        absent = f"・結果が無い目 {len(missing)} 件（{'・'.join(missing) or '無し'}。阻害 0 件ではなく判定が無い）" if missing is not None else ""
+        rows.append(f"残り（最後の関所で数えられる分）: 独立の目の阻害 {len(blocked)} 件（{'・'.join(blocked) or '無し'}）{absent}・最後のテスト: {tests_word}。"
+                    "検証器の阻害は最後の関所では数えない（報告の冒頭 1 の残りは検証器の箇条も数え、目の阻害は重なる。not_run の目は関所では阻害に数えない）")
+    else:
+        rows.append("残り: 最後の関所の時点では検証器を回していないので数えない（報告の冒頭 1 が数える）")
     return rows
 
 

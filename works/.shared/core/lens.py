@@ -127,14 +127,14 @@ def summary(b) -> dict:
 
 
 def count_line(s: dict) -> str:
-    """summary の採った・採らなかった・捨てた件数を 1 行にする（審査が走っていなければ「調べていない」）"""
+    """summary の採った・採らなかった・捨てた件数と落ちたレンズの件数（0 も）を 1 行にする（審査が走っていなければ「調べていない」）"""
     if s["adopted"] is None:
         taken = "差分の審査が走っていないので採った・採らなかったは調べていない"
     else:
         taken = f"採った {s['adopted']} 件・採らなかった {s['not_adopted']} 件"
         if s["unmatched"]:
             taken += f"（レンズの名に当たらない lens 欄 {s['unmatched']} 件は数えに入れない）"
-    return f"レンズの発見: {taken}・形の誤りで捨てた {s['dropped']} 件"
+    return f"レンズの発見: {taken}・形の誤りで捨てた {s['dropped']} 件・落ちたレンズ {len(s['failed'])} 件"
 
 
 def report_lines(b) -> list:

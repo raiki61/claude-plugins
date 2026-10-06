@@ -612,8 +612,9 @@ class HeadCase(ReportBase):
         self.assertIn("仕組みの異常: 調べていない", "\n".join(report.always_rows(b)))
 
     def test_final_gate_text_has_always_rows(self):
-        """最後の関所の文（line_edge._final_text）に、消したファイルの件数と全パス・レンズの件数・仕組みの異常の種別ごとの件数と合計・
-        残りは「数えない」と書いた行が 0 件でも載る。関所は検証器を回さない（gate_record を呼ばない）。壊れた lens.json・
+        """最後の関所の文（line_edge._final_text）に、消したファイルの件数と全パス・レンズの件数（落ちたレンズの件数も）・仕組みの異常の
+        種別ごとの件数と合計・残りの数えられる分（目の阻害の件数と最後のテストの語。検証器は数えないと書く）が 0 件でも載る。
+        関所は検証器を回さない（gate_record を呼ばない）。壊れた lens.json・
         fix-removed.json の盤面でも落ちずに「読めない」と言う（build も同じ）"""
         sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
         import line_edge  # noqa: E402
@@ -624,14 +625,14 @@ class HeadCase(ReportBase):
             text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
         gate.assert_not_called()
         for row in ("- clean が消したファイル: 走らせていない", "- レンズ: 走らせていない", "- 仕組みの異常: 合計 0 件",
-                    "- 残り: 最後の関所の時点では検証器を回していないので数えない"):
+                    "- 残り（最後の関所で数えられる分）: 独立の目の阻害 0 件（無し）・結果が無い目 4 件（R1・R2・R3・R4。阻害 0 件ではなく判定が無い）・最後のテスト: 緑"):
             self.assertIn(row, text)
         (self.board / "fixing").mkdir()
         (self.board / "fixing" / leftovers.REMOVED_FILE).write_text(json.dumps({"removed": ["x.log", "d/y.log"]}), encoding="utf-8")
         lens.write_routes(b, [{"lens": "silent-failure-hunter", "agent": "a", "go": True}])
         lens.collect(b, {"silent-failure-hunter": {"findings": [{"where": "w", "cite": "c", "why": "y"}, {"where": ""}]}})
         text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
-        for part in ("clean が消したファイル: 2 本", "  - fixing: x.log", "  - fixing: d/y.log", "- レンズの発見: 差分の審査が走っていないので採った・採らなかったは調べていない・形の誤りで捨てた 1 件",
+        for part in ("clean が消したファイル: 2 本", "  - fixing: x.log", "  - fixing: d/y.log", "- レンズの発見: 差分の審査が走っていないので採った・採らなかったは調べていない・形の誤りで捨てた 1 件・落ちたレンズ 0 件",
                      "  - silent-failure-hunter: 調べていない・形の誤りで捨てた 1（出した発見 1）"):
             self.assertIn(part, text)
         (self.board / "fixing" / leftovers.REMOVED_FILE).write_text("{", encoding="utf-8")
@@ -644,6 +645,36 @@ class HeadCase(ReportBase):
         self.assertIn("レンズ: 読めない（", h[H1])
         self.assertTrue(any("レンズの控えが読めない" in x["text"] for x in json.loads(
             pathlib.Path(self.build()[0]["next_request_file"]).read_text(encoding="utf-8"))["findings"]))
+
+    def test_final_gate_residue_names_countable_parts(self):
+        """最後の関所の文の残りの行が、目の阻害の件数（名つき・無しなら 0 件）・結果が無い目の件数と最後のテストの頭の語を並べ、
+        検証器は数えないと書く。目の結果は盤面の周の記録から _eyes で読んだ物を渡す（阻害と結果が無いが同じ控えから出る）。
+        目の結果が無い盤面は阻害 0 件と結果が無い目 4 件を分けて言う。テストの頭が「走らなかった」なら語で言い 0 件に見せない。
+        引数なしの always_rows(b) は今の「数えない」の文のまま。落ちたレンズ 1 本の盤面ではレンズの行に「落ちたレンズ 1 件」が出る"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge  # noqa: E402
+        self.begin()
+        self.without_node_env()
+        b = entry.open_board(self.board, allow_halted=True)
+        with mock.patch.object(report, "gate_record") as gate:
+            none = line_edge._final_text(b, "走らなかった", None, "", line_edge._eyes(b), self.tmp, "run-1")
+            rounds = self.board / "rounds"
+            rounds.mkdir(exist_ok=True)
+            (rounds / f"round-{b.round}.json").write_text(json.dumps(
+                {"reviews": {**EYES_PASS, "R1": {"status": "redesign-needed", "reason": "目の見本"}}}, ensure_ascii=False), encoding="utf-8")
+            eyes = line_edge._eyes(b)
+            self.assertEqual(eyes[1], ["R1"])
+            red = line_edge._final_text(b, "赤", {"ok": True, "green": False}, "", eyes, self.tmp, "run-1")
+        gate.assert_not_called()
+        self.assertIn("- 残り（最後の関所で数えられる分）: 独立の目の阻害 1 件（R1）・結果が無い目 0 件（無し。阻害 0 件ではなく判定が無い）・最後のテスト: 赤", red)
+        self.assertIn("- 残り（最後の関所で数えられる分）: 独立の目の阻害 0 件（無し）・結果が無い目 4 件（R1・R2・R3・R4。阻害 0 件ではなく判定が無い）・最後のテスト: 走らなかった", none)
+        self.assertIn("検証器の阻害は最後の関所では数えない", red)
+        self.assertNotIn("最後の関所の時点では検証器を回していないので数えない", red)
+        self.assertIn("残り: 最後の関所の時点では検証器を回していないので数えない", "\n".join(report.always_rows(b)))
+        lens.write_routes(b, [{"lens": "silent-failure-hunter", "agent": "a", "go": True}])
+        lens.collect(b, {})
+        text = line_edge._final_text(b, "緑", {}, "", ([], []), self.tmp, "run-1")
+        self.assertIn("落ちたレンズ 1 件", text)
 
     def test_head_parts_callable(self):
         """head_reads・head_where・head_cost を盤面だけで呼べ、盤面の全部のファイルの sha が変わらない（線 B が呼ぶ）"""
