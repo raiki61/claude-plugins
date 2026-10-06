@@ -35,12 +35,19 @@ class MarkerCase(unittest.TestCase):
 
     def test_no_tree_write_flag(self):
         """旗 no-tree-write（包みが役の cwd の作業ツリーを書かせない。CI の任せ先の役。裁定 R56）を読み書きできる"""
-        self.assertEqual(node_marker.FLAGS, frozenset({"no-post", "no-tree-write", "isolated", "lane"}))
+        self.assertEqual(node_marker.FLAGS, frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane"}))
         m = mark(SCHEMA, "ci", flags=("no-tree-write",))
         self.assertEqual(m["description"], "works-node: ci no-tree-write")
         self.assertEqual(parse(m["description"]), {"name": "ci", "cont": None, "flags": frozenset({"no-tree-write"})})
         self.assertEqual(parse("works-node: x no-post no-tree-write")["flags"], frozenset({"no-post", "no-tree-write"}))
         self.assertIsNone(parse("works-node: ci no-tree-write no-tree-write"))
+
+    def test_self_resume_flag(self):
+        """旗 self-resume（SDK が会話を継ぐ起動は、包みがこの節自身の会話を継ぐ。輪に範囲の相談の答えの節が挟まる修正役）"""
+        m = mark(SCHEMA, "fix", flags=("self-resume",))
+        self.assertEqual(m["description"], "works-node: fix self-resume")
+        self.assertEqual(parse(m["description"]), {"name": "fix", "cont": None, "flags": frozenset({"self-resume"})})
+        self.assertIsNone(parse("works-node: fix self-resume self-resume"))
 
     def test_isolated_flag(self):
         """旗 isolated（道具ゼロの役を Git の外の置き場で起こす。独立の目の blind-judge。graphloops の commands._isolated_cwd）"""

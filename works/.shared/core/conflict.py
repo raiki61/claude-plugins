@@ -119,9 +119,12 @@ HEAD = "食い違いの申し出"                # 最後の関所の文の節�
 RULED_TEST_ID = "conflict-ruling"       # 裁定が許したテストの変更を守りのファイルの行にする時の id の頭
 PLAN_TEST_ID = "plan-rewrite"           # 承認済みの修正案が名指した既存テストの書き換えを守りのファイルの行にする時の id の頭
 AGREED_TEST_ID = "plan-agreed"          # 範囲の相談で修正案を書いた役が許したテストの書き換えを守りのファイルの行にする時の id の頭
-# 範囲の相談（修正役が修正案を書いた役の会話を再開して範囲を聞く。設計 docs/plans/2026-10-06-ask-planner.md）の 1 問 1 答の
-# trace の行の語。書くのは修正の受け付け（run ごとの置き場の記録から写す）、読むのは agreed（範囲とテストの許し）と報告
+# 範囲の相談（修正役が返答の欄 consult で頼み、修正の輪の答えの節が修正案を書いた役の会話の続きで答える。設計
+# docs/plans/2026-10-06-ask-planner.md）の 1 問 1 答の trace の行の語。書くのは修正の輪の確かめの節（sandbox の外の機械）、
+# 読むのは agreed（範囲とテストの許し）と報告
 ASKED_OP = "plan_scope_asked"
+CONSULT_FIELD = "consult"   # 修正役の返答の任意の欄: 範囲の相談の頼み（在れば受け付けはその周を回さず、答えの節が答える）
+CONSULT_MIN_WHY = 10        # 頼みの理由の下限の字数
 FIELDS_STOP_BY = "works:fix"            # 修正案の欄の控えが凍結と食い違った盤面を止めた口（blk-fix の brief の止めと同じ修正の段の印）
 FIELDS_TAMPERED = f"承認済みの修正案の欄の控え（盤面の {planmarks.FIELDS_FILE}）が受け付けの後に書き換えられた。"
 FIELDS_BROKEN = FIELDS_TAMPERED + "テストの変更の許しを引かずに止めた"   # 修正の段（by FIELDS_STOP_BY）の止めの文
@@ -167,6 +170,23 @@ ITEM_SCHEMA = {
     },
 }
 CONFLICTS_SCHEMA = {"type": "array", "items": ITEM_SCHEMA}
+# 範囲の相談の頼みの欄（CONSULT_FIELD）。1 回の返答で項目ごとに 1 件ずつ並べてよい。paths は足したいパス（リポジトリの根からの
+# 相対）、tests は書き換えたい既存のテストの範囲（<パス> か <パス>:<行>）、why は相手が仕様として判断できる理由
+CONSULT_SCHEMA = {
+    "type": "array",
+    "minItems": 1,
+    "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["item", "paths", "tests", "why"],
+        "properties": {
+            "item": {"type": "integer", "minimum": 1},
+            "paths": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "tests": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "why": {"type": "string", "minLength": CONSULT_MIN_WHY},
+        },
+    },
+}
 _LINES = {"type": "array", "maxItems": MAX_LINES, "items": {"type": "string", "minLength": 1}}
 RULING_SCHEMA = {
     "type": "object",

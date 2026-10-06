@@ -67,8 +67,10 @@ TDD_WRITER = ("blk-fix", "blk-fix.yaml", "tdd")   # TDD の輪の修正役（テ
 TDD_WRITERS = (("blk-fix", "blk-fix.yaml", "tdd-rest"), *(("blk-fix", "blk-fix.yaml", f"tdd-lane-{n}") for n in (1, 2, 3)))
 RULED_WRITER = ("blk-fix", "blk-fix.yaml", "fix-ruled")   # 食い違いの裁定の後の 2 回目の修正役（修正役の会話の続き。印 continue=fix）
 # max_iterations が 3 でない輪: (フォルダ, ファイル, 輪の節) → 上限（blk-fix/lib/tddloop.py の MAX_ITERATIONS と同じ値）
+# 修正の輪 2 つは受け付けの 3 回と範囲の相談の周の枠（blk-fix/lib/consult.py の BUDGET）の和（tests/test_consult.py が突き合わせる）
 LOOP_MAX = {("blk-fix", "blk-fix.yaml", "tdd-loop"): 40, ("blk-fix", "blk-fix.yaml", "tdd-rest-loop"): 40,
-            **{("blk-fix", "blk-fix.yaml", f"tdd-lane-loop-{n}"): 40 for n in (1, 2, 3)}}
+            **{("blk-fix", "blk-fix.yaml", f"tdd-lane-loop-{n}"): 40 for n in (1, 2, 3)},
+            ("blk-fix", "blk-fix.yaml", "fix-loop"): 12, ("blk-fix", "blk-fix.yaml", "fix-ruled-loop"): 12}
 CI_ROLE = ("blk-ci", "blk-ci.yaml", "ci")      # CI の任せ先の役（裁定 R52・R56）
 MEASURER = ("blk-premises", "blk-premises.yaml", "premises")   # 前提の実測の役（読む道具に Bash だけを足す）
 MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash", "WebSearch", "WebFetch"}
@@ -107,6 +109,8 @@ WEB_READERS = (("blk-fix", "blk-fix.yaml", "rule"),   # 食い違いの裁定役
                ("blk-eyes", "blk-eyes.yaml", "r1-comments"), ("blk-judge", "blk-judge.yaml", "judge"),
                ("blk-plan", "blk-plan.yaml", "plan"),
                ("blk-plan", "blk-plan.yaml", "plan-revise"),   # 事前審査の壁打ちの直しの役（修正案の役の会話の続き。読むだけ）
+               # 範囲の相談の答えの節（修正案を書いた役の会話の続き。読むだけ。docs/plans/2026-10-06-ask-planner.md）
+               ("blk-fix", "blk-fix.yaml", "plan-answer"), ("blk-fix", "blk-fix.yaml", "plan-answer-ruled"),
                ("blk-rejudge", "blk-rejudge.yaml", "rejudge"), ("blk-rejudge", "blk-rejudge.yaml", "rejudge-third"),
                ("blk-purpose", "blk-purpose.yaml", "purpose"), ("blk-report", "blk-report.yaml", "report-items"),
                ("blk-report", "blk-report.yaml", "report-write"), ("blk-spec", "blk-spec.yaml", "spec-review"))
@@ -605,6 +609,9 @@ class RoleSessionCase(unittest.TestCase):
     役はブロックの輪（loop_group）の中に居て、ブロックの中で役より前（depends_on を辿った先）に AI の節も include も無い。
     Archon は輪の 1 周目をいつも新しい会話で起こし（dag-executor.ts:5069）、include の入口の節は外の会話を
     引き継がない（dag-executor.ts:10417-10427）。2 周目からの出し直しは、1 周目の settingSources: [user] の会話の続き。
+    役の輪に置いてよい別の AI の節は、印 continue=<相手> で別の会話を継ぐ節だけ（範囲の相談の答えの節。包みが SDK の会話を外して
+    相手の会話を継ぐので役の会話を継がない）で、その時の役は印の旗 self-resume を持つ（Archon は輪の中の直前の AI の節の会話を次の
+    AI の節に継がせるので、旗が無いと次の周の役が相手の会話を継ぐ。包みが自分の会話に戻す。adapter の 1）
     """
 
     def test_role_is_first_ai_node_in_its_block_loop(self):
@@ -625,8 +632,13 @@ class RoleSessionCase(unittest.TestCase):
                     before += [by_id[a] for a in _ancestors(g["id"], by_id)]
                 self.assertEqual([n["id"] for n in before if _is_ai(n)], [],
                                  f"{rid} より前に AI の節か include が在る（前の会話を引き継ぐ恐れ）")
-                others = [m["id"] for m in inner.values() if m["id"] != rid and _is_ai(m)]
-                self.assertEqual(others, [], f"{rid} の輪に別の AI の節が在る")
+                others = [m for m in inner.values() if m["id"] != rid and _is_ai(m)]
+                words = lambda n: str((n.get("output_format") or {}).get("description") or "").split(" ")   # noqa: E731
+                apart = [m["id"] for m in others if any(w.startswith("continue=") for w in words(m))]
+                self.assertEqual([m["id"] for m in others if m["id"] not in apart], [], f"{rid} の輪に別の AI の節が在る")
+                if apart:
+                    self.assertIn("self-resume", words(role)[2:],
+                                  f"{rid} の輪に別の会話を継ぐ節 {apart} が在るのに、役の印に旗 self-resume が無い")
 
 
 class MutatesCheckoutCase(unittest.TestCase):

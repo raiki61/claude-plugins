@@ -4,7 +4,11 @@
 # ///
 """修正役の返答の受け付け（blk-fix の節 fix-accept）。確かめは返さずに表 CHECKS の id で積み（note）、最後に 1 回だけ拒む
 （rejected。見出しごとに並べた本文 reason と行ごとの id の rejects）。下の段の「拒む」は積んで先へ進む意味。
-積んだ行が在れば写しの照らし（3）も乾いた形（commit=False。盤面を書かない）で当てて並べる。順は
+積んだ行が在れば写しの照らし（3）も乾いた形（commit=False。盤面を書かない）で当てて並べる。
+範囲の相談の周（確かめの節の consulted。INPUTS_CONSULTED が true）は回さない: 返答も盤面も見ずに {ok: false, done: false,
+consulted: true} を出す（拒否の理由のファイルも最後の結果の控えも書かない。次の周の修正役が答えを読んで続けた返答を受ける）。順は
+-4. 範囲の相談の枠（id consult）: 相談の周でないのに返答が consult を持つのは枠（consult.BUDGET）を使い切った後の頼みで、拒む
+   （欄を外して後の確かめに当てる）
 -3. TDD の輪で凍ったテストのファイル（下の 1b。id frozen）
 -2. 書き込みの出どころ（check_writes。writes.check。id writes）: 版からの変更に、Edit・Write の
    書き込みの記録か返答の欄 bash_writes の申告が在るか。無ければ拒む。記録の無い run（包みが無い）は通し、受けた時に
@@ -108,13 +112,20 @@ import parking  # noqa: E402   最後の回に止める単位を選ぶ（blk-fix
 import script_io  # noqa: E402   盤面の今の scope の根（.shared/core）
 import writes  # noqa: E402   書き込みの出どころの突き合わせ（.shared/core）
 from leftovers import git  # noqa: E402
-import askplan  # noqa: E402   範囲の相談の記録を盤面へ写す（blk-fix/lib）
+import consult  # noqa: E402   範囲の相談の周と枠（blk-fix/lib）
 from factchecks import (  # noqa: E402   事実の確かめの口（blk-fix/lib。修正役の事前の確かめと同じ口）
     check_frozen, check_plan_scope, check_writes, fix_unit_keys, named_reply, resolved_changes,
     declared_files)
 
-INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", "INPUTS_TDD_SUITE")
-GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
+# INPUTS_CONSULTED は範囲の相談の周の印（無い・true でなければ回す。前の版の with: で再開した run は渡さない）
+INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", "INPUTS_TDD_SUITE",
+          "INPUTS_CONSULTED")
+GIVE_UP_AFTER = 3   # 諦める拒否の回。輪 fix-loop の max_iterations はこれと相談の枠 consult.BUDGET の和（tests/test_blk_fix.py が YAML と突き合わせる）
+CONSULTED_ENV = "INPUTS_CONSULTED"   # 確かめの節の consulted（true ならこの周は範囲の相談の周で、受け付けを回さない）
+CONSULTED = ("範囲の相談の周（返答の consult に答えの節が答えた）。受け付けは回さず、次の周の修正役が答えを読んで続けた返答を"
+             "受け付ける")
+CONSULT_SPENT = ("範囲の相談の枠（この段の輪で {n} 回）を使い切った後の consult を受けない。consult の欄を外し、範囲の中で直すか、"
+                 "変えずに食い違いの申し出（kind は scope_needed）で返せ")
 TESTS_OP = impact.ACCEPT_TRACE_OP   # 受け付けが選んだ試験を走らせた盤面の trace の行（ci_left・final_left を最後の関所が読む）
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
 NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（開いた単位と、関所で答えた問いの出どころ・depends のほかは直さない。"
@@ -146,6 +157,7 @@ PACK_COPY = ("修正役は .archon/ の下を変えてはいけない（Archon �
 # 修正の受け付けの確かめの id → 拒否の見出しの短い名。並びは受け付けが回す順。
 # 拒否の見出しと確かめの id の表はここ 1 か所（role-rejects の行の id もここから引く。依頼 236）
 CHECKS = {
+    "consult": "範囲の相談の枠",
     "frozen": "TDD の輪で凍ったテストのファイル",
     "writes": "書き込みの出どころ",
     "conflict": "食い違いの申し出の形",
@@ -466,10 +478,13 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     scope_note = None   # 承認済みの修正案の項目と差分を照らした記録（受けた時に trace へ）
     absorbed = {"dropped": [], "absorbed": []}   # 最後の回に数えなかった物（受けた時に trace へ）
 
-    # 範囲の相談の記録（run ごとの置き場。役の Bash は盤面に書けない）のうち盤面にまだ無い行を trace へ写す（拒否の回でも。
-    # 相談は受け付けの結果に依らず起きた事実）。後の確かめは盤面の合意（conflict.agreed）を読む
-    askplan.settle(entry.open_board(board), askplan.place_of(board))
     found = []   # 積んだ拒否の行 (確かめの id, 文)。申し出より後の確かめは返さずにここへ積み、最後に 1 回だけ拒む
+    # 範囲の相談の周（確かめの節の consulted）はここに来ない（入口が回さない）。来た consult は枠を使い切った後の物で、拒否に積む。
+    # 合意は確かめの節が盤面の trace に書いた物（conflict.agreed）を後の確かめが読む
+    if isinstance(reply, dict) and conflict.CONSULT_FIELD in reply:
+        note(found, "consult", CONSULT_SPENT.format(n=consult.BUDGET))
+        reply = {k: v for k, v in reply.items() if k != conflict.CONSULT_FIELD}
+        whole = reply
     declared = {}   # 文 → 結び先の単位 key（申し出の行。申し出た単位を最後の回に止める）
 
     def settle(texts, by_copy=False):
@@ -567,11 +582,27 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
 
 
 def with_done(out: dict) -> dict:
-    """輪を抜ける旗 done（R50）: 通った時か、この周の輪の 3 回目（fix-prep の iteration。INPUTS_ITERATION）の拒否。
-    iteration が数でなければ ValueError（回す側の誤り。main_accept が 2 にする）"""
+    """輪を抜ける旗 done（R50）: 通った時か、この周の輪の 3 回目（fix-prep の iteration。INPUTS_ITERATION。範囲の相談の周は数えない）
+    の拒否。iteration が数でなければ ValueError（回す側の誤り。main_accept が 2 にする）"""
     it = int(os.environ["INPUTS_ITERATION"])
     return {**out, "done": out.get("ok") is True or it >= GIVE_UP_AFTER}
 
 
+def consulted_out() -> dict:
+    """範囲の相談の周の出口（盤面にも拒否の理由のファイルにも書かない。done は立てない）"""
+    return {"ok": False, "done": False, "consulted": True, "reason": CONSULTED, "reason_file": "", "changes": []}
+
+
+def main() -> int:
+    """入口。確かめの節が相談の周と言えば（INPUTS_CONSULTED が true）、返答を見ずに consulted_out の 1 行を出して 0"""
+    if os.environ.get(CONSULTED_ENV, "").strip().lower() == "true":
+        print(json.dumps(consulted_out(), ensure_ascii=False))
+        return 0
+    return recount.main_accept(accept_fix, finish=with_done)
+
+
 if __name__ == "__main__":
-    sys.exit(recount.main_accept(accept_fix, finish=with_done))
+    for _s in (sys.stdout, sys.stderr):   # 相談の周の 1 行は script_io を通らずに出す（日本語の理由の文）
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
+    sys.exit(main())

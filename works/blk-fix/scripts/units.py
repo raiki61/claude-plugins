@@ -12,8 +12,11 @@ fixrules.UNITS_FILE）。修正役が当てるコマンドを走らせなかっ�
 - 控えが無い（並べなかった周・済んだ控え）: {"ok": true, "ran": false} を 1 行出して 0
 - 締めた: {"ok": true, "ran": true, applied, machine, conflict, unmerged, carried} を 1 行出して 0（当たらない項目が在っても run は
   止めない。直しは盤面に残り、その単位の変更の欠けは受け付けが見る）
+- 範囲の相談の周（確かめの節の consulted。INPUTS_CONSULTED が true）: 締めない（修正役は次の周に同じ会話で続け、単位の worktree を
+  まだ使う）。{"ok": true, "ran": false} を 1 行出して 0
 - 環境変数の欠け・盤面が開けない・git が効かない: 標準エラーに 1 行出して 2（rolekit.script_main）
 """
+import os
 import sys
 from pathlib import Path
 
@@ -26,10 +29,14 @@ import rolekit  # noqa: E402
 import unitlanes  # noqa: E402
 import writes  # noqa: E402
 
-INPUTS = ()   # 読む入力は無い（控えは盤面の今の周の作業ファイル）
+CONSULTED_ENV = "INPUTS_CONSULTED"   # 範囲の相談の周か（無い・true でなければ締める）
+INPUTS = (CONSULTED_ENV,)   # with: の鍵（控えは盤面の今の周の作業ファイル）
+OPTIONAL = frozenset({CONSULTED_ENV})   # 欠けを拒まない（前の版の with: で再開した run は渡さない）
 
 
 def run(board, repo, env):
+    if os.environ.get(CONSULTED_ENV, "").strip().lower() == "true":
+        return {"ok": True, "ran": False}
     b = entry.open_board(Path(board))
     out = unitlanes.settle(b.work(fixrules.UNITS_FILE), repo, writes.sink(repo), b.work(fixrules.UNITS_KEPT))
     if out.get("ran"):
@@ -38,4 +45,4 @@ def run(board, repo, env):
 
 
 if __name__ == "__main__":
-    sys.exit(rolekit.script_main(run, INPUTS))
+    sys.exit(rolekit.script_main(run, tuple(n for n in INPUTS if n not in OPTIONAL)))

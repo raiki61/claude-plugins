@@ -23,6 +23,11 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    - continue=X: SDK が付けた会話の旗（`--resume`・`-r`・`--session-id`・`--fork-session`・`--continue`・`-c`）を外し、
      `--resume <X の id>` を足す（fork しない。同じ会話に積む）。X の id が無い・読めない時は子を起こさず止まる
      （fail closed）。YAML の節は `context: fresh` にして Archon 自身には何も継がせない
+   - 旗 self-resume（continue なし）: SDK が会話を継ぐ起動（`--resume`・`-r` を付けた起動。輪の 2 周目から）だけ、SDK の会話の旗を
+     外して `--resume <この節自身の id>` を足す（fork しない）。Archon の輪は直前に終わった AI の節の会話を次の AI の節に継がせる
+     （dag-executor の lastSequentialSession）ので、輪の中に別の会話を継ぐ節（範囲の相談の答えの節。continue=<相手>）が挟まると、
+     次の周の役は相手の会話を継いでしまう。この旗で役は自分の会話に戻る。自分の id が無い・読めない時は子を起こさず止まる
+     （fail closed）。SDK が会話を継がない起動（輪の 1 周目）は旗の無い節と同じに新しい会話
    - 単位の切れ目（印の名が KEYED_NODES の起動。依頼 243 の 2）: 輪の支度が切符の board の隣の run ごとの置き場に書いた今の単位の
      鍵（session_key_path）を、この節の会話の id と一緒に記録した鍵（unit_key_path）と比べる。記録が在って違えば SDK の会話の
      旗を外して新しい会話にする（mode new。前の単位の履歴を積まない。前の単位の物は支度が指示書の引き継ぎの節で渡す）。同じ・
@@ -219,9 +224,11 @@ UNIT_KEY_SUFFIX = ".unit"   # sessions/<cwd の hash>/<節>.id の隣に、そ�
 LANE_SUFFIX = ".lane"       # sessions/<cwd の hash>/<節>.id の隣に、旗 lane の起動の cwd（単位の worktree の実パス。6c）
 LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の worktree を書く置き場（盤面の下。共有の記録 tdd-*/**。6c）
 # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
-# lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪の並べの枝の役。6c）
-FLAGS = ("no-post", "no-tree-write", "isolated", "lane")
+# lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪の並べの枝の役。6c）。self-resume: SDK が会話を継ぐ起動は
+# この節自身の記録した会話を継ぐ（1）
+FLAGS = ("no-post", "no-tree-write", "isolated", "self-resume", "lane")
 NO_TREE_WRITE = "no-tree-write"
+SELF_RESUME = "self-resume"   # 1 の旗 self-resume（SDK が会話を継ぐ起動は、この節自身の記録した会話を継ぐ）
 ISOLATED = "isolated"
 LANE = "lane"
 ISOLATED_PREFIX = "works-isolated-"
@@ -1153,32 +1160,41 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         except Unrecognised as e:
             return _refuse(argv, node, cont, tools_empty, f"会話の旗が見分けられない（{e}）")
         src = resumed[-1][2] if resumed else None
-        if given:
-            sid, mode = given[-1][2], "sdk-fork" if src and "--fork-session" in argv else "sdk-session"
-        elif src and "--fork-session" in argv:
-            sid, mode = new_id(), "sdk-fork"
-            out = argv + ["--session-id=" + sid]
-        elif src:
-            sid, mode = src, "sdk-resume"
+        if src and SELF_RESUME in marker.flags:   # 1 の旗 self-resume: 輪の 2 周目からは自分の会話に戻る
+            sid = read_session_id(session_path(cwd, node, home_dir))
+            if sid is None:
+                return _refuse(argv, node, cont, tools_empty,
+                               f"旗 {SELF_RESUME} の節 {node} が会話を継ぐ起動なのに、自分の会話の id が無い"
+                               f"（{session_path(cwd, node, home_dir)}）")
+            out = _strip_session_flags(argv) + ["--resume", sid]
+            session = {"mode": "continued", "id": sid, "of": node, "from": sid, "sdk": src}
         else:
-            sid, mode = new_id(), "new"
-            out = argv + ["--session-id=" + sid]
-        session = {"mode": mode, "id": sid}
-        if src:
-            session["from"] = src
-        if node in KEYED_NODES:   # 1 の単位の切れ目
-            want, why = _unit_key(board, node)
-            if want is None:
-                session["unit"] = {"skipped": why}
+            if given:
+                sid, mode = given[-1][2], "sdk-fork" if src and "--fork-session" in argv else "sdk-session"
+            elif src and "--fork-session" in argv:
+                sid, mode = new_id(), "sdk-fork"
+                out = argv + ["--session-id=" + sid]
+            elif src:
+                sid, mode = src, "sdk-resume"
             else:
-                have = _read_key(unit_key_path(cwd, node, home_dir))
-                cut = have is not None and have != want and mode != "new"
-                if cut:
-                    sid = new_id()
-                    out = _strip_session_flags(argv) + ["--session-id=" + sid]
-                    session = {"mode": "new", "id": sid}
-                session["unit"] = {"key": want, "was": have, "cut": cut}
-                record.append((unit_key_path(cwd, node, home_dir), want))
+                sid, mode = new_id(), "new"
+                out = argv + ["--session-id=" + sid]
+            session = {"mode": mode, "id": sid}
+            if src:
+                session["from"] = src
+            if node in KEYED_NODES:   # 1 の単位の切れ目
+                want, why = _unit_key(board, node)
+                if want is None:
+                    session["unit"] = {"skipped": why}
+                else:
+                    have = _read_key(unit_key_path(cwd, node, home_dir))
+                    cut = have is not None and have != want and mode != "new"
+                    if cut:
+                        sid = new_id()
+                        out = _strip_session_flags(argv) + ["--session-id=" + sid]
+                        session = {"mode": "new", "id": sid}
+                    session["unit"] = {"key": want, "was": have, "cut": cut}
+                    record.append((unit_key_path(cwd, node, home_dir), want))
         if lane is not None and session["mode"] != "new":   # 6c. 前の会話が別の cwd で走っていれば続けられない
             was = _read_key(lane_record_path(cwd, node, home_dir))
             if was is not None and was != lane:
