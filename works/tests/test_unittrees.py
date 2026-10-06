@@ -124,6 +124,17 @@ class UnitTrees(unittest.TestCase):
         self.assertEqual((self.repo / "a.txt").read_text(), "a1\nX\na3\n")
         self.assertEqual(got, [])
 
+    def test_union_asks_the_check_before_merging(self):
+        base = unittrees.snapshot(self.repo)
+        _, p1 = self.unit(base, "u1", {"a.txt": "a1\na2\na3\nB\n"})
+        _, p2 = self.unit(base, "u2", {"a.txt": "a1\na2\na3\nC\n"})
+        self.assertEqual(unittrees.apply(self.repo, p1), (True, ""))
+        seen = []
+        ok, _ = unittrees.apply(self.repo, p2, union=["a.txt"], check=lambda path, text: seen.append((path, text)) and False)
+        self.assertFalse(ok)
+        self.assertEqual(seen, [("a.txt", b"a1\na2\na3\nB\nC\n")])
+        self.assertEqual((self.repo / "a.txt").read_text(), "a1\na2\na3\nB\n")
+
     def test_union_refuses_files_outside_the_list(self):
         base = unittrees.snapshot(self.repo)
         _, p1 = self.unit(base, "u1", {"a.txt": "a1\na2\na3\nB\n", "b.txt": "b1\nb2\nb3\nB\n"})

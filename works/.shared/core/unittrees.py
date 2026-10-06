@@ -11,7 +11,8 @@ run の作業ツリー（repo）の本物の index・HEAD・枝はどの口も�
   を試し、食い違いが無い時だけ、その結果と今の姿の差分を作業ツリーへ当てる（index を汚さない）。当たらなければ作業ツリーを
   変えずに (False, 理由)。union（根からの相対のパスの並び）の中のファイルの食い違いが「挿しだけ」（3 方向の食い違いの塊が
   どれも base の側に行を持たない＝両方が同じ所に行を足しただけ）なら、作業ツリーの側の行の後に patch の側の行を置いて
-  合わせる（合わせたパスを unioned に積む）。並びの外のファイル・行を変えた塊・base の無い（両方が新しく作った）ファイルは今どおり当てない
+  合わせる（合わせたパスを unioned に積む。check が偽を返す中身は合わせない）。並びの外のファイル・行を変えた塊・base の
+  無い（両方が新しく作った）ファイルは今どおり当てない
 - remove(repo, path): 単位の worktree とその参照を消す（消えた置き場は prune で片付ける）
 - sweep(repo) -> [path]: この作業ツリーから切った単位の worktree と参照の全部を消す（止まった run の残りの片付け）
 - applied(repo, patch) -> bool: patch が作業ツリーに既に当たっているか（逆向きに当たるか。作業ツリーを変えない）
@@ -127,10 +128,12 @@ def diff(path, base_sha: str, objects: str | None = None) -> str:
     return _git(path, *_DIFF, base_sha, tree, objects=objects).stdout.decode("utf-8", "surrogateescape")
 
 
-def apply(repo, patch: str, objects: str | None = None, union=(), unioned: list | None = None) -> tuple[bool, str]:
+def apply(repo, patch: str, objects: str | None = None, union=(), unioned: list | None = None,
+          check=None) -> tuple[bool, str]:
     """patch を run の作業ツリー repo へ 3 方向で当てる。(True, "") か、作業ツリーを変えずに (False, 理由)。
     一時の index（作業ツリーの今の姿）で `git apply --cached --3way` を試し、食い違い（未解決の段）が残れば当てない。
     ただし未解決のファイルが全部 union の中で、どれも挿しだけの食い違いなら合わせて通す（頭の注記。合わせたパスを unioned に積む）。
+    check（任意。(パス, 合わせた中身のバイト) → 真偽）が偽を返すファイルは合わせない（呼び手の言語ごとの照らし）。
     通れば、今の姿とその結果の木の差分を作業ツリーへそのまま当てる（git apply は全部か無しか。本物の index は読まない）"""
     if not patch.strip():
         return True, ""
@@ -142,7 +145,7 @@ def apply(repo, patch: str, objects: str | None = None, union=(), unioned: list 
                  objects=objects)
         left = _unmerged(repo, index, objects)
         err = r.stderr.decode("utf-8", "replace").strip()
-        merged = _union(repo, index, objects, left, set(union), tmp) if left and union else None
+        merged = _union(repo, index, objects, left, set(union), tmp, check) if left and union else None
         broke = any(ln.startswith(("error:", "fatal:")) for ln in err.splitlines())
         if broke or (r.returncode != 0 and not left) or (left and merged is None):
             return False, (err or "3 方向で当てると食い違いが残る")
@@ -199,7 +202,7 @@ def _insert_only(text: bytes) -> bytes | None:
     return None if state is not None else b"".join(out)
 
 
-def _union(repo, index: str, objects: str | None, left: dict, allowed: set, tmp: str) -> list | None:
+def _union(repo, index: str, objects: str | None, left: dict, allowed: set, tmp: str, check=None) -> list | None:
     """未解決のパス left を全部、挿しだけの食い違いとして一時の index で合わせる。合わせたパスの並びか、1 つでも合わせられなければ
     None（index はそのまま。呼び手は当てない）"""
     plan = []
@@ -215,7 +218,7 @@ def _union(repo, index: str, objects: str | None, left: dict, allowed: set, tmp:
         if r.returncode > 127:   # 落ちた（食い違いの数は 127 まで）
             return None
         text = _insert_only(r.stdout)
-        if text is None:
+        if text is None or (check is not None and not check(path, text)):
             return None
         plan.append((path, stages[2][0], text))
     for path, mode, text in plan:

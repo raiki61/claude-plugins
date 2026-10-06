@@ -4,31 +4,38 @@ docs/plans/2026-10-06-parallel-units.md）。分け方・切る・当てる・�
 語:
 - 項目: 修正役が下請けを起こす単位（修正案の項目か、どの項目にも無い単位 1 つ）。番号は fixrules.g1_values の item
 - 範囲: 項目の書いてよいパスの glob と受け入れのテストのファイル（planmarks の allowed_paths・test_paths）。引けなければ None
+- 重なりのファイル（shared）: 当てた項目のうち 2 つ以上の差分に出たファイル。範囲の重なりの見込み（expect）とは別に数える
+  （依頼 243 の並べの 3 段目。docs/plans/2026-10-07-overlap-lanes.md。範囲が重なる項目も並べ、当てる所で食い違った項目だけ順に戻す）
+- 合わせる試験のファイル（union）: 控えの union の並び。2 つの項目が同じ所に行を足しただけの食い違いは、先の項目の行の後に
+  後の項目の行を置いて当てる（unittrees.apply の union）。合わせた中身に同じ名のテストの定義が 2 つ在れば合わせない（tests_unique）
 - 単位の worktree: unittrees が run の作業ツリーの今の姿を base にして切る worktree。置き場は run ごとの置き場の下（包みが
   下請けに書かせる所。adapter.live_worktrees）
-- 控え（manifest）: 切った物の JSON {repo, base, place, record, items: [{item, tree, git}]}。git は単位の worktree の `.git` の
+- 控え（manifest）: 切った物の JSON {repo, base, place, record, union, items: [{item, tree, git}]}。git は単位の worktree の `.git` の
   1 行（共通の .git を指す）。盤面の作業ファイルに置く（役は書けない）
-- 当てた記録（record）: 置き場の merged.json {items: {"<n>": {state, why?, patch?}}}。state は applied・conflict・broken・empty
+- 当てた記録（record）: 置き場の merged.json {items: {"<n>": {state, why?, patch?, union?}}}。state は applied・conflict・broken・empty
 
 口:
 - overlap(a, b): 2 つの範囲が重なりうるか（字のままの頭で比べる。広く重なりと見る側に倒す）
-- lanes(items): [(n, 範囲 | None)] のうち並べる項目の番号（範囲が在り、ほかのどの項目とも重ならない物。2 つ未満なら []）
-- plant(repo, items, place, manifest): 前の単位の worktree を片付け、今の姿を base にして項目ごとに place/item-<n> を切り、
-  控えを書く。{n: {tree, base}}
+- lanes(items): [(n, 範囲 | None)] のうち並べる項目の番号（範囲の在る物。範囲が重なってもよい。2 つ未満なら []）
+- expect(items): 並べる項目のうち範囲が重なりうる組 [[n, m]]（重なりの見込み。測りに出す）
+- tests_unique(path, text): 合わせた中身の照らし（.py なら同じ本体に同じ名の test・Test の定義が 2 つ無いか。読めなければ偽）
+- plant(repo, items, place, manifest, union=()): 前の単位の worktree を片付け、今の姿を base にして項目ごとに place/item-<n> を
+  切り、控えを書く。{n: {tree, base}}
 - merge(manifest): 当てるコマンドの中身（修正役が sandbox の中の Bash で走らせる）。項目の番号の順に、`.git` の 1 行を確かめ、
   差分を place/item-<n>.patch に書いて run の作業ツリーへ 3 方向で当てる。新しい object は一時の置き場に書く（共通の .git を
-  書かない）。当てた記録に積み、記録に在る項目は当て直さない。{applied, conflict, broken, empty, differ}（differ は当てた項目の
-  ファイルのうち、run の作業ツリーの中身が単位の worktree の中身と違う物。役が bash_writes に書く）
+  書かない）。当てた記録に積み、記録に在る項目は当て直さない。{applied, conflict, broken, empty, differ, shared, union}（differ は
+  当てた項目のファイルのうち、run の作業ツリーの中身が単位の worktree の中身と違う物。役が bash_writes に書く。shared・union は頭の語）
 - command(manifest): 修正役の指示書に載せる当てるコマンドの 1 行
 - settle(manifest, repo, log, keep): 修正役の後・受け付けの前の機械（節 fix-units）。記録の applied（と、記録に無く既に当たって
   いる・機械が当てた項目）の書き込みの記録を writes.carry で写し、当たらない項目と conflict の項目の差分を keep に残し、単位の
-  worktree を片付けて控えを <名>.done.json に移す。控えが無ければ {"ran": False}
+  worktree を片付けて控えを <名>.done.json に移す。控えが無ければ {"ran": False}。出口に shared・union（頭の語）
 
 当てるコマンドは役の sandbox の python3（3.9 でよい）で走る。頭の import は標準ライブラリと unittrees だけにする（writes は settle の
 中で引く）。
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import pathlib
@@ -68,10 +75,34 @@ def overlap(a, b) -> bool:
 
 
 def lanes(items) -> list:
-    """[(n, 範囲 | None)] のうち並べる項目の番号（並びのまま）。範囲が None の項目と、ほかのどれかと重なる項目は順"""
-    known = [(n, list(p)) for n, p in items if p is not None]
-    out = [n for n, p in known if not any(m != n and overlap(p, q) for m, q in known)]
+    """[(n, 範囲 | None)] のうち並べる項目の番号（並びのまま）。範囲が None の項目は順。範囲が重なっても並べる（当てる所で
+    食い違った項目だけ順に戻す。依頼 243 の並べの 3 段目）"""
+    out = [n for n, p in items if p is not None]
     return out if len(out) >= 2 else []
+
+
+def expect(items) -> list:
+    """[(n, 範囲 | None)] のうち範囲の在る項目どうしで、範囲が重なりうる組 [[n, m]]（n < m の並びの順）"""
+    known = [(n, list(p)) for n, p in items if p is not None]
+    return [[n, m] for i, (n, p) in enumerate(known) for m, q in known[i + 1:] if overlap(p, q)]
+
+
+def tests_unique(path: str, text: bytes) -> bool:
+    """合わせた中身 text（path のファイル）の照らし: .py なら、モジュールとクラスの本体ごとに test・Test で始まる定義の名が
+    2 つ無いか（後の定義が前を隠す）。読めない（構文の誤り・文字の誤り）なら偽。.py でなければ真"""
+    if not str(path).endswith(".py"):
+        return True
+    try:
+        tree = ast.parse(text.decode("utf-8"))
+    except (SyntaxError, ValueError):
+        return False
+    kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    bodies = [tree.body] + [n.body for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+    for body in bodies:
+        names = [n.name for n in body if isinstance(n, kinds) and n.name.lower().startswith("test")]
+        if len(names) != len(set(names)):
+            return False
+    return True
 
 
 def _git_line(tree) -> str:
@@ -96,8 +127,9 @@ def _read_json(path) -> dict:
     return doc if isinstance(doc, dict) else {}
 
 
-def plant(repo, items, place, manifest) -> dict:
-    """前にこの作業ツリーから切った単位の worktree を片付け、今の姿を base にして項目ごとに place/item-<n> を切り、控えを書く"""
+def plant(repo, items, place, manifest, union=()) -> dict:
+    """前にこの作業ツリーから切った単位の worktree を片付け、今の姿を base にして項目ごとに place/item-<n> を切り、控えを書く
+    （union は合わせる試験のファイルの並び。頭の語）"""
     repo, place, manifest = pathlib.Path(repo), pathlib.Path(place), pathlib.Path(manifest)
     unittrees.sweep(repo)
     base = unittrees.snapshot(repo)
@@ -110,7 +142,8 @@ def plant(repo, items, place, manifest) -> dict:
         unittrees.add(repo, base, tree)
         rows.append({"item": n, "tree": str(tree), "git": _git_line(tree)})
         out[n] = {"tree": str(tree), "base": base}
-    _write_json(manifest, {"repo": str(repo), "base": base, "place": str(place), "record": str(place / RECORD), "items": rows})
+    _write_json(manifest, {"repo": str(repo), "base": base, "place": str(place), "record": str(place / RECORD),
+                           "union": sorted(set(union)), "items": rows})
     return out
 
 
@@ -154,14 +187,18 @@ def merge(manifest) -> dict:
             if not patch.strip():
                 done[key] = {"state": EMPTY}
             else:
-                ok, why = unittrees.apply(repo, patch, objects=objects)
-                done[key] = {"state": APPLIED, "patch": str(path)} if ok else {"state": CONFLICT, "why": why, "patch": str(path)}
+                got = []
+                ok, why = unittrees.apply(repo, patch, objects=objects, union=doc.get("union") or (), unioned=got,
+                                          check=tests_unique)
+                done[key] = ({"state": APPLIED, "patch": str(path), **({"union": got} if got else {})} if ok
+                             else {"state": CONFLICT, "why": why, "patch": str(path)})
             _write_json(pathlib.Path(doc["record"]), record)
     return _summary(doc, done)
 
 
 def _summary(doc: dict, done: dict) -> dict:
-    out = {APPLIED: [], CONFLICT: [], BROKEN: [], EMPTY: [], "differ": []}
+    out = {APPLIED: [], CONFLICT: [], BROKEN: [], EMPTY: [], "differ": [], "shared": [], "union": []}
+    seen = {}
     for row in doc["items"]:
         got = done.get(str(row["item"])) or {}
         state = got.get("state")
@@ -169,12 +206,15 @@ def _summary(doc: dict, done: dict) -> dict:
             out[APPLIED].append(row["item"])
             patch = pathlib.Path(got["patch"]).read_text(encoding="utf-8", errors="surrogateescape")
             for name in _names(patch):
+                seen[name] = seen.get(name, 0) + 1
                 if not _same(pathlib.Path(doc["repo"]) / name, pathlib.Path(row["tree"]) / name) and name not in out["differ"]:
                     out["differ"].append(name)
+            out["union"] += [p for p in got.get("union") or [] if p not in out["union"]]
         elif state in (CONFLICT, BROKEN):
             out[state].append({"item": row["item"], "why": got.get("why", ""), "patch": got.get("patch", "")})
         elif state == EMPTY:
             out[EMPTY].append(row["item"])
+    out["shared"] = [n for n, c in seen.items() if c > 1]
     return out
 
 
@@ -192,8 +232,8 @@ def settle(manifest, repo, log, keep) -> dict:
     if not doc.get("items"):
         return {"ran": False}
     done = _read_json(doc["record"]).get("items") or {}
-    out = {"ran": True, "applied": [], "machine": [], "conflict": [], "unmerged": [], "carried": 0}
-    pairs = []
+    out = {"ran": True, "applied": [], "machine": [], "conflict": [], "unmerged": [], "carried": 0, "shared": [], "union": []}
+    pairs, seen = [], {}
     for row in doc["items"]:
         n, tree = row["item"], pathlib.Path(row["tree"])
         state = (done.get(str(n)) or {}).get("state")
@@ -206,15 +246,20 @@ def settle(manifest, repo, log, keep) -> dict:
             out["unmerged"].append({"item": n, "why": "単位の worktree の .git の指しが切った時と違う"})
             continue
         patch = unittrees.diff(tree, doc["base"])
+        got = list((done.get(str(n)) or {}).get("union") or [])
         if state != APPLIED and not unittrees.applied(repo, patch):
-            ok, why = unittrees.apply(repo, patch)
+            ok, why = unittrees.apply(repo, patch, union=doc.get("union") or (), unioned=got, check=tests_unique)
             if not ok:
                 out["unmerged"].append({"item": n, "why": why})
                 _keep(keep, n, doc, tree, patch)
                 continue
             out["machine"].append(n)
         out["applied"].append(n)
-        pairs += [(tree / name, repo / name) for name in _names(patch)]
+        out["union"] += [p for p in got if p not in out["union"]]
+        for name in _names(patch):
+            seen[name] = seen.get(name, 0) + 1
+            pairs.append((tree / name, repo / name))
+    out["shared"] = [name for name, c in seen.items() if c > 1]
     out["carried"] = len(writes.carry(pathlib.Path(log), pairs)) if pairs else 0
     unittrees.sweep(repo)
     os.replace(manifest, manifest.with_name(manifest.stem + DONE))
