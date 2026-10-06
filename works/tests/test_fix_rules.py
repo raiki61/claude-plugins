@@ -536,7 +536,7 @@ class TestRoleNodes(unittest.TestCase):
         self.assertEqual(set(tp["with"]) - {"state_file"}, set(fixrules.TDD_VALUES) - {"open_units"},
                          "義務の単位は輪の状態が持つ")
         loop = find_node(nodes, "fix-loop")["loop_group"]
-        self.assertEqual([n["id"] for n in loop["nodes"]], ["fix-prep", "fix", "fix-accept"])
+        self.assertEqual([n["id"] for n in loop["nodes"]], ["fix-prep", "fix", "fix-units", "fix-accept"])
 
 
 

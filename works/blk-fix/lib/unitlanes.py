@@ -241,6 +241,7 @@ def main(argv) -> int:
     except (OSError, KeyError, unittrees.UnitTreeError) as e:
         print(f"unitlanes: {' '.join(str(e).split())}", file=sys.stderr)
         return 1
+    sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(out, ensure_ascii=False))
     return 0
 
