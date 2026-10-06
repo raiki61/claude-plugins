@@ -81,6 +81,7 @@ h-entry:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 pr-checking__pr-snap:
   ok: true
   snapshot_file: board/r1/pr-snapshot.json
@@ -183,6 +184,7 @@ h-judge:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 purposing__intake: {}
 purpose:
   purpose_text: stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞い（算術平均・上限を超えた値は上限に収める）に直し、test_stats.py の赤 2 件を緑にする
@@ -226,6 +228,7 @@ h-mat:
   mat_go: true
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 gathering__mat-route:
   ok: true
   stopped: false
@@ -650,6 +653,18 @@ judge-accept:
   open_units:
   - 'stats.py mean: 分母が len(xs) - 1 になっている'
   - 'stats.py clamp: 上限を超えた値に lo を返す'
+# 判定の根を開く（線の木の段 3）: 開いた単位が 2 つ以上なら束ね役が裏取りの下請けを並べ、機械が申し送りにまとめる
+judging__verify-prep:
+  ok: true
+  go: true
+  prompt_file: board/judging/r1/verify/prompt.md
+judging__judge-verify:
+  summary: '単位 1 は root・単位 2 は root・相乗りは重複 0・関わり 0・順番 0'
+judging__verify-merge:
+  ok: true
+  verify_file: board/r1/judge-verify.json
+  verified: 2
+  unverified: 0
 judging__collect:
   ok: true
   open_units:
@@ -683,6 +698,7 @@ h-plan:
   mat_go: false
   structure_units_file: board/r1/structure-units.json
   ripple_file: ''
+  verify_file: board/r1/judge-verify.json
 structuring__stage-a:
   structure_file: structure/structure.json
   design_file: structure/design.jsonl
@@ -908,6 +924,7 @@ h-gate:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 h-fix:
   ok: true
   stop: false
@@ -933,6 +950,7 @@ h-fix:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 fixing__ignored-before:
   ok: true
   count: 0
@@ -1152,6 +1170,7 @@ h-replan:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 replanning__r2-design-snap:
   ok: true
   go: true
@@ -1201,6 +1220,7 @@ h-regate:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 h-refit:
   ok: true
   stop: false
@@ -1226,6 +1246,7 @@ h-refit:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 refitting__ignored-before:
   ok: true
   count: 0
@@ -1289,6 +1310,7 @@ h-rejudge:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 rejudging__rj-snap:
   ok: true
   snapshot_file: board/r1/rejudge-snapshot.json
@@ -1389,6 +1411,7 @@ h-mid:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 h-review:
   ok: true
   stop: false
@@ -1414,6 +1437,7 @@ h-review:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 lensing__lens-route:
   ok: true
   why: ''
@@ -1489,6 +1513,7 @@ h-refix:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 refixing__refix-prep:
   ok: true
   owed: 1
@@ -1601,6 +1626,7 @@ h-tests:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 testing__run:
   ok: true
   green: true
@@ -1636,6 +1662,7 @@ h-look:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 h-final:
   ok: true
   stop: false
@@ -1676,6 +1703,7 @@ h-final:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 h-eyes:
   ok: true
   stop: false
@@ -1701,6 +1729,7 @@ h-eyes:
   mat_go: false
   structure_units_file: ''
   ripple_file: ''
+  verify_file: ''
 eyeing__eyes-enter:
   ok: true
   round: 1

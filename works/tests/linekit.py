@@ -93,6 +93,35 @@ def tree_review(board, k: int = 1, synergy_why: str = "2 つの項目は stats.p
             "items": [{"item": n, "verdict": "clean", "blocks": []} for n in rows]}
 
 
+VERIFY_EVIDENCE = "stats.py の該当の行を読み、判定の理由が言う式がそのまま在ることを確かめた"
+
+
+def verify_answers(board) -> dict:
+    """判定の裏取りの束ね役の見本（線の木の段 3）: 盤面の今の周の束ね役の指示書（verify/prompt.md）が名指す下請けのファイルごとに、
+    下請けの代わりに答えのファイルを書き（単位は全部 root・証拠と場所は合う。相乗りは重複・関わり・順番なし）、要約を返す"""
+    board = pathlib.Path(board)
+    if str(ROOT / "blk-judge" / "lib") not in sys.path:
+        sys.path.insert(0, str(ROOT / "blk-judge" / "lib"))
+    import judgeverify
+    prompt = max(board.rglob(f"{judgeverify.BRIEF_DIR}/prompt.md"), key=lambda p: p.stat().st_mtime)
+    said = []
+    for brief in sorted(prompt.parent.glob("*.md")):
+        if brief.name == "prompt.md":
+            continue
+        path = pathlib.Path(judgeverify.answer_in(brief.read_text(encoding="utf-8")))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if brief.stem == "synergy":
+            body = {"why": "単位は別の関数を直し、重複も順番の依存も無い", "duplicates": [], "relations": [], "order": []}
+            said.append("相乗り: 重複 0・関わり 0・順番 0")
+        else:
+            n = int(brief.stem.split("-")[1])
+            body = {"unit": n, "verdict": "root", "evidence_found": True, "evidence": VERIFY_EVIDENCE, "location_ok": True,
+                    "location": "stats.py", "why": "その式を直せば試験の期待どおりの値になる"}
+            said.append(f"単位 {n}: root")
+        path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+    return {"summary": "・".join(said)}
+
+
 def structure_eye_reply(structure_file) -> dict:
     """構造の目の見本の返答: structure.json の実測できた単位ごとに、根拠つきの汚れないの 1 行（単位の id は run ごとに決まる）"""
     doc = json.loads(pathlib.Path(structure_file).read_text(encoding="utf-8"))
@@ -262,7 +291,8 @@ LINE_ORDER = [
     {"id": "planning", "kind": "include", "block": "blk-plan", "depends_on": ["h-plan", "h-structure"],
      "when": "$h-plan.output.go == true",
      "with": {"judgment_file": "$h-plan.output.judgment_file", "base_rev": "$start.output.base_rev",
-              "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path"}},
+              "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path",
+              "verify_file": "$h-plan.output.verify_file"}},
     _edge("h-gate", "gate", ["start", "h-plan", "h-structure", "planning"]),
     {"id": "policy-gate", "kind": "approval", "depends_on": ["h-gate"], "when": "$h-gate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
@@ -489,23 +519,29 @@ class LineRun:
         return material.collect(self.board)
 
     def blk_judge(self):
-        """blk-judge の中の節の順（支度 judge-brief → 判定役と受け付け judge-accept の輪 → 出口 collect）を本物の口で回す。
+        """blk-judge の中の節の順（支度 judge-brief → 判定役と受け付け judge-accept の輪 → 裏取りの支度・束ね役・まとめ → 出口 collect）を本物の口で回す。
         判定役の返答は replies["judge"]（1 つか、回ごとの返答の列。列が尽きたら最後の物を繰り返す）。輪は受け付けの done で
         抜ける（R50）。受け付けの返りは judge_takes に積む"""
         if str(ROOT / "blk-judge" / "lib") not in sys.path:
             sys.path.insert(0, str(ROOT / "blk-judge" / "lib"))
         import judgebrief
         import judgetake
+        import judgeverify
         self.judge_brief = judgebrief.brief(self.board, self.repo)
-        if not self.judge_brief["go"]:   # 止まった盤面: 判定役の輪は when: で飛ぶ
-            return judgetake.collect(self.board)
-        bodies = self.replies["judge"] if isinstance(self.replies["judge"], list) else [self.replies["judge"]]
-        for i in range(judgetake.GIVE_UP_AFTER):
-            body = bodies[min(i, len(bodies) - 1)]
-            got = judgetake.accept(self.board, json.dumps(body, ensure_ascii=False), self.repo)
-            self.judge_takes.append(got)
-            if got["done"]:
-                break
+        if self.judge_brief["go"]:   # 止まった盤面: 判定役の輪は when: で飛ぶ
+            bodies = self.replies["judge"] if isinstance(self.replies["judge"], list) else [self.replies["judge"]]
+            for i in range(judgetake.GIVE_UP_AFTER):
+                body = bodies[min(i, len(bodies) - 1)]
+                got = judgetake.accept(self.board, json.dumps(body, ensure_ascii=False), self.repo)
+                self.judge_takes.append(got)
+                if got["done"]:
+                    break
+        # 判定の根を開く（線の木の段 3）: 支度 → go なら束ね役（replies["judge-verify"]（盤面を受ける関数）か見本 verify_answers）→ まとめ
+        if judgeverify.prep(self.board, self.repo)["go"]:
+            answer = self.replies.get("judge-verify", verify_answers)
+            if callable(answer):
+                answer(self.board)   # 下請けの代わりに答えのファイルを書く（束ね役の要約はまとめが読まない）
+            judgeverify.merge(self.board, self.repo)
         return judgetake.collect(self.board)
 
     def _nth(self, role, k):
@@ -528,7 +564,8 @@ class LineRun:
         if not planblk.snap(self.board, role, self.repo)["go"]:
             return
         for _ in range(planblk.GIVE_UP_AFTER):
-            planblk.prep(self.board, role, self.repo)
+            # 線は修正案のブロックの支度に h-plan の verify_file（判定の単位の裏取りの申し送り。線の木の段 3）を渡す
+            planblk.prep(self.board, role, self.repo, verify_file=(self.out.get("h-plan") or {}).get("verify_file", ""))
             if planblk.accept_reply(self.board, role, json.dumps(body(), ensure_ascii=False), self.repo)["done"]:
                 return
 

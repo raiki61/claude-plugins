@@ -27,6 +27,7 @@ CORE = ROOT / ".shared" / "core"
 REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
 SEED = ROOT / "dev" / "target-seed"
 sys.path.insert(0, str(CORE))
+sys.path.insert(0, str(BLK / "lib"))
 
 from accept import JUDGE_SNAPSHOT_FILE, check_judge, role_schema, tree_state  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
@@ -88,7 +89,7 @@ class YamlCase(unittest.TestCase):
 
     def test_nodes_and_loop(self):
         ids = [n["id"] for n in self.y["nodes"]]
-        self.assertEqual(ids, ["intake", "judge-brief", "judge-loop", "collect"])
+        self.assertEqual(ids, ["intake", "judge-brief", "judge-loop", "verify-prep", "judge-verify", "verify-merge", "collect"])
         intake = find_node(self.y, "intake")
         self.assertEqual(intake["script"], "intake")
         self.assertEqual(intake["with"], {"request": "$INPUTS.request"})
@@ -113,7 +114,54 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(acc["with"], {"reply": {"from": "$judge.output"}, "base_rev": "$INPUTS.base_rev"})
         self.assertEqual(sorted(acc["output_format"]["required"]), ["done", "ok", "open_units", "reason", "reason_file"])
         col = find_node(self.y, "collect")
-        self.assertEqual((col["depends_on"], col["trigger_rule"]), (["judge-brief", "judge-loop"], "none_failed_min_one_success"))
+        # 裏取りのまとめを待つ。まとめが飛んでも（束ね役が落ちた・単位が 2 つ未満）走る（飛んだ依存は落ちに数えない）
+        self.assertEqual((col["depends_on"], col["trigger_rule"]),
+                         (["judge-brief", "judge-loop", "verify-merge"], "none_failed_min_one_success"))
+
+    def test_verify_nodes(self):
+        """判定の根を開く（線の木の段 3。設計 docs/plans/2026-10-06-judge-verify.md）: 支度（機械）→ 束ね役（opus・effort high。
+        下請けを Agent で並べ、下請けは答えを盤面の外に Write。作業ツリーは書かない）→ まとめ（機械。束ね役が通った時だけ）"""
+        import judgeverify
+        prep = find_node(self.y, "verify-prep")
+        self.assertEqual((prep["script"], prep["runtime"], prep["timeout"]), ("verify", "uv", DEADLINE))
+        self.assertEqual((prep["depends_on"], prep["trigger_rule"]), (["judge-brief", "judge-loop"], "none_failed_min_one_success"))
+        self.assertEqual(prep["with"], {"stage": "prep"})
+        self.assertEqual(sorted(prep["output_format"]["required"]), ["go", "ok", "prompt_file"])
+        ai = find_node(self.y, "judge-verify")
+        self.assertEqual((ai["model"], ai["effort"]), ("opus", "high"))
+        self.assertEqual(ai["depends_on"], ["verify-prep"])
+        self.assertEqual(ai["when"], "$verify-prep.output.go == true")
+        self.assertEqual(ai["context"], "fresh", "判定役の会話を継がない（別の目）")
+        self.assertIn("$verify-prep.output.prompt_file", ai["prompt"])
+        self.assertEqual(ai["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "Agent", "Write"])
+        self.assertIs(ai["mutates_checkout"], False)
+        self.assertEqual(ai["settingSources"], ["user"])
+        self.assertEqual(ai["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
+        self.assertEqual(ai["idle_timeout"], DEADLINE)
+        self.assertEqual(ai["output_format"], judgeverify.output_format())
+        self.assertEqual(ai["output_format"]["description"], "works-node: judge-verify")
+        merge = find_node(self.y, "verify-merge")
+        self.assertEqual((merge["script"], merge["depends_on"], merge["with"]), ("verify", ["judge-verify"], {"stage": "merge"}))
+        self.assertNotIn("trigger_rule", merge, "束ね役が通った時だけまとめる（落ちたら支度の置いた初めの申し送りが残る）")
+        self.assertEqual(sorted(merge["output_format"]["required"]), ["ok", "unverified", "verified", "verify_file"])
+
+    def test_verify_script_inputs(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_verify_script", BLK / "scripts" / "verify.py")
+        mod = importlib.util.module_from_spec(spec)
+        dont = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            sys.dont_write_bytecode = dont
+        self.assertEqual(mod.INPUTS, ("INPUTS_STAGE",))
+
+    def test_manifest_declares_notes(self):
+        m = json.loads((BLK / "manifest.json").read_text(encoding="utf-8"))
+        row = next(p for p in m["produces"] if p["name"] == "judge-verify.json")
+        self.assertEqual((row["format"], row.get("at", "round")), ("json", "round"))
+        self.assertTrue((BLK / row["schema"]).is_file())
 
     def test_diagnose_prompt_wires_request_and_retry_reason(self):
         text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
@@ -161,8 +209,10 @@ class YamlCase(unittest.TestCase):
                 self.assertIs(f["exec-code"], True)
                 for k, v in decl.items():
                     self.assertEqual(f["fixture"][k], v)
-        self.assertEqual(yaml.safe_load((BLK / "fixtures" / "pass.stubs.yaml").read_text(encoding="utf-8"))["judge"],
-                         load("judge_ok"))
+        passed = yaml.safe_load((BLK / "fixtures" / "pass.stubs.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(passed["judge"], load("judge_ok"))
+        # 単独の run（盤面が無い）では裏取りの支度は go 偽で、束ね役とまとめは飛ぶ
+        self.assertIn("verify-prep", passed["fixture"]["reached"])
         self.assertEqual(yaml.safe_load((BLK / "fixtures" / "bad-reply.stubs.yaml").read_text(encoding="utf-8"))["judge"],
                          load("judge_notfound_no_searched"))
 
@@ -393,6 +443,17 @@ class ScriptCase(unittest.TestCase):
         r = self.run_script("collect")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("judgment.json", r.stderr)
+
+    def test_verify_standalone_does_not_go(self):
+        """盤面の無い単独の run: 裏取りの支度は go 偽、まとめは空（申し送りを作らない）。stage が違えば 2"""
+        r = self.run_script("verify", INPUTS_STAGE="prep")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"ok": True, "go": False, "prompt_file": ""})
+        r = self.run_script("verify", INPUTS_STAGE="merge")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"ok": True, "verify_file": "", "verified": 0, "unverified": 0})
+        self.assertEqual(self.run_script("verify", INPUTS_STAGE="other").returncode, 2)
+        self.assertEqual(self.run_script("verify").returncode, 2)
 
     def test_collect_without_judgment(self):
         r = self.run_script("collect")

@@ -24,6 +24,8 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     rejudge・rejudge-third、blk-purpose の purpose、blk-report の report-items・report-write、blk-spec の spec-review
   - blk-plan/blk-plan.yaml の節 plan-review（事前審査の束ね役。線の木の段 1）: 読む道具と web に、項目ごとの下請けを起こす Agent と、
     下請けが答えのファイルを盤面の外に書く Write（作業ツリーは書かないので mutates_checkout: false を保つ。表の keep_checkout）
+  - blk-judge/blk-judge.yaml の節 judge-verify（判定の裏取りの束ね役。線の木の段 3）: plan-review と同じ形（単位ごとの下請けを
+    起こす Agent と、下請けが答えのファイルを盤面の外に書く Write。mutates_checkout: false。表の keep_checkout）
   - blk-premises/blk-premises.yaml の節 premises（測る役）: 読む道具に Bash と web（測るためにコマンドを走らせるが書く道具は
     持たない。Bash は狭い sandbox の中。作業ツリーを変えれば受け付けが写しと比べて拒む）
 - 書く役でなく Bash・Edit・Write（TREE_CHANGERS）も持たない AI の節（と表の keep_checkout の節）は節の段の mutates_checkout: false
@@ -109,9 +111,12 @@ WEB_READERS = (("blk-fix", "blk-fix.yaml", "rule"),   # 食い違いの裁定役
 # run ごとの置き場に書く Write を足す。作業ツリーは書かないので mutates_checkout: false を保つ（keep_checkout。変われば Archon が
 # 節を落とし、受け付けも拒む）
 PLAN_REVIEW = ("blk-plan", "blk-plan.yaml", "plan-review")
+# 判定の裏取りの束ね役（線の木の段 3）: 事前審査の束ね役と同じ形（単位ごとの下請けを Agent で並べ、下請けは答えを盤面の外に Write）
+JUDGE_VERIFY = ("blk-judge", "blk-judge.yaml", "judge-verify")
 EXCEPTIONS = {
     WRITER: {"tools": None},
     PLAN_REVIEW: {"tools": JUDGE_WEB_TOOLS | {"Agent", "Write"}, "keep_checkout": True},
+    JUDGE_VERIFY: {"tools": JUDGE_WEB_TOOLS | {"Agent", "Write"}, "keep_checkout": True},
     SPEC_WRITE: {"tools": None},
     SPEC_REVISE: {"tools": None},
     TDD_WRITER: {"tools": None},

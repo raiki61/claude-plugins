@@ -119,7 +119,8 @@ class YamlCase(unittest.TestCase):
 
     def test_inputs_and_exit(self):
         self.assertEqual(set(self.y["inputs"]), {"judgment_file", "base_rev", "policy_paste", "policy_path", "excluded_file",
-                                                 "replan"})   # include の名は入力に持たない（core が引く。依頼 239）
+                                                 "replan", "verify_file"})
+        self.assertEqual(self.y["inputs"]["verify_file"]["default"], "")   # 判定の単位の裏取りの申し送り（線の木の段 3）   # include の名は入力に持たない（core が引く。依頼 239）
         self.assertEqual(self.y["inputs"]["replan"]["default"], "")
         self.assertIs(self.y["inputs"]["judgment_file"]["required"], True)
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
@@ -199,7 +200,7 @@ class YamlCase(unittest.TestCase):
         for k in ("allowed_tools", "settingSources", "sandbox", "mutates_checkout", "idle_timeout", "model", "effort"):
             self.assertEqual(role.get(k), plan.get(k), k)
         self.assertEqual(every["plan-revise-prep"]["with"], {"role": planblk.REVISE_ROLE, "excluded_file": "$INPUTS.excluded_file",
-                                                            "replan": "$INPUTS.replan"})
+                                                            "replan": "$INPUTS.replan", "verify_file": "$INPUTS.verify_file"})
         self.assertEqual(every["plan-revise-accept"]["with"],
                          {"role": planblk.REVISE_ROLE, "reply": {"from": f"${planblk.REVISE_ROLE}.output"},
                           "replan": "$INPUTS.replan"})
@@ -268,7 +269,8 @@ class YamlCase(unittest.TestCase):
                 want = {f"INPUTS_{k.upper()}" for k in (n.get("with") or {})}
                 mod = script_module(n["script"])
                 self.assertEqual(set(mod.INPUTS), want)
-                self.assertEqual(set(mod.OPTIONAL), {"INPUTS_REPLAN"}, "後から足した replan だけが無くてよい（無い・空は今どおり）")
+                # 後から足した replan（と支度の verify_file。判定の単位の裏取りの申し送り）だけが無くてよい（無い・空は今どおり）
+                self.assertEqual(set(mod.OPTIONAL), {"INPUTS_REPLAN"} | ({"INPUTS_VERIFY_FILE"} if n["script"] == "prep" else set()))
                 self.assertEqual(n["with"]["replan"], "$INPUTS.replan", "同じ script を回す節は全部 replan を渡す")
                 self.assertEqual((n["timeout"], n["runtime"]), (DEADLINE, "uv"))
                 if "role" in (n.get("with") or {}):
@@ -1019,6 +1021,25 @@ class ScriptCase(unittest.TestCase):
         for none in ("", "null"):
             text = pathlib.Path(self.ok("prep", role="plan", excluded_file=none)["prompt_file"]).read_text(encoding="utf-8")
             self.assertNotIn(planblk.EXCLUDED_HEAD, text)
+
+    def test_verify_notes_pasted_for_plan_only(self):
+        """入力 verify_file（判定の単位の裏取りの申し送り。線の木の段 3）は修正案の役の指示書の頭にだけ貼る。空・null は貼らない"""
+        self.judged()
+        notes = self.tmp / "verify.json"
+        notes.write_text(json.dumps({"units": [{"n": 1, "key": "k", "state": "checked", "verdict": "not_root",
+                                                "real_root": "別の単位と同じ根", "evidence_found": True, "evidence": "stats.py:9 を読んだ",
+                                                "location_ok": True, "location": "stats.py:9", "why": "同じ取り違えの現れ"}],
+                                     "synergy": {"state": "unverified", "errors": ["答えが無い"]}}, ensure_ascii=False),
+                         encoding="utf-8")
+        self.ok("snap", role="plan")
+        text = pathlib.Path(self.ok("prep", role="plan", excluded_file="", verify_file=str(notes))["prompt_file"]).read_text(
+            encoding="utf-8")
+        self.assertIn(planblk.VERIFY_HEAD, text)
+        self.assertIn("別の単位と同じ根", text)
+        for none in ("", "null"):
+            text = pathlib.Path(self.ok("prep", role="plan", excluded_file="", verify_file=none)["prompt_file"]).read_text(
+                encoding="utf-8")
+            self.assertNotIn(planblk.VERIFY_HEAD, text)
 
     def test_no_fix_skips_both_loops(self):
         """直す物の無い判定（p2.fix_plan が条件で na）→ どちらの snap も go: false、collect は ok で案のファイルは空"""

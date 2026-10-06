@@ -4,6 +4,7 @@
   {"name": "prior-failures-in.json"}
  ],
  "produces": [
-  {"name": "judgment.json", "format": "json", "schema": "schemas/judgment.schema.json", "at": "root"}
+  {"name": "judgment.json", "format": "json", "schema": "schemas/judgment.schema.json", "at": "root"},
+  {"name": "judge-verify.json", "format": "json", "schema": "schemas/judge-verify.schema.json"}
  ]
 }

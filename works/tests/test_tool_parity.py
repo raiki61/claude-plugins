@@ -97,7 +97,8 @@ ROLE_NODES = {
 # 走る。ADR 0072 の「測るまで Opus」は持ち主 2026-10-01 が費用を先に取って覆した。模型を固定するなら行を前付けの在る役にする）
 EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge", ("blk-plan", "plan-revise"): "writer",
                ("blk-report", "report-write-cold"): "cold-reader", ("blk-structure", "structure-eye"): "blind-judge",
-               ("blk-lens", "lens-silent-failure-hunter"): "silent-failure-hunter"}
+               ("blk-lens", "lens-silent-failure-hunter"): "silent-failure-hunter",
+               ("blk-judge", "judge-verify"): "judge"}   # 判定の裏取りの束ね役（線の木の段 3）は確かめる目で、本線の judge に当たる
 
 
 def graph_run_by() -> dict:

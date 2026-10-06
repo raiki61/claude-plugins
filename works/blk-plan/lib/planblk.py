@@ -36,6 +36,8 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
             要約（converge.ITEMS）だけで、答えのファイルと食い違えば拒む。確かめを通らない項目は、出し直しの支度がその項目の下請けの
             ファイルにだけ機械の読める誤りの一覧（ERRORS_HEAD）を貼って起こし直させ、通った項目は起こし直さない。
             修正案と直しを受けたら項目を壁打ちの控えに置き（converge.note_plan）、直しの役が閉じた項目を変えたら拒む（CLOSED_REJECT）
+- 裏取りの申し送り: 入力 verify_file（判定の単位ごとの裏取りと単位どうしの相乗りの JSON。形は verify_part）が在れば、修正案の役の
+            頭に貼る（verify_part）。単位は直す義務で申し送りでは減らないので、根本でないと出た単位も案から外させない
 - reads:    役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
 - collect:  出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file}。役の節がこの周に
             待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true。
@@ -407,6 +409,49 @@ def make_ripple(board_dir, repo, stage: str, replan: str = "") -> dict:
 def _ripple_of(b, k: int):
     """往復 k の項目ごとの波及の一覧（無ければ None）"""
     return _read_json(b.work(RIPPLE_PASS.format(k=k)))
+
+
+VERIFY_HEAD = "## 判定の単位の裏取り（判定とは別の目が単位ごとに確かめた申し送り。機械が貼った）"
+VERIFY_ASK = ("単位は直す義務で、この申し送りでは減らない。根本でない・場所が違う・証拠が無いと出た単位も、案から外せない（受け付けが"
+              "拒む）。そういう単位は本当の根の単位と同じ項目にまとめるか、approach に申し送りへの答え（どう扱うか）を書け。"
+              "重複・関わり・順番は項目の組み方と並べ方に使え。確かめられなかった単位は判定のままに読め。")
+VERDICT_WORDS = {"root": "根本", "not_root": "根本でない", "unsure": "根本か決められない"}
+
+
+def _verify_row(u: dict) -> str:
+    head = f"- 単位 {u.get('n')} `{u.get('key')}`: "
+    if u.get("state") != "checked":
+        return head + "確かめられなかった（" + "・".join(str(e) for e in u.get("errors") or []) + "）"
+    parts = [VERDICT_WORDS.get(u.get("verdict"), str(u.get("verdict")))]
+    if u.get("verdict") == "not_root":
+        parts[0] += f"（本当の根: {u.get('real_root')}）"
+    parts.append(f"証拠 {'在り' if u.get('evidence_found') else '無し'}（{u.get('evidence')}）")
+    parts.append(f"場所 {'合う' if u.get('location_ok') else '違う'}（{u.get('location')}）")
+    return head + "・".join(parts) + f"。{u.get('why')}"
+
+
+def verify_part(verify_file) -> str:
+    """修正案の役の頭に貼る判定の単位の裏取りの申し送りの節。入力 verify_file は形 {units: [{n, key, state, verdict,
+    evidence_found, evidence, location_ok, location, real_root, why, errors}], synergy: {state, why, duplicates, relations,
+    order, errors}} の JSON のパス（出どころは名指さない）。空か文字列 null なら空、読めなければその 1 行"""
+    path = _given(verify_file)
+    if not path:
+        return ""
+    doc = _read_json(pathlib.Path(path))
+    if not isinstance(doc, dict) or not isinstance(doc.get("units"), list):
+        return f"{VERIFY_HEAD}\n\n申し送りのファイル {path} が読めない（判定のままに読め）。"
+    lines = [VERIFY_HEAD, "", VERIFY_ASK, ""] + [_verify_row(u) for u in doc["units"] if isinstance(u, dict)]
+    syn = doc.get("synergy") if isinstance(doc.get("synergy"), dict) else {}
+    if syn.get("state") == "checked":
+        lines += ["", f"単位どうしの相乗り: {syn.get('why')}"]
+        for label, field in (("重複", "duplicates"), ("関わり", "relations")):
+            lines += [f"- {label}: " + "・".join(f"`{k}`" for k in r.get("units") or []) + f"（{r.get('why')}）"
+                      for r in syn.get(field) or [] if isinstance(r, dict)]
+        lines += [f"- 順番: `{r.get('first')}` を先に、`{r.get('then')}` を後に（{r.get('why')}）"
+                  for r in syn.get("order") or [] if isinstance(r, dict)]
+    else:
+        lines += ["", "単位どうしの相乗り: 確かめられなかった（" + "・".join(str(e) for e in syn.get("errors") or []) + "）"]
+    return "\n".join(lines)
 
 
 def units_ripple_part(b) -> str:
@@ -865,12 +910,13 @@ def snap(board_dir, role: str, repo, replan: str = "") -> dict:
     return {"ok": True, "go": True, "snapshot_file": str(p)}
 
 
-def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "") -> dict:
+def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", verify_file: str = "") -> dict:
     """<役>-prep: 描く → 番号の控え → 起こした印。返り {prompt_file, attempt, out_path, node, already}。
     独立設計の役は core の design.prep（返り {prompt, prompt_file, node, attempt, already, role_def, role_def_missing}。
     道具ゼロなので指示書の本文を返し、commands/r2-design.md が直の参照で貼る）。直しの役は _revise_prep（replan では snap が
     go: false なので届かない）。replan なら core の replan.prep に、頭（head。修正案の頭は planmarks.HEAD を含む）と、事前審査
-    なら独立設計の節だけ（design_only）を渡す"""
+    なら独立設計の節だけ（design_only）を渡す。verify_file（判定の単位の裏取りの申し送り）は修正案の役の頭にだけ貼る（verify_part。
+    直しの役は修正案の役の会話の続きなので、もう読んでいる）"""
     if role == REVISE_ROLE:
         return _revise_prep(board_dir)
     if role == DESIGN_ROLE:
@@ -889,7 +935,7 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "") 
     part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b), tree_part(b, main))
                                     if role == "plan-review"
                                     else (prior_part(b, role), structmark.plan_section(b.dir), plan_slots_section(b),
-                                          units_ripple_part(b))) if x)
+                                          units_ripple_part(b), verify_part(verify_file) if role == "plan" else "")) if x)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
     ptrs = b.pointer_rows(nid)["pointers"]
     inst = _pending(b, nid)

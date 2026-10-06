@@ -20,6 +20,7 @@ description: |
   試験を引いて範囲に入っていない当たりを名指す。事前審査の役は束ね役で、項目ごとの下請けを Agent で並べて起こし、全部の項目が
   clean の往復の最後に相乗りの審査の下請けを 1 つ起こす。block の無い項目は閉じ（直しの役が変えれば拒む）、同じ block が続いた
   項目は保留にしてほかの項目を柵まで進める。
+  入力 verify_file（判定の単位の裏取りの申し送り）が在れば、修正案の役の指示書の頭に貼る（単位は直す義務のまま）。
   出口 collect: {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file}。
 
 inputs:
@@ -44,6 +45,12 @@ inputs:
       同じ run の中の案の直し（依頼 226）の口。空か文字列 null なら今どおり。そのほかの値なら、ラインが同じブロックを 2 度目に
       include した案の直しで、修正案と事前審査の役は修正の段で fix_plan_item と裁かれた項目だけを直し・審査する（core の replan。
       盤面の節へ渡さず、今の周の replan.json に置く。独立設計の輪は今どおり控えが在れば飛ぶ）
+  verify_file:
+    default: ""
+    description: >-
+      判定の単位ごとの裏取りと単位どうしの相乗りの申し送りの JSON のパス（形 {units: [{n, key, state, verdict, evidence_found,
+      evidence, location_ok, location, real_root, why, errors}], synergy: {state, why, duplicates, relations, order, errors}}）。
+      空か文字列 null なら無い。在れば修正案の役の指示書の頭に貼る（単位は減らさない。根本でないと出た単位も案から外させない）
 
 returns: collect
 outcome_field: ok
@@ -84,6 +91,7 @@ nodes:
             role: r2-design
             excluded_file: $INPUTS.excluded_file
             replan: $INPUTS.replan
+            verify_file: $INPUTS.verify_file
           output_format:
             type: object
             additionalProperties: false
@@ -231,6 +239,7 @@ nodes:
             role: plan
             excluded_file: $INPUTS.excluded_file
             replan: $INPUTS.replan
+            verify_file: $INPUTS.verify_file
           output_format:
             type: object
             additionalProperties: false
@@ -522,6 +531,7 @@ nodes:
                   role: plan-revise
                   excluded_file: $INPUTS.excluded_file
                   replan: $INPUTS.replan
+                  verify_file: $INPUTS.verify_file
                 output_format:
                   type: object
                   additionalProperties: false
@@ -650,6 +660,7 @@ nodes:
                   role: plan-review
                   excluded_file: $INPUTS.excluded_file
                   replan: $INPUTS.replan
+                  verify_file: $INPUTS.verify_file
                 output_format:
                   type: object
                   additionalProperties: false
