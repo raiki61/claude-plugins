@@ -5,7 +5,7 @@
 
 語:
 - 腕: 修正の形（current・af・g3・g1）ごとの run。固定材料: 同じ依頼を同じ所から始める盤面の写し（行の fixture は元の run の id）。
-- 混ざり: その形で拒むはずの道具（g3 以外の Skill・g1 以外の Agent）が走った呼び出し。拒まれた呼び出し（tool_completed の
+- 混ざり: その形で拒むはずの道具（g3 以外の Skill・g1・g3 の外の Agent）が走った呼び出し。拒まれた呼び出し（tool_completed の
   tool_outcome が error）は refused に数え、混ざりに数えない。
 """
 import contextlib
@@ -199,14 +199,14 @@ class RowCase(unittest.TestCase):
 
     def test_skill_that_ran_is_flagged_on_every_arm_but_g3(self):
         """柵（permissions.deny の Skill）が効くことはまだ実地で確かめていない（Task 3 の審査）。af・current・g1 の行で走った
-        Skill を混ざりに出し、g3 では数えない。g1 の修正役の Agent は数えない"""
+        Skill を混ざりに出し、g3 では数えない。g1・g3 の修正役の Agent は数えない（依頼 243 の 2）"""
         for shape, want in (("af", 1), ("current", 1), ("g1", 1), ("g3", 0)):
             with self.subTest(shape=shape):
                 db = make_db(self.tmp, run=f"r-{shape}", path=self.tmp / f"{shape}.db",
                              events=[tool("fixing__tdd-loop.tdd", "Skill"), agent("fixing__fix-ruled-loop.fix-ruled")])
                 r = self.row(db, make_board(self.tmp, shape=shape, name=f"art-{shape}"), run=f"r-{shape}")
                 self.assertEqual(r["contamination"]["Skill"], want)
-                self.assertEqual(r["contamination"]["Agent"], 0 if shape == "g1" else 1)
+                self.assertEqual(r["contamination"]["Agent"], 0 if shape in ("g1", "g3") else 1)
 
     def test_row_counts_redo_rulings_misses_and_gaps(self):
         calls = [{"n": 1, "phase": "route", "ok": True}, {"n": 2, "phase": "test", "ok": False},

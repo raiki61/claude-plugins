@@ -1048,6 +1048,25 @@ class FenceCase(unittest.TestCase):
         with self.subTest("/private の別名の綴り"):
             self.assertIn(f"Edit(/{hermetic.alias(self, late)}/**)", deny)
 
+    def test_unit_worktrees_under_run_place_are_writable(self):
+        """run ごとの置き場の下の、この作業ツリーの守りの参照を持つ単位の worktree（unittrees で切った物）は守らない（下請けが
+        書く）。置き場の外の worktree・参照の無い worktree は今どおり守り、置き場そのものも足す（依頼 243 の並べ）"""
+        import unittrees
+        base = unittrees.snapshot(self.e.cwd)
+        unit = unittrees.add(self.e.cwd, base, pathlib.Path(self.place()) / "units" / "item-1")
+        stray = pathlib.Path(self.place()) / "units" / "stray"
+        git(self.repo, "worktree", "add", "-q", "--detach", str(stray))   # 参照の無い worktree（守る）
+        outside = self.e.tmp / "outside-unit"
+        unittrees.add(self.e.cwd, base, outside)                        # 参照は在るが置き場の外（守る）
+        r = self.e.run(sdk_argv("works-node: fix", tools="Bash,Read,Edit"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = self.settings()
+        deny = s["permissions"]["deny"]
+        self.assertNotIn(f"Edit(/{unit}/**)", deny)
+        self.assertNotIn(str(unit), s["sandbox"]["filesystem"]["denyWrite"])
+        self.assertIn(f"Edit(/{stray}/**)", deny)
+        self.assertIn(f"Edit(/{outside}/**)", deny)
+
     def test_sdk_deny_rules_kept(self):
         sdk = {"sandbox": {"enabled": True, "filesystem": {"denyWrite": ["/sdk/path"]}},
                "permissions": {"deny": ["Bash(rm:*)"]}}
@@ -1891,7 +1910,7 @@ class DevWiringCase(unittest.TestCase):
 
 class ShapeFenceCase(unittest.TestCase):
     """形ごとの道具の柵（計画 220 Task 3）: 切符の board の修正の形（fixshape.shape_at）を読み、g3 以外の座の節（tdd）は Skill を、
-    g1 以外の修正役（fix・fix-ruled）は Agent を permissions.deny に足し、足した数を fence.shape_deny に残す。
+    g1・g3 の外の修正役（fix・fix-ruled）は Agent を permissions.deny に足し、足した数を fence.shape_deny に残す。
     形の控えが壊れていれば起こさない（理由に fix_shape）。切符の無い起動は今どおり"""
 
     def setUp(self):
@@ -1927,14 +1946,18 @@ class ShapeFenceCase(unittest.TestCase):
         deny, fence = self.launch("tdd")
         self.assertNotIn("Skill", deny)
         self.assertNotIn("shape_deny", fence)
-        with self.subTest("g1 の修正役は Agent を拒まない・g3 の修正役は拒む"):
+        with self.subTest("g1・g3 の修正役は Agent を拒まない・af の修正役は拒む（依頼 243 の 2）"):
             self.start("g1")
             deny, _ = self.launch("fix-ruled")
             self.assertNotIn("Agent", deny)
             self.start("g3")
             deny, fence = self.launch("fix")
-            self.assertIn("Agent", deny)
+            self.assertNotIn("Agent", deny)
             self.assertNotIn("Skill", deny)
+            self.assertNotIn("shape_deny", fence)
+            self.start("af")
+            deny, fence = self.launch("fix")
+            self.assertIn("Agent", deny)
             self.assertEqual(fence["shape_deny"], 1)
 
     def test_no_record_means_af(self):
@@ -1950,7 +1973,7 @@ class ShapeFenceCase(unittest.TestCase):
         self.assertNotIn("Skill", deny)
         self.assertNotIn("shape_deny", fence)
         deny, _ = self.launch("fix")
-        self.assertIn("Agent", deny, "控えの g3 は修正役の Agent の拒否を入れる側にも効く")
+        self.assertNotIn("Agent", deny, "控えの g3 は修正役の Agent の拒否を外す側にも効く")
 
     def test_broken_shape_refuses_launch(self):
         self.start("x")
@@ -1971,6 +1994,65 @@ class ShapeFenceCase(unittest.TestCase):
                 self.assertNotIn("Skill", deny)
                 self.assertNotIn("Agent", deny)
                 self.assertNotIn("shape_deny", fence)
+
+
+class UnitSessionCase(unittest.TestCase):
+    """単位の切れ目で会話を切る（依頼 243 の 2・道 B）: 印の名が KEYED_NODES（tdd）の起動は、支度が run ごとの置き場に書いた
+    今の単位の鍵（session_key_path）を、この節の会話の id と一緒に記録した鍵と比べる。違えば SDK の会話の旗を外して新しい会話で
+    起こし（mode new・unit.cut true）、同じなら今どおり継ぐ。鍵が読めない時は継ぐ（節約なので止めない。理由は unit.skipped）"""
+    FORK = ["--resume", "aaaaaaaa-0000-4000-8000-000000000001", "--fork-session"]
+
+    def setUp(self):
+        self.e = Env(self)
+        self.board = self.e.tmp / "board"
+        self.board.mkdir()
+        t = adapter.ticket_path(self.e.cwd, self.e.home)
+        t.parent.mkdir(parents=True)
+        t.write_text(json.dumps({"run_id": "r1", "board": str(self.board), "cwd": str(self.e.cwd),
+                                 "protected": [str(self.board)], "written_at": "2026-10-06T00:00:00+09:00"}),
+                     encoding="utf-8")
+
+    def key(self, node, value):
+        p = pathlib.Path(adapter.session_key_path(str(self.board), node))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(value + "\n", encoding="utf-8")
+
+    def launch(self, node="tdd"):
+        r = self.e.run(sdk_argv(f"works-node: {node}", tools="Read,Edit", extra=self.FORK),
+                       GIT_CEILING_DIRECTORIES=str(self.e.tmp))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return self.e.child()["argv"], self.e.launches()[-1]["session"]
+
+    def test_new_unit_cuts_the_conversation(self):
+        self.key("tdd", "tdd-1:route")
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "sdk-fork", "最初の起動は記録した鍵が無いので継ぐ（切らない）")
+        self.assertEqual(session["unit"], {"key": "tdd-1:route", "was": None, "cut": False})
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "sdk-fork", "同じ単位の周は継ぐ")
+        self.key("tdd", "tdd-1:mean")
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "new")
+        self.assertEqual(session["unit"], {"key": "tdd-1:mean", "was": "tdd-1:route", "cut": True})
+        self.assertNotIn("--fork-session", argv)
+        self.assertNotIn("--resume", argv)
+        self.assertEqual([a for a in argv if a.startswith("--session-id=")], ["--session-id=" + session["id"]])
+        self.assertEqual(self.e.session_id("tdd"), session["id"])
+        self.assertNotIn("from", session)
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "sdk-fork", "切った後の周は新しい会話の続き")
+
+    def test_unreadable_key_keeps_the_conversation(self):
+        argv, session = self.launch()
+        self.assertEqual(session["mode"], "sdk-fork")
+        self.assertIn("skipped", session["unit"])
+        self.assertIn("--fork-session", argv)
+
+    def test_other_nodes_are_not_keyed(self):
+        self.key("judge", "x")
+        argv, session = self.launch("judge")
+        self.assertNotIn("unit", session)
+        self.assertEqual(session["mode"], "sdk-fork")
 
 
 class LaunchRowModelCase(unittest.TestCase):

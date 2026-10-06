@@ -9,6 +9,9 @@ Edit で書き直した物は区別しない（出どころの全部は証さな
   返す（呼び手が盤面の trace に NO_RECORD_OP で 1 行残し、報告に出る）
 - 通った申告は記録に tool_name "declared" の行で足す（後ろの受け付け——fix の後の refix など——が同じ申告を求めない）
 - .archon/ の下は数えない（check_pack_copy の持ち場）
+- 単位の worktree（依頼 243 の並べ。修正役の下請けが run の作業ツリーの外で書く所）の記録は、機械が差分を run の作業ツリーへ
+  当てた後に carry で写す。写すのは、run の作業ツリーの今の中身が単位の worktree の今の中身と同じで、その中身に記録が在る物だけ
+  （tool_name CARRY_TOOL と元の実パス from。2 つの差分を合わせて中身が違う物は写さず、役が申告する）
 標準ライブラリだけ。
 """
 import hashlib
@@ -40,6 +43,7 @@ BASH_WRITES_SCHEMA = {"type": "array", "items": ITEM_SCHEMA}
 SKIP = (".archon/",)
 NO_RECORD = "書き込みの記録が無い run（包みが無い起動）——書き込みの出どころを突き合わせずに通した"
 NO_RECORD_OP = "writes_unrecorded_run"   # 盤面の trace の行（報告が数える）
+CARRY_TOOL = "unit-merge"               # 単位の worktree の記録を写した行の tool_name（carry）
 LEFT_OP = "writes_left"                  # 拒まずに残した記録の無い変更（欄 bash_writes を持たない手直しの役）
 REJECT = ("作業ツリーの変更に、書き込みの記録（Edit・Write）も申告（bash_writes）も無い——Edit・Write で書き直すか、返答の "
           "bash_writes にパスと、Bash で書いた理由（実行の権限・バイナリ・大量の機械的な置き換え）を書け（射程: 見るのは今の中身を"
@@ -122,6 +126,25 @@ def unrecorded(repo, paths, log: pathlib.Path, declared=()) -> list:
         real = os.path.realpath(path)
         if os.path.islink(path) or _sha(real) not in rec.get(real, ()):   # symlink は編集の道具では作れない（申告が要る）
             out.append(p)
+    return out
+
+
+def carry(log: pathlib.Path, pairs) -> list:
+    """pairs [(単位の worktree のファイル, run の作業ツリーの同じ相対のファイル)] のうち、2 つの今の中身が同じで、元の中身に記録が
+    在る物だけ、行先の記録を足す（tool_name CARRY_TOOL・from は元の実パス）。足した行先の実パスの並び"""
+    rec = records(log)
+    rows, out = [], []
+    for src, dst in pairs:
+        src_real, dst_real = os.path.realpath(str(src)), os.path.realpath(str(dst))
+        sha = _sha(src_real)
+        if sha is None or os.path.islink(str(dst)) or _sha(dst_real) != sha or sha not in rec.get(src_real, ()):
+            continue
+        rows.append(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_name": CARRY_TOOL, "path": dst_real,
+                                "file_sha": sha, "from": src_real}, ensure_ascii=False))
+        out.append(dst_real)
+    if rows:
+        with open(log, "a", encoding="utf-8") as f:
+            f.write("\n".join(rows) + "\n")
     return out
 
 

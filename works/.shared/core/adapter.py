@@ -23,13 +23,20 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    - continue=X: SDK が付けた会話の旗（`--resume`・`-r`・`--session-id`・`--fork-session`・`--continue`・`-c`）を外し、
      `--resume <X の id>` を足す（fork しない。同じ会話に積む）。X の id が無い・読めない時は子を起こさず止まる
      （fail closed）。YAML の節は `context: fresh` にして Archon 自身には何も継がせない
+   - 単位の切れ目（印の名が KEYED_NODES の起動。依頼 243 の 2）: 輪の支度が切符の board の隣の run ごとの置き場に書いた今の単位の
+     鍵（session_key_path）を、この節の会話の id と一緒に記録した鍵（unit_key_path）と比べる。記録が在って違えば SDK の会話の
+     旗を外して新しい会話にする（mode new。前の単位の履歴を積まない。前の単位の物は支度が指示書の引き継ぎの節で渡す）。同じ・
+     記録が無いなら上のとおり継ぐ。鍵が読めない時も継ぐ（会話を切るのは節約で守りでないので止めない）。起動の記録の session の
+     unit に {key, was, cut} か {skipped: 理由} を残す
 
 3. **起動ごとの柵**（切符が在る起動だけ）: 線の `start` が書く切符（ticket.py。`<家>/tickets/<key>.json` の
    `protected`）に、起動の時に引き直す 2 つ——この起動の env の `CLAUDE_CONFIG_DIR` と、`git worktree list` の今の
    worktree（切符の後に切られた物。役の cwd の worktree 自身は除く）——を足し、どれも /var と /private/var・/tmp と
    /private/tmp の両方の綴りにして、`permissions.deny` に `Edit(//<場所>)`・`Edit(//<場所>/**)`・`Write(…)` を足す。
    SDK が sandbox の塊を渡した起動だけ `sandbox.filesystem.denyWrite` にも足す（sandbox の無い節に sandbox の鍵を作らない）。
-   どちらも SDK の配列の後ろに足し、SDK の項目は消さない。
+   どちらも SDK の配列の後ろに足し、SDK の項目は消さない。今の worktree のうち、17 の run ごとの置き場の下に在り、役の cwd の
+   作業ツリーの単位の守りの参照（unittrees。共通の .git の中で役は作れない）を持つ単位の worktree は足さない（修正役の下請けが
+   範囲の重ならない項目を並べて書く所。依頼 243 の並べ。live_worktrees）
 
 4. **木ごと止める**: 本物の claude は exec せずに子として新しいセッションで起こし（標準入出力は 9・16 のほかは継ぐ）、走っている間
    POLL 秒ごとに木の仲間（tree_run._tree_members: グループ・セッションの番号・親子の鎖・前に数えた物。開始時刻で番号の
@@ -126,7 +133,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    向けるので向けず、WORKS_DEV_HOME・XDG_CACHE_HOME は run をまたぐ共有の置き場なので向けない。allowWrite に `/` が在る
    起動（任せ先）・道具ゼロ・Bash の無い役・網を閉じた役・切符の無い起動は sandbox も env も変えない
 18. **形ごとの道具の柵**（印のある起動で、切符が在る時だけ。計画 220）: 切符の board の修正の形（fixshape.shape_at。形はいつも
-   この口から引く）と印の名から fixshape.denied_tools が返す道具——g3 以外の座の節（SKILL_NODES）の `Skill`、g1 以外の修正役
+   この口から引く）と印の名から fixshape.denied_tools が返す道具——g3 以外の座の節（SKILL_NODES）の `Skill`、g1 と g3 の外の修正役
    （AGENT_NODES）の `Agent`——を `permissions.deny` の後ろに足し、足した数を fence.shape_deny に残す（拒む物が無ければ鍵を
    持たない）。形の控えが壊れている（読めない・語の外）なら、壊れた切符と同じく claude を起こさない（理由に fix_shape）。
    deny は道具の呼びを拒むだけで、YAML の `skills:` が載せたスキルの一覧は system prompt に残る（拒まれた呼びが Archon の
@@ -167,6 +174,7 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import fixshape
 import tree_run
+import unittrees  # L1（単位の worktree の守りの参照の名。live_worktrees が下請けの書く所を見分ける）
 
 ENV_HOME = "WORKS_ADAPTER_HOME"
 WRITE_MATCHER = "Edit|Write|NotebookEdit"   # 書き込みの記録のフック（record-write.py）が掛かる道具
@@ -179,6 +187,10 @@ SESSION_VALUE_FLAGS = ("--resume", "-r", "--session-id")
 SESSION_BARE_FLAGS = ("--fork-session", "--continue", "-c")
 
 _NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ
+# 単位の切れ目で会話を切る節の印の名（1 の単位の切れ目。依頼 243 の 2）と、支度が今の単位の鍵を書く置き場（run ごとの置き場の下）
+KEYED_NODES = frozenset({"tdd"})
+SESSION_KEYS_DIR = "session-keys"
+UNIT_KEY_SUFFIX = ".unit"   # sessions/<cwd の hash>/<節>.id の隣に、その会話で回した単位の鍵
 # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
 FLAGS = ("no-post", "no-tree-write", "isolated")
 NO_TREE_WRITE = "no-tree-write"
@@ -229,7 +241,7 @@ class Plan(NamedTuple):
     cont: Optional[str]
     hook: bool
     tools_empty: bool               # `--tools ""`（題の生成か、道具を持たない役）
-    session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?}
+    session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?, unit?}
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
     fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, mcp?, query_rule?, repo_deny?, shape_deny?}（フックを足した起動だけ）
     env: Optional[dict] = None      # 子の env に上書きする物（印のある起動。ENGINE_CHILD_ENV と、no-post の口）
@@ -336,6 +348,39 @@ def session_path(cwd, node: str, home_dir=None) -> pathlib.Path:
     """節 node が cwd（run の worktree）で使った会話の id のファイル。home_dir を省くと env の家。
     再審の前の確かめ（rejudge の session_ready）も同じ関数で引く"""
     return _home_or(home_dir) / "sessions" / cwd_key(cwd) / f"{node}.id"
+
+
+def unit_key_path(cwd, node: str, home_dir=None) -> pathlib.Path:
+    """節 node の今の会話で回している単位の鍵の記録（session_path の隣。包みが起動の前に書く）"""
+    return _home_or(home_dir) / "sessions" / cwd_key(cwd) / f"{node}{UNIT_KEY_SUFFIX}"
+
+
+def session_key_path(board_dir: str, node: str) -> str:
+    """輪の支度が節 node の今の単位の鍵を書くファイル: <board の親>/run-place/session-keys/<node>（run ごとの置き場の下。17 の
+    置き場と同じ根）"""
+    return os.path.join(os.path.dirname(os.path.normpath(str(board_dir))), RUN_PLACE_NAME, SESSION_KEYS_DIR, node)
+
+
+def _read_key(path) -> Optional[str]:
+    """鍵のファイルの 1 行（前後の空白を除く）。無い・読めない・空・2 行以上なら None"""
+    try:
+        text = pathlib.Path(path).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return text if text and "\n" not in text else None
+
+
+def _unit_key(board: Optional[Callable[[], Optional[str]]], node: str) -> Tuple[Optional[str], str]:
+    """(支度が書いた今の単位の鍵, 読めない理由)。切符が無い・壊れている・鍵のファイルが無い・読めない時は (None, 理由)"""
+    try:
+        b = board() if board else None
+    except BadTicket as e:
+        return None, f"切符が読めない（{e}）"
+    if b is None:
+        return None, "切符が無い"
+    path = session_key_path(b, node)
+    key = _read_key(path)
+    return (key, "") if key is not None else (None, f"単位の鍵が無いか読めない: {path}")
 
 
 def reads_dir(cwd, home_dir=None) -> pathlib.Path:
@@ -703,8 +748,10 @@ def spellings(path: str) -> List[str]:
     return out
 
 
-def live_worktrees(cwd) -> List[str]:
-    """cwd のリポジトリの今の worktree（元の作業ツリーを含む）のうち、cwd の worktree 自身でない物。git が引けなければ []"""
+def live_worktrees(cwd, run_place: Optional[str] = None) -> List[str]:
+    """cwd のリポジトリの今の worktree（元の作業ツリーを含む）のうち、cwd の worktree 自身でない物。git が引けなければ []。
+    run_place（17 の run ごとの置き場）を渡せば、その下に在り、cwd の作業ツリーの守りの参照（unittrees の u-<印>。共通の .git の
+    中で役は作れない）を持つ単位の worktree も外す（修正役の下請けが並べて書く所。依頼 243 の並べ）"""
     env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
     try:
         own = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], capture_output=True, text=True, encoding="utf-8",
@@ -714,7 +761,23 @@ def live_worktrees(cwd) -> List[str]:
     except (OSError, subprocess.CalledProcessError):
         return []
     trees = [ln[len("worktree "):] for ln in listed.splitlines() if ln.startswith("worktree ")]
-    return [t for t in trees if os.path.realpath(t) != os.path.realpath(own)]
+    units = _unit_trees(cwd, own, run_place, trees, env) if run_place else set()
+    return [t for t in trees if os.path.realpath(t) != os.path.realpath(own) and os.path.realpath(t) not in units]
+
+
+def _unit_trees(cwd, own: str, run_place: str, trees: Sequence[str], env: dict) -> set:
+    """trees のうち run_place の下に在り、own の作業ツリーの単位の守りの参照を持つ物の実パス（引けなければ空。守る側に倒す）"""
+    place = os.path.realpath(run_place).rstrip("/") + "/"
+    inside = [t for t in trees if os.path.realpath(t).startswith(place)]
+    if not inside:
+        return set()
+    prefix = unittrees.REF_ROOT + "/" + unittrees._mark(own) + "/"
+    try:
+        refs = set(subprocess.run(["git", "-C", str(cwd), "for-each-ref", "--format=%(refname)", prefix], capture_output=True,
+                                  text=True, encoding="utf-8", env=env, check=True).stdout.splitlines())
+    except (OSError, subprocess.CalledProcessError):
+        return set()
+    return {os.path.realpath(t) for t in inside if prefix + "u-" + unittrees._mark(t) in refs}
 
 
 def own_worktree(cwd) -> Optional[str]:
@@ -988,7 +1051,20 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         session = {"mode": mode, "id": sid}
         if src:
             session["from"] = src
-    record.append((session_path(cwd, node, home_dir), sid))
+        if node in KEYED_NODES:   # 1 の単位の切れ目
+            want, why = _unit_key(board, node)
+            if want is None:
+                session["unit"] = {"skipped": why}
+            else:
+                have = _read_key(unit_key_path(cwd, node, home_dir))
+                cut = have is not None and have != want and mode != "new"
+                if cut:
+                    sid = new_id()
+                    out = _strip_session_flags(argv) + ["--session-id=" + sid]
+                    session = {"mode": "new", "id": sid}
+                session["unit"] = {"key": want, "was": have, "cut": cut}
+                record.append((unit_key_path(cwd, node, home_dir), want))
+    record.insert(0, (session_path(cwd, node, home_dir), sid))
 
     # 2. Read のフックと柵。印のある起動は、柵を足せなければ起こさない（fail closed）
     env = os.environ if env is None else env

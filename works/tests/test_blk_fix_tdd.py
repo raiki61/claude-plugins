@@ -405,6 +405,44 @@ class TestStart(LoopCase):
             self.assertIn("brief-1.md", test)
             self.assertNotIn("brief-2.md", test, "今の単位は MEAN だけ")
 
+    def test_tdd_prep_hands_off_finished_units(self):
+        """依頼 243 の 2: 次の単位の指示書に、前に済んだ単位の引き継ぎ（単位の key・直したファイル・緑にしたテスト・整え）を
+        機械が書く（会話の履歴に頼らない。単位ごとに新しい会話で起こす前の支度）。最初の単位と振り分けの段には無い"""
+        route = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(tddloop.HANDOFF_HEAD, route)
+        self.route(clamp="tdd")
+        first = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(tddloop.HANDOFF_HEAD, first, "最初の単位には引き継ぐ物が無い")
+        self.red()
+        self.fix_mean()
+        st = self.st()
+        self.assertEqual(st["units"][st["queue"][st["cur"]]]["unit_key"], CLAMP)
+        nxt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(tddloop.HANDOFF_HEAD, nxt)
+        part = nxt.split(tddloop.HANDOFF_HEAD, 1)[1].split("\n## ", 1)[0]
+        for w in (MEAN, "stats.py", "test_stats.py::TestStats::test_mean_of_two"):
+            self.assertIn(w, part)
+        self.assertNotIn(CLAMP, part, "今の単位は引き継ぎに載せない")
+
+    def test_tdd_prep_writes_the_unit_key_for_the_adapter(self):
+        """依頼 243 の 2: 支度は包みが会話を切る切れ目の鍵（輪の置き場の名と、振り分けの段は route・ほかは今の単位の key）を
+        run ごとの置き場（adapter.session_key_path）に書く。単位が替わると鍵が替わる"""
+        import adapter
+        key = pathlib.Path(adapter.session_key_path(str(self.board), "tdd"))
+        self.assertIn(tddloop.UNIT_NODE, adapter.KEYED_NODES, "包みが切れ目を見る節の名と同じ")
+        tddloop.prep(self.state)
+        work = pathlib.Path(self.st()["work"]).name
+        self.assertEqual(key.read_text(encoding="utf-8").strip(), f"{work}:route")
+        self.route(clamp="tdd")
+        tddloop.prep(self.state)
+        self.assertEqual(key.read_text(encoding="utf-8").strip(), f"{work}:{MEAN}")
+        self.red()
+        tddloop.prep(self.state)
+        self.assertEqual(key.read_text(encoding="utf-8").strip(), f"{work}:{MEAN}", "同じ単位の段は同じ鍵（会話を継ぐ）")
+        self.fix_mean()
+        tddloop.prep(self.state)
+        self.assertEqual(key.read_text(encoding="utf-8").strip(), f"{work}:{CLAMP}")
+
     def test_tdd_prep_without_board_has_no_brief(self):
         """盤面の無い置き場（修正案の無い run と同じ）では brief の節を置かない"""
         self.assertNotIn(planbrief.HEAD, pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8"))

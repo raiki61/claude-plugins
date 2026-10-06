@@ -11,6 +11,11 @@ run の作業ツリー（repo）の本物の index・HEAD・枝はどの口も�
   無い時だけ、その結果と今の姿の差分を作業ツリーへ当てる（index を汚さない）。当たらなければ作業ツリーを変えずに (False, 理由)
 - remove(repo, path): 単位の worktree とその参照を消す（消えた置き場は prune で片付ける）
 - sweep(repo) -> [path]: この作業ツリーから切った単位の worktree と参照の全部を消す（止まった run の残りの片付け）
+- applied(repo, patch) -> bool: patch が作業ツリーに既に当たっているか（逆向きに当たるか。作業ツリーを変えない）
+
+diff・apply は objects（書ける一時のフォルダ）を受ける。渡せば新しい object をそこに書き、元の objects は代わりの置き場として
+読む（GIT_OBJECT_DIRECTORY と GIT_ALTERNATE_OBJECT_DIRECTORIES）。共通の .git が書けない所（役の sandbox）から回すための口で、
+diff と apply に同じ objects を渡す（diff が書いた木を apply が読む）。
 
 守りの参照は refs/works/units/<作業ツリーの印>/ の下に置く（印は作業ツリーの根の実パスの sha256 の頭 12 字）。参照は同じ
 リポジトリの worktree の間で共有なので、作業ツリーごとに分けて、同じリポジトリの別の run の単位を sweep が消さない。
@@ -48,10 +53,15 @@ def _env(index: str | None = None) -> dict:
 
 
 def _git(cwd, *args, index: str | None = None, data: bytes | None = None, env: dict | None = None,
-         check: bool = True) -> subprocess.CompletedProcess:
-    """cwd で git を起こす（バイトのまま）。check なら落ちた時に UnitTreeError"""
+         check: bool = True, objects: str | None = None) -> subprocess.CompletedProcess:
+    """cwd で git を起こす（バイトのまま）。check なら落ちた時に UnitTreeError。objects は新しい object の置き場（頭の注記）"""
+    extra = dict(env or {})
+    if objects is not None:
+        real = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--path-format=absolute", "--git-path", "objects"],
+                              capture_output=True, env=_env()).stdout.decode("utf-8", "replace").strip()
+        extra.update({"GIT_OBJECT_DIRECTORY": str(objects), "GIT_ALTERNATE_OBJECT_DIRECTORIES": real})
     r = subprocess.run(["git", "-C", str(cwd), *args], input=data, capture_output=True,
-                       env={**_env(index), **(env or {})})
+                       env={**_env(index), **extra})
     if check and r.returncode != 0:
         raise UnitTreeError(f"git {' '.join(args[:3])} が落ちた（{cwd}）: {r.stderr.decode('utf-8', 'replace').strip()}")
     return r
@@ -74,7 +84,7 @@ def _prefix(repo) -> str:
     return f"{REF_ROOT}/{_mark(_top(repo))}/"
 
 
-def _tree_now(tree, tmp: str) -> str:
+def _tree_now(tree, tmp: str, objects: str | None = None) -> str:
     """tree の作業ツリーの今の姿の木（一時の index に本物の index を写して add -A。本物の index は動かさない）"""
     index = os.path.join(tmp, "index")
     real = _out(tree, "rev-parse", "--path-format=absolute", "--git-path", "index")
@@ -82,8 +92,8 @@ def _tree_now(tree, tmp: str) -> str:
         # （git は index の mtime と同じ秒に書かれたファイルを stat で信じずに中身を読む。写しの mtime が今になると、
         # 同じ秒・同じ大きさで書き換えたファイルを変わっていないと読み、直しを落とす）
         shutil.copy2(real, index)
-    _git(tree, "add", "-A", index=index)
-    return _out(tree, "write-tree", index=index)
+    _git(tree, "add", "-A", index=index, objects=objects)
+    return _out(tree, "write-tree", index=index, objects=objects)
 
 
 def snapshot(repo) -> str:
@@ -107,14 +117,14 @@ def add(repo, base_sha: str, place) -> pathlib.Path:
     return place
 
 
-def diff(path, base_sha: str) -> str:
+def diff(path, base_sha: str, objects: str | None = None) -> str:
     """単位の worktree path の今の姿（未 commit・untracked を含む。単位が commit した物も今の姿に入る）と base_sha の差分"""
     with tempfile.TemporaryDirectory(prefix="works-unit-") as tmp:
-        tree = _tree_now(path, tmp)
-    return _git(path, *_DIFF, base_sha, tree).stdout.decode("utf-8", "surrogateescape")
+        tree = _tree_now(path, tmp, objects)
+    return _git(path, *_DIFF, base_sha, tree, objects=objects).stdout.decode("utf-8", "surrogateescape")
 
 
-def apply(repo, patch: str) -> tuple[bool, str]:
+def apply(repo, patch: str, objects: str | None = None) -> tuple[bool, str]:
     """patch を run の作業ツリー repo へ 3 方向で当てる。(True, "") か、作業ツリーを変えずに (False, 理由)。
     一時の index（作業ツリーの今の姿）で `git apply --cached --3way` を試し、食い違い（未解決の段）が残れば当てない。
     通れば、今の姿とその結果の木の差分を作業ツリーへそのまま当てる（git apply は全部か無しか。本物の index は読まない）"""
@@ -122,26 +132,44 @@ def apply(repo, patch: str) -> tuple[bool, str]:
         return True, ""
     data = patch.encode("utf-8", "surrogateescape")
     with tempfile.TemporaryDirectory(prefix="works-unit-") as tmp:
-        before = _tree_now(repo, tmp)
+        before = _tree_now(repo, tmp, objects)
         index = os.path.join(tmp, "index")
-        r = _git(repo, "apply", "--cached", "--3way", "--whitespace=nowarn", index=index, data=data, check=False)
-        if r.returncode != 0 or _out(repo, "ls-files", "-u", index=index):
+        r = _git(repo, "apply", "--cached", "--3way", "--whitespace=nowarn", index=index, data=data, check=False,
+                 objects=objects)
+        if r.returncode != 0 or _out(repo, "ls-files", "-u", index=index, objects=objects):
             return False, (r.stderr.decode("utf-8", "replace").strip() or "3 方向で当てると食い違いが残る")
-        after = _out(repo, "write-tree", index=index)
-    if after == before:
-        return True, ""
-    step = _git(repo, *_DIFF, before, after).stdout
+        after = _out(repo, "write-tree", index=index, objects=objects)
+        if after == before:
+            return True, ""
+        step = _git(repo, *_DIFF, before, after, objects=objects).stdout
     r = _git(repo, "apply", "--whitespace=nowarn", data=step, check=False)
     if r.returncode != 0:   # 試してから当てるまでの間に作業ツリーが変わった
         return False, r.stderr.decode("utf-8", "replace").strip()
     return True, ""
 
 
+def applied(repo, patch: str) -> bool:
+    """patch が run の作業ツリー repo に既に当たっているか（逆向きに当たるか。`git apply -R --check`。作業ツリーも index も
+    変えない）。空の patch は真"""
+    if not patch.strip():
+        return True
+    r = _git(repo, "apply", "-R", "--check", "--whitespace=nowarn", data=patch.encode("utf-8", "surrogateescape"),
+             check=False)
+    return r.returncode == 0
+
+
+def _drop(repo, path) -> None:
+    """単位の worktree path を消す。git が断る（役が .git の指しを書き換えた）時は置き場ごと消す（登録は呼び手の prune が外す）"""
+    if not pathlib.Path(path).exists():
+        return
+    if _git(repo, "worktree", "remove", "--force", str(path), check=False).returncode != 0:
+        shutil.rmtree(path)
+
+
 def remove(repo, path) -> None:
     """単位の worktree path と守りの参照 u-<path の印> を消す（置き場が消えていれば prune で登録を片付ける）"""
     ref = _prefix(repo) + f"u-{_mark(path)}"   # 消す前に印を取る（実パスは在る間に解く）
-    if pathlib.Path(path).exists():
-        _git(repo, "worktree", "remove", "--force", str(path))
+    _drop(repo, path)
     _git(repo, "worktree", "prune")
     _git(repo, "update-ref", "-d", ref, check=False)
 
@@ -161,8 +189,7 @@ def sweep(repo) -> list[str]:
             continue
         path = line[len("worktree "):]
         if prefix + f"u-{_mark(path)}" in refs:
-            if pathlib.Path(path).exists():
-                _git(repo, "worktree", "remove", "--force", path)
+            _drop(repo, path)
             gone.append(os.path.realpath(path))
     _git(repo, "worktree", "prune")
     for ref in refs:

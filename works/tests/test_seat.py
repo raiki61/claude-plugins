@@ -294,6 +294,32 @@ class G1Case(unittest.TestCase):
             self.assertIn(name, seat.G1_OVERRIDES)
         self.assertLess(text.index(seat.G1_OVERRIDES), text.index(rolekit.skill_overlay().splitlines()[0]))
 
+    def test_g3_section_names_its_shape_and_the_loop_units(self):
+        """既定の形 g3 の修正役も同じ下請けの節で単位ごとに新しい会話を起こす（依頼 243 の 2）。見出しと読み替えの上書きは形を
+        名指し、輪で直した単位には下請けを起こさない旨（G1_LOOP_NOTE）を持つ。g1 の節は前と同じ見出しで、その旨を持たない"""
+        rows = [{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}]
+        g3 = seat.g1_section(rows, "g3")
+        self.assertTrue(g3.startswith("## 下請けを回す（修正の形 g3）"))
+        self.assertIn("修正の形 g3 のこの修正役", g3)
+        self.assertNotRegex(g3, r"修正の形 g1(?!・g3)")   # 読み替えの「g1・g3」の外に g1 を名指さない
+        self.assertIn(seat.G1_LOOP_NOTE, g3)
+        g1 = seat.g1_section(rows)
+        self.assertEqual(g1, seat.g1_section(rows, "g1"))
+        self.assertTrue(g1.startswith(seat.G1_HEAD))
+        self.assertNotIn(seat.G1_LOOP_NOTE, g1)
+        with self.assertRaises(ValueError):
+            seat.g1_section(rows, "af")   # 下請けを起こさない形（包みが Agent を拒む）には組まない
+
+    def test_g1_section_hands_off_earlier_items(self):
+        """2 つ目からの項目の実装役には、前の項目の実装役の報告から変えたファイルと緑にしたテストを渡す（会話の履歴でなく引き継ぎ）"""
+        text = seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/g1-1.patch"}])
+        self.assertIn(seat.G1_HANDOFF_HEAD, text)
+
+    def test_g3_prompts_name_their_shape(self):
+        values = {p: "x" for p in spseam.load_seams()["implementer"]["placeholders"]}
+        self.assertIn("修正の形 g3 の下請け", seat.g1_prompt("implementer", values, "g3"))
+        self.assertEqual(seat.g1_prompt("implementer", values), seat.g1_prompt("implementer", values, "g1"))
+
     def test_g1_section_items_in_order(self):
         rows = [{"item": n, "impl_file": f"/b/i{n}", "review_file": f"/b/r{n}", "base": "abc123", "patch": f"/a/g1-{n}.patch"}
                 for n in (2, 5)]
@@ -404,6 +430,31 @@ class G1Case(unittest.TestCase):
 
     def test_g1_section_says_diffs_include_earlier_items(self):
         self.assertIn("前の項目", seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}]))
+
+    def test_g3_section_runs_tree_items_side_by_side_then_merges(self):
+        """機械が単位の worktree を切った項目（行に tree）は、1 つのメッセージで同時に起こし、済んだら機械の当てるコマンドを 1 回
+        走らせ、conflict の項目を作業ツリーで直し直させてから順の項目へ進む（依頼 243 の並べ）。差分のコマンドはその worktree の差分"""
+        rows = [{"item": 1, "impl_file": "i1", "review_file": "r1", "base": "b1", "patch": "/p/g1-1.patch", "tree": "/rp/units/item-1"},
+                {"item": 2, "impl_file": "i2", "review_file": "r2", "base": "b1", "patch": "/p/g1-2.patch", "tree": "/rp/units/item-2"},
+                {"item": 3, "impl_file": "i3", "review_file": "r3", "base": "b0", "patch": "/p/g1-3.patch"}]
+        text = seat.g1_section(rows, "g3", merge="python3 /pack/unitlanes.py /b/units.json")
+        para = seat.G1_PARALLEL_OF.format(merge="python3 /pack/unitlanes.py /b/units.json")
+        self.assertIn(para, text)
+        for w in ("1 つのメッセージ", "conflict", "differ", "bash_writes", "捨てない"):
+            self.assertIn(w, para)
+        self.assertLess(text.index(seat.G1_STEPS[-1]), text.index(para))
+        self.assertIn("項目 1（並べる。単位の worktree /rp/units/item-1）", text)
+        self.assertIn("項目 3: ", text, "順の項目は今の書き方のまま")
+        self.assertIn("top=/rp/units/item-1;", text)
+        self.assertEqual(text.count('top="$(git rev-parse --show-toplevel)"'), 1, "順の項目だけ cwd の根")
+        plain = seat.g1_section([rows[2]], "g3")
+        self.assertNotIn(seat.G1_PARALLEL_OF.split("{")[0], plain, "並べる項目が無ければ段落は載らない")
+
+    def test_tree_prompts_keep_the_sub_inside_its_worktree(self):
+        values = {p: "x" for p in spseam.load_seams()["implementer"]["placeholders"]}
+        text = seat.g1_prompt("implementer", values, "g3", tree="/rp/units/item-1")
+        self.assertIn(seat.G1_TREE_RULE_OF.format(tree="/rp/units/item-1"), text)
+        self.assertNotIn("/rp/units", seat.g1_prompt("implementer", values, "g3"))
 
     def test_g1_prompt_refuses_unreadable_query_rule(self):
         with mock.patch.object(seat.adapter, "query_rule", side_effect=adapter.Unrecognised("頭の行が無い")):

@@ -4,7 +4,10 @@ description: |
   修正役の前に git が無視するファイルを控え（ignored-before）、テストの実行器（入力 tdd_suite）が在る run だけ単位ごとの
   TDD の輪を回し（tdd-start → tdd-loop。振り分け → 単位ごとにテスト・赤（機械）・直し・緑（機械）・整え・確かめ直し（機械）。
   実行器が無い run は輪を飛ばし、今と同じに動く）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
-  changes に行を書くだけ）、
+  changes に行を書くだけ。修正の形 g1 と既定の g3 では、残りの単位を 1 つの会話に積まず、単位（修正案の項目）ごとに新しい会話の
+  下請けを Agent で起こす。依頼 243 の 2。g3 の 1 回目の周では、書いてよい範囲が互いに重ならない項目だけ、支度が項目ごとに
+  小さい worktree を切り、修正役がその下請けを同時に起こして、機械のコマンドが差分を項目の番号の順に作業ツリーへ当てる。
+  当たらない項目は作業ツリーで順に直し直し、締める節 fix-units が残りを当てて片付ける。依頼 243 の並べ）、
   2 つの役（tdd・fix）の指示書は、その前の script の節（tdd-prep・fix-prep）が修正の決まりの正本（.shared/core/writerules/common.md）と道ごとの決まりと
   run の値から機械で組む（lib/fixrules.py。裁定 R65。役の節の指示は「組んだ指示書を Read で読め」の 1 行）、
   返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回。3 回目の拒否は行を名指しの単位・テストが
@@ -92,7 +95,9 @@ nodes:
         summary_file: {type: string}   # 輪の結果（修正役が読む）。go: false なら空
 
   # 単位ごとの TDD の輪（設計 2 節 3・案 (i)。graph は変えない）。役 tdd は輪のただ 1 つの AI の節（TA13）で、振り分け・
-  # テスト・直し・整えを同じ会話で返す（C17）。赤・緑は tdd-step が写しの red_problems・green_problems で決める。
+  # テスト・直し・整えを返す（C17）。fresh_context は false のままで、同じ単位の段は 1 つの会話を継ぎ、単位が替わる周だけ包みが
+  # 新しい会話で起こす（tdd-prep が run ごとの置き場に書く単位の鍵。前の単位の物は指示書の引き継ぎの節で渡す。依頼 243 の 2）。
+  # 赤・緑は tdd-step が写しの red_problems・green_problems で決める。
   # 拒否の理由は tdd-prep が次の指示書に書く（$LOOP_PREV で貼らない。R44）。段ごとに 3 回目の拒否で諦め（その単位は direct）、
   # 実行器が走らない・回数が max_iterations に届く周では残りを direct にして done を立てる（max_iterations で落とさない。R50）
   - id: tdd-loop
@@ -250,7 +255,7 @@ nodes:
           prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          # Agent は修正の形 g1 で SDD の型の下請けを起こす口（seat.g1_section）。宣言は静的で、g1 の外は包みが拒む（fixshape.denied_tools）
+          # Agent は修正の形 g1・g3 で単位ごとの下請けを起こす口（seat.g1_section）。宣言は静的で、ほかの形は包みが拒む（fixshape.denied_tools）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -651,10 +656,30 @@ nodes:
                     path: {type: string, minLength: 1}
                     why: {type: string, minLength: 10}
 
+        # 並べた項目を締める（依頼 243 の並べ。lib/unitlanes.py の settle）。fix-prep が範囲の重ならない項目に単位の worktree を
+        # 切った周だけ働く: 修正役が当てるコマンドを走らせなかった項目を機械が当て、単位の worktree の書き込みの記録を作業ツリーへ
+        # 写し、当たらない項目の差分を盤面に残し、worktree を片付ける。切っていない周は何もしない。受け付けは当てた後の木を見る
+        - id: fix-units
+          script: units
+          runtime: uv
+          depends_on: [fix]
+          timeout: 1728000000
+          output_format:
+            type: object
+            required: [ok, ran]
+            properties:
+              ok: {type: boolean}
+              ran: {type: boolean}
+              applied: {type: array, items: {type: integer}}
+              machine: {type: array, items: {type: integer}}
+              conflict: {type: array, items: {type: integer}}
+              unmerged: {type: array}
+              carried: {type: integer, minimum: 0}
+
         - id: fix-accept
           script: accept
           runtime: uv
-          depends_on: [fix]
+          depends_on: [fix-units]
           timeout: 1728000000
           with:
             reply: {from: "$fix.output"}

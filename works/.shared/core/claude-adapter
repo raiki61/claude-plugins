@@ -102,7 +102,11 @@ def protected(cwd, home_dir, read=None):
     doc = (read or (lambda: adapter.read_ticket(cwd, home_dir)))()
     if doc is None:
         return None
-    return adapter.protected_now(doc, cwd, os.environ, adapter.live_worktrees(cwd))
+    try:   # run ごとの置き場の下の単位の worktree は守らない（下請けが書く）。board が壊れた切符の理由は 17 の口が言う
+        place = adapter.run_place_of(doc)
+    except adapter.BadTicket:
+        place = None
+    return adapter.protected_now(doc, cwd, os.environ, adapter.live_worktrees(cwd, place))
 
 
 def write_id(path, sid):
