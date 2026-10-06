@@ -32,6 +32,9 @@ plan-snap:
   ok: true
   go: true
   snapshot_file: board/r1/plan-snapshot.json
+plan-ripple:
+  ok: true
+  ripple_file: board/r1/ripple/units.json
 plan-prep:
   prompt_file: board/r1/prompt-p2.fix_plan.md
   attempt: 1
@@ -70,6 +73,9 @@ plan-accept:
   reason: 受け付けが拒んだ
   reason_file: board/reject-take_p2_fix_plan-1.txt
   node: p2.fix_plan
+review-ripple:
+  ok: true
+  ripple_file: board/r1/ripple/pass-1.json
 plan-revise-snap:
   ok: true
   go: false
@@ -118,6 +124,7 @@ collect:
   reads_file: board/r1/reads-plan-block.json
   gave_up: false
   reason_file: ''
+  ripple_file: board/r1/ripple.json
 fixture:
   inputs:
     judgment_file: board/judgment.json
@@ -128,10 +135,12 @@ fixture:
   - r2-design
   - r2-design-accept
   - plan-snap
+  - plan-ripple
   - plan-prep
   - plan
   - plan-accept
   - plan-revise-snap
+  - review-ripple
   - plan-review-snap
   - plan-review-prep
   - plan-review

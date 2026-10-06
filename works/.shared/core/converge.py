@@ -27,7 +27,9 @@ note_plan の無い控え（行に items が無い）は今までどおり全体
   項目を変えた・消した直しの行
 - answer_gaps(b, answers)・resolved_gaps(b, faces, resolved): 修正案の役と事前審査の役の返答の欄の欠けと誤りの行（項目の在る
   控えでは、今の往復で開いている項目の分だけ）
-- with_fields(role, schema)・split(role, reply): 役の型に欄を足す・返答から欄を外す
+- with_fields(role, schema)・split(role, reply): 役の型に欄を足す・返答から欄を外す（事前審査の型には項目ごとの審査の欄
+  ITEMS・SYNERGY も任意で足す。tree_split が外す・drop_fields が壁打ちの欄を全部外す）
+- face_items(b, faces): 名前に戻した face の key → 項目の番号（_attributed と同じ決まり）
 - revise_section(b)・review_section(b)・stuck_reason(b)・lines(b): 指示書に足す文・関所の理由・報告の行（往復ごとの行は
   前の往復の block を審査が suggest に下げた key も名指す）
 
@@ -89,6 +91,22 @@ ANSWER_SCHEMA = {"type": "array", "items": {
                    "how": {"type": "string", "minLength": 10}}}}
 RESOLVED_SCHEMA = {"type": "array", "items": {"type": "string"}}
 FIELDS = {"plan-revise": (ANSWERS, ANSWER_SCHEMA, True), "plan-review": (RESOLVED, RESOLVED_SCHEMA, False)}
+# 事前審査の束ね役の欄（線の木の段 1。役の型にだけ在り、盤面へ渡す前に外す。写しの graph は変えない）
+ITEMS = "items"
+SYNERGY = "synergy"
+HIT_ANSWERS = ("covered", "no_effect", "block")
+ITEMS_SCHEMA = {"type": "array", "items": {
+    "type": "object", "additionalProperties": False, "required": ["item", "checked", "hits"],
+    "properties": {"item": {"type": "integer", "minimum": 1}, "checked": {"type": "string", "minLength": 10},
+                   "hits": {"type": "array", "items": {
+                       "type": "object", "additionalProperties": False, "required": ["id", "answer", "why"],
+                       "properties": {"id": {"type": "string", "minLength": 2},
+                                      "answer": {"type": "string", "enum": list(HIT_ANSWERS)},
+                                      "why": {"type": "string", "minLength": 10}}}}}}}
+SYNERGY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["ran", "keys", "why"],
+                  "properties": {"ran": {"type": "boolean"}, "keys": {"type": "array", "items": {"type": "string"}},
+                                 "why": {"type": "string", "minLength": 10}}}
+TREE_FIELDS = {"plan-review": {ITEMS: ITEMS_SCHEMA, SYNERGY: SYNERGY_SCHEMA}}
 
 
 # ---------------------------------------------------------------- 決まり
@@ -360,6 +378,8 @@ def with_fields(role: str, schema: dict) -> dict:
     out.setdefault("properties", {})[name] = copy.deepcopy(field)
     if required and name not in out.get("required", []):
         out["required"] = [*out.get("required", []), name]
+    for extra, field in TREE_FIELDS.get(role, {}).items():   # 任意（同じ役の型を案の直しの事前審査も使う）
+        out["properties"][extra] = copy.deepcopy(field)
     return out
 
 
@@ -368,6 +388,27 @@ def split(role: str, reply: dict) -> tuple[dict, list]:
     out = copy.deepcopy(reply)
     got = out.pop(FIELDS[role][0], None) if role in FIELDS else None
     return out, got if isinstance(got, list) else []
+
+
+def tree_split(reply: dict) -> tuple[dict, dict]:
+    """（束ね役の欄 ITEMS・SYNERGY を外した返答の写し, {ITEMS: 値 | None, SYNERGY: 値 | None}）"""
+    out = copy.deepcopy(reply)
+    return out, {name: out.pop(name, None) for name in (ITEMS, SYNERGY)}
+
+
+def drop_fields(reply):
+    """事前審査の返答から壁打ちの欄（RESOLVED・ITEMS・SYNERGY）を外した写し（案の直しの事前審査は写しの型で受ける）"""
+    if not isinstance(reply, dict):
+        return reply
+    return {k: v for k, v in reply.items() if k not in (RESOLVED, ITEMS, SYNERGY)}
+
+
+def face_items(b, faces: list) -> dict:
+    """名前に戻した face の key → 項目の番号（今の案の項目の控え。unit_keys が重なる項目、どれとも重ならなければ全部）"""
+    plan = read(b).get("plan") or []
+    rows = [{"unit_keys": it["unit_keys"]} for it in plan]
+    return {f.get("key"): [i + 1 for i in _attributed([str(k) for k in f.get("unit_keys") or []], rows)]
+            for f in faces if isinstance(f, dict)} if rows else {}
 
 
 # ---------------------------------------------------------------- 文

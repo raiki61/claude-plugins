@@ -16,7 +16,11 @@ description: |
   受け付けは写しの schema・post_check・記録の検査をそのまま当て、役を起こす前と後で作業ツリー（porcelain・差分・git が無視する
   パス・HEAD・枝）が変わっていれば拒む。拒否の理由は盤面のファイルに書き、次の回の指示書の頭の 1 行がそのパスを名指す
   （$LOOP_PREV で貼らない。裁定 R44）。3 回とも拒まれたら輪を抜け（max_iterations で落とさない。裁定 R50）、collect が盤面を止める。
-  出口 collect: {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file}。
+  線の木の段 1（設計 docs/plans/2026-10-06-tree-line.md）: 波及の一覧の節（plan-ripple・review-ripple）が、変える名の呼び出し元と
+  試験を引いて範囲に入っていない当たりを名指す。事前審査の役は束ね役で、項目ごとの下請けを Agent で並べて起こし、全部の項目が
+  clean の往復の最後に相乗りの審査の下請けを 1 つ起こす。block の無い項目は閉じ（直しの役が変えれば拒む）、同じ block が続いた
+  項目は保留にしてほかの項目を柵まで進める。
+  出口 collect: {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file}。
 
 inputs:
   judgment_file:
@@ -190,10 +194,29 @@ nodes:
         go: {type: boolean}
         snapshot_file: {type: string}
 
+  # 波及の一覧（線の木の段 1。設計 docs/plans/2026-10-06-tree-line.md の 2.3 の 1）: 修正案の役の前に、単位の key が名指す名の
+  # 呼び出し元と試験を git grep で引いて今の周の ripple/units.json に置く（修正案の役の指示書が貼る）。replan では作らない
+  - id: plan-ripple
+    script: ripple
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [plan-snap]
+    when: "$plan-snap.output.go == true"
+    with:
+      stage: units
+      replan: $INPUTS.replan
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, ripple_file]
+      properties:
+        ok: {type: boolean}
+        ripple_file: {type: string}
+
   # 修正案の出し直しの輪。拒否の後は新しい会話で、前の拒否の理由のファイルは plan-prep が指示書の頭で名指す（裁定 R44）。
   # 3 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（max_iterations で落とさない。裁定 R50）
   - id: plan-loop
-    depends_on: [plan-snap]
+    depends_on: [plan-snap, plan-ripple]
     when: "$plan-snap.output.go == true"
     loop_group:
       max_iterations: 3
@@ -573,12 +596,31 @@ nodes:
                     halted: {type: boolean}
                     out_file: {type: string}
 
+        # 波及の一覧（線の木の段 1）: 往復ごとの事前審査の前に、盤面の項目の欄ごとに変える名の呼び出し元と試験を引き、範囲に
+        # 入っていない当たりを名指して今の周の ripple/pass-<k>.json と ripple.json に置く（事前審査の下請けと次の直しの役が貼る）
+        - id: review-ripple
+          script: ripple
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [plan-revise-snap, plan-revise-loop]
+          trigger_rule: none_failed_min_one_success
+          with:
+            stage: items
+            replan: $INPUTS.replan
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [ok, ripple_file]
+            properties:
+              ok: {type: boolean}
+              ripple_file: {type: string}
+
         # 事前審査を起こす前の作業ツリーの写し。p2.plan_review が待っていなければ（修正案か直しが 3 回とも拒まれた）go: false で輪を飛ばす
         - id: plan-review-snap
           script: snap
           runtime: uv
           timeout: 1728000000
-          depends_on: [plan-revise-snap, plan-revise-loop]
+          depends_on: [review-ripple]
           trigger_rule: none_failed_min_one_success
           with:
             role: plan-review
@@ -624,12 +666,15 @@ nodes:
                 prompt: 指示書 `$plan-review-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
                 depends_on: [plan-review-prep]
                 settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-                allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+                # Agent は束ね役が項目ごとの下請けと相乗りの審査の下請けを 1 つのメッセージに並べて起こす口（線の木の段 1）。下請けも
+                # 読むだけ（作業ツリーが変われば受け付けが拒む）
+                allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch, Agent]
                 mutates_checkout: false
                 sandbox: {enabled: true, allowUnsandboxedCommands: false}
                 idle_timeout: 1728000000
                 # planblk.output_format("plan-review")（写しの p2.plan_review の schema に印 works-node: plan-review と、壁打ちの任意の欄
-                # resolved（前の往復の block のうち消えた key。converge.with_fields）を足した物）を貼った物
+                # resolved（前の往復の block のうち消えた key）・束ね役の任意の欄 items（項目ごとの答え）・synergy（相乗りの審査）
+                # （converge.with_fields）を足した物）を貼った物
                 output_format:
                   description: 'works-node: plan-review'
                   type: object
@@ -742,6 +787,61 @@ nodes:
                       type: array
                       items:
                         type: string
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - item
+                        - checked
+                        - hits
+                        properties:
+                          item:
+                            type: integer
+                            minimum: 1
+                          checked:
+                            type: string
+                            minLength: 10
+                          hits:
+                            type: array
+                            items:
+                              type: object
+                              additionalProperties: false
+                              required:
+                              - id
+                              - answer
+                              - why
+                              properties:
+                                id:
+                                  type: string
+                                  minLength: 2
+                                answer:
+                                  type: string
+                                  enum:
+                                  - covered
+                                  - no_effect
+                                  - block
+                                why:
+                                  type: string
+                                  minLength: 10
+                    synergy:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - ran
+                      - keys
+                      - why
+                      properties:
+                        ran:
+                          type: boolean
+                        keys:
+                          type: array
+                          items:
+                            type: string
+                        why:
+                          type: string
+                          minLength: 10
               - id: plan-review-accept
                 script: accept
                 runtime: uv
@@ -814,7 +914,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file]
+      required: [ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file]
       properties:
         ok: {type: boolean}
         plan_file: {type: string}
@@ -824,3 +924,4 @@ nodes:
         reads_file: {type: string}
         gave_up: {type: boolean}
         reason_file: {type: string}
+        ripple_file: {type: string}

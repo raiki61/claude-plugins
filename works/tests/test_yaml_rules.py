@@ -20,8 +20,9 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     利用者が入れた物（許す一覧 borrow.json）から dev/toolset.py が隔離した設定に入れる）
   - 読む道具に web（WebSearch・WebFetch）を足す節（WEB_READERS。本線の run_by が judge か、読むだけの writer か、全部の道具を
     持つ定義を読むだけに狭めた目。書く道具と shell は持たない。tests/test_tool_parity.py が本線の道具以上かを見る）:
-    blk-eyes の r1-minimality・premise-check・r1-comments、blk-judge の judge、blk-plan の plan・plan-revise・plan-review、blk-rejudge の
+    blk-eyes の r1-minimality・premise-check・r1-comments、blk-judge の judge、blk-plan の plan・plan-revise、blk-rejudge の
     rejudge・rejudge-third、blk-purpose の purpose、blk-report の report-items・report-write、blk-spec の spec-review
+  - blk-plan/blk-plan.yaml の節 plan-review（事前審査の束ね役。線の木の段 1）: 読む道具と web に、項目ごとの下請けを起こす Agent
   - blk-premises/blk-premises.yaml の節 premises（測る役）: 読む道具に Bash と web（測るためにコマンドを走らせるが書く道具は
     持たない。Bash は狭い sandbox の中。作業ツリーを変えれば受け付けが写しと比べて拒む）
 - 書く役でなく Bash・Edit・Write（TREE_CHANGERS）も持たない AI の節は節の段の mutates_checkout: false を持ち、それ以外の AI の節は
@@ -98,13 +99,17 @@ JUDGE_WEB_TOOLS = READ_ONLY_TOOLS | {"WebSearch", "WebFetch"}   # graphloops の
 WEB_READERS = (("blk-fix", "blk-fix.yaml", "rule"),   # 食い違いの裁定役（読むだけ。本線の judge に当たる）
                ("blk-eyes", "blk-eyes.yaml", "r1-minimality"), ("blk-eyes", "blk-eyes.yaml", "premise-check"),
                ("blk-eyes", "blk-eyes.yaml", "r1-comments"), ("blk-judge", "blk-judge.yaml", "judge"),
-               ("blk-plan", "blk-plan.yaml", "plan"), ("blk-plan", "blk-plan.yaml", "plan-review"),
+               ("blk-plan", "blk-plan.yaml", "plan"),
                ("blk-plan", "blk-plan.yaml", "plan-revise"),   # 事前審査の壁打ちの直しの役（修正案の役の会話の続き。読むだけ）
                ("blk-rejudge", "blk-rejudge.yaml", "rejudge"), ("blk-rejudge", "blk-rejudge.yaml", "rejudge-third"),
                ("blk-purpose", "blk-purpose.yaml", "purpose"), ("blk-report", "blk-report.yaml", "report-items"),
                ("blk-report", "blk-report.yaml", "report-write"), ("blk-spec", "blk-spec.yaml", "spec-review"))
+# 事前審査の束ね役（線の木の段 1）: 読む道具と web に、項目ごとの下請けを並べて起こす Agent を足す（下請けも読むだけ。作業ツリーが
+# 変われば受け付けが拒む）
+PLAN_REVIEW = ("blk-plan", "blk-plan.yaml", "plan-review")
 EXCEPTIONS = {
     WRITER: {"tools": None},
+    PLAN_REVIEW: {"tools": JUDGE_WEB_TOOLS | {"Agent"}},
     SPEC_WRITE: {"tools": None},
     SPEC_REVISE: {"tools": None},
     TDD_WRITER: {"tools": None},

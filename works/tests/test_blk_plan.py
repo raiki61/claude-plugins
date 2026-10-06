@@ -124,7 +124,8 @@ class YamlCase(unittest.TestCase):
         self.assertIs(self.y["inputs"]["judgment_file"]["required"], True)
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
         self.assertEqual(set(self.top["collect"]["output_format"]["required"]),
-                         {"ok", "plan_file", "review_file", "asks_human", "gate_kinds", "reads_file", "gave_up", "reason_file"})
+                         {"ok", "plan_file", "review_file", "asks_human", "gate_kinds", "reads_file", "gave_up", "reason_file",
+                          "ripple_file"})
 
     def test_output_format_matches_graph(self):
         """役の output_format（入れ子の輪の中も）== planblk.output_format。壁打ちの欄（converge.with_fields）を外して strip した値
@@ -147,10 +148,10 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(of, planblk.output_format(role))
                 bare = node_marker.strip(of)
                 if role in converge.FIELDS:
-                    name = converge.FIELDS[role][0]
-                    self.assertIn(name, bare["properties"])
-                    del bare["properties"][name]
-                    bare["required"] = [k for k in bare["required"] if k != name]
+                    for name in (converge.FIELDS[role][0], *converge.TREE_FIELDS.get(role, {})):
+                        self.assertIn(name, bare["properties"])
+                        del bare["properties"][name]
+                        bare["required"] = [k for k in bare["required"] if k != name]
                 self.assertEqual(bare, accept.role_schema(planblk.known_role(role), numbered=True))
                 self.assertEqual(of["description"], marks[role])
 
@@ -158,8 +159,8 @@ class YamlCase(unittest.TestCase):
         """壁打ちの輪: 中は直しの役の写し・輪・事前審査の写し・輪・出口の順。抜けるのは converge-check の done（max_iterations で
         落とさない。R50）。独立設計と最初の修正案は輪の外で先に 1 度"""
         inner = {m["id"]: m for m in self.top["converge-loop"]["loop_group"]["nodes"]}
-        self.assertEqual(list(inner), ["plan-revise-snap", "plan-revise-loop", "plan-review-snap", "plan-review-loop",
-                                       "converge-check"])
+        self.assertEqual(list(inner), ["plan-revise-snap", "plan-revise-loop", "review-ripple", "plan-review-snap",
+                                       "plan-review-loop", "converge-check"])
         g = self.top["converge-loop"]["loop_group"]
         self.assertEqual(g["max_iterations"], planblk.GIVE_UP_AFTER)
         self.assertEqual(g["until_bash"], "test $converge-check.output.done = true")
@@ -173,7 +174,11 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(inner["plan-revise-snap"]["with"], {"role": planblk.REVISE_ROLE, "replan": "$INPUTS.replan"})
         self.assertEqual(inner["converge-check"]["with"], {"replan": "$INPUTS.replan"})   # 2 度目の include では 1 往復で done
         self.assertNotIn("depends_on", inner["plan-revise-snap"])
-        self.assertEqual(inner["plan-review-snap"]["depends_on"], ["plan-revise-snap", "plan-revise-loop"])
+        self.assertEqual(inner["review-ripple"]["depends_on"], ["plan-revise-snap", "plan-revise-loop"])
+        self.assertEqual(inner["review-ripple"]["with"], {"stage": "items", "replan": "$INPUTS.replan"})
+        self.assertEqual(inner["plan-review-snap"]["depends_on"], ["review-ripple"])
+        self.assertEqual((self.top["plan-ripple"]["depends_on"], self.top["plan-ripple"]["with"]["stage"]), (["plan-snap"], "units"))
+        self.assertEqual(self.top["plan-loop"]["depends_on"], ["plan-snap", "plan-ripple"])
         self.assertEqual(inner["converge-check"]["script"], "converge")
         self.assertEqual(inner["converge-check"]["depends_on"], ["plan-review-snap", "plan-review-loop"])
         self.assertEqual(set(inner["converge-check"]["output_format"]["required"]), {"ok", "done", "outcome", "record_file"})
@@ -243,7 +248,9 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual([m["id"] for m in g["nodes"]], [f"{role['id']}-prep", role["id"], f"{role['id']}-accept"])
                 self.assertEqual(grp["id"], f"{role['id']}-loop")
                 self.assertEqual(g["until_bash"], f"test ${role['id']}-accept.output.done = true")
-                self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
+                # 事前審査の束ね役だけは項目ごとの下請けを起こす Agent を持つ（線の木の段 1）
+                self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
+                                 + (["Agent"] if role["id"] == "plan-review" else []))
                 self.assertEqual(role["settingSources"], ["user"])
                 self.assertEqual(role["idle_timeout"], DEADLINE)
                 self.assertNotIn("context", role)
@@ -275,7 +282,7 @@ class YamlCase(unittest.TestCase):
 
     def test_after_loop_nodes_join(self):
         every = self.every()
-        for nid in ("plan-snap", "converge-loop", "plan-review-snap", "converge-check", "plan-reads"):
+        for nid in ("plan-snap", "converge-loop", "review-ripple", "plan-review-snap", "converge-check", "plan-reads"):
             self.assertEqual(every[nid]["trigger_rule"], "none_failed_min_one_success", nid)
             self.assertNotIn("when", every[nid])
 
@@ -315,7 +322,7 @@ class YamlCase(unittest.TestCase):
             self.assertIs(f["plan-revise-snap"]["go"], False, name)
             self.assertNotIn(planblk.REVISE_ROLE, f, name)
             self.assertIs(f["converge-check"]["done"], True, name)
-            for nid in ("plan-revise-snap", "converge-check"):
+            for nid in ("plan-revise-snap", "review-ripple", "converge-check"):
                 self.assertIn(nid, f["fixture"]["reached"], name)
             for role in ("plan", "plan-review", planblk.DESIGN_ROLE):
                 if role in f:
@@ -1553,13 +1560,14 @@ class ConvergeReviewCase(unittest.TestCase):
             self.assertIn(w, text)
 
     def test_first_pass_prompt_unchanged(self):
-        """1 往復目の事前審査の指示書は今の版と同じバイト（壁打ちの節が空）"""
+        """1 往復目の事前審査の指示書は今の版に束ね役の節（tree_part）を足しただけのバイト（壁打ちの節が空）"""
         self.ready()
         self.assertTrue(self.ok("snap", role="plan-review")["go"])
         text = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
         b = entry.open_board(self.board)
         want, _ = rolekit.render_body(b, "p2.plan_review")
-        head = planblk.head("plan-review", "", planblk.lib_section(b, self.repo), planblk.design_section(b))
+        part = planblk.design_section(b) + "\n\n" + planblk.tree_part(b, b.work(rolekit.prompt_name("p2.plan_review")))
+        head = planblk.head("plan-review", "", planblk.lib_section(b, self.repo), part)
         self.assertEqual(text, head + "\n\n" + want)
         self.assertNotIn(converge.REREVIEW_ASK, text)
 
@@ -1793,6 +1801,180 @@ class ConvergeReviseCase(unittest.TestCase):
         self.assertIn(converge.ANSWERS, bare["required"])
         self.assertEqual(converge.with_fields(planblk.REVISE_ROLE, accept.role_schema("p2.fix_plan", numbered=True)), bare)
         self.assertEqual(planblk.output_format("plan")["description"], "works-node: plan")   # 修正案の役は今のまま
+
+
+def two_items() -> dict:
+    """plan_ok の 1 項目を単位ごとの 2 項目に分けた案（項目 2 は adds に clamp を名指すので、波及の一覧が試験の当たりを引く）"""
+    base = linekit.reply("plan_ok")["plan"][0]
+    one = {**copy.deepcopy(base), "unit_keys": [UNIT_MEAN], "approach": "mean の分母を len(xs) に直す（定義どおり）"}
+    two = {**copy.deepcopy(base), "unit_keys": [UNIT_CLAMP], "approach": "clamp の上限の枝で hi を返す（定義どおり）",
+           "adds": [{"kind": "function", "name": "clamp", "canonical": "stats.clamp の上限の枝"}], "route": "direct",
+           "route_why": "上限の枝の 1 行の直しで、受け入れの試験は項目 1 が足す", "tests": []}
+    return {"plan": [one, two]}
+
+
+CHECKED = "項目の案を stats.py と test_stats.py で読み、呼び出し元と試験の期待を確かめた"
+NO_EFFECT = "上限の枝の外の値か、直した後の値だけを断言していて期待は変わらない"
+
+
+class TreeReviewCase(unittest.TestCase):
+    """修正案の事前審査を木にする（線の木の段 1。設計 docs/plans/2026-10-06-tree-line.md の 2.3）: 波及の一覧の節が項目ごとの
+    覆っていない当たりを名指し、事前審査の役は束ね役として項目ごとの下請けのファイルを受け取る。受け付けは開いた項目の全部の答え・
+    覆っていない当たりの全部の答え・全部の項目が clean の往復の相乗りの審査を確かめ、閉じた項目を直しの役が変えたら拒む。
+    helper は ScriptCase・ConvergeReviewCase から借りる"""
+
+    setUp, take, judged, state, run_script, ok, round_of, planned, reason_of = (
+        ScriptCase.setUp, ScriptCase.take, ScriptCase.judged, ScriptCase.state, ScriptCase.run_script, ScriptCase.ok,
+        ScriptCase.round_of, ScriptCase.planned, ScriptCase.reason_of)
+    board_obj = ConvergeReviewCase.board_obj
+
+    def ready(self):
+        self.judged()
+        self.planned(two_items())
+
+    def ripple_doc(self):
+        got = self.ok("ripple", stage="items")
+        return json.loads(pathlib.Path(got["ripple_file"]).read_text(encoding="utf-8"))
+
+    def items_rows(self, doc, only=None):
+        return [{"item": it["item"], "checked": CHECKED,
+                 "hits": [{"id": h["id"], "answer": "no_effect", "why": NO_EFFECT} for h in it["uncovered"]]}
+                for it in doc["items"] if only is None or it["item"] in only]
+
+    def review(self, reply):
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        return self.round_of("plan-review", reply)
+
+    def clean_reply(self, doc, only=None, synergy=True):
+        out = {**linekit.reply("plan_review_ok"), "items": self.items_rows(doc, only)}
+        if synergy:
+            out["synergy"] = {"ran": True, "keys": [], "why": "2 つの項目は stats.py の別の関数を直し、順番の依存も重複も無い"}
+        return out
+
+    def block_mean(self, doc):
+        face = {**linekit.reply("plan_review_regression")["faces"][0], "key": "mean の空の列の割り算が残る",
+                "unit_keys": [UNIT_MEAN], "kind": "regression"}
+        return {**linekit.reply("plan_review_regression"), "faces": [face], "items": self.items_rows(doc),
+                "synergy": {"ran": False, "keys": [], "why": "開いた項目に block が在るので相乗りの審査は次の往復"}}
+
+    def test_units_ripple_reaches_plan_prompt(self):
+        self.judged()
+        got = self.ok("ripple", stage="units")
+        doc = json.loads(pathlib.Path(got["ripple_file"]).read_text(encoding="utf-8"))
+        self.assertEqual({u["unit_key"] for u in doc["units"]}, {UNIT_MEAN, UNIT_CLAMP})
+        self.assertTrue(self.ok("snap", role="plan")["go"])
+        prompt = pathlib.Path(self.ok("prep", role="plan", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(planblk.ripple.UNITS_HEAD, prompt)
+
+    def test_items_ripple_names_uncovered_tests_and_latest(self):
+        self.ready()
+        doc = self.ripple_doc()
+        hits = [h["at"] for h in planblk.ripple.uncovered(doc, 2)]
+        self.assertIn("test_stats.py::TestStats::test_clamp_above_range", hits)
+        self.assertEqual(planblk.ripple.uncovered(doc, 1), [])
+        latest = self.board_obj().work(planblk.RIPPLE_LATEST)
+        self.assertEqual(json.loads(latest.read_text(encoding="utf-8")), doc)
+        self.assertEqual(self.ok("ripple", stage="items", replan="true"), {"ok": True, "ripple_file": ""})
+
+    def test_review_prompt_spawns_item_subagents_and_synergy(self):
+        self.ready()
+        self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        prep = self.ok("prep", role="plan-review", excluded_file="")
+        prompt = pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(planblk.AGG_HEAD, prompt)
+        folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=1))
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["item-1.md", "item-2.md", "synergy.md"])
+        for name in ("item-1.md", "item-2.md", "synergy.md"):
+            self.assertIn(str(folder / name), prompt)
+            self.assertIn(prep["prompt_file"], (folder / name).read_text(encoding="utf-8"))
+        self.assertIn("test_clamp_above_range", (folder / "item-2.md").read_text(encoding="utf-8"))
+        self.assertIn("stats.py: 項目 1, 2", (folder / "synergy.md").read_text(encoding="utf-8"))
+
+    def test_review_must_answer_every_open_item_and_hit(self):
+        self.ready()
+        doc = self.ripple_doc()
+        _, got = self.review(linekit.reply("plan_review_ok"))
+        self.assertFalse(got["ok"])
+        text = self.reason_of(got)
+        self.assertTrue(text.startswith(planblk.TREE_REJECT), text)
+        self.assertIn("項目 1", text)
+        reply = self.clean_reply(doc)
+        reply["items"][1]["hits"] = reply["items"][1]["hits"][1:]
+        _, got = self.review(reply)
+        self.assertFalse(got["ok"])
+        self.assertIn("h1", self.reason_of(got))
+
+    def test_all_clean_pass_needs_synergy(self):
+        self.ready()
+        doc = self.ripple_doc()
+        _, got = self.review(self.clean_reply(doc, synergy=False))
+        self.assertFalse(got["ok"])
+        self.assertIn("synergy", self.reason_of(got))
+        _, got = self.review(self.clean_reply(doc))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        rec = converge.read(self.board_obj())
+        self.assertEqual(rec["outcome"], converge.CLEAN)
+        self.assertEqual([it["state"] for it in rec["passes"][-1]["items"]], [converge.CLOSED, converge.CLOSED])
+
+    def test_block_closes_other_item_and_revise_cannot_change_it(self):
+        self.ready()
+        doc = self.ripple_doc()
+        _, got = self.review(self.block_mean(doc))
+        self.assertTrue(got.get("again"), got)
+        b = self.board_obj()
+        self.assertEqual(converge.open_items(b), [1])
+        role = planblk.REVISE_ROLE
+        answers = [{"key": "mean の空の列の割り算が残る", "handled": "fixed", "how": "空の列を先に弾く手順を案に足した"}]
+        changed = two_items()
+        changed["plan"][1]["approach"] = "clamp の上限の枝で hi を返し、下限の枝も見直す"
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        _, got = self.round_of(role, {**changed, converge.ANSWERS: answers})
+        self.assertFalse(got["ok"])
+        self.assertTrue(self.reason_of(got).startswith(planblk.CLOSED_REJECT), self.reason_of(got))
+        fixed = two_items()
+        fixed["plan"][0]["approach"] = "mean は空の列を先に弾き、分母を len(xs) に直す（定義どおり）"
+        _, got = self.round_of(role, {**fixed, converge.ANSWERS: answers})
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        doc = self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        self.ok("prep", role="plan-review", excluded_file="")
+        folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=2))
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["item-1.md", "synergy.md"])
+        on_closed = {**linekit.reply("plan_review_regression")["faces"][0], "key": "clamp と mean の直しの順番が食い違う",
+                     "unit_keys": [UNIT_CLAMP]}
+        reply = {**self.clean_reply(doc, only=[1]), "faces": [on_closed], converge.RESOLVED: ["mean の空の列の割り算が残る"]}
+        reply["synergy"] = {"ran": True, "keys": [], "why": "相乗りの審査は穴を挙げなかった"}
+        _, got = self.round_of("plan-review", reply)
+        self.assertFalse(got["ok"])
+        self.assertIn("項目 2", self.reason_of(got))
+        reply["synergy"]["keys"] = [on_closed["key"]]
+        _, got = self.round_of("plan-review", reply)
+        self.assertTrue(got.get("again"), self.reason_of(got) if got.get("reason_file") else got)
+        rec = converge.read(self.board_obj())
+        self.assertEqual([it["state"] for it in rec["passes"][-1]["items"]], [converge.CLOSED, converge.OPEN])
+        self.assertTrue(rec["passes"][-1]["items"][1]["reopened"])
+
+    def test_reads_trace_agent_launches_against_item_files(self):
+        """読んだ証拠の節が、束ね役の Agent の呼びの数と下請けのファイルの数を盤面の trace に並べる（拒まない。測る）"""
+        self.ready()
+        self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        self.ok("prep", role="plan-review", excluded_file="")
+        step = "planning__converge-loop.plan-review-loop.plan-review"
+        evs = [{"event_type": "tool_called", "step_name": step, "data": {"tool_name": "Agent", "tool_input": {}}}] * 2
+        with mock.patch.object(reads, "events_for", lambda run_id: evs):
+            in_include("planning", planblk.collect_reads, self.board, self.repo, RUN_ID)
+        rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+        got = [r for r in rows if r.get("op") == planblk.AGENT_OP]
+        self.assertEqual([(r["launched"], r["item_files"], r["synergy_files"]) for r in got], [(2, 2, 1)])
+
+    def test_single_item_plan_needs_no_synergy(self):
+        self.judged()
+        self.planned()
+        doc = self.ripple_doc()
+        _, got = self.review(self.clean_reply(doc, synergy=False))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
 
 
 if __name__ == "__main__":

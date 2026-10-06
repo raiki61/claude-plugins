@@ -139,6 +139,21 @@ def node_here(loop: str, node: str) -> str:
     return node_path(flow_adapter.current_scope(), loop, node)
 
 
+def _steps(events, node_path: str):
+    """events のうち節 node_path（外の輪の頭が付いた名も）の tool_called の data"""
+    for e in events or []:
+        if not isinstance(e, dict) or e.get("event_type") != "tool_called":
+            continue
+        step = e.get("step_name")
+        if isinstance(step, str) and (step == node_path or step.endswith("." + node_path)):
+            yield e.get("data") if isinstance(e.get("data"), dict) else {}
+
+
+def tool_count(events, node_path: str, tool: str) -> int:
+    """節 node_path の tool_called のうち道具 tool の呼びの数（events が無ければ 0。受け付けの条件にはしない）"""
+    return sum(1 for data in _steps(events, node_path) if data.get("tool_name") == tool)
+
+
 def _read_paths(events, node_path: str) -> set:
     """events のうち節 node_path の tool_called の Read が読んだファイル（realpath の集合）。周の輪（線 B）の中に置いた
     include は `rounds.` のような外の輪の頭が付くので、名前が node_path と同じか `.<node_path>` で終わる行を数える。

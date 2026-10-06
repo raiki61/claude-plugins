@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "波及の一覧 r<N>/ripple.json・r<N>/ripple/*.json（書き手は blk-plan の ripple の節。lib/ripple.py）",
+ "type": "object",
+ "required": ["error"],
+ "properties": {
+  "items": {"type": "array", "items": {"type": "object", "required": ["item", "unit_keys", "names", "uncovered"]}},
+  "units": {"type": "array", "items": {"type": "object", "required": ["unit_key", "names"]}},
+  "overlaps": {"type": "array", "items": {"type": "object", "required": ["at", "items"]}},
+  "error": {"type": "string"}
+ }
+}

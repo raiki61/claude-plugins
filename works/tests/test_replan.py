@@ -523,6 +523,19 @@ class TestReplanRoles(ReplanCase):
         self.assertEqual(self.trip()["items"][0]["review"]["faces"], [])
         self.assertFalse(replan.snap(self.board, "plan-review", self.repo)["go"])
 
+    def test_review_drops_converge_and_tree_fields(self):
+        """同じ YAML の事前審査の型は壁打ちと束ね役の任意の欄（resolved・items・synergy）を持つ。案の直しの事前審査は写しの型で
+        受けるので、欄を外してから確かめる（欄が在っても拒まない）"""
+        replan.material(self.b); self.prep("plan")
+        self.assertTrue(self.accept("plan", {"plan": [fixed_item()]})["ok"])
+        self.assertTrue(replan.snap(self.board, "plan-review", self.repo)["go"])
+        self.prep("plan-review")
+        reply = {**no_faces(), "resolved": [], "items": [{"item": 1, "checked": "項目の案を stats.py で読んだ", "hits": []}],
+                 "synergy": {"ran": False, "keys": [], "why": "案の直しは項目ごとに審査する"}}
+        got = self.accept("plan-review", reply)
+        self.assertTrue(got["ok"], got)
+        self.assertNotIn("items", self.trip()["items"][0]["review"])
+
     def test_snap_go_follows_trip(self):
         self.assertTrue(replan.snap(self.board, "plan", self.repo)["go"])
         self.assertFalse(replan.snap(self.board, "plan-review", self.repo)["go"])
@@ -534,7 +547,7 @@ class TestReplanRoles(ReplanCase):
         replan.material(self.b)
         got = planblk.collect(self.board, replan="true")
         self.assertEqual(got, {"ok": True, "plan_file": "", "review_file": "", "asks_human": False, "gate_kinds": [],
-                               "reads_file": "", "gave_up": False, "reason_file": ""})
+                               "reads_file": "", "gave_up": False, "reason_file": "", "ripple_file": ""})
         self.assertIsNone(entry.open_board(self.board).state.get("stop"))
 
     def test_replan_reads_do_not_overwrite_planning_reads(self):
