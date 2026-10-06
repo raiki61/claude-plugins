@@ -30,6 +30,8 @@
 - prep: 節 fix-prep・fix-ruled-prep の中身（盤面が p3.fix を待っていれば書き、起こした印を置く）。tddloop.prep は tdd_render を使う。
   修正の形 g1 と既定の g3 では、借りたスキルの座の代わりに下請けを回す節（seat.g1_section。項目ごとのファイルは g1_values。
   下請けを起こす単位は dispatched: g3 は TDD の輪が緑にした単位を除く。依頼 243 の 2）を載せる。
+  g3 の 1 回目の周（side_on）は、範囲（item_ranges）が重ならない項目に単位の worktree を切り（unitlanes）、修正役がその
+  下請けを同時に起こして機械の当てるコマンド（merge_line）で作業ツリーへ当てる（依頼 243 の並べ）。
   どちらも指示書の頭（題の次）に、直す義務の単位の brief（planbrief.cut。承認済みの修正案の項目を凍結した物）を名指す節を置く。
   brief の控えが壊れていれば盤面を止める（brief_halt。brief の無い指示書として続けない）
 - ruler_prompt: 裁定役の指示書（ruling.prep が書く）
@@ -61,6 +63,8 @@ import fixshape  # noqa: E402
 from leftovers import Unreadable, git_names  # noqa: E402
 import libdocs  # noqa: E402
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
+import planmarks  # noqa: E402  （項目の範囲: allowed_paths と受け入れのテストのファイル。並べる項目の分け方）
+import unitlanes  # noqa: E402  （同じブロックの lib。範囲の重ならない項目の単位の worktree。依頼 243 の並べ）
 import recount  # noqa: E402
 import rolekit  # noqa: E402
 import rulebook  # noqa: E402
@@ -109,6 +113,8 @@ FULL, DELTA, RULES, VARIANTS, DELIVERED = ".full.md", ".delta.md", ".rules.md", 
 WHY_FIRST = "1 回目（この輪でまだ決まりを渡していない。delta は full と同じ）"
 SEAT_BRIEFS = "seat-briefs.md"   # 修正役の座の型の [BRIEF_FILE]（今の周の作業ファイル。直す義務の単位の brief を名指す節）
 G1_IMPL, G1_REVIEW = "g1-impl-{n}.md", "g1-review-{n}.md"   # 修正の形 g1 の下請けのファイル（今の周の作業ファイル。n は項目の番号）
+UNITS_FILE = "units.json"   # 並べる項目の単位の worktree の控え（今の周の作業ファイル。unitlanes.plant が書き、締める節が読む）
+UNITS_DIR = "units"          # 単位の worktree の置き場（run ごとの置き場の今の scope の下。包みが下請けに書かせる所）
 G1_PATCH_FILE = "g1-{n}.patch"   # g1 の審査役の差分のファイル（run ごとの置き場 adapter.run_place_of。修正役が seat.G1_PATCH で書く）
 G1_NO_POLICY = seatkit.NONE   # g1 の審査役の型の [GLOBAL_CONSTRAINTS]（人の方針の文書が無い run）
 G1_REST = "修正案のどの項目にも無い直す義務の単位 {keys}（判定のファイルが要求の正本）"   # g1 の残りの項目の実装役の型の題
@@ -424,7 +430,24 @@ def implementer_values(b, values: dict, repo, owed: list[str]) -> dict[str, str]
             "[REPORT_FILE]": seatkit.NO_REPORT_FILE}
 
 
-def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str = seatkit.G1_SHAPE) -> list[dict]:
+def item_ranges(b) -> dict:
+    """修正案の項目の番号 → 範囲（allowed_paths の glob と受け入れのテストのファイル。planmarks.test_paths）。allowed_paths の欄の
+    無い項目は None（範囲で縛らない古い案。並べない）。承認済みの項目が引けない・控えが壊れていれば {}（全部を順にする）"""
+    try:
+        items = planmarks.approved_items(b)
+    except (planmarks.FieldsBroken, BoardGap, OSError, ValueError):
+        return {}
+    out = {}
+    for it in items or []:
+        if "allowed_paths" in it:
+            out[it["item"]] = [g for g in it.get("allowed_paths") or [] if isinstance(g, str) and g] + planmarks.test_paths(it)
+        else:
+            out[it["item"]] = None
+    return out
+
+
+def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str = seatkit.G1_SHAPE,
+              side: bool = False) -> list[dict]:
     """修正の形 g1 の下請けのファイルを、直す義務の単位の brief の項目ごとに今の周に 2 つ書き、項目の順の
     [{item, impl_file, review_file, base, patch}] を返す（seat.g1_section が並べる）。どの項目にも無い直す義務の単位（brief の無い run は
     全部）は、判定のファイルを [BRIEF_FILE] にした残りの 1 項目（番号は修正案の項目の後。題は G1_REST、brief の無い run は
@@ -438,7 +461,11 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
     shape が g1 でない（依頼 243 の 2 の g3）なら、どの項目にも無い単位は 1 単位 1 項目（題は G1_REST でその単位だけを名指す。
     単位ごとに新しい会話の下請けにする）。g1 は前のとおり残りを 1 項目にまとめる（比べの腕を変えない）。
     どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊。決まりの見出しは shape を名指す）。3 つのファイルは今の scope の下に置く
-    （同じブロックの 2 度目の include は 1 度目の物を上書きしない）。写しが固定と違う・穴が埋まらなければ ValueError"""
+    （同じブロックの 2 度目の include は 1 度目の物を上書きしない）。写しが固定と違う・穴が埋まらなければ ValueError。
+    side（依頼 243 の並べ。prep が g3 の 1 回目だけ立てる）なら、範囲（item_ranges。残りの項目は範囲なし）が互いに重ならない
+    項目（unitlanes.lanes）に、run ごとの置き場の今の scope の下の UNITS_DIR へ単位の worktree を切り（unitlanes.plant。控えは今の
+    周の作業ファイル UNITS_FILE）、その項目の行に tree を足す。その項目の下請けのファイルは [directory] と決まり（seat の tree）で
+    worktree の中だけで働き、審査役の [BASE_SHA] は worktree の base（差分はその項目だけ）"""
     common = implementer_values(b, values, repo, owed)
     cut = briefs_or_halt(b)
     briefs = planbrief.for_units(cut, owed)
@@ -455,18 +482,40 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
     place = script_io.scope_dir(run_place)   # 同じブロックの 2 度目の include の差分は 1 度目の物を上書きしない（最上段なら置き場のまま）
     if place != run_place:
         place.mkdir(parents=True, exist_ok=True)   # 役の Bash の差分のコマンドはフォルダを作らない
+    trees = {}
+    if side and repo is not None:
+        ranges = item_ranges(b)
+        brief_items = {r["item"] for r in briefs}
+        picked = unitlanes.lanes([(n, ranges.get(n) if n in brief_items else None) for n, _, _ in items])
+        if picked:
+            trees = unitlanes.plant(repo, picked, place / UNITS_DIR, b.work(UNITS_FILE))
     rows = []
     for n, brief, task in items:
         impl, review = b.work(G1_IMPL.format(n=n)), b.work(G1_REVIEW.format(n=n))
         patch = str(place / G1_PATCH_FILE.format(n=n))
-        impl.write_text(seatkit.g1_prompt("implementer", {**common, "[task name]": task, "[BRIEF_FILE]": brief,
-                                                           "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}, shape), encoding="utf-8")
+        tree = trees.get(n, {}).get("tree")
+        here = {"[directory]": tree} if tree else {}
+        item_base = trees[n]["base"] if tree else base
+        impl.write_text(seatkit.g1_prompt("implementer", {**common, **here, "[task name]": task, "[BRIEF_FILE]": brief,
+                                                           "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}, shape, tree), encoding="utf-8")
         review.write_text(seatkit.g1_prompt("task-review", {
             "[BRIEF_FILE]": brief, "[GLOBAL_CONSTRAINTS]": values.get("policy_path") or G1_NO_POLICY,
-            "[REPORT_FILE]": seatkit.G1_REPORT, "[BASE_SHA]": base, "[HEAD_SHA]": seatkit.G1_HEAD_SHA,
-            "[DIFF_FILE]": patch}, shape), encoding="utf-8")
-        rows.append({"item": n, "impl_file": str(impl), "review_file": str(review), "base": base, "patch": patch})
+            "[REPORT_FILE]": seatkit.G1_REPORT, "[BASE_SHA]": item_base, "[HEAD_SHA]": seatkit.G1_HEAD_SHA,
+            "[DIFF_FILE]": patch}, shape, tree), encoding="utf-8")
+        row = {"item": n, "impl_file": str(impl), "review_file": str(review), "base": item_base, "patch": patch}
+        rows.append({**row, "tree": tree} if tree else row)
     return rows
+
+
+def side_on(shape: str, pass_: str, iteration: int) -> bool:
+    """範囲の重ならない項目を単位の worktree で並べるか（依頼 243 の並べ）: 既定の形 g3 の 1 回目の修正役（pass first）の、輪の
+    1 回目の周だけ。出し直しと裁定の後は前の直しの在る作業ツリーで名指す項目だけを起こし直し、g1 は比べの腕なので順のまま"""
+    return shape == seatkit.SHAPE and pass_ == PASSES[0] and iteration == 1
+
+
+def merge_line(b, rows: list[dict]) -> str:
+    """並べる項目（行に tree）が在れば、修正役が走らせる当てるコマンド（unitlanes.command。控えは今の周の UNITS_FILE）。無ければ空"""
+    return unitlanes.command(b.work(UNITS_FILE)) if any(r.get("tree") for r in rows) else ""
 
 
 def _g1_task(brief: dict, owed: list[str]) -> str:
@@ -502,7 +551,8 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     修正の形（fixshape.shape_at）が座を載せる形なら、借りたスキルの座（seat.section。型の穴は implementer_values）を full と delta の
     両方に載せる。修正役が下請けを起こす単位（dispatched。g1 は全部、g3 は輪が緑にした単位の外）が在れば、その代わりに下請けを
     回す節（seat.g1_section。下請けのファイルは g1_values。[BASE_SHA] は values の base_rev）を載せる（依頼 243 の 2: g3 も単位
-    ごとに新しい会話。g3 で輪が全部を緑にした周は前の座のまま）。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も
+    ごとに新しい会話。g3 で輪が全部を緑にした周は前の座のまま）。g3 の 1 回目の周（side_on）は範囲の重ならない項目に単位の
+    worktree を切り、節に当てるコマンド（merge_line）を載せる（依頼 243 の並べ）。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も
     置かない。支度の script は 2 で落ちる）"""
     if pass_ not in PASSES:
         raise Unfilled(f"pass {pass_!r} は {PASSES} のどれでもない")
@@ -533,7 +583,8 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     subs = dispatched(shape, mark, owed, green)
     if subs:
         seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みと Context7 の引き（lib_section）より前に
-        seat = seatkit.g1_section(g1_values(b, values, repo, subs, values.get("base_rev") or "", shape), shape)
+        rows = g1_values(b, values, repo, subs, values.get("base_rev") or "", shape, side_on(shape, pass_, n))
+        seat = seatkit.g1_section(rows, shape, merge_line(b, rows))
     elif seatkit.carries(mark, shape):
         seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みと Context7 の引き（lib_section）より前に
         seat = seatkit.section(mark, shape, implementer_values(b, values, repo, owed))

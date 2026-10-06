@@ -1153,6 +1153,55 @@ class G1ValuesCase(unittest.TestCase):
         self.assertNotEqual(first[0]["impl_file"], second[0]["impl_file"])
         self.assertIn("a: 分母", pathlib.Path(first[0]["impl_file"]).read_text(encoding="utf-8"))
 
+    def test_side_items_get_unit_trees_and_stay_inside(self):
+        """g3 の 1 回目（side）は、範囲が重ならない修正案の項目に単位の worktree を切り（run ごとの置き場の下）、その項目の
+        下請けのファイルは worktree の中で働き、審査の base は worktree の base。範囲の無い残りの項目は順（依頼 243 の並べ）"""
+        import seat
+        import unittrees
+        from unittest import mock
+        from gitkit import committed_copy
+        b = self.board()
+        repo = b.dir.parent.parent / "repo"
+        committed_copy(repo, ROOT / "dev" / "target-seed")
+        self.addCleanup(unittrees.sweep, repo)
+        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS), \
+                mock.patch.object(fixrules, "item_ranges", return_value={1: ["stats.py"], 2: ["test_stats.py"]}):
+            got = fixrules.g1_values(b, VALUES, repo, self.OWED, "", "g3", side=True)
+        place = b.dir.parent / "run-place" / "units"
+        self.assertEqual([r.get("tree") for r in got], [str(place / "item-1"), str(place / "item-2"), None])
+        self.assertNotEqual(got[0]["base"], "abc123")
+        self.assertEqual(got[2]["base"], "abc123")
+        impl = pathlib.Path(got[0]["impl_file"]).read_text(encoding="utf-8")
+        self.assertIn(seat.G1_TREE_RULE_OF.format(tree=place / "item-1"), impl)
+        self.assertNotIn("単位の worktree", pathlib.Path(got[2]["impl_file"]).read_text(encoding="utf-8"))
+        self.assertTrue(b.work(fixrules.UNITS_FILE).is_file(), "控えは盤面の作業ファイル")
+        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS), \
+                mock.patch.object(fixrules, "item_ranges", return_value={1: ["stats.py"], 2: ["stats.py"]}):
+            again = fixrules.g1_values(b, VALUES, repo, self.OWED, "", "g3", side=True)
+        self.assertEqual([r.get("tree") for r in again], [None, None, None], "範囲が重なれば並べない")
+
+    def test_side_only_on_the_first_g3_round(self):
+        """並べるのは g3 の 1 回目の修正役の 1 回目の周だけ（出し直し・裁定の後・g1 は今どおり順）"""
+        self.assertTrue(fixrules.side_on("g3", "first", 1))
+        for args in (("g3", "first", 2), ("g3", "ruled", 1), ("g1", "first", 1), ("af", "first", 1)):
+            self.assertFalse(fixrules.side_on(*args), args)
+
+    def test_merge_line_names_the_manifest_only_with_trees(self):
+        import unitlanes
+        b = self.board()
+        rows = [{"item": 1, "tree": "/t/item-1"}, {"item": 2}]
+        self.assertEqual(fixrules.merge_line(b, rows), unitlanes.command(b.work(fixrules.UNITS_FILE)))
+        self.assertEqual(fixrules.merge_line(b, [{"item": 2}]), "")
+
+    def test_item_ranges_read_allowed_paths_and_tests(self):
+        from unittest import mock
+        items = [{"item": 1, "allowed_paths": ["a/*.py"], "tests": [{"id": "tests/test_a.py::test_x"}]}, {"item": 2}]
+        with mock.patch.object(fixrules.planmarks, "approved_items", return_value=items):
+            got = fixrules.item_ranges(object())
+        self.assertEqual(got, {1: ["a/*.py", "tests/test_a.py"], 2: None})
+        with mock.patch.object(fixrules.planmarks, "approved_items", return_value=None):
+            self.assertEqual(fixrules.item_ranges(object()), {})
+
     def test_no_remainder_when_items_cover_the_duty(self):
         from unittest import mock
         with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS):
