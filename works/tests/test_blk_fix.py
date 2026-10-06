@@ -48,6 +48,7 @@ if str(BLK / "lib") not in sys.path:   # 修正のブロックの模块（brief 
 import planbrief  # noqa: E402
 import planmarks  # noqa: E402
 import planscope  # noqa: E402
+import writes  # noqa: E402
 
 DEADLINE = 1728000000
 # 実行器の無い run の tdd-start の出口（tddloop.start の go: false。test_blk_fix_tdd が実物で見る）
@@ -140,7 +141,10 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(g["max_iterations"], 3)
         self.assertIs(g["fresh_context"], False)
         self.assertEqual(g["until_bash"], "test $fix-accept.output.done = true", "通った時か 3 回目の拒否で抜ける（R50）")
-        self.assertEqual([n["id"] for n in g["nodes"]], ["fix-prep", "fix", "fix-accept"])
+        self.assertEqual([n["id"] for n in g["nodes"]], ["fix-prep", "fix", "fix-units", "fix-accept"])
+        units = find_node(nodes, "fix-units")   # 並べた項目を締める（依頼 243 の並べ）。受け付けは当てた後の作業ツリーを見る
+        self.assertEqual((units["script"], units["depends_on"], units["timeout"]), ("units", ["fix"], DEADLINE))
+        self.assertEqual(find_node(nodes, "fix-accept")["depends_on"], ["fix-units"])
         self.assertEqual(changed["depends_on"], ["clean"])
         self.assertEqual(collect["depends_on"], ["fix-reads"])
         accept = find_node(nodes, "fix-accept")
@@ -1010,6 +1014,45 @@ class TestFixPrep(BoardCase):
 def rolekit_reject_line(path):
     import rolekit
     return rolekit.REJECT_LINE.format(path=path)
+
+
+class TestUnits(BoardCase):
+    """修正役の後・受け付けの前の節 fix-units（scripts/units.py。依頼 243 の並べ）: 控えが無ければ何もしない。在れば当てるコマンドが
+    当てなかった項目を機械が当て、単位の worktree の書き込みの記録を run の作業ツリーへ写し、worktree を片付け、盤面に 1 行残す"""
+
+    def run_it(self):
+        return run_script("units", self.repo, {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]})
+
+    def test_nothing_to_do_without_a_manifest(self):
+        self.fix_ready()
+        code, out, err = self.run_it()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"ok": True, "ran": False})
+
+    def test_settles_planted_items(self):
+        import fixrules
+        import unitlanes
+        import unittrees
+        self.fix_ready()
+        self.addCleanup(unittrees.sweep, self.repo)
+        b = entry.open_board(self.board)
+        place = pathlib.Path(adapter.run_place_of({"board": str(self.board)})) / fixrules.UNITS_DIR
+        got = unitlanes.plant(self.repo, [1, 2], place, b.work(fixrules.UNITS_FILE))
+        tree = pathlib.Path(got[1]["tree"])
+        (tree / "stats.py").write_text((tree / "stats.py").read_text(encoding="utf-8") + "# 単位の直し\n", encoding="utf-8")
+        log = writes.sink(self.repo)
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"tool_name": "Edit", "path": str((tree / "stats.py").resolve()),
+                                "file_sha": writes._sha(str(tree / "stats.py"))}) + "\n")
+        code, out, err = self.run_it()
+        self.assertEqual(code, 0, err)
+        r = json.loads(out)
+        self.assertEqual((r["ok"], r["ran"], r["applied"], r["machine"], r["carried"]), (True, True, [1, 2], [1], 1), "差分の無い項目 2 は当てる物が無い")
+        self.assertIn("# 単位の直し", (self.repo / "stats.py").read_text(encoding="utf-8"))
+        self.assertFalse(tree.exists())
+        trace = (self.board / "trace.jsonl").read_text(encoding="utf-8")
+        self.assertIn(fixrules.UNITS_OP, trace)
 
 
 class TestAccept(BoardCase):
