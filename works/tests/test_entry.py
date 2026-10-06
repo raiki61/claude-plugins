@@ -159,7 +159,7 @@ class TableCase(unittest.TestCase):
                          {"p0.local_checks", "p0.parallel_pr", "p4.ci"})
 
     def test_only_optional_comment_candidates_skippable(self):
-        """手厚さは標準だけ（持ち主の答え 1: 省けない節を省かない）。skippable は graph で optional の r1.comment_candidates だけ
+        """graph で optional でない節は省かない（持ち主の答え 1。軽量の深さも graph の optional だけを省く）。skippable は graph で optional の r1.comment_candidates だけ
         （3 回とも拒まれたら省いて R1 の本体へ。graph: 取れなくても R1 を not_run に倒さない）"""
         self.assertEqual([n for n, e in self.nodes.items() if e.skippable], ["r1.comment_candidates"])
 
@@ -661,7 +661,7 @@ class CheckInputsCase(StartCaseBase):
                 self.assertNotIn("\n", str(cm.exception))
 
     def test_inputs_defaults(self):
-        """依頼だけ → thickness 標準・gates ""・final_gate always・adapter ""・lang ""。返りに thickness_decider が無い"""
+        """依頼だけ → thickness 自動・gates ""・final_gate always・adapter ""・lang ""。返りに thickness_decider が無い"""
         repo = self.seed()
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
@@ -670,11 +670,11 @@ class CheckInputsCase(StartCaseBase):
         self.assertEqual(got["answers"], [])
         self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"],
                           got["lang"], got["unattended"], got["design_only"], got["fix_shape"]),
-                         ("標準", "", "always", "", "", "", "", "", "", "g3"))
+                         ("自動", "", "always", "", "", "", "", "", "", "g3"))
         self.assertEqual(len(got["items"]), 2)
         self.assertEqual(got["request_file"], str((self.tmp / "r.json").resolve()))
         self.assertIn("mean", got["request_text"])
-        self.assertEqual(entry.THICKNESS, ("軽量", "標準", "重厚"))
+        self.assertEqual(entry.THICKNESS, ("自動", "軽量", "標準", "重厚"))
         self.assertEqual(entry.FINAL_GATES, ("always", "when_needed", "protected_only"))
         self.assertEqual(entry.ADAPTER_MODES, ("", "optional"))
         self.assertEqual(entry.GATES, ("", "merge"))
@@ -685,12 +685,12 @@ class CheckInputsCase(StartCaseBase):
         request_file(repo / "req.json")
         self.assertEqual(entry.check_inputs({"request": "req.json"}, repo)["request_file"], str(repo / "req.json"))
 
-    def test_light_refused_by_owner_decision(self):
+    def test_light_and_standard_accepted(self):
+        """軽量・標準は全部の単位の深さを固定する名指しとして受ける（持ち主の依頼 2026-10-06。計画 2026-10-06-variable-depth の決め 1）"""
         repo = self.seed()
-        with self.assertRaises(entry.InputRefused) as cm:
-            entry.check_inputs(self.raw(thickness="軽量"), repo)
-        self.assertIn("持ち主の決定", str(cm.exception))
-        self.assertIn("省けない節", str(cm.exception))
+        for word in ("軽量", "標準", "自動"):
+            with self.subTest(word):
+                self.assertEqual(entry.check_inputs(self.raw(thickness=word), repo)["thickness"], word)
 
     def test_heavy_refused(self):
         repo = self.seed()
@@ -995,9 +995,9 @@ class StartCase(StartCaseBase):
         self.assertFalse(got["ci_role_go"])
 
     def test_start_refuses_before_board(self):
-        """入力の拒みは盤面の置き場を作る前（軽量・知らない語・読めない依頼）"""
+        """入力の拒みは盤面の置き場を作る前（重厚・知らない語・読めない依頼）"""
         repo = self.seed()
-        for raw in (self.raw(thickness="軽量"), self.raw(final_gate="x"), {"request": str(self.tmp / "nowhere.json")}):
+        for raw in (self.raw(thickness="重厚"), self.raw(final_gate="x"), {"request": str(self.tmp / "nowhere.json")}):
             with self.subTest(raw):
                 with self.assertRaises(entry.InputRefused):
                     self.start(repo, raw)
@@ -1032,7 +1032,7 @@ class StartCase(StartCaseBase):
         got = self.start(repo)
         absent = len(entry.load_table("darkfactory").absent())
         line = got["head_line"]
-        for part in ("判定から", "依頼 2 件", "標準（既定）", "gates: 空", "修正の形: g3（既定）", f"このラインに無い節: {absent} 個",
+        for part in ("判定から", "依頼 2 件", "段: 自動（既定）", "gates: 空", "修正の形: g3（既定）", f"このラインに無い節: {absent} 個",
                      "下げている所: 2 個"):
             self.assertIn(part, line)
         self.assertNotIn("\n", line)
@@ -1052,7 +1052,7 @@ class StartCase(StartCaseBase):
         b = entry.open_board(self.board)
         self.assertEqual(got["base_rev"], linekit.git(repo, "rev-parse", "HEAD"))
         self.assertEqual((got["test_cmd"], got["final_gate"], got["adapter"], got["thickness"], got["gates"]),
-                         (SEED_CMD, "when_needed", "optional", "標準", ""))
+                         (SEED_CMD, "when_needed", "optional", "自動", ""))
         self.assertEqual((got["policy_paste"], got["policy_path"]), ("", ""))
         self.assertIsNone(b.state["inputs"]["gates"])
         doc = json.loads(b.work("start.json").read_text(encoding="utf-8"))
@@ -1368,11 +1368,11 @@ class StartScriptCase(StartCaseBase):
 
     def test_start_script_refusal_exit_1(self):
         repo = self.seed()
-        r = self.run_script(repo, INPUTS_THICKNESS="軽量")
+        r = self.run_script(repo, INPUTS_THICKNESS="重厚")
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertEqual(r.stdout, "")
         self.assertEqual(len(r.stderr.strip().splitlines()), 1)
-        self.assertIn("持ち主の決定", r.stderr)
+        self.assertIn("重厚で足す工程がまだ無い", r.stderr)
         self.assertFalse((self.tmp / "art" / "board").exists())
 
     def test_start_script_missing_env_exit_2(self):

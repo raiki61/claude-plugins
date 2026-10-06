@@ -234,14 +234,15 @@ def _halt_scope_check(b: DiskBoard, at: str, reason: str) -> None:
 # ---------------------------------------------------------------- 入力の確かめ（線 A の仕様 4 節）
 LINE = "darkfactory"
 ORIGIN = "works/darkfactory"   # 依頼の出どころ（record.process.request_entry.origin）
-THICKNESS = ("軽量", "標準", "重厚")
-THICKNESS_DEFAULT = "標準"
+# 手厚さ（深さ）の語。自動（既定）は線が判定の単位ごとに機械で決める・軽量と標準は全部の単位をその深さに固定する（持ち主の
+# 依頼 2026-10-06。計画 docs/plans/2026-10-06-variable-depth.md の決め 1。決めと上げは darkfactory/lib/depth.py）。重厚は受けない
+THICKNESS = ("自動", "軽量", "標準", "重厚")
+THICKNESS_DEFAULT = "自動"
 FINAL_GATES = ("always", "when_needed", "protected_only")   # 最後の人の関所の開き方（C18・P1-R3。line_edge.FINAL_GATES と同じ語）
 ADAPTER_MODES = ("", "optional")
 UNATTENDED_WORDS = ("", gatemarks.UNATTENDED)   # 入力 unattended（空は人の居る run。true は無人の殻 use.sh の WORKS_USE_UNATTENDED=1）
 DESIGN_ONLY_WORDS = ("", gatemarks.DESIGN_ONLY)   # 入力 design_only（空は今どおり。true は修正前の関所を必ず開ける設計だけの run）
 GATES = ("", "merge")
-LIGHT_REFUSED = "軽量は受けない: graph で省けない節を省くことになる（持ち主の決定 2026-09-27）"
 HEAVY_REFUSED = "重厚で足す工程がまだ無い"
 CI_BUILTIN = "declared_checks"   # 写しの graph の engine_run.builtin のうち、CI の節（p0.local_checks・p4.ci）の語
 
@@ -272,18 +273,16 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     （依頼者の答え。配列の形の依頼は []）で、start の控えに残り、gatemarks が問いの答えたかで読む。
     盤面は作らない。拒む物（InputRefused）: 依頼も変更も無い・base と pr の両方・版や PR が引けない・PR の head が HEAD でない、
     依頼が読めない・findings の配列でも {findings, pr, issue, answers} の形でもない・answers の形が違う・findings が依頼の型（写しの RL の REQUEST_SCHEMA）に
-    合わない、thickness が軽量・重厚・知らない値、final_gate・adapter・unattended・design_only・fix_shape・gates が語の外（gates の文は写しの RL の check_inputs）、
+    合わない、thickness が重厚・知らない値、final_gate・adapter・unattended・design_only・fix_shape・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書・固定材料のフォルダが無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
     p0.local_checks・p4.ci が任せ先の役に落ち、役がリポジトリを読んでテストの走らせ方を探す）。
     相対のパス（依頼・方針の文書）は対象の根 repo から。reads は殻が隔離の前に読んだ写し（ghreads.load の返り。pr が読む）"""
     repo = pathlib.Path(repo)
     thickness = _word(raw, "thickness") or THICKNESS_DEFAULT
-    if thickness == "軽量":
-        raise InputRefused(LIGHT_REFUSED)
     if thickness == "重厚":
         raise InputRefused(HEAVY_REFUSED)
     if thickness not in THICKNESS:
-        raise InputRefused(f"thickness={thickness!r} は知らない値（{' / '.join(THICKNESS)}。受けるのは {THICKNESS_DEFAULT} だけ）")
+        raise InputRefused(f"thickness={thickness!r} は知らない値（{' / '.join(THICKNESS)}。重厚は受けない）")
     final_gate = _word(raw, "final_gate") or FINAL_GATES[0]
     if final_gate not in FINAL_GATES:
         raise InputRefused(f"final_gate={final_gate!r} は知らない値（{' / '.join(FINAL_GATES)}）")
