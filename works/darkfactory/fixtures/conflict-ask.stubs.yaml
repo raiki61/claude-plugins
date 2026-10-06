@@ -997,6 +997,9 @@ fix:
     why_both_cannot_hold: テストは分母 len(xs) - 1 の値を期待しているが、依頼は算術平均を求めている
     which_is_right: request
     kind: unnamed_test_broke
+fix-units:
+  ok: true
+  ran: false
 fix-accept:
   ok: true
   done: true
