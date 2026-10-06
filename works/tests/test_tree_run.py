@@ -436,6 +436,13 @@ class OutsideEnvCase(unittest.TestCase):
                                     "VIRTUAL_ENV": sys.prefix, "UV_NO_CONFIG": "1", "HOME": "/h"})
         self.assertEqual(env, {"PATH": os.pathsep.join(["/usr/bin", ours]), "PYTHONDONTWRITEBYTECODE": "1", "HOME": "/h"})
 
+    def test_drops_lane_object_dirs_only_with_mark(self):
+        """TDD の輪の並べの段のコマンドが立てた git の object の置き場（印 LANE_GIT_ENV が在る時だけ）は、試験と test_cmd に渡さない
+        （試験の中の git が単位の置き場に書かない。docs/plans/2026-10-06-tdd-parallel.md）"""
+        lane = {"GIT_OBJECT_DIRECTORY": "/p/o", "GIT_ALTERNATE_OBJECT_DIRECTORIES": "/r/.git/objects", "HOME": "/h"}
+        self.assertEqual(tree_run.outside_env({**lane, tree_run.LANE_GIT_ENV: "1"}), {"PYTHONDONTWRITEBYTECODE": "1", "HOME": "/h"})
+        self.assertEqual(tree_run.outside_env(lane), {**lane, "PYTHONDONTWRITEBYTECODE": "1"}, "印が無ければ今どおり")
+
     def test_keeps_foreign_venv_and_outside_uv(self):
         """sys.prefix でない VIRTUAL_ENV（利用者の物）は残す。uv run の外なら PATH も VIRTUAL_ENV も触らない（UV_NO_CONFIG は外す）"""
         ours = os.path.dirname(sys.executable)

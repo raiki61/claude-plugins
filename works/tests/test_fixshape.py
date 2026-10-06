@@ -9,8 +9,8 @@
 - shape_at は 振り分けの控え → start の控え → af（記録の無い前の版の盤面）の順に読み、壊れた控え・語の外は ValueError
 - choose が書いた控えは start の控えより勝つ。語の外・空の by・why は ValueError
 - START_REL は 1 周目の entry.START_FILE
-- denied_tools は形と印の名から拒む道具を返す（g3 以外の座の節で Skill・g1 と g3 の外の修正役で Agent。この順。依頼 243 の 2 で
-  g3 の修正役も単位ごとの下請けを Agent で起こす）
+- denied_tools は形と印の名から拒む道具を返す（g3 以外の座の節で Skill・g1 と g3 の外の修正役で Agent・g3 の外の輪の役で Agent。
+  この順。依頼 243 の 2 で g3 の修正役も単位ごとの下請けを、g3 の輪の役も並べの周に単位の下請けを Agent で起こす）
 """
 import json
 import pathlib
@@ -86,7 +86,9 @@ class FixShapeCase(unittest.TestCase):
                     fixshape.shape_at(self.tmp)
 
     def test_denied_tools_table(self):
-        rows = {("g3", "tdd"): (), ("af", "tdd"): ("Skill",), ("current", "tdd"): ("Skill",), ("g1", "tdd"): ("Skill",),
+        # tdd の Agent は g3 の TDD の輪の並べ（まとめ役が単位の下請けを起こす）だけ（docs/plans/2026-10-06-tdd-parallel.md）
+        rows = {("g3", "tdd"): (), ("af", "tdd"): ("Skill", "Agent"), ("current", "tdd"): ("Skill", "Agent"),
+                ("g1", "tdd"): ("Skill", "Agent"),
                 ("g1", "fix"): (), ("g1", "fix-ruled"): (), ("g3", "fix"): (), ("g3", "fix-ruled"): (), ("af", "fix-ruled"): ("Agent",),
                 ("af", "judge"): (), ("g3", "local-review"): (), ("g3", "refix"): (), ("af", "refix2"): ("Skill",),
                 ("current", "refix"): ("Skill",), ("g3", "review"): ()}
