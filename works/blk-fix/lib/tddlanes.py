@@ -20,7 +20,8 @@ docs/plans/2026-10-06-tdd-parallel.md）。分け方・切る・段のコマン�
   object を単位の置き場に書く env の下で tddloop.step を単位の控えに回す。食い違いの申し出は確かめずに控えに書く（盤面を読む
   確かめは settle）。{ok, done, phase, reason}
 - settle(st, repo, try_query): lanes の段の tdd-step（sandbox の外）。まとめ役が run の作業ツリーに書いた物を戻し、目録の順に
-  単位を締め（申し出の確かめ・direct・書き込みの記録の突き合わせ・3 方向で当てる・当てた中身と凍結の照らし・記録を写す）、
+  単位を締め（申し出の確かめ・direct・赤の確かめ直し（_red_again。控えの赤の記録は偽れるので、単位の頭の木と赤の時の
+  テストのファイルで名指しを回し直す）・書き込みの記録の突き合わせ・3 方向で当てる・当てた中身と凍結の照らし・記録を写す）、
   当てた後の木で緑をもう 1 度確かめ、単位の worktree を片付けて順の段へ進める。盤面に積む申し出の一覧を返す
 - unit_text(st, row): 下請けのファイルの「この単位の下請けの決まり」の節（支度 tddloop.prep が fixrules.tdd_lane_render に渡す）
 """
@@ -255,7 +256,8 @@ def settle(st: dict, repo, try_query=None) -> list:
             else:
                 back[k] = {"why": f"並べで段の確かめを諦めた（{u.get('gave_up')}）: {(u.get('why') or '')[:300]}"}
         elif u.get("green") == "ok":
-            why, patch = _merge(st, repo, row, lst, u, log, work)
+            why = _red_again(st, row, lst, u, work)
+            why, patch = (why, "") if why else _merge(st, repo, row, lst, u, log, work)
             if why:
                 back[k] = {"why": why, **({"patch": patch} if patch else {})}
             else:
@@ -291,6 +293,34 @@ def settle(st: dict, repo, try_query=None) -> list:
 def _record(u: dict) -> dict:
     """単位の控えの行を輪の状態の行に（赤の回の結末は持ち込まない）"""
     return {f: v for f, v in u.items() if f != "red_run"}
+
+
+def _red_again(st, row, lst, u, work) -> str:
+    """赤を sandbox の外で確かめ直す（控えの赤の記録は下請けが書ける所に在る）。単位の worktree を、単位の頭の木に赤の時の
+    テストのファイル（凍結で今の中身と同じ）だけを置いた姿にして名指しだけを回し、写しの red_problems と記録の赤の種類で照らす。
+    回した後は worktree を元の姿に戻す。通れば空、記録どおりに落ちなければ戻す理由"""
+    tree = pathlib.Path(row["tree"])
+    tests, files = list(u.get("tests") or []), list(u.get("test_files") or [])
+    if not tests:
+        return "赤の記録に名指しのテストが無い（赤を確かめ直せない）"
+    now = tddloop.hashes(tree, files)
+    if any(now[f] != (u.get("test_hashes") or {}).get(f) for f in files):
+        return "テストのファイルの中身が赤の記録と違う（赤を確かめ直せない）"
+    final = tddloop.snapshot(tree)
+    try:
+        tddloop.restore_paths(tree, lst["unit_head"], set(tddloop.touched(tree, lst["unit_head"], final)) - set(files))
+        cases, code, why = tddloop.run_suite(lst["exe"], tree, work, f"lane-{row['n']}-red", tddloop.abs_ids(tree, tests),
+                                             only=True)
+    finally:
+        tddloop.restore(tree, final)
+    if cases is None:
+        return "赤を確かめ直す実行器が走らない（" + "; ".join(why)[:300] + "）"
+    probs = tddloop.rules().red_problems(tests, cases, code, st["baseline"])
+    if not probs:
+        kinds = {t: tddloop.red_kind(tddloop.rules().match_case(t, cases) or {}) for t in tests}
+        probs = [f"{t}: 赤の種類 {kinds[t]}（記録は {k}）" for t, k in (u.get("red_kinds") or {}).items() if kinds.get(t) != k]
+    return ("赤の記録を機械が確かめ直すと再現しない（単位の頭の木に赤の時のテストだけを置いて名指しを回した）: "
+            + probs[0][:300]) if probs else ""
 
 
 def _merge(st, repo, row, lst, u, log, work) -> tuple[str, str]:

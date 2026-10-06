@@ -310,6 +310,33 @@ class TestSettle(LaneCase):
             self.assertEqual((self.repo / name).read_text(encoding="utf-8"), SEED[name], name)
         self.assertIn("当てた後", st["lanes"]["back"][UA]["why"])
 
+    def test_forged_red_is_caught_at_close(self):
+        """赤の記録は下請けが書ける控えに在る（危険 1）: 締めが単位の頭の木に赤の時のテストのファイルだけを置いて名指しを
+        回し直し、記録どおりに落ちなければ当てずに順へ戻して理由を残す"""
+        self.route()
+        row = self.lane(UA)
+        tree = pathlib.Path(row["tree"])
+        passing = "\n    def test_two(self):\n        self.assertEqual(double(2) - double(0), 4)\n"   # 直す前から通る
+        (tree / "test_a.py").write_text(SEED["test_a.py"] + passing, encoding="utf-8")
+        lst = json.loads(pathlib.Path(row["state"]).read_text(encoding="utf-8"))   # 下請けが控えを手で書き換えた
+        lst["units"][UA].update(tests=[A_ID], test_files=["test_a.py"], red="ok", red_kinds={A_ID: "unknown"},
+                                test_hashes=tddloop.hashes(tree, ["test_a.py"]))
+        lst.update(phase="fix", tries=0)
+        pathlib.Path(row["state"]).write_text(json.dumps(lst, ensure_ascii=False), encoding="utf-8")
+        self.green(UA)
+        self.red(UB)
+        self.green(UB)
+        got = self.step({"phase": "lanes"})
+        self.assertEqual(got["phase"], "test")
+        st = self.st()
+        self.assertEqual(st["queue"][st["cur"]], UA)
+        self.assertIn("赤", st["lanes"]["back"][UA]["why"])
+        self.assertEqual((self.repo / "a.py").read_text(encoding="utf-8"), SEED["a.py"], "赤を確かめ直せない単位は当てない")
+        self.assertEqual((self.repo / "b.py").read_text(encoding="utf-8"), SEED["b.py"].replace("x * 3 + 1", "x * 3"))
+        out = {r["unit_key"]: r for r in st["lanes"]["out"]}   # 出口の lanes.units の元（輪が済むと exit_fields が出す）
+        self.assertEqual(out[UA]["outcome"], "serial")
+        self.assertIn("赤", out[UA]["why"])
+
     def test_direct_why_in_lane_is_direct(self):
         self.route()
         got = self.cmd(UA, {"phase": "test", "unit_key": UA, "direct_why": "設定だけの直しで先にテストを書けない"})
