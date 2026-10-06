@@ -98,7 +98,9 @@ ROLE_NODES = {
 EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge", ("blk-plan", "plan-revise"): "writer",
                ("blk-report", "report-write-cold"): "cold-reader", ("blk-structure", "structure-eye"): "blind-judge",
                ("blk-lens", "lens-silent-failure-hunter"): "silent-failure-hunter",
-               ("blk-judge", "judge-verify"): "judge"}   # 判定の裏取りの束ね役（線の木の段 3）は確かめる目で、本線の judge に当たる
+               ("blk-judge", "judge-verify"): "judge",   # 判定の裏取りの束ね役（線の木の段 3）は確かめる目で、本線の judge に当たる
+               # TDD の輪の並べの後の順の輪の役と、並べの枝の役（docs/plans/2026-10-07-lane-nodes.md）は p3.tdd_tests と同じ writer
+               ("blk-fix", "tdd-rest"): "writer", **{("blk-fix", f"tdd-lane-{n}"): "writer" for n in (1, 2, 3)}}
 
 
 def graph_run_by() -> dict:

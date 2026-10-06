@@ -47,13 +47,15 @@
     （_reached。元で通っていたテストの緑と消えたテストの照らしは、この回でファイルごと走ったモジュールで見る）。地図が引けない・
     分からない物が近くに在る（run_all）時は合図なしの一式。届かない試験・元の結末の外の試験は受け付け（selected_problems）と
     線の最後のテストの段（一式）が確かめる
-  - lanes（並べの周。口は節の script が渡す tddlanes。依頼 243 の並べの 2 段目。docs/plans/2026-10-06-tdd-parallel.md）: 形 g3 の輪（状態の lanes_on）で、振り分けの
-    直後に範囲の引ける tdd の枝（項目を共にする単位の組。範囲が重なってもよい。3 段目 docs/plans/2026-10-07-overlap-lanes.md）が
-    2 本以上なら、tddlanes.plan が枝ごとの worktree と控えを置いてこの段へ進める。支度は
-    まとめ役の指示書と枝の単位ごとの下請けのファイル（_write_lane_files）を書き、下請けは段のコマンド（tddlanes.run）でこの step を単位の
-    worktree に回す。この段の step は返答に依らず tddlanes.settle で締める（差分を当てて緑を確かめ直し、済まなかった単位は順に戻す）。
-    引き継ぎの節には並べで済んだ単位も並ぶ。出口の lanes に単位ごとの結末（枝の番号と合わせの結末）・重なりのファイル・
-    重なりの見込みと段のコマンドの呼び
+  - lanes（並べの周。口は節の script が渡す tddlanes。依頼 243 の並べ。docs/plans/2026-10-07-lane-nodes.md）: 形 g3 の輪（状態の
+    lanes_on）で、振り分けの直後に範囲の引ける tdd の枝（項目を共にする単位の組。範囲が重なってもよい）が 2 本以上なら、
+    tddlanes.plan が枝ごとの worktree と控えを置いてこの段へ進め、輪 tdd-loop はこの段で抜ける（step の出口の done が真・phase が
+    lanes。状態の done は偽のまま）。
+    この段の周は輪の外の節が回す: tdd-fork が枝の輪 tdd-lane-<n> を起こし（枝ごとに Archon の AI の節。包みが単位の worktree を
+    cwd に起こす）、枝の輪の確かめ（tddlanes.lane_step）がこの step を単位の worktree に回し、tdd-join（tddlanes.join）が差分を
+    当てて緑を確かめ直し、済まなかった単位を順の単位に戻して段 test へ進める（残りは輪 tdd-rest が順に回す）。この段の状態で
+    prep・step を呼ぶのは誤り（Broken）。引き継ぎの節には並べで済んだ単位も並ぶ。出口の lanes に単位ごとの結末（枝の番号と合わせの
+    結末）・重なりのファイル・重なりの見込みと枝の段の呼び
   拒めば同じ段のまま、理由は次の指示書（と reason_file）に載る。段ごとに RETRY_MAX 回目の拒否で諦める: test・fix は作業ツリーを
   単位の頭に戻して direct へ、refactor は緑の時の木に戻す。実行器が走らない・回数の上限に届いた時は、残りを全部 direct にして抜ける
   （輪は done の印で抜け、max_iterations に届いて落ちない。R50）
@@ -110,11 +112,13 @@ import leftovers  # noqa: E402
 from leftovers import Unreadable, git, git_names  # noqa: E402
 
 RULES_GRAPH = "review-loop-tdd.json"
-PHASES = ("route", "test", "fix", "refactor", "lanes")   # lanes は並べの周（tddlanes。g3 の振り分けの直後に 1 回だけ）
+PHASES = ("route", "test", "fix", "refactor", "lanes")   # lanes は並べの周（tddlanes。g3 の振り分けの直後に 1 回だけ。輪の外の節が回す）
 MAX_ITERATIONS = 40   # YAML の tdd-loop の max_iterations と同じ値（試験が縛る）。この周に届いたら残りを direct にして抜ける
 MIN_WHY = 10
 STATE, PROMPT, SUMMARY = "state.json", "next.md", "summary.md"
 UNIT_NODE = "tdd"   # 輪の役の印の名（包みの adapter.KEYED_NODES の 1 つ。単位の切れ目で会話を切る）
+REST_NODE = "tdd-rest"   # 並べの後に残りの単位を順に回す輪 tdd-rest の役の印の名（同じ支度・確かめ。KEYED_NODES の 1 つ）
+UNIT_NODES = (UNIT_NODE, REST_NODE)   # 支度が今の単位の鍵を書く印の名の全部
 NO_SUITE = "テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す"
 # 実行器への合図（env）: 1 なら後ろに足した試験（ファイル・node id）だけを走らせてよい（既定の一式を集めない）。輪の赤・緑の回だけが
 # 付ける（元の結末・受け付け・版の写しは付けない）。解かない実行器は無視してよい（一式に足して走らせても確かめは同じ）
@@ -535,7 +539,6 @@ RETURN = {
     "fix": '{"phase": "fix", "unit_key": "<今の単位>", "files": ["<直したファイル>"], "what": "<何をどう直したか>", '
            '"refactor": {"declared": true か false, "why": "<整える理由。declared が true なら 10 字以上>"}}',
     "refactor": '{"phase": "refactor", "unit_key": "<今の単位>", "what": "<何を整えたか。整える物が無ければそう書く>"}',
-    "lanes": '{"phase": "lanes"}',
 }
 RETURN_CONFLICT = ('どの段でも、緑にするためにテスト・依頼・コードのどれかを曲げるしかないと分かった単位は '
                    '{"phase": "conflict", "unit_key": "<単位>", "between": ["<パス>:<行>", "<パス>:<行>"], '
@@ -559,13 +562,6 @@ DO = {
            "refactor.declared が true の単位は申告なしでも来る）。",
     "refactor": "この段は、fix の段で申告した単位か、brief で申告した単位だけに来る。申告した所を緑のまま整えよ（テストのファイルは"
                 "変えない）。整える物が無くなっていれば何も変えずに返せ。変えたなら機械がもう 1 回緑を確かめる。",
-    "lanes": "下の「並べる枝」は、機械が枝（修正案の項目を共にする tdd の単位の組）ごとに切った単位の worktree で直す（範囲が"
-             "重なる枝も並べ、機械が後で 3 方向で合わせる）。並べる枝の単位の下請けを、下の「下請けの起こし方」の回ごとに Agent の"
-             "道具で起こせ（1 つのメッセージの呼びは同時に走る）。prompt は"
-             "それぞれ「ファイル <下請けのファイル> を Read で全部読み、その指示に従え」の 1 行だけにする。下請けは単位の worktree で"
-             "テスト → 赤 → 直し → 緑 → 整えを回し、段ごとに機械のコマンドで確かめる。全部の下請けが終わったら、返す JSON を返せ。"
-             "止まった・BLOCKED を返した下請けを起こし直すな（機械が残りを順の単位としてこの輪で 1 つずつ回す）。この段では作業ツリー"
-             "（cwd）を書くな（書いた物は機械が戻す）。下請けが下請けを起こすことは無い。",
 }
 # 平の run の fix・refactor の段（219 の前の文と、決まりの申告の行を読まない 1 文。形の名は役に渡さない）
 PLAIN_DO = {
@@ -592,12 +588,7 @@ def _briefs(board_dir: pathlib.Path) -> list:
 
 
 # 前に済んだ単位の引き継ぎ（依頼 243 の 2）。単位ごとに新しい会話で起こしても、前の単位が何を変えたかを会話の履歴でなく
-# 機械が状態から書いて渡す（prep の今の単位の節の後）
-# 並べの周のまとめ役の指示書の、下請けの起こし方（枝の中は順・単位ごとに新しい下請け。依頼 243 の並べの 3 段目）
-LANE_ROUNDS = ("下請けの起こし方: 回ごとに、各枝の次の単位の下請けを 1 つのメッセージの中で全部 Agent で起こす（同じメッセージの呼びは"
-               "同時に走る）。1 回目は各枝の 1 番目、全部が終わったら 2 番目の在る枝の 2 番目、と続ける。下請けは単位ごとに新しく起こし、"
-               "前の単位の下請けに続けさせない（前の単位の物は機械が書く引き継ぎのファイルで渡る）。下請けが「前の単位が済んでいない」と"
-               "終わった枝は、その後の回で起こさない。起こし直しはしない（済まなかった単位は機械が順に回す）")
+# 機械が状態から書いて渡す（prep の今の単位の節の後。並べの枝の 2 つ目からの単位の決まりのファイルにも）
 HANDOFF_HEAD = "## 前の単位の引き継ぎ（機械が状態から書いた物）"
 
 
@@ -624,7 +615,7 @@ def handoff_lines(st) -> list:
     return [HANDOFF_HEAD, "", "前の単位の直しは作業ツリーに在る（緑の木）。戻したり作り直したりするな。", ""] + rows + [""]
 
 
-def prep(state_file, values: dict | None = None, repo=None, lanes=None) -> dict:
+def prep(state_file, values: dict | None = None, repo=None) -> dict:
     """節 tdd-prep。今の段の指示書を組み（fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段の約束・run の値）、状態の
     置き場の next.md（full の写し）と隣の next.full.md・next.delta.md・next.variants.json に書き、{prompt_file} を返す。
     values は fixrules.TDD_VALUES の run の値（義務の単位は状態の物を使う。欠けは空）。repo は差分から変更の種類を選ぶ根（None は見ない）。
@@ -632,15 +623,14 @@ def prep(state_file, values: dict | None = None, repo=None, lanes=None) -> dict:
     「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える。
     盤面の修正の形（fixshape.shape_at。盤面の無い置き場は記録の無い盤面と同じ af）が座を載せる形なら、借りたスキルの座
     （seat.section）を載せる。形の控え・写しが壊れていれば Broken。
-    lanes は並べの口（tddlanes の module。節の script が渡す。tddlanes が tddloop を import するので、ここからは import しない）。
-    段 lanes の指示書は lanes が無ければ Broken。
-    書いた後に、包みが単位の切れ目で会話を切る鍵（_write_unit_key）を書く。単位が替わった周の役は新しい会話で起き（依頼 243 の 2）、
+    段 lanes（並べの周）の状態では Broken（その周は輪の外の枝の輪が回す。tddlanes.lane_prep）。
+    書いた後に、包みが単位の切れ目で会話を切る鍵（write_key。印 UNIT_NODES の全部）を書く。単位が替わった周の役は新しい会話で起き（依頼 243 の 2）、
     前の単位の物は引き継ぎの節（handoff_lines）だけで渡る"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-prep を呼ぶ番でない）")
-    if st["phase"] == "lanes" and lanes is None:
-        raise Broken("並べの周（段 lanes）の指示書を組む口（tddlanes）が渡されていない")
+    if st["phase"] == "lanes":
+        raise Broken("並べの周（段 lanes）は輪の外の枝の輪（tdd-lane-<n>）が回す（tdd-prep を呼ぶ番でない）")
     path = pathlib.Path(st["work"]) / PROMPT
     briefs = _briefs(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
     phase = st["phase"]
@@ -651,18 +641,6 @@ def prep(state_file, values: dict | None = None, repo=None, lanes=None) -> dict:
     if phase == "route":
         lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in _owed(st)] + [""]
         brief = planbrief.head_text(planbrief.for_units(briefs, _owed(st)), _owed(st))
-    elif phase == "lanes":
-        rows = st["lanes"]["rows"]
-        keys = [k for r in rows for k in r["unit_keys"]]
-        lines += ["## 並べる枝（枝ごとに単位の worktree 1 本。枝の中の単位は順に、単位ごとに新しい下請けで）", ""]
-        for r in rows:
-            lines += [f"- 枝 {r['n']}（単位の worktree {r['tree']}）:"]
-            lines += [f"  {j}. {k}: 下請けのファイル {f}" for j, (k, f) in enumerate(zip(r["unit_keys"], r["files"]), 1)]
-        lines += ["", LANE_ROUNDS, ""]
-        left = [k for k in st["queue"] if k not in keys]
-        if left:
-            lines += ["並べの後に順に回す tdd の単位（今は手を付けるな）: " + " / ".join(left), ""]
-        brief = planbrief.head_text(planbrief.for_units(briefs, keys), keys)
     else:
         u = st["units"][st["queue"][st["cur"]]]
         brief = planbrief.head_text(planbrief.for_units(briefs, [u["unit_key"]]), [u["unit_key"]])
@@ -698,33 +676,21 @@ def prep(state_file, values: dict | None = None, repo=None, lanes=None) -> dict:
         except fixrules.Unfilled as e:
             raise Broken(f"TDD の輪の指示書を組めない: {e}")
     fixrules.write_variants(path, repo, vals, build, n)
-    if phase == "lanes":
-        _write_lane_files(st, vals, briefs, seat_text, lang, lanes)
-    _write_unit_key(path.parent.parent, f"{path.parent.name}:{phase if phase in ('route', 'lanes') else st['queue'][st['cur']]}")
+    key = f"{path.parent.name}:{phase if phase == 'route' else st['queue'][st['cur']]}"
+    for node in UNIT_NODES:
+        write_key(adapter.session_key_path(str(path.parent.parent), node), key)
     return {"prompt_file": str(path)}
 
 
-def _write_lane_files(st, vals: dict, briefs: list, seat_text: str, lang: str, lanes) -> None:
-    """並べの周の下請けのファイル（目録の行の files。盤面の tdd-<k>/lane-<n>-<j>.md）を枝の単位ごとに書く（tddlanes.unit_text と
-    fixrules.tdd_lane_render。いつも全文。下請けは単位ごとに新しい会話で、枝の 2 つ目からの単位は段のコマンドが書く引き継ぎを読む）"""
-    for r in st["lanes"]["rows"]:
-        for j, (k, f) in enumerate(zip(r["unit_keys"], r["files"]), 1):
-            text = fixrules.tdd_lane_render({**vals, "open_units": json.dumps([k], ensure_ascii=False)}, lanes.unit_text(st, r, j),
-                                            title=f"# TDD の輪の 1 単位の下請け（並べ・枝 {r['n']} の {j} 番目・単位 {k}）",
-                                            brief=planbrief.head_text(planbrief.for_units(briefs, [k]), [k]), seat=seat_text,
-                                            lang=lang)
-            pathlib.Path(f).write_text(text, encoding="utf-8")
-
-
-def _write_unit_key(board_dir: pathlib.Path, key: str) -> None:
-    """包みが単位の切れ目で会話を切る鍵（UNIT_NODE の adapter.session_key_path）を書く（依頼 243 の 2）。鍵は輪の置き場の名と
-    今の単位（振り分けの段は route）。書けなければ古い鍵を消す（包みは鍵が読めない時に今どおり会話を継ぐ。会話を切るのは節約で
-    守りでないので、支度を止めない）"""
-    path = pathlib.Path(adapter.session_key_path(str(board_dir), UNIT_NODE))
+def write_key(path, key: str) -> None:
+    """包みが読む 1 行の印（run ごとの置き場の下）を書く: 単位の切れ目で会話を切る鍵（adapter.session_key_path。依頼 243 の 2。鍵は
+    輪の置き場の名と今の単位、振り分けの段は route）と、並べの枝の役の cwd の単位の worktree（adapter.lane_tree_path）。書けなければ
+    古い印を消す（鍵が読めない包みは今どおり会話を継ぎ、worktree の印が読めない包みは枝の役を起こさない。支度は止めない）"""
+    path = pathlib.Path(path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(" ".join(key.split()) + "\n", encoding="utf-8")
+        tmp.write_text(" ".join(key.splitlines()).strip() + "\n", encoding="utf-8")
         os.replace(tmp, path)
     except OSError:
         try:
@@ -1281,37 +1247,32 @@ def _conflict(st, reply, repo, try_query=None) -> tuple:
     return [], item
 
 
-def step(state_file, reply, repo, try_query=None, lanes=None) -> dict:
+def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
     """節 tdd-step。{ok（この返答を受けた）, done（輪を抜ける）, reason, phase（次の段）, conflict（止めた申し出の 1 件か None。
     節が盤面の控えに積む）, writes（書き込みの出どころの突き合わせの結果。節が盤面の trace に積む）}。
     申し出でない返答は、前の段の後から変わったファイルを書き込みの記録と欄 bash_writes に突き合わせてから段を確かめる。
     lanes は並べの口（tddlanes の module。節の script が渡す。tddloop からは import しない）: 状態の lanes_on が真なら振り分けの後に
-    lanes.plan、段 lanes は lanes.settle で締める。無ければ並べない（段 lanes の状態で無ければ Broken）。
+    lanes.plan（段 lanes へ進めば輪 tdd-loop は抜け、枝の輪と tdd-join が回す）。無ければ並べない。段 lanes の状態で呼べば Broken。
+    log は書き込みの記録（既定は repo の writes.sink。並べの枝の確かめは単位の worktree を repo に、run の作業ツリーの記録を渡す）。
     前の段の印（handoff）は突き合わせを通った時と、機械が木を単位の頭に戻して次の単位へ移った時（申し出・諦め）だけ進める（拒まれた
     返答の出し直しや、振り分けの段の申し出で、記録の無い書き込みを流さない）"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-step を呼ぶ番でない）")
     phase = st["phase"]
-    if phase == "lanes" and lanes is None:
-        raise Broken("並べの周（段 lanes）を締める口（tddlanes）が渡されていない")
+    if phase == "lanes":
+        raise Broken("並べの周（段 lanes）は輪の外の節（枝の輪と tdd-join）が回す（tdd-step を呼ぶ番でない）")
     t0, runs0 = time.monotonic(), st["runs"]   # 段ごとの呼び出しの記録（calls）の元。秒は書くだけで止める条件に使わない
     call = {"n": st["iterations"] + 1,
             "phase": "conflict" if isinstance(reply, dict) and reply.get("phase") == "conflict" else phase,
-            "unit_key": "" if phase in ("route", "lanes") else st["queue"][st["cur"]]}
+            "unit_key": "" if phase == "route" else st["queue"][st["cur"]]}
     item = None
     got = None
-    lane_items = []
-    if phase == "lanes":   # 並べの周は返答に依らず 1 回で締める（tddlanes.settle。まとめ役の拒否と出し直しは無い）
-        lane_items = lanes.settle(st, repo, try_query)
-        probs = []
-    elif isinstance(reply, dict) and reply.get("phase") != "conflict":
+    if isinstance(reply, dict) and reply.get("phase") != "conflict":
         moved = sorted(set(touched(repo, st["handoff"], snapshot(repo))) - set(st["suite_made"]))
-        got = writes.check(reply, repo, moved, writes.sink(repo))
+        got = writes.check(reply, repo, moved, writes.sink(repo) if log is None else pathlib.Path(log))
         reply = got.pop("reply")
-    if phase == "lanes":
-        pass
-    elif not isinstance(reply, dict):
+    if not isinstance(reply, dict):
         probs = ["返答が JSON のオブジェクトでない"]
     elif got and got["problems"]:
         probs = got["problems"]
@@ -1329,7 +1290,7 @@ def step(state_file, reply, repo, try_query=None, lanes=None) -> dict:
             probs = [st["note"]]
             call["phase"] = "runner"   # 機械の止まり（役の拒否と分ける）
         if phase == "route" and not probs and not st["done"] and st.get("lanes_on") and lanes is not None:
-            lanes.plan(st, repo)   # 範囲の引ける tdd の枝が 2 本以上なら枝ごとの worktree を切って段 lanes へ
+            lanes.plan(st, repo)   # 範囲の引ける tdd の枝が 2 本以上なら枝ごとの worktree を切って段 lanes へ（輪はここで抜ける）
     if probs and not st["done"]:
         st["tries"] += 1
         st["reason"] = "\n".join(f"- {p}" for p in probs)
@@ -1345,8 +1306,8 @@ def step(state_file, reply, repo, try_query=None, lanes=None) -> dict:
     st.setdefault("calls", []).append({**call, "ok": not probs, "runs": st["runs"] - runs0,
                                        "secs": round(time.monotonic() - t0, 1)})
     _save(state_file, st)
-    return {"ok": not probs, "done": st["done"], "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"],
-            "conflict": item, "conflicts": lane_items, "writes": got}
+    return {"ok": not probs, "done": st["done"] or st["phase"] == "lanes",   # 段 lanes は輪を抜けて枝の輪へ（状態は済んでいない）
+            "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"], "conflict": item, "writes": got}
 
 
 def _finish(st, repo) -> None:
@@ -1795,7 +1756,7 @@ def exit_fields(start_out: dict) -> dict:
            "test_cmd": {"gate": st.get("test_cmd_gate", GATE_OFF), "note": st.get("test_cmd_note", "")},
            "calls": st.get("calls", [])}
     lanes = st.get("lanes") or {}
-    if "out" in lanes:   # 並べの周を締めた run だけ（単位ごとの結末と段のコマンドの呼び）
+    if "out" in lanes:   # 並べの周を締めた run だけ（単位ごとの結末と枝の段の呼び）
         out["lanes"] = {"units": lanes["out"], "calls": lanes.get("calls", []), "reverted": lanes.get("reverted", []),
                         "shared": lanes.get("shared", []), "expect": lanes.get("expect", [])}
     return out

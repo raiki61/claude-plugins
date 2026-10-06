@@ -35,7 +35,7 @@ class MarkerCase(unittest.TestCase):
 
     def test_no_tree_write_flag(self):
         """旗 no-tree-write（包みが役の cwd の作業ツリーを書かせない。CI の任せ先の役。裁定 R56）を読み書きできる"""
-        self.assertEqual(node_marker.FLAGS, frozenset({"no-post", "no-tree-write", "isolated"}))
+        self.assertEqual(node_marker.FLAGS, frozenset({"no-post", "no-tree-write", "isolated", "lane"}))
         m = mark(SCHEMA, "ci", flags=("no-tree-write",))
         self.assertEqual(m["description"], "works-node: ci no-tree-write")
         self.assertEqual(parse(m["description"]), {"name": "ci", "cont": None, "flags": frozenset({"no-tree-write"})})

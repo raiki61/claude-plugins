@@ -100,7 +100,7 @@ HELD_ASK = ("控え {path} を Read で読め。直す義務は上の「読む�
             "plan_faces など）は、1 回目と今回を合わせた差分の全体について書け（控えの値から始めよ）。")
 HELD_WHY = "1 回目の修正の段で受け付けた返答の控えが在る（2 回目の修正の段）"
 KINDS = ("docs", "prompts", "config", "code")   # 変更の種類 → 節 evidence-<種類>
-PHASES = ("route", "test", "fix", "refactor", "lanes")   # lanes は並べの周のまとめ役（tddlanes）
+PHASES = ("route", "test", "fix", "refactor")   # TDD の輪の役の段（並べの枝の役は LANE_PHASES）
 # 種類の見分け（パスの形だけで決める。当たらない物は種類なし）
 PROMPT_DIRS = frozenset({"commands", "prompts", "agents", "skills", "rules", rulebook.CANON.parent.name})
 PROMPT_NAMES = frozenset({"CLAUDE.md", "AGENTS.md", "SKILL.md", "GEMINI.md"})
@@ -306,12 +306,13 @@ def tdd_render(values, phase, phase_text, *, title, reason="", kinds=None, prior
                   lang=lang)
 
 
-LANE_PHASES = ("test", "fix", "refactor")   # 並べの周の単位の下請けが 1 つの会話で回す段
+LANE_PHASES = ("test", "fix", "refactor")   # 並べの枝の役（tdd-lane-<n>）が 1 つの単位で回す段
 
 
 def tdd_lane_render(values, lane_text, *, title, brief="", seat="", lang="", kinds=None) -> str:
-    """並べの周の単位の下請けのファイルの中身（純粋。いつも全文）。並び: 題 → [brief の節] → 決まり（TDD の輪の役と同じ節）→
-    下請けの読み替え（tdd.md の節 tdd-lane）→ 3 段（LANE_PHASES）の約束 → この単位の決まり（tddlanes.unit_text）→ [言語の 1 行]"""
+    """並べの枝の単位の決まりのファイルの中身（純粋。いつも全文。単位の間は書き直さない）。並び: 題 → [brief の節] → 決まり（TDD の
+    輪の役と同じ節）→ 枝の役の読み替え（tdd.md の節 tdd-lane）→ 3 段（LANE_PHASES）の約束 → この単位の決まり（tddlanes.unit_text）
+    → [言語の 1 行]"""
     t = sections(TDD)
     phases = join([t["tdd-phase"], *(t[f"tdd-phase-{p}"] for p in LANE_PHASES), t["tdd-phase-all"]])
     return render("tdd", 1, tdd_parts(values, kinds, seat), before=[title, *([brief] if brief else [])],

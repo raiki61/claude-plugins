@@ -265,6 +265,27 @@ class RowCase(unittest.TestCase):
         r = self.row(make_db(self.tmp), board)
         self.assertEqual((r["redo"]["battery_rejects"], r["gate_misses"]), (2, 3))
 
+    def test_lane_nodes_are_counted_against_the_lane_calls(self):
+        """並べの run（docs/plans/2026-10-07-lane-nodes.md）: tdd・tdd-rest の起動は輪の calls（締めの節 tdd-join の行 lanes を
+        除く）と、枝の役 tdd-lane-<n> の起動は枝の calls（状態の lanes.calls）と数え合わせる。枝の拒否も tdd_rejects に数える"""
+        calls = [{"n": 1, "phase": "route", "ok": True}, {"n": 2, "phase": "lanes", "ok": True},
+                 {"n": 3, "phase": "test", "ok": True}, {"n": 4, "phase": "fix", "ok": True}]
+        lane_calls = [{"n": 1, "phase": "test", "ok": False, "lane": 1}, {"n": 2, "phase": "test", "ok": True, "lane": 1},
+                      {"n": 1, "phase": "test", "ok": True, "lane": 2}]
+        board = make_board(self.tmp, shape="g3", items=2, calls=calls)
+        st_file = board / "tdd-1" / "state.json"
+        st = json.loads(st_file.read_text(encoding="utf-8"))
+        put(st_file, {**st, "lanes": {"calls": lane_calls, "out": []}})
+        lanes = [node("fixing__tdd-lane-loop-1.tdd-lane-1"), node("fixing__tdd-lane-loop-1.tdd-lane-1"),
+                 node("fixing__tdd-lane-loop-2.tdd-lane-2")]
+        rest = [node("fixing__tdd-rest-loop.tdd-rest") for _ in range(2)]
+        r = self.row(make_db(self.tmp, events=[*tdd_nodes(1), *lanes, *rest]), board)
+        self.assertEqual(r["record_gaps"], [])
+        self.assertEqual(r["redo"]["tdd_rejects"], 1)
+        r = self.row(make_db(self.tmp, path=self.tmp / "short.db", events=[*tdd_nodes(1), *lanes[:2], *rest]), board)
+        self.assertEqual(len(r["record_gaps"]), 1, r["record_gaps"])
+        self.assertIn("tdd-lane-", r["record_gaps"][0])
+
     def test_row_without_shape_record_is_a_gap(self):
         board = make_board(self.tmp, start={"test_cmd": ""})
         r = self.row(make_db(self.tmp), board)
@@ -676,6 +697,18 @@ class WaitCase(unittest.TestCase):
         self.assertEqual(got["stages"]["fix"], {"batches": [{"n": 2, "max": 40.0, "mean": 30.0, "loss": 10.0}], "loss": 10.0})
         self.assertNotIn("plan-review", got["stages"])
         self.assertEqual(got["total"], 40.0)
+
+    def test_lane_loops_are_one_batch_per_include(self):
+        """TDD の輪の並べの枝は Archon の節（tdd-lane-loop-<n>）: 同じ include の枝の輪の時間を 1 束にして段 tdd-lanes に足す"""
+        events = [node("fixing__tdd-lane-loop-1", ms=90000, kind="loop_group"), node("fixing__tdd-lane-loop-2", ms=30000,
+                                                                                     kind="loop_group"),
+                  node("refitting__tdd-lane-loop-1", ms=10000, kind="loop_group"), node("fixing__tdd-loop", ms=5000, kind="loop_group"),
+                  {"event_type": "node_completed", "step_name": "fixing__tdd-lane-loop-3", "data": {}}]   # 時間の無い輪は数えない
+        batches = fixmeasure.lane_wait(events)
+        self.assertEqual(batches, [{"n": 2, "max": 90.0, "mean": 60.0, "loss": 30.0}, {"n": 1, "max": 10.0, "mean": 10.0, "loss": 0.0}])
+        got = fixmeasure.with_lanes({"verified": False, "stages": {"fix": {"batches": [], "loss": 5.0}}, "total": 5.0}, batches)
+        self.assertEqual((got["stages"]["tdd-lanes"]["loss"], got["total"]), (30.0, 35.0))
+        self.assertEqual(fixmeasure.with_lanes({"stages": {}, "total": 0.0}, []), {"stages": {}, "total": 0.0})
 
     def test_cli_wait(self):
         db = timed_db(self.tmp, [("s.tdd", "a", "started", 0), ("s.tdd", "a", "completed", 9)])

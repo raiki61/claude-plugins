@@ -125,16 +125,18 @@ class TestBlockYaml(unittest.TestCase):
     def test_nodes_and_loop(self):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
-                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop",
-                          "clean", "assert-changed", "fix-reads", "collect"])
+                         ["ignored-before", "tdd-start", "tdd-loop", "tdd-fork", "tdd-lane-loop-1", "tdd-lane-loop-2",
+                          "tdd-lane-loop-3", "tdd-join", "tdd-rest-loop", "fix-loop", "conflict-check", "rule-loop",
+                          "fix-ruled-loop", "clean", "assert-changed", "fix-reads", "collect"])
         # TDD の輪の節は test_blk_fix_tdd、食い違いの申し出の 3 節は test_blk_fix_conflict が見る
-        before, _start, _tdd, loop, _check, _rule, _ruled, clean, changed, reads, collect = nodes
+        before, _start, _tdd, _fork, _l1, _l2, _l3, _join, _rest, loop, _check, _rule, _ruled, clean, changed, reads, collect = nodes
         self.assertEqual((reads["script"], reads["depends_on"]), ("reads", ["assert-changed"]))
         self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]'})
         self.assertNotIn("depends_on", before)
         self.assertNotIn("with", before)
         self.assertEqual(before["script"], "ignored_before")
-        self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop"], "控えは修正役より前（tdd-start が ignored-before の後）")
+        self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop"],
+                         "控えは修正役より前（tdd-start が ignored-before の後）")
         self.assertEqual(clean["script"], "clean")
         self.assertEqual(clean["depends_on"], ["fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop"])
         self.assertEqual(collect["with"]["cleaned"], {"from": "$clean.output"})
@@ -330,7 +332,8 @@ class TestBlockYaml(unittest.TestCase):
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         # tdd は test_blk_fix_tdd、conflict（食い違いの申し出の筋書き）は test_blk_fix_conflict が見る
-        self.assertEqual(set(fx), {"pass.stubs.yaml", "no-change.stubs.yaml", "tdd.stubs.yaml", "conflict.stubs.yaml"})
+        self.assertEqual(set(fx), {"pass.stubs.yaml", "no-change.stubs.yaml", "tdd.stubs.yaml", "tdd-lanes.stubs.yaml",
+                                   "conflict.stubs.yaml"})
         fx.pop("conflict.stubs.yaml")
         for name, f in fx.items():
             with self.subTest(name):

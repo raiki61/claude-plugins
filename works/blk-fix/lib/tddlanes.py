@@ -1,16 +1,18 @@
-"""TDD の輪の単位を、枝ごとの単位の worktree で並べる（blk-fix。依頼 243 の並べの 2 段目と 3 段目。設計
-docs/plans/2026-10-06-tdd-parallel.md・docs/plans/2026-10-07-overlap-lanes.md）。分け方・切る・段のコマンド・締めるを機械が持ち、
-AI（まとめ役）は単位の下請けを起こすだけ。赤・緑の確かめは tddloop.step をそのまま単位の worktree で回す（決まりを写さない）。
+"""TDD の輪の単位を、枝ごとの単位の worktree で並べる（blk-fix。依頼 243 の並べの 2 段目・3 段目と、枝を Archon の節にした 4 段目。
+設計 docs/plans/2026-10-06-tdd-parallel.md・docs/plans/2026-10-07-overlap-lanes.md・docs/plans/2026-10-07-lane-nodes.md）。
+分け方・枝ごとの支度と確かめ・締めるを機械が持ち、AI は枝ごとの役の節（tdd-lane-<n>。枝の単位の worktree を cwd に包みが起こす）が
+単位の段を 1 回の返答で 1 つずつ返す。赤・緑の確かめは tddloop.step をそのまま単位の worktree で回す（決まりを写さない）。
 
 語:
 - 枝: 並べの 1 本。修正案の項目を共にする tdd の単位の組（groups。単位が項目に無ければ 1 単位 1 枝）。枝ごとに単位の worktree を
-  1 本切り、枝の中の単位は振り分けの順に 1 つずつ、単位ごとに新しい下請けで直す（新しい会話の決まり。前の単位の物は機械が書く
-  引き継ぎのファイルで渡る）。範囲（ranges）の引けない単位を含む枝は順。範囲が重なる枝も並べ、当てる所で食い違った枝だけ順に戻す
-- 単位の控え: 枝ごとの tddloop の状態（枝の単位だけ）。run ごとの置き場の <tdd-<k>>/lanes/lane-<n>/state.json（下請けの
-  sandbox が書ける所）。隣に objects（段のコマンドが書く git の object）・reply.json（下請けが段の返答を書く）・handoff-<j>.md
-  （枝の j 番目の単位への引き継ぎ。段のコマンドが前の単位の済んだ時に書く）。単位ごとの頭の木を unit_heads に、枝の頭を lane_base に持つ
-- 目録（manifest）: 盤面の tdd-<k>/lanes.json {repo, base, place, rows: [{n, unit_keys, tree, git, state, reply, files}]}。git は
-  単位の worktree の `.git` の 1 行、files は枝の単位ごとの下請けのファイル（盤面の tdd-<k>/lane-<n>-<j>.md）。役は書けない
+  1 本切り、枝の中の単位は振り分けの順に 1 つずつ直す。単位が替わると包みが新しい会話で起こす（支度が書く単位の鍵。前の単位の物は
+  指示書の引き継ぎの節で渡る）。範囲（ranges）の引けない単位を含む枝は順。範囲が重なる枝も並べ、当てる所で食い違った枝だけ順に戻す。
+  枝は MAX_LANES 本まで（YAML の枝の輪 tdd-lane-1..MAX_LANES と同じ数）で、それより後の枝の単位は順
+- 枝の輪: YAML の loop_group tdd-lane-<n>（支度 tdd-lane-prep-<n> → 役 tdd-lane-<n> → 確かめ tdd-lane-step-<n>）。枝どうしは同時に走る
+- 単位の控え: 枝ごとの tddloop の状態（枝の単位だけ）。run ごとの置き場の <tdd-<k>>/lanes/lane-<n>/state.json。単位ごとの頭の木を
+  unit_heads に、枝の頭を lane_base に持つ
+- 目録（manifest）: 盤面の tdd-<k>/lanes.json {repo, base, place, rows: [{n, unit_keys, tree, git, state, files}]}。git は
+  単位の worktree の `.git` の 1 行、files は枝の単位ごとの決まりのファイル（盤面の tdd-<k>/lane-<n>-<j>.md）。役は書けない
 - 重なりのファイル（shared）: 当てた枝のうち 2 本以上の差分に出たファイル。合わせの結末（merge）は枝ごとに clean・union（試験の
   ファイルの挿しだけの食い違いを合わせた）・conflict（字の食い違い）・semantic（合わせた木で赤くなり後の枝を落とした）
 - 戻す: 並べで済まなかった単位を順の単位として最初の段から回し直す（direct にしない）
@@ -20,29 +22,29 @@ AI（まとめ役）は単位の下請けを起こすだけ。赤・緑の確か
   空なら None）。盤面が開けなければ {}
 - items_of(board_dir, keys): 単位 → 単位を持つ修正案の項目の番号の並び（planbrief.by_unit_at）。盤面が開けなければ {}
 - groups(queue, items): 単位を項目を共にする物どうしの組に（純粋。振り分けの順）
-- plan(st, repo): 振り分けの後（tddloop.step）。並べる枝が 2 本以上なら単位の worktree と単位の控えと目録を置き、状態の段を
-  lanes にして真。ほかは何もせず偽
-- command_line(manifest, n, reply, j): 下請けが Bash で走らせる段のコマンドの 1 行（この節の python の絶対パス。j は枝の中の単位の番）
-- run(manifest, n, reply, j=None): 段のコマンドの中身（下請けの sandbox の中）。単位の worktree の `.git` の 1 行を確かめ、git の新しい
-  object を単位の置き場に書く env の下で tddloop.step を単位の控えに回す。j の単位が枝の今の単位でなければ回さない。単位が済んで
-  枝の次の単位へ移ったら、次の単位の頭を控えに残し、引き継ぎのファイルを書く。食い違いの申し出は確かめずに控えに書く（盤面を読む
-  確かめは settle）。{ok, done（この下請けの単位が済んだ）, phase, reason}
-- settle(st, repo, try_query): lanes の段の tdd-step（sandbox の外）。まとめ役が run の作業ツリーに書いた物を戻し、目録の順に
-  枝を締める（単位ごとの申し出の確かめ・direct・赤の確かめ直し（_red_again。控えの赤の記録は偽れるので、単位の頭の木と赤の時の
-  テストのファイルで名指しを回し直す）・書き込みの記録の突き合わせ・3 方向で当てる（試験のファイルの挿しだけの食い違いは合わせる）・
-  当てた中身と名指しのテストの照らし）、当てた後の木で緑をもう 1 度確かめ（重なりのファイルを起点に広げる。赤なら後の枝を落として
-  1 回だけ確かめ直す）、記録を写し、単位の worktree を片付けて順の段へ進める。盤面に積む申し出の一覧を返す
-- unit_text(st, row, j): 下請けのファイルの「この単位の下請けの決まり」の節（支度 tddloop.prep が fixrules.tdd_lane_render に渡す）
+- plan(st, repo): 振り分けの後（tddloop.step）。並べる枝が 2 本以上なら（MAX_LANES 本まで）単位の worktree と単位の控えと目録を置き、
+  状態の段を lanes にして真（輪 tdd-loop はこの段で抜ける）。ほかは何もせず偽
+- fork(state_file): 節 tdd-fork。枝の輪を起こすか {go, lanes, lane_1..lane_<MAX_LANES>}（状態の段が lanes の時だけ go）
+- lane_prep(state_file, n, values): 節 tdd-lane-prep-<n>。枝 n の今の単位の決まりのファイルと回ごとの指示書を書き、包みが読む
+  2 つの印（単位の鍵 adapter.session_key_path と単位の worktree adapter.lane_tree_path）を run ごとの置き場に置く
+- lane_step(state_file, n, reply, repo): 節 tdd-lane-step-<n>。役の返答で単位の worktree の段を tddloop.step で確かめる（書き込みの
+  出どころは run の作業ツリーの記録 writes.sink(repo) と突き合わせる）。食い違いの申し出は確かめずに控えに書く（盤面を読む確かめは
+  settle）。{ok, done（枝の単位が全部済んだ）, phase, reason, unit_key}
+- join(state_file, repo, try_query): 節 tdd-join。settle で締め、輪の呼びの記録を 1 行足して状態を保存する。{go（順に回す単位が残る）,
+  done, phase, merged, back, conflicts（盤面に積む申し出）}
+- settle(st, repo, try_query): 目録の順に枝を締める（単位ごとの申し出の確かめ・direct・赤の確かめ直し（_red_again。控えの赤の記録は
+  確かめの節の外でも書き換えうるので、単位の頭の木と赤の時のテストのファイルで名指しを回し直す）・書き込みの記録の突き合わせ・
+  3 方向で当てる（試験のファイルの挿しだけの食い違いは合わせる）・当てた中身と名指しのテストの照らし）、当てた後の木で緑をもう 1 度
+  確かめ（重なりのファイルを起点に広げる。赤なら後の枝を落として 1 回だけ確かめ直す）、記録を写し、単位の worktree を片付けて順の段へ
+  進める。run の作業ツリーに書かれた物は戻す（枝の役は包みの柵で書けないが、受け止めとして）。盤面に積む申し出の一覧を返す
+- unit_text(st, row, j): 枝 n の j 番目の単位の決まりのファイルの「この単位の決まり」の節（lane_prep が fixrules.tdd_lane_render に渡す）
 """
 from __future__ import annotations
 
-import contextlib
 import json
-import os
 import pathlib
-import shlex
-import subprocess
 import sys
+import time
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように（必ず import より前）
 
@@ -51,32 +53,34 @@ for _p in (_HERE.parents[1] / ".shared" / "core", _HERE):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of）
+import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of・包みが読む 2 つの印の置き場）
 import conflict  # noqa: E402
 import entry  # noqa: E402
-import fixrules  # noqa: E402  （項目の範囲 item_ranges）
+import fixrules  # noqa: E402  （項目の範囲 item_ranges・決まりのファイルの組み立て）
+import fixshape  # noqa: E402  （盤面の修正の形。座）
 import planbrief  # noqa: E402
+import seat  # noqa: E402  （借りたスキルの座）
 import tddloop  # noqa: E402
-import tree_run  # noqa: E402  （試験へ渡さない git の object の置き場の印 LANE_GIT_ENV）
 import unitlanes  # noqa: E402  （分け方 lanes・切る plant・patch の行先 _names・中身の比べ _same。1 段目の物をそのまま）
 import unittrees  # noqa: E402
 import writes  # noqa: E402
 from board import BoardGap  # noqa: E402
 
+MAX_LANES = 3               # 枝の輪の数（YAML の tdd-lane-1..3 と包みの adapter.KEYED_NODES の tdd-lane-<n>。試験が縛る）
+LANE_NODE = "tdd-lane-{n}"  # 枝 n の役の節の印の名（包みが単位の worktree を cwd に起こし、単位の切れ目で会話を切る）
 MANIFEST = "lanes.json"     # 目録（盤面の tdd-<k>/。共有の記録 tdd-*/**）
-LANE_FILE = "lane-{n}-{j}.md"   # 下請けのファイル（盤面の tdd-<k>/。枝 n の j 番目の単位）
-HANDOFF = "handoff-{j}.md"  # 枝の j 番目の単位への引き継ぎ（単位の控えの隣。段のコマンドが書く）
+LANE_FILE = "lane-{n}-{j}.md"   # 枝 n の j 番目の単位の決まりのファイル（盤面の tdd-<k>/。単位の間は書き直さない）
+LANE_NEXT = "lane-{n}.next.md"  # 枝 n の回ごとの指示書（盤面の tdd-<k>/。今の段・前の回を拒んだ理由）
 KEPT = "lanes"              # 戻した枝の前の試みの差分の置き場（盤面の tdd-<k>/lanes/item-<n>.patch）
 PLACE = "lanes"             # 単位の worktree と控えの置き場（run ごとの置き場の <tdd-<k>>/lanes）
-LANE_DIR, REPLY, OBJECTS = "lane-{n}", "reply.json", "objects"
+LANE_DIR = "lane-{n}"
 MERGED, DIRECT, PARKED, BACK = "merged", "direct", "parked", "serial"
 CLEAN, UNION, CLASH, SEMANTIC = "clean", "union", "conflict", "semantic"   # 枝ごとの合わせの結末（頭の語）
-NOT_YET = "この枝の前の単位がまだ済んでいない（段を回さない。この単位は機械が順に戻す）"
-PASSED = "この単位の段はもう済んでいる（もう走らせるな）"
 
 
-class LaneBroken(Exception):
-    """段のコマンドを回せない（目録・控えが読めない・単位の worktree の `.git` の指しが切った時と違う）。コマンドは 2 で落ちる"""
+def lane_nodes() -> list:
+    """枝の役の節の印の名の全部（tdd-lane-1..MAX_LANES）"""
+    return [LANE_NODE.format(n=n) for n in range(1, MAX_LANES + 1)]
 
 
 def ranges(board_dir, keys) -> dict:
@@ -138,7 +142,7 @@ def plan(st: dict, repo) -> bool:
     got = ranges(work.parent, queue)
     grps = groups(queue, items_of(work.parent, queue))
     spans = [(i, _span(got, g)) for i, g in enumerate(grps, 1)]
-    picked = unitlanes.lanes(spans)
+    picked = unitlanes.lanes(spans)[:MAX_LANES]   # 枝の輪の数まで。後ろの枝の単位は順
     if not picked:
         return False
     chosen = [grps[i - 1] for i in picked]
@@ -151,11 +155,10 @@ def plan(st: dict, repo) -> bool:
     for n, keys in zip(ns, chosen):
         tree = pathlib.Path(trees[n]["tree"])
         lane = place / LANE_DIR.format(n=n)
-        (lane / OBJECTS).mkdir(parents=True, exist_ok=True)
+        lane.mkdir(parents=True, exist_ok=True)
         state = lane / tddloop.STATE
         tddloop._save(state, _lane_state(st, repo, keys, tree, lane))
         rows.append({"n": n, "unit_keys": list(keys), "tree": str(tree), "git": unitlanes._git_line(tree), "state": str(state),
-                     "reply": str(lane / REPLY),
                      "files": [str(work / LANE_FILE.format(n=n, j=j)) for j in range(1, len(keys) + 1)]})
     tddloop.save_json(manifest, {"repo": str(repo), "base": base, "place": str(place), "rows": rows})
     expect = unitlanes.expect([(n, spans[i - 1][1]) for n, i in zip(ns, picked)])
@@ -190,116 +193,183 @@ def _lane_state(st: dict, repo, keys, tree: pathlib.Path, lane: pathlib.Path) ->
             "declared": [], "conflict": None, "lanes_on": False, "lane_base": head, "unit_heads": {keys[0]: head}}
 
 
-def command_line(manifest, n, reply, j=1) -> str:
-    """下請けが Bash で走らせる 1 行。python は支度の節の物（役の sandbox の python3 は 3.9 のことがある）"""
-    return " ".join(shlex.quote(str(x)) for x in (sys.executable, pathlib.Path(__file__).resolve(), manifest, n, reply, j))
+# ---------------------------------------------------------------- 枝の輪を起こすか（節 tdd-fork）
+def fork(state_file) -> dict:
+    """{go, lanes, lane_1..lane_<MAX_LANES>}。状態のファイルが空（実行器の無い run）・段が lanes でなければ go: false"""
+    out = {"go": False, "lanes": 0, **{f"lane_{n}": False for n in range(1, MAX_LANES + 1)}}
+    if not state_file:
+        return out
+    st = tddloop._load(state_file)
+    if st.get("done") or st.get("phase") != "lanes":
+        return out
+    rows = (st.get("lanes") or {}).get("rows") or []
+    ns = [r.get("n") for r in rows]
+    if not rows or ns != list(range(1, len(rows) + 1)) or len(rows) > MAX_LANES:
+        raise tddloop.Broken(f"並べの目録の枝の番号が 1..{MAX_LANES} の連番でない（{ns}）")
+    out.update(go=True, lanes=len(rows), **{f"lane_{n}": True for n in ns})
+    return out
 
 
-def _row(manifest, n) -> dict:
-    try:
-        doc = json.loads(pathlib.Path(manifest).read_text(encoding="utf-8"))
-        return next(r for r in doc["rows"] if str(r["n"]) == str(n))
-    except (OSError, ValueError, KeyError, TypeError, StopIteration) as e:
-        raise LaneBroken(f"目録 {manifest} に枝 {n} が読めない（{type(e).__name__}: {e}）") from None
+# ---------------------------------------------------------------- 枝の輪の中（節 tdd-lane-prep-<n>・tdd-lane-step-<n>）
+def _lane(st: dict, n) -> dict:
+    """状態の目録の枝 n の行。段が lanes でない・枝が無ければ Broken"""
+    if st.get("phase") != "lanes" or not st.get("lanes"):
+        raise tddloop.Broken(f"並べの周でない（段 {st.get('phase')!r}）——枝の輪は tdd-fork が起こした時だけ回る")
+    row = next((r for r in st["lanes"]["rows"] if str(r["n"]) == str(n)), None)
+    if row is None:
+        raise tddloop.Broken(f"並べの目録に枝 {n} が無い")
+    return row
 
 
-@contextlib.contextmanager
-def _env(want: dict):
-    """want の env の下で回し（ARTIFACTS_DIR は落とす。盤面の待ちの印を書かない）、出る時に元に戻す"""
-    keep = {k: os.environ.get(k) for k in (*want, "ARTIFACTS_DIR")}
-    os.environ.update(want)
-    os.environ.pop("ARTIFACTS_DIR", None)
-    try:
-        yield
-    finally:
-        for k, v in keep.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-
-
-def _lane_git(tree: pathlib.Path, objects: pathlib.Path):
-    """この中の git は新しい object を objects に書き、共通の objects を代わりの置き場として読む（共通の .git を書かない）。
-    試験には渡さない（印 tree_run.LANE_GIT_ENV）"""
-    common = subprocess.run(["git", "-C", str(tree), "rev-parse", "--path-format=absolute", "--git-path", "objects"],
-                            capture_output=True, text=True, encoding="utf-8", check=True).stdout.strip()
-    return _env({"GIT_OBJECT_DIRECTORY": str(objects), "GIT_ALTERNATE_OBJECT_DIRECTORIES": common, tree_run.LANE_GIT_ENV: "1"})
-
-
-def _lane_read(row: dict):
-    """締め（sandbox の外）の中の git が、段のコマンドが単位の置き場に書いた object（枝の 2 つ目からの単位の頭の木など）も
-    読めるようにする。新しい object は共通の objects に書く。試験には渡さない（印 tree_run.LANE_GIT_ENV）"""
-    objects = pathlib.Path(row["state"]).parent / OBJECTS
-    return _env({"GIT_ALTERNATE_OBJECT_DIRECTORIES": str(objects), tree_run.LANE_GIT_ENV: "1"})
-
-
-def run(manifest, n, reply_file, j=None) -> dict:
-    """段のコマンドの中身（頭の注記）"""
-    row = _row(manifest, n)
+def _tree_ok(row: dict) -> str:
+    """単位の worktree の `.git` の 1 行が切った時と同じなら空、違えば理由"""
     tree = pathlib.Path(row["tree"])
-    if not row.get("git") or unitlanes._git_line(tree) != row["git"]:
-        raise LaneBroken(f"単位の worktree {tree} の .git の指しが切った時と違う（段を回さない）")
+    if row.get("git") and unitlanes._git_line(tree) == row["git"]:
+        return ""
+    return f"単位の worktree {tree} の .git の指しが切った時と違う（段を回さない。この枝の単位は機械が順に戻す）"
+
+
+def lane_prep(state_file, n, values: dict | None = None) -> dict:
+    """節 tdd-lane-prep-<n>（頭の注記）。{prompt_file}"""
+    st = tddloop._load(state_file)
+    row = _lane(st, n)
+    why = _tree_ok(row)
+    if why:
+        raise tddloop.Broken(why)
+    lst = tddloop._load(row["state"])
+    if lst["done"]:
+        raise tddloop.Broken(f"枝 {n} の単位は全部済んでいる（tdd-lane-prep を呼ぶ番でない）")
+    work = pathlib.Path(st["work"])
+    board_dir = work.parent
+    j = lst["cur"] + 1
+    k = lst["queue"][lst["cur"]]
+    vals = {**{x: "" for x in fixrules.TDD_VALUES}, **(values or {}), "open_units": json.dumps([k], ensure_ascii=False)}
+    briefs = tddloop._briefs(board_dir)
     try:
-        reply = json.loads(pathlib.Path(reply_file).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        reply = None   # 読めない返答は step が拒む（出し直しの回数に数える）
-    state = pathlib.Path(row["state"])
-    with _lane_git(tree, state.parent / OBJECTS):
-        lst = tddloop._load(state)
-        if j is not None:
-            j = int(j)
-            if not 1 <= j <= len(lst["queue"]):
-                raise LaneBroken(f"枝 {n} に {j} 番目の単位は無い（単位は {len(lst['queue'])} つ）")
-            if lst["done"] or lst["cur"] > j - 1:
-                return {"ok": False, "done": True, "phase": "done", "reason": PASSED}
-            if lst["cur"] < j - 1:
-                return {"ok": False, "done": True, "phase": "done", "reason": NOT_YET}
-        elif lst["done"]:
-            return {"ok": False, "done": True, "phase": "done", "reason": PASSED}
-        if isinstance(reply, dict) and reply.get("phase") == "conflict":
-            return _park(state, lst, reply, tree)
-        items = reply.get(writes.FIELD) if isinstance(reply, dict) else None
-        cur = lst["cur"]
-        out = tddloop.step(state, reply, tree)
-        lst = tddloop._load(state)
-        if out["ok"] and items and not writes.shape_problems(items):
-            lst["declared"] = [*lst.get("declared", []), *items]
-        moved = lst["cur"] != cur
-        if moved and not lst["done"]:   # 枝の次の単位へ: 頭の木を残し、次の下請けへの引き継ぎを書く
-            lst.setdefault("unit_heads", {})[lst["queue"][lst["cur"]]] = lst["unit_head"]
-            _write_handoff(state.parent, lst["cur"] + 1, lst)
-        tddloop._save(state, lst)
-    finished = moved or lst["done"]
-    return {"ok": out["ok"], "done": finished, "phase": "done" if finished else out["phase"], "reason": out["reason"]}
+        seat_text = seat.section("tdd", fixshape.shape_at(board_dir))
+    except ValueError as e:
+        raise tddloop.Broken(f"TDD の輪の座を組めない: {e}") from None
+    brief_file = pathlib.Path(row["files"][j - 1])
+    text = fixrules.tdd_lane_render(vals, unit_text(st, row, j, lst),
+                                    title=f"# TDD の輪の並べの 1 単位（枝 {row['n']} の {j} 番目・単位 {k}）",
+                                    brief=planbrief.head_text(planbrief.for_units(briefs, [k]), [k]), seat=seat_text,
+                                    lang=fixrules.lang_at(board_dir))
+    brief_file.write_text(text, encoding="utf-8")
+    prompt = work / LANE_NEXT.format(n=row["n"])
+    prompt.write_text(_next_text(row, lst, j, k, brief_file), encoding="utf-8")
+    node = LANE_NODE.format(n=row["n"])
+    tddloop.write_key(adapter.session_key_path(str(board_dir), node), f"{work.name}:lane-{row['n']}:{k}")
+    tddloop.write_key(adapter.lane_tree_path(str(board_dir), node), row["tree"])
+    return {"prompt_file": str(prompt)}
 
 
-def _write_handoff(lane: pathlib.Path, j: int, lst: dict) -> None:
-    """枝の j 番目の単位の下請けへの引き継ぎ（前の単位の key・直したファイル・緑にしたテスト。tddloop.handoff_lines）"""
-    lines = tddloop.handoff_lines(lst) or [tddloop.HANDOFF_HEAD, "", "（前の単位の記録は無い）", ""]
-    (lane / HANDOFF.format(j=j)).write_text("\n".join(lines) + "\n", encoding="utf-8")
+def _next_text(row: dict, lst: dict, j: int, k: str, brief_file: pathlib.Path) -> str:
+    """回ごとの指示書（今の段・前の回を拒んだ理由・決まりのファイルの名指し）"""
+    phase = lst["phase"]
+    u = lst["units"][k]
+    fresh = phase == "test" and not lst["tries"] and not u.get("tests")
+    lines = [f"# TDD の輪の並べの回ごとの指示書（枝 {row['n']} の {j} 番目の単位・{lst['iterations'] + 1} 回目・段 {phase}）", ""]
+    if lst["reason"]:
+        lines += ["## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）", "", lst["reason"].rstrip("\n"), ""]
+    lines += ["## 読む物", "",
+              f"- この単位の決まり: {brief_file}——" + ("この単位の最初の回。Read で全部読め" if fresh else
+                                                     "この単位の間は書き直さない（この会話で読んでいなければ Read で全部読め）"),
+              "", "## 今の単位と段", "", f"- 単位: {k}", f"- 段: {phase}", "",
+              "## この段ですること", "", tddloop.PLAIN_DO.get(phase, tddloop.DO[phase]) if lst.get("plain") else tddloop.DO[phase], ""]
+    if phase in ("fix", "refactor") and lst.get("test_cmd_gate") == tddloop.GATE_ON and k not in lst.get("light", []):
+        lines += [f"緑の後に機械が run の test_cmd（`{lst['test_cmd']}`）も単位の worktree で走らせる。これも緑にせよ。", ""]
+    if u.get("tests"):
+        lines += [f"- 名指しのテスト: {', '.join(u['tests'])}", f"- テストのファイル（凍っている）: {', '.join(u['test_files'])}", ""]
+    lines += ["## 返す JSON", "", tddloop.RETURN[phase], "",
+              tddloop.RETURN_CONFLICT.replace("（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）", "（今の単位）"), "",
+              "返すのは上の形の JSON だけ。"]
+    return "\n".join(lines) + "\n"
+
+
+def lane_step(state_file, n, reply, repo) -> dict:
+    """節 tdd-lane-step-<n>（頭の注記）"""
+    st = tddloop._load(state_file)
+    row = _lane(st, n)
+    why = _tree_ok(row)
+    lst_file = pathlib.Path(row["state"])
+    if why:   # 枝を済みにして抜ける（輪を落とさない。締めが枝の単位を順に戻す）
+        try:
+            lst = tddloop._load(lst_file)
+            lst.update(done=True, note=why)
+            tddloop._save(lst_file, lst)
+        except tddloop.Broken:
+            pass
+        return {"ok": False, "done": True, "phase": "done", "reason": why, "unit_key": ""}
+    lst = tddloop._load(lst_file)
+    if lst["done"]:
+        raise tddloop.Broken(f"枝 {n} の単位は全部済んでいる（tdd-lane-step を呼ぶ番でない）")
+    tree = pathlib.Path(row["tree"])
+    k = lst["queue"][lst["cur"]]
+    if isinstance(reply, dict) and reply.get("phase") == "conflict":
+        return {**_park(lst_file, lst, reply, tree), "unit_key": k}
+    items = reply.get(writes.FIELD) if isinstance(reply, dict) else None
+    cur = lst["cur"]
+    out = tddloop.step(lst_file, reply, tree, log=writes.sink(repo))
+    lst = tddloop._load(lst_file)
+    if out["ok"] and items and not writes.shape_problems(items):
+        lst["declared"] = [*lst.get("declared", []), *items]
+    if lst["cur"] != cur and not lst["done"]:   # 枝の次の単位へ: 頭の木を残す（締めの赤の確かめ直しが単位ごとに使う）
+        lst.setdefault("unit_heads", {})[lst["queue"][lst["cur"]]] = lst["unit_head"]
+    tddloop._save(lst_file, lst)
+    return {"ok": out["ok"], "done": lst["done"], "phase": out["phase"], "reason": out["reason"], "unit_key": k}
 
 
 def _park(state: pathlib.Path, lst: dict, reply: dict, tree: pathlib.Path) -> dict:
     """食い違いの申し出: 欄と単位だけ見て控えに書き、木を今の単位の頭に戻して枝を済みにする（枝の後の単位は締めが順に戻す。
-    盤面を読む確かめは settle）"""
+    盤面を読む確かめは settle）。欄・単位が違えば拒む（同じ段の拒否に数える）"""
     k = lst["queue"][lst["cur"]]
     extra = sorted(set(reply) - {"phase", *conflict.FIELDS, conflict.CORRECT})
     if extra or reply.get("unit_key") != k:
         why = (f"食い違いの申し出の欄は phase と {list(conflict.FIELDS)}（query なら {conflict.CORRECT} も）だけ（{extra}）" if extra
-               else f"この下請けの単位は '{k}'（申し出の unit_key は {reply.get('unit_key')!r}）")
-        return {"ok": False, "done": False, "phase": lst["phase"], "reason": why}
+               else f"この枝の今の単位は '{k}'（申し出の unit_key は {reply.get('unit_key')!r}）")
+        lst["tries"] += 1
+        lst["reason"] = f"- {why}"
+        lst["iterations"] += 1
+        lst["calls"].append({"n": lst["iterations"], "phase": "conflict", "unit_key": k, "ok": False, "runs": 0, "secs": 0.0})
+        if lst["tries"] >= tddloop.retry_max():
+            tddloop._give_up(lst, tree, [why])
+            if lst["done"]:
+                tddloop._finish(lst, tree)
+        tddloop._save(state, lst)
+        return {"ok": False, "done": lst["done"], "phase": "done" if lst["done"] else lst["phase"], "reason": why}
     item = {f: reply.get(f) for f in conflict.FIELDS}
     if conflict.CORRECT in reply:
         item[conflict.CORRECT] = reply[conflict.CORRECT]
     tddloop.restore(tree, lst["unit_head"])
+    lst["iterations"] += 1
     lst.update(conflict=item, done=True)
-    lst["calls"].append({"n": lst["iterations"] + 1, "phase": "conflict", "unit_key": k, "ok": True, "runs": 0, "secs": 0.0})
+    lst["calls"].append({"n": lst["iterations"], "phase": "conflict", "unit_key": k, "ok": True, "runs": 0, "secs": 0.0})
     tddloop._save(state, lst)
     return {"ok": True, "done": True, "phase": "done", "reason": ""}
 
 
-# ---------------------------------------------------------------- 締める（lanes の段の tdd-step）
+# ---------------------------------------------------------------- 締める（節 tdd-join）
+def join(state_file, repo, try_query=None) -> dict:
+    """節 tdd-join（頭の注記）"""
+    st = tddloop._load(state_file)
+    if st.get("done") or st.get("phase") != "lanes" or not st.get("lanes"):
+        raise tddloop.Broken(f"並べの周でない（段 {st.get('phase')!r}）——tdd-join は枝の輪の後に 1 回だけ回る")
+    t0, runs0 = time.monotonic(), st["runs"]
+    items = settle(st, repo, try_query)
+    st["iterations"] += 1
+    if not st["done"] and st["iterations"] >= tddloop.MAX_ITERATIONS:
+        tddloop._abort(st, repo, f"TDD の輪の回数の上限（{tddloop.MAX_ITERATIONS} 回）に届いた", "budget")
+    if st["done"]:
+        tddloop._finish(st, repo)
+    st.setdefault("calls", []).append({"n": st["iterations"], "phase": "lanes", "unit_key": "", "ok": True,
+                                       "runs": st["runs"] - runs0, "secs": round(time.monotonic() - t0, 1)})
+    tddloop._save(state_file, st)
+    rows = st["lanes"]["out"]
+    return {"go": not st["done"], "done": st["done"], "phase": "done" if st["done"] else st["phase"],
+            "merged": sum(1 for r in rows if r["outcome"] == MERGED), "back": sum(1 for r in rows if r["outcome"] == BACK),
+            "conflicts": items}
+
+
 def settle(st: dict, repo, try_query=None) -> list:
     """頭の注記。st を書き換え、盤面に積む申し出の一覧を返す"""
     repo = pathlib.Path(repo)
@@ -307,7 +377,7 @@ def settle(st: dict, repo, try_query=None) -> list:
     work = pathlib.Path(st["work"])
     log = writes.sink(repo)
     stray = sorted(set(tddloop.touched(repo, st["handoff"], tddloop.snapshot(repo))) - set(st["suite_made"]))
-    if stray:   # 並べの周のまとめ役は run の作業ツリーを書かない約束。機械が戻す（拒んで出し直させない）
+    if stray:   # 枝の役は run の作業ツリーを書けない（包みの柵）。書かれていれば機械が戻す（受け止め）
         tddloop.restore_paths(repo, st["handoff"], stray)
     lanes["reverted"] = stray
     pre = st["handoff"]
@@ -323,15 +393,14 @@ def settle(st: dict, repo, try_query=None) -> list:
                 back[k] = {"why": f"単位の控えが読めない（{e}）"}
             continue
         calls += [{**c, "lane": row["n"]} for c in lst.get("calls") or []]
-        with _lane_read(row):
-            green = _close_units(st, row, lst, keys, back, out, items, try_query, work)
-            if green:
-                why = next((w for w in (_red_again(st, row, lst, k, work) for k in green) if w), "")
-                if why:
-                    for k in green:
-                        back[k] = {"why": why}
-                else:
-                    ready.append((row, lst, green))
+        green = _close_units(st, row, lst, keys, back, out, items, try_query, work)
+        if green:
+            why = next((w for w in (_red_again(st, row, lst, k, work) for k in green) if w), "")
+            if why:
+                for k in green:
+                    back[k] = {"why": why}
+            else:
+                ready.append((row, lst, green))
     applied = _apply_lanes(st, repo, ready, log, work, back, how)
     shared = _shared(applied)
     if applied:
@@ -397,7 +466,9 @@ def _close_units(st, row, lst, keys, back, out, items, try_query, work) -> list:
         elif u.get("green") == "ok":
             green.append(k)
         elif not lst.get("done") and i >= lst.get("cur", 0):
-            back[k] = {"why": "並べの段が済まなかった（下請けが段のコマンドを最後まで走らせなかった）"}
+            back[k] = {"why": "並べの段が済まなかった（枝の輪が単位を最後まで回さなかった）" + (f": {lst['note'][:300]}" if lst.get("note") else "")}
+        elif lst.get("note") and u.get("green") != "ok":
+            back[k] = {"why": f"並べで緑に届かなかった: {lst['note'][:300]}"}
         else:
             back[k] = {"why": "並べで緑に届かなかった"}
     if not lst.get("done") and lst.get("cur", 0) < len(lst["queue"]):
@@ -411,7 +482,7 @@ def _record(u: dict) -> dict:
 
 
 def _red_again(st, row, lst, k, work) -> str:
-    """単位 k の赤を sandbox の外で確かめ直す（控えの赤の記録は下請けが書ける所に在る）。単位の worktree を、単位の頭の木に
+    """単位 k の赤を確かめ直す（控えの赤の記録は run ごとの置き場に在り、役の sandbox からも書ける）。単位の worktree を、単位の頭の木に
     赤の時のテストのファイルだけを置いた姿にして名指しだけを回し、写しの red_problems と記録の赤の種類で照らす。赤の時の
     テストのファイルは、枝の次の単位の頭の木（無ければ今の姿）の中身で、凍結の記録と同じ物。回した後は worktree を元の姿に
     戻す。通れば空、記録どおりに落ちなければ戻す理由"""
@@ -454,8 +525,7 @@ def _apply_lanes(st, repo, ready, log, work, back, how) -> list:
     union = sorted({f for _, lst, green in ready for k in green for f in lst["units"][k].get("test_files") or []})
     earlier, applied = set(), []
     for row, lst, green in ready:
-        with _lane_read(row):
-            why, patch, names, mode = _merge(st, repo, row, lst, green, log, work, earlier, union)
+        why, patch, names, mode = _merge(st, repo, row, lst, green, log, work, earlier, union)
         how[row["n"]] = mode
         if why:
             for k in green:
@@ -609,55 +679,43 @@ def _green_after(st, repo, pre: str, units: list, shared=()) -> list:
     return probs
 
 
-# ---------------------------------------------------------------- 下請けのファイル（支度 tddloop.prep）
-def unit_text(st: dict, row: dict, j: int = 1) -> str:
-    """下請けのファイルの「この単位の下請けの決まり」の節（機械が書く。fixrules.tdd_lane_render の lane_text）。j は枝の中の単位の番"""
-    lst = tddloop._load(row["state"])
+
+
+# ---------------------------------------------------------------- 単位の決まりのファイル（節 tdd-lane-prep-<n>）
+def unit_text(st: dict, row: dict, j: int = 1, lst: dict | None = None) -> str:
+    """単位の決まりのファイルの「この単位の決まり」の節（機械が書く。fixrules.tdd_lane_render の lane_text）。j は枝の中の単位の番"""
+    lst = tddloop._load(row["state"]) if lst is None else lst
     k = row["unit_keys"][j - 1]
-    cmd = command_line(st["lanes"]["manifest"], row["n"], row["reply"], j)
-    lines = ["## この単位の下請けの決まり（機械が書いた）", "",
-             f"- 単位: {k}",
-             f"- 単位の worktree: {row['tree']}（読む・書く・試験を回すのは全部この中。Bash は最初に cd し、Edit・Write のパスも"
-             "この下。名指しのパスはこの根からの相対。修正役の作業ツリー（cwd）は書かない）",
-             f"- 段の返答の置き場: {row['reply']}（作業ツリーの外。Write で段の返答の JSON を丸ごと書く）",
-             f"- 段のコマンド: `{cmd}`（Bash で走らせる。出力の 1 行の JSON {{ok, done, phase, reason}} に従え）"]
+    later = row["unit_keys"][j:]
+    lines = ["## この単位の決まり（機械が書いた）", "",
+             f"- 単位: {k}（並べの枝 {row['n']} の {j} 番目）",
+             f"- 作業ツリー: あなたの cwd（単位の worktree {row['tree']}）。読む・書く・試験を回すのは全部この中。名指しのパスはこの"
+             f"根からの相対。run の作業ツリー（{lanes_repo(st)}）とほかの枝の worktree は書かない（包みの柵が拒む）"]
+    if later:
+        lines.append("- この枝の後の単位（今は手を付けるな。この単位が済んだ後に新しい会話で直す）: " + " / ".join(later))
+    lines.append("")
     if j > 1:
-        hand = pathlib.Path(row["state"]).parent / HANDOFF.format(j=j)
-        lines += [f"- この枝の前の単位の引き継ぎ: {hand}（前の単位の下請けが済んだ時に機械が書く。最初に Read で全部読め。"
-                  "前の単位の直しは単位の worktree に在る。戻したり作り直したりするな。ファイルが無ければ前の単位が済んでいないので、"
-                  "何もせずに最後のメッセージに「前の単位が済んでいない」と書いて終わる）"]
-    lines += ["",
-              "## 段の進め方", "",
-              "1. 段 test から始める。段の仕事をしたら、その段の返す JSON を返答の置き場に書き、段のコマンドを走らせる。",
-              "2. ok が false で done が false なら reason を直して、同じ段の返答を丸ごと書き直して走らせ直す（同じ段の 3 回目の拒否で"
-              "機械が諦める）。",
-              "3. ok が true なら phase が次の段を言う（fix・refactor）。その段の仕事をして 1 に戻る。",
-              "4. done が true になったら終わり（この単位の段が済んだ。枝の次の単位は別の下請けが直す）。最後のメッセージに、"
-              "何をしたかを 3 行以内で書く（報告はファイルに書かない）。", "",
+        hand = tddloop.handoff_lines(lst)
+        lines += [ln.replace("作業ツリーに在る（緑の木）", "この worktree に在る（緑の木）") for ln in hand] if hand else []
+    lines += ["## 段の進め方", "",
+              "1. 段は test → fix →（申告した時と brief で申告した単位だけ）refactor。回ごとに機械が回ごとの指示書（今の段・前の回を"
+              "拒んだ理由）を書く。その段の仕事をして、その段の返す JSON だけを返せ。",
+              "2. 機械が拒めば、次の回の指示書に理由が載る。直して同じ段の返答を丸ごと出し直せ（同じ段の 3 回目の拒否で機械が諦める）。",
+              "3. 単位が済めば、この会話は終わる（枝の次の単位は新しい会話で直す）。", "",
               "## 段ごとの仕事と返す JSON", ""]
-    for p in ("test", "fix", "refactor"):
+    for p in fixrules.LANE_PHASES:
         lines += [f"### 段 {p}", "", tddloop.DO[p], "", tddloop.RETURN[p], ""]
-    lines += ["### 食い違いの申し出（どの段でも）", "", tddloop.RETURN_CONFLICT.replace("（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）", ""), "",
+    lines += ["### 食い違いの申し出（どの段でも）", "",
+              tddloop.RETURN_CONFLICT.replace("（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）", "（今の単位）"), "",
               "## テストの回し方", "",
-              f"単位の worktree の根で `{lst['exe']} <JUnit XML の書き先>`（書き先は worktree の外に）。"
+              f"cwd（単位の worktree の根）で `{lst['exe']} <JUnit XML の書き先>`（書き先は worktree の外の /tmp の下など）。"
               "機械は名指しを実行器の後ろに絶対パスの node id で足して回す。", ""]
     return "\n".join(lines)
 
 
-def main(argv) -> int:
-    if len(argv) not in (4, 5):
-        print("使い方: python3 tddlanes.py <目録 lanes.json> <枝の番号> <段の返答の JSON のファイル> [<枝の中の単位の番>]",
-              file=sys.stderr)
-        return 2
+def lanes_repo(st: dict) -> str:
+    """並べの目録の run の作業ツリー（目録が読めなければ状態の置き場の名）"""
     try:
-        out = run(argv[1], argv[2], argv[3], argv[4] if len(argv) == 5 else None)
-    except (LaneBroken, tddloop.Broken, OSError, subprocess.CalledProcessError, ValueError) as e:
-        print(f"tddlanes: {' '.join(str(e).split())}", file=sys.stderr)
-        return 2
-    sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps(out, ensure_ascii=False))
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+        return json.loads(pathlib.Path(st["lanes"]["manifest"]).read_text(encoding="utf-8"))["repo"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return "cwd の外"

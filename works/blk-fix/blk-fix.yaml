@@ -4,10 +4,10 @@ description: |
   修正役の前に git が無視するファイルを控え（ignored-before）、テストの実行器（入力 tdd_suite）が在る run だけ単位ごとの
   TDD の輪を回し（tdd-start → tdd-loop。振り分け → 単位ごとにテスト・赤（機械）・直し・緑（機械）・整え・確かめ直し（機械）。
   実行器が無い run は輪を飛ばし、今と同じに動く。既定の形 g3 では、振り分けの直後に書いてよい範囲の引ける tdd の単位の枝（修正案の
-  項目を共にする単位の組）が 2 本以上あれば、確かめの節が枝ごとに小さい worktree を切り、並べの周（段 lanes）の輪の役が枝の単位の
-  下請けを Agent で起こし（枝どうしは同時に、枝の中は順に単位ごとに新しい下請けで）、下請けは段ごとに機械のコマンドで赤・緑を確かめる。
-  確かめの節が差分を作業ツリーへ 3 方向で当てて緑を確かめ直し、食い違った枝・済まなかった単位は順に回し直す。依頼 243 の並べの
-  2 段目・3 段目。範囲が重なる枝も並べる）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
+  項目を共にする単位の組）が 2 本以上あれば、確かめの節が枝ごとに小さい worktree を切って輪を抜け、枝ごとの輪（tdd-lane-loop-<n>。
+  3 本まで。枝の役の節を包みが枝の worktree を cwd に起こす）が同時に回り（枝の中は順に、単位ごとに新しい会話で）、確かめの節が段ごとに
+  赤・緑を確かめる。締めの節 tdd-join が差分を作業ツリーへ 3 方向で当てて緑を確かめ直し、食い違った枝・済まなかった単位・枝に入らな
+  かった単位は輪 tdd-rest-loop が順に回す。依頼 243 の並べ。範囲が重なる枝も並べる）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
   changes に行を書くだけ。修正の形 g1 と既定の g3 では、残りの単位を 1 つの会話に積まず、単位（修正案の項目）ごとに新しい会話の
   下請けを Agent で起こす。依頼 243 の 2。g3 の 1 回目の周では、書いてよい範囲の在る項目（重なってもよい）に、支度が項目ごとに
   小さい worktree を切り、修正役がその下請けを同時に起こして、機械のコマンドが差分を項目の番号の順に作業ツリーへ当てる。
@@ -124,9 +124,9 @@ nodes:
   # 拒否の理由は tdd-prep が次の指示書に書く（$LOOP_PREV で貼らない。R44）。段ごとに 3 回目の拒否で諦め（その単位は direct）、
   # 実行器が走らない・回数が max_iterations に届く周では残りを direct にして done を立てる（max_iterations で落とさない。R50）。
   # 形 g3 で振り分けの後に範囲の引ける tdd の枝（項目を共にする単位の組）が 2 本以上なら、tdd-step が枝ごとの worktree を切って
-  # 段 lanes の周を 1 回挟む（役はまとめ役として枝の単位の下請けを Agent で起こす。枝どうしは同時、枝の中は順に単位ごとに新しい
-  # 下請け。下請けは段のコマンド lib/tddlanes.py で赤・緑を確かめる。次の tdd-step が差分を 3 方向で当てて緑を確かめ直し、食い違った
-  # 枝・済まなかった単位を順に戻す。docs/plans/2026-10-06-tdd-parallel.md・docs/plans/2026-10-07-overlap-lanes.md）
+  # 段を lanes にし、輪はそこで抜ける（tdd-step が done を立てる。出口の phase は lanes）。並べの周は輪の外の節が回す: tdd-fork → 枝の輪 tdd-lane-loop-<n>
+  # （枝ごとに AI の節。同時に走る）→ tdd-join（差分を 3 方向で当てて緑を確かめ直し、食い違った枝・済まなかった単位を順に戻す）→
+  # 残りの順の単位を回す輪 tdd-rest-loop（この輪と同じ支度・確かめ）。docs/plans/2026-10-07-lane-nodes.md
   - id: tdd-loop
     depends_on: [tdd-start]
     when: "$tdd-start.output.go == true"
@@ -161,9 +161,8 @@ nodes:
           depends_on: [tdd-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           # 借りたスキルの座（.shared/core/seat.py）: 修正の形 g3 の時だけ tdd-prep が指示書に座と読み替えを載せる。宣言は静的で、ほかの形の柵は包みが持つ
-          # Agent は g3 の並べの周（段 lanes）に単位の下請けを起こす口（ほかの形は包みが拒む。fixshape.denied_tools）
           skills: [test-driven-development]
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill, Agent]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # 印 works-node: tdd（包みが会話を節の名で分け、続きの起動で指示書の形を選ぶ）
@@ -172,8 +171,8 @@ nodes:
             type: object
             additionalProperties: false
             required: [phase]
-            properties:
-              phase: {type: string, enum: [route, test, fix, refactor, lanes, conflict]}
+            properties: &tdd_reply   # 輪 tdd-rest-loop の役 tdd-rest も同じ形
+              phase: {type: string, enum: [route, test, fix, refactor, conflict]}
               units:
                 type: array
                 items:
@@ -244,9 +243,350 @@ nodes:
               reason_file: {type: string}
               phase: {type: string}
 
-  - id: fix-loop
+  # 並べの枝の輪を起こすか（輪 tdd-loop の状態の段が lanes の時だけ go と lane_<n>）。実行器の無い run（tdd-loop が飛ぶ）でも
+  # 走って go: false を返す（tdd-join の when: がいつも引ける）
+  - id: tdd-fork
+    script: tdd_fork
+    runtime: uv
     depends_on: [tdd-start, tdd-loop]
     trigger_rule: none_failed_min_one_success   # 実行器の無い run は tdd-loop が飛ばされる
+    timeout: 1728000000
+    with:
+      state_file: $tdd-start.output.state_file
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [go, lanes, lane_1, lane_2, lane_3]
+      properties:
+        go: {type: boolean}
+        lanes: {type: integer, minimum: 0, maximum: 3}
+        lane_1: {type: boolean}
+        lane_2: {type: boolean}
+        lane_3: {type: boolean}
+
+  # 並べの枝の輪（枝 1 本に 1 つ。tdd-fork の lane_<n> で起き、枝どうしは同時に走る。この層に mutates_checkout: false の節を
+  # 置かない——Archon v0.11.1 はその節と同じ層を順に回す）。役 tdd-lane-<n> は枝のただ 1 つの AI の節で、包みが印の旗 lane を見て
+  # 枝の単位の worktree（tdd-lane-prep-<n> が run ごとの置き場に書いた印。役の文からは取らない）を cwd に起こし、run の worktree と
+  # ほかの枝の worktree を柵に足す。fresh_context は false のままで、同じ単位の段は 1 つの会話を継ぎ、単位が替わる周だけ包みが
+  # 新しい会話で起こす（支度が書く単位の鍵）。赤・緑は tdd-lane-step-<n> が tddloop.step を枝の worktree で回して決める。枝の単位が
+  # 全部済むか、拒否・実行器の止まりで諦めれば done で抜ける（回数の上限で落とさない。R50）
+  - id: tdd-lane-loop-1
+    depends_on: [tdd-fork]
+    when: "$tdd-fork.output.lane_1 == true"
+    loop_group:
+      max_iterations: 40
+      fresh_context: false
+      until_bash: test $tdd-lane-step-1.output.done = true
+      nodes:
+        - id: tdd-lane-prep-1
+          script: tdd_lane_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            state_file: $tdd-start.output.state_file
+            lane: "1"
+            judgment_file: $INPUTS.judgment_file
+            plan_file: $INPUTS.plan_file
+            policy_path: $INPUTS.policy_path
+            notes_file: $INPUTS.notes_file
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file]
+            properties:
+              prompt_file: {type: string}
+
+        - id: tdd-lane-1
+          model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
+          effort: high
+          prompt: 指示書 `$tdd-lane-prep-1.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
+          depends_on: [tdd-lane-prep-1]
+          settingSources: [user]
+          skills: [test-driven-development]   # 座（g3 の時だけ並べる。座の文は決まりのファイルに載る）
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # 印 works-node: tdd-lane-1 lane（包みが単位の worktree を cwd に起こし、会話を枝ごとに分ける）
+          output_format:
+            description: 'works-node: tdd-lane-1 lane'
+            type: object
+            additionalProperties: false
+            required: [phase]
+            properties: &lane_reply   # 枝 2・3 の役も同じ形（tdd の形から振り分けの欄 units を除き、段は test・fix・refactor・conflict）
+              phase: {type: string, enum: [test, fix, refactor, conflict]}
+              unit_key: {type: string}
+              test_files:
+                type: array
+                items: {type: string}
+              tests:
+                type: array
+                items: {type: string}
+              direct_why: {type: string}
+              files:
+                type: array
+                items: {type: string}
+              what: {type: string}
+              refactor:
+                type: object
+                additionalProperties: false
+                required: [declared, why]
+                properties:
+                  declared: {type: boolean}
+                  why: {type: string}
+              between:
+                type: array
+                items: {type: string}
+              why_both_cannot_hold: {type: string}
+              which_is_right: {type: string, enum: [request, test, code, unknown, query]}
+              correct_lines:
+                type: array
+                items: {type: string}
+              kind: {type: string, enum: [brief_vs_judgment, unnamed_test_broke, not_red, scope_needed, query_hits_fixed, needs_context]}
+              bash_writes:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [path, why]
+                  properties:
+                    path: {type: string, minLength: 1}
+                    why: {type: string, minLength: 10}
+
+        - id: tdd-lane-step-1
+          script: tdd_lane_step
+          runtime: uv
+          depends_on: [tdd-lane-1]
+          timeout: 1728000000
+          with:
+            reply: {from: "$tdd-lane-1.output"}
+            state_file: $tdd-start.output.state_file
+            lane: "1"
+          output_format:
+            type: object
+            required: [ok, done, reason, reason_file, phase, unit_key]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              phase: {type: string}
+              unit_key: {type: string}
+
+  - id: tdd-lane-loop-2
+    depends_on: [tdd-fork]
+    when: "$tdd-fork.output.lane_2 == true"
+    loop_group:
+      max_iterations: 40
+      fresh_context: false
+      until_bash: test $tdd-lane-step-2.output.done = true
+      nodes:
+        - id: tdd-lane-prep-2
+          script: tdd_lane_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            state_file: $tdd-start.output.state_file
+            lane: "2"
+            judgment_file: $INPUTS.judgment_file
+            plan_file: $INPUTS.plan_file
+            policy_path: $INPUTS.policy_path
+            notes_file: $INPUTS.notes_file
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file]
+            properties:
+              prompt_file: {type: string}
+
+        - id: tdd-lane-2
+          model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
+          effort: high
+          prompt: 指示書 `$tdd-lane-prep-2.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
+          depends_on: [tdd-lane-prep-2]
+          settingSources: [user]
+          skills: [test-driven-development]   # 座（g3 の時だけ並べる。座の文は決まりのファイルに載る）
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # 印 works-node: tdd-lane-2 lane（包みが単位の worktree を cwd に起こし、会話を枝ごとに分ける）
+          output_format:
+            description: 'works-node: tdd-lane-2 lane'
+            type: object
+            additionalProperties: false
+            required: [phase]
+            properties: *lane_reply
+
+        - id: tdd-lane-step-2
+          script: tdd_lane_step
+          runtime: uv
+          depends_on: [tdd-lane-2]
+          timeout: 1728000000
+          with:
+            reply: {from: "$tdd-lane-2.output"}
+            state_file: $tdd-start.output.state_file
+            lane: "2"
+          output_format:
+            type: object
+            required: [ok, done, reason, reason_file, phase, unit_key]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              phase: {type: string}
+              unit_key: {type: string}
+
+  - id: tdd-lane-loop-3
+    depends_on: [tdd-fork]
+    when: "$tdd-fork.output.lane_3 == true"
+    loop_group:
+      max_iterations: 40
+      fresh_context: false
+      until_bash: test $tdd-lane-step-3.output.done = true
+      nodes:
+        - id: tdd-lane-prep-3
+          script: tdd_lane_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            state_file: $tdd-start.output.state_file
+            lane: "3"
+            judgment_file: $INPUTS.judgment_file
+            plan_file: $INPUTS.plan_file
+            policy_path: $INPUTS.policy_path
+            notes_file: $INPUTS.notes_file
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file]
+            properties:
+              prompt_file: {type: string}
+
+        - id: tdd-lane-3
+          model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
+          effort: high
+          prompt: 指示書 `$tdd-lane-prep-3.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
+          depends_on: [tdd-lane-prep-3]
+          settingSources: [user]
+          skills: [test-driven-development]   # 座（g3 の時だけ並べる。座の文は決まりのファイルに載る）
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # 印 works-node: tdd-lane-3 lane（包みが単位の worktree を cwd に起こし、会話を枝ごとに分ける）
+          output_format:
+            description: 'works-node: tdd-lane-3 lane'
+            type: object
+            additionalProperties: false
+            required: [phase]
+            properties: *lane_reply
+
+        - id: tdd-lane-step-3
+          script: tdd_lane_step
+          runtime: uv
+          depends_on: [tdd-lane-3]
+          timeout: 1728000000
+          with:
+            reply: {from: "$tdd-lane-3.output"}
+            state_file: $tdd-start.output.state_file
+            lane: "3"
+          output_format:
+            type: object
+            required: [ok, done, reason, reason_file, phase, unit_key]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              phase: {type: string}
+              unit_key: {type: string}
+
+  # 並べを締める（枝の輪の全部の後に 1 回。差分を当てて緑を確かめ直し、済まなかった単位を順に戻す。食い違いの申し出は盤面に積む）。
+  # all_done: 枝の輪が 1 本落ちても締めて残りを順に回す（落ちた枝の単位は済んでいないので戻る。run は落ちた節を持ったまま進む）
+  - id: tdd-join
+    script: tdd_join
+    runtime: uv
+    depends_on: [tdd-fork, tdd-lane-loop-1, tdd-lane-loop-2, tdd-lane-loop-3]
+    trigger_rule: all_done
+    when: "$tdd-fork.output.go == true"
+    timeout: 1728000000
+    with:
+      state_file: $tdd-start.output.state_file
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [go, done, phase, merged, back]
+      properties:
+        go: {type: boolean}
+        done: {type: boolean}
+        phase: {type: string}
+        merged: {type: integer, minimum: 0}
+        back: {type: integer, minimum: 0}
+
+  # 並べの後に残った順の単位（枝に入らなかった単位・戻した単位）を回す輪。tdd-loop と同じ支度・確かめ・段で、役 tdd-rest は
+  # 役 tdd と同じ形（印の名だけ違う。包みが単位の切れ目で会話を切る）
+  - id: tdd-rest-loop
+    depends_on: [tdd-join]
+    when: "$tdd-join.output.go == true"
+    loop_group:
+      max_iterations: 40
+      fresh_context: false
+      until_bash: test $tdd-rest-step.output.done = true
+      nodes:
+        - id: tdd-rest-prep
+          script: tdd_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            state_file: $tdd-start.output.state_file
+            judgment_file: $INPUTS.judgment_file
+            plan_file: $INPUTS.plan_file
+            policy_path: $INPUTS.policy_path
+            notes_file: $INPUTS.notes_file
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file]
+            properties:
+              prompt_file: {type: string}
+
+        - id: tdd-rest
+          model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
+          effort: high
+          prompt: 指示書 `$tdd-rest-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
+          depends_on: [tdd-rest-prep]
+          settingSources: [user]
+          skills: [test-driven-development]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          output_format:
+            description: 'works-node: tdd-rest'
+            type: object
+            additionalProperties: false
+            required: [phase]
+            properties: *tdd_reply
+
+        - id: tdd-rest-step
+          script: tdd_step
+          runtime: uv
+          depends_on: [tdd-rest]
+          timeout: 1728000000
+          with:
+            reply: {from: "$tdd-rest.output"}
+            state_file: $tdd-start.output.state_file
+          output_format:
+            type: object
+            required: [ok, done, reason, reason_file, phase]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              phase: {type: string}
+
+  - id: fix-loop
+    depends_on: [tdd-start, tdd-loop, tdd-fork, tdd-join, tdd-rest-loop]
+    trigger_rule: none_failed_min_one_success   # 実行器の無い run は tdd-loop が、並べない run は tdd-join・tdd-rest-loop が飛ばされる
     loop_group:
       max_iterations: 3
       fresh_context: false

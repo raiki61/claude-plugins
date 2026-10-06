@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""TDD の輪の指示書（blk-fix の節 tdd-prep。輪の中で役 tdd の前。中身は tddloop.prep → fixrules）。
+"""TDD の輪の指示書（blk-fix の節 tdd-prep と tdd-rest-prep。輪の中で役 tdd・tdd-rest の前。中身は tddloop.prep → fixrules）。
 
 読む環境変数: INPUTS_STATE_FILE（tdd-start の state_file）と run の値 INPUTS_JUDGMENT_FILE・INPUTS_PLAN_FILE・INPUTS_POLICY_PATH・
 INPUTS_NOTES_FILE（空でよい）。修正の決まりの正本・TDD の決まり・今の段・前の回に拒んだ理由・run の値を組み、状態の置き場の
@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import json  # noqa: E402
 import os  # noqa: E402
 
-import tddlanes  # noqa: E402
 import tddloop  # noqa: E402
 
 INPUTS = ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE")
@@ -34,7 +33,7 @@ def main() -> int:
         return 2
     values = {n[len("INPUTS_"):].lower(): os.environ[n] for n in INPUTS[1:]}
     try:
-        out = tddloop.prep(os.environ[INPUTS[0]], values, Path.cwd(), lanes=tddlanes)   # 並べの周の下請けのファイルの口
+        out = tddloop.prep(os.environ[INPUTS[0]], values, Path.cwd())
     except (tddloop.Broken, OSError) as e:
         print(f"tdd-prep: {' '.join(str(e).split())}", file=sys.stderr)
         return 2

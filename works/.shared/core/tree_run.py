@@ -60,11 +60,6 @@ class Stopped(Exception):
         self.signum = signum
 
 
-# TDD の輪の並べの段のコマンド（blk-fix の tddlanes）が git の object の置き場を立てた印と、その変数（outside_env が試験へ渡さない）
-LANE_GIT_ENV = "WORKS_LANE_GIT"
-LANE_GIT_VARS = ("GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES")
-
-
 def outside_env(environ):
     """uv run が足した物を外した環境（写し。environ は書き換えない）。PYTHONDONTWRITEBYTECODE=1 は立てる——子（テスト）が
     作業ツリーに __pycache__ を作って修正の差分に紛れ込むのを止める（works の決まり。engine の run_steps は環境をそのまま継ぐ）。
@@ -72,9 +67,7 @@ def outside_env(environ):
     - PATH の頭の、この python の bin（dirname(sys.executable) か sys.prefix/bin。実体のパスで比べる）。uv は頭に足すので
       頭だけを見て、同じフォルダは 1 度だけ外す（元の PATH に同じフォルダが在っても後ろの物は残る）
     - UV_RUN_RECURSION_DEPTH と、sys.prefix を指す VIRTUAL_ENV（uv が起こした環境。対象の .venv もここ）
-    uv run の外で起こされた（UV_RUN_RECURSION_DEPTH が無い）ときは、下の UV_NO_CONFIG と LANE_GIT_ENV のほかは外さない。
-    - 印 LANE_GIT_ENV が在れば、印と LANE_GIT_VARS（git の object の置き場の変数）を外す。TDD の輪の並べの段のコマンドが、
-      共通の .git を書かずに作業ツリーを木に固めるために立てた物で、試験の中の git に渡すと別の置き場に書く
+    uv run の外で起こされた（UV_RUN_RECURSION_DEPTH が無い）ときは、下の UV_NO_CONFIG のほかは外さない。
     - UV_NO_CONFIG はいつも外す。利用者が Archon の環境に立てていても、テストのコマンド（`uv run pytest` など）には対象の
       [tool.uv]（私的な index など）を読ませる。渡すと公開の PyPI から解決して、偽の赤と依存の取り違えの口になる
     Archon は script の節を `uv run <ファイル>` で起こし、uv は PATH の頭に自分の python の bin を足し、VIRTUAL_ENV・
@@ -83,9 +76,6 @@ def outside_env(environ):
     env = dict(environ)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env.pop("UV_NO_CONFIG", None)
-    if env.pop(LANE_GIT_ENV, None) is not None:
-        for k in LANE_GIT_VARS:
-            env.pop(k, None)
     if env.pop("UV_RUN_RECURSION_DEPTH", None) is None:
         return env
     ours = {os.path.realpath(d) for d in (os.path.dirname(sys.executable), os.path.join(sys.prefix, "bin"))}

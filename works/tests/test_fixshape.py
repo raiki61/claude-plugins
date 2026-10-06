@@ -86,9 +86,9 @@ class FixShapeCase(unittest.TestCase):
                     fixshape.shape_at(self.tmp)
 
     def test_denied_tools_table(self):
-        # tdd の Agent は g3 の TDD の輪の並べ（まとめ役が単位の下請けを起こす）だけ（docs/plans/2026-10-06-tdd-parallel.md）
-        rows = {("g3", "tdd"): (), ("af", "tdd"): ("Skill", "Agent"), ("current", "tdd"): ("Skill", "Agent"),
-                ("g1", "tdd"): ("Skill", "Agent"),
+        # TDD の輪の役は Agent を持たない（並べは枝ごとの節。docs/plans/2026-10-07-lane-nodes.md）。座の Skill は g3 だけ
+        rows = {("g3", "tdd"): (), ("af", "tdd"): ("Skill",), ("current", "tdd"): ("Skill",), ("g1", "tdd"): ("Skill",),
+                ("g3", "tdd-rest"): (), ("af", "tdd-rest"): ("Skill",), ("g3", "tdd-lane-2"): (), ("af", "tdd-lane-1"): ("Skill",),
                 ("g1", "fix"): (), ("g1", "fix-ruled"): (), ("g3", "fix"): (), ("g3", "fix-ruled"): (), ("af", "fix-ruled"): ("Agent",),
                 ("af", "judge"): (), ("g3", "local-review"): (), ("g3", "refix"): (), ("af", "refix2"): ("Skill",),
                 ("current", "refix"): ("Skill",), ("g3", "review"): ()}
