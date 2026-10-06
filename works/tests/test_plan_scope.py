@@ -152,8 +152,14 @@ class HeldItemCase(unittest.TestCase):
               "test_stats.py": (base, base + "    def test_mean_of_two(self):\n        pass\n")}
         rows = [{"unit_key": CLAMP, "files": ["stats.py", "test_stats.py"]}]
         self.assertEqual(planscope.problems([mean, clamp], rows, ch)[0], [], "外れた項目 1 の範囲と tests にも入る")
-        got, _ = planscope.problems([mean, clamp], [{"unit_key": CLAMP, "files": ["legacy.py"]}], {"legacy.py": ("a\n", "b\n")})
-        self.assertTrue(any("out_of_scope" in p and "legacy.py" in p for p in got), "out_of_scope は今どおり拒む")
+        got, _ = planscope.problems([mean, clamp], [{"unit_key": MEAN, "files": ["legacy.py"]}], {"legacy.py": ("a\n", "b\n")})
+        self.assertTrue(any("out_of_scope" in p and "legacy.py" in p for p in got), "外れた項目の単位には今どおり拒む")
+        got, _ = planscope.problems([mean, clamp], [{"unit_key": CLAMP, "files": ["stats.py"]}],
+                                    {"stats.py": STATS["stats.py"], "legacy.py": ("a\n", "b\n")})
+        self.assertTrue(any("out_of_scope" in p and "legacy.py" in p for p in got), "単位に結べない変更は今どおり拒む")
+        self.assertEqual(planscope.problems([mean, clamp], [{"unit_key": CLAMP, "files": ["legacy.py"]}],
+                                            {"legacy.py": ("a\n", "b\n")})[0], [],
+                         "項目 2 が明示に許したパスは、項目 2 の単位では項目 1 の out_of_scope に負けない（run 249b）")
 
 
 class FalseRejectCase(unittest.TestCase):
@@ -294,6 +300,59 @@ class Round3Case(unittest.TestCase):
               "util.py": ("def old_mean():\n    pass\n\n\nA = 1\n", "def old_mean():\n    pass\n\n\nA = 2\n")}
         rows = [{"unit_key": MEAN, "files": ["stats.py", "util.py"]}]
         self.assertEqual(planscope.problems([it], rows, ch)[0], [])
+
+
+class CrossItemScopeCase(unittest.TestCase):
+    """ほかの項目の out_of_scope は、行の単位の項目が明示に許したパス（allowed_paths・tests の id のファイル・範囲の相談の合意）を
+    拒まない（run 249b: 項目 1 の out_of_scope の core/** が、項目 2 の allowed_paths の core の 1 ファイルを直した項目 2 の
+    単位を 2 回拒み、単位が止まった）。単位に結べない変更と、単位の項目が許していないパスは今どおり全部の項目の out_of_scope で拒む"""
+    ONE = item(allowed_paths=["stats.py"], out_of_scope=[{"glob": "core/**", "why": "項目 1 は共有の core を変えない"}])
+    TWO = item(item=2, unit_keys=[CLAMP], allowed_paths=["core/seam.py"])
+    CH = {**STATS, "core/seam.py": ("a\n", "b\n")}
+
+    def test_owner_item_allowed_path_passes(self):
+        rows = [ROW, {"unit_key": CLAMP, "files": ["core/seam.py"]}]
+        self.assertEqual(planscope.problems([self.ONE, self.TWO], rows, self.CH)[0], [])
+
+    def test_owner_item_test_file_passes(self):
+        two = item(item=2, unit_keys=[CLAMP], allowed_paths=["clamp.py"], tests=[{"id": "core/test_seam.py::test_clamp"}])
+        ch = {**STATS, "clamp.py": ("a\n", "b\n"), "core/test_seam.py": ("", "def test_clamp():\n    pass\n")}
+        rows = [ROW, {"unit_key": CLAMP, "files": ["clamp.py", "core/test_seam.py"]}]
+        self.assertEqual(planscope.problems([self.ONE, two], rows, ch)[0], [])
+
+    def test_owner_item_granted_path_passes(self):
+        """範囲の相談で項目 2 に許したパス（with_agreed が allowed_paths に足す）も、項目 2 の単位では項目 1 の out_of_scope に負けない"""
+        items = planscope.with_agreed([self.ONE, self.TWO], [{"item": "2", "granted_paths": ["core/doc.md"]}])
+        ch = {**self.CH, "core/doc.md": ("a\n", "b\n")}
+        rows = [ROW, {"unit_key": CLAMP, "files": ["core/seam.py", "core/doc.md"]}]
+        self.assertEqual(planscope.problems(items, rows, ch)[0], [])
+
+    def test_excluding_item_unit_still_rejected(self):
+        """項目 1 の単位が同じパスを申告すれば、項目 1 の out_of_scope で拒む"""
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "core/seam.py"]}]
+        got, _ = planscope.problems([self.ONE, self.TWO], rows, self.CH)
+        self.assertTrue(any(MEAN in p and "core/seam.py" in p and "項目 1 の out_of_scope" in p for p in got), got)
+
+    def test_path_outside_owner_scope_still_rejected(self):
+        """行の単位の項目が許していないパスは、ほかの項目の out_of_scope で今どおり拒む（permits に入っていても）"""
+        ch = {**self.CH, "core/other.py": ("a\n", "b\n")}
+        rows = [ROW, {"unit_key": CLAMP, "files": ["core/seam.py", "core/other.py"]}]
+        got, _ = planscope.problems([self.ONE, self.TWO], rows, ch, permits=("core/other.py",))
+        self.assertTrue(any(CLAMP in p and "core/other.py" in p and "out_of_scope" in p for p in got), got)
+        self.assertFalse(any("core/seam.py" in p for p in got), got)
+
+    def test_own_item_out_of_scope_still_wins(self):
+        two = item(item=2, unit_keys=[CLAMP], allowed_paths=["core/**"],
+                   out_of_scope=[{"glob": "core/seam.py", "why": "項目 2 も継ぎ目は変えない"}])
+        got, _ = planscope.problems([self.ONE, two], [ROW, {"unit_key": CLAMP, "files": ["core/seam.py"]}], self.CH)
+        self.assertTrue(any(CLAMP in p and "項目 2 の out_of_scope" in p for p in got), got)
+
+    def test_unattributed_change_still_rejected_and_names_owner(self):
+        """どの行も申告していない変わったパスは単位に結べないので、全部の項目の out_of_scope で拒む。行は許す項目を名指し、
+        その項目の単位の files に申告する道を言う"""
+        got, _ = planscope.problems([self.ONE, self.TWO], [ROW], self.CH)
+        hit = [p for p in got if "core/seam.py" in p]
+        self.assertTrue(hit and "項目 1 の out_of_scope" in hit[0] and "項目 2" in hit[0] and "files" in hit[0], got)
 
 
 if __name__ == "__main__":
