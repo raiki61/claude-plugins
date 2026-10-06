@@ -29,6 +29,9 @@
   引き継ぎの節（G1_HANDOFF_HEAD）を足させる（前の項目の会話の履歴は渡らない）。下請けは包みの起動でないので、包みが system prompt に
   足す検索語の規律（adapter.query_rule）が届かない。だから型の後ろに字のまま載せる（run 221 の R4 の 3）。下請けの
   Edit・Write は修正役と同じ記録に載る（PostToolUse のフックは subagent の呼び出しでも起きる。tests/test_writes.py）
+  範囲の重ならない項目（機械が単位の worktree を切った行。依頼 243 の並べ）は、1 つのメッセージで同時に起こし、機械の当てる
+  コマンドで作業ツリーへ当て、食い違った項目を作業ツリーで直し直させる段落 G1_PARALLEL_OF を持つ（g1_section の merge）。その
+  項目の下請けのファイルは worktree の中だけで働く決まり G1_TREE_RULE_OF を持つ（g1_prompt の tree）
 
 座を組む前に、写し（spseam.vendored_dir）が固定（borrow.json の superpowers.pin）と合うかを spseam.pin_problems で照らす。
 食い違い・型の穴の埋め残り（spseam.fill）は ValueError で名指す（af の文へ黙って逃げない。支度の script は 2 で落ちる）。
@@ -141,6 +144,23 @@ G1_STEPS = (
     "機械の関門は返答の後に線が当てる: 受け入れのテストの赤→緑と既存のテストの凍結は修正の受け付けの束、変更に当たる試験は"
     "受け付け、test_cmd は線の最後のテストの段。下請けの「commit」「人に聞く」は下請けのファイルの末尾の works の決まりに従う。",
 )
+# 機械が単位の worktree を切った項目（行に tree。依頼 243 の並べ）が在る時だけ、手順の後に載る段落。{merge} は機械の当てるコマンド
+G1_PARALLEL_OF = (
+    "項目のうち「並べる」の項目は、範囲が互いに重ならないと機械が見た物で、機械が項目ごとに切った単位の worktree で直す。"
+    "並べる項目は順の項目より先に、同時に回す: 並べる項目の実装役を 1 つのメッセージの中で全部 Agent で起こす（同じメッセージの"
+    "呼びは同時に走る）。prompt は手順 1 と同じで、引き継ぎの節は足さない（互いの直しは見えない）。審査役の下請けと出し直しも、"
+    "並べる項目の分を 1 つのメッセージで起こす。並べる項目が全部済んだら（審査が通ったか 3 回目）、次のコマンドを Bash で 1 回"
+    "走らせる: `{merge}`。機械が単位の差分を項目の番号の順に作業ツリーへ当て、JSON で applied・conflict・broken・empty・differ を"
+    "出す（2 度走らせても当てた項目は当て直さない）。conflict と broken の項目は、順の項目と同じに作業ツリーで実装役を起こし直す"
+    "（conflict は prompt の後ろに、出た patch のパスを『当たらなかった前の試みの差分』として添える。直しを捨てない）。differ の"
+    "ファイル（2 つの項目の差分を 3 方向で合わせた中身）は、返答の bash_writes にパスと理由を書く。それから順の項目を手順 1 の"
+    "とおり 1 つずつ回す（引き継ぎの節には、当てた並べる項目も 1 行ずつ書く）。"
+)
+# 単位の worktree で直す下請けのファイルの決まり（g1_prompt の tree。実装役と審査役の両方）
+G1_TREE_RULE_OF = ("この項目は単位の worktree {tree} で直す（ほかの項目の下請けと同時に走る）。読む・書く・試験を回すのは全部この "
+                   "worktree の中で行い（Bash は最初に cd し、Edit・Write のパスもこの worktree の下）、修正役の作業ツリー（cwd）は書かない。"
+                   "差分はこの worktree と base の間で、この項目の直しだけが入る（前の項目の直しは入らない）。")
+G1_TOP = 'top="$(git rev-parse --show-toplevel)"'   # G1_PATCH の作業ツリーの根（単位の worktree の項目は tree に替える）
 G1_OVERRIDES_OF = ("下の読み替えの DISPATCH（下請けを起こさない・ほかの役の道具に Agent は無い）と DELEGATE の「役がほかの"
                 "エージェントに仕事を任せることは無い」は、修正の形 {shape} のこの修正役には効かない: この節の手順のとおり Agent で"
                 "下請けを起こす。下請けがさらに下請けを起こすことは無い（どちらの型も禁じる）。読み替えの頭の行の「その prompt に、"
@@ -241,11 +261,12 @@ def section(node: str, shape: str, values: dict[str, str] | None = None) -> str:
     return "\n\n".join([HEAD, *body, rolekit.skill_overlay().rstrip("\n")]) + "\n"
 
 
-def g1_prompt(seam_id: str, values: dict[str, str], shape: str = G1_SHAPE) -> str:
+def g1_prompt(seam_id: str, values: dict[str, str], shape: str = G1_SHAPE, tree: str | None = None) -> str:
     """修正の形 g1 の下請けに渡すファイルの中身: 216 の部品の節 seam_id の型を values で埋めた本文、下請けへの works の決まり
     （G1_SUB_HEAD・G1_SUB_RULES と G1_EXTRA の節の行）、検索語の規律の塊（adapter.query_rule を字のまま）。型の範囲
     `<[BASE_SHA]>..<[HEAD_SHA]>` は `<[BASE_SHA]>` に直す（作業ツリーとの差分。G1_HEAD_SHA）。写しが固定と違う・穴が埋まらない・
-    規律の正本が読めなければ ValueError（名指す）。shape は決まりの見出しが名指す形（G1_SUB_HEAD_OF。下請けを起こす形の外は ValueError）"""
+    規律の正本が読めなければ ValueError（名指す）。shape は決まりの見出しが名指す形（G1_SUB_HEAD_OF。下請けを起こす形の外は ValueError）。
+    tree は機械が切った単位の worktree（並べる項目。決まりの最後に G1_TREE_RULE_OF）"""
     _agent_shape(shape)
     item, src = pinned()
     filled = spseam.fill(seam_id, values, src, item)
@@ -255,7 +276,8 @@ def g1_prompt(seam_id: str, values: dict[str, str], shape: str = G1_SHAPE) -> st
         rule = adapter.query_rule()
     except adapter.Unrecognised as e:
         raise ValueError(f"下請けに渡す検索語の規律を引けない: {e}") from None
-    rules = _bullets((*G1_SUB_RULES, *G1_EXTRA.get(seam_id, ())))
+    tree_rule = (G1_TREE_RULE_OF.format(tree=tree),) if tree else ()
+    rules = _bullets((*G1_SUB_RULES, *G1_EXTRA.get(seam_id, ()), *tree_rule))
     return "\n\n".join([filled.rstrip("\n"), G1_SUB_HEAD_OF.format(shape=shape), rules, G1_QUERY_LEAD + "\n" + rule]) + "\n"
 
 
@@ -265,15 +287,27 @@ def _agent_shape(shape: str) -> None:
         raise ValueError(f"修正の形 {shape} の修正役は下請けを起こさない（{sorted(fixshape.AGENT_SHAPES)} の外）")
 
 
-def g1_section(rows: list[dict], shape: str = G1_SHAPE) -> str:
-    """修正の形 g1 の修正役の指示書の節。rows は項目の順の {item, impl_file, review_file, base, patch}（fixrules.g1_values）。
+def g1_section(rows: list[dict], shape: str = G1_SHAPE, merge: str = "") -> str:
+    """修正の形 g1 の修正役の指示書の節。rows は項目の順の {item, impl_file, review_file, base, patch[, tree]}（fixrules.g1_values）。
+    tree の在る行（機械が単位の worktree を切った並べる項目。依頼 243 の並べ）は「並べる」と worktree を名指し、差分のコマンドは
+    その worktree の根で走る。その行が在れば手順の後に並べの段落（G1_PARALLEL_OF。merge は機械の当てるコマンド）を載せる。
     G1_HEAD → 手順（G1_STEPS）→ 項目ごとの実装役と審査役のファイル → 申し出の種類の手引き（DIVERGENCE_HINT）→ 読み替えの
     上書き（G1_OVERRIDES_OF）→ 読み替え。shape は見出しと上書きが名指す形で、g3 は項目の前に G1_LOOP_NOTE を持つ（下請けを起こす形の
     外は ValueError）"""
     _agent_shape(shape)
     steps = "\n".join(f"{n}. {t}" for n, t in enumerate(G1_STEPS, 1))
-    files = _bullets(f"項目 {r['item']}: 実装役 {r['impl_file']}・審査役 {r['review_file']}・差分のコマンド "
-                     f"`{G1_PATCH.format(base=r['base'], patch=shlex.quote(r['patch']))}`" for r in rows)
+    files = _bullets(_g1_row(r) for r in rows)
     loop = [G1_LOOP_NOTE] if shape == SHAPE else []
-    return "\n\n".join([G1_HEAD_OF.format(shape=shape), steps, *loop, files, DIVERGENCE_HINT, G1_OVERRIDES_OF.format(shape=shape),
+    side = [G1_PARALLEL_OF.format(merge=merge)] if any(r.get("tree") for r in rows) else []
+    return "\n\n".join([G1_HEAD_OF.format(shape=shape), steps, *side, *loop, files, DIVERGENCE_HINT, G1_OVERRIDES_OF.format(shape=shape),
                         rolekit.skill_overlay().rstrip("\n")]) + "\n"
+
+
+def _g1_row(r: dict) -> str:
+    """g1_section の項目の 1 行。tree の在る行は並べる項目で、差分のコマンドの根をその worktree にする"""
+    cmd = G1_PATCH.format(base=r["base"], patch=shlex.quote(r["patch"]))
+    head = f"項目 {r['item']}"
+    if r.get("tree"):
+        cmd = cmd.replace(G1_TOP, f"top={shlex.quote(r['tree'])}")
+        head += f"（並べる。単位の worktree {r['tree']}）"
+    return f"{head}: 実装役 {r['impl_file']}・審査役 {r['review_file']}・差分のコマンド `{cmd}`"
