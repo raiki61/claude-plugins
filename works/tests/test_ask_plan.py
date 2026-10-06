@@ -6,11 +6,16 @@
 - 再開: 包みが記録した会話の id の transcript を run ごとの置き場の私物の設定の置き場へ写し、そこへ向けた CLAUDE_CONFIG_DIR と
   cwd（run の作業ツリー）で `--resume` する。元の transcript は変わらない。2 回目は写しの会話（返った会話の id）を継ぎ、元の id が
   替われば写し直す
-- 認証: トークンは子の環境にだけ置き、標準出力と記録に出さない（出どころの名だけ）
+- 認証: トークンは子の環境にだけ置き、標準出力と記録に出さない（出どころの名だけ）。修正役の環境が継いだ認証（修正役の claude
+  自身の認証。Bash の子へ継がれる）を先に使い、keychain を読みに行かない（sandbox は keychain を読ませない。run 68f35d6b）。
+  継いだ認証が無い時だけ auth_launch.resolve
+- 子の書き込み: 子の HOME は置き場の下（sandbox が書ける所。HOME の下のキャッシュに書きに行って落ちない）、自動更新は止める
 - 聞けない（会話の記録が無い・認証が無い・claude が落ちた）は unavailable で終了コード 3
 - 盤面への写し（settle）: まだ写していない行だけを trace に写し、部品の窓の照らしで宣言の外にならない
 本物の claude は起こさない（子は偽の claude の python3 1 本）。盤面は trace だけを持つ偽物。git は使わない。
 """
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -47,6 +52,7 @@ FAKE = textwrap.dedent("""\
     with open(log, "a") as f:
         f.write(json.dumps({{"argv": argv, "cwd": os.getcwd(), "config": cfg, "found": hits,
                              "token": os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") == "{secret}",
+                             "home": os.environ.get("HOME"), "autoupdater": os.environ.get("DISABLE_AUTOUPDATER"),
                              "prompt": prompt}}) + "\\n")
     if os.environ.get("FAKE_FAIL"):
         sys.exit(1)
@@ -162,7 +168,36 @@ class AskCase(Fixture):
         (rec,) = askplan.exchanges(self.place)
         self.assertEqual(rec["id"], row["id"])
         self.assertNotIn(SECRET, json.dumps(rec))
-        self.assertEqual(rec["auth"], "CLAUDE_CODE_OAUTH_TOKEN", "出どころの名だけ")
+        self.assertEqual(rec["auth"], "env:CLAUDE_CODE_OAUTH_TOKEN", "出どころの名だけ")
+
+    def test_inherited_credential_is_used_before_keychain(self):
+        """run 68f35d6b: WORKS_KEYCHAIN_ITEM を名指した run で、sandbox の中から keychain を読めずに unavailable になった。
+        修正役の環境が継いだ認証が在れば、それで聞く（keychain に行かない）"""
+        self.say(decision="allow", paths=["works/CHANGELOG.md"], tests=[], spec="", reason="直しに伴う変更の記録の更新")
+        cfg = askplan.load_config(self.cfg_path)
+        called = []
+
+        def keychain_blocked(env, home, config):
+            called.append(True)
+            return None, None, "keychain の項目 claude-code-oauth-p3 を読めない: keychain-miss"
+        row = askplan.ask(cfg, "3", ["works/CHANGELOG.md"], [], "直しに伴って変更の記録を足す要がある",
+                          env={**self.env, "WORKS_KEYCHAIN_ITEM": "claude-code-oauth-p3"}, resolve=keychain_blocked)
+        self.assertEqual(row["status"], askplan.ANSWERED, row.get("why_unavailable"))
+        self.assertEqual(called, [], "継いだ認証が在れば keychain を読みに行かない")
+        (call,) = self.calls()
+        self.assertTrue(call["token"], "子は継いだ認証を持つ")
+        self.assertEqual(row["auth"], "env:CLAUDE_CODE_OAUTH_TOKEN")
+        self.assertNotIn(SECRET, json.dumps(askplan.exchanges(self.place)))
+
+    def test_child_home_is_under_the_place(self):
+        """子の claude は HOME の下（キャッシュ・自動更新）にも書く。修正役の sandbox は HOME に書かせないので、子の HOME を
+        置き場の下へ向け、自動更新を止める"""
+        self.say(decision="deny", paths=[], tests=[], spec="", reason="範囲の中で直せる（試しの答え）")
+        self.ask()
+        (call,) = self.calls()
+        self.assertTrue(str(pathlib.Path(call["home"]).resolve()).startswith(str(self.place.resolve())), call["home"])
+        self.assertTrue(pathlib.Path(call["home"]).is_dir())
+        self.assertEqual(call["autoupdater"], "1")
 
     def test_second_ask_continues_the_copy(self):
         self.say(decision="deny", paths=[], tests=[], spec="", reason="範囲の中で直せる（試しの答え）")
@@ -195,9 +230,37 @@ class AskCase(Fixture):
     def test_unavailable_without_auth(self):
         self.say(decision="deny", paths=[], tests=[], spec="", reason="試しの答え（使われない）")
         cfg = askplan.load_config(self.cfg_path)
-        row = askplan.ask(cfg, "3", ["works/CHANGELOG.md"], [], "理由の文を 10 字より長く", env=self.env,
+        env = {k: v for k, v in self.env.items() if k != "CLAUDE_CODE_OAUTH_TOKEN"}
+        row = askplan.ask(cfg, "3", ["works/CHANGELOG.md"], [], "理由の文を 10 字より長く", env=env,
                           resolve=lambda env, home, config: (None, None, "認証が無い（試し）"))
         self.assertEqual(row["status"], askplan.UNAVAILABLE)
+        self.assertIn("認証が無い（試し）", row["why_unavailable"])
+        self.assertEqual(self.calls(), [])
+
+    def test_keychain_fallback_without_inherited_credential(self):
+        """継いだ認証が無ければ auth_launch.resolve（keychain）で聞く。記録は出どころの名だけ"""
+        self.say(decision="deny", paths=[], tests=[], spec="", reason="範囲の中で直せる（試しの答え）")
+        cfg = askplan.load_config(self.cfg_path)
+        env = {k: v for k, v in self.env.items() if k != "CLAUDE_CODE_OAUTH_TOKEN"}
+        row = askplan.ask(cfg, "3", ["works/CHANGELOG.md"], [], "理由の文を 10 字より長く", env=env,
+                          resolve=lambda env, home, config: ({"CLAUDE_CODE_OAUTH_TOKEN": SECRET}, "keychain の項目 x", None))
+        self.assertEqual((row["status"], row["auth"]), (askplan.ANSWERED, "keychain の項目 x"))
+        self.assertTrue(self.calls()[0]["token"])
+
+    def test_cli_exit_3_when_no_auth(self):
+        """認証が無い（継いだ物も keychain も）時は終了コード 3（修正役は食い違いの申し出の道へ戻る）"""
+        self.say(decision="deny", paths=[], tests=[], spec="", reason="試しの答え（使われない）")
+        env = {k: v for k, v in self.env.items() if k != "CLAUDE_CODE_OAUTH_TOKEN"}
+        orig, out = askplan.ask, io.StringIO()
+        try:
+            askplan.ask = lambda *a, **k: orig(*a, **{**k, "env": env, "resolve": lambda e, h, c: (None, None, "無い（試し）")})
+            with contextlib.redirect_stdout(out):
+                rc = askplan.main([str(self.cfg_path), "--item", "3", "--paths", "works/CHANGELOG.md",
+                                   "--why", "直しに伴って変更の記録を足す要がある"])
+        finally:
+            askplan.ask = orig
+        self.assertEqual(rc, 3)
+        self.assertEqual(json.loads(out.getvalue())["status"], askplan.UNAVAILABLE)
         self.assertEqual(self.calls(), [])
 
     def test_cli_prints_answer_and_exit_codes(self):

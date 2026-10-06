@@ -32,12 +32,18 @@ run 195g（0.2.29）の修正の段は、修正役が修正案の項目の「書
 2. 盤面は書けない。
    - 決め: 相談の記録と合意は run ごとの置き場（今の scope の下の `ask-plan/`）に書き、受け付け（sandbox の外の script）が盤面の trace に写す（`unitlanes` の当てた記録 merged.json と fix-units の関係と同じ形）。
 3. 認証: claude の子は親の認証を継がないことがある（`works/.shared/core/claude_auth.py` の頭）。
-   - 決め: works の殻が Archon を起こす時と同じ `auth_launch.resolve`（WORKS_KEYCHAIN_ITEM → 本流 `claude_auth.auth_env`（親の環境・keychain）→ Claude Code 自身の keychain の項目）で子の環境を組む。設定の置き場は元の物を渡して keychain の項目名を導き、子の `CLAUDE_CONFIG_DIR` だけを私物へ向け直す。トークンは子の環境にだけ置き、記録・標準出力・引数に出さない。記録に残すのは出どころの名だけ。
+   - 決め（2026-10-06 に直した）: 修正役の環境が継いだ認証（`claude_auth.INHERITED` の変数。修正役の claude 自身の認証）が在ればそれを使い、無い時だけ works の殻が Archon を起こす時と同じ `auth_launch.resolve`（WORKS_KEYCHAIN_ITEM → 本流 `claude_auth.auth_env`（親の環境・keychain）→ Claude Code 自身の keychain の項目）で子の環境を組む。子の `CLAUDE_CONFIG_DIR` だけを私物へ向け直す。トークンは子の環境にだけ置き、記録・標準出力・引数に出さない。記録に残すのは出どころの名だけ（`env:CLAUDE_CODE_OAUTH_TOKEN` か resolve の名）。
+   - 直した訳（run 68f35d6b。0.2.32 の候補）: 修正役は道具を呼べたが、`unavailable`（`keychain の項目 claude-code-oauth-p3 を読めない: keychain-miss`）で返った。初めの形は resolve を先に呼び、resolve は WORKS_KEYCHAIN_ITEM の名指しを親の環境より先に見るので、sandbox が keychain を読ませない修正役の Bash では必ず外れていた。認証の通り道を読んだ: 殻（`auth_launch.py exec`）は名指しの項目のトークンを `CLAUDE_CODE_OAUTH_TOKEN` に入れて Archon を起こし、Archon は `CLAUDE_CODE_` の変数を消す時もこの名を残し（`CLAUDE_CODE_OAUTH_TOKEN`・`CLAUDE_CODE_USE_BEDROCK`・`CLAUDE_CODE_USE_VERTEX` を除く）、包み（`claude-adapter`）は env を変えずに claude を起こし、Claude Code（2.1.291）は `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`（既定は切。GitHub Actions の中では入）が入でない限り Bash の子から認証を消さない。継いだ認証は殻が同じ順で決めた物なので、先に使っても順は変わらない。
+   - 採らなかった形: 包みか支度の節（sandbox の外）が認証を解いて、run ごとの置き場の下に短い間だけ読める資格のファイルを置く形。トークンを 1 度でもファイルに書く（盤面・記録の隣に残りうる）ので、継いだ環境で足りる今は採らない。`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` が入の場（継いだ認証が消える）では keychain の段へ落ち、sandbox の中では聞けず終了コード 3（今の道へ戻る）になる。その場で相談を使う要が出た時に、この形を考え直す。
 4. 包みを通さない: 印を付けて包みを通すと、包みは会話の id を家に記録しようとして書けずに止まる（fail closed）。相談は役の起動ではなく、修正役の道具の 1 回の呼びなので、包みの柵（Read の記録・書き込みの柵）は要らない。計画役の子は道具を Read・Grep・Glob に絞り、設定は user の段だけ（対象の CLAUDE.md を読ませない。計画役の節の `settingSources: [user]` と同じ）。
 5. 網: 修正役の節は sandbox の網の一覧を持たず、包みは網を閉じない（adapter.py の頭の 8）。claude の子は API に届く。
 6. Python: 修正役の sandbox の `python3` は 3.9 のことがある。機械の 2 つのコマンドは、修正役の支度の節（uv で走る）の実行ファイルの絶対パスで書く（支度が指示書に書く）。
 
-止めになる物は見つからなかった。ただし入れ子の sandbox の中で claude の子が全部の書き込み先（設定の置き場のほか、HOME の下のキャッシュなど）に書けるかは、有料の試しをしていないので確かめていない（下の「危険」と「残り」）。
+7. HOME の下の書き込み（2026-10-06 に足した）: claude は設定の置き場の外にも、HOME の下のキャッシュ（macOS の `~/Library/Caches/claude-cli-nodejs`）と自動更新の置き場（`~/.local/share/claude`）に書く。修正役の sandbox は HOME に書かせない。
+   - 決め: 子の HOME を相談の置き場の下の `home/`（書ける所）へ向け、`DISABLE_AUTOUPDATER=1` を立てる。認証は環境で渡すので、子は HOME の keychain・保存済み認証を使わない。
+   - 突き合わせた他の段: 会話の写し（`claude-home/`）は run 68f35d6b で書けていた（置き場の下）。網は 5 のとおり修正役の節に網の一覧が無く、包みは網を閉じない。
+
+止めになる物は見つからなかった。ただし入れ子の sandbox の中で claude の子が全部の書き込み先に書けるかは、有料の試しをしていないので確かめていない（下の「危険」と「残り」）。
 
 ## 案
 
@@ -96,8 +102,8 @@ run 195g（0.2.29）の修正の段は、修正役が修正案の項目の「書
 
 ## 危険
 
-- 入れ子の sandbox の中の claude の子が、私物の設定の置き場の外（HOME の下のキャッシュ・ログ）に書こうとして落ちうる。落ちれば終了コード 3 で、修正役は今の道へ戻る（害は今と同じ往復）。
-- 親の環境に認証が無く keychain も sandbox から読めなければ、聞けない（3）。
+- 入れ子の sandbox の中の claude の子が、私物の設定の置き場と子の HOME の外（TMPDIR 以外の決まった場所）に書こうとして落ちうる。落ちれば終了コード 3 で、修正役は今の道へ戻る（害は今と同じ往復）。
+- 親の環境に認証が無く（`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` が入の場など）keychain も sandbox から読めなければ、聞けない（3）。
 - 計画役の会話が長いと、再開ごとに入力のトークンが掛かる（写しは compact しない）。
 
 ## 入れた物
