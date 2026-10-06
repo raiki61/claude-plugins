@@ -61,6 +61,18 @@ def clobbered(snaps: dict, first: str, second: str, shared) -> list:
     return sorted(p for p in mine if s0.get(p) != s1.get(p))
 
 
+def tree_review(board: pathlib.Path) -> dict:
+    """1 度目の include（planning）の事前審査の空の返答に、束ね役の欄を足した物（2 項目の案なので、受け付けは開いた項目ごとの
+    items の行・覆っていない当たりの全部の答え・相乗りの審査 synergy を求める。planblk.tree_gaps）。当たりは節 review-ripple が
+    盤面に置いた往復 1 の波及の一覧から引き、全部 no_effect と答える"""
+    doc = json.loads(max(board.glob("r*/ripple/pass-1.json")).read_text(encoding="utf-8"))
+    items = [{"item": it["item"], "checked": "項目の案を stats.py と test_stats.py で読み、呼び出し元と試験の期待を確かめた",
+              "hits": [{"id": h["id"], "answer": "no_effect", "why": "直した後の値だけを断言していて期待は変わらない"}
+                       for h in it["uncovered"]]} for it in doc["items"]]
+    return {**tr.no_faces(), "items": items,
+            "synergy": {"ran": True, "keys": [], "why": "2 つの項目は stats.py の別の関数を直し、順番の依存も重複も無い"}}
+
+
 def scenario(board: pathlib.Path) -> dict:
     """修正役が mean を申し出 → 裁定 fix_plan_item → 案の直し（replanning）→ 関所 replan-gate は continue → 2 回目の修正
     （refitting）→ 報告、の ScriptLine の引数。返答は test_replan の組み手（案の直しの試験と同じ 2 項目の案・控え・2 回目の返答）。
@@ -103,7 +115,7 @@ def scenario(board: pathlib.Path) -> dict:
                {"id": "c1-2", "decision": "fix_code_as", "text": "依頼が正しい。分母を len(xs) に直せ", "limits": ["stats.py:9"]}]
     replies = {**line_replies(),
                "plan": lambda n: {"plan": [tr._item(1), tr.clamp_item()]} if n == 1 else {"plan": [tr.wider_paths()]},
-               "plan-review": lambda n: tr.no_faces(),
+               "plan-review": lambda n: tree_review(board) if n == 1 else tr.no_faces(),
                "fix": lambda n: tr.only_clamp_reply([claim]) if n == 1 else {**tr.only_mean_reply(), "changes": [],
                                                                              "conflicts": [again]},
                "rule": lambda n: {"rulings": [rulings[min(n, 2) - 1]]},
