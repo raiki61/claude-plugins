@@ -164,19 +164,22 @@ def board_dir():
     return board
 
 
-def emit_result(board: pathlib.Path, fn, out: dict) -> int:
+def emit_result(board: pathlib.Path, fn, out: dict, *, last: bool = True) -> int:
     """受け付けの出口（1 本）: out に reason_file を足し（拒否なら reason の本文を盤面の scope の根の reject-<fn の名>-<連番>.txt に
     字のまま書いてその絶対パス、通れば空）、1 行の JSON を出して 0 を返す。board は board_dir が返した値。
     fn は関数か名前の文字列（ファイルの名前に使う）。
     main を通らない受け付けの入口もここを通す（_emit を直に呼ぶと
-    reason_file が出ず、指示書が理由の本文を $LOOP_PREV で貼るしかなくなる）"""
+    reason_file が出ず、指示書が理由の本文を $LOOP_PREV で貼るしかなくなる）。
+    last が偽なら最後の結果の控え（note_last）に書かない: 拒否や投げ出しが run の落ちた理由でなく次の役への引き渡しになる
+    受け付け（blk-fix の TDD の輪の tdd-step）が使う"""
     out = dict(out)
     if out.get("ok") is True:
         out["reason_file"] = ""
     else:
         board.mkdir(parents=True, exist_ok=True)
         out["reason_file"] = _write_reason(board, fn, str(out.get("reason", "")))
-    note_last(board, fn, out)
+    if last:
+        note_last(board, fn, out)
     _emit(out)
     return 0
 

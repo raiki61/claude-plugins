@@ -675,6 +675,18 @@ class TestUnitLoop(LoopCase):
         self.assertEqual((code, out), (2, ""))
         self.assertIn("INPUTS_NOTES_FILE", err)
 
+    def test_step_script_leaves_no_accept_last_row(self):
+        # 輪の拒否・投げ出しは修正役への引き渡しで、run の落ちた理由ではない。受け付けの最後の結果の控え（accept-last.json）に
+        # 行を書かない（書くと後の修正役の受け付けが通っても ok 偽が残り、次の run の prior_failures に載る。単位ごとの上書きも起きる）
+        code, out, err = run_script("tdd_step", self.repo, {
+            "INPUTS_REPLY": json.dumps({"phase": "route", "units": []}), "INPUTS_STATE_FILE": self.state,
+            "ARTIFACTS_DIR": str(self.board.parent)})
+        self.assertEqual(code, 0, err)
+        self.assertIs(json.loads(out)["ok"], False)
+        last = self.board / "accept-last.json"
+        doc = json.loads(last.read_text(encoding="utf-8")) if last.is_file() else {}
+        self.assertNotIn("tdd_step", doc)
+
 
 MEAN_ID = "test_stats.py::TestStats::test_mean_of_two"
 WRONG_KIND_TEST = "\n    def test_mean_of_two(self):\n        import stats\n        self.assertEqual(stats.mean2([2, 4]), 3)\n"
