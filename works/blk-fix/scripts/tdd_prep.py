@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import json  # noqa: E402
 import os  # noqa: E402
 
+import tddlanes  # noqa: E402
 import tddloop  # noqa: E402
 
 INPUTS = ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE")
@@ -33,7 +34,7 @@ def main() -> int:
         return 2
     values = {n[len("INPUTS_"):].lower(): os.environ[n] for n in INPUTS[1:]}
     try:
-        out = tddloop.prep(os.environ[INPUTS[0]], values, Path.cwd())
+        out = tddloop.prep(os.environ[INPUTS[0]], values, Path.cwd(), lanes=tddlanes)   # 並べの周の下請けのファイルの口
     except (tddloop.Broken, OSError) as e:
         print(f"tdd-prep: {' '.join(str(e).split())}", file=sys.stderr)
         return 2

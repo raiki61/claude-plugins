@@ -31,7 +31,7 @@ Archon の fan_out は子ごとに cwd を単位の worktree へ向けられな�
 
 1. 単位の worktree への書き込み: 包みは、run ごとの置き場の下にあってこの作業ツリーの守りの参照を持つ worktree を、守る所から外す（1 段目で入れた。役の名を問わない）。worktree は tdd-step（sandbox の外）が切るので、次の周のまとめ役の起動の時には在る。
 2. 共通の .git への書き込み: 段のコマンドは作業ツリーの姿を木に固める（`git write-tree`。object を書く）。sandbox は共通の .git を書かせない。
-   - 決め: コマンドは git の新しい object を単位の控えの隣の objects（run ごとの置き場の下。sandbox が書ける）に書き、元の objects を代わりの置き場として読む（GIT_OBJECT_DIRECTORY と GIT_ALTERNATE_OBJECT_DIRECTORIES）。コマンドが起こす試験と test_cmd にはこの 2 つを渡さない（試験の中の git が別の置き場に書かないように。`tree_run.outside_env` が印 `WORKS_LANE_GIT` の在る時だけ落とす）。
+   - 決め: コマンドは git の新しい object を単位の控えの隣の objects（run ごとの置き場の下。sandbox が書ける）に書き、元の objects を代わりの置き場として読む（GIT_OBJECT_DIRECTORY と GIT_ALTERNATE_OBJECT_DIRECTORIES）。コマンドが起こす試験と test_cmd にはこの 2 つを渡さない（試験の中の git が別の置き場に書かないように。`tree_run.outside_env` が印 `LANE_GIT_ENV` の在る時だけ落とす）。
 3. 盤面は書けない: 単位の控え・試験のログ・JUnit・地図のキャッシュは run ごとの置き場の下。コマンドは盤面を開かない（修正案の約束は単位の控えに写しておく）。食い違いの申し出の確かめは盤面を読むので、コマンドは申し出を控えに書くだけにし、確かめと盤面への積みは tdd-step がする。
 4. 書き込みの記録: 包みのフックが下請けの Edit・Write を run の作業ツリーの記録（`writes.sink`）に実パスで残す。コマンドは記録を書けない（包みの家）ので、突き合わせは tdd-step が単位の worktree の実パスで行い（`writes.unrecorded`）、当てた後に `writes.carry` で run の作業ツリーへ写す（1 段目の fix-units と同じ）。Bash で書いた物の申告（bash_writes）は、コマンドが単位の控えに積み、tdd-step が記録に足す。
 5. 道具: 輪の役 tdd は Agent を持たなかった。役の節の allowed_tools に Agent を足し、包みの形ごとの柵（`fixshape.DENY`）で g3 の外の tdd の Agent を拒む（af・current の輪は今と同じ道具）。
@@ -103,10 +103,10 @@ tdd-prep は lanes の段で、まとめ役の指示書と、単位ごとの下�
 - `works/blk-fix/lib/tddlanes.py`: 分け方・切る・段のコマンド・締める
 - `works/blk-fix/lib/tddloop.py`: 段 lanes（振り分けの後の分け方・支度の指示書・確かめの締め）・引き継ぎの節に並べで済んだ単位・出口の lanes
 - `works/blk-fix/lib/fixrules.py`・`works/blk-fix/rules/tdd.md`: 下請けのファイルの組み立てと決まりの節（tdd-lane・tdd-phase-lanes）
-- `works/blk-fix/scripts/tdd_step.py`: 並べの周の申し出をまとめて盤面に積む
+- `works/blk-fix/scripts/tdd_step.py`・`tdd_prep.py`: 並べの口（tddlanes）を輪に渡す（tddlanes が tddloop を import するので、tddloop は tddlanes を import しない。口が渡されない段 lanes は止める）。tdd_step は並べの周の申し出をまとめて盤面に積む
 - `works/blk-fix/blk-fix.yaml`: 役 tdd の allowed_tools に Agent・phase に lanes
 - `works/.shared/core/fixshape.py`: 形ごとの柵の表に「tdd の Agent は g3 だけ」
-- `works/.shared/core/tree_run.py`: 印 `WORKS_LANE_GIT` の在る時、試験の env から object の置き場の変数を落とす
+- `works/.shared/core/tree_run.py`: 印 `LANE_GIT_ENV` の在る時、試験の env から object の置き場の変数を落とす
 
 ## 残り
 

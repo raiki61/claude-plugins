@@ -84,7 +84,7 @@ class LaneCase(unittest.TestCase):
         return json.loads(pathlib.Path(self.state).read_text(encoding="utf-8"))
 
     def step(self, reply):
-        return tddloop.step(self.state, reply, self.repo)
+        return tddloop.step(self.state, reply, self.repo, lanes=tddlanes)
 
     def route(self):
         got = self.step({"phase": "route", "units": [{"unit_key": UA, "route": "tdd"}, {"unit_key": UB, "route": "tdd"}]})
@@ -272,7 +272,7 @@ class TestSettle(LaneCase):
         self.assertEqual(st["units"][UB]["red"], "", "戻した単位は最初の段から")
         self.assertEqual((self.repo / "test_b.py").read_text(encoding="utf-8"), SEED["test_b.py"], "済まなかった単位は当てない")
         self.assertEqual((self.repo / "a.py").read_text(encoding="utf-8"), "def double(x):\n    return x + x\n")
-        prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+        prompt = pathlib.Path(tddloop.prep(self.state, lanes=tddlanes)["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn("並べで済まなかった", prompt)
         self.assertIn(UA, prompt.split(tddloop.HANDOFF_HEAD, 1)[1], "並べで済んだ単位は引き継ぎに並ぶ")
         # 順に戻った単位は今どおり回る
@@ -357,7 +357,7 @@ class TestSettle(LaneCase):
 class TestPrep(LaneCase):
     def test_lanes_prompt_and_unit_files(self):
         self.route()
-        out = tddloop.prep(self.state, repo=self.repo)
+        out = tddloop.prep(self.state, repo=self.repo, lanes=tddlanes)
         text = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
         st = self.st()
         self.assertIn("段 lanes", text)
@@ -372,6 +372,20 @@ class TestPrep(LaneCase):
                 self.assertIn(w, sub)
         key = pathlib.Path(tddloop.adapter.session_key_path(str(self.board), tddloop.UNIT_NODE)).read_text(encoding="utf-8")
         self.assertEqual(key.strip(), f"{pathlib.Path(st['work']).name}:lanes", "まとめ役は新しい会話で")
+
+
+    def test_lanes_phase_needs_the_lane_hooks(self):
+        """tddlanes が tddloop を import するので、並べの口は節の script が渡す。渡されない段 lanes は Broken（黙って順にしない）"""
+        self.route()
+        with self.assertRaises(tddloop.Broken):
+            tddloop.prep(self.state)
+        with self.assertRaises(tddloop.Broken):
+            tddloop.step(self.state, {"phase": "lanes"}, self.repo)
+
+    def test_route_without_hooks_stays_serial(self):
+        got = tddloop.step(self.state, {"phase": "route", "units": [{"unit_key": UA, "route": "tdd"},
+                                                                    {"unit_key": UB, "route": "tdd"}]}, self.repo)
+        self.assertEqual(got["phase"], "test")
 
 
 if __name__ == "__main__":

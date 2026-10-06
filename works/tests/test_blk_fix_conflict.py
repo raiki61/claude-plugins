@@ -485,7 +485,7 @@ class TestTddConflict(LoopCase):
         spec.loader.exec_module(mod)
         seen = {}
 
-        def step(state_file, reply, repo, try_query=None):
+        def step(state_file, reply, repo, try_query=None, lanes=None):
             seen["err"] = try_query(MEAN, ["    return sum(xs) / len(xs)"])
             return {"ok": False, "done": False, "reason": "x", "phase": "route"}
         b = mock.MagicMock()

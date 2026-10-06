@@ -27,6 +27,7 @@ import conflict  # noqa: E402
 import entry  # noqa: E402
 import querytest  # noqa: E402
 import script_io  # noqa: E402
+import tddlanes  # noqa: E402
 import tddloop  # noqa: E402
 from leftovers import Unreadable  # noqa: E402
 
@@ -47,7 +48,8 @@ def main() -> int:
         reply = None   # 読めない返答は step が拒む（出し直しの回数に数える）
     try:
         out = tddloop.step(os.environ["INPUTS_STATE_FILE"], reply, Path.cwd(),   # query の申し出は判定者の問いを当てて確かめる
-                           try_query=lambda k, lines: querytest.judge_hits(entry.open_board(board).record["units"])(k, lines))
+                           try_query=lambda k, lines: querytest.judge_hits(entry.open_board(board).record["units"])(k, lines),
+                           lanes=tddlanes)   # 並べの口（tddlanes が tddloop を import するので、輪には節が渡す）
         items = [i for i in [out.pop("conflict", None)] if i is not None] + (out.pop("conflicts", None) or [])
         if items:   # 止めた申し出（並べの周は単位ごとの申し出の全部）を盤面の控えと trace に積む（裁定の輪が読む）
             conflict.park(entry.open_board(board), items, source="tdd")

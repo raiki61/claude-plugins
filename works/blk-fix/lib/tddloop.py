@@ -47,7 +47,7 @@
     （_reached。元で通っていたテストの緑と消えたテストの照らしは、この回でファイルごと走ったモジュールで見る）。地図が引けない・
     分からない物が近くに在る（run_all）時は合図なしの一式。届かない試験・元の結末の外の試験は受け付け（selected_problems）と
     線の最後のテストの段（一式）が確かめる
-  - lanes（並べの周。依頼 243 の並べの 2 段目。docs/plans/2026-10-06-tdd-parallel.md）: 形 g3 の輪（状態の lanes_on）で、振り分けの
+  - lanes（並べの周。口は節の script が渡す tddlanes。依頼 243 の並べの 2 段目。docs/plans/2026-10-06-tdd-parallel.md）: 形 g3 の輪（状態の lanes_on）で、振り分けの
     直後に範囲の重ならない tdd の単位が 2 つ以上なら、tddlanes.plan が単位の worktree と単位の控えを置いてこの段へ進める。支度は
     まとめ役の指示書と単位ごとの下請けのファイル（_write_lane_files）を書き、下請けは段のコマンド（tddlanes.run）でこの step を単位の
     worktree に回す。この段の step は返答に依らず tddlanes.settle で締める（差分を当てて緑を確かめ直し、済まなかった単位は順に戻す）。
@@ -616,7 +616,7 @@ def handoff_lines(st) -> list:
     return [HANDOFF_HEAD, "", "前の単位の直しは作業ツリーに在る（緑の木）。戻したり作り直したりするな。", ""] + rows + [""]
 
 
-def prep(state_file, values: dict | None = None, repo=None) -> dict:
+def prep(state_file, values: dict | None = None, repo=None, lanes=None) -> dict:
     """節 tdd-prep。今の段の指示書を組み（fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段の約束・run の値）、状態の
     置き場の next.md（full の写し）と隣の next.full.md・next.delta.md・next.variants.json に書き、{prompt_file} を返す。
     values は fixrules.TDD_VALUES の run の値（義務の単位は状態の物を使う。欠けは空）。repo は差分から変更の種類を選ぶ根（None は見ない）。
@@ -624,11 +624,15 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える。
     盤面の修正の形（fixshape.shape_at。盤面の無い置き場は記録の無い盤面と同じ af）が座を載せる形なら、借りたスキルの座
     （seat.section）を載せる。形の控え・写しが壊れていれば Broken。
+    lanes は並べの口（tddlanes の module。節の script が渡す。tddlanes が tddloop を import するので、ここからは import しない）。
+    段 lanes の指示書は lanes が無ければ Broken。
     書いた後に、包みが単位の切れ目で会話を切る鍵（_write_unit_key）を書く。単位が替わった周の役は新しい会話で起き（依頼 243 の 2）、
     前の単位の物は引き継ぎの節（handoff_lines）だけで渡る"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-prep を呼ぶ番でない）")
+    if st["phase"] == "lanes" and lanes is None:
+        raise Broken("並べの周（段 lanes）の指示書を組む口（tddlanes）が渡されていない")
     path = pathlib.Path(st["work"]) / PROMPT
     briefs = _briefs(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
     phase = st["phase"]
@@ -684,18 +688,17 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
             raise Broken(f"TDD の輪の指示書を組めない: {e}")
     fixrules.write_variants(path, repo, vals, build, n)
     if phase == "lanes":
-        _write_lane_files(st, vals, briefs, seat_text, lang)
+        _write_lane_files(st, vals, briefs, seat_text, lang, lanes)
     _write_unit_key(path.parent.parent, f"{path.parent.name}:{phase if phase in ('route', 'lanes') else st['queue'][st['cur']]}")
     return {"prompt_file": str(path)}
 
 
-def _write_lane_files(st, vals: dict, briefs: list, seat_text: str, lang: str) -> None:
+def _write_lane_files(st, vals: dict, briefs: list, seat_text: str, lang: str, lanes) -> None:
     """並べの周の下請けのファイル（目録の行の file。盤面の tdd-<k>/lane-<n>.md）を単位ごとに書く（tddlanes.unit_text と
     fixrules.tdd_lane_render。いつも全文。下請けは単位ごとに新しい会話）"""
-    import tddlanes   # tddlanes が tddloop を import する
     for r in st["lanes"]["rows"]:
         k = r["unit_key"]
-        text = fixrules.tdd_lane_render({**vals, "open_units": json.dumps([k], ensure_ascii=False)}, tddlanes.unit_text(st, r),
+        text = fixrules.tdd_lane_render({**vals, "open_units": json.dumps([k], ensure_ascii=False)}, lanes.unit_text(st, r),
                                         title=f"# TDD の輪の 1 単位の下請け（並べ・単位 {k}）",
                                         brief=planbrief.head_text(planbrief.for_units(briefs, [k]), [k]), seat=seat_text, lang=lang)
         pathlib.Path(r["file"]).write_text(text, encoding="utf-8")
@@ -1262,16 +1265,20 @@ def _conflict(st, reply, repo, try_query=None) -> tuple:
     return [], item
 
 
-def step(state_file, reply, repo, try_query=None) -> dict:
+def step(state_file, reply, repo, try_query=None, lanes=None) -> dict:
     """節 tdd-step。{ok（この返答を受けた）, done（輪を抜ける）, reason, phase（次の段）, conflict（止めた申し出の 1 件か None。
     節が盤面の控えに積む）, writes（書き込みの出どころの突き合わせの結果。節が盤面の trace に積む）}。
     申し出でない返答は、前の段の後から変わったファイルを書き込みの記録と欄 bash_writes に突き合わせてから段を確かめる。
+    lanes は並べの口（tddlanes の module。節の script が渡す。tddloop からは import しない）: 状態の lanes_on が真なら振り分けの後に
+    lanes.plan、段 lanes は lanes.settle で締める。無ければ並べない（段 lanes の状態で無ければ Broken）。
     前の段の印（handoff）は突き合わせを通った時と、機械が木を単位の頭に戻して次の単位へ移った時（申し出・諦め）だけ進める（拒まれた
     返答の出し直しや、振り分けの段の申し出で、記録の無い書き込みを流さない）"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-step を呼ぶ番でない）")
     phase = st["phase"]
+    if phase == "lanes" and lanes is None:
+        raise Broken("並べの周（段 lanes）を締める口（tddlanes）が渡されていない")
     t0, runs0 = time.monotonic(), st["runs"]   # 段ごとの呼び出しの記録（calls）の元。秒は書くだけで止める条件に使わない
     call = {"n": st["iterations"] + 1,
             "phase": "conflict" if isinstance(reply, dict) and reply.get("phase") == "conflict" else phase,
@@ -1280,8 +1287,7 @@ def step(state_file, reply, repo, try_query=None) -> dict:
     got = None
     lane_items = []
     if phase == "lanes":   # 並べの周は返答に依らず 1 回で締める（tddlanes.settle。まとめ役の拒否と出し直しは無い）
-        import tddlanes   # tddlanes が tddloop を import する
-        lane_items = tddlanes.settle(st, repo, try_query)
+        lane_items = lanes.settle(st, repo, try_query)
         probs = []
     elif isinstance(reply, dict) and reply.get("phase") != "conflict":
         moved = sorted(set(touched(repo, st["handoff"], snapshot(repo))) - set(st["suite_made"]))
@@ -1306,9 +1312,8 @@ def step(state_file, reply, repo, try_query=None) -> dict:
             _abort(st, repo, f"{e.head}: {e}", "runner")
             probs = [st["note"]]
             call["phase"] = "runner"   # 機械の止まり（役の拒否と分ける）
-        if phase == "route" and not probs and not st["done"] and st.get("lanes_on"):
-            import tddlanes   # 範囲の重ならない tdd の単位が 2 つ以上なら単位の worktree を切って段 lanes へ
-            tddlanes.plan(st, repo)
+        if phase == "route" and not probs and not st["done"] and st.get("lanes_on") and lanes is not None:
+            lanes.plan(st, repo)   # 範囲の重ならない tdd の単位が 2 つ以上なら単位の worktree を切って段 lanes へ
     if probs and not st["done"]:
         st["tries"] += 1
         st["reason"] = "\n".join(f"- {p}" for p in probs)
