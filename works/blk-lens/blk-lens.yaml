@@ -38,9 +38,11 @@ nodes:
         silent_failure_hunter_go: {type: boolean}
         prompt_silent_failure_hunter: {type: string}
 
-  # レンズ pr-review-toolkit:silent-failure-hunter（黙った失敗）。model: は書かない（前付けの無い役は run の既定の模型で走る。
-  # tests/test_tool_parity.py の RoleModelCase が縛る）
+  # レンズ pr-review-toolkit:silent-failure-hunter（黙った失敗）。前付けが core/agents に無いので、model・effort は
+  # tests/test_tool_parity.py の表 STAGE_MODEL の値を段に書く（run の既定に頼らない）
   - id: lens-silent-failure-hunter
+    model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+    effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
     command: lens-silent-failure-hunter
     depends_on: [lens-route]
     when: "$lens-route.output.silent_failure_hunter_go == true"

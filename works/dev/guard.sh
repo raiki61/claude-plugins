@@ -9,7 +9,8 @@
 # 環境から上書きさせない。続き（answer・show の行）は start の時に解いた既定を別の名 WORKS_MODEL_PINNED で渡し
 # （use.sh load_ledger・lib.sh works_dev_go だけが置く。入口の殻 use.sh・dogfood.sh・real-run.sh は起動の時に外し、
 # 利用者の殻に残った値を受けない）、archon.sh が読んで外す（run の途中で既定を解き直さない）。
-# 効くのは段に model: の無い段（役の前付けに model の無い段）だけ。費用を先に取る（持ち主 2026-10-01）
+# works の YAML は AI の段の全部に model:・effort: を書く（持ち主 2026-10-06。tests/test_tool_parity.py が欠けを名指す）ので、
+# この既定が効くのは run の題（TITLE_GENERATION_MODEL）だけ。段の模型は替わらない。費用を先に取る（持ち主 2026-10-01）
 WORKS_DEV_MODEL_DEFAULT=sonnet
 
 # works_dev_model_value / works_dev_model_from: 全体の模型の値と出どころ。空でなければ明示、次に start の時の既定

@@ -54,6 +54,8 @@ nodes:
       until_bash: test $refix-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: refix
+          model: sonnet               # コードとテストを書く役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+          effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
           prompt: |-
             指示書 `$refix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
             前の回の受け付けが拒んだ理由を書いたファイル（初回は空。空でなければ、まずそのファイルを Read で読み、書かれた理由を直した返答を丸ごと出し直せ。理由の本文はファイルにだけ在る）: `$LOOP_PREV.refix-accept.output.reason_file`
@@ -308,6 +310,8 @@ nodes:
       until_bash: test $refix2-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: refix2
+          model: sonnet               # コードとテストを書く役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+          effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
           prompt: |-
             指示書 `$refix2-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
             前の回の受け付けが拒んだ理由を書いたファイル（初回は空。空でなければ、まずそのファイルを Read で読み、書かれた理由を直した返答を丸ごと出し直せ。理由の本文はファイルにだけ在る）: `$LOOP_PREV.refix2-accept.output.reason_file`

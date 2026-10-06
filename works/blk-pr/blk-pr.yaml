@@ -38,6 +38,8 @@ nodes:
       until_bash: test $pr-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: pr-check
+          model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。tests/test_tool_parity.py の表 STAGE_MODEL が縛る。持ち主 2026-10-06）
+          effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
           command: pr-check
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           # 読むだけ＋Bash（gh の読む口 "$WORKS_GH" と git の読む語）。書く道具は持たない。網は閉じ、口 works-gh だけを sandbox の外で
