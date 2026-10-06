@@ -3,7 +3,10 @@ description: |
   修正のブロック（support workflow。ラインから include で使う）。
   修正役の前に git が無視するファイルを控え（ignored-before）、テストの実行器（入力 tdd_suite）が在る run だけ単位ごとの
   TDD の輪を回し（tdd-start → tdd-loop。振り分け → 単位ごとにテスト・赤（機械）・直し・緑（機械）・整え・確かめ直し（機械）。
-  実行器が無い run は輪を飛ばし、今と同じに動く）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
+  実行器が無い run は輪を飛ばし、今と同じに動く。既定の形 g3 では、振り分けの直後に書いてよい範囲が互いに重ならない tdd の単位が
+  2 つ以上あれば、確かめの節が単位ごとに小さい worktree を切り、並べの周（段 lanes）の輪の役がその単位の下請けを Agent で同時に
+  起こし、下請けは段ごとに機械のコマンドで赤・緑を確かめる。確かめの節が差分を作業ツリーへ当てて緑を確かめ直し、済まなかった単位は
+  順に回し直す。依頼 243 の並べの 2 段目）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
   changes に行を書くだけ。修正の形 g1 と既定の g3 では、残りの単位を 1 つの会話に積まず、単位（修正案の項目）ごとに新しい会話の
   下請けを Agent で起こす。依頼 243 の 2。g3 の 1 回目の周では、書いてよい範囲が互いに重ならない項目だけ、支度が項目ごとに
   小さい worktree を切り、修正役がその下請けを同時に起こして、機械のコマンドが差分を項目の番号の順に作業ツリーへ当てる。
@@ -112,7 +115,10 @@ nodes:
   # 新しい会話で起こす（tdd-prep が run ごとの置き場に書く単位の鍵。前の単位の物は指示書の引き継ぎの節で渡す。依頼 243 の 2）。
   # 赤・緑は tdd-step が写しの red_problems・green_problems で決める。
   # 拒否の理由は tdd-prep が次の指示書に書く（$LOOP_PREV で貼らない。R44）。段ごとに 3 回目の拒否で諦め（その単位は direct）、
-  # 実行器が走らない・回数が max_iterations に届く周では残りを direct にして done を立てる（max_iterations で落とさない。R50）
+  # 実行器が走らない・回数が max_iterations に届く周では残りを direct にして done を立てる（max_iterations で落とさない。R50）。
+  # 形 g3 で振り分けの後に範囲の重ならない tdd の単位が 2 つ以上なら、tdd-step が単位の worktree を切って段 lanes の周を 1 回挟む
+  # （役はまとめ役として単位の下請けを Agent で同時に起こし、下請けは段のコマンド lib/tddlanes.py で赤・緑を確かめる。次の
+  # tdd-step が差分を当てて緑を確かめ直し、済まなかった単位を順に戻す。docs/plans/2026-10-06-tdd-parallel.md）
   - id: tdd-loop
     depends_on: [tdd-start]
     when: "$tdd-start.output.go == true"
@@ -145,8 +151,9 @@ nodes:
           depends_on: [tdd-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           # 借りたスキルの座（.shared/core/seat.py）: 修正の形 g3 の時だけ tdd-prep が指示書に座と読み替えを載せる。宣言は静的で、ほかの形の柵は包みが持つ
+          # Agent は g3 の並べの周（段 lanes）に単位の下請けを起こす口（ほかの形は包みが拒む。fixshape.denied_tools）
           skills: [test-driven-development]
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill, Agent]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # 印 works-node: tdd（包みが会話を節の名で分け、続きの起動で指示書の形を選ぶ）
@@ -156,7 +163,7 @@ nodes:
             additionalProperties: false
             required: [phase]
             properties:
-              phase: {type: string, enum: [route, test, fix, refactor, conflict]}
+              phase: {type: string, enum: [route, test, fix, refactor, lanes, conflict]}
               units:
                 type: array
                 items:

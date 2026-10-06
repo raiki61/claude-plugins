@@ -124,6 +124,7 @@ HEAVY = frozenset({
     "test_blk_fix_conflict",# 食い違いの申し出と裁定の輪: 試験ごとの種の git と盤面（entry.start）・スクリプトを子で起こす
     "test_replan",          # 案の直しの締め（依頼 226）: test_blk_fix_conflict の ReplanCase で試験ごとに種の git と盤面を作る
     "test_blk_fix_tdd",     # 修正の段の TDD の輪: 種の git（gitkit の写し）と小さな実行器を子で起こす・一時の index で版を固める
+    "test_tdd_lanes",       # TDD の輪の並べ: 試験ごとに git init・単位の worktree を 2 本切る・小さな実行器を子で何度も起こす（45 秒）
     "test_fix_gates",       # 事後の関門の束: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作り、小さな実行器を子で起こす・一時の git worktree
     "test_writes",          # 書き込みの出どころ: 種の git（gitkit の写し）・記録器と小さな実行器を子で起こす・TDD の輪を回す
     "test_tdd_outside",     # TDD の輪と受け付けが段の外の試験を足す: 種の git（gitkit の写し）に試験ごとに commit・小さな実行器を子で起こす（プロセスの木）・git archive で版を写す

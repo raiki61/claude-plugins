@@ -57,7 +57,8 @@ PHASE_TEXT = "## この段ですること\n\n今の単位だけを直せ。\n\n#
 TITLE = "# TDD の輪の指示書（2 回目・段 fix）"
 CORE_IDS = ("core-fix", "core-keep")
 KIND_BULLET = {"docs": "- 文書:", "prompts": "- 指示書（プロンプト）:", "config": "- 設定・YAML・workflow:", "code": "- 注記・型:"}
-PHASE_BULLET = {"route": "- **route**:", "test": "- **test**:", "fix": "- **fix**:", "refactor": "- **refactor**:"}
+PHASE_BULLET = {"route": "- **route**:", "test": "- **test**:", "fix": "- **fix**:", "refactor": "- **refactor**:",
+                "lanes": "- **lanes**:"}
 
 
 def shared_lines():
@@ -142,7 +143,7 @@ class TestSharedSource(unittest.TestCase):
         for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-ask", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
                           (fixrules.PRINCIPLES, ["principles"]), (fixrules.BRIEF, ["brief-canon"]),
                           (fixrules.TDD, ["tdd-head", "tdd-remap", "tdd-phase", *(f"tdd-phase-{p}" for p in fixrules.PHASES),
-                                          "tdd-phase-all", "tdd-end"])):
+                                          "tdd-phase-all", "tdd-end", "tdd-lane"])):
             with self.subTest(name):
                 self.assertEqual(list(fixrules.sections(name)), ids)
 
@@ -283,6 +284,15 @@ class TestCompose(unittest.TestCase):
             got = {s["id"]: s for s in header(text)["sections"]}
             self.assertEqual(got["evidence-code"]["why"], "判定 stats.py", "選んだ理由（機械の事実）が見出しに在る")
             self.assertNotIn("evidence-docs", got)
+
+    def test_tdd_lane_render_carries_three_phases_and_lane_overrides(self):
+        """並べの周の単位の下請けのファイル（docs/plans/2026-10-06-tdd-parallel.md）: 輪の役の決まりの全文・test・fix・refactor の
+        約束・下請けの読み替え（tdd-lane）・機械の節。振り分けとまとめ役の段の約束は載らない"""
+        text = fixrules.tdd_lane_render(tdd_values(), "## この単位の下請けの決まり（機械が書いた）", title=TITLE)
+        for p, b in PHASE_BULLET.items():
+            (self.assertIn if p in fixrules.LANE_PHASES else self.assertNotIn)(b, text)
+        for s in ("## 並べの単位の下請けの読み替え", "## この輪での読み替え", "## この単位の下請けの決まり（機械が書いた）", TITLE):
+            self.assertIn(s, text)
 
     def test_tdd_phase_rules_only_for_the_current_phase(self):
         for phase in fixrules.PHASES:

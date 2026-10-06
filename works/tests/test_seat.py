@@ -268,11 +268,12 @@ class SeatCase(unittest.TestCase):
                 else:
                     self.assertNotIn("skills", node)
                     self.assertNotIn("Skill", node["allowed_tools"])
-        # 修正役の節（fix・fix-ruled）は Agent を持ち（g1 の下請け）、Agent を持つ節の集まりは柵の表 AGENT_NODES と同じ
-        for nid in ("fix", "fix-ruled"):
+        # 修正役の節（fix・fix-ruled）は Agent を持ち（g1 の下請け）、輪の役の節（tdd）も持つ（g3 の並べの周の単位の下請け）。
+        # Agent を持つ節の集まりは柵の表 AGENT_NODES と LANE_NODES の和と同じ
+        for nid in ("fix", "fix-ruled", "tdd"):
             self.assertIn("Agent", find_node(nodes, nid)["allowed_tools"], nid)
         self.assertEqual({n["id"] for n in all_nodes(nodes) if "Agent" in (n.get("allowed_tools") or [])},
-                         set(fixshape.AGENT_NODES))
+                         set(fixshape.AGENT_NODES | fixshape.LANE_NODES))
 
 
 class G1Case(unittest.TestCase):
