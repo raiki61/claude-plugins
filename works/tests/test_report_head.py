@@ -236,7 +236,7 @@ class FinalTestSuitesCase(unittest.TestCase):
         rows = [{"op": "fix_tests_selected", "node": "fix-accept", "note": "n", "final_far": ["dynamic-import: a.py:3"]}]
         (self.b.dir / "trace.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         text = self.gate_text(GREEN_WITH_CMD)
-        self.assertIn("地図の遠くの分からない物（1 件）", text)
+        self.assertIn("変更から遠く、どの試験に関わるか読み切れないファイル（1 件）", text)
         self.assertIn("dynamic-import: a.py:3", text)
 
     def test_no_suites_line_when_final_tests_did_not_run(self):

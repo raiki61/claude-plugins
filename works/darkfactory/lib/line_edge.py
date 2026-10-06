@@ -500,7 +500,7 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
         lines += [f"  - {t}" for t in final]
     far = _ci_left(b, "final_far")
     if far:
-        lines.append(f"- 修正の受け付けが一式を回す理由にせず、最後のテストの段に任せた地図の遠くの分からない物（{len(far)} 件）:")
+        lines.append(f"- 修正の受け付けが一式を回す理由にせず、最後のテストの段に任せた変更から遠く、どの試験に関わるか読み切れないファイル（{len(far)} 件）:")
         lines += [f"  - {t}" for t in far]
     lines += [f"- {x}" for x in report.gates_lines(b)]   # 修正の受け付けの束が受け入れのテストの赤緑を確かめずに通した回
     lines.append(f"- ログ: {tests.get('log') or '（無い）'}")
