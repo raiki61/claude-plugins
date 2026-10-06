@@ -98,10 +98,10 @@ class TestBlockYaml(unittest.TestCase):
         y = block()
         self.assertEqual(y["name"], "blk-fix")
         self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "notes_file", "policy_path",
-                                            "tdd_suite", "test_cmd"})
+                                            "tdd_suite", "test_cmd", "unit_depths"})
         # 2 回目の修正の段（依頼 226）は同じ入力の 2 度目の include。include の名は入力に持たない（core が Archon の節の居場所から
         # 引き、その scope の置き場で 1 度目と分かれる。依頼 239）
-        for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite", "test_cmd"):   # 足した物は空でよい（仕様 3.2・TDD の輪）
+        for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite", "test_cmd", "unit_depths"):   # 足した物は空でよい（仕様 3.2・TDD の輪・単位ごとの深さ）
             self.assertEqual(y["inputs"][k].get("default"), "", k)
             self.assertNotIn("required", y["inputs"][k], k)
         self.assertEqual(y["returns"], "collect")
