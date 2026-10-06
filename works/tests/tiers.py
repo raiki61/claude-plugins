@@ -116,6 +116,7 @@ HEAVY = frozenset({
     "test_blk_eyes",        # 独立の目（R11）: golden の盤面の再生（boardreplay）・一時の pack の写し・スクリプトを子で起こす
     "test_blk_ci",          # 線 A: 試験ごとの種の git（linekit.seed_repo）・スクリプトを子で起こす
     "test_blk_fix",         # 線 A Task 12: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
+    "test_fix_precheck",    # 修正役の事前の確かめと受け付けの相談の写し: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作る・factchecks.py と accept.py を子で起こす
     "test_fix_accept_all",  # 修正の受け付けが確かめを全部回して並べる: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作る
     "test_blk_plan",        # P1 Task 25: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
     "test_fixture",         # 固定材料: test_blk_fix の BoardCase で試験ごとに種の git と盤面（entry.start）を作り、写して別の置き場へ取り込む

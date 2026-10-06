@@ -173,6 +173,9 @@ def open_kwargs(line: str, table: NodeTable | None = None) -> dict:
     return {**kw, "overrides": {**CORE_OVERRIDES, **(kw.get("overrides") or {})}}
 
 
+PEEK_ENV = "WORKS_BOARD_PEEK"   # 1 なら open_board は盤面を書かない（scope の登録・窓の照らしを飛ばす）
+
+
 def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBoard:
     """盤面を開く。表は state.works.line のラインの nodes.json。表の sha が盤面を作った時の state.works.table_sha と違えば
     BoardMismatch（run の途中で表が替わった盤面を、替わった表で回さない）。open_kwargs の返りを DiskBoard.open に渡す。
@@ -184,7 +187,8 @@ def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBo
     窓（盤面を開いてから次の scope が開くまで）の盤面の変化を前の部品の宣言に照らし、今の scope の窓を開く。宣言の外の書き込み・
     公開の名の持ち主の重なり・Schema の外れが在れば盤面を止め（_halt_scope_check。by SCOPE_CHECK_BY）、allow_halted で開いて
     いなければ BoardGap（開いた節が落ちる。報告と結果の節は allow_halted で開くので走る）。run の外の道具（dev/report.sh・
-    dev/fixmeasure.py）と試験の手は窓に触らない"""
+    dev/fixmeasure.py）と試験の手は窓に触らない。env の PEEK_ENV が 1 の時（役の sandbox の中で受け付けの確かめを読むだけで
+    回す修正役の事前の確かめ。盤面は柵で書けない）は scope の登録も窓の照らしもしない（どちらも盤面を書く）"""
     d = pathlib.Path(board_dir)
     scope = flow_adapter.current_scope()
     try:
@@ -202,14 +206,16 @@ def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBo
                             f"（盤面を作った後に {line}/{TABLE_NAME} が替わった。替わった表で回さない）")
     names = frozenset()
     block = scopes.running_block()
+    peek = os.environ.get(PEEK_ENV) == "1"   # 読むだけの開き（sandbox の中の事前の確かめ。盤面に書けない）
     if scope:
         if works.get("layout") != board.LAYOUT:
             raise BoardMismatch(f"盤面 {d} はこの版より前の盤面（state.works.layout {works.get('layout')!r}。今は {board.LAYOUT!r}）"
                                 f"——include {scope!r} の私物を分けて置けない。移し替えない（この版で run を始め直す）")
-        scopes.claim(d, state["round"], scope, block)
+        if not peek:
+            scopes.claim(d, state["round"], scope, block)
         names = scopes.round_names()
     errs = []
-    if flow_adapter.in_flow_node() and works.get("layout") == board.LAYOUT:   # 前の窓を閉じて照らし、今の scope の窓を開く
+    if not peek and flow_adapter.in_flow_node() and works.get("layout") == board.LAYOUT:   # 前の窓を閉じて照らし、今の scope の窓を開く
         errs = scopes.enter(d, state["round"], scope, block)
     b = DiskBoard.open(d, table=table, allow_halted=allow_halted, scope=scope, published=names, **open_kwargs(line, table))
     if errs:

@@ -14,6 +14,7 @@
   崩れた）・UNAVAILABLE（聞けない）。受け付けが settle で盤面の trace（conflict.ASKED_OP）へ写す
 
 口:
+- place_of(board): 盤面の今の scope の相談の置き場
 - write_config・load_config: 控え
 - screen(cfg, item, paths, tests): 先の確かめ（断る文か None）
 - judge(answer, paths, tests): 答えの確かめ（(行の欄 | None, 注記)）。許すのは頼んだ物の中だけ
@@ -42,7 +43,9 @@ for _p in (_CORE, _CORE / "graphloops"):
     if str(_p) not in sys.path:
         sys.path.append(str(_p))
 
+import adapter  # noqa: E402   L2。run ごとの置き場（adapter.run_place_of）
 import auth_launch  # noqa: E402   L1。works の殻が Archon を起こす時と同じ認証の順
+import script_io  # noqa: E402   L1。今の scope の根
 import planmarks  # noqa: E402   glob の当て方の正本
 from engine import role_run  # noqa: E402   L0 の写し。--output-format json の包みの読み（unwrap）
 
@@ -94,6 +97,11 @@ QUESTION = """\
 
 def _now() -> str:
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def place_of(board_dir) -> pathlib.Path:
+    """盤面 board_dir の今の scope の相談の置き場（run ごとの置き場の今の scope の下の PLACE。作らない）"""
+    return script_io.scope_dir(pathlib.Path(adapter.run_place_of({"board": str(board_dir)}))) / PLACE
 
 
 def write_config(place, doc: dict) -> pathlib.Path:
