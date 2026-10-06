@@ -1847,10 +1847,16 @@ class TreeReviewCase(unittest.TestCase):
         return {"item": n, "checked": CHECKED, "faces": list(faces), "shrink": [], "resolved": list(resolved),
                 "hits": [{"id": h["id"], "answer": "no_effect", "why": why} for h in planblk.ripple.uncovered(doc, n)]}
 
-    def write_answers(self, k, rows, synergy=None):
-        """下請けが書く答えのファイル（指示書が名指すパス）"""
+    def write_answers(self, k, rows, synergy=None, fetched=True):
+        """下請けが書く答えのファイル（指示書が名指すパス）。fetched なら、その項目の下請けが開く先行例の出典の確かめの行
+        （planblk.precedent_plan の fetch_by）を足す"""
         b = self.board_obj()
+        pre = planblk.precedent_plan(b, converge.open_items(b))
         for n, row in rows.items():
+            ids = [x["id"] for x in pre.get(n) or [] if x["cached"] is None and x["fetch_by"] == n] if fetched else []
+            if ids and "precedents" not in row:
+                row = {**row, "precedents": [{"id": i, "found": True, "quote": "出典は在り、単位の問題に当たっている"}
+                                             for i in ids]}
             p = planblk.answer_file(b, k, n)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
@@ -2093,6 +2099,46 @@ class TreeReviewCase(unittest.TestCase):
         self.assertTrue(all(h.get("carried") == 1 for h in hits), hits)
         out = self.board_obj().output_of_round("p2.plan_review", 1)
         self.assertIn(note["key"], [f["key"] for f in out["faces"]])   # suggest は最後の返答に残る（修正の段へ渡る）
+
+    def test_precedent_sources_are_fetched_once_per_run(self):
+        """先行例の出典（adopt・adapt）は run の中で 1 度だけ開く: 開く下請けを 1 つに決め、その答えの確かめを盤面に控え、
+        後の往復の下請けには控えを貼って開かせない"""
+        self.ready()
+        doc = self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        self.ok("prep", role="plan-review", excluded_file="")
+        folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=1))
+        one, two = ((folder / f"item-{n}.md").read_text(encoding="utf-8") for n in (1, 2))
+        self.assertIn("statistics.mean", one)
+        self.assertNotIn("numpy.clip", one)
+        self.assertEqual(len(planblk.fetch_ids(one)), 1)
+        self.assertEqual(len(planblk.fetch_ids(two)), 1)
+        clamp_block = {**MEAN_BLOCK, "key": "item2-clamp-upper-branch", "unit_keys": [UNIT_CLAMP]}
+        self.write_answers(1, {1: self.answer(1, doc), 2: self.answer(2, doc, faces=[clamp_block])}, fetched=False)
+        _, got = self.round_of("plan-review", self.summary({1: [], 2: [clamp_block["key"]]}))
+        self.assertFalse(got["ok"])
+        self.assertIn("precedents", self.reason_of(got))
+        self.write_answers(1, {1: self.answer(1, doc), 2: self.answer(2, doc, faces=[clamp_block])})
+        _, got = self.round_of("plan-review", self.summary({1: [], 2: [clamp_block["key"]]}))
+        self.assertTrue(got.get("again"), self.reason_of(got) if got.get("reason_file") else got)
+        cache = json.loads(self.board_obj().scope_root.joinpath(planblk.PRECEDENT_CACHE).read_text(encoding="utf-8"))
+        self.assertEqual(len(cache), 2)
+        fixed = two_items()
+        fixed["plan"][1]["approach"] = "clamp の上限の枝で hi を返し、上限ちょうどの値はそのまま返す（定義どおり）"
+        answers = [{"key": clamp_block["key"], "handled": "fixed", "how": "上限の枝を hi に直し、境の値の扱いを書いた"}]
+        self.assertTrue(self.ok("snap", role=planblk.REVISE_ROLE)["go"])
+        _, got = self.round_of(planblk.REVISE_ROLE, {**fixed, converge.ANSWERS: answers})
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        doc = self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        self.ok("prep", role="plan-review", excluded_file="")
+        brief = (self.board_obj().work(planblk.ITEMS_DIR.format(k=2)) / "item-2.md").read_text(encoding="utf-8")
+        self.assertIn("numpy.clip", brief)
+        self.assertIn(planblk.PRECEDENT_CACHED, brief)
+        self.assertEqual(planblk.fetch_ids(brief), [])
+        self.write_answers(2, {2: self.answer(2, doc, resolved=[clamp_block["key"]])}, synergy=self.synergy())
+        _, got = self.round_of("plan-review", self.summary({2: []}))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
 
     def test_reads_trace_agent_launches_against_item_files(self):
         """読んだ証拠の節が、束ね役の Agent の呼びの数と下請けのファイルの数を盤面の trace に並べる（拒まない。測る）"""

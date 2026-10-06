@@ -66,7 +66,8 @@ TREE_NO_EFFECT = "直した後の値だけを断言していて期待は変わ�
 
 def tree_review(board, k: int = 1, synergy_why: str = "2 つの項目は stats.py の別の関数を直し、順番の依存も重複も無い") -> dict:
     """事前審査の束ね役の見本（線の木の段 1）: 往復 k の下請けのファイル（盤面の plan-review-items/pass-<k>/）が名指す答えの
-    ファイルに、下請けの代わりに答えを書き（覆っていない当たりは全部 no_effect・faces は空。相乗りの審査も穴なし）、項目ごとの
+    ファイルに、下請けの代わりに答えを書き（覆っていない当たりは全部 no_effect・faces は空・開けと言われた先行例の出典は
+    在ると答える。相乗りの審査も穴なし）、項目ごとの
     判定の要約（全部 clean）を返す。当たりは節 review-ripple が盤面に置いた往復 k の波及の一覧から引く"""
     board = pathlib.Path(board)
     if str(ROOT / "blk-plan" / "lib") not in sys.path:
@@ -84,7 +85,9 @@ def tree_review(board, k: int = 1, synergy_why: str = "2 つの項目は stats.p
             n = int(brief.stem.split("-")[1])
             rows.append(n)
             body = {"item": n, "checked": TREE_CHECKED, "faces": [], "shrink": [], "resolved": [],
-                    "hits": [{"id": h["id"], "answer": "no_effect", "why": TREE_NO_EFFECT} for h in hits.get(n, [])]}
+                    "hits": [{"id": h["id"], "answer": "no_effect", "why": TREE_NO_EFFECT} for h in hits.get(n, [])],
+                    "precedents": [{"id": i, "found": True, "quote": "出典は在り、単位の問題に当たっている"}
+                                   for i in planblk.fetch_ids(brief.read_text(encoding="utf-8"))]}
         path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
     return {"faces": [], "shrink": [], "reason": "項目ごとの下請けの答えのファイルを受け、項目ごとの判定をまとめた",
             "items": [{"item": n, "verdict": "clean", "blocks": []} for n in rows]}

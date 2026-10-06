@@ -139,6 +139,15 @@ DIFF_ASK = ("前の往復でこの項目を見た審査は、下の前の block 
             "消えたか（消えたなら resolved、残れば同じ key で faces に block）と (2) 下の差分（- が前・+ が今）が作る新しい穴だけ。"
             "差分の外の所を見直して新しい穴を探さない。穴の重さの決まり（block か suggest か）は変えない。")
 CARRIED_HEAD = "## 前の往復で答えた当たり（機械が答えを引き継ぐ。hits に入れなくてよい。差分で答えが変わる物だけ入れ直せ）"
+# 先行例の出典の確かめ（見ること 8）は run の中で 1 度だけ: 開く下請けを出典ごとに 1 つに決め、受け付けがその答えの確かめを
+# scope の根の PRECEDENT_CACHE に控え、後の往復・後の周の下請けには控えを貼って開かせない（run 68f35d6b は同じ 2 つの出典を
+# 往復ごとに WebFetch で開き直した）
+PRECEDENT_CACHE = "precedent-checks.json"
+PRECEDENT_HEAD = "## この項目の先行例の出典（判定者の先行例のうち adopt・adapt。見ること 8）"
+PRECEDENT_FETCH = "WebFetch で 1 度だけ開いて確かめ、答えの precedents に {id, found（在り単位の問題に当たっているか）, quote（確かめた一文）} の行を書け"
+PRECEDENT_CACHED = "確かめ済み（控えのとおり。WebFetch で開き直さない。この控えで判定せよ）"
+PRECEDENT_OTHER = "この往復は項目 {m} の下請けが開く（お前は開かない。この出典の穴は項目 {m} の下請けが挙げる）"
+PRECEDENT_VERDICTS = ("adopt", "adapt")
 ERRORS_HEAD = "## 前の答えの誤り（機械の確かめ。この誤りだけを直して同じファイルに書き直せ）"
 SUB_ITEM_ASK = ("お前が見るのは下の項目 {n} だけ。この項目が固まる（直しへ進めない穴が無い）まで深く見よ。ほかの項目の穴は挙げない"
                 "（項目どうしの関わりは別の下請けが見る）。答えは頭の『答え方』の型で、" + ANSWER_AT + "。書いたら最後のメッセージに"
@@ -461,13 +470,93 @@ def _faces_schema() -> tuple[dict, dict]:
 
 
 def item_schema() -> dict:
-    """項目の下請けの答えのファイルの型（faces・shrink は事前審査の役の型の物）"""
+    """項目の下請けの答えのファイルの型（faces・shrink は事前審査の役の型の物。precedents は開けと言われた先行例の出典の確かめ）"""
     faces, shrink = _faces_schema()
     return {"type": "object", "additionalProperties": False,
             "required": ["item", "checked", "hits", "faces", "shrink", "resolved"],
             "properties": {"item": {"type": "integer", "minimum": 1}, "checked": {"type": "string", "minLength": 10},
                            "hits": copy.deepcopy(converge.HITS_SCHEMA), "faces": faces, "shrink": shrink,
-                           "resolved": {"type": "array", "items": {"type": "string"}}}}
+                           "resolved": {"type": "array", "items": {"type": "string"}},
+                           "precedents": {"type": "array", "items": {
+                               "type": "object", "additionalProperties": False, "required": ["id", "found", "quote"],
+                               "properties": {"id": {"type": "string"}, "found": {"type": "boolean"},
+                                              "quote": {"type": "string", "minLength": 10}}}}}}
+
+
+def _precedent_cache(b) -> pathlib.Path:
+    return pathlib.Path(b.scope_root) / PRECEDENT_CACHE
+
+
+def precedent_checks(b) -> dict:
+    """控えた先行例の出典の確かめ {出典: {found, quote, round, pass, item}}（無い・読めなければ {}）"""
+    doc = _read_json(_precedent_cache(b))
+    return doc if isinstance(doc, dict) else {}
+
+
+def precedent_plan(b, opened: list) -> dict:
+    """開いた項目ごとの先行例の出典の行 {項目: [{id, row, cached | None, fetch_by}]}。id は判定の先行例の並びの P<i>。控えの無い
+    出典は、それを持つ開いた項目のうち一番小さい番号の項目の下請けが開く（fetch_by）"""
+    plan = converge.read(b).get("plan") or []
+    rows = (b.record.get("process") or {}).get("precedents") or []
+    cache = precedent_checks(b)
+    owner: dict = {}
+    out: dict = {}
+    for n in opened:
+        mine = {str(k) for k in plan[n - 1]["unit_keys"]} if 1 <= n <= len(plan) else set()
+        for i, r in enumerate(rows, 1):
+            if not isinstance(r, dict) or r.get("key") not in mine or r.get("verdict") not in PRECEDENT_VERDICTS:
+                continue
+            src = str(r.get("source") or "")
+            hit = cache.get(src)
+            if hit is None:
+                owner.setdefault(src, n)
+            out.setdefault(n, []).append({"id": f"P{i}", "row": r, "cached": hit, "fetch_by": owner.get(src)})
+    return out
+
+
+def fetch_ids(brief: str) -> list:
+    """下請けのファイルが開けと言う先行例の出典の id（PRECEDENT_FETCH の行の頭の `- P<i>`）"""
+    return [line.split(":", 1)[0][2:] for line in brief.splitlines()
+            if line.startswith("- P") and PRECEDENT_FETCH in line]
+
+
+def _precedent_part(rows: list, n: int) -> str:
+    if not rows:
+        return ""
+    lines = [PRECEDENT_HEAD, ""]
+    for x in rows:
+        r = x["row"]
+        what = f"{x['id']}: {r.get('source')}（verdict {r.get('verdict')}・単位 {r.get('key')}・判定者の理由 {r.get('reason')}）"
+        if x["cached"] is not None:
+            c = x["cached"]
+            lines.append(f"- {what} — {PRECEDENT_CACHED}: found={str(c.get('found')).lower()}・{c.get('quote')}")
+        elif x["fetch_by"] == n:
+            lines.append(f"- {what} — {PRECEDENT_FETCH}")
+        else:
+            lines.append(f"- {what} — {PRECEDENT_OTHER.format(m=x['fetch_by'])}")
+    return "\n".join(lines)
+
+
+def _precedent_gaps(rows: list, n: int, got: dict) -> list[str]:
+    want = [x["id"] for x in rows if x["cached"] is None and x["fetch_by"] == n]
+    ids = [r.get("id") for r in got.get("precedents") or []]
+    return ([f"$.precedents: 先行例の出典 {i} の確かめの行が無い（WebFetch で 1 度開いて {{id, found, quote}} を書け）"
+             for i in want if i not in ids]
+            + [f"$.precedents: {i} はこの項目の下請けが開く出典でない" for i in ids if i not in want])
+
+
+def save_precedents(b, plan_rows: dict, answers: dict, k: int) -> None:
+    """受けた答えの先行例の出典の確かめを控えに足す（控えに在る出典は書き換えない）"""
+    cache = precedent_checks(b)
+    for n, got in answers.items():
+        by_id = {x["id"]: x["row"] for x in plan_rows.get(n) or []}
+        for r in got.get("precedents") or []:
+            src = str((by_id.get(r.get("id")) or {}).get("source") or "")
+            if src and src not in cache:
+                cache[src] = {"found": r.get("found"), "quote": r.get("quote"), "round": b.round, "pass": k, "item": n}
+    path = _precedent_cache(b)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(path, cache)
 
 
 def synergy_schema() -> dict:
@@ -541,14 +630,14 @@ def item_answer_gaps(b, n: int, got: dict, rip: dict) -> list[str]:
     return errs
 
 
-def check_item(b, k: int, n: int, rip: dict) -> tuple:
-    """(通った答え | None, 誤りの行, ファイルが無いか)"""
+def check_item(b, k: int, n: int, rip: dict, pre: list | None = None) -> tuple:
+    """(通った答え | None, 誤りの行, ファイルが無いか)。pre は先行例の出典の開き手を決める開いた項目の並び（precedent_plan）"""
     path = answer_file(b, k, n)
     if not path.is_file():
         return None, [], True
     got, errs = _load(path, item_schema())
     if got is not None:
-        errs = item_answer_gaps(b, n, got, rip)
+        errs = item_answer_gaps(b, n, got, rip) + _precedent_gaps(precedent_plan(b, [n] if pre is None else pre).get(n) or [], n, got)
     return (None if errs else got), errs, False
 
 
@@ -572,7 +661,7 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
     opened = converge.open_items(b)
     gaps, answers = [], {}
     for n in opened:
-        got, errs, missing = check_item(b, k, n, rip)
+        got, errs, missing = check_item(b, k, n, rip, opened)
         where = f"項目 {n}（{answer_file(b, k, n)}）"
         if missing:
             gaps.append(f"{where}: 答えのファイルが無い（その項目の下請けを起こせ）")
@@ -621,7 +710,8 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
         files[SYNERGY_FILE] = str(synergy_file(b, k))
     return {"review": review, "resolved": list(dict.fromkeys(x for n in opened for x in answers[n]["resolved"])),
             "synergy": [f["key"] for f in (syn or {}).get("faces") or []],
-            "hits": {n: _hit_rows(b, n, rip, answers[n]["hits"]) for n in opened}, "files": files, "gaps": []}
+            "hits": {n: _hit_rows(b, n, rip, answers[n]["hits"]) for n in opened}, "files": files, "gaps": [],
+            "precedents": (precedent_plan(b, opened), answers, k)}
 
 
 def _hit_rows(b, n: int, rip: dict, answered: list) -> list:
@@ -701,10 +791,11 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
     plan = converge.read(b).get("plan")
     opened = [n for n in (converge.open_items(b) if plan else range(1, len(rows) + 1)) if n <= len(rows)]
     head = brief_head(b, main_prompt)
+    pre = precedent_plan(b, opened) if plan else {}
     done, todo, retry = [], [], False
     for n in opened:
         path = folder / f"item-{n}.md"
-        got, errs, missing = check_item(b, k, n, doc) if plan else (None, [], True)
+        got, errs, missing = check_item(b, k, n, doc, opened) if plan else (None, [], True)
         if got is not None:
             done.append(f"- 項目 {n}: {path}")
             continue
@@ -714,7 +805,7 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
             head, ITEM_HEAD.format(n=n), SUB_ITEM_ASK.format(n=n, answer=answer_file(b, k, n)),
             f"### 項目 {n} の案\n\n```json\n{json.dumps(it, ensure_ascii=False, indent=1)}\n```",
             f"### 項目 {n} の単位（判定）\n\n```json\n{json.dumps(_item_units(b, it.get('unit_keys')), ensure_ascii=False, indent=1)}\n```",
-            ripple.section(doc, n), _carried_part(b, n, doc), _item_history(b, it.get("unit_keys") or []),
+            _precedent_part(pre.get(n) or [], n), ripple.section(doc, n), _carried_part(b, n, doc), _item_history(b, it.get("unit_keys") or []),
             _diff_part(b, n), _errors_part(n, answer_file(b, k, n), errs) if errs else "") if x)
         path.write_text(body + "\n", encoding="utf-8")
         todo.append(f"- 項目 {n}: {path}")
@@ -887,6 +978,8 @@ def with_converge(run):
                  rolekit.prompt_name(NODE_OF["plan-review"]): str(b.work(rolekit.prompt_name(NODE_OF["plan-review"]))),
                  **merged["files"]}
         try:
+            if merged.get("precedents"):
+                save_precedents(b, *merged["precedents"])
             row = converge.record_pass(b, named, resolved=resolved, fence=GIVE_UP_AFTER, files=files,
                                        synergy=merged["synergy"], hits=merged["hits"])
         except Exception as e:   # 書けない: 盤面は受けたが往復の行が無い（settle もしない）まま節を抜けさせない
