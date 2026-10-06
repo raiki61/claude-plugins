@@ -117,6 +117,10 @@ BY = "works:conflict"                   # その行の node と、答えの無�
 HEAD = "食い違いの申し出"                # 最後の関所の文の節の見出し・報告の行の頭
 RULED_TEST_ID = "conflict-ruling"       # 裁定が許したテストの変更を守りのファイルの行にする時の id の頭
 PLAN_TEST_ID = "plan-rewrite"           # 承認済みの修正案が名指した既存テストの書き換えを守りのファイルの行にする時の id の頭
+AGREED_TEST_ID = "plan-agreed"          # 範囲の相談で修正案を書いた役が許したテストの書き換えを守りのファイルの行にする時の id の頭
+# 範囲の相談（修正役が修正案を書いた役の会話を再開して範囲を聞く。設計 docs/plans/2026-10-06-ask-planner.md）の 1 問 1 答の
+# trace の行の語。書くのは修正の受け付け（run ごとの置き場の記録から写す）、読むのは agreed（範囲とテストの許し）と報告
+ASKED_OP = "plan_scope_asked"
 FIELDS_STOP_BY = "works:fix"            # 修正案の欄の控えが凍結と食い違った盤面を止めた口（blk-fix の brief の止めと同じ修正の段の印）
 FIELDS_TAMPERED = f"承認済みの修正案の欄の控え（盤面の {planmarks.FIELDS_FILE}）が受け付けの後に書き換えられた。"
 FIELDS_BROKEN = FIELDS_TAMPERED + "テストの変更の許しを引かずに止めた"   # 修正の段（by FIELDS_STOP_BY）の止めの文
@@ -807,12 +811,44 @@ def frozen_fields(b) -> list | None:
         raise fields_broken(b, e) from None
 
 
-def test_permits(b, *, rulings: bool = True, source=None, skip_ids=()) -> list[dict]:
+def plan_asks(b) -> list[dict]:
+    """盤面の trace の範囲の相談の行（ASKED_OP。古い順。読めない・壊れた行は飛ばす）"""
+    try:
+        lines = (pathlib.Path(b.dir) / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    out = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("op") == ASKED_OP:
+            out.append(row)
+    return out
+
+
+def agreed(b) -> list[dict]:
+    """範囲の相談の合意（plan_asks のうち答えが allow の行）。範囲（blk-fix の planscope）とテストの許し（test_permits）の唯一の
+    読み口"""
+    return [r for r in plan_asks(b) if r.get("status") == "answered" and r.get("decision") == "allow"]
+
+
+def agreed_permits(rows) -> list[dict]:
+    """合意の行の書き換えてよいテストの範囲を test_permits の行の形に（行の順・範囲の順）"""
+    return [{"limit": lim, "id": f"{AGREED_TEST_ID}-{r.get('item')}",
+             "why": f"範囲の相談 {r.get('id')}（項目 {r.get('item')}）で修正案を書いた役が許したテストの書き換え: {r.get('reason')}"}
+            for r in rows for lim in r.get("granted_tests") or [] if isinstance(lim, str) and parse_limit(lim)]
+
+
+def test_permits(b, *, rulings: bool = True, source=None, skip_ids=(), agreed_rows=None) -> list[dict]:
     """テストの変更の許しの唯一の元（凍結の検査と最後の関所はここから引く）。行は {limit: 範囲の文字列, id: 守りのファイルの行の
     id の頭, why: 許した理由}。承認済みの修正案の rewrite_tests（いつも。planmarks.rewrites の順）と、rulings が真なら裁定
     fix_test_scope の範囲（ruled_fix の順）。source（パス → 中身か None）を渡すと、修正案の行の範囲をその木でテストの id から
     引き直し、引けない行は捨てる（凍結の検査が読む輪の後の木。tddloop.frozen_source）。skip_ids（修正案の行の id そのまま）に
     在る修正案の行は外す（TDD の輪が赤→緑を確かめた書き換え。tddloop.verified_rewrites）。裁定の行はそのまま。
+    範囲の相談の合意（agreed。agreed_rows を渡せばその行——盤面にまだ写していない合意を足して見る事前の確かめ）の
+    書き換えてよいテストの範囲も、修正案の行の後にいつも入れる（agreed_permits）。
     修正案の欄の控えが凍結の印と食い違えば、盤面を止めて BoardGap（_plan_rewrites）"""
     out = []
     skip = set(skip_ids)
@@ -821,6 +857,7 @@ def test_permits(b, *, rulings: bool = True, source=None, skip_ids=()) -> list[d
         if lim:
             out.append({"limit": lim, "id": f"{PLAN_TEST_ID}-{r['item']}",
                         "why": f"承認済みの修正案の項目 {r['item']} が名指した既存テストの書き換え（{r['id']}）: {r['new']}"})
+    out += agreed_permits(agreed(b) if agreed_rows is None else agreed_rows)
     if rulings:
         out += [{"limit": lim, "id": f"{RULED_TEST_ID}-{r['id']}",
                  "why": f"{HEAD}の裁定 {r['id']}（{r['unit_key']}）が許したテストの変更: {r['ruling']['text']}"}
@@ -846,10 +883,10 @@ def ruled_paths(b) -> list[str]:
     return out
 
 
-def ruled_test_limits(b, *, rulings: bool = True, source=None, skip_ids=()) -> list[str]:
+def ruled_test_limits(b, *, rulings: bool = True, source=None, skip_ids=(), agreed_rows=None) -> list[str]:
     """テストの変更の許し（test_permits）の範囲の文字列の並び。rulings が偽なら裁定の範囲を含めない（1 回目の受け付け）。
     source・skip_ids は test_permits と同じ（凍結の検査は輪の後の木の読み口と、輪が確かめた書き換えの id を渡す）"""
-    return [p["limit"] for p in test_permits(b, rulings=rulings, source=source, skip_ids=skip_ids)]
+    return [p["limit"] for p in test_permits(b, rulings=rulings, source=source, skip_ids=skip_ids, agreed_rows=agreed_rows)]
 
 
 def ruled_test_doc(b) -> dict | None:

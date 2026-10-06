@@ -57,6 +57,7 @@ FAST = frozenset({
     "test_node_marker",     # 線 A: 印の文字列を組んで読むだけ
     "test_depth",           # 単位ごとの深さ（darkfactory/lib/depth.py）: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_fixshape",        # 修正の形の読み口: 一時の置き場の JSON を読み書きするだけ（盤面・git・子のプロセスなし）
+    "test_ask_plan",        # 範囲の相談（blk-fix/lib/askplan.py）: 一時の置き場のファイルと偽の claude の python3（試験ごとに 1〜2 本。git・盤面なし）
     "test_fix_rules",       # R65: 修正の決まりの正本と 2 つの指示書の組み立てを、関数を直に呼んで見る（盤面・git・子のプロセスなし）
     "test_conflict_kinds",  # 申し出の種類と裁定 fix_plan_item: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_fix_units",       # 修正の受け付けの閉鎖の表と裁定の出どころ: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
