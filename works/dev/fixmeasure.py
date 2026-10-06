@@ -24,14 +24,15 @@
   permissions.deny の素の Skill・Agent が実地で拒むかはまだ確かめていない（Task 3 の審査）——af・current・g1 の行で走った Skill
   は混ざりに出る（最初の試しの run で refused に出るかを見る。下の FIELDS_CHECKED）。
 - 記録の欠け（record_gaps）: 盤面を開けない・形の控えが読めない・start の控えに fix_shape が無い（前の版の盤面。形は af と読む）・
-  tdd の節の node_completed の数と輪の calls の行の数が違う・tdd の項目の単位（輪に渡した単位のうち）に輪の単位の行が無い（g1 は
+  tdd・tdd-rest の節の node_completed の数と輪の calls の行（並べを締めた節 tdd-join の行 lanes を除く）の数が違う・並べの枝の役
+  tdd-lane-<n> の node_completed の数と枝の控えの calls の行（状態の lanes.calls）の数が違う・tdd の項目の単位（輪に渡した単位のうち）に輪の単位の行が無い（g1 は
   輪を回さないので見ない）・平の run でないのに修正案の欄が在って brief の控えが無い・修正の工程の AI の節の費用が取れない・g1 で
   Agent が走ったのに書き込みの記録に下請けの行（agent_id）が無く、申告（bash_writes。記録の declared の行）だけが在る（フックの
   欠けを自己申告が隠した疑い。Task 7 の審査 M1）・g1 で Agent が走ったのに書き込みの記録が無い（家の取り違えか包みの無い起動。
   黙って空にしない）。g1 の「Agent が走った」は修正役の節の LOCAL_AGENT の started の task_id の数。
 - 作り直し（redo）: fix_rejects は修正の受け付け（fix-accept・fix-ruled-accept。どちらも accept_fix）の拒否の本文のファイル
   FIX_REJECTS の数（修正の受け付けは role-rejects.json を書かない）から battery_rejects を引いた物（束の拒否も同じ本文を書くので
-  2 重に数えない）、tdd_rejects は輪の calls の ok が偽の行、battery_rejects は
+  2 重に数えない）、tdd_rejects は輪の calls と並べの枝の calls の ok が偽の行、battery_rejects は
   束の行の在る受け付けの回（周・pass・attempt。preflight F23）、delta_faces は差分の審査（p3.delta_review・p3.delta_review2）が
   受け付けた穴、refix_rounds は手直し（report.REFIX_NODES）を受け付けた回（盤面の trace の done の行）、subagent_redos は g1 の
   下請けの作り直しの往復（数え方は下）。compliance_fails・quality_fails（VERDICT_FAILS）は 1 回目の差分の
@@ -63,6 +64,8 @@
 （同じメッセージの同時の起こしは、どの下請けも終わる前に全部 started が出る）。終わりの行の無い下請けは数えない。採否の判定
 （verdict）には使わない。欄の形を本物の run で確かめるまで出力の verified は偽（WAIT_VERIFIED。確かめる物: 並べの周の起こしで
 started が下請けの数だけ並び、completed が同じ task_id で出ること）。
+TDD の輪の並べは下請けでなく枝ごとの Archon の節（tdd-lane-loop-<n>。docs/plans/2026-10-07-lane-nodes.md）なので、同じ include の
+枝の輪の node_completed（data.timing.durationMs）を 1 束として段 LANE_STAGE に足す（lane_wait。時間の欄の無い輪は数えない）。
 
 比べの条件（計画の採否の決まりの 6）: current の腕は修正の段に修正案の欄を渡さないので、束の test_edits も修正案の書き換えの
 名指し（rewrite_tests）を許しにしない（fixgates。preflight F15）。要る既存テストの書き換えは current では抜けに数えられうる。
@@ -120,7 +123,11 @@ G1_MARGIN = 0.90
 ARMS = fixshape.SHAPES
 AI_KIND = "agent"                      # node_completed の data.node.kind のうち AI の節
 REFUSED = "error"                      # tool_completed の tool_outcome のうち、呼び出しが走らなかった（拒まれた）印
-TDD_NODE = "tdd"                       # TDD の役の印の名（step_name の最後の区切り）
+TDD_NODES = ("tdd", "tdd-rest")        # TDD の輪の役の印の名（step_name の最後の区切り。並べの後の順の輪の役 tdd-rest も）
+LANE_PREFIX = "tdd-lane-"              # 並べの枝の役の印の名の頭（tdd-lane-<n>。枝の控えの calls と数え合わせる）
+JOIN_PHASE = "lanes"                   # 輪の calls のうち並べを締めた節 tdd-join の行（AI の節でない）
+LANE_LOOP = "tdd-lane-loop-"           # 並べの枝の輪の節の名の頭（待ちの損の束。lane_wait）
+LANE_STAGE = "tdd-lanes"               # 待ちの損の段の名（枝の輪の束）
 FIX_REJECTS = f"{script_io.REJECT_PREFIX}accept_fix-*.txt"   # 修正の受け付けの拒否の本文（scope の根。script_io._write_reason）
 REVIEW_NODES = ("p3.delta_review", "p3.delta_review2")      # 差分の審査の節（出力の faces が受け付けた穴）
 TOOLS = ("Skill", "Agent")
@@ -215,6 +222,29 @@ def wait_loss(rows: list) -> dict:
             row["batches"] += got
             row["loss"] = round(row["loss"] + sum(x["loss"] for x in got), 1)
     return {"verified": WAIT_VERIFIED, "stages": stages, "total": round(sum(x["loss"] for x in stages.values()), 1)}
+
+
+def lane_wait(events: list) -> list:
+    """枝の輪の束 [{n, max, mean, loss}]（include ごとに 1 束。同じ include の tdd-lane-loop-<n> の node_completed の時間）"""
+    by = {}
+    for e in events:
+        name = e["step_name"].rsplit("__", 1)[-1]
+        ms = ((e["data"].get("timing") or {}).get("durationMs")) if isinstance(e["data"].get("timing"), dict) else None
+        if e["event_type"] == "node_completed" and name.startswith(LANE_LOOP) and isinstance(ms, (int, float)):
+            by.setdefault(e["step_name"].rsplit("__", 1)[0] if "__" in e["step_name"] else "", []).append(ms / 1000)
+    out = []
+    for secs in by.values():
+        top, mean = max(secs), sum(secs) / len(secs)
+        out.append({"n": len(secs), "max": round(top, 1), "mean": round(mean, 1), "loss": round(top - mean, 1)})
+    return out
+
+
+def with_lanes(got: dict, batches: list) -> dict:
+    """wait_loss の出力に枝の輪の束（lane_wait）を段 LANE_STAGE で足す"""
+    if batches:
+        got["stages"][LANE_STAGE] = {"batches": batches, "loss": round(sum(b["loss"] for b in batches), 1)}
+        got["total"] = round(sum(x["loss"] for x in got["stages"].values()), 1)
+    return got
 
 
 def _in_stage(e: dict, heads=FIX_STAGE) -> bool:
@@ -417,7 +447,8 @@ def _g1_items(fields: list, asked: set, owed: set) -> int:
     return len(hit) + (1 if owed - covered else 0)
 
 
-def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, first: int, home, gaps: list) -> dict:
+def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, first: int, home, gaps: list,
+                 lane_done: int = 0) -> dict:
     out = _empty_board()
     out["report"] = (board / report.REPORT_FILE).is_file()
     try:
@@ -430,10 +461,14 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
     fields = _fields(rounds, gaps)
     states = _states(board, gaps)
     calls = [c for st in states for c in st.get("calls") or [] if isinstance(c, dict)]
+    lane_calls = [c for st in states for c in (st.get("lanes") or {}).get("calls") or [] if isinstance(c, dict)]
     asked = {k for st in states for k in st.get("open_units") or []}
     owed = {k for st in states for k in st.get("open_units") or [] if k not in (st.get("excused") or {})}
-    if tdd_done != len(calls):
-        gaps.append(f"tdd の節の node_completed {tdd_done} 件と輪の calls {len(calls)} 行が違う")
+    by_ai = [c for c in calls if c.get("phase") != JOIN_PHASE]   # 並べを締めた行は AI の節の起動でない
+    if tdd_done != len(by_ai):
+        gaps.append(f"tdd・tdd-rest の節の node_completed {tdd_done} 件と輪の calls {len(by_ai)} 行（並べの締めの行を除く）が違う")
+    if lane_done != len(lane_calls):
+        gaps.append(f"並べの枝の役（{LANE_PREFIX}<n>）の node_completed {lane_done} 件と枝の calls {len(lane_calls)} 行が違う")
     if states and shape != seat.G1_SHAPE:
         have = {k for st in states for k in (st.get("units") or {})}
         lost = [k for f in fields if isinstance(f, dict) and f.get("route") == "tdd"
@@ -455,7 +490,7 @@ def _board_facts(board: pathlib.Path, shape: str, tdd_done: int, agents: int, fi
     battery = len({(n, r.get("pass"), r.get("attempt")) for n, r in rows})
     out["items"] = items
     out["redo"] = {"fix_rejects": max(0, _fix_rejects(rounds) - battery),
-                   "tdd_rejects": sum(1 for c in calls if c.get("ok") is False),
+                   "tdd_rejects": sum(1 for c in calls + lane_calls if c.get("ok") is False),
                    "battery_rejects": battery,
                    "delta_faces": _faces(board, gaps),
                    "refix_rounds": sum(1 for r in report.trace_rows(b, "done") if r.get("instance") in report.REFIX_NODES),
@@ -491,8 +526,9 @@ def row(db, run_id: str, board, *, adapter_home=None) -> dict:
     cost, secs, whys = _spend(events)
     gaps += [f"修正の工程の AI の節の費用（costUsd）が取れない: {w}" for w in whys]
     ran, refused, agents, first = _tool_calls(events, shape)
-    tdd_done = sum(1 for e in _ai_nodes(events) if _in_stage(e, FIX_STAGE[0]) and _node(e) == TDD_NODE)
-    facts = _board_facts(board, shape, tdd_done, agents, first, adapter_home, gaps)
+    tdd_done = sum(1 for e in _ai_nodes(events) if _in_stage(e, FIX_STAGE[0]) and _node(e) in TDD_NODES)
+    lane_done = sum(1 for e in _ai_nodes(events) if _in_stage(e, FIX_STAGE[0]) and _node(e).startswith(LANE_PREFIX))
+    facts = _board_facts(board, shape, tdd_done, agents, first, adapter_home, gaps, lane_done)
     return {"run_id": run_id, "shape": shape, "fixture": str((rec["fixture"] or {}).get("source_run") or ""),
             "complete": status == "completed" and facts["report"], "items": facts["items"],
             "redo": facts["redo"], "redo_total": sum(v for k, v in facts["redo"].items() if k not in VERDICT_FAILS),
@@ -652,7 +688,8 @@ def main(argv: list[str]) -> int:
         elif argv[:1] == ["wait"] and len(argv) == 3:
             if not pathlib.Path(argv[1]).is_file():
                 raise ValueError(f"archon.db {argv[1]} が無い")
-            out = json.dumps(wait_loss(_task_rows(argv[1], argv[2])), ensure_ascii=False)
+            out = json.dumps(with_lanes(wait_loss(_task_rows(argv[1], argv[2])), lane_wait(_events(argv[1], argv[2])[1])),
+                             ensure_ascii=False)
         elif argv == ["maintenance"]:
             out = json.dumps(maintenance(PACK), ensure_ascii=False)
         else:

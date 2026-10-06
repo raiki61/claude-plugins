@@ -39,8 +39,8 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
   （外れは表 SKILLS_EXTRA の節だけ: blk-material の local-review は Claude Code に同梱の code-review・simplify・security-review も書ける）
 - approval・include・loop_group の節は期限を持たない。書く期限の欄は上の 2 つだけ（AI の節の timeout・bash の節の idle_timeout も違反）
 - loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る。
-  3 でない上限は表 LOOP_MAX の輪だけ（blk-fix の TDD の輪: 単位の数が run ごとに違う。抜けるのは until_bash の印で、
-  上限に届く周で機械が印を立てる。R50）
+  3 でない上限は表 LOOP_MAX の輪だけ（blk-fix の TDD の輪・並べの後の順の輪・並べの枝の輪: 単位の数が run ごとに違う。抜けるのは
+  until_bash の印で、上限に届く周で機械が印を立てる。R50）
 - loop_group の本体（入れ子の輪も）に approval の節を置かない（Archon #3532: 本体が関所で終わる輪の再開は止まった回の会話を
   引き継がない。関所は輪の外の最上段に置き、答えは with の from で後ろの節へ渡す）
 - 上のどれでもない種類の節（loop: など）は違反（決まりを決めていない種類を黙って通さない）
@@ -63,9 +63,12 @@ READ_ONLY_TOOLS = {"Read", "Grep", "Glob"}
 TREE_CHANGERS = {"Bash", "Edit", "Write"}   # 作業ツリーを変えうる道具（持つ節は mutates_checkout: false を書かない）
 WRITER = ("blk-fix", "blk-fix.yaml", "fix")   # 書く道具を持ってよい節: (フォルダ, ファイル, 節)
 TDD_WRITER = ("blk-fix", "blk-fix.yaml", "tdd")   # TDD の輪の修正役（テストを書く・直す・整える。設計 4 節）
+# 並べの後の順の輪の役と、並べの枝の役（tdd と同じ書く役。docs/plans/2026-10-07-lane-nodes.md）
+TDD_WRITERS = (("blk-fix", "blk-fix.yaml", "tdd-rest"), *(("blk-fix", "blk-fix.yaml", f"tdd-lane-{n}") for n in (1, 2, 3)))
 RULED_WRITER = ("blk-fix", "blk-fix.yaml", "fix-ruled")   # 食い違いの裁定の後の 2 回目の修正役（修正役の会話の続き。印 continue=fix）
 # max_iterations が 3 でない輪: (フォルダ, ファイル, 輪の節) → 上限（blk-fix/lib/tddloop.py の MAX_ITERATIONS と同じ値）
-LOOP_MAX = {("blk-fix", "blk-fix.yaml", "tdd-loop"): 40}
+LOOP_MAX = {("blk-fix", "blk-fix.yaml", "tdd-loop"): 40, ("blk-fix", "blk-fix.yaml", "tdd-rest-loop"): 40,
+            **{("blk-fix", "blk-fix.yaml", f"tdd-lane-loop-{n}"): 40 for n in (1, 2, 3)}}
 CI_ROLE = ("blk-ci", "blk-ci.yaml", "ci")      # CI の任せ先の役（裁定 R52・R56）
 MEASURER = ("blk-premises", "blk-premises.yaml", "premises")   # 前提の実測の役（読む道具に Bash だけを足す）
 MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash", "WebSearch", "WebFetch"}
@@ -120,6 +123,7 @@ EXCEPTIONS = {
     SPEC_WRITE: {"tools": None},
     SPEC_REVISE: {"tools": None},
     TDD_WRITER: {"tools": None},
+    **{w: {"tools": None} for w in TDD_WRITERS},
     RULED_WRITER: {"tools": None},
     CI_ROLE: {"tools": MEASURE_TOOLS, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
     **{("blk-material", "blk-material.yaml", n): row for n, row in _MATERIAL.items()},

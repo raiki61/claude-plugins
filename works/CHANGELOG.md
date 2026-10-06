@@ -13,6 +13,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
+- TDD の輪の並べ（形 g3 で振り分けの直後に枝が 2 本以上の run）を、1 つの役が Agent で枝ごとの下請けを起こす形から、枝ごとに Archon の輪を置く形に替えた（設計は docs/plans/2026-10-07-lane-nodes.md）。修正のブロックに節 `tdd-fork`・枝の輪 `tdd-lane-loop-1`〜`3`（支度・役 `tdd-lane-<n>`・確かめ）・締め `tdd-join`・並べの後の順の輪 `tdd-rest-loop` が増え、枝は 3 本まで同時に走る（4 本目からの枝と戻した単位は順の輪が回す）。枝の役はほかの役と同じに会話の記録・続き・模型と effort の宣言（sonnet・high）を持ち、包みが印の旗 `lane` を見て枝の小さい作業ツリーを cwd に起こし、run の作業ツリーとほかの枝の作業ツリーを書かせない（`.shared/core/adapter.py` の頭の 6c）。赤・緑の確かめ・締め（3 方向で当てる・当てた後の緑・意味の食い違いの逃げ道）は今と同じで、枝の書き込みは段ごとに run の作業ツリーの書き込みの記録と突き合わせる。輪の役 `tdd` は Agent を持たなくなり、段のコマンドと、試験へ object の置き場を渡さない印は外した。並べない run の段は今と同じ。`dev/fixmeasure.py` は枝の役の起動を枝の calls と数え合わせ、`wait` に枝の輪の待ちの損（段 `tdd-lanes`）を足す
 - 検証器の外の残り（最後のテストの語・独立の目の阻害と走っていない目と結果が無い目）の数えを `report.rest_outside_validator`（語は `report.tests_word`、目の分けは `report.eye_counts` の `EyeCounts`）の 1 か所にし、最後の関所と報告の冒頭 1・次の run の依頼が同じ口を読むようにした。今までは関所（`line_edge._eyes`・`_tests_head`）と冒頭 1（`residue`・`next_request`）が別の規則で、表に無い status の目を関所は阻害に数えず、結果が無い目を冒頭 1 は数えず、任せ先の CI が clean を渡した回を冒頭 1 は赤と数えていた。これで表に無い status の目も阻害に数えて関所が開き、結果が無い目は冒頭 1 と次の依頼に「再実行の要あり」の行で出る。走っていない目（not_run）は関所を開ける理由に数えず、冒頭 1 の残りには表どおり数える（理由は `report.NOT_RUN_GATE_NOTE` が両方の残りの行で言う）。結果が無い目も同じ例外で、理由は `report.MISSING_GATE_NOTE` が言う。関所の残りの行は、目の欄の件数とテストの語に添えて、数えられる分の合計（最後のテストが緑でなければ 1 件に数える）も言う。`always_rows` は left も rest も渡されない呼びに、検証器を回していないという事実でない理由でなく、渡し忘れを名指す行を出す。`line_edge._eyes` は名前の付いた `Eyes(rows, counts)` を返し、`_final_text` は渡された eyes と rest だけを読んで盤面を読み直さない
 
 ### Fixed

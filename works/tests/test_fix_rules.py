@@ -57,8 +57,7 @@ PHASE_TEXT = "## この段ですること\n\n今の単位だけを直せ。\n\n#
 TITLE = "# TDD の輪の指示書（2 回目・段 fix）"
 CORE_IDS = ("core-fix", "core-keep")
 KIND_BULLET = {"docs": "- 文書:", "prompts": "- 指示書（プロンプト）:", "config": "- 設定・YAML・workflow:", "code": "- 注記・型:"}
-PHASE_BULLET = {"route": "- **route**:", "test": "- **test**:", "fix": "- **fix**:", "refactor": "- **refactor**:",
-                "lanes": "- **lanes**:"}
+PHASE_BULLET = {"route": "- **route**:", "test": "- **test**:", "fix": "- **fix**:", "refactor": "- **refactor**:"}
 
 
 def shared_lines():
@@ -300,13 +299,18 @@ class TestCompose(unittest.TestCase):
             self.assertNotIn("evidence-docs", got)
 
     def test_tdd_lane_render_carries_three_phases_and_lane_overrides(self):
-        """並べの周の単位の下請けのファイル（docs/plans/2026-10-06-tdd-parallel.md）: 輪の役の決まりの全文・test・fix・refactor の
-        約束・下請けの読み替え（tdd-lane）・機械の節。振り分けとまとめ役の段の約束は載らない"""
-        text = fixrules.tdd_lane_render(tdd_values(), "## この単位の下請けの決まり（機械が書いた）", title=TITLE)
+        """並べの枝の単位の決まりのファイル（docs/plans/2026-10-07-lane-nodes.md）: 輪の役の決まりの全文・test・fix・refactor の
+        約束・枝の役の読み替え（tdd-lane。cwd は単位の worktree・回ごとの指示書は別のファイル）・機械の節。振り分けの段の約束と、
+        下請け・段のコマンドの語は載らない（並べは Archon の節で、役は JSON を返す）"""
+        text = fixrules.tdd_lane_render(tdd_values(), "## この単位の決まり（機械が書いた）", title=TITLE)
         for p, b in PHASE_BULLET.items():
             (self.assertIn if p in fixrules.LANE_PHASES else self.assertNotIn)(b, text)
-        for s in ("## 並べの単位の下請けの読み替え", "## この輪での読み替え", "## この単位の下請けの決まり（機械が書いた）", TITLE):
+        for s in ("## 並べの枝の役の読み替え", "## この輪での読み替え", "## この単位の決まり（機械が書いた）", TITLE, "cwd（単位の worktree）",
+                  "回ごとの指示書"):
             self.assertIn(s, text)
+        for s in ("段のコマンド", "まとめ役", "Agent で起こした"):
+            self.assertNotIn(s, text)
+        self.assertNotIn("lanes", fixrules.PHASES, "並べの周は輪の役の段でない（枝の輪が回す）")
 
     def test_tdd_phase_rules_only_for_the_current_phase(self):
         for phase in fixrules.PHASES:

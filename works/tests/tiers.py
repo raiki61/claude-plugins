@@ -48,6 +48,7 @@ FAST = frozenset({
     "test_scopes",          # 部品の置き場（依頼 239）: flow_adapter の env の読みと manifest の照らし（一時の置き場のファイルだけ）
     "test_gitkit",          # 1 秒未満（gitkit の型を 1 回作って 2 回写す）
     "test_unittrees",       # 3 秒: 単位の worktree（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git だけ）
+    "test_tdd_lane_wiring", # TDD の輪の並べの節の配線（YAML・筋書き・状態の JSON を読むだけ。git・子のプロセスなし）
     "test_unitlanes",       # 7 秒: 下請けを単位の worktree で並べる（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git と python3 1 本）
     "test_blk_eyes_lanes",  # 独立の目の筋の順: YAML と Archon の trigger_rule の写しで節を回す（盤面の fixture を読むだけ。git・子のプロセスを使わない）
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
@@ -77,6 +78,7 @@ FAST = frozenset({
     "test_versions",        # run ごとの版の控え: 一時の置き場に書くだけ・start.py を 1 本起こす（git なし）
     "test_libdocs",         # Context7 の文書を機械が引く: 一時の置き場と偽の HTTP の口・偽の盤面（網・git・子のプロセスなし）
     "test_tool_parity",     # 役の道具が本線の run_by の定義より少なくないか: YAML と写しの graph を読むだけ
+    "test_adapter_lane",    # 包みの旗 lane（並べの枝の役を単位の worktree で起こす）: 種の git は gitkit の型の写し・単位の worktree を 2 本切る・adapter.plan を直に呼ぶ（子のプロセスは git だけ）
     "test_adapter_no_turn", # 包みの子の終わりの種分け: 包みを子で起こし、偽の claude（一時の置き場の python）が決めた行を出す（git・Archon・決まった秒の待ちなし）
     "test_auth_launch",     # 殻の認証の起こし役: 偽の runner で順を見る・起こし役を python3 -I で 1 本起こす（git・keychain なし）
     "test_launch",          # 起動の殻の共通の口 launch.py env: 部品を直に呼ぶ・受け方だけ偽の部品を置いて sh を起こす（git なし）

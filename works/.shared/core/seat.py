@@ -57,7 +57,8 @@ import rolekit  # noqa: E402
 import spseam  # noqa: E402
 
 SHAPE = fixshape.SEAT_SHAPE   # 座が載る修正の形（g3）
-SEATS = {"tdd": "tdd", "fix": "implementer", "fix-ruled": "implementer",   # 役の印の名 → 節の名
+SEATS = {"tdd": "tdd", "tdd-rest": "tdd", "tdd-lane-1": "tdd", "tdd-lane-2": "tdd", "tdd-lane-3": "tdd",   # 役の印の名 → 節の名
+         "fix": "implementer", "fix-ruled": "implementer",
          "review": "task-review", "refix": "receiving-review", "refix2": "receiving-review"}
 NONE = "（無し）"   # 型の穴に入れる物が無い時の値（人の方針の文書が無い run の [GLOBAL_CONSTRAINTS] など）
 # 差分の審査役の型（task-review）の出口の語（216 の works の語）→ 差分の審査の返答の 2 判定の欄（deltamarks.KEYS）と欄の語

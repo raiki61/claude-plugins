@@ -59,6 +59,21 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    prompt に入れない——公式 'Absent outside a Git repository'。CLAUDE.md は YAML の settingSources: [user] が外す）。置き場は run
    ごとに同じ（claude の会話の置き場は cwd ごとなので、出し直しの --resume が同じ会話を引ける）。会話の id・起動の記録の鍵は
    Archon の cwd（run の worktree）のまま。道具を持つ起動（`--tools ""` でない）・置き場が Git の中の起動は起こさない
+6c. **旗 lane**（TDD の輪の並べの枝の役 tdd-lane-<n>。依頼 243 の並べの 4 段目。docs/plans/2026-10-07-lane-nodes.md）: 子を枝の
+   単位の worktree を cwd に起こす。worktree のパスは役の文から取らず、枝の支度が切符の board の下に書く印（lane_tree_path:
+   `<board>/tdd-lane-trees/<節の名>` の 1 行。盤面は切符の守る場所なので、役はほかの枝の印を書き換えられない）から読み、run ごとの
+   置き場の下に在り・役の cwd（Archon の run の worktree）の作業ツリーの単位の守りの参照（unittrees。共通の .git の中で役は作れない）を
+   持つ worktree だけを通す（lane_cwd）。SDK が渡した sandbox の塊が enabled・allowUnsandboxedCommands: false・failIfUnavailable: true
+   でない起動は起こさない（Bash を sandbox の外で走らせると denyWrite が効かない。旗 no-tree-write と同じ確かめ）。run の worktree の根（全部の綴り）は 3 の柵（denyWrite・permissions.deny）に足し、単位の worktree（全部の綴り）を
+   `sandbox.filesystem.allowWrite` の後ろに足す（17 の置き場の下なので 17 でも書けるが、置き場を足さない起動でも枝の役の書く所を
+   決める）。会話の id・起動の記録・読んだ記録・書き込みの記録の鍵は Archon の cwd（run の worktree）のまま（書き込みの記録は
+   単位の worktree の実パスで載り、締めの節が run の作業ツリーの記録として読む）。claude の会話の置き場は cwd ごとなので、
+   この起動の単位の worktree を会話の id の隣（`sessions/<cwd の hash>/<節>.lane`）に記録し、continue=X は X の記録と同じ cwd の
+   起動だけを起こす（X が単位の worktree で走ったのに cwd が違う・X が run の worktree で走ったのに旗 lane の起動、は止める）。
+   続きの起動（SDK の --resume）で記録の worktree と今の worktree が違えば新しい会話にする（session の lane_cut）。切符の無い起動・
+   印が無い・読めない・置き場の外・単位の worktree でない・run の worktree に掛かる・旗 isolated と一緒・sandbox が上の形でない、の起動は起こさない
+   （fail closed）。起動の記録の fence.lane に単位の worktree を残す
+
 7. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、
    会話の id を記録できない時は、claude を起こさずに 1 行を出して止まる（fail closed）。
 8. **網を閉じる**（印の有無に依らない。option A）: Archon は役を bypassPermissions で起こし、網の型（sandboxSettingsSchema.network）
@@ -196,14 +211,19 @@ SESSION_VALUE_FLAGS = ("--resume", "-r", "--session-id")
 SESSION_BARE_FLAGS = ("--fork-session", "--continue", "-c")
 
 _NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ
-# 単位の切れ目で会話を切る節の印の名（1 の単位の切れ目。依頼 243 の 2）と、支度が今の単位の鍵を書く置き場（run ごとの置き場の下）
-KEYED_NODES = frozenset({"tdd"})
+# 単位の切れ目で会話を切る節の印の名（1 の単位の切れ目。依頼 243 の 2）と、支度が今の単位の鍵を書く置き場（run ごとの置き場の下）。
+# TDD の輪の役 tdd・並べの後の順の輪の役 tdd-rest・並べの枝の役 tdd-lane-1..3（blk-fix の tddlanes.MAX_LANES と同じ数。試験が縛る）
+KEYED_NODES = frozenset({"tdd", "tdd-rest", "tdd-lane-1", "tdd-lane-2", "tdd-lane-3"})
 SESSION_KEYS_DIR = "session-keys"
 UNIT_KEY_SUFFIX = ".unit"   # sessions/<cwd の hash>/<節>.id の隣に、その会話で回した単位の鍵
+LANE_SUFFIX = ".lane"       # sessions/<cwd の hash>/<節>.id の隣に、旗 lane の起動の cwd（単位の worktree の実パス。6c）
+LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の worktree を書く置き場（盤面の下。共有の記録 tdd-*/**。6c）
 # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
-FLAGS = ("no-post", "no-tree-write", "isolated")
+# lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪の並べの枝の役。6c）
+FLAGS = ("no-post", "no-tree-write", "isolated", "lane")
 NO_TREE_WRITE = "no-tree-write"
 ISOLATED = "isolated"
+LANE = "lane"
 ISOLATED_PREFIX = "works-isolated-"
 MCP_FILE = "works-mcp.json"        # dev/toolset.py の MCP_FILE と同じ（隔離した設定の置き場の下）
 WEB_TOOL = "WebFetch"              # これを持つ起動にだけ借りる MCP を渡す
@@ -372,6 +392,16 @@ def session_key_path(board_dir: str, node: str) -> str:
     """輪の支度が節 node の今の単位の鍵を書くファイル: <board の親>/run-place/session-keys/<node>（run ごとの置き場の下。17 の
     置き場と同じ根）"""
     return os.path.join(os.path.dirname(os.path.normpath(str(board_dir))), RUN_PLACE_NAME, SESSION_KEYS_DIR, node)
+
+
+def lane_tree_path(board_dir: str, node: str) -> str:
+    """6c. 枝の支度が旗 lane の節 node の単位の worktree を書くファイル: <board>/tdd-lane-trees/<node>（盤面は役の守る場所）"""
+    return os.path.join(os.path.normpath(str(board_dir)), LANE_TREES_DIR, node)
+
+
+def lane_record_path(cwd, node: str, home_dir=None) -> pathlib.Path:
+    """6c. 節 node の今の会話を起こした単位の worktree の記録（session_path の隣。旗 lane の起動の前に包みが書く）"""
+    return _home_or(home_dir) / "sessions" / cwd_key(cwd) / f"{node}{LANE_SUFFIX}"
 
 
 def _read_key(path) -> Optional[str]:
@@ -692,9 +722,10 @@ def with_run_place(doc: dict, tools: set, board_place: Optional[str], strict: Op
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
                no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None,
                repo: Sequence[str] = (), place: Optional[Tuple[Optional[str], Optional[bool], Sequence[str]]] = None,
-               tools_deny: Sequence[str] = ()) -> Tuple[List[str], dict]:
+               tools_deny: Sequence[str] = (), lane: Sequence[str] = ()) -> Tuple[List[str], dict]:
     """place は 17 の (board の隣の置き場, strict_network の値, 置き場が掛かってはいけない所)。省けば足さない。
-    tools_deny は 18 の形ごとに拒む道具（空なら足さず、fence.shape_deny の鍵も持たない）"""
+    tools_deny は 18 の形ごとに拒む道具（空なら足さず、fence.shape_deny の鍵も持たない）。
+    lane は 6c の単位の worktree の全部の綴り（SDK が sandbox の塊を渡した起動だけ allowWrite の後ろに足す）"""
     found = find_opt(argv, "--settings")
     if len(found) > 1:
         raise Unrecognised("--settings が 2 つ以上")
@@ -702,6 +733,14 @@ def _with_hook(argv: List[str], command: str, protected: Sequence[str],
     doc = merge_settings(_load_settings(found[0][2]), ours) if found else ours
     n_write, n_deny = add_fences(doc, protected) if protected else (0, 0)
     fence = {"deny_write": n_write, "permissions_deny": n_deny}
+    if lane and isinstance(doc.get("sandbox"), dict):
+        fs = doc["sandbox"].setdefault("filesystem", {})
+        if not isinstance(fs, dict):
+            raise Unrecognised("--settings の sandbox.filesystem が object でない")
+        allow = fs.setdefault("allowWrite", [])
+        if not isinstance(allow, list):
+            raise Unrecognised("--settings の sandbox.filesystem.allowWrite が配列でない")
+        allow += [p for p in lane if p not in allow]
     if place is not None:
         added, skipped = with_run_place(doc, _tools(argv), *place)
         if added:
@@ -840,16 +879,21 @@ def repo_deny(cwd) -> List[str]:
     return out
 
 
-def _no_tree_write_places(argv: Sequence[str], cwd, ticketed: bool) -> List[str]:
-    """旗 no-tree-write の起動で足す守る場所（役の cwd の worktree の根の全部の綴り）。起こせない時は Unrecognised"""
+def _sandbox_strict(argv: Sequence[str], flag: str) -> None:
+    """旗 flag の起動の SDK の sandbox の塊が enabled・allowUnsandboxedCommands: false・failIfUnavailable: true か。違えば Unrecognised"""
     found = find_opt(argv, "--settings")
     sandbox = _load_settings(found[0][2]).get("sandbox") if len(found) == 1 else None
     if not (isinstance(sandbox, dict) and sandbox.get("enabled") is True):
-        raise Unrecognised("旗 no-tree-write の役に SDK が sandbox の塊（enabled: true）を渡していない——作業ツリーを守る"
+        raise Unrecognised(f"旗 {flag} の役に SDK が sandbox の塊（enabled: true）を渡していない——作業ツリーを守る"
                            "denyWrite を足す先が無い")
     if not (sandbox.get("allowUnsandboxedCommands") is False and sandbox.get("failIfUnavailable") is True):
-        raise Unrecognised("旗 no-tree-write の役の sandbox が allowUnsandboxedCommands: false・failIfUnavailable: true でない——"
+        raise Unrecognised(f"旗 {flag} の役の sandbox が allowUnsandboxedCommands: false・failIfUnavailable: true でない——"
                            "sandbox の外で走る Bash・sandbox が立たない場の素通しには denyWrite が効かない")
+
+
+def _no_tree_write_places(argv: Sequence[str], cwd, ticketed: bool) -> List[str]:
+    """旗 no-tree-write の起動で足す守る場所（役の cwd の worktree の根の全部の綴り）。起こせない時は Unrecognised"""
+    _sandbox_strict(argv, NO_TREE_WRITE)
     if not ticketed:
         raise Unrecognised("旗 no-tree-write の役に切符が無い——allowWrite ['/'] の下で盤面・pack・git の設定を守れない")
     top = own_worktree(cwd)
@@ -1000,6 +1044,40 @@ def _inside_git(path: pathlib.Path) -> bool:
     return r.returncode == 0 and r.stdout.strip() == "true"
 
 
+def lane_cwd(cwd, board_dir: str, node: str) -> Tuple[str, List[str]]:
+    """6c. 旗 lane の節 node の (子の cwd（単位の worktree の実パス）, ほかの単位の worktree の実パス（柵に足す）)。印（lane_tree_path）が無い・読めない・絶対パスでない・
+    フォルダでない・run ごとの置き場の外・run の worktree に掛かる・cwd の作業ツリーの単位の守りの参照を持つ worktree でない
+    時は Unrecognised（理由つき。呼び手は起動を拒む）"""
+    path = lane_tree_path(board_dir, node)
+    raw = _read_key(path)
+    if raw is None:
+        raise Unrecognised(f"単位の worktree の印が無いか読めない: {path}")
+    if not os.path.isabs(raw):
+        raise Unrecognised(f"単位の worktree の印が絶対パスでない（{raw!r}）: {path}")
+    real = os.path.realpath(raw)
+    if not os.path.isdir(real):
+        raise Unrecognised(f"単位の worktree が無い（{raw}）")
+    place = os.path.realpath(os.path.join(os.path.dirname(os.path.normpath(str(board_dir))), RUN_PLACE_NAME))
+    if not real.startswith(place.rstrip("/") + "/"):
+        raise Unrecognised(f"単位の worktree が run ごとの置き場（{place}）の外（{real}）")
+    own = own_worktree(cwd)
+    if own is None:
+        raise Unrecognised(f"役の cwd の worktree の根が git から引けない（{cwd}）")
+    if _overlaps(real, own):
+        raise Unrecognised(f"単位の worktree が run の worktree（{own}）に掛かる（{real}）")
+    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
+    try:
+        listed = subprocess.run(["git", "-C", str(cwd), "worktree", "list", "--porcelain"], capture_output=True, text=True,
+                                encoding="utf-8", env=env, check=True).stdout
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise Unrecognised(f"git worktree list が引けない（{e}）") from None
+    trees = [ln[len("worktree "):] for ln in listed.splitlines() if ln.startswith("worktree ")]
+    units = _unit_trees(cwd, own, place, trees, env)
+    if real not in units:
+        raise Unrecognised(f"{real} は run の作業ツリーの単位の worktree（守りの参照を持つ物）でない")
+    return real, sorted(units - {real})
+
+
 def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
          protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None,
@@ -1036,6 +1114,22 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
 
     home_dir = _home_or(home_dir)
     node, cont = marker.name, marker.cont
+    # 6c. 旗 lane: 子の cwd を枝の単位の worktree に（会話の継ぎより前に決める。claude の会話の置き場は cwd ごと）
+    lane, others = None, []
+    if LANE in marker.flags:
+        if ISOLATED in marker.flags:
+            return _refuse(argv, node, cont, tools_empty, "旗 lane と isolated は一緒に付かない")
+        try:
+            b = board() if board else None
+        except BadTicket as e:
+            return _refuse(argv, node, cont, tools_empty, f"切符が読めない（{e}）")
+        if b is None:
+            return _refuse(argv, node, cont, tools_empty, "旗 lane の役に切符が無い——単位の worktree を引けない")
+        try:
+            _sandbox_strict(argv, "lane")
+            lane, others = lane_cwd(cwd, b, node)
+        except Unrecognised as e:
+            return _refuse(argv, node, cont, tools_empty, f"単位の worktree を cwd にできない（{e}）")
     # 1. 会話の継ぎ（--settings の形に依らずに行う）
     record: List[Tuple[pathlib.Path, str]] = []
     if cont:
@@ -1045,6 +1139,10 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             why = f"works: 会話 {cont} の id が無い（節 {node} は {cont} の続きとして起こす）: {src}"
             return Plan(argv, "refused", why, True, node, cont, False, tools_empty,
                         {"mode": "refused", "id": None, "of": cont}, [])
+        was = _read_key(lane_record_path(cwd, cont, home_dir))
+        if was != lane:   # 6c. claude の会話の置き場は cwd ごと。続きは同じ cwd でないと会話を引けない
+            return _refuse(argv, node, cont, tools_empty,
+                           f"会話 {cont} は cwd {was or '（run の worktree）'} で走った（この起動の cwd は {lane or '（run の worktree）'}）")
         out = _strip_session_flags(argv) + ["--resume", sid]
         session = {"mode": "continued", "id": sid, "of": cont, "from": sid}
     else:
@@ -1081,7 +1179,15 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
                     session = {"mode": "new", "id": sid}
                 session["unit"] = {"key": want, "was": have, "cut": cut}
                 record.append((unit_key_path(cwd, node, home_dir), want))
+        if lane is not None and session["mode"] != "new":   # 6c. 前の会話が別の cwd で走っていれば続けられない
+            was = _read_key(lane_record_path(cwd, node, home_dir))
+            if was is not None and was != lane:
+                sid = new_id()
+                out = _strip_session_flags(argv) + ["--session-id=" + sid]
+                session = {**{k: v for k, v in session.items() if k == "unit"}, "mode": "new", "id": sid, "lane_cut": True}
     record.insert(0, (session_path(cwd, node, home_dir), sid))
+    if lane is not None:
+        record.append((lane_record_path(cwd, node, home_dir), lane))
 
     # 2. Read のフックと柵。印のある起動は、柵を足せなければ起こさない（fail closed）
     env = os.environ if env is None else env
@@ -1089,17 +1195,28 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     try:
         places = protected() if protected else None
         own = _no_tree_write_places(argv, cwd, places is not None) if NO_TREE_WRITE in marker.flags else []
+        if lane is not None:   # 6c. 枝の役は run の worktree とほかの枝の単位の worktree を書かない
+            if places is None:
+                raise Unrecognised("旗 lane の役に切符が無い")
+            top = own_worktree(cwd)
+            if top is None:
+                raise Unrecognised(f"役の cwd の worktree の根が git から引けない（{cwd}）")
+            own = [x for x in [*spellings(top), *(y for o in others for y in spellings(o))] if x not in own] + own
         board_place = run_place() if run_place else None
         tools_deny = shape_deny(board() if board else None, node)
         out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh,
                                 write_command, repo_deny(cwd),
                                 (board_place, strict, list(places or []) + [os.path.abspath(str(cwd))]) if run_place else None,
-                                tools_deny)
+                                tools_deny, spellings(lane) if lane is not None else ())
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
-    if own:
+    if own and NO_TREE_WRITE in marker.flags:
         fence["no_tree_write"] = own[0]
     child_cwd = None
+    if lane is not None:
+        child_cwd = lane
+        fence["lane"] = lane
+        fence["lane_deny"] = [os.path.realpath(top), *others]
     if ISOLATED in marker.flags:
         if not tools_empty:
             return _refuse(argv, node, cont, tools_empty, "旗 isolated は道具ゼロの役（--tools \"\"）だけに付く")

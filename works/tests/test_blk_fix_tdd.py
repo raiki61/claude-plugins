@@ -137,9 +137,11 @@ class TestYaml(unittest.TestCase):
     def test_node_order(self):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
-                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop",
-                          "clean", "assert-changed", "fix-reads", "collect"])
-        start, loop, fix_loop = nodes[1:4]
+                         ["ignored-before", "tdd-start", "tdd-loop", "tdd-fork", "tdd-lane-loop-1", "tdd-lane-loop-2",
+                          "tdd-lane-loop-3", "tdd-join", "tdd-rest-loop", "fix-loop", "conflict-check", "rule-loop",
+                          "fix-ruled-loop", "clean", "assert-changed", "fix-reads", "collect"])
+        start, loop = nodes[1:3]
+        fix_loop = find_node(nodes, "fix-loop")
         self.assertEqual(start["script"], "tdd_start")
         self.assertEqual(start["depends_on"], ["ignored-before"])
         self.assertEqual(start["timeout"], DEADLINE)
@@ -150,9 +152,11 @@ class TestYaml(unittest.TestCase):
         g = loop["loop_group"]
         self.assertEqual(g["max_iterations"], tddloop.MAX_ITERATIONS)
         from test_yaml_rules import LOOP_MAX
-        self.assertEqual(LOOP_MAX, {("blk-fix", "blk-fix.yaml", "tdd-loop"): tddloop.MAX_ITERATIONS})
+        self.assertEqual(set(LOOP_MAX.values()), {tddloop.MAX_ITERATIONS})
+        self.assertEqual({k[2] for k in LOOP_MAX}, {"tdd-loop", "tdd-rest-loop", "tdd-lane-loop-1", "tdd-lane-loop-2", "tdd-lane-loop-3"})
         self.assertIs(g["fresh_context"], False, "テスト→直す→整えるを同じ会話で（C17）")
-        self.assertEqual(g["until_bash"], "test $tdd-step.output.done = true", "印で抜ける（R50）")
+        self.assertEqual(g["until_bash"], "test $tdd-step.output.done = true",
+                         "印で抜ける（R50）。並べの枝を切った周も done で抜ける（並べは輪の外の節。docs/plans/2026-10-07-lane-nodes.md）")
         self.assertEqual([n["id"] for n in g["nodes"]], ["tdd-prep", "tdd", "tdd-step"])
         prep, role, step = g["nodes"]
         self.assertEqual(prep["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",
@@ -163,8 +167,8 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(step["with"], {"reply": {"from": "$tdd.output"}, "state_file": "$tdd-start.output.state_file"})
         for n in (prep, step):
             self.assertEqual(n["timeout"], DEADLINE)
-        self.assertEqual(fix_loop["depends_on"], ["tdd-start", "tdd-loop"])
-        self.assertEqual(fix_loop["trigger_rule"], "none_failed_min_one_success", "輪が飛ばされても直す")
+        self.assertEqual(fix_loop["depends_on"], ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop"])
+        self.assertEqual(fix_loop["trigger_rule"], "none_failed_min_one_success", "輪・並べ・順の輪が飛ばされても直す")
 
     def test_tdd_role_node(self):
         role = find_node(block()["nodes"], "tdd")
@@ -172,9 +176,8 @@ class TestYaml(unittest.TestCase):
         self.assertIn("`$tdd-prep.output.prompt_file` を Read で", role["prompt"])
         self.assertEqual(role["settingSources"], ["user"])
         # Skill と skills: は借りたスキルの座（修正の形 g3。計画 220 Task 2。test_seat が座の表と縛る）
-        # Agent は g3 の並べの周のまとめ役が単位の下請けを起こす口（docs/plans/2026-10-06-tdd-parallel.md。ほかの形は包みが拒む）
-        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch", "Skill",
-                                                 "Agent"])
+        # Agent は持たない（並べは枝ごとの Archon の節。docs/plans/2026-10-07-lane-nodes.md）
+        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch", "Skill"])
         self.assertEqual(role["skills"], ["test-driven-development"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["idle_timeout"], DEADLINE)
@@ -182,7 +185,8 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(of["description"], "works-node: tdd", "包みが会話を節の名で分け、続きの起動で指示書の形を選ぶ")
         self.assertIs(of["additionalProperties"], False)
         self.assertEqual(of["required"], ["phase"])
-        self.assertEqual(of["properties"]["phase"]["enum"], [*tddloop.PHASES, "conflict"], "食い違いの申し出はどの段でも")
+        self.assertEqual(of["properties"]["phase"]["enum"], [*[p for p in tddloop.PHASES if p != "lanes"], "conflict"],
+                         "食い違いの申し出はどの段でも。並べの周（lanes）は役の段でない")
         self.assertEqual(of["properties"]["refactor"]["required"], ["declared", "why"], "fix の段の整えの申告")
 
     def test_accept_and_collect_get_tdd(self):
@@ -211,6 +215,11 @@ class TestYaml(unittest.TestCase):
         want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS", "INPUTS_TEST_CMD", "INPUTS_UNIT_DEPTHS", "INPUTS_TDD_LANES"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
                                                                                        "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
+                "tdd_fork": ("INPUTS_STATE_FILE",),
+                "tdd_lane_prep": ("INPUTS_STATE_FILE", "INPUTS_LANE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
+                                  "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
+                "tdd_lane_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE", "INPUTS_LANE"),
+                "tdd_join": ("INPUTS_STATE_FILE",),
                 "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
                            "INPUTS_TDD_SUITE"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED")}

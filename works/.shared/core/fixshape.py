@@ -17,11 +17,10 @@
 - plain(board_dir): 平の run（形が PLAIN＝current）か
 - SKILL_NODES: 座が skill の節の名（seat の表と試験で一致を縛る）
 - AGENT_NODES: 修正役の節の名（AGENT_SHAPES の形だけ Agent で下請けを起こす）
-- LANE_NODES: TDD の輪の役の節の名（g3 の並べの周だけ Agent で単位の下請けを起こす）
 - SEAT_SHAPE・AGENT_SHAPE・AGENT_SHAPES・DENY: 座の載る形・SDD の型だけで回す形（g1）・修正役が下請けを起こす形の全部（g1 と g3。
   依頼 243 の 2 で既定の g3 の修正役も単位ごとに新しい会話の下請けを起こす）と、形ごとの道具の柵の表（seat がこの語を引く）
 - denied_tools(shape, node): 形と印の名から包みが permissions.deny で拒む道具（DENY を引く。g3 以外の座の節で Skill・g1 と g3 の
-  外の修正役で Agent・g3 の外の輪の役で Agent）
+  外の修正役で Agent）
 
 形はいつもこの shape_at から引く（ブロック・包み・測る関数が start.json を直に読まない）。
 """
@@ -40,19 +39,16 @@ START_REL = "r1/start.json"       # 線の start の控え（entry.START_FILE �
 CHOICE_REL = "r1/fix-shape.json"  # 後の振り分けが選んだ形の控え
 FIXTURE_KEY = "fixture"           # start の控えの固定材料の印の鍵（fixture.KEY。entry.start が書く。L2 なので fixture は import しない）
 # 座が skill の節（借りたスキルを Skill の道具で読む役の印の名。seat.SEATS のうち use_as が skill の物と同じ。形ごとの道具の柵が読む）
-SKILL_NODES = frozenset({"tdd", "refix", "refix2"})
+SKILL_NODES = frozenset({"tdd", "tdd-rest", "tdd-lane-1", "tdd-lane-2", "tdd-lane-3", "refix", "refix2"})
 # 修正役の節（AGENT_SHAPES の形で SDD の型の下請けを Agent で起こす役の印の名。ほかの形では拒む）
 AGENT_NODES = frozenset({"fix", "fix-ruled"})
 SEAT_SHAPE = "g3"         # 座が載る形（seat.SHAPE）
 AGENT_SHAPE = "g1"        # 修正役が SDD の型だけで回す形（TDD の輪を回さない。seat.G1_SHAPE）
 # 修正役が単位ごとの下請けを Agent で起こす形（依頼 243 の 2: 既定の g3 も、輪の後に直す単位を 1 つの会話に積まず下請けに渡す）
 AGENT_SHAPES = frozenset({AGENT_SHAPE, SEAT_SHAPE})
-# TDD の輪の役の節（g3 の並べの周に、まとめ役が単位の下請けを Agent で起こす。docs/plans/2026-10-06-tdd-parallel.md）
-LANE_NODES = frozenset({"tdd"})
 # 形ごとの道具の柵の表: 行 (道具, その道具を持つ節の名, その道具を持たせる形)。節の役に、形が持たせる形の外なら拒む。
 # 腕の違いはこの表の行だけ（denied_tools は表を引くだけ）
-DENY = (("Skill", SKILL_NODES, frozenset({SEAT_SHAPE})), ("Agent", AGENT_NODES, AGENT_SHAPES),
-        ("Agent", LANE_NODES, frozenset({SEAT_SHAPE})))
+DENY = (("Skill", SKILL_NODES, frozenset({SEAT_SHAPE})), ("Agent", AGENT_NODES, AGENT_SHAPES))
 
 
 def _words() -> str:
@@ -132,7 +128,7 @@ def choose(board_dir, shape: str, *, by: str, why: str) -> None:
 
 def denied_tools(shape: str, node: str) -> tuple[str, ...]:
     """形 shape の盤面で印 node の役に拒む道具（包みが permissions.deny に足す）。表 DENY の順に、node がその道具を持つ節で
-    shape が持たせる形の外なら拒む（座の節は g3 の外で Skill、修正役は g1 と g3 の外で Agent、輪の役は g3 の外で Agent）。ほかの節は ()"""
+    shape が持たせる形の外なら拒む（座の節は g3 の外で Skill、修正役は g1 と g3 の外で Agent）。ほかの節は ()"""
     return tuple(dict.fromkeys(tool for tool, nodes, allowed in DENY if node in nodes and shape not in allowed))
 
 

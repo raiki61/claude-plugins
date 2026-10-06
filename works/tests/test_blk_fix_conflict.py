@@ -500,24 +500,27 @@ class TestTddConflict(LoopCase):
         self.assertIn("どの行にも当たらない", seen["err"])
 
 
-    def test_step_script_parks_lane_conflicts(self):
-        # 並べの周（docs/plans/2026-10-06-tdd-parallel.md）: tddloop.step が返す conflicts の全部を盤面の控えに積む
+    def test_join_script_parks_lane_conflicts(self):
+        # 並べの締め（節 tdd-join。docs/plans/2026-10-07-lane-nodes.md）: tddlanes.join が返す conflicts の全部を盤面の控えに積み、
+        # 出口には載せない。輪の確かめ（tdd-step）は並べの申し出を持たない
         import importlib.util
         from unittest import mock
-        spec = importlib.util.spec_from_file_location("blk_fix_tdd_step2", BLK / "scripts" / "tdd_step.py")
+        spec = importlib.util.spec_from_file_location("blk_fix_tdd_join", BLK / "scripts" / "tdd_join.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         a, b = {"unit_key": "a"}, {"unit_key": "b"}
-        out = {"ok": True, "done": False, "reason": "", "phase": "test", "conflict": None, "conflicts": [a, b], "writes": None}
-        with mock.patch.object(mod.tddloop, "step", return_value=out), \
+        out = {"go": True, "done": False, "phase": "test", "merged": 0, "back": 0, "conflicts": [a, b]}
+        printed = []
+        with mock.patch.object(mod.tddlanes, "join", return_value=out), \
                 mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
                 mock.patch.object(mod.conflict, "park") as park, \
-                mock.patch.object(mod.script_io, "emit_result", return_value=0) as emit, \
-                mock.patch.dict("os.environ", {"INPUTS_REPLY": "{}", "INPUTS_STATE_FILE": self.state,
-                                               "ARTIFACTS_DIR": str(self.board.parent)}):
+                mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(x[0])), \
+                mock.patch.dict("os.environ", {"INPUTS_STATE_FILE": self.state, "ARTIFACTS_DIR": str(self.board.parent)}):
             self.assertEqual(mod.main(), 0)
         self.assertEqual(park.call_args.args[1], [a, b])
-        self.assertNotIn("conflicts", emit.call_args.args[2])
+        self.assertNotIn("conflicts", json.loads(printed[-1]))
+        src = (BLK / "scripts" / "tdd_step.py").read_text(encoding="utf-8")
+        self.assertNotIn('"conflicts"', src)
 
 
 class TestTddExcused(LoopCase):

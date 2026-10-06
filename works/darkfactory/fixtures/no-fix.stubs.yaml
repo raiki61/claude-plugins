@@ -962,12 +962,83 @@ fixing__tdd-start:
   suite: ''
   state_file: ''
   summary_file: ''
+fixing__tdd-fork:
+  go: false
+  lanes: 0
+  lane_1: false
+  lane_2: false
+  lane_3: false
+fixing__tdd-join:
+  go: false
+  done: true
+  phase: done
+  merged: 0
+  back: 0
 tdd-prep:
   prompt_file: ''
 tdd:
   phase: route
   units: []
 tdd-step:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  phase: done
+tdd-lane-prep-1:
+  prompt_file: ''
+tdd-lane-1:
+  phase: fix
+  unit_key: ''
+  files: []
+  what: ''
+  refactor: {declared: false, why: ''}
+tdd-lane-step-1:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  phase: done
+  unit_key: ''
+tdd-lane-prep-2:
+  prompt_file: ''
+tdd-lane-2:
+  phase: fix
+  unit_key: ''
+  files: []
+  what: ''
+  refactor: {declared: false, why: ''}
+tdd-lane-step-2:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  phase: done
+  unit_key: ''
+tdd-lane-prep-3:
+  prompt_file: ''
+tdd-lane-3:
+  phase: fix
+  unit_key: ''
+  files: []
+  what: ''
+  refactor: {declared: false, why: ''}
+tdd-lane-step-3:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  phase: done
+  unit_key: ''
+tdd-rest-prep:
+  prompt_file: ''
+tdd-rest:
+  phase: fix
+  unit_key: ''
+  files: []
+  what: ''
+  refactor: {declared: false, why: ''}
+tdd-rest-step:
   ok: true
   done: true
   reason: ''
@@ -1310,6 +1381,18 @@ refitting__tdd-start:
   suite: ''
   state_file: ''
   summary_file: ''
+refitting__tdd-fork:
+  go: false
+  lanes: 0
+  lane_1: false
+  lane_2: false
+  lane_3: false
+refitting__tdd-join:
+  go: false
+  done: true
+  phase: done
+  merged: 0
+  back: 0
 refitting__conflict-check:
   go: false
   count: 0

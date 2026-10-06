@@ -1,23 +1,23 @@
 """TDD の輪の単位を、枝ごとの単位の worktree で並べる（blk-fix の tddlanes。設計 docs/plans/2026-10-06-tdd-parallel.md・
-docs/plans/2026-10-07-overlap-lanes.md）の検査。
+docs/plans/2026-10-07-overlap-lanes.md・docs/plans/2026-10-07-lane-nodes.md）の検査。
 
 - 分け方: 形 g3 の輪で、振り分けの後に範囲（tddlanes.ranges。試験では差し替え）の引ける tdd の枝（修正案の項目を共にする単位の組。
-  tddlanes.items_of も差し替え）が 2 本以上なら、枝の worktree を run ごとの置き場の下に切って段 lanes へ進む。範囲が重なっても並べる。
-  2 本未満・形 af・範囲の引けない単位は今どおり順
-- 枝の中: 単位は順に、単位ごとに新しい下請け。段のコマンドは枝の今の単位でない番の下請けには段を回さず、単位が済むと次の単位の
-  頭を控えに残して引き継ぎのファイルを書く
+  tddlanes.items_of も差し替え）が 2 本以上なら、枝の worktree を run ごとの置き場の下に切って段 lanes へ進む（輪 tdd-loop はここで
+  抜ける）。範囲が重なっても並べる。2 本未満・形 af・範囲の引けない単位は今どおり順。枝は MAX_LANES 本まで（後ろの枝の単位は順）
+- 枝の輪を起こすか（tdd-fork。tddlanes.fork）: 段 lanes の状態でだけ go と lane_<n>
+- 枝の支度（tdd-lane-prep-<n>。tddlanes.lane_prep）: 単位の決まりのファイル（全文・単位の間は同じ）と回ごとの指示書、包みが読む
+  2 つの印（単位の鍵・単位の worktree）
+- 枝の確かめ（tdd-lane-step-<n>。tddlanes.lane_step）: 単位の worktree で tddloop の段の確かめをそのまま回す（赤・緑・凍結は機械）。
+  書き込みの出どころは run の作業ツリーの記録と突き合わせる。枝の中の単位は順に進み、単位ごとの頭の木を控えに残す。done は枝の全部
 - 重なり: 2 本の枝が同じファイルの別の行を変える → 両方当たる（shared）。同じ試験のファイルの末尾に足す → 先の枝の行の後に後の
   枝の行を置いて当たる（union）。字では合うが合わせた木で赤 → 後の枝だけ戻す（semantic）
-- 段のコマンド（tddlanes.run）: 単位の worktree で tddloop の段の確かめをそのまま回す（赤・緑・凍結は機械）。共通の .git の
-  objects を書かない（試験は objects を読み取りだけにして走らせる）
-- 締める（lanes の段の tdd-step）: 緑まで済んだ単位の差分を当て、当てた後の木で緑をもう 1 度確かめる。済まなかった単位・当たら
-  ない単位・当てた後に赤い単位は、順の単位として最初の段から回し直す。direct への渡しと食い違いの申し出は今どおり
-- 支度: lanes の段のまとめ役の指示書と、単位ごとの下請けのファイル（段のコマンドの 1 行・worktree・3 段の約束）
+- 締める（tdd-join。tddlanes.join）: 緑まで済んだ単位の差分を当て、当てた後の木で緑をもう 1 度確かめる。済まなかった単位・当たら
+  ない単位・当てた後に赤い単位は、順の単位として最初の段から回し直す（輪 tdd-rest）。direct への渡しと食い違いの申し出は今どおり
+- 節の script（tdd_fork・tdd_lane_prep・tdd_lane_step・tdd_join）を子で起こして、並べの周を 1 回通す
 """
 import json
 import os
 import pathlib
-import stat
 import subprocess
 import sys
 import tempfile
@@ -34,11 +34,13 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
 from gitkit import git  # noqa: E402
+import adapter  # noqa: E402
 import fixshape  # noqa: E402
 import tddlanes  # noqa: E402
 import tddloop  # noqa: E402
 import unittrees  # noqa: E402
-from test_blk_fix_tdd import SUITE  # noqa: E402
+import writes  # noqa: E402
+from test_blk_fix_tdd import SUITE, run_script  # noqa: E402
 
 UA = "a.py double: x + x + 1 を返す"
 UB = "b.py triple: x * 3 + 1 を返す"
@@ -121,11 +123,14 @@ class LaneCase(unittest.TestCase):
         p.write_text(text.replace(old, new, 1), encoding="utf-8")
 
     def cmd(self, key, reply):
-        """段のコマンドを 1 回（下請けの代わり。枝の中のその単位の番で）。返答は単位の置き場の reply.json に書いて渡す"""
+        """枝の確かめを 1 回（枝の役の返答の代わり）。key は枝の今の単位でなければならない（枝の輪は今の単位だけを回す）"""
         row = self.lane(key)
-        path = pathlib.Path(row["reply"])
-        path.write_text(json.dumps(reply, ensure_ascii=False), encoding="utf-8")
-        return tddlanes.run(self.st()["lanes"]["manifest"], row["n"], str(path), row["unit_keys"].index(key) + 1)
+        lst = json.loads(pathlib.Path(row["state"]).read_text(encoding="utf-8"))
+        self.assertEqual(lst["queue"][lst["cur"]], key, "枝の今の単位でない")
+        return tddlanes.lane_step(self.state, row["n"], reply, self.repo)
+
+    def join(self):
+        return tddlanes.join(self.state, self.repo)
 
     def red(self, key):
         tree = self.lane(key)["tree"]
@@ -143,7 +148,8 @@ class LaneCase(unittest.TestCase):
         self.edit(tree, name, old, new or fixed)
         got = self.cmd(key, {"phase": "fix", "unit_key": key, "files": [name], "what": "余計な 1 を消した"})
         self.assertTrue(got["ok"], got)
-        self.assertTrue(got["done"], got)
+        lst = json.loads(pathlib.Path(self.lane(key)["state"]).read_text(encoding="utf-8"))
+        self.assertEqual(lst["units"][key]["green"], "ok", got)
         return got
 
 
@@ -243,43 +249,75 @@ class TestLaneCommand(LaneCase):
         self.assertFalse(got["ok"])
         self.assertIn("テストのファイルを赤の時から書き換えた", got["reason"])
 
-    def test_command_does_not_write_common_objects(self):
-        """sandbox は共通の .git を書かせない: objects を読み取りだけにしても、コマンドは単位の置き場に object を書いて回る"""
+    def test_unrecorded_write_in_lane_is_rejected(self):
+        """枝の役の書き込みの出どころは run の作業ツリーの記録（包みが Archon の cwd の鍵で、単位の worktree の実パスを残す）と
+        突き合わせる: 記録も申告も無い変更は段を拒み、記録が在れば通す"""
         self.route()
-        objects = pathlib.Path(git(self.repo, "rev-parse", "--path-format=absolute", "--git-common-dir")) / "objects"
-        dirs = [objects, *(p for p in objects.rglob("*") if p.is_dir())]
-        modes = {d: d.stat().st_mode for d in dirs}
-        for d in dirs:
-            d.chmod(modes[d] & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
-        try:
-            self.red(UA)
-            self.green(UA)
-        finally:
-            for d in dirs:
-                d.chmod(modes[d])
-        self.assertNotIn("GIT_OBJECT_DIRECTORY", os.environ, "コマンドは自分の env を元に戻す")
+        home = pathlib.Path(self._tmp.name) / "adapter-home"
+        with mock.patch.dict(os.environ, {adapter.ENV_HOME: str(home)}):
+            log = writes.sink(self.repo)
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text("", encoding="utf-8")
+            tree = pathlib.Path(self.lane(UA)["tree"])
+            (tree / "test_a.py").write_text(SEED["test_a.py"] + A_TEST, encoding="utf-8")
+            reply = {"phase": "test", "unit_key": UA, "test_files": ["test_a.py"], "tests": [A_ID]}
+            got = self.cmd(UA, reply)
+            self.assertFalse(got["ok"], got)
+            self.assertIn("書き込みの記録", got["reason"])
+            real = os.path.realpath(tree / "test_a.py")
+            sha = writes._sha(real)
+            log.write_text(json.dumps({"path": real, "file_sha": sha, "tool_name": "Write"}) + "\n", encoding="utf-8")
+            got = self.cmd(UA, reply)
+            self.assertTrue(got["ok"], got)
+            self.assertEqual(got["phase"], "fix")
 
-    def test_command_line_runs_as_script(self):
-        """下請けが Bash で走らせる 1 行（支度の python の絶対パス）。ARTIFACTS_DIR の無い env で動く"""
+    def test_rejects_count_and_give_up(self):
+        """枝の確かめの拒否は同じ段の出し直しに数え、RETRY_MAX 回目で諦めて枝を済みにする（輪を回数の上限まで回さない）"""
         self.route()
-        row = self.lane(UA)
-        tree = pathlib.Path(row["tree"])
-        (tree / "test_a.py").write_text(SEED["test_a.py"] + A_TEST, encoding="utf-8")
-        pathlib.Path(row["reply"]).write_text(json.dumps({"phase": "test", "unit_key": UA, "test_files": ["test_a.py"],
-                                                          "tests": [A_ID]}), encoding="utf-8")
-        line = tddlanes.command_line(self.st()["lanes"]["manifest"], row["n"], row["reply"], 1)
-        env = {k: v for k, v in os.environ.items() if k != "ARTIFACTS_DIR"}
-        r = subprocess.run(line, shell=True, capture_output=True, text=True, encoding="utf-8", env=env, cwd=str(tree))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        got = json.loads(r.stdout)
-        self.assertEqual((got["ok"], got["phase"]), (True, "fix"), got)
+        bad = {"phase": "test", "unit_key": UA, "test_files": ["test_a.py"], "tests": ["test_a.py::TestA::test_nothing"]}
+        for _ in range(tddloop.retry_max()):
+            got = self.cmd(UA, bad)
+            self.assertFalse(got["ok"], got)
+        self.assertTrue(got["done"], got)
+        lst = json.loads(pathlib.Path(self.lane(UA)["state"]).read_text(encoding="utf-8"))
+        self.assertEqual((lst["units"][UA]["route"], lst["units"][UA]["gave_up"]), ("direct", "red"))
+        got = self.join()
+        self.assertIn(UA, self.st()["lanes"]["back"], "並べで諦めた単位は順に戻す（direct にしない）")
 
-    def test_broken_git_line_refused(self):
+    def test_wrong_unit_conflict_counts_as_a_reject(self):
+        self.route()
+        got = self.cmd(UA, {"phase": "conflict", "unit_key": UB, "between": ["a.py:1", "test_a.py:1"],
+                            "why_both_cannot_hold": "別の枝の単位を名指した申し出", "which_is_right": "request",
+                            "kind": "brief_vs_judgment"})
+        self.assertEqual((got["ok"], got["done"]), (False, False), got)
+        lst = json.loads(pathlib.Path(self.lane(UA)["state"]).read_text(encoding="utf-8"))
+        self.assertEqual(lst["tries"], 1)
+        self.assertIn(UA, lst["reason"])
+
+    def test_broken_git_line_ends_the_lane_and_goes_back(self):
         self.route()
         tree = pathlib.Path(self.lane(UA)["tree"])
         (tree / ".git").write_text("gitdir: /elsewhere\n", encoding="utf-8")
-        with self.assertRaises(tddlanes.LaneBroken):
-            self.cmd(UA, {"phase": "test", "unit_key": UA, "test_files": ["test_a.py"], "tests": [A_ID]})
+        got = self.cmd(UA, {"phase": "test", "unit_key": UA, "test_files": ["test_a.py"], "tests": [A_ID]})
+        self.assertEqual((got["ok"], got["done"]), (False, True), got)
+        self.assertIn(".git の指し", got["reason"])
+        with self.assertRaises(tddloop.Broken):
+            tddlanes.lane_prep(self.state, 1)
+        self.red(UB)
+        self.green(UB)
+        self.join()
+        st = self.st()
+        self.assertIn(UA, st["lanes"]["back"])
+        self.assertIn(".git", st["lanes"]["back"][UA]["why"])
+
+    def test_lane_step_after_the_lane_is_done_is_broken(self):
+        self.route()
+        self.red(UA)
+        self.green(UA)
+        with self.assertRaises(tddloop.Broken):
+            tddlanes.lane_step(self.state, 1, {"phase": "fix", "unit_key": UA}, self.repo)
+        with self.assertRaises(tddloop.Broken):
+            tddlanes.lane_prep(self.state, 1)
 
 
 class TestSettle(LaneCase):
@@ -289,8 +327,8 @@ class TestSettle(LaneCase):
             self.red(k)
             self.green(k)
         trees = [r["tree"] for r in self.st()["lanes"]["rows"]]
-        got = self.step({"phase": "lanes"})
-        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        got = self.join()
+        self.assertEqual((got["go"], got["done"], got["merged"], got["back"]), (False, True, 2, 0), got)
         self.assertEqual((self.repo / "a.py").read_text(encoding="utf-8"), "def double(x):\n    return x + x\n")
         self.assertEqual((self.repo / "b.py").read_text(encoding="utf-8"), SEED["b.py"].replace("x * 3 + 1", "x * 3"))
         st = self.st()
@@ -304,22 +342,23 @@ class TestSettle(LaneCase):
         ex = tddloop.exit_fields(self.start)
         self.assertEqual([(u["unit_key"], u["green"]) for u in ex["units"]], [(UA, "ok"), (UB, "ok")])
         self.assertEqual([(r["unit_key"], r["outcome"]) for r in ex["lanes"]["units"]], [(UA, "merged"), (UB, "merged")])
-        self.assertTrue(ex["lanes"]["calls"], "段のコマンドの呼びは出口の lanes.calls に")
-        self.assertEqual([c["phase"] for c in ex["calls"]], ["route", "lanes"], "calls は tdd の節の起動 1 回に 1 行のまま")
+        self.assertEqual([(c["lane"], c["phase"]) for c in ex["lanes"]["calls"]], [(1, "test"), (1, "fix"), (2, "test"), (2, "fix")],
+                         "枝の役の起動 1 回に 1 行（出口の lanes.calls。枝の番号つき）")
+        self.assertEqual([c["phase"] for c in ex["calls"]], ["route", "lanes"], "calls は tdd の節の起動 1 回と締めの 1 行")
 
     def test_unfinished_lane_goes_back_to_serial(self):
         self.route()
         self.red(UA)
         self.green(UA)
         self.red(UB)   # 直しの段の前で止まった下請け
-        got = self.step({"phase": "lanes"})
-        self.assertEqual((got["ok"], got["done"], got["phase"]), (True, False, "test"))
+        got = self.join()
+        self.assertEqual((got["go"], got["done"], got["phase"]), (True, False, "test"))
         st = self.st()
         self.assertEqual(st["queue"][st["cur"]], UB)
         self.assertEqual(st["units"][UB]["red"], "", "戻した単位は最初の段から")
         self.assertEqual((self.repo / "test_b.py").read_text(encoding="utf-8"), SEED["test_b.py"], "済まなかった単位は当てない")
         self.assertEqual((self.repo / "a.py").read_text(encoding="utf-8"), "def double(x):\n    return x + x\n")
-        prompt = pathlib.Path(tddloop.prep(self.state, lanes=tddlanes)["prompt_file"]).read_text(encoding="utf-8")
+        prompt = pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn("並べで済まなかった", prompt)
         self.assertIn(UA, prompt.split(tddloop.HANDOFF_HEAD, 1)[1], "並べで済んだ単位は引き継ぎに並ぶ")
         # 順に戻った単位は今どおり回る
@@ -333,7 +372,7 @@ class TestSettle(LaneCase):
             self.red(k)
             self.edit(self.lane(k)["tree"], "c.py", "SHARED = 1", f"SHARED = {2 if k == UA else 3}")   # 範囲の外の同じ行
             self.green(k)
-        got = self.step({"phase": "lanes"})
+        got = self.join()
         self.assertEqual(got["phase"], "test")
         st = self.st()
         self.assertEqual(st["queue"][st["cur"]], UB)
@@ -349,7 +388,7 @@ class TestSettle(LaneCase):
         self.green(UA)
         self.red(UB)
         self.green(UB, new="x * 3 + 1 - double(0)")
-        got = self.step({"phase": "lanes"})
+        got = self.join()
         self.assertEqual((got["done"], got["phase"]), (False, "test"))
         st = self.st()
         self.assertEqual(st["queue"], [UA, UB])
@@ -373,7 +412,7 @@ class TestSettle(LaneCase):
         self.green(UA)
         self.red(UB)
         self.green(UB)
-        got = self.step({"phase": "lanes"})
+        got = self.join()
         self.assertEqual(got["phase"], "test")
         st = self.st()
         self.assertEqual(st["queue"][st["cur"]], UA)
@@ -390,16 +429,16 @@ class TestSettle(LaneCase):
         self.assertTrue(got["done"], got)
         self.red(UB)
         self.green(UB)
-        got = self.step({"phase": "lanes"})
+        got = self.join()
         self.assertTrue(got["done"], got)
         u = self.st()["units"][UA]
         self.assertEqual((u["route"], u["gave_up"]), ("direct", "writer"))
 
     def test_stray_write_of_run_tree_is_reverted(self):
         self.route()
-        (self.repo / "c.py").write_text("SHARED = 9\n", encoding="utf-8")   # まとめ役が run の作業ツリーを書いた
-        got = self.step({"phase": "lanes"})
-        self.assertTrue(got["ok"], got)
+        (self.repo / "c.py").write_text("SHARED = 9\n", encoding="utf-8")   # 並べの周に run の作業ツリーが書かれた（枝の役は柵で書けない）
+        got = self.join()
+        self.assertTrue(got["go"], got)
         self.assertEqual((self.repo / "c.py").read_text(encoding="utf-8"), SEED["c.py"])
         self.assertEqual(self.st()["lanes"]["reverted"], ["c.py"])
 
@@ -411,7 +450,7 @@ class TestSettle(LaneCase):
         got = self.cmd(UA, item)
         self.assertTrue(got["done"], got)
         with mock.patch.object(tddloop.conflict, "problems", return_value=[]) as pr:
-            got = self.step({"phase": "lanes"})
+            got = self.join()
         self.assertEqual(pr.call_args.kwargs["owed"], {UA})
         self.assertEqual([c["unit_key"] for c in got["conflicts"]], [UA])
         st = self.st()
@@ -422,7 +461,7 @@ class TestSettle(LaneCase):
         self.route()
         self.cmd(UA, {"phase": "conflict", "unit_key": UA, "between": ["nope.py:1", "nope.py:2"],
                       "why_both_cannot_hold": "名指しが在らない申し出", "which_is_right": "request", "kind": "brief_vs_judgment"})
-        got = self.step({"phase": "lanes"})
+        got = self.join()
         self.assertEqual(got["conflicts"], [])
         st = self.st()
         self.assertEqual(st["queue"][st["cur"]], UA)
@@ -437,25 +476,29 @@ class TestOneItemLane(LaneCase):
         self.route()
         st = self.st()
         self.assertEqual([r["unit_keys"] for r in st["lanes"]["rows"]], [[UA], [UB, UD]])
-        early = self.cmd(UD, {"phase": "test", "unit_key": UD, "test_files": ["test_d.py"], "tests": [D_ID]})
-        self.assertEqual((early["ok"], early["done"]), (False, True))
-        self.assertEqual(early["reason"], tddlanes.NOT_YET, "前の単位が済む前の番の下請けには段を回さない")
         self.red(UB)
         got = self.green(UB)
-        self.assertEqual(got["phase"], "done", "単位が済んだら、その下請けは終わる（次の単位は別の下請け）")
+        self.assertEqual((got["done"], got["phase"], got["unit_key"]), (False, "test", UB),
+                         "枝の 1 番目の単位が済むと、枝は 2 番目の単位の段 test へ（枝の輪は続く）")
         row = self.lane(UB)
-        hand = pathlib.Path(row["state"]).parent / tddlanes.HANDOFF.format(j=2)
-        self.assertIn(UB, hand.read_text(encoding="utf-8"), "次の単位への引き継ぎを機械が書く")
         lst = json.loads(pathlib.Path(row["state"]).read_text(encoding="utf-8"))
+        self.assertEqual(lst["queue"][lst["cur"]], UD)
         self.assertEqual(sorted(lst["unit_heads"]), sorted([UB, UD]), "単位ごとの頭の木を控えに残す")
-        late = self.cmd(UB, {"phase": "test", "unit_key": UB, "test_files": ["test_b.py"], "tests": [B_ID]})
-        self.assertEqual(late["reason"], tddlanes.PASSED, "済んだ番の下請けには段を回さない")
+        out = tddlanes.lane_prep(self.state, row["n"])
+        brief = pathlib.Path(row["files"][1]).read_text(encoding="utf-8")
+        self.assertIn(tddloop.HANDOFF_HEAD, brief, "2 番目の単位の決まりのファイルに前の単位の引き継ぎ")
+        self.assertIn(UB, brief.split(tddloop.HANDOFF_HEAD, 1)[1])
+        self.assertIn(row["files"][1], pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8"))
+        key = pathlib.Path(adapter.session_key_path(str(self.board), tddlanes.LANE_NODE.format(n=row["n"])))
+        self.assertTrue(key.read_text(encoding="utf-8").strip().endswith(f":lane-{row['n']}:{UD}"),
+                        "単位が替わると包みが新しい会話で起こす鍵")
         self.red(UD)
-        self.green(UD)
+        got = self.green(UD)
+        self.assertEqual((got["done"], got["phase"]), (True, "done"))
         self.red(UA)
         self.green(UA)
-        got = self.step({"phase": "lanes"})
-        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        got = self.join()
+        self.assertEqual((got["go"], got["done"]), (False, True), got)
         for name, text in (("a.py", "x + x\n"), ("b.py", "x * 3\n"), ("d.py", "x * 4\n")):
             self.assertIn(text, (self.repo / name).read_text(encoding="utf-8"), name)
         st = self.st()
@@ -463,19 +506,25 @@ class TestOneItemLane(LaneCase):
                          {UA: ("merged", 1), UB: ("merged", 2), UD: ("merged", 2)})
         self.assertEqual(st["units"][UD]["green"], "ok")
 
-    def test_unit_files_name_the_handoff_for_later_units(self):
+    def test_rejected_conflicts_give_up_and_the_next_unit_keeps_its_head(self):
+        """申し出の拒否が RETRY_MAX 回で諦めても、枝は次の単位の頭の木を残す（締めの赤の確かめ直しが単位ごとに使う）"""
         self.route()
-        tddloop.prep(self.state, repo=self.repo, lanes=tddlanes)
+        bad = {"phase": "conflict", "unit_key": UD, "between": ["b.py:1", "test_b.py:1"],
+               "why_both_cannot_hold": "今の単位でない単位を名指した申し出", "which_is_right": "request", "kind": "brief_vs_judgment"}
+        for _ in range(tddloop.retry_max()):
+            got = tddlanes.lane_step(self.state, self.lane(UB)["n"], bad, self.repo)
+        self.assertEqual((got["done"], got["phase"]), (False, "test"), got)
+        lst = json.loads(pathlib.Path(self.lane(UB)["state"]).read_text(encoding="utf-8"))
+        self.assertEqual(lst["queue"][lst["cur"]], UD)
+        self.assertIn(UD, lst["unit_heads"])
+        self.red(UD)
+        self.green(UD)
+        self.red(UA)
+        self.green(UA)
+        self.join()
         st = self.st()
-        row = self.lane(UD)
-        self.assertEqual(len(row["files"]), 2)
-        second = pathlib.Path(row["files"][1]).read_text(encoding="utf-8")
-        hand = pathlib.Path(row["state"]).parent / tddlanes.HANDOFF.format(j=2)
-        self.assertIn(str(hand), second)
-        self.assertIn(tddlanes.command_line(st["lanes"]["manifest"], row["n"], row["reply"], 2), second)
-        prompt = (pathlib.Path(st["work"]) / tddloop.PROMPT).read_text(encoding="utf-8")
-        for f in row["files"]:
-            self.assertIn(f, prompt)
+        self.assertEqual(st["units"][UD]["green"], "ok", "次の単位は頭の木で赤を確かめ直して当たる")
+        self.assertIn(UB, st["lanes"]["back"], "諦めた単位は順に戻す")
 
     def test_unfinished_second_unit_is_not_merged(self):
         self.route()
@@ -484,7 +533,7 @@ class TestOneItemLane(LaneCase):
         self.red(UD)   # 2 番目の単位は直しの前で止まった（書きかけのテストを当てない）
         self.red(UA)
         self.green(UA)
-        got = self.step({"phase": "lanes"})
+        got = self.join()
         st = self.st()
         self.assertEqual(st["queue"][st["cur"]], UD)
         self.assertIn("x * 3\n", (self.repo / "b.py").read_text(encoding="utf-8"), "済んだ 1 番目の単位は当てる")
@@ -506,8 +555,8 @@ class TestOverlap(LaneCase):
     def test_same_file_different_lines_both_merge(self):
         self.both_touch_e()
         self.green(UB)
-        got = self.step({"phase": "lanes"})
-        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        got = self.join()
+        self.assertEqual((got["go"], got["done"]), (False, True), got)
         e = (self.repo / "e.py").read_text(encoding="utf-8")
         self.assertIn("E1 = 10\n", e)
         self.assertIn("E8 = 80\n", e)
@@ -524,7 +573,7 @@ class TestOverlap(LaneCase):
                   "from e import E1\n\n\ndef triple(x):\n    return x * 3 + E1 - 1\n")
         got = self.cmd(UB, {"phase": "fix", "unit_key": UB, "files": ["b.py", "e.py"], "what": "E1 で 1 を打ち消した"})
         self.assertTrue(got["done"], got)
-        got = self.step({"phase": "lanes"})
+        got = self.join()
         self.assertEqual(got["phase"], "test")
         st = self.st()
         self.assertEqual(st["queue"][st["cur"]], UB)
@@ -547,8 +596,8 @@ class TestOverlap(LaneCase):
             self.edit(tree, *fix)
             got = self.cmd(key, {"phase": "fix", "unit_key": key, "files": [fix[0]], "what": "余計な 1 を消した"})
             self.assertTrue(got["done"], got)
-        got = self.step({"phase": "lanes"})
-        self.assertEqual((got["ok"], got["done"]), (True, True), got)
+        got = self.join()
+        self.assertEqual((got["go"], got["done"]), (False, True), got)
         text = (self.repo / "test_ab.py").read_text(encoding="utf-8")
         self.assertLess(text.index("class TestA2"), text.index("class TestB2"), "先の枝の行の後に後の枝の行")
         st = self.st()
@@ -556,40 +605,114 @@ class TestOverlap(LaneCase):
 
 
 class TestPrep(LaneCase):
-    def test_lanes_prompt_and_unit_files(self):
+    def test_lane_prep_writes_the_unit_rules_the_turn_and_the_two_marks(self):
         self.route()
-        out = tddloop.prep(self.state, repo=self.repo, lanes=tddlanes)
-        text = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
         st = self.st()
-        self.assertIn("段 lanes", text)
-        self.assertIn("Agent", text)
-        self.assertIn('{"phase": "lanes"}', text)
-        self.assertIn(tddloop.LANE_ROUNDS, text)
         for r in st["lanes"]["rows"]:
-            f = r["files"][0]
-            self.assertIn(f, text)
-            sub = pathlib.Path(f).read_text(encoding="utf-8")
-            self.assertEqual(pathlib.Path(f).parent, pathlib.Path(st["work"]))
-            for w in (r["unit_keys"][0], r["tree"], tddlanes.command_line(st["lanes"]["manifest"], r["n"], r["reply"], 1),
-                      "**test**", "**fix**", "**refactor**"):
+            out = tddlanes.lane_prep(self.state, r["n"])
+            turn = pathlib.Path(out["prompt_file"])
+            self.assertEqual(turn.parent, pathlib.Path(st["work"]), "回ごとの指示書は盤面の tdd-<k>/ の下（共有の記録 tdd-*/**）")
+            text = turn.read_text(encoding="utf-8")
+            for w in (r["files"][0], "段: test", r["unit_keys"][0], tddloop.RETURN["test"]):
+                self.assertIn(w, text)
+            sub = pathlib.Path(r["files"][0]).read_text(encoding="utf-8")
+            for w in (r["unit_keys"][0], r["tree"], "**test**", "**fix**", "**refactor**", "## 並べの枝の役の読み替え"):
                 self.assertIn(w, sub)
-            self.assertNotIn("前の単位の引き継ぎ", sub, "枝の 1 番目の単位に引き継ぎは無い")
-        key = pathlib.Path(tddloop.adapter.session_key_path(str(self.board), tddloop.UNIT_NODE)).read_text(encoding="utf-8")
-        self.assertEqual(key.strip(), f"{pathlib.Path(st['work']).name}:lanes", "まとめ役は新しい会話で")
+            for w in ("段のコマンド", "Agent で起こした", "reply.json"):
+                self.assertNotIn(w, sub)
+            self.assertNotIn(tddloop.HANDOFF_HEAD, sub, "枝の 1 番目の単位に引き継ぎは無い")
+            node = tddlanes.LANE_NODE.format(n=r["n"])
+            self.assertEqual(pathlib.Path(adapter.lane_tree_path(str(self.board), node)).read_text(encoding="utf-8").strip(), r["tree"],
+                             "包みが cwd にする単位の worktree（役の文からは取らない）")
+            key = pathlib.Path(adapter.session_key_path(str(self.board), node)).read_text(encoding="utf-8").strip()
+            self.assertEqual(key, f"{pathlib.Path(st['work']).name}:lane-{r['n']}:{r['unit_keys'][0]}")
 
+    def test_turn_carries_the_reject_reason(self):
+        self.route()
+        self.cmd(UA, {"phase": "test", "unit_key": UA, "test_files": ["test_a.py"], "tests": ["test_a.py::TestA::test_nothing"]})
+        text = pathlib.Path(tddlanes.lane_prep(self.state, 1)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn("前の回の返答を機械が拒んだ理由", text)
+        self.assertIn("test_nothing", text)
 
-    def test_lanes_phase_needs_the_lane_hooks(self):
-        """tddlanes が tddloop を import するので、並べの口は節の script が渡す。渡されない段 lanes は Broken（黙って順にしない）"""
+    def test_lanes_phase_is_not_the_loop_turn(self):
+        """段 lanes の周は輪の外の節が回す: 輪の支度・確かめを呼べば Broken（黙って順にしない）"""
         self.route()
         with self.assertRaises(tddloop.Broken):
             tddloop.prep(self.state)
         with self.assertRaises(tddloop.Broken):
-            tddloop.step(self.state, {"phase": "lanes"}, self.repo)
+            tddloop.step(self.state, {"phase": "lanes"}, self.repo, lanes=tddlanes)
 
     def test_route_without_hooks_stays_serial(self):
         got = tddloop.step(self.state, {"phase": "route", "units": [{"unit_key": UA, "route": "tdd"},
                                                                     {"unit_key": UB, "route": "tdd"}]}, self.repo)
         self.assertEqual(got["phase"], "test")
+
+
+class TestFork(LaneCase):
+    UNITS = (UA, UB, UD, "e.py: 4 本目の枝")
+
+    def test_fork_goes_only_in_the_lanes_phase(self):
+        self.assertEqual(tddlanes.fork(""), {"go": False, "lanes": 0, "lane_1": False, "lane_2": False, "lane_3": False},
+                         "実行器の無い run（状態のファイルが空）")
+        self.assertIs(tddlanes.fork(self.state)["go"], False, "振り分けの前")
+        self.route()
+        got = tddlanes.fork(self.state)
+        self.assertEqual(got, {"go": True, "lanes": 3, "lane_1": True, "lane_2": True, "lane_3": True})
+
+    def test_lanes_are_capped_and_the_rest_stays_serial(self):
+        with mock.patch.object(tddlanes, "ranges", side_effect=lambda board_dir, keys: {k: RANGES.get(k, ["e.py"]) for k in keys}):
+            self.route()
+        st = self.st()
+        self.assertEqual([r["unit_keys"] for r in st["lanes"]["rows"]], [[UA], [UB], [UD]], f"枝は {tddlanes.MAX_LANES} 本まで")
+        self.assertEqual(len(st["lanes"]["rows"]), tddlanes.MAX_LANES)
+        for k in (UA, UB, UD):
+            self.red(k)
+            self.green(k)
+        got = self.join()
+        self.assertEqual((got["go"], got["phase"]), (True, "test"))
+        st = self.st()
+        self.assertEqual(st["queue"][st["cur"]], "e.py: 4 本目の枝", "枝に入らなかった単位は順の輪 tdd-rest が回す")
+
+
+class TestScripts(LaneCase):
+    """節の script を子で起こして並べの周を 1 回通す（tdd-fork → 枝ごとの支度・確かめ → tdd-join）"""
+
+    def env(self, **kw):
+        return {"ARTIFACTS_DIR": str(self.board.parent), "INPUTS_STATE_FILE": self.state, **kw}
+
+    def test_scripts_run_one_lanes_turn(self):
+        self.route()
+        code, out, err = run_script("tdd_fork", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["lanes"], 2)
+        values = {"INPUTS_JUDGMENT_FILE": "", "INPUTS_PLAN_FILE": "", "INPUTS_POLICY_PATH": "", "INPUTS_NOTES_FILE": ""}
+        for key, n in ((UA, "1"), (UB, "2")):
+            code, out, err = run_script("tdd_lane_prep", self.repo, self.env(INPUTS_LANE=n, **values))
+            self.assertEqual(code, 0, err)
+            self.assertTrue(pathlib.Path(json.loads(out)["prompt_file"]).is_file())
+            tree = pathlib.Path(self.lane(key)["tree"])
+            name, body, tid = {UA: ("test_a.py", A_TEST, A_ID), UB: ("test_b.py", B_TEST, B_ID)}[key]
+            (tree / name).write_text((tree / name).read_text(encoding="utf-8") + body, encoding="utf-8")
+            reply = json.dumps({"phase": "test", "unit_key": key, "test_files": [name], "tests": [tid]}, ensure_ascii=False)
+            code, out, err = run_script("tdd_lane_step", self.repo, self.env(INPUTS_LANE=n, INPUTS_REPLY=reply))
+            self.assertEqual(code, 0, err)
+            got = json.loads(out)
+            self.assertEqual((got["ok"], got["phase"], got["done"], got["reason_file"]), (True, "fix", False, ""), got)
+            self.green(key)
+        code, out, err = run_script("tdd_join", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"go": False, "done": True, "phase": "done", "merged": 2, "back": 0})
+        code, out, err = run_script("tdd_fork", self.repo, self.env())
+        self.assertEqual((code, json.loads(out)["go"]), (0, False), "締めた後は枝の輪を起こさない")
+
+    def test_lane_step_rejects_with_a_reason_file(self):
+        self.route()
+        reply = json.dumps({"phase": "fix", "unit_key": UA, "files": ["a.py"], "what": "段を飛ばした"}, ensure_ascii=False)
+        code, out, err = run_script("tdd_lane_step", self.repo, self.env(INPUTS_LANE="1", INPUTS_REPLY=reply))
+        self.assertEqual(code, 0, err)
+        got = json.loads(out)
+        self.assertFalse(got["ok"])
+        self.assertTrue(pathlib.Path(got["reason_file"]).is_file())
 
 
 if __name__ == "__main__":
