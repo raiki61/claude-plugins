@@ -30,7 +30,7 @@ import board  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import planmarks  # noqa: E402
-from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, PLAN_FIELDS, block, board_shas, find_node, load,  # noqa: E402
+from test_blk_fix import (BoardCase, CLAMP, FIXED, MEAN, PLAN_FIELDS, block, board_shas, find_node, load, pop_accept_last,  # noqa: E402
                           run_script)
 from test_blk_fix import plan_reply as PLAN_REPLY  # noqa: E402  （split_plan_reply が元の 1 項目の案から作る）
 from test_blk_fix_tdd import LoopCase  # noqa: E402
@@ -146,7 +146,8 @@ class TestAcceptConflict(ConflictBoardCase):
             self.assertIn(w, body)
         after = board_shas(self.board)
         after.pop(str(pathlib.Path(r["reason_file"]).relative_to(self.board)))
-        self.assertEqual(after, before, "拒んだ申し出は盤面を書かない")
+        pop_accept_last(self, before, after, r)
+        self.assertEqual(after, before, "拒んだ申し出は盤面を書かない（理由の本文と最後の結果の控えの他）")
 
     def test_conflict_outside_owed_units_is_rejected(self):
         self.fix_ready()

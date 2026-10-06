@@ -506,6 +506,16 @@ def launch(board, nid, numbered=False):
 COUNT_FILES = ("count-budget.json", "count-cache.json")
 
 
+def pop_accept_last(case, before: dict, after: dict, r: dict) -> None:
+    """拒んだ受け付けが盤面に書いてよいもう 1 つの物: 受け付けの最後の結果の控え（script_io.note_last の accept-last.json。次の run に
+    落ちた理由を引き継ぐ）。before・after から外し、控えにこの拒否の行（ok 偽・reason_file がこの拒否の本文）が在ることを見る"""
+    before.pop("accept-last.json", None)
+    after.pop("accept-last.json", None)
+    doc = json.loads((pathlib.Path(r["reason_file"]).parent / "accept-last.json").read_text(encoding="utf-8"))
+    rows = [row for row in doc.values() if row.get("reason_file") == r["reason_file"]]
+    case.assertEqual([row["ok"] for row in rows], [False], doc)
+
+
 def board_shas(d) -> dict:
     """盤面の置き場の全部のファイルの sha256（拒んだ受け付けが何も書かないことを見る。数え直しの量と控えは除く）"""
     return {str(p.relative_to(d)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(pathlib.Path(d).rglob("*"))
@@ -1109,7 +1119,8 @@ class TestAccept(BoardCase):
         after = board_shas(self.board)
         self.assertIsNotNone(after.pop(str(reason_file.relative_to(self.board)), None),
                              "理由の本文は盤面の置き場の予約の名前（reject-<関数>-<連番>.txt）")
-        self.assertEqual(after, before, "拒んだ受け付けは盤面を書かない（理由の本文の他）")
+        pop_accept_last(self, before, after, r)
+        self.assertEqual(after, before, "拒んだ受け付けは盤面を書かない（理由の本文と最後の結果の控えの他）")
         self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
         return r
 
