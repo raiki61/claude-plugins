@@ -46,6 +46,7 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
             reads-replan-<役>.json に、索引を replan.READS_INDEX に書く（1 回目の reads-<役>.json・reads-plan-block.json を上書きしない）
 """
 import copy
+import difflib
 import json
 import os
 import pathlib
@@ -133,6 +134,11 @@ SUB_FORMAT = ("## 答え方（全部の下請けで同じ）\n\n項目の下請�
               "最後の節が名指すファイルに Write で書く（そのファイルのほかに書かない。書き直す時も同じファイル）。書いたら最後の"
               "メッセージに 1 行だけ返す（答えの中身を写さない）。\n\n```json\n{schema}\n```")
 ANSWER_AT = "Write の道具でファイル {answer} に書け"   # 下請けのファイルが答えの置き場を名指す句（answer_in が引く）
+DIFF_HEAD = "## 前の往復からのこの項目の案の差分（見るのはこの差分と前の block の行き先だけ）"
+DIFF_ASK = ("前の往復でこの項目を見た審査は、下の前の block のほかに直しへ進めない穴を挙げなかった。今の往復で見るのは (1) 前の block が"
+            "消えたか（消えたなら resolved、残れば同じ key で faces に block）と (2) 下の差分（- が前・+ が今）が作る新しい穴だけ。"
+            "差分の外の所を見直して新しい穴を探さない。穴の重さの決まり（block か suggest か）は変えない。")
+CARRIED_HEAD = "## 前の往復で答えた当たり（機械が答えを引き継ぐ。hits に入れなくてよい。差分で答えが変わる物だけ入れ直せ）"
 ERRORS_HEAD = "## 前の答えの誤り（機械の確かめ。この誤りだけを直して同じファイルに書き直せ）"
 SUB_ITEM_ASK = ("お前が見るのは下の項目 {n} だけ。この項目が固まる（直しへ進めない穴が無い）まで深く見よ。ほかの項目の穴は挙げない"
                 "（項目どうしの関わりは別の下請けが見る）。答えは頭の『答え方』の型で、" + ANSWER_AT + "。書いたら最後のメッセージに"
@@ -485,13 +491,32 @@ def _unit_name(names: list, k) -> str:
     return names[k - 1] if isinstance(k, int) and not isinstance(k, bool) and 1 <= k <= len(names) else str(k)
 
 
+def carried_hits(b, n: int, rip: dict) -> dict:
+    """項目 n の今の往復の覆っていない当たりのうち、前の往復で同じ当たり（種類・場所・名が同じ）に block でない答えが在る物
+    {当たりの id: 引き継ぐ答えの行（carried に答えた往復）}"""
+    prev = {}
+    for h in converge.answered_hits(b, n):
+        key = (h.get("kind"), h.get("at"), h.get("name"))
+        if key not in prev and h.get("answer") in converge.HIT_ANSWERS:
+            prev[key] = h
+    out = {}
+    for h in ripple.uncovered(rip, n):
+        old = prev.get((h["kind"], h["at"], h["name"]))
+        if old is not None and old["answer"] != "block":
+            out[h["id"]] = {"id": h["id"], "answer": old["answer"], "why": old.get("why", ""), "kind": h["kind"],
+                            "at": h["at"], "name": h["name"], "carried": old.get("carried") or old["pass"]}
+    return out
+
+
 def item_answer_gaps(b, n: int, got: dict, rip: dict) -> list[str]:
-    """型の合った項目 n の答えの中身の誤り: 覆っていない当たりの全部にちょうど 1 つの答え・block と答えた当たりには block の
-    face・face は項目 n の単位だけを名指す・前の往復の block（converge.item_blocks）は resolved か同じ key の face"""
+    """型の合った項目 n の答えの中身の誤り: 覆っていない当たり（前の往復の答えを引き継ぐ物 carried_hits は除く）の全部に
+    ちょうど 1 つの答え・block と答えた当たりには block の face・face は項目 n の単位だけを名指す・前の往復の block
+    （converge.item_blocks）は resolved か同じ key の face"""
     errs = [] if got.get("item") == n else [f"$.item: {n} でない（{got.get('item')!r}）"]
     want = [h["id"] for h in ripple.uncovered(rip, n)]
+    carried = carried_hits(b, n, rip)
     ids = [h.get("id") for h in got["hits"]]
-    errs += [f"$.hits: 覆っていない当たり {h} への答えが無い" for h in want if h not in ids]
+    errs += [f"$.hits: 覆っていない当たり {h} への答えが無い" for h in want if h not in ids and h not in carried]
     errs += [f"$.hits: {h} は波及の一覧の項目 {n} の覆っていない当たりに無い" for h in ids if h not in want]
     errs += [f"$.hits: {h} に答えが {ids.count(h)} つある（1 つだけ）" for h in sorted(set(ids)) if ids.count(h) > 1]
     blocks = converge.block_faces(got)
@@ -586,6 +611,8 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
              if keys.count(key) > 1]
     if gaps:
         return {**base, "gaps": gaps}
+    now = {f["key"] for f in faces}
+    faces += [f for f in converge.carried_notes(b) if f.get("key") not in now]   # suggest は後の往復の返答に残す（修正の段へ）
     review = {**bare, "faces": faces, "shrink": [x for n in opened for x in answers[n]["shrink"]]}
     if not faces and not review.get("faces_none"):
         review["faces_none"] = " / ".join(f"項目 {n}: {answers[n]['checked']}" for n in opened)
@@ -594,7 +621,15 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
         files[SYNERGY_FILE] = str(synergy_file(b, k))
     return {"review": review, "resolved": list(dict.fromkeys(x for n in opened for x in answers[n]["resolved"])),
             "synergy": [f["key"] for f in (syn or {}).get("faces") or []],
-            "hits": {n: answers[n]["hits"] for n in opened}, "files": files, "gaps": []}
+            "hits": {n: _hit_rows(b, n, rip, answers[n]["hits"]) for n in opened}, "files": files, "gaps": []}
+
+
+def _hit_rows(b, n: int, rip: dict, answered: list) -> list:
+    """往復の控えに置く項目 n の当たりの答え（下請けの答えに当たりの種類・場所・名を足し、答えの無い当たりは引き継いだ答え）"""
+    where = {h["id"]: {"kind": h["kind"], "at": h["at"], "name": h["name"]} for h in ripple.uncovered(rip, n)}
+    got = {h["id"]: {**h, **where.get(h["id"], {})} for h in answered}
+    carried = carried_hits(b, n, rip)
+    return [got.get(i) or carried[i] for i in where if i in got or i in carried]
 
 
 def _review_rules(b, main_prompt) -> str:
@@ -623,6 +658,26 @@ def _item_units(b, unit_keys) -> list:
     keys = {str(k) for k in unit_keys or []}
     return [{k: u[k] for k in ("key", "label", "disposition", "reason") if k in u}
             for u in b.record.get("units") or [] if u.get("key") in keys]
+
+
+def _diff_part(b, n: int) -> str:
+    """2 往復目から: 前の往復のこの項目の案の行と今の行の差分（unified diff）と DIFF_ASK。前の行が無ければ空（全部を見る）"""
+    old = converge.prev_row(b, n)
+    plan = converge.read(b).get("plan") or []
+    new = plan[n - 1].get("row") if 1 <= n <= len(plan) else None
+    if old is None or new is None:
+        return ""
+    lines = list(difflib.unified_diff(json.dumps(old, ensure_ascii=False, indent=1, sort_keys=True).splitlines(),
+                                      json.dumps(new, ensure_ascii=False, indent=1, sort_keys=True).splitlines(),
+                                      "前の往復", "今の往復", lineterm="", n=2))
+    return f"{DIFF_HEAD}\n\n{DIFF_ASK}\n\n```diff\n" + ("\n".join(lines) or "（変わっていない）") + "\n```"
+
+
+def _carried_part(b, n: int, rip: dict) -> str:
+    rows = carried_hits(b, n, rip)
+    if not rows:
+        return ""
+    return CARRIED_HEAD + "\n\n" + "\n".join(f"- {i}: {h['answer']}（{h['why']}）" for i, h in rows.items())
 
 
 def _errors_part(n: int, path: pathlib.Path, errs: list) -> str:
@@ -659,8 +714,8 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
             head, ITEM_HEAD.format(n=n), SUB_ITEM_ASK.format(n=n, answer=answer_file(b, k, n)),
             f"### 項目 {n} の案\n\n```json\n{json.dumps(it, ensure_ascii=False, indent=1)}\n```",
             f"### 項目 {n} の単位（判定）\n\n```json\n{json.dumps(_item_units(b, it.get('unit_keys')), ensure_ascii=False, indent=1)}\n```",
-            ripple.section(doc, n), _item_history(b, it.get("unit_keys") or []),
-            _errors_part(n, answer_file(b, k, n), errs) if errs else "") if x)
+            ripple.section(doc, n), _carried_part(b, n, doc), _item_history(b, it.get("unit_keys") or []),
+            _diff_part(b, n), _errors_part(n, answer_file(b, k, n), errs) if errs else "") if x)
         path.write_text(body + "\n", encoding="utf-8")
         todo.append(f"- 項目 {n}: {path}")
     last = {it["n"]: it for it in (converge.read(b)["passes"][-1].get("items") or [])} if converge.read(b)["passes"] else {}

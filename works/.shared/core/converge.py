@@ -32,6 +32,8 @@ note_plan の無い控え（行に items が無い）は今までどおり全体
   当たりの答えの型は HITS_SCHEMA）
 - item_blocks(b, n): 項目 n が答える前の往復の block の key（受け付けが下請けの答えの resolved を確かめる）
 - face_items(b, faces): 名前に戻した face の key → 項目の番号（_attributed と同じ決まり）
+- prev_row(b, n)・answered_hits(b, n)・carried_notes(b): 前の往復のその項目の案の行・当たりの答えと、suggest の穴（往復の行の
+  notes。項目を開き直さず、直しの役に参考として渡り、受け付けが後の往復の返答に引き継ぐ）
 - revise_section(b)・review_section(b)・stuck_reason(b)・lines(b): 指示書に足す文・関所の理由・報告の行（往復ごとの行は
   前の往復の block を審査が suggest に下げた key も名指す）
 
@@ -81,6 +83,8 @@ LINE_PASS = ("  - {k} 往復目: block {keys}・修正案の役の答え fixed {
              "・審査が suggest に下げた key {down}")
 CLOSED_ASK = ("下の項目は前の往復で事前審査が block を挙げずに閉じた。plan に一字も変えずに入れよ（変えた・消した・組み直した直しは"
               "受け付けが拒む）:")
+NOTES_HEAD = ("参考: 事前審査が挙げた suggest の穴（block でない。答えなくてよく、採っても採らなくてもよい。項目を開き直さない。"
+              "修正の段にも事前審査の返答として渡る）:")
 HELD_NOTE = "下の項目は同じ block が続いたので保留にした（直さなくてよい。人の関所が読む）:"
 ITEMS_WHY = "固まった項目: {closed}。保留の項目: {held}。開いたままの項目: {open}"
 LINE_ITEMS = "    項目: 閉じた {closed}・開いた {open}・保留 {held}・相乗りの審査の block {synergy}"
@@ -175,7 +179,7 @@ def _attributed(units: list, items: list) -> list[int]:
 def _item_states(plan: list, faces: list, face_units: dict, prev: list, earlier: set) -> list[dict]:
     before = {it["id"]: it for it in prev}
     rows = [{"n": n, "id": it["id"], "unit_keys": list(it["unit_keys"]), "hash": it["hash"], "state": OPEN, "blocks": [],
-             "reopened": False} for n, it in enumerate(plan, 1)]
+             "reopened": False, **({"row": copy.deepcopy(it["row"])} if "row" in it else {})} for n, it in enumerate(plan, 1)]
     for f in faces:
         for i in _attributed(face_units.get(f.get("key")) or [], rows):
             rows[i]["blocks"].append(f.get("key"))
@@ -231,10 +235,11 @@ def note_answers(b, answers: list) -> None:
 
 
 def note_plan(b, rows: list) -> None:
-    """受けた案の項目（名前に戻した行の並び）を控えの plan に置く（次の record_pass が項目ごとに読む）"""
+    """受けた案の項目（名前に戻した行の並び）を控えの plan に置く（次の record_pass が項目ごとに読む。行そのものも row に置き、
+    次の往復の下請けが前の往復からの差分を見る元にする）"""
     doc = read(b)
     doc["plan"] = [{"id": item_id(r.get("unit_keys")), "unit_keys": [str(k) for k in r.get("unit_keys") or []],
-                    "hash": item_hash(r)} for r in rows if isinstance(r, dict)]
+                    "hash": item_hash(r), "row": copy.deepcopy(r)} for r in rows if isinstance(r, dict)]
     _write(b, doc)
 
 
@@ -248,6 +253,41 @@ def open_items(b) -> list[int]:
     last = _last_items(doc)
     return [n for n, it in enumerate(doc.get("plan") or [], 1)
             if (last.get(it["id"]) or {}).get("state") not in (CLOSED, HELD)]
+
+
+def prev_row(b, n: int) -> dict | None:
+    """項目 n（今の案の項目の控え）を最後に審査した往復のその項目の行（同じ id。無い・行の控えの無い古い控えなら None）"""
+    doc = read(b)
+    plan = doc.get("plan") or []
+    if not 1 <= n <= len(plan):
+        return None
+    for p in reversed(doc["passes"]):
+        it = next((x for x in p.get("items") or [] if x.get("id") == plan[n - 1]["id"]), None)
+        if it is not None and "row" in it:
+            return it["row"]
+    return None
+
+
+def answered_hits(b, n: int) -> list:
+    """項目 n（同じ id）の前の往復の当たりの答えの行（受け付けが下請けの答えから引いて items の hits に置いた物。新しい往復の順）"""
+    doc = read(b)
+    plan = doc.get("plan") or []
+    if not 1 <= n <= len(plan):
+        return []
+    return [{**h, "pass": p["pass"]} for p in reversed(doc["passes"]) for x in p.get("items") or []
+            if x.get("id") == plan[n - 1]["id"] for h in x.get("hits") or []]
+
+
+def carried_notes(b) -> list:
+    """前の往復の suggest の穴（往復の行の notes。key で 1 つ・新しい物を採る）のうち、どの往復でも block でなかった物"""
+    doc = read(b)
+    blocks = {k for p in doc["passes"] for k in p.get("blocks", [])}
+    out = {}
+    for p in doc["passes"]:
+        for f in p.get("notes") or []:
+            if f.get("key") not in blocks:
+                out[f.get("key")] = f
+    return list(out.values())
 
 
 def item_blocks(b, n: int) -> list:
@@ -295,6 +335,7 @@ def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict, syn
     suggests = [f.get("key") for f in _faces(review) if f.get("severity") != "block"]
     row = {"pass": k, "blocks": blocks, "faces": [{n: f.get(n, "") for n in FACE_KEYS} for f in faces],
            "suggests": list(dict.fromkeys(suggests)), "answers": doc["open"].get("answers", []),
+           "notes": list({f.get("key"): copy.deepcopy(f) for f in _faces(review) if f.get("severity") != "block"}.values()),
            "resolved": list(resolved), "persists": [key for key in blocks if key in earlier], "outcome": None,
            "files": {}, "rejects": []}
     if doc.get("plan"):
@@ -451,7 +492,10 @@ def revise_section(b) -> str:
     if row is None:
         return ""
     mine = set(_open_blocks(row))
-    parts = [REVISE_ASK, *(_face_text(f) for f in row["faces"] if f["key"] in mine), f"suggest の key: {_keys(row['suggests'])}"]
+    parts = [REVISE_ASK, *(_face_text(f) for f in row["faces"] if f["key"] in mine)]
+    notes = row.get("notes")
+    parts.append("\n\n".join([NOTES_HEAD, *(_face_text(f) for f in notes)]) if notes
+                 else f"suggest の key: {_keys(row['suggests'])}")
     for state, head in ((CLOSED, CLOSED_ASK), (HELD, HELD_NOTE)):
         named = [it for it in row.get("items") or [] if it.get("state") == state]
         if named:

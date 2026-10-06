@@ -2049,6 +2049,51 @@ class TreeReviewCase(unittest.TestCase):
         self.assertTrue(rec["passes"][-1]["items"][1]["reopened"])
         self.assertEqual(rec["passes"][-1]["synergy"], [on_closed["key"]])
 
+    def test_second_pass_reviews_diff_and_carries_answers_and_notes(self):
+        """2 往復目から: 項目の下請けは前の往復からの案の差分と前の block の行き先だけを見る。前の往復で答えた当たりは機械が
+        引き継ぐ（答えなくてよい）。suggest の穴は項目を開き直さず、直しの役に参考として渡り、最後の審査の返答にも残る"""
+        self.ready()
+        doc = self.ripple_doc()
+        clamp_block = {**MEAN_BLOCK, "key": "item2-clamp-upper-branch", "unit_keys": [UNIT_CLAMP]}
+        note = {**MEAN_BLOCK, "key": "item1-mean-docstring-note", "severity": "suggest", "kind": "contract_drift",
+                "why": "mean の docstring が分母を言っていないので、直した後に読み手が分母を取り違えうる"}
+        self.write_answers(1, {1: self.answer(1, doc, faces=[note]), 2: self.answer(2, doc, faces=[clamp_block])})
+        _, got = self.review(self.summary({1: [], 2: [clamp_block["key"]]}))
+        self.assertTrue(got.get("again"), self.reason_of(got) if got.get("reason_file") else got)
+        rec = converge.read(self.board_obj())
+        self.assertEqual([it["state"] for it in rec["passes"][-1]["items"]], [converge.CLOSED, converge.OPEN])
+        role = planblk.REVISE_ROLE
+        self.assertTrue(self.ok("snap", role=role)["go"])
+        prep = self.ok("prep", role=role, excluded_file="")
+        self.assertIn(note["why"], pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"))   # 参考として渡る
+        fixed = two_items()
+        fixed["plan"][1]["approach"] = "clamp の上限の枝で hi を返し、上限ちょうどの値はそのまま返す（定義どおり）"
+        answers = [{"key": clamp_block["key"], "handled": "fixed", "how": "上限の枝を hi に直し、境の値の扱いを書いた"}]
+        _, got = self.round_of(role, {**fixed, converge.ANSWERS: answers})
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        doc2 = self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        self.ok("prep", role="plan-review", excluded_file="")
+        brief = (self.board_obj().work(planblk.ITEMS_DIR.format(k=2)) / "item-2.md").read_text(encoding="utf-8")
+        diff = brief[brief.index(planblk.DIFF_HEAD):]
+        self.assertIn("+", diff)
+        self.assertIn("上限ちょうどの値はそのまま返す", diff)
+        self.assertIn(clamp_block["key"], brief)
+        ids = [h["id"] for h in planblk.ripple.uncovered(doc2, 2)]
+        self.assertTrue(ids)
+        self.assertIn(planblk.CARRIED_HEAD, brief)
+        answer = {**self.answer(2, doc2, resolved=[clamp_block["key"]]), "hits": []}   # 引き継いだ当たりには答えない
+        self.write_answers(2, {2: answer}, synergy=self.synergy())
+        _, got = self.round_of("plan-review", self.summary({2: []}))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        rec = converge.read(self.board_obj())
+        self.assertEqual(rec["outcome"], converge.CLEAN)
+        hits = rec["passes"][-1]["items"][1]["hits"]
+        self.assertEqual(sorted(h["id"] for h in hits), sorted(ids))
+        self.assertTrue(all(h.get("carried") == 1 for h in hits), hits)
+        out = self.board_obj().output_of_round("p2.plan_review", 1)
+        self.assertIn(note["key"], [f["key"] for f in out["faces"]])   # suggest は最後の返答に残る（修正の段へ渡る）
+
     def test_reads_trace_agent_launches_against_item_files(self):
         """読んだ証拠の節が、束ね役の Agent の呼びの数と下請けのファイルの数を盤面の trace に並べる（拒まない。測る）"""
         self.ready()
