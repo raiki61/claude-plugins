@@ -119,23 +119,30 @@ AGG_SYNERGY = ("開いた項目の全部が clean なら、同じ往復の最後
 OPEN_HEAD = "開いた項目の下請けのファイル:"
 DONE_HEAD = "済んだ下請け（答えのファイルが機械の確かめを通った。起こし直さない）:"
 REDO_HEAD = "起こし直す下請け（答えのファイルが無いか、機械の確かめを通らなかった。この下請けだけを起こす）:"
+BRIEF_TITLE = "# 事前審査の下請け"
+ITEM_HEAD = "## お前の項目: 項目 {n}"   # 下請けのファイルの共通の頭（全部の項目で同じバイト。プロンプトのキャッシュ）と項目の節の境
+SUB_HEAD = ("お前は修正案の事前審査の下請け（読むだけ。Read・Grep・Glob と web の道具で調べ、Write は下の答えのファイルにだけ使う。"
+            "Edit・Bash を使わず、作業ツリーを 1 文字も変えない）。審査の決まり・独立設計・判定者の見立てはこのファイルの頭に、"
+            "お前の項目の案・単位・波及の一覧は最後の節に在る。ほかのファイルの指示書を読みに行かなくてよい（根拠のコードは読め）。")
+RULES_FROM = "\nリポジトリ: "   # 描いた事前審査の指示書のうち、下請けに貼る審査の決まりの頭（そこから末尾まで）
+RULES_MISSING = "審査の決まりを切り出せなかった。指示書 {main} の『見ること』『返し方』『人の方針』を Read で読め（そこの束ね役の頼みと返す型はお前への指示でない）"
+SUB_FORMAT = ("## 答え方（全部の下請けで同じ）\n\n項目の下請けは、覆っていない当たりの全部に covered（この項目の範囲で覆っている。"
+              "どこで）・no_effect（影響しない。理由）・block（穴。faces に severity block で挙げる）のどれかで答える（why は当たり"
+              "ごとに 10 字以上。『同上』で済ませない）。faces の unit_keys は項目の unit_keys を字のまま写す（no の整数でなく）。"
+              "resolved は前の往復の block のうち消えた key（無ければ []）。答えは下の JSON Schema に合う JSON 1 つにして、"
+              "最後の節が名指すファイルに Write で書く（そのファイルのほかに書かない。書き直す時も同じファイル）。書いたら最後の"
+              "メッセージに 1 行だけ返す（答えの中身を写さない）。\n\n```json\n{schema}\n```")
 ANSWER_AT = "Write の道具でファイル {answer} に書け"   # 下請けのファイルが答えの置き場を名指す句（answer_in が引く）
 ERRORS_HEAD = "## 前の答えの誤り（機械の確かめ。この誤りだけを直して同じファイルに書き直せ）"
-SUB_HEAD = ("お前は修正案の事前審査の下請け（読むだけ。Read・Grep・Glob と web の道具で調べ、Write は下の答えのファイルにだけ使う。Edit・Bash を"
-            "使わず、作業ツリーを 1 文字も変えない）。まず指示書 {main} を Read で読め（審査の決まり・独立設計・案の全体と works の欄）。"
-            "そこの束ね役の頼みと返す型はお前への指示でない（お前の答えの型は下）。")
-SUB_ITEM_ASK = ("お前が見るのは下の項目 {n} だけ。この項目が固まる（直しへ進めない穴が無い）まで深く見よ。ほかの項目の穴は挙げない（項目"
-                "どうしの関わりは別の下請けが見る）。覆っていない当たりの全部に、covered（この項目の範囲で覆っている。どこで）・"
-                "no_effect（影響しない。理由）・block（穴。faces に severity block で挙げる）のどれかで答えよ（why は当たりごとに 10 字以上。"
-                "『同上』で済ませない）。faces の unit_keys は下の項目の unit_keys を字のまま写す（no の整数でなく）。resolved は前の"
-                "往復の block のうち消えた key（無ければ []）。\n\n答えは下の JSON Schema に合う JSON 1 つにして、"
-                + ANSWER_AT + "（このファイルのほかに書かない。書き直す時も同じファイル）。書いたら最後のメッセージに 1 行だけ返せ: "
-                "`項目 {n}: clean` か `項目 {n}: block <key>、<key>`（答えの中身を写さない）。\n\n```json\n{schema}\n```")
-SUB_SYNERGY_ASK = ("お前は項目どうしの関わりだけを見る（1 つの項目の中の穴は挙げない）: 同じファイル・同じ試験への食い違う変更・順番の依存・"
-                   "重複した作業・まとめられる所。穴は faces に挙げ、unit_keys に関わる項目の単位の名を全部、字のまま入れよ（名指した項目"
-                   "だけが開き直す）。why に見た事と、穴が無いならその理由を書く。\n\n答えは下の JSON Schema に合う JSON 1 つにして、"
-                   + ANSWER_AT + "（このファイルのほかに書かない）。書いたら最後のメッセージに 1 行だけ返せ: "
-                   "`相乗り: clean` か `相乗り: block <key>、<key>`。\n\n```json\n{schema}\n```")
+SUB_ITEM_ASK = ("お前が見るのは下の項目 {n} だけ。この項目が固まる（直しへ進めない穴が無い）まで深く見よ。ほかの項目の穴は挙げない"
+                "（項目どうしの関わりは別の下請けが見る）。答えは頭の『答え方』の型で、" + ANSWER_AT + "。書いたら最後のメッセージに"
+                " 1 行だけ返せ: `項目 {n}: clean` か `項目 {n}: block <key>、<key>`。")
+SUB_SYNERGY_ASK = ("お前は相乗りの審査の下請け。項目どうしの関わりだけを見る（1 つの項目の中の穴は挙げない。頭の『答え方』の当たりの"
+                   "答えは要らない）: 同じファイル・同じ試験への食い違う変更・順番の依存・重複した作業・まとめられる所。穴は faces に"
+                   "挙げ、unit_keys に関わる項目の単位の名を全部、字のまま入れよ（名指した項目だけが開き直す）。why に見た事と、穴が"
+                   "無いならその理由を書く。答えは下の JSON Schema に合う JSON 1 つにして、" + ANSWER_AT + "（このファイルのほかに"
+                   "書かない）。書いたら最後のメッセージに 1 行だけ返せ: `相乗り: clean` か `相乗り: block <key>、<key>`。"
+                   "\n\n```json\n{schema}\n```")
 LATER_NODES = ("p2.human_gate", "p3.lane_merge")   # 役の節 2 つを戻す前に、今の周に受けていてはいけない後ろの節（戻しは後ろへ伝わらない）
 PLAN_STUCK = "修正案の行き止まり: 必ず案に入れる単位が開いていない"
 STUCK_WHY = ("受け付けの写しは開いていない単位を受けず、義務からも外さないので、案の形では閉じない。人が関所で問いの答えを直すか、"
@@ -590,6 +597,34 @@ def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
             "hits": {n: answers[n]["hits"] for n in opened}, "files": files, "gaps": []}
 
 
+def _review_rules(b, main_prompt) -> str:
+    """描いた事前審査の指示書の本文のうち RULES_FROM から末尾まで（リポジトリと読む版・審査の決まり・返し方・人の方針・言語）。
+    切り出せなければ RULES_MISSING（束ね役の指示書を読ませる）"""
+    try:
+        body, _ = rolekit.render_body(b, NODE_OF["plan-review"], schema_note=False)
+    except BoardGap:
+        body = ""
+    at = body.find(RULES_FROM)
+    return body[at + 1:].strip() if at >= 0 else RULES_MISSING.format(main=main_prompt)
+
+
+def brief_head(b, main_prompt) -> str:
+    """下請けのファイルの共通の頭（全部の項目と相乗りの審査で同じバイト）: 役の定義・関所の項目の決め手・審査の決まり・判定者の
+    見立て・独立設計（design_only）・答え方の型"""
+    diag = (b.record.get("process") or {}).get("diagnosis") or {}
+    framing = {k: diag[k] for k in ("framing", "one_shot") if k in diag}
+    return "\n\n".join(x for x in (
+        BRIEF_TITLE, SUB_HEAD, gatemarks.HEAD[NODE_OF["plan-review"]], _review_rules(b, main_prompt),
+        f"判定者の見立て: {json.dumps(framing, ensure_ascii=False, indent=1)}" if framing else "", design_only(b),
+        SUB_FORMAT.format(schema=json.dumps(item_schema(), ensure_ascii=False))) if x)
+
+
+def _item_units(b, unit_keys) -> list:
+    keys = {str(k) for k in unit_keys or []}
+    return [{k: u[k] for k in ("key", "label", "disposition", "reason") if k in u}
+            for u in b.record.get("units") or [] if u.get("key") in keys]
+
+
 def _errors_part(n: int, path: pathlib.Path, errs: list) -> str:
     doc = json.dumps({"item": n, "file": str(path), "errors": errs}, ensure_ascii=False, indent=1)
     return f"{ERRORS_HEAD}\n\n前の答え {path} を Read で読み、下の誤りだけを直して同じファイルに書き直せ。\n\n```json\n{doc}\n```"
@@ -597,9 +632,9 @@ def _errors_part(n: int, path: pathlib.Path, errs: list) -> str:
 
 def tree_part(b, main_prompt: pathlib.Path) -> str:
     """束ね役の頼みの節。開いた項目ごとの下請けのファイルと（項目が 2 つ以上なら）相乗りの審査のファイルを今の往復の
-    ITEMS_DIR に書き、その置き場を並べる（下請けの答えの置き場 answers_dir も作る）。出し直しでは、答えのファイルが確かめを
-    通った項目を済んだ下請けに並べて起こし直させず、通らなかった項目の下請けのファイルに機械の読める誤りの一覧を貼る。
-    項目の控えが無ければ空"""
+    ITEMS_DIR に書き、その置き場を並べる（下請けの答えの置き場 answers_dir も作る）。下請けのファイルは共通の頭（brief_head）と
+    その項目の節（案・単位・波及の一覧・前の往復の block）を字のまま持つ。出し直しでは、答えのファイルが確かめを通った項目を
+    済んだ下請けに並べて起こし直させず、通らなかった項目の下請けのファイルに機械の読める誤りの一覧を貼る。項目の控えが無ければ空"""
     rows = _item_rows(b)
     if not rows:
         return ""
@@ -610,8 +645,7 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
     answers_dir(b, k).mkdir(parents=True, exist_ok=True)
     plan = converge.read(b).get("plan")
     opened = [n for n in (converge.open_items(b) if plan else range(1, len(rows) + 1)) if n <= len(rows)]
-    head = SUB_HEAD.format(main=main_prompt)
-    schema = json.dumps(item_schema(), ensure_ascii=False)
+    head = brief_head(b, main_prompt)
     done, todo, retry = [], [], False
     for n in opened:
         path = folder / f"item-{n}.md"
@@ -622,9 +656,9 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
         retry = retry or not missing
         it = rows[n - 1]
         body = "\n\n".join(x for x in (
-            f"# 事前審査の下請け: 項目 {n}", head,
-            SUB_ITEM_ASK.format(n=n, answer=answer_file(b, k, n), schema=schema),
-            f"## 項目 {n} の案\n\n```json\n{json.dumps(it, ensure_ascii=False, indent=1)}\n```",
+            head, ITEM_HEAD.format(n=n), SUB_ITEM_ASK.format(n=n, answer=answer_file(b, k, n)),
+            f"### 項目 {n} の案\n\n```json\n{json.dumps(it, ensure_ascii=False, indent=1)}\n```",
+            f"### 項目 {n} の単位（判定）\n\n```json\n{json.dumps(_item_units(b, it.get('unit_keys')), ensure_ascii=False, indent=1)}\n```",
             ripple.section(doc, n), _item_history(b, it.get("unit_keys") or []),
             _errors_part(n, answer_file(b, k, n), errs) if errs else "") if x)
         path.write_text(body + "\n", encoding="utf-8")
@@ -645,10 +679,10 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
                   f"{json.dumps(it, ensure_ascii=False)}" for n, it in enumerate(rows, 1)]
         over = "\n".join(f"- {o['at']}: 項目 {', '.join(map(str, o['items']))}" for o in doc.get("overlaps") or []) or "- 無い"
         syn.write_text("\n\n".join([
-            "# 事前審査の下請け: 相乗りの審査", head,
+            head, "## お前の審査: 相乗りの審査",
             SUB_SYNERGY_ASK.format(answer=synergy_file(b, k), schema=json.dumps(synergy_schema(), ensure_ascii=False)),
-            "## 項目の全部（閉じた項目も含む）\n\n" + "\n".join(states),
-            "## 項目どうしの重なり（機械が範囲と波及の一覧から引いた）\n\n" + over]) + "\n", encoding="utf-8")
+            "### 項目の全部（閉じた項目も含む）\n\n" + "\n".join(states),
+            "### 項目どうしの重なり（機械が範囲と波及の一覧から引いた）\n\n" + over]) + "\n", encoding="utf-8")
         parts.append(AGG_SYNERGY.format(path=syn))
     return "\n\n".join(parts)
 

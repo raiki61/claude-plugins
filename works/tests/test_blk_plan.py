@@ -1912,6 +1912,26 @@ class TreeReviewCase(unittest.TestCase):
         self.assertIn("test_clamp_above_range", (folder / "item-2.md").read_text(encoding="utf-8"))
         self.assertIn("stats.py: 項目 1, 2", (folder / "synergy.md").read_text(encoding="utf-8"))
 
+    def test_brief_carries_only_its_item_inline(self):
+        """下請けのファイルは自分の項目だけを字のまま持つ（審査の決まり・独立設計・その項目の案と単位・その項目の波及）。束ね役の
+        指示書を読ませない。項目の節より前は全部の項目で同じバイト（プロンプトのキャッシュが効く共通の頭）"""
+        self.ready()
+        self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        prep = self.ok("prep", role="plan-review", excluded_file="")
+        folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=1))
+        one, two = ((folder / f"item-{n}.md").read_text(encoding="utf-8") for n in (1, 2))
+        self.assertNotIn(prep["prompt_file"], one)
+        for part in ("## 見ること", "## 返し方", "## 人の方針", planblk.DESIGN_HEAD, "リポジトリ: "):
+            self.assertIn(part, one)
+        self.assertIn("sum(xs) / (len(xs) - 1)", one)            # 項目 1 の単位の判定の理由
+        self.assertNotIn("x > hi の枝で lo を返す", one)          # 項目 2 の単位の判定の理由は載せない
+        self.assertNotIn("test_clamp_above_range", one)           # 項目 2 の波及の当たりも載せない
+        head1, _, item1 = one.partition(planblk.ITEM_HEAD.format(n=1))
+        head2, _, _ = two.partition(planblk.ITEM_HEAD.format(n=2))
+        self.assertTrue(item1)
+        self.assertEqual(head1, head2)
+
     def test_machine_merges_item_answers_into_review(self):
         """受け付けが下請けの答えのファイルから当たりの答え・faces・相乗りをまとめる。束ね役は当たりを写さない"""
         self.ready()
