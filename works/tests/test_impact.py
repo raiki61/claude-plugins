@@ -135,6 +135,26 @@ class ReverseImportCase(RepoCase):
         self.assertEqual(sel["modules"], ["test_cli", "test_core", "test_mid", "test_other"])
         self.assertEqual(impact.select_tests(m, scope="tests/test_c")["modules"], ["test_cli", "test_core"])
 
+    def test_direct_selection_keeps_only_tests_next_to_the_change(self):
+        # 直に関わる試験だけ: 起点のテスト・起点を直に読む・言及する試験（深さ 1）・名指しの試験。先の物は left に名前で残す
+        m = self.map(["pkg/core.py"])
+        sel = impact.select_tests(m, direct_only=True)
+        self.assertEqual(sel["selected"], ["tests/test_core.py"])
+        self.assertEqual(sel["modules"], ["test_core"])
+        self.assertEqual(sel["left"], ["tests/test_cli.py", "tests/test_mid.py"])
+        named = impact.select_tests(m, direct_only=True, named=["tests/test_mid.py"])
+        self.assertEqual(named["selected"], ["tests/test_core.py", "tests/test_mid.py"])
+        self.assertEqual(named["left"], ["tests/test_cli.py"])
+        self.assertEqual(impact.select_tests(m)["left"], [], "広い選びは何も残さない")
+        seeded = impact.select_tests(self.map(["tests/test_mid.py"]), direct_only=True)
+        self.assertEqual(seeded["selected"], ["tests/test_mid.py"], "起点のテストは直に関わる")
+
+    def test_direct_selection_still_runs_all_when_unanalysable_is_near(self):
+        m = self.map(["web/widget.js"])
+        sel = impact.select_tests(m, direct_only=True, all_modules=["test_a"])
+        self.assertTrue(sel["run_all"])
+        self.assertEqual((sel["modules"], sel["left"]), (["test_a"], []))
+
 
 class MentionCase(RepoCase):
     def test_mentions_and_symbol_hits_are_candidates(self):

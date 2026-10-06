@@ -13,8 +13,10 @@ AI に探させず、1 回作って使い回す（鍵 = rev・起点・作業ツ
   読み取りの結果は中身の sha で <cache_dir>/scan.json に持ち、中身の変わった file だけ読み直す（stats.scanned）。
 - render(m, budget=BUDGET) -> str: 指示書に貼る短い形（パス・数・当たりの行・丸ごとの関数の枠）。budget は字数で、
   入らない物は数だけ言う。同じ地図なら同じ字（決まって同じ）
-- select_tests(m, fast=(), scope=None, all_modules=None) -> dict: 回すテストのモジュール（速い段 ∪ 選んだ物）。
-  all_tests_required なら全部（all_modules を渡せばその一覧、無ければ modules は None）
+- select_tests(m, fast=(), scope=None, all_modules=None, direct_only=False, named=()) -> dict: 回すテストのモジュール
+  （速い段 ∪ 選んだ物）。all_tests_required なら全部（all_modules を渡せばその一覧、無ければ modules は None）。
+  direct_only なら直に関わる試験（direct: 起点か深さ 1）と名指しの試験だけを選び、先の試験は left に残す
+- direct(m, path) -> bool: 起点そのものか、起点から辺 1 本（深さ 1）で届いた file か
 - miss(m, junit, fast=(), scope=None) -> dict: 最後の一式で落ちたのに選んでいなかったテスト（地図の取りこぼし）
 - seeds_from_units(repo, units) -> list: 判定の単位の文（key・reason・class_query・prescriptions など全部の字）に
   現れる追跡中の file（パスそのものか、一意な basename）
@@ -987,16 +989,27 @@ def _mod(name):
     return _stem(name) if "/" in name or name.endswith(".py") else name
 
 
-def select_tests(m, fast=(), scope=None, all_modules=None):
-    """回すテストのモジュール。run_all（分からない物が近くに在る）なら全部"""
+def direct(m, path) -> bool:
+    """path が変更に直に関わるか: 起点そのものか、起点から辺 1 本（import か言及。深さ 1）で届いた file"""
+    return path in m["seeds"]["files"] or m["reach"].get(path, {}).get("depth") == 1
+
+
+def select_tests(m, fast=(), scope=None, all_modules=None, direct_only=False, named=()):
+    """回すテストのモジュール。run_all（分からない物が近くに在る）なら全部。direct_only なら直に関わる試験（direct）と
+    名指しの試験（named。根からのパス）だけを選び、届いただけの先の試験は left に名前で残す（回さない。run_all の時は空）"""
     sel = [t for t in m["tests"] if scope is None or t.startswith(scope)]
     run_all = bool(m["all_tests_required"])
+    left = []
+    if direct_only and not run_all:
+        named = set(named)
+        left = [t for t in sel if t not in named and not direct(m, t)]
+        sel = sorted((set(sel) - set(left)) | {t for t in named if scope is None or t.startswith(scope)})
     mods = sorted({_mod(t) for t in sel} | {_mod(f) for f in fast})
     if run_all:
         mods = sorted({_mod(x) for x in all_modules}) if all_modules is not None else None
     return {"key": m["key"], "run_all": run_all, "reasons": list(m["all_tests_reasons"]), "selected": sel,
-            "outside_scope": [t for t in m["tests"] if t not in sel], "fast": sorted({_mod(f) for f in fast}),
-            "modules": mods}
+            "outside_scope": [t for t in m["tests"] if t not in sel and t not in left], "fast": sorted({_mod(f) for f in fast}),
+            "modules": mods, "left": left}
 
 
 def _junit_module(case):
