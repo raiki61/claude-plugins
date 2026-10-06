@@ -16,9 +16,9 @@ import converge  # noqa: E402
 from test_plan_gate import internal_subjects  # noqa: E402
 
 
-def face(key, severity="block", kind="regression"):
+def face(key, severity="block", kind="regression", units=("u",)):
     return {"key": key, "kind": kind, "where": f"{key} の場所", "why": f"{key} が穴である理由", "severity": severity,
-            "unit_keys": ["u"]}
+            "unit_keys": list(units)}
 
 
 def answer(key, handled="fixed", how="案の項目 1 の手順を直した"):
@@ -255,6 +255,109 @@ class TextCase(BoardCase):
         self.assertTrue(sec.startswith(converge.REVISE_ASK), sec)
         for part in ("key-alpha", "regression", "key-alpha の場所", "key-alpha が穴である理由", "key-sugg"):
             self.assertIn(part, sec)
+
+
+def row(*units, approach="案の手順"):
+    return {"unit_keys": list(units), "approach": approach}
+
+
+class ItemsCase(BoardCase):
+    """項目ごとの壁打ち（線の木の段 1。設計 docs/plans/2026-10-06-tree-line.md の 2.3 の 5）: block の無い項目は閉じて次の往復で
+    審査も直しもしない・同じ block が続いた項目は保留にしてほかの項目は柵まで進める・相乗りの block は名指した項目だけを開き直す"""
+    def setUp(self):
+        super().setUp()
+        converge.note_plan(self.b, [row("u1"), row("u2")])
+
+    def review(self, faces, *, resolved=(), synergy=()):
+        return converge.record_pass(self.b, {"faces": faces}, resolved=list(resolved), fence=3, files={}, synergy=list(synergy))
+
+    def states(self, got):
+        return [it["state"] for it in got["items"]]
+
+    def test_clean_item_closes_and_blocked_item_goes_again(self):
+        got = self.review([face("key-a1", units=["u1"])])
+        self.assertEqual(self.states(got), [converge.OPEN, converge.CLOSED])
+        self.assertEqual(got["items"][0]["blocks"], ["key-a1"])
+        self.assertEqual(got["outcome"], converge.AGAIN)
+        self.assertEqual(converge.open_items(self.b), [1])
+
+    def test_closed_item_stays_closed_and_all_closed_is_clean(self):
+        self.review([face("key-a1", units=["u1"])])
+        got = self.review([], resolved=["key-a1"])
+        self.assertEqual(self.states(got), [converge.CLOSED, converge.CLOSED])
+        self.assertEqual(got["outcome"], converge.CLEAN)
+
+    def test_persisted_item_is_held_and_others_go_on(self):
+        self.review([face("key-a1", units=["u1"]), face("key-b1", units=["u2"])])
+        got = self.review([face("key-a1", units=["u1"]), face("key-b2", units=["u2"])])
+        self.assertEqual(self.states(got), [converge.HELD, converge.OPEN])
+        self.assertEqual(got["outcome"], converge.AGAIN, "保留の項目のほかに開いた項目が在れば柵まで進む")
+        self.assertEqual(converge.open_items(self.b), [2])
+        got = self.review([], resolved=["key-b2"])
+        self.assertEqual(self.states(got), [converge.HELD, converge.CLOSED])
+        self.assertEqual(got["outcome"], converge.PERSISTED)
+
+    def test_fence_with_held_item_is_persisted_and_without_is_unsettled(self):
+        self.review([face("key-a1", units=["u1"]), face("key-b1", units=["u2"])])
+        self.review([face("key-a1", units=["u1"]), face("key-b2", units=["u2"])])
+        self.assertEqual(self.review([face("key-b3", units=["u2"])])["outcome"], converge.PERSISTED)
+        b = self.board(2)
+        converge.note_plan(b, [row("u1"), row("u2")])
+        for k in ("key-c1", "key-c2", "key-c3"):
+            got = converge.record_pass(b, {"faces": [face(k, units=["u1"])]}, resolved=[], fence=3, files={})
+        self.assertEqual(got["outcome"], converge.UNSETTLED)
+
+    def test_synergy_block_reopens_named_closed_item(self):
+        self.review([face("key-a1", units=["u1"])])
+        got = self.review([face("key-s1", units=["u2"])], resolved=["key-a1"], synergy=["key-s1"])
+        self.assertEqual(self.states(got), [converge.CLOSED, converge.OPEN])
+        self.assertTrue(got["items"][1]["reopened"])
+        self.assertEqual(got["synergy"], ["key-s1"])
+        self.assertEqual(got["outcome"], converge.AGAIN)
+
+    def test_face_naming_no_item_counts_for_every_reviewed_item(self):
+        got = self.review([face("key-x1", units=["somewhere"])])
+        self.assertEqual(self.states(got), [converge.OPEN, converge.OPEN])
+
+    def test_closed_item_changed_or_dropped_is_named(self):
+        self.review([face("key-a1", units=["u1"])])
+        self.assertEqual(converge.closed_gaps(self.b, [row("u1", approach="直した"), row("u2")]), [])
+        gaps = converge.closed_gaps(self.b, [row("u1"), row("u2", approach="変えた")])
+        self.assertEqual(len(gaps), 1, gaps)
+        self.assertIn("u2", gaps[0])
+        self.assertEqual(len(converge.closed_gaps(self.b, [row("u1", "u2")])), 1)
+
+    def test_answers_and_resolved_only_for_reviewed_items(self):
+        self.review([face("key-a1", units=["u1"]), face("key-b1", units=["u2"])])
+        self.review([face("key-a1", units=["u1"]), face("key-b2", units=["u2"])])   # 項目 1 は保留
+        self.assertEqual(converge.answer_gaps(self.b, [answer("key-b2")]), [])
+        self.assertEqual(converge.resolved_gaps(self.b, [], ["key-b1", "key-b2"]), [])
+        self.assertIn("前の block key-b2 を resolved に入れるか、同じ key で faces に挙げ直せ",
+                      converge.resolved_gaps(self.b, [], ["key-b1"]))
+
+    def test_texts_name_closed_and_held_items(self):
+        self.review([face("key-a1", units=["u1"]), face("key-b1", units=["u2"])])
+        self.review([face("key-a1", units=["u1"]), face("key-b2", units=["u2"])])
+        self.review([], resolved=["key-b2"])
+        why = converge.stuck_reason(self.b)
+        self.assertIn("項目 1", why)
+        self.assertIn("key-a1", why)
+        self.assertIn("項目 2", why)
+        self.assertTrue(any("保留" in line for line in converge.lines(self.b)), converge.lines(self.b))
+        self.assertEqual(internal_subjects("\n".join([why, *converge.lines(self.b)])), [])
+
+    def test_revise_section_names_closed_items(self):
+        self.review([face("key-a1", units=["u1"])])
+        sec = converge.revise_section(self.b)
+        self.assertIn(converge.CLOSED_ASK, sec)
+        self.assertIn("項目 2（u2）", sec)
+
+    def test_revise_section_shows_only_open_item_blocks_and_closed_items(self):
+        self.review([face("key-a1", units=["u1"]), face("key-b1", units=["u2"])])
+        self.review([face("key-a1", units=["u1"]), face("key-b2", units=["u2"])])
+        sec = converge.revise_section(self.b)
+        self.assertIn("key-b2", sec)
+        self.assertNotIn("### key-a1", sec)
 
 
 if __name__ == "__main__":
