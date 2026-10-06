@@ -37,7 +37,7 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
 
 ## 1. 依頼の JSON を書く
 
-findings（指摘）の JSON の配列か、`{"findings": [...], "pr": [<番号>…], "issue": [<番号>…], "answers": [...]}` の形を 1 つのファイルにする。置き場所はどこでもよい（起動のときに写して渡す）。
+findings（指摘）の JSON の配列か、`{"findings": [...], "pr": [<番号>…], "issue": [<番号>…], "answers": [...], "prior_failures": [...]}` の形を 1 つのファイルにする。置き場所はどこでもよい（起動のときに写して渡す）。
 
 ```json
 [
@@ -66,6 +66,8 @@ findings（指摘）の JSON の配列か、`{"findings": [...], "pr": [<番号>
 {"findings": [{"where": "src/app/parse.py:42", "text": "空の行で IndexError が出る"}],
  "answers": [{"question": "parallel_pr", "text": "並行する PR は無い"}]}
 ```
+
+- object の形の `prior_failures`（省ける）は、前の run で最後まで通らなかった物 `[{where, text}]`（どちらも空でない文字列）。前の run の報告が `next-request.json` に書くので、手で書くことは少ない。判定役と修正案の役の材料に「直す穴ではない注意」として貼られ、目的の役と独立設計の役には渡らない。直してほしい穴は `findings` に書く。
 
 ## 2. 起動する
 
@@ -128,7 +130,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" show <対象リポジトリの根>
 
 その対象で start が結んだ（控え `<家>/runs/<run-id>.json` の在る）一番新しい run について、状態・報告の置き場・差分のファイルを出す（run id を後ろに足せば、その run について出す）。start は起動の直後に、この起動の依頼を盤面に持つ run を 1 つに結ぶ。結べなければ候補の run id と show の行だけを出すので、その run id を名指しして show する（依頼を `-` で省いた start は結ぶ依頼が無いので、いつもこの形で終わる）。状態の下には `launched_min`（起こしてからの分）が出る。走っている run なら、今走っている節・`alive`（最後の動きから 30 分以内なら true）・節ごとの費用 `cost_usd` も出る（止まって見えるのか走っているのかはこれで見分ける）。試験の段が機械全体の試験の枠（同時に 4 本まで）の空きを待っている間は `試験の枠: 待っている（N 分・置き場 …）` の 1 行も出る（期限なしで待つので、止まった run と見分けるための行。枠の中なら `試験の枠: 中`）。
 
-- 報告: 盤面の `report.md`（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）と `next-request.json`（次の run に渡す依頼の下書き）。
+- 報告: 盤面の `report.md`（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）と `next-request.json`（次の run に渡す依頼の下書き `{"findings": [...], "prior_failures": [...]}`。そのまま次の run の依頼に使える）と `prior-failures.json`（この run で最後まで通らなかった受け付けの理由と R2 の作り直しの理由）。
 - 結末（run の出口の `outcome`）: `fixed`・`no_fix_needed`・`round_limit`（直しは受け付けを通ったが、検証器の阻害・最後のテストの赤・独立の目の block が残った。冒頭 1 に残りの各行。本線 graphloops の runner の `round_limit`＝`--stop-after-round` の周で止めた、とは別の意味）・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）・`interrupted`（run が途中で終わった。冒頭 3 に落ちた節）。
 - 差分: run の worktree と周の頭の版の差（手直しと未追跡も入る）を、利用の家の `diffs/run-<id>.diff` に書く。修正は commit されない。取り込むかは人が決め、`sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" apply <対象リポジトリの根> <run-id>` で当ててから、手元でテストを回して commit する。殻は差分を書き直し、`git apply --check` で当たるかを先に見る。対象のファイルを消す差分は、消すファイルを並べて止まる（消してよければ `WORKS_USE_ALLOW_DELETE=1` を前に付けて打ち直す）。記録が止まりを示す run（人が最後の関所で `stop` と答えた・止め札・ラインの止め）の差分は、止まった結末と一言を 1 行で出して止まる。当てるのは依頼者が当てると決めた時だけで、`WORKS_USE_ALLOW_STOPPED=1` を前に付けて打ち直す。止まりかどうかを記録で確かめられない run（途中で終わった・関所で待つ run など）は、その 1 行を出して当てる。
 - 片付け: run の worktree・枝・控え（包んだ基を守る参照と読み出しのファイル）は自動で片付く。正常に終わった・取り消した run（状態 completed・cancelled）は `wait`・`show` が差分を書き終えた後に消し、落ちた run（failed）などの生きていない run は次の `start` が差分を書いてから消す。差分を書けなかった run と、走っている・関所で待つ run は残す。差分のファイルと盤面は残るので、取り込みは片付けの後でも `apply` で当たる（片付けた run は Archon の resume で続けられない）。`start` が片付けた run の id と状態は、`start` の出力と報告の冒頭 2 に出る。手で消すのは `sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" clean <対象リポジトリの根> <run-id>`（走っている・関所で待つ run は拒む）。

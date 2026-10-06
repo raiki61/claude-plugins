@@ -65,33 +65,44 @@ works はこのリポジトリの `works/` に在るプラグインで、外の�
 
 **Files:** Modify `.shared/core/script_io.py`（`note_last`・`emit_result`）・`.shared/core/rolekit.py`（`accept_role`・`with_done`）・`.shared/core/ci_role.py`・`.shared/core/rejudge.py`・`blk-eyes/lib/eyes.py`。Test `tests/test_script_io.py`・`tests/test_rolekit.py`
 
-- [ ] 赤: 拒否 2 回の後に通った fn は ok 真／3 回拒んだ fn は ok 偽で最後の reason_file／2 つの scope の同じ fn は別の行
-- [ ] 緑: `note_last` を書き、6 つの口から 1 行ずつ呼ぶ
+- [x] 赤: 拒否 2 回の後に通った fn は ok 真／3 回拒んだ fn は ok 偽で最後の reason_file／2 つの scope の同じ fn は別の行
+- [x] 緑: `note_last` を書き、6 つの口から 1 行ずつ呼ぶ
 
 ### Task 2: 報告の成果物 `prior-failures.json` と報告の節
 
 **Files:** Modify `.shared/core/report.py`（`prior_failures`・`build`）・`darkfactory/manifest.json`。Create `darkfactory/schemas/prior-failures.schema.json`。Test `tests/test_report.py`・`tests/test_scopes.py`
 
-- [ ] 赤: include の scope の根の ok 偽の行が載る／通った行は載らない／R2 が redesign-needed なら reason が載り、findings からは外れる
-- [ ] 緑
+- [x] 赤: include の scope の根の ok 偽の行が載る／通った行は載らない／R2 が redesign-needed なら reason が載り、findings からは外れる
+- [x] 緑
 
 ### Task 3: `next-request.json` を `{findings, prior_failures}` に、依頼の型に `prior_failures`
 
 **Files:** Modify `.shared/core/report.py`（`build` の書き出し）・`darkfactory/schemas/next-request.schema.json`・`.shared/core/ghreads.py`（`KEYS`・`request_parts`）。Test `tests/test_report.py`・`tests/test_ghreads.py`
 
-- [ ] 赤: 書いた next-request.json を `request_parts` が読める／prior_failures の行の形の誤りを ValueError で拒む
-- [ ] 緑
+- [x] 赤: 書いた next-request.json を `request_parts` が読める／prior_failures の行の形の誤りを ValueError で拒む
+- [x] 緑
 
 ### Task 4: 判定役と修正案の役にだけ貼る
 
 **Files:** Modify `.shared/core/entry.py`（`check_inputs` が `prior-failures-in.json` を置く）・`darkfactory/manifest.json`・`blk-judge/manifest.json`・`blk-plan/manifest.json`（consumes）・`blk-judge/lib/judgebrief.py`・blk-plan の修正案の材料と指示書・`blk-judge/commands/diagnose.md`・`blk-purpose/commands/purpose.md`・`darkfactory/darkfactory.yaml`（要れば with の配線）。Test 判定・修正案・manifest の照らしの試験
 
-- [ ] 赤: 判定の材料と修正案の材料に節が在る／目的の役・R2 の材料に無い／consumes の照らしが通る
-- [ ] 緑。stubs の線（`darkfactory/fixtures/standard.stubs.yaml`）で、依頼に prior_failures を書いた run が報告まで通る
+- [x] 赤: 判定の材料と修正案の材料に節が在る／目的の役・R2 の材料に無い／consumes の照らしが通る
+- [x] 緑。stubs の線（`darkfactory/fixtures/standard.stubs.yaml`）で、依頼に prior_failures を書いた run が報告まで通る
 
 ### Task 5: CHANGELOG と仕上げ
 
-- [ ] `[Unreleased]` に Added（prior_failures）と Changed（next-request.json の形）。版上げは出荷の最後の commit で別に行う
+- [x] `[Unreleased]` に Added（prior_failures）と Changed（next-request.json の形）。版上げは出荷の最後の commit で別に行う
+
+## 実装で決めたこと（2026-10-06・実装の時の決めの記録）
+
+- **next-request.json の形（決め 3 の確定）:** いつも object `{"findings": [...], "prior_failures": [...]}` にする。落ちた物が無い run も `prior_failures: []` を書き、配列の形に戻さない。理由: 形を 1 つにすれば `next-request.schema.json` を `type: object` で照らせる（engine の照らしは oneOf を読まない）。読む側（`ghreads.request_parts`）は配列の形も今どおり読むので、前の版の下書きや手書きの配列の依頼は通る。findings が空の下書きが依頼の型（空でない findings）を通らないのは前の配列の形と同じで、変えない。
+- **accept-last.json の行の欄:** `{ok, reason_file, reason, at}`。計画の 3 つに `reason`（本文の写し）を足した。CI の任せ先と再審の受け付けは拒否の本文を作業ファイルに積み、理由のファイルを書かないので、`reason_file` だけでは本文を引けない。報告は理由のファイルを先に読み、読めなければ `reason` を使う。
+- **note_last を呼ぶ所:** `script_io.emit_result`・`rolekit.accept_role`・`ci_role`（行の名 `ci_<節>`）・`rejudge`（行の名 `rejudge_<節>`）の 4 か所。`rolekit.with_done` と blk-eyes は自分では呼ばない: どちらも出口が `emit_result` を通る（`script_io.main` の finish と、`rolekit.script_main` の take）ので、そこで 1 行になる。自分でも呼ぶと、同じ受け付けが別の名の 2 行になり、通った時に片方だけが上書きされうる。
+- **報告が読む scope の根:** 計画の `scopes.scope_roots(b)` ではなく、盤面の根と根の直下のフォルダの `accept-last.json` を全部読む。scope の登録（scopes.json）は周ごとで、盤面を開く前に scope の根へ書く受け付け（依頼の受け付けの前の役）は登録より先に書く。置き場を見れば、周も登録の有無も問わずに拾える。
+- **R2 の行:** 残り（`report.residue`）の行のうち text が「R2 が redesign-needed」で始まる物を、where「独立の目 R2」の 1 行にまとめて prior_failures に載せる（独立の目の形を先に採り、検証器の同じ目の行は二重に載せない）。findings からは外すが、結末（round_limit）と報告の冒頭の残りの行は今どおり。
+- **prior-failures-in.json を置く所:** `entry.check_inputs` は盤面を作らないので、置くのは `entry.start`（盤面を作った直後）。start の控え（start.json）には残さない。固定材料から始める run（fix_fixture）は判定と修正案を写しから使い、役を起こさないので置かない。
+- **貼る口:** 節の文は `entry.prior_section` 1 か所で作り、blk-judge の判定の材料（judge-materials.md の末尾）と blk-plan の修正案の役の指示書の頭（同じ run の中の案の直しの修正案も）が呼ぶ。事前審査・案の直し（plan-revise。修正案の役と同じ会話の続きで、頭は会話に在る）・独立設計には貼らない。YAML の with の配線は要らなかった（どちらも盤面の根を読む）。
+- **目的の役の柵（Review Focus の 3）:** 指示書に 1 行足しただけで、受け付けの照らしは足していない。試験は線の試験（`test_line_a` の PriorFailuresLineCase）で、判定の材料と修正案の指示書に在り、独立設計の指示書に無いことを見る。目的の役の返答は試験では見本なので、柵の要否は審査で決める。
 
 ## この計画が扱わない物（理由つき）
 

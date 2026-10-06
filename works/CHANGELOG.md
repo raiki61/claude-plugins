@@ -6,6 +6,14 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- 前の run で最後まで通らなかった物を次の run に引き継ぐようにした。受け付けの出口は、受け付けごとの最後の結果を scope の根の `accept-last.json` に上書きで残し（出し直して通った拒否は残らない）、報告の段が run の終わりにそのうち通らなかった物の最後の理由と、独立設計の目（R2）の作り直し（redesign-needed）の理由を盤面の根の `prior-failures.json`（`[{where, text}]`）にまとめ、報告に節「次の run に引き継ぐ落ちた理由」を出す。依頼のファイルに欄 `prior_failures`（同じ形）を足し、次の run では判定役の材料と修正案の役の指示書にだけ「直す穴ではない注意」として貼る。目的の役と独立設計の役には渡さない（前の run の判断を追認させない）。今までは run が前の run の落ちた理由を覚えておらず、同じ落ち方をくり返した。
+
+### Changed
+
+- 次の run の依頼の下書き `next-request.json` を、findings の配列から object `{"findings": [...], "prior_failures": [...]}` に変えた。そのまま次の run の依頼に使える（配列の形の依頼も今どおり読む）。R2 の作り直しの行は findings から外し、prior_failures にだけ載せる（findings は目的の役が生のまま読み、独立設計の入力に流れるため）。
+
 ## [0.2.28] - 2026-10-06
 
 ### Changed
