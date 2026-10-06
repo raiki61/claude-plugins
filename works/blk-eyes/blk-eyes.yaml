@@ -22,6 +22,9 @@ inputs:
   base_rev:
     default: ""
     description: 周の頭で固めた版（ラインの口を他のブロックと揃える。スクリプトは読まない——版は盤面が持つ）
+  skip_optional:
+    default: ""
+    description: 省く理由の文。空は今どおり。在れば、表で skippable の目（graph で optional の目）が待っていても起こさず、盤面で省く（理由は記録の省略した機構に残る）。ほかの目は今どおり起こす
 
 returns: eyes-collect
 outcome_field: ok
@@ -70,6 +73,7 @@ nodes:
     with:
       role: r1-comments
       round: $eyes-enter.output.round
+      skip: $INPUTS.skip_optional
     output_format:
       type: object
       additionalProperties: false
@@ -223,6 +227,7 @@ nodes:
     with:
       role: r1-minimality
       round: $eyes-enter.output.round
+      skip: $INPUTS.skip_optional
     output_format:
       type: object
       additionalProperties: false
@@ -381,6 +386,7 @@ nodes:
     with:
       role: r2-compare
       round: $eyes-enter.output.round
+      skip: $INPUTS.skip_optional
     output_format:
       type: object
       additionalProperties: false
@@ -529,6 +535,7 @@ nodes:
     with:
       role: premise-check
       round: $eyes-enter.output.round
+      skip: $INPUTS.skip_optional
     output_format:
       type: object
       additionalProperties: false
@@ -678,6 +685,7 @@ nodes:
     with:
       role: r3-coherence
       round: $eyes-enter.output.round
+      skip: $INPUTS.skip_optional
     output_format:
       type: object
       additionalProperties: false
@@ -811,6 +819,7 @@ nodes:
     with:
       role: r4-scope
       round: $eyes-enter.output.round
+      skip: $INPUTS.skip_optional
     output_format:
       type: object
       additionalProperties: false

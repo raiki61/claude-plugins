@@ -272,9 +272,11 @@ def fell_text(fell, ran="") -> str:
     return head + "（" + "・".join(f"{f['eye']}: {f['state']}" for f in fell) + "。Archon の節が落ちた）"
 
 
-def route(board_dir, role, rnd) -> dict:
+def route(board_dir, role, rnd, skip: str = "") -> dict:
     """目 role を今起こすか。{go, node, why, stopped}。入口の周（rnd）でない周・止まった盤面・待っている instance の無い目は go: false。
-    入口が落ちた周（周が空）は起こさない。LANE_AFTER の筋が落ちていても待っている目は起こし、why と入口の周の LANES_NAME に残す"""
+    入口が落ちた周（周が空）は起こさない。LANE_AFTER の筋が落ちていても待っている目は起こし、why と入口の周の LANES_NAME に残す。
+    skip（ブロックの入力 skip_optional。省く理由の文）が在り、待っている目が表で skippable なら、起こさずに盤面で省く（board.skip →
+    settle。後ろの目が出る。理由は記録の省略した機構に残る）。skippable でない目は skip に依らず今どおり"""
     nid = node_of(role)
     if str(rnd).strip() in ("", "null", "None"):
         return {"go": False, "node": nid, "why": "入口 eyes-enter の周が無い（入口が済んでいない）", "stopped": False}
@@ -287,6 +289,11 @@ def route(board_dir, role, rnd) -> dict:
             return {"go": False, "node": nid, "why": f"盤面の周が {b.round}（入口は {rnd}）", "stopped": False}
         routes = _work(b, rnd, ROUTES_NAME)
         went = _read_json(routes, {})
+        skip = " ".join((skip or "").split())
+        if skip and _pending(b, nid) and b.table.nodes[nid].skippable:
+            b.skip(nid, skip)
+            _write_json(routes, {**went, role: False})
+            return {"go": False, "node": nid, "why": f"{nid}: 省いた（{skip}）", "stopped": False}
         if _pending(b, nid):
             why = f"{nid} が待っている"
             fell = fallen(b, rnd, LANE_AFTER.get(nid, ()))
