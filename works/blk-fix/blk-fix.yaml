@@ -688,7 +688,7 @@ nodes:
                     path: {type: string, minLength: 1}
                     why: {type: string, minLength: 10}
 
-        # 並べた項目を締める（依頼 243 の並べ。lib/unitlanes.py の settle）。fix-prep が範囲の重ならない項目に単位の worktree を
+        # 並べた項目を締める（依頼 243 の並べ。lib/unitlanes.py の settle）。fix-prep が範囲の在る項目に単位の worktree を
         # 切った周だけ働く: 修正役が当てるコマンドを走らせなかった項目を機械が当て、単位の worktree の書き込みの記録を作業ツリーへ
         # 写し、当たらない項目の差分を盤面に残し、worktree を片付ける。切っていない周は何もしない。受け付けは当てた後の木を見る
         - id: fix-units
@@ -707,6 +707,8 @@ nodes:
               conflict: {type: array, items: {type: integer}}
               unmerged: {type: array}
               carried: {type: integer, minimum: 0}
+              shared: {type: array, items: {type: string}}   # 2 つ以上の項目の差分を合わせたファイル（依頼 243 の並べの 3 段目）
+              union: {type: array, items: {type: string}}    # 同じ試験のファイルに足した行を項目の順に並べたファイル
 
         - id: fix-accept
           script: accept

@@ -30,8 +30,9 @@
 - prep: 節 fix-prep・fix-ruled-prep の中身（盤面が p3.fix を待っていれば書き、起こした印を置く）。tddloop.prep は tdd_render を使う。
   修正の形 g1 と既定の g3 では、借りたスキルの座の代わりに下請けを回す節（seat.g1_section。項目ごとのファイルは g1_values。
   下請けを起こす単位は dispatched: g3 は TDD の輪が緑にした単位を除く。依頼 243 の 2）を載せる。
-  g3 の 1 回目の周（side_on）は、範囲（item_ranges）が重ならない項目に単位の worktree を切り（unitlanes）、修正役がその
-  下請けを同時に起こして機械の当てるコマンド（merge_line）で作業ツリーへ当てる（依頼 243 の並べ）。
+  g3 の 1 回目の周（side_on）は、範囲（item_ranges）の在る項目に単位の worktree を切り（unitlanes。範囲が重なってもよい。依頼
+  243 の並べの 3 段目）、修正役がその下請けを同時に起こして機械の当てるコマンド（merge_line）で作業ツリーへ当てる（依頼 243 の並べ）。
+  出し直しの周は、前の周の締めが控えに残した重なりのファイル（unitlanes.settled）を指示書の頭の 1 行（OVERLAP_LINE）で名指す。
   どちらも指示書の頭（題の次）に、直す義務の単位の brief（planbrief.cut。承認済みの修正案の項目を凍結した物）を名指す節を置く。
   brief の控えが壊れていれば盤面を止める（brief_halt。brief の無い指示書として続けない）
 - ruler_prompt: 裁定役の指示書（ruling.prep が書く）
@@ -89,6 +90,8 @@ RULER_VALUES = ("conflicts_file", "ids", "judgment_file", "request_file", "polic
 CONFLICT_WHY = "（食い違いの申し出。緑にするために曲げない）"
 PASSES = ("first", "ruled")   # 修正役の 1 回目と、裁定の後の 2 回目（印 continue=fix の会話の続き）
 RULED_TAIL = "-ruled.md"      # 2 回目の指示書の名の尾（1 回目の <名>.md の隣。輪の控えを分ける）
+OVERLAP_LINE = ("前の周は修正案の項目 {items} を並べ、同じファイル {files} を機械が 3 方向で合わせた。拒否がそのファイルに当たる"
+                "なら、合わせた作業ツリーの上で、後の項目の直しを前の項目の直しに合わせて直せ（依頼 243 の並べの 3 段目）")
 RULINGS_LINE = ("食い違いの申し出への裁定を書いたファイル {path} を、先に Read で全部読め。裁定に従って直し、返答を丸ごと出し直せ"
                 "（裁定の文そのものはここに貼らない）")
 HELD_HEAD = "## 1 回目の修正の段で受け付けた返答（機械が貼った）"
@@ -117,7 +120,7 @@ SEAT_BRIEFS = "seat-briefs.md"   # 修正役の座の型の [BRIEF_FILE]（今�
 G1_IMPL, G1_REVIEW = "g1-impl-{n}.md", "g1-review-{n}.md"   # 修正の形 g1 の下請けのファイル（今の周の作業ファイル。n は項目の番号）
 UNITS_FILE = "units.json"   # 並べる項目の単位の worktree の控え（今の周の作業ファイル。unitlanes.plant が書き、締める節が読む）
 UNITS_KEPT = "units-kept"    # 当たらなかった並べる項目の差分の置き場（今の周の作業ファイルのフォルダ。締める節 fix-units が書く）
-UNITS_OP = "units_settled"   # 締める節が盤面の trace に残す行 {applied, machine, conflict, unmerged, carried}
+UNITS_OP = "units_settled"   # 締める節が盤面の trace に残す行 {applied, machine, conflict, unmerged, carried, shared, union}
 UNITS_DIR = "units"          # 単位の worktree の置き場（run ごとの置き場の今の scope の下。包みが下請けに書かせる所）
 G1_PATCH_FILE = "g1-{n}.patch"   # g1 の審査役の差分のファイル（run ごとの置き場 adapter.run_place_of。修正役が seat.G1_PATCH で書く）
 G1_NO_POLICY = seatkit.NONE   # g1 の審査役の型の [GLOBAL_CONSTRAINTS]（人の方針の文書が無い run）
@@ -534,9 +537,10 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
     単位ごとに新しい会話の下請けにする）。g1 は前のとおり残りを 1 項目にまとめる（比べの腕を変えない）。
     どちらも seat.g1_prompt（型の後ろに下請けへの works の決まりと検索語の規律の塊。決まりの見出しは shape を名指す）。3 つのファイルは今の scope の下に置く
     （同じブロックの 2 度目の include は 1 度目の物を上書きしない）。写しが固定と違う・穴が埋まらなければ ValueError。
-    side（依頼 243 の並べ。prep が g3 の 1 回目だけ立てる）なら、範囲（item_ranges。残りの項目は範囲なし）が互いに重ならない
-    項目（unitlanes.lanes）に、run ごとの置き場の今の scope の下の UNITS_DIR へ単位の worktree を切り（unitlanes.plant。控えは今の
-    周の作業ファイル UNITS_FILE）、その項目の行に tree を足す。その項目の下請けのファイルは [directory] と決まり（seat の tree）で
+    side（依頼 243 の並べ。prep が g3 の 1 回目だけ立てる）なら、範囲（item_ranges。残りの項目は範囲なし）の在る項目
+    （unitlanes.lanes。範囲が重なってもよい）に、run ごとの置き場の今の scope の下の UNITS_DIR へ単位の worktree を切り（unitlanes.plant。
+    控えは今の周の作業ファイル UNITS_FILE。並べる項目の試験のファイル planmarks.test_paths を合わせる試験のファイルとして控えに置く）、
+    その項目の行に tree を足す。その項目の下請けのファイルは [directory] と決まり（seat の tree）で
     worktree の中だけで働き、審査役の [BASE_SHA] は worktree の base（差分はその項目だけ）。
     ask（範囲の相談と事前の確かめの節。ask_text）が空でなければ、実装役のファイルの終わりに足す（下請けは修正役の指示書を読まない）"""
     common = implementer_values(b, values, repo, owed)
@@ -561,7 +565,7 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
         brief_items = {r["item"] for r in briefs}
         picked = unitlanes.lanes([(n, ranges.get(n) if n in brief_items else None) for n, _, _ in items])
         if picked:
-            trees = unitlanes.plant(repo, picked, place / UNITS_DIR, b.work(UNITS_FILE))
+            trees = unitlanes.plant(repo, picked, place / UNITS_DIR, b.work(UNITS_FILE), _test_files(b, picked))
     rows = []
     for n, brief, task in items:
         impl, review = b.work(G1_IMPL.format(n=n)), b.work(G1_REVIEW.format(n=n))
@@ -579,6 +583,24 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
         row = {"item": n, "impl_file": str(impl), "review_file": str(review), "base": item_base, "patch": patch}
         rows.append({**row, "tree": tree} if tree else row)
     return rows
+
+
+def _test_files(b, picked) -> list[str]:
+    """並べる項目の試験のファイル（planmarks.test_paths の和。当てるコマンドが挿しだけの食い違いを合わせてよいファイル）"""
+    try:
+        items = planmarks.approved_items(b) or []
+    except (planmarks.FieldsBroken, BoardGap, OSError, ValueError):
+        return []
+    return sorted({f for it in items if it.get("item") in set(picked) for f in planmarks.test_paths(it)})
+
+
+def overlap_line(b) -> str:
+    """前の周の締めが控え（UNITS_FILE の済みの名）に残した重なりのファイルが在れば、出し直しの指示書の頭の 1 行（OVERLAP_LINE）。
+    無ければ空"""
+    got = unitlanes.settled(b.work(UNITS_FILE))
+    if not got.get("shared"):
+        return ""
+    return OVERLAP_LINE.format(items="・".join(str(n) for n in got.get("items") or []), files="、".join(got["shared"][:10]))
 
 
 def side_on(shape: str, pass_: str, iteration: int) -> bool:
@@ -643,6 +665,8 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     path = b.work(name)
     n = iteration_next(path)
     reject = last_reject(board_dir) if inst.get("launched_at") else ""
+    if pass_ == PASSES[0] and n > 1:   # 前の周で並べた項目を機械が合わせていれば、拒否の元がその合わせのことがある
+        before = tuple(x for x in (overlap_line(b),) if x)
     if pass_ == "ruled" and n == 1:
         rulings = b.work(conflict.RULINGS_FILE)
         if not rulings.is_file():

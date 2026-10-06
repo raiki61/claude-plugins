@@ -26,6 +26,7 @@ docs/plans/2026-10-06-parallel-units.md）。分け方・切る・当てる・�
   書かない）。当てた記録に積み、記録に在る項目は当て直さない。{applied, conflict, broken, empty, differ, shared, union}（differ は
   当てた項目のファイルのうち、run の作業ツリーの中身が単位の worktree の中身と違う物。役が bash_writes に書く。shared・union は頭の語）
 - command(manifest): 修正役の指示書に載せる当てるコマンドの 1 行
+- settled(manifest): 締めた控え（<名>.done.json）の settled {shared, items}（重なりのファイルと、それを差分に持つ当てた項目）。無ければ {}
 - settle(manifest, repo, log, keep): 修正役の後・受け付けの前の機械（節 fix-units）。記録の applied（と、記録に無く既に当たって
   いる・機械が当てた項目）の書き込みの記録を writes.carry で写し、当たらない項目と conflict の項目の差分を keep に残し、単位の
   worktree を片付けて控えを <名>.done.json に移す。控えが無ければ {"ran": False}。出口に shared・union（頭の語）
@@ -233,7 +234,7 @@ def settle(manifest, repo, log, keep) -> dict:
         return {"ran": False}
     done = _read_json(doc["record"]).get("items") or {}
     out = {"ran": True, "applied": [], "machine": [], "conflict": [], "unmerged": [], "carried": 0, "shared": [], "union": []}
-    pairs, seen = [], {}
+    pairs, seen, by_item = [], {}, {}
     for row in doc["items"]:
         n, tree = row["item"], pathlib.Path(row["tree"])
         state = (done.get(str(n)) or {}).get("state")
@@ -256,14 +257,24 @@ def settle(manifest, repo, log, keep) -> dict:
             out["machine"].append(n)
         out["applied"].append(n)
         out["union"] += [p for p in got if p not in out["union"]]
-        for name in _names(patch):
+        by_item[n] = _names(patch)
+        for name in by_item[n]:
             seen[name] = seen.get(name, 0) + 1
             pairs.append((tree / name, repo / name))
     out["shared"] = [name for name, c in seen.items() if c > 1]
     out["carried"] = len(writes.carry(pathlib.Path(log), pairs)) if pairs else 0
     unittrees.sweep(repo)
-    os.replace(manifest, manifest.with_name(manifest.stem + DONE))
+    shared = set(out["shared"])
+    touch = [n for n, names in by_item.items() if shared & set(names)]
+    _write_json(manifest.with_name(manifest.stem + DONE), {**doc, "settled": {"shared": out["shared"], "items": touch}})
+    manifest.unlink()
     return out
+
+
+def settled(manifest) -> dict:
+    """締めた控え（manifest の済みの名）の settled（頭の注記）"""
+    manifest = pathlib.Path(manifest)
+    return _read_json(manifest.with_name(manifest.stem + DONE)).get("settled") or {}
 
 
 def _keep(keep: pathlib.Path, n, doc: dict, tree: pathlib.Path, patch: str | None = None) -> None:

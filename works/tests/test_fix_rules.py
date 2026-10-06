@@ -1166,7 +1166,7 @@ class G1ValuesCase(unittest.TestCase):
         self.assertIn("a: 分母", pathlib.Path(first[0]["impl_file"]).read_text(encoding="utf-8"))
 
     def test_side_items_get_unit_trees_and_stay_inside(self):
-        """g3 の 1 回目（side）は、範囲が重ならない修正案の項目に単位の worktree を切り（run ごとの置き場の下）、その項目の
+        """g3 の 1 回目（side）は、範囲の在る修正案の項目に単位の worktree を切り（run ごとの置き場の下）、その項目の
         下請けのファイルは worktree の中で働き、審査の base は worktree の base。範囲の無い残りの項目は順（依頼 243 の並べ）"""
         import seat
         import unittrees
@@ -1177,7 +1177,8 @@ class G1ValuesCase(unittest.TestCase):
         committed_copy(repo, ROOT / "dev" / "target-seed")
         self.addCleanup(unittrees.sweep, repo)
         with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS), \
-                mock.patch.object(fixrules, "item_ranges", return_value={1: ["stats.py"], 2: ["test_stats.py"]}):
+                mock.patch.object(fixrules, "item_ranges", return_value={1: ["stats.py"], 2: ["test_stats.py"]}), \
+                mock.patch.object(fixrules.planmarks, "approved_items", return_value=[]):
             got = fixrules.g1_values(b, VALUES, repo, self.OWED, "", "g3", side=True)
         place = b.dir.parent / "run-place" / "units"
         self.assertEqual([r.get("tree") for r in got], [str(place / "item-1"), str(place / "item-2"), None])
@@ -1187,16 +1188,31 @@ class G1ValuesCase(unittest.TestCase):
         self.assertIn(seat.G1_TREE_RULE_OF.format(tree=place / "item-1"), impl)
         self.assertNotIn("単位の worktree", pathlib.Path(got[2]["impl_file"]).read_text(encoding="utf-8"))
         self.assertTrue(b.work(fixrules.UNITS_FILE).is_file(), "控えは盤面の作業ファイル")
+        items = [{"item": 1, "tests": [{"id": "test_stats.py::test_a"}]}, {"item": 2, "rewrite_tests": ["test_stats.py::test_b"]},
+                 {"item": 9, "tests": [{"id": "other/test_x.py::test_c"}]}]
         with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS), \
-                mock.patch.object(fixrules, "item_ranges", return_value={1: ["stats.py"], 2: ["stats.py"]}):
+                mock.patch.object(fixrules, "item_ranges", return_value={1: ["stats.py"], 2: ["stats.py"]}), \
+                mock.patch.object(fixrules.planmarks, "approved_items", return_value=items):
             again = fixrules.g1_values(b, VALUES, repo, self.OWED, "", "g3", side=True)
-        self.assertEqual([r.get("tree") for r in again], [None, None, None], "範囲が重なれば並べない")
+        self.assertEqual([r.get("tree") for r in again], [str(place / "item-1"), str(place / "item-2"), None],
+                         "範囲が重なっても並べる（依頼 243 の並べの 3 段目）")
+        doc = json.loads(b.work(fixrules.UNITS_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(doc["union"], ["test_stats.py"], "並べる項目の試験のファイルだけを合わせてよい")
 
     def test_side_only_on_the_first_g3_round(self):
         """並べるのは g3 の 1 回目の修正役の 1 回目の周だけ（出し直し・裁定の後・g1 は今どおり順）"""
         self.assertTrue(fixrules.side_on("g3", "first", 1))
         for args in (("g3", "first", 2), ("g3", "ruled", 1), ("g1", "first", 1), ("af", "first", 1)):
             self.assertFalse(fixrules.side_on(*args), args)
+
+    def test_overlap_line_names_what_the_last_round_merged(self):
+        b = self.board()
+        self.assertEqual(fixrules.overlap_line(b), "", "締めた控えが無ければ空")
+        done = b.work(fixrules.UNITS_FILE).with_name("units.done.json")
+        done.write_text(json.dumps({"items": [], "settled": {"shared": [], "items": []}}), encoding="utf-8")
+        self.assertEqual(fixrules.overlap_line(b), "", "重なりのファイルが無ければ空")
+        done.write_text(json.dumps({"items": [], "settled": {"shared": ["report.py"], "items": [1, 2]}}), encoding="utf-8")
+        self.assertEqual(fixrules.overlap_line(b), fixrules.OVERLAP_LINE.format(items="1・2", files="report.py"))
 
     def test_merge_line_names_the_manifest_only_with_trees(self):
         import unitlanes

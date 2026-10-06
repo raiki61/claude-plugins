@@ -209,6 +209,8 @@ class Trees(unittest.TestCase):
         self.assertEqual(out["applied"], [1, 2])
         self.assertEqual(out["shared"], ["a.txt"])
         self.assertEqual((self.repo / "a.txt").read_text(), "A1\na2\nA3\n")
+        self.assertEqual(unitlanes.settled(self.manifest), {"shared": ["a.txt"], "items": [1, 2]},
+                         "締めた控えに重なりのファイルとそれを持つ項目を残す（出し直しの指示書が名指す）")
 
     def test_settle_keeps_patches_it_could_not_merge(self):
         got = self.plant((1, 2))
