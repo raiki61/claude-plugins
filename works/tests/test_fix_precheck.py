@@ -91,5 +91,42 @@ class PrecheckCase(test_blk_fix.BoardCase):
         self.assertEqual((row["id"], row["granted_paths"]), (1, ["stats.py"]))
 
 
+
+class AskPrepCase(test_blk_fix.BoardCase):
+    """支度の節 fix-prep: 入力 plan_session が在り承認済みの修正案の項目が在る時だけ、相談の控えを run ごとの置き場に書き、指示書に
+    範囲の相談と事前の確かめの節を載せる"""
+
+    def prep(self, **env):
+        test_blk_fix.TestAccept.scope_ready(self, ["stats.py"])
+        b = entry.open_board(self.board)
+        full = {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"], "INPUTS_PASS": "first",
+                "INPUTS_JUDGMENT_FILE": str(self.board / b.state["outputs"]["p2.diagnose"]["file"]),
+                "INPUTS_OPEN_UNITS": json.dumps([test_blk_fix.MEAN, test_blk_fix.CLAMP], ensure_ascii=False),
+                "INPUTS_PLAN_FILE": "", "INPUTS_POLICY_PATH": "", "INPUTS_NOTES_FILE": "", "INPUTS_SUMMARY_FILE": "",
+                "INPUTS_BASE_REV": "", **env}
+        code, out, err = run_script("fix_prep", self.repo, full)
+        self.assertEqual(code, 0, err)
+        return pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+
+    def test_section_and_config_with_plan_session(self):
+        text = self.prep(INPUTS_PLAN_SESSION="plan")
+        cfg = askplan.place_of(self.board) / askplan.CONFIG
+        self.assertIn(str(cfg), text)
+        for w in ("askplan.py", "factchecks.py", "--why"):
+            self.assertIn(w, text)
+        doc = json.loads(cfg.read_text(encoding="utf-8"))
+        self.assertEqual(doc["session_file"], str(adapter.session_path(self.repo, "plan")))
+        self.assertEqual(set(doc["items"]), {self.item_no()})
+        self.assertEqual(doc["items"][self.item_no()]["allowed_paths"], ["stats.py"])
+
+    def test_no_section_without_plan_session(self):
+        text = self.prep()
+        self.assertNotIn("askplan.py", text)
+        self.assertFalse((askplan.place_of(self.board) / askplan.CONFIG).exists())
+
+    def item_no(self):
+        return str(planmarks.approved_items(entry.open_board(self.board))[0]["item"])
+
+
 if __name__ == "__main__":
     unittest.main()

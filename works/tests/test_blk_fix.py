@@ -311,7 +311,7 @@ class TestBlockYaml(unittest.TestCase):
         want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
                            "INPUTS_TDD_SUITE"),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
-                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS"),
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PLAN_SESSION", "INPUTS_PASS"),
                 "rule_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_POLICY_PATH"),
                 "rule_accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_ITERATION"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED"),

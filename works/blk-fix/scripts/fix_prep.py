@@ -17,6 +17,7 @@ brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json�
 輪の要約（INPUTS_SUMMARY_FILE）の隣の状態から輪が緑にした単位を引き、g3 の修正役の下請けから外す（依頼 243 の 2）。
 修正の形 g3・g1 の盤面で、借りた superpowers の写しが固定（pin）と違う・型の穴が埋まらなければ、座の無い指示書に逃げずに 2。
 """
+import os
 import sys
 from pathlib import Path
 
@@ -30,15 +31,18 @@ import rolekit  # noqa: E402
 # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_fix.py が見る）
 INPUTS = ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE",
           "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PLAN_SESSION", "INPUTS_PASS")
-VALUES = tuple(n for n in INPUTS if n != "INPUTS_PASS")   # 指示書に埋める run の値
+# 無くても欠けに数えない入力（後から足した範囲の相談の相手。前の版の with: で再開した run は渡さない。無い・空は相談しない）
+OPTIONAL = frozenset({"INPUTS_PLAN_SESSION"})
+VALUES = tuple(n for n in INPUTS if n != "INPUTS_PASS" and n not in OPTIONAL)   # 指示書に埋める run の値
 
 
 def run(board, repo, env):
     values = {n[len("INPUTS_"):].lower(): env[n] for n in VALUES}
+    values["plan_session"] = os.environ.get("INPUTS_PLAN_SESSION", "")
     summary = values["summary_file"]
     values["tdd_state"] = str(Path(summary).parent / tddloop.STATE) if summary else ""   # 事前の確かめが凍結を見る輪の状態
     return fixrules.prep(board, repo, values, env["INPUTS_PASS"], green=tddloop.green_units(values["summary_file"]))
 
 
 if __name__ == "__main__":
-    sys.exit(rolekit.script_main(run, INPUTS))
+    sys.exit(rolekit.script_main(run, tuple(n for n in INPUTS if n not in OPTIONAL)))
