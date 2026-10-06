@@ -217,6 +217,7 @@ class RefixCase(DeltaBoardCase):
         self.assertIn(F1, {r["key"] for r in brief["owed"]})
         self.assertEqual([r["face_key"] for r in brief["compliance"]], [F1])
         self.assertEqual([it["item"] for it in brief["plan_items"]], [1, 2])
+        self.assertIn("項目 1", {x["key"]: x["branches"] for x in brief["ties"]}.get(F1) or [])   # 準拠の行が結ぶ枝の名札
 
     def test_broken_plan_fields_halt_at_refix_prep(self):
         """審査の後に修正案の欄の控えが凍結の印と食い違う → 手直しの支度が控えを名指す BoardGap で、手直しの段の印で盤面を止める"""
@@ -231,12 +232,14 @@ class RefixCase(DeltaBoardCase):
         self.assertEqual(entry.open_board(self.board, allow_halted=True).state["stop"]["by"], refix.REFIX_BY)
 
     def test_refix2_brief_keeps_its_shape(self):
-        """2 回目の手直しの材料は変えない（plan_items・compliance を載せない。2 判定は 1 回目の審査だけ）"""
+        """2 回目の手直しの材料は変えない（plan_items・compliance を載せない。2 判定は 1 回目の審査だけ）。穴の枝の名札 ties は
+        どの回にも載る（線の木の段 4a）"""
         repo, _ = self.refixed()
         self.assertTrue(refix.cut(self.board, 2, repo)["ok"])
         self.assertTrue(refix.accept_review(linekit.reply("fix2_delta_review2_faces"), self.board, "", repo, n=2)["ok"])
         brief = json.loads(pathlib.Path(refix.prep_fix(self.board, 2, repo)["brief_file"]).read_text(encoding="utf-8"))
-        self.assertEqual(set(brief), {"node", "diff_file", "owed", "reads", "policy"})
+        self.assertEqual(set(brief), {"node", "diff_file", "owed", "reads", "policy", "ties"})
+        self.assertEqual([x["key"] for x in brief["ties"]], [r["key"] for r in brief["owed"]])
 
     def test_refix_missing_key_rejected(self):
         """義務の key を 1 つ答えない → ok False（写しの delta_fix_output の文）、盤面は前のまま"""
