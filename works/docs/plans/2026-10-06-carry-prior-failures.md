@@ -105,6 +105,15 @@ works はこのリポジトリの `works/` に在るプラグインで、外の�
 - **貼る口:** 節の文は `entry.prior_section` 1 か所で作り、blk-judge の判定の材料（judge-materials.md の末尾）と blk-plan の修正案の役の指示書の頭（同じ run の中の案の直しの修正案も）が呼ぶ。事前審査・案の直し（plan-revise。修正案の役と同じ会話の続きで、頭は会話に在る）・独立設計には貼らない。YAML の with の配線は要らなかった（どちらも盤面の根を読む）。
 - **目的の役の柵（Review Focus の 3）:** 指示書に 1 行足しただけで、受け付けの照らしは足していない。試験は線の試験（`test_line_a` の PriorFailuresLineCase）で、判定の材料と修正案の指示書に在り、独立設計の指示書に無いことを見る。目的の役の返答は試験では見本なので、柵の要否は審査で決める。
 
+## run の後の CI の赤（入れた。2026-10-06 の残り「CI の赤を次の run の依頼へ載せる」）
+
+重い試験は run の中で回らず、run の後に CI で回る（持ち主の決め 2026-10-06: 手元で重い段を回さない）。run の報告はその赤を知らないので、`next-request.json` の prior_failures に載らない。
+
+- 形（一番小さい物）: 依頼の型の正本 `ghreads.py` に `carry_ci(doc, ids)` とその口 `python3 -I .shared/core/ghreads.py carry-ci --request <next-request.json> --failed <id の一覧のファイルか -> --out <書き先>` を足した。id の一覧は 1 行に 1 つ（`#` で始まる行と空の行は飛ばす）。行は `{where: "run の後の CI", text: "試験 <id> が CI で赤だった（…）"}`。同じ行は 2 度足さない。id が無い・依頼の形が違えば書かずに 2。
+- prior_failures に載せる理由: CI の赤は前の run の直しが落とした所で、次の run の判定役と修正案の役に「同じ所で落ちない返答を出す」注意として届けば足りる。直す穴として回したい時は、人が findings に書く（今の決まりのまま）。目的の役と R2 の独立設計には今どおり届かない。
+- CI から id を引く所は作らない: CI の出力の形（unittest・pytest・ジョブの記録）は対象ごとに違い、id を引く規則を決める測りが無い。人か回す役が CI の記録（例: `gh run view <id> --log-failed`）から赤の試験の id を写す。use.sh の行にもしない（依頼のファイルを書き換えるだけで、Archon も隔離も要らない）。
+- 試験: `tests/test_carry_ci.py`（速い段）。
+
 ## この計画が扱わない物（理由つき）
 
 - **同じ理由で続けて落ちたら、会話で回す開発（superpowers の subagent-driven-development）や人の直書きへ渡すよう勧めること。** prior_failures が入った後なら、「今回の prior-failures.json の行と同じ where・同じ text の行が、依頼の prior_failures に在る」を 1 つの決まりにできる。ただ、役の key と理由の字は run ごとに変わる。照らしの字を何に固定するかは、実際の run の prior_failures を見てから決める。

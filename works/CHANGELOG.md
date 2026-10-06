@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- run の後の CI（run の外で回る重い試験）が赤と言った試験を、次の run の依頼の `prior_failures` に足す口 `ghreads.py carry-ci` を足した（`--request <next-request.json> --failed <id の一覧か -> --out <書き先>`）。行の where は `run の後の CI` で、次の run の判定役と修正案の役に「同じ試験を赤にしない」注意として届く。CI の記録から id を引くのは人か回す役（形は計画 docs/plans/2026-10-06-carry-prior-failures.md の「run の後の CI の赤」）
+
 ## [0.2.34] - 2026-10-06
 
 ### Added
