@@ -392,6 +392,20 @@ class VendorCase(Base):
                 self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())
                 part.write_text("偽\n", encoding="utf-8")
 
+    def test_vendor_names_absent_listed_file_without_suggesting_vendor(self):
+        """写し元に借りる一覧の部品が無い時の拒みは『写し元の版のフォルダに無い』と言い、vendor を打ち直せとも pin.files とも言わない"""
+        src = installed_dir(self.user, "superpowers")
+        before = (self.pack / ".shared/borrow/borrow.json").read_bytes()
+        (src / "skills" / "subagent-driven-development" / "task-reviewer-prompt.md").unlink()
+        with self.assertRaises(toolset.ToolsetError) as cm:
+            toolset.vendor(self.pack, src, "9.9.0", SHA, "2026-10-02")
+        msg = str(cm.exception)
+        self.assertIn("task-reviewer-prompt.md: 写し元の版のフォルダに無い", msg)
+        self.assertNotIn("dev/toolset.py vendor で写し直す", msg)
+        self.assertNotIn("pin.files", msg)
+        self.assertEqual((self.pack / ".shared/borrow/borrow.json").read_bytes(), before)
+        self.assertFalse((self.pack / ".shared/borrow/superpowers").exists())
+
 
 class ResolveCase(unittest.TestCase):
     """installed_sources: 利用者が入れたプラグインからだけ取る。無ければ 1 物 1 行の理由と入れるコマンドで止まる"""
@@ -716,7 +730,7 @@ class InstallCase(Base):
 
         cases = {
             "skills/verification-before-completion/SKILL.md: 固定に在るのに手元に無い": no_skill_dir,
-            "skills/brainstorming/SKILL.md: 借りる一覧に在るのに pin.files に無い": listed_but_not_pinned,
+            "skills/brainstorming/SKILL.md: 借りる一覧（borrow.json の skills・parts）が名指すのに、固定（pin.files）にその sha256 が無い（dev/toolset.py vendor で写し直す）": listed_but_not_pinned,
             "borrow.json の superpowers に pin が無い": no_pin,
             "写しのフォルダが無い": no_copy_dir,
         }
@@ -1218,8 +1232,10 @@ class NewerCase(Base):
         self.add_version("latest")
         r = self.cli("newer")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("latest", r.stdout)
-        # 数で読めない名の版のフォルダも素通しせず、pin と節の契約を当てて名指し、締めの『違いは無い』を出さない
+        # 数で読めない名の版のフォルダでも、中身が固定と同じで違いが無ければ名指さず、締めの『違いは無い』を出す
+        self.assertNotIn("superpowers latest", r.stdout)
+        self.assertIn("より新しい版・違う中身は、手元にも marketplace の一覧にも無い", r.stdout)
+        # 中身が違う版は、名が数で読めなくても素通しせず、pin と節の契約を当てて名指し、締めの『違いは無い』を出さない
         self.add_version("8ca22dba9a94", edit={"skills/test-driven-development/SKILL.md": "x\n"})
         r = self.cli("newer")
         self.assertEqual(r.returncode, 0, r.stderr)

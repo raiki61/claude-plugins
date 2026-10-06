@@ -13,6 +13,7 @@
 
 口:
 - wrapped_files・pin_of・pin_problems: 包むファイルの sha256 を集める・固定を作る・固定との食い違いをパスの順に名指す
+- copy_problems: 版のフォルダを写し元として写せない理由（読まないパスと、版のフォルダに無い借りる一覧のファイル）をパスの順に名指す
 - paragraph・para_sha256: 引用を含む行がちょうど 1 行の時、その段落（とその sha256）
 - prompt_body: 部品の型の本文
 - listed_files: 借りる一覧と部品が名指す、固定に在るべきファイル
@@ -109,6 +110,16 @@ def wrapped_files(src: pathlib.Path, item: dict) -> dict[str, str]:
     return _scan(src, item)[0]
 
 
+def copy_problems(src: pathlib.Path, item: dict) -> list[str]:
+    """版のフォルダ src を写し元として写せない理由の行（パスの順）。読まなかったパス（symlink・外を指すパス）と、版のフォルダに
+    無い借りる一覧の SKILL.md・部品。symlink か外を指すパスの下の物は、その上の行が名指しているので数えない"""
+    files, bad = _scan(src, item)
+    absent = {rel for rel in listed_files(item)
+              if rel not in files and not any(rel == k or rel.startswith(f"{k}/") for k in bad)}
+    return [f"{rel}: {bad[rel]}" if rel in bad else f"{rel}: 写し元の版のフォルダに無い（借りる一覧 borrow.json の skills・parts が名指す）"
+            for rel in sorted(set(bad) | absent)]
+
+
 def pin_of(src: pathlib.Path, item: dict, version: str, commit: str | None, checked: str) -> dict:
     """版のフォルダ src から固定（pin）を作る"""
     return {"version": version, "commit": commit, "checked": checked, "files": wrapped_files(src, item)}
@@ -137,7 +148,8 @@ def pin_problems(src: pathlib.Path, item: dict) -> list[str]:
         if rel in bad:
             out.append(f"{rel}: {bad[rel]}")
         elif rel in unpinned:
-            out.append(f"{rel}: 借りる一覧に在るのに pin.files に無い")
+            out.append(f"{rel}: 借りる一覧（borrow.json の skills・parts）が名指すのに、固定（pin.files）にその sha256 が無い"
+                       "（dev/toolset.py vendor で写し直す）")
         elif rel not in have:
             out.append(f"{rel}: 固定に在るのに手元に無い")
         elif rel not in want:

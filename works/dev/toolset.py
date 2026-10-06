@@ -63,7 +63,7 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
   installed_plugins.json の行の版・marketplace の一覧（plugins/known_marketplaces.json の installLocation の
   .claude-plugin/marketplace.json）の版を、写した固定の版と数の組（6.10.0 → (6, 10, 0)）で比べる。決まりは 1 つで、数で読めて
   固定より古い版だけを飛ばし、ほかの版のフォルダ（数で読めない版の名も）には固定との食い違い・節の契約の破れ・包むファイルに
-  増えた人に聞く文（human partner を含む行）を出す（固定と同じ版で違いが無ければ黙る）。フォルダの無い版（一覧にだけ在る物
+  増えた人に聞く文（human partner を含む行）を出す（固定と同じ版か数で読めない名の版で違いが無ければ黙る）。フォルダの無い版（一覧にだけ在る物
   など）は同じ決まりで 1 行を出す。入っていない・読めない JSON は 1 行で名指して続ける。版を上げるかは人が決める（上げるのは vendor）。網には出ず、何も書かず、終了コードは 0（使い方の誤りだけ 2）。
 """
 import datetime
@@ -628,8 +628,8 @@ def vendor(pack: pathlib.Path, src: pathlib.Path, version: str, commit: str, che
         raise ToolsetError(f"{VENDORED} の版のフォルダ {src} が無い")
     notice = _licence_notice(src, item)
     files = spseam.wrapped_files(src, item)
-    # 読まなかった物（symlink・外を指すパス）と、版のフォルダに無い借りる一覧・部品（pin.files に入らない）だけが残る
-    bad = spseam.pin_problems(src, dict(item, pin={"files": files}))
+    # 写せない理由（読まなかった symlink・外を指すパスと、版のフォルダに無い借りる一覧・部品）は spseam が判じる
+    bad = spseam.copy_problems(src, item)
     bad += [f"{r}: パスに空白か # が在る（台帳に書けない）" for r in files if any(c.isspace() or c == "#" for c in r)]
     if bad:
         raise ToolsetError(f"{src} を写せない: " + " / ".join(bad))
@@ -841,7 +841,7 @@ def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
         print(f"{VENDORED} が入っていない（{user_cfg / 'plugins' / 'cache' / mp / VENDORED} に版のフォルダが無く、"
               f"installed_plugins.json に {VENDORED}@{mp} の行も無い）")
     # 決まりは 1 つ: 数で読めて固定より古い版だけを飛ばし、ほかは全部（数で読めない版の名も）pin と節の契約を当てる。
-    # 固定と同じ版で、pin・契約・人に聞く文のどれにも違いが無い物だけは知らせることが無い
+    # 固定と同じ版か数で読めない版の名で、pin・契約・人に聞く文のどれにも違いが無い物だけは知らせることが無い
     def older(v):
         key = _version_key(v)
         return key is not None and key < pin_key
@@ -861,7 +861,7 @@ def _newer_cli(pack: pathlib.Path, user_cfg: "pathlib.Path | None") -> int:
             found = True
             print(f"{VENDORED} {v}（{d}）の中を読めない（{e}）")
             continue
-        if key == pin_key and not (pp or sp or asks):
+        if (key == pin_key or key is None) and not (pp or sp or asks):
             continue
         found = True
         if key is None:

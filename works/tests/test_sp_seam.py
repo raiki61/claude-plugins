@@ -8,6 +8,7 @@
 - fill・word: 部品の型の穴を全部埋める（固定の sha256 を先に確かめる）・出口の語を works の語に読む（無い語は推さない）
 """
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -235,9 +236,29 @@ class SeamCase(unittest.TestCase):
         src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT, IMPL: IMPL_TEXT})
         item = {**ITEM, "pin": spseam.pin_of(src, ITEM, "1.0.0", None, "2026-10-02")}
         wider = dict(item, skills=[*item["skills"], "brainstorming"], parts=[*item["parts"], "skills/x/part.md"])
+        why = "借りる一覧（borrow.json の skills・parts）が名指すのに、固定（pin.files）にその sha256 が無い（dev/toolset.py vendor で写し直す）"
         self.assertEqual(spseam.pin_problems(src, wider),
-                         ["skills/brainstorming/SKILL.md: 借りる一覧に在るのに pin.files に無い",
-                          "skills/x/part.md: 借りる一覧に在るのに pin.files に無い"])
+                         [f"skills/brainstorming/SKILL.md: {why}",
+                          f"skills/x/part.md: {why}"])
+
+    def test_copy_problems_names_absent_listed_files_and_skips_paths_under_bad_dirs(self):
+        """写し元の版のフォルダに無い借りる一覧の SKILL.md と部品を、vendor の場面の語でパスの順に名指す。
+        symlink のスキルのフォルダは bad の行だけ。その下の SKILL.md を『無い』とは名指さない"""
+        src = make_version(self.tmp / "1.0.0", {TDD: TDD_TEXT, IMPL: IMPL_TEXT})
+        wider = {**ITEM, "skills": [*ITEM["skills"], "brainstorming"], "parts": [*ITEM["parts"], "skills/x/part.md"]}
+        got = spseam.copy_problems(src, wider)
+        absent = "写し元の版のフォルダに無い"
+        self.assertEqual([g.split(": ")[0] for g in got], ["skills/brainstorming/SKILL.md", "skills/x/part.md"])
+        self.assertTrue(all(g.split(": ", 1)[1].startswith(absent) for g in got), got)
+        self.assertFalse(any(TDD in g or IMPL in g for g in got), got)
+        self.assertFalse(any("pin.files" in g or "dev/toolset.py vendor で写し直す" in g for g in got), got)
+        if os.name != "nt":
+            (self.tmp / "outside").mkdir()
+            (self.tmp / "outside" / "SKILL.md").write_text("x\n", encoding="utf-8")
+            (src / "skills" / "linked").symlink_to(self.tmp / "outside", target_is_directory=True)
+            got = spseam.copy_problems(src, {**ITEM, "skills": [*ITEM["skills"], "linked"]})
+            self.assertIn("skills/linked: symlink が在る（たどらない）", got)
+            self.assertFalse(any(g.startswith("skills/linked/SKILL.md") for g in got), got)
 
 
 if __name__ == "__main__":
