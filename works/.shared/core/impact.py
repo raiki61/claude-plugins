@@ -15,7 +15,8 @@ AI に探させず、1 回作って使い回す（鍵 = rev・起点・作業ツ
   入らない物は数だけ言う。同じ地図なら同じ字（決まって同じ）
 - select_tests(m, fast=(), scope=None, all_modules=None, direct_only=False, named=()) -> dict: 回すテストのモジュール
   （速い段 ∪ 選んだ物）。all_tests_required なら全部（all_modules を渡せばその一覧、無ければ modules は None）。
-  direct_only なら直に関わる試験（direct: 起点か深さ 1）と名指しの試験だけを選び、先の試験は left に残す
+  direct_only なら直に関わる試験（direct: 起点か深さ 1）と名指しの試験だけを選び、先の試験は left に残す。
+  その時の全部は分からない物が直に関わる所に在る時だけで、深さ 2 以上の分からない物は far に理由の形で残す
 - direct(m, path) -> bool: 起点そのものか、起点から辺 1 本（深さ 1）で届いた file か
 - miss(m, junit, fast=(), scope=None) -> dict: 最後の一式で落ちたのに選んでいなかったテスト（地図の取りこぼし）
 - seeds_from_units(repo, units) -> list: 判定の単位の文（key・reason・class_query・prescriptions など全部の字）に
@@ -996,9 +997,19 @@ def direct(m, path) -> bool:
 
 def select_tests(m, fast=(), scope=None, all_modules=None, direct_only=False, named=()):
     """回すテストのモジュール。run_all（分からない物が近くに在る）なら全部。direct_only なら直に関わる試験（direct）と
-    名指しの試験（named。根からのパス）だけを選び、届いただけの先の試験は left に名前で残す（回さない。run_all の時は空）"""
+    名指しの試験（named。根からのパス）だけを選び、届いただけの先の試験は left に名前で残す（回さない。run_all の時は空）。
+    direct_only の run_all は、分からない物が直に関わる所（起点か深さ 1。地図の reach に無く置き場の分からない物も含める）に
+    在る時だけで、深さ 2 以上の物は far に理由の形のまま残す（一式は線の最後のテストの段が回す。持ち主の決定 2026-10-06）"""
     sel = [t for t in m["tests"] if scope is None or t.startswith(scope)]
     run_all = bool(m["all_tests_required"])
+    reasons, far = list(m["all_tests_reasons"]), []
+    if direct_only and run_all:
+        trig = [u for u in m["unanalysable"] if u["in_neighbourhood"] and u["reason"] in UNANALYSABLE_TRIGGERS]
+        far = sorted({f"{u['reason']}: {u['path']}" + (f":{u['line']}" if u.get("line") else "")
+                      for u in trig if u["path"] in m["reach"] and not direct(m, u["path"])})
+        reasons = [r for r in reasons if r not in far]
+        run_all = bool(reasons)
+        far = [] if run_all else far
     left = []
     if direct_only and not run_all:
         named = set(named)
@@ -1007,7 +1018,7 @@ def select_tests(m, fast=(), scope=None, all_modules=None, direct_only=False, na
     mods = sorted({_mod(t) for t in sel} | {_mod(f) for f in fast})
     if run_all:
         mods = sorted({_mod(x) for x in all_modules}) if all_modules is not None else None
-    return {"key": m["key"], "run_all": run_all, "reasons": list(m["all_tests_reasons"]), "selected": sel,
+    return {"key": m["key"], "run_all": run_all, "reasons": reasons, "far": far, "selected": sel,
             "outside_scope": [t for t in m["tests"] if t not in sel and t not in left], "fast": sorted({_mod(f) for f in fast}),
             "modules": mods, "left": left}
 

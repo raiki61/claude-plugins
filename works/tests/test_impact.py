@@ -215,6 +215,24 @@ class UnanalysableCase(RepoCase):
         self.assertEqual((u["reason"], u["line"]), ("dynamic-import", 6))
         self.assertTrue(u["in_neighbourhood"])
 
+    def test_direct_selection_runs_all_only_when_unanalysable_is_direct(self):
+        # 直に関わる選びでは、分からない物が起点か深さ 1 に在る時だけ全部。深さ 2 以上の物は far に残す（最後のテストの段が一式）
+        self.write("plug/far.py", "import importlib\nfrom pkg import mid\n\n\ndef load(name):\n"
+                                  "    return importlib.import_module(name)\n")
+        m = self.map(["pkg/core.py"])
+        self.assertEqual(m["reach"]["plug/far.py"]["depth"], 2)
+        self.assertTrue(m["all_tests_required"], "地図そのものの決まりは変えない")
+        self.assertTrue(impact.select_tests(m)["run_all"], "広い選びは今どおり全部")
+        sel = impact.select_tests(m, direct_only=True)
+        self.assertFalse(sel["run_all"])
+        self.assertEqual(sel["selected"], ["tests/test_core.py"])
+        self.assertEqual(sel["far"], ["dynamic-import: plug/far.py:6"])
+        self.write("plug/near.py", "import importlib\nfrom pkg import core\n\n\ndef load(name):\n"
+                                   "    return importlib.import_module(name)\n")
+        near = impact.select_tests(self.map(["pkg/core.py"]), direct_only=True)
+        self.assertTrue(near["run_all"], "深さ 1 の分からない物が在れば全部")
+        self.assertEqual(near["left"], [])
+
     def test_constant_dynamic_import_is_an_import(self):
         self.write("plug/fixed.py", "import importlib\n\nmod = importlib.import_module('pkg.core')\n")
         m = self.map(["pkg/core.py"])

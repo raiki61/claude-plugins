@@ -60,7 +60,8 @@
   名指す。ファイルの分からない赤は 1 行にまとめてパスを名指さない）。走らせなかった試験は『手元で回さなかった』として
   知らせと状態（ci_left。受け付けが盤面の trace に載せ、最後の関所が並べる）に名前で残す。届くだけで直に関わらない試験は
   受け付けで回さず、『最後のテストの段に任せた』として知らせと状態（final_left。同じ trace の行・最後の関所）に名前で残す
-  （一式は線の最後のテストの段で 1 回。そこでの赤は最後の関所と報告・次の依頼の下書きに載る）。元の結末に無い試験の赤は、版を
+  （一式は線の最後のテストの段で 1 回。そこでの赤は最後の関所と報告・次の依頼の下書きに載る）。分からない物が直に関わる所
+  （起点か深さ 1）に在る時だけ一式を回し、深さ 2 以上の分からない物は final_far に残して最後のテストの段に任せる（輪の緑も同じ）。元の結末に無い試験の赤は、版を
   一時の置き場に写して同じ試験を回し、版でも赤なら外す（作業ツリーは動かさない）。1 件も走らなければ「新しい赤なし」にせず
   知らせる（一式の緑は線の最後のテストの段が確かめる。役は一式を回さない）
 - collect → exit_fields: 出口の欄 tdd（単位ごとの道・赤・緑・整えとその申告の理由・direct の理由・test_cmd の緑。輪の test_cmd の
@@ -1511,9 +1512,12 @@ def selected_problems(state_file, repo, rev) -> tuple:
     work = pathlib.Path(st["work"])
     m = impact.map(repo, rev=rev, diff=True, cache_dir=work / "impact")
     sel = impact.select_tests(m, direct_only=True, named=_named_files(st))
-    st["final_left"] = sel["left"]
+    st["final_left"], st["final_far"] = sel["left"], sel["far"]
     final = (f"。最後のテストの段に任せた {len(sel['left'])} 件（変更に直には関わらず届くだけ。受け付けは回さない）: "
              f"{', '.join(sel['left'])[:300]}") if sel["left"] else ""
+    if sel["far"]:
+        final += (f"。最後のテストの段に任せた、地図の遠く（深さ 2 以上）の分からない物 {len(sel['far'])} 件（受け付けは一式を回さない）: "
+                  f"{', '.join(sel['far'])[:300]}")
     if not sel["run_all"] and not sel["modules"]:
         st["ci_left"] = []
         _save(state_file, st)
@@ -1589,6 +1593,11 @@ def _named_files(st) -> list:
 def final_left(state_file) -> list:
     """受け付けが直に関わらないので回さず、線の最後のテストの段に任せた試験（状態が無い・まだ選んでいなければ空）"""
     return _load(state_file).get("final_left", []) if state_file and pathlib.Path(state_file).is_file() else []
+
+
+def final_far(state_file) -> list:
+    """受け付けが一式を回す理由にせず最後のテストの段に任せた、地図の遠く（深さ 2 以上）の分からない物の理由（impact の far）"""
+    return _load(state_file).get("final_far", []) if state_file and pathlib.Path(state_file).is_file() else []
 
 
 def ci_left(state_file) -> list:

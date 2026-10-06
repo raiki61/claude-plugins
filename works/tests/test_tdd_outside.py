@@ -347,6 +347,18 @@ class TestDirectOnly(OutsideCase):
         self.assertIn("最後のテストの段に任せた", note)
         self.assertIn(FAR, note.split("最後のテストの段に任せた", 1)[1])
 
+    def test_far_unanalysable_does_not_force_the_whole_suite(self):
+        self.write("far_loader.py", "import importlib\nimport wrap\n\n\ndef load(name):\n"
+                                    "    return importlib.import_module(name)\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "深さ 2 の動的 import")
+        self.fix_stats()
+        probs, note = tddloop.selected_problems(self.state, self.repo, "HEAD")
+        self.assertEqual(probs, [], note)
+        self.assertEqual(self.runs()[-1], [None, ["-k", "test_stats"]], "遠くの分からない物で一式を回した")
+        self.assertEqual(tddloop.final_far(self.state), ["dynamic-import: far_loader.py:6"])
+        self.assertIn("far_loader.py", note.split("最後のテストの段に任せた", 1)[1])
+
     def test_accept_runs_tests_named_by_the_plan(self):
         st = tddloop.load_state(self.state)
         st["contract"] = {MEAN: {"route": "tdd", "tests": [{"id": f"{FAR}::TestFar::test_twice"}], "rewrites": []}}

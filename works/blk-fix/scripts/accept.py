@@ -646,7 +646,7 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
         tb = entry.open_board(board, allow_halted=True)
         writes.trace(tb, recount.ROLE, wrote)
         tb.trace(TESTS_OP, node=recount.ROLE, note=tests_note, ci_left=tddloop.ci_left(state),
-                 final_left=tddloop.final_left(state))
+                 final_left=tddloop.final_left(state), final_far=tddloop.final_far(state))
         if scope_note is not None:
             tb.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
         gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt)
