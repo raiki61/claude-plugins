@@ -5,6 +5,8 @@
                       open_kwargs(line, table)（board_hook.py の返りと核の差し替え）を DiskBoard.open に渡す。include の中の
                       script なら scope（flow_adapter.current_scope）を登録して渡し、部品の私物を盤面の <scope>/ の下に分ける
 - hook_kwargs(line):  board_hook.py の読み込みだけ（無ければ {}）
+- peek_here() / peek_as(here): 節の script が今の置き場の印を控えに写し、役の sandbox の中の読むだけの開きがそれで盤面を開く
+                      （部品のコードが scope を知らずに運ぶ口）
 - open_kwargs(line):  hook_kwargs に線 A の核の差し替え CORE_OVERRIDES（読んだ記録の置き場・直す義務・関所の項目の決め手・R3・R4 の起動条件）を重ねた物。open_board と start が
                       同じ物を DiskBoard.open・begin に渡す（開くたびに同じ overrides。BL-R3）
 - check_inputs(raw, repo, *, reads): ラインの入力を確かめる（線 A の仕様 4 節）。拒めば InputRefused（人に向けた 1 行）
@@ -174,6 +176,22 @@ def open_kwargs(line: str, table: NodeTable | None = None) -> dict:
 
 
 PEEK_ENV = "WORKS_BOARD_PEEK"   # 1 なら open_board は盤面を書かない（scope の登録・窓の照らしを飛ばす）
+
+
+def peek_here() -> str:
+    """読むだけの開き（peek_as）へ運ぶ今の置き場の印（今の script が居る include の名。線の最上段は空）。部品は中身を
+    知らずに運ぶだけ（役の Bash には節の env が無いので、節の script が控えに写して役の側の peek_as に渡す）"""
+    return flow_adapter.current_scope()
+
+
+def peek_as(here: str) -> None:
+    """これから開く盤面を読むだけの開き（PEEK_ENV）にし、今の置き場を peek_here の返り here にする（空なら線の最上段）。
+    役の sandbox の中で受け付けの確かめを回す時の口（scope の登録も窓の照らしもしない）"""
+    os.environ[PEEK_ENV] = "1"
+    if here:
+        os.environ[flow_adapter.NODE_EXECUTION_ENV] = json.dumps({"path": f"{here}{flow_adapter.INCLUDE_SEP}precheck"})
+    else:
+        os.environ.pop(flow_adapter.NODE_EXECUTION_ENV, None)
 
 
 def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBoard:

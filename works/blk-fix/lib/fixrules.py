@@ -63,7 +63,6 @@ import entry  # noqa: E402
 import fixshape  # noqa: E402
 from leftovers import Unreadable, git_names  # noqa: E402
 import askplan  # noqa: E402  （同じブロックの lib。範囲の相談の控えと置き場）
-import flow_adapter  # noqa: E402  （今の scope。事前の確かめが盤面を読むだけで開く時に立てる）
 import libdocs  # noqa: E402
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
 import planmarks  # noqa: E402  （項目の範囲: allowed_paths と受け入れのテストのファイル。並べる項目の分け方）
@@ -492,7 +491,7 @@ def ask_config(b, repo, values: dict, pass_: str) -> str:
     if not items:
         return ""
     launch = adapter.last_launch(repo, node) or {}
-    doc = {"board": str(b.dir), "repo": str(repo), "scope": flow_adapter.current_scope(), "pass": pass_,
+    doc = {"board": str(b.dir), "repo": str(repo), "scope": entry.peek_here(), "pass": pass_,
            "base_rev": values.get("base_rev") or "",
            "tdd_state": values.get("tdd_state") or "",
            "session_file": str(adapter.session_path(repo, node)),

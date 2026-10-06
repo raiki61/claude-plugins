@@ -33,7 +33,6 @@ if _LIB not in sys.path:
 import askplan  # noqa: E402   範囲の相談の記録（同じブロックの lib）
 import conflict  # noqa: E402
 import entry  # noqa: E402
-import flow_adapter  # noqa: E402
 import planscope  # noqa: E402
 import recount  # noqa: E402
 import tddloop  # noqa: E402
@@ -177,18 +176,9 @@ def pending_agreed(board: Path, place) -> list:
     return conflict.agreed(b) + more
 
 
-def _peek_scope(scope: str) -> None:
-    """読むだけの開き（entry.PEEK_ENV）にし、盤面の今の scope を相談の控えの値にする（役の Bash には節の env が無い）"""
-    os.environ[entry.PEEK_ENV] = "1"
-    if scope:
-        os.environ[flow_adapter.NODE_EXECUTION_ENV] = json.dumps({"path": f"{scope}{flow_adapter.INCLUDE_SEP}precheck"})
-    else:
-        os.environ.pop(flow_adapter.NODE_EXECUTION_ENV, None)
-
-
 def precheck(cfg: dict, reply=None) -> dict:
     """事前の確かめ（模块の頭）"""
-    _peek_scope(cfg.get("scope") or "")
+    entry.peek_as(cfg.get("scope") or "")   # 役の Bash には節の env が無い。控えの置き場の印で読むだけに開く
     board, repo = Path(cfg["board"]), Path(cfg["repo"])
     state, pass_, base_rev = cfg.get("tdd_state") or "", cfg.get("pass") or "first", cfg.get("base_rev") or ""
     reply = reply if isinstance(reply, dict) else {"changes": []}
