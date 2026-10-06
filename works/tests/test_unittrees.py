@@ -7,6 +7,8 @@
 - どの口も本物の index・HEAD・枝を動かさない
 - index を切ったのと同じ秒に同じ大きさで書き換えたファイルも、次の秒に取った差分に入る（git の racy な行の読み直し）
 - remove・sweep が worktree と守りの参照を片付け、同じリポジトリのほかの作業ツリーの単位には触らない
+- objects（新しい object の一時の置き場）を渡せば、共通の .git が書けなくても diff・apply が回る（役の sandbox の中の当てる口）
+- applied は差分が既に当たっているか（逆向きに当たるか）を作業ツリーを変えずに言う
 """
 import pathlib
 import shutil
@@ -153,6 +155,35 @@ class UnitTrees(unittest.TestCase):
         self.assertNotEqual(git(other, "for-each-ref", "--format=%(refname)", f"{unittrees.REF_ROOT}/"), "")
         self.assertEqual(sorted(unittrees.sweep(other)), sorted([str(op.resolve())]))
         self.assertFalse(op.exists())
+
+    def test_diff_and_apply_with_scratch_objects_write_nothing_in_git(self):
+        base = unittrees.snapshot(self.repo)
+        path = unittrees.add(self.repo, base, self.places / "u1")
+        (path / "a.txt").write_text("a1\nA2\na3\n", encoding="utf-8")
+        (path / "fresh.txt").write_text("new\n", encoding="utf-8")
+        common = pathlib.Path(git(self.repo, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+        dirs = [common, *[d for d in common.rglob("*") if d.is_dir()]]
+        before = sorted(str(f) for f in common.rglob("*"))
+        for d in dirs:
+            d.chmod(0o555)
+        self.addCleanup(lambda: [d.chmod(0o755) for d in dirs])
+        scratch = self.home / "scratch"
+        scratch.mkdir()
+        patch = unittrees.diff(path, base, objects=str(scratch))
+        self.assertIn("+A2", patch)
+        self.assertEqual(unittrees.apply(self.repo, patch, objects=str(scratch)), (True, ""))
+        self.assertEqual((self.repo / "a.txt").read_text(), "a1\nA2\na3\n")
+        self.assertEqual((self.repo / "fresh.txt").read_text(), "new\n")
+        self.assertEqual(sorted(str(f) for f in common.rglob("*")), before, "共通の .git に何も足さない")
+
+    def test_applied_says_whether_the_patch_is_already_in(self):
+        base = unittrees.snapshot(self.repo)
+        _, patch = self.unit(base, "u1", {"a.txt": "a1\nA2\na3\n", "fresh.txt": "new\n"})
+        self.assertFalse(unittrees.applied(self.repo, patch))
+        self.assertEqual(unittrees.apply(self.repo, patch), (True, ""))
+        self.assertTrue(unittrees.applied(self.repo, patch))
+        self.assertTrue(unittrees.applied(self.repo, ""))
+        self.assertEqual((self.repo / "a.txt").read_text(), "a1\nA2\na3\n", "作業ツリーを変えない")
 
 
 if __name__ == "__main__":
