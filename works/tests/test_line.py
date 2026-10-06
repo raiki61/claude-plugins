@@ -36,7 +36,7 @@ from test_line_inputs import script_inputs  # noqa: E402
 DEADLINE = 1728000000
 # when: で飛ばされない節（start・境の節・機械の報告 report・出口 result）。上流が落ちた後でも走るのは all_done の
 # report・result だけで、境の節は none_failed_min_one_success なので飛ばされる（落ちた run の読み手は if_skipped で受ける）
-ALWAYS = {"start", "report", "result"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") == "edge"}
+ALWAYS = {"start", "report", "result"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") in ("edge", "depth")}
 REAL_START = {"standard", "start-refused"}   # start を本物で回す筋書き（TA16）
 FIXTURES = {"standard", "no-fix", "policy-continue", "policy-stop", "final-when-needed-green", "final-stop", "stop-flag",
             "start-refused", "pr-fallback", "ai-report-fail", "conflict-ask", "rejudge", "rejudge-no-session"}
@@ -402,6 +402,29 @@ class LensWiringCase(unittest.TestCase):
                               "when": "$h-review.output.go == true", "with": {"base_rev": "$start.output.base_rev"}})
         self.assertFalse([r["id"] for r in before if "lensing" in (r.get("depends_on") or [])
                           or "$lensing." in json.dumps(r.get("with") or {})], "lensing を読む節がほかに在ると戻せない")
+
+
+class DepthWiringCase(unittest.TestCase):
+    """単位ごとの深さ（計画 2026-10-06-variable-depth の決め 8）: h-depth は h-fix の後・修正の前で決め、修正は h-depth を待つ。
+    h-redepth は h-mid の後・h-review の前で上げ、レンズと独立の目に省く理由（平の入力）を、機械の報告に行を渡す"""
+
+    def test_depth_nodes_wired(self):
+        ids = [n["id"] for n in line()["nodes"]]
+        self.assertLess(ids.index("h-fix"), ids.index("h-depth"))
+        self.assertLess(ids.index("h-depth"), ids.index("fixing"))
+        self.assertEqual(node("fixing")["depends_on"], ["h-fix", "h-depth"])
+        self.assertLess(ids.index("h-mid"), ids.index("h-redepth"))
+        self.assertLess(ids.index("h-redepth"), ids.index("h-review"))
+        self.assertIn("h-redepth", node("h-review")["depends_on"])
+        self.assertEqual(node("lensing")["with"]["skip"], "$h-redepth.output.skip")
+        self.assertEqual(node("eyeing")["with"]["skip_optional"], "$h-redepth.output.skip")
+        self.assertEqual(node("report")["with"]["depth"], {"from": "$h-redepth.output", "if_skipped": None})
+        import depth
+        for nid in ("h-depth", "h-redepth"):
+            with self.subTest(nid):
+                n = node(nid)
+                self.assertEqual(set(n["output_format"]["required"]), set(depth.NODE_FIELDS))
+                self.assertIn(n["with"]["at"], depth.ATS)
 
 
 class LineFixturesCase(unittest.TestCase):

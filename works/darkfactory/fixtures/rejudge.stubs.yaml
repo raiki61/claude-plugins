@@ -2105,3 +2105,22 @@ fixture:
   - reporting__collect
   - result
 exec-code: true
+# 単位ごとの深さの節（計画 2026-10-06-variable-depth）。筋書きは標準（今の振る舞い。省く物なし）
+h-depth:
+  ok: true
+  why: ''
+  depth: 標準
+  unit_depths: '{}'
+  skip: ''
+  lines:
+  - 深さ: 標準（直す義務の単位が無い）
+  depth_file: board/depth.json
+h-redepth:
+  ok: true
+  why: ''
+  depth: 標準
+  unit_depths: '{}'
+  skip: ''
+  lines:
+  - 深さ: 標準（直す義務の単位が無い）
+  depth_file: board/depth.json

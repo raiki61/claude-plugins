@@ -4,8 +4,8 @@ description: |
   graph と規則。works/.shared/core/board.py）の上で 1 周回す:
   起動の関所 → start（盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 目的の文 → 素材集め（P1 の目）→ 判定 →
   独立設計（R2 の設計の半分。目的だけから）と修正案と事前審査（設計と突き合わせる）→ 修正の前の人の関所（要る時だけ）→
-  修正（TDD の輪）→（裁定が案の項目の誤りなら）案の直し → 案の直しの関所（要る時だけ）→ 2 回目の修正 → 判定への異議の再審（異議が在る時だけ）→
-  中の検査の枠 → 修正の後のレンズ（局所レビュー）→ 差分の審査 → 手直し →
+  単位ごとの深さ（h-depth）→ 修正（TDD の輪）→（裁定が案の項目の誤りなら）案の直し → 案の直しの関所（要る時だけ）→ 2 回目の修正 → 判定への異議の再審（異議が在る時だけ）→
+  中の検査の枠 → 深さの上げ（h-redepth）→ 修正の後のレンズ（局所レビュー）→ 差分の審査 → 手直し →
   最後のテスト → 独立の目 → 最後の人の関所（目の結果を載せる）→ 機械の報告 → AI の報告と初見の検査（盤面が報告の節を出した時）→ 出口。
   境の節（h-*。scripts/edge.py を at を替えて使う。いつも走る）が盤面の ready から次のブロックを回すかを決め、関所の答えと
   止め札を盤面へ渡す。when: と関所の文言は、いつも走る節（start・境の節）の欄だけを読む。
@@ -34,7 +34,7 @@ inputs:
     description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）。在れば、対象の .review-checks.json の宣言が在っても宣言の一式に加えて走らせ、両方が緑の時だけ緑（宣言の段と同じコマンドなら 1 度だけ）。宣言が無ければ test_cmd だけ。空なら宣言を engine が走らせ、宣言も無ければ CI の任せ先の役（blk-ci）
   thickness:
     default: ""
-    description: 手厚さ。空は標準（軽量・重厚は受けない。持ち主の決定 2026-09-27）
+    description: 手厚さ（深さ）。空は自動（h-depth が判定の単位ごとに軽量か標準を機械で決める）。軽量・標準は全部の単位をその深さに固定する（軽量でも修正の後の信号で標準へ上がる）。標準は今の振る舞いのすべてで、軽量は全部の単位が軽量の run だけレンズと独立の目のコメントの削除候補を省き、報告の冒頭 2 に名指す。重厚は受けない（足す工程がまだ無い）。持ち主の依頼 2026-10-06（docs/plans/2026-10-06-variable-depth.md）
   gates:
     default: ""
     description: graphloops の gates（空か merge）
@@ -506,10 +506,38 @@ nodes:
         mat_go: {type: boolean}
         structure_units_file: {type: string}
 
+  # 単位ごとの深さを決める（いつも走る。計画 docs/plans/2026-10-06-variable-depth.md の決め 3・8）。直す義務の単位ごとに、修正案の
+  # 項目の欄の形（触るファイル・テストの数・約束の形のファイル）と機械の確かめの有無から軽量か標準を決め、盤面の根の depth.json に
+  # 書く。入力 thickness が軽量・標準なら全部をその深さに固定する。unit_depths は修正のブロックへのつなぎ目（計画の「blk-fix へのつなぎ目」）
+  - id: h-depth
+    script: depth
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-fix]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "decide"
+      open_units: $h-fix.output.open_units
+      tdd_suite: $INPUTS.tdd_suite
+      replanned: "false"
+      rejudged: "false"
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, why, depth, unit_depths, skip, lines, depth_file]
+      properties:
+        ok: {type: boolean}
+        why: {type: string}
+        depth: {type: string, enum: [軽量, 標準]}
+        unit_depths: {type: string}
+        skip: {type: string}
+        lines: {type: array, items: {type: string}}
+        depth_file: {type: string}
+
   # 修正（テストの実行器 tdd_suite が在れば単位ごとの TDD の輪）
   - id: fixing
     include: blk-fix
-    depends_on: [h-fix]
+    depends_on: [h-fix, h-depth]
     when: "$h-fix.output.go == true"
     with:
       judgment_file: $h-fix.output.judgment_file
@@ -796,12 +824,39 @@ nodes:
         mat_go: {type: boolean}
         structure_units_file: {type: string}
 
+  # 修正の後の信号で深さを標準へ上げる（いつも走る。決め 4・5）。食い違いの申し出・止めた単位・答えていない問い・案の直し・再審。
+  # 全部の単位が軽量のままなら skip に省く理由を出し、レンズ（skip）と独立の目（skip_optional）に平の入力で渡す。lines は機械の報告の冒頭 2
+  - id: h-redepth
+    script: depth
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-mid, h-depth]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "raise"
+      open_units: ""
+      tdd_suite: ""
+      replanned: {from: $h-replan.output.go, if_skipped: false}
+      rejudged: {from: $h-rejudge.output.go, if_skipped: false}
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, why, depth, unit_depths, skip, lines, depth_file]
+      properties:
+        ok: {type: boolean}
+        why: {type: string}
+        depth: {type: string, enum: [軽量, 標準]}
+        unit_depths: {type: string}
+        skip: {type: string}
+        lines: {type: array, items: {type: string}}
+        depth_file: {type: string}
+
   # 差分の審査を回すか
   - id: h-review
     script: edge
     runtime: uv
     timeout: 1728000000
-    depends_on: [start, h-mid]
+    depends_on: [start, h-mid, h-redepth]
     trigger_rule: none_failed_min_one_success
     with:
       at: "review"
@@ -840,11 +895,14 @@ nodes:
         mat_go: {type: boolean}
         structure_units_file: {type: string}
 
-  # 修正の後のレンズ（修正が差分を作った run だけ）。集め役が終わらなければブロックの境が盤面を止め、後ろの境の節が stop する
+  # 修正の後のレンズ（修正が差分を作った run だけ）。集め役が終わらなければブロックの境が盤面を止め、後ろの境の節が stop する。
+  # 全部の単位が軽量の run は h-redepth の省く理由を渡し、レンズを起こさない（行と報告に理由が残る）
   - id: lensing
     include: blk-lens
     depends_on: [h-review]
     when: "$h-review.output.go == true"
+    with:
+      skip: $h-redepth.output.skip
 
   # 修正差分の審査（レンズの集め役を待つ。レンズの節が落ちても集め役は ok で終わるので走る）
   - id: reviewing
@@ -1014,6 +1072,7 @@ nodes:
     when: "$h-look.output.go == true"
     with:
       base_rev: $start.output.base_rev
+      skip_optional: $h-redepth.output.skip   # 全部の単位が軽量の run は表で skippable の目（r1.comment_candidates）を省く
 
   # 最後の人の関所を開くか（final_gate: always か when_needed。C18・P1-R3。独立の目が阻害を返しても開く）
   - id: h-final
@@ -1138,6 +1197,7 @@ nodes:
       eyes: {from: $h-eyes.output, if_skipped: null}
       eyeing: {from: $eyeing.output, if_skipped: null}
       cleaned_runs: $INPUTS.cleaned_runs
+      depth: {from: $h-redepth.output, if_skipped: null}
     output_format:
       type: object
       required: [ok, outcome, judgment_file, report_file, next_request_file, tests_green, validator_exit]

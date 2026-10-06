@@ -18,7 +18,9 @@ import json
 import pathlib
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
@@ -143,6 +145,112 @@ class FileCase(unittest.TestCase):
     def test_read_missing_is_none(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertIsNone(depth.read(pathlib.Path(d)))
+
+
+class BoardReadCase(unittest.TestCase):
+    """盤面を読む口（decide・signals・raise_）。盤面は dir・round・record だけを持つ偽物で、控えのファイルを一時の置き場に書く"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = pathlib.Path(self._tmp.name)
+        self.b = types.SimpleNamespace(dir=self.dir, round=1, record={"questions": []}, state={})
+        put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1]), item([U2], tests=4)]})
+
+    def start(self, **kw):
+        put(self.dir / "r1" / "start.json", {"thickness": "自動", "test_cmd": "", **kw})
+
+    def test_decide_reads_fields_and_start_and_writes_file(self):
+        self.start(test_cmd="sh t.sh")
+        doc = depth.decide(self.b, json.dumps([U1, U2]), tdd_suite="")
+        self.assertEqual({k: v["depth"] for k, v in doc["units"].items()}, {U1: depth.LIGHT, U2: depth.STANDARD})
+        self.assertEqual(depth.read(self.dir), doc)
+
+    def test_decide_without_checks_is_standard(self):
+        self.start()
+        doc = depth.decide(self.b, json.dumps([U1]), tdd_suite="")
+        self.assertEqual(doc["units"][U1]["depth"], depth.STANDARD)
+        doc = depth.decide(self.b, json.dumps([U1]), tdd_suite="dev/suite.sh")
+        self.assertEqual(doc["units"][U1]["depth"], depth.LIGHT)
+
+    def test_decide_forced_word_from_start(self):
+        self.start(thickness=depth.STANDARD, test_cmd="sh t.sh")
+        doc = depth.decide(self.b, json.dumps([U1]), tdd_suite="")
+        self.assertEqual(doc["units"][U1]["depth"], depth.STANDARD)
+
+    def test_decide_unreadable_open_units_is_no_units(self):
+        self.start(test_cmd="sh t.sh")
+        self.assertEqual(depth.decide(self.b, "null", tdd_suite="")["units"], {})
+
+    def test_signals_conflicts_and_parked(self):
+        put(self.dir / "r1" / "conflicts.json", {"items": [{"unit_key": U2}]})   # 線の置き場（scope の登録が無い盤面は根だけ）
+        (self.dir / "trace.jsonl").write_text(json.dumps({"op": "fix_bound_parked", "unit_keys": ["u3"]}) + "\n",
+                                              encoding="utf-8")
+        units, run = depth.signals(self.b)
+        self.assertIn(U2, units)
+        self.assertIn("食い違い", units[U2])
+        self.assertIn("止めた", units["u3"])
+        self.assertEqual(run, [])
+
+    def test_signals_unanswered_questions_raise_all(self):
+        with mock.patch.object(depth.gatemarks, "pending", return_value=[{"key": "q1", "kind": "fork"}]):
+            units, run = depth.signals(self.b)
+        self.assertEqual(units, {})
+        self.assertTrue(any("q1" in r for r in run))
+
+    def test_raise_reads_line_signals(self):
+        self.start(test_cmd="sh t.sh")
+        put(self.dir / "plan-fields.json", {"round": 1, "fields": [item([U1])]})
+        depth.decide(self.b, json.dumps([U1]), tdd_suite="")
+        doc = depth.raise_(self.b, replanned=False, rejudged=False)
+        self.assertEqual(depth.run_depth(doc), depth.LIGHT)
+        doc = depth.raise_(self.b, replanned=True, rejudged=False)
+        self.assertEqual(depth.run_depth(doc), depth.STANDARD)
+        self.assertTrue(any("案の直し" in r for r in doc["raised"]))
+        self.assertEqual(depth.read(self.dir), doc)
+
+    def test_raise_without_file_is_standard(self):
+        doc = depth.raise_(self.b, replanned=False, rejudged=True)
+        self.assertEqual(depth.run_depth(doc), depth.STANDARD)
+        self.assertEqual(depth.skip_reason(doc), "")
+
+
+class NodeCase(unittest.TestCase):
+    """線の節の口 node（darkfactory/scripts/depth.py の中身）と、スクリプトを Archon と同じ形（with: → INPUTS_*）で起こした出口"""
+
+    def test_node_on_unopenable_board_falls_to_standard(self):
+        with tempfile.TemporaryDirectory() as d:
+            for at in ("decide", "raise"):
+                with self.subTest(at):
+                    out = depth.node(pathlib.Path(d), at)
+                    self.assertEqual((out["ok"], out["depth"], out["skip"]), (False, depth.STANDARD, ""))
+                    self.assertIn("盤面", out["why"])
+                    self.assertEqual(set(out), set(depth.NODE_FIELDS))
+
+    def test_node_refuses_unknown_at(self):
+        with tempfile.TemporaryDirectory() as d, self.assertRaises(ValueError):
+            depth.node(pathlib.Path(d), "x")
+
+    def test_script_emits_one_line(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            env = {"PATH": "/usr/bin:/bin", "ARTIFACTS_DIR": d, "INPUTS_AT": "raise", "INPUTS_OPEN_UNITS": "",
+                   "INPUTS_TDD_SUITE": "", "INPUTS_REPLANNED": "false", "INPUTS_REJUDGED": "false", "PYTHONDONTWRITEBYTECODE": "1"}
+            r = subprocess.run([sys.executable, str(ROOT / "darkfactory" / "scripts" / "depth.py")], env=env, cwd=d,
+                               capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = json.loads(r.stdout)
+            self.assertEqual(out["depth"], depth.STANDARD)
+            env.pop("INPUTS_AT")
+            r = subprocess.run([sys.executable, str(ROOT / "darkfactory" / "scripts" / "depth.py")], env=env, cwd=d,
+                               capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+            self.assertEqual((r.returncode, r.stdout), (2, ""))
+            self.assertIn("INPUTS_AT", r.stderr)
+
+
+def put(path: pathlib.Path, doc) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
 
 
 if __name__ == "__main__":

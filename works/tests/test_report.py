@@ -733,6 +733,16 @@ class HeadCase(ReportBase):
         lines = report.head_entry(b, None, cleaned_runs="run-f（failed）・run-c（completed）")
         self.assertIn(f"{report.CLEANED_HEAD}: run-f（failed）・run-c（completed）", lines)
 
+    def test_depth_lines_in_head_entry(self):
+        """深さの節 h-redepth の行（入力 depth の lines）は冒頭 2 にそのまま並ぶ。無い run（前の版・節が走らなかった）は出さない"""
+        self.judged()
+        b = entry.open_board(self.board)
+        self.assertFalse(any(x.startswith("深さ: ") for x in report.head_entry(b, None)))
+        got = ["深さ: 軽量（単位ごと: 軽量 1 個・標準 0 個。機械が決めた）", "軽量で省いた: レンズ"]
+        lines = report.head_entry(b, None, depth_lines=got)
+        for x in got:
+            self.assertIn(x, lines)
+
     def test_context7_quota_line_in_head_entry(self):
         """Context7 が 429（枠切れ）を返した盤面では冒頭 2 に枠切れの 1 行が在り、返さなかった盤面では無い"""
         import libdocs
@@ -1134,7 +1144,7 @@ class ScriptCase(ReportBase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         self.assertEqual(mod.INPUTS, ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI",
-                                      "INPUTS_EYES", "INPUTS_EYEING", "INPUTS_CLEANED_RUNS"))
+                                      "INPUTS_EYES", "INPUTS_EYEING", "INPUTS_CLEANED_RUNS", "INPUTS_DEPTH"))
         r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_TESTS=json.dumps(RED),
                             INPUTS_MID=json.dumps({"go": False, "mid_note": "枠のみ"}), INPUTS_CI="")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -1154,6 +1164,19 @@ class ScriptCase(ReportBase):
         r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_CLEANED_RUNS=None)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn(report.CLEANED_HEAD, pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8"))
+
+    def test_script_depth_reaches_report(self):
+        """入力 depth（h-redepth の出口の JSON）の lines は報告の冒頭 2 に届く。前の版の with: で再開した run は渡さないので、無くても 0"""
+        self.judged()
+        depth_out = {"ok": True, "why": "", "depth": "軽量", "unit_depths": "{}", "skip": "x", "depth_file": "",
+                     "lines": ["深さ: 軽量（試し）", "軽量で省いた: レンズ（試し）"]}
+        r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_DEPTH=json.dumps(depth_out, ensure_ascii=False))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8")
+        self.assertIn("軽量で省いた: レンズ（試し）", text)
+        r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_DEPTH=None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("軽量で省いた", pathlib.Path(json.loads(r.stdout)["report_file"]).read_text(encoding="utf-8"))
 
     def test_script_interrupted_by_missing_exit_marks(self):
         """上流の節が落ちた run（run 30・31 の形）: 出来事が取れなくても、h-eyes の出口が無い・目を回すと言ったのに blk-eyes の

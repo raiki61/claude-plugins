@@ -14,7 +14,12 @@ graph の外の物と graph が optional と言う物だけ（写しの graph �
 - lines(doc): 報告の冒頭 2 の行（単位ごとの深さの数・上げた理由・軽量で省いた物）
 - unit_map(doc): {単位: 深さ} の JSON の文字列（修正のブロックへのつなぎ目。計画の「blk-fix へのつなぎ目」）
 - write(board_dir, doc)・read(board_dir): 盤面の根の控え depth.json
-- decide(board_dir, open_units, *, checked)・signals(board_dir)・raise_(board_dir, *, replanned, rejudged): 盤面を読む口
+- decide(b, open_units, *, tdd_suite): 盤面を読む口（修正の前の節 h-depth）。修正案の項目の欄（planmarks.read）・start の控えの
+  thickness と test_cmd・入力 tdd_suite から決めて控えを書く。open_units は h-fix の出口の JSON の配列の文字列（読めなければ単位なし）
+- signals(b): 修正の後の上げる信号 ({単位: 理由}, [run の理由])。食い違いの申し出（各 scope の今の周の conflicts.json）・止めた単位
+  （trace の conflict.ACCEPT_PARKED_OP の行）・答えていない問い（gatemarks.pending）
+- raise_(b, *, replanned, rejudged): 盤面を読む口（修正の後の節 h-redepth）。signals と線の信号（案の直し・再審が走った）で上げて
+  控えを書き直す。控えが無い（h-depth が走らなかった）run は単位なし（標準）
 """
 import json
 import os
@@ -26,6 +31,11 @@ sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ 
 _CORE = pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
+
+import conflict  # noqa: E402
+import gatemarks  # noqa: E402
+import planmarks  # noqa: E402
+import scopes  # noqa: E402
 
 LIGHT = "軽量"
 STANDARD = "標準"
@@ -163,3 +173,98 @@ def read(board_dir):
     if not isinstance(doc, dict) or not isinstance(doc.get("units"), dict):
         raise ValueError(f"深さの控え {path} の形が違う（units が要る）")
     return doc
+
+
+# ---------------------------------------------------------------- 盤面を読む口（線の節 h-depth・h-redepth）
+def _open_units(raw) -> list:
+    try:
+        got = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return []
+    return [k for k in got if isinstance(k, str)] if isinstance(got, list) else []
+
+
+def decide(b, open_units, *, tdd_suite: str) -> dict:
+    start = gatemarks.start_doc(b.dir)
+    checked = bool((tdd_suite or "").strip() or str(start.get("test_cmd") or "").strip())
+    doc = decide_doc(planmarks.read(b), _open_units(open_units), forced=str(start.get("thickness") or ""), checked=checked)
+    write(b.dir, doc)
+    return doc
+
+
+def _rows(path) -> list:
+    try:
+        doc = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    items = doc.get("items") if isinstance(doc, dict) else doc
+    return [r for r in items or [] if isinstance(r, dict)] if isinstance(items, list) else []
+
+
+def _trace(b, op: str) -> list:
+    try:
+        lines = (pathlib.Path(b.dir) / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    out = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("op") == op:
+            out.append(row)
+    return out
+
+
+def signals(b) -> tuple:
+    units = {}
+    for path in scopes.each(b, conflict.FILE):
+        for r in _rows(path):
+            if isinstance(r.get("unit_key"), str):
+                units.setdefault(r["unit_key"], "食い違いの申し出が在る")
+    for row in _trace(b, conflict.ACCEPT_PARKED_OP):
+        for k in row.get("unit_keys") or []:
+            if isinstance(k, str):
+                units.setdefault(k, "修正の受け付けが最後の回に止めた")
+    try:
+        held = gatemarks.pending(b)
+    except Exception as e:   # 台帳が読めない盤面は上げる側へ倒す（軽量のまま黙って残さない）
+        return units, [f"問いの台帳が読めない（{type(e).__name__}）"]
+    run = [f"答えていない問い {q.get('key')}" for q in held if isinstance(q, dict)]
+    return units, run
+
+
+def raise_(b, *, replanned: bool, rejudged: bool) -> dict:
+    doc = read(b.dir) or {"units": {}, "forced": "", "raised": []}
+    units, run = signals(b)
+    if replanned:
+        run.append("同じ run の案の直しが走った")
+    if rejudged:
+        run.append("判定への異議の再審が走った")
+    doc = raise_doc(doc, units=units, run=run)
+    write(b.dir, doc)
+    return doc
+
+
+NODE_FIELDS = ("ok", "why", "depth", "unit_depths", "skip", "lines", "depth_file")
+ATS = ("decide", "raise")
+
+
+def _out(doc: dict, *, ok: bool, why: str, path) -> dict:
+    return {"ok": ok, "why": why, "depth": run_depth(doc), "unit_depths": unit_map(doc), "skip": skip_reason(doc),
+            "lines": lines(doc), "depth_file": str(path or "")}
+
+
+def node(board_dir, at: str, *, open_units: str = "", tdd_suite: str = "", replanned: bool = False,
+         rejudged: bool = False) -> dict:
+    if at not in ATS:
+        raise ValueError(f"at={at!r} は知らない値（{' / '.join(ATS)}）")
+    import entry
+    try:
+        b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
+        doc = decide(b, open_units, tdd_suite=tdd_suite) if at == "decide" else raise_(b, replanned=replanned, rejudged=rejudged)
+    except Exception as e:   # 節を落とさず標準へ倒す（理由は why に 1 行）
+        return _out({"units": {}}, ok=False, why=f"盤面を読めないので標準にした（{type(e).__name__}: {' '.join(str(e).split())[:300]}）",
+                    path=None)
+    return _out(doc, ok=True, why="", path=pathlib.Path(board_dir) / FILE)

@@ -874,8 +874,9 @@ def declared_downgrades(line: str, *, pack: pathlib.Path = PACK) -> list:
     return [{k: r[k] for k in DOWNGRADE_KEYS} for r in doc]
 
 
-def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: str = "") -> list:
+def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: str = "", depth_lines=()) -> list:
     """冒頭 2: 入口・段・gates・最後の関所の形・決めた人（関所の答えの数）・このラインに無い節の数と一覧のパス・下げている所・
+    線が渡した深さの行（depth_lines。単位ごとの深さと、軽量で省いた物。渡されなければ出さない）・
     中の検査の枠の行（境の節の mid_note）・ライブラリの文書の枠切れの 1 行（印が在る時だけ。libdocs.notice）・起動の前に
     片付けた前の run の 1 行（入力 cleaned_runs。空なら出さない）"""
     s = _start_doc(b, start)
@@ -898,6 +899,7 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: 
     downs = declared_downgrades(b.table.line) if b.table is not None else []
     lines.append(f"下げている所: {len(downs)} 個")
     lines += [f"  - {r['node']}: {r['what']}（{r['versus']}）" for r in downs]
+    lines += [str(x) for x in depth_lines or () if isinstance(x, str) and x]
     if isinstance(mid, dict) and mid.get("mid_note"):
         lines.append(f"中の検査の枠: {mid['mid_note']}")
     else:
@@ -1312,7 +1314,8 @@ def _finish_fields(b, judged, outcome) -> dict:
 
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None, mid: dict | None = None,
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
-          failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "") -> dict:
+          failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "",
+          depth_lines=()) -> dict:
     """gate_record → decide_outcome（eyeing＝独立の目のブロックの出口。残りに数える）→ 部品で <盤面>/report.md と
     <盤面>/next-request.json（と、包みが即時の死を記録した run は <盤面>/NO_TURN_FILE）を書き、1 本目の finish の欄に
     report_file・next_request_file・tests_green・validator_exit と、書き出しの節が読む export_input {outcome, report_file,
@@ -1342,7 +1345,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     rid = run_id or _start_doc(b, start).get("run_id") or ""
     body = [f"# 報告（run {rid or '—'}）", "", *head3(b, outcome, left=left, next_items=items), ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p), left=left),
-             head_entry(b, start, mid=mid, cleaned_runs=cleaned_runs), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
+             head_entry(b, start, mid=mid, cleaned_runs=cleaned_runs, depth_lines=depth_lines), head_stop(b, interrupted=interrupted, failed=failed, retried=retried),
              head_reads(board_dir, rid, ci=ci), head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]

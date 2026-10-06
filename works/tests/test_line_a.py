@@ -112,6 +112,36 @@ class LineCase(LineBase):
         # 1 本目の finish の欄を全部持つ
         self.assertLessEqual({"ok", "outcome", "judgment_file", "review_file", "diff_file", "faces"}, set(got["report"]))
 
+    def test_depth_standard_keeps_every_check(self):
+        """深さ（計画 2026-10-06-variable-depth）: 機械の確かめ（test_cmd・tdd_suite）の無い run は単位が標準で、レンズも
+        コメントの削除候補も今どおり回り、報告の冒頭 2 に深さの行が在る"""
+        got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}})
+        self.assertEqual((got["out"]["h-depth"]["depth"], got["out"]["h-redepth"]["skip"]), ("標準", ""))
+        self.assertIn("r1-comments", got["eyes_roles"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertNotIn("r1.comment_candidates", b.rd["skipped"])
+        text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
+        self.assertIn("深さ: 標準", text)
+        self.assertNotIn("軽量で省いた", text)
+
+    def test_depth_light_skips_lens_and_comment_candidates(self):
+        """入力 thickness 軽量で全部の単位が軽量のまま（上げる信号が無い）なら、レンズを起こさず（行は not_routed と理由）、
+        コメントの削除候補を盤面で省き（R1 の本体は回る）、報告の冒頭 2 に「軽量で省いた」を名指す"""
+        got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}},
+                            inputs={"thickness": "軽量"})
+        red = got["out"]["h-redepth"]
+        self.assertEqual(red["depth"], "軽量", red)
+        self.assertIn("軽量", red["skip"])
+        self.assertNotIn("r1-comments", got["eyes_roles"])
+        self.assertIn("r1-minimality", got["eyes_roles"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertEqual(b.rd["skipped"].get("r1.comment_candidates"), red["skip"])
+        rows = json.loads(next(got["board_dir"].rglob("lens.json")).read_text(encoding="utf-8"))["rows"]
+        self.assertEqual({r["state"] for r in rows}, {"not_routed"})
+        text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
+        self.assertIn("軽量で省いた: レンズ", text)
+        self.assertIn("軽量で省いた: 独立の目の r1.comment_candidates", text)
+
     def test_no_fix_path(self):
         """判定が直す物を残さない → 修正・審査・手直しは飛び、最後のテストは周を締めるので走る。結末 no_fix_needed。
         修正案のブロックは、最後の R2 が要る独立設計だけを作りに入る（修正案は盤面で na）"""
