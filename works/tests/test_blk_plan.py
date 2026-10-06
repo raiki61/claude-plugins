@@ -119,7 +119,8 @@ class YamlCase(unittest.TestCase):
 
     def test_inputs_and_exit(self):
         self.assertEqual(set(self.y["inputs"]), {"judgment_file", "base_rev", "policy_paste", "policy_path", "excluded_file",
-                                                 "replan", "verify_file"})
+                                                 "replan", "verify_file", "review_tree"})
+        self.assertEqual(self.y["inputs"]["review_tree"]["default"], "")   # 事前審査の木の切り替え（空は on＝今どおり）
         self.assertEqual(self.y["inputs"]["verify_file"]["default"], "")   # 判定の単位の裏取りの申し送り（線の木の段 3）   # include の名は入力に持たない（core が引く。依頼 239）
         self.assertEqual(self.y["inputs"]["replan"]["default"], "")
         self.assertIs(self.y["inputs"]["judgment_file"]["required"], True)
@@ -269,8 +270,10 @@ class YamlCase(unittest.TestCase):
                 want = {f"INPUTS_{k.upper()}" for k in (n.get("with") or {})}
                 mod = script_module(n["script"])
                 self.assertEqual(set(mod.INPUTS), want)
-                # 後から足した replan（と支度の verify_file。判定の単位の裏取りの申し送り）だけが無くてよい（無い・空は今どおり）
-                self.assertEqual(set(mod.OPTIONAL), {"INPUTS_REPLAN"} | ({"INPUTS_VERIFY_FILE"} if n["script"] == "prep" else set()))
+                # 後から足した replan（と支度の verify_file・review_tree。判定の単位の裏取りの申し送りと事前審査の木の切り替え）
+                # だけが無くてよい（無い・空は今どおり）
+                self.assertEqual(set(mod.OPTIONAL), {"INPUTS_REPLAN"} | ({"INPUTS_VERIFY_FILE", "INPUTS_REVIEW_TREE"}
+                                                                         if n["script"] == "prep" else set()))
                 self.assertEqual(n["with"]["replan"], "$INPUTS.replan", "同じ script を回す節は全部 replan を渡す")
                 self.assertEqual((n["timeout"], n["runtime"]), (DEADLINE, "uv"))
                 if "role" in (n.get("with") or {}):
@@ -2185,6 +2188,27 @@ class TreeReviewCase(unittest.TestCase):
         self.assertTrue(self.ok("snap", role="plan-review")["go"])
         prompt = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn(f"subagent_type は全部 {planblk.SUBAGENT_TYPE}", prompt)
+
+    def test_review_tree_off_is_one_reviewer(self):
+        """入力 review_tree が off（線の features_off の review_tree）なら、項目が 2 つの案でも支度は下請けのファイルと束ね役の
+        頼みを書かず、受け付けは審査役 1 つの返答（faces・shrink をそのまま書いた物）を木のまとめなしで受ける"""
+        self.ready()
+        self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        prep = self.ok("prep", role="plan-review", excluded_file="", review_tree="off")
+        prompt = pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(planblk.AGG_HEAD, prompt)
+        self.assertFalse(self.board_obj().work(planblk.ITEMS_DIR.format(k=1)).exists(), "下請けのファイルを書かない")
+        got = self.ok("accept", role="plan-review", reply=json.dumps(linekit.reply("plan_review_ok"), ensure_ascii=False))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+
+    def test_review_tree_unknown_word_stops_prep(self):
+        self.ready()
+        self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        rc, _, err = self.run_script("prep", role="plan-review", excluded_file="", review_tree="false")
+        self.assertEqual(rc, 2)
+        self.assertIn("review_tree", err)
 
     def test_single_item_plan_needs_no_synergy(self):
         """1 項目で覆っていない当たりの無い案は、下請けの答えのファイルが無ければ返答の全体がその項目の答え"""

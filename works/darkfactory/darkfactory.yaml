@@ -59,6 +59,15 @@ inputs:
   fix_shape:
     default: ""
     description: 修正の形。current（比べの基準。修正案の欄を修正の段で使わない）・af（works 自身の文で回す今の形）・g3（af に借りたスキルの座を足した形）・g1（修正役 1 つが SDD の型で下請けを回す形）のどれか。空は既定の g3。start が確かめて盤面の控え r1/start.json に置き、呼び直しで替えれば止める
+  features_off:
+    default: ""
+    description: >-
+      切る機能（同じ依頼を全部 on と切った形で回して比べる口。持ち主の依頼 2026-10-07）。語をカンマか空白で区切った 1 行で、空は
+      全部 on（今どおり）。語は judge_verify（判定の裏取り。切ると単位の裏取りと相乗りの下請けを起こさず、修正案の役に申し送りを
+      貼らない）・review_tree（事前審査の項目ごとの木。切ると審査役 1 つが案の全体を審査する）・tdd_lanes（TDD の輪の並べの周。
+      切ると tdd の単位を順に回す）・fix_lanes（修正役の項目ごとの並べ。切ると項目を作業ツリーで順に直す）。知らない語は start が
+      AI の前で拒む。start が機能ごとの on・off を出口に出し、線がブロックの切り替えの入力へ写す。切った機能は start の控え・
+      版の控え versions.json の settings・報告の冒頭 2 に残る。呼び直しで替えれば止める（固定材料の run は替えてよい）
   fix_fixture:
     default: ""
     description: 固定材料のフォルダ（前の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した盤面と控え。相対なら対象の根から）。空は今どおり。在れば start が写しを取り込み、判定と修正案を作り直さずに修正から始める。木・依頼・test_cmd が写した時と違う・写しを書き換えた なら止める。腕（fix_shape）ごとに同じ所から回して比べるのに使う
@@ -104,6 +113,7 @@ nodes:
       design_only: $INPUTS.design_only
       fix_shape: $INPUTS.fix_shape
       fix_fixture: $INPUTS.fix_fixture
+      features_off: $INPUTS.features_off
     output_format:
       type: object
       required: [ok, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, ci_role_go, head_line]
@@ -119,6 +129,10 @@ nodes:
         thickness: {type: string}
         gates: {type: string}
         fix_shape: {type: string}
+        fix_lanes: {type: string, enum: ["on", "off"]}      # 切る機能（入力 features_off）ごとの on・off（entry.feature_words）
+        judge_verify: {type: string, enum: ["on", "off"]}
+        review_tree: {type: string, enum: ["on", "off"]}
+        tdd_lanes: {type: string, enum: ["on", "off"]}
         ci_role_go: {type: boolean}
         head_line: {type: string}
 
@@ -316,6 +330,7 @@ nodes:
       base_rev: $start.output.base_rev
       policy_paste: $start.output.policy_paste
       premises_file: $h-judge.output.premises_file
+      verify: $start.output.judge_verify   # 判定の裏取り（入力 features_off の judge_verify で off）
 
   # 判定を盤面へ渡し替え、直す物の無い周は修正を機械が空で埋める
   - id: h-plan
@@ -410,6 +425,7 @@ nodes:
       policy_paste: $start.output.policy_paste
       policy_path: $start.output.policy_path
       verify_file: $h-plan.output.verify_file   # 判定の単位の裏取りの申し送り（線の木の段 3。単位が 2 つ未満の周は空）
+      review_tree: $start.output.review_tree   # 事前審査の項目ごとの木（入力 features_off の review_tree で off）
 
   # 盤面が人に聞いていれば関所を開く（文は r<N>/gate.md。文言には置き場だけを載せる）
   - id: h-gate
@@ -564,6 +580,8 @@ nodes:
       unit_depths: $h-depth.output.unit_depths   # 軽量の単位は TDD の輪の緑の後の test_cmd を省く（最後のテストが木の全部で走らせる）
       ripple_file: $h-fix.output.ripple_file   # 修正案のブロックの波及の一覧（項目が変える名の呼び出し元と試験。範囲の外の当たりの名指し）
       plan_session: plan   # 範囲の相談の相手: blk-plan の役の節の印 works-node: plan（修正案を書いた会話。案の直しの後はその会話）
+      tdd_lanes: $start.output.tdd_lanes   # TDD の輪の並べの周（入力 features_off の tdd_lanes で off）
+      fix_lanes: $start.output.fix_lanes   # 修正役の項目ごとの並べ（入力 features_off の fix_lanes で off）
 
   # 案の直しを回すか（依頼 226。修正の段で裁定役が fix_plan_item と裁いた項目を束ねる。1 run に 1 回。replan.material）
   - id: h-replan
@@ -623,6 +641,7 @@ nodes:
       policy_paste: $start.output.policy_paste
       policy_path: $start.output.policy_path
       replan: "true"
+      review_tree: $start.output.review_tree
 
   # 直した項目に関所の 1 つの決まりを当てる（約束の欄が同じで人に聞く穴が無い直しだけを聞かずに通す。replan.gate）
   - id: h-regate
@@ -750,6 +769,8 @@ nodes:
       test_cmd: $start.output.test_cmd
       ripple_file: $h-refit.output.ripple_file   # 修正案のブロックの波及の一覧（案の直しの 2 度目の include が直した項目から作り直した ripple/replan.json。無ければ 1 回目の物）
       plan_session: plan   # 範囲の相談の相手: blk-plan の役の節の印 works-node: plan（修正案を書いた会話。案の直しの後はその会話）
+      tdd_lanes: $start.output.tdd_lanes   # TDD の輪の並べの周（入力 features_off の tdd_lanes で off）
+      fix_lanes: $start.output.fix_lanes   # 修正役の項目ごとの並べ（入力 features_off の fix_lanes で off）
 
   # 修正役が判定に異議を出した周の再審を回すか（盤面が p2.rejudge を待つ時。判定役の会話が無ければ止める）
   - id: h-rejudge

@@ -1179,6 +1179,20 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(calls, [])
             self.assertFalse((tmp / "dog").exists())
 
+    def test_dogfood_features_off_appends_input_only_when_asked(self):
+        """WORKS_FEATURES_OFF（切る機能）が空でなければラインの引数に features_off=<値> を足す（語は start が確かめる）。
+        未設定・空では引数は今と同じ"""
+        base = ["--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=optional",
+                "--input", "final_gate=always"]
+        for value, extra in ((None, []), ("", []), ("review_tree,fix_lanes", ["--input", "features_off=review_tree,fix_lanes"])):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                (tmp / "req.json").write_text("[]\n")
+                result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                                   WORKS_DEV_ADAPTER="0", WORKS_FEATURES_OFF=value)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[0][-(len(base) + len(extra)):], base + extra)
+
     def test_dogfood_fix_fixture_appends_input_only_when_asked(self):
         """WORKS_FIX_FIXTURE（固定材料のフォルダ）が空でなければ在るフォルダかを確かめ、ラインの引数に fix_fixture=<絶対パス> を
         足す。未設定・空では引数は今と同じ。無いフォルダは <dir> を作らず・Archon を呼ばずに使い方の誤り（終了コード 2）で止まる"""

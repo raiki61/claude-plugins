@@ -906,6 +906,20 @@ class HeadCase(ReportBase):
         p.write_text(json.dumps({**doc, "entry_words": words}, ensure_ascii=False), encoding="utf-8")
         self.assertTrue(report.head_entry(b, {"entry": "change"})[0].startswith(f"入口: {words}・"))
 
+    def test_features_part_from_start_doc(self):
+        """冒頭 2 の頭の行に切った機能（入力 features_off）が出る。正本は start の控え（start の出口は機能ごとの on・off だけ）。
+        控えに欄が無い run（この版より前）は語を出さない"""
+        self.judged()
+        b = entry.open_board(self.board)
+        self.assertIn("・機能: 全部 on", report.head_entry(b, {})[0])   # entry.start は控えに空の配列を書く
+        p = self.board / "r1" / entry.START_FILE
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        p.write_text(json.dumps({**doc, "features_off": ["judge_verify", "tdd_lanes"]}, ensure_ascii=False), encoding="utf-8")
+        self.assertIn("・切った機能: judge_verify・tdd_lanes", report.head_entry(b, {"tdd_lanes": "off"})[0])
+        doc.pop("features_off")
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.assertNotIn("機能", report.head_entry(b, {})[0])
+
     def test_mid_note_line(self):
         """境の節 h-mid の出口の mid_note → 冒頭 2 に。出口が無ければ届いていないの行"""
         self.judged()

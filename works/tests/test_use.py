@@ -747,10 +747,12 @@ class UseShell(unittest.TestCase):
     def test_start_final_gate_always_when_explicit_and_inputs(self):
         t = self.target()
         r = self.use("start", str(t), str(self.request), "true", "", WORKS_USE_FINAL_GATE="always",
-                     WORKS_USE_POLICY_MD="/p/policy.md", WORKS_USE_GATES="merge", WORKS_USE_THICKNESS="x")
+                     WORKS_USE_POLICY_MD="/p/policy.md", WORKS_USE_GATES="merge", WORKS_USE_THICKNESS="x",
+                     WORKS_USE_FEATURES_OFF="judge_verify,tdd_lanes")
         self.assertEqual(r.returncode, 0, r.stderr)
         run = self.started()
-        for want in ("final_gate=always", "policy_md=/p/policy.md", "gates=merge", "thickness=x"):
+        for want in ("final_gate=always", "policy_md=/p/policy.md", "gates=merge", "thickness=x",
+                     "features_off=judge_verify,tdd_lanes"):
             self.assertIn(want, run)
 
     def test_answer_records_who_and_responds(self):

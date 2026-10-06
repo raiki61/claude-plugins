@@ -6,7 +6,8 @@
 
 読む環境変数: INPUTS_TDD_SUITE（テストの実行器。空は「無い run」）・INPUTS_OPEN_UNITS（直す義務の単位の key の JSON の配列）・
 INPUTS_TEST_CMD（run のテストのコマンド。線の入力 test_cmd。空は走らせない）・INPUTS_UNIT_DEPTHS（単位ごとの深さ
-{"<単位の key>": "軽量" | "標準"} の JSON の文字列。空は全部の単位が今どおり。軽量の単位は緑の後の test_cmd を走らせない）・ARTIFACTS_DIR（実行器が在る時だけ使う。盤面は
+{"<単位の key>": "軽量" | "標準"} の JSON の文字列。空は全部の単位が今どおり。軽量の単位は緑の後の test_cmd を走らせない）・
+INPUTS_TDD_LANES（並べの周を使うか。on・off、空と無いのは on。off なら状態の lanes_on を偽にする）・ARTIFACTS_DIR（実行器が在る時だけ使う。盤面は
 その下の board/）。
 - 実行器が無い（INPUTS_TDD_SUITE が空）: 盤面を読まず、何も書かずに {"go": false, "reason", "suite": "", "state_file": "",
   "summary_file": ""} を 1 行出して 0（輪は飛ばされ、修正役が全部の単位を今どおり直す）
@@ -39,11 +40,13 @@ import script_io  # noqa: E402
 import tddloop  # noqa: E402
 from leftovers import Unreadable  # noqa: E402
 
-INPUTS = ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS", "INPUTS_TEST_CMD", "INPUTS_UNIT_DEPTHS")
+INPUTS = ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS", "INPUTS_TEST_CMD", "INPUTS_UNIT_DEPTHS", "INPUTS_TDD_LANES")
+# 無くても欠けに数えない入力（後から足した切り替え。前の版の with: で再開した run は渡さない。無い・空は on＝今どおり）
+OPTIONAL = frozenset({"INPUTS_TDD_LANES"})
 
 
 def main() -> int:
-    missing = [n for n in INPUTS if n not in os.environ]
+    missing = [n for n in INPUTS if n not in os.environ and n not in OPTIONAL]
     if missing:
         print(f"tdd-start: 環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
@@ -53,7 +56,7 @@ def main() -> int:
         return 2
     try:
         out = tddloop.start(board, Path.cwd(), suite, os.environ["INPUTS_OPEN_UNITS"], test_cmd=os.environ["INPUTS_TEST_CMD"],
-                             unit_depths=os.environ["INPUTS_UNIT_DEPTHS"])
+                             unit_depths=os.environ["INPUTS_UNIT_DEPTHS"], lanes=os.environ.get("INPUTS_TDD_LANES", ""))
     except (tddloop.Broken, Unreadable, OSError) as e:
         print(f"tdd-start: {' '.join(str(e).split())}", file=sys.stderr)
         return 2

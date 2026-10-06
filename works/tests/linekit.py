@@ -256,7 +256,7 @@ LINE_ORDER = [
               "gates": "$INPUTS.gates", "final_gate": "$INPUTS.final_gate", "adapter": "$INPUTS.adapter",
               "policy_md": "$INPUTS.policy_md", "lang": "$INPUTS.lang", "unattended": "$INPUTS.unattended",
               "design_only": "$INPUTS.design_only", "fix_shape": "$INPUTS.fix_shape",
-              "fix_fixture": "$INPUTS.fix_fixture"}},
+              "fix_fixture": "$INPUTS.fix_fixture", "features_off": "$INPUTS.features_off"}},
     {"id": "ci-checking", "kind": "include", "block": "blk-ci", "depends_on": ["start"],
      "when": "$start.output.ci_role_go == true",
      "with": {"node": "p0.local_checks", "base_rev": "$start.output.base_rev"}},
@@ -279,7 +279,8 @@ LINE_ORDER = [
     {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat", "gathering"], "trigger_rule": NFMOS,
      "when": "$h-mat.output.go == true",
      "with": {"request": "$INPUTS.request", "base_rev": "$start.output.base_rev",
-              "policy_paste": "$start.output.policy_paste", "premises_file": "$h-judge.output.premises_file"}},
+              "policy_paste": "$start.output.policy_paste", "premises_file": "$h-judge.output.premises_file",
+              "verify": "$start.output.judge_verify"}},
     _edge("h-plan", "plan", ["start", "h-mat", "judging"], judged=_skippable("$judging.output")),
     {"id": "structuring", "kind": "include", "block": "blk-structure", "depends_on": ["h-plan"],
      "when": "$h-plan.output.go == true",
@@ -292,7 +293,7 @@ LINE_ORDER = [
      "when": "$h-plan.output.go == true",
      "with": {"judgment_file": "$h-plan.output.judgment_file", "base_rev": "$start.output.base_rev",
               "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path",
-              "verify_file": "$h-plan.output.verify_file"}},
+              "verify_file": "$h-plan.output.verify_file", "review_tree": "$start.output.review_tree"}},
     _edge("h-gate", "gate", ["start", "h-plan", "h-structure", "planning"]),
     {"id": "policy-gate", "kind": "approval", "depends_on": ["h-gate"], "when": "$h-gate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
@@ -306,13 +307,14 @@ LINE_ORDER = [
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
               "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd",
               "unit_depths": "$h-depth.output.unit_depths", "ripple_file": "$h-fix.output.ripple_file",
-              "plan_session": "plan"}},
+              "plan_session": "plan", "tdd_lanes": "$start.output.tdd_lanes", "fix_lanes": "$start.output.fix_lanes"}},
     # 同じ run の中の案の直し（依頼 226。1 run に 1 回）: blk-plan と blk-fix の 2 度目の include
     _edge("h-replan", "replan", ["start", "h-fix", "fixing"]),
     {"id": "replanning", "kind": "include", "block": "blk-plan", "depends_on": ["h-replan"],
      "when": "$h-replan.output.go == true",
      "with": {"judgment_file": "$h-replan.output.judgment_file", "base_rev": "$start.output.base_rev",
-              "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path", "replan": "true"}},
+              "policy_paste": "$start.output.policy_paste", "policy_path": "$start.output.policy_path", "replan": "true",
+              "review_tree": "$start.output.review_tree"}},
     _edge("h-regate", "regate", ["start", "h-replan", "replanning"]),
     {"id": "replan-gate", "kind": "approval", "depends_on": ["h-regate"], "when": "$h-regate.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
@@ -323,7 +325,8 @@ LINE_ORDER = [
               "plan_file": "$h-refit.output.plan_file", "notes_file": "$h-refit.output.notes_file",
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
               "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd",
-              "ripple_file": "$h-refit.output.ripple_file", "plan_session": "plan"}},
+              "ripple_file": "$h-refit.output.ripple_file", "plan_session": "plan",
+              "tdd_lanes": "$start.output.tdd_lanes", "fix_lanes": "$start.output.fix_lanes"}},
     _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing", "h-refit", "refitting"]),
     {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
      "when": "$h-rejudge.output.go == true",
@@ -537,7 +540,8 @@ class LineRun:
                 if got["done"]:
                     break
         # 判定の根を開く（線の木の段 3）: 支度 → go なら束ね役（replies["judge-verify"]（盤面を受ける関数）か見本 verify_answers）→ まとめ
-        if judgeverify.prep(self.board, self.repo)["go"]:
+        # 線は裏取りの切り替えに start の出口の judge_verify（入力 features_off）を渡す
+        if judgeverify.prep(self.board, self.repo, verify=(self.out.get("start") or {}).get("judge_verify", ""))["go"]:
             answer = self.replies.get("judge-verify", verify_answers)
             if callable(answer):
                 answer(self.board)   # 下請けの代わりに答えのファイルを書く（束ね役の要約はまとめが読まない）
@@ -565,7 +569,9 @@ class LineRun:
             return
         for _ in range(planblk.GIVE_UP_AFTER):
             # 線は修正案のブロックの支度に h-plan の verify_file（判定の単位の裏取りの申し送り。線の木の段 3）を渡す
-            planblk.prep(self.board, role, self.repo, verify_file=(self.out.get("h-plan") or {}).get("verify_file", ""))
+            # 事前審査の木の切り替えは start の出口の review_tree（入力 features_off）
+            planblk.prep(self.board, role, self.repo, verify_file=(self.out.get("h-plan") or {}).get("verify_file", ""),
+                         review_tree=(self.out.get("start") or {}).get("review_tree", ""))
             if planblk.accept_reply(self.board, role, json.dumps(body(), ensure_ascii=False), self.repo)["done"]:
                 return
 

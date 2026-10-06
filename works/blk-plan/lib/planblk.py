@@ -36,7 +36,9 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
             前の block の行き先）、faces・shrink・resolved・当たりの答え・相乗りを審査の返答にまとめる。束ね役の返答は項目ごとの判定の
             要約（converge.ITEMS）だけで、答えのファイルと食い違えば拒む。確かめを通らない項目は、出し直しの支度がその項目の下請けの
             ファイルにだけ機械の読める誤りの一覧（ERRORS_HEAD）を貼って起こし直させ、通った項目は起こし直さない。
-            修正案と直しを受けたら項目を壁打ちの控えに置き（converge.note_plan）、直しの役が閉じた項目を変えたら拒む（CLOSED_REJECT）
+            修正案と直しを受けたら項目を壁打ちの控えに置き（converge.note_plan）、直しの役が閉じた項目を変えたら拒む（CLOSED_REJECT）。
+            入力 review_tree が off（script_io.switch_on）なら支度は木の節（tree_part）を書かず、今の往復の下請けの置き場
+            （ITEMS_DIR）が無いので受け付けは木のまとめを飛ばす（_tree_off。審査役 1 つの返答をそのまま受ける）
 - 裏取りの申し送り: 入力 verify_file（判定の単位ごとの裏取りと単位どうしの相乗りの JSON。形は verify_part）が在れば、修正案の役の
             頭に貼る（verify_part）。単位は直す義務で申し送りでは減らないので、根本でないと出た単位も案から外させない
 - reads:    役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
@@ -77,6 +79,7 @@ import reads  # noqa: E402
 import replan as replan_mod  # noqa: E402  （入力の名 replan と分ける）
 import ripple  # noqa: E402  （blk-plan の lib。波及の一覧）
 import rolekit  # noqa: E402
+import script_io  # noqa: E402  （L1。入力の切り替えの語 switch_on）
 import structmark  # noqa: E402
 
 NODE_OF = {"plan": "p2.fix_plan", "plan-review": "p2.plan_review"}   # 役（YAML の役の節の id・印の名）→ 写しの graph の節
@@ -707,10 +710,12 @@ def check_item(b, k: int, n: int, rip: dict, pre: list | None = None) -> tuple:
 
 
 def _tree_off(b, k: int, rip: dict) -> bool:
-    """項目の控えが無い・1 項目で覆っていない当たりが無く答えのファイルも無い案は木にしない（返答の全体がその項目の答え）"""
+    """項目の控えが無い・支度がこの往復の下請けのファイルを書いていない（入力 review_tree が off。tree_part が置き場 ITEMS_DIR を
+    作らない）・1 項目で覆っていない当たりが無く答えのファイルも無い案は木にしない（返答の全体が審査役 1 つの答え）"""
     plan = converge.read(b).get("plan")
-    return (not plan or (len(plan) == 1 and converge.open_items(b) == [1] and not ripple.uncovered(rip, 1)
-                         and not answer_file(b, k, 1).is_file()))
+    return (not plan or not b.work(ITEMS_DIR.format(k=k)).is_dir()
+            or (len(plan) == 1 and converge.open_items(b) == [1] and not ripple.uncovered(rip, 1)
+                and not answer_file(b, k, 1).is_file()))
 
 
 def tree_merge(b, bare: dict, tree: dict, resolved: list) -> dict:
@@ -926,13 +931,16 @@ def snap(board_dir, role: str, repo, replan: str = "") -> dict:
     return {"ok": True, "go": True, "snapshot_file": str(p)}
 
 
-def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", verify_file: str = "") -> dict:
+def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", verify_file: str = "",
+         review_tree: str = "") -> dict:
     """<役>-prep: 描く → 番号の控え → 起こした印。返り {prompt_file, attempt, out_path, node, already}。
     独立設計の役は core の design.prep（返り {prompt, prompt_file, node, attempt, already, role_def, role_def_missing}。
     道具ゼロなので指示書の本文を返し、commands/r2-design.md が直の参照で貼る）。直しの役は _revise_prep（replan では snap が
     go: false なので届かない）。replan なら core の replan.prep に、頭（head。修正案の頭は planmarks.HEAD を含む）と、事前審査
     なら独立設計の節だけ（design_only）を渡す。verify_file（判定の単位の裏取りの申し送り）は修正案の役の頭にだけ貼る（verify_part。
-    直しの役は修正案の役の会話の続きなので、もう読んでいる）"""
+    直しの役は修正案の役の会話の続きなので、もう読んでいる）。review_tree（入力の切り替えの語。空は on）が off なら事前審査の
+    指示書に木の節（tree_part）を載せない（審査役 1 つが案の全体を審査する。受け付けは _tree_off で木のまとめを飛ばす）"""
+    tree = script_io.switch_on(review_tree, "review_tree")   # 知らない語は役を問わず指示書を書く前に落とす
     if role == REVISE_ROLE:
         return _revise_prep(board_dir)
     if role == DESIGN_ROLE:
@@ -948,7 +956,7 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", 
         if why:   # snap が先に止めて輪を飛ばすので、ここに届くのは配線の誤り。指示書を書かずに 2 で落とす（役を起こさせない）
             raise BoardGap(why)
     main = b.work(rolekit.prompt_name(nid))
-    part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b), tree_part(b, main))
+    part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b), tree_part(b, main) if tree else "")
                                     if role == "plan-review"
                                     else (prior_part(b, role), structmark.plan_section(b.dir), plan_slots_section(b),
                                           units_ripple_part(b), verify_part(verify_file) if role == "plan" else "")) if x)

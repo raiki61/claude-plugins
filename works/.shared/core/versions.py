@@ -1,9 +1,9 @@
 """run ごとの版の控え versions.json（持ち主 2026-09-28: run の記録は Archon の DB と盤面が正本。版だけは誰も残していないので、
 run と同じ置き場 <ARTIFACTS_DIR>/versions.json に 1 つ書き、Archon の記録の隣で引けるようにする）。層 L1（works の物を何も知らない）。
 
-- snapshot(pack, env=os.environ, *, run_id="") -> dict:
+- snapshot(pack, env=os.environ, *, run_id="", settings=None) -> dict:
   {schema, run_id, at, works: {source, version, pack_sha256, files}, graphloops_copy, borrowed, archon, claude_code,
-   model, python, platform, unknown}
+   model, settings, python, platform, unknown}
   - works.source: dev の殻が pack の写しに置く出どころの控え <pack>/.works-source.json（{rev, dirty, from, version}。
     元の works が git で追跡されていなければ rev・dirty は null で、version は元の .claude-plugin/plugin.json の version）
   - works.version: <pack>/VERSION の 1 行目（まだ無い版もある）
@@ -14,6 +14,8 @@ run と同じ置き場 <ARTIFACTS_DIR>/versions.json に 1 つ書き、Archon �
   - archon・claude_code: env の WORKS_ARCHON_VERSION・WORKS_CLAUDE_VERSION（開発の殻 archon.sh が隔離の前に決めて渡す）
   - model: 全体の模型の要求 {value, from}。value は env の WORKS_DEV_MODEL（明示）か WORKS_MODEL_RESOLVED（archon.sh が
     既定を解いた値）、from は archon.sh が渡す出どころ WORKS_MODEL_FROM。節ごとの模型は包みの起動の記録（adapter.launch_row）
+  - settings: 呼び手が渡した run の設定の写し（中身は読まない。線の start は切った機能 {features_off: [語]} を渡す。
+    渡されなければ {}）。run どうしを比べる時に版・模型と並べて引く
   - 分からない値は null にし、unknown[鍵] に理由を書く（推測で埋めない・黙って落とさない）
 - write(artifacts_dir, doc) -> Path: <artifacts_dir>/versions.json に一時ファイルから os.replace で書く
 """
@@ -101,7 +103,7 @@ def _model(env: Mapping[str, str], unknown: dict):
     return {"value": value, "from": source or None}
 
 
-def snapshot(pack: Path, env: Mapping[str, str] = os.environ, *, run_id: str = "") -> dict:
+def snapshot(pack: Path, env: Mapping[str, str] = os.environ, *, run_id: str = "", settings: dict | None = None) -> dict:
     pack = Path(pack)
     unknown: dict = {}
     source = _json_object(pack / SOURCE_FILE, "pack の出どころの控え", unknown, "works.source")
@@ -125,6 +127,7 @@ def snapshot(pack: Path, env: Mapping[str, str] = os.environ, *, run_id: str = "
         "archon": _env(env, ENV_ARCHON, unknown, "archon"),
         "claude_code": _env(env, ENV_CLAUDE, unknown, "claude_code"),
         "model": _model(env, unknown),
+        "settings": dict(settings or {}),
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "unknown": unknown,

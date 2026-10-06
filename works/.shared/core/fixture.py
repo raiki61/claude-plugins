@@ -49,8 +49,9 @@ OUTSIDE = "outside"             # DIR の下の、盤面の外のファイルの
 BOARD_OUTSIDE = "fixture-outside"   # 取り込んだ盤面の下の、OUTSIDE の写しの置き場
 TRACE_OP = "fixture_adopted"    # 取り込んだ盤面の trace の行（entry.start が書く）
 KEY = fixshape.FIXTURE_KEY       # start の控えの鍵 {source_run, manifest_sha256, at}
-# 取り込みで今の値にする入力の欄（ほかの入力の欄は start の控えと今の入力が同じでなければ拒む）
-CURRENT = ("fix_shape", "run_id", "request_file", "fix_fixture")
+# 取り込みで今の値にする入力の欄（ほかの入力の欄は start の控えと今の入力が同じでなければ拒む）。features_off（切る機能）は
+# 腕と同じく同じ所から替えて比べる欄（判定・修正案の側の機能は写しの物のままで、修正の段の機能だけが効く）
+CURRENT = ("fix_shape", "run_id", "request_file", "fix_fixture", "features_off")
 _STR_KEYS = ("source_run", "head", "tree", "board_root", "repo_root", "pack_root", "request_sha256", "test_cmd")
 _MAP_KEYS = ("commits", "files")
 

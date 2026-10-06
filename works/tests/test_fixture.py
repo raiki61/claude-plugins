@@ -286,11 +286,23 @@ class FixtureStartCase(FixtureBase):
         self.assertEqual((out["ci_role_go"], out["pr_go"], out["fix_shape"]), (False, first["pr_go"], "af"))
         self.assertEqual(out["base_rev"], linekit.git(other, "rev-parse", "HEAD"))
         self.assertEqual(set(out), {"ok", "entry", "base_rev", "test_cmd", "policy_paste", "policy_path", "final_gate", "adapter",
-                                    "thickness", "gates", "fix_shape", "ci_role_go", "pr_go", "head_line"})
+                                    "thickness", "gates", "fix_shape", "ci_role_go", "pr_go", "head_line", *entry.FEATURES})
         self.assertIn("固定材料", out["head_line"])
         self.assertIn("p3.fix", entry.open_board(new_board).ready())
         self.assertEqual(len(trace_ops(new_board, fixture.TRACE_OP)), 1)
         self.assertEqual(fixshape.shape_at(new_board), "af")
+
+    def test_start_from_fixture_may_switch_features(self):
+        """固定材料から始める run は切る機能（features_off）を写した run と替えてよい（腕と同じく今の値にする欄。修正の段の
+        機能を切って同じ所から比べる）。出口と控えは今の値"""
+        _, src = self.captured()
+        other = self.clone_same_tree()
+        new_board = self.tmp / "b3" / "board"
+        out = entry.start(new_board, other, {**self.raw(src), "features_off": "fix_lanes"}, run_id="run-3")
+        self.assertEqual((out["fix_lanes"], out["tdd_lanes"]), ("off", "on"))
+        self.assertIn("切った機能: fix_lanes", out["head_line"])
+        doc = json.loads((new_board / fixshape.START_REL).read_text(encoding="utf-8"))
+        self.assertEqual(doc["features_off"], ["fix_lanes"])
 
     def test_start_resume_with_fixture_skips_adopt(self):
         """Archon の呼び直し: 前の start の控えに fixture が在れば取り込み直さずに盤面を開いて続ける（空でない置き場で拒まない）"""

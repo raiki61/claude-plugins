@@ -18,6 +18,10 @@ start:
   gates: ''
   ci_role_go: false
   pr_go: false
+  fix_lanes: 'on'
+  judge_verify: 'on'
+  review_tree: 'on'
+  tdd_lanes: 'on'
   head_line: '入口: 判定から（依頼 2 件）・段: 標準（既定）・gates: 空'
 ci-checking__ci-fence:
   go: true

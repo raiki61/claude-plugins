@@ -4,8 +4,8 @@
 置き場（answers_dir。盤面は役が書けない）に Write で書く。機械（merge）が答えを型で確かめて申し送り（今の周の VERIFY_FILE。
 manifest の produces）にまとめる。単位は消さない（直す義務。根本でないと出ても申し送りと報告の行になるだけ）。
 
-- prep(board_dir, repo) / prep_on(b, judgment, repo): ラインの盤面で、止まっておらず、判定の開いた単位が MIN_UNITS 以上の時だけ
-  go 真。単位ごとの下請けのファイル（scope の根の verify/unit-<n>.md）・相乗りのファイル（verify/synergy.md）・束ね役の指示書
+- prep(board_dir, repo, verify="") / prep_on(b, judgment, repo, verify=""): ラインの盤面で、止まっておらず、入力 verify が off でなく
+  （script_io.switch_on。空は on）、判定の開いた単位が MIN_UNITS 以上の時だけ go 真。単位ごとの下請けのファイル（scope の根の verify/unit-<n>.md）・相乗りのファイル（verify/synergy.md）・束ね役の指示書
   （verify/prompt.md）・番号の控え（PLAN_FILE）・作業ツリーの姿（TREE_FILE）を書き、前の起動の答えを消し、申し送りの初めの形
   （全部が UNVERIFIED）を置く。go 偽なら前の残りの申し送りと番号の控えを消す
 - merge(board_dir, repo) / merge_on(b, repo): 番号の控えの単位ごとに答えのファイルを確かめ（型・番号・not_root の本当の根）、相乗りの
@@ -29,6 +29,7 @@ import adapter  # noqa: E402  （L2。run ごとの置き場 run_place_of。下�
 import entry  # noqa: E402
 import judgetake  # noqa: E402
 import node_marker  # noqa: E402
+import script_io  # noqa: E402  （L1。入力の切り替えの語 switch_on）
 from engine.schema import validate_schema  # noqa: E402  （board が写しの engine を sys.path に足した後）
 
 ROLE = "judge-verify"                  # 束ね役の節の id と印の名
@@ -43,6 +44,7 @@ MIN_UNITS = 2                          # 裏取りを回す開いた単位の数
 SUBAGENT_TYPE = "general-purpose"      # 下請けの型は 1 つ（答えのファイルを書ける型。線の木の段 1 の教訓）
 STOP_BY = "works:judge-verify"         # 作業ツリーを変えた時の盤面の state.stop.by
 TRACE_OP = "judge_verify"
+OFF_OP = "judge_verify_off"           # 入力 verify が off で裏取りを回さなかった周の trace の行
 CHECKED, UNVERIFIED = "checked", "unverified"
 VERDICTS = ("root", "not_root", "unsure")
 NOT_GO = {"ok": True, "go": False, "prompt_file": ""}
@@ -181,9 +183,15 @@ def _clear(b) -> None:
         b.work(name).unlink(missing_ok=True)
 
 
-def prep_on(b, judgment, repo) -> dict:
-    """支度の芯（b は開いた盤面か同じ口の物）。返り {ok, go, prompt_file}"""
+def prep_on(b, judgment, repo, verify: str = "") -> dict:
+    """支度の芯（b は開いた盤面か同じ口の物）。返り {ok, go, prompt_file}。verify が off なら単位の数に依らず go 偽（trace に
+    OFF_OP の 1 行）"""
     units = open_units(judgment)
+    if not script_io.switch_on(verify, "verify"):
+        _clear(b)
+        if not _halted(b):
+            b.trace(OFF_OP, units=len(units))
+        return dict(NOT_GO)
     if _halted(b) or len(units) < MIN_UNITS:
         _clear(b)
         return dict(NOT_GO)
@@ -278,13 +286,14 @@ def merge_on(b, repo) -> dict:
     return {"ok": True, "verify_file": str(path), "verified": verified, "unverified": len(rows) - verified}
 
 
-def prep(board_dir, repo) -> dict:
-    """節 verify-prep。ラインの盤面が無ければ（ブロックを単独で回した）go 偽"""
+def prep(board_dir, repo, verify: str = "") -> dict:
+    """節 verify-prep。ラインの盤面が無ければ（ブロックを単独で回した）go 偽。verify は入力の切り替えの語（空は on）"""
     d = pathlib.Path(board_dir)
+    script_io.switch_on(verify, "verify")   # 知らない語は盤面を開く前に落とす
     if not judgetake.on_line(d):
         return dict(NOT_GO)
     b = entry.open_board(d, allow_halted=True)
-    return prep_on(b, _read_json(d / core_accept.JUDGMENT_FILE), repo)
+    return prep_on(b, _read_json(d / core_accept.JUDGMENT_FILE), repo, verify)
 
 
 def merge(board_dir, repo) -> dict:

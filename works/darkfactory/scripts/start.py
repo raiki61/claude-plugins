@@ -7,12 +7,13 @@
 読む環境変数（Archon が節の with: から渡す。どれも在ること。値の空は既定の意味）:
 - INPUTS_REQUEST（依頼のファイル。相対なら cwd＝対象の根から）・INPUTS_TEST_CMD・INPUTS_THICKNESS・INPUTS_GATES・
   INPUTS_FINAL_GATE・INPUTS_ADAPTER・INPUTS_POLICY_MD（INPUTS_LANG・INPUTS_BASE・INPUTS_PR・INPUTS_GITHUB_READS・INPUTS_UNATTENDED・
-  INPUTS_DESIGN_ONLY・INPUTS_FIX_SHAPE・INPUTS_FIX_FIXTURE は無くてよい。
+  INPUTS_DESIGN_ONLY・INPUTS_FIX_SHAPE・INPUTS_FIX_FIXTURE・INPUTS_FEATURES_OFF は無くてよい。
   LANG は報告の言語で、無いのは空＝依頼文の言語。BASE・PR は変更の入口で、無いのは空＝名指さない。GITHUB_READS は殻が隔離の
   前に読んだ PR・issue のファイルで、無いのは空＝読んだ物が無い。FIX_SHAPE は修正の形で、無いのは空＝既定の g3。前の版の盤面の呼び直しでは af のまま。FIX_FIXTURE は固定材料のフォルダで、
-  無いのは空＝盤面を新しく作る）
+  無いのは空＝盤面を新しく作る。FEATURES_OFF は切る機能の語で、無いのは空＝全部 on）
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（切符の run_id。空も欠け）
 版の控え: 入力を確かめる前（拒む run でも）に <ARTIFACTS_DIR>/versions.json を書く（versions.snapshot。盤面の外）。
+設定の写し settings に切る機能 {features_off: [語]}（入力の語を区切って重ねずに並べた物。知らない語も字のまま。確かめは start）を載せる。
 書けなくても run は止めず、標準エラーに 1 行出す
 出口:
 - 通れば entry.start の結果を 1 行の JSON で出して 0
@@ -28,6 +29,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
 import os  # noqa: E402
+import re  # noqa: E402
 
 import script_io  # noqa: E402
 
@@ -36,16 +38,22 @@ INPUTS = {"INPUTS_REQUEST": "request", "INPUTS_BASE": "base", "INPUTS_PR": "pr",
           "INPUTS_TEST_CMD": "test_cmd", "INPUTS_THICKNESS": "thickness", "INPUTS_GATES": "gates",
           "INPUTS_FINAL_GATE": "final_gate", "INPUTS_ADAPTER": "adapter", "INPUTS_POLICY_MD": "policy_md", "INPUTS_LANG": "lang",
           "INPUTS_UNATTENDED": "unattended", "INPUTS_DESIGN_ONLY": "design_only", "INPUTS_FIX_SHAPE": "fix_shape",
-          "INPUTS_FIX_FIXTURE": "fix_fixture"}
+          "INPUTS_FIX_FIXTURE": "fix_fixture", "INPUTS_FEATURES_OFF": "features_off"}
 # 無くても欠けに数えない入力（後から足した入力。前の版の with: で再開した run は渡さない。無いのは空と同じ）
 OPTIONAL = frozenset({"INPUTS_LANG", "INPUTS_BASE", "INPUTS_PR", "INPUTS_GITHUB_READS", "INPUTS_UNATTENDED",
-                      "INPUTS_DESIGN_ONLY", "INPUTS_FIX_SHAPE", "INPUTS_FIX_FIXTURE"})
+                      "INPUTS_DESIGN_ONLY", "INPUTS_FIX_SHAPE", "INPUTS_FIX_FIXTURE", "INPUTS_FEATURES_OFF"})
 RUN_ID_ENV = "WORKFLOW_ID"
 NON_EMPTY = (script_io.ARTIFACTS_ENV, RUN_ID_ENV)
 
 
 def _line(text) -> str:
     return " ".join(str(text).split())
+
+
+def _settings() -> dict:
+    """版の控えの settings（入力を確かめる前に書くので、entry を引かずに区切るだけ。区切りは entry.features_off と同じ）"""
+    raw = os.environ.get("INPUTS_FEATURES_OFF", "")
+    return {"features_off": sorted({w for w in re.split(r"[\s,、・]+", raw) if w})}
 
 
 def main() -> int:
@@ -57,7 +65,8 @@ def main() -> int:
     import versions
     try:
         versions.write(Path(os.environ[script_io.ARTIFACTS_ENV]),
-                       versions.snapshot(Path(__file__).resolve().parents[2], run_id=os.environ[RUN_ID_ENV]))
+                       versions.snapshot(Path(__file__).resolve().parents[2], run_id=os.environ[RUN_ID_ENV],
+                                         settings=_settings()))
     except OSError as e:   # 版の控えは run を止めない（止めずに 1 行で知らせる）
         print(f"版の控え {versions.FILE} を書けない: {type(e).__name__}: {_line(e)}", file=sys.stderr)
     import entry

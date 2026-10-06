@@ -11,7 +11,8 @@ description: |
   changes に行を書くだけ。修正の形 g1 と既定の g3 では、残りの単位を 1 つの会話に積まず、単位（修正案の項目）ごとに新しい会話の
   下請けを Agent で起こす。依頼 243 の 2。g3 の 1 回目の周では、書いてよい範囲の在る項目（重なってもよい）に、支度が項目ごとに
   小さい worktree を切り、修正役がその下請けを同時に起こして、機械のコマンドが差分を項目の番号の順に作業ツリーへ当てる。
-  当たらない項目は作業ツリーで順に直し直し、締める節 fix-units が残りを当てて片付ける。依頼 243 の並べ）、
+  当たらない項目は作業ツリーで順に直し直し、締める節 fix-units が残りを当てて片付ける。依頼 243 の並べ。入力 tdd_lanes・fix_lanes が
+  off なら、それぞれ輪の並べの周・修正役の項目の並べを使わずに順に回す）、
   2 つの役（tdd・fix）の指示書は、その前の script の節（tdd-prep・fix-prep）が修正の決まりの正本（.shared/core/writerules/common.md）と道ごとの決まりと
   run の値から機械で組む（lib/fixrules.py。裁定 R65。役の節の指示は「組んだ指示書を Read で読め」の 1 行）、
   返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回。3 回目の拒否は行を名指しの単位・テストが
@@ -75,6 +76,16 @@ inputs:
     default: ""
     description: |
       単位ごとの深さ。`{"<単位の key>": "軽量" | "標準"}` の JSON の文字列。空・名指しの無い単位・標準は今どおり。軽量の単位だけ、TDD の輪が緑の後に test_cmd を走らせない（赤・緑の確かめ・受け付けの選んで回す試験・裁定の輪は省かない）。形が違えば tdd-start が 2 で落ちる
+  tdd_lanes:
+    default: ""
+    description: |
+      TDD の輪の並べの周（形 g3 で、範囲の引ける tdd の枝を枝ごとの worktree で同時に直す段 lanes）を使うか。on（空も on。今どおり）か off。
+      off なら tdd-start が輪の状態の lanes_on を偽にし、振り分けの後も並べずに tdd の単位を順に回す（ほかは今どおり）。ほかの語は tdd-start が 2 で落ちる
+  fix_lanes:
+    default: ""
+    description: |
+      修正役の項目ごとの並べ（形 g3 の 1 回目の周で、範囲の在る項目に単位の worktree を切って下請けを同時に起こす）を使うか。on（空も on。今どおり）か off。
+      off なら支度が単位の worktree を切らず、修正役は項目の下請けを作業ツリーで順に起こす（項目ごとに新しい会話の下請けは今どおり）。ほかの語は支度が 2 で落ちる
 
 returns: collect
 outcome_field: ok
@@ -106,6 +117,7 @@ nodes:
       open_units: $INPUTS.open_units
       test_cmd: $INPUTS.test_cmd
       unit_depths: $INPUTS.unit_depths
+      tdd_lanes: $INPUTS.tdd_lanes   # 並べの周を使うか（off なら lanes_on を偽に）
     output_format:
       type: object
       additionalProperties: false
@@ -269,6 +281,7 @@ nodes:
             base_rev: $INPUTS.base_rev   # 修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
             plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
             ripple_file: $INPUTS.ripple_file   # 波及の一覧（範囲の相談の節が名指す。空は名指さない）
+            fix_lanes: $INPUTS.fix_lanes   # 項目ごとの並べを使うか（off なら単位の worktree を切らない）
             pass: "first"
           output_format:
             type: object
@@ -874,6 +887,7 @@ nodes:
             base_rev: $INPUTS.base_rev
             plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
             ripple_file: $INPUTS.ripple_file   # 波及の一覧（範囲の相談の節が名指す。空は名指さない）
+            fix_lanes: $INPUTS.fix_lanes   # 裁定の後の周は並べない（fixrules.side_on）。入力の組を揃える
             pass: "ruled"
           output_format:
             type: object

@@ -3,7 +3,7 @@ description: |
   判定のブロック。人の修正依頼（findings の JSON の配列か、{findings, pr, issue} の形）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ
   （ラインの盤面が在れば、凍結した目的の文と素材も盤面から描いて読ませる。judge-brief）、
   受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回。ラインの盤面が在れば受け付けは盤面の p2.diagnose の done——本線と同じ）。
-  判定の根を開く（線の木の段 3。設計 docs/plans/2026-10-06-judge-verify.md）: 開いた単位が 2 つ以上なら、受け付けた判定の後に
+  判定の根を開く（線の木の段 3。設計 docs/plans/2026-10-06-judge-verify.md）: 開いた単位が 2 つ以上なら（入力 verify が off なら回さない）、受け付けた判定の後に
   束ね役（judge-verify）が単位ごとの裏取りの下請け（根本か・証拠・場所）と単位どうしの相乗りの下請け（重複・関わり・順番）を
   Agent で並べて起こし、機械がその答えを今の周の申し送り judge-verify.json にまとめる。単位は消さない（申し送りになるだけ）。
   ラインから include で使う。
@@ -25,6 +25,11 @@ inputs:
   premises_file:
     default: ""
     description: 前提の実測のファイル（盤面の p0.premises の出力）。空なら無い（仕様 3.6）
+  verify:
+    default: ""
+    description: >-
+      判定の裏取り（開いた単位ごとの裏取りと単位どうしの相乗りの下請け）を回すか。on（空も on。今どおり）か off。off なら
+      支度が単位の数に依らず go 偽で束ね役を起こさず、申し送りを置かない（前の残りも消す）。ほかの語は支度が 2 で落ちる
 
 returns: collect
 outcome_field: ok
@@ -262,6 +267,7 @@ nodes:
     trigger_rule: none_failed_min_one_success   # 止まった盤面では輪が飛ぶ（支度の go 偽）
     with:
       stage: prep
+      verify: $INPUTS.verify
     output_format:
       type: object
       additionalProperties: false
@@ -304,6 +310,7 @@ nodes:
     depends_on: [judge-verify]
     with:
       stage: merge
+      verify: $INPUTS.verify   # まとめは読まない（同じスクリプトの入力の組を揃える。支度が off なら番号の控えが無く空を返す）
     output_format:
       type: object
       additionalProperties: false
