@@ -1048,6 +1048,25 @@ class FenceCase(unittest.TestCase):
         with self.subTest("/private の別名の綴り"):
             self.assertIn(f"Edit(/{hermetic.alias(self, late)}/**)", deny)
 
+    def test_unit_worktrees_under_run_place_are_writable(self):
+        """run ごとの置き場の下の、この作業ツリーの守りの参照を持つ単位の worktree（unittrees で切った物）は守らない（下請けが
+        書く）。置き場の外の worktree・参照の無い worktree は今どおり守り、置き場そのものも足す（依頼 243 の並べ）"""
+        import unittrees
+        base = unittrees.snapshot(self.e.cwd)
+        unit = unittrees.add(self.e.cwd, base, pathlib.Path(self.place()) / "units" / "item-1")
+        stray = pathlib.Path(self.place()) / "units" / "stray"
+        git(self.repo, "worktree", "add", "-q", "--detach", str(stray))   # 参照の無い worktree（守る）
+        outside = self.e.tmp / "outside-unit"
+        unittrees.add(self.e.cwd, base, outside)                        # 参照は在るが置き場の外（守る）
+        r = self.e.run(sdk_argv("works-node: fix", tools="Bash,Read,Edit"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        s = self.settings()
+        deny = s["permissions"]["deny"]
+        self.assertNotIn(f"Edit(/{unit}/**)", deny)
+        self.assertNotIn(str(unit), s["sandbox"]["filesystem"]["denyWrite"])
+        self.assertIn(f"Edit(/{stray}/**)", deny)
+        self.assertIn(f"Edit(/{outside}/**)", deny)
+
     def test_sdk_deny_rules_kept(self):
         sdk = {"sandbox": {"enabled": True, "filesystem": {"denyWrite": ["/sdk/path"]}},
                "permissions": {"deny": ["Bash(rm:*)"]}}

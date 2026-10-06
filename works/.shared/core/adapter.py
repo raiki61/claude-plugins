@@ -34,7 +34,9 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    worktree（切符の後に切られた物。役の cwd の worktree 自身は除く）——を足し、どれも /var と /private/var・/tmp と
    /private/tmp の両方の綴りにして、`permissions.deny` に `Edit(//<場所>)`・`Edit(//<場所>/**)`・`Write(…)` を足す。
    SDK が sandbox の塊を渡した起動だけ `sandbox.filesystem.denyWrite` にも足す（sandbox の無い節に sandbox の鍵を作らない）。
-   どちらも SDK の配列の後ろに足し、SDK の項目は消さない。
+   どちらも SDK の配列の後ろに足し、SDK の項目は消さない。今の worktree のうち、17 の run ごとの置き場の下に在り、役の cwd の
+   作業ツリーの単位の守りの参照（unittrees。共通の .git の中で役は作れない）を持つ単位の worktree は足さない（修正役の下請けが
+   範囲の重ならない項目を並べて書く所。依頼 243 の並べ。live_worktrees）
 
 4. **木ごと止める**: 本物の claude は exec せずに子として新しいセッションで起こし（標準入出力は 9・16 のほかは継ぐ）、走っている間
    POLL 秒ごとに木の仲間（tree_run._tree_members: グループ・セッションの番号・親子の鎖・前に数えた物。開始時刻で番号の
@@ -172,6 +174,7 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import fixshape
 import tree_run
+import unittrees  # L1（単位の worktree の守りの参照の名。live_worktrees が下請けの書く所を見分ける）
 
 ENV_HOME = "WORKS_ADAPTER_HOME"
 WRITE_MATCHER = "Edit|Write|NotebookEdit"   # 書き込みの記録のフック（record-write.py）が掛かる道具
@@ -745,8 +748,10 @@ def spellings(path: str) -> List[str]:
     return out
 
 
-def live_worktrees(cwd) -> List[str]:
-    """cwd のリポジトリの今の worktree（元の作業ツリーを含む）のうち、cwd の worktree 自身でない物。git が引けなければ []"""
+def live_worktrees(cwd, run_place: Optional[str] = None) -> List[str]:
+    """cwd のリポジトリの今の worktree（元の作業ツリーを含む）のうち、cwd の worktree 自身でない物。git が引けなければ []。
+    run_place（17 の run ごとの置き場）を渡せば、その下に在り、cwd の作業ツリーの守りの参照（unittrees の u-<印>。共通の .git の
+    中で役は作れない）を持つ単位の worktree も外す（修正役の下請けが並べて書く所。依頼 243 の並べ）"""
     env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
     try:
         own = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], capture_output=True, text=True, encoding="utf-8",
@@ -756,7 +761,23 @@ def live_worktrees(cwd) -> List[str]:
     except (OSError, subprocess.CalledProcessError):
         return []
     trees = [ln[len("worktree "):] for ln in listed.splitlines() if ln.startswith("worktree ")]
-    return [t for t in trees if os.path.realpath(t) != os.path.realpath(own)]
+    units = _unit_trees(cwd, own, run_place, trees, env) if run_place else set()
+    return [t for t in trees if os.path.realpath(t) != os.path.realpath(own) and os.path.realpath(t) not in units]
+
+
+def _unit_trees(cwd, own: str, run_place: str, trees: Sequence[str], env: dict) -> set:
+    """trees のうち run_place の下に在り、own の作業ツリーの単位の守りの参照を持つ物の実パス（引けなければ空。守る側に倒す）"""
+    place = os.path.realpath(run_place).rstrip("/") + "/"
+    inside = [t for t in trees if os.path.realpath(t).startswith(place)]
+    if not inside:
+        return set()
+    prefix = unittrees.REF_ROOT + "/" + unittrees._mark(own) + "/"
+    try:
+        refs = set(subprocess.run(["git", "-C", str(cwd), "for-each-ref", "--format=%(refname)", prefix], capture_output=True,
+                                  text=True, encoding="utf-8", env=env, check=True).stdout.splitlines())
+    except (OSError, subprocess.CalledProcessError):
+        return set()
+    return {os.path.realpath(t) for t in inside if prefix + "u-" + unittrees._mark(t) in refs}
 
 
 def own_worktree(cwd) -> Optional[str]:
