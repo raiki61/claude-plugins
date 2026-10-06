@@ -2147,12 +2147,23 @@ class TreeReviewCase(unittest.TestCase):
         self.assertTrue(self.ok("snap", role="plan-review")["go"])
         self.ok("prep", role="plan-review", excluded_file="")
         step = "planning__converge-loop.plan-review-loop.plan-review"
-        evs = [{"event_type": "tool_called", "step_name": step, "data": {"tool_name": "Agent", "tool_input": {}}}] * 2
+        evs = [{"event_type": "tool_called", "step_name": step,
+                "data": {"tool_name": "Agent", "tool_input": {"subagent_type": t}}} for t in (planblk.SUBAGENT_TYPE, "Explore")]
         with mock.patch.object(reads, "events_for", lambda run_id: evs):
             in_include("planning", planblk.collect_reads, self.board, self.repo, RUN_ID)
         rows = [json.loads(x) for x in (self.board / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
         got = [r for r in rows if r.get("op") == planblk.AGENT_OP]
         self.assertEqual([(r["launched"], r["item_files"], r["synergy_files"]) for r in got], [(2, 2, 1)])
+        self.assertEqual(got[0]["types"], {planblk.SUBAGENT_TYPE: 1, "Explore": 1})   # 型が揃っていないことも測る
+
+    def test_aggregator_names_one_subagent_type(self):
+        """束ね役は全部の下請けを 1 つの型（答えのファイルを書ける general-purpose）で起こす（run 68f35d6b は往復 1 が
+        general-purpose・往復 2・3 が Explore だった）"""
+        self.ready()
+        self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        prompt = pathlib.Path(self.ok("prep", role="plan-review", excluded_file="")["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(f"subagent_type は全部 {planblk.SUBAGENT_TYPE}", prompt)
 
     def test_single_item_plan_needs_no_synergy(self):
         """1 項目で覆っていない当たりの無い案は、下請けの答えのファイルが無ければ返答の全体がその項目の答え"""

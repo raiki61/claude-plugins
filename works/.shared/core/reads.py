@@ -23,6 +23,8 @@
 - failed_nodes(events, *, after=()) -> [{node, error}]（最後の状態が落ちた節。下流の節 after は除く。機械の報告の冒頭 3）
 - retried_nodes(events, *, after=()) -> [{node, failures, error}]（前の試みで落ち、後で済んだ節。冒頭 3 の試みの記録）
 - node_path(include, loop, node) -> str
+- tool_count(events, node_path, tool) -> int・tool_inputs(events, node_path, tool) -> [tool_input]（節の道具の呼びの数と入力。
+  事前審査の束ね役の下請けの数と型を測る）
 - node_here(loop, node) -> str（今の script が居る include の名 flow_adapter.current_scope で組んだ node_path）
 - collect(board_dir, role, node_path, must_read, events, *, repo=None) -> {ok: True, sources, missing, reads_file}
 - adapter_seen(board_dir, run_id, *, repo=None) -> {seen, merged, passthrough, whys}
@@ -152,6 +154,12 @@ def _steps(events, node_path: str):
 def tool_count(events, node_path: str, tool: str) -> int:
     """節 node_path の tool_called のうち道具 tool の呼びの数（events が無ければ 0。受け付けの条件にはしない）"""
     return sum(1 for data in _steps(events, node_path) if data.get("tool_name") == tool)
+
+
+def tool_inputs(events, node_path: str, tool: str) -> list:
+    """節 node_path の tool_called のうち道具 tool の呼びの tool_input（dict でない物は {}。events が無ければ []）"""
+    return [d.get("tool_input") if isinstance(d.get("tool_input"), dict) else {}
+            for d in _steps(events, node_path) if d.get("tool_name") == tool]
 
 
 def _read_paths(events, node_path: str) -> set:

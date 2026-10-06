@@ -106,9 +106,13 @@ ANSWERS_DIR = "plan-review/r{r}/pass-{k}"
 ANSWER_FILE = "item-{n}.json"
 SYNERGY_FILE = "synergy.json"
 AGENT_OP = "plan_review_agents"         # 読んだ証拠の節が盤面の trace に書く、事前審査の下請けの起動の数の行
+# 下請けの型は 1 つ（答えのファイルを Write で書ける型。読むだけの Explore は Write を持たない。run 68f35d6b は往復 1 が
+# general-purpose・往復 2・3 が Explore で、型ごとに道具と深さが違った）
+SUBAGENT_TYPE = "general-purpose"
 AGG_HEAD = "## 束ね役の頼み（項目ごとの下請けを並べる。機械が貼った）"
 AGG_ASK = ("お前は束ね役。案の項目を自分で見ずに、下の下請けのファイルごとに Agent の道具で下請けを 1 つずつ起こせ。下請けの呼びは"
-           " 1 つのメッセージに全部並べよ（同時に走る）。各下請けへの頼みは「<ファイル> を Read で読み、その指示に従え」の 1 行でよい。"
+           " 1 つのメッセージに全部並べよ（同時に走る）。subagent_type は全部 " + SUBAGENT_TYPE + "（相乗りの審査も同じ。ほかの型を"
+           "使わない）。各下請けへの頼みは「<ファイル> を Read で読み、その指示に従え」の 1 行でよい。"
            "下請けは読むだけで、答えはファイルに書き（どこに書くかはファイルが名指す。作業ツリーは変えない。変われば受け付けが拒む）、"
            "最後に 1 行の要約を返す。答えのファイルは受け付け（機械）が確かめてまとめるので、お前は答えの中身を写さない。")
 AGG_MERGE = ("下請けが全部返ったら、返答は次の形だけにせよ（受け付けが答えのファイルと突き合わせ、食い違えば拒む）: faces と shrink は"
@@ -1147,7 +1151,8 @@ def collect_reads(board_dir, repo, run_id: str, replan: str = "") -> dict:
     会話に在るので求めない）。出来事の節の名は READS_LOOP の輪の名で組む（include の名は core の reads.node_here が引く）。受け付けの条件にはしない。返り {ok: True, reads_file}。
     replan なら案の直しの役（直しの役は replan で起きないので数えない）の指示書について、役の名 replan-<役> で
     reads-replan-<役>.json に、索引を replan.READS_INDEX に書く（1 回目の控えを上書きしない）。
-    出来事が引ければ（replan でない時）、事前審査の束ね役の Agent の呼びの数と下請けのファイルの数を trace の AGENT_OP に書く"""
+    出来事が引ければ（replan でない時）、事前審査の束ね役の Agent の呼びの数・型ごとの数（types）と下請けのファイルの数を trace の
+    AGENT_OP に書く"""
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     events = reads.events_for(run_id) if run_id else None
     policy = _given(b.state["inputs"].get("policy_md"))
@@ -1170,7 +1175,12 @@ def collect_reads(board_dir, repo, run_id: str, replan: str = "") -> dict:
     _write_json(out, files)
     if events is not None and not again:   # 束ね役が起こした下請けの数と、機械が書いた下請けのファイルの数（拒まない。測る）
         base = b.work(ITEMS_DIR.format(k=1)).parent
-        b.trace(AGENT_OP, launched=reads.tool_count(events, reads.node_here(READS_LOOP["plan-review"], "plan-review"), "Agent"),
+        here = reads.node_here(READS_LOOP["plan-review"], "plan-review")
+        types: dict = {}
+        for inp in reads.tool_inputs(events, here, "Agent"):
+            t = str(inp.get("subagent_type") or "")
+            types[t] = types.get(t, 0) + 1
+        b.trace(AGENT_OP, launched=reads.tool_count(events, here, "Agent"), types=types,
                 item_files=len(list(base.glob("pass-*/item-*.md"))), synergy_files=len(list(base.glob("pass-*/synergy.md"))))
     return {"ok": True, "reads_file": str(out)}
 
