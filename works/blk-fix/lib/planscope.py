@@ -6,7 +6,9 @@
 - 行（rows）: 受けた返答の changes を単位の名前に戻した物 {unit_key, files}（files は根からの相対）
 - 変わったパス（changes）: 修正前の版からの変更 → (版の中身, 今の中身)。無い側は None
 - 項目の範囲: allowed_paths の glob と、tests・rewrite_tests の id のファイル（planmarks.test_paths）。out_of_scope は範囲の中でも
-  触らない物で、範囲より強い（修正案の受け付けが、out_of_scope と id のファイルの重なりを先に拒む）
+  触らない物で、範囲より強い（修正案の受け付けが、out_of_scope と id のファイルの重なりを先に拒む）。ただし項目の out_of_scope は
+  「その項目は触らない」で、ほかの項目が明示に許したパス（allowed_paths・id のファイル・合意）を、その項目の単位の行で直すことは
+  禁じない（_oos_hit_for。run 249b）。単位に結べない変更は全部の項目の out_of_scope で照らす
 - 裁定で外れた単位の項目も範囲を与える（依頼 241。外れた単位を直させない守りは受け付けの check_excused_units）
 - 見る項目: unit_keys が行のどれかの単位と重なる項目
 - 生きた項目: unit_keys の全部が行に在る見る項目。欠けを拒む側（Missing: 範囲の中の変更・adds・removes・tests）は生きた項目
@@ -29,6 +31,7 @@
 拒否の行はどれも、行の単位の key か項目の unit_keys の全部を字のまま含める（最後の回に parking.bind が単位に結ぶ）。
 ただし行に申告の無い変わったパスの外れは単位を名指せないので、パスだけを書く。
 
+- reject_head(ask): 拒否の行の頭（範囲の相談がその段に在れば相談を先の道に言う REJECT_ASK、無ければ REJECT）
 - added_removed(base, now): 行の並びの足した行と消した行
 - new_test_ids(path, base, now): 試験のモジュールで新しく現れたテストの id
 - problems(items, rows, changes, *, permits): 拒否の行と記録（純粋な関数）
@@ -57,11 +60,22 @@ import planmarks  # noqa: E402
 import tddloop  # noqa: E402   試験のモジュールの名の型（PYTEST_FILE）の正本
 
 REJECT = "承認済みの修正案の項目から外れた（同じ brief のまま直して出し直せ。範囲の外が要るなら変えずに食い違いの申し出で返せ）: "
+# 範囲の相談がその段に在る時の頭（reject_head）。範囲の外が要る時の先の道は相談で、申し出は聞けない・許されない・out_of_scope の時
+REJECT_ASK = ("承認済みの修正案の項目から外れた（同じ brief のまま直して出し直せ。allowed_paths の外が要るなら、変える前に指示書の"
+              "「範囲の相談と事前の確かめ」の節のとおり、範囲の相談のコマンドで修正案を書いた役に聞け（許された物は範囲に入る）。"
+              "相談が聞けない・許されずに仕様として意見が割れる時と、out_of_scope に当たる物が要る時だけ、変えずに食い違いの申し出で返せ）: ")
+# 単位に結べない変わったパスがほかの項目の out_of_scope に当たり、ある項目の範囲には入る時に足す文（申告すればその項目で照らす）
+OWNER_HINT = "（項目 {nums} の範囲には入る。その項目の単位の changes[].files に申告すれば、その項目の out_of_scope だけで照らす）"
 SCOPE_OP = "fix_plan_scope"   # 受けた時の盤面の trace の行（照らした印か、照らさなかった理由）
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")
 NO_PLAN = "承認済みの修正案か works の欄の控えが無い"
 NO_SCOPE = "範囲の欄の無い控え（217 番の形の盤面）"
 NO_PLAIN = "平の run（修正の形 current）——修正の段に修正案の欄を渡さない"
+
+
+def reject_head(ask: bool) -> str:
+    """拒否の行の頭: 範囲の相談がその段に在れば（askplan.offered）REJECT_ASK、無ければ REJECT"""
+    return REJECT_ASK if ask else REJECT
 
 
 # ---------------------------------------------------------------- 差分の読み
@@ -137,6 +151,14 @@ def _inside(path: str, it: dict) -> bool:
 def _oos_hit(path: str, items: list[dict]):
     """path に当たる out_of_scope の最初の (項目, glob)。無ければ None"""
     return next(((it, g) for it in items for g in _oos(it) if planmarks.glob_match(path, g)), None)
+
+
+def _oos_hit_for(path: str, mine: list[dict], items: list[dict]):
+    """行の単位の項目（mine）から見た path の out_of_scope の当たり。mine のどれかが path を明示に許す（_inside。allowed_paths・
+    tests と rewrite_tests の id のファイル・with_agreed が足した合意）なら mine の out_of_scope だけで照らす（ほかの項目の
+    out_of_scope は「その項目は触らない」で、許した項目の単位まで禁じない。run 249b）。許していなければ全部の項目で照らす。
+    permits（run の全部に効く許し）は明示の許しに数えない"""
+    return _oos_hit(path, mine if any(_inside(path, it) for it in mine) else items)
 
 
 def _word(name: str):
@@ -237,9 +259,11 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
              permits=(), loop=None) -> tuple[list[str], dict]:
     """承認済みの修正案の項目（items）と差分の外れの行と記録 {"checked": True, "unchecked": [識別子の形でない名], "items": [見た
     項目の番号]}。純粋な関数（ファイル・盤面を読まない）。見る物は模块の docstring の語と、下の 1〜6:
-    1. 行の files の各パスが、その単位の項目のどれかの範囲に入り、どの項目の out_of_scope にも当たらない（その単位の項目が
-       無い行は 2 に回す）
-    2. 1 で見なかった変わったパスが、全項目の範囲の和か permits に入り、どの項目の out_of_scope にも当たらない
+    1. 行の files の各パスが、その単位の項目のどれかの範囲に入り、out_of_scope に当たらない。その単位の項目のどれかが明示に
+       許したパスは、その単位の項目の out_of_scope だけで照らし、許していないパスはどの項目の out_of_scope でも照らす
+       （_oos_hit_for。その単位の項目が無い行は 2 に回す）
+    2. 1 で見なかった変わったパスが、全項目の範囲の和か permits に入り、どの項目の out_of_scope にも当たらない（単位に結べない
+       ので緩めない。当たった行に、そのパスを許す項目を OWNER_HINT で名指す）
     3. 生きた項目の範囲の中に変わったパスが 1 つも無ければ Missing
     4. adds: 探す語（_lookup）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing）。canonical の文に
        変わったパスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra（見る項目の全部）
@@ -278,7 +302,7 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             seen.add(f)
             if f in untouched:
                 continue
-            hit = _oos_hit(f, items)
+            hit = _oos_hit_for(f, mine, items)
             if hit:
                 out.append(oos_line(f"{key}: ", f, hit))
             elif not (f in permits or any(_inside(f, it) for it in mine)):
@@ -290,7 +314,9 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             continue
         hit = _oos_hit(p, items)
         if hit:
-            out.append(oos_line("", p, hit))
+            owners = [it for it in items if _inside(p, it) and not _oos_hit(p, [it])]
+            out.append(oos_line("", p, hit) + (OWNER_HINT.format(nums="・".join(str(it.get("item")) for it in owners))
+                                               if owners else ""))
         elif not (p in permits or any(_inside(p, it) for it in items)):
             out.append(f"{p} はどの項目の allowed_paths にも無い")
     # 3〜6. 見る項目（Missing 側は生きた項目だけ）

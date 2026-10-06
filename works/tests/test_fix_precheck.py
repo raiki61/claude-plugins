@@ -25,6 +25,7 @@ import conflict  # noqa: E402
 import entry  # noqa: E402
 import fixrules  # noqa: E402
 import planmarks  # noqa: E402
+import planscope  # noqa: E402
 from test_blk_fix import FIXED, load, run_script  # noqa: E402
 
 LIB = TESTS.parent / "blk-fix" / "lib"
@@ -63,6 +64,8 @@ class PrecheckCase(test_blk_fix.BoardCase):
         got = json.loads(out)
         self.assertFalse(got["ok"])
         self.assertTrue(any(r["check"] == "scope" and "stats.py" in r["text"] for r in got["rejects"]), got)
+        self.assertTrue(any(r["text"].startswith(planscope.REJECT_ASK) for r in got["rejects"] if r["check"] == "scope"),
+                        "事前の確かめは相談の節の道具なので、拒否の頭は相談を先の道に言う")
         self.assertEqual(test_blk_fix.board_shas(self.board), before, "盤面を書かない")
 
     def test_pending_agreement_counts(self):
@@ -79,6 +82,37 @@ class PrecheckCase(test_blk_fix.BoardCase):
         code, out, err = self.precheck(load("fix2_ok"))
         self.assertEqual(code, 0, out + err)
         self.assertEqual(test_blk_fix.board_shas(self.board), before, "scope の登録も窓の照らしも書かない")
+
+    def accept(self):
+        return run_script("accept", self.repo, {
+            "INPUTS_REPLY": json.dumps(load("fix2_ok"), ensure_ascii=False), "INPUTS_BASE_REV": "", "INPUTS_ITERATION": "1",
+            "ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]})
+
+    def test_accept_reject_puts_planner_first_when_offered(self):
+        """この段の相談の控え（項目の在る物）が在れば、受け付けの範囲の拒否の頭は相談を先の道に言う（run 249・249b は控えが
+        在ったのに、申し出の道だけを言った）。控えが無ければ今どおり申し出の道（test_blk_fix の test_scope_reject_names_file）"""
+        self.ready(["docs/**"])
+        doc = json.loads(self.cfg.read_text(encoding="utf-8"))
+        askplan.write_config(self.place, {**doc, "items": {self.item: {"unit_keys": [], "allowed_paths": ["docs/**"],
+                                                                       "out_of_scope": [], "tests": []}}})
+        code, out, err = self.accept()
+        self.assertEqual(code, 0, err)
+        r = json.loads(out)
+        self.assertFalse(r["ok"], out)
+        text = pathlib.Path(r["reason_file"]).read_text(encoding="utf-8")
+        self.assertIn(planscope.REJECT_ASK, text)
+        self.assertNotIn(planscope.REJECT, text)
+
+    def test_accept_reject_keeps_conflict_route_for_other_pass(self):
+        """控えが別の段（前の段の残り）の物なら、相談を言わない"""
+        self.ready(["docs/**"])
+        doc = json.loads(self.cfg.read_text(encoding="utf-8"))
+        askplan.write_config(self.place, {**doc, "pass": "ruled", "items": {self.item: {"unit_keys": [], "allowed_paths": [],
+                                                                                        "out_of_scope": [], "tests": []}}})
+        code, out, err = self.accept()
+        self.assertEqual(code, 0, err)
+        text = pathlib.Path(json.loads(out)["reason_file"]).read_text(encoding="utf-8")
+        self.assertIn(planscope.REJECT, text)
 
     def test_accept_settles_agreement_and_passes(self):
         self.ready(["docs/**"])

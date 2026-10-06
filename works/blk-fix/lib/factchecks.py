@@ -6,7 +6,7 @@ accept.py の頭）。
 - named_reply・resolved_changes・fix_unit_keys: 返答の番号を盤面の控えで名前に戻す（手順 0）
 - check_writes: 書き込みの出どころ（-2）
 - check_frozen: TDD の輪で凍ったテストのファイル（1b）。agreed は範囲の相談の合意の行（None は盤面の trace。conflict.agreed）
-- check_plan_scope: 承認済みの修正案の範囲（1d）。agreed は同じ
+- check_plan_scope: 承認済みの修正案の範囲（1d）。agreed は同じ。ask は拒否の頭で相談を先の道に言うか（None は置き場の控えで決める）
 - precheck(cfg, reply): 修正役が sandbox の中の Bash で返答の前に回す事前の確かめ。上の 3 つ（凍結・書き込み・範囲）だけを、
   試験を回さずに当てる（変更に当たる試験と事後の関門の束は受け付けだけ）。盤面は読むだけ（entry.PEEK_ENV。scope は相談の控えの
   値で立てる）。run ごとの置き場の相談の記録のうち盤面にまだ写していない合意も足して見る（受け付けは頭で写す）。
@@ -135,12 +135,13 @@ def _loop_freeze(board, state) -> tuple:
 
 
 def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: Path, state: str, pass_: str,
-                     agreed=None) -> tuple:
+                     agreed=None, ask=None) -> tuple:
     """承認済みの修正案の項目と差分の照らし（planscope.check）。行は changes と keys（単位の名前）を並べ、files を根からの相対に
     揃えた物。変わったパスは版からの変更（writes.changed）から実行器が作ったファイル（tddloop.suite_made）を除いた物。TDD の輪が
     凍らせたファイル（輪の状態の frozen と frozen_tree）は planscope.check に渡し、欠けは版からの
     差分の全部で、修正役に問う外れと余分は凍った後に変えた分だけで見させる。
-    返り (拒否の行（最初の行の頭に planscope.REJECT）, 記録)。盤面は書かない（控えの食い違いで止めるのは planscope.check）。
+    返り (拒否の行（最初の行の頭に planscope.reject_head）, 記録)。盤面は書かない（控えの食い違いで止めるのは planscope.check）。
+    頭は、範囲の相談がこの段に在れば相談を先の道に言う。ask が None なら今の scope の置き場の控えで決める（askplan.offered）。
     凍らせたファイルと実行器が作ったファイルは run の全部の輪の物（_loop_freeze・tddloop.suite_made_all）で、凍った後は一番後の
     輪の frozen_tree から見る（前の輪の後に 1 回目の段と後の輪が書いた物を、2 回目の修正役のせいにしない）"""
     b = entry.open_board(board)
@@ -152,7 +153,9 @@ def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: 
     problems, note = planscope.check(rows, b, repo, rev, paths, pass_=pass_, loop_tree=tree, frozen=frozen,
                                      agreed=agreed)
     if problems:
-        problems = [planscope.REJECT + problems[0], *problems[1:]]
+        if ask is None:
+            ask = askplan.offered(askplan.place_of(board), pass_)
+        problems = [planscope.reject_head(ask) + problems[0], *problems[1:]]
     return problems, note
 
 
@@ -188,7 +191,7 @@ def precheck(cfg: dict, reply=None) -> dict:
     found += [("writes", t) for t in wrote["problems"]]
     got = fix_unit_keys(wrote["reply"], board)
     keys = got[0] if got is not None else [c.get("unit_key") for c in wrote["reply"].get("changes") or [] if isinstance(c, dict)]
-    scope, _ = check_plan_scope(wrote["reply"], keys, board, base_rev, repo, state, pass_, agreed=agreed)
+    scope, _ = check_plan_scope(wrote["reply"], keys, board, base_rev, repo, state, pass_, agreed=agreed, ask=True)
     found += [("scope", t) for t in scope]
     return {"ok": not found, "rejects": [{"check": c, "text": t} for c, t in found]}
 
