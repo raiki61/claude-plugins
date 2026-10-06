@@ -53,6 +53,10 @@ inputs:
   test_cmd:
     default: ""
     description: 緑の後に TDD の輪が走らせるテストのコマンド（線の入力 `test_cmd`）。空は走らせない。実行器がこのコマンドそのものを包んだ物なら 2 度走らせない
+  unit_depths:
+    default: ""
+    description: |
+      単位ごとの深さ。`{"<単位の key>": "軽量" | "標準"}` の JSON の文字列。空・名指しの無い単位・標準は今どおり。軽量の単位だけ、TDD の輪が緑の後に test_cmd を走らせない（赤・緑の確かめ・受け付けの選んで回す試験・裁定の輪は省かない）。形が違えば tdd-start が 2 で落ちる
 
 returns: collect
 outcome_field: ok
@@ -73,7 +77,7 @@ nodes:
         file: {type: string}
 
   # TDD の輪の頭。実行器が無ければ何も書かずに go: false（輪は飛ぶ）。在れば一式を 1 回走らせて元の結末を取り、
-  # test_cmd の関門（緑の後に毎回走らせるか）を 1 回だけ決める
+  # test_cmd の関門（緑の後に毎回走らせるか）を 1 回だけ決める（unit_depths が軽量と名指す単位は、関門が on でも走らせない）
   - id: tdd-start
     script: tdd_start
     runtime: uv
@@ -83,6 +87,7 @@ nodes:
       tdd_suite: $INPUTS.tdd_suite
       open_units: $INPUTS.open_units
       test_cmd: $INPUTS.test_cmd
+      unit_depths: $INPUTS.unit_depths
     output_format:
       type: object
       additionalProperties: false

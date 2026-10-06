@@ -354,10 +354,11 @@ class LineShapeCase(unittest.TestCase):
 
     def test_refitting_passes_only_scope(self):
         """2 回目の修正の段（include refitting）の with: は 1 回目（fixing）と同じ鍵で、違いは渡す値（判定・未直しの単位・案・
-        覚え書き）だけ。2 回の段を分けるのは include の名（scope。依頼 239）で、回の印 pass_tag は渡さない"""
+        覚え書き）だけ。2 回の段を分けるのは include の名（scope。依頼 239）で、回の印 pass_tag は渡さない。
+        単位ごとの深さ unit_depths は 1 回目だけ（2 回目は案の直しの後で全部の単位が標準へ上がる。DepthWiringCase）"""
         fit, fixing = node("refitting"), node("fixing")
         self.assertNotIn("pass_tag", fit["with"])
-        self.assertEqual(set(fit["with"]), set(fixing["with"]))
+        self.assertEqual(set(fit["with"]), set(fixing["with"]) - {"unit_depths"})
         passed = ("open_units", "plan_file", "notes_file", "judgment_file")
         self.assertEqual({k for k in fit["with"] if fit["with"][k] != fixing["with"][k]}, set(passed))
         for k in passed:
@@ -413,6 +414,9 @@ class DepthWiringCase(unittest.TestCase):
         self.assertLess(ids.index("h-fix"), ids.index("h-depth"))
         self.assertLess(ids.index("h-depth"), ids.index("fixing"))
         self.assertEqual(node("fixing")["depends_on"], ["h-fix", "h-depth"])
+        self.assertEqual(node("fixing")["with"]["unit_depths"], "$h-depth.output.unit_depths")
+        # 2 回目の修正は案の直しの後だけ走り、案の直しは全部の単位を標準へ上げる信号なので、深さを渡さない（全部が今どおり）
+        self.assertNotIn("unit_depths", node("refitting")["with"])
         self.assertLess(ids.index("h-mid"), ids.index("h-redepth"))
         self.assertLess(ids.index("h-redepth"), ids.index("h-review"))
         self.assertIn("h-redepth", node("h-review")["depends_on"])

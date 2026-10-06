@@ -241,7 +241,8 @@ LINE_ORDER = [
      "with": {"judgment_file": "$h-fix.output.judgment_file", "open_units": "$h-fix.output.open_units",
               "plan_file": "$h-fix.output.plan_file", "notes_file": "$h-fix.output.notes_file",
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
-              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd"}},
+              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd",
+              "unit_depths": "$h-depth.output.unit_depths"}},
     # 同じ run の中の案の直し（依頼 226。1 run に 1 回）: blk-plan と blk-fix の 2 度目の include
     _edge("h-replan", "replan", ["start", "h-fix", "fixing"]),
     {"id": "replanning", "kind": "include", "block": "blk-plan", "depends_on": ["h-replan"],

@@ -128,6 +128,12 @@ class TestYaml(unittest.TestCase):
     def test_input_test_cmd_is_optional(self):
         self.assertEqual((block()["inputs"]["test_cmd"].get("default"), "required" in block()["inputs"]["test_cmd"]), ("", False))
 
+    def test_input_unit_depths_is_optional_and_reaches_tdd_start(self):
+        # 単位ごとの深さ（{"<単位の key>": "軽量" | "標準"} の JSON の文字列）。空は全部の単位が今どおり
+        self.assertEqual((block()["inputs"]["unit_depths"].get("default"), "required" in block()["inputs"]["unit_depths"]),
+                         ("", False))
+        self.assertEqual(find_node(block()["nodes"], "tdd-start")["with"]["unit_depths"], "$INPUTS.unit_depths")
+
     def test_node_order(self):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
@@ -138,7 +144,7 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(start["depends_on"], ["ignored-before"])
         self.assertEqual(start["timeout"], DEADLINE)
         self.assertEqual(start["with"], {"tdd_suite": "$INPUTS.tdd_suite", "open_units": "$INPUTS.open_units",
-                                         "test_cmd": "$INPUTS.test_cmd"})
+                                         "test_cmd": "$INPUTS.test_cmd", "unit_depths": "$INPUTS.unit_depths"})
         self.assertEqual(loop["depends_on"], ["tdd-start"])
         self.assertEqual(loop["when"], "$tdd-start.output.go == true")
         g = loop["loop_group"]
@@ -200,7 +206,7 @@ class TestYaml(unittest.TestCase):
     def test_script_inputs(self):
         import ast
         import re
-        want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS", "INPUTS_TEST_CMD"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
+        want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS", "INPUTS_TEST_CMD", "INPUTS_UNIT_DEPTHS"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
                                                                                        "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
                 "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
@@ -237,7 +243,8 @@ class TestNoSuite(unittest.TestCase):
             committed_copy(repo, SEED)
             art = tmp / "art"
             code, out, err = run_script("tdd_start", repo, {"INPUTS_TDD_SUITE": "", "INPUTS_OPEN_UNITS": OPEN,
-                                                            "INPUTS_TEST_CMD": "", "ARTIFACTS_DIR": str(art)})
+                                                            "INPUTS_TEST_CMD": "", "INPUTS_UNIT_DEPTHS": "",
+                                                            "ARTIFACTS_DIR": str(art)})
             self.assertEqual(code, 0, err)
             got = json.loads(out)
             self.assertEqual(got, {"go": False, "reason": tddloop.NO_SUITE, "suite": "", "state_file": "",
@@ -1359,11 +1366,11 @@ class TestTestCmdGate(LoopCase):
     """緑の後に run の test_cmd（線の入力）の緑も確かめる。元から赤なら関門を切って理由を残し、実行器が同じコマンドを
     包んだ物なら 2 度走らせない（Review Focus 5）"""
 
-    def restart(self, cmd):
+    def restart(self, cmd, unit_depths=""):
         (self.repo / "lint.py").write_text(LINT, encoding="utf-8")
         git(self.repo, "add", "lint.py")
         git(self.repo, "commit", "-qm", "lint")
-        self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN, test_cmd=cmd)
+        self.start = tddloop.start(self.board, self.repo, str(self.suite), OPEN, test_cmd=cmd, unit_depths=unit_depths)
         self.state = self.start["state_file"]
 
     def lint(self):
@@ -1381,6 +1388,44 @@ class TestTestCmdGate(LoopCase):
         self.assertIn("test-cmd-", got["reason"])
         self.assertEqual(self.st()["phase"], "fix")
         self.assertTrue(pathlib.Path(self.st()["work"], f"test-cmd-{self.st()['runs'] - 1}.log").is_file())
+
+    def test_light_unit_does_not_run_test_cmd_after_green(self):
+        # 軽量の単位は緑の後の test_cmd を走らせない（同じコマンドを線の最後のテストが木の全部で走らせる）。赤・緑の確かめは今どおり
+        self.restart(self.lint(), unit_depths=json.dumps({MEAN: "軽量", CLAMP: "標準"}))
+        self.assertEqual(self.st()["test_cmd_gate"], tddloop.GATE_ON)
+        self.route()
+        self.red()
+        runs = self.st()["runs"]
+        prompt = pathlib.Path(self.step_prompt()).read_text(encoding="utf-8")
+        self.assertNotIn("緑の後に機械が run の test_cmd", prompt)
+        self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "print('debug')\n    return sum(xs) / len(xs)")
+        got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を直した"})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.st()["runs"], runs + 1, "一式の緑の 1 回だけで、test_cmd は走らせない")
+        self.assertEqual(self.st()["units"][MEAN]["test_cmd"], tddloop.CMD_LIGHT)
+
+    def standard_mean_rejected(self, depths):
+        self.restart(self.lint(), unit_depths=depths)
+        self.route()
+        self.red()
+        self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "print('debug')\n    return sum(xs) / len(xs)")
+        got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母を直した"})
+        self.assertFalse(got["ok"])
+        self.assertIn("test_cmd", got["reason"])
+
+    def test_unit_named_standard_runs_test_cmd(self):
+        self.standard_mean_rejected(json.dumps({MEAN: "標準"}))
+
+    def test_unit_not_named_runs_test_cmd(self):
+        self.standard_mean_rejected(json.dumps({CLAMP: "軽量"}))
+
+    def test_unit_depths_of_wrong_shape_is_broken(self):
+        for raw in ("{", "[]", json.dumps({MEAN: 1})):
+            with self.subTest(raw=raw), self.assertRaises(tddloop.Broken):
+                tddloop.start(self.board, self.repo, str(self.suite), OPEN, unit_depths=raw)
+
+    def step_prompt(self):
+        return tddloop.prep(self.state)["prompt_file"]
 
     def test_fix_passes_and_records(self):
         self.restart(self.lint())

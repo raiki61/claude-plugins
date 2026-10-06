@@ -112,6 +112,9 @@ ONLY_ENV = "TDD_SUITE_ONLY"
 GATE_ON = "on"
 GATE_SAME = "same_as_suite"
 GATE_OFF = "off"
+# 単位ごとの深さ（入力 unit_depths の値）のうち、緑の後の test_cmd を走らせない語。出口の単位の test_cmd はその時 CMD_LIGHT
+LIGHT = "軽量"
+CMD_LIGHT = "light"
 SUITE_MADE_NOTE = "一式を走らせて出来たファイル"
 # 平の run（修正の形 current。fixshape.plain）: 比べの基準なので 219 の前の振る舞い（約束を読まない・整えはいつも・test_cmd の関門を切る）
 PLAIN_NOTE = "修正の形 current——test_cmd の関門は回さない（比べの基準）"
@@ -383,9 +386,24 @@ def _unit(key, route, why="") -> dict:
             "refactor_why": ""}
 
 
-def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> dict:
+def _light_units(raw: str) -> list:
+    """入力 unit_depths（{"<単位の key>": "軽量" | "標準"} の JSON の文字列。空は {}）のうち LIGHT の単位の key。形が違えば Broken"""
+    if not (raw or "").strip():
+        return []
+    try:
+        doc = json.loads(raw)
+    except ValueError as e:
+        raise Broken(f"unit_depths が JSON として読めない（{e}）")
+    if not isinstance(doc, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in doc.items()):
+        raise Broken(f"unit_depths が単位の key から深さの語への object でない（{raw[:200]!r}）")
+    return sorted(k for k, v in doc.items() if v == LIGHT)
+
+
+def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "", unit_depths: str = "") -> dict:
     """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無ければ何も書かずに go: false（盤面を読まない）。
     test_cmd は run のテストのコマンド（線の入力）で、元の結末を取った後に関門を決める（_test_cmd_gate）。
+    unit_depths は単位ごとの深さ（_light_units）。LIGHT の単位は関門が on でも緑の後の test_cmd を走らせない（状態の light）。
+    ほかの単位と空は今どおり。
     修正の形 g1 も元の結末を取って状態を書く（受け付けの選んで回す試験 1c が元で緑だった試験の赤を拒むのに要る。強み 6）。
     違いは輪を回さないことだけで、出口は go: false・理由 G1_NO_LOOP・state_file は書いた状態・summary_file は空（輪の要約は無い）"""
     suite = (suite or "").strip()
@@ -393,6 +411,7 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> d
     if not suite:
         return off
     keys = _open_units(open_units)
+    light = _light_units(unit_depths)
     exe = pathlib.Path(suite) if pathlib.Path(suite).is_absolute() else pathlib.Path(repo) / suite
     if not exe.is_file() or not (suite.endswith(".py") or os.access(exe, os.X_OK)):
         return {**off, "reason": f"テストの実行器 {suite} が無いか実行できない——全部の単位を今どおり直す"}
@@ -421,7 +440,7 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "") -> d
           "handoff": snapshot(repo), "suite_made": made, "phase": "route", "tries": 0, "reason": "", "iterations": 0,
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
           "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract, "plain": plain,
-          "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "calls": []}
+          "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "light": light, "calls": []}
     state_file = work / STATE
     _save(state_file, st)
     if shape == seat.G1_SHAPE:
@@ -472,8 +491,12 @@ def _test_cmd_problems(st, repo) -> list[str]:
     """関門が on の時だけ run の test_cmd を 1 回走らせ（ログ work/test-cmd-<runs>.log。runs を 1 進め、出来たファイルを
     suite_made に積む。書き換えた既存のファイルは _cmd_run が戻して積まない）、赤ならログのパスを含む拒否の文。緑なら今の単位の
     test_cmd を ok にする（_green は今の単位にしか呼ばれない）。走らなければ _CmdDown（実行器が走らない時と同じ道）。
-    既存のファイルを書き換えた回は赤（_cmd_run）"""
+    既存のファイルを書き換えた回は赤（_cmd_run）。今の単位が軽量（状態の light）なら走らせず、単位の test_cmd を CMD_LIGHT にする
+    （同じコマンドを run の最後のテストが木の全部で走らせるので、確かめは消えない）"""
     if st.get("test_cmd_gate") != GATE_ON:
+        return []
+    if _cur(st)["unit_key"] in st.get("light", []):
+        _cur(st)["test_cmd"] = CMD_LIGHT
         return []
     log = pathlib.Path(st["work"]) / f"test-cmd-{st['runs']}.log"
     mat, made = _cmd_run(repo, st["test_cmd"], log)
@@ -592,7 +615,7 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     phase = st["phase"]
     title = f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）"
     lines = ["## この段ですること", "", PLAIN_DO.get(phase, DO[phase]) if st.get("plain") else DO[phase], ""]
-    if phase in ("fix", "refactor") and st.get("test_cmd_gate") == GATE_ON:
+    if phase in ("fix", "refactor") and st.get("test_cmd_gate") == GATE_ON and _cur(st)["unit_key"] not in st.get("light", []):
         lines += [f"緑の後に機械が run の test_cmd（`{st['test_cmd']}`）も走らせる。これも緑にせよ。", ""]
     if phase == "route":
         lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in _owed(st)] + [""]
@@ -1647,7 +1670,8 @@ FIELDS = ("unit_key", "route", "why", "tests", "test_files", "red", "green", "re
 
 def exit_fields(start_out: dict) -> dict:
     """出口の欄 tdd: {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor, gave_up, problems,
-    red_kinds（名指しの id → 見た赤の種類）, test_cmd（"ok"＝緑の後に run の test_cmd も走らせて通った・""）,
+    red_kinds（名指しの id → 見た赤の種類）, test_cmd（"ok"＝緑の後に run の test_cmd も走らせて通った・CMD_LIGHT＝軽量の単位
+    なので走らせなかった・""）,
     refactor_why（整えの申告の理由）}]}。refactor は ""・skipped（申告が無く整えの段を飛ばした）・none・ok・reverted。
     ran: true の出口には test_cmd: {gate（GATE_ON・GATE_SAME・GATE_OFF）, note（off の理由）} と calls（step 1 回ごとの
     {n, phase, unit_key, ok, runs, secs}。役の費用は Archon の出来事に在り、この行の順（tdd の節の起動の順）で後から結べる）も載る"""
