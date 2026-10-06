@@ -185,6 +185,15 @@ class UnitTrees(unittest.TestCase):
         self.assertTrue(unittrees.applied(self.repo, ""))
         self.assertEqual((self.repo / "a.txt").read_text(), "a1\nA2\na3\n", "作業ツリーを変えない")
 
+    def test_sweep_clears_a_tree_whose_git_pointer_was_rewritten(self):
+        """役が単位の worktree の .git を書き換えても（git の worktree remove は断る）、片付けは消して登録を外す"""
+        base = unittrees.snapshot(self.repo)
+        path, _ = self.unit(base, "u1", {})
+        (path / ".git").write_text("gitdir: /elsewhere\n", encoding="utf-8")
+        self.assertEqual(unittrees.sweep(self.repo), [str(path.resolve())])
+        self.assertFalse(path.exists())
+        self.assertNotIn(str(path.resolve()), git(self.repo, "worktree", "list", "--porcelain"))
+
 
 if __name__ == "__main__":
     unittest.main()

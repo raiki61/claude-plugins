@@ -158,11 +158,18 @@ def applied(repo, patch: str) -> bool:
     return r.returncode == 0
 
 
+def _drop(repo, path) -> None:
+    """単位の worktree path を消す。git が断る（役が .git の指しを書き換えた）時は置き場ごと消す（登録は呼び手の prune が外す）"""
+    if not pathlib.Path(path).exists():
+        return
+    if _git(repo, "worktree", "remove", "--force", str(path), check=False).returncode != 0:
+        shutil.rmtree(path)
+
+
 def remove(repo, path) -> None:
     """単位の worktree path と守りの参照 u-<path の印> を消す（置き場が消えていれば prune で登録を片付ける）"""
     ref = _prefix(repo) + f"u-{_mark(path)}"   # 消す前に印を取る（実パスは在る間に解く）
-    if pathlib.Path(path).exists():
-        _git(repo, "worktree", "remove", "--force", str(path))
+    _drop(repo, path)
     _git(repo, "worktree", "prune")
     _git(repo, "update-ref", "-d", ref, check=False)
 
@@ -182,8 +189,7 @@ def sweep(repo) -> list[str]:
             continue
         path = line[len("worktree "):]
         if prefix + f"u-{_mark(path)}" in refs:
-            if pathlib.Path(path).exists():
-                _git(repo, "worktree", "remove", "--force", path)
+            _drop(repo, path)
             gone.append(os.path.realpath(path))
     _git(repo, "worktree", "prune")
     for ref in refs:

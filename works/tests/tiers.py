@@ -48,6 +48,7 @@ FAST = frozenset({
     "test_scopes",          # 部品の置き場（依頼 239）: flow_adapter の env の読みと manifest の照らし（一時の置き場のファイルだけ）
     "test_gitkit",          # 1 秒未満（gitkit の型を 1 回作って 2 回写す）
     "test_unittrees",       # 3 秒: 単位の worktree（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git だけ）
+    "test_unitlanes",       # 7 秒: 下請けを単位の worktree で並べる（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git と python3 1 本）
     "test_blk_eyes_lanes",  # 独立の目の筋の順: YAML と Archon の trigger_rule の写しで節を回す（盤面の fixture を読むだけ。git・子のプロセスを使わない）
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
     "test_block_blind",     # ブロックの散文のほかのブロックの名指しの柵と、役の指示書のほかの役・段の語の柵: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
