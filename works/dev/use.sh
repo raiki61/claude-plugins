@@ -323,7 +323,7 @@ load_ledger() {
 
 . "$DEV_DIR/lib.sh"
 
-# clean_run <run-id> <run の行（row_of の形）>: 終わった run の worktree・枝・控えを消す。手の道（clean）と自動の道（auto_clean・
+# clean_run <run-id> <run の行（row_of の形）>: 終わった run の worktree・枝・控え（と、その worktree から切った単位の worktree・参照）を消す。手の道（clean）と自動の道（auto_clean・
 # sweep_old_runs）が呼ぶ片付けの本体の 1 か所。生きた run かの判定は呼び手が済ませる。cd "$TARGET" した殻から呼ぶ
 clean_run() {
   GOT="$(printf '%s' "$2" | cut -f3)"
@@ -369,6 +369,18 @@ EOF
   fi
   # 呼び手は `|| …` で呼ぶので set -e が効かない。落ちたら次へ進まず return で返す
   BRANCH="$(git -C "$GOT" rev-parse --abbrev-ref HEAD)" || return $?
+  # 修正の段が run の worktree から切った単位の worktree と守りの参照（refs/works/units/<印>/ の下）を先に片付ける
+  # （unittrees.sweep。止まった run の残り。印は run の worktree の実パスから引くので、worktree を消す前に呼ぶ）
+  _swept="$(CORE_DIR="$WORKS_DIR/.shared/core" PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import os, sys
+sys.path.insert(0, os.environ["CORE_DIR"])
+import unittrees
+for p in unittrees.sweep(sys.argv[1]):
+    print(p)
+' "$GOT")" || return $?
+  if [ -n "$_swept" ]; then
+    printf '%s\n' "$_swept" | while IFS= read -r _p; do echo "run $1 の単位の worktree を消した: ${_p}"; done
+  fi
   git worktree remove --force "$GOT" || return $?
   echo "run $1 の worktree を消した: ${GOT}"
   if [ "$BRANCH" != HEAD ] && git show-ref --verify --quiet "refs/heads/$BRANCH"; then

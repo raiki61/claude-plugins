@@ -116,4 +116,4 @@
 ## 残り
 
 - 本物の run での確かめ: 修正役が並べる項目の Agent を 1 つのメッセージで起こし、同時に走ること（起動の記録と下請けの書き込みの時刻）。下請けの Edit・Bash が単位の worktree に書けること（包みの柵の外し）。当てるコマンドが sandbox の中で共通の .git を書かずに通ること（試験は共通の .git を読み取りだけにして見た）。conflict の項目を直し直さなかった返答を、今の受け付けが拒むこと。fix-units が記録を写し、受け付けが記録の無い変更で拒まないこと。
-- 止まった run が残した単位の worktree は、同じ run の次の fix-prep が片付ける。run の外の片付け（dev の殻の掃除）はまだ無い。
+- 止まった run が残した単位の worktree は、同じ run の次の fix-prep が片付ける。run の外の片付けは、dev の殻（`works/dev/use.sh`）の run の片付け（clean・終わった run の自動の片付け・start の前の run の掃除）が、run の worktree を消す前にその worktree の単位の worktree と守りの参照（refs/works/units/<印>/ の下の base-*・u-*）を `unittrees.sweep` で消す（0.2.30）。

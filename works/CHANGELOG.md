@@ -21,6 +21,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 ### Fixed
 
 - 次の run に引き継ぐ落ちた理由（`prior-failures.json`・`next-request.json` の prior_failures）に、TDD の輪の拒否・投げ出しが載らないようにした。輪の受け付けは単位を問わず 1 つの行を上書きしていたので、輪が投げ出した単位を修正役が直して受け付けが通っても落ちた理由として残り、前の単位の投げ出しが後の単位の通過で消えることもあった。輪の投げ出しは修正役への引き渡しなので、受け付けの最後の結果の控え `accept-last.json` に書かない。
+- 止まった run が対象のリポジトリに残す、修正の段の単位の worktree と守りの参照（`refs/works/units/<印>/` の下の `base-*`・`u-*`）を、dev の殻 `use.sh` の run の片付け（`clean`・終わった run の自動の片付け・start の前の掃除）が run の worktree と一緒に消すようにした。今までは同じ run の次の修正の支度しか片付けず、止まった run の物は残り続けた。
 
 ## [0.2.29] - 2026-10-06
 

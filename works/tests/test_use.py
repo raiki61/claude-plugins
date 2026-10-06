@@ -1483,6 +1483,26 @@ class UseShell(unittest.TestCase):
         self.assertFalse(wt.exists())
         self.assertEqual(git(t, "branch", "--list", "archon/task-darkfactory-1"), "")
 
+    def test_clean_sweeps_unit_worktrees_and_refs_of_run(self):
+        # 止まった run は、修正の段が run の作業ツリーから切った単位の worktree と守りの参照（refs/works/units/<印>/ の下の
+        # base-*・u-*）を残しうる。clean は run の worktree を消す前に、それを片付ける
+        import sys
+        sys.path.insert(0, str(ROOT / ".shared" / "core"))
+        import unittrees
+        t = self.target()
+        wt = self.tmp / "run-wt"
+        git(t, "worktree", "add", "-q", "-b", "archon/task-darkfactory-1", str(wt))
+        unit = self.tmp / "place" / "item-1"
+        unittrees.add(wt, unittrees.snapshot(wt), unit)
+        self.assertTrue(unit.is_dir())
+        self.set_runs(status="failed", working_path=str(wt), output_root=str(self.tmp / "out"))
+        r = self.use("clean", str(t), "run-1", CLAUDE_CODE_OAUTH_TOKEN=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(wt.exists())
+        self.assertFalse(unit.exists(), r.stdout)
+        self.assertEqual(git(t, "for-each-ref", "refs/works/units"), "")
+        self.assertNotIn(str(unit), git(t, "worktree", "list"))
+
     def finished_run_worktree(self, t, base_rev=None, status="completed", start_json=True):
         """対象の本物の git worktree と枝を作り、盤面に周の頭の版（base_rev。省けば対象の HEAD）を書いた run
         （status。既定は終わった completed）を偽の一覧に置く（start_json=False は周の頭の版を書かない）。worktree には未コミットの修正を 1 行足す"""
