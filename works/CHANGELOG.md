@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.29] - 2026-10-06
+
 ### Fixed
 
 - 0.2.28 で足した受け付けの試験の結末の控え（周の置き場の `fixgates-base.json` と盤面の根の `accept-rev-cache.json`）を、盤面の共有の記録に入れた。0.2.28 では修正の段がこれを書くと、部品が宣言の外に書いたとして run が修正の後で止まり、試験・審査・独立の目を飛ばして報告へ進んでいた（run 195g）。
