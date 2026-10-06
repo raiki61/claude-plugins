@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計書。語は「目的と語」の節と works/README.md で定義 -->
 # 同じファイルを触る枝も並べ、機械が 3 方向で合わせる（依頼 243 の並べ・3 段目）
 
-状態: 設計だけ（入れていない）。7 節の決め事は持ち主の答え待ち。前の 2 段（範囲の重ならない物だけ並べる）は入っている。
+状態: 入れた（Task 1〜10）。7 節の決め事は 1〜8 とも推しのとおり決まった。ただし枝の中の単位も単位ごとに新しい下請けで起こす（9 節。2.2 を書き直した）。残りは Task 11（本物の run の測り）。
 
 ## 平たく言うと（3 行）
 
@@ -57,9 +57,11 @@ run 195g の事実（持ち主の指示に在る数）: TDD の輪の 3 単位�
 
 ### 2.2 枝の中（TDD の輪。AI と段のコマンド）
 
-- 枝に単位が 2 つ以上あれば、単位の控えに枝の単位を全部、振り分けの順で持たせる（`_lane_state` の open_units・order・queue・units・contract・light を組の分に）。単位から単位への進みは `tddloop.step` と `tddloop._next_unit` がそのまま回す（枝の中は今の輪と同じ順）。下請けは枝ごとに 1 つ（単位が替わる時の新しい会話は持たない。枝の中の 2 単位目は同じ下請けが続ける）。単位ごとに新しい会話で起こす決まり（works/docs/plans/2026-10-06-fresh-session.md）からの差で、理由は 2 つ: 同じ項目の単位どうしは読む物（brief・範囲・受け入れのテスト）が同じで、会話に積もる物が少ない。下請けを単位ごとに起こし直すにはまとめ役が枝の途中を待つ必要があり、並べの周を 1 回で締める 2 段目の形が崩れる。
-- `tddloop._test` は赤を受けた時に単位の行へ単位の頭（`unit_head`）を `head` として残す。締めの赤の確かめ直し（`tddlanes._red_again`）は単位ごとにこの `head` を使う（今は控えの `unit_head` 1 つ。単位が 1 つなら同じ値）。
-- 食い違いの申し出（`tddlanes._park`）は今の単位（`queue[cur]`）を止め、枝の残りの単位は戻す（順の単位へ）。
+- 枝に単位が 2 つ以上あれば、単位の控えに枝の単位を全部、振り分けの順で持たせる（`_lane_state` の open_units・order・queue・units・contract・light を組の分に）。単位から単位への進みは `tddloop.step` と `tddloop._next_unit` がそのまま回す（枝の中は今の輪と同じ順）。
+- 下請けは単位ごとに新しく起こす（持ち主の新しい会話の決まり。works/docs/plans/2026-10-06-fresh-session.md。9 節）。まとめ役は回ごとに、各枝の次の単位の下請けを 1 つのメッセージで起こす（1 回目は各枝の 1 番目、全部が終わったら 2 番目の在る枝の 2 番目）。下請けのファイルは枝の単位ごと（盤面の `tdd-<k>/lane-<n>-<j>.md`）。
+- 段のコマンドは枝の中の単位の番 j を受け、枝の今の単位でない番には段を回さない（前の単位が済んでいない・もう済んだ、を返す）。単位が済んで枝が次の単位へ移ったら、次の単位の頭の木を控えの `unit_heads` に残し、次の単位への引き継ぎのファイル（`handoff-<j>.md`。`tddloop.handoff_lines` と同じ中身）を単位の控えの隣に書く。2 番目からの下請けのファイルはこのファイルを名指す。
+- 締めの赤の確かめ直し（`tddlanes._red_again`）は単位ごとの頭の木（`unit_heads`。1 番目は枝の頭 `lane_base`）を使い、赤の時のテストのファイルは枝の次の単位の頭の木（無ければ今の姿）から取る（同じ試験のファイルに後の単位が足しても、前の単位の赤を確かめ直せる）。段のコマンドが単位の置き場に書いた object は、締めが代わりの置き場として読む（`_lane_read`）。
+- 食い違いの申し出（`tddlanes._park`）は今の単位（`queue[cur]`）を止め、枝の残りの単位は戻す（順の単位へ）。枝の途中の単位が済まなかった時は、単位の worktree をその単位の頭に戻してから当てる（書きかけを当てない）。
 
 ### 2.3 枝ごとの確かめ（関わる試験だけ）
 
@@ -110,7 +112,7 @@ TDD の輪（`tddlanes._green_after`）:
 
 ## 4. 測る事（次の本物の run）
 
-1. 段ごとの待ちの損（線の木の 6 節の残りを、この一切れで閉じる）: Archon の出来事の task_activity（task_type `local_agent` の started と completed。task_id で組み、created_at の差が下請けの時間）を節（step_name）ごとに読み、続けて起きた started の並び（間に local_agent の completed を挟まない並び）を 1 束とする。束ごとに「一番遅い − 平均」を出し、段（修正案の事前審査・TDD の輪の並べの周・修正役の 1 回目）ごとに足す。新しい時計は足さない（`dev/fixmeasure.py` に足し、出来事の欄の印 `FIELDS_CHECKED` に completed の印を足す）。
+1. 段ごとの待ちの損（線の木の 6 節の残りを、この一切れで閉じる）: Archon の出来事の task_activity（task_type `local_agent` の started と completed。task_id で組み、created_at の差が下請けの時間）を節（step_name）ごとに読み、続けて起きた started の並び（束の誰かが終わった後の started から次の束）を 1 束とする。束ごとに「一番遅い − 平均」を出し、段（修正案の事前審査・TDD の輪の並べの周・修正役の 1 回目）ごとに足す。新しい時計は足さない（`python3 works/dev/fixmeasure.py wait <archon.db> <run_id>`。採否の判定の印 `FIELDS_CHECKED` には入れず、出力の verified（`WAIT_VERIFIED`）を本物の run で確かめたら真にする）。枝の中の単位の回（9 節）は束が回ごとに分かれるので、回の待ちも束ごとに出る。
 2. 並べの効き: TDD の輪の全体の時間（195g の 8.4 分と比べる）・並べの周の時間・戻した枝の順の直し直しの時間。修正役の 1 回目の時間。
 3. 合わせの結末: 枝ごとに clean・union（挿しだけを合わせた）・conflict（字）・semantic（意味）・戻した理由。重なりの見込みの組（`overlap`）と実際の重なりのファイル。
 4. 意味の食い違いの逃げ道の費用: 2.5 の 2 の確かめ直しが走った回数と時間、修正役の受け付けの拒否のうち重なりのファイルに当たった物の数。
@@ -133,7 +135,8 @@ TDD の輪（`tddlanes._green_after`）:
 2. 戻した枝の分だけ今より遅くなる: 枝の仕事を捨てて順で直し直す（前の試みの差分は渡す）。全部の枝が戻ると、並べの周の分だけ今より遅い（2 段目と同じ害。時間だけ）。
 3. 修正役の意味の食い違いは受け付けの拒否で 1 回分の出し直しを使う: 3 回目の拒否で単位が止まる柵（依頼 242）に近づく。測りの 4 で数え、多ければ当てるコマンドの後に機械の確かめを足す（7 節の決め事 5）。
 4. 挿しだけの合わせ（union）が同じ名のテストを 2 つ並べる: 2.4 の 3 の照らしで戻す。名の違う 2 つのテストが同じ固定の値（ファイル名・ポート）を取り合う物は、合わせた木の試験が拾う。
-5. 枝に単位が 2 つ以上ある時、一番遅い枝が長くなる（待ちの損の主な元）。測りの 1 で見る。
+5. 枝に単位が 2 つ以上ある時、一番遅い枝が長くなる（待ちの損の主な元）。単位ごとに新しい下請けで起こす（9 節）ので、回ごとに全部の枝の下請けが終わるのを待つ（回の待ちも足される）。測りの 1 で見る。
+6. 単位ごとの頭の木（`unit_heads`）は下請けが書ける控えに在る。偽った頭は赤の確かめ直しを別の木で回させうる（今の 1 単位の枝の `unit_head` と同じ信頼の度合い。1 番目の単位の頭は枝の頭として締めが使う）。
 
 ## 7. 決め事（推しつき）
 
@@ -154,7 +157,7 @@ TDD の輪（`tddlanes._green_after`）:
 2. `unitlanes`: `lanes` は範囲の在る項目を全部（2 つ未満なら []）。`expect`（重なりの見込みの組）を足す。`merge` の出力に `shared`・`union` を足し、控えの試験のファイルの並びを `unittrees.apply` に渡す。同じ名のテストの定義が合わせた試験のファイルに 2 つ在れば conflict（ast で引く。3.9 の標準ライブラリ）。今の試験 `test_unknown_or_overlapping_items_stay_serial` は「重なっても並べる・範囲の無い項目は順」に書き換える。
 3. `fixrules.g1_values` が控えに試験のファイルの並び（`planmarks.test_paths`）を渡す。`seat.G1_PARALLEL_OF` の「範囲が互いに重ならない」を外し、`shared` の扱い（differ と同じに bash_writes）を書く。出し直しの支度が前の周の `UNITS_OP` の shared を拒否の理由の頭に 1 行で名指す。
 4. `tddlanes.plan` の枝の組: 項目でつないだ単位の組（範囲の引けない単位を含む組は順）。赤から: 項目 1 に 2 単位・項目 2 に 1 単位で、どちらも report.py を範囲に持つ見本 → 枝 2 本（今は 0）。`_lane_state` を組の単位の全部に。目録の行は `unit_keys`。
-5. `tddloop._test` が単位の行に `head` を残し、`tddlanes._red_again` が単位ごとの `head` を使う。`tddlanes._park` は今の単位を止め、枝の残りを戻す。赤から: 2 単位の枝の 1 単位目の赤の確かめ直しが、2 単位目の直しの入った木で回らないこと。
+5. 枝の中の単位ごとの下請け（9 節）: 段のコマンドが番 j を見て、単位が済んだら次の単位の頭の木（`unit_heads`）と引き継ぎのファイルを残し、`tddlanes._red_again` が単位ごとの頭を使う。`tddlanes._park` は今の単位を止め、枝の残りを戻す。赤から: 2 単位の枝で 2 番目の番の下請けが先に走っても段が回らないこと、1 番目の単位の赤の確かめ直しが 2 番目の単位の直しの入った木で回らないこと。
 6. `tddlanes.settle` を当てる・確かめる・写すの 3 つに分け、`_merge` の照らしを重なりのファイルとそれ以外に分ける（2.4 の 4）。`writes.carry_merged` を足す（`test_writes` で単体）。赤から: 2 本の枝が report.py の別の関数を変える → 両方受け、`writes.unrecorded` が run の作業ツリーで空。同じ行を変える → 後の枝が戻り、差分が盤面に残る。
 7. `tddlanes._green_after` の広い選び（重なりのファイルを起点に direct_only を外す。`tddloop._reached` に口）と、意味の食い違いの確かめ直し（2.5 の 2）。赤から: 2 本の枝が字では合うが合わせると落ちる見本 → 先の枝を受け、後の枝が理由「意味の食い違い」で戻る。
 8. 出口と trace: 輪の出口の lanes の単位の行に枝の番号・合わせの結末（clean・union・conflict・semantic）、lanes に `shared`・`expect`。fix-units の出口と trace に `shared`・`union`（`blk-fix.yaml` の output_format も同じ commit）。線の模擬実行の stub と fixtures（`blk-fix/fixtures/tdd.stubs.yaml` など）を同じ commit で直す。
@@ -163,3 +166,21 @@ TDD の輪（`tddlanes._green_after`）:
 11. 本物の run（195g と同じ依頼）で 4 節の測りを取り、この文書に結果を書く。
 
 順: 1 → 2 → 3（修正役の道はここで使える）→ 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11。1〜3 と 9 は FAST の試験だけで回る。4〜8 は test_tdd_lanes（HEAVY）を CI で確かめる。
+
+## 9. 入れた時の決め（2026-10-07）
+
+- 持ち主の決め事 1〜8 は推しのとおり。ただし 2.2 の「枝の中は同じ下請けが続ける」は採らず、新しい会話の決まり（単位ごとに新しい下請け）を保つ（持ち主の指示）。技術の止めは無かった: Claude Code の下請けは下請けを起こせないので、枝の中の順はまとめ役が回で刻む（同じメッセージで起こした下請けは全部が終わるまで次の回に進めない。枝の中の 2 番目は、全部の枝の 1 番目が終わった後に起きる）。前の単位の物は機械が書く引き継ぎのファイルで渡る（`tddloop.handoff_lines` と同じ中身。fresh-session の引き継ぎの節と同じ）。
+- 単位の頭の木は `tddloop._test` に足さず、段のコマンド（`tddlanes.run`）が枝の次の単位へ移った時に控えの `unit_heads` に残す（輪の状態の形を変えない）。
+- 意味の食い違いの確かめ直しで落とした枝は、枝の単位を全部戻す（枝の差分は 1 つ）。出口の lanes の `shared` は最後に受けた枝どうしの重なり。
+- 修正役の道の書き込みの記録は 1 段目のまま（differ を役が bash_writes に書く）。出し直しの周の指示書の頭に、前の周の締めの控え（`units.done.json` の settled）の重なりのファイルを 1 行で名指す（`fixrules.OVERLAP_LINE`）。
+- 合わせた木の試験を広げる選びが一式を求める（地図に分からない物が届く）時は広げない（一式は線の最後のテストの段）。
+
+入れた物:
+
+- `works/.shared/core/unittrees.py`: `apply` の union・check の口（挿しだけの食い違いを合わせる）
+- `works/blk-fix/lib/unitlanes.py`: `lanes`（重なっても並べる）・`expect`・`tests_unique`・`merge` と `settle` の shared・union・`settled`
+- `works/blk-fix/lib/fixrules.py`・`works/.shared/core/seat.py`: 控えの試験のファイル・`overlap_line`・修正役の段落
+- `works/blk-fix/lib/tddlanes.py`・`works/blk-fix/lib/tddloop.py`・`works/blk-fix/rules/tdd.md`: 枝・単位ごとの下請け・引き継ぎのファイル・締め（当てる・照らす・広げた緑・意味の食い違いの確かめ直し・記録）・出口の lanes の欄
+- `works/.shared/core/writes.py`: `carry_merged`
+- `works/dev/fixmeasure.py`: `wait`
+- 試験: test_unittrees・test_unitlanes・test_fix_rules・test_fixmeasure（FAST。手元で回した）、test_writes・test_tdd_lanes（HEAVY。CI が回す）
