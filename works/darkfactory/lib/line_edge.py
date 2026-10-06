@@ -233,9 +233,10 @@ def _traced(b, op: str, **kw) -> bool:
     return any(all(row.get(k) == v for k, v in kw.items()) for row in report.trace_rows(b, op))
 
 
-def _ci_left(b) -> list:
-    """修正の受け付けが周をまたいで手元で回さず 手元で回さなかった試験（重ねずに、出た順）"""
-    return list(dict.fromkeys(t for row in report.trace_rows(b, impact.ACCEPT_TRACE_OP) for t in row.get("ci_left") or []))
+def _ci_left(b, field="ci_left") -> list:
+    """修正の受け付けが周をまたいで手元で回さなかった試験（重ねずに、出た順）。field が final_left なら、直に関わらないので
+    回さず最後のテストの段に任せた試験"""
+    return list(dict.fromkeys(t for row in report.trace_rows(b, impact.ACCEPT_TRACE_OP) for t in row.get(field) or []))
 
 
 def _halted_out(b, out: dict, flag, at: str) -> dict:
@@ -477,7 +478,7 @@ def _r2_inputs(b) -> list:
 
 
 def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: str) -> str:
-    """最後の関所の文: 最後のテストと修正前のテスト（entry.baseline_line）・受け付けが手元で回さなかった試験・受け付けの束が
+    """最後の関所の文: 最後のテストと修正前のテスト（entry.baseline_line）・受け付けが手元で回さなかった試験・最後のテストの段に任せた試験・受け付けの束が
     赤緑を確かめずに通した回（report.gates_lines）・差分の審査の穴の数・手直しの結果・止めずに残った異議・
     決着した再審の結果（report.rejudge_lines。関所を開ける理由には数えない）・構造のブロックが落ちた周の印
     （structmark.note）・事前審査の壁打ちの往復（converge.lines）・独立の目の判定・clean が消したファイル・レンズ・仕組みの異常・
@@ -492,6 +493,15 @@ def _final_text(b, head: str, tests, objection: str, eyes: tuple, repo, run_id: 
     if left:
         lines.append(f"- 修正の受け付けが手元で回さなかった試験（{len(left)} 件。run はその緑を確かめない——取り込みの前に人が回すか CI で確かめる）:")
         lines += [f"  - {t}" for t in left]
+    final = _ci_left(b, "final_left")
+    if final:
+        lines.append(f"- 修正の受け付けが変更に直には関わらないので回さず、最後のテストの段に任せた試験（{len(final)} 件。上のテストの"
+                     "一式に入る物はそこで確かめた。入らない物は CI で確かめる）:")
+        lines += [f"  - {t}" for t in final]
+    far = _ci_left(b, "final_far")
+    if far:
+        lines.append(f"- 修正の受け付けが一式を回す理由にせず、最後のテストの段に任せた地図の遠くの分からない物（{len(far)} 件）:")
+        lines += [f"  - {t}" for t in far]
     lines += [f"- {x}" for x in report.gates_lines(b)]   # 修正の受け付けの束が受け入れのテストの赤緑を確かめずに通した回
     lines.append(f"- ログ: {tests.get('log') or '（無い）'}")
     if tests.get("reason"):

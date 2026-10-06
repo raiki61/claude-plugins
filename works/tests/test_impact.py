@@ -135,6 +135,26 @@ class ReverseImportCase(RepoCase):
         self.assertEqual(sel["modules"], ["test_cli", "test_core", "test_mid", "test_other"])
         self.assertEqual(impact.select_tests(m, scope="tests/test_c")["modules"], ["test_cli", "test_core"])
 
+    def test_direct_selection_keeps_only_tests_next_to_the_change(self):
+        # 直に関わる試験だけ: 起点のテスト・起点を直に読む・言及する試験（深さ 1）・名指しの試験。先の物は left に名前で残す
+        m = self.map(["pkg/core.py"])
+        sel = impact.select_tests(m, direct_only=True)
+        self.assertEqual(sel["selected"], ["tests/test_core.py"])
+        self.assertEqual(sel["modules"], ["test_core"])
+        self.assertEqual(sel["left"], ["tests/test_cli.py", "tests/test_mid.py"])
+        named = impact.select_tests(m, direct_only=True, named=["tests/test_mid.py"])
+        self.assertEqual(named["selected"], ["tests/test_core.py", "tests/test_mid.py"])
+        self.assertEqual(named["left"], ["tests/test_cli.py"])
+        self.assertEqual(impact.select_tests(m)["left"], [], "広い選びは何も残さない")
+        seeded = impact.select_tests(self.map(["tests/test_mid.py"]), direct_only=True)
+        self.assertEqual(seeded["selected"], ["tests/test_mid.py"], "起点のテストは直に関わる")
+
+    def test_direct_selection_still_runs_all_when_unanalysable_is_near(self):
+        m = self.map(["web/widget.js"])
+        sel = impact.select_tests(m, direct_only=True, all_modules=["test_a"])
+        self.assertTrue(sel["run_all"])
+        self.assertEqual((sel["modules"], sel["left"]), (["test_a"], []))
+
 
 class MentionCase(RepoCase):
     def test_mentions_and_symbol_hits_are_candidates(self):
@@ -194,6 +214,24 @@ class UnanalysableCase(RepoCase):
         u = next(u for u in m["unanalysable"] if u["path"] == "plug/loader.py")
         self.assertEqual((u["reason"], u["line"]), ("dynamic-import", 6))
         self.assertTrue(u["in_neighbourhood"])
+
+    def test_direct_selection_runs_all_only_when_unanalysable_is_direct(self):
+        # 直に関わる選びでは、分からない物が起点か深さ 1 に在る時だけ全部。深さ 2 以上の物は far に残す（最後のテストの段が一式）
+        self.write("plug/far.py", "import importlib\nfrom pkg import mid\n\n\ndef load(name):\n"
+                                  "    return importlib.import_module(name)\n")
+        m = self.map(["pkg/core.py"])
+        self.assertEqual(m["reach"]["plug/far.py"]["depth"], 2)
+        self.assertTrue(m["all_tests_required"], "地図そのものの決まりは変えない")
+        self.assertTrue(impact.select_tests(m)["run_all"], "広い選びは今どおり全部")
+        sel = impact.select_tests(m, direct_only=True)
+        self.assertFalse(sel["run_all"])
+        self.assertEqual(sel["selected"], ["tests/test_core.py"])
+        self.assertEqual(sel["far"], ["dynamic-import: plug/far.py:6"])
+        self.write("plug/near.py", "import importlib\nfrom pkg import core\n\n\ndef load(name):\n"
+                                   "    return importlib.import_module(name)\n")
+        near = impact.select_tests(self.map(["pkg/core.py"]), direct_only=True)
+        self.assertTrue(near["run_all"], "深さ 1 の分からない物が在れば全部")
+        self.assertEqual(near["left"], [])
 
     def test_constant_dynamic_import_is_an_import(self):
         self.write("plug/fixed.py", "import importlib\n\nmod = importlib.import_module('pkg.core')\n")

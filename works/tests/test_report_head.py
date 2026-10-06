@@ -221,6 +221,24 @@ class FinalTestSuitesCase(unittest.TestCase):
         for name in ("works/tests/test_heavy_a.py", "works/tests/test_heavy_b.py"):
             self.assertEqual(text.count(name), 1, f"手元で回さなかった試験 {name} が関所に 1 度だけ出ない:\n{text}")
 
+    def test_final_gate_lists_tests_left_to_final_stage_by_fix_accept(self):
+        """受け付けが直に関わらないので回さず最後のテストの段に任せた試験（trace の final_left）を、関所は名前で並べる"""
+        rows = [{"op": "fix_tests_selected", "node": "fix-accept", "note": "n", "final_left": ["works/tests/test_far_a.py"]},
+                {"op": "fix_tests_selected", "node": "fix-accept", "note": "n",
+                 "final_left": ["works/tests/test_far_a.py", "works/tests/test_far_b.py"]}]
+        (self.b.dir / "trace.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        text = self.gate_text(GREEN_WITH_CMD)
+        self.assertIn("最後のテストの段に任せた試験（2 件", text)
+        for name in ("works/tests/test_far_a.py", "works/tests/test_far_b.py"):
+            self.assertEqual(text.count(name), 1, f"最後のテストの段に任せた試験 {name} が関所に 1 度だけ出ない:\n{text}")
+
+    def test_final_gate_lists_far_unanalysables_left_to_final_stage(self):
+        rows = [{"op": "fix_tests_selected", "node": "fix-accept", "note": "n", "final_far": ["dynamic-import: a.py:3"]}]
+        (self.b.dir / "trace.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        text = self.gate_text(GREEN_WITH_CMD)
+        self.assertIn("地図の遠くの分からない物（1 件）", text)
+        self.assertIn("dynamic-import: a.py:3", text)
+
     def test_no_suites_line_when_final_tests_did_not_run(self):
         """走れなかった（節が落ちた出口）・走らなかった（出口が無い）時は『走らせなかった: 無い』を出さない"""
         failed = {"ok": False, "reason": "節が落ちた", "log": ""}
