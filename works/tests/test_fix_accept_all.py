@@ -270,7 +270,7 @@ class RenderCase(unittest.TestCase):
     def test_table_values_are_the_ruled_ones(self):
         # 236 が role-rejects の行の確かめの id に引く表。id・並び（受け付けが回す順）と、値が見出しの文字列だけであることを固める
         # （最後の回はどの確かめの行も同じ決まりで単位に結ぶので、止めてよいかの列は無い。依頼 242）
-        self.assertEqual(list(self.acc.CHECKS), ["frozen", "writes", "conflict", "pack", "duplicate", "not_opened", "accepted",
+        self.assertEqual(list(self.acc.CHECKS), ["consult", "frozen", "writes", "conflict", "pack", "duplicate", "not_opened", "accepted",
                                                  "excused", "scope", "tests", "gates", "copy"])
         self.assertTrue(all(isinstance(v, str) and v for v in self.acc.CHECKS.values()), self.acc.CHECKS)
 

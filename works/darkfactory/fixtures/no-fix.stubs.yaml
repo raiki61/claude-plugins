@@ -1040,6 +1040,17 @@ fix:
   path_changed: false
   wrote_refs: []
   plan_faces: []
+fix-consult:   # 範囲の相談の頼みの節は盤面を要るので stub（頼みの無い周。中身は tests/test_consult.py）
+  consulted: false
+  go: false
+  prompt_file: ""
+  turn: 0
+  spent: false
+fix-consult-check:   # 範囲の相談の確かめの節（頼みの無い周は何も書かない）
+  consulted: false
+  turn: 0
+  answer_file: ""
+  counts: {}
 fix-units:
   ok: true
   ran: false
@@ -1156,6 +1167,17 @@ fix-ruled:
   path_changed: false
   wrote_refs: []
   plan_faces: []
+fix-ruled-consult:   # 範囲の相談の頼みの節は盤面を要るので stub（頼みの無い周。中身は tests/test_consult.py）
+  consulted: false
+  go: false
+  prompt_file: ""
+  turn: 0
+  spent: false
+fix-ruled-consult-check:   # 範囲の相談の確かめの節（頼みの無い周は何も書かない）
+  consulted: false
+  turn: 0
+  answer_file: ""
+  counts: {}
 fix-ruled-accept:
   ok: true
   done: true

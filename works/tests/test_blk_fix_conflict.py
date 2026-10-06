@@ -613,7 +613,9 @@ class TestYaml(unittest.TestCase):
         g = loop["loop_group"]
         self.assertEqual(loop["when"], "$conflict-check.output.go == true")
         self.assertEqual(g["until_bash"], "test $fix-ruled-accept.output.done = true")
-        self.assertEqual([n["id"] for n in g["nodes"]], ["fix-ruled-prep", "fix-ruled", "fix-ruled-accept"])
+        # 範囲の相談の 3 節（頼み・答え・確かめ）は役と受け付けの間（形は tests/test_consult.py が見る）
+        self.assertEqual([n["id"] for n in g["nodes"]], ["fix-ruled-prep", "fix-ruled", "fix-ruled-consult", "plan-answer-ruled",
+                                                         "fix-ruled-consult-check", "fix-ruled-accept"])
         role = find_node(y["nodes"], "fix-ruled")
         self.assertEqual(role["output_format"]["description"], "works-node: fix-ruled continue=fix")
         fix = find_node(y["nodes"], "fix")

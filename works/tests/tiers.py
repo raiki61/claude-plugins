@@ -61,7 +61,7 @@ FAST = frozenset({
     "test_holeties",        # 差分の審査の穴の枝の名札（holeties と refix.hole_ties）: 関数を直に呼ぶ・偽の盤面（一時の置き場のファイル）だけ（git・子のプロセスなし）
     "test_judge_verify",    # 判定の根を開く（blk-judge/lib/judgeverify.py・申し送りの節・報告の行）: 偽の盤面で関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_ripple",          # 波及の一覧（blk-plan/lib/ripple.py）: 種の git は gitkit の型の写し・子のプロセスは git grep だけ
-    "test_ask_plan",        # 範囲の相談（blk-fix/lib/askplan.py）: 一時の置き場のファイルと偽の claude の python3（試験ごとに 1〜2 本。git・盤面なし）
+    "test_consult",         # 範囲の相談の節（blk-fix/lib/consult.py・包みの旗 self-resume・YAML の形）: 偽の盤面で関数を直に呼ぶ・adapter.plan を直に呼ぶ（git・子のプロセスなし）
     "test_fix_rules",       # R65: 修正の決まりの正本と 2 つの指示書の組み立てを、関数を直に呼んで見る（盤面・git・子のプロセスなし）
     "test_conflict_kinds",  # 申し出の種類と裁定 fix_plan_item: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_fix_units",       # 修正の受け付けの閉鎖の表と裁定の出どころ: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）

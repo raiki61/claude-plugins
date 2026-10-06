@@ -139,12 +139,15 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(clean["depends_on"], ["fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop"])
         self.assertEqual(collect["with"]["cleaned"], {"from": "$clean.output"})
         g = loop["loop_group"]
-        self.assertEqual(g["max_iterations"], 3)
+        import consult
+        self.assertEqual(g["max_iterations"], 3 + consult.BUDGET, "受け付けの 3 回と範囲の相談の周の枠の和")
         self.assertIs(g["fresh_context"], False)
         self.assertEqual(g["until_bash"], "test $fix-accept.output.done = true", "通った時か 3 回目の拒否で抜ける（R50）")
-        self.assertEqual([n["id"] for n in g["nodes"]], ["fix-prep", "fix", "fix-units", "fix-accept"])
+        # 範囲の相談の 3 節（頼み・答え・確かめ）は役と締める節の間（形は tests/test_consult.py が見る）
+        self.assertEqual([n["id"] for n in g["nodes"]], ["fix-prep", "fix", "fix-consult", "plan-answer", "fix-consult-check",
+                                                         "fix-units", "fix-accept"])
         units = find_node(nodes, "fix-units")   # 並べた項目を締める（依頼 243 の並べ）。受け付けは当てた後の作業ツリーを見る
-        self.assertEqual((units["script"], units["depends_on"], units["timeout"]), ("units", ["fix"], DEADLINE))
+        self.assertEqual((units["script"], units["depends_on"], units["timeout"]), ("units", ["fix-consult-check"], DEADLINE))
         self.assertEqual(find_node(nodes, "fix-accept")["depends_on"], ["fix-units"])
         self.assertEqual(changed["depends_on"], ["clean"])
         self.assertEqual(collect["depends_on"], ["fix-reads"])
@@ -165,7 +168,7 @@ class TestBlockYaml(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("blk_fix_accept_for_yaml", BLK / "scripts" / "accept.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        self.assertEqual(mod.GIVE_UP_AFTER, g["max_iterations"], "諦める回数は輪の上限と同じ")
+        self.assertEqual(mod.GIVE_UP_AFTER + consult.BUDGET, g["max_iterations"], "諦める回数と相談の枠の和が輪の上限")
 
     def test_fix_node(self):
         fix = find_node(block()["nodes"], "fix")

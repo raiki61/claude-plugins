@@ -9,7 +9,7 @@ accept.py の頭）。
 - check_plan_scope: 承認済みの修正案の範囲（1d）。agreed は同じ。ask は拒否の頭で相談を先の道に言うか（None は置き場の控えで決める）
 - precheck(cfg, reply): 修正役が sandbox の中の Bash で返答の前に回す事前の確かめ。上の 3 つ（凍結・書き込み・範囲）だけを、
   試験を回さずに当てる（変更に当たる試験と事後の関門の束は受け付けだけ）。盤面は読むだけ（entry.PEEK_ENV。scope は相談の控えの
-  値で立てる）。run ごとの置き場の相談の記録のうち盤面にまだ写していない合意も足して見る（受け付けは頭で写す）。
+  値で立てる）。範囲の相談の合意は、修正の輪の確かめの節が盤面の trace に書いた物（conflict.agreed）を受け付けと同じに読む。
   返り {ok, rejects: [{check, text}]}
 - main(argv): `<python> factchecks.py <相談の控え> [--reply <下書きの返答の JSON>]`。終了コード 0（通る）・1（拒否の行が在る）・
   2（回す側の誤り）。出力は precheck の返りの 1 行
@@ -30,7 +30,7 @@ _LIB = str(Path(__file__).resolve().parent)
 if _LIB not in sys.path:
     sys.path.append(_LIB)
 
-import askplan  # noqa: E402   範囲の相談の記録（同じブロックの lib）
+import consult  # noqa: E402   範囲の相談の控え（同じブロックの lib）
 import conflict  # noqa: E402
 import entry  # noqa: E402
 import planscope  # noqa: E402
@@ -141,7 +141,7 @@ def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: 
     凍らせたファイル（輪の状態の frozen と frozen_tree）は planscope.check に渡し、欠けは版からの
     差分の全部で、修正役に問う外れと余分は凍った後に変えた分だけで見させる。
     返り (拒否の行（最初の行の頭に planscope.reject_head）, 記録)。盤面は書かない（控えの食い違いで止めるのは planscope.check）。
-    頭は、範囲の相談がこの段に在れば相談を先の道に言う。ask が None なら今の scope の置き場の控えで決める（askplan.offered）。
+    頭は、範囲の相談がこの段に在れば相談を先の道に言う。ask が None なら今の scope の置き場の控えで決める（consult.offered）。
     凍らせたファイルと実行器が作ったファイルは run の全部の輪の物（_loop_freeze・tddloop.suite_made_all）で、凍った後は一番後の
     輪の frozen_tree から見る（前の輪の後に 1 回目の段と後の輪が書いた物を、2 回目の修正役のせいにしない）"""
     b = entry.open_board(board)
@@ -154,7 +154,7 @@ def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: 
                                      agreed=agreed)
     if problems:
         if ask is None:
-            ask = askplan.offered(askplan.place_of(board), pass_)
+            ask = consult.offered(consult.place_of(board), pass_)
         problems = [planscope.reject_head(ask) + problems[0], *problems[1:]]
     return problems, note
 
@@ -170,22 +170,13 @@ def declared_files(rows, repo) -> set:
     return out
 
 
-def pending_agreed(board: Path, place) -> list:
-    """盤面の合意（conflict.agreed）と、run ごとの置き場の相談の記録のうち盤面にまだ写していない合意（答えが allow）の和"""
-    b = entry.open_board(board, allow_halted=True)
-    known = {r.get("id") for r in conflict.plan_asks(b)}
-    more = [r for r in askplan.exchanges(place) if r.get("id") not in known
-            and r.get("status") == askplan.ANSWERED and r.get("decision") == askplan.ALLOW] if place else []
-    return conflict.agreed(b) + more
-
-
 def precheck(cfg: dict, reply=None) -> dict:
     """事前の確かめ（模块の頭）"""
     entry.peek_as(cfg.get("scope") or "")   # 役の Bash には節の env が無い。控えの置き場の印で読むだけに開く
     board, repo = Path(cfg["board"]), Path(cfg["repo"])
     state, pass_, base_rev = cfg.get("tdd_state") or "", cfg.get("pass") or "first", cfg.get("base_rev") or ""
     reply = reply if isinstance(reply, dict) else {"changes": []}
-    agreed = pending_agreed(board, cfg.get("place"))
+    agreed = conflict.agreed(entry.open_board(board, allow_halted=True))
     found = [("frozen", t) for t in check_frozen(board, state, repo, pass_, agreed=agreed)]
     wrote = check_writes(reply, board, base_rev, repo, state)
     found += [("writes", t) for t in wrote["problems"]]
@@ -202,7 +193,7 @@ def main(argv=None) -> int:
     ap.add_argument("--reply", default="", help="下書きの返答の JSON のファイル（無ければ changes の無い返答として見る）")
     a = ap.parse_args(argv)
     try:
-        cfg = askplan.load_config(a.config)
+        cfg = consult.load_config(a.config)
         reply = json.loads(Path(a.reply).read_text(encoding="utf-8")) if a.reply else None
         out = precheck(cfg, reply)
     except (ValueError, OSError, KeyError) as e:

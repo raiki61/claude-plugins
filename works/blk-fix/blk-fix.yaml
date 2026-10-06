@@ -28,6 +28,10 @@ description: |
   最後の人の関所に届く。fix_plan_item の単位も直す義務から外れ、同じ run の中で修正案の役がその項目を直してから、この
   ブロックの 2 度目の include（2 回目の修正の段。その物は include の名の置き場 scope で 1 回目と分かれる）で直す
   （.shared/core/conflict.py・replan.py）。
+  範囲の相談（持ち主 2026-10-07。docs/plans/2026-10-06-ask-planner.md）: 修正役は修正案の項目の範囲の外や凍ったテストの書き換えが
+  要る時、返答の欄 consult で頼む。2 つの修正の輪の中で、頼みの節（機械の先の確かめ）→ 答えの節（入力 plan_session の会話の続き。
+  読むだけ）→ 確かめの節（盤面の trace に記録）が答え、その周は締める節と受け付けを回さず、次の周の修正役が同じ会話の続きで
+  答えを読んで直しを続ける（修正役の印の旗 self-resume）。
 
 inputs:
   judgment_file:
@@ -60,8 +64,10 @@ inputs:
     default: ""
     description: |
       範囲の相談の相手の会話の印の名（包みが `<包みの家>/sessions/<cwd の hash>/<印の名>.id` に会話の id を記録する役の節の
-      `works-node:` の名。承認済みの修正案を書いた役の物）。空なら相談しない。修正役と下請けは、修正案の項目の範囲の外や凍ったテストの
-      書き換えが要る時、機械のコマンドでその会話の写しを再開して聞き、許された範囲は受け付けが範囲に入れる（設計 docs/plans/2026-10-06-ask-planner.md）
+      `works-node:` の名。承認済みの修正案を書いた役の物）。空なら相談しない。修正役は、修正案の項目の範囲の外や凍ったテストの
+      書き換えが要る時、返答の欄 consult で頼み（下請けはまとめ役に報告する）、修正の輪の答えの節がその会話の続きで答え、許された
+      範囲は受け付けが範囲に入れる（設計 docs/plans/2026-10-06-ask-planner.md）。ブロックはこの名の会話の id を、ブロックの中の名
+      fix-planner の id として包みの置き場に写して継ぐ（答えの節の印 continue=fix-planner。ほかのブロックの節の名を YAML に書かない）
   ripple_file:
     default: ""
     description: |
@@ -248,7 +254,7 @@ nodes:
     depends_on: [tdd-start, tdd-loop]
     trigger_rule: none_failed_min_one_success   # 実行器の無い run は tdd-loop が飛ばされる
     loop_group:
-      max_iterations: 3
+      max_iterations: 12   # 受け付けの 3 回（accept.GIVE_UP_AFTER）と範囲の相談の周の枠 9（consult.BUDGET）の和
       fresh_context: false
       until_bash: test $fix-accept.output.done = true   # 通った時か、3 回目の拒否で結べる単位を止めて通した時（max_iterations で落とさない。R50）
       nodes:
@@ -295,7 +301,7 @@ nodes:
           idle_timeout: 1728000000
           # recount.FIX_OUTPUT_FORMAT（写しの p3.fix の schema に印 works-node: fix）を貼った物（tests/test_blk_fix.py が一致を見る）
           output_format:
-            description: 'works-node: fix'
+            description: 'works-node: fix self-resume'
             type: object
             required: &fix_required
             - changes
@@ -679,6 +685,23 @@ nodes:
                       maxItems: 20
                       items: {type: string, minLength: 1}
                     kind: {type: string, enum: [brief_vs_judgment, unnamed_test_broke, not_red, scope_needed, query_hits_fixed, needs_context]}
+              # 範囲の相談の頼み（任意。conflict.CONSULT_SCHEMA。在れば受け付けはその周を回さず、範囲の相談の 3 節が答える）
+              consult:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [item, paths, tests, why]
+                  properties:
+                    item: {type: integer, minimum: 1}
+                    paths:
+                      type: array
+                      items: {type: string, minLength: 1}
+                    tests:
+                      type: array
+                      items: {type: string, minLength: 1}
+                    why: {type: string, minLength: 10}
               # Bash で書いたファイルの申告（任意。writes.BASH_WRITES_SCHEMA。受け付けが書き込みの記録と突き合わせ、盤面に渡す前に外す）
               bash_writes:
                 type: array
@@ -690,14 +713,95 @@ nodes:
                     path: {type: string, minLength: 1}
                     why: {type: string, minLength: 10}
 
+        # 範囲の相談（docs/plans/2026-10-06-ask-planner.md）。役が返答の欄 consult で範囲の外を頼んだ周だけ働く: 頼みの節が機械の先の
+        # 確かめをして、聞く頼みが在れば相手の会話（入力 plan_session の印の名の会話の id を、ブロックの中の名 fix-planner として包みの
+        # 置き場へ写す）に答えの節を続けさせ、確かめの節が答えを確かめて盤面の trace に残す。その周は締める節と受け付けを回さず
+        # （consulted）、次の周の支度が答えのファイルを名指す続きの指示書で役を同じ会話の続きで起こす。頼みの無い周は何もしない
+        - id: fix-consult
+          script: consult_prep
+          runtime: uv
+          depends_on: [fix]
+          timeout: 1728000000
+          with:
+            reply: {from: "$fix.output"}
+            plan_session: $INPUTS.plan_session   # 相談の相手の会話の印の名（空は相手の無い run。頼みは聞けない行になる）
+            pass: "first"
+            answer_node: "plan-answer"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, go, prompt_file, turn, spent]
+            properties:
+              consulted: {type: boolean}   # 返答が consult を持ち、枠の中（この周は相談の周）
+              go: {type: boolean}          # 聞く頼みが在り、相手の会話を写した（答えの節を起こす）
+              prompt_file: {type: string}  # 答えの節の指示書（go の時だけ）
+              turn: {type: integer, minimum: 0}
+              spent: {type: boolean}       # 枠を使い切った後の consult（受け付けが拒む）
+
+        # 答えの節: 修正案を書いた役の会話の続き（印 continue=fix-planner。包みが fix-consult の写した id で --resume する）。読むだけ。
+        # 出力は blk-fix/lib/consult.py の answer_format（tests/test_consult.py が一致を見る）
+        - id: plan-answer
+          model: opus                 # 修正案・仕様を書く役と同じ（表 .shared/core/stage-models.json の plan_writer。tests/test_tool_parity.py が縛る）
+          effort: medium              # 同じ表の effort
+          prompt: 指示書 `$fix-consult.output.prompt_file` を Read で全部読み、その相談に答えよ。返すのは指示書の JSON だけ。
+          depends_on: [fix-consult]
+          when: "$fix-consult.output.go == true"
+          settingSources: [user]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]   # 修正案を書いた役と同じ読むだけの道具（書く道具・Bash は持たない）
+          mutates_checkout: false
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          output_format:
+            description: 'works-node: plan-answer continue=fix-planner'
+            type: object
+            additionalProperties: false
+            required: [answers]
+            properties:
+              answers:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ask, decision, paths, tests, spec, reason]
+                  properties:
+                    ask: {type: integer, minimum: 1}
+                    decision: {type: string, enum: [allow, deny, defer]}
+                    paths: {type: array, items: {type: string, minLength: 1}}
+                    tests: {type: array, items: {type: string, minLength: 1}}
+                    spec: {type: string}
+                    reason: {type: string, minLength: 10}
+
+        - id: fix-consult-check
+          script: consult_check
+          runtime: uv
+          depends_on: [fix-consult, plan-answer]
+          trigger_rule: none_failed_min_one_success   # 頼みの無い周・聞く頼みの無い周は答えの節が飛ばされる
+          timeout: 1728000000
+          with:
+            answer: {from: "$plan-answer.output", if_skipped: null}
+            pass: "first"
+            answer_node: "plan-answer"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, turn, answer_file, counts]
+            properties:
+              consulted: {type: boolean}   # この周は相談の周（締める節と受け付けは回さない）
+              turn: {type: integer, minimum: 0}
+              answer_file: {type: string}  # 修正役が次の周に読む答え（盤面の今の scope の周の作業ファイル）
+              counts: {type: object}       # 答えごとの数（allow・deny・defer・refused・invalid・unavailable）
+
         # 並べた項目を締める（依頼 243 の並べ。lib/unitlanes.py の settle）。fix-prep が範囲の在る項目に単位の worktree を
         # 切った周だけ働く: 修正役が当てるコマンドを走らせなかった項目を機械が当て、単位の worktree の書き込みの記録を作業ツリーへ
         # 写し、当たらない項目の差分を盤面に残し、worktree を片付ける。切っていない周は何もしない。受け付けは当てた後の木を見る
         - id: fix-units
           script: units
           runtime: uv
-          depends_on: [fix]
+          depends_on: [fix-consult-check]
           timeout: 1728000000
+          with:
+            consulted: $fix-consult-check.output.consulted   # 範囲の相談の周は締めない（役は次の周に単位の worktree を続けて使う）
           output_format:
             type: object
             required: [ok, ran]
@@ -724,12 +828,14 @@ nodes:
             iteration: $fix-prep.output.iteration     # 輪の何回目か（3 回目の拒否で done。R50）
             pass: "first"
             tdd_suite: $INPUTS.tdd_suite              # 事後の関門の束の実行器（空は受け入れのテストの赤緑を確かめない run）
+            consulted: $fix-consult-check.output.consulted   # 範囲の相談の周は受け付けを回さない（done も立てない）
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
             properties:
               ok: {type: boolean}
               done: {type: boolean}           # 輪を抜ける旗（通った時か 3 回目。3 回目は拒否の行を単位に結んで止め、受けた単位で通す）
+              consulted: {type: boolean}      # 範囲の相談の周（受け付けを回していない）
               reason: {type: string}
               reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               changes: {type: array}
@@ -856,7 +962,7 @@ nodes:
     depends_on: [conflict-check, rule-loop]
     when: "$conflict-check.output.go == true"
     loop_group:
-      max_iterations: 3
+      max_iterations: 12   # 受け付けの 3 回と範囲の相談の周の枠 9 の和（fix-loop と同じ）
       fresh_context: false
       until_bash: test $fix-ruled-accept.output.done = true
       nodes:
@@ -905,10 +1011,89 @@ nodes:
             additionalProperties: false
             properties: *fix_properties
 
+        # 範囲の相談（docs/plans/2026-10-06-ask-planner.md）。役が返答の欄 consult で範囲の外を頼んだ周だけ働く: 頼みの節が機械の先の
+        # 確かめをして、聞く頼みが在れば相手の会話（入力 plan_session の印の名の会話の id を、ブロックの中の名 fix-planner として包みの
+        # 置き場へ写す）に答えの節を続けさせ、確かめの節が答えを確かめて盤面の trace に残す。その周は締める節と受け付けを回さず
+        # （consulted）、次の周の支度が答えのファイルを名指す続きの指示書で役を同じ会話の続きで起こす。頼みの無い周は何もしない
+        - id: fix-ruled-consult
+          script: consult_prep
+          runtime: uv
+          depends_on: [fix-ruled]
+          timeout: 1728000000
+          with:
+            reply: {from: "$fix-ruled.output"}
+            plan_session: $INPUTS.plan_session   # 相談の相手の会話の印の名（空は相手の無い run。頼みは聞けない行になる）
+            pass: "ruled"
+            answer_node: "plan-answer-ruled"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, go, prompt_file, turn, spent]
+            properties:
+              consulted: {type: boolean}   # 返答が consult を持ち、枠の中（この周は相談の周）
+              go: {type: boolean}          # 聞く頼みが在り、相手の会話を写した（答えの節を起こす）
+              prompt_file: {type: string}  # 答えの節の指示書（go の時だけ）
+              turn: {type: integer, minimum: 0}
+              spent: {type: boolean}       # 枠を使い切った後の consult（受け付けが拒む）
+
+        # 答えの節: 修正案を書いた役の会話の続き（印 continue=fix-planner。包みが fix-ruled-consult の写した id で --resume する）。読むだけ。
+        # 出力は blk-fix/lib/consult.py の answer_format（tests/test_consult.py が一致を見る）
+        - id: plan-answer-ruled
+          model: opus                 # 修正案・仕様を書く役と同じ（表 .shared/core/stage-models.json の plan_writer。tests/test_tool_parity.py が縛る）
+          effort: medium              # 同じ表の effort
+          prompt: 指示書 `$fix-ruled-consult.output.prompt_file` を Read で全部読み、その相談に答えよ。返すのは指示書の JSON だけ。
+          depends_on: [fix-ruled-consult]
+          when: "$fix-ruled-consult.output.go == true"
+          settingSources: [user]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]   # 修正案を書いた役と同じ読むだけの道具（書く道具・Bash は持たない）
+          mutates_checkout: false
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          output_format:
+            description: 'works-node: plan-answer-ruled continue=fix-planner'
+            type: object
+            additionalProperties: false
+            required: [answers]
+            properties:
+              answers:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ask, decision, paths, tests, spec, reason]
+                  properties:
+                    ask: {type: integer, minimum: 1}
+                    decision: {type: string, enum: [allow, deny, defer]}
+                    paths: {type: array, items: {type: string, minLength: 1}}
+                    tests: {type: array, items: {type: string, minLength: 1}}
+                    spec: {type: string}
+                    reason: {type: string, minLength: 10}
+
+        - id: fix-ruled-consult-check
+          script: consult_check
+          runtime: uv
+          depends_on: [fix-ruled-consult, plan-answer-ruled]
+          trigger_rule: none_failed_min_one_success   # 頼みの無い周・聞く頼みの無い周は答えの節が飛ばされる
+          timeout: 1728000000
+          with:
+            answer: {from: "$plan-answer-ruled.output", if_skipped: null}
+            pass: "ruled"
+            answer_node: "plan-answer-ruled"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, turn, answer_file, counts]
+            properties:
+              consulted: {type: boolean}   # この周は相談の周（締める節と受け付けは回さない）
+              turn: {type: integer, minimum: 0}
+              answer_file: {type: string}  # 修正役が次の周に読む答え（盤面の今の scope の周の作業ファイル）
+              counts: {type: object}       # 答えごとの数（allow・deny・defer・refused・invalid・unavailable）
+
         - id: fix-ruled-accept
           script: accept
           runtime: uv
-          depends_on: [fix-ruled]
+          depends_on: [fix-ruled-consult-check]
           timeout: 1728000000
           with:
             reply: {from: "$fix-ruled.output"}
@@ -917,12 +1102,14 @@ nodes:
             iteration: $fix-ruled-prep.output.iteration
             pass: "ruled"
             tdd_suite: $INPUTS.tdd_suite
+            consulted: $fix-ruled-consult-check.output.consulted   # 範囲の相談の周は受け付けを回さない
           output_format:
             type: object
             required: [ok, reason, reason_file, changes, done]
             properties:
               ok: {type: boolean}
               done: {type: boolean}
+              consulted: {type: boolean}
               reason: {type: string}
               reason_file: {type: string}
               changes: {type: array}

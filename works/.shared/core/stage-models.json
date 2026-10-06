@@ -13,6 +13,8 @@
     "blk-fix/tdd": "code_writer",
     "blk-fix/fix": "code_writer",
     "blk-fix/fix-ruled": "code_writer",
+    "blk-fix/plan-answer": "plan_writer",
+    "blk-fix/plan-answer-ruled": "plan_writer",
     "blk-refix/refix": "code_writer",
     "blk-refix/refix2": "code_writer",
     "blk-ci/ci": "light",
@@ -31,6 +33,8 @@
   },
   "notes": {
     "blk-spec/spec-write": "受け入れ条件のテストも書くが、主は仕様（要件）を書く役",
-    "blk-ci/ci": "CI の任せ先（定義を読んで写しの上で走らせ、素材を返す）"
+    "blk-ci/ci": "CI の任せ先（定義を読んで写しの上で走らせ、素材を返す）",
+    "blk-fix/plan-answer": "範囲の相談の答えの節。修正案を書いた役の会話の続きで答える（書くのは範囲の判断だけ）ので、その役と同じ組",
+    "blk-fix/plan-answer-ruled": "裁定の後の 2 回目の修正の段の範囲の相談の答えの節（plan-answer と同じ）"
   }
 }

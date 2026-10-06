@@ -96,6 +96,8 @@ ROLE_NODES = {
 # agent そのもの（前付けが core/agents に無いので、模型と effort は下の表 STAGE_MODEL で決める。ADR 0072 の「測るまで Opus」は
 # 持ち主 2026-10-01 が費用を先に取って覆した）
 EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge", ("blk-plan", "plan-revise"): "writer",
+               # 範囲の相談の答えの節は修正案を書いた役（p2.fix_plan の writer）の会話の続き（docs/plans/2026-10-06-ask-planner.md）
+               ("blk-fix", "plan-answer"): "writer", ("blk-fix", "plan-answer-ruled"): "writer",
                ("blk-report", "report-write-cold"): "cold-reader", ("blk-structure", "structure-eye"): "blind-judge",
                ("blk-lens", "lens-silent-failure-hunter"): "silent-failure-hunter",
                ("blk-judge", "judge-verify"): "judge"}   # 判定の裏取りの束ね役（線の木の段 3）は確かめる目で、本線の judge に当たる

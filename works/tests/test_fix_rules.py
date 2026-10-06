@@ -140,7 +140,7 @@ class TestSharedSource(unittest.TestCase):
                 self.assertIn("needs_context", text)
 
     def test_every_rules_file_is_cut_into_sections(self):
-        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-ask", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
+        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-ask", "fix-ask-sub", "fix-consult-resume", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
                           (fixrules.PRINCIPLES, ["principles"]), (fixrules.BRIEF, ["brief-canon"]),
                           (fixrules.TDD, ["tdd-head", "tdd-remap", "tdd-phase", *(f"tdd-phase-{p}" for p in fixrules.PHASES),
                                           "tdd-phase-all", "tdd-end", "tdd-lane"])):
@@ -562,7 +562,8 @@ class TestRoleNodes(unittest.TestCase):
         self.assertEqual(set(tp["with"]) - {"state_file"}, set(fixrules.TDD_VALUES) - {"open_units"},
                          "義務の単位は輪の状態が持つ")
         loop = find_node(nodes, "fix-loop")["loop_group"]
-        self.assertEqual([n["id"] for n in loop["nodes"]], ["fix-prep", "fix", "fix-units", "fix-accept"])
+        self.assertEqual([n["id"] for n in loop["nodes"]], ["fix-prep", "fix", "fix-consult", "plan-answer", "fix-consult-check",
+                                                           "fix-units", "fix-accept"])
 
 
 
@@ -1324,26 +1325,29 @@ if __name__ == "__main__":
 
 
 class AskPlanPartsCase(unittest.TestCase):
-    """範囲の相談と事前の確かめ（設計 docs/plans/2026-10-06-ask-planner.md）: 相談の控えが在る時だけ、修正役の節 ask と下請けの
-    ファイルの終わりに、機械の 2 つのコマンドを載せる"""
+    """範囲の相談と事前の確かめ（設計 docs/plans/2026-10-06-ask-planner.md）: 相談の控えが在る時だけ、修正役の節 ask（返答の欄
+    consult で相談し、事前の確かめのコマンドを走らせる）と、下請けのファイルの終わりに下請けの節（まとめ役に報告する）を載せる"""
 
     def test_ask_part_only_when_given(self):
         fix = [pid for pid, _, _ in fixrules.fix_parts(VALUES, ask="相談の節 A")]
         self.assertLess(fix.index("ask"), fix.index("fix-reply"))
         self.assertNotIn("ask", [pid for pid, _, _ in fixrules.fix_parts(VALUES)])
 
-    def test_ask_text_names_both_commands(self):
-        text = fixrules.ask_text("/rp/fixing/ask-plan/ask-plan.json", "/py/bin/python3")
-        for w in ("/py/bin/python3", "askplan.py", "factchecks.py", "/rp/fixing/ask-plan/ask-plan.json", "--item", "--paths",
-                  "--why", "--reply"):
+    def test_ask_text_names_the_reply_field_and_the_check(self):
+        text = fixrules.ask_text("/rp/fixing/consult/consult.json", "/py/bin/python3")
+        for w in ("/py/bin/python3", "factchecks.py", "/rp/fixing/consult/consult.json", "--reply", "`consult`", "`item`",
+                  "`paths`", "`tests`", "`why`"):
             self.assertIn(w, text)
+        for w in ("askplan", "--item", "--why"):
+            self.assertNotIn(w, text, "相談は返答の欄で（役の Bash から相談のコマンドを走らせない）")
 
     def test_ask_items_carry_ranges(self):
+        import consult
         it = {"item": 2, "unit_keys": ["b: 上限"], "allowed_paths": ["stats.py"],
               "out_of_scope": [{"glob": "legacy.py", "why": "古い"}],
               "tests": [{"id": "test_stats.py::TestStats::test_a"}], "rewrite_tests": []}
-        self.assertEqual(fixrules.ask_items([it]), {"2": {"unit_keys": ["b: 上限"], "allowed_paths": ["stats.py"],
-                                                          "out_of_scope": ["legacy.py"], "tests": ["test_stats.py"]}})
+        self.assertEqual(consult.items_doc([it]), {"2": {"unit_keys": ["b: 上限"], "allowed_paths": ["stats.py"],
+                                                         "out_of_scope": ["legacy.py"], "tests": ["test_stats.py"]}})
 
     def test_subagent_files_carry_the_ask_text(self):
         from unittest import mock
