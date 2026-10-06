@@ -58,7 +58,8 @@
   単位の頭に戻して direct へ、refactor は緑の時の木に戻す。実行器が走らない・回数の上限に届いた時は、残りを全部 direct にして抜ける
   （輪は done の印で抜け、max_iterations に届いて落ちない。R50）
 - fix-accept → frozen_problems: 輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（裁定 fix_test_scope の
-  範囲の中の変更は、輪が済んだ時の木（frozen_tree）との差分の塊の旧い側の行で見て通す）
+  範囲の中の変更は、輪が済んだ時の木（frozen_tree）との差分の塊の旧い側の行で見て通す。.py に新しい関数・クラス・メソッドを
+  足しただけで、既存の文も既存のテストが読む名・枠の掛け金も変えない物は数えない）
 - fix-accept → selected_problems: 版からの変更に直に関わる試験（impact.select_tests の direct_only: 変えた・足した試験・変えた file を
   直に読む・言及する試験（深さ 1）と、修正案の受け入れ・書き換えのテストと輪で名指したテストのファイル。分からない物が近くに
   在れば全部）を同じ実行器で
@@ -90,6 +91,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import unittest
 import xml.etree.ElementTree as ET
 
 sys.dont_write_bytecode = True
@@ -1384,7 +1386,11 @@ def frozen_problems(state_file, repo, allowed=(), *, since=None, skip_spans=()) 
     since（木の sha）が在れば、凍結の基準を輪が済んだ時の中身でなくその木のファイルにする（後の輪の状態の handoff を渡す。
     後の輪が同じファイルに足したテストは後の輪の凍結で見る）。skip_spans は [(パス, 関数の名)]（名は `<クラス>::<名前>` か
     `<名前>`。test_spans の形）で、基準の木のその関数の範囲（_function_span）の変更だけを通す（直した項目の単位の古い受け入れの
-    テストの関数）"""
+    テストの関数）。
+    .py のファイルに足しただけの物（_without_additions。新しい関数・クラス、既存のクラスの新しいメソッド、新しい名の import・代入で、
+    既存のテストが読む名にも枠の掛け金にも当たらない物）は凍結に数えない（依頼 195i の 2: 別の項目が測りのテストを足しただけで人の
+    関所を通らせない）。足した物を除いた中身が基準の木と同じ（コードの木もコメントの行も。_same_code）なら通し、許しの範囲が在れば
+    足した物を除いた中身で範囲の外の塊を見る。既存の文の書き換え・消し・skip の印の追加は今どおり拒む"""
     if not state_file:
         return []
     st = _load(state_file)
@@ -1407,12 +1413,19 @@ def frozen_problems(state_file, repo, allowed=(), *, since=None, skip_spans=()) 
     probs, outside = [], {}
     for f in moved:
         spans = scope.get(f)
+        if spans and None in spans:
+            continue
+        was = _tree_text(repo, base, f) if f.endswith(".py") else None
+        pruned = _without_additions(was, _now_text(repo, f), f)
         if not spans:
-            probs.append(f)
-        elif None not in spans:
-            bad = _hunks_outside(repo, base, f, spans)
-            if bad:
-                outside[f] = bad
+            if not any(_same_code(was, lines) for lines in pruned):
+                probs.append(f)
+            continue
+        # 足した物を除いた中身のどれか（と今どおりの中身）で範囲の外の塊が無ければ通す。並べるのは一番少ない物
+        bad = min([_hunks_outside(repo, base, f, spans), *(_hunks_outside(repo, base, f, spans, new=lines) for lines in pruned)],
+                  key=len)
+        if bad:
+            outside[f] = bad
     out = [f"TDD の輪で凍ったテストのファイルを書き換えた: {probs}（輪で直した単位のテストは変えない）"] if probs else []
     out += [f"TDD の輪で凍ったテストのファイル {f} を、テストの変更の許し（修正案の rewrite_tests の名指しまたは裁定 fix_test_scope）"
             f"の範囲の外で書き換えた: 旧い行 {', '.join(bad)}"
@@ -1494,12 +1507,18 @@ def frozen_source(state_file, repo, *, since=None):
     return read
 
 
-def _hunks_outside(repo, tree, path, spans) -> list:
-    """輪が済んだ時の木の path と今のファイルの差分の塊のうち、旧い側の行が spans のどれにも収まらない物（`a-b` の文）。
-    span は (始め, 終わり, 1 行の指しか)。1 行の指しの .py は _function_span で関数の幅に広げる。
+def _now_text(repo, path):
+    """作業ツリーの path の中身（無ければ None）"""
+    p = pathlib.Path(repo) / path
+    return p.read_text(encoding="utf-8", errors="replace") if p.is_file() else None
+
+
+def _hunks_outside(repo, tree, path, spans, new=None) -> list:
+    """輪が済んだ時の木の path と今のファイル（new が在ればその行の一覧）の差分の塊のうち、旧い側の行が spans のどれにも収まらない物
+    （`a-b` の文）。span は (始め, 終わり, 1 行の指しか)。1 行の指しの .py は _function_span で関数の幅に広げる。
     木が無い・木に path が無い時はファイル全体を 1 つの外の塊にする"""
-    new = (pathlib.Path(repo) / path).read_text(encoding="utf-8", errors="replace").splitlines() \
-        if (pathlib.Path(repo) / path).is_file() else []
+    if new is None:
+        new = (_now_text(repo, path) or "").splitlines()
     try:
         old = git(repo, "show", f"{tree}:{path}").splitlines() if tree else None
     except Unreadable:
@@ -1520,6 +1539,128 @@ def _hunks_outside(repo, tree, path, spans) -> list:
         if not any(s <= a and b <= e or (ins and f and s - 1 <= a <= e) for s, e, f in wide):
             bad.append(f"{a}-{b}" if b != a else str(a))
     return bad
+
+
+# 凍ったファイルに足しただけの物（frozen_problems）。既存のテストに効く名・枠の掛け金は足した物に数えない
+_MODULE_HOOKS = frozenset({"setUpModule", "tearDownModule", "setup_module", "teardown_module", "setup_function",
+                           "teardown_function", "setup", "teardown", "load_tests", "pytestmark", "pytest_plugins",
+                           "collect_ignore", "collect_ignore_glob"})
+_CLASS_HOOKS = frozenset({*dir(unittest.TestCase), "setup_method", "teardown_method", "setup_class",
+                          "teardown_class", "setup", "teardown", "pytestmark"})
+_DOTTED = re.compile(r"^[A-Za-z_][\w.]*$")
+
+
+def _old_names(tree) -> set:
+    """木の中の名の全部（変数・属性・引数・キーワード・定義・import の名と、識別子か点つきの名の形の文字列の各部。
+    fixture の名・getattr・mock.patch の的も含める）"""
+    out = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name):
+            out.add(n.id)
+        elif isinstance(n, ast.Attribute):
+            out.add(n.attr)
+        elif isinstance(n, ast.arg):
+            out.add(n.arg)
+        elif isinstance(n, ast.keyword) and n.arg:
+            out.add(n.arg)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(n.name)
+        elif isinstance(n, ast.alias):
+            out.update(n.name.split("."))
+            if n.asname:
+                out.add(n.asname)
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            out.update(n.names)
+        elif isinstance(n, ast.Constant) and isinstance(n.value, str) and _DOTTED.match(n.value):
+            out.update(n.value.split("."))
+    return out
+
+
+def _bound(node, top: bool):
+    """足してよい形の文が縛る名の一覧（足してよい形でなければ None）。モジュールの直下は関数・クラス・import（* と __future__ を
+    除く）・名だけへの代入、既存のクラスの直下は関数だけ"""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return [node.name]
+    if not top:
+        return None
+    if isinstance(node, ast.ClassDef):
+        return [node.name]
+    if isinstance(node, ast.Import):
+        return [a.asname or a.name.split(".")[0] for a in node.names]
+    if isinstance(node, ast.ImportFrom):
+        if node.module == "__future__" or any(a.name == "*" for a in node.names):
+            return None
+        return [a.asname or a.name for a in node.names]
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else None
+    if targets is None or not all(isinstance(t, ast.Name) for t in targets):
+        return None
+    return [t.id for t in targets]
+
+
+def _addable(node, src: str, names: set, top: bool) -> bool:
+    """new の文 node が、既存のテストに効かない足した物か: 縛る名が旧い木の名（names）に無く、枠の掛け金（モジュールなら
+    _MODULE_HOOKS・pytest_*、クラスなら _CLASS_HOOKS・_ で始まる名）でも dunder でもなく、デコレータに autouse が無い"""
+    got = _bound(node, top)
+    if not got:
+        return False
+    for n in got:
+        if n in names or (n.startswith("__") and n.endswith("__")):
+            return False
+        if top and (n in _MODULE_HOOKS or n.startswith("pytest_")):
+            return False
+        if not top and (n in _CLASS_HOOKS or n.startswith("_")):
+            return False
+    return not any("autouse" in (ast.get_source_segment(src, d) or "autouse") for d in getattr(node, "decorator_list", []))
+
+
+def _without_additions(old_src, new_src, path: str) -> list:
+    """凍ったファイルの今の中身 new_src から足しただけの文（_addable。モジュールの直下と、旧い木にも在った直下のクラスの中）を
+    除いた行の一覧の候補（足した文の直前に続く同じ字下げのコメントの行と空の行を、それぞれ除いた物と除かない物。足した所の前後の
+    空の行が許しの範囲の外の塊にならないように）。.py でない・どちらかが
+    読めない・構文が読めない・足した文が無ければ空（足した物を除けない＝今どおりファイルの変更で見る）"""
+    if not path.endswith(".py") or old_src is None or new_src is None:
+        return []
+    try:
+        old, new = ast.parse(old_src), ast.parse(new_src)
+    except (SyntaxError, ValueError):
+        return []
+    names = _old_names(old)
+    classes = {n.name for n in old.body if isinstance(n, ast.ClassDef)}
+    picked = []
+    for node in new.body:
+        if _addable(node, new_src, names, True):
+            picked.append(node)
+        elif isinstance(node, ast.ClassDef) and node.name in classes:
+            picked += [m for m in node.body if _addable(m, new_src, names, False)]
+    if not picked:
+        return []
+    lines = new_src.splitlines()
+    out = []
+    for comments, blanks in ((True, True), (True, False), (False, True), (False, False)):
+        drop = set()
+        for node in picked:
+            top = min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])])
+            while comments and top > 1 and lines[top - 2].startswith(" " * node.col_offset + "#"):
+                top -= 1
+            while blanks and top > 1 and not lines[top - 2].strip():
+                top -= 1
+            drop.update(range(top, node.end_lineno + 1))
+        got = [x for i, x in enumerate(lines, 1) if i not in drop]
+        if got not in out:
+            out.append(got)
+    return out
+
+
+def _same_code(old_src, lines) -> bool:
+    """行の一覧 lines が旧い中身 old_src と同じコードか: コードの木（ast.dump。文字列の中の空の行も見る）が同じで、空でない行の
+    並び（コメントも）が同じ。空の行の数だけの違いは通す"""
+    if old_src is None:
+        return False
+    try:
+        same = ast.dump(ast.parse(old_src)) == ast.dump(ast.parse("\n".join(lines)))
+    except (SyntaxError, ValueError):
+        return False
+    return same and [x for x in old_src.splitlines() if x.strip()] == [x for x in lines if x.strip()]
 
 
 def _function_span(old, line):
