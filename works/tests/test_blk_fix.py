@@ -98,10 +98,11 @@ class TestBlockYaml(unittest.TestCase):
         y = block()
         self.assertEqual(y["name"], "blk-fix")
         self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "notes_file", "policy_path",
-                                            "tdd_suite", "test_cmd", "unit_depths", "plan_session"})
+                                            "tdd_suite", "test_cmd", "unit_depths", "plan_session", "ripple_file"})
         # 2 回目の修正の段（依頼 226）は同じ入力の 2 度目の include。include の名は入力に持たない（core が Archon の節の居場所から
         # 引き、その scope の置き場で 1 度目と分かれる。依頼 239）
-        for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite", "test_cmd", "unit_depths", "plan_session"):   # 足した物は空でよい（仕様 3.2・TDD の輪・単位ごとの深さ）
+        for k in ("base_rev", "plan_file", "notes_file", "policy_path", "tdd_suite", "test_cmd", "unit_depths", "plan_session",
+                  "ripple_file"):   # 足した物は空でよい（仕様 3.2・TDD の輪・単位ごとの深さ）
             self.assertEqual(y["inputs"][k].get("default"), "", k)
             self.assertNotIn("required", y["inputs"][k], k)
         self.assertEqual(y["returns"], "collect")
@@ -311,7 +312,8 @@ class TestBlockYaml(unittest.TestCase):
         want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS",
                            "INPUTS_TDD_SUITE"),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
-                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PLAN_SESSION", "INPUTS_PASS"),
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PLAN_SESSION",
+                             "INPUTS_RIPPLE_FILE", "INPUTS_PASS"),
                 "rule_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_POLICY_PATH"),
                 "rule_accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_ITERATION"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD", "INPUTS_RULED"),

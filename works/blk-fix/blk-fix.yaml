@@ -58,6 +58,12 @@ inputs:
       範囲の相談の相手の会話の印の名（包みが `<包みの家>/sessions/<cwd の hash>/<印の名>.id` に会話の id を記録する役の節の
       `works-node:` の名。承認済みの修正案を書いた役の物）。空なら相談しない。修正役と下請けは、修正案の項目の範囲の外や凍ったテストの
       書き換えが要る時、機械のコマンドでその会話の写しを再開して聞き、許された範囲は受け付けが範囲に入れる（設計 docs/plans/2026-10-06-ask-planner.md）
+  ripple_file:
+    default: ""
+    description: |
+      波及の一覧のパス（承認済みの修正案の項目ごとに、変える名の呼び出し元と試験と、範囲に入っていない当たりを並べた JSON。
+      {"items": [{item, unit_keys, names, uncovered: [{id, name, kind, at}]}], "overlaps", "error"}）。空なら名指さない。修正役と
+      下請けの範囲の相談の節が名指し、範囲の外の当たりを触る前に相談させる
   test_cmd:
     default: ""
     description: 緑の後に TDD の輪が走らせるテストのコマンド（線の入力 `test_cmd`）。空は走らせない。実行器がこのコマンドそのものを包んだ物なら 2 度走らせない
@@ -251,6 +257,7 @@ nodes:
             summary_file: $tdd-start.output.summary_file
             base_rev: $INPUTS.base_rev   # 修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
             plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
+            ripple_file: $INPUTS.ripple_file   # 波及の一覧（範囲の相談の節が名指す。空は名指さない）
             pass: "first"
           output_format:
             type: object
@@ -851,6 +858,7 @@ nodes:
             summary_file: $tdd-start.output.summary_file
             base_rev: $INPUTS.base_rev
             plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
+            ripple_file: $INPUTS.ripple_file   # 波及の一覧（範囲の相談の節が名指す。空は名指さない）
             pass: "ruled"
           output_format:
             type: object
