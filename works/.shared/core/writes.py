@@ -12,6 +12,9 @@ Edit で書き直した物は区別しない（出どころの全部は証さな
 - 単位の worktree（依頼 243 の並べ。修正役の下請けが run の作業ツリーの外で書く所）の記録は、機械が差分を run の作業ツリーへ
   当てた後に carry で写す。写すのは、run の作業ツリーの今の中身が単位の worktree の今の中身と同じで、その中身に記録が在る物だけ
   （tool_name CARRY_TOOL と元の実パス from。2 つの差分を合わせて中身が違う物は写さず、役が申告する）
+- TDD の輪の並べ（依頼 243 の並べの 3 段目）で sandbox の外の機械が 2 つ以上の単位の worktree の差分を 3 方向で合わせたファイルは、
+  carry_merged が合わせた中身に 1 行を足す（合わせたどの単位の worktree の中身にも記録が在る時だけ。from は元の実パスの並び）。
+  合わせたのは機械なので、機械が出どころを請け負う（役の sandbox の中の当てるコマンドの結果には使わない）
 標準ライブラリだけ。
 """
 import hashlib
@@ -147,6 +150,23 @@ def carry(log: pathlib.Path, pairs) -> list:
             f.write("\n".join(rows) + "\n")
     return out
 
+
+def carry_merged(log: pathlib.Path, dst, srcs) -> bool:
+    """機械が srcs（単位の worktree の同じ相対のファイルの並び）を 3 方向で合わせた run の作業ツリーのファイル dst に、記録を
+    1 行足す（tool_name CARRY_TOOL・from は元の実パスの並び）。srcs のどれもが今の中身の記録を持ち、dst が在って symlink で
+    ない時だけ。足したか"""
+    rec = records(log)
+    reals = [os.path.realpath(str(s)) for s in srcs]
+    if not reals or any(_sha(r) is None or _sha(r) not in rec.get(r, ()) for r in reals):
+        return False
+    dst_real = os.path.realpath(str(dst))
+    sha = _sha(dst_real)
+    if sha is None or os.path.islink(str(dst)):
+        return False
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_name": CARRY_TOOL, "path": dst_real,
+                            "file_sha": sha, "from": reals}, ensure_ascii=False) + "\n")
+    return True
 
 def keep_declared(log: pathlib.Path, repo, declared) -> None:
     rows = [json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_name": "declared",

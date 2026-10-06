@@ -172,6 +172,24 @@ class TestProvenance(RepoCase):
         self.assertIn("other.py", problems[0])
         self.assertIn("bare.py", problems[0])
 
+    def test_carry_merged_records_a_machine_merge_of_recorded_units(self):
+        """TDD の輪の並べで機械が 2 つの単位の中身を合わせたファイル（依頼 243 の並べの 3 段目）: どちらの中身にも記録が在れば
+        合わせた中身に 1 行を足し、受け付けが通る。片方に記録が無ければ足さない"""
+        u1, u2 = self.tmp / "u1", self.tmp / "u2"
+        for d, text in ((u1, "a\nB\n"), (u2, "A\nb\n")):
+            d.mkdir()
+            (d / "stats.py").write_text(text, encoding="utf-8")
+        (self.repo / "stats.py").write_text("A\nB\n", encoding="utf-8")
+        record(self.log, u1 / "stats.py")
+        self.assertFalse(writes.carry_merged(self.log, self.repo / "stats.py", [u1 / "stats.py", u2 / "stats.py"]))
+        self.assertTrue(self.check()["problems"])
+        record(self.log, u2 / "stats.py")
+        self.assertTrue(writes.carry_merged(self.log, self.repo / "stats.py", [u1 / "stats.py", u2 / "stats.py"]))
+        self.assertEqual(self.check()["problems"], [])
+        row = json.loads(self.log.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual((row["tool_name"], row["from"]), (writes.CARRY_TOOL, [str((u1 / "stats.py").resolve()),
+                                                                                 str((u2 / "stats.py").resolve())]))
+
     def test_overwritten_after_record_is_rejected(self):
         p = self.repo / "stats.py"
         p.write_text("by edit\n", encoding="utf-8")

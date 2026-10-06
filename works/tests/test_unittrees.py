@@ -9,6 +9,8 @@
 - remove・sweep が worktree と守りの参照を片付け、同じリポジトリのほかの作業ツリーの単位には触らない
 - objects（新しい object の一時の置き場）を渡せば、共通の .git が書けなくても diff・apply が回る（役の sandbox の中の当てる口）
 - applied は差分が既に当たっているか（逆向きに当たるか）を作業ツリーを変えずに言う
+- union の中のファイルで両方が同じ所（末尾）に行を足しただけの食い違いは、作業ツリーの側の行の後に patch の側の行を置いて
+  当たる（unioned に積む）。行を変えた塊・union の外のファイルは今どおり当たらず、作業ツリーは前のまま
 """
 import pathlib
 import shutil
@@ -95,6 +97,65 @@ class UnitTrees(unittest.TestCase):
         self.assertEqual((self.repo / "b.txt").read_text(), "b1\nb2\nb3\n")   # 全部か無し
         self.assertNotIn("<<<<<<<", (self.repo / "a.txt").read_text())
         self.assertEqual(self.real_state(), state)
+
+    def test_insert_only_conflict_in_a_union_file_is_merged_in_order(self):
+        state = self.real_state()
+        base = unittrees.snapshot(self.repo)
+        _, p1 = self.unit(base, "u1", {"a.txt": "a1\na2\na3\n\nclass B:\n    pass\n"})
+        _, p2 = self.unit(base, "u2", {"a.txt": "a1\na2\na3\n\nclass C:\n    pass\n", "b.txt": "b1\nb2\nB3\n"})
+        self.assertEqual(unittrees.apply(self.repo, p1), (True, ""))
+        self.assertFalse(unittrees.apply(self.repo, p2)[0])   # union を渡さなければ今どおり当たらない
+        got = []
+        self.assertEqual(unittrees.apply(self.repo, p2, union=["a.txt"], unioned=got), (True, ""))
+        self.assertEqual((self.repo / "a.txt").read_text(), "a1\na2\na3\n\nclass B:\n    pass\n\nclass C:\n    pass\n")
+        self.assertEqual((self.repo / "b.txt").read_text(), "b1\nb2\nB3\n")
+        self.assertEqual(got, ["a.txt"])
+        self.assertEqual(self.real_state(), state)
+
+    def test_union_refuses_a_conflict_that_changed_lines(self):
+        base = unittrees.snapshot(self.repo)
+        _, p1 = self.unit(base, "u1", {"a.txt": "a1\nX\na3\n"})
+        _, p2 = self.unit(base, "u2", {"a.txt": "a1\nY\na3\n"})
+        self.assertEqual(unittrees.apply(self.repo, p1), (True, ""))
+        got = []
+        ok, why = unittrees.apply(self.repo, p2, union=["a.txt"], unioned=got)
+        self.assertFalse(ok)
+        self.assertTrue(why)
+        self.assertEqual((self.repo / "a.txt").read_text(), "a1\nX\na3\n")
+        self.assertEqual(got, [])
+
+    def test_union_asks_the_check_before_merging(self):
+        base = unittrees.snapshot(self.repo)
+        _, p1 = self.unit(base, "u1", {"a.txt": "a1\na2\na3\nB\n"})
+        _, p2 = self.unit(base, "u2", {"a.txt": "a1\na2\na3\nC\n"})
+        self.assertEqual(unittrees.apply(self.repo, p1), (True, ""))
+        seen = []
+        ok, _ = unittrees.apply(self.repo, p2, union=["a.txt"], check=lambda path, text: seen.append((path, text)) and False)
+        self.assertFalse(ok)
+        self.assertEqual(seen, [("a.txt", b"a1\na2\na3\nB\nC\n")])
+        self.assertEqual((self.repo / "a.txt").read_text(), "a1\na2\na3\nB\n")
+
+    def test_union_refuses_files_outside_the_list(self):
+        base = unittrees.snapshot(self.repo)
+        _, p1 = self.unit(base, "u1", {"a.txt": "a1\na2\na3\nB\n", "b.txt": "b1\nb2\nb3\nB\n"})
+        _, p2 = self.unit(base, "u2", {"a.txt": "a1\na2\na3\nC\n", "b.txt": "b1\nb2\nb3\nC\n"})
+        self.assertEqual(unittrees.apply(self.repo, p1), (True, ""))
+        self.assertFalse(unittrees.apply(self.repo, p2, union=["a.txt"])[0])   # b.txt は並びの外
+        self.assertEqual((self.repo / "a.txt").read_text(), "a1\na2\na3\nB\n")
+
+    def test_union_with_scratch_objects_writes_nothing_in_git(self):
+        base = unittrees.snapshot(self.repo)
+        _, p1 = self.unit(base, "u1", {"a.txt": "a1\na2\na3\nB\n"})
+        tree2 = unittrees.add(self.repo, base, self.places / "u2")
+        (tree2 / "a.txt").write_text("a1\na2\na3\nC\n", encoding="utf-8")
+        self.assertEqual(unittrees.apply(self.repo, p1), (True, ""))
+        common = pathlib.Path(git(self.repo, "rev-parse", "--path-format=absolute", "--git-common-dir")) / "objects"
+        before = sorted(str(x) for x in common.rglob("*"))
+        with tempfile.TemporaryDirectory() as objects:
+            p2 = unittrees.diff(tree2, base, objects=objects)
+            self.assertEqual(unittrees.apply(self.repo, p2, objects=objects, union=["a.txt"]), (True, ""))
+        self.assertEqual(sorted(str(x) for x in common.rglob("*")), before)
+        self.assertEqual((self.repo / "a.txt").read_text(), "a1\na2\na3\nB\nC\n")
 
     def test_uncommitted_run_edits_visible_in_unit(self):
         (self.repo / "a.txt").write_text("a1\nrun\na3\n", encoding="utf-8")

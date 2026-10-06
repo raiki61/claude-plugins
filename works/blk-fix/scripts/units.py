@@ -4,7 +4,7 @@
 # ///
 """並べた項目を締める（blk-fix の節 fix-units。修正の輪の中で役 fix の後・受け付け fix-accept の前。依頼 243 の並べ。中身は unitlanes.settle）。
 
-修正役の支度（fix-prep）が範囲の重ならない項目に単位の worktree を切った周だけ働く（控えは盤面の今の周の作業ファイル
+修正役の支度（fix-prep）が範囲の在る項目に単位の worktree を切った周だけ働く（控えは盤面の今の周の作業ファイル
 fixrules.UNITS_FILE）。修正役が当てるコマンドを走らせなかった項目は機械が run の作業ツリーへ当て、当てた項目の単位の worktree での
 書き込みの記録を run の作業ツリーへ写し（writes.carry。受け付けが下請けの Edit を記録の無い変更と読まないように）、当たらなかった
 項目の差分を盤面の作業ファイル fixrules.UNITS_KEPT の下に残し、単位の worktree を片付ける。盤面の trace に fixrules.UNITS_OP の

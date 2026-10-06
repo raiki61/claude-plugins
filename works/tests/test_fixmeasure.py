@@ -633,6 +633,61 @@ def tree_bytes(root: pathlib.Path) -> dict:
     return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
+def timed_db(tmp, rows, run="r1"):
+    """created_at の列を持つ Archon の 2 つの表に、task_activity の行 [(step, task_id, activity, 秒)] を入れた db のパス"""
+    db = pathlib.Path(tmp) / "timed.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE remote_agent_workflow_runs (id TEXT PRIMARY KEY, workflow_name TEXT, status TEXT)")
+    con.execute("CREATE TABLE remote_agent_workflow_events (id TEXT PRIMARY KEY, workflow_run_id TEXT, event_order INTEGER, "
+                "event_type TEXT, step_index INTEGER, step_name TEXT, data TEXT, created_at TEXT)")
+    con.execute("INSERT INTO remote_agent_workflow_runs VALUES (?, 'darkfactory', 'completed')", (run,))
+    for n, (step, tid, act, sec) in enumerate(rows, 1):
+        data = {"task_id": tid, "activity": act, **({"task_type": "local_agent"} if act == "started" else {})}
+        at = f"2026-10-07 10:{sec // 60:02d}:{sec % 60:02d}"
+        con.execute("INSERT INTO remote_agent_workflow_events VALUES (?, ?, ?, 'task_activity', NULL, ?, ?, ?)",
+                    (f"{run}-{n}", run, n, step, json.dumps(data), at))
+    con.commit()
+    con.close()
+    return db
+
+
+class WaitCase(unittest.TestCase):
+    """段ごとの待ちの損（一番遅い下請け − 下請けの平均。依頼 243 の並べの 3 段目の測り）"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = pathlib.Path(self._tmp.name)
+
+    def test_batches_are_cut_at_the_first_end(self):
+        tdd = "fixing__tdd-loop.tdd"
+        db = timed_db(self.tmp, [
+            (tdd, "a", "started", 0), (tdd, "b", "started", 1), (tdd, "c", "started", 2),
+            (tdd, "b", "completed", 31), (tdd, "a", "completed", 60), (tdd, "c", "completed", 92),
+            (tdd, "d", "started", 100), (tdd, "d", "completed", 130),   # 2 回目の束（1 本だけ。損は 0）
+            ("fixing__fix-loop.fix", "x", "started", 0), ("fixing__fix-loop.fix", "x", "progress", 5),
+            ("fixing__fix-loop.fix", "y", "started", 0), ("fixing__fix-loop.fix", "y", "failed", 20),
+            ("fixing__fix-loop.fix", "x", "completed", 40),
+            ("planning__x.plan-review", "z", "started", 0)])   # 終わりの無い下請けは数えない
+        got = fixmeasure.wait_loss(fixmeasure._task_rows(db, "r1"))
+        self.assertFalse(got["verified"], "本物の run で欄の形を確かめるまで偽")
+        self.assertEqual(got["stages"]["tdd"]["batches"], [{"n": 3, "max": 90.0, "mean": 60.0, "loss": 30.0},
+                                                           {"n": 1, "max": 30.0, "mean": 30.0, "loss": 0.0}])
+        self.assertEqual(got["stages"]["fix"], {"batches": [{"n": 2, "max": 40.0, "mean": 30.0, "loss": 10.0}], "loss": 10.0})
+        self.assertNotIn("plan-review", got["stages"])
+        self.assertEqual(got["total"], 40.0)
+
+    def test_cli_wait(self):
+        db = timed_db(self.tmp, [("s.tdd", "a", "started", 0), ("s.tdd", "a", "completed", 9)])
+        got = subprocess.run([sys.executable, str(TOOL), "wait", str(db), "r1"], capture_output=True, text=True,
+                             encoding="utf-8", env={"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(json.loads(got.stdout)["total"], 0.0)
+        bad = subprocess.run([sys.executable, str(TOOL), "wait", str(db), "nope"], capture_output=True, text=True,
+                             encoding="utf-8", env={"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(bad.returncode, 2)
+
+
 class CliCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

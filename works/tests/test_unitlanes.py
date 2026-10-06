@@ -1,8 +1,10 @@
 """修正役の下請けを単位の worktree で並べる（blk-fix/lib/unitlanes.py。依頼 243 の並べ）の検査。種の git は gitkit の型の写し。
 
 縛る事:
-- 分け方: 範囲の引けない項目と、範囲が重なる項目は順。どれとも重ならない項目が 2 つ以上の時だけ並べる。glob は字のままの頭で比べ、
-  広く重なりと見る
+- 分け方: 範囲の引けない項目は順。範囲の在る項目は重なっても並べる（2 つ以上の時だけ。依頼 243 の並べの 3 段目）。重なりの見込み
+  （expect）は glob の字のままの頭で比べ、広く重なりと見る
+- 合わせる試験のファイル: 2 つの項目が同じ試験のファイルの末尾に足しただけなら、先の項目の行の後に後の項目の行を置いて当てる。
+  同じ名のテストの定義が 2 つになる中身は合わせない（tests_unique）。出口の shared は 2 つ以上の差分に出たファイル
 - 切る: run の作業ツリーの今の姿（未 commit を含む）を base にし、項目ごとに置き場の下へ単位の worktree を切って控えに書く
 - 当てる（役の sandbox の中のコマンド）: 項目の番号の順に当て、食い違う項目は conflict で作業ツリーを変えない。2 度走らせても
   当て直さない。`.git` の指しが切った時と違う項目は broken。共通の .git が書けなくても回る（別のプロセスの python3 で）
@@ -46,13 +48,25 @@ class Lanes(unittest.TestCase):
         got = unitlanes.lanes([(1, ["works/a/x.py"]), (2, ["works/b/**"]), (3, ["works/c.py", "tests/test_c.py"])])
         self.assertEqual(got, [1, 2, 3])
 
-    def test_unknown_or_overlapping_items_stay_serial(self):
-        got = unitlanes.lanes([(1, ["works/a/x.py"]), (2, None), (3, ["works/a/*.py"]), (4, ["works/d.py"]), (5, ["docs/e.md"])])
-        self.assertEqual(got, [4, 5], "範囲の無い 2 と、頭が重なる 1・3 は順")
+    def test_unknown_items_stay_serial_and_overlapping_items_run_side_by_side(self):
+        items = [(1, ["works/a/x.py"]), (2, None), (3, ["works/a/*.py"]), (4, ["works/d.py"]), (5, ["docs/e.md"])]
+        self.assertEqual(unitlanes.lanes(items), [1, 3, 4, 5], "範囲の無い 2 だけ順。頭が重なる 1・3 も並べる")
+        self.assertEqual(unitlanes.expect(items), [[1, 3]], "重なりの見込みは頭が重なる組")
 
     def test_fewer_than_two_is_nothing(self):
-        self.assertEqual(unitlanes.lanes([(1, ["a.py"]), (2, ["a.py"]), (3, ["b.py"])]), [])
+        self.assertEqual(unitlanes.lanes([(1, ["a.py"]), (2, None)]), [])
         self.assertEqual(unitlanes.lanes([]), [])
+        self.assertEqual(unitlanes.lanes([(1, ["a.py"]), (2, ["a.py"])]), [1, 2], "同じ範囲でも並べる")
+
+    def test_tests_unique_refuses_a_name_defined_twice(self):
+        ok = b"class TestA:\n    def test_x(self):\n        pass\n\nclass TestB:\n    def test_x(self):\n        pass\n"
+        self.assertTrue(unitlanes.tests_unique("tests/test_a.py", ok), "別のクラスの同じ名は隠さない")
+        twice = b"def test_x():\n    pass\n\ndef test_x():\n    pass\n"
+        self.assertFalse(unitlanes.tests_unique("tests/test_a.py", twice))
+        cls = b"class TestA:\n    def test_y(self):\n        pass\n\n    def test_y(self):\n        pass\n"
+        self.assertFalse(unitlanes.tests_unique("tests/test_a.py", cls))
+        self.assertFalse(unitlanes.tests_unique("tests/test_a.py", b"def test_(:\n"), "読めない中身は合わせない")
+        self.assertTrue(unitlanes.tests_unique("tests/a.txt", b"x\nx\n"), ".py でなければ照らさない")
 
     def test_overlap_reads_literal_heads(self):
         self.assertTrue(unitlanes.overlap(["works/blk-fix/lib/*.py"], ["works/blk-fix/lib/tddloop.py"]))
@@ -73,8 +87,8 @@ class Trees(unittest.TestCase):
         self.manifest = self.home / "board" / "units.json"
         (self.repo / "c.txt").write_text("c1\nC2 by loop\nc3\n", encoding="utf-8")   # 輪の直し（未 commit）
 
-    def plant(self, items=(1, 2)):
-        return unitlanes.plant(self.repo, list(items), self.place, self.manifest)
+    def plant(self, items=(1, 2), union=()):
+        return unitlanes.plant(self.repo, list(items), self.place, self.manifest, union)
 
     def test_plant_cuts_a_tree_per_item_from_the_current_tree(self):
         got = self.plant()
@@ -111,6 +125,30 @@ class Trees(unittest.TestCase):
         self.assertEqual(out["applied"], [1, 2])
         self.assertEqual((self.repo / "a.txt").read_text(), "A1\na2\nA3\n")
         self.assertEqual(out["differ"], ["a.txt"], "2 つの差分を合わせた中身は単位の中身と違う（役が申告する）")
+
+    def test_merge_names_shared_files_and_unions_appended_tests(self):
+        (self.repo / "t.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
+        got = self.plant(union=["t.py"])
+        t1, t2 = pathlib.Path(got[1]["tree"]), pathlib.Path(got[2]["tree"])
+        (t1 / "t.py").write_text("def test_a():\n    pass\n\n\ndef test_b():\n    pass\n", encoding="utf-8")
+        (t2 / "t.py").write_text("def test_a():\n    pass\n\n\ndef test_c():\n    pass\n", encoding="utf-8")
+        (t1 / "a.txt").write_text("A1\na2\na3\n", encoding="utf-8")
+        out = unitlanes.merge(self.manifest)
+        self.assertEqual(out["applied"], [1, 2])
+        self.assertEqual(out["union"], ["t.py"])
+        self.assertEqual(out["shared"], ["t.py"])
+        self.assertEqual((self.repo / "t.py").read_text(),
+                         "def test_a():\n    pass\n\n\ndef test_b():\n    pass\n\n\ndef test_c():\n    pass\n")
+
+    def test_merge_does_not_union_a_test_defined_twice(self):
+        (self.repo / "t.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
+        got = self.plant(union=["t.py"])
+        for n in (1, 2):
+            (pathlib.Path(got[n]["tree"]) / "t.py").write_text(f"def test_a():\n    pass\n\n\ndef test_b():\n    return {n}\n",
+                                                                encoding="utf-8")
+        out = unitlanes.merge(self.manifest)
+        self.assertEqual(out["applied"], [1])
+        self.assertEqual([c["item"] for c in out["conflict"]], [2], "同じ名の test_b が 2 つになる中身は合わせない")
 
     def test_merge_refuses_a_tree_whose_git_pointer_changed(self):
         got = self.plant()
@@ -162,6 +200,17 @@ class Trees(unittest.TestCase):
         self.assertEqual(unitlanes.settle(self.manifest, self.repo, log, keep), {"ran": False})
         problems = writes.check({}, self.repo, ["a.txt"], log)["problems"]
         self.assertEqual(problems, [], "写した記録で受け付けが通る")
+
+    def test_settle_reports_shared_files(self):
+        got = self.plant((1, 2))
+        (pathlib.Path(got[1]["tree"]) / "a.txt").write_text("A1\na2\na3\n", encoding="utf-8")
+        (pathlib.Path(got[2]["tree"]) / "a.txt").write_text("a1\na2\nA3\n", encoding="utf-8")
+        out = unitlanes.settle(self.manifest, self.repo, self.home / "writes.jsonl", self.home / "board" / "kept")
+        self.assertEqual(out["applied"], [1, 2])
+        self.assertEqual(out["shared"], ["a.txt"])
+        self.assertEqual((self.repo / "a.txt").read_text(), "A1\na2\nA3\n")
+        self.assertEqual(unitlanes.settled(self.manifest), {"shared": ["a.txt"], "items": [1, 2]},
+                         "締めた控えに重なりのファイルとそれを持つ項目を残す（出し直しの指示書が名指す）")
 
     def test_settle_keeps_patches_it_could_not_merge(self):
         got = self.plant((1, 2))
