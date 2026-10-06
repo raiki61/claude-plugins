@@ -108,6 +108,24 @@ class Fixture(unittest.TestCase):
         return askplan.ask(cfg, "3", list(paths), list(tests), why, env={**self.env, **(env or {})})
 
 
+class OfferedCase(Fixture):
+    """受け付けの拒否の文が相談を先の道に言うかの読み口（askplan.offered）: 今の scope の置き場にその段の控えが在る時だけ真"""
+
+    def test_offered_with_config_of_the_pass(self):
+        self.assertTrue(askplan.offered(self.place, "first"), "段の名の無い控えはどの段にも効く")
+        doc = json.loads(self.cfg_path.read_text(encoding="utf-8"))
+        askplan.write_config(self.place, {**doc, "pass": "ruled"})
+        self.assertTrue(askplan.offered(self.place, "ruled"))
+        self.assertFalse(askplan.offered(self.place, "first"), "前の段の控えが残っているだけでは相談を言わない")
+
+    def test_not_offered_without_config_or_items(self):
+        self.assertFalse(askplan.offered(self.root / "none", "first"))
+        self.assertFalse(askplan.offered(None, "first"))
+        doc = json.loads(self.cfg_path.read_text(encoding="utf-8"))
+        askplan.write_config(self.place, {**doc, "items": {}})
+        self.assertFalse(askplan.offered(self.place, "first"))
+
+
 class ScreenCase(Fixture):
     def test_out_of_scope_refused_without_asking(self):
         self.say(decision="allow", paths=["works/README.md"], tests=[], spec="", reason="足してよい（試しの答え）")

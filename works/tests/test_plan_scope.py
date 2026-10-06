@@ -355,5 +355,21 @@ class CrossItemScopeCase(unittest.TestCase):
         self.assertTrue(hit and "項目 1 の out_of_scope" in hit[0] and "項目 2" in hit[0] and "files" in hit[0], got)
 
 
+
+class RejectHeadCase(unittest.TestCase):
+    """拒否の行の頭（reject_head）: 範囲の相談がその段に在れば、範囲の外が要る時の先の道を相談と言い、申し出は聞けない・
+    許されない・out_of_scope の時の道に下げる（run 249・249b は相談の控えが在ったのに、拒否の文が申し出の道だけを言った）"""
+
+    def test_without_ask_keeps_conflict_route(self):
+        self.assertEqual(planscope.reject_head(False), planscope.REJECT)
+
+    def test_with_ask_puts_planner_first(self):
+        head = planscope.reject_head(True)
+        self.assertIn("範囲の相談", head)
+        self.assertLess(head.index("範囲の相談"), head.index("食い違いの申し出"))
+        self.assertIn("out_of_scope", head)
+        self.assertNotIn("範囲の外が要るなら変えずに食い違いの申し出で返せ", head)
+        self.assertTrue(head.startswith("承認済みの修正案の項目から外れた"), "拒否の行を単位に結ぶ・見出しで探す頭の語は同じ")
+
 if __name__ == "__main__":
     unittest.main()

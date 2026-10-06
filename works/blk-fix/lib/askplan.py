@@ -19,6 +19,7 @@
 - screen(cfg, item, paths, tests): 先の確かめ（断る文か None）
 - judge(answer, paths, tests): 答えの確かめ（(行の欄 | None, 注記)）。許すのは頼んだ物の中だけ
 - ask(cfg, item, paths, tests, why, *, env, run, resolve): 1 相談（錠の下で 1 つずつ）。返りは記録の行
+- offered(place, pass_): その段の控えが在るか（受け付けの拒否の文が相談を先の道に言うか）
 - exchanges(place)・settle(b, place): 記録を読む・盤面の trace へまだ無い行を写す
 - main(argv): コマンド。答えの 1 行の JSON を出し、終了コード 0（答えた・断った）・3（聞けない・形の崩れた答え）・2（使い方）
 
@@ -202,6 +203,20 @@ def question(cfg: dict, item: str, paths: list, tests: list, why: str) -> str:
     return QUESTION.format(item=item, units=show(it.get("unit_keys") or []), allowed=show(it.get("allowed_paths") or []),
                            oos=show(it.get("out_of_scope") or []), paths=show(paths), tests=show(tests),
                            why="\n".join("  " + line for line in why.strip().splitlines()))
+
+
+def offered(place, pass_: str) -> bool:
+    """置き場 place にこの段（pass_）の相談の控えが在り、項目が在るか（支度の節が相談の節を指示書に載せた段）。控えに段の名が
+    無ければどの段にも効く。受け付けが拒否の文で相談を先の道に言うかを決める（planscope.reject_head）"""
+    if not place:
+        return False
+    try:
+        doc = json.loads((pathlib.Path(place) / CONFIG).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return False
+    if not isinstance(doc, dict) or not isinstance(doc.get("items"), dict) or not doc["items"]:
+        return False
+    return doc.get("pass") in (None, "", pass_)
 
 
 def exchanges(place) -> list:

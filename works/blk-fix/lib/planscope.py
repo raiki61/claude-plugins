@@ -31,6 +31,7 @@
 拒否の行はどれも、行の単位の key か項目の unit_keys の全部を字のまま含める（最後の回に parking.bind が単位に結ぶ）。
 ただし行に申告の無い変わったパスの外れは単位を名指せないので、パスだけを書く。
 
+- reject_head(ask): 拒否の行の頭（範囲の相談がその段に在れば相談を先の道に言う REJECT_ASK、無ければ REJECT）
 - added_removed(base, now): 行の並びの足した行と消した行
 - new_test_ids(path, base, now): 試験のモジュールで新しく現れたテストの id
 - problems(items, rows, changes, *, permits): 拒否の行と記録（純粋な関数）
@@ -59,6 +60,10 @@ import planmarks  # noqa: E402
 import tddloop  # noqa: E402   試験のモジュールの名の型（PYTEST_FILE）の正本
 
 REJECT = "承認済みの修正案の項目から外れた（同じ brief のまま直して出し直せ。範囲の外が要るなら変えずに食い違いの申し出で返せ）: "
+# 範囲の相談がその段に在る時の頭（reject_head）。範囲の外が要る時の先の道は相談で、申し出は聞けない・許されない・out_of_scope の時
+REJECT_ASK = ("承認済みの修正案の項目から外れた（同じ brief のまま直して出し直せ。allowed_paths の外が要るなら、変える前に指示書の"
+              "「範囲の相談と事前の確かめ」の節のとおり、範囲の相談のコマンドで修正案を書いた役に聞け（許された物は範囲に入る）。"
+              "相談が聞けない・許されずに仕様として意見が割れる時と、out_of_scope に当たる物が要る時だけ、変えずに食い違いの申し出で返せ）: ")
 # 単位に結べない変わったパスがほかの項目の out_of_scope に当たり、ある項目の範囲には入る時に足す文（申告すればその項目で照らす）
 OWNER_HINT = "（項目 {nums} の範囲には入る。その項目の単位の changes[].files に申告すれば、その項目の out_of_scope だけで照らす）"
 SCOPE_OP = "fix_plan_scope"   # 受けた時の盤面の trace の行（照らした印か、照らさなかった理由）
@@ -66,6 +71,11 @@ IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")
 NO_PLAN = "承認済みの修正案か works の欄の控えが無い"
 NO_SCOPE = "範囲の欄の無い控え（217 番の形の盤面）"
 NO_PLAIN = "平の run（修正の形 current）——修正の段に修正案の欄を渡さない"
+
+
+def reject_head(ask: bool) -> str:
+    """拒否の行の頭: 範囲の相談がその段に在れば（askplan.offered）REJECT_ASK、無ければ REJECT"""
+    return REJECT_ASK if ask else REJECT
 
 
 # ---------------------------------------------------------------- 差分の読み

@@ -243,6 +243,20 @@ class TestCompose(unittest.TestCase):
         self.assertIn("範囲の外が要るなら request", sec)
         self.assertIn("query（`correct_lines` 付き）", sec)
 
+    def test_brief_rule_asks_before_scope_needed(self):
+        """数え直しが範囲の外を求める時も、範囲の相談の節が在れば申し出の前に相談する（run 249・249b。相談の控えが在ったのに
+        申し出の道だけが選ばれた）"""
+        sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        rule2 = sec[sec.index("2. **"):sec.index("3. **")]
+        self.assertIn("8 のとおり先に相談", rule2)
+        self.assertLess(rule2.index("8 のとおり先に相談"), rule2.index("`scope_needed`"))
+
+    def test_seat_scope_needed_scene_asks_first(self):
+        """下請けの申し出の手引きの scope_needed の場面も、相談の節が在れば相談して許されなかった時と言う"""
+        import seat
+        import conflict
+        self.assertIn("範囲の相談", seat.DIVERGENCE_SCENES[conflict.SCOPE_NEEDED])
+
     def test_brief_rule_names_scope(self):
         """brief の allowed_paths の外と out_of_scope は変えない。範囲の外が要るなら食い違いの申し出で返す（依頼 218）"""
         sec = fixrules.sections(fixrules.BRIEF)["brief-canon"]

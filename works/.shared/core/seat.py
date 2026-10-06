@@ -77,7 +77,8 @@ DIVERGENCE_SCENES = {
     conflict.BRIEF_VS_JUDGMENT: "brief と、判定・依頼・修正の前に人が答えた条件が食い違う（`between` にその単位の brief の行）",
     conflict.UNNAMED_TEST_BROKE: "修正案にも裁定にも名指されていない既存のテストが、直すと落ちる・外すしかない",
     conflict.NOT_RED: "受け入れのテスト・名指しの書き換えが、案どおりに書いても赤にならない・赤の種類が案と違う",
-    conflict.SCOPE_NEEDED: "brief や案の範囲の外を触らないと緑にならない・判定者の問いの数え直しが閉じない",
+    conflict.SCOPE_NEEDED: ("brief や案の範囲の外を触らないと緑にならない・判定者の問いの数え直しが閉じない（範囲の相談の節が"
+                            "在れば、先に相談して許されなかった時）"),
     conflict.QUERY_HITS_FIXED: "判定者の問いが直した後の正しい形にも当たる（`which_is_right` は query・`correct_lines` が要る）",
     conflict.NEEDS_CONTEXT: "方針・依頼の意図・どれが正しいかが材料から決められず、人か依頼の答えが要る（`which_is_right` は unknown）",
 }
