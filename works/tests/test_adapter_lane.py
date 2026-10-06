@@ -1,11 +1,12 @@
 """包みの旗 lane（.shared/core/adapter.py の頭の 6c。TDD の輪の並べの枝の役 tdd-lane-<n>。docs/plans/2026-10-07-lane-nodes.md）。
 
-- 枝の役は、枝の支度が run ごとの置き場に書いた印（adapter.lane_tree_path）の単位の worktree を cwd に起こす。worktree は
+- 枝の役は、枝の支度が盤面に書いた印（adapter.lane_tree_path。盤面の tdd-lane-trees/。役が書けない所）の単位の worktree を cwd に起こす。worktree は
   run ごとの置き場の下に在り、Archon の cwd（run の worktree）の作業ツリーの単位の守りの参照を持つ物だけ（役の文からは取らない）
 - run の worktree とほかの枝の単位の worktree は柵（permissions.deny・denyWrite）に足し、単位の worktree は allowWrite に足す
 - 会話の id・起動の記録の鍵は Archon の cwd のまま。単位の worktree を会話の id の隣（<節>.lane）に記録し、continue=X は X と同じ
   cwd の起動だけを起こす。続きの起動で記録の worktree と違えば新しい会話にする
-- 印が無い・読めない・置き場の外・単位の worktree でない・切符が無い・旗 isolated と一緒、は起こさない（fail closed）
+- 印が無い・読めない・置き場の外・単位の worktree でない・切符が無い・旗 isolated と一緒・sandbox が enabled・
+  allowUnsandboxedCommands: false・failIfUnavailable: true でない、は起こさない（fail closed）
 - 単位の切れ目で会話を切る節（KEYED_NODES）と旗の一覧は、並べの枝の数（tddlanes.MAX_LANES）と YAML の印に揃う
 種の git は gitkit の型の写し・単位の worktree を 2 本切る（子のプロセスは git だけ）。adapter.plan を直に呼ぶ。
 """
@@ -35,7 +36,7 @@ SANDBOX = '{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"failIfUn
 NODE = "tdd-lane-1"
 
 
-def sdk_argv(desc, tools="Read,Edit,Write,Bash", resume=None):
+def sdk_argv(desc, tools="Read,Edit,Write,Bash", resume=None, settings=SANDBOX):
     """SDK 0.3.282 の並び（test_adapter.sdk_argv と同じ形）で、Bash と sandbox を持つ書く役の起動"""
     schema = {"type": "object", "description": desc, "properties": {"phase": {"type": "string"}}}
     a = ["--output-format", "stream-json", "--verbose", "--input-format", "stream-json", "--model", "sonnet",
@@ -43,7 +44,7 @@ def sdk_argv(desc, tools="Read,Edit,Write,Bash", resume=None):
          "--permission-mode", "bypassPermissions"]
     if resume:
         a += ["--resume", resume]
-    return a + ["--settings", SANDBOX]
+    return a + (["--settings", settings] if settings is not None else [])
 
 
 class LaneCase(unittest.TestCase):
@@ -161,6 +162,19 @@ class TestLaneRefused(LaneCase):
 
     def test_no_ticket(self):
         self.refused(self.plan(sdk_argv(f"works-node: {NODE} lane"), ticket=False), "切符が無い")
+
+    def test_mark_lives_on_the_board(self):
+        """印は盤面の下（切符の守る場所）。run ごとの置き場（役が書ける）には置かない"""
+        path = pathlib.Path(adapter.lane_tree_path(str(self.board), NODE))
+        self.assertEqual(path.parent.parent, self.board)
+        self.assertFalse(str(path).startswith(str(self.place)))
+
+    def test_loose_or_missing_sandbox(self):
+        """Bash を sandbox の外で走らせる・sandbox が立たない場で素通しする起動は起こさない（旗 no-tree-write と同じ確かめ）"""
+        for settings, word in ((None, "sandbox の塊"), ('{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false}}', "failIfUnavailable"),
+                               ('{"sandbox":{"enabled":true,"failIfUnavailable":true}}', "allowUnsandboxedCommands")):
+            with self.subTest(settings=settings):
+                self.refused(self.plan(sdk_argv(f"works-node: {NODE} lane", settings=settings)), word)
 
     def test_with_isolated(self):
         self.refused(self.plan(sdk_argv(f"works-node: {NODE} lane isolated", tools="")), "isolated")

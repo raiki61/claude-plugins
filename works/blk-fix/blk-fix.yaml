@@ -266,7 +266,7 @@ nodes:
 
   # 並べの枝の輪（枝 1 本に 1 つ。tdd-fork の lane_<n> で起き、枝どうしは同時に走る。この層に mutates_checkout: false の節を
   # 置かない——Archon v0.11.1 はその節と同じ層を順に回す）。役 tdd-lane-<n> は枝のただ 1 つの AI の節で、包みが印の旗 lane を見て
-  # 枝の単位の worktree（tdd-lane-prep-<n> が run ごとの置き場に書いた印。役の文からは取らない）を cwd に起こし、run の worktree と
+  # 枝の単位の worktree（tdd-lane-prep-<n> が盤面の tdd-lane-trees/ に書いた印。役の文からは取らない）を cwd に起こし、run の worktree と
   # ほかの枝の worktree を柵に足す。fresh_context は false のままで、同じ単位の段は 1 つの会話を継ぎ、単位が替わる周だけ包みが
   # 新しい会話で起こす（支度が書く単位の鍵）。赤・緑は tdd-lane-step-<n> が tddloop.step を枝の worktree で回して決める。枝の単位が
   # 全部済むか、拒否・実行器の止まりで諦めれば done で抜ける（回数の上限で落とさない。R50）
@@ -304,7 +304,7 @@ nodes:
           settingSources: [user]
           skills: [test-driven-development]   # 座（g3 の時だけ並べる。座の文は決まりのファイルに載る）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
-          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}   # 包みの旗 lane が求める形（sandbox が立たない場で Bash を素通しさせない）
           idle_timeout: 1728000000
           # 印 works-node: tdd-lane-1 lane（包みが単位の worktree を cwd に起こし、会話を枝ごとに分ける）
           output_format:
@@ -406,7 +406,7 @@ nodes:
           settingSources: [user]
           skills: [test-driven-development]   # 座（g3 の時だけ並べる。座の文は決まりのファイルに載る）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
-          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}   # 包みの旗 lane が求める形（sandbox が立たない場で Bash を素通しさせない）
           idle_timeout: 1728000000
           # 印 works-node: tdd-lane-2 lane（包みが単位の worktree を cwd に起こし、会話を枝ごとに分ける）
           output_format:
@@ -470,7 +470,7 @@ nodes:
           settingSources: [user]
           skills: [test-driven-development]   # 座（g3 の時だけ並べる。座の文は決まりのファイルに載る）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
-          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}   # 包みの旗 lane が求める形（sandbox が立たない場で Bash を素通しさせない）
           idle_timeout: 1728000000
           # 印 works-node: tdd-lane-3 lane（包みが単位の worktree を cwd に起こし、会話を枝ごとに分ける）
           output_format:

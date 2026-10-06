@@ -487,6 +487,26 @@ class TestOneItemLane(LaneCase):
                          {UA: ("merged", 1), UB: ("merged", 2), UD: ("merged", 2)})
         self.assertEqual(st["units"][UD]["green"], "ok")
 
+    def test_rejected_conflicts_give_up_and_the_next_unit_keeps_its_head(self):
+        """申し出の拒否が RETRY_MAX 回で諦めても、枝は次の単位の頭の木を残す（締めの赤の確かめ直しが単位ごとに使う）"""
+        self.route()
+        bad = {"phase": "conflict", "unit_key": UD, "between": ["b.py:1", "test_b.py:1"],
+               "why_both_cannot_hold": "今の単位でない単位を名指した申し出", "which_is_right": "request", "kind": "brief_vs_judgment"}
+        for _ in range(tddloop.retry_max()):
+            got = tddlanes.lane_step(self.state, self.lane(UB)["n"], bad, self.repo)
+        self.assertEqual((got["done"], got["phase"]), (False, "test"), got)
+        lst = json.loads(pathlib.Path(self.lane(UB)["state"]).read_text(encoding="utf-8"))
+        self.assertEqual(lst["queue"][lst["cur"]], UD)
+        self.assertIn(UD, lst["unit_heads"])
+        self.red(UD)
+        self.green(UD)
+        self.red(UA)
+        self.green(UA)
+        self.join()
+        st = self.st()
+        self.assertEqual(st["units"][UD]["green"], "ok", "次の単位は頭の木で赤を確かめ直して当たる")
+        self.assertIn(UB, st["lanes"]["back"], "諦めた単位は順に戻す")
+
     def test_unfinished_second_unit_is_not_merged(self):
         self.route()
         self.red(UB)

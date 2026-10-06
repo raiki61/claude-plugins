@@ -26,7 +26,7 @@
   状態の段を lanes にして真（輪 tdd-loop はこの段で抜ける）。ほかは何もせず偽
 - fork(state_file): 節 tdd-fork。枝の輪を起こすか {go, lanes, lane_1..lane_<MAX_LANES>}（状態の段が lanes の時だけ go）
 - lane_prep(state_file, n, values): 節 tdd-lane-prep-<n>。枝 n の今の単位の決まりのファイルと回ごとの指示書を書き、包みが読む
-  2 つの印（単位の鍵 adapter.session_key_path と単位の worktree adapter.lane_tree_path）を run ごとの置き場に置く
+  2 つの印（単位の鍵 adapter.session_key_path は run ごとの置き場、単位の worktree adapter.lane_tree_path は盤面の下）を置く
 - lane_step(state_file, n, reply, repo): 節 tdd-lane-step-<n>。役の返答で単位の worktree の段を tddloop.step で確かめる（書き込みの
   出どころは run の作業ツリーの記録 writes.sink(repo) と突き合わせる）。食い違いの申し出は確かめずに控えに書く（盤面を読む確かめは
   settle）。{ok, done（枝の単位が全部済んだ）, phase, reason, unit_key}
@@ -313,10 +313,15 @@ def lane_step(state_file, n, reply, repo) -> dict:
     lst = tddloop._load(lst_file)
     if out["ok"] and items and not writes.shape_problems(items):
         lst["declared"] = [*lst.get("declared", []), *items]
-    if lst["cur"] != cur and not lst["done"]:   # 枝の次の単位へ: 頭の木を残す（締めの赤の確かめ直しが単位ごとに使う）
-        lst.setdefault("unit_heads", {})[lst["queue"][lst["cur"]]] = lst["unit_head"]
+    _mark_head(lst, cur)
     tddloop._save(lst_file, lst)
     return {"ok": out["ok"], "done": lst["done"], "phase": out["phase"], "reason": out["reason"], "unit_key": k}
+
+
+def _mark_head(lst: dict, cur: int) -> None:
+    """枝が次の単位へ移ったら、その単位の頭の木を残す（締めの赤の確かめ直しが単位ごとに使う）"""
+    if lst["cur"] != cur and not lst["done"]:
+        lst.setdefault("unit_heads", {})[lst["queue"][lst["cur"]]] = lst["unit_head"]
 
 
 def _park(state: pathlib.Path, lst: dict, reply: dict, tree: pathlib.Path) -> dict:
@@ -327,14 +332,18 @@ def _park(state: pathlib.Path, lst: dict, reply: dict, tree: pathlib.Path) -> di
     if extra or reply.get("unit_key") != k:
         why = (f"食い違いの申し出の欄は phase と {list(conflict.FIELDS)}（query なら {conflict.CORRECT} も）だけ（{extra}）" if extra
                else f"この枝の今の単位は '{k}'（申し出の unit_key は {reply.get('unit_key')!r}）")
+        cur = lst["cur"]
         lst["tries"] += 1
         lst["reason"] = f"- {why}"
         lst["iterations"] += 1
         lst["calls"].append({"n": lst["iterations"], "phase": "conflict", "unit_key": k, "ok": False, "runs": 0, "secs": 0.0})
         if lst["tries"] >= tddloop.retry_max():
             tddloop._give_up(lst, tree, [why])
-            if lst["done"]:
-                tddloop._finish(lst, tree)
+        if not lst["done"] and lst["iterations"] >= tddloop.MAX_ITERATIONS:   # 回数の上限で輪を落とさない（R50。step と同じ）
+            tddloop._abort(lst, tree, f"TDD の輪の回数の上限（{tddloop.MAX_ITERATIONS} 回）に届いた", "budget")
+        if lst["done"]:
+            tddloop._finish(lst, tree)
+        _mark_head(lst, cur)
         tddloop._save(state, lst)
         return {"ok": False, "done": lst["done"], "phase": "done" if lst["done"] else lst["phase"], "reason": why}
     item = {f: reply.get(f) for f in conflict.FIELDS}

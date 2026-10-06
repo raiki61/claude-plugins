@@ -60,17 +60,18 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    ごとに同じ（claude の会話の置き場は cwd ごとなので、出し直しの --resume が同じ会話を引ける）。会話の id・起動の記録の鍵は
    Archon の cwd（run の worktree）のまま。道具を持つ起動（`--tools ""` でない）・置き場が Git の中の起動は起こさない
 6c. **旗 lane**（TDD の輪の並べの枝の役 tdd-lane-<n>。依頼 243 の並べの 4 段目。docs/plans/2026-10-07-lane-nodes.md）: 子を枝の
-   単位の worktree を cwd に起こす。worktree のパスは役の文から取らず、枝の支度が切符の board の隣の run ごとの置き場に書く印
-   （lane_tree_path: `<board の親>/run-place/lane-trees/<節の名>` の 1 行）から読み、run ごとの置き場の下に在り・役の cwd（Archon の
-   run の worktree）の作業ツリーの単位の守りの参照（unittrees。共通の .git の中で役は作れない）を持つ worktree だけを通す
-   （lane_cwd）。run の worktree の根（全部の綴り）は 3 の柵（denyWrite・permissions.deny）に足し、単位の worktree（全部の綴り）を
+   単位の worktree を cwd に起こす。worktree のパスは役の文から取らず、枝の支度が切符の board の下に書く印（lane_tree_path:
+   `<board>/tdd-lane-trees/<節の名>` の 1 行。盤面は切符の守る場所なので、役はほかの枝の印を書き換えられない）から読み、run ごとの
+   置き場の下に在り・役の cwd（Archon の run の worktree）の作業ツリーの単位の守りの参照（unittrees。共通の .git の中で役は作れない）を
+   持つ worktree だけを通す（lane_cwd）。SDK が渡した sandbox の塊が enabled・allowUnsandboxedCommands: false・failIfUnavailable: true
+   でない起動は起こさない（Bash を sandbox の外で走らせると denyWrite が効かない。旗 no-tree-write と同じ確かめ）。run の worktree の根（全部の綴り）は 3 の柵（denyWrite・permissions.deny）に足し、単位の worktree（全部の綴り）を
    `sandbox.filesystem.allowWrite` の後ろに足す（17 の置き場の下なので 17 でも書けるが、置き場を足さない起動でも枝の役の書く所を
    決める）。会話の id・起動の記録・読んだ記録・書き込みの記録の鍵は Archon の cwd（run の worktree）のまま（書き込みの記録は
    単位の worktree の実パスで載り、締めの節が run の作業ツリーの記録として読む）。claude の会話の置き場は cwd ごとなので、
    この起動の単位の worktree を会話の id の隣（`sessions/<cwd の hash>/<節>.lane`）に記録し、continue=X は X の記録と同じ cwd の
    起動だけを起こす（X が単位の worktree で走ったのに cwd が違う・X が run の worktree で走ったのに旗 lane の起動、は止める）。
    続きの起動（SDK の --resume）で記録の worktree と今の worktree が違えば新しい会話にする（session の lane_cut）。切符の無い起動・
-   印が無い・読めない・置き場の外・単位の worktree でない・run の worktree に掛かる・旗 isolated と一緒、の起動は起こさない
+   印が無い・読めない・置き場の外・単位の worktree でない・run の worktree に掛かる・旗 isolated と一緒・sandbox が上の形でない、の起動は起こさない
    （fail closed）。起動の記録の fence.lane に単位の worktree を残す
 
 7. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、
@@ -216,7 +217,7 @@ KEYED_NODES = frozenset({"tdd", "tdd-rest", "tdd-lane-1", "tdd-lane-2", "tdd-lan
 SESSION_KEYS_DIR = "session-keys"
 UNIT_KEY_SUFFIX = ".unit"   # sessions/<cwd の hash>/<節>.id の隣に、その会話で回した単位の鍵
 LANE_SUFFIX = ".lane"       # sessions/<cwd の hash>/<節>.id の隣に、旗 lane の起動の cwd（単位の worktree の実パス。6c）
-LANE_TREES_DIR = "lane-trees"   # 枝の支度が旗 lane の節の単位の worktree を書く置き場（run ごとの置き場の下。6c）
+LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の worktree を書く置き場（盤面の下。共有の記録 tdd-*/**。6c）
 # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
 # lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪の並べの枝の役。6c）
 FLAGS = ("no-post", "no-tree-write", "isolated", "lane")
@@ -394,8 +395,8 @@ def session_key_path(board_dir: str, node: str) -> str:
 
 
 def lane_tree_path(board_dir: str, node: str) -> str:
-    """6c. 枝の支度が旗 lane の節 node の単位の worktree を書くファイル: <board の親>/run-place/lane-trees/<node>"""
-    return os.path.join(os.path.dirname(os.path.normpath(str(board_dir))), RUN_PLACE_NAME, LANE_TREES_DIR, node)
+    """6c. 枝の支度が旗 lane の節 node の単位の worktree を書くファイル: <board>/tdd-lane-trees/<node>（盤面は役の守る場所）"""
+    return os.path.join(os.path.normpath(str(board_dir)), LANE_TREES_DIR, node)
 
 
 def lane_record_path(cwd, node: str, home_dir=None) -> pathlib.Path:
@@ -878,16 +879,21 @@ def repo_deny(cwd) -> List[str]:
     return out
 
 
-def _no_tree_write_places(argv: Sequence[str], cwd, ticketed: bool) -> List[str]:
-    """旗 no-tree-write の起動で足す守る場所（役の cwd の worktree の根の全部の綴り）。起こせない時は Unrecognised"""
+def _sandbox_strict(argv: Sequence[str], flag: str) -> None:
+    """旗 flag の起動の SDK の sandbox の塊が enabled・allowUnsandboxedCommands: false・failIfUnavailable: true か。違えば Unrecognised"""
     found = find_opt(argv, "--settings")
     sandbox = _load_settings(found[0][2]).get("sandbox") if len(found) == 1 else None
     if not (isinstance(sandbox, dict) and sandbox.get("enabled") is True):
-        raise Unrecognised("旗 no-tree-write の役に SDK が sandbox の塊（enabled: true）を渡していない——作業ツリーを守る"
+        raise Unrecognised(f"旗 {flag} の役に SDK が sandbox の塊（enabled: true）を渡していない——作業ツリーを守る"
                            "denyWrite を足す先が無い")
     if not (sandbox.get("allowUnsandboxedCommands") is False and sandbox.get("failIfUnavailable") is True):
-        raise Unrecognised("旗 no-tree-write の役の sandbox が allowUnsandboxedCommands: false・failIfUnavailable: true でない——"
+        raise Unrecognised(f"旗 {flag} の役の sandbox が allowUnsandboxedCommands: false・failIfUnavailable: true でない——"
                            "sandbox の外で走る Bash・sandbox が立たない場の素通しには denyWrite が効かない")
+
+
+def _no_tree_write_places(argv: Sequence[str], cwd, ticketed: bool) -> List[str]:
+    """旗 no-tree-write の起動で足す守る場所（役の cwd の worktree の根の全部の綴り）。起こせない時は Unrecognised"""
+    _sandbox_strict(argv, NO_TREE_WRITE)
     if not ticketed:
         raise Unrecognised("旗 no-tree-write の役に切符が無い——allowWrite ['/'] の下で盤面・pack・git の設定を守れない")
     top = own_worktree(cwd)
@@ -1120,6 +1126,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         if b is None:
             return _refuse(argv, node, cont, tools_empty, "旗 lane の役に切符が無い——単位の worktree を引けない")
         try:
+            _sandbox_strict(argv, "lane")
             lane, others = lane_cwd(cwd, b, node)
         except Unrecognised as e:
             return _refuse(argv, node, cont, tools_empty, f"単位の worktree を cwd にできない（{e}）")

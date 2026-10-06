@@ -47,7 +47,7 @@ tdd-start → tdd-loop（振り分け。枝を切った周は tdd-step が done�
 - 振り分け（輪 `tdd-loop`）: 今どおり。形 g3 で枝が 2 本以上なら `tddlanes.plan` が枝の worktree と単位の控えと目録を置いて状態の段を `lanes` にする。`tdd-step` の出口は done が真・phase が lanes で、輪はそこで抜ける（状態の done は偽のまま）。枝は `tddlanes.MAX_LANES`（3）本までで、後ろの枝の単位は順の単位に残る
 - `tdd-fork`（`tddlanes.fork`）: 状態の段が lanes なら go と `lane_<n>`。実行器の無い run（`tdd-loop` が飛ぶ）でも `none_failed_min_one_success` で走って go: false を返す（`tdd-join` の when: がいつも引ける）
 - 枝の輪（`tddlanes.lane_prep`・`lane_step`）:
-  - 支度は単位の決まりのファイル（TDD の輪の役の決まりの全文・その単位の brief・座・test・fix・refactor の約束と返す形・この単位の決まり。2 番目からの単位は前の単位の引き継ぎ）と回ごとの指示書を書き、包みが読む 2 つの印を run ごとの置き場に書く: 単位の鍵（`adapter.session_key_path`。値は `tdd-<k>:lane-<n>:<単位>`）と単位の worktree（`adapter.lane_tree_path`）
+  - 支度は単位の決まりのファイル（TDD の輪の役の決まりの全文・その単位の brief・座・test・fix・refactor の約束と返す形・この単位の決まり。2 番目からの単位は前の単位の引き継ぎ）と回ごとの指示書を書き、包みが読む 2 つの印を書く: 単位の鍵（`adapter.session_key_path`。run ごとの置き場。値は `tdd-<k>:lane-<n>:<単位>`）と単位の worktree（`adapter.lane_tree_path`。盤面の `tdd-lane-trees/`）
   - 役は回ごとの指示書を読み、今の段の JSON を返す（前の形の「返答のファイルを書いて段のコマンドを走らせる」は無い）
   - 確かめは `tddloop.step` を単位の worktree で回す（赤・緑・凍結・名指しの外の書き換え・消えたテスト・test_cmd・整えは輪と同じ関数）。書き込みの出どころは run の作業ツリーの記録（`writes.sink(repo)`。包みは Archon の cwd の鍵で記録し、単位の worktree の実パスで載る）と突き合わせる（step の口 `log`）。食い違いの申し出は欄と単位だけ見て控えに書く（盤面を読む確かめは締め）。欄・単位の違う申し出は拒否に数える
   - 単位が済むと枝は次の単位の段 test へ進み（単位ごとの頭の木を `unit_heads` に残す）、枝の単位が全部済むか諦めると done で輪を抜ける。単位の worktree の `.git` の指しが切った時と違えば、枝を済みにして抜ける（輪を落とさず、締めが順に戻す）
@@ -56,11 +56,11 @@ tdd-start → tdd-loop（振り分け。枝を切った周は tdd-step が done�
 
 ## 3. 包みの旗 lane（adapter.py の頭の 6c）
 
-- 印 `works-node: tdd-lane-<n> lane` の起動は、切符の board の隣の `run-place/lane-trees/<節の名>` の 1 行を読み、そのパスを子の cwd にする（`adapter.lane_cwd`）。通すのは run ごとの置き場の下に在り、run の worktree の作業ツリーの単位の守りの参照（`refs/works/units/<印>/u-<印>`。共通の .git の中なので役は作れない）を持つ worktree だけ。役の文からは取らない
+- 印 `works-node: tdd-lane-<n> lane` の起動は、切符の board の下の `tdd-lane-trees/<節の名>` の 1 行を読み（盤面は切符の守る場所なので、枝の役はほかの枝の印を書き換えられない。run ごとの置き場は役が書けるので置かない）、そのパスを子の cwd にする（`adapter.lane_cwd`）。通すのは run ごとの置き場の下に在り、run の worktree の作業ツリーの単位の守りの参照（`refs/works/units/<印>/u-<印>`。共通の .git の中なので役は作れない）を持つ worktree だけ。役の文からは取らない
 - 柵: run の worktree の根とほかの単位の worktree（全部の綴り）を permissions.deny と denyWrite に足し、単位の worktree を allowWrite に足す。17 の run ごとの置き場・14 の対象の禁止・18 の形ごとの道具・19 の明示の模型は今どおり
 - 会話: 会話の id・起動の記録・読んだ記録・書き込みの記録の鍵は Archon の cwd（run の worktree）のまま。claude の会話の置き場は cwd ごとなので、包みは単位の worktree を `sessions/<cwd の hash>/<節>.lane` に記録し、`continue=X` は X と同じ cwd の起動だけを起こす。SDK の続き（`--resume`）で記録の worktree が今と違えば新しい会話にする（`lane_cut`）
 - 単位の切れ目: `KEYED_NODES` に `tdd-rest`・`tdd-lane-1..3` を足した。枝の中で単位が替わると支度の鍵が替わり、包みが新しい会話で起こす（新しい会話の決まり。works/docs/plans/2026-10-06-fresh-session.md）。同じ単位の段は Archon の `fresh_context: false` の続きで同じ会話を継ぐ
-- 起こさない: 切符が無い・印が無い・読めない・絶対パスでない・フォルダでない・置き場の外・run の worktree に掛かる・単位の守りの参照が無い・旗 isolated と一緒。起動の記録の `fence.lane` に単位の worktree、`fence.lane_deny` に柵に足した worktree
+- 起こさない: 切符が無い・印が無い・読めない・絶対パスでない・フォルダでない・置き場の外・run の worktree に掛かる・単位の守りの参照が無い・旗 isolated と一緒・SDK の sandbox が enabled・allowUnsandboxedCommands: false・failIfUnavailable: true でない（Bash を sandbox の外で走らせると denyWrite が効かない。旗 no-tree-write と同じ確かめ。枝の役の YAML は failIfUnavailable: true を書く）。起動の記録の `fence.lane` に単位の worktree、`fence.lane_deny` に柵に足した worktree
 
 ## 4. 決定（設計に無かった所。既存の設計に一番近い物を選んだ）
 
@@ -71,7 +71,7 @@ tdd-start → tdd-loop（振り分け。枝を切った周は tdd-step が done�
 - 枝の確かめは Archon の script の節（sandbox の外）で走るので、共通の .git に書いてよい。前の形の object の置き場の env と、試験へそれを渡さない印は外した
 - 枝の役は Agent を持たない。役 `tdd` も持たなくなった（形ごとの柵の行を外した）
 - 指示書の全文版と差分版（包みの 9）は枝の役には使わない: 単位の決まりのファイルは単位の間は同じ中身で、回ごとの指示書だけが替わる（最初の回だけ全部読ませる）
-- 盤面に足すファイルは全部 `tdd-<k>/` の下（共有の記録 `tdd-*/**`）なので柵の表は変えない。包みが読む 2 つの印と単位の控えは run ごとの置き場
+- 盤面に足すファイルは `tdd-<k>/` と `tdd-lane-trees/` の下（どちらも共有の記録 `tdd-*/**`）なので柵の表は変えない。単位の鍵と単位の控えは run ごとの置き場（役が書けるが、書き換えて起きるのは会話の切れ目のずれと、締めが確かめ直す控えだけ）
 
 ## 5. 今と同じに保つ物
 
