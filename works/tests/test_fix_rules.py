@@ -550,10 +550,10 @@ class TestRoleNodes(unittest.TestCase):
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
                                       "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
                                       "base_rev": "$INPUTS.base_rev", "plan_session": "$INPUTS.plan_session",
-                                      "ripple_file": "$INPUTS.ripple_file", "pass": "first"})
+                                      "ripple_file": "$INPUTS.ripple_file", "fix_lanes": "$INPUTS.fix_lanes", "pass": "first"})
         # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）。plan_session は範囲の相談の
-        # 控え（fixrules.ask_config）に書く物で、指示書の穴ではない
-        self.assertEqual(set(fp["with"]) - {"pass", "base_rev", "plan_session", "ripple_file"}, set(fixrules.FIX_VALUES))
+        # 控え（fixrules.ask_config）に書く物で、指示書の穴ではない。fix_lanes は並べの切り替え（fixrules.side_on）
+        self.assertEqual(set(fp["with"]) - {"pass", "base_rev", "plan_session", "ripple_file", "fix_lanes"}, set(fixrules.FIX_VALUES))
         self.assertIn("variants_file", fp["output_format"]["required"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",
@@ -564,6 +564,19 @@ class TestRoleNodes(unittest.TestCase):
         loop = find_node(nodes, "fix-loop")["loop_group"]
         self.assertEqual([n["id"] for n in loop["nodes"]], ["fix-prep", "fix", "fix-units", "fix-accept"])
 
+
+
+class TestSideOnSwitch(unittest.TestCase):
+    """修正役の項目ごとの並べ（side_on）の切り替え: 入力 fix_lanes が off なら g3 の 1 回目の周でも並べない。空・on は今どおり"""
+
+    def test_switch(self):
+        shape = fixrules.seatkit.SHAPE
+        self.assertIs(fixrules.side_on(shape, "first", 1), True)
+        self.assertIs(fixrules.side_on(shape, "first", 1, "on"), True)
+        self.assertIs(fixrules.side_on(shape, "first", 1, "off"), False)
+        self.assertIs(fixrules.side_on(shape, "first", 2, ""), False)   # 出し直しの周は今どおり並べない
+        with self.assertRaises(ValueError):
+            fixrules.side_on(shape, "first", 1, "no")
 
 
 class TestCopyRejectOfOneUnit(unittest.TestCase):

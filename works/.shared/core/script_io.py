@@ -24,6 +24,8 @@ reason は記録のために残す。
 $ が無くても、リンクの先や相対パスの cwd から現れうる）だけ、標準エラーに名前を出して 2
 （標準出力には何も出さない）。
 
+switch_on(value, name) は部品の切り替えの入力（on・off。空は on）を真偽に読む口（線が run ごとに機能を切って比べる。ほかの語は ValueError）。
+
 ブロックのスクリプトは、次の前置きをそのまま写し、最後の 2 行の関数だけを替える:
 
 ```python
@@ -68,6 +70,20 @@ ARTIFACTS_ENV = flow_adapter.ARTIFACTS_ENV
 BOARD_DIR = "board"
 REJECT_PREFIX = "reject-"
 ACCEPT_LAST = "accept-last.json"   # scope の根の受け付けの最後の結果 {<fn の名>: {ok, reason_file, reason, at}}（note_last が上書き）
+
+
+SWITCH_ON, SWITCH_OFF = "on", "off"   # 部品の切り替えの入力の語（線が run ごとに機能を切る口。空は on）
+
+
+def switch_on(value, name: str) -> bool:
+    """部品の切り替えの入力（on か off。空・None・文字列 null は on＝今どおり）を真偽にする。ほかの語は名を言って ValueError
+    （黙って on にも off にも倒さない）"""
+    word = "" if value is None else str(value).strip()
+    if word in ("", "null", SWITCH_ON):
+        return True
+    if word == SWITCH_OFF:
+        return False
+    raise ValueError(f"入力 {name}={word!r} は {SWITCH_ON} か {SWITCH_OFF}（空は {SWITCH_ON}）")
 
 
 def _emit(obj) -> None:

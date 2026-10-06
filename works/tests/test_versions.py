@@ -62,6 +62,7 @@ class VersionsCase(unittest.TestCase):
         self.assertEqual(doc["archon"], "v0.11.1")
         self.assertEqual(doc["claude_code"], "2.1.0 (Claude Code)")
         self.assertEqual(doc["model"], {"value": "sonnet", "from": "env WORKS_DEV_MODEL"})
+        self.assertEqual(doc["settings"], {})   # 呼び手が渡さなければ空
         self.assertTrue(doc["python"])
         self.assertTrue(doc["at"].endswith("Z"))
         self.assertEqual(doc["unknown"], {})
@@ -133,6 +134,26 @@ class StartWritesVersionsCase(unittest.TestCase):
             self.assertEqual(doc["run_id"], "run-v-1")
             self.assertEqual(doc["archon"], "v0.11.1")
             self.assertEqual(doc["works"]["pack_sha256"], versions.pack_digest(ROOT))
+            self.assertEqual(doc["settings"], {"features_off": []})   # 入力 features_off が無いのは全部 on
+
+    def test_start_records_features_off_before_checking(self):
+        """切る機能（入力 features_off）は区切って重ねずに語の順で settings に載る。確かめる前に書くので、知らない語の
+        run（start が拒む）でも字のまま残る"""
+        with tempfile.TemporaryDirectory() as t:
+            tmp = pathlib.Path(t)
+            art = tmp / "artifacts"
+            cwd = tmp / "target"
+            cwd.mkdir()
+            env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
+            env.update({"INPUTS_REQUEST": str(tmp / "no-such-request.json"), "INPUTS_TEST_CMD": "true",
+                        "INPUTS_THICKNESS": "", "INPUTS_GATES": "", "INPUTS_FINAL_GATE": "", "INPUTS_ADAPTER": "",
+                        "INPUTS_POLICY_MD": "", "INPUTS_FEATURES_OFF": "tdd_lanes, judge_verify,tdd_lanes no_such",
+                        "ARTIFACTS_DIR": str(art), "WORKFLOW_ID": "run-v-2", "PYTHONDONTWRITEBYTECODE": "1"})
+            r = subprocess.run([sys.executable, str(ROOT / "darkfactory" / "scripts" / "start.py")], cwd=cwd, env=env,
+                               capture_output=True, text=True, encoding="utf-8")
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            doc = json.loads((art / versions.FILE).read_text(encoding="utf-8"))
+            self.assertEqual(doc["settings"], {"features_off": ["judge_verify", "no_such", "tdd_lanes"]})
 
 
 class SnapshotModelCase(unittest.TestCase):

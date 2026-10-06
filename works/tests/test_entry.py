@@ -697,8 +697,8 @@ class CheckInputsCase(StartCaseBase):
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
                                     "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only", "fix_shape",
-                                    "fix_fixture", "answers", "prior_failures"})
-        self.assertEqual((got["answers"], got["prior_failures"]), ([], []))
+                                    "fix_fixture", "features_off", "answers", "prior_failures"})
+        self.assertEqual((got["answers"], got["prior_failures"], got["features_off"]), ([], [], []))
         self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"],
                           got["lang"], got["unattended"], got["design_only"], got["fix_shape"]),
                          ("自動", "", "always", "", "", "", "", "", "", "g3"))
@@ -1341,6 +1341,28 @@ class ResumeCase(StartCaseBase):
         self.assertEqual(again["fix_shape"], "af")
         doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
         self.assertEqual(doc["fix_shape"], "af")
+
+    def test_features_off_reaches_exit_head_and_doc(self):
+        """切る機能（入力 features_off）: 出口に機能ごとの on・off（線がブロックの切り替えの入力へ写す）、頭の行に切った機能、
+        控えに語の順の配列。呼び直しで替えれば拒み、同じなら通る。空は全部 on"""
+        repo = self.seed()
+        first = self.start(repo, test_cmd=SEED_CMD, features_off="tdd_lanes judge_verify")
+        self.assertEqual({k: first[k] for k in entry.FEATURES},
+                         {"fix_lanes": "on", "judge_verify": "off", "review_tree": "on", "tdd_lanes": "off"})
+        self.assertIn("切った機能: judge_verify・tdd_lanes", first["head_line"])
+        doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(doc["features_off"], ["judge_verify", "tdd_lanes"])
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD), run_id="run-7")
+        self.assertIn("features_off", str(cm.exception))
+        again = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, features_off="judge_verify,tdd_lanes"), run_id="run-7")
+        self.assertEqual(again["judge_verify"], "off")
+
+    def test_features_default_all_on(self):
+        repo = self.seed()
+        got = self.start(repo, test_cmd=SEED_CMD)
+        self.assertEqual({k: got[k] for k in entry.FEATURES}, {k: "on" for k in entry.FEATURES})
+        self.assertIn("機能: 全部 on", got["head_line"])
 
     def test_resume_old_board_without_fix_shape_stays_af(self):
         """前の版で作った盤面（控えに fix_shape が無い）の呼び直し: 入力が空なら af のまま通り、控えに鍵を足さない。

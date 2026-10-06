@@ -21,6 +21,7 @@ description: |
   clean の往復の最後に相乗りの審査の下請けを 1 つ起こす。block の無い項目は閉じ（直しの役が変えれば拒む）、同じ block が続いた
   項目は保留にしてほかの項目を柵まで進める。
   入力 verify_file（判定の単位の裏取りの申し送り）が在れば、修正案の役の指示書の頭に貼る（単位は直す義務のまま）。
+  入力 review_tree が off なら事前審査の木を使わず、審査役 1 つが案の全体を審査する（項目が 1 つの案の木の外の道と同じ受け付け）。
   出口 collect: {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file}。
   入力 replan の時は、波及の一覧の節は作らず、出口 collect が直した項目を差し替えた欄で一覧を作り直し（今の周の ripple/replan.json）、
   ripple_file に返す。
@@ -53,6 +54,13 @@ inputs:
       判定の単位ごとの裏取りと単位どうしの相乗りの申し送りの JSON のパス（形 {units: [{n, key, state, verdict, evidence_found,
       evidence, location_ok, location, real_root, why, errors}], synergy: {state, why, duplicates, relations, order, errors}}）。
       空か文字列 null なら無い。在れば修正案の役の指示書の頭に貼る（単位は減らさない。根本でないと出た単位も案から外させない）
+  review_tree:
+    default: ""
+    description: >-
+      事前審査の項目ごとの木（束ね役が項目ごとの下請けと相乗りの審査の下請けを起こす形）を使うか。on（空も on。今どおり）か off。
+      off なら事前審査の支度が下請けのファイルと束ね役の頼みを書かず、審査役 1 つが案の全体を審査して返答の faces・shrink に
+      そのまま書く（受け付けは木のまとめを飛ばし、返答を今どおりの写しの規則と壁打ちで受ける。項目の閉じ・保留は faces の
+      単位から今どおり引く）。ほかの役の支度は読まない。ほかの語は支度が 2 で落ちる
 
 returns: collect
 outcome_field: ok
@@ -94,6 +102,7 @@ nodes:
             excluded_file: $INPUTS.excluded_file
             replan: $INPUTS.replan
             verify_file: $INPUTS.verify_file
+            review_tree: $INPUTS.review_tree
           output_format:
             type: object
             additionalProperties: false
@@ -242,6 +251,7 @@ nodes:
             excluded_file: $INPUTS.excluded_file
             replan: $INPUTS.replan
             verify_file: $INPUTS.verify_file
+            review_tree: $INPUTS.review_tree
           output_format:
             type: object
             additionalProperties: false
@@ -536,6 +546,7 @@ nodes:
                   excluded_file: $INPUTS.excluded_file
                   replan: $INPUTS.replan
                   verify_file: $INPUTS.verify_file
+                  review_tree: $INPUTS.review_tree
                 output_format:
                   type: object
                   additionalProperties: false
@@ -667,6 +678,7 @@ nodes:
                   excluded_file: $INPUTS.excluded_file
                   replan: $INPUTS.replan
                   verify_file: $INPUTS.verify_file
+                  review_tree: $INPUTS.review_tree
                 output_format:
                   type: object
                   additionalProperties: false

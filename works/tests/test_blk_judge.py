@@ -75,7 +75,8 @@ class YamlCase(unittest.TestCase):
 
     def test_signature(self):
         self.assertEqual(self.y["name"], "blk-judge")
-        self.assertEqual(set(self.y["inputs"]), {"request", "base_rev", "policy_paste", "premises_file"})   # 後の 2 つは tests/test_policy.py が見る
+        self.assertEqual(set(self.y["inputs"]), {"request", "base_rev", "policy_paste", "premises_file", "verify"})   # policy_paste・premises_file は tests/test_policy.py が見る
+        self.assertEqual(self.y["inputs"]["verify"].get("default"), "")   # 裏取りの切り替え（空は on＝今どおり）
         self.assertEqual((self.y["inputs"]["request"].get("required"), self.y["inputs"]["request"].get("default")), (None, ""))
         self.assertEqual(self.y["inputs"]["base_rev"].get("default"), "")   # Ruling R2
         self.assertEqual(self.y["returns"], "collect")
@@ -125,7 +126,7 @@ class YamlCase(unittest.TestCase):
         prep = find_node(self.y, "verify-prep")
         self.assertEqual((prep["script"], prep["runtime"], prep["timeout"]), ("verify", "uv", DEADLINE))
         self.assertEqual((prep["depends_on"], prep["trigger_rule"]), (["judge-brief", "judge-loop"], "none_failed_min_one_success"))
-        self.assertEqual(prep["with"], {"stage": "prep"})
+        self.assertEqual(prep["with"], {"stage": "prep", "verify": "$INPUTS.verify"})
         self.assertEqual(sorted(prep["output_format"]["required"]), ["go", "ok", "prompt_file"])
         ai = find_node(self.y, "judge-verify")
         self.assertEqual((ai["model"], ai["effort"]), ("opus", "high"))
@@ -141,7 +142,8 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(ai["output_format"], judgeverify.output_format())
         self.assertEqual(ai["output_format"]["description"], "works-node: judge-verify")
         merge = find_node(self.y, "verify-merge")
-        self.assertEqual((merge["script"], merge["depends_on"], merge["with"]), ("verify", ["judge-verify"], {"stage": "merge"}))
+        self.assertEqual((merge["script"], merge["depends_on"], merge["with"]),
+                         ("verify", ["judge-verify"], {"stage": "merge", "verify": "$INPUTS.verify"}))
         self.assertNotIn("trigger_rule", merge, "束ね役が通った時だけまとめる（落ちたら支度の置いた初めの申し送りが残る）")
         self.assertEqual(sorted(merge["output_format"]["required"]), ["ok", "unverified", "verified", "verify_file"])
 
@@ -155,7 +157,8 @@ class YamlCase(unittest.TestCase):
             spec.loader.exec_module(mod)
         finally:
             sys.dont_write_bytecode = dont
-        self.assertEqual(mod.INPUTS, ("INPUTS_STAGE",))
+        self.assertEqual(mod.INPUTS, ("INPUTS_STAGE", "INPUTS_VERIFY"))
+        self.assertEqual(mod.OPTIONAL, frozenset({"INPUTS_VERIFY"}))   # 前の版の with: で再開した run は渡さない（無いのは on）
 
     def test_manifest_declares_notes(self):
         m = json.loads((BLK / "manifest.json").read_text(encoding="utf-8"))

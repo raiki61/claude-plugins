@@ -238,6 +238,21 @@ class ScriptIoCase(unittest.TestCase):
         self.assertIn("ARTIFACTS_DIR", err)
 
 
+class SwitchCase(unittest.TestCase):
+    """部品の切り替えの入力（線の features_off がブロックへ写す on・off）: 空・None・文字列 null・on は真、off は偽、ほかは
+    名を言って ValueError（黙って倒さない）"""
+
+    def test_words(self):
+        for word in ("", None, "null", "on", " on "):
+            with self.subTest(word=word):
+                self.assertIs(script_io.switch_on(word, "x"), True)
+        self.assertIs(script_io.switch_on("off", "x"), False)
+        for word in ("OFF", "false", "0", "no"):
+            with self.subTest(word=word), self.assertRaises(ValueError) as cm:
+                script_io.switch_on(word, "tdd_lanes")
+            self.assertIn("tdd_lanes", str(cm.exception))
+
+
 class PreambleCase(unittest.TestCase):
     """docstring に書いた前置きを、ブロックの形（<pack>/blk-x/scripts/accept.py）に置いて別のプロセスで回す"""
 

@@ -69,6 +69,7 @@ class LaneCase(unittest.TestCase):
     SHAPE = "g3"
     UNITS = (UA, UB)
     ITEMS = {}   # 単位 → 修正案の項目の番号（tddlanes.items_of の差し替え。空は 1 単位 1 枝）
+    LANES = ""   # 入力 tdd_lanes（並べの周の切り替え。空は on）
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -88,7 +89,8 @@ class LaneCase(unittest.TestCase):
         p = self.board / fixshape.START_REL
         p.parent.mkdir(parents=True)
         p.write_text(json.dumps({fixshape.KEY: self.SHAPE}), encoding="utf-8")
-        self.start = tddloop.start(self.board, self.repo, str(self.suite), json.dumps(list(self.UNITS), ensure_ascii=False))
+        self.start = tddloop.start(self.board, self.repo, str(self.suite), json.dumps(list(self.UNITS), ensure_ascii=False),
+                                   lanes=self.LANES)
         self.assertTrue(self.start["go"], self.start)
         self.state = self.start["state_file"]
         patch = mock.patch.object(tddlanes, "ranges", side_effect=lambda board_dir, keys: {k: RANGES.get(k) for k in keys})
@@ -195,6 +197,23 @@ class TestAfStaysSerial(LaneCase):
         got = self.route()
         self.assertEqual(got["phase"], "test")
         self.assertFalse(self.st()["lanes_on"])
+
+
+class TestLanesSwitchedOff(LaneCase):
+    """入力 tdd_lanes が off（線の features_off の tdd_lanes）なら、形 g3 で枝が 2 本在っても並べの周へ進まず順に回す"""
+    LANES = "off"
+
+    def test_off_never_plants(self):
+        self.assertFalse(self.st()["lanes_on"])
+        got = self.route()
+        self.assertEqual(got["phase"], "test")
+
+
+class TestLanesUnknownWord(unittest.TestCase):
+    def test_unknown_word_is_broken(self):
+        """知らない語は輪の状態を書く前に Broken（節は 2 で落ちる）"""
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(tddloop.Broken):
+            tddloop.start(pathlib.Path(tmp) / "board", pathlib.Path(tmp), "suite.py", json.dumps([UA]), lanes="no")
 
 
 class TestLaneCommand(LaneCase):

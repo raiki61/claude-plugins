@@ -99,6 +99,28 @@ class PrepCase(Base):
         self.assertIs(self.prep(one)["go"], False)
         self.assertFalse(self.b.work(jv.VERIFY_FILE).exists())
 
+    def test_verify_off_does_not_go_and_clears(self):
+        """入力 verify が off（線の features_off の judge_verify）なら、開いた単位が 2 つ以上でも go 偽で、前の残りの申し送りを
+        消し、trace に OFF_OP の 1 行を書く。空と on は今どおり go"""
+        two = judgment(unit(KEY1), unit(KEY2))
+        stale = self.b.work(jv.VERIFY_FILE)
+        stale.write_text("{}", encoding="utf-8")
+        self.assertEqual(jv.prep_on(self.b, two, self.repo, "off"), {"ok": True, "go": False, "prompt_file": ""})
+        self.assertFalse(stale.exists())
+        self.assertEqual([t["op"] for t in self.traces], [jv.OFF_OP])
+        self.assertEqual(self.traces[0]["units"], 2)
+        for word in ("", "on"):
+            with self.subTest(word=word):
+                self.assertIs(jv.prep_on(self.b, two, self.repo, word)["go"], True)
+
+    def test_verify_unknown_word_is_refused(self):
+        """知らない語は黙って on にも off にも倒さない（支度の節が 2 で落ちる）"""
+        with self.assertRaises(ValueError) as cm:
+            jv.prep_on(self.b, judgment(unit(KEY1), unit(KEY2)), self.repo, "no")
+        self.assertIn("verify", str(cm.exception))
+        with self.assertRaises(ValueError):
+            jv.prep(self.b.dir, self.repo, verify="false")
+
     def test_halted_board_does_not_go(self):
         self.b = self.board(state={"halted": {"reason": "止めた"}})
         self.assertIs(self.prep(judgment(unit(KEY1), unit(KEY2)))["go"], False)

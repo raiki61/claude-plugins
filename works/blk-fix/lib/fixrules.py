@@ -603,10 +603,12 @@ def overlap_line(b) -> str:
     return OVERLAP_LINE.format(items="・".join(str(n) for n in got.get("items") or []), files="、".join(got["shared"][:10]))
 
 
-def side_on(shape: str, pass_: str, iteration: int) -> bool:
+def side_on(shape: str, pass_: str, iteration: int, lanes: str = "") -> bool:
     """範囲の在る項目を単位の worktree で並べるか（依頼 243 の並べ）: 既定の形 g3 の 1 回目の修正役（pass first）の、輪の
-    1 回目の周だけ。出し直しと裁定の後は前の直しの在る作業ツリーで名指す項目だけを起こし直し、g1 は比べの腕なので順のまま"""
-    return shape == seatkit.SHAPE and pass_ == PASSES[0] and iteration == 1
+    1 回目の周だけ。出し直しと裁定の後は前の直しの在る作業ツリーで名指す項目だけを起こし直し、g1 は比べの腕なので順のまま。
+    lanes は入力 fix_lanes の切り替えの語（script_io.switch_on。空は on）で、off なら並べない（知らない語は ValueError）"""
+    on = script_io.switch_on(lanes, "fix_lanes")
+    return on and shape == seatkit.SHAPE and pass_ == PASSES[0] and iteration == 1
 
 
 def merge_line(b, rows: list[dict]) -> str:
@@ -648,10 +650,11 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     両方に載せる。修正役が下請けを起こす単位（dispatched。g1 は全部、g3 は輪が緑にした単位の外）が在れば、その代わりに下請けを
     回す節（seat.g1_section。下請けのファイルは g1_values。[BASE_SHA] は values の base_rev）を載せる（依頼 243 の 2: g3 も単位
     ごとに新しい会話。g3 で輪が全部を緑にした周は前の座のまま）。g3 の 1 回目の周（side_on）は範囲の在る項目に単位の
-    worktree を切り、節に当てるコマンド（merge_line）を載せる（依頼 243 の並べ）。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も
+    worktree を切り、節に当てるコマンド（merge_line）を載せる（依頼 243 の並べ。values の fix_lanes が off なら切らない）。写しが固定と違う・穴が埋まらなければ ValueError のまま上げる（指示書を書かず、起こした印も
     置かない。支度の script は 2 で落ちる）"""
     if pass_ not in PASSES:
         raise Unfilled(f"pass {pass_!r} は {PASSES} のどれでもない")
+    script_io.switch_on(values.get("fix_lanes"), "fix_lanes")   # 知らない語は盤面を開く前に落とす（並べの周でなくても）
     nid = recount.FIX_NODE
     b = entry.open_board(pathlib.Path(board_dir))
     inst = b.rd["instances"].get(nid)
@@ -682,7 +685,8 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     subs = dispatched(shape, mark, owed, green)
     if subs:
         seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みと Context7 の引き（lib_section）より前に
-        rows = g1_values(b, values, repo, subs, values.get("base_rev") or "", shape, side_on(shape, pass_, n), ask=ask)
+        rows = g1_values(b, values, repo, subs, values.get("base_rev") or "", shape,
+                         side_on(shape, pass_, n, values.get("fix_lanes") or ""), ask=ask)
         seat = seatkit.g1_section(rows, shape, merge_line(b, rows))
     elif seatkit.carries(mark, shape):
         seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みと Context7 の引き（lib_section）より前に

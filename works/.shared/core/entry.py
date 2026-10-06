@@ -60,6 +60,7 @@ from ghreads import request_parts  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
 import scopes  # noqa: E402
+import script_io  # noqa: E402  （L1。機能の切り替えの語 SWITCH_ON・SWITCH_OFF）
 import ticket  # noqa: E402
 import tree_run  # noqa: E402
 
@@ -267,6 +268,15 @@ ADAPTER_MODES = ("", "optional")
 UNATTENDED_WORDS = ("", gatemarks.UNATTENDED)   # 入力 unattended（空は人の居る run。true は無人の殻 use.sh の WORKS_USE_UNATTENDED=1）
 DESIGN_ONLY_WORDS = ("", gatemarks.DESIGN_ONLY)   # 入力 design_only（空は今どおり。true は修正前の関所を必ず開ける設計だけの run）
 GATES = ("", "merge")
+# 入力 features_off が切れる機能（持ち主の依頼 2026-10-07: 同じ依頼を全部 on と切った形で回して比べる。空は全部 on＝今どおり）。
+# 語は線の入力の語で、線がブロックへ on・off の平の入力（start の出口の同じ名の欄）に写す。並びは語の順（控えと報告の並びも同じ）
+FEATURES = {
+    "fix_lanes": "修正役の項目ごとの並べ（範囲の在る項目を単位の worktree で同時に直す。切ると項目を作業ツリーで順に直す）",
+    "judge_verify": "判定の裏取り（単位ごとの裏取りと単位どうしの相乗りの下請け。切ると申し送りを作らない）",
+    "review_tree": "事前審査の項目ごとの木（項目ごとの下請けと相乗りの審査。切ると審査役 1 つが案の全体を審査する）",
+    "tdd_lanes": "TDD の輪の並べの周（枝ごとの worktree で枝の単位を同時に直す。切ると単位を順に回す）",
+}
+FEATURES_KEY = "features_off"   # check_inputs の返りと start の控えの欄（語の順の配列）
 HEAVY_REFUSED = "重厚で足す工程がまだ無い"
 CI_BUILTIN = "declared_checks"   # 写しの graph の engine_run.builtin のうち、CI の節（p0.local_checks・p4.ci）の語
 
@@ -287,9 +297,38 @@ def _word(raw: dict, key: str) -> str:
     return "" if v is None else str(v).strip()
 
 
+def features_off(word: str) -> list:
+    """入力 features_off（切る機能の語をカンマか空白で区切った 1 行。空は全部 on）を、語の順に重ねずに並べた配列にする。
+    FEATURES の外の語は名を言って InputRefused（黙って切らずに回さない）"""
+    words = [w for w in re.split(r"[\s,、・]+", word or "") if w]
+    bad = [w for w in dict.fromkeys(words) if w not in FEATURES]
+    if bad:
+        raise InputRefused(f"features_off に知らない機能 {', '.join(bad)}（切れるのは {' / '.join(FEATURES)}）")
+    return sorted(set(words))
+
+
+def feature_words(off) -> dict:
+    """start の出口の機能ごとの欄 {<機能>: on | off}（線がブロックの切り替えの入力へ写す）"""
+    return {name: script_io.SWITCH_OFF if name in set(off or ()) else script_io.SWITCH_ON for name in FEATURES}
+
+
+def features_part(off) -> str:
+    """頭の行と報告の冒頭 2 の機能の切りの語（空は全部 on）"""
+    return f"切った機能: {'・'.join(off)}" if off else "機能: 全部 on"
+
+
+def _resumed_features(prev: dict, off: list) -> None:
+    """呼び直し（Archon の再開）で前の控えの切った機能と今の入力が違えば InputRefused（run の途中で比べの腕を黙って替えない）。
+    前の版の控え（欄が無い）は全部 on の run"""
+    was = prev.get(FEATURES_KEY) or []
+    if list(was) != list(off):
+        raise InputRefused(f"この盤面は features_off={','.join(was) or '空'} で始めた——呼び直しの features_off="
+                           f"{','.join(off) or '空'} で切る機能を替えない（同じ入力で呼び直す）")
+
+
 def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md, lang,
-    unattended, design_only, fix_shape, fix_fixture, answers} を返す（unattended・design_only は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む。
+    unattended, design_only, fix_shape, fix_fixture, features_off, answers} を返す（features_off は切る機能の語の配列で、features_off() が確かめる。unattended・design_only は start の控え r1/start.json に残り、gatemarks が修正前の関所で読む。
     fix_shape は修正の形の語で、空は既定の g3。同じ控えに残り、fixshape.shape_at が読む。fix_fixture は固定材料のフォルダ
     （core の fixture。h-fix の盤面の写し）で、空か在るフォルダの絶対パス。相対なら対象の根から）。
     変更（base の版か pr の番号）を名指せば {base_rev, change} も足す（base_rev は base と HEAD の merge-base）。依頼と変更は
@@ -323,6 +362,7 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
         fix_shape = fixshape.word(_word(raw, "fix_shape"))
     except ValueError as e:
         raise InputRefused(str(e)) from None
+    off = features_off(_word(raw, FEATURES_KEY))
     gates = _word(raw, "gates")
     rules = board_rules()
     try:
@@ -352,7 +392,7 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     out = {"request_file": str(path.resolve()) if path else "", "items": items, "request_text": text,
            "test_cmd": _word(raw, "test_cmd"), "thickness": thickness, "gates": gates, "final_gate": final_gate,
            "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang"), "unattended": unattended,
-           "design_only": design_only, "fix_shape": fix_shape, "fix_fixture": fx,
+           "design_only": design_only, "fix_shape": fix_shape, "fix_fixture": fx, FEATURES_KEY: off,
            "answers": answers, "prior_failures": prior}
     if change is not None:
         out.update(change)
@@ -893,6 +933,7 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
             raise InputRefused(f"この盤面は test_cmd={prev.get('test_cmd')!r} の固定材料から始めた——呼び直しの "
                                f"test_cmd={inp['test_cmd']!r} で道を替えない（同じ入力で呼び直す）")
         shape, _ = _resumed_shape(prev, inp["fix_shape"], named=bool(_word(raw, "fix_shape")))
+        _resumed_features(prev, inp[FEATURES_KEY])
         doc = prev
     else:
         try:
@@ -920,12 +961,13 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
         raise InputRefused(f"包みの切符を書けない: {e}") from None
     pol = policy.brief(b)
     head = (f"入口: 固定材料から（run {doc[fixture.KEY]['source_run']} の修正の前。判定と修正案は写しの物）・"
-            f"{doc.get('entry_words', '')}・修正の形: {shape}・{prcheck.head_downgrades(LINE)}")
+            f"{doc.get('entry_words', '')}・修正の形: {shape}・{features_part(inp[FEATURES_KEY])}・{prcheck.head_downgrades(LINE)}")
     go = {"ci_role_go": False, "pr_go": doc.get("pr_go", False)}
     _write_json(work, {**doc, **go, "head_line": head})
     return {"ok": True, "entry": doc["entry"], "base_rev": doc["base_rev"], "test_cmd": doc["test_cmd"],
             "policy_paste": pol["paste"], "policy_path": pol["path"], "final_gate": doc["final_gate"], "adapter": doc["adapter"],
-            "thickness": doc["thickness"], "gates": doc["gates"], "fix_shape": shape, **go, "head_line": head}
+            "thickness": doc["thickness"], "gates": doc["gates"], "fix_shape": shape, **feature_words(inp[FEATURES_KEY]), **go,
+            "head_line": head}
 
 
 def _entry_words(kind: str, inp: dict) -> str:
@@ -997,6 +1039,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
             raise InputRefused(f"この盤面は test_cmd={prev.get('test_cmd')!r}（宣言が無い時の道: {prev.get('ci_fallback')}）で"
                                f"始めた——呼び直しの test_cmd={inp['test_cmd']!r} で道を替えない（同じ入力で呼び直す）")
         shape, shape_note = _resumed_shape(prev, inp["fix_shape"], named=bool(_word(raw, "fix_shape")))
+        _resumed_features(prev, inp[FEATURES_KEY])
         if fixshape.KEY not in prev:   # 前の版の盤面は鍵を足さない（fixshape.shape_at が af と読む）
             keep.pop(fixshape.KEY, None)
     else:
@@ -1016,12 +1059,12 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     absent = len(b.state["works"].get("not_in_line") or [])
     thick = inp["thickness"] + ("（既定）" if not _word(raw, "thickness") else "")
     head = (f"入口: {doc['entry_words']}・段: {thick}・gates: {inp['gates'] or '空'}・修正の形: {shape}{shape_note}・"
-            f"このラインに無い節: {absent} 個・{prcheck.head_downgrades(LINE)}")
+            f"{features_part(inp[FEATURES_KEY])}・このラインに無い節: {absent} 個・{prcheck.head_downgrades(LINE)}")
     if go["ci_role_go"]:
         head += "・修正前のテスト: 宣言も test_cmd も無い——任せ先の役がリポジトリから走らせ方を探す"
     out = {"ok": True, "entry": kind, "base_rev": base_rev, "test_cmd": inp["test_cmd"], "policy_paste": pol["paste"],
            "policy_path": pol["path"], "final_gate": inp["final_gate"], "adapter": inp["adapter"], "thickness": inp["thickness"],
-           "gates": inp["gates"], "fix_shape": shape, **go, "head_line": head}
+           "gates": inp["gates"], "fix_shape": shape, **feature_words(inp[FEATURES_KEY]), **go, "head_line": head}
     _write_json(work, {**doc, **go, "head_line": head})
     return out
 

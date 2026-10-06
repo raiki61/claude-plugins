@@ -144,8 +144,10 @@ class InputNamesCase(unittest.TestCase):
             (repo / "fx").mkdir()   # 固定材料のフォルダ（fix_fixture は在るフォルダだけを受ける）
             given = {"test_cmd": "x", "thickness": "標準", "gates": "merge", "final_gate": "when_needed", "adapter": "optional",
                      "policy_md": "policy.md", "lang": "English", "base": "main", "pr": "7", "unattended": "true",
-                     "design_only": "true", "fix_shape": "af", "fix_fixture": "fx"}
-            want = {**given, "policy_md": str(repo / "policy.md"), "fix_fixture": str(repo / "fx")}
+                     "design_only": "true", "fix_shape": "af", "fix_fixture": "fx",
+                     "features_off": "tdd_lanes, judge_verify"}
+            want = {**given, "policy_md": str(repo / "policy.md"), "fix_fixture": str(repo / "fx"),
+                    "features_off": ["judge_verify", "tdd_lanes"]}
             self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"} - START_ONLY, "start.py の名に、渡す値を決めていない名がある")
             base = entry.check_inputs({"request": "req.json"}, repo)
             self.assertEqual(set(base), (names - {"request"} - CHANGE_INPUTS - START_ONLY) | READ_FROM_REQUEST)
@@ -180,6 +182,69 @@ class InputNamesCase(unittest.TestCase):
             with self.assertRaises(entry.InputRefused) as cm:
                 entry.check_inputs({"request": "req.json", "fix_shape": "g2"}, repo)
             self.assertIn("fix_shape", str(cm.exception))
+
+
+class FeaturesOffCase(unittest.TestCase):
+    """切る機能（入力 features_off。持ち主の依頼 2026-10-07: 同じ依頼を全部 on と切った形で回して比べる）: check_inputs が語を
+    確かめて語の順の配列にし、start の出口の機能ごとの on・off（entry.feature_words）を線がブロックの切り替えの入力へ写す"""
+    # 機能 → (線の節, ブロックの入力の名)（ブロックは on・off の平の入力だけを受け、線の語を知らない）
+    WIRING = {"judge_verify": [("judging", "verify")],
+              "review_tree": [("planning", "review_tree"), ("replanning", "review_tree")],
+              "tdd_lanes": [("fixing", "tdd_lanes"), ("refitting", "tdd_lanes")],
+              "fix_lanes": [("fixing", "fix_lanes"), ("refitting", "fix_lanes")]}
+
+    def check(self, word):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp)
+            (repo / "req.json").write_text(json.dumps([{"where": "a.py", "text": "直す"}]), encoding="utf-8")
+            raw = {"request": "req.json"} if word is None else {"request": "req.json", "features_off": word}
+            return entry.check_inputs(raw, repo)["features_off"]
+
+    def test_default_is_all_on(self):
+        self.assertEqual(self.check(None), [])
+        self.assertEqual(self.check("  "), [])
+        self.assertEqual(entry.feature_words([]), {k: "on" for k in entry.FEATURES})
+        self.assertEqual(entry.features_part([]), "機能: 全部 on")
+
+    def test_words_are_split_sorted_and_deduplicated(self):
+        self.assertEqual(self.check("tdd_lanes,judge_verify tdd_lanes、fix_lanes"), ["fix_lanes", "judge_verify", "tdd_lanes"])
+        got = entry.feature_words(["review_tree"])
+        self.assertEqual(got, {"fix_lanes": "on", "judge_verify": "on", "review_tree": "off", "tdd_lanes": "on"})
+        self.assertEqual(entry.features_part(["judge_verify", "review_tree"]), "切った機能: judge_verify・review_tree")
+
+    def test_unknown_word_is_refused_before_the_board(self):
+        with self.assertRaises(entry.InputRefused) as cm:
+            self.check("judge_verify,hole_labels")
+        self.assertIn("hole_labels", str(cm.exception))
+        self.assertIn("judge_verify", str(cm.exception))   # 切れる語を並べる
+
+    def test_resume_with_other_features_is_refused(self):
+        """呼び直しで切る機能を替えない（前の版の控えは全部 on の run）"""
+        entry._resumed_features({"features_off": ["tdd_lanes"]}, ["tdd_lanes"])
+        entry._resumed_features({}, [])
+        for prev, now in (({"features_off": ["tdd_lanes"]}, []), ({}, ["fix_lanes"])):
+            with self.subTest(prev=prev, now=now), self.assertRaises(entry.InputRefused):
+                entry._resumed_features(prev, now)
+
+    def test_line_wires_each_feature_to_a_block_switch(self):
+        doc = line()
+        nodes = {n["id"]: n for n in doc["nodes"]}
+        self.assertEqual(doc["inputs"]["features_off"].get("default"), "")
+        self.assertEqual(nodes["start"]["with"]["features_off"], "$INPUTS.features_off")
+        props = nodes["start"]["output_format"]["properties"]
+        self.assertEqual(set(self.WIRING), set(entry.FEATURES))
+        for name in entry.FEATURES:
+            with self.subTest(name):
+                self.assertEqual(props[name], {"type": "string", "enum": ["on", "off"]})
+                for nid, key in self.WIRING[name]:
+                    self.assertEqual(nodes[nid]["with"].get(key), f"$start.output.{name}", f"{nid}.{key}")
+                    block = load(ROOT / nodes[nid]["include"] / f"{nodes[nid]['include']}.yaml")
+                    self.assertEqual(block["inputs"][key].get("default"), "", "ブロックの既定は空（on＝今どおり）")
+
+    def test_fixture_may_change_features(self):
+        """固定材料から始める run は切る機能を替えて比べてよい（腕と同じく今の値にする欄）"""
+        import fixture
+        self.assertIn("features_off", fixture.CURRENT)
 
 
 class LangInputCase(unittest.TestCase):

@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- 木・枝の形の機能を run ごとに切る入力 `features_off` を足した（持ち主の依頼 2026-10-07: 同じ依頼を全部 on と切った形で回して比べる）。語をカンマで区切って並べ、空は全部 on（今どおり）。`judge_verify`（判定の裏取りの下請け）・`review_tree`（事前審査の項目ごとの下請けと相乗りの審査。切ると審査役 1 つが案の全体を審査し、受け付けは木のまとめを飛ばす）・`tdd_lanes`（TDD の輪の並べの周）・`fix_lanes`（修正役の項目ごとの単位の worktree）を切れる。知らない語は `start` が AI の前で止め、呼び直しで替えれば止める（固定材料から始める run は替えてよい）。`start` が機能ごとの `on`・`off` を出口に出し、線がブロックの平の切り替えの入力（blk-judge の `verify`・blk-plan の `review_tree`・blk-fix の `tdd_lanes`・`fix_lanes`。どれも空は on）へ写す。切った機能は `versions.json` の `settings.features_off`（`versions.snapshot` の `settings`）・start の控え・報告の冒頭 2 の頭の行に残る。`use.sh` は `WORKS_USE_FEATURES_OFF`、`dogfood.sh` は `WORKS_FEATURES_OFF` で渡す。差分の審査の穴の枝の名札（木の段 4a）は表示だけなので切る口を作らない。修正案を書く役の模型の比べは今ある `WORKS_DEV_MODEL` の明示で回せる（表 `stage-models.json` の段の全部に効き、修正案の段だけには絞れないが、今の表では `WORKS_DEV_MODEL=sonnet` で替わるのはこのラインの修正案の役だけ）ことを README に書いた
+
 ### Changed
 
 - 検証器の外の残り（最後のテストの語・独立の目の阻害と走っていない目と結果が無い目）の数えを `report.rest_outside_validator`（語は `report.tests_word`、目の分けは `report.eye_counts` の `EyeCounts`）の 1 か所にし、最後の関所と報告の冒頭 1・次の run の依頼が同じ口を読むようにした。今までは関所（`line_edge._eyes`・`_tests_head`）と冒頭 1（`residue`・`next_request`）が別の規則で、表に無い status の目を関所は阻害に数えず、結果が無い目を冒頭 1 は数えず、任せ先の CI が clean を渡した回を冒頭 1 は赤と数えていた。これで表に無い status の目も阻害に数えて関所が開き、結果が無い目は冒頭 1 と次の依頼に「再実行の要あり」の行で出る。走っていない目（not_run）は関所を開ける理由に数えず、冒頭 1 の残りには表どおり数える（理由は `report.NOT_RUN_GATE_NOTE` が両方の残りの行で言う）。結果が無い目も同じ例外で、理由は `report.MISSING_GATE_NOTE` が言う。関所の残りの行は、目の欄の件数とテストの語に添えて、数えられる分の合計（最後のテストが緑でなければ 1 件に数える）も言う。`always_rows` は left も rest も渡されない呼びに、検証器を回していないという事実でない理由でなく、渡し忘れを名指す行を出す。`line_edge._eyes` は名前の付いた `Eyes(rows, counts)` を返し、`_final_text` は渡された eyes と rest だけを読んで盤面を読み直さない

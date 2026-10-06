@@ -47,7 +47,7 @@
     （_reached。元で通っていたテストの緑と消えたテストの照らしは、この回でファイルごと走ったモジュールで見る）。地図が引けない・
     分からない物が近くに在る（run_all）時は合図なしの一式。届かない試験・元の結末の外の試験は受け付け（selected_problems）と
     線の最後のテストの段（一式）が確かめる
-  - lanes（並べの周。口は節の script が渡す tddlanes。依頼 243 の並べの 2 段目。docs/plans/2026-10-06-tdd-parallel.md）: 形 g3 の輪（状態の lanes_on）で、振り分けの
+  - lanes（並べの周。口は節の script が渡す tddlanes。依頼 243 の並べの 2 段目。docs/plans/2026-10-06-tdd-parallel.md）: 形 g3 の輪（状態の lanes_on。入力 tdd_lanes が off なら偽）で、振り分けの
     直後に範囲の引ける tdd の枝（項目を共にする単位の組。範囲が重なってもよい。3 段目 docs/plans/2026-10-07-overlap-lanes.md）が
     2 本以上なら、tddlanes.plan が枝ごとの worktree と控えを置いてこの段へ進める。支度は
     まとめ役の指示書と枝の単位ごとの下請けのファイル（_write_lane_files）を書き、下請けは段のコマンド（tddlanes.run）でこの step を単位の
@@ -103,6 +103,7 @@ import fixshape  # noqa: E402  （.shared/core。盤面の修正の形）
 import impact  # noqa: E402  （.shared/core。変更に当たる試験の選び）
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
 import planmarks  # noqa: E402  （.shared/core。修正案の項目の works の欄。単位の約束）
+import script_io  # noqa: E402  （.shared/core。入力の切り替えの語 switch_on）
 import seat  # noqa: E402  （.shared/core。借りたスキルの座）
 import tree_run  # noqa: E402
 import writes  # noqa: E402  （.shared/core。書き込みの出どころの突き合わせ）
@@ -412,14 +413,20 @@ def _light_units(raw: str) -> list:
     return sorted(k for k, v in doc.items() if v == LIGHT)
 
 
-def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "", unit_depths: str = "") -> dict:
+def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "", unit_depths: str = "", lanes: str = "") -> dict:
     """節 tdd-start。{go, reason, suite, state_file, summary_file}。実行器が無ければ何も書かずに go: false（盤面を読まない）。
     test_cmd は run のテストのコマンド（線の入力）で、元の結末を取った後に関門を決める（_test_cmd_gate）。
     unit_depths は単位ごとの深さ（_light_units）。LIGHT の単位は関門が on でも緑の後の test_cmd を走らせない（状態の light）。
     ほかの単位と空は今どおり。
+    lanes は並べの周を使うかの切り替えの語（script_io.switch_on。空は on）。off なら形 g3 でも状態の lanes_on を偽にする（並べずに
+    tdd の単位を順に回す）。知らない語は Broken。
     修正の形 g1 も元の結末を取って状態を書く（受け付けの選んで回す試験 1c が元で緑だった試験の赤を拒むのに要る。強み 6）。
     違いは輪を回さないことだけで、出口は go: false・理由 G1_NO_LOOP・state_file は書いた状態・summary_file は空（輪の要約は無い）"""
     suite = (suite or "").strip()
+    try:
+        lanes_ok = script_io.switch_on(lanes, "tdd_lanes")
+    except ValueError as e:
+        raise Broken(str(e)) from None
     off = {"go": False, "reason": NO_SUITE, "suite": suite, "state_file": "", "summary_file": ""}
     if not suite:
         return off
@@ -454,7 +461,7 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "", unit
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
           "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract, "plain": plain,
           "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "light": light, "calls": [],
-          "lanes_on": shape == seat.SHAPE}
+          "lanes_on": shape == seat.SHAPE and lanes_ok}
     state_file = work / STATE
     _save(state_file, st)
     if shape == seat.G1_SHAPE:
