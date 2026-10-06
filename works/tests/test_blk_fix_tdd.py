@@ -172,7 +172,9 @@ class TestYaml(unittest.TestCase):
         self.assertIn("`$tdd-prep.output.prompt_file` を Read で", role["prompt"])
         self.assertEqual(role["settingSources"], ["user"])
         # Skill と skills: は借りたスキルの座（修正の形 g3。計画 220 Task 2。test_seat が座の表と縛る）
-        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch", "Skill"])
+        # Agent は g3 の並べの周のまとめ役が単位の下請けを起こす口（docs/plans/2026-10-06-tdd-parallel.md。ほかの形は包みが拒む）
+        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch", "Skill",
+                                                 "Agent"])
         self.assertEqual(role["skills"], ["test-driven-development"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["idle_timeout"], DEADLINE)
