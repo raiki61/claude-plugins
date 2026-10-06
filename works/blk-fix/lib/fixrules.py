@@ -128,6 +128,8 @@ BRIEF_BROKEN = (f"修正案の brief の控え（今の周の {planbrief.LEDGER}
                 "引けない——brief の無い指示書で役を起こさずに盤面を止める")
 FACTCHECKS = pathlib.Path(__file__).resolve().parent / "factchecks.py"   # 事前の確かめのコマンド（import しない: factchecks → tddloop → fixrules の輪）
 ASK_DRAFT = "draft-reply.json"   # 修正役が事前の確かめに渡す返答の下書き（相談の置き場。作業ツリーの外）
+RIPPLE_LINE = ("波及の一覧: {path}（承認済みの修正案の項目が変える名の呼び出し元と試験。範囲に入っていない当たりを名指す。その当たりを"
+               "直しで触る必要が出たら、書く前に上の範囲の相談で聞け）")
 ASK_WHY = "範囲の相談の控えが在る（相談の相手の会話の印の名 plan_session と承認済みの修正案の項目が在る run）"
 _sha = rulebook.sha
 _pick = rulebook.pick
@@ -492,7 +494,8 @@ def ask_config(b, repo, values: dict, pass_: str) -> str:
     plan_session（相談の相手の会話の印の名）が空・承認済みの修正案の項目が引けない run は書かずに空。会話の id の記録は包みの
     置き場（adapter.session_path。cwd は repo）、model・effort はその印の最後の起動の記録から。実行ファイルはこの節の
     python（uv が選んだ 3.10 以上。役の sandbox の python3 は 3.9 のことがある）。values の tdd_state は TDD の輪の状態の
-    ファイル（支度の script が輪の要約の隣から引く。空は輪の無い run）"""
+    ファイル（支度の script が輪の要約の隣から引く。空は輪の無い run）。values の ripple_file（波及の一覧のパス）が在れば
+    節の終わりに RIPPLE_LINE で名指す"""
     node = (values.get("plan_session") or "").strip()
     if not node or repo is None:
         return ""
@@ -511,7 +514,8 @@ def ask_config(b, repo, values: dict, pass_: str) -> str:
            "claude": os.environ.get(adapter.ENV_REAL) or shutil.which("claude") or "claude",
            "model": launch.get("model"), "effort": launch.get("effort"), "items": ask_items(items)}
     path = askplan.write_config(askplan.place_of(b.dir), doc)
-    return ask_text(path, sys.executable)
+    ripple = (values.get("ripple_file") or "").strip()
+    return ask_text(path, sys.executable) + (f"\n\n{RIPPLE_LINE.format(path=ripple)}" if ripple else "")
 
 
 def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str = seatkit.G1_SHAPE,

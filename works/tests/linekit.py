@@ -242,7 +242,8 @@ LINE_ORDER = [
               "plan_file": "$h-fix.output.plan_file", "notes_file": "$h-fix.output.notes_file",
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
               "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd",
-              "unit_depths": "$h-depth.output.unit_depths", "plan_session": "plan"}},
+              "unit_depths": "$h-depth.output.unit_depths", "ripple_file": "$h-fix.output.ripple_file",
+              "plan_session": "plan"}},
     # 同じ run の中の案の直し（依頼 226。1 run に 1 回）: blk-plan と blk-fix の 2 度目の include
     _edge("h-replan", "replan", ["start", "h-fix", "fixing"]),
     {"id": "replanning", "kind": "include", "block": "blk-plan", "depends_on": ["h-replan"],
@@ -258,7 +259,8 @@ LINE_ORDER = [
      "with": {"judgment_file": "$h-refit.output.judgment_file", "open_units": "$h-refit.output.open_units",
               "plan_file": "$h-refit.output.plan_file", "notes_file": "$h-refit.output.notes_file",
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
-              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd", "plan_session": "plan"}},
+              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd",
+              "ripple_file": "$h-refit.output.ripple_file", "plan_session": "plan"}},
     _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing", "h-refit", "refitting"]),
     {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
      "when": "$h-rejudge.output.go == true",
@@ -498,8 +500,8 @@ class LineRun:
                 return
 
     def blk_plan(self):
-        """blk-plan の中の節の順（独立設計の輪 → 修正案の輪 → 壁打ちの輪 converge-loop〔直しの役の輪 → 事前審査の輪 →
-        converge-check〕→ 出口 collect）を planblk の支度と受け付けの口で回す。独立設計は core の design の口で盤面の根に控える
+        """blk-plan の中の節の順（独立設計の輪 → 波及の一覧 → 修正案の輪 → 壁打ちの輪 converge-loop〔直しの役の輪 → 波及の一覧 →
+        事前審査の輪 → converge-check〕→ 出口 collect）を planblk の支度と受け付けの口で回す。独立設計は core の design の口で盤面の根に控える
         （返答は replies["r2-design"]、無ければ design_ok）。事前審査の返答は replies["plan-review"]（1 つか往復ごとの列）、直しの
         役は replies["plan-revise"]（同じ。無ければ _revise_body）。壁打ちの輪は converge-check の done で抜ける。
         修正案が待たない周（直す物の無い判定）は設計だけを作る"""
@@ -513,11 +515,15 @@ class LineRun:
                                                              ensure_ascii=False), self.repo)
             if not got["ok"]:
                 raise AssertionError(f"r2-design: {got['reason']}")
+        import entry
+        if planblk._pending(entry.open_board(self.board), "p2.fix_plan"):   # 節 plan-ripple（when は plan-snap の go）
+            planblk.make_ripple(self.board, self.repo, "units")
         self._plan_role("plan", lambda: self._nth("plan", 0))
         for k in range(planblk.GIVE_UP_AFTER):   # converge-loop の max_iterations（tests/test_blk_plan.py が YAML と突き合わせる）
             # 直しの役は 2 往復目から（1 往復目は snap が go 偽）。k 番目の往復の直しは replies["plan-revise"] の k-1 番目
             self._plan_role(planblk.REVISE_ROLE, lambda: self._nth("plan-revise", k - 1) if "plan-revise" in self.replies
                             else self._revise_body())
+            planblk.make_ripple(self.board, self.repo, "items")   # 節 review-ripple（往復ごとの事前審査の前）
             self._plan_role("plan-review", lambda: self._nth("plan-review", k))
             if planblk.converge_check(self.board)["done"]:
                 break

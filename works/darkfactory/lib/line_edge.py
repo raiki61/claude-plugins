@@ -126,11 +126,19 @@ EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", 
          "plan_file": "", "notes": "", "notes_file": "", "why": "", "gate_file": "", "premises_file": "",
          "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False,
          "runtime_go": False, "holdout_go": False, "mid_note": "", "purpose_file": "", "mat_go": False,
-         "structure_units_file": ""}
+         "structure_units_file": "", "ripple_file": ""}
+# 修正案のブロックが今の周に置く波及の一覧（その manifest の produces。h-fix・h-refit が修正の段へパスで渡す。線の木の段 1）
+RIPPLE_FILE = "ripple.json"
 
 
 def _gap(msg):
     return BoardGap(msg)
+
+
+def _ripple_file(b) -> str:
+    """今の周の波及の一覧の置き場（無ければ空）"""
+    p = b.work(RIPPLE_FILE)
+    return str(p) if p.is_file() else ""
 
 
 def _write_json(path: pathlib.Path, doc) -> None:
@@ -927,7 +935,7 @@ def refit_edge(board_dir, repo, gate) -> dict:
     b = entry.open_board(board_dir, allow_halted=True)
     return {"go": bool(got["returned"]) and GO_NODE["fix"] in b.ready(),
             "open_units": json.dumps(got["returned"], ensure_ascii=False),
-            "plan_file": got["plan_file"], "notes_file": got["notes_file"], "why": got["why"]}
+            "plan_file": got["plan_file"], "notes_file": got["notes_file"], "why": got["why"], "ripple_file": _ripple_file(b)}
 
 
 def eyes_edge(b) -> dict:
@@ -1076,7 +1084,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         go = GO_NODE["fix"] in b.ready()
         if go:
             _capture_fixture(b, board_dir, repo, run_id)
-        return {**out, "go": go, "notes": notes, "notes_file": notes_file, "plan_file": _out_file(b, "p2.fix_plan")}
+        return {**out, "go": go, "notes": notes, "notes_file": notes_file, "plan_file": _out_file(b, "p2.fix_plan"),
+                "ripple_file": _ripple_file(b)}
     if at == "replan":
         return {**out, "go": replan.material(b)["go"]}
     if at == "regate":

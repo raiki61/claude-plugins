@@ -11,11 +11,25 @@
           "files": {名: 写した先}, "rejects": [行]}
 k 往復目の行の answers と resolved は、k-1 往復目の block への修正案の役の答えと、直した案を読んだ審査の言い分。
 
+項目ごとの壁打ち（線の木の段 1。設計 docs/plans/2026-10-06-tree-line.md の 2.3 の 5）: 受けた案の項目を note_plan が控えの
+"plan"（[{id, unit_keys, hash}]。id は unit_keys の組・hash は名前に戻した項目の行の sha256）に置くと、往復の行に
+"items"（[{n, id, unit_keys, hash, state, blocks, reopened}]）・"synergy"（相乗りの審査が挙げた key）・"face_units"
+（{key: unit_keys}）が付く。face は unit_keys が重なる項目の物（どの項目とも重ならない face は審査した全部の項目の物）。
+項目の state: block の無い項目は CLOSED（次の往復で審査も直しもしない）・block が前のどれかの往復の block と重なれば HELD
+（保留。後の往復でも保留）・ほかは OPEN。閉じた項目は block に名指されれば開き直す（相乗りの審査の道）。抜け方は全部の項目が
+閉じれば CLEAN、開いた項目が無く保留が在れば PERSISTED、柵の往復で保留が在れば PERSISTED・無ければ UNSETTLED、ほかは AGAIN。
+note_plan の無い控え（行に items が無い）は今までどおり全体で 1 つ。
+
 - block_faces(review)・decide(passes, fence=): block の face と、続けるか止めるかの語（CLEAN・AGAIN・PERSISTED・UNSETTLED）
 - read(b)・pass_no(b)・note_answers(b, answers)・record_pass(b, review, ...)・stash_rejects(b, rows)・held(b):
   控えの読み書き
-- answer_gaps(b, answers)・resolved_gaps(b, faces, resolved): 修正案の役と事前審査の役の返答の欄の欠けと誤りの行
-- with_fields(role, schema)・split(role, reply): 役の型に欄を足す・返答から欄を外す
+- note_plan(b, rows)・open_items(b)・closed_gaps(b, rows)・item_id・item_hash: 項目の控え・次に審査する項目の番号・閉じた
+  項目を変えた・消した直しの行
+- answer_gaps(b, answers)・resolved_gaps(b, faces, resolved): 修正案の役と事前審査の役の返答の欄の欠けと誤りの行（項目の在る
+  控えでは、今の往復で開いている項目の分だけ）
+- with_fields(role, schema)・split(role, reply): 役の型に欄を足す・返答から欄を外す（事前審査の型には項目ごとの審査の欄
+  ITEMS・SYNERGY も任意で足す。tree_split が外す・drop_fields が壁打ちの欄を全部外す）
+- face_items(b, faces): 名前に戻した face の key → 項目の番号（_attributed と同じ決まり）
 - revise_section(b)・review_section(b)・stuck_reason(b)・lines(b): 指示書に足す文・関所の理由・報告の行（往復ごとの行は
   前の往復の block を審査が suggest に下げた key も名指す）
 
@@ -25,6 +39,7 @@ gatemarks を読むので、entry・rolekit・gatemarks を import すると輪�
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import shutil
@@ -38,6 +53,9 @@ AGAIN = "again"
 PERSISTED = "persisted"
 UNSETTLED = "unsettled"
 STUCK = (PERSISTED, UNSETTLED)
+OPEN = "open"   # 項目の state（往復の行の items[].state）
+CLOSED = "closed"
+HELD = "held"
 ANSWERS = "block_answers"
 RESOLVED = "resolved"
 HANDLED = ("fixed", "disputed")
@@ -59,6 +77,11 @@ LINE_HEAD = ("事前審査の壁打ち: {n} 往復・抜け方は{word}（記録
              "（往復ごとの案と審査: {path}）")
 LINE_PASS = ("  - {k} 往復目: block {keys}・修正案の役の答え fixed {f} 件・disputed {d} 件・審査が消えたと言った key {resolved}"
              "・審査が suggest に下げた key {down}")
+CLOSED_ASK = ("下の項目は前の往復で事前審査が block を挙げずに閉じた。plan に一字も変えずに入れよ（変えた・消した・組み直した直しは"
+              "受け付けが拒む）:")
+HELD_NOTE = "下の項目は同じ block が続いたので保留にした（直さなくてよい。人の関所が読む）:"
+ITEMS_WHY = "固まった項目: {closed}。保留の項目: {held}。開いたままの項目: {open}"
+LINE_ITEMS = "    項目: 閉じた {closed}・開いた {open}・保留 {held}・相乗りの審査の block {synergy}"
 WORDS = {CLEAN: "block が消えた", PERSISTED: "同じ block が続いた", UNSETTLED: "柵の往復でも block が消えない", AGAIN: "途中"}
 NONE = "無い"
 
@@ -68,6 +91,22 @@ ANSWER_SCHEMA = {"type": "array", "items": {
                    "how": {"type": "string", "minLength": 10}}}}
 RESOLVED_SCHEMA = {"type": "array", "items": {"type": "string"}}
 FIELDS = {"plan-revise": (ANSWERS, ANSWER_SCHEMA, True), "plan-review": (RESOLVED, RESOLVED_SCHEMA, False)}
+# 事前審査の束ね役の欄（線の木の段 1。役の型にだけ在り、盤面へ渡す前に外す。写しの graph は変えない）
+ITEMS = "items"
+SYNERGY = "synergy"
+HIT_ANSWERS = ("covered", "no_effect", "block")
+ITEMS_SCHEMA = {"type": "array", "items": {
+    "type": "object", "additionalProperties": False, "required": ["item", "checked", "hits"],
+    "properties": {"item": {"type": "integer", "minimum": 1}, "checked": {"type": "string", "minLength": 10},
+                   "hits": {"type": "array", "items": {
+                       "type": "object", "additionalProperties": False, "required": ["id", "answer", "why"],
+                       "properties": {"id": {"type": "string", "minLength": 2},
+                                      "answer": {"type": "string", "enum": list(HIT_ANSWERS)},
+                                      "why": {"type": "string", "minLength": 10}}}}}}}
+SYNERGY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["ran", "keys", "why"],
+                  "properties": {"ran": {"type": "boolean"}, "keys": {"type": "array", "items": {"type": "string"}},
+                                 "why": {"type": "string", "minLength": 10}}}
+TREE_FIELDS = {"plan-review": {ITEMS: ITEMS_SCHEMA, SYNERGY: SYNERGY_SCHEMA}}
 
 
 # ---------------------------------------------------------------- 決まり
@@ -87,13 +126,64 @@ def block_faces(review: dict) -> list[dict]:
 
 
 def decide(passes: list[dict], *, fence: int) -> str:
-    """最後の往復の block が無ければ CLEAN、前のどれかの往復の block と重なれば PERSISTED、柵の往復に着けば UNSETTLED、ほかは AGAIN"""
+    """最後の往復の block が無ければ CLEAN、前のどれかの往復の block と重なれば PERSISTED、柵の往復に着けば UNSETTLED、ほかは AGAIN。
+    最後の行に items が在れば項目ごと（_decide_items）"""
+    if passes[-1].get("items") is not None:
+        return _decide_items(passes, fence=fence)
     last = set(passes[-1]["blocks"])
     if not last:
         return CLEAN
     if any(last & set(p["blocks"]) for p in passes[:-1]):
         return PERSISTED
     return UNSETTLED if len(passes) >= fence else AGAIN
+
+
+def _decide_items(passes: list[dict], *, fence: int) -> str:
+    states = [it.get("state") for it in passes[-1]["items"]]
+    if OPEN not in states:
+        return PERSISTED if HELD in states else CLEAN
+    if len(passes) >= fence:
+        return PERSISTED if HELD in states else UNSETTLED
+    return AGAIN
+
+
+def item_id(unit_keys) -> str:
+    """項目の見分け（unit_keys の組。並びに依らない）"""
+    return " | ".join(sorted(str(k) for k in unit_keys or []))
+
+
+def item_hash(row: dict) -> str:
+    """項目の行（名前に戻した物）の sha256"""
+    return hashlib.sha256(json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _label(it: dict) -> str:
+    return f"項目 {it['n']}（{'、'.join(str(k) for k in it.get('unit_keys') or [])}）"
+
+
+def _attributed(units: list, items: list) -> list[int]:
+    """face の unit_keys が重なる項目の位置（どの項目とも重ならなければ全部）"""
+    hit = [i for i, it in enumerate(items) if set(units) & set(it["unit_keys"])]
+    return hit or list(range(len(items)))
+
+
+def _item_states(plan: list, faces: list, face_units: dict, prev: list, earlier: set) -> list[dict]:
+    before = {it["id"]: it for it in prev}
+    rows = [{"n": n, "id": it["id"], "unit_keys": list(it["unit_keys"]), "hash": it["hash"], "state": OPEN, "blocks": [],
+             "reopened": False} for n, it in enumerate(plan, 1)]
+    for f in faces:
+        for i in _attributed(face_units.get(f.get("key")) or [], rows):
+            rows[i]["blocks"].append(f.get("key"))
+    for r in rows:
+        was = (before.get(r["id"]) or {}).get("state")
+        if was == HELD:
+            r["state"], r["blocks"] = HELD, (before[r["id"]].get("blocks") or [])
+        elif not r["blocks"]:
+            r["state"] = CLOSED
+        elif set(r["blocks"]) & earlier:
+            r["state"] = HELD
+        r["reopened"] = was == CLOSED and r["state"] != CLOSED
+    return rows
 
 
 # ---------------------------------------------------------------- 控え
@@ -110,7 +200,10 @@ def read(b) -> dict:
     if (not isinstance(doc, dict) or doc.get("round") != b.round or not isinstance(doc.get("passes"), list)
             or not all(isinstance(p, dict) for p in doc["passes"]) or not isinstance(doc.get("open", {}), dict)):
         return _fresh(b)
-    return {"round": b.round, "passes": doc["passes"], "outcome": doc.get("outcome"), "open": doc.get("open", {})}
+    out = {"round": b.round, "passes": doc["passes"], "outcome": doc.get("outcome"), "open": doc.get("open", {})}
+    if isinstance(doc.get("plan"), list):
+        out["plan"] = doc["plan"]
+    return out
 
 
 def _write(b, doc: dict) -> None:
@@ -132,9 +225,45 @@ def note_answers(b, answers: list) -> None:
     _write(b, doc)
 
 
-def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict) -> dict:
+def note_plan(b, rows: list) -> None:
+    """受けた案の項目（名前に戻した行の並び）を控えの plan に置く（次の record_pass が項目ごとに読む）"""
+    doc = read(b)
+    doc["plan"] = [{"id": item_id(r.get("unit_keys")), "unit_keys": [str(k) for k in r.get("unit_keys") or []],
+                    "hash": item_hash(r)} for r in rows if isinstance(r, dict)]
+    _write(b, doc)
+
+
+def _last_items(doc: dict) -> dict:
+    return {it["id"]: it for it in (doc["passes"][-1].get("items") or [])} if doc["passes"] else {}
+
+
+def open_items(b) -> list[int]:
+    """次の事前審査が見る項目の番号（今の案の項目のうち、最後の往復で閉じた・保留にした項目でない物）。項目の控えが無ければ []"""
+    doc = read(b)
+    last = _last_items(doc)
+    return [n for n, it in enumerate(doc.get("plan") or [], 1)
+            if (last.get(it["id"]) or {}).get("state") not in (CLOSED, HELD)]
+
+
+def closed_gaps(b, rows: list) -> list[str]:
+    """直した案（名前に戻した行の並び）が、最後の往復で閉じた項目を変えた・消した（組み直した）行"""
+    doc = read(b)
+    now = {item_id(r.get("unit_keys")): item_hash(r) for r in rows if isinstance(r, dict)}
+    out = []
+    for it in _last_items(doc).values():
+        if it.get("state") != CLOSED:
+            continue
+        if it["id"] not in now:
+            out.append(f"閉じた{_label(it)}が案に無い（単位の組を変えずに、前の案のまま入れよ）")
+        elif now[it["id"]] != it.get("hash"):
+            out.append(f"閉じた{_label(it)}を変えた（前の案のまま一字も変えずに入れよ）")
+    return out
+
+
+def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict, synergy: list | None = None) -> dict:
     """事前審査の返答 1 つを往復の行として足し、decide で抜け方を決めて控えを書く。files（{名: パス}）の在るファイルを
-    pass-<k>/ に写し、写した先を行に置く。盤面の trace に OP の行を書く。返りは足した行"""
+    pass-<k>/ に写し、写した先を行に置く。盤面の trace に OP の行を書く。控えに項目（note_plan）が在れば行に items・
+    synergy（相乗りの審査が挙げた key）・face_units を置く。返りは足した行"""
     doc = read(b)
     passes = doc["passes"]
     k = len(passes) + 1
@@ -146,6 +275,11 @@ def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict) -> 
            "suggests": list(dict.fromkeys(suggests)), "answers": doc["open"].get("answers", []),
            "resolved": list(resolved), "persists": [key for key in blocks if key in earlier], "outcome": None,
            "files": {}, "rejects": []}
+    if doc.get("plan"):
+        row["face_units"] = {f.get("key"): [str(k) for k in f.get("unit_keys") or []] for f in faces}
+        row["items"] = _item_states(doc["plan"], faces, row["face_units"],
+                                    list(_last_items(doc).values()), earlier)
+        row["synergy"] = list(synergy or [])
     passes.append(row)
     row["outcome"] = decide(passes, fence=fence)
     dest = b.work(PASS_DIR) / f"pass-{k}"
@@ -156,7 +290,8 @@ def record_pass(b, review: dict, *, resolved: list, fence: int, files: dict) -> 
             row["files"][name] = str(dest / name)
     doc.update(outcome=row["outcome"], open={})
     _write(b, doc)
-    b.trace(OP, round=b.round, pass_=k, outcome=row["outcome"], blocks=blocks, persists=row["persists"])
+    extra = {"items": {it["n"]: it["state"] for it in row["items"]}} if "items" in row else {}
+    b.trace(OP, round=b.round, pass_=k, outcome=row["outcome"], blocks=blocks, persists=row["persists"], **extra)
     return row
 
 
@@ -175,11 +310,19 @@ def held(b) -> dict | None:
 
 
 # ---------------------------------------------------------------- 返答の欄
+def _open_blocks(row: dict) -> list:
+    """往復の行の block のうち、開いた項目の物（items の無い行は全部）"""
+    if row.get("items") is None:
+        return list(row["blocks"])
+    mine = {k for it in row["items"] if it.get("state") == OPEN for k in it.get("blocks") or []}
+    return [k for k in row["blocks"] if k in mine]
+
+
 def answer_gaps(b, answers) -> list[str]:
     """修正案の役の block_answers の欠けと誤り。返した block の key ごとに、key が一字違わず、handled が HANDLED のどれかで、
     how が 10 字以上の行がちょうど 1 つ要る"""
     row = held(b)
-    blocks = row["blocks"] if row else []
+    blocks = _open_blocks(row) if row else []
     rows = [a for a in answers if isinstance(a, dict)] if isinstance(answers, list) else []
     shaped = isinstance(answers, list) and len(rows) == len(answers)
     gaps = [] if shaped else ["block_answers の行の形が違う（{key, handled, how} の行の配列）"]
@@ -203,14 +346,23 @@ def answer_gaps(b, answers) -> list[str]:
 def resolved_gaps(b, faces: list, resolved: list) -> list[str]:
     """事前審査の役の resolved の欠けと誤り。前のどの往復かで block だった key は、resolved か faces のどちらかに要る（1 往復目は
     前の往復が無いので見ない）"""
-    passes = read(b)["passes"]
+    doc = read(b)
+    passes = doc["passes"]
     if not passes:
         return []
     earlier = list(dict.fromkeys(key for p in passes for key in p.get("blocks", [])))
+    wanted = earlier
+    if passes[-1].get("items") is not None:   # 項目の控え: 今の往復で審査する項目の物だけを求める
+        units = {str(k) for n in open_items(b) for k in doc["plan"][n - 1]["unit_keys"]}
+        every = {str(k) for it in doc.get("plan") or [] for k in it["unit_keys"]}
+        wanted = [key for p in passes for key in p.get("blocks", [])
+                  if (set((p.get("face_units") or {}).get(key) or []) & units)
+                  or not (set((p.get("face_units") or {}).get(key) or []) & every)]
+        wanted = list(dict.fromkeys(wanted))
     face_keys = {f.get("key") for f in faces if isinstance(f, dict)}
     block_keys = {f.get("key") for f in block_faces({"faces": faces})}
     gaps = [f"前の block {key} を resolved に入れるか、同じ key で faces に挙げ直せ"
-            for key in earlier if key not in resolved and key not in face_keys]
+            for key in wanted if key not in resolved and key not in face_keys]
     gaps += [f"resolved の {key} は前の往復の block に無い" for key in resolved if key not in earlier]
     gaps += [f"{key} が resolved と block の face の両方に在る（消えたか残ったかのどちらか 1 つにせよ）"
              for key in resolved if key in block_keys]
@@ -226,6 +378,8 @@ def with_fields(role: str, schema: dict) -> dict:
     out.setdefault("properties", {})[name] = copy.deepcopy(field)
     if required and name not in out.get("required", []):
         out["required"] = [*out.get("required", []), name]
+    for extra, field in TREE_FIELDS.get(role, {}).items():   # 任意（同じ役の型を案の直しの事前審査も使う）
+        out["properties"][extra] = copy.deepcopy(field)
     return out
 
 
@@ -234,6 +388,27 @@ def split(role: str, reply: dict) -> tuple[dict, list]:
     out = copy.deepcopy(reply)
     got = out.pop(FIELDS[role][0], None) if role in FIELDS else None
     return out, got if isinstance(got, list) else []
+
+
+def tree_split(reply: dict) -> tuple[dict, dict]:
+    """（束ね役の欄 ITEMS・SYNERGY を外した返答の写し, {ITEMS: 値 | None, SYNERGY: 値 | None}）"""
+    out = copy.deepcopy(reply)
+    return out, {name: out.pop(name, None) for name in (ITEMS, SYNERGY)}
+
+
+def drop_fields(reply):
+    """事前審査の返答から壁打ちの欄（RESOLVED・ITEMS・SYNERGY）を外した写し（案の直しの事前審査は写しの型で受ける）"""
+    if not isinstance(reply, dict):
+        return reply
+    return {k: v for k, v in reply.items() if k not in (RESOLVED, ITEMS, SYNERGY)}
+
+
+def face_items(b, faces: list) -> dict:
+    """名前に戻した face の key → 項目の番号（今の案の項目の控え。unit_keys が重なる項目、どれとも重ならなければ全部）"""
+    plan = read(b).get("plan") or []
+    rows = [{"unit_keys": it["unit_keys"]} for it in plan]
+    return {f.get("key"): [i + 1 for i in _attributed([str(k) for k in f.get("unit_keys") or []], rows)]
+            for f in faces if isinstance(f, dict)} if rows else {}
 
 
 # ---------------------------------------------------------------- 文
@@ -250,7 +425,13 @@ def revise_section(b) -> str:
     row = held(b)
     if row is None:
         return ""
-    return "\n\n".join([REVISE_ASK, *(_face_text(f) for f in row["faces"]), f"suggest の key: {_keys(row['suggests'])}"])
+    mine = set(_open_blocks(row))
+    parts = [REVISE_ASK, *(_face_text(f) for f in row["faces"] if f["key"] in mine), f"suggest の key: {_keys(row['suggests'])}"]
+    for state, head in ((CLOSED, CLOSED_ASK), (HELD, HELD_NOTE)):
+        named = [it for it in row.get("items") or [] if it.get("state") == state]
+        if named:
+            parts.append("\n".join([head, *(f"- {_label(it)}" for it in named)]))
+    return "\n\n".join(parts)
 
 
 def review_section(b) -> str:
@@ -277,7 +458,18 @@ def stuck_reason(b) -> str:
     last = doc["passes"][-1]
     text = PERSISTED_WHY if doc["outcome"] == PERSISTED else UNSETTLED_WHY
     keys = last["persists"] if doc["outcome"] == PERSISTED else last["blocks"]
-    return text.format(keys=_keys(keys), n=len(doc["passes"]), path=b.work(PASS_DIR))
+    if last.get("items") is not None:   # 保留の項目の block は前の往復の物（今の往復は審査しない）
+        keys = list(dict.fromkeys(k for it in last["items"] if it.get("state") in (HELD, OPEN) for k in it["blocks"]))
+    why = text.format(keys=_keys(keys), n=len(doc["passes"]), path=b.work(PASS_DIR))
+    return why + ("。" + _items_text(last["items"]) if last.get("items") is not None else "")
+
+
+def _items_text(items: list) -> str:
+    def named(state, blocks=False):
+        rows = [_label(it) + (f"・最後の block: {_keys(it['blocks'])}" if blocks else "")
+                for it in items if it.get("state") == state]
+        return "、".join(rows) or NONE
+    return ITEMS_WHY.format(closed=named(CLOSED), held=named(HELD, True), open=named(OPEN, True))
 
 
 def lines(b) -> list[str]:
@@ -295,5 +487,9 @@ def lines(b) -> list[str]:
         down = [key for key in p.get("suggests", []) if key in earlier]   # 前の往復の block を suggest に下げた key
         out.append(LINE_PASS.format(k=p["pass"], keys=_keys(p["blocks"]), f=handled.count("fixed"),
                                     d=handled.count("disputed"), resolved=_keys(p.get("resolved", [])), down=_keys(down)))
+        if p.get("items") is not None:
+            count = {st: [str(it["n"]) for it in p["items"] if it.get("state") == st] for st in (CLOSED, OPEN, HELD)}
+            out.append(LINE_ITEMS.format(closed=_keys(count[CLOSED]), open=_keys(count[OPEN]), held=_keys(count[HELD]),
+                                         synergy=_keys(p.get("synergy") or [])))
         earlier.update(p.get("blocks", []))
     return out

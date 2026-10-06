@@ -24,8 +24,17 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
 - converge-check: 壁打ちの出口 {ok, done, outcome, record_file}。抜け方が again でない・今の往復の役が諦めた・盤面が止まった時に
             done（converge_check。輪を max_iterations で落とさない。R50）。replan では壁打ちを回さない（直しの役の snap は
             go: false、converge-check はいつも 1 往復で done）
+- ripple:   波及の一覧の節（線の木の段 1。設計 docs/plans/2026-10-06-tree-line.md の 2.3）。stage units は修正案の役の前に
+            単位の key の名を引いて今の周の ripple/units.json に、stage items は往復ごとの事前審査の前に盤面の plan-fields.json の
+            項目ごとに引いて ripple/pass-<k>.json と最新の写し ripple.json に置く（lib の ripple）。修正案の役・直しの役・事前審査の
+            下請けの指示書がそれを貼り、修正の段は線が ripple.json を受け取る。replan では作らない
+- 事前審査の木: 事前審査の役は束ね役。支度が開いた項目（converge.open_items）ごとの下請けのファイルと、項目が 2 つ以上なら相乗りの
+            審査のファイルを今の周の plan-review-items/pass-<k>/ に書き、束ね役の頼み（AGG_HEAD）でそれを Agent で並べて起こさせる。
+            受け付けは束ね役の欄（converge.ITEMS・SYNERGY）を外し、開いた項目の全部の行・覆っていない当たりの全部の答え・全部の
+            開いた項目が clean の往復の相乗りの審査・閉じた項目だけを名指す block は相乗りの物、を確かめる（tree_gaps）。
+            修正案と直しを受けたら項目を壁打ちの控えに置き（converge.note_plan）、直しの役が閉じた項目を変えたら拒む（CLOSED_REJECT）
 - reads:    役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
-- collect:  出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file}。役の節がこの周に
+- collect:  出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file}。役の節がこの周に
             待ったまま（3 回とも拒まれた）なら、最後の拒否の理由で盤面を止めて（by works:plan）ok: false・gave_up: true。
             独立設計が 3 回とも拒まれたのは止めず、盤面の trace に設計が無いことを書く（最後の R2 が目の層で言う）
 - replan:   入力 replan が空でなく文字列 null でもなければ（ラインが同じブロックを 2 度目に include した、同じ run の中の案の直し。
@@ -57,6 +66,7 @@ import node_marker  # noqa: E402
 import planmarks  # noqa: E402
 import reads  # noqa: E402
 import replan as replan_mod  # noqa: E402  （入力の名 replan と分ける）
+import ripple  # noqa: E402  （blk-plan の lib。波及の一覧）
 import rolekit  # noqa: E402
 import structmark  # noqa: E402
 
@@ -78,6 +88,36 @@ NO_NARROW_REJECT = (f"narrows の行に狭めない案を探した結果（{gate
 NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit・info・defer など。受け付けが受けない）。案から外せ。案に入れてよい no（必ず入れる物を含む）は"
 RESOLVED_REJECT = "前の往復の block の行き先が書かれていない（下の行を全部直して出し直せ）:"
 ANSWERS_REJECT = "block への答えに誤りが在る（下の行を全部直して出し直せ）:"
+TREE_REJECT = "項目ごとの審査の答え（items・synergy）に欠けか誤りが在る（下の行を全部直して出し直せ）:"
+CLOSED_REJECT = "閉じた項目を変えた（下の行を直して出し直せ）:"
+RIPPLE_UNITS = "ripple/units.json"      # 今の周の作業ファイル（manifest の produces ripple/**）
+RIPPLE_PASS = "ripple/pass-{k}.json"
+RIPPLE_LATEST = "ripple.json"           # 最後に作った項目ごとの一覧の写し（修正の段へ線が渡す。manifest の produces）
+ITEMS_DIR = "plan-review-items/pass-{k}"   # 事前審査の下請けのファイル（manifest の produces plan-review-items/**）
+AGENT_OP = "plan_review_agents"         # 読んだ証拠の節が盤面の trace に書く、事前審査の下請けの起動の数の行
+AGG_HEAD = "## 束ね役の頼み（項目ごとの下請けを並べる。機械が貼った）"
+AGG_ASK = ("お前は束ね役。案の項目を自分で全部見ずに、下の項目ごとの下請けを Agent の道具で起こせ。下請けの呼びは 1 つのメッセージに"
+           "全部並べよ（同時に走る）。各下請けへの頼みは「<ファイル> を Read で読み、その指示に従え。返すのはそのファイルの JSON だけ」"
+           "の 1 行でよい。下請けは読むだけ（Write・Edit・Bash を使わせない。作業ツリーが変われば受け付けが拒む）。")
+AGG_MERGE = ("下請けが全部返ったら、返答を次のようにまとめよ（受け付けが確かめ、欠ければ拒む）:\n"
+             "1. 各下請けの faces・shrink を返答の faces・shrink に入れる（key・unit_keys は変えない。前の往復の block は今までどおり resolved か faces）。\n"
+             "2. items に開いた項目ごとに 1 行 {item, checked（下請けが見た事の要約）, hits（下請けの答えのまま。覆っていない当たりの全部）}。\n"
+             "   閉じた項目・保留の項目の行は入れない。")
+AGG_SYNERGY = ("3. 開いた項目の全部に block が無ければ、同じ往復の最後に相乗りの下請けを 1 つ起こす（{path}）。その faces を返答の faces に"
+               "足し、synergy に {{ran: true, keys: 相乗りが挙げた face の key, why}} を入れる。開いた項目に block が在れば相乗りは"
+               "起こさず synergy に {{ran: false, keys: [], why}}。閉じた項目を名指す block は相乗りの物だけ（keys に入れる）。")
+SUB_HEAD = ("お前は修正案の事前審査の下請け（読むだけ。Read・Grep・Glob だけを使い、Write・Edit・Bash を使わない。作業ツリーを 1 文字も"
+            "変えない）。まず指示書 {main} を Read で読め（審査の決まり・独立設計・案の全体と works の欄・返す型）。そこの束ね役の頼みは"
+            "お前への指示でない。")
+SUB_ITEM_ASK = ("お前が見るのは下の項目 {n} だけ。この項目が固まる（直しへ進めない穴が無い）まで深く見よ。ほかの項目の穴は挙げない（項目"
+                "どうしの関わりは別の下請けが見る）。覆っていない当たりの全部に、covered（この項目の範囲で覆っている。どこで）・"
+                "no_effect（影響しない。理由）・block（穴。faces に severity block で挙げる）のどれかで答えよ。返すのは JSON だけ: "
+                '{{"item": {n}, "checked": "見た事", "hits": [{{"id", "answer", "why"}}], "faces": [指示書の faces の型の行。'
+                'unit_keys はこの項目の単位の名], "shrink": [指示書の shrink の型の行]}}')
+SUB_SYNERGY_ASK = ("お前は項目どうしの関わりだけを見る（1 つの項目の中の穴は挙げない）: 同じファイル・同じ試験への食い違う変更・順番の依存・"
+                   "重複した作業・まとめられる所。穴は faces に挙げ、unit_keys に関わる項目の単位の名を全部入れよ（名指した項目だけが"
+                   "開き直す）。返すのは JSON だけ: {\"keys\": [挙げた face の key], \"why\": \"見た事と、穴が無いならその理由\", "
+                   "\"faces\": [指示書の faces の型の行]}")
 LATER_NODES = ("p2.human_gate", "p3.lane_merge")   # 役の節 2 つを戻す前に、今の周に受けていてはいけない後ろの節（戻しは後ろへ伝わらない）
 PLAN_STUCK = "修正案の行き止まり: 必ず案に入れる単位が開いていない"
 STUCK_WHY = ("受け付けの写しは開いていない単位を受けず、義務からも外さないので、案の形では閉じない。人が関所で問いの答えを直すか、"
@@ -287,6 +327,163 @@ def lib_section(b, repo) -> str:
     return text + (f"\n- 単位のファイルの引き: {why}" if why else "")
 
 
+def _read_json(path: pathlib.Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def make_ripple(board_dir, repo, stage: str, replan: str = "") -> dict:
+    """ripple の節: stage units は単位の key の名（案に入れてよい単位と必ず入れる単位）を、stage items は盤面の今の周の
+    plan-fields.json の項目ごとに波及の一覧を作って今の周に置く（items は RIPPLE_PASS と RIPPLE_LATEST）。返り {ok, ripple_file}
+    （作らなかった時は空。replan・欄の控えが無い）。一覧の中の git の誤りは一覧の error に書き、節は落とさない"""
+    if replanning(replan):
+        return {"ok": True, "ripple_file": ""}
+    b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
+    if stage == "units":
+        owed, opened, _ = plan_slots(b)
+        keys = [k for k in _names(b, NODE_OF["plan"]) if k in owed | opened]
+        path, doc = b.work(RIPPLE_UNITS), ripple.for_units(repo, keys)
+    elif stage == "items":
+        fields = planmarks.read(b)
+        if not fields:
+            return {"ok": True, "ripple_file": ""}
+        path, doc = b.work(RIPPLE_PASS.format(k=converge.pass_no(b))), ripple.build(repo, fields)
+    else:
+        raise BoardGap(f"ripple の stage {stage!r} は units か items")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(path, doc)
+    if stage == "items":
+        _write_json(b.work(RIPPLE_LATEST), doc)
+    return {"ok": True, "ripple_file": str(path)}
+
+
+def _ripple_of(b, k: int):
+    """往復 k の項目ごとの波及の一覧（無ければ None）"""
+    return _read_json(b.work(RIPPLE_PASS.format(k=k)))
+
+
+def units_ripple_part(b) -> str:
+    doc = _read_json(b.work(RIPPLE_UNITS))
+    return ripple.units_section(doc) if isinstance(doc, dict) else ""
+
+
+def _item_rows(b) -> list:
+    """今の周の案の項目（盤面の p2.fix_plan の出力の行に、項目の works の欄を重ねた物。番号は並びの順）"""
+    doc = b.output_of_round(NODE_OF["plan"], b.round)
+    plan = doc.get("plan") if isinstance(doc, dict) else None
+    fields = planmarks.read(b) or []
+    rows = plan if isinstance(plan, list) else []
+    return [{**(r if isinstance(r, dict) else {}), **(f if isinstance(f, dict) else {})}
+            for r, f in zip(rows + [{}] * (len(fields) - len(rows)), fields + [{}] * (len(rows) - len(fields)))]
+
+
+def _item_history(b, unit_keys: list) -> str:
+    """前の往復でこの項目に挙がった block と修正案の役の答え（下請けのファイルに貼る）"""
+    doc = converge.read(b)
+    mine = {str(k) for k in unit_keys}
+    lines = []
+    replies = [p.get("answers", []) for p in doc["passes"][1:]] + [doc["open"].get("answers", [])]
+    for p, answers in zip(doc["passes"], replies):
+        units = p.get("face_units") or {}
+        keys = [k for k in p.get("blocks", []) if set(units.get(k) or []) & mine or not units.get(k)]
+        for f in p.get("faces", []):
+            if f.get("key") in keys:
+                lines.append(f"- {p['pass']} 往復目の block {f['key']}: {f.get('why')}（{f.get('where')}）")
+        lines += [f"  - 修正案の役の答え {a.get('key')}: {a.get('handled')}（{a.get('how')}）" for a in answers
+                  if isinstance(a, dict) and a.get("key") in keys]
+    if not lines:
+        return ""
+    return "\n".join([f"## この項目の前の往復の block（{converge.REREVIEW_ASK}）", *lines])
+
+
+def tree_part(b, main_prompt: pathlib.Path) -> str:
+    """束ね役の頼みの節。開いた項目ごとの下請けのファイルと（項目が 2 つ以上なら）相乗りの審査のファイルを今の往復の
+    ITEMS_DIR に書き、その置き場を並べる。項目の控えが無ければ空"""
+    rows = _item_rows(b)
+    if not rows:
+        return ""
+    k = converge.pass_no(b)
+    doc = _ripple_of(b, k) or {"items": [], "overlaps": [], "error": "波及の一覧の節がこの往復の一覧を置いていない"}
+    folder = b.work(ITEMS_DIR.format(k=k))
+    folder.mkdir(parents=True, exist_ok=True)
+    plan = converge.read(b).get("plan")
+    opened = [n for n in (converge.open_items(b) if plan else range(1, len(rows) + 1)) if n <= len(rows)]
+    head = SUB_HEAD.format(main=main_prompt)
+    listed = []
+    for n in opened:
+        it = rows[n - 1]
+        body = "\n\n".join(x for x in (
+            f"# 事前審査の下請け: 項目 {n}", head, SUB_ITEM_ASK.format(n=n),
+            f"## 項目 {n} の案\n\n```json\n{json.dumps(it, ensure_ascii=False, indent=1)}\n```",
+            ripple.section(doc, n), _item_history(b, it.get("unit_keys") or [])) if x)
+        path = folder / f"item-{n}.md"
+        path.write_text(body + "\n", encoding="utf-8")
+        listed.append(f"- 項目 {n}: {path}")
+    last = {it["n"]: it for it in (converge.read(b)["passes"][-1].get("items") or [])} if converge.read(b)["passes"] else {}
+    parts = [AGG_HEAD, AGG_ASK, "開いた項目の下請けのファイル:\n" + "\n".join(listed)]
+    rest = [f"- 項目 {n}（{last[n]['state']}）" for n in range(1, len(rows) + 1) if n not in opened and n in last]
+    if rest:
+        parts.append("審査しない項目（前の往復で閉じた・保留にした）:\n" + "\n".join(rest))
+    parts.append(AGG_MERGE)
+    if len(rows) >= 2:
+        syn = folder / "synergy.md"
+        states = [f"- 項目 {n}（{(last.get(n) or {}).get('state', converge.OPEN)}）: "
+                  f"{json.dumps(it, ensure_ascii=False)}" for n, it in enumerate(rows, 1)]
+        over = "\n".join(f"- {o['at']}: 項目 {', '.join(map(str, o['items']))}" for o in doc.get("overlaps") or []) or "- 無い"
+        syn.write_text("\n\n".join([
+            "# 事前審査の下請け: 相乗りの審査", head, SUB_SYNERGY_ASK, "## 項目の全部（閉じた項目も含む）\n\n" + "\n".join(states),
+            "## 項目どうしの重なり（機械が範囲と波及の一覧から引いた）\n\n" + over]) + "\n", encoding="utf-8")
+        parts.append(AGG_SYNERGY.format(path=syn))
+    return "\n\n".join(parts)
+
+
+def tree_gaps(b, faces: list, tree: dict) -> list[str]:
+    """束ね役の欄の欠けと誤り（faces は名前に戻した物。項目の控えの無い盤面は見ない。1 項目で覆っていない当たりの無い案は
+    items を求めない）"""
+    plan = converge.read(b).get("plan")
+    if not plan:
+        return []
+    opened = converge.open_items(b)
+    doc = _ripple_of(b, converge.pass_no(b)) or {}
+    rows = tree.get(converge.ITEMS)
+    gaps = []
+    if not isinstance(rows, list) and len(plan) == 1 and opened == [1] and not ripple.uncovered(doc, 1):
+        rows = [{"item": 1, "hits": []}]   # 1 項目で覆っていない当たりの無い案は、返答の全体がその項目の答え
+    if not isinstance(rows, list):
+        gaps.append(f"items が無い（開いた項目 {'・'.join(f'項目 {n}' for n in opened)} の全部に 1 行ずつ）")
+        rows = []
+    rows = [r for r in rows if isinstance(r, dict)]
+    owners = converge.face_items(b, faces)
+    blocked = {n for f in converge.block_faces({"faces": faces}) for n in owners.get(f.get("key"), [])}
+    for n in opened:
+        mine = [r for r in rows if r.get("item") == n]
+        if len(mine) != 1:
+            gaps.append(f"items に項目 {n} の行が {len(mine)} 行ある（1 行だけ）")
+            continue
+        hits = {h["id"] for h in ripple.uncovered(doc, n)}
+        answered = [h for h in mine[0].get("hits") or [] if isinstance(h, dict)]
+        ids = [h.get("id") for h in answered]
+        gaps += [f"項目 {n} の覆っていない当たり {h} への答えが無い" for h in sorted(hits - set(ids))]
+        gaps += [f"項目 {n} の hits の {h} は波及の一覧の覆っていない当たりに無い" for h in ids if h not in hits]
+        gaps += [f"項目 {n} の hits の {h} に答えが 2 つ以上ある" for h in set(ids) if ids.count(h) > 1]
+        if any(h.get("answer") == "block" for h in answered) and n not in blocked:
+            gaps.append(f"項目 {n} の当たりに block と答えたのに、項目 {n} を名指す block の face が無い")
+    gaps += [f"items の項目 {r.get('item')} は審査しない項目（閉じた・保留・案に無い）" for r in rows if r.get("item") not in opened]
+    syn = tree.get(converge.SYNERGY)
+    keys = list(syn.get("keys") or []) if isinstance(syn, dict) else []
+    names = {f.get("key") for f in faces if isinstance(f, dict)}
+    gaps += [f"synergy の key {k} が faces に無い" for k in keys if k not in names]
+    for f in converge.block_faces({"faces": faces}):
+        if f.get("key") not in keys and not set(owners.get(f.get("key"), [])) & set(opened):
+            named = "・".join(f"項目 {n}" for n in owners.get(f.get("key"), []))
+            gaps.append(f"block {f.get('key')} は審査しない項目（{named}）だけを名指す。相乗りの審査の穴なら synergy の keys に入れよ")
+    if len(plan) >= 2 and opened and not (blocked & set(opened)) and not (isinstance(syn, dict) and syn.get("ran") is True):
+        gaps.append("開いた項目の全部に block が無い往復は、相乗りの審査を起こして synergy に {ran: true, keys, why} を入れる")
+    return gaps
+
+
 # ---------------------------------------------------------------- 節
 def replanning(replan) -> bool:
     """入力 replan が同じ run の中の案の直しの口を指すか（空でも文字列 null でもない）"""
@@ -335,8 +532,11 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "") 
         why = halt_if_stuck(b)
         if why:   # snap が先に止めて輪を飛ばすので、ここに届くのは配線の誤り。指示書を書かずに 2 で落とす（役を起こさせない）
             raise BoardGap(why)
-    part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b)) if role == "plan-review"
-                                    else (prior_part(b, role), structmark.plan_section(b.dir), plan_slots_section(b))) if x)
+    main = b.work(rolekit.prompt_name(nid))
+    part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b), tree_part(b, main))
+                                    if role == "plan-review"
+                                    else (prior_part(b, role), structmark.plan_section(b.dir), plan_slots_section(b),
+                                          units_ripple_part(b))) if x)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
     ptrs = b.pointer_rows(nid)["pointers"]
     inst = _pending(b, nid)
@@ -396,7 +596,8 @@ def with_converge(run):
     """事前審査の take の包み（依頼 231 の壁打ち）。run は take("plan-review", settle=False)。どの往復も盤面が settle なしで
     受けてから往復を記録する（again の返答も作業ツリーの比べと盤面の受け付けを通る）:
     1. 形の崩れた返答（dict でない・faces が list でない）は run に渡す（entry.take が拒み、出し直しの道に乗せる）
-    2. 壁打ちの欄 resolved を外し、前の往復の block の行き先の欠けと誤り（converge.resolved_gaps）が在れば盤面へ渡さずに拒む
+    2. 壁打ちの欄 resolved と束ね役の欄（items・synergy）を外し、前の往復の block の行き先の欠けと誤り（converge.resolved_gaps）・
+       束ね役の欄の欠けと誤り（tree_gaps。face は名前に戻して読む）が在れば盤面へ渡さずに拒む
     3. 外した返答を run に渡す。拒まれたら往復を記録せずに拒否を返す
     4. 受けたら往復を記録する（converge.record_pass。今の周の修正案・事前審査の出力、盤面の根の欄の控え、指示書を写す）。
        記録できなければ盤面を止めて BoardGap（revise_take の答えの控えと同じ）
@@ -407,9 +608,15 @@ def with_converge(run):
         if not isinstance(reply, dict) or not isinstance(reply.get("faces"), list):
             return run(board, reply, repo)
         bare, resolved = converge.split("plan-review", reply)
-        gaps = converge.resolved_gaps(entry.open_board(pathlib.Path(board)), bare["faces"], resolved)
+        bare, tree = converge.tree_split(bare)
+        b0 = entry.open_board(pathlib.Path(board))
+        named = _resolved(b0, NODE_OF["plan-review"], bare)
+        gaps = converge.resolved_gaps(b0, named["faces"], resolved)
         if gaps:
             return {"ok": False, "reason": RESOLVED_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
+        gaps = tree_gaps(b0, named["faces"], tree)
+        if gaps:
+            return {"ok": False, "reason": TREE_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
         got = run(board, bare, repo)
         if got.get("ok") is not True:
             return got
@@ -420,7 +627,9 @@ def with_converge(run):
                  planmarks.FIELDS_FILE: str(b.dir / planmarks.FIELDS_FILE),
                  rolekit.prompt_name(NODE_OF["plan-review"]): str(b.work(rolekit.prompt_name(NODE_OF["plan-review"])))}
         try:
-            row = converge.record_pass(b, bare, resolved=resolved, fence=GIVE_UP_AFTER, files=files)
+            syn = tree.get(converge.SYNERGY)
+            row = converge.record_pass(b, named, resolved=resolved, fence=GIVE_UP_AFTER, files=files,
+                                       synergy=list(syn.get("keys") or []) if isinstance(syn, dict) else [])
         except Exception as e:   # 書けない: 盤面は受けたが往復の行が無い（settle もしない）まま節を抜けさせない
             raise BoardGap(rolekit.halt_unsaved(board, converge.RECORD, e, by=STOP_BY)) from None
         if row["outcome"] == converge.AGAIN:
@@ -457,6 +666,10 @@ def with_plan_fields(run):
                 planmarks.save(board, rnd, fields, trace=b.trace)
             except Exception as e:   # 書けない・形にできない: 受けた案に欄が無いまま進ませない
                 raise BoardGap(rolekit.halt_unsaved(board, planmarks.FIELDS_FILE, e, by=STOP_BY)) from None
+            try:   # 項目ごとの壁打ちの控え（閉じた項目の hash を比べる元）
+                converge.note_plan(b, named.get("plan") or [])   # 頭で開いた盤面（使うのは周と作業ファイルの置き場だけ）
+            except Exception as e:
+                raise BoardGap(rolekit.halt_unsaved(board, converge.RECORD, e, by=STOP_BY)) from None
         return got
     return wrapped
 
@@ -481,7 +694,9 @@ def _revise_prep(board_dir) -> dict:
     if inst is None or not section:
         raise BoardGap(f"直しの役（{REVISE_ROLE}）を起こす待ちが無い: 事前審査の壁打ちの抜け方が again でないか、{nid} が待っていない")
     path = b.work(REVISE_PROMPT.format(k=converge.pass_no(b)))
-    path.write_text(rolekit.compose([HEAD["plan"].split("\n\n")[0], section, plan_slots_section(b)],
+    doc = _ripple_of(b, converge.pass_no(b) - 1)
+    path.write_text(rolekit.compose([HEAD["plan"].split("\n\n")[0], section, plan_slots_section(b),
+                                     ripple.section(doc) if isinstance(doc, dict) else ""],
                                     reject_file=rolekit.last_reject_file(b, nid)), encoding="utf-8")
     m = b.mark_launched(nid, inst.get("attempts", 1), pointers=b.pointer_rows(nid)["pointers"])
     return {"prompt_file": str(path), "attempt": m["attempt"], "out_path": m["out_path"], "node": nid,
@@ -493,17 +708,23 @@ def revise_take():
     1. 形の崩れた返答（dict でない）は修正案の口に渡す（entry.take が拒み、出し直しの道に乗せる）
     2. 答えの欄 block_answers を外し（converge.split）、返した block への答えの欠けと誤り（converge.answer_gaps）が在れば
        盤面へ渡さずに拒む（ANSWERS_REJECT と行）
-    3. 外した返答を修正案の口 take("plan", snapshot=直しの役の写し)（with_plan_fields で包んだ物）に渡す
-    4. 盤面が受けたら答えを壁打ちの控えに置く（converge.note_answers。次の往復の行へ移る）。置けなければ盤面を止めて BoardGap"""
+    3. 最後の往復で閉じた項目を変えた・消した直し（converge.closed_gaps。名前に戻して比べる）は拒む（CLOSED_REJECT と行）
+    4. 外した返答を修正案の口 take("plan", snapshot=直しの役の写し)（with_plan_fields で包んだ物）に渡す
+    5. 盤面が受けたら答えを壁打ちの控えに置く（converge.note_answers。次の往復の行へ移る）。置けなければ盤面を止めて BoardGap"""
     run = take("plan", snapshot=snapshot_name(REVISE_ROLE))
 
     def wrapped(board, reply, repo):
         if not isinstance(reply, dict):
             return run(board, reply, repo)
         bare, answers = converge.split(REVISE_ROLE, reply)
-        gaps = converge.answer_gaps(entry.open_board(pathlib.Path(board)), answers)
+        b0 = entry.open_board(pathlib.Path(board))
+        gaps = converge.answer_gaps(b0, answers)
         if gaps:
             return {"ok": False, "reason": ANSWERS_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
+        if not _plan_malformed(bare):
+            closed = converge.closed_gaps(b0, _resolved(b0, NODE_OF["plan"], bare).get("plan") or [])
+            if closed:
+                return {"ok": False, "reason": CLOSED_REJECT + "\n" + "\n".join(f"  - {g}" for g in closed)}
         got = run(board, bare, repo)
         if got.get("ok") is True:
             try:
@@ -573,7 +794,8 @@ def collect_reads(board_dir, repo, run_id: str, replan: str = "") -> dict:
     {役: reads-<役>.json} を reads-plan-block.json に書く。直しの役は今の周に書いた往復ごとの指示書（方針の文書は修正案の
     会話に在るので求めない）。出来事の節の名は READS_LOOP の輪の名で組む（include の名は core の reads.node_here が引く）。受け付けの条件にはしない。返り {ok: True, reads_file}。
     replan なら案の直しの役（直しの役は replan で起きないので数えない）の指示書について、役の名 replan-<役> で
-    reads-replan-<役>.json に、索引を replan.READS_INDEX に書く（1 回目の控えを上書きしない）"""
+    reads-replan-<役>.json に、索引を replan.READS_INDEX に書く（1 回目の控えを上書きしない）。
+    出来事が引ければ（replan でない時）、事前審査の束ね役の Agent の呼びの数と下請けのファイルの数を trace の AGENT_OP に書く"""
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     events = reads.events_for(run_id) if run_id else None
     policy = _given(b.state["inputs"].get("policy_md"))
@@ -594,6 +816,10 @@ def collect_reads(board_dir, repo, run_id: str, replan: str = "") -> dict:
         files[name] = got["reads_file"]
     out = b.work(replan_mod.READS_INDEX if again else READS_INDEX)
     _write_json(out, files)
+    if events is not None and not again:   # 束ね役が起こした下請けの数と、機械が書いた下請けのファイルの数（拒まない。測る）
+        base = b.work(ITEMS_DIR.format(k=1)).parent
+        b.trace(AGENT_OP, launched=reads.tool_count(events, reads.node_here(READS_LOOP["plan-review"], "plan-review"), "Agent"),
+                item_files=len(list(base.glob("pass-*/item-*.md"))), synergy_files=len(list(base.glob("pass-*/synergy.md"))))
     return {"ok": True, "reads_file": str(out)}
 
 
@@ -606,13 +832,15 @@ def _first_line(path: str) -> str:
 
 
 def collect(board_dir, replan: str = "") -> dict:
-    """出口。役の節がこの周に待ったままなら（3 回とも拒まれた・輪が回らなかった）最後の拒否の理由で盤面を止める。replan なら
-    core の replan.collect（役の諦めは盤面を止めない）"""
+    """出口。役の節がこの周に待ったままなら（3 回とも拒まれた・輪が回らなかった）最後の拒否の理由で盤面を止める。ripple_file は
+    最後に作った項目ごとの波及の一覧（RIPPLE_LATEST。無ければ空）。replan なら core の replan.collect（役の諦めは盤面を止めない。
+    ripple_file は空）"""
     if replanning(replan):
-        return replan_mod.collect(board_dir)
+        return {**replan_mod.collect(board_dir), "ripple_file": ""}
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
+    latest = b.work(RIPPLE_LATEST)
     out = {"ok": True, "plan_file": "", "review_file": "", "asks_human": False, "gate_kinds": [], "reads_file": "",
-           "gave_up": False, "reason_file": ""}
+           "gave_up": False, "reason_file": "", "ripple_file": str(latest) if latest.exists() else ""}
     for role, key in (("plan", "plan_file"), ("plan-review", "review_file")):
         nid = role_node(role)
         inst = b.rd["instances"].get(nid) or {}

@@ -536,10 +536,10 @@ class TestRoleNodes(unittest.TestCase):
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
                                       "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
                                       "base_rev": "$INPUTS.base_rev", "plan_session": "$INPUTS.plan_session",
-                                      "pass": "first"})
+                                      "ripple_file": "$INPUTS.ripple_file", "pass": "first"})
         # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）。plan_session は範囲の相談の
         # 控え（fixrules.ask_config）に書く物で、指示書の穴ではない
-        self.assertEqual(set(fp["with"]) - {"pass", "base_rev", "plan_session"}, set(fixrules.FIX_VALUES))
+        self.assertEqual(set(fp["with"]) - {"pass", "base_rev", "plan_session", "ripple_file"}, set(fixrules.FIX_VALUES))
         self.assertIn("variants_file", fp["output_format"]["required"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",

@@ -50,7 +50,7 @@ RUN_ID = "run-7"
 OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
             "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note", "purpose_file", "mat_go",
-            "structure_units_file"}
+            "structure_units_file", "ripple_file"}
 BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mat_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
@@ -912,6 +912,14 @@ class GoCase(EdgeBase):
         self.assertEqual(got["plan_file"], str(self.board / b.state["outputs"]["p2.fix_plan"]["file"]))
         self.assertTrue(pathlib.Path(got["plan_file"]).is_file())
         self.assertEqual(got["notes"], "clamp の上限は hi でよい")
+
+    def test_ripple_file_from_plan_block(self):
+        """at fix の ripple_file は修正案のブロックが今の周に置いた波及の一覧 ripple.json（無ければ空。修正役が範囲の相談の前に読む）"""
+        self.fixed()
+        self.assertEqual(self.edge("fix")["ripple_file"], "")
+        b = entry.open_board(self.board)
+        b.work(line_edge.RIPPLE_FILE).write_text('{"items": [], "overlaps": [], "error": ""}\n', encoding="utf-8")
+        self.assertEqual(self.edge("fix")["ripple_file"], str(b.work(line_edge.RIPPLE_FILE)))
 
     def test_plan_file_empty_when_plan_na(self):
         """直す物の無い判定（p2.fix_plan が条件で na）→ plan_file は空。go は盤面の ready のまま（p3.fix は機械の空の返答を

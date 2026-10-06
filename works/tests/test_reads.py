@@ -172,6 +172,14 @@ class CollectTest(BoardCase):
                ev(PLAN, 7), "壊れた行"]
         self.assertEqual(reads._read_paths(evs, PLAN), {os.path.realpath("/a")})
 
+    def test_tool_count_by_node(self):
+        """節の tool_called の数（事前審査の束ね役が起こした下請けの Agent の呼びを数える。線の木の段 1）"""
+        def ev(step, tool):
+            return {"event_type": "tool_called", "step_name": step, "data": {"tool_name": tool, "tool_input": {}}}
+        evs = [ev(PLAN, "Agent"), ev("rounds." + PLAN, "Agent"), ev(PLAN, "Read"), ev(FIX, "Agent"), "壊れた行"]
+        self.assertEqual(reads.tool_count(evs, PLAN, "Agent"), 2)
+        self.assertEqual(reads.tool_count(None, PLAN, "Agent"), 0)
+
     def test_not_an_acceptance_condition(self):
         must = [self.doc("x.md"), self.doc("y.md")]
         with mock.patch.object(reads, "EVENTS_VERIFIED", True):

@@ -70,6 +70,7 @@ from engine.util import Reject, dump, safe_name  # noqa: E402
 import accept  # noqa: E402
 import answer as _answer  # noqa: E402
 import conflict  # noqa: E402
+import converge  # noqa: E402
 import entry  # noqa: E402
 import gatemarks  # noqa: E402
 import leftovers  # noqa: E402
@@ -455,6 +456,7 @@ def _take(board_dir: pathlib.Path, role: str, reply, repo) -> dict:
             bare, marks = gatemarks.split(planmarks.NODE, {"plan": [got]})
             row["new"], row["new_marks"] = bare["plan"][0], marks[0]
     else:
+        reply = converge.drop_fields(reply)   # 同じ役の型の壁打ちと束ね役の任意の欄（案の直しは写しの型で受ける）
         errs = _type_lines(reply, REVIEW_GRAPH_NODE)
         if errs:
             return {"ok": False, "reason": REVIEW_REJECT + "\n" + "\n".join(f"  - {e}" for e in errs)}

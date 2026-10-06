@@ -81,6 +81,7 @@ h-entry:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 pr-checking__pr-snap:
   ok: true
   snapshot_file: board/r1/pr-snapshot.json
@@ -182,6 +183,7 @@ h-judge:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 purposing__intake: {}
 purpose:
   purpose_text: stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞い（算術平均・上限を超えた値は上限に収める）に直し、test_stats.py の赤 2 件を緑にする
@@ -224,6 +226,7 @@ h-mat:
   purpose_file: board/out/r1/p0.purpose.json
   mat_go: true
   structure_units_file: ''
+  ripple_file: ''
 gathering__mat-route:
   ok: true
   stopped: false
@@ -678,6 +681,7 @@ h-plan:
   purpose_file: ''
   mat_go: false
   structure_units_file: board/r1/structure-units.json
+  ripple_file: ''
 structuring__stage-a:
   structure_file: structure/structure.json
   design_file: structure/design.jsonl
@@ -741,6 +745,9 @@ planning__plan-snap:
   ok: true
   go: true
   snapshot_file: board/r1/plan-snapshot.json
+planning__plan-ripple:
+  ok: true
+  ripple_file: board/r1/ripple/units.json
 plan-prep:
   prompt_file: board/r1/prompt-p2.fix_plan.md
   attempt: 1
@@ -780,6 +787,9 @@ plan-accept:
   asking: false
   halted: false
   out_file: out/r1/p2.fix_plan.json
+review-ripple:
+  ok: true
+  ripple_file: board/r1/ripple/pass-1.json
 plan-revise-snap:
   ok: true
   go: false
@@ -871,6 +881,7 @@ planning__collect:
   reads_file: board/r1/reads-plan-block.json
   gave_up: false
   reason_file: ''
+  ripple_file: board/r1/ripple.json
 h-gate:
   ok: true
   stop: false
@@ -895,6 +906,7 @@ h-gate:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 h-fix:
   ok: true
   stop: false
@@ -919,6 +931,7 @@ h-fix:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 fixing__ignored-before:
   ok: true
   count: 0
@@ -1189,6 +1202,7 @@ h-replan:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 replanning__r2-design-snap:
   ok: true
   go: true
@@ -1197,6 +1211,9 @@ replanning__plan-snap:
   ok: true
   go: true
   snapshot_file: board/r1/plan-snapshot.json
+replanning__plan-ripple:
+  ok: true
+  ripple_file: ''
 replanning__plan-reads:
   ok: true
   reads_file: board/r1/reads-plan-block.json
@@ -1209,6 +1226,7 @@ replanning__collect:
   reads_file: board/r1/reads-plan-block.json
   gave_up: false
   reason_file: ''
+  ripple_file: ''
 h-regate:
   ok: true
   stop: false
@@ -1233,6 +1251,7 @@ h-regate:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 h-refit:
   ok: true
   stop: false
@@ -1257,6 +1276,7 @@ h-refit:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 refitting__ignored-before:
   ok: true
   count: 0
@@ -1319,6 +1339,7 @@ h-rejudge:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 rejudging__rj-snap:
   ok: true
   snapshot_file: board/r1/rejudge-snapshot.json
@@ -1416,6 +1437,7 @@ h-mid:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 h-review:
   ok: true
   stop: false
@@ -1440,6 +1462,7 @@ h-review:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 lensing__lens-route:
   ok: true
   why: ''
@@ -1514,6 +1537,7 @@ h-refix:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 refixing__refix-prep:
   ok: true
   owed: 1
@@ -1625,6 +1649,7 @@ h-tests:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 testing__run:
   ok: true
   green: true
@@ -1659,6 +1684,7 @@ h-look:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 h-final:
   ok: true
   stop: false
@@ -1683,6 +1709,7 @@ h-final:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 h-eyes:
   ok: true
   stop: false
@@ -1707,6 +1734,7 @@ h-eyes:
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
+  ripple_file: ''
 eyeing__eyes-enter:
   ok: true
   round: 1

@@ -234,12 +234,14 @@ class LineShapeCase(unittest.TestCase):
     def test_nested_loop_stub_keys_are_bare(self):
         """入れ子の輪（blk-plan の壁打ちの輪 converge-loop の中の輪）の節も名前空間なしの鍵。輪そのものは stub を取らない（測り 3）"""
         keys = set(stub_keys())
-        self.assertLessEqual({"plan-revise-snap", "plan-revise-prep", "plan-revise", "plan-revise-accept", "plan-review-snap",
-                              "plan-review", "converge-check"}, keys)
+        self.assertLessEqual({"plan-revise-snap", "plan-revise-prep", "plan-revise", "plan-revise-accept", "review-ripple",
+                              "plan-review-snap", "plan-review", "converge-check"}, keys)
         self.assertEqual({"planning__plan-review-snap", "planning__converge-check", "converge-loop", "plan-revise-loop",
-                          "planning__converge-loop", "replanning__plan-review-snap", "replanning__converge-check"} & keys, set())
-        self.assertLessEqual({"planning__plan-snap", "planning__plan-reads", "planning__collect"}, keys)
-        self.assertLessEqual({"replanning__plan-snap", "replanning__plan-reads", "replanning__collect"}, keys)   # 2 度目の include の頭
+                          "planning__converge-loop", "replanning__plan-review-snap", "replanning__converge-check",
+                          "planning__review-ripple", "replanning__review-ripple"} & keys, set())
+        self.assertLessEqual({"planning__plan-snap", "planning__plan-ripple", "planning__plan-reads", "planning__collect"}, keys)
+        self.assertLessEqual({"replanning__plan-snap", "replanning__plan-ripple", "replanning__plan-reads", "replanning__collect"},
+                             keys)   # 2 度目の include の頭
 
     def test_role_marks_unique(self):
         """役の節（AI）は全部 output_format に印 works-node: <名> を持ち、印の名はブロックをまたいで一意（包みの会話の置き場が
@@ -354,12 +356,12 @@ class LineShapeCase(unittest.TestCase):
 
     def test_refitting_passes_only_scope(self):
         """2 回目の修正の段（include refitting）の with: は 1 回目（fixing）と同じ鍵で、違いは渡す値（判定・未直しの単位・案・
-        覚え書き）だけ。2 回の段を分けるのは include の名（scope。依頼 239）で、回の印 pass_tag は渡さない。
+        覚え書き・波及の一覧の置き場）だけ。2 回の段を分けるのは include の名（scope。依頼 239）で、回の印 pass_tag は渡さない。
         単位ごとの深さ unit_depths は 1 回目だけ（2 回目は案の直しの後で全部の単位が標準へ上がる。DepthWiringCase）"""
         fit, fixing = node("refitting"), node("fixing")
         self.assertNotIn("pass_tag", fit["with"])
         self.assertEqual(set(fit["with"]), set(fixing["with"]) - {"unit_depths"})
-        passed = ("open_units", "plan_file", "notes_file", "judgment_file")
+        passed = ("open_units", "plan_file", "notes_file", "judgment_file", "ripple_file")
         self.assertEqual({k for k in fit["with"] if fit["with"][k] != fixing["with"][k]}, set(passed))
         for k in passed:
             self.assertEqual(fit["with"][k], f"$h-refit.output.{k}", k)

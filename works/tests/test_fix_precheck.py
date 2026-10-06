@@ -23,6 +23,7 @@ import adapter  # noqa: E402
 import askplan  # noqa: E402
 import conflict  # noqa: E402
 import entry  # noqa: E402
+import fixrules  # noqa: E402
 import planmarks  # noqa: E402
 from test_blk_fix import FIXED, load, run_script  # noqa: E402
 
@@ -119,8 +120,16 @@ class AskPrepCase(test_blk_fix.BoardCase):
         self.assertEqual(set(doc["items"]), {self.item_no()})
         self.assertEqual(doc["items"][self.item_no()]["allowed_paths"], ["stats.py"])
 
+    def test_ripple_named_with_ask(self):
+        """修正案のブロックの波及の一覧（入力 ripple_file）は範囲の相談の節に名指す（範囲の外の当たりは先に相談する）"""
+        ripple = self.tmp / "ripple.json"
+        ripple.write_text('{"items": [], "overlaps": [], "error": ""}\n', encoding="utf-8")
+        text = self.prep(INPUTS_PLAN_SESSION="plan", INPUTS_RIPPLE_FILE=str(ripple))
+        self.assertIn(fixrules.RIPPLE_LINE.format(path=ripple), text)
+
     def test_no_section_without_plan_session(self):
         text = self.prep()
+        self.assertNotIn(fixrules.RIPPLE_LINE.split("{")[0], text)
         self.assertNotIn("askplan.py", text)
         self.assertFalse((askplan.place_of(self.board) / askplan.CONFIG).exists())
 
