@@ -614,6 +614,12 @@ class RefixToTestsCase(LineBase):
     """手直しの後（1 回・2 回・手直しなし・判定への異議の再審つき）に h-tests が go True になり、最後のテスト（blk-tests の final）が
     ラインの test_cmd で走り、周が締まって最後の関所・独立の目・報告まで届く。報告に「最後のテスト: 走っていない」が出ない"""
 
+    def run_line(self, **kw):
+        # 種の単位は小さく test_cmd も在るので、自動の深さでは軽量（差分の審査と独立の目を省く）になる。ここは標準の道
+        # （手直しと目まで全部回る今の振る舞い）を見るので、深さを標準に固定する（計画 2026-10-06-variable-depth）
+        kw["inputs"] = {"thickness": "標準", **(kw.get("inputs") or {})}
+        return super().run_line(**kw)
+
     def reached_tests(self, got):
         rep_text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
         self.order_ok(got["trail"])
