@@ -13,6 +13,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -642,7 +643,7 @@ class HeadCase(ReportBase):
         self.assertIn("clean が消したファイル: 読めない（", h[H1])
         self.assertIn("レンズ: 読めない（", h[H1])
         self.assertTrue(any("レンズの控えが読めない" in x["text"] for x in json.loads(
-            pathlib.Path(self.build()[0]["next_request_file"]).read_text(encoding="utf-8"))))
+            pathlib.Path(self.build()[0]["next_request_file"]).read_text(encoding="utf-8"))["findings"]))
 
     def test_head_parts_callable(self):
         """head_reads・head_where・head_cost を盤面だけで呼べ、盤面の全部のファイルの sha が変わらない（線 B が呼ぶ）"""
@@ -787,7 +788,7 @@ class HeadCase(ReportBase):
         out, _, h = self.build()
         self.assertEqual(out["outcome"], "stopped_by_line")
         self.assertIn("再審の会話を確かめられずに止めた", h[H1])
-        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
+        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))["findings"]
         self.assertIn(ODD, [i["text"] for i in items])
 
     def test_premises_claims_hypothesis_head(self):
@@ -929,7 +930,7 @@ class NextRequestCase(ReportBase):
         repo, _ = self.declared_board()
         self.to_end(repo)
         out, _, h = self.build(tests=RED)
-        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
+        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))["findings"]
         self.assertGreaterEqual(len(items), 3)
         self.assertTrue(any("赤" in i["text"] for i in items))
         with tempfile.TemporaryDirectory(dir=linekit.work_home()) as d:
@@ -962,7 +963,7 @@ class NextRequestCase(ReportBase):
         self.assertIn(ODD_KEY, keys)
         out, _, _ = self.build()
         raw = pathlib.Path(out["next_request_file"]).read_bytes()
-        items = json.loads(raw.decode("utf-8"))
+        items = json.loads(raw.decode("utf-8"))["findings"]
         self.assertTrue(any(ODD_KEY in i["text"] for i in items))
         self.assertIn(json.dumps(ODD_KEY, ensure_ascii=False)[1:-1].encode("utf-8"), raw)
 
@@ -976,7 +977,7 @@ class FinalGateAnswerNextRequestCase(ReportBase):
         if answer_text is not None:
             b.work(report.FINAL_GATE_ANSWER).write_text(answer_text, encoding="utf-8")
         out, _, h = self.build()
-        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
+        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))["findings"]
         question = b.state["pending_human"]["question"]
         return [i for i in items if i["where"].startswith("人の関所")], question, h
 
@@ -1224,6 +1225,87 @@ class ReportShCase(ReportBase):
                 self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
                 self.assertTrue(r.stderr.strip())
 
+
+# ---------------------------------------------------------------- 前の run の落ちた理由（prior_failures）
+R2_ROW = {"where": report.EYES_WHERE + " R2", "text": "R2 が redesign-needed: 独立設計と構造が合わない"}
+
+
+def write_last(root: pathlib.Path, rows: dict) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "accept-last.json").write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+
+
+class PriorFailuresUnitCase(unittest.TestCase):
+    """盤面の根と include の scope の根の accept-last.json から、最後まで通らなかった受け付けだけを集める（盤面・git を使わない）"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.board = pathlib.Path(self._tmp.name) / "board"
+        self.board.mkdir()
+        self.addCleanup(self._tmp.cleanup)
+        self.b = types.SimpleNamespace(dir=self.board, round=1)
+
+    def test_only_last_not_ok_rows_from_every_scope_root(self):
+        rf = self.board / "reject-take_p2_diagnose-3.txt"
+        rf.write_text("型に合わない:\n  units が無い", encoding="utf-8")
+        write_last(self.board, {"take_p2_diagnose": {"ok": False, "reason_file": str(rf), "reason": "古い写し", "at": "t"},
+                                "take_p0_premises": {"ok": True, "reason_file": "", "reason": "", "at": "t"}})
+        write_last(self.board / "fixing", {"accept_fix": {"ok": False, "reason_file": "", "reason": "テストが赤", "at": "t"}})
+        write_last(self.board / "refitting", {"accept_fix": {"ok": True, "reason_file": "", "reason": "", "at": "t"}})
+        got = report.prior_failures(self.b)
+        self.assertEqual(got, [{"where": "受け付け take_p2_diagnose", "text": "型に合わない: units が無い"},
+                               {"where": "受け付け accept_fix（fixing）", "text": "テストが赤"}])
+
+    def test_r2_redesign_rides_only_on_prior_failures(self):
+        other = {"where": "別の所", "text": "別の行"}
+        got = report.prior_failures(self.b, left=[other, R2_ROW,
+                                                  {"where": report.VALIDATOR_WHERE, "text": R2_ROW["text"]}])
+        self.assertEqual(got, [R2_ROW])
+
+    def test_unreadable_accept_last_is_a_row(self):
+        (self.board / "fixing").mkdir()
+        (self.board / "fixing" / "accept-last.json").write_text("{", encoding="utf-8")
+        got = report.prior_failures(self.b)
+        self.assertEqual(len(got), 1)
+        self.assertIn("読めない", got[0]["text"])
+
+
+class PriorFailuresBuildCase(ReportBase):
+    """build が prior-failures.json と {findings, prior_failures} の next-request.json を書き、報告に 1 節を出す"""
+    build_with = ResidueCase.build_with
+    build_eyeing = ResidueCase.build_eyeing
+
+    def test_build_writes_prior_failures_and_object_request(self):
+        self.full()
+        write_last(self.board, {"take_p2_fix_plan": {"ok": False, "reason_file": "", "reason": "案の欄が欠ける", "at": "t"}})
+        eyeing = {"ok": True, "reason": "", "reviews": {**EYES_PASS, "R2": {"status": "redesign-needed",
+                                                                             "reason": "独立設計と構造が合わない"}}}
+        out, text, h = self.build_eyeing(eyeing)
+        doc = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(set(doc), {"findings", "prior_failures"})
+        from engine.schema import validate_schema
+        for name, got in (("next-request", doc), ("prior-failures", doc["prior_failures"])):
+            schema = json.loads((ROOT / "darkfactory" / "schemas" / f"{name}.schema.json").read_text(encoding="utf-8"))
+            self.assertEqual(validate_schema(got, schema), [], name)
+        want = [{"where": "受け付け take_p2_fix_plan", "text": "案の欄が欠ける"}, R2_ROW]
+        self.assertEqual(doc["prior_failures"], want)
+        self.assertFalse(any(i["text"].startswith("R2 が redesign-needed") for i in doc["findings"]), doc["findings"])
+        self.assertEqual(json.loads((self.board / report.PRIOR_FAILURES_FILE).read_text(encoding="utf-8")), want)
+        self.assertEqual(out["prior_failures_file"], str(self.board / report.PRIOR_FAILURES_FILE))
+        sec = h[report.PRIOR_HEADING]
+        self.assertIn("2 件", sec)
+        self.assertIn("案の欄が欠ける", sec)
+        # 書いた next-request.json は依頼の型の正本が読める（次の run の依頼にそのまま使える）
+        import ghreads
+        parts = ghreads.request_parts(doc)
+        self.assertEqual((parts["findings"], parts["prior_failures"]), (doc["findings"], want))
+
+    def test_no_failures_still_object(self):
+        self.full()
+        out, _, h = self.build_eyeing({"ok": True, "reason": "", "reviews": EYES_PASS})
+        doc = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(doc["prior_failures"], [])
+        self.assertIn("0 件", h[report.PRIOR_HEADING])
 
 if __name__ == "__main__":
     unittest.main()
