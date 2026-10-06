@@ -111,7 +111,7 @@ from engine import pointers  # noqa: E402  （recount が import した board �
 
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", "INPUTS_TDD_SUITE")
 GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
-TESTS_OP = impact.ACCEPT_TRACE_OP   # 受け付けが選んだ試験を走らせた盤面の trace の行（ci_left を最後の関所が読む）
+TESTS_OP = impact.ACCEPT_TRACE_OP   # 受け付けが選んだ試験を走らせた盤面の trace の行（ci_left・final_left を最後の関所が読む）
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
 NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（開いた単位と、関所で答えた問いの出どころ・depends のほかは直さない。"
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
@@ -645,7 +645,8 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     def traced():   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
         tb = entry.open_board(board, allow_halted=True)
         writes.trace(tb, recount.ROLE, wrote)
-        tb.trace(TESTS_OP, node=recount.ROLE, note=tests_note, ci_left=tddloop.ci_left(state))
+        tb.trace(TESTS_OP, node=recount.ROLE, note=tests_note, ci_left=tddloop.ci_left(state),
+                 final_left=tddloop.final_left(state))
         if scope_note is not None:
             tb.trace(planscope.SCOPE_OP, node=recount.ROLE, **scope_note)
         gaps = fixgates.unchecked(board, pass_=pass_, attempt=attempt)
