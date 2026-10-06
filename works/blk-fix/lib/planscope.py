@@ -13,7 +13,9 @@
   だけを見る（止めた・外した単位の分の欠けで、残った単位を巻き添えに止めない）。範囲の外れと余分（Extra）は見る項目の全部で見る
 - 凍ったファイル（loop）: TDD の輪が凍らせたファイルと凍った時の中身。欠けの証拠は版からの差分の全部で見て、修正役に問う外れと
   余分は凍った後に修正役が変えた分だけで見る（輪が書いた物を修正役のせいにしない・凍った後に足したテストを見逃さない）
-- permits: テストの変更の許し（conflict.test_permits の修正案の rewrite_tests）と、裁定の後なら直す裁定（conflict.ruled_paths。
+- 合意: 範囲の相談で修正案を書いた役が許したパス（conflict.agreed）。その項目の allowed_paths に足す（with_agreed）。
+  out_of_scope には勝たない
+- permits: テストの変更の許し（conflict.test_permits の修正案の rewrite_tests と範囲の相談の合意のテスト）と、裁定の後なら直す裁定（conflict.ruled_paths。
   fix_code_as・fix_test_scope・replace_query）の limits のパス。run の全部の項目の範囲の和に入る（裁定の単位の項目だけに
   結ばない）。裁定で範囲が広がるのはこのパスだけで、裁定を受けた単位の全部を外さない（外せば fix_code_as が案の外の変更を
   通す）。out_of_scope には勝たない（案が外したパスが要るのは案の項目の誤りで、fix_plan_item の道）
@@ -364,18 +366,35 @@ def _now_text(repo: pathlib.Path, path: str) -> str | None:
         return None   # 消した・読めない
 
 
+def with_agreed(items: list[dict], agreed) -> list[dict]:
+    """範囲の相談の合意（conflict.agreed の行 {item, granted_paths}）のパスを、その番号の項目の allowed_paths の後ろに足した写し
+    （元の項目は変えない。ほかの項目と out_of_scope は変えない。テストの書き換えの許しは conflict.test_permits が持つ）"""
+    more: dict = {}
+    for r in agreed or []:
+        for p in r.get("granted_paths") or []:
+            if isinstance(p, str) and p and p not in more.setdefault(str(r.get("item")), []):
+                more[str(r.get("item"))].append(p)
+    out = []
+    for it in items:
+        add = [p for p in more.get(str(it.get("item")), []) if p not in _globs(it)]
+        out.append({**it, "allowed_paths": [*(it.get("allowed_paths") or []), *add]} if add else it)
+    return out
+
+
 def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *, pass_: str, loop_tree: str | None = None,
-          frozen=()) -> tuple[list[str], dict]:
+          frozen=(), agreed=None) -> tuple[list[str], dict]:
     """盤面 b の承認済みの修正案の項目（planmarks.approved_items）と、版 rev からの変わったパス paths の版と今の中身を problems に
     渡す。テストの変更の許し（conflict.test_permits）を先に引く（欄の控えが凍結の印と食い違えば、そこで盤面を止めて BoardGap）。
     裁定の後（pass_ が ruled）は直す裁定（conflict.ruled_paths）のパスを permits に足す（裁定を受けた単位の全部は外さない）。
     項目が無い・範囲の欄の無い控えなら照らさず ([], {"checked": False, "why": 理由})。平の run（fixshape.plain。比べの基準で、修正の段に修正案の欄を渡さない。
     事後の関門の束も欄を読まない）も照らさない（NO_PLAIN）。項目と控えの欄の数が違えば conflict.fields_broken（盤面を止めて BoardGap）。
-    loop_tree（TDD の輪が凍らせた時の木）と frozen（凍らせたファイル）を渡せば、凍った時の中身を problems の loop に渡す"""
+    loop_tree（TDD の輪が凍らせた時の木）と frozen（凍らせたファイル）を渡せば、凍った時の中身を problems の loop に渡す。
+    範囲の相談の合意（conflict.agreed。agreed を渡せばその行）のパスをその項目の範囲に足す（with_agreed）"""
     if fixshape.plain(b.dir):
         return [], {"checked": False, "why": NO_PLAIN}
     permits = []
-    for p in conflict.test_permits(b, rulings=False):
+    agreed = conflict.agreed(b) if agreed is None else agreed
+    for p in conflict.test_permits(b, rulings=False, agreed_rows=agreed):
         got = conflict.parse_limit(p["limit"])
         if got and got[0] not in permits:
             permits.append(got[0])
@@ -389,6 +408,7 @@ def check(rows: list[dict], b, repo: pathlib.Path, rev: str, paths: list[str], *
         return [], {"checked": False, "why": NO_PLAN}
     if not planmarks.scoped(items):
         return [], {"checked": False, "why": NO_SCOPE}
+    items = with_agreed(items, agreed)
     changes = {p: (_base_text(repo, rev, p), _now_text(repo, p)) for p in paths}
     loop = {p: _base_text(repo, loop_tree, p) for p in paths if p in set(frozen)} if loop_tree else {}
     return problems(items, rows, changes, permits=tuple(permits), loop=loop)

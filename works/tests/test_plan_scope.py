@@ -94,6 +94,19 @@ class ProblemsCase(unittest.TestCase):
             got, _ = planscope.problems([it], rows, ch, permits=("legacy.py",))
             self.assertTrue(any("out_of_scope" in p and "legacy.py" in p for p in got), (rows, got))
 
+    def test_agreed_paths_join_their_item_only(self):
+        """範囲の相談の合意（conflict.agreed の行）は、その項目の allowed_paths に足す（ほかの項目・out_of_scope は変えない）"""
+        other = item(item=2, unit_keys=[CLAMP], allowed_paths=["clamp.py"])
+        agreed = [{"item": "1", "granted_paths": ["CHANGELOG.md"], "granted_tests": ["test_stats.py:3"]}]
+        got = planscope.with_agreed([ITEM, other], agreed)
+        self.assertEqual(got[0]["allowed_paths"], ["stats.py", "CHANGELOG.md"])
+        self.assertEqual(got[1]["allowed_paths"], ["clamp.py"])
+        self.assertEqual(ITEM["allowed_paths"], ["stats.py"], "元の項目は変えない")
+        ch = {**STATS, "CHANGELOG.md": ("a\n", "b\n")}
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "CHANGELOG.md"]}]
+        self.assertTrue(planscope.problems([ITEM], rows, ch)[0], "合意の無い時は拒む")
+        self.assertEqual(planscope.problems(got, rows, ch)[0], [])
+
     def test_permit_paths_are_in_scope(self):
         ch = {**STATS, "test_stats.py": ("a\n", "b\n")}
         self.assertEqual(planscope.problems([ITEM], [ROW], ch, permits=("test_stats.py",))[0], [])

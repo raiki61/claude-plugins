@@ -666,3 +666,34 @@ class HeadBaselineCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlanAskLinesCase(unittest.TestCase):
+    """範囲の相談（trace の conflict.ASKED_OP の行）の報告の行: 答えごとの数と、許した範囲・断った・聞けなかった理由。無ければ行なし"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.b = fake_board(self._tmp.name)
+
+    def put(self, *rows):
+        import conflict
+        with open(self.b.dir / "trace.jsonl", "a", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps({"op": conflict.ASKED_OP, **r}, ensure_ascii=False) + "\n")
+
+    def test_no_rows_no_lines(self):
+        self.assertEqual(report.plan_ask_lines(self.b), [])
+
+    def test_counts_and_grants(self):
+        self.put({"id": 1, "item": "3", "status": "answered", "decision": "allow", "granted_paths": ["works/CHANGELOG.md"],
+                  "granted_tests": ["works/tests/test_report.py:12"], "reason": "直しに伴う記録の更新"},
+                 {"id": 2, "item": "1", "status": "answered", "decision": "deny", "reason": "範囲の中で直せる"},
+                 {"id": 3, "item": "2", "status": "unavailable", "why_unavailable": "認証が無い"})
+        lines = report.plan_ask_lines(self.b)
+        self.assertIn("3 回", lines[0])
+        for w in ("allow 1", "deny 1", "unavailable 1"):
+            self.assertIn(w, lines[0])
+        text = "\n".join(lines)
+        for w in ("works/CHANGELOG.md", "works/tests/test_report.py:12", "範囲の中で直せる", "認証が無い"):
+            self.assertIn(w, text)

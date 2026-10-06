@@ -549,6 +549,7 @@ nodes:
       tdd_suite: $INPUTS.tdd_suite
       test_cmd: $start.output.test_cmd
       unit_depths: $h-depth.output.unit_depths   # 軽量の単位は TDD の輪の緑の後の test_cmd を省く（最後のテストが木の全部で走らせる）
+      plan_session: plan   # 範囲の相談の相手: blk-plan の役の節の印 works-node: plan（修正案を書いた会話。案の直しの後はその会話）
 
   # 案の直しを回すか（依頼 226。修正の段で裁定役が fix_plan_item と裁いた項目を束ねる。1 run に 1 回。replan.material）
   - id: h-replan
@@ -727,6 +728,7 @@ nodes:
       policy_path: $start.output.policy_path
       tdd_suite: $INPUTS.tdd_suite
       test_cmd: $start.output.test_cmd
+      plan_session: plan   # 範囲の相談の相手: blk-plan の役の節の印 works-node: plan（修正案を書いた会話。案の直しの後はその会話）
 
   # 修正役が判定に異議を出した周の再審を回すか（盤面が p2.rejudge を待つ時。判定役の会話が無ければ止める）
   - id: h-rejudge

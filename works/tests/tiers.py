@@ -57,6 +57,7 @@ FAST = frozenset({
     "test_node_marker",     # 線 A: 印の文字列を組んで読むだけ
     "test_depth",           # 単位ごとの深さ（darkfactory/lib/depth.py）: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_fixshape",        # 修正の形の読み口: 一時の置き場の JSON を読み書きするだけ（盤面・git・子のプロセスなし）
+    "test_ask_plan",        # 範囲の相談（blk-fix/lib/askplan.py）: 一時の置き場のファイルと偽の claude の python3（試験ごとに 1〜2 本。git・盤面なし）
     "test_fix_rules",       # R65: 修正の決まりの正本と 2 つの指示書の組み立てを、関数を直に呼んで見る（盤面・git・子のプロセスなし）
     "test_conflict_kinds",  # 申し出の種類と裁定 fix_plan_item: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_fix_units",       # 修正の受け付けの閉鎖の表と裁定の出どころ: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
@@ -115,6 +116,7 @@ HEAVY = frozenset({
     "test_blk_eyes",        # 独立の目（R11）: golden の盤面の再生（boardreplay）・一時の pack の写し・スクリプトを子で起こす
     "test_blk_ci",          # 線 A: 試験ごとの種の git（linekit.seed_repo）・スクリプトを子で起こす
     "test_blk_fix",         # 線 A Task 12: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
+    "test_fix_precheck",    # 修正役の事前の確かめと受け付けの相談の写し: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作る・factchecks.py と accept.py を子で起こす
     "test_fix_accept_all",  # 修正の受け付けが確かめを全部回して並べる: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作る
     "test_blk_plan",        # P1 Task 25: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
     "test_fixture",         # 固定材料: test_blk_fix の BoardCase で試験ごとに種の git と盤面（entry.start）を作り、写して別の置き場へ取り込む

@@ -81,7 +81,6 @@ done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_
 止める単位が無いのに写しが拒めば（義務の全部を止めた後も返答の欄が写しの型・規則に合わない。run 222f の型）、役の返答の代わりに
 機械の空の返答を渡す（hand_empty。盤面を止めない）
 """
-import copy
 import json
 import sys
 from pathlib import Path
@@ -107,7 +106,10 @@ import parking  # noqa: E402   最後の回に止める単位を選ぶ（blk-fix
 import script_io  # noqa: E402   盤面の今の scope の根（.shared/core）
 import writes  # noqa: E402   書き込みの出どころの突き合わせ（.shared/core）
 from leftovers import git  # noqa: E402
-from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
+import askplan  # noqa: E402   範囲の相談の記録を盤面へ写す（blk-fix/lib）
+from factchecks import (  # noqa: E402   事実の確かめの口（blk-fix/lib。修正役の事前の確かめと同じ口）
+    check_frozen, check_plan_scope, check_writes, fix_unit_keys, named_reply, resolved_changes,
+    declared_files)
 
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS", "INPUTS_TDD_SUITE")
 GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
@@ -218,43 +220,6 @@ def check_pack_copy(reply: dict, board: Path, repo: Path) -> str:
     return PACK_COPY + " / ".join(parts) if parts else ""
 
 
-def named_reply(reply: dict, board: Path):
-    """盤面が p3.fix を待っていれば、返答の番号（changes・not_done の unit_key と plan_faces の key）を盤面の控えで名前に戻した写し
-    （resolved_changes と同じ engine の pointers.resolve の 1 本）。待っていない・番号を名前に戻せないときは None（盤面に渡して
-    盤面に拒ませる）"""
-    b = entry.open_board(board)
-    inst = b.rd["instances"].get(recount.FIX_NODE)
-    if not inst or inst["status"] != "pending" or not inst.get("launched_at") or not b.deps_met(recount.FIX_NODE):
-        return None
-    out = copy.deepcopy(reply)
-    if pointers.resolve(out, b.nodes[recount.FIX_NODE].get("pointers"), inst.get("pointers")):
-        return None
-    return out
-
-
-def resolved_changes(reply: dict, board: Path):
-    """盤面が p3.fix を待っていれば、changes の行（番号の unit_key を盤面の控えで名前に戻した写し）。待っていない・changes の形が
-    崩れている・番号を名前に戻せないときは None。番号を名前に戻す仕事は engine の pointers.resolve の 1 本で、ここに別の戻しを書かない"""
-    rows = reply.get("changes") if isinstance(reply, dict) else None
-    if not isinstance(rows, list) or not all(isinstance(c, dict) for c in rows):
-        return None
-    out = named_reply({"changes": rows}, board)
-    return None if out is None else out["changes"]
-
-
-def fix_unit_keys(reply: dict, board: Path):
-    """盤面が p3.fix を待っていれば (changes[].unit_key を名前に戻した列（changes と同じ順）, 直す義務の key の集合,
-    直す義務から外れた単位 {key: 理由})（conflict.fix_duty）。待っていない・changes の形が崩れている・番号を名前に戻せない
-    ときは None（検査せず entry.take に任せる）"""
-    rows = resolved_changes(reply, board)
-    if rows is None:
-        return None
-    keys = [c.get("unit_key") for c in rows]
-    if not all(isinstance(k, str) for k in keys):
-        return None
-    return (keys, *conflict.fix_duty(entry.open_board(board)))
-
-
 def check_unique_units(keys: list) -> list:
     """2 度以上現れる unit_key（現れた順）"""
     seen, dup = set(), []
@@ -355,97 +320,9 @@ def _put_parked(path: Path, reply: dict) -> None:
     os.replace(tmp, path)
 
 
-def check_writes(reply: dict, board: Path, base_rev: str, repo: Path, state: str) -> dict:
-    """書き込みの出どころ（writes.check。欄 bash_writes を外した返答は reply に）。実行器が作ったファイルは run の全部の輪の物を
-    外す（tddloop.suite_made_all）。1 回目に受け付けた返答の控えの bash_writes（conflict.held_writes）を役の申告に足す（役の欄の
-    形が崩れていれば足さずに形の拒否に任せる）。盤面は書かない（申告の記録は writes.check が足す）"""
-    made = set(tddloop.suite_made(state)) | tddloop.suite_made_all(board)
-    b = entry.open_board(board)
-    rev = writes.base_rev(b, base_rev)
-    held, own = conflict.held_writes(b), reply.get(writes.FIELD)
-    if held and (own is None or isinstance(own, list)):
-        reply = {**reply, writes.FIELD: [*(own or []), *(w for w in held if w not in (own or []))]}
-    return writes.check(reply, repo, [p for p in writes.changed(repo, rev) if p not in made], writes.sink(repo))
-
-
-def _loop_states(board, state) -> list:
-    """run の全部の輪の状態のファイル（盤面の tdd-<k> の番号の順。今の輪 state は最後。無ければ空）"""
-    if not state:
-        return tddloop.states(board)
-    return [p for p in tddloop.states(board) if p.resolve() != Path(state).resolve()] + [state]
-
-
-def check_frozen(board: Path, state: str, repo: Path, pass_: str) -> list:
-    """手順 1b: 凍ったテストのファイル（tddloop.frozen_problems）を run の全部の輪で見た拒否の文。今の輪（state）は今どおり、前の輪
-    （1 回目の修正の段の輪）は今の輪の状態の handoff の木（since）からの変更で見て、直した項目の単位（conflict.amended_keys）の前の
-    輪の受け入れのテストの関数（tddloop.test_spans）の中の変更は通す。テストの変更の許し（conflict.ruled_test_limits）は輪ごとに、
-    凍結の検査が比べる木で修正案の行を引き直す（今の輪は輪の後の木、前の輪は since の木。tddloop.frozen_source）。輪が赤→緑を
-    確かめた書き換えは、どの輪の物でも許しから外す。今の輪が無い（2 回目の段の輪が走らなかった）時、前の輪は輪の後の木で見る。
-    裁定の範囲は今の輪だけ pass_ で決め（1 回目の受け付けは含めない）、前の輪はいつも含める（前の段で裁いた fix_test_scope の
-    直しは、今の段の受け付けが first でも許し）。輪が 1 つも無ければ空。盤面は書かない"""
-    loops = _loop_states(board, state)
-    if not loops:
-        return []
-    b = entry.open_board(board)
-    skip = [i for p in loops for i in tddloop.verified_rewrites(p)]
-
-    def allowed(source, rulings):
-        return conflict.ruled_test_limits(b, rulings=rulings, source=source, skip_ids=skip)
-    out = tddloop.frozen_problems(state, repo, allowed(tddloop.frozen_source(state, repo), pass_ == "ruled")) if state else []
-    old = loops[:-1] if state else loops
-    if old:
-        since = tddloop.load_state(state).get("handoff") if state else None
-        amended = conflict.amended_keys(b)
-        for p in old:
-            out += tddloop.frozen_problems(p, repo, allowed(tddloop.frozen_source(p, repo, since=since), True), since=since,
-                                           skip_spans=tddloop.test_spans(p, amended))
-    return out
-
-
-def _loop_freeze(board, state) -> tuple:
-    """(一番後の輪の frozen_tree, run の全部の輪が凍らせたファイル)。輪が無ければ (None, [])"""
-    tree, files = None, set()
-    for p in _loop_states(board, state):
-        st = tddloop.load_state(p)
-        files |= set(st.get("frozen") or {})
-        tree = st.get("frozen_tree") or tree
-    return tree, sorted(files)
-
-
 def check_tests(board: Path, base_rev: str, repo: Path, state: str) -> tuple:
     """版からの変更に当たる試験を機械が走らせた赤（tddloop.selected_problems）。返り (赤の文, 知らせ)。盤面は書かない"""
     return tddloop.selected_problems(state, repo, writes.base_rev(entry.open_board(board), base_rev))
-
-
-def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: Path, state: str, pass_: str) -> tuple:
-    """承認済みの修正案の項目と差分の照らし（planscope.check）。行は changes と keys（単位の名前）を並べ、files を根からの相対に
-    揃えた物。変わったパスは版からの変更（writes.changed）から実行器が作ったファイル（tddloop.suite_made）を除いた物。TDD の輪が
-    凍らせたファイル（輪の状態の frozen と frozen_tree）は planscope.check に渡し、欠けは版からの
-    差分の全部で、修正役に問う外れと余分は凍った後に変えた分だけで見させる。
-    返り (拒否の行（最初の行の頭に planscope.REJECT）, 記録)。盤面は書かない（控えの食い違いで止めるのは planscope.check）。
-    凍らせたファイルと実行器が作ったファイルは run の全部の輪の物（_loop_freeze・tddloop.suite_made_all）で、凍った後は一番後の
-    輪の frozen_tree から見る（前の輪の後に 1 回目の段と後の輪が書いた物を、2 回目の修正役のせいにしない）"""
-    b = entry.open_board(board)
-    rows = [{"unit_key": k, "files": sorted(_files([c], repo))} for c, k in zip(reply.get("changes") or [], keys)]
-    tree, frozen = _loop_freeze(board, state)
-    made = set(tddloop.suite_made(state)) | tddloop.suite_made_all(board)
-    rev = writes.base_rev(b, base_rev)
-    paths = [p for p in writes.changed(repo, rev) if p not in made]
-    problems, note = planscope.check(rows, b, repo, rev, paths, pass_=pass_, loop_tree=tree, frozen=frozen)
-    if problems:
-        problems = [planscope.REJECT + problems[0], *problems[1:]]
-    return problems, note
-
-
-def _files(rows, repo) -> set:
-    """changes の行の files を、リポジトリの根からの相対パスに揃えた集合"""
-    out = set()
-    for c in rows:
-        for f in c.get("files") or []:
-            if isinstance(f, str) and f.strip():
-                f = f.strip()
-                out.add(posixpath.normpath(os.path.relpath(f, repo) if os.path.isabs(f) else f))
-    return out
 
 
 def _named_rows(reply: dict, board) -> list:
@@ -509,7 +386,7 @@ def _without_rows(reply: dict, rest: list, mine: set, repo) -> dict:
     out = {**reply, "changes": rest}
     if isinstance(reply.get(writes.FIELD), list):
         out[writes.FIELD] = [w for w in reply[writes.FIELD]
-                             if not (isinstance(w, dict) and _files([{"files": [w.get("path")]}], repo) & mine)]
+                             if not (isinstance(w, dict) and declared_files([{"files": [w.get("path")]}], repo) & mine)]
     return out
 
 
@@ -583,6 +460,9 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     scope_note = None   # 承認済みの修正案の項目と差分を照らした記録（受けた時に trace へ）
     absorbed = {"dropped": [], "absorbed": []}   # 最後の回に数えなかった物（受けた時に trace へ）
 
+    # 範囲の相談の記録（run ごとの置き場。役の Bash は盤面に書けない）のうち盤面にまだ無い行を trace へ写す（拒否の回でも。
+    # 相談は受け付けの結果に依らず起きた事実）。後の確かめは盤面の合意（conflict.agreed）を読む
+    askplan.settle(entry.open_board(board), askplan.place_of(board))
     found = []   # 積んだ拒否の行 (確かめの id, 文)。申し出より後の確かめは返さずにここへ積み、最後に 1 回だけ拒む
     declared = {}   # 文 → 結び先の単位 key（申し出の行。申し出た単位を最後の回に止める）
 

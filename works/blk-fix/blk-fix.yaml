@@ -52,6 +52,12 @@ inputs:
       相対なら対象リポジトリの根から。後ろに試験のファイル・node id（絶対パス）と -k を足して呼ぶことがある。TDD の輪の赤・緑の回は
       env TDD_SUITE_ONLY=1 を付けて呼び、その時は後ろに足した試験だけを走らせてよい（既定の一式を集めない。解かない実行器は無視してよい））。空は実行器の無い run で、TDD の輪を飛ばして全部の単位を今どおり直す。
       実行器を探して決めるのはラインの start（設計 6 節）で、ここはその結果を受けるだけ
+  plan_session:
+    default: ""
+    description: |
+      範囲の相談の相手の会話の印の名（包みが `<包みの家>/sessions/<cwd の hash>/<印の名>.id` に会話の id を記録する役の節の
+      `works-node:` の名。承認済みの修正案を書いた役の物）。空なら相談しない。修正役と下請けは、修正案の項目の範囲の外や凍ったテストの
+      書き換えが要る時、機械のコマンドでその会話の写しを再開して聞き、許された範囲は受け付けが範囲に入れる（設計 docs/plans/2026-10-06-ask-planner.md）
   test_cmd:
     default: ""
     description: 緑の後に TDD の輪が走らせるテストのコマンド（線の入力 `test_cmd`）。空は走らせない。実行器がこのコマンドそのものを包んだ物なら 2 度走らせない
@@ -244,6 +250,7 @@ nodes:
             notes_file: $INPUTS.notes_file
             summary_file: $tdd-start.output.summary_file
             base_rev: $INPUTS.base_rev   # 修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
+            plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
             pass: "first"
           output_format:
             type: object
@@ -843,6 +850,7 @@ nodes:
             notes_file: $INPUTS.notes_file
             summary_file: $tdd-start.output.summary_file
             base_rev: $INPUTS.base_rev
+            plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
             pass: "ruled"
           output_format:
             type: object
