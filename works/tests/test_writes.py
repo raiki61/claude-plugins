@@ -152,6 +152,26 @@ class TestProvenance(RepoCase):
         record(self.log, self.repo / "stats.py")
         self.assertEqual(self.check()["problems"], [])
 
+    def test_carry_moves_a_unit_record_only_for_same_content(self):
+        """単位の worktree で Edit が書いた中身と同じ中身の run の作業ツリーのファイルだけ、記録を写す（依頼 243 の並べ）。
+        中身が違う・元に記録が無い物は写さず、受け付けは今どおり拒む"""
+        unit = self.tmp / "unit"
+        unit.mkdir()
+        for name, text in (("stats.py", "changed\n"), ("other.py", "unit side\n"), ("bare.py", "no record\n")):
+            (unit / name).write_text(text, encoding="utf-8")
+        record(self.log, unit / "stats.py")
+        record(self.log, unit / "other.py")
+        (self.repo / "stats.py").write_text("changed\n", encoding="utf-8")
+        (self.repo / "other.py").write_text("merged with another\n", encoding="utf-8")
+        (self.repo / "bare.py").write_text("no record\n", encoding="utf-8")
+        got = writes.carry(self.log, [(unit / n, self.repo / n) for n in ("stats.py", "other.py", "bare.py")])
+        self.assertEqual(got, [str((self.repo / "stats.py").resolve())])
+        problems = self.check()["problems"]
+        self.assertEqual(len(problems), 1)
+        self.assertNotIn("stats.py", problems[0])
+        self.assertIn("other.py", problems[0])
+        self.assertIn("bare.py", problems[0])
+
     def test_overwritten_after_record_is_rejected(self):
         p = self.repo / "stats.py"
         p.write_text("by edit\n", encoding="utf-8")
