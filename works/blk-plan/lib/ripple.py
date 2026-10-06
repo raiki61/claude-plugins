@@ -39,7 +39,7 @@ _TEST_NAME = re.compile(r"^(test_|Test[A-Z_])")   # 試験の関数・クラス�
 # 呼び出し元でない文書と生成物（当たりに数えない小さな一覧）: 設計書・古い文書の置き場（段の並びがパスのどこに在っても）と、
 # Archon の pack の写し（.archon/。dogfood が作り直す物）。README など振る舞いを書く文書は契約のずれの元なので数える
 _FILE_EXT = re.compile(r"\.(py|md|json|ya?ml|sh|js|ts|toml|txt)$")   # adds のファイルの名（変える名でない）
-NON_CODE_DIRS = ("docs/plans/", "docs-archive/", ".archon/")
+NON_CODE_DIRS = (("docs", "plans"), ("docs-archive",), (".archon",))   # パスの段の並び（パスのどこに在っても）
 NON_CODE_FILES = ("CHANGELOG.md", "HANDOFF.md")
 HEAD = "## 波及の一覧（機械が git grep で引いた。項目が変える名の呼び出し元と試験）"
 UNITS_HEAD = "## 波及の一覧（機械が git grep で引いた。単位の key が名指す名の呼び出し元と試験。案を書く前に読め）"
@@ -66,8 +66,10 @@ def names(unit_keys, adds) -> list[str]:
 
 def non_code(path: str) -> bool:
     """呼び出し元でない文書・生成物のパスか（NON_CODE_DIRS の並びがパスのどこかに在る・名が NON_CODE_FILES）"""
-    p = "/" + path
-    return any("/" + d in p for d in NON_CODE_DIRS) or pathlib.PurePosixPath(path).name in NON_CODE_FILES
+    parts = pathlib.PurePosixPath(path).parts
+    dirs = parts[:-1]
+    return (any(dirs[i:i + len(seq)] == seq for seq in NON_CODE_DIRS for i in range(len(dirs)))
+            or (parts[-1] if parts else "") in NON_CODE_FILES)
 
 
 def _git_grep(repo: pathlib.Path, name: str) -> list[tuple[str, int]]:
