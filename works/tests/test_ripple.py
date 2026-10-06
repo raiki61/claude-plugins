@@ -30,6 +30,10 @@ SEED = {
     "works/n1.py": "from edge import EDGE_INPUTS\n",
     "works/n2.py": "from edge import EDGE_INPUTS\n",
     "works/README.md": "always_rows は残りの数え\n",
+    # 呼び出し元でない文書と生成物（当たりに数えない。run 68f35d6b の波及の当たりの大半が設計書の行だった）
+    "works/docs/plans/2026-10-01-x.md": "always_rows の設計\n",
+    "works/CHANGELOG.md": "- always_rows を足した\n",
+    ".archon/workflows/works/report.py": "def always_rows(rows=None):\n    return rows or {}\n",
 }
 KEY = "works/report.py+always_rows: 残りの数えが今の周だけ"
 
@@ -67,6 +71,21 @@ class RippleCase(unittest.TestCase):
         self.assertEqual(ripple.names([KEY, "stats.py mean: 分母"], ["removed_rounds", "lens 数え"]),
                          ["always_rows", "removed_rounds", "lens"])
         self.assertEqual(ripple.names(["a.py+Report.rows: x"], []), ["Report", "rows"])
+
+    def test_names_skip_test_ids_and_paths(self):
+        """adds の試験の id・パスと試験の名（test_・Test）は変える名でない（run 68f35d6b: 試験の id の断片 works・tests・
+        test_report・HeadCase が当たりの大半を作った）"""
+        self.assertEqual(ripple.names([KEY], ["works/tests/test_report.py::HeadCase::test_rows_carry", "_removed_file",
+                                              "TestCleanIgnored", "test_report", "works/report.py", "report.always_rows"]),
+                         ["always_rows", "_removed_file", "report"])
+
+    def test_docs_and_generated_copies_are_not_hits(self):
+        """設計書（docs/plans）・CHANGELOG・pack の写し（.archon）は当たりに数えない（ファイルの数にも）"""
+        doc = ripple.build(self.repo, [fields()])
+        ats = [h[1] for h in self.uncovered(doc)]
+        self.assertFalse([a for a in ats if "docs/plans" in a or "CHANGELOG" in a or a.startswith(".archon/")], ats)
+        row = doc["items"][0]["names"][0]
+        self.assertEqual(row["files"], 4)   # report.py・final.py・test_report.py・README.md
 
     def test_literal_test_not_in_rewrite_is_uncovered(self):
         """字のままの値を断言する試験（195g の removed-exact-dict-test-not-in-rewrite の形）は試験の関数の id で名指す"""

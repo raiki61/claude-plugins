@@ -4,6 +4,9 @@
 `git grep -n -w` で引き、当たりを本体（呼び出し元・文書）と試験に分ける。Python の試験は当たりを含む試験の関数の id
 （`path::Class::test_x`。ast）まで引き、試験でない関数・ほかの言語はファイルと行（`path:line`）。当たりを項目の allowed_paths
 （glob）・tests と rewrite_tests の id とそのファイルに照らし、覆っていない当たりに項目ごとの id（h1・h2…）を振って名指す。
+試験の id・パス・試験の名（test_・Test で始まる）は変える名に数えず、呼び出し元でない文書と生成物（NON_CODE_DIRS・
+NON_CODE_FILES）の当たりは捨てる（run 68f35d6b: adds の試験の id の断片 works・tests・test_report・HeadCase と、設計書の行が
+覆っていない当たりの大半で、下請けが全部 no_effect と答えていた）。
 当たりのファイルが多い名（COMMON_FILES を超える）は数だけを載せ、覆っていない当たりに入れない（下請けが判断する。持ち主の決定
 2026-10-06）。2 つ以上の項目の allowed_paths・当たりに出たファイルを「項目どうしの重なり」として並べる（相乗りの審査が読む）。
 
@@ -32,6 +35,12 @@ import planmarks  # noqa: E402
 COMMON_FILES = 25
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _TEST_DIRS = ("tests", "test")
+_TEST_NAME = re.compile(r"^(test_|Test[A-Z_])")   # 試験の関数・クラスの名（足す試験の名で、呼び出し元を引く名でない）
+# 呼び出し元でない文書と生成物（当たりに数えない小さな一覧）: 設計書・古い文書の置き場（段の並びがパスのどこに在っても）と、
+# Archon の pack の写し（.archon/。dogfood が作り直す物）。README など振る舞いを書く文書は契約のずれの元なので数える
+_FILE_EXT = re.compile(r"\.(py|md|json|ya?ml|sh|js|ts|toml|txt)$")   # adds のファイルの名（変える名でない）
+NON_CODE_DIRS = ("docs/plans/", "docs-archive/", ".archon/")
+NON_CODE_FILES = ("CHANGELOG.md", "HANDOFF.md")
 HEAD = "## 波及の一覧（機械が git grep で引いた。項目が変える名の呼び出し元と試験）"
 UNITS_HEAD = "## 波及の一覧（機械が git grep で引いた。単位の key が名指す名の呼び出し元と試験。案を書く前に読め）"
 SCOPE_ASK = ("覆っていない当たりは、項目の書いてよいパス（allowed_paths）・受け入れの試験（tests）・書き換える試験（rewrite_tests）の"
@@ -43,15 +52,22 @@ ERROR_NOTE = "波及の一覧を作れなかった（{error}）。呼び出し�
 
 
 def names(unit_keys, adds) -> list[str]:
-    """変える名の候補（現れた順・重なりは 1 つ）: 単位の key の `+` の後から `:` までの ASCII の名と、adds の名の ASCII の語"""
+    """変える名の候補（現れた順・重なりは 1 つ）: 単位の key の `+` の後から `:` までの ASCII の名と、adds の名の ASCII の語。
+    adds の試験の id（`::` を含む）・パス（`/` を含むかファイルの拡張子 _FILE_EXT で終わる）は丸ごと飛ばし、試験の名（_TEST_NAME）は数えない"""
     out = []
     for k in unit_keys or []:
         if isinstance(k, str) and "+" in k:
             out += _NAME.findall(k.split("+", 1)[1].split(":", 1)[0])
     for a in adds or []:
-        if isinstance(a, str):
+        if isinstance(a, str) and not ("::" in a or "/" in a or _FILE_EXT.search(a)):
             out += _NAME.findall(a)
-    return list(dict.fromkeys(n for n in out if len(n) >= 3))
+    return list(dict.fromkeys(n for n in out if len(n) >= 3 and not _TEST_NAME.match(n)))
+
+
+def non_code(path: str) -> bool:
+    """呼び出し元でない文書・生成物のパスか（NON_CODE_DIRS の並びがパスのどこかに在る・名が NON_CODE_FILES）"""
+    p = "/" + path
+    return any("/" + d in p for d in NON_CODE_DIRS) or pathlib.PurePosixPath(path).name in NON_CODE_FILES
 
 
 def _git_grep(repo: pathlib.Path, name: str) -> list[tuple[str, int]]:
@@ -62,7 +78,7 @@ def _git_grep(repo: pathlib.Path, name: str) -> list[tuple[str, int]]:
     out = []
     for line in p.stdout.splitlines():
         parts = line.split(":", 2)
-        if len(parts) >= 2 and parts[1].isdigit():
+        if len(parts) >= 2 and parts[1].isdigit() and not non_code(parts[0]):
             out.append((parts[0], int(parts[1])))
     return out
 
