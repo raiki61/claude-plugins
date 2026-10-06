@@ -27,7 +27,8 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
 - ripple:   波及の一覧の節（線の木の段 1。設計 docs/plans/2026-10-06-tree-line.md の 2.3）。stage units は修正案の役の前に
             単位の key の名を引いて今の周の ripple/units.json に、stage items は往復ごとの事前審査の前に盤面の plan-fields.json の
             項目ごとに引いて ripple/pass-<k>.json と最新の写し ripple.json に置く（lib の ripple）。修正案の役・直しの役・事前審査の
-            下請けの指示書がそれを貼り、修正の段は線が ripple.json を受け取る。replan では作らない
+            下請けの指示書がそれを貼り、修正の段は線が ripple.json を受け取る。replan では節では作らず、出口の collect が直した
+            項目で作り直して ripple/replan.json に置く（replan_ripple。周ごとに書き手は 1 つなので ripple.json は上書きしない）
 - 事前審査の木: 事前審査の役は束ね役。支度が開いた項目（converge.open_items）ごとの下請けのファイルと、項目が 2 つ以上なら相乗りの
             審査のファイルを今の周の plan-review-items/pass-<k>/ に書き、束ね役の頼み（AGG_HEAD）でそれを Agent で並べて起こさせる。
             下請けは答えを盤面の外の run ごとの置き場（answers_dir。盤面は守る場所で役が書けない）の機械が決めたファイルに Write で
@@ -99,6 +100,7 @@ CLOSED_REJECT = "閉じた項目を変えた（下の行を直して出し直せ
 RIPPLE_UNITS = "ripple/units.json"      # 今の周の作業ファイル（manifest の produces ripple/**）
 RIPPLE_PASS = "ripple/pass-{k}.json"
 RIPPLE_LATEST = "ripple.json"           # 最後に作った項目ごとの一覧の写し（修正の段へ線が渡す。manifest の produces）
+RIPPLE_REPLAN = "ripple/replan.json"    # 案の直しの後に、直した項目で作り直した一覧（replan の collect が書く。manifest の produces ripple/**）
 ITEMS_DIR = "plan-review-items/pass-{k}"   # 事前審査の下請けのファイル（manifest の produces plan-review-items/**）
 # 下請けの答えのファイルの置き場（run ごとの置き場 adapter.run_place_of の今の scope の下。盤面の外——盤面は守る場所で役が書けない。
 # 受け付けが確かめたファイルは往復の控え plan-converge/pass-<k>/ に写す）
@@ -402,6 +404,20 @@ def make_ripple(board_dir, repo, stage: str, replan: str = "") -> dict:
     if stage == "items":
         _write_json(b.work(RIPPLE_LATEST), doc)
     return {"ok": True, "ripple_file": str(path)}
+
+
+def replan_ripple(b, repo) -> str:
+    """案の直しの後の波及の一覧: 直した項目を差し替えた今の周の欄（core の replan.revised_fields）で一覧を作り直し、RIPPLE_REPLAN に
+    置いてそのパスを返す（2 回目の修正の段が 1 回目の案の一覧を使い回さないように）。RIPPLE_LATEST は 1 回目の include の物で、
+    盤面の柵は周の公開の名の書き手を 1 つにするので上書きしない。直した項目が無ければ何も書かずに空。b は dir・round・work だけを使う"""
+    fields = replan_mod.revised_fields(b, repo)
+    if not fields:
+        return ""
+    doc = ripple.build(repo, fields)
+    path = b.work(RIPPLE_REPLAN)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(path, doc)
+    return str(path)
 
 
 def _ripple_of(b, k: int):
@@ -1193,12 +1209,14 @@ def _first_line(path: str) -> str:
     return (text.strip().splitlines() or [""])[0]
 
 
-def collect(board_dir, replan: str = "") -> dict:
+def collect(board_dir, replan: str = "", repo=None) -> dict:
     """出口。役の節がこの周に待ったままなら（3 回とも拒まれた・輪が回らなかった）最後の拒否の理由で盤面を止める。ripple_file は
-    最後に作った項目ごとの波及の一覧（RIPPLE_LATEST。無ければ空）。replan なら core の replan.collect（役の諦めは盤面を止めない。
-    ripple_file は空）"""
+    最後に作った項目ごとの波及の一覧（RIPPLE_LATEST。無ければ空）。replan なら core の replan.collect（役の諦めは盤面を止めない）で、
+    ripple_file は直した項目で作り直した一覧（replan_ripple。repo が無い・直した項目が無ければ空）"""
     if replanning(replan):
-        return {**replan_mod.collect(board_dir), "ripple_file": ""}
+        out = replan_mod.collect(board_dir)
+        rebuilt = replan_ripple(entry.open_board(pathlib.Path(board_dir), allow_halted=True), repo) if repo else ""
+        return {**out, "ripple_file": rebuilt}
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     latest = b.work(RIPPLE_LATEST)
     out = {"ok": True, "plan_file": "", "review_file": "", "asks_human": False, "gate_kinds": [], "reads_file": "",

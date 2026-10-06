@@ -738,7 +738,7 @@ nodes:
       policy_path: $start.output.policy_path
       tdd_suite: $INPUTS.tdd_suite
       test_cmd: $start.output.test_cmd
-      ripple_file: $h-refit.output.ripple_file   # 修正案のブロックの波及の一覧（1 回目の案の物）
+      ripple_file: $h-refit.output.ripple_file   # 修正案のブロックの波及の一覧（案の直しの 2 度目の include が直した項目から作り直した ripple/replan.json。無ければ 1 回目の物）
       plan_session: plan   # 範囲の相談の相手: blk-plan の役の節の印 works-node: plan（修正案を書いた会話。案の直しの後はその会話）
 
   # 修正役が判定に異議を出した周の再審を回すか（盤面が p2.rejudge を待つ時。判定役の会話が無ければ止める）

@@ -5,20 +5,25 @@
 （字のままの値を断言する試験が rewrite_tests に無い・既定の引数に頼る呼び出し元・入力の組を多くのファイルが共有する名）。
 種の git は gitkit の型の写し（FAST）。
 """
+import json
 import pathlib
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 
 TESTS = pathlib.Path(__file__).resolve().parent
 ROOT = TESTS.parent
 sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
 
 import gitkit  # noqa: E402
+import line_edge  # noqa: E402
+import planblk  # noqa: E402
 import ripple  # noqa: E402
 
 SEED = {
@@ -151,6 +156,51 @@ class RippleCase(unittest.TestCase):
         self.assertIn("works/final.py:5", text)
         self.assertIn("h1", text)
         self.assertIn(ripple.SCOPE_ASK, ripple.section(doc))
+
+
+class ReplanRippleCase(unittest.TestCase):
+    """同じ run の中の案の直しの後の波及の一覧（2 回目の修正の段へ線が渡す ripple.json）は、直した項目の範囲で作り直す
+    （1 回目の案の一覧を使い回さない）。盤面は偽の b（dir・round・work）に plan-fields.json と案の直しの控え replan.json を置くだけ"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = pathlib.Path(self._tmp.name) / "repo"
+        gitkit.committed_copy(self.repo, SRC)
+        self.dir = pathlib.Path(self._tmp.name) / "board"
+        (self.dir / "r1").mkdir(parents=True)
+        self.b = types.SimpleNamespace(dir=self.dir, round=1, work=lambda name: self.dir / "r1" / name)
+        (self.dir / "plan-fields.json").write_text(json.dumps({"round": 1, "fields": [fields()]}), encoding="utf-8")
+
+    def trip(self, *rows):
+        self.b.work("replan.json").write_text(json.dumps({"round": 1, "items": list(rows)}), encoding="utf-8")
+
+    def test_rebuilt_from_revised_item(self):
+        first = ripple.build(self.repo, [fields()])
+        self.assertIn(("code", "works/final.py:1"), [(h["kind"], h["at"]) for h in ripple.uncovered(first, 1)])
+        new = {**fields(allowed=("works/report.py", "works/final.py")), "adds": []}
+        self.trip({"item": 1, "old": fields(), "new": new})
+        latest = self.b.work(planblk.RIPPLE_LATEST)
+        latest.write_text("{}", encoding="utf-8")   # 1 回目の案の一覧（案を書いた include の物。周ごとに書き手は 1 つなので上書きしない）
+        got = planblk.replan_ripple(self.b, self.repo)
+        self.assertEqual(got, str(self.b.work(planblk.RIPPLE_REPLAN)))
+        self.assertEqual(latest.read_text(encoding="utf-8"), "{}")
+        doc = json.loads(pathlib.Path(got).read_text(encoding="utf-8"))
+        ats = [h["at"] for h in ripple.uncovered(doc, 1)]
+        self.assertFalse([a for a in ats if a.startswith("works/final.py")], ats)   # 直した項目の範囲で照らした
+        self.assertIn("works/README.md:1", ats)
+        # 線の h-refit は 2 回目の修正の段へ、作り直した一覧が在ればそれを、無ければ 1 回目の一覧を渡す
+        self.assertEqual(line_edge.refit_ripple_file(self.b), got)
+        self.assertEqual(line_edge.RIPPLE_REPLAN_FILE, planblk.RIPPLE_REPLAN)
+
+    def test_nothing_revised_makes_nothing(self):
+        self.assertEqual(planblk.replan_ripple(self.b, self.repo), "")   # 案の直しの控えが無い
+        self.trip({"item": 1, "old": fields(), "new": None})            # 修正案の役が直せなかった
+        self.assertEqual(planblk.replan_ripple(self.b, self.repo), "")
+        self.assertFalse(self.b.work(planblk.RIPPLE_REPLAN).exists())
+        self.assertEqual(line_edge.refit_ripple_file(self.b), "")
+        self.b.work(planblk.RIPPLE_LATEST).write_text("{}", encoding="utf-8")
+        self.assertEqual(line_edge.refit_ripple_file(self.b), str(self.b.work(planblk.RIPPLE_LATEST)))
 
 
 if __name__ == "__main__":

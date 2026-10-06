@@ -3,7 +3,8 @@
 # dependencies = []
 # ///
 """ブロックの出口（planblk.collect）。役の節が待ったまま（3 回とも拒まれた）なら盤面を止めて ok: false・gave_up。
-出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file}"""
+出口 {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file}（replan なら ripple_file は
+直した項目で作り直した波及の一覧）"""
 import os
 import sys
 from pathlib import Path
@@ -20,7 +21,7 @@ OPTIONAL = frozenset({"INPUTS_REPLAN"})
 
 
 def run(board, repo, env):
-    return planblk.collect(board, os.environ.get("INPUTS_REPLAN", ""))
+    return planblk.collect(board, os.environ.get("INPUTS_REPLAN", ""), repo)
 
 
 if __name__ == "__main__":
