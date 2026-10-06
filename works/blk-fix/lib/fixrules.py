@@ -44,6 +44,7 @@
   （HELD_ASK）を置く（2 回目の修正の段）
 """
 import json
+import os
 import pathlib
 import posixpath
 import re
@@ -61,6 +62,8 @@ import conflict  # noqa: E402
 import entry  # noqa: E402
 import fixshape  # noqa: E402
 from leftovers import Unreadable, git_names  # noqa: E402
+import askplan  # noqa: E402  （同じブロックの lib。範囲の相談の控えと置き場）
+import flow_adapter  # noqa: E402  （今の scope。事前の確かめが盤面を読むだけで開く時に立てる）
 import libdocs  # noqa: E402
 import planbrief  # noqa: E402  （同じブロックの lib。承認済みの修正案の項目ごとの brief の凍結）
 import planmarks  # noqa: E402  （項目の範囲: allowed_paths と受け入れのテストのファイル。並べる項目の分け方）
@@ -124,6 +127,9 @@ BRIEF_STOP_BY = "works:fix"   # brief の控えが壊れた盤面を止めた口
 BRIEF_BROKEN = (f"修正案の brief の控え（今の周の {planbrief.LEDGER}）か欄の控え（盤面の {planbrief.planmarks.FIELDS_FILE}）が壊れているか"
                 "凍結の後に書き換えられ、承認した要求の正本が"
                 "引けない——brief の無い指示書で役を起こさずに盤面を止める")
+FACTCHECKS = pathlib.Path(__file__).resolve().parent / "factchecks.py"   # 事前の確かめのコマンド（import しない: factchecks → tddloop → fixrules の輪）
+ASK_DRAFT = "draft-reply.json"   # 修正役が事前の確かめに渡す返答の下書き（相談の置き場。作業ツリーの外）
+ASK_WHY = "範囲の相談の控えが在る（相談の相手の会話の印の名 plan_session と承認済みの修正案の項目が在る run）"
 _sha = rulebook.sha
 _pick = rulebook.pick
 
@@ -221,10 +227,11 @@ def _seat(seat: str, shape: str = seatkit.SHAPE) -> list:
 
 
 def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: str = "", shape: str = seatkit.SHAPE,
-              held: str = "") -> list:
+              held: str = "", ask: str = "") -> list:
     """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの今の文書の節（libdocs.section。空なら載せない）。
     seat は座（g3 は seat.section・g1 は seat.g1_section。空なら載せない）で、返答の欄の直前に置く。shape は座の形（理由の文）。
-    held は 1 回目に受け付けた返答の控えの節（held_text。空なら載せない）で、brief の節の後に置く"""
+    held は 1 回目に受け付けた返答の控えの節（held_text。空なら載せない）で、brief の節の後に置く。
+    ask は範囲の相談と事前の確かめの節（ask_text。空なら載せない）で、守ることの後に置く"""
     c, d = sections(SHARED), sections(DIRECT)
     kinds = _all_kinds() if kinds is None else kinds
     return [("fix-head", fill(d["fix-head"], _pick(values, FIX_VALUES)), ALWAYS + "（役・読む物・run の値）"),
@@ -233,6 +240,7 @@ def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: 
             ("core-fix", c["core-fix"], ALWAYS + "（本線の核）"), *_evidence(c, kinds),
             ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
             ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
+            *([("ask", ask, ASK_WHY)] if ask else []),
             *([("libdocs", libdocs, "機械が引いた（Context7。見つけた数と取れた数は節の頭）")] if libdocs else []),
             *_seat(seat, shape), ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
 
@@ -448,8 +456,55 @@ def item_ranges(b) -> dict:
     return out
 
 
+def ask_items(items) -> dict:
+    """承認済みの修正案の項目 → 相談の控えの items（番号の文字列 → {unit_keys, allowed_paths, out_of_scope の glob, tests の
+    ファイル（planmarks.test_paths）}）"""
+    return {str(it["item"]): {"unit_keys": [k for k in it.get("unit_keys") or [] if isinstance(k, str)],
+                              "allowed_paths": [g for g in it.get("allowed_paths") or [] if isinstance(g, str) and g],
+                              "out_of_scope": [r["glob"] for r in it.get("out_of_scope") or []
+                                               if isinstance(r, dict) and isinstance(r.get("glob"), str)],
+                              "tests": planmarks.test_paths(it)}
+            for it in items or []}
+
+
+def ask_text(config, python: str) -> str:
+    """範囲の相談と事前の確かめの節（rules/direct.md の節 fix-ask）を、控え config と実行ファイル python で埋めた文"""
+    place = pathlib.Path(config).parent
+    return fill(sections(DIRECT)["fix-ask"], {
+        "ask_cmd": f"{python} {pathlib.Path(askplan.__file__).resolve()} {config}",
+        "check_cmd": f"{python} {FACTCHECKS} {config}",
+        "draft": str(place / ASK_DRAFT)})
+
+
+def ask_config(b, repo, values: dict, pass_: str) -> str:
+    """範囲の相談の控えを run ごとの置き場の今の scope の下に書き（askplan.write_config）、節の文（ask_text）を返す。入力
+    plan_session（相談の相手の会話の印の名）が空・承認済みの修正案の項目が引けない run は書かずに空。会話の id の記録は包みの
+    置き場（adapter.session_path。cwd は repo）、model・effort はその印の最後の起動の記録から。実行ファイルはこの節の
+    python（uv が選んだ 3.10 以上。役の sandbox の python3 は 3.9 のことがある）。values の tdd_state は TDD の輪の状態の
+    ファイル（支度の script が輪の要約の隣から引く。空は輪の無い run）"""
+    node = (values.get("plan_session") or "").strip()
+    if not node or repo is None:
+        return ""
+    try:
+        items = planmarks.approved_items(b)
+    except (planmarks.FieldsBroken, BoardGap, OSError, ValueError):
+        items = None
+    if not items:
+        return ""
+    launch = adapter.last_launch(repo, node) or {}
+    doc = {"board": str(b.dir), "repo": str(repo), "scope": flow_adapter.current_scope(), "pass": pass_,
+           "base_rev": values.get("base_rev") or "",
+           "tdd_state": values.get("tdd_state") or "",
+           "session_file": str(adapter.session_path(repo, node)),
+           "config_dir": os.environ.get("CLAUDE_CONFIG_DIR") or str(pathlib.Path.home() / ".claude"),
+           "claude": os.environ.get(adapter.ENV_REAL) or shutil.which("claude") or "claude",
+           "model": launch.get("model"), "effort": launch.get("effort"), "items": ask_items(items)}
+    path = askplan.write_config(askplan.place_of(b.dir), doc)
+    return ask_text(path, sys.executable)
+
+
 def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str = seatkit.G1_SHAPE,
-              side: bool = False) -> list[dict]:
+              side: bool = False, ask: str = "") -> list[dict]:
     """修正の形 g1 の下請けのファイルを、直す義務の単位の brief の項目ごとに今の周に 2 つ書き、項目の順の
     [{item, impl_file, review_file, base, patch}] を返す（seat.g1_section が並べる）。どの項目にも無い直す義務の単位（brief の無い run は
     全部）は、判定のファイルを [BRIEF_FILE] にした残りの 1 項目（番号は修正案の項目の後。題は G1_REST、brief の無い run は
@@ -467,7 +522,8 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
     side（依頼 243 の並べ。prep が g3 の 1 回目だけ立てる）なら、範囲（item_ranges。残りの項目は範囲なし）が互いに重ならない
     項目（unitlanes.lanes）に、run ごとの置き場の今の scope の下の UNITS_DIR へ単位の worktree を切り（unitlanes.plant。控えは今の
     周の作業ファイル UNITS_FILE）、その項目の行に tree を足す。その項目の下請けのファイルは [directory] と決まり（seat の tree）で
-    worktree の中だけで働き、審査役の [BASE_SHA] は worktree の base（差分はその項目だけ）"""
+    worktree の中だけで働き、審査役の [BASE_SHA] は worktree の base（差分はその項目だけ）。
+    ask（範囲の相談と事前の確かめの節。ask_text）が空でなければ、実装役のファイルの終わりに足す（下請けは修正役の指示書を読まない）"""
     common = implementer_values(b, values, repo, owed)
     cut = briefs_or_halt(b)
     briefs = planbrief.for_units(cut, owed)
@@ -499,7 +555,8 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
         here = {"[directory]": tree} if tree else {}
         item_base = trees[n]["base"] if tree else base
         impl.write_text(seatkit.g1_prompt("implementer", {**common, **here, "[task name]": task, "[BRIEF_FILE]": brief,
-                                                           "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}, shape, tree), encoding="utf-8")
+                                                           "[REPORT_FILE]": seatkit.G1_IMPL_REPORT}, shape, tree)
+                        + (f"\n\n{ask}\n" if ask else ""), encoding="utf-8")
         review.write_text(seatkit.g1_prompt("task-review", {
             "[BRIEF_FILE]": brief, "[GLOBAL_CONSTRAINTS]": values.get("policy_path") or G1_NO_POLICY,
             "[REPORT_FILE]": seatkit.G1_REPORT, "[BASE_SHA]": item_base, "[HEAD_SHA]": seatkit.G1_HEAD_SHA,
@@ -582,10 +639,11 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     before = tuple(x for x in (*before, head) if x)   # ruled の裁定の文の行は見出しの次の 1 行のまま（R44）。brief はその後
     mark, shape = ("fix" if pass_ == PASSES[0] else "fix-ruled"), fixshape.shape_at(board_dir)
     seat = ""
+    ask = ask_config(b, repo, values, pass_)
     subs = dispatched(shape, mark, owed, green)
     if subs:
         seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みと Context7 の引き（lib_section）より前に
-        rows = g1_values(b, values, repo, subs, values.get("base_rev") or "", shape, side_on(shape, pass_, n))
+        rows = g1_values(b, values, repo, subs, values.get("base_rev") or "", shape, side_on(shape, pass_, n), ask=ask)
         seat = seatkit.g1_section(rows, shape, merge_line(b, rows))
     elif seatkit.carries(mark, shape):
         seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みと Context7 の引き（lib_section）より前に
@@ -596,7 +654,7 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     held = held_text(held_path if held is not None else "")
 
     def build(kinds, prior, rules_file):
-        return render("fix", n, fix_parts(values, kinds, docs, seat, shape, held), prior=prior, rules_file=rules_file,
+        return render("fix", n, fix_parts(values, kinds, docs, seat, shape, held, ask), prior=prior, rules_file=rules_file,
                       reject_file=reject, before=before, lang=lang)
     write_variants(path, repo, values, build, n)
     m = b.mark_launched(nid, inst.get("attempts", 1))

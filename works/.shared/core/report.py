@@ -1020,7 +1020,7 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
     """冒頭 4: 読んだ証拠（各役の reads-<役>.json）と包みの行。出来事が unverified なら「出来事: 未確認（P13）」。部品の窓の
     包み無し（adapter optional）の run は「包み無し」の行の横に CI の役の知らせ（blk の collect.note）。包みを通す run で起動の
     記録が無ければ「包みが通っていない」。仕組みの異常の種別ごとの件数（anomaly_lines。0 件も、調べていなければ「調べていない」も）。包みの確かめで止めた盤面は
-    止めた理由。会話を継いだ起動の数。起動の即時の失敗（包みの終わりの記録の no_turn。節ごとの回と、build が盤面に写した
+    止めた理由。範囲の相談の行（plan_ask_lines）。会話を継いだ起動の数。起動の即時の失敗（包みの終わりの記録の no_turn。節ごとの回と、build が盤面に写した
     NO_TURN_FILE）。盤面を書かない"""
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
@@ -1052,6 +1052,7 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
         lines += [f"  - {w}" for w in seen["whys"]]
     lines += anomaly_lines(b)
     lines += gates_lines(b)
+    lines += plan_ask_lines(b)
     by, reason, _ = _stop_info(b)
     if by == ADAPTER_BY:
         lines.append(f"包みの確かめで止めた: {reason}")
@@ -1153,6 +1154,26 @@ def always_rows(b, left: list | None = None) -> list:
     rows.append("残り: 最後の関所の時点では検証器を回していないので数えない（報告の冒頭 1 が数える）" if left is None
                 else f"残り: {len(left)} 件（検証器の阻害・最後のテストの赤・独立の目の阻害）")
     return rows
+
+
+def plan_ask_lines(b) -> list:
+    """範囲の相談（修正役が修正案を書いた役の会話を再開して範囲を聞いた 1 問 1 答。trace の conflict.ASKED_OP）の行: 1 行目に
+    回数と答えごとの数、続けて 1 相談 1 行（項目・答え・許した範囲か理由）。無ければ空。報告の冒頭（head_reads）が載せる"""
+    rows = conflict.plan_asks(b)
+    if not rows:
+        return []
+    kinds = collections.Counter(r.get("decision") if r.get("status") == "answered" else r.get("status") for r in rows)
+    out = [f"範囲の相談: {len(rows)} 回（" + "・".join(f"{k} {n}" for k, n in kinds.items()) + "）"]
+    for r in rows:
+        head = f"  - 相談 {r.get('id')}（項目 {r.get('item')}）: "
+        if r.get("status") != "answered":
+            why = r.get("why_refused") or r.get("why_unavailable") or " / ".join(r.get("notes") or [])
+            out.append(f"{head}{r.get('status')}——{str(why)[:300]}")
+            continue
+        granted = [*(r.get("granted_paths") or []), *(r.get("granted_tests") or [])]
+        out.append(f"{head}{r.get('decision')}" + (f"（{'・'.join(granted)}）" if granted else "")
+                   + f"——{str(r.get('reason') or '')[:300]}")
+    return out
 
 
 def gates_lines(b) -> list:

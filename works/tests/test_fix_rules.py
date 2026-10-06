@@ -139,7 +139,7 @@ class TestSharedSource(unittest.TestCase):
                 self.assertIn("needs_context", text)
 
     def test_every_rules_file_is_cut_into_sections(self):
-        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
+        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-ask", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
                           (fixrules.PRINCIPLES, ["principles"]), (fixrules.BRIEF, ["brief-canon"]),
                           (fixrules.TDD, ["tdd-head", "tdd-remap", "tdd-phase", *(f"tdd-phase-{p}" for p in fixrules.PHASES),
                                           "tdd-phase-all", "tdd-end"])):
@@ -525,9 +525,11 @@ class TestRoleNodes(unittest.TestCase):
         self.assertEqual(fp["with"], {"judgment_file": "$INPUTS.judgment_file", "open_units": "$INPUTS.open_units",
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
                                       "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
-                                      "base_rev": "$INPUTS.base_rev", "pass": "first"})
-        # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
-        self.assertEqual(set(fp["with"]) - {"pass", "base_rev"}, set(fixrules.FIX_VALUES))
+                                      "base_rev": "$INPUTS.base_rev", "plan_session": "$INPUTS.plan_session",
+                                      "pass": "first"})
+        # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）。plan_session は範囲の相談の
+        # 控え（fixrules.ask_config）に書く物で、指示書の穴ではない
+        self.assertEqual(set(fp["with"]) - {"pass", "base_rev", "plan_session"}, set(fixrules.FIX_VALUES))
         self.assertIn("variants_file", fp["output_format"]["required"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",
@@ -1279,3 +1281,38 @@ class FixCoversOpenUnitsAllErrorsCase(EdgeBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AskPlanPartsCase(unittest.TestCase):
+    """範囲の相談と事前の確かめ（設計 docs/plans/2026-10-06-ask-planner.md）: 相談の控えが在る時だけ、修正役の節 ask と下請けの
+    ファイルの終わりに、機械の 2 つのコマンドを載せる"""
+
+    def test_ask_part_only_when_given(self):
+        fix = [pid for pid, _, _ in fixrules.fix_parts(VALUES, ask="相談の節 A")]
+        self.assertLess(fix.index("ask"), fix.index("fix-reply"))
+        self.assertNotIn("ask", [pid for pid, _, _ in fixrules.fix_parts(VALUES)])
+
+    def test_ask_text_names_both_commands(self):
+        text = fixrules.ask_text("/rp/fixing/ask-plan/ask-plan.json", "/py/bin/python3")
+        for w in ("/py/bin/python3", "askplan.py", "factchecks.py", "/rp/fixing/ask-plan/ask-plan.json", "--item", "--paths",
+                  "--why", "--reply"):
+            self.assertIn(w, text)
+
+    def test_ask_items_carry_ranges(self):
+        it = {"item": 2, "unit_keys": ["b: 上限"], "allowed_paths": ["stats.py"],
+              "out_of_scope": [{"glob": "legacy.py", "why": "古い"}],
+              "tests": [{"id": "test_stats.py::TestStats::test_a"}], "rewrite_tests": []}
+        self.assertEqual(fixrules.ask_items([it]), {"2": {"unit_keys": ["b: 上限"], "allowed_paths": ["stats.py"],
+                                                          "out_of_scope": ["legacy.py"], "tests": ["test_stats.py"]}})
+
+    def test_subagent_files_carry_the_ask_text(self):
+        from unittest import mock
+        case = G1ValuesCase()
+        case._cleanups = []
+        self.addCleanup(case.doCleanups)
+        b = case.board()
+        with mock.patch.object(fixrules, "briefs_or_halt", return_value=G1ValuesCase.ROWS):
+            got = fixrules.g1_values(b, VALUES, "/repo", G1ValuesCase.OWED, "", ask="相談の節 A")
+        for r in got:
+            self.assertIn("相談の節 A", pathlib.Path(r["impl_file"]).read_text(encoding="utf-8"))
+            self.assertNotIn("相談の節 A", pathlib.Path(r["review_file"]).read_text(encoding="utf-8"))

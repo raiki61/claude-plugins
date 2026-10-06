@@ -6,7 +6,7 @@
 
 読む環境変数: ARTIFACTS_DIR（盤面はその下の board/）と run の値 INPUTS_JUDGMENT_FILE・INPUTS_OPEN_UNITS・INPUTS_PLAN_FILE・
 INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）・INPUTS_BASE_REV（空でよい。修正の形 g1 の審査役の
-型の版）と INPUTS_PASS（first か、裁定の後の 2 回目の ruled）。2 回目の修正の段（依頼 226。ブロックの 2 度目の include）の指示書と
+型の版）・INPUTS_PLAN_SESSION（範囲の相談の相手の会話の印の名。空は相談しない）と INPUTS_PASS（first か、裁定の後の 2 回目の ruled）。2 回目の修正の段（依頼 226。ブロックの 2 度目の include）の指示書と
 数えと座の作業ファイルは、その include の名の置き場（scope）で 1 回目と分かれる。
 修正の決まりの正本・直す役の決まり・run の値を組み、
 盤面の今の周の prompt-p3_fix.md（full の写し）と隣の 2 つの形に書き、起こした印を置いて
@@ -29,12 +29,14 @@ import rolekit  # noqa: E402
 
 # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_fix.py が見る）
 INPUTS = ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE",
-          "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PASS")
+          "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PLAN_SESSION", "INPUTS_PASS")
 VALUES = tuple(n for n in INPUTS if n != "INPUTS_PASS")   # 指示書に埋める run の値
 
 
 def run(board, repo, env):
     values = {n[len("INPUTS_"):].lower(): env[n] for n in VALUES}
+    summary = values["summary_file"]
+    values["tdd_state"] = str(Path(summary).parent / tddloop.STATE) if summary else ""   # 事前の確かめが凍結を見る輪の状態
     return fixrules.prep(board, repo, values, env["INPUTS_PASS"], green=tddloop.green_units(values["summary_file"]))
 
 
