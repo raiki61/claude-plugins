@@ -42,7 +42,7 @@ NO_INPUTS_CONSTANT = frozenset({
     "blk-purpose/scripts/intake.py", "blk-purpose/scripts/accept.py", "blk-purpose/scripts/collect.py",
 })
 # check_inputs が start の名のほかに返す欄（依頼のファイルを読んだ結果）
-READ_FROM_REQUEST = {"request_file", "items", "request_text", "answers"}
+READ_FROM_REQUEST = {"request_file", "items", "request_text", "answers", "prior_failures"}
 # 同じ名で返さず、変更の入口として解いて返す start の名と、その返りの欄（解き方の正本の試験は test_entry_inputs.ChangeInputsCase）
 CHANGE_INPUTS = {"base", "pr"}
 FROM_CHANGE = {"base_rev", "change"}
