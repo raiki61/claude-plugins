@@ -3,6 +3,7 @@
   python3 fixmeasure.py row [--adapter-home <包みの家>] <archon.db> <run_id> <盤面>   1 run の行（JSON の 1 行）
   python3 fixmeasure.py verdict <行の jsonl>             採否の判定（JSON）
   python3 fixmeasure.py maintenance                      腕ごとの保守量（JSON）
+  python3 fixmeasure.py wait <archon.db> <run_id>         段ごとの待ちの損（JSON。下の「待ちの損」）
 
 誤り（引数・db が開けない・run が無い・jsonl が読めない）は標準エラーに 1 行で 2、ほかは 0。網に出ない。時刻を入れず、辞書は
 書いた順（同じ入力なら同じ出力）。--adapter-home は run の包みの家（書き込みの記録 writes.jsonl の置き場の根。試しの run は
@@ -55,6 +56,14 @@
   決まりで、義務の外の項目の OUT_OF_DUTY は除く）に行が 1 つでも在るか、輪の状態が無い（実行器の無い run）なら偽。拒んだ回の
   帳面の skipped は数えない（受け付けが受けた回だけを見る）。平の run（current）は束が赤緑を当てないので None（当てない。確かめたとは数えない）。
 
+待ちの損（wait。依頼 243 の並べの 3 段目と線の木の 6 節の残り。docs/plans/2026-10-07-overlap-lanes.md の 4 節）: 下請け（Agent）を同時に
+起こした一束について「一番遅い下請けの時間 − 下請けの時間の平均」を、節（step_name の最後の区切り。plan-review・tdd・fix など）ごとに
+足した物。出どころは Archon の出来事の task_activity（task_type LOCAL_AGENT の started と、同じ task_id の completed・failed・stopped。
+時間は行の created_at の差。秒の粒）。束は同じ step_name の started の並びで、束の誰かが終わった後の started から次の束にする
+（同じメッセージの同時の起こしは、どの下請けも終わる前に全部 started が出る）。終わりの行の無い下請けは数えない。採否の判定
+（verdict）には使わない。欄の形を本物の run で確かめるまで出力の verified は偽（WAIT_VERIFIED。確かめる物: 並べの周の起こしで
+started が下請けの数だけ並び、completed が同じ task_id で出ること）。
+
 比べの条件（計画の採否の決まりの 6）: current の腕は修正の段に修正案の欄を渡さないので、束の test_edits も修正案の書き換えの
 名指し（rewrite_tests）を許しにしない（fixgates。preflight F15）。要る既存テストの書き換えは current では抜けに数えられうる。
 vs_current は報告だけで決定に使わない。
@@ -76,6 +85,7 @@ reads.EVENTS_VERIFIED）とは別の表（あちらは別の物を見る）。�
 """
 from __future__ import annotations
 
+import datetime
 import json
 import pathlib
 import sqlite3
@@ -123,6 +133,8 @@ NODE_ENDS = ("node_completed", "node_failed")   # 節の 1 回の終わり
 VERDICT_FAILS = ("compliance_fails", "quality_fails")   # redo のうち差分の審査の 2 判定の fail の数（redo_total に足さない）
 # 測る関数が頼る欄の形の印（最初の試しの run で確かめたら真にする。何を見るかはモジュールの頭）。偽が 1 つでも在れば verdict は incomplete
 FIELDS_CHECKED = {"node_kind_cost": False, "tool_outcome_refusal": False, "local_agent_start": False}
+WAIT_VERIFIED = False                  # 待ちの損の欄の形を本物の run で確かめたら真にする（モジュールの頭の「待ちの損」）
+TASK_ENDS = ("completed", "failed", "stopped")   # task_activity の終わりの印
 
 
 # ---------------------------------------------------------------- Archon の出来事
@@ -146,6 +158,63 @@ def _events(db, run_id: str) -> tuple[str, list[dict]]:
             doc = {}
         out.append({"event_type": kind, "step_name": step or "", "data": doc if isinstance(doc, dict) else {}})
     return str(got[0] or ""), out
+
+
+def _task_rows(db, run_id: str) -> list[dict]:
+    """task_activity の行 [{step_name, data, at（created_at の秒）}]（event_order の順）。db は読むだけで開く。run が無ければ ValueError"""
+    uri = pathlib.Path(db).resolve().as_uri() + "?mode=ro"
+    con = sqlite3.connect(uri, uri=True)
+    try:
+        if con.execute("SELECT 1 FROM remote_agent_workflow_runs WHERE id = ?", (run_id,)).fetchone() is None:
+            raise ValueError(f"archon.db {db} に run {run_id} が無い")
+        rows = con.execute("SELECT step_name, data, created_at FROM remote_agent_workflow_events WHERE workflow_run_id = ? "
+                           "AND event_type = 'task_activity' ORDER BY event_order, rowid", (run_id,)).fetchall()
+    finally:
+        con.close()
+    out = []
+    for step, data, at in rows:
+        try:
+            doc = json.loads(data or "{}")
+            when = datetime.datetime.fromisoformat(str(at).replace(" ", "T").rstrip("Z")).timestamp()
+        except (TypeError, ValueError):
+            continue
+        out.append({"step_name": step or "", "data": doc if isinstance(doc, dict) else {}, "at": when})
+    return out
+
+
+def wait_loss(rows: list) -> dict:
+    """task_activity の行（_task_rows の形）から段ごとの待ちの損（モジュールの頭）。
+    {verified, stages: {節の名: {batches: [{n, max, mean, loss}], loss}}, total}（秒。小数 1 桁）"""
+    by_step = {}
+    for r in rows:
+        by_step.setdefault(r["step_name"], []).append(r)
+    stages = {}
+    for step, evs in by_step.items():
+        starts, ends, batches, cur = {}, {}, [], []
+        for e in evs:
+            d = e["data"]
+            tid, act = d.get("task_id"), d.get("activity")
+            if act == "started" and d.get("task_type") == LOCAL_AGENT and tid not in starts:
+                if any(t in ends for t in cur):
+                    batches.append(cur)
+                    cur = []
+                cur.append(tid)
+                starts[tid] = e["at"]
+            elif act in TASK_ENDS and tid in starts and tid not in ends:
+                ends[tid] = e["at"]
+        if cur:
+            batches.append(cur)
+        got = []
+        for b in batches:
+            secs = [ends[t] - starts[t] for t in b if t in ends]
+            if secs:
+                top, mean = max(secs), sum(secs) / len(secs)
+                got.append({"n": len(secs), "max": round(top, 1), "mean": round(mean, 1), "loss": round(top - mean, 1)})
+        if got:
+            row = stages.setdefault(report._step_name(step), {"batches": [], "loss": 0.0})
+            row["batches"] += got
+            row["loss"] = round(row["loss"] + sum(x["loss"] for x in got), 1)
+    return {"verified": WAIT_VERIFIED, "stages": stages, "total": round(sum(x["loss"] for x in stages.values()), 1)}
 
 
 def _in_stage(e: dict, heads=FIX_STAGE) -> bool:
@@ -553,7 +622,8 @@ def verdict(rows: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------- 入口
-USAGE = ("usage: fixmeasure.py row [--adapter-home <包みの家>] <archon.db> <run_id> <盤面> | verdict <行の jsonl> | maintenance")
+USAGE = ("usage: fixmeasure.py row [--adapter-home <包みの家>] <archon.db> <run_id> <盤面> | verdict <行の jsonl> | maintenance"
+         " | wait <archon.db> <run_id>")
 
 
 def _read_rows(path) -> list[dict]:
@@ -579,6 +649,10 @@ def main(argv: list[str]) -> int:
             out = json.dumps(row(argv[1], argv[2], argv[3], adapter_home=home), ensure_ascii=False)
         elif argv[:1] == ["verdict"] and len(argv) == 2:
             out = json.dumps(verdict(_read_rows(argv[1])), ensure_ascii=False, indent=1)
+        elif argv[:1] == ["wait"] and len(argv) == 3:
+            if not pathlib.Path(argv[1]).is_file():
+                raise ValueError(f"archon.db {argv[1]} が無い")
+            out = json.dumps(wait_loss(_task_rows(argv[1], argv[2])), ensure_ascii=False)
         elif argv == ["maintenance"]:
             out = json.dumps(maintenance(PACK), ensure_ascii=False)
         else:
