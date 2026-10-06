@@ -10,7 +10,7 @@
   同じ（2 度目は待つ行が無い）。報告の組み立ては必ず走るので、修正の段が落ちて h-rejudge が飛ばされた run でも待つ行が落ちない
 - HAND_REFUSED: 1 回目に受け付けた返答の控えを盤面が受けない時の止めの文
 - hand_held(board_dir, repo): 盤面が止まっておらず、今の周の p3.fix を受けておらず、1 回目に受け付けた返答の控え
-  （conflict.held_reply。待つ単位が在る間に修正の受け付けが盤面に渡さずに置いた物）が在れば、bash_writes を外した控えを
+  （conflict.held_reply。待つ単位が在る間に修正の受け付けが盤面に渡さずに置いた物）が在れば、控えの盤面に渡す形（conflict.handed）を
   recount.accept_fix で盤面に渡して真。盤面が受けなければ盤面を止めて（HAND_REFUSED・by STOP_BY）偽。渡す物が無ければ偽
 - settle(board_dir, repo): h-rejudge の頭で呼ぶ。1. close_at。2. hand_held。3. 待つ行が残れば BoardGap(UNSETTLED)。
   返り {"closed": [id…], "handed": hand_held の返り}
@@ -80,7 +80,6 @@ import planmarks  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
 import scopes  # noqa: E402
-import writes  # noqa: E402
 
 STOP_BY = "works:replan"
 CLOSE_WHY = "同じ run の中で案の直しを終えられなかった（案の段に戻るのは 1 run に 1 回）"
@@ -172,8 +171,7 @@ def hand_held(board_dir, repo) -> bool:
     held, _ = conflict.held_reply(b)
     if held is None:
         return False
-    reply = {k: v for k, v in held.items() if k != writes.FIELD}
-    out = recount.accept_fix(reply, board_dir, "", pathlib.Path(repo))
+    out = recount.accept_fix(conflict.handed(held), board_dir, "", pathlib.Path(repo))   # 写しに渡す形の行（役が書いた形でない）
     if out.get("ok") is True:
         return True
     reason = " ".join(str(out.get("reason") or "").split())

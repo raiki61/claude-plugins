@@ -101,7 +101,7 @@ def _fix_output(b) -> tuple:
 
 def fix_reply(b) -> tuple:
     """(修正の返答, そのファイルの絶対パス)。今の周の盤面の p3.fix（_fix_output）か、無ければ 1 回目に受け付けた返答の控え
-    （conflict.held_reply。欄 bash_writes を外した写し。待つ単位が在る間に受け付けが盤面に渡さずに置いた物）。どちらも無ければ
+    （conflict.held_reply の盤面に渡す形 conflict.handed。待つ単位が在る間に受け付けが盤面に渡さずに置いた物）。どちらも無ければ
     Unreadable。控えが壊れていれば held_reply の BoardGap"""
     try:
         return _fix_output(b)
@@ -109,7 +109,7 @@ def fix_reply(b) -> tuple:
         held, path = conflict.held_reply(b)
         if held is None:
             raise Unreadable(f"{e}。1 回目に受け付けた返答の控え {path} も無い") from None
-    return {k: v for k, v in held.items() if k != writes.FIELD}, path
+    return conflict.handed(held), path
 
 
 def v1_changes(rows) -> list:

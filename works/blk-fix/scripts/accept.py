@@ -65,8 +65,9 @@
    写しの数え合わせの拒否が発火しないように揃える
 2a. 案の直しを待つ単位（conflict.waiting。裁定 fix_plan_item の WAITING の行）が在り、盤面が p3.fix を待っていれば（named_reply）、
    積んだ行が無く写しの照らしを乾いた形（3 の commit=False）で通る時だけ盤面に渡さずに控える（hold_fix。積んだ行か照らしの
-   誤りが在れば控えずに並べて拒む。控えた返答を h-rejudge の hand_held が渡して拒まれ盤面が止まる前に役へ返す）: 盤面に渡す形の返答（番号は名前に戻す）に役が申告した bash_writes を残して
-   conflict.HELD_REPLY に置き、受けた時と同じ trace（書き込みの出どころ・TESTS_OP・SCOPE_OP・fixgates.SKIPPED_OP・CLOSURE_OP）と HELD_OP を書いて
+   誤りが在れば控えずに並べて拒む。控えた返答を h-rejudge の hand_held が渡して拒まれ盤面が止まる前に役へ返す）: 2 で揃える前の
+   役が書いた形の返答（番号は名前に戻す。site の path と役の coverage が在る）に、盤面に渡す形の changes（欄 conflict.HANDED）と
+   役が申告した bash_writes を残して conflict.HELD_REPLY に置き、受けた時と同じ trace（書き込みの出どころ・TESTS_OP・SCOPE_OP・fixgates.SKIPPED_OP・CLOSURE_OP）と HELD_OP を書いて
    {ok: true, done: true, parked: true, changes: 1 本目の行}。盤面へは h-rejudge の replan.settle（hand_held）が渡す
 3. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が同じ問いで数え直す（仕様 3.2）。通れば 1 本目の
    出口のための changes（unit_key・files・what）を足し、表を盤面に置く
@@ -414,8 +415,8 @@ def park_units(settled, out: set, whole: dict, board, base_rev, repo, parked: se
 def hand_empty(found: list, board, base_rev, repo) -> dict:
     """最後の回に止める単位が無いのに写しが拒んだ（義務の単位は全部止めた）: 役の返答の代わりに機械の空の返答
     （entry.empty_fix_reply。理由は EMPTY_HANDED と残った行）を盤面に渡す。2 回目の修正の段は 1 回目に受け付けた返答の控えの
-    行を合わせる（conflict.with_held。写しの義務は 1 回目の単位を引かない）。控えに changes が在れば、行の外の欄
-    （fix_closure など。plan_faces と bash_writes は除く）も控えの物にする（残る差分は 1 回目の直しだけなので、その返答が
+    行を合わせる（conflict.with_held の as_handed。数え直しを通さないので控えの行は写しに渡す形。写しの義務は 1 回目の単位を
+    引かない）。控えに changes が在れば、行の外の欄（fix_closure など。plan_faces と works だけの欄は除く）も控えの物にする（残る差分は 1 回目の直しだけなので、その返答が
     差分の全体を述べている）。合わせた changes が空の時だけ trace に
     entry.trace_empty_fix の印（1 回目の単位の行が在れば役の直しを含むので、h-mid が差分の審査を飛ばさない）。
     返りは写しの受け付けの返り。それも写しが受けなければ回す側の誤り（ValueError。入口が 2 にする）"""
@@ -424,8 +425,8 @@ def hand_empty(found: list, board, base_rev, repo) -> dict:
     reply = entry.empty_fix_reply(b, why=why)
     held, _ = conflict.held_reply(b)
     if held is not None and held.get("changes"):
-        reply.update({k: v for k, v in held.items() if k not in (writes.FIELD, "plan_faces")})
-    reply = conflict.with_held(b, reply)
+        reply.update({k: v for k, v in conflict.handed(held).items() if k != "plan_faces"})
+    reply = conflict.with_held(b, reply, as_handed=True)   # 数え直しを通さずに渡すので、控えの行は写しに渡す形
     out = recount.accept_fix(reply, board, base_rev, repo, commit=True)
     if out.get("ok") is not True:
         raise ValueError(f"機械の空の返答も写しが受けない（回す側の誤り）: {' '.join(str(out.get('reason') or '').split())}")
@@ -434,11 +435,15 @@ def hand_empty(found: list, board, base_rev, repo) -> dict:
     return out
 
 
-def hold_fix(named: dict, whole: dict, b, traced) -> dict:
-    """待つ単位（conflict.waiting）が在る間の受け付け: 盤面に渡す形の返答（named。番号は名前に戻した）に、役が申告した
+def hold_fix(named: dict, written: dict, whole: dict, b, traced) -> dict:
+    """待つ単位（conflict.waiting）が在る間の受け付け: 役が書いた形の返答（written。番号は名前に戻した。unitrows.take が揃える前の
+    物で、site の path と役の coverage が在る）に、盤面に渡す形の changes（named の物。欄 conflict.HANDED）と役が申告した
     bash_writes（whole の欄。前の控えの申告 conflict.held_writes を先に）を残して 1 回目に受け付けた返答の控え
-    （conflict.HELD_REPLY）に置き、受けた時と同じ trace（traced）と HELD_OP を書く。盤面には渡さない（h-rejudge の replan.settle が渡す）。返りは輪を抜ける {ok, done, parked}"""
-    held = dict(named)
+    （conflict.HELD_REPLY）に置き、受けた時と同じ trace（traced）と HELD_OP を書く。盤面には渡さない（h-rejudge の replan.settle が
+    渡す形 conflict.handed で渡す）。2 回目の修正の段は控えの行を書いた形のまま数え直しに当て直す（揃えた後の行では site を
+    当たりのファイルに結べない）。返りは輪を抜ける {ok, done, parked}"""
+    held = {k: v for k, v in written.items() if k != writes.FIELD}
+    held[conflict.HANDED] = list(named.get("changes") or [])
     own = whole.get(writes.FIELD) if isinstance(whole, dict) else None
     prior = conflict.held_writes(b)   # 2 回目の段がまた控える時（同じ単位が再び fix_plan_item）、1 回目の申告を落とさない
     if isinstance(own, list) or prior:
@@ -521,6 +526,7 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     if conflict.held_reply(b)[0] is not None:   # 2 回目の修正の段: 名前に戻して 1 回目の控えの行を合わせる（検査は済んだ役の返答に当てた）
         named = named_reply(reply, board)
         reply = conflict.with_held(b, named if named is not None else reply)
+    own = reply   # 写しに渡す形に揃える前の返答（控える時は控えの行をこの形で残す。take は渡した返答を変えない）
     reply, rows = unitrows.take(reply, b, repo)
 
     def traced():   # 受けた時だけ盤面の trace と表に積む（拒否・回す側の誤りでは盤面を前のままにする）
@@ -543,6 +549,7 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     # 当ててその誤りも並べる（控えた返答を h-rejudge の hand_held が渡して拒まれ盤面が止まる前に、役へ返す）。
     # どちらでもなければ盤面に done("p3.fix") を書く（事後の関門の束の後。preflight F12）
     named = named_reply(reply, board) if conflict.waiting(b) else None
+    own_named = (named_reply(own, board) or own) if named is not None else None
     out = recount.accept_fix(reply, board, base_rev, repo, commit=not found and named is None)
     if out.get("ok") is not True:
         note(found, "copy", out.get("problems") or [str(out.get("reason") or "")])
@@ -554,7 +561,7 @@ def accept_fix(reply, board, base_rev, repo, *, parked=frozenset()):
     if out.get("ok") is not True:   # 文の無い拒否（積む行が無い）はそのまま返す
         return out
     if named is not None:
-        return hold_fix(named, whole, b, traced)
+        return hold_fix(named, own_named, whole, b, traced)
     traced()
     return out
 
