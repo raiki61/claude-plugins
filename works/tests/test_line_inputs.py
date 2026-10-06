@@ -158,11 +158,7 @@ class InputNamesCase(unittest.TestCase):
                         self.assertEqual(got["change"]["from"], name)
                         self.assertEqual(got["change"]["name"], want[name])
                         continue
-                    if name == "thickness":   # 受ける値が既定の 標準 だけなので、拒む値で名を読んでいることを見る
-                        with self.assertRaises(entry.InputRefused):
-                            entry.check_inputs({"request": "req.json", name: "軽量"}, repo)
-                    else:
-                        self.assertNotEqual(base[name], want[name], "既定と同じ値では素通しを確かめられない")
+                    self.assertNotEqual(base[name], want[name], "既定と同じ値では素通しを確かめられない")
                     got = entry.check_inputs({"request": "req.json", name: value}, repo)
                     self.assertEqual(got[name], want[name])
             with self.subTest("base"), mock.patch.object(entry, "_merge_base", lambda r, ref: f"fork-of-{ref}"):

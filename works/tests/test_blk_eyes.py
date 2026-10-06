@@ -244,7 +244,9 @@ class TableCase(unittest.TestCase):
             with self.subTest(nid):
                 self.assertEqual(now[nid], ROWS[nid], "ラインの表は案の行と同じ")
                 self.assertEqual((ROWS[nid]["by"], ROWS[nid]["where"]), ("role", "blk-eyes"))
-        self.assertEqual({nid for nid, r in ROWS.items() if r.get("skippable")}, {"r1.comment_candidates"})
+        # 軽量の深さで省ける目（持ち主の決定 2026-10-06。写しの graph で optional にした）。stop.premise_check は R2 が立てた時だけ
+        self.assertEqual({nid for nid, r in ROWS.items() if r.get("skippable")},
+                         {"r1.comment_candidates", "r1.minimality", "r2.compare", "r3.coherence", "r4.hidden_scope"})
         self.assertNotEqual(now[design.NODE]["where"], "blk-eyes", "設計の半分は修正の前に作る（目のブロックで起こさない）")
         for nid in (eyes.ENTRY_NODE, eyes.GATE_NODE):
             self.assertEqual(now[nid]["by"], "builtin")
@@ -310,6 +312,28 @@ class EnterRouteCase(_Case):
         self.assertIn("r1.minimality", r["why"])
         self.assertFalse(eyes.route(self.bd, "r3-coherence", self.rnd)["go"])   # na（cond overview_due）
         self.assertFalse(eyes.route(self.bd, "r1-comments", self.rnd + 1)["go"], "入口の周でない周の目は起こさない")
+
+    def test_route_skip_reason_skips_skippable_eyes(self):
+        """入力 skip_optional に理由が在れば、表で skippable の目（コメントの削除候補と R1 の本体・R2 の比較。持ち主の決定 2026-10-06）は
+        起こさずに盤面で省き（記録の省略した機構に理由）、筋の次の目が待つ。出口は止めずに ok"""
+        self.board("r1r2")
+        self.enter()
+        why = "軽量で省いた（試し）"
+        for role, nid in (("r1-comments", "r1.comment_candidates"), ("r1-minimality", "r1.minimality"),
+                          ("r2-compare", "r2.compare")):
+            with self.subTest(role):
+                r = eyes.route(self.bd, role, self.rnd, skip=why)
+                self.assertEqual((r["go"], r["stopped"]), (False, False))
+                self.assertIn(why, r["why"])
+                self.assertEqual(state(self.bd)["rounds"][self.rnd - 1]["skipped"].get(nid), why)   # 周が締まっても入口の周の箱で見る
+        self.assertTrue(eyes.collect(self.bd, self.rnd)["ok"])
+
+    def test_route_without_skip_reason_raises_skippable_eye(self):
+        """理由が空なら skippable の目も今どおり起こす（標準の深さは今の振る舞い）"""
+        self.board("r1r2")
+        self.enter()
+        self.assertTrue(eyes.route(self.bd, "r2-compare", self.rnd, skip="")["go"])
+        self.assertEqual(entry.open_board(self.bd).rd["skipped"], {})
 
 
 class SectionShapeCase(unittest.TestCase):
@@ -1099,11 +1123,11 @@ class ScriptCase(_Case):
         ent = self.ok("enter")
         rnd = ent["round"]
         for role in ("r1-comments", "r1-minimality", "r2-compare"):
-            self.assertTrue(self.ok("route", role=role, round=rnd)["go"], role)
+            self.assertTrue(self.ok("route", role=role, round=rnd, skip="")["go"], role)
             exited, rounds = self.run_loop(role, REPLY[role], rnd)
             self.assertEqual(exited, 1, rounds)
             self.assertEqual(rounds[0][1]["reason_file"], "")
-        self.assertFalse(self.ok("route", role="premise-check", round=rnd)["go"])
+        self.assertFalse(self.ok("route", role="premise-check", round=rnd, skip="")["go"])
         out = self.ok("collect", round=rnd)
         self.assertEqual((out["ok"], out["complete"]), (True, True), out)
 
@@ -1151,12 +1175,12 @@ class ScriptCase(_Case):
             prep(role, rnd)
             self.ok("accept", role=role, reply=json.dumps(REPLY[role], ensure_ascii=False))
         for role in ("r1-minimality",):
-            self.assertTrue(self.ok("route", role=role, round=rnd)["go"], role)
+            self.assertTrue(self.ok("route", role=role, round=rnd, skip="")["go"], role)
             prep(role, rnd)
         # R2 が premise-invalid の盤面（設計が問いは立たないと返した）: stop.premise_check
         self.board("r1r2", made=DESIGN_INVALID)
         rnd = self.ok("enter")["round"]
-        self.assertTrue(self.ok("route", role="premise-check", round=rnd)["go"])
+        self.assertTrue(self.ok("route", role="premise-check", round=rnd, skip="")["go"])
         prep("premise-check", rnd)
         self.assertEqual(seen, set(eyes.NODE_OF), "目の全部を支度した")
 
@@ -1171,9 +1195,9 @@ class ScriptCase(_Case):
         self.ok("enter")
         rc, out, err = self.run_script("prep", role="r1-minimality", round=1)   # 待っていない目（BoardGap）
         self.assertEqual((rc, out), (2, ""), err)
-        rc, out, err = self.run_script("route", role="no-such", round=1)
+        rc, out, err = self.run_script("route", role="no-such", round=1, skip="")
         self.assertEqual((rc, out), (2, ""), err)
-        rc, out, err = self.run_script("route", role="r1-comments", round="一")
+        rc, out, err = self.run_script("route", role="r1-comments", round="一", skip="")
         self.assertEqual((rc, out), (2, ""), err)
 
 
@@ -1207,7 +1231,8 @@ class YamlCase(unittest.TestCase):
 
     def test_exit_and_inputs(self):
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("eyes-collect", "ok"))
-        self.assertEqual(set(self.y.get("inputs") or {}), {"base_rev"})
+        self.assertEqual(set(self.y.get("inputs") or {}), {"base_rev", "skip_optional"})
+        self.assertEqual(self.y["inputs"]["skip_optional"]["default"], "")
         of = self.top["eyes-collect"]["output_format"]
         self.assertEqual(of["required"], list(eyes.EXIT_FIELDS))
         self.assertEqual(set(of["properties"]), set(eyes.EXIT_FIELDS))
@@ -1222,6 +1247,7 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(g["until_bash"], f"test ${role}-accept.output.done = true")
                 self.assertIs(g["fresh_context"], False, "出し直しは同じ会話（graphloops の --resume と同じ）")
                 self.assertEqual(loop["when"], f"${role}-route.output.go == true")
+                self.assertEqual(self.top[f"{role}-route"]["with"]["skip"], "$INPUTS.skip_optional")
                 self.assertEqual(loop["depends_on"], [f"{role}-route"])
                 ids = [m["id"] for m in g["nodes"]]
                 self.assertEqual(ids, [f"{role}-prep", role, f"{role}-accept"])
@@ -1256,7 +1282,7 @@ class YamlCase(unittest.TestCase):
                         # 前の輪は飛ばされうる（条件で na の目）。いつも走る前の route も待てば「1 つは成功」が満ちる
                         self.assertEqual(r["depends_on"], [f"{prev}-route", f"{prev}-loop"])
                         self.assertEqual(r.get("trigger_rule"), "none_failed_min_one_success")
-                    self.assertEqual(r["with"], {"role": role, "round": "$eyes-enter.output.round"})
+                    self.assertEqual(r["with"], {"role": role, "round": "$eyes-enter.output.round", "skip": "$INPUTS.skip_optional"})
                 prev = role
         c = self.top["eyes-collect"]
         want = {f"{eyes.ROLE_OF[lane[-1]]}-{k}" for lane in eyes.LANES for k in ("route", "loop")}

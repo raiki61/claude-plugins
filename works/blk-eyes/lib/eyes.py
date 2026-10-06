@@ -77,6 +77,9 @@ TOOLS = {"judge": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"], "inspector"
 ISOLATED_RUN_BY = frozenset({"blind-judge"})
 ISOLATED_FLAG = "isolated"
 GIVE_UP_AFTER = 3        # 輪の max_iterations と同じ数。この数だけ拒んだら done を出し、輪を失敗で抜けさせない（裁定 R50）
+# 諦めたら省く目（graph: 取れなくても R1 を not_run に倒さない）。表で skippable のほかの目は、入力 skip_optional の理由が在る時だけ
+# 省き、諦めた時は今どおり出口が盤面を止める
+GIVE_UP_SKIPS = frozenset({"r1.comment_candidates"})
 REJECT_HEADING = rolekit.REJECT_HEADING
 R4_NODE = "r4.hidden_scope"   # 直す前の関所で人が通した狭まりを頭に貼る目（gatemarks.carried_section）
 PREMISE_NODE = "r2.compare"   # 設計を作った後に分かった前提を頭に貼る目
@@ -272,9 +275,11 @@ def fell_text(fell, ran="") -> str:
     return head + "（" + "・".join(f"{f['eye']}: {f['state']}" for f in fell) + "。Archon の節が落ちた）"
 
 
-def route(board_dir, role, rnd) -> dict:
+def route(board_dir, role, rnd, skip: str = "") -> dict:
     """目 role を今起こすか。{go, node, why, stopped}。入口の周（rnd）でない周・止まった盤面・待っている instance の無い目は go: false。
-    入口が落ちた周（周が空）は起こさない。LANE_AFTER の筋が落ちていても待っている目は起こし、why と入口の周の LANES_NAME に残す"""
+    入口が落ちた周（周が空）は起こさない。LANE_AFTER の筋が落ちていても待っている目は起こし、why と入口の周の LANES_NAME に残す。
+    skip（ブロックの入力 skip_optional。省く理由の文）が在り、待っている目が表で skippable なら、起こさずに盤面で省く（board.skip →
+    settle。後ろの目が出る。理由は記録の省略した機構に残る）。skippable でない目は skip に依らず今どおり"""
     nid = node_of(role)
     if str(rnd).strip() in ("", "null", "None"):
         return {"go": False, "node": nid, "why": "入口 eyes-enter の周が無い（入口が済んでいない）", "stopped": False}
@@ -287,6 +292,11 @@ def route(board_dir, role, rnd) -> dict:
             return {"go": False, "node": nid, "why": f"盤面の周が {b.round}（入口は {rnd}）", "stopped": False}
         routes = _work(b, rnd, ROUTES_NAME)
         went = _read_json(routes, {})
+        skip = " ".join((skip or "").split())
+        if skip and _pending(b, nid) and b.table.nodes[nid].skippable:
+            b.skip(nid, skip)
+            _write_json(routes, {**went, role: False})
+            return {"go": False, "node": nid, "why": f"{nid}: 省いた（{skip}）", "stopped": False}
         if _pending(b, nid):
             why = f"{nid} が待っている"
             fell = fallen(b, rnd, LANE_AFTER.get(nid, ()))
@@ -376,7 +386,7 @@ def prep(board_dir, role, rnd, repo) -> dict:
 # ---------------------------------------------------------------- 受け付け
 def _reject(board_dir, nid, reason) -> dict:
     """拒否の文を入口の周の eyes-rejects.json に積む。この周のこの目の拒否が GIVE_UP_AFTER 回に達したら諦めの印（done）。
-    表で skippable の目は諦めたら省く（board.skip → settle。後ろの目が出る）"""
+    GIVE_UP_SKIPS の目（表で skippable）は諦めたら省く（board.skip → settle。後ろの目が出る）"""
     b = entry.open_board(board_dir)
     rnd = b.round
     path = _work(b, rnd, REJECTS_NAME)
@@ -386,7 +396,7 @@ def _reject(board_dir, nid, reason) -> dict:
     _write_json(path, rows)
     give_up = sum(1 for r in rows if r.get("node") == nid) >= GIVE_UP_AFTER
     skipped = False
-    if give_up and b.table.nodes[nid].skippable:
+    if give_up and nid in GIVE_UP_SKIPS and b.table.nodes[nid].skippable:
         b.skip(nid, f"独立の目 {ROLE_OF[nid]} の返答が {GIVE_UP_AFTER} 回とも受け付けで拒まれた（最後の拒否: {reason}）")
         skipped = True
     return {"ok": False, "done": give_up, "give_up": give_up, "skipped": skipped, "reason": reason, "node": nid}

@@ -626,7 +626,7 @@ class CopyReadCase(unittest.TestCase):
         self.assertEqual(CORE_DIR, CORE.resolve())
         self.assertTrue(GRAPH_PATH.is_file())
         self.assertTrue(VALIDATOR_PATH.is_file())
-        self.assertEqual(board.GRAPH_SHA, "9a1e3957f23d")
+        self.assertEqual(board.GRAPH_SHA, "2eb140b879e5")
 
 
 if __name__ == "__main__":

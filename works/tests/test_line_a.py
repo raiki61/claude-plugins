@@ -112,6 +112,48 @@ class LineCase(LineBase):
         # 1 本目の finish の欄を全部持つ
         self.assertLessEqual({"ok", "outcome", "judgment_file", "review_file", "diff_file", "faces"}, set(got["report"]))
 
+    def test_depth_standard_keeps_every_check(self):
+        """深さ（計画 2026-10-06-variable-depth）: 機械の確かめ（test_cmd・tdd_suite）の無い run は単位が標準で、レンズも
+        コメントの削除候補も今どおり回り、報告の冒頭 2 に深さの行が在る"""
+        got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}})
+        self.assertEqual((got["out"]["h-depth"]["depth"], got["out"]["h-redepth"]["skip"]), ("標準", ""))
+        for role in ("r1-comments", "r1-minimality", "r2-compare", "r3-coherence", "r4-scope"):
+            self.assertIn(role, got["eyes_roles"])
+        self.assertIn("reviewing", got["trail"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertEqual(set(b.rd["skipped"]) & {"p3.delta_review", "r1.comment_candidates", "r1.minimality", "r2.compare",
+                                                 "r3.coherence", "r4.hidden_scope"}, set())
+        rec = json.loads((got["board_dir"] / "rounds" / "round-1.json").read_text(encoding="utf-8"))
+        self.assertNotIn("skipped", {r["status"] for r in rec["reviews"].values()})
+        text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
+        self.assertIn("深さ: 標準", text)
+        self.assertNotIn("軽量で省いた", text)
+
+    def test_depth_light_skips_checks_and_names_them(self):
+        """入力 thickness 軽量で全部の単位が軽量のまま（上げる信号が無い）なら、差分の審査（とその後のレンズ・手直し）と独立の目
+        R1〜R4 を盤面で省き（記録の reviews は skipped と理由。収束を止めない）、報告の冒頭 2 に「軽量で省いた」を 1 行ずつ名指す。
+        結末は fixed のまま（持ち主の決定 2026-10-06）"""
+        got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}},
+                            inputs={"thickness": "軽量"})
+        red = got["out"]["h-redepth"]
+        self.assertEqual(red["depth"], "軽量", red)
+        self.assertIn("軽量", red["skip"])
+        self.assertEqual(got["outcome"], "fixed", pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(got["eyes_roles"], [])
+        for nid in ("lensing", "reviewing", "refixing"):
+            self.assertNotIn(nid, got["trail"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        for nid in ("p3.delta_review", "r1.comment_candidates", "r1.minimality", "r2.compare", "r3.coherence", "r4.hidden_scope"):
+            self.assertEqual(b.rd["skipped"].get(nid), red["skip"], nid)
+        rec = json.loads((got["board_dir"] / "rounds" / "round-1.json").read_text(encoding="utf-8"))
+        for name in ("R1", "R2", "R3", "R4"):
+            self.assertEqual(rec["reviews"][name]["status"], "skipped", name)
+            self.assertIn("軽量", rec["reviews"][name]["reason"])
+        text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
+        import depth
+        for what in depth.SKIPPED:
+            self.assertIn(f"軽量で省いた: {what}", text)
+
     def test_no_fix_path(self):
         """判定が直す物を残さない → 修正・審査・手直しは飛び、最後のテストは周を締めるので走る。結末 no_fix_needed。
         修正案のブロックは、最後の R2 が要る独立設計だけを作りに入る（修正案は盤面で na）"""
@@ -596,6 +638,12 @@ CLEAN_DELTA_REVIEW = {"faces": [], "faces_none": "stats.py の差分 2 行（mea
 class RefixToTestsCase(LineBase):
     """手直しの後（1 回・2 回・手直しなし・判定への異議の再審つき）に h-tests が go True になり、最後のテスト（blk-tests の final）が
     ラインの test_cmd で走り、周が締まって最後の関所・独立の目・報告まで届く。報告に「最後のテスト: 走っていない」が出ない"""
+
+    def run_line(self, **kw):
+        # 種の単位は小さく test_cmd も在るので、自動の深さでは軽量（差分の審査と独立の目を省く）になる。ここは標準の道
+        # （手直しと目まで全部回る今の振る舞い）を見るので、深さを標準に固定する（計画 2026-10-06-variable-depth）
+        kw["inputs"] = {"thickness": "標準", **(kw.get("inputs") or {})}
+        return super().run_line(**kw)
 
     def reached_tests(self, got):
         rep_text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")

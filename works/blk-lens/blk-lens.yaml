@@ -10,15 +10,23 @@ description: |
   盤面を止めて ok: false）。
   ラインから include で使う。出口は lens-exit（{ok, reason, lens_file}）。
 
+inputs:
+  skip:
+    default: ""
+    description: 省く理由の文。空は今どおり（レンズごとの規則で振り分ける）。在れば、どのレンズも起こさず、lens.json の行に not_routed とこの理由を残す（報告の未確認のレンズに出る）
+
 returns: lens-exit
 outcome_field: ok
 
 nodes:
-  # 振り分け: 今の周の修正の差分から、レンズごとの go と理由・指示書を出し、lens.json に行を書く。差分が無ければ 2（配線の誤り）
+  # 振り分け: 今の周の修正の差分から、レンズごとの go と理由・指示書を出し、lens.json に行を書く。差分が無ければ 2（配線の誤り）。
+  # 入力 skip に理由が在れば、どのレンズも起こさない（行は not_routed とその理由）
   - id: lens-route
     script: route
     runtime: uv
     timeout: 1728000000
+    with:
+      skip: $INPUTS.skip
     output_format:
       type: object
       additionalProperties: false

@@ -111,7 +111,7 @@ class GoldenFixtureCase(unittest.TestCase):
     def test_manifest_names_source(self):
         m = manifest()
         self.assertEqual(m["graphloops_rev"], copyledger.core_commit(), "手本と写しの版が割れている（写し直したら手本も撮り直す）")
-        self.assertEqual(m["graph_sha"], "9a1e3957f23d")
+        self.assertEqual(m["graph_sha"], "2eb140b879e5")
         self.assertTrue(m["git_env"])
         for k in ("GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE", "GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"):
             self.assertIn(k, m["git_env"])

@@ -1,6 +1,6 @@
 {
   "line": "missing-node",
-  "graph_sha": "9a1e3957f23d",
+  "graph_sha": "2eb140b879e5",
   "nodes": {
     "p0.base": {"by": "role"},
     "p0.local_checks": {"by": "engine_run", "fallback": "machine"},

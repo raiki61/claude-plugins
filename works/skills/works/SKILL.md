@@ -87,7 +87,7 @@ sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start [--base <版> | --pr <番号>] [--] 
 - `tdd_suite`（省ける）: JUnit XML の書き先を第 1 引数に受ける実行ファイル（対象の根から走る）。機械は後ろに試験のファイル・node id（絶対パス）と `-k` を足して呼ぶことがある（既定の一式に足して集める。解けない実行器は無視してよい。TDD の輪の赤・緑の回は env `TDD_SUITE_ONLY=1` を付けて呼び、その時は後ろに足した試験だけを走らせてよい）。在れば修正の段で単位ごとの TDD の輪を回す。省くと、`test_cmd` が pytest の 1 コマンドなら殻がそれに `--junitxml` を足す実行器を書いて渡し、そうでなければ輪を飛ばして直に直す（どちらにしたかを 1 行出す）。
 - 最後の関所は既定で守りのファイルを触った時だけ開く（`protected_only`）。テストの赤・独立の目の阻害・残った異議は報告の冒頭に並ぶので、差分を当てる（`use.sh apply`）前に読む。それらでも止めるなら `WORKS_USE_FINAL_GATE=when_needed`、いつも開くなら `always` を前に付ける。
 - Claude の包み（`claude-adapter`）は既定で通す。外すなら `WORKS_DEV_ADAPTER=0`（起動の 1 行目に「包み無し」と出て、報告にも出る）。
-- ラインの入力 `policy_md`・`gates`・`thickness` は `WORKS_USE_POLICY_MD`・`WORKS_USE_GATES`・`WORKS_USE_THICKNESS` で渡す。
+- ラインの入力 `policy_md`・`gates`・`thickness` は `WORKS_USE_POLICY_MD`・`WORKS_USE_GATES`・`WORKS_USE_THICKNESS` で渡す。`thickness` は空（自動。単位ごとに機械が深さを決める）・`標準`（今の工程を全部）・`軽量`（全部の単位を軽量に固定）。
 - 無人で回すなら `WORKS_USE_UNATTENDED=1`: 起動の関所を越え、人が決める関所に着いたら止めて報告へ進める（関所に出た、能力を狭める・方針とぶつかる修正は通さない。関所に出ずに決め手で通る行は 3 節の `policy-gate` の項。判定の保留の問いだけでは関所を開かず、問いの出どころだけを飛ばして直し、問いを報告の冒頭に並べる）。値は 1 か空だけで、ほかの値（`on` など）なら start が何も作らずに止まる。
 - 殻がすること: pack を利用の家（`WORKS_USE_HOME`。既定は `~/.local/state/works/use-<対象の clone の実際のパスの sha256 の頭 8 字>`。clone ごとに分かれる）に置き、Archon をその家に隔離して起こす。AI の役はその家に組んだ選んだ物だけの Claude の設定を読み、あなたの `~/.claude` は読まない。対象の作業ツリーには何も書かない。
 - AI の役の子には `GRAPHLOOPS_ENGINE_CHILD=1` が立つ（役の Bash から起こすコマンドにも継がれる）。対象の重い一式（e2e・変異の撃ち）は、これを見て AI の役からの起動を拒める。名は graphloops の engine と同じにしてある。線の節が走らせる最後のテストには立たない。Claude の包みを通さない run（包み無し）でも立たない。

@@ -48,11 +48,12 @@ class NodeTableCase(unittest.TestCase):
         return errs
 
     def test_graph_is_the_copy(self):
-        # 写しの graph が仕様の数えた物（60 節・機械の節 17・optional 10・graph_sha 9a1e3957f23d）であること
-        self.assertEqual(GRAPH_SHA, "9a1e3957f23d")
+        # 写しの graph が仕様の数えた物（60 節・機械の節 17・optional 10）に、軽量の深さで省ける 5 節の optional を足した物（持ち主の決定
+        # 2026-10-06。COPIED_FROM の ! 行）であること（optional 15・graph_sha 2eb140b879e5）
+        self.assertEqual(GRAPH_SHA, "2eb140b879e5")
         self.assertEqual(len(GRAPH["nodes"]), 60)
         self.assertEqual(sum(g.get("run_by") == "driver" for g in GRAPH["nodes"].values()), 17)
-        self.assertEqual(sum(bool(g.get("optional")) for g in GRAPH["nodes"].values()), 10)
+        self.assertEqual(sum(bool(g.get("optional")) for g in GRAPH["nodes"].values()), 15)
 
     def test_everything_covers_graph(self):
         t = self.full
@@ -245,7 +246,7 @@ class GraphChoiceCase(unittest.TestCase):
         # 今の表は graph の欄を持たない——既定の review-loop.json で、表の sha は欄を足す前と同じ（盤面の table_sha を崩さない）
         t = NodeTable.load(TABLES / "entry-line.json")
         self.assertEqual(t.graph, "review-loop.json")
-        self.assertEqual(t.sha(), "0b0baeeba7b4")
+        self.assertEqual(t.sha(), "218f277fc510")   # graph_sha 2eb140b879e5 の表（2026-10-06 に optional を足して付け替えた）
         self.assertEqual(NodeTable.load(ROOT / "darkfactory" / "nodes.json").graph, "review-loop.json")
         self.assertEqual(NodeTable.everything(GRAPH, GRAPH_SHA).graph, "review-loop.json")
         # 既定の値を書いても書かなくても同じ表・同じ sha

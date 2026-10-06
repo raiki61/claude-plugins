@@ -1,7 +1,8 @@
 """graphloops の実物の盤面の写し（tests/boards/real/・tests/boards/foreign/）の検査。
 
 real/ は写しの graph（a1202d0、走った時の graph_sha f9897bb07384）で走った実物の 2 個で、線 A の節を通っている（仕様 1 の 14）。
-写しの graph に任意の欄 lens を足した時に、state.json の graph_sha だけを今の写しの sha 9a1e3957f23d に書き換えた（README）。
+写しの graph に任意の欄 lens を足した時と、軽量の深さで省ける節に optional を足した時（2026-10-06）に、state.json の graph_sha だけを
+今の写しの sha 2eb140b879e5 に書き換えた（README）。
 foreign/ は graph の違う実物 35 個と、fbd40e3 の simulator の 4 個の state.json（開くと BoardMismatch になる試験に使う）。
 開くときは最初に state.graph_sha を写しの graph の sha(graph_text(...)) と比べて断る（仕様 4.4）ので、foreign/ の state.json は
 graph_sha の 1 つの鍵だけに削ってある（値は元と同じ）。削る前の元の state.json の sha256 は README に残す〔BL-R1〕。
@@ -18,7 +19,7 @@ BOARDS = pathlib.Path(__file__).resolve().parent / "boards"
 REAL = BOARDS / "real"
 FOREIGN = BOARDS / "foreign"
 README = BOARDS / "README"
-GRAPH_SHA = "9a1e3957f23d"
+GRAPH_SHA = "2eb140b879e5"
 REAL_NAMES = ("wt-ci-skip", "wt-layer1")
 TRACK_A = ("p2.fix_plan", "p2.plan_review", "p2.human_gate", "p3.fix", "p3.delta_owed2")
 CORE = pathlib.Path(__file__).resolve().parents[1] / ".shared" / "core"

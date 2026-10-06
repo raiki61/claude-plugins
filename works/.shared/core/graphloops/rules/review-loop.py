@@ -1905,6 +1905,10 @@ def stop_branch(V, exit_code, out):
     return "work_remains"
 
 
+# works の手直し: R ごとの役の節（回す側が省いた節を、省いた事実と理由の skipped で書くために引く）
+_REVIEW_NODE = {"R1": "r1.minimality", "R2": "r2.compare", "R3": "r3.coherence", "R4": "r4.hidden_scope"}
+
+
 def record_round(b, nid, stopped_reason=None):
     """周の記録 rounds/round-<N>.json を組み、検証器にディレクトリを渡す。R の欄も機械が埋める。
     stopped_reason は人が止めた周（on_stop）——走らなかった R を条件外・持ち越しでなく、止めた事実の not_run で書く"""
@@ -1934,6 +1938,9 @@ def record_round(b, nid, stopped_reason=None):
             # R3=redesign-needed を round 2 で上書きすると、収束を妨げるものが 3 件 → 2 件に減り、警告も trace も出ない）。
             # 再発火の条件に当たらない周でも、**据え置きは上書きより優先する**。
             reviews[name] = {"status": prev["status"], "reason": prev["reason"] + f"（round {prev['round']} と同じ。持ち越せない値なので今も諮っている記録として書く）"}
+        elif _REVIEW_NODE.get(name) in b.rd["skipped"]:
+            # works の手直し: 回す側が省いた（graph で optional の R の節）。省いた理由を記録に残し、収束は止めない
+            reviews[name] = {"status": "skipped", "reason": f"回す側が省いた: {b.rd['skipped'][_REVIEW_NODE[name]]}"}
         elif stopped_reason:
             reviews[name] = {"status": "not_run", "reason": f"{stopped_reason}——この周の {name} は走っていない"}
         elif name in V.REVIEW_STATUS["not_applicable"].only_for:  # 条件外を名乗れる R だけ（表が正本）
