@@ -321,6 +321,12 @@ class AcceptCase(PrCase):
         self.assertEqual(pathlib.Path(got["reason_file"]).parent, (self.art / "board").resolve())
         after = board_shas(b.dir)
         after.pop(b.work(rolekit.REJECTS_NAME).relative_to(b.dir).as_posix())   # 拒否はこの周の控えに積む（3 回目で done。R50）
+        # 拒んだ受け付けが盤面に書いてよいもう 1 つの物: 受け付けの最後の結果の控え（次の run に引き継ぐ落ちた理由の材料）
+        self.assertIsNone(before.get("accept-last.json"))
+        after.pop("accept-last.json")
+        last = json.loads((b.dir / "accept-last.json").read_text(encoding="utf-8"))
+        self.assertTrue(any(row.get("ok") is False and row.get("reason_file") == got["reason_file"]
+                            for row in (last.values() if isinstance(last, dict) else last)), last)
         self.assertEqual(after, before)
 
     def test_handover_draft_accepted(self):
