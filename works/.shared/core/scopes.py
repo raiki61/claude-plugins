@@ -83,6 +83,7 @@ _ROUND_NAME = re.compile(r"r\d+")              # 周の置き場 r<N> の段そ�
 # 共有の記録: core・engine・rules が書き、どの scope の窓で変わってもよい物の形（測り M2 の class shared と scope の登録・窓。
 # 盤面の根からのパスに段ごとに当てる。/ を持たない形は盤面の根の名にしか当たらない）。照らし・周の置き場の名・根のフォルダの 1 つの組
 SHARED = ("state.json", "record.json", "trace.jsonl", "STOP", "query-examples.json", "count-cache.json", "count-budget.json",
+          "accept-rev-cache.json", f"{_ROUND_DIR}/fixgates-base.json",   # 受け付けの試験の結末の控え（どの scope の受け付けも使い回す）
           "diff-r*.patch", "changed-r*.txt", "*-r*.patch",
           "out/**", "runs/**", "rounds/**", "prompts/**", "roles/**", "items/**", "policy/**", "lanes/**", "tdd-*/**",
           f"{_ROUND_DIR}/conflicts.json", f"{_ROUND_DIR}/libdocs.json", f"{_ROUND_DIR}/libdocs/**",

@@ -433,6 +433,14 @@ class GateCase(unittest.TestCase):
         self.put("scope-window.json")
         self.assertEqual(self.check(w), [])
 
+    def test_test_result_caches_pass(self):
+        # 受け付けが base の試験の結末を控える置き場（周の置き場と盤面の根。fixing と refitting の両方の scope が書く。run 195g の
+        # 0.2.28 で宣言の外として run が止まった）
+        w = self.window("fixing", "blk-fix")
+        self.put("r1/fixgates-base.json")
+        self.put("accept-rev-cache.json")
+        self.assertEqual(self.check(w), [])
+
     def test_published_name_records_owner(self):
         w = self.window("fixing", "blk-fix")
         self.put("r1/fix-held-reply.json")
