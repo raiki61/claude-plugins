@@ -324,7 +324,7 @@ class EyesPurposeCase(LineBase):
         self.assertEqual(got["outcome"], "needs_human")
         text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
         self.assertIn(conflict, text)
-        nxt = json.loads(pathlib.Path(got["report"]["next_request_file"]).read_text(encoding="utf-8"))
+        nxt = json.loads(pathlib.Path(got["report"]["next_request_file"]).read_text(encoding="utf-8"))["findings"]
         self.assertTrue(any(conflict in it["text"] for it in nxt), nxt)
 
 
@@ -421,6 +421,31 @@ class MaterialCase(LineBase):
         b = entry.open_board(got["board_dir"], allow_halted=True)
         self.assertIn(b.node_state("p0.purpose_review"), ("na", "done"))
         self.assertNotIn("purpose-review", got["mat_roles"])
+
+
+class PriorFailuresLineCase(LineBase):
+    """依頼の prior_failures（前の run で最後まで通らなかった物）は、判定の材料と修正案の役の指示書にだけ貼る。独立設計（r2.design）の
+    指示書には貼らない（前の run の判断を知らずに考える目）"""
+    PRIOR = [{"where": "受け付け take_p2_fix_plan", "text": "前の run の案は欄 route を欠いて 3 回とも拒まれた（見本の印 PF-7731）"}]
+
+    def test_prior_failures_reach_judge_and_plan_only(self):
+        rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+        got = self.run_line(request={"findings": rows, "prior_failures": self.PRIOR})
+        board = got["board_dir"]
+        self.assertEqual(json.loads((board / entry.PRIOR_IN_FILE).read_text(encoding="utf-8")), self.PRIOR)
+        mark = "PF-7731"
+        judge = pathlib.Path(got["judge_brief"]["materials_file"]).read_text(encoding="utf-8")
+        self.assertIn(entry.PRIOR_HEAD, judge)
+        self.assertIn(mark, judge)
+        prompts = {p.name: p.read_text(encoding="utf-8") for p in board.rglob("prompt-*.md")}
+        plan = [t for n, t in prompts.items() if n == "prompt-p2.fix_plan.md"]
+        self.assertTrue(plan, sorted(prompts))
+        self.assertTrue(all(mark in t for t in plan))
+        design_prompts = [t for n, t in prompts.items() if "r2.design" in n]
+        self.assertTrue(design_prompts, sorted(prompts))
+        for n, t in prompts.items():
+            if "fix_plan" not in n:
+                self.assertNotIn(mark, t, n)
 
 
 class JudgeReadsCase(LineBase):

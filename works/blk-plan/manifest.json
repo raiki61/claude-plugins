@@ -1,6 +1,7 @@
 {
  "owner": "blk-plan",
  "consumes": [
+  {"name": "prior-failures-in.json"},
   {"name": "structure-state.json"}
  ],
  "produces": [
