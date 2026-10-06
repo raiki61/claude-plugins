@@ -1120,7 +1120,8 @@ nodes:
         mat_go: {type: boolean}
         structure_units_file: {type: string}
 
-  # いつも走る機械の報告。report.md と次の run の依頼の下書き next-request.json。ai_report_go は盤面が報告の役の節を出したか。
+  # いつも走る機械の報告。report.md と次の run の依頼の下書き next-request.json（{findings, prior_failures}）と、この run で最後まで
+  # 通らなかった物 prior-failures.json。ai_report_go は盤面が報告の役の節を出したか。
   # 上流の節が落ちた run でも走る（all_done。Airflow の teardown と同じ。Ruling R21 の改め: run 30・31 は飛ばされて報告が残らなかった）。
   # start のほかの節の出力は落ちても飛ばされても if_skipped: null で受ける。start が落ちた run は盤面が無く、ここも落ちる
   - id: report
@@ -1150,6 +1151,7 @@ nodes:
         faces: {type: integer, minimum: 0}
         report_file: {type: string}
         next_request_file: {type: string}
+        prior_failures_file: {type: string}
         tests_green: {type: boolean}
         validator_exit: {type: integer}
         ai_report_go: {type: boolean}
@@ -1186,6 +1188,7 @@ nodes:
         faces: {type: integer, minimum: 0}
         report_file: {type: string}
         next_request_file: {type: string}
+        prior_failures_file: {type: string}
         tests_green: {type: boolean}
         validator_exit: {type: integer}
         ai_report_go: {type: boolean}

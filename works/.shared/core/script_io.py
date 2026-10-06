@@ -9,7 +9,9 @@ main(fn) が読む環境変数:
 返答が JSON として読めない・JSON のオブジェクトでないときは fn を呼ばずに ok: false を出して 0。
 出口は 1 本（emit_result。main を通らない受け付けの入口も盤面を board_dir で引いてこれを通す）で、どの結果にも reason_file を足す。拒否（ok が true でない）なら reason の本文を盤面の
 scope の根（scope_dir。include の中なら <盤面>/<include の名>/、線の最上段なら盤面の根）の reject-<fn の名>-<連番>.txt に
-UTF-8 で字のまま書いてその絶対パスを、通れば空の文字列を入れる。
+UTF-8 で字のまま書いてその絶対パスを、通れば空の文字列を入れる。どの結果も、scope の根の accept-last.json の
+自分の行に最後の結果として上書きする（note_last。出し直して通った拒否は残らない。報告の段が run の終わりに ok でない行を
+前の run の落ちた理由に集める）。
 盤面のパスは board_dir で一度だけ resolve し（シンボリックリンクを辿り、相対なら cwd を足す）、下の $ の柵も、fn へ渡す board も、
 reason_file も、その同じ解決した後の値から作る（検査した字と外へ出す字を揃える。正規化してから検査する）。
 次の周の役へ理由を届けるのは reason_file の方。指示書は $LOOP_PREV.<役>-accept.output.reason_file だけを差し込み、
@@ -50,6 +52,7 @@ sys.exit(script_io.main(check_judge))
   accept.py だと、後ろに足したのでは `import accept` がスクリプト自身を読む（Ruling R7）。
 - pack の根は `Path(__file__).resolve().parents[2]`（<根>/<blk>/scripts/<名>.py）。Archon は run ごとに pack を写して写しから起こす。
 """
+import datetime
 import json
 import os
 import pathlib
@@ -64,6 +67,7 @@ BASE_REV_ENV = "INPUTS_BASE_REV"
 ARTIFACTS_ENV = flow_adapter.ARTIFACTS_ENV
 BOARD_DIR = "board"
 REJECT_PREFIX = "reject-"
+ACCEPT_LAST = "accept-last.json"   # scope の根の受け付けの最後の結果 {<fn の名>: {ok, reason_file, reason, at}}（note_last が上書き）
 
 
 def _emit(obj) -> None:
@@ -78,8 +82,7 @@ def _emit(obj) -> None:
 def reject_name(fn, n) -> str:
     """拒否の理由のファイルの名 reject-<fn の名>-<n>.txt。fn は関数（その __name__）か名前の文字列。n に "*" を渡せば glob。
     名の綴りはここだけ"""
-    name = re.sub(r"[^A-Za-z0-9_-]", "_", (fn if isinstance(fn, str) else getattr(fn, "__name__", "")) or "fn")
-    return f"{REJECT_PREFIX}{name}-{n}.txt"
+    return f"{REJECT_PREFIX}{safe_fn(fn)}-{n}.txt"
 
 
 def scope_dir(board: pathlib.Path) -> pathlib.Path:
@@ -117,6 +120,35 @@ def _write_reason(board: pathlib.Path, fn, reason: str) -> str:
             n += 1
 
 
+def safe_fn(fn) -> str:
+    """fn（関数ならその __name__、または名前の文字列）をファイルの名・控えの鍵に使える字にした物（reject_name と同じ綴り）"""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", (fn if isinstance(fn, str) else getattr(fn, "__name__", "")) or "fn")
+
+
+def note_last(board, fn, out: dict) -> None:
+    """受け付け fn の最後の結果を、盤面 board の今の scope の根（scope_dir）の accept-last.json の自分の行
+    {ok, reason_file, reason, at} に上書きで残す（出し直して通れば ok が真の行で上書きされ、通った拒否は消える）。
+    報告の段が run の終わりに ok でない行だけを「前の run の落ちた理由」に集める。どの受け付けの出口も 1 回呼ぶ。
+    reason は reason_file を持たない口（拒否の文を作業ファイルに積む口）のための本文の写し。書けない控えは捨てない
+    （OSError・形の違うファイルは黙って作り直さずに投げる）"""
+    home = scope_dir(pathlib.Path(board))
+    home.mkdir(parents=True, exist_ok=True)
+    path = home / ACCEPT_LAST
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        doc = {}
+    if not isinstance(doc, dict):
+        raise ValueError(f"{path} の形が違う（{{<fn の名>: {{ok, reason_file, reason, at}}}}）")
+    ok = out.get("ok") is True
+    doc[safe_fn(fn)] = {"ok": ok, "reason_file": "" if ok else str(out.get("reason_file") or ""),
+                        "reason": "" if ok else str(out.get("reason", "")),
+                        "at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def board_dir():
     """ARTIFACTS_DIR の下の盤面を一度だけ resolve した値（シンボリックリンクを辿り、相対なら cwd を足す）。
     ARTIFACTS_DIR が欠け・空、または解決した後のパスが $ を含むときは標準エラーに名前を出して None（呼ぶ側は 2 で終わる）。
@@ -144,6 +176,7 @@ def emit_result(board: pathlib.Path, fn, out: dict) -> int:
     else:
         board.mkdir(parents=True, exist_ok=True)
         out["reason_file"] = _write_reason(board, fn, str(out.get("reason", "")))
+    note_last(board, fn, out)
     _emit(out)
     return 0
 

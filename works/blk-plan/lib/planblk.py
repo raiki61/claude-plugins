@@ -10,7 +10,8 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
 - snap:     役を起こす前の作業ツリーの写し（accept.tree_state。R47）を今の周の <役>-snapshot.json に置き、節が待っているか
             （go）を返す。待っていなければ（判定が直す物を出さなかった・修正案が諦めた）輪を飛ばす。修正案は、必ず入れるのに
             開いていない単位が在れば（stuck_reason。案の形では閉じない）盤面を止めて（by works:plan）輪を飛ばす
-- prep:     rolekit.render_prompt で本線の指示書を描き（頭に役の定義と、並行 PR の外した範囲のパス）、番号の控え（pointer_rows）を
+- prep:     rolekit.render_prompt で本線の指示書を描き（頭に役の定義と、並行 PR の外した範囲のパスと、修正案の役なら前の run で
+            最後まで通らなかった物の節 prior_part）、番号の控え（pointer_rows）を
             付けて起こした印（mark_launched）を置く。拒否の後の出し直しは、頭の 1 行が前の拒否の理由のファイルを名指す（R44）
 - accept:   rolekit.main_accept（take が狭めない案の欄を欠く narrows の行を拒み、関所の項目の決め手の欄を外して盤面に置き（gatemarks）、entry.take・読むだけの役の作業ツリーの比べ・3 回目の拒否で done・give_up。R50）。
             修正案は、項目の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）の欠けを
@@ -271,6 +272,12 @@ def design_only(b) -> str:
             f"{got['design']}\n=====独立設計ここまで=====")
 
 
+def prior_part(b, role: str) -> str:
+    """修正案の役の頭に貼る、前の run で最後まで通らなかった物の節（盤面の根の prior-failures-in.json。manifest の consumes。
+    entry.prior_section）。修正案の役だけ（事前審査・独立設計の役には貼らない）。行が無ければ空"""
+    return entry.prior_section(b.dir) if role == "plan" else ""
+
+
 def lib_section(b, repo) -> str:
     """判定の単位のファイルが使うライブラリの今の文書の節（同じ周の 2 つ目の役は盤面の控えを読み、網に出ない）"""
     out = (b.state.get("outputs") or {}).get("p2.diagnose") or {}
@@ -321,14 +328,15 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "") 
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
     if replanning(replan):
-        return replan_mod.prep(board_dir, role, repo, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo))),
+        return replan_mod.prep(board_dir, role, repo, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)),
+                                                                prior_part(b, role)),
                                design_part=design_only(b) if role == "plan-review" else "")
     if role == "plan":
         why = halt_if_stuck(b)
         if why:   # snap が先に止めて輪を飛ばすので、ここに届くのは配線の誤り。指示書を書かずに 2 で落とす（役を起こさせない）
             raise BoardGap(why)
     part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b)) if role == "plan-review"
-                                    else (structmark.plan_section(b.dir), plan_slots_section(b))) if x)
+                                    else (prior_part(b, role), structmark.plan_section(b.dir), plan_slots_section(b))) if x)
     path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo)), part))
     ptrs = b.pointer_rows(nid)["pointers"]
     inst = _pending(b, nid)

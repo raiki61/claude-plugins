@@ -175,6 +175,18 @@ class AcceptCase(Base):
         self.assertEqual(pathlib.Path(got[0]["reason_file"]).read_text(encoding="utf-8"), REASON)
         self.assertEqual(rolekit.last_reject_file(self.b, "p9.role"), got[-1]["reason_file"])
 
+    def test_accept_last_row(self):
+        # 受け付けの最後の結果を scope の根の accept-last.json の行 take_<節> に上書き: 拒否の後に通れば ok 真
+        last = self.b.dir / rolekit.script_io.ACCEPT_LAST
+        with mock.patch.object(rolekit.entry, "take", return_value={"ok": False, "reason": REASON}):
+            got = rolekit.accept_role(self.b.dir, "p9.role", "{}", self.tmp)
+        row = json.loads(last.read_text(encoding="utf-8"))["take_p9_role"]
+        self.assertEqual((row["ok"], row["reason_file"]), (False, got["reason_file"]))
+        with mock.patch.object(rolekit.entry, "take", return_value={"ok": True, "reason": ""}):
+            rolekit.accept_role(self.b.dir, "p9.role", "{}", self.tmp)
+        row = json.loads(last.read_text(encoding="utf-8"))["take_p9_role"]
+        self.assertEqual((row["ok"], row["reason_file"]), (True, ""))
+
     def test_give_up_arms_share_text_and_stop_once(self):
         # 盤面の節の諦め（gave_up）と盤面の節でない諦め（given_up_reason・stop_line）は同じ文を出し、止まった盤面を止め直さない
         stops = []

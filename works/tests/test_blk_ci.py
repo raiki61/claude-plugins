@@ -305,6 +305,9 @@ class ScriptCase(unittest.TestCase):
                 return i, rounds
         return None, rounds
 
+    def accept_last(self) -> dict:
+        return json.loads((self.opened().dir / "accept-last.json").read_text(encoding="utf-8"))
+
     def test_pass_path(self):
         snap = self.ok("snap", node="p0.local_checks")
         copy = pathlib.Path(snap["copy_dir"])
@@ -324,6 +327,7 @@ class ScriptCase(unittest.TestCase):
             self.assertIn(part, prompt)
         self.assertNotIn("<<", prompt, "穴は全部埋めた")
         self.assertTrue(got["ok"], got)
+        self.assertIs(self.accept_last()["ci_p0_local_checks"]["ok"], True)
         out = self.ok("collect", node="p0.local_checks")
         self.assertEqual((out["ok"], out["status"], out["green"], out["node"]), (True, "found", False, "p0.local_checks"), out)
         self.assertIn(out["pr_go"], (True, False), "p0.local_checks を渡した後は resume_after_ci が p0.parallel_pr を測る")
@@ -545,6 +549,8 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual([p["already"] for p, _ in rounds], [False] + [True] * (ci_role.GIVE_UP_AFTER - 1))
         self.assertEqual([(a["ok"], a["give_up"]) for _, a in rounds],
                          [(False, False)] * (ci_role.GIVE_UP_AFTER - 1) + [(False, True)])
+        row = self.accept_last()["ci_p0_local_checks"]   # 受け付けの最後の結果の控え（script_io.note_last）
+        self.assertEqual((row["ok"], row["reason"]), (False, rounds[-1][1]["reason"]))
         second = pathlib.Path(rounds[1][0]["prompt_file"]).read_text(encoding="utf-8")
         self.assertTrue(second.startswith(ci_role.REJECT_HEADING))
         self.assertIn(rounds[0][1]["reason"], second)

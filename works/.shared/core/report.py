@@ -17,7 +17,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base, aggregate}]
-- next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
+- next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く）
+- prior_failures(b, left=None) -> この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]（次の依頼の prior_failures）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
 - always_rows(b, left=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、走らせていない・調べていない・
   読めないも。冒頭 1 と最後の関所の文が同じ行を出す）・anomalies(b)・anomaly_lines(b, *, full=False)（仕組みの異常。報告の「仕組みの異常」の節）
@@ -69,6 +70,7 @@ import leftovers  # noqa: E402
 import lens  # noqa: E402
 import reads  # noqa: E402
 import scopes  # noqa: E402
+import script_io  # noqa: E402
 import structmark  # noqa: E402
 import writes  # noqa: E402
 
@@ -92,7 +94,11 @@ COST_FIELD = ("spend", "costUsd")
 COST_FIELD_NAME = "data." + ".".join(COST_FIELD)
 ARCHON_VERSION = "Archon v0.11.1"
 REPORT_FILE = "report.md"
-NEXT_REQUEST_FILE = "next-request.json"
+NEXT_REQUEST_FILE = "next-request.json"   # 次の run の依頼の下書き {findings, prior_failures}（依頼の型の object の形）
+PRIOR_FAILURES_FILE = "prior-failures.json"   # この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]
+PRIOR_HEADING = "## 次の run に引き継ぐ落ちた理由"
+ACCEPT_WHERE = "受け付け"                  # prior_failures の受け付けの行の where の頭
+R2_REDESIGN = "R2 が redesign-needed"      # 検証器と独立の目が R2 の作り直しの行に付ける頭（findings から外し prior_failures にだけ載せる）
 NO_TURN_FILE = "no-turn-exits.json"   # 包みの終わりの記録の即時の死の行の写し（build が書く。起こし直しの行から辿る）
 NEXT_ORIGIN = "works:report"   # 次の run に渡す依頼の出どころ（accept.check_request の reason）
 TAIL_LINES = 20
@@ -463,13 +469,67 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
 
 
 # ---------------------------------------------------------------- 次の run に渡す依頼
+def _r2_redesign(row) -> bool:
+    return str(row.get("text") or "").startswith(R2_REDESIGN)
+
+
+def _accept_last_files(board_dir: pathlib.Path) -> list:
+    """盤面の根と、根の直下の scope の根（include の名・fan_out の子）の accept-last.json（根が先、scope は名の順）。登録
+    （scopes.json）でなく置き場を見る: 盤面を開く前に scope の根に書く受け付け（intake の前の役）も拾う"""
+    d = pathlib.Path(board_dir)
+    return [p for p in [d / script_io.ACCEPT_LAST, *sorted(d.glob(f"*/{script_io.ACCEPT_LAST}"))] if p.is_file()]
+
+
+def prior_failures(b, left: list | None = None) -> list:
+    """この run で最後まで通らなかった物 [{where, text}]（次の run の判定役と修正案の役の材料に貼る。直す穴ではない）:
+    ①盤面の根と scope の根の accept-last.json（受け付けの出口が最後の結果を上書きする控え。script_io.note_last）のうち ok で
+    ない行。text は最後の理由のファイルの本文（読めなければ行の reason）を 1 行にした物。where は「受け付け <名>」と、scope の根
+    なら（<scope>）。控えが読めなければその旨の行（黙って 0 件に見せない）
+    ②残り left（residue の返り）のうち R2 の作り直しの行（R2_REDESIGN で始まる。検証器と独立の目の両方の形を 1 行にまとめる）"""
+    d = pathlib.Path(b.dir)
+    rows = []
+    for p in _accept_last_files(d):
+        scope = "" if p.parent == d else p.parent.name
+        where = lambda name: f"{ACCEPT_WHERE} {name}" + (f"（{scope}）" if scope else "")  # noqa: E731
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(doc, dict):
+                raise ValueError("object でない")
+        except (OSError, ValueError) as e:
+            rows.append({"where": where(script_io.ACCEPT_LAST), "text": f"受け付けの最後の結果の控え {p} が読めない: {_one_line(e)}"})
+            continue
+        for name, r in doc.items():
+            if not isinstance(r, dict) or r.get("ok") is True:
+                continue
+            text = ""
+            if r.get("reason_file"):
+                try:
+                    text = pathlib.Path(str(r["reason_file"])).read_text(encoding="utf-8")
+                except OSError:
+                    text = ""
+            rows.append({"where": where(name), "text": _one_line(text or r.get("reason") or "理由の記録が無い")})
+    r2 = [r for r in left or [] if _r2_redesign(r)]
+    if r2:   # 独立の目の形を先に採る（検証器の同じ目の行は二重に載せない）
+        pick = next((r for r in r2 if str(r.get("where") or "").startswith(EYES_WHERE)), r2[0])
+        rows.append({"where": f"{EYES_WHERE} R2", "text": _one_line(pick["text"])})
+    return rows
+
+
+def prior_lines(rows: list) -> list:
+    """報告の節 PRIOR_HEADING の行（件数と 1 件 1 行）"""
+    return [f"{len(rows)} 件（次の run の依頼の下書き {NEXT_REQUEST_FILE} の prior_failures に載せた。判定役と修正案の役の材料に"
+            "貼る注意で、直す穴ではない）"] + [f"{r['where']}: {r['text']}" for r in rows]
+
+
 def carry_left(left: list | None, owned: set, tests: dict | None) -> list:
-    """残り left（residue の返り）の全件を次の依頼へ運ぶ。落とすのは次の 2 つの重複だけ: ①最後のテストの赤の行（tests が赤・
+    """残り left（residue の返り）の全件を次の依頼へ運ぶ。落とすのは R2 の作り直しの行（findings でなく prior_failures に
+    載せる。findings は目的の役が生のまま読み、独立設計の入力に流れるため）と、次の 2 つの重複だけ: ①最後のテストの赤の行（tests が赤・
     走れなかった時に residue が足す行。next_request が理由つきの自前の行を持つ）②owned の単位の『[block] 未解消: <key>』の行
     （その単位は not_done・人に回した単位・再審の行が自分の字で持つ）"""
     red = (_tests_where(tests), TESTS_TEXT) if isinstance(tests, dict) else None
     return [r for r in left or []
-            if not (red and r["where"] == red[0] and r["text"].startswith(red[1]))
+            if not _r2_redesign(r)
+            and not (red and r["where"] == red[0] and r["text"].startswith(red[1]))
             and not any(_unit_row_of(r["text"], k) for k in owned)]
 
 
@@ -1314,8 +1374,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
           ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
           failed: list | None = None, retried: list | None = None, eyeing: dict | None = None, cleaned_runs: str = "") -> dict:
     """gate_record → decide_outcome（eyeing＝独立の目のブロックの出口。残りに数える）→ 部品で <盤面>/report.md と
-    <盤面>/next-request.json（と、包みが即時の死を記録した run は <盤面>/NO_TURN_FILE）を書き、1 本目の finish の欄に
-    report_file・next_request_file・tests_green・validator_exit と、書き出しの節が読む export_input {outcome, report_file,
+    <盤面>/next-request.json（{findings: next_request の返り, prior_failures}）と <盤面>/prior-failures.json（prior_failures の返り）
+    （と、包みが即時の死を記録した run は <盤面>/NO_TURN_FILE）を書き、1 本目の finish の欄に
+    report_file・next_request_file・prior_failures_file・tests_green・validator_exit と、書き出しの節が読む export_input {outcome, report_file,
     board_dir} を足して返す。interrupted（Archon の run の状態の語。空も可）を渡せば結末は interrupted（線の中の報告の節は
     落ちた節 failed と空、dev の report.sh は run の状態）。retried（前の試みで落ち、続きで済んだ節）は冒頭 3 の試みの記録で、
     結末も AI の報告の可否も替えない。
@@ -1334,8 +1395,10 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged, eyeing=eyeing)
     left = residue(b, gate, tests=tests, eyeing=eyeing)
     items = next_request(b, tests=tests, left=left)
-    req_p, rep_p = board_dir / NEXT_REQUEST_FILE, board_dir / REPORT_FILE
-    _write_json(req_p, items)
+    prior = prior_failures(b, left)
+    req_p, rep_p, prior_p = board_dir / NEXT_REQUEST_FILE, board_dir / REPORT_FILE, board_dir / PRIOR_FAILURES_FILE
+    _write_json(prior_p, prior)
+    _write_json(req_p, {"findings": items, "prior_failures": prior})
     dead = _no_turn_exits(b, (b.state.get("inputs") or {}).get("cwd") or ".")
     if dead:   # 即時の死の result は Archon の出来事に載らないので、全文を盤面にも残す（head_reads の行から辿る）
         _write_json(board_dir / NO_TURN_FILE, dead)
@@ -1354,12 +1417,14 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     structure = structmark.report_lines(board_dir)
     if structure:
         body += ["## 構造の目", "", *[f"- {r}" for r in structure], ""]
+    body += [PRIOR_HEADING, "", *[f"- {r}" for r in prior_lines(prior)], ""]
     body += ["## 未確認のレンズ", "", *[f"- {r}" for r in lens.report_lines(b)], ""]
     body += ["## 仕組みの異常", "", *[r if r.startswith("  ") else f"- {r}" for r in anomaly_lines(b, full=True)], ""]
     body += ["## このラインに無い節", "", *[f"- {r}" for r in absent_lines(b)], ""]
     _write_text(rep_p, "\n".join(body))
     green = isinstance(tests, dict) and tests.get("ok") is True and tests.get("green") is True
     return {**_finish_fields(b, judged, outcome), "report_file": str(rep_p), "next_request_file": str(req_p),
+            "prior_failures_file": str(prior_p),
             "tests_green": green, "validator_exit": gate["exit"], "ai_report_go": ai_go,
             "export_input": {"outcome": outcome, "report_file": str(rep_p), "board_dir": str(board_dir)}}
 

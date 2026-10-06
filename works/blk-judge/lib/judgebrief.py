@@ -10,7 +10,8 @@ commands/diagnose.md のまま。受け付けは盤面の p2.diagnose の done�
 - brief: ラインの盤面（$ARTIFACTS_DIR/board/state.json）が無ければ（ブロックを単独で回した）{ok, go: true, materials_file: ""}。
   盤面が止まっていれば（同じ境の節の後ろの素材集めが止めた。run 30）何も書かずに go: false（判定役を起こさない。blk-material の
   支度と同じ形）。止まっていなければ盤面の p2.diagnose が待っていること（待っていなければ BoardGap——線の順の誤り。黙って空にしない）。描いた本文を今の周の
-  作業ファイル judge-materials.md に書き、判定役を起こす前の作業ツリーの姿を今の周の judge-tree.json に置き（entry.snapshot。
+  作業ファイル judge-materials.md に書き（盤面の根に前の run で最後まで通らなかった物 prior-failures-in.json の行が在れば、
+  entry.prior_section の節を末尾に足す。直す穴ではない注意）、判定役を起こす前の作業ツリーの姿を今の周の judge-tree.json に置き（entry.snapshot。
   受け付けが比べる）、待っている試行に起こした印を置く（描く → 印 → 起こす。盤面の決まり 2）。パスを返す
 """
 import pathlib
@@ -73,7 +74,8 @@ def brief(board_dir, repo) -> dict:
         raise BoardGap(f"{NODE} の番号の穴（{snap}）が在る——前の周の R1 の削除候補を番号で指す形を、このブロックの受け付けは受けない")
     p = b.work(BRIEF_FILE)
     tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(HEAD + "\n\n" + body, encoding="utf-8")
+    prior = entry.prior_section(d)   # 盤面の根の前の run で最後まで通らなかった物（manifest の consumes。無ければ貼らない）
+    tmp.write_text(HEAD + "\n\n" + body + (f"\n\n{prior}\n" if prior else ""), encoding="utf-8")
     tmp.replace(p)
     entry.snapshot(d, judgetake.TREE_FILE, pathlib.Path(repo))
     entry.open_board(d).mark_launched(NODE, inst.get("attempts", 1))

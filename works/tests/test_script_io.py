@@ -65,7 +65,8 @@ class ScriptIoCase(unittest.TestCase):
         self.assertEqual(rev, "abc123")
         self.assertEqual(repo, pathlib.Path.cwd())
         self.assertEqual(json.loads(out), {"ok": True, "reason": "", "reason_file": ""})
-        self.assertEqual(list(board.iterdir()), [], "通ったときは理由のファイルを書かない")
+        self.assertEqual([p.name for p in board.iterdir()], [script_io.ACCEPT_LAST],
+                         "通ったときは理由のファイルを書かない（最後の結果の控えだけ）")
 
     def test_reject_reason_goes_to_file_verbatim(self):
         # 役の返答から派生した理由は $… を含みうる。本文は盤面のファイルに字のまま置き、reason_file（$ を含まないパス）だけを
@@ -95,6 +96,45 @@ class ScriptIoCase(unittest.TestCase):
                 with mock.patch.dict(os.environ, env, clear=True):
                     self.assertEqual(script_io.scope_dir(board), home)
                     self.assertEqual(script_io.last_reject(board, "<lambda>"), str(got))
+
+    def _last(self, env, fn, outs):
+        """outs の順に fn の受け付けの結果を出し、今の scope の根の accept-last.json を返す"""
+        it = iter(outs)
+
+        def accept_x(*a):
+            return dict(next(it))
+        for _ in outs:
+            run_main(accept_x, env)
+        board = pathlib.Path(env["ARTIFACTS_DIR"]) / "board"
+        with mock.patch.dict(os.environ, env, clear=True):
+            return json.loads((script_io.scope_dir(board) / script_io.ACCEPT_LAST).read_text(encoding="utf-8"))
+
+    def test_accept_last_keeps_only_last_result(self):
+        # 拒否 2 回の後に通った受け付けは ok 真の行で上書き（出し直して通った拒否は残さない）
+        got = self._last(self.env, None, [{"ok": False, "reason": "a"}, {"ok": False, "reason": "b"}, {"ok": True}])
+        self.assertIs(got["accept_x"]["ok"], True)
+        self.assertEqual(got["accept_x"]["reason_file"], "")
+        # 3 回拒んだ受け付けは ok 偽で、最後の理由のファイル
+        env = {**self.env, "ARTIFACTS_DIR": str(self.tmp / "a2")}
+        got = self._last(env, None, [{"ok": False, "reason": f"r{i}"} for i in (1, 2, 3)])
+        row = got["accept_x"]
+        self.assertIs(row["ok"], False)
+        self.assertTrue(row["reason_file"].endswith("reject-accept_x-3.txt"), row)
+        self.assertEqual(pathlib.Path(row["reason_file"]).read_text(encoding="utf-8"), "r3")
+        self.assertEqual(row["reason"], "r3")
+        self.assertTrue(row["at"])
+
+    def test_accept_last_is_per_scope(self):
+        # 2 つの include が同じ fn の名を使っても、scope の根が別なので行は混ざらない
+        def env_of(path):
+            return {**self.env, "ARCHON_NODE_EXECUTION": json.dumps({"runId": "r", "path": path})}
+        a = self._last(env_of("fixing__fix-loop.fix-accept"), None, [{"ok": False, "reason": "x"}])
+        b = self._last(env_of("refitting__fix-loop.fix-accept"), None, [{"ok": True}])
+        self.assertIs(a["accept_x"]["ok"], False)
+        self.assertIs(b["accept_x"]["ok"], True)
+        board = self.tmp / "artifacts" / "board"
+        self.assertTrue((board / "fixing" / script_io.ACCEPT_LAST).is_file())
+        self.assertTrue((board / "refitting" / script_io.ACCEPT_LAST).is_file())
 
     def test_each_reject_gets_its_own_file(self):
         outs = [json.loads(run_main(lambda *a: {"ok": False, "reason": f"r{i}"}, self.env)[1]) for i in (1, 2)]

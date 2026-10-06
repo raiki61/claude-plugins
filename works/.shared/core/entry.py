@@ -311,9 +311,9 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     if not rel:
         if change is None:
             raise InputRefused("依頼（request）も変更（base・pr）も名指されていない——少なくとも 1 つを名指す")
-        path, text, items, answers = None, "", [], []
+        path, text, items, answers, prior = None, "", [], [], []
     else:
-        path, text, items, answers = _read_request(rel, repo, rules)
+        path, text, items, answers, prior = _read_request(rel, repo, rules)
     pol = _word(raw, "policy_md")
     if pol:
         pp = pathlib.Path(pol) if pathlib.Path(pol).is_absolute() else repo / pol
@@ -330,7 +330,7 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
            "test_cmd": _word(raw, "test_cmd"), "thickness": thickness, "gates": gates, "final_gate": final_gate,
            "adapter": adapter, "policy_md": pol, "lang": _word(raw, "lang"), "unattended": unattended,
            "design_only": design_only, "fix_shape": fix_shape, "fix_fixture": fx,
-           "answers": answers}
+           "answers": answers, "prior_failures": prior}
     if change is not None:
         out.update(change)
     return out
@@ -383,7 +383,8 @@ def _change_base(raw: dict, repo: pathlib.Path, reads=None):
 
 
 def _read_request(rel: str, repo: pathlib.Path, rules):
-    """依頼のファイルを読んで (path, text, items, answers)。items は findings の行、answers は依頼者の答え（配列の形も
+    """依頼のファイルを読んで (path, text, items, answers, prior_failures)。items は findings の行、answers は依頼者の答え、
+    prior_failures は前の run で最後まで通らなかった物（配列の形も
     {findings, pr, issue, answers} の形も request_parts で解く）。読めない・どちらの形でもない・依頼の型に合わない は InputRefused"""
     path = pathlib.Path(rel) if pathlib.Path(rel).is_absolute() else repo / rel
     try:
@@ -403,7 +404,7 @@ def _read_request(rel: str, repo: pathlib.Path, rules):
     if errs:
         raise InputRefused(f"依頼のファイル {rel} の形: findings の配列か {{findings, pr, issue, answers}} の形で、findings は "
                            "[{where, text, mechanism?, measured?, false_positive_if?}] の配列（空でない）: " + "; ".join(errs))
-    return path, text, items, parts["answers"]
+    return path, text, items, parts["answers"], parts["prior_failures"]
 
 
 def board_rules():
@@ -761,6 +762,9 @@ def resume_after_ci(b, *, test_cmd: str = "", runner=None) -> dict:
 
 # ---------------------------------------------------------------- start（線 A の仕様 4 節）
 START_FILE = "start.json"
+PRIOR_IN_FILE = "prior-failures-in.json"   # 盤面の根に置く依頼の prior_failures [{where, text}]（place_prior。読むのは consumes で宣言した物）
+PRIOR_HEAD = ("## 前の run で最後まで通らなかった物（機械が貼った。直す穴ではない——同じ所で落ちない返答を出すための注意。"
+              "直す穴は依頼の findings だけ）")
 
 
 def declared_adapter(b) -> str:
@@ -809,8 +813,33 @@ def _request_text(inp: dict) -> str:
 
 
 def _kept(inp: dict) -> dict:
-    """check_inputs の返りのうち start の控えに残す欄（依頼の行と文は控えに残さない）"""
-    return {k: v for k, v in inp.items() if k not in ("items", "request_text")}
+    """check_inputs の返りのうち start の控えに残す欄（依頼の行と文は控えに残さない。prior_failures は盤面の根の
+    PRIOR_IN_FILE が運ぶ）"""
+    return {k: v for k, v in inp.items() if k not in ("items", "request_text", "prior_failures")}
+
+
+def place_prior(board_dir: pathlib.Path, rows: list) -> None:
+    """依頼の prior_failures を盤面の根の PRIOR_IN_FILE に置く（行が無くても空の配列。読み手は manifest の consumes で宣言した
+    ブロックだけ）"""
+    _write_json(pathlib.Path(board_dir) / PRIOR_IN_FILE, list(rows))
+
+
+def prior_section(board_dir) -> str:
+    """盤面の根の PRIOR_IN_FILE の行を、役の材料に貼る節にした物（PRIOR_HEAD と 1 件 1 行）。無い・空なら ""。読めなければ
+    BoardGap（黙って 0 件に見せない）"""
+    p = pathlib.Path(board_dir) / PRIOR_IN_FILE
+    if not p.is_file():
+        return ""
+    try:
+        rows = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise BoardGap(f"{p} が読めない: {e}") from None
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise BoardGap(f"{p} の形が違う（[{{where, text}}]）")
+    if not rows:
+        return ""
+    return PRIOR_HEAD + "\n\n" + "\n".join(f"- {' '.join(str(r.get('where', '')).split())}: "
+                                             f"{' '.join(str(r.get('text', '')).split())}" for r in rows)
 
 
 def adopt_inputs(inp: dict) -> dict:
@@ -935,6 +964,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
         ghreads.adopt(board_dir, reads_src)
     except OSError as e:
         raise InputRefused(f"隔離の前の読み出し（github_reads）を盤面へ写せない（{type(e).__name__}: {e}）") from None
+    place_prior(board_dir, inp["prior_failures"])
     keep = _kept(inp)
     work = b.work(START_FILE)
     prev = {}

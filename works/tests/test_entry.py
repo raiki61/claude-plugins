@@ -660,14 +660,42 @@ class CheckInputsCase(StartCaseBase):
                 self.assertIn("answers", str(cm.exception))
                 self.assertNotIn("\n", str(cm.exception))
 
+    PRIOR = [{"where": "受け付け take_p2_fix_plan", "text": "案の欄 route が欠ける"},
+             {"where": "独立の目 R2", "text": "R2 が redesign-needed: 構造が合わない"}]
+
+    def test_request_prior_failures_reach_board_root(self):
+        """object の形の依頼の prior_failures は check_inputs の返りに字のまま載り、start が盤面の根の prior-failures-in.json に
+        置く（start の控えには残さない）。前の run の next-request.json の形 {findings, prior_failures} がそのまま依頼になる"""
+        repo = self.seed()
+        rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+        req = request_file(self.tmp / "prior.json", {"findings": rows, "prior_failures": self.PRIOR})
+        got = entry.check_inputs({"request": str(req)}, repo)
+        self.assertEqual((got["items"], got["prior_failures"]), (rows, self.PRIOR))
+        self.start(repo, raw=self.raw(request=str(req)))
+        self.assertEqual(json.loads((self.board / entry.PRIOR_IN_FILE).read_text(encoding="utf-8")), self.PRIOR)
+        self.assertNotIn("prior_failures", gatemarks.start_doc(self.board))
+
+    def test_request_prior_failures_bad_shape_refused(self):
+        repo = self.seed()
+        rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+        one = {"where": "x", "text": "y"}
+        for name, pf in (("not-list", one), ("not-dict", ["x"]), ("empty-text", [{**one, "text": " "}]),
+                         ("no-where", [{"text": "y"}]), ("extra", [{**one, "by": "人"}])):
+            with self.subTest(name):
+                req = request_file(self.tmp / f"pf-{name}.json", {"findings": rows, "prior_failures": pf})
+                with self.assertRaises(entry.InputRefused) as cm:
+                    entry.check_inputs({"request": str(req)}, repo)
+                self.assertIn("prior_failures", str(cm.exception))
+                self.assertNotIn("\n", str(cm.exception))
+
     def test_inputs_defaults(self):
         """依頼だけ → thickness 標準・gates ""・final_gate always・adapter ""・lang ""。返りに thickness_decider が無い"""
         repo = self.seed()
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
                                     "final_gate", "adapter", "policy_md", "lang", "unattended", "design_only", "fix_shape",
-                                    "fix_fixture", "answers"})
-        self.assertEqual(got["answers"], [])
+                                    "fix_fixture", "answers", "prior_failures"})
+        self.assertEqual((got["answers"], got["prior_failures"]), ([], []))
         self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"],
                           got["lang"], got["unattended"], got["design_only"], got["fix_shape"]),
                          ("標準", "", "always", "", "", "", "", "", "", "g3"))

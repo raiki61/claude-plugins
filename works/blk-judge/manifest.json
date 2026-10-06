@@ -1,6 +1,8 @@
 {
  "owner": "blk-judge",
- "consumes": [],
+ "consumes": [
+  {"name": "prior-failures-in.json"}
+ ],
  "produces": [
   {"name": "judgment.json", "format": "json", "schema": "schemas/judgment.schema.json", "at": "root"}
  ]

@@ -1,6 +1,10 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "次の run に渡す依頼の下書き next-request.json（盤面の根。書き手は core の report.build。依頼の型 [{where, text}]）",
- "type": "array",
- "items": {"type": "object", "properties": {"where": {"type": "string"}, "text": {"type": "string"}}}
+ "title": "次の run に渡す依頼の下書き next-request.json（盤面の根。書き手は core の report.build。依頼の object の形 {findings, prior_failures}。findings は直す穴、prior_failures はこの run で最後まで通らなかった物で次の run の判定役と修正案の役に貼る注意）",
+ "type": "object",
+ "required": ["findings", "prior_failures"],
+ "properties": {
+  "findings": {"type": "array", "items": {"type": "object", "properties": {"where": {"type": "string"}, "text": {"type": "string"}}}},
+  "prior_failures": {"type": "array", "items": {"type": "object", "required": ["where", "text"], "properties": {"where": {"type": "string"}, "text": {"type": "string"}}}}
+ }
 }
