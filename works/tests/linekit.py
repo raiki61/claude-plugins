@@ -242,7 +242,7 @@ LINE_ORDER = [
               "plan_file": "$h-fix.output.plan_file", "notes_file": "$h-fix.output.notes_file",
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
               "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd",
-              "unit_depths": "$h-depth.output.unit_depths"}},
+              "unit_depths": "$h-depth.output.unit_depths", "plan_session": "plan"}},
     # 同じ run の中の案の直し（依頼 226。1 run に 1 回）: blk-plan と blk-fix の 2 度目の include
     _edge("h-replan", "replan", ["start", "h-fix", "fixing"]),
     {"id": "replanning", "kind": "include", "block": "blk-plan", "depends_on": ["h-replan"],
@@ -258,7 +258,7 @@ LINE_ORDER = [
      "with": {"judgment_file": "$h-refit.output.judgment_file", "open_units": "$h-refit.output.open_units",
               "plan_file": "$h-refit.output.plan_file", "notes_file": "$h-refit.output.notes_file",
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
-              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd"}},
+              "tdd_suite": "$INPUTS.tdd_suite", "test_cmd": "$start.output.test_cmd", "plan_session": "plan"}},
     _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing", "h-refit", "refitting"]),
     {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
      "when": "$h-rejudge.output.go == true",
