@@ -6,8 +6,9 @@ rolekit.agent_def で前付けを剥がした本文を引く）。レンズの�
 
 - LENSES:               レンズの表（{lens, agent, route}。route(files) -> (go, 理由)。レンズを足す時は行と YAML の節を 1 つずつ足す）
 - key(row)・input_name(row): 振り分けの出口の欄の頭（<key>_go・prompt_<key>）と、集め役が読む環境変数の名
-- route(board):         振り分け（AI なし）。今の周の修正の差分から、レンズごとの go と理由・指示書を出口に出し、lens.json に書く。
-                        定義が引けないレンズは起こさない（not_routed と理由）。盤面に今の周の修正の差分が無ければ BoardGap
+- route(board, skip):   振り分け（AI なし）。今の周の修正の差分から、レンズごとの go と理由・指示書を出口に出し、lens.json に書く。
+                        定義が引けないレンズは起こさない（not_routed と理由）。skip（ブロックの入力。省く理由の文）が在れば、
+                        どのレンズも起こさず理由を skip にする。盤面に今の周の修正の差分が無ければ BoardGap
 - render(row, body, diff_file, files, lang): レンズの節の指示書（定義の本文と、この線での読み方・返し方）
 - collect(board, env):  集め役。レンズの節の出口（無ければ null）で lens.json を埋め、落ちたレンズも理由つきで記録して ok
 - exit_(board, collected): 境。集め役の出口が無い・ok でないなら盤面を止めて（by lens.STOP_BY）ok: false
@@ -67,7 +68,7 @@ def render(row, body: str, diff_file: str, files: list, lang: str) -> str:
     ]) + "\n"
 
 
-def route(board) -> dict:
+def route(board, skip: str = "") -> dict:
     b = entry.open_board(pathlib.Path(board))
     b.work(lens.LENS_FILE).unlink(missing_ok=True)   # 前の試みの控えを次の集め役に読ませない
     d = refix.fix_delta(b)
@@ -76,8 +77,9 @@ def route(board) -> dict:
     files = list(d.get("files") or [])
     lang = rolekit.lang_line(b.state.get("inputs"))
     out, rows = {"ok": True, "diff_file": d["file"]}, []
+    skip = " ".join((skip or "").split())
     for row in LENSES:
-        go, why = row["route"](files)
+        go, why = (False, skip) if skip else row["route"](files)
         prompt = ""
         if go:
             got = rolekit.agent_def(row["agent"])
