@@ -204,12 +204,12 @@ class AskCase(Fixture):
         self.say(decision="allow", paths=["works/CHANGELOG.md"], tests=[], spec="", reason="直しに伴う記録の更新")
         p = subprocess.run([sys.executable, str(ROOT / "blk-fix" / "lib" / "askplan.py"), str(self.cfg_path), "--item", "3",
                             "--paths", "works/CHANGELOG.md", "--why", "直しに伴って変更の記録を足す要がある"],
-                           capture_output=True, text=True, env={**self.env, "PYTHONDONTWRITEBYTECODE": "1"})
+                           capture_output=True, text=True, encoding="utf-8", env={**self.env, "PYTHONDONTWRITEBYTECODE": "1"})
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(json.loads(p.stdout)["decision"], "allow")
         self.assertNotIn(SECRET, p.stdout + p.stderr)
         p = subprocess.run([sys.executable, str(ROOT / "blk-fix" / "lib" / "askplan.py"), str(self.cfg_path), "--item", "3",
-                            "--paths", "works/CHANGELOG.md", "--why", "短い"], capture_output=True, text=True, env=self.env)
+                            "--paths", "works/CHANGELOG.md", "--why", "短い"], capture_output=True, text=True, encoding="utf-8", env=self.env)
         self.assertEqual(p.returncode, 2, "理由が短すぎるのは使い方の誤り")
 
 
