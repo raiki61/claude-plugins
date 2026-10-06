@@ -7,8 +7,11 @@ run の作業ツリー（repo）の本物の index・HEAD・枝はどの口も�
   親を HEAD にした commit にして sha を返す。参照 base-<sha> で守る（worktree を切る前に gc に拾われない）
 - add(repo, base_sha, place) -> path: `git worktree add --detach <place> <base_sha>`。単位の参照 u-<place の印> で base を守る
 - diff(path, base_sha) -> str: 単位の worktree の今の姿（untracked を含む）と base の差分（`--binary`。改名は削除と追加で書く）
-- apply(repo, patch) -> (ok, why): run の作業ツリーへ当てる。一時の index で `git apply --cached --3way` を試し、食い違いが
-  無い時だけ、その結果と今の姿の差分を作業ツリーへ当てる（index を汚さない）。当たらなければ作業ツリーを変えずに (False, 理由)
+- apply(repo, patch, union=(), unioned=None) -> (ok, why): run の作業ツリーへ当てる。一時の index で `git apply --cached --3way`
+  を試し、食い違いが無い時だけ、その結果と今の姿の差分を作業ツリーへ当てる（index を汚さない）。当たらなければ作業ツリーを
+  変えずに (False, 理由)。union（根からの相対のパスの並び）の中のファイルの食い違いが「挿しだけ」（3 方向の食い違いの塊が
+  どれも base の側に行を持たない＝両方が同じ所に行を足しただけ）なら、作業ツリーの側の行の後に patch の側の行を置いて
+  合わせる（合わせたパスを unioned に積む）。並びの外のファイル・行を変えた塊・base の無い（両方が新しく作った）ファイルは今どおり当てない
 - remove(repo, path): 単位の worktree とその参照を消す（消えた置き場は prune で片付ける）
 - sweep(repo) -> [path]: この作業ツリーから切った単位の worktree と参照の全部を消す（止まった run の残りの片付け）
 - applied(repo, patch) -> bool: patch が作業ツリーに既に当たっているか（逆向きに当たるか。作業ツリーを変えない）
@@ -124,9 +127,10 @@ def diff(path, base_sha: str, objects: str | None = None) -> str:
     return _git(path, *_DIFF, base_sha, tree, objects=objects).stdout.decode("utf-8", "surrogateescape")
 
 
-def apply(repo, patch: str, objects: str | None = None) -> tuple[bool, str]:
+def apply(repo, patch: str, objects: str | None = None, union=(), unioned: list | None = None) -> tuple[bool, str]:
     """patch を run の作業ツリー repo へ 3 方向で当てる。(True, "") か、作業ツリーを変えずに (False, 理由)。
     一時の index（作業ツリーの今の姿）で `git apply --cached --3way` を試し、食い違い（未解決の段）が残れば当てない。
+    ただし未解決のファイルが全部 union の中で、どれも挿しだけの食い違いなら合わせて通す（頭の注記。合わせたパスを unioned に積む）。
     通れば、今の姿とその結果の木の差分を作業ツリーへそのまま当てる（git apply は全部か無しか。本物の index は読まない）"""
     if not patch.strip():
         return True, ""
@@ -136,8 +140,14 @@ def apply(repo, patch: str, objects: str | None = None) -> tuple[bool, str]:
         index = os.path.join(tmp, "index")
         r = _git(repo, "apply", "--cached", "--3way", "--whitespace=nowarn", index=index, data=data, check=False,
                  objects=objects)
-        if r.returncode != 0 or _out(repo, "ls-files", "-u", index=index, objects=objects):
-            return False, (r.stderr.decode("utf-8", "replace").strip() or "3 方向で当てると食い違いが残る")
+        left = _unmerged(repo, index, objects)
+        err = r.stderr.decode("utf-8", "replace").strip()
+        merged = _union(repo, index, objects, left, set(union), tmp) if left and union else None
+        broke = any(ln.startswith(("error:", "fatal:")) for ln in err.splitlines())
+        if broke or (r.returncode != 0 and not left) or (left and merged is None):
+            return False, (err or "3 方向で当てると食い違いが残る")
+        if merged and unioned is not None:
+            unioned.extend(merged)
         after = _out(repo, "write-tree", index=index, objects=objects)
         if after == before:
             return True, ""
@@ -146,6 +156,72 @@ def apply(repo, patch: str, objects: str | None = None) -> tuple[bool, str]:
     if r.returncode != 0:   # 試してから当てるまでの間に作業ツリーが変わった
         return False, r.stderr.decode("utf-8", "replace").strip()
     return True, ""
+
+
+def _unmerged(repo, index: str, objects: str | None) -> dict:
+    """一時の index の未解決のパス → {段: (mode, sha)}"""
+    out = {}
+    for ln in _out(repo, "ls-files", "-u", index=index, objects=objects).splitlines():
+        head, _, path = ln.partition("\t")
+        mode, sha, stage = head.split()
+        out.setdefault(path, {})[int(stage)] = (mode, sha)
+    return out
+
+
+def _insert_only(text: bytes) -> bytes | None:
+    """`git merge-file --diff3 -L ours -L base -L theirs` の出力を、塊がどれも base の側に行を持たない時だけ ours の行の後に
+    theirs の行を置いた中身にする。base の側に行の在る塊・閉じない塊・改行で終わらない ours の行が在れば None"""
+    out, state, ours, base, theirs = [], None, [], [], []
+    for ln in text.splitlines(keepends=True):
+        s = ln.rstrip(b"\r\n")
+        if state is None:
+            if s == b"<<<<<<< ours":
+                state, ours, base, theirs = "ours", [], [], []
+            else:
+                out.append(ln)
+        elif state == "ours":
+            if s == b"||||||| base":
+                state = "base"
+            else:
+                ours.append(ln)
+        elif state == "base":
+            if s == b"=======":
+                state = "theirs"
+            else:
+                base.append(ln)
+        elif s == b">>>>>>> theirs":
+            if base or any(not x.endswith(b"\n") for x in ours):
+                return None
+            out += ours + theirs
+            state = None
+        else:
+            theirs.append(ln)
+    return None if state is not None else b"".join(out)
+
+
+def _union(repo, index: str, objects: str | None, left: dict, allowed: set, tmp: str) -> list | None:
+    """未解決のパス left を全部、挿しだけの食い違いとして一時の index で合わせる。合わせたパスの並びか、1 つでも合わせられなければ
+    None（index はそのまま。呼び手は当てない）"""
+    plan = []
+    for path, stages in sorted(left.items()):
+        if path not in allowed or set(stages) != {1, 2, 3}:
+            return None
+        files = []
+        for n in (2, 1, 3):
+            f = os.path.join(tmp, f"union-{n}")
+            pathlib.Path(f).write_bytes(_git(repo, "cat-file", "blob", stages[n][1], objects=objects).stdout)
+            files.append(f)
+        r = _git(repo, "merge-file", "-p", "--diff3", "-L", "ours", "-L", "base", "-L", "theirs", *files, check=False)
+        if r.returncode > 127:   # 落ちた（食い違いの数は 127 まで）
+            return None
+        text = _insert_only(r.stdout)
+        if text is None:
+            return None
+        plan.append((path, stages[2][0], text))
+    for path, mode, text in plan:
+        sha = _out(repo, "hash-object", "-w", "--stdin", data=text, objects=objects)
+        _git(repo, "update-index", "--cacheinfo", f"{mode},{sha},{path}", index=index, objects=objects)
+    return [p for p, _, _ in plan]
 
 
 def applied(repo, patch: str) -> bool:
