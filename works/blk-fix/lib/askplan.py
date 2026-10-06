@@ -22,7 +22,8 @@
 - exchanges(place)・settle(b, place): 記録を読む・盤面の trace へまだ無い行を写す
 - main(argv): コマンド。答えの 1 行の JSON を出し、終了コード 0（答えた・断った）・3（聞けない・形の崩れた答え）・2（使い方）
 
-トークンは子の環境にだけ置き、記録・標準出力に出さない（出どころの名だけ）。認証は works の殻と同じ auth_launch.resolve。
+トークンは子の環境にだけ置き、記録・標準出力に出さない（出どころの名だけ）。認証は修正役の環境が継いだ物（env:<変数名>）を先に、
+無ければ works の殻と同じ auth_launch.resolve（sandbox の中では keychain を読めないことが多い）。子の HOME は置き場の下の CHILD_HOME。
 期限は持たない。Python 3.9 でも動く形で書く（役の sandbox の python3 で走りうる）。
 """
 import argparse
@@ -45,6 +46,7 @@ for _p in (_CORE, _CORE / "graphloops"):
 
 import adapter  # noqa: E402   L2。run ごとの置き場（adapter.run_place_of）
 import auth_launch  # noqa: E402   L1。works の殻が Archon を起こす時と同じ認証の順
+import claude_auth  # noqa: E402   L1。継いだ認証の名（INHERITED の順）
 import script_io  # noqa: E402   L1。今の scope の根
 import planmarks  # noqa: E402   glob の当て方の正本
 from engine import role_run  # noqa: E402   L0 の写し。--output-format json の包みの読み（unwrap）
@@ -54,6 +56,7 @@ PLACE = "ask-plan"          # run ごとの置き場の今の scope の下
 LOG = "exchanges.jsonl"
 STATE = "session.json"      # {source, head}
 HOME = "claude-home"        # 私物の設定の置き場
+CHILD_HOME = "home"         # 子の HOME（sandbox の中で書ける所）
 LOCK = "ask.lock"
 REFUSED, ANSWERED, INVALID, UNAVAILABLE = "refused", "answered", "invalid", "unavailable"
 ALLOW, DENY, DEFER = "allow", "deny", "defer"
@@ -263,6 +266,29 @@ def _write_state(place: pathlib.Path, doc: dict) -> None:
     os.replace(str(tmp), str(place / STATE))
 
 
+def _auth_env(cfg: dict, env: dict, resolve) -> tuple:
+    """(子の環境, 出どころの名)。修正役の環境が継いだ認証（修正役の claude 自身の認証。Archon・Claude Code は Bash の子へ渡す）を
+    先に使う——sandbox は keychain を読ませないので、resolve の名指し（WORKS_KEYCHAIN_ITEM）の段は sandbox の中で必ず外れる
+    （run 68f35d6b）。継いだ認証は殻が同じ順（auth_launch.resolve）で決めて Archon へ渡した物なので、順は変わらない。
+    継いだ認証が無い時だけ resolve（keychain）。名は env:<変数名> か resolve の名で、値は出さない"""
+    got = claude_auth.inherited(env)
+    if got:
+        return dict(env), "env:" + got
+    add, name, missing = resolve(env, env.get("HOME") or str(pathlib.Path.home()), cfg.get("config_dir") or "")
+    if add is None:
+        raise Unavailable(f"認証が無い: {missing}")
+    return auth_launch.child_env(env, add, bool(env.get("WORKS_KEYCHAIN_ITEM"))), name
+
+
+def _child_home(place: pathlib.Path) -> dict:
+    """子の HOME と自動更新の止め。claude は設定の置き場の外にも HOME の下（~/Library/Caches/claude-cli-nodejs・自動更新の
+    ~/.local/share/claude）へ書くが、修正役の sandbox は HOME に書かせない。HOME を置き場の下（書ける所）へ向ける。認証は環境で
+    渡すので、子は HOME の keychain・保存済み認証を使わない"""
+    child_home = place / CHILD_HOME
+    child_home.mkdir(parents=True, exist_ok=True)
+    return {"HOME": str(child_home), "DISABLE_AUTOUPDATER": "1"}
+
+
 def _argv(cfg: dict, head: str) -> list:
     argv = [cfg.get("claude") or "claude", "-p", "--resume", head, "--output-format", "json",
             "--json-schema", json.dumps(ANSWER_SCHEMA, ensure_ascii=False), "--tools", TOOLS, "--allowedTools", TOOLS,
@@ -317,11 +343,8 @@ def ask(cfg: dict, item, paths: list, tests: list, why: str, *, env=None, run=su
 def _ask(cfg, place, item, paths, tests, why, env, run, resolve) -> dict:
     try:
         head, home, source = _session(cfg, place)
-        got, name, missing = resolve(env, env.get("HOME") or str(pathlib.Path.home()), cfg.get("config_dir") or "")
-        if got is None:
-            raise Unavailable(f"認証が無い: {missing}")
-        child = auth_launch.child_env(env, got, bool(env.get("WORKS_KEYCHAIN_ITEM")))
-        child["CLAUDE_CONFIG_DIR"] = str(home)
+        child, name = _auth_env(cfg, env, resolve)
+        child.update(_child_home(place), CLAUDE_CONFIG_DIR=str(home))
         p = run(_argv(cfg, head), input=question(cfg, item, paths, tests, why).encode("utf-8"), capture_output=True,
                 cwd=cfg.get("repo") or None, env=child)
         if p.returncode != 0:
