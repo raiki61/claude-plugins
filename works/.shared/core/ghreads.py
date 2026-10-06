@@ -14,6 +14,9 @@ exit 4）。だから殻が Archon を起こす前に、利用者の env のま�
 渡す。名指しは依頼の欄 pr・issue と --pr に限る（本文の中の URL は拾わない）。トークンの値は読まない（gh 自身の設定に任せる）。
 
 - request_parts(doc) -> {"findings": list, "pr": [int], "issue": [int], "answers": [dict], "prior_failures": [dict]}: 解けなければ ValueError（1 行）
+- carry_ci(doc, ids) -> 依頼の object: run の後の CI が赤と言った試験の id を prior_failures の行（where CI_WHERE）として足す。
+  重い試験は run の外の CI で回り、run の報告はその赤を知らないので、人（か回す役）が CI の赤の id を next-request.json に足す口。
+  同じ行は 2 度足さない。id が無い・依頼の形が違えば ValueError（1 行）。殻からは `python3 -I ghreads.py carry-ci`
 - read(repo, request, pr, out) -> int: 名指した物を読んで out に置く。終了コード（0 以外は --pr の base・head が読めない時だけ）
 - load(board_dir, src) -> doc|None: 盤面の根の github.json を先に、無ければ src を読むだけ（盤面を作る前に入力を確かめる）
 - adopt(board_dir, src) -> doc|None: 盤面の根の github.json を先に使い、無ければ src を写して元を消す
@@ -31,6 +34,9 @@ sys.dont_write_bytecode = True
 KEYS = ("findings", "pr", "issue", "answers", "prior_failures")
 ANSWER_KEYS = ("question", "text", "command", "output")
 PRIOR_KEYS = ("where", "text")   # prior_failures の行の欄（前の run の報告が next-request.json に書いた形）
+CI_WHERE = "run の後の CI"   # carry_ci が足す prior_failures の行の where
+CI_TEXT = ("試験 {id} が CI で赤だった（重い試験は run の外の CI で回る。前の run の直しがこの試験を赤にした見込み。"
+           "同じ試験を赤にしない直しを出す）")
 GITHUB_READS_VERSION = 1
 BOARD_FILE = "github.json"   # 盤面の根に置く読み出しの写し
 PR_FIELDS = "baseRefOid,headRefOid,title,body,comments,reviews"
@@ -75,6 +81,41 @@ def _prior_failures(rows) -> list:
             if not (isinstance(r.get(key), str) and r[key].strip()):
                 raise ValueError(f"prior_failures[{i}] の {key} が空でない文字列でない（{r.get(key)!r}）")
     return rows
+
+
+def carry_ci(doc, ids) -> dict:
+    """依頼 doc（findings の配列か object）に、CI が赤と言った試験の id の並び ids を prior_failures の行として足した object を
+    返す（doc は変えない）。id は前後の空白を落とし、空と重なりは捨てる。既に同じ行が在れば足さない"""
+    parts = request_parts(doc)
+    got = list(dict.fromkeys(i.strip() for i in ids if isinstance(i, str) and i.strip()))
+    if not got:
+        raise ValueError("CI の赤の試験の id が 1 つも無い")
+    out = dict(doc) if isinstance(doc, dict) else {"findings": list(doc)}
+    rows = [dict(r) for r in parts["prior_failures"]]
+    for test_id in got:
+        row = {"where": CI_WHERE, "text": CI_TEXT.format(id=test_id)}
+        if row not in rows:
+            rows.append(row)
+    out["prior_failures"] = rows
+    return out
+
+
+def _carry_cli(request: str, failed: str, out: str) -> int:
+    """carry-ci の口: request（next-request.json）を読み、failed（1 行に 1 つの試験の id。# で始まる行と空の行は飛ばす。- は
+    標準入力）の id を足して out に書く（request と同じでよい）。誤りは標準エラーに 1 行で 2（out は書かない）"""
+    try:
+        doc = json.loads(pathlib.Path(request).read_text(encoding="utf-8"))
+        text = sys.stdin.read() if failed == "-" else pathlib.Path(failed).read_text(encoding="utf-8")
+        ids = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+        got = carry_ci(doc, ids)
+    except (OSError, ValueError) as e:
+        print(f"ghreads carry-ci: {' '.join(str(e).split())}", file=sys.stderr)
+        return 2
+    dest = pathlib.Path(out)
+    tmp = dest.with_name(dest.name + ".tmp")
+    tmp.write_text(json.dumps(got, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, dest)
+    return 0
 
 
 def _answers(rows) -> list:
@@ -211,7 +252,13 @@ def main(argv=None) -> int:
     r.add_argument("--request", default="-")
     r.add_argument("--pr", default="")
     r.add_argument("--out", required=True)
+    c = sub.add_parser("carry-ci")
+    c.add_argument("--request", required=True)
+    c.add_argument("--failed", required=True)
+    c.add_argument("--out", required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "carry-ci":
+        return _carry_cli(a.request, a.failed, a.out)
     if a.pr and not a.pr.isdigit():
         print(f"ghreads: --pr {a.pr!r} は PR の番号でない", file=sys.stderr)
         return 2

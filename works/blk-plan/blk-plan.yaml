@@ -21,6 +21,8 @@ description: |
   clean の往復の最後に相乗りの審査の下請けを 1 つ起こす。block の無い項目は閉じ（直しの役が変えれば拒む）、同じ block が続いた
   項目は保留にしてほかの項目を柵まで進める。
   出口 collect: {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file}。
+  入力 replan の時は、波及の一覧の節は作らず、出口 collect が直した項目を差し替えた欄で一覧を作り直し（今の周の ripple/replan.json）、
+  ripple_file に返す。
 
 inputs:
   judgment_file:

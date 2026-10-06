@@ -29,6 +29,8 @@
   輪の前に snap が置いた作業ツリーの写しと比べて変わっていれば拒む（支度は写しを置き直さない）。拒否は rolekit.with_done の控えに積み、GIVE_UP_AFTER 回目で done
   （諦めは盤面を止めない。後の関所が項目ごとに読む）
 - new_item(row): TRIP_FILE の行の直した項目に、外した決め手の欄を narrows の行ごとに戻した形
+- revised_fields(b, repo): 今の周の項目の欄（planmarks.read）の、直した項目（TRIP_FILE の行の new）を planmarks.split の欄に
+  差し替えた並び。直した項目が 1 つも無い・控えが無いなら None（blk-plan の lib が案の直しの後の波及の一覧を作り直す材料）
 
 人の関所の 1 つの決まり（replan-gate）と答え:
 - 決まり: 直した項目は、約束の欄が承認済みの物と字のまま同じで（planmarks.contract_diff が空。narrows は決め手の欄を外して
@@ -314,6 +316,24 @@ def new_item(row: dict) -> dict:
         if isinstance(narrow, dict) and isinstance(marks, dict):
             narrow.update(copy.deepcopy(marks))
     return out
+
+
+def revised_fields(b, repo) -> list | None:
+    """直した項目を欄に差し替えた今の周の項目の欄の並び（b は dir・round・work だけを使う）。関所で諦めた行（result GAVE_UP）は
+    差し替えない。関所の前に呼べば、後で関所が諦める項目も差し替えた形になる（その単位は 2 回目の修正の段の直す義務に入らない）"""
+    fields = planmarks.read(b)
+    doc = read_trip(b)
+    if not fields or doc is None:
+        return None
+    out = copy.deepcopy(fields)
+    hit = False
+    for row in doc["items"]:
+        n = row["item"]
+        if not isinstance(row.get("new"), dict) or row.get("result") == GAVE_UP or not 1 <= n <= len(out):
+            continue
+        out[n - 1] = planmarks.split({"plan": [new_item(row)]}, pathlib.Path(repo))[1][0]
+        hit = True
+    return out if hit else None
 
 
 def _json_block(doc) -> list:

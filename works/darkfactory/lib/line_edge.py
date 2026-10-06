@@ -129,16 +129,23 @@ EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", 
          "structure_units_file": "", "ripple_file": ""}
 # 修正案のブロックが今の周に置く波及の一覧（その manifest の produces。h-fix・h-refit が修正の段へパスで渡す。線の木の段 1）
 RIPPLE_FILE = "ripple.json"
+RIPPLE_REPLAN_FILE = "ripple/replan.json"   # 同じブロックの 2 度目の include（案の直し）が直した項目で作り直した一覧（同じ produces ripple/**）
 
 
 def _gap(msg):
     return BoardGap(msg)
 
 
-def _ripple_file(b) -> str:
+def _ripple_file(b, name: str = RIPPLE_FILE) -> str:
     """今の周の波及の一覧の置き場（無ければ空）"""
-    p = b.work(RIPPLE_FILE)
+    p = b.work(name)
     return str(p) if p.is_file() else ""
+
+
+def refit_ripple_file(b) -> str:
+    """2 回目の修正の段（refitting）へ渡す波及の一覧: 案の直しが作り直した RIPPLE_REPLAN_FILE が在ればそれ、無ければ 1 回目の
+    RIPPLE_FILE（どちらも無ければ空）。1 回目の案の一覧は直した項目の範囲で照らしていない"""
+    return _ripple_file(b, RIPPLE_REPLAN_FILE) or _ripple_file(b)
 
 
 def _write_json(path: pathlib.Path, doc) -> None:
@@ -937,6 +944,8 @@ def refit_edge(board_dir, repo, gate) -> dict:
     待っているか、open_units は戻った単位だけの JSON の配列（1 回目に受け付けた単位を 2 回目の段の直す義務の並びに入れない——
     TDD の輪の頭が『直すな・not_done に書け』と並べ、受け付けがその行を拒むので）、plan_file は差し替えた承認済みの修正案、
     notes_file は修正の前の関所の条件（h-fix が書いた NOTES_FILE。2 回目の段にも効く）・人の一言・採った項目の事前審査の穴。
+    ripple_file は refit_ripple_file（案の直しの 2 度目の include が出口で直した項目から作り直した一覧。作り直せなかった時だけ
+    1 回目の案の物）。
     今の周の replan.json が無ければ go 偽"""
     board_dir = pathlib.Path(board_dir)
     fix_notes = entry.open_board(board_dir, allow_halted=True).work(NOTES_FILE)
@@ -946,7 +955,7 @@ def refit_edge(board_dir, repo, gate) -> dict:
     b = entry.open_board(board_dir, allow_halted=True)
     return {"go": bool(got["returned"]) and GO_NODE["fix"] in b.ready(),
             "open_units": json.dumps(got["returned"], ensure_ascii=False),
-            "plan_file": got["plan_file"], "notes_file": got["notes_file"], "why": got["why"], "ripple_file": _ripple_file(b)}
+            "plan_file": got["plan_file"], "notes_file": got["notes_file"], "why": got["why"], "ripple_file": refit_ripple_file(b)}
 
 
 def eyes_edge(b) -> dict:

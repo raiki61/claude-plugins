@@ -6,10 +6,19 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- run の後の CI（run の外で回る重い試験）が赤と言った試験を、次の run の依頼の `prior_failures` に足す口 `ghreads.py carry-ci` を足した（`--request <next-request.json> --failed <id の一覧か -> --out <書き先>`）。行の where は `run の後の CI` で、次の run の判定役と修正案の役に「同じ試験を赤にしない」注意として届く。CI の記録から id を引くのは人か回す役（形は計画 docs/plans/2026-10-06-carry-prior-failures.md の「run の後の CI の赤」）
+
 ### Changed
 
 - AI の段の全部に `model:` と `effort:` を書き、run の既定（`dev/guard.sh` の `WORKS_DEV_MODEL_DEFAULT`）と Claude Code の既定の effort に頼らないようにした（持ち主 2026-10-06）。前付けを持つ役（judge・blind-judge は opus・high、inspector・investigator・cold-reader は sonnet・medium）は今までどおり。前付けの無い役は試験の表（`tests/test_tool_parity.py` の `STAGE_MODEL`）で決め、修正案・仕様を書く役（plan・plan-revise・spec-write・spec-revise）を sonnet から opus・medium へ上げ、コードとテストを書く役（tdd・fix・fix-ruled・refix・refix2）は sonnet・high を明示し、読んで確かめる・まとめる軽い役（借りたレンズ・r1-comments・CI と pr-check の任せ先・前提の実測・目的の文・素材集めの任せ先と局所レビュー・報告の書き手）は sonnet・medium にした（今までは sonnet の既定の high）。`WORKS_DEV_MODEL` が効くのは run の題だけになり、`WORKS_DEV_MODEL=opus` で前付けの無い段を opus に戻す道は無くなった（段を替えるときは表と段を一緒に直す）。
 - 最後の関所の文の残りの行が、固定文「数えない」でなく、関所の時点で数えられる分（独立の目の阻害の件数と名・結果が無い目の件数と名・最後のテストの頭の語）を言う。検証器の阻害は関所では数えないと名指す（報告の冒頭 1 の残りは今どおり検証器も数える）。レンズの発見の行の末尾に「落ちたレンズ N 件」を 0 件でも出す（報告の冒頭 1・最後の関所・未確認のレンズの節が同じ行を読む）。
+- 単位ごとの深さ（thickness 自動）で、触るファイルが全部配線（線とブロックの `<名>/<名>.yaml`・`.yml` と `manifest.json`。schemas/ の下は除く）の単位を、約束の形のファイルに数えず軽量にできるようにした（ほかの条件の 3 個以下・テスト 2 本以下・機械の確かめありは今どおり。配線とコードを一緒に触る単位は今どおり標準）。計画 docs/plans/2026-10-06-variable-depth.md の決め 11
+
+### Fixed
+
+- 同じ run の中の案の直しの後の 2 回目の修正の段に、1 回目の案の波及の一覧がそのまま渡っていたのを直した（直した項目の書いてよいパスで照らしていないので、範囲の相談の節が直した範囲の中の当たりを範囲の外と名指し、直して増えた当たりを落とす）。案の直しの出口が、直した項目を差し替えた欄で一覧を作り直して `ripple/replan.json` に置き、2 回目の修正の段はそれを受け取る（設計は docs/plans/2026-10-06-tree-line.md の段 1 の「案の直しの後の波及の一覧」）
 
 ## [0.2.34] - 2026-10-06
 

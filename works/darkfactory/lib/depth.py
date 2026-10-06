@@ -6,7 +6,9 @@
 2026-10-06 で写しの graph の ! 行で optional にした）。ブロックはこの控えを読まない——線が省く理由の文（skip_reason）を平の入力
 として渡し、差分の審査だけは線の h-redepth が盤面で省く（差分の審査のブロックを起こす前に、境の節 h-review が盤面の待ちを見るため）。
 
-- unit_depth(items, key, *, checked): 単位 1 つの (深さ, 理由の並び)。決め 3 の 5 つの条件を全部満たす時だけ軽量
+- unit_depth(items, key, *, checked): 単位 1 つの (深さ, 理由の並び)。決め 3 の 5 つの条件を全部満たす時だけ軽量。
+  配線だけの単位（触るファイルが全部 wiring の物）は条件 4（約束の形のファイル）に数えない（決め 3 の補い）
+- wiring(path): 配線のファイルか（線とブロックの YAML＝<名>/<名>.yaml・.yml と manifest.json。schemas/ の下は除く）
 - decide_doc(items, open_units, *, forced, checked): 直す義務の単位の全部の深さ（控えの形）。forced は入力 thickness の語
   （空・自動は機械が決める。軽量・標準は全部をその深さに固定）
 - raise_doc(doc, *, units, run): 信号で標準へ上げた控え。units は {単位: 理由}（その単位だけ）、run は理由の並び（全部の単位）。下げない
@@ -47,6 +49,8 @@ MAX_TESTS = 2         # 測り: 同じく受け入れのテストと書き換え
 CONTRACT_SUFFIXES = (".json", ".yaml", ".yml", ".toml")
 CONTRACT_DIR = "schemas/"
 GLOB_CHARS = ("*", "?", "[")
+WIRING_FILES = ("manifest.json",)   # 配線のファイルの名（部品の consumes・produces の宣言）
+WIRING_SUFFIXES = (".yaml", ".yml")  # <名>/<名>.yaml の形の物が線とブロックの配線（nodes・include・with）
 # 軽量の run で省く物（報告の冒頭 2 に 1 行ずつ名指す）。どれも 2026-10-05 の自分食いの小さい run で何も見つけなかった
 # 決め 6 は 2026-10-05 の測り、決め 9 は持ち主の決定 2026-10-06（写しの graph の ! 行で optional にした節）。AI の報告は省かない（決め 10）
 SKIPPED = ("差分の審査（p3.delta_review）と、それに続くレンズ・手直し（修正の後の局所レビューの全部を含む）",
@@ -74,6 +78,15 @@ def _contract(path: str) -> bool:
     return path.endswith(CONTRACT_SUFFIXES) or CONTRACT_DIR in path
 
 
+def wiring(path: str) -> bool:
+    if CONTRACT_DIR in path:
+        return False
+    p = pathlib.PurePosixPath(path)
+    if p.name in WIRING_FILES:
+        return True
+    return p.suffix in WIRING_SUFFIXES and len(p.parts) >= 2 and p.stem == p.parent.name
+
+
 def unit_depth(items, key: str, *, checked: bool) -> tuple:
     """単位 key の (深さ, 理由の並び)。外れた条件が 1 つでも在れば標準で、外れた条件を全部並べる"""
     mine = _items_of(items, key)
@@ -88,14 +101,16 @@ def unit_depth(items, key: str, *, checked: bool) -> tuple:
         out.append(f"触るファイルに glob が在る（{', '.join(globs)}）")
     if tests > MAX_TESTS:
         out.append(f"受け入れと書き換えのテストが {tests} 本（{MAX_TESTS} 本まで）")
-    contracts = [p for p in paths if _contract(p)]
+    wired = bool(paths) and all(wiring(p) for p in paths)
+    contracts = [] if wired else [p for p in paths if _contract(p)]
     if contracts:
         out.append(f"約束の形のファイルを触る（{', '.join(contracts)}）")
     if not checked:
         out.append("機械の確かめが無い（tdd_suite も test_cmd も空）")
     if out:
         return STANDARD, out
-    return LIGHT, [f"触るファイル {len(paths)} 個・テスト {tests} 本・約束の形のファイルなし・機械の確かめあり"]
+    shape = "配線だけ（線とブロックの YAML と manifest.json）" if wired else "約束の形のファイルなし"
+    return LIGHT, [f"触るファイル {len(paths)} 個・テスト {tests} 本・{shape}・機械の確かめあり"]
 
 
 def decide_doc(items, open_units, *, forced: str, checked: bool) -> dict:

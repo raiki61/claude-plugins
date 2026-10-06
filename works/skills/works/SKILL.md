@@ -68,6 +68,7 @@ findings（指摘）の JSON の配列か、`{"findings": [...], "pr": [<番号>
 ```
 
 - object の形の `prior_failures`（省ける）は、前の run で最後まで通らなかった物 `[{where, text}]`（どちらも空でない文字列）。前の run の報告が `next-request.json` に書くので、手で書くことは少ない。判定役と修正案の役の材料に「直す穴ではない注意」として貼られ、目的の役と独立設計の役には渡らない。直してほしい穴は `findings` に書く。
+- run の後の CI（run の外で回る重い試験）が赤だった試験は、`python3 -I "${CLAUDE_PLUGIN_ROOT}/.shared/core/ghreads.py" carry-ci --request <next-request.json> --failed <赤の試験の id を 1 行に 1 つ書いたファイルか -> --out <次の依頼のファイル>` で `prior_failures` に足せる（行の where は `run の後の CI`。同じ行は 2 度足さない）。id は CI の記録（例: `gh run view <run の番号> --log-failed`）から写す。
 
 ## 2. 起動する
 
