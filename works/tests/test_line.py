@@ -491,7 +491,7 @@ class LineFixturesCase(unittest.TestCase):
         import entry   # noqa: E402  （linekit が .shared/core を sys.path に足す）
         refused = f["start-refused"]["fixture"]["inputs"]
         self.assertEqual(refused["thickness"], "重厚")
-        with self.assertRaises(entry.InputRefused):
+        with self.assertRaisesRegex(entry.InputRefused, entry.HEAVY_REFUSED):
             entry.check_inputs(dict(refused), linekit.SEED)
         for name, outcome in (("standard", "fixed"), ("no-fix", "no_fix_needed"), ("policy-stop", "stopped_by_human"),
                               ("final-stop", "stopped_by_human"), ("stop-flag", "stopped_by_request"), ("rejudge", "fixed"),

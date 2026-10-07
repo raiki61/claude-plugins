@@ -23,7 +23,7 @@ exit 4）。だから殻が Archon を起こす前に、利用者の env のま�
 - 読み出しのファイルの形: {version, pr: {<番号>: {...}}, issue: {<番号>: {...}}}。読めない項は {status: unreadable, reason}。
   対象の remote に forge（PR を持つホスト。forge.py）が無くても、利用者が名指した項は gh で読む（GH_REPO・別の remote・自前の
   ドメインの GitHub Enterprise Server なら gh は読める。名指した物を黙って落とさない）。forge の無い対象で、gh も GitHub の
-  ホストを見つけなかった項（GH_NO_HOST の言葉か exit 4）は unreadable でなく {status: not_applicable, reason: no_forge: …。gh でも
+  ホストを見つけなかった項（GH_NO_HOST の言葉か exit 4。gh が起きない時も）は unreadable でなく {status: not_applicable, reason: no_forge: …。gh でも
   読めなかった: …}、--pr は書かずに 1（base を名指して回す）。gh が GitHub のホストとして読みに行って読めなかった項（自前のドメインの
   GHES でログインが切れた・HTTP 401 など）は forge の無い対象でも {status: unreadable, reason: gh の言葉, forge: no_forge: …} で、
   --pr は書かずに 1（gh でログインしてから回す）
