@@ -196,7 +196,7 @@ class ScriptLine:
         """writes の run: tree の HEAD から変わったファイルと追跡外のファイルを、書いた後の sha で記録に足す"""
         if self.writes is None:
             return
-        got = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all", "-z"], cwd=str(tree), capture_output=True,
+        got = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all", "-z"], cwd=str(tree), capture_output=True, encoding="utf-8",
                              text=True, check=True).stdout
         import writes as _writes
         with open(self.writes, "a", encoding="utf-8") as f:
