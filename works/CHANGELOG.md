@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 入れ方（README の「入れ方」・スキルの 0 節）の順を直した。前は raiki61 の marketplace だけを足して `claude plugin install works@raiki61` を打たせていたので、works の依存 pr-review-toolkit の marketplace `claude-plugins-official` が無い利用者では「dependency "pr-review-toolkit@claude-plugins-official" was not installed … "works" will not load without it」と出て works が読まれなかった（使い捨ての `CLAUDE_CONFIG_DIR` で確かめた）。今は marketplace を 2 つ（`anthropics/claude-plugins-official`・`raiki61/claude-plugins`）足してから works だけを入れる。coldwrite・pr-review-toolkit は works の依存（`.claude-plugin/plugin.json`）なので一緒に入り、別の install の行は消した。試験 `tests/test_core_copy.py` は README とスキルの両方で、依存の marketplace を works の install より先に足し、依存を別に install しない順を縛る
+
 ## [0.2.38] - 2026-10-07
 
 ### Fixed
