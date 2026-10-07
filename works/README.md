@@ -207,20 +207,28 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 
 ## canary（版ごとの確かめの 1 run）
 
-普段の依頼ではたまにしか通らない道を、決まった小さな対象と決まった依頼で 1 run にまとめて通す殻が `works/dev/canary.sh`（費用が掛かる。回す前に持ち主の了承を取る）。種は `works/dev/canary-seed/`（標準ライブラリだけの `calc.py`・`textfmt.py` とそのテスト・`CHANGELOG.md`。種のテストは緑で、バグを突くテストはまだ無い）、依頼は `works/dev/canary-request.json`（3 件）。狙う道:
+普段の依頼ではたまにしか通らない道を、決まった小さな対象と決まった依頼で 1 run にまとめて通す殻が `works/dev/canary.sh`（費用が掛かる。回す前に持ち主の了承を取る）。種は `works/dev/canary-seed/`（標準ライブラリだけの `calc.py`・`textfmt.py`、ただ 1 本のテストのファイル `test_lib.py`・`CHANGELOG.md`・決まりを書いた `README.md`。種のテストは緑で、バグを突くテストはまだ無い）、依頼は `works/dev/canary-request.json`（2 件: `calc.py:mean` の分母と `textfmt.py:initials` の大文字）。狙う道:
 
-- (a) 別のファイルの 2 項目以上（`calc.py:mean` と `textfmt.py` の 2 件）: TDD の輪の枝と修正役の項目の並べ
-- (b) 同じファイルの 2 項目（`textfmt.py` の頭の `pad_left` と末尾の `truncate`。直しの塊は離れていて、足すテストは同じ `test_textfmt.py` の末尾の挿しだけ）: 重なる枝の 3 方向の合わせと試験のファイルの union
-- (c) 範囲の外が要る直し（`mean` の直しに要る `CHANGELOG.md` の 1 行。依頼が修正案に `allowed_paths` へも `out_of_scope` へも入れさせない）: 範囲の相談
+- (a) 別のファイルの 2 項目（`calc.py:mean` と `textfmt.py:initials`）: TDD の輪の枝の並べ
+- (b) 2 項目が同じファイルを別の所で変える: 種の README の決まりがテストを `test_lib.py` のモジュールごとのクラス（`TestCalc`・`TestTextfmt`）に足させるので、tdd の 2 項目の枝は同じ `test_lib.py` の離れた 2 か所に受け入れのテストを足す（同じ末尾に足せば挿しだけの食い違い）: 重なる枝の 3 方向の合わせ（と試験のファイルの union）
+- (c) 範囲の外が要る直し（2 件とも README の決まりで要る `CHANGELOG.md` の 1 行。依頼が修正案に `allowed_paths` へも `out_of_scope` へも入れさせない）: 範囲の相談
 - (d) run の中の案の直し: 起きてもよい（起こさせない）
+
+(b) を依頼の文の頼みでなく種の形で起こす訳: 修正案の役は判定の単位を項目にまとめる時、同じコードのファイルの単位を 1 項目にまとめる（指示書 `.shared/core/gl-prompts/prompts/review-loop/p2.fix_plan.md` は「1 つの案で複数の単位を閉じてよい（一撃の原理に沿うならそれが望ましい）」と言い、指示書の頭に貼る判定の単位の裏取りの申し送り（`blk-plan/lib/planblk.py`）は関わり（同じファイル・同じ import の行）を「項目の組み方と並べ方に使え」と言う）。前の形（同じ `textfmt.py` の `pad_left` と `truncate` を別の項目にしてと依頼の文で頼んだ）の run 01004d2e では 2 つを 1 項目にまとめ、(b) は通らなかった。別のモジュールの単位は別の項目のまま（同じ run で `mean` と `textfmt.py` の項目は分かれ、3 件に共通の `CHANGELOG.md` の関わりでもまとめなかった）。受け入れのテストの置き場は指示書が既存のテストの置き方に合わせさせる（`.shared/core/planmarks.py` の tests の欄の決まり）ので、テストのファイルが 1 本なら、モジュールごとの 2 項目が同じファイルを触る。
+
+直し方は 2 件とも docstring の約束で 1 つに決まる（端の振る舞いを決め手なしに選ぶ余地を残さない）。前の形の `truncate` は印より小さい limit の振る舞いが約束に無く、修正が ValueError に決めたのを独立設計が人の判断と見て残り（round_limit）になった。CHANGELOG の行も 2 件の依頼がそれぞれ名指す（前の形は `mean` だけを名指し、ほかの 2 行を独立設計が依頼の範囲を広げると見た）。
+
+ラインは 1 周の run で（`entry.start` の `stop_after_round=1`。canary が決めた物ではない）、報告の「止めたか」に出る「周の締めの後で止めた: init --stop-after-round 1」は普通の終わり。2 周目は回らないので、残り（検証器の阻害・最後のテストの赤・独立の目の阻害）が在れば結末は round_limit、無ければ fixed。canary は fixed で終わるのが狙い。
 
 回し方:
 
 1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/canary.sh [<置き場>]` を裏で起こす（無人の run で報告まで前景で回るので、Claude Code からは `run_in_background` か切り離しの殻で起こす）。置き場の既定は `~/.cache/works-canary/<日時>-<pid>` で、`repo/`（対象。枝 `main`）・`origin.git/`・`home/`（利用の家 `WORKS_USE_HOME`）を作り、`use.sh start` を `WORKS_USE_UNATTENDED=1`・test_cmd `python3 -m pytest -q`（`use.sh` が JUnit の実行器を書くので TDD の輪が回る）で起こす。`python3 -I` で pytest が読めない・`WORKS_KEYCHAIN_ITEM` が空・置き場に前の回の物が在る時は、何も作らずに止まる。`--build-only` は対象と origin を作って起動の行を出すだけ（認証も Archon も使わない）。
 2. 走っている間の run id と状態は、殻が最初に出す `use.sh show` の行で見る。終わると殻が run id と確かめの行を出す。
-3. `python3 works/dev/canary_check.py <置き場> [<run-id>]` で、何が実際に通ったかを出す（読むだけ。`--json` で JSON。`--db <archon.db> --run <run-id>` でほかの run も読める）。(a)〜(c) が yes・attempted・no のどれかと証拠（TDD の輪の枝の数と枝の輪の節の同時の最大・修正役が当てた項目と修正役の下請けの同時の最大・重なりのファイルと union・相談の答え）、(d) の数、修正案の項目と `allowed_paths`、AI の節の費用の和と時間、差分のファイルを出す。終了コードは (a)〜(c) が全部 yes なら 0、どれかが違えば 1、引数や db の誤りは 2。
+3. `python3 works/dev/canary_check.py <置き場> [<run-id>]` で、何が実際に通ったかを出す（読むだけ。`--json` で JSON。`--db <archon.db> --run <run-id>` でほかの run も読める）。報告の結末の語、(a)〜(c) が yes・attempted・no のどれかと証拠（TDD の輪の枝の数と枝の輪の節の同時の最大・修正役が当てた項目と修正役の下請けの同時の最大・重なりのファイルと union・案の重なり（2 項目以上が触ってよい同じファイル）・相談の答え）、(d) の数、修正案の項目ごとの `allowed_paths`・テストのファイル・その項目の枝が実際に変えたファイル、AI の節の費用の和と費用の取れない節の名（Archon が `costUsd` を `source: unavailable` で記録した節。和は下限）と時間、差分のファイルを出す。(b) は案の項目どうしが同じファイルを共にしなければ no（計画役が 1 項目にまとめた）、共にしたのに合わせの記録が無ければ attempted。終了コードは (a)〜(c) が全部 yes なら 0、どれかが違えば 1、引数や db の誤りは 2。
 
-種のテストが緑でバグが在ること・試験の中だけに持つ参照の直しで各件が独立に直ること・(b) の前提（直しの塊が食い違わず、足すテストは挿しだけの食い違い）・依頼が入口の型を通ることは `tests/test_canary.py`（FAST）が縛る。依頼が修正案の決めを文で言うだけなので、計画役が従わなければ (b)・(c) は通らない（その時は確かめ役が no か attempted と出す）。
+種のテストが緑でバグが在ること・試験の中だけに持つ参照の直しで各件が独立に直ること・(b) の前提（2 件の受け入れのテストは種で自分の件だけ赤・`test_lib.py` の 2 か所に足したテストが 3 方向で食い違わずに合い、同じ末尾なら挿しだけの食い違い）・依頼が別々のモジュールを名指して入口の型を通ることは `tests/test_canary.py`（FAST）が縛る。(c) は依頼が修正案の決めを文で言うだけなので、計画役が従わなければ通らない。(b) も計画役が別のモジュールの単位を 1 項目にまとめれば通らない（その時は確かめ役が no か attempted と出す）。
+
+run 01004d2e（前の形の種）の確かめ役の「取れない節 2」は `tdd-lane-2`（会話を継いだ 5 回目）と `plan-answer`（会話を継いだ起動）で、どちらも Archon の出来事が `costUsd` を `source: unavailable`・`reason: not_reported`（提供元が費用を返さなかった）と記録した節。ほかの会話を継いだ節は費用が在るので継いだことだけでは決まらない（`tdd-lane-2` の方は解いた模型の名も `claude-haiku-4-5` と記録された）。確かめ役の誤りではなく、費用の和（10.76 USD）がその 2 節の分だけ少ない。
 
 ## 足りない所
 

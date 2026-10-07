@@ -69,7 +69,7 @@ FAST = frozenset({
     "test_rolekit",         # P1 Task 13: 役の節の共通の口を偽の盤面と mock で見る（git・子のプロセスなし）
     "test_sp_skills",       # 借りる superpowers のスキルの一覧と無人の読み替え: borrow.json と md を読むだけ（git・子のプロセスなし）
     "test_seat",            # 借りたスキルの座: 216 の写しと seams.json を読むだけ（写しを一時の置き場に写す 1 本と、g1 の差分のコマンドを gitkit の型の写しで sh で走らせる 1 本を含む。盤面なし）
-    "test_canary",          # canary の種・依頼・確かめ役 dev/canary_check.py: 種の写しで python3 を 7 本と git merge-file を 3 本（リポジトリを作らない）・偽の archon.db と盤面を一時の置き場に置いて殻を子で起こす（Archon なし）
+    "test_canary",          # canary の種・依頼・確かめ役 dev/canary_check.py: 種の写しで python3 を 11 本と git merge-file を 3 本（リポジトリを作らない）・偽の archon.db と盤面を一時の置き場に置いて殻を子で起こす（Archon なし）
     "test_fixmeasure",      # 修正の形の測りと採否の判定 dev/fixmeasure.py: 一時の置き場に sqlite の偽の archon.db と盤面（DiskBoard.create。git なし）を作り、殻を子で起こす（git・Archon なし）
     "test_sp_seam",         # 借りる superpowers の照合と包みの部品: 一時の置き場の偽の版のフォルダを読むだけ（git・子のプロセスなし）
     "test_selfcheck",       # 軽い自己点検: 腕の一覧を読むだけ（--check）と、小さな偽の pack で実行器を子で起こす（git なし）

@@ -16,15 +16,20 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
   Archon の出来事 task_activity（task_type local_agent の started と、同じ task_id の completed・failed・stopped）の created_at の
   区間の重なり（秒の粒。端が触れるだけは重ならない。枝の区間も同じ）
 - (b) overlap（同じファイルの枝の合わせ）: TDD の輪の締めの重なりのファイル（lanes.shared）か、枝の合わせの結末に union が在る、
-  または修正役の締めの行の shared・union が空でない。同じファイルを見込んだ組（lanes.expect）が在るのに合わせが字・意味の食い違いで
-  戻っただけなら attempted
+  または修正役の締めの行の shared・union が空でない。同じファイルを見込んだ組（lanes.expect）か、修正案の 2 項目以上が触ってよい
+  同じファイル（案の重なり。allowed_paths と tests・rewrite_tests の id のファイルの和を字のまま比べる）が在るのに、合わせが字・意味の
+  食い違いで戻った・合わせの記録が無いなら attempted。案の項目どうしが同じファイルを共にしなければ no（計画役が同じファイルの単位を
+  1 項目にまとめたか、テストを別のファイルに置いた）
 - (c) consult（範囲の相談）: 相談の記録（盤面の trace の plan_scope_asked。修正の輪の確かめの節 fix-consult-check が書く。
   前の形 askplan.py（0.2.32〜0.2.35）の run は、まだ写していない run-place/<scope>/ask-plan/exchanges.jsonl も読む）に
   answered の行が在る。refused・invalid・unavailable だけなら attempted
 - (d) replan（run の中の案の直し。起きなくてよい）: trace の replan_state・plan_amended・conflict_parked・conflict_ruled の数を出すだけ
-ほか: 修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）と allowed_paths、節の同時の最大（node_started から
-node_completed・node_failed まで）、AI の節の費用の和（node_completed の data.node.kind が agent の物。輪の節 loop_group は中の
-和なので足さない。読み方は report._event_cost）、出来事の最初から最後までの分、差分が変えたファイル。
+ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
+allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
+tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から node_completed・node_failed まで）、AI の節の費用の和
+（node_completed の data.node.kind が agent の物。輪の節 loop_group は中の和なので足さない。読み方は report._event_cost）と費用の
+取れない節の名と理由（Archon が costUsd を source unavailable で記録した節。和に入らないので、和は下限）、出来事の最初から
+最後までの分、差分が変えたファイル。
 
 終了コード: 0 = (a)(b)(c) が全部 yes・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・run が無い（標準エラーに 1 行）。
 出力は辞書を書いた順（同じ入力なら同じ出力）。時刻は記録の物だけを使う。
@@ -48,6 +53,7 @@ for _p in (PACK / "blk-fix" / "lib", PACK / ".shared" / "core"):
 
 import conflict  # noqa: E402  trace の行の語（ASKED_OP・PARK_OP・RULE_OP・REPLAN_OP）
 import fixrules  # noqa: E402  修正役の締めの trace の行の語（UNITS_OP）
+import gatemarks  # noqa: E402  報告の冒頭の起きたことの行の頭（HAPPENED）
 import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERED）
 import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
 import report  # noqa: E402    節の名の最後の語（_step_name）と費用の読み（_event_cost）
@@ -136,27 +142,55 @@ def _jsonl(path) -> list:
 
 # ---------------------------------------------------------------- 盤面
 def plan_items(board: pathlib.Path) -> list:
-    """承認済みの修正案の欄の控え（plan-fields.json）の項目 [{item, route, allowed_paths}]。無ければ []"""
+    """承認済みの修正案の欄の控え（plan-fields.json）の項目 [{item, route, unit_keys, allowed_paths, test_files, files}]。
+    test_files は tests・rewrite_tests の id のファイル（planmarks.test_paths。書いてよい範囲に入る）、files は allowed_paths と
+    test_files の和（項目が触ってよいファイル。glob は字のまま）。無ければ []"""
     doc = _json(board / planmarks.FIELDS_FILE)
     fields = doc.get("fields") if isinstance(doc, dict) else None
     out = []
     for n, f in enumerate(fields if isinstance(fields, list) else [], 1):
         f = f if isinstance(f, dict) else {}
         paths = f.get("allowed_paths")
+        paths = [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
+        keys = f.get("unit_keys")
+        tests = planmarks.test_paths(f)
         out.append({"item": n, "route": f.get("route", ""),
-                    "allowed_paths": [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []})
+                    "unit_keys": [k for k in keys if isinstance(k, str)] if isinstance(keys, list) else [],
+                    "allowed_paths": paths, "test_files": tests, "files": sorted(set(paths) | set(tests))})
     return out
 
 
-def tdd_lanes(board: pathlib.Path) -> list:
-    """TDD の輪の並べの周ごと（盤面の tdd-<k>/state.json の lanes。並べた輪だけ）[{loop, lanes, units, shared, expect}]"""
+def planned_overlap(items: list) -> dict:
+    """修正案の 2 項目以上が触ってよいファイル（files。字のまま比べる）{ファイル: [項目の番号]}。(b) の前提が案に在るか"""
+    seen = {}
+    for it in items:
+        for f in it["files"]:
+            seen.setdefault(f, []).append(it["item"])
+    return {f: ns for f, ns in sorted(seen.items()) if len(ns) > 1}
+
+
+def _lane_items(keys, items: list) -> list:
+    """枝の単位の鍵を持つ修正案の項目の番号"""
+    return [it["item"] for it in items if set(it["unit_keys"]) & set(keys or [])]
+
+
+def tdd_lanes(board: pathlib.Path, items: list = ()) -> list:
+    """TDD の輪の並べの周ごと（盤面の tdd-<k>/state.json の lanes。並べた輪だけ）[{loop, lanes, rows, units, shared, expect}]。
+    rows は枝ごと {lane, items（枝の単位を持つ修正案の項目）, files（当てる時に控えた枝の差分 tdd-<k>/lanes/item-<n>.patch の
+    ファイル。控えが無ければ None）}"""
     out = []
     for st_path in sorted(board.glob("tdd-*/state.json")) + sorted(board.glob("*/tdd-*/state.json")):
         st = _json(st_path)
         lanes = st.get("lanes") if isinstance(st, dict) else None
         if not isinstance(lanes, dict) or not lanes.get("rows"):
             continue
-        out.append({"loop": str(st_path.parent.relative_to(board)), "lanes": len(lanes["rows"]),
+        rows = []
+        for r in lanes["rows"]:
+            r = r if isinstance(r, dict) else {}
+            n = r.get("n")
+            rows.append({"lane": n, "items": _lane_items(r.get("unit_keys"), list(items)),
+                         "files": diff_files(st_path.parent / tddlanes.KEPT / f"item-{n}.patch")})
+        out.append({"loop": str(st_path.parent.relative_to(board)), "lanes": len(lanes["rows"]), "rows": rows,
                     "units": [{k: u.get(k) for k in ("lane", "outcome", "merge")} for u in lanes.get("out") or []
                               if isinstance(u, dict)],
                     "shared": list(lanes.get("shared") or []), "expect": list(lanes.get("expect") or [])})
@@ -181,6 +215,18 @@ def consults(board: pathlib.Path, trace: list) -> list:
     return [{"scope": s, "id": r.get("id"), "item": r.get("item"), "status": r.get("status", ""),
              "decision": r.get("decision", ""), "paths": r.get("paths") or [], "granted_paths": r.get("granted_paths") or [],
              "settled": settled} for s, r, settled in rows]
+
+
+def outcome(board: pathlib.Path) -> str:
+    """報告（report.md）の冒頭の起きたことの行（gatemarks.HAPPENED）の括弧の結末の語（report.OUTCOMES）。報告が無い・読めなければ空"""
+    try:
+        lines = (board / report.REPORT_FILE).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    for line in lines[:10]:
+        if line.startswith(gatemarks.HAPPENED):
+            return next((w for w in report.OUTCOMES if f"（{w}）" in line), "")
+    return ""
 
 
 # ---------------------------------------------------------------- 出来事
@@ -246,17 +292,17 @@ def node_peak(events: list) -> dict:
 
 
 def spend(events: list) -> dict:
-    """AI の節の費用の和と取れない節の数・出来事の最初から最後までの分"""
-    total, missing = 0.0, 0
+    """AI の節の費用の和と取れない節の数とその節（節の名の最後の語と取れない理由）・出来事の最初から最後までの分"""
+    total, missing = 0.0, []
     for e in events:
         if e["event_type"] == "node_completed" and (e["data"].get("node") or {}).get("kind") == AI_KIND:
-            v, _ = report._event_cost(e)
+            v, why = report._event_cost(e)
             if v is None:
-                missing += 1
+                missing.append({"node": report._step_name(e["step_name"]), "why": why})
             else:
                 total += v
     ats = [e["at"] for e in events if e["at"] is not None]
-    return {"cost_usd": round(total, 4), "cost_missing_nodes": missing,
+    return {"cost_usd": round(total, 4), "cost_missing_nodes": len(missing), "cost_missing": missing,
             "minutes": round((max(ats) - min(ats)) / 60, 1) if ats else None}
 
 
@@ -283,7 +329,8 @@ def diff_files(path) -> list | None:
 def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) -> dict:
     trace = _jsonl(board / "trace.jsonl")
     items = plan_items(board)
-    loops = tdd_lanes(board)
+    planned = planned_overlap(items)
+    loops = tdd_lanes(board, items)
     units = [{k: r.get(k) or [] for k in ("applied", "conflict", "unmerged", "shared", "union")}
              for r in trace if r.get("op") == fixrules.UNITS_OP]
     asks = consults(board, trace)
@@ -310,12 +357,18 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
     unions = sorted({f for u in units for f in u["union"]})
     merges = sorted({u["merge"] for lp in loops for u in lp["units"] if u.get("merge")})
     expected = any(lp["expect"] for lp in loops)
+    plan_said = "・".join(f"{f} 項目 {ns}" for f, ns in planned.items()) or "無い"
     if shared or unions or tddlanes.UNION in merges:
-        b = {"status": YES, "why": f"重なりのファイル {shared}・試験のファイルの union {unions}・枝の合わせ {merges}"}
-    elif expected or tddlanes.CLASH in merges or tddlanes.SEMANTIC in merges:
-        b = {"status": ATTEMPTED, "why": f"同じファイルの枝を見込んだが合わせなかった（枝の合わせ {merges}）"}
+        b = {"status": YES, "why": f"重なりのファイル {shared}・試験のファイルの union {unions}・枝の合わせ {merges}"
+                                   f"・案の重なり {plan_said}"}
+    elif expected or planned or tddlanes.CLASH in merges or tddlanes.SEMANTIC in merges:
+        b = {"status": ATTEMPTED, "why": f"同じファイルを触る項目を見込んだが合わせなかった（案の重なり {plan_said}・"
+                                         f"枝の合わせ {merges}）"}
+    elif items:
+        b = {"status": NO, "why": "修正案の項目どうしが触ってよいファイルを共にしない（計画役が同じファイルの単位を 1 項目に"
+                                  "まとめたか、テストを別のファイルに置いた。下の修正案の項目を見る）"}
     else:
-        b = {"status": NO, "why": "同じファイルを触る枝が無かった（重なりの見込みも合わせの記録も無い）"}
+        b = {"status": NO, "why": "同じファイルを触る枝が無かった（修正案の欄の控えも重なりの見込みも合わせの記録も無い）"}
 
     answered = [r for r in asks if r["status"] == consult.ANSWERED]
     if answered:
@@ -331,11 +384,13 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
     return {
         "run_id": run_id,
         "status": row.get("status", ""),
+        "outcome": outcome(board),
         "board": str(board),
         "report": str(board / report.REPORT_FILE) if (board / report.REPORT_FILE).is_file() else "",
         "features": {"a_parallel": a, "b_overlap": b, "c_consult": c,
                      "d_replan": {"status": YES if d[conflict.REPLAN_OP] or d[planmarks.AMEND_OP] else NO, "counts": d}},
         "plan_items": items,
+        "planned_overlap": planned,
         "tdd_lanes": loops,
         "fix_units": units,
         "consults": asks,
@@ -349,16 +404,24 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
 
 def summary_lines(got: dict) -> list:
     f = got["features"]
-    out = [f"run {got['run_id']}（Archon の状態 {got['status']}）"]
+    out = [f"run {got['run_id']}（Archon の状態 {got['status']}・結末 {got['outcome'] or '報告が無い'}）"]
     for key, name in (("a_parallel", "(a) 別のファイルの項目の並べ"), ("b_overlap", "(b) 同じファイルの枝の合わせ"),
                       ("c_consult", "(c) 範囲の相談")):
         out.append(f"{name}: {f[key]['status']} — {f[key]['why']}")
     out.append(f"(d) run の中の案の直し（起きなくてよい）: {f['d_replan']['status']} — {f['d_replan']['counts']}")
-    out.append("修正案の項目: " + ("・".join(f"{i['item']} {i['route']} {i['allowed_paths']}" for i in got["plan_items"])
-                              or "無い（plan-fields.json が無い）"))
+    lanes = {}
+    for lp in got["tdd_lanes"]:
+        for r in lp["rows"]:
+            for n in r["items"]:
+                lanes.setdefault(n, []).append(f"{lp['loop']} 枝 {r['lane']} {r['files'] if r['files'] is not None else '控え無し'}")
+    out.append("修正案の項目:" if got["plan_items"] else "修正案の項目: 無い（plan-fields.json が無い）")
+    for i in got["plan_items"]:
+        out.append(f"  {i['item']} {i['route']} 範囲 {i['allowed_paths']}・テスト {i['test_files']}"
+                   f"・枝の差分 {'・'.join(lanes.get(i['item']) or ['並べなかった'])}")
     s = got["spend"]
-    out.append(f"費用: AI の節の和 {s['cost_usd']} USD（取れない節 {s['cost_missing_nodes']}）・時間 {s['minutes']} 分"
-               f"・節の同時の最大 {got['nodes']['parallel']}")
+    gone = "・".join(m["node"] for m in s["cost_missing"])
+    out.append(f"費用: AI の節の和 {s['cost_usd']} USD（取れない節 {s['cost_missing_nodes']}{': ' + gone if gone else ''}）"
+               f"・時間 {s['minutes']} 分・節の同時の最大 {got['nodes']['parallel']}")
     if got["diff_files"] is not None:
         out.append("差分のファイル: " + ("・".join(got["diff_files"]) or "無い"))
     if got["report"]:
