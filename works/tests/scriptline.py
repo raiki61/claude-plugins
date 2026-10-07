@@ -127,10 +127,15 @@ class ScriptLine:
     runs は起こした script の節の記録 {block, node, rc, out, errors, stderr}（errors は output_format に当てた食い違い）。
     watch(<節>, "start"|"done") は線の最上段の include の節ごとに、走らせる直前と出口が ok の直後に呼ぶ（飛ばした節では呼ばない）。
     github なら種の origin を GitHub の形にし、交差を返す偽の gh を子の PATH の頭に置く（並行 PR の任せ先の役 blk-pr が回る run。
-    linekit.github_crossing）。無ければ種は remote を持たない forge の無い run で、並行 PR は機械が条件外にする"""
+    linekit.github_crossing）。無ければ種は remote を持たない forge の無い run で、並行 PR は機械が条件外にする。
+    writes なら包みの書き込みの記録（adapter.writes_path。在ることが記録を取っている run の印）を作り、edits を当てた後に変わった
+    ファイルを Edit の行で記録する（包みの PostToolUse のフックの代わり。修正役の並べの枝 fix-fork は記録の在る run だけ並べる）。
+    枝の支度が単位の worktree の印（adapter.lane_tree_path）を書いた役は、edits を run の作業ツリーでなくその worktree に当てる
+    （包みの旗 lane の cwd の代わり）"""
 
     def __init__(self, tmp, *, replies=None, gates=None, inputs=None, edits=None, bad_first=(), bad=None, stop_at=None,
-                 declared=True, sessions=False, watch: Callable[[str, str], None] | None = None, github=False):
+                 declared=True, sessions=False, watch: Callable[[str, str], None] | None = None, github=False,
+                 writes=False):
         self.tmp = pathlib.Path(tmp)
         self.watch = watch
         self.replies, self.gates, self.edits = replies or {}, gates or {}, edits or {}
@@ -152,14 +157,22 @@ class ScriptLine:
                          "XDG_STATE_HOME": str(self.tmp / "state"), **linekit.lens_plugin(self.tmp)})
         if github:
             self.env["PATH"] = linekit.github_crossing(self.repo, self.tmp)
+        self.writes = None
+        if writes:
+            import adapter   # L1（包みの記録の置き場の口）
+            self.writes = adapter.writes_path(self.repo, self.tmp / "adapter-home")
+            self.writes.parent.mkdir(parents=True, exist_ok=True)
+            self.writes.write_text("", encoding="utf-8")
 
     # -- 役・関所
     def _reply(self, block, nid):
         key = next((k for k in (f"{block}/{nid}", nid) if k in self.replies), None)
         n = self.attempts[(block, nid)] = self.attempts.get((block, nid), 0) + 1
+        tree = self._tree(nid)
         for k in (f"{block}/{nid}", nid):
             if k in self.edits:
-                self.edits[k](self.repo)
+                self.edits[k](tree)
+                self._record(tree)
                 break
         if n == 1 and ({f"{block}/{nid}", nid} & self.bad_first):
             return self.bad.get(f"{block}/{nid}", self.bad.get(nid, {}))
@@ -172,6 +185,26 @@ class ScriptLine:
         else:
             got = default_reply(block, nid)
         return got(n) if callable(got) else got
+
+    def _tree(self, nid) -> pathlib.Path:
+        """役の作業ツリー: 枝の支度が単位の worktree の印を書いた役はその worktree、ほかは run の作業ツリー"""
+        import adapter
+        mark = pathlib.Path(adapter.lane_tree_path(str(self.board), nid))
+        return pathlib.Path(mark.read_text(encoding="utf-8").strip()) if mark.is_file() else self.repo
+
+    def _record(self, tree) -> None:
+        """writes の run: tree の HEAD から変わったファイルと追跡外のファイルを、書いた後の sha で記録に足す"""
+        if self.writes is None:
+            return
+        got = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all", "-z"], cwd=str(tree), capture_output=True,
+                             text=True, check=True).stdout
+        import writes as _writes
+        with open(self.writes, "a", encoding="utf-8") as f:
+            for row in filter(None, got.split("\0")):
+                path = pathlib.Path(tree) / row[3:]
+                if path.is_file():
+                    f.write(json.dumps({"tool_name": "Edit", "path": os.path.realpath(path),
+                                        "file_sha": _writes._sha(str(path))}) + "\n")
 
     # -- 節
     def _script(self, scope, n, loop=""):

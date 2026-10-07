@@ -24,6 +24,9 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 - tdd-lanes: 修正案の項目が単位ごとに分かれ、TDD の輪の役が 2 単位とも tdd に振る → 節 tdd-fork が並べの枝の輪を 2 本起こし
   （枝の役は 1 回目を拒む・どちらも direct の理由で枝を終える）、tdd-join が順へ戻して修正役が直す（docs/plans/2026-10-07-lane-nodes.md）。
   項目が 2 つの事前審査は項目ごとの木の下請けの答えを要るので、入力 features_off で木を切った審査役 1 つの道で通す
+- fix-lanes: 書き込みの記録の在る run（scriptline の writes）で修正案の項目が単位ごとに分かれ、実行器が無い → 節 fix-fork が
+  修正役の並べの枝の輪を 2 本起こし（枝の役は 1 回目を拒む・枝の単位の worktree で同じ stats.py の別の所を直す）、fix-join が
+  3 方向で当て、修正役が枝の行を写して受け付けに通る（docs/plans/2026-10-07-fix-lane-nodes.md）
 - <役>-give-up（GIVE_UPS の役: 並行 PR の任せ先・前提の実測・目的・差分の審査・手直し・2 回目の審査）: 役が 3 回とも拒まれる →
   輪は受け付けの done で 3 周目に抜け（max_iterations に当てない）、出口が盤面を止め、run は落ちずに報告まで届く（R50）。
   盤面が止まった後はどの役も起きない（並行 PR の任せ先が諦めた後の前提の実測役も）
@@ -158,6 +161,32 @@ def lanes_replies() -> dict:
             "tdd": {"phase": "route", "units": [{"unit_key": k, "route": "tdd"} for k in keys]}, **lanes}
 
 
+LANE_FIXES = {TT.MEAN: ("(len(xs) - 1)", "len(xs)"), TT.CLAMP: ("    if x > hi:\n        return lo", "    if x > hi:\n        return hi")}
+
+
+def fix_lanes_replies() -> dict:
+    """修正役の並べの筋書きの返答: 修正案の項目を単位ごとに分け（実行器の無い run なので TDD の輪は飛ぶ）、枝の役 fix-lane-<n> は
+    自分の項目の単位の行だけを返す（修正役の返答の行のその単位の物）。後の修正役は枝の行を写した全部の行を返す"""
+    r = line_replies()
+    row = r["plan"]["plan"][0]
+    keys = (TT.MEAN, TT.CLAMP)
+    fix = r["fix"]
+    lanes = {f"fix-lane-{n}": {**fix, "changes": [c for c in fix["changes"] if c["unit_key"] == k],
+                               "plan_faces": [f for f in fix["plan_faces"] if k == TT.CLAMP]}
+             for n, k in enumerate(keys, 1)}
+    return {**r, "plan": {"plan": [{**row, "unit_keys": [k]} for k in keys]}, **lanes}
+
+
+def lane_edit(key):
+    """枝の役の代わりに、枝の単位の worktree（scriptline が役の作業ツリーとして渡す）で自分の単位だけを直す"""
+    old, new = LANE_FIXES[key]
+
+    def edit(tree):
+        p = tree / "stats.py"
+        p.write_text(p.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+    return edit
+
+
 def scenarios(tmp: pathlib.Path) -> dict:
     """筋書きの名 → ScriptLine の引数"""
     suite = tmp / "suite.py"
@@ -192,6 +221,12 @@ def scenarios(tmp: pathlib.Path) -> dict:
         "no-fix": dict(replies=nofix, edits={}),
         "tdd-lanes": dict(replies=lanes_replies(), edits=edits, bad_first={"tdd-lane-1"},
                           inputs={"tdd_suite": str(suite), "features_off": "review_tree"}),
+        # 修正役の並べ（docs/plans/2026-10-07-fix-lane-nodes.md）: 書き込みの記録の在る run で、範囲の在る 2 項目が単位を共にしない
+        # ので fix-fork が枝の輪を 2 本起こし（枝 1 の役は 1 回目を拒む）、枝が同じ stats.py の別の所を直し、fix-join が 3 方向で
+        # 当てて、修正役は枝の行を写して受け付けに通す
+        "fix-lanes": dict(replies=fix_lanes_replies(), edits={**edits, "fix-lane-1": lane_edit(TT.MEAN),
+                                                             "fix-lane-2": lane_edit(TT.CLAMP)},
+                          bad_first={"fix-lane-1"}, writes=True, inputs={"features_off": "review_tree"}),
         "plan-converge": dict(replies={**line_replies(), "plan-review": converge_review,
                                        "plan-revise": converge_revise(), "refix": REFIX_FIXED, "review2": REVIEW2_OK},
                               edits={**edits, "refix": refix_edit}),
@@ -214,7 +249,7 @@ def scenarios(tmp: pathlib.Path) -> dict:
 
 OUTCOMES = {"plan-converge": "fixed", "plan-converge-stuck": "stopped_by_human",
             "material-give-up": "stopped_by_line", "material-give-up-awaiting": "stopped_by_line", "conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
-            "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request", "rejudge": "fixed", "tdd-lanes": "fixed",
+            "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request", "rejudge": "fixed", "tdd-lanes": "fixed", "fix-lanes": "fixed",
             "rejudge-no-session": "stopped_by_line",
             **{name: "stopped_by_line" for name in GIVE_UPS.values()}}
 
@@ -299,6 +334,17 @@ class ScriptContractCase(unittest.TestCase):
                                           if m["id"] == r["node"])}
         missing = sorted(f"{b}/{s}" for b, s, _ in want - ran)
         self.assertEqual(missing, [])
+
+    def test_fix_lanes_merge_two_lanes(self):
+        """修正役の並べを本物のスクリプトで: fix-fork が枝を 2 本切り、枝 1 の 1 回目の拒否の後に両方の枝が項目を受け、fix-join が
+        同じ stats.py を 3 方向で当てて 2 項目とも当て、修正役の受け付けが通る（docs/plans/2026-10-07-fix-lane-nodes.md）"""
+        got = self.got["fix-lanes"]
+        out = {r["node"]: r["out"] for r in got["runs"] if r["block"] == "blk-fix"}
+        self.assertEqual({k: out["fix-fork"][k] for k in ("go", "lanes")}, {"go": True, "lanes": 2})
+        steps = [r["out"]["ok"] for r in got["runs"] if r["node"] == "fix-lane-step-1"]
+        self.assertEqual(steps, [False, True], "枝 1 の役の 1 回目は拒まれ、2 回目に受かる")
+        self.assertEqual((out["fix-join"]["merged"], out["fix-join"]["shared"]), ([1, 2], ["stats.py"]))
+        self.assertIs(out["fix-accept"]["ok"], True)
 
     def test_plan_converge_loops_back_to_revise(self):
         """事前審査の壁打ち（依頼 231）を本物のスクリプトで: 1 往復目の block で converge-check が done 偽を返して外の輪が回り、
