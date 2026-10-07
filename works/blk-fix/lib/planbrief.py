@@ -32,7 +32,8 @@
 - by_unit_at: 今の周の控えの brief を単位ごとに {unit_key: [{item, file（絶対パス）}]}（切らない・書き戻さない。食い違いの申し出の
   brief_vs_judgment の確かめが読む。盤面が開けない・控えが無い・壊れているなら {}）
 - for_units: 単位の key に当たる項目の行だけ
-- head_text: 指示書の頭に置く、brief を名指す節（今直す単位を渡すと、項目のほかの単位に「今は直すな」と添える。単位の書き方は unit_note）
+- head_text: 指示書の頭に置く、brief を名指す節（今直す単位を渡すと、項目のほかの単位に「今は直すな」と添える。単位の書き方は unit_note。
+  TDD の輪は今の単位と一緒に直す同じ項目の単位も今直す単位に渡す）
 - files: 今の周の brief のファイル（読んだ証拠に足す）
 """
 from __future__ import annotations

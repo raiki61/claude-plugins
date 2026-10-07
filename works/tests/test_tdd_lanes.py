@@ -585,6 +585,146 @@ class TestOneItemLane(LaneCase):
         self.assertEqual(got["phase"], "test")
 
 
+class TestOneItemLaneWithContract(LaneCase):
+    """修正案の項目 2 に b.py と d.py の 2 単位が載り、項目の受け入れのテスト 2 本が両方の単位の約束に在る枝（canary の run 245042a7 の
+    形を枝で）。枝の 1 番目の単位の決まりは 2 番目を「今は手を付けるな」と言わず一緒に直させ、緑に届けば機械が 2 番目を閉じる。
+    締めは閉じた単位の赤を、一緒に直した単位の赤の確かめ直しで見たものとして当てる（申し出も順への戻しも無い）"""
+    UNITS = (UA, UB, UD)
+    ITEMS = {UA: [1], UB: [2], UD: [2]}
+    ITEM2 = [{"id": B_ID, "red_kind": "assertion"}, {"id": D_ID, "red_kind": "assertion"}]
+    CONTRACT = {UA: {"items": [1], "route": "tdd", "rewrites": [], "refactor": [], "tests": [{"id": A_ID, "red_kind": "assertion"}]},
+                UB: {"items": [2], "route": "tdd", "rewrites": [], "refactor": [], "tests": ITEM2},
+                UD: {"items": [2], "route": "tdd", "rewrites": [], "refactor": [], "tests": ITEM2}}
+
+    def setUp(self):
+        super().setUp()
+        with mock.patch.object(tddloop, "plan_contract", return_value=self.CONTRACT):
+            self.start = tddloop.start(self.board, self.repo, str(self.suite), json.dumps(list(self.UNITS), ensure_ascii=False))
+        self.assertTrue(self.start["go"], self.start)
+        self.state = self.start["state_file"]
+
+    def test_second_unit_of_the_item_is_fixed_with_the_first(self):
+        self.route()
+        row = self.lane(UB)
+        self.assertEqual(row["unit_keys"], [UB, UD])
+        tddlanes.lane_prep(self.state, row["n"])
+        rules = pathlib.Path(row["files"][0]).read_text(encoding="utf-8")
+        self.assertNotIn("この枝の後の単位（今は手を付けるな", rules, "同じ項目の後の単位を後回しにさせない")
+        self.assertIn(tddloop.TOGETHER_HEAD, rules)
+        self.assertIn(UD, rules.split(tddloop.TOGETHER_HEAD, 1)[1].split("\n## ", 1)[0])
+        tree = pathlib.Path(row["tree"])
+        for name, body in (("test_b.py", B_TEST), ("test_d.py", D_TEST)):
+            (tree / name).write_text((tree / name).read_text(encoding="utf-8") + body, encoding="utf-8")
+        got = self.cmd(UB, {"phase": "test", "unit_key": UB, "test_files": ["test_b.py", "test_d.py"], "tests": [B_ID, D_ID]})
+        self.assertTrue(got["ok"], got)
+        self.edit(tree, "b.py", "x * 3 + 1", "x * 3")
+        self.edit(tree, "d.py", "x * 4 + 1", "x * 4")
+        got = self.cmd(UB, {"phase": "fix", "unit_key": UB, "files": ["b.py", "d.py"], "what": "項目 2 の 2 つの余計な 1 を消した"})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual((got["done"], got["phase"]), (True, "done"), "枝の 2 番目の単位は機械が閉じ、枝は済む")
+        self.red(UA)
+        self.green(UA)
+        got = self.join()
+        self.assertEqual((got["go"], got["done"], got["conflicts"]), (False, True, []), got)
+        st = self.st()
+        self.assertEqual({r["unit_key"]: r["outcome"] for r in st["lanes"]["out"]}, {UA: "merged", UB: "merged", UD: "merged"})
+        self.assertEqual(st["units"][UD]["covered_by"], [UB])
+        self.assertEqual(st["parked"], [])
+        for name, text in (("b.py", "x * 3\n"), ("d.py", "x * 4\n")):
+            self.assertIn(text, (self.repo / name).read_text(encoding="utf-8"), name)
+
+
+UX = "e.py E1: 1 を返す（100 にする）"
+X_ID = "test_b.py::TestB::test_e1"
+X_TEST = "\n    def test_e1(self):\n        from e import E1\n        self.assertEqual(E1, 100)\n"
+
+
+class ContractLaneCase(LaneCase):
+    """約束（CONTRACT）を持つ枝の run。範囲は RANGES に EXTRA_RANGES を重ねる"""
+    CONTRACT = {}
+    EXTRA_RANGES = {}
+
+    def setUp(self):
+        super().setUp()
+        with mock.patch.object(tddloop, "plan_contract", return_value=self.CONTRACT):
+            self.start = tddloop.start(self.board, self.repo, str(self.suite), json.dumps(list(self.UNITS), ensure_ascii=False))
+        self.assertTrue(self.start["go"], self.start)
+        self.state = self.start["state_file"]
+        rg = {**RANGES, **self.EXTRA_RANGES}
+        p = mock.patch.object(tddlanes, "ranges", side_effect=lambda board_dir, keys: {k: rg.get(k) for k in keys})
+        p.start()
+        self.addCleanup(p.stop)
+
+
+class TestClosedUnitThenLaterUnit(ContractLaneCase):
+    """枝 [UB, UD（UB の段で一緒に直して閉じた）, UX（項目 2 と 3。自分の段を回す）]。閉じた UD は枝の頭の木を持たないが、締めの UB の
+    赤の確かめ直しは、次に頭の木を持つ単位（UX）の頭から赤の時のテストのファイルを取る（UX が同じ試験のファイルに足しても戻さない）"""
+    UNITS = (UA, UB, UD, UX)
+    ITEMS = {UA: [1], UB: [2], UD: [2], UX: [2, 3]}
+    I2 = [{"id": B_ID, "red_kind": "assertion"}, {"id": D_ID, "red_kind": "assertion"}]
+    CONTRACT = {UA: {"items": [1], "route": "tdd", "rewrites": [], "refactor": [], "tests": [{"id": A_ID, "red_kind": "assertion"}]},
+                UB: {"items": [2], "route": "tdd", "rewrites": [], "refactor": [], "tests": I2},
+                UD: {"items": [2], "route": "tdd", "rewrites": [], "refactor": [], "tests": I2},
+                UX: {"items": [2, 3], "route": "tdd", "rewrites": [], "refactor": [],
+                     "tests": I2 + [{"id": X_ID, "red_kind": "assertion"}]}}
+    EXTRA_RANGES = {UX: ["b.py", "test_b.py", "e.py"]}
+
+    def test_lane_merges_all_three(self):
+        self.route()
+        row = self.lane(UB)
+        self.assertEqual(row["unit_keys"], [UB, UD, UX])
+        tree = pathlib.Path(row["tree"])
+        for name, body in (("test_b.py", B_TEST), ("test_d.py", D_TEST)):
+            (tree / name).write_text((tree / name).read_text(encoding="utf-8") + body, encoding="utf-8")
+        self.assertTrue(self.cmd(UB, {"phase": "test", "unit_key": UB, "test_files": ["test_b.py", "test_d.py"],
+                                      "tests": [B_ID, D_ID]})["ok"])
+        self.edit(tree, "b.py", "x * 3 + 1", "x * 3")
+        self.edit(tree, "d.py", "x * 4 + 1", "x * 4")
+        got = self.cmd(UB, {"phase": "fix", "unit_key": UB, "files": ["b.py", "d.py"], "what": "項目 2 の余計な 1 を消した"})
+        self.assertEqual((got["ok"], got["done"]), (True, False), got)
+        (tree / "test_b.py").write_text((tree / "test_b.py").read_text(encoding="utf-8") + X_TEST, encoding="utf-8")
+        self.assertTrue(self.cmd(UX, {"phase": "test", "unit_key": UX, "test_files": ["test_b.py"], "tests": [X_ID]})["ok"])
+        self.edit(tree, "e.py", "E1 = 1\n", "E1 = 100\n")
+        self.assertTrue(self.cmd(UX, {"phase": "fix", "unit_key": UX, "files": ["e.py"], "what": "E1 を 100 にした"})["ok"])
+        self.red(UA)
+        self.green(UA)
+        self.join()
+        st = self.st()
+        self.assertEqual(st["lanes"]["back"], {})
+        self.assertEqual({r["unit_key"]: r["outcome"] for r in st["lanes"]["out"]},
+                         {UA: "merged", UB: "merged", UD: "merged", UX: "merged"})
+
+
+class TestClosedUnitVerifiedByTwoUnits(ContractLaneCase):
+    """枝 [UB（項目 2）, UD（項目 2・3）, UX（項目 2・3。UD の段で一緒に直して閉じる）]。UX の受け入れのテストの B は UB が、D は UD が
+    確かめた。閉じた UX の赤は、枝で緑に届いた単位の名指しのどれかに在れば見たものとする（UD は確かめ済みの B を名指せない）"""
+    UNITS = (UA, UB, UD, UX)
+    ITEMS = {UA: [1], UB: [2], UD: [2, 3], UX: [2, 3]}
+    B = [{"id": B_ID, "red_kind": "assertion"}]
+    BD = B + [{"id": D_ID, "red_kind": "assertion"}]
+    CONTRACT = {UA: {"items": [1], "route": "tdd", "rewrites": [], "refactor": [], "tests": [{"id": A_ID, "red_kind": "assertion"}]},
+                UB: {"items": [2], "route": "tdd", "rewrites": [], "refactor": [], "tests": B},
+                UD: {"items": [2, 3], "route": "tdd", "rewrites": [], "refactor": [], "tests": BD},
+                UX: {"items": [2, 3], "route": "tdd", "rewrites": [], "refactor": [], "tests": BD}}
+    EXTRA_RANGES = {UX: ["d.py", "test_d.py"]}
+
+    def test_lane_merges_all_three(self):
+        self.route()
+        self.assertEqual(self.lane(UB)["unit_keys"], [UB, UD, UX])
+        self.red(UB)
+        self.green(UB)
+        self.red(UD)
+        got = self.green(UD)
+        self.assertEqual((got["done"], got["phase"]), (True, "done"), "UX は UD の段で一緒に直して閉じる")
+        self.red(UA)
+        self.green(UA)
+        self.join()
+        st = self.st()
+        self.assertEqual(st["lanes"]["back"], {})
+        self.assertEqual(st["units"][UX]["covered_by"], [UD])
+        self.assertEqual(sorted(st["units"][UX]["red_kinds"]), sorted([B_ID, D_ID]), "赤の種類は確かめた単位の全部から")
+
+
 class TestOverlap(LaneCase):
     """範囲が重なる 2 本の枝（どちらも e.py を変える）を並べ、機械が 3 方向で合わせる"""
 

@@ -1214,6 +1214,119 @@ class TestRewriteSharedAcrossUnits(ContractCase):
         self.assertIn(REWRITE, got["reason"])
 
 
+SAME_ITEM_TESTS = [{"id": MEAN_ID, "red_kind": "assertion"}, {"id": "test_stats.py::TestStats::test_clamp_far_above",
+                                                              "red_kind": "assertion"}]
+SAME_ITEM_FAR = """
+    def test_clamp_far_above(self):
+        self.assertEqual(clamp(20, 0, 10), 10)
+"""
+
+
+class TestOneItemTwoUnits(ContractCase):
+    """修正案の 1 つの項目に 2 つの単位（MEAN・CLAMP）が載り、項目の受け入れのテスト 2 本が両方の単位の約束に在る（canary の run
+    245042a7・4c32bf37 の形）。前の単位の段は項目の受け入れのテストを全部名指して緑にするので、同じ項目の後の単位を「今は直すな」
+    と言わず、一緒に直させる。後の単位は受け入れのテストを輪が確かめ済みなので、機械が段を回さずに閉じる（食い違いの申し出を
+    生まない）"""
+    CONTRACT = {MEAN: {"items": [1], "route": "tdd", "rewrites": [], "refactor": [], "tests": SAME_ITEM_TESTS},
+                CLAMP: {"items": [1], "route": "tdd", "rewrites": [], "refactor": [], "tests": SAME_ITEM_TESTS}}
+    BRIEFS = [{"item": 1, "unit_keys": [MEAN, CLAMP], "file": "/b/r1/brief-1.md", "sha256": "a" * 64}]
+
+    def route_both(self):
+        got = self.step({"phase": "route", "units": [{"unit_key": MEAN, "route": "tdd"}, {"unit_key": CLAMP, "route": "tdd"}]})
+        self.assertTrue(got["ok"], got)
+
+    def prompt(self):
+        with mock.patch.object(tddloop.planbrief, "cut_at", return_value=self.BRIEFS):
+            return pathlib.Path(tddloop.prep(self.state)["prompt_file"]).read_text(encoding="utf-8")
+
+    def test_step_does_not_hold_off_unit_of_same_item(self):
+        self.route_both()
+        prompt = self.prompt()
+        row = next(ln for ln in prompt[prompt.index(planbrief.HEAD):].splitlines() if ln.startswith("- 項目 1:"))
+        self.assertIn(f"単位 {MEAN}、{CLAMP}", row)
+        self.assertNotIn(planbrief.NOT_NOW, row, "同じ項目の単位に「今は直すな」と言わない")
+        self.assertNotIn("今は手を付けるな", prompt, "同じ項目の後の単位を「この後の単位」に並べない")
+        self.assertIn(tddloop.TOGETHER_HEAD, prompt)
+        self.assertIn(CLAMP, prompt.split(tddloop.TOGETHER_HEAD, 1)[1].split("\n## ", 1)[0])
+
+    def test_one_item_two_units_files_no_conflict(self):
+        self.route_both()
+        self.add_test(NEW_TEST + SAME_ITEM_FAR)
+        got = self.step({"phase": "test", "unit_key": MEAN, "test_files": ["test_stats.py"],
+                         "tests": [t["id"] for t in SAME_ITEM_TESTS]})
+        self.assertTrue(got["ok"], got)
+        self.edit("stats.py", "return sum(xs) / (len(xs) - 1)", "return sum(xs) / len(xs)")
+        self.edit("stats.py", "    if x > hi:\n        return lo", "    if x > hi:\n        return hi")
+        got = self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "分母と上限の枝を項目どおりに直した"})
+        self.assertTrue(got["ok"], got)
+        self.assertEqual((got["done"], got["conflict"]), (True, None), "同じ項目の後の単位は機械が閉じ、輪は済む")
+        st = self.st()
+        self.assertEqual(st["parked"], [])
+        self.assertNotIn("conflict", [c["phase"] for c in st["calls"]])
+        self.assertEqual([c["unit_key"] for c in st["calls"] if c["phase"] != "route"], [MEAN, MEAN], "CLAMP の段は回らない")
+        rows = {u["unit_key"]: u for u in tddloop.exit_fields(self.start)["units"]}
+        c = rows[CLAMP]
+        self.assertEqual((c["route"], c["red"], c["green"], c["gave_up"]), ("tdd", "ok", "ok", ""))
+        self.assertEqual(sorted(c["tests"]), sorted(t["id"] for t in SAME_ITEM_TESTS))
+        self.assertIn(MEAN, c["why"], "どの単位の段で一緒に直したかを残す")
+        self.assertEqual(st["units"][CLAMP]["covered_by"], [MEAN])
+        summary = pathlib.Path(self.start["summary_file"]).read_text(encoding="utf-8")
+        done = summary.split("## 輪で直した単位", 1)[1].split("\n## ", 1)[0]
+        self.assertIn(f"- {CLAMP}", done, "閉じた単位は輪で直した単位に並ぶ（direct に並べない）")
+        self.assertEqual(tddloop.frozen_problems(self.state, self.repo), [])
+
+    def test_later_unit_is_not_closed_when_its_tests_are_not_verified(self):
+        """前の単位が申し出で止まれば（受け入れのテストを確かめていない）、後の単位は今どおり自分の段を回す"""
+        self.route_both()
+        got = self.step({"phase": "conflict", "unit_key": MEAN, "between": ["stats.py:9", "test_stats.py:9"],
+                         "why_both_cannot_hold": "期待値と依頼の分母が食い違い、どちらを正とするか決められない",
+                         "which_is_right": "unknown", "kind": "needs_context"})
+        self.assertTrue(got["ok"], got)
+        st = self.st()
+        self.assertEqual((st["phase"], st["queue"][st["cur"]]), ("test", CLAMP))
+        self.assertFalse(st["units"][CLAMP].get("covered_by"))
+
+
+class TestTwoItemsKeepHoldOff(ContractCase):
+    """別の項目の単位は今どおり「この後の単位（今は手を付けるな）」に並び、機械は閉じない（単位ごとの赤→緑の順を保つ）"""
+    CONTRACT = {MEAN: {"items": [1], "route": "tdd", "rewrites": [], "refactor": [], "tests": SAME_ITEM_TESTS[:1]},
+                CLAMP: {"items": [2], "route": "tdd", "rewrites": [], "refactor": [], "tests": SAME_ITEM_TESTS[1:]}}
+    BRIEFS = [{"item": 1, "unit_keys": [MEAN], "file": "/b/r1/brief-1.md", "sha256": "a" * 64},
+              {"item": 2, "unit_keys": [CLAMP], "file": "/b/r1/brief-2.md", "sha256": "b" * 64}]
+    route_both, prompt = TestOneItemTwoUnits.route_both, TestOneItemTwoUnits.prompt
+
+    def test_unit_of_other_item_is_held_off(self):
+        self.route_both()
+        prompt = self.prompt()
+        self.assertIn(f"この後の tdd の単位（今は手を付けるな）: {CLAMP}", prompt)
+        self.assertNotIn(tddloop.TOGETHER_HEAD, prompt)
+        self.assertNotIn("brief-2.md", prompt)
+        self.red()
+        got = self.fix_mean()
+        self.assertFalse(got["done"])
+        st = self.st()
+        self.assertEqual((st["phase"], st["queue"][st["cur"]]), ("test", CLAMP), "別の項目の単位は自分の段を回す")
+        self.assertFalse(st["units"][CLAMP].get("covered_by"))
+
+
+class TestSharedItemPartlyCovered(ContractCase):
+    """後の単位が前の単位に無い項目にも載るなら、一緒に直す単位にせず（今どおり「今は手を付けるな」）、機械も閉じない
+    （残りの項目の受け入れのテストを自分の段で赤→緑にする。一緒に直させると後の単位の赤が書けなくなる）"""
+    CONTRACT = {MEAN: {"items": [1], "route": "tdd", "rewrites": [], "refactor": [], "tests": SAME_ITEM_TESTS[:1]},
+                CLAMP: {"items": [1, 2], "route": "tdd", "rewrites": [], "refactor": [], "tests": SAME_ITEM_TESTS}}
+    route_both = TestOneItemTwoUnits.route_both
+
+    def test_partly_covered_unit_runs_its_own_step(self):
+        self.route_both()
+        self.assertEqual(tddloop.together(self.st(), MEAN), [])
+        self.red()
+        got = self.fix_mean()
+        self.assertFalse(got["done"])
+        st = self.st()
+        self.assertEqual((st["phase"], st["queue"][st["cur"]]), ("test", CLAMP))
+        self.assertFalse(st["units"][CLAMP].get("covered_by"))
+
+
 class TestUnnamedEditsWithoutContract(LoopCase):
     def test_no_contract_does_not_freeze_existing_tests(self):
         """約束の無い run は、既存のテストの本体の書き換えも今どおり見ない"""

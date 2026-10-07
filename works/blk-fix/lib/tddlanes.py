@@ -38,7 +38,9 @@
   3 方向で当てる（試験のファイルの挿しだけの食い違いは合わせる）・当てた中身と名指しのテストの照らし）、当てた後の木で緑をもう 1 度
   確かめ（重なりのファイルを起点に広げる。赤なら後の枝を落として 1 回だけ確かめ直す）、記録を写し、単位の worktree を片付けて順の段へ
   進める。run の作業ツリーに書かれた物は戻す（枝の役は包みの柵で書けないが、受け止めとして）。盤面に積む申し出の一覧を返す
-- unit_text(st, row, j): 枝 n の j 番目の単位の決まりのファイルの「この単位の決まり」の節（lane_prep が fixrules.tdd_lane_render に渡す）
+- unit_text(st, row, j): 枝 n の j 番目の単位の決まりのファイルの「この単位の決まり」の節（lane_prep が fixrules.tdd_lane_render に渡す）。
+  枝の後の単位のうち同じ修正案の項目で一緒に直す単位（tddloop.together）は「今は手を付けるな」に並べず、一緒に直す節に並べる
+  （緑に届けば枝の控えの tddloop.step が閉じ、締めの赤の確かめ直しは枝で緑に届いた単位の名指しで見たものとする）
 """
 from __future__ import annotations
 
@@ -263,7 +265,8 @@ def lane_prep(state_file, n, values: dict | None = None) -> dict:
     brief_file = pathlib.Path(row["files"][j - 1])
     text = fixrules.tdd_lane_render(vals, unit_text(st, row, j, lst),
                                     title=f"# TDD の輪の並べの 1 単位（枝 {row['n']} の {j} 番目・単位 {k}）",
-                                    brief=planbrief.head_text(planbrief.for_units(briefs, [k]), [k]), seat=seat_text,
+                                    brief=planbrief.head_text(planbrief.for_units(briefs, [k]), [k, *tddloop.together(lst, k)]),
+                                    seat=seat_text,
                                     lang=fixrules.lang_at(board_dir))
     brief_file.write_text(text, encoding="utf-8")
     prompt = work / LANE_NEXT.format(n=row["n"])
@@ -503,6 +506,12 @@ def _red_again(st, row, lst, k, work) -> str:
     戻す。通れば空、記録どおりに落ちなければ戻す理由"""
     tree = pathlib.Path(row["tree"])
     u = lst["units"][k]
+    if u.get("covered_by"):   # 段を回さずに閉じた単位: 赤は枝で緑に届いた単位の名指しに在り、その単位の確かめ直しが見る
+        seen = {tddloop._norm_id(t) for v in lst["units"].values() if v.get("route") == "tdd" and v.get("green") == "ok"
+                and not v.get("covered_by") for t in v.get("tests") or []}
+        if {tddloop._norm_id(t) for t in u.get("tests") or []} <= seen:
+            return ""
+        return "枝で緑に届いた単位の赤の記録に、閉じた単位の名指しが無い（赤を確かめ直せない）"
     keys = list(lst["queue"])
     i = keys.index(k)
     heads = lst.get("unit_heads") or {}
@@ -513,7 +522,7 @@ def _red_again(st, row, lst, k, work) -> str:
     if not head:
         return "単位の頭の木が控えに無い（赤を確かめ直せない）"
     final = tddloop.snapshot(tree)
-    src = heads.get(keys[i + 1]) if i + 1 < len(keys) else None
+    src = next((heads[q] for q in keys[i + 1:] if q in heads), None)   # 閉じた単位は頭の木を持たない（木を変えない）ので飛ばす
     then = tddloop._tree_hashes(tree, src, files) if src else tddloop.hashes(tree, files)
     if any(then[f] != (u.get("test_hashes") or {}).get(f) for f in files):
         return "テストのファイルの中身が赤の記録と違う（赤を確かめ直せない）"
@@ -662,7 +671,8 @@ def unit_text(st: dict, row: dict, j: int = 1, lst: dict | None = None) -> str:
     """単位の決まりのファイルの「この単位の決まり」の節（機械が書く。fixrules.tdd_lane_render の lane_text）。j は枝の中の単位の番"""
     lst = tddloop._load(row["state"]) if lst is None else lst
     k = row["unit_keys"][j - 1]
-    later = row["unit_keys"][j:]
+    both = tddloop.together(lst, k)
+    later = [q for q in row["unit_keys"][j:] if q not in both]
     lines = ["## この単位の決まり（機械が書いた）", "",
              f"- 単位: {k}（並べの枝 {row['n']} の {j} 番目）",
              f"- 作業ツリー: あなたの cwd（単位の worktree {row['tree']}）。読む・書く・試験を回すのは全部この中。名指しのパスはこの"
@@ -670,6 +680,7 @@ def unit_text(st: dict, row: dict, j: int = 1, lst: dict | None = None) -> str:
     if later:
         lines.append("- この枝の後の単位（今は手を付けるな。この単位が済んだ後に新しい会話で直す）: " + " / ".join(later))
     lines.append("")
+    lines += tddloop._together_lines(lst, k)
     if j > 1:
         hand = tddloop.handoff_lines(lst)
         lines += [ln.replace("作業ツリーに在る（緑の木）", "この worktree に在る（緑の木）") for ln in hand] if hand else []
