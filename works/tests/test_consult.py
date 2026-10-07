@@ -334,7 +334,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(c["with"], {"reply": {"from": f"${role}.output"}, "plan_session": "$INPUTS.plan_session",
                                      "pass": pass_, "answer_node": ans})
         self.assertEqual(a["output_format"], consult.answer_format(ans))
-        self.assertEqual(a["output_format"]["description"], f"works-node: {ans} continue={consult.PEER}")
+        self.assertEqual(a["output_format"]["description"], f"works-node: {ans} continue={consult.PEER} map")
         self.assertEqual((a["depends_on"], a["when"]), ([cons], f"${cons}.output.go == true"))
         self.assertEqual(a["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"], "修正案を書いた役と同じ読むだけの道具")
         self.assertIs(a["mutates_checkout"], False)

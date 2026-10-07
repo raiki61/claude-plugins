@@ -191,7 +191,8 @@ class FeaturesOffCase(unittest.TestCase):
     WIRING = {"judge_verify": [("judging", "verify")],
               "review_tree": [("planning", "review_tree"), ("replanning", "review_tree")],
               "tdd_lanes": [("fixing", "tdd_lanes"), ("refitting", "tdd_lanes")],
-              "fix_lanes": [("fixing", "fix_lanes"), ("refitting", "fix_lanes")]}
+              "fix_lanes": [("fixing", "fix_lanes"), ("refitting", "fix_lanes")],
+              "graph_map": []}   # 工程の地図はブロックへ写さず、包みが start の控えを読む（adapter.graph_map_block）
 
     def check(self, word):
         with tempfile.TemporaryDirectory() as tmp:
@@ -209,7 +210,7 @@ class FeaturesOffCase(unittest.TestCase):
     def test_words_are_split_sorted_and_deduplicated(self):
         self.assertEqual(self.check("tdd_lanes,judge_verify tdd_lanes、fix_lanes"), ["fix_lanes", "judge_verify", "tdd_lanes"])
         got = entry.feature_words(["review_tree"])
-        self.assertEqual(got, {"fix_lanes": "on", "judge_verify": "on", "review_tree": "off", "tdd_lanes": "on"})
+        self.assertEqual(got, {"fix_lanes": "on", "graph_map": "on", "judge_verify": "on", "review_tree": "off", "tdd_lanes": "on"})
         self.assertEqual(entry.features_part(["judge_verify", "review_tree"]), "切った機能: judge_verify・review_tree")
 
     def test_unknown_word_is_refused_before_the_board(self):

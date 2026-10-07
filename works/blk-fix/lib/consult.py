@@ -94,9 +94,12 @@ ANSWER_SCHEMA = {
 }
 
 
+MAP_FLAG = "map"   # 工程の地図の旗。答えの節は継ぐ会話（修正案を書いた会話）と同じ地図を持つ（system prompt を会話の中で替えない）
+
+
 def answer_format(name: str) -> dict:
-    """答えの節 name の output_format（ANSWER_SCHEMA に印 `works-node: <name> continue=PEER`。blk-fix.yaml に貼る物）"""
-    return node_marker.mark(ANSWER_SCHEMA, name, cont=PEER)
+    """答えの節 name の output_format（ANSWER_SCHEMA に印 `works-node: <name> continue=PEER map`。blk-fix.yaml に貼る物）"""
+    return node_marker.mark(ANSWER_SCHEMA, name, cont=PEER, flags=(MAP_FLAG,))
 
 
 QUESTION = """\

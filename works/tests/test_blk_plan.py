@@ -143,7 +143,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(of, planblk.output_format(planblk.DESIGN_ROLE))
         self.assertEqual(node_marker.strip(of), accept.role_schema(design.NODE))
         self.assertEqual(of["description"], f"works-node: {planblk.DESIGN_ROLE} isolated")
-        marks = {"plan": "works-node: plan", planblk.REVISE_ROLE: "works-node: plan-revise continue=plan",
+        marks = {"plan": "works-node: plan map", planblk.REVISE_ROLE: "works-node: plan-revise continue=plan map",
                  "plan-review": "works-node: plan-review"}
         for role, of in got.items():
             with self.subTest(role):
@@ -1822,12 +1822,12 @@ class ConvergeReviseCase(unittest.TestCase):
 
     def test_revise_mark_continues_plan(self):
         of = planblk.output_format(planblk.REVISE_ROLE)
-        self.assertEqual(of["description"], "works-node: plan-revise continue=plan")
+        self.assertEqual(of["description"], "works-node: plan-revise continue=plan map")
         self.assertEqual(node_marker.parse(of["description"])["cont"], "plan")
         bare = node_marker.strip(of)
         self.assertIn(converge.ANSWERS, bare["required"])
         self.assertEqual(converge.with_fields(planblk.REVISE_ROLE, accept.role_schema("p2.fix_plan", numbered=True)), bare)
-        self.assertEqual(planblk.output_format("plan")["description"], "works-node: plan")   # 修正案の役は今のまま
+        self.assertEqual(planblk.output_format("plan")["description"], "works-node: plan map")   # 修正案の役は地図の旗だけ
 
 
 def two_items() -> dict:

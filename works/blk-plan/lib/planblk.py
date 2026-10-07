@@ -90,6 +90,7 @@ REVISE_PROMPT = "prompt-plan-revise-{k}.md"   # 直しの役の指示書（今�
 READS_LOOP = {"plan": "plan-loop", "plan-review": "converge-loop.plan-review-loop",
               REVISE_ROLE: "converge-loop.plan-revise-loop"}   # 役 → 出来事の節の名の輪（入れ子の輪は <外>.<中>）
 ISOLATED_FLAG = "isolated"  # 道具ゼロの役の印の旗（包みが Git の外の置き場で起こす）
+MAP_FLAG = "map"            # 工程の地図の旗（包みが system prompt に全体のグラフとこの会話の居場所を足す。修正案の役の会話の節に付ける）
 STOP_BY = "works:plan"
 GIVE_UP_AFTER = rolekit.GIVE_UP_AFTER   # 輪の max_iterations と同じ数（tests/test_blk_plan.py が YAML と突き合わせる）
 READS_INDEX = "reads-plan-block.json"
@@ -218,13 +219,16 @@ def output_format(role: str) -> dict:
     """役の output_format: 写しの schema（accept.role_schema）に印 works-node: <役> を付けた物（YAML に貼る値）。
     prep が番号の一覧を貼って控えを固める（mark_launched(pointers=)）ので、番号の欄は番号でも返せる型に開く。
     独立設計の役は番号の欄を持たず、道具ゼロの旗 isolated を付ける。直しの役は修正案の印の付いていない型に答えの欄
-    （converge.with_fields）を足し、印に continue=plan（修正案の役の会話の続き）を付ける"""
+    （converge.with_fields）を足し、印に continue=plan（修正案の役の会話の続き）を付ける。修正案の役とその会話の続きの直しの役は
+    工程の地図の旗 map を持つ（項目が後で並べの枝になり 3 方向で合わさる、という後の流れを包みが機械で渡す。
+    docs/plans/2026-10-07-graph-map.md）"""
     if role == REVISE_ROLE:
         schema = converge.with_fields(role, accept.role_schema(NODE_OF["plan"], numbered=True))
-        return node_marker.mark(schema, role, cont="plan")
+        return node_marker.mark(schema, role, cont="plan", flags=(MAP_FLAG,))
     if role == DESIGN_ROLE:
         return node_marker.mark(accept.role_schema(design.NODE), role, flags=(ISOLATED_FLAG,))
-    return converge.with_fields(role, node_marker.mark(accept.role_schema(role_node(role), numbered=True), role))
+    flags = (MAP_FLAG,) if role == "plan" else ()
+    return converge.with_fields(role, node_marker.mark(accept.role_schema(role_node(role), numbered=True), role, flags=flags))
 
 
 def _pending(b, nid: str) -> dict | None:

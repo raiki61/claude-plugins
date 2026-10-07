@@ -21,7 +21,8 @@ PREFIX = "works-node: "
 # self-resume: SDK が前の会話を継ぐ起動では、包みが SDK の会話でなくこの節自身が記録した会話を継ぐ（輪の中に別の会話を継ぐ
 # AI の節が挟まる役。修正役と範囲の相談の答えの節。docs/plans/2026-10-06-ask-planner.md）
 # lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪の並べの枝の役 tdd-lane-<n>。adapter.py の頭の 6c）
-FLAGS = frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane"})
+# map: 包みが工程の地図（graphmap。全体のグラフとこの節の会話の居場所）を system prompt に足す（adapter.py の頭の 13 の差し込みの表）
+FLAGS = frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane", "map"})
 _NAME = re.compile(r"[a-z0-9-]+")
 _CONT = "continue="
 _ARG = "--json-schema"

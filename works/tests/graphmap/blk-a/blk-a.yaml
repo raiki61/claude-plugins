@@ -1,0 +1,44 @@
+name: blk-a
+description: 書く部品
+nodes:
+  - id: prep
+    script: prep
+  - id: write-loop
+    description: |
+      書く輪
+      2 行目は地図に載せない
+    depends_on: [prep]
+    when: "$prep.output.next == 'write'"
+    loop_group:
+      max_iterations: 3
+      until_bash: test $write-accept.output.done = true
+      nodes:
+        - id: write-prep
+          script: write_prep
+        - id: writer
+          description: '書く役'
+          prompt: 書け
+          depends_on: [write-prep]
+          output_format:
+            description: 'works-node: writer map'
+            type: object
+        - id: write-accept
+          script: accept
+          depends_on: [writer]
+        - id: revise-loop
+          description: '直しの輪'
+          depends_on: [write-accept]
+          loop_group:
+            max_iterations: 2
+            until_bash: test $reviser.output.done = true
+            nodes:
+              - id: reviser
+                description: '直す役'
+                prompt: 直せ
+                output_format:
+                  description: 'works-node: reviser continue=writer map'
+                  type: object
+  - id: peer-check
+    description: '相手を確かめる [needs: peer]'
+    script: peer
+    depends_on: [write-loop]

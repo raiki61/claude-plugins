@@ -1,0 +1,41 @@
+name: line
+description: 試験の線（工程の地図の部品の試験の種。Archon では回さない）
+nodes:
+  - id: gate
+    description: '人の関所'
+    approval:
+      message: 始める
+  - id: start
+    description: '入力を確かめる'
+    script: start
+    depends_on: [gate]
+  - id: h-a
+    script: edge
+    depends_on: [start]
+  - id: writing
+    description: '案を書く'
+    include: blk-a
+    depends_on: [h-a]
+    when: "$h-a.output.go == true"
+    with:
+      lanes: $start.output.lanes
+      peer: 'off'
+  - id: h-b
+    script: edge
+    depends_on: [writing]
+  - id: doing
+    description: '案を直す'
+    include: blk-b
+    depends_on: [h-b]
+    when: "$h-b.output.go == true"
+    with:
+      lanes: $start.output.lanes
+      asker: writer
+      gate: {from: $h-b.output, if_skipped: null}
+  - id: closing
+    description: '締める'
+    include: blk-a
+    depends_on: [doing]
+    with:
+      lanes: $start.output.lanes
+      peer: 'on'

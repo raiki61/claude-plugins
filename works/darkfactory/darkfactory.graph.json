@@ -1,0 +1,2653 @@
+{
+ "entry": "darkfactory",
+ "sources": {
+  "blk-ci/blk-ci.yaml": "54be4671fc8ba18244c16e27a1da429abce8df6c2463598188347006237a99a7",
+  "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
+  "blk-eyes/blk-eyes.yaml": "529421d1256ab4372571db47dc048931ea420c7298f42b516dbd3e0a7c7ae2b7",
+  "blk-fix/blk-fix.yaml": "4599fe7528d3f667e6dbc747766583dcd020852309137985360f68e8903f6beb",
+  "blk-judge/blk-judge.yaml": "074931df4ec94e77bf447eac37ff927175c666991f34c103951964929c066ad0",
+  "blk-lens/blk-lens.yaml": "aff532b603cf8507c6387f946e243b4072cec7cd8fcc3974837da30d60b16dca",
+  "blk-material/blk-material.yaml": "07cbe905d13a699aa217718cb86af7ea46ed9124f405760d2fd759165045e368",
+  "blk-plan/blk-plan.yaml": "d854e859f7970debd4cfc8231ca21917b73d1a6577f8253ed056bc7b2a11342a",
+  "blk-pr/blk-pr.yaml": "01ba32249cf73fbc37f900a5ede324c3f001a90d8886d6707899908da92dcdc2",
+  "blk-premises/blk-premises.yaml": "e2f74fbbb17a1a458e3c69a7f0527c5419568b3139c134ec028d1cbda811b6e7",
+  "blk-purpose/blk-purpose.yaml": "5d4ccd7cbaf8c680096b1fa9cd843f283e168e608ba59c5911d69ae82b400823",
+  "blk-refix/blk-refix.yaml": "5f45883e108c4e625d03087412fd3ee4ba4344b8e64d09fa4148a8e7f0c703a1",
+  "blk-rejudge/blk-rejudge.yaml": "539f1e4a310584d17bb3cf67a4e4f285911969a073637ab9ca9d1e9ac3c88b07",
+  "blk-report/blk-report.yaml": "bd08093ed532c2afbaff1c89f2e2f667bb296e7eac5c963f2ccd9270e7736566",
+  "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
+  "blk-tests/blk-tests.yaml": "147d73c7390cadbe477bbb6bb3264630227bea75759564d0e4a8b9adaa40634e",
+  "darkfactory/darkfactory.yaml": "968b45aa6ad087100cb510b6a2ff496b748af943b44a97836d8b78b7173cff72"
+ },
+ "version": 1,
+ "workflows": {
+  "blk-ci": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "ci-fence",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "ci-fence"
+     ],
+     "id": "ci-snap",
+     "kind": "script",
+     "when": "$ci-fence.output.go == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "ci-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "ci-prep"
+       ],
+       "flags": [
+        "no-tree-write"
+       ],
+       "id": "ci",
+       "kind": "ai",
+       "marker": "ci"
+      },
+      {
+       "deps": [
+        "ci"
+       ],
+       "id": "ci-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "ci-snap"
+     ],
+     "id": "ci-loop",
+     "kind": "loop",
+     "max": 3
+    },
+    {
+     "deps": [
+      "ci-fence",
+      "ci-loop"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-delta": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "cut",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "review",
+       "kind": "ai",
+       "marker": "review"
+      },
+      {
+       "deps": [
+        "review"
+       ],
+       "id": "review-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "cut"
+     ],
+     "id": "delta-loop",
+     "kind": "loop",
+     "max": 3
+    },
+    {
+     "deps": [
+      "delta-loop"
+     ],
+     "id": "review-reads",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "review-reads"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-eyes": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "eyes-enter",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "eyes-enter"
+     ],
+     "id": "r1-comments-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "r1-comments-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "r1-comments-prep"
+       ],
+       "id": "r1-comments",
+       "kind": "ai",
+       "marker": "r1-comments"
+      },
+      {
+       "deps": [
+        "r1-comments"
+       ],
+       "id": "r1-comments-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "r1-comments-route"
+     ],
+     "id": "r1-comments-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$r1-comments-route.output.go == true"
+    },
+    {
+     "deps": [
+      "r1-comments-route",
+      "r1-comments-loop"
+     ],
+     "id": "r1-minimality-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "r1-minimality-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "r1-minimality-prep"
+       ],
+       "id": "r1-minimality",
+       "kind": "ai",
+       "marker": "r1-minimality"
+      },
+      {
+       "deps": [
+        "r1-minimality"
+       ],
+       "id": "r1-minimality-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "r1-minimality-route"
+     ],
+     "id": "r1-minimality-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$r1-minimality-route.output.go == true"
+    },
+    {
+     "deps": [
+      "eyes-enter"
+     ],
+     "id": "r2-compare-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "r2-compare-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "r2-compare-prep"
+       ],
+       "flags": [
+        "isolated"
+       ],
+       "id": "r2-compare",
+       "kind": "ai",
+       "marker": "r2-compare"
+      },
+      {
+       "deps": [
+        "r2-compare"
+       ],
+       "id": "r2-compare-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "r2-compare-route"
+     ],
+     "id": "r2-compare-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$r2-compare-route.output.go == true"
+    },
+    {
+     "deps": [
+      "r2-compare-route",
+      "r2-compare-loop"
+     ],
+     "id": "premise-check-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "premise-check-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "premise-check-prep"
+       ],
+       "id": "premise-check",
+       "kind": "ai",
+       "marker": "premise-check"
+      },
+      {
+       "deps": [
+        "premise-check"
+       ],
+       "id": "premise-check-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "premise-check-route"
+     ],
+     "id": "premise-check-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$premise-check-route.output.go == true"
+    },
+    {
+     "deps": [
+      "eyes-enter"
+     ],
+     "id": "r3-coherence-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "r3-coherence-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "r3-coherence-prep"
+       ],
+       "id": "r3-coherence",
+       "kind": "ai",
+       "marker": "r3-coherence"
+      },
+      {
+       "deps": [
+        "r3-coherence"
+       ],
+       "id": "r3-coherence-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "r3-coherence-route"
+     ],
+     "id": "r3-coherence-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$r3-coherence-route.output.go == true"
+    },
+    {
+     "deps": [
+      "eyes-enter",
+      "r1-minimality-route",
+      "r1-minimality-loop",
+      "premise-check-route",
+      "premise-check-loop"
+     ],
+     "id": "r4-scope-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "r4-scope-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "r4-scope-prep"
+       ],
+       "id": "r4-scope",
+       "kind": "ai",
+       "marker": "r4-scope"
+      },
+      {
+       "deps": [
+        "r4-scope"
+       ],
+       "id": "r4-scope-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "r4-scope-route"
+     ],
+     "id": "r4-scope-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$r4-scope-route.output.go == true"
+    },
+    {
+     "deps": [
+      "r1-minimality-route",
+      "r1-minimality-loop",
+      "premise-check-route",
+      "premise-check-loop",
+      "r3-coherence-route",
+      "r3-coherence-loop",
+      "r4-scope-route",
+      "r4-scope-loop"
+     ],
+     "id": "eyes-collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-fix": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "ignored-before",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "ignored-before"
+     ],
+     "id": "tdd-start",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "tdd-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "tdd-prep"
+       ],
+       "id": "tdd",
+       "kind": "ai",
+       "marker": "tdd",
+       "purpose": "TDD の役（今の単位を直す）"
+      },
+      {
+       "deps": [
+        "tdd"
+       ],
+       "id": "tdd-step",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "tdd-start"
+     ],
+     "id": "tdd-loop",
+     "kind": "loop",
+     "max": 40,
+     "purpose": "TDD の輪: 単位ごとにテスト→赤→直し→緑→整え（実行器の在る run だけ）",
+     "when": "$tdd-start.output.go == true"
+    },
+    {
+     "deps": [
+      "tdd-start",
+      "tdd-loop"
+     ],
+     "id": "tdd-fork",
+     "kind": "script",
+     "needs": "tdd_lanes",
+     "purpose": "範囲の引ける枝（項目を共にする単位の組）が 2 本以上なら、枝ごとに worktree を切って並べる"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "tdd-lane-prep-1",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "tdd-lane-prep-1"
+       ],
+       "flags": [
+        "lane"
+       ],
+       "id": "tdd-lane-1",
+       "kind": "ai",
+       "marker": "tdd-lane-1",
+       "purpose": "枝 1 の TDD の役（cwd は枝の worktree）"
+      },
+      {
+       "deps": [
+        "tdd-lane-1"
+       ],
+       "id": "tdd-lane-step-1",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "tdd-fork"
+     ],
+     "id": "tdd-lane-loop-1",
+     "kind": "loop",
+     "max": 40,
+     "needs": "tdd_lanes",
+     "purpose": "枝 1 の TDD の輪（枝の worktree で、枝の単位を順に）",
+     "when": "$tdd-fork.output.lane_1 == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "tdd-lane-prep-2",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "tdd-lane-prep-2"
+       ],
+       "flags": [
+        "lane"
+       ],
+       "id": "tdd-lane-2",
+       "kind": "ai",
+       "marker": "tdd-lane-2",
+       "purpose": "枝 2 の TDD の役"
+      },
+      {
+       "deps": [
+        "tdd-lane-2"
+       ],
+       "id": "tdd-lane-step-2",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "tdd-fork"
+     ],
+     "id": "tdd-lane-loop-2",
+     "kind": "loop",
+     "max": 40,
+     "needs": "tdd_lanes",
+     "purpose": "枝 2 の TDD の輪",
+     "when": "$tdd-fork.output.lane_2 == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "tdd-lane-prep-3",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "tdd-lane-prep-3"
+       ],
+       "flags": [
+        "lane"
+       ],
+       "id": "tdd-lane-3",
+       "kind": "ai",
+       "marker": "tdd-lane-3",
+       "purpose": "枝 3 の TDD の役"
+      },
+      {
+       "deps": [
+        "tdd-lane-3"
+       ],
+       "id": "tdd-lane-step-3",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "tdd-fork"
+     ],
+     "id": "tdd-lane-loop-3",
+     "kind": "loop",
+     "max": 40,
+     "needs": "tdd_lanes",
+     "purpose": "枝 3 の TDD の輪",
+     "when": "$tdd-fork.output.lane_3 == true"
+    },
+    {
+     "deps": [
+      "tdd-fork",
+      "tdd-lane-loop-1",
+      "tdd-lane-loop-2",
+      "tdd-lane-loop-3"
+     ],
+     "id": "tdd-join",
+     "kind": "script",
+     "needs": "tdd_lanes",
+     "purpose": "枝の差分を作業ツリーへ 3 方向で当てて緑を確かめ直す（食い違った枝・残りは次の輪へ）",
+     "when": "$tdd-fork.output.go == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "tdd-rest-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "tdd-rest-prep"
+       ],
+       "id": "tdd-rest",
+       "kind": "ai",
+       "marker": "tdd-rest",
+       "purpose": "残りの単位の TDD の役"
+      },
+      {
+       "deps": [
+        "tdd-rest"
+       ],
+       "id": "tdd-rest-step",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "tdd-join"
+     ],
+     "id": "tdd-rest-loop",
+     "kind": "loop",
+     "max": 40,
+     "needs": "tdd_lanes",
+     "purpose": "並べで済まなかった単位を順に回す TDD の輪",
+     "when": "$tdd-join.output.go == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "fix-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "fix-prep"
+       ],
+       "flags": [
+        "self-resume"
+       ],
+       "id": "fix",
+       "kind": "ai",
+       "marker": "fix",
+       "purpose": "修正役: 輪で直していない単位を直す（fix_lanes が on なら範囲の在る項目を worktree の下請けで同時に直し、差分を項目の順に当てる）"
+      },
+      {
+       "deps": [
+        "fix"
+       ],
+       "id": "fix-consult",
+       "kind": "script"
+      },
+      {
+       "cont": "fix-planner",
+       "deps": [
+        "fix-consult"
+       ],
+       "flags": [
+        "map"
+       ],
+       "id": "plan-answer",
+       "kind": "ai",
+       "marker": "plan-answer",
+       "purpose": "範囲の相談に答える（修正案を書いた会話の続き。読むだけ）",
+       "when": "$fix-consult.output.go == true"
+      },
+      {
+       "deps": [
+        "fix-consult",
+        "plan-answer"
+       ],
+       "id": "fix-consult-check",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "fix-consult-check"
+       ],
+       "id": "fix-units",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "fix-units"
+       ],
+       "id": "fix-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "tdd-start",
+      "tdd-loop",
+      "tdd-fork",
+      "tdd-join",
+      "tdd-rest-loop"
+     ],
+     "id": "fix-loop",
+     "kind": "loop",
+     "max": 12,
+     "purpose": "修正役の輪（受け付けに通るまで同じ会話で出し直す）"
+    },
+    {
+     "deps": [
+      "fix-loop"
+     ],
+     "id": "conflict-check",
+     "kind": "script",
+     "purpose": "食い違いの申し出の名指しを現物で確かめる"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "rule-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "rule-prep"
+       ],
+       "id": "rule",
+       "kind": "ai",
+       "marker": "rule",
+       "purpose": "裁定役: 食い違いを持ち主の決まりで裁く（読むだけ）"
+      },
+      {
+       "deps": [
+        "rule"
+       ],
+       "id": "rule-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "conflict-check"
+     ],
+     "id": "rule-loop",
+     "kind": "loop",
+     "max": 3,
+     "purpose": "裁定の輪",
+     "when": "$conflict-check.output.go == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "fix-ruled-prep",
+       "kind": "script"
+      },
+      {
+       "cont": "fix",
+       "deps": [
+        "fix-ruled-prep"
+       ],
+       "id": "fix-ruled",
+       "kind": "ai",
+       "marker": "fix-ruled",
+       "purpose": "裁定の文を読んで直す（修正役の会話の続き）"
+      },
+      {
+       "deps": [
+        "fix-ruled"
+       ],
+       "id": "fix-ruled-consult",
+       "kind": "script"
+      },
+      {
+       "cont": "fix-planner",
+       "deps": [
+        "fix-ruled-consult"
+       ],
+       "flags": [
+        "map"
+       ],
+       "id": "plan-answer-ruled",
+       "kind": "ai",
+       "marker": "plan-answer-ruled",
+       "purpose": "範囲の相談に答える（修正案を書いた会話の続き。読むだけ）",
+       "when": "$fix-ruled-consult.output.go == true"
+      },
+      {
+       "deps": [
+        "fix-ruled-consult",
+        "plan-answer-ruled"
+       ],
+       "id": "fix-ruled-consult-check",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "fix-ruled-consult-check"
+       ],
+       "id": "fix-ruled-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "conflict-check",
+      "rule-loop"
+     ],
+     "id": "fix-ruled-loop",
+     "kind": "loop",
+     "max": 12,
+     "purpose": "裁定の後の 2 回目の修正の輪",
+     "when": "$conflict-check.output.go == true"
+    },
+    {
+     "deps": [
+      "fix-loop",
+      "conflict-check",
+      "rule-loop",
+      "fix-ruled-loop"
+     ],
+     "id": "clean",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "clean"
+     ],
+     "id": "assert-changed",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "assert-changed"
+     ],
+     "id": "fix-reads",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "fix-reads"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-judge": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "intake",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "intake"
+     ],
+     "id": "judge-brief",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "judge",
+       "kind": "ai",
+       "marker": "judge"
+      },
+      {
+       "deps": [
+        "judge"
+       ],
+       "id": "judge-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "judge-brief"
+     ],
+     "id": "judge-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$judge-brief.output.go == true"
+    },
+    {
+     "deps": [
+      "judge-brief",
+      "judge-loop"
+     ],
+     "id": "verify-prep",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "verify-prep"
+     ],
+     "id": "judge-verify",
+     "kind": "ai",
+     "marker": "judge-verify",
+     "when": "$verify-prep.output.go == true"
+    },
+    {
+     "deps": [
+      "judge-verify"
+     ],
+     "id": "verify-merge",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "judge-brief",
+      "judge-loop",
+      "verify-merge"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-lens": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "lens-route",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "lens-route"
+     ],
+     "id": "lens-silent-failure-hunter",
+     "kind": "ai",
+     "marker": "lens-silent-failure-hunter",
+     "when": "$lens-route.output.silent_failure_hunter_go == true"
+    },
+    {
+     "deps": [
+      "lens-route",
+      "lens-silent-failure-hunter"
+     ],
+     "id": "lens-collect",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "lens-collect"
+     ],
+     "id": "lens-exit",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-material": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "mat-route",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "prior-decisions-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "prior-decisions-prep"
+       ],
+       "flags": [
+        "no-post",
+        "no-tree-write"
+       ],
+       "id": "prior-decisions",
+       "kind": "ai",
+       "marker": "prior-decisions",
+       "when": "$prior-decisions-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "prior-decisions-prep",
+        "prior-decisions"
+       ],
+       "id": "prior-decisions-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "prior-decisions-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.prior_decisions == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "purpose-review-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "purpose-review-prep"
+       ],
+       "id": "purpose-review",
+       "kind": "ai",
+       "marker": "purpose-review",
+       "when": "$purpose-review-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "purpose-review-prep",
+        "purpose-review"
+       ],
+       "id": "purpose-review-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "purpose-review-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.purpose_review == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "local-review-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "local-review-prep"
+       ],
+       "flags": [
+        "no-post",
+        "no-tree-write"
+       ],
+       "id": "local-review",
+       "kind": "ai",
+       "marker": "local-review",
+       "when": "$local-review-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "local-review-prep",
+        "local-review"
+       ],
+       "id": "local-review-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "local-review-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.local_review == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "consistency-bypass-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "consistency-bypass-prep"
+       ],
+       "id": "consistency-bypass",
+       "kind": "ai",
+       "marker": "consistency-bypass",
+       "when": "$consistency-bypass-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "consistency-bypass-prep",
+        "consistency-bypass"
+       ],
+       "id": "consistency-bypass-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "consistency-bypass-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.consistency_bypass == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "hygiene-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "hygiene-prep"
+       ],
+       "id": "hygiene",
+       "kind": "ai",
+       "marker": "hygiene",
+       "when": "$hygiene-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "hygiene-prep",
+        "hygiene"
+       ],
+       "id": "hygiene-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "hygiene-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.hygiene == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "external-standards-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "external-standards-prep"
+       ],
+       "flags": [
+        "no-post",
+        "no-tree-write"
+       ],
+       "id": "external-standards",
+       "kind": "ai",
+       "marker": "external-standards",
+       "when": "$external-standards-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "external-standards-prep",
+        "external-standards"
+       ],
+       "id": "external-standards-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "external-standards-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.external_standards == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "procedure-trace-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "procedure-trace-prep"
+       ],
+       "flags": [
+        "no-post",
+        "no-tree-write"
+       ],
+       "id": "procedure-trace",
+       "kind": "ai",
+       "marker": "procedure-trace",
+       "when": "$procedure-trace-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "procedure-trace-prep",
+        "procedure-trace"
+       ],
+       "id": "procedure-trace-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "procedure-trace-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.procedure_trace == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "gate-efficacy-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "gate-efficacy-prep"
+       ],
+       "flags": [
+        "no-post",
+        "no-tree-write"
+       ],
+       "id": "gate-efficacy",
+       "kind": "ai",
+       "marker": "gate-efficacy",
+       "when": "$gate-efficacy-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "gate-efficacy-prep",
+        "gate-efficacy"
+       ],
+       "id": "gate-efficacy-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "gate-efficacy-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.gate_efficacy == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "test-double-fidelity-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "test-double-fidelity-prep"
+       ],
+       "flags": [
+        "no-post",
+        "no-tree-write"
+       ],
+       "id": "test-double-fidelity",
+       "kind": "ai",
+       "marker": "test-double-fidelity",
+       "when": "$test-double-fidelity-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "test-double-fidelity-prep",
+        "test-double-fidelity"
+       ],
+       "id": "test-double-fidelity-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "test-double-fidelity-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.test_double_fidelity == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "main-path-observation-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "main-path-observation-prep"
+       ],
+       "flags": [
+        "no-post",
+        "no-tree-write"
+       ],
+       "id": "main-path-observation",
+       "kind": "ai",
+       "marker": "main-path-observation",
+       "when": "$main-path-observation-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "main-path-observation-prep",
+        "main-path-observation"
+       ],
+       "id": "main-path-observation-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "main-path-observation-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.main_path_observation == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "provenance-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "provenance-prep"
+       ],
+       "flags": [
+        "no-post",
+        "no-tree-write"
+       ],
+       "id": "provenance",
+       "kind": "ai",
+       "marker": "provenance",
+       "when": "$provenance-prep.output.stopped == false"
+      },
+      {
+       "deps": [
+        "provenance-prep",
+        "provenance"
+       ],
+       "id": "provenance-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "mat-route"
+     ],
+     "id": "provenance-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$mat-route.output.provenance == true"
+    },
+    {
+     "deps": [
+      "mat-route",
+      "prior-decisions-loop",
+      "purpose-review-loop",
+      "local-review-loop",
+      "consistency-bypass-loop",
+      "hygiene-loop",
+      "external-standards-loop",
+      "procedure-trace-loop",
+      "gate-efficacy-loop",
+      "test-double-fidelity-loop",
+      "main-path-observation-loop",
+      "provenance-loop"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-plan": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "r2-design-snap",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "r2-design-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "r2-design-prep"
+       ],
+       "flags": [
+        "isolated"
+       ],
+       "id": "r2-design",
+       "kind": "ai",
+       "marker": "r2-design",
+       "purpose": "独立設計の役（道具ゼロ）"
+      },
+      {
+       "deps": [
+        "r2-design"
+       ],
+       "id": "r2-design-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "r2-design-snap"
+     ],
+     "id": "r2-design-loop",
+     "kind": "loop",
+     "max": 3,
+     "purpose": "独立設計の輪（目的と制約だけから理想解を作る。修正案を見ない）",
+     "when": "$r2-design-snap.output.go == true"
+    },
+    {
+     "deps": [
+      "r2-design-snap",
+      "r2-design-loop"
+     ],
+     "id": "plan-snap",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "plan-snap"
+     ],
+     "id": "plan-ripple",
+     "kind": "script",
+     "purpose": "変える名の呼び出し元と試験を引き、波及の一覧にする",
+     "when": "$plan-snap.output.go == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "plan-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "plan-prep"
+       ],
+       "flags": [
+        "map"
+       ],
+       "id": "plan",
+       "kind": "ai",
+       "marker": "plan",
+       "purpose": "修正案の役: 判定の単位を直す項目（書いてよい範囲・テスト）に分ける"
+      },
+      {
+       "deps": [
+        "plan"
+       ],
+       "id": "plan-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "plan-snap",
+      "plan-ripple"
+     ],
+     "id": "plan-loop",
+     "kind": "loop",
+     "max": 3,
+     "purpose": "修正案の輪（受け付けに通るまで出し直す）",
+     "when": "$plan-snap.output.go == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "plan-revise-snap",
+       "kind": "script"
+      },
+      {
+       "body": [
+        {
+         "deps": [],
+         "id": "plan-revise-prep",
+         "kind": "script"
+        },
+        {
+         "cont": "plan",
+         "deps": [
+          "plan-revise-prep"
+         ],
+         "flags": [
+          "map"
+         ],
+         "id": "plan-revise",
+         "kind": "ai",
+         "marker": "plan-revise",
+         "purpose": "block に答えて案を直す（修正案の会話の続き）"
+        },
+        {
+         "deps": [
+          "plan-revise"
+         ],
+         "id": "plan-revise-accept",
+         "kind": "script"
+        }
+       ],
+       "deps": [
+        "plan-revise-snap"
+       ],
+       "id": "plan-revise-loop",
+       "kind": "loop",
+       "max": 3,
+       "purpose": "案の直しの輪",
+       "when": "$plan-revise-snap.output.go == true"
+      },
+      {
+       "deps": [
+        "plan-revise-snap",
+        "plan-revise-loop"
+       ],
+       "id": "review-ripple",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "review-ripple"
+       ],
+       "id": "plan-review-snap",
+       "kind": "script"
+      },
+      {
+       "body": [
+        {
+         "deps": [],
+         "id": "plan-review-prep",
+         "kind": "script"
+        },
+        {
+         "deps": [
+          "plan-review-prep"
+         ],
+         "id": "plan-review",
+         "kind": "ai",
+         "marker": "plan-review",
+         "purpose": "事前審査の役（review_tree が on なら項目ごとの下請けと相乗りの審査）"
+        },
+        {
+         "deps": [
+          "plan-review"
+         ],
+         "id": "plan-review-accept",
+         "kind": "script"
+        }
+       ],
+       "deps": [
+        "plan-review-snap"
+       ],
+       "id": "plan-review-loop",
+       "kind": "loop",
+       "max": 3,
+       "purpose": "事前審査の輪",
+       "when": "$plan-review-snap.output.go == true"
+      },
+      {
+       "deps": [
+        "plan-review-snap",
+        "plan-review-loop"
+       ],
+       "id": "converge-check",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "plan-snap",
+      "plan-loop"
+     ],
+     "id": "converge-loop",
+     "kind": "loop",
+     "max": 3,
+     "purpose": "壁打ち: 事前審査が block を挙げたら案を直し、審査し直す"
+    },
+    {
+     "deps": [
+      "converge-loop"
+     ],
+     "id": "plan-reads",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "plan-reads"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-pr": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "pr-snap",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "flags": [
+        "no-post"
+       ],
+       "id": "pr-check",
+       "kind": "ai",
+       "marker": "pr-check"
+      },
+      {
+       "deps": [
+        "pr-check"
+       ],
+       "id": "pr-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "pr-snap"
+     ],
+     "id": "pr-loop",
+     "kind": "loop",
+     "max": 3
+    },
+    {
+     "deps": [
+      "pr-loop"
+     ],
+     "id": "pr-reads",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "pr-reads"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-premises": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "intake",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "premises",
+       "kind": "ai",
+       "marker": "premises"
+      },
+      {
+       "deps": [
+        "premises"
+       ],
+       "id": "premises-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "intake"
+     ],
+     "id": "premises-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$intake.output.go == true"
+    },
+    {
+     "deps": [
+      "intake",
+      "premises-loop"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-purpose": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "intake",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "purpose",
+       "kind": "ai",
+       "marker": "purpose"
+      },
+      {
+       "deps": [
+        "purpose"
+       ],
+       "id": "purpose-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "intake"
+     ],
+     "id": "purpose-loop",
+     "kind": "loop",
+     "max": 3
+    },
+    {
+     "deps": [
+      "purpose-loop"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-refix": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "refix-prep",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "refix",
+       "kind": "ai",
+       "marker": "refix"
+      },
+      {
+       "deps": [
+        "refix"
+       ],
+       "id": "refix-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "refix-prep"
+     ],
+     "id": "refix-loop",
+     "kind": "loop",
+     "max": 3
+    },
+    {
+     "deps": [
+      "refix-loop"
+     ],
+     "id": "route1",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "route1"
+     ],
+     "id": "cut2",
+     "kind": "script",
+     "when": "$route1.output.review2 == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "review2",
+       "kind": "ai",
+       "marker": "review2"
+      },
+      {
+       "deps": [
+        "review2"
+       ],
+       "id": "review2-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "cut2"
+     ],
+     "id": "review2-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$route1.output.review2 == true"
+    },
+    {
+     "deps": [
+      "route1",
+      "review2-loop"
+     ],
+     "id": "route2",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "route2"
+     ],
+     "id": "refix2-prep",
+     "kind": "script",
+     "when": "$route2.output.refix2 == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "refix2",
+       "kind": "ai",
+       "marker": "refix2"
+      },
+      {
+       "deps": [
+        "refix2"
+       ],
+       "id": "refix2-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "refix2-prep"
+     ],
+     "id": "refix2-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$route2.output.refix2 == true"
+    },
+    {
+     "deps": [
+      "route2",
+      "refix2-loop"
+     ],
+     "id": "refix-reads",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "refix-reads"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-rejudge": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "rj-snap",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "rj-snap"
+     ],
+     "id": "rj-route1",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "rejudge-prep",
+       "kind": "script"
+      },
+      {
+       "cont": "judge",
+       "deps": [
+        "rejudge-prep"
+       ],
+       "id": "rejudge",
+       "kind": "ai",
+       "marker": "rejudge"
+      },
+      {
+       "deps": [
+        "rejudge"
+       ],
+       "id": "rejudge-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "rj-route1"
+     ],
+     "id": "rejudge-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$rj-route1.output.next == 'rejudge'"
+    },
+    {
+     "deps": [
+      "rj-route1",
+      "rejudge-loop"
+     ],
+     "id": "rj-route2",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "rejudge-third-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "rejudge-third-prep"
+       ],
+       "id": "rejudge-third",
+       "kind": "ai",
+       "marker": "rejudge-third"
+      },
+      {
+       "deps": [
+        "rejudge-third"
+       ],
+       "id": "rejudge-third-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "rj-route2"
+     ],
+     "id": "rejudge-third-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$rj-route2.output.next == 'rejudge-third'"
+    },
+    {
+     "deps": [
+      "rj-route2",
+      "rejudge-third-loop"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-report": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "rp-route1",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "report-items-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "report-items-prep"
+       ],
+       "id": "report-items",
+       "kind": "ai",
+       "marker": "report-items"
+      },
+      {
+       "deps": [
+        "report-items"
+       ],
+       "id": "report-items-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "rp-route1"
+     ],
+     "id": "report-items-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$rp-route1.output.next == 'report-items'"
+    },
+    {
+     "deps": [
+      "rp-route1",
+      "report-items-loop"
+     ],
+     "id": "rp-route2",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "report-cold-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "report-cold-prep"
+       ],
+       "id": "report-cold",
+       "kind": "ai",
+       "marker": "report-cold"
+      },
+      {
+       "deps": [
+        "report-cold"
+       ],
+       "id": "report-cold-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "rp-route2"
+     ],
+     "id": "report-cold-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$rp-route2.output.next == 'report-cold'"
+    },
+    {
+     "deps": [
+      "rp-route2",
+      "report-cold-loop"
+     ],
+     "id": "rp-route3",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "report-write-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "report-write-prep"
+       ],
+       "id": "report-write",
+       "kind": "ai",
+       "marker": "report-write"
+      },
+      {
+       "deps": [
+        "report-write"
+       ],
+       "id": "report-write-cold-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "report-write",
+        "report-write-cold-prep"
+       ],
+       "id": "report-write-cold",
+       "kind": "ai",
+       "marker": "report-write-cold"
+      },
+      {
+       "deps": [
+        "report-write",
+        "report-write-cold"
+       ],
+       "id": "report-write-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "rp-route3"
+     ],
+     "id": "report-write-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$rp-route3.output.next == 'report-write'"
+    },
+    {
+     "deps": [
+      "rp-route3",
+      "report-write-loop"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-structure": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "stage-a",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "structure-eye-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "structure-eye-prep"
+       ],
+       "flags": [
+        "isolated"
+       ],
+       "id": "structure-eye",
+       "kind": "ai",
+       "marker": "structure-eye"
+      },
+      {
+       "deps": [
+        "structure-eye"
+       ],
+       "id": "structure-eye-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "stage-a"
+     ],
+     "id": "structure-eye-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$stage-a.output.eye == true"
+    },
+    {
+     "deps": [
+      "stage-a",
+      "structure-eye-loop"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
+  "blk-tests": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "run",
+     "kind": "script"
+    }
+   ]
+  },
+  "darkfactory": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "launch",
+     "kind": "approval",
+     "purpose": "起動の関所（人が依頼と入力を見て始める）"
+    },
+    {
+     "deps": [
+      "launch"
+     ],
+     "id": "start",
+     "kind": "script",
+     "purpose": "入力を確かめ、盤面と修正前の CI の段を開く"
+    },
+    {
+     "call": "blk-ci",
+     "deps": [
+      "start"
+     ],
+     "id": "ci-checking",
+     "kind": "call",
+     "purpose": "宣言の CI を機械で走らせられない run で、CI を任せ先の役が回す",
+     "when": "$start.output.ci_role_go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "node": "p0.local_checks"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "ci-checking"
+     ],
+     "id": "h-entry",
+     "kind": "script"
+    },
+    {
+     "call": "blk-pr",
+     "deps": [
+      "h-entry"
+     ],
+     "id": "pr-checking",
+     "kind": "call",
+     "purpose": "並行して開いている PR との重なりを確かめる",
+     "when": "$h-entry.output.pr_go == true",
+     "with": {}
+    },
+    {
+     "call": "blk-premises",
+     "deps": [
+      "h-entry",
+      "pr-checking"
+     ],
+     "id": "premising",
+     "kind": "call",
+     "purpose": "依頼の数値・在る無いの主張をコマンドで実測する",
+     "when": "$h-entry.output.premises_go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "request": "$INPUTS.request"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-entry",
+      "premising"
+     ],
+     "id": "h-judge",
+     "kind": "script"
+    },
+    {
+     "call": "blk-purpose",
+     "deps": [
+      "h-judge"
+     ],
+     "id": "purposing",
+     "kind": "call",
+     "purpose": "依頼の元の目的を 1 つの文に固める",
+     "when": "$h-judge.output.purpose_go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "constraints_file": "$h-judge.output.premises_file",
+      "request": "$INPUTS.request"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-judge",
+      "purposing"
+     ],
+     "id": "h-mat",
+     "kind": "script"
+    },
+    {
+     "call": "blk-material",
+     "deps": [
+      "h-mat"
+     ],
+     "id": "gathering",
+     "kind": "call",
+     "purpose": "判定の前に、差分を P1 の目と先行議論に見せて素材を集める",
+     "when": "$h-mat.output.mat_go == true",
+     "with": {
+      "adapter": "$start.output.adapter",
+      "base_rev": "$start.output.base_rev",
+      "purpose_file": "$h-mat.output.purpose_file"
+     }
+    },
+    {
+     "call": "blk-judge",
+     "deps": [
+      "h-mat",
+      "gathering"
+     ],
+     "id": "judging",
+     "kind": "call",
+     "purpose": "依頼を根本の単位にまとめる判定（直す義務の元）",
+     "when": "$h-mat.output.go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "policy_paste": "$start.output.policy_paste",
+      "premises_file": "$h-judge.output.premises_file",
+      "request": "$INPUTS.request",
+      "verify": "$start.output.judge_verify"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-mat",
+      "judging"
+     ],
+     "id": "h-plan",
+     "kind": "script"
+    },
+    {
+     "call": "blk-structure",
+     "deps": [
+      "h-plan"
+     ],
+     "id": "structuring",
+     "kind": "call",
+     "purpose": "判定の単位が名指すファイルの構造を実測し、汚れるかを判定する",
+     "when": "$h-plan.output.go == true",
+     "with": {
+      "policy_path": "$start.output.policy_path",
+      "units": "$h-plan.output.structure_units_file"
+     }
+    },
+    {
+     "deps": [
+      "h-plan",
+      "structuring"
+     ],
+     "id": "h-structure",
+     "kind": "script"
+    },
+    {
+     "call": "blk-plan",
+     "deps": [
+      "h-plan",
+      "h-structure"
+     ],
+     "id": "planning",
+     "kind": "call",
+     "purpose": "独立設計・修正案（項目ごとの範囲とテスト）・事前審査の壁打ち",
+     "when": "$h-plan.output.go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "judgment_file": "$h-plan.output.judgment_file",
+      "policy_paste": "$start.output.policy_paste",
+      "policy_path": "$start.output.policy_path",
+      "review_tree": "$start.output.review_tree",
+      "verify_file": "$h-plan.output.verify_file"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-plan",
+      "h-structure",
+      "planning"
+     ],
+     "id": "h-gate",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "h-gate"
+     ],
+     "id": "policy-gate",
+     "kind": "approval",
+     "purpose": "修正の前の人の関所（要る時だけ）",
+     "when": "$h-gate.output.ask == true"
+    },
+    {
+     "deps": [
+      "start",
+      "h-gate",
+      "policy-gate"
+     ],
+     "id": "h-fix",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "start",
+      "h-fix"
+     ],
+     "id": "h-depth",
+     "kind": "script"
+    },
+    {
+     "call": "blk-fix",
+     "deps": [
+      "h-fix",
+      "h-depth"
+     ],
+     "id": "fixing",
+     "kind": "call",
+     "purpose": "修正: 単位ごとの TDD の輪（枝を並べて 3 方向で合わせる）と修正役",
+     "when": "$h-fix.output.go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "fix_lanes": "$start.output.fix_lanes",
+      "judgment_file": "$h-fix.output.judgment_file",
+      "notes_file": "$h-fix.output.notes_file",
+      "open_units": "$h-fix.output.open_units",
+      "plan_file": "$h-fix.output.plan_file",
+      "plan_session": "plan",
+      "policy_path": "$start.output.policy_path",
+      "ripple_file": "$h-fix.output.ripple_file",
+      "tdd_lanes": "$start.output.tdd_lanes",
+      "tdd_suite": "$INPUTS.tdd_suite",
+      "test_cmd": "$start.output.test_cmd",
+      "unit_depths": "$h-depth.output.unit_depths"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-fix",
+      "fixing"
+     ],
+     "id": "h-replan",
+     "kind": "script"
+    },
+    {
+     "call": "blk-plan",
+     "deps": [
+      "h-replan"
+     ],
+     "id": "replanning",
+     "kind": "call",
+     "purpose": "案の直し（修正の段の裁定が案の項目の誤りとした時だけ）",
+     "when": "$h-replan.output.go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "judgment_file": "$h-replan.output.judgment_file",
+      "policy_paste": "$start.output.policy_paste",
+      "policy_path": "$start.output.policy_path",
+      "replan": "true",
+      "review_tree": "$start.output.review_tree"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-replan",
+      "replanning"
+     ],
+     "id": "h-regate",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "h-regate"
+     ],
+     "id": "replan-gate",
+     "kind": "approval",
+     "purpose": "案の直しの人の関所（要る時だけ）",
+     "when": "$h-regate.output.ask == true"
+    },
+    {
+     "deps": [
+      "start",
+      "h-regate",
+      "replan-gate"
+     ],
+     "id": "h-refit",
+     "kind": "script"
+    },
+    {
+     "call": "blk-fix",
+     "deps": [
+      "h-refit"
+     ],
+     "id": "refitting",
+     "kind": "call",
+     "purpose": "直した案で 2 回目の修正",
+     "when": "$h-refit.output.go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "fix_lanes": "$start.output.fix_lanes",
+      "judgment_file": "$h-refit.output.judgment_file",
+      "notes_file": "$h-refit.output.notes_file",
+      "open_units": "$h-refit.output.open_units",
+      "plan_file": "$h-refit.output.plan_file",
+      "plan_session": "plan",
+      "policy_path": "$start.output.policy_path",
+      "ripple_file": "$h-refit.output.ripple_file",
+      "tdd_lanes": "$start.output.tdd_lanes",
+      "tdd_suite": "$INPUTS.tdd_suite",
+      "test_cmd": "$start.output.test_cmd"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-fix",
+      "fixing",
+      "h-refit",
+      "refitting"
+     ],
+     "id": "h-rejudge",
+     "kind": "script"
+    },
+    {
+     "call": "blk-rejudge",
+     "deps": [
+      "h-rejudge"
+     ],
+     "id": "rejudging",
+     "kind": "call",
+     "purpose": "修正役が判定に異議を出した時の再審",
+     "when": "$h-rejudge.output.go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "policy_paste": "$start.output.policy_paste"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-rejudge",
+      "rejudging"
+     ],
+     "id": "h-mid",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "start",
+      "h-mid",
+      "h-depth"
+     ],
+     "id": "h-redepth",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "start",
+      "h-mid",
+      "h-redepth"
+     ],
+     "id": "h-review",
+     "kind": "script"
+    },
+    {
+     "call": "blk-lens",
+     "deps": [
+      "h-review"
+     ],
+     "id": "lensing",
+     "kind": "call",
+     "purpose": "修正の後の局所レビュー（レンズ）",
+     "when": "$h-review.output.go == true",
+     "with": {
+      "skip": "$h-redepth.output.skip"
+     }
+    },
+    {
+     "call": "blk-delta",
+     "deps": [
+      "h-review",
+      "lensing"
+     ],
+     "id": "reviewing",
+     "kind": "call",
+     "purpose": "修正の差分の審査（新しい穴と塞いだ穴の検算）",
+     "when": "$h-review.output.go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-review",
+      "reviewing"
+     ],
+     "id": "h-refix",
+     "kind": "script"
+    },
+    {
+     "call": "blk-refix",
+     "deps": [
+      "h-refix"
+     ],
+     "id": "refixing",
+     "kind": "call",
+     "purpose": "差分の審査の穴の手直し",
+     "when": "$h-refix.output.go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "policy_paste": "$start.output.policy_paste",
+      "policy_path": "$start.output.policy_path"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-refix",
+      "refixing"
+     ],
+     "id": "h-tests",
+     "kind": "script"
+    },
+    {
+     "call": "blk-tests",
+     "deps": [
+      "h-tests"
+     ],
+     "id": "testing",
+     "kind": "call",
+     "purpose": "最後のテスト（木の全部で 1 回）",
+     "when": "$h-tests.output.go == true",
+     "with": {
+      "cmd": "$start.output.test_cmd",
+      "mode": "final"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-tests",
+      "testing"
+     ],
+     "id": "h-look",
+     "kind": "script"
+    },
+    {
+     "call": "blk-eyes",
+     "deps": [
+      "h-look"
+     ],
+     "id": "eyeing",
+     "kind": "call",
+     "purpose": "独立の目（冗長と最小性・独立設計との比較・整合・範囲）",
+     "when": "$h-look.output.go == true",
+     "with": {
+      "base_rev": "$start.output.base_rev",
+      "skip_optional": "$h-redepth.output.skip"
+     }
+    },
+    {
+     "deps": [
+      "start",
+      "h-tests",
+      "testing",
+      "h-look",
+      "eyeing"
+     ],
+     "id": "h-final",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "h-final"
+     ],
+     "id": "final-gate",
+     "kind": "approval",
+     "purpose": "最後の人の関所",
+     "when": "$h-final.output.ask == true"
+    },
+    {
+     "deps": [
+      "start",
+      "h-final",
+      "final-gate"
+     ],
+     "id": "h-eyes",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "start",
+      "h-eyes",
+      "eyeing"
+     ],
+     "id": "report",
+     "kind": "script",
+     "purpose": "機械の報告を書く"
+    },
+    {
+     "call": "blk-report",
+     "deps": [
+      "report"
+     ],
+     "id": "reporting",
+     "kind": "call",
+     "purpose": "AI の報告と初見の検査",
+     "when": "$report.output.ai_report_go == true",
+     "with": {
+      "machine_report": "$report.output.report_file"
+     }
+    },
+    {
+     "deps": [
+      "report",
+      "reporting"
+     ],
+     "id": "result",
+     "kind": "script",
+     "purpose": "出口（結末と報告のパス）"
+    }
+   ]
+  }
+ }
+}

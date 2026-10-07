@@ -1,0 +1,63 @@
+name: blk-b
+description: 直す部品
+nodes:
+  - id: fork
+    description: '枝を分ける [needs: lanes]'
+    script: fork
+  - id: lane-loop-1
+    description: '枝 1 の輪 [needs: lanes]'
+    depends_on: [fork]
+    when: "$fork.output.lane_1 == true"
+    loop_group:
+      max_iterations: 40
+      until_bash: test $lane-1.output.done = true
+      nodes:
+        - id: lane-1
+          description: '枝 1 の役'
+          command: lane
+          output_format:
+            description: 'works-node: lane-1 lane'
+            type: object
+  - id: lane-loop-2
+    description: '枝 2 の輪 [needs: lanes]'
+    depends_on: [fork]
+    when: "$fork.output.lane_2 == true"
+    loop_group:
+      max_iterations: 40
+      until_bash: test $lane-2.output.done = true
+      nodes:
+        - id: lane-2
+          description: '枝 2 の役'
+          command: lane
+          output_format:
+            description: 'works-node: lane-2 lane'
+            type: object
+  - id: join
+    description: '枝を 3 方向で合わせる [needs: lanes]'
+    script: join
+    depends_on: [lane-loop-1, lane-loop-2]
+  - id: fix-loop
+    description: '直す輪'
+    depends_on: [join]
+    trigger_rule: none_failed_min_one_success
+    loop_group:
+      max_iterations: 12
+      until_bash: test $fix-accept.output.done = true
+      nodes:
+        - id: fixer
+          description: '直す役'
+          prompt: 直せ
+          output_format:
+            description: 'works-node: fixer self-resume'
+            type: object
+        - id: answer
+          description: '相談に答える（書いた会話の続き）'
+          prompt: 答えよ
+          depends_on: [fixer]
+          when: "$fixer.output.ask == true"
+          output_format:
+            description: 'works-node: answer continue=peer-writer map'
+            type: object
+        - id: fix-accept
+          script: accept
+          depends_on: [answer]

@@ -65,7 +65,8 @@ inputs:
       切る機能（同じ依頼を全部 on と切った形で回して比べる口。持ち主の依頼 2026-10-07）。語をカンマか空白で区切った 1 行で、空は
       全部 on（今どおり）。語は judge_verify（判定の裏取り。切ると単位の裏取りと相乗りの下請けを起こさず、修正案の役に申し送りを
       貼らない）・review_tree（事前審査の項目ごとの木。切ると審査役 1 つが案の全体を審査する）・tdd_lanes（TDD の輪の並べの周。
-      切ると tdd の単位を順に回す）・fix_lanes（修正役の項目ごとの並べ。切ると項目を作業ツリーで順に直す）。知らない語は start が
+      切ると tdd の単位を順に回す）・fix_lanes（修正役の項目ごとの並べ。切ると項目を作業ツリーで順に直す）・graph_map（工程の地図。
+      切ると包みが旗 map の役の system prompt に地図を足さない）。知らない語は start が
       AI の前で拒む。start が機能ごとの on・off を出口に出し、線がブロックの切り替えの入力へ写す。切った機能は start の控え・
       版の控え versions.json の settings・報告の冒頭 2 に残る。呼び直しで替えれば止める（固定材料の run は替えてよい）
   fix_fixture:
@@ -86,6 +87,7 @@ nodes:
   # 起こした殻が出す行を指す（approval の文は $WORKFLOW_ID も $<節>.output も置き換える（h-gate・h-final の文）が、launch は最初の節で
   # 置ける前の節の出力がまだ無いので、殻の行はここに組めない。殻ごとに家が違い、use.sh show は use.sh の家の run しか引けない）
   - id: launch
+    description: '起動の関所（人が依頼と入力を見て始める）'
     approval:
       message: |
         darkfactory を始める（run $WORKFLOW_ID）。進める・止める・取り消す行は、run を起こした殻が起動の後に出した行を使う。
@@ -93,6 +95,7 @@ nodes:
 
   # 盤面を作り（DiskBoard.begin）、CI と並行 PR の engine の節を回す（entry.start）。入力を受けなければ 1 で止まる（AI の前）
   - id: start
+    description: '入力を確かめ、盤面と修正前の CI の段を開く'
     script: start
     runtime: uv
     timeout: 1728000000
@@ -130,6 +133,7 @@ nodes:
         gates: {type: string}
         fix_shape: {type: string}
         fix_lanes: {type: string, enum: ["on", "off"]}      # 切る機能（入力 features_off）ごとの on・off（entry.feature_words）
+        graph_map: {type: string, enum: ["on", "off"]}      # ブロックへは写さない（包みが start の控えの features_off を読む）
         judge_verify: {type: string, enum: ["on", "off"]}
         review_tree: {type: string, enum: ["on", "off"]}
         tdd_lanes: {type: string, enum: ["on", "off"]}
@@ -138,6 +142,7 @@ nodes:
 
   # CI の任せ先の役（宣言も test_cmd も無い run で p0.local_checks が任せ先に落ちた時だけ。裁定 R52）
   - id: ci-checking
+    description: '宣言の CI を機械で走らせられない run で、CI を任せ先の役が回す'
     include: blk-ci
     depends_on: [start]
     when: "$start.output.ci_role_go == true"
@@ -193,12 +198,14 @@ nodes:
 
   # 並行 PR の任せ先（engine が 1〜5 段を済ませられなかった・交差が在った時だけ）
   - id: pr-checking
+    description: '並行して開いている PR との重なりを確かめる'
     include: blk-pr
     depends_on: [h-entry]
     when: "$h-entry.output.pr_go == true"
 
   # 前提の実測（p0.premises が待っている時）
   - id: premising
+    description: '依頼の数値・在る無いの主張をコマンドで実測する'
     include: blk-premises
     depends_on: [h-entry, pr-checking]
     trigger_rule: none_failed_min_one_success
@@ -255,6 +262,7 @@ nodes:
 
   # 目的の文（p0.purpose が待っている時。前提の実測の後に 1 度。判定と独立の目の R1・R2 が読む）
   - id: purposing
+    description: '依頼の元の目的を 1 つの文に固める'
     include: blk-purpose
     depends_on: [h-judge]
     when: "$h-judge.output.purpose_go == true"
@@ -311,6 +319,7 @@ nodes:
 
   # P1 の目と素材集め（前の決定の読み出し・目的の審査・P1 の 9 本。どれを回すかは盤面の条件。判定から入る 1 周目の P1 は na）
   - id: gathering
+    description: '判定の前に、差分を P1 の目と先行議論に見せて素材を集める'
     include: blk-material
     depends_on: [h-mat]
     when: "$h-mat.output.mat_go == true"
@@ -321,6 +330,7 @@ nodes:
 
   # 判定
   - id: judging
+    description: '依頼を根本の単位にまとめる判定（直す義務の元）'
     include: blk-judge
     depends_on: [h-mat, gathering]
     trigger_rule: none_failed_min_one_success
@@ -380,6 +390,7 @@ nodes:
 
   # 判定の単位が名指すファイルを機械で実測する（構造のブロック）。h-plan が契約の形に写した単位のファイルを受ける
   - id: structuring
+    description: '判定の単位が名指すファイルの構造を実測し、汚れるかを判定する'
     include: blk-structure
     depends_on: [h-plan]
     when: "$h-plan.output.go == true"
@@ -416,6 +427,7 @@ nodes:
   # 比較だけを回す）。直す物の無い判定でも、設計を作りに入る（h-plan の go）。構造の境を待ち、修正案の指示書の頭がその控えから
   # 構造の目の行（落ちた周は行なしで計画した印）を貼る
   - id: planning
+    description: '独立設計・修正案（項目ごとの範囲とテスト）・事前審査の壁打ち'
     include: blk-plan
     depends_on: [h-plan, h-structure]
     when: "$h-plan.output.go == true"
@@ -475,6 +487,7 @@ nodes:
 
   # 修正の前の人の関所（要る時だけ）。approve・continue は通す、stop・reject は止める（R32）
   - id: policy-gate
+    description: '修正の前の人の関所（要る時だけ）'
     depends_on: [h-gate]
     when: "$h-gate.output.ask == true"
     approval:
@@ -565,6 +578,7 @@ nodes:
 
   # 修正（テストの実行器 tdd_suite が在れば単位ごとの TDD の輪）
   - id: fixing
+    description: '修正: 単位ごとの TDD の輪（枝を並べて 3 方向で合わせる）と修正役'
     include: blk-fix
     depends_on: [h-fix, h-depth]
     when: "$h-fix.output.go == true"
@@ -632,6 +646,7 @@ nodes:
   # 同じ run の中の案の直し（blk-plan の 2 度目の include。replan の口: 修正案と事前審査の役は fix_plan_item と裁かれた項目だけを
   # 直し・審査し、盤面の節へ渡さずに今の周の replan.json に置く）
   - id: replanning
+    description: '案の直し（修正の段の裁定が案の項目の誤りとした時だけ）'
     include: blk-plan
     depends_on: [h-replan]
     when: "$h-replan.output.go == true"
@@ -691,6 +706,7 @@ nodes:
 
   # 案の直しの関所（要る時だけ）。approve・continue は直した項目を使って修正に戻る、stop・reject は run を止める
   - id: replan-gate
+    description: '案の直しの人の関所（要る時だけ）'
     depends_on: [h-regate]
     when: "$h-regate.output.ask == true"
     approval:
@@ -755,6 +771,7 @@ nodes:
   # 2 回目の修正の段（blk-fix の 2 度目の include。指示書・拒否の理由・読んだ証拠は include の名 refitting の置き場（scope）で
   # 1 回目と分かれ、直す義務は案を直して戻った単位だけ。1 回目に受け付けた行は機械が合わせて盤面に渡す）
   - id: refitting
+    description: '直した案で 2 回目の修正'
     include: blk-fix
     depends_on: [h-refit]
     when: "$h-refit.output.go == true"
@@ -820,6 +837,7 @@ nodes:
 
   # 同じ周の再審（判定役の会話の続きで異議を考え直す。p4.ci は再審の節を待つので、回さないと最後のテストが出ない）
   - id: rejudging
+    description: '修正役が判定に異議を出した時の再審'
     include: blk-rejudge
     depends_on: [h-rejudge]
     when: "$h-rejudge.output.go == true"
@@ -950,6 +968,7 @@ nodes:
   # 修正の後のレンズ（修正が差分を作った run だけ）。集め役が終わらなければブロックの境が盤面を止め、後ろの境の節が stop する。
   # 全部の単位が軽量の run は h-redepth の省く理由を渡し、レンズを起こさない（行と報告に理由が残る）
   - id: lensing
+    description: '修正の後の局所レビュー（レンズ）'
     include: blk-lens
     depends_on: [h-review]
     when: "$h-review.output.go == true"
@@ -958,6 +977,7 @@ nodes:
 
   # 修正差分の審査（レンズの集め役を待つ。レンズの節が落ちても集め役は ok で終わるので走る）
   - id: reviewing
+    description: '修正の差分の審査（新しい穴と塞いだ穴の検算）'
     include: blk-delta
     depends_on: [h-review, lensing]
     trigger_rule: none_failed_min_one_success
@@ -1013,6 +1033,7 @@ nodes:
 
   # 差分の審査の後の手直し（2 往復まで）
   - id: refixing
+    description: '差分の審査の穴の手直し'
     include: blk-refix
     depends_on: [h-refix]
     when: "$h-refix.output.go == true"
@@ -1069,6 +1090,7 @@ nodes:
 
   # 最後のテスト（盤面の p4.ci。graphloops と同じく修正と手直しの全部の後）
   - id: testing
+    description: '最後のテスト（木の全部で 1 回）'
     include: blk-tests
     depends_on: [h-tests]
     when: "$h-tests.output.go == true"
@@ -1125,6 +1147,7 @@ nodes:
   # 独立の目（R1〜R4。修正と最後のテストの後の、書き手と別の目）。結果は最後の関所の文に載る。r4.human_gate が人に聞けば止めずに
   # 抜け、問いは関所の文に載り、報告が needs_human と問いを次の run へ渡す
   - id: eyeing
+    description: '独立の目（冗長と最小性・独立設計との比較・整合・範囲）'
     include: blk-eyes
     depends_on: [h-look]
     when: "$h-look.output.go == true"
@@ -1180,6 +1203,7 @@ nodes:
 
   # 最後の人の関所。continue・approve は報告へ、stop・reject は止めて報告へ
   - id: final-gate
+    description: '最後の人の関所'
     depends_on: [h-final]
     when: "$h-final.output.ask == true"
     approval:
@@ -1246,6 +1270,7 @@ nodes:
   # 上流の節が落ちた run でも走る（all_done。Airflow の teardown と同じ。Ruling R21 の改め: run 30・31 は飛ばされて報告が残らなかった）。
   # start のほかの節の出力は落ちても飛ばされても if_skipped: null で受ける。start が落ちた run は盤面が無く、ここも落ちる
   - id: report
+    description: '機械の報告を書く'
     script: report
     runtime: uv
     timeout: 1728000000
@@ -1282,6 +1307,7 @@ nodes:
   # AI が書く報告と初見の検査（盤面が報告の節を出した run だけ。いつ出るかの正本は report.gate_record の docstring——
   # stop_after_round で周を締めた普通の 1 周の run でも出る。R61 の B）
   - id: reporting
+    description: 'AI の報告と初見の検査'
     include: blk-report
     depends_on: [report]
     when: "$report.output.ai_report_go == true"
@@ -1290,6 +1316,7 @@ nodes:
 
   # 出口（returns）。機械の報告の欄を全部残し、最後の報告を選ぶ（AI の報告が ok なら report-ai.md、そうでなければ report.md）。AI の報告が落ちても走る（all_done）
   - id: result
+    description: '出口（結末と報告のパス）'
     script: result
     runtime: uv
     timeout: 1728000000

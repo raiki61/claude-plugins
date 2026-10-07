@@ -146,6 +146,7 @@ nodes:
   # （枝ごとに AI の節。同時に走る）→ tdd-join（差分を 3 方向で当てて緑を確かめ直し、食い違った枝・済まなかった単位を順に戻す）→
   # 残りの順の単位を回す輪 tdd-rest-loop（この輪と同じ支度・確かめ）。docs/plans/2026-10-07-lane-nodes.md
   - id: tdd-loop
+    description: 'TDD の輪: 単位ごとにテスト→赤→直し→緑→整え（実行器の在る run だけ）'
     depends_on: [tdd-start]
     when: "$tdd-start.output.go == true"
     loop_group:
@@ -173,6 +174,7 @@ nodes:
               prompt_file: {type: string}
 
         - id: tdd
+          description: 'TDD の役（今の単位を直す）'
           model: sonnet               # コードとテストを書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
           prompt: 指示書 `$tdd-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
@@ -264,6 +266,7 @@ nodes:
   # 並べの枝の輪を起こすか（輪 tdd-loop の状態の段が lanes の時だけ go と lane_<n>）。実行器の無い run（tdd-loop が飛ぶ）でも
   # 走って go: false を返す（tdd-join の when: がいつも引ける）
   - id: tdd-fork
+    description: '範囲の引ける枝（項目を共にする単位の組）が 2 本以上なら、枝ごとに worktree を切って並べる [needs: tdd_lanes]'
     script: tdd_fork
     runtime: uv
     depends_on: [tdd-start, tdd-loop]
@@ -289,6 +292,7 @@ nodes:
   # 新しい会話で起こす（支度が書く単位の鍵）。赤・緑は tdd-lane-step-<n> が tddloop.step を枝の worktree で回して決める。枝の単位が
   # 全部済むか、拒否・実行器の止まりで諦めれば done で抜ける（回数の上限で落とさない。R50）
   - id: tdd-lane-loop-1
+    description: '枝 1 の TDD の輪（枝の worktree で、枝の単位を順に） [needs: tdd_lanes]'
     depends_on: [tdd-fork]
     when: "$tdd-fork.output.lane_1 == true"
     loop_group:
@@ -315,6 +319,7 @@ nodes:
               prompt_file: {type: string}
 
         - id: tdd-lane-1
+          description: '枝 1 の TDD の役（cwd は枝の worktree）'
           model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
           effort: high
           prompt: 指示書 `$tdd-lane-prep-1.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
@@ -391,6 +396,7 @@ nodes:
               unit_key: {type: string}
 
   - id: tdd-lane-loop-2
+    description: '枝 2 の TDD の輪 [needs: tdd_lanes]'
     depends_on: [tdd-fork]
     when: "$tdd-fork.output.lane_2 == true"
     loop_group:
@@ -417,6 +423,7 @@ nodes:
               prompt_file: {type: string}
 
         - id: tdd-lane-2
+          description: '枝 2 の TDD の役'
           model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
           effort: high
           prompt: 指示書 `$tdd-lane-prep-2.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
@@ -455,6 +462,7 @@ nodes:
               unit_key: {type: string}
 
   - id: tdd-lane-loop-3
+    description: '枝 3 の TDD の輪 [needs: tdd_lanes]'
     depends_on: [tdd-fork]
     when: "$tdd-fork.output.lane_3 == true"
     loop_group:
@@ -481,6 +489,7 @@ nodes:
               prompt_file: {type: string}
 
         - id: tdd-lane-3
+          description: '枝 3 の TDD の役'
           model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
           effort: high
           prompt: 指示書 `$tdd-lane-prep-3.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
@@ -521,6 +530,7 @@ nodes:
   # 並べを締める（枝の輪の全部の後に 1 回。差分を当てて緑を確かめ直し、済まなかった単位を順に戻す。食い違いの申し出は盤面に積む）。
   # all_done: 枝の輪が 1 本落ちても締めて残りを順に回す（落ちた枝の単位は済んでいないので戻る。run は落ちた節を持ったまま進む）
   - id: tdd-join
+    description: '枝の差分を作業ツリーへ 3 方向で当てて緑を確かめ直す（食い違った枝・残りは次の輪へ） [needs: tdd_lanes]'
     script: tdd_join
     runtime: uv
     depends_on: [tdd-fork, tdd-lane-loop-1, tdd-lane-loop-2, tdd-lane-loop-3]
@@ -543,6 +553,7 @@ nodes:
   # 並べの後に残った順の単位（枝に入らなかった単位・戻した単位）を回す輪。tdd-loop と同じ支度・確かめ・段で、役 tdd-rest は
   # 役 tdd と同じ形（印の名だけ違う。包みが単位の切れ目で会話を切る）
   - id: tdd-rest-loop
+    description: '並べで済まなかった単位を順に回す TDD の輪 [needs: tdd_lanes]'
     depends_on: [tdd-join]
     when: "$tdd-join.output.go == true"
     loop_group:
@@ -568,6 +579,7 @@ nodes:
               prompt_file: {type: string}
 
         - id: tdd-rest
+          description: '残りの単位の TDD の役'
           model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
           effort: high
           prompt: 指示書 `$tdd-rest-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
@@ -603,6 +615,7 @@ nodes:
               phase: {type: string}
 
   - id: fix-loop
+    description: '修正役の輪（受け付けに通るまで同じ会話で出し直す）'
     depends_on: [tdd-start, tdd-loop, tdd-fork, tdd-join, tdd-rest-loop]
     trigger_rule: none_failed_min_one_success   # 実行器の無い run は tdd-loop が、並べない run は tdd-join・tdd-rest-loop が飛ばされる
     loop_group:
@@ -643,6 +656,7 @@ nodes:
               iteration: {type: integer, minimum: 1}   # この周の輪の何回目か（fix-accept が 3 回目の拒否で done を立てる）
 
         - id: fix
+          description: '修正役: 輪で直していない単位を直す（fix_lanes が on なら範囲の在る項目を worktree の下請けで同時に直し、差分を項目の順に当てる）'
           model: sonnet               # コードとテストを書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
           prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
@@ -1094,6 +1108,7 @@ nodes:
         # 答えの節: 修正案を書いた役の会話の続き（印 continue=fix-planner。包みが fix-consult の写した id で --resume する）。読むだけ。
         # 出力は blk-fix/lib/consult.py の answer_format（tests/test_consult.py が一致を見る）
         - id: plan-answer
+          description: '範囲の相談に答える（修正案を書いた会話の続き。読むだけ）'
           model: opus                 # 修正案・仕様を書く役と同じ（表 .shared/core/stage-models.json の plan_writer。tests/test_tool_parity.py が縛る）
           effort: medium              # 同じ表の effort
           prompt: 指示書 `$fix-consult.output.prompt_file` を Read で全部読み、その相談に答えよ。返すのは指示書の JSON だけ。
@@ -1105,7 +1120,7 @@ nodes:
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           output_format:
-            description: 'works-node: plan-answer continue=fix-planner'
+            description: 'works-node: plan-answer continue=fix-planner map'
             type: object
             additionalProperties: false
             required: [answers]
@@ -1198,6 +1213,7 @@ nodes:
   # 食い違いの申し出（修正役か TDD の輪の役が返し、名指しが現物に在った物）で止めた単位が在るか。裁定の輪と 2 回目の修正役の
   # when: はこの欄だけを読む（盤面の今の周の conflicts.json）
   - id: conflict-check
+    description: '食い違いの申し出の名指しを現物で確かめる'
     script: conflict_check
     runtime: uv
     depends_on: [fix-loop]
@@ -1215,6 +1231,7 @@ nodes:
   # （rules/principles.md）で fix_test_scope・fix_code_as・ask_human・replace_query（置き換えた問いは機械が例で試す）・fix_plan_item のどれかに裁く。3 回目の拒否で裁かれていない申し出を人へ回し、
   # done で抜ける（max_iterations で落とさない。R50）。理由の文は rule-prep が次の指示書の 1 行目でパスを名指す（R44）
   - id: rule-loop
+    description: '裁定の輪'
     depends_on: [conflict-check]
     when: "$conflict-check.output.go == true"
     loop_group:
@@ -1238,6 +1255,7 @@ nodes:
               iteration: {type: integer, minimum: 1}
 
         - id: rule
+          description: '裁定役: 食い違いを持ち主の決まりで裁く（読むだけ）'
           model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
           effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
           prompt: 指示書 `$rule-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
@@ -1312,6 +1330,7 @@ nodes:
   # 裁定の後の 2 回目の修正役（印 continue=fix: 包みが修正役の会話を継ぐ）。1 回目は裁定の文のファイルを名指し、直す裁定でない
   # 裁定（ask_human・fix_plan_item。fix_plan_item は案を直して戻るまで）の単位は直す義務から外れる（conflict.owed_units_but_asked）。盤面の p3.fix に渡すのはここ（1 回目は申し出で止めて渡していない）
   - id: fix-ruled-loop
+    description: '裁定の後の 2 回目の修正の輪'
     depends_on: [conflict-check, rule-loop]
     when: "$conflict-check.output.go == true"
     loop_group:
@@ -1349,6 +1368,7 @@ nodes:
               iteration: {type: integer, minimum: 1}
 
         - id: fix-ruled
+          description: '裁定の文を読んで直す（修正役の会話の続き）'
           model: sonnet               # コードとテストを書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
           effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
           prompt: 指示書 `$fix-ruled-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
@@ -1393,6 +1413,7 @@ nodes:
         # 答えの節: 修正案を書いた役の会話の続き（印 continue=fix-planner。包みが fix-ruled-consult の写した id で --resume する）。読むだけ。
         # 出力は blk-fix/lib/consult.py の answer_format（tests/test_consult.py が一致を見る）
         - id: plan-answer-ruled
+          description: '範囲の相談に答える（修正案を書いた会話の続き。読むだけ）'
           model: opus                 # 修正案・仕様を書く役と同じ（表 .shared/core/stage-models.json の plan_writer。tests/test_tool_parity.py が縛る）
           effort: medium              # 同じ表の effort
           prompt: 指示書 `$fix-ruled-consult.output.prompt_file` を Read で全部読み、その相談に答えよ。返すのは指示書の JSON だけ。
@@ -1404,7 +1425,7 @@ nodes:
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           output_format:
-            description: 'works-node: plan-answer-ruled continue=fix-planner'
+            description: 'works-node: plan-answer-ruled continue=fix-planner map'
             type: object
             additionalProperties: false
             required: [answers]
