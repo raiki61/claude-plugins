@@ -7,7 +7,7 @@
 **gh は包みの読む口 `"$WORKS_GH"` を通して打て**。素の `gh` は包みが拒む（許すのは `pr list`・`pr view`・`pr diff` の `-R` つきと、`repo view <OWNER/REPO>` だけ）。`$WORKS_GH` が空なら gh を打てないので、material を not_run（reason に「包みの読む口が無い」）で返せ。
 
 - `cwd`: 対象のリポジトリ。`base`: BASE（周の頭で固めた版）
-- `fallback`: この節が任せ先に落ちた理由。engine は 1〜5 段を同梱の parallel-pr.py で済ませようとして、交差が在った・remote が GitHub でない・gh が無いのどれかで役に回した
+- `fallback`: この節が任せ先に落ちた理由。engine は 1〜5 段を同梱の parallel-pr.py で済ませようとして、交差が在った・gh が無いのどれかで役に回した（remote が GitHub でない run——origin が無い・ローカルのパス・ほかのホスト——は、機械が run の初めに条件外（not_applicable・no_forge）にしてこの役を起こさない）
 - `changed_files`: 変更ファイル集合（機械が取った。差分が空の判定から入る run では、依頼が指す場所 `request_wheres` に名指された追跡中のファイル）
 
 **この指示書が届くのは、engine が 1〜5 段を済ませられなかったか、交差が在ったときだけ**。交差が在って落ちた時も、1〜5 段を自分で確かめ直してから 6 段へ進め。
@@ -21,7 +21,7 @@
 
 **書き込みの gh と、HEAD・枝を動かす語を打つな**（`gh api`（読むだけの形も含めて丸ごと。graphql の mutation も）・`gh pr comment`・`gh pr review`・`gh pr edit`・`gh pr create`・`gh pr close`・`gh pr merge`・`gh pr ready`・`gh pr reopen`・`gh pr checkout`・`gh issue comment`・`gh issue create`・`gh issue edit`・`gh issue close`・`gh issue reopen`・`gh label`・`gh release create`・`git checkout`・`git switch`・`git stash`・`git reset`。gh で打ってよいのは包みの読む口を通した `"$WORKS_GH" pr list -R <owner/repo>`・`"$WORKS_GH" pr view <n> -R <owner/repo>`・`"$WORKS_GH" pr diff <n> -R <owner/repo>` だけ）。`handed_over: true` の行を 1 つでも返せば、受け付けが拒む。
 
-GitHub 以外のホストでは同等の読むコマンドに読み替えろ（書き込みの語は同じく使わない）。読み替えられないなら awaiting_human。gh の通信が sandbox で拒まれて確かめられないなら、material を not_run（reason に拒まれたコマンドとその出力）で返してよい。**未確認を clean と書くな。**
+remote が GitHub でない（PR を持つホストが無い）かどうかを、お前が決めるな——それは機械が決め、当たる run ではこの指示書は届かない。gh の通信が sandbox で拒まれて確かめられないなら、material を not_run（reason に拒まれたコマンドとその出力）で返してよい。**未確認を clean と書くな。**
 
 ## 返答の書き方
 

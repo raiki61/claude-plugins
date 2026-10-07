@@ -20,6 +20,8 @@
 # 手順:
 #   1. 置き場 <置き場>（既定は ${XDG_CACHE_HOME:-$HOME/.cache}/works-canary/<日時>-<pid>。TMPDIR は再起動で消えるので使わない）に
 #      repo/（種を写して 1 回 commit した対象。枝 main）と origin.git/（裸のリポジトリ。origin/HEAD は main）を作る。
+#      origin はローカルのパスなので、並行 PR の確かめは run の初めに機械が条件外（no_forge: local_path）にする（.shared/core/forge.py。
+#      ここでは何も特別にしない）。
 #   2. 利用の家を <置き場>/home にして（WORKS_USE_HOME。Archon の db は home/archon-home/archon.db）、use.sh start を無人
 #      （WORKS_USE_UNATTENDED=1）で前景で回す。test_cmd は python3 -m pytest -q（use.sh が JUnit の実行器を書き、TDD の輪が回る）。
 #      人の関所では止まらずに報告まで進む。終わるまで戻らないので、呼び手は裏で起こす（run_in_background か detach.sh）。

@@ -368,7 +368,8 @@ class ScriptCase(unittest.TestCase):
         return got
 
     def judged(self, policy_md="", judge=None):
-        """start → 並行 PR の任せ先・前提の役 → 判定（judge。無ければ judge_ok）を受けた盤面（p2.fix_plan が待つ）"""
+        """start → 前提の役 → 判定（judge。無ければ judge_ok）を受けた盤面（p2.fix_plan が待つ）。種は remote を持たない
+        forge の無い run なので、並行 PR は機械が条件外にして任せ先の役は無い"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True)
@@ -378,7 +379,6 @@ class ScriptCase(unittest.TestCase):
         raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "",
                "policy_md": policy_md}
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
-        self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
         self.take("p0.premises", {"constraints": []})
         linekit.pre_judge(self.board, self.repo)   # 目的の文（判定の前に盤面が待つ）
         self.take("p2.diagnose", judge or linekit.reply("judge_ok"))
@@ -1055,7 +1055,6 @@ class ScriptCase(unittest.TestCase):
         self.board = self.art / "board"
         entry.start(self.board, self.repo, {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
                                             "adapter": "", "policy_md": ""}, run_id=RUN_ID)
-        self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
         self.take("p0.premises", {"constraints": []})
         linekit.pre_judge(self.board, self.repo)   # 目的の文（判定の前に盤面が待つ）
         self.take("p2.diagnose", linekit.reply("judge_no_fix"))

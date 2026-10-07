@@ -1,0 +1,326 @@
+"""対象の remote が forge（PR を持つホスト。今は GitHub）かを git だけで決める口（.shared/core/forge.py）と、その決めを盤面へ
+写す works の差し替え（entry.CORE_OVERRIDES の on_init・parallel_pr_due・fill_materials）の検査。
+
+canary の run 5318f732 の事実: origin がローカルの bare リポジトリの run で、並行 PR の任せ先の役が素材 parallel_pr を
+awaiting_human と書き、判定が問いの台帳に保留の問いを置いて、直しが済みテストも緑なのに結末が round_limit になった（同じ形の
+run 1・2 は役が clean と書いて通った——役の判断で割れていた）。forge の無い remote（origin が無い・ローカルのパス・GitHub で
+ないホスト）は機械が決めて並行 PR の節を条件外（not_applicable・reason は no_forge: <種類>）にし、役に聞かない。
+GitHub の remote で gh が無い・未ログイン・API が落ちた時は今どおり（確かめる物が在るのに確かめられなかった）。
+
+関数を直に呼ぶ・一時の置き場で git init と remote add を起こすだけ（盤面・子の実行器なし）。
+"""
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+
+TESTS = pathlib.Path(__file__).resolve().parent
+CORE = TESTS.parent / ".shared" / "core"
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(CORE))
+sys.path.insert(0, str(TESTS))
+
+import hermetic  # noqa: E402
+import forge  # noqa: E402
+import board  # noqa: E402
+import entry  # noqa: E402
+import prcheck  # noqa: E402
+import report  # noqa: E402
+from engine.rules import registry  # noqa: E402
+
+SECRET = "ghp_SECRETVALUE"
+
+
+def _git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+class ClassifyCase(unittest.TestCase):
+    """URL の形から forge の種類を決める（GitHub か・forge でない 3 つの種類のどれか）"""
+
+    def test_github_forms(self):
+        for url in ("https://github.com/o/r.git", "https://github.com/o/r", "git@github.com:o/r.git",
+                    "ssh://git@github.com/o/r.git", "ssh://git@ssh.github.com:443/o/r.git", "https://GitHub.com/o/r",
+                    f"https://x-access-token:{SECRET}@github.com/o/r.git", "git://github.com/o/r.git",
+                    "https://acme.ghe.com/o/r.git", "git@github.com-work:o/r.git", "ssh://git@github.com-work/o/r.git"):
+            with self.subTest(url):
+                self.assertEqual(forge.classify(url)["kind"], forge.GITHUB)
+
+    def test_local_paths(self):
+        for url in ("/Users/x/canary/origin.git", "../origin.git", "origin.git", "file:///tmp/o.git", "file:/tmp/o.git",
+                    "C:\\work\\o.git", "C:/work/o.git", "~/o.git"):
+            with self.subTest(url):
+                self.assertEqual(forge.classify(url)["kind"], forge.LOCAL_PATH)
+
+    def test_other_hosts(self):
+        for url, host in (("https://gitlab.com/o/r.git", "gitlab.com"), ("git@gitlab.example.com:o/r.git", "gitlab.example.com"),
+                          ("ssh://git@git.example.com:2222/o/r.git", "git.example.com"),
+                          ("https://bitbucket.org/o/r", "bitbucket.org"), ("https://notgithub.com/o/r", "notgithub.com"),
+                          ("https://github.com.evil.example/o/r", "github.com.evil.example")):
+            with self.subTest(url):
+                got = forge.classify(url)
+                self.assertEqual((got["kind"], got["where"]), (forge.OTHER_HOST, host))
+
+    def test_unreadable_url_is_other_host_not_a_crash(self):
+        """urlsplit が読めない URL（括弧の崩れた IPv6 の形）も落ちずに forge の無い側（理由に URL を載せない）"""
+        got = forge.classify(f"https://u:{SECRET}@[abc/o/r")
+        self.assertEqual(got["kind"], forge.OTHER_HOST)
+        self.assertNotIn(SECRET, repr(got))
+
+    def test_missing(self):
+        for url in (None, "", "  "):
+            with self.subTest(url):
+                self.assertEqual(forge.classify(url)["kind"], forge.NO_REMOTE)
+
+    def test_reason_never_carries_credentials(self):
+        """URL の userinfo（トークン）は種類の理由にも where にも載せない"""
+        for url in (f"https://u:{SECRET}@gitlab.com/o/r.git", f"https://{SECRET}@gitlab.com/o/r.git",
+                    f"file://u:{SECRET}@localhost/tmp/o.git", f"https://u:{SECRET}@github.com/o/r.git"):
+            with self.subTest(url):
+                d = forge.classify(url)
+                self.assertNotIn(SECRET, repr(d))
+                self.assertNotIn(SECRET, forge.reason({**d, "remote": "origin"}))
+
+
+class ReasonCase(unittest.TestCase):
+    def test_no_forge_reason_names_the_kind(self):
+        for kind in forge.NO_FORGE:
+            with self.subTest(kind):
+                why = forge.reason({"kind": kind, "remote": "origin", "where": "x"})
+                self.assertTrue(why.startswith(f"no_forge: {kind}"), why)
+
+    def test_github_and_unknown_are_not_no_forge(self):
+        """GitHub は forge（今どおり確かめる）。盤面に決めが無い（前の版の盤面）・形が崩れた値も今どおり（空の理由）"""
+        for d in ({"kind": forge.GITHUB, "remote": "origin", "where": "github.com"}, None, {}, {"kind": "weird"}, "x"):
+            with self.subTest(d):
+                self.assertEqual(forge.reason(d), "")
+
+
+class DetectCase(unittest.TestCase):
+    """本物の git で remote を引く（upstream の remote を先に、無ければ origin。写しの _github_repo と同じ選び方）"""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.repo = pathlib.Path(self._td.name) / "r"
+        self.repo.mkdir()
+        _git(self.repo, "init", "-q")
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def test_no_origin(self):
+        got = forge.detect(self.repo)
+        self.assertEqual((got["kind"], got["remote"]), (forge.NO_REMOTE, "origin"))
+
+    def test_local_bare_origin(self):
+        _git(self.repo, "remote", "add", "origin", str(self.repo.parent / "origin.git"))
+        self.assertEqual(forge.detect(self.repo)["kind"], forge.LOCAL_PATH)
+
+    def test_github_origin(self):
+        _git(self.repo, "remote", "add", "origin", "git@github.com:o/r.git")
+        self.assertEqual(forge.detect(self.repo)["kind"], forge.GITHUB)
+
+    def test_other_host_origin(self):
+        _git(self.repo, "remote", "add", "origin", "https://gitlab.com/o/r.git")
+        got = forge.detect(self.repo)
+        self.assertEqual((got["kind"], got["where"]), (forge.OTHER_HOST, "gitlab.com"))
+
+    def test_upstream_remote_wins(self):
+        """枝の upstream の remote が在ればそれを見る（origin が GitHub でも upstream が GitLab なら forge でない）"""
+        _git(self.repo, "remote", "add", "origin", "git@github.com:o/r.git")
+        _git(self.repo, "remote", "add", "up", "https://gitlab.com/o/r.git")
+        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "s")
+        _git(self.repo, "update-ref", "refs/remotes/up/main", "HEAD")
+        br = subprocess.run(["git", "-C", str(self.repo), "branch", "--show-current"], capture_output=True, text=True, encoding="utf-8").stdout.strip()
+        _git(self.repo, "branch", "--set-upstream-to=up/main", br)
+        got = forge.detect(self.repo)
+        self.assertEqual((got["kind"], got["remote"]), (forge.OTHER_HOST, "up"))
+
+    def test_not_a_repo_is_unknown(self):
+        """git が remote を引けない（リポジトリでない）は決めない: 種類 unknown・理由は空（今どおり役の道へ。forge が無いとは言わない）"""
+        got = forge.detect(pathlib.Path(self._td.name) / "missing")
+        self.assertEqual(got["kind"], forge.UNKNOWN)
+        self.assertEqual(forge.reason(got), "")
+
+
+LOCAL = {"kind": forge.LOCAL_PATH, "remote": "origin", "where": "/x/origin.git"}
+GH = {"kind": forge.GITHUB, "remote": "origin", "where": "github.com"}
+
+
+def _rl():
+    """写しの RL を新しく読み、works の核の差し替え（entry.CORE_OVERRIDES）を当てた物"""
+    holder = type("H", (), {})()
+    holder.rules, holder.state = board.rules_module(), {}
+    board.DiskBoard._apply_overrides(holder, entry.CORE_OVERRIDES)
+    return holder.rules
+
+
+def _view(values):
+    def v(path, *default):
+        return values[path] if path in values else (default[0] if default else None)
+    return v
+
+
+class FakeBoard:
+    def __init__(self, cwd=None, forge_d=None, na=True):
+        self.state = {"inputs": {"cwd": str(cwd) if cwd else ""}}
+        self.loop_state = {} if forge_d is None else {forge.LOOP_KEY: forge_d}
+        self.record = {"materials": {}}
+        self.nodes = {prcheck.NODE: {"materials": ["parallel_pr"]}}
+        self._na = na
+
+    def node_state(self, nid):
+        return "na" if (nid == prcheck.NODE and self._na) else "done"
+
+
+class OverrideCase(unittest.TestCase):
+    """works の核の差し替え: 決めは run の初め（on_init）に盤面の loop へ、並行 PR の節の条件はその値を読み、素材は機械が埋める"""
+
+    def test_cond_is_false_on_no_forge_and_reads_the_loop_field(self):
+        cond = registry(_rl(), "CONDS")["parallel_pr_due"]
+        self.assertIn(f"loop.{forge.LOOP_KEY}", cond.reads)
+        ok, why = cond(_view({"round": 1, f"loop.{forge.LOOP_KEY}": LOCAL}))
+        self.assertFalse(ok)
+        self.assertTrue(why.startswith("no_forge: local_path"), why)
+
+    def test_cond_keeps_the_copy_rule_on_github_and_on_old_boards(self):
+        """GitHub の remote・決めの無い盤面（前の版）では写しの条件のまま（1 周目は真）"""
+        cond = registry(_rl(), "CONDS")["parallel_pr_due"]
+        for d in (GH, None):
+            with self.subTest(d):
+                vals = {"round": 1} if d is None else {"round": 1, f"loop.{forge.LOOP_KEY}": d}
+                self.assertEqual(cond(_view(vals))[0], True)
+
+    def test_on_init_records_the_forge_on_the_board(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = pathlib.Path(td) / "r"
+            repo.mkdir()
+            _git(repo, "init", "-q")
+            _git(repo, "remote", "add", "origin", str(pathlib.Path(td) / "origin.git"))
+            calls = []
+            rl = type("RL", (), {"on_init": staticmethod(lambda b, a: calls.append(a))})
+            b = FakeBoard(cwd=repo)
+            entry.on_init_forge(rl)(b, None)
+            self.assertEqual(calls, [None], "写しの on_init を先に呼ぶ")
+            self.assertEqual(b.loop_state[forge.LOOP_KEY]["kind"], forge.LOCAL_PATH)
+
+    def test_fill_writes_not_applicable_for_the_skipped_node(self):
+        seen = []
+        rl = type("RL", (), {"fill_materials": staticmethod(lambda b: seen.append(dict(b.record["materials"])))})
+        b = FakeBoard(forge_d=LOCAL)
+        entry.fill_materials_forge(rl)(b)
+        m = b.record["materials"]["parallel_pr"]
+        self.assertEqual(m["status"], "not_applicable")
+        self.assertTrue(m["reason"].startswith("no_forge: local_path"), m)
+        self.assertEqual(seen, [{"parallel_pr": m}], "写しの fill_materials は埋めた後に呼ぶ（埋めた素材を上書きしない）")
+
+    def test_fill_leaves_github_and_ran_nodes_to_the_copy(self):
+        for b in (FakeBoard(forge_d=GH), FakeBoard(forge_d=LOCAL, na=False), FakeBoard()):
+            with self.subTest(b.loop_state):
+                rl = type("RL", (), {"fill_materials": staticmethod(lambda b: None)})
+                entry.fill_materials_forge(rl)(b)
+                self.assertNotIn("parallel_pr", b.record["materials"])
+
+    def test_copy_fallback_reason_never_carries_the_token(self):
+        """写しの _github_repo は形の合わない remote の URL を任せ先に落ちた理由（盤面の engine_fallback・役への渡し物）に
+        書く。userinfo（トークン）を持つ GitHub の URL でも、差し替えがトークンを伏せる"""
+        import engine.util as eu
+        with tempfile.TemporaryDirectory() as td:
+            repo = pathlib.Path(td) / "r"
+            repo.mkdir()
+            _git(repo, "init", "-q")
+            _git(repo, "remote", "add", "origin", f"https://x-access-token:{SECRET}@github.com/o/r.git")
+            old, eu.GIT_CWD = eu.GIT_CWD, str(repo)
+            try:
+                rl = _rl()
+                got, why = rl._github_repo()
+            finally:
+                eu.GIT_CWD = old
+        self.assertIsNone(got)
+        self.assertNotIn(SECRET, why)
+        self.assertIn("github.com/o/r", why)
+
+    def test_overrides_are_registered(self):
+        for name in ("on_init", "parallel_pr_due", "fill_materials", "_github_repo"):
+            with self.subTest(name):
+                self.assertIn(name, entry.CORE_OVERRIDES)
+
+
+class ReportLineCase(unittest.TestCase):
+    """報告の冒頭 2 に 1 行: forge の無い run は並行 PR の確かめが条件外だと言う（GitHub の run と前の版の盤面には出さない）"""
+
+    def board(self, d, forge_d):
+        b = type("B", (), {})()
+        b.dir, b.round, b.table = pathlib.Path(d), 1, None
+        b.state = {"works": {}, "loop": {} if forge_d is None else {forge.LOOP_KEY: forge_d}}
+        b.loop_state = b.state["loop"]
+        b.record = {"process": {}, "materials": {}}
+        return b
+
+    def test_head_entry_has_one_line_on_no_forge(self):
+        with tempfile.TemporaryDirectory() as td:
+            lines = report.head_entry(self.board(td, LOCAL), {})
+            hits = [x for x in lines if x.startswith(report.FORGE_HEAD)]
+            self.assertEqual(len(hits), 1, lines)
+            self.assertIn("no_forge: local_path", hits[0])
+            self.assertIn("not_applicable", hits[0])
+
+    def test_no_line_on_github_or_old_boards(self):
+        for d in (GH, None):
+            with self.subTest(d), tempfile.TemporaryDirectory() as td:
+                lines = report.head_entry(self.board(td, d), {})
+                self.assertFalse([x for x in lines if x.startswith(report.FORGE_HEAD)], lines)
+
+
+GHREADS = CORE / "ghreads.py"
+
+
+class GhReadsCase(unittest.TestCase):
+    """隔離の前の読み出し（python3 -I ghreads.py read）は、forge の無い対象では gh を呼ばず、名指した PR・issue を条件外と書く"""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._td.name).resolve()
+        self.addCleanup(self._td.cleanup)
+        self.repo = self.tmp / "repo"
+        self.repo.mkdir()
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "remote", "add", "origin", str(self.tmp / "origin.git"))
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        self.called = self.tmp / "gh-called"
+        gh = self.bin / "gh"
+        gh.write_text(f'#!/bin/sh\necho "$*" >> "{self.called}"\nexit 4\n', encoding="utf-8")
+        gh.chmod(0o755)
+        self.out = self.tmp / "reads.json"
+
+    def read(self, *args):
+        import os
+        env = hermetic.child_env(PATH=f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}")
+        return subprocess.run([sys.executable, "-I", str(GHREADS), "read", "--repo", str(self.repo), *args, "--out", str(self.out)],
+                              capture_output=True, text=True, encoding="utf-8", env=env, cwd=str(self.tmp))
+
+    def test_named_items_are_not_applicable_without_gh(self):
+        req = self.tmp / "req.json"
+        req.write_text('{"findings": [], "pr": [7], "issue": [9]}', encoding="utf-8")
+        r = self.read("--request", str(req))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(self.called.exists(), "forge の無い対象で gh を呼んだ")
+        import json
+        doc = json.loads(self.out.read_text(encoding="utf-8"))
+        for got in (doc["pr"]["7"], doc["issue"]["9"]):
+            self.assertEqual(got["status"], "not_applicable")
+            self.assertTrue(got["reason"].startswith("no_forge: local_path"), got)
+
+    def test_cli_pr_on_no_forge_refuses_with_the_reason(self):
+        """--pr は GitHub の PR の base・head が要るので、forge の無い対象では gh を呼ばずに書かずに 0 以外（理由は no_forge）"""
+        r = self.read("--request", "-", "--pr", "7")
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(self.called.exists())
+        self.assertFalse(self.out.exists())
+        self.assertIn("no_forge: local_path", r.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

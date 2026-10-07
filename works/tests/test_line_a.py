@@ -95,12 +95,12 @@ class LineCase(LineBase):
         """修正案 → 事前審査（後退の穴。壁打ちで同じ block が続く）→ policy-gate continue（後退の項目と修正に進まない行）→ 修正 →
         差分の審査（穴）→ 手直し → 最後のテスト（緑）→ 最後の関所 continue → 報告 fixed。trail は LINE_ORDER の順、報告と
         次の依頼の下書きが盤面に在る"""
-        got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}})
+        got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}}, github=True)
         self.order_ok(got["trail"])
         for nid in ("start", "premising", "judging", "planning", "policy-gate", "fixing", "reviewing", "refixing", "testing",
                     "final-gate", "report"):
             self.assertIn(nid, got["trail"])
-        # 種の git は GitHub の remote を持たないので、並行 PR の engine の helper は任せ先に落ちる（blk-pr が回る）
+        # origin は GitHub の形で偽の gh が交差を返すので、並行 PR の engine の helper は任せ先に落ちる（blk-pr が回る）
         self.assertIn("pr-checking", got["trail"])
         self.assertEqual(got["outcome"], "fixed", pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8"))
         self.assertTrue(got["report"]["tests_green"])
@@ -520,14 +520,51 @@ class JudgeReadsCase(LineBase):
             judgebrief.brief(got["board_dir"], got["board_dir"].parent.parent / "repo")
 
 
+class NoForgeCase(LineBase):
+    """forge（PR を持つホスト）の無い run（canary の run 5318f732: origin がローカルの bare リポジトリ）。並行 PR の節は機械が
+    条件外にし、任せ先の役（blk-pr）を起こさない。素材は not_applicable（reason は no_forge: <種類>）で、判定の問いの台帳に
+    人待ちの問いが立たず、結末は並行 PR のせいで round_limit にならない"""
+
+    AWAITING = {"material": {"status": "awaiting_human", "reason": "origin がローカルのパスで owner/repo を導けない"},
+                "repo": "", "listed": 0, "truncated": False, "conflicts": [], "excluded": []}
+
+    def run_origin(self, top, url):
+        """origin を url にした種（None なら remote 無し）で線を top の下で回す。役が呼ばれたら awaiting_human を返す見本を渡す
+        （前の版は役に決めさせ、run 5318f732 の役は awaiting_human と書いた）"""
+        run = linekit.LineRun(top, replies={**replies(), "pr-check": self.AWAITING}, edits={"fix": fix_tree},
+                              gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}})
+        if url is not None:
+            linekit.git(run.repo, "remote", "add", "origin", url(top) if callable(url) else url)
+        return run.run()
+
+    def test_no_forge_kinds_settle_parallel_pr_without_the_role(self):
+        for kind, url in (("no_remote", None), ("local_path", lambda t: str(t / "origin.git")),
+                          ("other_host", "https://gitlab.com/o/r.git")):
+            with self.subTest(kind):
+                got = self.run_origin(self.tmp / kind, url)
+                self.assertNotIn("pr-checking", got["trail"])
+                self.assertIs(got["out"]["start"]["pr_go"], False)
+                b = entry.open_board(got["board_dir"], allow_halted=True)
+                m = b.record["materials"]["parallel_pr"]
+                self.assertEqual(m["status"], "not_applicable", m)
+                self.assertTrue(m["reason"].startswith(f"no_forge: {kind}"), m)
+                self.assertEqual(b.loop_state["forge"]["kind"], kind)
+                self.assertNotIn("parallel_pr", [q.get("origin") for q in b.record["questions"]])
+                self.assertEqual(got["outcome"], "fixed", pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8"))
+                text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
+                self.assertEqual(sum(1 for ln in text.splitlines() if f"no_forge: {kind}" in ln and "PR を持つホスト" in ln), 1,
+                                 text)
+
+
 # run 27（2026-09-27）の事実: 並行 PR の検査が対象を解決できず、素材 parallel_pr が awaiting_human のまま判定に届いた。判定の
 # 指示書は awaiting を使うなと言い、ブロックの受け付け（記憶の中の空の記録）は通し、盤面（本線と同じ judge_output）だけが
-# 「awaiting_human なのに台帳に kind=awaiting で無い」と拒んで、境の節 h-plan が run を止めた
+# 「awaiting_human なのに台帳に kind=awaiting で無い」と拒んで、境の節 h-plan が run を止めた。今は forge の無い origin の
+# 並行 PR は機械が条件外にする（NoForgeCase）ので、awaiting_human は GitHub の remote で確かめられなかった時の形で見る
 PR_AWAITING = {**linekit.reply("pr_no_conflicts"), "material": {
     "status": "awaiting_human",
-    "reason": "1 段で対象リポジトリを解決できない。枝に upstream が無く、origin はローカルの bare リポジトリ（run 27 と同じ形）"}}
+    "reason": "gh pr diff -R o/r が未ログインで落ち、交差した PR #7 の hunk を読めない（確かめられなかった）"}}
 AWAITING_Q = {"key": "parallel_pr: 並行 PR の衝突を確かめられない", "kind": "awaiting", "status": "held",
-              "reason": "origin がローカルの bare リポジトリで open な PR を引けない。人が並行の PR の有無を確かめる",
+              "reason": "交差した PR #7 の hunk を gh で読めない。人が並行の PR とのぶつかりを確かめる",
               "origin": "parallel_pr"}
 
 
@@ -540,7 +577,7 @@ class JudgeAwaitingCase(LineBase):
     同じことを言う（run 27 の再発防止）"""
 
     def run_awaiting(self, judge):
-        return self.run_line(replies={**replies(), "pr-check": PR_AWAITING, "judge": judge})
+        return self.run_line(replies={**replies(), "pr-check": PR_AWAITING, "judge": judge}, github=True)
 
     def test_brief_renders_mainline_question_ledger(self):
         """判定の材料に本線の問いの台帳の決まりが描かれる: awaiting_human の素材に awaiting を必ず載せる文と、検証器の表から
@@ -570,7 +607,7 @@ class JudgeAwaitingCase(LineBase):
         rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
         ans = [{"question": "parallel_pr", "text": "並行する PR は無い（依頼者が GitHub の一覧で確かめた）"}]
         got = self.run_line(replies={**replies(), "pr-check": PR_AWAITING, "judge": judge_awaiting()},
-                            request={"findings": rows, "answers": ans})
+                            request={"findings": rows, "answers": ans}, github=True)
         text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
         self.assertIn("依頼者の答え: 並行する PR は無い", text)
         self.assertNotIn("保留にしたままの問い", text)

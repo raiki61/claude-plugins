@@ -80,8 +80,13 @@ class ReportBase(RF.DeltaBoardCase):
 
     def begin(self, *, board=None, declared=True, pr=None, premises=None, request=None, judge="judge_ok", **raw):
         """start → 並行 PR の任せ先・前提の役 → 判定（judge の見本）。pr は p0.parallel_pr の返答（excluded を持てば
-        prcheck の受け付けで外した範囲も書く）。返りは対象リポジトリ"""
+        prcheck の受け付けで外した範囲も書く）。pr を渡せば origin を GitHub の形にして偽の gh に交差を返させ（任せ先の役の道）、
+        渡さなければ種は remote を持たない forge の無い run で、並行 PR は機械が条件外にする。返りは対象リポジトリ"""
         repo = self.seed(declared=declared)
+        if pr is not None:
+            env = mock.patch.dict("os.environ", {"PATH": linekit.github_crossing(repo, self.tmp)})
+            env.start()
+            self.addCleanup(env.stop)
         self.art = self.tmp / "art"
         self.board = pathlib.Path(board) if board else self.art / "board"
         rawd = self.raw(**raw)
@@ -94,9 +99,11 @@ class ReportBase(RF.DeltaBoardCase):
             TE.launch(self.board, "p0.parallel_pr")
             prcheck.snapshot(self.board, repo)
             got = prcheck.take(self.board, pr, repo)
-        else:
+        elif pr is not None:
             TE.launch(self.board, "p0.parallel_pr")
-            got = entry.take(self.board, "p0.parallel_pr", pr or TE.pr_reply(), repo)
+            got = entry.take(self.board, "p0.parallel_pr", pr, repo)
+        else:
+            got = {"ok": entry.open_board(self.board).node_state("p0.parallel_pr") == "na"}
         self.assertTrue(got["ok"], got)
         TE.launch(self.board, "p0.premises")
         self.assertTrue(entry.take(self.board, "p0.premises", premises or TE.PREMISES_REPLY, repo)["ok"])

@@ -557,14 +557,13 @@ class BoardCase(unittest.TestCase):
         return got
 
     def judged(self, judge=None):
-        """判定を受けた盤面（start → 並行 PR の任せ先・前提の役 → 判定。judge が無ければ judge_ok）"""
+        """判定を受けた盤面（start → 前提の役 → 判定。judge が無ければ judge_ok。種は remote を持たない forge の無い run なので、
+        並行 PR は機械が条件外にして任せ先の役は無い）"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "request.json"
         req.write_text((SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
         entry.start(self.board, self.repo, {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
                                             "adapter": "", "policy_md": ""}, run_id="run-12")
-        pr = {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"}
-        self.take("p0.parallel_pr", pr)
         self.take("p0.premises", PREMISES_REPLY)
         linekit.pre_judge(self.board, self.repo)   # 目的の文（判定の前に盤面が待つ）
         self.take("p2.diagnose", judge or load(JUDGE))
