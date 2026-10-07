@@ -169,6 +169,34 @@ class TestCoreCopy(unittest.TestCase):
         self.assertEqual(m["entrypoints"], {"darkfactory": "darkfactory/darkfactory.yaml"})
         self.assertEqual(m["compatibility"], {"archon": ">=0.11.1 <0.12.0"})
 
+    def _assert_install_order(self, text):
+        """入れ方の順: 利用者が入れる借り物（pin の無い物）は works の依存（plugin.json の dependencies）に載り、その
+        marketplace を works より先に足し、works の install が依存ごと入れるので別の install の行を書かない。marketplace が
+        無いと claude plugin install works@raiki61 は依存を入れられず「works will not load without it」で止まる。works に
+        写した物（pin を持つ。superpowers）は入れる行も依存も無い（名は borrow.json の <名>@<marketplace>）"""
+        borrow = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
+        deps = {d["name"]: d["marketplace"]
+                for d in json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())["dependencies"]}
+        works_install = text.index("claude plugin install works@raiki61")
+        for name, item in borrow.items():
+            if item["kind"] not in ("skills", "plugin"):
+                continue
+            with self.subTest(name=name):
+                self.assertNotIn(f"claude plugin install {name}@", text)
+                if "pin" in item:
+                    self.assertNotIn(name, deps)
+                else:
+                    self.assertEqual(deps.get(name), item["marketplace"])
+                    add = text.find(f"claude plugin marketplace add {item['marketplace_repo']}")
+                    self.assertNotEqual(add, -1, item["marketplace_repo"])
+                    self.assertLess(add, works_install, f"{item['marketplace_repo']} を works の install より先に足す")
+
+    def test_readme_install_order(self):
+        """README の入れ方も SKILL.md と同じ順（依存の marketplace を先に足し、works の install だけを打つ）"""
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        section = text.split("## 入れ方", 1)[1].split("\n## ", 1)[0]
+        self._assert_install_order(section)
+
     def test_skill_frontmatter(self):
         text = (ROOT / "skills" / "works" / "SKILL.md").read_text()
         self.assertTrue(text.startswith("---\n"))
@@ -186,21 +214,7 @@ class TestCoreCopy(unittest.TestCase):
         for x in shells:
             self.assertTrue(x.startswith("${CLAUDE_PLUGIN_ROOT}/dev/"), x)
         self.assertNotIn("WORKS_REPO", body)
-        # 利用者が入れる借り物は入れる行が在り、works に写した物（pin を持つ。superpowers）は入れる行も依存も無い
-        # （名は borrow.json の <名>@<marketplace>）
-        borrow = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
-        deps = {d["name"] for d in json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())["dependencies"]}
-        for name, item in borrow.items():
-            if item["kind"] not in ("skills", "plugin"):
-                continue
-            with self.subTest(name=name):
-                if "pin" in item:
-                    self.assertNotIn(f"claude plugin install {name}@", body)
-                    self.assertNotIn(name, deps)
-                else:
-                    self.assertIn(f"claude plugin install {name}@{item['marketplace']}", body)
-                    self.assertIn(f"claude plugin marketplace add {item['marketplace_repo']}", body)
-                    self.assertIn(name, deps)
+        self._assert_install_order(body)
         self.assertNotIn("archon workflow run raiki61/works:darkfactory", body)
         p = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
         self.assertEqual(p["name"], "works")

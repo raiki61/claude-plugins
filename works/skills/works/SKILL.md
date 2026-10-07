@@ -14,13 +14,12 @@ works は直しを出荷する工場 darkfactory に、人の修正依頼を今�
 
 要る物: macOS（Apple silicon。Archon は固定した版の darwin-arm64 の実行ファイル）・git・uv・gh（初回に Archon の実行ファイルを GitHub の release から落とす）・Claude Code の `claude`・認証（普段の `claude` のログインで足りる。殻は `WORKS_KEYCHAIN_ITEM` の名の keychain の項目 → 共有の認証の部品の段（受け継いだ `CLAUDE_CODE_OAUTH_TOKEN` など・`CLAUDE_KEYCHAIN_SERVICE` の項目・設定の置き場から導く `claude-code-oauth-<名>`）→ Claude Code 自身が macOS の keychain に置いた項目（`CLAUDE_CONFIG_DIR` から導く）の順に、あなた自身の認証だけを拾い、拾った出どころの名を出す。ログインの項目は数時間で切れる短い物なので、長い run には `claude setup-token` で作るトークンを置く）。gh・git の資格は AI の役に渡さない（隔離した家の gh は未ログインで、並行 PR の確かめは人に回る）。
 
-1. プラグインを 3 つ Claude Code に入れる。このスキル（works）と、works の AI の役が借りる 2 つ（coldwrite のフック・pr-review-toolkit の agent）。起動の殻 `dev/use.sh` と pack は works のプラグインの中に在り、Claude Code が入れたプラグインの置き場から使う。coldwrite・pr-review-toolkit は、あなたが入れた版をそのまま使う。superpowers のスキルは works に写した固定の版（`.shared/borrow/superpowers/<版>/`）を使うので、入れなくてよい（入れてあっても run には使わない）。リポジトリの clone は要らない。
+1. プラグインを Claude Code に入れる。このスキル（works）と、works の AI の役が借りる 2 つ（coldwrite のフック・pr-review-toolkit の agent）。借りる 2 つは works の依存なので、works を入れると一緒に入る。ただし依存の marketplace（raiki61・claude-plugins-official）が先に足されていないと入らず、works は「will not load without it」と言って読まれない。だから marketplace を 2 つ足してから works を入れる。起動の殻 `dev/use.sh` と pack は works のプラグインの中に在り、Claude Code が入れたプラグインの置き場から使う。coldwrite・pr-review-toolkit は、入った版をそのまま使う。superpowers のスキルは works に写した固定の版（`.shared/borrow/superpowers/<版>/`）を使うので、入れなくてよい（入れてあっても run には使わない）。リポジトリの clone は要らない。
 
    ```
-   claude plugin marketplace add raiki61/claude-plugins   # 登録済みなら: claude plugin marketplace update raiki61
-   claude plugin install works@raiki61
-   claude plugin install coldwrite@raiki61
-   claude plugin install pr-review-toolkit@claude-plugins-official   # marketplace が無ければ先に: claude plugin marketplace add anthropics/claude-plugins-official
+   claude plugin marketplace add anthropics/claude-plugins-official   # 登録済みなら要らない
+   claude plugin marketplace add raiki61/claude-plugins               # 登録済みなら: claude plugin marketplace update raiki61
+   claude plugin install works@raiki61                                 # 依存の coldwrite・pr-review-toolkit も入る
    ```
 
 2. 対象リポジトリで、AI を起こさずに確かめる（費用なし）。
