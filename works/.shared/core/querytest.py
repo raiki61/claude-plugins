@@ -227,7 +227,8 @@ def unproven_lines(board) -> list:
 
 def save_closure(b, rows: list) -> pathlib.Path:
     """単位ごとの閉鎖の表 {round, rows: [{unit_key, how_from, counts, total, after, claimed, covered, out_of_query, bound, closed,
-    discrepancies}]} を盤面の置き場に置く（covered は申告の site が在る問いの当たりのファイルの件数、out_of_query は当たりの外の
+    changed_cover, discrepancies}]} を盤面の置き場に置く（covered は申告の site が在るか、単位の files に在って修正で変わった問いの
+    当たりのファイルの件数、changed_cover はそのうち site が名指さず変更で覆ったファイルのパス、out_of_query は当たりの外の
     site のパス、bound は site を当たりのファイルに結べたか。結べなければ covered は claimed と同じ）。（受けた返答の分で上書きする。読む側は今の周の表だけを読む）。
     置き場は盤面の今の scope の根（b.scope_root。修正のブロックの include ごとに分かれ、2 回目の修正の段が 1 回目の表を上書きしない）"""
     p = pathlib.Path(b.scope_root) / CLOSURE_FILE
@@ -282,6 +283,7 @@ def closure_lines(b, *, mismatched_only: bool = False, stuck_only: bool = False,
             out.append(f"{r.get('unit_key')}: {state}（{r.get('counts')}・修正前 {r.get('total')}・修正後 {r.get('after')}・"
                        f"申告の site {r.get('claimed')}" + (f"・site が覆う当たり {r['covered']}" if r.get("bound") else "") +
                        f"・問い {r.get('how_from')}）" + (f"——合わない: {' / '.join(bad)}" if bad else "") +
+                       (f"——site が名指さず変更で覆った当たりのファイル: {', '.join(r['changed_cover'])}" if r.get("changed_cover") else "") +
                        (f"——問いの外の site {len(outside)} 件: {', '.join(outside)}" if outside else ""))
     if not (stuck_only or mismatched_only):
         seen = {r.get("unit_key") for r in rows}
