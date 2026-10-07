@@ -10,7 +10,9 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
 
 見る道（canary.sh の頭の (a)〜(d)）と、通ったと言う決まり:
 - (a) parallel（別のファイルの 2 項目以上の並べ）: no の時は、TDD の輪が振り分けの後に並べなかった理由（盤面の trace の
-  lanes_skipped。節 tdd-step が積む {reason, why, loop}。tddlanes.SKIP_OP）を why に足し、出力の lanes_skipped に並べる。
+  lanes_skipped。節 tdd-step が積む {reason, why, loop}。tddlanes.SKIP_OP）と、修正役の並べを切らなかった理由（trace の
+  fix_lanes_planted の lanes 0 の行の why。節 fix-fork が積む。fixlanes.PLANTED_OP）を why に足し、出力の lanes_skipped・
+  fix_lanes_skipped に並べる。
   通ったと言う決まり: TDD の輪の並べの周の目録が枝 2 本以上で、枝の輪（節の名の最後が
   tdd-lane-loop-<n>・tdd-lane-prep-<n>・tdd-lane-<n>・tdd-lane-step-<n>。docs/plans/2026-10-07-lane-nodes.md）が同時に 2 本以上
   走った。枝ごとの区間は枝 n の節の node_started の最初から終わり（node_completed・node_failed）の最後まで。または修正役の並べの
@@ -373,9 +375,13 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
          "why": "・".join(why) or (f"並べの証拠が足りない（TDD の輪の枝 {tdd_lanes_n}・枝の輪の同時 {tdd_par}・"
                                    f"修正役の並べの枝 {fixl_n}・枝の輪の同時 {fixl_par}・"
                                    f"前の形の修正役が当てた項目 {fix_items_n}・修正役の下請けの同時 {fix_par}）")}
+    fix_skipped = [{"scope": r.get("scope") or "", "why": r.get("why") or ""}
+                   for r in trace if r.get("op") == fixlanes.PLANTED_OP and not r.get("lanes")]
     if not why and skipped:
         a["why"] += "・TDD の輪が並べなかった理由: " + "・".join(
             f"{x['scope'] or '—'} {x['loop'] or '—'} {x['reason']}（{x['why']}）" for x in skipped)
+    if not why and fix_skipped:
+        a["why"] += "・修正役の並べを切らなかった理由: " + "・".join(f"{x['scope'] or '—'}（{x['why']}）" for x in fix_skipped)
 
     shared = sorted({f for lp in loops for f in lp["shared"]} | {f for u in units for f in u["shared"]}
                     | {f for r in fixl for f in r["shared"]})
@@ -419,6 +425,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         "planned_overlap": planned,
         "tdd_lanes": loops,
         "lanes_skipped": skipped,
+        "fix_lanes_skipped": fix_skipped,
         "fix_units": units,
         "fix_lanes": fixl,
         "consults": asks,

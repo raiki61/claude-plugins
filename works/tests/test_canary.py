@@ -283,10 +283,11 @@ ITEMS = [{"route": "tdd", "unit_keys": [U_MEAN], "allowed_paths": ["calc.py"],
 
 
 def make_board(board, *, lanes=None, units=None, asks=(), unsettled=(), replans=0, items=ITEMS, patches=None, report=None,
-               skipped=(), fix_lanes=None):
+               skipped=(), fix_lanes=None, planted=()):
     write(board / "plan-fields.json", {"round": 1, "fields": items})
     trace = [{"t": "x", "op": "init"}]
     trace += [{"t": "x", "op": "lanes_skipped", **r, "scope": "fixing"} for r in skipped]
+    trace += [{"t": "x", "op": "fix_lanes_planted", "node": "fix-fork", **r, "scope": "fixing"} for r in planted]
     if fix_lanes is not None:   # 修正役の並べの締めの行（fixlanes.SETTLED_OP）
         trace.append({"t": "x", "op": "fix_lanes_settled", "node": "fix-join", "parked": [], "reverted": [], "outcomes": [],
                       **fix_lanes, "scope": "fixing"})
@@ -465,6 +466,24 @@ class CheckTest(unittest.TestCase):
         make_board(self.board)
         self.assertEqual(canary_check.check(RUN, {}, [], self.board)["lanes_skipped"], [])
         self.assertNotIn("並べなかった理由", canary_check.check(RUN, {}, [], self.board)["features"]["a_parallel"]["why"])
+
+    def test_fix_lanes_not_planted_reason_is_named_when_a_is_no(self):
+        """(a) が no の時、修正役の並べを切らなかった理由（盤面の trace の fix_lanes_planted の lanes 0。節 fix-fork が積む）も
+        (a) の why と出力に出す。TDD の輪の lanes_skipped と並べて読む"""
+        make_db(self.db, self.out_root, [])
+        why = "並べる枝が 2 本に満たない（範囲の在る項目 1・枝 1）"
+        make_board(self.board, planted=[{"lanes": 0, "why": why}],
+                   skipped=[{"reason": "units", "why": "TDD の輪で直す単位が 1 つ（並べは 2 つから）", "loop": "tdd-1"}])
+        doc = canary_check.check(RUN, {}, [], self.board)
+        a = doc["features"]["a_parallel"]
+        self.assertEqual(a["status"], "no")
+        self.assertIn(f"修正役の並べを切らなかった理由: fixing（{why}）", a["why"])
+        self.assertIn("TDD の輪が並べなかった理由", a["why"])
+        self.assertEqual(doc["fix_lanes_skipped"], [{"scope": "fixing", "why": why}])
+        make_board(self.board, planted=[{"lanes": 2, "items": {"1": [1], "2": [2]}, "rest": [], "expect": []}])
+        doc = canary_check.check(RUN, {}, [], self.board)
+        self.assertEqual(doc["fix_lanes_skipped"], [])
+        self.assertNotIn("切らなかった理由", doc["features"]["a_parallel"]["why"])
 
     def test_fixer_lanes_count_for_parallel_and_overlap(self):
         """修正役の並べの枝の輪（fix-lane-loop-<n> と中の節）が同時に 2 本以上走り、締めの行の枝が 2 本以上なら (a) の yes。締めの行の
