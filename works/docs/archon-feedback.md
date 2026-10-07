@@ -38,6 +38,7 @@ works（Archon の上の pack「darkfactory」）が、Archon の不具合や欠
 | 25 | script の節（runtime: uv）が対象の uv の設定を読む | 無い | 余地 | 記述 |
 | 26 | 輪の本体の関所の後の再開で止まった回の会話が欠ける | #3532 open（直しの試み PR #3534） | 無し | コード |
 | 27 | 節の費用と模型を会話の累計の引き算で決め、補助の模型を節の模型と名乗る | 無い（引き算は #3504 で入った） | 無し（包みが見せ直す） | コード・実測 |
+| 28 | `mutates_checkout: false` の節だけの層を順に回す | 直しの PR #3606 merged（2026-10-03。v0.11.1 の後で未リリース） | 余地 | 実測 |
 
 ## 送るなら先に出す物
 
@@ -142,6 +143,12 @@ works（Archon の上の pack「darkfactory」）が、Archon の不具合や欠
 - 実測: run 01004d2e（canary 2026-10-07）で、包みが単位の切れ目で新しい会話にした tdd-lane-2 の 5 回目が費用なし・模型 claude-haiku-4-5（transcript の手は全部 claude-sonnet-5-5）、範囲の相談の答えの節 plan-answer が費用なし、裁定の後の修正役 fix-ruled の 1 回目（Archon は新しい会話と思う）が修正役の会話の累計 1.87 ドルを節の費用にした（本当は 0.90 ドル）。run の合計は Archon の 10.76 ドルに対して会話の記録の合計 10.21 ドル。
 - works の回り道: 包みが会話ごとの本当の累計と見せた累計を残し、Archon の引き算がその起動の本当の費用と模型になる値を result に置いて写す（`works/.shared/core/adapter.py` の頭の 20。試験は `works/tests/test_adapter_spend.py` で、Archon の引き算の写しを縛る）。
 - 求めたい物: 節の模型は `system/init` の行か assistant の `message.model` で決める（引き算から推さない）。費用は result の `modelUsage` の模型ごとの `costUSD` か、問い合わせの初めの累計を Claude Code から引く形にし、引けない時は費用なしの理由に「元が知れない」と出す。
+
+### 28. `mutates_checkout: false` の節だけの層を順に回す
+- 足りない物: v0.11.1 の層の割り振りは、層に `mutates_checkout: false` の節が 1 つでも在れば層ごと順に回す（`layer.some(node => node.mutates_checkout === false)`）。書かない節だけの層（読むだけの目を同じ checkout に並べる、この鍵の一番の使い道）も、知らせ無しに 1 つずつ走る。
+- 実測: 持ち主の測り（2026-10-07）で、書かない節だけの層は v0.11.1 で順に走った。兄弟の loop_group の節は同時に走る（loop_group は鍵の外で「書きうる節」に数える）。
+- works の回り道: 並べたい節は loop_group の中に置き、同じ層に `mutates_checkout: false` の節を置かない（TDD の輪の並べの枝の輪 `tdd-lane-loop-<n>`。`works/blk-fix/blk-fix.yaml` の注記と `works/docs/plans/2026-10-07-lane-nodes.md`）。最上段に置いた書かない節（`works/blk-lens/blk-lens.yaml` のレンズ）は今 1 本なので効かないが、2 本目を並べると順になる。
+- Archon 側: PR #3606（fix(workflows): parallel read-only nodes no longer run one at a time）が 2026-10-03 に merge 済み。書かない節だけの層は同時に走り、書く節と混ざった層だけ順に回す。v0.11.1 の後の版でリリースされるまでは今の形のまま。上がったら回り道を外せるかを確かめる（候補として送る物ではなく、版上げの時の確かめ）。
 
 ## works 側で直す物（Archon に返す物ではない）
 
