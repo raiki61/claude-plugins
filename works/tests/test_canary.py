@@ -5,8 +5,10 @@
 - (b) の前提: 種のテストのファイルは test_lib.py の 1 本で、README の決まりがテストをモジュールごとのクラスに足させる。2 件の
   受け入れのテストの参照（LANE_TESTS。各クラスの末尾に足す）は、種では自分の件だけ赤（TDD の赤）で、2 つの枝の test_lib.py は
   3 方向で字の食い違いなしに合い、合わせた木は全部の直しの後に緑。2 つの枝が同じ末尾（main の前）に足しても挿しだけの食い違い
-  （union で合う）。依頼の 2 件は別のコードのファイルを名指す（修正案の項目がモジュールごとに分かれ、重なりはテストのファイルだけ）。
-- 依頼は入口の依頼の型（写しの RL の REQUEST_SCHEMA）を通り、where のファイルが種に在る。
+  （union で合う）。test_lib.py はモジュールを 1 行ずつ import の形で読み、2 項目が共にする行が無い。依頼の 2 件は別のコードの
+  ファイルを名指す（計画役が分ければ項目はモジュールごと・重なりはテストのファイルだけ。分けるかは計画役が決め、種では縛れない）。
+- 依頼は入口の依頼の型（写しの RL の REQUEST_SCHEMA）を通り、where のファイルが種に在る。項目を分けてと文で頼まず、CHANGELOG.md を
+  out_of_scope に名指さない訳（相談が「修正案が明示に外したパス」として断る）を言う。
 - 確かめ役 canary_check.py: 一時の置き場に sqlite の偽の archon.db（Archon の 2 つの表の要る列だけ）と偽の盤面（trace.jsonl・
   plan-fields.json・tdd-<k>/state.json と枝の差分の控え・run-place の相談の記録・report.md）を置き、(a)〜(d) の判じ・案の重なり・
   項目ごとのファイル・費用と取れない節・結末・時間・終了コードと、読むだけで何も書かないことを見る。
@@ -203,7 +205,24 @@ class SeedTest(unittest.TestCase):
         for it in items:
             for word in ("CHANGELOG.md", "allowed_paths", "out_of_scope", "範囲の相談", TESTS):
                 self.assertIn(word, it["text"], it["where"])
+            # run 54d81ef1: 計画役が「範囲の外」を out_of_scope に写し、相談が断った。名指さない訳（断られる帰結）を言う
+            self.assertIn("修正案が明示に外したパス", it["text"], it["where"])
+            self.assertNotIn("範囲の外", it["text"], it["where"])
+            # (b) は種の形で起こす。項目を分けてと文で頼まない（run 01004d2e で効かなかった）
+            self.assertNotIn("別の項目", it["text"], it["where"])
         self.assertIn("## [Unreleased]", (SEED / "CHANGELOG.md").read_text(encoding="utf-8"))
+
+    def test_two_items_share_no_line_in_the_test_file(self):
+        """(b) の前提の続き: test_lib.py はモジュールを 1 行ずつ import の形で読み（from の行に名を足す形でない）、README も
+        そう決める。2 項目が同じ行（run 01004d2e の『同じ import の行』）を触る形を種が作らない"""
+        text = (SEED / TESTS).read_text(encoding="utf-8")
+        lines = text.splitlines()
+        self.assertEqual([ln for ln in lines if ln.startswith(("import ", "from "))], ["import unittest", "import calc", "import textfmt"])
+        readme = (SEED / "README.md").read_text(encoding="utf-8")
+        self.assertIn("`import calc` の形", readme)
+        self.assertIn("`from calc import …` の行は書かない", readme)
+        for name in LANE_TESTS:
+            self.assertEqual(text.count(CLASS_END[name]), 1, name)
 
     def test_seed_holds_no_request_pack_or_answers(self):
         """種は対象にそのまま写る: 依頼・pack の写し・参照の直しを持たない"""
@@ -389,7 +408,8 @@ class CheckTest(unittest.TestCase):
         make_db(self.db, self.out_root, [*lane(1, 10, 50), *lane(2, 50, 90)])
         lanes = {"rows": [{"n": 1}, {"n": 2}], "shared": [], "expect": [[1, 2]],
                  "out": [{"lane": 1, "outcome": "merged", "merge": "clean"}, {"lane": 2, "outcome": "serial", "merge": "conflict"}]}
-        make_board(self.board, lanes=lanes, asks=[{**ANSWERED, "status": "refused", "decision": ""}],
+        refused = "CHANGELOG.md は項目 1 の out_of_scope（CHANGELOG.md）に当たる"
+        make_board(self.board, lanes=lanes, asks=[{**ANSWERED, "status": "refused", "decision": "", "why_refused": refused}],
                    unsettled=[{"id": 2, "item": "1", "status": "unavailable"}], replans=1)
         got = self.run_tool("--db", str(self.db), "--run", RUN, "--json")
         self.assertEqual(got.returncode, 1, got.stderr)
@@ -397,6 +417,7 @@ class CheckTest(unittest.TestCase):
         self.assertEqual([f[k]["status"] for k in ("a_parallel", "b_overlap", "c_consult", "d_replan")],
                          ["no", "attempted", "attempted", "yes"])
         self.assertIn("refused・unavailable", f["c_consult"]["why"])
+        self.assertIn(f"断った訳: {refused}", f["c_consult"]["why"], "断った相談の訳を添える")
 
     def test_unsettled_consult_counts_and_trace_wins_on_same_id(self):
         """受け付けがまだ trace へ写していない run-place の答えも数える。同じ scope と id は trace の行だけ"""

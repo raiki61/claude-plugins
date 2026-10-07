@@ -1,14 +1,14 @@
 [
  {
   "where": "calc.py:mean",
-  "text": "mean([1, 2, 3]) が 2.0 でなく 3.0 を返す（docstring の約束は算術平均）。受け入れのテストは README の決まりどおり test_lib.py の TestCalc の中に足す。この直しは利用者に見える振る舞いを変えるので、README の決まりどおり CHANGELOG.md の [Unreleased] に mean を名指す 1 行も要る。修正案の決め（canary）: この項目の allowed_paths には CHANGELOG.md を入れず、out_of_scope にも入れない。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼んでから書く（この依頼は範囲の相談の道を確かめる canary を兼ねる）",
+  "text": "mean([1, 2, 3]) が 2.0 でなく 3.0 を返す（docstring の約束は算術平均）。受け入れのテストは README の決まりどおり test_lib.py の TestCalc の中に足す。この直しは利用者に見える振る舞いを変えるので、README の決まりどおり CHANGELOG.md の [Unreleased] に mean を名指す 1 行も要る。修正案の決め（canary）: CHANGELOG.md はこの項目の allowed_paths にも out_of_scope にも書かない（どちらの欄にも CHANGELOG.md を名指さない）。out_of_scope は allowed_paths の中で触らない物の欄で、そこに名指したパスは範囲の相談が『修正案が明示に外したパス』として断るので、CHANGELOG.md を名指せばこの 1 行が書けなくなる。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼み、許しを得てから書く（この依頼は範囲の相談の道を確かめる canary を兼ねる）",
   "mechanism": "分母が len(xs) - 1 になっている（正しくは len(xs)）",
   "measured": "python3 -c 'import calc; print(calc.mean([1, 2, 3]))' が 3.0 を出した",
   "false_positive_if": "mean が標本の不偏の分散の分母を使う約束なら誤り（docstring は和を個数で割ると言う）"
  },
  {
   "where": "textfmt.py:initials",
-  "text": "initials('dark factory line') が 'DFL' でなく 'dfl' を返す（docstring の約束は各語の頭の 1 字を大文字にして連ねる。今の test_lib.py の test_initials_capitalized は頭が大文字の語しか渡さないので通っている）。受け入れのテストは README の決まりどおり test_lib.py の TestTextfmt の中に足す。この直しも利用者に見える振る舞いを変えるので、README の決まりどおり CHANGELOG.md の [Unreleased] に initials を名指す 1 行も要る。修正案の決め（canary）: この項目の allowed_paths には CHANGELOG.md を入れず、out_of_scope にも入れない。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼んでから書く",
+  "text": "initials('dark factory line') が 'DFL' でなく 'dfl' を返す（docstring の約束は各語の頭の 1 字を大文字にして連ねる。今の test_lib.py の test_initials_capitalized は頭が大文字の語しか渡さないので通っている）。受け入れのテストは README の決まりどおり test_lib.py の TestTextfmt の中に足す。この直しも利用者に見える振る舞いを変えるので、README の決まりどおり CHANGELOG.md の [Unreleased] に initials を名指す 1 行も要る。修正案の決め（canary）: CHANGELOG.md はこの項目の allowed_paths にも out_of_scope にも書かない（どちらの欄にも CHANGELOG.md を名指さない）。out_of_scope は allowed_paths の中で触らない物の欄で、そこに名指したパスは範囲の相談が『修正案が明示に外したパス』として断るので、CHANGELOG.md を名指せばこの 1 行が書けなくなる。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼み、許しを得てから書く",
   "mechanism": "頭の字 w[0] を str.upper にかけずに連ねている",
   "measured": "python3 -c 'import textfmt; print(textfmt.initials(\"dark factory line\"))' が dfl を出した",
   "false_positive_if": "initials が頭の字の大小をそのまま残す約束なら誤り（docstring は大文字にすると言う）"
