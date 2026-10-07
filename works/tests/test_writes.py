@@ -295,7 +295,8 @@ class TestReplyShape(unittest.TestCase):
             if {"Edit", "Write", "Bash"} <= set(n.get("allowed_tools") or []):
                 seen.append(n["id"])
                 self.assertEqual(n["output_format"]["properties"].get("bash_writes"), writes.BASH_WRITES_SCHEMA, n["id"])
-        self.assertEqual(seen, ["tdd", "fix", "fix-ruled"])
+        # TDD の輪の役と並べの枝の役（tdd-lane-<n>・順の輪の tdd-rest。docs/plans/2026-10-07-lane-nodes.md）と修正役の 2 つ
+        self.assertEqual(seen, ["tdd", "tdd-lane-1", "tdd-lane-2", "tdd-lane-3", "tdd-rest", "fix", "fix-ruled"])
         for fmt in (recount.FIX_OUTPUT_FORMAT, recount.RULED_OUTPUT_FORMAT):
             self.assertEqual(fmt["properties"]["bash_writes"], writes.BASH_WRITES_SCHEMA)
 

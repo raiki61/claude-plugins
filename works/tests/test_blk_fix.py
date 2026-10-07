@@ -186,7 +186,7 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(fix["idle_timeout"], DEADLINE)
         of = fix["output_format"]
         self.assertIs(of["additionalProperties"], False)
-        self.assertEqual(of["description"], "works-node: fix")
+        self.assertEqual(of["description"], "works-node: fix self-resume", "輪に答えの節が挟まっても 2 周目から自分の会話に戻る旗")
 
     def fix_prompt(self):
         import fixrules
@@ -236,6 +236,7 @@ class TestBlockYaml(unittest.TestCase):
         got = node_marker.strip(recount.FIX_OUTPUT_FORMAT)
         self.assertEqual(got["properties"].pop("conflicts"), conflict.CONFLICTS_SCHEMA, "食い違いの申し出の欄（受け付けが外して渡す）")
         self.assertEqual(got["properties"].pop("bash_writes"), recount.writes.BASH_WRITES_SCHEMA, "Bash で書いたファイルの申告の欄（受け付けが外して渡す）")
+        self.assertEqual(got["properties"].pop(conflict.CONSULT_FIELD), conflict.CONSULT_SCHEMA, "範囲の相談の頼みの欄（在れば受け付けはその周を回さない）")
         site = got["properties"]["changes"]["items"]["properties"]["closure"]["properties"]["sites"]["items"]
         self.assertEqual(site["properties"].pop(recount.SITE_PATH), recount.SITE_PATH_SCHEMA,
                          "site が在るファイルのパスの欄（unitrows が問いの当たりに結び、写しに渡す前に外す）")
@@ -244,7 +245,9 @@ class TestBlockYaml(unittest.TestCase):
                          "precedent の条件付き必須（写しの engine の型検査は if/then を読まないので graph の schema には無い）")
         self.assertEqual(got, role_schema("p3.fix"))
         mark = node_marker.parse(recount.FIX_OUTPUT_FORMAT["description"])
-        self.assertEqual((mark["name"], mark["cont"], mark["flags"]), ("fix", None, frozenset()))
+        self.assertEqual((mark["name"], mark["cont"], mark["flags"]), ("fix", None, frozenset({"self-resume"})))
+        ruled = node_marker.parse(recount.RULED_OUTPUT_FORMAT["description"])
+        self.assertEqual((ruled["name"], ruled["cont"], ruled["flags"]), ("fix-ruled", "fix", frozenset()), "continue の在る節に旗は要らない")
         self.assertIn("rejudge_requested", recount.FIX_OUTPUT_FORMAT["properties"])
         for name in ("fix2_ok", "fix2_count_not_dropped", "fix2_sites_mismatch", "fix2_silent_closure",
                      "fix2_rejudge_requested"):

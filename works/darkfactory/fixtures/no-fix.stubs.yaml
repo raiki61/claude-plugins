@@ -1121,6 +1121,14 @@ fix-consult:   # 範囲の相談の頼みの節は盤面を要るので stub（�
   prompt_file: ""
   turn: 0
   spent: false
+plan-answer:   # 範囲の相談の答えの節（頼みの無い周は起きない: when が fix-consult の go。型は blk-fix/lib/consult.py の answer_format）
+  answers:
+    - ask: 1
+      decision: defer
+      paths: []
+      tests: []
+      spec: ''
+      reason: 模擬実行では範囲の相談の頼みが無いので答えない
 fix-consult-check:   # 範囲の相談の確かめの節（頼みの無い周は何も書かない）
   consulted: false
   turn: 0
@@ -1248,6 +1256,14 @@ fix-ruled-consult:   # 範囲の相談の頼みの節は盤面を要るので st
   prompt_file: ""
   turn: 0
   spent: false
+plan-answer-ruled:   # 範囲の相談の答えの節（頼みの無い周は起きない: when が fix-ruled-consult の go。型は blk-fix/lib/consult.py の answer_format）
+  answers:
+    - ask: 1
+      decision: defer
+      paths: []
+      tests: []
+      spec: ''
+      reason: 模擬実行では範囲の相談の頼みが無いので答えない
 fix-ruled-consult-check:   # 範囲の相談の確かめの節（頼みの無い周は何も書かない）
   consulted: false
   turn: 0

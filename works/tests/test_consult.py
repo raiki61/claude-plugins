@@ -386,8 +386,10 @@ class RulesTextCase(unittest.TestCase):
         text = fixrules.ask_text("/rp/fixing/consult/consult.json", "/py/bin/python3")
         for w in ("`consult`", "factchecks.py", "/rp/fixing/consult/consult.json", "--reply", str(consult.BUDGET), "下請け"):
             self.assertIn(w, text)
+        # factchecks.py の絶対パスは置き場の名（CI の checkout は claude-plugins/ の下）を含むので、語を探す前に外す
+        bare = text.replace(str(fixrules.FACTCHECKS), "factchecks.py")
         for w in ("askplan", "--item", "--why", "claude"):
-            self.assertNotIn(w, text, "役の Bash から相談のコマンドを走らせない")
+            self.assertNotIn(w, bare, "役の Bash から相談のコマンドを走らせない")
 
     def test_sub_section_reports_to_coordinator(self):
         text = fixrules.ask_sub_text("/rp/fixing/consult/consult.json", "/py/bin/python3")

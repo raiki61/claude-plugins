@@ -201,7 +201,8 @@ class YamlCase(unittest.TestCase):
         for k in ("allowed_tools", "settingSources", "sandbox", "mutates_checkout", "idle_timeout", "model", "effort"):
             self.assertEqual(role.get(k), plan.get(k), k)
         self.assertEqual(every["plan-revise-prep"]["with"], {"role": planblk.REVISE_ROLE, "excluded_file": "$INPUTS.excluded_file",
-                                                            "replan": "$INPUTS.replan", "verify_file": "$INPUTS.verify_file"})
+                                                            "replan": "$INPUTS.replan", "verify_file": "$INPUTS.verify_file",
+                                                            "review_tree": "$INPUTS.review_tree"})
         self.assertEqual(every["plan-revise-accept"]["with"],
                          {"role": planblk.REVISE_ROLE, "reply": {"from": f"${planblk.REVISE_ROLE}.output"},
                           "replan": "$INPUTS.replan"})

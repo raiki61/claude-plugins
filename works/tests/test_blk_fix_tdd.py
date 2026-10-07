@@ -146,14 +146,17 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(start["depends_on"], ["ignored-before"])
         self.assertEqual(start["timeout"], DEADLINE)
         self.assertEqual(start["with"], {"tdd_suite": "$INPUTS.tdd_suite", "open_units": "$INPUTS.open_units",
-                                         "test_cmd": "$INPUTS.test_cmd", "unit_depths": "$INPUTS.unit_depths"})
+                                         "test_cmd": "$INPUTS.test_cmd", "unit_depths": "$INPUTS.unit_depths",
+                                         "tdd_lanes": "$INPUTS.tdd_lanes"})   # 並べの枝の切り替え（off なら lanes_on を偽に）
         self.assertEqual(loop["depends_on"], ["tdd-start"])
         self.assertEqual(loop["when"], "$tdd-start.output.go == true")
         g = loop["loop_group"]
         self.assertEqual(g["max_iterations"], tddloop.MAX_ITERATIONS)
         from test_yaml_rules import LOOP_MAX
-        self.assertEqual(set(LOOP_MAX.values()), {tddloop.MAX_ITERATIONS})
-        self.assertEqual({k[2] for k in LOOP_MAX}, {"tdd-loop", "tdd-rest-loop", "tdd-lane-loop-1", "tdd-lane-loop-2", "tdd-lane-loop-3"})
+        # 表のほかの行は修正の輪 2 つ（受け付けの 3 回と範囲の相談の枠の和。tests/test_consult.py が見る）
+        tdd_max = {k[2]: v for k, v in LOOP_MAX.items() if k[2] not in ("fix-loop", "fix-ruled-loop")}
+        self.assertEqual(set(tdd_max.values()), {tddloop.MAX_ITERATIONS})
+        self.assertEqual(set(tdd_max), {"tdd-loop", "tdd-rest-loop", "tdd-lane-loop-1", "tdd-lane-loop-2", "tdd-lane-loop-3"})
         self.assertIs(g["fresh_context"], False, "テスト→直す→整えるを同じ会話で（C17）")
         self.assertEqual(g["until_bash"], "test $tdd-step.output.done = true",
                          "印で抜ける（R50）。並べの枝を切った周も done で抜ける（並べは輪の外の節。docs/plans/2026-10-07-lane-nodes.md）")

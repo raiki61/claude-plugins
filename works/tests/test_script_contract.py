@@ -21,6 +21,9 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 - rejudge（run 28）: 修正役が判定に異議 → 再審の輪（1 回目は拒む。判定役の会話の続き）→ 差分の審査 → 手直し → 2 回目の審査 →
   2 回目の手直し → 最後のテスト（ラインの test_cmd）→ 独立の目 → 最後の関所 → 報告 fixed
 - rejudge-no-session: 同じ異議で判定役の会話が無い → h-rejudge が盤面を止め、後ろは飛んで報告は stopped_by_line
+- tdd-lanes: 修正案の項目が単位ごとに分かれ、TDD の輪の役が 2 単位とも tdd に振る → 節 tdd-fork が並べの枝の輪を 2 本起こし
+  （枝の役は 1 回目を拒む・どちらも direct の理由で枝を終える）、tdd-join が順へ戻して修正役が直す（docs/plans/2026-10-07-lane-nodes.md）。
+  項目が 2 つの事前審査は項目ごとの木の下請けの答えを要るので、入力 features_off で木を切った審査役 1 つの道で通す
 - <役>-give-up（GIVE_UPS の役: 並行 PR の任せ先・前提の実測・目的・差分の審査・手直し・2 回目の審査）: 役が 3 回とも拒まれる →
   輪は受け付けの done で 3 周目に抜け（max_iterations に当てない）、出口が盤面を止め、run は落ちずに報告まで届く（R50）。
   盤面が止まった後はどの役も起きない（並行 PR の任せ先が諦めた後の前提の実測役も）
@@ -144,6 +147,17 @@ def ai_keys():
             if any(k in n for k in scriptline.AI_KEYS)}
 
 
+def lanes_replies() -> dict:
+    """並べの筋書きの返答: 修正案の項目を単位ごとに分け（項目を共にする単位は 1 本の枝）、TDD の輪の役は 2 単位とも tdd に振り、
+    枝の役は今の単位を direct の理由で終える"""
+    r = line_replies()
+    row = r["plan"]["plan"][0]
+    keys = (TT.MEAN, TT.CLAMP)
+    lanes = {f"tdd-lane-{n}": {"phase": "test", "unit_key": k, "direct_why": DIRECT} for n, k in enumerate(keys, 1)}
+    return {**r, "plan": {"plan": [{**row, "unit_keys": [k]} for k in keys]},
+            "tdd": {"phase": "route", "units": [{"unit_key": k, "route": "tdd"} for k in keys]}, **lanes}
+
+
 def scenarios(tmp: pathlib.Path) -> dict:
     """筋書きの名 → ScriptLine の引数"""
     suite = tmp / "suite.py"
@@ -175,6 +189,8 @@ def scenarios(tmp: pathlib.Path) -> dict:
         "fix-give-up": dict(replies={**line_replies(), "fix": lambda n: {}}, edits=edits),
         "unchanged-file": dict(replies={**line_replies(), "fix": unchanged_file_fix()}, edits=edits),
         "no-fix": dict(replies=nofix, edits={}),
+        "tdd-lanes": dict(replies=lanes_replies(), edits=edits, bad_first={"tdd-lane-1"},
+                          inputs={"tdd_suite": str(suite), "features_off": "review_tree"}),
         "plan-converge": dict(replies={**line_replies(), "plan-review": converge_review,
                                        "plan-revise": converge_revise(), "refix": REFIX_FIXED, "review2": REVIEW2_OK},
                               edits={**edits, "refix": refix_edit}),
@@ -197,7 +213,7 @@ def scenarios(tmp: pathlib.Path) -> dict:
 
 OUTCOMES = {"plan-converge": "fixed", "plan-converge-stuck": "stopped_by_human",
             "material-give-up": "stopped_by_line", "material-give-up-awaiting": "stopped_by_line", "conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
-            "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request", "rejudge": "fixed",
+            "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request", "rejudge": "fixed", "tdd-lanes": "fixed",
             "rejudge-no-session": "stopped_by_line",
             **{name: "stopped_by_line" for name in GIVE_UPS.values()}}
 
@@ -321,12 +337,14 @@ class ScriptContractCase(unittest.TestCase):
                 self.assertEqual([t for t in after if t in ai], [])
 
     def test_accepts_take_both_exits(self):
-        """役の返答の受け付けのスクリプト（YAML の with: に reply を持つ節）は、通る出口と拒む出口の両方を起こした"""
+        """役の返答の受け付けのスクリプト（YAML の with: に reply を持ち、出口に ok を持つ節）は、通る出口と拒む出口の両方を起こした。
+        範囲の相談の頼みの節（consult_prep）も reply を読むが受け付けではない（出口は consulted・go。中身は test_consult）"""
         seen = {}
         for got in self.got.values():
             for r in got["runs"]:
                 n = next(m for m, _ in scriptline.walk(scriptline.flow(r["block"])["nodes"]) if m["id"] == r["node"])
-                if "reply" in (n.get("with") or {}) and r["out"] is not None:
+                if ("reply" in (n.get("with") or {}) and "ok" in ((n.get("output_format") or {}).get("properties") or {})
+                        and r["out"] is not None):
                     seen.setdefault((r["block"], n["script"]), set()).add(r["out"].get("ok"))
         self.assertTrue(seen)
         for key, oks in sorted(seen.items()):
