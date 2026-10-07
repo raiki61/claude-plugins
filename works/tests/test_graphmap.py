@@ -265,6 +265,19 @@ class CompactCase(unittest.TestCase):
         self.assertIn("lp-1〜2", text)   # 番号の続かない lp-4 はまとめない
         self.assertIn("- ∥ ⟳9 lp-4 [f.lane_4]: 枝 4 の輪", text)
 
+    def test_only_parallel_siblings_with_the_same_deps_collapse(self):
+        """番号だけ違う兄弟でも、同時に走らない（∥ でない）組・depends_on の違う組はまとめない（審査 88befff0）"""
+        n = self.node
+        g = {"version": graphmap.GRAPH_VERSION, "entry": "L", "sources": {}, "workflows": {"L": {"nodes": [
+            n("a", "script", purpose="甲"), {**n("s-1", "loop", max=2, purpose="段 1"), "deps": ["p"]},
+            {**n("s-2", "loop", max=2, purpose="段 2"), "deps": ["q"]},
+            {**n("x-1", "ai", purpose="枝 1"), "deps": ["a"]}, {**n("x-2", "ai", purpose="枝 2"), "deps": ["b"]},
+            {**n("y", "ai", purpose="別"), "deps": ["a"]}, {**n("z", "ai", purpose="別"), "deps": ["b"]},
+            {**n("w", "ai", marker="w", purpose="書く"), "deps": ["z"]}]}}}
+        text = graphmap.render(g, "w", off=[])
+        self.assertNotIn("〜", text[len(graphmap.HEAD):])
+        self.assertIn("- ⟳2 s-1: 段 1\n- ⟳2 s-2: 段 2\n- ∥ AI x-1: 枝 1\n- ∥ AI x-2: 枝 2", text)
+
     def test_condition_on_a_hidden_node_is_a_question_mark(self):
         n = self.node
         g = {"version": graphmap.GRAPH_VERSION, "entry": "L", "sources": {}, "workflows": {"L": {"nodes": [
@@ -276,6 +289,23 @@ class CompactCase(unittest.TestCase):
         self.assertIn("- ★ AI a [?]: 配管が決める", text)
         self.assertIn("- AI b [s.go]: 見える節が決める", text)
         self.assertIn("- AI c [h.go && s.x]: 混ぜ", text)   # 1 つでも地図に在る節を指すなら字のまま
+        g["workflows"]["L"]["nodes"].append({**n("d", "ai", when="$ARGS.x == 'y'", purpose="節を指さない"), "deps": ["c"]})
+        self.assertIn("- AI d [$ARGS.x=y]: 節を指さない", graphmap.render(g, "a", off=[]))   # 節を指さない条件は字のまま
+
+    def test_condition_on_a_switched_off_node_is_a_question_mark(self):
+        """切られた節（切られた輪の中の節も）は地図に出ないので、それを指す条件も [?]"""
+        n = self.node
+        g = {"version": graphmap.GRAPH_VERSION, "entry": "L", "sources": {}, "workflows": {
+            "L": {"nodes": [n("c", "call", call="B", **{"with": {"lanes": "$start.output.lanes"}}, purpose="呼ぶ")]},
+            "B": {"nodes": [n("lp", "loop", max=2, purpose="輪", needs="lanes", body=[n("r", "ai", purpose="役")]),
+                            {**n("k", "ai", when="$lp.output.go == true", purpose="輪を見る"), "deps": ["lp"]},
+                            {**n("q", "ai", marker="q", when="$r.output.go == true", purpose="役を見る"), "deps": ["k"]}]}}}
+        on = graphmap.render(g, "q", off=[])
+        self.assertIn("- AI k [lp.go]: 輪を見る", on)
+        self.assertIn("- ★ AI q [r.go]: 役を見る", on)
+        cut = graphmap.render(g, "q", off=["lanes"])
+        self.assertIn("- AI k [?]: 輪を見る", cut)
+        self.assertIn("- ★ AI q [?]: 役を見る", cut)
 
     def budget_graph(self):
         n = self.node
@@ -301,6 +331,25 @@ class CompactCase(unittest.TestCase):
             self.assertIn(word, tight)
         self.assertNotIn("目的の文", tight)
         self.assertEqual(lines[:3], graphmap.HEAD.split("\n"))
+
+    def test_budget_takes_the_entry_line_first_and_seatless_workflows_as_far(self):
+        """省く順: 入口の工程の行が先。開いた工程では、★ の無い工程の行は ★ の在る工程のどの行より遠い（審査 88befff0）"""
+        n = self.node
+        g = {"version": graphmap.GRAPH_VERSION, "entry": "L", "sources": {}, "workflows": {
+            "L": {"nodes": [n("u", "call", call="B", **{"with": {}}, purpose="入口の行の目的"),
+                            n("v", "call", call="C", **{"with": {}}, purpose="次の工程")]},
+            "B": {"nodes": [n("me", "ai", marker="me", purpose="★")]
+                  + [{**n(f"b{i}", "ai", purpose=f"B の {i} 行目"), "deps": [f"b{i - 1}" if i else "me"]} for i in range(8)]},
+            "C": {"nodes": [n("c0", "ai", purpose="C の 0 行目"), {**n("c1", "ai", purpose="C の 1 行目"), "deps": ["c0"]}]}}}
+        full = graphmap.render(g, "me", off=[], budget=None)
+        self.assertIn("C（v で走る）:", full)   # 席の工程の後に呼ばれる、★ の無い工程
+        trimmed = graphmap.render(g, "me", off=[], budget=len(full) - 1)   # 断りの 1 行の分も含め 4 つ省けば収まる
+        self.assertIn("- v ⇒ C\n", trimmed)               # 入口の工程の ★ でない行が先
+        self.assertIn("- ★ u ⇒ B: 入口の行の目的", trimmed)   # ★ の行の目的は省かない
+        self.assertIn("- AI c0\n", trimmed)               # 次は ★ の無い工程の行を、
+        self.assertTrue(trimmed.endswith("\n- AI c1"), trimmed)
+        self.assertIn("- AI b6: B の 6 行目", trimmed)     # ★ の在る工程の遠い行より先に省く
+        self.assertIn("- AI b7\n", trimmed)
 
     def test_budget_is_the_default_and_deterministic(self):
         g = self.budget_graph()

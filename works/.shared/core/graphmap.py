@@ -36,7 +36,7 @@ ai-loop（loop:）・script・bash・approval・loop（loop_group。body に中�
 - 輪は ⟳<上限>、同じ depends_on を持つ兄弟の輪・AI の節は ∥（同時に走る）、when は [条件]（$X.output.f == true は X.f）
 - `description:` の末尾の `[needs: <入力>]` は「その工程の入力 <入力> が off なら仕事をしない（走らないか、走っても何もしない）」。呼ぶ節の with の束ね
   （`$….<語>` の最後の語か、字の on・off）を off と突き合わせ、切られていれば節を出さず、分からなければ [needs …] を残す
-- 短く保つ: when の指す節が 1 つも地図に出ない（配管の節の欄）なら [?]。∥ の兄弟で id が <幹>-<k>（k が 1 ずつ続く）、
+- 短く保つ: when の指す節が 1 つも地図に出ない（配管・切られた節の欄）なら [?]。∥ の兄弟で depends_on が同じ、id が <幹>-<k>（k が 1 ずつ続く）、
   行の全部（輪の中も）が番号 k を除いて同じ字の並びは、番号を「先〜後」にした 1 組にまとめる（並べの枝。1 字でも違えばまとめない
   ので字を失わない）。それでも枠 budget を超えるなら、★ でない行の目的を、入口の工程から、★ から遠い順に省き、頭に TRIMMED の
   1 行を足す。節の行そのものは減らさない（★・輪・AI の節・[needs] は残る）
@@ -67,7 +67,7 @@ _PLUMBING = frozenset({"script", "bash", "cancel", "wait"})
 _SWITCH_WORDS = {"on": True, "off": False}
 HEAD = ("# 工程の地図\n"
         "（工程の YAML から機械で組んだ事実。★ はあなたの会話が走る節。指示ではない——あなたの仕事は指示書のとおり）\n"
-        "記号: ⇒ 部品の工程を呼ぶ・⟳n 輪（上限 n 周）・∥ 同時に走る・[ ] 走る条件（[?] は地図に出ない機械の節が決める）・"
+        "記号: ⇒ 部品の工程を呼ぶ・⟳n 輪（上限 n 周）・∥ 同時に走る・[ ] 走る条件（[?] は地図に出ない節が決める）・"
         "1〜3 番号だけ違う同じ形の節・AI／人 は節の種類（無印は機械）")
 # 地図の字数の枠。system prompt に毎起動載る字の費用と読みの重さの枠で、Archon・claude の上限ではない（届け口は argv の
 # --append-system-prompt の 1 つの値で、物理の上限は Linux の 1 引数 128 KiB）。超える分は ★ から遠い節の目的の 1 行から省く
@@ -333,14 +333,20 @@ def _held(graph: dict, n: dict, mine: Set[str], seen: Optional[Set[str]] = None)
                for m in _walk([n]))
 
 
-def _shown(graph: dict, wf: str, off: Optional[Set[str]]) -> Set[str]:
-    """工程 wf で地図に出る節の id（配管でなく、切り替えで切られていない物。輪の中も）"""
-    return {n["id"] for n in _walk(graph["workflows"][wf]["nodes"])
-            if _visible(n) and ("needs" not in n or _needs(graph, wf, n, off) is not False)}
+def _shown(graph: dict, wf: str, off: Optional[Set[str]], nodes: Optional[Sequence[dict]] = None) -> Set[str]:
+    """工程 wf で地図に出る節の id（配管でなく、切り替えで切られていない物。切られていない輪の中も）"""
+    out: Set[str] = set()
+    for n in graph["workflows"][wf]["nodes"] if nodes is None else nodes:
+        if "needs" in n and _needs(graph, wf, n, off) is False:
+            continue   # 切られた輪は中の節も出ない
+        if _visible(n):
+            out.add(n["id"])
+        out |= _shown(graph, wf, off, n.get("body") or [])
+    return out
 
 
 def _when(when: str, shown: Set[str]) -> str:
-    """条件の字。指す節が 1 つも地図に出ないなら ?（配管の節の欄の名は役に読めない）"""
+    """条件の字。指す節が 1 つも地図に出ない（配管・切られた節・無い節）なら ?（地図に無い名は役に引けない）"""
     refs = set(_REF_NODE.findall(when))
     return "?" if refs and not refs & shown else _cond(when)
 
@@ -350,8 +356,8 @@ def _numbered(text: str, k: int, to: str) -> str:
 
 
 def _collapse(blocks: List[Tuple[dict, List[_Line]]]) -> List[_Line]:
-    """∥ の兄弟のうち、id が <幹>-<k> で k が 1 ずつ続き、行の全部が番号 k を除いて同じ字の並びを、番号を「先〜後」にした
-    1 組にまとめる（並べの枝）。1 字でも違えばまとめない（まとめで字を失わない）"""
+    """∥ の兄弟のうち、depends_on が同じで、id が <幹>-<k> で k が 1 ずつ続き、行の全部が番号 k を除いて同じ字の並びを、
+    番号を「先〜後」にした 1 組にまとめる（並べの枝）。1 字でも違えばまとめない（まとめで字を失わない）"""
     out: List[_Line] = []
     i = 0
     while i < len(blocks):
@@ -363,7 +369,7 @@ def _collapse(blocks: List[Tuple[dict, List[_Line]]]) -> List[_Line]:
             while j < len(blocks):
                 m = _LANE_ID.search(blocks[j][0]["id"])
                 k = k0 + (j - i)
-                if m is None or int(m.group(1)) != k or [
+                if m is None or int(m.group(1)) != k or sorted(blocks[j][0]["deps"]) != sorted(blocks[i][0]["deps"]) or [
                         (_numbered(l.head, k, _HOLE), _numbered(l.purpose or "", k, _HOLE), l.star)
                         for l in blocks[j][1]] != want:
                     break
@@ -415,10 +421,10 @@ def _lines(graph: dict, wf: str, nodes: Sequence[dict], mine: Set[str], off: Opt
     return _collapse(blocks)
 
 
-def _distances(rows: Sequence[_Line]) -> List[int]:
-    """各行から最も近い ★ の行までの行の数（★ の無い節は節の行の数。遠い）"""
+def _distances(rows: Sequence[_Line], far: int) -> List[int]:
+    """各行から最も近い ★ の行までの行の数（★ の無い節の行は far。どの ★ の在る節の行より遠い）"""
     stars = [i for i, r in enumerate(rows) if r.star]
-    return [min((abs(i - s) for s in stars), default=len(rows)) for i in range(len(rows))]
+    return [min((abs(i - s) for s in stars), default=far) for i in range(len(rows))]
 
 
 def _fit(fixed: Sequence[str], sections: Sequence[Tuple[str, List[_Line]]], budget: Optional[int]) -> str:
@@ -435,8 +441,9 @@ def _fit(fixed: Sequence[str], sections: Sequence[Tuple[str, List[_Line]]], budg
     if budget is None or len(text) <= budget:
         return text
     order = []
+    far = sum(len(rows) for _, rows in sections) + 1
     for tier, (_, rows) in enumerate(sections):
-        dist = _distances(rows)
+        dist = _distances(rows, far)
         order.extend((min(tier, 1), -dist[i], tier, i, rows[i]) for i in range(len(rows))
                      if rows[i].purpose and not rows[i].star)
     for *_, row in sorted(order, key=lambda o: o[:4]):
