@@ -192,6 +192,27 @@ class YamlCase(unittest.TestCase):
         self.assertIn("3 つの場合", item8)
         self.assertIn("書けないなら自明なので人に回すな", item8)
 
+    def test_diagnose_prompt_cuts_units_at_the_code_level(self):
+        """単位の粒はコードの上の欠陥の形（canary の large の run a2fcf33a: 3 つのファイルの別々の式の誤りを、上方展開の上の段の
+        「テストが分かれ目を試さない」で 1 単位に束ね、b44c480f は同じ指示書で 3 単位に分けた）。上の段で交わる原因は束ねる
+        理由にせず framing・why_chain・一撃に書く。同じ形の別の現れ・1 つの直しで閉じる物だけを束ねる。根の深さ（3 項の
+        上方展開）は削らない"""
+        text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
+        cross = text[text.index("## 手順"):text.index("\n1. ")]
+        item1 = text[text.index("\n1. "):text.index("\n2. ")]
+        item3 = text[text.index("\n3. "):text.index("\n4. ")]
+        item6 = text[text.index("\n6. "):text.index("\n7. ")]
+        self.assertIn("単位を束ねる理由にしない", cross)
+        for needle in ("コードの上の欠陥の形", "別々の単位", "単位をまとめる理由ではなく", "`framing`", "`why_chain`",
+                       "`one_shot_closes`", "同じ形の別の現れ", "欠陥の行そのものへの 1 つの直しで", "一撃の側", "出自の種類"):
+            with self.subTest(needle):
+                self.assertIn(needle, item1)
+        self.assertIn("最大 3 段", item3)   # 根の深さは削らない
+        self.assertIn("1 項に戻って", item6)   # 形の違う行を pattern ごとに並べる class_query は束ね過ぎの印
+        for needle in ("書き方の揺れ", "受け入れのテストを足す所"):   # 1 項が許す束ね・1 つの欠陥の直す site には当てない
+            with self.subTest(needle):
+                self.assertIn(needle, item6)
+
     def test_diagnose_prompt_defers_question_ledger_to_mainline(self):
         """盤面の材料が在る時の問いの台帳の決まりは、材料のファイルに描いた本線の文（p2.diagnose の「問いの台帳」の節）が正本。
         指示書は awaiting・premise・unverifiable を一律に禁じない（run 27: awaiting_human の素材に awaiting を載せられず線が止まった）"""
