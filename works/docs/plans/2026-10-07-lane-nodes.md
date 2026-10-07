@@ -90,14 +90,14 @@ tdd-start → tdd-loop（振り分け。枝を切った周は tdd-step が done�
 4. 枝の輪は 3 本で、4 本目からの枝は順。単位の多い run では並べの効きが頭打ちになる
 5. 単位の控え（赤の記録・単位ごとの頭の木）は run ごとの置き場に在り、役の sandbox からも書ける。締めが赤を確かめ直すのは今どおり（3 段目の危険 6 と同じ度合い）
 
-## 7. 修正役の並べへ使い回す形（次の段。範囲の相談を節にする枝が入った後）
+## 7. 修正役の並べへ使い回す形（次の段）
 
 修正役の並べ（`fixrules.g1_values` の side・`unitlanes`。修正役が Agent で項目ごとの下請けを起こし、当てるコマンドを走らせる）は今のまま。同じ形へ移す時は次の部品をそのまま使う:
 
 - 包みの旗 lane と 2 つの印（`adapter.lane_tree_path`・`session_key_path`）。節の名を `fix-lane-<n>` にして `KEYED_NODES` と stage-models.json と座の表に足し、支度が印を書く
 - 枝の輪の 3 つ組（支度 → 役 → 確かめ）を同じ YAML の形で置き、`fork` に当たる節が `unitlanes.plant` の行から `lane_<n>` を出す。層の決まり（同じ層に `mutates_checkout: false` を置かない）も同じ
 - 確かめの節は受け付け（`fix-accept` の決まり）を単位の worktree で回す口を持つ必要がある（今の受け付けは run の作業ツリーの盤面の周を前提にする）。書き込みの記録は `tddloop.step` の口 `log` と同じく run の作業ツリーの記録に突き合わせる
-- 締めは今の `unitlanes.settle`（`fix-units`）をそのまま使う。範囲の相談（askplan）を節にした枝の後なら、相談も枝の役の会話の外の節になり、sandbox の外で回る
+- 締めは今の `unitlanes.settle`（`fix-units`）をそのまま使う。範囲の相談は既に修正の輪の中の Archon の節（`fix-consult`・`plan-answer`・`fix-consult-check`。`blk-fix/lib/consult.py`）なので、枝の役の相談も役の会話の外の節として sandbox の外で回せる。相談の節を枝の輪の中にどう置くかは、移す時に決める
 
 ## 8. 本物の run での確かめ
 
