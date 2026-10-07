@@ -8,7 +8,9 @@
 remaining に機械の記録を書く）。写しは変えない（板の POST_CHECKS は差し替えられない。ADR 0009・TA25 の置き場）。
 申告の site は works だけの欄 path（recount.SITE_PATH）で問いの当たりのファイルに結び、site の件数でなく、site が在る当たりの
 ファイルの件数（covered）を母数と比べる（site の件数と行数・ファイル数は単位が違う）。当たりの外の site（試験・文書など）は
-不一致に数えず、表の out_of_query にパスを並べる。結べない時は len(sites) で比べ、理由を discrepancies の頭に書く。
+不一致に数えず、表の out_of_query にパスを並べる。path の無い site は覆いに数えず、ファイルごとの数が引ければ path の在る site で
+同じ規則で数える。ファイルごとの数が引けない・合計と合わない時は、修正で変わったファイルを path が指す site を数える（count が
+files なら同じファイルは 1 件）。どちらも理由を discrepancies の頭に書く。
 site が名指さない当たりのファイルも、その単位の files に在り、修正前の版から実際に変わったファイル（touched。writes.changed）なら
 覆ったと数え、表の changed_cover にパスを並べる（覆いは機械が見た変更で決め、site の書き漏れで閉じていないとしない。
 canary の run a2097fd6: 母数の問いの 3 ファイルを全部直して files に並べたのに site をコードの 1 か所だけ書き、閉じていないと数えた）。
@@ -44,6 +46,10 @@ MACHINE_REMAINING = "機械の数え直しが申告と合わなかった（閉�
 COVERED_REMAINING = ("申告の site は {claimed} 件だが、修正で変わり、path が指すか単位の files に在る問いの当たりのファイルが"
                      "母数 {cap} のうち {covered} 件を覆う（写しは site の件数で数えるので、機械が書いた）")
 UNKNOWN_CHANGES = "修正前の版からの変更が読めない（site の path が指すファイルも変わったと確かめられず、覆いに数えなかった）"
+# 結べない時の数え方（_bind の理由の尾）。当たりのファイルが分からないので、覆いは修正で変わったファイルを path が指す site
+UNBOUND_HOW = "（当たりのファイルが分からず、修正で変わったファイルを path が指す site を覆いに数えた。count が files なら同じファイルは 1 件）"
+# path の無い site が在るがファイルごとの数は引けた時の理由の尾
+PATHLESS_HOW = "（path の無い site は覆いに数えず、path の在る site と単位の files で数えた）"
 RULING_REMAINING = "裁定 {id} が判定者の問いを置き換えた（判定者の問いは直した後の正しい形にも当たった）"
 
 
@@ -69,28 +75,38 @@ def _norm(p):
     return None if q.startswith("/") or q == ".." or q.startswith("../") or q == "." else q
 
 
-def _bind(sites, cap, files, moved=None, declared=frozenset()):
+def _bind(sites, cap, files, moved=None, declared=frozenset(), by_file=False):
     """site を問いの当たりのファイルに結ぶ ——（covered, 当たりの外のパス, 結べない理由, 変更で覆った当たりのファイル,
-    site が名指したが変わっていない当たりのファイル）。files は ({パス: 件数}, 拒否文) か None。moved は修正前の版から変わった
+    site が名指したが変わっていない当たりのファイル, site を当たりのファイルに結べたか（path の在る site が在るか site が無く、
+    ファイルごとの数が引けた））。files は ({パス: 件数}, 拒否文) か None。moved は修正前の版から変わった
     ファイル（_norm 済み。None は読めなかった）、declared はこの単位の files（_norm 済み）。当たりのファイルは、変わっていて、
     site が名指すか declared に在れば覆ったと数える（site が名指すだけでは数えない。名指さず declared で覆った物を 4 つ目、
-    名指したが変わっていない物を 5 つ目に並べる）。moved が None なら何も覆わない。結べなければ covered は len(sites)（今の数え方）"""
+    名指したが変わっていない物を 5 つ目に並べる）。moved が None なら何も覆わない。path の無い site はどれも覆いに数えず、
+    ファイルごとの数が引ければ path の在る site で同じ規則で数え、理由（path が無い）を返す。ファイルごとの数が引けない・合計と
+    合わない時は当たりのファイルが分からないので、修正で変わったファイルを path が指す site を数える（by_file（count が files）
+    なら同じファイルは 1 件）。files が None（結ぶ口を渡さない呼び元。take は渡す）なら len(sites)"""
     if files is None:
-        return len(sites), [], "", [], []
+        return len(sites), [], "", [], [], False
     paths = [_norm(s.get(recount.SITE_PATH)) for s in sites]
-    unpathed = sum(p is None for p in paths)
-    if unpathed:
-        return len(sites), [], f"path が無い site {unpathed} 件（今の数え方で比べた）", [], []
+    named = [p for p in paths if p is not None]
+    unpathed = f"path が無い site {len(paths) - len(named)} 件" if len(named) < len(paths) else ""
     got, why = files
     if why or not isinstance(got, dict):
-        return len(sites), [], f"ファイルごとに数えられない（{why}）（今の数え方で比べた）", [], []
-    got = {_norm(k): v for k, v in got.items()}
-    if sum(got.values()) != cap:
-        return len(sites), [], f"ファイルごとの数が合計と合わない（ファイルごと {sum(got.values())}・合計 {cap}）（今の数え方で比べた）", [], []
-    hit, moved_ = set(paths), moved or set()
+        loose = f"ファイルごとに数えられない（{why}）"
+    else:
+        got = {_norm(k): v for k, v in got.items()}
+        loose = "" if sum(got.values()) == cap else \
+            f"ファイルごとの数が合計と合わない（ファイルごと {sum(got.values())}・合計 {cap}）"
+    moved_ = moved or set()
+    if loose:
+        on = [p for p in named if p in moved_]
+        covered = len(set(on)) if by_file else len(on)
+        return covered, [], "・".join(filter(None, (unpathed, loose))) + UNBOUND_HOW, [], [], False
+    hit = set(named)
     cover = {p for p in got if p in moved_ and (p in hit or p in declared)}
     unchanged = sorted(p for p in got if p in hit and p not in moved_) if moved is not None else []
-    return sum(got[p] for p in cover), sorted(hit - set(got)), "", sorted(cover - hit), unchanged
+    return (sum(got[p] for p in cover), sorted(hit - set(got)), unpathed + PATHLESS_HOW if unpathed else "",
+            sorted(cover - hit), unchanged, bool(named) or not paths)
 
 
 def file_counts(how, root, rev=None, timeout=60):
@@ -152,16 +168,17 @@ def build(changes, judged: dict, *, count, blank, zero_keys=(), replaced=None, p
         claimed = len(sites)
         cap = total if total else after
         declared = {q for q in map(_norm, c.get("files") or []) if q}
-        covered, out_of_query, unbound, changed_cover, unchanged_sites = _bind(
-            sites, cap, per_file(how, bool(total)) if per_file else None, moved, declared)
-        bound = per_file is not None and not unbound
+        covered, out_of_query, unbound, changed_cover, unchanged_sites, by_hits = _bind(
+            sites, cap, per_file(how, bool(total)) if per_file else None, moved, declared, how.get("count") == "files")
+        bound = per_file is not None and by_hits   # path の無い site が在っても、ほかの site を結べた
+        unknown = per_file is not None and moved is None   # 変更が読めず、覆いを数えていない（結べても結べなくても）
         remaining = not blank(cov.get("remaining"), MIN_REMAINING)
         jt = 0 if key in zero_keys else jq.get("total")
         narrowed = isinstance(jt, int) and not isinstance(jt, bool) and total < jt
-        bad = [unbound] if unbound else [UNKNOWN_CHANGES] if bound and moved is None else []
-        if covered > cap:   # 結べた時は covered が母数を超えない。結べない時の今の数え方にだけ立つ
-            bad.append(f"申告の closure.sites {covered} 件が母数 {cap} を超える")
-        if covered < cap and not remaining and not (bound and moved is None):   # 変更が読めない時は覆いを数えていない（理由は頭に在る）
+        bad = ([unbound] if unbound else []) + ([UNKNOWN_CHANGES] if unknown else [])
+        if not bound and claimed > cap:   # 結べた時は当たりの外の site を out_of_query に分ける。結べない時は申告の件数で比べる
+            bad.append(f"申告の closure.sites {claimed} 件が母数 {cap} を超える")
+        if covered < cap and not remaining and not unknown:   # 変更が読めない時は覆いを数えていない（理由は頭に在る）
             bad.append(f"母数 {cap} のうち修正で覆った当たりは {covered} 件で、remaining が無い")
         if narrowed and not remaining and not rq:
             bad.append(f"問いが判定者の母数 {jt} より狭い（修正前 {total}）のに remaining が無い")
@@ -175,8 +192,9 @@ def build(changes, judged: dict, *, count, blank, zero_keys=(), replaced=None, p
         a_cap = a_total if a_total else a_after
         a_covered, a_changed_cover, a_unchanged = covered, changed_cover, unchanged_sites
         if auth != how:
-            a_covered, _, a_unbound, a_changed_cover, a_unchanged = _bind(
-                sites, a_cap, per_file(auth, bool(a_total)) if per_file else None, moved, declared)
+            a_covered, _, a_unbound, a_changed_cover, a_unchanged, _ = _bind(
+                sites, a_cap, per_file(auth, bool(a_total)) if per_file else None, moved, declared,
+                isinstance(auth, dict) and auth.get("count") == "files")
             if a_unbound:   # closed を決める数が site の件数になった理由を黙って捨てない
                 bad.append(f"判定者の問いで {a_unbound}")
         closed = a_after == 0 if counts == "defects" else min(a_covered, a_cap) >= a_cap

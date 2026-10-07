@@ -230,7 +230,7 @@ def save_closure(b, rows: list) -> pathlib.Path:
     changed_cover, unchanged_sites, discrepancies}]} を盤面の置き場に置く（covered は修正で変わり、申告の site が在るか単位の files に
     在る問いの当たりのファイルの件数、changed_cover はそのうち site が名指さず変更で覆ったファイルのパス、unchanged_sites は site が
     名指したが修正で変わっていない当たりのファイルのパス（覆いに数えない）、out_of_query は当たりの外の
-    site のパス、bound は site を当たりのファイルに結べたか。結べなければ covered は claimed と同じ）。（受けた返答の分で上書きする。読む側は今の周の表だけを読む）。
+    site のパス、bound は site を当たりのファイルに結べたか。結べなければ covered は機械が数えた覆い（ファイルごとの数が引ければ単位の files で覆った当たりの件数、引けなければ修正で変わったファイルを path が指す site の件数））。（受けた返答の分で上書きする。読む側は今の周の表だけを読む）。
     置き場は盤面の今の scope の根（b.scope_root。修正のブロックの include ごとに分かれ、2 回目の修正の段が 1 回目の表を上書きしない）"""
     p = pathlib.Path(b.scope_root) / CLOSURE_FILE
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -282,7 +282,9 @@ def closure_lines(b, *, mismatched_only: bool = False, stuck_only: bool = False,
         if show:
             state = "閉じた" if r.get("closed") else "閉じていない"
             out.append(f"{r.get('unit_key')}: {state}（{r.get('counts')}・修正前 {r.get('total')}・修正後 {r.get('after')}・"
-                       f"申告の site {r.get('claimed')}" + (f"・修正で覆った当たり {r['covered']}" if r.get("bound") else "") +
+                       f"申告の site {r.get('claimed')}" + (f"・修正で覆った当たり {r['covered']}" if r.get("bound") else
+                                                         f"・機械が覆いに数えた {r['covered']}"
+                                                         if r.get("covered") != r.get("claimed") else "") +
                        f"・問い {r.get('how_from')}）" + (f"——合わない: {' / '.join(bad)}" if bad else "") +
                        (f"——site が名指さず変更で覆った当たりのファイル: {', '.join(r['changed_cover'])}" if r.get("changed_cover") else "") +
                        (f"——site が名指したが修正で変わっていない当たりのファイル: {', '.join(r['unchanged_sites'])}"

@@ -166,11 +166,12 @@ class SitePathCase(unittest.TestCase):
         self.assertEqual(row["discrepancies"], [], row)
         self.assertIs(row["closed"], False, "population の closed は覆った当たりの件数で決める（同じファイルの site は増えない）")
 
-    def test_sites_without_path_fall_back_to_the_site_count_with_a_reason(self):
+    def test_sites_without_path_are_not_counted_with_a_reason(self):
+        """path の無い site は覆いに数えず、ほかの site はファイルごとの数で結ぶ（申告の件数で『超える』と比べない）"""
         sites = [{"site": "上限の枝", "red_seen": True, "path": "stats.py"}, {"site": "試験", "red_seen": False}]
         _, row = self.build(sites, total=1, after=0, files={"stats.py": 1})
         self.assertTrue(row["discrepancies"][0].startswith("path が無い site 1 件"), row)
-        self.assertTrue(any("超える" in d for d in row["discrepancies"]), row)
+        self.assertEqual((row["covered"], row["bound"], row["closed"], len(row["discrepancies"])), (1, True, True, 1), row)
 
     def test_per_file_sum_not_matching_the_total_is_not_used_silently(self):
         sites = [{"site": "上限の枝", "red_seen": True, "path": "stats.py"}, {"site": "試験", "red_seen": False,
@@ -431,6 +432,79 @@ class SiteNeedsChangeCase(unittest.TestCase):
         self.assertTrue(any(d.startswith("判定者の問いで") and "走らない" in d for d in row["discrepancies"]), row)
 
 
+class UnboundSitesNeedChangeCase(unittest.TestCase):
+    """site を問いの当たりのファイルに結べない時（path の無い site・ファイルごとに数えられない・ファイルごとの数が合計と合わない）も、
+    覆いは site の件数のまま数えず、修正前の版から実際に変わったファイル（touched）を path が指す site だけを数える（0.2.40 の
+    「site の path が名指すファイルも変わった物だけを覆いに数える」と同じ 1 本の規則。修正役の指示書もそう言う）。前は結べない時に
+    len(sites) で数え、population の当たり 5 ファイルを site に並べて 2 ファイルだけ変えた直しが、ファイルごとの数が引けないだけで
+    閉じた（食い違いの行は出るが closed は真で、報告は直ったと数えた）。結べない理由は今どおり食い違いの頭に残す"""
+    KEY = PopulationMembersCase.KEY
+    HOW = {"patterns": ["TODO"], "paths": ["."], "count": "files", "fixed": True}
+    FIVE = ["a.py", "b.py", "c.py", "d.py", "e.py"]
+
+    def build(self, sites, *, touched, per_file=lambda h, at_rev: (None, "時間切れ"), remaining=None):
+        c = {"unit_key": self.KEY, "files": list(self.FIVE), "what": "直した",
+             "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v", "sites": sites}}
+        if remaining:
+            c["coverage"] = {"remaining": remaining}
+        out, rows = unitrows.build([c], {self.KEY: {"how": self.HOW, "counts": "population", "total": 5}},
+                                   count=lambda h, at_rev: (5, ""), blank=blank, per_file=per_file, touched=touched)
+        return out[0], rows[0]
+
+    def sites(self, paths):
+        return [{"site": f"s{i}", "red_seen": i == 0, **({"path": p} if p else {})} for i, p in enumerate(paths)]
+
+    def test_uncountable_per_file_counts_only_sites_on_changed_files(self):
+        _, row = self.build(self.sites(self.FIVE), touched=["a.py", "b.py"])
+        self.assertEqual((row["covered"], row["closed"], row["bound"]), (2, False, False), row)
+        self.assertTrue(row["discrepancies"][0].startswith("ファイルごとに数えられない"), row)
+        self.assertTrue(any("remaining が無い" in d for d in row["discrepancies"]), row)
+
+    def test_uncountable_per_file_closes_when_every_named_file_changed(self):
+        _, row = self.build(self.sites(self.FIVE), touched=self.FIVE)
+        self.assertEqual((row["covered"], row["closed"], len(row["discrepancies"])), (5, True, 1), row)
+
+    def test_sum_mismatch_counts_only_sites_on_changed_files(self):
+        _, row = self.build(self.sites(self.FIVE), touched=["a.py"], per_file=lambda h, at_rev: ({"a.py": 1}, ""),
+                            remaining="残りの 4 ファイルは別の線が直す")
+        self.assertEqual((row["covered"], row["closed"]), (1, False), row)
+        self.assertTrue(row["discrepancies"][0].startswith("ファイルごとの数が合計と合わない"), row)
+
+    def test_site_without_path_does_not_cover(self):
+        """path の無い site はどのファイルが変わったかを指さないので覆いに数えない（申告だけで閉じたと言わない）。ファイルごとの数が
+        引ければ、path の在る site と単位の files で、結べた時と同じ規則で数える（e.py は site が名指さないが単位の files に在り
+        変わった）"""
+        per_file = lambda h, at_rev: ({p: 1 for p in self.FIVE}, "")   # noqa: E731
+        _, row = self.build(self.sites(["a.py", "b.py", "c.py", "d.py", None]), touched=self.FIVE, per_file=per_file)
+        self.assertEqual((row["covered"], row["closed"], row["changed_cover"]), (5, True, ["e.py"]), row)
+        self.assertTrue(row["discrepancies"][0].startswith("path が無い site 1 件"), row)
+        _, row = self.build(self.sites(["a.py", "b.py", "c.py", "d.py", None]), touched=["a.py", "b.py", "c.py", "d.py"],
+                            per_file=per_file)
+        self.assertEqual((row["covered"], row["closed"]), (4, False), row)
+
+    def test_pathless_site_does_not_switch_to_a_looser_count(self):
+        """審査の再現: 結べば閉じない申告に path の無い site を 1 件足しても閉じない（当たりの外の site・同じファイルの site の
+        重なりを、結べない時の数え方で覆いに足さない）"""
+        per_file = lambda h, at_rev: ({p: 1 for p in self.FIVE}, "")   # noqa: E731
+        tests = ["tests/t1.py", "tests/t2.py", "tests/t3.py"]
+        _, row = self.build(self.sites(["a.py", "b.py", *tests, None]), touched=["a.py", "b.py", *tests], per_file=per_file)
+        self.assertEqual((row["covered"], row["closed"], row["out_of_query"]), (2, False, tests), row)
+        _, row = self.build(self.sites(["a.py"] * 5 + [None]), touched=["a.py"], per_file=per_file)
+        self.assertEqual((row["covered"], row["closed"]), (1, False), row)
+
+    def test_uncountable_per_file_counts_a_file_once_for_files_queries(self):
+        """ファイルごとの数が引けない時、count が files の問いは同じファイルを指す site を 1 件に数える（当たりは 1 ファイル 1 件）"""
+        _, row = self.build(self.sites(["a.py"] * 5), touched=["a.py"])
+        self.assertEqual((row["covered"], row["closed"]), (1, False), row)
+
+    def test_unbound_without_touched_covers_nothing_and_says_why(self):
+        _, row = self.build(self.sites(self.FIVE), touched=None)
+        self.assertEqual((row["covered"], row["closed"]), (0, False), row)
+        self.assertTrue(row["discrepancies"][0].startswith("ファイルごとに数えられない"), row)
+        self.assertEqual(row["discrepancies"][1:], [unitrows.UNKNOWN_CHANGES],
+                         "覆いを数えなかった理由を足し、覆いから出る食い違い（remaining が無い）を重ねない")
+
+
 class ClosureLinesCase(unittest.TestCase):
     def test_lines_and_mismatched_only(self):
         tmp = tempfile.TemporaryDirectory()
@@ -460,6 +534,19 @@ class ClosureLinesCase(unittest.TestCase):
         line, = querytest.closure_lines(b)
         self.assertIn("修正で覆った当たり 4", line)
         self.assertIn("site が名指したが修正で変わっていない当たりのファイル: stats.py, units.py", line)
+
+    def test_unbound_line_shows_sites_on_changed_files(self):
+        """結べない行も、機械が覆いに数えた件数（閉じたかを決めた数）を行に出す（申告の site が母数に
+        届くのに閉じていない理由が行で読める）。数が申告と同じなら出さない"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1, scope_root=pathlib.Path(tmp.name))
+        row = {"unit_key": "a", "counts": "population", "total": 5, "after": 5, "claimed": 5, "covered": 2, "bound": False,
+               "closed": False, "how_from": "判定者", "discrepancies": ["ファイルごとに数えられない（時間切れ）"]}
+        querytest.save_closure(b, [row, {**row, "unit_key": "b", "covered": 5, "closed": True}])
+        a, b_line = querytest.closure_lines(b)
+        self.assertIn("・機械が覆いに数えた 2", a)
+        self.assertNotIn("機械が覆いに数えた", b_line)
 
 class ClosureScopesCase(unittest.TestCase):
     def test_rows_come_from_the_last_include_with_this_round(self):
