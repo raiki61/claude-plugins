@@ -35,7 +35,6 @@ def count_lines(text):
 
 
 def squeeze(s, ch=" "):
-    """ch の連なりを 1 つにする"""
     out = []
     for c in s:
         if c == ch and out and out[-1] == ch:

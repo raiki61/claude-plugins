@@ -1,0 +1,16 @@
+[
+ {
+  "where": "calc.py:clamp",
+  "text": "clamp に docstring が無く、help(calc.clamp) に約束が出ない（README の決まり: 公開の関数は docstring に約束を書く）。今の振る舞い（x を lo と hi の間に収める）は test_lib.py の TestCalc の test_clamp_within・test_clamp_below・test_clamp_above が確かめていて正しいので、振る舞いは変えずに docstring を足す。README の決まりどおり、docstring を足した直しはCHANGELOG.md の [Unreleased] の ### calc の下に clamp を名指す 1 行も要る。修正案の決め（canary）: CHANGELOG.md はこの項目の allowed_paths にも out_of_scope にも書かない（どちらの欄にも CHANGELOG.md を名指さない）。out_of_scope は allowed_paths の中で触らない物の欄で、CHANGELOG.md は allowed_paths に無く、この 1 行で書く物なので当たらない。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼み、許しを得てから書く（この依頼は修正役の並べの枝の中の範囲の相談の道を確かめる canary を兼ねる）",
+  "mechanism": "def clamp の本体の頭に docstring の文が無い（同じファイルの mean・median には在る）",
+  "measured": "python3 -c 'import calc; print(calc.clamp.__doc__)' が None を出した",
+  "false_positive_if": "clamp が公開の関数でない（README の決まりの外）なら誤り（名は _ で始まらず、README は公開の関数の全部に docstring を求める）"
+ },
+ {
+  "where": "textfmt.py:squeeze",
+  "text": "squeeze に docstring が無く、help(textfmt.squeeze) に約束が出ない（README の決まり: 公開の関数は docstring に約束を書く）。今の振る舞い（s の中の ch の連なりを 1 つに詰める）は test_lib.py の TestTextfmt の test_squeeze が確かめていて正しいので、振る舞いは変えずに docstring を足す。README の決まりどおり、docstring を足した直しも CHANGELOG.md の [Unreleased] の ### textfmt の下に squeeze を名指す 1 行が要る。修正案の決め（canary）: CHANGELOG.md はこの項目の allowed_paths にも out_of_scope にも書かない（どちらの欄にも CHANGELOG.md を名指さない）。out_of_scope は allowed_paths の中で触らない物の欄で、CHANGELOG.md は allowed_paths に無く、この 1 行で書く物なので当たらない。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼み、許しを得てから書く",
+  "mechanism": "def squeeze の本体の頭に docstring の文が無い（同じファイルのほかの関数には在る）",
+  "measured": "python3 -c 'import textfmt; print(textfmt.squeeze.__doc__)' が None を出した",
+  "false_positive_if": "squeeze が公開の関数でない（README の決まりの外）なら誤り（名は _ で始まらず、README は公開の関数の全部に docstring を求める）"
+ }
+]

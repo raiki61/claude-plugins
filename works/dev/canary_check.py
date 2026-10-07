@@ -1,12 +1,16 @@
 """works/dev/canary_check.py — canary の run（dev/canary.sh）が、狙った道を本当に通ったかを、終わった run の記録から出す（開発の殻。
 読むだけで何も書かない）。
 
-  python3 canary_check.py <canary の置き場> [<run-id>] [--json]
-  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--json]
+  python3 canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix] [--json]
+  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] [--request tdd|fix] [--json]
 
 置き場の形は canary.sh が作る物（home/archon-home/archon.db・home/runs/<run-id>.json・home/diffs/run-<id>.diff）。run-id を省けば
 home/runs の一番新しい控えの run。盤面は Archon の run の行の output_root の下の artifacts/runs/<id>/board（--board で替える）。
 db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（盤面の隣の run-place）はファイルを読むだけ。
+包みの起動の記録（adapter.py の launches。置き場の形では home/adapter/launches/*.jsonl、--db の形では --launches で名指す）も
+読むだけで、行のどれかが盤面の run（/runs/<run-id>/）を名指すファイルだけをその run の物と見る。
+--request は canary.sh の --request と同じ語（tdd は既定の canary-request.json、fix は canary-request-fix.json）で、終了コードだけを
+変える（fix なら (e) も yes でないと 1）。出す物は同じ。
 
 見る道（canary.sh の頭の (a)〜(d)）と、通ったと言う決まり:
 - (a) parallel（別のファイルの 2 項目以上の並べ）: no の時は、TDD の輪が振り分けの後に並べなかった理由（盤面の trace の
@@ -32,6 +36,13 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
   answered の行が在る。refused・invalid・unavailable だけなら attempted（断った行の訳 why_refused を添える。0.2.35 までの
   版は修正案が out_of_scope に名指したパスも断った。0.2.36 からは断らずに答えの節へ回す）
 - (d) replan（run の中の案の直し。起きなくてよい）: trace の replan_state・plan_amended・conflict_parked・conflict_ruled の数を出すだけ
+- (e) fix_lanes（修正役の並べを本物で通したか。canary-request-fix.json の狙い。docs/plans/2026-10-07-fix-lane-nodes.md の 9 節）:
+  植えた枝（trace の fix_lanes_planted の lanes と項目）・枝の輪の同時の最大（(a) と同じ fix-lane-loop-<n> と中の節の区間）・
+  締めの行（fix_lanes_settled の merged・back・parked・shared・union）・枝の中の相談（trace の plan_scope_asked のうち pass が
+  lane-<n> の行）・答えの節 plan-answer-lane-<n> の包みの起動（session の mode・fork・of・from・id）を出す。
+  通ったと言う決まり: 植えた枝が 2 本以上・枝の輪が同時に 2 本以上・締めの行が在る・枝の中の相談に answered が在る・
+  plan-answer-lane-<n> の起動が 1 つ以上在り、どれも旗 fork の形（mode continued・fork true・元 from が在り新しい id が元と違う。
+  adapter.py の頭の 1）。植えなければ no（fix-fork の理由を添える）、植えて足りない物が在れば attempted（足りない物を名指す）
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
 tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から node_completed・node_failed まで）、AI の節の費用の和
@@ -39,7 +50,8 @@ tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から no
 取れない節の名と理由（Archon が costUsd を source unavailable で記録した節。和に入らないので、和は下限）、出来事の最初から
 最後までの分、差分が変えたファイル。
 
-終了コード: 0 = (a)(b)(c) が全部 yes・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・run が無い（標準エラーに 1 行）。
+終了コード: 0 = (a)(b)(c)（--request fix なら (e) も）が全部 yes・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・
+run が無い（標準エラーに 1 行）。
 出力は辞書を書いた順（同じ入力なら同じ出力）。時刻は記録の物だけを使う。
 """
 from __future__ import annotations
@@ -63,6 +75,7 @@ import conflict  # noqa: E402  trace の行の語（ASKED_OP・PARK_OP・RULE_OP
 import fixlanes  # noqa: E402  修正役の並べの締めの trace の行の語（SETTLED_OP）・合わせの結末の語（MERGED）
 import gatemarks  # noqa: E402  報告の冒頭の起きたことの行の頭（HAPPENED）
 import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERED）
+import adapter  # noqa: E402    包みの起動の記録の旗の語（FORK）
 import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
 import report  # noqa: E402    節の名の最後の語（_step_name）と費用の読み（_event_cost）
 import tddlanes  # noqa: E402  合わせの結末の語（UNION・CLASH・SEMANTIC）
@@ -79,8 +92,13 @@ FIX_LANE_NODE = re.compile(r"(?:fix-lane-(?:loop-|prep-|step-|consult-check-|con
 OLD_UNITS_OP = "units_settled"   # 前の形の修正役の締めの trace の行（0.2.36 まで。修正役が Agent で項目の下請けを並べた run）
 OLD_ASK_PLACE, OLD_ASK_LOG = "ask-plan", "exchanges.jsonl"   # 前の形 askplan.py の run ごとの置き場の相談の記録（受け付けが trace へ写す前）
 REPLAN_OPS = (conflict.REPLAN_OP, planmarks.AMEND_OP, conflict.PARK_OP, conflict.RULE_OP)
-USAGE = ("usage: canary_check.py <canary の置き場> [<run-id>] [--json] | "
-         "canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--json]")
+LANE_PASS = re.compile(r"lane-(\d+)")   # 枝の中の相談の段の名（consult の pass。fix-lane-consult-check-<n> の with の pass）
+ANSWER_LANE = re.compile(r"plan-answer-lane-(\d+)")   # 枝の答えの節（印 continue=fix-planner fork）
+LAUNCHES = ("adapter", "launches")   # 利用の家の下の包みの起動の記録の置き場（adapter.launches_path）
+REQUESTS = ("tdd", "fix")   # canary.sh の --request の語（fix は (e) も終了コードに入れる）
+USAGE = ("usage: canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix] [--json] | "
+         "canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] "
+         "[--request tdd|fix] [--json]")
 
 
 class Refused(Exception):
@@ -209,8 +227,8 @@ def tdd_lanes(board: pathlib.Path, items: list = ()) -> list:
 
 
 def consults(board: pathlib.Path, trace: list) -> list:
-    """範囲の相談の行（trace の ASKED_OP と、前の形の run-place のまだ写していない記録）[{scope, id, item, status, decision, paths,
-    granted_paths, why_refused, settled}]。同じ scope と id は trace の行だけ"""
+    """範囲の相談の行（trace の ASKED_OP と、前の形の run-place のまだ写していない記録）[{scope, id, item, pass, node, status,
+    decision, paths, granted_paths, why_refused, settled}]（pass は相談の段: 修正の輪は first・ruled、修正役の並べの枝は lane-<n>）。同じ scope と id は trace の行だけ"""
     rows, seen = [], set()
     for r in trace:
         if r.get("op") == conflict.ASKED_OP:
@@ -223,9 +241,81 @@ def consults(board: pathlib.Path, trace: list) -> list:
             if (scope, r.get("id")) not in seen:
                 seen.add((scope, r.get("id")))
                 rows.append((scope, r, False))
-    return [{"scope": s, "id": r.get("id"), "item": r.get("item"), "status": r.get("status", ""),
+    return [{"scope": s, "id": r.get("id"), "item": r.get("item"), "pass": r.get("pass") or "", "node": r.get("node") or "",
+             "status": r.get("status", ""),
              "decision": r.get("decision", ""), "paths": r.get("paths") or [], "granted_paths": r.get("granted_paths") or [],
              "why_refused": r.get("why_refused") or "", "settled": settled} for s, r, settled in rows]
+
+
+def run_launches(launches_dir, run_id: str) -> list | None:
+    """包みの起動の記録のうち、この run の物の行（ファイルのどれかの行が /runs/<run-id>/ を名指すファイルの全部の行。ファイルの名の
+    順）。置き場が無い・名指しが無い（None を渡した）なら None（読めない。空の [] は記録が在って行が無い時だけ）"""
+    if launches_dir is None or not pathlib.Path(launches_dir).is_dir():
+        return None
+    mark = f"/runs/{run_id}/"
+    out, found = [], False
+    for path in sorted(pathlib.Path(launches_dir).glob("*.jsonl")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if mark in text:
+            found = True
+            out += _jsonl(path)
+    return out if found else None
+
+
+def answer_launches(rows: list | None) -> list:
+    """枝の答えの節（plan-answer-lane-<n>）の起動 [{node, mode, fork, of, from, id}]（起動の順）"""
+    out = []
+    for r in rows or []:
+        node = r.get("node")
+        if not isinstance(node, str) or not ANSWER_LANE.fullmatch(node):
+            continue
+        s = r.get("session") if isinstance(r.get("session"), dict) else {}
+        out.append({"node": node, "mode": s.get("mode") or "", "fork": s.get(adapter.FORK) is True, "of": s.get("of") or "",
+                    "from": s.get("from") or "", "id": s.get("id") or ""})
+    return out
+
+
+def forked(launch: dict) -> bool:
+    """旗 fork の起動の形か（adapter.py の頭の 1: continue=X を X の会話の写しで起こし、新しい id をこの節の名で記録する）"""
+    return (launch["mode"] == "continued" and launch["fork"] and bool(launch["from"]) and bool(launch["id"])
+            and launch["id"] != launch["from"])
+
+
+def fix_lane_run(trace: list, asks: list, fix_lane_nodes: dict, launches: list | None) -> tuple[dict, dict]:
+    """((e) の判じ {status, why}, 出す証拠 {planted, items, parallel, settled, consults, answer_launches, launches_read})"""
+    planted = [r for r in trace if r.get("op") == fixlanes.PLANTED_OP]
+    best = max(planted, key=lambda r: r.get("lanes") or 0, default={})
+    n = best.get("lanes") or 0
+    settled = [r for r in trace if r.get("op") == fixlanes.SETTLED_OP]
+    last = settled[-1] if settled else None
+    in_lane = [{"lane": r["pass"], "id": r["id"], "item": r["item"], "status": r["status"], "decision": r["decision"],
+                "granted_paths": r["granted_paths"]} for r in asks if LANE_PASS.fullmatch(str(r.get("pass") or ""))]
+    runs = answer_launches(launches)
+    got = {"planted": n, "items": best.get("items") or {}, "parallel": fix_lane_nodes["parallel"],
+           "settled": ({"lanes": last.get("lanes") or 0, **{k: last.get(k) or [] for k in ("merged", "back", "parked", "shared",
+                                                                                          "union")}} if last else None),
+           "consults": in_lane, "answer_launches": runs, "launches_read": launches is not None}
+    if n < 2:
+        whys = [r.get("why") or "" for r in planted if not r.get("lanes")]
+        return {"status": NO, "why": "修正役の並べを植えなかった（" + ("・".join(w for w in whys if w) or "fix-fork の行が無い")
+                + "）"}, got
+    answered = [r for r in in_lane if r["status"] == consult.ANSWERED]
+    ok_fork = [r for r in runs if forked(r)]
+    facts = [f"植えた枝 {n} 本（項目 {got['items']}）", f"枝の輪の同時の最大 {got['parallel']}",
+             (f"締め merged {last.get('merged') or []}・back {last.get('back') or []}・shared {last.get('shared') or []}"
+              if last else "締めの行が無い"),
+             f"枝の中の相談 {len(in_lane)}（答えた {len(answered)}）"]
+    if launches is None:
+        facts.append("包みの起動の記録が無い（旗 fork を確かめられない）")
+    else:
+        bad = [r["node"] for r in runs if not forked(r)]
+        facts.append(f"旗 fork の起動 {len(ok_fork)}/{len(runs)}" + (f"（fork でない: {'・'.join(bad)}）" if bad else ""))
+    yes = (got["parallel"] >= 2 and last is not None and answered and launches is not None and runs
+           and len(ok_fork) == len(runs))
+    return {"status": YES if yes else ATTEMPTED, "why": "・".join(facts)}, got
 
 
 def outcome(board: pathlib.Path) -> str:
@@ -337,7 +427,8 @@ def diff_files(path) -> list | None:
 
 
 # ---------------------------------------------------------------- 判じる
-def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) -> dict:
+def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, launches=None) -> dict:
+    """launches は包みの起動の記録の置き場（run_launches。None なら読まない）"""
     trace = _jsonl(board / "trace.jsonl")
     items = plan_items(board)
     planned = planned_overlap(items)
@@ -412,6 +503,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         c = {"status": NO, "why": "相談の記録が無い"}
 
     d = {op: sum(1 for r in trace if r.get("op") == op) for op in REPLAN_OPS}
+    e, fix_run = fix_lane_run(trace, asks, fix_lane_nodes, run_launches(launches, run_id))
     changed = diff_files(diff) if diff else None
     return {
         "run_id": run_id,
@@ -420,7 +512,8 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         "board": str(board),
         "report": str(board / report.REPORT_FILE) if (board / report.REPORT_FILE).is_file() else "",
         "features": {"a_parallel": a, "b_overlap": b, "c_consult": c,
-                     "d_replan": {"status": YES if d[conflict.REPLAN_OP] or d[planmarks.AMEND_OP] else NO, "counts": d}},
+                     "d_replan": {"status": YES if d[conflict.REPLAN_OP] or d[planmarks.AMEND_OP] else NO, "counts": d},
+                     "e_fix_lanes": e},
         "plan_items": items,
         "planned_overlap": planned,
         "tdd_lanes": loops,
@@ -432,6 +525,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         "agents": spans,
         "lane_nodes": lane_nodes,
         "fix_lane_nodes": fix_lane_nodes,
+        "fix_lane_run": fix_run,
         "nodes": node_peak(events),
         "spend": spend(events),
         "diff_files": changed,
@@ -445,6 +539,10 @@ def summary_lines(got: dict) -> list:
                       ("c_consult", "(c) 範囲の相談")):
         out.append(f"{name}: {f[key]['status']} — {f[key]['why']}")
     out.append(f"(d) run の中の案の直し（起きなくてよい）: {f['d_replan']['status']} — {f['d_replan']['counts']}")
+    out.append(f"(e) 修正役の並べ: {f['e_fix_lanes']['status']} — {f['e_fix_lanes']['why']}")
+    for r in got["fix_lane_run"]["answer_launches"]:
+        out.append(f"  {r['node']} {r['mode'] or '?'}{' fork' if r['fork'] else ''} 元 {r['of'] or '?'}（{r['from'] or '?'} → "
+                   f"{r['id'] or '?'}）")
     lanes = {}
     for lp in got["tdd_lanes"]:
         for r in lp["rows"]:
@@ -473,7 +571,7 @@ def _from_root(root: pathlib.Path, run_id: str | None) -> tuple:
         if not ledgers:
             raise Refused(f"run の控えが無い（{home / 'runs'}）。run-id を名指す")
         run_id = ledgers[-1].stem
-    return home / "archon-home" / "archon.db", run_id, home / "diffs" / f"run-{run_id}.diff"
+    return home / "archon-home" / "archon.db", run_id, home / "diffs" / f"run-{run_id}.diff", home.joinpath(*LAUNCHES)
 
 
 def main(argv=None) -> int:
@@ -487,19 +585,21 @@ def main(argv=None) -> int:
     p.add_argument("--run")
     p.add_argument("--board")
     p.add_argument("--diff")
+    p.add_argument("--launches")
+    p.add_argument("--request", default=REQUESTS[0])
     p.add_argument("--json", action="store_true")
     try:
         a, rest = p.parse_known_args(argv)
-        if rest:
+        if rest or a.request not in REQUESTS:
             raise Refused(USAGE)
         if a.db:
             if a.root or a.run_id or not a.run:
                 raise Refused(USAGE)
-            db, run_id, diff = pathlib.Path(a.db), a.run, a.diff
+            db, run_id, diff, launches = pathlib.Path(a.db), a.run, a.diff, a.launches
         else:
-            if not a.root or a.run:
+            if not a.root or a.run or a.launches:
                 raise Refused(USAGE)
-            db, run_id, diff = _from_root(pathlib.Path(a.root), a.run_id)
+            db, run_id, diff, launches = _from_root(pathlib.Path(a.root), a.run_id)
             diff = a.diff or (diff if diff.is_file() else None)
         row, events = read_run(db, run_id)
         board = pathlib.Path(a.board) if a.board else \
@@ -512,12 +612,13 @@ def main(argv=None) -> int:
     except SystemExit:
         print(f"canary_check.py: {USAGE}", file=sys.stderr)
         return 2
-    got = check(run_id, row, events, board, diff)
+    got = check(run_id, row, events, board, diff, launches)
     if a.json:
         print(json.dumps(got, ensure_ascii=False))
     else:
         print("\n".join(summary_lines(got)))
-    return 0 if all(got["features"][k]["status"] == YES for k in ("a_parallel", "b_overlap", "c_consult")) else 1
+    want = ("a_parallel", "b_overlap", "c_consult") + (("e_fix_lanes",) if a.request == "fix" else ())
+    return 0 if all(got["features"][k]["status"] == YES for k in want) else 1
 
 
 if __name__ == "__main__":

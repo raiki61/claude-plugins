@@ -20,7 +20,6 @@ def median(xs):
 
 
 def clamp(x, lo, hi):
-    """x を [lo, hi] に収める"""
     if x < lo:
         return lo
     if x > hi:

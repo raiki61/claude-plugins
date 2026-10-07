@@ -1,7 +1,8 @@
 #!/bin/sh
-# works/dev/canary.sh [--build-only] [<置き場>]
+# works/dev/canary.sh [--build-only] [--request tdd|fix] [<置き場>]
 #
-# canary: 決まった小さな対象（canary-seed/）と決まった依頼（canary-request.json）で、ライン darkfactory を本物の AI で 1 回回す
+# canary: 決まった小さな対象（canary-seed/）と決まった依頼（--request tdd は canary-request.json（既定）・fix は
+# canary-request-fix.json）で、ライン darkfactory を本物の AI で 1 回回す
 # （費用が掛かる。回す前に持ち主の了承を取る）。普段の依頼ではたまにしか通らない道を 1 run でまとめて通し、版ごとの確かめにする:
 #   (a) 別のファイルの 2 項目（calc.py:mean と textfmt.py:initials）: TDD の輪の枝の並べ
 #   (b) 2 項目が同じファイルを別の所で変える: 種のテストは test_lib.py の 1 本だけで、README の決まりがテストをモジュールごとの
@@ -17,7 +18,18 @@
 #       役の指示書に貼られず判定者の見立てや裏取りが写した時だけ届き、計画役が CHANGELOG.md を allowed_paths に入れれば相談は
 #       起きない（run 245042a7・4c32bf37）。工場を変えずに種の形で縛る道は見つからない（訳は README の「canary」の節）
 #   (d) run の中の案の直しは起きてもよい（起こさせない）
-# 依頼の 2 件は docstring の約束で直し方が 1 つに決まる（端の振る舞いを人に聞く余地を残さない）。ラインは 1 周の run なので
+# --request fix（canary-request-fix.json。docs/plans/2026-10-07-fix-lane-nodes.md の 9 節の本物の確かめ）は、上の依頼では通らない
+# 修正役の並べ（fix-fork → fix-lane-loop-<n> → fix-join）を通す:
+#   (e) 別のファイルの 2 項目（calc.py:clamp と textfmt.py:squeeze。どちらも docstring が無い）: 枝に入るのは範囲（allowed_paths）を
+#       持ち、TDD の輪が緑にしなかった単位の項目だけ（fixlanes.candidates・tddloop.green_units）。tdd の依頼の 2 件は TDD の輪が
+#       緑にするので枝が 0 本になる（run 0a5062f4 の fix_lanes_planted の why「範囲の在る項目 0・枝 0」）。種の README の決まりは
+#       テストが振る舞いだけを確かめ docstring の有無や字を縛らないと言うので、docstring を足すだけの直しには先に落ちるテストが
+#       無く、計画役の道（route）も TDD の役の振り分けも direct が素直（修正案の指示書は tdd に先に落ちる受け入れのテストを求め
+#       （planmarks.HEAD）、TDD の役の振り分けの指示は文書だけの直しを direct の例に挙げる（tddloop.DO））。
+#       依頼の文は道を言わない。2 本の枝が同時に走り、各枝が CHANGELOG.md の 1 行で範囲の相談をし、答えの節 plan-answer-lane-<n>
+#       が修正案の役の会話の写し（包みの旗 fork）で答え、締め fix-join が 2 本の CHANGELOG.md の足しを合わせる（(a)(b)(c) も通る）。
+#       (c) と同じく、計画役が CHANGELOG.md を allowed_paths に入れれば相談は起きない。TDD の輪は振り分けの 1 回だけ回る
+# どちらの依頼の 2 件も docstring と README の決まりで直し方が 1 つに決まる（端の振る舞いを人に聞く余地を残さない）。ラインは 1 周の run なので
 # （entry.start の stop_after_round=1。canary が決めた物ではない）、報告の「止めたか」は「周の締めの後で止めた」と出るのが普通の
 # 終わり。残り（検証器の阻害・独立の目の阻害など）が無ければ結末は fixed、在れば round_limit（2 周目は回らない）。
 # 何が実際に通ったかは、終わった run を canary_check.py が読んで出す（読むだけ）。
@@ -32,31 +44,53 @@
 #      人の関所では止まらずに報告まで進む。終わるまで戻らないので、呼び手は裏で起こす（run_in_background か detach.sh）。
 #   3. 戻ったら run id と、canary_check.py の行を出す。走っている間の run id と状態は、先頭に出す show の行で見る。
 # --build-only: 1 だけをして、2 の起動の行を出して終わる（認証も Archon も使わない）。
+# --request: 依頼の語（tdd か fix。既定 tdd）。種・test_cmd・手順は同じ。3 の canary_check.py の行に同じ語を付ける（fix は (e) も
+# 終了コードに入れる）。
 # 認証は use.sh が WORKS_KEYCHAIN_ITEM の項目から拾う（値は出さない）。canary は名指しの項目だけで回すので、空なら何も作らずに止まる。
 # 模型は WORKS_DEV_MODEL（use.sh と同じ。ここでは埋めない）。WORKS_DEV_USE は use.sh の差し替え（試験が偽物を差す）。
-# 拒む（何も作らずに 1 行で終了コード 2）: 置き場が Claude Code の一時フォルダか /tmp の下・置き場に前の repo・origin.git・home が在る・
+# 拒む（何も作らずに 1 行で終了コード 2）: 知らない旗・--request の語が tdd・fix のどれでもない・置き場が Claude Code の一時フォルダか /tmp の下・置き場に前の repo・origin.git・home が在る・
 # python3 -I で pytest が読めない（隔離した家では利用者の site-packages が見えない）・WORKS_KEYCHAIN_ITEM が空（--build-only は見ない）。
 set -eu
 
+USAGE="usage: canary.sh [--build-only] [--request tdd|fix] [<置き場>]"
 BUILD_ONLY=""
-if [ "${1:-}" = --build-only ]; then
-  BUILD_ONLY=1
-  shift
-fi
+REQUEST_WORD=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --build-only) BUILD_ONLY=1; shift ;;
+    --request)
+      if [ "$#" -lt 2 ] || [ -n "$REQUEST_WORD" ]; then
+        echo "$USAGE" >&2
+        exit 2
+      fi
+      REQUEST_WORD=$2
+      shift 2
+      ;;
+    --) shift; break ;;
+    -*) echo "$USAGE" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
 if [ "$#" -gt 1 ]; then
-  echo "usage: canary.sh [--build-only] [<置き場>]" >&2
+  echo "$USAGE" >&2
   exit 2
 fi
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 USE_SH="${WORKS_DEV_USE:-$DEV_DIR/use.sh}"
-REQUEST="$DEV_DIR/canary-request.json"
 TEST_CMD="python3 -m pytest -q"
 
 refuse() {
   echo "canary.sh: $*" >&2
   exit 2
 }
+
+REQUEST_WORD="${REQUEST_WORD:-tdd}"
+case "$REQUEST_WORD" in
+  tdd) REQUEST="$DEV_DIR/canary-request.json" ;;
+  fix) REQUEST="$DEV_DIR/canary-request-fix.json" ;;
+  *) refuse "--request は tdd か fix（${REQUEST_WORD}）" ;;
+esac
 
 . "$DEV_DIR/guard.sh"
 ROOT_IN="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/works-canary/$(date +%Y%m%d-%H%M%S)-$$}"
@@ -104,7 +138,7 @@ g -C "$REPO" push -q origin main
 g -C "$REPO" fetch -q origin
 g -C "$REPO" remote set-head origin main >/dev/null
 
-echo "canary の置き場: ${ROOT}（対象 repo/・origin origin.git/・利用の家 home/）"
+echo "canary の置き場: ${ROOT}（対象 repo/・origin origin.git/・利用の家 home/）・依頼 ${REQUEST}（--request ${REQUEST_WORD}）"
 START="WORKS_USE_HOME=$HOME_DIR WORKS_USE_UNATTENDED=1 sh $USE_SH start $REPO $REQUEST \"$TEST_CMD\""
 if [ -n "$BUILD_ONLY" ]; then
   echo "起動の行（--build-only なので起こさない。WORKS_KEYCHAIN_ITEM を前に付けて打つ）: ${START}"
@@ -124,7 +158,7 @@ echo "use.sh start の終了コード: $run_status"
 RID="$(ls -t "$HOME_DIR/runs" 2>/dev/null | sed -n 's/\.json$//p' | sed -n 1p)"
 if [ -n "$RID" ]; then
   echo "canary の run id: $RID"
-  echo "何が通ったかを見る（読むだけ）: python3 $DEV_DIR/canary_check.py $ROOT $RID"
+  echo "何が通ったかを見る（読むだけ）: python3 $DEV_DIR/canary_check.py $ROOT $RID --request $REQUEST_WORD"
 else
   echo "canary の run を結べなかった（${HOME_DIR}/runs に控えが無い）。上の use.sh の行を見る"
 fi

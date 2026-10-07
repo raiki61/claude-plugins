@@ -14,11 +14,19 @@
 - 依頼は入口の依頼の型（写しの RL の REQUEST_SCHEMA）を通り、where のファイルが種に在る。項目を分けてと文で頼まず、各件は
   CHANGELOG.md を allowed_paths にも out_of_scope にも名指さないと言い、1 行を足す見出しを名指す。0.2.35 までの訳（相談が
   「修正案が明示に外したパス」として断る）は今の相談に合わないので言わない。
+- canary-request-fix.json（canary.sh --request fix。修正役の並べの枝を本物で通す）: 種で docstring の無い公開の関数は依頼の 2 件
+  （calc.py:clamp・textfmt.py:squeeze）だけで、件ごとの参照の直し（docstring と CHANGELOG の自分の見出しの下の 1 行）は独立に
+  効き、振る舞いを変えない（種のテストは緑・既定の依頼の約束は赤のまま）。2 本の枝の CHANGELOG の 1 行は 3 方向で合う。種の README の
+  決まりがテストに docstring を縛らせず docstring の直しにも CHANGELOG の 1 行を求め、依頼は道（route）も項目の分け方も言わない。
+  殻の --request は知らない語・値の無い旗・2 度の旗を何も作らずに拒む。
 - 確かめ役 canary_check.py: 一時の置き場に sqlite の偽の archon.db（Archon の 2 つの表の要る列だけ）と偽の盤面（trace.jsonl・
   plan-fields.json・tdd-<k>/state.json と枝の差分の控え・run-place の相談の記録・report.md）を置き、(a)〜(d) の判じ・案の重なり・
-  項目ごとのファイル・費用と取れない節・結末・時間・終了コードと、読むだけで何も書かないことを見る。
-子のプロセスは python3（種のテストと PROBES）と git merge-file と、種の写しの git（gitkit の型の写し。リポジトリを作らない）だけ。
+  項目ごとのファイル・費用と取れない節・結末・時間・終了コードと、読むだけで何も書かないことを見る。(e) 修正役の並べは
+  偽の包みの起動の記録（home/adapter/launches/*.jsonl）も置き、植えた枝・枝の輪の同時・枝の中の相談・答えの節の旗 fork を見る。
+子のプロセスは python3（種のテストと PROBES）と git merge-file と、種の写しの git（gitkit の型の写し。リポジトリを作らない）と、
+拒みだけを見る sh canary.sh だけ。
 """
+import ast
 import hashlib
 import json
 import pathlib
@@ -42,6 +50,8 @@ import unittrees  # noqa: E402
 
 SEED = ROOT / "dev" / "canary-seed"
 REQUEST = ROOT / "dev" / "canary-request.json"
+REQUEST_FIX = ROOT / "dev" / "canary-request-fix.json"   # canary.sh --request fix（修正役の並べの枝を本物で通す）
+CANARY_SH = ROOT / "dev" / "canary.sh"
 TOOL = ROOT / "dev" / "canary_check.py"
 TESTS = "test_lib.py"   # 種のただ 1 本のテストのファイル（README の決まり）
 
@@ -75,6 +85,20 @@ LANE_TESTS = {
     "mean": "\n\n    def test_mean_arithmetic(self):\n        self.assertEqual(calc.mean([1, 2, 3]), 2)\n",
     "initials": "\n\n    def test_initials_lowercase(self):\n        self.assertEqual(textfmt.initials(\"dark factory line\"), \"DFL\")\n",
 }
+# canary-request-fix.json の 2 件（docstring の欠け）の約束と CHANGELOG の行。種では全部赤、参照の直しの後は緑。振る舞いは変えない
+DOC_PROBES = {
+    "clamp_doc": "import calc; assert (calc.clamp.__doc__ or '').strip()",
+    "squeeze_doc": "import textfmt; assert (textfmt.squeeze.__doc__ or '').strip()",
+    "changelog_clamp": _changelog_has("clamp"),
+    "changelog_squeeze": _changelog_has("squeeze"),
+}
+DOC_FIXES = {
+    "clamp": [("calc.py", "def clamp(x, lo, hi):\n", 'def clamp(x, lo, hi):\n    """x を [lo, hi] に収める"""\n'),
+              ("CHANGELOG.md", "### calc\n", "### calc\n\n- clamp: docstring を足した\n")],
+    "squeeze": [("textfmt.py", 'def squeeze(s, ch=" "):\n', 'def squeeze(s, ch=" "):\n    """ch の連なりを 1 つにする"""\n'),
+                ("CHANGELOG.md", "### textfmt\n", "### textfmt\n\n- squeeze: docstring を足した\n")],
+}
+DOC_FIX_PROBES = {"clamp": {"clamp_doc", "changelog_clamp"}, "squeeze": {"squeeze_doc", "changelog_squeeze"}}
 PROBE_RUN = """
 import json, sys
 out = {}
@@ -110,7 +134,7 @@ class SeedTest(unittest.TestCase):
         d = self.tmp / "-".join(["seed", *fixes, "t", *tests])
         shutil.copytree(SEED, d)
         for name in fixes:
-            for rel, old, new in FIXES[name]:
+            for rel, old, new in {**FIXES, **DOC_FIXES}[name]:
                 p = d / rel
                 text = p.read_text(encoding="utf-8")
                 self.assertEqual(text.count(old), 1, f"参照の直し {name} の前の字が {rel} に 1 つだけ在る")
@@ -120,8 +144,8 @@ class SeedTest(unittest.TestCase):
             p.write_text(with_lane_tests(p.read_text(encoding="utf-8"), *tests), encoding="utf-8")
         return d
 
-    def probes(self, d) -> dict:
-        got = subprocess.run([sys.executable, "-c", PROBE_RUN, json.dumps(PROBES)], cwd=d, env=_env(),
+    def probes(self, d, probes=PROBES) -> dict:
+        got = subprocess.run([sys.executable, "-c", PROBE_RUN, json.dumps(probes)], cwd=d, env=_env(),
                              capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(got.returncode, 0, got.stderr)
         return json.loads(got.stdout)
@@ -296,10 +320,93 @@ class SeedTest(unittest.TestCase):
         for name in LANE_TESTS:
             self.assertEqual(text.count(CLASS_END[name]), 1, name)
 
+    def test_doc_gaps_present_and_each_doc_fix_is_independent(self):
+        """canary-request-fix.json の前提: 種では 2 件の docstring の欠けと CHANGELOG の行が赤。件ごとの参照の直し（docstring を
+        足して CHANGELOG の自分の見出しの下に 1 行）はその件の約束だけを緑にし、2 件とも当てても振る舞いは変わらない（種のテストは
+        緑のまま・canary-request.json の 2 件の約束は赤のまま）"""
+        self.assertEqual(self.probes(self.copy(), DOC_PROBES), {k: False for k in DOC_PROBES})
+        for name in DOC_FIXES:
+            with self.subTest(name):
+                got = self.probes(self.copy((name,)), DOC_PROBES)
+                self.assertEqual({k for k, v in got.items() if v}, DOC_FIX_PROBES[name])
+        d = self.copy(tuple(DOC_FIXES))
+        self.assertEqual(self.probes(d, DOC_PROBES), {k: True for k in DOC_PROBES})
+        self.assertEqual(self.probes(d), {k: False for k in PROBES})
+        self.suite_green(d)
+
+    def test_doc_changelog_lines_of_two_lanes_merge_cleanly(self):
+        """2 本の修正役の枝が CHANGELOG.md の自分のモジュールの見出しの下に足す 1 行は 3 方向で食い違わずに合う（締めの shared）"""
+        base = (SEED / "CHANGELOG.md").read_text(encoding="utf-8")
+        sides = [base.replace(old, new) for name in DOC_FIXES for rel, old, new in DOC_FIXES[name] if rel == "CHANGELOG.md"]
+        rc, merged = self.merge(base, *sides)
+        self.assertEqual(rc, 0, "字の食い違いが出た:\n" + merged)
+        d = self.copy()
+        (d / "CHANGELOG.md").write_text(merged, encoding="utf-8")
+        got = self.probes(d, DOC_PROBES)
+        self.assertEqual((got["changelog_clamp"], got["changelog_squeeze"]), (True, True))
+
+    def test_only_the_requested_functions_lack_a_docstring(self):
+        """種の公開の関数で docstring の無い物は canary-request-fix.json の 2 件だけ（README の決まり: 公開の関数は docstring に約束を
+        書く）。ほかの欠けを種が作らない"""
+        missing = []
+        for mod in ("calc.py", "textfmt.py"):
+            tree = ast.parse((SEED / mod).read_text(encoding="utf-8"))
+            missing += [f"{mod}:{f.name}" for f in tree.body if isinstance(f, ast.FunctionDef)
+                        and not f.name.startswith("_") and ast.get_docstring(f) is None]
+        self.assertEqual(missing, ["calc.py:clamp", "textfmt.py:squeeze"])
+
+    def test_readme_rules_make_doc_fixes_test_free_and_logged(self):
+        """種の README の決まりが、docstring の直しを先に落ちるテストの無い直し（テストは振る舞いだけを確かめ、docstring の有無や字を
+        縛らない）にし、CHANGELOG.md の見出しの下の 1 行を求める。工場の語（route・direct・tdd）で決めない"""
+        readme = (SEED / "README.md").read_text(encoding="utf-8")
+        for word in ("公開の関数は docstring", "docstring の有無や字はテストで確かめない", "docstring を足した・直した直しも"):
+            self.assertIn(word, readme)
+        for word in ("route", "direct", "tdd", "TDD"):
+            self.assertNotIn(word, readme)
+
+    def test_fix_request_names_doc_gaps_in_separate_modules_and_no_route(self):
+        """canary-request-fix.json は入口の型を通り、where は別々のモジュールの docstring の無い関数を名指す。範囲の相談を通すため
+        各件は CHANGELOG.md を allowed_paths にも out_of_scope にも名指さないと言い、1 行を足す見出しを名指す。道（route）や
+        項目の分け方を文で頼まない（種の README の決まりと docstring の欠けで素直な案が決まる）"""
+        _, _, items, _, _ = entry._read_request(str(REQUEST_FIX), SEED, entry.board_rules())
+        self.assertEqual(sorted(it["where"] for it in items), ["calc.py:clamp", "textfmt.py:squeeze"])
+        heads = {"calc.py": SUBHEADING["mean"], "textfmt.py": SUBHEADING["initials"]}
+        for it in items:
+            for word in ("CHANGELOG.md", "allowed_paths", "out_of_scope", "範囲の相談", "docstring",
+                         heads[it["where"].split(":", 1)[0]]):
+                self.assertIn(word, it["text"], it["where"])
+            blob = json.dumps(it, ensure_ascii=False)
+            for word in ("範囲の外", "明示に外したパス", "別の項目", "route", "direct", "tdd", "TDD", "テストを先に"):
+                self.assertNotIn(word, blob, it["where"])
+
     def test_seed_holds_no_request_pack_or_answers(self):
         """種は対象にそのまま写る: 依頼・pack の写し・参照の直しを持たない"""
         names = {p.relative_to(SEED).as_posix() for p in SEED.rglob("*") if p.is_file()}
         self.assertEqual(names, {".gitignore", "README.md", "CHANGELOG.md", "calc.py", "textfmt.py", TESTS})
+
+
+class CanaryShTest(unittest.TestCase):
+    """canary.sh の --request（tdd は canary-request.json・fix は canary-request-fix.json）。知らない語・値の無い旗は何も作らずに 2"""
+
+    def test_unknown_or_missing_request_is_refused_before_anything(self):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="canary-sh-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name, args in {"知らない語": ("--request", "nope"), "値が無い": ("--request",),
+                           "旗が 2 度": ("--request", "fix", "--request", "tdd")}.items():
+            with self.subTest(name):
+                place = tmp / "place"
+                got = subprocess.run(["sh", str(CANARY_SH), "--build-only", *args, *([str(place)] if args[-1] != "--request" else [])],
+                                     capture_output=True, text=True, encoding="utf-8", env=_env())
+                self.assertEqual(got.returncode, 2, got.stdout + got.stderr)
+                self.assertEqual(len(got.stderr.strip().splitlines()), 1, got.stderr)
+                self.assertFalse(place.exists())
+
+    def test_each_request_word_names_an_existing_request_file(self):
+        """canary.sh の頭の語と依頼のファイルの対応が、在るファイルを名指す"""
+        text = CANARY_SH.read_text(encoding="utf-8")
+        for word, path in (("tdd", REQUEST), ("fix", REQUEST_FIX)):
+            self.assertIn(f"{word}) REQUEST=\"$DEV_DIR/{path.name}\"", text)
+            self.assertTrue(path.is_file(), path)
 
 
 # ---------------------------------------------------------------- 偽の archon.db と盤面
@@ -408,6 +515,23 @@ def full_events():
             *node(fix, 210, 400, usd=2.0), *task(fix, "f1", 220, 300), *task(fix, "f2", 250, 380),
             *node("fixing__fix-loop", 205, 405, usd=3.25, kind="loop_group"), *node("report", 410, 420, usd=None),
             ev("tool_called", fix, 600)]
+
+
+PLANNER = "planner-session"
+DOC_ITEMS = [{"route": "direct", "unit_keys": ["calc.py:clamp docstring"], "allowed_paths": ["calc.py"], "tests": []},
+             {"route": "direct", "unit_keys": ["textfmt.py:squeeze docstring"], "allowed_paths": ["textfmt.py"], "tests": []}]
+
+
+def fixer_lane(n, start, end):
+    """修正役の並べの枝の輪 n（輪の節と中の支度・役・相談の 3 節・確かめ。docs/plans/2026-10-07-fix-lane-nodes.md）"""
+    loop = f"fixing__fix-lane-loop-{n}"
+    return [*node(loop, start, end, usd=None, kind="loop_group"),
+            *node(f"{loop}.fix-lane-prep-{n}", start, start + 1, kind="exec"),
+            *node(f"{loop}.fix-lane-{n}", start + 1, end - 4, usd=0.5),
+            *node(f"{loop}.fix-lane-consult-{n}", end - 4, end - 3, kind="exec"),
+            *node(f"{loop}.plan-answer-lane-{n}", end - 3, end - 2, usd=0.1),
+            *node(f"{loop}.fix-lane-consult-check-{n}", end - 2, end - 1, kind="exec"),
+            *node(f"{loop}.fix-lane-step-{n}", end - 1, end, kind="exec")]
 
 
 class CheckTest(unittest.TestCase):
@@ -583,6 +707,108 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(canary_check.check(RUN, row, serial, self.board)["features"]["a_parallel"]["status"], "no",
                          "枝の輪が順に走っただけなら並べの証拠でない")
 
+    def fixer_run(self, *, fork=True, asks=None, launches=True, planted=2, second=(12, 50)):
+        """修正役の並べの run の形（canary-request-fix.json の狙い）: 枝の輪 2 本・植えた行と締めの行・枝の中の相談・包みの起動の記録"""
+        make_db(self.db, self.out_root, [*fixer_lane(1, 10, 60), *fixer_lane(2, *second)])
+        planted_rows = ([{"lanes": planted, "items": {"1": [1], "2": [2]}, "rest": [], "expect": []}] if planted
+                        else [{"lanes": 0, "why": "並べる枝が 2 本に満たない（範囲の在る項目 0・枝 0）"}])
+        lane_asks = [{**ANSWERED, "id": n, "item": str(n), "pass": f"lane-{n}", "node": f"plan-answer-lane-{n}"}
+                     for n in (1, 2)] if asks is None else asks
+        make_board(self.board, items=DOC_ITEMS, planted=planted_rows, asks=lane_asks,
+                   fix_lanes={"lanes": 2, "merged": [1, 2], "back": [], "shared": ["CHANGELOG.md"], "union": []}
+                   if planted else None, report=FULL_REPORT)
+        write(self.root / "home" / "runs" / f"{RUN}.json", {})
+        if launches:
+            rows = [{"node": "premises", "session": {"mode": "new", "id": "s0"},
+                     "fence": {"run_place": f"{self.out_root}/artifacts/runs/{RUN}/run-place"}},
+                    {"node": "plan", "session": {"mode": "new", "id": PLANNER}}]
+            for n in (1, 2):
+                s = {"mode": "continued", "id": f"fork-{n}", "of": "fix-planner", "from": PLANNER}
+                rows.append({"node": f"plan-answer-lane-{n}", "session": {**s, "fork": True} if fork else {**s, "id": PLANNER}})
+            write(self.root / "home" / "adapter" / "launches" / "k1.jsonl",
+                  "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+            # ほかの run の起動の記録（run id を名指さない）は読まない
+            write(self.root / "home" / "adapter" / "launches" / "k0.jsonl",
+                  json.dumps({"node": "plan-answer-lane-1", "session": {"mode": "continued", "id": PLANNER}}) + "\n")
+
+    def test_fixer_lane_run_reports_lanes_consults_and_fork(self):
+        """(e) 修正役の並べ: 植えた枝 2 本・枝の輪の同時の最大 2・枝の中の相談（pass が lane-<n>）の答え・答えの節の起動が旗 fork
+        （包みの起動の記録の session が mode continued・fork true・元は修正案の役の会話・新しい id）なら yes。--request fix は
+        (e) も終了コードに入れる"""
+        self.fixer_run()
+        got = self.run_tool(str(self.root), "--request", "fix", "--json")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        doc = json.loads(got.stdout)
+        e = doc["features"]["e_fix_lanes"]
+        self.assertEqual(e["status"], "yes", e["why"])
+        for word in ("植えた枝 2 本", "枝の輪の同時の最大 2", "枝の中の相談 2（答えた 2）", "旗 fork の起動 2/2"):
+            self.assertIn(word, e["why"])
+        fl = doc["fix_lane_run"]
+        self.assertEqual((fl["planted"], fl["items"], fl["parallel"]), (2, {"1": [1], "2": [2]}, 2))
+        self.assertEqual(fl["settled"], {"lanes": 2, "merged": [1, 2], "back": [], "parked": [], "shared": ["CHANGELOG.md"],
+                                         "union": []})
+        self.assertEqual([(r["lane"], r["status"], r["decision"]) for r in fl["consults"]],
+                         [("lane-1", "answered", "allow"), ("lane-2", "answered", "allow")])
+        self.assertEqual([(r["node"], r["mode"], r["fork"], r["of"], r["from"], r["id"]) for r in fl["answer_launches"]],
+                         [("plan-answer-lane-1", "continued", True, "fix-planner", PLANNER, "fork-1"),
+                          ("plan-answer-lane-2", "continued", True, "fix-planner", PLANNER, "fork-2")])
+        self.assertEqual(doc["features"]["a_parallel"]["status"], "yes")
+        self.assertEqual(doc["features"]["b_overlap"]["status"], "yes", "2 本の枝の CHANGELOG.md を締めが合わせた")
+        text = self.run_tool(str(self.root), "--request", "fix")
+        self.assertEqual(text.returncode, 0)
+        self.assertIn("(e) 修正役の並べ: yes", text.stdout)
+        self.assertIn("  plan-answer-lane-1 continued fork 元 fix-planner", text.stdout)
+
+    def test_fixer_lane_answer_without_fork_is_attempted(self):
+        """答えの節の起動が旗 fork でない（元の会話に積んだ）なら (e) は attempted で、その節を名指す。--request fix の終了コードは 1、
+        --request が無ければ (e) は終了コードに入れない"""
+        self.fixer_run(fork=False)
+        got = self.run_tool(str(self.root), "--request", "fix", "--json")
+        self.assertEqual(got.returncode, 1, got.stderr)
+        e = json.loads(got.stdout)["features"]["e_fix_lanes"]
+        self.assertEqual(e["status"], "attempted")
+        self.assertIn("旗 fork の起動 0/2", e["why"])
+        self.assertIn("plan-answer-lane-1", e["why"])
+        self.assertEqual(self.run_tool(str(self.root)).returncode, 0, "既定の canary は (a)〜(c) だけで終了コードを決める")
+
+    def test_fixer_lanes_without_lane_consult_or_launches_are_attempted(self):
+        """枝が並んでも、枝の中の相談が無い（修正の輪の相談だけ）か、包みの起動の記録が無ければ (e) は attempted"""
+        self.fixer_run(asks=[{**ANSWERED, "pass": "first", "node": "plan-answer"}])
+        e = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["e_fix_lanes"]
+        self.assertEqual(e["status"], "attempted")
+        self.assertIn("枝の中の相談 0", e["why"])
+        shutil.rmtree(self.root / "home" / "adapter")
+        doc = json.loads(self.run_tool(str(self.root), "--json").stdout)
+        self.assertEqual(doc["features"]["e_fix_lanes"]["status"], "attempted")
+        self.assertIn("包みの起動の記録が無い", doc["features"]["e_fix_lanes"]["why"])
+        self.assertEqual(doc["fix_lane_run"]["answer_launches"], [])
+
+    def test_fixer_lanes_serial_or_not_planted_are_not_yes(self):
+        """枝の輪が順に走っただけなら attempted。植えなければ no で、fix-fork の理由を添える"""
+        self.fixer_run(second=(60, 100))
+        e = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["e_fix_lanes"]
+        self.assertEqual(e["status"], "attempted")
+        self.assertIn("枝の輪の同時の最大 1", e["why"])
+        shutil.rmtree(self.tmp)
+        self.tmp.mkdir()
+        self.db.parent.mkdir(parents=True)
+        self.fixer_run(planted=0, asks=[])
+        got = self.run_tool(str(self.root), "--request", "fix", "--json")
+        self.assertEqual(got.returncode, 1)
+        e = json.loads(got.stdout)["features"]["e_fix_lanes"]
+        self.assertEqual(e["status"], "no")
+        self.assertIn("並べる枝が 2 本に満たない（範囲の在る項目 0・枝 0）", e["why"])
+
+    def test_db_mode_reads_launches_dir(self):
+        """--db の形は --launches <包みの起動の記録の置き場> で起動の記録を読む（無ければ読まない）"""
+        self.fixer_run()
+        launches = self.root / "home" / "adapter" / "launches"
+        got = self.run_tool("--db", str(self.db), "--run", RUN, "--launches", str(launches), "--request", "fix", "--json")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        got = self.run_tool("--db", str(self.db), "--run", RUN, "--request", "fix", "--json")
+        self.assertEqual(got.returncode, 1)
+        self.assertIn("包みの起動の記録が無い", json.loads(got.stdout)["features"]["e_fix_lanes"]["why"])
+
     def test_fixer_union_counts_as_overlap(self):
         """修正役の締めの行の union（試験のファイルの挿しだけの合わせ）も (b) の yes"""
         make_db(self.db, self.out_root, [])
@@ -603,6 +829,8 @@ class CheckTest(unittest.TestCase):
             "db が無い": ("--db", str(self.tmp / "none.db"), "--run", RUN),
             "控えが無い": (str(self.root),),
             "盤面が無い": ("--db", str(self.db), "--run", RUN),
+            "知らない依頼の形": (str(self.root), "--request", "nope"),
+            "置き場の形に --launches": (str(self.root), "--launches", str(self.tmp)),
         }
         for name, args in cases.items():
             with self.subTest(name):
