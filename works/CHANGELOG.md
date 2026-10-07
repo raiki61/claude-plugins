@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.36] - 2026-10-07
+
 ### Added
 
 - TDD の輪が振り分けの後に並べの周へ進まなかった時、理由を盤面の trace に 1 行（`lanes_skipped`。`reason` は `switch`（入力 `tdd_lanes` が off）・`shape`（修正の形が g3 でない）・`units`（tdd の単位が 2 つに満たない）・`lanes`（範囲の引ける枝が 2 本に満たない）、`why` は本文、`loop` は輪の置き場 `tdd-<k>`）で残すようにした。`dev/canary_check.py` は (a) が no の時にその理由を (a) の説明に足し、出力の `lanes_skipped` に並べる。
