@@ -276,6 +276,69 @@ class ChangedFilesCoverCase(unittest.TestCase):
             self.assertEqual(seen, [want])
 
 
+class PopulationMembersCase(unittest.TestCase):
+    """population の当たりは修正が変える物の全部（直す対象の母集団）で、閉じたかは当たりを全部覆ったかで決める。canary の
+    large の 2 つの run の盤面の形（2026-10-07）: 『公開の関数に docstring が無い』単位で、b44c480f の判定は欠けた 2 つの def を
+    名指す問い（当たり 2）にして、修正役が 2 つのファイルに docstring を足して閉じた。a2fcf33a の判定は決まりがかかる範囲の全部
+    （5 つのモジュールの公開関数 14 本。うち 12 本はもう docstring を持つ）を数え、同じ正しい直しが覆うのは 4 件で閉じず、
+    検証器の『未解消』で round_limit になった。もう正しい物は修正が変えないので、機械は『直さなくてよい物』と『直し漏らした物』を
+    分けられない——閉鎖の決まりは緩めず、広すぎる問いは判定の問いの書き方（diagnose.md 6 項）と、修正役の申し出 query
+    （裁定 replace_query が問いを置き換える）で直す"""
+    KEY = "money.py:split_even・slugs.py:slugify — 公開の関数に約束の docstring が無く help() に約束が出ない"
+    RULE = {"patterns": ["^def [a-z]"], "paths": ["stats.py", "textfmt.py", "units.py", "money.py", "slugs.py"], "count": "lines"}
+    RULE_HITS = {"stats.py": 4, "textfmt.py": 3, "units.py": 3, "money.py": 2, "slugs.py": 2}
+    MEMBERS = {"patterns": ["def split_even(", "def slugify("], "paths": ["money.py", "slugs.py"], "count": "lines", "fixed": True}
+    MEMBER_HITS = {"money.py": 1, "slugs.py": 1}
+
+    def build(self, judged_how, *, touched=("money.py", "slugs.py"), remaining=None, replaced=None):
+        hits = {json.dumps(self.RULE): self.RULE_HITS, json.dumps(self.MEMBERS): self.MEMBER_HITS}
+        # 修正役は変えたファイルだけを files と site に書く（直し漏らした物は名指さない）
+        names = {"money.py": "money.py:split_even", "slugs.py": "slugs.py:slugify"}
+        c = {"unit_key": self.KEY, "files": list(touched), "what": "docstring を足した",
+             "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v",
+                         "sites": [{"site": names[p], "red_seen": False, "path": p} for p in touched]}}
+        if remaining:
+            c["coverage"] = {"remaining": remaining}
+        total = sum(hits[json.dumps(judged_how)].values())
+        out, rows = unitrows.build([c], {self.KEY: {"how": judged_how, "counts": "population", "total": total}},
+                                   count=lambda h, at_rev: (sum(hits[json.dumps(h)].values()), ""), blank=blank,
+                                   per_file=lambda h, at_rev: (dict(hits[json.dumps(h)]), ""), touched=list(touched),
+                                   replaced=replaced)
+        return out[0], rows[0]
+
+    def test_members_query_closes_the_correct_fix(self):
+        """b44c480f の形: 問いは欠けた物だけを名指し（当たり 2）、正しい直しは 2 つとも覆って閉じる"""
+        _, row = self.build(self.MEMBERS)
+        self.assertEqual((row["total"], row["after"], row["covered"], row["closed"], row["discrepancies"]),
+                         (2, 2, 2, True, []), row)
+
+    def test_members_query_stays_open_when_the_fix_misses_a_member(self):
+        """直し漏らした物（slugs.py を変えず、名指してもいない）は閉じない（閉鎖の決まりを緩めていない）"""
+        _, row = self.build(self.MEMBERS, touched=("money.py",))
+        self.assertEqual((row["covered"], row["closed"]), (1, False), row)
+
+    def test_rule_domain_query_stays_open_even_with_remaining(self):
+        """a2fcf33a の形: 問いがもう正しい 12 本も数えると、正しい直しも 4 件しか覆わず閉じない。remaining は黙って残さない
+        ための記録で、閉じる理由にはならない（『直さなくてよい』と書くだけで閉じるなら、直し漏らしも同じ文で閉じる）"""
+        for remaining in (None, "残りの 12 本はもう docstring を持つので直さない"):
+            with self.subTest(remaining=remaining):
+                _, row = self.build(self.RULE, remaining=remaining)
+                self.assertEqual((row["total"], row["after"], row["covered"], row["closed"]), (14, 14, 4, False), row)
+                self.assertEqual(any("remaining が無い" in d for d in row["discrepancies"]), remaining is None, row)
+
+    def test_rule_domain_query_replaced_by_a_ruling_closes(self):
+        """同じ形で修正役が query の申し出を出し、裁定 replace_query が欠けた物だけを名指す問いに置き換えれば、正しい直しは閉じ、
+        直し漏らしは閉じない"""
+        ruled = {self.KEY: {"id": "c1-1", "how": self.MEMBERS, "counts": "population",
+                            "hits": ["def split_even(total, n):"], "misses": ["def format_yen(amount):"]}}
+        got, row = self.build(self.RULE, replaced=ruled)
+        self.assertEqual((row["how_from"], row["total"], row["covered"], row["closed"], row["discrepancies"]),
+                         ("裁定 c1-1", 2, 2, True, []), row)
+        self.assertIn("c1-1", got["coverage"]["remaining"], "判定者の母数より狭い理由は裁定（機械が書く）")
+        _, row = self.build(self.RULE, replaced=ruled, touched=("money.py",))
+        self.assertEqual((row["covered"], row["closed"]), (1, False), row)
+
+
 class ClosureLinesCase(unittest.TestCase):
     def test_lines_and_mismatched_only(self):
         tmp = tempfile.TemporaryDirectory()
