@@ -38,11 +38,22 @@ fix-prep ─▶ fix ─▶ fix-consult ─▶ plan-answer ─▶ fix-consult-che
 2 回目の輪は `fix-ruled-prep ─▶ fix-ruled ─▶ fix-ruled-consult ─▶ plan-answer-ruled ─▶ fix-ruled-consult-check ─▶ fix-ruled-accept`。
 
 1. **頼み（役の返答の欄 `consult`）**: 修正役は範囲の外が要る時、変える前に返答の任意の欄 `consult`（`conflict.CONSULT_SCHEMA`。項目ごとに 1 件 `{item, paths, tests, why}`）を書いて周を終える。ほかの欄は途中の形でよい（その周は受け付けが見ない）。作業ツリーの直しは残す。下請けは自分で相談せず、まとめ役の修正役に頼みを報告する（`rules/direct.md` の節 fix-ask-sub）。
-2. **頼みの節 `fix-consult`**（`scripts/consult_prep.py` → `consult.ask`）: 返答に `consult` が無ければ何もしない（`consulted: false`）。在れば頼みごとに機械の先の確かめ（`consult.screen`: 知らない項目・頼む物が無い・理由が短い・根の外のパス・`out_of_scope` に当たる・全部がもう範囲の中）をして、盤面の今の scope の周の状態（`consult-<段>.json`）に積む。聞く頼みが在れば、入力 `plan_session` の名で包みが記録した会話の id を、ブロックの中の名 `fix-planner` の id として包みの置き場に写し（`consult.alias`）、答えの節の指示書（`consult-<段>-<周>-ask.md`）を書いて `go: true`。相手の会話の id が無い（plan_session が空・計画役が走っていない）なら、その頼みは聞けない行にして `go: false`。
+2. **頼みの節 `fix-consult`**（`scripts/consult_prep.py` → `consult.ask`）: 返答に `consult` が無ければ何もしない（`consulted: false`）。在れば頼みごとに機械の先の確かめ（`consult.screen`: 知らない項目・頼む物が無い・理由が短い・根の外のパス・全部がもう範囲の中。`out_of_scope` に当たる頼みは断らない——下の「out_of_scope の考え直し」）をして、盤面の今の scope の周の状態（`consult-<段>.json`）に積む。聞く頼みが在れば、入力 `plan_session` の名で包みが記録した会話の id を、ブロックの中の名 `fix-planner` の id として包みの置き場に写し（`consult.alias`）、答えの節の指示書（`consult-<段>-<周>-ask.md`）を書いて `go: true`。相手の会話の id が無い（plan_session が空・計画役が走っていない）なら、その頼みは聞けない行にして `go: false`。
 3. **答えの節 `plan-answer`**（AI。opus・medium。印 `works-node: plan-answer continue=fix-planner`）: 包みが SDK の会話の旗を外して `--resume <fix-planner の id>` で起こす（計画役の会話の続き。fork しない）。道具は計画役と同じ読むだけの物（Read・Grep・Glob・WebSearch・WebFetch）。答えは `consult.ANSWER_SCHEMA`（`answers: [{ask, decision: allow|deny|defer, paths, tests, spec, reason}]`）。
 4. **確かめの節 `fix-consult-check`**（`scripts/consult_check.py` → `consult.settle`）: 答えを頼みごとに確かめ（`consult.judge`。許すのは頼んだ物の中だけ。頼んでいない物は捨てて注記。形の崩れた答えは invalid で許しを作らない）、1 頼み 1 行を盤面の trace（`conflict.ASKED_OP`）に書く（断った・聞けなかった行も）。修正役が読む答えのファイル（`consult-<段>-<周>.md`）を書く。出力 `consulted: true` で、後ろの締める節（fix-units）と受け付け（fix-accept）はその周を回さない（受け付けは拒否の理由のファイルも最後の結果の控えも書かない。`done` は立てない）。
 5. **続き**: 次の周の支度（`fixrules.prep` が `consult.take` を引く）は、指示書を組み直さず、答えのファイルと前の指示書を名指す短い続きの指示書（`rules/direct.md` の節 fix-consult-resume）だけを書く。`iteration` は前の回のまま（相談の周は受け付けの 3 回に数えない）。修正役は同じ会話の続きで起きる: 1 回目の修正役は印の旗 `self-resume`（下の「包みの旗 self-resume」）、2 回目は今までどおり `continue=fix`。
-6. **合意の読み口**（前の形から変えない）: `conflict.agreed(b)`（trace の行のうち allow）1 つ。範囲は `planscope.with_agreed` が項目の allowed_paths に足し（`out_of_scope` には勝たない）、テストは `conflict.test_permits` が許しに入れる（凍結の検査と最後の人の関所の書き換えたテストの一覧も同じ口）。事前の確かめも同じ口で読む。報告は `report.plan_ask_lines` が回数・答えごとの数・許した範囲を出す。
+6. **合意の読み口**（前の形から変えない）: `conflict.agreed(b)`（trace の行のうち allow）1 つ。範囲は `planscope.with_agreed` が項目の allowed_paths に足し（`out_of_scope` には勝たない。ただし許したパスと字のまま同じパスは、その項目の `out_of_scope` から外す——下の「out_of_scope の考え直し」）、テストは `conflict.test_permits` が許しに入れる（凍結の検査と最後の人の関所の書き換えたテストの一覧も同じ口）。事前の確かめも同じ口で読む。報告は `report.plan_ask_lines` が回数・答えごとの数・許した範囲を出す。
+
+### out_of_scope の考え直し（持ち主 2026-10-07「相談で考え直させる」）
+
+前は先の確かめが、頼んだパスがその項目の `out_of_scope` に当たると答えの節に聞かずに断り（「修正案が明示に外したパスで、相談では足さない。要るなら食い違いの申し出で返せ」）、修正役は `scope_needed` の申し出で返すしかなかった。run 54d81ef1（canary。置き場 `~/.cache/works-canary/20261007-101440-74823`）は、直しに伴う `CHANGELOG.md` の 1 行が項目 1 の `out_of_scope` に当たって断られ、申し出 → 裁定 `fix_plan_item` → 修正案の直しの関所で無人の run が止まった。外した本人に理由を見せて考え直させれば済む所を、案の誤りの道（修正案の直し・事前審査・人の関所）に回していた。
+
+- 先の確かめは `out_of_scope` に当たる頼みを断らず、答えの節へ回す。ほかの断り（知らない項目・根の外・もう範囲の中・理由が短い・枠）はそのまま。
+- 指示書（`consult.question`）は相談ごとに当たりを並べる（`consult.oos_hits`）: その項目の `out_of_scope` なら「あなたがこの項目の out_of_scope に書いた物」と glob と外した理由（修正案の欄の `why`）を字のまま引き、外した理由が今も立つかを直している側の理由と比べて考え直させる。ほかの項目の `out_of_scope` に当たるなら、その項目と glob と理由を名指す（e7906845 の決まりどおり、ほかの項目の `out_of_scope` はこの項目が許すパスを禁じないので、許せばこの項目の単位の変更としてだけ通る）。
+- 確かめの節は、trace の行に当たり（`out_of_scope`: `{path, item, glob, why}`）と、allow ならその項目の `out_of_scope` を外した物（`overrode_out_of_scope`: `{path, glob, why}`）を書く。答えのファイルと報告の相談の行（`report.plan_ask_lines`）は「out_of_scope を外した」か「外したままにした」を言う。
+- 範囲の照らし（`planscope.with_agreed`）は、合意の行の許したパスと許したテストの範囲のパスを、その項目の写しの `out_of_scope_lifted`（`planscope.LIFTED`）に並べ、字のまま同じパスに限ってその項目の `out_of_scope` から外す（`_oos_hit`）。glob の許しで広げない・ほかの項目の `out_of_scope` は外さない（単位に結べない変更は今どおり全部の項目の `out_of_scope` で照らし、外した項目だけが当たらなくなる）。受け付けと事前の確かめは同じ `planscope.check` を通るので、同じに効く。守りのファイル・根の外は今どおり（合意は範囲の照らしにしか効かない。根の外の頼みは先の確かめが断る）。
+- deny・defer は何も外さない。修正役は今どおり範囲の中で直すか、仕様として割れていれば `scope_needed` の申し出で返す。
+- 合意は今どおり盤面の trace の行だけ（sandbox の外の確かめの節が書く）。
 
 ### 包みの旗 self-resume
 
@@ -91,7 +102,7 @@ Archon の輪は、直前に終わった AI の節の会話を次の AI の節�
 
 ## 指示書
 
-- 修正役（`rules/direct.md` の節 fix-ask）: 範囲の外が要る・凍ったテストを書き換えたい時は、黙って出ずに・申し出で起動を終えずに、返答の `consult` で相談せよ。allow なら答えのファイルの「範囲に入った物」だけを足して続ける（仕様の補いに従う）。deny なら範囲の中で直すか、仕様として割れているなら食い違いの申し出。defer は今の run で直さない（`not_done` に理由）。答えの無い頼み（refused・unavailable・invalid）は理由を読み、聞けなければ申し出。枠を使い切った後は受け付けが拒む。下請けが範囲の外を報告したら、まとめ役が `consult` に書く。返答の前に事前の確かめを走らせる。
+- 修正役（`rules/direct.md` の節 fix-ask）: 範囲の外（`out_of_scope` に当たる物も）が要る・凍ったテストを書き換えたい時は、黙って出ずに・申し出で起動を終えずに、返答の `consult` で相談せよ。allow なら答えのファイルの「範囲に入った物」だけを足して続ける（仕様の補いに従う）。deny なら範囲の中で直すか、仕様として割れているなら食い違いの申し出。defer は今の run で直さない（`not_done` に理由）。答えの無い頼み（refused・unavailable・invalid）は理由を読み、聞けなければ申し出。枠を使い切った後は受け付けが拒む。下請けが範囲の外を報告したら、まとめ役が `consult` に書く。返答の前に事前の確かめを走らせる。
 - 下請け（`rules/direct.md` の節 fix-ask-sub。g1・g3 の実装役のファイルの終わりに機械が足す）: 範囲の外が要れば変えずに、報告に「範囲の相談が要る」と項目・パス・テスト・理由を書いて返す。事前の確かめは `--reply` なしで走らせる。
 - 続きの指示書（節 fix-consult-resume）: 答えのファイルと前の指示書を名指す。決まりは貼り直さない（同じ会話の続き）。
 - brief の決まりの 2 と 8（`rules/brief.md`）: 範囲の外が要る時、指示書に相談の節が在れば先に返答の `consult` で相談する。相談の無い役（TDD の輪）は今どおり申し出。

@@ -720,3 +720,17 @@ class PlanAskLinesCase(unittest.TestCase):
         text = "\n".join(lines)
         for w in ("works/CHANGELOG.md", "works/tests/test_report.py:12", "範囲の中で直せる", "認証が無い"):
             self.assertIn(w, text)
+
+    def test_out_of_scope_override_is_named(self):
+        """修正案の役が自分の out_of_scope を考え直して許した行は、外したパスと glob を言う。deny は外したままと言う"""
+        self.put({"id": 1, "item": "1", "status": "answered", "decision": "allow", "granted_paths": ["CHANGELOG.md"],
+                  "granted_tests": [], "reason": "直しに伴う記録の 1 行",
+                  "overrode_out_of_scope": [{"path": "CHANGELOG.md", "glob": "CHANGELOG.md", "why": "記録は別"}]},
+                 {"id": 2, "item": "2", "status": "answered", "decision": "deny", "reason": "外した理由は今も立つ",
+                  "out_of_scope": [{"path": "docs/a.md", "item": "2", "glob": "docs/**", "why": "文書は触らない"}],
+                  "overrode_out_of_scope": []})
+        lines = report.plan_ask_lines(self.b)
+        self.assertIn("out_of_scope を外した", lines[1])
+        self.assertIn("CHANGELOG.md（項目 1 の out_of_scope の CHANGELOG.md）", lines[1])
+        self.assertIn("out_of_scope は外したまま", lines[2])
+        self.assertIn("docs/a.md", lines[2])

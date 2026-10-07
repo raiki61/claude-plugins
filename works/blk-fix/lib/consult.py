@@ -12,6 +12,11 @@
 3. 確かめの節（scripts/consult_check.py → settle）: 答えを確かめ（judge。許すのは頼んだ物の中だけ）、1 頼み 1 行を盤面の
    trace（conflict.ASKED_OP）に書き、修正役が読む答えのファイルを書く。合意（allow の行）は conflict.agreed が読み、範囲の
    照らし（planscope.with_agreed）とテストの変更の許し（conflict.test_permits）に入る。
+修正案の項目の out_of_scope（案を書いた役が明示に外したパス）に当たる頼みも断らずに答えの節へ回す（持ち主 2026-10-07「相談で
+考え直させる」。前は先の確かめで断り、run 54d81ef1 は CHANGELOG.md の 1 行で scope_needed → fix_plan_item → 修正案の直しの関所に
+止まった）。指示書はその項目の out_of_scope の glob と外した理由を引き、ほかの項目の out_of_scope に当たるならその項目を名指して、
+考え直して決めさせる。許せば、行の overrode_out_of_scope に外した物が残り、範囲の照らし（planscope.with_agreed）は許したパスと
+字のまま同じパスに限ってその項目の out_of_scope を外す（ほかの項目の out_of_scope と守りのファイルは変えない）。
 次の周の支度（fixrules.prep）は答えのファイルを名指す短い続きの指示書で、修正役を同じ会話の続きで起こす（印の旗 self-resume。
 修正役の 2 回目は continue=fix）。どれも sandbox の外の機械の節で、役の Bash から claude を起こさない（Claude Code は Bash の子
 から認証を外す。前の形 askplan.py が run 195h で 1 度も答えを得られなかった訳。設計の「前の形と退けた訳」）。
@@ -25,9 +30,12 @@
   items}。修正役と下請けが Bash で回す事前の確かめ（factchecks.py）が読み、受け付けの拒否の文が相談を言うか（offered）を決める
 
 口:
-- items_doc(items)・items_of(b): 承認済みの修正案の項目 → 頼みを照らす表（番号の文字列 → {unit_keys, allowed_paths, out_of_scope, tests}）
+- items_doc(items)・items_of(b): 承認済みの修正案の項目 → 頼みを照らす表（番号の文字列 → {unit_keys, allowed_paths,
+  out_of_scope（{glob, why} の並び）, tests}）
 - requests(reply): 返答の consult の頼みの並び（欄が無ければ None）
 - screen(items, item, paths, tests, why): 先の確かめ（断る文か None）
+- oos_hits(items, item, paths, tests): 頼んだパスが当たる out_of_scope（その項目の物を先に、ほかの項目の物を後に）
+- overrides(hits, item, granted_paths, granted_tests): 許した物のうち、その項目の out_of_scope を外した物
 - judge(answer, paths, tests): 答えの 1 件の確かめ（(行の欄 | None, 注記)）
 - question(items, asks): 答えの節の指示書の本文
 - alias(repo, node, home_dir): 相手の会話の id を PEER の名で写す（読めなければ理由の文）
@@ -104,6 +112,10 @@ QUESTION = """\
 
 あなたがこの会話で書いた修正案を、別の役が直している。直している側から、範囲の相談が {n} 件来た。範囲を広げるかは仕様の判断で、
 決めるのはあなた。案を書いた時の考えと、今のリポジトリ（Read・Grep・Glob で読める。書く道具は無い）で決めよ。
+頼んだパスが out_of_scope（触らない物）に当たる相談には、当たる glob と外した理由を並べてある。あなたがこの項目の out_of_scope に
+書いた物なら、外した理由が今も立つかを直している側の理由と比べて考え直せ: allow なら、この項目ではそのパスだけ out_of_scope から
+外れて範囲に入る。理由が今も立つなら deny。ほかの項目の out_of_scope に当たる物を allow すると、この項目の単位の変更としてだけ
+通る（その項目の out_of_scope は変わらない）。
 
 {asks}
 
@@ -123,7 +135,7 @@ ASK_TEXT = """\
 - 触らない物（out_of_scope）: {oos}
 - 足したいパス: {paths}
 - 書き換えたい既存のテストの範囲（<パス> か <パス>:<行>）: {tests}
-- 理由（直している側の文）:
+{oos_hits}- 理由（直している側の文）:
 {why}
 """
 
@@ -148,6 +160,16 @@ def _limit_path(lim: str) -> str:
     return _norm(head) if sep and tail.replace("-", "").isdigit() else _norm(lim)
 
 
+def _oos_rows(it: dict) -> list:
+    """項目の out_of_scope の (glob, 外した理由) の並び（items_doc の {glob, why} の行。glob だけの文字列の行も読む）"""
+    out = []
+    for r in it.get("out_of_scope") or []:
+        g, why = (r.get("glob"), r.get("why")) if isinstance(r, dict) else (r, "")
+        if isinstance(g, str) and g:
+            out.append((g, why if isinstance(why, str) else ""))
+    return out
+
+
 def _write_json(path: pathlib.Path, doc) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
@@ -168,8 +190,7 @@ def items_doc(items) -> dict:
     ファイル（planmarks.test_paths）}）"""
     return {str(it["item"]): {"unit_keys": [k for k in it.get("unit_keys") or [] if isinstance(k, str)],
                               "allowed_paths": [g for g in it.get("allowed_paths") or [] if isinstance(g, str) and g],
-                              "out_of_scope": [r["glob"] for r in it.get("out_of_scope") or []
-                                               if isinstance(r, dict) and isinstance(r.get("glob"), str)],
+                              "out_of_scope": [{"glob": g, "why": w} for g, w in _oos_rows(it)],
                               "tests": planmarks.test_paths(it)}
             for it in items or []}
 
@@ -202,13 +223,17 @@ def requests(reply):
 
 
 def _inside(path: str, it: dict) -> bool:
+    """path が項目の範囲（tests のファイル・allowed_paths）に入り、その項目の out_of_scope に当たらない（当たれば受け付けが拒むので、
+    範囲の中に数えない）"""
+    if any(planmarks.glob_match(path, g) for g, _ in _oos_rows(it)):
+        return False
     return path in [_norm(t.split("::")[0]) for t in it.get("tests") or []] or \
         any(planmarks.glob_match(path, g) for g in it.get("allowed_paths") or [])
 
 
 def screen(items: dict, item: str, paths: list, tests: list, why: str = "x" * MIN_WHY):
-    """AI に聞く前に断る文（通れば None）: 知らない項目・頼む物が無い・理由が短い・根の外のパス・out_of_scope に当たる（修正案が
-    明示に外したパス。外すのは案の誤りの道で、相談でない）・足したいパスがもう範囲の中"""
+    """AI に聞く前に断る文（通れば None）: 知らない項目・頼む物が無い・理由が短い・根の外のパス・足したいパスがもう範囲の中。
+    out_of_scope に当たるパスは断らない（答えの節が考え直す。oos_hits が指示書と行に当たりを名指す）"""
     it = items.get(str(item))
     if it is None:
         return f"項目 {item or '（無し）'} は承認済みの修正案に無い（在る項目: {sorted(items)}）"
@@ -219,14 +244,52 @@ def screen(items: dict, item: str, paths: list, tests: list, why: str = "x" * MI
     for p in [_norm(x) for x in paths] + [_limit_path(x) for x in tests]:
         if planmarks.climbs(p) or p.startswith("/"):
             return f"{p} はリポジトリの根の外（根からの相対パスで頼め）"
-        hit = next((g for g in it.get("out_of_scope") or [] if planmarks.glob_match(p, g)), None)
-        if hit:
-            return (f"{p} は項目 {item} の out_of_scope（{hit}）に当たる——修正案が明示に外したパスで、相談では足さない。要るなら"
-                    "食い違いの申し出で返せ（案の項目そのものの誤り）")
     inside = [p for p in (_norm(x) for x in paths) if _inside(p, it)]
     if inside and not tests and len(inside) == len(paths):
         return f"{inside} はもう項目 {item} の範囲の中（聞かずに直してよい）"
     return None
+
+
+def _asked_paths(paths: list, tests: list) -> list:
+    """頼んだパスとテストの範囲のパス（整えて重ねない）"""
+    return list(dict.fromkeys([_norm(x) for x in paths] + [_limit_path(x) for x in tests]))
+
+
+def oos_hits(items: dict, item: str, paths: list, tests: list) -> list:
+    """頼んだパス（paths とテストの範囲のパス）が当たる out_of_scope の行 [{path, item, glob, why}]。パスごとに、頼んだ項目の物を
+    先に、ほかの項目の物を項目の順に、項目ごとに最初の glob で 1 行"""
+    item = str(item)
+    order = [item] + [k for k in items if k != item]
+    out = []
+    for p in _asked_paths(paths, tests):
+        for k in order:
+            hit = next(((g, w) for g, w in _oos_rows(items.get(k) or {}) if planmarks.glob_match(p, g)), None)
+            if hit:
+                out.append({"path": p, "item": k, "glob": hit[0], "why": hit[1]})
+    return out
+
+
+def overrides(hits: list, item: str, granted_paths: list, granted_tests: list) -> list:
+    """許した物（granted_paths とテストの範囲のパス）のうち、頼んだ項目 item の out_of_scope に当たっていた物
+    [{path, glob, why}]（答えの節が考え直して外した物。ほかの項目の out_of_scope の当たりは入れない）"""
+    got = set(_asked_paths(granted_paths, granted_tests))
+    return [{"path": h["path"], "glob": h["glob"], "why": h["why"]} for h in hits
+            if h.get("item") == str(item) and h.get("path") in got]
+
+
+def _hits_text(hits: list, item: str) -> str:
+    """指示書の相談の節の out_of_scope の当たりの行（無ければ空）"""
+    if not hits:
+        return ""
+    lines = ["- out_of_scope に当たる頼み（外した理由が今も立つかを考え直して決めよ）:"]
+    for h in hits:
+        why = h.get("why") or "（記録なし）"
+        if h["item"] == str(item):
+            lines.append(f"  - {h['path']}: あなたがこの項目の out_of_scope に書いた物（glob {h['glob']}。外した理由: {why}）")
+        else:
+            lines.append(f"  - {h['path']}: 項目 {h['item']} の out_of_scope（{h['glob']}。外した理由: {why}）——ほかの項目が"
+                         "触らないとした物")
+    return "\n".join(lines) + "\n"
 
 
 def judge(answer, paths: list, tests: list):
@@ -260,14 +323,18 @@ def judge(answer, paths: list, tests: list):
 
 
 def question(items: dict, asks: list) -> str:
-    """答えの節の指示書の本文（asks は screen を通った頼みの行 {n, item, paths, tests, why}）"""
+    """答えの節の指示書の本文（asks は screen を通った頼みの行 {n, item, paths, tests, why}。out_of_scope の当たり（oos_hits の行）を
+    持たなければ、ここで引く）"""
     show = lambda xs: "・".join(xs) if xs else "（無し）"   # noqa: E731
     parts = []
     for a in asks:
         it = items.get(a["item"]) or {}
+        oos = [f"{g}（{w}）" if w else g for g, w in _oos_rows(it)]
+        hits = a.get("out_of_scope")
+        hits = oos_hits(items, a["item"], a["paths"], a["tests"]) if hits is None else hits
         parts.append(ASK_TEXT.format(n=a["n"], item=a["item"], units=show(it.get("unit_keys") or []),
-                                     allowed=show(it.get("allowed_paths") or []), oos=show(it.get("out_of_scope") or []),
-                                     paths=show(a["paths"]), tests=show(a["tests"]),
+                                     allowed=show(it.get("allowed_paths") or []), oos=show(oos),
+                                     paths=show(a["paths"]), tests=show(a["tests"]), oos_hits=_hits_text(hits, a["item"]),
                                      why="\n".join("  " + line for line in a["why"].splitlines())))
     return QUESTION.format(n=len(asks), asks="\n".join(parts).rstrip("\n"), min_why=MIN_WHY)
 
@@ -326,7 +393,9 @@ def ask(b, repo, reply, plan_session: str, pass_: str, node: str, home_dir=None)
     rows = []
     for n, a in enumerate(asks, 1):
         why = screen(items, a["item"], a["paths"], a["tests"], a["why"])
-        rows.append({**a, "n": n, **({"status": REFUSED, "why_refused": why} if why else {"status": ASKED})})
+        hits = oos_hits(items, a["item"], a["paths"], a["tests"]) if a["item"] in items else []
+        rows.append({**a, "n": n, "out_of_scope": hits,
+                     **({"status": REFUSED, "why_refused": why} if why else {"status": ASKED})})
     asked = [r for r in rows if r["status"] == ASKED]
     session, qfile = None, ""
     if asked:
@@ -367,6 +436,7 @@ def settle(b, answer, pass_: str, node: str) -> dict:
                "item": r.get("item"), "unit_keys": list(it.get("unit_keys") or []), "paths": r.get("paths") or [],
                "tests": r.get("tests") or [], "why": r.get("why") or "", "status": r.get("status"), "decision": None,
                "granted_paths": [], "granted_tests": [], "spec": "", "reason": "", "notes": [],
+               "out_of_scope": list(r.get("out_of_scope") or []), "overrode_out_of_scope": [],
                "session": st.get("session")}
         next_id += 1
         if r.get("status") == ASKED:
@@ -376,6 +446,9 @@ def settle(b, answer, pass_: str, node: str) -> dict:
                 fields, notes = judge(by_n.get(r["n"]), row["paths"], row["tests"])
                 row.update(notes=notes)
                 row.update({**fields, "status": ANSWERED} if fields is not None else {"status": INVALID})
+                if fields is not None and fields["decision"] == ALLOW:
+                    row["overrode_out_of_scope"] = overrides(row["out_of_scope"], row["item"], fields["granted_paths"],
+                                                             fields["granted_tests"])
         else:
             row.update({k: r[k] for k in ("why_refused", "why_unavailable") if r.get(k)})
         b.trace(conflict.ASKED_OP, **row)
@@ -399,6 +472,11 @@ def answer_text(turn: int, rows: list) -> str:
             if r["decision"] == ALLOW:
                 body.append(f"- 範囲に入った物: パス {('・'.join(r['granted_paths'])) or '（無し）'}・テスト "
                             f"{('・'.join(r['granted_tests'])) or '（無し）'}（受け付けはこれを範囲に入れる。頼んだ物の残りは入らない）")
+            if r.get("overrode_out_of_scope"):
+                body.append("- out_of_scope を外した（この項目ではこのパスだけ範囲に入る）: " + "・".join(
+                    f"{h['path']}（{h['glob']}）" for h in r["overrode_out_of_scope"]))
+            elif r["decision"] != ALLOW and any(h.get("item") == r.get("item") for h in r.get("out_of_scope") or []):
+                body.append("- out_of_scope は外したまま（変えるな）")
             if r.get("spec"):
                 body.append(f"- 仕様の補い（従え）: {r['spec']}")
             body.append(f"- 理由: {r['reason']}")
