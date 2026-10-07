@@ -52,7 +52,8 @@ inputs:
     default: ""
     description: >-
       判定の単位ごとの裏取りと単位どうしの相乗りの申し送りの JSON のパス（形 {units: [{n, key, state, verdict, evidence_found,
-      evidence, location_ok, location, real_root, why, errors}], synergy: {state, why, duplicates, relations, order, errors}}）。
+      evidence, location_ok, location, real_root, why, errors}], synergy: {state, why, duplicates, relations, order, errors}}。
+      relations の行は {units, why, place}。place は same（同じ行・同じ塊・前提を変える）か apart（同じファイルの別の所）。無い行も読む）。
       空か文字列 null なら無い。在れば修正案の役の指示書の頭に貼る（単位は減らさない。根本でないと出た単位も案から外させない）
   review_tree:
     default: ""

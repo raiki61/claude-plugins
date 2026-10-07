@@ -264,6 +264,63 @@ class PlanNotesCase(Base):
         self.assertIn("読めない", text)
 
 
+class ItemSplitCase(Base):
+    """同じファイルを触るだけで項目をまとめない（canary の run 2 本が同じファイルの別の所を触る 2 単位を 1 項目にまとめた）:
+    相乗りの関わりを place（same＝同じ行・同じ塊・前提を変える、apart＝同じファイルの別の所）で分け、申し送りの節が見出しに出し、
+    修正案の役の頭の決まりと申し送りの頼みと事前審査の相乗りの頼みが、まとめる理由を同じ根・同じ行・結果への依存だけにする"""
+
+    def merged_synergy(self, relations):
+        self.prep(judgment(unit(KEY1), unit(KEY2)))
+        self.write_answer(1, good_answer(1, KEY1))
+        self.write_answer(2, good_answer(2, KEY2))
+        self.write_synergy({"why": "2 つの単位は同じファイルの別の関数", "duplicates": [], "relations": relations, "order": []})
+        return jv.merge_on(self.b, self.repo)["verify_file"]
+
+    def test_relation_keeps_place_and_section_labels_it(self):
+        path = self.merged_synergy([{"units": [1, 2], "why": "同じ test_lib.py の別のクラスに足す", "place": "apart"},
+                                    {"units": [2, 1], "why": "同じ行の式を 2 つとも変える", "place": "same"}])
+        doc = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+        self.assertEqual([r["place"] for r in doc["synergy"]["relations"]], ["apart", "same"])
+        text = planblk.verify_part(path)
+        self.assertIn(f"- 関わり（別の所）: `{KEY1}`・`{KEY2}`（同じ test_lib.py の別のクラスに足す）", text)
+        self.assertIn(f"- 関わり（同じ所）: `{KEY2}`・`{KEY1}`（同じ行の式を 2 つとも変える）", text)
+
+    def test_relation_without_place_is_unverified(self):
+        """place の無い関わりの行は型に合わない（同じ所か別の所かを決めずに申し送らない）"""
+        self.merged_synergy([{"units": [1, 2], "why": "同じファイルを触る"}])
+        doc = self.merged()
+        self.assertEqual(doc["synergy"]["state"], jv.UNVERIFIED)
+        self.assertTrue(any("place" in e for e in doc["synergy"]["errors"]))
+
+    def test_old_relation_rows_without_place_are_still_read(self):
+        path = self.tmp / "old.json"
+        path.write_text(json.dumps({"units": [], "synergy": {"state": "checked", "why": "前の形", "duplicates": [], "order": [],
+                                                             "relations": [{"units": [KEY1, KEY2], "why": "同じファイル"}]}},
+                                   ensure_ascii=False), encoding="utf-8")
+        self.assertIn(f"- 関わり: `{KEY1}`・`{KEY2}`（同じファイル）", planblk.verify_part(str(path)))
+
+    def test_synergy_ask_splits_same_and_apart(self):
+        self.assertEqual(jv.synergy_schema()["properties"]["relations"]["items"]["properties"]["place"]["enum"],
+                         ["same", "apart"])
+        self.assertNotIn("place", jv.synergy_schema()["properties"]["duplicates"]["items"]["properties"])
+        for w in ("same＝同じ行・同じ塊を変える", "apart＝同じファイル・同じ試験のファイルの別の所", "同じファイルだけを理由に same にしない"):
+            self.assertIn(w, jv.SYNERGY_ASK)
+
+    def test_plan_head_rule_names_the_only_reasons_to_merge(self):
+        self.assertIn(planblk.ITEMS_RULE, planblk.head("plan"))
+        self.assertNotIn(planblk.ITEMS_RULE, planblk.head("plan-review"))
+        for w in ("同じ根で 1 つの直しで閉じる時", "同じ行か同じ塊（hunk）を変える時", "もう片方の直しの結果に依る時",
+                  "同じファイルの別の所", "項目をまとめる理由にならない", "別々の項目に分けよ", "一撃の原理"):
+            self.assertIn(w, planblk.ITEMS_RULE)
+
+    def test_verify_and_review_asks_do_not_merge_for_same_file(self):
+        self.assertIn("別の所の関わり（同じファイルの別の所を触るだけ）は項目の並べ方の参考にだけ使い、それで項目をまとめない",
+                      planblk.VERIFY_ASK)
+        self.assertNotIn("まとめられる所", planblk.SUB_SYNERGY_ASK)
+        self.assertIn("同じファイルの別の所（別の関数・別のクラス・別のクラスに足すテスト）を触るだけの項目は穴でない",
+                      planblk.SUB_SYNERGY_ASK)
+
+
 class ReportLinesCase(Base):
     def test_lines_name_not_root_and_unverified(self):
         self.prep(judgment(unit(KEY1), unit(KEY2)))
