@@ -1364,7 +1364,9 @@ class AskPlanPartsCase(unittest.TestCase):
               "out_of_scope": [{"glob": "legacy.py", "why": "古い"}],
               "tests": [{"id": "test_stats.py::TestStats::test_a"}], "rewrite_tests": []}
         self.assertEqual(consult.items_doc([it]), {"2": {"unit_keys": ["b: 上限"], "allowed_paths": ["stats.py"],
-                                                         "out_of_scope": ["legacy.py"], "tests": ["test_stats.py"]}})
+                                                         "out_of_scope": [{"glob": "legacy.py", "why": "古い"}],
+                                                         "tests": ["test_stats.py"]}},
+                         "out_of_scope は外した理由も持つ（答えの節の指示書が引いて考え直させる）")
 
     def test_subagent_files_carry_the_ask_text(self):
         from unittest import mock

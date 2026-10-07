@@ -1,8 +1,10 @@
 """範囲の相談の節（blk-fix/lib/consult.py・scripts/consult_prep.py・consult_check.py。設計 docs/plans/2026-10-06-ask-planner.md）の検査。
 
 縛る事:
-- 先の確かめ（screen）: 知らない項目・頼む物が無い・理由が短い・根の外のパス・out_of_scope に当たるパス・全部がもう範囲の中の頼みは、
-  答えの節に聞かずに断る（記録は残す）
+- 先の確かめ（screen）: 知らない項目・頼む物が無い・理由が短い・根の外のパス・全部がもう範囲の中の頼みは、答えの節に聞かずに
+  断る（記録は残す）。修正案の out_of_scope に当たるパスは断らずに答えの節へ回し（持ち主 2026-10-07「相談で考え直させる」）、
+  指示書はその項目の out_of_scope（と外した理由）・ほかの項目の out_of_scope の当たりを名指して考え直させる。許せば trace の行に
+  out_of_scope を外した印（overrode_out_of_scope）が残る
 - 答えの確かめ（judge）: 許すのは頼んだ物の中だけ（足した物は捨てて注記）。形の崩れた答えは invalid で、許しを作らない
 - 頼みの節（ask）: 返答に consult が無ければ何もしない。在れば頼みごとに確かめて状態に積み、聞く頼みが在れば相手の会話の id を
   ブロックの中の名 PEER で包みの置き場に写して（alias）答えの節の指示書を書く。相手の会話が無ければ聞けない行にして答えの節を
@@ -38,8 +40,11 @@ import fixrules  # noqa: E402
 import recount  # noqa: E402
 import scopes  # noqa: E402
 
+OOS_WHY = "README の節は別の依頼で書き直す"
 ITEMS = {"3": {"unit_keys": ["lens.py count_line: 落ちたレンズの数"], "allowed_paths": ["works/.shared/core/lens.py"],
-               "out_of_scope": ["works/README.md"], "tests": ["works/tests/test_lens.py"]}}
+               "out_of_scope": [{"glob": "works/README.md", "why": OOS_WHY}], "tests": ["works/tests/test_lens.py"]},
+         "4": {"unit_keys": ["report.py head: 頭の行"], "allowed_paths": ["works/.shared/core/report.py"],
+               "out_of_scope": [{"glob": "works/docs/**", "why": "文書は項目 4 では触らない"}], "tests": []}}
 WHY = "直しに伴って変更の記録を足す要がある"
 SID = "11111111-2222-3333-4444-555555555555"
 
@@ -100,7 +105,6 @@ class ScreenCase(unittest.TestCase):
         self.assertIn("項目", consult.screen(ITEMS, "9", ["a.py"], [], WHY))
         self.assertIn("根の外", consult.screen(ITEMS, "3", ["../x.py"], [], WHY))
         self.assertIn("根の外", consult.screen(ITEMS, "3", ["/etc/x"], [], WHY))
-        self.assertIn("out_of_scope", consult.screen(ITEMS, "3", ["works/README.md"], [], WHY))
         self.assertIn("範囲の中", consult.screen(ITEMS, "3", ["works/.shared/core/lens.py"], [], WHY))
         self.assertIn("何も", consult.screen(ITEMS, "3", [], [], WHY))
         self.assertIn("理由", consult.screen(ITEMS, "3", ["works/CHANGELOG.md"], [], "短い"))
@@ -110,6 +114,41 @@ class ScreenCase(unittest.TestCase):
         self.assertIsNone(consult.screen(ITEMS, "3", [], ["works/tests/test_report.py:12"], WHY))
         self.assertIsNone(consult.screen(ITEMS, "3", ["works/.shared/core/lens.py", "works/CHANGELOG.md"], [], WHY),
                           "範囲の外を 1 本でも含む頼みは聞く")
+
+    def test_out_of_scope_is_forwarded(self):
+        """修正案が out_of_scope に書いたパスも断らない（持ち主 2026-10-07「相談で考え直させる」。run 54d81ef1 は CHANGELOG.md が
+        項目 1 の out_of_scope に当たって断られ、scope_needed → fix_plan_item → 修正案の直しの関所で無人の run が止まった）。
+        ほかの項目の out_of_scope に当たるパスも聞く（e7906845: ほかの項目の out_of_scope は、この項目が許すパスを禁じない）"""
+        self.assertIsNone(consult.screen(ITEMS, "3", ["works/README.md"], [], WHY))
+        self.assertIsNone(consult.screen(ITEMS, "3", ["works/docs/flow.md"], [], WHY))
+        self.assertIsNone(consult.screen(ITEMS, "3", [], ["works/README.md:3"], WHY))
+
+    def test_allowed_but_out_of_scope_is_not_already_inside(self):
+        """allowed_paths の glob に入っても、その項目の out_of_scope に当たるパスは範囲の中でない（受け付けが拒む）ので、
+        「もう範囲の中」と断らずに聞く"""
+        items = {"3": {**ITEMS["3"], "allowed_paths": ["works/*.md"]}}
+        self.assertIsNone(consult.screen(items, "3", ["works/README.md"], [], WHY))
+        self.assertIn("範囲の中", consult.screen(items, "3", ["works/CHANGELOG.md"], [], WHY))
+
+
+class QuestionCase(unittest.TestCase):
+    def test_own_out_of_scope_is_named_with_its_reason(self):
+        """指示書は、頼んだパスがあなた自身がこの項目の out_of_scope に書いた物だと言い、外した理由を字のまま引いて考え直させる"""
+        q = consult.question(ITEMS, [{"n": 1, "item": "3", "paths": ["works/README.md"], "tests": [], "why": WHY}])
+        sec = q[q.index("## 相談 1"):]
+        for w in ("works/README.md", "out_of_scope", OOS_WHY, "あなたがこの項目の out_of_scope", "考え直"):
+            self.assertIn(w, sec)
+
+    def test_other_item_out_of_scope_is_named(self):
+        q = consult.question(ITEMS, [{"n": 1, "item": "3", "paths": ["works/docs/flow.md"], "tests": [], "why": WHY}])
+        sec = q[q.index("## 相談 1"):]
+        for w in ("works/docs/flow.md", "項目 4 の out_of_scope", "works/docs/**", "文書は項目 4 では触らない"):
+            self.assertIn(w, sec)
+        self.assertNotIn("あなたがこの項目の out_of_scope", sec)
+
+    def test_plain_ask_says_nothing_about_out_of_scope_hits(self):
+        q = consult.question(ITEMS, [{"n": 1, "item": "3", "paths": ["works/CHANGELOG.md"], "tests": [], "why": WHY}])
+        self.assertNotIn("当たる", q[q.index("## 相談 1"):])
 
 
 class JudgeCase(unittest.TestCase):
@@ -169,7 +208,7 @@ class FlowCase(Base):
     def test_allow_round_trip(self):
         self.plan_session()
         window = {"scope": "fixing", "block": "blk-fix", "round": 1, "files": scopes.snapshot(self.b.dir)}
-        out = self.ask(reply(ask_row(tests=["works/tests/test_report.py:12"]), ask_row(paths=["works/README.md"])))
+        out = self.ask(reply(ask_row(tests=["works/tests/test_report.py:12"]), ask_row(paths=["../outside.md"])))
         self.assertEqual((out["consulted"], out["go"], out["turn"], out["spent"]), (True, True, 1, False))
         q = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn("相談 1", q)
@@ -184,7 +223,7 @@ class FlowCase(Base):
         self.assertEqual(got["counts"], {"allow": 1, "refused": 1})
         rows = conflict.plan_asks(self.b)
         self.assertEqual([(r["id"], r["status"]) for r in rows], [(1, "answered"), (2, "refused")])
-        self.assertIn("out_of_scope", rows[1]["why_refused"])
+        self.assertIn("根の外", rows[1]["why_refused"])
         self.assertEqual((rows[0]["pass"], rows[0]["round"], rows[0]["turn"], rows[0]["node"]), ("first", 1, 1, "plan-answer"))
         self.assertEqual(rows[0]["session"], {"of": "plan", "id": SID, "as": consult.PEER})
         (agreed,) = conflict.agreed(self.b)
@@ -192,7 +231,7 @@ class FlowCase(Base):
         (permit,) = conflict.agreed_permits([agreed])
         self.assertEqual((permit["limit"], permit["id"]), ("works/tests/test_report.py:12", f"{conflict.AGREED_TEST_ID}-3"))
         text = pathlib.Path(got["answer_file"]).read_text(encoding="utf-8")
-        for w in ("allow", "works/CHANGELOG.md", "1 行だけ足す", "refused", "out_of_scope", "works/other.md"):
+        for w in ("allow", "works/CHANGELOG.md", "1 行だけ足す", "refused", "根の外", "works/other.md"):
             self.assertIn(w, text)
         self.assertEqual(scopes.check_window(self.b.dir, window), [], "相談の節は宣言の外に書かない")
         took = consult.take(self.b, "first")
@@ -205,6 +244,34 @@ class FlowCase(Base):
                                              "reason": "範囲の中で直せる"}]}, "first", "plan-answer")
         self.assertEqual([r["id"] for r in conflict.plan_asks(self.b)], [1, 2, 3])
         self.assertEqual(len(conflict.agreed(self.b)), 1, "deny は合意にならない")
+
+    def test_out_of_scope_reconsidered(self):
+        """out_of_scope に当たる頼みは答えの節に聞く。allow の行は、その項目の out_of_scope を外した印（overrode_out_of_scope。
+        パス・glob・外した理由）を持ち、合意（conflict.agreed）になる。deny の行は何も外さない。ほかの項目の out_of_scope の当たりは
+        行の out_of_scope に項目つきで残り、外した印にはならない（その項目の out_of_scope はその項目の物）"""
+        self.plan_session()
+        out = self.ask(reply(ask_row(paths=["works/README.md", "works/docs/flow.md"]), ask_row(paths=["works/README.md"])))
+        self.assertEqual((out["go"], out["turn"]), (True, 1))
+        q = pathlib.Path(out["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn("相談 2", q, "out_of_scope に当たる頼みも聞く")
+        self.assertIn(OOS_WHY, q)
+        answer = {"answers": [{"ask": 1, "decision": "allow", "paths": ["works/README.md", "works/docs/flow.md"], "tests": [],
+                               "spec": "", "reason": "外した時は README の節を書き直す依頼が別に在ると見たが、今は無い"},
+                              {"ask": 2, "decision": "deny", "paths": [], "tests": [], "spec": "",
+                               "reason": "README は今も別の依頼で直す（外した理由は立つ）"}]}
+        got = consult.settle(self.b, answer, "first", "plan-answer")
+        self.assertEqual(got["counts"], {"allow": 1, "deny": 1})
+        rows = conflict.plan_asks(self.b)
+        self.assertEqual(rows[0]["overrode_out_of_scope"],
+                         [{"path": "works/README.md", "glob": "works/README.md", "why": OOS_WHY}])
+        self.assertEqual([(h["path"], h["item"], h["glob"]) for h in rows[0]["out_of_scope"]],
+                         [("works/README.md", "3", "works/README.md"), ("works/docs/flow.md", "4", "works/docs/**")])
+        self.assertEqual(rows[1]["overrode_out_of_scope"], [], "deny は何も外さない")
+        self.assertEqual([h["path"] for h in rows[1]["out_of_scope"]], ["works/README.md"])
+        (agreed,) = conflict.agreed(self.b)
+        self.assertEqual(agreed["granted_paths"], ["works/README.md", "works/docs/flow.md"])
+        text = pathlib.Path(got["answer_file"]).read_text(encoding="utf-8")
+        self.assertIn("out_of_scope を外した", text)
 
     def test_passes_are_separate(self):
         self.plan_session()
@@ -396,6 +463,17 @@ class RulesTextCase(unittest.TestCase):
         self.assertIn("まとめ役", text)
         self.assertIn("factchecks.py /rp/fixing/consult/consult.json", text)
         self.assertNotIn("--reply", text)
+
+    def test_out_of_scope_goes_to_consult(self):
+        """修正案の out_of_scope に当たる物が要る時も、申し出の前に consult で頼む（持ち主 2026-10-07「相談で考え直させる」。
+        前は「out_of_scope のパスは相談でなく申し出の道」と言い、run 54d81ef1 は CHANGELOG.md で修正案の直しの関所に止まった）"""
+        text = fixrules.ask_text("/rp/fixing/consult/consult.json", "/py/bin/python3")
+        self.assertNotIn("相談でなく申し出の道", text)
+        self.assertIn("`out_of_scope`", text)
+        rule8 = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        rule8 = rule8[rule8.index("8. **"):]
+        self.assertIn("`out_of_scope` に当たる物", rule8)
+        self.assertLess(rule8.index("`consult`"), rule8.index("食い違いの申し出"))
 
     def test_reject_head_names_the_reply_field(self):
         import planscope

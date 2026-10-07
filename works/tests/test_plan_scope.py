@@ -356,6 +356,54 @@ class CrossItemScopeCase(unittest.TestCase):
 
 
 
+class AgreedOverridesOutOfScopeCase(unittest.TestCase):
+    """範囲の相談で修正案を書いた役が、その項目の out_of_scope に当たるパスを考え直して許した時（持ち主 2026-10-07「相談で
+    考え直させる」）、許したパスに限ってその項目の out_of_scope を外す（with_agreed）。許したパスと字のまま同じパスだけを外し
+    （glob の許しで広げない）、ほかの項目の out_of_scope は外さない。合意の無い時は今どおり拒む"""
+    ONE = item(allowed_paths=["stats.py"], out_of_scope=[{"glob": "CHANGELOG.md", "why": "記録は別の依頼でまとめて書く"},
+                                                         {"glob": "docs/**", "why": "文書は触らない"}])
+    CH = {**STATS, "CHANGELOG.md": ("a\n", "b\n")}
+    ROWS = [{"unit_key": MEAN, "files": ["stats.py", "CHANGELOG.md"]}]
+
+    def test_without_agreement_still_rejected(self):
+        got, _ = planscope.problems(planscope.with_agreed([self.ONE], []), self.ROWS, self.CH)
+        self.assertTrue(any("CHANGELOG.md" in p and "out_of_scope" in p for p in got), got)
+
+    def test_granted_path_overrides_own_out_of_scope(self):
+        items = planscope.with_agreed([self.ONE], [{"item": "1", "granted_paths": ["CHANGELOG.md"]}])
+        self.assertEqual(planscope.problems(items, self.ROWS, self.CH)[0], [])
+        self.assertEqual(planscope.problems(items, [ROW], self.CH)[0], [], "申告の無い変更も、外した項目の out_of_scope では拒まない")
+        self.assertEqual(self.ONE["out_of_scope"][0]["glob"], "CHANGELOG.md", "元の項目は変えない")
+
+    def test_override_is_exact_path_only(self):
+        """docs/a.md を許しても、同じ glob docs/** の docs/b.md は外さない"""
+        items = planscope.with_agreed([self.ONE], [{"item": "1", "granted_paths": ["docs/a.md"]}])
+        ch = {**STATS, "docs/a.md": ("a\n", "b\n"), "docs/b.md": ("a\n", "b\n")}
+        got, _ = planscope.problems(items, [{"unit_key": MEAN, "files": ["stats.py", "docs/a.md", "docs/b.md"]}], ch)
+        self.assertFalse(any("docs/a.md" in p for p in got), got)
+        self.assertTrue(any("docs/b.md" in p and "out_of_scope" in p for p in got), got)
+
+    def test_granted_test_file_overrides_own_out_of_scope(self):
+        """書き換えを許したテスト（granted_tests。permits に入る）のファイルも、その項目の out_of_scope から外す"""
+        one = item(allowed_paths=["stats.py"], out_of_scope=[{"glob": "test_old.py", "why": "古い試験は触らない"}])
+        items = planscope.with_agreed([one], [{"item": "1", "granted_paths": [], "granted_tests": ["test_old.py:3"]}])
+        ch = {**STATS, "test_old.py": ("a\n", "b\n")}
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "test_old.py"]}]
+        self.assertTrue(planscope.problems([one], rows, ch, permits=("test_old.py",))[0])
+        self.assertEqual(planscope.problems(items, rows, ch, permits=("test_old.py",))[0], [])
+
+    def test_other_item_out_of_scope_is_not_lifted(self):
+        """項目 2 に許したパスは項目 1 の out_of_scope を外さない: 項目 2 の単位では通り（e7906845）、項目 1 の単位と申告の無い
+        変更は項目 1 の out_of_scope で今どおり拒む"""
+        two = item(item=2, unit_keys=[CLAMP], allowed_paths=["clamp.py"])
+        items = planscope.with_agreed([self.ONE, two], [{"item": "2", "granted_paths": ["CHANGELOG.md"]}])
+        ch = {**self.CH, "clamp.py": ("a\n", "b\n")}
+        ok = [ROW, {"unit_key": CLAMP, "files": ["clamp.py", "CHANGELOG.md"]}]
+        self.assertEqual(planscope.problems(items, ok, ch)[0], [])
+        got, _ = planscope.problems(items, [ROW, {"unit_key": CLAMP, "files": ["clamp.py"]}], ch)
+        self.assertTrue(any("CHANGELOG.md" in p and "項目 1 の out_of_scope" in p for p in got), got)
+
+
 class RejectHeadCase(unittest.TestCase):
     """拒否の行の頭（reject_head）: 範囲の相談がその段に在れば、範囲の外が要る時の先の道を相談と言い、申し出は聞けない・
     許されない・out_of_scope の時の道に下げる（run 249・249b は相談の控えが在ったのに、拒否の文が申し出の道だけを言った）"""
@@ -369,6 +417,8 @@ class RejectHeadCase(unittest.TestCase):
         self.assertLess(head.index("範囲の相談"), head.index("食い違いの申し出"))
         self.assertIn("out_of_scope", head)
         self.assertNotIn("範囲の外が要るなら変えずに食い違いの申し出で返せ", head)
+        self.assertNotIn("out_of_scope に当たる物が要る時だけ", head,
+                         "out_of_scope の物も先に相談する（持ち主 2026-10-07。案を書いた役が考え直す）")
         self.assertTrue(head.startswith("承認済みの修正案の項目から外れた"), "拒否の行を単位に結ぶ・見出しで探す頭の語は同じ")
 
 if __name__ == "__main__":

@@ -1358,7 +1358,8 @@ def always_rows(b, left: list | None = None, *, rest: Rest | None = None) -> lis
 
 def plan_ask_lines(b) -> list:
     """範囲の相談（修正役が修正案を書いた役の会話を再開して範囲を聞いた 1 問 1 答。trace の conflict.ASKED_OP）の行: 1 行目に
-    回数と答えごとの数、続けて 1 相談 1 行（項目・答え・許した範囲か理由）。無ければ空。報告の冒頭（head_reads）が載せる"""
+    回数と答えごとの数、続けて 1 相談 1 行（項目・答え・許した範囲か理由。案を書いた役がその項目の out_of_scope を考え直して
+    外した物（行の overrode_out_of_scope）か、外したままにした物）。無ければ空。報告の冒頭（head_reads）が載せる"""
     rows = conflict.plan_asks(b)
     if not rows:
         return []
@@ -1371,7 +1372,13 @@ def plan_ask_lines(b) -> list:
             out.append(f"{head}{r.get('status')}——{str(why)[:300]}")
             continue
         granted = [*(r.get("granted_paths") or []), *(r.get("granted_tests") or [])]
-        out.append(f"{head}{r.get('decision')}" + (f"（{'・'.join(granted)}）" if granted else "")
+        lifted = [h for h in r.get("overrode_out_of_scope") or [] if isinstance(h, dict)]
+        kept = [h for h in r.get("out_of_scope") or [] if isinstance(h, dict) and str(h.get("item")) == str(r.get("item"))]
+        oos = ("・out_of_scope を外した: " + "・".join(f"{h.get('path')}（項目 {r.get('item')} の out_of_scope の {h.get('glob')}）"
+                                                    for h in lifted) if lifted else
+               "・out_of_scope は外したまま: " + "・".join(str(h.get("path")) for h in kept)
+               if kept and r.get("decision") != "allow" else "")
+        out.append(f"{head}{r.get('decision')}" + (f"（{'・'.join(granted)}）" if granted else "") + oos
                    + f"——{str(r.get('reason') or '')[:300]}")
     return out
 

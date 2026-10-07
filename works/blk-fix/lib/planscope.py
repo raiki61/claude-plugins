@@ -16,11 +16,14 @@
 - 凍ったファイル（loop）: TDD の輪が凍らせたファイルと凍った時の中身。欠けの証拠は版からの差分の全部で見て、修正役に問う外れと
   余分は凍った後に修正役が変えた分だけで見る（輪が書いた物を修正役のせいにしない・凍った後に足したテストを見逃さない）
 - 合意: 範囲の相談で修正案を書いた役が許したパス（conflict.agreed）。その項目の allowed_paths に足す（with_agreed）。
-  out_of_scope には勝たない
+  許したパスと許したテストの範囲のパスは、字のまま同じパスに限って、その項目の out_of_scope からも外す（LIFTED。持ち主
+  2026-10-07「相談で考え直させる」: 案を書いた役が自分の外した物を考え直して許した。glob の許しで広げない・ほかの項目の
+  out_of_scope は外さない）
 - permits: テストの変更の許し（conflict.test_permits の修正案の rewrite_tests と範囲の相談の合意のテスト）と、裁定の後なら直す裁定（conflict.ruled_paths。
   fix_code_as・fix_test_scope・replace_query）の limits のパス。run の全部の項目の範囲の和に入る（裁定の単位の項目だけに
   結ばない）。裁定で範囲が広がるのはこのパスだけで、裁定を受けた単位の全部を外さない（外せば fix_code_as が案の外の変更を
-  通す）。out_of_scope には勝たない（案が外したパスが要るのは案の項目の誤りで、fix_plan_item の道）
+  通す）。out_of_scope には勝たない（案が外したパスが要るのは案の項目の誤りで、範囲の相談か fix_plan_item の道。合意で外れた
+  パスだけは、外した項目の out_of_scope に当たらない）
 - 識別子の形（IDENT）: adds の name・removes の名のうち、差分で機械が探す物。kind を問わず :: と . で割った最後の段で探す。
   日本語や空白を含む説明の文と、/ を含む名（ファイルのパス）は探さず、記録の unchecked に並べる（誤った拒否を重ねて単位を
   止めない）
@@ -60,13 +63,14 @@ import planmarks  # noqa: E402
 import tddloop  # noqa: E402   試験のモジュールの名の型（PYTEST_FILE）の正本
 
 REJECT = "承認済みの修正案の項目から外れた（同じ brief のまま直して出し直せ。範囲の外が要るなら変えずに食い違いの申し出で返せ）: "
-# 範囲の相談がその段に在る時の頭（reject_head）。範囲の外が要る時の先の道は相談で、申し出は聞けない・許されない・out_of_scope の時
+# 範囲の相談がその段に在る時の頭（reject_head）。範囲の外と out_of_scope の物が要る時の先の道は相談で、申し出は聞けない・許されない時
 REJECT_ASK = ("承認済みの修正案の項目から外れた（同じ brief のまま直して出し直せ。allowed_paths の外が要るなら、変える前に指示書の"
               "「範囲の相談と事前の確かめ」の節のとおり、返答の consult の欄に相談を書いて返せ——修正案を書いた役が答え、許された物は"
-              "範囲に入り、同じ会話の続きで直しを続ける。相談が聞けない・許されずに仕様として意見が割れる時と、out_of_scope に当たる"
-              "物が要る時だけ、変えずに食い違いの申し出で返せ）: ")
+              "範囲に入り、同じ会話の続きで直しを続ける。out_of_scope に当たる物が要る時も同じに相談せよ——修正案を書いた役が外した"
+              "理由を考え直して決める。相談が聞けない・許されずに仕様として意見が割れる時だけ、変えずに食い違いの申し出で返せ）: ")
 # 単位に結べない変わったパスがほかの項目の out_of_scope に当たり、ある項目の範囲には入る時に足す文（申告すればその項目で照らす）
 OWNER_HINT = "（項目 {nums} の範囲には入る。その項目の単位の changes[].files に申告すれば、その項目の out_of_scope だけで照らす）"
+LIFTED = "out_of_scope_lifted"   # with_agreed が項目の写しに足す欄: 合意でその項目の out_of_scope から外したパス（字のまま）
 SCOPE_OP = "fix_plan_scope"   # 受けた時の盤面の trace の行（照らした印か、照らさなかった理由）
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")
 NO_PLAN = "承認済みの修正案か works の欄の控えが無い"
@@ -150,8 +154,10 @@ def _inside(path: str, it: dict) -> bool:
 
 
 def _oos_hit(path: str, items: list[dict]):
-    """path に当たる out_of_scope の最初の (項目, glob)。無ければ None"""
-    return next(((it, g) for it in items for g in _oos(it) if planmarks.glob_match(path, g)), None)
+    """path に当たる out_of_scope の最初の (項目, glob)。無ければ None。合意でその項目の out_of_scope から外したパス（LIFTED）は
+    その項目では当たらない"""
+    return next(((it, g) for it in items if path not in (it.get(LIFTED) or ()) for g in _oos(it)
+                 if planmarks.glob_match(path, g)), None)
 
 
 def _oos_hit_for(path: str, mine: list[dict], items: list[dict]):
@@ -272,7 +278,8 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
     6. tests: 新しく現れたテストのうち、どの項目の tests にも無い物は Extra。生きた項目の tests の各 id は、
        そのパスが変わり、今の中身に定義の行が在る
     裁定で外れた単位の項目も範囲を与える（依頼 241。外れた単位を直させない守りは受け付けの check_excused_units）。
-    permits のパスは 1 でも範囲に入る。out_of_scope は permits にも勝つ（1・2 とも先に見る）。
+    permits のパスは 1 でも範囲に入る。out_of_scope は permits にも勝つ（1・2 とも先に見る）。ただし範囲の相談の合意でその項目の
+    out_of_scope から外したパス（with_agreed の LIFTED）は、その項目の out_of_scope に当たらない（1・2 とも）。
     loop は TDD の輪が凍らせたファイル（パス → 凍った時の中身。無ければ None）。規則は 1 本: 欠け（Missing）の証拠は版からの差分の
     全部（changes）で見て、修正役に問う外れと余分（1・2・6 の Extra・canonical の外の定義）は凍った後に修正役が変えた分だけ
     （凍った時の中身と今の中身の差分）で見る。凍った後に変わっていないファイルは 1・2 で照らさない"""
@@ -394,17 +401,32 @@ def _now_text(repo: pathlib.Path, path: str) -> str | None:
 
 
 def with_agreed(items: list[dict], agreed) -> list[dict]:
-    """範囲の相談の合意（conflict.agreed の行 {item, granted_paths}）のパスを、その番号の項目の allowed_paths の後ろに足した写し
-    （元の項目は変えない。ほかの項目と out_of_scope は変えない。テストの書き換えの許しは conflict.test_permits が持つ）"""
+    """範囲の相談の合意（conflict.agreed の行 {item, granted_paths, granted_tests}）のパスを、その番号の項目の allowed_paths の
+    後ろに足した写し。許したパスと許したテストの範囲のパスは、その項目の写しの LIFTED にも並べ、字のまま同じパスに限ってその項目の
+    out_of_scope から外す（_oos_hit。案を書いた役が自分の外した物を考え直して許した。持ち主 2026-10-07）。元の項目は変えない。
+    ほかの項目は変えない。テストの書き換えの許しは conflict.test_permits が持つ"""
     more: dict = {}
+    lift: dict = {}
     for r in agreed or []:
+        n = str(r.get("item"))
         for p in r.get("granted_paths") or []:
-            if isinstance(p, str) and p and p not in more.setdefault(str(r.get("item")), []):
-                more[str(r.get("item"))].append(p)
+            if isinstance(p, str) and p and p not in more.setdefault(n, []):
+                more[n].append(p)
+        tests = [got[0] for got in (conflict.parse_limit(t) for t in r.get("granted_tests") or [] if isinstance(t, str))
+                 if got]
+        for p in [*more.get(n, []), *tests]:
+            p = posixpath.normpath(p)
+            if p not in lift.setdefault(n, []):
+                lift[n].append(p)
     out = []
     for it in items:
-        add = [p for p in more.get(str(it.get("item")), []) if p not in _globs(it)]
-        out.append({**it, "allowed_paths": [*(it.get("allowed_paths") or []), *add]} if add else it)
+        n = str(it.get("item"))
+        add = [p for p in more.get(n, []) if p not in _globs(it)]
+        if not add and not lift.get(n):
+            out.append(it)
+            continue
+        out.append({**it, "allowed_paths": [*(it.get("allowed_paths") or []), *add],
+                    LIFTED: [*(it.get(LIFTED) or []), *lift.get(n, [])]})
     return out
 
 
