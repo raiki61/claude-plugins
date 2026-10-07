@@ -486,7 +486,13 @@ class LineFixturesCase(unittest.TestCase):
         self.assertEqual(f["start-refused"]["fixture"]["expect"], "failed")
         # 出口 result は all_done で走り、機械の報告が無いので落ちる（報告の無い run を成功と言わない）
         self.assertEqual(f["start-refused"]["fixture"]["fail-node"], ["start", "report", "result"])
-        self.assertEqual(f["start-refused"]["fixture"]["inputs"]["thickness"], "軽量")
+        # start が本物で拒む入力（線の入力の確かめ entry.check_inputs が AI の前で拒む値）。軽量は 2026-10-06 から受けるので
+        # 軽量を渡した筋書きは start を通り、拒みの筋書きにならなかった（dev/check.sh の workflow test で落ちていた）
+        import entry   # noqa: E402  （linekit が .shared/core を sys.path に足す）
+        refused = f["start-refused"]["fixture"]["inputs"]
+        self.assertEqual(refused["thickness"], "重厚")
+        with self.assertRaises(entry.InputRefused):
+            entry.check_inputs(dict(refused), linekit.SEED)
         for name, outcome in (("standard", "fixed"), ("no-fix", "no_fix_needed"), ("policy-stop", "stopped_by_human"),
                               ("final-stop", "stopped_by_human"), ("stop-flag", "stopped_by_request"), ("rejudge", "fixed"),
                               ("rejudge-no-session", "stopped_by_line")):

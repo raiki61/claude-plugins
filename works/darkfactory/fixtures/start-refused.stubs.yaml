@@ -1,5 +1,5 @@
-# 筋書き start-refused: 手厚さ 軽量 を渡す → start（本物）が入力を受けず 1 で止まる（AI を起こす前。持ち主の決定
-# 2026-09-27）。後ろの節には届かない。報告の節 report と出口 result は all_done で走るが、盤面が無いので報告を組めずに
+# 筋書き start-refused: 手厚さ 重厚 を渡す → start（本物）が入力を受けず 1 で止まる（AI を起こす前。重厚は足す工程が
+# まだ無いので受けない。前は 軽量 を渡していたが、軽量は 2026-10-06 から受ける）。後ろの節には届かない。報告の節 report と出口 result は all_done で走るが、盤面が無いので報告を組めずに
 # どちらも落ちる（報告の無い run を成功と言わない。自分食い 32 件目で report を all_done にした）
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
@@ -2334,7 +2334,7 @@ fixture:
     request: request_ok.json
     test_cmd: python3 -m unittest
     adapter: optional
-    thickness: 軽量
+    thickness: 重厚
   fail-node:
   - start
   - report
@@ -2348,7 +2348,7 @@ h-depth:
   unit_depths: '{}'
   skip: ''
   lines:
-  - 深さ: 標準（直す義務の単位が無い）
+  - '深さ: 標準（直す義務の単位が無い）'
   depth_file: board/depth.json
 h-redepth:
   ok: true
@@ -2357,5 +2357,5 @@ h-redepth:
   unit_depths: '{}'
   skip: ''
   lines:
-  - 深さ: 標準（直す義務の単位が無い）
+  - '深さ: 標準（直す義務の単位が無い）'
   depth_file: board/depth.json

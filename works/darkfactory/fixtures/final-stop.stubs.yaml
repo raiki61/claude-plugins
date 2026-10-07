@@ -2404,7 +2404,7 @@ h-depth:
   unit_depths: '{}'
   skip: ''
   lines:
-  - 深さ: 標準（直す義務の単位が無い）
+  - '深さ: 標準（直す義務の単位が無い）'
   depth_file: board/depth.json
 h-redepth:
   ok: true
@@ -2413,5 +2413,5 @@ h-redepth:
   unit_depths: '{}'
   skip: ''
   lines:
-  - 深さ: 標準（直す義務の単位が無い）
+  - '深さ: 標準（直す義務の単位が無い）'
   depth_file: board/depth.json

@@ -12,11 +12,15 @@ import collections
 import json
 import pathlib
 import re
+import sys
 import unittest
 
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+if str(ROOT / ".shared" / "core" / "graphloops") not in sys.path:
+    sys.path.insert(0, str(ROOT / ".shared" / "core" / "graphloops"))   # 写しの engine（engine.schema）
 LINE = ROOT / "darkfactory"
 NOT_STUBS = frozenset({"fixture", "exec-code"})   # 筋書きの鍵のうち stub でない物
 
@@ -169,6 +173,26 @@ class FixtureStubKeysCase(unittest.TestCase):
                     continue
                 with self.subTest(f"{f}: {nid[1]}"):
                     self.assertEqual(sorted(required - keys), [], "stub が節の output_format の required を欠く")
+
+    def test_stubs_pass_output_format(self):
+        """stub は節の output_format を入れ子まで満たす（役の節だけでなく script の節も。Archon の模擬実行は stub を節の
+        output_format に通し、合わなければ節を落とす。h-depth・h-redepth の stub の lines の行『深さ: 標準（…）』は引用符が無く
+        YAML が {深さ: …} の dict に読み、ラインの筋書き 13 本が dev/check.sh の workflow test でだけ落ちていた）"""
+        from engine.schema import validate_schema   # 写しの engine の型の検査
+        defs = node_defs()
+        owner = line_stub_owner()
+        for p in fixture_files():
+            folder = p.parent.parent.name
+            for key, stub in (load(p) or {}).items():
+                if key in NOT_STUBS:
+                    continue
+                nid = owner.get(key, ("darkfactory", key)) if folder == "darkfactory" else (folder, key)
+                node = defs.get(nid) or next((n for (b, i), n in defs.items() if i == nid[1] and nid[0] == "darkfactory"), None)
+                fmt = (node or {}).get("output_format")
+                if not fmt:
+                    continue
+                with self.subTest(f"{p.relative_to(ROOT)}: {key}"):
+                    self.assertEqual(validate_schema(stub, fmt), [])
 
     def test_may_lack_is_live(self):
         """MAY_LACK の欄は、その節の stub のどれかに在り、どれかに無い（揃ったら消す。減らす方向だけ）。理由は空でない"""

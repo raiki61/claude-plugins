@@ -8,6 +8,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Fixed
 
+- 開発の確かめ `dev/check.sh`（Archon の `workflow test works`）で、ラインの模擬実行の筋書き（`darkfactory/fixtures/*.stubs.yaml`）13 本が全部落ちていたのを直した（0.2.31 から。環境のせいではなかった）。原因は 2 つ: (1) 深さの節 `h-depth`・`h-redepth` の stub の `lines` の行 `深さ: 標準（直す義務の単位が無い）` に引用符が無く、YAML が `{深さ: …}` の dict に読むので、Archon が stub を節の `output_format`（`lines` は文字列の配列）に通して節を落としていた（12 本はここで止まり `expected completed, dry-run reported failed`）。行を引用符で囲んだ。(2) 筋書き `start-refused` は手厚さ `軽量` を渡して start に拒ませる物だったが、`軽量` は 0.2.31 の単位ごとの深さから受けるので start が通り、上の (1) で落ちていた（`got h-depth`）。今も拒む `重厚` に替えた。速い段の試験 `tests/test_line_wiring.py` に、全部の筋書きの stub（役の節だけでなく script の節も）が節の `output_format` を入れ子まで満たすことを足し（前は script の節の stub は必須の欄の有無しか見ず、Archon でしか見えなかった）、`tests/test_line.py` は `start-refused` の入力を線の入力の確かめ（`entry.check_inputs`）が本当に拒むことを縛る。`dev/check.sh` は 59 本全部が通る
 - 入れ方（README の「入れ方」・スキルの 0 節）の順を直した。前は raiki61 の marketplace だけを足して `claude plugin install works@raiki61` を打たせていたので、works の依存 pr-review-toolkit の marketplace `claude-plugins-official` が無い利用者では「dependency "pr-review-toolkit@claude-plugins-official" was not installed … "works" will not load without it」と出て works が読まれなかった（使い捨ての `CLAUDE_CONFIG_DIR` で確かめた）。今は marketplace を 2 つ（`anthropics/claude-plugins-official`・`raiki61/claude-plugins`）足してから works だけを入れる。coldwrite・pr-review-toolkit は works の依存（`.claude-plugin/plugin.json`）なので一緒に入り、別の install の行は消した。試験 `tests/test_core_copy.py` は README とスキルの両方で、依存の marketplace を works の install より先に足し、依存を別に install しない順を縛る
 
 ## [0.2.38] - 2026-10-07
