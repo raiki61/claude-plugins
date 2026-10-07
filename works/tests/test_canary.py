@@ -263,9 +263,11 @@ ITEMS = [{"route": "tdd", "unit_keys": [U_MEAN], "allowed_paths": ["calc.py"],
           "tests": [{"id": "test_lib.py::TestTextfmt::test_initials_lowercase"}]}]
 
 
-def make_board(board, *, lanes=None, units=None, asks=(), unsettled=(), replans=0, items=ITEMS, patches=None, report=None):
+def make_board(board, *, lanes=None, units=None, asks=(), unsettled=(), replans=0, items=ITEMS, patches=None, report=None,
+               skipped=()):
     write(board / "plan-fields.json", {"round": 1, "fields": items})
     trace = [{"t": "x", "op": "init"}]
+    trace += [{"t": "x", "op": "lanes_skipped", **r, "scope": "fixing"} for r in skipped]
     if units is not None:
         trace.append({"t": "x", "op": "units_settled", "node": "fix-units", "machine": [], "carried": 0, **units,
                       "scope": "fixing"})
@@ -425,6 +427,20 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(doc["features"]["b_overlap"]["status"], "no")
         self.assertIn("1 項目にまとめた", doc["features"]["b_overlap"]["why"])
         self.assertEqual(doc["outcome"], "round_limit")
+
+    def test_lanes_skip_reason_is_named_when_a_is_no(self):
+        """(a) が no の時、TDD の輪が並べなかった理由（盤面の trace の lanes_skipped。節 tdd-step が積む）を (a) の why と出力に出す"""
+        make_db(self.db, self.out_root, [])
+        why = "単位 2 つを修正案の項目でまとめた枝が 1 本で、範囲の引ける枝が 1 本（並べは 2 本から）"
+        make_board(self.board, skipped=[{"reason": "lanes", "why": why, "loop": "tdd-1"}])
+        doc = canary_check.check(RUN, {}, [], self.board)
+        a = doc["features"]["a_parallel"]
+        self.assertEqual(a["status"], "no")
+        self.assertIn(f"TDD の輪が並べなかった理由: fixing tdd-1 lanes（{why}）", a["why"])
+        self.assertEqual(doc["lanes_skipped"], [{"scope": "fixing", "loop": "tdd-1", "reason": "lanes", "why": why}])
+        make_board(self.board)
+        self.assertEqual(canary_check.check(RUN, {}, [], self.board)["lanes_skipped"], [])
+        self.assertNotIn("並べなかった理由", canary_check.check(RUN, {}, [], self.board)["features"]["a_parallel"]["why"])
 
     def test_fixer_union_counts_as_overlap(self):
         """修正役の締めの行の union（試験のファイルの挿しだけの合わせ）も (b) の yes"""

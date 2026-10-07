@@ -9,7 +9,9 @@ home/runs の一番新しい控えの run。盤面は Archon の run の行の o
 db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（盤面の隣の run-place）はファイルを読むだけ。
 
 見る道（canary.sh の頭の (a)〜(d)）と、通ったと言う決まり:
-- (a) parallel（別のファイルの 2 項目以上の並べ）: TDD の輪の並べの周の目録が枝 2 本以上で、枝の輪（節の名の最後が
+- (a) parallel（別のファイルの 2 項目以上の並べ）: no の時は、TDD の輪が振り分けの後に並べなかった理由（盤面の trace の
+  lanes_skipped。節 tdd-step が積む {reason, why, loop}。tddlanes.SKIP_OP）を why に足し、出力の lanes_skipped に並べる。
+  通ったと言う決まり: TDD の輪の並べの周の目録が枝 2 本以上で、枝の輪（節の名の最後が
   tdd-lane-loop-<n>・tdd-lane-prep-<n>・tdd-lane-<n>・tdd-lane-step-<n>。docs/plans/2026-10-07-lane-nodes.md）が同時に 2 本以上
   走った。枝ごとの区間は枝 n の節の node_started の最初から終わり（node_completed・node_failed）の最後まで。または修正役の締めの
   trace の行（units_settled）が 2 項目以上を当てて、修正役の節（最後が fix）の下請けが同時に 2 本以上走った。下請けの同時は
@@ -349,9 +351,14 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         why.append(f"TDD の輪の枝 {tdd_lanes_n} 本・枝の輪の同時の最大 {tdd_par}・単位の結末 {ends}")
     if fix_items_n >= 2 and fix_par >= 2:
         why.append(f"修正役が当てた項目 {fix_items_n}・修正役の下請けの同時の最大 {fix_par}")
+    skipped = [{"scope": r.get("scope") or "", "loop": r.get("loop") or "", "reason": r.get("reason") or "", "why": r.get("why") or ""}
+               for r in trace if r.get("op") == tddlanes.SKIP_OP]
     a = {"status": YES if why else NO,
          "why": "・".join(why) or (f"並べの証拠が足りない（TDD の輪の枝 {tdd_lanes_n}・枝の輪の同時 {tdd_par}・"
                                    f"修正役が当てた項目 {fix_items_n}・修正役の下請けの同時 {fix_par}）")}
+    if not why and skipped:
+        a["why"] += "・TDD の輪が並べなかった理由: " + "・".join(
+            f"{x['scope'] or '—'} {x['loop'] or '—'} {x['reason']}（{x['why']}）" for x in skipped)
 
     shared = sorted({f for lp in loops for f in lp["shared"]} | {f for u in units for f in u["shared"]})
     unions = sorted({f for u in units for f in u["union"]})
@@ -392,6 +399,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         "plan_items": items,
         "planned_overlap": planned,
         "tdd_lanes": loops,
+        "lanes_skipped": skipped,
         "fix_units": units,
         "consults": asks,
         "agents": spans,

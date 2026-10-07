@@ -703,7 +703,12 @@ class WaitCase(unittest.TestCase):
         events = [node("fixing__tdd-lane-loop-1", ms=90000, kind="loop_group"), node("fixing__tdd-lane-loop-2", ms=30000,
                                                                                      kind="loop_group"),
                   node("refitting__tdd-lane-loop-1", ms=10000, kind="loop_group"), node("fixing__tdd-loop", ms=5000, kind="loop_group"),
-                  {"event_type": "node_completed", "step_name": "fixing__tdd-lane-loop-3", "data": {}}]   # 時間の無い輪は数えない
+                  {"event_type": "node_completed", "step_name": "fixing__tdd-lane-loop-3", "data": {}},   # 時間の無い輪は数えない
+                  # 輪の中の節（step_name が <include>__tdd-lane-loop-<n>.<節>）は輪でないので数えない（run 01004d2e で
+                  # 中の 21 節まで束に入り n が 23 になった）
+                  node("fixing__tdd-lane-loop-1.tdd-lane-prep-1", ms=500, kind="exec"),
+                  node("fixing__tdd-lane-loop-1.tdd-lane-1", ms=19000),
+                  node("fixing__tdd-lane-loop-2.tdd-lane-step-2", ms=700, kind="exec")]
         batches = fixmeasure.lane_wait(events)
         self.assertEqual(batches, [{"n": 2, "max": 90.0, "mean": 60.0, "loss": 30.0}, {"n": 1, "max": 10.0, "mean": 10.0, "loss": 0.0}])
         got = fixmeasure.with_lanes({"verified": False, "stages": {"fix": {"batches": [], "loss": 5.0}}, "total": 5.0}, batches)

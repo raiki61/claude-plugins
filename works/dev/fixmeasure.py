@@ -225,12 +225,14 @@ def wait_loss(rows: list) -> dict:
 
 
 def lane_wait(events: list) -> list:
-    """枝の輪の束 [{n, max, mean, loss}]（include ごとに 1 束。同じ include の tdd-lane-loop-<n> の node_completed の時間）"""
+    """枝の輪の束 [{n, max, mean, loss}]（include ごとに 1 束。同じ include の tdd-lane-loop-<n> の node_completed の時間）。
+    輪の中の節（step_name が <include>__tdd-lane-loop-<n>.<節>）は輪でないので数えない"""
     by = {}
     for e in events:
         name = e["step_name"].rsplit("__", 1)[-1]
         ms = ((e["data"].get("timing") or {}).get("durationMs")) if isinstance(e["data"].get("timing"), dict) else None
-        if e["event_type"] == "node_completed" and name.startswith(LANE_LOOP) and isinstance(ms, (int, float)):
+        if (e["event_type"] == "node_completed" and name.startswith(LANE_LOOP) and "." not in name
+                and isinstance(ms, (int, float))):
             by.setdefault(e["step_name"].rsplit("__", 1)[0] if "__" in e["step_name"] else "", []).append(ms / 1000)
     out = []
     for secs in by.values():

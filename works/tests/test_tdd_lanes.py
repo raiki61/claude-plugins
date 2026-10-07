@@ -166,6 +166,7 @@ class TestPlan(LaneCase):
             self.assertTrue(pathlib.Path(r["tree"]).is_dir())
             self.assertTrue(str(pathlib.Path(r["tree"]).resolve()).startswith(str(place.resolve())), r)
             self.assertEqual((pathlib.Path(r["tree"]) / "a.py").read_text(encoding="utf-8"), SEED["a.py"])
+        self.assertNotIn("lanes_skipped", got, "並べた周は見送りの理由を出さない")
         manifest = pathlib.Path(st["lanes"]["manifest"])
         self.assertEqual(manifest.parent, pathlib.Path(st["work"]), "目録は盤面の tdd-<k>/ の下（共有の記録 tdd-*/**）")
 
@@ -179,6 +180,8 @@ class TestPlan(LaneCase):
         self.ITEMS = {UA: [1], UB: [1]}
         got = self.route()
         self.assertEqual(got["phase"], "test", "項目を共にする 2 単位は 1 本の枝で、枝が 1 本なら並べない")
+        self.assertEqual(got["lanes_skipped"]["reason"], tddlanes.SKIP_LANES)
+        self.assertIn("枝が 1 本", got["lanes_skipped"]["why"])
 
     def test_groups_join_units_through_items(self):
         got = tddlanes.groups(["u1", "u2", "u3", "u4"], {"u1": [1], "u2": [2], "u3": [1, 3], "u4": [3]})
@@ -189,11 +192,45 @@ class TestPlan(LaneCase):
         with mock.patch.object(tddlanes, "ranges", return_value={UA: ["a.py"], UB: None}):
             got = self.route()
         self.assertEqual(got["phase"], "test")
+        self.assertEqual(got["lanes_skipped"]["reason"], tddlanes.SKIP_LANES)
+        self.assertIn("範囲の引ける枝が 1 本", got["lanes_skipped"]["why"])
 
     def test_direct_units_are_not_planted(self):
         got = self.step({"phase": "route", "units": [{"unit_key": UA, "route": "tdd"},
                                                      {"unit_key": UB, "route": "direct", "why": "文書の直しで先にテストを書けない"}]})
         self.assertEqual(got["phase"], "test", "tdd の単位が 1 つなら並べない")
+        self.assertEqual(got["lanes_skipped"]["reason"], tddlanes.SKIP_UNITS)
+        self.assertIn("1 つ", got["lanes_skipped"]["why"])
+
+    def test_skip_is_named_once_after_the_route(self):
+        """見送りの理由は振り分けを受けた周だけ出す（拒んだ振り分け・後の段では出さない）"""
+        got = self.step({"phase": "route", "units": []})
+        self.assertFalse(got["ok"])
+        self.assertNotIn("lanes_skipped", got)
+        self.ITEMS = {UA: [1], UB: [1]}
+        self.assertIn("lanes_skipped", self.route())
+        got = self.step({"phase": "test", "unit_key": UA, "test_files": [], "tests": []})
+        self.assertNotIn("lanes_skipped", got)
+
+    def test_step_script_writes_the_skip_to_the_trace(self):
+        """節 tdd-step は見送りの理由を盤面の trace に 1 行（tddlanes.SKIP_OP）で積み、出口には載せない"""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("blk_fix_tdd_step_skip", BLK / "scripts" / "tdd_step.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        skipped = {"reason": tddlanes.SKIP_UNITS, "why": "x", "loop": "tdd-1"}
+        b = mock.MagicMock()
+        emitted = {}
+        with mock.patch.object(mod.tddloop, "step", return_value={"ok": True, "done": False, "reason": "", "phase": "test",
+                                                                  "conflict": None, "writes": None,
+                                                                  "lanes_skipped": skipped}), \
+                mock.patch.object(mod.entry, "open_board", return_value=b), \
+                mock.patch.object(mod.script_io, "emit_result", side_effect=lambda board, name, out, last: emitted.update(out) or 0), \
+                mock.patch.dict("os.environ", {"INPUTS_REPLY": "{}", "INPUTS_STATE_FILE": self.state,
+                                               "ARTIFACTS_DIR": str(self.board.parent)}):
+            self.assertEqual(mod.main(), 0)
+        b.trace.assert_called_once_with(tddlanes.SKIP_OP, **skipped)
+        self.assertNotIn("lanes_skipped", emitted)
 
 
 class TestAfStaysSerial(LaneCase):
@@ -203,6 +240,8 @@ class TestAfStaysSerial(LaneCase):
         got = self.route()
         self.assertEqual(got["phase"], "test")
         self.assertFalse(self.st()["lanes_on"])
+        self.assertEqual(got["lanes_skipped"]["reason"], tddlanes.SKIP_SHAPE)
+        self.assertIn("af", got["lanes_skipped"]["why"])
 
 
 class TestLanesSwitchedOff(LaneCase):
@@ -214,6 +253,7 @@ class TestLanesSwitchedOff(LaneCase):
         got = self.route()
         self.assertEqual(got["phase"], "test")
         self.assertFalse(got["done"], "輪 tdd-loop は振り分けの周で抜けず、順に回し続ける")
+        self.assertEqual(got["lanes_skipped"]["reason"], tddlanes.SKIP_SWITCH)
         self.assertFalse(self.st().get("lanes"), "枝の目録を置かない")
         self.assertEqual(tddlanes.fork(self.state), {"go": False, "lanes": 0, "lane_1": False, "lane_2": False, "lane_3": False},
                          "節 tdd-fork は枝の輪を起こさない（tdd-join・tdd-rest-loop も飛ぶ）")
