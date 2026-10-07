@@ -611,8 +611,10 @@ def lanes_merged(b) -> set:
 LANES_TEXT = ("## 修正役の並べの枝の結末（機械が書いた）\n\n"
               "この周は、範囲の在る修正案の項目を、修正役の前に並べの枝（項目ごとの新しい会話。単位の worktree）が直した。結末のファイル "
               "{path} を Read で全部読め。\n\n"
-              "- 「当てた項目」の単位の直しは作業ツリーに在る（機械が 3 方向で当てた）。その単位には下請けを起こさず、作り直さない。changes に"
-              "は、その項目の枝の返答（結末のファイルが名指す JSON）の changes の行をそのまま写せ（受け付けがその後で直した時だけ書き直す）。"
+              "- 「当てた項目」の単位の直しは作業ツリーに在る（機械が 3 方向で当てた）。1 回目の周はその単位に下請けを起こさず、作り直さない。"
+              "changes には、その項目の枝の返答（結末のファイルが名指す JSON）の changes の行をそのまま写せ。受け付けがその単位を拒んだ"
+              "出し直しの周（と裁定の後）は、ほかの単位と同じに拒否が名指す項目の下請けを起こし直してよい（合わせた作業ツリーの上で直し、行も"
+              "書き直す）。"
               "周の全体の欄（interactions・fix_closure・plan_faces・wrote_refs・差分の形の変化の申告）は、枝の返答の値を合わせ、作業ツリーの"
               "差分の全体（枝の直しと、あなたが直した物）について書け\n"
               "- 「順に戻した項目」は、ほかの直す義務の単位と同じにこの周で直す（下請けの項目に載る）。前の試みの差分が名指されていれば読み、"
@@ -635,7 +637,7 @@ def overlap_line(b) -> str:
     if not shared:
         return ""
     items = [it.get("item") for it in doc.get("items") or [] if isinstance(it, dict) and it.get("outcome") == "merged"
-             and set(it.get("files") or []) & set(shared)]
+             and set([*(it.get("files") or []), *(it.get("patched") or [])]) & set(shared)]
     return OVERLAP_LINE.format(items="・".join(str(n) for n in items), files="、".join(shared[:10]))
 
 
@@ -679,7 +681,8 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     その scope の根に書き、数えと拒否の名指しはその scope の物だけを見る（起こした印は 1 回目の段が置いた物のまま）。1 回目に受け付けた返答の控え
     （conflict.held_reply）が在れば、brief の節の後に控えの節（held_text）を置く。
     green は TDD の輪が緑にした単位（dispatched）。
-    修正役の並べの枝の結末（lanes_record）が在れば、枝が直して当てた単位（lanes_merged）を green と同じく下請けから外し、指示書に節
+    修正役の並べの枝の結末（lanes_record）が在れば、1 回目の修正役（pass first）の 1 回目の周だけ、枝が直して当てた単位
+    （lanes_merged）を green と同じく下請けから外し（出し直し・裁定の後は拒否が名指す項目の下請けを今どおり起こし直せる）、指示書に節
     lanes（lanes_text）を置く。
     範囲の相談の答えがまだ渡っていない周（consult.take。前の周の返答が consult を持ち、確かめの節が答えを書いた）は、指示書を
     組み直さずに答えのファイルを名指す続きの指示書（resume）だけを書き、iteration は前の回のまま（相談の周は受け付けの回に数えない）。
@@ -723,14 +726,17 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     mark, shape = ("fix" if pass_ == PASSES[0] else "fix-ruled"), fixshape.shape_at(board_dir)
     seat = ""
     ask, ask_sub = ask_config(b, repo, values, pass_)
-    subs = dispatched(shape, mark, owed, set(green) | lanes_merged(b))   # 並べの枝が直して当てた単位にも下請けを起こさない
+    # 並べの枝が直して当てた単位には、1 回目の修正役の 1 回目の周だけ下請けを起こさない（出し直し・裁定の後は、拒否が名指す項目の
+    # 下請けを今どおり起こし直せる。枝が当てた単位も合わせた木の上で直し直す）
+    merged = lanes_merged(b) if pass_ == PASSES[0] and n == 1 else set()
+    subs = dispatched(shape, mark, owed, set(green) | merged)
     if subs:
         seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みと Context7 の引き（lib_section）より前に
         rows = g1_values(b, values, repo, subs, values.get("base_rev") or "", shape, ask=ask_sub)
         seat = seatkit.g1_section(rows, shape)
     elif seatkit.carries(mark, shape):
         seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みと Context7 の引き（lib_section）より前に
-        seat = seatkit.section(mark, shape, implementer_values(b, values, repo, owed))
+        seat = seatkit.section(mark, shape, implementer_values(b, values, repo, [k for k in owed if k not in merged]))
     docs = lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))
     held, held_path = conflict.held_reply(b)

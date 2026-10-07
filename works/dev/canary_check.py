@@ -373,7 +373,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
                     | {f for r in fixl for f in r["shared"]})
     unions = sorted({f for u in units for f in u["union"]} | {f for r in fixl for f in r["union"]})
     merges = sorted({u["merge"] for lp in loops for u in lp["units"] if u.get("merge")})
-    expected = any(lp["expect"] for lp in loops)
+    expected = any(lp["expect"] for lp in loops) or any(r.get("expect") for r in trace if r.get("op") == fixlanes.PLANTED_OP)
     plan_said = "・".join(f"{f} 項目 {ns}" for f, ns in planned.items()) or "無い"
     if shared or unions or tddlanes.UNION in merges:
         b = {"status": YES, "why": f"重なりのファイル {shared}・試験のファイルの union {unions}・枝の合わせ {merges}"

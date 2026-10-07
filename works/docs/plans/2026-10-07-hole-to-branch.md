@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計書。語は「目的と語」の節と works/README.md で定義 -->
 # 全体の確かめで出た穴を枝へ戻す（線の木の段 4）
 
-状態: 段 4a（名札と見せる所。8 の Task 1〜3）を入れた（wip/tree4）。7 の決め事 1〜7 は推しのとおり承認（2026-10-07）。段 4b（木の形。Task 4〜12）は作らずに置く（9 の測りの結論）。親の設計は works/docs/plans/2026-10-06-tree-line.md（以下「線の木」）の 2.1・2.2 の統合の行と補足・6 の段 4。
+状態: 段 4a（名札と見せる所。8 の Task 1〜3）を入れた（wip/tree4）。下の段 4b の形が使う当てるコマンド（`unitlanes.merge`）・締め（`unitlanes.settle` と修正の段の fix-units）・`fixrules.side_on` は、修正役の並べを Archon の節にした時（works/docs/plans/2026-10-07-fix-lane-nodes.md）に外した。段 4b を作る時は並べの枝の部品（`blk-fix/lib/lanekit.py`）の上に組み直す。7 の決め事 1〜7 は推しのとおり承認（2026-10-07）。段 4b（木の形。Task 4〜12）は作らずに置く（9 の測りの結論）。親の設計は works/docs/plans/2026-10-06-tree-line.md（以下「線の木」）の 2.1・2.2 の統合の行と補足・6 の段 4。
 
 ## 平たく言うと（3 行）
 

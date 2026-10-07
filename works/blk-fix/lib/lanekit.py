@@ -19,13 +19,13 @@ TDD の輪の並べ（tddlanes。docs/plans/2026-10-07-lane-nodes.md）と修正
 - revert_strays(repo, base, keep=()): 枝の間に run の作業ツリーで変わったファイル（keep の外）を base の姿に戻す（枝の役は包みの
   柵で書けない。受け止め）。戻したパス
 - merge(repo, tree, *, since, base, log, declared, made, kept, union, earlier): 枝の差分を run の作業ツリーへ 3 方向で当てる
-  （書き込みの記録の無い変更・当たらない差分・当てた中身が単位の worktree と違う物は当てない）。Merge（why・patch・names・unioned・
-  clash）
+  （書き込みの記録の無い変更・当たらない差分・当てた中身が単位の worktree と違う物は当てない。枝の実行器が作ったファイル made は
+  base の姿に戻して差分に入れない）。Merge（why・patch・names・unioned・clash）
 - shared(patches): 2 本以上の枝の差分に出たファイル
 - carry(log, repo, applied, shared): 当てた枝の書き込みの記録を run の作業ツリーへ写す（unitlanes.carry_records）
 - claim_problems(claims, repo, board_dir, owed, try_query, briefs): 食い違いの申し出（1 件か並び）の機械の確かめ（conflict.problems）
 - park(board, claims, source): 確かめた申し出を盤面の控えに積む（conflict.park。裁定の輪が読む）
-- remove(repo, trees): 単位の worktree と守りの参照を片付ける
+- remove(repo, trees): 単位の worktree と守りの参照を片付ける（git が断った物は理由を返し、次の plant の sweep に任せる）
 """
 from __future__ import annotations
 
@@ -98,7 +98,10 @@ def merge(repo, tree, *, since: str, base: str, log, declared=(), made=(), kept,
     run の作業ツリーの姿）、kept は差分を控えるファイル、earlier は前に当てた枝の差分のパス（そのファイルは中身の照らしから外す）。
     check（段の照らし。当てたパスの並び → 戻す理由か空）が理由を返せば、当てた物を戻して当てない"""
     repo, tree, log = pathlib.Path(repo), pathlib.Path(tree), pathlib.Path(log)
-    moved = sorted(set(tddloop.touched(tree, since, tddloop.snapshot(tree))) - set(made))
+    touched = set(tddloop.touched(tree, since, tddloop.snapshot(tree)))
+    if touched & set(made):   # 枝の実行器が作った・変えたファイルは差分に入れない（役の直しでない。記録も無い）
+        tddloop.restore_paths(tree, since, touched & set(made))
+    moved = sorted(touched - set(made))
     if log.is_file():
         left = writes.unrecorded(tree, moved, log, list(declared))
         if left:
@@ -147,7 +150,12 @@ def park(board, claims, source: str) -> list:
     return conflict.park(board, list(claims), source=source) if claims else []
 
 
-def remove(repo, trees) -> None:
-    """単位の worktree を片付ける"""
+def remove(repo, trees) -> list:
+    """単位の worktree を片付ける。git が断った worktree の理由の並び（残った物は次の plant の sweep が消す。締めを落とさない）"""
+    left = []
     for t in trees:
-        unittrees.remove(repo, t)
+        try:
+            unittrees.remove(repo, t)
+        except (unittrees.UnitTreeError, OSError) as e:
+            left.append(f"{t}: {' '.join(str(e).split())[:200]}")
+    return left

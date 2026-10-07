@@ -307,6 +307,66 @@ class TestJoin(LaneBoard):
         self.assertEqual([i["unit_key"] for i in items], [CLAMP])
 
 
+class TestChainedItems(LaneBoard):
+    """1 本の枝が 2 項目を順に直す（枝 1 に項目 1・2。枝 2 は配線のための写し）: 諦めた項目の直しは木から消え、次の項目は新しい鍵で
+    新しい会話になり、枝の差分は次の項目の直しだけ"""
+
+    def test_second_item_follows_a_given_up_first(self):
+        with mock.patch.object(fixlanes, "assign", return_value=([[1, 2], [2]], [])):
+            self.forked()
+        first = fixlanes.lane_prep(self.board, 1)
+        key = pathlib.Path(adapter.session_key_path(str(self.board), "fix-lane-1"))
+        self.assertTrue(key.read_text(encoding="utf-8").strip().endswith("item-1"))
+        self.assertIn("1 番目の項目", pathlib.Path(first["prompt_file"]).read_text(encoding="utf-8"))
+        self.edit(1, MEAN_FIX, record=False)
+        for _ in range(fixlanes.GIVE_UP_AFTER):
+            got = self.step(1, lane_reply(MEAN))
+        self.assertEqual((got["ok"], got["done"]), (False, False), "項目 1 を諦めて項目 2 へ")
+        rules = self.state(1)["items"][0]["rules"]
+        self.assertIn("この枝の後の項目", pathlib.Path(rules).read_text(encoding="utf-8"), "項目 1 の決まりは後の項目を名指す")
+        second = fixlanes.lane_prep(self.board, 1)
+        self.assertTrue(key.read_text(encoding="utf-8").strip().endswith("item-2"), "項目が替われば鍵が替わる（包みが会話を切る）")
+        self.assertIn("2 番目の項目", pathlib.Path(second["prompt_file"]).read_text(encoding="utf-8"))
+        self.edit(1, CLAMP_FIX)
+        got = self.step(1, lane_reply(CLAMP))
+        self.assertEqual((got["ok"], got["done"], got["item"]), (True, True, 2))
+        st = self.state(1)
+        self.assertEqual([r["outcome"] for r in st["results"]], [fixlanes.GAVE_UP, fixlanes.ACCEPTED])
+        diff = unittrees.diff(self.tree(1), st["base"])
+        self.assertIn("return hi", diff)
+        self.assertNotIn("len(xs)\n", diff.replace("(len(xs) - 1)", ""), "諦めた項目の直しは枝の差分に入らない")
+
+    def test_consult_answer_resumes_the_same_item(self):
+        self.forked()
+        b = entry.open_board(self.board)
+        answer = b.work("consult-lane-1-1.md")
+        answer.write_text("# 答え\n", encoding="utf-8")
+        b.work("consult-lane-1.json").write_text(json.dumps({"turns": 1, "turn_state": "answered", "answer_file": str(answer)}),
+                                                 encoding="utf-8")
+        got = fixlanes.lane_prep(self.board, 1)
+        text = pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(str(answer), text)
+        self.assertIn(self.state(1)["items"][0]["rules"], text, "前に読んだ項目の決まりを名指す続きの指示書")
+        self.assertIsNone(__import__("consult").take(entry.open_board(self.board), "lane-1"), "渡した答えは 1 度だけ")
+
+
+class TestMade(LaneBoard):
+    def test_runner_made_files_stay_out_of_the_patch(self):
+        """枝の実行器が作ったファイル（記録が無い）は拒まず、差分にも入れない"""
+        self.forked()
+        self.edit(1, MEAN_FIX)
+        (self.tree(1) / "junit-out.txt").write_text("runner\n", encoding="utf-8")
+        st = self.state(1)
+        got = lanekit.merge(self.repo, st["tree"], since=st["base"], base=st["base"], log=self.log, made=["junit-out.txt"],
+                            kept=self.tmp / "lane-1.patch")
+        self.assertEqual(got.why, "", got)
+        self.assertEqual(got.names, ["stats.py"])
+        self.assertFalse((self.repo / "junit-out.txt").exists())
+        got2 = lanekit.merge(self.repo, st["tree"], since=st["base"], base=st["base"], log=self.log, made=[],
+                             kept=self.tmp / "lane-1b.patch", earlier=["stats.py"])
+        self.assertEqual(got2.names, ["stats.py"], "戻した後は作った物が残らない")
+
+
 class TestSerialAfterLanes(LaneBoard):
     def test_fix_prep_skips_merged_units_and_names_the_summary(self):
         self.forked()
@@ -322,6 +382,11 @@ class TestSerialAfterLanes(LaneBoard):
         text = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn(str(entry.open_board(self.board).work(fixrules.LANES_SUMMARY)), text)
         self.assertNotIn("## 下請けを回す", text, "枝が全部の単位を当てた周は下請けを起こさない（座のまま）")
+        self.assertIn("直す義務の単位 0 件", text, "座の型も枝が当てた単位を今直す単位に数えない")
+        code, out, err = run_script("fix_prep", self.repo, env)   # 出し直しの周（受け付けが拒んだ後）
+        self.assertEqual(code, 0, err)
+        again = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn("## 下請けを回す", again, "出し直しの周は枝が当てた単位も下請けを起こし直せる")
 
 
 class TestScripts(LaneBoard):
@@ -346,6 +411,15 @@ class TestScripts(LaneBoard):
         code, out, err = run_script("fix_join", self.repo, self.env())
         self.assertEqual(code, 0, err)
         self.assertEqual(json.loads(out)["merged"], [1, 2])
+
+    def test_fork_script_reads_the_switch(self):
+        vals = {f"INPUTS_{k.upper()}": v for k, v in self.values().items() if k != "tdd_state"}
+        code, out, err = run_script("fix_fork", self.repo, self.env(**vals, INPUTS_FIX_LANES="off"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["why"], fixlanes.OFF)
+        code, out, err = run_script("fix_fork", self.repo, self.env(**vals, INPUTS_FIX_LANES="maybe"))
+        self.assertEqual(code, 2)
+        self.assertEqual(out.strip(), "")
 
     def test_rejected_step_writes_a_reason_file(self):
         self.forked()

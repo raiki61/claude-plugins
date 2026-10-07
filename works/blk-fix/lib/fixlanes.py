@@ -211,7 +211,16 @@ def fork(board_dir, repo, values: dict, green=frozenset(), switch: str = "") -> 
     if why:
         b.trace(PLANTED_OP, node="fix-fork", lanes=0, why=why)
         return {**out, "why": why}
-    rows = _plant(b, repo, values, cands, lanes, rest, shape)
+    try:
+        rows = _plant(b, repo, values, cands, lanes, rest, shape)
+    except Exception as e:   # 枝を切れない・項目のファイルを組めない: 並べずに修正の輪へ（切った worktree は片付ける）
+        why = f"枝を切れない（{type(e).__name__}: {' '.join(str(e).split())[:300]}）——修正の輪が順に直す"
+        try:
+            unittrees.sweep(repo)
+        except (unittrees.UnitTreeError, OSError):
+            pass
+        b.trace(PLANTED_OP, node="fix-fork", lanes=0, why=why)
+        return {**out, "why": why}
     b.trace(PLANTED_OP, node="fix-fork", lanes=len(rows), items={str(r["n"]): r["items"] for r in rows}, rest=rest,
             expect=_expect(cands, lanes))
     return {**lanekit.fork_out([r["n"] for r in rows]), "why": ""}
@@ -306,7 +315,7 @@ def _tests_state(b, repo: pathlib.Path, tdd_state: str, n: int, tree: pathlib.Pa
         exe = tree / exe.absolute().relative_to(repo.absolute())
     except ValueError:
         pass
-    work = place / f"lane-{n}"
+    work = place / f"lane-{n}" / "suite"   # 版の写しの結末の控え（work の親）も枝ごと（同時に走る枝が同じ控えを書かない）
     work.mkdir(parents=True, exist_ok=True)
     path = b.work(TESTS_FILE.format(n=n))
     _write(path, {**st, "exe": str(exe), "work": str(work), "suite_made": [], "final_left": [], "final_far": [], "ci_left": []})
@@ -455,7 +464,8 @@ def check(b, lst: dict, it: dict, reply, repo: pathlib.Path, base_rev: str, tdd_
                                            since=since, made=made)
     note(found, "scope", scope)
     if lst.get("tests"):
-        red, _ = tddloop.selected_problems(lst["tests"], tree, writes.base_rev(b, base_rev))
+        # 版は枝の base（切った時の run の作業ツリー）: 枝の差分に当たる試験だけを選び、枝の base で既に赤い試験を新しい赤に数えない
+        red, _ = tddloop.selected_problems(lst["tests"], tree, since)
         note(found, "tests", red)
     return found, reply, (items if not found else [])
 
@@ -545,11 +555,14 @@ def join(board_dir, repo, try_query=None) -> dict:
                 back[i] = {"why": broken, "lane": n}
         elif acc:
             ready.append((row, lst, acc))
-    applied, union_got, earlier = [], [], set()
+    applied, union_got, earlier, patched = [], [], set(), {}
     for row, lst, acc in ready:
-        got = lanekit.merge(repo, lst["tree"], since=lst["base"], base=man["base"], log=log, declared=lst.get("declared") or [],
-                            made=_made(lst), kept=b.work(LANE_PATCH.format(n=row["n"])), union=man.get("union") or (),
-                            earlier=earlier)
+        try:
+            got = lanekit.merge(repo, lst["tree"], since=lst["base"], base=man["base"], log=log, declared=lst.get("declared") or [],
+                                made=_made(lst), kept=b.work(LANE_PATCH.format(n=row["n"])), union=man.get("union") or (),
+                                earlier=earlier)
+        except (unittrees.UnitTreeError, OSError) as e:   # git が効かない枝は戻す（締めを落とさない）
+            got = lanekit.Merge(f"枝の差分を作れない・当てられない（{' '.join(str(e).split())[:300]}）", "", [], [], False)
         if got.why:
             for r in acc:
                 back[r["item"]] = {"why": got.why, "patch": got.patch, "lane": row["n"]}
@@ -557,10 +570,11 @@ def join(board_dir, repo, try_query=None) -> dict:
         earlier |= set(got.names)
         union_got += [p for p in got.unioned if p not in union_got]
         applied.append((lst["tree"], got.patch))
+        patched[row["n"]] = list(got.names)
     shared = lanekit.shared([patch for _, patch in applied])
     lanekit.carry(log, repo, applied, shared)
     parked, refused = _park(b, repo, [lst for _, lst, acc in ready if not any(r["item"] in back for r in acc)], try_query)
-    items = _outcomes(man, results, back, refused)
+    items = _outcomes(man, results, back, refused, patched)
     doc = {"lanes": len(man["lanes"]), "base": base, "shared": shared, "union": union_got, "reverted": stray,
            "parked": [c["unit_key"] for c in parked], "rest": man.get("rest") or [], "items": items}
     _write(b.work(fixrules.LANES_RECORD), doc)
@@ -570,7 +584,9 @@ def join(board_dir, repo, try_query=None) -> dict:
     b.trace(SETTLED_OP, node="fix-join", lanes=len(man["lanes"]), merged=merged, back=backs, parked=doc["parked"],
             shared=shared, union=union_got, reverted=stray,
             outcomes=[{k: i.get(k) for k in ("item", "lane", "outcome", "why")} for i in items])
-    lanekit.remove(repo, [row["tree"] for row in man["lanes"]])
+    left = lanekit.remove(repo, [row["tree"] for row in man["lanes"]])
+    if left:
+        b.trace(SETTLED_OP + "_left", node="fix-join", trees=left)
     return {"ok": True, "merged": merged, "back": backs, "parked": len(parked), "shared": shared, "union": union_got}
 
 
@@ -593,17 +609,20 @@ def _park(b, repo, lanes, try_query) -> tuple:
     return good, refused
 
 
-def _outcomes(man: dict, results: dict, back: dict, refused: dict) -> list:
-    """目録の順に項目ごとの結末 [{item, lane, outcome, units, changed, not_done, claimed, files, reply, why, patch, refused}]"""
+def _outcomes(man: dict, results: dict, back: dict, refused: dict, patched=None) -> list:
+    """目録の順に項目ごとの結末 [{item, lane, outcome, units, changed, not_done, claimed, files, patched, reply, why, patch, refused}]。
+    patched は当てた枝の差分のパス（同じ枝の項目は同じ並び）"""
+    patched = patched or {}
     out = []
     for row in man["lanes"]:
         for i in row["items"]:
             r = results.get(i) or {"outcome": NOT_RUN, "why": "枝の控えに結末が無い"}
             row_out = {"item": i, "lane": row["n"], "units": [], "changed": [], "not_done": [], "claimed": [], "files": [],
-                       "reply": "", "why": "", "patch": "", "refused": {}}
+                       "patched": [], "reply": "", "why": "", "patch": "", "refused": {}}
             if r.get("outcome") == ACCEPTED and i not in back:
                 row_out.update(outcome=MERGED, changed=r.get("changed") or [], not_done=r.get("not_done") or [],
                                claimed=[k for k in r.get("claimed") or [] if k not in refused], files=r.get("files") or [],
+                               patched=patched.get(row["n"], []),
                                reply=r.get("reply") or "",
                                refused={k: refused[k] for k in r.get("claimed") or [] if k in refused})
             else:
