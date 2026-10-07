@@ -27,12 +27,16 @@
   置いて偽（tddloop.step が出口の lanes_skipped に載せ、節 tdd-step が盤面の trace に SKIP_OP の行で積む）
 - fork(state_file): 節 tdd-fork。枝の輪を起こすか {go, lanes, lane_1..lane_<MAX_LANES>}（状態の段が lanes の時だけ go）
 - lane_prep(state_file, n, values): 節 tdd-lane-prep-<n>。枝 n の今の単位の決まりのファイルと回ごとの指示書を書き、包みが読む
-  2 つの印（単位の鍵 adapter.session_key_path は run ごとの置き場、単位の worktree adapter.lane_tree_path は盤面の下）を置く
+  2 つの印（単位の鍵 adapter.session_key_path は run ごとの置き場、単位の worktree adapter.lane_tree_path は盤面の下）を置く。
+  {prompt_file, go: true}。枝が済んでいれば（締めが済んだ・枝の控えが done。Archon の resume が済みと記録していない枝の輪を 1 周目から
+  回し直した）何も書かずに {prompt_file: "", go: false}（役の節は when: で飛ぶ）
 - lane_step(state_file, n, reply, repo): 節 tdd-lane-step-<n>。役の返答で単位の worktree の段を tddloop.step で確かめる（書き込みの
   出どころは run の作業ツリーの記録 writes.sink(repo) と突き合わせる）。食い違いの申し出は確かめずに控えに書く（盤面を読む確かめは
-  settle）。{ok, done（枝の単位が全部済んだ）, phase, reason, unit_key}
+  settle）。{ok, done（枝の単位が全部済んだ）, phase, reason, unit_key}。枝が済んでいて返答が None（役が飛ばされた周）なら何も動かさずに
+  done
 - join(state_file, repo, try_query): 節 tdd-join。settle で締め、輪の呼びの記録を 1 行足して状態を保存する。{go（順に回す単位が残る）,
-  done, phase, merged, back, conflicts（盤面に積む申し出）}
+  done, phase, merged, back, conflicts（盤面に積む申し出）}。出口は状態の lanes.joined にも残し、締めた後にもう 1 度呼ばれたら（resume）
+  それを申し出を空にして返す（盤面・作業ツリーを動かさない）
 - settle(st, repo, try_query): 目録の順に枝を締める（単位ごとの申し出の確かめ・direct・赤の確かめ直し（_red_again。控えの赤の記録は
   確かめの節の外でも書き換えうるので、単位の頭の木と赤の時のテストのファイルで名指しを回し直す）・書き込みの記録の突き合わせ・
   3 方向で当てる（試験のファイルの挿しだけの食い違いは合わせる）・当てた中身と名指しのテストの照らし）、当てた後の木で緑をもう 1 度
@@ -85,6 +89,7 @@ CLEAN, UNION, CLASH, SEMANTIC = "clean", "union", "conflict", "semantic"   # 枝
 # 満たない・lanes: 範囲の引ける枝が 2 本に満たない（plan が状態の lanes_skipped に置く）
 SKIP_OP = "lanes_skipped"
 SKIP_SWITCH, SKIP_SHAPE, SKIP_UNITS, SKIP_LANES = "switch", "shape", "units", "lanes"
+JOINED = "joined"   # 状態の lanes の欄: 締めの出口（締めた印。resume で回し直された締めはこれを返し、枝の輪は役を起こさずに抜ける）
 
 
 def lane_nodes() -> list:
@@ -237,21 +242,33 @@ def _lane(st: dict, n) -> dict:
     return row
 
 
+def _over(st: dict, n) -> bool:
+    """枝 n が済んでいるか: 締め（join）が済んだ（目録に枝 n が在る時だけ）か、枝の控えが done。Archon の resume は済みと記録して
+    いない枝の輪を 1 周目から回し直す（枝の輪が落ちても all_done の締めは走る・控えの done の保存と輪の済みの記録の間に止まる）。
+    その時の支度と確かめはここで役を起こさずに抜ける。並べの周でない・枝が無ければ Broken（_lane）"""
+    joined = (st.get("lanes") or {}).get(JOINED)
+    if joined is not None:
+        if not any(str(r["n"]) == str(n) for r in st["lanes"]["rows"]):
+            raise tddloop.Broken(f"並べの目録に枝 {n} が無い")
+        return True
+    return bool(tddloop._load(_lane(st, n)["state"])["done"])
+
+
 def _tree_ok(row: dict) -> str:
     """単位の worktree の `.git` の 1 行が切った時と同じなら空、違えば理由（lanekit.tree_ok）"""
     return lanekit.tree_ok(row["tree"], row.get("git") or "")
 
 
 def lane_prep(state_file, n, values: dict | None = None) -> dict:
-    """節 tdd-lane-prep-<n>（頭の注記）。{prompt_file}"""
+    """節 tdd-lane-prep-<n>（頭の注記）。{prompt_file, go}。枝が済んでいれば（_over）{"prompt_file": "", "go": False}"""
     st = tddloop._load(state_file)
+    if _over(st, n):   # resume で回し直された済んだ枝の輪: 役を起こさない（YAML の役の when: が go を読む）
+        return {"prompt_file": "", "go": False}
     row = _lane(st, n)
     why = _tree_ok(row)
     if why:
         raise tddloop.Broken(why)
     lst = tddloop._load(row["state"])
-    if lst["done"]:
-        raise tddloop.Broken(f"枝 {n} の単位は全部済んでいる（tdd-lane-prep を呼ぶ番でない）")
     work = pathlib.Path(st["work"])
     board_dir = work.parent
     j = lst["cur"] + 1
@@ -272,7 +289,7 @@ def lane_prep(state_file, n, values: dict | None = None) -> dict:
     prompt = work / LANE_NEXT.format(n=row["n"])
     prompt.write_text(_next_text(row, lst, j, k, brief_file), encoding="utf-8")
     lanekit.mark(board_dir, LANE_NODE.format(n=row["n"]), f"{work.name}:lane-{row['n']}:{k}", row["tree"])
-    return {"prompt_file": str(prompt)}
+    return {"prompt_file": str(prompt), "go": True}
 
 
 def _next_text(row: dict, lst: dict, j: int, k: str, brief_file: pathlib.Path) -> str:
@@ -301,6 +318,8 @@ def _next_text(row: dict, lst: dict, j: int, k: str, brief_file: pathlib.Path) -
 def lane_step(state_file, n, reply, repo) -> dict:
     """節 tdd-lane-step-<n>（頭の注記）"""
     st = tddloop._load(state_file)
+    if reply is None and _over(st, n):   # 支度が go: false を返して役が飛ばされた周（resume）: 何も動かさずに輪を抜ける
+        return {"ok": True, "done": True, "phase": "done", "reason": "", "unit_key": ""}
     row = _lane(st, n)
     why = _tree_ok(row)
     lst_file = pathlib.Path(row["state"])
@@ -373,6 +392,9 @@ def _park(state: pathlib.Path, lst: dict, reply: dict, tree: pathlib.Path) -> di
 def join(state_file, repo, try_query=None) -> dict:
     """節 tdd-join（頭の注記）"""
     st = tddloop._load(state_file)
+    joined = (st.get("lanes") or {}).get(JOINED)
+    if joined is not None:   # resume で回し直された締め: 締めた時の出口をそのまま返す（盤面・作業ツリーを動かさない。申し出は空で、
+        return dict(joined)  # 積み直さない）。節の出力は同じなので Archon は後ろの節の済みを使い続ける
     if st.get("done") or st.get("phase") != "lanes" or not st.get("lanes"):
         raise tddloop.Broken(f"並べの周でない（段 {st.get('phase')!r}）——tdd-join は枝の輪の後に 1 回だけ回る")
     t0, runs0 = time.monotonic(), st["runs"]
@@ -384,11 +406,13 @@ def join(state_file, repo, try_query=None) -> dict:
         tddloop._finish(st, repo)
     st.setdefault("calls", []).append({"n": st["iterations"], "phase": "lanes", "unit_key": "", "ok": True,
                                        "runs": st["runs"] - runs0, "secs": round(time.monotonic() - t0, 1)})
-    tddloop._save(state_file, st)
     rows = st["lanes"]["out"]
-    return {"go": not st["done"], "done": st["done"], "phase": "done" if st["done"] else st["phase"],
-            "merged": sum(1 for r in rows if r["outcome"] == MERGED), "back": sum(1 for r in rows if r["outcome"] == BACK),
-            "conflicts": items}
+    out = {"go": not st["done"], "done": st["done"], "phase": "done" if st["done"] else st["phase"],
+           "merged": sum(1 for r in rows if r["outcome"] == MERGED), "back": sum(1 for r in rows if r["outcome"] == BACK),
+           "conflicts": items}
+    st["lanes"][JOINED] = {**out, "conflicts": []}   # 申し出は 1 度目だけが渡す（再生は積まない。節の出力に申し出は載らない）
+    tddloop._save(state_file, st)
+    return dict(out)
 
 
 def settle(st: dict, repo, try_query=None) -> list:

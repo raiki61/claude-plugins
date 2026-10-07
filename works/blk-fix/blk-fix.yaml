@@ -315,9 +315,10 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file]
+            required: [prompt_file, go]
             properties:
               prompt_file: {type: string}
+              go: {type: boolean}   # 偽は枝が済んでいる（resume で回し直された輪）。役を起こさず、確かめが輪を抜ける
 
         - id: tdd-lane-1
           description: '枝 1 の TDD の役（cwd は枝の worktree）'
@@ -325,6 +326,7 @@ nodes:
           effort: high
           prompt: 指示書 `$tdd-lane-prep-1.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-lane-prep-1]
+          when: "$tdd-lane-prep-1.output.go == true"
           settingSources: [user]
           skills: [test-driven-development]   # 座（g3 の時だけ並べる。座の文は決まりのファイルに載る）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
@@ -379,10 +381,11 @@ nodes:
         - id: tdd-lane-step-1
           script: tdd_lane_step
           runtime: uv
-          depends_on: [tdd-lane-1]
+          depends_on: [tdd-lane-prep-1, tdd-lane-1]
+          trigger_rule: none_failed_min_one_success   # 済んだ枝の周は役が飛ばされる（返答は null。確かめは何も動かさずに done）
           timeout: 1728000000
           with:
-            reply: {from: "$tdd-lane-1.output"}
+            reply: {from: "$tdd-lane-1.output", if_skipped: null}
             state_file: $tdd-start.output.state_file
             lane: "1"
           output_format:
@@ -419,9 +422,10 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file]
+            required: [prompt_file, go]
             properties:
               prompt_file: {type: string}
+              go: {type: boolean}   # 偽は枝が済んでいる（resume で回し直された輪）。役を起こさず、確かめが輪を抜ける
 
         - id: tdd-lane-2
           description: '枝 2 の TDD の役（cwd は枝の worktree）'
@@ -429,6 +433,7 @@ nodes:
           effort: high
           prompt: 指示書 `$tdd-lane-prep-2.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-lane-prep-2]
+          when: "$tdd-lane-prep-2.output.go == true"
           settingSources: [user]
           skills: [test-driven-development]   # 座（g3 の時だけ並べる。座の文は決まりのファイルに載る）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
@@ -445,10 +450,11 @@ nodes:
         - id: tdd-lane-step-2
           script: tdd_lane_step
           runtime: uv
-          depends_on: [tdd-lane-2]
+          depends_on: [tdd-lane-prep-2, tdd-lane-2]
+          trigger_rule: none_failed_min_one_success   # 済んだ枝の周は役が飛ばされる（返答は null。確かめは何も動かさずに done）
           timeout: 1728000000
           with:
-            reply: {from: "$tdd-lane-2.output"}
+            reply: {from: "$tdd-lane-2.output", if_skipped: null}
             state_file: $tdd-start.output.state_file
             lane: "2"
           output_format:
@@ -485,9 +491,10 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file]
+            required: [prompt_file, go]
             properties:
               prompt_file: {type: string}
+              go: {type: boolean}   # 偽は枝が済んでいる（resume で回し直された輪）。役を起こさず、確かめが輪を抜ける
 
         - id: tdd-lane-3
           description: '枝 3 の TDD の役（cwd は枝の worktree）'
@@ -495,6 +502,7 @@ nodes:
           effort: high
           prompt: 指示書 `$tdd-lane-prep-3.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-lane-prep-3]
+          when: "$tdd-lane-prep-3.output.go == true"
           settingSources: [user]
           skills: [test-driven-development]   # 座（g3 の時だけ並べる。座の文は決まりのファイルに載る）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
@@ -511,10 +519,11 @@ nodes:
         - id: tdd-lane-step-3
           script: tdd_lane_step
           runtime: uv
-          depends_on: [tdd-lane-3]
+          depends_on: [tdd-lane-prep-3, tdd-lane-3]
+          trigger_rule: none_failed_min_one_success   # 済んだ枝の周は役が飛ばされる（返答は null。確かめは何も動かさずに done）
           timeout: 1728000000
           with:
-            reply: {from: "$tdd-lane-3.output"}
+            reply: {from: "$tdd-lane-3.output", if_skipped: null}
             state_file: $tdd-start.output.state_file
             lane: "3"
           output_format:
@@ -530,6 +539,8 @@ nodes:
 
   # 並べを締める（枝の輪の全部の後に 1 回。差分を当てて緑を確かめ直し、済まなかった単位を順に戻す。食い違いの申し出は盤面に積む）。
   # all_done: 枝の輪が 1 本落ちても締めて残りを順に回す（落ちた枝の単位は済んでいないので戻る。run は落ちた節を持ったまま進む）
+  # Archon の resume は落ちた枝の輪とそれに依るこの節を回し直す: 済んだ枝の輪は支度の go: false で役を起こさずに抜け、この節は
+  # 締めた時の出口を返す（tddlanes.join。盤面・作業ツリーを動かさない）
   - id: tdd-join
     description: '枝の差分を作業ツリーへ 3 方向で当てて緑を確かめ直す（食い違った枝・残りは次の輪へ） [needs: tdd_lanes]'
     script: tdd_join
@@ -674,9 +685,10 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file]
+            required: [prompt_file, go]
             properties:
               prompt_file: {type: string}
+              go: {type: boolean}   # 偽は枝が済んでいる（resume で回し直された輪）。役を起こさず、確かめが輪を抜ける
 
         - id: fix-lane-1
           description: '枝 1 の修正役'
@@ -684,6 +696,7 @@ nodes:
           effort: high
           prompt: 指示書 `$fix-lane-prep-1.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-lane-prep-1]
+          when: "$fix-lane-prep-1.output.go == true"
           settingSources: [user]
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]   # Agent は項目の審査役の下請けだけ（実装の下請けは起こさない）
           sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}   # 包みの旗 lane が求める形
@@ -1181,12 +1194,13 @@ nodes:
         - id: fix-lane-step-1
           script: fix_lane_step
           runtime: uv
-          depends_on: [fix-lane-consult-check-1]
+          depends_on: [fix-lane-prep-1, fix-lane-consult-check-1]
+          trigger_rule: none_failed_min_one_success   # 済んだ枝の周は役と相談の節が飛ばされる（返答は null。確かめは何も動かさずに done）
           timeout: 1728000000
           with:
-            reply: {from: "$fix-lane-1.output"}
+            reply: {from: "$fix-lane-1.output", if_skipped: null}
             lane: "1"
-            consulted: $fix-lane-consult-check-1.output.consulted   # 範囲の相談の周は確かめない（数えるだけ）
+            consulted: {from: "$fix-lane-consult-check-1.output.consulted", if_skipped: false}   # 範囲の相談の周は確かめない（数えるだけ）
             base_rev: $INPUTS.base_rev
             tdd_state: $tdd-start.output.state_file   # 凍ったテストのファイル・選んで回す試験の元の結末（空は実行器の無い run）
           output_format:
@@ -1218,9 +1232,10 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file]
+            required: [prompt_file, go]
             properties:
               prompt_file: {type: string}
+              go: {type: boolean}   # 偽は枝が済んでいる（resume で回し直された輪）。役を起こさず、確かめが輪を抜ける
 
         - id: fix-lane-2
           description: '枝 2 の修正役'
@@ -1228,6 +1243,7 @@ nodes:
           effort: high
           prompt: 指示書 `$fix-lane-prep-2.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-lane-prep-2]
+          when: "$fix-lane-prep-2.output.go == true"
           settingSources: [user]
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]   # Agent は項目の審査役の下請けだけ（実装の下請けは起こさない）
           sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}   # 包みの旗 lane が求める形
@@ -1318,12 +1334,13 @@ nodes:
         - id: fix-lane-step-2
           script: fix_lane_step
           runtime: uv
-          depends_on: [fix-lane-consult-check-2]
+          depends_on: [fix-lane-prep-2, fix-lane-consult-check-2]
+          trigger_rule: none_failed_min_one_success   # 済んだ枝の周は役と相談の節が飛ばされる（返答は null。確かめは何も動かさずに done）
           timeout: 1728000000
           with:
-            reply: {from: "$fix-lane-2.output"}
+            reply: {from: "$fix-lane-2.output", if_skipped: null}
             lane: "2"
-            consulted: $fix-lane-consult-check-2.output.consulted   # 範囲の相談の周は確かめない（数えるだけ）
+            consulted: {from: "$fix-lane-consult-check-2.output.consulted", if_skipped: false}   # 範囲の相談の周は確かめない（数えるだけ）
             base_rev: $INPUTS.base_rev
             tdd_state: $tdd-start.output.state_file   # 凍ったテストのファイル・選んで回す試験の元の結末（空は実行器の無い run）
           output_format:
@@ -1355,9 +1372,10 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file]
+            required: [prompt_file, go]
             properties:
               prompt_file: {type: string}
+              go: {type: boolean}   # 偽は枝が済んでいる（resume で回し直された輪）。役を起こさず、確かめが輪を抜ける
 
         - id: fix-lane-3
           description: '枝 3 の修正役'
@@ -1365,6 +1383,7 @@ nodes:
           effort: high
           prompt: 指示書 `$fix-lane-prep-3.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-lane-prep-3]
+          when: "$fix-lane-prep-3.output.go == true"
           settingSources: [user]
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]   # Agent は項目の審査役の下請けだけ（実装の下請けは起こさない）
           sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}   # 包みの旗 lane が求める形
@@ -1455,12 +1474,13 @@ nodes:
         - id: fix-lane-step-3
           script: fix_lane_step
           runtime: uv
-          depends_on: [fix-lane-consult-check-3]
+          depends_on: [fix-lane-prep-3, fix-lane-consult-check-3]
+          trigger_rule: none_failed_min_one_success   # 済んだ枝の周は役と相談の節が飛ばされる（返答は null。確かめは何も動かさずに done）
           timeout: 1728000000
           with:
-            reply: {from: "$fix-lane-3.output"}
+            reply: {from: "$fix-lane-3.output", if_skipped: null}
             lane: "3"
-            consulted: $fix-lane-consult-check-3.output.consulted   # 範囲の相談の周は確かめない（数えるだけ）
+            consulted: {from: "$fix-lane-consult-check-3.output.consulted", if_skipped: false}   # 範囲の相談の周は確かめない（数えるだけ）
             base_rev: $INPUTS.base_rev
             tdd_state: $tdd-start.output.state_file   # 凍ったテストのファイル・選んで回す試験の元の結末（空は実行器の無い run）
           output_format:
@@ -1476,6 +1496,8 @@ nodes:
 
   # 修正役の並べを締める（fixlanes.join）。枝の輪が 1 本落ちても締めて（all_done）、通った項目の差分を run の作業ツリーへ 3 方向で
   # 当て、書き込みの記録を写し、申し出を盤面に積み、結末（盤面の作業ファイル fix-lanes-out.json・fix-lanes.md）を修正の輪の支度が読む
+  # Archon の resume は落ちた枝の輪とそれに依るこの節を回し直す: 済んだ枝の輪は支度の go: false で役を起こさずに抜け、この節は
+  # 結末に残した出口を返す（fixlanes.join。当てた差分と後の修正の輪の直しを戻さない）
   - id: fix-join
     description: '枝の差分を 3 方向で当てる（残りは修正役の輪へ） [needs: fix_lanes]'
     script: fix_join

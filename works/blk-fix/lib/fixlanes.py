@@ -21,16 +21,18 @@
 - groups(rows)・assign(groups): 分け方（純粋）
 - candidates(b, values, green, shape): 枝で直してよい項目の行と、直す義務に揃えた値
 - fork(board_dir, repo, values, green, switch): 節 fix-fork。並べる枝が 2 本以上なら単位の worktree を切り、枝の控え・項目の決まりの
-  ファイル・審査役のファイル・範囲の相談の控えを書いて {go, lanes, lane_<n>, why}
+  ファイル・審査役のファイル・範囲の相談の控えを書いて {go, lanes, lane_<n>, why}。前に切った枝の締めの結末は消す
 - lane_prep(board_dir, n): 節 fix-lane-prep-<n>。回ごとの指示書（範囲の相談の答えが来た周は consult の続きの指示書）と包みが読む
-  2 つの印（単位の鍵・単位の worktree）。{prompt_file}
+  2 つの印（単位の鍵・単位の worktree）。{prompt_file, go: true}。枝が済んでいれば（締めが止めた枝を含む。Archon の resume が済みと
+  記録していない枝の輪を回し直した）何も書かずに {prompt_file: "", go: false}（役と相談の節は飛ぶ）
 - lane_step(board_dir, n, reply, repo, ...): 節 fix-lane-step-<n>。範囲の相談の周は数えるだけ。ほかは受け付けと同じ事実の確かめ
   （check）を単位の worktree に当て、通れば次の項目へ、同じ項目の GIVE_UP_AFTER 回目の拒否で項目を諦める（差分を控えて木を項目の頭に
-  戻す）。{ok, done, consulted, reason, item}
+  戻す）。{ok, done, consulted, reason, item}。枝が済んでいて返答が None（役が飛ばされた周）なら何も動かさずに done
 - check(...): 枝の確かめの中身（拒否の行 [(id, 文)]・bash_writes と consult と conflicts を外した返答・通った申し出）
 - join(board_dir, repo, try_query): 節 fix-join。枝ごとに差分を run の作業ツリーへ 3 方向で当て（試験のファイルの挿しだけの食い違いは
   合わせる）、書き込みの記録を写し、申し出を確かめ直して盤面に積み、結末（fixrules.LANES_RECORD・LANES_SUMMARY）と trace を書いて
-  単位の worktree を片付ける。{ok, merged, back, parked, shared, union}
+  単位の worktree を片付ける。{ok, merged, back, parked, shared, union}。出口は結末の joined にも残し、結末が在れば（締めた後に resume が
+  もう 1 度呼んだ）作業ツリーを戻さず、残った単位の worktree だけ片付けてそれを返す
 """
 from __future__ import annotations
 
@@ -78,6 +80,7 @@ RULES_FILE = "fix-lane-{n}-{j}.md"
 BRIEFS_FILE = "fix-lane-{n}-{j}-briefs.md"   # 座の型の [BRIEF_FILE]（fixrules.implementer_values）
 REVIEW_FILE = "fix-lane-{n}-{j}-review.md"   # 審査役の下請けのファイル（fixrules.review_text）
 NEXT_FILE = "fix-lane-{n}.next.md"
+JOINED = "joined"   # 結末（fixrules.LANES_RECORD）の欄: 締めの出口（resume で回し直された締めはこれを返す）
 REPLY_FILE = "fix-lane-{n}-{j}-reply.json"   # 通った枝の返答（修正役が changes の行を写す）
 TESTS_FILE = "fix-lane-{n}-tests.json"       # 枝の確かめが試験を選んで回す輪の状態の写し（実行器は単位の worktree の物）
 KEPT_FILE = "fix-lane-{n}-{j}.patch"         # 諦めた項目の差分（修正役が読む前の試み）
@@ -194,6 +197,8 @@ def fork(board_dir, repo, values: dict, green=frozenset(), switch: str = "") -> 
         return {**out, "why": why or f"盤面が開けない（{' '.join(str(e).split())}）"}
     shape = fixshape.shape_at(b.dir)
     repo = pathlib.Path(repo)
+    for name in (fixrules.LANES_RECORD, fixrules.LANES_SUMMARY):   # 前に切った枝の締めの結末は、切り直す（か並べない）周に持ち込まない
+        b.work(name).unlink(missing_ok=True)
     if why:
         pass
     elif shape != seat.SHAPE:
@@ -337,8 +342,8 @@ def lane_prep(board_dir, n) -> dict:
     """節 fix-lane-prep-<n>（頭の注記）"""
     b = entry.open_board(pathlib.Path(board_dir))
     _, lst = _state(b, n)
-    if lst["done"]:
-        raise Broken(f"枝 {n} の項目は全部済んでいる（fix-lane-prep を呼ぶ番でない）")
+    if lst["done"]:   # 済んだ枝（締めが止めた枝を含む）を Archon の resume が回し直した: 役を起こさない（YAML の役の when: が go を読む）
+        return {"prompt_file": "", "go": False}
     why = _tree_ok(lst)
     if why:
         raise Broken(why)
@@ -351,7 +356,7 @@ def lane_prep(board_dir, n) -> dict:
         prompt = b.work(NEXT_FILE.format(n=n))
         prompt.write_text(_next_text(lst, it), encoding="utf-8")
     lanekit.mark(b.dir, LANE_NODE.format(n=n), f"{entry.peek_here() or '-'}:r{b.round}:lane-{n}:item-{it['item']}", lst["tree"])
-    return {"prompt_file": str(prompt)}
+    return {"prompt_file": str(prompt), "go": True}
 
 
 def _next_text(lst: dict, it: dict) -> str:
@@ -373,6 +378,8 @@ def lane_step(board_dir, n, reply, repo, *, consulted: bool = False, base_rev: s
     """節 fix-lane-step-<n>（頭の注記）"""
     b = entry.open_board(pathlib.Path(board_dir))
     path, lst = _state(b, n)
+    if lst["done"] and reply is None:   # 支度が go: false を返して役が飛ばされた周（resume）: 何も動かさずに輪を抜ける
+        return {"ok": True, "done": True, "consulted": False, "reason": "", "item": lst["items"][-1]["item"] if lst["items"] else 0}
     if lst["done"]:
         raise Broken(f"枝 {n} の項目は全部済んでいる（fix-lane-step を呼ぶ番でない）")
     it = lst["items"][lst["cur"]]
@@ -530,6 +537,10 @@ def join(board_dir, repo, try_query=None) -> dict:
     b = entry.open_board(pathlib.Path(board_dir))
     man = _read(b.work(MANIFEST))
     repo = pathlib.Path(repo)
+    done = fixrules.lanes_record(b)
+    if done is not None and isinstance(done.get(JOINED), dict):   # 締めが済んだ後に Archon の resume が締めを回し直した: 当てた差分と
+        lanekit.remove(repo, [row["tree"] for row in man["lanes"]])   # 後の修正の輪の直しを戻さず、前の出口をそのまま返す（残った
+        return dict(done[JOINED])                                     # worktree だけ片付ける）
     log = writes.sink(repo)
     base = man["base"]
     stray = lanekit.revert_strays(repo, base)   # 枝の役は run の作業ツリーを書けない（包みの柵）。書かれていれば戻す（受け止め）
@@ -575,19 +586,20 @@ def join(board_dir, repo, try_query=None) -> dict:
     lanekit.carry(log, repo, applied, shared)
     parked, refused = _park(b, repo, [lst for _, lst, acc in ready if not any(r["item"] in back for r in acc)], try_query)
     items = _outcomes(man, results, back, refused, patched)
-    doc = {"lanes": len(man["lanes"]), "base": base, "shared": shared, "union": union_got, "reverted": stray,
-           "parked": [c["unit_key"] for c in parked], "rest": man.get("rest") or [], "items": items}
-    _write(b.work(fixrules.LANES_RECORD), doc)
-    b.work(fixrules.LANES_SUMMARY).write_text(summary_text(doc), encoding="utf-8")
     merged = [i["item"] for i in items if i["outcome"] == MERGED]
     backs = [i["item"] for i in items if i["outcome"] == BACK]
+    out = {"ok": True, "merged": merged, "back": backs, "parked": len(parked), "shared": shared, "union": union_got}
+    doc = {"lanes": len(man["lanes"]), "base": base, "shared": shared, "union": union_got, "reverted": stray,
+           "parked": [c["unit_key"] for c in parked], "rest": man.get("rest") or [], "items": items, JOINED: out}
+    b.work(fixrules.LANES_SUMMARY).write_text(summary_text(doc), encoding="utf-8")
+    _write(b.work(fixrules.LANES_RECORD), doc)   # 結末は最後に（在れば締めた印。resume の締めはこれを返す）
     b.trace(SETTLED_OP, node="fix-join", lanes=len(man["lanes"]), merged=merged, back=backs, parked=doc["parked"],
             shared=shared, union=union_got, reverted=stray,
             outcomes=[{k: i.get(k) for k in ("item", "lane", "outcome", "why")} for i in items])
     left = lanekit.remove(repo, [row["tree"] for row in man["lanes"]])
     if left:
         b.trace(SETTLED_OP + "_left", node="fix-join", trees=left)
-    return {"ok": True, "merged": merged, "back": backs, "parked": len(parked), "shared": shared, "union": union_got}
+    return dict(out)
 
 
 def _park(b, repo, lanes, try_query) -> tuple:

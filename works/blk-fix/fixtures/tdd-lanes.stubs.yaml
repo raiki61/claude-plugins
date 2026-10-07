@@ -30,6 +30,7 @@ tdd-fork:
   lane_3: false
 tdd-lane-prep-1:
   prompt_file: board/tdd-1/lane-1.next.md
+  go: true
 tdd-lane-1:   # 枝 1 の fix の段の返答（cwd は枝 1 の単位の worktree）
   phase: fix
   unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
@@ -45,6 +46,7 @@ tdd-lane-step-1:
   unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
 tdd-lane-prep-2:
   prompt_file: board/tdd-1/lane-2.next.md
+  go: true
 tdd-lane-2:
   phase: fix
   unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
@@ -60,6 +62,7 @@ tdd-lane-step-2:
   unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
 tdd-lane-prep-3:   # 枝 3 は when: で飛ぶ（stub は置くだけ）
   prompt_file: board/tdd-1/lane-3.next.md
+  go: true
 tdd-lane-3:
   phase: fix
   unit_key: ""
@@ -102,6 +105,7 @@ fix-fork:   # 修正役の並べの枝を切るかの節は盤面を要るので
   why: 模擬実行では書き込みの記録が無い（包みの無い起動）
 fix-lane-prep-1:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
+  go: true
 fix-lane-1: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
 fix-lane-consult-1:
   consulted: false
@@ -131,6 +135,7 @@ fix-lane-step-1:
   item: 1
 fix-lane-prep-2:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
+  go: true
 fix-lane-2: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
 fix-lane-consult-2:
   consulted: false
@@ -160,6 +165,7 @@ fix-lane-step-2:
   item: 1
 fix-lane-prep-3:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
+  go: true
 fix-lane-3: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
 fix-lane-consult-3:
   consulted: false

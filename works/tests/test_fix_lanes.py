@@ -431,6 +431,71 @@ class TestScripts(LaneBoard):
         self.assertIn("この項目の直す義務の単位", pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"))
 
 
+class TestResume(LaneBoard):
+    """Archon の resume（v0.11.1）: 済んでいない節だけを 1 周目から回し直し、落ちた節に依る済んだ節も回し直す。fix-join は all_done
+    なので、枝の輪が 1 本落ちても締めて修正の輪へ進み、run は落ちたまま残る。resume で落ちた枝の輪と締めがもう 1 度呼ばれても、
+    役を起こさずに抜け、締めは前の出口を返す（当てた差分と修正の輪の書いた物を戻さない）"""
+
+    def half_join(self):
+        """枝 1 は通り、枝 2 の輪は確かめまで届かずに落ちた（口座の上限など）まま締めた"""
+        self.forked()
+        self.edit(1, MEAN_FIX)
+        self.assertTrue(self.step(1, lane_reply(MEAN))["ok"])
+        self.edit(2, CLAMP_FIX)
+        return fixlanes.join(self.board, self.repo)
+
+    def test_running_lane_prep_says_go(self):
+        self.forked()
+        got = fixlanes.lane_prep(self.board, 1)
+        self.assertIs(got["go"], True)
+        self.assertTrue(pathlib.Path(got["prompt_file"]).is_file())
+
+    def test_lane_loop_after_the_join_ends_without_the_role(self):
+        self.half_join()
+        before = self.state(2)
+        self.assertEqual(fixlanes.lane_prep(self.board, 2), {"prompt_file": "", "go": False})
+        got = self.step(2, None)
+        self.assertEqual((got["ok"], got["done"], got["consulted"]), (True, True, False), got)
+        self.assertEqual(self.state(2), before, "締めた後の枝の輪は控えを動かさない")
+
+    def test_join_again_keeps_the_merged_lane_and_later_fixes(self):
+        first = self.half_join()
+        self.assertEqual((first["merged"], first["back"]), ([1], [2]))
+        (self.repo / "fixloop.txt").write_text("修正の輪が書いた\n", encoding="utf-8")   # 落ちる前の修正の輪の直し
+        self.assertEqual(fixlanes.join(self.board, self.repo), first, "同じ出口（Archon は後ろの節の済みを使い続ける）")
+        self.assertIn(MEAN_FIX[1], (self.repo / "stats.py").read_text(encoding="utf-8"), "当てた枝の差分を戻さない")
+        self.assertTrue((self.repo / "fixloop.txt").is_file(), "修正の輪の書いた物を戻さない")
+
+    def test_fork_drops_the_last_record(self):
+        """枝を切り直す（fix-fork がもう 1 度走る）なら、前の締めの結末を返さない"""
+        self.half_join()
+        self.forked()
+        self.assertIsNone(fixrules.lanes_record(entry.open_board(self.board)))
+        got = fixlanes.join(self.board, self.repo)
+        self.assertEqual(got["back"], [1, 2], "切り直した枝はまだ回っていない")
+
+    def test_scripts_on_resume(self):
+        """Archon が resume で起こす形: 役が飛ばされた確かめは reply が null、consulted が false"""
+        self.half_join()
+        env = {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]}
+        code, out, err = run_script("fix_lane_prep", self.repo, {**env, "INPUTS_LANE": "2"})
+        self.assertEqual((code, json.loads(out or "{}")), (0, {"prompt_file": "", "go": False}), err)
+        for reply in ("null", ""):
+            code, out, err = run_script("fix_lane_step", self.repo, {**env, "INPUTS_REPLY": reply, "INPUTS_LANE": "2",
+                                                                     "INPUTS_CONSULTED": "false", "INPUTS_BASE_REV": "",
+                                                                     "INPUTS_TDD_STATE": ""})
+            self.assertEqual(code, 0, err)
+            self.assertIs(json.loads(out)["done"], True)
+        outs = [run_script("fix_join", self.repo, env) for _ in range(2)]
+        self.assertEqual([c for c, _, _ in outs], [0, 0], outs)
+        self.assertEqual(outs[0][1], outs[1][1])
+
+    def test_reply_for_a_done_lane_is_still_refused(self):
+        self.half_join()
+        with self.assertRaises(fixlanes.Broken):
+            self.step(2, lane_reply(CLAMP))
+
+
 class TestKit(unittest.TestCase):
     """並べの枝の部品の純粋な口"""
 

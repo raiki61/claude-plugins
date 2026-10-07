@@ -62,10 +62,15 @@ class TestWiring(unittest.TestCase):
                 prep, step = g["nodes"][0], g["nodes"][-1]
                 self.assertEqual((prep["script"], prep["with"]), ("fix_lane_prep", {"lane": str(i)}))
                 self.assertEqual(step["script"], "fix_lane_step")
-                self.assertEqual(step["with"], {"reply": {"from": f"$fix-lane-{i}.output"}, "lane": str(i),
-                                                "consulted": f"$fix-lane-consult-check-{i}.output.consulted",
+                self.assertEqual(step["with"], {"reply": {"from": f"$fix-lane-{i}.output", "if_skipped": None}, "lane": str(i),
+                                                "consulted": {"from": f"$fix-lane-consult-check-{i}.output.consulted",
+                                                              "if_skipped": False},
                                                 "base_rev": "$INPUTS.base_rev", "tdd_state": "$tdd-start.output.state_file"})
-                self.assertEqual(step["depends_on"], [f"fix-lane-consult-check-{i}"])
+                # resume で回し直された済んだ枝の輪: 支度の go: false で役（と相談の 3 節）を飛ばし、確かめが返答 null で輪を抜ける
+                self.assertEqual((step["depends_on"], step["trigger_rule"]),
+                                 ([f"fix-lane-prep-{i}", f"fix-lane-consult-check-{i}"], "none_failed_min_one_success"))
+                self.assertEqual(prep["output_format"]["required"], ["prompt_file", "go"])
+                self.assertEqual(g["nodes"][1]["when"], f"$fix-lane-prep-{i}.output.go == true")
 
     def test_lane_layer_holds_only_the_lane_loops(self):
         nodes = block()["nodes"]

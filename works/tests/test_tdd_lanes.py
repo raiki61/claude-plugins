@@ -345,8 +345,7 @@ class TestLaneCommand(LaneCase):
         got = self.cmd(UA, {"phase": "test", "unit_key": UA, "test_files": ["test_a.py"], "tests": [A_ID]})
         self.assertEqual((got["ok"], got["done"]), (False, True), got)
         self.assertIn(".git の指し", got["reason"])
-        with self.assertRaises(tddloop.Broken):
-            tddlanes.lane_prep(self.state, 1)
+        self.assertEqual(tddlanes.lane_prep(self.state, 1), {"prompt_file": "", "go": False}, "済みにした枝は役を起こさない")
         self.red(UB)
         self.green(UB)
         self.join()
@@ -360,8 +359,8 @@ class TestLaneCommand(LaneCase):
         self.green(UA)
         with self.assertRaises(tddloop.Broken):
             tddlanes.lane_step(self.state, 1, {"phase": "fix", "unit_key": UA}, self.repo)
-        with self.assertRaises(tddloop.Broken):
-            tddlanes.lane_prep(self.state, 1)
+        self.assertEqual(tddlanes.lane_prep(self.state, 1), {"prompt_file": "", "go": False},
+                         "済んだ枝の支度は役を起こさない（resume で輪がもう 1 度起きても落ちない）")
 
 
 class TestSettle(LaneCase):
@@ -897,6 +896,91 @@ class TestScripts(LaneCase):
         got = json.loads(out)
         self.assertFalse(got["ok"])
         self.assertTrue(pathlib.Path(got["reason_file"]).is_file())
+
+
+class TestResume(LaneCase):
+    """Archon の resume（v0.11.1）: 済んでいない節だけを回し直し、輪は 1 周目から・新しい会話で起こす。落ちた節に依る済んだ節も
+    回し直す（tdd-join は all_done なので、枝の輪が 1 本落ちても締めて先へ進み、run は落ちたまま残る）。resume で落ちた枝の輪と
+    締めがもう 1 度呼ばれても、役を起こさずに抜け、締めは同じ出口を返す（盤面・作業ツリーを動かさない）"""
+
+    def half_join(self):
+        """枝 1 は済み、枝 2 は直しの段の前で落ちた（口座の上限など）まま締めた"""
+        self.route()
+        self.red(UA)
+        self.green(UA)
+        self.red(UB)
+        return self.join()
+
+    def snap(self):
+        return (pathlib.Path(self.state).read_bytes(), {n: (self.repo / n).read_bytes() for n in ("a.py", "b.py", "test_b.py")})
+
+    def test_running_lane_prep_says_go(self):
+        self.route()
+        got = tddlanes.lane_prep(self.state, 1)
+        self.assertIs(got["go"], True)
+        self.assertTrue(pathlib.Path(got["prompt_file"]).is_file())
+
+    def test_lane_loop_after_the_join_ends_without_the_role(self):
+        self.half_join()
+        before = self.snap()
+        self.assertEqual(tddlanes.lane_prep(self.state, 2), {"prompt_file": "", "go": False})
+        got = tddlanes.lane_step(self.state, 2, None, self.repo)
+        self.assertEqual((got["ok"], got["done"], got["phase"]), (True, True, "done"), got)
+        self.assertEqual(self.snap(), before, "締めた後の枝の輪は何も動かさない")
+
+    def test_done_lane_before_the_join_ends_without_the_role(self):
+        """枝の確かめが done を保存した後、Archon が輪の済みを記録する前に止まった"""
+        self.route()
+        self.red(UA)
+        self.green(UA)
+        self.assertEqual(tddlanes.lane_prep(self.state, 1), {"prompt_file": "", "go": False})
+        self.assertTrue(tddlanes.lane_step(self.state, 1, None, self.repo)["done"])
+        got = tddlanes.join(self.state, self.repo)
+        self.assertEqual((got["merged"], got["back"]), (1, 1), "済んだ枝は当て、回らなかった枝は順に戻す")
+
+    def test_join_again_replays_the_first_exit(self):
+        first = self.half_join()
+        # 順に戻った単位を輪 tdd-rest が進めた後に、締めがもう 1 度呼ばれる
+        self.edit(self.repo, "test_b.py", "triple(1), int)\n", "triple(1), int)\n" + B_TEST)
+        self.assertTrue(self.step({"phase": "test", "unit_key": UB, "test_files": ["test_b.py"], "tests": [B_ID]})["ok"])
+        before = self.snap()
+        self.assertEqual(self.join(), first, "同じ出口（Archon が後ろの節の控えを使い続ける）")
+        self.assertEqual(self.snap(), before, "盤面の状態と作業ツリーを動かさない")
+
+    def test_join_again_does_not_park_the_claims_again(self):
+        """申し出は 1 度目の締めだけが渡す（再生は積まない。resume の前に盤面の周が進んでいても同じ申し出を新しい周に積み増さない）"""
+        self.route()
+        item = {"phase": "conflict", "unit_key": UA, "between": ["a.py:2", "test_a.py:7"],
+                "why_both_cannot_hold": "テストは 1 を足した値を求め、依頼は足さない値を求める", "which_is_right": "request",
+                "kind": "brief_vs_judgment"}
+        self.assertTrue(self.cmd(UA, item)["done"])
+        with mock.patch.object(tddloop.conflict, "problems", return_value=[]):
+            first = self.join()
+        self.assertEqual([c["unit_key"] for c in first["conflicts"]], [UA])
+        again = self.join()
+        self.assertEqual(again["conflicts"], [])
+        self.assertEqual({k: v for k, v in again.items() if k != "conflicts"}, {k: v for k, v in first.items() if k != "conflicts"})
+
+    def test_scripts_on_resume(self):
+        """Archon が resume で起こす形: 役が飛ばされた確かめは reply が null"""
+        self.half_join()
+        env = {"ARTIFACTS_DIR": str(self.board.parent), "INPUTS_STATE_FILE": self.state}
+        values = {"INPUTS_JUDGMENT_FILE": "", "INPUTS_PLAN_FILE": "", "INPUTS_POLICY_PATH": "", "INPUTS_NOTES_FILE": ""}
+        code, out, err = run_script("tdd_lane_prep", self.repo, {**env, "INPUTS_LANE": "2", **values})
+        self.assertEqual((code, json.loads(out or "{}")), (0, {"prompt_file": "", "go": False}), err)
+        for reply in ("null", ""):
+            code, out, err = run_script("tdd_lane_step", self.repo, {**env, "INPUTS_LANE": "2", "INPUTS_REPLY": reply})
+            self.assertEqual(code, 0, err)
+            self.assertIs(json.loads(out)["done"], True)
+        outs = [run_script("tdd_join", self.repo, env) for _ in range(2)]
+        self.assertEqual([c for c, _, _ in outs], [0, 0], outs)
+        self.assertEqual(outs[0][1], outs[1][1])
+        self.assertEqual(json.loads(outs[0][1])["back"], 1)
+
+    def test_reply_for_a_settled_lane_is_still_refused(self):
+        self.half_join()
+        with self.assertRaises(tddloop.Broken):
+            tddlanes.lane_step(self.state, 2, {"phase": "fix", "unit_key": UB}, self.repo)
 
 
 if __name__ == "__main__":

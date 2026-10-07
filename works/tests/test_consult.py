@@ -391,7 +391,7 @@ class YamlCase(unittest.TestCase):
         self.accept = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.accept)
 
-    def check_loop(self, loop, prep, role, cons, ans, check, accept, pass_, fork=False, cap=None):
+    def check_loop(self, loop, prep, role, cons, ans, check, accept, pass_, fork=False, cap=None, skippable=False):
         g = _find(self.doc["nodes"], loop)["loop_group"]
         self.assertEqual([n["id"] for n in g["nodes"]][1:], [role, cons, ans, check, accept])
         self.assertEqual(g["max_iterations"], cap or self.accept.GIVE_UP_AFTER + consult.BUDGET)
@@ -411,7 +411,10 @@ class YamlCase(unittest.TestCase):
                          ("consult_check", [cons, ans], "none_failed_min_one_success"))
         self.assertEqual(k["with"], {"answer": {"from": f"${ans}.output", "if_skipped": None}, "pass": pass_,
                                      "answer_node": ans})
-        self.assertEqual(acc["with"]["consulted"], f"${check}.output.consulted")
+        if skippable:   # 済んだ枝の周（resume）は役と相談の 3 節が飛ばされ、確かめは consulted を false で受ける
+            self.assertEqual(acc["with"]["consulted"], {"from": f"${check}.output.consulted", "if_skipped": False})
+        else:
+            self.assertEqual(acc["with"]["consulted"], f"${check}.output.consulted")
         self.assertIn("consulted", acc["output_format"]["properties"])
         models = json.loads((ROOT / ".shared" / "core" / "stage-models.json").read_text(encoding="utf-8"))
         cls = models["classes"][models["stages"][f"blk-fix/{ans}"]]
@@ -431,7 +434,7 @@ class YamlCase(unittest.TestCase):
             with self.subTest(n):
                 self.check_loop(f"fix-lane-loop-{n}", f"fix-lane-prep-{n}", f"fix-lane-{n}", f"fix-lane-consult-{n}",
                                 f"plan-answer-lane-{n}", f"fix-lane-consult-check-{n}", f"fix-lane-step-{n}", f"lane-{n}",
-                                fork=True, cap=fixlanes.MAX_ITERATIONS)
+                                fork=True, cap=fixlanes.MAX_ITERATIONS, skippable=True)
                 self.assertEqual(fixlanes.PASS.format(n=n), f"lane-{n}")
                 self.assertEqual(fixlanes.ANSWER_NODE.format(n=n), f"plan-answer-lane-{n}")
 

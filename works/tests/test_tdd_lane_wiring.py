@@ -75,9 +75,14 @@ class TestWiring(unittest.TestCase):
                 prep, role, step = g["nodes"]
                 self.assertEqual((prep["script"], step["script"]), ("tdd_lane_prep", "tdd_lane_step"))
                 self.assertEqual(prep["with"]["lane"], str(i))
-                self.assertEqual(step["with"], {"reply": {"from": f"$tdd-lane-{i}.output"},
+                self.assertEqual(step["with"], {"reply": {"from": f"$tdd-lane-{i}.output", "if_skipped": None},
                                                 "state_file": "$tdd-start.output.state_file", "lane": str(i)})
                 self.assertEqual(role["depends_on"], [f"tdd-lane-prep-{i}"])
+                # resume で回し直された済んだ枝の輪: 支度の go: false で役を飛ばし、確かめが返答 null で輪を抜ける
+                self.assertEqual(prep["output_format"]["required"], ["prompt_file", "go"])
+                self.assertEqual(role["when"], f"$tdd-lane-prep-{i}.output.go == true")
+                self.assertEqual((step["depends_on"], step["trigger_rule"]),
+                                 ([f"tdd-lane-prep-{i}", f"tdd-lane-{i}"], "none_failed_min_one_success"))
                 self.assertIn(f"`$tdd-lane-prep-{i}.output.prompt_file` を Read で", role["prompt"])
 
     def test_lane_layer_holds_only_the_lane_loops(self):

@@ -4,7 +4,7 @@
   "blk-ci/blk-ci.yaml": "54be4671fc8ba18244c16e27a1da429abce8df6c2463598188347006237a99a7",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
   "blk-eyes/blk-eyes.yaml": "529421d1256ab4372571db47dc048931ea420c7298f42b516dbd3e0a7c7ae2b7",
-  "blk-fix/blk-fix.yaml": "c0724c7c24679217dd840d2cb9123743156395bd91fa9f5a1d6a4c6494dcede6",
+  "blk-fix/blk-fix.yaml": "212b199d39583abac092ef56b2e46e65ed0a423bbf8648c7a1a807687fcda86f",
   "blk-judge/blk-judge.yaml": "074931df4ec94e77bf447eac37ff927175c666991f34c103951964929c066ad0",
   "blk-lens/blk-lens.yaml": "aff532b603cf8507c6387f946e243b4072cec7cd8fcc3974837da30d60b16dca",
   "blk-material/blk-material.yaml": "07cbe905d13a699aa217718cb86af7ea46ed9124f405760d2fd759165045e368",
@@ -459,10 +459,12 @@
        "id": "tdd-lane-1",
        "kind": "ai",
        "marker": "tdd-lane-1",
-       "purpose": "枝 1 の TDD の役（cwd は枝の worktree）"
+       "purpose": "枝 1 の TDD の役（cwd は枝の worktree）",
+       "when": "$tdd-lane-prep-1.output.go == true"
       },
       {
        "deps": [
+        "tdd-lane-prep-1",
         "tdd-lane-1"
        ],
        "id": "tdd-lane-step-1",
@@ -496,10 +498,12 @@
        "id": "tdd-lane-2",
        "kind": "ai",
        "marker": "tdd-lane-2",
-       "purpose": "枝 2 の TDD の役（cwd は枝の worktree）"
+       "purpose": "枝 2 の TDD の役（cwd は枝の worktree）",
+       "when": "$tdd-lane-prep-2.output.go == true"
       },
       {
        "deps": [
+        "tdd-lane-prep-2",
         "tdd-lane-2"
        ],
        "id": "tdd-lane-step-2",
@@ -533,10 +537,12 @@
        "id": "tdd-lane-3",
        "kind": "ai",
        "marker": "tdd-lane-3",
-       "purpose": "枝 3 の TDD の役（cwd は枝の worktree）"
+       "purpose": "枝 3 の TDD の役（cwd は枝の worktree）",
+       "when": "$tdd-lane-prep-3.output.go == true"
       },
       {
        "deps": [
+        "tdd-lane-prep-3",
         "tdd-lane-3"
        ],
        "id": "tdd-lane-step-3",
@@ -631,7 +637,8 @@
        "id": "fix-lane-1",
        "kind": "ai",
        "marker": "fix-lane-1",
-       "purpose": "枝 1 の修正役"
+       "purpose": "枝 1 の修正役",
+       "when": "$fix-lane-prep-1.output.go == true"
       },
       {
        "deps": [
@@ -665,6 +672,7 @@
       },
       {
        "deps": [
+        "fix-lane-prep-1",
         "fix-lane-consult-check-1"
        ],
        "id": "fix-lane-step-1",
@@ -699,7 +707,8 @@
        "id": "fix-lane-2",
        "kind": "ai",
        "marker": "fix-lane-2",
-       "purpose": "枝 2 の修正役"
+       "purpose": "枝 2 の修正役",
+       "when": "$fix-lane-prep-2.output.go == true"
       },
       {
        "deps": [
@@ -733,6 +742,7 @@
       },
       {
        "deps": [
+        "fix-lane-prep-2",
         "fix-lane-consult-check-2"
        ],
        "id": "fix-lane-step-2",
@@ -767,7 +777,8 @@
        "id": "fix-lane-3",
        "kind": "ai",
        "marker": "fix-lane-3",
-       "purpose": "枝 3 の修正役"
+       "purpose": "枝 3 の修正役",
+       "when": "$fix-lane-prep-3.output.go == true"
       },
       {
        "deps": [
@@ -801,6 +812,7 @@
       },
       {
        "deps": [
+        "fix-lane-prep-3",
         "fix-lane-consult-check-3"
        ],
        "id": "fix-lane-step-3",

@@ -68,6 +68,10 @@ tdd-start → tdd-loop（振り分け。枝を切った周は tdd-step が done�
 - `tdd-loop` は残し、振り分けの周で抜ける。並べの後の単位は同じ支度・確かめの別の輪 `tdd-rest-loop` で回す（Archon の DAG は前へ戻れない）。並べない run の節の並びと会話は今と 1 つも変わらない（`tdd-fork` が go: false を足すだけ）
 - 輪を抜ける印は `tdd-step` の出口の done（並べの周も真）。until_bash は今の 1 つの形のまま（全部の輪が受け付けの done で抜ける決まり。tests/test_role_give_up.py）
 - `tdd-join` は `all_done`: 枝の輪が 1 本落ちても締めて残りを順に回す（落ちた枝の単位は済んでいないので戻る）。Archon は落ちた節の在る run を落ちたまま残す（docs/archon-feedback.md）が、修正と報告は進む
+- Archon の resume（v0.11.1）と並べ（2026-10-08 に足した）: resume は済んだ節を飛ばし、済んでいない節を回し直す。輪は 1 周目から新しい会話で起き（dag-executor.ts:4657・5062・5069）、落ちた節に依る済んだ節も回し直す（9657 の getStaleCachedDependencies。落ちた依り先は必ず古いと数える）。輪の位置は盤面の状態（`tdd-<k>/state.json` と枝の控え）に在るので、止まった単位・段から続く（単位の worktree は run ごとの置き場に残り、目録の `.git` の 1 行の照らしで使い直す）。ただ、枝の輪が 1 本落ちても `all_done` の締めは走って状態を先へ進め、単位の worktree を片付けるので、resume が落ちた枝の輪と締めを回し直すと、前は支度と締めが「並べの周でない」で落ち、それに依る後ろの節が全部飛ばされて、何度 resume しても続かなかった。今は:
+  - 枝の支度（`tddlanes.lane_prep`）は、枝が済んでいる（締めが済んだ印 `lanes.joined` が在る・枝の控えが done）なら `{"prompt_file": "", "go": false}` を返す。枝の役は `when: go`、確かめは `trigger_rule: none_failed_min_one_success` で支度にも依り、返答 `{from: $tdd-lane-<n>.output, if_skipped: null}` が null なら何も動かさずに done を返して輪を抜ける（済んだ枝に返答が来れば今どおり Broken）。枝の控えが done を保存した後、Archon が輪の済みを記録する前に止まった時も同じに抜ける
+  - 締め（`tddlanes.join`）は出口を状態の `lanes.joined` に残し、もう 1 度呼ばれたらそれを返す（盤面・作業ツリーを動かさない。申し出は 1 度目の締めだけが積み、再生の出口の申し出は空。resume の前に盤面の周が進んでいても新しい周に積み増さない）。同じ出口なので、Archon は後ろの節（`tdd-rest-loop`・`fix-fork`…）の済みを使い続ける
+  - 残る余地: 順の輪（`tdd-loop`・`tdd-rest-loop`）は、確かめが状態に done（か段 lanes）を保存した後、Archon が輪の済みを記録する前に止まると、resume の支度が「輪は済んでいる」で落ちる（窓は確かめの節の終わりから輪の済みの記録までの短い間）。止まった周の役の返答は Archon に残らないので、その段は新しい会話で出し直す（書きかけのファイルは作業ツリー・単位の worktree に残り、記録の無い書き込みなら確かめが拒んで出し直させる）
 - 枝の確かめは Archon の script の節（sandbox の外）で走るので、共通の .git に書いてよい。前の形の object の置き場の env と、試験へそれを渡さない印は外した
 - 枝の役は Agent を持たない。役 `tdd` も持たなくなった（形ごとの柵の行を外した）
 - 指示書の全文版と差分版（包みの 9）は枝の役には使わない: 単位の決まりのファイルは単位の間は同じ中身で、回ごとの指示書だけが替わる（最初の回だけ全部読ませる）

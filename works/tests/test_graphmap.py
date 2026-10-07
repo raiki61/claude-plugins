@@ -442,8 +442,8 @@ class RealLineCase(unittest.TestCase):
     def test_planner_map_names_the_downstream_lanes(self):
         """修正案の役が知る後の流れ: 項目は修正の段で枝に分かれて同時に走り、3 方向で合わさる（canary3 の動機）"""
         text = graphmap.render(real_graph(), "plan", off=[])
-        for word in ("★ AI plan:", "tdd-fork", "∥ ⟳40 tdd-lane-loop-1〜3", "  - AI tdd-lane-1〜3:", "tdd-join", "3 方向",
-                     "fix-fork", "∥ ⟳18 fix-lane-loop-1〜3", "  - AI fix-lane-1〜3:", "★ AI plan-answer-lane-1〜3", "fix-join",
+        for word in ("★ AI plan:", "tdd-fork", "∥ ⟳40 tdd-lane-loop-1〜3", "  - AI tdd-lane-1〜3 [?]:", "tdd-join", "3 方向",
+                     "fix-fork", "∥ ⟳18 fix-lane-loop-1〜3", "  - AI fix-lane-1〜3 [?]:", "★ AI plan-answer-lane-1〜3", "fix-join",
                      "★ AI plan-answer", "AI plan-review"):
             self.assertIn(word, text)   # 枝の 3 本は番号だけ違う同じ形なので 1 行（YAML の目的を枝ごとに同じ字にしておく）
         for line in text.splitlines():

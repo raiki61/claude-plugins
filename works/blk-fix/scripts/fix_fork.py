@@ -10,7 +10,7 @@ INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（輪の要約。�
 相手。空は相談しない）・INPUTS_RIPPLE_FILE（波及の一覧。空でよい）・INPUTS_FIX_LANES（修正役の並べを使うか。on・off、空は on）。
 既定の形 g3 で、修正役が下請けを起こす単位（TDD の輪が緑にした単位を除く）を持つ範囲の在る修正案の項目が、単位を共にしない 2 本以上の
 枝に分かれれば、単位の worktree を切って枝の控え・項目の決まりのファイルを書き {"go": true, "lanes", "lane_<n>": true…, "why": ""}、
-ほかは go: false と理由を 1 行出して 0。枝の輪 fix-lane-loop-<n> は lane_<n> を、締めの節 fix-join は go を when: で読む。
+ほかは go: false と理由を 1 行出して 0。どちらでも、前に切った枝の締めの結末（fix-lanes-out.json・fix-lanes.md）は消す。枝の輪 fix-lane-loop-<n> は lane_<n> を、締めの節 fix-join は go を when: で読む。
 入力 fix_lanes の知らない語・環境変数の欠け・git が効かない・思わぬ誤り: 標準エラーに 1 行出して 2（rolekit.script_main）。
 """
 import sys

@@ -9,6 +9,8 @@
 諦めた項目・回さなかった項目は修正役の輪に戻し（差分は盤面に控える）、枝の食い違いの申し出は当てた後の作業ツリーで確かめ直して
 盤面の控え（conflict.park）に積む。結末を盤面の作業ファイル fix-lanes-out.json と修正役が読む fix-lanes.md に書き、trace に
 fix_lanes_settled の 1 行を残し、単位の worktree を片付ける。出口は {"ok", "merged", "back", "parked", "shared", "union"} の 1 行と 0。
+この周の結末が在る（締めが済んだ後に、Archon の resume が落ちた枝の輪に依る締めを回し直した）なら、作業ツリーを戻さず、残った単位の
+worktree だけ片付けて、結末に残した出口をそのまま出す。
 環境変数の欠け・目録が読めない・git が効かない: 標準エラーに 1 行出して 2（rolekit.script_main）。
 """
 import sys

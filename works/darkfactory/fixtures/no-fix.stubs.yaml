@@ -1001,6 +1001,7 @@ tdd-step:
   phase: done
 tdd-lane-prep-1:
   prompt_file: ''
+  go: true
 tdd-lane-1:
   phase: fix
   unit_key: ''
@@ -1016,6 +1017,7 @@ tdd-lane-step-1:
   unit_key: ''
 tdd-lane-prep-2:
   prompt_file: ''
+  go: true
 tdd-lane-2:
   phase: fix
   unit_key: ''
@@ -1031,6 +1033,7 @@ tdd-lane-step-2:
   unit_key: ''
 tdd-lane-prep-3:
   prompt_file: ''
+  go: true
 tdd-lane-3:
   phase: fix
   unit_key: ''
@@ -1060,6 +1063,7 @@ tdd-rest-step:
   phase: done
 fix-lane-prep-1:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
+  go: true
 fix-lane-1: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
 fix-lane-consult-1:
   consulted: false
@@ -1089,6 +1093,7 @@ fix-lane-step-1:
   item: 1
 fix-lane-prep-2:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
+  go: true
 fix-lane-2: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
 fix-lane-consult-2:
   consulted: false
@@ -1118,6 +1123,7 @@ fix-lane-step-2:
   item: 1
 fix-lane-prep-3:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
+  go: true
 fix-lane-3: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
 fix-lane-consult-3:
   consulted: false

@@ -12,6 +12,7 @@ fix-fork:   # 範囲の在る項目 2 つを枝 1・2 に切った
   why: ""
 fix-lane-prep-1:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
+  go: true
 fix-lane-1: {"not_done": [], "fix_closure": {"status": "clean", "checked": "2 つの単位とも退行を注入して赤を見て、復元して緑を見た"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": [], "changes": [{"unit_key": "stats.py mean: 分母が len(xs) - 1 になっている", "what": "mean の分母を len(xs) - 1 から len(xs) に直した（算術平均の定義どおり）。python3 -m unittest test_stats で test_mean_of_three が緑", "files": ["stats.py"], "closure": {"mechanism": "mean が総和をデータ点の数より 1 少ない数で割り、算術平均でなく不偏分散の分母で平均を出していた", "fix_mechanism": "分母をデータ点の数 len(xs) にして、算術平均の定義に揃えた", "verified_how": "分母を len(xs) - 1 に戻す退行を注入して test_mean_of_three の赤を見て、復元して緑を見た", "sites": [{"site": "stats.py mean の return 行（分母）", "red_seen": true}]}, "precedent": {"verdict": "adopt", "reason": "判定者の先行例の行（stats.py mean: 分母が len(xs) - 1 になっている）の statistics.mean をそのまま採った", "from_judge_row": true}, "root_or_symptom": {"kind": "root", "why": "分母の取り違えそのものを直した"}, "bypass_tried": "修正を残したまま mean([5]) と mean([1.5, 2.5]) と mean([-1, 1]) を呼んだ——どれも算術平均を返した", "breaks": {"how": "git grep -n 'mean(' -- '*.py'", "result": "mean を呼ぶのは test_stats.py の 1 か所だけで、python3 -m unittest test_stats が 3 件とも緑"}}], "interactions": []}
 fix-lane-consult-1:
   consulted: false
@@ -41,6 +42,7 @@ fix-lane-step-1:
   item: 1
 fix-lane-prep-2:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
+  go: true
 fix-lane-2: {"not_done": [], "fix_closure": {"status": "clean", "checked": "2 つの単位とも退行を注入して赤を見て、復元して緑を見た"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": [], "changes": [{"unit_key": "stats.py clamp: 上限を超えた値に lo を返す", "what": "clamp の x > hi の枝の戻り値を lo から hi に直した。python3 -m unittest test_stats で test_clamp_above_range が緑", "files": ["stats.py"], "closure": {"mechanism": "下限の枝を写して上限の枝を作ったとき、戻り値を lo のまま残した", "fix_mechanism": "上限の枝は hi を返し、下限の枝は lo を返す形に揃えた", "verified_how": "return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5, 0, 10) が 0 を返すことを見た", "sites": [{"site": "stats.py clamp の x > hi の枝", "red_seen": true}, {"site": "stats.py clamp の x < lo の枝（正しく lo を返す。直す必要が無いことを確かめた）", "red_seen": false}]}, "precedent": {"verdict": "adopt", "reason": "判定者の先行例の行（stats.py clamp: 上限を超えた値に lo を返す）の numpy.clip をそのまま採った", "from_judge_row": true}, "root_or_symptom": {"kind": "root", "why": "上限の枝の戻り値の取り違えそのものを直した"}, "bypass_tried": "修正を残したまま clamp(10, 0, 10)・clamp(11, 0, 10)・clamp(-1, 0, 10) を呼んだ——境目の値もそれぞれ 10・10・0 を返した", "breaks": {"how": "git grep -n 'clamp(' -- '*.py'", "result": "clamp を呼ぶのは test_stats.py の 2 か所だけで、python3 -m unittest test_stats が 3 件とも緑"}}], "interactions": []}
 fix-lane-consult-2:
   consulted: false
@@ -70,6 +72,7 @@ fix-lane-step-2:
   item: 2
 fix-lane-prep-3:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
+  go: true
 fix-lane-3: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
 fix-lane-consult-3:
   consulted: false

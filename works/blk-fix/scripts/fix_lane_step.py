@@ -4,14 +4,16 @@
 # ///
 """修正役の並べの枝の確かめ（blk-fix の節 fix-lane-step-<n>。枝の輪の中で範囲の相談の確かめの節の後。中身は fixlanes.lane_step）。
 
-読む環境変数: INPUTS_REPLY（役 fix-lane-<n> の返答の JSON）・INPUTS_LANE（枝の番号）・INPUTS_CONSULTED（範囲の相談の確かめの節の
+読む環境変数: INPUTS_REPLY（役 fix-lane-<n> の返答の JSON。役が飛ばされた周は null か空）・INPUTS_LANE（枝の番号）・INPUTS_CONSULTED（範囲の相談の確かめの節の
 consulted。true ならこの回は相談の周で、返答を確かめない）・INPUTS_BASE_REV・INPUTS_TDD_STATE（輪の状態。空は実行器の無い run）・
 ARTIFACTS_DIR（盤面は その下の board/）。受け付けと同じ事実の確かめ（凍ったテスト・書き込みの出どころ・食い違いの申し出の形・この
 項目の直す義務の単位・承認済みの修正案の範囲・変更に当たる試験）を枝の単位の worktree に当てる。通れば枝の次の項目へ、同じ項目の
 3 回目の拒否で項目を諦め（差分を盤面に控えて木を項目の頭に戻す）、項目が尽きるか回数の上限で done（輪はこれで抜ける）。
 出口は {"ok", "done", "consulted", "reason", "item", "reason_file"} の 1 行と 0。拒否の理由の本文は盤面の reject-fix_lane_step-<連番>.txt
 と、次の回ごとの指示書（fix-lane-prep-<n>）に載る。最後の結果の控えには書かない（枝の拒否は run の落ちた理由ではない）。
-環境変数が欠けた・枝の控えが読めない・枝が済んだ後に呼んだ・git が効かない: 標準エラーに 1 行出して 2。
+枝が済んでいる（締めが止めた枝を含む。Archon の resume が済みと記録していない枝の輪を回し直した）時に役が飛ばされた周（返答が
+null か空）は、何も動かさずに {"ok": true, "done": true, "consulted": false} を出す。
+環境変数が欠けた・枝の控えが読めない・済んだ枝に返答が来た・git が効かない: 標準エラーに 1 行出して 2。
 """
 import sys
 from pathlib import Path
@@ -31,19 +33,19 @@ import tddloop  # noqa: E402
 from leftovers import Unreadable  # noqa: E402
 
 INPUTS = ("INPUTS_REPLY", "INPUTS_LANE", "INPUTS_CONSULTED", "INPUTS_BASE_REV", "INPUTS_TDD_STATE")
-REQUIRED = ("INPUTS_REPLY", "INPUTS_LANE")   # 空でない物（ほかは空でよい）
+REQUIRED = ("INPUTS_LANE",)   # 空でない物（ほかは空でよい。返答は役が飛ばされた周に null か空）
 
 
 def main() -> int:
-    missing = [n for n in REQUIRED if not os.environ.get(n)] + [n for n in INPUTS[2:] if n not in os.environ]
+    missing = [n for n in REQUIRED if not os.environ.get(n)] + [n for n in INPUTS if n not in REQUIRED and n not in os.environ]
     if missing:
         print(f"fix-lane-step: 環境変数が無い・空: {', '.join(missing)}", file=sys.stderr)
         return 2
     board = script_io.board_dir()
     if board is None:
         return 2
-    try:
-        reply = json.loads(os.environ["INPUTS_REPLY"])
+    try:   # 役が飛ばされた周（支度が go: false。resume で回し直された済んだ枝）は null か空
+        reply = json.loads(os.environ["INPUTS_REPLY"]) if os.environ["INPUTS_REPLY"].strip() else None
     except ValueError:
         reply = None   # 読めない返答は確かめが拒む（出し直しの回数に数える）
     try:
