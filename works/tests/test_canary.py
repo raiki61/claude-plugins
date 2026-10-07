@@ -42,6 +42,7 @@ sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ 
 sys.path.insert(0, str(ROOT / "dev"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 
+import adapter  # noqa: E402
 import canary_check  # noqa: E402
 import entry  # noqa: E402
 import gitkit  # noqa: E402
@@ -376,7 +377,7 @@ class SeedTest(unittest.TestCase):
                          heads[it["where"].split(":", 1)[0]]):
                 self.assertIn(word, it["text"], it["where"])
             blob = json.dumps(it, ensure_ascii=False)
-            for word in ("範囲の外", "明示に外したパス", "別の項目", "route", "direct", "tdd", "TDD", "テストを先に"):
+            for word in ("範囲の外", "明示に外したパス", "別の項目", "route", "direct", "tdd", "TDD", "テストを先に", "並べ", "枝"):
                 self.assertNotIn(word, blob, it["where"])
 
     def test_seed_holds_no_request_pack_or_answers(self):
@@ -391,7 +392,8 @@ class CanaryShTest(unittest.TestCase):
     def test_unknown_or_missing_request_is_refused_before_anything(self):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="canary-sh-"))
         self.addCleanup(shutil.rmtree, tmp, True)
-        for name, args in {"知らない語": ("--request", "nope"), "値が無い": ("--request",),
+        for name, args in {"知らない語": ("--request", "nope"), "値が無い": ("--request",), "空の語": ("--request", ""),
+                           "空の語の後の旗": ("--request", "", "--request", "fix"),
                            "旗が 2 度": ("--request", "fix", "--request", "tdd")}.items():
             with self.subTest(name):
                 place = tmp / "place"
@@ -518,6 +520,8 @@ def full_events():
 
 
 PLANNER = "planner-session"
+CREATED, LATER = "2026-10-07T10:00:00+09:00", "2026-10-07T10:05:00+09:00"   # 盤面を作った時刻と、その後の起動の時刻
+WORKTREE = "/nonexistent/works-canary/worktrees/task-darkfactory-1"   # 盤面の state.json の inputs.cwd（run の worktree）
 DOC_ITEMS = [{"route": "direct", "unit_keys": ["calc.py:clamp docstring"], "allowed_paths": ["calc.py"], "tests": []},
              {"route": "direct", "unit_keys": ["textfmt.py:squeeze docstring"], "allowed_paths": ["textfmt.py"], "tests": []}]
 
@@ -707,7 +711,7 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(canary_check.check(RUN, row, serial, self.board)["features"]["a_parallel"]["status"], "no",
                          "枝の輪が順に走っただけなら並べの証拠でない")
 
-    def fixer_run(self, *, fork=True, asks=None, launches=True, planted=2, second=(12, 50)):
+    def fixer_run(self, *, fork=True, asks=None, launches=True, planted=2, second=(12, 50), answer=None):
         """修正役の並べの run の形（canary-request-fix.json の狙い）: 枝の輪 2 本・植えた行と締めの行・枝の中の相談・包みの起動の記録"""
         make_db(self.db, self.out_root, [*fixer_lane(1, 10, 60), *fixer_lane(2, *second)])
         planted_rows = ([{"lanes": planted, "items": {"1": [1], "2": [2]}, "rest": [], "expect": []}] if planted
@@ -718,18 +722,23 @@ class CheckTest(unittest.TestCase):
                    fix_lanes={"lanes": 2, "merged": [1, 2], "back": [], "shared": ["CHANGELOG.md"], "union": []}
                    if planted else None, report=FULL_REPORT)
         write(self.root / "home" / "runs" / f"{RUN}.json", {})
+        write(self.board / "state.json", {"created": CREATED, "inputs": {"cwd": WORKTREE}})
         if launches:
-            rows = [{"node": "premises", "session": {"mode": "new", "id": "s0"},
-                     "fence": {"run_place": f"{self.out_root}/artifacts/runs/{RUN}/run-place"}},
-                    {"node": "plan", "session": {"mode": "new", "id": PLANNER}}]
+            # 同じ worktree の前の run の行（盤面を作る前）は読まない
+            rows = [{"at": "2026-10-07T09:00:00+09:00", "node": "plan-answer-lane-1",
+                     "session": {"mode": "continued", "id": "old", "of": "fix-planner", "from": "old-planner"}},
+                    {"at": LATER, "node": "premises", "session": {"mode": "new", "id": "s0"}},
+                    {"at": LATER, "node": "plan", "session": {"mode": "new", "id": PLANNER}}]
             for n in (1, 2):
                 s = {"mode": "continued", "id": f"fork-{n}", "of": "fix-planner", "from": PLANNER}
-                rows.append({"node": f"plan-answer-lane-{n}", "session": {**s, "fork": True} if fork else {**s, "id": PLANNER}})
-            write(self.root / "home" / "adapter" / "launches" / "k1.jsonl",
+                s = {**s, "fork": True} if fork else {**s, "id": PLANNER}
+                rows.append({"at": LATER, "node": f"plan-answer-lane-{n}", "session": {**s, **(answer or {})}})
+            launches_dir = self.root / "home" / "adapter" / "launches"
+            write(launches_dir / f"{adapter.cwd_key(WORKTREE)}.jsonl",
                   "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-            # ほかの run の起動の記録（run id を名指さない）は読まない
-            write(self.root / "home" / "adapter" / "launches" / "k0.jsonl",
-                  json.dumps({"node": "plan-answer-lane-1", "session": {"mode": "continued", "id": PLANNER}}) + "\n")
+            # ほかの worktree の起動の記録は読まない
+            write(launches_dir / f"{adapter.cwd_key(WORKTREE + '-other')}.jsonl",
+                  json.dumps({"at": LATER, "node": "plan-answer-lane-1", "session": {"mode": "continued", "id": PLANNER}}) + "\n")
 
     def test_fixer_lane_run_reports_lanes_consults_and_fork(self):
         """(e) 修正役の並べ: 植えた枝 2 本・枝の輪の同時の最大 2・枝の中の相談（pass が lane-<n>）の答え・答えの節の起動が旗 fork
@@ -782,6 +791,17 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(doc["features"]["e_fix_lanes"]["status"], "attempted")
         self.assertIn("包みの起動の記録が無い", doc["features"]["e_fix_lanes"]["why"])
         self.assertEqual(doc["fix_lane_run"]["answer_launches"], [])
+
+    def test_fork_must_copy_the_planner_conversation(self):
+        """答えの節の起動が fork でも、元（of）が修正案の役の会話（fix-planner）でないか、写しの元 from が修正案の役（節 plan）の
+        起動の id でなければ attempted"""
+        for name, over in {"of": {"of": "fix"}, "from": {"from": "someone-else"}}.items():
+            with self.subTest(name):
+                self.db.unlink(missing_ok=True)
+                self.fixer_run(answer=over)
+                e = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["e_fix_lanes"]
+                self.assertEqual(e["status"], "attempted")
+                self.assertIn("旗 fork の起動 0/2（fork でない: plan-answer-lane-1・plan-answer-lane-2）", e["why"])
 
     def test_fixer_lanes_serial_or_not_planted_are_not_yes(self):
         """枝の輪が順に走っただけなら attempted。植えなければ no で、fix-fork の理由を添える"""

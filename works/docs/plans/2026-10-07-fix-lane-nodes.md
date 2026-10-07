@@ -135,7 +135,7 @@ YAML の節は Archon の中で部品にできない（include はブロック�
 
 ## 9. 本物の run での確かめ
 
-1. 形 g3（既定）で、範囲（allowed_paths）を持つ別々の修正案の項目に載る 2〜3 単位の依頼を回す（canary の (a)(b) の依頼でよい）。TDD の実行器の有る run と無い run の両方
+1. 形 g3（既定）で、範囲（allowed_paths）を持ち TDD の輪が緑にしない別々の修正案の項目に載る 2〜3 単位の依頼を回す（`works/dev/canary.sh --request fix`。canary の既定の (a)(b) の依頼は 2 件とも TDD の輪が緑にするので枝が 0 本になる: run 0a5062f4 の `fix_lanes_planted` の why「範囲の在る項目 0・枝 0」）。TDD の実行器の有る run と無い run の両方
 2. 盤面の trace の `fix_lanes_planted` が lanes 2 以上（並べなければ why）。Archon の出来事で `fixing__fix-lane-loop-1`・`-2` の始まりの時刻が重なること。`python3 works/dev/canary_check.py <置き場>` の (a) が「修正役の並べの枝 N 本・枝の輪の同時の最大 N」で yes
 3. 包みの起動の記録（`<家>/launches/<run の worktree の hash>.jsonl`）で、節 `fix-lane-<n>` の行の `fence.lane` が枝ごとに別の単位の worktree（`<run-place>/<scope>/fix-lanes/item-<n>`）で、`fence.lane_deny` に run の worktree とほかの枝が在ること。2 回目からの行の `session.mode` が continued（self-resume）、枝の 2 つ目の項目の行の `session.unit.cut` が真であること
 4. 範囲の相談を起こした枝が在れば、`plan-answer-lane-<n>` の行の `session` が `{mode: continued, fork: true, from: <修正案を書いた役の id>}` で、修正案を書いた役の記録の id が変わっていないこと。盤面の trace の `plan_scope_asked` の id が重ならないこと

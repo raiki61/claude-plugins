@@ -7,8 +7,8 @@
 置き場の形は canary.sh が作る物（home/archon-home/archon.db・home/runs/<run-id>.json・home/diffs/run-<id>.diff）。run-id を省けば
 home/runs の一番新しい控えの run。盤面は Archon の run の行の output_root の下の artifacts/runs/<id>/board（--board で替える）。
 db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（盤面の隣の run-place）はファイルを読むだけ。
-包みの起動の記録（adapter.py の launches。置き場の形では home/adapter/launches/*.jsonl、--db の形では --launches で名指す）も
-読むだけで、行のどれかが盤面の run（/runs/<run-id>/）を名指すファイルだけをその run の物と見る。
+包みの起動の記録（adapter.py の launches。置き場の形では home/adapter/launches/、--db の形では --launches で名指す）も
+読むだけで、盤面の state.json の run の worktree（inputs.cwd）のファイルの、盤面を作った後の行だけをその run の物と見る。
 --request は canary.sh の --request と同じ語（tdd は既定の canary-request.json、fix は canary-request-fix.json）で、終了コードだけを
 変える（fix なら (e) も yes でないと 1）。出す物は同じ。
 
@@ -41,8 +41,8 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
   締めの行（fix_lanes_settled の merged・back・parked・shared・union）・枝の中の相談（trace の plan_scope_asked のうち pass が
   lane-<n> の行）・答えの節 plan-answer-lane-<n> の包みの起動（session の mode・fork・of・from・id）を出す。
   通ったと言う決まり: 植えた枝が 2 本以上・枝の輪が同時に 2 本以上・締めの行が在る・枝の中の相談に answered が在る・
-  plan-answer-lane-<n> の起動が 1 つ以上在り、どれも旗 fork の形（mode continued・fork true・元 from が在り新しい id が元と違う。
-  adapter.py の頭の 1）。植えなければ no（fix-fork の理由を添える）、植えて足りない物が在れば attempted（足りない物を名指す）
+  plan-answer-lane-<n> の起動が 1 つ以上在り、どれも旗 fork の形（mode continued・fork true・of が fix-planner・元 from が
+  修正案の役（節 plan・plan-revise の起動）の会話の id で、新しい id が元と違う。adapter.py の頭の 1）。植えなければ no（fix-fork の理由を添える）、植えて足りない物が在れば attempted（足りない物を名指す）
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
 tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から node_completed・node_failed まで）、AI の節の費用の和
@@ -63,6 +63,7 @@ import pathlib
 import re
 import sqlite3
 import sys
+import types
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように（必ず import より前）
 
@@ -75,7 +76,8 @@ import conflict  # noqa: E402  trace の行の語（ASKED_OP・PARK_OP・RULE_OP
 import fixlanes  # noqa: E402  修正役の並べの締めの trace の行の語（SETTLED_OP）・合わせの結末の語（MERGED）
 import gatemarks  # noqa: E402  報告の冒頭の起きたことの行の頭（HAPPENED）
 import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERED）
-import adapter  # noqa: E402    包みの起動の記録の旗の語（FORK）
+import adapter  # noqa: E402    包みの起動の記録の置き場（cwd_key）と旗の語（FORK）
+import fixture  # noqa: E402    包みの起動の記録を数え始める時刻（since）
 import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
 import report  # noqa: E402    節の名の最後の語（_step_name）と費用の読み（_event_cost）
 import tddlanes  # noqa: E402  合わせの結末の語（UNION・CLASH・SEMANTIC）
@@ -94,6 +96,7 @@ OLD_ASK_PLACE, OLD_ASK_LOG = "ask-plan", "exchanges.jsonl"   # 前の形 askplan
 REPLAN_OPS = (conflict.REPLAN_OP, planmarks.AMEND_OP, conflict.PARK_OP, conflict.RULE_OP)
 LANE_PASS = re.compile(r"lane-(\d+)")   # 枝の中の相談の段の名（consult の pass。fix-lane-consult-check-<n> の with の pass）
 ANSWER_LANE = re.compile(r"plan-answer-lane-(\d+)")   # 枝の答えの節（印 continue=fix-planner fork）
+PLANNER_NODES = ("plan", "plan-revise")   # 修正案の役の会話を起こす・継ぐ節（印の名）
 LAUNCHES = ("adapter", "launches")   # 利用の家の下の包みの起動の記録の置き場（adapter.launches_path）
 REQUESTS = ("tdd", "fix")   # canary.sh の --request の語（fix は (e) も終了コードに入れる）
 USAGE = ("usage: canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix] [--json] | "
@@ -247,22 +250,20 @@ def consults(board: pathlib.Path, trace: list) -> list:
              "why_refused": r.get("why_refused") or "", "settled": settled} for s, r, settled in rows]
 
 
-def run_launches(launches_dir, run_id: str) -> list | None:
-    """包みの起動の記録のうち、この run の物の行（ファイルのどれかの行が /runs/<run-id>/ を名指すファイルの全部の行。ファイルの名の
-    順）。置き場が無い・名指しが無い（None を渡した）なら None（読めない。空の [] は記録が在って行が無い時だけ）"""
-    if launches_dir is None or not pathlib.Path(launches_dir).is_dir():
+def run_launches(launches_dir, board: pathlib.Path) -> list | None:
+    """包みの起動の記録のうち、この run の行。記録は run の worktree ごとの 1 ファイル（adapter.launches_path。盤面の state.json の
+    inputs.cwd）で、同じ worktree の前の run の行も載りうるので、盤面を作った時刻（fixture.since）より後の行だけ（報告と同じ絞り方。
+    report._since_created）。置き場が無い・名指しが無い（None）・盤面の cwd か時刻が読めない・ファイルが無いなら None（読めない）"""
+    if launches_dir is None:
         return None
-    mark = f"/runs/{run_id}/"
-    out, found = [], False
-    for path in sorted(pathlib.Path(launches_dir).glob("*.jsonl")):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        if mark in text:
-            found = True
-            out += _jsonl(path)
-    return out if found else None
+    state = _json(board / "state.json")
+    cwd = ((state.get("inputs") or {}).get("cwd") if isinstance(state, dict) else None)
+    if not isinstance(cwd, str) or not cwd:
+        return None
+    path = pathlib.Path(launches_dir) / f"{adapter.cwd_key(cwd)}.jsonl"
+    if not path.is_file() or report._time(fixture.since(board, state.get("created"))) is None:
+        return None
+    return report._since_created(types.SimpleNamespace(dir=board, state=state), _jsonl(path))
 
 
 def answer_launches(rows: list | None) -> list:
@@ -278,10 +279,17 @@ def answer_launches(rows: list | None) -> list:
     return out
 
 
-def forked(launch: dict) -> bool:
-    """旗 fork の起動の形か（adapter.py の頭の 1: continue=X を X の会話の写しで起こし、新しい id をこの節の名で記録する）"""
-    return (launch["mode"] == "continued" and launch["fork"] and bool(launch["from"]) and bool(launch["id"])
-            and launch["id"] != launch["from"])
+def planner_ids(rows: list | None) -> set:
+    """修正案の役の会話の id（節 plan・plan-revise の起動の session の id。枝の答えの節が写す元。consult.PEER の会話）"""
+    return {r["session"]["id"] for r in rows or [] if r.get("node") in PLANNER_NODES and isinstance(r.get("session"), dict)
+            and isinstance(r["session"].get("id"), str) and r["session"]["id"]}
+
+
+def forked(launch: dict, planners: set) -> bool:
+    """旗 fork の起動の形か（adapter.py の頭の 1: continue=X を X の会話の写しで起こし、新しい id をこの節の名で記録する）。
+    X は consult.PEER（修正案の役）で、写しの元 from は修正案の役の会話の id のどれか"""
+    return (launch["mode"] == "continued" and launch["fork"] and launch["of"] == consult.PEER and launch["from"] in planners
+            and bool(launch["id"]) and launch["id"] != launch["from"])
 
 
 def fix_lane_run(trace: list, asks: list, fix_lane_nodes: dict, launches: list | None) -> tuple[dict, dict]:
@@ -303,7 +311,8 @@ def fix_lane_run(trace: list, asks: list, fix_lane_nodes: dict, launches: list |
         return {"status": NO, "why": "修正役の並べを植えなかった（" + ("・".join(w for w in whys if w) or "fix-fork の行が無い")
                 + "）"}, got
     answered = [r for r in in_lane if r["status"] == consult.ANSWERED]
-    ok_fork = [r for r in runs if forked(r)]
+    planners = planner_ids(launches)
+    ok_fork = [r for r in runs if forked(r, planners)]
     facts = [f"植えた枝 {n} 本（項目 {got['items']}）", f"枝の輪の同時の最大 {got['parallel']}",
              (f"締め merged {last.get('merged') or []}・back {last.get('back') or []}・shared {last.get('shared') or []}"
               if last else "締めの行が無い"),
@@ -311,7 +320,7 @@ def fix_lane_run(trace: list, asks: list, fix_lane_nodes: dict, launches: list |
     if launches is None:
         facts.append("包みの起動の記録が無い（旗 fork を確かめられない）")
     else:
-        bad = [r["node"] for r in runs if not forked(r)]
+        bad = [r["node"] for r in runs if not forked(r, planners)]
         facts.append(f"旗 fork の起動 {len(ok_fork)}/{len(runs)}" + (f"（fork でない: {'・'.join(bad)}）" if bad else ""))
     yes = (got["parallel"] >= 2 and last is not None and answered and launches is not None and runs
            and len(ok_fork) == len(runs))
@@ -503,7 +512,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
         c = {"status": NO, "why": "相談の記録が無い"}
 
     d = {op: sum(1 for r in trace if r.get("op") == op) for op in REPLAN_OPS}
-    e, fix_run = fix_lane_run(trace, asks, fix_lane_nodes, run_launches(launches, run_id))
+    e, fix_run = fix_lane_run(trace, asks, fix_lane_nodes, run_launches(launches, board))
     changed = diff_files(diff) if diff else None
     return {
         "run_id": run_id,

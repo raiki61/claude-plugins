@@ -28,7 +28,9 @@
 #       （planmarks.HEAD）、TDD の役の振り分けの指示は文書だけの直しを direct の例に挙げる（tddloop.DO））。
 #       依頼の文は道を言わない。2 本の枝が同時に走り、各枝が CHANGELOG.md の 1 行で範囲の相談をし、答えの節 plan-answer-lane-<n>
 #       が修正案の役の会話の写し（包みの旗 fork）で答え、締め fix-join が 2 本の CHANGELOG.md の足しを合わせる（(a)(b)(c) も通る）。
-#       (c) と同じく、計画役が CHANGELOG.md を allowed_paths に入れれば相談は起きない。TDD の輪は振り分けの 1 回だけ回る
+#       (c) と同じく、計画役が CHANGELOG.md を allowed_paths に入れれば相談は起きない。判定役か計画役が 2 件を 1 単位・1 項目に
+#       まとめれば枝は 1 本で植わらない（同じ種類の直しで CHANGELOG.md も共にするので、まとめる向きの押しは残る）。TDD の輪は
+#       振り分けの 1 回だけ回る
 # どちらの依頼の 2 件も docstring と README の決まりで直し方が 1 つに決まる（端の振る舞いを人に聞く余地を残さない）。ラインは 1 周の run なので
 # （entry.start の stop_after_round=1。canary が決めた物ではない）、報告の「止めたか」は「周の締めの後で止めた」と出るのが普通の
 # 終わり。残り（検証器の阻害・独立の目の阻害など）が無ければ結末は fixed、在れば round_limit（2 周目は回らない）。
@@ -59,7 +61,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --build-only) BUILD_ONLY=1; shift ;;
     --request)
-      if [ "$#" -lt 2 ] || [ -n "$REQUEST_WORD" ]; then
+      if [ "$#" -lt 2 ] || [ -z "$2" ] || [ -n "$REQUEST_WORD" ]; then
         echo "$USAGE" >&2
         exit 2
       fi
