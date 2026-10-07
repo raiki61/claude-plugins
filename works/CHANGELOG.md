@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.39] - 2026-10-08
+
 ### Fixed
 
 - 開発の確かめ `dev/check.sh`（Archon の `workflow test works`）で、ラインの模擬実行の筋書き（`darkfactory/fixtures/*.stubs.yaml`）13 本が全部落ちていたのを直した（0.2.31 から。環境のせいではなかった）。原因は 2 つ: (1) 深さの節 `h-depth`・`h-redepth` の stub の `lines` の行 `深さ: 標準（直す義務の単位が無い）` に引用符が無く、YAML が `{深さ: …}` の dict に読むので、Archon が stub を節の `output_format`（`lines` は文字列の配列）に通して節を落としていた（12 本はここで止まり `expected completed, dry-run reported failed`）。行を引用符で囲んだ。(2) 筋書き `start-refused` は手厚さ `軽量` を渡して start に拒ませる物だったが、`軽量` は 0.2.31 の単位ごとの深さから受けるので start が通り、上の (1) で落ちていた（`got h-depth`）。今も拒む `重厚` に替えた。速い段の試験 `tests/test_line_wiring.py` に、全部の筋書きの stub（役の節だけでなく script の節も）が節の `output_format` を入れ子まで満たすことを足し（前は script の節の stub は必須の欄の有無しか見ず、Archon でしか見えなかった）、`tests/test_line.py` は `start-refused` の入力を線の入力の確かめ（`entry.check_inputs`）が本当に拒むことを縛る。`dev/check.sh` は 59 本全部が通る
