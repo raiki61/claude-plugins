@@ -204,11 +204,14 @@ class YamlCase(unittest.TestCase):
         item6 = text[text.index("\n6. "):text.index("\n7. ")]
         self.assertIn("単位を束ねる理由にしない", cross)
         for needle in ("コードの上の欠陥の形", "別々の単位", "単位をまとめる理由ではなく", "`framing`", "`why_chain`",
-                       "`one_shot_closes`", "同じ形の別の現れ", "1 つの直しで", "出自の種類"):
+                       "`one_shot_closes`", "同じ形の別の現れ", "欠陥の行そのものへの 1 つの直しで", "一撃の側", "出自の種類"):
             with self.subTest(needle):
                 self.assertIn(needle, item1)
         self.assertIn("最大 3 段", item3)   # 根の深さは削らない
         self.assertIn("1 項に戻って", item6)   # 形の違う行を pattern ごとに並べる class_query は束ね過ぎの印
+        for needle in ("書き方の揺れ", "受け入れのテストを足す所"):   # 1 項が許す束ね・1 つの欠陥の直す site には当てない
+            with self.subTest(needle):
+                self.assertIn(needle, item6)
 
     def test_diagnose_prompt_defers_question_ledger_to_mainline(self):
         """盤面の材料が在る時の問いの台帳の決まりは、材料のファイルに描いた本線の文（p2.diagnose の「問いの台帳」の節）が正本。
