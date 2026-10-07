@@ -32,6 +32,11 @@
     ファイルのモジュールだけ。居ないは同じ選びの回に居た時だけ数える）。前の単位で赤→緑を確かめた id は名指しを
     強いず、書き換えさせない（_verified）
     名指し全部の赤の種類を単位の red_kinds に残す
+  - 同じ修正案の項目の単位（together）: 受け入れのテストは項目の物で、項目の単位の全部の約束に載る。前の単位の段はそれを全部名指して
+    緑にするので、項目を共にする後の単位（載る項目が全部前の単位の項目にも在る物）の直しも要る。支度はその単位を「今は直すな」・
+    「この後の単位（今は手を付けるな）」に並べず、「今の単位と一緒に直す単位」の節に並べ、brief の行の単位にも入れる。前の単位が
+    緑に届けば、後の単位は段を回さずに機械が閉じる（_close_covered: 受け入れのテストが全部確かめ済みの時だけ。赤・緑とも ok、
+    covered_by に一緒に直した単位）。別の項目の単位・前の単位に無い項目にも載る単位は今どおり単位ごとに赤→緑を回す
   - fix: その単位のテストのファイルが赤の時から変わっていない・写しの green_problems。約束の在る単位は、ほかのテストのファイル
     （TEST_FILE の名）の既存の test* 関数の本体も変えていない（_other_test_edits）・テストを飛ばした・消していない
     （_vanished_problems）。関門が on なら、そのうえで run の test_cmd も緑（_test_cmd_problems。赤は拒み、走らない時は実行器が
@@ -562,13 +567,15 @@ DO = {
     "route": "直す義務の単位を全部、ちょうど 1 度ずつ振り分けよ。tdd＝直す前に落ち、直した後に通るテストをリポジトリのテスト一式に"
              "書ける単位。direct＝先にテストを書けない単位（文書・指示書・注記・設定だけの直しなど）で、理由を 10 字以上で書く。"
              "この段では作業ツリーを変えるな。",
-    "test": "今の単位の欠陥を再現する、今は落ちるテストだけを書け（実装は直すな。テストのファイルの外を触るな）。brief に受け入れの"
+    "test": "今の単位の欠陥を再現する、今は落ちるテストだけを書け（実装は直すな。テストのファイルの外を触るな。「今の単位と一緒に"
+            "直す単位」の節が在れば、その単位も今の単位に含める）。brief に受け入れの"
             "テスト（tests）が在る単位は、その id の名前でテストを書いて名指しに入れ、brief の red_kind の形で落とせ（assertion＝断言の"
             "失敗・exception＝期待した例外が出ない。宣言した名前（adds）の失敗は赤・宣言の外は赤に数えない）。案どおりに書いて赤にならない・赤の形が違うなら、"
             "テストを曲げず phase conflict で申し出よ。brief に受け入れのテストが無い単位は、テストを今の版に在る名前だけで再現するか、"
             "import をテストの中に入れよ。機械が一式を走らせ、名指しのテストが failure で落ち、元で通っていた"
             "テストが通ることを確かめる（error・もう通る・飛ばされた、は拒む）。",
-    "fix": "今の単位だけを直せ。テストのファイルは変えるな（凍っている。テストの誤りに気づいたら直さずに what に書け）。機械が一式を"
+    "fix": "今の単位だけを直せ（「今の単位と一緒に直す単位」の節が在れば、その単位も）。テストのファイルは変えるな（凍っている。"
+           "テストの誤りに気づいたら直さずに what に書け）。機械が一式を"
            "走らせ、名指しのテストと元で通っていたテストが通ることを確かめる。緑の後に整えたい所（重複・名前・不要になったコード）が"
            "在る時だけ refactor の declared を true にし、why に理由を 10 字以上で書け。申告が無ければ整えの段は来ない（brief の "
            "refactor.declared が true の単位は申告なしでも来る）。",
@@ -617,6 +624,10 @@ def handoff_lines(st) -> list:
         if u.get("route") == "parked":
             rows.append(f"- {k}: 食い違いの申し出で止めた（木は単位の頭に戻した）")
             continue
+        if u.get("covered_by"):
+            rows.append(f"- {k}: 同じ修正案の項目の単位 {'、'.join(u['covered_by'])} の段で一緒に直した（受け入れのテスト "
+                        f"{', '.join(u.get('tests') or [])} は輪が赤→緑を確かめ済み）")
+            continue
         bits = [f"直したファイル {', '.join(u.get('files') or []) or 'なし'}",
                 f"緑にしたテスト {', '.join(u.get('tests') or []) or 'なし'}"]
         if u.get("refactor"):
@@ -625,6 +636,39 @@ def handoff_lines(st) -> list:
     if not rows:
         return []
     return [HANDOFF_HEAD, "", "前の単位の直しは作業ツリーに在る（緑の木）。戻したり作り直したりするな。", ""] + rows + [""]
+
+
+# 今の単位と一緒に直す単位（同じ修正案の項目の後の単位。together）の節の見出し（prep と並べの枝の単位の決まりのファイル）
+TOGETHER_HEAD = "## 今の単位と一緒に直す単位（同じ修正案の項目。1 つの brief と 1 つのやり方を共にする）"
+
+
+def _items(st, k) -> set:
+    """単位 k の約束の修正案の項目の番号（約束が無ければ空）"""
+    return set((_contract(st, k) or {}).get("items") or [])
+
+
+def together(st, k) -> list:
+    """単位 k の段で一緒に直す単位: 順（queue）で k より後の tdd の単位のうち、約束の受け入れのテストを持ち、載る修正案の項目が
+    全部 k の項目にも在る物（順の並び）。k の段は項目の受け入れのテストを全部名指して緑にする（_test の want）ので、その単位の
+    直しも要る。k の段が緑に届けば、その単位は機械が閉じる（_close_covered。同じ条件）。k に無い項目にも載る単位・約束の無い
+    単位・別の項目の単位は入らない（今どおり「この後の単位（今は手を付けるな）」。その単位は自分の段で赤を書く）"""
+    mine = _items(st, k)
+    if not mine or k not in st.get("queue", []):
+        return []
+    later = st["queue"][st["queue"].index(k) + 1:]
+    return [q for q in later if (st["units"].get(q) or {}).get("route") == "tdd" and _plan_tests(st, q)
+            and _items(st, q) <= mine]
+
+
+def _together_lines(st, k) -> list:
+    """指示書の「今の単位と一緒に直す単位」の節（together が空なら []）"""
+    keys = together(st, k)
+    if not keys:
+        return []
+    return [TOGETHER_HEAD, "",
+            "次の単位は今の単位と同じ修正案の項目に載る。この単位の段（test・fix・refactor）で今の単位と一緒に扱え: test の段は"
+            "項目の受け入れのテストを全部名指して赤にし、fix の段はこれらの単位の直しも含めて名指しを緑にする。緑に届けば機械が"
+            "これらの単位を閉じる（別の段は来ない）。", ""] + [f"- {q}" for q in keys] + [""]
 
 
 def prep(state_file, values: dict | None = None, repo=None) -> dict:
@@ -655,8 +699,10 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
         brief = planbrief.head_text(planbrief.for_units(briefs, _owed(st)), _owed(st))
     else:
         u = st["units"][st["queue"][st["cur"]]]
-        brief = planbrief.head_text(planbrief.for_units(briefs, [u["unit_key"]]), [u["unit_key"]])
+        both = together(st, u["unit_key"])
+        brief = planbrief.head_text(planbrief.for_units(briefs, [u["unit_key"]]), [u["unit_key"], *both])
         lines += ["## 今の単位", "", f"- {u['unit_key']}", ""]
+        lines += _together_lines(st, u["unit_key"])
         back = ((st.get("lanes") or {}).get("back") or {}).get(u["unit_key"])
         if back:
             lines += [f"- 並べで済まなかった単位（{back['why'][:300]}）。この作業ツリーで最初の段から直せ"
@@ -664,7 +710,7 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
         if u["tests"]:
             lines += [f"- 名指しのテスト: {', '.join(u['tests'])}", f"- テストのファイル（凍っている）: {', '.join(u['test_files'])}", ""]
         lines += handoff_lines(st)
-        left = st["queue"][st["cur"] + 1:]
+        left = [q for q in st["queue"][st["cur"] + 1:] if q not in both]
         if left:
             lines += ["この後の tdd の単位（今は手を付けるな）: " + " / ".join(left), ""]
     lines += ["## テストの回し方", "",
@@ -782,8 +828,47 @@ def _cur(st) -> dict:
     return st["units"][st["queue"][st["cur"]]]
 
 
+def _covered_by(st, k) -> list:
+    """単位 k を一緒に直した、緑に届いた tdd の単位（順の並び）。k の約束の受け入れのテスト（と書き換えの名指し）が在って全部
+    輪が赤→緑を確かめ済み（_verified）で、k の修正案の項目を全部持つ緑の単位が在る時だけ（その単位の段が k を together に並べた
+    条件と同じ）。ほかは []"""
+    ids = {_norm_id(t["id"]) for t in _plan_tests(st, k)} | {_norm_id(i) for i in _plan_rewrites(st, k)}
+    mine = _items(st, k)
+    if not ids or not mine or not ids <= _verified(st):
+        return []
+    return [g for g, u in st["units"].items() if g != k and u.get("route") == "tdd" and u.get("green") == "ok"
+            and not u.get("covered_by") and mine <= _items(st, g)]
+
+
+def _close_covered(st) -> None:
+    """順の今の単位が、同じ修正案の項目の前の単位の段で一緒に直されていれば（_covered_by）、段を回さずに閉じて次へ進む（続く限り）。
+    閉じた単位は赤・緑とも ok で、名指しは約束の受け入れのテスト、テストのファイル・直したファイル・整え・test_cmd は一緒に直した
+    単位の物を写し（軽量で走らせなかった印 CMD_LIGHT は、閉じた単位も軽量の時だけ）、赤の種類は名指しを確かめた緑の単位の全部から
+    引き、covered_by にその単位を、why に一緒に直したことを書く"""
+    while st["cur"] < len(st["queue"]):
+        k = st["queue"][st["cur"]]
+        by = _covered_by(st, k)
+        if not by:
+            return
+        src = st["units"][by[0]]
+        tests = [t["id"] for t in _plan_tests(st, k)] + [i for i in _plan_rewrites(st, k)]
+        want = {_norm_id(x) for x in tests}
+        kinds = {t: kd for v in st["units"].values() if v.get("route") == "tdd" and v.get("green") == "ok"
+                 for t, kd in (v.get("red_kinds") or {}).items() if _norm_id(t) in want}   # 確かめた単位の全部から
+        st["units"][k].update(red="ok", green="ok", tests=tests, test_files=list(src.get("test_files") or []),
+                              test_hashes=dict(src.get("test_hashes") or {}), red_kinds=kinds,
+                              files=list(src.get("files") or []), refactor=src.get("refactor", ""),
+                              refactor_why=src.get("refactor_why", ""), covered_by=by,
+                              test_cmd="" if src.get("test_cmd") == CMD_LIGHT and k not in st.get("light", []) else src.get("test_cmd", ""),
+                              what=f"同じ修正案の項目の単位 {'、'.join(by)} の段で一緒に直した",
+                              why=f"同じ修正案の項目の単位 {'、'.join(by)} の段で一緒に直した（受け入れのテストは輪が赤→緑を確かめ済み）")
+        st["cur"] += 1
+
+
 def _next_unit(st, repo) -> None:
-    """次の単位の頭を固める。機械が戻した木（諦め・申し出・direct_why）もここを通るので、前の段の印（handoff）もここで進める"""
+    """次の単位の頭を固める。機械が戻した木（諦め・申し出・direct_why）もここを通るので、前の段の印（handoff）もここで進める。
+    同じ修正案の項目の前の単位の段で一緒に直された単位は、段を回さずに閉じる（_close_covered）"""
+    _close_covered(st)
     if st["cur"] < len(st["queue"]):
         head = snapshot(repo)
         st.update(phase="test", tries=0, reason="", unit_head=head, handoff=head, green_tree="")
