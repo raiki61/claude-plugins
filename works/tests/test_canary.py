@@ -5,14 +5,19 @@
 - (b) の前提: 種のテストのファイルは test_lib.py の 1 本で、README の決まりがテストをモジュールごとのクラスに足させる。2 件の
   受け入れのテストの参照（LANE_TESTS。各クラスの末尾に足す）は、種では自分の件だけ赤（TDD の赤）で、2 つの枝の test_lib.py は
   3 方向で字の食い違いなしに合い、合わせた木は全部の直しの後に緑。2 つの枝が同じ末尾（main の前）に足しても挿しだけの食い違い
-  （union で合う）。test_lib.py はモジュールを 1 行ずつ import の形で読み、2 項目が共にする行が無い。依頼の 2 件は別のコードの
-  ファイルを名指す（計画役が分ければ項目はモジュールごと・重なりはテストのファイルだけ。分けるかは計画役が決め、種では縛れない）。
-- 依頼は入口の依頼の型（写しの RL の REQUEST_SCHEMA）を通り、where のファイルが種に在る。項目を分けてと文で頼まず、CHANGELOG.md を
-  out_of_scope に名指さない訳（相談が「修正案が明示に外したパス」として断る）を言う。
+  （union で合う）。test_lib.py はモジュールを 1 行ずつ import の形で読み、2 項目が共にする行が無い。CHANGELOG.md の [Unreleased]
+  はモジュールごとの見出し（### calc・### textfmt。間に変わらない行）を持ち、README の決まりが 1 行を直したモジュールの見出しの
+  下に足させるので、2 件の CHANGELOG の 1 行も別の所になり 3 方向で合う（2 件をまとめた前後 3 行の差分では 1 つの塊に見える）。
+  種の写しの git（gitkit の型）で件ごとの枝を切って参照の直しと受け入れのテストを commit し、git merge でも枝の締めの口
+  （unittrees.diff・unittrees.apply）でも食い違わない。依頼の 2 件は別のコードのファイルを名指す（計画役が分ければ項目は
+  モジュールごと・重なりは test_lib.py と CHANGELOG.md の別の所だけ。分けるかは計画役が決め、種では縛れない）。
+- 依頼は入口の依頼の型（写しの RL の REQUEST_SCHEMA）を通り、where のファイルが種に在る。項目を分けてと文で頼まず、各件は
+  CHANGELOG.md を allowed_paths にも out_of_scope にも名指さないと言い、1 行を足す見出しを名指す。0.2.35 までの訳（相談が
+  「修正案が明示に外したパス」として断る）は今の相談に合わないので言わない。
 - 確かめ役 canary_check.py: 一時の置き場に sqlite の偽の archon.db（Archon の 2 つの表の要る列だけ）と偽の盤面（trace.jsonl・
   plan-fields.json・tdd-<k>/state.json と枝の差分の控え・run-place の相談の記録・report.md）を置き、(a)〜(d) の判じ・案の重なり・
   項目ごとのファイル・費用と取れない節・結末・時間・終了コードと、読むだけで何も書かないことを見る。
-子のプロセスは python3（種のテストと PROBES）と git merge-file（リポジトリを作らない）だけ。
+子のプロセスは python3（種のテストと PROBES）と git merge-file と、種の写しの git（gitkit の型の写し。リポジトリを作らない）だけ。
 """
 import hashlib
 import json
@@ -31,7 +36,9 @@ sys.path.insert(0, str(ROOT / ".shared" / "core"))
 
 import canary_check  # noqa: E402
 import entry  # noqa: E402
+import gitkit  # noqa: E402
 import hermetic  # noqa: E402
+import unittrees  # noqa: E402
 
 SEED = ROOT / "dev" / "canary-seed"
 REQUEST = ROOT / "dev" / "canary-request.json"
@@ -55,10 +62,12 @@ PROBES = {
 # 参照の直し（件 → [(ファイル, 前, 後)]）。種には置かない（直しの答えを対象に渡さない）
 FIXES = {
     "mean": [("calc.py", "return sum(xs) / (len(xs) - 1)", "return sum(xs) / len(xs)"),
-             ("CHANGELOG.md", "## [Unreleased]\n", "## [Unreleased]\n\n- mean: 分母を個数にした（算術平均を返す）\n")],
+             ("CHANGELOG.md", "### calc\n", "### calc\n\n- mean: 分母を個数にした（算術平均を返す）\n")],
     "initials": [("textfmt.py", 'return "".join(w[0] for w in words(s))', 'return "".join(w[0].upper() for w in words(s))'),
-                 ("CHANGELOG.md", "## [Unreleased]\n", "## [Unreleased]\n\n- initials: 頭の字を大文字にした\n")],
+                 ("CHANGELOG.md", "### textfmt\n", "### textfmt\n\n- initials: 頭の字を大文字にした\n")],
 }
+# 件ごとの CHANGELOG の [Unreleased] の見出し（README の決まり: 直したモジュールの見出しの下に 1 行）
+SUBHEADING = {"mean": "### calc", "initials": "### textfmt"}
 FIX_PROBES = {"mean": {"mean", "changelog_mean"}, "initials": {"initials", "changelog_initials"}}
 # 枝ごとの受け入れのテストの参照（件 → (足す所の後ろの字, 足すテスト)）。README の決まりどおりモジュールのクラスの末尾に足す
 CLASS_END = {"mean": "\n\n\nclass TestTextfmt(", "initials": '\n\n\nif __name__ == "__main__":'}
@@ -189,10 +198,70 @@ class SeedTest(unittest.TestCase):
         self.assertIn("class TestMean", merged)
         self.assertIn("class TestInitials", merged)
 
+    def test_changelog_has_a_subheading_per_module_apart(self):
+        """(b) の前提: CHANGELOG.md の [Unreleased] はモジュールごとの見出し（### calc・### textfmt）を持ち、2 つの見出しの間に
+        変わらない行が在る。README の決まりは 1 行を直したモジュールの見出しの下に足させる。run 245042a7 では見出しの無い
+        [Unreleased] の下に 2 件とも 1 行ずつ足す形で、2 つの足しが同じ所（同じ塊）になり、計画役が項目の組み方の『同じ塊』に
+        当てて 2 つの単位を 1 項目にまとめた"""
+        text = (SEED / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = text.split("## [Unreleased]\n", 1)[1].split("\n## ", 1)[0].splitlines()
+        heads = [ln for ln in unreleased if ln.startswith("### ")]
+        self.assertEqual(heads, [SUBHEADING["mean"], SUBHEADING["initials"]])
+        self.assertGreaterEqual(unreleased.index(heads[1]) - unreleased.index(heads[0]), 2, "見出しの間に変わらない行が無い")
+        readme = (SEED / "README.md").read_text(encoding="utf-8")
+        for head in heads:
+            self.assertEqual(text.count(head + "\n"), 1, head)
+            self.assertIn(f"`{head}`", readme)
+
+    def test_changelog_lines_of_two_lanes_merge_cleanly(self):
+        """(b) の前提の続き: 2 つの枝が CHANGELOG.md の自分のモジュールの見出しの下に足す 1 行は、3 方向で字の食い違いなしに合い、
+        合わせた物は 2 件の CHANGELOG の約束を満たす（見出しの無い前の形では同じ所への挿しで食い違った）"""
+        base = (SEED / "CHANGELOG.md").read_text(encoding="utf-8")
+        sides = []
+        for name in ("mean", "initials"):
+            (_, old, new), = [f for f in FIXES[name] if f[0] == "CHANGELOG.md"]
+            sides.append(base.replace(old, new))
+        rc, merged = self.merge(base, *sides)
+        self.assertEqual(rc, 0, "字の食い違いが出た:\n" + merged)
+        d = self.copy()
+        (d / "CHANGELOG.md").write_text(merged, encoding="utf-8")
+        got = self.probes(d)
+        self.assertEqual((got["changelog_mean"], got["changelog_initials"]), (True, True))
+
+    def test_two_unit_branches_merge_without_conflict(self):
+        """(b) の前提を本物の git で: 種の写し（gitkit の型）から件ごとの枝を切り、各枝に参照の直しと受け入れのテストを commit して、
+        2 つの枝を git merge で合わせても、片方の枝の差分を他方の枝の上に枝の締めの口（unittrees.diff と unittrees.apply。union なしの
+        3 方向）で当てても食い違わない。合わせた木は約束が全部緑で、種のテストと受け入れのテストも緑"""
+        repo = self.tmp / "repo"
+        gitkit.committed_copy(repo, SEED)
+        base = gitkit.git(repo, "rev-parse", "HEAD")
+        for name in ("mean", "initials"):
+            gitkit.git(repo, "checkout", "-q", "-b", name, base)
+            for rel, old, new in FIXES[name]:
+                p = repo / rel
+                text = p.read_text(encoding="utf-8")
+                self.assertEqual(text.count(old), 1, f"参照の直し {name} の前の字が {rel} に 1 つだけ在る")
+                p.write_text(text.replace(old, new), encoding="utf-8")
+            p = repo / TESTS
+            p.write_text(with_lane_tests(p.read_text(encoding="utf-8"), name), encoding="utf-8")
+            gitkit.git(repo, "commit", "-q", "-am", name)
+        patch = unittrees.diff(repo, base)   # 今の姿は枝 initials
+        gitkit.git(repo, "checkout", "-q", "mean")
+        got = subprocess.run(["git", *gitkit.GIT_ID, "-C", str(repo), "merge", "--no-ff", "--no-edit", "-q", "initials"],
+                             capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(self.probes(repo), {k: True for k in PROBES})
+        self.suite_green(repo)
+        merged = gitkit.git(repo, "rev-parse", "HEAD^{tree}")
+        gitkit.git(repo, "checkout", "-q", "-b", "applied", "mean")
+        self.assertEqual(unittrees.apply(repo, patch), (True, ""))
+        gitkit.git(repo, "add", "-A")
+        self.assertEqual(gitkit.git(repo, "write-tree"), merged, "当てた木が git merge の木と違う")
+
     def test_request_passes_entry_schema_and_names_separate_modules(self):
         """依頼は入口の型を通り、where は種に在る別々のコードのファイルを名指す（項目はモジュールごと・重なりはテストのファイル）。
         種のテストのファイルは 1 本で README がその置き方を決める。範囲の相談を通すため、各件は CHANGELOG.md を allowed_paths にも
-        out_of_scope にも入れないと修正案に言う"""
+        out_of_scope にも入れないと修正案に言い、1 行を足すモジュールの見出しを名指す"""
         _, _, items, _, _ = entry._read_request(str(REQUEST), SEED, entry.board_rules())
         files = [it["where"].split(":", 1)[0] for it in items]
         for f in files:
@@ -202,12 +271,15 @@ class SeedTest(unittest.TestCase):
         readme = (SEED / "README.md").read_text(encoding="utf-8")
         for word in (TESTS, "TestCalc", "TestTextfmt", "CHANGELOG.md"):
             self.assertIn(word, readme)
+        heads = {"calc.py": SUBHEADING["mean"], "textfmt.py": SUBHEADING["initials"]}
         for it in items:
-            for word in ("CHANGELOG.md", "allowed_paths", "out_of_scope", "範囲の相談", TESTS):
+            for word in ("CHANGELOG.md", "allowed_paths", "out_of_scope", "範囲の相談", TESTS,
+                         heads[it["where"].split(":", 1)[0]]):
                 self.assertIn(word, it["text"], it["where"])
-            # run 54d81ef1: 計画役が「範囲の外」を out_of_scope に写し、相談が断った。名指さない訳（断られる帰結）を言う
-            self.assertIn("修正案が明示に外したパス", it["text"], it["where"])
+            # run 54d81ef1: 計画役が「範囲の外」を out_of_scope に写した。範囲の外と言わない
             self.assertNotIn("範囲の外", it["text"], it["where"])
+            # 0.2.36 から相談は out_of_scope に当たる頼みを断らずに答えの節へ回す。前の訳（相談が断る）を工場に言わない
+            self.assertNotIn("明示に外したパス", it["text"], it["where"])
             # (b) は種の形で起こす。項目を分けてと文で頼まない（run 01004d2e で効かなかった）
             self.assertNotIn("別の項目", it["text"], it["where"])
         self.assertIn("## [Unreleased]", (SEED / "CHANGELOG.md").read_text(encoding="utf-8"))

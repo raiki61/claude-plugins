@@ -29,8 +29,8 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
   1 項目にまとめたか、テストを別のファイルに置いた）
 - (c) consult（範囲の相談）: 相談の記録（盤面の trace の plan_scope_asked。修正の輪の確かめの節 fix-consult-check が書く。
   前の形 askplan.py（0.2.32〜0.2.35）の run は、まだ写していない run-place/<scope>/ask-plan/exchanges.jsonl も読む）に
-  answered の行が在る。refused・invalid・unavailable だけなら attempted（断った行の訳 why_refused を添える。修正案が
-  out_of_scope に名指したパスは相談が断る）
+  answered の行が在る。refused・invalid・unavailable だけなら attempted（断った行の訳 why_refused を添える。0.2.35 までの
+  版は修正案が out_of_scope に名指したパスも断った。0.2.36 からは断らずに答えの節へ回す）
 - (d) replan（run の中の案の直し。起きなくてよい）: trace の replan_state・plan_amended・conflict_parked・conflict_ruled の数を出すだけ
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
