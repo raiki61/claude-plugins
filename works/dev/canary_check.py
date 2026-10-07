@@ -46,7 +46,8 @@ canary-fixture-units/ から始める run、large は測りの canary-request-la
   修正案の役（節 plan・plan-revise の起動）の会話の id で、新しい id が元と違う。adapter.py の頭の 1）。植えなければ no（fix-fork の理由を添える）、植えて足りない物が在れば attempted（足りない物を名指す）
 - (f) item_units（1 つの修正案の項目に 2 つ以上の単位。canary-fixture-units の狙い。0.2.38 の tddloop._close_covered）: 2 つ以上の単位を
   持つ項目（plan-fields.json）・TDD の輪の単位ごとの道・赤・緑・covered_by（tdd-<k>/state.json）・食い違いの申し出（同じ状態の calls の
-  phase conflict）・trace の conflict_parked・conflict_ruled の数・裁定役の節（名の最後が ruling.ROLE）の node_started の数を出す。
+  phase conflict。並べの周の枝の中の呼びは同じ状態の lanes.calls）・trace の conflict_parked・conflict_ruled の数・裁定役の節（名の
+  最後が ruling.ROLE）の node_started の数を出す。
   通ったと言う決まり: covered_by で閉じた単位（赤・緑とも ok）が在り、covered_by の単位は同じ輪で自分の段で緑に届いた tdd の単位で、
   申し出・conflict_parked・conflict_ruled・裁定役の起動が全部 0。2 つ以上の単位を持つ項目か TDD の輪の状態が無ければ no、ほかは attempted
 - (g) measure（測り。canary-request-large.json を全部 on と全部 off で回して並べる）: include ごとの段（節の名の頭の <include>__。
@@ -254,7 +255,9 @@ def item_units(board: pathlib.Path, items: list, trace: list, events: list) -> t
             u = u if isinstance(u, dict) else {}
             units.append({"loop": loop, "unit": k, **{f: u.get(f) or "" for f in ("route", "red", "green")},
                           "covered_by": list(u.get("covered_by") or [])})
-        calls += sum(1 for c in st.get("calls") or [] if isinstance(c, dict) and c.get("phase") == CONFLICT_PHASE)
+        lanes = st.get("lanes") if isinstance(st.get("lanes"), dict) else {}
+        calls += sum(1 for c in [*(st.get("calls") or []), *(lanes.get("calls") or [])]   # 枝の中の呼びは締めが lanes に集める
+                     if isinstance(c, dict) and c.get("phase") == CONFLICT_PHASE)
     got = {"items": multi, "units": units, "conflict_calls": calls,
            "conflict_parked": sum(1 for r in trace if r.get("op") == conflict.PARK_OP),
            "conflict_ruled": sum(1 for r in trace if r.get("op") == conflict.RULE_OP),

@@ -4,3 +4,6 @@
 graphloops/tests/py/golden/** linguist-generated
 # 写した superpowers（第三者の文）はバイトのまま持つ。改行の変換で borrow.json の pin の sha256 がずれないように変換しない
 works/.shared/borrow/superpowers/** -text
+# canary の固定材料（works/dev/canary_fixture.py build が作る。手で書かない）はバイトのまま持つ。改行の変換で控え fixture.json の
+# ファイルごとの sha256・種の写しの木の hash・依頼の sha256 がずれないように変換しない
+works/dev/canary-fixture-units/** -text linguist-generated

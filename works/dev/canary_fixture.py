@@ -174,7 +174,10 @@ def build(place, run_id: str, out) -> dict:
         archive = tmp / "seed.tar"
         archive.write_bytes(blob.stdout)
         with tarfile.open(archive) as tar:
-            tar.extractall(seed, filter="data")
+            try:
+                tar.extractall(seed, filter="data")
+            except TypeError:   # filter の無い Python（3.9.17・3.10.12・3.11.4 より前）。中身は自分の git archive の出力
+                tar.extractall(seed)  # noqa: S202
         archive.unlink()
         if tree_of(seed) != man["tree"]:
             raise Refused(f"対象の {man['head'][:12]} の中身の木が控えの tree {man['tree'][:12]} と違う")

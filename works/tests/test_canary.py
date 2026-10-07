@@ -30,7 +30,9 @@
 - 固定材料 canary-fixture-units/（canary.sh --request units）: 写しが控えのとおり・seed/ の木が控えの tree・request.json が控えの依頼
   （canary_fixture.problems。書き換えれば名指す）・この機械の置き場の字が無い・案が tdd の 1 項目に 2 単位。seed/ の写しの git（gitkit の型）に
   use.sh と同じ入力で線の start（entry.start）が写しを取り込み、修正の直前の盤面を開いて置き場の印を残さない（works の表・graph・置き場の版が
-  写した時と違えば、canary_fixture.stale と start の拒みが同じ物を名指す）。確かめ役の (f)（covered_by で閉じた単位・申し出・裁定）。
+  写した時と違えば、canary_fixture.stale と start の拒みが同じ物を名指す）。作り直しの canary_fixture.build は偽の置き場から置き場のパスを
+  印の下に写し（problems が空・機械の字が無い）、家のパスが残れば何も出さずに拒む。確かめ役の (f)（covered_by で閉じた単位・申し出（枝の
+  中の呼びも）・裁定）。
 子のプロセスは python3（種のテストと PROBES）と git merge-file と、種の写しの git（gitkit の型の写し。リポジトリを作らない）と、
 拒みだけを見る sh canary.sh だけ（固定材料の木は canary_fixture.tree_of が git を起こさずに求める）。
 """
@@ -589,6 +591,69 @@ class UnitsFixtureTest(unittest.TestCase):
                 got = canary_fixture.problems(root)
                 self.assertTrue(any(word in p for p in got), got)
 
+    def fake_place(self):
+        """canary の置き場の形の偽物（置き場の根は解いたパス）: repo/（種の写しの git）・home/requests の依頼・Archon の作業の置き場の
+        下の run の fix-fixture（盤面の写しと盤面の外の写しと控え。字に元の置き場の盤面・$ARTIFACTS_DIR・対象・pack・置き場の根・
+        Claude Code の一時の置き場のパスを持つ）。(置き場, run-id, 写しの盤面の state.json の元の字) を返す"""
+        place = self.tmp.resolve() / "place"
+        head = gitkit.committed_copy(place / "repo", SEED)
+        tree = gitkit.git(place / "repo", "rev-parse", "HEAD^{tree}")
+        request = place / "home" / "requests" / "r.json"
+        write(request, REQUEST.read_text(encoding="utf-8"))
+        run = "run-src"
+        art = place.joinpath(*canary_fixture.WORKSPACES, "w", "origin", "artifacts", "runs", run)
+        roots = {"board_root": str(art / "board"), "repo_root": str(place / "worktrees" / "task-1"),
+                 "pack_root": str(place / "workflow-source" / "works")}
+        src = art / fixture.DIR
+        text = (f"盤面 {roots['board_root']}/r1・置き場 {art}/run-place/x.json・対象 {roots['repo_root']}/calc.py・"
+                f"pack {roots['pack_root']}/.shared/core・origin {place}/origin.git・枠 /private/tmp/claude-501/testslots")
+        write(src / fixture.COPY / "state.json", {"note": text})
+        write(src / fixture.COPY / "r1" / "start.json", {"request_file": str(request), "test_cmd": "python3 -m pytest -q"})
+        write(src / fixture.OUTSIDE / "run-place" / "x.json", {"from": str(art / "run-place")})
+        man = {"source_run": run, "head": head, "tree": tree, **roots,
+               "request_sha256": hashlib.sha256(request.read_bytes()).hexdigest(), "test_cmd": "python3 -m pytest -q",
+               "commits": {}, "files": fixture._files(src)}
+        write(src / fixture.MANIFEST, man)
+        return place, run, text
+
+    def test_build_writes_a_portable_fixture_that_checks_clean(self):
+        """build は置き場の run の固定材料を、種（対象の HEAD の中身）と依頼の写しを添えて出す。置き場のパスは印の下に置き換え、
+        控えの 3 つの根も印にして files を書き直すので、出した物は problems が空で、この機械の字を持たない"""
+        place, run, before = self.fake_place()
+        out = self.tmp / "out" / "units"
+        man = canary_fixture.build(place, run, out)
+        self.assertEqual(canary_fixture.problems(out), [])
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["fix-fixture", "request.json", "seed"])
+        art = f"{canary_fixture.PORTABLE}/artifacts/runs/{run}"
+        self.assertEqual((man["board_root"], man["repo_root"], man["pack_root"]),
+                         (f"{art}/board", f"{canary_fixture.PORTABLE}/worktree", f"{canary_fixture.PORTABLE}/pack"))
+        got = json.loads((out / fixture.DIR / fixture.COPY / "state.json").read_text(encoding="utf-8"))["note"]
+        self.assertEqual(got, f"盤面 {art}/board/r1・置き場 {art}/run-place/x.json・対象 {canary_fixture.PORTABLE}/worktree/calc.py・"
+                              f"pack {canary_fixture.PORTABLE}/pack/.shared/core・origin {canary_fixture.PORTABLE}/place/origin.git・"
+                              f"枠 {canary_fixture.PORTABLE}/tmp/testslots")
+        self.assertNotEqual(got, before)
+        self.assertEqual(canary_fixture.machine_words(out), [])
+        self.assertEqual([p.name for p in out.parent.iterdir()], ["units"], "一時の置き場を残さない")
+
+    def test_build_refuses_when_a_machine_path_would_stay(self):
+        """置き換えの後にこの機械の家のパスが残る写しは、何も出さずに拒む（終了コード 2 の 1 行）。出す置き場が在っても拒む"""
+        place, run, _ = self.fake_place()
+        src = next(place.joinpath(*canary_fixture.WORKSPACES).glob(f"*/*/artifacts/runs/{run}/{fixture.DIR}"))
+        write(src / fixture.COPY / "note.md", f"家 {pathlib.Path.home()}/x\n")
+        man = json.loads((src / fixture.MANIFEST).read_text(encoding="utf-8"))
+        write(src / fixture.MANIFEST, {**man, "files": fixture._files(src)})
+        out = self.tmp / "out" / "units"
+        got = subprocess.run([sys.executable, str(ROOT / "dev" / "canary_fixture.py"), "build", str(place), run, str(out)],
+                             capture_output=True, text=True, encoding="utf-8", env=_env())
+        self.assertEqual(got.returncode, 2, got.stdout + got.stderr)
+        self.assertIn("この機械の置き場の字が残る", got.stderr)
+        self.assertEqual(len(got.stderr.strip().splitlines()), 1, got.stderr)
+        self.assertFalse(out.exists())
+        self.assertEqual(list(out.parent.iterdir()), [], "一時の置き場を残さない")
+        out.mkdir()
+        with self.assertRaises(canary_fixture.Refused):
+            canary_fixture.build(place, run, out)
+
     def test_fixture_adopts_on_its_seed_or_is_named_stale(self):
         """use.sh が渡す入力（canary.sh --request units の形）で、seed/ を commit した対象に線の start が写しを取り込み、修正の直前の
         盤面を開く（判定・修正案の役は起こさない）。置き場の印の字は新しい置き場になる。今の works の表・graph・置き場の版が写した
@@ -1093,7 +1158,7 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(f["b_overlap"]["status"], "yes")
         self.assertIn("union ['test_lib.py']", f["b_overlap"]["why"])
 
-    def units_run(self, *, covered=True, parks=0, rules=0, conflict_calls=0, items=None):
+    def units_run(self, *, covered=True, parks=0, rules=0, conflict_calls=0, lane_conflicts=0, items=None):
         """--request units の形の run: 1 項目 2 単位の案・TDD の輪の状態（先の単位が緑、後の単位は covered_by で閉じた）・
         食い違いの申し出の段の呼び・trace の conflict_parked・conflict_ruled の行・裁定役（節 rule）の起動"""
         items = items if items is not None else [{"route": "tdd", "unit_keys": [U_MEAN, U_INITIALS],
@@ -1106,7 +1171,8 @@ class CheckTest(unittest.TestCase):
             {"route": "tdd", "red": "ok", "green": "", "covered_by": None}
         calls = [{"n": 1, "phase": "route", "ok": True}, {"n": 2, "phase": "test", "unit_key": U_MEAN, "ok": True}]
         calls += [{"n": 3 + n, "phase": "conflict", "unit_key": U_MEAN, "ok": True} for n in range(conflict_calls)]
-        write(self.board / "tdd-1" / "state.json", {"phase": "done", "done": True, "calls": calls,
+        lane_calls = [{"n": 1, "phase": "conflict", "unit_key": U_INITIALS, "ok": True}] * lane_conflicts
+        write(self.board / "tdd-1" / "state.json", {"phase": "done", "done": True, "calls": calls, "lanes": {"calls": lane_calls},
                                                     "units": {U_MEAN: {"route": "tdd", "red": "ok", "green": "ok"},
                                                               U_INITIALS: second}})
         with (self.board / "trace.jsonl").open("a", encoding="utf-8") as f:
@@ -1138,7 +1204,8 @@ class CheckTest(unittest.TestCase):
         parked・申し出 2・裁定 2）"""
         for name, kw, word in (("閉じない", {"covered": False}, "covered_by で閉じた単位が無い"),
                                ("申し出", {"conflict_calls": 2, "parks": 2}, "申し出 2・conflict_parked 2"),
-                               ("裁定", {"rules": 2}, "conflict_ruled 2・裁定役の起動 2")):
+                               ("裁定", {"rules": 2}, "conflict_ruled 2・裁定役の起動 2"),
+                               ("枝の中の申し出", {"lane_conflicts": 1}, "申し出 1・conflict_parked 0")):
             with self.subTest(name):
                 shutil.rmtree(self.tmp)
                 self.tmp.mkdir()
