@@ -1,0 +1,37 @@
+[
+ {
+  "where": "stats.py:median",
+  "text": "median([4, 1, 3, 2]) が 2.5 でなく 3 を返す（docstring の約束は、個数が偶数なら小さい順の真ん中の 2 つの平均）。今の test_lib.py の TestStats は個数が奇数の中央値しか試さないので通っている。受け入れのテストは README の決まりどおり test_lib.py の TestStats の中に足す",
+  "mechanism": "sorted(xs) の s[len(s) // 2] を、個数が偶数でも奇数でも返している",
+  "measured": "python3 -c 'import stats; print(stats.median([4, 1, 3, 2]))' が 3 を出した",
+  "false_positive_if": "median が偶数の時に上の中央値を返す約束なら誤り（docstring は真ん中の 2 つの平均と言う）"
+ },
+ {
+  "where": "textfmt.py:pad_left",
+  "text": "pad_left('ab', 5, '.') が '...ab' でなく 'ab...' を返す（docstring の約束は s の左を fill で埋めて width 字にする右寄せ）。今の test_lib.py の TestTextfmt は s が width 字以上の時しか試さないので通っている。受け入れのテストは README の決まりどおり test_lib.py の TestTextfmt の中に足す",
+  "mechanism": "埋める字 fill * gap を s の右に足している",
+  "measured": "python3 -c 'import textfmt; print(textfmt.pad_left(\"ab\", 5, \".\"))' が ab... を出した",
+  "false_positive_if": "pad_left が右を埋める約束なら誤り（docstring は左を埋める右寄せと言う）"
+ },
+ {
+  "where": "units.py:c_to_f",
+  "text": "c_to_f(100) が 212 でなく 87.55… を返す（docstring の約束は c * 9 / 5 + 32）。今の test_lib.py の TestUnits は c_to_f(0) しか試さず、0 では係数が違っても 32 になるので通っている。受け入れのテストは README の決まりどおり test_lib.py の TestUnits の中に足す",
+  "mechanism": "係数が 9 / 5 でなく 5 / 9 になっている",
+  "measured": "python3 -c 'import units; print(units.c_to_f(100))' が 87.55555555555556 を出した",
+  "false_positive_if": "c_to_f が華氏から摂氏への換算の約束なら誤り（docstring は摂氏を華氏にする c * 9 / 5 + 32 と言う）"
+ },
+ {
+  "where": "money.py:split_even",
+  "text": "split_even に docstring が無く、help(money.split_even) に約束が出ない（README の決まり: 公開の関数は docstring に約束を書く）。今の振る舞い（total を n 個の整数に分け、和は total で差は 1 以内、余りは先頭から 1 ずつ配る。n が 0 以下なら ValueError）は test_lib.py の TestMoney の test_split_even_remainder_first・test_split_even_exact・test_split_even_more_parts_than_total・test_split_even_needs_parts が確かめていて正しいので、振る舞いは変えずに docstring を足す",
+  "mechanism": "def split_even の本体の頭に docstring の文が無い（同じファイルの format_yen には在る）",
+  "measured": "python3 -c 'import money; print(money.split_even.__doc__)' が None を出した",
+  "false_positive_if": "split_even が公開の関数でない（README の決まりの外）なら誤り（名は _ で始まらず、README は公開の関数の全部に docstring を求める）"
+ },
+ {
+  "where": "slugs.py:slugify",
+  "text": "slugify に docstring が無く、help(slugs.slugify) に約束が出ない（README の決まり: 公開の関数は docstring に約束を書く）。今の振る舞い（s を小文字にし、英小文字と数字でない字の連なりを 1 つの - にして、頭と尾の - を取る）は test_lib.py の TestSlugs の test_slugify_words・test_slugify_trims が確かめていて正しいので、振る舞いは変えずに docstring を足す",
+  "mechanism": "def slugify の本体の頭に docstring の文が無い（同じファイルの join_path には在る）",
+  "measured": "python3 -c 'import slugs; print(slugs.slugify.__doc__)' が None を出した",
+  "false_positive_if": "slugify が公開の関数でない（README の決まりの外）なら誤り（名は _ で始まらず、README は公開の関数の全部に docstring を求める）"
+ }
+]

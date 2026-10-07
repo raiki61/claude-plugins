@@ -23,6 +23,10 @@
   plan-fields.json・tdd-<k>/state.json と枝の差分の控え・run-place の相談の記録・report.md）を置き、(a)〜(d) の判じ・案の重なり・
   項目ごとのファイル・費用と取れない節・結末・時間・終了コードと、読むだけで何も書かないことを見る。(e) 修正役の並べは
   偽の包みの起動の記録（home/adapter/launches/*.jsonl）も置き、植えた枝・枝の輪の同時・枝の中の相談・答えの節の旗 fork を見る。
+- 測りの種 canary-seed-large/ と依頼 canary-request-large.json（canary.sh --request large）: 種のテストは緑で 5 件の約束は赤・参照の直しは
+  件ごとに独立で 5 つの別々のファイルだけを変え、全部当てれば全部緑・振る舞いの 3 件の受け入れのテストは種で自分だけ赤・3 本の枝の
+  test_lib.py は順に 3 方向で合う・docstring の無い公開の関数は依頼の 2 件だけ・依頼は入口の型を通り分け方や道を言わない。確かめ役の
+  (g)（include ごとの段と TDD の輪の段・修正役の段の分と費用と枝・切った機能。全部 on は枝 2 本以上の同時と fixed、切った run は fixed）。
 - 固定材料 canary-fixture-units/（canary.sh --request units）: 写しが控えのとおり・seed/ の木が控えの tree・request.json が控えの依頼
   （canary_fixture.problems。書き換えれば名指す）・この機械の置き場の字が無い・案が tdd の 1 項目に 2 単位。seed/ の写しの git（gitkit の型）に
   use.sh と同じ入力で線の start（entry.start）が写しを取り込み、修正の直前の盤面を開いて置き場の印を残さない（works の表・graph・置き場の版が
@@ -34,6 +38,7 @@ import ast
 import hashlib
 import json
 import pathlib
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -109,6 +114,38 @@ DOC_FIXES = {
                 ("CHANGELOG.md", "### textfmt\n", "### textfmt\n\n- squeeze: docstring を足した\n")],
 }
 DOC_FIX_PROBES = {"clamp": {"clamp_doc", "changelog_clamp"}, "squeeze": {"squeeze_doc", "changelog_squeeze"}}
+# canary.sh --request large（測りの run。canary-seed-large/ と canary-request-large.json）の 5 件: 振る舞いのバグ 3 件（TDD の輪の枝に入る形）と
+# docstring の欠け 2 件（修正役の並べの枝に入る形）。種の 5 つのモジュールは別々のファイルで、テストは test_lib.py のモジュールごとのクラス
+SEED_LARGE = ROOT / "dev" / "canary-seed-large"
+REQUEST_LARGE = ROOT / "dev" / "canary-request-large.json"
+LARGE_MODULES = ("stats.py", "textfmt.py", "units.py", "money.py", "slugs.py")
+LARGE_PROBES = {
+    "median": "import stats; assert stats.median([4, 1, 3, 2]) == 2.5 and stats.median([3, 1, 2]) == 2 and stats.median([5]) == 5",
+    "pad_left": "import textfmt; assert textfmt.pad_left('ab', 5, '.') == '...ab' and textfmt.pad_left('abc', 2) == 'abc'",
+    "c_to_f": "import units; assert units.c_to_f(100) == 212 and units.c_to_f(0) == 32 and units.c_to_f(-40) == -40",
+    "split_even_doc": "import money; assert (money.split_even.__doc__ or '').strip()",
+    "slugify_doc": "import slugs; assert (slugs.slugify.__doc__ or '').strip()",
+}
+LARGE_FIXES = {
+    "median": [("stats.py", "    return s[len(s) // 2]\n",
+                "    mid = len(s) // 2\n    if len(s) % 2:\n        return s[mid]\n    return (s[mid - 1] + s[mid]) / 2\n")],
+    "pad_left": [("textfmt.py", "    return s + fill * gap\n", "    return fill * gap + s\n")],
+    "c_to_f": [("units.py", "    return c * 5 / 9 + 32\n", "    return c * 9 / 5 + 32\n")],
+    "split_even": [("money.py", "def split_even(total, n):\n",
+                    'def split_even(total, n):\n    """total を n 個の整数に分ける（和は total・差は 1 以内・余りは先頭から）"""\n')],
+    "slugify": [("slugs.py", "def slugify(s):\n",
+                 'def slugify(s):\n    """s を小文字にし、英数字でない字の連なりを - にして、頭と尾の - を取る"""\n')],
+}
+LARGE_FIX_PROBES = {"median": {"median"}, "pad_left": {"pad_left"}, "c_to_f": {"c_to_f"}, "split_even": {"split_even_doc"},
+                    "slugify": {"slugify_doc"}}
+LARGE_TDD = ("median", "pad_left", "c_to_f")   # 先に落ちる受け入れのテストが在る件
+LARGE_CLASS_END = {"median": "\n\n\nclass TestTextfmt(", "pad_left": "\n\n\nclass TestUnits(", "c_to_f": "\n\n\nclass TestMoney("}
+LARGE_LANE_TESTS = {
+    "median": "\n\n    def test_median_even(self):\n        self.assertEqual(stats.median([4, 1, 3, 2]), 2.5)\n",
+    "pad_left": "\n\n    def test_pad_left_fills_left(self):\n        self.assertEqual(textfmt.pad_left(\"ab\", 5, \".\"), \"...ab\")\n",
+    "c_to_f": "\n\n    def test_c_to_f_boiling(self):\n        self.assertEqual(units.c_to_f(100), 212)\n",
+}
+LARGE_LANE_NAMES = {"median": "test_median_even", "pad_left": "test_pad_left_fills_left", "c_to_f": "test_c_to_f_boiling"}
 PROBE_RUN = """
 import json, sys
 out = {}
@@ -395,6 +432,112 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(names, {".gitignore", "README.md", "CHANGELOG.md", "calc.py", "textfmt.py", TESTS})
 
 
+def with_large_lane_tests(text: str, *names) -> str:
+    """canary-seed-large の test_lib.py に、件ごとの受け入れのテストを各クラスの末尾に足した物"""
+    for name in names:
+        anchor = LARGE_CLASS_END[name]
+        assert text.count(anchor) == 1, anchor
+        text = text.replace(anchor, LARGE_LANE_TESTS[name].rstrip("\n") + anchor)
+    return text
+
+
+class LargeSeedTest(unittest.TestCase):
+    """canary-seed-large と canary-request-large.json（canary.sh --request large。全部 on と全部 off の時間と費用の測り）"""
+    setUp = SeedTest.setUp
+    probes, suite, suite_green, merge = SeedTest.probes, SeedTest.suite, SeedTest.suite_green, SeedTest.merge
+
+    def copy(self, fixes=(), tests=()):
+        d = self.tmp / "-".join(["large", *fixes, "t", *tests])
+        shutil.copytree(SEED_LARGE, d)
+        for name in fixes:
+            for rel, old, new in LARGE_FIXES[name]:
+                p = d / rel
+                text = p.read_text(encoding="utf-8")
+                self.assertEqual(text.count(old), 1, f"参照の直し {name} の前の字が {rel} に 1 つだけ在る")
+                p.write_text(text.replace(old, new), encoding="utf-8")
+        if tests:
+            p = d / TESTS
+            p.write_text(with_large_lane_tests(p.read_text(encoding="utf-8"), *tests), encoding="utf-8")
+        return d
+
+    def test_seed_suite_green_and_every_gap_present(self):
+        """種のテストは緑で、依頼の 5 件の約束（振る舞い 3 件・docstring 2 件）は全部赤"""
+        d = self.copy()
+        self.suite_green(d)
+        self.assertEqual(self.probes(d, LARGE_PROBES), {k: False for k in LARGE_PROBES})
+
+    def test_each_reference_fix_is_independent_and_all_keep_suite_green(self):
+        """参照の直しは件ごとに独立（1 件を当てるとその件の約束だけが緑）で、別々のファイルだけを変える。全部当てれば全部緑で
+        種のテストも緑"""
+        files = []
+        for name in LARGE_FIXES:
+            with self.subTest(name):
+                got = self.probes(self.copy((name,)), LARGE_PROBES)
+                self.assertEqual({k for k, v in got.items() if v}, LARGE_FIX_PROBES[name])
+            files += sorted({rel for rel, _, _ in LARGE_FIXES[name]})
+        self.assertEqual(sorted(files), sorted(LARGE_MODULES), "5 件は 5 つの別々のファイル")
+        d = self.copy(tuple(LARGE_FIXES))
+        self.assertEqual(self.probes(d, LARGE_PROBES), {k: True for k in LARGE_PROBES})
+        self.suite_green(d)
+
+    def test_lane_tests_are_red_on_seed_only_for_their_own_bug(self):
+        """TDD の赤: 振る舞いの 3 件の受け入れのテストは種では自分のテストだけ落ち、自分の件の直しで緑になる"""
+        for name in LARGE_TDD:
+            with self.subTest(name):
+                rc, failed, err = self.suite(self.copy(tests=(name,)))
+                self.assertEqual((rc != 0, failed), (True, [LARGE_LANE_NAMES[name]]), err[-2000:])
+                self.suite_green(self.copy((name,), (name,)))
+
+    def test_three_lanes_tests_merge_cleanly_in_one_test_file(self):
+        """3 本の TDD の枝が test_lib.py の別々のクラスの末尾に足すテストは、順に 3 方向で合わせても字の食い違いが無く（重なりの
+        ファイル）、合わせた test_lib.py は全部の直しの後に緑"""
+        base = (SEED_LARGE / TESTS).read_text(encoding="utf-8")
+        merged = with_large_lane_tests(base, LARGE_TDD[0])
+        for name in LARGE_TDD[1:]:
+            rc, merged = self.merge(base, merged, with_large_lane_tests(base, name))
+            self.assertEqual(rc, 0, f"{name} で字の食い違いが出た")
+        self.assertEqual(merged, with_large_lane_tests(base, *LARGE_TDD))
+        d = self.copy(tuple(LARGE_FIXES))
+        (d / TESTS).write_text(merged, encoding="utf-8")
+        self.suite_green(d)
+
+    def test_only_the_requested_functions_lack_a_docstring(self):
+        """種の公開の関数で docstring の無い物は依頼の 2 件だけ。テストのファイルは test_lib.py の 1 本で、モジュールごとのクラスを
+        持ち、モジュールを 1 行ずつ import の形で読む"""
+        missing = []
+        for mod in LARGE_MODULES:
+            tree = ast.parse((SEED_LARGE / mod).read_text(encoding="utf-8"))
+            missing += [f"{mod}:{f.name}" for f in tree.body if isinstance(f, ast.FunctionDef)
+                        and not f.name.startswith("_") and ast.get_docstring(f) is None]
+        self.assertEqual(missing, ["money.py:split_even", "slugs.py:slugify"])
+        text = (SEED_LARGE / TESTS).read_text(encoding="utf-8")
+        self.assertEqual([ln for ln in text.splitlines() if ln.startswith(("import ", "from "))],
+                         ["import unittest", *(f"import {m[:-3]}" for m in LARGE_MODULES)])
+        self.assertEqual(re.findall(r"^class (\w+)\(", text, re.M), ["TestStats", "TestTextfmt", "TestUnits", "TestMoney", "TestSlugs"])
+
+    def test_seed_holds_only_the_library_its_tests_and_rules(self):
+        names = {p.relative_to(SEED_LARGE).as_posix() for p in SEED_LARGE.rglob("*") if p.is_file()}
+        self.assertEqual(names, {".gitignore", "README.md", TESTS, *LARGE_MODULES})
+        readme = (SEED_LARGE / "README.md").read_text(encoding="utf-8")
+        for word in ("公開の関数は docstring", "docstring の有無や字はテストで確かめない", TESTS, "TestStats", "TestSlugs",
+                     "`import stats` の形"):
+            self.assertIn(word, readme)
+        for word in ("route", "direct", "tdd", "TDD", "CHANGELOG"):
+            self.assertNotIn(word, readme)
+
+    def test_request_names_five_files_without_asking_how_to_plan(self):
+        """依頼は入口の型を通り、5 件が種の別々のファイルの関数を名指す。項目の分け方・道・並べを文で言わない"""
+        _, _, items, _, _ = entry._read_request(str(REQUEST_LARGE), SEED_LARGE, entry.board_rules())
+        self.assertEqual(sorted(it["where"] for it in items),
+                         ["money.py:split_even", "slugs.py:slugify", "stats.py:median", "textfmt.py:pad_left", "units.py:c_to_f"])
+        for it in items:
+            blob = json.dumps(it, ensure_ascii=False)
+            for word in ("別の項目", "項目に分け", "まとめ", "route", "direct", "tdd", "TDD", "テストを先に", "並べ", "枝", "CHANGELOG"):
+                self.assertNotIn(word, blob, it["where"])
+            if it["where"].split(":", 1)[1] in LARGE_TDD:
+                self.assertIn(TESTS, it["text"], it["where"])
+
+
 class UnitsFixtureTest(unittest.TestCase):
     """canary.sh --request units の固定材料（dev/canary-fixture-units/）: 種の写し seed/・依頼 request.json・盤面の写し fix-fixture/"""
 
@@ -498,6 +641,15 @@ class CanaryShTest(unittest.TestCase):
         for word, path in (("tdd", REQUEST), ("fix", REQUEST_FIX)):
             self.assertIn(f"{word}) REQUEST=\"$DEV_DIR/{path.name}\"", text)
             self.assertTrue(path.is_file(), path)
+
+    def test_large_uses_its_own_seed_and_request(self):
+        """--request large は種 canary-seed-large と依頼 canary-request-large.json を使い、固定材料を使わない"""
+        text = CANARY_SH.read_text(encoding="utf-8")
+        block = text.split("  large)\n", 1)[1].split(";;", 1)[0]
+        self.assertIn(f'SEED="$DEV_DIR/{SEED_LARGE.name}"', block)
+        self.assertIn(f'REQUEST="$DEV_DIR/{REQUEST_LARGE.name}"', block)
+        self.assertNotIn("FIXTURE", block)
+        self.assertTrue(SEED_LARGE.is_dir() and REQUEST_LARGE.is_file())
 
     def test_units_starts_from_the_fixture_with_its_own_seed_and_request(self):
         """--request units は固定材料のフォルダの種・依頼を使い、起動に WORKS_USE_FIX_FIXTURE を付け、作る前に
@@ -1011,6 +1163,76 @@ class CheckTest(unittest.TestCase):
         f = canary_check.check(RUN, {}, [], self.board)["features"]["f_item_units"]
         self.assertEqual(f["status"], "no")
         self.assertIn("TDD の輪の状態が無い", f["why"])
+
+    def large_run(self, *, off=(), tdd_lanes=3, fix_lanes=2, outcome="fixed"):
+        """--request large の形の run（全部 on は TDD の枝 3 本・修正役の枝 2 本。off は切った機能の語）"""
+        tdd_top = [*node("fixing__tdd-start", 100, 102, kind="exec"), *node("fixing__tdd-loop", 102, 130, usd=None, kind="loop_group"),
+                   *node("fixing__tdd-loop.tdd", 103, 129, usd=0.5), *node("fixing__tdd-fork", 130, 131, kind="exec")]
+        lanes = [e for n in range(1, tdd_lanes + 1) for e in lane(n, 131 + n, 300 - n * 10, usd=1.0)] if tdd_lanes else []
+        tdd_end = [*node("fixing__tdd-join", 300, 302, kind="exec"), *node("fixing__tdd-rest-loop", 302, 310, usd=None, kind="loop_group")]
+        fixers = [e for n in range(1, fix_lanes + 1) for e in fixer_lane(n, 311, 400 - n)] if fix_lanes else \
+            [*node("fixing__fix-loop", 311, 400, usd=None, kind="loop_group"), *node("fixing__fix-loop.fix", 312, 399, usd=1.5)]
+        events = [*node("judging__judge-loop", 0, 60, usd=None, kind="loop_group"), *node("judging__judge-loop.judge", 1, 59, usd=2.0),
+                  *node("planning__plan-loop.plan", 60, 96, usd=1.0), *tdd_top, *lanes, *tdd_end,
+                  *node("fixing__fix-fork", 310, 311, kind="exec"), *fixers, *node("fixing__fix-join", 400, 402, kind="exec"),
+                  *node("report", 410, 420, usd=0.25)]
+        make_db(self.db, self.out_root, events)
+        rows = {"rows": [{"n": n, "unit_keys": [f"u{n}"]} for n in range(1, tdd_lanes + 1)], "out": [], "shared": ["test_lib.py"]}
+        make_board(self.board, lanes=rows if tdd_lanes else None,
+                   planted=[{"lanes": fix_lanes, "items": {str(n): [n + 3] for n in range(1, fix_lanes + 1)}}],
+                   report=f"起きたこと: x（{outcome}）\n" if outcome else None)
+        write(self.board / "r1" / "start.json", {"features_off": list(off)})
+        write(self.root / "home" / "runs" / f"{RUN}.json", {})
+
+    def test_large_measures_stage_time_cost_and_lanes(self):
+        """(g) 測り（--request large）: include ごとの段（線の節は line）の壁時計の分と AI の節の費用の和・修正の include の中の
+        TDD の輪の段（tdd-*）と修正役の段（fix-*・conflict-check・rule-loop・fix-ruled-loop）の分と費用と枝の数と同時の最大・切った
+        機能。全部 on で結末 fixed・TDD の枝も修正役の枝も 2 本以上が同時に走ったなら yes で、--request large の終了コードは (g) だけ"""
+        self.large_run()
+        got = self.run_tool(str(self.root), "--request", "large", "--json")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        doc = json.loads(got.stdout)
+        m = doc["measure"]
+        self.assertEqual(m["features_off"], [])
+        self.assertEqual([(r["stage"], r["minutes"], r["cost_usd"], r["ai_nodes"]) for r in m["stages"]],
+                         [("judging", 1.0, 2.0, 1), ("planning", 0.6, 1.0, 1), ("fixing", 5.0, 4.7, 8), ("line", 0.2, 0.25, 1)])
+        self.assertEqual(m["tdd"], {"minutes": 3.5, "cost_usd": 3.5, "lanes": 3, "parallel": 3})
+        self.assertEqual(m["fix"], {"minutes": 1.5, "cost_usd": 1.2, "lanes": 2, "parallel": 2})
+        self.assertEqual(m["total"], {"minutes": 7.0, "cost_usd": 7.95})
+        self.assertEqual(doc["features"]["g_measure"]["status"], "yes")
+        text = self.run_tool(str(self.root), "--request", "large").stdout
+        self.assertIn("(g) 測り: yes", text)
+        self.assertIn("段ごと: judging 1.0 分 2.0 USD・planning 0.6 分 1.0 USD・fixing 5.0 分 4.7 USD・line 0.2 分 0.25 USD", text)
+        self.assertIn("TDD の輪の段 3.5 分 3.5 USD（枝 3 本・同時 3）・修正役の段 1.5 分 1.2 USD（枝 2 本・同時 2）", text)
+
+    def test_large_all_off_needs_no_lanes(self):
+        """全部 off（features_off に tdd_lanes・fix_lanes）の run は枝を求めず、結末 fixed なら yes（全部 on と並べて比べる側）"""
+        self.large_run(off=("judge_verify", "review_tree", "tdd_lanes", "fix_lanes", "graph_map"), tdd_lanes=0, fix_lanes=0)
+        got = self.run_tool(str(self.root), "--request", "large", "--json")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        doc = json.loads(got.stdout)
+        self.assertEqual(doc["measure"]["features_off"], ["judge_verify", "review_tree", "tdd_lanes", "fix_lanes", "graph_map"])
+        self.assertEqual(doc["measure"]["tdd"]["lanes"], 0)
+        self.assertEqual(doc["measure"]["fix"]["minutes"], 1.5)
+        self.assertEqual(doc["features"]["g_measure"]["status"], "yes")
+        self.assertIn("切った機能 judge_verify・review_tree・tdd_lanes・fix_lanes・graph_map", doc["features"]["g_measure"]["why"])
+
+    def test_large_with_narrow_lanes_or_without_fixed_is_not_yes(self):
+        """機能が on なのに枝が 1 本だけなら attempted、結末が fixed でなければ attempted、報告が無ければ no（終了コード 1）"""
+        for name, kw, status, word in (("TDD の枝 1 本", {"tdd_lanes": 1}, "attempted", "TDD の輪の枝 1 本"),
+                                       ("修正役の枝 1 本", {"fix_lanes": 1}, "attempted", "修正役の枝 1 本"),
+                                       ("round_limit", {"outcome": "round_limit"}, "attempted", "結末 round_limit"),
+                                       ("報告なし", {"outcome": ""}, "no", "報告の結末が無い")):
+            with self.subTest(name):
+                shutil.rmtree(self.tmp)
+                self.tmp.mkdir()
+                self.db.parent.mkdir(parents=True)
+                self.large_run(**kw)
+                got = self.run_tool(str(self.root), "--request", "large", "--json")
+                self.assertEqual(got.returncode, 1, got.stderr)
+                g = json.loads(got.stdout)["features"]["g_measure"]
+                self.assertEqual(g["status"], status)
+                self.assertIn(word, g["why"])
 
     def test_refusals_exit_two_with_one_line(self):
         make_db(self.db, self.out_root, [])

@@ -9,6 +9,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 ### Added
 
 - canary に修正の直前から始める依頼 `--request units` を足した（0.2.38 の「1 つの修正案の項目に単位が 2 つ在る時、後の単位を前の単位の段で一緒に直させ、緑の後は機械が閉じる」の本物の確かめ）。今の種では計画役が単位ごとに項目を作るのでこの形が起きないため、前の種で 1 項目に 2 単位をまとめた本物の run 245042a7 の h-fix の写し（固定材料）を、その run の種と依頼の文と一緒に `works/dev/canary-fixture-units/` に置いた。写しの中の置き場のパスは印に置き換えてあり、取り込みが新しい置き場に直すのでどの機械でも使える。作り直しと確かめの殻 `works/dev/canary_fixture.py`（`build`・`check`。写しの誤りと、今の works の表・graph・置き場の版との違いを名指す）を足し、`canary.sh --request units` は作る前にこれで止まる。`canary_check.py` に (f)（後の単位の `covered_by`・食い違いの申し出・`conflict_parked`・`conflict_ruled`・裁定役の起動）を足し、`--request units` の終了コードは (f) だけで決める
+- canary に測りの依頼 `--request large` を足した（全部 on と全部 off の時間と費用を同じ依頼で比べる）。別の種 `works/dev/canary-seed-large/`（5 つのモジュールとモジュールごとのクラスのテスト）と依頼 `works/dev/canary-request-large.json`（振る舞いのバグ 3 件と docstring の欠け 2 件。別々のファイル）で、素直な案は 5 項目になり、TDD の輪の枝 3 本と修正役の並べの枝 2 本が同時に走る形。`canary_check.py` に (g)（include ごとの段の分と AI の節の費用・修正の include の中の TDD の輪の段と修正役の段の分と費用と枝の数と同時の最大・切った機能・全体）を足し、`--request large` の終了コードは (g) だけ（結末 fixed で、切っていない枝の機能はどれも枝 2 本以上が同時に走った時に yes）
 - `use.sh start` に固定材料から始める口 `WORKS_USE_FIX_FIXTURE`（入力 `fix_fixture`）を足した。空でなければ在るフォルダかを確かめて絶対パスで渡し、無ければ何も作らずに止まる
 
 ## [0.2.38] - 2026-10-07
