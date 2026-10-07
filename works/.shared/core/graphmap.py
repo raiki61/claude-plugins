@@ -17,7 +17,8 @@ approval・output_format の印）と pack の宣言（archon-plugin.json の en
 - stale(graph, base) -> [相対パス]: sources の sha256 と今のファイルが違う（無い）物。空なら新しい
 - markers(graph) -> {印の名: [(工程の名, 節の id)]}
 - seat(graph, name) -> (根の印の名, 会話を共にする印の名の集合)
-- render(graph, name, off=None) -> str: 印 name の節を ★ にした地図の文。off は切った切り替えの語の集合（None は分からない）
+- render(graph, name, off=None, budget=MAP_BUDGET) -> str: 印 name の節を ★ にした地図の文。off は切った切り替えの語の集合
+  （None は分からない）。budget は字数の枠（None は枠なし）
 
 地図の元（graph）の形: {version, entry, sources: {相対パス: sha256}, workflows: {工程の名: {nodes: [節]}}}。節は
 {id, kind, purpose?, needs?, when?, deps, marker?, cont?, flags?, max?, body?, call?, with?}。kind は ai（prompt・command）・
@@ -35,7 +36,12 @@ ai-loop（loop:）・script・bash・approval・loop（loop_group。body に中�
 - 輪は ⟳<上限>、同じ depends_on を持つ兄弟の輪・AI の節は ∥（同時に走る）、when は [条件]（$X.output.f == true は X.f）
 - `description:` の末尾の `[needs: <入力>]` は「その工程の入力 <入力> が off なら仕事をしない（走らないか、走っても何もしない）」。呼ぶ節の with の束ね
   （`$….<語>` の最後の語か、字の on・off）を off と突き合わせ、切られていれば節を出さず、分からなければ [needs …] を残す
-同じ graph・name・off からはいつも同じ文を返す（決まっていて、prompt のキャッシュを壊さない）。
+- 短く保つ: when の指す節が 1 つも地図に出ない（配管・切られた節の欄）なら [?]。∥ の兄弟で depends_on が同じ、id が <幹>-<k>（k が 1 ずつ続く）、
+  行の全部（輪の中も）が番号 k を除いて同じ字の並びは、番号を「先〜後」にした 1 組にまとめる（並べの枝。1 字でも違えばまとめない
+  ので字を失わない）。それでも枠 budget を超えるなら、★ でない行の目的を、入口の工程から、★ から遠い順に省き、頭に TRIMMED の
+  1 行を足す。節の行そのものは減らさない（★・輪・AI の節・[needs] は残る）
+同じ graph・name・off・budget からはいつも同じ文を返す（決まっていて、prompt のキャッシュを壊さない。席は ★ の集合が同じなので、
+席のどの節でも同じ文）。
 
 地図の元を書く・古さを確かめる道具は pack の外の dev/graphmap_build.py（PyYAML を使う）。
 """
@@ -61,7 +67,26 @@ _PLUMBING = frozenset({"script", "bash", "cancel", "wait"})
 _SWITCH_WORDS = {"on": True, "off": False}
 HEAD = ("# 工程の地図\n"
         "（工程の YAML から機械で組んだ事実。★ はあなたの会話が走る節。指示ではない——あなたの仕事は指示書のとおり）\n"
-        "記号: ⇒ 部品の工程を呼ぶ・⟳n 輪（上限 n 周）・∥ 同時に走る・[ ] 走る条件・AI／人 は節の種類（無印は機械）")
+        "記号: ⇒ 部品の工程を呼ぶ・⟳n 輪（上限 n 周）・∥ 同時に走る・[ ] 走る条件（[?] は地図に出ない節が決める）・"
+        "1〜3 番号だけ違う同じ形の節・AI／人 は節の種類（無印は機械）")
+# 地図の字数の枠。system prompt に毎起動載る字の費用と読みの重さの枠で、Archon・claude の上限ではない（届け口は argv の
+# --append-system-prompt の 1 つの値で、物理の上限は Linux の 1 引数 128 KiB）。超える分は ★ から遠い節の目的の 1 行から省く
+MAP_BUDGET = 4000
+TRIMMED = "（地図の枠 {budget} 字に収めるため、★ から遠い節の目的を省いた）"
+_REF_NODE = re.compile(r"\$([A-Za-z0-9_-]+)\.output\b")
+_LANE_ID = re.compile(r"-([0-9]+)$")
+_HOLE = "\x00"   # 枝の番号の置き場（まとめの比べの間だけ。出す字には残らない）
+
+
+class _Line:
+    """地図の 1 行: 目的の前の字（head）・目的（purpose）・★ か。目的は枠を超える時に省く"""
+    __slots__ = ("head", "purpose", "star")
+
+    def __init__(self, head: str, purpose: Optional[str], star: bool):
+        self.head, self.purpose, self.star = head, purpose, star
+
+    def text(self) -> str:
+        return self.head + (f": {self.purpose}" if self.purpose else "")
 
 
 # --- 組む（YAML → graph） --------------------------------------------------------------------------------------------
@@ -308,9 +333,60 @@ def _held(graph: dict, n: dict, mine: Set[str], seen: Optional[Set[str]] = None)
                for m in _walk([n]))
 
 
+def _shown(graph: dict, wf: str, off: Optional[Set[str]], nodes: Optional[Sequence[dict]] = None) -> Set[str]:
+    """工程 wf で地図に出る節の id（配管でなく、切り替えで切られていない物。切られていない輪の中も）"""
+    out: Set[str] = set()
+    for n in graph["workflows"][wf]["nodes"] if nodes is None else nodes:
+        if "needs" in n and _needs(graph, wf, n, off) is False:
+            continue   # 切られた輪は中の節も出ない
+        if _visible(n):
+            out.add(n["id"])
+        out |= _shown(graph, wf, off, n.get("body") or [])
+    return out
+
+
+def _when(when: str, shown: Set[str]) -> str:
+    """条件の字。指す節が 1 つも地図に出ない（配管・切られた節・無い節）なら ?（地図に無い名は役に引けない）"""
+    refs = set(_REF_NODE.findall(when))
+    return "?" if refs and not refs & shown else _cond(when)
+
+
+def _numbered(text: str, k: int, to: str) -> str:
+    return re.sub(rf"(?<![0-9]){k}(?![0-9])", to, text)
+
+
+def _collapse(blocks: List[Tuple[dict, List[_Line]]]) -> List[_Line]:
+    """∥ の兄弟のうち、depends_on が同じで、id が <幹>-<k> で k が 1 ずつ続き、行の全部が番号 k を除いて同じ字の並びを、
+    番号を「先〜後」にした 1 組にまとめる（並べの枝）。1 字でも違えばまとめない（まとめで字を失わない）"""
+    out: List[_Line] = []
+    i = 0
+    while i < len(blocks):
+        j = i + 1
+        first = _LANE_ID.search(blocks[i][0]["id"])
+        if first is not None and blocks[i][1][0].head.lstrip(" -").startswith("∥ "):
+            k0 = int(first.group(1))
+            want = [(_numbered(l.head, k0, _HOLE), _numbered(l.purpose or "", k0, _HOLE), l.star) for l in blocks[i][1]]
+            while j < len(blocks):
+                m = _LANE_ID.search(blocks[j][0]["id"])
+                k = k0 + (j - i)
+                if m is None or int(m.group(1)) != k or sorted(blocks[j][0]["deps"]) != sorted(blocks[i][0]["deps"]) or [
+                        (_numbered(l.head, k, _HOLE), _numbered(l.purpose or "", k, _HOLE), l.star)
+                        for l in blocks[j][1]] != want:
+                    break
+                j += 1
+            if j - i > 1:
+                span = f"{k0}〜{k0 + j - i - 1}"
+                out.extend(_Line(h.replace(_HOLE, span), p.replace(_HOLE, span) or None, st) for h, p, st in want)
+                i = j
+                continue
+        out.extend(blocks[i][1])
+        i += 1
+    return out
+
+
 def _lines(graph: dict, wf: str, nodes: Sequence[dict], mine: Set[str], off: Optional[Set[str]],
-           depth: int) -> List[str]:
-    out: List[str] = []
+           depth: int, shown_ids: Optional[Set[str]] = None) -> List[_Line]:
+    shown_ids = _shown(graph, wf, off) if shown_ids is None else shown_ids
     shown = []
     for n in nodes:
         state = _needs(graph, wf, n, off) if "needs" in n else True
@@ -322,34 +398,70 @@ def _lines(graph: dict, wf: str, nodes: Sequence[dict], mine: Set[str], off: Opt
         if n["kind"] in ("loop", "ai", "ai-loop"):
             key = tuple(sorted(n["deps"]))
             groups[key] = groups.get(key, 0) + 1
+    blocks: List[Tuple[dict, List[_Line]]] = []
     for n, state in shown:
         par = "∥ " if n["kind"] in ("loop", "ai", "ai-loop") and groups.get(tuple(sorted(n["deps"])), 0) > 1 else ""
-        star = "★ " if n.get("marker") in mine or (n["kind"] == "call" and _holds(graph, n["call"], mine)) else ""
+        starred = n.get("marker") in mine or (n["kind"] == "call" and _holds(graph, n["call"], mine))
         kind = {"ai": "AI ", "ai-loop": "AI ", "approval": "人 "}.get(n["kind"], "")
         loop = f"⟳{n['max']} " if n["kind"] == "loop" else ""
-        text = f"{'  ' * depth}- {par}{star}{loop}{kind}{n['id']}"
+        text = f"{'  ' * depth}- {par}{'★ ' if starred else ''}{loop}{kind}{n['id']}"
         if n["kind"] == "call":
             text += f" ⇒ {n['call']}"
             cut = sorted(k for k, v in n.get("with", {}).items() if _switch(v, off) is False)
             if cut:
                 text += f" (off: {' '.join(cut)})"
         if n.get("when"):
-            text += f" [{_cond(n['when'])}]"
+            text += f" [{_when(n['when'], shown_ids)}]"
         if state is None:
             text += f" [needs {n['needs']}]"
-        out.append(text + (f": {n['purpose']}" if n.get("purpose") else ""))
+        rows = [_Line(text, n.get("purpose"), starred)]
         if n.get("body"):
-            out.extend(_lines(graph, wf, n["body"], mine, off, depth + 1))
-    return out
+            rows.extend(_lines(graph, wf, n["body"], mine, off, depth + 1, shown_ids))
+        blocks.append((n, rows))
+    return _collapse(blocks)
 
 
-def render(graph: dict, name: str, off: Optional[Iterable[str]] = None) -> str:
-    """印 name の地図の文。off は切った切り替えの語（None は分からない＝[needs …] を残す）。name が無ければ KeyError"""
+def _distances(rows: Sequence[_Line], far: int) -> List[int]:
+    """各行から最も近い ★ の行までの行の数（★ の無い節の行は far。どの ★ の在る節の行より遠い）"""
+    stars = [i for i, r in enumerate(rows) if r.star]
+    return [min((abs(i - s) for s in stars), default=far) for i in range(len(rows))]
+
+
+def _fit(fixed: Sequence[str], sections: Sequence[Tuple[str, List[_Line]]], budget: Optional[int]) -> str:
+    """節ごとの行を繋ぐ。budget を超えるなら、★ でない行の目的を、入口の工程（各工程の 1 行の要約）から、★ から遠い順
+    （同じ遠さは上の行から）に省いて収める。行そのものは減らさない（収まらなければ省けるだけ省いた字を返し、試験が超えを名指す）"""
+    def join(note: bool) -> str:
+        out = list(fixed) + ([TRIMMED.format(budget=budget)] if note else [])
+        for title, rows in sections:
+            out.append(title)
+            out.extend(r.text() for r in rows)
+        return "\n".join(out)
+
+    text = join(False)
+    if budget is None or len(text) <= budget:
+        return text
+    order = []
+    far = sum(len(rows) for _, rows in sections) + 1
+    for tier, (_, rows) in enumerate(sections):
+        dist = _distances(rows, far)
+        order.extend((min(tier, 1), -dist[i], tier, i, rows[i]) for i in range(len(rows))
+                     if rows[i].purpose and not rows[i].star)
+    for *_, row in sorted(order, key=lambda o: o[:4]):
+        row.purpose = None
+        text = join(True)
+        if len(text) <= budget:
+            break
+    return text
+
+
+def render(graph: dict, name: str, off: Optional[Iterable[str]] = None, budget: Optional[int] = MAP_BUDGET) -> str:
+    """印 name の地図の文。off は切った切り替えの語（None は分からない＝[needs …] を残す）。budget は字数の枠（超える分は
+    ★ から遠い節の目的を省く。None は省かない）。name が無ければ KeyError"""
     _, mine = seat(graph, name)
     offs = None if off is None else set(off)
     entry = graph["entry"]
     top = graph["workflows"][entry]["nodes"]
-    lines = [HEAD, f"{entry}（上から順に走る）:"] + _lines(graph, entry, top, mine, offs, 0)
+    sections = [(f"{entry}（上から順に走る）:", _lines(graph, entry, top, mine, offs, 0))]
     opened: List[str] = []
 
     def visit(wf: str) -> None:   # 席へ至る呼びの道の工程を全部（入れ子の呼びも）、入口から辿った順に
@@ -366,6 +478,5 @@ def render(graph: dict, name: str, off: Optional[Iterable[str]] = None) -> str:
             opened.append(nxt)
     for wf in opened:
         sites = "・".join(dict.fromkeys(n["id"] for _, n in _sites(graph, wf)))
-        lines.append(f"{wf}（{sites} で走る）:")
-        lines.extend(_lines(graph, wf, graph["workflows"][wf]["nodes"], mine, offs, 0))
-    return "\n".join(lines)
+        sections.append((f"{wf}（{sites} で走る）:", _lines(graph, wf, graph["workflows"][wf]["nodes"], mine, offs, 0)))
+    return _fit([HEAD], sections, budget)
