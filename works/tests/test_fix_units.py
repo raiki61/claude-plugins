@@ -208,6 +208,74 @@ class SitePathCase(unittest.TestCase):
         self.assertEqual(out[0]["closure"]["sites"], [{"site": "s", "red_seen": True}], "写しに任せる行も path を外す")
 
 
+class ChangedFilesCoverCase(unittest.TestCase):
+    """population の問いの当たりのファイルは、site の path が名指さなくても、その単位の files に在って修正前の版から実際に
+    変わったファイル（touched）なら覆ったと数える。canary の run a2097fd6（2026-10-07）の盤面の形: 判定の問いは mean の定義・
+    TestCalc のクラス・CHANGELOG の [Unreleased] の 3 行（3 ファイルに 1 行ずつ）で、修正役は 3 ファイルを全部直して files に
+    並べたのに、site はコードの 1 か所（path calc.py）だけを書いた。表は covered 1・closed false になり、検証器の『未解消』が
+    報告に残って round_limit になった（差分は 2 単位とも正しく直し、最後のテストは緑）"""
+    MEAN = "calc.py:mean — 分母が個数でなく個数-1で docstring の算術平均に反する"
+    HOW3 = {"patterns": ["def mean(", "class TestCalc(", "## [Unreleased]"],
+            "paths": ["calc.py", "test_lib.py", "CHANGELOG.md"], "count": "lines", "fixed": True}
+    HITS = {"calc.py": 1, "test_lib.py": 1, "CHANGELOG.md": 1}
+
+    def build(self, touched, files=("calc.py", "test_lib.py", "CHANGELOG.md")):
+        import inspect
+        if "touched" not in inspect.signature(unitrows.build).parameters:
+            self.fail("unitrows.build が修正の変えたファイル（touched）を受けない: site の path だけで覆いを数え、"
+                      "直して files に並べた当たりのファイルを覆っていないと数える")
+        c = {"unit_key": self.MEAN, "files": list(files), "what": "直した",
+             "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v",
+                         "sites": [{"site": "calc.py:8 mean の分母", "red_seen": True, "path": "calc.py"}]}}
+        out, rows = unitrows.build([c], {self.MEAN: {"how": self.HOW3, "counts": "population", "total": 3}},
+                                   count=lambda h, at_rev: (3, ""), blank=blank,
+                                   per_file=lambda h, at_rev: (dict(self.HITS), ""), touched=touched)
+        return out[0], rows[0]
+
+    def test_board_shape_of_run_a2097fd6_is_closed(self):
+        got, row = self.build(["CHANGELOG.md", "calc.py", "test_lib.py", "textfmt.py"])
+        self.assertEqual((row["covered"], row["closed"], row["discrepancies"]), (3, True, []), row)
+        self.assertEqual(row["claimed"], 1, "表には申告の site の件数を残す")
+        self.assertEqual(row["changed_cover"], ["CHANGELOG.md", "test_lib.py"],
+                         "site が名指さず、単位の files と修正の変更で覆った当たりのファイルを表に残す")
+        self.assertGreaterEqual(len(got["coverage"].get("remaining") or ""), unitrows.MIN_REMAINING,
+                                "写しは site の件数（1 < 母数 3）で拒むので、機械が remaining を書いて渡す")
+
+    def test_hit_file_not_changed_stays_open(self):
+        _, row = self.build(["calc.py", "test_lib.py"])
+        self.assertEqual((row["covered"], row["closed"]), (2, False), row)
+        self.assertTrue(any("remaining が無い" in d for d in row["discrepancies"]), row)
+
+    def test_changed_file_not_in_the_units_files_does_not_cover(self):
+        _, row = self.build(["CHANGELOG.md", "calc.py", "test_lib.py"], files=("calc.py", "test_lib.py"))
+        self.assertEqual((row["covered"], row["closed"]), (2, False), "別の単位の直しで変わったファイルを、この単位の覆いに数えない")
+
+    def test_without_touched_only_site_paths_cover(self):
+        _, row = self.build(None)
+        self.assertEqual((row["covered"], row["closed"], row["changed_cover"]), (1, False, []), row)
+
+    def test_take_hands_the_changes_since_the_review_rev(self):
+        """take は受け付けの書き込みの照らしと同じ変更の集合（writes.changed を盤面の review_rev から）を build に渡す。
+        git が読めなければ変更では覆わない（None）"""
+        from unittest import mock
+        b = types.SimpleNamespace(
+            record={"process": {"diagnosis": {"units": [{"key": self.MEAN, "class_query": {"how": self.HOW3,
+                                                                                           "counts": "population"}}]}}},
+            state={"graph": "/g", "inputs": {"review_rev": "rev0"}}, loop_state={}, round=1)
+        reply = {"changes": [{"unit_key": self.MEAN, "files": ["calc.py"], "what": "直した"}]}
+        R = types.SimpleNamespace(_run_query=lambda *a, **k: (3, ""), blank=blank)
+        for changed, want in ((lambda repo, rev: ["calc.py"] if rev == "rev0" else [], ["calc.py"]),
+                              (mock.Mock(side_effect=unitrows.Unreadable("x")), None)):
+            seen = []
+            with self.subTest(want=want), \
+                    mock.patch.object(unitrows._board, "rules_module", return_value=R), \
+                    mock.patch.object(unitrows.writes, "changed", side_effect=changed), \
+                    mock.patch.object(unitrows.conflict, "replaced_queries", return_value={}), \
+                    mock.patch.object(unitrows, "build", side_effect=lambda ch, j, **k: seen.append(k["touched"]) or (ch, [])):
+                unitrows.take(reply, b, pathlib.Path("/r"))
+            self.assertEqual(seen, [want])
+
+
 class ClosureLinesCase(unittest.TestCase):
     def test_lines_and_mismatched_only(self):
         tmp = tempfile.TemporaryDirectory()
