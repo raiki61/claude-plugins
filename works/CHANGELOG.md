@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.41] - 2026-10-08
+
 ### Added
 
 - `use.sh start` が、run の worktree と単位の worktree で効かない `test_cmd` を `注意（test_cmd）` の行で知らせる（止めない。`dev/testcmd_check.py`）。知らせるのは、対象の git が無視するパス（`.venv/bin/python`・`node_modules/.bin/jest` など）を指す `test_cmd` と、対象が editable で入った仮想環境を立てた（activate した）まま起こし、`uv run` で始まらない `test_cmd`（前の段が作るパス・依存だけの環境は知らせない）。worktree は commit から切るので無視する物は無く、相対のパスは走らない（今壊れていた。その形の `test_cmd` は修正の前も最後も起こせないか赤で、TDD の輪も回らなかった。手元の worktree で終了コード 127 を確かめた）。対象の `.venv` を絶対パスで指すか立てた環境から起こすと走るが、対象を editable で入れていれば worktree の直しでなく対象の手元のコードを試し、赤と緑を読み違える（手元の試しで確かめた。本物の run で起きたとは確かめていない）。README に「test_cmd と worktree」の項を足し、`uv run pytest -q`・`npm ci && npm test` の形を勧める。
