@@ -278,8 +278,9 @@ GHREADS = CORE / "ghreads.py"
 
 class GhReadsCase(unittest.TestCase):
     """隔離の前の読み出し（python3 -I ghreads.py read）は、forge の無い対象でも利用者が名指した PR・issue を gh で読み（GH_REPO・
-    別の remote・自前のドメインの GitHub Enterprise Server なら gh は読める）、読めなかった項だけを条件外（not_applicable、
-    reason は no_forge: <種類>）と書く。--pr は base・head が読めなければ no_forge の理由で止まる"""
+    別の remote・自前のドメインの GitHub Enterprise Server なら gh は読める）、gh も GitHub のホストを見つけなかった項だけを条件外
+    （not_applicable、reason は no_forge: <種類>）と書く。gh が読みに行って読めなかった項は unreadable（理由は gh の言葉、欄 forge に
+    no_forge の決め）。--pr は base・head が読めなければ、条件外なら no_forge の理由で、読めないならログインしてから回せと止まる"""
 
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -364,6 +365,103 @@ class GhReadsCase(unittest.TestCase):
         self.assertFalse(self.out.exists())
         self.assertIn("PR #7 の base・head を読めない", r.stderr)
         self.assertNotIn("PR を持つホストが無い", r.stderr)
+
+    def _scripted_gh(self, rows):
+        """引数の頭（"pr view 7"・"issue view 9"・"api … pulls/7/comments"）ごとに (exit, 標準出力, 標準エラー) を返す偽の gh に替える。
+        当たらない呼び出しは exit 1 と GraphQL の見つからない文"""
+        import json
+        lines = ["#!/bin/sh", 'case "$*" in']
+        for i, (pat, (code, out, err)) in enumerate(rows.items()):
+            o, e = self.tmp / f"gh-out-{i}", self.tmp / f"gh-err-{i}"
+            o.write_text(json.dumps(out, ensure_ascii=False) if out is not None else "", encoding="utf-8")
+            e.write_text(err, encoding="utf-8")
+            lines.append(f'  {pat}) cat "{o}"; cat "{e}" >&2; exit {code} ;;')
+        lines += ['  *) echo "GraphQL: Could not resolve to a PullRequest" >&2; exit 1 ;;', "esac", ""]
+        gh = self.bin / "gh"
+        gh.write_text("\n".join(lines), encoding="utf-8")
+        gh.chmod(0o755)
+
+    PR = {"baseRefOid": "b" * 40, "headRefOid": "h" * 40, "title": "題", "body": "本文", "comments": [], "reviews": []}
+    NO_HOST = ("none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a "
+               "new GitHub host, please use `gh auth login`\n")
+    EXPIRED = "HTTP 401: Bad credentials (https://ghe.example.com/api/graphql)\nTry authenticating with:  gh auth login\n"
+
+    def _ghes_target(self):
+        """対象の remote を自前のドメインのホストにする（形からは GitHub でない＝forge の無い側。GitHub Enterprise Server でもありうる）"""
+        _git(self.repo, "remote", "set-url", "origin", "https://ghe.example.com/o/r.git")
+
+    def test_ghes_with_expired_login_is_unreadable_not_not_applicable(self):
+        """forge の無い対象（形からは GitHub でないホスト）でも、gh が GitHub のホストとして読みに行って読めなかった項（自前のドメインの
+        GHES でログインが切れた: HTTP 401）は not_applicable でなく unreadable で、理由は gh の言葉。forge の無い決めは別の欄 forge に
+        残す（本当に条件外の項と見分ける）"""
+        self._ghes_target()
+        self._scripted_gh({"pr\\ view\\ 7*": (1, None, self.EXPIRED), "issue\\ view\\ 9*": (1, None, self.EXPIRED)})
+        req = self.tmp / "req.json"
+        req.write_text('{"findings": [], "pr": [7], "issue": [9]}', encoding="utf-8")
+        r = self.read("--request", str(req))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        import json
+        doc = json.loads(self.out.read_text(encoding="utf-8"))
+        for got in (doc["pr"]["7"], doc["issue"]["9"]):
+            self.assertEqual(got["status"], "unreadable", got)
+            self.assertIn("HTTP 401: Bad credentials", got["reason"])
+            self.assertFalse(got["reason"].startswith("no_forge"), got)
+            self.assertTrue(got["forge"].startswith("no_forge: other_host"), got)
+            self.assertNotIn("_no_host", got)   # 内側の印はファイルに残さない
+
+    def test_ghes_with_expired_login_cli_pr_asks_to_log_in(self):
+        """--pr でも同じ: gh が読みに行って読めなかったら『ホストが無い』でなく gh でログインしてから回せと言って止まる"""
+        self._ghes_target()
+        self._scripted_gh({"pr\\ view\\ 7*": (1, None, self.EXPIRED)})
+        r = self.read("--request", "-", "--pr", "7")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertFalse(self.out.exists())
+        self.assertIn("HTTP 401", r.stderr)
+        self.assertIn("ログインしてから回す", r.stderr)
+        self.assertNotIn("PR を持つホストが無い", r.stderr)
+
+    def test_gh_sees_no_github_host_is_not_applicable(self):
+        """gh 自身が対象の remote を GitHub のホストと見ない（none of the git remotes … known GitHub host）項は今どおり
+        not_applicable（理由は no_forge: <種類> と gh の言葉）"""
+        self._ghes_target()
+        self._scripted_gh({"pr\\ view\\ 7*": (1, None, self.NO_HOST)})
+        req = self.tmp / "req.json"
+        req.write_text('{"findings": [], "pr": [7]}', encoding="utf-8")
+        r = self.read("--request", str(req))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        import json
+        got = json.loads(self.out.read_text(encoding="utf-8"))["pr"]["7"]
+        self.assertEqual(got["status"], "not_applicable", got)
+        self.assertTrue(got["reason"].startswith("no_forge: other_host"), got)
+        self.assertIn("known GitHub host", got["reason"])
+
+    def test_mixed_named_items_on_no_forge(self):
+        """forge の無い対象で、読める項・行コメントだけ読めない項（partial）・gh が GitHub と見ない項・gh が読みに行って読めない項を
+        1 つの依頼に混ぜても、項ごとに分けて書く（読めた項を落とさない・partial は partial のまま・条件外と読めないを混ぜない）"""
+        self._ghes_target()
+        self._scripted_gh({
+            "pr\\ view\\ 7*": (0, self.PR, ""),
+            "api*pulls/7/comments": (0, [{"path": "a.py", "line": 1, "body": "行"}], ""),
+            "pr\\ view\\ 8*": (0, self.PR, ""),
+            "api*pulls/8/comments": (1, None, "HTTP 502: Bad Gateway\n"),
+            "pr\\ view\\ 5*": (1, None, self.NO_HOST),
+            "issue\\ view\\ 9*": (1, None, self.EXPIRED),
+        })
+        req = self.tmp / "req.json"
+        req.write_text('{"findings": [], "pr": [7, 8, 5], "issue": [9]}', encoding="utf-8")
+        r = self.read("--request", str(req))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        import json
+        doc = json.loads(self.out.read_text(encoding="utf-8"))
+        self.assertEqual((doc["pr"]["7"]["status"], doc["pr"]["7"]["review_comments"][0]["body"]), ("ok", "行"))
+        self.assertEqual(doc["pr"]["8"]["status"], "partial")
+        self.assertEqual(doc["pr"]["8"]["body"], "本文")
+        self.assertIn("HTTP 502", doc["pr"]["8"]["reason"])
+        self.assertEqual(doc["pr"]["5"]["status"], "not_applicable")
+        self.assertEqual(doc["issue"]["9"]["status"], "unreadable")
+        self.assertIn("HTTP 401", doc["issue"]["9"]["reason"])
+        for n in ("7", "8"):
+            self.assertNotIn("forge", doc["pr"][n])   # 読めた項に forge の欄は足さない
 
 if __name__ == "__main__":
     unittest.main()

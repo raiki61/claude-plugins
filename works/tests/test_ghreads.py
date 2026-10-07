@@ -149,6 +149,7 @@ class ReadCase(unittest.TestCase):
         doc = self.doc()
         for got in (doc["pr"]["7"], doc["issue"]["9"]):
             self.assertEqual(got["status"], "unreadable")
+            self.assertEqual(set(got), {"status", "reason"})   # forge の在る対象: 欄 forge も内側の印 _no_host も無い
             self.assertTrue(got["reason"].strip())
             self.assertNotIn("\n", got["reason"])
         self.assertNotIn("非公開", self.out.read_text(encoding="utf-8"))
