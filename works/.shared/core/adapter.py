@@ -167,6 +167,20 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    記録に `model_declared`（Archon が渡した段の宣言）を足し、`model` は子に渡した値。明示が在るのに表が読めない・形が違う
    起動は claude を起こさない（明示を黙って落とさない）。明示が無ければ表を読まない。包み無しの run には効かない（archon.sh が
    1 行で言う）
+20. **費用の見せ直し**（印のある起動の stream-json の result だけ）: Archon v0.11.1 の claude の provider は、result の
+   total_cost_usd（会話の累計）から、Archon が `--resume` に渡した会話の id で覚えた前の result の累計を引いて節の費用にし
+   （引くと負なら費用なし not_reported、`--resume` が無ければ累計をそのまま）、modelUsage の模型ごとの outputTokens の
+   増えた物の一番多い模型を節の模型と名乗る。包みが 1 で会話を替えた起動（単位の切れ目・6c の lane_cut の新しい会話、
+   continue=X、旗 self-resume）は、Archon が引く元と本当に継いだ元が違う会話になり、費用が出ない・違う模型を名乗る
+   （run 01004d2e の tdd-lane-2 の 5 回目が not_reported と claude-haiku-4-5、plan-answer が not_reported）か、前の会話の
+   累計まで数える（同じ run の fix-ruled の 1 回目が修正役の会話の累計 1.87 ドルを節の費用にした）。そこで包みは見せた result
+   ごとに、会話の id で本当の累計と見せた累計（{cost, out: {模型: outputTokens}}）を `spend/<cwd の hash>/<id>.json` に残し
+   （Archon の覚え方と同じく result の session_id ごとの最新）、Archon の元（plan の spend_from の 1 つ目）の見せた累計に、
+   この起動で本当に増えた分（今の累計 − 本当に継いだ元の本当の累計）を足した値を total_cost_usd と outputTokens に置いて写す
+   （restate_result。2 つの元は Archon と同じく子を起こす前に 1 回だけ読む。spend_bases）。Archon の引き算はその起動の
+   本当の費用になる。見せる値が本当の値と同じ起動（Archon の思うとおりの起動）・どちらかの元の記録が無い起動・
+   total_cost_usd が数でない result は、そのままのバイトで写す（決められない時は触らない）。
+   tokens（result の usage）は起動ごとの値なので触らない。1 手も進まずに終わった 16 の result は写さないので記録しない
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
 変えない（stdin も中継しない。stdout は 16 のとおり同じバイトで写す）。見分けられない形
@@ -179,7 +193,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 ARTIFACTS_DIR が来ないので、run の区別は cwd（Archon が run ごとに切る worktree）の realpath の sha256 の先頭 16 字で付ける:
 `sessions/<key>/<節>.id`・`reads/<key>/reads.jsonl`（graphloops の engine の hook_evidence がそのまま読む形）・
 `launches/<key>.jsonl`（起動ごとの 1 行。引数の本文は書かない。印のある起動は 9 の版を決めた時か子が終わった時に書く）・
-`exits/<key>.jsonl`（16 の即時の死の起動ごとの 1 行）。
+`exits/<key>.jsonl`（16 の即時の死の起動ごとの 1 行）・`spend/<key>/<会話の id>.json`（20 の会話ごとの最後の累計）。
 家は役の sandbox の Bash から書けない場所に置く。
 
 Python 3.9 でも動く形で書く（`#!/usr/bin/env python3` が macOS の /usr/bin/python3 に当たりうる）。
@@ -287,6 +301,7 @@ class Plan(NamedTuple):
     strict_net: Optional[bool] = None   # 網: True は strictAllowlist で閉じた起動、False は `*` の網、None は網の一覧が無い
     cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
     model_declared: Optional[str] = None   # 19 で --model を替えた起動の、Archon が渡した段の宣言（替えなければ None）
+    spend_from: Optional[Tuple[Optional[str], Optional[str]]] = None   # 20: (Archon が --resume に渡した会話, 包みが本当に継いだ会話)。None は見せ直さない
 
 
 def marker_text(name: str, cont: Optional[str] = None, flags: Sequence[str] = ()) -> str:
@@ -1264,7 +1279,100 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         if replaced:
             fence["run_place_replaced_env"] = replaced
     return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env,
-                strict_net=strict, cwd=child_cwd, model_declared=declared)
+                strict_net=strict, cwd=child_cwd, model_declared=declared, spend_from=spend_from(argv, session))
+
+
+def spend_from(argv: Sequence[str], session: dict) -> Optional[Tuple[Optional[str], Optional[str]]]:
+    """20. (Archon が --resume に渡した会話の id（無ければ None＝Archon は新しい会話と思う）, 包みが本当に継いだ会話の id
+    （新しい会話なら None）)。argv は Archon が渡した物（会話の旗を外す前）。--resume が見分けられなければ None（見せ直さない）"""
+    try:
+        given = find_opt(argv, "--resume")
+    except Unrecognised:
+        return None
+    real = session.get("from") if session.get("mode") in ("sdk-resume", "sdk-session", "sdk-fork", "continued") else None
+    return (given[-1][2] if given else None), real
+
+
+SPEND_DIR = "spend"
+
+
+def spend_path(cwd, sid: str, home_dir=None) -> pathlib.Path:
+    """20. 会話 sid の最後の result の本当の累計と見せた累計の記録"""
+    return _home_or(home_dir) / SPEND_DIR / cwd_key(cwd) / f"{sid}.json"
+
+
+def spend_of(doc: dict) -> Optional[dict]:
+    """result の doc の累計 {cost, out: {模型: outputTokens}}。total_cost_usd が数でなければ None"""
+    cost = doc.get("total_cost_usd")
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)):
+        return None
+    mu = doc.get("modelUsage")
+    out = {}
+    for m, o in (mu.items() if isinstance(mu, dict) else ()):
+        n = o.get("outputTokens") if isinstance(o, dict) else None
+        if isinstance(n, int) and not isinstance(n, bool):
+            out[m] = n
+    return {"cost": cost, "out": out}
+
+
+ZERO_SPEND = {"cost": 0, "out": {}}
+
+
+def _spend_base(cwd, sid: Optional[str], home_dir, side: str) -> Optional[dict]:
+    """元の会話 sid の記録の side（real か shown）。sid が None なら 0（新しい会話）。記録が無い・読めない・形が違えば None"""
+    if sid is None:
+        return ZERO_SPEND
+    if not _ID_RE.match(sid):
+        return None
+    try:
+        doc = json.loads(spend_path(cwd, sid, home_dir).read_text(encoding="utf-8"))
+        got = doc[side]
+        cost, out = got["cost"], got["out"]
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or not isinstance(out, dict) \
+            or not all(isinstance(v, int) and not isinstance(v, bool) for v in out.values()):
+        return None
+    return {"cost": cost, "out": out}
+
+
+def spend_bases(cwd, home_dir, archon_from: Optional[str], real_from: Optional[str]) -> Tuple[Optional[dict], Optional[dict]]:
+    """20. (Archon の元の見せた累計, 本当に継いだ元の本当の累計)。archon_from・real_from は plan の spend_from。子を起こす前に
+    1 回だけ読む（Archon も引く元を問い合わせの初めに 1 回だけ決める。1 つの起動に result が 2 つ来ても同じ元で引く）"""
+    return _spend_base(cwd, archon_from, home_dir, "shown"), _spend_base(cwd, real_from, home_dir, "real")
+
+
+def restate_result(line: bytes, doc: dict, cwd, home_dir, bases: Tuple[Optional[dict], Optional[dict]]) -> bytes:
+    """20. result の行（line・読んだ doc）を Archon へ写す形にし、会話の記録を書く。bases は spend_bases の値。
+    見せる累計 = Archon の元の見せた累計 + (今の本当の累計 − 本当に継いだ元の本当の累計)。見せる値が今の値と同じ・元の記録が
+    無い・total_cost_usd が数でない・session_id が id の形でない時は line をそのまま返す（記録は id の形の時だけ書く）"""
+    cur, sid = spend_of(doc), doc.get("session_id")
+    if cur is None or not isinstance(sid, str) or not _ID_RE.match(sid):
+        return line
+    shown_base, real_base = bases
+    shown = cur
+    if shown_base is not None and real_base is not None:
+        shown = {"cost": shown_base["cost"] + cur["cost"] - real_base["cost"],
+                 "out": {m: shown_base["out"].get(m, 0) + n - real_base["out"].get(m, 0) for m, n in cur["out"].items()}}
+        if shown["out"] == cur["out"] and abs(shown["cost"] - cur["cost"]) < 1e-12:   # 足し引きの丸めの差だけなら同じ
+            shown = cur
+    path = spend_path(cwd, sid, home_dir)
+    try:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _write_atomic(path, json.dumps({"at": now(), "real": cur, "shown": shown}).encode("utf-8"))
+    except OSError:   # 古い記録が残ると次の起動の引き算を狂わせるので消しに行き、見せ直さない（次の起動は元の記録が無い形）
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return line
+    if shown is cur:
+        return line
+    out = dict(doc, total_cost_usd=shown["cost"])
+    mu = doc.get("modelUsage")
+    if isinstance(mu, dict):
+        out["modelUsage"] = {m: (dict(o, outputTokens=shown["out"][m]) if m in shown["out"] else o) for m, o in mu.items()}
+    return json.dumps(out, ensure_ascii=False).encode("utf-8")
 
 
 def run_model_nodes(path: Optional[pathlib.Path] = None) -> frozenset:
@@ -1621,11 +1729,13 @@ NO_TURN_EXIT = 75   # EX_TEMPFAIL。SDK は 'exited with code 75' と言い、Ar
 
 class OutWatch:
     """relay_out が見た子の stdout（stream-json）。progressed: assistant の行を見た。held: 即時の死と決めて写さなかった
-    result の行（無ければ None）"""
+    result の行（無ければ None）。on_result: 写す result の行を (行, 読んだ doc) から写す行にする関数（20 の見せ直し。None なら
+    そのまま）"""
 
-    def __init__(self) -> None:
+    def __init__(self, on_result: Optional[Callable[[bytes, dict], bytes]] = None) -> None:
         self.progressed = False
         self.held: Optional[bytes] = None
+        self.on_result = on_result
 
 
 def watches_out(argv: Sequence[str]) -> bool:
@@ -1658,7 +1768,8 @@ def no_turn(progressed: bool, result: dict) -> bool:
 
 
 def relay_out(src_fd: int, dst_fd: int, w: OutWatch) -> None:
-    """子の stdout（src_fd）を行ごとに dst_fd へそのままのバイトで写し、終わったら両方を閉じる。assistant の行で
+    """子の stdout（src_fd）を行ごとに dst_fd へそのままのバイトで写し（w.on_result を持てば、写す result の行だけその関数の
+    返す行。20）、終わったら両方を閉じる。assistant の行で
     w.progressed を立てる。result の行は届いた時に決める: no_turn なら写さずに w.held に置き、そうでなければすぐ写す
     （子の終わりまで留めると、result の後に stdin の終わりを待つ子と SDK が互いを待つ）。dst が閉じた（EPIPE）後も読み続ける"""
     buf = b""
@@ -1690,6 +1801,11 @@ def relay_out(src_fd: int, dst_fd: int, w: OutWatch) -> None:
                 elif kind == "result" and w.held is None and no_turn(w.progressed, doc):
                     w.held = line
                     continue
+                elif kind == "result" and w.on_result is not None:
+                    try:
+                        line = w.on_result(line, doc)
+                    except Exception:  # noqa: BLE001  見せ直せない result はそのまま写す（中継を止めない）
+                        pass
                 put(line + b"\n")
         if buf:
             put(buf)
