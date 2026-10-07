@@ -94,7 +94,7 @@ ANSWER_SCHEMA = {
 }
 
 
-MAP_FLAG = "map"   # 工程の地図の旗。答えの節は継ぐ会話（修正案を書いた会話）と同じ地図を持つ（system prompt を会話の中で替えない）
+MAP_FLAG = "map"   # 工程の地図の旗。答えの節は継ぐ会話と旗を揃える（同じ会話の中で system prompt を替えない。席の揃いは試験が縛る）
 
 
 def answer_format(name: str) -> dict:

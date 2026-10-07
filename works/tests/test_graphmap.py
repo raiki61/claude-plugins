@@ -221,6 +221,27 @@ class RenderCase(unittest.TestCase):
         with self.assertRaises(KeyError):
             graphmap.render(self.g, "nobody")
 
+    @staticmethod
+    def node(nid, kind, **kw):
+        return {"id": nid, "kind": kind, "deps": [], **kw}
+
+    def test_seat_inside_an_entry_loop_and_a_nested_call(self):
+        """席が入口の工程の輪の中に居る・呼ぶ工程がさらに呼ぶ工程に居る時も ★ が付き、道の工程を全部開く"""
+        n = self.node
+        g = {"version": graphmap.GRAPH_VERSION, "entry": "L", "sources": {}, "workflows": {
+            "L": {"nodes": [n("lp", "loop", max=3, purpose="輪", body=[n("w", "ai", marker="w", purpose="書く")]),
+                            n("c", "call", call="B", **{"with": {}}, purpose="呼ぶ"),
+                            n("d", "call", call="M", **{"with": {}}, purpose="中を呼ぶ")]},
+            "B": {"nodes": [n("b", "ai", marker="b", purpose="B の役")]},
+            "M": {"nodes": [n("m", "call", call="I", **{"with": {}}, purpose="奥を呼ぶ")]},
+            "I": {"nodes": [n("i", "ai", marker="i", purpose="奥の役")]}}}
+        self.assertEqual(graphmap.render(g, "w", off=[]).split("\n")[3:], [
+            "L（上から順に走る）:", "- ⟳3 lp: 輪", "  - ★ AI w: 書く", "- c ⇒ B: 呼ぶ", "- d ⇒ M: 中を呼ぶ",
+            "B（c で走る）:", "- AI b: B の役"])
+        self.assertEqual(graphmap.render(g, "i", off=[]).split("\n")[3:], [
+            "L（上から順に走る）:", "- ⟳3 lp: 輪", "  - AI w: 書く", "- c ⇒ B: 呼ぶ", "- ★ d ⇒ M: 中を呼ぶ",
+            "M（d で走る）:", "- ★ m ⇒ I: 奥を呼ぶ", "I（m で走る）:", "- ★ AI i: 奥の役"])
+
 
 class StaleCase(unittest.TestCase):
     def test_stale_names_changed_sources_and_cli_check(self):
@@ -373,7 +394,8 @@ class InjectCase(unittest.TestCase):
         """continue= の起動は相手の会話の id が要るので、表を Launch で直に当てる"""
         self.start_doc([])
         texts = set()
-        for name, cont in (("plan", None), ("plan-revise", "plan"), ("plan-answer", "fix-planner")):
+        for name, cont in (("plan", None), ("plan-revise", "plan"), ("plan-answer", "fix-planner"),
+                           ("plan-answer-ruled", "fix-planner")):
             out, fence = adapter.inject([], adapter.Launch(name, cont, ("map",), frozenset({"Read"}), False,
                                                            lambda: str(self.board)))
             texts.add(out[-1])
@@ -433,6 +455,20 @@ class InjectCase(unittest.TestCase):
                 self.assertEqual(p.mode, "merged", p.why)
                 self.assertIn("古い", p.fence["graph_map"]["skipped"])
 
+    def test_malformed_graph_file_skips_but_launches(self):
+        """地図の元の JSON の中の形が崩れても（手で書き換えた）、包みは落ちずに地図を足さずに起こす"""
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = pathlib.Path(tmp) / "pack"
+            shutil.copytree(SEED, pack)
+            g = seed_graph(pack)
+            find(g["workflows"]["line"]["nodes"], "doing")["with"] = []
+            (pack / "line" / "line.graph.json").write_text(graphmap.dumps(g), encoding="utf-8")
+            with mock.patch.object(adapter, "PACK", pack):
+                self.start_doc([])
+                p = self.plan("works-node: writer map")
+            self.assertEqual(p.mode, "merged", p.why)
+            self.assertIn("skipped", p.fence["graph_map"])
+
     def test_append_file_refuses_only_when_a_required_block_is_there(self):
         self.start_doc([])
         f = self.tmp / "sp.md"
@@ -461,11 +497,13 @@ class InjectCase(unittest.TestCase):
                 adapter.Injector("b", "乙", lambda l: False, lambda l: adapter.block("B"), False),
                 adapter.Injector("c", "丙", lambda l: True, lambda l: adapter.Skip("無い"), False),
                 adapter.Injector("d", "丁", lambda l: True, lambda l: adapter.block("D", of="d"), False),
-                adapter.Injector("e", "戊", lambda l: True, lambda l: (_ for _ in ()).throw(ValueError("壊れた")), False))
+                adapter.Injector("e", "戊", lambda l: True, lambda l: (_ for _ in ()).throw(ValueError("壊れた")), False),
+                adapter.Injector("f", "己", lambda l: True, lambda l: (_ for _ in ()).throw(TypeError("型")), False))
         out, fence = adapter.inject(["--x"], launch, rows)
         self.assertEqual(out, ["--x", "--append-system-prompt", "A\n\nD"])
         self.assertEqual(fence, {"a": hashlib.sha256(b"A").hexdigest()[:16], "c": {"skipped": "無い"},
-                                 "d": hashlib.sha256(b"d").hexdigest()[:16], "e": {"skipped": "ValueError: 壊れた"}})
+                                 "d": hashlib.sha256(b"d").hexdigest()[:16], "e": {"skipped": "ValueError: 壊れた"},
+                                 "f": {"skipped": "TypeError: 型"}})
         self.assertEqual(adapter.inject(["--x"], launch, rows[1:3]), (["--x"], {"c": {"skipped": "無い"}}))
         bad = (adapter.Injector("a", "甲", lambda l: True, lambda l: adapter.Skip("無い"), True),)
         with self.assertRaises(adapter.Unrecognised) as cm:

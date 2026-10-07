@@ -1474,9 +1474,11 @@ def inject(argv: List[str], launch: Launch, injectors: Sequence[Injector] = INJE
             continue
         try:
             got = inj.producer(launch)
-        except (Unrecognised, BadTicket, ValueError, OSError, KeyError) as e:
+        except Exception as e:   # noqa: BLE001  required でない行の作りの失敗は、どの型でも起動を落とさずに理由を残す
             if inj.required:
-                raise Unrecognised(f"{inj.label}を足せない（{e}）") from None
+                if isinstance(e, (Unrecognised, BadTicket, ValueError, OSError, KeyError)):
+                    raise Unrecognised(f"{inj.label}を足せない（{e}）") from None
+                raise
             got = Skip(f"{type(e).__name__}: {e}")
         if isinstance(got, Skip):
             if inj.required:

@@ -220,8 +220,7 @@ def output_format(role: str) -> dict:
     prep が番号の一覧を貼って控えを固める（mark_launched(pointers=)）ので、番号の欄は番号でも返せる型に開く。
     独立設計の役は番号の欄を持たず、道具ゼロの旗 isolated を付ける。直しの役は修正案の印の付いていない型に答えの欄
     （converge.with_fields）を足し、印に continue=plan（修正案の役の会話の続き）を付ける。修正案の役とその会話の続きの直しの役は
-    工程の地図の旗 map を持つ（項目が後で並べの枝になり 3 方向で合わさる、という後の流れを包みが機械で渡す。
-    docs/plans/2026-10-07-graph-map.md）"""
+    工程の地図の旗 map を持つ（包みが工程の YAML から組んだ地図を渡す。同じ会話の節は旗を揃える）"""
     if role == REVISE_ROLE:
         schema = converge.with_fields(role, accept.role_schema(NODE_OF["plan"], numbered=True))
         return node_marker.mark(schema, role, cont="plan", flags=(MAP_FLAG,))

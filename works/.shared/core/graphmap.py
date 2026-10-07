@@ -29,10 +29,11 @@ ai-loop（loop:）・script・bash・approval・loop（loop_group。body に中�
   どの工程にも無い名（ブロックの中の別名）なら、その工程を呼ぶ節の with の字の値のうち印の名である物がちょうど 1 つの時
   だけ、それを X の正体とする（ブロックはほかのブロックの節の名を書かず、線が with で名を渡す形）。席の全部の節に ★ を付け、
   席のどの節で起こしても同じ文になる（同じ会話の system prompt が起動ごとに替わると prompt のキャッシュが切れるため）
-- 入口の工程を上から順に 1 行ずつ（節の目的が無い script・bash・cancel・wait は配管として省く）。★ の席が居る工程と、席が
-  居る工程を最初に呼ぶ節の後で最初に呼ばれる工程（次に何が起きるか）を、中の節まで開いて出す
+- 入口の工程を上から順に 1 行ずつ（輪は中の節も。節の目的が無い script・bash・cancel・wait は配管として省く）。席へ至る
+  呼びの道の工程の全部（入れ子の呼びも）と、入口の工程で席を最初に持つ節の後で最初に呼ばれる工程（次に何が起きるか）を、
+  中の節まで開いて出す。呼ぶ節は、呼ぶ先に席が居れば ★
 - 輪は ⟳<上限>、同じ depends_on を持つ兄弟の輪・AI の節は ∥（同時に走る）、when は [条件]（$X.output.f == true は X.f）
-- `description:` の末尾の `[needs: <入力>]` は「その工程の入力 <入力> が off なら走らない」。呼ぶ節の with の束ね
+- `description:` の末尾の `[needs: <入力>]` は「その工程の入力 <入力> が off なら仕事をしない（走らないか、走っても何もしない）」。呼ぶ節の with の束ね
   （`$….<語>` の最後の語か、字の on・off）を off と突き合わせ、切られていれば節を出さず、分からなければ [needs …] を残す
 同じ graph・name・off からはいつも同じ文を返す（決まっていて、prompt のキャッシュを壊さない）。
 
@@ -291,11 +292,20 @@ def _visible(n: dict) -> bool:
     return not (n["kind"] in _PLUMBING and "purpose" not in n)
 
 
-def _label(n: dict, mine: Set[str], prefix: str = "") -> str:
-    star = "★ " if n.get("marker") in mine else ""
-    kind = {"ai": "AI ", "ai-loop": "AI ", "approval": "人 "}.get(n["kind"], "")
-    loop = f"⟳{n['max']} " if n["kind"] == "loop" else ""
-    return f"{prefix}{star}{loop}{kind}{n['id']}"
+def _holds(graph: dict, wf: str, mine: Set[str], seen: Optional[Set[str]] = None) -> bool:
+    """工程 wf（とそこから呼ぶ工程）に席の節が居るか"""
+    seen = set() if seen is None else seen
+    if wf in seen:
+        return False
+    seen.add(wf)
+    return any(_held(graph, n, mine, seen) for n in graph["workflows"][wf]["nodes"])
+
+
+def _held(graph: dict, n: dict, mine: Set[str], seen: Optional[Set[str]] = None) -> bool:
+    """節 n（輪の中・呼ぶ工程の中も）に席の節が居るか"""
+    seen = set() if seen is None else seen
+    return any(m.get("marker") in mine or (m["kind"] == "call" and _holds(graph, m["call"], mine, seen))
+               for m in _walk([n]))
 
 
 def _lines(graph: dict, wf: str, nodes: Sequence[dict], mine: Set[str], off: Optional[Set[str]],
@@ -314,27 +324,23 @@ def _lines(graph: dict, wf: str, nodes: Sequence[dict], mine: Set[str], off: Opt
             groups[key] = groups.get(key, 0) + 1
     for n, state in shown:
         par = "∥ " if n["kind"] in ("loop", "ai", "ai-loop") and groups.get(tuple(sorted(n["deps"])), 0) > 1 else ""
-        parts = [_label(n, mine, "  " * depth + "- " + par)]
+        star = "★ " if n.get("marker") in mine or (n["kind"] == "call" and _holds(graph, n["call"], mine)) else ""
+        kind = {"ai": "AI ", "ai-loop": "AI ", "approval": "人 "}.get(n["kind"], "")
+        loop = f"⟳{n['max']} " if n["kind"] == "loop" else ""
+        text = f"{'  ' * depth}- {par}{star}{loop}{kind}{n['id']}"
+        if n["kind"] == "call":
+            text += f" ⇒ {n['call']}"
+            cut = sorted(k for k, v in n.get("with", {}).items() if _switch(v, off) is False)
+            if cut:
+                text += f" (off: {' '.join(cut)})"
         if n.get("when"):
-            parts.append(f"[{_cond(n['when'])}]")
+            text += f" [{_cond(n['when'])}]"
         if state is None:
-            parts.append(f"[needs {n['needs']}]")
-        text = " ".join(parts)
+            text += f" [needs {n['needs']}]"
         out.append(text + (f": {n['purpose']}" if n.get("purpose") else ""))
         if n.get("body"):
             out.extend(_lines(graph, wf, n["body"], mine, off, depth + 1))
     return out
-
-
-def _holds(graph: dict, wf: str, mine: Set[str], seen: Optional[Set[str]] = None) -> bool:
-    """工程 wf（とそこから呼ぶ工程）に席の節が居るか"""
-    seen = set() if seen is None else seen
-    if wf in seen:
-        return False
-    seen.add(wf)
-    nodes = list(_walk(graph["workflows"][wf]["nodes"]))
-    return any(n.get("marker") in mine for n in nodes) or \
-        any(_holds(graph, n["call"], mine, seen) for n in nodes if n["kind"] == "call")
 
 
 def render(graph: dict, name: str, off: Optional[Iterable[str]] = None) -> str:
@@ -343,32 +349,22 @@ def render(graph: dict, name: str, off: Optional[Iterable[str]] = None) -> str:
     offs = None if off is None else set(off)
     entry = graph["entry"]
     top = graph["workflows"][entry]["nodes"]
-    lines = [HEAD, f"{entry}（上から順に走る）:"]
-    first = None
-    for i, n in enumerate(top):
-        if not _visible(n) and n.get("marker") not in mine:
-            continue
-        held = n["kind"] == "call" and _holds(graph, n["call"], mine)
-        if first is None and (held or n.get("marker") in mine):
-            first = i
-        star = "★ " if held or n.get("marker") in mine else ""
-        kind = {"ai": "AI ", "ai-loop": "AI ", "approval": "人 "}.get(n["kind"], "")
-        loop = f"⟳{n['max']} " if n["kind"] == "loop" else ""
-        text = f"- {star}{loop}{kind}{n['id']}"
-        if n["kind"] == "call":
-            text += f" ⇒ {n['call']}"
-            cut = sorted(k for k, v in n.get("with", {}).items() if _switch(v, offs) is False)
-            if cut:
-                text += f" (off: {' '.join(cut)})"
-        if n.get("when"):
-            text += f" [{_cond(n['when'])}]"
-        lines.append(text + (f": {n['purpose']}" if n.get("purpose") else ""))
-    opened = [n["call"] for n in top if n["kind"] == "call" and _holds(graph, n["call"], mine)]
+    lines = [HEAD, f"{entry}（上から順に走る）:"] + _lines(graph, entry, top, mine, offs, 0)
+    opened: List[str] = []
+
+    def visit(wf: str) -> None:   # 席へ至る呼びの道の工程を全部（入れ子の呼びも）、入口から辿った順に
+        for n in _walk(graph["workflows"][wf]["nodes"]):
+            if n["kind"] == "call" and n["call"] not in opened and _holds(graph, n["call"], mine):
+                opened.append(n["call"])
+                visit(n["call"])
+
+    visit(entry)
+    first = next((i for i, n in enumerate(top) if _held(graph, n, mine)), None)
     if first is not None:
         nxt = next((n["call"] for n in top[first + 1:] if n["kind"] == "call"), None)
-        if nxt is not None:
+        if nxt is not None and nxt not in opened:
             opened.append(nxt)
-    for wf in dict.fromkeys(opened):
+    for wf in opened:
         sites = "・".join(dict.fromkeys(n["id"] for _, n in _sites(graph, wf)))
         lines.append(f"{wf}（{sites} で走る）:")
         lines.extend(_lines(graph, wf, graph["workflows"][wf]["nodes"], mine, offs, 0))
