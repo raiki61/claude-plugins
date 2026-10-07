@@ -125,7 +125,8 @@ class BuildCase(unittest.TestCase):
 class SitePathCase(unittest.TestCase):
     """site の path（works だけの任意の欄）で申告を問いの当たりにファイル単位で結び、単位の違う数（site の件数と行数）を直に比べない"""
 
-    def build(self, sites, *, total, after, files, counts="defects", remaining=None):
+    def build(self, sites, *, total, after, files, counts="defects", remaining=None, touched=("stats.py", "a.py")):
+        """touched は修正が変えたファイル（site の path が指す当たりのファイルも、変わっていなければ覆いに数えない。SiteNeedsChangeCase）"""
         import inspect
         if "per_file" not in inspect.signature(unitrows.build).parameters:
             self.fail("unitrows.build がファイルごとの数（per_file）を受けない: site の件数を行数の母数と直に比べるしかない")
@@ -140,7 +141,7 @@ class SitePathCase(unittest.TestCase):
         def per_file(how, at_rev):
             return (files if at_rev else {}), ""
         out, rows = unitrows.build([c], {KEY: {"how": HOW, "counts": counts}}, count=count, blank=blank,
-                                   per_file=per_file)
+                                   per_file=per_file, touched=list(touched))
         return out[0], rows[0]
 
     def test_sites_outside_the_query_are_listed_not_counted_as_mismatch(self):
@@ -250,9 +251,12 @@ class ChangedFilesCoverCase(unittest.TestCase):
         _, row = self.build(["CHANGELOG.md", "calc.py", "test_lib.py"], files=("calc.py", "test_lib.py"))
         self.assertEqual((row["covered"], row["closed"]), (2, False), "別の単位の直しで変わったファイルを、この単位の覆いに数えない")
 
-    def test_without_touched_only_site_paths_cover(self):
+    def test_without_touched_nothing_covers(self):
+        """変更が読めなければ site の path が指す calc.py も変わったと確かめられないので覆わない（前は site の path だけで 1 件を
+        覆った。path だけで覆うと、名指して変えなかったファイルも閉じる。SiteNeedsChangeCase）"""
         _, row = self.build(None)
-        self.assertEqual((row["covered"], row["closed"], row["changed_cover"]), (1, False, []), row)
+        self.assertEqual((row["covered"], row["closed"], row["changed_cover"]), (0, False, []), row)
+        self.assertEqual(row["discrepancies"][0], unitrows.UNKNOWN_CHANGES, row)
 
     def test_take_hands_the_changes_since_the_review_rev(self):
         """take は受け付けの書き込みの照らしと同じ変更の集合（writes.changed を盤面の review_rev から）を build に渡す。
@@ -339,6 +343,94 @@ class PopulationMembersCase(unittest.TestCase):
         self.assertEqual((row["covered"], row["closed"]), (1, False), row)
 
 
+
+class SiteNeedsChangeCase(unittest.TestCase):
+    """site の path が名指す当たりのファイルも、修正前の版から実際に変わったファイル（touched）でなければ覆ったと数えない
+    （問いの種類に依らない）。審査の再現: population の問いの当たりが 5 ファイルに 14 行で、修正役が 5 ファイルを全部 site に
+    並べて 2 ファイルだけを変えると、site の path だけで 14 件を覆ったと数えて単位が閉じた（直し漏らしが閉じたと報告される）"""
+    KEY = PopulationMembersCase.KEY
+    RULE, RULE_HITS = PopulationMembersCase.RULE, PopulationMembersCase.RULE_HITS
+    DEF_HOW = {"patterns": ["return lo"], "paths": ["a.py", "b.py"], "count": "lines", "fixed": True}
+    DEF_HITS = {"a.py": 2, "b.py": 1}
+
+    def build(self, how, hits, *, counts, sites, files, touched, after, remaining=None):
+        c = {"unit_key": self.KEY, "files": list(files), "what": "直した",
+             "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v",
+                         "sites": [{"site": f"{p}:1", "red_seen": False, "path": p} for p in sites]}}
+        if remaining:
+            c["coverage"] = {"remaining": remaining}
+        total = sum(hits.values())
+        out, rows = unitrows.build([c], {self.KEY: {"how": how, "counts": counts, "total": total}},
+                                   count=lambda h, at_rev: ((total if at_rev else after), ""), blank=blank,
+                                   per_file=lambda h, at_rev: (dict(hits), ""), touched=touched)
+        return out[0], rows[0]
+
+    def test_reviewer_reproduction_stays_open(self):
+        """5 ファイルを site に並べ、2 ファイルだけを変えた直しは閉じない（files に 5 つ並べても、2 つだけ並べても）"""
+        five = sorted(self.RULE_HITS)
+        for files in (("money.py", "slugs.py"), five):
+            with self.subTest(files=files):
+                _, row = self.build(self.RULE, self.RULE_HITS, counts="population", sites=five, files=files,
+                                    touched=["money.py", "slugs.py"], after=14)
+                self.assertEqual((row["total"], row["covered"], row["closed"]), (14, 4, False), row)
+                self.assertEqual(row["unchanged_sites"], ["stats.py", "textfmt.py", "units.py"],
+                                 "site が名指したが修正で変わっていない当たりのファイルを表に残す")
+                self.assertTrue(any("remaining が無い" in d for d in row["discrepancies"]), row)
+
+    def test_population_fix_changing_every_named_file_closes(self):
+        five = sorted(self.RULE_HITS)
+        _, row = self.build(self.RULE, self.RULE_HITS, counts="population", sites=five, files=five, touched=five, after=14)
+        self.assertEqual((row["covered"], row["closed"], row["discrepancies"], row["unchanged_sites"]),
+                         (14, True, [], []), row)
+
+    def test_defects_fix_closes_when_the_hits_drop_to_zero(self):
+        _, row = self.build(self.DEF_HOW, self.DEF_HITS, counts="defects", sites=["a.py", "b.py"], files=["a.py", "b.py"],
+                            touched=["a.py", "b.py"], after=0)
+        self.assertEqual((row["covered"], row["closed"], row["discrepancies"], row["unchanged_sites"]),
+                         (3, True, [], []), row)
+
+    def test_defects_site_on_an_unchanged_file_does_not_cover(self):
+        """defects の closed は修正後の数で決まる（変わっていないファイルの当たりは減らない）。覆いの数も変わった物だけにする"""
+        _, row = self.build(self.DEF_HOW, self.DEF_HITS, counts="defects", sites=["a.py", "b.py"], files=["a.py", "b.py"],
+                            touched=["a.py"], after=1)
+        self.assertEqual((row["covered"], row["closed"], row["unchanged_sites"]), (2, False, ["b.py"]), row)
+        self.assertFalse(any("全部塞いだと申告" in d for d in row["discrepancies"]),
+                         "変わっていないファイルを名指した site は塞いだ申告に数えない")
+
+    def test_without_touched_sites_do_not_cover(self):
+        """修正の変えたファイルが読めない時は、site の path が指すファイルも変わったと確かめられないので覆いに数えず、理由を残す"""
+        five = sorted(self.RULE_HITS)
+        _, row = self.build(self.RULE, self.RULE_HITS, counts="population", sites=five, files=five, touched=None, after=14)
+        self.assertEqual((row["covered"], row["closed"], row["changed_cover"]), (0, False, []), row)
+        self.assertEqual(row["discrepancies"], [unitrows.UNKNOWN_CHANGES],
+                         "覆いを数えなかった理由だけを書き、覆いから出る食い違い（remaining が無い）を重ねない")
+
+    def test_shortfall_reads_as_covered_by_the_fix(self):
+        """食い違いの文は覆いの新しい意味（修正で変わった当たり）で書く（site は 14 件全部を名指している）"""
+        five = sorted(self.RULE_HITS)
+        _, row = self.build(self.RULE, self.RULE_HITS, counts="population", sites=five, files=five,
+                            touched=["money.py", "slugs.py"], after=14)
+        self.assertIn("母数 14 のうち修正で覆った当たりは 4 件で、remaining が無い", row["discrepancies"], row)
+
+    def test_judged_query_that_cannot_be_bound_is_named(self):
+        """修正役が問いを作り直した単位は判定者の問いで結び直す。そこで結べない（site の件数で数えた）理由も表に出す
+        （捨てると、site を名指しただけで変えていない単位が黙って閉じる）"""
+        mine = {**self.RULE, "paths": ["money.py", "slugs.py", "units.py"]}
+        c = {"unit_key": self.KEY, "files": ["units.py"], "what": "直した",
+             "coverage": {"how": mine, "remaining": "money.py と slugs.py は並行の線の担当で、今の周では塞がない"},
+             "closure": {"mechanism": "m", "fix_mechanism": "f", "verified_how": "v",
+                         "sites": [{"site": f"{p}:1", "red_seen": False, "path": p} for p in ("money.py", "slugs.py", "units.py")]}}
+        mine_hits = {"money.py": 2, "slugs.py": 2, "units.py": 3}
+
+        def per_file(h, at_rev):
+            return (dict(mine_hits), "") if h == mine else (None, "走らない")
+        _, rows = unitrows.build([c], {self.KEY: {"how": self.RULE, "counts": "population", "total": 14}},
+                                 count=lambda h, at_rev: ((7, "") if h == mine else (14, "")), blank=blank,
+                                 per_file=per_file, touched=[])
+        row = rows[0]
+        self.assertTrue(any(d.startswith("判定者の問いで") and "走らない" in d for d in row["discrepancies"]), row)
+
+
 class ClosureLinesCase(unittest.TestCase):
     def test_lines_and_mismatched_only(self):
         tmp = tempfile.TemporaryDirectory()
@@ -356,6 +448,18 @@ class ClosureLinesCase(unittest.TestCase):
         b.round = 2
         self.assertEqual(querytest.closure_lines(b), [], "前の周の表は読まない")
 
+
+    def test_line_names_site_files_the_fix_did_not_change(self):
+        """site が名指したが修正で変わっていない当たりのファイルを行に並べる（申告の site の数と覆った数が食い違う理由が行で読める）"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        b = types.SimpleNamespace(dir=pathlib.Path(tmp.name), round=1, scope_root=pathlib.Path(tmp.name))
+        querytest.save_closure(b, [{"unit_key": "a", "counts": "population", "total": 14, "after": 14, "claimed": 5,
+                                    "covered": 4, "bound": True, "closed": False, "how_from": "判定者",
+                                    "unchanged_sites": ["stats.py", "units.py"], "discrepancies": []}])
+        line, = querytest.closure_lines(b)
+        self.assertIn("修正で覆った当たり 4", line)
+        self.assertIn("site が名指したが修正で変わっていない当たりのファイル: stats.py, units.py", line)
 
 class ClosureScopesCase(unittest.TestCase):
     def test_rows_come_from_the_last_include_with_this_round(self):
