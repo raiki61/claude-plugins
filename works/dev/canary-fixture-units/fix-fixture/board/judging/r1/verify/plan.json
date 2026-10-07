@@ -1,0 +1,13 @@
+{
+ "units": [
+  {
+   "n": 1,
+   "key": "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る"
+  },
+  {
+   "n": 2,
+   "key": "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+  }
+ ],
+ "answers": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/run-place/judging/judge-verify/r1"
+}

@@ -1,0 +1,75 @@
+{
+  "items": [
+    {
+      "item": 1,
+      "unit_keys": [
+        "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+        "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+      ],
+      "names": [
+        {
+          "name": "CHANGELOG",
+          "files": 1,
+          "common": false,
+          "code": [
+            "README.md:9"
+          ],
+          "tests": []
+        },
+        {
+          "name": "Unreleased",
+          "files": 1,
+          "common": false,
+          "code": [
+            "README.md:9"
+          ],
+          "tests": []
+        },
+        {
+          "name": "mean",
+          "files": 2,
+          "common": false,
+          "code": [
+            "README.md:8",
+            "calc.py:4",
+            "calc.py:7"
+          ],
+          "tests": []
+        },
+        {
+          "name": "initials",
+          "files": 2,
+          "common": false,
+          "code": [
+            "textfmt.py:18"
+          ],
+          "tests": [
+            "test_lib.py::TestTextfmt::test_initials_capitalized"
+          ]
+        }
+      ],
+      "uncovered": [
+        {
+          "id": "h1",
+          "name": "CHANGELOG",
+          "kind": "code",
+          "at": "README.md:9"
+        },
+        {
+          "id": "h2",
+          "name": "mean",
+          "kind": "code",
+          "at": "README.md:8"
+        },
+        {
+          "id": "h3",
+          "name": "initials",
+          "kind": "test",
+          "at": "test_lib.py::TestTextfmt::test_initials_capitalized"
+        }
+      ]
+    }
+  ],
+  "overlaps": [],
+  "error": ""
+}

@@ -1,0 +1,8 @@
+{
+  "purpose_text": "calc.mean([1, 2, 3]) が 3.0 でなく算術平均の 2.0 を返し（分母が len(xs) - 1）、textfmt.initials('dark factory line') が 'dfl' でなく各語の頭を大文字にした 'DFL' を返す（頭の字を str.upper にかけていない）よう、両関数の誤りを直し、README の決まりどおり受け入れのテストを test_lib.py の TestCalc と TestTextfmt の中にそれぞれ足し（新しいファイルやクラスは作らない）、利用者に見える振る舞いが変わるので CHANGELOG.md の [Unreleased] に mean と initials を名指す各 1 行を足す（CHANGELOG.md は修正案の allowed_paths にも out_of_scope にも名指さず、修正役が範囲の相談で足しを頼み許しを得てから書く）。",
+  "source": "②計画・タスク記述",
+  "known_weaknesses": [],
+  "source_files": [
+    "README.md"
+  ]
+}

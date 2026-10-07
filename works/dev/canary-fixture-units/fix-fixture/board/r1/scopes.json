@@ -1,0 +1,26 @@
+{
+ "premising": {
+  "block": "blk-premises",
+  "order": 1
+ },
+ "gathering": {
+  "block": "blk-material",
+  "order": 2
+ },
+ "judging": {
+  "block": "blk-judge",
+  "order": 3
+ },
+ "owns": {
+  "judge-verify.json": "judging",
+  "plan-converge.json": "planning",
+  "plan-review-items/pass-1/item-1.md": "planning",
+  "ripple.json": "planning",
+  "ripple/pass-1.json": "planning",
+  "ripple/units.json": "planning"
+ },
+ "planning": {
+  "block": "blk-plan",
+  "order": 4
+ }
+}

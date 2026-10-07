@@ -1,0 +1,13 @@
+{
+  "units": [
+    {
+      "unit_key": "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+      "names": []
+    },
+    {
+      "unit_key": "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る",
+      "names": []
+    }
+  ],
+  "error": ""
+}

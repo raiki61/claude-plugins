@@ -1,0 +1,20 @@
+[
+  {
+    "id": "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+    "paths": [
+      "calc.py",
+      "test_lib.py",
+      "CHANGELOG.md"
+    ],
+    "summary": "事実: calc.py:8 は `return sum(xs) / (len(xs) - 1)`。docstring（README の言う正本）は「算術平均（xs の和を個数で割る）」。前提の実測で mean([1, 2, 3]) は 3.0（依頼の値と一致。測り直した値と依頼の値に違いは無い）。反証を当てた: ①依頼の false_positive_if「不偏の分母を使う約束なら誤り」→ docstring は「個数で割る」と明記し、名も『算術平均』で、標本分散ではなく平均なので不偏の補正は意味を持たない——誤検出の条件は成り立たない。②今のコードは要素 1 つの xs（例 [5]）で ZeroDivisionError を投げ、docstring の「空の xs だけが ValueError」の約束からも外れる——欠陥は値のずれだけでなく例外の面にも出ており、誤りであることを補強する。③テストが mean を 1 本も持たない（test_lib.py に mean の語が無い）ので、pytest が 11 passed でも反証にならない。依頼の頼み方（テストを TestCalc に足す・CHANGELOG の [Unreleased] に mean を名指す 1 行）も README の決まり 1・2 項と一致し、ずれは見つからない。人の方針は空でぶつかる行は無い。"
+  },
+  {
+    "id": "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る",
+    "paths": [
+      "textfmt.py",
+      "test_lib.py",
+      "CHANGELOG.md"
+    ],
+    "summary": "事実: textfmt.py:20 は `return \"\".join(w[0] for w in words(s))` で、頭の字を str.upper にかけていない。docstring（正本）は「words(s) の各語の頭の 1 字を大文字（str.upper）にして連ねる」。前提の実測で initials('dark factory line') は 'dfl'（依頼の値と一致。違いは無い）。反証を当てた: ①依頼の false_positive_if「大小をそのまま残す約束なら誤り」→ docstring は str.upper を名指しており成り立たない。②既存の test_initials_capitalized は頭が大文字の \"Dark Factory\" しか渡さないので、upper の有無を区別できず、11 passed は反証にならない。③語が無い時の空の文字列は今も「\".join(空)\" で保たれ、upper を足しても変わらない（w[0] は words が空の語を返さないので常に在る）。依頼の頼み方（テストを TestTextfmt に足す・CHANGELOG の [Unreleased] に initials を名指す 1 行）も README の決まりと一致する。人の方針は空でぶつかる行は無い。"
+  }
+]

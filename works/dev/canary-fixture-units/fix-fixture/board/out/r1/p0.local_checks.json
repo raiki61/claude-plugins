@@ -1,0 +1,8 @@
+{
+  "material": {
+    "status": "clean",
+    "count": 0,
+    "checked": "python3 -m pytest -q（起こし方 direct）を対象の根で走らせた: exit 0（ログ /works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/r1/p0.local_checks.log）",
+    "detail": "slotwrap.sh: 重いテストの枠を待つ（置き場 /works-canary-fixture/tmp/testslots・4 枠。空くまで期限なし）\ntestslot: slot-1 を取った（4 枠）\n...........                                                              [100%]\n11 passed in 0.01s"
+  }
+}

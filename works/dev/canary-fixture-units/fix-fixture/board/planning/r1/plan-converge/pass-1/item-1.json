@@ -1,0 +1,49 @@
+{
+  "item": 1,
+  "checked": "calc.py・textfmt.py・test_lib.py・README.md・CHANGELOG.md の現物を読み、案の 8 つの観点を当てた。写し: 足す物はテスト 2 本と CHANGELOG 2 行だけで、新しい規則・型・語彙を作らない。置き場は README.md:8 のとおり既存の TestCalc・TestTextfmt で、写しは無い。入口: 柵を足す案ではない。mean・initials の呼び出し元は git grep の一覧のとおり README.md:8 と test_lib.py だけで、ほかの入口は無い。契約のずれ: README.md:8 の import 形（import calc / calc.mean）、README.md:9 の CHANGELOG の決まり、test_lib.py の頭の docstring（テストは 1 本・モジュールごとのクラス）には、どれも案が従っている。死んだ道: 足すテストは unittest の発見で必ず回る。範囲の膨張: 新しい関数・口・設定は足さない。後退: mean の空の ValueError（calc.py:6-7）を残す。要素 1 つの入力は BASE では ZeroDivisionError だったが、直した後は値を返す（能力が増える向き）。initials の大小を保つ出力は docstring が str.upper を名指しており、BASE の能力ではなく直す対象の誤りである。test_initials_capitalized は upper を足しても 'DF' のまま通る。消えた能力は無い（確かめた BASE: calc.mean・textfmt.initials・test_initials_capitalized）。方針: 人の方針は空。先行例: P1・P2 を WebFetch で開き、当たっていることを確かめた。独立設計との突き合わせ: コード 2 行・既存クラスへのテスト・[Unreleased] の 2 行という構造は一致する。CHANGELOG.md を allowed_paths に入れるか範囲の相談で足すかの違いは、手続きの違いにとどまる。判定の reason によれば依頼そのものが CHANGELOG の 1 行を頼んでいるので、構造の食い違いではない。なお独立設計は『mean([]) は今 -0.0 を返す』と書くが、現物では calc.py:6-7 が ValueError を投げる。この点は案の『空の ValueError はそのまま残す』のほうが正しい。テストの区別点: [1, 2, 3] は分母 n なら 2.0、n-1 なら 3.0 で区別がつく。[5] は BASE では ZeroDivisionError なので区別がつく。'dark factory line' は upper の有無で 'DFL' と 'dfl' に分かれる。どちらも直す前の版で落ちる（red_kind assertion は正しい）。",
+  "hits": [
+    {
+      "id": "h1",
+      "answer": "covered",
+      "why": "README.md:9 の決まり（[Unreleased] に関数の名で 1 関数 1 行）には、案の adds の CHANGELOG の 2 行と allowed_paths の CHANGELOG.md で従っている。行に関数の名を字で入れることは、suggest の穴 changelog-line-names-function で念を押した"
+    },
+    {
+      "id": "h2",
+      "answer": "covered",
+      "why": "README.md:8 の import の決まり（import calc の形・calc.mean と呼ぶ・from import を書かない・既存クラスに足す）には、案の tests の path 欄が `import calc`・`import textfmt` と既存の TestCalc・TestTextfmt を名指して従っている"
+    },
+    {
+      "id": "h3",
+      "answer": "no_effect",
+      "why": "test_initials_capitalized は頭が大文字の \"Dark Factory\" を渡す。w[0].upper() にしても 'D'・'F' は変わらず 'DF' のまま通るので、直しの影響を受けない。案もこのテストを消さずに残すと明記している"
+    }
+  ],
+  "faces": [
+    {
+      "key": "changelog-line-names-function",
+      "unit_keys": [
+        "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+        "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+      ],
+      "kind": "contract_drift",
+      "where": "CHANGELOG.md の ## [Unreleased] の下（3-4 行目の間）。案の approach (4) と adds の『CHANGELOG [Unreleased] mean の 1 行』『… initials の 1 行』",
+      "why": "README.md:9 は『何を直したかを関数の名で書く』と求めている。案の (4) は行の中身を『mean の直し（分母を個数にして…）』と散文で書くだけで、行に関数の名（calc.mean・textfmt.initials）を字で入れることを明記していない。修正役が『平均の直し』のように名を落として書くと、README の決まりに反し、[Unreleased] の行と関数を突き合わせる検査（grep で mean・initials を引く）にも掛からない。既存の [0.1.0] の行の形（『- 』で始める箇条書き）にも合わせ、`- calc.mean: …`・`- textfmt.initials: …` の形で書くと決めておけば閉じる",
+      "severity": "suggest",
+      "no_add": "足す物は増やさない。案の (4) の 2 行の書き方を `- calc.mean: …` と `- textfmt.initials: …` に定めるだけで閉じる"
+    }
+  ],
+  "shrink": [],
+  "resolved": [],
+  "precedents": [
+    {
+      "id": "P1",
+      "found": true,
+      "quote": "statistics.mean: \"The arithmetic mean is the sum of the data divided by the number of data points.\" 分母が個数であることを定めており、calc.mean の分母の off-by-one に当たっている。空のデータでは StatisticsError を投げるが、判定者はこれを向きだけ合わせると書き、docstring どおり ValueError のまま残す。この点も食い違わない"
+    },
+    {
+      "id": "P2",
+      "found": true,
+      "quote": "str.upper(): \"Return a copy of the string with all the cased characters converted to uppercase.\" docstring が名指す変換そのもので、w[0] にかければ initials の大文字の約束に当たる"
+    }
+  ]
+}

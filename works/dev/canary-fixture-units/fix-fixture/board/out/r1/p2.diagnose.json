@@ -1,0 +1,101 @@
+{
+  "units": [
+    {
+      "key": "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: calc.py:8 は `return sum(xs) / (len(xs) - 1)`。docstring（README の言う正本）は「算術平均（xs の和を個数で割る）」。前提の実測で mean([1, 2, 3]) は 3.0（依頼の値と一致。測り直した値と依頼の値に違いは無い）。反証を当てた: ①依頼の false_positive_if「不偏の分母を使う約束なら誤り」→ docstring は「個数で割る」と明記し、名も『算術平均』で、標本分散ではなく平均なので不偏の補正は意味を持たない——誤検出の条件は成り立たない。②今のコードは要素 1 つの xs（例 [5]）で ZeroDivisionError を投げ、docstring の「空の xs だけが ValueError」の約束からも外れる——欠陥は値のずれだけでなく例外の面にも出ており、誤りであることを補強する。③テストが mean を 1 本も持たない（test_lib.py に mean の語が無い）ので、pytest が 11 passed でも反証にならない。依頼の頼み方（テストを TestCalc に足す・CHANGELOG の [Unreleased] に mean を名指す 1 行）も README の決まり 1・2 項と一致し、ずれは見つからない。人の方針は空でぶつかる行は無い。",
+      "origin_analysis": "①ロジックの正否: 誤り（分母の off-by-one。算術平均の定義＝和÷個数から外れる）。②出自: 読みにくさ・迂回・衛生違反ではなく、式の書き誤り（標本分散の n-1 の分母の取り違えの形）。それを捕らえる受け入れのテストが無い（mean のテストが 0 本）ことが見逃しの出自。③ラベル: docstring という決着済みの正本に反する利用者に見える誤りなので block。",
+      "why_chain": [
+        "なぜ誤った値が出るか: 分母が len(xs) - 1 になっている（分散の不偏推定の分母と取り違えた形）",
+        "なぜ入り込めたか: TestCalc に mean のテストが 1 本も無く、docstring の約束（和÷個数）を固定する検査が無い",
+        "なぜ検査が無かったか: テストが median・clamp だけを覆い、モジュールの全公開関数を docstring の約束で覆う決まりが README に無い（決まりは置き場と書き方だけを言う）"
+      ],
+      "prescriptions": [
+        "零処方は当たらない: 取り下げは反証が成り立たないので落ちる。既存の機構 1 つで済ませる処方が下の式の直し 1 行そのもの。",
+        "calc.py:8 を `return sum(xs) / len(xs)` にする。採った理由: 決め手 (a) 人の前の決定——README.md 冒頭「関数の約束は各関数の docstring が正本」と docstring「xs の和を個数で割る」。(d) 世界の解——Python 公式 docs の statistics.mean「The arithmetic mean is the sum of the data divided by the number of data points」と一致。空の xs の ValueError の扱いは今のまま残す（docstring の約束）。",
+        "受け入れのテストを test_lib.py の既存の class TestCalc の中に足す（新しいファイル・クラスは作らない。`import calc` のまま `calc.mean` で呼ぶ。README の決まり 1 項）。少なくとも calc.mean([1, 2, 3]) == 2.0 と、今のコードで ZeroDivisionError になる要素 1 つの例（calc.mean([5]) == 5.0）を固定する。空の xs が ValueError のままであることも 1 本で固定するのが望ましい。",
+        "CHANGELOG.md の `## [Unreleased]` に mean を名指す 1 行を足す（README の決まり 2 項: 関数の名で 1 関数 1 行）。keepachangelog の ### Fixed の小見出しは README が求めていないので足さない（決め手 (c) 対象の決まりが世界の解より先）。依頼の決めどおり、CHANGELOG.md は修正案の allowed_paths にも out_of_scope にも名指さず、修正役が範囲の相談で足しを頼み許しを得てから書く。"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "len(xs) - 1"
+          ],
+          "paths": [
+            "calc.py",
+            "test_lib.py",
+            "CHANGELOG.md"
+          ],
+          "count": "lines",
+          "fixed": true
+        },
+        "counts": "defects",
+        "total": 1,
+        "note": "欠陥の形は calc.py の 1 行だけ（median・clamp に同じ分母は無い）。paths に test_lib.py と CHANGELOG.md を入れたのは、修正役が受け入れのテストと CHANGELOG の 1 行で触る site のファイルを問いの内に入れるため（両ファイルに欠陥の形は無く件数は増えない）。"
+      }
+    },
+    {
+      "key": "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: textfmt.py:20 は `return \"\".join(w[0] for w in words(s))` で、頭の字を str.upper にかけていない。docstring（正本）は「words(s) の各語の頭の 1 字を大文字（str.upper）にして連ねる」。前提の実測で initials('dark factory line') は 'dfl'（依頼の値と一致。違いは無い）。反証を当てた: ①依頼の false_positive_if「大小をそのまま残す約束なら誤り」→ docstring は str.upper を名指しており成り立たない。②既存の test_initials_capitalized は頭が大文字の \"Dark Factory\" しか渡さないので、upper の有無を区別できず、11 passed は反証にならない。③語が無い時の空の文字列は今も「\".join(空)\" で保たれ、upper を足しても変わらない（w[0] は words が空の語を返さないので常に在る）。依頼の頼み方（テストを TestTextfmt に足す・CHANGELOG の [Unreleased] に initials を名指す 1 行）も README の決まりと一致する。人の方針は空でぶつかる行は無い。",
+      "origin_analysis": "①ロジックの正否: 誤り（docstring が名指す str.upper の適用が抜けている）。②出自: 迂回・衛生違反ではなく実装の抜け。それを捕らえる検査が、頭が大文字の入力だけを渡すテストで、約束の区別点（小文字の入力）を試していないことが見逃しの出自。③ラベル: 正本の約束に反する利用者に見える誤りなので block。",
+      "why_chain": [
+        "なぜ小文字のまま返るか: w[0] を str.upper にかけずに連ねている",
+        "なぜ入り込めたか: 唯一のテスト test_initials_capitalized が頭の大文字の入力しか渡さず、upper の有無で結果が変わらない",
+        "なぜその入力だけだったか: テストが docstring の約束の区別点（小文字の語）を試すように書かれておらず、約束を固定する受け入れのテストを求める決まりが README に無い"
+      ],
+      "prescriptions": [
+        "零処方は当たらない: 取り下げは反証が成り立たないので落ちる。既存の機構（str.upper）1 つで済ませる処方が下の 1 行の直し。",
+        "textfmt.py:20 を `return \"\".join(w[0].upper() for w in words(s))` にする。採った理由: 決め手 (a) 人の前の決定——README.md 冒頭「関数の約束は各関数の docstring が正本」と docstring が str.upper を名指すこと。(d) 世界の解——Python 公式 docs の str.upper（文字を大文字に変えた写しを返す）。",
+        "受け入れのテストを test_lib.py の既存の class TestTextfmt の中に足す（新しいファイル・クラスは作らない。`textfmt.initials` で呼ぶ。README の決まり 1 項）。少なくとも textfmt.initials('dark factory line') == 'DFL' を固定する。既存の test_initials_capitalized は残す。",
+        "CHANGELOG.md の `## [Unreleased]` に initials を名指す 1 行を足す（README の決まり 2 項: 関数の名で 1 関数 1 行。mean の行とは別の行）。依頼の決めどおり、CHANGELOG.md は修正案の allowed_paths にも out_of_scope にも名指さず、修正役が範囲の相談で足しを頼み許しを得てから書く。"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "w[0] for w in"
+          ],
+          "paths": [
+            "textfmt.py",
+            "test_lib.py",
+            "CHANGELOG.md"
+          ],
+          "count": "lines",
+          "fixed": true
+        },
+        "counts": "defects",
+        "total": 1,
+        "note": "欠陥の形は textfmt.py の 1 行だけ。paths に test_lib.py と CHANGELOG.md を入れたのは、受け入れのテストと CHANGELOG の 1 行で触る site のファイルを問いの内に入れるため（両ファイルに欠陥の形は無い）。"
+      }
+    }
+  ],
+  "questions": [],
+  "framing": "2 件の依頼はどちらも、docstring（README が正本と定めた関数の約束）に実装が反する独立の書き誤り（mean の分母の off-by-one・initials の upper の抜け）で、根の原因は別。2 本の木が上位で交わるのは「docstring の約束を区別点で固定する受け入れのテストが無い」こと——mean はテストが 0 本、initials は約束の区別がつかない入力（頭が大文字）しか試していない——で、だから pytest が 11 passed のまま両方の誤りが残った。どちらの木も反証（不偏の分母の約束・大小を残す約束）は docstring の明記で殺せず、実測（3.0・'dfl'）も依頼の値と一致する。片方の実測がもう片方を反証する関係は無い。修正は両関数の 1 行の直し＋既存の TestCalc・TestTextfmt への受け入れのテスト＋ CHANGELOG の [Unreleased] への 1 関数 1 行で、どれも README の決まりと docstring で一意に決まり、人に回す岐路は無い。",
+  "one_shot": "両方の木の上位で交わる原因「docstring の約束を区別点で固定する受け入れのテストが無い」を、2 つの 1 行の直しと組みで閉じる: calc.mean の分母を len(xs) にし textfmt.initials で w[0].upper() を連ね、同時に既存の TestCalc に calc.mean([1, 2, 3]) == 2.0（と calc.mean([5]) == 5.0）、既存の TestTextfmt に textfmt.initials('dark factory line') == 'DFL' を足し、CHANGELOG.md の [Unreleased] に mean・initials の各 1 行を足す。テストだけでも直しだけでも閉じない（テストだけなら赤のまま、直しだけなら再発を捕らえる検査が無い）——2 つ揃って初めて閉じる組み。反証の条件: この組みを入れた後に、どちらかの class_query の件数が 0 にならない、または足したテストのどれかが直す前の版で通る（区別点を試していない）なら、この一撃は誤り。",
+  "materials_missing": [],
+  "carried_r1": [],
+  "one_shot_closes": [
+    "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+    "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+  ],
+  "precedents": [
+    {
+      "key": "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+      "problem": "算術平均の定義（和をデータの個数で割るか、n-1 で割るか）",
+      "source": "https://docs.python.org/3/library/statistics.html （statistics.mean: \"The arithmetic mean is the sum of the data divided by the number of data points.\"）",
+      "verdict": "adopt",
+      "reason": "算術平均は和÷個数で、n-1 は標本分散の不偏推定の分母であって平均には使わない。docstring の約束「xs の和を個数で割る」と一致するのでそのまま採る。空のデータで例外を投げる扱いも statistics.mean と同じ向き（ここでは docstring どおり ValueError のまま）。"
+    },
+    {
+      "key": "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る",
+      "problem": "文字列の頭の字を大文字にする標準の手段",
+      "source": "https://docs.python.org/3/library/stdtypes.html#str.upper",
+      "verdict": "adopt",
+      "reason": "docstring が str.upper を名指しており、標準ライブラリの str.upper をそのまま w[0] にかけるのが定番。自前の変換を作る理由は無い。"
+    }
+  ],
+  "router": [],
+  "reburn_causes": []
+}

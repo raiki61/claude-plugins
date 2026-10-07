@@ -755,6 +755,29 @@ class UseShell(unittest.TestCase):
                      "features_off=judge_verify,tdd_lanes"):
             self.assertIn(want, run)
 
+    def test_start_fix_fixture_passes_absolute_folder_or_refuses(self):
+        """WORKS_USE_FIX_FIXTURE（固定材料のフォルダ）が空でなければ在るフォルダかを確かめ、入力 fix_fixture=<絶対パス> を渡す
+        （相対は殻を打ったフォルダから）。未設定・空では渡さない。無いフォルダは Archon を呼ばず・家に何も作らずに 1 行で 2"""
+        t = self.target()
+        fx = self.tmp / "fx"
+        fx.mkdir()
+        for value, cwd, want in ((str(fx), None, f"fix_fixture={fx.resolve()}"), ("fx", str(self.tmp), f"fix_fixture={fx.resolve()}"),
+                                 (None, None, ""), ("", None, "")):
+            with self.subTest(value=value):
+                self.log.unlink(missing_ok=True)
+                r = self.use("start", str(t), str(self.request), "true", "", cwd=cwd, WORKS_USE_FIX_FIXTURE=value)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                got = [a for a in self.started() if a.startswith("fix_fixture=")]
+                self.assertEqual(got, [want] if want else [])
+        self.log.unlink(missing_ok=True)
+        shutil.rmtree(self.home, ignore_errors=True)
+        r = self.use("start", str(t), str(self.request), "true", "", WORKS_USE_FIX_FIXTURE=str(self.tmp / "nowhere"))
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn(f"WORKS_USE_FIX_FIXTURE は在る固定材料のフォルダ（前の run の $ARTIFACTS_DIR/fix-fixture の写し）。受けた値: {self.tmp / 'nowhere'}", r.stderr)
+        self.assertEqual(len(r.stderr.strip().splitlines()), 1, r.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse(self.home.exists())
+
     def test_answer_records_who_and_responds(self):
         """別の殻で打つ答えも、start の控え（<家>/runs/<id>.json）の模型・包みで Archon を起こす"""
         probe = hermetic.other_model()

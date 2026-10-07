@@ -1,0 +1,50 @@
+{
+ "units": [
+  {
+   "n": 1,
+   "key": "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+   "state": "checked",
+   "verdict": "root",
+   "evidence_found": true,
+   "evidence": "calc.py:8 に `return sum(xs) / (len(xs) - 1)` が在る（分母が個数-1）。calc.py:5 の docstring は「算術平均（xs の和を個数で割る）。空の xs は ValueError」。calc.py:6-7 は空の xs だけを ValueError にするので、要素 1 つの xs は 8 行目で 0 除算に進む（ZeroDivisionError——式から読める。走らせてはいない）。mean([1, 2, 3]) は式から 6/2 = 3.0 で、依頼の値と合う。README.md:4「関数の約束は各関数の docstring が正本」。test_lib.py には mean の語が無い（Grep で *.py の mean は calc.py:4,7,8 だけ）。TestCalc（test_lib.py:8-24）は median 2 本・clamp 3 本だけ。README.md:8-9 の決まり（テストは test_lib.py の既存のクラスへ・import calc の形、CHANGELOG の [Unreleased] に 1 関数 1 行）も理由の言う通り。CHANGELOG.md:3 の [Unreleased] は今空。",
+   "location_ok": true,
+   "location": "calc.py:mean（calc.py:8 の return の式）",
+   "why": "症状（mean([1,2,3]) が 2.0 でなく 3.0）は calc.py:8 の分母 len(xs) - 1 から直に出る。mean はほかの関数を呼ばず（calc.py:4-8 は sum と len だけ）、リポジトリの中で mean を呼ぶ所もほかに無い（Grep）。だから別の単位や単位に無い所の結果ではなく、この 1 行が依頼の症状の根。これを docstring どおりに直せば、依頼の値のずれも要素 1 つの xs の 0 除算も消える。見逃しの出自（TestCalc に mean のテストが無い）は test_lib.py で確かめたが、それは症状を作った原因ではなく残った理由で、why_chain の下の段として理由に書かれている通り。"
+  },
+  {
+   "n": 2,
+   "key": "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る",
+   "state": "checked",
+   "verdict": "root",
+   "evidence_found": true,
+   "evidence": "textfmt.py:18-20 に def initials(s) があり、docstring は「words(s) の各語の頭の 1 字を大文字（str.upper）にして連ねる。語が無ければ空の文字列」、本体は `return \"\".join(w[0] for w in words(s))` で str.upper の適用が無い。textfmt.py:13-15 の words は `return s.split()` で、split() は空の語を返さないので w[0] は常に在る（判定の反証③と一致）。test_lib.py:36-37 の唯一のテスト test_initials_capitalized は `textfmt.initials(\"Dark Factory\") == \"DF\"` で頭が大文字の入力だけを渡し、upper の有無で結果が変わらない（判定の why_chain 2 と一致）。Grep で *.py を見ると initials・upper はこの 2 か所（textfmt.py:18-19 と test_lib.py:36-37）にしか無く、initials を呼ぶほかの関数も、大小を変える別の層も無い。README.md:4「関数の約束は各関数の docstring が正本」、README.md:8 はテストを test_lib.py の TestTextfmt に足す決まり、README.md:9 は CHANGELOG の [Unreleased] に 1 関数 1 行の決まり、CHANGELOG.md:3 の [Unreleased] は今は空。実測の 'dfl' は実行していない（Bash を使わない役）が、textfmt.py:20 のコードを読むと 'dark factory line' から 'd'・'f'・'l' をそのまま連ねて 'dfl' になる。",
+   "location_ok": true,
+   "location": "textfmt.py:initials（20 行目の return）",
+   "why": "症状（initials('dark factory line') が 'DFL' でなく 'dfl'）は、textfmt.py:20 が w[0] を str.upper にかけずに連ねることだけで生まれる。入力の語を作る words（textfmt.py:15、s.split()）は大小を変えず、initials をほかから呼んで値を変える所も無い（Grep で確かめた）ので、別の単位や単位に無い所の結果ではない。この 1 行を docstring どおりにすれば症状は消える。見逃しの出自（test_lib.py:36-37 が頭が大文字の入力しか試さない）は判定の why_chain に含まれ、処方の受け入れのテストで扱われている。"
+  }
+ ],
+ "synergy": {
+  "state": "checked",
+  "why": "見た事実: 単位 1 の直しは calc.py:8 `return sum(xs) / (len(xs) - 1)`、単位 2 の直しは textfmt.py:20 `return \"\".join(w[0] for w in words(s))` で、別のモジュールの別の関数。calc.py と textfmt.py は互いを import しない（calc.py に import の行は無く、textfmt.py の initials は同じファイルの words だけを呼ぶ）。テストは test_lib.py の 1 本で、単位 1 は class TestCalc（test_lib.py:8-24）、単位 2 は class TestTextfmt（test_lib.py:27-46）に足す——別のクラスで重ならない。CHANGELOG.md は `## [Unreleased]`（CHANGELOG.md:3）の下が空（:4）で、両単位とも同じその見出しの下に 1 関数 1 行（README.md:9）を足す——同じ塊に 2 行が入る。重複は無い: 根は分母の off-by-one と str.upper の抜けで別、片方の直しでもう片方は閉じない（判定者の framing の上位の交わり「約束を区別点で固定するテストが無い」は共通の出自だが、足すテストは関数ごとに別で、同じ直しではない）。順番は無い: どちらの直しも名・型・呼び方を変えず、unittest は TestCalc と TestTextfmt を別に回すので、片方が赤でももう片方を直し・試せる。CHANGELOG の 2 行も別の行で、どちらが先でも書ける。",
+  "duplicates": [],
+  "relations": [
+   {
+    "units": [
+     "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+     "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+    ],
+    "why": "CHANGELOG.md:3 の `## [Unreleased]` の下（:4 が空）という同じ塊に、単位 1 は mean、単位 2 は initials を名指す 1 行をそれぞれ足す（README.md:9 の 1 関数 1 行）。行は別だが差し込む所が同じ塊なので、別々に直すと同じ所で重なる。前提（名・型・呼び方）は変えない。",
+    "place": "same"
+   },
+   {
+    "units": [
+     "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+     "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+    ],
+    "why": "コードの直しは calc.py:8 と textfmt.py:20 で別ファイル。受け入れのテストは同じ test_lib.py でも、単位 1 は class TestCalc（:8-24）、単位 2 は class TestTextfmt（:27-46）の別のクラスに足すだけで、直しどうしは重ならない。",
+    "place": "apart"
+   }
+  ],
+  "order": []
+ }
+}

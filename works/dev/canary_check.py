@@ -1,16 +1,17 @@
 """works/dev/canary_check.py — canary の run（dev/canary.sh）が、狙った道を本当に通ったかを、終わった run の記録から出す（開発の殻。
 読むだけで何も書かない）。
 
-  python3 canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix] [--json]
-  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] [--request tdd|fix] [--json]
+  python3 canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix|units|large] [--json]
+  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] [--request tdd|fix|units|large] [--json]
 
 置き場の形は canary.sh が作る物（home/archon-home/archon.db・home/runs/<run-id>.json・home/diffs/run-<id>.diff）。run-id を省けば
 home/runs の一番新しい控えの run。盤面は Archon の run の行の output_root の下の artifacts/runs/<id>/board（--board で替える）。
 db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（盤面の隣の run-place）はファイルを読むだけ。
 包みの起動の記録（adapter.py の launches。置き場の形では home/adapter/launches/、--db の形では --launches で名指す）も
 読むだけで、盤面の state.json の run の worktree（inputs.cwd）のファイルの、盤面を作った後の行だけをその run の物と見る。
---request は canary.sh の --request と同じ語（tdd は既定の canary-request.json、fix は canary-request-fix.json）で、終了コードだけを
-変える（fix なら (e) も yes でないと 1）。出す物は同じ。
+--request は canary.sh の --request と同じ語（tdd は既定の canary-request.json、fix は canary-request-fix.json、units は固定材料
+canary-fixture-units/ から始める run、large は測りの canary-request-large.json）で、終了コードだけを変える（fix なら (e) も yes で
+ないと 1、units は (f) だけ・large は (g) だけで決める）。出す物は同じ。
 
 見る道（canary.sh の頭の (a)〜(d)）と、通ったと言う決まり:
 - (a) parallel（別のファイルの 2 項目以上の並べ）: no の時は、TDD の輪が振り分けの後に並べなかった理由（盤面の trace の
@@ -43,6 +44,19 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
   通ったと言う決まり: 植えた枝が 2 本以上・枝の輪が同時に 2 本以上・締めの行が在る・枝の中の相談に answered が在る・
   plan-answer-lane-<n> の起動が 1 つ以上在り、どれも旗 fork の形（mode continued・fork true・of が fix-planner・元 from が
   修正案の役（節 plan・plan-revise の起動）の会話の id で、新しい id が元と違う。adapter.py の頭の 1）。植えなければ no（fix-fork の理由を添える）、植えて足りない物が在れば attempted（足りない物を名指す）
+- (f) item_units（1 つの修正案の項目に 2 つ以上の単位。canary-fixture-units の狙い。0.2.38 の tddloop._close_covered）: 2 つ以上の単位を
+  持つ項目（plan-fields.json）・TDD の輪の単位ごとの道・赤・緑・covered_by（tdd-<k>/state.json）・食い違いの申し出（同じ状態の calls の
+  phase conflict。並べの周の枝の中の呼びは同じ状態の lanes.calls）・trace の conflict_parked・conflict_ruled の数・裁定役の節（名の
+  最後が ruling.ROLE）の node_started の数を出す。
+  通ったと言う決まり: covered_by で閉じた単位（赤・緑とも ok）が在り、covered_by の単位は同じ輪で自分の段で緑に届いた tdd の単位で、
+  申し出・conflict_parked・conflict_ruled・裁定役の起動が全部 0。2 つ以上の単位を持つ項目か TDD の輪の状態が無ければ no、ほかは attempted
+- (g) measure（測り。canary-request-large.json を全部 on と全部 off で回して並べる）: include ごとの段（節の名の頭の <include>__。
+  include の外の線の節は line）の分（段の節の node_started の最初から終わりの最後まで。line は節の区間の和）と AI の節の費用の和、
+  修正の include の中の TDD の輪の段（外の輪の節が tdd-start・tdd-loop・tdd-fork・tdd-lane-loop-<n>・tdd-join・tdd-rest-loop）と
+  修正役の段（fix-fork・fix-loop・fix-lane-loop-<n>・fix-join・conflict-check・rule-loop・fix-ruled-loop）の分と費用、TDD の輪の枝の数
+  （並べの周の目録）と修正役の枝の数（fix_lanes_planted）と枝の輪の同時の最大、切った機能（start の控えの features_off）、全体の分と
+  費用（spend と同じ）。通ったと言う決まり: 結末が fixed で、切っていない枝の機能（tdd_lanes・fix_lanes）はどれも枝 2 本以上が
+  同時に 2 本以上走った。報告の結末が無ければ no、ほかは attempted
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
 tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から node_completed・node_failed まで）、AI の節の費用の和
@@ -50,7 +64,7 @@ tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から no
 取れない節の名と理由（Archon が costUsd を source unavailable で記録した節。和に入らないので、和は下限）、出来事の最初から
 最後までの分、差分が変えたファイル。
 
-終了コード: 0 = (a)(b)(c)（--request fix なら (e) も）が全部 yes・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・
+終了コード: 0 = (a)(b)(c)（--request fix なら (e) も。--request units は (f) だけ・--request large は (g) だけ）が全部 yes・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・
 run が無い（標準エラーに 1 行）。
 出力は辞書を書いた順（同じ入力なら同じ出力）。時刻は記録の物だけを使う。
 """
@@ -80,6 +94,7 @@ import adapter  # noqa: E402    包みの起動の記録の置き場（cwd_key�
 import fixture  # noqa: E402    包みの起動の記録を数え始める時刻（since）
 import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
 import report  # noqa: E402    節の名の最後の語（_step_name）と費用の読み（_event_cost）
+import ruling  # noqa: E402    裁定役の節の名（ROLE）
 import tddlanes  # noqa: E402  合わせの結末の語（UNION・CLASH・SEMANTIC）
 
 YES, ATTEMPTED, NO = "yes", "attempted", "no"
@@ -98,10 +113,23 @@ LANE_PASS = re.compile(r"lane-(\d+)")   # 枝の中の相談の段の名（consu
 ANSWER_LANE = re.compile(r"plan-answer-lane-(\d+)")   # 枝の答えの節（印 continue=fix-planner fork）
 PLANNER_NODES = ("plan", "plan-revise")   # 修正案の役の会話を起こす・継ぐ節（印の名）
 LAUNCHES = ("adapter", "launches")   # 利用の家の下の包みの起動の記録の置き場（adapter.launches_path）
-REQUESTS = ("tdd", "fix")   # canary.sh の --request の語（fix は (e) も終了コードに入れる）
-USAGE = ("usage: canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix] [--json] | "
+CONFLICT_PHASE = "conflict"   # TDD の輪の呼びの段の語のうち、食い違いの申し出（tddloop の step が積む calls の phase）
+# canary.sh の --request の語と、終了コードを決める道（tdd は (a)〜(c)・fix は (e) も・units は (f) だけ）
+REQUESTS = {"tdd": ("a_parallel", "b_overlap", "c_consult"), "fix": ("a_parallel", "b_overlap", "c_consult", "e_fix_lanes"),
+            "units": ("f_item_units",), "large": ("g_measure",)}
+# 測り（(g)）の段: include（節の名の頭の <include>__）ごとの段。include の外の線の節（start・h-*・report など）は段 LINE_STAGE で、
+# run の全体に散るので分は区間の和。修正の include（FIX_SCOPES）の中は、さらに TDD の輪の段（TDD_TOP）と修正役の段（FIX_TOP）を
+# 外の輪の節の名で分けて出す
+FIX_SCOPES = ("fixing", "refitting")
+TDD_TOP = re.compile(r"tdd-(?:start|loop|fork|join|rest-loop|lane-loop-\d+)")
+FIX_TOP = re.compile(r"fix-(?:fork|join|loop|ruled-loop|lane-loop-\d+)|conflict-check|rule-loop")
+LINE_STAGE = "line"
+FIXED = "fixed"   # 報告の結末の語のうち直した物（report.OUTCOMES）
+LANE_FEATURES = {"tdd": "tdd_lanes", "fix": "fix_lanes"}   # 枝を切る機能の語（entry.FEATURES。切れば枝を求めない）
+WORDS = "|".join(REQUESTS)
+USAGE = (f"usage: canary_check.py <canary の置き場> [<run-id>] [--request {WORDS}] [--json] | "
          "canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] "
-         "[--request tdd|fix] [--json]")
+         f"[--request {WORDS}] [--json]")
 
 
 class Refused(Exception):
@@ -206,14 +234,57 @@ def _lane_items(keys, items: list) -> list:
     return [it["item"] for it in items if set(it["unit_keys"]) & set(keys or [])]
 
 
+def _tdd_states(board: pathlib.Path) -> list:
+    """盤面の TDD の輪の状態 [(状態のファイル, 状態)]（盤面の根と scope の下の tdd-<k>/state.json。読めない物は除く）"""
+    out = []
+    for st_path in sorted(board.glob("tdd-*/state.json")) + sorted(board.glob("*/tdd-*/state.json")):
+        st = _json(st_path)
+        if isinstance(st, dict):
+            out.append((st_path, st))
+    return out
+
+
+def item_units(board: pathlib.Path, items: list, trace: list, events: list) -> tuple[dict, dict]:
+    """((f) の判じ {status, why}, 出す証拠 {items, units, conflict_calls, conflict_parked, conflict_ruled, rule_runs})。
+    items は 2 つ以上の単位を持つ修正案の項目 [{item, units}]、units は TDD の輪の単位 [{loop, unit, route, red, green, covered_by}]"""
+    multi = [{"item": it["item"], "units": len(it["unit_keys"])} for it in items if len(it["unit_keys"]) >= 2]
+    units, calls = [], 0
+    for st_path, st in _tdd_states(board):
+        loop = str(st_path.parent.relative_to(board))
+        for k, u in (st.get("units") or {}).items():
+            u = u if isinstance(u, dict) else {}
+            units.append({"loop": loop, "unit": k, **{f: u.get(f) or "" for f in ("route", "red", "green")},
+                          "covered_by": list(u.get("covered_by") or [])})
+        lanes = st.get("lanes") if isinstance(st.get("lanes"), dict) else {}
+        calls += sum(1 for c in [*(st.get("calls") or []), *(lanes.get("calls") or [])]   # 枝の中の呼びは締めが lanes に集める
+                     if isinstance(c, dict) and c.get("phase") == CONFLICT_PHASE)
+    got = {"items": multi, "units": units, "conflict_calls": calls,
+           "conflict_parked": sum(1 for r in trace if r.get("op") == conflict.PARK_OP),
+           "conflict_ruled": sum(1 for r in trace if r.get("op") == conflict.RULE_OP),
+           "rule_runs": sum(1 for e in events if e["event_type"] == "node_started"
+                            and report._step_name(e["step_name"]) == ruling.ROLE)}
+    if not multi:
+        return {"status": NO, "why": "修正案に 2 つ以上の単位を持つ項目が無い（狙いの形でない）"}, got
+    if not units:
+        return {"status": NO, "why": "TDD の輪の状態が無い（輪が回らなかった）"}, got
+    green = {(u["loop"], u["unit"]) for u in units if u["route"] == "tdd" and u["green"] == "ok" and not u["covered_by"]}
+    closed = [u for u in units if u["covered_by"] and u["red"] == "ok" and u["green"] == "ok"
+              and all((u["loop"], g) in green for g in u["covered_by"])]
+    facts = ["・".join(f"閉じた単位 {u['unit']}（covered_by {'、'.join(u['covered_by'])}）" for u in closed)
+             or "covered_by で閉じた単位が無い",
+             f"申し出 {got['conflict_calls']}・conflict_parked {got['conflict_parked']}・conflict_ruled {got['conflict_ruled']}"
+             f"・裁定役の起動 {got['rule_runs']}"]
+    quiet = not (got["conflict_calls"] or got["conflict_parked"] or got["conflict_ruled"] or got["rule_runs"])
+    return {"status": YES if closed and quiet else ATTEMPTED, "why": "・".join(facts)}, got
+
+
 def tdd_lanes(board: pathlib.Path, items: list = ()) -> list:
     """TDD の輪の並べの周ごと（盤面の tdd-<k>/state.json の lanes。並べた輪だけ）[{loop, lanes, rows, units, shared, expect}]。
     rows は枝ごと {lane, items（枝の単位を持つ修正案の項目）, files（当てる時に控えた枝の差分 tdd-<k>/lanes/item-<n>.patch の
     ファイル。控えが無ければ None）}"""
     out = []
-    for st_path in sorted(board.glob("tdd-*/state.json")) + sorted(board.glob("*/tdd-*/state.json")):
-        st = _json(st_path)
-        lanes = st.get("lanes") if isinstance(st, dict) else None
+    for st_path, st in _tdd_states(board):
+        lanes = st.get("lanes")
         if not isinstance(lanes, dict) or not lanes.get("rows"):
             continue
         rows = []
@@ -436,6 +507,89 @@ def diff_files(path) -> list | None:
 
 
 # ---------------------------------------------------------------- 判じる
+def stage_of(step) -> str:
+    """出来事の節の名の段（include の名か LINE_STAGE）。入れ子の節（<輪>.<節>）は外の輪の段"""
+    scope, sep, _ = str(step or "").split(".", 1)[0].partition("__")
+    return scope if sep else LINE_STAGE
+
+
+def part_of(step) -> str | None:
+    """修正の include の中の段（<include>/tdd か <include>/fix）。ほかは None"""
+    scope, sep, name = str(step or "").split(".", 1)[0].partition("__")
+    if not sep or scope not in FIX_SCOPES:
+        return None
+    return f"{scope}/tdd" if TDD_TOP.fullmatch(name) else f"{scope}/fix" if FIX_TOP.fullmatch(name) else None
+
+
+def _union(spans: list) -> float:
+    """区間 [(始め, 終わり)] の和の長さ（重なりは 1 度だけ数える）"""
+    total, end = 0.0, None
+    for a, b in sorted(spans):
+        if end is None or a > end:
+            total += b - a
+            end = b
+        elif b > end:
+            total += b - end
+            end = b
+    return total
+
+
+def stages(events: list, key=stage_of) -> list:
+    """段ごと [{stage, minutes, cost_usd, ai_nodes}]（段は key(節の名)。None の節は数えない。段の最初の節の始めの順）。分は段の節の
+    node_started の最初から終わりの最後まで（線の段だけは節の区間の和）。費用は段の AI の節（spend と同じ数え方）の和で、取れない節は
+    ai_nodes に数えて和に入れない"""
+    rows, open_ = {}, {}
+    for e in events:
+        name = key(e["step_name"])
+        if name is None or e["at"] is None or e["event_type"] not in ("node_started", *NODE_ENDS):
+            continue
+        r = rows.setdefault(name, {"first": e["at"], "last": e["at"], "cost": 0.0, "ai": 0, "spans": []})
+        r["first"], r["last"] = min(r["first"], e["at"]), max(r["last"], e["at"])
+        if e["event_type"] == "node_started":
+            open_.setdefault(e["step_name"], []).append(e["at"])
+        elif open_.get(e["step_name"]):
+            r["spans"].append((open_[e["step_name"]].pop(0), e["at"]))
+        if e["event_type"] == "node_completed" and (e["data"].get("node") or {}).get("kind") == AI_KIND:
+            r["ai"] += 1
+            r["cost"] += report._event_cost(e)[0] or 0.0
+    out = []
+    for name, r in sorted(rows.items(), key=lambda kv: kv[1]["first"]):
+        secs = _union(r["spans"]) if name == LINE_STAGE else r["last"] - r["first"]
+        out.append({"stage": name, "minutes": round(secs / 60, 1), "cost_usd": round(r["cost"], 4), "ai_nodes": r["ai"]})
+    return out
+
+
+def features_off(board: pathlib.Path) -> list:
+    """start の控え（r1/start.json）の切った機能の語（無い・読めなければ []）"""
+    doc = _json(board / "r1" / "start.json")
+    got = doc.get("features_off") if isinstance(doc, dict) else None
+    return [w for w in got if isinstance(w, str)] if isinstance(got, list) else []
+
+
+def measure(board: pathlib.Path, events: list, *, tdd_lanes: int, tdd_par: int, fix_lanes: int, fix_par: int, spent: dict,
+            done: str) -> tuple[dict, dict]:
+    """((g) の判じ {status, why}, 出す証拠 {features_off, stages, tdd, fix, total})。stages は include ごとの段、tdd・fix は修正の
+    include の中の TDD の輪の段・修正役の段の分と費用の和（refitting の同じ段も足す）と枝の数・枝の輪の同時の最大。total は spend の
+    分と費用。全部 on と全部 off の run を並べて比べるための物"""
+    off = features_off(board)
+    rows, parts = stages(events), stages(events, part_of)
+
+    def part(kind, lanes, par):
+        sel = [r for r in parts if r["stage"].endswith("/" + kind)]
+        return {"minutes": round(sum(r["minutes"] for r in sel), 1), "cost_usd": round(sum(r["cost_usd"] for r in sel), 4),
+                "lanes": lanes, "parallel": par}
+
+    got = {"features_off": off, "stages": rows, "tdd": part("tdd", tdd_lanes, tdd_par), "fix": part("fix", fix_lanes, fix_par),
+           "total": {"minutes": spent["minutes"], "cost_usd": spent["cost_usd"]}}
+    facts = [f"結末 {done or '無い'}", f"切った機能 {'・'.join(off) or '無い'}",
+             f"TDD の輪の枝 {tdd_lanes} 本・同時 {tdd_par}", f"修正役の枝 {fix_lanes} 本・同時 {fix_par}"]
+    if not done:
+        return {"status": NO, "why": "報告の結末が無い・" + "・".join(facts[1:])}, got
+    short = done != FIXED or any(LANE_FEATURES[k] not in off and not (got[k]["lanes"] >= 2 and got[k]["parallel"] >= 2)
+                                 for k in LANE_FEATURES)
+    return {"status": ATTEMPTED if short else YES, "why": "・".join(facts)}, got
+
+
 def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, launches=None) -> dict:
     """launches は包みの起動の記録の置き場（run_launches。None なら読まない）"""
     trace = _jsonl(board / "trace.jsonl")
@@ -513,16 +667,20 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
 
     d = {op: sum(1 for r in trace if r.get("op") == op) for op in REPLAN_OPS}
     e, fix_run = fix_lane_run(trace, asks, fix_lane_nodes, run_launches(launches, board))
+    f, units_run = item_units(board, items, trace, events)
+    spent, done = spend(events), outcome(board)
+    g, measured = measure(board, events, tdd_lanes=tdd_lanes_n, tdd_par=tdd_par, fix_lanes=fix_run["planted"], fix_par=fixl_par,
+                          spent=spent, done=done)
     changed = diff_files(diff) if diff else None
     return {
         "run_id": run_id,
         "status": row.get("status", ""),
-        "outcome": outcome(board),
+        "outcome": done,
         "board": str(board),
         "report": str(board / report.REPORT_FILE) if (board / report.REPORT_FILE).is_file() else "",
         "features": {"a_parallel": a, "b_overlap": b, "c_consult": c,
                      "d_replan": {"status": YES if d[conflict.REPLAN_OP] or d[planmarks.AMEND_OP] else NO, "counts": d},
-                     "e_fix_lanes": e},
+                     "e_fix_lanes": e, "f_item_units": f, "g_measure": g},
         "plan_items": items,
         "planned_overlap": planned,
         "tdd_lanes": loops,
@@ -535,8 +693,10 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
         "lane_nodes": lane_nodes,
         "fix_lane_nodes": fix_lane_nodes,
         "fix_lane_run": fix_run,
+        "item_units": units_run,
+        "measure": measured,
         "nodes": node_peak(events),
-        "spend": spend(events),
+        "spend": spent,
         "diff_files": changed,
     }
 
@@ -552,6 +712,13 @@ def summary_lines(got: dict) -> list:
     for r in got["fix_lane_run"]["answer_launches"]:
         out.append(f"  {r['node']} {r['mode'] or '?'}{' fork' if r['fork'] else ''} 元 {r['of'] or '?'}（{r['from'] or '?'} → "
                    f"{r['id'] or '?'}）")
+    out.append(f"(f) 1 つの項目の 2 つの単位: {f['f_item_units']['status']} — {f['f_item_units']['why']}")
+    m = got["measure"]
+    out.append(f"(g) 測り: {f['g_measure']['status']} — {f['g_measure']['why']}")
+    out.append("  段ごと: " + ("・".join(f"{r['stage']} {r['minutes']} 分 {r['cost_usd']} USD" for r in m["stages"]) or "出来事が無い"))
+    out.append(f"  TDD の輪の段 {m['tdd']['minutes']} 分 {m['tdd']['cost_usd']} USD（枝 {m['tdd']['lanes']} 本・同時 {m['tdd']['parallel']}）"
+               f"・修正役の段 {m['fix']['minutes']} 分 {m['fix']['cost_usd']} USD（枝 {m['fix']['lanes']} 本・同時 {m['fix']['parallel']}）"
+               f"・全体 {m['total']['minutes']} 分 {m['total']['cost_usd']} USD")
     lanes = {}
     for lp in got["tdd_lanes"]:
         for r in lp["rows"]:
@@ -595,7 +762,7 @@ def main(argv=None) -> int:
     p.add_argument("--board")
     p.add_argument("--diff")
     p.add_argument("--launches")
-    p.add_argument("--request", default=REQUESTS[0])
+    p.add_argument("--request", default="tdd")
     p.add_argument("--json", action="store_true")
     try:
         a, rest = p.parse_known_args(argv)
@@ -626,8 +793,7 @@ def main(argv=None) -> int:
         print(json.dumps(got, ensure_ascii=False))
     else:
         print("\n".join(summary_lines(got)))
-    want = ("a_parallel", "b_overlap", "c_consult") + (("e_fix_lanes",) if a.request == "fix" else ())
-    return 0 if all(got["features"][k]["status"] == YES for k in want) else 1
+    return 0 if all(got["features"][k]["status"] == YES for k in REQUESTS[a.request]) else 1
 
 
 if __name__ == "__main__":

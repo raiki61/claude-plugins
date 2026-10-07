@@ -1,0 +1,42 @@
+{
+  "material": {
+    "status": "found",
+    "count": 3,
+    "detail": "ADR・保留台帳・issue/PR 棄却一覧は無い。決着済みの論点として、README の決まり 2 件と docstring が正本という方針を拾った。calc.mean と textfmt.initials の docstring の約束（mean は和÷個数・空は ValueError、initials は各語頭の字を upper で連ねる）が決まりに当たる。"
+  },
+  "checked": true,
+  "searched": [
+    "git ls-files（README.md, CHANGELOG.md, calc.py, test_lib.py, textfmt.py, .gitignore の 6 件）",
+    "git log（コミット 1 件のみ）・git branch -a・git stash list",
+    "README.md 全文",
+    "CHANGELOG.md 全文（[Unreleased] は空）",
+    "calc.py・textfmt.py 全文（docstring・コメント）",
+    "test_lib.py の mean/initials 関連の grep",
+    "docs/・doc/・adr/ ディレクトリ（無い）",
+    "ADR・決定・保留・棄却の語での全文 grep（README 以外に該当なし）",
+    "外部の issue/PR は未確認（works-gh で見ていない。ローカルに remote の issue 情報は無く、リポジトリ名が要るため）"
+  ],
+  "settled": [
+    {
+      "topic": "関数の約束の正本",
+      "decision": "関数の振る舞いの約束は各関数の docstring が正本",
+      "reason": "README が明記している",
+      "revisit": "README の方針を変えるとき",
+      "where": "README.md 冒頭"
+    },
+    {
+      "topic": "テストの置き場と書き方",
+      "decision": "テストは test_lib.py 1 本の、モジュールごとのクラス（TestCalc・TestTextfmt）に足す。新しいテストのファイルやクラスは作らない。モジュールは import calc の形で読み calc.mean のように呼ぶ（from calc import は書かない）",
+      "reason": "README の決まり",
+      "revisit": "README の決まりを改めるとき",
+      "where": "README.md「決まり」1 項目目"
+    },
+    {
+      "topic": "CHANGELOG の記録",
+      "decision": "利用者に見える振る舞いを変えた直しは CHANGELOG.md の [Unreleased] に 1 行足す（関数の名で書く、1 関数 1 行）。calc.mean と textfmt.initials を直すなら各 1 行",
+      "reason": "README の決まり",
+      "revisit": "README の決まりを改めるとき",
+      "where": "README.md「決まり」2 項目目、CHANGELOG.md"
+    }
+  ]
+}

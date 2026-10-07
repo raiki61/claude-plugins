@@ -1,0 +1,467 @@
+{
+  "loop_name": "review-loop",
+  "run_id": "20261007-133602",
+  "graph": "/works-canary-fixture/pack/.shared/core/graphloops/graphs/review-loop.json",
+  "graph_sha": "2eb140b879e5",
+  "created": "2026-10-07T13:36:02+09:00",
+  "status": "running",
+  "round": 1,
+  "rounds": [
+    {
+      "round": 1,
+      "done": {
+        "p0.base": {
+          "at": "2026-10-07T13:36:02+09:00",
+          "instance": "p0.base"
+        },
+        "p0.local_checks": {
+          "at": "2026-10-07T13:36:03+09:00",
+          "instance": "p0.local_checks"
+        },
+        "p1.worktree_before": {
+          "at": "2026-10-07T13:36:03+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p0.premises": {
+          "at": "2026-10-07T13:36:18+09:00",
+          "instance": "p0.premises"
+        },
+        "p0.purpose": {
+          "at": "2026-10-07T13:36:29+09:00",
+          "instance": "p0.purpose"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-10-07T13:36:47+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.worktree_after": {
+          "at": "2026-10-07T13:36:47+09:00",
+          "builtin": "worktree_compare"
+        },
+        "p2.diagnose": {
+          "at": "2026-10-07T13:38:19+09:00",
+          "instance": "p2.diagnose"
+        },
+        "p2.fix_plan": {
+          "at": "2026-10-07T13:40:30+09:00",
+          "instance": "p2.fix_plan"
+        },
+        "p2.plan_review": {
+          "at": "2026-10-07T13:41:42+09:00",
+          "instance": "p2.plan_review"
+        },
+        "p2.human_gate": {
+          "at": "2026-10-07T13:41:42+09:00",
+          "builtin": "human_gate"
+        },
+        "p3.lane_merge": {
+          "at": "2026-10-07T13:41:42+09:00",
+          "builtin": "lane_merge"
+        }
+      },
+      "na": {
+        "spec.write": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+        "spec.review": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+        "spec.revise": "cond spec_revise_due: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+        "spec.approve": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+        "spec.freeze": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+        "p1.local_review": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+        "p1.hygiene": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+        "p1.procedure_trace": "cond procedure_trace_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、手順の追跡を起こさない",
+        "p1.gate_efficacy": "cond gate_efficacy_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、ゲートの検算を起こさない",
+        "p1.test_double_fidelity": "cond test_double_fidelity_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、代役の忠実さの確かめを起こさない",
+        "p1.main_path_observation": "cond main_path_observation_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、主経路の観察を起こさない",
+        "p1.provenance": "cond provenance_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、出典の確かめを起こさない",
+        "p0.parallel_pr": "cond parallel_pr_due: no_forge: local_path（remote 'origin' はローカルのパス /works-canary-fixture/place/origin.git。PR を持つホストが無いので、PR を前提にする確かめは条件に当たらない）",
+        "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ②計画・タスク記述——監査するのは writer が要約した目的（③）だけ",
+        "p1.consistency_bypass": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+        "p1.external_standards": "cond external_standards_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、外部標準の照合を起こさない",
+        "p2.history": "cond after_first_round: round=1"
+      },
+      "skipped": {},
+      "stopped": {},
+      "empty": [],
+      "instances": {
+        "p0.base": {
+          "id": "p0.base",
+          "node": "p0.base",
+          "run_by": "writer",
+          "status": "done",
+          "emitted_at": "2026-10-07T13:36:02+09:00",
+          "out_path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/out/r1/p0.base.json",
+          "attempts": 1,
+          "launched_at": "2026-10-07T13:36:02+09:00",
+          "done_at": "2026-10-07T13:36:02+09:00",
+          "output_file": "out/r1/p0.base.json"
+        },
+        "p0.local_checks": {
+          "id": "p0.local_checks",
+          "node": "p0.local_checks",
+          "run_by": "writer",
+          "status": "done",
+          "emitted_at": "2026-10-07T13:36:02+09:00",
+          "out_path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/out/r1/p0.local_checks.json",
+          "attempts": 1,
+          "engine_fallback": "対象リポジトリに走らせる語の宣言 .review-checks.json が無い——任せ先が CI の定義から走らせる（engine は終了コードを見ていない）",
+          "launched_at": "2026-10-07T13:36:02+09:00",
+          "done_at": "2026-10-07T13:36:03+09:00",
+          "output_file": "out/r1/p0.local_checks.json"
+        },
+        "p0.premises": {
+          "id": "p0.premises",
+          "node": "p0.premises",
+          "run_by": "writer",
+          "status": "done",
+          "emitted_at": "2026-10-07T13:36:02+09:00",
+          "out_path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/out/r1/p0.premises.json",
+          "attempts": 1,
+          "launched_at": "2026-10-07T13:36:18+09:00",
+          "done_at": "2026-10-07T13:36:18+09:00",
+          "output_file": "out/r1/p0.premises.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "status": "done",
+          "emitted_at": "2026-10-07T13:36:03+09:00",
+          "out_path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/out/r1/p0.prior_decisions.json",
+          "attempts": 1,
+          "launched_at": "2026-10-07T13:36:30+09:00",
+          "done_at": "2026-10-07T13:36:47+09:00",
+          "output_file": "out/r1/p0.prior_decisions.json"
+        },
+        "p0.purpose": {
+          "id": "p0.purpose",
+          "node": "p0.purpose",
+          "run_by": "writer",
+          "status": "done",
+          "emitted_at": "2026-10-07T13:36:18+09:00",
+          "out_path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/out/r1/p0.purpose.json",
+          "attempts": 1,
+          "launched_at": "2026-10-07T13:36:29+09:00",
+          "done_at": "2026-10-07T13:36:29+09:00",
+          "output_file": "out/r1/p0.purpose.json"
+        },
+        "p2.diagnose": {
+          "id": "p2.diagnose",
+          "node": "p2.diagnose",
+          "run_by": "judge",
+          "status": "done",
+          "emitted_at": "2026-10-07T13:36:47+09:00",
+          "out_path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/out/r1/p2.diagnose.json",
+          "attempts": 1,
+          "launched_at": "2026-10-07T13:36:48+09:00",
+          "done_at": "2026-10-07T13:38:19+09:00",
+          "output_file": "out/r1/p2.diagnose.json"
+        },
+        "p2.fix_plan": {
+          "id": "p2.fix_plan",
+          "node": "p2.fix_plan",
+          "run_by": "writer",
+          "status": "done",
+          "emitted_at": "2026-10-07T13:38:19+09:00",
+          "out_path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/out/r1/p2.fix_plan.json",
+          "attempts": 1,
+          "pointers": [
+            {
+              "at": "plan[].unit_keys[]",
+              "names": [
+                "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+                "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+              ]
+            }
+          ],
+          "launched_at": "2026-10-07T13:39:57+09:00",
+          "done_at": "2026-10-07T13:40:30+09:00",
+          "output_file": "out/r1/p2.fix_plan.json"
+        },
+        "p2.plan_review": {
+          "id": "p2.plan_review",
+          "node": "p2.plan_review",
+          "run_by": "judge",
+          "status": "done",
+          "emitted_at": "2026-10-07T13:40:30+09:00",
+          "out_path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/out/r1/p2.plan_review.json",
+          "attempts": 1,
+          "pointers": [
+            {
+              "at": "faces[].unit_keys[]",
+              "names": [
+                "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+                "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+              ]
+            },
+            {
+              "at": "shrink[].unit_keys[]",
+              "names": [
+                "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+                "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+              ]
+            }
+          ],
+          "launched_at": "2026-10-07T13:40:32+09:00",
+          "done_at": "2026-10-07T13:41:42+09:00",
+          "output_file": "out/r1/p2.plan_review.json"
+        },
+        "p3.fix": {
+          "id": "p3.fix",
+          "node": "p3.fix",
+          "run_by": "writer",
+          "status": "pending",
+          "emitted_at": "2026-10-07T13:41:42+09:00",
+          "out_path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/out/r1/p3.fix.json",
+          "attempts": 1
+        }
+      },
+      "item_counts": {}
+    }
+  ],
+  "thickness": null,
+  "max_rounds": 5,
+  "unattended": false,
+  "stop_after_round": 1,
+  "inputs": {
+    "request": "[\n {\n  \"where\": \"calc.py:mean\",\n  \"text\": \"mean([1, 2, 3]) が 2.0 でなく 3.0 を返す（docstring の約束は算術平均）。受け入れのテストは README の決まりどおり test_lib.py の TestCalc の中に足す。この直しは利用者に見える振る舞いを変えるので、README の決まりどおり CHANGELOG.md の [Unreleased] に mean を名指す 1 行も要る。修正案の決め（canary）: CHANGELOG.md はこの項目の allowed_paths にも out_of_scope にも書かない（どちらの欄にも CHANGELOG.md を名指さない）。out_of_scope は allowed_paths の中で触らない物の欄で、そこに名指したパスは範囲の相談が『修正案が明示に外したパス』として断るので、CHANGELOG.md を名指せばこの 1 行が書けなくなる。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼み、許しを得てから書く（この依頼は範囲の相談の道を確かめる canary を兼ねる）\",\n  \"mechanism\": \"分母が len(xs) - 1 になっている（正しくは len(xs)）\",\n  \"measured\": \"python3 -c 'import calc; print(calc.mean([1, 2, 3]))' が 3.0 を出した\",\n  \"false_positive_if\": \"mean が標本の不偏の分散の分母を使う約束なら誤り（docstring は和を個数で割ると言う）\"\n },\n {\n  \"where\": \"textfmt.py:initials\",\n  \"text\": \"initials('dark factory line') が 'DFL' でなく 'dfl' を返す（docstring の約束は各語の頭の 1 字を大文字にして連ねる。今の test_lib.py の test_initials_capitalized は頭が大文字の語しか渡さないので通っている）。受け入れのテストは README の決まりどおり test_lib.py の TestTextfmt の中に足す。この直しも利用者に見える振る舞いを変えるので、README の決まりどおり CHANGELOG.md の [Unreleased] に initials を名指す 1 行も要る。修正案の決め（canary）: CHANGELOG.md はこの項目の allowed_paths にも out_of_scope にも書かない（どちらの欄にも CHANGELOG.md を名指さない）。out_of_scope は allowed_paths の中で触らない物の欄で、そこに名指したパスは範囲の相談が『修正案が明示に外したパス』として断るので、CHANGELOG.md を名指せばこの 1 行が書けなくなる。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼み、許しを得てから書く\",\n  \"mechanism\": \"頭の字 w[0] を str.upper にかけずに連ねている\",\n  \"measured\": \"python3 -c 'import textfmt; print(textfmt.initials(\\\"dark factory line\\\"))' が dfl を出した\",\n  \"false_positive_if\": \"initials が頭の字の大小をそのまま残す約束なら誤り（docstring は大文字にすると言う）\"\n }\n]\n",
+    "document": null,
+    "lang": "依頼文の言語（利用者の言語）",
+    "cwd": "/works-canary-fixture/worktree",
+    "gates": null,
+    "policy_md": null,
+    "review_md": "/works-canary-fixture/pack/.shared/core/REVIEW.md",
+    "repo_review_md": null,
+    "scripts_dir": "/works-canary-fixture/pack/.shared/core/scripts",
+    "rounds_dir": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/rounds",
+    "review_rev": "c2962336666730dcd02f1748e2de3246f99338ce"
+  },
+  "validator": "/works-canary-fixture/pack/.shared/core/scripts/review-record.py",
+  "outputs": {
+    "p0.base": {
+      "file": "out/r1/p0.base.json",
+      "round": 1,
+      "instance": "p0.base"
+    },
+    "p0.local_checks": {
+      "file": "out/r1/p0.local_checks.json",
+      "round": 1,
+      "instance": "p0.local_checks"
+    },
+    "p1.worktree_before": {
+      "file": "out/r1/p1.worktree_before.json",
+      "round": 1
+    },
+    "p0.premises": {
+      "file": "out/r1/p0.premises.json",
+      "round": 1,
+      "instance": "p0.premises"
+    },
+    "p0.purpose": {
+      "file": "out/r1/p0.purpose.json",
+      "round": 1,
+      "instance": "p0.purpose"
+    },
+    "p0.prior_decisions": {
+      "file": "out/r1/p0.prior_decisions.json",
+      "round": 1,
+      "instance": "p0.prior_decisions"
+    },
+    "p1.worktree_after": {
+      "file": "out/r1/p1.worktree_after.json",
+      "round": 1
+    },
+    "p2.diagnose": {
+      "file": "out/r1/p2.diagnose.json",
+      "round": 1,
+      "instance": "p2.diagnose"
+    },
+    "p2.fix_plan": {
+      "file": "out/r1/p2.fix_plan.json",
+      "round": 1,
+      "instance": "p2.fix_plan"
+    },
+    "p2.plan_review": {
+      "file": "out/r1/p2.plan_review.json",
+      "round": 1,
+      "instance": "p2.plan_review"
+    },
+    "p2.human_gate": {
+      "file": "out/r1/p2.human_gate.json",
+      "round": 1
+    },
+    "p3.lane_merge": {
+      "file": "out/r1/p3.lane_merge.json",
+      "round": 1
+    }
+  },
+  "done_ever": {
+    "p0.base": 1,
+    "p0.local_checks": 1,
+    "p1.worktree_before": 1,
+    "p0.premises": 1,
+    "p0.purpose": 1,
+    "p0.prior_decisions": 1,
+    "p1.worktree_after": 1,
+    "p2.diagnose": 1,
+    "p2.fix_plan": 1,
+    "p2.plan_review": 1,
+    "p2.human_gate": 1,
+    "p3.lane_merge": 1
+  },
+  "loop": {
+    "mutation_decl": {
+      "declared": false,
+      "text": "対象リポジトリの宣言（.review-checks.json）に mutation の段が無い——在りかと呼び方は対象リポジトリの側（README・CONTRIBUTING・CI 定義・対象リポジトリの REVIEW.md など）が名指しする物を探せ（このプロンプトは道具の名前と引数の綴りを持たない）"
+    },
+    "forge": {
+      "remote": "origin",
+      "kind": "local_path",
+      "where": "/works-canary-fixture/place/origin.git"
+    },
+    "request_wheres": [
+      "calc.py:mean",
+      "textfmt.py:initials"
+    ],
+    "reviewed_revision": "c2962336666730dcd02f1748e2de3246f99338ce",
+    "diff_file": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/diff-r1.patch",
+    "changed_files": [],
+    "changed_files_file": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/changed-r1.txt",
+    "diff_stat": "0 files changed, 0 insertions(+), 0 deletions(-)",
+    "diff_lines": 0,
+    "head_revs": {
+      "1": "c2962336666730dcd02f1748e2de3246f99338ce"
+    },
+    "tree_before": {
+      "porcelain": [],
+      "stash": "",
+      "tree": "ff87580b7c8457574aa42c377f2e13a4fb5007f2"
+    },
+    "last_seen": {
+      "base_determination": 1,
+      "local_checks": 1,
+      "prior_decisions": 1
+    },
+    "last_material": {
+      "base_determination": {
+        "status": "found",
+        "count": 0,
+        "detail": "HEAD（base_rev の名指し。空なら HEAD）"
+      },
+      "local_checks": {
+        "status": "clean",
+        "count": 0,
+        "checked": "python3 -m pytest -q（起こし方 direct）を対象の根で走らせた: exit 0（ログ /works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/r1/p0.local_checks.log）",
+        "detail": "slotwrap.sh: 重いテストの枠を待つ（置き場 /works-canary-fixture/tmp/testslots・4 枠。空くまで期限なし）\ntestslot: slot-1 を取った（4 枠）\n...........                                                              [100%]\n11 passed in 0.01s"
+      },
+      "prior_decisions": {
+        "status": "found",
+        "count": 3,
+        "detail": "ADR・保留台帳・issue/PR 棄却一覧は無い。決着済みの論点として、README の決まり 2 件と docstring が正本という方針を拾った。calc.mean と textfmt.initials の docstring の約束（mean は和÷個数・空は ValueError、initials は各語頭の字を upper で連ねる）が決まりに当たる。"
+      },
+      "parallel_pr": {
+        "status": "not_applicable",
+        "reason": "no_forge: local_path（remote 'origin' はローカルのパス /works-canary-fixture/place/origin.git。PR を持つホストが無いので、PR を前提にする確かめは条件に当たらない）"
+      }
+    },
+    "engine_zero": {
+      "round": 1,
+      "keys": []
+    },
+    "lane_merge": {
+      "round": 1,
+      "merged": [],
+      "conflicts": []
+    }
+  },
+  "works": {
+    "board_version": 1,
+    "layout": "scope-1",
+    "line": "darkfactory",
+    "table_sha": "00b0d0745d3c",
+    "core": {
+      "commit": "a1202d0",
+      "path": "/works-canary-fixture/pack/.shared/core"
+    },
+    "not_in_line": [
+      {
+        "node": "p2.history",
+        "reason": "周の 2 回目の判定。1 周の run の 1 周目は条件でも na",
+        "comes_with": "線 B（darkfactory-rounds）"
+      },
+      {
+        "node": "p3.delta_gates",
+        "reason": "変異の検算（ゲートの線）はこのラインに無い",
+        "comes_with": "線 C（mutgate）"
+      },
+      {
+        "node": "p4.final_gates",
+        "reason": "最後の変異の検算はこのラインに無い",
+        "comes_with": "線 C（mutgate）"
+      },
+      {
+        "node": "spec.write",
+        "reason": "仕様から入る道は別の入口 darkfactory-spec（0.21.0 の flow=spec）。このラインは判定から入る",
+        "comes_with": "別の入口 darkfactory-spec（未定）"
+      },
+      {
+        "node": "spec.review",
+        "reason": "仕様から入る道は別の入口 darkfactory-spec（0.21.0 の flow=spec）。このラインは判定から入る",
+        "comes_with": "別の入口 darkfactory-spec（未定）"
+      },
+      {
+        "node": "spec.revise",
+        "reason": "仕様から入る道は別の入口 darkfactory-spec（0.21.0 の flow=spec）。このラインは判定から入る",
+        "comes_with": "別の入口 darkfactory-spec（未定）"
+      }
+    ],
+    "overrides": [
+      {
+        "name": "hook_evidence",
+        "reason": "読んだ記録は盤面の隣でなく包みの置き場 adapter.reads_dir(run の worktree)/reads.jsonl に在る（Task 6 の直し 1）"
+      },
+      {
+        "name": "_owed_units",
+        "reason": "食い違いの申し出に直す裁定でない裁定（ask_human・fix_plan_item）を受けた単位は、直す義務から外す（ask_human は最後の人の関所で人が決め、fix_plan_item は同じ run の中で案の項目を直すまで外す。conflict.held_by_rulings）。関所に載せる問い（fork・escalate）の出どころ・depends は、答えるまで外し（gatemarks.withheld）、修正前の関所で答えたら直す義務に戻す（gatemarks.returned）"
+      },
+      {
+        "name": "_plan_gate_items",
+        "reason": "決め手の出どころが在り undecided_because が空で柵の印の無い狭め・穴は、修正前の関所で人に聞かずに通し、state.works.gate_passes に残す（持ち主 2026-09-28。gatemarks.py）。問いの台帳で人に聞く状態の fork・escalate は、無人の run でなければ項目に載せる（持ち主 2026-09-29）。設計だけの run（入力 design_only）は項目の有無に関わらず設計だけの行を載せて関所を開ける（持ち主 2026-09-30）"
+      },
+      {
+        "name": "_r4_gate_items",
+        "reason": "写しの元は人が通した行を頭込みの文で照らし、修正前の関所の行（修正案 N が狭める能力: …）と R4 の行（R4 が BASE から消えたと見た能力: …）は頭が違うので、人が continue で通した同じ狭めを聞き直す。頭を除いた本文と種類で照らして外し、gate_passes に by human で残す（gatemarks.py）"
+      },
+      {
+        "name": "overview_due",
+        "reason": "works の run は同じ周で修正してから R3・R4 を回すので、前の周の P3 だけを引き金にすると 1 周の run では目が起きない。この周の修正の差分（p3.fix_delta が差分から測った実測。自己申告でない）が空でない周も起こす。p4.assemble が修正の後の差分を取り直してから R3・R4 に渡す"
+      },
+      {
+        "name": "on_init",
+        "reason": "対象の remote が forge（PR を持つホスト。GitHub）かを run の初めに機械が決めて盤面の loop.forge に置く（forge.detect。core は git だけ、gh・GitHub は外側の forge の層。持ち主 2026-10-07）"
+      },
+      {
+        "name": "parallel_pr_due",
+        "reason": "forge の無い remote（origin が無い・ローカルのパス・GitHub でないホスト）では並行 PR の節を条件外にし、任せ先の役に確かめるかを決めさせない（canary の run 5318f732 で役が awaiting_human と書き round_limit になった）"
+      },
+      {
+        "name": "_github_repo",
+        "reason": "写しは GitHub の形に合わない remote の URL を任せ先に落ちた理由に書き、userinfo のトークンが盤面と役への渡し物に載る。理由の文から userinfo を落とす（forge.redact）"
+      },
+      {
+        "name": "fill_materials",
+        "reason": "forge の無い run で条件外にした並行 PR の節の素材を not_applicable（reason は no_forge: <種類>）で埋める（写しは走らなかった節を not_run と書き、検証器の阻害になる）"
+      }
+    ],
+    "begin": {
+      "repo": "/works-canary-fixture/worktree",
+      "base_rev": "",
+      "request_text": "[\n {\n  \"where\": \"calc.py:mean\",\n  \"text\": \"mean([1, 2, 3]) が 2.0 でなく 3.0 を返す（docstring の約束は算術平均）。受け入れのテストは README の決まりどおり test_lib.py の TestCalc の中に足す。この直しは利用者に見える振る舞いを変えるので、README の決まりどおり CHANGELOG.md の [Unreleased] に mean を名指す 1 行も要る。修正案の決め（canary）: CHANGELOG.md はこの項目の allowed_paths にも out_of_scope にも書かない（どちらの欄にも CHANGELOG.md を名指さない）。out_of_scope は allowed_paths の中で触らない物の欄で、そこに名指したパスは範囲の相談が『修正案が明示に外したパス』として断るので、CHANGELOG.md を名指せばこの 1 行が書けなくなる。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼み、許しを得てから書く（この依頼は範囲の相談の道を確かめる canary を兼ねる）\",\n  \"mechanism\": \"分母が len(xs) - 1 になっている（正しくは len(xs)）\",\n  \"measured\": \"python3 -c 'import calc; print(calc.mean([1, 2, 3]))' が 3.0 を出した\",\n  \"false_positive_if\": \"mean が標本の不偏の分散の分母を使う約束なら誤り（docstring は和を個数で割ると言う）\"\n },\n {\n  \"where\": \"textfmt.py:initials\",\n  \"text\": \"initials('dark factory line') が 'DFL' でなく 'dfl' を返す（docstring の約束は各語の頭の 1 字を大文字にして連ねる。今の test_lib.py の test_initials_capitalized は頭が大文字の語しか渡さないので通っている）。受け入れのテストは README の決まりどおり test_lib.py の TestTextfmt の中に足す。この直しも利用者に見える振る舞いを変えるので、README の決まりどおり CHANGELOG.md の [Unreleased] に initials を名指す 1 行も要る。修正案の決め（canary）: CHANGELOG.md はこの項目の allowed_paths にも out_of_scope にも書かない（どちらの欄にも CHANGELOG.md を名指さない）。out_of_scope は allowed_paths の中で触らない物の欄で、そこに名指したパスは範囲の相談が『修正案が明示に外したパス』として断るので、CHANGELOG.md を名指せばこの 1 行が書けなくなる。CHANGELOG.md の 1 行は、修正役が範囲の相談で足しを頼み、許しを得てから書く\",\n  \"mechanism\": \"頭の字 w[0] を str.upper にかけずに連ねている\",\n  \"measured\": \"python3 -c 'import textfmt; print(textfmt.initials(\\\"dark factory line\\\"))' が dfl を出した\",\n  \"false_positive_if\": \"initials が頭の字の大小をそのまま残す約束なら誤り（docstring は大文字にすると言う）\"\n }\n]\n",
+      "stop_after_round": 1,
+      "max_rounds": null,
+      "inputs": {
+        "gates": null,
+        "policy_md": null
+      }
+    }
+  },
+  "rev": 32
+}

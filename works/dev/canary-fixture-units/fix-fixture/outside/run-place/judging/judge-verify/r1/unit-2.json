@@ -1,0 +1,9 @@
+{
+  "unit": 2,
+  "verdict": "root",
+  "evidence_found": true,
+  "evidence": "textfmt.py:18-20 に def initials(s) があり、docstring は「words(s) の各語の頭の 1 字を大文字（str.upper）にして連ねる。語が無ければ空の文字列」、本体は `return \"\".join(w[0] for w in words(s))` で str.upper の適用が無い。textfmt.py:13-15 の words は `return s.split()` で、split() は空の語を返さないので w[0] は常に在る（判定の反証③と一致）。test_lib.py:36-37 の唯一のテスト test_initials_capitalized は `textfmt.initials(\"Dark Factory\") == \"DF\"` で頭が大文字の入力だけを渡し、upper の有無で結果が変わらない（判定の why_chain 2 と一致）。Grep で *.py を見ると initials・upper はこの 2 か所（textfmt.py:18-19 と test_lib.py:36-37）にしか無く、initials を呼ぶほかの関数も、大小を変える別の層も無い。README.md:4「関数の約束は各関数の docstring が正本」、README.md:8 はテストを test_lib.py の TestTextfmt に足す決まり、README.md:9 は CHANGELOG の [Unreleased] に 1 関数 1 行の決まり、CHANGELOG.md:3 の [Unreleased] は今は空。実測の 'dfl' は実行していない（Bash を使わない役）が、textfmt.py:20 のコードを読むと 'dark factory line' から 'd'・'f'・'l' をそのまま連ねて 'dfl' になる。",
+  "location_ok": true,
+  "location": "textfmt.py:initials（20 行目の return）",
+  "why": "症状（initials('dark factory line') が 'DFL' でなく 'dfl'）は、textfmt.py:20 が w[0] を str.upper にかけずに連ねることだけで生まれる。入力の語を作る words（textfmt.py:15、s.split()）は大小を変えず、initials をほかから呼んで値を変える所も無い（Grep で確かめた）ので、別の単位や単位に無い所の結果ではない。この 1 行を docstring どおりにすれば症状は消える。見逃しの出自（test_lib.py:36-37 が頭が大文字の入力しか試さない）は判定の why_chain に含まれ、処方の受け入れのテストで扱われている。"
+}

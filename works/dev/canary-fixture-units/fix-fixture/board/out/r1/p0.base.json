@@ -1,0 +1,16 @@
+{
+  "base_sha": "d3d132886a887ff9fce9bcd39c961eb0f3455d92",
+  "method": "4 依頼者の名指し",
+  "commits": 0,
+  "merge_commit": false,
+  "intent_to_add": [],
+  "touches_gates": true,
+  "touches_external_seams": true,
+  "touches_user_path": true,
+  "touches_security_surface": true,
+  "material": {
+    "status": "found",
+    "count": 0,
+    "detail": "HEAD（base_rev の名指し。空なら HEAD）"
+  }
+}

@@ -1,0 +1,78 @@
+{
+ "ok": true,
+ "reason": "",
+ "ran": [
+  "p0.prior_decisions"
+ ],
+ "skipped": [
+  {
+   "node": "p0.purpose_review",
+   "why": "cond purpose_review_due: 目的テキストの出典が ②計画・タスク記述——監査するのは writer が要約した目的（③）だけ"
+  },
+  {
+   "node": "p1.local_review",
+   "why": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない"
+  },
+  {
+   "node": "p1.consistency_bypass",
+   "why": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない"
+  },
+  {
+   "node": "p1.hygiene",
+   "why": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない"
+  },
+  {
+   "node": "p1.external_standards",
+   "why": "cond external_standards_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、外部標準の照合を起こさない"
+  },
+  {
+   "node": "p1.procedure_trace",
+   "why": "cond procedure_trace_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、手順の追跡を起こさない"
+  },
+  {
+   "node": "p1.gate_efficacy",
+   "why": "cond gate_efficacy_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、ゲートの検算を起こさない"
+  },
+  {
+   "node": "p1.test_double_fidelity",
+   "why": "cond test_double_fidelity_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、代役の忠実さの確かめを起こさない"
+  },
+  {
+   "node": "p1.main_path_observation",
+   "why": "cond main_path_observation_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、主経路の観察を起こさない"
+  },
+  {
+   "node": "p1.provenance",
+   "why": "cond provenance_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、出典の確かめを起こさない"
+  }
+ ],
+ "materials": {
+  "base_determination": "found",
+  "local_checks": "clean",
+  "prior_decisions": "found",
+  "parallel_pr": "not_applicable",
+  "local_review": "not_applicable",
+  "consistency": "not_applicable",
+  "bypass": "not_applicable",
+  "hygiene": "not_applicable",
+  "external_standards": "not_applicable",
+  "procedure_trace": "not_applicable",
+  "gate_efficacy": "not_applicable",
+  "test_double_fidelity": "not_applicable",
+  "main_path_observation": "not_applicable",
+  "provenance": "not_applicable",
+  "fix_closure": "not_applicable"
+ },
+ "snapshot": {
+  "rev": "c2962336666730dcd02f1748e2de3246f99338ce",
+  "diff_file": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/diff-r1.patch",
+  "changed_files": [],
+  "changed_files_file": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/changed-r1.txt",
+  "diff_stat": "0 files changed, 0 insertions(+), 0 deletions(-)",
+  "request_wheres": [
+   "calc.py:mean",
+   "textfmt.py:initials"
+  ]
+ },
+ "exit_file": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/gathering/r1/material-exit.json"
+}

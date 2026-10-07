@@ -1,0 +1,23 @@
+"""小さな数の道具（平均・中央値・最頻値）。"""
+
+
+def mean(xs):
+    """算術平均（xs の和を個数で割る）。空の xs は ValueError"""
+    if not xs:
+        raise ValueError("mean of empty data")
+    return sum(xs) / len(xs)
+
+
+def median(xs):
+    """中央値（xs を小さい順に並べた真ん中の値。個数が偶数なら真ん中の 2 つの平均）。空の xs は ValueError"""
+    if not xs:
+        raise ValueError("median of empty data")
+    s = sorted(xs)
+    return s[len(s) // 2]
+
+
+def mode(xs):
+    """最頻値（一番多く現れる値。同じ回数なら xs の中で先に現れた方）。空の xs は ValueError"""
+    if not xs:
+        raise ValueError("mode of empty data")
+    return max(xs, key=xs.count)
