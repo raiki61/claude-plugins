@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.37] - 2026-10-07
+
 ### Added
 
 - 工程の地図を足した（持ち主の依頼 2026-10-07: 全体のグラフがこの形で君はここ、を機械でミドルウェアのように差し込む）。部品 `.shared/core/graphmap.py` が工程の YAML（線と include で呼ぶブロック）から全体のグラフを組み、包みが印に旗 `map` を持つ役の system prompt に、その役の会話が走る節を ★ にした短い地図（線の段を上から順に・役の居るブロックと次に呼ばれるブロックの中の節・輪・同時に走る枝・走る条件）を足す。今の旗は修正案の役の会話（`plan`・`plan-revise`・範囲の相談の答え `plan-answer`・`plan-answer-ruled` と修正役の並べの枝の答え `plan-answer-lane-<n>`（旗 `fork` の会話の写しも元の会話と同じ地図）だけで、修正案の役が「項目は後で並べの枝になり 3 方向で合わさる」を知って項目を分けられるようにする（canary の run で同じファイルの 2 件を 1 項目にまとめたため）。節の目的は YAML の節の `description:` の 1 行で、run の `features_off` で切った節は地図に出さない。新しい語 `graph_map` を `features_off` に渡すと地図を足さない。包みの system prompt に足す口は差し込みの表（`adapter.INJECTORS`）にまとめ、検索語の規律と地図をその 2 行にした（規律の字と起動の記録の `fence.query_rule` は今までと同じ。地図は `fence.graph_map` に digest か足さなかった理由）。地図の元 `darkfactory/darkfactory.graph.json` は YAML を替えたら `uv run --no-project --with pyyaml python3 works/dev/graphmap_build.py build works` で書き直す（試験 `tests/test_graphmap.py` が古い元を赤にし、包みは古い元の地図を足さない）。包みを外した run には載らない。設計 `docs/plans/2026-10-07-graph-map.md`
