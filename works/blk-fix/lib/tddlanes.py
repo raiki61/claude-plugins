@@ -23,7 +23,8 @@
 - items_of(board_dir, keys): 単位 → 単位を持つ修正案の項目の番号の並び（planbrief.by_unit_at）。盤面が開けなければ {}
 - groups(queue, items): 単位を項目を共にする物どうしの組に（純粋。振り分けの順）
 - plan(st, repo): 振り分けの後（tddloop.step）。並べる枝が 2 本以上なら（MAX_LANES 本まで）単位の worktree と単位の控えと目録を置き、
-  状態の段を lanes にして真（輪 tdd-loop はこの段で抜ける）。ほかは何もせず偽
+  状態の段を lanes にして真（輪 tdd-loop はこの段で抜ける）。ほかは見送りの理由（SKIP_UNITS・SKIP_LANES）を状態の lanes_skipped に
+  置いて偽（tddloop.step が出口の lanes_skipped に載せ、節 tdd-step が盤面の trace に SKIP_OP の行で積む）
 - fork(state_file): 節 tdd-fork。枝の輪を起こすか {go, lanes, lane_1..lane_<MAX_LANES>}（状態の段が lanes の時だけ go）
 - lane_prep(state_file, n, values): 節 tdd-lane-prep-<n>。枝 n の今の単位の決まりのファイルと回ごとの指示書を書き、包みが読む
   2 つの印（単位の鍵 adapter.session_key_path は run ごとの置き場、単位の worktree adapter.lane_tree_path は盤面の下）を置く
@@ -76,6 +77,11 @@ PLACE = "lanes"             # 単位の worktree と控えの置き場（run ご
 LANE_DIR = "lane-{n}"
 MERGED, DIRECT, PARKED, BACK = "merged", "direct", "parked", "serial"
 CLEAN, UNION, CLASH, SEMANTIC = "clean", "union", "conflict", "semantic"   # 枝ごとの合わせの結末（頭の語）
+# 並べの見送り: 振り分けを受けた周で枝を切らなかった時の trace の行 {op: SKIP_OP, reason, why, loop}（節 tdd-step が積む）と理由の語。
+# switch: 入力 tdd_lanes が off・shape: 修正の形が g3 でない（tddloop.start が状態の lanes_off に置く）・units: tdd の単位が 2 つに
+# 満たない・lanes: 範囲の引ける枝が 2 本に満たない（plan が状態の lanes_skipped に置く）
+SKIP_OP = "lanes_skipped"
+SKIP_SWITCH, SKIP_SHAPE, SKIP_UNITS, SKIP_LANES = "switch", "shape", "units", "lanes"
 
 
 def lane_nodes() -> list:
@@ -134,9 +140,10 @@ def _span(got: dict, keys) -> list | None:
 
 
 def plan(st: dict, repo) -> bool:
-    """振り分けの後に並べる枝を選び、切る（頭の注記）"""
+    """振り分けの後に並べる枝を選び、切る（頭の注記）。切らなければ状態の lanes_skipped に {reason, why}（SKIP_UNITS・SKIP_LANES）"""
     queue = list(st.get("queue") or [])
     if len(queue) < 2:
+        st["lanes_skipped"] = {"reason": SKIP_UNITS, "why": f"TDD の輪で直す単位が {len(queue)} つ（並べは 2 つから）"}
         return False
     work = pathlib.Path(st["work"])
     got = ranges(work.parent, queue)
@@ -144,6 +151,10 @@ def plan(st: dict, repo) -> bool:
     spans = [(i, _span(got, g)) for i, g in enumerate(grps, 1)]
     picked = unitlanes.lanes(spans)[:MAX_LANES]   # 枝の輪の数まで。後ろの枝の単位は順
     if not picked:
+        known = sum(1 for _, p in spans if p is not None)
+        st["lanes_skipped"] = {"reason": SKIP_LANES,
+                               "why": f"単位 {len(queue)} つを修正案の項目でまとめた枝が {len(grps)} 本で、範囲の引ける枝が "
+                                      f"{known} 本（並べは 2 本から）"}
         return False
     chosen = [grps[i - 1] for i in picked]
     place = pathlib.Path(adapter.run_place_of({"board": str(work.parent)})) / work.name / PLACE

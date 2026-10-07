@@ -467,7 +467,10 @@ def start(board_dir, repo, suite: str, open_units: str, test_cmd: str = "", unit
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
           "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}, "contract": contract, "plain": plain,
           "test_cmd": test_cmd, "test_cmd_gate": gate, "test_cmd_note": note, "light": light, "calls": [],
-          "lanes_on": shape == seat.SHAPE and lanes_ok}
+          "lanes_on": shape == seat.SHAPE and lanes_ok,
+          "lanes_off": (None if shape == seat.SHAPE and lanes_ok else
+                        {"reason": "switch", "why": "入力 tdd_lanes が off（並べの周を切った run）"} if not lanes_ok else
+                        {"reason": "shape", "why": f"修正の形が {shape}（並べの周は形 {seat.SHAPE} だけ）"})}
     state_file = work / STATE
     _save(state_file, st)
     if shape == seat.G1_SHAPE:
@@ -1262,6 +1265,8 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
     申し出でない返答は、前の段の後から変わったファイルを書き込みの記録と欄 bash_writes に突き合わせてから段を確かめる。
     lanes は並べの口（tddlanes の module。節の script が渡す。tddloop からは import しない）: 状態の lanes_on が真なら振り分けの後に
     lanes.plan（段 lanes へ進めば輪 tdd-loop は抜け、枝の輪と tdd-join が回す）。無ければ並べない。段 lanes の状態で呼べば Broken。
+    lanes を渡されて振り分けを受けた周で枝を切らなければ、出口の lanes_skipped に {reason, why, loop}（理由の語は tddlanes の SKIP_*。
+    状態の lanes_off（入力・形）か lanes.plan の置いた lanes_skipped。loop は輪の盤面の置き場の名 tdd-<k>）を載せる（節が trace に積む）。
     log は書き込みの記録（既定は repo の writes.sink。並べの枝の確かめは単位の worktree を repo に、run の作業ツリーの記録を渡す）。
     前の段の印（handoff）は突き合わせを通った時と、機械が木を単位の頭に戻して次の単位へ移った時（申し出・諦め）だけ進める（拒まれた
     返答の出し直しや、振り分けの段の申し出で、記録の無い書き込みを流さない）"""
@@ -1277,6 +1282,7 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
             "unit_key": "" if phase == "route" else st["queue"][st["cur"]]}
     item = None
     got = None
+    skipped = None   # 振り分けを受けた周で並べなかった理由（lanes を渡された時だけ。出口の lanes_skipped）
     if isinstance(reply, dict) and reply.get("phase") != "conflict":
         moved = sorted(set(touched(repo, st["handoff"], snapshot(repo))) - set(st["suite_made"]))
         got = writes.check(reply, repo, moved, writes.sink(repo) if log is None else pathlib.Path(log))
@@ -1298,8 +1304,15 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
             _abort(st, repo, f"{e.head}: {e}", "runner")
             probs = [st["note"]]
             call["phase"] = "runner"   # 機械の止まり（役の拒否と分ける）
-        if phase == "route" and not probs and not st["done"] and st.get("lanes_on") and lanes is not None:
-            lanes.plan(st, repo)   # 範囲の引ける tdd の枝が 2 本以上なら枝ごとの worktree を切って段 lanes へ（輪はここで抜ける）
+        if phase == "route" and not probs and lanes is not None:
+            if st["done"]:
+                skipped = {"reason": "units", "why": "振り分けの後に TDD の輪で直す単位が残らない"}
+            elif not st.get("lanes_on"):
+                skipped = st.get("lanes_off") or {"reason": "off", "why": "並べの周が切られている（状態に理由が無い）"}
+            elif not lanes.plan(st, repo):   # 範囲の引ける tdd の枝が 2 本以上なら枝ごとの worktree を切って段 lanes へ（輪はここで抜ける）
+                skipped = st.get("lanes_skipped") or {"reason": "unknown", "why": "並べの口が理由を残さなかった"}
+            if skipped is not None:
+                skipped = {**skipped, "loop": pathlib.Path(st["work"]).name}
     if probs and not st["done"]:
         st["tries"] += 1
         st["reason"] = "\n".join(f"- {p}" for p in probs)
@@ -1315,8 +1328,11 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
     st.setdefault("calls", []).append({**call, "ok": not probs, "runs": st["runs"] - runs0,
                                        "secs": round(time.monotonic() - t0, 1)})
     _save(state_file, st)
-    return {"ok": not probs, "done": st["done"] or st["phase"] == "lanes",   # 段 lanes は輪を抜けて枝の輪へ（状態は済んでいない）
-            "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"], "conflict": item, "writes": got}
+    out = {"ok": not probs, "done": st["done"] or st["phase"] == "lanes",   # 段 lanes は輪を抜けて枝の輪へ（状態は済んでいない）
+           "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"], "conflict": item, "writes": got}
+    if skipped is not None and not probs:
+        out["lanes_skipped"] = skipped
+    return out
 
 
 def _finish(st, repo) -> None:

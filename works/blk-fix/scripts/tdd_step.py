@@ -8,6 +8,7 @@
 赤・緑は機械だけが決める（役の申告では決まらない）。段を確かめる前に、前の段の後から変わったファイルを書き込みの記録と返答の欄
 bash_writes に突き合わせる（writes.check。無ければ拒む）。食い違いの申し出（phase conflict）が通れば、盤面の控え（conflict.park）に積む。
 形 g3 の振り分けの後に並べる枝が切れれば done が真で phase は lanes（輪 tdd-loop はここを抜け、tdd-fork が枝の輪を起こす）。
+振り分けを受けた周で並べなかったら、理由を盤面の trace に 1 行（tddlanes.SKIP_OP の {reason, why, loop}）積む。
 出口は {"ok", "done", "reason", "phase", "reason_file"} の 1 行と 0。
 拒否の理由の本文は盤面の reject-tdd_step-<連番>.txt（script_io.emit_result）と、次の指示書（tdd-prep）に載る。
 受け付けの最後の結果の控え（accept-last.json）には書かない: 輪の拒否・投げ出しは修正役への引き渡しで、run の落ちた理由ではない
@@ -56,6 +57,9 @@ def main() -> int:
         if items:   # 止めた申し出を盤面の控えと trace に積む（裁定の輪が読む）
             conflict.park(entry.open_board(board), items, source="tdd")
         out.pop("writes", None)   # 記録の無い run は輪の後の fix-accept が盤面の trace に積む（同じ worktree の同じ記録）
+        skipped = out.pop("lanes_skipped", None)
+        if skipped:   # 振り分けの後に並べなかった理由を 1 行（run の報告・canary_check が読む）
+            entry.open_board(board).trace(tddlanes.SKIP_OP, **skipped)
     except (tddloop.Broken, Unreadable, OSError, BoardGap) as e:
         print(f"tdd-step: {' '.join(str(e).split())}", file=sys.stderr)
         return 2
