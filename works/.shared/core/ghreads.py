@@ -21,8 +21,9 @@ exit 4）。だから殻が Archon を起こす前に、利用者の env のま�
 - load(board_dir, src) -> doc|None: 盤面の根の github.json を先に、無ければ src を読むだけ（盤面を作る前に入力を確かめる）
 - adopt(board_dir, src) -> doc|None: 盤面の根の github.json を先に使い、無ければ src を写して元を消す
 - 読み出しのファイルの形: {version, pr: {<番号>: {...}}, issue: {<番号>: {...}}}。読めない項は {status: unreadable, reason}。
-  対象の remote に forge（PR を持つホスト。forge.py）が無ければ gh を呼ばず、名指した項は {status: not_applicable, reason: no_forge: …}、
-  --pr は書かずに 1（base を名指して回す）
+  対象の remote に forge（PR を持つホスト。forge.py）が無くても、利用者が名指した項は gh で読む（GH_REPO・別の remote・自前の
+  ドメインの GitHub Enterprise Server なら gh は読める。名指した物を黙って落とさない）。forge の無い対象で gh が読めなかった項は
+  unreadable でなく {status: not_applicable, reason: no_forge: …。gh でも読めなかった: …}、--pr は書かずに 1（base を名指して回す）
 """
 import argparse
 import json
@@ -49,7 +50,7 @@ BOARD_FILE = "github.json"   # 盤面の根に置く読み出しの写し
 PR_FIELDS = "baseRefOid,headRefOid,title,body,comments,reviews"
 ISSUE_FIELDS = "title,body,comments"
 UNREADABLE = "unreadable"
-NOT_APPLICABLE = "not_applicable"   # forge の無い対象（forge.reason）で名指した項。gh を呼ばない
+NOT_APPLICABLE = "not_applicable"   # forge の無い対象（forge.reason）で名指し、gh も読めなかった項
 
 
 def request_parts(doc) -> dict:
@@ -192,6 +193,14 @@ def _read_issue(repo: pathlib.Path, n: int) -> dict:
     return {**doc, "status": "ok"}
 
 
+def _not_applicable(got: dict, no_forge: str) -> dict:
+    """forge の無い対象（no_forge は forge.reason の文）で gh が読めなかった項は、unreadable でなく not_applicable にする（確かめる
+    物が無い。理由の頭は no_forge: <種類>、gh の読めなかった理由も添える）。読めた項と forge の在る対象の項はそのまま"""
+    if not no_forge or got.get("status") != UNREADABLE:
+        return got
+    return {"status": NOT_APPLICABLE, "reason": f"{no_forge}。gh でも読めなかった: {got.get('reason') or '理由なし'}"}
+
+
 def _write(out: pathlib.Path, doc: dict) -> None:
     """一時の名に書いて os.replace で一度に置く（途中の残りを作らない）"""
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -217,21 +226,20 @@ def read(repo, request: str, pr: str, out) -> int:
     if not prs and not issues:
         return 0
     no_forge = forge.reason(forge.detect(repo))
-    if no_forge and cli is not None:
-        print(f"ghreads: PR #{cli} は GitHub の PR の base・head を読む——対象の remote に PR を持つホストが無い（{no_forge}）。"
-              "base を名指して回す", file=sys.stderr)
-        return 1
     doc = {"version": GITHUB_READS_VERSION, "pr": {}, "issue": {}}
-    na = {"status": NOT_APPLICABLE, "reason": no_forge}
     for n in prs:
-        doc["pr"][str(n)] = dict(na) if no_forge else _read_pr(repo, n)
+        doc["pr"][str(n)] = _not_applicable(_read_pr(repo, n), no_forge)
     for n in issues:
-        doc["issue"][str(n)] = dict(na) if no_forge else _read_issue(repo, n)
+        doc["issue"][str(n)] = _not_applicable(_read_issue(repo, n), no_forge)
     if cli is not None:
         got = doc["pr"][str(cli)]
         if not got.get("baseRefOid") or not got.get("headRefOid"):
-            print(f"ghreads: PR #{cli} の base・head を読めない（{got.get('reason') or '欄が無い'}）——"
-                  "利用者の gh でログインしてから回す", file=sys.stderr)
+            if no_forge:
+                print(f"ghreads: PR #{cli} の base・head を読めない——対象の remote に PR を持つホストが無い（{got['reason']}）。"
+                      "base を名指して回す", file=sys.stderr)
+            else:
+                print(f"ghreads: PR #{cli} の base・head を読めない（{got.get('reason') or '欄が無い'}）——"
+                      "利用者の gh でログインしてから回す", file=sys.stderr)
             return 1
     _write(out, doc)
     return 0

@@ -277,7 +277,9 @@ GHREADS = CORE / "ghreads.py"
 
 
 class GhReadsCase(unittest.TestCase):
-    """隔離の前の読み出し（python3 -I ghreads.py read）は、forge の無い対象では gh を呼ばず、名指した PR・issue を条件外と書く"""
+    """隔離の前の読み出し（python3 -I ghreads.py read）は、forge の無い対象でも利用者が名指した PR・issue を gh で読み（GH_REPO・
+    別の remote・自前のドメインの GitHub Enterprise Server なら gh は読める）、読めなかった項だけを条件外（not_applicable、
+    reason は no_forge: <種類>）と書く。--pr は base・head が読めなければ no_forge の理由で止まる"""
 
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -295,31 +297,60 @@ class GhReadsCase(unittest.TestCase):
         gh.chmod(0o755)
         self.out = self.tmp / "reads.json"
 
-    def read(self, *args):
+    def read(self, *args, **env_kw):
         import os
-        env = hermetic.child_env(PATH=f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}")
+        env = hermetic.child_env(PATH=f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}", HOME=str(self.tmp / "home"),
+                                 **env_kw)
         return subprocess.run([sys.executable, "-I", str(GHREADS), "read", "--repo", str(self.repo), *args, "--out", str(self.out)],
                               capture_output=True, text=True, encoding="utf-8", env=env, cwd=str(self.tmp))
 
-    def test_named_items_are_not_applicable_without_gh(self):
+    def test_named_items_gh_cannot_read_are_not_applicable(self):
+        """gh が読めない（偽の gh は exit 4）名指しの項は unreadable でなく not_applicable（reason は no_forge: <種類>）。
+        確かめる物が無いので人待ちにしない"""
         req = self.tmp / "req.json"
         req.write_text('{"findings": [], "pr": [7], "issue": [9]}', encoding="utf-8")
         r = self.read("--request", str(req))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertFalse(self.called.exists(), "forge の無い対象で gh を呼んだ")
+        self.assertTrue(self.called.exists(), "利用者が名指した項を gh で読みに行かなかった")
         import json
         doc = json.loads(self.out.read_text(encoding="utf-8"))
         for got in (doc["pr"]["7"], doc["issue"]["9"]):
             self.assertEqual(got["status"], "not_applicable")
             self.assertTrue(got["reason"].startswith("no_forge: local_path"), got)
+            self.assertIn("exit 4", got["reason"])   # gh が読めなかった理由も残す
 
     def test_cli_pr_on_no_forge_refuses_with_the_reason(self):
-        """--pr は GitHub の PR の base・head が要るので、forge の無い対象では gh を呼ばずに書かずに 0 以外（理由は no_forge）"""
+        """--pr の base・head を gh が読めなければ、書かずに 0 以外（理由は no_forge）"""
         r = self.read("--request", "-", "--pr", "7")
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertFalse(self.called.exists())
         self.assertFalse(self.out.exists())
         self.assertIn("no_forge: local_path", r.stderr)
+
+    def _reading_gh(self):
+        """利用者のログインが見え、PR #7・issue #9 を返す偽の gh（test_ghreads.fake_gh）に替える"""
+        from test_ghreads import fake_gh
+        self.bin, calls, login = fake_gh(self.tmp)
+        return {"GH_CONFIG_DIR": str(login)}
+
+    def test_named_items_gh_can_read_are_kept_on_no_forge(self):
+        """forge の無い対象でも、gh が読める名指しの項（GH_REPO・別の remote・自前のドメインの GHES）は読んだ中身を載せる
+        （名指した物を黙って落とさない。条件外にするのは並行 PR の確かめと、gh が読めなかった項だけ）"""
+        req = self.tmp / "req.json"
+        req.write_text('{"findings": [], "pr": [7], "issue": [9]}', encoding="utf-8")
+        r = self.read("--request", str(req), **self._reading_gh())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        import json
+        doc = json.loads(self.out.read_text(encoding="utf-8"))
+        self.assertEqual(doc["pr"]["7"]["body"], "非公開の本文")
+        self.assertEqual(doc["issue"]["9"]["body"], "課題の本文")
+
+    def test_cli_pr_gh_can_read_runs_on_no_forge(self):
+        """forge の無い対象でも、gh が --pr の base・head を読めれば書いて 0"""
+        r = self.read("--request", "-", "--pr", "7", **self._reading_gh())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        import json
+        got = json.loads(self.out.read_text(encoding="utf-8"))["pr"]["7"]
+        self.assertEqual((got["baseRefOid"], got["headRefOid"]), ("b" * 40, "h" * 40))
 
 
 if __name__ == "__main__":
