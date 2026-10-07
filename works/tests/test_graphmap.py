@@ -153,21 +153,19 @@ class RenderCase(unittest.TestCase):
             "line（上から順に走る）:",
             "- 人 gate: 人の関所",
             "- start: 入力を確かめる",
-            "- ★ writing ⇒ blk-a (off: peer) [h-a.go]: 案を書く",
-            "- ★ doing ⇒ blk-b [h-b.go]: 案を直す",
+            "- ★ writing ⇒ blk-a (off: peer) [?]: 案を書く",   # 条件の元 h-a は地図に出ない配管
+            "- ★ doing ⇒ blk-b [?]: 案を直す",
             "- ★ closing ⇒ blk-a: 締める",
             "blk-a（writing・closing で走る）:",
-            "- ⟳3 write-loop [prep.next=write]: 書く輪",
+            "- ⟳3 write-loop [?]: 書く輪",
             "  - ★ AI writer: 書く役",
             "  - ⟳2 revise-loop: 直しの輪",
             "    - ★ AI reviser: 直す役",
             "- peer-check [needs peer]: 相手を確かめる",
             "blk-b（doing で走る）:",
             "- fork: 枝を分ける",
-            "- ∥ ⟳40 lane-loop-1 [fork.lane_1]: 枝 1 の輪",
-            "  - AI lane-1: 枝 1 の役",
-            "- ∥ ⟳40 lane-loop-2 [fork.lane_2]: 枝 2 の輪",
-            "  - AI lane-2: 枝 2 の役",
+            "- ∥ ⟳40 lane-loop-1〜2 [fork.lane_1〜2]: 枝 1〜2 の輪",   # 番号だけ違う同じ形の枝は 1 つにまとめる
+            "  - AI lane-1〜2: 枝 1〜2 の役",
             "- join: 枝を 3 方向で合わせる",
             "- ⟳12 fix-loop: 直す輪",
             "  - AI fixer: 直す役",
@@ -190,7 +188,7 @@ class RenderCase(unittest.TestCase):
     def test_unknown_switches_keep_conditions(self):
         text = graphmap.render(self.g, "writer", off=None)
         self.assertIn("- fork [needs lanes]: 枝を分ける", text)
-        self.assertIn("∥ ⟳40 lane-loop-1 [fork.lane_1] [needs lanes]", text)
+        self.assertIn("∥ ⟳40 lane-loop-1〜2 [fork.lane_1〜2] [needs lanes]", text)
         self.assertIn("★ writing ⇒ blk-a (off: peer)", text)   # 字の off は run に依らず切り
         self.assertIn("peer-check [needs peer]", text)          # 呼ぶ節ごとに on と off が違う
 
@@ -243,6 +241,73 @@ class RenderCase(unittest.TestCase):
             "M（d で走る）:", "- ★ m ⇒ I: 奥を呼ぶ", "I（m で走る）:", "- ★ AI i: 奥の役"])
 
 
+class CompactCase(unittest.TestCase):
+    """地図を短く保つ描き方: 番号だけ違う同じ形の兄弟（並べの枝）は 1 行にまとめる・条件の元が地図に出ない配管なら [?]・
+    枠を超える時は ★ から遠い節の目的から省く（節そのもの・★・輪・[needs] は残す）"""
+
+    node = staticmethod(RenderCase.node)
+
+    def lanes_graph(self, purposes, ids=("lp-1", "lp-2", "lp-3")):
+        n = self.node
+        body = [n(f"{i}", "loop", deps=["f"], max=9, when=f"$f.output.lane_{i[-1]} == true", purpose=p,
+                  body=[n(f"r-{i[-1]}", "ai", purpose=f"枝 {i[-1]} の役")]) for i, p in zip(ids, purposes)]
+        return {"version": graphmap.GRAPH_VERSION, "entry": "L", "sources": {}, "workflows": {
+            "L": {"nodes": [n("f", "script", purpose="分ける"), *body, n("w", "ai", marker="w", purpose="書く")]}}}
+
+    def test_lanes_collapse_only_when_same_but_the_number(self):
+        text = graphmap.render(self.lanes_graph(["枝 1 の輪", "枝 2 の輪", "枝 3 の輪"]), "w", off=[])
+        self.assertIn("- ∥ ⟳9 lp-1〜3 [f.lane_1〜3]: 枝 1〜3 の輪\n  - AI r-1〜3: 枝 1〜3 の役\n", text)
+        text = graphmap.render(self.lanes_graph(["枝 1 の輪（長い）", "枝 2 の輪", "枝 3 の輪"]), "w", off=[])
+        self.assertIn("- ∥ ⟳9 lp-1 [f.lane_1]: 枝 1 の輪（長い）\n  - AI r-1: 枝 1 の役\n", text)   # 目的が違えばまとめない
+        self.assertIn("- ∥ ⟳9 lp-2〜3 [f.lane_2〜3]: 枝 2〜3 の輪", text)   # 同じ形の残りはまとめる
+        text = graphmap.render(self.lanes_graph(["枝 1 の輪", "枝 2 の輪", "枝 4 の輪"], ids=("lp-1", "lp-2", "lp-4")),
+                               "w", off=[])
+        self.assertIn("lp-1〜2", text)   # 番号の続かない lp-4 はまとめない
+        self.assertIn("- ∥ ⟳9 lp-4 [f.lane_4]: 枝 4 の輪", text)
+
+    def test_condition_on_a_hidden_node_is_a_question_mark(self):
+        n = self.node
+        g = {"version": graphmap.GRAPH_VERSION, "entry": "L", "sources": {}, "workflows": {"L": {"nodes": [
+            n("h", "script"), n("s", "script", purpose="見える"),
+            {**n("a", "ai", marker="a", when="$h.output.go == true", purpose="配管が決める"), "deps": ["s"]},
+            {**n("b", "ai", when="$s.output.go == true", purpose="見える節が決める"), "deps": ["a"]},
+            {**n("c", "ai", when="$h.output.go == true && $s.output.x == true", purpose="混ぜ"), "deps": ["b"]}]}}}
+        text = graphmap.render(g, "a", off=[])
+        self.assertIn("- ★ AI a [?]: 配管が決める", text)
+        self.assertIn("- AI b [s.go]: 見える節が決める", text)
+        self.assertIn("- AI c [h.go && s.x]: 混ぜ", text)   # 1 つでも地図に在る節を指すなら字のまま
+
+    def budget_graph(self):
+        n = self.node
+        top = [n(f"u{i}", "call", call="B", **{"with": {}}, purpose=f"上の段 {i} の目的の文") for i in range(6)]
+        top.insert(3, n("me", "ai", marker="me", purpose="★ の目的"))
+        return {"version": graphmap.GRAPH_VERSION, "entry": "L", "sources": {}, "workflows": {
+            "L": {"nodes": top}, "B": {"nodes": [n("lp", "loop", max=2, purpose="輪の目的", needs="x",
+                                                    body=[n("r", "ai", purpose="役の目的")])]}}}
+
+    def test_budget_drops_far_purposes_first(self):
+        g = self.budget_graph()
+        full = graphmap.render(g, "me", off=[], budget=None)
+        self.assertNotIn(graphmap.TRIMMED.split("{")[0], full)
+        lines = full.split("\n")
+        cut = graphmap.render(g, "me", off=[], budget=len(full) - 1)
+        self.assertLessEqual(len(cut), len(full) - 1)
+        self.assertIn(graphmap.TRIMMED.format(budget=len(full) - 1), cut)
+        self.assertIn("- ★ AI me: ★ の目的", cut)
+        self.assertIn("- u0 ⇒ B\n", cut)              # 最も遠い（★ から 3 行・上が先）
+        self.assertIn("- u2 ⇒ B: 上の段 2 の目的の文", cut)   # ★ の隣は残る
+        tight = graphmap.render(g, "me", off=None, budget=1)   # 収まらなくても節は消さない（試験が枠の超えを名指す）
+        for word in ("★ AI me: ★ の目的", "- u0 ⇒ B", "- u5 ⇒ B", "⟳2 lp [needs x]", "AI r"):
+            self.assertIn(word, tight)
+        self.assertNotIn("目的の文", tight)
+        self.assertEqual(lines[:3], graphmap.HEAD.split("\n"))
+
+    def test_budget_is_the_default_and_deterministic(self):
+        g = self.budget_graph()
+        self.assertEqual(graphmap.render(g, "me", off=[]), graphmap.render(g, "me", off=[], budget=graphmap.MAP_BUDGET))
+        self.assertEqual(graphmap.render(g, "me", off=[], budget=200), graphmap.render(g, "me", off=[], budget=200))
+
+
 class StaleCase(unittest.TestCase):
     def test_stale_names_changed_sources_and_cli_check(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -275,7 +340,6 @@ def real_graph() -> dict:
 class RealLineCase(unittest.TestCase):
     """本物の pack（works/）の地図の元"""
 
-    MAP_BUDGET = 4000   # 旗 map の節の地図の字数の枠（system prompt に毎起動載る。測った値は設計書の「大きさ」）
     PURPOSE_MAX = 100   # 節の目的の 1 行の字数の枠
 
     def test_graph_file_is_fresh(self):
@@ -313,21 +377,29 @@ class RealLineCase(unittest.TestCase):
                 self.assertTrue(members <= flagged or not (members & flagged), sorted(members))
 
     def test_flagged_maps_fit_and_name_every_purpose(self):
+        """地図は枠の中（超える分は ★ から遠い節の目的を省いて収める。節の行は減らさない）。YAML は地図に載る節の全部に目的を持つ"""
         g = real_graph()
         for m in self.flagged(g):
             for off in (None, []):
                 with self.subTest(m, off=off):
                     text = graphmap.render(g, m, off=off)
-                    self.assertLessEqual(len(text), self.MAP_BUDGET)
-                    for line in text.splitlines():
+                    full = graphmap.render(g, m, off=off, budget=None)
+                    self.assertLessEqual(len(text), graphmap.MAP_BUDGET)
+                    self.assertEqual(len(text.splitlines()) - (text != full), len(full.splitlines()))
+                    for line in full.splitlines():
                         if line.lstrip().startswith("- ") and ("AI " in line or "⟳" in line or "⇒" in line):
                             self.assertIn(": ", line.split("]")[-1] if "]" in line else line, f"目的の 1 行が無い: {line}")
 
     def test_planner_map_names_the_downstream_lanes(self):
         """修正案の役が知る後の流れ: 項目は修正の段で枝に分かれて同時に走り、3 方向で合わさる（canary3 の動機）"""
         text = graphmap.render(real_graph(), "plan", off=[])
-        for word in ("★ AI plan:", "tdd-fork", "∥ ⟳40 tdd-lane-loop-1", "tdd-join", "3 方向", "★ AI plan-answer"):
-            self.assertIn(word, text)
+        for word in ("★ AI plan:", "tdd-fork", "∥ ⟳40 tdd-lane-loop-1〜3", "  - AI tdd-lane-1〜3:", "tdd-join", "3 方向",
+                     "fix-fork", "∥ ⟳18 fix-lane-loop-1〜3", "  - AI fix-lane-1〜3:", "★ AI plan-answer-lane-1〜3", "fix-join",
+                     "★ AI plan-answer", "AI plan-review"):
+            self.assertIn(word, text)   # 枝の 3 本は番号だけ違う同じ形なので 1 行（YAML の目的を枝ごとに同じ字にしておく）
+        for line in text.splitlines():
+            if line.lstrip().startswith("- ") and "★" in line:
+                self.assertIn(": ", line, f"★ の行は目的を省かない: {line}")
         off = graphmap.render(real_graph(), "plan", off=["tdd_lanes"])
         self.assertNotIn("tdd-lane-loop-1", off)
         self.assertIn("(off: tdd_lanes)", off)

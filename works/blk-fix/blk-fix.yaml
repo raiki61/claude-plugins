@@ -397,7 +397,7 @@ nodes:
               unit_key: {type: string}
 
   - id: tdd-lane-loop-2
-    description: '枝 2 の TDD の輪 [needs: tdd_lanes]'
+    description: '枝 2 の TDD の輪（枝の worktree で、枝の単位を順に） [needs: tdd_lanes]'
     depends_on: [tdd-fork]
     when: "$tdd-fork.output.lane_2 == true"
     loop_group:
@@ -424,7 +424,7 @@ nodes:
               prompt_file: {type: string}
 
         - id: tdd-lane-2
-          description: '枝 2 の TDD の役'
+          description: '枝 2 の TDD の役（cwd は枝の worktree）'
           model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
           effort: high
           prompt: 指示書 `$tdd-lane-prep-2.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
@@ -463,7 +463,7 @@ nodes:
               unit_key: {type: string}
 
   - id: tdd-lane-loop-3
-    description: '枝 3 の TDD の輪 [needs: tdd_lanes]'
+    description: '枝 3 の TDD の輪（枝の worktree で、枝の単位を順に） [needs: tdd_lanes]'
     depends_on: [tdd-fork]
     when: "$tdd-fork.output.lane_3 == true"
     loop_group:
@@ -490,7 +490,7 @@ nodes:
               prompt_file: {type: string}
 
         - id: tdd-lane-3
-          description: '枝 3 の TDD の役'
+          description: '枝 3 の TDD の役（cwd は枝の worktree）'
           model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。tdd と同じ）
           effort: high
           prompt: 指示書 `$tdd-lane-prep-3.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
@@ -1201,7 +1201,7 @@ nodes:
               item: {type: integer}
 
   - id: fix-lane-loop-2
-    description: '枝 2 の修正役の輪 [needs: fix_lanes]'
+    description: '枝 2 の修正役の輪（項目を順に・範囲の相談つき） [needs: fix_lanes]'
     depends_on: [fix-fork]
     when: "$fix-fork.output.lane_2 == true"
     loop_group:
@@ -1263,7 +1263,7 @@ nodes:
 
         # 答えの節: 修正案を書いた役の会話の写しで答える（印 continue=fix-planner fork map。同時に走るほかの枝の答えの節と履歴を混ぜない。旗 map は写しの元の会話と同じ地図）
         - id: plan-answer-lane-2
-          description: '枝 2 の相談に答える（写し）'
+          description: '枝 2 の範囲の相談に答える（修正案の会話の写し）'
           model: opus                 # plan-answer と同じ（表 .shared/core/stage-models.json の plan_writer）
           effort: medium
           prompt: 指示書 `$fix-lane-consult-2.output.prompt_file` を Read で全部読み、その相談に答えよ。返すのは指示書の JSON だけ。
@@ -1338,7 +1338,7 @@ nodes:
               item: {type: integer}
 
   - id: fix-lane-loop-3
-    description: '枝 3 の修正役の輪 [needs: fix_lanes]'
+    description: '枝 3 の修正役の輪（項目を順に・範囲の相談つき） [needs: fix_lanes]'
     depends_on: [fix-fork]
     when: "$fix-fork.output.lane_3 == true"
     loop_group:
@@ -1400,7 +1400,7 @@ nodes:
 
         # 答えの節: 修正案を書いた役の会話の写しで答える（印 continue=fix-planner fork map。同時に走るほかの枝の答えの節と履歴を混ぜない。旗 map は写しの元の会話と同じ地図）
         - id: plan-answer-lane-3
-          description: '枝 3 の相談に答える（写し）'
+          description: '枝 3 の範囲の相談に答える（修正案の会話の写し）'
           model: opus                 # plan-answer と同じ（表 .shared/core/stage-models.json の plan_writer）
           effort: medium
           prompt: 指示書 `$fix-lane-consult-3.output.prompt_file` を Read で全部読み、その相談に答えよ。返すのは指示書の JSON だけ。
