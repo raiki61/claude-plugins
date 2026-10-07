@@ -47,6 +47,7 @@ TRACE_OP = "judge_verify"
 OFF_OP = "judge_verify_off"           # 入力 verify が off で裏取りを回さなかった周の trace の行
 CHECKED, UNVERIFIED = "checked", "unverified"
 VERDICTS = ("root", "not_root", "unsure")
+PLACES = ("same", "apart")              # 関わりの行の place: 同じ行・同じ塊（か前提を変える）・同じファイルの別の所だけ
 NOT_GO = {"ok": True, "go": False, "prompt_file": ""}
 EMPTY_MERGE = {"ok": True, "verify_file": "", "verified": 0, "unverified": 0}
 WAITING = "裏取りの答えがまだ無い（束ね役が落ちたか、下請けを起こさなかった）"
@@ -71,7 +72,9 @@ UNIT_ASK = ("見ること: (1) 根本か（verdict）: この単位を直せば�
             "書いたら最後のメッセージに 1 行だけ返せ: `単位 {n}: <verdict>`。\n\n```json\n{schema}\n```")
 SYNERGY_HEAD = "## お前の確かめ: 単位どうしの相乗り"
 SYNERGY_ASK = ("1 つの単位の中の確かめは別の下請けがする。お前は単位どうしの関わりだけを見る: duplicates（同じ根の別の現れ・同じ直しで"
-               "閉じる）・relations（同じファイル・同じ名・同じ試験を触る、片方の直しがもう片方の前提を変える）・order（片方を先に"
+               "閉じる）・relations（place で 2 つに分ける。same＝同じ行・同じ塊を変える、か片方の直しがもう片方の前提（名・型・"
+               "呼び方）を変える。apart＝同じファイル・同じ試験のファイルの別の所（別の関数・別のクラス・別のクラスに足すテスト）を"
+               "触るだけで、直しどうしは重ならない。同じファイルだけを理由に same にしない）・order（片方を先に"
                "直さないともう片方を直せない・試せない）。単位は下の番号で名指す。無ければ空の配列にし、why に見た事と無い理由を"
                "書く。答えは下の JSON Schema に合う JSON 1 つにして、" + ANSWER_AT + "（このファイルのほかに書かない）。書いたら"
                "最後のメッセージに 1 行だけ返せ: `相乗り: 重複 <数>・関わり <数>・順番 <数>`。\n\n```json\n{schema}\n```")
@@ -104,12 +107,15 @@ def synergy_schema() -> dict:
     pair = {"type": "object", "additionalProperties": False, "required": ["units", "why"],
             "properties": {"units": {"type": "array", "minItems": 2, "items": {"type": "integer", "minimum": 1}},
                            "why": {"type": "string", "minLength": 4}}}
+    relation = copy.deepcopy(pair)   # 関わりの行は place（PLACES。同じ行・同じ塊か、同じファイルの別の所か）を持つ
+    relation["required"] = relation["required"] + ["place"]
+    relation["properties"]["place"] = {"type": "string", "enum": list(PLACES)}
     order = {"type": "object", "additionalProperties": False, "required": ["first", "then", "why"],
              "properties": {"first": {"type": "integer", "minimum": 1}, "then": {"type": "integer", "minimum": 1},
                             "why": {"type": "string", "minLength": 4}}}
     return {"type": "object", "additionalProperties": False, "required": ["why", "duplicates", "relations", "order"],
             "properties": {"why": {"type": "string", "minLength": 10}, "duplicates": {"type": "array", "items": pair},
-                           "relations": {"type": "array", "items": copy.deepcopy(pair)},
+                           "relations": {"type": "array", "items": relation},
                            "order": {"type": "array", "items": order}}}
 
 
@@ -260,7 +266,8 @@ def _check_synergy(b, keys: dict) -> dict:
         return {"state": UNVERIFIED, "errors": errs}
 
     def group(rows):
-        return [{"units": [keys[x] for x in dict.fromkeys(r["units"])], "why": r["why"]} for r in rows]
+        return [{"units": [keys[x] for x in dict.fromkeys(r["units"])], "why": r["why"],
+                 **({"place": r["place"]} if "place" in r else {})} for r in rows]
     return {"state": CHECKED, "why": got["why"], "duplicates": group(got["duplicates"]), "relations": group(got["relations"]),
             "order": [{"first": keys[r["first"]], "then": keys[r["then"]], "why": r["why"]} for r in got["order"]]}
 

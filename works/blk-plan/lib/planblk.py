@@ -164,8 +164,9 @@ SUB_ITEM_ASK = ("お前が見るのは下の項目 {n} だけ。この項目が�
                 "（項目どうしの関わりは別の下請けが見る）。答えは頭の『答え方』の型で、" + ANSWER_AT + "。書いたら最後のメッセージに"
                 " 1 行だけ返せ: `項目 {n}: clean` か `項目 {n}: block <key>、<key>`。")
 SUB_SYNERGY_ASK = ("お前は相乗りの審査の下請け。項目どうしの関わりだけを見る（1 つの項目の中の穴は挙げない。頭の『答え方』の当たりの"
-                   "答えは要らない）: 同じファイル・同じ試験への食い違う変更・順番の依存・重複した作業・まとめられる所。穴は faces に"
-                   "挙げ、unit_keys に関わる項目の単位の名を全部、字のまま入れよ（名指した項目だけが開き直す）。why に見た事と、穴が"
+                   "答えは要らない）: 同じ行・同じ塊への食い違う変更・順番の依存・重複した作業・同じ根なのに別の項目に分かれた所。"
+                   "同じファイルの別の所（別の関数・別のクラス・別のクラスに足すテスト）を触るだけの項目は穴でない（まとめさせない）。"
+                   "穴は faces に挙げ、unit_keys に関わる項目の単位の名を全部、字のまま入れよ（名指した項目だけが開き直す）。why に見た事と、穴が"
                    "無いならその理由を書く。答えは下の JSON Schema に合う JSON 1 つにして、" + ANSWER_AT + "（このファイルのほかに"
                    "書かない）。書いたら最後のメッセージに 1 行だけ返せ: `相乗り: clean` か `相乗り: block <key>、<key>`。"
                    "\n\n```json\n{schema}\n```")
@@ -183,10 +184,16 @@ DESIGN_ASK = ("修正案をこの設計と構造で突き合わせよ——何�
 DESIGN_NOT_STANDS = ("設計の役は、目的の問いが立たないと返した（{reason}）。問いが立つかは修正の後の独立の目が前提を実態で検算して"
                      "扱うので、ここでは穴に挙げない。設計との突き合わせはせずに審査せよ。")
 DESIGN_NONE = "独立設計は無い（{why}）。設計との突き合わせはせずに審査せよ。"
+# 項目の組み方の決まり（修正案の役の頭。写しの指示書の「1 つの案で複数の単位を閉じてよい（一撃の原理に沿うならそれが望ましい）」
+# を同じファイルを触るだけの単位にまで当てない。canary の run 2 本が同じファイルの別の所を触る 2 単位を 1 項目にまとめた）
+ITEMS_RULE = ("項目の組み方: 項目をまとめるのは、単位が同じ根で 1 つの直しで閉じる時・同じ行か同じ塊（hunk）を変える時・"
+              "片方の直しがもう片方の直しの結果に依る時（先に直さないと直せない・試せない）だけ。同じファイルの別の所（別の関数・"
+              "別のクラス・別のクラスに足すテスト）を触るだけでは項目をまとめる理由にならない——そういう単位は別々の項目に分けよ。"
+              "写しの指示書の『1 つの案で複数の単位を閉じてよい（一撃の原理に沿うならそれが望ましい）』は、根を本当に共にする単位の話")
 HEAD = {
     "plan": ("お前は修正案の役（読むだけ）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch だけで、作業ツリーを 1 文字も変えてはいけない（受け付けは起こす前の"
              "作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の JSON Schema に合う JSON だけを返せ。"
-             "\n\n" + planmarks.HEAD),
+             "\n\n" + planmarks.HEAD + "\n\n" + ITEMS_RULE),
     "plan-review": ("お前は修正案の事前審査の役（読むだけ。判定をした役とは別の目）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch と、"
                     "項目ごとの下請けを起こす Agent と、下請けが答えのファイル（盤面の外の run ごとの置き場）を書く Write だけで、作業ツリーを"
                     " 1 文字も変えてはいけない（受け付けは起こす前の作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の"
@@ -433,7 +440,9 @@ def _ripple_of(b, k: int):
 VERIFY_HEAD = "## 判定の単位の裏取り（判定とは別の目が単位ごとに確かめた申し送り。機械が貼った）"
 VERIFY_ASK = ("単位は直す義務で、この申し送りでは減らない。根本でない・場所が違う・証拠が無いと出た単位も、案から外せない（受け付けが"
               "拒む）。そういう単位は本当の根の単位と同じ項目にまとめるか、approach に申し送りへの答え（どう扱うか）を書け。"
-              "重複・関わり・順番は項目の組み方と並べ方に使え。確かめられなかった単位は判定のままに読め。")
+              "重複・同じ所の関わり・順番は項目の組み方に使え（頭の『項目の組み方』の決まりに従う）。別の所の関わり（同じファイルの"
+              "別の所を触るだけ）は項目の並べ方の参考にだけ使い、それで項目をまとめない。確かめられなかった単位は判定のままに読め。")
+PLACE_WORDS = {"same": "同じ所", "apart": "別の所"}   # 関わりの行の place（同じ行・同じ塊か、同じファイルの別の所か）の見出し
 VERDICT_WORDS = {"root": "根本", "not_root": "根本でない", "unsure": "根本か決められない"}
 
 
@@ -449,10 +458,17 @@ def _verify_row(u: dict) -> str:
     return head + "・".join(parts) + f"。{u.get('why')}"
 
 
+def _relation_label(label: str, row: dict) -> str:
+    """申し送りの行の見出し。関わりの行は place（same＝同じ行・同じ塊・前提を変える、apart＝同じファイルの別の所）を添える
+    （place の無い前の形の行は見出しだけ）"""
+    word = PLACE_WORDS.get(row.get("place"))
+    return f"{label}（{word}）" if word else label
+
+
 def verify_part(verify_file) -> str:
     """修正案の役の頭に貼る判定の単位の裏取りの申し送りの節。入力 verify_file は形 {units: [{n, key, state, verdict,
     evidence_found, evidence, location_ok, location, real_root, why, errors}], synergy: {state, why, duplicates, relations,
-    order, errors}} の JSON のパス（出どころは名指さない）。空か文字列 null なら空、読めなければその 1 行"""
+    order, errors}} の JSON（relations の行は {units, why, place}。place は same か apart で、無い行も読む） のパス（出どころは名指さない）。空か文字列 null なら空、読めなければその 1 行"""
     path = _given(verify_file)
     if not path:
         return ""
@@ -464,8 +480,8 @@ def verify_part(verify_file) -> str:
     if syn.get("state") == "checked":
         lines += ["", f"単位どうしの相乗り: {syn.get('why')}"]
         for label, field in (("重複", "duplicates"), ("関わり", "relations")):
-            lines += [f"- {label}: " + "・".join(f"`{k}`" for k in r.get("units") or []) + f"（{r.get('why')}）"
-                      for r in syn.get(field) or [] if isinstance(r, dict)]
+            lines += [f"- {_relation_label(label, r)}: " + "・".join(f"`{k}`" for k in r.get("units") or [])
+                      + f"（{r.get('why')}）" for r in syn.get(field) or [] if isinstance(r, dict)]
         lines += [f"- 順番: `{r.get('first')}` を先に、`{r.get('then')}` を後に（{r.get('why')}）"
                   for r in syn.get("order") or [] if isinstance(r, dict)]
     else:
