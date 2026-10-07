@@ -234,7 +234,7 @@ def read(repo, request: str, pr: str, out) -> int:
     if cli is not None:
         got = doc["pr"][str(cli)]
         if not got.get("baseRefOid") or not got.get("headRefOid"):
-            if no_forge:
+            if got.get("status") == NOT_APPLICABLE:   # forge の無い対象で gh も読めなかった（読めた項は下の文）
                 print(f"ghreads: PR #{cli} の base・head を読めない——対象の remote に PR を持つホストが無い（{got['reason']}）。"
                       "base を名指して回す", file=sys.stderr)
             else:

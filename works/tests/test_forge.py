@@ -353,5 +353,17 @@ class GhReadsCase(unittest.TestCase):
         self.assertEqual((got["baseRefOid"], got["headRefOid"]), ("b" * 40, "h" * 40))
 
 
+    def test_cli_pr_gh_reads_without_base_head_refuses_with_gh_words_on_no_forge(self):
+        """forge の無い対象で gh が PR を読めたのに base・head の欄が欠けた時は、落ちずに書かずに 1。読めた項を『ホストが無い』と
+        言わず、forge の在る対象と同じ文で止まる"""
+        from test_ghreads import fake_gh
+        self.bin, _, login = fake_gh(self.tmp, base="", head="")
+        r = self.read("--request", "-", "--pr", "7", GH_CONFIG_DIR=str(login))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertFalse(self.out.exists())
+        self.assertIn("PR #7 の base・head を読めない", r.stderr)
+        self.assertNotIn("PR を持つホストが無い", r.stderr)
+
 if __name__ == "__main__":
     unittest.main()
