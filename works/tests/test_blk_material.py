@@ -165,7 +165,8 @@ def _build_normal(into: pathlib.Path, table: NodeTable = None):
     b.mark_launched("p0.base", inst["attempts"])
     b.accept("p0.base", base_output(repo, ""))
     entry._drain(b, b.settle(), test_cmd="")
-    for nid, reply in (("p0.parallel_pr", TE.pr_reply()), ("p0.premises", TE.PREMISES_REPLY)):
+    # 種は remote を持たない forge の無い run: 並行 PR は機械が条件外にする（任せ先の役は無い）
+    for nid, reply in (("p0.premises", TE.PREMISES_REPLY),):
         TE.launch(bd, nid)
         got = entry.take(bd, nid, reply, repo)
         assert got["ok"], got

@@ -73,6 +73,7 @@ from engine.rules import validator_module  # noqa: E402
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
 import fixture  # noqa: E402
+import forge  # noqa: E402
 import holeties  # noqa: E402
 import leftovers  # noqa: E402
 import lens  # noqa: E402
@@ -123,6 +124,7 @@ ADAPTER_BY = "works:adapter"                   # 包みの確かめで止めた�
 REJUDGE_SESSION_BY = "works:rejudge-session"   # 再審の会話を確かめられずに止めた盤面の by
 FLAG_SEEN_OP = "stop_flag_seen"                # 止め札を見て止めた境の節の trace の行（op・at・reason・by）
 PR_NODE = "p0.parallel_pr"
+FORGE_HEAD = "PR を持つホスト（forge）"   # 冒頭 2 の forge の無い run の 1 行の頭（forge_line）
 PR_EXCLUDED = "pr-excluded.json"               # 並行 PR の外した hunk {node, head, excluded}
 REJUDGE_DIFF = "rejudge-diff.json"             # 再審の単位の差分の行の列
 VERIFY_NOTES = "judge-verify.json"             # 判定の単位の裏取りの申し送り（線の木の段 3。単位ごとの state・verdict と相乗り）
@@ -1087,6 +1089,9 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: 
     note = b.dir / "rounds" / "works" / f"round-{b.round}.json"
     lines.append(f"このラインに無い節: {len(absent)} 個（一覧: {note if note.is_file() else 'state.json の works.not_in_line'}。"
                  "報告の末尾にも）")
+    fl = forge_line(b)
+    if fl:
+        lines.append(fl)
     downs = declared_downgrades(b.table.line) if b.table is not None else []
     lines.append(f"下げている所: {len(downs)} 個")
     lines += [f"  - {r['node']}: {r['what']}（{r['versus']}）" for r in downs]
@@ -1101,6 +1106,13 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: 
     if cleaned_runs:
         lines.append(f"{CLEANED_HEAD}: {cleaned_runs}")
     return lines
+
+
+def forge_line(b) -> str:
+    """冒頭 2 の 1 行: run の初めに機械が決めた forge（盤面の loop.forge。entry の on_init の差し替え）が無い種類なら、PR を前提に
+    する確かめ（並行 PR）は条件外（not_applicable）と言う。GitHub の run・決めの無い盤面（前の版）は空"""
+    why = forge.reason((getattr(b, "loop_state", None) or {}).get(forge.LOOP_KEY))
+    return f"{FORGE_HEAD}: 無い——並行 PR の確かめは条件外（not_applicable。{why}）" if why else ""
 
 
 def absent_lines(b) -> list:

@@ -3,6 +3,7 @@
 - seed_repo: dev/target-seed/ を写した使い捨ての git リポジトリ（初めの commit つき。名前と時刻は固定）
 - reply:     tests/replies/<名>.json の役の返答の見本
 - git_env:   名前と時刻を固定した git の環境
+- github_crossing: 種の origin を GitHub の形にし、交差する PR を 1 件返す偽の gh を置く（並行 PR の任せ先の役の道を通す run）
 - work_home: 使い捨ての物を置く家（${WORKS_RUN_PLACE:-${WORKS_DEV_HOME:-$HOME/.cache/works-dev}}/single/。Claude Code の一時フォルダの下に置かない）
 """
 import json
@@ -53,6 +54,29 @@ def seed_repo(into: pathlib.Path, *, declared: bool = False, broken_declaration:
     git(into, "add", "-A")
     git(into, "commit", "-q", "-m", "seed")
     return into.resolve()
+
+
+GITHUB_ORIGIN = "git@github.com:o/r.git"
+
+
+def github_crossing(repo, top) -> str:
+    """repo の origin を GitHub の形（GITHUB_ORIGIN）にし、top/fake-gh/bin に偽の gh を置いて、その bin を頭に足した PATH の値を返す
+    （呼び手が os.environ の PATH に置く）。偽の gh は pr list で番号 7 の PR を 1 件（head は誰の HEAD でもない版）、
+    pr view でその cwd の追跡中のファイルの全部を返す——engine の並行 PR の helper は必ず交差を見て任せ先の役に落ちる。
+    種（seed_repo）は remote を持たない（forge の無い run。並行 PR は機械が条件外にする）ので、役の道を試す run はこれを使う"""
+    repo, top = pathlib.Path(repo), pathlib.Path(top) / "fake-gh"
+    names = git(repo, "remote").split()
+    git(repo, "remote", "set-url" if "origin" in names else "add", "origin", GITHUB_ORIGIN)
+    (top / "bin").mkdir(parents=True, exist_ok=True)
+    (top / "list.json").write_text(json.dumps([{"number": 7, "headRefName": "other", "headRefOid": "0" * 40}]),
+                                   encoding="utf-8")
+    gh = top / "bin" / "gh"
+    gh.write_text("#!/bin/sh\n"
+                  f'if [ "$1" = pr ] && [ "$2" = list ]; then cat "{top}/list.json"; exit 0; fi\n'
+                  'if [ "$1" = pr ] && [ "$2" = view ]; then git ls-files; exit 0; fi\n'
+                  'echo "fake gh: $*" >&2; exit 9\n', encoding="utf-8")
+    gh.chmod(0o755)
+    return f"{top / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}"
 
 
 def reply(name: str) -> dict:
@@ -389,7 +413,8 @@ class LineRun:
     判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run。無ければ包みを通らない run と同じ）。request は依頼の
     ファイルに書く中身（JSON の値。無ければ種の request_ok.json）"""
 
-    def __init__(self, tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False, request=None):
+    def __init__(self, tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False, request=None,
+                 github=False):
         import entry  # noqa: F401  （.shared/core は頭で sys.path に足してある）
         self.tmp = pathlib.Path(tmp)
         self.replies, self.gates, self.edits = replies, gates or {}, edits or {}
@@ -398,6 +423,9 @@ class LineRun:
         self.stop_at = stop_at
         self.sessions = sessions
         self.repo = seed_repo(self.tmp / "repo", declared=True)
+        # github なら origin を GitHub の形にして交差する偽の gh を置く（並行 PR の任せ先の役 blk-pr が回る run）。無ければ種は
+        # remote を持たず forge の無い run（並行 PR は機械が条件外にし、blk-pr は回らない）
+        self.path = github_crossing(self.repo, self.tmp) if github else None
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True, exist_ok=True)
         req.write_text((SEED / "request_ok.json").read_text(encoding="utf-8") if request is None
@@ -734,6 +762,13 @@ class LineRun:
             for d in row.get("depends_on") or [])
 
     def run(self):
+        if self.path is None:
+            return self._run()
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"PATH": self.path}):
+            return self._run()
+
+    def _run(self):
         import entry
         import halt
         import line_edge
@@ -804,8 +839,9 @@ class LineRun:
                 "judge_takes": self.judge_takes, "rejudge_roles": self.rejudge_roles}
 
 
-def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False, request=None) -> dict:
+def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False, request=None,
+             github=False) -> dict:
     """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles, mat_roles, judge_brief, judge_takes,
     rejudge_roles}"""
     return LineRun(tmp, replies=replies, gates=gates, inputs=inputs, stop_at=stop_at, edits=edits, sessions=sessions,
-                   request=request).run()
+                   request=request, github=github).run()

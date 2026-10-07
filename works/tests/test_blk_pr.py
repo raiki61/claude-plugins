@@ -203,7 +203,8 @@ class HelperCase(PrCase):
         self.assertNotIn("parallel_pr", b.record["materials"])   # 素材は任せ先が返すまで書かない
 
     def test_fallback_on_non_github_remote_without_running(self):
-        """remote が GitHub でない → 何も走らせずに任せ先へ（同等のコマンドへの読み替えは役）"""
+        """run の初めの forge の決め（loop.forge）が GitHub の盤面で、後から remote が GitHub でなくなった → 写しの計画のまま
+        何も走らせずに任せ先へ（決めは run の初めの 1 回だけ。初めから GitHub でない run はこの節を条件外にする: test_forge・test_entry）"""
         b = self.pr_ready(remote="https://git.example.com/o/r.git")
         got = prcheck.run_helper(b, runner=never)
         self.assertEqual((got["by"], got["role_needed"]), ("role", True))
@@ -572,7 +573,7 @@ class AcceptCase(PrCase):
         self.assertNotIn("git status --porcelain: 役を起こす前", got["reason"])
 
     def test_no_conflicts_reply_accepted(self):
-        """任せ先の役が同等のコマンドで見て交差 0（GitHub でない remote）→ 通る、素材は clean"""
+        """任せ先の役が見て衝突 0（run の初めの決めが GitHub で、後から GitHub でない remote になって落ちた節）→ 通る、素材は clean"""
         b = self.pr_ready(remote="https://git.example.com/o/r.git")
         self.assertTrue(prcheck.run_helper(b)["role_needed"])
         prcheck.snapshot(b.dir, self.repo, opener=opener)

@@ -1114,10 +1114,17 @@ class StartCase(StartCaseBase):
         with self.assertRaises(ValueError):
             entry.declared_adapter(b)
 
+    def github(self, repo):
+        """origin を GitHub の形にし、交差を返す偽の gh を PATH の頭に置く（並行 PR が任せ先の役に落ちる run）"""
+        env = mock.patch.dict("os.environ", {"PATH": linekit.github_crossing(repo, self.tmp)})
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_start_parallel_pr_by_helper(self):
-        """p0.parallel_pr は prcheck.run_helper で回す（run_ci でない）。種は remote を持たないので任せ先に落ち、pr_go が真。
-        start は印を置かない（blk-pr の pr-snap が置く）"""
+        """p0.parallel_pr は prcheck.run_helper で回す（run_ci でない）。origin が GitHub で偽の gh が交差を返すので任せ先に落ち、
+        pr_go が真。start は印を置かない（blk-pr の pr-snap が置く）"""
         repo = self.seed(declared=True)
+        self.github(repo)
         got = self.start(repo)
         self.assertTrue(got["pr_go"])
         b = entry.open_board(self.board)
@@ -1125,6 +1132,23 @@ class StartCase(StartCaseBase):
         self.assertTrue(inst.get("engine_fallback"))
         self.assertFalse(inst.get("launched_at"))
         self.assertNotIn("parallel_pr", b.record["materials"])
+
+    def test_start_no_forge_settles_parallel_pr(self):
+        """forge の無い origin（無い・ローカルのパス・GitHub でないホスト）→ start が run の初めに決めを loop.forge に置き、
+        p0.parallel_pr は条件外（na。理由は no_forge: <種類>）で、engine の計画も任せ先の役も起こさない（pr_go が偽・instance が無い）"""
+        for kind, url in (("no_remote", None), ("local_path", "origin.git"), ("other_host", "https://gitlab.com/o/r.git")):
+            with self.subTest(kind):
+                top = self.tmp / kind
+                repo = linekit.seed_repo(top / "repo", declared=True)
+                if url is not None:
+                    linekit.git(repo, "remote", "add", "origin", str(top / url) if kind == "local_path" else url)
+                got = entry.start(top / "board", repo, self.raw(), run_id="run-7")
+                self.assertIs(got["pr_go"], False)
+                b = entry.open_board(top / "board")
+                self.assertEqual(b.loop_state["forge"]["kind"], kind)
+                self.assertEqual(b.node_state("p0.parallel_pr"), "na")
+                self.assertIn(f"parallel_pr_due: no_forge: {kind}（", b.rd["na"]["p0.parallel_pr"])
+                self.assertNotIn("p0.parallel_pr", b.rd["instances"])
 
     def test_start_pr_refused_stops(self):
         """prcheck.Refused は CiRefused と同じく AI の前で止める（InputRefused）。切符を書かない"""
@@ -1165,8 +1189,9 @@ class ChangeEntryCase(StartCaseBase):
 
     def p1_deps_done(self, repo):
         """P1 の na は依存（p0.parallel_pr・p0.purpose）が済んだ後に付く（単一 run の設計:155）。任せ先の役の代わりに
-        並行 PR と前提を渡し、目的の文を渡して、P1 を見られる盤面にする"""
-        for nid, reply in (("p0.parallel_pr", pr_reply()), ("p0.premises", PREMISES_REPLY)):
+        前提を渡し、目的の文を渡して、P1 を見られる盤面にする（種は remote を持たない forge の無い run なので、並行 PR は
+        機械が条件外にした）"""
+        for nid, reply in (("p0.premises", PREMISES_REPLY),):
             launch(self.board, nid)
             got = entry.take(self.board, nid, reply, repo)
             self.assertTrue(got["ok"], got)
@@ -1276,13 +1301,16 @@ class ResumeCase(StartCaseBase):
         """ラインの約束: 任せ先の CI の役が p0.local_checks を渡した後、ラインは resume_after_ci で start の輪に戻る
         （run_engine → settle と p0.parallel_pr の run_helper）。返りの pr_go が測った値になる"""
         repo = self.seed()
+        env = mock.patch.dict("os.environ", {"PATH": linekit.github_crossing(repo, self.tmp)})
+        env.start()
+        self.addCleanup(env.stop)
         self.assertEqual(self.start(repo)["pr_go"], "pending")
         b = entry.open_board(self.board)
         still = entry.resume_after_ci(b)   # 役がまだ渡していない: 何も走らせず、同じ値
         self.assertEqual((still["ci_role_go"], still["pr_go"]), (True, "pending"))
         b = self.ci_role_done({"status": "found", "count": 1, "detail": "役が走らせた: 赤 2 件"})
         got = entry.resume_after_ci(b)
-        self.assertEqual((got["ci_role_go"], got["pr_go"]), (False, True))   # 種は remote が無いので任せ先へ
+        self.assertEqual((got["ci_role_go"], got["pr_go"]), (False, True))   # 偽の gh が交差を返すので任せ先へ
         b = entry.open_board(self.board)
         inst = pending_inst(b, "p0.parallel_pr")
         self.assertTrue(inst.get("engine_fallback"))
@@ -1540,13 +1568,13 @@ def plan_reply(unit_keys) -> dict:
 
 class TakeCaseBase(StartCaseBase):
     def judge_ready(self):
-        """p2.diagnose が待っている盤面（start の後、前提の役と並行 PR の任せ先の役の返答を take で渡した）。置き場は
-        $ARTIFACTS_DIR/board の形（self.art / board）。返りは対象リポジトリ"""
+        """p2.diagnose が待っている盤面（start の後、前提の役の返答を take で渡した。種は remote を持たない forge の無い run
+        なので、並行 PR は機械が条件外にした）。置き場は $ARTIFACTS_DIR/board の形（self.art / board）。返りは対象リポジトリ"""
         repo = self.seed(declared=True)
         self.art = self.tmp / "art"
         self.board = self.art / "board"
         entry.start(self.board, repo, self.raw(), run_id="run-7")
-        for nid, reply in (("p0.parallel_pr", pr_reply()), ("p0.premises", PREMISES_REPLY)):
+        for nid, reply in (("p0.premises", PREMISES_REPLY),):
             launch(self.board, nid)
             got = entry.take(self.board, nid, reply, repo)
             self.assertTrue(got["ok"], got)

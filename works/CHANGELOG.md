@@ -6,6 +6,14 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 対象の origin が PR を持つホスト（GitHub）でない run で、並行 PR の確かめ（素材 `parallel_pr`）を任せ先の役に決めさせていたので、同じ形の run でも結末が割れていたのを直した（canary の run 5318f732: origin がローカルの裸のリポジトリで、役が awaiting_human と書き、判定が問いの台帳に人待ちの問いを保留で置いて、直しが済みテストも緑なのに結末が `round_limit` になった。同じ形の run 01004d2e・a2097fd6 の役は clean と書いて通った）。core は git だけで動き、gh・GitHub は外側の forge の層とする（持ち主 2026-10-07）。run の初めに機械（新しい `.shared/core/forge.py`）が対象の remote（枝の upstream の remote、無ければ `origin`）を見て、remote が無い（`no_remote`）・ローカルのパスか `file:`（`local_path`）・GitHub でないホスト（`other_host`。GitLab・自前のホスト。ssh の形は `github.com-work` のような `~/.ssh/config` の別名も GitHub と数える）なら盤面の `loop.forge` に置き、並行 PR の節を条件外にする（任せ先の役も engine の計画も起こさない）。素材は `not_applicable`（理由 `no_forge: <種類>（…）`）で、検証器の阻害にも問いの台帳の人待ちにもならず、報告の冒頭 2 に「PR を持つホスト（forge）: 無い」の 1 行が出る（`entry` の写しの RL への差し替え `on_init`・`parallel_pr_due`・`fill_materials`。写しは変えない）。殻の隔離の前の読み出し `ghreads.py read` も forge の無い対象では gh を呼ばず、依頼が名指した PR・issue を `not_applicable` と書き、`--pr` は base を名指せと言って止まる。GitHub の remote で gh が無い・未ログイン・API が落ちた時は今どおり（人待ちか任せ先の役）。決めを持たない前の版の盤面も今どおり。remote の URL のトークン（userinfo）は理由に載せない。canary の殻は何も変えず、裸のローカルの origin でこの決めに乗る。
+
+### Security
+
+- 並行 PR の engine の計画（写しの `_github_repo`）が GitHub の形に合わない remote の URL を任せ先に落ちた理由に書くので、userinfo にトークンを持つ URL（`https://x-access-token:<トークン>@github.com/o/r.git` など）のトークンが盤面の `engine_fallback` と任せ先の役への渡し物に載っていたのを、works の差し替え（`entry` の `_github_repo`。`forge.redact`）で伏せるようにした（写しは変えない）。
+
 ## [0.2.36] - 2026-10-07
 
 ### Added

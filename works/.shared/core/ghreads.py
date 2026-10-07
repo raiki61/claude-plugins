@@ -20,7 +20,9 @@ exit 4）。だから殻が Archon を起こす前に、利用者の env のま�
 - read(repo, request, pr, out) -> int: 名指した物を読んで out に置く。終了コード（0 以外は --pr の base・head が読めない時だけ）
 - load(board_dir, src) -> doc|None: 盤面の根の github.json を先に、無ければ src を読むだけ（盤面を作る前に入力を確かめる）
 - adopt(board_dir, src) -> doc|None: 盤面の根の github.json を先に使い、無ければ src を写して元を消す
-- 読み出しのファイルの形: {version, pr: {<番号>: {...}}, issue: {<番号>: {...}}}。読めない項は {status: unreadable, reason}
+- 読み出しのファイルの形: {version, pr: {<番号>: {...}}, issue: {<番号>: {...}}}。読めない項は {status: unreadable, reason}。
+  対象の remote に forge（PR を持つホスト。forge.py）が無ければ gh を呼ばず、名指した項は {status: not_applicable, reason: no_forge: …}、
+  --pr は書かずに 1（base を名指して回す）
 """
 import argparse
 import json
@@ -30,6 +32,11 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
+_HERE = str(pathlib.Path(__file__).resolve().parent)
+if _HERE not in sys.path:   # 殻は python3 -I で起こす（-I は自分の置き場を sys.path に足さない）。同じ層の forge だけを読む
+    sys.path.append(_HERE)     # 末尾に足す（core の名が標準の模块の名を覆わない）
+
+import forge  # noqa: E402
 
 KEYS = ("findings", "pr", "issue", "answers", "prior_failures")
 ANSWER_KEYS = ("question", "text", "command", "output")
@@ -42,6 +49,7 @@ BOARD_FILE = "github.json"   # 盤面の根に置く読み出しの写し
 PR_FIELDS = "baseRefOid,headRefOid,title,body,comments,reviews"
 ISSUE_FIELDS = "title,body,comments"
 UNREADABLE = "unreadable"
+NOT_APPLICABLE = "not_applicable"   # forge の無い対象（forge.reason）で名指した項。gh を呼ばない
 
 
 def request_parts(doc) -> dict:
@@ -208,11 +216,17 @@ def read(repo, request: str, pr: str, out) -> int:
         prs.append(cli)
     if not prs and not issues:
         return 0
+    no_forge = forge.reason(forge.detect(repo))
+    if no_forge and cli is not None:
+        print(f"ghreads: PR #{cli} は GitHub の PR の base・head を読む——対象の remote に PR を持つホストが無い（{no_forge}）。"
+              "base を名指して回す", file=sys.stderr)
+        return 1
     doc = {"version": GITHUB_READS_VERSION, "pr": {}, "issue": {}}
+    na = {"status": NOT_APPLICABLE, "reason": no_forge}
     for n in prs:
-        doc["pr"][str(n)] = _read_pr(repo, n)
+        doc["pr"][str(n)] = dict(na) if no_forge else _read_pr(repo, n)
     for n in issues:
-        doc["issue"][str(n)] = _read_issue(repo, n)
+        doc["issue"][str(n)] = dict(na) if no_forge else _read_issue(repo, n)
     if cli is not None:
         got = doc["pr"][str(cli)]
         if not got.get("baseRefOid") or not got.get("headRefOid"):

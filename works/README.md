@@ -47,6 +47,7 @@ works は、AI に修正の仕事を任せるための Claude Code のプラグ�
 
 - Archon v0.11.1 以上 0.12.0 未満（`archon-plugin.json` の `compatibility.archon` が `>=0.11.1 <0.12.0`。確かめたのは v0.11.1 だけ）。
 - uv（script の節は `runtime: uv` で起きる）と git。節のスクリプトは PEP 723 の塊を持つので、対象が pyproject.toml を持っても uv は対象の project を拾わない（worktree に .venv・uv.lock を作らない）。既知の限界: 対象の uv の設定（`[tool.uv]`・`uv.toml`）は読まれるので、それが壊れているか、手元の uv に合わない `required-version` を持つと、works の script の節は起動時に終了コード 2 で止まる。直すのは対象か uv の設定。`UV_NO_CONFIG=1` を Archon の環境に立てて逃げるのは勧めない: 対象自身の uv の動きも変わり（テストのコマンドや修正役の Bash が私的な index を読まずに公開の PyPI から解決する）、偽の赤と依存の取り違えの口になる。
+- core は git だけで動き、gh・GitHub は外側の forge の層。対象の remote（枝の upstream の remote、無ければ `origin`）が PR を持つホスト（github.com と `<名>.ghe.com`。ssh の形は `github.com-work` のような別名も）でない時——remote が無い・ローカルのパスか `file:`・GitLab や自前のホスト——は、run の初めに機械（`.shared/core/forge.py`）が決めて盤面の `loop.forge` に置き、並行 PR の確かめを条件外（素材 `parallel_pr` は `not_applicable`、理由は `no_forge: <種類>`）にする。AI の役には聞かず、検証器の阻害・問いの台帳の人待ちにもならない（報告の冒頭 2 に 1 行）。殻の隔離の前の読み出し（`ghreads.py read`）も gh を呼ばず、依頼が名指した PR・issue を `not_applicable` と書き、`--pr` は base を名指して回せと言って止まる。GitHub の remote で gh が無い・未ログイン・API が落ちた時は今どおり（確かめる物が在るのに確かめられなかった: 人待ちか任せ先の役）。自前のドメインの GitHub Enterprise Server は形から分からないので forge の無い側に入る。
 - 対象リポジトリには git の remote の `origin` が要る（Archon v0.11.1 は `--from` を渡しても、origin の無い対象では run の worktree を切れずに終了コード 1 で落ちる）。無ければ `dev/use.sh` の `check` が並べ、`start` は Archon を起こす前に止まる。入れ方は `git remote add origin <URL>`。預ける先が無く手元だけで回すなら、対象の外に `git init --bare <対象>.origin.git` を作って origin にし、`git push origin HEAD` の後に `git remote set-head origin <push した枝>` で `origin/HEAD` を置く（`dev/real-run.sh` と同じ形）。殻は対象の remote を書き換えない。依頼の JSON は対象の外に置いてよい（`dev/use.sh` は依頼を利用の家に写して渡す）。
 - `start` は origin の既定の枝（`origin/HEAD` が指す枝、無ければ `origin/main`、次に `origin/master`）を Archon の土台（`--base`）に毎回渡す（Archon は対象を最初に登録した時の枝を覚えて更新しないので、登録した時の枝が消えても止まらない）。どれも無ければ枝を推さず、Archon を起こす前に `git fetch origin` と、それでも無い時の `git remote set-head origin -a`（または `git remote set-head origin <枝>`）を案内して止まる（裸の origin に機能の枝だけを push した対象は、fetch しても `origin/HEAD` ができない）。`origin/HEAD` が消えた枝を指す時（改名の後の `git fetch --prune`）は、それを渡さずに `origin/main`・`origin/master` へ進む。
 
@@ -226,6 +227,8 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 この測りを受け、修正案の役の頭に項目の組み方の決まり（`planblk.ITEMS_RULE`。まとめるのは同じ根・同じ行か同じ塊・結果への依存の時だけ）を足し、裏取りの関わりを同じ所（`place: same`）と同じファイルの別の所（`place: apart`）に分け、別の所の関わりではまとめないと申し送りの頼みが言うようにした（効き目は次の本物の run で確かめる）。
 
 直し方は 2 件とも docstring の約束で 1 つに決まる（端の振る舞いを決め手なしに選ぶ余地を残さない）。前の形の `truncate` は印より小さい limit の振る舞いが約束に無く、修正が ValueError に決めたのを独立設計が人の判断と見て残り（round_limit）になった。CHANGELOG の行も 2 件の依頼がそれぞれ名指す（前の形は `mean` だけを名指し、ほかの 2 行を独立設計が依頼の範囲を広げると見た）。
+
+canary の origin は裸のローカルのリポジトリ（`origin.git/`）なので、並行 PR の確かめは機械が条件外（`no_forge: local_path`）にする（canary の殻は何も特別にしない）。前の版は任せ先の役に決めさせ、同じ形の 3 run のうち run 5318f732 だけ役が awaiting_human と書いて、判定が問いの台帳に保留の問いを置き、直しが済んでテストも緑なのに結末が round_limit になった（run 01004d2e・a2097fd6 の役は clean と書いた）。
 
 ラインは 1 周の run で（`entry.start` の `stop_after_round=1`。canary が決めた物ではない）、報告の「止めたか」に出る「周の締めの後で止めた: init --stop-after-round 1」は普通の終わり。2 周目は回らないので、残り（検証器の阻害・最後のテストの赤・独立の目の阻害）が在れば結末は round_limit、無ければ fixed。canary は fixed で終わるのが狙い。
 

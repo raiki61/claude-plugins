@@ -127,7 +127,7 @@ def converge_revise() -> dict:
                                                          "how": "clamp の上限の枝を hi に直すと決めた理由を approach に書き足した"}]}
 
 
-PR_AWAITING = {"material": {"status": "awaiting_human", "reason": "origin が GitHub でないローカルの bare リポジトリで、PR の一覧を読めない"},
+PR_AWAITING = {"material": {"status": "awaiting_human", "reason": "gh pr diff -R o/r が未ログインで落ち、交差した PR #7 の hunk を読めない"},
                "repo": "", "listed": 0, "truncated": False, "conflicts": [], "excluded": []}
 
 RULING_CODE = {"rulings": [{"id": "c1-1", "decision": "fix_code_as", "text": "依頼とテストが正しい。分母を len(xs) に直せ",
@@ -173,7 +173,8 @@ def scenarios(tmp: pathlib.Path) -> dict:
     return {
         # 全部の役を起こす筋書き: 単位の形が軽量でも入力 thickness で標準に固定する（軽量は独立の目の R1〜R4 を省き、目の
         # 受け付けの拒む出口を誰も通らなくなる。計画 2026-10-06-variable-depth）
-        "full": dict(replies=full, edits={**edits, "refix": refix_edit}, bad_first=ai_keys(),
+        # origin は GitHub の形で偽の gh が交差を返す（並行 PR の任せ先の役 blk-pr も回る。github）
+        "full": dict(replies=full, edits={**edits, "refix": refix_edit}, bad_first=ai_keys(), github=True,
                      inputs={"tdd_suite": str(suite), "thickness": depth.STANDARD}, gates={"policy-gate": {"decision": "continue", "text": "$x `y` \"z\""}}),
         "ci-final-stop": dict(replies={**line_replies(), "ci": linekit.reply("ci_found")}, edits=edits, declared=False,
                               bad_first={"blk-ci/ci", "blk-report/report-items", "blk-report/report-cold", "blk-report/report-write"},
@@ -185,7 +186,7 @@ def scenarios(tmp: pathlib.Path) -> dict:
         # 同じ止めで、並行 PR の素材が awaiting_human（run 30 の姿）: 判定の前に止めた周の記録は検証器を通らない（awaiting を
         # 問いの台帳に載せる判定役が走っていない）。本線と同じく報告の節（AI の報告）は出ず、機械の報告がその理由を言う
         "material-give-up-awaiting": dict(replies={**line_replies(), "prior-decisions": lambda n: {}, "pr-check": PR_AWAITING},
-                                          edits=edits),
+                                          edits=edits, github=True),
         "fix-give-up": dict(replies={**line_replies(), "fix": lambda n: {}}, edits=edits),
         "unchanged-file": dict(replies={**line_replies(), "fix": unchanged_file_fix()}, edits=edits),
         "no-fix": dict(replies=nofix, edits={}),
@@ -206,7 +207,7 @@ def scenarios(tmp: pathlib.Path) -> dict:
                         bad_first={"blk-rejudge/rejudge"}, sessions=True),
         "rejudge-no-session": dict(replies=objection, edits={**edits, "refix": refix_edit}, inputs={"test_cmd": TL.TEST_CMD}),
         **{name: dict(replies={**line_replies(), "refix": REFIX_FIXED, "review2": REVIEW2_OK, key: lambda n: {}},
-                      edits={**edits, "refix": refix_edit})
+                      edits={**edits, "refix": refix_edit}, github=key == "blk-pr/pr-check")
            for key, name in GIVE_UPS.items()},
     }
 

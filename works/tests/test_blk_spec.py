@@ -334,7 +334,7 @@ class ScriptCase(unittest.TestCase):
                                request_text=json.dumps(items, ensure_ascii=False), stop_after_round=1,
                                inputs={"flow": self.flow} if self.flow else {}, **entry.open_kwargs(LINE, table))
         # 修正前の CI（p0.local_checks。種の宣言を engine が走らせる）だけを済ませる。仕様の道でない run では spec.* が na になり、
-        # その先の p0.parallel_pr も run_engine に出るが、このブロックの試験には要らないので走らせない
+        # その先の p0.parallel_pr は種が remote を持たない（forge の無い run）ので機械が条件外にする（このブロックの試験には要らない）
         self.assertEqual(p["run_engine"], ["p0.local_checks"], p)
         self.assertTrue(b.run_engine("p0.local_checks").get("ok"))
         b.settle()

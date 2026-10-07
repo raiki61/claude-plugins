@@ -141,7 +141,8 @@ class EdgeBase(unittest.TestCase):
         return got
 
     def started(self):
-        """start → 並行 PR の任せ先を受けた盤面（p0.premises が待つ）"""
+        """start の後の盤面（p0.premises が待つ）。種は remote を持たない（forge の無い run）ので、並行 PR の節は機械が条件外にし
+        （任せ先の役を起こさない）、渡す物は無い"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True)
@@ -150,7 +151,7 @@ class EdgeBase(unittest.TestCase):
         self.board = self.art / "board"
         raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "", "policy_md": ""}
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
-        self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
+        self.assertEqual(entry.open_board(self.board).node_state("p0.parallel_pr"), "na")
 
     def premised(self):
         """前提の役と目的の文まで受けた盤面（p2.diagnose が待つ）"""
@@ -690,8 +691,12 @@ class ProtectedGateCase(EdgeBase):
 
 class EntryMidCase(EdgeBase):
     def test_entry_edge_flags(self):
-        """start の後の盤面（ready に p0.parallel_pr・p0.premises）→ go・pr_go・premises_go True、purpose_go・spec_go False"""
+        """start の後の盤面（ready に p0.parallel_pr・p0.premises）→ go・pr_go・premises_go True、purpose_go・spec_go False。
+        origin は GitHub の形で偽の gh が交差を返す（並行 PR が任せ先の役に落ちる run）"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
+        env = mock.patch.dict("os.environ", {"PATH": linekit.github_crossing(self.repo, self.tmp)})
+        env.start()
+        self.addCleanup(env.stop)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True)
         req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")

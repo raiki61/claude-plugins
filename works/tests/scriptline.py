@@ -125,10 +125,12 @@ class ScriptLine:
     sessions なら start の後に包みの家へ判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run）。
     inputs に無いラインの入力は yaml の inputs の default に落ちる（adapter だけ optional——この器は包みを通さずに回す）。
     runs は起こした script の節の記録 {block, node, rc, out, errors, stderr}（errors は output_format に当てた食い違い）。
-    watch(<節>, "start"|"done") は線の最上段の include の節ごとに、走らせる直前と出口が ok の直後に呼ぶ（飛ばした節では呼ばない）"""
+    watch(<節>, "start"|"done") は線の最上段の include の節ごとに、走らせる直前と出口が ok の直後に呼ぶ（飛ばした節では呼ばない）。
+    github なら種の origin を GitHub の形にし、交差を返す偽の gh を子の PATH の頭に置く（並行 PR の任せ先の役 blk-pr が回る run。
+    linekit.github_crossing）。無ければ種は remote を持たない forge の無い run で、並行 PR は機械が条件外にする"""
 
     def __init__(self, tmp, *, replies=None, gates=None, inputs=None, edits=None, bad_first=(), bad=None, stop_at=None,
-                 declared=True, sessions=False, watch: Callable[[str, str], None] | None = None):
+                 declared=True, sessions=False, watch: Callable[[str, str], None] | None = None, github=False):
         self.tmp = pathlib.Path(tmp)
         self.watch = watch
         self.replies, self.gates, self.edits = replies or {}, gates or {}, edits or {}
@@ -148,6 +150,8 @@ class ScriptLine:
         self.env.update({"ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": RUN_ID, "PYTHONDONTWRITEBYTECODE": "1",
                          "WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home"),
                          "XDG_STATE_HOME": str(self.tmp / "state"), **linekit.lens_plugin(self.tmp)})
+        if github:
+            self.env["PATH"] = linekit.github_crossing(self.repo, self.tmp)
 
     # -- 役・関所
     def _reply(self, block, nid):

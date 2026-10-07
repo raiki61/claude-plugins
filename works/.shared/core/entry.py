@@ -54,6 +54,7 @@ import conflict  # noqa: E402
 import fixshape  # noqa: E402
 import fixture  # noqa: E402
 import flow_adapter  # noqa: E402
+import forge  # noqa: E402
 import gatemarks  # noqa: E402
 import ghreads  # noqa: E402
 from ghreads import request_parts  # noqa: E402
@@ -145,6 +146,61 @@ def _overview_due_after_fix(rl):
     return overview_due
 
 
+# forge（PR を持つホスト）の無い remote の決め（持ち主 2026-10-07: core は git だけ、gh・GitHub は外側の forge の層）。
+# 決めは run の初めに 1 度だけ機械がして盤面の loop に置き（on_init）、並行 PR の節の条件がそれを読んで条件外にし（役を起こさない）、
+# 素材は機械が not_applicable で埋める（fill_materials）。写しの graph は p0.parallel_pr に na_self_ok を持たない（走った役が
+# not_applicable を名乗れば拒む）ので、走らない節の素材を埋める側で書く。決めの無い盤面（前の版）と GitHub の remote は今どおり
+@board.rl_builder
+def on_init_forge(rl):
+    """写しの RL の on_init の組み手: 写しの on_init の後に、対象（inputs.cwd）の forge の決め forge.detect を loop に置く"""
+    base = rl.on_init
+
+    def on_init(b, args):
+        base(b, args)
+        b.loop_state[forge.LOOP_KEY] = forge.detect(b.state["inputs"]["cwd"])
+    return on_init
+
+
+def parallel_pr_due_forge(rl):
+    """写しの RL の parallel_pr_due の組み手（CONDS の差し替え）: loop の forge の決めが forge の無い種類なら偽（理由は
+    no_forge: <種類>）。それ以外は写しの条件のまま"""
+    base = rl.parallel_pr_due
+
+    @cond_reads(*dict.fromkeys(base.reads + (f"loop.{forge.LOOP_KEY}",)))
+    def parallel_pr_due(v):
+        why = forge.reason(v(f"loop.{forge.LOOP_KEY}", None))
+        return (False, why) if why else base(v)
+    return parallel_pr_due
+
+
+@board.rl_builder
+def fill_materials_forge(rl):
+    """写しの RL の fill_materials の組み手: forge の無い run で並行 PR の節が条件外（na）の周は、その素材を not_applicable
+    （reason は no_forge: <種類>）で先に埋めてから写しを呼ぶ（写しは埋まった素材を飛ばす。走らせなかった節を not_run と書かない）"""
+    base = rl.fill_materials
+
+    def fill_materials(b):
+        why = forge.reason(b.loop_state.get(forge.LOOP_KEY))
+        if why and b.node_state(prcheck.NODE) == "na":
+            mats = b.record["materials"]
+            for mat in b.nodes[prcheck.NODE].get("materials", []):
+                mats.setdefault(mat, {"status": "not_applicable", "reason": why})
+        base(b)
+    return fill_materials
+
+
+@board.rl_builder
+def github_repo_redacted(rl):
+    """写しの RL の _github_repo の組み手: 引けない理由の文から URL の userinfo（トークン）を落とす（写しは形の合わない remote の
+    URL を理由に書き、それが盤面の engine_fallback と任せ先の役への渡し物に載る）"""
+    base = rl._github_repo
+
+    def _github_repo():
+        repo, why = base()
+        return repo, forge.redact(why)
+    return _github_repo
+
+
 # 線 A の核が写しの RL に当てる差し替え（名前 → (関数, 理由)）。ラインの board_hook.py の overrides が同じ名前を持てば、そちらが勝つ
 CORE_OVERRIDES = {
     "hook_evidence": (_hook_evidence_at_adapter,
@@ -166,6 +222,18 @@ CORE_OVERRIDES = {
                      "works の run は同じ周で修正してから R3・R4 を回すので、前の周の P3 だけを引き金にすると 1 周の run では目が"
                      "起きない。この周の修正の差分（p3.fix_delta が差分から測った実測。自己申告でない）が空でない周も起こす。"
                      "p4.assemble が修正の後の差分を取り直してから R3・R4 に渡す"),
+    "on_init": (on_init_forge,
+                "対象の remote が forge（PR を持つホスト。GitHub）かを run の初めに機械が決めて盤面の loop.forge に置く"
+                "（forge.detect。core は git だけ、gh・GitHub は外側の forge の層。持ち主 2026-10-07）"),
+    "parallel_pr_due": (parallel_pr_due_forge,
+                        "forge の無い remote（origin が無い・ローカルのパス・GitHub でないホスト）では並行 PR の節を条件外にし、"
+                        "任せ先の役に確かめるかを決めさせない（canary の run 5318f732 で役が awaiting_human と書き round_limit になった）"),
+    "_github_repo": (github_repo_redacted,
+                     "写しは GitHub の形に合わない remote の URL を任せ先に落ちた理由に書き、userinfo のトークンが盤面と役への渡し物に"
+                     "載る。理由の文から userinfo を落とす（forge.redact）"),
+    "fill_materials": (fill_materials_forge,
+                       "forge の無い run で条件外にした並行 PR の節の素材を not_applicable（reason は no_forge: <種類>）で埋める"
+                       "（写しは走らなかった節を not_run と書き、検証器の阻害になる）"),
 }
 
 
