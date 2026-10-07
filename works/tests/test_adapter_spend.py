@@ -149,6 +149,15 @@ class RestateCase(unittest.TestCase):
         self.launch(None, None, result("plan", 0.5, opus=8000))
         self.launch(None, None, result("lane1", 0.3, sonnet=4000))
         self.assert_spend(self.launch("lane1", "plan", result("fork1", 0.12, opus=1000)), 0.12, OPUS)
+        # 費用は元の累計以上でも、模型の出力の数が元より少なければ継いでいない（費用だけで見ると 0.6 − 0.5 の 0.1 と少なく見える）
+        self.assert_spend(self.launch("lane1", "plan", result("fork2", 0.6, opus=2000)), 0.6, OPUS)
+
+    def test_continued_without_carried_total_counts_as_new(self):
+        """continue=X・旗 self-resume の起動でも、result の累計が継いだ元の本当の累計より小さければ新しい会話と数える"""
+        self.launch(None, None, result("fix", 1.0, sonnet=20000))
+        self.assert_spend(self.launch(None, "fix", result("fix", 0.3, sonnet=4000)), 0.3, SONNET)
+        self.assert_spend(self.launch(None, None, result("rj", 0.5, opus=5000)), 0.5, OPUS)
+        self.assert_spend(self.launch("rj", "rj", result("rj", 0.75, opus=6000)), 0.25, OPUS)   # 継いだ起動は今どおり
 
     def test_same_conversation_keeps_bytes(self):
         """Archon の思う元と包みが開いた元が同じ（見せ直しの差が無い）起動は、result の行をそのままのバイトで写す"""

@@ -715,6 +715,21 @@ class WaitCase(unittest.TestCase):
         self.assertEqual((got["stages"]["tdd-lanes"]["loss"], got["total"]), (30.0, 35.0))
         self.assertEqual(fixmeasure.with_lanes({"stages": {}, "total": 0.0}, []), {"stages": {}, "total": 0.0})
 
+    def test_fix_lane_loops_are_their_own_stage(self):
+        """修正役の並べの枝も Archon の節（fix-lane-loop-<n>。docs/plans/2026-10-07-fix-lane-nodes.md）: 同じ include の枝の輪の
+        時間を 1 束にして段 fix-lanes に足し、TDD の輪の並べの段 tdd-lanes と混ぜない"""
+        events = [node("fixing__tdd-lane-loop-1", ms=40000, kind="loop_group"), node("fixing__tdd-lane-loop-2", ms=20000,
+                                                                                     kind="loop_group"),
+                  node("fixing__fix-lane-loop-1", ms=60000, kind="loop_group"), node("fixing__fix-lane-loop-2", ms=20000,
+                                                                                     kind="loop_group"),
+                  node("fixing__fix-lane-loop-1.fix-lane-1", ms=30000), node("fixing__fix-loop", ms=9000, kind="loop_group")]
+        self.assertEqual(fixmeasure.lane_wait(events), [{"n": 2, "max": 40.0, "mean": 30.0, "loss": 10.0}])
+        fix = fixmeasure.lane_wait(events, fixmeasure.FIX_LANE_LOOP)
+        self.assertEqual(fix, [{"n": 2, "max": 60.0, "mean": 40.0, "loss": 20.0}])
+        got = fixmeasure.with_lanes({"verified": False, "stages": {}, "total": 0.0}, fixmeasure.lane_wait(events))
+        got = fixmeasure.with_lanes(got, fix, fixmeasure.FIX_LANE_STAGE)
+        self.assertEqual((got["stages"]["tdd-lanes"]["loss"], got["stages"]["fix-lanes"]["loss"], got["total"]), (10.0, 20.0, 30.0))
+
     def test_cli_wait(self):
         db = timed_db(self.tmp, [("s.tdd", "a", "started", 0), ("s.tdd", "a", "completed", 9)])
         got = subprocess.run([sys.executable, str(TOOL), "wait", str(db), "r1"], capture_output=True, text=True,

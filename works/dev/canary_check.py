@@ -76,7 +76,7 @@ FIX_NODE = "fix"
 LANE_NODE = re.compile(r"tdd-lane-(?:loop-|prep-|step-)?(\d+)")   # 枝の輪とその中の節の名（最後の 1 語）。番号は枝
 # 修正役の並べの枝の輪とその中の節の名（最後の 1 語。docs/plans/2026-10-07-fix-lane-nodes.md）。番号は枝
 FIX_LANE_NODE = re.compile(r"(?:fix-lane-(?:loop-|prep-|step-|consult-check-|consult-)?|plan-answer-lane-)(\d+)")
-OLD_UNITS_OP = "units_settled"   # 前の形の修正役の締めの trace の行（0.2.41 まで。修正役が Agent で項目の下請けを並べた run）
+OLD_UNITS_OP = "units_settled"   # 前の形の修正役の締めの trace の行（0.2.36 まで。修正役が Agent で項目の下請けを並べた run）
 OLD_ASK_PLACE, OLD_ASK_LOG = "ask-plan", "exchanges.jsonl"   # 前の形 askplan.py の run ごとの置き場の相談の記録（受け付けが trace へ写す前）
 REPLAN_OPS = (conflict.REPLAN_OP, planmarks.AMEND_OP, conflict.PARK_OP, conflict.RULE_OP)
 USAGE = ("usage: canary_check.py <canary の置き場> [<run-id>] [--json] | "

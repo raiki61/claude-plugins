@@ -198,8 +198,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    total_cost_usd が数でない result は、そのままのバイトで写す（決められない時は触らない）。旗 fork の起動（continue=X を X の
    会話の写しで起こす。1）は、result の session_id が新しい id で、本当に継いだ元は X（plan の session の from）なので、X の本当の
    累計を引いた分を見せ、記録は新しい id の名で書く（X の記録は変えない。同時に走る写しどうしも混ざらない）。写しの result は
-   SDK の sdk-fork と同じく元の会話の累計を持つ（Archon 自身の sdk-fork の引き算がそれで合う）。累計が継いだ元の本当の累計より
-   小さい result は元の累計を継がなかった物と見て、新しい会話と同じに数える（負の費用を見せない）。
+   SDK の sdk-fork と同じく元の会話の累計を持つ（Archon 自身の sdk-fork の引き算がそれで合う）。累計（費用か、どれかの模型の
+   outputTokens）が継いだ元の本当の累計より小さい result は、どの起動の形でも元の累計を継がなかった物と見て、新しい会話と同じに数える（負の費用を見せない）。
    tokens（result の usage）は起動ごとの値なので触らない。1 手も進まずに終わった 16 の result は写さないので記録しない
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
@@ -1383,8 +1383,10 @@ def restate_result(line: bytes, doc: dict, cwd, home_dir, bases: Tuple[Optional[
     if cur is None or not isinstance(sid, str) or not _ID_RE.match(sid):
         return line
     shown_base, real_base = bases
-    if real_base is not None and cur["cost"] < real_base["cost"] - 1e-12:
-        # 継いだ元の累計より小さい累計は、元の累計を継がなかった result（写しの会話が元の累計を持たなかった形）。新しい会話と数える
+    if real_base is not None and (cur["cost"] < real_base["cost"] - 1e-12
+                                  or any(cur["out"].get(m, 0) < n for m, n in real_base["out"].items())):
+        # 継いだ元の累計より小さい累計（費用か、どれかの模型の出力の数）は、元の累計を継がなかった result（写しの会話が元の累計を
+        # 持たなかった形）。新しい会話と数える（どちらも会話の累計なので、継いでいれば減らない）
         real_base = ZERO_SPEND
     shown = cur
     if shown_base is not None and real_base is not None:

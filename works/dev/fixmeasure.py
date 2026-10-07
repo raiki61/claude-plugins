@@ -66,6 +66,8 @@
 started が下請けの数だけ並び、completed が同じ task_id で出ること）。
 TDD の輪の並べは下請けでなく枝ごとの Archon の節（tdd-lane-loop-<n>。docs/plans/2026-10-07-lane-nodes.md）なので、同じ include の
 枝の輪の node_completed（data.timing.durationMs）を 1 束として段 LANE_STAGE に足す（lane_wait。時間の欄の無い輪は数えない）。
+修正役の並べも同じ形の Archon の節（fix-lane-loop-<n>。docs/plans/2026-10-07-fix-lane-nodes.md）で、前の形の修正役の Agent の下請けの
+束（段 fix）は起きないので、枝の輪の束を別の段 FIX_LANE_STAGE に足す。
 
 比べの条件（計画の採否の決まりの 6）: current の腕は修正の段に修正案の欄を渡さないので、束の test_edits も修正案の書き換えの
 名指し（rewrite_tests）を許しにしない（fixgates。preflight F15）。要る既存テストの書き換えは current では抜けに数えられうる。
@@ -128,6 +130,8 @@ LANE_PREFIX = "tdd-lane-"              # 並べの枝の役の印の名の頭（
 JOIN_PHASE = "lanes"                   # 輪の calls のうち並べを締めた節 tdd-join の行（AI の節でない）
 LANE_LOOP = "tdd-lane-loop-"           # 並べの枝の輪の節の名の頭（待ちの損の束。lane_wait）
 LANE_STAGE = "tdd-lanes"               # 待ちの損の段の名（枝の輪の束）
+FIX_LANE_LOOP = "fix-lane-loop-"       # 修正役の並べの枝の輪の節の名の頭（lane_wait の loop。docs/plans/2026-10-07-fix-lane-nodes.md）
+FIX_LANE_STAGE = "fix-lanes"           # 修正役の並べの枝の輪の束の段の名
 FIX_REJECTS = f"{script_io.REJECT_PREFIX}accept_fix-*.txt"   # 修正の受け付けの拒否の本文（scope の根。script_io._write_reason）
 REVIEW_NODES = ("p3.delta_review", "p3.delta_review2")      # 差分の審査の節（出力の faces が受け付けた穴）
 TOOLS = ("Skill", "Agent")
@@ -224,14 +228,14 @@ def wait_loss(rows: list) -> dict:
     return {"verified": WAIT_VERIFIED, "stages": stages, "total": round(sum(x["loss"] for x in stages.values()), 1)}
 
 
-def lane_wait(events: list) -> list:
-    """枝の輪の束 [{n, max, mean, loss}]（include ごとに 1 束。同じ include の tdd-lane-loop-<n> の node_completed の時間）。
-    輪の中の節（step_name が <include>__tdd-lane-loop-<n>.<節>）は輪でないので数えない"""
+def lane_wait(events: list, loop: str = LANE_LOOP) -> list:
+    """枝の輪の束 [{n, max, mean, loss}]（include ごとに 1 束。同じ include の <loop><n>（既定は tdd-lane-loop-<n>。修正役の並べは
+    FIX_LANE_LOOP）の node_completed の時間）。輪の中の節（step_name が <include>__<loop><n>.<節>）は輪でないので数えない"""
     by = {}
     for e in events:
         name = e["step_name"].rsplit("__", 1)[-1]
         ms = ((e["data"].get("timing") or {}).get("durationMs")) if isinstance(e["data"].get("timing"), dict) else None
-        if (e["event_type"] == "node_completed" and name.startswith(LANE_LOOP) and "." not in name
+        if (e["event_type"] == "node_completed" and name.startswith(loop) and "." not in name
                 and isinstance(ms, (int, float))):
             by.setdefault(e["step_name"].rsplit("__", 1)[0] if "__" in e["step_name"] else "", []).append(ms / 1000)
     out = []
@@ -241,10 +245,10 @@ def lane_wait(events: list) -> list:
     return out
 
 
-def with_lanes(got: dict, batches: list) -> dict:
-    """wait_loss の出力に枝の輪の束（lane_wait）を段 LANE_STAGE で足す"""
+def with_lanes(got: dict, batches: list, stage: str = LANE_STAGE) -> dict:
+    """wait_loss の出力に枝の輪の束（lane_wait）を段 stage（既定は TDD の輪の並べの LANE_STAGE）で足す"""
     if batches:
-        got["stages"][LANE_STAGE] = {"batches": batches, "loss": round(sum(b["loss"] for b in batches), 1)}
+        got["stages"][stage] = {"batches": batches, "loss": round(sum(b["loss"] for b in batches), 1)}
         got["total"] = round(sum(x["loss"] for x in got["stages"].values()), 1)
     return got
 
@@ -690,8 +694,9 @@ def main(argv: list[str]) -> int:
         elif argv[:1] == ["wait"] and len(argv) == 3:
             if not pathlib.Path(argv[1]).is_file():
                 raise ValueError(f"archon.db {argv[1]} が無い")
-            out = json.dumps(with_lanes(wait_loss(_task_rows(argv[1], argv[2])), lane_wait(_events(argv[1], argv[2])[1])),
-                             ensure_ascii=False)
+            events = _events(argv[1], argv[2])[1]
+            got = with_lanes(wait_loss(_task_rows(argv[1], argv[2])), lane_wait(events))
+            out = json.dumps(with_lanes(got, lane_wait(events, FIX_LANE_LOOP), FIX_LANE_STAGE), ensure_ascii=False)
         elif argv == ["maintenance"]:
             out = json.dumps(maintenance(PACK), ensure_ascii=False)
         else:
