@@ -179,6 +179,16 @@ class YamlCase(unittest.TestCase):
         # 素材を読む判定は、欠けた素材を materials_missing で名指す（本線の p2.diagnose と同じ。空の決め打ちにしない）
         self.assertNotIn("`materials_missing` と `carried_r1` は空の配列にせよ", text)
 
+    def test_diagnose_prompt_population_counts_only_what_the_fix_changes(self):
+        """population の問いの当たりは修正が変える物だけ（閉鎖は当たりを全部覆ったかで決まる。blk-fix/lib/unitrows.py）。
+        canary の large の run a2fcf33a: 『docstring が無い』単位の問いを公開関数の全部（14 本。うち 12 本はもう正しい）にして、
+        正しい直しが閉じずに round_limit になった。b44c480f は欠けた 2 つの def を名指して閉じた"""
+        text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
+        item6 = text[text.index("\n6. "):text.index("\n7. ")]
+        for needle in ("当たりは 1 件残らず修正が変える物", "もう正しい物", "正しく直しても閉じない", "欠けている物そのもの"):
+            with self.subTest(needle):
+                self.assertIn(needle, item6)
+
     def test_diagnose_prompt_decides_before_asking(self):
         """人に問う前に自分で決める（持ち主 2026-09-29）: 7 項は決め手に人の前の決定・人の方針・対象の同じ場面・世界の解を並べ、
         人に問うのを 3 つの場合に限り、fork の reason に推しを書かせる。8 項の undecided_because はその 3 つのどれかを名指させる"""

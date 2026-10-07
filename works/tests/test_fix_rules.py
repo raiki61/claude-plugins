@@ -242,6 +242,26 @@ class TestCompose(unittest.TestCase):
         self.assertIn("範囲の外が要るなら request", sec)
         self.assertIn("query（`correct_lines` 付き）", sec)
 
+    def test_population_query_hitting_right_members_goes_to_the_query_exit(self):
+        """population の問いがもう正しい物（直さなくてよい物）にも当たる単位も、query の申し出で問いの置き換えを裁かせる
+        （canary の large の run a2fcf33a: 公開関数の全部を数えた問いで、docstring を足す正しい直しが閉じなかった）。
+        correct_lines には直さなくてよい物の行を写し、remaining では閉じない、を正本（core-conflict）と brief の決まりの両方が言う"""
+        conflict_sec = fixrules.sections(fixrules.SHARED)["core-conflict"]
+        for w in ("`population`", "直さなくてよい（もう正しい）物にも当たる", "`correct_lines` にはその直さなくてよい物の行",
+                  "`remaining` に書いても閉じない"):
+            with self.subTest(w):
+                self.assertIn(w, conflict_sec)
+        brief = fixrules.sections(fixrules.BRIEF)["brief-canon"]
+        self.assertIn("`population` の問いが直さなくてよい物にも当たる", brief)
+        # 裁定役が同じ形を replace_query に裁ける（検査を狭める裁きとして ask_human に倒さない）。決まりと返す形の両方が言う
+        ruler = fixrules.ruler_prompt({"conflicts_file": "/b/r1/conflicts.json", "ids": "c1-1", "judgment_file": "/b/j.json",
+                                       "request_file": "", "policy_path": ""})
+        principles = fixrules.sections(fixrules.PRINCIPLES)["principles"]
+        for text in (principles, ruler):
+            with self.subTest(len(text)):
+                self.assertIn("直さなくてよい（もう正しい）物にも当たる", text)
+                self.assertIn("検査を狭める裁きではない", text)
+
     def test_brief_rule_asks_before_scope_needed(self):
         """数え直しが範囲の外を求める時も、範囲の相談の節が在れば申し出の前に相談する（run 249・249b。相談の控えが在ったのに
         申し出の道だけが選ばれた）"""
@@ -760,6 +780,36 @@ class TestQueryConflictExit(unittest.TestCase):
         self.assertTrue(any("correct_lines" in e for e in errs), f"申し出の正しい行にも当たる問いは拒む: {errs}")
         errs = ruling.problems(reply(good, ["        return lo  # hi"], ["        return lo  # hi"]), todo, self.repo)
         self.assertTrue(any("misses" in e for e in errs), f"misses に当たる問いは拒む: {errs}")
+
+    def test_population_query_dispute_goes_through(self):
+        """population の問いがもう正しい物にも当たる形（canary の run a2fcf33a: 公開関数の全部を数えた問い）も、同じ出口を通る:
+        申し出は correct_lines に直さなくてよい物の行を写して通り、裁定は欠けた物だけを名指す問いなら通り、もう正しい物にも
+        当たる問いは拒まれる"""
+        import conflict
+        import querytest
+        import ruling
+        key = "money.py:split_even — 公開の関数に約束の docstring が無い"
+        (self.repo / "money.py").write_text('def format_yen(amount):\n    """円の表記"""\n    return f"{amount}円"\n\n\n'
+                                            "def split_even(total, n):\n    return [total // n] * n\n", encoding="utf-8")
+        it = {"unit_key": key, "between": ["money.py:1", "money.py:6"],
+              "why_both_cannot_hold": "判定者の問い ^def [a-z] はもう docstring を持つ format_yen にも当たり、正しく直しても閉じない",
+              "which_is_right": "query", "kind": "query_hits_fixed", "correct_lines": ["def format_yen(amount):"]}
+        judge = {"patterns": ["^def [a-z]"], "paths": ["money.py"], "count": "lines"}
+
+        def try_query(unit_key, lines):
+            got, why = querytest.run_examples(judge, lines)
+            return why or ("" if len(got) == len(lines) else "判定者の問いが正しい行に当たらない")
+        self.assertEqual(conflict.problems([it], repo=self.repo, board_dir=self.repo, owed={key}, try_query=try_query), [])
+        todo = {"c1-1": {"id": "c1-1", **it}}
+
+        def reply(how):
+            return {"rulings": [{"id": "c1-1", "decision": "replace_query", "limits": [], "text": "欠けた物だけを名指す問いに置き換える",
+                                 "query": {"how": how, "counts": "population", "hits": ["def split_even(total, n):"],
+                                           "misses": ["def _private(x):"]}}]}
+        members = {"patterns": ["def split_even("], "fixed": True, "paths": ["money.py"], "count": "lines"}
+        self.assertEqual(ruling.problems(reply(members), todo, self.repo), [])
+        errs = ruling.problems(reply(judge), todo, self.repo)
+        self.assertTrue(any("correct_lines" in e for e in errs), errs)
 
 
 class TestThirdRejectParksBoundUnit(unittest.TestCase):
