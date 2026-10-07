@@ -37,7 +37,9 @@
 - write_config・load_config・place_of・offered: 相談の控え（事前の確かめのコマンドと受け付けの拒否の文）
 """
 import collections
+import contextlib
 import datetime
+import fcntl
 import json
 import os
 import pathlib
@@ -68,6 +70,7 @@ ALLOW, DENY, DEFER = "allow", "deny", "defer"
 DECISIONS = (ALLOW, DENY, DEFER)
 MIN_WHY = conflict.CONSULT_MIN_WHY
 CONFIG = "consult.json"
+LOCK = "consult.lock"        # 相談の行の番号を振る錠（今の scope の周の作業ファイル。_id_lock）
 PLACE = "consult"           # run ごとの置き場の今の scope の下
 NO_PEER = "相談の相手の会話が無い run（入力 plan_session が空）"
 
@@ -94,9 +97,10 @@ ANSWER_SCHEMA = {
 }
 
 
-def answer_format(name: str) -> dict:
-    """答えの節 name の output_format（ANSWER_SCHEMA に印 `works-node: <name> continue=PEER`。blk-fix.yaml に貼る物）"""
-    return node_marker.mark(ANSWER_SCHEMA, name, cont=PEER)
+def answer_format(name: str, fork: bool = False) -> dict:
+    """答えの節 name の output_format（ANSWER_SCHEMA に印 `works-node: <name> continue=PEER`。blk-fix.yaml に貼る物）。fork なら印に
+    旗 fork（修正役の並べの枝の答えの節。同時に走るほかの枝の答えの節と相手の会話を混ぜないよう、相手の会話の写しで答える）"""
+    return node_marker.mark(ANSWER_SCHEMA, name, cont=PEER, flags=("fork",) if fork else ())
 
 
 QUESTION = """\
@@ -358,6 +362,29 @@ def settle(b, answer, pass_: str, node: str) -> dict:
     for a in got if isinstance(got, list) else []:
         if isinstance(a, dict) and isinstance(a.get("ask"), int) and a["ask"] not in by_n:
             by_n[a["ask"]] = a
+    with _id_lock(b):   # 同時に走る修正役の並べの枝の確かめの節が、同じ番号を 2 度振らない（番号の引きと trace の書きを 1 つの錠の中に）
+        out_rows = _trace_rows(b, st, answer, by_n, turn, pass_, node)
+    path = b.work(ANSWER_FILE.format(pass_=pass_, turn=turn))
+    path.write_text(answer_text(turn, out_rows), encoding="utf-8")
+    _write_json(state_path(b, pass_), {**st, "turn_state": ANSWERED_TURN, "answer_file": str(path),
+                                       "ids": [r["id"] for r in out_rows]})
+    counts = collections.Counter(r["decision"] if r["status"] == ANSWERED else r["status"] for r in out_rows)
+    return {"consulted": True, "turn": turn, "answer_file": str(path), "counts": dict(counts)}
+
+
+@contextlib.contextmanager
+def _id_lock(b):
+    """相談の行の番号を振る錠（今の scope の周の作業ファイル LOCK。fcntl.flock。待つ上限は持たない）"""
+    with open(b.work(LOCK), "a", encoding="utf-8") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _trace_rows(b, st: dict, answer, by_n: dict, turn: int, pass_: str, node: str) -> list:
+    """頼みごとの行を確かめて trace（conflict.ASKED_OP）に書き、行の並びを返す（番号は trace の今の最大の次から。_id_lock の中で呼ぶ）"""
     known = [r.get("id") for r in conflict.plan_asks(b) if isinstance(r.get("id"), int)]
     next_id = 1 + max(known, default=0)
     out_rows = []
@@ -380,12 +407,7 @@ def settle(b, answer, pass_: str, node: str) -> dict:
             row.update({k: r[k] for k in ("why_refused", "why_unavailable") if r.get(k)})
         b.trace(conflict.ASKED_OP, **row)
         out_rows.append(row)
-    path = b.work(ANSWER_FILE.format(pass_=pass_, turn=turn))
-    path.write_text(answer_text(turn, out_rows), encoding="utf-8")
-    _write_json(state_path(b, pass_), {**st, "turn_state": ANSWERED_TURN, "answer_file": str(path),
-                                       "ids": [r["id"] for r in out_rows]})
-    counts = collections.Counter(r["decision"] if r["status"] == ANSWERED else r["status"] for r in out_rows)
-    return {"consulted": True, "turn": turn, "answer_file": str(path), "counts": dict(counts)}
+    return out_rows
 
 
 def answer_text(turn: int, rows: list) -> str:

@@ -127,17 +127,19 @@ class TestBlockYaml(unittest.TestCase):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
                          ["ignored-before", "tdd-start", "tdd-loop", "tdd-fork", "tdd-lane-loop-1", "tdd-lane-loop-2",
-                          "tdd-lane-loop-3", "tdd-join", "tdd-rest-loop", "fix-loop", "conflict-check", "rule-loop",
+                          "tdd-lane-loop-3", "tdd-join", "tdd-rest-loop", "fix-fork", "fix-lane-loop-1", "fix-lane-loop-2",
+                          "fix-lane-loop-3", "fix-join", "fix-loop", "conflict-check", "rule-loop",
                           "fix-ruled-loop", "clean", "assert-changed", "fix-reads", "collect"])
-        # TDD の輪の節は test_blk_fix_tdd、食い違いの申し出の 3 節は test_blk_fix_conflict が見る
-        before, _start, _tdd, _fork, _l1, _l2, _l3, _join, _rest, loop, _check, _rule, _ruled, clean, changed, reads, collect = nodes
+        # TDD の輪の節は test_blk_fix_tdd、修正役の並べの節は test_fix_lane_wiring、食い違いの申し出の 3 節は test_blk_fix_conflict が見る
+        (before, _start, _tdd, _fork, _l1, _l2, _l3, _join, _rest, _ffork, _f1, _f2, _f3, _fjoin, loop, _check, _rule, _ruled,
+         clean, changed, reads, collect) = nodes
         self.assertEqual((reads["script"], reads["depends_on"]), ("reads", ["assert-changed"]))
         self.assertEqual(reads["with"], {"must": '["$INPUTS.judgment_file"]'})
         self.assertNotIn("depends_on", before)
         self.assertNotIn("with", before)
         self.assertEqual(before["script"], "ignored_before")
-        self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop"],
-                         "控えは修正役より前（tdd-start が ignored-before の後）")
+        self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop", "fix-fork", "fix-join"],
+                         "控えは修正役より前（tdd-start が ignored-before の後）。修正役の並べの枝の後")
         self.assertEqual(clean["script"], "clean")
         self.assertEqual(clean["depends_on"], ["fix-loop", "conflict-check", "rule-loop", "fix-ruled-loop"])
         self.assertEqual(collect["with"]["cleaned"], {"from": "$clean.output"})
@@ -148,10 +150,8 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(g["until_bash"], "test $fix-accept.output.done = true", "通った時か 3 回目の拒否で抜ける（R50）")
         # 範囲の相談の 3 節（頼み・答え・確かめ）は役と締める節の間（形は tests/test_consult.py が見る）
         self.assertEqual([n["id"] for n in g["nodes"]], ["fix-prep", "fix", "fix-consult", "plan-answer", "fix-consult-check",
-                                                         "fix-units", "fix-accept"])
-        units = find_node(nodes, "fix-units")   # 並べた項目を締める（依頼 243 の並べ）。受け付けは当てた後の作業ツリーを見る
-        self.assertEqual((units["script"], units["depends_on"], units["timeout"]), ("units", ["fix-consult-check"], DEADLINE))
-        self.assertEqual(find_node(nodes, "fix-accept")["depends_on"], ["fix-units"])
+                                                         "fix-accept"])
+        self.assertEqual(find_node(nodes, "fix-accept")["depends_on"], ["fix-consult-check"])
         self.assertEqual(changed["depends_on"], ["clean"])
         self.assertEqual(collect["depends_on"], ["fix-reads"])
         accept = find_node(nodes, "fix-accept")
@@ -322,7 +322,13 @@ class TestBlockYaml(unittest.TestCase):
                            "INPUTS_TDD_SUITE", "INPUTS_CONSULTED"),
                 "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
                              "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PLAN_SESSION",
-                             "INPUTS_RIPPLE_FILE", "INPUTS_FIX_LANES", "INPUTS_PASS"),
+                             "INPUTS_RIPPLE_FILE", "INPUTS_PASS"),
+                "fix_fork": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE", "INPUTS_BASE_REV", "INPUTS_PLAN_SESSION",
+                             "INPUTS_RIPPLE_FILE", "INPUTS_FIX_LANES"),
+                "fix_lane_prep": ("INPUTS_LANE",),
+                "fix_lane_step": ("INPUTS_REPLY", "INPUTS_LANE", "INPUTS_CONSULTED", "INPUTS_BASE_REV", "INPUTS_TDD_STATE"),
+                "fix_join": (),
                 "consult_prep": ("INPUTS_REPLY", "INPUTS_PLAN_SESSION", "INPUTS_PASS", "INPUTS_ANSWER_NODE"),
                 "consult_check": ("INPUTS_ANSWER", "INPUTS_PASS", "INPUTS_ANSWER_NODE"),
                 "rule_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_POLICY_PATH"),
@@ -342,7 +348,7 @@ class TestBlockYaml(unittest.TestCase):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         # tdd は test_blk_fix_tdd、conflict（食い違いの申し出の筋書き）は test_blk_fix_conflict が見る
         self.assertEqual(set(fx), {"pass.stubs.yaml", "no-change.stubs.yaml", "tdd.stubs.yaml", "tdd-lanes.stubs.yaml",
-                                   "conflict.stubs.yaml"})
+                                   "fix-lanes.stubs.yaml", "conflict.stubs.yaml"})
         fx.pop("conflict.stubs.yaml")
         for name, f in fx.items():
             with self.subTest(name):
@@ -1038,45 +1044,6 @@ class TestFixPrep(BoardCase):
 def rolekit_reject_line(path):
     import rolekit
     return rolekit.REJECT_LINE.format(path=path)
-
-
-class TestUnits(BoardCase):
-    """修正役の後・受け付けの前の節 fix-units（scripts/units.py。依頼 243 の並べ）: 控えが無ければ何もしない。在れば当てるコマンドが
-    当てなかった項目を機械が当て、単位の worktree の書き込みの記録を run の作業ツリーへ写し、worktree を片付け、盤面に 1 行残す"""
-
-    def run_it(self):
-        return run_script("units", self.repo, {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]})
-
-    def test_nothing_to_do_without_a_manifest(self):
-        self.fix_ready()
-        code, out, err = self.run_it()
-        self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads(out), {"ok": True, "ran": False})
-
-    def test_settles_planted_items(self):
-        import fixrules
-        import unitlanes
-        import unittrees
-        self.fix_ready()
-        self.addCleanup(unittrees.sweep, self.repo)
-        b = entry.open_board(self.board)
-        place = pathlib.Path(adapter.run_place_of({"board": str(self.board)})) / fixrules.UNITS_DIR
-        got = unitlanes.plant(self.repo, [1, 2], place, b.work(fixrules.UNITS_FILE))
-        tree = pathlib.Path(got[1]["tree"])
-        (tree / "stats.py").write_text((tree / "stats.py").read_text(encoding="utf-8") + "# 単位の直し\n", encoding="utf-8")
-        log = writes.sink(self.repo)
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with open(log, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"tool_name": "Edit", "path": str((tree / "stats.py").resolve()),
-                                "file_sha": writes._sha(str(tree / "stats.py"))}) + "\n")
-        code, out, err = self.run_it()
-        self.assertEqual(code, 0, err)
-        r = json.loads(out)
-        self.assertEqual((r["ok"], r["ran"], r["applied"], r["machine"], r["carried"]), (True, True, [1, 2], [1], 1), "差分の無い項目 2 は当てる物が無い")
-        self.assertIn("# 単位の直し", (self.repo / "stats.py").read_text(encoding="utf-8"))
-        self.assertFalse(tree.exists())
-        trace = (self.board / "trace.jsonl").read_text(encoding="utf-8")
-        self.assertIn(fixrules.UNITS_OP, trace)
 
 
 class TestAccept(BoardCase):

@@ -324,17 +324,16 @@ class YamlCase(unittest.TestCase):
         self.accept = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.accept)
 
-    def check_loop(self, loop, prep, role, cons, ans, check, accept, pass_):
+    def check_loop(self, loop, prep, role, cons, ans, check, accept, pass_, fork=False, cap=None):
         g = _find(self.doc["nodes"], loop)["loop_group"]
-        self.assertEqual([n["id"] for n in g["nodes"]][1:], [role, cons, ans, check, *([] if accept != "fix-accept" else
-                                                                                         ["fix-units"]), accept])
-        self.assertEqual(g["max_iterations"], self.accept.GIVE_UP_AFTER + consult.BUDGET)
+        self.assertEqual([n["id"] for n in g["nodes"]][1:], [role, cons, ans, check, accept])
+        self.assertEqual(g["max_iterations"], cap or self.accept.GIVE_UP_AFTER + consult.BUDGET)
         c, a, k, acc = (_find(g["nodes"], x) for x in (cons, ans, check, accept))
         self.assertEqual((c["script"], c["depends_on"]), ("consult_prep", [role]))
         self.assertEqual(c["with"], {"reply": {"from": f"${role}.output"}, "plan_session": "$INPUTS.plan_session",
                                      "pass": pass_, "answer_node": ans})
-        self.assertEqual(a["output_format"], consult.answer_format(ans))
-        self.assertEqual(a["output_format"]["description"], f"works-node: {ans} continue={consult.PEER}")
+        self.assertEqual(a["output_format"], consult.answer_format(ans, fork))
+        self.assertEqual(a["output_format"]["description"], f"works-node: {ans} continue={consult.PEER}" + (" fork" if fork else ""))
         self.assertEqual((a["depends_on"], a["when"]), ([cons], f"${cons}.output.go == true"))
         self.assertEqual(a["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"], "修正案を書いた役と同じ読むだけの道具")
         self.assertIs(a["mutates_checkout"], False)
@@ -353,9 +352,20 @@ class YamlCase(unittest.TestCase):
 
     def test_fix_loop(self):
         self.check_loop("fix-loop", "fix-prep", "fix", "fix-consult", "plan-answer", "fix-consult-check", "fix-accept", "first")
-        units = _find(self.doc["nodes"], "fix-units")
-        self.assertEqual((units["depends_on"], units["with"]),
-                         (["fix-consult-check"], {"consulted": "$fix-consult-check.output.consulted"}))
+        self.assertIsNone(_find(self.doc["nodes"], "fix-units"), "前の形の締めの節（修正役の下請けの並べ）は外した")
+        self.assertEqual(_find(self.doc["nodes"], "fix-accept")["depends_on"], ["fix-consult-check"])
+
+    def test_fix_lane_loops(self):
+        """修正役の並べの枝の輪も同じ 3 節で答える（段は枝ごとの lane-<n>。答えの節は相手の会話の写し（旗 fork）。確かめの節の
+        consulted を枝の確かめ fix-lane-step-<n> が読む）"""
+        import fixlanes
+        for n in range(1, fixlanes.MAX_LANES + 1):
+            with self.subTest(n):
+                self.check_loop(f"fix-lane-loop-{n}", f"fix-lane-prep-{n}", f"fix-lane-{n}", f"fix-lane-consult-{n}",
+                                f"plan-answer-lane-{n}", f"fix-lane-consult-check-{n}", f"fix-lane-step-{n}", f"lane-{n}",
+                                fork=True, cap=fixlanes.MAX_ITERATIONS)
+                self.assertEqual(fixlanes.PASS.format(n=n), f"lane-{n}")
+                self.assertEqual(fixlanes.ANSWER_NODE.format(n=n), f"plan-answer-lane-{n}")
 
     def test_ruled_loop(self):
         self.check_loop("fix-ruled-loop", "fix-ruled-prep", "fix-ruled", "fix-ruled-consult", "plan-answer-ruled",

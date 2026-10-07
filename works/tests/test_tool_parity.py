@@ -102,7 +102,11 @@ EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge",
                ("blk-lens", "lens-silent-failure-hunter"): "silent-failure-hunter",
                ("blk-judge", "judge-verify"): "judge",   # 判定の裏取りの束ね役（線の木の段 3）は確かめる目で、本線の judge に当たる
                # TDD の輪の並べの後の順の輪の役と、並べの枝の役（docs/plans/2026-10-07-lane-nodes.md）は p3.tdd_tests と同じ writer
-               ("blk-fix", "tdd-rest"): "writer", **{("blk-fix", f"tdd-lane-{n}"): "writer" for n in (1, 2, 3)}}
+               ("blk-fix", "tdd-rest"): "writer", **{("blk-fix", f"tdd-lane-{n}"): "writer" for n in (1, 2, 3)},
+               # 修正役の並べの枝の役（p3.fix と同じ writer）と、その範囲の相談の答えの節（修正案を書いた役の会話の写し。
+               # docs/plans/2026-10-07-fix-lane-nodes.md）
+               **{("blk-fix", f"fix-lane-{n}"): "writer" for n in (1, 2, 3)},
+               **{("blk-fix", f"plan-answer-lane-{n}"): "writer" for n in (1, 2, 3)}}
 
 
 def graph_run_by() -> dict:

@@ -211,20 +211,87 @@ class TestLaneSessions(LaneCase):
         self.assertEqual(p.mode, "refused")
 
 
+
+class TestFixLaneSessions(LaneCase):
+    """修正役の並べの枝の役 fix-lane-<n>（旗 lane と self-resume。単位の切れ目は項目）と、答えの節 plan-answer-lane-<n>（continue と
+    旗 fork）。docs/plans/2026-10-07-fix-lane-nodes.md"""
+    FIX = "fix-lane-1"
+
+    def setUp(self):
+        super().setUp()
+        self.mark(self.FIX, self.trees[0])
+
+    def key(self, value):
+        p = pathlib.Path(adapter.session_key_path(str(self.board), self.FIX))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(value + "\n", encoding="utf-8")
+
+    def test_self_resume_comes_back_to_its_own_lane_conversation(self):
+        self.key("r1:lane-1:item-1")
+        self.put_session(self.FIX, "s-own", lane=os.path.realpath(self.trees[0]))
+        adapter.unit_key_path(self.repo, self.FIX, self.home).write_text("r1:lane-1:item-1\n", encoding="utf-8")
+        p = self.plan(sdk_argv(f"works-node: {self.FIX} lane self-resume", resume="s-answer"))
+        self.assertEqual(p.mode, "merged", p.why)
+        self.assertEqual((p.session["mode"], p.session["id"], p.session["unit"]["cut"]), ("continued", "s-own", False))
+        self.assertEqual(p.argv[p.argv.index("--resume") + 1], "s-own", "答えの節の会話でなく自分の会話を継ぐ")
+        self.assertEqual(p.cwd, os.path.realpath(self.trees[0]))
+
+    def test_next_item_cuts_even_with_self_resume(self):
+        """枝の中の項目が替われば（支度の鍵が替われば）、旗 self-resume の続きでも新しい会話"""
+        self.key("r1:lane-1:item-2")
+        self.put_session(self.FIX, "s-own", lane=os.path.realpath(self.trees[0]))
+        adapter.unit_key_path(self.repo, self.FIX, self.home).write_text("r1:lane-1:item-1\n", encoding="utf-8")
+        p = self.plan(sdk_argv(f"works-node: {self.FIX} lane self-resume", resume="s-answer"))
+        self.assertEqual(p.mode, "merged", p.why)
+        self.assertEqual((p.session["mode"], p.session["id"]), ("new", "s-new"))
+        self.assertEqual(p.session["unit"], {"key": "r1:lane-1:item-2", "was": "r1:lane-1:item-1", "cut": True})
+        self.assertNotIn("--resume", p.argv)
+        self.assertIn((adapter.unit_key_path(self.repo, self.FIX, self.home), "r1:lane-1:item-2"), p.record)
+
+    def test_keyed_self_resume_without_its_own_id_is_refused(self):
+        self.key("r1:lane-1:item-1")
+        p = self.plan(sdk_argv(f"works-node: {self.FIX} lane self-resume", resume="s-answer"))
+        self.assertEqual(p.mode, "refused")
+        self.assertIn("self-resume", p.why)
+
+    def test_fork_continues_a_copy_of_the_planner(self):
+        """答えの節は修正案を書いた役の会話を写しで継ぐ（同時に走るほかの枝の答えの節と履歴が混ざらない）。新しい id をこの節の
+        名で記録し、相手の会話の id の記録は変えない"""
+        self.put_session("fix-planner", "s-plan")
+        p = self.plan(sdk_argv("works-node: plan-answer-lane-1 continue=fix-planner fork", tools="Read,Grep,Glob",
+                               resume="s-lane"), ids="s-fork")
+        self.assertEqual(p.mode, "merged", p.why)
+        self.assertEqual(p.session, {"mode": "continued", "id": "s-fork", "of": "fix-planner", "from": "s-plan", "fork": True})
+        i = p.argv.index("--resume")
+        self.assertEqual(p.argv[i:i + 4], ["--resume", "s-plan", "--fork-session", "--session-id=s-fork"])
+        self.assertNotIn("s-lane", p.argv, "SDK の会話の旗は外す")
+        self.assertEqual(p.record[0], (adapter.session_path(self.repo, "plan-answer-lane-1", self.home), "s-fork"))
+        self.assertNotIn(adapter.session_path(self.repo, "fix-planner", self.home), [r[0] for r in p.record])
+        self.assertIsNone(p.cwd, "答えの節は run の worktree で起きる（旗 lane を持たない）")
+
+    def test_fork_without_continue_is_refused(self):
+        p = self.plan(sdk_argv("works-node: plan-answer-lane-1 fork", tools="Read"))
+        self.assertEqual(p.mode, "refused")
+        self.assertIn("fork", p.why)
+
+
 class TestLaneTables(unittest.TestCase):
     def test_flag_tables_agree(self):
         self.assertIn(adapter.LANE, adapter.FLAGS)
         self.assertEqual(frozenset(adapter.FLAGS), node_marker.FLAGS)
 
     def test_keyed_nodes_cover_the_lane_roles(self):
+        import fixlanes
         import tddlanes
         import tddloop
-        self.assertEqual(adapter.KEYED_NODES, frozenset({*tddloop.UNIT_NODES, *tddlanes.lane_nodes()}))
+        self.assertEqual(adapter.KEYED_NODES, frozenset({*tddloop.UNIT_NODES, *tddlanes.lane_nodes(), *fixlanes.lane_nodes()}))
 
     def test_yaml_lane_roles_carry_the_flag(self):
-        """YAML の枝の役は印 works-node: tdd-lane-<n> lane を持ち、ほかの役は旗 lane を持たない"""
+        """YAML の枝の役は印 works-node: tdd-lane-<n> lane・fix-lane-<n> lane self-resume を持ち、ほかの役は旗 lane を持たない。
+        旗 fork を持つのは修正役の並べの枝の答えの節（continue=fix-planner）だけ"""
+        import fixlanes
         import tddlanes
-        found = {}
+        found, forks = {}, {}
         for path in ROOT.glob("*/*.yaml"):
             doc = yaml.safe_load(path.read_text(encoding="utf-8"))
             stack = list(doc.get("nodes") or []) if isinstance(doc, dict) else []
@@ -236,7 +303,10 @@ class TestLaneTables(unittest.TestCase):
                 m = node_marker.parse(desc)
                 if m and adapter.LANE in m["flags"]:
                     found[m["name"]] = path.parent.name
-        self.assertEqual(found, {n: "blk-fix" for n in tddlanes.lane_nodes()})
+                if m and adapter.FORK in m["flags"]:
+                    forks[m["name"]] = m["cont"]
+        self.assertEqual(found, {n: "blk-fix" for n in [*tddlanes.lane_nodes(), *fixlanes.lane_nodes()]})
+        self.assertEqual(forks, {fixlanes.ANSWER_NODE.format(n=n): "fix-planner" for n in range(1, fixlanes.MAX_LANES + 1)})
 
 
 if __name__ == "__main__":

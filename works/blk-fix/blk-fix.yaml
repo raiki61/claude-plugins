@@ -9,10 +9,11 @@ description: |
   赤・緑を確かめる。締めの節 tdd-join が差分を作業ツリーへ 3 方向で当てて緑を確かめ直し、食い違った枝・済まなかった単位・枝に入らな
   かった単位は輪 tdd-rest-loop が順に回す。依頼 243 の並べ。範囲が重なる枝も並べる）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
   changes に行を書くだけ。修正の形 g1 と既定の g3 では、残りの単位を 1 つの会話に積まず、単位（修正案の項目）ごとに新しい会話の
-  下請けを Agent で起こす。依頼 243 の 2。g3 の 1 回目の周では、書いてよい範囲の在る項目（重なってもよい）に、支度が項目ごとに
-  小さい worktree を切り、修正役がその下請けを同時に起こして、機械のコマンドが差分を項目の番号の順に作業ツリーへ当てる。
-  当たらない項目は作業ツリーで順に直し直し、締める節 fix-units が残りを当てて片付ける。依頼 243 の並べ。入力 tdd_lanes・fix_lanes が
-  off なら、それぞれ輪の並べの周・修正役の項目の並べを使わずに順に回す）、
+  下請けを Agent で起こす。依頼 243 の 2。g3 では修正の輪の前に、書いてよい範囲の在る項目（重なってもよい）が単位を共にしない 2 本以上の
+  枝に分かれれば、節 fix-fork が枝ごとに小さい worktree を切り、枝の輪 fix-lane-loop-<n>（3 本まで。枝の役の節を包みが枝の worktree を
+  cwd に起こす。項目ごとに新しい会話。範囲の相談と受け付けと同じ事実の確かめを枝の中で回す）が同時に直し、締めの節 fix-join が差分を
+  作業ツリーへ 3 方向で当てる。当たらない枝・諦めた項目・枝に入らなかった項目は修正の輪が順に直す。依頼 243 の並べの 5 段目。
+  docs/plans/2026-10-07-fix-lane-nodes.md。入力 tdd_lanes・fix_lanes が off なら、それぞれ輪の並べの周・修正役の並べを使わずに順に回す）、
   2 つの役（tdd・fix）の指示書は、その前の script の節（tdd-prep・fix-prep）が修正の決まりの正本（.shared/core/writerules/common.md）と道ごとの決まりと
   run の値から機械で組む（lib/fixrules.py。裁定 R65。役の節の指示は「組んだ指示書を Read で読め」の 1 行）、
   返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回。3 回目の拒否は行を名指しの単位・テストが
@@ -90,8 +91,8 @@ inputs:
   fix_lanes:
     default: ""
     description: |
-      修正役の項目ごとの並べ（形 g3 の 1 回目の周で、範囲の在る項目に単位の worktree を切って下請けを同時に起こす）を使うか。on（空も on。今どおり）か off。
-      off なら支度が単位の worktree を切らず、修正役は項目の下請けを作業ツリーで順に起こす（項目ごとに新しい会話の下請けは今どおり）。ほかの語は支度が 2 で落ちる
+      修正役の並べ（形 g3 で、範囲の在る項目を修正の輪の前の枝の輪 fix-lane-loop-<n> で単位の worktree ごとに同時に直す）を使うか。on（空も on。今どおり）か off。
+      off なら節 fix-fork が枝を切らず、修正役は項目の下請けを作業ツリーで順に起こす（項目ごとに新しい会話の下請けは今どおり）。ほかの語は fix-fork が 2 で落ちる
 
 returns: collect
 outcome_field: ok
@@ -602,59 +603,80 @@ nodes:
               reason_file: {type: string}
               phase: {type: string}
 
-  - id: fix-loop
+  # 修正役の並べの枝を切るか（docs/plans/2026-10-07-fix-lane-nodes.md。依頼 243 の並べの 5 段目）。既定の形 g3 で、修正役が下請けを
+  # 起こす単位（TDD の輪が緑にした単位を除く）を持つ範囲の在る修正案の項目が、単位を共にしない 2 本以上の枝に分かれれば（書き込みの
+  # 記録の在る run だけ。包みの無い起動は旗 lane が効かない）、単位の worktree を切って枝の控え・項目の決まりのファイルを書き go と
+  # lane_<n>。ほかは go: false（修正の輪が今どおり全部の項目を直す）。入力 fix_lanes が off でも go: false。実行器の無い run（TDD の輪が
+  # 飛ぶ）でも走る
+  - id: fix-fork
+    script: fix_fork
+    runtime: uv
     depends_on: [tdd-start, tdd-loop, tdd-fork, tdd-join, tdd-rest-loop]
     trigger_rule: none_failed_min_one_success   # 実行器の無い run は tdd-loop が、並べない run は tdd-join・tdd-rest-loop が飛ばされる
+    timeout: 1728000000
+    with:
+      judgment_file: $INPUTS.judgment_file
+      open_units: $INPUTS.open_units
+      plan_file: $INPUTS.plan_file
+      policy_path: $INPUTS.policy_path
+      notes_file: $INPUTS.notes_file
+      summary_file: $tdd-start.output.summary_file   # 輪の要約（隣の状態から輪が緑にした単位と凍結を引く。空は輪の無い run）
+      base_rev: $INPUTS.base_rev
+      plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
+      ripple_file: $INPUTS.ripple_file
+      fix_lanes: $INPUTS.fix_lanes   # 修正役の並べを使うか（off なら go: false）
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [go, lanes, lane_1, lane_2, lane_3, why]
+      properties:
+        go: {type: boolean}
+        lanes: {type: integer, minimum: 0, maximum: 3}
+        lane_1: {type: boolean}
+        lane_2: {type: boolean}
+        lane_3: {type: boolean}
+        why: {type: string}   # 並べない理由（並べる時は空）
+
+  # 修正役の並べの枝の輪（枝 1 本に 1 つ。fix-fork の lane_<n> で起き、枝どうしは同時に走る。この層に mutates_checkout: false の節を
+  # 置かない——Archon v0.11.1 はその節と同じ層を順に回す）。役 fix-lane-<n> は枝の項目を 1 つずつ直す修正役（項目ごとに新しい会話。
+  # 包みが印の旗 lane で枝の単位の worktree を cwd に起こし、run の worktree とほかの枝の worktree を柵に足す。旗 self-resume で範囲の
+  # 相談の答えの節の後も自分の会話に戻る）。範囲の相談は修正の輪と同じ 3 節（頼み → 答え（修正案を書いた役の会話の写し）→ 確かめ）で、
+  # 枝ごとの段 lane-<n>。確かめの節 fix-lane-step-<n> は受け付けと同じ事実の確かめを単位の worktree に当て、同じ項目の 3 回目の拒否で
+  # 項目を諦めて（差分を盤面に控える）次の項目へ。項目が尽きるか回数の上限で done
+  - id: fix-lane-loop-1
+    depends_on: [fix-fork]
+    when: "$fix-fork.output.lane_1 == true"
     loop_group:
-      max_iterations: 12   # 受け付けの 3 回（accept.GIVE_UP_AFTER）と範囲の相談の周の枠 9（consult.BUDGET）の和
+      max_iterations: 18   # 項目 3 つの受け付けの 3 回ずつと範囲の相談の周の枠 9 の和（fixlanes.MAX_ITERATIONS）
       fresh_context: false
-      until_bash: test $fix-accept.output.done = true   # 通った時か、3 回目の拒否で結べる単位を止めて通した時（max_iterations で落とさない。R50）
+      until_bash: test $fix-lane-step-1.output.done = true   # 枝の項目が尽きた・回数の上限（max_iterations で落とさない。R50）
       nodes:
-        # 指示書を組み（fixrules.prep: 修正の決まりの正本・直す役の決まり・run の値。prompt_file は full の写しで、隣に .full.md・
-        # .delta.md・.variants.json）、起こした印を置く（盤面は印の無い返答を受けない）。
-        # 同じ試行の出し直しなら、前の回の受け付けが書いた拒否の理由のファイルを指示書の 1 行目で名指す（理由の文は貼らない。R44）
-        - id: fix-prep
-          script: fix_prep
+        - id: fix-lane-prep-1
+          script: fix_lane_prep
           runtime: uv
           timeout: 1728000000
           with:
-            judgment_file: $INPUTS.judgment_file
-            open_units: $INPUTS.open_units
-            plan_file: $INPUTS.plan_file
-            policy_path: $INPUTS.policy_path
-            notes_file: $INPUTS.notes_file
-            summary_file: $tdd-start.output.summary_file
-            base_rev: $INPUTS.base_rev   # 修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
-            plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
-            ripple_file: $INPUTS.ripple_file   # 波及の一覧（範囲の相談の節が名指す。空は名指さない）
-            fix_lanes: $INPUTS.fix_lanes   # 項目ごとの並べを使うか（off なら単位の worktree を切らない）
-            pass: "first"
+            lane: "1"
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file, attempt, out_path, node, already, variants_file, iteration]
+            required: [prompt_file]
             properties:
-              prompt_file: {type: string}      # full の写し（役の節の 1 行が Read させる。包みの無い起動の既定）
-              attempt: {type: integer}
-              out_path: {type: string}
-              node: {type: string}
-              already: {type: boolean}
-              variants_file: {type: string}    # 2 つの形の控え <名>.variants.json {full, delta, rules_sha, iteration, sections}
-              iteration: {type: integer, minimum: 1}   # この周の輪の何回目か（fix-accept が 3 回目の拒否で done を立てる）
+              prompt_file: {type: string}
 
-        - id: fix
-          model: sonnet               # コードとテストを書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
-          effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
-          prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
-          depends_on: [fix-prep]
-          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          # Agent は修正の形 g1・g3 で単位ごとの下請けを起こす口（seat.g1_section）。宣言は静的で、ほかの形は包みが拒む（fixshape.denied_tools）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]
-          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+        - id: fix-lane-1
+          model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。fix と同じ）
+          effort: high
+          prompt: 指示書 `$fix-lane-prep-1.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
+          depends_on: [fix-lane-prep-1]
+          settingSources: [user]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]   # Agent は項目の審査役の下請けだけ（実装の下請けは起こさない）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}   # 包みの旗 lane が求める形
           idle_timeout: 1728000000
-          # recount.FIX_OUTPUT_FORMAT（写しの p3.fix の schema に印 works-node: fix）を貼った物（tests/test_blk_fix.py が一致を見る）
+          # 印 works-node: fix-lane-1 lane self-resume（包みが単位の worktree を cwd に起こし、答えの節の後も自分の会話に戻り、項目が替われば新しい会話）
+          # 返答の形は修正役 fix と同じ（recount.FIX_OUTPUT_FORMAT の欄。ここでアンカー &fix_required・&fix_properties を置き、fix・fix-ruled と枝 2・3 が引く）
           output_format:
-            description: 'works-node: fix self-resume'
+            description: 'works-node: fix-lane-1 lane self-resume'
             type: object
             required: &fix_required
             - changes
@@ -1066,6 +1088,449 @@ nodes:
                     path: {type: string, minLength: 1}
                     why: {type: string, minLength: 10}
 
+        - id: fix-lane-consult-1
+          script: consult_prep
+          runtime: uv
+          depends_on: [fix-lane-1]
+          timeout: 1728000000
+          with:
+            reply: {from: "$fix-lane-1.output"}
+            plan_session: $INPUTS.plan_session
+            pass: "lane-1"   # 枝ごとの相談の段（状態・答えのファイル・枠を枝で分ける）
+            answer_node: "plan-answer-lane-1"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, go, prompt_file, turn, spent]
+            properties:
+              consulted: {type: boolean}
+              go: {type: boolean}
+              prompt_file: {type: string}
+              turn: {type: integer, minimum: 0}
+              spent: {type: boolean}
+
+        # 答えの節: 修正案を書いた役の会話の写しで答える（印 continue=fix-planner fork。同時に走るほかの枝の答えの節と履歴を混ぜない）
+        - id: plan-answer-lane-1
+          model: opus                 # plan-answer と同じ（表 .shared/core/stage-models.json の plan_writer）
+          effort: medium
+          prompt: 指示書 `$fix-lane-consult-1.output.prompt_file` を Read で全部読み、その相談に答えよ。返すのは指示書の JSON だけ。
+          depends_on: [fix-lane-consult-1]
+          when: "$fix-lane-consult-1.output.go == true"
+          settingSources: [user]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          mutates_checkout: false
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          output_format:
+            description: 'works-node: plan-answer-lane-1 continue=fix-planner fork'
+            type: object
+            additionalProperties: false
+            required: [answers]
+            properties:
+              answers:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ask, decision, paths, tests, spec, reason]
+                  properties:
+                    ask: {type: integer, minimum: 1}
+                    decision: {type: string, enum: [allow, deny, defer]}
+                    paths: {type: array, items: {type: string, minLength: 1}}
+                    tests: {type: array, items: {type: string, minLength: 1}}
+                    spec: {type: string}
+                    reason: {type: string, minLength: 10}
+
+        - id: fix-lane-consult-check-1
+          script: consult_check
+          runtime: uv
+          depends_on: [fix-lane-consult-1, plan-answer-lane-1]
+          trigger_rule: none_failed_min_one_success   # 頼みの無い周・聞く頼みの無い周は答えの節が飛ばされる
+          timeout: 1728000000
+          with:
+            answer: {from: "$plan-answer-lane-1.output", if_skipped: null}
+            pass: "lane-1"
+            answer_node: "plan-answer-lane-1"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, turn, answer_file, counts]
+            properties:
+              consulted: {type: boolean}
+              turn: {type: integer, minimum: 0}
+              answer_file: {type: string}
+              counts: {type: object}
+
+        - id: fix-lane-step-1
+          script: fix_lane_step
+          runtime: uv
+          depends_on: [fix-lane-consult-check-1]
+          timeout: 1728000000
+          with:
+            reply: {from: "$fix-lane-1.output"}
+            lane: "1"
+            consulted: $fix-lane-consult-check-1.output.consulted   # 範囲の相談の周は確かめない（数えるだけ）
+            base_rev: $INPUTS.base_rev
+            tdd_state: $tdd-start.output.state_file   # 凍ったテストのファイル・選んで回す試験の元の結末（空は実行器の無い run）
+          output_format:
+            type: object
+            required: [ok, done, consulted, reason, reason_file, item]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              consulted: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              item: {type: integer}
+
+  - id: fix-lane-loop-2
+    depends_on: [fix-fork]
+    when: "$fix-fork.output.lane_2 == true"
+    loop_group:
+      max_iterations: 18   # 項目 3 つの受け付けの 3 回ずつと範囲の相談の周の枠 9 の和（fixlanes.MAX_ITERATIONS）
+      fresh_context: false
+      until_bash: test $fix-lane-step-2.output.done = true   # 枝の項目が尽きた・回数の上限（max_iterations で落とさない。R50）
+      nodes:
+        - id: fix-lane-prep-2
+          script: fix_lane_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            lane: "2"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file]
+            properties:
+              prompt_file: {type: string}
+
+        - id: fix-lane-2
+          model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。fix と同じ）
+          effort: high
+          prompt: 指示書 `$fix-lane-prep-2.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
+          depends_on: [fix-lane-prep-2]
+          settingSources: [user]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]   # Agent は項目の審査役の下請けだけ（実装の下請けは起こさない）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}   # 包みの旗 lane が求める形
+          idle_timeout: 1728000000
+          # 印 works-node: fix-lane-2 lane self-resume（包みが単位の worktree を cwd に起こし、答えの節の後も自分の会話に戻り、項目が替われば新しい会話）
+          output_format:
+            description: 'works-node: fix-lane-2 lane self-resume'
+            type: object
+            required: *fix_required
+            additionalProperties: false
+            properties: *fix_properties
+
+        - id: fix-lane-consult-2
+          script: consult_prep
+          runtime: uv
+          depends_on: [fix-lane-2]
+          timeout: 1728000000
+          with:
+            reply: {from: "$fix-lane-2.output"}
+            plan_session: $INPUTS.plan_session
+            pass: "lane-2"   # 枝ごとの相談の段（状態・答えのファイル・枠を枝で分ける）
+            answer_node: "plan-answer-lane-2"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, go, prompt_file, turn, spent]
+            properties:
+              consulted: {type: boolean}
+              go: {type: boolean}
+              prompt_file: {type: string}
+              turn: {type: integer, minimum: 0}
+              spent: {type: boolean}
+
+        # 答えの節: 修正案を書いた役の会話の写しで答える（印 continue=fix-planner fork。同時に走るほかの枝の答えの節と履歴を混ぜない）
+        - id: plan-answer-lane-2
+          model: opus                 # plan-answer と同じ（表 .shared/core/stage-models.json の plan_writer）
+          effort: medium
+          prompt: 指示書 `$fix-lane-consult-2.output.prompt_file` を Read で全部読み、その相談に答えよ。返すのは指示書の JSON だけ。
+          depends_on: [fix-lane-consult-2]
+          when: "$fix-lane-consult-2.output.go == true"
+          settingSources: [user]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          mutates_checkout: false
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          output_format:
+            description: 'works-node: plan-answer-lane-2 continue=fix-planner fork'
+            type: object
+            additionalProperties: false
+            required: [answers]
+            properties:
+              answers:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ask, decision, paths, tests, spec, reason]
+                  properties:
+                    ask: {type: integer, minimum: 1}
+                    decision: {type: string, enum: [allow, deny, defer]}
+                    paths: {type: array, items: {type: string, minLength: 1}}
+                    tests: {type: array, items: {type: string, minLength: 1}}
+                    spec: {type: string}
+                    reason: {type: string, minLength: 10}
+
+        - id: fix-lane-consult-check-2
+          script: consult_check
+          runtime: uv
+          depends_on: [fix-lane-consult-2, plan-answer-lane-2]
+          trigger_rule: none_failed_min_one_success   # 頼みの無い周・聞く頼みの無い周は答えの節が飛ばされる
+          timeout: 1728000000
+          with:
+            answer: {from: "$plan-answer-lane-2.output", if_skipped: null}
+            pass: "lane-2"
+            answer_node: "plan-answer-lane-2"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, turn, answer_file, counts]
+            properties:
+              consulted: {type: boolean}
+              turn: {type: integer, minimum: 0}
+              answer_file: {type: string}
+              counts: {type: object}
+
+        - id: fix-lane-step-2
+          script: fix_lane_step
+          runtime: uv
+          depends_on: [fix-lane-consult-check-2]
+          timeout: 1728000000
+          with:
+            reply: {from: "$fix-lane-2.output"}
+            lane: "2"
+            consulted: $fix-lane-consult-check-2.output.consulted   # 範囲の相談の周は確かめない（数えるだけ）
+            base_rev: $INPUTS.base_rev
+            tdd_state: $tdd-start.output.state_file   # 凍ったテストのファイル・選んで回す試験の元の結末（空は実行器の無い run）
+          output_format:
+            type: object
+            required: [ok, done, consulted, reason, reason_file, item]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              consulted: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              item: {type: integer}
+
+  - id: fix-lane-loop-3
+    depends_on: [fix-fork]
+    when: "$fix-fork.output.lane_3 == true"
+    loop_group:
+      max_iterations: 18   # 項目 3 つの受け付けの 3 回ずつと範囲の相談の周の枠 9 の和（fixlanes.MAX_ITERATIONS）
+      fresh_context: false
+      until_bash: test $fix-lane-step-3.output.done = true   # 枝の項目が尽きた・回数の上限（max_iterations で落とさない。R50）
+      nodes:
+        - id: fix-lane-prep-3
+          script: fix_lane_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            lane: "3"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file]
+            properties:
+              prompt_file: {type: string}
+
+        - id: fix-lane-3
+          model: sonnet               # コードとテストを書く役（表 .shared/core/stage-models.json の値。fix と同じ）
+          effort: high
+          prompt: 指示書 `$fix-lane-prep-3.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
+          depends_on: [fix-lane-prep-3]
+          settingSources: [user]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]   # Agent は項目の審査役の下請けだけ（実装の下請けは起こさない）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}   # 包みの旗 lane が求める形
+          idle_timeout: 1728000000
+          # 印 works-node: fix-lane-3 lane self-resume（包みが単位の worktree を cwd に起こし、答えの節の後も自分の会話に戻り、項目が替われば新しい会話）
+          output_format:
+            description: 'works-node: fix-lane-3 lane self-resume'
+            type: object
+            required: *fix_required
+            additionalProperties: false
+            properties: *fix_properties
+
+        - id: fix-lane-consult-3
+          script: consult_prep
+          runtime: uv
+          depends_on: [fix-lane-3]
+          timeout: 1728000000
+          with:
+            reply: {from: "$fix-lane-3.output"}
+            plan_session: $INPUTS.plan_session
+            pass: "lane-3"   # 枝ごとの相談の段（状態・答えのファイル・枠を枝で分ける）
+            answer_node: "plan-answer-lane-3"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, go, prompt_file, turn, spent]
+            properties:
+              consulted: {type: boolean}
+              go: {type: boolean}
+              prompt_file: {type: string}
+              turn: {type: integer, minimum: 0}
+              spent: {type: boolean}
+
+        # 答えの節: 修正案を書いた役の会話の写しで答える（印 continue=fix-planner fork。同時に走るほかの枝の答えの節と履歴を混ぜない）
+        - id: plan-answer-lane-3
+          model: opus                 # plan-answer と同じ（表 .shared/core/stage-models.json の plan_writer）
+          effort: medium
+          prompt: 指示書 `$fix-lane-consult-3.output.prompt_file` を Read で全部読み、その相談に答えよ。返すのは指示書の JSON だけ。
+          depends_on: [fix-lane-consult-3]
+          when: "$fix-lane-consult-3.output.go == true"
+          settingSources: [user]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          mutates_checkout: false
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          output_format:
+            description: 'works-node: plan-answer-lane-3 continue=fix-planner fork'
+            type: object
+            additionalProperties: false
+            required: [answers]
+            properties:
+              answers:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ask, decision, paths, tests, spec, reason]
+                  properties:
+                    ask: {type: integer, minimum: 1}
+                    decision: {type: string, enum: [allow, deny, defer]}
+                    paths: {type: array, items: {type: string, minLength: 1}}
+                    tests: {type: array, items: {type: string, minLength: 1}}
+                    spec: {type: string}
+                    reason: {type: string, minLength: 10}
+
+        - id: fix-lane-consult-check-3
+          script: consult_check
+          runtime: uv
+          depends_on: [fix-lane-consult-3, plan-answer-lane-3]
+          trigger_rule: none_failed_min_one_success   # 頼みの無い周・聞く頼みの無い周は答えの節が飛ばされる
+          timeout: 1728000000
+          with:
+            answer: {from: "$plan-answer-lane-3.output", if_skipped: null}
+            pass: "lane-3"
+            answer_node: "plan-answer-lane-3"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [consulted, turn, answer_file, counts]
+            properties:
+              consulted: {type: boolean}
+              turn: {type: integer, minimum: 0}
+              answer_file: {type: string}
+              counts: {type: object}
+
+        - id: fix-lane-step-3
+          script: fix_lane_step
+          runtime: uv
+          depends_on: [fix-lane-consult-check-3]
+          timeout: 1728000000
+          with:
+            reply: {from: "$fix-lane-3.output"}
+            lane: "3"
+            consulted: $fix-lane-consult-check-3.output.consulted   # 範囲の相談の周は確かめない（数えるだけ）
+            base_rev: $INPUTS.base_rev
+            tdd_state: $tdd-start.output.state_file   # 凍ったテストのファイル・選んで回す試験の元の結末（空は実行器の無い run）
+          output_format:
+            type: object
+            required: [ok, done, consulted, reason, reason_file, item]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              consulted: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              item: {type: integer}
+
+  # 修正役の並べを締める（fixlanes.join）。枝の輪が 1 本落ちても締めて（all_done）、通った項目の差分を run の作業ツリーへ 3 方向で
+  # 当て、書き込みの記録を写し、申し出を盤面に積み、結末（盤面の作業ファイル fix-lanes-out.json・fix-lanes.md）を修正の輪の支度が読む
+  - id: fix-join
+    script: fix_join
+    runtime: uv
+    depends_on: [fix-fork, fix-lane-loop-1, fix-lane-loop-2, fix-lane-loop-3]
+    trigger_rule: all_done
+    when: "$fix-fork.output.go == true"
+    timeout: 1728000000
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, merged, back, parked, shared, union]
+      properties:
+        ok: {type: boolean}
+        merged: {type: array, items: {type: integer}}   # 当てた修正案の項目
+        back: {type: array, items: {type: integer}}     # 修正の輪に戻した項目
+        parked: {type: integer, minimum: 0}             # 盤面に積んだ食い違いの申し出の数
+        shared: {type: array, items: {type: string}}    # 2 本以上の枝の差分を合わせたファイル
+        union: {type: array, items: {type: string}}     # 同じ試験のファイルに足した行を枝の順に並べたファイル
+
+  - id: fix-loop
+    depends_on: [tdd-start, tdd-loop, tdd-fork, tdd-join, tdd-rest-loop, fix-fork, fix-join]
+    trigger_rule: none_failed_min_one_success   # 実行器の無い run は tdd-loop が、並べない run は tdd-join・tdd-rest-loop・fix-join が飛ばされる
+    loop_group:
+      max_iterations: 12   # 受け付けの 3 回（accept.GIVE_UP_AFTER）と範囲の相談の周の枠 9（consult.BUDGET）の和
+      fresh_context: false
+      until_bash: test $fix-accept.output.done = true   # 通った時か、3 回目の拒否で結べる単位を止めて通した時（max_iterations で落とさない。R50）
+      nodes:
+        # 指示書を組み（fixrules.prep: 修正の決まりの正本・直す役の決まり・run の値。prompt_file は full の写しで、隣に .full.md・
+        # .delta.md・.variants.json）、起こした印を置く（盤面は印の無い返答を受けない）。
+        # 同じ試行の出し直しなら、前の回の受け付けが書いた拒否の理由のファイルを指示書の 1 行目で名指す（理由の文は貼らない。R44）
+        - id: fix-prep
+          script: fix_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            judgment_file: $INPUTS.judgment_file
+            open_units: $INPUTS.open_units
+            plan_file: $INPUTS.plan_file
+            policy_path: $INPUTS.policy_path
+            notes_file: $INPUTS.notes_file
+            summary_file: $tdd-start.output.summary_file
+            base_rev: $INPUTS.base_rev   # 修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）
+            plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
+            ripple_file: $INPUTS.ripple_file   # 波及の一覧（範囲の相談の節が名指す。空は名指さない）
+            pass: "first"
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, attempt, out_path, node, already, variants_file, iteration]
+            properties:
+              prompt_file: {type: string}      # full の写し（役の節の 1 行が Read させる。包みの無い起動の既定）
+              attempt: {type: integer}
+              out_path: {type: string}
+              node: {type: string}
+              already: {type: boolean}
+              variants_file: {type: string}    # 2 つの形の控え <名>.variants.json {full, delta, rules_sha, iteration, sections}
+              iteration: {type: integer, minimum: 1}   # この周の輪の何回目か（fix-accept が 3 回目の拒否で done を立てる）
+
+        - id: fix
+          model: sonnet               # コードとテストを書く役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
+          effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
+          prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
+          depends_on: [fix-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          # Agent は修正の形 g1・g3 で単位ごとの下請けを起こす口（seat.g1_section）。宣言は静的で、ほかの形は包みが拒む（fixshape.denied_tools）
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Agent]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # recount.FIX_OUTPUT_FORMAT（写しの p3.fix の schema に印 works-node: fix）を貼った物（tests/test_blk_fix.py が一致を見る）。
+          # 欄の本体は前に在る枝の役 fix-lane-1 の YAML のアンカー（&fix_required・&fix_properties。アンカーは先に書いた物しか引けない）
+          output_format:
+            description: 'works-node: fix self-resume'
+            type: object
+            required: *fix_required
+            additionalProperties: false
+            properties: *fix_properties
+
         # 範囲の相談（docs/plans/2026-10-06-ask-planner.md）。役が返答の欄 consult で範囲の外を頼んだ周だけ働く: 頼みの節が機械の先の
         # 確かめをして、聞く頼みが在れば相手の会話（入力 plan_session の印の名の会話の id を、ブロックの中の名 fix-planner として包みの
         # 置き場へ写す）に答えの節を続けさせ、確かめの節が答えを確かめて盤面の trace に残す。その周は締める節と受け付けを回さず
@@ -1145,34 +1610,10 @@ nodes:
               answer_file: {type: string}  # 修正役が次の周に読む答え（盤面の今の scope の周の作業ファイル）
               counts: {type: object}       # 答えごとの数（allow・deny・defer・refused・invalid・unavailable）
 
-        # 並べた項目を締める（依頼 243 の並べ。lib/unitlanes.py の settle）。fix-prep が範囲の在る項目に単位の worktree を
-        # 切った周だけ働く: 修正役が当てるコマンドを走らせなかった項目を機械が当て、単位の worktree の書き込みの記録を作業ツリーへ
-        # 写し、当たらない項目の差分を盤面に残し、worktree を片付ける。切っていない周は何もしない。受け付けは当てた後の木を見る
-        - id: fix-units
-          script: units
-          runtime: uv
-          depends_on: [fix-consult-check]
-          timeout: 1728000000
-          with:
-            consulted: $fix-consult-check.output.consulted   # 範囲の相談の周は締めない（役は次の周に単位の worktree を続けて使う）
-          output_format:
-            type: object
-            required: [ok, ran]
-            properties:
-              ok: {type: boolean}
-              ran: {type: boolean}
-              applied: {type: array, items: {type: integer}}
-              machine: {type: array, items: {type: integer}}
-              conflict: {type: array, items: {type: integer}}
-              unmerged: {type: array}
-              carried: {type: integer, minimum: 0}
-              shared: {type: array, items: {type: string}}   # 2 つ以上の項目の差分を合わせたファイル（依頼 243 の並べの 3 段目）
-              union: {type: array, items: {type: string}}    # 同じ試験のファイルに足した行を項目の順に並べたファイル
-
         - id: fix-accept
           script: accept
           runtime: uv
-          depends_on: [fix-units]
+          depends_on: [fix-consult-check]
           timeout: 1728000000
           with:
             reply: {from: "$fix.output"}
@@ -1333,7 +1774,6 @@ nodes:
             base_rev: $INPUTS.base_rev
             plan_session: $INPUTS.plan_session   # 範囲の相談の相手（空は相談しない）
             ripple_file: $INPUTS.ripple_file   # 波及の一覧（範囲の相談の節が名指す。空は名指さない）
-            fix_lanes: $INPUTS.fix_lanes   # 裁定の後の周は並べない（fixrules.side_on）。入力の組を揃える
             pass: "ruled"
           output_format:
             type: object

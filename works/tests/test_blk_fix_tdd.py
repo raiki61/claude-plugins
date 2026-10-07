@@ -138,7 +138,8 @@ class TestYaml(unittest.TestCase):
         nodes = block()["nodes"]
         self.assertEqual([n["id"] for n in nodes],
                          ["ignored-before", "tdd-start", "tdd-loop", "tdd-fork", "tdd-lane-loop-1", "tdd-lane-loop-2",
-                          "tdd-lane-loop-3", "tdd-join", "tdd-rest-loop", "fix-loop", "conflict-check", "rule-loop",
+                          "tdd-lane-loop-3", "tdd-join", "tdd-rest-loop", "fix-fork", "fix-lane-loop-1", "fix-lane-loop-2",
+                          "fix-lane-loop-3", "fix-join", "fix-loop", "conflict-check", "rule-loop",
                           "fix-ruled-loop", "clean", "assert-changed", "fix-reads", "collect"])
         start, loop = nodes[1:3]
         fix_loop = find_node(nodes, "fix-loop")
@@ -154,7 +155,7 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(g["max_iterations"], tddloop.MAX_ITERATIONS)
         from test_yaml_rules import LOOP_MAX
         # 表のほかの行は修正の輪 2 つ（受け付けの 3 回と範囲の相談の枠の和。tests/test_consult.py が見る）
-        tdd_max = {k[2]: v for k, v in LOOP_MAX.items() if k[2] not in ("fix-loop", "fix-ruled-loop")}
+        tdd_max = {k[2]: v for k, v in LOOP_MAX.items() if not k[2].startswith("fix-")}   # 修正の輪と修正役の並べの枝の輪を除く
         self.assertEqual(set(tdd_max.values()), {tddloop.MAX_ITERATIONS})
         self.assertEqual(set(tdd_max), {"tdd-loop", "tdd-rest-loop", "tdd-lane-loop-1", "tdd-lane-loop-2", "tdd-lane-loop-3"})
         self.assertIs(g["fresh_context"], False, "テスト→直す→整えるを同じ会話で（C17）")
@@ -170,7 +171,8 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(step["with"], {"reply": {"from": "$tdd.output"}, "state_file": "$tdd-start.output.state_file"})
         for n in (prep, step):
             self.assertEqual(n["timeout"], DEADLINE)
-        self.assertEqual(fix_loop["depends_on"], ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop"])
+        self.assertEqual(fix_loop["depends_on"], ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop", "fix-fork",
+                                                  "fix-join"])   # 修正役の並べの枝（tests/test_fix_lane_wiring.py）の後
         self.assertEqual(fix_loop["trigger_rule"], "none_failed_min_one_success", "輪・並べ・順の輪が飛ばされても直す")
 
     def test_tdd_role_node(self):

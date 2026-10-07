@@ -11,12 +11,15 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
 見る道（canary.sh の頭の (a)〜(d)）と、通ったと言う決まり:
 - (a) parallel（別のファイルの 2 項目以上の並べ）: TDD の輪の並べの周の目録が枝 2 本以上で、枝の輪（節の名の最後が
   tdd-lane-loop-<n>・tdd-lane-prep-<n>・tdd-lane-<n>・tdd-lane-step-<n>。docs/plans/2026-10-07-lane-nodes.md）が同時に 2 本以上
-  走った。枝ごとの区間は枝 n の節の node_started の最初から終わり（node_completed・node_failed）の最後まで。または修正役の締めの
-  trace の行（units_settled）が 2 項目以上を当てて、修正役の節（最後が fix）の下請けが同時に 2 本以上走った。下請けの同時は
-  Archon の出来事 task_activity（task_type local_agent の started と、同じ task_id の completed・failed・stopped）の created_at の
-  区間の重なり（秒の粒。端が触れるだけは重ならない。枝の区間も同じ）
+  走った。枝ごとの区間は枝 n の節の node_started の最初から終わり（node_completed・node_failed）の最後まで。または修正役の並べの
+  締めの trace の行（fix_lanes_settled。docs/plans/2026-10-07-fix-lane-nodes.md）の枝が 2 本以上で、修正役の並べの枝の輪（節の名の
+  最後が fix-lane-loop-<n>・fix-lane-prep-<n>・fix-lane-<n>・fix-lane-consult-<n>・plan-answer-lane-<n>・fix-lane-consult-check-<n>・
+  fix-lane-step-<n>）が同時に 2 本以上走った。前の形の run（修正役が Agent で項目の下請けを並べた版）は、修正役の締めの
+  trace の行（units_settled）が 2 項目以上を当てて、修正役の節（最後が fix）の下請けが同時に 2 本以上走った、でも数える。下請けの
+  同時は Archon の出来事 task_activity（task_type local_agent の started と、同じ task_id の completed・failed・stopped）の
+  created_at の区間の重なり（秒の粒。端が触れるだけは重ならない。枝の区間も同じ）
 - (b) overlap（同じファイルの枝の合わせ）: TDD の輪の締めの重なりのファイル（lanes.shared）か、枝の合わせの結末に union が在る、
-  または修正役の締めの行の shared・union が空でない。同じファイルを見込んだ組（lanes.expect）か、修正案の 2 項目以上が触ってよい
+  または修正役の並べの締めの行（fix_lanes_settled。前の形の run は units_settled）の shared・union が空でない。同じファイルを見込んだ組（lanes.expect）か、修正案の 2 項目以上が触ってよい
   同じファイル（案の重なり。allowed_paths と tests・rewrite_tests の id のファイルの和を字のまま比べる）が在るのに、合わせが字・意味の
   食い違いで戻った・合わせの記録が無いなら attempted。案の項目どうしが同じファイルを共にしなければ no（計画役が同じファイルの単位を
   1 項目にまとめたか、テストを別のファイルに置いた）
@@ -52,7 +55,7 @@ for _p in (PACK / "blk-fix" / "lib", PACK / ".shared" / "core"):
         sys.path.insert(0, str(_p))
 
 import conflict  # noqa: E402  trace の行の語（ASKED_OP・PARK_OP・RULE_OP・REPLAN_OP）
-import fixrules  # noqa: E402  修正役の締めの trace の行の語（UNITS_OP）
+import fixlanes  # noqa: E402  修正役の並べの締めの trace の行の語（SETTLED_OP）・合わせの結末の語（MERGED）
 import gatemarks  # noqa: E402  報告の冒頭の起きたことの行の頭（HAPPENED）
 import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERED）
 import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
@@ -66,6 +69,9 @@ NODE_ENDS = ("node_completed", "node_failed")
 AI_KIND = "agent"
 FIX_NODE = "fix"
 LANE_NODE = re.compile(r"tdd-lane-(?:loop-|prep-|step-)?(\d+)")   # 枝の輪とその中の節の名（最後の 1 語）。番号は枝
+# 修正役の並べの枝の輪とその中の節の名（最後の 1 語。docs/plans/2026-10-07-fix-lane-nodes.md）。番号は枝
+FIX_LANE_NODE = re.compile(r"(?:fix-lane-(?:loop-|prep-|step-|consult-check-|consult-)?|plan-answer-lane-)(\d+)")
+OLD_UNITS_OP = "units_settled"   # 前の形の修正役の締めの trace の行（0.2.41 まで。修正役が Agent で項目の下請けを並べた run）
 OLD_ASK_PLACE, OLD_ASK_LOG = "ask-plan", "exchanges.jsonl"   # 前の形 askplan.py の run ごとの置き場の相談の記録（受け付けが trace へ写す前）
 REPLAN_OPS = (conflict.REPLAN_OP, planmarks.AMEND_OP, conflict.PARK_OP, conflict.RULE_OP)
 USAGE = ("usage: canary_check.py <canary の置き場> [<run-id>] [--json] | "
@@ -260,12 +266,12 @@ def agent_spans(events: list) -> dict:
     return out
 
 
-def lane_peak(events: list) -> dict:
-    """TDD の輪の枝の輪の同時の最大 {lanes, parallel}。枝 n の区間は枝 n の節（LANE_NODE）の started の最初から終わりの最後まで
-    （輪の節と中の節の区間が重なっても 1 本に数える）。終わりの行の無い枝は数えない"""
+def lane_peak(events: list, pattern=LANE_NODE) -> dict:
+    """枝の輪の同時の最大 {lanes, parallel}（既定は TDD の輪の枝。修正役の並べの枝は FIX_LANE_NODE）。枝 n の区間は枝 n の節
+    （pattern）の started の最初から終わりの最後まで（輪の節と中の節の区間が重なっても 1 本に数える）。終わりの行の無い枝は数えない"""
     first, last = {}, {}
     for e in events:
-        m = LANE_NODE.fullmatch(report._step_name(e["step_name"]))
+        m = pattern.fullmatch(report._step_name(e["step_name"]))
         if not m or e["at"] is None:
             continue
         n = int(m.group(1))
@@ -332,14 +338,19 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
     planned = planned_overlap(items)
     loops = tdd_lanes(board, items)
     units = [{k: r.get(k) or [] for k in ("applied", "conflict", "unmerged", "shared", "union")}
-             for r in trace if r.get("op") == fixrules.UNITS_OP]
+             for r in trace if r.get("op") == OLD_UNITS_OP]
+    fixl = [{"lanes": r.get("lanes") or 0, **{k: r.get(k) or [] for k in ("merged", "back", "parked", "shared", "union")}}
+            for r in trace if r.get("op") == fixlanes.SETTLED_OP]
     asks = consults(board, trace)
     spans = agent_spans(events)
     lane_nodes = lane_peak(events)
+    fix_lane_nodes = lane_peak(events, FIX_LANE_NODE)
     tdd_par, fix_par = lane_nodes["parallel"], _max_parallel(spans, FIX_NODE)
+    fixl_par = fix_lane_nodes["parallel"]
 
     tdd_lanes_n = max([lp["lanes"] for lp in loops] or [0])
     fix_items_n = max([len(u["applied"]) for u in units] or [0])
+    fixl_n = max([r["lanes"] for r in fixl] or [0])
     why = []
     if tdd_lanes_n >= 2 and tdd_par >= 2:
         ends = {}
@@ -347,14 +358,20 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
             for u in lp["units"]:
                 ends[u.get("outcome") or "?"] = ends.get(u.get("outcome") or "?", 0) + 1
         why.append(f"TDD の輪の枝 {tdd_lanes_n} 本・枝の輪の同時の最大 {tdd_par}・単位の結末 {ends}")
+    if fixl_n >= 2 and fixl_par >= 2:
+        merged = sorted({i for r in fixl for i in r["merged"]})
+        back = sorted({i for r in fixl for i in r["back"]})
+        why.append(f"修正役の並べの枝 {fixl_n} 本・枝の輪の同時の最大 {fixl_par}・当てた項目 {merged}・戻した項目 {back}")
     if fix_items_n >= 2 and fix_par >= 2:
-        why.append(f"修正役が当てた項目 {fix_items_n}・修正役の下請けの同時の最大 {fix_par}")
+        why.append(f"修正役が当てた項目 {fix_items_n}・修正役の下請けの同時の最大 {fix_par}（前の形の run）")
     a = {"status": YES if why else NO,
          "why": "・".join(why) or (f"並べの証拠が足りない（TDD の輪の枝 {tdd_lanes_n}・枝の輪の同時 {tdd_par}・"
-                                   f"修正役が当てた項目 {fix_items_n}・修正役の下請けの同時 {fix_par}）")}
+                                   f"修正役の並べの枝 {fixl_n}・枝の輪の同時 {fixl_par}・"
+                                   f"前の形の修正役が当てた項目 {fix_items_n}・修正役の下請けの同時 {fix_par}）")}
 
-    shared = sorted({f for lp in loops for f in lp["shared"]} | {f for u in units for f in u["shared"]})
-    unions = sorted({f for u in units for f in u["union"]})
+    shared = sorted({f for lp in loops for f in lp["shared"]} | {f for u in units for f in u["shared"]}
+                    | {f for r in fixl for f in r["shared"]})
+    unions = sorted({f for u in units for f in u["union"]} | {f for r in fixl for f in r["union"]})
     merges = sorted({u["merge"] for lp in loops for u in lp["units"] if u.get("merge")})
     expected = any(lp["expect"] for lp in loops)
     plan_said = "・".join(f"{f} 項目 {ns}" for f, ns in planned.items()) or "無い"
@@ -393,9 +410,11 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         "planned_overlap": planned,
         "tdd_lanes": loops,
         "fix_units": units,
+        "fix_lanes": fixl,
         "consults": asks,
         "agents": spans,
         "lane_nodes": lane_nodes,
+        "fix_lane_nodes": fix_lane_nodes,
         "nodes": node_peak(events),
         "spend": spend(events),
         "diff_files": changed,

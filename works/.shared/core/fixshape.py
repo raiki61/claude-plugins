@@ -40,8 +40,9 @@ CHOICE_REL = "r1/fix-shape.json"  # 後の振り分けが選んだ形の控え
 FIXTURE_KEY = "fixture"           # start の控えの固定材料の印の鍵（fixture.KEY。entry.start が書く。L2 なので fixture は import しない）
 # 座が skill の節（借りたスキルを Skill の道具で読む役の印の名。seat.SEATS のうち use_as が skill の物と同じ。形ごとの道具の柵が読む）
 SKILL_NODES = frozenset({"tdd", "tdd-rest", "tdd-lane-1", "tdd-lane-2", "tdd-lane-3", "refix", "refix2"})
-# 修正役の節（AGENT_SHAPES の形で SDD の型の下請けを Agent で起こす役の印の名。ほかの形では拒む）
-AGENT_NODES = frozenset({"fix", "fix-ruled"})
+# 修正役の節（AGENT_SHAPES の形で SDD の型の下請けを Agent で起こす役の印の名。ほかの形では拒む）と、修正役の並べの枝の役
+# （fix-lane-<n>。審査役の下請けを Agent で起こす。枝は g3 だけで切る。blk-fix の fixlanes.MAX_LANES と同じ数）
+AGENT_NODES = frozenset({"fix", "fix-ruled", "fix-lane-1", "fix-lane-2", "fix-lane-3"})
 SEAT_SHAPE = "g3"         # 座が載る形（seat.SHAPE）
 AGENT_SHAPE = "g1"        # 修正役が SDD の型だけで回す形（TDD の輪を回さない。seat.G1_SHAPE）
 # 修正役が単位ごとの下請けを Agent で起こす形（依頼 243 の 2: 既定の g3 も、輪の後に直す単位を 1 つの会話に積まず下請けに渡す）

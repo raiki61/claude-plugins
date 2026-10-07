@@ -263,9 +263,13 @@ ITEMS = [{"route": "tdd", "unit_keys": [U_MEAN], "allowed_paths": ["calc.py"],
           "tests": [{"id": "test_lib.py::TestTextfmt::test_initials_lowercase"}]}]
 
 
-def make_board(board, *, lanes=None, units=None, asks=(), unsettled=(), replans=0, items=ITEMS, patches=None, report=None):
+def make_board(board, *, lanes=None, units=None, asks=(), unsettled=(), replans=0, items=ITEMS, patches=None, report=None,
+               fix_lanes=None):
     write(board / "plan-fields.json", {"round": 1, "fields": items})
     trace = [{"t": "x", "op": "init"}]
+    if fix_lanes is not None:   # 修正役の並べの締めの行（fixlanes.SETTLED_OP）
+        trace.append({"t": "x", "op": "fix_lanes_settled", "node": "fix-join", "parked": [], "reverted": [], "outcomes": [],
+                      **fix_lanes, "scope": "fixing"})
     if units is not None:
         trace.append({"t": "x", "op": "units_settled", "node": "fix-units", "machine": [], "carried": 0, **units,
                       "scope": "fixing"})
@@ -425,6 +429,32 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(doc["features"]["b_overlap"]["status"], "no")
         self.assertIn("1 項目にまとめた", doc["features"]["b_overlap"]["why"])
         self.assertEqual(doc["outcome"], "round_limit")
+
+    def test_fixer_lanes_count_for_parallel_and_overlap(self):
+        """修正役の並べの枝の輪（fix-lane-loop-<n> と中の節）が同時に 2 本以上走り、締めの行の枝が 2 本以上なら (a) の yes。締めの行の
+        shared・union は (b) の yes（docs/plans/2026-10-07-fix-lane-nodes.md）"""
+        def fix_lane(n, start, end):
+            loop = f"fixing__fix-lane-loop-{n}"
+            return [*node(loop, start, end, usd=None, kind="loop_group"),
+                    *node(f"{loop}.fix-lane-prep-{n}", start, start + 1, kind="exec"),
+                    *node(f"{loop}.fix-lane-{n}", start + 1, end - 3, usd=0.5),
+                    *node(f"{loop}.plan-answer-lane-{n}", end - 3, end - 2, usd=0.1),
+                    *node(f"{loop}.fix-lane-step-{n}", end - 1, end, kind="exec")]
+        make_db(self.db, self.out_root, [*fix_lane(1, 10, 60), *fix_lane(2, 12, 50)])
+        make_board(self.board, fix_lanes={"lanes": 2, "merged": [1, 2], "back": [], "shared": ["test_lib.py"], "union": []})
+        row, events = canary_check.read_run(self.db, RUN)
+        got = canary_check.check(RUN, row, events, self.board)
+        f = got["features"]
+        self.assertEqual(f["a_parallel"]["status"], "yes", f["a_parallel"]["why"])
+        self.assertIn("修正役の並べの枝 2 本", f["a_parallel"]["why"])
+        self.assertEqual(got["fix_lane_nodes"], {"lanes": 2, "parallel": 2})
+        self.assertEqual(f["b_overlap"]["status"], "yes")
+        self.assertIn("test_lib.py", f["b_overlap"]["why"])
+        self.db.unlink()
+        make_db(self.db, self.out_root, [*fix_lane(1, 10, 30), *fix_lane(2, 30, 50)])
+        row, serial = canary_check.read_run(self.db, RUN)
+        self.assertEqual(canary_check.check(RUN, row, serial, self.board)["features"]["a_parallel"]["status"], "no",
+                         "枝の輪が順に走っただけなら並べの証拠でない")
 
     def test_fixer_union_counts_as_overlap(self):
         """修正役の締めの行の union（試験のファイルの挿しだけの合わせ）も (b) の yes"""

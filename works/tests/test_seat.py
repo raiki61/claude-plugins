@@ -431,24 +431,20 @@ class G1Case(unittest.TestCase):
     def test_g1_section_says_diffs_include_earlier_items(self):
         self.assertIn("前の項目", seat.g1_section([{"item": 1, "impl_file": "i", "review_file": "r", "base": "abc123", "patch": "/a/run-place/g1-1.patch"}]))
 
-    def test_g3_section_runs_tree_items_side_by_side_then_merges(self):
-        """機械が単位の worktree を切った項目（行に tree）は、1 つのメッセージで同時に起こし、済んだら機械の当てるコマンドを 1 回
-        走らせ、conflict の項目を作業ツリーで直し直させてから順の項目へ進む（依頼 243 の並べ）。差分のコマンドはその worktree の差分"""
-        rows = [{"item": 1, "impl_file": "i1", "review_file": "r1", "base": "b1", "patch": "/p/g1-1.patch", "tree": "/rp/units/item-1"},
-                {"item": 2, "impl_file": "i2", "review_file": "r2", "base": "b1", "patch": "/p/g1-2.patch", "tree": "/rp/units/item-2"},
-                {"item": 3, "impl_file": "i3", "review_file": "r3", "base": "b0", "patch": "/p/g1-3.patch"}]
-        text = seat.g1_section(rows, "g3", merge="python3 /pack/unitlanes.py /b/units.json")
-        para = seat.G1_PARALLEL_OF.format(merge="python3 /pack/unitlanes.py /b/units.json")
-        self.assertIn(para, text)
-        for w in ("1 つのメッセージ", "conflict", "differ", "bash_writes", "捨てない"):
-            self.assertIn(w, para)
-        self.assertLess(text.index(seat.G1_STEPS[-1]), text.index(para))
-        self.assertIn("項目 1（並べる。単位の worktree /rp/units/item-1）", text)
-        self.assertIn("項目 3: ", text, "順の項目は今の書き方のまま")
-        self.assertIn("top=/rp/units/item-1;", text)
-        self.assertEqual(text.count('top="$(git rev-parse --show-toplevel)"'), 1, "順の項目だけ cwd の根")
-        plain = seat.g1_section([rows[2]], "g3")
-        self.assertNotIn(seat.G1_PARALLEL_OF.split("{")[0], plain, "並べる項目が無ければ段落は載らない")
+    def test_g3_section_has_no_parallel_paragraph(self):
+        """修正役の下請けは run の作業ツリーで順に働く（項目の並べは修正役の外の枝の輪。前の形の並べの段落・当てるコマンドは外した）"""
+        rows = [{"item": 1, "impl_file": "i1", "review_file": "r1", "base": "b1", "patch": "/p/g1-1.patch"}]
+        text = seat.g1_section(rows, "g3")
+        self.assertFalse(hasattr(seat, "G1_PARALLEL_OF"))
+        self.assertNotIn("1 つのメッセージ", text)
+        self.assertEqual(text.count('top="$(git rev-parse --show-toplevel)"'), 1)
+
+    def test_diff_command_can_root_at_a_lane_tree(self):
+        """並べの枝の役が起こす審査の下請けの差分のコマンドは、枝の単位の worktree を根にする"""
+        self.assertEqual(seat.g1_diff_cmd("b1", "/p/x.patch"), seat.G1_PATCH.format(base="b1", patch="/p/x.patch"))
+        lane = seat.g1_diff_cmd("b1", "/p/x.patch", "/rp/fix-lanes/item-1")
+        self.assertIn("top=/rp/fix-lanes/item-1;", lane)
+        self.assertNotIn("rev-parse --show-toplevel", lane)
 
     def test_tree_prompts_keep_the_sub_inside_its_worktree(self):
         values = {p: "x" for p in spseam.load_seams()["implementer"]["placeholders"]}

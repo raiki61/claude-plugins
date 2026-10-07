@@ -58,6 +58,7 @@ import conflict  # noqa: E402
 import entry  # noqa: E402
 import fixrules  # noqa: E402  （項目の範囲 item_ranges・決まりのファイルの組み立て）
 import fixshape  # noqa: E402  （盤面の修正の形。座）
+import lanekit  # noqa: E402  （並べの枝の部品: 切る・印・指しの確かめ・当てる・記録の写し・片付け。修正役の並べと共通）
 import planbrief  # noqa: E402
 import seat  # noqa: E402  （借りたスキルの座）
 import tddloop  # noqa: E402
@@ -66,7 +67,7 @@ import unittrees  # noqa: E402
 import writes  # noqa: E402
 from board import BoardGap  # noqa: E402
 
-MAX_LANES = 3               # 枝の輪の数（YAML の tdd-lane-1..3 と包みの adapter.KEYED_NODES の tdd-lane-<n>。試験が縛る）
+MAX_LANES = lanekit.MAX_LANES   # 枝の輪の数（YAML の tdd-lane-1..3 と包みの adapter.KEYED_NODES の tdd-lane-<n>。試験が縛る）
 LANE_NODE = "tdd-lane-{n}"  # 枝 n の役の節の印の名（包みが単位の worktree を cwd に起こし、単位の切れ目で会話を切る）
 MANIFEST = "lanes.json"     # 目録（盤面の tdd-<k>/。共有の記録 tdd-*/**）
 LANE_FILE = "lane-{n}-{j}.md"   # 枝 n の j 番目の単位の決まりのファイル（盤面の tdd-<k>/。単位の間は書き直さない）
@@ -149,7 +150,7 @@ def plan(st: dict, repo) -> bool:
     place = pathlib.Path(adapter.run_place_of({"board": str(work.parent)})) / work.name / PLACE
     manifest = work / MANIFEST
     ns = list(range(1, len(chosen) + 1))
-    trees = unitlanes.plant(repo, ns, place, manifest)
+    trees = lanekit.plant(repo, ns, place, manifest)
     base = trees[ns[0]]["base"]
     rows = []
     for n, keys in zip(ns, chosen):
@@ -158,7 +159,7 @@ def plan(st: dict, repo) -> bool:
         lane.mkdir(parents=True, exist_ok=True)
         state = lane / tddloop.STATE
         tddloop._save(state, _lane_state(st, repo, keys, tree, lane))
-        rows.append({"n": n, "unit_keys": list(keys), "tree": str(tree), "git": unitlanes._git_line(tree), "state": str(state),
+        rows.append({"n": n, "unit_keys": list(keys), "tree": str(tree), "git": trees[n]["git"], "state": str(state),
                      "files": [str(work / LANE_FILE.format(n=n, j=j)) for j in range(1, len(keys) + 1)]})
     tddloop.save_json(manifest, {"repo": str(repo), "base": base, "place": str(place), "rows": rows})
     expect = unitlanes.expect([(n, spans[i - 1][1]) for n, i in zip(ns, picked)])
@@ -204,10 +205,12 @@ def fork(state_file) -> dict:
         return out
     rows = (st.get("lanes") or {}).get("rows") or []
     ns = [r.get("n") for r in rows]
-    if not rows or ns != list(range(1, len(rows) + 1)) or len(rows) > MAX_LANES:
-        raise tddloop.Broken(f"並べの目録の枝の番号が 1..{MAX_LANES} の連番でない（{ns}）")
-    out.update(go=True, lanes=len(rows), **{f"lane_{n}": True for n in ns})
-    return out
+    try:
+        if not rows:
+            raise ValueError(f"枝の番号が 1..{MAX_LANES} の連番でない（{ns}）")
+        return lanekit.fork_out(ns)
+    except ValueError as e:
+        raise tddloop.Broken(f"並べの目録の{e}") from None
 
 
 # ---------------------------------------------------------------- 枝の輪の中（節 tdd-lane-prep-<n>・tdd-lane-step-<n>）
@@ -222,11 +225,8 @@ def _lane(st: dict, n) -> dict:
 
 
 def _tree_ok(row: dict) -> str:
-    """単位の worktree の `.git` の 1 行が切った時と同じなら空、違えば理由"""
-    tree = pathlib.Path(row["tree"])
-    if row.get("git") and unitlanes._git_line(tree) == row["git"]:
-        return ""
-    return f"単位の worktree {tree} の .git の指しが切った時と違う（段を回さない。この枝の単位は機械が順に戻す）"
+    """単位の worktree の `.git` の 1 行が切った時と同じなら空、違えば理由（lanekit.tree_ok）"""
+    return lanekit.tree_ok(row["tree"], row.get("git") or "")
 
 
 def lane_prep(state_file, n, values: dict | None = None) -> dict:
@@ -257,9 +257,7 @@ def lane_prep(state_file, n, values: dict | None = None) -> dict:
     brief_file.write_text(text, encoding="utf-8")
     prompt = work / LANE_NEXT.format(n=row["n"])
     prompt.write_text(_next_text(row, lst, j, k, brief_file), encoding="utf-8")
-    node = LANE_NODE.format(n=row["n"])
-    tddloop.write_key(adapter.session_key_path(str(board_dir), node), f"{work.name}:lane-{row['n']}:{k}")
-    tddloop.write_key(adapter.lane_tree_path(str(board_dir), node), row["tree"])
+    lanekit.mark(board_dir, LANE_NODE.format(n=row["n"]), f"{work.name}:lane-{row['n']}:{k}", row["tree"])
     return {"prompt_file": str(prompt)}
 
 
@@ -385,17 +383,16 @@ def settle(st: dict, repo, try_query=None) -> list:
     lanes = st["lanes"]
     work = pathlib.Path(st["work"])
     log = writes.sink(repo)
-    stray = sorted(set(tddloop.touched(repo, st["handoff"], tddloop.snapshot(repo))) - set(st["suite_made"]))
-    if stray:   # 枝の役は run の作業ツリーを書けない（包みの柵）。書かれていれば機械が戻す（受け止め）
-        tddloop.restore_paths(repo, st["handoff"], stray)
-    lanes["reverted"] = stray
+    # 枝の役は run の作業ツリーを書けない（包みの柵）。書かれていれば機械が戻す（受け止め）
+    lanes["reverted"] = lanekit.revert_strays(repo, st["handoff"], st["suite_made"])
     pre = st["handoff"]
     out, back, items, calls, ready, how = {}, {}, [], [], [], {}
     for row in lanes["rows"]:
-        keys, tree = row["unit_keys"], pathlib.Path(row["tree"])
+        keys = row["unit_keys"]
         try:
-            if not row.get("git") or unitlanes._git_line(tree) != row["git"]:
-                raise tddloop.Broken("単位の worktree の .git の指しが切った時と違う")
+            why = _tree_ok(row)
+            if why:
+                raise tddloop.Broken(why)
             lst = tddloop._load(row["state"])
         except tddloop.Broken as e:
             for k in keys:
@@ -424,7 +421,7 @@ def settle(st: dict, repo, try_query=None) -> list:
                     back[k] = {"why": "当てた後の木の緑の確かめが赤: " + probs[0][:300], "patch": patch}
                 how[row["n"]] = SEMANTIC if shared else how.get(row["n"], CLEAN)
             applied = []
-    _carry(log, repo, applied, shared)
+    lanekit.carry(log, repo, [(row["tree"], patch) for row, _, _, patch in applied], shared)
     for _, lst, green, _ in applied:
         for k in green:
             st["units"][k] = _record(lst["units"][k])
@@ -432,8 +429,7 @@ def settle(st: dict, repo, try_query=None) -> list:
     for k in back:
         st["units"][k] = tddloop._unit(k, "tdd")
         out[k] = (BACK, back[k]["why"])
-    for row in lanes["rows"]:
-        unittrees.remove(repo, row["tree"])
+    lanekit.remove(repo, [row["tree"] for row in lanes["rows"]])
     lanes.update(back=back, calls=calls, shared=shared,
                  done_keys=[k for r in lanes["rows"] for k in r["unit_keys"] if out[k][0] != BACK],
                  out=[{"unit_key": k, "outcome": out[k][0], "why": out[k][1], "lane": r["n"], "merge": how.get(r["n"], "")}
@@ -456,8 +452,7 @@ def _close_units(st, row, lst, keys, back, out, items, try_query, work) -> list:
         u = lst["units"][k]
         c = lst.get("conflict")
         if c and c.get("unit_key") == k:
-            probs = conflict.problems([c], repo=tree, board_dir=board_dir, owed={k}, try_query=try_query,
-                                      briefs=planbrief.by_unit_at(board_dir))
+            probs = lanekit.claim_problems(c, tree, board_dir, {k}, try_query, planbrief.by_unit_at(board_dir))
             if probs:
                 back[k] = {"why": "並べの食い違いの申し出が確かめを通らない: " + probs[0][:300]}
                 continue
@@ -546,34 +541,19 @@ def _apply_lanes(st, repo, ready, log, work, back, how) -> list:
 
 
 def _merge(st, repo, row, lst, green, log, work, earlier: set, union) -> tuple:
-    """枝の差分を当てる。(戻す理由（当てたら空）, 前の試みの差分のファイル, 差分のパス, 合わせの結末)。前に当てた枝の差分に
-    出ていないファイルは中身が単位の worktree と同じか、重なりのファイルは名指しのテストの関数の源が同じかを見る"""
+    """枝の差分を当てる（lanekit.merge）。(戻す理由（当てたら空）, 前の試みの差分のファイル, 差分のパス, 合わせの結末)。TDD の段だけの
+    照らし: 前に当てた枝と重なるファイルの名指しのテストの関数の源が単位の worktree と同じか（_moved_tests）"""
     tree = pathlib.Path(row["tree"])
-    since = lst.get("lane_base") or lst["unit_head"]
-    moved = sorted(set(tddloop.touched(tree, since, tddloop.snapshot(tree))) - set(lst.get("suite_made") or []))
-    declared = lst.get("declared") or []
-    if log.is_file():
-        left = writes.unrecorded(tree, moved, log, declared)
-        if left:
-            return writes.REJECT + ", ".join(left[:10]), "", [], ""
-        writes.keep_declared(log, tree, declared)
-    patch = unittrees.diff(tree, st["lanes"]["base"])
-    kept = work / KEPT / f"item-{row['n']}.patch"
-    kept.parent.mkdir(parents=True, exist_ok=True)
-    kept.write_text(patch, encoding="utf-8", errors="surrogateescape")
-    before = tddloop.snapshot(repo)
-    got = []
-    ok, why = unittrees.apply(repo, patch, union=union, unioned=got, check=unitlanes.tests_unique)
-    if not ok:
-        return f"差分が run の作業ツリーに当たらない（{' '.join(why.split())[:300]}）", str(kept), [], CLASH
-    names = unitlanes._names(patch)
-    differ = [n for n in names if n not in earlier and not unitlanes._same(pathlib.Path(repo) / n, tree / n)]
-    moved_tests = _moved_tests(repo, tree, [lst["units"][k] for k in green], set(names) & earlier)
-    if differ or moved_tests:
-        tddloop.restore_paths(repo, before, names)
-        return (f"当てた中身が単位の worktree と違う（{differ[:5]}）" if differ
-                else f"当てた後の名指しのテストの中身が単位の worktree と違う（{moved_tests[:5]}）"), str(kept), [], ""
-    return "", str(kept), names, UNION if got else CLEAN
+
+    def tests_moved(names):
+        moved = _moved_tests(repo, tree, [lst["units"][k] for k in green], set(names) & earlier)
+        return f"当てた後の名指しのテストの中身が単位の worktree と違う（{moved[:5]}）" if moved else ""
+    got = lanekit.merge(repo, tree, since=lst.get("lane_base") or lst["unit_head"], base=st["lanes"]["base"], log=log,
+                        declared=lst.get("declared") or [], made=lst.get("suite_made") or [],
+                        kept=work / KEPT / f"item-{row['n']}.patch", union=union, earlier=earlier, check=tests_moved)
+    if got.why:
+        return got.why, got.patch, [], CLASH if got.clash else ""
+    return "", got.patch, got.names, UNION if got.unioned else CLEAN
 
 
 def _moved_tests(repo, tree, units, shared: set) -> list:
@@ -598,12 +578,8 @@ def _bodies(path: pathlib.Path, rel: str) -> dict:
 
 
 def _shared(applied) -> list:
-    """当てた枝のうち 2 本以上の差分に出たファイル"""
-    seen = {}
-    for _, _, _, patch in applied:
-        for n in unitlanes._names(pathlib.Path(patch).read_text(encoding="utf-8", errors="surrogateescape")):
-            seen[n] = seen.get(n, 0) + 1
-    return sorted(n for n, c in seen.items() if c > 1)
+    """当てた枝のうち 2 本以上の差分に出たファイル（lanekit.shared）"""
+    return lanekit.shared([patch for _, _, _, patch in applied])
 
 
 def _retry_without_later(st, repo, pre, applied, back, how, probs) -> tuple:
@@ -637,26 +613,6 @@ def _retry_without_later(st, repo, pre, applied, back, how, probs) -> tuple:
             back[k] = {"why": (f"意味の食い違い: 先の枝 {first} と同じファイルを変え、字では合ったが合わせた木の試験が赤（"
                                + probs[0][:300] + "）。合わせた木の上で直し直す"), "patch": patch}
     return keep, []
-
-
-def _carry(log: pathlib.Path, repo, applied, shared) -> None:
-    """当てた枝の書き込みの記録を run の作業ツリーへ写す（重なりでないファイルは writes.carry、重なりのファイルは
-    writes.carry_merged。受けた枝が決まった後に 1 度だけ）"""
-    if not applied or not log.is_file():
-        return
-    shared = set(shared)
-    pairs, srcs = [], {}
-    for row, _, _, patch in applied:
-        tree = pathlib.Path(row["tree"])
-        for n in unitlanes._names(pathlib.Path(patch).read_text(encoding="utf-8", errors="surrogateescape")):
-            if n in shared:
-                srcs.setdefault(n, []).append(tree / n)
-            else:
-                pairs.append((tree / n, pathlib.Path(repo) / n))
-    if pairs:
-        writes.carry(log, pairs)
-    for n, src in srcs.items():
-        writes.carry_merged(log, pathlib.Path(repo) / n, src)
 
 
 def _green_after(st, repo, pre: str, units: list, shared=()) -> list:

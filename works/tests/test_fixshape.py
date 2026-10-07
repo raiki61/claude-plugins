@@ -117,8 +117,11 @@ class FixShapeCase(unittest.TestCase):
         self.assertEqual(fixshape.FIXTURE_KEY, fixture.KEY)
 
     def test_agent_nodes_are_the_fix_roles(self):
-        """Agent を拒む節は修正役の 2 つ（Task 7 で YAML に Agent を足す節。先に拒む）"""
-        self.assertEqual(fixshape.AGENT_NODES, frozenset({"fix", "fix-ruled"}))
+        """Agent を拒む節は修正役の 2 つ（Task 7 で YAML に Agent を足す節。先に拒む）と、修正役の並べの枝の役（審査の下請けを起こす。
+        docs/plans/2026-10-07-fix-lane-nodes.md）"""
+        self.assertEqual(fixshape.AGENT_NODES, frozenset({"fix", "fix-ruled", "fix-lane-1", "fix-lane-2", "fix-lane-3"}))
+        self.assertEqual(fixshape.denied_tools("af", "fix-lane-1"), ("Agent",), "g1・g3 の外の形では拒む（枝は g3 だけで切る）")
+        self.assertEqual(fixshape.denied_tools("g3", "fix-lane-2"), ())
 
 
 if __name__ == "__main__":
