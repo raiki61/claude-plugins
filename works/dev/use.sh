@@ -45,6 +45,8 @@
 # - tdd_suite: 第 4 引数が在ればそのまま（空は輪を飛ばす）。無ければ test_cmd が pytest の 1 コマンド（前に uv run・poetry run・
 #   python3 -m を許す。; & | < > $ ` を含まない）の時だけ、その末尾に JUnit XML の書き先を足す実行器を <家>/suites/ に書いて渡す。
 #   それ以外は空（全部の単位を直に直す）にして 1 行で知らせる。test_cmd を省けば空（ラインの既定: 対象の宣言か CI）。
+# - test_cmd が run・単位の worktree で効かない形（対象の git が無視するパスを指す・対象を editable で入れた立てた仮想環境を掴む）なら、Archon を起こす前に
+#   「注意（test_cmd）」の行を出す（止めない。決まりは testcmd_check.py）。
 # - 最後の関所は WORKS_USE_FINAL_GATE（既定 protected_only＝守りのファイルを触った時だけ・when_needed・always）。包みは既定で入れる（WORKS_DEV_ADAPTER=0 か空の明示で外し、
 #   adapter=optional と「包み無し」を出す）。入力 policy_md・gates・thickness・features_off は WORKS_USE_POLICY_MD・WORKS_USE_GATES・
 #   WORKS_USE_THICKNESS・WORKS_USE_FEATURES_OFF（空なら渡さない。features_off は切る機能の語のカンマ区切り。語は start が確かめる）。
@@ -707,6 +709,9 @@ else
   TDD_SUITE=""
   echo "TDD の輪を飛ばす（全部の単位を直に直す）: test_cmd が pytest の 1 コマンドでない。JUnit XML を第 1 引数に書く実行器を最後の引数 <tdd_suite> に渡せば輪を回す"
 fi
+# run・単位の worktree は commit から切るので、対象の git が無視する物（.venv・node_modules など）が無い。test_cmd がそれを指す・
+# 立てた仮想環境を掴む形なら 1 行ずつ知らせる（止めない。決まりは testcmd_check.py）
+python3 -I "$DEV_DIR/testcmd_check.py" "$TARGET" "$TEST_CMD" || true
 
 # 依頼の欄 pr・issue と --pr が名指した PR・issue を、Archon を起こす前に利用者の env（gh のログインが見える）のまま、対象の根を
 # cwd にして 1 回だけ読む（隔離した Archon の中からは非公開のリポジトリを読めない。設計書 2.8）。--pr の base・head が読めなければ

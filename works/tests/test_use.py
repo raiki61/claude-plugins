@@ -1050,6 +1050,25 @@ class UseShell(unittest.TestCase):
                     if want == "":
                         self.assertIn("TDD の輪を飛ばす", r.stdout)
 
+    def test_start_names_test_cmd_paths_absent_from_worktrees(self):
+        """run・単位の worktree は commit から切るので、test_cmd が対象の git の無視するパスを指せば start が知らせる（止めない。
+        知らせの中身は test_testcmd_check。ここは殻が起動の前に呼んで出すことと、何も無ければ出さないことだけ）"""
+        t = self.target()
+        (t / ".venv" / "bin").mkdir(parents=True)
+        (t / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
+        with open(t / ".gitignore", "a", encoding="utf-8") as f:
+            f.write(".venv\n")
+        git(t, "commit", "-q", "-am", "ignore .venv")
+        r = self.use("start", str(t), str(self.request), ".venv/bin/python -m pytest -q", VIRTUAL_ENV=None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("注意（test_cmd）: test_cmd の .venv/bin/python は対象の git が無視するパス", r.stdout)
+        self.assertLess(r.stdout.index("注意（test_cmd）"), r.stdout.index("対象: "))
+        self.started()
+        self.log.unlink()
+        r = self.use("start", str(t), str(self.request), "uv run pytest -q", VIRTUAL_ENV=None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("注意（test_cmd）", r.stdout)
+
     def test_start_final_gate_and_adapter(self):
         t = self.target()
         r = self.use("start", str(t), str(self.request), "true", "", WORKS_USE_FINAL_GATE="when_needed", WORKS_DEV_ADAPTER="1")
