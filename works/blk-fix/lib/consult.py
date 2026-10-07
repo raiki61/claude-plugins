@@ -105,10 +105,14 @@ ANSWER_SCHEMA = {
 }
 
 
+MAP_FLAG = "map"   # 工程の地図の旗。答えの節は継ぐ会話と旗を揃える（同じ会話の中で system prompt を替えない。席の揃いは試験が縛る）
+
+
 def answer_format(name: str, fork: bool = False) -> dict:
-    """答えの節 name の output_format（ANSWER_SCHEMA に印 `works-node: <name> continue=PEER`。blk-fix.yaml に貼る物）。fork なら印に
-    旗 fork（修正役の並べの枝の答えの節。同時に走るほかの枝の答えの節と相手の会話を混ぜないよう、相手の会話の写しで答える）"""
-    return node_marker.mark(ANSWER_SCHEMA, name, cont=PEER, flags=("fork",) if fork else ())
+    """答えの節 name の output_format（ANSWER_SCHEMA に印 `works-node: <name> continue=PEER map`。blk-fix.yaml に貼る物）。fork なら印に
+    旗 fork（修正役の並べの枝の答えの節。同時に走るほかの枝の答えの節と相手の会話を混ぜないよう、相手の会話の写しで答える）も付く。
+    写しも相手の会話の履歴を継ぐので、旗 map は写しでない答えの節と同じに付ける（写しの system prompt を元の会話と同じ字にする）"""
+    return node_marker.mark(ANSWER_SCHEMA, name, cont=PEER, flags=(("fork",) if fork else ()) + (MAP_FLAG,))
 
 
 QUESTION = """\

@@ -27,7 +27,7 @@
 #   WORKS_FIX_FIXTURE は固定材料のフォルダ（前の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した物）: 空でなければ在る
 #   フォルダかを確かめ、入力 fix_fixture=<絶対パス> を渡す（同じ木・同じ依頼の run を修正から始める）。無いフォルダは、何かを
 #   作る前に 1 行で止まる（終了コード 2）。未設定・空は渡さない。
-#   WORKS_FEATURES_OFF は切る機能（judge_verify・review_tree・tdd_lanes・fix_lanes をカンマで区切った 1 行）: 空でなければ
+#   WORKS_FEATURES_OFF は切る機能（judge_verify・review_tree・tdd_lanes・fix_lanes・graph_map をカンマで区切った 1 行）: 空でなければ
 #   入力 features_off=<値> を渡す（語はラインの start が確かめ、知らない語は AI の前で止める）。未設定・空は渡さない（全部 on）。
 # 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
 # <dir> に前の回の repo・origin.git・github-reads.json か、前の版の固定名の写し request.json が在れば、何も書かずに止まる。

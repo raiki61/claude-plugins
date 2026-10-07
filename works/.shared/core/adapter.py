@@ -115,17 +115,27 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    道具ゼロ・web を持たない役には渡さない）。SDK が自分の `--mcp-config` を渡した起動は触らない。ファイルが読めない時は
    渡さずに起動の記録の fence.mcp に理由を書く（足す物なので、渡せなくても役は起こす）
 
-13. **検索語の規律を重ね書きする**（印のある道具を持つ起動だけ）: works の役は本流の役の定義（agents/*.md）を読まないので、
-   本流が定義に置く『検索語に対象の名前を載せるな』の規律が役に届かない。包みと同じ置き場の写し agents/judge.md から、頭の行
-   QUERY_RULE_HEAD と続く 2 字下げの下位の箇条を字のまま切り出し（字を写さない）、`--append-system-prompt` で足す（本流が役の
-   定義を system prompt に足すのと同じ位置）。SDK が `--append-system-prompt` を渡していれば、その値の後ろに空行 1 つで繋ぐ。
-   道具ゼロの役（外へ問い合わせられない）には足さない。SDK が `--append-system-prompt-file` を渡した起動と、塊を引けない起動は
-   claude を起こさない（fail closed）。塊の sha256 の先頭 16 字を起動の記録の fence.query_rule に残す。包み無しの run には
-   載らない（ほかの柵と同じ制約）。経路は argv: SDK 0.3.282 は system prompt を stdin の initialize で渡すが、Claude Code
-   2.1.283 は initialize が appendSystemPrompt を持つ時だけ argv の値を置き換え、systemPrompt の置き換え（SDK の既定は []）
-   とは別に append を末尾に足す（本体の initialize の受けと system prompt の組み立てで確かめた）。works の YAML は
-   systemPrompt を持たないので、initialize に appendSystemPrompt は来ない。役が Agent で起こす子は自分の system prompt で
-   起きて塊が届かないので、QUERY_RULE_LEAD が子への指示に塊を含めさせる
+13. **system prompt の差し込みの表**（印のある起動だけ。ミドルウェア）: 表 INJECTORS の行（名・選び・作り・required）を決まった順に
+   当て、選びが真の行の作りが返す塊を `--append-system-prompt` に 1 つの繋ぎ方で足す（SDK が渡した値の後ろに空行 1 つ、塊どうしも
+   空行 1 つ。旗を 2 つにしない）。塊ごとの sha256 の先頭 16 字を起動の記録の fence.<行の名> に残す。足す物を増やすのは表に 1 行
+   足すだけで、起動の手順と指示書は替えない。選びと作りは同じ起動の姿から同じ字を返す（同じ会話の起動ごとに system prompt が
+   替わると prompt のキャッシュが切れる）。required の行が作れない・SDK が `--append-system-prompt-file` を渡した・
+   `--append-system-prompt` が 2 つの起動は claude を起こさない（fail closed）。required でない行は fence.<名> に {skipped: 理由}
+   を残して足さずに起こす。包み無しの run には載らない（ほかの柵と同じ制約）。今の行:
+   - query_rule（required。道具を持つ起動だけ。道具ゼロの役は外へ問い合わせられない）: works の役は本流の役の定義（agents/*.md）を
+     読まないので、本流が定義に置く『検索語に対象の名前を載せるな』の規律が役に届かない。包みと同じ置き場の写し agents/judge.md
+     から、頭の行 QUERY_RULE_HEAD と続く 2 字下げの下位の箇条を字のまま切り出し（字を写さない）、QUERY_RULE_LEAD の 1 行を頭に
+     付けて足す（本流が役の定義を system prompt に足すのと同じ位置）。digest は塊の字の sha。役が Agent で起こす子は自分の system
+     prompt で起きて塊が届かないので、QUERY_RULE_LEAD が子への指示に塊を含めさせる
+   - graph_map（required でない。印に旗 map を持つ起動だけ。持ち主 2026-10-07: 節ごとに選ぶ）: 工程の地図（同じ置き場の
+     graphmap。全体のグラフと、この節の会話の席の ★ と、後の流れ）。地図の元は pack の入口（archon-plugin.json の entrypoints）の
+     YAML の隣の <stem>.graph.json（作る時に開発の道具 dev/graphmap_build.py が書く。包みは YAML を読まない）。印を持つ元がちょうど 1 本で、元の
+     YAML の sha が今と同じ時だけ足す。切符の盤面の start の控え（fixshape.START_REL）の features_off に graph_map が在る run は
+     足さない。控えが無い・切符が無い起動は切り替えの分からない地図（[needs …] を残す）。設計 docs/plans/2026-10-07-graph-map.md
+   経路は argv: SDK 0.3.282 は system prompt を stdin の initialize で渡すが、Claude Code 2.1.283 は initialize が
+   appendSystemPrompt を持つ時だけ argv の値を置き換え、systemPrompt の置き換え（SDK の既定は []）とは別に append を末尾に足す
+   （本体の initialize の受けと system prompt の組み立てで確かめた）。works の YAML は systemPrompt を持たないので、initialize に
+   appendSystemPrompt は来ない
 
 14. **対象の持ち主の禁止を写す**（印のある起動だけ）: 役は settingSources: [user] と隔離した設定で起きるので、対象リポジトリの
    project の段を読まず、持ち主が `.claude/settings.json`・`settings.local.json` に置いた permissions.deny が役に効かない。
@@ -226,6 +236,7 @@ import uuid
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import fixshape
+import graphmap  # L1（工程の地図の部品。13 の差し込みの表の graph_map が読む）
 import tree_run
 import unittrees  # L1（単位の worktree の守りの参照の名。live_worktrees が下請けの書く所を見分ける）
 
@@ -251,13 +262,14 @@ LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の
 # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
 # lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役。6c）。self-resume: SDK が会話を継ぐ起動は
 # この節自身の記録した会話を継ぐ（1）。fork: continue=X の起動を X の会話の写し（--fork-session）で起こし、X の会話に積まない（1。
-# 同時に走る枝の答えの節が同じ相手の会話を継ぐ時）
-FLAGS = ("no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork")
+# 同時に走る枝の答えの節が同じ相手の会話を継ぐ時）。map: 13 の差し込みの表の工程の地図を足す
+FLAGS = ("no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map")
 NO_TREE_WRITE = "no-tree-write"
 SELF_RESUME = "self-resume"   # 1 の旗 self-resume（SDK が会話を継ぐ起動は、この節自身の記録した会話を継ぐ）
 FORK = "fork"                 # 1 の旗 fork（continue=X を X の会話の写しで起こす。continue と一緒にだけ付く）
 ISOLATED = "isolated"
 LANE = "lane"
+MAP = "map"   # 13 の旗 map（工程の地図を system prompt に足す）
 ISOLATED_PREFIX = "works-isolated-"
 MCP_FILE = "works-mcp.json"        # dev/toolset.py の MCP_FILE と同じ（隔離した設定の置き場の下）
 WEB_TOOL = "WebFetch"              # これを持つ起動にだけ借りる MCP を渡す
@@ -1283,11 +1295,12 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     mcp = mcp_config(out, env, tools_empty or ISOLATED in marker.flags)
     if mcp is not None:
         out, fence["mcp"] = mcp
-    if not tools_empty:   # 道具ゼロの役は外へ問い合わせられない
-        try:
-            out, fence["query_rule"] = with_query_rule(out)
-        except Unrecognised as e:
-            return _refuse(argv, node, cont, tools_empty, f"検索語の規律を足せない（{e}）")
+    try:   # 13. system prompt の差し込みの表
+        out, injected = inject(out, Launch(node, cont, marker.flags, frozenset(_tools(out)), tools_empty,
+                                           board if board else (lambda: None)))
+    except Unrecognised as e:
+        return _refuse(argv, node, cont, tools_empty, str(e))
+    fence.update(injected)
     try:   # 19
         out, declared = with_run_model(out, node, env)
     except Unrecognised as e:
@@ -1478,23 +1491,152 @@ def query_rule(path: pathlib.Path = QUERY_RULE_SOURCE) -> str:
     return "\n".join(lines[start:end])
 
 
-def with_query_rule(argv: List[str]) -> Tuple[List[str], str]:
-    """13. --append-system-prompt に検索語の規律を足した argv と、塊の sha256 の先頭 16 字。SDK の値が在れば後ろに空行 1 つで
-    繋ぐ（旗を 2 つにしない）。SDK が --append-system-prompt-file を渡した・--append-system-prompt が 2 つ・塊を引けなければ
-    Unrecognised"""
+# --- 13. system prompt の差し込みの表（ミドルウェア） ------------------------------------------------------------------
+# 印のある起動ごとに、表 INJECTORS の行を決まった順に当て、選び（selector）が真の行の作り（producer）が返す塊を
+# `--append-system-prompt` に 1 つの繋ぎ方（SDK の値の後ろに空行 1 つ、塊どうしも空行 1 つ）で足し、塊ごとの sha256 の先頭
+# 16 字を起動の記録の fence.<行の名> に残す。足す物を増やすのは表に 1 行足すだけで、起動の手順と指示書は替えない。
+# 約束: 選びと作りは起動の Launch だけを読み、同じ入力からいつも同じ字を返す（同じ会話の起動ごとに system prompt が替わると
+# prompt のキャッシュが切れる）。required の行は作れない時に claude を起こさない（fail closed）。そうでない行は
+# fence.<名> = {skipped: 理由} を残して塊を足さずに起こす（足す物なので）。塊を 1 つも作らない起動は argv を替えない
+MAP_FEATURE = "graph_map"      # 入力 features_off で工程の地図を切る語（entry.FEATURES と同じ。test_graphmap が縛る）
+FEATURES_KEY = "features_off"  # start の控え（fixshape.START_REL）の切った機能の欄（entry.FEATURES_KEY と同じ）
+PACK = pathlib.Path(__file__).resolve().parents[2]   # works/（.shared/core/adapter.py の 2 つ上）。地図の元は入口の YAML の隣
+
+
+class Launch(NamedTuple):
+    """差し込みの表の選びと作りが読む起動の姿"""
+    node: str
+    cont: Optional[str]
+    flags: Tuple[str, ...]
+    tools: frozenset
+    tools_empty: bool
+    board: Callable[[], Optional[str]]   # 切符の board（無ければ None・読めなければ BadTicket）
+
+
+class Block(NamedTuple):
+    text: str
+    digest: str
+
+
+class Skip(NamedTuple):
+    why: str
+
+
+class Injector(NamedTuple):
+    name: str                                        # fence の鍵
+    label: str                                       # 拒む時の 1 行に出す名
+    selector: Callable[[Launch], bool]
+    producer: Callable[[Launch], "Block | Skip"]
+    required: bool
+
+
+def block(text: str, of: Optional[str] = None) -> Block:
+    """塊（of が在れば digest はその字の sha256 の先頭 16 字。無ければ text の）"""
+    return Block(text, hashlib.sha256((text if of is None else of).encode("utf-8")).hexdigest()[:16])
+
+
+def query_rule_block(launch: Launch) -> Block:
+    """行 query_rule の作り: 頭の 1 行 QUERY_RULE_LEAD と規律の塊。digest は塊の字（前と同じ値）"""
+    rule = query_rule()
+    return block(QUERY_RULE_LEAD + "\n" + rule, of=rule)
+
+
+def features_off_at(board_dir: str) -> Optional[List[str]]:
+    """盤面の start の控えの切った機能の語。控えが無ければ None（start の前）。読めない・形が違えば ValueError"""
+    path = pathlib.Path(board_dir) / fixshape.START_REL
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as e:
+        raise ValueError(f"start の控え {path} が読めない（{type(e).__name__}）") from None
+    off = doc.get(FEATURES_KEY, []) if isinstance(doc, dict) else None
+    if not (isinstance(off, list) and all(isinstance(w, str) for w in off)):
+        raise ValueError(f"start の控え {path} の {FEATURES_KEY} が語の配列でない")
+    return off
+
+
+def graph_map_text(node: str, off: Optional[Sequence[str]], pack: Optional[pathlib.Path] = None) -> "Block | Skip":
+    """印 node の工程の地図の塊。pack の入口（archon-plugin.json の entrypoints）ごとの地図の元のうち node を持つ物が
+    ちょうど 1 つで、元の YAML から書き直されていない（sha が同じ）時だけ。ほかは Skip。読めなければ ValueError"""
+    pack = PACK if pack is None else pack
+    found = []
+    for _name, rel in sorted(graphmap.entrypoints(pack).items()):
+        path = graphmap.graph_path(pack, rel)
+        if not path.is_file():
+            continue
+        g = graphmap.load(path)
+        if node in graphmap.markers(g):
+            found.append((path, g))
+    if len(found) != 1:
+        return Skip(f"印 {node} を持つ地図の元が {len(found)} 本（ちょうど 1 本の時だけ足す）")
+    path, g = found[0]
+    old = graphmap.stale(g, pack)
+    if old:
+        return Skip(f"地図の元 {path.name} が YAML より古い（{', '.join(old)}。dev/graphmap_build.py の build で書き直す）")
+    return block(graphmap.render(g, node, off))
+
+
+def graph_map_block(launch: Launch) -> "Block | Skip":
+    """行 graph_map の作り: 切符の盤面の start の控えの切った機能を読み、graph_map が切られていれば Skip。控えが無い・切符が
+    無い起動は切り替えが分からない地図（[needs …] を残す）"""
+    b = launch.board()
+    off = features_off_at(b) if b else None
+    if off is not None and MAP_FEATURE in off:
+        return Skip(f"入力 features_off の {MAP_FEATURE} で切った run")
+    return graph_map_text(launch.node, off)
+
+
+INJECTORS = (   # Tuple[Injector, ...]
+    # 検索語の規律: 道具を持つ起動だけ（道具ゼロの役は外へ問い合わせられない）。作れなければ起こさない
+    Injector("query_rule", "検索語の規律", lambda l: not l.tools_empty, query_rule_block, True),
+    # 工程の地図: 旗 map の起動だけ（持ち主 2026-10-07: 節ごとに選ぶ。docs/plans/2026-10-07-graph-map.md）
+    Injector("graph_map", "工程の地図", lambda l: MAP in l.flags, graph_map_block, False),
+)
+
+
+def inject(argv: List[str], launch: Launch, injectors: Sequence[Injector] = INJECTORS) -> Tuple[List[str], dict]:
+    """13. 表の行を順に当てて塊を `--append-system-prompt` に足した argv と、fence に足す {行の名: digest | {skipped}}。
+    required の行が作れない・繋げない時は Unrecognised（呼び手は起動を拒む）"""
+    blocks: List[Tuple[Injector, Block]] = []
+    fence: dict = {}
+    for inj in injectors:
+        if not inj.selector(launch):
+            continue
+        try:
+            got = inj.producer(launch)
+        except Exception as e:   # noqa: BLE001  required でない行の作りの失敗は、どの型でも起動を落とさずに理由を残す
+            if inj.required:
+                if isinstance(e, (Unrecognised, BadTicket, ValueError, OSError, KeyError)):
+                    raise Unrecognised(f"{inj.label}を足せない（{e}）") from None
+                raise
+            got = Skip(f"{type(e).__name__}: {e}")
+        if isinstance(got, Skip):
+            if inj.required:
+                raise Unrecognised(f"{inj.label}を足せない（{got.why}）")
+            fence[inj.name] = {"skipped": got.why}
+            continue
+        blocks.append((inj, got))
+        fence[inj.name] = got.digest
+    if not blocks:
+        return argv, fence
+    why = None
     if find_opt(argv, "--append-system-prompt-file"):
-        raise Unrecognised("SDK が --append-system-prompt-file を渡した（検索語の規律を繋げない）")
+        why = "SDK が --append-system-prompt-file を渡した（足す塊を繋げない）"
     found = find_opt(argv, "--append-system-prompt")
-    if len(found) > 1:
-        raise Unrecognised("--append-system-prompt が 2 つ以上")
-    block = query_rule()
-    text = QUERY_RULE_LEAD + "\n" + block
-    digest = hashlib.sha256(block.encode("utf-8")).hexdigest()[:16]
+    if why is None and len(found) > 1:
+        why = "--append-system-prompt が 2 つ以上"
+    if why is not None:
+        need = [inj.label for inj, _ in blocks if inj.required]
+        if need:
+            raise Unrecognised(f"{'・'.join(need)}を足せない（{why}）")
+        return argv, {**fence, **{inj.name: {"skipped": why} for inj, _ in blocks}}
+    text = "\n\n".join(b.text for _, b in blocks)
     if not found:
-        return argv + ["--append-system-prompt", text], digest
+        return argv + ["--append-system-prompt", text], fence
     i, n, value, joined = found[0]
     value = value + "\n\n" + text
-    return argv[:i] + (["--append-system-prompt=" + value] if joined else ["--append-system-prompt", value]) + argv[i + n:], digest
+    return argv[:i] + (["--append-system-prompt=" + value] if joined else ["--append-system-prompt", value]) + argv[i + n:], fence
 
 
 def _refuse(argv, node, cont, tools_empty, why) -> Plan:

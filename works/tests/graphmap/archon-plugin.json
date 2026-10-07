@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "kind": "workflow-pack",
+  "name": "graphmap-fixture",
+  "entrypoints": {
+    "line": "line/line.yaml"
+  }
+}

@@ -1376,7 +1376,7 @@ class ResumeCase(StartCaseBase):
         repo = self.seed()
         first = self.start(repo, test_cmd=SEED_CMD, features_off="tdd_lanes judge_verify")
         self.assertEqual({k: first[k] for k in entry.FEATURES},
-                         {"fix_lanes": "on", "judge_verify": "off", "review_tree": "on", "tdd_lanes": "off"})
+                         {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "on", "tdd_lanes": "off"})
         self.assertIn("切った機能: judge_verify・tdd_lanes", first["head_line"])
         doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
         self.assertEqual(doc["features_off"], ["judge_verify", "tdd_lanes"])

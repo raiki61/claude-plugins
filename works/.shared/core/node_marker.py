@@ -22,7 +22,8 @@ PREFIX = "works-node: "
 # AI の節が挟まる役。修正役と範囲の相談の答えの節。docs/plans/2026-10-06-ask-planner.md）
 # lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役 tdd-lane-<n>・fix-lane-<n>。adapter.py の頭の 6c）
 # fork: continue=<名> の会話を写しで継ぐ（同時に走る修正役の並べの枝の答えの節 plan-answer-lane-<n>。adapter.py の頭の 1）
-FLAGS = frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork"})
+# map: 包みが工程の地図（graphmap。全体のグラフとこの節の会話の居場所）を system prompt に足す（adapter.py の頭の 13 の差し込みの表）
+FLAGS = frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map"})
 _NAME = re.compile(r"[a-z0-9-]+")
 _CONT = "continue="
 _ARG = "--json-schema"
