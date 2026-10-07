@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 修正案が新しいモジュールを足す項目で、TDD の輪の名前の照らし（`blk-fix/lib/tddloop.py` の `_declared_hit`）が、宣言した赤（`No module named 'nodeio'` などの名前・import の失敗）を宣言の外の綴りの誤りと数えていたのを直した（依頼 194c の記録で見つけ、記録の `adds` で関数を直に呼んで確かめた。今壊れていた。宣言した赤が数えられず、項目が案の直しへ押されていた）。原因は 2 つ: (1) `adds` の `name` をファイルの名（例 `receivers.py`）で書くと、最後の `.` の後の拡張子 `py` と比べていた (2) 計画役の指示どおり `name` に関数の名を書き、置くファイルを `canonical` に「`works/.shared/core/nodeio.py`（新設。…）」と書くと、新しいモジュールの名がどこにも宣言されなかった。今は `.py` のファイルの名・パスはモジュールの名（`__init__.py` はディレクトリの名）、`<パス>::<名前>` は `::` の後の名前と比べ、修正案の欄の控え（`planmarks.split`）が、`canonical` が「新設」で頭に名指す `.py` のパスのうち作業ツリーにまだ無いファイルを宣言した名前に足す（在るファイルに新設の関数を足す行は足さない）。あわせて修正案の受け付け（`planmarks.gaps`。同じ run の中の案の直しも同じ）が、kind が `function`・`record_field` の `adds` の `name` がファイルの名・パスだけ（`.py` で終わるか、`/` を含み最後の段が `.json` などのファイルの拡張子で終わるか `.` を持たない）なら、識別子で書いてパスは `canonical` に書けと行を名指して拒み、ほかの欄の誤りと同じ 1 回の拒否に並べる。文書・設定などファイルを名指すのが筋の kind と、説明の文と、`Response.json`・`tests/_real_db.SKIP_REASON` のような修飾した名は今どおり通す
+
 ## [0.2.40] - 2026-10-08
 
 ### Fixed

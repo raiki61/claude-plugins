@@ -5,7 +5,7 @@
 要求の正本になる。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）ので、関所の決め手の欄（gatemarks）と同じく、
 役の型にだけ欄を足し、受け付けが盤面へ渡す前に外して盤面の plan-fields.json に置く。
 - with_fields(node, schema): 役の型（accept.role_schema が重ねる）
-- gaps(reply, repo, exists=): 欠けと誤りの行（修正案の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）。exists は
+- gaps(reply, repo, exists=): 欠けと誤りの行（kind が関数・欄の adds の name がファイルの名・パスだけの行も。修正案の受け付けが拒む。拒否の理由は書いた役に戻り、その役が直せる）。exists は
   受け入れのテストが既に在るかを引く口（既定は作業ツリー。同じ run の中の案の直しは修正の起点の版の木）
 - find_test(repo, test_id): テストの id の定義の行（rewrite_tests は在るテストだけ・tests は無いテストだけを名指す）
 - line_in(src, test_id): 渡したファイルの中身でのテストの id の定義の行（凍結の検査が輪の後の木で引き直す）
@@ -69,6 +69,13 @@ ROUTES = ("tdd", "direct")
 RED_KINDS = ("assertion", "exception")
 MIN_WHY = 10
 _WHY = {"type": "string", "minLength": MIN_WHY}
+# adds の kind のうち name が識別子（関数・欄の名）の物。ファイルの名・パスだけの name（_file_name）を gaps が拒む（依頼 194c:
+# receivers.py と書いた名を TDD の輪が 'py' と比べた）。文書・設定・CLI・柵・腕・テストなどはファイルを名指すのが筋の時が在るので見ない
+SYMBOL_KINDS = ("function", "record_field")
+_PATHLIKE = re.compile(r"[A-Za-z0-9_./-]+")
+_FILE_EXT = re.compile(r".*\.(?:py|md|json|ya?ml|sh|js|ts|toml|txt|cfg|ini|csv|html?)")   # / を含む名の最後の段のファイルの拡張子
+# canonical の頭（か頭の『新設』の後）の .py のパス。canonical に『新設』が在る時だけ、split がそのパスを宣言した名前に足す
+_NEW_MODULE = re.compile(r"^\s*(?:新設[\s:：、。]*)?([A-Za-z0-9_./-]+\.py)(?![\w.])")
 FIELD_SCHEMA = {
     "route": {"type": "string", "enum": list(ROUTES)},
     "route_why": {"type": "string"},
@@ -89,7 +96,7 @@ FIELD_SCHEMA = {
         "properties": {"glob": {"type": "string", "minLength": 1}, "why": _WHY}}},
 }
 
-REJECT = ("修正案の項目の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）に欠けか誤りが在る"
+REJECT = ("修正案の項目の works の欄（route・tests・rewrite_tests・refactor・allowed_paths・out_of_scope）か adds の name に欠けか誤りが在る"
           "（直して done し直す）。下の行を直した案を丸ごと出し直せ:")
 # 修正案の役の指示書の頭に足す文（写しの指示書はこの欄を知らない）
 HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を知らないが、plan[] の各項目に必ず書け。"
@@ -367,8 +374,23 @@ def _scope_overlaps(plan: list) -> list[str]:
     return out
 
 
+def _file_name(name: str) -> bool:
+    """name がファイルの名・パスだけか: ASCII の語・. ・- ・/ だけで、.py で終わるか、/ を含み最後の段がファイルの拡張子
+    （_FILE_EXT）で終わるか、/ で始まらずに / を含み最後の段に . が無い（app/receivers）。/ の無いほかの拡張子の名
+    （Response.json・event.ts）・パスの後ろの属性（tests/_real_db.SKIP_REASON・app/stats.mean）・/ で始まる欄の指し（/plan/adds）は
+    修飾した識別子と分けられないので当たらない。説明の文・<パス>::<名前>・Stats.median も当たらない"""
+    s = name.strip()
+    if not _PATHLIKE.fullmatch(s):
+        return False
+    if s.endswith(".py"):
+        return True
+    last = s.rsplit("/", 1)[-1]
+    return "/" in s and (bool(_FILE_EXT.fullmatch(last)) or ("." not in last and not s.startswith("/")))
+
+
 def gaps(reply: dict, repo: pathlib.Path, *, exists=None) -> list[str]:
-    """修正案の返答の works の欄の欠けと誤りの行（"plan[<i>].<欄>…: <理由>"）。空なら通る。返答や plan が形を成さなければ空
+    """修正案の返答の works の欄の欠けと誤りの行と、kind が SYMBOL_KINDS の adds の name がファイルの名・パスだけの行
+    （"plan[<i>].<欄>…: <理由>"）。空なら通る。返答や plan が形を成さなければ空
     （写しの規則が型で拒む）。例外で拒まない。exists(test_id) -> 定義の行 | None は、受け入れのテスト（tests）が既に在るかを
     引く口（None なら find_test で作業ツリーを引く。同じ run の中の案の直しは修正の起点の版の木で引く）"""
     plan = reply.get("plan") if isinstance(reply, dict) else None
@@ -421,6 +443,13 @@ def gaps(reply: dict, repo: pathlib.Path, *, exists=None) -> list[str]:
             bad = glob_problem(g) if isinstance(g, str) and g else None
             if bad:
                 out.append(f"plan[{i}].out_of_scope[{j}].glob（{g}）: {bad}")
+        for j, add in enumerate(it.get("adds") if isinstance(it.get("adds"), list) else []):
+            name = add.get("name") if isinstance(add, dict) and add.get("kind") in SYMBOL_KINDS else None
+            if isinstance(name, str) and _file_name(name):
+                out.append(f"plan[{i}].adds[{j}].name（{name}）: kind が {add['kind']} の name はファイルの名・パスでなく識別子"
+                           "（足す関数・欄の名。例 handle・Receiver.handle・app.receivers.handle）で書け。置くファイルのパスは "
+                           "canonical に書け（新しいモジュールは canonical を『<パス>.py（新設。理由）』と書けば、そのモジュールも宣言した"
+                           "名前になる。TDD の輪は宣言した名前を名前・import の失敗の無い名前と比べ、修正の受け付けは name を差分の足した行で探す）")
         rf = it.get("refactor")
         if isinstance(rf, dict) and rf.get("declared") is True:
             rwhy = rf.get("why")
@@ -444,9 +473,34 @@ def gaps(reply: dict, repo: pathlib.Path, *, exists=None) -> list[str]:
     return out
 
 
+def _new_module(repo: pathlib.Path, canonical) -> str | None:
+    """canonical が『新設』で頭に名指す .py のパス（_NEW_MODULE）のうち、作業ツリーの根の中でまだ無いファイルの物。ほかは None
+    （在るファイルに新設の関数を足す行・根の外のパスは、モジュールを宣言しない）"""
+    m = _NEW_MODULE.match(canonical) if isinstance(canonical, str) and "新設" in canonical else None
+    norm = posixpath.normpath(m.group(1)) if m else None
+    if norm is None or norm.startswith("/") or climbs(norm) or (pathlib.Path(repo) / norm).exists():
+        return None
+    return m.group(1)
+
+
+def _declared(adds, repo: pathlib.Path) -> list[str]:
+    """項目の adds の宣言した名前の並び: 各行の name（今までどおり全部）と、canonical が新設の無いモジュールを名指す行のその
+    パス（_new_module。まだ並びに無ければ。新しいモジュールの import の失敗を TDD の輪が宣言の赤に数える。依頼 194c の nodeio.py）"""
+    out = []
+    for a in adds if isinstance(adds, list) else []:
+        if not (isinstance(a, dict) and isinstance(a.get("name"), str)):
+            continue
+        out.append(a["name"])
+        mod = _new_module(repo, a.get("canonical"))
+        if mod and mod not in out:
+            out.append(mod)
+    return out
+
+
 def split(reply: dict, repo: pathlib.Path) -> tuple[dict, list[dict]]:
-    """（works の欄を外した返答の写し, 項目と同じ並びの欄）。欄の行は外した欄に、項目の unit_keys の写しと、rewrite_tests の
-    各行の書き換えてよい範囲 limit（"<パス>:<定義の行>"。引けない行には付けない）を足した物。gaps を通った返答に使う"""
+    """（works の欄を外した返答の写し, 項目と同じ並びの欄）。欄の行は外した欄に、項目の unit_keys の写しと、宣言した名前 adds
+    （_declared: adds の name と、canonical が新設の無いモジュールを名指す行のパス）と、rewrite_tests の各行の書き換えてよい範囲
+    limit（"<パス>:<定義の行>"。引けない行には付けない）を足した物。gaps を通った返答に使う"""
     out = copy.deepcopy(reply)
     fields = []
     for it in (out.get("plan") if isinstance(out, dict) else None) or []:
@@ -455,7 +509,7 @@ def split(reply: dict, repo: pathlib.Path) -> tuple[dict, list[dict]]:
             continue
         got = {k: it.pop(k) for k in KEYS if k in it}
         got["unit_keys"] = copy.deepcopy(it.get("unit_keys") or [])
-        got["adds"] = [a["name"] for a in it.get("adds") or [] if isinstance(a, dict) and isinstance(a.get("name"), str)]
+        got["adds"] = _declared(it.get("adds"), repo)
         for row in got.get("rewrite_tests") or []:
             lim = _limit(repo, _id_of(row)) if _id_of(row) else None
             if lim:
@@ -654,10 +708,10 @@ def rewrites(b) -> list[dict]:
 
 
 def unit_contract(fields: list | None, key: str) -> dict | None:
-    """単位 key の約束 {items: 項目の番号（1 始まり）, route, tests: [{id, red_kind}], rewrites: [id], refactor: [{item, why}], names: [adds の name]}。
+    """単位 key の約束 {items: 項目の番号（1 始まり）, route, tests: [{id, red_kind}], rewrites: [id], refactor: [{item, why}], names: [宣言した名前（欄の adds）]}。
     key を unit_keys に含む項目の欄を合わせる: route はどれかの項目が tdd なら tdd（ほかは direct）・tests は項目の順で id の重複を
     除く（同じ id に別の red_kind は gaps が拒む）・rewrites は範囲 limit の在る行の id だけ（rewrites と同じ選び方）・refactor は
-    refactor.declared が真の項目の番号と理由（申告が無ければ空）・names は項目の adds の name を項目の順で重複を除いた列。
+    refactor.declared が真の項目の番号と理由（申告が無ければ空）・names は項目の欄の adds（split の宣言した名前）を項目の順で重複を除いた列。
     fields が None か、当たる項目が無ければ None。純粋（盤面もファイルも読まない）"""
     if not isinstance(fields, list):
         return None

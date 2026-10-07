@@ -31,6 +31,7 @@ sys.path.insert(0, str(TESTS))
 from gitkit import committed_copy, git  # noqa: E402
 import fixshape  # noqa: E402
 import planbrief  # noqa: E402
+import planmarks  # noqa: E402
 import tddloop  # noqa: E402
 from unittest import mock  # noqa: E402
 
@@ -1468,6 +1469,48 @@ class TestRedKind(unittest.TestCase):
         self.assertEqual(probs(["clamp"], "AssertionError: 3.0 != 2"), [])
         self.assertTrue(probs(["clamp"], "AssertionError: 3.0 != 2", "exception"))
         self.assertEqual(probs(["clamp"], "NameError: name 'clamp' is not defined", "exception"), [])
+
+    def test_kind_rule_declared_file_names(self):
+        """adds の名が .py のファイルの名・パス（新しいモジュール）なら、宣言した名前はモジュールの名（拡張子でない。依頼 194c で
+        receivers.py が 'py' と比べられ、宣言した赤が数えられなかった）。パッケージの __init__.py はディレクトリの名。<パス>::<名前> は
+        :: の後の名前。綴りの誤り（宣言の外の名前）の拒みは残る"""
+        def probs(declared, msg):
+            case = {"classname": "test_stats.TestStats", "name": "test_mean_of_two", "outcome": "failure",
+                    "fail_type": "", "fail_message": msg}
+            return tddloop._kind_problems([{"id": MEAN_ID, "red_kind": "assertion"}], [case], declared)
+        mod = ("ModuleNotFoundError: No module named 'receivers'", "ModuleNotFoundError: No module named 'app.receivers'",
+               "ImportError: cannot import name 'receivers' from 'app' (/tmp/app/__init__.py)")
+        for msg in mod:
+            for d in ("receivers.py", "app/receivers.py", "app/receivers/__init__.py"):
+                self.assertEqual(probs([d], msg), [], (d, msg))
+            self.assertEqual(len(probs(["recievers.py"], msg)), 1, msg)                 # 綴りの違うファイルの名は当たらない
+            self.assertEqual(len(probs(["app/receivers.py::handle"], msg)), 1, msg)     # :: の後の名前だけを宣言する
+            self.assertEqual(len(probs(["docs/receivers.md"], msg)), 1, msg)            # .py でないパスはモジュールを宣言しない
+        handle = "ImportError: cannot import name 'handle' from 'app.receivers' (/tmp/app/receivers.py)"
+        for d in ("app/receivers.py::handle", "receivers.py::handle", "app/receivers.py::Receiver.handle", "receivers.handle"):
+            self.assertEqual(probs([d], handle), [], d)
+        self.assertEqual(len(probs(["receivers.py"], handle)), 1)                      # モジュールの宣言は中の名前を宣言しない
+        self.assertEqual(len(probs(["receivers.py"], "ModuleNotFoundError: No module named 'py'")), 1)   # 拡張子と比べない
+
+    def test_kind_rule_new_module_of_canonical(self):
+        """修正案の項目の adds が関数の名だけを書き、新しいモジュールを canonical の『<パス>.py（新設…）』で名指した形（依頼 194c の
+        nodeio.py）: 欄の控え（planmarks.split）から単位の約束の names を通すと、そのモジュールの import の失敗は宣言の赤。在る
+        ファイルに新設の関数を足す行はモジュールを宣言せず、綴りの違うモジュールは今どおり拒む"""
+        adds = [{"kind": "function", "name": "read_input", "canonical": "works/.shared/core/nodeio.py（新設。前の節の出力を読む口）"},
+                {"kind": "function", "name": "current_round", "canonical": "stats.py（新設。盤面の今の周を返す）"}]
+        with tempfile.TemporaryDirectory() as td:
+            (pathlib.Path(td) / "stats.py").write_text("", encoding="utf-8")
+            _, fields = planmarks.split({"plan": [{"unit_keys": ["u"], "adds": adds}]}, pathlib.Path(td))
+        names = planmarks.unit_contract(fields, "u")["names"]
+
+        def probs(msg):
+            case = {"classname": "test_stats.TestStats", "name": "test_mean_of_two", "outcome": "failure",
+                    "fail_type": "", "fail_message": msg}
+            return tddloop._kind_problems([{"id": MEAN_ID, "red_kind": "assertion"}], [case], names)
+        self.assertEqual(probs("ModuleNotFoundError: No module named 'works.shared.core.nodeio'"), [])
+        self.assertEqual(probs("ImportError: cannot import name 'read_input' from 'nodeio'"), [])
+        self.assertEqual(len(probs("ModuleNotFoundError: No module named 'nodeoi'")), 1)
+        self.assertEqual(len(probs("ModuleNotFoundError: No module named 'stats'")), 1)
 
     def test_run_suite_rows_carry_failure_attrs(self):
         """run_suite の結末の行に failure の子の type・message（無ければ空）"""

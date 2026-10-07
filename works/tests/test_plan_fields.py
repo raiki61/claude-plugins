@@ -118,6 +118,32 @@ class TestGaps(PlanFieldsCase):
         self.assertTrue(any(g.startswith("plan[1]") for g in got), got)
         self.assertEqual(planmarks.gaps("返答でない", self.repo), [])   # 返答の形は写しの規則が拒む
 
+    def test_gaps_adds_symbol_kind_named_by_file(self):
+        """kind が関数・欄（function・record_field）の adds の name がファイルの名・パスだけなら、行を名指して拒み、識別子で書いて
+        パスは canonical に書けと言う（依頼 194c: receivers.py と書いた名を TDD の輪が 'py' と比べた）。ほかの誤りと同じ 1 回の拒否に
+        並べる。識別子・<パス>::<名前>・説明の文・ファイルを名指すのが筋の kind（doc など）は今どおり通す"""
+        def add(kind, name):
+            return {"kind": kind, "name": name, "canonical": "新設: app/receivers.py"}
+        got = self.gaps(item(adds=[add("function", "clamp"), add("function", "receivers.py"),
+                                   add("record_field", "app/schema/fields.json"), add("function", " app/receivers ")], route="maybe"))
+        for j, nm in ((1, "receivers.py"), (2, "app/schema/fields.json"), (3, "app/receivers")):
+            row = [g for g in got if g.startswith(f"plan[0].adds[{j}].name")]
+            self.assertEqual(len(row), 1, got)
+            self.assertIn(nm, row[0])
+            self.assertIn("canonical", row[0])
+        self.assertFalse(any(g.startswith("plan[0].adds[0]") for g in got), got)
+        self.assertTrue(any(g.startswith("plan[0].route") for g in got), got)          # ほかの誤りと 1 回で並ぶ
+        for kind, name in (("function", "Stats.median"), ("function", "app.receivers.handle"),
+                           ("function", "app/receivers.py::handle"), ("function", "role_run._probe(pgid_file) -> (pgid, why)"),
+                           ("function", "tests/run.sh skip_capability（見送りの行から能力の名前を取り出す）"),
+                           ("record_field", "plan[].adds[].name"), ("record_field", "event.ts"), ("function", "Response.json"),
+                           ("record_field", "tests/_real_db.SKIP_REASON"),   # モジュールのパスと属性（本物の案の名）
+                           ("function", "app/stats.mean"), ("record_field", "/plan/adds"),
+                           ("doc", "docs/scope.md"), ("config", "setup.cfg"),
+                           ("test", "test_stats.py::TestStats::test_mean_of_two"), ("other", "receivers.py")):
+            with self.subTest(kind=kind, name=name):
+                self.assertEqual(self.gaps(item(adds=[add(kind, name)])), [])
+
     def test_gaps_test_row_fields(self):
         t = {"id": "test_stats.py::TestStats::test_mean_of_two", "behavior": "短い", "red_kind": "import", "extra": 1}
         got = self.gaps(item(tests=[t]))
@@ -366,6 +392,25 @@ class TestUnitContract(PlanFieldsCase):
         self.assertEqual(planmarks.unit_contract(fields, CLAMP)["names"], ["clamp", "other"])
         self.assertEqual(planmarks.unit_contract([{"unit_keys": [MEAN]}], MEAN)["names"], [])
         self.assertIsNone(planmarks.unit_contract(fields, "無い単位"))
+
+    def test_names_carry_new_module_of_canonical(self):
+        """canonical が新設の .py のパスを名指す adds は、そのパスも宣言した名前に足す（新しいモジュールの import の失敗を TDD の輪が
+        宣言の赤に数える。依頼 194c: read_input の canonical が works/.shared/core/nodeio.py（新設…）で、No module named 'nodeio' が
+        綴りの誤りに数えられた）。新設でない canonical・.py でないパス・作業ツリーに在るファイル（在るモジュールに新設の関数を
+        足す行）・根の外のパスは足さない。重なりは 1 つ"""
+        add = lambda n, c: {"kind": "function", "name": n, "canonical": c}
+        reply = {"plan": [item(adds=[add("read_input", "works/.shared/core/nodeio.py（新設。前の節の出力を読む口）"),
+                                     add("board_out", "works/.shared/core/nodeio.py（新設。盤面の控えから読む口）"),
+                                     add("handle", "新設: app/receivers.py（受け手の表）"),
+                                     add("mean", "stats.py の既存の mean を直す"),
+                                     add("fmt", "既存の textfmt.py から引く（新設しない result.py を読む）"),
+                                     add("golden", "works/tests/fixtures/golden.json（新設）"),
+                                     add("median", "stats.py（新設。在るモジュールに足す関数）"),
+                                     add("up", "../up.py（新設）")])]}
+        _, fields = planmarks.split(reply, self.repo)
+        self.assertEqual(fields[0]["adds"], ["read_input", "works/.shared/core/nodeio.py", "board_out", "handle",
+                                             "app/receivers.py", "mean", "fmt", "golden", "median", "up"])
+        self.assertEqual(planmarks.unit_contract(fields, MEAN)["names"], fields[0]["adds"])
 
 
 class ScopeFieldsCase(PlanFieldsCase):

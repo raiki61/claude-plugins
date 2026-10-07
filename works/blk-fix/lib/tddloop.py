@@ -1102,13 +1102,25 @@ def _vanished_problems(st, u, cases, args, repo) -> list[str]:
             "名指しの外の既存のテストを外すな（外すなら phase conflict で申し出よ）" for k, o in gone[:20]]
 
 
+def _declared_name(d) -> str:
+    """adds の名 1 つが宣言する名前（'(' より前を見る）: <パス>::<名前> は :: の後の最後の . の後・.py のファイルの名・パスは
+    モジュールの名（__init__.py はディレクトリの名。拡張子 py と比べない。依頼 194c の receivers.py）・ほかは最後の . の後"""
+    s = str(d).split("(", 1)[0].strip()
+    if "::" in s:
+        return s.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+    if s.endswith(".py"):
+        p = posixpath.normpath(s[:-3])
+        return posixpath.basename(posixpath.dirname(p)) if posixpath.basename(p) == "__init__" else posixpath.basename(p)
+    return s.rsplit(".", 1)[-1]
+
+
 def _declared_hit(case: dict, declared) -> bool:
-    """名前・import の失敗の message が引く『無い名前』（'x' の引用の末尾の . の後）が、案が足すと宣言した名前（'(' より前・
-    最後の . の後）に完全一致するか。名前が引けない・declared が空なら False"""
+    """名前・import の失敗の message が引く『無い名前』（'x' の引用の末尾の . の後）が、案が足すと宣言した名前（_declared_name）に
+    完全一致するか。名前が引けない・declared が空なら False"""
     m = _MISSING.search(case.get("fail_message") or "")
     if not m:
         return False
-    names = {str(d).split("(", 1)[0].strip().rsplit(".", 1)[-1] for d in declared or ()}
+    names = {_declared_name(d) for d in declared or ()}
     return m.group(1).rsplit(".", 1)[-1] in names - {""}
 
 
