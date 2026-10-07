@@ -198,6 +198,39 @@ class FalseRejectCase(unittest.TestCase):
         self.assertEqual(got, [])
         self.assertEqual(note["unchecked"], ["docs/scope.md"])
 
+    def test_py_file_name_is_module_not_extension(self):
+        """.py のファイルの名（/ も :: も無い）の adds・removes はモジュールの名で見る（0.2.41 の名の規則。tddloop._declared_name）:
+        拡張子 py を語として探さない。足すモジュールは、そのモジュールの名の .py のファイル（パッケージの __init__.py も）が足した
+        行を持つか、消すモジュールはそのファイルが消えたか（ファイルの中身が自分の名を書かないので語では探せない）。__init__.py
+        だけの名はモジュールの名が引けないので unchecked"""
+        it = item(allowed_paths=["*.py", "app/**"], adds=[{"kind": "other", "name": "receivers.py", "canonical": "新設"}])
+        rows = [{"unit_key": MEAN, "files": ["stats.py", "receivers.py"]}]
+        word_only = {"stats.py": ("a\n", "a\np = \"data.py\"\n")}
+        self.assertTrue(any("receivers.py" in p for p in planscope.problems([it], rows, word_only)[0]),
+                        "モジュールのファイルが無ければ、足した行の 'py' の語で通さない")
+        added = {"stats.py": ("a\n", "b\n"), "receivers.py": (None, "def handle():\n    pass\n")}
+        self.assertEqual(planscope.problems([it], rows, added)[0], [], "モジュールのファイルを足せば、中身に自分の名が無くても通る")
+        pkg = {"stats.py": ("a\n", "b\n"), "app/receivers/__init__.py": (None, "X = 1\n")}
+        self.assertEqual(planscope.problems([it], [{"unit_key": MEAN, "files": sorted(pkg)}], pkg)[0], [])
+        rm = item(allowed_paths=["*.py"], removes=["old.py"])
+        gone = {"stats.py": ("a\n", "b\n"), "old.py": ("def f():\n    pass\n", None)}
+        self.assertEqual(planscope.problems([rm], [{"unit_key": MEAN, "files": sorted(gone)}], gone)[0], [])
+        kept = {"stats.py": ("a\n", "b\n"), "old.py": ("import x.py\n", "y = 1\n")}
+        self.assertTrue(any("old.py" in p for p in planscope.problems([rm], [{"unit_key": MEAN, "files": sorted(kept)}], kept)[0]),
+                        "ファイルが残れば、消した行の 'py' の語で通さない")
+        init = item(adds=[{"kind": "other", "name": "__init__.py", "canonical": "新設"}])
+        self.assertEqual(planscope.problems([init], [ROW], STATS)[1]["unchecked"], ["__init__.py"])
+
+    def test_py_file_name_edge_shapes(self):
+        """空の __init__.py で新設したパッケージも足したモジュールに数える（新しいファイルは足した行が無くてもよい）。
+        . を含む名（app.receivers.py）はファイルに結べないので unchecked（審査の指摘）"""
+        it = item(allowed_paths=["*.py", "app/**"], adds=[{"kind": "other", "name": "receivers.py", "canonical": "新設"}])
+        pkg = {"stats.py": ("a\n", "b\n"), "app/receivers/__init__.py": (None, ""), "app/receivers/core.py": (None, "X = 1\n")}
+        self.assertEqual(planscope.problems([it], [{"unit_key": MEAN, "files": sorted(pkg)}], pkg)[0], [])
+        dotted = item(adds=[{"kind": "other", "name": "app.receivers.py", "canonical": "新設"}])
+        got, note = planscope.problems([dotted], [ROW], STATS)
+        self.assertEqual((got, note["unchecked"]), ([], ["app.receivers.py"]))
+
 
 class LoopFrozenCase(unittest.TestCase):
     """TDD の輪が凍らせたファイル（loop: パス → 凍った時の中身）。修正役に問うのは凍った後に変えた分だけ、欠けは版から見る"""

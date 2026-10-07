@@ -27,6 +27,10 @@
 - 識別子の形（IDENT）: adds の name・removes の名のうち、差分で機械が探す物。kind を問わず :: と . で割った最後の段で探す。
   日本語や空白を含む説明の文と、/ を含む名（ファイルのパス）は探さず、記録の unchecked に並べる（誤った拒否を重ねて単位を
   止めない）
+- モジュールの名（_module）: / も :: も無い .py のファイルの名（receivers.py）は、拡張子 py の語でなくモジュールの名
+  （tddloop._declared_name。0.2.41 の名の規則）で見る。adds はそのモジュールの .py のファイル（パッケージの __init__.py も）を
+  新設したか足した行を持つ、removes はそのファイルが消えた、を差分で確かめる（ファイルの中身は自分の名を書かないので語では
+  探さない）。拡張子の前に . を含む名（app.receivers.py）はファイルに結べないので unchecked
 - 残った（removes）: 修正の後の .py を ast で読み、名がまだ定義されている（名を消した行か定義を足した行を持つファイルで）。
   . か :: の修飾子は、そのファイルの最上位のクラスなら クラス.名、モジュール名か :: の前のパスなら最上位の素の名で照らす。.py でない・構文が読めないファイルは、足した行に定義の行（def・class・代入・関数の形）が在れば
   残る。名を挙げるだけの行（消えたことを確かめる hasattr・変更の記録の注記）は残ったと見ない
@@ -178,11 +182,27 @@ def _definition(name: str):
 
 
 def _lookup(name) -> str | None:
-    """adds の name・removes の名で差分を探す語（:: と . で割った最後の段）。識別子の形でない・/ を含む名は None（確かめない）"""
-    if not isinstance(name, str) or not IDENT.match(name) or "/" in name:
+    """adds の name・removes の名で差分を探す語（:: と . で割った最後の段）。識別子の形でない・/ を含む名と、.py のファイルの名
+    （_module が見る。拡張子 py を語にしない）は None（語では確かめない）"""
+    if not isinstance(name, str) or not IDENT.match(name) or "/" in name or name.endswith(".py"):
         return None
     last = re.split(r"::|\.", name)[-1]
     return last or None
+
+
+def _module(name) -> str | None:
+    """.py のファイルの名（/ も :: も無い）が宣言するモジュールの名（tddloop._declared_name。0.2.41 の名の規則: receivers.py は
+    receivers で、拡張子 py ではない）。ほかの名と、モジュールの名が引けない名（__init__.py だけ・app.receivers.py のように
+    拡張子の前に . を含みファイルに結べない名）は None"""
+    if not isinstance(name, str) or not IDENT.match(name) or "/" in name or "::" in name or not name.endswith(".py") \
+            or "." in name[:-3]:
+        return None
+    return tddloop._declared_name(name) or None
+
+
+def _module_files(mod: str, changes: dict) -> list[str]:
+    """変わったパスのうち、モジュール mod の .py のファイル（モジュールの名が mod。パッケージの __init__.py はディレクトリの名）"""
+    return [p for p in changes if p.endswith(".py") and tddloop._declared_name(p) == mod]
 
 
 def _defined_names(src: str | None):
@@ -273,8 +293,10 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
        ので緩めない。当たった行に、そのパスを許す項目を OWNER_HINT で名指す）
     3. 生きた項目の範囲の中に変わったパスが 1 つも無ければ Missing
     4. adds: 探す語（_lookup）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing）。canonical の文に
-       変わったパスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra（見る項目の全部）
-    5. removes: 生きた項目なら、探す語がどれかのパスの消した行に現れ、どの足した行にも定義として現れない
+       変わったパスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra（見る項目の全部）。.py のファイルの名（_module）は
+       そのモジュールのファイルを新設したか、足した行を持つ
+    5. removes: 生きた項目なら、探す語がどれかのパスの消した行に現れ、どの足した行にも定義として現れない。.py のファイルの名は
+       そのモジュールのファイルが消えた
     6. tests: 新しく現れたテストのうち、どの項目の tests にも無い物は Extra。生きた項目の tests の各 id は、
        そのパスが変わり、今の中身に定義の行が在る
     裁定で外れた単位の項目も範囲を与える（依頼 241。外れた単位を直させない守りは受け付けの check_excused_units）。
@@ -342,6 +364,12 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
             raw = add.get("name") if isinstance(add, dict) else None
             if not isinstance(raw, str):
                 continue
+            mod = _module(raw)
+            if mod is not None:
+                if not skip and not any(changes[p][1] is not None and (changes[p][0] is None or diffs[p][0])
+                                        for p in _module_files(mod, changes)):
+                    out.append(f"{who}: adds の {raw} のモジュールのファイル（{mod}）が差分で新設されず足した行も持たない")
+                continue
             name = _lookup(raw)
             if name is None:
                 unchecked.append(raw)
@@ -356,6 +384,11 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
                     out.append(f"{who}: adds の {raw} の canonical（{'・'.join(home)}）の外に同名の定義（{p}）")
         for raw in it.get("removes") or []:
             if not isinstance(raw, str):
+                continue
+            mod = _module(raw)
+            if mod is not None:
+                if not skip and not any(changes[p][1] is None for p in _module_files(mod, changes)):
+                    out.append(f"{who}: removes の {raw} のモジュールのファイル（{mod}）が差分で消えていない")
                 continue
             name = _lookup(raw)
             if name is None:
