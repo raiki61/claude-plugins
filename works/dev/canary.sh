@@ -3,11 +3,16 @@
 #
 # canary: 決まった小さな対象（canary-seed/）と決まった依頼（canary-request.json）で、ライン darkfactory を本物の AI で 1 回回す
 # （費用が掛かる。回す前に持ち主の了承を取る）。普段の依頼ではたまにしか通らない道を 1 run でまとめて通し、版ごとの確かめにする:
-#   (a) 別のファイルの 2 項目以上（calc.py と textfmt.py）: TDD の輪の枝と修正役の項目の並べ
-#   (b) 同じファイルの 2 項目（textfmt.py の頭の pad_left と末尾の truncate。差分の塊は重ならず、足すテストは同じ test_textfmt.py
-#       の末尾の挿しだけ）: 重なる枝の 3 方向の合わせと、試験のファイルの union
-#   (c) 範囲の外のファイルが要る直し（mean の直しに要る CHANGELOG.md の 1 行。依頼が修正案に allowed_paths へ入れさせない）: 範囲の相談
+#   (a) 別のファイルの 2 項目（calc.py:mean と textfmt.py:initials）: TDD の輪の枝の並べ
+#   (b) 2 項目が同じファイルを別の所で変える: 種のテストは test_lib.py の 1 本だけで、README の決まりがテストをモジュールごとの
+#       クラス（TestCalc・TestTextfmt）に足させるので、tdd の 2 項目の枝は同じ test_lib.py の離れた 2 か所に受け入れのテストを
+#       足す（項目はモジュールごとに分かれたまま）: 重なる枝の 3 方向の合わせ（同じ所に足せば試験のファイルの union）
+#   (c) 範囲の外のファイルが要る直し（2 件とも README の決まりで CHANGELOG.md の 1 行が要る。依頼が修正案に allowed_paths へ
+#       入れさせない）: 範囲の相談
 #   (d) run の中の案の直しは起きてもよい（起こさせない）
+# 依頼の 2 件は docstring の約束で直し方が 1 つに決まる（端の振る舞いを人に聞く余地を残さない）。ラインは 1 周の run なので
+# （entry.start の stop_after_round=1。canary が決めた物ではない）、報告の「止めたか」は「周の締めの後で止めた」と出るのが普通の
+# 終わり。残り（検証器の阻害・独立の目の阻害など）が無ければ結末は fixed、在れば round_limit（2 周目は回らない）。
 # 何が実際に通ったかは、終わった run を canary_check.py が読んで出す（読むだけ）。
 #
 # 手順:

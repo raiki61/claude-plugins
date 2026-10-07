@@ -1,11 +1,4 @@
-"""小さな字の道具（詰める・真ん中に置く・語に分ける・切り詰める）。"""
-
-ELLIPSIS = "…"
-
-
-def pad_left(s, width, fill=" "):
-    """s の左に fill を詰めて width 字にする。s が width 字以上ならそのまま返す"""
-    return s + fill * (width - len(s))
+"""小さな字の道具（真ん中に置く・語に分ける・頭の字を連ねる・余白を取る・数える・詰める）。"""
 
 
 def center(s, width, fill=" "):
@@ -18,13 +11,13 @@ def center(s, width, fill=" "):
 
 
 def words(s):
-    """空白で区切った語の並び（連なった空白は 1 つの区切り）"""
+    """空白で区切った語の並び（str.split() と同じ。連なった空白は 1 つの区切り）"""
     return s.split()
 
 
 def initials(s):
-    """各語の頭の 1 字を大文字にして連ねる"""
-    return "".join(w[0].upper() for w in words(s))
+    """words(s) の各語の頭の 1 字を大文字（str.upper）にして連ねる。語が無ければ空の文字列"""
+    return "".join(w[0] for w in words(s))
 
 
 def strip_margin(text, marker="|"):
@@ -37,7 +30,7 @@ def strip_margin(text, marker="|"):
 
 
 def count_lines(text):
-    """行の数（末尾の改行の後の空の行は数えない）"""
+    """行の数（str.splitlines() と同じ数え方。末尾の改行の後の空の行は数えない）"""
     return len(text.splitlines())
 
 
@@ -49,10 +42,3 @@ def squeeze(s, ch=" "):
             continue
         out.append(c)
     return "".join(out)
-
-
-def truncate(s, limit):
-    """s を limit 字以内にする。切った時は末尾を省略の印 ELLIPSIS（1 字）にし、印を含めて limit 字にする"""
-    if len(s) <= limit:
-        return s
-    return s[:limit] + ELLIPSIS
