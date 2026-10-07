@@ -24,7 +24,8 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
   1 項目にまとめたか、テストを別のファイルに置いた）
 - (c) consult（範囲の相談）: 相談の記録（盤面の trace の plan_scope_asked。修正の輪の確かめの節 fix-consult-check が書く。
   前の形 askplan.py（0.2.32〜0.2.35）の run は、まだ写していない run-place/<scope>/ask-plan/exchanges.jsonl も読む）に
-  answered の行が在る。refused・invalid・unavailable だけなら attempted
+  answered の行が在る。refused・invalid・unavailable だけなら attempted（断った行の訳 why_refused を添える。修正案が
+  out_of_scope に名指したパスは相談が断る）
 - (d) replan（run の中の案の直し。起きなくてよい）: trace の replan_state・plan_amended・conflict_parked・conflict_ruled の数を出すだけ
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
@@ -201,7 +202,7 @@ def tdd_lanes(board: pathlib.Path, items: list = ()) -> list:
 
 def consults(board: pathlib.Path, trace: list) -> list:
     """範囲の相談の行（trace の ASKED_OP と、前の形の run-place のまだ写していない記録）[{scope, id, item, status, decision, paths,
-    granted_paths, settled}]。同じ scope と id は trace の行だけ"""
+    granted_paths, why_refused, settled}]。同じ scope と id は trace の行だけ"""
     rows, seen = [], set()
     for r in trace:
         if r.get("op") == conflict.ASKED_OP:
@@ -216,7 +217,7 @@ def consults(board: pathlib.Path, trace: list) -> list:
                 rows.append((scope, r, False))
     return [{"scope": s, "id": r.get("id"), "item": r.get("item"), "status": r.get("status", ""),
              "decision": r.get("decision", ""), "paths": r.get("paths") or [], "granted_paths": r.get("granted_paths") or [],
-             "settled": settled} for s, r, settled in rows]
+             "why_refused": r.get("why_refused") or "", "settled": settled} for s, r, settled in rows]
 
 
 def outcome(board: pathlib.Path) -> str:
@@ -382,7 +383,8 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None) 
         c = {"status": YES, "why": "答えた相談 {}（{}）".format(
             len(answered), "・".join(f"項目 {r['item']} {r['decision']} {r['granted_paths']}" for r in answered))}
     elif asks:
-        c = {"status": ATTEMPTED, "why": "答えの無い相談だけ（{}）".format("・".join(sorted({r["status"] for r in asks})))}
+        c = {"status": ATTEMPTED, "why": "答えの無い相談だけ（{}）".format("・".join(sorted({r["status"] for r in asks})))
+             + "".join(sorted({f"・断った訳: {r['why_refused']}" for r in asks if r["why_refused"]}))}
     else:
         c = {"status": NO, "why": "相談の記録が無い"}
 
