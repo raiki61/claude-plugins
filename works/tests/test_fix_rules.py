@@ -139,7 +139,7 @@ class TestSharedSource(unittest.TestCase):
                 self.assertIn("needs_context", text)
 
     def test_every_rules_file_is_cut_into_sections(self):
-        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-ask", "fix-ask-sub", "fix-consult-resume", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
+        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-ask", "fix-ask-sub", "fix-consult-resume", "fix-lane", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
                           (fixrules.PRINCIPLES, ["principles"]), (fixrules.BRIEF, ["brief-canon"]),
                           (fixrules.TDD, ["tdd-head", "tdd-remap", "tdd-phase", *(f"tdd-phase-{p}" for p in fixrules.PHASES),
                                           "tdd-phase-all", "tdd-end", "tdd-lane"])):
@@ -554,10 +554,13 @@ class TestRoleNodes(unittest.TestCase):
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
                                       "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
                                       "base_rev": "$INPUTS.base_rev", "plan_session": "$INPUTS.plan_session",
-                                      "ripple_file": "$INPUTS.ripple_file", "fix_lanes": "$INPUTS.fix_lanes", "pass": "first"})
+                                      "ripple_file": "$INPUTS.ripple_file", "pass": "first"})
         # base_rev は指示書の run の値でなく、修正の形 g1 の審査役の型の [BASE_SHA]（fixrules.g1_values）。plan_session は範囲の相談の
-        # 控え（fixrules.ask_config）に書く物で、指示書の穴ではない。fix_lanes は並べの切り替え（fixrules.side_on）
-        self.assertEqual(set(fp["with"]) - {"pass", "base_rev", "plan_session", "ripple_file", "fix_lanes"}, set(fixrules.FIX_VALUES))
+        # 控え（fixrules.ask_config）に書く物で、指示書の穴ではない。修正役の並べの切り替え fix_lanes は節 fix-fork が読む
+        self.assertEqual(set(fp["with"]) - {"pass", "base_rev", "plan_session", "ripple_file"}, set(fixrules.FIX_VALUES))
+        ff = find_node(nodes, "fix-fork")
+        self.assertEqual(ff["with"], {**{k: v for k, v in fp["with"].items() if k != "pass"}, "fix_lanes": "$INPUTS.fix_lanes"},
+                         "並べの枝の支度は修正役の支度と同じ run の値と、並べの切り替えを読む")
         self.assertIn("variants_file", fp["output_format"]["required"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",
@@ -567,21 +570,26 @@ class TestRoleNodes(unittest.TestCase):
                          "義務の単位は輪の状態が持つ")
         loop = find_node(nodes, "fix-loop")["loop_group"]
         self.assertEqual([n["id"] for n in loop["nodes"]], ["fix-prep", "fix", "fix-consult", "plan-answer", "fix-consult-check",
-                                                           "fix-units", "fix-accept"])
+                                                           "fix-accept"])
 
 
 
-class TestSideOnSwitch(unittest.TestCase):
-    """修正役の項目ごとの並べ（side_on）の切り替え: 入力 fix_lanes が off なら g3 の 1 回目の周でも並べない。空・on は今どおり"""
+class TestFixLanesSwitch(unittest.TestCase):
+    """修正役の並べの切り替え（入力 fix_lanes。節 fix-fork の fixlanes.fork）: off なら枝を切らない（盤面を開く前に理由が決まる）。
+    知らない語は ValueError（節は 2）。空・on は今どおり（盤面の形と項目で決まる。本物の盤面の道は tests/test_fix_lanes.py）"""
 
     def test_switch(self):
-        shape = fixrules.seatkit.SHAPE
-        self.assertIs(fixrules.side_on(shape, "first", 1), True)
-        self.assertIs(fixrules.side_on(shape, "first", 1, "on"), True)
-        self.assertIs(fixrules.side_on(shape, "first", 1, "off"), False)
-        self.assertIs(fixrules.side_on(shape, "first", 2, ""), False)   # 出し直しの周は今どおり並べない
-        with self.assertRaises(ValueError):
-            fixrules.side_on(shape, "first", 1, "no")
+        import fixlanes
+        with tempfile.TemporaryDirectory() as tmp:
+            got = fixlanes.fork(pathlib.Path(tmp) / "board", pathlib.Path(tmp), {}, switch="off")
+            self.assertEqual(got, {"go": False, "lanes": 0, "lane_1": False, "lane_2": False, "lane_3": False,
+                                   "why": fixlanes.OFF})
+            for word in ("", "on"):
+                got = fixlanes.fork(pathlib.Path(tmp) / "board", pathlib.Path(tmp), {}, switch=word)
+                self.assertIs(got["go"], False)
+                self.assertIn("盤面が開けない", got["why"], "盤面の無い所では並べない（修正役の支度が今どおり止める）")
+            with self.assertRaises(ValueError):
+                fixlanes.fork(pathlib.Path(tmp) / "board", pathlib.Path(tmp), {}, switch="no")
 
 
 class TestCopyRejectOfOneUnit(unittest.TestCase):
@@ -1197,61 +1205,41 @@ class G1ValuesCase(unittest.TestCase):
         self.assertNotEqual(first[0]["impl_file"], second[0]["impl_file"])
         self.assertIn("a: 分母", pathlib.Path(first[0]["impl_file"]).read_text(encoding="utf-8"))
 
-    def test_side_items_get_unit_trees_and_stay_inside(self):
-        """g3 の 1 回目（side）は、範囲の在る修正案の項目に単位の worktree を切り（run ごとの置き場の下）、その項目の
-        下請けのファイルは worktree の中で働き、審査の base は worktree の base。範囲の無い残りの項目は順（依頼 243 の並べ）"""
-        import seat
-        import unittrees
-        from unittest import mock
-        from gitkit import committed_copy
+    def test_overlap_line_names_what_the_lanes_merged(self):
+        """出し直しの指示書の頭の 1 行は、修正役の並べの枝の締めが記録に残した重なりのファイルと、それを変えた当てた項目を名指す"""
         b = self.board()
-        repo = b.dir.parent.parent / "repo"
-        committed_copy(repo, ROOT / "dev" / "target-seed")
-        self.addCleanup(unittrees.sweep, repo)
-        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS), \
-                mock.patch.object(fixrules, "item_ranges", return_value={1: ["stats.py"], 2: ["test_stats.py"]}), \
-                mock.patch.object(fixrules.planmarks, "approved_items", return_value=[]):
-            got = fixrules.g1_values(b, VALUES, repo, self.OWED, "", "g3", side=True)
-        place = b.dir.parent / "run-place" / "units"
-        self.assertEqual([r.get("tree") for r in got], [str(place / "item-1"), str(place / "item-2"), None])
-        self.assertNotEqual(got[0]["base"], "abc123")
-        self.assertEqual(got[2]["base"], "abc123")
-        impl = pathlib.Path(got[0]["impl_file"]).read_text(encoding="utf-8")
-        self.assertIn(seat.G1_TREE_RULE_OF.format(tree=place / "item-1"), impl)
-        self.assertNotIn("単位の worktree", pathlib.Path(got[2]["impl_file"]).read_text(encoding="utf-8"))
-        self.assertTrue(b.work(fixrules.UNITS_FILE).is_file(), "控えは盤面の作業ファイル")
-        items = [{"item": 1, "tests": [{"id": "test_stats.py::test_a"}]}, {"item": 2, "rewrite_tests": ["test_stats.py::test_b"]},
-                 {"item": 9, "tests": [{"id": "other/test_x.py::test_c"}]}]
-        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS), \
-                mock.patch.object(fixrules, "item_ranges", return_value={1: ["stats.py"], 2: ["stats.py"]}), \
-                mock.patch.object(fixrules.planmarks, "approved_items", return_value=items):
-            again = fixrules.g1_values(b, VALUES, repo, self.OWED, "", "g3", side=True)
-        self.assertEqual([r.get("tree") for r in again], [str(place / "item-1"), str(place / "item-2"), None],
-                         "範囲が重なっても並べる（依頼 243 の並べの 3 段目）")
-        doc = json.loads(b.work(fixrules.UNITS_FILE).read_text(encoding="utf-8"))
-        self.assertEqual(doc["union"], ["test_stats.py"], "並べる項目の試験のファイルだけを合わせてよい")
-
-    def test_side_only_on_the_first_g3_round(self):
-        """並べるのは g3 の 1 回目の修正役の 1 回目の周だけ（出し直し・裁定の後・g1 は今どおり順）"""
-        self.assertTrue(fixrules.side_on("g3", "first", 1))
-        for args in (("g3", "first", 2), ("g3", "ruled", 1), ("g1", "first", 1), ("af", "first", 1)):
-            self.assertFalse(fixrules.side_on(*args), args)
-
-    def test_overlap_line_names_what_the_last_round_merged(self):
-        b = self.board()
-        self.assertEqual(fixrules.overlap_line(b), "", "締めた控えが無ければ空")
-        done = b.work(fixrules.UNITS_FILE).with_name("units.done.json")
-        done.write_text(json.dumps({"items": [], "settled": {"shared": [], "items": []}}), encoding="utf-8")
+        self.assertEqual(fixrules.overlap_line(b), "", "枝の結末が無ければ空")
+        rec = b.work(fixrules.LANES_RECORD)
+        rec.write_text(json.dumps({"items": [], "shared": []}), encoding="utf-8")
         self.assertEqual(fixrules.overlap_line(b), "", "重なりのファイルが無ければ空")
-        done.write_text(json.dumps({"items": [], "settled": {"shared": ["report.py"], "items": [1, 2]}}), encoding="utf-8")
+        rec.write_text(json.dumps({"shared": ["report.py"], "items": [
+            {"item": 1, "outcome": "merged", "files": ["report.py"], "changed": ["a"]},
+            {"item": 2, "outcome": "merged", "files": ["report.py", "x.py"], "changed": ["b"]},
+            {"item": 3, "outcome": "merged", "files": ["y.py"], "changed": ["c"]},
+            {"item": 4, "outcome": "serial", "files": [], "changed": []}]}), encoding="utf-8")
         self.assertEqual(fixrules.overlap_line(b), fixrules.OVERLAP_LINE.format(items="1・2", files="report.py"))
+        self.assertEqual(fixrules.lanes_merged(b), {"a", "b", "c"}, "当てた項目の直した単位だけ（戻した項目の単位は直す義務のまま）")
 
-    def test_merge_line_names_the_manifest_only_with_trees(self):
-        import unitlanes
+    def test_lanes_text_names_the_summary_only_when_the_lanes_ran(self):
         b = self.board()
-        rows = [{"item": 1, "tree": "/t/item-1"}, {"item": 2}]
-        self.assertEqual(fixrules.merge_line(b, rows), unitlanes.command(b.work(fixrules.UNITS_FILE)))
-        self.assertEqual(fixrules.merge_line(b, [{"item": 2}]), "")
+        self.assertEqual(fixrules.lanes_text(b), "")
+        b.work(fixrules.LANES_RECORD).write_text(json.dumps({"items": []}), encoding="utf-8")
+        self.assertEqual(fixrules.lanes_text(b), "", "本文が無ければ載せない")
+        b.work(fixrules.LANES_SUMMARY).write_text("# 結末\n", encoding="utf-8")
+        text = fixrules.lanes_text(b)
+        self.assertIn(str(b.work(fixrules.LANES_SUMMARY)), text)
+        self.assertIn("下請けを起こさず", text)
+        parts = fixrules.fix_parts(VALUES, lanes=text)
+        self.assertEqual([p[0] for p in parts][:3], ["fix-head", "brief-canon", "lanes"], "節 lanes は brief の後")
+
+    def test_g1_rows_never_carry_unit_trees(self):
+        """修正役の下請けは run の作業ツリーで順に働く（項目の並べは修正役の外の枝の輪。前の形の単位の worktree の列は無い）"""
+        from unittest import mock
+        b = self.board()
+        with mock.patch.object(fixrules, "briefs_or_halt", return_value=self.ROWS):
+            got = fixrules.g1_values(b, VALUES, "/repo", self.OWED, "", "g3")
+        self.assertEqual([sorted(r) for r in got], [["base", "impl_file", "item", "patch", "review_file"]] * len(got))
+        self.assertNotIn("単位の worktree", pathlib.Path(got[0]["impl_file"]).read_text(encoding="utf-8"))
 
     def test_item_ranges_read_allowed_paths_and_tests(self):
         from unittest import mock

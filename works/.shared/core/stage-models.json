@@ -17,8 +17,14 @@
     "blk-fix/tdd-lane-3": "code_writer",
     "blk-fix/fix": "code_writer",
     "blk-fix/fix-ruled": "code_writer",
+    "blk-fix/fix-lane-1": "code_writer",
+    "blk-fix/fix-lane-2": "code_writer",
+    "blk-fix/fix-lane-3": "code_writer",
     "blk-fix/plan-answer": "plan_writer",
     "blk-fix/plan-answer-ruled": "plan_writer",
+    "blk-fix/plan-answer-lane-1": "plan_writer",
+    "blk-fix/plan-answer-lane-2": "plan_writer",
+    "blk-fix/plan-answer-lane-3": "plan_writer",
     "blk-refix/refix": "code_writer",
     "blk-refix/refix2": "code_writer",
     "blk-ci/ci": "light",
@@ -39,6 +45,8 @@
     "blk-spec/spec-write": "受け入れ条件のテストも書くが、主は仕様（要件）を書く役",
     "blk-ci/ci": "CI の任せ先（定義を読んで写しの上で走らせ、素材を返す）",
     "blk-fix/plan-answer": "範囲の相談の答えの節。修正案を書いた役の会話の続きで答える（書くのは範囲の判断だけ）ので、その役と同じ組",
-    "blk-fix/plan-answer-ruled": "裁定の後の 2 回目の修正の段の範囲の相談の答えの節（plan-answer と同じ）"
+    "blk-fix/plan-answer-ruled": "裁定の後の 2 回目の修正の段の範囲の相談の答えの節（plan-answer と同じ）",
+    "blk-fix/fix-lane-1": "修正役の並べの枝の役（枝の項目を 1 つずつ直す修正役。fix と同じ組。fix-lane-2・3 も同じ）",
+    "blk-fix/plan-answer-lane-1": "修正役の並べの枝の範囲の相談の答えの節（修正案を書いた役の会話の写し。plan-answer と同じ組。2・3 も同じ）"
   }
 }

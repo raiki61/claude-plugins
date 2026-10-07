@@ -513,7 +513,7 @@ class TestTddConflict(LoopCase):
         printed = []
         with mock.patch.object(mod.tddlanes, "join", return_value=out), \
                 mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
-                mock.patch.object(mod.conflict, "park") as park, \
+                mock.patch.object(mod.lanekit.conflict, "park") as park, \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(x[0])), \
                 mock.patch.dict("os.environ", {"INPUTS_STATE_FILE": self.state, "ARTIFACTS_DIR": str(self.board.parent)}):
             self.assertEqual(mod.main(), 0)

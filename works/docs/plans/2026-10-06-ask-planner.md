@@ -31,7 +31,7 @@ run 195g（0.2.29）の修正の段は、修正役が修正案の項目の「書
 修正の輪（`fix-loop`。2 回目の `fix-ruled-loop` も同じ形）の 1 周:
 
 ```
-fix-prep ─▶ fix ─▶ fix-consult ─▶ plan-answer ─▶ fix-consult-check ─▶ fix-units ─▶ fix-accept
+fix-prep ─▶ fix ─▶ fix-consult ─▶ plan-answer ─▶ fix-consult-check ─▶ fix-accept
  (script)   (AI)    (script)        (AI。when go)   (script)             (script)     (script)
 ```
 
@@ -40,7 +40,7 @@ fix-prep ─▶ fix ─▶ fix-consult ─▶ plan-answer ─▶ fix-consult-che
 1. **頼み（役の返答の欄 `consult`）**: 修正役は範囲の外が要る時、変える前に返答の任意の欄 `consult`（`conflict.CONSULT_SCHEMA`。項目ごとに 1 件 `{item, paths, tests, why}`）を書いて周を終える。ほかの欄は途中の形でよい（その周は受け付けが見ない）。作業ツリーの直しは残す。下請けは自分で相談せず、まとめ役の修正役に頼みを報告する（`rules/direct.md` の節 fix-ask-sub）。
 2. **頼みの節 `fix-consult`**（`scripts/consult_prep.py` → `consult.ask`）: 返答に `consult` が無ければ何もしない（`consulted: false`）。在れば頼みごとに機械の先の確かめ（`consult.screen`: 知らない項目・頼む物が無い・理由が短い・根の外のパス・全部がもう範囲の中。`out_of_scope` に当たる頼みは断らない——下の「out_of_scope の考え直し」）をして、盤面の今の scope の周の状態（`consult-<段>.json`）に積む。聞く頼みが在れば、入力 `plan_session` の名で包みが記録した会話の id を、ブロックの中の名 `fix-planner` の id として包みの置き場に写し（`consult.alias`）、答えの節の指示書（`consult-<段>-<周>-ask.md`）を書いて `go: true`。相手の会話の id が無い（plan_session が空・計画役が走っていない）なら、その頼みは聞けない行にして `go: false`。
 3. **答えの節 `plan-answer`**（AI。opus・medium。印 `works-node: plan-answer continue=fix-planner`）: 包みが SDK の会話の旗を外して `--resume <fix-planner の id>` で起こす（計画役の会話の続き。fork しない）。道具は計画役と同じ読むだけの物（Read・Grep・Glob・WebSearch・WebFetch）。答えは `consult.ANSWER_SCHEMA`（`answers: [{ask, decision: allow|deny|defer, paths, tests, spec, reason}]`）。
-4. **確かめの節 `fix-consult-check`**（`scripts/consult_check.py` → `consult.settle`）: 答えを頼みごとに確かめ（`consult.judge`。許すのは頼んだ物の中だけ。頼んでいない物は捨てて注記。形の崩れた答えは invalid で許しを作らない）、1 頼み 1 行を盤面の trace（`conflict.ASKED_OP`）に書く（断った・聞けなかった行も）。修正役が読む答えのファイル（`consult-<段>-<周>.md`）を書く。出力 `consulted: true` で、後ろの締める節（fix-units）と受け付け（fix-accept）はその周を回さない（受け付けは拒否の理由のファイルも最後の結果の控えも書かない。`done` は立てない）。
+4. **確かめの節 `fix-consult-check`**（`scripts/consult_check.py` → `consult.settle`）: 答えを頼みごとに確かめ（`consult.judge`。許すのは頼んだ物の中だけ。頼んでいない物は捨てて注記。形の崩れた答えは invalid で許しを作らない）、1 頼み 1 行を盤面の trace（`conflict.ASKED_OP`）に書く（断った・聞けなかった行も）。修正役が読む答えのファイル（`consult-<段>-<周>.md`）を書く。出力 `consulted: true` で、後ろの受け付け（fix-accept。修正役の並べの枝では枝の確かめ fix-lane-step-<n>）はその周を回さない（受け付けは拒否の理由のファイルも最後の結果の控えも書かない。`done` は立てない）。
 5. **続き**: 次の周の支度（`fixrules.prep` が `consult.take` を引く）は、指示書を組み直さず、答えのファイルと前の指示書を名指す短い続きの指示書（`rules/direct.md` の節 fix-consult-resume）だけを書く。`iteration` は前の回のまま（相談の周は受け付けの 3 回に数えない）。修正役は同じ会話の続きで起きる: 1 回目の修正役は印の旗 `self-resume`（下の「包みの旗 self-resume」）、2 回目は今までどおり `continue=fix`。
 6. **合意の読み口**（前の形から変えない）: `conflict.agreed(b)`（trace の行のうち allow）1 つ。範囲は `planscope.with_agreed` が項目の allowed_paths に足し（`out_of_scope` には勝たない。ただし許したパスと字のまま同じパスは、その項目の `out_of_scope` から外す——下の「out_of_scope の考え直し」）、テストは `conflict.test_permits` が許しに入れる（凍結の検査と最後の人の関所の書き換えたテストの一覧も同じ口）。事前の確かめも同じ口で読む。報告は `report.plan_ask_lines` が回数・答えごとの数・許した範囲を出す。
 

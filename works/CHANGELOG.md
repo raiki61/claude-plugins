@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 修正役の項目の並べ（形 g3 で範囲の在る修正案の項目）を、修正役が Agent で項目ごとの下請けを同時に起こし役の sandbox の中で当てるコマンドを走らせる形から、修正の輪の前に枝ごとの Archon の輪を置く形に替えた（設計は docs/plans/2026-10-07-fix-lane-nodes.md。依頼 243 の並べの 5 段目）。修正のブロックに節 `fix-fork`・枝の輪 `fix-lane-loop-1`〜`3`（支度・枝の役 `fix-lane-<n>`・範囲の相談の 3 節・確かめ）・締め `fix-join` が増え、単位を共にしない項目の組が 2 本以上の枝に分かれる run だけ、枝が 3 本まで同時に走る（1 本の枝は 3 項目まで順に、項目ごとに新しい会話で直す）。枝の役は項目の実装役として審査の下請けを起こし、範囲の相談（答えは修正案を書いた役の会話の写し）を持ち、枝の確かめの節が受け付けと同じ事実の確かめ（凍ったテスト・書き込みの出どころ・この項目の単位・修正案の範囲・変更に当たる試験）を枝の作業ツリーで当てる（3 回拒まれた項目は直しを控えて戻す）。締めが差分を 3 方向で当て、修正の輪の修正役は枝が当てた単位に下請けを起こさず枝の返答の行を写す。当たらない枝・戻した項目・枝に入らない項目・1 項目の run・包みの無い run・入力 `features_off` の `fix_lanes` を切った run は今どおり修正役が順に直す。修正の輪の締めの節 `fix-units` と当てるコマンドは外した。包みに旗 `fork`（`continue=X` を X の会話の写しで起こす）を足し、単位の切れ目の鍵を旗 `self-resume` の起動にも効かせた。TDD の輪の並べと修正役の並べは共通の並べの枝の部品 `blk-fix/lib/lanekit.py` を使う（TDD の振る舞いは変えていない）。`dev/canary_check.py` の (a)(b) は修正役の並べの枝（trace の `fix_lanes_settled` と枝の輪の同時）も数える
+
 ### Fixed
 
 - 対象の origin が PR を持つホスト（GitHub）でない run で、並行 PR の確かめ（素材 `parallel_pr`）を任せ先の役に決めさせていたので、同じ形の run でも結末が割れていたのを直した（canary の run 5318f732: origin がローカルの裸のリポジトリで、役が awaiting_human と書き、判定が問いの台帳に人待ちの問いを保留で置いて、直しが済みテストも緑なのに結末が `round_limit` になった。同じ形の run 01004d2e・a2097fd6 の役は clean と書いて通った）。core は git だけで動き、gh・GitHub は外側の forge の層とする（持ち主 2026-10-07）。run の初めに機械（新しい `.shared/core/forge.py`）が対象の remote（枝の upstream の remote、無ければ `origin`）を見て、remote が無い（`no_remote`）・ローカルのパスか `file:`（`local_path`）・GitHub でないホスト（`other_host`。GitLab・自前のホスト。ssh の形は `github.com-work` のような `~/.ssh/config` の別名も GitHub と数える）なら盤面の `loop.forge` に置き、並行 PR の節を条件外にする（任せ先の役も engine の計画も起こさない）。素材は `not_applicable`（理由 `no_forge: <種類>（…）`）で、検証器の阻害にも問いの台帳の人待ちにもならず、報告の冒頭 2 に「PR を持つホスト（forge）: 無い」の 1 行が出る（`entry` の写しの RL への差し替え `on_init`・`parallel_pr_due`・`fill_materials`。写しは変えない）。殻の隔離の前の読み出し `ghreads.py read` も forge の無い対象では gh を呼ばず、依頼が名指した PR・issue を `not_applicable` と書き、`--pr` は base を名指せと言って止まる。GitHub の remote で gh が無い・未ログイン・API が落ちた時は今どおり（人待ちか任せ先の役）。決めを持たない前の版の盤面も今どおり。remote の URL のトークン（userinfo）は理由に載せない。canary の殻は何も変えず、裸のローカルの origin でこの決めに乗る。

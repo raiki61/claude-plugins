@@ -20,8 +20,9 @@ PREFIX = "works-node: "
 # isolated: 包みが道具ゼロの役を Git の外の置き場で起こす（独立の目の blind-judge。graphloops の commands._isolated_cwd）。
 # self-resume: SDK が前の会話を継ぐ起動では、包みが SDK の会話でなくこの節自身が記録した会話を継ぐ（輪の中に別の会話を継ぐ
 # AI の節が挟まる役。修正役と範囲の相談の答えの節。docs/plans/2026-10-06-ask-planner.md）
-# lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪の並べの枝の役 tdd-lane-<n>。adapter.py の頭の 6c）
-FLAGS = frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane"})
+# lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役 tdd-lane-<n>・fix-lane-<n>。adapter.py の頭の 6c）
+# fork: continue=<名> の会話を写しで継ぐ（同時に走る修正役の並べの枝の答えの節 plan-answer-lane-<n>。adapter.py の頭の 1）
+FLAGS = frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork"})
 _NAME = re.compile(r"[a-z0-9-]+")
 _CONT = "continue="
 _ARG = "--json-schema"

@@ -1,108 +1,18 @@
-# 筋書き tdd-lanes: 形 g3 で振り分けの後に 2 本の枝を切った run の配線だけを見る（docs/plans/2026-10-07-lane-nodes.md）。
-# tdd-loop は振り分けの 1 周で抜け（tdd-step の stub が done: true・phase: lanes。dry-run は until_bash を回さず、輪を 1 回で済んだとみなす）、
-# tdd-fork（stub）が枝 1・2 を起こし、枝の輪 tdd-lane-loop-1・2 が同時に 1 周（枝 3 は when: で飛ぶ）、tdd-join（stub）が枝 1 の
-# 単位を当てて枝 2 の単位を順に戻し（go: true）、tdd-rest-loop が 1 周で残りを済ませる。その後の fix-loop・clean・collect は tdd と同じ stub。
-# 枝の中の赤・緑の確かめ・締めの実物は tests/test_tdd_lanes.py、包みが枝の役を単位の worktree で起こすのは tests/test_adapter_lane.py が見る。
-tdd-start:
-  go: true
-  reason: ""
-  suite: suite.py
-  state_file: board/tdd-1/state.json
-  summary_file: board/tdd-1/summary.md
-tdd-prep:
-  prompt_file: board/tdd-1/next.md
-tdd:   # 振り分けの返答（2 単位とも tdd）
-  phase: route
-  units:
-    - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd}
-    - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: tdd}
-tdd-step:   # 振り分けを受け、2 本の枝を切った（段 lanes。done を立てて輪はここで抜ける）
-  ok: true
-  done: true
-  reason: ""
-  reason_file: ""
-  phase: lanes
-tdd-fork:
+# 筋書き fix-lanes: 形 g3 で範囲の在る修正案の項目 2 つを修正役の並べの枝 2 本で直した run の配線だけを見る（docs/plans/2026-10-07-fix-lane-nodes.md）。
+# fix-fork（stub）が枝 1・2 を起こし、枝の輪 fix-lane-loop-1・2 が同時に 1 周（枝 3 は when: で飛ぶ。dry-run は until_bash を回さず、
+# 輪を 1 回で済んだとみなす）、枝の役は項目の単位の行を返し（範囲の相談の頼みは無い）、fix-join（stub）が両方の枝を当て、修正の輪が
+# 枝の返答の行を写した返答で受け付けを通る。その後の clean・collect は pass と同じ stub。
+# 枝の確かめ・締めの実物は tests/test_fix_lanes.py、包みが枝の役を単位の worktree で起こすのは tests/test_adapter_lane.py が見る。
+fix-fork:   # 範囲の在る項目 2 つを枝 1・2 に切った
   go: true
   lanes: 2
   lane_1: true
   lane_2: true
   lane_3: false
-tdd-lane-prep-1:
-  prompt_file: board/tdd-1/lane-1.next.md
-tdd-lane-1:   # 枝 1 の fix の段の返答（cwd は枝 1 の単位の worktree）
-  phase: fix
-  unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
-  files: [stats.py]
-  what: 分母を len(xs) にした
-  refactor: {declared: false, why: ""}
-tdd-lane-step-1:
-  ok: true
-  done: true
-  reason: ""
-  reason_file: ""
-  phase: done
-  unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
-tdd-lane-prep-2:
-  prompt_file: board/tdd-1/lane-2.next.md
-tdd-lane-2:
-  phase: fix
-  unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
-  files: [stats.py]
-  what: 上限の枝で hi を返すようにした
-  refactor: {declared: false, why: ""}
-tdd-lane-step-2:
-  ok: true
-  done: true
-  reason: ""
-  reason_file: ""
-  phase: done
-  unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
-tdd-lane-prep-3:   # 枝 3 は when: で飛ぶ（stub は置くだけ）
-  prompt_file: board/tdd-1/lane-3.next.md
-tdd-lane-3:
-  phase: fix
-  unit_key: ""
-  files: []
-  what: ""
-  refactor: {declared: false, why: ""}
-tdd-lane-step-3:
-  ok: true
-  done: true
-  reason: ""
-  reason_file: ""
-  phase: done
-  unit_key: ""
-tdd-join:   # 枝 1 を当て、枝 2 の単位を順に戻した
-  go: true
-  done: false
-  phase: test
-  merged: 1
-  back: 1
-tdd-rest-prep:
-  prompt_file: board/tdd-1/next.md
-tdd-rest:
-  phase: fix
-  unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
-  files: [stats.py]
-  what: 上限の枝で hi を返すようにした
-  refactor: {declared: false, why: ""}
-tdd-rest-step:
-  ok: true
-  done: true
-  reason: ""
-  reason_file: ""
-  phase: done
-fix-fork:   # 修正役の並べの枝を切るかの節は盤面を要るので stub（並べない run。中身は tests/test_fix_lanes.py）
-  go: false
-  lanes: 0
-  lane_1: false
-  lane_2: false
-  lane_3: false
-  why: 模擬実行では書き込みの記録が無い（包みの無い起動）
+  why: ""
 fix-lane-prep-1:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
-fix-lane-1: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
+fix-lane-1: {"not_done": [], "fix_closure": {"status": "clean", "checked": "2 つの単位とも退行を注入して赤を見て、復元して緑を見た"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": [], "changes": [{"unit_key": "stats.py mean: 分母が len(xs) - 1 になっている", "what": "mean の分母を len(xs) - 1 から len(xs) に直した（算術平均の定義どおり）。python3 -m unittest test_stats で test_mean_of_three が緑", "files": ["stats.py"], "closure": {"mechanism": "mean が総和をデータ点の数より 1 少ない数で割り、算術平均でなく不偏分散の分母で平均を出していた", "fix_mechanism": "分母をデータ点の数 len(xs) にして、算術平均の定義に揃えた", "verified_how": "分母を len(xs) - 1 に戻す退行を注入して test_mean_of_three の赤を見て、復元して緑を見た", "sites": [{"site": "stats.py mean の return 行（分母）", "red_seen": true}]}, "precedent": {"verdict": "adopt", "reason": "判定者の先行例の行（stats.py mean: 分母が len(xs) - 1 になっている）の statistics.mean をそのまま採った", "from_judge_row": true}, "root_or_symptom": {"kind": "root", "why": "分母の取り違えそのものを直した"}, "bypass_tried": "修正を残したまま mean([5]) と mean([1.5, 2.5]) と mean([-1, 1]) を呼んだ——どれも算術平均を返した", "breaks": {"how": "git grep -n 'mean(' -- '*.py'", "result": "mean を呼ぶのは test_stats.py の 1 か所だけで、python3 -m unittest test_stats が 3 件とも緑"}}], "interactions": []}
 fix-lane-consult-1:
   consulted: false
   go: false
@@ -131,7 +41,7 @@ fix-lane-step-1:
   item: 1
 fix-lane-prep-2:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
-fix-lane-2: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
+fix-lane-2: {"not_done": [], "fix_closure": {"status": "clean", "checked": "2 つの単位とも退行を注入して赤を見て、復元して緑を見た"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": [], "changes": [{"unit_key": "stats.py clamp: 上限を超えた値に lo を返す", "what": "clamp の x > hi の枝の戻り値を lo から hi に直した。python3 -m unittest test_stats で test_clamp_above_range が緑", "files": ["stats.py"], "closure": {"mechanism": "下限の枝を写して上限の枝を作ったとき、戻り値を lo のまま残した", "fix_mechanism": "上限の枝は hi を返し、下限の枝は lo を返す形に揃えた", "verified_how": "return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5, 0, 10) が 0 を返すことを見た", "sites": [{"site": "stats.py clamp の x > hi の枝", "red_seen": true}, {"site": "stats.py clamp の x < lo の枝（正しく lo を返す。直す必要が無いことを確かめた）", "red_seen": false}]}, "precedent": {"verdict": "adopt", "reason": "判定者の先行例の行（stats.py clamp: 上限を超えた値に lo を返す）の numpy.clip をそのまま採った", "from_judge_row": true}, "root_or_symptom": {"kind": "root", "why": "上限の枝の戻り値の取り違えそのものを直した"}, "bypass_tried": "修正を残したまま clamp(10, 0, 10)・clamp(11, 0, 10)・clamp(-1, 0, 10) を呼んだ——境目の値もそれぞれ 10・10・0 を返した", "breaks": {"how": "git grep -n 'clamp(' -- '*.py'", "result": "clamp を呼ぶのは test_stats.py の 2 か所だけで、python3 -m unittest test_stats が 3 件とも緑"}}], "interactions": []}
 fix-lane-consult-2:
   consulted: false
   go: false
@@ -157,7 +67,7 @@ fix-lane-step-2:
   consulted: false
   reason: ""
   reason_file: ""
-  item: 1
+  item: 2
 fix-lane-prep-3:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
   prompt_file: ''
 fix-lane-3: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
@@ -187,12 +97,12 @@ fix-lane-step-3:
   reason: ""
   reason_file: ""
   item: 1
-fix-join:   # 修正役の並べの締めの節（並べない run は when で飛ぶ。中身は tests/test_fix_lanes.py）
+fix-join:   # 両方の枝を当てた（同じ stats.py の別の行。重なりのファイル）
   ok: true
-  merged: []
+  merged: [1, 2]
   back: []
   parked: 0
-  shared: []
+  shared: [stats.py]
   union: []
 fix-prep:   # 支度の節は盤面を要るので stub（中身は tests/test_blk_fix.py の TestFixPrep）
   prompt_file: board/r1/prompt-p3.fix.md
@@ -239,30 +149,11 @@ collect:
   not_done: 0
   coverage: {}
   reads_file: ""
-  tdd:
-    ran: true
-    suite: suite.py
-    reason: ""
-    test_cmd: {gate: "on", note: ""}
-    calls:
-      - {n: 1, phase: route, unit_key: "", ok: true, runs: 0, secs: 0.0}
-      - {n: 2, phase: lanes, unit_key: "", ok: true, runs: 1, secs: 1.2}
-      - {n: 3, phase: test, unit_key: "stats.py clamp: 上限を超えた値に lo を返す", ok: true, runs: 1, secs: 0.4}
-      - {n: 4, phase: fix, unit_key: "stats.py clamp: 上限を超えた値に lo を返す", ok: true, runs: 2, secs: 0.9}
-    lanes:
-      units:
-        - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", outcome: merged, why: "", lane: 1, merge: clean}
-        - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", outcome: serial, why: "並べで緑に届かなかった", lane: 2, merge: ""}
-      calls:
-        - {n: 1, phase: test, unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", ok: true, runs: 1, secs: 0.4, lane: 1}
-        - {n: 2, phase: fix, unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", ok: true, runs: 2, secs: 0.9, lane: 1}
-        - {n: 1, phase: test, unit_key: "stats.py clamp: 上限を超えた値に lo を返す", ok: true, runs: 1, secs: 0.4, lane: 2}
-      reverted: []
-      shared: []
-      expect: []
-    units:
-      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: skipped, gave_up: "", problems: [], red_kinds: {"test_stats.py::TestStats::test_mean_of_two": assertion}, test_cmd: ok, refactor_why: ""}
-      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_clamp_above_range"], test_files: [test_stats.py], red: ok, green: ok, refactor: skipped, gave_up: "", problems: [], red_kinds: {"test_stats.py::TestStats::test_clamp_above_range": assertion}, test_cmd: ok, refactor_why: ""}
+  tdd:          # 実行器の無い run（入力 tdd_suite が空）: tdd-start が go: false を返し、tdd-loop は飛ばされる
+    ran: false
+    suite: ""
+    reason: "テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す"
+    units: []
 fix-reads:   # 読んだ証拠の節は盤面を要るので stub（中身は tests/test_reads.py）
   ok: true
   reads_file: ""
@@ -273,10 +164,8 @@ conflict-check:
   file: ''
 fixture:
   expect: completed
-  reached: [tdd-step, tdd-fork, tdd-lane-step-1, tdd-lane-step-2, tdd-join, tdd-rest-step, collect]
+  reached: [fix-fork, fix-lane-step-1, fix-lane-step-2, fix-join, collect]
   inputs:
     judgment_file: board/judgment.json
-    tdd_suite: suite.py
-    test_cmd: python3 -m unittest test_stats
     open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
 exec-code: true

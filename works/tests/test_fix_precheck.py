@@ -161,8 +161,6 @@ class PrecheckCase(test_blk_fix.BoardCase):
         r = json.loads(out)
         self.assertEqual((r["ok"], r["done"], r["consulted"], r["reason_file"]), (False, False, True, ""))
         self.assertEqual(test_blk_fix.board_shas(self.board), before, "相談の周の受け付けは盤面に何も書かない")
-        code, out, err = run_script("units", self.repo, self.env(INPUTS_CONSULTED="true"))
-        self.assertEqual((code, json.loads(out)), (0, {"ok": True, "ran": False}), err)
 
     def prep_env(self, **more):
         b = entry.open_board(self.board)

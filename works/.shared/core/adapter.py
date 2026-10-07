@@ -23,6 +23,10 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    - continue=X: SDK が付けた会話の旗（`--resume`・`-r`・`--session-id`・`--fork-session`・`--continue`・`-c`）を外し、
      `--resume <X の id>` を足す（fork しない。同じ会話に積む）。X の id が無い・読めない時は子を起こさず止まる
      （fail closed）。YAML の節は `context: fresh` にして Archon 自身には何も継がせない
+   - continue=X と旗 fork: 上の続きを X の会話の写しで起こす（`--resume <X の id> --fork-session --session-id=<新しい uuid>`。
+     SDK の sdk-fork の起動と同じ旗の組）。新しい id をこの節の名で記録し、X の会話には積まない（同時に走る修正役の並べの枝の
+     答えの節 plan-answer-lane-<n> が、同じ修正案を書いた役の会話を同時に継いでも互いの履歴が混ざらない）。旗 fork は continue と
+     一緒にだけ付き、continue の無い起動は起こさない（fail closed）
    - 旗 self-resume（continue なし）: SDK が会話を継ぐ起動（`--resume`・`-r` を付けた起動。輪の 2 周目から）だけ、SDK の会話の旗を
      外して `--resume <この節自身の id>` を足す（fork しない）。Archon の輪は直前に終わった AI の節の会話を次の AI の節に継がせる
      （dag-executor の lastSequentialSession）ので、輪の中に別の会話を継ぐ節（範囲の相談の答えの節。continue=<相手>）が挟まると、
@@ -30,8 +34,9 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
      （fail closed）。SDK が会話を継がない起動（輪の 1 周目）は旗の無い節と同じに新しい会話
    - 単位の切れ目（印の名が KEYED_NODES の起動。依頼 243 の 2）: 輪の支度が切符の board の隣の run ごとの置き場に書いた今の単位の
      鍵（session_key_path）を、この節の会話の id と一緒に記録した鍵（unit_key_path）と比べる。記録が在って違えば SDK の会話の
-     旗を外して新しい会話にする（mode new。前の単位の履歴を積まない。前の単位の物は支度が指示書の引き継ぎの節で渡す）。同じ・
-     記録が無いなら上のとおり継ぐ。鍵が読めない時も継ぐ（会話を切るのは節約で守りでないので止めない）。起動の記録の session の
+     旗を外して新しい会話にする（mode new。前の単位の履歴を積まない。前の単位の物は支度が指示書の引き継ぎの節で渡す）。旗
+     self-resume の続きの起動でも同じに切る（修正役の並べの枝の役 fix-lane-<n> は、枝の中の項目が替わると新しい会話）。同じ・
+     記録が無いなら上のとおり継ぐ。continue= の起動は切らない。鍵が読めない時も継ぐ（会話を切るのは節約で守りでないので止めない）。起動の記録の session の
      unit に {key, was, cut} か {skipped: 理由} を残す
 
 3. **起動ごとの柵**（切符が在る起動だけ）: 線の `start` が書く切符（ticket.py。`<家>/tickets/<key>.json` の
@@ -64,7 +69,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    prompt に入れない——公式 'Absent outside a Git repository'。CLAUDE.md は YAML の settingSources: [user] が外す）。置き場は run
    ごとに同じ（claude の会話の置き場は cwd ごとなので、出し直しの --resume が同じ会話を引ける）。会話の id・起動の記録の鍵は
    Archon の cwd（run の worktree）のまま。道具を持つ起動（`--tools ""` でない）・置き場が Git の中の起動は起こさない
-6c. **旗 lane**（TDD の輪の並べの枝の役 tdd-lane-<n>。依頼 243 の並べの 4 段目。docs/plans/2026-10-07-lane-nodes.md）: 子を枝の
+6c. **旗 lane**（TDD の輪の並べの枝の役 tdd-lane-<n> と修正役の並べの枝の役 fix-lane-<n>。依頼 243 の並べの 4 段目・5 段目。
+   docs/plans/2026-10-07-lane-nodes.md・docs/plans/2026-10-07-fix-lane-nodes.md）: 子を枝の
    単位の worktree を cwd に起こす。worktree のパスは役の文から取らず、枝の支度が切符の board の下に書く印（lane_tree_path:
    `<board>/tdd-lane-trees/<節の名>` の 1 行。盤面は切符の守る場所なので、役はほかの枝の印を書き換えられない）から読み、run ごとの
    置き場の下に在り・役の cwd（Archon の run の worktree）の作業ツリーの単位の守りの参照（unittrees。共通の .git の中で役は作れない）を
@@ -179,7 +185,11 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    この起動で本当に増えた分（今の累計 − 本当に継いだ元の本当の累計）を足した値を total_cost_usd と outputTokens に置いて写す
    （restate_result。2 つの元は Archon と同じく子を起こす前に 1 回だけ読む。spend_bases）。Archon の引き算はその起動の
    本当の費用になる。見せる値が本当の値と同じ起動（Archon の思うとおりの起動）・どちらかの元の記録が無い起動・
-   total_cost_usd が数でない result は、そのままのバイトで写す（決められない時は触らない）。
+   total_cost_usd が数でない result は、そのままのバイトで写す（決められない時は触らない）。旗 fork の起動（continue=X を X の
+   会話の写しで起こす。1）は、result の session_id が新しい id で、本当に継いだ元は X（plan の session の from）なので、X の本当の
+   累計を引いた分を見せ、記録は新しい id の名で書く（X の記録は変えない。同時に走る写しどうしも混ざらない）。写しの result は
+   SDK の sdk-fork と同じく元の会話の累計を持つ（Archon 自身の sdk-fork の引き算がそれで合う）。累計が継いだ元の本当の累計より
+   小さい result は元の累計を継がなかった物と見て、新しい会話と同じに数える（負の費用を見せない）。
    tokens（result の usage）は起動ごとの値なので触らない。1 手も進まずに終わった 16 の result は写さないので記録しない
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
@@ -231,18 +241,21 @@ SESSION_BARE_FLAGS = ("--fork-session", "--continue", "-c")
 
 _NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ
 # 単位の切れ目で会話を切る節の印の名（1 の単位の切れ目。依頼 243 の 2）と、支度が今の単位の鍵を書く置き場（run ごとの置き場の下）。
-# TDD の輪の役 tdd・並べの後の順の輪の役 tdd-rest・並べの枝の役 tdd-lane-1..3（blk-fix の tddlanes.MAX_LANES と同じ数。試験が縛る）
-KEYED_NODES = frozenset({"tdd", "tdd-rest", "tdd-lane-1", "tdd-lane-2", "tdd-lane-3"})
+# TDD の輪の役 tdd・並べの後の順の輪の役 tdd-rest・並べの枝の役 tdd-lane-1..3（blk-fix の tddlanes.MAX_LANES と同じ数。試験が縛る）と
+# 修正役の並べの枝の役 fix-lane-1..3（blk-fix の fixlanes.MAX_LANES と同じ数。枝の中の項目が替わると会話を切る。旗 self-resume と一緒でも切る）
+KEYED_NODES = frozenset({"tdd", "tdd-rest", "tdd-lane-1", "tdd-lane-2", "tdd-lane-3", "fix-lane-1", "fix-lane-2", "fix-lane-3"})
 SESSION_KEYS_DIR = "session-keys"
 UNIT_KEY_SUFFIX = ".unit"   # sessions/<cwd の hash>/<節>.id の隣に、その会話で回した単位の鍵
 LANE_SUFFIX = ".lane"       # sessions/<cwd の hash>/<節>.id の隣に、旗 lane の起動の cwd（単位の worktree の実パス。6c）
 LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の worktree を書く置き場（盤面の下。共有の記録 tdd-*/**。6c）
 # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
-# lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪の並べの枝の役。6c）。self-resume: SDK が会話を継ぐ起動は
-# この節自身の記録した会話を継ぐ（1）
-FLAGS = ("no-post", "no-tree-write", "isolated", "self-resume", "lane")
+# lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役。6c）。self-resume: SDK が会話を継ぐ起動は
+# この節自身の記録した会話を継ぐ（1）。fork: continue=X の起動を X の会話の写し（--fork-session）で起こし、X の会話に積まない（1。
+# 同時に走る枝の答えの節が同じ相手の会話を継ぐ時）
+FLAGS = ("no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork")
 NO_TREE_WRITE = "no-tree-write"
 SELF_RESUME = "self-resume"   # 1 の旗 self-resume（SDK が会話を継ぐ起動は、この節自身の記録した会話を継ぐ）
+FORK = "fork"                 # 1 の旗 fork（continue=X を X の会話の写しで起こす。continue と一緒にだけ付く）
 ISOLATED = "isolated"
 LANE = "lane"
 ISOLATED_PREFIX = "works-isolated-"
@@ -1152,6 +1165,8 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             lane, others = lane_cwd(cwd, b, node)
         except Unrecognised as e:
             return _refuse(argv, node, cont, tools_empty, f"単位の worktree を cwd にできない（{e}）")
+    if FORK in marker.flags and not cont:
+        return _refuse(argv, node, cont, tools_empty, f"旗 {FORK} は continue= と一緒にだけ付く")
     # 1. 会話の継ぎ（--settings の形に依らずに行う）
     record: List[Tuple[pathlib.Path, str]] = []
     if cont:
@@ -1167,6 +1182,11 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
                            f"会話 {cont} は cwd {was or '（run の worktree）'} で走った（この起動の cwd は {lane or '（run の worktree）'}）")
         out = _strip_session_flags(argv) + ["--resume", sid]
         session = {"mode": "continued", "id": sid, "of": cont, "from": sid}
+        if FORK in marker.flags:   # 1 の旗 fork: X の会話を写した新しい会話で起こす（X の会話には積まない）
+            new = new_id()
+            out += ["--fork-session", "--session-id=" + new]
+            session = {"mode": "continued", "id": new, "of": cont, "from": sid, "fork": True}
+            sid = new
     else:
         out = argv
         try:
@@ -1197,19 +1217,19 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             session = {"mode": mode, "id": sid}
             if src:
                 session["from"] = src
-            if node in KEYED_NODES:   # 1 の単位の切れ目
-                want, why = _unit_key(board, node)
-                if want is None:
-                    session["unit"] = {"skipped": why}
-                else:
-                    have = _read_key(unit_key_path(cwd, node, home_dir))
-                    cut = have is not None and have != want and mode != "new"
-                    if cut:
-                        sid = new_id()
-                        out = _strip_session_flags(argv) + ["--session-id=" + sid]
-                        session = {"mode": "new", "id": sid}
-                    session["unit"] = {"key": want, "was": have, "cut": cut}
-                    record.append((unit_key_path(cwd, node, home_dir), want))
+        if node in KEYED_NODES and not cont:   # 1 の単位の切れ目（旗 self-resume の続きも、鍵が替われば新しい会話）
+            want, why = _unit_key(board, node)
+            if want is None:
+                session["unit"] = {"skipped": why}
+            else:
+                have = _read_key(unit_key_path(cwd, node, home_dir))
+                cut = have is not None and have != want and session["mode"] != "new"
+                if cut:
+                    sid = new_id()
+                    out = _strip_session_flags(argv) + ["--session-id=" + sid]
+                    session = {"mode": "new", "id": sid}
+                session["unit"] = {"key": want, "was": have, "cut": cut}
+                record.append((unit_key_path(cwd, node, home_dir), want))
         if lane is not None and session["mode"] != "new":   # 6c. 前の会話が別の cwd で走っていれば続けられない
             was = _read_key(lane_record_path(cwd, node, home_dir))
             if was is not None and was != lane:
@@ -1350,6 +1370,9 @@ def restate_result(line: bytes, doc: dict, cwd, home_dir, bases: Tuple[Optional[
     if cur is None or not isinstance(sid, str) or not _ID_RE.match(sid):
         return line
     shown_base, real_base = bases
+    if real_base is not None and cur["cost"] < real_base["cost"] - 1e-12:
+        # 継いだ元の累計より小さい累計は、元の累計を継がなかった result（写しの会話が元の累計を持たなかった形）。新しい会話と数える
+        real_base = ZERO_SPEND
     shown = cur
     if shown_base is not None and real_base is not None:
         shown = {"cost": shown_base["cost"] + cur["cost"] - real_base["cost"],

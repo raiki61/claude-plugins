@@ -1,7 +1,7 @@
 <!-- coldwrite:skip 内部の設計書。語は「目的と語」の節と works/README.md で定義 -->
 # 同じファイルを触る枝も並べ、機械が 3 方向で合わせる（依頼 243 の並べ・3 段目）
 
-状態: 入れた（Task 1〜10）。7 節の決め事は 1〜8 とも推しのとおり決まった。ただし枝の中の単位も単位ごとに新しい下請けで起こす（9 節。2.2 を書き直した）。残りは Task 11（本物の run の測り）。TDD の輪の枝の中（2.2 のまとめ役・下請け・段のコマンド・引き継ぎのファイル）は 4 段目で枝ごとの Archon の節に替えた（works/docs/plans/2026-10-07-lane-nodes.md。枝の中は順に単位ごとに新しい会話、引き継ぎは指示書の節）。分け方・合わせる・確かめる（2.1・2.3〜2.7）と修正役の道はこの文書のまま。
+状態: 入れた（Task 1〜10）。7 節の決め事は 1〜8 とも推しのとおり決まった。ただし枝の中の単位も単位ごとに新しい下請けで起こす（9 節。2.2 を書き直した）。残りは Task 11（本物の run の測り）。TDD の輪の枝の中（2.2 のまとめ役・下請け・段のコマンド・引き継ぎのファイル）は 4 段目で枝ごとの Archon の節に替えた（works/docs/plans/2026-10-07-lane-nodes.md。枝の中は順に単位ごとに新しい会話、引き継ぎは指示書の節）。分け方・合わせる・確かめる（2.1・2.3〜2.7）はこの文書のまま。修正役の道（当てるコマンドと締めの節 fix-units）は 5 段目で修正役の並べの枝の Archon の節に替えた（works/docs/plans/2026-10-07-fix-lane-nodes.md。下の修正役の段落の文・当てるコマンド・締めの trace の行の名は入れた時の物で、今は無い）。
 
 ## 平たく言うと（3 行）
 
@@ -88,7 +88,7 @@ TDD の輪（`tddlanes._green_after`）:
 3. それでも赤か、重なりのファイルが無ければ、今どおり当てた枝を全部戻す。
 4. 書き込みの記録の写し（2.4 の 5）は、受けた枝が決まった後に 1 度だけ行う（戻した枝の記録を写さない）。
 
-修正役: 新しい確かめは足さない。合わせた木は受け付け（fix-accept）が今どおり見る: 変更に当たる試験（`check_tests`）・事後の関門の束の受け入れのテストの赤→緑（`fixgates.problems`）・範囲（`planscope.check`）。意味の食い違いは受け付けの拒否になり、出し直しの回（並べない。`fixrules.side_on` は 1 回目だけ）で修正役が合わせた木の上で直す。出し直しの支度は、前の周の締めの trace（`fixrules.UNITS_OP` の行の shared）を見て、拒否の理由のファイルの頭に「前の周は項目 a・b を並べて同じファイル f を合わせた」を 1 行足す。
+修正役: 新しい確かめは足さない。合わせた木は受け付け（fix-accept）が今どおり見る: 変更に当たる試験（`check_tests`）・事後の関門の束の受け入れのテストの赤→緑（`fixgates.problems`）・範囲（`planscope.check`）。意味の食い違いは受け付けの拒否になり、出し直しの回（並べない。`fixrules.side_on` は 1 回目だけ）で修正役が合わせた木の上で直す。出し直しの支度は、前の周の締めの trace（締めの節 fix-units の行 units_settled の shared。5 段目からは枝の結末の shared）を見て、拒否の理由のファイルの頭に「前の周は項目 a・b を並べて同じファイル f を合わせた」を 1 行足す。
 
 ### 2.6 凍ったテストと書き換えの許し（rewrite_tests）
 
@@ -108,8 +108,8 @@ TDD の輪（`tddlanes._green_after`）:
 
 ## 3. 置き場（ブロックの独立・盤面の柵・run ごとの置き場）
 
-- 変えるのは全部 `blk-fix` の中と core の L1・L3（`unittrees.py`・`writes.py`）と、修正役の段落の文（`seat.py` の `G1_PARALLEL_OF`）。線の `darkfactory.yaml` と、ほかのブロックは変えない。ブロックはほかのブロックを名指さない。
-- 盤面に新しいファイルを足さない: 枝の組は今の目録（盤面の `tdd-<k>/lanes.json`。行の `unit_key` を `unit_keys` の並びに）、合わせの結末は今の状態（`tdd-<k>/state.json` の lanes）と出口の lanes、修正役は今の控え（今の周の `units.json` に試験のファイルの並び）と trace の `UNITS_OP` の行に欄を足すだけ。戻した枝の差分は今の `tdd-<k>/lanes/item-<n>.patch`。どれも今在るファイル（`scopes.py` の SHARED の `tdd-*/**` と、今の周の作業ファイル `r<N>/units.json`）の中身を足すだけなので、柵の表は変えない。
+- 変えるのは全部 `blk-fix` の中と core の L1・L3（`unittrees.py`・`writes.py`）と、修正役の段落の文（`seat.py` の並べの段落。5 段目で外した）。線の `darkfactory.yaml` と、ほかのブロックは変えない。ブロックはほかのブロックを名指さない。
+- 盤面に新しいファイルを足さない: 枝の組は今の目録（盤面の `tdd-<k>/lanes.json`。行の `unit_key` を `unit_keys` の並びに）、合わせの結末は今の状態（`tdd-<k>/state.json` の lanes）と出口の lanes、修正役は今の控え（今の周の `units.json` に試験のファイルの並び）と trace の締めの行（units_settled）に欄を足すだけ。戻した枝の差分は今の `tdd-<k>/lanes/item-<n>.patch`。どれも今在るファイル（`scopes.py` の SHARED の `tdd-*/**` と、今の周の作業ファイル `r<N>/units.json`）の中身を足すだけなので、柵の表は変えない。
 - run ごとの置き場は今のまま: 単位の worktree は `<run ごとの置き場>/tdd-<k>/lanes/item-<n>`（TDD の輪）と `<run ごとの置き場>/<scope>/units/item-<n>`（修正役）、単位の控えと object の置き場は `tdd-<k>/lanes/lane-<n>/`。挿しだけの合わせの一時のファイルは TMPDIR（sandbox が書ける所。当てるコマンドの今の objects と同じ扱い）。
 - 包みの柵（単位の worktree を書かせる外し）は変えない。
 - 節の出口: fix-units の output_format に `shared`（ファイルの並び）を足す（今の欄の足し方と同じ。additionalProperties を閉じていないが、型の宣言として書く）。役の型（tdd の節の output_format）は変えない。
@@ -159,7 +159,7 @@ TDD の輪（`tddlanes._green_after`）:
 
 1. `unittrees.apply` に union の口（試験のファイルの並び）: 一時の index に未解決の段が残った時、未解決のファイルが全部並びの中で、`git merge-file --diff3` の塊がどれも base の側に行を持たなければ、union の並びで合わせて一時の index に置く。赤から: 2 つの枝が同じ試験のファイルの末尾にクラスを足す見本（今は当たらない）→ 合う。片方が行を変えた見本・並びの外のファイルは今どおり当たらない。共通の .git を書かない（objects の口のまま）。
 2. `unitlanes`: `lanes` は範囲の在る項目を全部（2 つ未満なら []）。`expect`（重なりの見込みの組）を足す。`merge` の出力に `shared`・`union` を足し、控えの試験のファイルの並びを `unittrees.apply` に渡す。同じ名のテストの定義が合わせた試験のファイルに 2 つ在れば conflict（ast で引く。3.9 の標準ライブラリ）。今の試験 `test_unknown_or_overlapping_items_stay_serial` は「重なっても並べる・範囲の無い項目は順」に書き換える。
-3. `fixrules.g1_values` が控えに試験のファイルの並び（`planmarks.test_paths`）を渡す。`seat.G1_PARALLEL_OF` の「範囲が互いに重ならない」を外し、`shared` の扱い（differ と同じに bash_writes）を書く。出し直しの支度が前の周の `UNITS_OP` の shared を拒否の理由の頭に 1 行で名指す。
+3. `fixrules.g1_values` が控えに試験のファイルの並び（`planmarks.test_paths`）を渡す。`seat.py` の並べの段落の「範囲が互いに重ならない」を外し、`shared` の扱い（differ と同じに bash_writes）を書く。出し直しの支度が前の周の締めの行の shared を拒否の理由の頭に 1 行で名指す。
 4. `tddlanes.plan` の枝の組: 項目でつないだ単位の組（範囲の引けない単位を含む組は順）。赤から: 項目 1 に 2 単位・項目 2 に 1 単位で、どちらも report.py を範囲に持つ見本 → 枝 2 本（今は 0）。`_lane_state` を組の単位の全部に。目録の行は `unit_keys`。
 5. 枝の中の単位ごとの下請け（9 節）: 段のコマンドが番 j を見て、単位が済んだら次の単位の頭の木（`unit_heads`）と引き継ぎのファイルを残し、`tddlanes._red_again` が単位ごとの頭を使う。`tddlanes._park` は今の単位を止め、枝の残りを戻す。赤から: 2 単位の枝で 2 番目の番の下請けが先に走っても段が回らないこと、1 番目の単位の赤の確かめ直しが 2 番目の単位の直しの入った木で回らないこと。
 6. `tddlanes.settle` を当てる・確かめる・写すの 3 つに分け、`_merge` の照らしを重なりのファイルとそれ以外に分ける（2.4 の 4）。`writes.carry_merged` を足す（`test_writes` で単体）。赤から: 2 本の枝が report.py の別の関数を変える → 両方受け、`writes.unrecorded` が run の作業ツリーで空。同じ行を変える → 後の枝が戻り、差分が盤面に残る。

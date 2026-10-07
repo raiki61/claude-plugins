@@ -49,6 +49,7 @@ FAST = frozenset({
     "test_gitkit",          # 1 秒未満（gitkit の型を 1 回作って 2 回写す）
     "test_unittrees",       # 3 秒: 単位の worktree（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git だけ）
     "test_tdd_lane_wiring", # TDD の輪の並べの節の配線（YAML・筋書き・状態の JSON を読むだけ。git・子のプロセスなし）
+    "test_fix_lane_wiring", # 修正役の並べの節の配線と並べの枝の部品の純粋な口（YAML・筋書き・表を読むだけ。git・盤面・子のプロセスなし）
     "test_unitlanes",       # 7 秒: 下請けを単位の worktree で並べる（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git と python3 1 本）
     "test_blk_eyes_lanes",  # 独立の目の筋の順: YAML と Archon の trigger_rule の写しで節を回す（盤面の fixture を読むだけ。git・子のプロセスを使わない）
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
@@ -135,6 +136,7 @@ HEAVY = frozenset({
     "test_replan",          # 案の直しの締め（依頼 226）: test_blk_fix_conflict の ReplanCase で試験ごとに種の git と盤面を作る
     "test_blk_fix_tdd",     # 修正の段の TDD の輪: 種の git（gitkit の写し）と小さな実行器を子で起こす・一時の index で版を固める
     "test_tdd_lanes",       # TDD の輪の並べ: 試験ごとに git init・単位の worktree を 2 本切る・小さな実行器を子で何度も起こす（45 秒）
+    "test_fix_lanes",       # 修正役の並べ: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作り、単位の worktree を 2 本切る・スクリプトを子で起こす（60 秒）
     "test_fix_gates",       # 事後の関門の束: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作り、小さな実行器を子で起こす・一時の git worktree
     "test_writes",          # 書き込みの出どころ: 種の git（gitkit の写し）・記録器と小さな実行器を子で起こす・TDD の輪を回す
     "test_tdd_outside",     # TDD の輪と受け付けが段の外の試験を足す: 種の git（gitkit の写し）に試験ごとに commit・小さな実行器を子で起こす（プロセスの木）・git archive で版を写す

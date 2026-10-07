@@ -2,6 +2,107 @@
 # exec-code の作業ツリーは HEAD のままで差分が無いので、assert-changed は stub する（実物で回すのは no-change）。
 # fix-accept（受け付け）と collect も stub する: どちらも盤面（start が作り、判定・修正案を受けた物）を開く。このブロック単体の
 # run には盤面が無い（受け付けと集める節の実物は tests/test_blk_fix.py が本物の盤面で回す）。
+fix-fork:   # 修正役の並べの枝を切るかの節は盤面を要るので stub（並べない run。中身は tests/test_fix_lanes.py）
+  go: false
+  lanes: 0
+  lane_1: false
+  lane_2: false
+  lane_3: false
+  why: 模擬実行では書き込みの記録が無い（包みの無い起動）
+fix-lane-prep-1:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
+  prompt_file: ''
+fix-lane-1: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
+fix-lane-consult-1:
+  consulted: false
+  go: false
+  prompt_file: ""
+  turn: 0
+  spent: false
+plan-answer-lane-1:
+  answers:
+    - ask: 1
+      decision: defer
+      paths: []
+      tests: []
+      spec: ''
+      reason: 模擬実行では範囲の相談の頼みが無いので答えない
+fix-lane-consult-check-1:
+  consulted: false
+  turn: 0
+  answer_file: ""
+  counts: {}
+fix-lane-step-1:
+  ok: true
+  done: true
+  consulted: false
+  reason: ""
+  reason_file: ""
+  item: 1
+fix-lane-prep-2:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
+  prompt_file: ''
+fix-lane-2: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
+fix-lane-consult-2:
+  consulted: false
+  go: false
+  prompt_file: ""
+  turn: 0
+  spent: false
+plan-answer-lane-2:
+  answers:
+    - ask: 1
+      decision: defer
+      paths: []
+      tests: []
+      spec: ''
+      reason: 模擬実行では範囲の相談の頼みが無いので答えない
+fix-lane-consult-check-2:
+  consulted: false
+  turn: 0
+  answer_file: ""
+  counts: {}
+fix-lane-step-2:
+  ok: true
+  done: true
+  consulted: false
+  reason: ""
+  reason_file: ""
+  item: 1
+fix-lane-prep-3:   # 修正役の並べの枝の輪の中の節（並べない run は輪ごと when で飛ぶ。stub は置くだけ）
+  prompt_file: ''
+fix-lane-3: {"changes": [], "not_done": [], "interactions": [], "fix_closure": {"status": "not_applicable"}, "mechanism_changed": false, "premise_drift": false, "gates_changed": false, "seams_changed": false, "security_surface_changed": false, "path_changed": false, "wrote_refs": [], "plan_faces": []}
+fix-lane-consult-3:
+  consulted: false
+  go: false
+  prompt_file: ""
+  turn: 0
+  spent: false
+plan-answer-lane-3:
+  answers:
+    - ask: 1
+      decision: defer
+      paths: []
+      tests: []
+      spec: ''
+      reason: 模擬実行では範囲の相談の頼みが無いので答えない
+fix-lane-consult-check-3:
+  consulted: false
+  turn: 0
+  answer_file: ""
+  counts: {}
+fix-lane-step-3:
+  ok: true
+  done: true
+  consulted: false
+  reason: ""
+  reason_file: ""
+  item: 1
+fix-join:   # 修正役の並べの締めの節（並べない run は when で飛ぶ。中身は tests/test_fix_lanes.py）
+  ok: true
+  merged: []
+  back: []
+  parked: 0
+  shared: []
+  union: []
 fix-prep:   # 支度の節は盤面を要るので stub（中身は tests/test_blk_fix.py の TestFixPrep）
   prompt_file: board/r1/prompt-p3.fix.md
   attempt: 1
@@ -23,9 +124,6 @@ fix-consult-check:   # 範囲の相談の確かめの節（頼みの無い周は
   turn: 0
   answer_file: ""
   counts: {}
-fix-units:
-  ok: true
-  ran: false
 fix-accept:
   ok: true
   done: true

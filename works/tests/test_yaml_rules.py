@@ -66,11 +66,15 @@ TDD_WRITER = ("blk-fix", "blk-fix.yaml", "tdd")   # TDD の輪の修正役（テ
 # 並べの後の順の輪の役と、並べの枝の役（tdd と同じ書く役。docs/plans/2026-10-07-lane-nodes.md）
 TDD_WRITERS = (("blk-fix", "blk-fix.yaml", "tdd-rest"), *(("blk-fix", "blk-fix.yaml", f"tdd-lane-{n}") for n in (1, 2, 3)))
 RULED_WRITER = ("blk-fix", "blk-fix.yaml", "fix-ruled")   # 食い違いの裁定の後の 2 回目の修正役（修正役の会話の続き。印 continue=fix）
+# 修正役の並べの枝の役（fix と同じ書く役。docs/plans/2026-10-07-fix-lane-nodes.md）
+FIX_LANE_WRITERS = tuple(("blk-fix", "blk-fix.yaml", f"fix-lane-{n}") for n in (1, 2, 3))
 # max_iterations が 3 でない輪: (フォルダ, ファイル, 輪の節) → 上限（blk-fix/lib/tddloop.py の MAX_ITERATIONS と同じ値）
 # 修正の輪 2 つは受け付けの 3 回と範囲の相談の周の枠（blk-fix/lib/consult.py の BUDGET）の和（tests/test_consult.py が突き合わせる）
 LOOP_MAX = {("blk-fix", "blk-fix.yaml", "tdd-loop"): 40, ("blk-fix", "blk-fix.yaml", "tdd-rest-loop"): 40,
             **{("blk-fix", "blk-fix.yaml", f"tdd-lane-loop-{n}"): 40 for n in (1, 2, 3)},
-            ("blk-fix", "blk-fix.yaml", "fix-loop"): 12, ("blk-fix", "blk-fix.yaml", "fix-ruled-loop"): 12}
+            ("blk-fix", "blk-fix.yaml", "fix-loop"): 12, ("blk-fix", "blk-fix.yaml", "fix-ruled-loop"): 12,
+            # 修正役の並べの枝の輪: 項目 3 つの拒否の 3 回ずつと範囲の相談の周の枠の和（blk-fix/lib/fixlanes.py の MAX_ITERATIONS）
+            **{("blk-fix", "blk-fix.yaml", f"fix-lane-loop-{n}"): 18 for n in (1, 2, 3)}}
 CI_ROLE = ("blk-ci", "blk-ci.yaml", "ci")      # CI の任せ先の役（裁定 R52・R56）
 MEASURER = ("blk-premises", "blk-premises.yaml", "premises")   # 前提の実測の役（読む道具に Bash だけを足す）
 MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash", "WebSearch", "WebFetch"}
@@ -111,6 +115,8 @@ WEB_READERS = (("blk-fix", "blk-fix.yaml", "rule"),   # 食い違いの裁定役
                ("blk-plan", "blk-plan.yaml", "plan-revise"),   # 事前審査の壁打ちの直しの役（修正案の役の会話の続き。読むだけ）
                # 範囲の相談の答えの節（修正案を書いた役の会話の続き。読むだけ。docs/plans/2026-10-06-ask-planner.md）
                ("blk-fix", "blk-fix.yaml", "plan-answer"), ("blk-fix", "blk-fix.yaml", "plan-answer-ruled"),
+               # 修正役の並べの枝の範囲の相談の答えの節（修正案を書いた役の会話の写し。読むだけ。docs/plans/2026-10-07-fix-lane-nodes.md）
+               *(("blk-fix", "blk-fix.yaml", f"plan-answer-lane-{n}") for n in (1, 2, 3)),
                ("blk-rejudge", "blk-rejudge.yaml", "rejudge"), ("blk-rejudge", "blk-rejudge.yaml", "rejudge-third"),
                ("blk-purpose", "blk-purpose.yaml", "purpose"), ("blk-report", "blk-report.yaml", "report-items"),
                ("blk-report", "blk-report.yaml", "report-write"), ("blk-spec", "blk-spec.yaml", "spec-review"))
@@ -129,6 +135,7 @@ EXCEPTIONS = {
     TDD_WRITER: {"tools": None},
     **{w: {"tools": None} for w in TDD_WRITERS},
     RULED_WRITER: {"tools": None},
+    **{w: {"tools": None} for w in FIX_LANE_WRITERS},
     CI_ROLE: {"tools": MEASURE_TOOLS, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
     **{("blk-material", "blk-material.yaml", n): row for n, row in _MATERIAL.items()},
     **{w: {"tools": JUDGE_WEB_TOOLS} for w in WEB_READERS},

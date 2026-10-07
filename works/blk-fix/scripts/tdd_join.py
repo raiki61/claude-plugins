@@ -7,7 +7,7 @@
 読む環境変数: INPUTS_STATE_FILE（tdd-start の state_file）・ARTIFACTS_DIR（盤面は その下の board/）。枝ごとに、緑まで済んだ単位の
 赤を確かめ直し、書き込みの記録を突き合わせ、差分を run の作業ツリーへ 3 方向で当て、当てた後の木で緑をもう 1 度確かめる。済まなかった・
 当たらない・当てた後に赤い単位は順の単位に戻し（輪 tdd-rest が最初の段から回す）、単位の worktree を片付ける。枝の食い違いの申し出は
-盤面の確かめ（conflict.problems）を通った物を盤面の控え（conflict.park）に積む。
+盤面の確かめ（conflict.problems）を通った物を盤面の控え（lanekit.park）に積む。
 出口は {"go"（順に回す単位が残る。輪 tdd-rest が when: で読む）, "done", "phase", "merged", "back"} の 1 行と 0。
 環境変数が欠けた・状態が読めない・並べの周でない・git が効かない: 標準エラーに 1 行出して 2。
 """
@@ -21,8 +21,8 @@ import json  # noqa: E402
 import os  # noqa: E402
 
 from board import BoardGap  # noqa: E402
-import conflict  # noqa: E402
 import entry  # noqa: E402
+import lanekit  # noqa: E402
 import querytest  # noqa: E402
 import script_io  # noqa: E402
 import tddlanes  # noqa: E402
@@ -43,8 +43,8 @@ def main() -> int:
         out = tddlanes.join(os.environ[INPUTS[0]], Path.cwd(),   # query の申し出は判定者の問いを当てて確かめる
                             try_query=lambda k, lines: querytest.judge_hits(entry.open_board(board).record["units"])(k, lines))
         items = out.pop("conflicts")
-        if items:   # 枝の申し出のうち確かめを通った物を盤面の控えと trace に積む（裁定の輪が読む）
-            conflict.park(entry.open_board(board), items, source="tdd")
+        if items:   # 枝の申し出のうち確かめを通った物を盤面の控えと trace に積む（裁定の輪が読む。lanekit.park）
+            lanekit.park(entry.open_board(board), items, "tdd")
     except (tddloop.Broken, Unreadable, OSError, BoardGap) as e:
         print(f"tdd-join: {' '.join(str(e).split())}", file=sys.stderr)
         return 2

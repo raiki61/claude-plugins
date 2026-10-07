@@ -128,6 +128,28 @@ class RestateCase(unittest.TestCase):
         self.assert_spend(self.launch(None, "7fe0", result("7fe0", 1.8738024, haiku=19, sonnet=39590)), 0.899951, SONNET)
         self.assert_spend(self.launch("7fe0", "7fe0", result("7fe0", 2.2189394, haiku=19, sonnet=46224)), 0.345137, SONNET)
 
+    def test_fork_of_planner_shows_its_own_delta(self):
+        """旗 fork（continue=fix-planner fork。修正役の並べの枝の答えの節）: 包みは修正案を書いた役の会話の写しを新しい id で起こす。
+        Archon は直前の枝の役の会話を継いだと思う。写しの result は元の会話の累計を持つので、見せる費用は写しで増えた分で、
+        元の会話の記録は変わらない（同時に走る 2 本の写しも、後の修正の輪の答えの節（continue=fix-planner）も元の累計から引く）"""
+        self.assert_spend(self.launch(None, None, result("plan", 0.5, haiku=19, opus=8000)), 0.5, OPUS)
+        self.assert_spend(self.launch(None, None, result("lane1", 0.3, sonnet=4000)), 0.3, SONNET)
+        self.assert_spend(self.launch(None, None, result("lane2", 0.2, sonnet=3000)), 0.2, SONNET)
+        before = adapter.spend_path(self.cwd, "plan", self.home).read_bytes()
+        self.assert_spend(self.launch("lane1", "plan", result("fork1", 0.62, haiku=19, opus=9000)), 0.12, OPUS)
+        self.assert_spend(self.launch("lane2", "plan", result("fork2", 0.65, haiku=19, opus=9500)), 0.15, OPUS)
+        self.assertEqual(adapter.spend_path(self.cwd, "plan", self.home).read_bytes(), before, "写しは元の会話の記録を変えない")
+        # 枝の役の 2 周目（旗 self-resume）: Archon は写しの会話を継いだと思う
+        self.assert_spend(self.launch("fork1", "lane1", result("lane1", 0.45, sonnet=5000)), 0.15, SONNET)
+        # 修正の輪の答えの節（continue=fix-planner。写しでない）: 元の会話の累計から引く
+        self.assert_spend(self.launch(None, "plan", result("plan", 0.7, haiku=19, opus=10000)), 0.2, OPUS)
+
+    def test_fork_without_carried_total_counts_as_new(self):
+        """写しの result が元の累計を持たない（継いだ元の本当の累計より小さい）なら、新しい会話と同じに数える（負の費用にしない）"""
+        self.launch(None, None, result("plan", 0.5, opus=8000))
+        self.launch(None, None, result("lane1", 0.3, sonnet=4000))
+        self.assert_spend(self.launch("lane1", "plan", result("fork1", 0.12, opus=1000)), 0.12, OPUS)
+
     def test_same_conversation_keeps_bytes(self):
         """Archon の思う元と包みが開いた元が同じ（見せ直しの差が無い）起動は、result の行をそのままのバイトで写す"""
         doc = result("a", 0.5, haiku=19, sonnet=100)
@@ -220,6 +242,23 @@ class AdapterSpendCase(unittest.TestCase):
         self.assertAlmostEqual(third["total_cost_usd"] - again["total_cost_usd"], 0.5, places=9)
 
 
+    def test_fork_shows_delta_through_the_adapter(self):
+        """包みを通した旗 fork の起動: 子は --resume <元> --fork-session --session-id=<新しい id> で起き、result の session_id は
+        新しい id。見せる累計は写しで増えた分で、元の会話の id の記録と会話の記録の名は変わらない"""
+        first = self.run_adapter(argv("works-node: fix-planner"), 0.5, 8000)
+        pid = adapter.read_session_id(adapter.session_path(self.cwd, "fix-planner", self.home))
+        self.assertEqual(first["session_id"], pid)
+        before = adapter.spend_path(self.cwd, pid, self.home).read_bytes()
+        got = self.run_adapter(argv("works-node: plan-answer-lane-1 continue=fix-planner fork"), 0.6, 8400)
+        fid = adapter.read_session_id(adapter.session_path(self.cwd, "plan-answer-lane-1", self.home))
+        self.assertNotEqual(fid, pid)
+        self.assertEqual(got["session_id"], fid)
+        self.assertAlmostEqual(got["total_cost_usd"], 0.1, places=9)
+        self.assertEqual(got["modelUsage"]["claude-sonnet-5-5"]["outputTokens"], 400)
+        self.assertEqual(adapter.read_session_id(adapter.session_path(self.cwd, "fix-planner", self.home)), pid)
+        self.assertEqual(adapter.spend_path(self.cwd, pid, self.home).read_bytes(), before)
+
+
 class PlanSpendCase(unittest.TestCase):
     """plan が見せ直しに渡す (Archon が --resume に渡した会話, 包みが開いた会話)"""
 
@@ -243,6 +282,12 @@ class PlanSpendCase(unittest.TestCase):
         self.assertEqual(self.plan(argv("works-node: fix-ruled continue=fix")).spend_from, (None, "fix-id"))
         self.assertEqual(self.plan(argv("works-node: fix-ruled continue=fix", resume="r2")).spend_from, ("r2", "fix-id"))
         self.assertEqual(self.plan(argv("works-node: fix self-resume", resume="r3")).spend_from, ("r3", "fix-id"))
+        # 旗 fork: 子の会話は新しい id（写し）で、本当に継いだ元は X の会話
+        q = adapter.session_path(self.cwd, "fix-planner", self.home)
+        q.write_text("plan-id\n", encoding="utf-8")
+        fork = self.plan(argv("works-node: plan-answer-lane-1 continue=fix-planner fork", resume="r4"))
+        self.assertEqual(fork.session["id"], "new-id")
+        self.assertEqual(fork.spend_from, ("r4", "plan-id"))
 
     def test_unmarked_has_no_spend_from(self):
         a = ["--output-format", "stream-json", "--tools", "", "--resume", "x"]

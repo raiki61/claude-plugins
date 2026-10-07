@@ -116,8 +116,10 @@ class TestWiring(unittest.TestCase):
         self.assertEqual(inner("tdd-rest-loop", "tdd-rest-prep")["with"], inner("tdd-loop", "tdd-prep")["with"])
         self.assertEqual(inner("tdd-rest-loop", "tdd-rest-step")["with"],
                          {"reply": {"from": "$tdd-rest.output"}, "state_file": "$tdd-start.output.state_file"})
-        fix = top("fix-loop")
+        fix = top("fix-fork")   # 修正役の並べの枝を切る節が TDD の輪の全部の後（修正の輪はその後。tests/test_fix_lane_wiring.py）
         self.assertEqual(fix["depends_on"], ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop"])
+        self.assertEqual(top("fix-loop")["depends_on"],
+                         ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop", "fix-fork", "fix-join"])
 
     def test_lane_and_rest_roles(self):
         tdd = inner("tdd-loop", "tdd")

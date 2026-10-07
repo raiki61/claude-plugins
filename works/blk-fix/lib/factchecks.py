@@ -8,7 +8,8 @@ accept.py の頭）。
 - check_frozen: TDD の輪で凍ったテストのファイル（1b）。agreed は範囲の相談の合意の行（None は盤面の trace。conflict.agreed）
 - check_plan_scope: 承認済みの修正案の範囲（1d）。agreed は同じ。ask は拒否の頭で相談を先の道に言うか（None は置き場の控えで決める）
 - precheck(cfg, reply): 修正役が sandbox の中の Bash で返答の前に回す事前の確かめ。上の 3 つ（凍結・書き込み・範囲）だけを、
-  試験を回さずに当てる（変更に当たる試験と事後の関門の束は受け付けだけ）。盤面は読むだけ（entry.PEEK_ENV。scope は相談の控えの
+  試験を回さずに当てる（変更に当たる試験と事後の関門の束は受け付けだけ）。修正役の並べの枝の控え（fixlanes が書く）は repo が単位の
+  worktree で、log_repo（書き込みの記録の鍵の run の作業ツリー）と since（枝の base の木）を持つ（枝の確かめと同じ照らし）。盤面は読むだけ（entry.PEEK_ENV。scope は相談の控えの
   値で立てる）。範囲の相談の合意は、修正の輪の確かめの節が盤面の trace に書いた物（conflict.agreed）を受け付けと同じに読む。
   返り {ok, rejects: [{check, text}]}
 - main(argv): `<python> factchecks.py <相談の控え> [--reply <下書きの返答の JSON>]`。終了コード 0（通る）・1（拒否の行が在る）・
@@ -77,17 +78,22 @@ def fix_unit_keys(reply: dict, board: Path):
     return (keys, *conflict.fix_duty(entry.open_board(board)))
 
 
-def check_writes(reply: dict, board: Path, base_rev: str, repo: Path, state: str) -> dict:
+def check_writes(reply: dict, board: Path, base_rev: str, repo: Path, state: str, *, log_repo=None, since=None,
+                 made=()) -> dict:
     """書き込みの出どころ（writes.check。欄 bash_writes を外した返答は reply に）。実行器が作ったファイルは run の全部の輪の物を
     外す（tddloop.suite_made_all）。1 回目に受け付けた返答の控えの bash_writes（conflict.held_writes）を役の申告に足す（役の欄の
-    形が崩れていれば足さずに形の拒否に任せる）。盤面は書かない（申告の記録は writes.check が足す）"""
-    made = set(tddloop.suite_made(state)) | tddloop.suite_made_all(board)
+    形が崩れていれば足さずに形の拒否に任せる）。盤面は書かない（申告の記録は writes.check が足す）。
+    修正役の並べの枝（fixlanes）は repo に単位の worktree を渡し、log_repo（記録の鍵の run の作業ツリー。包みは単位の worktree の
+    書き込みも run の作業ツリーの記録に載せる）と since（見る変更の起点。枝の base の木。前の段が run の作業ツリーで書いた物は
+    単位の worktree の実パスの記録を持たないので見ない）と made（枝の実行器が作ったファイル）を渡す"""
+    made = set(tddloop.suite_made(state)) | tddloop.suite_made_all(board) | set(made)
     b = entry.open_board(board)
-    rev = writes.base_rev(b, base_rev)
+    rev = since or writes.base_rev(b, base_rev)
     held, own = conflict.held_writes(b), reply.get(writes.FIELD)
     if held and (own is None or isinstance(own, list)):
         reply = {**reply, writes.FIELD: [*(own or []), *(w for w in held if w not in (own or []))]}
-    return writes.check(reply, repo, [p for p in writes.changed(repo, rev) if p not in made], writes.sink(repo))
+    return writes.check(reply, repo, [p for p in writes.changed(repo, rev) if p not in made],
+                        writes.sink(repo if log_repo is None else log_repo))
 
 
 def _loop_states(board, state) -> list:
@@ -135,7 +141,7 @@ def _loop_freeze(board, state) -> tuple:
 
 
 def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: Path, state: str, pass_: str,
-                     agreed=None, ask=None) -> tuple:
+                     agreed=None, ask=None, since=None, made=()) -> tuple:
     """承認済みの修正案の項目と差分の照らし（planscope.check）。行は changes と keys（単位の名前）を並べ、files を根からの相対に
     揃えた物。変わったパスは版からの変更（writes.changed）から実行器が作ったファイル（tddloop.suite_made）を除いた物。TDD の輪が
     凍らせたファイル（輪の状態の frozen と frozen_tree）は planscope.check に渡し、欠けは版からの
@@ -143,13 +149,15 @@ def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: 
     返り (拒否の行（最初の行の頭に planscope.reject_head）, 記録)。盤面は書かない（控えの食い違いで止めるのは planscope.check）。
     頭は、範囲の相談がこの段に在れば相談を先の道に言う。ask が None なら今の scope の置き場の控えで決める（consult.offered）。
     凍らせたファイルと実行器が作ったファイルは run の全部の輪の物（_loop_freeze・tddloop.suite_made_all）で、凍った後は一番後の
-    輪の frozen_tree から見る（前の輪の後に 1 回目の段と後の輪が書いた物を、2 回目の修正役のせいにしない）"""
+    輪の frozen_tree から見る（前の輪の後に 1 回目の段と後の輪が書いた物を、2 回目の修正役のせいにしない）。
+    修正役の並べの枝（fixlanes）は repo に単位の worktree を、since に枝の base の木を渡す: 照らす変わったパスは枝が変えた物だけ
+    （版との比べの中身は今どおり版から）。made は枝の実行器が作ったファイル"""
     b = entry.open_board(board)
     rows = [{"unit_key": k, "files": sorted(declared_files([c], repo))} for c, k in zip(reply.get("changes") or [], keys)]
     tree, frozen = _loop_freeze(board, state)
-    made = set(tddloop.suite_made(state)) | tddloop.suite_made_all(board)
+    made = set(tddloop.suite_made(state)) | tddloop.suite_made_all(board) | set(made)
     rev = writes.base_rev(b, base_rev)
-    paths = [p for p in writes.changed(repo, rev) if p not in made]
+    paths = [p for p in writes.changed(repo, since or rev) if p not in made]
     problems, note = planscope.check(rows, b, repo, rev, paths, pass_=pass_, loop_tree=tree, frozen=frozen,
                                      agreed=agreed)
     if problems:
@@ -175,14 +183,17 @@ def precheck(cfg: dict, reply=None) -> dict:
     entry.peek_as(cfg.get("scope") or "")   # 役の Bash には節の env が無い。控えの置き場の印で読むだけに開く
     board, repo = Path(cfg["board"]), Path(cfg["repo"])
     state, pass_, base_rev = cfg.get("tdd_state") or "", cfg.get("pass") or "first", cfg.get("base_rev") or ""
+    log_repo, since = cfg.get("log_repo") or None, cfg.get("since") or None   # 修正役の並べの枝の控え（fixlanes が書く）
     reply = reply if isinstance(reply, dict) else {"changes": []}
     agreed = conflict.agreed(entry.open_board(board, allow_halted=True))
-    found = [("frozen", t) for t in check_frozen(board, state, repo, pass_, agreed=agreed)]
-    wrote = check_writes(reply, board, base_rev, repo, state)
+    found = [("frozen", t) for t in check_frozen(board, state, repo, pass_ if pass_ in ("first", "ruled") else "first",
+                                                 agreed=agreed)]
+    wrote = check_writes(reply, board, base_rev, repo, state, log_repo=log_repo, since=since)
     found += [("writes", t) for t in wrote["problems"]]
-    got = fix_unit_keys(wrote["reply"], board)
+    got = fix_unit_keys(wrote["reply"], board) if since is None else None   # 枝の返答は単位の名前で書く（番号の控えは修正役の物）
     keys = got[0] if got is not None else [c.get("unit_key") for c in wrote["reply"].get("changes") or [] if isinstance(c, dict)]
-    scope, _ = check_plan_scope(wrote["reply"], keys, board, base_rev, repo, state, pass_, agreed=agreed, ask=True)
+    scope, _ = check_plan_scope(wrote["reply"], keys, board, base_rev, repo, state,
+                                pass_ if pass_ in ("first", "ruled") else "first", agreed=agreed, ask=True, since=since)
     found += [("scope", t) for t in scope]
     return {"ok": not found, "rejects": [{"check": c, "text": t} for c, t in found]}
 
