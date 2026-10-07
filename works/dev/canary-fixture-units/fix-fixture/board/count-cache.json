@@ -1,0 +1,10 @@
+{
+  "[{\"count\": \"lines\", \"fixed\": true, \"paths\": [\"calc.py\", \"test_lib.py\", \"CHANGELOG.md\"], \"patterns\": [\"len(xs) - 1\"]}, \"c2962336666730dcd02f1748e2de3246f99338ce\"]": [
+    1,
+    ""
+  ],
+  "[{\"count\": \"lines\", \"fixed\": true, \"paths\": [\"textfmt.py\", \"test_lib.py\", \"CHANGELOG.md\"], \"patterns\": [\"w[0] for w in\"]}, \"c2962336666730dcd02f1748e2de3246f99338ce\"]": [
+    1,
+    ""
+  ]
+}

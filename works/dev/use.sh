@@ -47,7 +47,10 @@
 #   それ以外は空（全部の単位を直に直す）にして 1 行で知らせる。test_cmd を省けば空（ラインの既定: 対象の宣言か CI）。
 # - 最後の関所は WORKS_USE_FINAL_GATE（既定 protected_only＝守りのファイルを触った時だけ・when_needed・always）。包みは既定で入れる（WORKS_DEV_ADAPTER=0 か空の明示で外し、
 #   adapter=optional と「包み無し」を出す）。入力 policy_md・gates・thickness・features_off は WORKS_USE_POLICY_MD・WORKS_USE_GATES・
-#   WORKS_USE_THICKNESS・WORKS_USE_FEATURES_OFF（空なら渡さない。features_off は切る機能の語のカンマ区切り。語は start が確かめる）。WORKS_USE_UNATTENDED=1 は無人の run: 入力 unattended=true を渡し（判定の保留の
+#   WORKS_USE_THICKNESS・WORKS_USE_FEATURES_OFF（空なら渡さない。features_off は切る機能の語のカンマ区切り。語は start が確かめる）。
+#   WORKS_USE_FIX_FIXTURE は固定材料のフォルダ（前の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した物）: 空でなければ在るフォルダかを
+#   確かめ（無ければ何も作らずに 2）、入力 fix_fixture=<絶対パス> を渡す（相対は殻を打ったフォルダから。同じ木・同じ依頼・同じ入力の
+#   run を判定と修正案を作り直さずに修正から始める。合わなければラインの start が AI の前で止める）。WORKS_USE_UNATTENDED=1 は無人の run: 入力 unattended=true を渡し（判定の保留の
 #   問いだけでは修正前の関所を開かない）、起動の関所を越え、人が決める関所に着いたら止めて報告へ進める。
 #   WORKS_DESIGN_ONLY=1 は設計だけの run: 入力 design_only=true を渡し、修正前の関所を項目の有無に関わらず開けて止める。
 #   この 2 つは未設定・空・1 だけを受け、ほかの値は start が何かを作る前に拒む（1 行で終了コード 2）。
@@ -109,6 +112,7 @@ WORKS_USE_GATES="${WORKS_USE_GATES:-}"
 WORKS_USE_POLICY_MD="${WORKS_USE_POLICY_MD:-}"
 WORKS_USE_THICKNESS="${WORKS_USE_THICKNESS:-}"
 WORKS_USE_FEATURES_OFF="${WORKS_USE_FEATURES_OFF:-}"
+WORKS_USE_FIX_FIXTURE="${WORKS_USE_FIX_FIXTURE:-}"
 WORKS_USE_WAIT_SECONDS="${WORKS_USE_WAIT_SECONDS:-540}"
 WORKS_USE_ALLOW_STOPPED="${WORKS_USE_ALLOW_STOPPED:-}"
 export WORKS_DEV_MODEL WORKS_DEV_ADAPTER WORKS_USE_SH
@@ -130,6 +134,12 @@ if [ "$CMD" = start ]; then
     "" | 1) ;;
     *) refuse "WORKS_USE_UNATTENDED は 1（無人の run）か空（今どおり）。受けた値: ${WORKS_USE_UNATTENDED}" ;;
   esac
+  # 固定材料のフォルダは打ったフォルダから絶対にする（ラインは相対を run の worktree の根から読むので、殻で解いて渡す）
+  if [ -n "$WORKS_USE_FIX_FIXTURE" ]; then
+    _fx="$(cd "$WORKS_USE_FIX_FIXTURE" 2>/dev/null && pwd -P)" ||
+      refuse "WORKS_USE_FIX_FIXTURE は在る固定材料のフォルダ（前の run の \$ARTIFACTS_DIR/fix-fixture の写し）。受けた値: ${WORKS_USE_FIX_FIXTURE}"
+    WORKS_USE_FIX_FIXTURE=$_fx
+  fi
 fi
 
 . "$DEV_DIR/guard.sh"
@@ -750,6 +760,7 @@ if [ -n "${WORKS_USE_POLICY_MD:-}" ]; then set -- "$@" --input policy_md="$WORKS
 if [ -n "${WORKS_USE_GATES:-}" ]; then set -- "$@" --input gates="$WORKS_USE_GATES"; fi
 if [ -n "${WORKS_USE_THICKNESS:-}" ]; then set -- "$@" --input thickness="$WORKS_USE_THICKNESS"; fi
 if [ -n "${WORKS_USE_FEATURES_OFF:-}" ]; then set -- "$@" --input features_off="$WORKS_USE_FEATURES_OFF"; fi
+if [ -n "$WORKS_USE_FIX_FIXTURE" ]; then set -- "$@" --input fix_fixture="$WORKS_USE_FIX_FIXTURE"; fi
 # 無人の run は線にも知らせる（判定の保留の問いだけでは修正前の関所を開かず、問いを報告の冒頭へ。下の stop で修正を飛ばさない）
 if [ "${WORKS_USE_UNATTENDED:-}" = 1 ]; then set -- "$@" --input unattended=true; fi
 if [ "${WORKS_DESIGN_ONLY:-}" = 1 ]; then set -- "$@" --input design_only=true; fi

@@ -1,0 +1,15 @@
+{
+ "node": "r2.design",
+ "given": [],
+ "withheld": [
+  {
+   "kind": "repo_map",
+   "what": "ARCHITECTURE.md・AGENTS.md",
+   "why": "対象のリポジトリの根に追跡されていない"
+  }
+ ],
+ "seen": {
+  "count": 0,
+  "last_round": null
+ }
+}

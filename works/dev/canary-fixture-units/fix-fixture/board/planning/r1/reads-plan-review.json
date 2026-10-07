@@ -1,0 +1,16 @@
+{
+  "role": "plan-review",
+  "node_path": "planning__converge-loop.plan-review-loop.plan-review",
+  "rows": [
+    {
+      "path": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/planning/r1/prompt-p2.plan_review.md",
+      "hook": "partial",
+      "event": null
+    }
+  ],
+  "sources": {
+    "hook": true,
+    "events": "unverified"
+  },
+  "missing": []
+}

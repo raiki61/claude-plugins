@@ -1,0 +1,9 @@
+{
+  "unit": 1,
+  "verdict": "root",
+  "evidence_found": true,
+  "evidence": "calc.py:8 に `return sum(xs) / (len(xs) - 1)` が在る（分母が個数-1）。calc.py:5 の docstring は「算術平均（xs の和を個数で割る）。空の xs は ValueError」。calc.py:6-7 は空の xs だけを ValueError にするので、要素 1 つの xs は 8 行目で 0 除算に進む（ZeroDivisionError——式から読める。走らせてはいない）。mean([1, 2, 3]) は式から 6/2 = 3.0 で、依頼の値と合う。README.md:4「関数の約束は各関数の docstring が正本」。test_lib.py には mean の語が無い（Grep で *.py の mean は calc.py:4,7,8 だけ）。TestCalc（test_lib.py:8-24）は median 2 本・clamp 3 本だけ。README.md:8-9 の決まり（テストは test_lib.py の既存のクラスへ・import calc の形、CHANGELOG の [Unreleased] に 1 関数 1 行）も理由の言う通り。CHANGELOG.md:3 の [Unreleased] は今空。",
+  "location_ok": true,
+  "location": "calc.py:mean（calc.py:8 の return の式）",
+  "why": "症状（mean([1,2,3]) が 2.0 でなく 3.0）は calc.py:8 の分母 len(xs) - 1 から直に出る。mean はほかの関数を呼ばず（calc.py:4-8 は sum と len だけ）、リポジトリの中で mean を呼ぶ所もほかに無い（Grep）。だから別の単位や単位に無い所の結果ではなく、この 1 行が依頼の症状の根。これを docstring どおりに直せば、依頼の値のずれも要素 1 つの xs の 0 除算も消える。見逃しの出自（TestCalc に mean のテストが無い）は test_lib.py で確かめたが、それは症状を作った原因ではなく残った理由で、why_chain の下の段として理由に書かれている通り。"
+}

@@ -1,0 +1,4 @@
+slotwrap.sh: 重いテストの枠を待つ（置き場 /works-canary-fixture/tmp/testslots・4 枠。空くまで期限なし）
+testslot: slot-1 を取った（4 枠）
+...........                                                              [100%]
+11 passed in 0.01s

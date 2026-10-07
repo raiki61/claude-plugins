@@ -1,0 +1,17 @@
+{
+  "why": "見た事実: 単位 1 の直しは calc.py:8 `return sum(xs) / (len(xs) - 1)`、単位 2 の直しは textfmt.py:20 `return \"\".join(w[0] for w in words(s))` で、別のモジュールの別の関数。calc.py と textfmt.py は互いを import しない（calc.py に import の行は無く、textfmt.py の initials は同じファイルの words だけを呼ぶ）。テストは test_lib.py の 1 本で、単位 1 は class TestCalc（test_lib.py:8-24）、単位 2 は class TestTextfmt（test_lib.py:27-46）に足す——別のクラスで重ならない。CHANGELOG.md は `## [Unreleased]`（CHANGELOG.md:3）の下が空（:4）で、両単位とも同じその見出しの下に 1 関数 1 行（README.md:9）を足す——同じ塊に 2 行が入る。重複は無い: 根は分母の off-by-one と str.upper の抜けで別、片方の直しでもう片方は閉じない（判定者の framing の上位の交わり「約束を区別点で固定するテストが無い」は共通の出自だが、足すテストは関数ごとに別で、同じ直しではない）。順番は無い: どちらの直しも名・型・呼び方を変えず、unittest は TestCalc と TestTextfmt を別に回すので、片方が赤でももう片方を直し・試せる。CHANGELOG の 2 行も別の行で、どちらが先でも書ける。",
+  "duplicates": [],
+  "relations": [
+    {
+      "units": [1, 2],
+      "place": "same",
+      "why": "CHANGELOG.md:3 の `## [Unreleased]` の下（:4 が空）という同じ塊に、単位 1 は mean、単位 2 は initials を名指す 1 行をそれぞれ足す（README.md:9 の 1 関数 1 行）。行は別だが差し込む所が同じ塊なので、別々に直すと同じ所で重なる。前提（名・型・呼び方）は変えない。"
+    },
+    {
+      "units": [1, 2],
+      "place": "apart",
+      "why": "コードの直しは calc.py:8 と textfmt.py:20 で別ファイル。受け入れのテストは同じ test_lib.py でも、単位 1 は class TestCalc（:8-24）、単位 2 は class TestTextfmt（:27-46）の別のクラスに足すだけで、直しどうしは重ならない。"
+    }
+  ],
+  "order": []
+}

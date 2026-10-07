@@ -1,0 +1,18 @@
+{
+ "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る": {
+  "hits": [
+   "    return sum(xs) / (len(xs) - 1)"
+  ],
+  "misses": [
+   "    return sum(xs) / len(xs)"
+  ]
+ },
+ "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る": {
+  "hits": [
+   "    return \"\".join(w[0] for w in words(s))"
+  ],
+  "misses": [
+   "    return \"\".join(w[0].upper() for w in words(s))"
+  ]
+ }
+}

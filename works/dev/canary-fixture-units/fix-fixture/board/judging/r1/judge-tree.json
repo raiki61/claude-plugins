@@ -1,0 +1,9 @@
+{
+  "porcelain": "",
+  "ignored": [
+    ".pytest_cache/"
+  ],
+  "diff_sha256": "3f0769a34cd5f06505200e92672991b92dc5dcf6bd705d79d4d443ff8cbdebe0",
+  "head": "d3d132886a887ff9fce9bcd39c961eb0f3455d92",
+  "ref": "refs/heads/archon/task-darkfactory-1791347755936"
+}

@@ -1,0 +1,18 @@
+{
+  "faces": [
+    {
+      "key": "changelog-line-names-function",
+      "unit_keys": [
+        "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+        "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+      ],
+      "kind": "contract_drift",
+      "where": "CHANGELOG.md の ## [Unreleased] の下（3-4 行目の間）。案の approach (4) と adds の『CHANGELOG [Unreleased] mean の 1 行』『… initials の 1 行』",
+      "why": "README.md:9 は『何を直したかを関数の名で書く』と求めている。案の (4) は行の中身を『mean の直し（分母を個数にして…）』と散文で書くだけで、行に関数の名（calc.mean・textfmt.initials）を字で入れることを明記していない。修正役が『平均の直し』のように名を落として書くと、README の決まりに反し、[Unreleased] の行と関数を突き合わせる検査（grep で mean・initials を引く）にも掛からない。既存の [0.1.0] の行の形（『- 』で始める箇条書き）にも合わせ、`- calc.mean: …`・`- textfmt.initials: …` の形で書くと決めておけば閉じる",
+      "severity": "suggest",
+      "no_add": "足す物は増やさない。案の (4) の 2 行の書き方を `- calc.mean: …` と `- textfmt.initials: …` に定めるだけで閉じる"
+    }
+  ],
+  "shrink": [],
+  "reason": "開いた項目 1（calc.mean の分母の直しと textfmt.initials の str.upper の抜けの直し、テスト 2 本と CHANGELOG の 2 行の追加）を、下請け 1 つに審査させた。下請けの要約は clean で、block の穴は挙がらなかった。答えの中身は、下請けが書いた答えのファイルにある。"
+}

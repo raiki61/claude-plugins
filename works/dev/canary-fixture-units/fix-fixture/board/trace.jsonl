@@ -1,0 +1,37 @@
+{"t": "2026-10-07T13:36:02+09:00", "op": "init", "thickness": null, "decider": null, "line": "darkfactory", "table_sha": "00b0d0745d3c"}
+{"t": "2026-10-07T13:36:02+09:00", "op": "add", "reason": "works/darkfactory"}
+{"t": "2026-10-07T13:36:02+09:00", "op": "emit", "instance": "p0.base"}
+{"t": "2026-10-07T13:36:02+09:00", "op": "emit", "instance": "p0.local_checks"}
+{"t": "2026-10-07T13:36:02+09:00", "op": "emit", "instance": "p0.premises"}
+{"t": "2026-10-07T13:36:02+09:00", "op": "launch", "instance": "p0.base", "attempt": 1}
+{"t": "2026-10-07T13:36:02+09:00", "op": "done", "instance": "p0.base", "sha": "bede832e8526"}
+{"t": "2026-10-07T13:36:02+09:00", "op": "emit", "instance": "p0.local_checks"}
+{"t": "2026-10-07T13:36:02+09:00", "op": "engine_fallback", "instance": "p0.local_checks", "reason": "対象リポジトリに走らせる語の宣言 .review-checks.json が無い——任せ先が CI の定義から走らせる（engine は終了コードを見ていない）"}
+{"t": "2026-10-07T13:36:02+09:00", "op": "launch", "instance": "p0.local_checks", "attempt": 1}
+{"t": "2026-10-07T13:36:03+09:00", "op": "done", "instance": "p0.local_checks", "sha": "1dc26c7d5b39"}
+{"t": "2026-10-07T13:36:03+09:00", "op": "builtin", "node": "p1.worktree_before", "result": {"ok": true, "diff_file": "/works-canary-fixture/artifacts/runs/245042a7-d99c-420e-9706-572b5ddca2bc/board/diff-r1.patch", "changed_files": [], "stat": "0 files changed, 0 insertions(+), 0 deletions(-)"}}
+{"t": "2026-10-07T13:36:03+09:00", "op": "emit", "instance": "p0.prior_decisions"}
+{"t": "2026-10-07T13:36:18+09:00", "op": "launch", "instance": "p0.premises", "attempt": 1}
+{"t": "2026-10-07T13:36:18+09:00", "op": "done", "instance": "p0.premises", "sha": "898397862570"}
+{"t": "2026-10-07T13:36:18+09:00", "op": "emit", "instance": "p0.purpose"}
+{"t": "2026-10-07T13:36:29+09:00", "op": "launch", "instance": "p0.purpose", "attempt": 1}
+{"t": "2026-10-07T13:36:29+09:00", "op": "done", "instance": "p0.purpose", "sha": "dc1e8c3bc192"}
+{"t": "2026-10-07T13:36:30+09:00", "op": "launch", "instance": "p0.prior_decisions", "attempt": 1, "scope": "gathering"}
+{"t": "2026-10-07T13:36:47+09:00", "op": "done", "instance": "p0.prior_decisions", "sha": "1e8e8bfa3326", "scope": "gathering"}
+{"t": "2026-10-07T13:36:47+09:00", "op": "builtin", "node": "p1.worktree_after", "result": {"ok": true, "materials": ["base_determination", "bypass", "consistency", "external_standards", "fix_closure", "gate_efficacy", "hygiene", "local_checks", "local_review", "main_path_observation", "parallel_pr", "prior_decisions", "procedure_trace", "provenance", "test_double_fidelity"]}, "scope": "gathering"}
+{"t": "2026-10-07T13:36:47+09:00", "op": "emit", "instance": "p2.diagnose", "scope": "gathering"}
+{"t": "2026-10-07T13:36:48+09:00", "op": "launch", "instance": "p2.diagnose", "attempt": 1, "scope": "judging"}
+{"t": "2026-10-07T13:38:19+09:00", "op": "done", "instance": "p2.diagnose", "sha": "eb16878308d6", "scope": "judging"}
+{"t": "2026-10-07T13:38:19+09:00", "op": "emit", "instance": "p2.fix_plan", "scope": "judging"}
+{"t": "2026-10-07T13:39:13+09:00", "op": "judge_verify", "verified": 2, "unverified": 0, "synergy": true, "scope": "judging"}
+{"t": "2026-10-07T13:39:57+09:00", "op": "launch", "instance": "p2.fix_plan", "attempt": 1, "scope": "planning"}
+{"t": "2026-10-07T13:40:30+09:00", "op": "done", "instance": "p2.fix_plan", "sha": "2720e2ef0dee", "scope": "planning"}
+{"t": "2026-10-07T13:40:30+09:00", "op": "emit", "instance": "p2.plan_review", "scope": "planning"}
+{"t": "2026-10-07T13:40:30+09:00", "op": "plan_fields_saved", "round": 1, "sha256": "83c4c5e052eea018cace2f619c6ee5835fc57eb465901f6405075285ef9c17e3", "scope": "planning"}
+{"t": "2026-10-07T13:40:32+09:00", "op": "launch", "instance": "p2.plan_review", "attempt": 1, "scope": "planning"}
+{"t": "2026-10-07T13:41:42+09:00", "op": "done", "instance": "p2.plan_review", "sha": "52a7c082b300", "scope": "planning"}
+{"t": "2026-10-07T13:41:42+09:00", "op": "plan_converge", "round": 1, "pass_": 1, "outcome": "clean", "blocks": [], "persists": [], "items": {"1": "closed"}, "scope": "planning"}
+{"t": "2026-10-07T13:41:42+09:00", "op": "builtin", "node": "p2.human_gate", "result": {"ok": true}, "scope": "planning"}
+{"t": "2026-10-07T13:41:42+09:00", "op": "builtin", "node": "p3.lane_merge", "result": {"ok": true, "merged": 0, "conflicts": 0}, "scope": "planning"}
+{"t": "2026-10-07T13:41:42+09:00", "op": "emit", "instance": "p3.fix", "scope": "planning"}
+{"t": "2026-10-07T13:41:43+09:00", "op": "plan_review_agents", "launched": 1, "types": {"general-purpose": 1}, "item_files": 1, "synergy_files": 0, "scope": "planning"}

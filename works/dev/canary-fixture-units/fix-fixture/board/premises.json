@@ -1,0 +1,28 @@
+{
+ "constraints": [
+  {
+   "text": "calc.py:mean — mean([1, 2, 3]) は この作業ツリーで 3.0 を返す（依頼の値と一致）。原因は calc.py の `sum(xs) / (len(xs) - 1)`。docstring は「xs の和を個数で割る」。",
+   "measured_how": "python3 を実行し、calc.py を cat",
+   "kind": "実測",
+   "measured_output": "$ python3 -c 'import calc; print(calc.mean([1, 2, 3]))'\n3.0\n$ cat calc.py (抜粋)\n    return sum(xs) / (len(xs) - 1)"
+  },
+  {
+   "text": "textfmt.py:initials — initials('dark factory line') は この作業ツリーで 'dfl' を返す（依頼の値と一致）。原因は textfmt.py の `\"\".join(w[0] for w in words(s))`（upper なし）。docstring は「各語の頭の 1 字を大文字（str.upper）にして連ねる」。",
+   "measured_how": "python3 を実行し、textfmt.py を cat",
+   "kind": "実測",
+   "measured_output": "$ python3 -c 'import textfmt; print(textfmt.initials(\"dark factory line\"))'\ndfl\n$ cat textfmt.py (抜粋)\n    return \"\".join(w[0] for w in words(s))"
+  },
+  {
+   "text": "README の決まり: テストは test_lib.py の TestCalc（calc.py 用）・TestTextfmt（textfmt.py 用）の中に足し、新しいファイルやクラスは作らない。`import calc` の形で読み `calc.mean` と呼ぶ（from import は書かない）。利用者に見える振る舞いを変える直しは CHANGELOG.md の `[Unreleased]` に 1 関数 1 行、関数の名で足す。",
+   "measured_how": "README.md を cat",
+   "kind": "実測",
+   "measured_output": "$ cat README.md (抜粋)\n- テストは `test_lib.py` の 1 本に置く。モジュールごとのクラス（calc.py は `TestCalc`、textfmt.py は `TestTextfmt`）の中に足し、新しいテストのファイルやクラスは作らない。...\n- 利用者に見える振る舞いを変えた直しは、CHANGELOG.md の `[Unreleased]` に 1 行足す（何を直したかを関数の名で書く。1 関数 1 行）。"
+  },
+  {
+   "text": "CHANGELOG.md は実在し、`## [Unreleased]` の節は今は空（項目 0 行）。test_lib.py には TestCalc（8行目）と TestTextfmt（27行目）があり、initials の既存テストは test_initials_capitalized（頭が大文字の \"Dark Factory\" のみ）。mean の既存テストの名前は grep に出ない（mean の語を含む行なし）。",
+   "measured_how": "cat CHANGELOG.md と grep -n test_lib.py",
+   "kind": "実測",
+   "measured_output": "$ cat CHANGELOG.md\n# Changelog\n\n## [Unreleased]\n\n## [0.1.0]\n\n- 最初の版（calc.py・textfmt.py）\n$ grep -n \"class \\|initials\\|mean\" test_lib.py\n8:class TestCalc(unittest.TestCase):\n27:class TestTextfmt(unittest.TestCase):\n36:    def test_initials_capitalized(self):\n37:        self.assertEqual(textfmt.initials(\"Dark Factory\"), \"DF\")"
+  }
+ ]
+}

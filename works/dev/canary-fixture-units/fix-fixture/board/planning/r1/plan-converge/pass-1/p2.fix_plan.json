@@ -1,0 +1,36 @@
+{
+  "plan": [
+    {
+      "unit_keys": [
+        "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+        "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+      ],
+      "approach": "2 つの単位のコードの直しは別々の根（calc.mean の分母の off-by-one と textfmt.initials の str.upper の抜け）だが、どちらも README.md:9 の決まりで CHANGELOG.md の `## [Unreleased]` の下（CHANGELOG.md:3-4 の同じ塊）に 1 行ずつ足すため、同じ hunk を変える。『項目の組み方』の同じ塊の条件に当たるので 1 つの項目にまとめる。直しは次のとおり: (1) calc.py:8 の `return sum(xs) / (len(xs) - 1)` を `return sum(xs) / len(xs)` にして、docstring『算術平均（xs の和を個数で割る）』と statistics.mean の定義に合わせる。空の xs の ValueError（calc.py:6-7）はそのまま残す。(2) textfmt.py:20 の `\"\".join(w[0] for w in words(s))` を `\"\".join(w[0].upper() for w in words(s))` にして、docstring の str.upper の約束に合わせる。words(s) はそのまま使う。(3) test_lib.py の既存の TestCalc に test_mean_arithmetic（calc.mean([1, 2, 3]) == 2.0 を先に断言し、続けて calc.mean([5]) == 5.0 も断言）、既存の TestTextfmt に test_initials_lowercase_input（textfmt.initials(\"dark factory line\") == \"DFL\"）を足す。README.md:8 のとおり `import calc`・`import textfmt` の形で呼び、新しいファイルやクラスは作らない。(4) CHANGELOG.md の `## [Unreleased]` の下に、mean の直し（分母を個数にして算術平均を返すようにした）と initials の直し（各語の頭の字を大文字にして連ねるようにした）の各 1 行を足す（1 関数 1 行）。構造の目の避け方（新しい名前・口・設定を足さず、docstring に実装を合わせ、既存の置き場にテストと CHANGELOG を足す）にそのまま従う。",
+      "adds": [
+        {
+          "kind": "test",
+          "name": "test_mean_arithmetic",
+          "canonical": "test_lib.py の既存の class TestCalc に新設（README.md:8 の決まりの置き場。期待値の正本は calc.py:5 の mean の docstring）"
+        },
+        {
+          "kind": "test",
+          "name": "test_initials_lowercase_input",
+          "canonical": "test_lib.py の既存の class TestTextfmt に新設（README.md:8 の決まりの置き場。期待値の正本は textfmt.py:19 の initials の docstring）"
+        },
+        {
+          "kind": "doc",
+          "name": "CHANGELOG [Unreleased] mean の 1 行",
+          "canonical": "CHANGELOG.md の `## [Unreleased]` の下に新設（README.md:9 の 1 関数 1 行の決まり）"
+        },
+        {
+          "kind": "doc",
+          "name": "CHANGELOG [Unreleased] initials の 1 行",
+          "canonical": "CHANGELOG.md の `## [Unreleased]` の下に新設（README.md:9 の 1 関数 1 行の決まり）"
+        }
+      ],
+      "removes": [],
+      "shrink_first": "コードの直しは足す形でなく、既存の 1 行の式を直すだけ（分母の `- 1` を消す・w[0] に str.upper をかける）で、新しい関数・口・柵は足さない。足すのは受け入れのテスト 2 本と CHANGELOG の 2 行だけ。テストを足さない形も考えたが、mean はテストが 0 本、initials は頭が大文字の入力しか試しておらず、直しだけでは再発を捕まえる検査が無い（判定の one_shot が直しとテストの組みで閉じるとしている）。CHANGELOG の行は README.md:9 の決まりが利用者に見える振る舞いを変えた直しに求めるので省けない。既存のテスト test_initials_capitalized は約束に反しないので消さず、そのまま残す。",
+      "narrows": []
+    }
+  ]
+}

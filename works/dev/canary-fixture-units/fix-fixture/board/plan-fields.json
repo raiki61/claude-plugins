@@ -1,0 +1,52 @@
+{
+ "round": 1,
+ "fields": [
+  {
+   "route": "tdd",
+   "route_why": "",
+   "tests": [
+    {
+     "id": "test_lib.py::TestCalc::test_mean_arithmetic",
+     "behavior": "calc.mean が和を個数で割った算術平均を返す: calc.mean([1, 2, 3]) == 2.0、要素 1 つの calc.mean([5]) == 5.0",
+     "path": "test_lib.py の `import calc` で本物の calc.mean を呼び、返り値を assertEqual で断言する（mock は使わない）。[1, 2, 3] の断言を先に置く",
+     "red_kind": "assertion",
+     "red_why": "今の calc.py:8 は分母が len(xs) - 1 なので calc.mean([1, 2, 3]) は 6/2 = 3.0 を返し、最初の assertEqual(…, 2.0) が AssertionError で落ちる"
+    },
+    {
+     "id": "test_lib.py::TestTextfmt::test_initials_lowercase_input",
+     "behavior": "textfmt.initials が各語の頭の字を大文字にして連ねる: textfmt.initials(\"dark factory line\") == \"DFL\"",
+     "path": "test_lib.py の `import textfmt` で本物の textfmt.initials を呼び、返り値を assertEqual で断言する（mock は使わない）",
+     "red_kind": "assertion",
+     "red_why": "今の textfmt.py:20 は w[0] に str.upper をかけないので \"dfl\" を返し、assertEqual(…, \"DFL\") が AssertionError で落ちる"
+    }
+   ],
+   "rewrite_tests": [],
+   "refactor": {
+    "declared": false,
+    "why": ""
+   },
+   "allowed_paths": [
+    "calc.py",
+    "textfmt.py",
+    "test_lib.py",
+    "CHANGELOG.md"
+   ],
+   "out_of_scope": [
+    {
+     "glob": "README.md",
+     "why": "決まりの正本で、今回の直しは README の決まりに沿うだけで書き換えない"
+    }
+   ],
+   "unit_keys": [
+    "calc.py:mean — 分母が個数でなく個数-1 で算術平均の約束を破る",
+    "textfmt.py:initials — 頭の字を大文字にせず連ねて docstring の約束を破る"
+   ],
+   "adds": [
+    "test_mean_arithmetic",
+    "test_initials_lowercase_input",
+    "CHANGELOG [Unreleased] mean の 1 行",
+    "CHANGELOG [Unreleased] initials の 1 行"
+   ]
+  }
+ ]
+}

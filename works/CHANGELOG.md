@@ -6,6 +6,11 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Added
+
+- canary に修正の直前から始める依頼 `--request units` を足した（0.2.38 の「1 つの修正案の項目に単位が 2 つ在る時、後の単位を前の単位の段で一緒に直させ、緑の後は機械が閉じる」の本物の確かめ）。今の種では計画役が単位ごとに項目を作るのでこの形が起きないため、前の種で 1 項目に 2 単位をまとめた本物の run 245042a7 の h-fix の写し（固定材料）を、その run の種と依頼の文と一緒に `works/dev/canary-fixture-units/` に置いた。写しの中の置き場のパスは印に置き換えてあり、取り込みが新しい置き場に直すのでどの機械でも使える。作り直しと確かめの殻 `works/dev/canary_fixture.py`（`build`・`check`。写しの誤りと、今の works の表・graph・置き場の版との違いを名指す）を足し、`canary.sh --request units` は作る前にこれで止まる。`canary_check.py` に (f)（後の単位の `covered_by`・食い違いの申し出・`conflict_parked`・`conflict_ruled`・裁定役の起動）を足し、`--request units` の終了コードは (f) だけで決める
+- `use.sh start` に固定材料から始める口 `WORKS_USE_FIX_FIXTURE`（入力 `fix_fixture`）を足した。空でなければ在るフォルダかを確かめて絶対パスで渡し、無ければ何も作らずに止まる
+
 ## [0.2.38] - 2026-10-07
 
 ### Fixed

@@ -1,0 +1,16 @@
+{
+  "https://docs.python.org/3/library/statistics.html （statistics.mean: \"The arithmetic mean is the sum of the data divided by the number of data points.\"）": {
+    "found": true,
+    "quote": "statistics.mean: \"The arithmetic mean is the sum of the data divided by the number of data points.\" 分母が個数であることを定めており、calc.mean の分母の off-by-one に当たっている。空のデータでは StatisticsError を投げるが、判定者はこれを向きだけ合わせると書き、docstring どおり ValueError のまま残す。この点も食い違わない",
+    "round": 1,
+    "pass": 1,
+    "item": 1
+  },
+  "https://docs.python.org/3/library/stdtypes.html#str.upper": {
+    "found": true,
+    "quote": "str.upper(): \"Return a copy of the string with all the cased characters converted to uppercase.\" docstring が名指す変換そのもので、w[0] にかければ initials の大文字の約束に当たる",
+    "round": 1,
+    "pass": 1,
+    "item": 1
+  }
+}
