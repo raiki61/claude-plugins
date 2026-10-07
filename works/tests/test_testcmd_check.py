@@ -103,6 +103,65 @@ class TestCmdCheck(unittest.TestCase):
             with self.subTest(cmd):
                 self.assertEqual(self.check(cmd), [])
 
+    def test_cd_first_resolves_the_next_segment_from_the_cd_target(self):
+        """前の段が cd だけなら、次の段の語を cd の先から読む（cd sub && .venv/bin/pytest は sub/.venv/bin/pytest を走らせる）。
+        cd の先そのものも無視するパスなら名指す（/ が無くてもパス）。cd の先が読めない（$・~・-）なら後ろの段は見ない"""
+        venv = self.repo / "sub" / ".venv" / "bin"
+        venv.mkdir(parents=True)
+        (venv / "pytest").write_text("#!/bin/sh\n")
+        for cmd in ("cd sub && .venv/bin/pytest -q", "cd sub; .venv/bin/pytest -q", "cd ./sub && cd . && .venv/bin/pytest"):
+            with self.subTest(cmd):
+                lines = self.check(cmd)
+                self.assertEqual(len(lines), 1, lines)
+                self.assertIn(".venv/bin/pytest", lines[0])
+                self.assertIn("sub/.venv/bin/pytest", lines[0])
+                self.assertIn("worktree に無い", lines[0])
+        (self.repo / "build").mkdir()
+        lines = self.check("cd build && ./run-tests")
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("test_cmd の build ", lines[0])
+        for cmd in ("cd sub && uv sync && .venv/bin/pytest", 'cd "$HOME" && .venv/bin/pytest', "cd ~ && .venv/bin/pytest",
+                    "cd - && .venv/bin/pytest", "cd node_modules/.. && test_stats.py"):
+            with self.subTest(cmd):
+                self.assertEqual(self.check(cmd), [])
+
+    def test_absolute_cd_into_target_names_the_local_environment(self):
+        """絶対パスで対象の根の中へ cd した後の相対の語は、対象の手元を指す（worktree に無いのでなく、手元の環境を使う）"""
+        venv = self.repo / "sub" / ".venv" / "bin"
+        venv.mkdir(parents=True)
+        (venv / "pytest").write_text("#!/bin/sh\n")
+        for cmd in (f"cd {self.repo}/sub && .venv/bin/pytest", f"cd {self.repo} && cd sub && .venv/bin/pytest"):
+            with self.subTest(cmd):
+                lines = self.check(cmd)
+                self.assertEqual(len(lines), 1, lines)
+                self.assertIn(f"{self.repo}/sub/.venv/bin/pytest", lines[0])
+                self.assertIn("対象の手元", lines[0])
+                self.assertNotIn("worktree に無い", lines[0])
+
+    def test_cd_then_uv_run_is_not_named_for_an_activated_virtualenv(self):
+        venv = self.repo.parent / "venvs" / "proj"
+        info = self._site(venv) / "stats-0.1.dist-info"
+        info.mkdir()
+        (info / "direct_url.json").write_text(json.dumps({"url": self.repo.as_uri(), "dir_info": {"editable": True}}))
+        path = f"{venv}/bin{os.pathsep}{os.environ.get('PATH', '')}"
+        self.assertEqual(self.check("cd sub && uv run pytest -q", VIRTUAL_ENV=str(venv), PATH=path), [])
+        self.assertEqual(len(self.check("cd sub && pytest -q", VIRTUAL_ENV=str(venv), PATH=path)), 1)
+
+    def test_output_targets_are_not_named_even_when_a_previous_output_exists(self):
+        """書き先（リダイレクトの先・書き先を取る旗の空白で分けた値）は、手元に前の出力が在っても名指さない（コマンドが作る）。
+        読む側（< の先）は今どおり見る"""
+        (self.repo / "build").mkdir()
+        for name in ("x.xml", "log.txt", "err", "r.json", "in"):
+            (self.repo / "build" / name).write_text("")
+        for cmd in ("pytest --junitxml build/x.xml", "pytest --junit-xml build/x.xml", "pytest -q > build/log.txt",
+                    "pytest >>build/log.txt 2>build/err", "pytest &> build/log.txt", "pytest >| build/log.txt", "pytest >& build/log.txt",
+                    "jest --outputFile build/r.json", "pytest --basetemp build/err -q"):
+            with self.subTest(cmd):
+                self.assertEqual(self.check(cmd), [])
+        lines = self.check("python3 run.py < build/in")
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("build/in", lines[0])
+
     def _site(self, venv):
         site = pathlib.Path(venv) / "lib" / "python3.12" / "site-packages"
         site.mkdir(parents=True, exist_ok=True)
