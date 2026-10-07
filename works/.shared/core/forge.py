@@ -2,9 +2,9 @@
 何も知らない。標準ライブラリだけで Python 3.9 で動く。殻から `python3 -I` で起こす ghreads も読む）。
 
 core は git だけで動き、gh・GitHub は外側の forge の層（持ち主の決定 2026-10-07）。forge の無い remote では、PR を前提に
-する確かめ（並行 PR・名指した PR・issue の読み出し）は「確かめられなかった」ではなく「条件に当たらない」。それを AI の役に
-決めさせず（canary の run 5318f732 は同じローカルの origin で役が awaiting_human と書き、round_limit になった）、ここで
-機械が決める。GitHub の remote で gh が無い・未ログイン・API が落ちた時は、確かめる物が在るので forge が在る側（今どおり）。
+する確かめ（並行 PR。利用者が名指した PR・issue は gh が読めなかった時だけ）は「確かめられなかった」ではなく「条件に当たら
+ない」。それを AI の役に決めさせず（canary の run 5318f732 は同じローカルの origin で役が awaiting_human と書き、round_limit
+になった）、ここで機械が決める。GitHub の remote で gh が無い・未ログイン・API が落ちた時は、確かめる物が在るので forge が在る側（今どおり）。
 
 - classify(url) -> {kind, where}: URL の形だけで決める。kind は GITHUB・NO_REMOTE（空）・LOCAL_PATH（パス・file:）・OTHER_HOST
   （GitHub でないホスト。GitLab・自前のホストなど）。where はホスト（userinfo とポートを落とす）かパス。トークンは載せない

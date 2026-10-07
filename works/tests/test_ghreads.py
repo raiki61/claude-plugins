@@ -98,7 +98,7 @@ class ReadCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
-        # 対象は GitHub の remote を持つ（forge の在る対象。forge の無い対象は gh を呼ばずに条件外と書く: test_forge）
+        # 対象は GitHub の remote を持つ（forge の在る対象。forge の無い対象で gh が読めなかった項は条件外と書く: test_forge）
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True, capture_output=True)
         subprocess.run(["git", "-C", str(self.repo), "remote", "add", "origin", "git@github.com:o/r.git"], check=True,
                        capture_output=True)
