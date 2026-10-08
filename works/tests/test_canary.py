@@ -782,8 +782,27 @@ class CanaryShTest(unittest.TestCase):
         self.assertIn(f'SEED="$DEV_DIR/{SEED_LANES2.name}"', block)
         self.assertIn(f'REQUEST="$DEV_DIR/{REQUEST_LANES2.name}"', block)
         self.assertNotIn("FIXTURE", block)
-        self.assertEqual(set(canary_check.REQUESTS), {"tdd", "fix", "units", "large", "lanes2"}, "殻と確かめ役の語が同じ")
-        self.assertIn("--request tdd|fix|units|large|lanes2", text)
+        self.assertEqual(set(canary_check.REQUESTS), {"tdd", "fix", "units", "large", "lanes2", "change"}, "殻と確かめ役の語が同じ")
+        self.assertIn("--request tdd|fix|units|large|lanes2|change", text)
+
+    def test_change_uses_fix_request_and_one_line_of_the_seed(self):
+        """--request change は fix の種（canary-seed）と依頼 canary-request-fix.json を使い、固定材料を使わない。変える字
+        （CHANGE_FROM）は種の CHANGE_FILE にちょうど 1 つ在り、変えた後の字（CHANGE_TO）は無い（変えれば 1 行だけ変わる）"""
+        text = CANARY_SH.read_text(encoding="utf-8")
+        block = text.split("  change)\n", 1)[1].split(";;", 1)[0]
+        self.assertIn(f'REQUEST="$DEV_DIR/{REQUEST_FIX.name}"', block)
+        self.assertNotIn("SEED=", block)
+        self.assertNotIn("FIXTURE", block)
+        consts = dict(re.findall(r"^(CHANGE_(?:FILE|FROM|TO))='([^'\n]+)'$", text, re.M))
+        self.assertEqual(set(consts), {"CHANGE_FILE", "CHANGE_FROM", "CHANGE_TO"}, consts)
+        seed = (SEED / consts["CHANGE_FILE"]).read_text(encoding="utf-8")
+        self.assertEqual(seed.count(consts["CHANGE_FROM"]), 1)
+        self.assertNotIn(consts["CHANGE_TO"], seed)
+        changed = seed.replace(consts["CHANGE_FROM"], consts["CHANGE_TO"])
+        self.assertEqual(sum(a != b for a, b in zip(seed.splitlines(), changed.splitlines())), 1)
+        ast.parse(changed)   # 字だけの変更で、種のコードを壊さない
+        for name in ("CHANGE_FROM", "CHANGE_TO"):   # 殻は sed の s/…/…/ で変えるので、正規表現と区切りの字を持たない
+            self.assertFalse(set(consts[name]) & set("/\\&.*[]^$"), consts[name])
 
     def test_units_starts_from_the_fixture_with_its_own_seed_and_request(self):
         """--request units は固定材料のフォルダの種・依頼を使い、起動に WORKS_USE_FIX_FIXTURE を付け、作る前に
@@ -1363,6 +1382,74 @@ class CheckTest(unittest.TestCase):
         h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
         self.assertEqual(h["status"], "attempted", h)
         self.assertIn("text-reply", h["why"])
+
+    def start_entry(self, kind):
+        """start の控え（r1/start.json）の入口の形（entry.ENTRIES の語）"""
+        write(self.board / "r1" / "start.json", {"entry": kind, "features_off": []})
+
+    def test_request_entry_run_says_local_review_was_not_exercised(self):
+        """依頼から始めた run（start の控えの entry が request）は局所レビューを回さない（P1 の役の条件 not_request_entry）。
+        (h)(j) は no でなく not_exercised と言い、局所レビューの跡が無いことを赤と取り違えさせない。控えが無い・entry が
+        change・both なら今までどおり no。--request fix の終了コードは (h)(j) を数えないまま"""
+        self.fixer_run()
+        for kind, want in (("request", "not_exercised"), ("both", "no"), ("change", "no")):
+            with self.subTest(kind):
+                self.start_entry(kind)
+                got = self.run_tool(str(self.root), "--request", "fix", "--json")
+                self.assertEqual(got.returncode, 0, "--request fix は (h)(j) を数えない")
+                f = json.loads(got.stdout)["features"]
+                for key in ("h_record_output", "j_text_reply"):
+                    self.assertEqual(f[key]["status"], want, (key, f[key]))
+                    if want == "not_exercised":
+                        self.assertIn("依頼から始めた run", f[key]["why"])
+                        self.assertIn("not_request_entry", f[key]["why"])
+        self.start_entry("request")
+        text = self.run_tool(str(self.root)).stdout
+        self.assertIn("(h) 記録のフック: not_exercised", text)
+        self.assertIn("(j) 返答の契約: not_exercised", text)
+        (self.board / "r1" / "start.json").unlink()
+        f = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]
+        self.assertEqual([f["h_record_output"]["status"], f["j_text_reply"]["status"]], ["no", "no"], "控えが無ければ今までどおり")
+
+    def test_request_entry_with_local_review_traces_is_judged_as_usual(self):
+        """entry が request でも局所レビューの跡（控え・起動）が在れば（修正が入った後の周）、いつもの判じに戻す"""
+        self.fixer_run()
+        self.start_entry("request")
+        self.lens_note()
+        self.local_review_launches({"at": LATER, "node": "local-review", "pid": 7, "session": {"mode": "new", "id": "s1"},
+                                    "fence": {"text_reply": "0123456789abcdef"}})
+        self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "accepted", "turn": 1})
+        f = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]
+        self.assertEqual([f["h_record_output"]["status"], f["j_text_reply"]["status"]], ["yes", "yes"])
+
+    def test_change_request_exit_code_counts_record_output_and_text_reply(self):
+        """--request change（変更から入る canary）の終了コードは (h)(j) だけで決める: 両方 yes なら 0、(h) が attempted
+        （text-reply で fork のレンズの本文が届かなかった）・not_exercised（依頼から始めた run）・(j) が no なら 1。
+        (a)〜(e) は数えない（fix の canary の物）"""
+        self.fixer_run(planted=0)   # (a)(e) は yes でない
+        self.start_entry("both")
+        self.lens_note()
+        self.local_review_launches({"at": LATER, "node": "local-review", "pid": 7, "session": {"mode": "new", "id": "s1"},
+                                    "fence": {"text_reply": "0123456789abcdef"}})
+        self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "accepted", "turn": 1})
+        got = self.run_tool(str(self.root), "--request", "change", "--json")
+        f = json.loads(got.stdout)["features"]
+        self.assertNotEqual(f["a_parallel"]["status"], "yes")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(self.run_tool(str(self.root), "--request", "fix").returncode, 1, "fix は (a) と (e) も数える")
+        self.lens_note(unseen=["/code-review"])
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        self.assertEqual(h["status"], "attempted", h)
+        self.assertEqual(self.run_tool(str(self.root), "--request", "change").returncode, 1, "(h) の attempted は通過に数えない")
+        self.lens_note()
+        self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "native", "turn": 1})
+        self.assertEqual(self.run_tool(str(self.root), "--request", "change").returncode, 1, "(j) の no")
+        shutil.rmtree(self.root / "home" / "adapter")
+        (self.board / "r1" / "local-review-lenses.json").unlink()
+        self.start_entry("request")
+        got = self.run_tool(str(self.root), "--request", "change", "--json")
+        self.assertEqual(json.loads(got.stdout)["features"]["h_record_output"]["status"], "not_exercised")
+        self.assertEqual(got.returncode, 1, "依頼から始めた run は変更から入る canary の通過でない")
 
     def test_report_cold_reader_launches_are_new_sessions(self):
         """(i) 報告の初見の読み手（report-write-cold）の起動は、どの回も新しい会話（包みの起動の記録の session.mode が new）。

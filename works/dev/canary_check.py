@@ -1,8 +1,8 @@
 """works/dev/canary_check.py — canary の run（dev/canary.sh）が、狙った道を本当に通ったかを、終わった run の記録から出す（開発の殻。
 読むだけで何も書かない）。
 
-  python3 canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix|units|large|lanes2] [--json]
-  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] [--request tdd|fix|units|large|lanes2] [--json]
+  python3 canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix|units|large|lanes2|change] [--json]
+  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] [--request tdd|fix|units|large|lanes2|change] [--json]
 
 置き場の形は canary.sh が作る物（home/archon-home/archon.db・home/runs/<run-id>.json・home/diffs/run-<id>.diff）。run-id を省けば
 home/runs の一番新しい控えの run。盤面は Archon の run の行の output_root の下の artifacts/runs/<id>/board（--board で替える）。
@@ -10,8 +10,14 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
 包みの起動の記録（adapter.py の launches。置き場の形では home/adapter/launches/、--db の形では --launches で名指す）も
 読むだけで、盤面の state.json の run の worktree（inputs.cwd）のファイルの、盤面を作った後の行だけをその run の物と見る。
 --request は canary.sh の --request と同じ語（tdd は既定の canary-request.json、fix は canary-request-fix.json、units は固定材料
-canary-fixture-units/ から始める run、large は測りの canary-request-large.json、lanes2 は canary-request-lanes2.json）で、終了コードだけを
-変える（fix なら (e) も yes でないと 1、units は (f) だけ・large は (g) だけ・lanes2 は (k) だけで決める）。出す物は同じ。
+canary-fixture-units/ から始める run、large は測りの canary-request-large.json、lanes2 は canary-request-lanes2.json、change は
+canary-request-fix.json に commit しない 1 行の変更を足して変更から入る run）で、終了コードだけを変える（fix なら (e) も yes でないと 1、
+units は (f) だけ・large は (g) だけ・lanes2 は (k) だけ・change は (h)(j) だけで決める）。出す物は同じ。
+
+依頼から始めた run（start の控え r1/start.json の entry が request。--request change のほかの語の run）は、局所レビューの役を回さない
+（P1 の役の条件 not_request_entry。1 周の run は修正が入る前の周しか回らない）。そういう run で局所レビューの跡（受け付けの控え・
+局所レビューの役の起動）が無ければ、(h)(j) は no でなく not_exercised（回す形の run でなかった）と出す。本当の赤の no と見分ける
+ため。跡が在れば（修正が入った後の周で回った）いつもの判じに戻す。控えが無い・entry が change・both の run も、いつもの判じ。
 
 見る道（canary.sh の頭の (a)〜(d)）と、通ったと言う決まり:
 - (a) parallel（別のファイルの 2 項目以上の並べ）: no の時は、TDD の輪が振り分けの後に並べなかった理由（盤面の trace の
@@ -57,19 +63,22 @@ canary-fixture-units/ から始める run、large は測りの canary-request-la
   （並べの周の目録）と修正役の枝の数（fix_lanes_planted）と枝の輪の同時の最大、切った機能（start の控えの features_off）と機能ごとの実効の値（features。既定と全部 on を見分ける）、全体の分と
   費用（spend と同じ）。通ったと言う決まり: 結末が fixed で、切っていない枝の機能（tdd_lanes・fix_lanes）はどれも枝 2 本以上が
   同時に 2 本以上走った。報告の結末が無ければ no、ほかは attempted
-- (h) record_output（記録のフック。読むだけで終了コードには数えない）: 局所レビューの受け付けが周ごとに残す控え
+- (h) record_output（記録のフック。--request change の時だけ終了コードに数える）: 局所レビューの受け付けが周ごとに残す控え
   （diverted.LENS_FILE）が fork のレンズを見ていない（unseen）と書いたのに、この run の包みの記録 outputs.jsonl（包みの家の
   reads/<cwd の hash>/。record-output のフックが下請けの StructuredOutput を残す。盤面を作った後の行）が無ければ no（フックが
   起きていない）。ただし局所レビューの起動が全部旗 text-reply（fork に返答の道具が無く、フックは起きない形）なら attempted。
-  記録が在って戻せなかった・記録が読めないなら attempted、見ていない行が無ければ yes。控えが無ければ no
+  記録が在って戻せなかった・記録が読めないなら attempted、見ていない行が無ければ yes。控えが無ければ no（依頼から始めた run なら
+  not_exercised。上）。--request change の終了コードは yes だけを通す: attempted は text-reply の形でも、fork のレンズの所見が
+  局所レビューに届かなかった（または記録が読めず確かめられなかった）ことなので、通ったと言わない
 - (i) cold_new（報告の初見の読み手の会話。読むだけで終了コードには数えない）: 包みの起動の記録のうち report-write-cold の起動が
   どれも新しい会話（session.mode が new）なら yes。書き手の会話を継いだ起動が在る・起動が無い・記録が読めないなら no
-- (j) text_reply（返答の契約。読むだけで終了コードには数えない）: 包みの起動の記録のうち局所レビューの役（local-review）の起動が
+- (j) text_reply（返答の契約。--request change の時だけ終了コードに数える）: 包みの起動の記録のうち局所レビューの役（local-review）の起動が
   どれも旗 text-reply（fence.text_reply。包みが schema を子に渡さず、本文で受けて確かめ、合わなければ同じ会話で出し直させる。
   .shared/core/adapter.py の頭の 21）で、包みの家の replies/<cwd の hash>.jsonl（adapter.replies_path）が起動ごと（pid）に
   決めを持ち、返答の道具が残った跡（kind native か、その起動の会話の outputs.jsonl の行）が無ければ yes。出し直しを使い切った
   （gave_up）・誤りの result（error）・決めの無い起動・包みが拒んだ起動（mode refused。旗の有無を数えない）が在れば attempted。
-  旗の無い起動・返答の道具の跡が在る・子を起こした起動が無い・記録が読めないなら no
+  旗の無い起動・返答の道具の跡が在る・子を起こした起動が無い・記録が読めないなら no（起動が無いのが依頼から始めた run なら
+  not_exercised。上）
 - (k) lane_chain（修正役の並べの 1 本の枝が 2 つ以上の項目を順に直したか。canary-request-lanes2.json の狙い。run 97fd532f）: 植えた枝
   （trace の fix_lanes_planted の items）のうち項目が 2 つ以上の枝と、締めの行（fix_lanes_settled の outcomes）の項目ごとの結末を出す。
   通ったと言う決まり: 2 項目以上の枝が在り、その枝の 2 つ目からの項目が全部 merged（項目の頭から照らして当たった）。2 項目以上の枝が
@@ -82,7 +91,8 @@ tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から no
 取れない節の名と理由（Archon が costUsd を source unavailable で記録した節。和に入らないので、和は下限）、出来事の最初から
 最後までの分、差分が変えたファイル。
 
-終了コード: 0 = (a)(b)(c)（--request fix なら (e) も。--request units は (f) だけ・--request large は (g) だけ・--request lanes2 は (k) だけ）が全部 yes・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・
+終了コード: 0 = (a)(b)(c)（--request fix なら (e) も。--request units は (f) だけ・--request large は (g) だけ・--request lanes2 は (k) だけ・
+--request change は (h)(j) だけ）が全部 yes（attempted・not_exercised は yes でない）・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・
 run が無い（標準エラーに 1 行）。
 出力は辞書を書いた順（同じ入力なら同じ出力）。時刻は記録の物だけを使う。
 """
@@ -120,6 +130,8 @@ import scopes  # noqa: E402    周の作業ファイルを全部の周と scope 
 import tddlanes  # noqa: E402  合わせの結末の語（UNION・CLASH・SEMANTIC）
 
 YES, ATTEMPTED, NO = "yes", "attempted", "no"
+NOT_EXERCISED = "not_exercised"   # (h)(j): 依頼から始めた run で、局所レビューを回す形でなかった（no と見分ける）
+REQUEST_ENTRY = entry.ENTRIES[0]   # start の控えの entry のうち、依頼だけから始めた run（request）
 LOCAL_AGENT = "local_agent"
 TASK_ENDS = ("completed", "failed", "stopped")
 NODE_ENDS = ("node_completed", "node_failed")
@@ -136,9 +148,10 @@ ANSWER_LANE = re.compile(r"plan-answer-lane-(\d+)")   # 枝の答えの節（印
 PLANNER_NODES = ("plan", "plan-revise")   # 修正案の役の会話を起こす・継ぐ節（印の名）
 LAUNCHES = ("adapter", "launches")   # 利用の家の下の包みの起動の記録の置き場（adapter.launches_path）
 CONFLICT_PHASE = "conflict"   # TDD の輪の呼びの段の語のうち、食い違いの申し出（tddloop の step が積む calls の phase）
-# canary.sh の --request の語と、終了コードを決める道（tdd は (a)〜(c)・fix は (e) も・units は (f) だけ）
+# canary.sh の --request の語と、終了コードを決める道（tdd は (a)〜(c)・fix は (e) も・units は (f) だけ・change は (h)(j) だけ）
 REQUESTS = {"tdd": ("a_parallel", "b_overlap", "c_consult"), "fix": ("a_parallel", "b_overlap", "c_consult", "e_fix_lanes"),
-            "units": ("f_item_units",), "large": ("g_measure",), "lanes2": ("k_lane_chain",)}
+            "units": ("f_item_units",), "large": ("g_measure",), "lanes2": ("k_lane_chain",),
+            "change": ("h_record_output", "j_text_reply")}
 # 測り（(g)）の段: include（節の名の頭の <include>__）ごとの段。include の外の線の節（start・h-*・report など）は段 LINE_STAGE で、
 # run の全体に散るので分は区間の和。修正の include（FIX_SCOPES）の中は、さらに TDD の輪の段（TDD_TOP）と修正役の段（FIX_TOP）を
 # 外の輪の節の名で分けて出す
@@ -733,6 +746,22 @@ def stages(events: list, key=stage_of) -> list:
     return out
 
 
+def start_entry(board: pathlib.Path) -> str:
+    """start の控え（r1/start.json）の入口の形（entry.ENTRIES の語。無い・読めなければ ""）"""
+    doc = _json(board / "r1" / "start.json")
+    got = doc.get("entry") if isinstance(doc, dict) else None
+    return got if isinstance(got, str) else ""
+
+
+def unexercised(board: pathlib.Path, hook: dict, launch_rows: list | None) -> dict | None:
+    """依頼から始めた run で局所レビューの跡（受け付けの控え・局所レビューの役の起動。拒んだ起動も）が無ければ、(h)(j) に置く
+    not_exercised の判じ。ほかは None（いつもの判じ）"""
+    if start_entry(board) != REQUEST_ENTRY or hook["rounds"] or any(r.get("node") == LOCAL_REVIEW for r in launch_rows or []):
+        return None
+    return {"status": NOT_EXERCISED, "why": f"依頼から始めた run（start の控えの entry が {REQUEST_ENTRY}）で、局所レビューは回らない"
+                                            "（P1 の役の条件 not_request_entry。変更から入る run は canary.sh --request change）"}
+
+
 def features_off(board: pathlib.Path) -> list:
     """start の控え（r1/start.json）の切った機能の語（無い・読めなければ []）"""
     doc = _json(board / "r1" / "start.json")
@@ -854,6 +883,9 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
     h, hook = lens_hook(board, outputs_rows, all_text_reply(launch_rows))
     i, cold = cold_launches(launch_rows)
     j, replied = text_reply(launch_rows, run_replies(launches, board), outputs_rows)
+    idle = unexercised(board, hook, launch_rows)
+    if idle:
+        h, j = idle, dict(idle)
     k, chain = lane_chain(trace)
     f, units_run = item_units(board, items, trace, events)
     spent, done = spend(events), outcome(board)

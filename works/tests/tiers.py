@@ -179,6 +179,7 @@ HEAVY = frozenset({
     "test_use",             # 起動の殻 dev/use.sh: 偽の Archon で殻を子で起こす・answer と approve が切り離しの後に 1 秒待つ・眠る子を切り離して残す（プロセスの木）
     "test_use_homes",       # 既定の家を clone ごとに分けた後の家をまたぐ面: 偽の Archon・herdr で use.sh を子で起こす（対象は種の git の写し）
     "test_tdd_suite",       # TDD の実行器 dev/tdd-suite.sh: uv run で本物の pytest を起こす（偽の小さな試験だけを回す）
+    "test_canary_sh",       # canary の殻 dev/canary.sh が対象を作って use.sh を起こす形: 試験ごとに canary.sh が対象の git を作る（git init・commit・裸の origin への push）・use.sh は偽の sh
 })
 
 TIERS = {"fast": FAST, "heavy": HEAVY}
