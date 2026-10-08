@@ -14,7 +14,8 @@
 - 盤面の材料（空ならこの run に盤面は無い）: `$judge-brief.output.materials_file`
   - 空でなければ、**依頼の次に Read せよ**。機械がこの run の盤面から描いた、本線の判定と同じ入力——凍結した元の目的の文・素材（15 欄。起動しなかった欄は status と reason がそう言う）・P1 の目の所見・先行議論の突合（決着済み論点）・目的の監査・人の依頼（この周に積まれた分）・対象差分のパス・観点の正本のパス——と、末尾に本線の問いの台帳の決まり（下の「問いの台帳」）が並ぶ。
   - 材料の末尾に「前の run で最後まで通らなかった物」の節が在れば、前の run で受け付けが最後まで拒んだ理由と独立設計の目の作り直しの理由。**直す穴ではない**（直す穴は依頼の findings と上の所見だけで、この節の行から単位を作るな）。同じ所で落ちない返答を出すための注意として読め。
-  - **凍結した目的の文の外に単位を広げるな**（目的の外で見つけた既存の欠陥は下の問いの台帳の `kind: split`）。素材と P1 の所見は依頼と同じく 1 つ残らず突合し、反証の対象にしろ。
+  - **凍結した目的の文の外に単位を広げるな**（修正が露呈させた目的の外の既存の欠陥は下の問いの台帳の `kind: split`）。素材と P1 の所見は依頼と同じく 1 つ残らず突合し、反証の対象にしろ。
+  - 材料の所見の行（`where` と `text` を持つ行。P1 の目の所見と、この周に積まれた依頼の行）のうち、反証で死なずに残ったが凍結した目的の外にある物は、単位にも split にもせず、`framing` の散文に名だけ残して済ませるな。1 行ずつ `out_of_purpose` に `{source, where, why_outside}` で名指せ——`source` は材料のどの節・どの目の行か（材料の見出しと目の名）、`where` はその行の `where` を一字も変えずに写した物、`why_outside` は凍結した目的の外とした理由（10 字以上）。同じ `where` の材料の行が 2 つ以上在る時だけ、運ぶ行の `text` の頭を一字も変えずに写した `text` も書け。受け付けは `where`（と `text` の頭）を盤面の材料の行に当て、当たらない・2 行以上に当たるなら拒む。名指した行は、行の全部の欄（`where`・`text`・`mechanism`・`measured`・`false_positive_if`）のまま次の run の依頼の下書きに運ばれる（この run では直さない）。目的の外の所見が無ければ空の配列にせよ。
   - 素材のどれかが明示返答（有無・または「対象外」）を欠いているなら、手順の 1〜9 に入らず `materials_missing` にその欄名を返せ（無言のスキップを「なし」と誤認させない。受け付けは `materials_missing` が空でない返答を拒む）。
 - 対象リポジトリ: 今の作業ディレクトリ。読むのは作業ツリーの今の姿（受け付けは、依頼を受け付けた時から作業ツリーが変わっていないことを確かめる）。
 - 前の回の受け付けが拒んだ理由を書いたファイル（1 回目は空）: $LOOP_PREV.judge-accept.output.reason_file
@@ -65,7 +66,7 @@
 
 ## 出力
 
-output_format の schema どおりの JSON を 1 つ返せ。欄: `units`（key・label・disposition・reason・origin_analysis・why_chain・prescriptions・class_query）・`framing`（根本フレーミング）・`one_shot`・`one_shot_closes`・`questions`・`precedents`。`materials_missing` は、盤面の材料が無いか、材料の全部の欄が明示返答を持つなら空の配列にせよ（欠けがあれば上の「入力」の決まり）。このブロックに前の周の独立の目は届かないので、`carried_r1` は空の配列にせよ。
+output_format の schema どおりの JSON を 1 つ返せ。欄: `units`（key・label・disposition・reason・origin_analysis・why_chain・prescriptions・class_query）・`framing`（根本フレーミング）・`one_shot`・`one_shot_closes`・`questions`・`precedents`・`out_of_purpose`（上の「入力」の決まり。無ければ空の配列）。`materials_missing` は、盤面の材料が無いか、材料の全部の欄が明示返答を持つなら空の配列にせよ（欠けがあれば上の「入力」の決まり）。このブロックに前の周の独立の目は届かないので、`carried_r1` は空の配列にせよ。
 
 ## 付録: 人の方針（囲みの中が本文。上の「入力」の決まりで読め）
 

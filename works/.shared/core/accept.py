@@ -44,6 +44,7 @@ if str(_GL) not in sys.path:
 import engine.util as _util  # noqa: E402
 import deltamarks  # noqa: E402
 import gatemarks  # noqa: E402
+import outpurpose  # noqa: E402
 import planmarks  # noqa: E402
 import querytest  # noqa: E402
 import script_io  # noqa: E402
@@ -144,6 +145,8 @@ def _role_schema_json(node, numbered):
     schema = _drop_plan_only_kinds(node, _strip_notes(expand_refs(graph)["nodes"][node]["schema"]))
     if node in querytest.NODES:
         schema = _strip_notes(querytest.with_examples(schema))
+    if node in outpurpose.NODES:
+        schema = _strip_notes(outpurpose.with_field(node, schema))
     if node in gatemarks.NODES:
         schema = _strip_notes(gatemarks.with_marks(node, schema))
     if node in planmarks.NODES:

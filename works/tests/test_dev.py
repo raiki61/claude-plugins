@@ -637,6 +637,31 @@ class TestDevShell(unittest.TestCase):
             self.assertNotIn("works_rc", r.stdout)
             self.assertNotIn("差分だけを書き直す", r.stdout)
 
+    def test_show_run_points_at_next_request_and_its_answer_drafts(self):
+        """盤面に次の run の依頼の下書き next-request.json が在れば、報告の行の下にそのパスを出し、答えの下書き（draft の行）が
+        在ればその件数と使い方を添える（無人の run が関所で止まった時。実の利用者の run ac9e02ab）。無ければ出さない"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            wt = tmp / "wt"
+            wt.mkdir()
+            board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
+            board.mkdir(parents=True)
+            r = self._show_run(tmp, wt)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("次の run の依頼の下書き", r.stdout)
+            nxt = board / "next-request.json"
+            nxt.write_text(json.dumps({"findings": [], "prior_failures": []}), encoding="utf-8")
+            r = self._show_run(tmp, wt)
+            self.assertIn(f"次の run の依頼の下書き: {nxt}", r.stdout)
+            self.assertNotIn("答えの下書き", r.stdout)
+            nxt.write_text(json.dumps({"findings": [], "prior_failures": [], "answers": [
+                {"question": "q", "text": "continue: 通す", "draft": True, "source": "修正案の行の recommend"}]}),
+                encoding="utf-8")
+            r = self._show_run(tmp, wt)
+            line = next(x for x in r.stdout.splitlines() if x.startswith("次の run の依頼の下書き"))
+            self.assertIn("答えの下書き 1 件", line)
+            self.assertIn("draft と source", line)
+
     def test_archon_sh_installs_borrowed_skills(self):
         """archon.sh は exec の前に、選んだ物だけの設定を隔離した CLAUDE_CONFIG_DIR に組む（dev/toolset.py）。
         superpowers の 5 つのスキルは両方の道で skills/ へ写す（Archon の validate も同じ置き場でスキルを探す）。

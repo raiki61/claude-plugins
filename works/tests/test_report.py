@@ -1215,6 +1215,29 @@ class NextRequestCase(ReportBase):
         reds = [i for i in items if i["text"].startswith(report.TESTS_TEXT)]
         self.assertEqual(reds, [{"where": RED["log"], "text": f"{report.TESTS_TEXT}赤（ログを読む）"}])
 
+    def test_out_of_purpose_rows_are_carried_and_named(self):
+        """判定が目的の外と名指した材料の行（outpurpose の控え）は、全部の欄のまま next-request.json の findings に載り、その依頼は
+        v1 の受け付けを通り、報告の冒頭 1 が次の run に渡す物の下に 1 件ずつ名指す（実の利用者の run f57a5374）"""
+        import outpurpose
+        self.begin()
+        self.without_node_env()
+        row = {"where": "app/compute_logs/manager.py:27-58", "text": "[block] 親の __init__ を呼ばない",
+               "mechanism": "親のメソッドが未初期化の属性を読む", "measured": "AttributeError を確かめた",
+               "false_positive_if": "画面がその問いを投げない版"}
+        oop = {"source": "局所の findings（code-reviewer）", "where": row["where"], "why_outside": "凍結した目的は Manifest の世代の順"}
+        outpurpose.save(self.board, 1, [oop], [{**row, "from": "p1.local_review"}])
+        out, _, h = self.build()
+        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))["findings"]
+        got = [i for i in items if i["where"] == row["where"]]
+        self.assertEqual(len(got), 1, items)
+        self.assertEqual({k: got[0][k] for k in ("mechanism", "measured", "false_positive_if")},
+                         {k: row[k] for k in ("mechanism", "measured", "false_positive_if")})
+        self.assertIn(outpurpose.MARK, got[0]["text"])
+        with tempfile.TemporaryDirectory(dir=linekit.work_home()) as d:
+            self.assertEqual(accept.check_request(items, pathlib.Path(d), "次の run"), {"ok": True, "reason": ""})
+        self.assertIn(outpurpose.REPORT_HEAD, h[H1])
+        self.assertIn(f"{row['where']}（出どころ: {oop['source']}", h[H1])
+
     def test_next_request_keys_roundtrip(self):
         """穴の key に引用符・日本語・$( → next-request.json の text に 1 バイトも同じで在る"""
         _, keys = self.declared_board(ODD_KEY)

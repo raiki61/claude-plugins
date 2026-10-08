@@ -238,6 +238,18 @@ nodes:
                     reason: {type: string, minLength: 4}
                     searched: {type: string}
                     undecided_because: {type: string}
+              # 凍結した目的の外として単位にしなかった材料の所見（outpurpose.with_field。受け付けが外して材料の行に当て、次の run の依頼に運ぶ）
+              out_of_purpose:
+                type: array
+                items:
+                  type: object
+                  required: [source, where, why_outside]
+                  additionalProperties: false
+                  properties:
+                    source: {type: string, minLength: 1}
+                    where: {type: string, minLength: 1}
+                    why_outside: {type: string, minLength: 10}
+                    text: {type: string, minLength: 1}
         - id: judge-accept
           script: accept
           runtime: uv

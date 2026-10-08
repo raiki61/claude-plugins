@@ -446,6 +446,7 @@ def _plan_errors(b, rows: list, reply, repo) -> list:
     if not _malformed(reply):
         out += planmarks.gaps(reply, pathlib.Path(repo), exists=_start_tree(b, pathlib.Path(repo)))
         out += gatemarks.narrow_gaps(planmarks.NODE, reply)
+        out += gatemarks.recommend_gaps(planmarks.NODE, reply)
     return out + _type_lines(reply, planmarks.NODE)
 
 

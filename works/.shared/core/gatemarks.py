@@ -56,6 +56,10 @@ conflict.owed_units_but_asked が withheld で行う。写しの _owed_units は
 - quote(question)・QUOTE_NOTE: 盤面の問いの文を引用として載せる行と、関所で添える答え方の読み替えの 1 行
 - head3(happened, decide, push)・pushes(texts)・push_of(texts): 関所の文と報告の冒頭 3 行（起きたこと・決めてほしいこと・推し）と、推しを記録から拾う口
 - gate_text(asking, *, run_id, node, record_name): 答えを受ける関所の文（修正前の関所と仕様の関所が呼ぶ 1 つの組み立て）
+- recommend_gaps(node, reply)・recommend_of(mark): 関所の項目の行の推し recommend {answer, note, why}（実の利用者の run ac9e02ab）の
+  形の誤り（受け付けが拒む）と、形の整った推し（人に回す項目の末尾「／推し: …」に載る。照らしの _human_passed はこの尾を外す）
+- answer_drafts(b)・draft_line(drafts, next_file): 無人の run が関所で止まった項目と保留のままの台帳の問いへの答えの下書き
+  （draft: true・source つき。報告が next-request.json の answers に置き、依頼の入口 ghreads が拒む）と、報告の冒頭 1 の行
 標準ライブラリと core の answer（L1。答えの行）・converge（L3。事前審査の壁打ち。標準ライブラリだけ）だけ。
 """
 import copy
@@ -68,7 +72,11 @@ import converge
 import scopes
 
 MARKS_FILE = "gate-marks.json"
-FIELDS = ("decided_by", "undecided_because", "fences", "world")
+RECOMMEND = "recommend"   # 人に回す行の推し {answer, note, why}（実の利用者の run ac9e02ab。機械が読める推しが無かった）
+FIELDS = ("decided_by", "undecided_because", "fences", "world", RECOMMEND)
+RECOMMEND_ANSWERS = ("continue", "stop")
+RECOMMEND_WORDS = {"continue": "通す", "stop": "止める"}
+RECOMMEND_MIN = 4
 # 決め手が在っても人に聞く行の印（外への書き込み・取り消せない操作・方針の文書の変更・守り（資格・sandbox）を広げる・web の結果が
 # 新しい疑いを出した）
 FENCES = ("external_write", "irreversible", "policy_doc", "widen_protection", "web_doubt")
@@ -81,6 +89,12 @@ MARK_SCHEMA = {
                "note": "当たる柵の印。1 つでも在れば決め手が在っても人に聞く"},
     "world": {"type": "string",
               "note": "人に回す行で、世の中の同じ問題の解き方を当たった結果の 1 文（出どころと割れ方、当たらなかったならその理由）"},
+    RECOMMEND: {"type": "object", "additionalProperties": False, "required": ["answer", "note", "why"],
+                "properties": {"answer": {"type": "string", "enum": list(RECOMMEND_ANSWERS)},
+                               "note": {"type": "string", "minLength": RECOMMEND_MIN},
+                               "why": {"type": "string", "minLength": RECOMMEND_MIN}},
+                "note": "人に回す行の推し: answer＝continue（通す）か stop（止める）・note＝関所の一言に写せる通す範囲と条件か止める理由・"
+                        "why＝推す理由。人が答えるまでの下書きで、機械は関所に答えない"},
 }
 # 狭めない案を探した結果（持ち主の方針 ADR 0002「今ある能力と使い方を減らさない」）。決め手の欄と同じく役の型にだけ足して受け付けが外すが、
 # 関所を通す条件（decided）には使わない。修正案の narrows の行では欠け・短いを受け付けが拒み、事前審査の穴では示せる時だけ書く
@@ -97,7 +111,10 @@ _RULE = ("に、決め手の欄を書け。decided_by＝決め手の出どころ
          "決め手が無い・決まらない・柵に当たる行は今までどおり人に聞く。"
          "人に回す前に、世の中が同じ問題をどう解いているかを当たれ——多くは既に解かれている（標準仕様・著名 OSS・公式の文書の定石。"
          "web を引くかは任せる）。定石で 1 つに決まるなら、その出どころを decided_by に書いて自分で決めよ。それでも人に回す行は、"
-         "world＝当たった結果の 1 文（出どころと割れ方、当たらなかったならその理由）を書け。関所の項目にそのまま載る")
+         "world＝当たった結果の 1 文（出どころと割れ方、当たらなかったならその理由）を書け。関所の項目にそのまま載る。"
+         "人に回す行には recommend＝お前の推す答え 1 つ {answer: continue（通す）か stop（止める）, note: 関所の一言にそのまま写せる"
+         "通す範囲と条件か止める理由, why: 推す理由} も書け。関所の項目の推しとして載り、無人の run が関所で止まった時は次の run の"
+         "依頼の下書きの答えの下書きになる（人が見直すまで使われない。機械は関所に答えない）")
 _NO_NARROW_PLAN = ("\n\n狭めない案を先に探せ: narrows を書く前に、その狭めを避ける形——直したい場合だけに新しい動きを当て、当てられない"
                    "場合（記録の欄が無い・数えられない・道具が違う等）は BASE の動きを残し、黙らずに報告か標準エラーで名指す形——を"
                    "当たれ。在ればそれを案に採り、その行を narrows に書かない。無い時だけ narrows に書き、各行に "
@@ -174,6 +191,7 @@ HAPPENED, DECIDE, PUSH = "起きたこと: ", "決めてほしいこと: ", "推
 # 推しは機械が作らない: 判定の役が問いの reason に書いた推しだけを拾い、無ければこの言い方（ask_text の項目と同じ）
 NO_PUSH = "判定の役が書いていない"
 PUSH_IN = re.compile(r"推し\s*[:：]\s*([^／\n]+)")
+PUSH_TAIL = re.compile(r"／推し: [^／\n]*$")   # 関所の項目の末尾の推しの尾（_push が付ける形）
 # 関所の項目の種類（写しの RL の human_gate と gatemarks の問いの kinds）→ 平易な言い方
 KIND_WORDS = {"regression": "今ある能力を減らす・狭める変更", "policy": "人の方針とぶつかる変更",
               "policy_changed": "人の方針の文書が変わった", ASK_KINDS[0]: "判定の役が人に聞くと保留にした問い",
@@ -291,6 +309,38 @@ def narrow_gaps(node: str, reply: dict) -> list:
     return out
 
 
+def _recommend_gap(got) -> str:
+    """recommend の形の誤りの文（正しければ空）"""
+    if not isinstance(got, dict):
+        return f"{RECOMMEND} が {{answer, note, why}} の object でない"
+    extra = sorted(set(got) - {"answer", "note", "why"})
+    if extra:
+        return f"{RECOMMEND} の知らない欄 {extra}"
+    if got.get("answer") not in RECOMMEND_ANSWERS:
+        return f"{RECOMMEND}.answer が {'・'.join(RECOMMEND_ANSWERS)} のどれでもない（{got.get('answer')!r}）"
+    for k in ("note", "why"):
+        if not (isinstance(got.get(k), str) and len(got[k].strip()) >= RECOMMEND_MIN):
+            return f"{RECOMMEND}.{k} が {RECOMMEND_MIN} 字に満たない（文字列で書く）"
+    return ""
+
+
+def recommend_gaps(node: str, reply: dict) -> list:
+    """関所の項目の行のうち、recommend を書いたが形の崩れた行の 1 行ずつの文（書いていない行は通す。古い返答を拒まない）。
+    写しの型は欄を持たず、受け付けが盤面へ渡す前に外すので、形はここで確かめる"""
+    if node not in NODES:
+        return []
+    out = []
+    rows = _rows(node, reply)
+    pairs = ([(f"plan[{i}].narrows[{j}]", n) for i, narrows in enumerate(rows) for j, n in enumerate(narrows)]
+             if node == "p2.fix_plan" else [(f"faces[{j}]", f) for j, f in enumerate(rows)])
+    for where, row in pairs:
+        if isinstance(row, dict) and RECOMMEND in row:
+            gap = _recommend_gap(row[RECOMMEND])
+            if gap:
+                out.append(f"{where}: {gap}")
+    return out
+
+
 def _rows(node: str, reply: dict) -> list:
     """行の一覧（plan は [[narrow…]…]、plan_review は [face…]）"""
     if not isinstance(reply, dict):
@@ -366,7 +416,7 @@ def decided(mark: dict) -> bool:
 
 def _world(mark: dict) -> str:
     """人に回す行の尾: 役が決め手の欄を書いた行だけに、世界の解を当たった結果を付ける（書いていなければそう出す）"""
-    if not any(k in mark for k in FIELDS):
+    if not any(k in mark for k in FIELDS if k != RECOMMEND):
         return ""
     got = str(mark.get("world") or "").strip()
     return f"（世界の解: {got or '役が書いていない'}）"
@@ -378,20 +428,47 @@ def _no_narrow(mark: dict) -> str:
     return f"（狭めない案: {got}）" if got else ""
 
 
-def plan_gate_items(b) -> list:
-    """写しの RL の _plan_gate_items の差し替え: 同じ行を組み、決め手の在る行は項目から外して state.works.gate_passes に残す"""
-    rows = []   # (kind, 文, 決め手)
+def recommend_of(mark: dict):
+    """行の推し（形の整った recommend だけ。無い・崩れた物は None。古い盤面の控えは欄を持たない）"""
+    got = mark.get(RECOMMEND) if isinstance(mark, dict) else None
+    return got if got is not None and not _recommend_gap(got) else None
+
+
+def _push(mark: dict) -> str:
+    """人に回す行の尾: 役が推しを書いた行だけに「／推し: 通す（continue）——<note>（理由: <why>）」（PUSH_IN が拾う形で末尾に置く）"""
+    rec = recommend_of(mark)
+    if rec is None:
+        return ""
+    # 推しの文の「／」は「・」に替える（尾の区切り。PUSH_TAIL・PUSH_IN が尾の全文を読む）
+    note, why = (_squeeze(rec[k]).replace("／", "・") for k in ("note", "why"))
+    return f"／{PUSH}{RECOMMEND_WORDS[rec['answer']]}（{rec['answer']}）——{note}（理由: {why}）"
+
+
+def _gate_rows(b) -> list:
+    """修正前の関所の決め手の濾しに掛ける行 [(kind, 文, 決め手, 節)]（修正案の narrows と事前審査の人に回す種類の穴）"""
+    rows = []
     plan = b.output_of_round("p2.fix_plan", b.round) or {}
     saved = _saved(b, "p2.fix_plan")
     for i, p in enumerate(plan.get("plan") or []):
-        rows += [("regression", f"修正案 {i + 1} が狭める能力: {n['what']}——{n['why']}", _mark(n, saved, i, j))
+        rows += [("regression", f"修正案 {i + 1} が狭める能力: {n['what']}——{n['why']}", _mark(n, saved, i, j), "p2.fix_plan")
                  for j, n in enumerate(p.get("narrows") or [])]
     saved = _saved(b, "p2.plan_review")
-    rows += [(f["kind"], f"事前審査の穴 [{f['kind']}] {f['key']}: {f['why']}", _mark(f, saved, j))
+    rows += [(f["kind"], f"事前審査の穴 [{f['kind']}] {f['key']}: {f['why']}", _mark(f, saved, j), "p2.plan_review")
              for j, f in enumerate((b.output_of_round("p2.plan_review", b.round) or {}).get("faces") or [])
              if f["kind"] in b.rules.HUMAN_FACE_KINDS]
-    _record(b, [(text, m) for _, text, m in rows if decided(m)])
-    items = [(kind, text + _world(m) + _no_narrow(m)) for kind, text, m in rows if not decided(m)]
+    return rows
+
+
+def _item(text: str, mark: dict) -> str:
+    """人に回す行の関所の項目の文（世界の解・狭めない案・推しの尾つき）"""
+    return text + _world(mark) + _no_narrow(mark) + _push(mark)
+
+
+def plan_gate_items(b) -> list:
+    """写しの RL の _plan_gate_items の差し替え: 同じ行を組み、決め手の在る行は項目から外して state.works.gate_passes に残す"""
+    rows = _gate_rows(b)
+    _record(b, [(text, m) for _, text, m, _ in rows if decided(m)])
+    items = [(kind, _item(text, m)) for kind, text, m, _ in rows if not decided(m)]
     if not unattended(b):
         items += [(_ask_kind(q), ask_text(q)) for q in asks(b) if not answered(b, q)]
     item = design_item(b)
@@ -503,6 +580,72 @@ def answer_note(a: dict) -> str:
 
 def _squeeze(v) -> str:
     return " ".join(str(v or "").split())
+
+
+DRAFT_HEAD = "人の判断を待つ項目への答えの下書き"
+
+
+def _draft(question: str, text: str, source: str) -> dict:
+    return {"question": question, "text": text, "draft": True, "source": source}
+
+
+def _gate_draft(text: str, mark: dict, node: str) -> dict:
+    """関所の項目 1 つの下書き: 推し（recommend）が在ればその答え、無ければ狭めない案・世界の解（人が答えを書く材料）"""
+    who = named(node)
+    rec = recommend_of(mark)
+    if rec is not None:
+        return _draft(text, f"{rec['answer']}: {_squeeze(rec['note'])}（推す理由: {_squeeze(rec['why'])}）", f"{who}の行の {RECOMMEND}")
+    parts = [(NO_NARROW, "狭めない案", mark.get(NO_NARROW)), ("world", "世界の解", mark.get("world"))]
+    parts = [(k, w, _squeeze(v)) for k, w, v in parts if _squeeze(v)]
+    if parts:
+        return _draft(text, "（推しを役が書いていない。下の案から人が答えを書く）"
+                      + "／".join(f"{w}: {v}" for _, w, v in parts), f"{who}の行の {'・'.join(k for k, _, _ in parts)}")
+    return _draft(text, "（推しも狭めない案も世界の解も役が書いていない——人が答えを書く）", f"{who}の行（決め手の欄が無い）")
+
+
+def _ask_draft(q: dict) -> dict:
+    """台帳の問い 1 つの下書き（question は問いの key。見直して draft を外せば次の run の依頼の answers がこの問いに当たる）"""
+    key = str(q.get("key") or "")
+    got = [m.strip() for m in PUSH_IN.findall(str(q.get("reason") or "")) if m.strip() and m.strip() != NO_PUSH]
+    if got:
+        return _draft(key, got[0], f"{ASK_HEAD} {key} の理由の推し（判定の役）")
+    opts = "・".join(str(o) for o in q.get("options") or []) or "（無し）"
+    return _draft(key, f"（推しを判定の役が書いていない。選択肢: {opts}）", f"{ASK_HEAD} {key} の選択肢")
+
+
+def answer_drafts(b) -> list:
+    """無人の run が人の判断を待つ項目を残した時の答えの下書き [{question, text, draft: True, source}]（実の利用者の run ac9e02ab。
+    人の居る run は関所で答えるので空）: 修正前の関所に無人の殻が stop を答えた周の項目ごとに 1 行（推しが在ればその答え、無ければ
+    狭めない案・世界の解。入力 design_only の設計だけの行は除き、事前審査の壁打ちが止まった行は載せる。控えに当たらない項目は文の
+    推しの尾を拾う）と、関所に載せずに保留のままの台帳の問いごとに 1 行（key と理由の推し。関所で止まらなかった run でも、保留の
+    問いが残れば載る）。機械は関所にも問いにも答えない——下書きは依頼の入口が拒むので、人が見直してから使う"""
+    if not unattended(b):
+        return []
+    rows = {_item(text, m): (text, m, node) for _, text, m, node in _gate_rows(b)}
+    out = []
+    stops = [h for h in (b.record.get("process") or {}).get("human_items") or []
+             if isinstance(h, dict) and h.get("node") == GATE_NODE and h.get("answer") == "stop" and h.get("round") == b.round]
+    for a in (stops[-1].get("asked") or []) if stops else []:
+        if not isinstance(a, str) or a.startswith(DESIGN_ONLY_ITEM):
+            continue
+        if a in rows:
+            out.append(_gate_draft(*rows[a]))
+            continue
+        push = PUSH_IN.findall(a) if PUSH_TAIL.search(a) else []
+        out.append(_draft(PUSH_TAIL.sub("", a), push[-1].strip(), f"{named(GATE_NODE)}の項目の文の推し") if push
+                   else _gate_draft(a, {}, GATE_NODE))
+    out += [_ask_draft(q) for q in asks(b) if not answered(b, q)]
+    return out
+
+
+def draft_line(drafts: list, next_file: str) -> str:
+    """報告の冒頭 1 の 1 行（下書きが無ければ空）"""
+    if not drafts:
+        return ""
+    return (f"{DRAFT_HEAD}: {len(drafts)} 件——次の run の依頼の下書き{f' {next_file}' if next_file else ''} の answers に置いた"
+            "（draft: true・出どころ source つき。機械は答えていない。見直して、台帳の問いの行（question が問いの key）は採るなら draft と"
+            " source を消し、採らないなら行を消す。関所の項目の行（question が関所の項目の文）は次の run の関所の continue の一言の材料で、"
+            "依頼ではどの問いにも当たらないので、一言に写してから行を消す）")
 
 
 def unmatched_answer_lines(b) -> list:
@@ -706,8 +849,9 @@ def _human_passed(b) -> dict:
         for a in h.get("asked") or []:
             m = NARROW_HEAD.match(a) if isinstance(a, str) else None
             f = FACE_HEAD.match(a) if isinstance(a, str) and not m else None
-            if m or f:
-                out.setdefault(("regression" if m else f.group(1), a[(m or f).end():]), h.get("round"))
+            if m or f:   # 推しの尾（_push。いつも末尾）は外して照らす（R4 の自由文に推しまで写させない）
+                body = PUSH_TAIL.sub("", a[(m or f).end():])
+                out.setdefault(("regression" if m else f.group(1), body), h.get("round"))
     return out
 
 

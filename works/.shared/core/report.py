@@ -17,7 +17,9 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base, aggregate}]
-- next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く）
+- next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く。
+  判定が目的の外として単位にしなかった材料の所見は材料の行の任意の欄 mechanism・measured・false_positive_if も持つ）
+- next_doc(b, items, prior) -> next-request.json の中身 {findings, prior_failures, answers?}（answers は無人の run の答えの下書き）
 - prior_failures(b, left=None) -> この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]（次の依頼の prior_failures）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
 - branch_rows(b)・eye_ties(b) -> 差分の審査の穴と独立の目が場所を挙げた行の枝の名札の行（線の木の段 4a。冒頭 1 と最後の関所の文が同じ行を出す。穴も行も無ければ空）
@@ -66,6 +68,7 @@ import diverted  # noqa: E402
 import gatemarks  # noqa: E402
 import impact  # noqa: E402
 import libdocs  # noqa: E402
+import outpurpose  # noqa: E402
 import querytest  # noqa: E402
 import recount  # noqa: E402
 import replan  # noqa: E402
@@ -640,7 +643,8 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     盤面が人に聞いたままの問い（独立の目の r4.human_gate など。この run では答えを受けないので次の run へ渡す。計画 P1 Task 33 の (b)。
     最後の関所の答え・読めなかったも、その行の後ろに添える）・
     食い違いの申し出を人に回して直さずに残した単位（conflict.asked: ask_human と、案の直しを諦めた fix_plan_item。裁定が外した
-    単位 conflict.ruled_units ごとに 1 行。裁定の文は字のまま）"""
+    単位 conflict.ruled_units ごとに 1 行。裁定の文は字のまま）・
+    判定が凍結した目的の外として単位にしなかった材料の所見（outpurpose.next_items。材料の行の全部の欄を運ぶ印つきで）"""
     items = []
     for n, nid in enumerate(REFIX_NODES, 1):
         out = _output(b, nid) or {}
@@ -669,6 +673,7 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
         | {k for k, _ in asked} | settled_keys
     items += carry_left(left, owned, tests)
     items += lens_next_items(b)
+    items += outpurpose.next_items(b.dir)
     req = (b.loop_state or {}).get("rejudge_requested") or {}
     if isinstance(req, dict) and isinstance(req.get("text"), str) and req["text"]:
         items.append({"where": "判定（再審されずに残った異議）", "text": req["text"]})
@@ -757,7 +762,8 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     clean が消したファイル・レンズ・仕組みの異常・残りの件数（always_rows。結末に依らず常に）・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・事前審査の壁打ちの往復（converge.lines）・
     人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・判定の単位の裏取り（verify_lines）・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
-    申し送りの下書きと外した範囲・次の run に渡す物の件数。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
+    申し送りの下書きと外した範囲・次の run に渡す物の件数と、その下に判定が目的の外として単位にしなかった所見（outpurpose.report_lines）と
+    無人の run の答えの下書きの件数（gatemarks.draft_line）。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
     if outcome == "record_invalid":
         lines.append(f"記録が検証器を通らない（exit {gate.get('exit')}・受理 {report_accepts(b)}・今の周の記録が"
@@ -841,6 +847,10 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     n = len(next_items or [])
     lines += always_rows(b, left=left)
     lines.append(f"次の run に渡す物: {n} 件" + (f"（{next_file}）" if next_file else ""))
+    lines += outpurpose.report_lines(b.dir)
+    drafts = gatemarks.draft_line(gatemarks.answer_drafts(b), next_file)
+    if drafts:
+        lines.append(drafts)
     return lines
 
 
@@ -1648,7 +1658,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     prior = prior_failures(b, left)
     req_p, rep_p, prior_p = board_dir / NEXT_REQUEST_FILE, board_dir / REPORT_FILE, board_dir / PRIOR_FAILURES_FILE
     _write_json(prior_p, prior)
-    _write_json(req_p, {"findings": items, "prior_failures": prior})
+    _write_json(req_p, next_doc(b, items, prior))
     dead = _no_turn_exits(b, (b.state.get("inputs") or {}).get("cwd") or ".")
     if dead:   # 即時の死の result は Archon の出来事に載らないので、全文を盤面にも残す（head_reads の行から辿る）
         _write_json(board_dir / NO_TURN_FILE, dead)
@@ -1678,6 +1688,16 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
             "prior_failures_file": str(prior_p),
             "tests_green": green, "validator_exit": gate["exit"], "ai_report_go": ai_go,
             "export_input": {"outcome": outcome, "report_file": str(rep_p), "board_dir": str(board_dir)}}
+
+
+def next_doc(b, items: list, prior: list) -> dict:
+    """次の run の依頼の下書き {findings, prior_failures}。無人の run が人の判断を待つ項目（関所で止めた項目・保留のままの問い）を残せば、答えの下書き
+    （gatemarks.answer_drafts。draft: true・source つき。依頼の入口が拒むので人が見直してから使う）を answers に足す"""
+    doc = {"findings": items, "prior_failures": prior}
+    drafts = gatemarks.answer_drafts(b)
+    if drafts:
+        doc["answers"] = drafts
+    return doc
 
 
 def final_result(machine: dict, ai: dict | None) -> dict:
