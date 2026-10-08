@@ -589,6 +589,7 @@ class LinekitCase(unittest.TestCase):
 # run_ci は偽の素材を渡さずに role_needed を返し、start の返りの ci_role_go が真になる（任せ先の役のブロックは blk-ci。tests/test_blk_ci.py）
 import subprocess  # noqa: E402
 
+import adapter  # noqa: E402
 import ticket  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "start.py"
@@ -1033,7 +1034,7 @@ class StartCase(StartCaseBase):
                 with self.assertRaises(entry.InputRefused):
                     self.start(repo, raw)
                 self.assertFalse(self.board.exists())
-                self.assertIsNone(ticket.read(repo))
+                self.assertIsNone(adapter.read_ticket(repo))
 
     def test_start_records_request_and_entry(self):
         repo = self.seed(declared=True)
@@ -1053,7 +1054,7 @@ class StartCase(StartCaseBase):
     def test_start_writes_ticket(self):
         repo = self.seed(declared=True)
         self.start(repo)
-        t = ticket.read(repo)
+        t = adapter.read_ticket(repo)
         self.assertEqual(t["run_id"], "run-7")
         self.assertEqual(t["board"], str(self.board))
         self.assertEqual(t["cwd"], str(repo))
@@ -1161,7 +1162,7 @@ class StartCase(StartCaseBase):
             with self.assertRaises(entry.InputRefused) as cm:
                 self.start(repo)
         self.assertIn("2 度とも", str(cm.exception))
-        self.assertIsNone(ticket.read(repo))
+        self.assertIsNone(adapter.read_ticket(repo))
 
     def test_start_idempotent(self):
         """同じ置き場で呼び直しても盤面を作り直さず、同じ返り（Archon の再開）"""
@@ -1519,7 +1520,7 @@ class StartScriptCase(StartCaseBase):
         got = json.loads(lines[0])
         self.assertTrue(got["ok"])
         self.assertIn("判定から", got["head_line"])
-        self.assertEqual(ticket.read(repo)["run_id"], "wf-1")
+        self.assertEqual(adapter.read_ticket(repo)["run_id"], "wf-1")
         self.assertTrue((self.tmp / "art" / "board" / "state.json").is_file())
         self.assertFalse([*CORE.rglob("__pycache__"), *(ROOT / "darkfactory").rglob("__pycache__")])
 

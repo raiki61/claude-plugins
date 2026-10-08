@@ -259,6 +259,7 @@ import fixshape
 import graphmap  # L1（工程の地図の部品。13 の差し込みの表の graph_map が読む）
 import node_marker  # L1（印の文法の正本）
 import replycontract  # L2（21 の返答の契約。写しの engine の型検査を使う）
+import ticket  # L2（包みの家・切符の置き場・git の env の外し物の 1 か所）
 import tree_run
 import unittrees  # L1（単位の worktree の守りの参照の名。live_worktrees が下請けの書く所を見分ける）
 
@@ -423,17 +424,8 @@ def _stream_in(argv: Sequence[str]) -> bool:
         return False
 
 
-def home(env=None) -> pathlib.Path:
-    """包みの家: ${WORKS_ADAPTER_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/works/adapter}（ticket.home と同じ。空は無いと同じ）"""
-    env = os.environ if env is None else env
-    if env.get(ENV_HOME):
-        return pathlib.Path(env[ENV_HOME])
-    state = env.get("XDG_STATE_HOME") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".local", "state")
-    return pathlib.Path(state) / "works" / "adapter"
-
-
-def cwd_key(cwd) -> str:
-    return hashlib.sha256(os.path.realpath(str(cwd)).encode("utf-8")).hexdigest()[:16]
+home = ticket.home          # 包みの家（切符と同じ 1 か所）
+cwd_key = ticket.cwd_key    # cwd の realpath の sha256 の先頭 16 桁（切符・記録の置き場の名）
 
 
 def _home_or(home_dir) -> pathlib.Path:
@@ -842,13 +834,11 @@ def _with_hook(argv: List[str], command: str, protected: Sequence[str],
 
 
 # --- 起動ごとの柵 ---------------------------------------------------------------------------------------------
-GIT_ENV_DROP = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")   # ticket.py と同じ（外から漏れると別のリポジトリを見る）
+GIT_ENV_DROP = ticket.GIT_ENV_FALLBACK   # 外から漏れると別のリポジトリを見る（切符と同じ一覧）
 _ALIASES = (("/private/var", "/var"), ("/private/tmp", "/tmp"), ("/private/etc", "/etc"))
 
 
-def ticket_path(cwd, home_dir=None) -> pathlib.Path:
-    """切符の置き場（ticket.ticket_path と同じ式）"""
-    return _home_or(home_dir) / "tickets" / f"{cwd_key(cwd)}.json"
+ticket_path = ticket.ticket_path   # 切符の置き場（ticket.py の 1 か所）
 
 
 class BadTicket(Exception):
@@ -856,7 +846,7 @@ class BadTicket(Exception):
 
 
 def read_ticket(cwd, home_dir=None) -> Optional[dict]:
-    """切符（ticket.read の代わりの薄い口。枝 wip/works-a4 の ticket.py と同じファイルを読む）。
+    """切符（ticket.write が書いた物）を読む唯一の口。
     ファイルが無ければ None。在るのに読めない・object でない・protected が絶対パスの文字列の配列でなければ BadTicket"""
     path = ticket_path(cwd, home_dir)
     if not os.path.lexists(str(path)):
