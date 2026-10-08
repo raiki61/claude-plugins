@@ -6,6 +6,12 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.47] - 2026-10-08
+
+### Fixed
+
+- 0.2.46 の報告の固定の行の語の承認（`blk-report/glossary.json` の `reviewed`）に、修正役が人に回した物の行と最後の関所の行が載っていなかったのを足した（0.2.46 の出荷の CI の承認試験が赤。報告の動きは変わらない）。
+
 ## [0.2.46] - 2026-10-08
 
 ### Changed
