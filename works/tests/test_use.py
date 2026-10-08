@@ -423,7 +423,7 @@ class UseShell(unittest.TestCase):
         self.assertEqual(self.reads_left(), [])
         self.assertNotIn("続けないなら消してよい", r.stdout + r.stderr)
 
-    def test_unbound_start_drops_reads_file(self):
+    def test_unbound_start_keeps_reads_file_0600(self):
         """start が run を結べない（起動は 0・読めた一覧で候補 0 本）時は、包んだ基の参照は外すが、隔離の前に読んだ読み出しのファイル
         （非公開の本文を持つ）は消さずに 0600 で残し、そのパスと『続けないなら消してよい』を 1 行で名指す（結べないことは run が無いことと
         同じではなく、消すと起動の関所で生きた run が落ちる）"""
@@ -436,7 +436,7 @@ class UseShell(unittest.TestCase):
         self.assertEqual(git(t, "for-each-ref", "refs/works/"), "")
         self.assert_reads_kept_owner_only_and_named_once(r)
 
-    def test_unbound_failed_start_drops_reads_file_with_candidates(self):
+    def test_unbound_failed_start_keeps_reads_file_0600_with_candidates(self):
         """結べず Archon の起動も 0 以外で終わったなら、一覧に候補の run が在っても包んだ基の参照は外すが、読み出しのファイルは
         終了コードで消さずに 0600 で残し、そのパスと『続けないなら消してよい』を 1 行で名指す（控えには残さない）"""
         t = self.target()

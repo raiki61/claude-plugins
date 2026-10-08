@@ -1189,7 +1189,7 @@ class TestDevShell(unittest.TestCase):
         left = sorted(p.name for p in dog.iterdir() if p.name.startswith(("github-reads.json", ".github-reads.json"))) if dog.is_dir() else []
         self.assertEqual(left, [])
 
-    def test_dogfood_failed_launch_drops_reads_file(self):
+    def test_dogfood_failed_launch_keeps_reads_file_0600(self):
         """Archon の起動が 0 以外で終わり run を結べない（一覧が空）時も、隔離の前に読んだ読み出しのファイル（非公開の本文を持つ）を
         終了コードで消さずに <dir> へ 0600 で残し、そのパスと『続けないなら消してよい』を 1 行で名指す（結べないことは run が無い
         ことと同じではない）。起動の終了コードはそのまま返す"""
