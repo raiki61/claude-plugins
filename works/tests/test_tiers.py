@@ -1,7 +1,7 @@
-"""テストの段（tests/tiers.py の FAST・HEAVY）と、段を選ぶ入口 run.sh（WORKS_TESTS）の検査。
+"""テストの段（tests/tiers.py の FAST と、それに無い全部の heavy）と、段を選ぶ入口 run.sh（WORKS_TESTS）の検査。
 
-- 段の一覧: fast と heavy は重ならず、合わせると discover が拾う全部のモジュール。どのモジュールも明示で
-  どちらかに書く（書き忘れた新しいモジュールは名前を挙げて赤。重いテストが黙って fast に入らない）
+- 段の一覧: 書くのは FAST だけで、heavy は discover が拾う全部のうち FAST に無い物。書き忘れた新しいモジュールは heavy に
+  入る（重いテストが黙って fast に入らない）。FAST に在るのにファイルが無い名前は名前を挙げて赤
 - 段の読み込み（TierLoader）: 段ごとの discover のテストを合わせると、ちょうど全部の discover のテスト
 - run.sh: 既定は全部を tiers.py all で、fast・heavy は tiers.py で回し、unittest の引数（-k など）をそのまま渡す。
   知らない値は 1 行で終了コード 2。全部と heavy は枠の台本（WORKS_TESTSLOT）を TESTSLOT_N=4 で通し、fast は通さない。
@@ -71,11 +71,8 @@ class TierListCase(unittest.TestCase):
         self.assertGreaterEqual(len(tiers.modules()), 10)
         self.assertIn("test_tiers", tiers.modules())
 
-    def test_every_module_classified_once(self):
-        found = set(tiers.modules())
-        self.assertEqual(sorted(found - tiers.FAST - tiers.HEAVY), [], "段の一覧に無いモジュール（tiers.py に足す）")
-        self.assertEqual(sorted(tiers.FAST & tiers.HEAVY), [])
-        self.assertEqual(sorted((tiers.FAST | tiers.HEAVY) - found), [], "段の一覧に在るのにファイルが無い")
+    def test_fast_names_existing_modules(self):
+        self.assertEqual(sorted(tiers.FAST - set(tiers.modules())), [], "FAST に在るのにファイルが無い")
         self.assertEqual(tiers.problems(), [])
 
     def test_glob_matches_discover(self):
@@ -84,14 +81,17 @@ class TierListCase(unittest.TestCase):
         mods = {tid.split(".")[0] for tid in collect_ids(unittest.TestLoader().discover(str(TESTS), tiers.PATTERN))}
         self.assertEqual(mods - set(tiers.modules()), set())
 
-    def test_problems_names_each_fault(self):
-        with mock.patch.object(tiers, "modules", return_value=sorted(tiers.FAST | tiers.HEAVY | {"test_new"})):
-            got = tiers.problems()
-            self.assertEqual(len(got), 1)
-            self.assertIn("test_new", got[0])
-        with mock.patch.object(tiers, "HEAVY", tiers.HEAVY | {"test_tiers"}):
-            self.assertIn("両方", " ".join(tiers.problems()))
-        with mock.patch.object(tiers, "HEAVY", tiers.HEAVY | {"test_gone"}):
+    def test_unlisted_module_is_heavy(self):
+        """一覧に書き忘れた新しいモジュールは止めずに heavy に入る（fast には入らない）"""
+        with mock.patch.object(tiers, "modules", return_value=sorted(set(tiers.modules()) | {"test_new"})):
+            self.assertEqual(tiers.problems(), [])
+            self.assertIn("test_new", tiers.tier_modules("heavy"))
+            self.assertNotIn("test_new", tiers.tier_modules("fast"))
+            self.assertEqual(tiers.tier_modules("fast") | tiers.tier_modules("heavy"), set(tiers.modules()))
+            self.assertEqual(tiers.tier_modules("fast") & tiers.tier_modules("heavy"), set())
+
+    def test_problems_names_fast_without_file(self):
+        with mock.patch.object(tiers, "FAST", tiers.FAST | {"test_gone"}):
             got = " ".join(tiers.problems())
             self.assertIn("test_gone", got)
             self.assertIn("ファイルが無い", got)
@@ -99,21 +99,20 @@ class TierListCase(unittest.TestCase):
     def test_loader_splits_discover_exactly(self):
         full = collect_ids(unittest.TestLoader().discover(str(TESTS), tiers.PATTERN))
         fast = collect_ids(tiers.TierLoader(tiers.FAST).discover(str(TESTS), tiers.PATTERN))
-        heavy = collect_ids(tiers.TierLoader(tiers.HEAVY).discover(str(TESTS), tiers.PATTERN))
+        heavy = collect_ids(tiers.TierLoader(tiers.tier_modules("heavy")).discover(str(TESTS), tiers.PATTERN))
         self.assertTrue(fast and heavy)
         self.assertEqual(fast & heavy, set())
         self.assertEqual(fast | heavy, full)
         self.assertEqual({t.split(".")[0] for t in fast} - tiers.FAST, set())
-        self.assertEqual({t.split(".")[0] for t in heavy} - tiers.HEAVY, set())
+        self.assertEqual({t.split(".")[0] for t in heavy} & tiers.FAST, set())
 
     def test_main_refuses_unknown_tier_and_bad_list(self):
         with mock.patch("sys.stderr"):
             self.assertEqual(tiers.main(["tiers.py", "slow"]), 2)
             self.assertEqual(tiers.main(["tiers.py"]), 2)
-        with mock.patch.object(tiers, "modules", return_value=sorted(tiers.FAST | tiers.HEAVY | {"test_new"})), \
-                mock.patch("sys.stderr") as err:
+        with mock.patch.object(tiers, "FAST", tiers.FAST | {"test_gone"}), mock.patch("sys.stderr") as err:
             self.assertEqual(tiers.main(["tiers.py", "fast"]), 2)
-            self.assertIn("test_new", "".join(c.args[0] for c in err.write.call_args_list))
+            self.assertIn("test_gone", "".join(c.args[0] for c in err.write.call_args_list))
 
 
 class ShardCase(unittest.TestCase):
@@ -177,8 +176,9 @@ class TierPathsCase(unittest.TestCase):
     """dev/tdd-suite.sh（pytest で回す TDD の実行器）が段のファイルを引く口 `python3 tests/tiers.py paths <段>`"""
 
     def test_paths_are_the_tier_files_from_works_root(self):
-        for tier, mods in tiers.TIERS.items():
+        for tier in tiers.TIERS:
             with self.subTest(tier):
+                mods = tiers.tier_modules(tier)
                 got = tiers.paths(tier)
                 self.assertEqual(got, sorted(f"tests/{m}.py" for m in mods))
                 for p in got:
@@ -204,10 +204,10 @@ class TierPathsCase(unittest.TestCase):
             self.assertEqual(tiers.main(["tiers.py", "paths", "slow"]), 2)
             self.assertEqual(tiers.main(["tiers.py", "paths"]), 2)
         self.assertEqual(out.getvalue(), "")
-        with mock.patch.object(tiers, "modules", return_value=sorted(tiers.FAST | tiers.HEAVY | {"test_new"})), \
+        with mock.patch.object(tiers, "FAST", tiers.FAST | {"test_gone"}), \
                 mock.patch("sys.stderr") as err, contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(tiers.main(["tiers.py", "paths", "fast"]), 2)
-            self.assertIn("test_new", "".join(c.args[0] for c in err.write.call_args_list))
+            self.assertIn("test_gone", "".join(c.args[0] for c in err.write.call_args_list))
         self.assertEqual(out.getvalue(), "")
 
 

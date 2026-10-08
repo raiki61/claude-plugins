@@ -7,9 +7,9 @@ fast・heavy と違い、段の一覧の食い違いでも止めず、一覧に�
 （約束の正本は tests/run.sh の report_skips と graphloops/tests/py/fence.py。works は graphloops を持たない pack として
 対象へ写されるので、判定は写しで持つ）。FAIL_ON_SKIP が無ければ見送りの一覧を出すだけ。
 TDD の実行器 dev/tdd-suite.sh（pytest で回す）は `python3 tests/tiers.py paths <段>` で段のファイルの一覧を引く。
-fast と heavy は重ならず、合わせるとちょうど全部（tests/test_*.py）になる。どのモジュールも FAST か HEAVY の
-どちらかに書く。書き忘れ・両方に書いた・消したモジュールが残っている、のどれかがあると、段を選んだ実行は
-終了コード 2 で止まり、test_tiers も赤になる（新しい重いテストが黙って fast に入らないように）。
+一覧に書くのは fast（FAST）だけで、heavy は FAST に無い全部（tests/test_*.py）。書き忘れた新しいモジュールは heavy に
+入る（重いテストが黙って fast に入らない側に倒れる）。FAST に在るのにファイルが無い名前があると、段を選んだ実行は
+終了コード 2 で止まり、test_tiers も赤になる。
 
 組（shard）: 環境変数 WORKS_SHARD=<番号>/<組の数>（番号は 0 起点）で、段の中のモジュールを組に分けてその 1 組だけを回す
 （CI の works の job が組ごとに別の runner で並べる）。分け方は shard_of で、discover が拾う全部のモジュールを重さの
@@ -22,9 +22,7 @@ heavy に置く物: 試験ごとに git のリポジトリを作る（git init�
 Archon を起こす・golden を再生する・プロセスの木を起こす・決まった秒を待つ。短くても、これらを使うモジュールは heavy に置く
 （負荷の高い機械では git と子のプロセスが遅れの元になる）。種の git を tests/gitkit.py の型（プロセスに 1 回だけ作る）の
 写しで配るだけなら、試験ごとに作るに当たらない。段は使う物の形で分ける（決まっていて、読めば確かめられる）。
-fast は秒の上限ではない（負荷の高い機械では fast の中の git・子のプロセスも遅れる）。下の秒は目安で、2026-09-27 に
-nice -n 19 で 1 本ずつ測った（負荷は各行）。gitkit を使う 5 本（accept・blk_fix（線 A Task 12 で盤面を作るので heavy へ移した）・blk_judge・blk_tests_delta・dev）は、
-gitkit に替えた後の値（前と続けて回した組。計測の shim 込み）。
+fast は秒の上限ではない（負荷の高い機械では fast の中の git・子のプロセスも遅れる）。
 """
 import os
 import pathlib
@@ -36,20 +34,20 @@ import unittest
 TESTS = pathlib.Path(__file__).resolve().parent
 PATTERN = "test_*.py"   # run.sh の discover と同じ
 
-# 秒は 1 本ずつ回した壁時計（負荷は測った時の 1 分平均）
+# fast に置くモジュールと、置ける訳（使う物の形）。ここに無いモジュールは heavy
 FAST = frozenset({
-    "test_blk_judge",       # 3.8 秒（負荷 15）種の git は gitkit の型の写し・スクリプトを子で起こす
-    "test_core_copy",       # 1〜3 秒
+    "test_blk_judge",       # 種の git は gitkit の型の写し・スクリプトを子で起こす
+    "test_core_copy",       # 写しの置き場のファイルを読むだけ
     "test_structure_units", # 判定の単位を契約の形に写す関数（一時の置き場のファイルだけ。git・子のプロセスを使わない）
     "test_structure_eye",   # 構造の目の受け付け・出口・境の落ち所（一時の置き場のファイルと collect.py を子で起こすだけ。git を使わない）
     "test_core_verbatim",   # 写しと元の commit のバイト一致（git show で読むだけ。リポジトリを作らない）
     "test_core_sync",       # 写し直しの道具: 偽の正本の git はモジュールに 1 回だけ作り、試験は道具を子で起こして git show で読むだけ
     "test_scopes",          # 部品の置き場（依頼 239）: flow_adapter の env の読みと manifest の照らし（一時の置き場のファイルだけ）
-    "test_gitkit",          # 1 秒未満（gitkit の型を 1 回作って 2 回写す）
-    "test_unittrees",       # 3 秒: 単位の worktree（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git だけ）
+    "test_gitkit",          # gitkit の型を 1 回作って 2 回写す
+    "test_unittrees",       # 単位の worktree（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git だけ）
     "test_tdd_lane_wiring", # TDD の輪の並べの節の配線（YAML・筋書き・状態の JSON を読むだけ。git・子のプロセスなし）
     "test_fix_lane_wiring", # 修正役の並べの節の配線と並べの枝の部品の純粋な口（YAML・筋書き・表を読むだけ。git・盤面・子のプロセスなし）
-    "test_unitlanes",       # 7 秒: 下請けを単位の worktree で並べる（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git と python3 1 本）
+    "test_unitlanes",       # 下請けを単位の worktree で並べる（種の git は gitkit の型の写し。試験ごとに worktree を 2〜3 本切る・子のプロセスは git と python3 1 本）
     "test_blk_eyes_lanes",  # 独立の目の筋の順: YAML と Archon の trigger_rule の写しで節を回す（盤面の fixture を読むだけ。git・子のプロセスを使わない）
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
     "test_block_blind",     # ブロックの散文のほかのブロックの名指しの柵と、役の指示書のほかの役・段の語の柵: git ls-files と追跡されたファイルを読むだけ（子のプロセスは git だけ）
@@ -77,8 +75,8 @@ FAST = frozenset({
     "test_fixmeasure",      # 修正の形の測りと採否の判定 dev/fixmeasure.py: 一時の置き場に sqlite の偽の archon.db と盤面（DiskBoard.create。git なし）を作り、殻を子で起こす（git・Archon なし）
     "test_sp_seam",         # 借りる superpowers の照合と包みの部品: 一時の置き場の偽の版のフォルダを読むだけ（git・子のプロセスなし）
     "test_selfcheck",       # 軽い自己点検: 腕の一覧を読むだけ（--check）と、小さな偽の pack で実行器を子で起こす（git なし）
-    "test_script_io",       # 2 秒（python を 1 本起こすだけ。git は使わない）
-    "test_tiers",           # 8 秒（偽の uv・枠の台本で run.sh を起こす）
+    "test_script_io",       # python を 1 本起こすだけ（git は使わない）
+    "test_tiers",           # 偽の uv・枠の台本で run.sh を起こす
     "test_versions",        # run ごとの版の控え: 一時の置き場に書くだけ・start.py を 1 本起こす（git なし）
     "test_libdocs",         # ライブラリの文書を機械が引く（手元の版・公式）: 一時の置き場と偽の HTTP の口・偽の盤面（網・子のプロセスなし。作業ツリーの一覧に git ls-files を起こす）
     "test_libdocs_local",   # 手元の版を静的に読む: 一時の置き場の偽の .venv・node_modules を読むだけ（網・git・子のプロセスなし）
@@ -91,7 +89,7 @@ FAST = frozenset({
     "test_auth_launch",     # 殻の認証の起こし役: 偽の runner で順を見る・起こし役を python3 -I で 1 本起こす（git・keychain なし）
     "test_launch",          # 起動の殻の共通の口 launch.py env: 部品を直に呼ぶ・受け方だけ偽の部品を置いて sh を起こす（git なし）
     "test_toolset",         # 隔離した Claude の設定の組み立てと柵: 一時の置き場に写す・偽の claude（python）を子で起こす（git なし）
-    "test_yaml_rules",      # 3 秒
+    "test_yaml_rules",      # YAML を読むだけ
     "test_line_wiring",     # ラインの配線（表の置き場の include）と筋書きの stub の鍵の揃い: YAML と JSON を読むだけ（git・子のプロセスなし）
     "test_line_inputs",     # 入力の名の集合と script の with の鍵（TA16）: YAML とスクリプトを読み、entry.check_inputs を直に呼び、LineRun を種の git を差し替えて組む（git・子のプロセスなし）
     "test_role_give_up",    # 役の輪が done で抜ける（R50）: YAML を読むだけ（git・子のプロセスなし）
@@ -121,68 +119,8 @@ FAST = frozenset({
     "test_dev_model",       # 殻の全体の模型の明示と既定: 殻を読む・archon.sh と use.sh を偽の Archon で子で起こす（種の git は gitkit の型の写し・切り離し・待ちなし）
 })
 
-HEAVY = frozenset({
-    "test_accept_v1_golden",# 盤面の層: golden の盤面・再生・種の git
-    "test_board_begin",     # 盤面の層: golden の盤面・再生・種の git
-    "test_board_engine_run",# 盤面の層: golden の盤面・再生・種の git
-    "test_board_fixtures_real",# 盤面の層: golden の盤面・再生・種の git
-    "test_board_goldens_fixture",# 盤面の層: golden の盤面・再生・種の git
-    "test_board_open",      # 盤面の層: golden の盤面・再生・種の git
-    "test_board_replay",    # 盤面の層: golden の盤面・再生・種の git
-    "test_board_round_note",# 盤面の層: golden の盤面・再生・種の git
-    "test_board_steps",     # 盤面の層: golden の盤面・再生・種の git
-    "test_board_table",     # 盤面の層: golden の盤面・再生・種の git
-    "test_adapter",         # 包み: 包みと偽の claude を子で起こす・プロセスの木・git のリポジトリ
-    "test_blk_eyes",        # 独立の目（R11）: golden の盤面の再生（boardreplay）・一時の pack の写し・スクリプトを子で起こす
-    "test_blk_ci",          # 線 A: 試験ごとの種の git（linekit.seed_repo）・スクリプトを子で起こす
-    "test_blk_fix",         # 線 A Task 12: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
-    "test_fix_precheck",    # 修正役の事前の確かめと受け付けの相談の写し: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作る・factchecks.py と accept.py を子で起こす
-    "test_fix_accept_all",  # 修正の受け付けが確かめを全部回して並べる: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作る
-    "test_blk_plan",        # P1 Task 25: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
-    "test_fixture",         # 固定材料: test_blk_fix の BoardCase で試験ごとに種の git と盤面（entry.start）を作り、写して別の置き場へ取り込む
-    "test_plan_brief",      # 修正案の項目ごとの brief: test_blk_fix の BoardCase で試験ごとに種の git（linekit.seed_repo）と盤面（entry.start）を作る
-    "test_blk_fix_conflict",# 食い違いの申し出と裁定の輪: 試験ごとの種の git と盤面（entry.start）・スクリプトを子で起こす
-    "test_replan",          # 案の直しの締め（依頼 226）: test_blk_fix_conflict の ReplanCase で試験ごとに種の git と盤面を作る
-    "test_blk_fix_tdd",     # 修正の段の TDD の輪: 種の git（gitkit の写し）と小さな実行器を子で起こす・一時の index で版を固める
-    "test_tdd_lanes",       # TDD の輪の並べ: 試験ごとに git init・単位の worktree を 2 本切る・小さな実行器を子で何度も起こす（45 秒）
-    "test_fix_lanes",       # 修正役の並べ: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作り、単位の worktree を 2 本切る・スクリプトを子で起こす（60 秒）
-    "test_fix_gates",       # 事後の関門の束: test_blk_fix の BoardCase で試験ごとに種の git と盤面を作り、小さな実行器を子で起こす・一時の git worktree
-    "test_writes",          # 書き込みの出どころ: 種の git（gitkit の写し）・記録器と小さな実行器を子で起こす・TDD の輪を回す
-    "test_tdd_outside",     # TDD の輪と受け付けが段の外の試験を足す: 種の git（gitkit の写し）に試験ごとに commit・小さな実行器を子で起こす（プロセスの木）・git archive で版を写す
-    "test_blk_pr",          # 線 A: 試験ごとの git のリポジトリ・golden の盤面の再生（boardreplay）
-    "test_blk_premises",    # 前提の実測: 試験ごとの git のリポジトリ（git init・commit）・スクリプトを子で起こす
-    "test_line_a",          # P1 Task 28: 線を種の git と本物の盤面で通す（linekit.run_line）
-    "test_blk_material",    # 素材集め（R3）: 種の git（linekit.seed_repo）で盤面を 2 種類作る（クラスに 1 回）・スクリプトを子で起こす
-    "test_blk_structure",   # 実測の script: 日時を固定した git のリポジトリ（git init・commit・マージ・浅い clone。クラスに 1 回）・スクリプトを子で起こす
-    "test_blk_purpose",     # 試験ごとの git のリポジトリ（git init）・スクリプトを子で起こす
-    "test_blk_lens",        # 修正の後のレンズ: 試験ごとの種の git（linekit.seed_repo）で盤面を修正の後まで進める・スクリプトを子で起こす
-    "test_blk_refix",       # 線 A: 試験ごとの種の git（linekit.seed_repo）で盤面を差分の審査まで進める・スクリプトを子で起こす
-    "test_blk_rejudge",     # 線 A: golden の盤面の再生（rejudgekit）・スクリプトを子で起こす
-    "test_blk_report",      # 本線 R13: golden の盤面の再生（boardreplay）・検証器と git・スクリプトを子で起こす
-    "test_blk_spec",        # 本線 R2: 試験ごとの種の git（linekit.seed_repo）と盤面（DiskBoard.begin・CI の段）・pack の写し・スクリプトを子で起こす
-    "test_entry",           # 線 A: 試験ごとの種の git（linekit.seed_repo）・プロセスの木（tree_run）
-    "test_ghreads",         # 隔離の前の読み出し: 偽の gh を子で起こす・試験ごとの種の git（linekit.seed_repo で start まで回す）
-    "test_edge",            # 線 A: 試験ごとの種の git（linekit.seed_repo）・golden の盤面の再生（boardreplay）・スクリプトを子で起こす
-    "test_policy",          # 線 A: 試験ごとの種の git（linekit.seed_repo）
-    "test_rejudge",         # 線 A: golden の盤面の再生（rejudgekit）・git
-    "test_report",          # P1 Task 27: 試験ごとの種の git（linekit.seed_repo）で盤面を周の締めまで進める・スクリプトと sh を子で起こす
-    "test_reads",           # 線 A Task 6: 種の git（linekit.seed_repo）と盤面（entry.start。クラスに 1 回）・フックとスクリプトを子で起こす
-    "test_ticket",          # 線 A: git のリポジトリと worktree 2 つを作る（クラスに 1 回）
-    "test_accept",          # 15.3 秒（負荷 15）うち 11.5 秒は受け付けの racy-git の待ち（accept.py。決まった秒）
-    "test_blk_tests_delta", # 12.0 秒（負荷 15）uv run・プロセスの木・止めた後に 4 秒待つ
-    "test_dev",             # 17.1 秒（負荷 14）mktarget・dogfood の clone・偽の Archon
-    "test_line",            # 5 秒（負荷 64）git init
-    "test_script_headers",  # 5 秒（負荷 64）git・uv run
-    "test_tree_run",        # 20 秒（負荷 62）プロセスの木
-    "test_script_contract", # script の節の本物の出力と output_format: 種の git と本物の盤面で線を本物のスクリプトで 6 回通す（scriptline）
-    "test_block_scope",     # 部品の置き場（依頼 239）: 種の git と本物の盤面で線を本物のスクリプトで 1 回通す（scriptline）
-    "test_use",             # 起動の殻 dev/use.sh: 偽の Archon で殻を子で起こす・answer と approve が切り離しの後に 1 秒待つ・眠る子を切り離して残す（プロセスの木）
-    "test_use_homes",       # 既定の家を clone ごとに分けた後の家をまたぐ面: 偽の Archon・herdr で use.sh を子で起こす（対象は種の git の写し）
-    "test_tdd_suite",       # TDD の実行器 dev/tdd-suite.sh: uv run で本物の pytest を起こす（偽の小さな試験だけを回す）
-    "test_canary_sh",       # canary の殻 dev/canary.sh が対象を作って use.sh を起こす形: 試験ごとに canary.sh が対象の git を作る（git init・commit・裸の origin への push）・use.sh は偽の sh
-})
 
-TIERS = {"fast": FAST, "heavy": HEAVY}
+TIERS = ("fast", "heavy")
 
 # 組に配る重さの目安: 試験の数（def test_ の行）× 段の倍率。重い段の 1 本は git・子のプロセス・決まった秒の待ちを使うので
 # 速い段の 1 本より桁で重い（CI の全段 3431 本・4293 秒のうち、速い段は手元で数分）。モジュールごとの実測の秒が
@@ -196,7 +134,7 @@ def weight(name):
         return float(SECONDS[name])
     src = (TESTS / f"{name}.py").read_text(encoding="utf-8")
     n = max(1, len(re.findall(r"^\s*def test_", src, re.M)))
-    return float(n * (HEAVY_FACTOR if name in HEAVY else 1))
+    return float(n * (1 if name in FAST else HEAVY_FACTOR))
 
 
 def shard_of(names, total):
@@ -226,21 +164,15 @@ def modules():
     return sorted(p.stem for p in TESTS.glob(PATTERN))
 
 
+def tier_modules(tier):
+    """段のモジュールの名前の集合: fast は FAST、heavy は discover が拾う全部のうち FAST に無い物"""
+    return set(FAST) if tier == "fast" else set(modules()) - FAST
+
+
 def problems():
     """段の一覧の食い違いを文の一覧で返す（空なら揃っている）"""
-    found = set(modules())
-    out = []
-    unclassified = sorted(found - FAST - HEAVY)
-    if unclassified:
-        out.append("段の一覧に無いテストのモジュール: " + ", ".join(unclassified)
-                   + "（tests/tiers.py の FAST か HEAVY に足す。git のリポジトリ・Archon・golden・プロセスの木を使うなら HEAVY）")
-    both = sorted(FAST & HEAVY)
-    if both:
-        out.append("FAST と HEAVY の両方に在る: " + ", ".join(both))
-    gone = sorted((FAST | HEAVY) - found)
-    if gone:
-        out.append("段の一覧に在るのにファイルが無い: " + ", ".join(gone))
-    return out
+    gone = sorted(FAST - set(modules()))
+    return ["FAST に在るのにファイルが無い: " + ", ".join(gone)] if gone else []
 
 
 class TierLoader(unittest.TestLoader):
@@ -318,7 +250,7 @@ class SkipGateRunner(unittest.TextTestRunner):
 
 def paths(tier):
     """段のモジュールのファイル（works の根から。名前の順）。dev/tdd-suite.sh が pytest に渡す"""
-    return sorted(f"{TESTS.name}/{m}.py" for m in TIERS[tier])
+    return sorted(f"{TESTS.name}/{m}.py" for m in tier_modules(tier))
 
 
 def main(argv):
@@ -350,7 +282,7 @@ def main(argv):
         if bad:
             print("tiers: " + " / ".join(bad), file=sys.stderr)
             return 2
-    keep = set(modules()) if argv[1] == "all" else set(TIERS[argv[1]])
+    keep = set(modules()) if argv[1] == "all" else tier_modules(argv[1])
     if shard is not None:
         index, total = shard
         # 組は段に依らず全部のモジュールで分ける（段ごとに分けると、同じ組の番号が段で別のモジュールを指す）
