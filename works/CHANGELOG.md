@@ -6,6 +6,14 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 包み（`.shared/core/adapter.py` の 5）の読むだけの gh の柵を、旗 `no-post` の役だけでなく印のある起動の全部に掛けるようにした（下の直しで run の中の gh が利用者のログインを継ぐため）。どの役も gh を丸ごと拒まれ（`permissions.deny` の `Bash(gh:*)`・PATH の上の gh の絶対パスの全部の綴り）、読む 4 つの形（`pr list`・`pr view`・`pr diff` を `-R` 付きで、`repo view <OWNER/REPO>`）だけを通す口 `works-gh` を `WORKS_GH` と PATH の頭の `gh` で受け、`git push` も拒まれる。書く役・CI の任せ先の役も PR へ投稿・push できない。今の役の指示書で gh を使うのは読む形だけ（素材集めの役と並行 PR の任せ先の役。`works-gh` の読む形）で、ほかの gh の語を要る役は無かった。口は読む 4 つの形のほかの gh を全部拒む（`gh --version`・`gh auth status`・読むだけの `gh api` も）ので、対象の試験がそれらを打つと赤になる。口の先の本物の gh は、前の版の env の変数でなく口が PATH から引く（役が env の値でログイン済みの gh を打つ道を作らない。断りの文にもパスを出さない）。これは事故の柵で、堅い境ではない（役は利用者と同じ人で、同じ keychain を持つ。本流の review-graph は隔離もしない）。印の無い起動（Archon の題の生成。道具を持たない）は今どおり触らない
+
+### Fixed
+
+- GitHub の対象で、並行 PR の確かめ（素材 `parallel_pr`）が毎回人待ちで残り、1 周の run が `round_limit` で終わっていたのを直した（実の利用者の run 97fd532f。今壊れていた: 単位を 11 件閉じ、最後の試験も緑なのに `round_limit`）。開発の殻 `dev/archon.sh` は HOME・XDG を隔離して Archon を起こすので、run の中の gh には利用者のログインが見えず、写しの `parallel-pr.py` の gh が毎回 0 以外で終わって素材が `awaiting_human` になっていた。今は run の中の gh が利用者の gh のログインを継ぐ（持ち主 2026-10-08。本流の review-graph は利用者の環境のまま gh を打つ）: 認証を使う実行で、`archon.sh` が隔離の前に gh の設定の置き場（`GH_CONFIG_DIR`、無ければ `$XDG_CONFIG_HOME/gh`、無ければ `~/.config/gh`）を解き、本物の gh をその置き場と隔離の前の HOME で起こすだけの口（`host-gh/<中身の印>/gh`。包みを通す run は切符が役の書き込みから守る包みの家の下。新しい `dev/hostgh.py` が書く）を PATH の頭に置く。HOME も戻すのは、gh の既定のトークンの置き場の macOS の keychain を `security` が HOME から探すため（隔離した HOME では login の keychain が探す先に無い。`security list-keychains` で確かめた）。口が持つのはパスだけで、トークンは写さない・出さない・置かない。`GH_TOKEN` も立てない。利用者の gh がログインしていなければ gh の言葉のまま今どおり人待ち。新しい試験 `tests/test_hostgh.py` と、`test_dev`（`archon.sh` の口の配線）・`test_adapter`（印のある起動の全部の柵）に足した
+
 ## [0.2.46] - 2026-10-08
 
 ### Changed

@@ -536,8 +536,8 @@ def _merge_base(repo: pathlib.Path, ref: str) -> str:
 
 def _change_base(raw: dict, repo: pathlib.Path, reads=None):
     """変更の入口（base か pr）を解いて {base_rev, change} を返す。どちらも無ければ None。両方は拒む。
-    pr は gh を呼ばず、殻が隔離の前に読んだ写し reads（ghreads の読み出しのファイル）の pr[<番号>] を読む——隔離した Archon の
-    中からは利用者の gh のログインが見えない（設計書 2.8）。写しに無い・読めなかった項・head が今の HEAD と違えば拒む（別の版を
+    pr は gh を呼ばず、殻が隔離の前に読んだ写し reads（ghreads の読み出しのファイル）の pr[<番号>] を読む——Archon を直に起こした
+    run の中では利用者の gh のログインが見えないことがあり、入口の確かめを run の外の 1 回の読みに揃える（設計書 2.8）。写しに無い・読めなかった項・head が今の HEAD と違えば拒む（別の版を
     黙って見ない）。差分の根は GitHub が持つ base の版（baseRefOid）と HEAD の merge-base——fetch しないローカルの枝は古いことが
     あるので名前では引かない。change.text は PR の題と本文（目的の文の出典の PR 説明として盤面の依頼の文に渡す）"""
     base, pr = _word(raw, "base"), _word(raw, "pr")

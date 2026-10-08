@@ -62,7 +62,7 @@ def _output_format():
 OUTPUT_FORMAT = _output_format()
 SNAPSHOT = "pr-snapshot.json"   # 役を起こす前の作業ツリーの写し（accept.tree_state の形）
 EXCLUDED = "pr-excluded.json"   # 受け付けた外す hunk {node, excluded}（collect の excluded_file）
-# 読む gh は包みの読む口を通す: 印 no-post の起動に、包み（.shared/adapter）が素の gh を拒み（permissions.deny Bash(gh:*) と
+# 読む gh は包みの読む口を通す: 印のある起動の全部に、包み（.shared/core/adapter.py の 5）が素の gh を拒み（permissions.deny Bash(gh:*) と
 #   本物の gh のパス）、許す物だけを通す口のパスを環境変数 WORKS_GH に置く。口が通すのは pr list・pr view・pr diff の -R つきと
 #   repo view <OWNER/REPO> だけ。役は `"$WORKS_GH" pr view <n> -R <owner/repo>` の形で打つ（指示書と試験がこの形を見る）。
 # GH_READ: 口を通して打ってよい gh の語（全部 -R <owner/repo> を付ける）。許す物の正本は包みの口の側で、これは指示書の側の組。

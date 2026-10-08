@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""読むだけの gh（印 no-post の役の起動だけに包みが渡す口。標準ライブラリだけ・Python 3.9 でも動く形）。
+"""読むだけの gh（包みが印のある起動の全部に渡す口。標準ライブラリだけ・Python 3.9 でも動く形）。
 
 通すのは次の 4 つの形だけで、ほかは本物の gh を起こさずに 1 行を出して終了コード 2:
 - `pr list -R <OWNER/REPO> …`・`pr view <番号か枝> -R <OWNER/REPO> …`・`pr diff <番号か枝> -R <OWNER/REPO> …`
   （`-R`・`--repo`・`--repo=` のどれか。対象の repo を名指しさせ、cwd の remote に頼らない）
 - `repo view <OWNER/REPO> …`（gh の repo view は -R を持たないので、repo は位置の引数で名指しする）
-どの形でも `-w`・`--web`（ブラウザを開く）は拒む。本物の gh は env の WORKS_REAL_GH（包みが起動の時に PATH から引く。
-この口自身は使わない）。
+どの形でも `-w`・`--web`（ブラウザを開く）は拒む。本物の gh は PATH の上の最初の gh（この口の置き場は飛ばす）。開発の殻の run では
+それが利用者のログインを継ぐ口（dev/hostgh.py）。本物の gh のパスを env に置かない・断りの文に出さない（役がその値で本物の gh を
+打つ道を作らない。事故の柵で、堅い境ではない）。
 
 包みはこの口を 2 つの名で置く: `works-gh`（役が呼ぶ名。env の WORKS_GH が絶対パス）と、PATH の頭に置く `gh`
 （`command gh`・`xargs gh`・`sh -c "gh …"` など、permissions.deny の `Bash(gh:*)` の前方一致をすり抜ける呼び方の受け皿）。
@@ -35,11 +36,24 @@ def repo_flag(args):
     return None
 
 
+def real_gh():
+    """PATH の上の最初の gh（絶対パスの置き場だけ。この口の置き場——口自身・PATH の頭に置く gh——は飛ばす。取り違えると口と gh が
+    互いを起こし続ける）。無ければ None"""
+    here = os.path.dirname(os.path.realpath(__file__))
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if not d or not os.path.isabs(d) or os.path.realpath(d) == here:
+            continue
+        c = os.path.join(d, "gh")
+        if os.path.isfile(c) and os.access(c, os.X_OK) and os.path.dirname(os.path.realpath(c)) != here:
+            return c
+    return None
+
+
 def main(argv):
     # 輪の断ち方は期限でなく形で: 口は本物の gh を起こす前に WORKS_GH_ACTIVE を立てる。本物の gh は口を呼ばないので、
-    # これが立った env で口に入るのは、WORKS_REAL_GH が（置き場の外からでも）口へ回っている時だけ。その 2 度目で拒む
+    # これが立った env で口に入るのは、PATH の上の本物と取り違えた物が（置き場の外からでも）口へ回っている時だけ。その 2 度目で拒む
     if os.environ.get("WORKS_GH_ACTIVE"):
-        return refuse("口が本物の gh の代わりに起こし直された（WORKS_REAL_GH が口へ回っている）")
+        return refuse("口が本物の gh の代わりに起こし直された（PATH の上の gh が口へ回っている）")
     if len(argv) < 2 or (argv[0], argv[1]) not in ALLOWED:
         return refuse(" ".join(argv[:2]) or "引数が無い")
     rest = argv[2:]
@@ -53,12 +67,9 @@ def main(argv):
         pos = [a for a in rest if not a.startswith("-")]
         if not pos or not REPO_RE.match(pos[0]):
             return refuse("gh repo view に <OWNER/REPO> が無い")
-    real = os.environ.get("WORKS_REAL_GH", "")
-    here = os.path.dirname(os.path.realpath(__file__))
-    # この置き場の物（口自身・PATH の頭に置く gh）を本物と取り違えると、口と gh が互いを起こし続ける
-    if not (os.path.isabs(real) and os.path.isfile(real) and os.access(real, os.X_OK)) \
-            or os.path.dirname(os.path.realpath(real)) == here:
-        return refuse(f"本物の gh が無い（WORKS_REAL_GH={real!r}）")
+    real = real_gh()
+    if real is None:
+        return refuse("本物の gh が PATH に無い")
     os.environ["WORKS_GH_ACTIVE"] = "1"
     os.execv(real, [real] + list(argv))
 

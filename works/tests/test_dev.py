@@ -394,6 +394,7 @@ class TestDevShell(unittest.TestCase):
             settings_seen = tmp / "settings.txt"
             env_seen = tmp / "env.txt"
             mise_seen = tmp / "mise.txt"
+            gh_seen = tmp / "gh-seen.txt"
             fake_archon.write_text(
                 "#!/bin/sh\n"
                 f'printf \'%s\\n\' "${{TITLE_GENERATION_MODEL-(unset)}}" "$*" > "{seen}"\n'
@@ -401,6 +402,9 @@ class TestDevShell(unittest.TestCase):
                 f'cat "$CLAUDE_CONFIG_DIR/settings.json" > "{settings_seen}" 2>/dev/null || true\n'
                 f'printf \'%s\\n\' "${{WORKS_ARCHON_VERSION-(unset)}}" "${{WORKS_CLAUDE_VERSION-(unset)}}" > "{env_seen}"\n'
                 f'printf \'%s\\n\' "${{MISE_TRUSTED_CONFIG_PATHS-(unset)}}" > "{mise_seen}"\n'
+                # run の中の gh（PATH から引く物）と、それを打った時に本物の gh が受けた HOME・GH_CONFIG_DIR
+                f'command -v gh > "{gh_seen}"\n'
+                'gh auth status >/dev/null 2>&1 || true\n'
             )
             fake_bin = tmp / "fake-bin"
             # 隔離した設定に coldwrite を入れる claude（dev/toolset.py が PATH から引く）は偽物（本物は起こさない）
@@ -415,6 +419,11 @@ class TestDevShell(unittest.TestCase):
                 '[ "$1 $2" = "trust --show" ] && [ -n "${FAKE_MISE_TRUST:-}" ] && printf \'%s: %s\\n\' "$(pwd -P)" "$FAKE_MISE_TRUST"\n'
                 "exit 0\n")
             (fake_bin / "mise").chmod(0o755)
+            # gh も偽物（受けた HOME・GH_CONFIG_DIR・引数を記録するだけ。本物の利用者の gh は起こさない）
+            gh_calls = tmp / "gh-calls.txt"
+            (fake_bin / "gh").write_text("#!/bin/sh\n"
+                                         f'printf \'%s|%s|%s\\n\' "$HOME" "${{GH_CONFIG_DIR-(unset)}}" "$*" >> "{gh_calls}"\n')
+            (fake_bin / "gh").chmod(0o755)
             # 借りる物を取る利用者の設定（隔離の前の CLAUDE_CONFIG_DIR）も偽物（本物の利用者の設定は読まない）
             user_cfg = make_user_config(tmp / "user-claude-config")
             claude_calls = tmp / "claude-calls.jsonl"
@@ -424,7 +433,7 @@ class TestDevShell(unittest.TestCase):
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH",
                          "WORKS_DEV_MODEL", "TITLE_GENERATION_MODEL", "WORKS_REAL_CLAUDE", "CLAUDE_BIN_PATH",
                          "WORKS_DEV_ADAPTER", "MISE_TRUSTED_CONFIG_PATHS", "FAKE_MISE_TRUST",
-                         "WORKS_CLAUDE_VERSION", "WORKS_ARCHON_VERSION"):
+                         "WORKS_CLAUDE_VERSION", "WORKS_ARCHON_VERSION", "GH_CONFIG_DIR", "XDG_CONFIG_HOME"):
                 env.pop(name, None)
             env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""),
                        FAKE_CLAUDE_LOG=str(claude_calls), CLAUDE_CONFIG_DIR=str(user_cfg))
@@ -441,6 +450,10 @@ class TestDevShell(unittest.TestCase):
             self.env_seen = env_seen.read_text().splitlines() if env_seen.exists() else None
             self.mise_seen = mise_seen.read_text().strip() if mise_seen.exists() else None
             self.mise_calls = mise_calls.read_text().splitlines() if mise_calls.exists() else []
+            self.gh_seen = gh_seen.read_text().strip() if gh_seen.exists() else None
+            self.gh_calls = [ln.split("|") for ln in gh_calls.read_text().splitlines()] if gh_calls.exists() else []
+            self.fake_gh = str(fake_bin / "gh")
+            self.host_gh_dirs = (str(dev_home / "host-gh"), str(dev_home / "adapter" / "host-gh"))
             self.workspaces = str((dev_home / "archon-home").resolve() / "workspaces")
             record = dev_home / "claude-config" / ".works-toolset.json"
             self.toolset_rec = json.loads(record.read_text()) if record.exists() else None
@@ -507,6 +520,26 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.mise_seen, "(unset)")
         self.assertEqual(self.mise_calls, [])
+
+    def test_archon_sh_runs_inherit_the_users_gh_login(self):
+        """run の中の gh は利用者の gh のログインを継ぐ（実の利用者の run 97fd532f: 隔離した HOME の gh が未ログインで、並行 PR の
+        確かめが毎回人待ちになり round_limit で終わった）。認証を使う実行は、隔離の前の HOME と gh の設定の置き場（GH_CONFIG_DIR、
+        無ければ $XDG_CONFIG_HOME/gh、無ければ ~/.config/gh）で本物の gh を起こす口（<家>/host-gh/gh）を PATH の頭に置く。
+        GH_TOKEN は立てない。口は包みを通す run では包みの家の下（切符が役の書き込みから守る）に置く。認証の要らない道は置かない"""
+        auth = {"CLAUDE_CODE_OAUTH_TOKEN": "dummy-token-for-test"}
+        home = hermetic.child_env().get("HOME", "")
+        for extra, conf, place in (({}, os.path.join(home, ".config", "gh"), 0),
+                                   ({"XDG_CONFIG_HOME": "/user/xdg"}, "/user/xdg/gh", 0),
+                                   ({"GH_CONFIG_DIR": "/user/gh-conf", "XDG_CONFIG_HOME": "/user/xdg"}, "/user/gh-conf", 0),
+                                   ({"WORKS_DEV_ADAPTER": "1"}, os.path.join(home, ".config", "gh"), 1)):
+            with self.subTest(extra):
+                result, _, _ = self._exec_archon_sh(**auth, **extra)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(os.path.dirname(os.path.dirname(self.gh_seen)), self.host_gh_dirs[place])
+                self.assertEqual(self.gh_calls, [[home, conf, "auth status"]])
+        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.gh_seen, self.fake_gh)
 
     def test_show_run_diff_keeps_ignored_tracked_file_committed_in_round(self):
         """lib.sh works_dev_show_run の差分は、一時の index を run の worktree の今の HEAD から組む。周の中の commit（周の頭の版

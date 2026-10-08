@@ -3533,7 +3533,7 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "BASH_ENV", "CLAUDE_KEYCHAIN_S
                   "WORKS_RUN_PLACE", "UV_CACHE_DIR", "TMPDIR",
                   "WORKS_DEV_ADAPTER", "WORKS_DESIGN_ONLY", "WORKS_FIX_SHAPE", "WORKS_FIX_FIXTURE", "WORKS_USE_UNATTENDED",
                   # 外の道具（mise・gh）の設定の環境変数
-                  "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO",
+                  "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
                   "COPIED_FROM", "VERSION", "STOP"}
 # INPUTS_ は Archon の節の `with:` が script に渡す環境変数。works の各 script は読む名前を定数 INPUTS の

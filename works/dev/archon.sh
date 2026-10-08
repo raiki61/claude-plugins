@@ -104,6 +104,19 @@ if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ] && command -v mise >/dev/null 2>&1 &&
   MISE_TRUST_RUNS=1
 fi
 
+# run の中の gh は利用者の gh のログインを継ぐ（持ち主 2026-10-08。本流の review-graph は利用者の環境のまま gh を打つ）。隔離した
+# HOME・XDG の gh は利用者の設定（hosts.yml）も macOS の keychain のトークン（keychain は HOME から探す）も見えず、並行 PR の確かめが
+# 毎回 gh の失敗で人待ちになり、1 周の run が round_limit で終わった（実の利用者の run 97fd532f）。隔離の前の HOME と gh の設定の
+# 置き場で本物の gh を起こすだけの口（<包みの家か開発の家>/host-gh/<中身の印>/gh。パスだけを持ち、トークンは写さない・出さない。GH_TOKEN も立てない）を
+# dev/hostgh.py が書き、下で PATH の頭に置く。AI の役は包みが gh を丸ごと拒み、読むだけの口だけを通す（adapter.py の 5）。
+# 認証を使う実行だけ（mise の信頼と同じ）。利用者の gh がログインしていなければ gh の言葉のまま（run の中は今どおり人待ち）
+HOST_GH=""
+if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
+  # 包みを通す run では包みの家（切符が役の書き込みから守る所）の下に置く（役が口を書き換えて sandbox の外で走らせない）
+  HOST_GH="$(python3 -I "$(cd "$(dirname "$0")" && pwd -P)/hostgh.py" write --dir "${WORKS_ADAPTER_HOME:-$WORKS_DEV_HOME}/host-gh" --path "$PATH" \
+    --home "$HOME" --gh-config-dir "${GH_CONFIG_DIR:-}" --xdg-config-home "${XDG_CONFIG_HOME:-}")"
+fi
+
 # HOME・ARCHON_HOME・Claude の設定・XDG_* を全部 WORKS_DEV_HOME の下へ隔離する
 # （keychain は起こし役が USER_HOME で読む）。
 HOME="$WORKS_DEV_HOME/home"
@@ -119,6 +132,10 @@ mkdir -p "$HOME" "$ARCHON_HOME" "$CLAUDE_CONFIG_DIR" \
 
 export HOME ARCHON_HOME CLAUDE_CONFIG_DIR
 export XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
+if [ -n "$HOST_GH" ]; then
+  PATH="$(dirname "$HOST_GH")${PATH:+:$PATH}"
+  export PATH
+fi
 
 # Archon は run の worktree を $ARCHON_HOME/workspaces の下に切る。mise はこのパスの下の設定を問わずに信頼するので、足すのは
 # 利用者が対象の根を信頼した時だけ（前の値は残す。実体のパスで渡す）

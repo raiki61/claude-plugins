@@ -410,27 +410,43 @@ class AdapterCase(unittest.TestCase):
         with self.subTest("/private の別名の綴り"):
             self.assertIn(f"Bash({hermetic.alias(self, gh)}:*)", deny)
         self.assertFalse([x for x in s.get("permissions", {}).get("allow", []) if "gh" in x], "allow では一部を許せない")
-        # 子の env: PATH の頭に口、WORKS_GH は口、WORKS_REAL_GH は本物の gh
+        # 子の env: PATH の頭に口、WORKS_GH は口。口の先の本物の gh のパスは env に置かない（口が PATH から引く。役が env の
+        # 値で本物の gh——run の中では利用者のログインを継ぐ口——を打つ道を作らない）
         env = child["env"]
         self.assertEqual(env["PATH"].split(os.pathsep)[0], str(adapter.NO_POST_BIN))
         self.assertEqual(env["WORKS_GH"], str(adapter.NO_POST_BIN / "works-gh"))
-        self.assertEqual(env["WORKS_REAL_GH"], str(gh))
+        self.assertNotIn("WORKS_REAL_GH", env)
         self.assertEqual(env["WORKS_GH_ACTIVE"], "")
         # PATH の上の gh は全部（手元の本物の gh も）絶対パスで拒む
         self.assertEqual(self.e.launches()[-1]["fence"]["no_post"], len(adapter.no_post_rules(adapter.find_gh(path))))
         for g in adapter.find_gh(path):
             self.assertIn(f"Bash({g}:*)", deny)
-        # 印に no-post の無い起動は、gh の柵も env の差し替えも無い
-        r = self.e.run(sdk_argv("works-node: pr-check"), PATH=path)
-        s, _ = self._hook_settings(self.e.child()["argv"])
-        self.assertNotIn("permissions", s)
-        self.assertEqual(self.e.child()["env"]["PATH"], path)
-        self.assertNotIn("WORKS_GH", self.e.child()["env"])
+
+    def test_every_marked_launch_gets_the_read_only_gh(self):
+        """run の中の gh は利用者のログインを継ぐ（dev/hostgh.py）ので、印のある起動は旗 no-post の有無に依らず全部、
+        同じ柵（gh を丸ごと拒む deny・git push の deny）と読むだけの口（WORKS_GH・PATH の頭の gh）で起こす（書く役・CI の役も
+        PR へ投稿・push できない）。印の無い起動（題の生成。道具ゼロ）は今どおり触らない"""
+        bindir, gh = self._fake_gh_bin()
+        path = str(bindir) + os.pathsep + os.environ["PATH"]
+        for desc in ("works-node: fix", "works-node: ci-role", "works-node: judge self-resume"):
+            with self.subTest(desc):
+                r = self.e.run(sdk_argv(desc), PATH=path)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                child = self.e.child()
+                deny = self._hook_settings(child["argv"])[0]["permissions"]["deny"]
+                for rule in ("Bash(gh:*)", "Bash(git push:*)", f"Bash({gh}:*)"):
+                    self.assertIn(rule, deny)
+                env = child["env"]
+                self.assertEqual(env["PATH"].split(os.pathsep)[0], str(adapter.NO_POST_BIN))
+                self.assertEqual(env["WORKS_GH"], str(adapter.NO_POST_BIN / "works-gh"))
+                self.assertNotIn("WORKS_REAL_GH", env)
+                self.assertEqual(self.e.launches()[-1]["fence"]["no_post"], len(adapter.no_post_rules(adapter.find_gh(path))))
 
     def test_works_gh_passes_only_read_forms(self):
         bindir, gh = self._fake_gh_bin()
         log = self.e.tmp / "gh.log"
-        env = hermetic.child_env(WORKS_REAL_GH=str(gh), FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
+        env = hermetic.child_env(PATH=f"{adapter.NO_POST_BIN}{os.pathsep}{bindir}{os.pathsep}{os.path.dirname(sys.executable)}{os.pathsep}/usr/bin:/bin",
+                                 FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
         allowed = [["pr", "list", "-R", "o/r"], ["pr", "list", "--repo=o/r", "--json", "number"],
                    ["pr", "view", "12", "-R", "o/r", "--comments"], ["pr", "diff", "12", "--repo", "github.com/o/r"],
                    ["repo", "view", "o/r", "--json", "name"]]
@@ -456,13 +472,18 @@ class AdapterCase(unittest.TestCase):
                     self.assertEqual(log.read_text() if log.exists() else "", before)   # 本物の gh を起こさない
 
     def test_works_gh_refuses_without_real_gh(self):
-        for real in ("", "/no/such/gh", str(adapter.NO_POST_BIN / "works-gh"), str(adapter.NO_POST_BIN / "gh")):
-            with self.subTest(real):
-                env = hermetic.child_env(WORKS_REAL_GH=real)
-                r = subprocess.run([str(adapter.NO_POST_BIN / "works-gh"), "pr", "list", "-R", "o/r"], env=env,
-                                   capture_output=True, text=True, encoding="utf-8")
+        """口は本物の gh を PATH から引く（口の置き場は飛ばす。env の WORKS_REAL_GH は読まない）。無ければ拒み、パスを出さない"""
+        bindir, gh = self._fake_gh_bin()
+        empty = self.e.tmp / "empty-bin"
+        empty.mkdir(exist_ok=True)
+        for path in (str(empty), os.pathsep.join([str(adapter.NO_POST_BIN), str(empty), "relative"])):
+            with self.subTest(path):
+                env = hermetic.child_env(PATH=path, WORKS_REAL_GH=str(gh))
+                r = subprocess.run([sys.executable, str(adapter.NO_POST_BIN / "works-gh"), "pr", "list", "-R", "o/r"],
+                                   env=env, capture_output=True, text=True, encoding="utf-8")
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("本物の gh", r.stderr)
+                self.assertNotIn(str(gh), r.stderr)
 
     def test_works_gh_cannot_recurse(self):
         # 本物の gh と取り違えた物が、別の置き場から口（PATH の頭の gh）を起こし直しても輪にならない（期限に頼らず、
@@ -473,7 +494,10 @@ class AdapterCase(unittest.TestCase):
                        "[ \"$(wc -l < \"$COUNT\")\" -ge 4 ] && exit 99\n"
                        f'exec "{adapter.NO_POST_BIN / "gh"}" "$@"\n')
         fwd.chmod(0o755)
-        env = hermetic.child_env(WORKS_REAL_GH=str(fwd), COUNT=str(count))
+        fwd_dir = self.e.tmp / "fwd-bin"
+        fwd_dir.mkdir(exist_ok=True)
+        (fwd_dir / "gh").symlink_to(fwd)
+        env = hermetic.child_env(PATH=f"{adapter.NO_POST_BIN}{os.pathsep}{fwd_dir}{os.pathsep}{os.path.dirname(sys.executable)}{os.pathsep}/usr/bin:/bin", COUNT=str(count))
         env.pop("WORKS_GH_ACTIVE", None)
         r = subprocess.run([str(adapter.NO_POST_BIN / "gh"), "pr", "list", "-R", "o/r"], env=env,
                            capture_output=True, text=True, encoding="utf-8")
@@ -525,7 +549,9 @@ class AdapterCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         s, _ = self._hook_settings(self.e.child()["argv"])
         self.assertEqual(s["sandbox"], sdk["sandbox"])
-        self.assertEqual(s["permissions"], sdk["permissions"])
+        # SDK の deny は残し、後ろに読むだけの gh の柵（印のある起動の全部）を足す
+        self.assertEqual(s["permissions"], {"deny": sdk["permissions"]["deny"]
+                                            + adapter.no_post_rules(adapter.find_gh(os.environ["PATH"]))})
         self.assertEqual(s["hooks"]["Stop"], sdk["hooks"]["Stop"])
         # 包みは下請けの返答の記録のフック（StructuredOutput。record-output.py）も足す（局所レビューの消えた所見を戻す元）
         self.assertEqual([m["matcher"] for m in s["hooks"]["PostToolUse"]],
@@ -541,7 +567,8 @@ class AdapterCase(unittest.TestCase):
         r = self.e.run(argv)
         self.assertEqual(r.returncode, 0, r.stderr)
         s, _ = self._hook_settings(self.e.child()["argv"])
-        self.assertEqual(set(s), {"hooks"})
+        self.assertEqual(set(s), {"hooks", "permissions"})   # フックと、印のある起動の全部に付く読むだけの gh の柵
+        self.assertEqual(s["permissions"], {"deny": adapter.no_post_rules(adapter.find_gh(os.environ["PATH"]))})
 
     def test_setting_sources_untouched(self):
         for spelled in (["--setting-sources=project,user"], ["--setting-sources", ""], ["--setting-sources="]):
@@ -1095,9 +1122,10 @@ class FenceCase(unittest.TestCase):
         r = self.e.run(sdk_argv("works-node: fix"))
         self.assertEqual(r.returncode, 0, r.stderr)
         s = self.settings()
-        self.assertNotIn("permissions", s)
+        gh_rules = adapter.no_post_rules(adapter.find_gh(os.environ["PATH"]))
+        self.assertEqual(s["permissions"], {"deny": gh_rules})   # 切符の柵は無く、読むだけの gh の柵だけ
         self.assertNotIn("filesystem", s["sandbox"])
-        self.assertEqual(self.e.launches()[-1]["fence"], {"deny_write": 0, "permissions_deny": 0})
+        self.assertEqual(self.e.launches()[-1]["fence"], {"deny_write": 0, "permissions_deny": 0, "no_post": len(gh_rules)})
 
     def test_unreadable_ticket_fails_closed(self):
         # 切符のファイルが在るのに読めない時、印のある起動は柵なしで起こさない（M1）

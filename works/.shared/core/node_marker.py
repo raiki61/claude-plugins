@@ -15,7 +15,7 @@ import json
 import re
 
 PREFIX = "works-node: "
-# no-post: gh の書き込みの語を包みの柵に足す（並行 PR の任せ先の役。仕様 3.8）。
+# no-post: 読むだけの役の印（並行 PR の任せ先と素材集めの役。仕様 3.8）。gh の柵は今は包みが印のある起動の全部に掛ける（adapter.py の 5）。
 # no-tree-write: 包みが役の cwd の worktree の根を柵に足し、sandbox・切符の無い起動を拒む（CI の任せ先の役。裁定 R56）。
 # isolated: 包みが道具ゼロの役を Git の外の置き場で起こす（独立の目の blind-judge。graphloops の commands._isolated_cwd）。
 # self-resume: SDK が前の会話を継ぐ起動では、包みが SDK の会話でなくこの節自身が記録した会話を継ぐ（輪の中に別の会話を継ぐ
