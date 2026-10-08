@@ -9,6 +9,7 @@ tdd-start:
   summary_file: board/tdd-1/summary.md
 tdd-prep:
   prompt_file: board/tdd-1/next.md
+  go: true
 tdd:   # fix の段の返答（申告が無いので整えの段は来ず、単位は skipped）
   phase: fix
   unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"

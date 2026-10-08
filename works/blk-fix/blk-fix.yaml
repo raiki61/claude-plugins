@@ -170,9 +170,10 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file]
+            required: [prompt_file, go]
             properties:
               prompt_file: {type: string}
+              go: {type: boolean}   # 偽は輪が済んでいる（resume で 1 周目から回し直された輪）。役を起こさず、確かめが輪を抜ける
 
         - id: tdd
           description: 'TDD の役（今の単位を直す）'
@@ -180,6 +181,7 @@ nodes:
           effort: high                # 同じ表の effort（段に書かないと run の既定で黙って走る）
           prompt: 指示書 `$tdd-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-prep]
+          when: "$tdd-prep.output.go == true"
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           # 借りたスキルの座（.shared/core/seat.py）: 修正の形 g3 の時だけ tdd-prep が指示書に座と読み替えを載せる。宣言は静的で、ほかの形の柵は包みが持つ
           skills: [test-driven-development]
@@ -249,10 +251,11 @@ nodes:
         - id: tdd-step
           script: tdd_step
           runtime: uv
-          depends_on: [tdd]
+          depends_on: [tdd-prep, tdd]
+          trigger_rule: none_failed_min_one_success   # 済んだ輪の周（resume）は役が飛ばされる（返答は null。確かめは何も動かさずに done）
           timeout: 1728000000
           with:
-            reply: {from: "$tdd.output"}
+            reply: {from: "$tdd.output", if_skipped: null}
             state_file: $tdd-start.output.state_file
           output_format:
             type: object
@@ -586,9 +589,10 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file]
+            required: [prompt_file, go]
             properties:
               prompt_file: {type: string}
+              go: {type: boolean}   # 偽は輪が済んでいる（resume で 1 周目から回し直された輪）。役を起こさず、確かめが輪を抜ける
 
         - id: tdd-rest
           description: '残りの単位の TDD の役'
@@ -596,6 +600,7 @@ nodes:
           effort: high
           prompt: 指示書 `$tdd-rest-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-rest-prep]
+          when: "$tdd-rest-prep.output.go == true"
           settingSources: [user]
           skills: [test-driven-development]
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch, Skill]
@@ -611,10 +616,11 @@ nodes:
         - id: tdd-rest-step
           script: tdd_step
           runtime: uv
-          depends_on: [tdd-rest]
+          depends_on: [tdd-rest-prep, tdd-rest]
+          trigger_rule: none_failed_min_one_success   # 済んだ輪の周（resume）は役が飛ばされる（返答は null。確かめは何も動かさずに done）
           timeout: 1728000000
           with:
-            reply: {from: "$tdd-rest.output"}
+            reply: {from: "$tdd-rest.output", if_skipped: null}
             state_file: $tdd-start.output.state_file
           output_format:
             type: object

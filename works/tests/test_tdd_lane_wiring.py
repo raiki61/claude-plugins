@@ -120,7 +120,13 @@ class TestWiring(unittest.TestCase):
                          [("tdd-rest-prep", "tdd_prep"), ("tdd-rest", None), ("tdd-rest-step", "tdd_step")])
         self.assertEqual(inner("tdd-rest-loop", "tdd-rest-prep")["with"], inner("tdd-loop", "tdd-prep")["with"])
         self.assertEqual(inner("tdd-rest-loop", "tdd-rest-step")["with"],
-                         {"reply": {"from": "$tdd-rest.output"}, "state_file": "$tdd-start.output.state_file"})
+                         {"reply": {"from": "$tdd-rest.output", "if_skipped": None}, "state_file": "$tdd-start.output.state_file"})
+        # resume で 1 周目から回し直された済んだ輪（確かめが済んだを保存した後、Archon が輪の済みを記録する前に止まった）: 支度の
+        # go: false で役を飛ばし、確かめが返答 null で輪を抜ける（枝の輪と同じ形。tests/test_blk_fix_tdd.py の tdd-loop も）
+        prep, role, step = (inner("tdd-rest-loop", n) for n in ("tdd-rest-prep", "tdd-rest", "tdd-rest-step"))
+        self.assertEqual(prep["output_format"]["required"], ["prompt_file", "go"])
+        self.assertEqual(role["when"], "$tdd-rest-prep.output.go == true")
+        self.assertEqual((step["depends_on"], step["trigger_rule"]), (["tdd-rest-prep", "tdd-rest"], "none_failed_min_one_success"))
         fix = top("fix-fork")   # 修正役の並べの枝を切る節が TDD の輪の全部の後（修正の輪はその後。tests/test_fix_lane_wiring.py）
         self.assertEqual(fix["depends_on"], ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop"])
         self.assertEqual(top("fix-loop")["depends_on"],

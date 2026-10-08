@@ -11,6 +11,7 @@ tdd-start:
   summary_file: board/tdd-1/summary.md
 tdd-prep:
   prompt_file: board/tdd-1/next.md
+  go: true
 tdd:   # 振り分けの返答（2 単位とも tdd）
   phase: route
   units:
@@ -84,6 +85,7 @@ tdd-join:   # 枝 1 を当て、枝 2 の単位を順に戻した
   back: 1
 tdd-rest-prep:
   prompt_file: board/tdd-1/next.md
+  go: true
 tdd-rest:
   phase: fix
   unit_key: "stats.py clamp: 上限を超えた値に lo を返す"

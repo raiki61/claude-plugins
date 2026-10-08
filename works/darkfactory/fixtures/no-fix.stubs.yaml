@@ -990,6 +990,7 @@ fixing__fix-join:   # 修正役の並べの締めの節（並べない run は w
   union: []
 tdd-prep:
   prompt_file: ''
+  go: true
 tdd:
   phase: route
   units: []
@@ -1049,6 +1050,7 @@ tdd-lane-step-3:
   unit_key: ''
 tdd-rest-prep:
   prompt_file: ''
+  go: true
 tdd-rest:
   phase: fix
   unit_key: ''

@@ -4,7 +4,7 @@
 # ///
 """TDD の輪の機械の確かめ（blk-fix の節 tdd-step と tdd-rest-step。輪の中で役 tdd・tdd-rest の後。中身は tddloop.step）。
 
-読む環境変数: INPUTS_REPLY（役 tdd の返答の JSON）・INPUTS_STATE_FILE（tdd-start の state_file）・ARTIFACTS_DIR（盤面は その下の board/）。
+読む環境変数: INPUTS_REPLY（役 tdd の返答の JSON。役が飛ばされた周は null か空）・INPUTS_STATE_FILE（tdd-start の state_file）・ARTIFACTS_DIR（盤面は その下の board/）。
 赤・緑は機械だけが決める（役の申告では決まらない）。段を確かめる前に、前の段の後から変わったファイルを書き込みの記録と返答の欄
 bash_writes に突き合わせる（writes.check。無ければ拒む）。食い違いの申し出（phase conflict）が通れば、盤面の控え（conflict.park）に積む。
 形 g3 の振り分けの後に並べる枝が切れれば done が真で phase は lanes（輪 tdd-loop はここを抜け、tdd-fork が枝の輪を起こす）。
@@ -14,7 +14,9 @@ bash_writes に突き合わせる（writes.check。無ければ拒む）。食�
 受け付けの最後の結果の控え（accept-last.json）には書かない: 輪の拒否・投げ出しは修正役への引き渡しで、run の落ちた理由ではない
 （書くと後の修正役の受け付けが通っても ok 偽の行が残って次の run の prior_failures に載り、単位ごとの結果も上書きで混ざる）。
 輪は done の印で抜ける（until_bash。R50）。
-環境変数が欠けた・状態が読めない・輪が済んだ後に呼んだ・git が効かない: 標準エラーに 1 行出して 2。
+輪が済んでいる（か段 lanes）時に役が飛ばされた周（返答が null か空。確かめが状態にそれを保存した後、Archon が輪の済みを記録する前に
+止まった run を、Archon の resume が 1 周目から回し直した）は、何も動かさずに {"ok": true, "done": true} を出す。
+環境変数が欠けた・状態が読めない・済んだ輪に返答が来た・git が効かない: 標準エラーに 1 行出して 2。
 """
 import sys
 from pathlib import Path
@@ -38,15 +40,15 @@ INPUTS = ("INPUTS_REPLY", "INPUTS_STATE_FILE")
 
 
 def main() -> int:
-    missing = [n for n in INPUTS if not os.environ.get(n)]
+    missing = [n for n in INPUTS if n not in os.environ or (n != "INPUTS_REPLY" and not os.environ[n])]
     if missing:
         print(f"tdd-step: 環境変数が無い・空: {', '.join(missing)}", file=sys.stderr)
         return 2
     board = script_io.board_dir()
     if board is None:
         return 2
-    try:
-        reply = json.loads(os.environ["INPUTS_REPLY"])
+    try:   # 役が飛ばされた周（支度が go: false。resume で回し直された済んだ輪）は null か空
+        reply = json.loads(os.environ["INPUTS_REPLY"]) if os.environ["INPUTS_REPLY"].strip() else None
     except ValueError:
         reply = None   # 読めない返答は step が拒む（出し直しの回数に数える）
     try:

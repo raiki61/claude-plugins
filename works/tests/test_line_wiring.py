@@ -221,6 +221,15 @@ class ReportAfterFailureCase(unittest.TestCase):
                     self.assertIn("if_skipped", v)
                     self.assertIsNone(v["if_skipped"])
 
+    def test_report_reruns_on_resume(self):
+        """機械の報告 report は Archon の resume のたびに回し直す（always_run）。上流の節が落ちても all_done の節（tdd-join・fix-join）が
+        受け止めて最後まで進んだ run は、report が結末 interrupted を書き、result が落ちて run が failed で残る。resume は落ちた節と
+        それに依る節だけを回し直し、report の依り先（start・h-eyes・eyeing）の出口は替わらないので、always_run が無いと report は
+        前の試みの interrupted のまま使われ、result が何度 resume しても落ちる（canary run 7d95d3bc の resume。落ちた枝の輪は
+        続いて済んだのに run が completed にならなかった）"""
+        n = next(n for n in line()["nodes"] if n["id"] == "report")
+        self.assertIs(n.get("always_run"), True)
+
     def test_all_done_reads_upstream_with_if_skipped(self):
         """all_done の節（report・result・h-structure）は、start と all_done の節のほかの出力を if_skipped つきの binding で受ける。
         上流が飛ばされた run で字の参照を解けずに落ちる（start が入力を拒んだ run で h-structure が $h-plan.output.go で落ちた）"""

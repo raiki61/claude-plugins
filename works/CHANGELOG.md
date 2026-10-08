@@ -6,6 +6,11 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 並べの枝の輪が 1 本落ちても最後まで進んだ run（0.2.43 で続けられるようにした形）を Archon の resume で続けても、run が completed にならなかったのを直した（canary の run 7d95d3bc で、TDD の輪の枝 2 の役の `claude` だけを止めて本物の `workflow resume` で確かめた）。resume は落ちた枝の輪を役を起こさずに抜け、締めの `tdd-join` は同じ出口を返し、作業ツリーの差分（3 件の TDD の直しと docstring の 2 件）も TDD の輪の状態も resume の前と同じだった（0.2.43 の直しは本物でも効いた）。ただ、機械の報告 `report` は落ちた節を Archon の出来事で読んで結末「途中で終わった」（interrupted）を書き、依り先の出口は替わらないので resume で回し直されず、出口の `result` が前の試みの interrupted を読んで何度 resume しても落ちた。今は `report` を resume のたびに回し直す（`always_run: true`）。resume は run を始めた時に Archon が写した工程の元で走るので、この直しはこの版で始めた run から効く（前の版で始めて同じ形で残った run の直しは `apply` で取り出す）
+- TDD の順の輪（`tdd-loop`・`tdd-rest-loop`）で、確かめの節が状態に「済んだ」（か並べの段）を書いた直後、Archon が輪の済みを記録する前に止まった run を resume すると、支度が「輪は済んでいる」で落ちて何度 resume しても続かなかったのを直した（関数と節の script を resume の呼び方で呼んで確かめた。本物の run でこの窓に止めては確かめていない）。並べの枝の輪と同じく、済んだ輪の支度は `go: false` を返し、役は飛び、確かめは返答 null で何も動かさずに輪を抜ける
+
 ## [0.2.43] - 2026-10-08
 
 ### Fixed

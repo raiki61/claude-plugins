@@ -818,10 +818,10 @@ class TestPrep(LaneCase):
         self.assertIn("test_nothing", text)
 
     def test_lanes_phase_is_not_the_loop_turn(self):
-        """段 lanes の周は輪の外の節が回す: 輪の支度・確かめを呼べば Broken（黙って順にしない）"""
+        """段 lanes の周は輪の外の節が回す: 輪の支度は役を起こさない go: false（resume で 1 周目から起きた輪が抜ける。TestResume）、
+        確かめに返答を渡せば Broken（黙って順にしない）"""
         self.route()
-        with self.assertRaises(tddloop.Broken):
-            tddloop.prep(self.state)
+        self.assertEqual(tddloop.prep(self.state), {"prompt_file": "", "go": False})
         with self.assertRaises(tddloop.Broken):
             tddloop.step(self.state, {"phase": "lanes"}, self.repo, lanes=tddlanes)
 
@@ -976,6 +976,18 @@ class TestResume(LaneCase):
         self.assertEqual([c for c, _, _ in outs], [0, 0], outs)
         self.assertEqual(outs[0][1], outs[1][1])
         self.assertEqual(json.loads(outs[0][1])["back"], 1)
+
+    def test_loop_that_cut_the_lanes_ends_without_the_role(self):
+        """輪 tdd-loop の確かめが段 lanes を保存した後、Archon が輪の済みを記録する前に止まった: resume で 1 周目から起きた輪は
+        役を起こさずに抜け（状態を動かさない）、後の枝の輪は今どおり起きる"""
+        got = self.route()
+        self.assertEqual((got["done"], got["phase"]), (True, "lanes"), got)
+        before = pathlib.Path(self.state).read_bytes()
+        self.assertEqual(tddloop.prep(self.state), {"prompt_file": "", "go": False})
+        got = self.step(None)
+        self.assertEqual((got["ok"], got["done"], got["phase"]), (True, True, "lanes"), got)
+        self.assertEqual(pathlib.Path(self.state).read_bytes(), before)
+        self.assertIs(tddlanes.lane_prep(self.state, 1)["go"], True)
 
     def test_reply_for_a_settled_lane_is_still_refused(self):
         self.half_join()

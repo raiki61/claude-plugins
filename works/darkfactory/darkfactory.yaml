@@ -1269,6 +1269,9 @@ nodes:
   # 通らなかった物 prior-failures.json。ai_report_go は盤面が報告の役の節を出したか。
   # 上流の節が落ちた run でも走る（all_done。Airflow の teardown と同じ。Ruling R21 の改め: run 30・31 は飛ばされて報告が残らなかった）。
   # start のほかの節の出力は落ちても飛ばされても if_skipped: null で受ける。start が落ちた run は盤面が無く、ここも落ちる
+  # Archon の resume のたびに回し直す（always_run）: 上流の落ちを all_done の節（tdd-join・fix-join）が受け止めて最後まで進んだ run は
+  # 結末 interrupted で落ちて残り、resume は落ちた節とそれに依る節だけを回し直す。ここの依り先の出口は替わらないので、前の試みの
+  # interrupted が使い回されて result が何度 resume しても落ちた（canary run 7d95d3bc。落ちた枝の輪は resume で済んだ）
   - id: report
     description: '機械の報告を書く'
     script: report
@@ -1276,6 +1279,7 @@ nodes:
     timeout: 1728000000
     depends_on: [start, h-eyes, eyeing]
     trigger_rule: all_done
+    always_run: true
     with:
       judged: {from: $judging.output, if_skipped: null}
       tests: {from: $testing.output, if_skipped: null}

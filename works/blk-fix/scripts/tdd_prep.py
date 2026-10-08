@@ -6,9 +6,11 @@
 
 読む環境変数: INPUTS_STATE_FILE（tdd-start の state_file）と run の値 INPUTS_JUDGMENT_FILE・INPUTS_PLAN_FILE・INPUTS_POLICY_PATH・
 INPUTS_NOTES_FILE（空でよい）。修正の決まりの正本・TDD の決まり・今の段・前の回に拒んだ理由・run の値を組み、状態の置き場の
-next.md（full の写し）と隣の 2 つの形に書き、{"prompt_file"} を 1 行出して 0。役はそのパスを Read する（理由の本文を
+next.md（full の写し）と隣の 2 つの形に書き、{"prompt_file", "go": true} を 1 行出して 0。役はそのパスを Read する（理由の本文を
 $LOOP_PREV で貼らない。R44）。cwd（対象の worktree）の差分から変更の種類を選ぶ。
-環境変数が欠けた・状態が読めない・輪が済んでいる: 標準エラーに 1 行出して 2。
+輪が済んでいる（か段 lanes。確かめが状態にそれを保存した後、Archon が輪の済みを記録する前に止まった run を、Archon の resume は
+1 周目から回し直す）なら、何も書かずに {"prompt_file": "", "go": false}（役の節は when: で飛び、確かめが輪を抜ける）。
+環境変数が欠けた・状態が読めない: 標準エラーに 1 行出して 2。
 brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2。
 修正の形 g3 の盤面で、借りた superpowers の写しが固定（pin）と違えば、座の無い指示書に逃げずに 2。
 """

@@ -679,14 +679,14 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える。
     盤面の修正の形（fixshape.shape_at。盤面の無い置き場は記録の無い盤面と同じ af）が座を載せる形なら、借りたスキルの座
     （seat.section）を載せる。形の控え・写しが壊れていれば Broken。
-    段 lanes（並べの周）の状態では Broken（その周は輪の外の枝の輪が回す。tddlanes.lane_prep）。
+    輪が済んでいる（状態の done）か段 lanes（並べの周。輪の外の枝の輪が回す）なら、何も書かずに {"prompt_file": "", "go": False}:
+    確かめの節が状態にそれを保存した後、Archon が輪の済みを記録する前に止まった run を、Archon の resume は輪の 1 周目から回し直す
+    （役の節は when: で飛び、確かめ step は返答 None で何も動かさずに輪を抜ける。並べの枝の輪の tddlanes.lane_prep と同じ形）。
     書いた後に、包みが単位の切れ目で会話を切る鍵（write_key。印 UNIT_NODES の全部）を書く。単位が替わった周の役は新しい会話で起き（依頼 243 の 2）、
     前の単位の物は引き継ぎの節（handoff_lines）だけで渡る"""
     st = _load(state_file)
-    if st["done"]:
-        raise Broken("TDD の輪は済んでいる（tdd-prep を呼ぶ番でない）")
-    if st["phase"] == "lanes":
-        raise Broken("並べの周（段 lanes）は輪の外の枝の輪（tdd-lane-<n>）が回す（tdd-prep を呼ぶ番でない）")
+    if _over(st):   # resume で 1 周目から回し直された済んだ輪: 役を起こさない（YAML の役の when: が go を読む）
+        return {"prompt_file": "", "go": False}
     path = pathlib.Path(st["work"]) / PROMPT
     briefs = _briefs(path.parent.parent)   # 状態の置き場は盤面の tdd-<k>
     phase = st["phase"]
@@ -737,7 +737,12 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     key = f"{path.parent.name}:{phase if phase == 'route' else st['queue'][st['cur']]}"
     for node in UNIT_NODES:
         write_key(adapter.session_key_path(str(path.parent.parent), node), key)
-    return {"prompt_file": str(path)}
+    return {"prompt_file": str(path), "go": True}
+
+
+def _over(st: dict) -> bool:
+    """輪を抜けた状態か: 済んだ（done）か、段 lanes（並べの周。輪の外の枝の輪と tdd-join が回す）。確かめ step の出口の done と同じ"""
+    return bool(st["done"]) or st["phase"] == "lanes"
 
 
 def write_key(path, key: str) -> None:
@@ -1362,12 +1367,16 @@ def step(state_file, reply, repo, try_query=None, lanes=None, log=None) -> dict:
     申し出でない返答は、前の段の後から変わったファイルを書き込みの記録と欄 bash_writes に突き合わせてから段を確かめる。
     lanes は並べの口（tddlanes の module。節の script が渡す。tddloop からは import しない）: 状態の lanes_on が真なら振り分けの後に
     lanes.plan（段 lanes へ進めば輪 tdd-loop は抜け、枝の輪と tdd-join が回す）。無ければ並べない。段 lanes の状態で呼べば Broken。
+    輪を抜けた状態（済んだ・段 lanes）に返答 None（支度が go: false を返して役が飛ばされた周。resume）なら、何も動かさずに
+    {ok: True, done: True, reason: "", phase}。返答が在れば今どおり Broken。
     lanes を渡されて振り分けを受けた周で枝を切らなければ、出口の lanes_skipped に {reason, why, loop}（理由の語は tddlanes の SKIP_*。
     状態の lanes_off（入力・形）か lanes.plan の置いた lanes_skipped。loop は輪の盤面の置き場の名 tdd-<k>）を載せる（節が trace に積む）。
     log は書き込みの記録（既定は repo の writes.sink。並べの枝の確かめは単位の worktree を repo に、run の作業ツリーの記録を渡す）。
     前の段の印（handoff）は突き合わせを通った時と、機械が木を単位の頭に戻して次の単位へ移った時（申し出・諦め）だけ進める（拒まれた
     返答の出し直しや、振り分けの段の申し出で、記録の無い書き込みを流さない）"""
     st = _load(state_file)
+    if reply is None and _over(st):   # 支度が go: false を返して役が飛ばされた周（resume）: 何も動かさずに輪を抜ける
+        return {"ok": True, "done": True, "reason": "", "phase": "done" if st["done"] else st["phase"]}
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-step を呼ぶ番でない）")
     phase = st["phase"]

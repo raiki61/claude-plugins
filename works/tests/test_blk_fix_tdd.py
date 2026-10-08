@@ -168,8 +168,12 @@ class TestYaml(unittest.TestCase):
                                         "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
                                         "notes_file": "$INPUTS.notes_file"})
         self.assertEqual(role["depends_on"], ["tdd-prep"])
-        self.assertEqual(step["depends_on"], ["tdd"])
-        self.assertEqual(step["with"], {"reply": {"from": "$tdd.output"}, "state_file": "$tdd-start.output.state_file"})
+        # resume で 1 周目から回し直された済んだ輪: 支度の go: false で役を飛ばし、確かめが返答 null で輪を抜ける（TestResume）
+        self.assertEqual(prep["output_format"]["required"], ["prompt_file", "go"])
+        self.assertEqual(role["when"], "$tdd-prep.output.go == true")
+        self.assertEqual((step["depends_on"], step["trigger_rule"]), (["tdd-prep", "tdd"], "none_failed_min_one_success"))
+        self.assertEqual(step["with"], {"reply": {"from": "$tdd.output", "if_skipped": None},
+                                        "state_file": "$tdd-start.output.state_file"})
         for n in (prep, step):
             self.assertEqual(n["timeout"], DEADLINE)
         self.assertEqual(fix_loop["depends_on"], ["tdd-start", "tdd-loop", "tdd-fork", "tdd-join", "tdd-rest-loop", "fix-fork",
@@ -2064,6 +2068,63 @@ class TestPlainShape(LoopCase):
         self.assertIn(tddloop.DO["fix"], fix)
         self.assertTrue(self.fix_mean()["done"])
         self.assertEqual(self.st()["units"][MEAN]["refactor"], "skipped")
+
+
+class TestResume(LoopCase):
+    """Archon の resume（v0.11.1）は済みと記録していない輪を 1 周目から回し直す。確かめの節が状態に「済んだ」（か段 lanes）を保存した後、
+    Archon が輪の済みを記録する前に止まった run の resume でも、支度は役を起こさずに go: false を返し、確かめは返答 null で何も
+    動かさずに輪を抜ける（並べの枝の輪と同じ形。docs/plans/2026-10-07-lane-nodes.md の 4 の resume の項）"""
+
+    def done_loop(self):
+        self.route()
+        self.red()
+        self.assertTrue(self.fix_mean()["done"])
+
+    def snap(self):
+        return (pathlib.Path(self.state).read_bytes(),
+                {n: (self.repo / n).read_bytes() for n in ("stats.py", "test_stats.py")})
+
+    def test_running_loop_prep_says_go(self):
+        self.route()
+        got = tddloop.prep(self.state)
+        self.assertIs(got["go"], True)
+        self.assertTrue(pathlib.Path(got["prompt_file"]).is_file())
+
+    def test_done_loop_ends_without_the_role(self):
+        self.done_loop()
+        before = self.snap()
+        self.assertEqual(tddloop.prep(self.state), {"prompt_file": "", "go": False})
+        got = self.step(None)
+        self.assertEqual((got["ok"], got["done"], got["phase"], got["reason"]), (True, True, "done", ""), got)
+        self.assertEqual(self.snap(), before, "済んだ輪の周は状態と作業ツリーを動かさない")
+
+    def test_reply_for_a_done_loop_is_still_refused(self):
+        self.done_loop()
+        with self.assertRaises(tddloop.Broken):
+            self.step({"phase": "fix", "unit_key": MEAN, "files": ["stats.py"], "what": "x"})
+
+    def test_missing_reply_in_a_running_loop_is_refused(self):
+        """役が返さなかった周（済んでいない輪）は今どおり拒否に数える（役を飛ばしたのと取り違えない）"""
+        self.route()
+        got = self.step(None)
+        self.assertFalse(got["ok"])
+        self.assertEqual(self.st()["tries"], 1)
+
+    def test_scripts_on_resume(self):
+        """Archon が resume で起こす形: 役が飛ばされた確かめは reply が null か空"""
+        self.done_loop()
+        before = self.snap()
+        env = {"ARTIFACTS_DIR": str(self.board.parent), "INPUTS_STATE_FILE": self.state, "INPUTS_JUDGMENT_FILE": "",
+               "INPUTS_PLAN_FILE": "", "INPUTS_POLICY_PATH": "", "INPUTS_NOTES_FILE": ""}
+        code, out, err = run_script("tdd_prep", self.repo, env)
+        self.assertEqual((code, json.loads(out or "{}")), (0, {"prompt_file": "", "go": False}), err)
+        for reply in ("null", ""):
+            code, out, err = run_script("tdd_step", self.repo, {"ARTIFACTS_DIR": str(self.board.parent),
+                                                                "INPUTS_STATE_FILE": self.state, "INPUTS_REPLY": reply})
+            self.assertEqual(code, 0, err)
+            self.assertEqual({k: v for k, v in json.loads(out).items() if k != "reason_file"},
+                             {"ok": True, "done": True, "reason": "", "phase": "done"})
+        self.assertEqual(self.snap(), before)
 
 
 class TestRunSuiteSlot(unittest.TestCase):

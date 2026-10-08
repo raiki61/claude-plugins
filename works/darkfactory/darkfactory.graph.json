@@ -4,7 +4,7 @@
   "blk-ci/blk-ci.yaml": "54be4671fc8ba18244c16e27a1da429abce8df6c2463598188347006237a99a7",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
   "blk-eyes/blk-eyes.yaml": "529421d1256ab4372571db47dc048931ea420c7298f42b516dbd3e0a7c7ae2b7",
-  "blk-fix/blk-fix.yaml": "212b199d39583abac092ef56b2e46e65ed0a423bbf8648c7a1a807687fcda86f",
+  "blk-fix/blk-fix.yaml": "918442aaf7022fe28e7a130da1f53c226e03630b84ca343ec72effbd868bc8b9",
   "blk-judge/blk-judge.yaml": "074931df4ec94e77bf447eac37ff927175c666991f34c103951964929c066ad0",
   "blk-lens/blk-lens.yaml": "aff532b603cf8507c6387f946e243b4072cec7cd8fcc3974837da30d60b16dca",
   "blk-material/blk-material.yaml": "07cbe905d13a699aa217718cb86af7ea46ed9124f405760d2fd759165045e368",
@@ -17,7 +17,7 @@
   "blk-report/blk-report.yaml": "bd08093ed532c2afbaff1c89f2e2f667bb296e7eac5c963f2ccd9270e7736566",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "147d73c7390cadbe477bbb6bb3264630227bea75759564d0e4a8b9adaa40634e",
-  "darkfactory/darkfactory.yaml": "7e6eb3bf22c053cd1de75af5080d7e75e0a69968ad3d79886bcc7933d31fbd1b"
+  "darkfactory/darkfactory.yaml": "d63dc6fe7fa57aff914b932372a02c32e7bc1a361a07d067642ae319091cc67c"
  },
  "version": 1,
  "workflows": {
@@ -413,10 +413,12 @@
        "id": "tdd",
        "kind": "ai",
        "marker": "tdd",
-       "purpose": "TDD の役（今の単位を直す）"
+       "purpose": "TDD の役（今の単位を直す）",
+       "when": "$tdd-prep.output.go == true"
       },
       {
        "deps": [
+        "tdd-prep",
         "tdd"
        ],
        "id": "tdd-step",
@@ -586,10 +588,12 @@
        "id": "tdd-rest",
        "kind": "ai",
        "marker": "tdd-rest",
-       "purpose": "残りの単位の TDD の役"
+       "purpose": "残りの単位の TDD の役",
+       "when": "$tdd-rest-prep.output.go == true"
       },
       {
        "deps": [
+        "tdd-rest-prep",
         "tdd-rest"
        ],
        "id": "tdd-rest-step",

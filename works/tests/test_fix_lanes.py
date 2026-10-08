@@ -490,6 +490,19 @@ class TestResume(LaneBoard):
         self.assertEqual([c for c, _, _ in outs], [0, 0], outs)
         self.assertEqual(outs[0][1], outs[1][1])
 
+    def test_line_board_never_leaves_the_round_the_lanes_were_cut_in(self):
+        """枝の控え・目録・結末は今の scope の周の作業ファイル（b.work）。resume の枝の支度と締めがそれを読めるのは、ラインの盤面が
+        1 周の run（entry.start の stop_after_round=1）で、周の締めが次の周を開かずに止めるから（周が進めば前の周の置き場は読まれない。
+        2 周以上の run を足すなら fix-fork の出口に周を足して枝の節と締めに渡す。docs/plans/2026-10-07-fix-lane-nodes.md の 2 の resume の項）"""
+        from engine.advance import open_next_round
+        first = self.half_join()
+        b = entry.open_board(self.board)
+        self.assertEqual(b.state.get("stop_after_round"), 1)
+        self.assertFalse(open_next_round(b, "p3.fix"), "1 周の盤面は次の周を開かない")
+        self.assertEqual(b.round, 1)
+        self.assertEqual(fixlanes.lane_prep(self.board, 2), {"prompt_file": "", "go": False})
+        self.assertEqual(fixlanes.join(self.board, self.repo), first)
+
     def test_reply_for_a_done_lane_is_still_refused(self):
         self.half_join()
         with self.assertRaises(fixlanes.Broken):
