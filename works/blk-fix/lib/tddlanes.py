@@ -389,12 +389,16 @@ def _park(state: pathlib.Path, lst: dict, reply: dict, tree: pathlib.Path) -> di
 
 
 # ---------------------------------------------------------------- 締める（節 tdd-join）
-def join(state_file, repo, try_query=None) -> dict:
-    """節 tdd-join（頭の注記）"""
+def join(state_file, repo, try_query=None, park=None) -> dict:
+    """節 tdd-join（頭の注記）。park は確かめを通った申し出の並びを盤面に積む口（無ければ積まずに出口の conflicts に残す）。
+    出口を保存してから積み、積んだら出口の conflicts を空にして保存し直す: 保存と積みの間で落ちても、resume の締めが積んでいない
+    申し出を積む（conflict.park は同じ申し出を積み増さない）"""
     st = tddloop._load(state_file)
     joined = (st.get("lanes") or {}).get(JOINED)
-    if joined is not None:   # resume で回し直された締め: 締めた時の出口をそのまま返す（盤面・作業ツリーを動かさない。申し出は空で、
-        return dict(joined)  # 積み直さない）。節の出力は同じなので Archon は後ろの節の済みを使い続ける
+    if joined is not None:   # resume で回し直された締め: 締めた時の出口をそのまま返す（盤面・作業ツリーを動かさない。積み終えた
+        out = dict(joined)   # 申し出は空で積み直さない）。節の出力は同じなので Archon は後ろの節の済みを使い続ける
+        _park_claims(state_file, st, out["conflicts"], park)
+        return out
     if st.get("done") or st.get("phase") != "lanes" or not st.get("lanes"):
         raise tddloop.Broken(f"並べの周でない（段 {st.get('phase')!r}）——tdd-join は枝の輪の後に 1 回だけ回る")
     t0, runs0 = time.monotonic(), st["runs"]
@@ -410,9 +414,19 @@ def join(state_file, repo, try_query=None) -> dict:
     out = {"go": not st["done"], "done": st["done"], "phase": "done" if st["done"] else st["phase"],
            "merged": sum(1 for r in rows if r["outcome"] == MERGED), "back": sum(1 for r in rows if r["outcome"] == BACK),
            "conflicts": items}
-    st["lanes"][JOINED] = {**out, "conflicts": []}   # 申し出は 1 度目だけが渡す（再生は積まない。節の出力に申し出は載らない）
+    st["lanes"][JOINED] = dict(out)   # 積み終えるまで申し出を出口に残す（積んだら空にする。節の出力に申し出は載らない）
     tddloop._save(state_file, st)
+    _park_claims(state_file, st, items, park)
     return dict(out)
+
+
+def _park_claims(state_file, st: dict, items: list, park) -> None:
+    """申し出を積む口に渡し、渡せたら保存した出口の申し出を空にする（再生は積まない）"""
+    if not items or park is None:
+        return
+    park(list(items))
+    st["lanes"][JOINED]["conflicts"] = []
+    tddloop._save(state_file, st)
 
 
 def settle(st: dict, repo, try_query=None) -> list:

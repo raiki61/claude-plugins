@@ -954,12 +954,37 @@ class TestResume(LaneCase):
                 "why_both_cannot_hold": "テストは 1 を足した値を求め、依頼は足さない値を求める", "which_is_right": "request",
                 "kind": "brief_vs_judgment"}
         self.assertTrue(self.cmd(UA, item)["done"])
+        parked = []
         with mock.patch.object(tddloop.conflict, "problems", return_value=[]):
-            first = self.join()
+            first = tddlanes.join(self.state, self.repo, park=parked.append)
         self.assertEqual([c["unit_key"] for c in first["conflicts"]], [UA])
-        again = self.join()
+        again = tddlanes.join(self.state, self.repo, park=parked.append)
         self.assertEqual(again["conflicts"], [])
+        self.assertEqual([[c["unit_key"] for c in got] for got in parked], [[UA]], "積むのは 1 度だけ")
         self.assertEqual({k: v for k, v in again.items() if k != "conflicts"}, {k: v for k, v in first.items() if k != "conflicts"})
+
+    def test_claims_survive_a_crash_between_save_and_park(self):
+        """締めが出口を保存した後、申し出を盤面に積む前に落ちた（積む口が落ちた・殺された）: resume の締めは積んでいない申し出を
+        積み直し（1 度だけ）、出口は同じ。積んだ後の再生は積まない"""
+        self.route()
+        item = {"phase": "conflict", "unit_key": UA, "between": ["a.py:2", "test_a.py:7"],
+                "why_both_cannot_hold": "テストは 1 を足した値を求め、依頼は足さない値を求める", "which_is_right": "request",
+                "kind": "brief_vs_judgment"}
+        self.assertTrue(self.cmd(UA, item)["done"])
+
+        def boom(items):
+            raise OSError("盤面に書けない")
+        with mock.patch.object(tddloop.conflict, "problems", return_value=[]):
+            with self.assertRaises(OSError):
+                tddlanes.join(self.state, self.repo, park=boom)
+        parked = []
+        again = tddlanes.join(self.state, self.repo, park=parked.append)
+        self.assertEqual([[c["unit_key"] for c in got] for got in parked], [[UA]], "積んでいない申し出を再生が積む")
+        self.assertEqual([c["unit_key"] for c in again["conflicts"]], [UA])
+        third = tddlanes.join(self.state, self.repo, park=parked.append)
+        self.assertEqual(len(parked), 1, "積んだ後の再生は積まない")
+        self.assertEqual(third["conflicts"], [])
+        self.assertEqual({k: v for k, v in third.items() if k != "conflicts"}, {k: v for k, v in again.items() if k != "conflicts"})
 
     def test_scripts_on_resume(self):
         """Archon が resume で起こす形: 役が飛ばされた確かめは reply が null"""
