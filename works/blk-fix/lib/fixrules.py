@@ -247,7 +247,7 @@ def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: 
             ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
             ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
             *([("ask", ask, ASK_WHY)] if ask else []),
-            *([("libdocs", libdocs, "機械が引いた（手元の版・公式・Context7。見つけた数と取れた数は節の頭）")] if libdocs else []),
+            *([("libdocs", libdocs, "機械が引いた（手元の版・公式。見つけた数と取れた数は節の頭）")] if libdocs else []),
             *_seat(seat, shape), *([("fix-lane", lane, ALWAYS + "（修正役の並べの枝の役）")] if lane else []),
             ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
 

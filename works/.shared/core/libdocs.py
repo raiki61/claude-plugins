@@ -1,50 +1,34 @@
-"""ライブラリの文書を 3 つの出どころ（手元の版・公式・Context7）から機械が引き、指示書に貼る節を組む。層 L3（共有）。
+"""ライブラリの文書を 2 つの出どころ（手元の版・公式）から機械が引き、指示書に貼る節を組む。層 L3（共有）。
 
-持ち主 2026-09-28「Context7 を使っていこう。機械で渡してくれるんだよね」・2026-10-08「全部使う」（設計
-works/docs/plans/2026-10-08-libdocs-sources.md）。役が自分で引く口（WebSearch・WebFetch・Context7 の MCP）とは別に、支度の script の節
-（Claude の sandbox の外）が、単位が使うライブラリの文書を先に取って指示書に入れる。出どころは次の順で、どれも登録なしで回る
-（Context7 は鍵があれば上限が上がる）:
+持ち主 2026-10-08「全部使う」（設計 works/docs/plans/2026-10-08-libdocs-sources.md）。2026-10-09 に持ち主が Context7 をやめると
+決めた（3 つめの出どころだった。手元と公式は残す）。役が自分で引く口（WebSearch・WebFetch）とは別に、支度の script の節
+（Claude の sandbox の外）が、単位が使うライブラリの文書を先に取って指示書に入れる。出どころは次の順で、どれも登録も鍵も要らない:
 1. 手元の版（libdocs_local。網に出ない）: run の作業ツリーと同じ git の main の作業ツリーに入っている .venv・venv・.tox・.nox・
    node_modules の中のライブラリを import せずに読んだ、単位が使う名の署名と説明。読めた版を以後の版にする（宣言の版より正しい）
 2. 公式（libdocs_web）: PyPI の README と docs の場所の llms.txt、npm は GitHub の版の tag の README と homepage の llms.txt。
-   問いはライブラリの名・版と registry の答えに在った URL だけ（Context7 の問いより狭い）。鍵は付けない。輸入の名と配る名が違えば
-   手元の dist-info の配る名で問う。転送は https の公の host の名にだけ付いていき、host が替われば鍵の頭を落とす（SafeRedirect）
-3. Context7（下の口）
+   問いはライブラリの名・版と registry の答えに在った URL だけ。鍵は付けない。輸入の名と配る名が違えば手元の dist-info の配る名で
+   問う。転送は https の公の host の名にだけ付いていく（SafeRedirect）
 どこからも取れなかったライブラリは節の頭に名指し、役に自分で引けと言う。量は BUDGET を文書の取れたライブラリで割り、1 本の分を
-手元 1/2・公式 1/4・Context7 の残りで先に分けて、余りを手元 → 公式 → Context7 の順に埋める（_allocate）。
-
-Context7 の口（2026-09-28 に https://context7.com/docs/api-guide で確かめた。報告に引用）:
-- GET https://context7.com/api/v2/libs/search?libraryName=<名>&query=<問い> → {results: [{id, title, versions, …}]}
-- GET https://context7.com/api/v2/context?libraryId=<id>[/<版>]&query=<問い>&type=json → {codeSnippets, infoSnippets}
-  （断片ごとに codeTokens・contentTokens を持つので、貼る量はその数で数える）
-- 認証は `Authorization: Bearer <鍵>`（env の CONTEXT7_API_KEY。無ければ鍵なしの低い上限で回す。OpenAPI の security は {} も許す）。
-  鍵は Context7 の URL にだけ付ける。鍵は外の層の起こし役（auth_launch.py。利用者の env か keychain の項目 WORKS_CONTEXT7_KEYCHAIN_ITEM）
-  が Archon の子の環境に置き、Archon v0.11.1 は script の節に env を継がせる
-- 問い（query）は Context7 に貯められ、並べ替えに LLM へ渡される（Data Privacy）。だから問いには対象のコードの字を載せず、
-  ライブラリの名と、そのライブラリから import した名（公開の API の名）だけを書く
+手元 1/2・公式の残り（1/2）で先に分けて、余りを手元 → 公式の順に埋める（_allocate）。手元は入っている版のコードそのもので先に
+置き、Context7 の取り分だった 1/4 は公式に寄せた（公式が空なら手元が全部を使える）。
 
 見つけ方（detect）: 単位のファイルの import（Python は impact.py_imports、JS/TS は import・require の字）から、標準ライブラリ
 （sys.stdlib_module_names・node の組み込み）と作業ツリーで定義された物（相対の import・作業ツリーのどこかに同じ名の .py・パッケージのフォルダ・JS は package.json の name）を除いた物。
 版は根の依存の宣言（pyproject.toml・requirements*.txt・package.json）から引く。宣言のファイル自体が単位なら、宣言の全部が対象。
-行の uses は単位が使う名（from の名と import した名の属性。libdocs_local.py_uses・js_uses）で、手元と公式の断片を選ぶのに使う
-（Context7 の問いは今までどおり symbols だけ）。
+行の uses は単位が使う名（from の名と import した名の属性。libdocs_local.py_uses・js_uses）で、手元と公式の断片を選ぶのに使う。
 
 口（標準ライブラリだけ。網は get で差し替える。期限は足さない——節の宣言の 20 日だけ）:
 - detect(repo, files) -> {libs, counts, unreadable}
 - unit_files(repo, judgment_file, keys=None) -> (files, why): 判定の単位の字に現れる追跡中の file（impact.seeds_from_units）
-- notice(board) -> str | None: Context7 の 429（枠切れ）の印が盤面に在れば人に見せる 1 行（報告の冒頭 report.head_entry が使う）。無ければ None
-- section(board, repo, files, *, get=None, env=None, budget=BUDGET, now=None) -> str: 指示書に貼る節。Context7 の取れた物は盤面の今の周の
-  置き場 libdocs/<名>@<版>-<問いの digest>.json（Context7 に無い物は問いに依らないので libdocs/<名>@<版>.json）に、公式の取れた物と
-  見つからない物は libdocs/<名>@<版>.official.json に控え（board.work）、前の周の控えも読む（同じ run の中は網に出ない）。
-  枠切れ（429）で取らなかった物（1 本受けたら以後は Context7 に問い合わせず、節の TITLE の次の行にも書く）・取れなかった物・
-  Context7 に無い物・版の合わない物・上限で取らない物・読めない file・手元に入っていない物・公式に見つからない物は節の頭に数と名前で
-  書く（黙って落とさない）。WORKS_CONTEXT7=off は網に出ない（公式も Context7 も引かない。手元は読む）
-- run をまたぐ控え（env の SHARED_ENV が在る時だけ。置き場と長さの理由は定数の注記）: Context7 の取れた物と Context7 に無い物と、
-  公式の取れた物と見つからない物を、取った時刻と一緒に <包みの家>/libdocs/ にも書き、同じ家の後の run は SHARED_TTL（7 日）の内なら
-  網に出ずに使う（盤面の今の周にも写す）。429 を受けた時刻と鍵の有る無し（鍵の値は書かない）も書き、同じ家の後の run は鍵の有る無しが
-  同じなら QUOTA_HOLD（24 時間）の内は Context7 に問い合わせずに枠切れとして数える（そのために飛ばした物が出た run は盤面にも印を写す）
+- section(board, repo, files, *, get=None, env=None, budget=BUDGET, now=None) -> str: 指示書に貼る節。公式の取れた物と見つからない
+  物は盤面の今の周の置き場 libdocs/<名>@<版>.official.json に控え（board.work）、前の周の控えも読む（同じ run の中は網に出ない）。
+  取れなかった物・見つからない物・上限で取らない物・読めない file・手元に入っていない物は節の頭に数と名前で書く（黙って落とさない）。
+  WORKS_LIBDOCS_WEB=off は網に出ない（公式を引かない。手元は読む）
+- run をまたぐ控え（env の SHARED_ENV が在る時だけ。置き場と長さの理由は定数の注記）: 公式の取れた物と見つからない物を、取った
+  時刻と一緒に <包みの家>/libdocs/ にも書き、同じ家の後の run は SHARED_TTL（7 日）の内なら網に出ずに使う（盤面の今の周にも写す）。
+  前の版が同じ置き場に残した Context7 の控え（<名>@<版>.json・<名>@<版>-<問いの digest>.json・枠切れの印 _quota.json）は、名が
+  公式の控えの名（尾 OFFICIAL_SUFFIX）と違うので読まない（消しもしない）
 """
-import hashlib
 import json
 import os
 import pathlib
@@ -53,7 +37,6 @@ import sys
 import tempfile
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 
 import impact
@@ -61,32 +44,24 @@ import libdocs_local
 import libdocs_web
 import scopes
 
-API = "https://context7.com/api"
-ENV_KEY = "CONTEXT7_API_KEY"
-ENV_SWITCH = "WORKS_CONTEXT7"          # off で網に出ない（出ないことを節に書く）
-BUDGET = 4000                          # 節に貼る断片の量の上限（Context7 の codeTokens・contentTokens の和）
+ENV_SWITCH = "WORKS_LIBDOCS_WEB"       # off で網に出ない（出ないことを節に書く）
+BUDGET = 4000                          # 節に貼る断片の量の上限（断片の tokens の和。手元・公式は字の数の 1/4 で数える）
 MAX_LIBS = 8                           # 1 回に引くライブラリの数の上限（超えた物は名前で言う）
-TITLE = "## ライブラリの文書（手元の版・公式・Context7）"
+TITLE = "## ライブラリの文書（手元の版・公式）"
 CACHE_DIR = "libdocs"                  # 盤面の周の置き場の下の控え（run をまたぐ控えも同じ名の置き場）
 # run をまたぐ控えの置き場: 包みの家（開発の殻 dev/archon.sh が利用の家ごとに export する WORKS_ADAPTER_HOME）の下の CACHE_DIR。
 # 利用の家ごとに分かれ、run を重ねても残り、切符（ticket.py）が役に書かせない場所なので、役が控えを書き換えて後の run の指示書に
 # 混ぜることはできない。env に無ければ（包みを外した run・試験）run をまたぐ控えは使わない（盤面の控えだけ）
 SHARED_ENV = "WORKS_ADAPTER_HOME"
-# 控えを使う長さ: 7 日。版を指した控え（<名>@<版>-<問いの digest>）の中身はその版の文書で、版が替われば鍵も替わる。版の無い控え（@any）は
-# Context7 の今の文書なので古びるが、1 日に何本も回す run の間で使い回すと匿名の月の枠を使い切らずに済み、週ごとに取り直せば
-# 古びは 1 週に収まる
+# 控えを使う長さ: 7 日。版を指した控え（<名>@<版>.official.json）の中身はその版の文書で、版が替われば名も替わる。版の無い控え（@any）は
+# 今の文書なので古びるが、1 日に何本も回す run の間で使い回せば同じ問いを繰り返さずに済み、週ごとに取り直せば古びは 1 週に収まる
 SHARED_TTL = 7 * 24 * 3600
-# 枠切れ（429）の印をほかの run に効かせる長さ: 24 時間。Context7 の答えは「Monthly quota exceeded」（月の枠）で、利用者の家では
-# 10 月 2 日から 8 日まで 4 つの run がどれも 1 本目で 429 を受けた。月の枠は 1 日の内には戻らない（戻るのは月の替わり目で、遅れても
-# 1 日）。短い間の上限の 429 でも、文書は役が WebSearch・WebFetch で補える。窓を過ぎた最初の run が 1 度だけ問い合わせ直す
-QUOTA_HOLD = 24 * 3600
 RECORD = "libdocs.json"                # 今の周の見つけた物と取れた物の控え
-OFFICIAL_SUFFIX = ".official.json"     # 公式の文書の控えの名の尾（<名>@<版>.official.json。名と版だけで引くので問いの digest は付けない）
-MAX_BODY = 4 * 1024 * 1024             # 網の答え 1 本を読む上限（バイト。llms-full.txt は大きい物がある。Context7 の答えはずっと小さい）
-# 1 本のライブラリの分の中の、出どころごとの先の取り分（手元 1/2・公式 1/4・Context7 の残り）。余りは手元 → 公式 → Context7 の順に埋める
-SOURCES = ("local", "official", "context7")
+OFFICIAL_SUFFIX = ".official.json"     # 公式の文書の控えの名の尾（<名>@<版>.official.json。名と版だけで引く）
+MAX_BODY = 4 * 1024 * 1024             # 網の答え 1 本を読む上限（バイト。llms-full.txt は大きい物がある）
+# 1 本のライブラリの分の中の、出どころごとの先の取り分（手元 1/2・公式の残り）。余りは手元 → 公式の順に埋める
+SOURCES = ("local", "official")
 SCHEMA = "works-libdocs/1"
-QUERY_MAX = 500                        # Context7 の query の上限（OpenAPI の maxLength）
 PY_SUFFIXES = frozenset({".py", ".pyi"})
 JS_SUFFIXES = frozenset({".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"})
 MANIFESTS = ("pyproject.toml", "package.json")
@@ -100,7 +75,6 @@ NODE_BUILTINS = frozenset({
     "querystring", "readline", "repl", "stream", "string_decoder", "timers", "tls", "tty", "url", "util", "v8", "vm",
     "wasi", "worker_threads", "zlib"})
 JS_IMPORT = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]([^'"\n]+)['"]""")
-JS_NAMED = re.compile(r"""\bimport\s*\{([^}]*)\}\s*from\s*['"]([^'"\n]+)['"]""")
 PEP508 = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(.*)$")
 EXACT = re.compile(r"===?\s*v?([0-9][0-9A-Za-z.+-]*)")
 LOWER = re.compile(r"(?:>=|~=|\^|~|>)\s*v?([0-9][0-9A-Za-z.+-]*)")
@@ -219,7 +193,7 @@ def _own_names(repo: pathlib.Path) -> dict:
 
 
 def detect(repo, files) -> dict:
-    """単位のファイルが使うライブラリ。返り {libs: {鍵: {name, search, version, manifest, symbols, lang, files, via}},
+    """単位のファイルが使うライブラリ。返り {libs: {鍵: {name, search, version, manifest, uses, lang, files, via}},
     counts: {files, stdlib, local, imports, manifest}, unreadable: [{path, reason}]}"""
     repo = pathlib.Path(repo)
     deps, bad = manifests(repo)
@@ -228,14 +202,11 @@ def detect(repo, files) -> dict:
     counts = {"files": 0, "stdlib": 0, "local": 0, "imports": 0, "manifest": 0}
     stdlib = set(getattr(sys, "stdlib_module_names", ())) | {"__future__"}
 
-    def add(key, lang, path, symbols=(), dist=None, via="import", uses=()):
+    def add(key, lang, path, dist=None, via="import", uses=()):
         d = deps.get(_norm(dist or key))
         row = libs.setdefault(key, {"name": key, "search": d["name"] if d else (dist or key),
                                     "version": d["version"] if d else None, "manifest": d["manifest"] if d else None,
-                                    "symbols": [], "uses": [], "lang": lang, "files": [], "via": via})
-        for s in symbols:
-            if s not in row["symbols"] and s != "*":
-                row["symbols"].append(s)
+                                    "uses": [], "lang": lang, "files": [], "via": via})
         for u in uses:
             if u not in row["uses"]:
                 row["uses"].append(u)
@@ -268,7 +239,7 @@ def detect(repo, files) -> dict:
                 unreadable.append({"path": rel, "reason": "Python の構文の誤り"})
                 continue
             uses = libdocs_local.py_uses(text) or {}
-            for mod, level, _line, _text, names in imports:
+            for mod, level, _line, _text, _names in imports:
                 counts["imports"] += 1
                 top = (mod or "").split(".")[0]
                 if level or not top:
@@ -278,12 +249,9 @@ def detect(repo, files) -> dict:
                 elif top in own["python"]:
                     counts["local"] += 1
                 else:
-                    add(top, "python", rel, names if mod == top else (), dist=PY_DIST.get(top), uses=uses.get(top, ()))
+                    add(top, "python", rel, dist=PY_DIST.get(top), uses=uses.get(top, ()))
             continue
-        named, uses = {}, libdocs_local.js_uses(text)
-        for m in JS_NAMED.finditer(text):
-            named.setdefault(m.group(2), []).extend(
-                w.split(" as ")[0].strip() for w in m.group(1).split(",") if w.strip())
+        uses = libdocs_local.js_uses(text)
         for spec in dict.fromkeys(m.group(1) for m in JS_IMPORT.finditer(text)):
             counts["imports"] += 1
             if spec.startswith((".", "/", "~/", "@/")) or _js_package(spec) in own["js"]:
@@ -291,7 +259,7 @@ def detect(repo, files) -> dict:
             elif spec.startswith("node:") or spec.split("/")[0] in NODE_BUILTINS:
                 counts["stdlib"] += 1
             else:
-                add(_js_package(spec), "js", rel, named.get(spec, ()), uses=uses.get(_js_package(spec), ()))
+                add(_js_package(spec), "js", rel, uses=uses.get(_js_package(spec), ()))
     return {"libs": libs, "counts": counts, "unreadable": unreadable}
 
 
@@ -305,26 +273,23 @@ def unit_files(repo, judgment_file, keys=None) -> tuple:
         return [], f"単位のファイルを引けない（{type(e).__name__}: {e}）"[:300]
 
 
+
+
 # ---------------------------------------------------------------- 引く
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
-    """転送は libdocs_web.safe_url を通る先（https・公の host の名）にだけ付いていく（ほかは 3xx のまま返す）。host が替わる転送では
-    Authorization（Context7 の鍵）を落とす（urllib は既定で頭をそのまま写す）"""
+    """転送は libdocs_web.safe_url を通る先（https・公の host の名）にだけ付いていく（ほかは 3xx のまま返す）"""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not libdocs_web.safe_url(newurl):
             return None
-        new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None and urllib.parse.urlsplit(newurl).hostname != urllib.parse.urlsplit(req.full_url).hostname:
-            for k in [k for k in new.headers if k.lower() == "authorization"]:
-                del new.headers[k]
-        return new
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def http_get(url: str, headers: dict) -> tuple:
     """(状態の番号, 本文の頭 MAX_BODY バイトまで)。網に届かなければ FetchError。期限は足さない（節の宣言だけ）"""
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.build_opener(SafeRedirect).open(req) as r:  # noqa: S310  宛先は Context7 の API と公式の口（https だけ）
+        with urllib.request.build_opener(SafeRedirect).open(req) as r:  # noqa: S310  宛先は公式の口（https だけ）
             return r.status, r.read(MAX_BODY)
     except urllib.error.HTTPError as e:
         return e.code, e.read(MAX_BODY) or b""
@@ -332,105 +297,7 @@ def http_get(url: str, headers: dict) -> tuple:
         raise FetchError(f"{type(e).__name__}: {e}"[:200]) from None
 
 
-def _query(lib: dict) -> str:
-    q = f"{lib['search']} usage and API reference"
-    if lib["symbols"]:
-        q += ": " + ", ".join(lib["symbols"][:8])
-    return q[:QUERY_MAX]
-
-
-def _call(get, path: str, params: dict, headers: dict) -> tuple:
-    status, body = get(f"{API}{path}?{urllib.parse.urlencode(params)}", headers)
-    try:
-        doc = json.loads(body.decode("utf-8")) if body else {}
-    except (ValueError, UnicodeDecodeError):
-        doc = None
-    return status, doc
-
-
-def _why(status, doc) -> str:
-    if isinstance(doc, dict) and (doc.get("error") or doc.get("message")):
-        return f"HTTP {status}: {doc.get('error') or ''} — {doc.get('message') or ''}".strip()[:200]
-    return f"HTTP {status}"
-
-
-def _vnorm(v: str) -> str:
-    return v[1:] if v[:1] in "vV" else v
-
-
-def _snippets(doc: dict) -> list:
-    out = []
-    for s in doc.get("codeSnippets") or []:
-        code = "\n\n".join(f"```{c.get('language') or ''}\n{c.get('code') or ''}\n```" for c in s.get("codeList") or [])
-        text = "\n".join(x for x in (s.get("codeDescription") or "", code) if x)
-        out.append({"title": s.get("codeTitle") or s.get("pageTitle") or "", "source": s.get("codeId") or "",
-                    "tokens": int(s.get("codeTokens") or len(text) // 4), "text": text})
-    for s in doc.get("infoSnippets") or []:
-        text = s.get("content") or ""
-        out.append({"title": s.get("breadcrumb") or "", "source": s.get("pageId") or "",
-                    "tokens": int(s.get("contentTokens") or len(text) // 4), "text": text})
-    return out
-
-
-def fetch(lib: dict, get, headers: dict) -> dict:
-    """1 本を引く。返り {status: ok|not_found|quota（HTTP 429＝枠切れ）|error, id, version_note, snippets, error}"""
-    out = {"status": "error", "id": "", "version_note": "", "snippets": [], "error": ""}
-    q = _query(lib)
-    try:
-        status, doc = _call(get, "/v2/libs/search", {"libraryName": lib["search"], "query": q}, headers)
-        if status == 404 or (status == 200 and isinstance(doc, dict) and not doc.get("results")):
-            return {**out, "status": "not_found"}
-        if status != 200 or not isinstance(doc, dict):
-            return {**out, "status": "quota" if status == 429 else "error", "error": _why(status, doc)}
-        results = [r for r in doc["results"] if isinstance(r, dict) and r.get("id")]
-        want = _norm(lib["search"])
-        best = next((r for r in results if _norm(str(r.get("title") or "")) == want
-                     or _norm(r["id"].rstrip("/").rsplit("/", 1)[-1]) == want), results[0] if results else None)
-        if best is None:
-            return {**out, "status": "not_found"}
-        lid = best["id"]
-        if lib["version"]:
-            vs = [v for v in best.get("versions") or [] if isinstance(v, str)]
-            hit = next((v for v in vs if _vnorm(v) == lib["version"]), None) or \
-                next((v for v in vs if _vnorm(v).startswith(lib["version"] + ".")), None)
-            if hit:
-                lid = f"{lid}/{hit}"
-            else:
-                out["version_note"] = (f"{lib['search']} {lib['version']} の版は Context7 に無い（在る版: "
-                                       f"{', '.join(vs[:5]) or '無し'}）。版を指さずに引いた")
-        status, doc = _call(get, "/v2/context", {"libraryId": lid, "query": q, "type": "json"}, headers)
-        if status == 404:
-            return {**out, "status": "not_found", "id": lid}
-        if status != 200 or not isinstance(doc, dict):
-            return {**out, "id": lid, "status": "quota" if status == 429 else "error", "error": _why(status, doc)}
-        return {**out, "status": "ok", "id": lid, "snippets": _snippets(doc)}
-    except FetchError as e:
-        return {**out, "error": str(e)}
-
-
-# ---------------------------------------------------------------- 節
-def _lib_name(lib: dict) -> str:
-    """ライブラリの名と版だけの控えの名（Context7 に無い not_found の控え。無いことは問いに依らない）"""
-    return re.sub(r"[^A-Za-z0-9._@-]", "_", f"{lib['name']}@{lib['version'] or 'any'}") + ".json"
-
-
-def _cache_name(lib: dict) -> str:
-    """取れた文書（ok）の控え（盤面の周・包みの家）の名: ライブラリの名と版に、問い（_query。単位のファイルが使う名を持つ）の
-    digest を足した物（Context7 は問いに合う断片を返すので、名の違う問いの控えを使い回さない）"""
-    digest = hashlib.sha256(_query(lib).encode("utf-8")).hexdigest()[:12]
-    return f"{_lib_name(lib)[:-len('.json')]}-{digest}.json"
-
-
-def _cache_keys(lib: dict) -> tuple:
-    """((控えの名, 受ける状態) の並び): 問いの名の ok と、ライブラリの名の not_found（前の版の名だけの ok は問いを見ていないので
-    受けない）"""
-    return ((_cache_name(lib), ("ok",)), (_lib_name(lib), ("not_found",)))
-
-
-def _name_for(lib: dict, status: str) -> str:
-    return _lib_name(lib) if status == "not_found" else _cache_name(lib)
-
-
+# ---------------------------------------------------------------- 控え
 def _cached(board, name: str, statuses=("ok", "not_found")):
     """一番新しい周の控え（scopes.all_rounds。scope の根に分かれた物も見る）"""
     for p in reversed(scopes.all_rounds(pathlib.Path(board.dir), f"{CACHE_DIR}/{name}")):
@@ -441,16 +308,6 @@ def _cached(board, name: str, statuses=("ok", "not_found")):
         if isinstance(doc, dict) and doc.get("schema") == SCHEMA and doc.get("status") in statuses:
             return doc
     return None
-
-
-QUOTA_MARK = "_quota.json"            # 枠切れ（429）を受けた印。応答の控えでなく run の状態（run をまたぐ控えでは受けた時刻も持つ）
-QUOTA_NOTICE = ("ライブラリの文書の Context7 は枠切れで取れていない（HTTP 429 を返したので、この run では以後問い合わせない。"
-                "手元の版と公式の文書は別に引く）")
-
-
-def _mark_quota(board, reason: str) -> None:
-    board.work(f"{CACHE_DIR}/{QUOTA_MARK}").write_text(
-        json.dumps({"schema": SCHEMA, "reason": reason}, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def shared_dir(env) -> pathlib.Path | None:
@@ -478,12 +335,6 @@ def _shared_get(sd, name: str, now: float, statuses=("ok", "not_found")):
     return doc if doc and doc.get("status") in statuses and _fresh(doc, now, SHARED_TTL) else None
 
 
-def _shared_quota(sd, now: float, keyed: bool):
-    """run をまたぐ枠切れの印（QUOTA_HOLD の内の物で、鍵の有る無しが今の起動と同じ物。鍵の上限と匿名の上限は別）。無ければ None"""
-    doc = _read_doc(sd / QUOTA_MARK) if sd is not None else None
-    return doc if doc and _fresh(doc, now, QUOTA_HOLD) and doc.get("keyed") is keyed else None
-
-
 def _shared_put(sd, name: str, doc: dict) -> str:
     """run をまたぐ控えに書く（同じ家で同時に走る run と読み合うので、一時のファイルに書いて置き換える）。書けなければ理由の 1 行"""
     try:
@@ -501,20 +352,9 @@ def _shared_put(sd, name: str, doc: dict) -> str:
     return ""
 
 
-def _when(at: float) -> str:
-    return time.strftime("%Y-%m-%d %H:%M", time.localtime(at))
-
-
-def notice(board) -> str | None:
-    """枠切れの印が盤面（どの周でも）に在れば、人にも見せる 1 行。無ければ None"""
-    if scopes.all_rounds(pathlib.Path(board.dir), f"{CACHE_DIR}/{QUOTA_MARK}"):
-        return QUOTA_NOTICE
-    return None
-
-
 def _official_name(lib: dict) -> str:
     """公式の文書の控えの名（盤面の周・包みの家）: ライブラリの名と版だけ（公式の問いは名と版しか持たない）"""
-    return _lib_name(lib)[:-len(".json")] + OFFICIAL_SUFFIX
+    return re.sub(r"[^A-Za-z0-9._@-]", "_", f"{lib['name']}@{lib['version'] or 'any'}") + OFFICIAL_SUFFIX
 
 
 def _official(board, lib: dict, get, sd, now: float, keep, share) -> tuple:
@@ -535,21 +375,21 @@ def _official(board, lib: dict, get, sd, now: float, keep, share) -> tuple:
     return got, "net"
 
 
+# ---------------------------------------------------------------- 節
 def _groups(r: dict) -> dict:
-    """1 本のライブラリの出どころごとの断片（手元・公式・Context7。取れなかった出どころは空）"""
+    """1 本のライブラリの出どころごとの断片（手元・公式。取れなかった出どころは空）"""
     local, official = r["local"], r["official"]
     return {"local": list(local.get("fragments") or []) if local.get("status") == "ok" else [],
             "official": libdocs_web.fragments(official.get("docs"), r["lib"].get("uses"))
-            if official.get("status") == "ok" else [],
-            "context7": list(r.get("snippets") or []) if r.get("status") == "ok" else []}
+            if official.get("status") == "ok" else []}
 
 
 def _allocate(groups: dict, share: int) -> tuple:
-    """1 本の分（share トークン）を出どころに分けて断片を選ぶ。先に手元 1/2・公式 1/4・Context7 の残りの取り分の中で、入る断片を
-    順に取り（大きすぎる断片は飛ばす）、余りを手元 → 公式 → Context7 の順に、入らなかった断片で埋める。
+    """1 本の分（share トークン）を出どころに分けて断片を選ぶ。先に手元 1/2・公式の残りの取り分の中で、入る断片を順に取り
+    （大きすぎる断片は飛ばす）、余りを手元 → 公式の順に、入らなかった断片で埋める。
     ({出どころ: [選んだ断片（元の順）]}, 使った量, 切った数)"""
-    caps = {"local": share // 2, "official": share // 4}
-    caps["context7"] = share - caps["local"] - caps["official"]
+    caps = {"local": share // 2}
+    caps["official"] = share - caps["local"]
     chosen = {src: set() for src in SOURCES}
     used = 0
     for src in SOURCES:
@@ -569,11 +409,11 @@ def _allocate(groups: dict, share: int) -> tuple:
     return picked, used, cut
 
 
-LABELS = {"local": "手元の版", "official": "公式", "context7": "Context7"}
+LABELS = {"local": "手元の版", "official": "公式"}
 
 
 def _render_docs(rows: list, budget: int) -> tuple:
-    """文書の取れたライブラリごとに、手元 → 公式 → Context7 の順に断片を量の上限の中で並べる。(本文の段, 貼った数, 使った量, 切った数)"""
+    """文書の取れたライブラリごとに、手元 → 公式の順に断片を量の上限の中で並べる。(本文の段, 貼った数, 使った量, 切った数)"""
     have = [r for r in rows if any(r["groups"].values())]
     if not have:
         return [], 0, 0, 0
@@ -589,8 +429,6 @@ def _render_docs(rows: list, budget: int) -> tuple:
             froms.append(f"手元の版 {r['local'].get('where') or ''}".rstrip())
         if r["groups"]["official"]:
             froms.append("公式 " + "・".join(d["url"] for d in r["official"].get("docs") or []))
-        if r["groups"]["context7"]:
-            froms.append(f"Context7 {r['id']}")
         parts.append(f"### {lib['search']} {lib['version'] or '（版の宣言なし）'}\n出どころ: {'／'.join(froms)}")
         for src in SOURCES:
             for s in picked[src]:
@@ -614,21 +452,15 @@ def section(board, repo, files, *, get=None, env=None, budget: int = BUDGET, now
     get = http_get if get is None else get
     now = time.time() if now is None else now
     try:
-        text = _section(board, repo, files, get, env, budget, now)
-        flag = notice(board)
-        if flag:
-            first, _, rest = text.partition("\n")
-            text = f"{first}\n{flag}\n{rest}"
-        return text
+        return _section(board, repo, files, get, env, budget, now)
     except Exception as e:  # noqa: BLE001  組めなかったことは節に書く（黙って落とさない）
         return f"{TITLE}\n\n組めなかった（{type(e).__name__}: {e}）。この節の文書は無い。"[:1000]
 
 
-HEAD = ("機械が、この単位のファイルが使うライブラリの文書を 3 つの出どころから順に取って貼った（どの断片にも出典）: "
+HEAD = ("機械が、この単位のファイルが使うライブラリの文書を 2 つの出どころから順に取って貼った（どの断片にも出典）: "
         "(1) 手元の版——run の作業ツリーか同じリポジトリの main の作業ツリーに入っている版のコードを、import せずに読んだ署名と"
         "説明（入っている版のコードそのもの） (2) 公式——ライブラリの持ち主の文書（PyPI・npm の README、docs の場所の llms.txt。"
-        "版を合わせられる物は合わせた） (3) Context7（https://context7.com）——各ライブラリの持ち主の文書を集めた物で、正しさの"
-        "保証は無い。根拠にするなら出典を開いて確かめよ。下の「どこからも文書が無い」のライブラリと、ここで足りない所は "
+        "版を合わせられる物は合わせた）。下の「どこからも文書が無い」のライブラリと、ここで足りない所は "
         "WebSearch・WebFetch で公式の文書を自分で引け。")
 
 
@@ -646,19 +478,9 @@ def _section(board, repo, files, get, env, budget, now) -> str:
     keys = sorted(libs)
     off = str(env.get(ENV_SWITCH, "")).strip().lower() == "off"
     take, over = keys[:MAX_LIBS], keys[MAX_LIBS:]
-    headers = {"User-Agent": "works-libdocs", "Accept": "application/json"}
-    if env.get(ENV_KEY):
-        headers["Authorization"] = f"Bearer {env[ENV_KEY]}"
-    rows, hits, shared_hits, unshared, held_used = [], 0, 0, [], False
+    rows, unshared = [], []
     official_from = {"board": 0, "shared": 0, "net": 0}
     sd = shared_dir(env)
-    keyed = bool(env.get(ENV_KEY))
-    halted = notice(board) is not None
-    held = None if (halted or off) else _shared_quota(sd, now, keyed)
-    # 同じ家のほかの run が窓の内に枠切れを受けた。網に出ずに飛ばした物が出た時だけ、この run の盤面にも印を写す（報告の冒頭の
-    # 1 行が読む。家の控えで全部取れた run には立てない）
-    held_why = (f"ほかの run が {_when(held['at'])} に枠切れを受けた（{held.get('reason') or 'HTTP 429'}）ので "
-                f"{_when(held['at'] + QUOTA_HOLD)} まで問い合わせない") if held is not None else ""
     roots = libdocs_local.roots(pathlib.Path(repo))
 
     def keep(name, doc):
@@ -684,40 +506,9 @@ def _section(board, repo, files, get, env, budget, now) -> str:
         else:
             official, origin = _official(board, lib, get, sd, now, keep, share)
             official_from[origin] += 1 if official["status"] == "ok" else 0
-        # 3. Context7
-        got = None if off else next((d for d in (_cached(board, n, st) for n, st in _cache_keys(lib)) if d is not None), None)
-        shared = None if (off or got is not None) else \
-            next((d for d in (_shared_get(sd, n, now, st) for n, st in _cache_keys(lib)) if d is not None), None)
-        if off:
-            got = {"schema": SCHEMA, "lib": lib, "status": "off", "id": "", "version_note": "", "snippets": [], "error": ""}
-        elif got is not None:
-            hits += 1
-        elif (got := shared) is not None:
-            shared_hits += 1
-            keep(_name_for(lib, got["status"]), got)   # run の中の後の周は盤面の控えを読む（run の間に家の控えが替わっても同じ物）
-        elif halted or held is not None:
-            if not halted:
-                _mark_quota(board, held_why)
-                halted = held_used = True
-            got = {"schema": SCHEMA, "lib": lib, "status": "quota", "id": "", "version_note": "", "snippets": [],
-                   "error": "問い合わせを飛ばした（この run は枠切れ）"}
-        else:
-            got = {"schema": SCHEMA, "lib": lib, **fetch(lib, get, headers), "at": now}
-            if got["status"] in ("ok", "not_found"):
-                keep(_name_for(lib, got["status"]), got)
-                share(_name_for(lib, got["status"]), got)
-            elif got["status"] == "quota":
-                _mark_quota(board, got["error"])
-                share(QUOTA_MARK, {"schema": SCHEMA, "reason": got["error"], "at": now, "keyed": keyed})
-                halted = True
-        row = {**got, "lib": lib, "local": local, "official": official}
+        row = {"lib": lib, "local": local, "official": official}
         row["groups"] = _groups(row)
         rows.append(row)
-    ok = [r for r in rows if r["status"] == "ok"]
-    nf = [r for r in rows if r["status"] == "not_found"]
-    err = [r for r in rows if r["status"] == "error"]
-    quota = [r for r in rows if r["status"] == "quota"]
-    vm = [r for r in rows if r.get("version_note")]
     by_local = {st: [r for r in rows if r["local"]["status"] == st] for st in ("ok", "absent", "error")}
     by_official = {st: [r for r in rows if r["official"]["status"] == st] for st in ("ok", "not_found", "error")}
     none = [r for r in rows if not any(r["groups"].values())]
@@ -730,20 +521,17 @@ def _section(board, repo, files, get, env, budget, now) -> str:
         _count("入っていない", by_local["absent"], name),
         _count("読めなかった", by_local["error"], lambda r: f"{name(r)}: {r['local']['note']}")))]
     if off:
-        lines += [f"- 公式の文書: {ENV_SWITCH}=off なので網に出ない（引かない）",
-                  f"- Context7: {ENV_SWITCH}=off なので網に出ない（引かない。見つけたライブラリ {len(keys)} 本: {'、'.join(keys)}）"]
+        lines.append(f"- 公式の文書: {ENV_SWITCH}=off なので網に出ない（引かない。見つけたライブラリ {len(keys)} 本: {'、'.join(keys)}）")
     else:
-        lines += ["- 公式の文書: " + "／".join((
+        lines.append("- 公式の文書: " + "／".join((
             _count("取れた", by_official["ok"], name),
             f"控えから {official_from['board'] + official_from['shared']} 本（盤面 {official_from['board']} 本・"
             f"ほかの run {official_from['shared']} 本）",
             _count("見つからない", by_official["not_found"], name),
-            _count("取れなかった", by_official["error"], lambda r: f"{name(r)}: {r['official']['error']}"))),
-            f"- Context7: 取れた {len(ok)} 本（盤面の控えから {hits} 本・ほかの run の控えから {shared_hits} 本）／"
-            f"Context7 に無い {len(nf)} 本／枠切れで取らなかった {len(quota)} 本／取れなかった {len(err)} 本／版が合わない {len(vm)} 本"]
+            _count("取れなかった", by_official["error"], lambda r: f"{name(r)}: {r['official']['error']}"))))
     lines.append(f"貼った断片 {shown} 本・{used} トークン（予算 {budget}。切った断片 {cut} 本）")
     if none:
-        why = f"網には出ていない（{ENV_SWITCH}=off）" if off else "公式と Context7 から取れなかった"
+        why = f"網には出ていない（{ENV_SWITCH}=off）" if off else "公式から取れなかった"
         lines.append(f"- どこからも文書が無い: {_names(none, name)}（手元に入っていない。{why}。"
                      "WebSearch・WebFetch で公式の文書を自分で引け）")
     for r in rows:
@@ -754,16 +542,6 @@ def _section(board, repo, files, get, env, budget, now) -> str:
             lines.append(f"- 手元の版の注: {name(r)}: {r['local']['note']}")
         if r["official"].get("note"):
             lines.append(f"- 公式の文書の注: {name(r)}: {r['official']['note']}")
-    if nf:
-        lines.append("- Context7 に無い: " + _names(nf, name))
-    if held_used:
-        lines.append(f"- 枠切れの印: {held_why}")
-    if quota:
-        lines.append("- 枠切れで取らなかった: " + _names(quota, lambda r: f"{name(r)}（{r['error']}）"))
-    if err:
-        lines.append("- Context7 から取れなかった: " + _names(err, lambda r: f"{name(r)}（{r['error']}）"))
-    for r in vm:
-        lines.append(f"- 版が合わない: {r['version_note']}")
     if over:
         lines.append("- 上限を超えて取らない: " + "、".join(over))
     if unshared:
@@ -777,12 +555,11 @@ def _section(board, repo, files, get, env, budget, now) -> str:
 
 def _record_row(r: dict) -> dict:
     """libdocs.json の行: 見つけた物と出どころごとの結果（文書の字は載せない。手元は読んだ版と置き場、断片は名と出典だけ）"""
-    out = {k: v for k, v in r.items() if k not in ("snippets", "groups", "local", "official")}
     local = r["local"]
-    out["local"] = {**{k: v for k, v in local.items() if k != "fragments"},
-                    "fragments": [{"title": f["title"], "source": f["source"], "tokens": f["tokens"]}
-                                  for f in local.get("fragments") or []]}
-    out["official"] = {**{k: v for k, v in r["official"].items() if k not in ("docs", "lib")},
-                       "docs": [{"kind": d.get("kind"), "url": d.get("url"), "chars": len(d.get("text") or "")}
-                                for d in r["official"].get("docs") or []]}
-    return out
+    return {"lib": r["lib"],
+            "local": {**{k: v for k, v in local.items() if k != "fragments"},
+                      "fragments": [{"title": f["title"], "source": f["source"], "tokens": f["tokens"]}
+                                    for f in local.get("fragments") or []]},
+            "official": {**{k: v for k, v in r["official"].items() if k not in ("docs", "lib")},
+                         "docs": [{"kind": d.get("kind"), "url": d.get("url"), "chars": len(d.get("text") or "")}
+                                  for d in r["official"].get("docs") or []]}}

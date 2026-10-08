@@ -13,7 +13,7 @@
   export … from の相対の先を辿った .d.ts の中の、使う名の宣言（前の /** */ ごと）。使う名が無い・当たらなければ README の頭
 - 環境の置き場（.venv・node_modules など）は実パスが根の中に在る物だけ（置き場そのものか途中のフォルダが symlink で根の外を指せば
   見ない）。読むファイルは置き場の実パスの中の物だけ（symlink で外を指す物は読まない）、1 本 MAX_FILE まで
-- 返りの dist は dist-info の METADATA の Name（配る名）。libdocs は輸入の名と違えば、公式と Context7 にこの名で問う
+- 返りの dist は dist-info の METADATA の Name（配る名）。libdocs は輸入の名と違えば、公式にこの名で問う
 
 口（標準ライブラリだけ）:
 - roots(repo) -> [Path]: repo と、repo が git の作業ツリー（.git がファイル）なら main の作業ツリー（git を起こさない）

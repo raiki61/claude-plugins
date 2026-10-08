@@ -977,19 +977,16 @@ class HeadCase(ReportBase):
         for x in got:
             self.assertIn(x, lines)
 
-    def test_context7_quota_line_in_head_entry(self):
-        """Context7 が 429（枠切れ）を返した盤面では冒頭 2 に枠切れの 1 行が在り、返さなかった盤面では無い"""
-        import libdocs
+    def test_no_library_docs_quota_line_in_head_entry(self):
+        """Context7 はやめた（持ち主 2026-10-09）: 前の版が盤面に残した枠切れの印（libdocs/_quota.json）が在っても、冒頭 2 に
+        ライブラリの文書の枠切れの行を出さない"""
         self.judged()
         b = entry.open_board(self.board)
-        self.assertFalse(any("枠切れ" in x for x in report.head_entry(b, None)))
-        repo = self.board / "repo_quota"
-        repo.mkdir()
-        (repo / "app.py").write_text("import requests\n", encoding="utf-8")
-        libdocs.section(b, repo, ["app.py"], env={},
-                        get=lambda url, headers: (429, b'{"error": "rate_limited", "message": "quota exceeded"}'))
+        mark = b.work("libdocs/_quota.json")
+        mark.parent.mkdir(parents=True, exist_ok=True)
+        mark.write_text(json.dumps({"schema": "works-libdocs/1", "reason": "HTTP 429"}), encoding="utf-8")
         lines = report.head_entry(b, None)
-        self.assertTrue(any(libdocs.QUOTA_NOTICE in x for x in lines), lines)
+        self.assertFalse([x for x in lines if "枠切れ" in x or "Context7" in x], lines)
 
     def test_handover_drafts_and_downgrade(self):
         """p0.parallel_pr を任せ先で受けた盤面（conflicts 2 件・どちらも note つき・外した hunk 1 件）→ 冒頭 1 に 2 件の下書きと
