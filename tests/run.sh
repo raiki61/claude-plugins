@@ -3520,24 +3520,16 @@ for _s in (sys.stdout, sys.stderr):
 root = pathlib.Path(sys.argv[1])
 # **除外は明示の表で持つ**——表に無い名前を名指しした瞬間に赤くなるので、足し忘れは
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
-EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_", "INPUTS_")
-EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "BASH_ENV", "CLAUDE_KEYCHAIN_SERVICE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
-                  # Archon が節と子に渡す環境変数・Archon の設定の環境変数・やめた Context7 の鍵（変更の記録と前の設計書が名指す）
-                  "ARTIFACTS_DIR", "WORKFLOW_ID", "ARCHON_NODE_EXECUTION", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
-                  # works の python が os.environ から・shell の殻が環境から読む環境変数（WORKS_ で始まる shell の
-                  # 定数が在るので接頭辞では外さない）
-                  "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_DEV_MODEL", "WORKS_GH", "WORKS_GOLDEN_OUT",
-                  "WORKS_KEYCHAIN_ITEM", "WORKS_CONTEXT7_KEYCHAIN_ITEM", "WORKS_MODEL_PINNED", "WORKS_REAL_CLAUDE", "WORKS_TDD_TIER",
-                  "WORKS_USE_FINAL_GATE", "WORKS_DOGFOOD_FINAL_GATE", "WORKS_USE_HOME", "WORKS_DEV_HOME",
-                  # 包みが Bash の役の子に立てる run ごとの置き場（adapter.RUN_PLACE_ENV）と、向け直す・向け直さない外の道具の環境変数
-                  "WORKS_RUN_PLACE", "UV_CACHE_DIR", "TMPDIR",
-                  "WORKS_DEV_ADAPTER", "WORKS_DESIGN_ONLY", "WORKS_FIX_SHAPE", "WORKS_FIX_FIXTURE", "WORKS_USE_UNATTENDED",
+EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_")
+EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                  # Archon が節と子に渡す環境変数・Archon の設定の環境変数
+                  "ARTIFACTS_DIR", "TITLE_GENERATION_MODEL",
+                  # 包みが Bash の役の子に向け直す・向け直さない外の道具の環境変数
+                  "UV_CACHE_DIR", "TMPDIR",
                   # 外の道具（mise・gh）の設定の環境変数
                   "MISE_TRUSTED_CONFIG_PATHS", "GH_REPO", "GH_CONFIG_DIR", "GH_TOKEN",
                   # works のファイル名（写しの印・pack の版・盤面の止め札）
                   "COPIED_FROM", "VERSION", "STOP"}
-# INPUTS_ は Archon の節の `with:` が script に渡す環境変数。works の各 script は読む名前を定数 INPUTS の
-# 組に持ち、works の試験が YAML の `with:` の鍵と突き合わせる——実在の検査はそちらが持つ
 # HEAD と CLAUDE_CONFIG_DIR は表から外した——works の python・shell が同じ名前を定数に持つので定義の在る
 # 名前として通る（下の未使用の検査が表に残すことを拒む）。CLAUDE_KEYCHAIN_SERVICE は
 # このリポジトリが定める環境変数で、モジュールの定数ではない（os.environ から読む）——COLDREAD_* が
@@ -3561,6 +3553,10 @@ NAMED_IN = tuple(
     p for p in sorted(root.rglob("*.md")) if ".git" not in p.parts
     # 写した第三者の文（superpowers の写し）は直さない写しなので柵の外。写しの一致は works/tests/test_sp_skills.py の VendoredCopyCase が縛る
     and ".shared/borrow/superpowers/" not in p.as_posix()
+    # works の計画と変更の記録は書いた日の名指しを残す歴史の文書なので柵の外（後で名を替えても書き直さない。2026-10-09 の掃除:
+    # この 2 つだけを直す commit が名を足すだけで、本物の食い違いを 1 件も捕まえなかった）
+    and not p.relative_to(root).as_posix().startswith("works/docs/plans/")
+    and p.relative_to(root).as_posix() != "works/CHANGELOG.md"
 ) + tuple(sorted((root / "scripts").glob("*.py"))) + (root / "tests/run.sh",)
 # **アンダースコアを要求するな。** 要求していたとき、`MATERIALS` / `REVIEWS` / `LABELS` /
 # `STATUS` を同じ体裁で名指ししている箇所が 1 つも検査されなかった。
@@ -3578,6 +3574,11 @@ for p in CODE:
     # 同じ名前のファイル（tests/run.sh と graphloops/tests/run.sh）は和で持つ——上書きすると先に読んだ方の定数が消える
     by_file.setdefault(p.name, set()).update(re.findall(r"^([A-Z][A-Z0-9_]*)\s*=", p.read_text(encoding="utf-8"), re.M))
 names = set().union(*by_file.values())
+# works の WORKS_ で始まる名は環境変数で、殻と python が `${WORKS_X:-}`・`os.environ.get("WORKS_X")` の形で読むので、代入の行が
+# 無いことが多い。works のコード（.py・.sh・.yaml）のどこかに字で在れば実在と見る（除外の表に 1 つずつ足さない）
+WORKS_CODE = [q for q in sorted((root / "works").rglob("*")) if q.suffix in (".py", ".sh", ".yaml") and q.is_file()]
+works_env = set().union(*(re.findall(r"\bWORKS_[A-Z0-9_]+", q.read_text(encoding="utf-8", errors="replace")) for q in WORKS_CODE))
+assert len(works_env) >= 20, f"works のコードから WORKS_ の名を {len(works_env)} 個しか拾えていない（走査が壊れている）"
 
 def wrong_pairs(pairs, label):
     """名指しされたファイルにその定数が無い組を返す。**自己検査のために関数にしてある**
@@ -3601,7 +3602,7 @@ for f in NAMED_IN:
     missing += wrong_pairs(pairs, f.name)
     for tok in sorted(set(re.findall(TOKEN, body))):
         used.add(tok)
-        if tok.startswith(EXTERNAL_PREFIX) or tok in EXTERNAL_NAMES or tok in names:
+        if tok.startswith(EXTERNAL_PREFIX) or tok in EXTERNAL_NAMES or tok in names or tok in works_env:
             continue
         missing.append(f"{f.name}: {tok}")
 assert not missing, "名指しされた定数が在るべき場所に無い: " + ", ".join(missing)

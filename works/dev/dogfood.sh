@@ -76,9 +76,6 @@ fi
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
-# 文書が名指す窓口は代入の行で持つ（名指しの柵 doc-symbols が定義として見る）
-WORKS_FEATURES_OFF="${WORKS_FEATURES_OFF:-}"
-WORKS_FEATURES_ON="${WORKS_FEATURES_ON:-}"
 export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER
 # 起こすのは start だけなので、start の時の既定の釘（続きの行だけが置く）は利用者の殻に残っていても受けない
 unset WORKS_MODEL_PINNED
