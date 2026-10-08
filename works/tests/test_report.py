@@ -35,6 +35,7 @@ import linekit  # noqa: E402
 import prcheck  # noqa: E402
 import refix  # noqa: E402
 import rejudge  # noqa: E402
+import replan  # noqa: E402
 import report  # noqa: E402
 import scopes  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
@@ -888,6 +889,23 @@ class HeadCase(ReportBase):
         self.assertEqual([x.split(":")[0] for x in rows], ["読んだ証拠 plan", "読んだ証拠 fix", "読んだ証拠 fix.refit"])
         self.assertEqual([x.rsplit("。", 1)[1].rstrip("）") for x in rows], [str(p) for p in made])
 
+    def test_reads_lines_skip_block_index(self):
+        """blk-plan の索引 reads-plan-block.json と案の直しの索引 reads-replan-block.json（{役: reads-<役>.json} の対応で、
+        役の読んだ証拠そのものでない）は読みの節の行にしない（実物の run 55/56 本に「読んだ証拠 None: 渡した 0 件」が出ていた）"""
+        self.full()
+        made = {}
+        for name, doc in (("reads-plan.json", {"role": "plan", "rows": [], "missing": [],
+                                               "sources": {"hook": False, "events": "none"}}),
+                          ("reads-plan-block.json", {"plan": "x/reads-plan.json"}),
+                          ("reads-replan-block.json", {"plan": "x/reads-replan-plan.json"})):
+            p = self.board / "r1" / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(doc), encoding="utf-8")
+            made[name] = p
+        rows = [x for x in report.head_reads(self.board, RUN_ID) if x.startswith("読んだ証拠")]
+        self.assertEqual([x.split(":")[0] for x in rows], ["読んだ証拠 plan"], rows)
+        self.assertFalse(any("None" in x for x in rows), rows)
+
     def test_round_two_paths(self):
         """周 2 の出力（state.outputs[節]["file"] が out/r2/）→ 見る所のパスは out/r2/ の下（周を仮定しない）"""
         self.full()
@@ -1398,6 +1416,14 @@ class NamesCase(unittest.TestCase):
         self.assertEqual(report.ADAPTER_BY, ci_role.FENCE_BY)
         self.assertEqual(report.declared_downgrades("darkfactory"), prcheck.downgrades("darkfactory"))
         self.assertEqual(report.declared_downgrades("no-such-line"), [])
+        # 読んだ証拠の索引の名（blk-plan と案の直しが書く）は head_reads が飛ばす尾で終わり、役の reads-<役>.json は終わらない
+        sys.path.insert(0, str(ROOT / "blk-plan" / "lib"))
+        try:
+            import planblk
+        finally:
+            sys.path.remove(str(ROOT / "blk-plan" / "lib"))
+        for index in (planblk.READS_INDEX, replan.READS_INDEX):
+            self.assertTrue(index.endswith(report.READS_INDEX_SUFFIX), index)
 
 
 class ScriptCase(ReportBase):

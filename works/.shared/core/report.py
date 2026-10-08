@@ -137,6 +137,7 @@ REJUDGE_EXIT = "rejudge-exit.json"             # 再審のブロックの出口�
 REJUDGE_WHERE = "判定（再審の結果）"           # 次の run の依頼の再審の結果の行の where
 DOWNGRADES = "downgrades.json"
 DOWNGRADE_KEYS = ("node", "what", "versus")
+READS_INDEX_SUFFIX = "-block.json"   # 読んだ証拠の索引の名の尾（head_reads が行にしない）
 HEADINGS = ("## 1. 人が決めること", "## 2. 入口・段・決めた人", "## 3. 止めたか", "## 4. 読んだ証拠と包み", "## 5. 見る所")
 WHERE = tuple((gatemarks.PLAIN[n], n) for n in ("p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix", "p3.delta_review",
                                                    "p3.delta_fix", "p3.delta_review2", "p3.delta_fix2", "p4.ci"))
@@ -1200,7 +1201,8 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
     lines, unverified = [], False
-    files = _all_rounds(board_dir, "reads-*.json")
+    # 索引（blk-plan の reads-plan-block.json・案の直しの reads-replan-block.json。{役: reads-<役>.json}）は役の読んだ証拠でない
+    files = [p for p in _all_rounds(board_dir, "reads-*.json") if not p.name.endswith(READS_INDEX_SUFFIX)]
     for p in files:
         doc = _read_json(p, {}) or {}
         src = doc.get("sources") or {}
