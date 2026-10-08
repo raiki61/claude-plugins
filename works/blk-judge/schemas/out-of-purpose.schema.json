@@ -1,0 +1,9 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "判定が凍結した目的の外として単位にしなかった材料の所見 out-of-purpose.json（盤面の根。書き手は core の outpurpose.save。周 → 判定役の行 {source, where, why_outside} に、当たった材料の行 found を添えた物。次の run の依頼の下書きが読む）",
+ "type": "object",
+ "required": ["rounds"],
+ "properties": {
+  "rounds": {"type": "object", "patternProperties": {"^[0-9]+$": {"type": "array", "items": {"type": "object", "required": ["source", "where", "why_outside", "found"], "properties": {"source": {"type": "string"}, "where": {"type": "string"}, "why_outside": {"type": "string"}, "found": {"type": "array", "items": {"type": "object", "required": ["where", "text"]}}}}}}}
+ }
+}

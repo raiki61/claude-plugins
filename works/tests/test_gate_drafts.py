@@ -1,0 +1,216 @@
+"""関所の項目の推し（gatemarks の recommend）と、無人の run が関所で止まった時の答えの下書き（gatemarks.answer_drafts）。
+FAST: test_plan_gate の偽の盤面で写しの RL の human_gate を直に呼ぶ（盤面・git・子のプロセスなし）。
+
+実の利用者の run ac9e02ab は無人の run で、直す前の関所に 2 件（方針の文書の柵 policy_doc）が挙がって止まった。関所の文の推しは
+「判定の役が書いていない」と出て、機械が読める推しの答えはどこにも無く、次の run の依頼の下書き next-request.json は空だった。
+役が関所に回す行に構造の推し recommend {answer, note, why} を書き、無人の run が関所で止まったら、項目ごとの答えの下書きを
+next-request.json の answers に draft: true と出どころ source つきで置く。機械は関所に答えない（下書きを使う前に人が見直す）。
+"""
+import json
+import pathlib
+import sys
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+TESTS = pathlib.Path(__file__).resolve().parent
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / ".shared" / "core"))
+sys.path.insert(0, str(TESTS))
+import test_plan_gate as TP  # noqa: E402  （ラインの模块の置き場も sys.path に足す）
+import accept  # noqa: E402
+import gatemarks  # noqa: E402
+import ghreads  # noqa: E402
+import plan  # noqa: E402
+import report  # noqa: E402
+
+REC = {"answer": "continue", "note": "daemon だけを Recreate にする範囲で通す", "why": "Dagster 公式の chart が同じ分け方"}
+ASKED = {**TP.DECIDED, "fences": ["policy_doc"]}   # 決め手は在るが柵に当たる（ac9e02ab の 2 件の形）
+NO_NARROW = "daemon を別の Deployment に分け、webserver は RollingUpdate に残す形を当たったが、決着済みの配置を組み替える"
+WORLD = "Dagster 公式の Helm chart は daemon だけを別の Deployment にして Recreate にする"
+
+
+class SchemaCase(unittest.TestCase):
+    def test_gate_rows_have_the_recommend_field(self):
+        for node, row in (("p2.fix_plan", lambda s: s["properties"]["plan"]["items"]["properties"]["narrows"]["items"]),
+                          ("p2.plan_review", lambda s: s["properties"]["faces"]["items"])):
+            with self.subTest(node):
+                rec = row(accept.role_schema(node))["properties"][gatemarks.RECOMMEND]
+                self.assertEqual(sorted(rec["required"]), ["answer", "note", "why"])
+                self.assertEqual(rec["properties"]["answer"]["enum"], ["continue", "stop"])
+                self.assertNotIn(gatemarks.RECOMMEND, row(accept.role_schema(node)).get("required", []))
+
+    def test_rule_text_asks_for_recommend(self):
+        for node in gatemarks.NODES:
+            self.assertIn(gatemarks.RECOMMEND, gatemarks.HEAD[node])
+
+
+class GapsCase(unittest.TestCase):
+    def plan(self, rec):
+        return {"plan": [{"narrows": [{**TP.NARROW, "no_narrow": NO_NARROW, **({"recommend": rec} if rec is not None else {})}]}]}
+
+    def test_absent_and_good_recommend_pass(self):
+        self.assertEqual(gatemarks.recommend_gaps("p2.fix_plan", self.plan(None)), [])
+        self.assertEqual(gatemarks.recommend_gaps("p2.fix_plan", self.plan(REC)), [])
+
+    def test_malformed_recommend_is_named(self):
+        for bad in ({**REC, "answer": "maybe"}, {k: v for k, v in REC.items() if k != "why"}, "通す", {**REC, "note": ""}):
+            with self.subTest(bad=bad):
+                got = gatemarks.recommend_gaps("p2.fix_plan", self.plan(bad))
+                self.assertEqual(len(got), 1, got)
+                self.assertIn("plan[0].narrows[0]", got[0])
+
+    def test_review_faces_are_checked_too(self):
+        got = gatemarks.recommend_gaps("p2.plan_review", {"faces": [{**TP.FACE, "recommend": {"answer": "x"}}]})
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("faces[0]", got[0])
+
+    def test_split_takes_recommend_off_and_save_keeps_it(self):
+        reply = self.plan(REC)
+        bare, marks = gatemarks.split("p2.fix_plan", reply)
+        self.assertNotIn(gatemarks.RECOMMEND, bare["plan"][0]["narrows"][0])
+        self.assertEqual(marks[0][0][gatemarks.RECOMMEND], REC)
+
+
+class PushCase(TP.GateBase):
+    def test_asked_row_carries_the_recommend_and_the_gate_pushes_it(self):
+        got, _ = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: REC}])
+        item = got["ask"]["items"][0]
+        self.assertTrue(item.endswith(f"／推し: 通す（continue）——{REC['note']}（理由: {REC['why']}）"), item)
+        text = plan.gate_text({"node": "p2.human_gate", **got["ask"]})
+        self.assertIn(f"推し: 通す（continue）——{REC['note']}", text.splitlines()[2])
+
+    def test_slash_in_the_push_is_kept_out_of_the_tail_mark(self):
+        """推しの文に「／」が在っても尾は 1 つの区切りで終わる（R4 の照らしで外す形 PUSH_TAIL と、推しの拾い PUSH_IN が全文を読む）"""
+        rec = {**REC, "note": "A／B の範囲で通す"}
+        got, _ = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: rec}])
+        item = got["ask"]["items"][0]
+        self.assertEqual(item.count("／"), 1, item)
+        self.assertNotIn("推し", gatemarks.PUSH_TAIL.sub("", item))
+
+    def test_row_without_recommend_is_as_before(self):
+        got, _ = self.gate(narrows=[{**TP.NARROW, **ASKED}])
+        self.assertNotIn("／推し", got["ask"]["items"][0])
+
+
+class DraftsCase(TP.GateBase):
+    def unattended(self):
+        (self.tmp / "r1").mkdir(exist_ok=True)
+        (self.tmp / "r1" / "start.json").write_text('{"unattended": "true"}', encoding="utf-8")
+
+    def stopped(self, b, got):
+        """無人の殻が関所に stop を答えた（写しの human_gate_answered と同じ形の行）"""
+        b.record["process"]["human_items"].append({"round": 1, "kinds": got["ask"]["kinds"], "asked": got["ask"]["items"],
+                                                   "answer": "stop", "note": "無人の run: 止めて報告へ", "node": "p2.human_gate"})
+
+    def test_each_stopped_item_gets_a_marked_draft(self):
+        """recommend の行は推しの答え、無い行は狭めない案・世界の解を下書きにし、どの行も draft: true と出どころを持つ"""
+        self.unattended()
+        got, b = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: REC}],
+                           faces=[{**TP.FACE, **ASKED, "world": WORLD, "no_narrow": NO_NARROW}])
+        self.stopped(b, got)
+        drafts = gatemarks.answer_drafts(b)
+        self.assertEqual(len(drafts), 2, drafts)
+        self.assertTrue(all(d["draft"] is True and d["source"] for d in drafts), drafts)
+        first, second = drafts
+        self.assertIn(TP.NARROW["what"], first["question"])
+        self.assertEqual(first["text"], f"continue: {REC['note']}（推す理由: {REC['why']}）")
+        self.assertIn("recommend", first["source"])
+        self.assertIn(TP.FACE["key"], second["question"])
+        self.assertIn(NO_NARROW, second["text"])
+        self.assertIn(WORLD, second["text"])
+        self.assertIn("no_narrow", second["source"])
+        self.assertIn("world", second["source"])
+
+    def test_row_with_nothing_still_gets_a_draft_saying_so(self):
+        self.unattended()
+        got, b = self.gate(narrows=[dict(TP.NARROW)])
+        self.stopped(b, got)
+        drafts = gatemarks.answer_drafts(b)
+        self.assertEqual(len(drafts), 1)
+        self.assertIn("書いていない", drafts[0]["text"])
+
+    def test_held_ledger_question_gets_its_push_as_draft_keyed_by_the_question(self):
+        """無人の run は台帳の問いを関所に載せない。保留のままの fork は、key を question にした推しの下書きになる（見直して
+        draft を外せば、次の run の依頼の answers がその問いに当たる）"""
+        self.unattended()
+        _, b = self.gate(questions=[TP.FORK], units=TP.UNITS)
+        drafts = gatemarks.answer_drafts(b)
+        self.assertEqual([d["question"] for d in drafts], [TP.FORK["key"]])
+        self.assertEqual(drafts[0]["text"], "例外——呼び手が既に例外を捕まえている")
+        self.assertIn("推し", drafts[0]["source"])
+
+    def test_attended_run_gets_no_drafts(self):
+        got, b = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: REC}])
+        self.stopped(b, got)
+        self.assertEqual(gatemarks.answer_drafts(b), [])
+
+    def test_drafts_go_into_the_next_request_doc_and_the_head_names_the_file(self):
+        self.unattended()
+        got, b = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: REC}])
+        self.stopped(b, got)
+        doc = report.next_doc(b, [], [])
+        self.assertEqual(doc["answers"], gatemarks.answer_drafts(b))
+        self.assertEqual(report.next_doc(types_board_without_drafts(self), [], []), {"findings": [], "prior_failures": []})
+        line = gatemarks.draft_line(doc["answers"], "/b/next-request.json")
+        self.assertIn("1 件", line)
+        self.assertIn("/b/next-request.json", line)
+        self.assertIn("draft", line)
+
+
+def types_board_without_drafts(case):
+    """人の居る run（start の控えが無い）の偽の盤面"""
+    _, b = TP.GateBase.gate(case, narrows=[dict(TP.NARROW)])
+    (case.tmp / "r1" / "start.json").unlink(missing_ok=True)
+    return b
+
+
+class R4PushTailCase(TP.GateBase):
+    """修正前の関所で人が通した狭まりの本文は、推しの尾（「／推し: …」）を外して照らす。R4 が推しの尾の無い本文を写しても
+    修正の後の関所で聞き直さない（審査の指摘。前は尾の無かった行が、推しの尾で照らしから外れた）"""
+
+    def test_r4_does_not_reask_when_the_asked_row_had_a_push_tail(self):
+        got, b = self.gate(narrows=[{**TP.NARROW, **ASKED, gatemarks.RECOMMEND: REC}])
+        self.assertIn("／推し", got["ask"]["items"][0])
+        b.record["process"]["human_items"].append({"round": 1, "kinds": got["ask"]["kinds"], "asked": got["ask"]["items"],
+                                                   "answer": "continue", "note": "", "node": "p2.human_gate"})
+        body = got["ask"]["items"][0][len("修正案 1 が狭める能力: "):].split("／推し")[0]
+        self.assertNotIn("推し", gatemarks.carried_section(b))
+        before = b.output_of_round
+        r4 = {"capability_inventory": {"fired": True, "lost": [body]}, "policy_conflicts": []}
+        b.output_of_round = lambda nid, rnd: r4 if nid == "r4.hidden_scope" else before(nid, rnd)
+        self.assertEqual(TP.registry(b.rules, "BUILTINS")["human_gate"](b, "r4.human_gate"), {"ok": True})
+
+
+class IntakeCase(unittest.TestCase):
+    def test_draft_answers_are_refused_with_how_to_use_them(self):
+        """下書きのまま次の run の依頼に渡すと、機械の下書きが人の答えとして関所の問いに当たる。依頼の入口は draft・source の
+        欄の在る行を拒み、見直し方を言う"""
+        for row in ({"question": "q", "text": "t", "draft": True, "source": "s"}, {"question": "q", "text": "t", "source": "s"}):
+            with self.subTest(row=row):
+                with self.assertRaises(ValueError) as cm:
+                    ghreads.request_parts({"findings": [], "answers": [row]})
+                self.assertIn("下書き", str(cm.exception))
+                self.assertIn("draft", str(cm.exception))
+
+    def test_refusal_tells_gate_rows_from_ledger_rows(self):
+        """拒否の文は、台帳の問いの行（draft と source を消せば使える）と関所の項目の行（次の run の関所の一言の材料で、依頼では
+        何にも当たらないので消す）を分けて言う（審査の指摘）"""
+        with self.assertRaises(ValueError) as cm:
+            ghreads.request_parts({"findings": [], "answers": [{"question": "q", "text": "t", "draft": True, "source": "s"}]})
+        self.assertIn("台帳の問い", str(cm.exception))
+        self.assertIn("関所の項目", str(cm.exception))
+
+    def test_carry_ci_keeps_drafts_as_they_are(self):
+        """CI の赤を足す口（carry_ci）は下書きの行で止まらず、そのまま残す（審査の再現: 無人の run の下書きで exit 2 だった）"""
+        draft = {"question": "q", "text": "t", "draft": True, "source": "s"}
+        got = ghreads.carry_ci({"findings": [], "prior_failures": [], "answers": [draft]}, ["tests/test_x.py::t"])
+        self.assertEqual(got["answers"], [draft])
+        self.assertEqual(len(got["prior_failures"]), 1)
+
+    def test_reviewed_answer_passes(self):
+        got = ghreads.request_parts({"findings": [], "answers": [{"question": "q", "text": "t"}]})
+        self.assertEqual(got["answers"], [{"question": "q", "text": "t"}])
+
+
+if __name__ == "__main__":
+    unittest.main()

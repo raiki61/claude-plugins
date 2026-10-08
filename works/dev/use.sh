@@ -846,6 +846,8 @@ if [ "${WORKS_USE_UNATTENDED:-}" = 1 ] && [ "$run_status" -eq 0 ]; then
       workflow respond "$RID" stop "無人の run（WORKS_USE_UNATTENDED=1）: 人が決める関所に着いたので止めて報告へ"
     run_status=$?
     set -e
+    # 機械は関所に答えない。報告が関所の項目と保留の問いへの答えの下書きを次の run の依頼の下書きの answers に置く
+    echo "無人の run: 関所の項目と保留の問いへの答えの下書き（推し。機械は答えていない）は、報告の後に下の「次の run の依頼の下書き」（next-request.json）の answers に在る（在れば）。台帳の問いの行（question が問いの key）は採るなら draft と source を消して次の run の依頼に使い（その問いに当たる）、関所の項目の行（question が関所の項目の文）は次の run の関所の continue の一言に写してから消す"
   fi
 fi
 

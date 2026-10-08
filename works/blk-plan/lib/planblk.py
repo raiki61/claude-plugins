@@ -98,6 +98,8 @@ NONE_WORDS = ("", "null")               # 入口の「無し」（Archon の入�
 EXCLUDED_HEAD = "並行 PR の範囲。触らず、単位に入れない"
 NO_NARROW_REJECT = (f"narrows の行に狭めない案を探した結果（{gatemarks.NO_NARROW}）が無いか短い（直して done し直す）。狭めを避ける形が"
                     "在ればそれを案に採ってその行を消し、無い時だけ、どの形を当たりなぜ採れないかを書け:")
+RECOMMEND_REJECT = (f"関所の項目の行の推し（{gatemarks.RECOMMEND}）の形が崩れている（直して done し直す）。書くなら "
+                    "{answer: continue か stop, note: 関所の一言に写せる通す範囲と条件か止める理由, why: 推す理由} の形で:")
 NOT_OWED_REJECT = "案に、直す義務の無い単位が入っている（nit・info・defer など。受け付けが受けない）。案から外せ。案に入れてよい no（必ず入れる物を含む）は"
 RESOLVED_REJECT = "前の往復の block の行き先が書かれていない（下の行を全部直して出し直せ）:"
 ANSWERS_REJECT = "block への答えに誤りが在る（下の行を全部直して出し直せ）:"
@@ -997,7 +999,8 @@ def _plan_malformed(reply) -> bool:
 def take(role: str, *, snapshot: str | None = None, settle: bool = True):
     """rolekit.accept_role の take: 関所の項目の行の決め手の欄（gatemarks）を外した返答を entry.take に渡す（写しの型は欄を
     持たない）。決め手は渡す前に盤面の gate-marks.json に置く（事前審査を受けた settle の中で関所が読む）。修正案の narrows の行が
-    狭めない案を探した結果を欠けば、盤面へ渡さずに拒む（gatemarks.narrow_gaps）。形の崩れた修正案は前段を飛ばして entry.take に渡す。
+    狭めない案を探した結果を欠けば、盤面へ渡さずに拒む（gatemarks.narrow_gaps）。関所の項目の行の推し recommend の形が崩れて
+    いても同じ（gatemarks.recommend_gaps）。形の崩れた修正案は前段を飛ばして entry.take に渡す。
     snapshot は entry.take が作業ツリーを比べる写しの名（既定は snapshot_name(role)）、settle はそのまま entry.take へ
     （偽なら盤面は受けるが進めない。事前審査の壁打ち with_converge が往復を記録してから進める）"""
     nid = role_node(role)
@@ -1009,6 +1012,9 @@ def take(role: str, *, snapshot: str | None = None, settle: bool = True):
         gaps = gatemarks.narrow_gaps(nid, reply)
         if gaps:
             return {"ok": False, "reason": NO_NARROW_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
+        gaps = gatemarks.recommend_gaps(nid, reply)
+        if gaps:
+            return {"ok": False, "reason": RECOMMEND_REJECT + "\n" + "\n".join(f"  - {g}" for g in gaps)}
         if role == "plan":
             closed = not_allowed(entry.open_board(pathlib.Path(board)), nid, reply)
             if closed:

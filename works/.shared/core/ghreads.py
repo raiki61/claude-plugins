@@ -5,7 +5,8 @@
 "prior_failures": [...]} の形。prior_failures は前の run で最後まで通らなかった物 [{where, text}]（前の run の報告が書く
 next-request.json の欄。判定役と修正案の役の材料に貼る注意で、直す穴ではない）。
 answers は依頼者が前の run の問いに答えた物 [{question, text, command?, output?}]（question は問いの key か出どころ。
-command・output は人が手元で測った命令と出力で、両方か無し）。読み手
+command・output は人が手元で測った命令と出力で、両方か無し。前の run の報告が書いた答えの下書きの印 draft・source の在る行は、
+人が見直していないので拒む）。読み手
 （entry・判定と前提の intake）はここで解き、graphloops の規則（check_request・add_request・REQUEST_SCHEMA）に渡すのは
 findings だけにする（容器の形を規則の側へ漏らさない）。
 
@@ -44,6 +45,7 @@ import forge  # noqa: E402
 
 KEYS = ("findings", "pr", "issue", "answers", "prior_failures")
 ANSWER_KEYS = ("question", "text", "command", "output")
+DRAFT_KEYS = ("draft", "source")   # 前の run の報告が next-request.json の answers に置く下書きの印（人が見直して消すまで拒む）
 PRIOR_KEYS = ("where", "text")   # prior_failures の行の欄（前の run の報告が next-request.json に書いた形）
 CI_WHERE = "run の後の CI"   # carry_ci が足す prior_failures の行の where
 CI_TEXT = ("試験 {id} が CI で赤だった（重い試験は run の外の CI で回る。前の run の直しがこの試験を赤にした見込み。"
@@ -103,8 +105,12 @@ def _prior_failures(rows) -> list:
 
 def carry_ci(doc, ids) -> dict:
     """依頼 doc（findings の配列か object）に、CI が赤と言った試験の id の並び ids を prior_failures の行として足した object を
-    返す（doc は変えない）。id は前後の空白を落とし、空と重なりは捨てる。既に同じ行が在れば足さない"""
-    parts = request_parts(doc)
+    返す（doc は変えない）。id は前後の空白を落とし、空と重なりは捨てる。既に同じ行が在れば足さない。answers の答えの下書き
+    （DRAFT_KEYS の在る行。前の run の報告が書き、人がまだ見直していない）は確かめずにそのまま残す（下書きは次の run の入口が拒む）"""
+    bare = doc
+    if isinstance(doc, dict) and isinstance(doc.get("answers"), list):
+        bare = {**doc, "answers": [a for a in doc["answers"] if not (isinstance(a, dict) and any(k in a for k in DRAFT_KEYS))]}
+    parts = request_parts(bare)
     got = list(dict.fromkeys(i.strip() for i in ids if isinstance(i, str) and i.strip()))
     if not got:
         raise ValueError("CI の赤の試験の id が 1 つも無い")
@@ -145,6 +151,11 @@ def _answers(rows) -> list:
     for i, a in enumerate(rows):
         if not isinstance(a, dict):
             raise ValueError(f"answers[{i}] が {{question, text, command?, output?}} の object でない（{type(a).__name__}）")
+        if any(k in a for k in DRAFT_KEYS):
+            raise ValueError(f"answers[{i}] は前の run の報告が書いた答えの下書き（draft・source の欄が在る。機械は答えていない）——"
+                             "見直して、台帳の問いの行（question が問いの key）は採るなら draft と source の欄を消し（text は直してよい）、"
+                             "採らないなら行を消す。関所の項目の行（question が関所の項目の文）は次の run の関所の continue の一言の材料で、"
+                             "依頼ではどの問いにも当たらないので、一言に写してから行を消す")
         extra = sorted(set(a) - set(ANSWER_KEYS))
         if extra:
             raise ValueError(f"answers[{i}] の知らない欄 {extra}（使えるのは {list(ANSWER_KEYS)}）")

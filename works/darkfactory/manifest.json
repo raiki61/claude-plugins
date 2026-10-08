@@ -6,6 +6,7 @@
   {"name": "plan-converge/**"},
   {"name": "replan.json"},
   {"name": "gate-marks.json"},
+  {"name": "out-of-purpose.json"},
   {"name": "rejects-r2.design.json"},
   {"name": "purpose.json"},
   {"name": "lens.json"}

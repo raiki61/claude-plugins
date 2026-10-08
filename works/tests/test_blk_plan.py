@@ -834,6 +834,20 @@ class ScriptCase(unittest.TestCase):
                 self.assertIn(f"plan[0].narrows[0]（{bare['what']}）", reason)
                 self.assertEqual(entry.open_board(self.board).rd["instances"]["p2.fix_plan"]["status"], "pending")
 
+    def test_plan_narrows_malformed_recommend_rejected(self):
+        """narrows の行の推し recommend の形が崩れていれば（answer が continue・stop でない）、受け付けが行を名指して拒み、盤面へ
+        渡さない。形の整った推しは通り、人に聞く関所の項目の末尾に推しとして載る（実の利用者の run ac9e02ab）"""
+        self.judged()
+        self.assertTrue(self.ok("snap", role="plan")["go"])
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["narrows"] = [{**NARROWS[0], gatemarks.RECOMMEND: {"answer": "たぶん通す", "note": "範囲で通す", "why": "理由の文"}}]
+        got = self.ok("accept", role="plan", reply=json.dumps(plan, ensure_ascii=False))
+        self.assertFalse(got["ok"], got)
+        reason = self.reason_of(got)
+        self.assertTrue(reason.startswith(planblk.RECOMMEND_REJECT), reason)
+        self.assertIn("plan[0].narrows[0]", reason)
+        self.assertEqual(entry.open_board(self.board).rd["instances"]["p2.fix_plan"]["status"], "pending")
+
     def test_plan_narrows_no_narrow_on_gate_item(self):
         """no_narrow の在る狭めは受け付けを通り、人に聞く関所の項目の尾に探した結果が添わる（決め手の欄が無ければ世界の解の尾は付けない）"""
         got, out = self.gate_after(NARROWS)

@@ -386,6 +386,25 @@ nodes:
                               - web_doubt
                           world:
                             type: string
+                          recommend:
+                            type: object
+                            additionalProperties: false
+                            required:
+                            - answer
+                            - note
+                            - why
+                            properties:
+                              answer:
+                                type: string
+                                enum:
+                                - continue
+                                - stop
+                              note:
+                                type: string
+                                minLength: 4
+                              why:
+                                type: string
+                                minLength: 4
                           no_narrow:
                             type: string
                             minLength: 20
@@ -789,6 +808,25 @@ nodes:
                               - web_doubt
                           world:
                             type: string
+                          recommend:
+                            type: object
+                            additionalProperties: false
+                            required:
+                            - answer
+                            - note
+                            - why
+                            properties:
+                              answer:
+                                type: string
+                                enum:
+                                - continue
+                                - stop
+                              note:
+                                type: string
+                                minLength: 4
+                              why:
+                                type: string
+                                minLength: 4
                           no_narrow:
                             type: string
                             minLength: 20

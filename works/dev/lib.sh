@@ -510,6 +510,18 @@ if os.environ.get("WORKS_USE_SH"):
           shlex.quote("<通す範囲と条件>"), shlex.quote("<答えた者>"))
     print("止める（関所で待つ run は respond stop、走っている run は止め札。報告は出る）:", use.format("stop"), shlex.quote("<理由>"))
 print("報告（report の節まで済んだ後）:", os.path.join(board, "report.md"))
+# 次の run の依頼の下書き（報告の節が書く）。無人の run が人の判断の所で止まると、answers に答えの下書き（draft の行）が載る
+nxt = os.path.join(board, "next-request.json")
+if os.path.isfile(nxt):
+    try:
+        with open(nxt, encoding="utf-8") as f:
+            ans = json.load(f).get("answers") or []
+        drafts = [a for a in ans if isinstance(a, dict) and a.get("draft")] if isinstance(ans, list) else []
+    except (OSError, ValueError, AttributeError):
+        drafts = []
+    print("次の run の依頼の下書き:", nxt + ("（答えの下書き {} 件。機械は答えていない——見直して、台帳の問いの行（question が問いの key）は"
+                                           "採るなら draft と source を消し、関所の項目の行は次の run の関所の continue の一言に写してから"
+                                           "消す）".format(len(drafts)) if drafts else ""))
 rc = 0
 if os.environ["BRING_BACK"]:
     # 修正の差分は run の worktree の今の姿と周の頭の版（start の控え r<N>/start.json の base_rev）の差（未追跡も入れる。

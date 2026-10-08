@@ -910,6 +910,9 @@ class UseShell(unittest.TestCase):
         respond = next(c for c in self.calls() if c[3:5] == ["workflow", "respond"])
         self.assertEqual(respond[6], "stop")
         self.assertIn("無人", respond[7])
+        # 止めた後に、答えの下書きの置き場を言う（機械は関所に答えない。実の利用者の run ac9e02ab）
+        self.assertIn("次の run の依頼の下書き", r.stdout)
+        self.assertIn("answers", r.stdout)
         # 線にも無人を知らせる（判定の保留の問いだけでは修正前の関所を開かない。gatemarks.unattended）
         run = next(c for c in self.calls() if c[3:5] == ["workflow", "run"])
         self.assertIn("unattended=true", run)

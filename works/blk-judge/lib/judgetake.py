@@ -26,6 +26,7 @@ if str(_CORE) not in sys.path:
 
 import accept as core_accept  # noqa: E402
 import entry  # noqa: E402
+import outpurpose  # noqa: E402
 import querytest  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
@@ -59,22 +60,31 @@ def finish(board, out: dict) -> dict:
         return {**out, "open_units": [], "judgment_file": ""}
     b = entry.open_board(pathlib.Path(board), allow_halted=True)
     doc = json.loads((b.dir / out["out_file"]).read_text(encoding="utf-8"))
-    path = core_accept.write_board(board, core_accept.JUDGMENT_FILE, querytest.restore(doc, board))
+    path = core_accept.write_board(board, core_accept.JUDGMENT_FILE,
+                                   outpurpose.restore(querytest.restore(doc, board), board, b.round))
     V = validator_module(b)
     return {**out, "open_units": [u["key"] for u in doc["units"] if V.is_open(u)], "judgment_file": str(path)}
 
 
 def take(board, reply: dict, repo) -> dict:
-    """rolekit.accept_role の take: 例で問いを試し、例を外した返答を entry.take に渡す（写しの型は例の欄を持たない）。
-    通れば例を盤面の query-examples.json に置く（finish が judgment.json に戻す）"""
+    """rolekit.accept_role の take: 例で問いを試し、目的の外の所見の行（outpurpose）を盤面の材料の行に当てて確かめ、例と
+    目的の外の行を外した返答を entry.take に渡す（写しの型はどちらの欄も持たない）。通れば例を盤面の query-examples.json に、
+    目的の外の行を当たった材料の行ごと盤面の outpurpose.FILE に置く（finish が judgment.json に戻す）"""
     is_open = validator_module(_Validator).is_open
     errs = querytest.problems(reply.get("units"), is_open)
     if errs:
         return {"ok": False, "reason": "class_query の例が問いと合わない: " + "; ".join(errs)}
+    reply, outside = outpurpose.split(reply)
+    b = entry.open_board(pathlib.Path(board), allow_halted=True)   # 止めた盤面の拒否は entry.take が言う
+    material = outpurpose.material_rows(b)
+    errs = outpurpose.problems(outside, material)
+    if errs:
+        return {"ok": False, "reason": f"{outpurpose.FIELD} の行が盤面の材料と合わない: " + "; ".join(errs)}
     bare, examples = querytest.split(reply, is_open)
     out = entry.take(pathlib.Path(board), NODE, bare, pathlib.Path(repo), snapshot_name=TREE_FILE)
     if out.get("ok") is True:
         querytest.save(board, examples, replace=True)
+        outpurpose.save(board, b.round, outside, material)
     return out
 
 
