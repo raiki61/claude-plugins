@@ -177,6 +177,16 @@ class YamlCase(unittest.TestCase):
                 # 初見の読み手は毎回新しい会話（本線の fresh_context）。書き手は同じ会話で出し直す（本線の writer）
                 self.assertIs(g["fresh_context"], role == "report-cold")
 
+    def test_write_cold_reads_in_a_new_conversation(self):
+        """書き手の輪の初見の読み手は、どの周も新しい会話で起きる（Archon の輪は直前の AI の節の会話を次の AI の節に継がせるので、
+        書かないと書き手の会話の続きで読み、初見でなくなる。run f57a5374）。書き手は自分の会話で出し直す"""
+        grp = next(g for g in self.loops() if g["id"] == "report-write-loop")["loop_group"]
+        inner = {m["id"]: m for m in grp["nodes"]}
+        self.assertIs(grp["fresh_context"], False)
+        self.assertEqual(inner[rr.WRITE_COLD].get("context"), "fresh")
+        self.assertNotIn("context", inner[rr.WRITE])
+        self.assertIn("self-resume", inner[rr.WRITE]["output_format"]["description"].split(" ")[2:])
+
     def test_role_nodes(self):
         # 役の節は command: の役と、書き手の輪の初見の読み手（prompt: に支度が描いた本文。commands/ の決まりで包んだ物）
         roles = [m for grp in self.loops() for m in grp["loop_group"]["nodes"] if "command" in m or "prompt" in m]
@@ -200,7 +210,9 @@ class YamlCase(unittest.TestCase):
     def test_output_formats(self):
         self.assertEqual(rr.output_format("report-items")["description"], "works-node: report-items")
         self.assertEqual(rr.output_format("report-cold")["description"], "works-node: report-cold")
-        self.assertEqual(rr.output_format("report-write")["description"], "works-node: report-write")
+        # 書き手の輪には初見の読み手（新しい会話）が挟まるので、書き手は 2 周目から自分の会話に戻る（包みの旗 self-resume）
+        self.assertEqual(rr.output_format("report-write")["description"], "works-node: report-write self-resume")
+        self.assertEqual(rr.output_format(rr.WRITE_COLD)["description"], f"works-node: {rr.WRITE_COLD}")
         self.assertEqual(validate_schema(golden_reply("report.cold_check"), rr.output_format("report-cold")), [])
         for nid, role in (("report.human_items", "report-items"), ("report", "report-write")):
             self.assertEqual(validate_schema(golden_reply(nid), rr.output_format(role)), [])

@@ -648,6 +648,65 @@ class RoleSessionCase(unittest.TestCase):
                                   f"{rid} の輪に別の会話を継ぐ節 {apart} が在るのに、役の印に旗 self-resume が無い")
 
 
+def loop_session_problems(nodes, where=""):
+    """会話を継ぐ輪（fresh_context が偽）の中に AI の節が 2 つ以上在る時の会話の取り違え（文の一覧。空なら緑）。
+
+    Archon は輪の中の直前に終わった AI の節の会話を次の AI の節に継がせる（v0.11.1 の dag-executor の lastSequentialSession。
+    輪の中の節ごとの会話は持たない）。だから輪の頭の AI の節（役）の後ろに別の AI の節を置くと、その節は役の会話を継ぎ、
+    次の周の役はその節の会話を継ぐ。run f57a5374 では報告の書き手の輪の初見の読み手が 3 回とも書き手の会話の続きで起き
+    （1 回目から初見でない）、3 回目の pass は 3 秒で返った。決まり:
+    - 頭でない AI の節は、印 continue=<相手>（包みが SDK の会話を外して相手の会話を継ぐ）か context: fresh（Archon が新しい会話で
+      起こす）を持つ
+    - そういう節が在る輪の頭の AI の節は、印に旗 self-resume（包みが 2 周目から自分の会話に戻す）か continue=<相手> を持つ"""
+    out = []
+    for n in nodes or []:
+        if _kind(n) != "loop_group":
+            continue
+        g = n["loop_group"]
+        out += loop_session_problems(g.get("nodes"), f"{where}{n['id']}/")
+        ai = [m for m in g.get("nodes") or [] if _kind(m) in AI_KEYS]
+        if g.get("fresh_context") or len(ai) < 2:
+            continue
+        words = lambda m: str((m.get("output_format") or {}).get("description") or "").split(" ")[2:]   # noqa: E731
+        cont = lambda m: any(w.startswith("continue=") for w in words(m))   # noqa: E731
+        for m in ai[1:]:
+            if not cont(m) and m.get("context") != "fresh":
+                out.append(f"{where}{n['id']} の中の節 {m['id']}: 会話を継ぐ輪の頭でない AI の節が continue= も context: fresh も"
+                           f"持たない（頭の節 {ai[0]['id']} の会話を継ぐ）")
+        if not cont(ai[0]) and "self-resume" not in words(ai[0]):
+            out.append(f"{where}{n['id']} の中の節 {ai[0]['id']}: 会話を継ぐ輪にほかの AI の節が在るのに、頭の節の印に旗 self-resume "
+                       f"も continue= も無い（次の周はほかの節の会話を継ぐ）")
+    return out
+
+
+class LoopSessionCase(unittest.TestCase):
+    """会話を継ぐ輪の中の AI の節は、それぞれ意図した会話で起きる（loop_session_problems）"""
+
+    def test_pack_loops_keep_each_conversation(self):
+        for p in sorted(ROOT.glob("*/*.yaml")):
+            with self.subTest(str(p.relative_to(ROOT))):
+                self.assertEqual(loop_session_problems(yaml.safe_load(p.read_text(encoding="utf-8")).get("nodes")), [])
+
+    def test_second_ai_node_without_own_session_is_red(self):
+        def doc(second, head="works-node: w self-resume"):
+            return yaml.safe_load(
+                "- id: l\n  loop_group:\n    fresh_context: false\n    nodes:\n"
+                f"      - {{id: w, prompt: x, output_format: {{description: '{head}'}}}}\n"
+                f"      - {{id: c, prompt: y{second}}}\n")
+        self.assertEqual(loop_session_problems(doc(", context: fresh")), [])
+        self.assertEqual(loop_session_problems(doc(", output_format: {description: 'works-node: c continue=p'}")), [])
+        got = loop_session_problems(doc(""))
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("l の中の節 c: 会話を継ぐ輪の頭でない AI の節が continue= も context: fresh も持たない", got[0])
+        got = loop_session_problems(doc(", context: fresh", head="works-node: w"))
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("l の中の節 w: 会話を継ぐ輪にほかの AI の節が在るのに、頭の節の印に旗 self-resume も continue= も無い", got[0])
+        # 毎周新しい会話の輪と、AI の節が 1 つの輪は見ない
+        fresh = doc("")
+        fresh[0]["loop_group"]["fresh_context"] = True
+        self.assertEqual(loop_session_problems(fresh), [])
+
+
 class MutatesCheckoutCase(unittest.TestCase):
     """節の段の mutates_checkout: false は、書く役でなく作業ツリーを変える道具（TREE_CHANGERS）も持たない AI の節にだけ在る"""
     CHANGERS = TREE_CHANGERS
