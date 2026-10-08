@@ -12,8 +12,8 @@ excluded に並べ、受け付けが確かめて今の周の pr-excluded.json �
 
 ここに在る物:
 - NODE・ROLE・OUTPUT_FORMAT: 節の名前、役の名前、役の output_format（写しの schema に works だけの欄 excluded を足し、
-  印 works-node: pr-check no-post を付けた物。excluded は受け付けが外してから盤面に渡す）
-- GH_ENV・GH_WRAPPER・GH_READ・GH_DENY: 包みの読む口の環境変数と、役が打つ形、打ってよい gh の語（口を通す）、指示書が名指して禁じる語
+  印 works-node: pr-check を付けた物。excluded は受け付けが外してから盤面に渡す）
+- GH_ENV・GH_WRAPPER・GH_READ: 包みの読む口の環境変数と、役が打つ形、打ってよい gh の語（口を通す）
 - run_helper(b, *, runner=None): start（と線 B の境の節）が呼ぶ。engine で済んだか・役が要るか
 - snapshot・take・collect・drafts: blk-pr の節 pr-snap・pr-accept・collect の中身（main_* はスクリプトの入口）
 - downgrades・head_downgrades: 下げた物の一覧（<ライン>/downgrades.json）と、報告の頭の行の部品
@@ -42,7 +42,7 @@ import script_io  # noqa: E402
 
 NODE = "p0.parallel_pr"
 ROLE = "pr-check"
-MARK = "works-node: pr-check no-post"   # node_marker.mark(role_schema(NODE), "pr-check", flags=("no-post",)) と同じ印（Task 2）
+MARK = "works-node: pr-check"   # node_marker.mark(role_schema(NODE), "pr-check") と同じ印（Task 2）
 # 本ループのスコープから外す hunk（works だけの欄。写しの schema の conflicts[] は additionalProperties: false で足せないので、
 # 返答の一番上に置き、受け付けが外してから盤面に渡す）。start・end は今の作業ツリーのファイルの行（1 始まり・両端を含む）
 EXCLUDED_SCHEMA = {"type": "array", "items": {
@@ -67,16 +67,9 @@ EXCLUDED = "pr-excluded.json"   # 受け付けた外す hunk {node, excluded}（
 #   repo view <OWNER/REPO> だけ。役は `"$WORKS_GH" pr view <n> -R <owner/repo>` の形で打つ（指示書と試験がこの形を見る）。
 # GH_READ: 口を通して打ってよい gh の語（全部 -R <owner/repo> を付ける）。許す物の正本は包みの口の側で、これは指示書の側の組。
 #   禁じる物の一覧は読むだけの役にとって完全にならない（gh pr update-branch・git push など）ので、柵は許す物で組む。
-# GH_DENY: 指示書が名指して禁じる語（役に向けた念押し。柵の正本ではない）。gh api は読むだけの形も含めて丸ごと禁じる
-#   （-f・-F・--input で既定が POST になり、-X は道の後ろにも書けるので、語の頭で柵を組めない）
 GH_ENV = "WORKS_GH"
 GH_WRAPPER = f'"${GH_ENV}"'
 GH_READ = ("pr list", "pr view", "pr diff")
-GH_DENY = ("gh api", "gh pr comment", "gh pr review", "gh pr edit", "gh pr create", "gh pr close", "gh pr merge",
-           "gh pr ready", "gh pr reopen", "gh pr checkout", "gh issue comment", "gh issue create", "gh issue edit",
-           "gh issue close", "gh issue reopen", "gh label", "gh release create")
-# 役が HEAD・枝を動かす語（作業ツリーの写しと HEAD・枝の比べが拒む。指示書が禁じる）
-GIT_DENY = ("git checkout", "git switch", "git stash", "git reset")
 BRIEF = "pr-brief.json"         # 役への渡し物（落ちた理由・交差を取る集合・版）
 STOP_BY = "works:pr"           # 任せ先の役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by
 READS = (ROLE, "pr-loop", ROLE)   # reads.main_for の (役, 輪, 節)（include の名は reads が今の scope から引く）

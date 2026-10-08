@@ -19,7 +19,7 @@
 5. 残った PR の変更ファイル: `"$WORKS_GH" pr view <n> -R <owner/repo> --json files --jq '.files[].path'`。交差するものが「同一ファイルを触る並行 PR」。
 6. 交差した箇所を担当の PR に渡す。ただし申し送りは投稿せず、下書きを返す: `"$WORKS_GH" pr diff <n> -R <owner/repo>` で hunk を見て、衝突・重複が判明した箇所は、その変更を主導している PR の物として本ループのスコープから外し（`excluded` に 1 hunk 1 行）、その PR の担当へ渡す申し送りの下書き（どの PR の・どのファイルの・どの hunk が・この run のどの変更とぶつかるか・どちらを先に入れるかの問い）を `conflicts[].note` に書き、`handed_over: false` で返せ（このラインは担当の PR へ投稿しない。持ち主の決定 2026-09-27。下書きは報告の冒頭に載り、人が担当の PR へ渡す。外した hunk は後の役——判定・修正案・修正——に触らない範囲として渡る）。
 
-**書き込みの gh と、HEAD・枝を動かす語を打つな**（`gh api`（読むだけの形も含めて丸ごと。graphql の mutation も）・`gh pr comment`・`gh pr review`・`gh pr edit`・`gh pr create`・`gh pr close`・`gh pr merge`・`gh pr ready`・`gh pr reopen`・`gh pr checkout`・`gh issue comment`・`gh issue create`・`gh issue edit`・`gh issue close`・`gh issue reopen`・`gh label`・`gh release create`・`git checkout`・`git switch`・`git stash`・`git reset`。gh で打ってよいのは包みの読む口を通した `"$WORKS_GH" pr list -R <owner/repo>`・`"$WORKS_GH" pr view <n> -R <owner/repo>`・`"$WORKS_GH" pr diff <n> -R <owner/repo>` だけ）。`handed_over: true` の行を 1 つでも返せば、受け付けが拒む。
+**HEAD・枝を動かす語を打つな**（`git checkout`・`git switch`・`git stash`・`git reset`。書き込みの gh は包みが拒む——gh で打ってよいのは包みの読む口を通した `"$WORKS_GH" pr list -R <owner/repo>`・`"$WORKS_GH" pr view <n> -R <owner/repo>`・`"$WORKS_GH" pr diff <n> -R <owner/repo>` だけ）。`handed_over: true` の行を 1 つでも返せば、受け付けが拒む。
 
 remote が GitHub でない（PR を持つホストが無い）かどうかを、お前が決めるな——それは機械が決め、当たる run ではこの指示書は届かない。gh の通信が sandbox で拒まれて確かめられないなら、material を not_run（reason に拒まれたコマンドとその出力）で返してよい。**未確認を clean と書くな。**
 

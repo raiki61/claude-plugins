@@ -7,9 +7,9 @@
   "blk-fix/blk-fix.yaml": "918442aaf7022fe28e7a130da1f53c226e03630b84ca343ec72effbd868bc8b9",
   "blk-judge/blk-judge.yaml": "91c976d0678cd85a73948ac00be67c07e46f84de698b09a19f8f4e9d8adae133",
   "blk-lens/blk-lens.yaml": "7ccf607bc1c0067e0628221ded92a715cb1f1568da802b11bb4df2c2326a167a",
-  "blk-material/blk-material.yaml": "0f64b8c19ee31353c01c19a622023e480b1e9755e422e36c74d93188cf89068e",
+  "blk-material/blk-material.yaml": "c2fef448af7371215c4c71b23a02e391abbc7d09adaf9c2a882c24a91a852e7d",
   "blk-plan/blk-plan.yaml": "14c25cbebe25bd42d784565d405c5bed75dfafe5295f4cf290d8f352f32a50b7",
-  "blk-pr/blk-pr.yaml": "01ba32249cf73fbc37f900a5ede324c3f001a90d8886d6707899908da92dcdc2",
+  "blk-pr/blk-pr.yaml": "f32b32fe62b174344d1297b2759c78b147c6ffb72619d5d9aed88cbad6f5b57a",
   "blk-premises/blk-premises.yaml": "e2f74fbbb17a1a458e3c69a7f0527c5419568b3139c134ec028d1cbda811b6e7",
   "blk-purpose/blk-purpose.yaml": "5d4ccd7cbaf8c680096b1fa9cd843f283e168e608ba59c5911d69ae82b400823",
   "blk-refix/blk-refix.yaml": "5f45883e108c4e625d03087412fd3ee4ba4344b8e64d09fa4148a8e7f0c703a1",
@@ -1179,7 +1179,6 @@
         "prior-decisions-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "prior-decisions",
@@ -1249,7 +1248,6 @@
         "local-review-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write",
         "text-reply"
        ],
@@ -1353,7 +1351,6 @@
         "external-standards-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "external-standards",
@@ -1390,7 +1387,6 @@
         "procedure-trace-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "procedure-trace",
@@ -1427,7 +1423,6 @@
         "gate-efficacy-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "gate-efficacy",
@@ -1464,7 +1459,6 @@
         "test-double-fidelity-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "test-double-fidelity",
@@ -1501,7 +1495,6 @@
         "main-path-observation-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "main-path-observation",
@@ -1538,7 +1531,6 @@
         "provenance-prep"
        ],
        "flags": [
-        "no-post",
         "no-tree-write"
        ],
        "id": "provenance",
@@ -1817,9 +1809,6 @@
      "body": [
       {
        "deps": [],
-       "flags": [
-        "no-post"
-       ],
        "id": "pr-check",
        "kind": "ai",
        "marker": "pr-check"

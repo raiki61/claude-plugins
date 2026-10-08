@@ -138,8 +138,8 @@ class MarkerCase(unittest.TestCase):
         self.assertEqual(adapter.marker_text("rejudge", cont="judge"), "works-node: rejudge continue=judge")
         m = adapter.parse_marker("works-node: rejudge continue=judge")
         self.assertEqual((m.name, m.cont, m.flags), ("rejudge", "judge", ()))
-        m = adapter.parse_marker("works-node: pr-check no-post")
-        self.assertEqual((m.name, m.cont, m.flags), ("pr-check", None, ("no-post",)))
+        m = adapter.parse_marker("works-node: pr-check no-tree-write")
+        self.assertEqual((m.name, m.cont, m.flags), ("pr-check", None, ("no-tree-write",)))
 
     def test_not_ours_is_none(self):
         for d in (None, "", "判定役の返答", 3, "works-nodes: x"):
@@ -150,7 +150,7 @@ class MarkerCase(unittest.TestCase):
         for d in ("works-node:", "works-node: ", "works-node:judge", "works-node: a b=c", "works-node: judge continue=",
                   "works-node: ../x", "works-node: a continue=b continue=c", "works-node: Judge",
                   "works-node:  judge", "works-node: judge ", "works-node: judge  continue=x", "works-node: judge foo",
-                  "works-node: judge no-post no-post", "works-node: a_b", "works-node: judge continue=Judge",
+                  "works-node: judge map map", "works-node: a_b", "works-node: judge continue=Judge", "works-node: pr-check no-post",
                   "works-node: judge\ncontinue=x"):
             with self.assertRaises(adapter.BadMarker, msg=repr(d)):
                 adapter.parse_marker(d)
@@ -163,10 +163,10 @@ class MarkerCase(unittest.TestCase):
             self.skipTest("SKIP local-branch: wip/works-a2 を引けない: " + src.stderr.strip()[-200:])
         ns = {}
         exec(compile(src.stdout, "node_marker.py", "exec"), ns)
-        cases = ["works-node: judge", "works-node: rejudge continue=judge", "works-node: pr-check no-post",
-                 "works-node: x continue=y no-post", "works-node: no-post", "works-node: a-1 continue=b-2",
+        cases = ["works-node: judge", "works-node: rejudge continue=judge", "works-node: pr-check map",
+                 "works-node: x continue=y map", "works-node: map", "works-node: a-1 continue=b-2",
                  "works-node:", "works-node: Judge", "works-node:  judge", "works-node: judge foo",
-                 "works-node: judge no-post no-post", "works-node: a_b", "works-node: judge ", "判定"]
+                 "works-node: judge map map", "works-node: a_b", "works-node: judge ", "判定"]
         for d in cases:
             with self.subTest(d):
                 want = ns["parse"](d)
@@ -310,13 +310,13 @@ class AdapterCase(unittest.TestCase):
         self.assertEqual(self.e.child()["argv"], argv)
 
     def test_marked_launch_with_unreadable_settings_fails_closed(self):
-        # 印のある起動は柵（フック・no-post・切符）なしで起こさない（裁定 I2）
+        # 印のある起動は柵（フック・読むだけの gh・切符）なしで起こさない（裁定 I2）
         broken = [
             sdk_argv("works-node: judge", extra=["--settings", SANDBOX]),                       # --settings が 2 つ
             sdk_argv("works-node: judge", settings="{not json"),                                # 読めない JSON
             sdk_argv("works-node: judge", settings="/no/such/settings.json"),                   # 無いファイル
             sdk_argv("works-node: judge", settings="[1, 2]"),                                   # 辞書でない
-            sdk_argv("works-node: pr-check no-post", settings='{"permissions": []}'),           # 混ぜられない
+            sdk_argv("works-node: pr-check", settings='{"permissions": []}'),           # 混ぜられない
             sdk_argv("works-node: fix", settings='{"sandbox": {"filesystem": 1}}'),             # 混ぜられない（柵の口）
             sdk_argv("works-node: judge", settings=None) + ["--settings"],                      # 値の無い旗
         ]
@@ -369,7 +369,7 @@ class AdapterCase(unittest.TestCase):
         self.assertIsNone(self.e.child())
 
     def test_bad_marker_fails_closed(self):
-        # 印の跡が在るのに読めない起動は素通ししない（黙って新しい会話で再審させず、no-post の柵も落とさない）
+        # 印の跡が在るのに読めない起動は素通ししない（黙って新しい会話で再審させず、読むだけの gh の柵も落とさない）
         for desc, argv in (("works-node: rejudge continue=", sdk_argv("works-node: rejudge continue=")),
                            ("works-node: pr-check no-psot", sdk_argv("works-node: pr-check no-psot")),
                            ("works-node: Rejudge continue=judge", sdk_argv("works-node: Rejudge continue=judge")),
@@ -395,11 +395,11 @@ class AdapterCase(unittest.TestCase):
         gh.chmod(0o755)
         return bindir, gh
 
-    def test_no_post_is_an_allowlist(self):
+    def test_read_only_gh_is_an_allowlist(self):
         # 読むだけの役の gh は許す物の一覧で組む（deny は allow に勝つので、gh を丸ごと拒み、読む口 works-gh を渡す）
         bindir, gh = self._fake_gh_bin()
         path = str(bindir) + os.pathsep + os.environ["PATH"]
-        r = self.e.run(sdk_argv("works-node: pr-check no-post"), PATH=path)
+        r = self.e.run(sdk_argv("works-node: pr-check"), PATH=path)
         self.assertEqual(r.returncode, 0, r.stderr)
         child = self.e.child()
         s, _ = self._hook_settings(child["argv"])
@@ -423,7 +423,7 @@ class AdapterCase(unittest.TestCase):
             self.assertIn(f"Bash({g}:*)", deny)
 
     def test_every_marked_launch_gets_the_read_only_gh(self):
-        """run の中の gh は利用者のログインを継ぐ（dev/hostgh.py）ので、印のある起動は旗 no-post の有無に依らず全部、
+        """run の中の gh は利用者のログインを継ぐ（dev/hostgh.py）ので、印のある起動は旗に依らず全部、
         同じ柵（gh を丸ごと拒む deny・git push の deny）と読むだけの口（WORKS_GH・PATH の頭の gh）で起こす（書く役・CI の役も
         PR へ投稿・push できない）。印の無い起動（題の生成。道具ゼロ）は今どおり触らない"""
         bindir, gh = self._fake_gh_bin()
@@ -1334,7 +1334,7 @@ class NetworkCase(unittest.TestCase):
 
     def test_closed_network_gets_strict_allowlist(self):
         for allowed in ([], ["github.com", "api.github.com"], ["*.example.com"]):
-            for desc in ("", "works-node: judge", "works-node: probe no-post"):
+            for desc in ("", "works-node: judge", "works-node: probe"):
                 with self.subTest(allowed=allowed, desc=desc):
                     network = {"allowedDomains": allowed, "allowLocalBinding": False}
                     r = self.e.run(sdk_argv(desc, settings=net_settings(network, excludedCommands=["works-gh:*"])))
@@ -1413,8 +1413,8 @@ class NetworkCase(unittest.TestCase):
                 self.assertEqual(self.e.launches()[-1]["mode"], "refused")
 
     def test_marked_launch_strict_and_fences_together(self):
-        # 印のある起動: 網の閉じとフック・no-post の柵が同じ --settings に乗る
-        r = self.e.run(sdk_argv("works-node: probe no-post", settings=net_settings({"allowedDomains": []})))
+        # 印のある起動: 網の閉じとフック・読むだけの gh の柵が同じ --settings に乗る
+        r = self.e.run(sdk_argv("works-node: probe", settings=net_settings({"allowedDomains": []})))
         self.assertEqual(r.returncode, 0, r.stderr)
         s = json.loads(opt(self.e.child()["argv"], "--settings")[0])
         self.assertIs(s["sandbox"]["network"]["strictAllowlist"], True)

@@ -21,7 +21,7 @@ inputs:
     default: ""
     description: |
       run が宣言した包みの形（線の start の出口 adapter。空は包みを通す run、optional は包み無しで回す run）。空の run は、
-      Bash を持つ役（旗 no-post・no-tree-write）を回す前に切符を確かめ、受け付けで役の起動に包みの柵が掛かったかを見る
+      Bash を持つ役（旗 no-tree-write）を回す前に切符を確かめ、受け付けで役の起動に包みの柵が掛かったかを見る
   purpose_file:
     default: ""
     description: |
@@ -91,7 +91,7 @@ nodes:
         provenance:
           type: boolean
 
-  # p0.prior_decisions（investigator）: Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("prior-decisions")（写しの schema に印）を貼った物
+  # p0.prior_decisions（investigator）: Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。旗 no-tree-write で包みが作業ツリーを止め、gh の書き込みは包みが印のある起動の全部で止める。output_format は material.output_format("prior-decisions")（写しの schema に印）を貼った物
   - id: prior-decisions-loop
     depends_on:
     - mat-route
@@ -160,7 +160,7 @@ nodes:
             allowedDomains: []
         idle_timeout: 1728000000
         output_format:
-          description: 'works-node: prior-decisions no-post no-tree-write'
+          description: 'works-node: prior-decisions no-tree-write'
           type: object
           required:
           - material
@@ -474,7 +474,7 @@ nodes:
             allowedDomains: []
         idle_timeout: 1728000000
         output_format:
-          description: 'works-node: local-review no-post no-tree-write text-reply'
+          description: 'works-node: local-review no-tree-write text-reply'
           type: object
           required:
           - material
@@ -921,7 +921,7 @@ nodes:
             status:
               type: string
 
-  # p1.external_standards（investigator）: Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("external-standards")（写しの schema に印）を貼った物
+  # p1.external_standards（investigator）: Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。旗 no-tree-write で包みが作業ツリーを止め、gh の書き込みは包みが印のある起動の全部で止める。output_format は material.output_format("external-standards")（写しの schema に印）を貼った物
   - id: external-standards-loop
     depends_on:
     - mat-route
@@ -990,7 +990,7 @@ nodes:
             allowedDomains: []
         idle_timeout: 1728000000
         output_format:
-          description: 'works-node: external-standards no-post no-tree-write'
+          description: 'works-node: external-standards no-tree-write'
           type: object
           required:
           - material
@@ -1123,7 +1123,7 @@ nodes:
             status:
               type: string
 
-  # p1.procedure_trace（investigator）: Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("procedure-trace")（写しの schema に印）を貼った物
+  # p1.procedure_trace（investigator）: Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。旗 no-tree-write で包みが作業ツリーを止め、gh の書き込みは包みが印のある起動の全部で止める。output_format は material.output_format("procedure-trace")（写しの schema に印）を貼った物
   - id: procedure-trace-loop
     depends_on:
     - mat-route
@@ -1192,7 +1192,7 @@ nodes:
             allowedDomains: []
         idle_timeout: 1728000000
         output_format:
-          description: 'works-node: procedure-trace no-post no-tree-write'
+          description: 'works-node: procedure-trace no-tree-write'
           type: object
           required:
           - material
@@ -1363,7 +1363,7 @@ nodes:
             - /
         idle_timeout: 1728000000
         output_format:
-          description: 'works-node: gate-efficacy no-post no-tree-write'
+          description: 'works-node: gate-efficacy no-tree-write'
           type: object
           required:
           - material
@@ -1534,7 +1534,7 @@ nodes:
             - /
         idle_timeout: 1728000000
         output_format:
-          description: 'works-node: test-double-fidelity no-post no-tree-write'
+          description: 'works-node: test-double-fidelity no-tree-write'
           type: object
           required:
           - material
@@ -1700,7 +1700,7 @@ nodes:
             - /
         idle_timeout: 1728000000
         output_format:
-          description: 'works-node: main-path-observation no-post no-tree-write'
+          description: 'works-node: main-path-observation no-tree-write'
           type: object
           required:
           - material
@@ -1862,7 +1862,7 @@ nodes:
             - /
         idle_timeout: 1728000000
         output_format:
-          description: 'works-node: provenance no-post no-tree-write'
+          description: 'works-node: provenance no-tree-write'
           type: object
           required:
           - material

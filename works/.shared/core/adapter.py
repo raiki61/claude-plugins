@@ -55,11 +55,11 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    SIGINT・SIGTERM・SIGHUP を受けた時（か直下の親が替わった時）と claude が終わった後に、溜めた仲間ごと
    tree_run.stop_group（数え上げ→送る→数え直し。TERM → KILL_GRACE → KILL）で止める。信号で止めた時は LINGER 待ってから
    128+信号で抜ける（すぐ死ぬと Archon の run が running のまま固まる。試し P17）。上限は tree_run と同じ勘定。
-5. **読むだけの gh**（印のある起動の全部。旗 no-post の有無にも切符にも依らない。持ち主 2026-10-08）: run の中の gh は利用者の
+5. **読むだけの gh**（印のある起動の全部。旗にも切符にも依らない。持ち主 2026-10-08）: run の中の gh は利用者の
    ログインを継ぐ（開発の殻 dev/hostgh.py の gh の口）ので、どの役も GitHub へ書けないように、gh は丸ごと拒み（permissions.deny の
    `Bash(gh:*)`・PATH の上の gh の絶対パスの全部の綴り・`Bash(git push:*)`）、読む 4 つの形（pr list・pr view・pr diff を -R 付きで、
    repo view <OWNER/REPO>）だけを通す口 no-post-bin/works-gh を env の WORKS_GH で渡し、PATH の頭に同じ口を gh の名で置く
-   （NO_POST_DENY の注記）。旗 no-post は今は柵を足さない（印の文法と blk-pr の受け付けの読み物として残る）。これは事故の柵で、
+   （NO_POST_DENY の注記）。これは事故の柵で、
    堅い境ではない（役は利用者と同じ人で同じ keychain を持つ。本流の review-graph は隔離もしない）
 6. **旗 no-tree-write**（CI の任せ先の役。裁定 R56）: 役の sandbox は graphloops の任せ先と同じ allowWrite ['/']（依存の
    置き場・網を今までどおり使う）なので、本物の作業ツリーは包みが守る。役の cwd の worktree の根（`git rev-parse
@@ -280,12 +280,12 @@ SESSION_KEYS_DIR = "session-keys"
 UNIT_KEY_SUFFIX = ".unit"   # sessions/<cwd の hash>/<節>.id の隣に、その会話で回した単位の鍵
 LANE_SUFFIX = ".lane"       # sessions/<cwd の hash>/<節>.id の隣に、旗 lane の起動の cwd（単位の worktree の実パス。6c）
 LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の worktree を書く置き場（盤面の下。共有の記録 tdd-*/**。6c）
-# node_marker.FLAGS と同じ。no-post: 読むだけの役の印（gh の柵は今は印のある起動の全部に付く。5）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
+# node_marker.FLAGS と同じ。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
 # lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役。6c）。self-resume: SDK が会話を継ぐ起動は
 # この節自身の記録した会話を継ぐ（1）。fork: continue=X の起動を X の会話の写し（--fork-session）で起こし、X の会話に積まない（1。
 # 同時に走る枝の答えの節が同じ相手の会話を継ぐ時）。map: 13 の差し込みの表の工程の地図を足す。text-reply: 返答の型を返答の道具に
 # 任せず、本文で受けて確かめ、合わなければ同じ会話で出し直させる（21）
-FLAGS = ("no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply")
+FLAGS = ("no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply")
 NO_TREE_WRITE = "no-tree-write"
 SELF_RESUME = "self-resume"   # 1 の旗 self-resume（SDK が会話を継ぐ起動は、この節自身の記録した会話を継ぐ）
 FORK = "fork"                 # 1 の旗 fork（continue=X を X の会話の写しで起こす。continue と一緒にだけ付く）
@@ -1319,7 +1319,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
 
     # 2. Read のフックと柵。印のある起動は、柵を足せなければ起こさない（fail closed）
     env = os.environ if env is None else env
-    gh = find_gh(env.get("PATH", ""))   # 5. 印のある起動の全部（旗 no-post の有無に依らない）
+    gh = find_gh(env.get("PATH", ""))   # 5. 印のある起動の全部
     try:
         places = protected() if protected else None
         own = _no_tree_write_places(argv, cwd, places is not None) if NO_TREE_WRITE in marker.flags else []

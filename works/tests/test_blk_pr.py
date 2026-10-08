@@ -667,11 +667,11 @@ class SnapCollectCase(PrCase):
 
 # ---------------------------------------------------------------- 印・指示書・下げた物の宣言・スクリプトの形
 class DeclaredCase(unittest.TestCase):
-    def test_output_format_marked_no_post(self):
-        """役の output_format は写しの schema に works だけの欄 excluded（必須）を足し、印 works-node: pr-check no-post を
-        付けた物（TA20）。excluded と印を外せば写しの schema そのもの"""
+    def test_output_format_marked(self):
+        """役の output_format は写しの schema に works だけの欄 excluded（必須）を足し、印 works-node: pr-check を
+        付けた物（TA20。読むだけの gh の柵は包みが印のある起動の全部に掛けるので旗は要らない）。excluded と印を外せば写しの schema そのもの"""
         fmt = prcheck.OUTPUT_FORMAT
-        self.assertEqual(fmt["description"], "works-node: pr-check no-post")
+        self.assertEqual(fmt["description"], "works-node: pr-check")
         self.assertIn("excluded", fmt["required"])
         self.assertEqual(fmt["properties"]["excluded"], prcheck.EXCLUDED_SCHEMA)
 
@@ -687,7 +687,7 @@ class DeclaredCase(unittest.TestCase):
         except ModuleNotFoundError:
             return
         self.assertEqual(unworks(node_marker.strip(fmt)), role_schema(prcheck.NODE))
-        self.assertEqual(node_marker.parse(fmt["description"])["flags"], frozenset({"no-post"}))
+        self.assertEqual(node_marker.parse(fmt["description"])["flags"], frozenset())
 
     def test_prompt_step6_no_post(self):
         """指示書は 6 段を持ち、6 段目は投稿せずに下書きを note に・handed_over false。gh は -R、書き込みの gh を打つな"""
@@ -699,11 +699,13 @@ class DeclaredCase(unittest.TestCase):
             self.assertIn(word, six)
         self.assertIn("スコープから外し", six)
         self.assertIn("`excluded`", six)
+        # HEAD・枝を動かす語は受け付けが拒む（作業ツリーの写しと HEAD・枝の比べ）ので指示書が名指して禁じる。書き込みの gh は包みが
+        # 拒む（素の gh は permissions.deny、口は読む形だけ）ので、指示書は語を並べ直さず、包みが拒むことと打ってよい形だけを言う
         forbid = [ln for ln in text.splitlines() if "打つな" in ln]
         self.assertEqual(len(forbid), 1, forbid)
-        for word in prcheck.GH_DENY + prcheck.GIT_DENY:
+        for word in ("git checkout", "git switch", "git stash", "git reset"):
             self.assertIn(f"`{word}`", forbid[0])
-        self.assertIn("`gh api`（読むだけの形も含めて丸ごと", forbid[0])
+        self.assertIn("包みが拒む", forbid[0])
         # 読む gh は包みの許す物の口（"$WORKS_GH"。素の gh は包みが拒む）を通す。指示書の "$WORKS_GH" のコマンドは全部、
         # GH_READ の語で -R <owner/repo> つき（2・5・6 段と、打ってよい物の一覧の 3 つ）。素の `gh …` は禁じる語か、使うなと名指した gh repo view だけ
         self.assertEqual((prcheck.GH_ENV, prcheck.GH_WRAPPER), ("WORKS_GH", '"$WORKS_GH"'))
@@ -712,8 +714,7 @@ class DeclaredCase(unittest.TestCase):
         for cmd in wrapped:
             self.assertTrue(cmd.startswith(tuple(f"{prcheck.GH_WRAPPER} {w} " for w in prcheck.GH_READ)), cmd)
             self.assertIn(" -R <owner/repo>", cmd, cmd)
-        for cmd in re.findall(r"`(gh [^`]*)`", text):
-            self.assertTrue(cmd in prcheck.GH_DENY or cmd == "gh repo view", cmd)
+        self.assertEqual(re.findall(r"`(gh [^`]*)`", text), ["gh repo view"])   # 素の gh は使うなと名指した物だけ
         self.assertIn("素の `gh`", text)
         self.assertIn("$pr-snap.output.brief_file", text)
         # 理由の本文は貼らない（Archon は $LOOP_PREV で貼った中身をもう一度置き換えに通す）。パスだけを貼って Read させる

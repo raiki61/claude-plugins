@@ -75,7 +75,7 @@ NODE_ROLE = {n: r for r, n in ROLES.items()}
 #   isolated:     道具なし・本文を貼る（遮断系。engine は stdin で渡す）
 #   investigator: Read・Grep・Glob・Bash・WebSearch・WebFetch。Bash は sandbox の中で網を閉じ（allowedDomains []。Archon が捨てる
 #                 strictAllowlist は包みが足す）、読むだけの口 works-gh だけを sandbox の外に出す（graphloops の SANDBOX_BASE の
-#                 excludedCommands gh と同じ考え。書く形は口の一覧と旗 no-post が止める）。issue・検索・Web は WebFetch・WebSearch
+#                 excludedCommands gh と同じ考え。書く形は口の一覧と包みが印のある起動の全部に掛ける gh の柵が止める）。issue・検索・Web は WebFetch・WebSearch
 #   skill:        回す側の会話で skill と agent のレンズを起こす（p1.local_review）。investigator の道具に Skill・Agent を足す
 #   delegate:     任せ先（graph の delegate）。engine の DELEGATE_TOOLS と delegate_settings（allowWrite ['/']・網）
 POSTURE = {
@@ -111,11 +111,11 @@ SANDBOX = {
 # その行は受け付けが拒んで同じ会話で起こし直させ、上限（GIVE_UP_AFTER 回）に届いた時だけ material は awaiting_human で人に渡る
 # （プラグインが隔離した設定に無い時は出し直さずにすぐ渡す。_lens_gap）
 SKILLS = {"local-review": ["code-review", "simplify", "security-review"]}
-# Bash を持つ役の印の旗: 包みが gh の書き込みを柵に足し（no-post）、役の cwd の作業ツリーを書けなくする（no-tree-write。
-# 包みは sandbox・切符の無い起動を起こさない）
+# Bash を持つ役の印の旗: 包みが役の cwd の作業ツリーを書けなくする（no-tree-write。包みは sandbox・切符の無い起動を起こさない。
+# gh の書き込みは旗に依らず、包みが印のある起動の全部で止める）
 # skill のレンズを起こす役（SKILLS）は旗 text-reply も持つ: 包みが返答の型を返答の道具（StructuredOutput）に任せず、本文で受けて
 # 確かめ、合わなければ同じ会話で出し直させる（fork で走る skill が返答の道具を継いで所見を書き、役に届かなかったため）
-FLAGS = {r: ("no-post", "no-tree-write") + (("text-reply",) if r in SKILLS else ()) for r, p in POSTURE.items() if "Bash" in _TOOLS[p]}
+FLAGS = {r: ("no-tree-write",) + (("text-reply",) if r in SKILLS else ()) for r, p in POSTURE.items() if "Bash" in _TOOLS[p]}
 PASTE = frozenset(r for r, p in POSTURE.items() if p == "isolated")   # 指示書の本文を prompt_text で渡す役
 SIMPLIFY_LENS = "/simplify"   # 指示書が持ち越しを許すレンズ（返答の simplify_carried）。本流 review-loop.py と同じ
 SETTING_SOURCES = dict.fromkeys(POSTURE, ("user",))

@@ -15,7 +15,6 @@ import json
 import re
 
 PREFIX = "works-node: "
-# no-post: 読むだけの役の印（並行 PR の任せ先と素材集めの役。仕様 3.8）。gh の柵は今は包みが印のある起動の全部に掛ける（adapter.py の 5）。
 # no-tree-write: 包みが役の cwd の worktree の根を柵に足し、sandbox・切符の無い起動を拒む（CI の任せ先の役。裁定 R56）。
 # isolated: 包みが道具ゼロの役を Git の外の置き場で起こす（独立の目の blind-judge。graphloops の commands._isolated_cwd）。
 # self-resume: SDK が前の会話を継ぐ起動では、包みが SDK の会話でなくこの節自身が記録した会話を継ぐ（輪の中に別の会話を継ぐ
@@ -25,7 +24,7 @@ PREFIX = "works-node: "
 # map: 包みが工程の地図（graphmap。全体のグラフとこの節の会話の居場所）を system prompt に足す（adapter.py の頭の 13 の差し込みの表）
 # text-reply: 包みが返答の型を返答の道具に任せず、本文で受けて確かめ、合わなければ同じ会話で出し直させる（fork で走る skill を起こす
 # 局所レビューの役。adapter.py の頭の 21・replycontract.py）
-FLAGS = frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply"})
+FLAGS = frozenset({"no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply"})
 _NAME = re.compile(r"[a-z0-9-]+")
 _CONT = "continue="
 _ARG = "--json-schema"

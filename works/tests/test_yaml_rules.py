@@ -82,7 +82,7 @@ SPEC_WRITE = ("blk-spec", "blk-spec.yaml", "spec-write")     # 仕様の道の w
 SPEC_REVISE = ("blk-spec", "blk-spec.yaml", "spec-revise")   # 同じ writer が審査の穴に答えて直す
 REFIX_WRITERS = (("blk-refix", "blk-refix.yaml", "refix"), ("blk-refix", "blk-refix.yaml", "refix2"))   # 差分の審査の後の手直し（〔線A計〕T17）
 REVIEW2 = ("blk-refix", "blk-refix.yaml", "review2")   # 手直しの差分の 2 回目の審査役（読むだけ）
-PR_CHECK = ("blk-pr", "blk-pr.yaml", "pr-check")        # 並行 PR の任せ先（読むだけ＋Bash。gh は包みの読む口だけ。印の旗 no-post）
+PR_CHECK = ("blk-pr", "blk-pr.yaml", "pr-check")        # 並行 PR の任せ先（読むだけ＋Bash。gh は包みの読む口だけ。印のある起動の全部の柵）
 NARROW_SANDBOX_KEYS = {"enabled", "allowUnsandboxedCommands", "failIfUnavailable"}   # 狭める鍵（書き込み・網を広げない）
 # graphloops の任せ先の sandbox（写しの engine の role_run.delegate_settings）から、起動ごとの denyWrite（包みが足す）と
 # autoAllowBashIfSandboxed（Archon は bypassPermissions で起こすので要らない）を除いた形。tests/test_blk_ci.py が写しの関数と突き合わせる
@@ -91,10 +91,10 @@ DELEGATE_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfU
                     "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
                     "filesystem": {"allowWrite": ["/"]}}
 # 決まりの外れの表: (フォルダ, ファイル, 節) → tools（持ってよい道具。None は道具の決まりの外）・sandbox（その形そのもの。
-# 無ければ狭い形）・flag（印に要る旗）。外れを足す時は行を 1 つ足す（ほかの行と決まりの式は変えない）
+# 無ければ狭い形）・flag（印に要る旗。無ければ印だけが要る）。外れを足す時は行を 1 つ足す（ほかの行と決まりの式は変えない）
 # 素材集めの investigator と局所レビューの sandbox（graphloops の investigator の SANDBOX_BASE と同じ考え）: 網は閉じ（allowedDomains []。
 # Archon が捨てる strictAllowlist は包みが足す）、読むだけの口 works-gh だけを sandbox の外で走らせる（excludedCommands。書く gh は
-# 口の許す物の一覧と包みの旗 no-post の permissions.deny が止める）。GitHub の宛先を許すと、sandbox の中のコードが読むだけの口を
+# 口の許す物の一覧と、包みが印のある起動の全部に足す permissions.deny が止める）。GitHub の宛先を許すと、sandbox の中のコードが読むだけの口を
 # 迂回して書ける（graphloops の role_run の注記）
 MATERIAL_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
                     "excludedCommands": ["works-gh:*"], "network": {"allowedDomains": []}}
@@ -141,7 +141,7 @@ EXCEPTIONS = {
     **{w: {"tools": JUDGE_WEB_TOOLS} for w in WEB_READERS},
     MEASURER: {"tools": MEASURE_TOOLS},
     **{w: {"tools": None} for w in REFIX_WRITERS},
-    PR_CHECK: {"tools": MEASURE_TOOLS, "sandbox": MATERIAL_SANDBOX, "flag": "no-post"},
+    PR_CHECK: {"tools": MEASURE_TOOLS, "sandbox": MATERIAL_SANDBOX},
 }
 # skills: に書いてよいスキル: 許す一覧の superpowers のスキル（dev/toolset.py が隔離した設定の skills/ に写す物と同じ一覧）
 SP_SKILLS = frozenset(json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
@@ -217,7 +217,9 @@ def _check_sandbox(sb, node, at, row, out):
         out.append(f"{at}: AI の節の sandbox が表の形でない（{sb!r}。表は {want!r}）")
     desc = (node.get("output_format") or {}).get("description") if isinstance(node.get("output_format"), dict) else None
     words = desc.split(" ") if isinstance(desc, str) and desc.startswith("works-node: ") else []
-    if row["flag"] not in words[2:]:
+    if not words:
+        out.append(f"{at}: 広い sandbox の節に印が無い（{desc!r}。包みが柵を掛けない）")
+    elif row.get("flag") and row["flag"] not in words[2:]:
         out.append(f"{at}: 広い sandbox の節の印に旗 {row['flag']} が無い（{desc!r}。包みが本物の作業ツリーを守れない）")
 
 

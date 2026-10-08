@@ -377,9 +377,9 @@ class ShapeCase(unittest.TestCase):
                     self.assertIsNone(net)
                     self.assertNotIn("excludedCommands", sb)
 
-    def test_works_gh_exclusion_is_gated_by_no_post(self):
-        """sandbox の外に出る works-gh は、読む形だけを通す口のまま: 除外を持つ役は印に旗 no-post（包みが口を PATH の頭に置き、
-        本物の gh を permissions.deny で拒む）を持ち、除外は口の名だけ（gh は外に出さない）。口は書く形を本物の gh に渡さない。
+    def test_works_gh_exclusion_is_read_only(self):
+        """sandbox の外に出る works-gh は、読む形だけを通す口のまま: 除外を持つ役は印を持ち（包みが印のある起動の全部で口を PATH の
+        頭に置き、本物の gh を permissions.deny で拒む）、除外は口の名だけ（gh は外に出さない）。口は書く形を本物の gh に渡さない。
         包みはこの役の sandbox の網を strictAllowlist で閉じる"""
         sys.path.insert(0, str(CORE))
         import adapter
@@ -399,7 +399,8 @@ class ShapeCase(unittest.TestCase):
                 continue
             with self.subTest(role):
                 self.assertEqual(sb["excludedCommands"], ["works-gh:*"])
-                self.assertIn("no-post", material.FLAGS[role])
+                self.assertIsNotNone(node_marker.parse(material.output_format(role)["description"]), role)
+                self.assertNotIn("no-post", material.FLAGS[role])
                 argv = ["--json-schema", json.dumps(material.output_format(role)), "--settings", json.dumps({"sandbox": sb})]
                 out, strict = adapter.strict_network(argv)
                 self.assertIs(strict, True)
