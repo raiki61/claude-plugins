@@ -1074,7 +1074,7 @@ class TestPrepOwedValues(unittest.TestCase):
 
 
 class TestRefixCarriesCanon(unittest.TestCase):
-    """手直しの役（blk-refix の refix・refix2）も書く役なので、同じ正本の節を全部受け取る。正本はブロックの境を越えて読める
+    """手直しの役（blk-refix の refix・refix2）も書く役なので、同じ正本の節のうち役に当たる物を受け取る。正本はブロックの境を越えて読める
     .shared/core の下に 1 つだけ置き、手書きの commands/refix*.md は無い"""
 
     def test_canon_lives_in_shared_core(self):
@@ -1091,17 +1091,22 @@ class TestRefixCarriesCanon(unittest.TestCase):
                 self.assertIn("prompt_file", find_node(nodes, prep)["output_format"]["properties"])
                 self.assertFalse((REFIX / "commands" / f"{rid}.md").exists(), "手書きの指示書は無い")
 
-    def test_refix_prompts_carry_every_canon_section(self):
+    def test_refix_prompts_carry_the_canon_sections_that_apply(self):
+        """手直しの役に当たる正本の節（食い違いの申し出 core-conflict の外の全部）を字のまま、正本の順に載せる。申し出の出口は
+        この役に無いので core-conflict は載せず、緑にするために曲げない決まりは読み替えが自分で言う"""
         self.assertTrue(CANON.is_file(), "正本は .shared/core の下")
-        canon = "\n".join(ln for ln in CANON.read_text(encoding="utf-8").splitlines()
-                          if not fixrules.MARK.match(ln)).strip("\n")
+        secs = fixrules.sections(CANON)
         mod = refixrules()
         for n in (1, 2):
             with self.subTest(n):
                 text = mod.build(n, REFIX_VALUES)
-                self.assertIn(canon, text, "正本の全節を字のまま")
+                at = [text.index(secs[sid]) for sid in secs if sid != "core-conflict"]
+                self.assertEqual(at, sorted(at), "正本の順のまま")
+                self.assertNotIn(secs["core-conflict"].strip(), text, "申し出の出口の無い役に申し出の節を貼らない")
+                remap = rulebook.sections(REFIX / "rules" / "refix.md")["refix-remap"]
+                self.assertIn("テストを緩める・期待値を実装に合わせる・依頼を読み替える・特定の入力だけを通す枝を足す", remap)
                 self.assertIn(REMAP_TITLE, text)
-                self.assertLess(text.index(canon), text.index(REMAP_TITLE), "読み替えは正本の後（ここが勝つ）")
+                self.assertLess(max(at), text.index(REMAP_TITLE), "読み替えは正本の後（ここが勝つ）")
                 self.assertNotIn("<<", text)
                 self.assertNotIn("<!-- 節", text)
                 self.assertIn(f"`{REFIX_VALUES['brief_file']}`", text)
