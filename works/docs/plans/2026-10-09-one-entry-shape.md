@@ -112,6 +112,7 @@
 - ブロックの出口の約束は `darkfactory/schemas/input.schema.json`（2 節の形）に 1 本で書く。今の `start.schema.json` の入力の欄はここへ寄せる
 - ほかのブロックは入口ブロックを知らない（ブロックの独立の決まり）。線の配線が出口の欄を各ブロックの入力へ渡し、各ブロックの入力の説明は形で書く（「差分が空か」「依頼の行が在るか」）
 - 流れの図（`docs/darkfactory-flow.md`）の全体の図の頭に「入口ブロック」の箱を置き、3 つの入口（依頼・変更・PR）がそこへ入って 1 本の線になる形で描く
+- 出口の約束は入力の欄だけでなく、始めの記録 `r1/start.json` の全体に広げる（今の `darkfactory/schemas/start.schema.json` は `{"type":"object"}` だけで、manifest が名指すのに何も縛らない）。置き場の名は 1 か所で定め（今は entry.py:1002・fixshape.py:38・gatemarks.py:146 の 3 か所）、読む口も型つきの 1 つにする（今は adapter.py:1601・fixture.py:166,306・entry.py:979,1011,1103・gatemarks.py:510 が直に読む）。続きの run で機能の切り替えが黙って変わった 8dfebca6 はこの写しの漏れ。2026-10-09 の形の洗い出しの 5 番
 - 10 節の Task 2 の後に Task 2.5「入口ブロックへ移す」を置く（launch・start の節と entry.start の入口の解釈を blk-entry へ移す・input.schema.json・図）。振る舞いは Task 2 の後と同じで、試験は場所の移りを縛る物だけ足す
 
 ## 3. 分かれ目ごとの置き換え
