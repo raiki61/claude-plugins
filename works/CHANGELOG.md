@@ -11,6 +11,13 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 ### Fixed
 
 - 0.2.46 の報告の固定の行の語の承認（`blk-report/glossary.json` の `reviewed`）に、修正役が人に回した物の行と最後の関所の行が載っていなかったのを足した（0.2.46 の出荷の CI の承認試験が赤。報告の動きは変わらない）。
+### Changed
+
+- 素材集めの局所レビューの役の返答を、Claude Code の返答の道具（StructuredOutput）に書かせず、本流の review-graph と同じ受け方（本文で返させ、受けた後に型を確かめ、合わなければ同じ会話に理由を返して出し直させる）で受けるようにした（持ち主の承認 2026-10-08）。0.2.46 で、fork で走る `/code-review` が節の返答の道具を継いで所見をそこへ書き、役に届かなかった物を記録から拾い戻したが、道具が在る限り下請けの返り方が崩れる形は残っていた。Archon v0.11.1 は節の `output_format` を SDK に渡し、SDK は schema を argv の `--json-schema` と stdin の initialize の `jsonSchema` の両方で渡す（Claude Code は argv に無いと initialize の schema で道具を足す）。Archon は Claude では型の誤りで出し直さず、`structured_output` が無ければ節を落とす。今は役の印に旗 `text-reply` を足し（`works-node: local-review no-post no-tree-write text-reply`）、包み（claude-adapter）が両方から schema を外して子にも fork にも返答の道具を渡さず、返答の形（schema と、最後の返答に JSON の object を 1 つ地の文で出せという決まり）を system prompt に足す。result の本文を本流と同じ読み方（全文 → ``` の囲いの中 → `{` から `}` まで）で JSON にし、写しの engine の型検査で確かめ、合えば `structured_output` を置いて Archon へ渡し、合わなければ Archon に渡さずに同じ子（同じ会話）へ理由の行を足して出し直させる（2 回まで。本流の `resume_on_reject` と同じ。時間の上限は持たない）。使い切ったら最後の返答を渡し、読めた値は `structured_output` に置いて Archon の検査に任せる（拒めば節が落ちる）。費用は渡した result の累計（出し直しの手を含む）で数える。回ごとの決めは包みの家の `replies/<cwd の hash>.jsonl` に残る。stdin・stdout が stream-json でない起動は起こさない。役の指示は、`/code-review` が所見を本文で返したら行の `items` に写せ、『Skill execution completed』だけなら起こし直さずに空で返せ、の両方の形に合わせた。0.2.46 の記録のフックと拾い戻しは、包みを外した run と schema を外し損ねた時の予備として残し、旗の起動でも `/code-review` の空の行は今どおり「見ていない」と書く（本物の run で所見が本文で届くと確かめるまで）。旗は局所レビューの役だけで、Agent・Skill を持つほかの役の下請けが返答の道具に書くかは記録のフックで次の run から見える。偽の claude（stream-json）で包みを起こす試験で確かめた（本物の run ではまだ確かめていない）。設計 `docs/plans/2026-10-08-reply-contract.md`、Archon に返す候補 `docs/archon-feedback.md` の 31
+
+### Added
+
+- canary の確かめ役（`dev/canary_check.py`）に、読むだけの確かめ (j) 返答の契約を足した: 局所レビューの起動がどれも旗 `text-reply` で、返答の契約の記録が起動ごとに決めを持ち、返答の道具が残った跡（`kind: native`・その会話の `outputs.jsonl` の行）が無ければ yes。出し直しを使い切った・誤りの result・決めの無い起動・包みが拒んだ起動が在れば attempted、旗の無い起動・返答の道具の跡が在る・子を起こした起動が無いなら no。(h) 記録のフックは、局所レビューの起動が全部旗 `text-reply` の run では、フックが起きない形が正しいので、見ていないレンズが在っても no でなく attempted と言う
 
 ## [0.2.46] - 2026-10-08
 

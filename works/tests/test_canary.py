@@ -1194,6 +1194,77 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(h["status"], "attempted", "記録が読めなければ赤と言わない")
         self.assertIn("読めない", h["why"])
 
+    def local_review_launches(self, *rows):
+        """包みの起動の記録に局所レビューの役の起動を足す（fence.text_reply は旗 text-reply の返答の形の塊の sha）"""
+        path = self.root / "home" / "adapter" / "launches" / f"{adapter.cwd_key(WORKTREE)}.jsonl"
+        path.write_text(path.read_text(encoding="utf-8") + "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    def replies(self, *rows):
+        """包みの家の replies/<cwd の hash>.jsonl（返答の契約の回ごとの記録。adapter.replies_path）"""
+        write(self.root / "home" / "adapter" / "replies" / f"{adapter.cwd_key(WORKTREE)}.jsonl",
+              "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+
+    def test_text_reply_contract(self):
+        """(j) 返答の契約: 局所レビューの起動がどれも旗 text-reply（起動の記録の fence.text_reply）で、返答の契約の記録が
+        起動ごとに決め（accepted）を持ち、返答の道具が残った跡（kind native・その会話の outputs.jsonl の行）が無ければ yes。
+        出し直しを使い切った（gave_up）・決めの無い起動が在れば attempted、旗の無い起動・返答の道具の跡が在れば no、起動が
+        無ければ no。終了コードには数えない"""
+        self.fixer_run()
+        j = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["j_text_reply"]
+        self.assertEqual(j["status"], "no")
+        self.assertIn("起動が無い", j["why"])
+        self.local_review_launches({"at": LATER, "node": "local-review", "pid": 7, "session": {"mode": "new", "id": "s1"},
+                                    "fence": {"text_reply": "0123456789abcdef"}})
+        self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "reasked", "turn": 1},
+                     {"at": LATER, "pid": 7, "node": "local-review", "kind": "accepted", "turn": 2})
+        got = self.run_tool(str(self.root), "--request", "fix", "--json")
+        self.assertEqual(got.returncode, 0, "(j) は終了コードに数えない")
+        doc = json.loads(got.stdout)
+        self.assertEqual(doc["features"]["j_text_reply"]["status"], "yes", doc["features"]["j_text_reply"])
+        self.assertEqual(doc["text_reply"]["kinds"], {"reasked": 1, "accepted": 1})
+        self.assertIn("(j) 返答の契約: yes", self.run_tool(str(self.root)).stdout)
+        self.outputs({"ts": "2026-10-07T01:06:00+00:00", "session_id": "s1", "agent_id": "a", "input": {}})
+        j = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["j_text_reply"]
+        self.assertEqual(j["status"], "no")
+        self.assertIn("outputs.jsonl", j["why"])
+        self.outputs()
+        self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "gave_up", "turn": 3})
+        self.assertEqual(json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["j_text_reply"]["status"],
+                         "attempted")
+        self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "native", "turn": 1})
+        self.assertEqual(json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["j_text_reply"]["status"], "no")
+        self.local_review_launches({"at": LATER, "node": "local-review", "pid": 8, "session": {"mode": "new", "id": "s2"},
+                                    "fence": {}})
+        j = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["j_text_reply"]
+        self.assertEqual(j["status"], "no")
+        self.assertIn("text-reply", j["why"])
+
+    def test_text_reply_refused_launch_is_named_not_counted_as_plain(self):
+        """包みが拒んだ起動（mode refused。fence が無い）は、旗の無い起動に数えず、拒んだ起動として attempted で名指す"""
+        self.fixer_run()
+        self.local_review_launches({"at": LATER, "node": "local-review", "pid": 6, "mode": "refused", "why": "柵を足せない",
+                                    "session": {"mode": "refused", "id": None}, "fence": None},
+                                   {"at": LATER, "node": "local-review", "pid": 7, "mode": "merged",
+                                    "session": {"mode": "new", "id": "s1"}, "fence": {"text_reply": "0123456789abcdef"}})
+        self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "accepted", "turn": 1})
+        j = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["j_text_reply"]
+        self.assertEqual(j["status"], "attempted", j)
+        self.assertIn("拒んだ", j["why"])
+        self.lens_note(unseen=["/code-review"])
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        self.assertEqual(h["status"], "attempted", h)
+
+    def test_record_output_hook_under_text_reply_is_not_red(self):
+        """(h) 旗 text-reply の起動では fork に返答の道具が無く、フックは起きない形が正しい。見ていない fork のレンズが在っても
+        outputs.jsonl が無いことを『フックが起きていない』（no）と言わず attempted にする"""
+        self.fixer_run()
+        self.lens_note(unseen=["/code-review"])
+        self.local_review_launches({"at": LATER, "node": "local-review", "pid": 7, "session": {"mode": "new", "id": "s1"},
+                                    "fence": {"text_reply": "0123456789abcdef"}})
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        self.assertEqual(h["status"], "attempted", h)
+        self.assertIn("text-reply", h["why"])
+
     def test_report_cold_reader_launches_are_new_sessions(self):
         """(i) 報告の初見の読み手（report-write-cold）の起動は、どの回も新しい会話（包みの起動の記録の session.mode が new）。
         書き手の会話を継いだ回が在れば no で名指す。起動が無い・記録が読めなければ no。終了コードには数えない"""

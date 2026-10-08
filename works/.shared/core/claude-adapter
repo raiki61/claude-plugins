@@ -16,6 +16,9 @@ SDK が組んだ argv に Read のフック・会話の継ぎ・起動ごとの�
 - stream-json の起動は stdout を同じバイトで写し（印のある起動の result の費用の累計だけ、Archon の引き算がその起動の費用に
   なる値に見せ直す。頭の 20）、1 手も進まずに終わった子は result を写さずに終了コード 75
   （adapter.NO_TURN_EXIT。Archon が transient として起こし直す）。result の全文は exits/<cwd の hash>.jsonl に残す（頭の 16）
+- 印に旗 text-reply を持つ起動は、子に schema を渡さず（argv と initialize の両方）、result の本文を schema で確かめ、合わなければ
+  result を写さずに同じ子へ理由の行を足して出し直させ、合えば structured_output を置いて写す。回ごとの決めは
+  replies/<cwd の hash>.jsonl に残す（頭の 21・replycontract.py）
 - 名前を .js で終わらせない（Archon は .js の実行ファイルを bun で起こして --no-env-file を足す）
 uv を通さない（Archon が直に起こす）。標準ライブラリだけ。
 """
@@ -82,7 +85,13 @@ def run(home_dir, cwd, real, p, on_line=None):
     if p.mode == "merged" and p.spend_from is not None:   # 費用の見せ直し（adapter.py の頭の 20）
         bases = adapter.spend_bases(cwd, home_dir, *p.spend_from)
         on_result = lambda line, doc: adapter.restate_result(line, doc, cwd, home_dir, bases)  # noqa: E731
-    out = adapter.OutWatch(on_result) if adapter.watches_out(p.argv) else None
+    reply = None
+    if p.mode == "merged" and p.reply is not None:   # 返答の契約（adapter.py の頭の 21）
+        def log_reply(row):
+            append_row(adapter.replies_path(cwd, home_dir), {"at": adapter.now(), "pid": os.getpid(), "node": p.node, **row},
+                       "返答の契約の記録")
+        reply = adapter.replycontract.Contract(p.reply, log=log_reply)
+    out = adapter.OutWatch(on_result, reply) if adapter.watches_out(p.argv) else None
     rc = adapter.supervise([real] + p.argv, p.env, p.cwd, on_line=on_line, out=out)
     if out is not None and out.held is not None and rc == adapter.NO_TURN_EXIT:
         row = adapter.exit_row(p.node, os.getpid(), rc, out.held)

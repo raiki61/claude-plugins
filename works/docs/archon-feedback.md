@@ -41,6 +41,7 @@ works（Archon の上の pack「darkfactory」）が、Archon の不具合や欠
 | 28 | `mutates_checkout: false` の節だけの層を順に回す | 直しの PR #3606 merged（2026-10-03。v0.11.1 の後で未リリース） | 余地 | 実測 |
 | 29 | resume が all_done で受け止めた上流の失敗を回し直し、輪の周の位置を持たない | 無い（近い #2746・#3468 open） | 余地（回り道あり） | コード |
 | 30 | AI の節が前の AI の節の会話を黙って継ぐ（輪の外でも・script を挟んでも。ブロックの入口が script なら組み込みの切れ目も効かない） | 未検索（組み込みの切れ目は #1764 で入った） | 余地（試験で縛る） | コード・実測 |
+| 31 | Claude の節の返答を返答の道具に強い、出し直さない（fork の skill が道具を継いで所見が親に届かない） | 未検索 | 余地（回り道あり。包みの返答の契約は局所レビューの節だけで、包みを外した run と旗の無い Agent・Skill を持つ役は今の形） | コード・実測 |
 
 ## 送るなら先に出す物
 
@@ -164,6 +165,12 @@ works（Archon の上の pack「darkfactory」）が、Archon の不具合や欠
 - 実測: canary の家 17 個（2026-10-07〜08。どれも 0.2.46 の直しの前）の Archon の記録（`node_started` の `binding.sessionOrigin`）と包みの起動の記録（`session.from` の持ち主）で、ほかの節の会話を継いだのは報告の書き手の輪の初見の読み手と書き手の組だけ（直したのは 0.2.46。下の回り道）。輪の外の AI の節 2 つ（判定の裏取りの束ね役・局所レビューのレンズ）は全部新しい会話。ただしレンズは `context: fresh` を持たず、新しい会話なのは、前に在る修正のブロックの並べの層（TDD の輪と修正役の並べの枝）が会話を切っていたからだけで、並べが無くなると判定の裏取りの束ね役の会話を継ぐ形だった。
 - works の回り道: 本流の review-graph（役ごとに新しい `claude -p`、会話を継ぐのは `same_context_as` などで宣言した時だけ）と同じに、どの AI の節も会話を宣言させる。輪の外の AI の節は `context: fresh` か包みの印 `continue=<相手>`、輪の中で最初に走る節は輪の `fresh_context` を書く、輪の中のほかの節は `continue=<相手>` か `context: fresh`、会話を継ぐ輪に AI の節が 2 つ以上なら頭は旗 `self-resume` か `continue=` か `context: fresh`（`works/tests/test_yaml_rules.py` の `SessionCase`。`works/README.md` の「会話の決まり」）。
 - 求めたい物: 既定を新しい会話にし、継ぐのは節の `context`（`shared`・`resume`）で宣言した時だけにする。せめて、組み込みの切れ目を入口の節の種類に依らずブロックの最初の AI の節に効かせる。
+
+### 31. Claude の節の返答を返答の道具に強い、出し直さない
+- 足りない物: v0.11.1 は節の `output_format` を SDK の `outputFormat` にし（`dag-executor.ts` ~1809・`providers/claude/provider.ts` ~715-720）、SDK 0.3.282 は schema を argv の `--json-schema` と stdin の initialize の `jsonSchema` の両方で Claude Code に渡す。Claude Code はそれで返答の道具 StructuredOutput を足し、fork で走る skill（組み込みの `code-review`）も道具を継いで、所見を親に本文で返さずに道具へ書いて終わる。Archon は Claude を型を強いる provider と数えて出し直さず（~2289-2296 の `maxReasks` が 0。出し直しは Pi・Copilot だけ）、`structured_output` が無ければ節を `output_contract` で落とす（~3054）。節の型の決まりが、節の中で起こした下請けの返り方まで変える。
+- 実測: 利用者の 6 つの works の家の会話の記録で、`/code-review` の fork 19 本の全部が所見を返答の道具に書き、親の Skill の結果は『Skill execution completed』だけだった（0.2.46 の CHANGELOG。利用者の run f57a5374 で所見 10 件が消えた）。
+- works の回り道: 0.2.46 は記録のフックで fork の書いた物を拾い戻した（`works/.shared/core/diverted.py`）。次の版からは、局所レビューの節を本流 review-graph と同じ返答の契約で受ける: 包みが両方から schema を外し、返答の形を system prompt で渡し、result の本文を確かめ、合わなければ同じ子に理由を返して出し直させ（2 回まで）、合えば `structured_output` を置いて写す（`works/.shared/core/adapter.py` の頭の 21・`replycontract.py`。設計 `works/docs/plans/2026-10-08-reply-contract.md`）。
+- 求めたい物: 節ごとに返答の受け方を選べる鍵（道具で強いる・本文で受けて確かめる）と、Claude でも型の誤りで出し直す数（best-effort の provider と同じ出し直しの口）。
 
 ## works 側で直す物（Archon に返す物ではない）
 

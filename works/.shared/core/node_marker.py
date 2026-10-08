@@ -23,7 +23,9 @@ PREFIX = "works-node: "
 # lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役 tdd-lane-<n>・fix-lane-<n>。adapter.py の頭の 6c）
 # fork: continue=<名> の会話を写しで継ぐ（同時に走る修正役の並べの枝の答えの節 plan-answer-lane-<n>。adapter.py の頭の 1）
 # map: 包みが工程の地図（graphmap。全体のグラフとこの節の会話の居場所）を system prompt に足す（adapter.py の頭の 13 の差し込みの表）
-FLAGS = frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map"})
+# text-reply: 包みが返答の型を返答の道具に任せず、本文で受けて確かめ、合わなければ同じ会話で出し直させる（fork で走る skill を起こす
+# 局所レビューの役。adapter.py の頭の 21・replycontract.py）
+FLAGS = frozenset({"no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply"})
 _NAME = re.compile(r"[a-z0-9-]+")
 _CONT = "continue="
 _ARG = "--json-schema"

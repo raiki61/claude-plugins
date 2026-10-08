@@ -60,9 +60,16 @@ canary-fixture-units/ から始める run、large は測りの canary-request-la
 - (h) record_output（記録のフック。読むだけで終了コードには数えない）: 局所レビューの受け付けが周ごとに残す控え
   （diverted.LENS_FILE）が fork のレンズを見ていない（unseen）と書いたのに、この run の包みの記録 outputs.jsonl（包みの家の
   reads/<cwd の hash>/。record-output のフックが下請けの StructuredOutput を残す。盤面を作った後の行）が無ければ no（フックが
-  起きていない）。記録が在って戻せなかった・記録が読めないなら attempted、見ていない行が無ければ yes。控えが無ければ no
+  起きていない）。ただし局所レビューの起動が全部旗 text-reply（fork に返答の道具が無く、フックは起きない形）なら attempted。
+  記録が在って戻せなかった・記録が読めないなら attempted、見ていない行が無ければ yes。控えが無ければ no
 - (i) cold_new（報告の初見の読み手の会話。読むだけで終了コードには数えない）: 包みの起動の記録のうち report-write-cold の起動が
   どれも新しい会話（session.mode が new）なら yes。書き手の会話を継いだ起動が在る・起動が無い・記録が読めないなら no
+- (j) text_reply（返答の契約。読むだけで終了コードには数えない）: 包みの起動の記録のうち局所レビューの役（local-review）の起動が
+  どれも旗 text-reply（fence.text_reply。包みが schema を子に渡さず、本文で受けて確かめ、合わなければ同じ会話で出し直させる。
+  .shared/core/adapter.py の頭の 21）で、包みの家の replies/<cwd の hash>.jsonl（adapter.replies_path）が起動ごと（pid）に
+  決めを持ち、返答の道具が残った跡（kind native か、その起動の会話の outputs.jsonl の行）が無ければ yes。出し直しを使い切った
+  （gave_up）・誤りの result（error）・決めの無い起動・包みが拒んだ起動（mode refused。旗の有無を数えない）が在れば attempted。
+  旗の無い起動・返答の道具の跡が在る・子を起こした起動が無い・記録が読めないなら no
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
 tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から node_completed・node_failed まで）、AI の節の費用の和
@@ -390,7 +397,7 @@ def run_outputs(launches_dir, board: pathlib.Path) -> list | None:
     return report._since_created(types.SimpleNamespace(dir=board, state=state), rows)
 
 
-def lens_hook(board: pathlib.Path, outputs: list | None) -> tuple[dict, dict]:
+def lens_hook(board: pathlib.Path, outputs: list | None, text_reply_run: bool = False) -> tuple[dict, dict]:
     """((h) の判じ {status, why}, 出す証拠 {rounds, unseen, recovered, empty, outputs})。局所レビューの受け付けが周ごとに残す控え
     （diverted.LENS_FILE）と、包みの記録 outputs.jsonl の行（run_outputs。None は読めない）を突き合わせる"""
     docs = [d for d in (_json(p) for p in scopes.all_rounds(board, diverted.LENS_FILE)) if isinstance(d, dict)]
@@ -405,6 +412,9 @@ def lens_hook(board: pathlib.Path, outputs: list | None) -> tuple[dict, dict]:
     if unseen and outputs is None:
         return {"status": ATTEMPTED, "why": f"fork のレンズ {unseen} を見ていないと書いたが、包みの記録が読めない（置き場の形か "
                                             "--launches で包みの家を名指す）"}, got
+    if unseen and not outputs and text_reply_run:
+        return {"status": ATTEMPTED, "why": f"fork のレンズ {unseen} の本文が届かなかった。局所レビューは旗 text-reply の起動"
+                                            "（fork に返答の道具が無く、フックは起きない形）なので、フックの赤ではない"}, got
     if unseen and not outputs:
         return {"status": NO, "why": f"fork のレンズ {unseen} を見ていないと書いたのに、この run の包みの記録 "
                                      f"{diverted.OUTPUTS_LOG} に行が無い（record-output のフックが起きていない）"}, got
@@ -414,6 +424,67 @@ def lens_hook(board: pathlib.Path, outputs: list | None) -> tuple[dict, dict]:
     rows = "読めない" if outputs is None else len(outputs)
     return {"status": YES, "why": f"見ていない fork のレンズは無い（戻した所見 {recovered} 件・0 件を確かめた {empty or '無し'}・"
                                   f"記録の行 {rows}）"}, got
+
+
+LOCAL_REVIEW = "local-review"   # 旗 text-reply の局所レビューの役の印の名（blk-material の material.ROLES の鍵）
+
+
+def run_replies(launches_dir, board: pathlib.Path) -> list | None:
+    """包みの家の replies/<cwd の hash>.jsonl（返答の契約の記録。adapter.replies_path）のうち、盤面を作った後の行（run_outputs と
+    同じ絞り方）。読めなければ None、ファイルが無ければ []"""
+    if launches_dir is None:
+        return None
+    state = _json(board / "state.json")
+    cwd = ((state.get("inputs") or {}).get("cwd") if isinstance(state, dict) else None)
+    if not isinstance(cwd, str) or not cwd or report._time(fixture.since(board, state.get("created"))) is None:
+        return None
+    path = pathlib.Path(launches_dir).parent / adapter.REPLIES_DIR / f"{adapter.cwd_key(cwd)}.jsonl"
+    rows = _jsonl(path) if path.is_file() else []
+    return report._since_created(types.SimpleNamespace(dir=board, state=state), rows)
+
+
+def local_review_launches(rows: list | None, refused: bool = False) -> list:
+    """局所レビューの役の起動。既定は子を起こした起動（mode が refused でない）、refused なら包みが拒んだ起動（fence が無い）"""
+    return [r for r in rows or [] if r.get("node") == LOCAL_REVIEW and (r.get("mode") == "refused") == refused]
+
+
+def all_text_reply(rows: list | None) -> bool:
+    """子を起こした局所レビューの起動が 1 つ以上在り、どれも旗 text-reply か"""
+    got = local_review_launches(rows)
+    return bool(got) and all(isinstance(r.get("fence"), dict) and r["fence"].get("text_reply") for r in got)
+
+
+def text_reply(rows: list | None, replies: list | None, outputs: list | None) -> tuple[dict, dict]:
+    """((j) の判じ {status, why}, 証拠 {launches, kinds, undecided})。rows は起動の記録（run_launches）、replies は返答の契約の
+    記録（run_replies）、outputs は outputs.jsonl の行（run_outputs）。None は読めない"""
+    got = local_review_launches(rows)
+    kinds: dict = {}
+    for r in replies or []:
+        k = str(r.get("kind"))
+        kinds[k] = kinds.get(k, 0) + 1
+    decided = {r.get("pid") for r in replies or [] if r.get("kind") != "reasked"}
+    undecided = sorted({r.get("pid") for r in got if r.get("pid") not in decided}, key=str)
+    ev = {"launches": len(got), "kinds": kinds, "undecided": undecided}
+    if rows is None or replies is None:
+        return {"status": NO, "why": "包みの起動の記録か返答の契約の記録が読めない"}, ev
+    if not got:
+        return {"status": NO, "why": f"{LOCAL_REVIEW} の起動が無い（局所レビューを回さなかった）"}, ev
+    plain = [r for r in got if not (isinstance(r.get("fence"), dict) and r["fence"].get("text_reply"))]
+    if plain:
+        return {"status": NO, "why": f"旗 text-reply の無い {LOCAL_REVIEW} の起動 {len(plain)}/{len(got)}（返答の道具で返す形）"}, ev
+    ids = {(r.get("session") or {}).get("id") for r in got if isinstance(r.get("session"), dict)} - {None}
+    leaked = [o for o in outputs or [] if o.get("session_id") in ids]
+    if kinds.get("native") or leaked:
+        return {"status": NO, "why": f"返答の道具が残った跡（kind native {kinds.get('native', 0)}・その会話の "
+                                     f"{diverted.OUTPUTS_LOG} の行 {len(leaked)}）——schema を外し損ねた"}, ev
+    refused = local_review_launches(rows, refused=True)
+    ev["refused"] = len(refused)
+    if kinds.get("gave_up") or kinds.get("error") or undecided or refused:
+        return {"status": ATTEMPTED, "why": f"決め {kinds}・決めの無い起動 {undecided or '無し'}"
+                                            + (f"・包みが拒んだ起動 {len(refused)}（" + "・".join(sorted({str(r.get('why') or '?')
+                                                                                         for r in refused})) + "）"
+                                               if refused else "")}, ev
+    return {"status": YES, "why": f"{LOCAL_REVIEW} の起動 {len(got)} 本はどれも旗 text-reply で、決め {kinds}"}, ev
 
 
 def cold_launches(rows: list | None) -> tuple[dict, list]:
@@ -745,8 +816,10 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
     d = {op: sum(1 for r in trace if r.get("op") == op) for op in REPLAN_OPS}
     launch_rows = run_launches(launches, board)
     e, fix_run = fix_lane_run(trace, asks, fix_lane_nodes, launch_rows)
-    h, hook = lens_hook(board, run_outputs(launches, board))
+    outputs_rows = run_outputs(launches, board)
+    h, hook = lens_hook(board, outputs_rows, all_text_reply(launch_rows))
     i, cold = cold_launches(launch_rows)
+    j, replied = text_reply(launch_rows, run_replies(launches, board), outputs_rows)
     f, units_run = item_units(board, items, trace, events)
     spent, done = spend(events), outcome(board)
     g, measured = measure(board, events, tdd_lanes=tdd_lanes_n, tdd_par=tdd_par, fix_lanes=fix_run["planted"], fix_par=fixl_par,
@@ -760,7 +833,8 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
         "report": str(board / report.REPORT_FILE) if (board / report.REPORT_FILE).is_file() else "",
         "features": {"a_parallel": a, "b_overlap": b, "c_consult": c,
                      "d_replan": {"status": YES if d[conflict.REPLAN_OP] or d[planmarks.AMEND_OP] else NO, "counts": d},
-                     "e_fix_lanes": e, "f_item_units": f, "g_measure": g, "h_record_output": h, "i_cold_new": i},
+                     "e_fix_lanes": e, "f_item_units": f, "g_measure": g, "h_record_output": h, "i_cold_new": i,
+                     "j_text_reply": j},
         "plan_items": items,
         "planned_overlap": planned,
         "tdd_lanes": loops,
@@ -777,6 +851,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
         "measure": measured,
         "lens_hook": hook,
         "cold_launches": cold,
+        "text_reply": replied,
         "nodes": node_peak(events),
         "spend": spent,
         "diff_files": changed,
@@ -797,6 +872,7 @@ def summary_lines(got: dict) -> list:
     out.append(f"(f) 1 つの項目の 2 つの単位: {f['f_item_units']['status']} — {f['f_item_units']['why']}")
     out.append(f"(h) 記録のフック: {f['h_record_output']['status']} — {f['h_record_output']['why']}")
     out.append(f"(i) 報告の初見の読み手の会話: {f['i_cold_new']['status']} — {f['i_cold_new']['why']}")
+    out.append(f"(j) 返答の契約: {f['j_text_reply']['status']} — {f['j_text_reply']['why']}")
     m = got["measure"]
     out.append(f"(g) 測り: {f['g_measure']['status']} — {f['g_measure']['why']}")
     out.append("  段ごと: " + ("・".join(f"{r['stage']} {r['minutes']} 分 {r['cost_usd']} USD" for r in m["stages"]) or "出来事が無い"))

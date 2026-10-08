@@ -99,7 +99,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 9. **指示書の全文版と差分版**（トークンの節約。持ち主の承認。印のある起動だけ）: 輪（loop_group の fresh_context: false）の
    役は 1 つの会話を周をまたいで継ぐので、共有の規則を毎周送り直すと会話に同じ規則が積み重なる。支度のスクリプトは指示書
    （prompt_file。既定は全文版の写し）の隣に `<stem>.full.md`・`<stem>.delta.md`・`<stem>.variants.json`（{full, delta,
-   rules_sha, iteration, sections}）を書く。包みは印のある起動の stdin を子へ中継し（バイトは変えない）、最初の user の 1 行
+   rules_sha, iteration, sections}）を書く。包みは印のある起動の stdin を子へ中継し（バイトは変えない。21 の旗 text-reply の起動だけ
+   initialize の行の jsonSchema を外し、出し直しの行を足す）、最初の user の 1 行
    （SDK が initialize の後に書く指示文）から指示書のパスを読んで、その行を子へ渡す前に指示書へ全文版か差分版を書く。
    差分版は、この起動が継ぐ会話（--resume の元。fork の鎖を包みの起動の記録で辿る）が同じ rules_sha の全文版をこの包みから
    受け取り、Read のフックの記録で部分読みでなく読み切り、会話の記録（Claude Code の transcript）に要約・古い道具の結果の消去
@@ -203,6 +204,26 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    SDK の sdk-fork と同じく元の会話の累計を持つ（Archon 自身の sdk-fork の引き算がそれで合う）。累計（費用か、どれかの模型の
    outputTokens）が継いだ元の本当の累計より小さい result は、どの起動の形でも元の累計を継がなかった物と見て、新しい会話と同じに数える（負の費用を見せない）。
    tokens（result の usage）は起動ごとの値なので触らない。1 手も進まずに終わった 16 の result は写さないので記録しない
+21. **返答の契約**（印に旗 text-reply を持つ起動だけ。replycontract.py。設計 docs/plans/2026-10-08-reply-contract.md）: Archon v0.11.1 は
+   節の output_format を SDK の outputFormat にし、SDK 0.3.282 は schema を argv の `--json-schema` と stdin の initialize の
+   `jsonSchema` の両方で渡す。Claude Code は schema を受けると返答の道具 StructuredOutput を足し（argv に無ければ initialize の
+   schema で足す）、fork で走る skill（/code-review）がそれを継いで所見を書いて終わるので、親に所見が届かなかった（0.2.46）。
+   Archon は Claude では出し直さず（dag-executor の maxReasks が 0）、structured_output が無ければ節を落とす。そこで本流
+   review-graph と同じ契約にする: 包みは argv の `--json-schema` を外し（plan の reply に schema を持つ）、stdin の中継で
+   initialize の行の jsonSchema を外し（子にも fork にも返答の道具が無い）、返答の形（schema と、最後の返答に JSON の object を
+   1 つ地の文で出せという決まり）を 13 の差し込みの表の行 text_reply（required）で system prompt に足す。stdout の result ごとに、
+   本文（result）を本流 commands.parse_output と同じ順で JSON に読み、写しの engine の型検査（schema.validate_schema）で確かめる。
+   合えば result の行に structured_output を置いて写し、合わなければ result を写さずに子の stdin へ理由の user の行（SDK の
+   文字列の指示文と同じ形）を足して同じ会話・同じ子で出し直させる（上限 replycontract.REASKS 回。本流 graph の
+   resume_on_reject と同じ 2。時間の上限は持たない）。SDK は文字列の指示文の問い合わせを 1 手と数え、最初の result を見るまで
+   stdin を閉じない（isSingleUserTurn）ので、持った間は SDK の stdin も開いたまま。子の stdin は口 InGate で、SDK の行と理由の
+   行を 1 行ずつ書き、SDK の stdin が先に終わっても契約が決まるまで閉じない。使い切った・子へ書けない時は最後の result を写し、
+   JSON として読めた値は structured_output に置く（Archon の ajv が確かめ直し、拒めば節が落ちる。黙って通さない）。誤りで
+   終わった result（subtype が success でない・is_error）と、structured_output を既に持つ result（schema を外し損ねた形）は
+   そのまま写す。持った result は 20 の見せ直しに渡さず（記録を書かない）、写す result の累計は子の全部の手の累計なので、
+   Archon の引き算はこの起動の費用の全部になる。回ごとの決めを `replies/<cwd の hash>.jsonl` に 1 行（{at, pid, node, kind:
+   accepted|reasked|gave_up|error|native, turn, errors?}）残す。stdin・stdout が stream-json でない起動は起こさない（fail closed）。
+   PostToolUse:StructuredOutput のフック（1）はそのまま足す（外し損ねた時の拾い戻しと、跡の記録）
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
 変えない（stdin も中継しない。stdout は 16 のとおり同じバイトで写す）。見分けられない形
@@ -215,7 +236,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 ARTIFACTS_DIR が来ないので、run の区別は cwd（Archon が run ごとに切る worktree）の realpath の sha256 の先頭 16 字で付ける:
 `sessions/<key>/<節>.id`・`reads/<key>/reads.jsonl`（graphloops の engine の hook_evidence がそのまま読む形）・
 `launches/<key>.jsonl`（起動ごとの 1 行。引数の本文は書かない。印のある起動は 9 の版を決めた時か子が終わった時に書く）・
-`exits/<key>.jsonl`（16 の即時の死の起動ごとの 1 行）・`spend/<key>/<会話の id>.json`（20 の会話ごとの最後の累計）。
+`exits/<key>.jsonl`（16 の即時の死の起動ごとの 1 行）・`spend/<key>/<会話の id>.json`（20 の会話ごとの最後の累計）・
+`replies/<key>.jsonl`（21 の返答の契約の回ごとの 1 行）。
 家は役の sandbox の Bash から書けない場所に置く。
 
 Python 3.9 でも動く形で書く（`#!/usr/bin/env python3` が macOS の /usr/bin/python3 に当たりうる）。
@@ -239,6 +261,7 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import fixshape
 import graphmap  # L1（工程の地図の部品。13 の差し込みの表の graph_map が読む）
+import replycontract  # L2（21 の返答の契約。写しの engine の型検査を使う）
 import tree_run
 import unittrees  # L1（単位の worktree の守りの参照の名。live_worktrees が下請けの書く所を見分ける）
 
@@ -265,14 +288,17 @@ LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の
 # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
 # lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役。6c）。self-resume: SDK が会話を継ぐ起動は
 # この節自身の記録した会話を継ぐ（1）。fork: continue=X の起動を X の会話の写し（--fork-session）で起こし、X の会話に積まない（1。
-# 同時に走る枝の答えの節が同じ相手の会話を継ぐ時）。map: 13 の差し込みの表の工程の地図を足す
-FLAGS = ("no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map")
+# 同時に走る枝の答えの節が同じ相手の会話を継ぐ時）。map: 13 の差し込みの表の工程の地図を足す。text-reply: 返答の型を返答の道具に
+# 任せず、本文で受けて確かめ、合わなければ同じ会話で出し直させる（21）
+FLAGS = ("no-post", "no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply")
 NO_TREE_WRITE = "no-tree-write"
 SELF_RESUME = "self-resume"   # 1 の旗 self-resume（SDK が会話を継ぐ起動は、この節自身の記録した会話を継ぐ）
 FORK = "fork"                 # 1 の旗 fork（continue=X を X の会話の写しで起こす。continue と一緒にだけ付く）
 ISOLATED = "isolated"
 LANE = "lane"
 MAP = "map"   # 13 の旗 map（工程の地図を system prompt に足す）
+TEXT_REPLY = "text-reply"   # 21 の旗 text-reply（返答の契約。replycontract.py）
+REPLIES_DIR = "replies"     # 21 の回ごとの記録 replies/<cwd の hash>.jsonl
 ISOLATED_PREFIX = "works-isolated-"
 MCP_FILE = "works-mcp.json"        # dev/toolset.py の MCP_FILE と同じ（隔離した設定の置き場の下）
 WEB_TOOL = "WebFetch"              # これを持つ起動にだけ借りる MCP を渡す
@@ -330,6 +356,7 @@ class Plan(NamedTuple):
     cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
     model_declared: Optional[str] = None   # 19 で --model を替えた起動の、Archon が渡した段の宣言（替えなければ None）
     spend_from: Optional[Tuple[Optional[str], Optional[str]]] = None   # 20: (Archon が --resume に渡した会話, 包みが本当に継いだ会話)。None は見せ直さない
+    reply: Optional[dict] = None    # 21: 旗 text-reply の起動の節の schema（子には渡さない。包みが返答を確かめる）。ほかは None
 
 
 def marker_text(name: str, cont: Optional[str] = None, flags: Sequence[str] = ()) -> str:
@@ -408,6 +435,22 @@ def marker_from_argv(argv: Sequence[str]) -> Optional[Marker]:
     if not isinstance(schema, dict):
         raise Unrecognised("--json-schema が JSON の object として読めない")
     return None
+
+
+def drop_opt(argv: Sequence[str], name: str) -> List[str]:
+    """argv から `name v` と `name=v` の全部を外した写し（find_opt と同じ読み。値の無い旗は Unrecognised）"""
+    out, drop = list(argv), set()
+    for i, n, _, _ in find_opt(argv, name):
+        drop.update(range(i, i + n))
+    return [a for j, a in enumerate(out) if j not in drop]
+
+
+def _stream_in(argv: Sequence[str]) -> bool:
+    """`--input-format stream-json` がちょうど 1 つ（21。見分けられない形は偽）"""
+    try:
+        return [v for _, _, v, _ in find_opt(argv, "--input-format")] == ["stream-json"]
+    except Unrecognised:
+        return False
 
 
 def home(env=None) -> pathlib.Path:
@@ -500,6 +543,28 @@ def read_exits(cwd, home_dir=None) -> List[dict]:
     """exits_path の行（読めない行は飛ばす。無ければ []）"""
     try:
         text = exits_path(cwd, home_dir).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out = []
+    for ln in text.splitlines():
+        try:
+            row = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            out.append(row)
+    return out
+
+
+def replies_path(cwd, home_dir=None) -> pathlib.Path:
+    """21. 旗 text-reply の起動の返答の契約の回ごとの記録（1 行 = 1 つの result の決め）"""
+    return _home_or(home_dir) / REPLIES_DIR / f"{cwd_key(cwd)}.jsonl"
+
+
+def read_replies(cwd, home_dir=None) -> List[dict]:
+    """replies_path の行（読めない行は飛ばす。ファイルが無ければ空）"""
+    try:
+        text = replies_path(cwd, home_dir).read_text(encoding="utf-8")
     except OSError:
         return []
     out = []
@@ -1187,6 +1252,11 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             return _refuse(argv, node, cont, tools_empty, f"単位の worktree を cwd にできない（{e}）")
     if FORK in marker.flags and not cont:
         return _refuse(argv, node, cont, tools_empty, f"旗 {FORK} は continue= と一緒にだけ付く")
+    # 21. 旗 text-reply: 子の stdin・stdout が stream-json の起動だけ（理由の行を同じ子に足し、result を読んで書き換える）
+    schema = json.loads(find_opt(argv, "--json-schema")[0][2])   # 印はここから読めた（marker_from_argv）
+    if TEXT_REPLY in marker.flags and not (watches_out(argv) and _stream_in(argv)):
+        return _refuse(argv, node, cont, tools_empty,
+                       f"旗 {TEXT_REPLY} の起動が stdin と stdout の stream-json でない（同じ会話に出し直させられない）")
     # 1. 会話の継ぎ（--settings の形に依らずに行う）
     record: List[Tuple[pathlib.Path, str]] = []
     if cont:
@@ -1305,7 +1375,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         out, fence["mcp"] = mcp
     try:   # 13. system prompt の差し込みの表
         out, injected = inject(out, Launch(node, cont, marker.flags, frozenset(_tools(out)), tools_empty,
-                                           board if board else (lambda: None)))
+                                           board if board else (lambda: None), schema))
     except Unrecognised as e:
         return _refuse(argv, node, cont, tools_empty, str(e))
     fence.update(injected)
@@ -1319,8 +1389,11 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         replaced = sorted(k for k in RUN_PLACE_ENV if env.get(k) and env[k] != child_env[k])
         if replaced:
             fence["run_place_replaced_env"] = replaced
+    reply = None
+    if TEXT_REPLY in marker.flags:   # 21. 子に schema を渡さない（返答の道具を足させない。initialize の分は stdin の中継が外す）
+        out, reply = drop_opt(out, "--json-schema"), schema
     return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env,
-                strict_net=strict, cwd=child_cwd, model_declared=declared, spend_from=spend_from(argv, session))
+                strict_net=strict, cwd=child_cwd, model_declared=declared, spend_from=spend_from(argv, session), reply=reply)
 
 
 def spend_from(argv: Sequence[str], session: dict) -> Optional[Tuple[Optional[str], Optional[str]]]:
@@ -1522,6 +1595,7 @@ class Launch(NamedTuple):
     tools: frozenset
     tools_empty: bool
     board: Callable[[], Optional[str]]   # 切符の board（無ければ None・読めなければ BadTicket）
+    schema: Optional[dict] = None        # 節の output_format（--json-schema の値。21 の旗 text-reply の行が読む）
 
 
 class Block(NamedTuple):
@@ -1600,11 +1674,20 @@ def graph_map_block(launch: Launch) -> "Block | Skip":
     return graph_map_text(launch.node, off)
 
 
+def text_reply_block(launch: Launch) -> "Block | Skip":
+    """行 text_reply の作り: 節の schema（印の description を外した物）と返答の形の決まり（replycontract.instruction）"""
+    if not isinstance(launch.schema, dict):
+        return Skip("節の schema が無い")
+    return block(replycontract.instruction(launch.schema))
+
+
 INJECTORS = (   # Tuple[Injector, ...]
     # 検索語の規律: 道具を持つ起動だけ（道具ゼロの役は外へ問い合わせられない）。作れなければ起こさない
     Injector("query_rule", "検索語の規律", lambda l: not l.tools_empty, query_rule_block, True),
     # 工程の地図: 旗 map の起動だけ（持ち主 2026-10-07: 節ごとに選ぶ。docs/plans/2026-10-07-graph-map.md）
     Injector("graph_map", "工程の地図", lambda l: MAP in l.flags, graph_map_block, False),
+    # 返答の形: 旗 text-reply の起動だけ（21。子は返答の道具を持たないので、形はここでしか届かない。作れなければ起こさない）
+    Injector("text_reply", "返答の形", lambda l: TEXT_REPLY in l.flags, text_reply_block, True),
 )
 
 
@@ -1864,10 +1947,85 @@ def prompt_variant(text: str, session: Optional[dict], cwd, home_dir, env=None) 
     return info
 
 
-def relay(src_fd: int, dst_fd: int, on_line: Callable[[bytes], bool]) -> None:
+class InGate:
+    """21. 子の stdin の口（旗 text-reply の起動）。中継の糸（SDK の行）と stdout の糸（出し直しの理由の行）が 1 行ずつ書く
+    （行の途中に割り込まない）。SDK の stdin が終わっても（end）、返答の契約が決まるまで（release）は閉じない
+    （出し直しの行を書ける。SDK が先に閉じる形でも同じ会話に足せる）"""
+
+    def __init__(self, fd: int, hold: bool = False) -> None:
+        self.fd, self.hold = fd, hold
+        self.lock = threading.Lock()
+        self.ended = self.closed = False
+
+    def write(self, data: bytes) -> bool:
+        with self.lock:
+            if self.closed:
+                return False
+            try:
+                _write_all(self.fd, data)
+            except OSError:
+                return False
+            return True
+
+    def _settle(self) -> None:
+        if self.ended and not self.hold and not self.closed:
+            self.closed = True
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
+
+    def end(self) -> None:
+        with self.lock:
+            self.ended = True
+            self._settle()
+
+    def release(self) -> None:
+        with self.lock:
+            self.hold = False
+            self._settle()
+
+
+def _relay_gated(src_fd: int, gate: InGate, on_line: Callable[[bytes], bool], edit: Optional[Callable[[bytes], bytes]]) -> None:
+    """relay の旗 text-reply の形: 終わりまで行ごとに edit（initialize の schema を外す）を当てて gate へ写す"""
+    buf, watching = b"", True
+    try:
+        while True:
+            try:
+                chunk = os.read(src_fd, 65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                if watching:
+                    try:
+                        watching = bool(on_line(line))
+                    except Exception:  # noqa: BLE001
+                        watching = False
+                if edit is not None:
+                    try:
+                        line = edit(line)
+                    except Exception:  # noqa: BLE001  直せない行はそのまま写す
+                        pass
+                if not gate.write(line + b"\n"):
+                    return
+        if buf:
+            gate.write(buf)
+    finally:
+        gate.end()
+
+
+def relay(src_fd: int, dst_fd, on_line: Callable[[bytes], bool], edit: Optional[Callable[[bytes], bytes]] = None) -> None:
     """src_fd を読み切るまで dst_fd へ写し、終わったら dst_fd を閉じる（バイトは変えない）。on_line(改行を除いた 1 行) が
     偽を返すまで、行ごとに渡してから写す（1 行を写す前に指示書を書ける）。on_line の例外は偽と同じ（見るのをやめて写し続ける）。
-    子が先に抜けた（EPIPE）・src が読めない時は写すのをやめる"""
+    子が先に抜けた（EPIPE）・src が読めない時は写すのをやめる。dst_fd が InGate（21 の旗 text-reply）なら、終わりまで
+    行ごとに edit を当てて口へ書き、終わりは口に知らせる（閉じるのは口が決める）"""
+    if isinstance(dst_fd, InGate):
+        _relay_gated(src_fd, dst_fd, on_line, edit)
+        return
     buf, watching = b"", True
     try:
         while True:
@@ -1908,12 +2066,14 @@ NO_TURN_EXIT = 75   # EX_TEMPFAIL。SDK は 'exited with code 75' と言い、Ar
 class OutWatch:
     """relay_out が見た子の stdout（stream-json）。progressed: assistant の行を見た。held: 即時の死と決めて写さなかった
     result の行（無ければ None）。on_result: 写す result の行を (行, 読んだ doc) から写す行にする関数（20 の見せ直し。None なら
-    そのまま）"""
+    そのまま）。reply: 21 の返答の契約（None なら無い）。契約が持った result は写さず、見せ直しにも渡さない"""
 
-    def __init__(self, on_result: Optional[Callable[[bytes, dict], bytes]] = None) -> None:
+    def __init__(self, on_result: Optional[Callable[[bytes, dict], bytes]] = None,
+                 reply: "Optional[replycontract.Contract]" = None) -> None:
         self.progressed = False
         self.held: Optional[bytes] = None
         self.on_result = on_result
+        self.reply = reply   # 21. 旗 text-reply の返答の契約（写す前に result を確かめ、合わなければ持って出し直させる）
 
 
 def watches_out(argv: Sequence[str]) -> bool:
@@ -1979,11 +2139,26 @@ def relay_out(src_fd: int, dst_fd: int, w: OutWatch) -> None:
                 elif kind == "result" and w.held is None and no_turn(w.progressed, doc):
                     w.held = line
                     continue
-                elif kind == "result" and w.on_result is not None:
-                    try:
-                        line = w.on_result(line, doc)
-                    except Exception:  # noqa: BLE001  見せ直せない result はそのまま写す（中継を止めない）
-                        pass
+                elif kind == "result":
+                    if w.reply is not None:   # 21. 合わなければ持って同じ会話に出し直させる。合えば structured_output を置く
+                        try:
+                            got = w.reply.on_result(doc)
+                        except Exception as e:  # noqa: BLE001  決められない result はそのまま写す（子の stdin は閉じられるようにする）
+                            got = doc
+                            try:
+                                w.reply.log({"kind": "error", "why": f"契約の決めが落ちた: {type(e).__name__}: {e}"})
+                            except Exception:  # noqa: BLE001  記録が書けなくても口は放す
+                                pass
+                            w.reply.release()
+                        if got is None:
+                            continue
+                        if got is not doc:
+                            line, doc = json.dumps(got, ensure_ascii=False).encode("utf-8"), got
+                    if w.on_result is not None:
+                        try:
+                            line = w.on_result(line, doc)
+                        except Exception:  # noqa: BLE001  見せ直せない result はそのまま写す（中継を止めない）
+                            pass
                 put(line + b"\n")
         if buf:
             put(buf)
@@ -2048,7 +2223,12 @@ def supervise(argv: Sequence[str], env_over: Optional[dict] = None, cwd: Optiona
         # 書く口は fd で渡して Python の stdin・p.stdin の物に触らない（終わりの時に daemon の糸が錠を持ったまま残らないように）
         dst = os.dup(p.stdin.fileno())
         p.stdin.close()
-        threading.Thread(target=relay, args=(0, dst, on_line), daemon=True).start()
+        edit = None
+        if out is not None and out.reply is not None:   # 21. 子の stdin を口にし、出し直しの行を書けるようにする
+            dst = InGate(dst, hold=True)
+            out.reply.attach(dst.write, dst.release)
+            edit = replycontract.strip_init_schema
+        threading.Thread(target=relay, args=(0, dst, on_line, edit), daemon=True).start()
     out_thread = None
     if out is not None:
         src = os.dup(p.stdout.fileno())

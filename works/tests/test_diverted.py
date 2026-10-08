@@ -307,6 +307,13 @@ class TakeCase(unittest.TestCase):
         for word in ("Skill execution completed", "起こし直すな", "--fix", "invoked: true"):
             self.assertIn(word, material.LENS_FORK_NOTE)
 
+    def test_prompt_note_tells_role_to_copy_text_findings(self):
+        """包みの旗 text-reply の起動（adapter.py の頭の 21）では fork に返答の道具が無く、/code-review は所見を本文で返す。
+        指示はそれを行の items に写させ、空の行（『Skill execution completed』だけ）は今までどおり見ていない形で返させる"""
+        note = material.LENS_FORK_NOTE
+        self.assertIn("本文で返", note)
+        self.assertIn("`items` に写せ", note)
+
 
 if __name__ == "__main__":
     unittest.main()

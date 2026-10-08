@@ -474,7 +474,7 @@ nodes:
             allowedDomains: []
         idle_timeout: 1728000000
         output_format:
-          description: 'works-node: local-review no-post no-tree-write'
+          description: 'works-node: local-review no-post no-tree-write text-reply'
           type: object
           required:
           - material

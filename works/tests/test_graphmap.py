@@ -650,8 +650,8 @@ class InjectCase(unittest.TestCase):
             adapter.inject(["--append-system-prompt", "a", "--append-system-prompt", "b"], launch, rows[:1])
 
     def test_registry_order(self):
-        self.assertEqual([i.name for i in adapter.INJECTORS], ["query_rule", "graph_map"])
-        self.assertEqual([i.required for i in adapter.INJECTORS], [True, False])
+        self.assertEqual([i.name for i in adapter.INJECTORS], ["query_rule", "graph_map", "text_reply"])
+        self.assertEqual([i.required for i in adapter.INJECTORS], [True, False, True])
 
 
 if __name__ == "__main__":
