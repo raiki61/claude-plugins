@@ -97,14 +97,14 @@ YAML の節は Archon の中で部品にできない（include はブロック�
 
 - 範囲の相談の枠（consult）: 当てる。枝ごとの枠を使い切った後の consult を拒む
 - 凍ったテストのファイル（frozen）: 当てる。`factchecks.check_frozen` を単位の worktree で
-- 書き込みの出どころ（writes）: 当てる。記録の鍵は run の作業ツリー（包みは単位の worktree の書き込みもそこへ載せる）、見る変更は枝の base から（`factchecks.check_writes` の log_repo・since）
+- 書き込みの出どころ（writes）: 当てる。記録の鍵は run の作業ツリー（包みは単位の worktree の書き込みもそこへ載せる）、見る変更は今の項目の頭から（`factchecks.check_writes` の log_repo・since。項目の頭は枝の控えの `head`: 切った時は枝の base の木、項目を受けた・諦めた後に取り直す。頭は HEAD でも index でもない木なので、変わったパスは `writes.changed_from` が頭を読んだ一時の index で取る）
 - 食い違いの申し出の形（conflict）: 当てる。申し出は通れば枝の控えに積み、締めが当てた後の作業ツリーで確かめ直して盤面に積む
 - 直す義務の単位（duplicate・not_opened・excused の枝の形）: 当てる。この項目の単位だけ・どれも changes・not_done・申し出のどれか 1 つに 1 回
-- 承認済みの修正案の範囲（scope）: 当てる。照らす変わったパスは枝が変えた物だけ（`factchecks.check_plan_scope` の since）
-- 変更に当たる試験（tests）: 当てる（実行器の在る run）。輪の状態の写し（盤面の `fix-lane-<n>-tests.json`。実行器は単位の worktree の物・置き場は run ごとの置き場の `fix-lanes/lane-<n>/suite/`）で `tddloop.selected_problems`。版は枝の base（切った時の run の作業ツリー）で、選ぶのは枝の差分に当たる試験、枝の base で既に赤い試験（TDD の輪が諦めた単位のテストなど）は新しい赤に数えない。枝の実行器が作ったファイルは締めが差分に入れない（`lanekit.merge` の made）
+- 承認済みの修正案の範囲（scope）: 当てる。照らす変わったパスは今の項目が項目の頭から変えた物だけ（`factchecks.check_plan_scope` の since）。同じ枝の前の項目が変えて受けたファイルを、後の項目の out_of_scope で照らさない（2026-10-08 に直した。前は枝の base から照らしたので、実の利用者の run 97fd532f（0.2.41）では 3 本の枝の 2・3 項目目が前の項目のファイルで 19 回拒まれ（うち 14 回は前の項目のファイルが後の項目の out_of_scope に当たった・4 回はそれを避けようと前の項目の単位を名指して単位の確かめに拒まれた）、6 項目が全部 3 回目の拒否で修正の輪へ戻り、修正の輪では 1 回目で通った）。版との比べの中身（足した行・消した行）は今どおり版から
+- 変更に当たる試験（tests）: 当てる（実行器の在る run）。輪の状態の写し（盤面の `fix-lane-<n>-tests.json`。実行器は単位の worktree の物・置き場は run ごとの置き場の `fix-lanes/lane-<n>/suite/`）で `tddloop.selected_problems`。版は枝の base（切った時の run の作業ツリー）で（項目の頭でないのは、後の項目が前の項目の直しの試験を赤にすれば拒むため）、選ぶのは枝の差分に当たる試験、枝の base で既に赤い試験（TDD の輪が諦めた単位のテストなど）は新しい赤に数えない。枝の実行器が作ったファイルは締めが差分に入れない（`lanekit.merge` の made）
 - .archon/ の下・1 回目に受け付けた単位・事後の関門の束・写しの型: 当てない。盤面が p3.fix を待つ形と全部の単位の返答が要る（修正の輪の受け付けが全部の項目を合わせた作業ツリーで回す）
 
-事前の確かめ（修正役が Bash で回す `factchecks.py`）も、枝の相談の控え（run ごとの置き場の `consult/lane-<n>/consult.json`。repo は単位の worktree、log_repo と since を持つ）で同じ照らしになる。
+事前の確かめ（修正役が Bash で回す `factchecks.py`）も、枝の相談の控え（run ごとの置き場の `consult/lane-<n>/consult.json`。repo は単位の worktree、log_repo と since を持つ）で同じ照らしになる。控えの since は枝の支度（`fixlanes.lane_prep`）が回ごとに今の項目の頭に揃える（resume で支度が回し直されても同じ値。枝の控えのパスは枝の控えの `ask_config`）。審査の下請けの差分（`seat.g1_diff_cmd`）は今どおり枝の base からで、2 つ目からの項目の決まりと審査のファイルが前の項目の番号を名指し、その変更を戻さない・指摘しないと言う（`fixrules.LANE_EARLIER`・`REVIEW_EARLIER`）。締め（`fix-join`）は枝の差分を枝の base から 1 本で当て、書き込みの記録も枝の base からの全部の変更を枝の項目の申告の和で照らすので、項目の頭は使わない（同じ差分を 2 度当てない）。
 
 ## 6. 決定（設計に無かった所。既存の設計に一番近い物を選んだ）
 
@@ -143,3 +143,4 @@ YAML の節は Archon の中で部品にできない（include はブロック�
 5. 盤面の今の scope の周の `fix-lanes-out.json`・`fix-lanes.md` と trace の `fix_lanes_settled`（merged・back・shared・union）。修正の輪の指示書（`prompt-p3.fix.md`）に節 lanes が在り、当てた単位に下請けの項目が無いこと。受け付けが通ること
 6. run の後に `git -C <run の worktree> worktree list` と `git for-each-ref refs/works/units` に枝の worktree と守りの参照が残っていないこと
 7. 入力 `features_off=fix_lanes` の run で `fix_lanes_planted` が lanes 0・why「入力 fix_lanes が off」で、修正の輪が今どおり全部の項目を直すこと
+8. 1 本の枝が 2 つ以上の項目を順に直す run（`works/dev/canary.sh --request lanes2`。4 つの別々のファイルの docstring の欠けで、各項目の out_of_scope にほかの 3 件のファイル。4 項目を枝 3 本に配れば 1 本の枝が 2 項目を持つ）で、`fix_lanes_settled` の outcomes の 2 つ目からの項目が merged（`canary_check.py --request lanes2` の (k) が yes）。前の項目のファイルで後の項目が拒まれた形は run 97fd532f

@@ -9,7 +9,7 @@ accept.py の頭）。
 - check_plan_scope: 承認済みの修正案の範囲（1d）。agreed は同じ。ask は拒否の頭で相談を先の道に言うか（None は置き場の控えで決める）
 - precheck(cfg, reply): 修正役が sandbox の中の Bash で返答の前に回す事前の確かめ。上の 3 つ（凍結・書き込み・範囲）だけを、
   試験を回さずに当てる（変更に当たる試験と事後の関門の束は受け付けだけ）。修正役の並べの枝の控え（fixlanes が書く）は repo が単位の
-  worktree で、log_repo（書き込みの記録の鍵の run の作業ツリー）と since（枝の base の木）を持つ（枝の確かめと同じ照らし）。盤面は読むだけ（entry.PEEK_ENV。scope は相談の控えの
+  worktree で、log_repo（書き込みの記録の鍵の run の作業ツリー）と since（枝の今の項目の頭の木。枝の支度が回ごとに書き直す）を持つ（枝の確かめと同じ照らし）。盤面は読むだけ（entry.PEEK_ENV。scope は相談の控えの
   値で立てる）。範囲の相談の合意は、修正の輪の確かめの節が盤面の trace に書いた物（conflict.agreed）を受け付けと同じに読む。
   返り {ok, rejects: [{check, text}]}
 - main(argv): `<python> factchecks.py <相談の控え> [--reply <下書きの返答の JSON>]`。終了コード 0（通る）・1（拒否の行が在る）・
@@ -84,16 +84,22 @@ def check_writes(reply: dict, board: Path, base_rev: str, repo: Path, state: str
     外す（tddloop.suite_made_all）。1 回目に受け付けた返答の控えの bash_writes（conflict.held_writes）を役の申告に足す（役の欄の
     形が崩れていれば足さずに形の拒否に任せる）。盤面は書かない（申告の記録は writes.check が足す）。
     修正役の並べの枝（fixlanes）は repo に単位の worktree を渡し、log_repo（記録の鍵の run の作業ツリー。包みは単位の worktree の
-    書き込みも run の作業ツリーの記録に載せる）と since（見る変更の起点。枝の base の木。前の段が run の作業ツリーで書いた物は
-    単位の worktree の実パスの記録を持たないので見ない）と made（枝の実行器が作ったファイル）を渡す"""
+    書き込みも run の作業ツリーの記録に載せる）と since（見る変更の起点。枝の今の項目の頭の木。前の段が run の作業ツリーで書いた物は
+    単位の worktree の実パスの記録を持たず、同じ枝の前の項目が書いた物はその項目の確かめが見たので見ない）と made（枝の実行器が作ったファイル）を渡す"""
     made = set(tddloop.suite_made(state)) | tddloop.suite_made_all(board) | set(made)
     b = entry.open_board(board)
-    rev = since or writes.base_rev(b, base_rev)
+    rev = writes.base_rev(b, base_rev)
     held, own = conflict.held_writes(b), reply.get(writes.FIELD)
     if held and (own is None or isinstance(own, list)):
         reply = {**reply, writes.FIELD: [*(own or []), *(w for w in held if w not in (own or []))]}
-    return writes.check(reply, repo, [p for p in writes.changed(repo, rev) if p not in made],
+    return writes.check(reply, repo, [p for p in _changed(repo, rev, since) if p not in made],
                         writes.sink(repo if log_repo is None else log_repo))
+
+
+def _changed(repo, rev: str, since=None) -> list:
+    """見る変わったパス: since（修正役の並べの枝の今の項目の頭の木）が在ればそこからの変更（writes.changed_from。項目の頭は HEAD でも
+    index でもない木）、無ければ版 rev からの変更（writes.changed）"""
+    return writes.changed_from(repo, since) if since else writes.changed(repo, rev)
 
 
 def _loop_states(board, state) -> list:
@@ -150,14 +156,14 @@ def check_plan_scope(reply: dict, keys: list, board: Path, base_rev: str, repo: 
     頭は、範囲の相談がこの段に在れば相談を先の道に言う。ask が None なら今の scope の置き場の控えで決める（consult.offered）。
     凍らせたファイルと実行器が作ったファイルは run の全部の輪の物（_loop_freeze・tddloop.suite_made_all）で、凍った後は一番後の
     輪の frozen_tree から見る（前の輪の後に 1 回目の段と後の輪が書いた物を、2 回目の修正役のせいにしない）。
-    修正役の並べの枝（fixlanes）は repo に単位の worktree を、since に枝の base の木を渡す: 照らす変わったパスは枝が変えた物だけ
-    （版との比べの中身は今どおり版から）。made は枝の実行器が作ったファイル"""
+    修正役の並べの枝（fixlanes）は repo に単位の worktree を、since に枝の今の項目の頭の木を渡す: 照らす変わったパスはその項目が変えた物だけ
+    （同じ枝の前の項目が変えたファイルを、後の項目の out_of_scope で照らさない。run 97fd532f。版との比べの中身は今どおり版から）。made は枝の実行器が作ったファイル"""
     b = entry.open_board(board)
     rows = [{"unit_key": k, "files": sorted(declared_files([c], repo))} for c, k in zip(reply.get("changes") or [], keys)]
     tree, frozen = _loop_freeze(board, state)
     made = set(tddloop.suite_made(state)) | tddloop.suite_made_all(board) | set(made)
     rev = writes.base_rev(b, base_rev)
-    paths = [p for p in writes.changed(repo, since or rev) if p not in made]
+    paths = [p for p in _changed(repo, rev, since) if p not in made]
     problems, note = planscope.check(rows, b, repo, rev, paths, pass_=pass_, loop_tree=tree, frozen=frozen,
                                      agreed=agreed)
     if problems:

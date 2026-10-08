@@ -27,6 +27,10 @@
   件ごとに独立で 5 つの別々のファイルだけを変え、全部当てれば全部緑・振る舞いの 3 件の受け入れのテストは種で自分だけ赤・3 本の枝の
   test_lib.py は順に 3 方向で合う・docstring の無い公開の関数は依頼の 2 件だけ・依頼は入口の型を通り分け方や道を言わない。確かめ役の
   (g)（include ごとの段と TDD の輪の段・修正役の段の分と費用と枝・切った機能。全部 on は枝 2 本以上の同時と fixed、切った run は fixed）。
+- 修正役の並べの 1 本の枝の 2 項目の種 canary-seed-lanes2/ と依頼 canary-request-lanes2.json（canary.sh --request lanes2。run 97fd532f）:
+  種のテストは緑で、docstring の無い公開の関数は依頼の 4 件だけ（4 つの別々のファイル）・振る舞いのバグは直した写し・依頼は入口の型を
+  通り、各件が allowed_paths を自分のファイルだけ・out_of_scope をほかの 3 件のファイルにさせる・4 項目は枝 3 本の 1 本に 2 項目入る
+  （fixlanes.assign）。確かめ役の (k)（2 項目以上の枝の 2 つ目からの項目が当たったか）。
 - 固定材料 canary-fixture-units/（canary.sh --request units）: 写しが控えのとおり・seed/ の木が控えの tree・request.json が控えの依頼
   （canary_fixture.problems。書き換えれば名指す）・この機械の置き場の字が無い・案が tdd の 1 項目に 2 単位。seed/ の写しの git（gitkit の型）に
   use.sh と同じ入力で線の start（entry.start）が写しを取り込み、修正の直前の盤面を開いて置き場の印を残さない（works の表・graph・置き場の版が
@@ -148,6 +152,11 @@ LARGE_LANE_TESTS = {
     "c_to_f": "\n\n    def test_c_to_f_boiling(self):\n        self.assertEqual(units.c_to_f(100), 212)\n",
 }
 LARGE_LANE_NAMES = {"median": "test_median_even", "pad_left": "test_pad_left_fills_left", "c_to_f": "test_c_to_f_boiling"}
+# canary.sh --request lanes2（canary-seed-lanes2/ と canary-request-lanes2.json）: 4 つの別々のファイルの docstring の欠け。4 項目を枝 3 本に
+# 配れば 1 本の枝が 2 項目を順に直し、後の項目の out_of_scope に前の項目のファイルが在る（run 97fd532f の形）
+SEED_LANES2 = ROOT / "dev" / "canary-seed-lanes2"
+REQUEST_LANES2 = ROOT / "dev" / "canary-request-lanes2.json"
+LANES2_GAPS = ["stats.py:mode", "units.py:km_to_miles", "money.py:split_even", "slugs.py:slugify"]
 PROBE_RUN = """
 import json, sys
 out = {}
@@ -540,6 +549,56 @@ class LargeSeedTest(unittest.TestCase):
                 self.assertIn(TESTS, it["text"], it["where"])
 
 
+class Lanes2SeedTest(unittest.TestCase):
+    """canary-seed-lanes2 と canary-request-lanes2.json（canary.sh --request lanes2。修正役の並べの 1 本の枝が 2 項目を順に直す道）"""
+    setUp = SeedTest.setUp
+    suite, suite_green = SeedTest.suite, SeedTest.suite_green
+
+    def test_seed_suite_green_and_only_the_four_docstrings_are_missing(self):
+        d = self.tmp / "lanes2"
+        shutil.copytree(SEED_LANES2, d)
+        self.suite_green(d)
+        missing = []
+        for mod in LARGE_MODULES:
+            tree = ast.parse((SEED_LANES2 / mod).read_text(encoding="utf-8"))
+            missing += [f"{mod}:{f.name}" for f in tree.body if isinstance(f, ast.FunctionDef)
+                        and not f.name.startswith("_") and ast.get_docstring(f) is None]
+        self.assertEqual(sorted(missing), sorted(LANES2_GAPS))
+        got = SeedTest.probes(self, d, {k: v for k, v in LARGE_PROBES.items() if k in ("median", "pad_left", "c_to_f")})
+        self.assertEqual(set(got.values()), {True}, "振る舞いのバグは直した写し（依頼のほかに直す物を残さない）")
+
+    def test_seed_holds_only_the_library_its_tests_and_rules(self):
+        names = {p.relative_to(SEED_LANES2).as_posix() for p in SEED_LANES2.rglob("*") if p.is_file()}
+        self.assertEqual(names, {".gitignore", "README.md", TESTS, *LARGE_MODULES})
+        readme = (SEED_LANES2 / "README.md").read_text(encoding="utf-8")
+        for word in ("公開の関数は docstring", "docstring の有無や字はテストで確かめない"):
+            self.assertIn(word, readme)
+        for word in ("route", "direct", "tdd", "TDD", "CHANGELOG"):
+            self.assertNotIn(word, readme)
+
+    def test_request_puts_each_file_in_the_other_items_out_of_scope(self):
+        """依頼は入口の型を通り、4 件が別々のファイルを名指し、各件の決めが allowed_paths を自分のファイルだけ・out_of_scope を
+        ほかの 3 件のファイルにさせる（同じ枝の後の項目の out_of_scope に前の項目のファイルが在る）"""
+        _, _, items, _, _ = entry._read_request(str(REQUEST_LANES2), SEED_LANES2, entry.board_rules())
+        self.assertEqual([it["where"] for it in items], LANES2_GAPS)
+        files = [w.split(":", 1)[0] for w in LANES2_GAPS]
+        for it in items:
+            mine = it["where"].split(":", 1)[0]
+            text = it["text"]
+            self.assertIn(f"allowed_paths は {mine} だけ", text)
+            oos = text.split("out_of_scope", 1)[1]
+            for other in files:
+                (self.assertIn if other != mine else self.assertNotIn)(other, oos, it["where"])
+            for word in ("route", "direct", "tdd", "TDD", "テストを先に", "並べ", "枝", "CHANGELOG"):
+                self.assertNotIn(word, json.dumps(it, ensure_ascii=False), it["where"])
+
+    def test_four_items_put_two_in_one_lane(self):
+        """修正役の並べの配り方（fixlanes.assign）は 4 項目（単位を共にしない）を 3 本の枝に配り、1 本の枝が 2 項目を持つ"""
+        lanes, rest = canary_check.fixlanes.assign([[1], [2], [3], [4]])
+        self.assertEqual((lanes, rest), ([[1, 4], [2], [3]], []))
+        self.assertEqual(len(LANES2_GAPS), canary_check.fixlanes.MAX_LANES + 1)
+
+
 class UnitsFixtureTest(unittest.TestCase):
     """canary.sh --request units の固定材料（dev/canary-fixture-units/）: 種の写し seed/・依頼 request.json・盤面の写し fix-fixture/"""
 
@@ -715,6 +774,16 @@ class CanaryShTest(unittest.TestCase):
         self.assertIn(f'REQUEST="$DEV_DIR/{REQUEST_LARGE.name}"', block)
         self.assertNotIn("FIXTURE", block)
         self.assertTrue(SEED_LARGE.is_dir() and REQUEST_LARGE.is_file())
+
+    def test_lanes2_uses_its_own_seed_and_request(self):
+        """--request lanes2 は種 canary-seed-lanes2 と依頼 canary-request-lanes2.json を使い、固定材料を使わない"""
+        text = CANARY_SH.read_text(encoding="utf-8")
+        block = text.split("  lanes2)\n", 1)[1].split(";;", 1)[0]
+        self.assertIn(f'SEED="$DEV_DIR/{SEED_LANES2.name}"', block)
+        self.assertIn(f'REQUEST="$DEV_DIR/{REQUEST_LANES2.name}"', block)
+        self.assertNotIn("FIXTURE", block)
+        self.assertEqual(set(canary_check.REQUESTS), {"tdd", "fix", "units", "large", "lanes2"}, "殻と確かめ役の語が同じ")
+        self.assertIn("--request tdd|fix|units|large|lanes2", text)
 
     def test_units_starts_from_the_fixture_with_its_own_seed_and_request(self):
         """--request units は固定材料のフォルダの種・依頼を使い、起動に WORKS_USE_FIX_FIXTURE を付け、作る前に
@@ -1004,6 +1073,36 @@ class CheckTest(unittest.TestCase):
         doc = canary_check.check(RUN, {}, [], self.board)
         self.assertEqual(doc["fix_lanes_skipped"], [])
         self.assertNotIn("切らなかった理由", doc["features"]["a_parallel"]["why"])
+
+    def test_lane_chain_is_yes_only_when_later_items_of_a_lane_merge(self):
+        """(k): 2 項目以上の枝の 2 つ目からの項目が全部 merged なら yes、戻れば attempted（項目と理由を名指す）、2 項目以上の枝が
+        無ければ no（--request lanes2 の終了コードは (k) だけ）"""
+        make_db(self.db, self.out_root, [])
+        planted = [{"lanes": 3, "items": {"1": [1, 4], "2": [2], "3": [3]}, "rest": [], "expect": []}]
+        merged = [{"item": i, "lane": n, "outcome": "merged", "why": ""} for i, n in ((1, 1), (4, 1), (2, 2), (3, 3))]
+        make_board(self.board, planted=planted, fix_lanes={"lanes": 3, "merged": [1, 4, 2, 3], "back": [], "shared": [],
+                                                           "union": [], "outcomes": merged})
+        doc = canary_check.check(RUN, {}, [], self.board)
+        self.assertEqual(doc["features"]["k_lane_chain"]["status"], "yes", doc["features"]["k_lane_chain"])
+        self.assertEqual(doc["lane_chain"]["chains"], {"1": [1, 4]})
+        got = self.run_tool("--db", str(self.db), "--run", RUN, "--board", str(self.board), "--request", "lanes2")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertIn("(k) 枝の中の 2 つ目からの項目: yes", got.stdout)
+        why = "同じ項目の 3 回目の拒否: calc.py は項目 4 の out_of_scope（calc.py）に当たる"
+        back = [*merged[:1], {"item": 4, "lane": 1, "outcome": "serial", "why": why}, *merged[2:]]
+        make_board(self.board, planted=planted, fix_lanes={"lanes": 3, "merged": [1, 2, 3], "back": [4], "shared": [],
+                                                           "union": [], "outcomes": back})
+        k = canary_check.check(RUN, {}, [], self.board)["features"]["k_lane_chain"]
+        self.assertEqual(k["status"], "attempted")
+        self.assertIn(f"枝 1 の項目 4（serial: {why}）", k["why"])
+        got = self.run_tool("--db", str(self.db), "--run", RUN, "--board", str(self.board), "--request", "lanes2")
+        self.assertEqual(got.returncode, 1)
+        make_board(self.board, planted=planted)
+        self.assertIn("締めの行が無い", canary_check.check(RUN, {}, [], self.board)["features"]["k_lane_chain"]["why"])
+        make_board(self.board, planted=[{"lanes": 2, "items": {"1": [1], "2": [2]}, "rest": [], "expect": []}])
+        k = canary_check.check(RUN, {}, [], self.board)["features"]["k_lane_chain"]
+        self.assertEqual(k["status"], "no")
+        self.assertIn("項目が 2 つ以上の枝が無い", k["why"])
 
     def test_fixer_lanes_count_for_parallel_and_overlap(self):
         """修正役の並べの枝の輪（fix-lane-loop-<n> と中の節）が同時に 2 本以上走り、締めの行の枝が 2 本以上なら (a) の yes。締めの行の
