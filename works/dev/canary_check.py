@@ -68,8 +68,8 @@ canary-fixture-units/ から始める run、large は測りの canary-request-la
   どれも旗 text-reply（fence.text_reply。包みが schema を子に渡さず、本文で受けて確かめ、合わなければ同じ会話で出し直させる。
   .shared/core/adapter.py の頭の 21）で、包みの家の replies/<cwd の hash>.jsonl（adapter.replies_path）が起動ごと（pid）に
   決めを持ち、返答の道具が残った跡（kind native か、その起動の会話の outputs.jsonl の行）が無ければ yes。出し直しを使い切った
-  （gave_up）・誤りの result（error）・決めの無い起動が在れば attempted。旗の無い起動・返答の道具の跡が在る・起動が無い・記録が
-  読めないなら no
+  （gave_up）・誤りの result（error）・決めの無い起動・包みが拒んだ起動（mode refused。旗の有無を数えない）が在れば attempted。
+  旗の無い起動・返答の道具の跡が在る・子を起こした起動が無い・記録が読めないなら no
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
 tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から node_completed・node_failed まで）、AI の節の費用の和
@@ -443,12 +443,13 @@ def run_replies(launches_dir, board: pathlib.Path) -> list | None:
     return report._since_created(types.SimpleNamespace(dir=board, state=state), rows)
 
 
-def local_review_launches(rows: list | None) -> list:
-    return [r for r in rows or [] if r.get("node") == LOCAL_REVIEW]
+def local_review_launches(rows: list | None, refused: bool = False) -> list:
+    """局所レビューの役の起動。既定は子を起こした起動（mode が refused でない）、refused なら包みが拒んだ起動（fence が無い）"""
+    return [r for r in rows or [] if r.get("node") == LOCAL_REVIEW and (r.get("mode") == "refused") == refused]
 
 
 def all_text_reply(rows: list | None) -> bool:
-    """局所レビューの起動が 1 つ以上在り、どれも旗 text-reply か"""
+    """子を起こした局所レビューの起動が 1 つ以上在り、どれも旗 text-reply か"""
     got = local_review_launches(rows)
     return bool(got) and all(isinstance(r.get("fence"), dict) and r["fence"].get("text_reply") for r in got)
 
@@ -476,8 +477,13 @@ def text_reply(rows: list | None, replies: list | None, outputs: list | None) ->
     if kinds.get("native") or leaked:
         return {"status": NO, "why": f"返答の道具が残った跡（kind native {kinds.get('native', 0)}・その会話の "
                                      f"{diverted.OUTPUTS_LOG} の行 {len(leaked)}）——schema を外し損ねた"}, ev
-    if kinds.get("gave_up") or kinds.get("error") or undecided:
-        return {"status": ATTEMPTED, "why": f"決め {kinds}・決めの無い起動 {undecided or '無し'}"}, ev
+    refused = local_review_launches(rows, refused=True)
+    ev["refused"] = len(refused)
+    if kinds.get("gave_up") or kinds.get("error") or undecided or refused:
+        return {"status": ATTEMPTED, "why": f"決め {kinds}・決めの無い起動 {undecided or '無し'}"
+                                            + (f"・包みが拒んだ起動 {len(refused)}（" + "・".join(sorted({str(r.get('why') or '?')
+                                                                                         for r in refused})) + "）"
+                                               if refused else "")}, ev
     return {"status": YES, "why": f"{LOCAL_REVIEW} の起動 {len(got)} 本はどれも旗 text-reply で、決め {kinds}"}, ev
 
 

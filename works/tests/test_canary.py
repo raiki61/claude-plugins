@@ -1239,6 +1239,21 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(j["status"], "no")
         self.assertIn("text-reply", j["why"])
 
+    def test_text_reply_refused_launch_is_named_not_counted_as_plain(self):
+        """包みが拒んだ起動（mode refused。fence が無い）は、旗の無い起動に数えず、拒んだ起動として attempted で名指す"""
+        self.fixer_run()
+        self.local_review_launches({"at": LATER, "node": "local-review", "pid": 6, "mode": "refused", "why": "柵を足せない",
+                                    "session": {"mode": "refused", "id": None}, "fence": None},
+                                   {"at": LATER, "node": "local-review", "pid": 7, "mode": "merged",
+                                    "session": {"mode": "new", "id": "s1"}, "fence": {"text_reply": "0123456789abcdef"}})
+        self.replies({"at": LATER, "pid": 7, "node": "local-review", "kind": "accepted", "turn": 1})
+        j = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["j_text_reply"]
+        self.assertEqual(j["status"], "attempted", j)
+        self.assertIn("拒んだ", j["why"])
+        self.lens_note(unseen=["/code-review"])
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        self.assertEqual(h["status"], "attempted", h)
+
     def test_record_output_hook_under_text_reply_is_not_red(self):
         """(h) 旗 text-reply の起動では fork に返答の道具が無く、フックは起きない形が正しい。見ていない fork のレンズが在っても
         outputs.jsonl が無いことを『フックが起きていない』（no）と言わず attempted にする"""

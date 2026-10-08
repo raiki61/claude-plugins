@@ -273,8 +273,9 @@ class AdapterReplyCase(unittest.TestCase):
         self.fake.chmod(self.fake.stat().st_mode | stat.S_IXUSR)
         self.log = self.tmp / "fake.jsonl"
 
-    def sdk(self, schema, replies):
-        """(stdout の行の doc の全部, 終了コード)。最初の result を見たら stdin を閉じる"""
+    def sdk(self, schema, replies, close_early=False):
+        """(stdout の行の doc の全部, 終了コード)。最初の result を見たら stdin を閉じる（close_early なら指示文を書いた直後に
+        閉じる。SDK が先に stdin を閉じる形でも、包みは契約が決まるまで子の stdin を閉じない）"""
         env = {k: v for k, v in os.environ.items() if not k.startswith("WORKS_")}
         env.update(WORKS_ADAPTER_HOME=str(self.home), WORKS_REAL_CLAUDE=str(self.fake), PYTHONDONTWRITEBYTECODE="1",
                    FAKE_LOG=str(self.log), FAKE_REPLIES=json.dumps(replies, ensure_ascii=False))
@@ -289,6 +290,8 @@ class AdapterReplyCase(unittest.TestCase):
         threading.Thread(target=pump, daemon=True).start()
         p.stdin.write((init_line(schema) + "\n" + user_line("局所レビューをせよ") + "\n").encode("utf-8"))
         p.stdin.flush()
+        if close_early:
+            p.stdin.close()
         docs = []
         while True:
             ln = lines.get(timeout=60)
@@ -322,6 +325,21 @@ class AdapterReplyCase(unittest.TestCase):
         self.assertEqual(len(users), 2)
         self.assertIn("verdict", users[1])
         self.assertEqual(rows[-1], {"eof": 2})
+
+    def test_sdk_closing_stdin_early_still_reasks(self):
+        """SDK が result より先に stdin を閉じても、子の stdin は契約が決まるまで開いたままで、出し直しが同じ子に届く。決まった後は
+        閉じて子が抜ける（いつまでも待たない）"""
+        bad = json.dumps({"verdict": "maybe", "items": []})
+        docs, rc, err = self.sdk(marked(), [bad, json.dumps(GOOD)], close_early=True)
+        self.assertEqual(rc, 0, err)
+        results = [d for d in docs if d.get("type") == "result"]
+        self.assertEqual([r.get("structured_output") for r in results], [GOOD])
+        self.assertEqual(self.fake_rows()[-1], {"eof": 2})
+
+    def test_sdk_closing_stdin_early_and_bound(self):
+        docs, rc, err = self.sdk(marked(), ["散文"], close_early=True)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.fake_rows()[-1], {"eof": 1 + replycontract.REASKS})
 
     def test_spend_counts_all_turns_once(self):
         """出し直しを挟んだ起動の費用: 写した result の累計は子の全部の手の累計（0.25 × 2）で、会話の費用の記録は写した
@@ -357,6 +375,52 @@ class AdapterReplyCase(unittest.TestCase):
         self.assertIn("--json-schema", rows[0]["argv"])
         self.assertIn("jsonSchema", [r for r in rows if "init" in r][0]["init"])
         self.assertNotIn("structured_output", [d for d in docs if d.get("type") == "result"][0])
+
+
+class GateCase(unittest.TestCase):
+    """子の stdin の口（adapter.InGate）と、stdout の中継（adapter.relay_out）が契約の例外でも口を放すこと"""
+
+    def test_gate_holds_until_release(self):
+        r, w = os.pipe()
+        self.addCleanup(os.close, r)
+        g = adapter.InGate(w, hold=True)
+        g.end()
+        self.assertTrue(g.write(b"a\n"), "SDK の stdin が終わっても、決まるまでは子へ書ける")
+        self.assertFalse(g.closed)
+        g.release()
+        self.assertTrue(g.closed)
+        self.assertFalse(g.write(b"b\n"))
+        self.assertEqual(os.read(r, 100), b"a\n")
+        self.assertEqual(os.read(r, 100), b"", "放した後は閉じている（子は stdin の終わりを見る）")
+
+    def test_gate_without_hold_closes_on_end(self):
+        r, w = os.pipe()
+        self.addCleanup(os.close, r)
+        g = adapter.InGate(w)
+        g.end()
+        self.assertTrue(g.closed)
+
+    def test_contract_error_releases_logs_and_relays(self):
+        """契約の決めが例外を投げても、result の行をそのまま写し、口を放し（子の stdin が閉じられる）、記録に error を残す"""
+        rows, released = [], []
+
+        class Boom(replycontract.Contract):
+            def on_result(self, doc):
+                raise RuntimeError("壊れた")
+        c = Boom(SCHEMA, log=rows.append)
+        c.attach(lambda data: True, lambda: released.append(True))
+        src_r, src_w = os.pipe()
+        dst_r, dst_w = os.pipe()
+        line = json.dumps(result_doc("散文")).encode("utf-8")
+        os.write(src_w, line + b"\n")
+        os.close(src_w)
+        adapter.relay_out(src_r, dst_w, adapter.OutWatch(None, c))
+        got = os.read(dst_r, 65536)
+        os.close(dst_r)
+        self.assertEqual(got, line + b"\n")
+        self.assertEqual(released, [True])
+        self.assertEqual(rows[-1]["kind"], "error")
+        self.assertIn("RuntimeError", rows[-1]["why"])
 
 
 class PackCase(unittest.TestCase):

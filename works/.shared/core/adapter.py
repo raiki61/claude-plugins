@@ -2143,8 +2143,12 @@ def relay_out(src_fd: int, dst_fd: int, w: OutWatch) -> None:
                     if w.reply is not None:   # 21. 合わなければ持って同じ会話に出し直させる。合えば structured_output を置く
                         try:
                             got = w.reply.on_result(doc)
-                        except Exception:  # noqa: BLE001  決められない result はそのまま写す（子の stdin は閉じられるようにする）
+                        except Exception as e:  # noqa: BLE001  決められない result はそのまま写す（子の stdin は閉じられるようにする）
                             got = doc
+                            try:
+                                w.reply.log({"kind": "error", "why": f"契約の決めが落ちた: {type(e).__name__}: {e}"})
+                            except Exception:  # noqa: BLE001  記録が書けなくても口は放す
+                                pass
                             w.reply.release()
                         if got is None:
                             continue
