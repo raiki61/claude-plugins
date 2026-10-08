@@ -354,8 +354,10 @@ def widened(old: dict, new: dict) -> dict | None:
     """直した項目 new が承認済みの項目 old の範囲を広げただけか。違いが allowed_paths に足した行と out_of_scope から外した行
     （WIDEN_KEYS）だけで、どちらかが 1 行以上在れば {"allowed_paths": [足した glob…], "out_of_scope": [外した行の glob…]}（new・old
     の並びの順）。ほかの欄（約束の欄も手段の欄も。tests は行の全部の欄）が 1 つでも違う・allowed_paths から外した・out_of_scope に
-    足したか行を書き換えた・何も広げていないなら None。比べは contract_diff と同じ読み（unit_keys と tests の並べ替え・
+    足したか行を書き換えた・何も広げていない・old が allowed_paths を持たない（範囲の縛りの無い項目）なら None。比べは contract_diff と同じ読み（unit_keys と tests の並べ替え・
     rewrite_tests の範囲 limit は数えない）。narrows は関所の決め手の欄を外した形で渡す。純粋"""
+    if not isinstance(old, dict) or "allowed_paths" not in old:   # 範囲の欄の無い項目（縛りが無い）に書くのは狭める物
+        return None
     keys = (set(old) | set(new)) - set(WIDEN_KEYS)
     if any(_item_value(old, k) != _item_value(new, k) for k in keys):
         return None

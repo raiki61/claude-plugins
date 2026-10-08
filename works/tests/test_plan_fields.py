@@ -601,6 +601,12 @@ class TestWidened(PlanFieldsCase):
             with self.subTest(name):
                 self.assertIsNone(planmarks.widened(old, {**old, **copy.deepcopy(over)}))
 
+    def test_old_without_scope_is_none(self):
+        """範囲の欄の無い承認済みの項目（217 番の形の控え。範囲の縛りが無い）に allowed_paths を書いた直しは狭める物で、広げる物でない"""
+        old = item()
+        del old["allowed_paths"]
+        self.assertIsNone(planmarks.widened(old, item(allowed_paths=["stats.py", "README.md"])))
+
     def test_order_and_rewrite_limit_do_not_count(self):
         """unit_keys・tests の並べ替え・rewrite_tests の範囲 limit（凍結の控えが足す）は違いに数えない（contract_diff と同じ読み）"""
         old = item(unit_keys=[MEAN, CLAMP], rewrite_tests=[{**REWRITE, "limit": "test_stats.py:12"}])

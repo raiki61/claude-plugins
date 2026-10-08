@@ -701,9 +701,22 @@ class TestUnattendedWiden(TripCase):
         row = self.trip_doc()["items"][0]
         self.assertEqual((row["contract_changed"], row["ask"]), (["allowed_paths"], False))
         self.assertEqual(row["widened"], {"allowed_paths": ["README.md"], "out_of_scope": []})
+        self.assertEqual(self.widen_rows(), [], "trace は採った時（answer）に書く")
+        replan.answer(self.board, self.repo, None)
         b = entry.open_board(self.board)
         self.assertEqual([{k: r[k] for k in ("round", "item", "units", "allowed_paths", "out_of_scope")} for r in self.widen_rows()],
                          [{"round": b.round, "item": 1, "units": [MEAN], "allowed_paths": ["README.md"], "out_of_scope": []}])
+
+    def test_stopped_gate_writes_no_widen_row(self):
+        """ほかの項目が関所を開け、無人の殻が stop と答えた（範囲を広げるだけの項目も諦めた）→ 広げたとは書かない"""
+        self.unattended()
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        got = replan.answer(self.board, self.repo, {"decision": "stop", "text": "無人の run: 人が決める関所に着いた"})
+        self.assertTrue(got["stop"])
+        self.assertEqual(self.widen_rows(), [])
+        self.assertTrue(replan.lines(entry.open_board(self.board, allow_halted=True))[0].endswith(
+            "直さずに諦めた: 人が関所 replan-gate で run を止めた: 無人の run: 人が決める関所に着いた"))
 
     def test_widened_item_returns_to_fixing_and_is_reported(self):
         self.unattended()
@@ -759,13 +772,21 @@ class TestUnattendedWiden(TripCase):
                 self.assertIsNone(self.trip_doc()["items"][0].get("widened"))
                 self.assertEqual(self.widen_rows(), [])
 
-    def test_gate_twice_writes_one_trace_row(self):
+    def test_resume_writes_one_trace_row(self):
         self.unattended()
         self.trip(new=wider_paths(), review=no_faces())
         replan.gate(entry.open_board(self.board), run_id="r")
         doc = self.trip_doc()   # 関所の決まりの後・答えの前に落ちた再開（ask は在るが result は無い）
         replan.gate(entry.open_board(self.board), run_id="r")
         self.assertEqual(self.trip_doc()["items"], doc["items"])
+        first = replan.answer(self.board, self.repo, None)
+        self.assertEqual(replan.answer(self.board, self.repo, None), first)
+        doc = self.trip_doc()   # 答えの途中で落ちた再開（answered と result を書く前）
+        del doc["answered"]
+        for r in doc["items"]:
+            r["result"] = None
+        entry.open_board(self.board).work(replan.TRIP_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(replan.answer(self.board, self.repo, None), first)
         self.assertEqual(len(self.widen_rows()), 1)
 
 

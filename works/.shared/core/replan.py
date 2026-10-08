@@ -37,7 +37,7 @@
   比べる）、事前審査が人に聞く種類の穴（写しの rules の HUMAN_FACE_KINDS）を挙げなかった時だけ、人に聞かずに通す。それ以外は
   関所 replan-gate で人に聞く。ただし無人の run（gatemarks.unattended）では、範囲を広げるだけの直し（planmarks.widened が
   返す: 違いが allowed_paths に足した行と out_of_scope から外した行だけ）も、人に聞く種類の穴が無ければ聞かずに通し、行の
-  widened に足した・外した glob を置き、trace に WIDEN_OP を 1 行書く（持ち主 2026-10-08）。役には決めさせず、コードが欄を比べて決める
+  widened に足した・外した glob を置く。answer がその項目を採った時に trace に WIDEN_OP を 1 行書く（持ち主 2026-10-08）。役には決めさせず、コードが欄を比べて決める
 - WIDEN_OP・WIDEN_LINE・WIDEN_PARTS: 無人の run で範囲を広げるだけの直しを聞かずに通した trace の行の op と、lines の文
 - GATE_FILE・NOTES_FILE・FIX_NOTES_HEAD・HUMAN_KIND・GATE_BY: 関所の文・修正役に届ける一言と穴・その頭の修正の前の関所の条件の見出し・process.human_items の行の kinds・stop で
   止めた盤面の by（頭が human: なので報告の結末は stopped_by_human）
@@ -554,7 +554,7 @@ def _gate_section(row: dict, conflicts: dict) -> list:
 
 
 def _widen_traced(b) -> set:
-    """盤面の trace の WIDEN_OP の行の (周, 項目の番号) の集まり（読めない・壊れた行は飛ばす。gate を再開で当て直しても行を
+    """盤面の trace の WIDEN_OP の行の (周, 項目の番号) の集まり（読めない・壊れた行は飛ばす。answer を再開で当て直しても行を
     積み増さない）"""
     try:
         raw = (pathlib.Path(b.dir) / "trace.jsonl").read_text(encoding="utf-8").splitlines()
@@ -578,7 +578,6 @@ def gate(b, *, run_id: str) -> dict:
         return {"ask": False, "gate_text": "", "gate_file": ""}
     kinds = human_kinds(b)
     alone = gatemarks.unattended(b)
-    traced = _widen_traced(b) if alone else set()
     for row in doc["items"]:
         if row.get("result"):
             continue
@@ -594,8 +593,6 @@ def gate(b, *, run_id: str) -> dict:
             row["widened"] = (planmarks.widened(old, new) if alone and row["contract_changed"] and not row["human_faces"]
                               else None)
             row["ask"] = bool((row["contract_changed"] and not row["widened"]) or row["human_faces"])
-            if row["widened"] and (b.round, row["item"]) not in traced:
-                b.trace(WIDEN_OP, round=b.round, item=row["item"], units=list(row.get("units") or []), **row["widened"])
     _write_trip(b, doc)
     judged = [r for r in doc["items"] if isinstance(r.get("ask"), bool)]
     asked = [r for r in judged if r["ask"]]
@@ -691,8 +688,11 @@ def answer(board_dir, repo, gate: dict | None, *, fix_notes="") -> dict:
             if todo:
                 planmarks.amend(b, todo, pathlib.Path(repo))
             conflict.set_replan(b, [i for r in taken for i in r.get("rows") or []], conflict.AMENDED)
+            traced = _widen_traced(b)
             for r in taken:
                 r["result"] = AMENDED
+                if r.get("widened") and (b.round, r["item"]) not in traced:   # 採った項目だけ（stop で諦めた項目は書かない）
+                    b.trace(WIDEN_OP, round=b.round, item=r["item"], units=list(r.get("units") or []), **r["widened"])
         whys = list(dict.fromkeys(r["why"] for r in rows if r.get("result") == GAVE_UP and r.get("why")))
         out = {"returned": list(dict.fromkeys(k for r in taken for k in r.get("units") or [])),
                "plan_file": str(b.dir / b.state["outputs"][planmarks.NODE]["file"]) if taken else "",
