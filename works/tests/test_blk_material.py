@@ -501,6 +501,8 @@ class PrepCase(_Case):
         text = pathlib.Path(material.prep(bd, "local-review", repo, "")["prompt_file"]).read_text(encoding="utf-8")
         for e in board_mod.graph_expanded()["nodes"]["p1.local_review"]["skills"]:
             self.assertIn(e["skill"], text)
+        # fork の /code-review の返り方（受け付けが記録から戻す・起こし直させない・旗の綴りを args に書かせない）の読み替え
+        self.assertTrue(text.rstrip("\n").endswith(material.LENS_FORK_NOTE), text[-400:])
 
     def test_isolated_role_gets_pasted_prompt(self):
         bd, repo = self.board("normal")

@@ -28,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -403,6 +404,39 @@ class SectionShapeCase(unittest.TestCase):
             self.span("本文だけ\n", num="1")
 
 
+class FrozenReadCase(unittest.TestCase):
+    """目の指示書の『版を指定して git show / git grep で読め』の文（写しの 4 本）は、Bash を持たない目には打てない（実測: R4 が
+    読めなかったと申告した）。目の cwd の作業ツリーは入口で撮った版のまま（受け付けが入口の写しと比べて変われば拒む）なので、works は
+    描く時にその文を『cwd をそのまま Read・Grep で読め』に替える（写しの指示書のファイルは 1 バイトも変えない）"""
+
+    def raw(self, nid):
+        p = eyes.PROMPTS_COPY / "prompts" / "review-loop" / f"{nid}.md"
+        return p.read_text(encoding="utf-8") if p.is_file() else None
+
+    def rendered(self, nid, raw):
+        b = type("B", (), {"nodes": {nid: {}}})()
+        with mock.patch.object(eyes.rolekit, "render_body", lambda b, n, prompts_dir: (raw, None)):
+            return eyes.render(b, nid)
+
+    def test_copy_still_says_git_show_in_the_four_eyes(self):
+        """写し直しで文が替わったら、この試験が落ちて読み替えの見直しを促す"""
+        have = sorted(n for n in eyes.ROLE_OF if eyes.GIT_SHOW_SENTENCE in (self.raw(n) or ""))
+        self.assertEqual(have, ["r1.comment_candidates", "r1.minimality", "r3.coherence", "r4.hidden_scope"])
+
+    def test_no_eye_without_bash_is_told_to_run_git(self):
+        for nid in eyes.ROLE_OF:
+            raw = self.raw(nid)
+            if raw is None:
+                continue
+            with self.subTest(nid):
+                self.assertNotIn("Bash", eyes.allowed_tools(nid), "目に shell を持たせない")
+                text = self.rendered(nid, raw)
+                self.assertNotIn("git -C", text)
+                if eyes.GIT_SHOW_SENTENCE in raw:
+                    self.assertIn(eyes.FROZEN_READ, text)
+                    self.assertIn("Read", eyes.FROZEN_READ)
+
+
 class AnchorCase(unittest.TestCase):
     """問いが立たない根拠の名指し（パス:行）の拾い方（依頼 238）"""
 
@@ -430,6 +464,8 @@ class PrepCase(_Case):
         # 写しの graph の reads で描いた本文（穴が盤面の値で埋まる）と、返す JSON Schema
         self.assertIn("コメントの削除候補を取る", text)
         self.assertNotIn("{{", text)
+        self.assertIn(eyes.FROZEN_READ, text, "道具に無い git show でなく、版のまま止めた cwd を Read で読ませる")
+        self.assertNotIn("git -C", text)
         self.assertIn(state(self.bd)["loop"]["diff_file"], text)
         tail = text.rsplit("JSON Schema に合う JSON だけ", 1)[1]
         self.assertIn('"same_content_at"', tail, "返す JSON Schema を後ろに付ける")

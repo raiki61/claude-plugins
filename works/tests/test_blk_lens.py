@@ -21,6 +21,7 @@ sys.path.insert(0, str(BLK / "lib"))
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(TESTS))
 
+import diverted  # noqa: E402
 import entry  # noqa: E402
 import lens  # noqa: E402
 import lenses  # noqa: E402
@@ -333,6 +334,14 @@ class LensBoardCase(RF.DeltaBoardCase):
         section = text.split("## 未確認のレンズ", 1)[1].split("\n## ", 1)[0]
         self.assertIn("- silent-failure-hunter: 落ちた（レンズの節の出口が無い", section)
         self.assertIn(lens.REFIX_NOTE, section)
+        # 局所レビューの受け付けが『見ていない』と書いた /code-review（fork の返答が届かず戻せなかった）も同じ節に出る
+        self.board_obj().work(diverted.LENS_FILE).write_text(json.dumps({"round": 1, "unseen": ["/code-review"]}),
+                                                            encoding="utf-8")
+        text = pathlib.Path(report.build(self.board.resolve(), judged=None, tests=None, start=None)["report_file"]).read_text(
+            encoding="utf-8")
+        section = text.split("## 未確認のレンズ", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("- 局所レビュー（周 1）の /code-review: 所見を受け取れていない", section)
+        self.assertIn("- silent-failure-hunter: 落ちた（", section)
 
     def test_report_lines_name_broken_file_and_all_ran(self):
         repo = self.fixed()

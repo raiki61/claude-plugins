@@ -18,12 +18,12 @@ prompts/review-loop/p1.gate_efficacy.md
 prompts/review-loop/p1.test_double_fidelity.md
 prompts/review-loop/p1.main_path_observation.md
 prompts/review-loop/p1.provenance.md
-prompts/review-loop/r1.comment_candidates.md
-prompts/review-loop/r1.minimality.md
+prompts/review-loop/r1.comment_candidates.md  # 描く時に blk-eyes の lib/eyes.py が版を git で読めという 1 文を、止めた cwd を Read で読めという文に替える（目に shell が無い。ファイルは変えない）
+prompts/review-loop/r1.minimality.md  # 描く時に blk-eyes の lib/eyes.py が版を git で読めという 1 文を、止めた cwd を Read で読めという文に替える（目に shell が無い。ファイルは変えない）
 prompts/review-loop/r2.compare.md
 prompts/review-loop/r2.design.md
-prompts/review-loop/r3.coherence.md
-prompts/review-loop/r4.hidden_scope.md
+prompts/review-loop/r3.coherence.md  # 描く時に blk-eyes の lib/eyes.py が版を git で読めという 1 文を、止めた cwd を Read で読めという文に替える（目に shell が無い。ファイルは変えない）
+prompts/review-loop/r4.hidden_scope.md  # 描く時に blk-eyes の lib/eyes.py が版を git で読めという 1 文を、止めた cwd を Read で読めという文に替える（目に shell が無い。ファイルは変えない）
 prompts/review-loop/stop.premise_check.md
 # 置き場は本線の graphloops/ の下の同じパス（git show a1202d0:graphloops/<行>）。1 バイトも変えない（tests/test_rejudge.py が見る）。
 # rejudge.render は指示書ごとに写し（../graphloops/prompts）を先に見る。写しの prompts/ は今 TDD 版の review-loop/tdd/ だけ
