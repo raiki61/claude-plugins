@@ -215,67 +215,32 @@ works_dev_ledger_dirs() {
   fi
 }
 
-# 殻の trap はプロセスに 1 つなので、後始末の trap を張る・外すはここの 1 組だけが書く（呼び手が trap を直に書くと、後から別の呼び手が消す）。
-# works_dev_trap_add <名> <コマンド>: 終わる時（EXIT）と INT・TERM・HUP で回す後始末を名で登録する（同じ名は置き換え。コマンドは回す時に
-# eval する）。シグナルは信号ごとに受け、後始末の後に同じ信号で落ち直す（呼び手から見た終わり方を trap の無い時から変えない）。
-# works_dev_trap_del <名>: その名だけを外し、登録が空になったら trap を戻す。works_dev_continue は INT・TERM・HUP の trap を自分で
-# 張って外す（持ち主の条件で変えない）ので、登録は works_dev_continue を通る前に外す並びで使う
-works_dev_trap_add() {
-  eval "_works_dev_trap_cmd_$1=\$2"
-  case " ${_works_dev_trap_names:-} " in
-    *" $1 "*) ;;
-    *) _works_dev_trap_names="${_works_dev_trap_names:-} $1" ;;
-  esac
-  trap '_works_dev_trap_fire' EXIT
-  trap '_works_dev_trap_die INT' INT
-  trap '_works_dev_trap_die TERM' TERM
-  trap '_works_dev_trap_die HUP' HUP
-}
-
-works_dev_trap_del() {
-  _wdtd_rest=""
-  for _wdtd_n in ${_works_dev_trap_names:-}; do
-    [ "$_wdtd_n" = "$1" ] || _wdtd_rest="$_wdtd_rest $_wdtd_n"
-  done
-  _works_dev_trap_names="$_wdtd_rest"
-  eval "unset _works_dev_trap_cmd_$1"
-  case "$_wdtd_rest" in
-    *[!\ ]*) ;;
-    *) trap - EXIT INT TERM HUP ;;
-  esac
-}
-
-# 登録の並びを空にしてから回す（信号の後の EXIT で 2 度走らない）。後始末の失敗は次の後始末を止めない
-_works_dev_trap_fire() {
-  _wdtf_names="${_works_dev_trap_names:-}"
-  _works_dev_trap_names=""
-  for _wdtf_n in $_wdtf_names; do
-    eval "_wdtf_cmd=\${_works_dev_trap_cmd_$_wdtf_n:-}"
-    eval "unset _works_dev_trap_cmd_$_wdtf_n"
-    eval "$_wdtf_cmd" || true
-  done
-}
-
-_works_dev_trap_die() {
-  _works_dev_trap_fire
-  trap - EXIT INT TERM HUP
-  kill -s "$1" "$$"
-}
-
-# works_dev_reads_guard <out>: 隔離の前に読む読み出しのファイル <out>（非公開の本文を持つ）の後始末を登録する。ghreads read の前に呼ぶ。
+# works_dev_reads_guard <out>: 隔離の前に読む読み出しのファイル <out>（非公開の本文を持つ）の後始末の trap を張る。ghreads read の前に呼ぶ。
 # 殻が works_dev_reads_settle より前に落ちたら（set -e・INT・TERM・HUP）、<out> と ghreads._write の一時のファイル（.<out の名>.*.tmp。
-# python の子が TERM で落ちると後始末が走らない）を消す
+# python の子が TERM で落ちると後始末が走らない）を消す。信号は信号ごとに受け、後始末の後に同じ信号で落ち直す（呼び手から見た終わり方を
+# trap の無い時から変えない）。works_dev_continue は INT・TERM・HUP の trap を自分で張って外す（持ち主の条件で変えない）ので、settle は
+# works_dev_continue を通る前に呼ぶ
 works_dev_reads_guard() {
   GITHUB_READS=""
   _works_dev_reads_out="$1"
-  works_dev_trap_add reads 'rm -f "$_works_dev_reads_out" "$(dirname "$_works_dev_reads_out")"/."$(basename "$_works_dev_reads_out")".*.tmp'
+  trap '_works_dev_reads_drop' EXIT
+  trap '_works_dev_reads_drop INT' INT
+  trap '_works_dev_reads_drop TERM' TERM
+  trap '_works_dev_reads_drop HUP' HUP
+}
+
+# trap を先に外して（信号の後の EXIT で 2 度走らない）消し、信号で来たなら同じ信号で落ち直す
+_works_dev_reads_drop() {
+  trap - EXIT INT TERM HUP
+  rm -f "$_works_dev_reads_out" "$(dirname "$_works_dev_reads_out")"/."$(basename "$_works_dev_reads_out")".*.tmp || :
+  [ -z "${1:-}" ] || kill -s "$1" "$$"
 }
 
 # works_dev_reads_settle <既に名指したか 1|0>: 読み出しのファイルを渡すべき run が在りうる所まで来たので guard を外し、残っていれば
 # 0600 に揃える。結べて runs/ の控えに載った・unbound/ の控えか殻の案内の行が既に名指した（1）なら黙る。名指していない（0）なら
 # 残したことと消してよいことを 1 行で出す（結べないことは run が無いことと同じではない。消すのは clean か人）
 works_dev_reads_settle() {
-  works_dev_trap_del reads
+  trap - EXIT INT TERM HUP
   [ -e "${_works_dev_reads_out:-}" ] || return 0
   chmod 600 "$_works_dev_reads_out"
   if [ "$1" = 0 ]; then
