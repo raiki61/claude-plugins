@@ -9,10 +9,22 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 ### Changed
 
 - 依頼が名指した PR・issue（依頼の欄 `pr`・`issue` と `use.sh start --pr`）を、殻が Archon を起こす前に読んでファイルで渡す形をやめ、run の入口（start の節）が run の中で利用者の gh のログインを継いで読むようにした（2026-10-09 の掃除。持ち主が通した）。隔離の前に読んでいた理由（隔離した Archon の中から利用者の gh のログインが見えない）は、0.2.48 から認証を使う run の全部に利用者の gh の口（`dev/hostgh.py`）が置かれて無くなっていた。読んだ物は今までどおり盤面の根の `github.json`（0600）に置き、Archon の再開では読み直さない。`--pr` の base・head が読めない時に止まる所は、Archon を起こす前から run の start の節に移る（run は 1 本できて start で止まる。文は今までどおり「ログインしてから回す」か「base を名指して回す」）。依頼を `-` で省いた `--pr` の起動を run に結ぶ印は、読み出しのファイルから起動ごとに一意の印（ラインの入力 `launch_mark`。どの節も読まない）に替えた。`--base` だけの起動は今どおり結ばない。認証の要らない起動（`WORKS_DEV_NO_AUTH=1`。run の中の gh が利用者のログインを継がない）で PR・issue を名指せば、start が gh を呼ばずに「認証を使う起動で回す」の 1 行で止まる（読めないと黙って記録して進まない）。`dogfood.sh` は clone の origin を付け替えるので、元のリポジトリの remote（upstream が在ればそれ、無ければ origin）の URL を `GH_REPO` に置いて起こす（利用者が置いた `GH_REPO` は替えない）。
+- canary の確かめ `dev/canary_check.py` の (h) を、記録のフックの確かめから、fork のレンズの所見が局所レビューに届いたかの確かめ `h_lens_seen` に替えた（2026-10-09 の掃除）。局所レビューの控えが見ていないレンズを書いた周が在れば attempted、無ければ yes、控えが無ければ no。JSON の鍵は `h_record_output` から `h_lens_seen` に、証拠の鍵は `lens_hook` から `lens_seen` になった。(j) は返答の道具の跡を返答の契約の記録の `kind: native` だけで見る。`canary_check.py` は返答の契約の記録を包みの `read_replies` で読む（同じ読み方の写しをやめた）。
+- 素材集めと独立の目の指示書の後ろに貼っていた schema の断り（`rolekit.SCHEMA_NOTE` と graph の schema。毎回 0.5〜1.5KB）を、旗 `text-reply` の役（今は局所レビューの役）だけにした（2026-10-09 の掃除）。ほかの役の返答の型は役の output_format で Archon が強いる。
+- 包みの印の読みを `node_marker.parse` の 1 つにした（2026-10-09 の掃除）。包みの旗の一覧と文法の写し（`adapter.FLAGS`・`marker_text`）を外し、2 つの一覧を揃えるだけの試験も外した。頭 `works-node:` を持つのに読めない印は今どおり起こさない。
+- 包みの家・切符の置き場・git の env の外し物を `ticket.py` の 1 か所にし、包みはそれを使う（2026-10-09 の掃除）。
 
 ### Removed
 
 - 隔離の前の読み出しのファイル（`use.sh` の `<家>/reads/<印>.json`・`dogfood.sh` の `<dir>/github-reads.json`）と、その後始末（0.2.50 の `lib.sh` の `works_dev_reads_guard`・`works_dev_reads_settle`、`ghreads.adopt`・`load`・`discard_source`）、殻の口 `ghreads.py read`、ラインの入力 `github_reads`、run の控えと結べない控えの欄 `github_reads` を消した（2026-10-09 の掃除。上の Changed の続き）。前の版が残した `<家>/reads/` の中身と控えの `github_reads` の欄は、今の版は読まず `clean` も消さない。要らなければ手で消してよい。
+- 局所レビューの `/code-review` の所見の拾い戻し（0.2.46）を外した（2026-10-09 の掃除）。包みが足していた PostToolUse:StructuredOutput のフック `.shared/core/record-output.py` と、受け付けがその記録 `<家>/reads/<cwd の hash>/outputs.jsonl` から空の行へ所見を戻す口（`diverted.recover` と記録の読み）は、局所レビューを返答の契約（旗 `text-reply`。0.2.48）で起こしてからは戻す物が無かった（実の run の控えで 3 本とも 0 件）。`/code-review` の行が空なら「所見なし」でなく「見ていない」と書き、報告の「未確認のレンズ」に出すのは今どおり（`diverted.mark_unseen`）。
+- 印の旗 `no-post` を外した（2026-10-09 の掃除）。包みの読むだけの gh（gh を丸ごと拒み、読む形だけを通す口 `works-gh`）は 0.2.48 から旗に依らず印のある起動の全部に掛かり、旗は柵を足していなかった。印は `works-node: pr-check`・素材集めの役は `no-tree-write`（と `text-reply`）だけになる。旗 `no-post` を持つ印は今は知らない旗として拒まれる（包みは起こさない）。並行 PR の役の指示書は、包みが拒む書き込みの gh の語の並べをやめ、HEAD・枝を動かす git の語だけを名指す（`prcheck.GH_DENY`・`prcheck.GIT_DENY` も外した）。
+- 読み手の無い小物を外した（2026-10-09 の掃除）: 包みの `last_launch`、`entry` の `GATES` と `_tail` の写し（写しの engine の `role_run._tail` を使う）、`report.NEXT_ORIGIN`、`flow_adapter` の `input` と作らないまま置いた聞き直しの口 `session_handle`・`resume` と `.shared/core/session.schema.json`、`ticket.read`（切符を読むのは包みの `read_ticket` だけ）、試験の入口（`tests/hermetic.sh`）が外す環境変数の一覧の WORKS_REAL_GH（読み手は前の版で無くなっていた）。
+
+### Fixed
+
+- 素材集めの役の指示書が素材の書き方に `not_applicable`（条件に当たらない）を並べるのに、受け付けは走った節の条件（applies_cond）が真なら拒み、条件を持たない節は graph が `na_self_ok` を宣言した時だけ受けるので、役が知らずに拒まれていたのを直した（2026-10-09 の掃除）。指示書の後ろに、その節の条件とこの周の真偽、書いてよいか（ゲートの検算の役で機械の事実が条件を立てていない時は役の判定を受けることも）を書く。
+- run ごとの版の控え `versions.json` の `works.version` が、どの run でも null だったのを直した（2026-10-09 の掃除）。無い `<pack>/VERSION` を読んでいた。今はプラグインの宣言 `.claude-plugin/plugin.json` の `version` を読む。
 
 ## [0.2.51] - 2026-10-09
 
