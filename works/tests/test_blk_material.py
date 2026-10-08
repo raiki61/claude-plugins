@@ -151,11 +151,14 @@ def _build_purpose(into: pathlib.Path):
     return bd, repo
 
 
-def _build_normal(into: pathlib.Path, table: NodeTable = None):
+def _build_normal(into: pathlib.Path, table: NodeTable = None, touch_test: bool = False):
     table = table or TABLE
     repo = linekit.seed_repo(into / "repo", declared=True)
     p = repo / "stats.py"
     p.write_text(p.read_text(encoding="utf-8").replace("(len(xs) - 1)", "len(xs)"), encoding="utf-8")
+    if touch_test:   # 検証ゲート（テスト）も変える差分（ゲートの検算の役が『条件外』を名乗れない形）
+        t = repo / "test_stats.py"
+        t.write_text(t.read_text(encoding="utf-8") + "\n# 試験の 1 行\n", encoding="utf-8")
     (repo / "notes.md").write_text("# 手順\n\n1. python3 -m unittest test_stats\n", encoding="utf-8")
     bd = into / "art" / "board"
     b = DiskBoard.create(bd, repo=repo, table=table, inputs={}, request_text="素材集めの試験", stop_after_round=1,
@@ -197,7 +200,8 @@ class Boards:
     def fresh(self, kind):
         into, snap = self.root / kind, self.root / f"{kind}.snap"
         if kind not in self.made:
-            self.made[kind] = {"normal": _build_normal, "entry": _build_entry, "purpose": _build_purpose}[kind](into)
+            self.made[kind] = {"normal": _build_normal, "entry": _build_entry, "purpose": _build_purpose,
+                               "gated": lambda d: _build_normal(d, touch_test=True)}[kind](into)
             shutil.copytree(into, snap, symlinks=True)
         else:
             shutil.rmtree(into)
@@ -777,6 +781,33 @@ class StoppedBoardCase(_Case):
         self.assertEqual(got.get("by"), material.FENCE_BY)
         self.assertNotIn("2 本目", got.get("reason", ""))
         self.assertEqual(_board_bytes(bd), before)
+
+
+class GateNaCase(_Case):
+    """ゲートの検算の役（p1.gate_efficacy）の『条件に当たらない』。線 A の p0.base は機械が組み（board.base_output）、
+    touches_gates を判定せずに走らせる側に倒すので、写しの check_record はゲートに触れない差分でも役の not_applicable を
+    『機械が持つ事実と食い違う』と拒み、0 腕で名乗れる値が not_run（検証器の阻害）しか残らなかった（canary の run e91112dd:
+    docstring 1 行の差分で結末が round_limit）。works の差し替え（entry.role_judged_na_works）は、前の周の修正がゲートを
+    変えたと申告しておらず、差分に機械が見るゲートの印（テスト・CI・pre-commit の定義のファイル、assert の行）が無い時だけ受ける"""
+
+    NA = {"material": {"status": "not_applicable",
+                       "reason": "差分は stats.py の 1 行と notes.md で、検証ゲート（CI・assert・テスト・pre-commit）を新設・変更していない"},
+          "arms": []}
+
+    def test_na_is_taken_when_diff_has_no_gate(self):
+        bd, repo = self.board("normal")
+        material.route(bd, repo, "optional")
+        got = self.run_role("gate-efficacy", self.NA)
+        self.assertEqual((got["ok"], got["done"], got["status"]), (True, True, "not_applicable"), got)
+        self.assertEqual(entry.open_board(bd).record["materials"]["gate_efficacy"]["status"], "not_applicable")
+
+    def test_na_is_refused_when_diff_changes_a_test(self):
+        """ゲート（テストのファイル）を変えた差分では今どおり拒む——腕を撃って赤を見るか、撃てなければ not_run"""
+        bd, repo = self.board("gated")
+        material.route(bd, repo, "optional")
+        got = self.run_role("gate-efficacy", self.NA)
+        self.assertFalse(got["ok"], got)
+        self.assertIn("applies_cond が真で走ったのに not_applicable", got["reason"])
 
 
 class PurposeCase(_Case):

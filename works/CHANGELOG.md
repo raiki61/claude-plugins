@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 検証ゲート（CI・assert・テスト・pre-commit）に触れない差分の run が、ゲートの検算（素材 `gate_efficacy`）を「未実施」として検証器の阻害に数え、直しが済んでも `fixed` を名乗れず `round_limit` で終わっていたのを直した（canary の run e91112dd。今壊れていた: calc.py の docstring 1 行の差分で、ほかは全部通ったのに `round_limit`）。線 A の基準点の節 `p0.base` は機械が組み（`board.base_output`）、差分がゲートに触れるか（`touches_gates`）を判定せずに真へ倒す。写しの記録の照らし（`check_record`）はその値を機械の事実として読み、役が「条件に当たらない」（`not_applicable`）と返すと拒み、腕 0 本の役が名乗れる値は阻害の `not_run` しか残らなかった（同じ run で、外部との継ぎ目・主経路の観察の役も同じ拒みを受けて `clean` で通っていた）。本流では `p0.base` の役が差分を読んで決める判定を、線 A では差分を読むゲートの検算の役がする: 写しに役の判定を受けるかの口 `role_judged_na`（既定は受けない。本流と同じ）を開け（`COPIED_FROM` の手直し 2 行）、works の差し替え `entry.role_judged_na_works` が、前の周の修正がゲートを変えたと申告しておらず、差分に機械が見るゲートの印（テスト・CI・pre-commit・フック・lint や試験の設定・変異の腕の一覧 `.review-checks.json` のファイルと、assert を足す・消す行）が無い時だけ受ける。印が 1 つでも在れば今どおり拒み、腕を撃って赤を見るか `not_run` で書かせる（ゲートを足した・変えた差分は今どおり測る）。印に当たらない柵（コードの中の分岐）をゲートと見るかは役の判定で、本流の `p0.base` の役と同じ。新しい試験 `tests/test_gate_na.py` と、`test_blk_material` の盤面の試験（ゲートに触れない差分では受ける・テストのファイルを変えた差分では拒む）で確かめた（本物の run ではまだ確かめていない）
+
 ## [0.2.48] - 2026-10-08
 
 ### Added

@@ -201,6 +201,56 @@ def github_repo_redacted(rl):
     return _github_repo
 
 
+# ゲートの検算の役（p1.gate_efficacy）の『条件に当たらない』（canary の run e91112dd）。線 A の p0.base は機械が組み
+# （board.base_output）、touches_gates を判定せずに真へ倒す——機械には差分の柵（分岐）がゲートかを決められないので、役を起こす
+# 側に倒す。写しの check_record はその値を機械の事実として読み、ゲートに触れない差分でも役の not_applicable を拒むので、
+# 0 腕の役は not_run（検証器の阻害）しか名乗れず、結末が round_limit になった。本線では p0.base の役が差分を読んで決める判定を、
+# 線 A では差分を読むゲートの検算の役がする。役の判定を受けるのは、機械が持つ事実がどれも『ゲートに触れる』と言わない時だけ:
+# 前の周の修正がゲートを変えたと申告していない（写しの条件を、倒した p0.base の値を外して評価する）、差分に機械が見るゲートの印
+# （GATE_FILE_PATTERNS のファイル・assert を足す・消す行）が無い。印が 1 つでも在れば写しのまま拒む（測らせる）
+GATE_NODE = "p1.gate_efficacy"
+GATES_COND = "gates_touched"
+# 検証ゲートの定義のファイル（テスト・CI・pre-commit・フック・lint・試験の設定・変異の腕の一覧）。広めに当てる——当たり過ぎは
+# 役に測らせる（今まで通り）だけで、当たり漏れが役の『条件外』を通す
+GATE_FILE_PATTERNS = (
+    r"(^|/)tests?/", r"(^|/)__tests__/", r"(^|/)spec/", r"(^|/)test_[^/]*$", r"_test\.[^/]+$", r"\.(test|spec)\.[^/]+$",
+    r"(^|/)conftest\.py$", r"^\.github/", r"(^|/)\.gitlab-ci\.ya?ml$", r"^\.circleci/", r"(^|/)Jenkinsfile$",
+    r"(^|/)\.travis\.ya?ml$", r"(^|/)azure-pipelines\.ya?ml$", r"^\.buildkite/", r"(^|/)\.pre-commit-config\.ya?ml$",
+    r"^\.husky/", r"(^|/)lefthook\.ya?ml$", r"(^|/)\.?githooks/", r"(^|/)hooks/", r"(^|/)\.review-checks\.json$",
+    r"(^|/)(tox\.ini|noxfile\.py|pytest\.ini|setup\.cfg|pyproject\.toml|Makefile|justfile|package\.json)$",
+    r"(^|/)(\.flake8|mypy\.ini|\.?ruff\.toml|\.pylintrc|\.eslintrc[^/]*|eslint\.config\.[^/]+|\.shellcheckrc|\.golangci\.ya?ml)$",
+)
+_GATE_FILES = tuple(re.compile(p) for p in GATE_FILE_PATTERNS)
+_ASSERT_LINE = re.compile(r"^[+-](?![+-]{2} ).*\bassert", re.M)   # 足す・消す行（ファイルの頭の +++ / --- を除く）
+
+
+def gate_signals(changed_files, diff_text: str) -> list:
+    """差分に機械が見るゲートの印の一覧（空なら印が無い）: ゲートの定義のファイルと、assert を足す・消す行"""
+    hits = [f"ゲートの定義のファイル {f}" for f in changed_files if any(p.search(f) for p in _GATE_FILES)]
+    hits += [f"assert の行 {m.group(0)[:80]!r}" for m in _ASSERT_LINE.finditer(diff_text or "")]
+    return hits
+
+
+def role_judged_na_works(b, nid) -> bool:
+    """写しの RL の role_judged_na の差し替え: 走ったゲートの検算の役の『条件外』を、機械が持つ事実がどれも『ゲートに触れる』と
+    言わない時だけ受ける（頭の注記）。p0.base を機械の節にしない表（本線の形）・ほかの節・変更ファイルの一覧の無い盤面は写しのまま"""
+    if (b.nodes.get(nid) or {}).get("applies_cond") != GATES_COND:
+        return False
+    base = b.table.nodes.get("p0.base") if b.table is not None else None
+    if base is None or base.by != "machine":
+        return False
+    if b.cond(GATES_COND, overlay={"out.p0.base.touches_gates": False})[0]:
+        return False
+    files = b.loop_state.get("changed_files")
+    if not isinstance(files, list):
+        return False
+    try:
+        diff = pathlib.Path(b.loop_state["diff_file"]).read_text(encoding="utf-8", errors="replace")
+    except (KeyError, TypeError, OSError):
+        return False
+    return not gate_signals(files, diff)
+
+
 # 線 A の核が写しの RL に当てる差し替え（名前 → (関数, 理由)）。ラインの board_hook.py の overrides が同じ名前を持てば、そちらが勝つ
 CORE_OVERRIDES = {
     "hook_evidence": (_hook_evidence_at_adapter,
@@ -234,6 +284,10 @@ CORE_OVERRIDES = {
     "fill_materials": (fill_materials_forge,
                        "forge の無い run で条件外にした並行 PR の節の素材を not_applicable（reason は no_forge: <種類>）で埋める"
                        "（写しは走らなかった節を not_run と書き、検証器の阻害になる）"),
+    "role_judged_na": (role_judged_na_works,
+                       "線 A の p0.base は機械が touches_gates を判定せずに真へ倒すので、ゲートの検算の役の『条件外』は、前の周の修正が"
+                       "ゲートを変えたと申告しておらず、差分に機械が見るゲートの印（定義のファイル・assert の行）が無い時だけ受ける"
+                       "（写しは拒み、0 腕の役は阻害の not_run しか名乗れなかった。canary の run e91112dd）"),
 }
 
 
