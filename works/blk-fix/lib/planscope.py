@@ -31,6 +31,10 @@
   （tddloop._declared_name。0.2.41 の名の規則）で見る。adds はそのモジュールの .py のファイル（パッケージの __init__.py も）を
   新設したか足した行を持つ、removes はそのファイルが消えた、を差分で確かめる（ファイルの中身は自分の名を書かないので語では
   探さない）。拡張子の前に . を含む名（app.receivers.py）はファイルに結べないので unchecked
+- docstring（DOC）: 最後の段が __doc__ の adds（stats.mode.__doc__）は、足した行の語に加えて、その前の段の def・class（名が
+  そのファイルのモジュールならモジュール）が差分で docstring を得たかを ast で見る（_doc_added。docstring の字は __doc__ を
+  書かないので、語だけでは正しい直しを拒む。run 35ad1c2a）。名の解き方は removes と同じ（最後の段の前が最上位のクラスなら
+  クラス.名、ほかは最上位の素の名）
 - 残った（removes）: 修正の後の .py を ast で読み、名がまだ定義されている（名を消した行か定義を足した行を持つファイルで）。
   . か :: の修飾子は、そのファイルの最上位のクラスなら クラス.名、モジュール名か :: の前のパスなら最上位の素の名で照らす。.py でない・構文が読めないファイルは、足した行に定義の行（def・class・代入・関数の形）が在れば
   残る。名を挙げるだけの行（消えたことを確かめる hasattr・変更の記録の注記）は残ったと見ない
@@ -78,6 +82,7 @@ LIFTED = "out_of_scope_lifted"   # with_agreed が項目の写しに足す欄: �
 SCOPE_OP = "fix_plan_scope"   # 受けた時の盤面の trace の行（照らした印か、照らさなかった理由）
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:/-]*$")
 NO_PLAN = "承認済みの修正案か works の欄の控えが無い"
+DOC = "__doc__"   # docstring の属性の名。字は自分の名を書かないので、adds は語でなく ast でも見る（_doc_added）
 NO_SCOPE = "範囲の欄の無い控え（217 番の形の盤面）"
 NO_PLAIN = "平の run（修正の形 current）——修正の段に修正案の欄を渡さない"
 
@@ -228,6 +233,48 @@ def _defined_names(src: str | None):
     return bare, qual, {c.name for c in tree.body if isinstance(c, ast.ClassDef)}
 
 
+def _docstrings(src: str | None):
+    """.py の中身の docstring ({鍵: 字か None}, 最上位のクラスの名の集合)。鍵はモジュールが ""・最上位の def・class が名・最上位の
+    クラスの中の def・class が クラス.名。構文が読めなければ None"""
+    try:
+        tree = ast.parse(src or "")
+    except (SyntaxError, ValueError):
+        return None
+    kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    got = {"": ast.get_docstring(tree, clean=False)}
+    for n in tree.body:
+        if isinstance(n, kinds):
+            got[n.name] = ast.get_docstring(n, clean=False)
+            if isinstance(n, ast.ClassDef):
+                got.update({f"{n.name}.{m.name}": ast.get_docstring(m, clean=False) for m in n.body if isinstance(m, kinds)})
+    return got, {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
+
+
+def _doc_added(raw: str, changes: dict) -> bool:
+    """adds の <名>.__doc__（か <パス>::__doc__）の docstring が差分で足されたか: 変わった .py のどれかで、名の docstring が今の中身に
+    在り（空白だけでない）、版の中身の物と違う（変えた docstring も足した物に数える）。名の解き方は removes と同じ 1 本の規則:
+    最後の段の前の段がそのファイルの最上位のクラスなら クラス.名、ほかは最上位の素の名。名そのものがそのファイルのモジュールの名
+    （拡張子を除いたファイル名・/ を . にした根からのパス・パスそのもの）ならモジュールの docstring も見る"""
+    owner = re.sub(rf"(?:::|\.){DOC}$", "", raw)
+    if not owner or owner == raw:
+        return False
+    name, qual = re.split(r"::|\.", owner)[-1], _qualifier(owner)
+    for p, (base, now) in changes.items():
+        got = _docstrings(now) if p.endswith(".py") and now is not None else None
+        if got is None:
+            continue
+        docs, classes = got
+        was = (_docstrings(base) or ({}, set()))[0] if base is not None else {}
+        cls = re.split(r"::|\.", qual)[-1] if qual else None
+        keys = [f"{cls}.{name}" if cls in classes else name]
+        stem = posixpath.splitext(p)[0]
+        if owner in (posixpath.basename(stem), stem.replace("/", "."), p):
+            keys.append("")
+        if any((docs.get(k) or "").strip() and docs.get(k) != was.get(k) for k in keys):
+            return True
+    return False
+
+
 def _qualifier(raw: str) -> str | None:
     """名の修飾子（最後の :: か . より前）。修飾子の無い名は None"""
     cut = max(raw.rfind("::"), raw.rfind("."))
@@ -292,7 +339,8 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
     2. 1 で見なかった変わったパスが、全項目の範囲の和か permits に入り、どの項目の out_of_scope にも当たらない（単位に結べない
        ので緩めない。当たった行に、そのパスを許す項目を OWNER_HINT で名指す）
     3. 生きた項目の範囲の中に変わったパスが 1 つも無ければ Missing
-    4. adds: 探す語（_lookup）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing）。canonical の文に
+    4. adds: 探す語（_lookup）が、生きた項目ならどれかのパスの足した行に語の境で現れる（無ければ Missing。語が __doc__ なら、
+       名の def・class の docstring を差分で足していても在る。_doc_added）。canonical の文に
        変わったパスが字のまま在れば、ほかのパスの足した行の同名の定義は Extra（見る項目の全部）。.py のファイルの名（_module）は
        そのモジュールのファイルを新設したか、足した行を持つ
     5. removes: 生きた項目なら、探す語がどれかのパスの消した行に現れ、どの足した行にも定義として現れない。.py のファイルの名は
@@ -375,8 +423,10 @@ def problems(items: list[dict], rows: list[dict], changes: dict, *,
                 unchecked.append(raw)
                 continue
             word = _word(name)
-            if not skip and not any(word.search(line) for _, line in added_all):
-                out.append(f"{who}: adds の {raw} が差分の足した行に無い")
+            if not skip and not any(word.search(line) for _, line in added_all) \
+                    and not (name == DOC and _doc_added(raw, changes)):
+                out.append(f"{who}: adds の {raw} が差分の足した行に無い" + ("（その def・class の docstring も差分で足されていない）"
+                                                                              if name == DOC else ""))
             home = _named_paths(add.get("canonical") or "", changes) if isinstance(add.get("canonical"), str) else []
             if home:
                 define = _definition(name)

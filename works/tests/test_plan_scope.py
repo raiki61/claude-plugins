@@ -231,6 +231,53 @@ class FalseRejectCase(unittest.TestCase):
         got, note = planscope.problems([dotted], [ROW], STATS)
         self.assertEqual((got, note["unchecked"]), ([], ["app.receivers.py"]))
 
+    # docstring の __doc__（run 35ad1c2a: adds の stats.mode.__doc__ を、def の直下に足した docstring の差分で拒んだ）
+    SRC = "def mean(xs):\n    return 0\n\n\ndef mode(xs):\n    return max(xs, key=xs.count)\n"
+
+    def test_doc_attribute_found_by_docstring(self):
+        """名の最後の段が __doc__ なら、足した行の語でなく、その前の段の def・class が差分で docstring を得たかを ast で見る
+        （docstring の字は __doc__ を書かない）"""
+        it = item(adds=[{"kind": "doc", "name": "stats.mode.__doc__", "canonical": "stats.py の mode の docstring（新設）"}])
+        now = self.SRC.replace("def mode(xs):\n", "def mode(xs):\n    \"\"\"最頻値。空の xs は ValueError\"\"\"\n")
+        got, note = planscope.problems([it], [ROW], {"stats.py": (self.SRC, now)})
+        self.assertEqual((got, note["unchecked"]), ([], []))
+
+    def test_doc_attribute_missing_when_owner_gains_no_docstring(self):
+        """名指した def が docstring を得なければ Missing（ほかの関数の docstring・本体の変更では通さない）"""
+        it = item(adds=[{"kind": "doc", "name": "stats.mode.__doc__", "canonical": "stats.py の mode の docstring（新設）"}])
+        body = self.SRC.replace("key=xs.count", "key=xs.count)  # 最頻値\n    (0")
+        other = self.SRC.replace("def mean(xs):\n", "def mean(xs):\n    \"\"\"平均\"\"\"\n")
+        for now in (body, other):
+            got, _ = planscope.problems([it], [ROW], {"stats.py": (self.SRC, now)})
+            self.assertTrue(any("stats.mode.__doc__" in p and MEAN in p for p in got), got)
+
+    def test_doc_attribute_same_docstring_is_not_added(self):
+        """版に既に在る docstring と同じ字のままなら足していない（変えた docstring は足した物に数える）"""
+        it = item(adds=[{"kind": "doc", "name": "mode.__doc__", "canonical": "stats.py の mode の docstring"}])
+        base = self.SRC.replace("def mode(xs):\n", "def mode(xs):\n    \"\"\"最頻値\"\"\"\n")
+        same = base.replace("key=xs.count", "key=lambda x: xs.count(x)")
+        self.assertTrue(planscope.problems([it], [ROW], {"stats.py": (base, same)})[0])
+        changed = base.replace("最頻値", "最頻値。空の xs は ValueError")
+        self.assertEqual(planscope.problems([it], [ROW], {"stats.py": (base, changed)})[0], [])
+
+    def test_doc_attribute_of_method_module_and_path_forms(self):
+        """クラスの中の def（Stats.median.__doc__）・モジュール（stats.__doc__）・<パス>::<名>.__doc__ も同じに見る"""
+        base = "class Stats:\n    def median(self):\n        pass\n"
+        meth = item(adds=[{"kind": "doc", "name": "Stats.median.__doc__", "canonical": "stats.py"}])
+        now = base.replace("def median(self):\n", "def median(self):\n        \"\"\"中央値\"\"\"\n")
+        self.assertEqual(planscope.problems([meth], [ROW], {"stats.py": (base, now)})[0], [])
+        mod = item(adds=[{"kind": "doc", "name": "stats.__doc__", "canonical": "stats.py の頭"}])
+        self.assertEqual(planscope.problems([mod], [ROW], {"stats.py": (base, "\"\"\"数の道具\"\"\"\n" + base)})[0], [])
+        self.assertTrue(planscope.problems([mod], [ROW], {"stats.py": (base, now)})[0], "def の docstring はモジュールの物でない")
+        path = item(adds=[{"kind": "doc", "name": "stats.py::Stats.median.__doc__", "canonical": "stats.py"}])
+        self.assertEqual(planscope.problems([path], [ROW], {"stats.py": (base, now)})[0], [])
+
+    def test_doc_attribute_literal_assignment_still_passes(self):
+        """__doc__ の字を書いて足す形（mode.__doc__ = ...）は今までどおり足した行の語で通る"""
+        it = item(adds=[{"kind": "doc", "name": "stats.mode.__doc__", "canonical": "stats.py"}])
+        now = self.SRC + "\n\nmode.__doc__ = \"最頻値\"\n"
+        self.assertEqual(planscope.problems([it], [ROW], {"stats.py": (self.SRC, now)})[0], [])
+
 
 class LoopFrozenCase(unittest.TestCase):
     """TDD の輪が凍らせたファイル（loop: パス → 凍った時の中身）。修正役に問うのは凍った後に変えた分だけ、欠けは版から見る"""
