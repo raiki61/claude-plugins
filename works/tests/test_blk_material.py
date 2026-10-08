@@ -810,6 +810,41 @@ class GateNaCase(_Case):
         self.assertIn("applies_cond が真で走ったのに not_applicable", got["reason"])
 
 
+class NaNoteCase(_Case):
+    """指示書の素材の書き方は not_applicable（条件に当たらない）を並べるが、受け付け（写しの check_record と works の差し替え
+    entry.role_judged_na_works）は、走った節の applies_cond が真なら拒み、applies_cond を持たない節は graph が na_self_ok を
+    宣言した時だけ受ける。役はその条件を知らされていなかったので、prep が節の条件とこの周の真偽（と名乗れるか）を指示書に書く"""
+
+    def prompt(self, kind, role):
+        bd, repo = self.board(kind)
+        material.route(bd, repo, "optional")
+        return pathlib.Path(material.prep(bd, role, repo, "")["prompt_file"]).read_text(encoding="utf-8")
+
+    def test_gate_role_is_told_na_is_allowed_when_diff_has_no_gate(self):
+        text = self.prompt("normal", "gate-efficacy")
+        self.assertIn(material.NA_HEADING, text)
+        self.assertIn("`gates_touched`", text)
+        self.assertIn("`not_applicable`（理由を reason に）を書いてよい", text)
+        self.assertNotIn("`not_applicable` は受け付けが拒む", text)
+
+    def test_gate_role_is_told_na_is_refused_when_diff_changes_a_test(self):
+        text = self.prompt("gated", "gate-efficacy")
+        self.assertIn("`gates_touched`", text)
+        self.assertIn("真", text)
+        self.assertIn("`not_applicable` は受け付けが拒む", text)
+
+    def test_conditioned_role_with_true_condition_is_told_na_is_refused(self):
+        text = self.prompt("normal", "procedure-trace")
+        self.assertIn("`touches_procedures`", text)
+        self.assertIn("`not_applicable` は受け付けが拒む", text)
+
+    def test_role_without_condition_is_told_it_cannot_say_na(self):
+        text = self.prompt("normal", "consistency-bypass")
+        self.assertIn(material.NA_HEADING, text)
+        self.assertIn("`not_applicable` は受け付けが拒む", text)
+        self.assertIn("na_self_ok", text)
+
+
 class PurposeCase(_Case):
     """目的の節がラインに入った後: 目的の審査（p0.purpose_review）が route・prep・take を通り、盤面の目的で描かれる"""
 

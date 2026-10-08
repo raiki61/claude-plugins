@@ -12,7 +12,8 @@ p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle�
 - prep:    本線の指示書（gl-prompts の a1202d0 の写し）を engine と同じ描き方（rolekit.render_body）で
            $B/prompts/r<N>/<節>.md に描き、この周のこの節の拒否が在れば最後の拒否の文を頭に置き（R44）、起こした印を置く。
            p0.purpose がラインに無い盤面では、目的の欄を入力 purpose_file（blk-purpose の出口）か「目的の文が無い」の文で埋める
-           （作らない。PURPOSE_MISSING）。道具を持たない役（PASTE）には本文そのものを prompt_text で渡す
+           （作らない。PURPOSE_MISSING）。本文の後ろに、素材に not_applicable を書けるか（節の条件とこの周の真偽。_na_note）を
+           置く。道具を持たない役（PASTE）には本文そのものを prompt_text で渡す
 - take:    旗の役の包みの柵（adapter 空の run）→ 作業ツリーを route の姿と比べる →（p1.local_review だけ）fork のレンズ
            （/code-review）の所見が届かなかった空の行を『見ていない』と書く（.shared/core/diverted.py）→ 必須のレンズの起動
            （_lens_gap）→ 盤面の done（写しの schema・post_check・writes・check_record・settle）。拒否は material-rejects.json
@@ -143,6 +144,12 @@ LENS_FORK_NOTE = ("## /code-review の返り方（works の受け付けより。
                   "（『起こしたが所見なし』と書くな——見ていない物を 0 件に見せる）。\n\n"
                   "args に旗の綴り（`--comment`・`--fix`）を書くな——『付けない』と否定の文の中に書いても skill は旗として読む"
                   "（実測: 『--comment も --fix も付けない』の --fix が旗に取られた）。修正を禁じるのは『作業ツリーを変えるな』の文で言え。")
+# 写しの指示書の素材の書き方は not_applicable（条件に当たらない）を並べるが、受け付け（写しの check_record と works の差し替え
+# entry.role_judged_na_works）は、走った節の applies_cond が真なら拒み（役の判定を受ける差し替えが立つ時を除く）、applies_cond を
+# 持たない節は graph が na_self_ok を宣言した時だけ受ける。役はそれを知らないので、prep が節の条件とこの周の真偽を書く（_na_note）
+NA_HEADING = "## 『条件に当たらない』（not_applicable）を書けるか（works の受け付けより。上の指示書の読み替え）"
+NA_REFUSED = ("`not_applicable` は受け付けが拒む——見た結果を found・clean で、確かめられなかったなら not_run（理由つき）で"
+              "書け。")
 STOP_BY = "works:material"
 FENCE_BY = "works:adapter"               # 包みの確かめが通らない時の止め札（blk-ci・線の境の節と同じ by）
 ADAPTER_MODES = ("", "optional")         # 入力 adapter の語（線の start の出口 adapter と同じ語）
@@ -322,6 +329,32 @@ def render(b, nid: str, purpose_file: str = "") -> str:
     return prompt
 
 
+def _na_note(b, nid: str) -> str:
+    """節 nid の役が素材に not_applicable を書けるかの段（NA_HEADING）。写しの check_record と同じ決め: applies_cond が在れば
+    この周の真偽（b.cond）と役の判定を受ける差し替え（RL の role_judged_na。works は entry.role_judged_na_works）、無ければ
+    graph の na_self_ok の宣言"""
+    n = b.nodes[nid]
+    ap = n.get("applies_cond")
+    if ap is None:
+        if n.get("na_self_ok"):
+            body = (f"この節は条件（applies_cond）を持たず、graph が『条件に当たらない』を名乗れる節と宣言している（na_self_ok: "
+                    f"{n['na_self_ok']}）。当たらない時は `not_applicable`（理由を reason に）を書いてよい。")
+        else:
+            body = ("この節は条件（applies_cond）を持たず、graph も『条件に当たらない』を名乗れる節と宣言していない（na_self_ok が"
+                    f"無い）ので、{NA_REFUSED}")
+    else:
+        ok, why = b.cond(ap)
+        if not ok:
+            body = f"この節の条件 `{ap}` はこの周に偽（{why}）なので、`not_applicable`（理由を reason に）を書いてよい。"
+        elif b.rules.role_judged_na(b, nid):
+            body = (f"この節の条件 `{ap}` はこの周に真（{why}）だが、機械が持つ事実はどれも条件を立てていない（works の受け付けは"
+                    "この節の役の判定を受ける）。差分を読んで条件に当たらないと判じたら `not_applicable`（理由を reason に）を"
+                    "書いてよい。")
+        else:
+            body = f"この節の条件 `{ap}` はこの周に真（{why}）なので、{NA_REFUSED}"
+    return f"{NA_HEADING}\n\n{body}"
+
+
 def prep(board_dir, role: str, repo, purpose_file: str = "") -> dict:
     """役を起こす前の支度。返り PREP_KEYS（prompt_text は PASTE の役だけ）。盤面が止まっていれば（同じ波の別の目が止めた）
     描かず・印を置かず stopped: true（役の節は when: で飛び、受け付けが止まった旨の done を出す）"""
@@ -332,7 +365,7 @@ def prep(board_dir, role: str, repo, purpose_file: str = "") -> dict:
             return {"prompt_file": "", "prompt_text": "", "attempt": 0, "out_path": "", "node": nid, "already": False,
                     "stopped": True}
         inst = _waiting(b, nid)
-        text = render(b, nid, purpose_file)
+        text = render(b, nid, purpose_file).rstrip("\n") + "\n\n---\n\n" + _na_note(b, nid) + "\n"
         last = _rejects(b, nid)[-1:]
         if last:
             # 拒否の文は指示書に書く（役は読む）。$LOOP_PREV で貼ると、文の中の $<節>.output.<欄> を Archon が置き換え直す（R44）
