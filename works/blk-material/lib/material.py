@@ -105,16 +105,18 @@ SANDBOX = {
                  "enableWeakerNetworkIsolation": True, "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
                  "filesystem": {"allowWrite": ["/"]}},
 }
-# Bash を持つ役の印の旗: 包みが gh の書き込みを柵に足し（no-post）、役の cwd の作業ツリーを書けなくする（no-tree-write。
-# 包みは sandbox・切符の無い起動を起こさない）
-FLAGS = {r: ("no-post", "no-tree-write") for r, p in POSTURE.items() if "Bash" in _TOOLS[p]}
-PASTE = frozenset(r for r, p in POSTURE.items() if p == "isolated")   # 指示書の本文を prompt_text で渡す役
 # p1.local_review のレンズ（graph の skills）のうち組み込みの skill（Archon の skills: が SDK に選ばせる）。agent のレンズ
 # （pr-review-toolkit:*）は Agent の道具で起こす。役はどれも settingSources: [user] で選んだ物だけの隔離した設定（dev/toolset.py）を
 # 読む。pr-review-toolkit は利用者が入れた物（許す一覧 .shared/borrow/borrow.json）から入る。レンズが起きなければ
 # その行は受け付けが拒んで同じ会話で起こし直させ、上限（GIVE_UP_AFTER 回）に届いた時だけ material は awaiting_human で人に渡る
 # （プラグインが隔離した設定に無い時は出し直さずにすぐ渡す。_lens_gap）
 SKILLS = {"local-review": ["code-review", "simplify", "security-review"]}
+# Bash を持つ役の印の旗: 包みが gh の書き込みを柵に足し（no-post）、役の cwd の作業ツリーを書けなくする（no-tree-write。
+# 包みは sandbox・切符の無い起動を起こさない）
+# skill のレンズを起こす役（SKILLS）は旗 text-reply も持つ: 包みが返答の型を返答の道具（StructuredOutput）に任せず、本文で受けて
+# 確かめ、合わなければ同じ会話で出し直させる（fork で走る skill が返答の道具を継いで所見を書き、役に届かなかったため）
+FLAGS = {r: ("no-post", "no-tree-write") + (("text-reply",) if r in SKILLS else ()) for r, p in POSTURE.items() if "Bash" in _TOOLS[p]}
+PASTE = frozenset(r for r, p in POSTURE.items() if p == "isolated")   # 指示書の本文を prompt_text で渡す役
 SIMPLIFY_LENS = "/simplify"   # 指示書が持ち越しを許すレンズ（返答の simplify_carried）。本流 review-loop.py と同じ
 SETTING_SOURCES = dict.fromkeys(POSTURE, ("user",))
 
@@ -129,12 +131,15 @@ LENS_RETRY_NOTE = ("## 必須のレンズの呼び出しの失敗（works の受
                    "上の『直前の周から対象差分にロジック変更が無いなら /simplify の再実行は持ち越してよい』は狭めて読め: "
                    "`simplify_carried: true` を受けるのは、この周の頭に固めた版が前の周の頭の版と 1 ファイルも違わない周だけ。"
                    "どれかのファイルが変わった周（ロジックでない変更でも）と 1 周目は `/simplify` を起こして `invoked: true` を書け。")
-# 写しの指示書と graph の note（/code-review に --comment も --fix も付けるな）の読み替え。fork の返答は親に届かない（実測と拾い方は
-# .shared/core/diverted.py の頭）ので、受け付けが包みの記録から戻す。役には起こし直させず、旗の綴りを args に書かせない
+# 写しの指示書と graph の note（/code-review に --comment も --fix も付けるな）の読み替え。包みの旗 text-reply の起動（この役の印。
+# .shared/core/adapter.py の頭の 21）では fork に返答の道具が無いので、/code-review は所見を本文で返す。返答の道具が残った形（包みを
+# 外した run など）では fork の所見は親に届かない（実測と拾い方は .shared/core/diverted.py の頭）ので、受け付けが包みの記録から戻す。
+# どちらの形でも役には起こし直させず、旗の綴りを args に書かせない
 LENS_FORK_NOTE = ("## /code-review の返り方（works の受け付けより。上の指示書の読み替え）\n\n"
-                  "/code-review は別の会話（fork）で走り、所見をこの節の返答の道具に書いて終わる。Skill の結果が"
-                  "『Skill execution completed』だけでも、所見は失われていない——works の受け付けが包みの記録から"
-                  "この行へ戻す。だから /code-review を起こし直すな（同じ形で返り、時間だけ掛かる）。その行は "
+                  "/code-review は別の会話（fork）で走る。所見を本文で返したら、それを /code-review の行の `items` に写せ"
+                  "（どの所見も落とさない）。Skill の結果が『Skill execution completed』だけで所見の本文が無い時は、fork が所見を"
+                  "別の口（返答の道具）に書いた形で、所見は失われていない——works の受け付けが包みの記録からこの行へ戻す。"
+                  "どちらでも /code-review を起こし直すな（同じ形で返り、時間だけ掛かる）。本文が無かった行は "
                   "`items` を空、`invoked: true` にして、`failed` に『本文が届かなかった』と渡した対象を書け"
                   "（『起こしたが所見なし』と書くな——見ていない物を 0 件に見せる）。\n\n"
                   "args に旗の綴り（`--comment`・`--fix`）を書くな——『付けない』と否定の文の中に書いても skill は旗として読む"

@@ -59,6 +59,7 @@ MOD = {
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "record-write": (2, None),   # 包みが足す書き込みの記録のフック（writes が読む記録を書く）
     "record-output": (2, None),  # 包みが足す下請けの返答の記録のフック（diverted が読む記録を書く）
+    "replycontract": (2, None),  # 包みの旗 text-reply の返答の契約（返答の形・本文の読みと型の検査・同じ会話での出し直し。adapter が使う）
     "no-post-bin/works-gh": (2, None),
     "fixshape": (2, None),    # 修正の形の語と盤面からの 1 つの読み口（包みが読む。標準ライブラリだけ）
     "fixture": (3, None),     # 固定材料（h-fix の盤面の写しと取り込み。entry と境の節が使う。entry・board を import しない）
