@@ -17,7 +17,7 @@
   "blk-report/blk-report.yaml": "bd08093ed532c2afbaff1c89f2e2f667bb296e7eac5c963f2ccd9270e7736566",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "147d73c7390cadbe477bbb6bb3264630227bea75759564d0e4a8b9adaa40634e",
-  "darkfactory/darkfactory.yaml": "d63dc6fe7fa57aff914b932372a02c32e7bc1a361a07d067642ae319091cc67c"
+  "darkfactory/darkfactory.yaml": "f7f9f922888687d40ce70fa0ced4336c304ea73a8cd39e0350bd9b22d0629cdb"
  },
  "version": 1,
  "workflows": {

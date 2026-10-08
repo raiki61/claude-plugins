@@ -17,7 +17,7 @@
 
 案の直しの役（blk-plan を replan の入力つきで 2 度目に include した口。blk-plan の lib が入力 replan を見てここへ回す）:
 - TRIP_FILE: 今の周の作業ファイル {"round", "items": [行], "answered"?: answer の返り（再開で返す）}。行は TRIP_KEYS（item・units・rows（待つ行の id）・old（承認済みの
-  項目）・brief・new（関所の決め手の欄を外した直した項目）・new_marks（外した欄）・review・contract_changed・human_faces・ask・
+  項目）・brief・new（関所の決め手の欄を外した直した項目）・new_marks（外した欄）・review・contract_changed・human_faces・widened・ask・
   answer・result・why）。まだ無い値は null
 - PLAN_NODE・REVIEW_NODE・ROLES: 盤面に無い節の名（拒否の控え rejects-<名>.json と指示書 prompt-<名>.md の名。1 回目の
   p2.fix_plan・p2.plan_review の控えと重ならない）
@@ -35,7 +35,10 @@
 人の関所の 1 つの決まり（replan-gate）と答え:
 - 決まり: 直した項目は、約束の欄が承認済みの物と字のまま同じで（planmarks.contract_diff が空。narrows は決め手の欄を外して
   比べる）、事前審査が人に聞く種類の穴（写しの rules の HUMAN_FACE_KINDS）を挙げなかった時だけ、人に聞かずに通す。それ以外は
-  関所 replan-gate で人に聞く。役には決めさせず、コードが欄を比べて決める
+  関所 replan-gate で人に聞く。ただし無人の run（gatemarks.unattended）では、範囲を広げるだけの直し（planmarks.widened が
+  返す: 違いが allowed_paths に足した行と out_of_scope から外した行だけ）も、人に聞く種類の穴が無ければ聞かずに通し、行の
+  widened に足した・外した glob を置き、trace に WIDEN_OP を 1 行書く（持ち主 2026-10-08）。役には決めさせず、コードが欄を比べて決める
+- WIDEN_OP・WIDEN_LINE・WIDEN_PARTS: 無人の run で範囲を広げるだけの直しを聞かずに通した trace の行の op と、lines の文
 - GATE_FILE・NOTES_FILE・FIX_NOTES_HEAD・HUMAN_KIND・GATE_BY: 関所の文・修正役に届ける一言と穴・その頭の修正の前の関所の条件の見出し・process.human_items の行の kinds・stop で
   止めた盤面の by（頭が human: なので報告の結末は stopped_by_human）
 - gate(b, *, run_id): new の無い項目・review の無い項目はその場で諦め（PLAN_GAVE_UP_WHY・REVIEW_GAVE_UP_WHY）、残りの項目の
@@ -89,8 +92,8 @@ HAND_REFUSED = "1 回目に受け付けた修正の返答を盤面が受けな�
 _ENDED_BY = "stop_after_round"   # 1 周の run が周を締めた盤面の halted.by（普通の終わりで、止めたと読まない）
 
 TRIP_FILE = "replan.json"          # 今の周の作業ファイル {"round": n, "items": [行], "answered"?: answer の返り}
-TRIP_KEYS = ("item", "units", "rows", "old", "brief", "new", "new_marks", "review", "contract_changed", "human_faces", "ask",
-             "answer", "result", "why")
+TRIP_KEYS = ("item", "units", "rows", "old", "brief", "new", "new_marks", "review", "contract_changed", "human_faces", "widened",
+             "ask", "answer", "result", "why")
 PLAN_NODE = "replan.fix_plan"      # 盤面に無い節の名（拒否の控えと指示書の名。1 回目の p2.fix_plan と重ならない）
 REVIEW_NODE = "replan.plan_review"
 ROLES = {"plan": PLAN_NODE, "plan-review": REVIEW_NODE}
@@ -132,6 +135,9 @@ GATE_HOW = ('答え方: continue "<一言>" で直した項目を使って修正
             "approve は continue、reject は stop と同じ")
 GATE_ITEM_HEAD = "## 人に聞く直した項目 {n}（単位 {units}）"
 DECISIONS = {"continue": "continue", "approve": "continue", "stop": "stop", "reject": "stop"}   # 関所の答えの語 → 当て方
+WIDEN_OP = "replan_widened_unattended"   # 無人の run で範囲を広げるだけの直しを聞かずに通した trace の行 {round, item, units, allowed_paths, out_of_scope}
+WIDEN_LINE = "直した——無人の run なので人に聞かずに範囲を広げた（{what}）"
+WIDEN_PARTS = {"allowed_paths": "allowed_paths に足した", "out_of_scope": "out_of_scope から外した"}
 AMENDED = "amended"                # TRIP_FILE の行の result（直しを採った）
 GAVE_UP = "gave_up"                # 同じく（直さずに諦めた。why に理由）
 
@@ -547,12 +553,32 @@ def _gate_section(row: dict, conflicts: dict) -> list:
     return lines + ["", OLD_HEAD, "", *_json_block(row["old"]), "", NEW_HEAD, "", *_json_block(new_item(row)), ""]
 
 
+def _widen_traced(b) -> set:
+    """盤面の trace の WIDEN_OP の行の (周, 項目の番号) の集まり（読めない・壊れた行は飛ばす。gate を再開で当て直しても行を
+    積み増さない）"""
+    try:
+        raw = (pathlib.Path(b.dir) / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return set()
+    out = set()
+    for line in raw:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("op") == WIDEN_OP:
+            out.add((row.get("round"), row.get("item")))
+    return out
+
+
 def gate(b, *, run_id: str) -> dict:
     """関所 replan-gate の決まりを当てる。返り {ask, gate_text, gate_file}（聞かなければ文とファイルは空）"""
     doc = read_trip(b)
     if doc is None:
         return {"ask": False, "gate_text": "", "gate_file": ""}
     kinds = human_kinds(b)
+    alone = gatemarks.unattended(b)
+    traced = _widen_traced(b) if alone else set()
     for row in doc["items"]:
         if row.get("result"):
             continue
@@ -561,10 +587,15 @@ def gate(b, *, run_id: str) -> dict:
         elif row.get("review") is None:
             _give_up(b, row, REVIEW_GAVE_UP_WHY.format(reason=_gave_up_reason(b, REVIEW_NODE)))
         else:
-            row["contract_changed"] = planmarks.contract_diff(_bare(row["old"]), _bare(row["new"]))
+            old, new = _bare(row["old"]), _bare(row["new"])
+            row["contract_changed"] = planmarks.contract_diff(old, new)
             row["human_faces"] = [f.get("key") for f in row["review"].get("faces") or []
                                   if isinstance(f, dict) and f.get("kind") in kinds]
-            row["ask"] = bool(row["contract_changed"] or row["human_faces"])
+            row["widened"] = (planmarks.widened(old, new) if alone and row["contract_changed"] and not row["human_faces"]
+                              else None)
+            row["ask"] = bool((row["contract_changed"] and not row["widened"]) or row["human_faces"])
+            if row["widened"] and (b.round, row["item"]) not in traced:
+                b.trace(WIDEN_OP, round=b.round, item=row["item"], units=list(row.get("units") or []), **row["widened"])
     _write_trip(b, doc)
     judged = [r for r in doc["items"] if isinstance(r.get("ask"), bool)]
     asked = [r for r in judged if r["ask"]]
@@ -671,6 +702,12 @@ def answer(board_dir, repo, gate: dict | None, *, fix_notes="") -> dict:
     return copy.deepcopy(out)
 
 
+def _widen_text(widened: dict) -> str:
+    """範囲を広げるだけの直しを無人の run で聞かずに通した項目の報告の文（WIDEN_LINE に足した glob・外した glob を並べる）"""
+    parts = [f"{WIDEN_PARTS[k]}: {', '.join(str(g) for g in widened.get(k) or [])}" for k in WIDEN_PARTS if widened.get(k)]
+    return WIDEN_LINE.format(what="／".join(parts))
+
+
 def lines(b) -> list[str]:
     """TRIP_FILE の項目ごとの 1 行（無ければ []）。答えを受けずに締めた項目（settle の諦め）は待つ行の理由を引く"""
     doc = read_trip(b)
@@ -680,7 +717,8 @@ def lines(b) -> list[str]:
     out = []
     for r in doc["items"]:
         if r.get("result") == AMENDED:
-            how = "直した——人が承認した" if r.get("ask") else "直した——聞かずに通した（手段の欄だけ）"
+            how = ("直した——人が承認した" if r.get("ask") else _widen_text(r["widened"]) if r.get("widened")
+                   else "直した——聞かずに通した（手段の欄だけ）")
         else:
             why = r.get("why") or next((why_of[i] for i in r.get("rows") or [] if why_of.get(i)), "") or "答えを受けていない"
             how = f"直さずに諦めた: {why}"

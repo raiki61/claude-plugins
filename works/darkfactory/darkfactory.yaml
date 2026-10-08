@@ -658,7 +658,8 @@ nodes:
       replan: "true"
       review_tree: $start.output.review_tree
 
-  # 直した項目に関所の 1 つの決まりを当てる（約束の欄が同じで人に聞く穴が無い直しだけを聞かずに通す。replan.gate）
+  # 直した項目に関所の 1 つの決まりを当てる（約束の欄が同じで人に聞く穴が無い直しだけを聞かずに通す。無人の run では範囲を広げる
+  # だけの直し（allowed_paths に足す・out_of_scope から外すだけ）も聞かずに通し、trace と報告に残す。replan.gate）
   - id: h-regate
     script: edge
     runtime: uv

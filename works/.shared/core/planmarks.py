@@ -22,6 +22,7 @@
 - approved_items(b): 今の周の承認済みの修正案の項目と凍結した欄を同じ番号で合わせた並び（修正の受け付けが差分と照らす）
 - 約束の欄と手段の欄（依頼 226）: CONTRACT_KEYS・CONTRACT_TEST_KEYS（tests[] の行の約束の欄）は変えると関所に戻す物、
   MEANS_KEYS は修正案の役が同じ run の中で直してよい物。contract_diff(old, new) が違う約束の欄の名を返す
+  widened(old, new) は違いが範囲を広げる欄（WIDEN_KEYS: allowed_paths に足す・out_of_scope から外す）だけの時に足した・外した glob を返す
 - 承認済みの項目の差し替え（依頼 226）: amend(b, items, repo) が直した項目の欄の行を split で作り直し、核の欄（CORE_KEYS）を
   控えの AMENDED_KEY に置いて save し直し（凍結し直し）、trace に AMEND_OP を書く。amended(b)・plan_items(b) が読む
 - scoped(items)・scoped_items(b): 範囲の欄の在る項目の並びか（217 番の形の控えは範囲の無い run と同じに扱う 1 つの決まり。
@@ -61,6 +62,8 @@ CORE_KEYS = ("unit_keys", "approach", "adds", "removes", "shrink_first", "narrow
 CONTRACT_KEYS = ("unit_keys", "narrows", "removes", "allowed_paths", "out_of_scope", "rewrite_tests")
 CONTRACT_TEST_KEYS = ("behavior",)
 MEANS_KEYS = ("approach", "adds", "shrink_first", "route", "route_why", "tests", "refactor")
+# 範囲を広げる欄（widened が見る）: allowed_paths に足す・out_of_scope から外すだけの直しは、範囲を広げるだけの直し
+WIDEN_KEYS = ("allowed_paths", "out_of_scope")
 AMENDED_KEY = "amended"            # 控えの鍵 {"<項目の番号>": {CORE_KEYS の欄}}（差し替えた項目の核の欄）
 AMEND_OP = "plan_amended"          # amend だけが書く trace の行 {round, items: [番号…]}（SAVED_OP の行の直後）
 # route_why は route が direct の時だけ要る（gaps が見る）
@@ -331,6 +334,42 @@ def contract_diff(old: dict, new: dict) -> list[str]:
     if _test_contract(old) != _test_contract(new):
         out.append("tests.behavior")
     return out
+
+
+def _item_value(it: dict, key: str) -> str:
+    """項目の欄 key の比べる字（約束の欄は _contract_value、tests は行の全部の欄を並べ替えた並び、ほかは字のまま。無いのは None）"""
+    if key in CONTRACT_KEYS:
+        return _contract_value(it, key)
+    v = it.get(key) if isinstance(it, dict) else None
+    if key == "tests" and isinstance(v, list):
+        v = sorted(v, key=_canon)
+    return _canon(v)
+
+
+def _scope_rows(it: dict, key: str) -> list:
+    return _rows(it, key) if isinstance(it, dict) else []
+
+
+def widened(old: dict, new: dict) -> dict | None:
+    """直した項目 new が承認済みの項目 old の範囲を広げただけか。違いが allowed_paths に足した行と out_of_scope から外した行
+    （WIDEN_KEYS）だけで、どちらかが 1 行以上在れば {"allowed_paths": [足した glob…], "out_of_scope": [外した行の glob…]}（new・old
+    の並びの順）。ほかの欄（約束の欄も手段の欄も。tests は行の全部の欄）が 1 つでも違う・allowed_paths から外した・out_of_scope に
+    足したか行を書き換えた・何も広げていないなら None。比べは contract_diff と同じ読み（unit_keys と tests の並べ替え・
+    rewrite_tests の範囲 limit は数えない）。narrows は関所の決め手の欄を外した形で渡す。純粋"""
+    keys = (set(old) | set(new)) - set(WIDEN_KEYS)
+    if any(_item_value(old, k) != _item_value(new, k) for k in keys):
+        return None
+    old_paths = {_canon(p) for p in _scope_rows(old, "allowed_paths")}
+    new_paths = {_canon(p) for p in _scope_rows(new, "allowed_paths")}
+    old_oos = {_canon(r) for r in _scope_rows(old, "out_of_scope")}
+    new_oos = {_canon(r) for r in _scope_rows(new, "out_of_scope")}
+    if not old_paths <= new_paths or not new_oos <= old_oos:
+        return None
+    added = list(dict.fromkeys(p for p in _scope_rows(new, "allowed_paths") if _canon(p) not in old_paths))
+    removed = [r.get("glob") if isinstance(r, dict) else r for r in _scope_rows(old, "out_of_scope") if _canon(r) not in new_oos]
+    if not added and not removed:
+        return None
+    return {"allowed_paths": added, "out_of_scope": removed}
 
 
 # ---------------------------------------------------------------- 受け付け
