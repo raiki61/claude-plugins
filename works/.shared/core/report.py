@@ -18,7 +18,8 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base, aggregate}]
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く。
-  判定が目的の外として単位にしなかった材料の所見は材料の行の任意の欄 mechanism・measured・false_positive_if も持つ）
+  判定が目的の外として単位にしなかった材料の所見は材料の行の任意の欄 mechanism・measured・false_positive_if と、下書きの印
+  draft・source も持つ。印の在る行は依頼の入口が拒むので、人が見直すまで次の run の目的にならない）
 - next_doc(b, items, prior) -> next-request.json の中身 {findings, prior_failures, answers?}（answers は無人の run の答えの下書き）
 - prior_failures(b, left=None) -> この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]（次の依頼の prior_failures）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
@@ -644,7 +645,8 @@ def next_request(b, *, tests: dict | None = None, left: list | None = None) -> l
     最後の関所の答え・読めなかったも、その行の後ろに添える）・
     食い違いの申し出を人に回して直さずに残した単位（conflict.asked: ask_human と、案の直しを諦めた fix_plan_item。裁定が外した
     単位 conflict.ruled_units ごとに 1 行。裁定の文は字のまま）・
-    判定が凍結した目的の外として単位にしなかった材料の所見（outpurpose.next_items。材料の行の全部の欄を運ぶ印つきで）"""
+    判定が凍結した目的の外として単位にしなかった材料の所見（outpurpose.next_items。最後の周の分を、材料の行の全部の欄で、運んだ
+    印と下書きの印 draft・source つきで）"""
     items = []
     for n, nid in enumerate(REFIX_NODES, 1):
         out = _output(b, nid) or {}

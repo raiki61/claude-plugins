@@ -515,13 +515,20 @@ nxt = os.path.join(board, "next-request.json")
 if os.path.isfile(nxt):
     try:
         with open(nxt, encoding="utf-8") as f:
-            ans = json.load(f).get("answers") or []
+            doc = json.load(f)
+        ans, fnd = doc.get("answers") or [], doc.get("findings") or []
         drafts = [a for a in ans if isinstance(a, dict) and a.get("draft")] if isinstance(ans, list) else []
+        carried = [a for a in fnd if isinstance(a, dict) and a.get("draft")] if isinstance(fnd, list) else []
     except (OSError, ValueError, AttributeError):
-        drafts = []
-    print("次の run の依頼の下書き:", nxt + ("（答えの下書き {} 件。機械は答えていない——見直して、台帳の問いの行（question が問いの key）は"
-                                           "採るなら draft と source を消し、関所の項目の行は次の run の関所の continue の一言に写してから"
-                                           "消す）".format(len(drafts)) if drafts else ""))
+        drafts, carried = [], []
+    notes = []
+    if drafts:
+        notes.append("答えの下書き {} 件。機械は答えていない——見直して、台帳の問いの行（question が問いの key）は採るなら draft と source"
+                     "（と note）を消して text を答えにし、関所の項目の行は次の run の関所の continue の一言に写してから消す".format(len(drafts)))
+    if carried:
+        notes.append("目的の外とした所見の下書き {} 件（findings）——次の run の目的に入れる行は draft と source を消し、入れない行は"
+                     "消す".format(len(carried)))
+    print("次の run の依頼の下書き:", nxt + ("（{}）".format("。".join(notes)) if notes else ""))
 rc = 0
 if os.environ["BRING_BACK"]:
     # 修正の差分は run の worktree の今の姿と周の頭の版（start の控え r<N>/start.json の base_rev）の差（未追跡も入れる。

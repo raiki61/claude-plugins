@@ -19,6 +19,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / ".shared" / "core"))
 sys.path.insert(0, str(ROOT / "blk-judge" / "lib"))
 import accept  # noqa: E402
+import ghreads  # noqa: E402
 import outpurpose  # noqa: E402
 
 CR = {"where": "app/compute_logs/manager.py:27-58",
@@ -170,16 +171,36 @@ class CarryCase(unittest.TestCase):
         self.assertNotIn("measured", items[1])   # 材料の行に無い欄は作らない
 
     def test_next_items_pass_the_request_type(self):
-        """運んだ行は依頼の行の型（where・text と任意の mechanism・measured・false_positive_if だけ）"""
+        """運んだ行は下書きの印（draft・source）を外せば依頼の行の型（where・text と任意の mechanism・measured・
+        false_positive_if だけ）"""
         outpurpose.save(self.dir, 1, OOP, outpurpose.material_rows(self.b))
         for it in outpurpose.next_items(self.dir):
-            self.assertLessEqual(set(it), {"where", "text", "mechanism", "measured", "false_positive_if"})
+            bare = {k: v for k, v in it.items() if k not in ghreads.DRAFT_KEYS}
+            self.assertLessEqual(set(bare), {"where", "text", "mechanism", "measured", "false_positive_if"})
 
-    def test_rounds_are_kept_and_the_same_row_is_carried_once(self):
+    def test_carried_rows_are_drafts_the_request_entry_refuses(self):
+        """運んだ行は人が見直すまで次の run の目的にしない: draft: true と出どころ source を持ち、依頼の入口が拒む（答えの下書きと
+        同じ扱い）。印を消した行は通る"""
+        outpurpose.save(self.dir, 1, OOP, outpurpose.material_rows(self.b))
+        items = outpurpose.next_items(self.dir)
+        self.assertTrue(all(i.get("draft") is True and i.get("source") for i in items), items)
+        self.assertIn(OOP[0]["source"], items[0]["source"])
+        with self.assertRaises(ValueError) as cm:
+            ghreads.request_parts({"findings": items})
+        self.assertIn("下書き", str(cm.exception))
+        self.assertIn("findings[0]", str(cm.exception))
+        bare = [{k: v for k, v in i.items() if k not in ghreads.DRAFT_KEYS} for i in items]
+        self.assertEqual(ghreads.request_parts({"findings": bare})["findings"], bare)
+
+    def test_only_the_last_round_is_carried(self):
+        """判定は周ごとに目的の外を決め直す: 前の周に目的の外とした所見が後の周に単位になれば運ばない（最後の周の行だけ）"""
         rows = outpurpose.material_rows(self.b)
-        outpurpose.save(self.dir, 1, OOP[:1], rows)
-        outpurpose.save(self.dir, 2, OOP, rows)
-        self.assertEqual([i["where"] for i in outpurpose.next_items(self.dir)], [CR["where"], HYG["where"]])
+        outpurpose.save(self.dir, 1, OOP, rows)
+        outpurpose.save(self.dir, 2, OOP[1:], rows)
+        self.assertEqual([i["where"] for i in outpurpose.next_items(self.dir)], [HYG["where"]])
+        self.assertEqual(len(outpurpose.report_lines(self.dir)), 2)
+        outpurpose.save(self.dir, 10, [], rows)   # 最後の周は目的の外を名指さなかった（周の順は数で比べる）
+        self.assertEqual(outpurpose.next_items(self.dir), [])
 
     def test_saving_a_round_again_replaces_it(self):
         rows = outpurpose.material_rows(self.b)

@@ -11,7 +11,7 @@ fork（下請けの会話）で走り、節の `--json-schema` が足す道具 S
 呼び出し（入力に agent_id が在る。record-read.py の 2026-09-22 の実測と同じ欄）を入力のまま
 `<包みの家>/reads/<cwd の hash>/outputs.jsonl` に 1 行残す。PostToolUse は道具が成った時だけ起きるので、残る入力は
 節の schema の検査を通った物。局所レビューの受け付け（blk-material の take）が、この周に起こした印より後に包みがこの役を
-起こした会話（起動の記録。拒まれて起こし直すと id が替わる）の行を読み（sessions_since・read_outputs）、宣言した skill のレンズの行が items 空なら fork の所見を戻す（recover）。
+起こした会話（起動の記録。拒まれて起こし直すと id が替わる）の行を読み（sessions_since・read_outputs）、宣言した skill のレンズのうち fork で走る物（FORK_LENSES）の行が items 空なら fork の所見を戻す（recover）。
 戻せない /code-review の空の行は「所見なし」でなく「見ていない」と書く（FORK_LENSES。起こし直しても同じ形で落ちるので
 拒まない）。戻した・見ていない、は周の作業ファイル LENS_FILE に残し、機械の報告が「未確認のレンズ」の節に出す（report_lines）。
 
@@ -103,7 +103,8 @@ def _items(raw) -> list:
 
 def recover(reply: dict, skills: list, payloads: list) -> tuple:
     """返答の写しに、下請けの返答（payloads）の所見を戻す。宣言の skill のレンズ（/ で始まる名）ごとに、fork が書いた行の
-    skill の名（/ の有無は問わない）で当てる。返答の行が items 空のレンズだけを埋め（役が受け取った本文は差し替えない）、
+    skill の名（/ の有無は問わない）で当てる。返答の行が items 空の FORK_LENSES のレンズだけを埋め（役が受け取った本文は差し替え
+    ない。親の会話で走ったレンズの行は fork が書いても触らない）、
     material を数え直す。戻せない FORK_LENSES の空の行は failed の頭に UNSEEN_TAG を置く"""
     out = copy.deepcopy(reply)
     notes = {"recovered": [], "empty": [], "unseen": [], "unmatched": []}
@@ -123,7 +124,7 @@ def recover(reply: dict, skills: list, payloads: list) -> tuple:
     mat = out.get("material") if isinstance(out.get("material"), dict) else None
     for row in out.get("findings") or []:
         lens = row.get("skill") if isinstance(row, dict) else None
-        if lens not in lenses.values() or row.get("items"):
+        if lens not in lenses.values() or lens not in FORK_LENSES or row.get("items"):   # 親の会話で走ったレンズは役の申告のまま
             continue
         said = str(row.get("failed") or "")
         if got.get(lens):
@@ -133,10 +134,10 @@ def recover(reply: dict, skills: list, payloads: list) -> tuple:
             notes["recovered"].append({"lens": lens, "count": n})
             if mat is not None:
                 _count(mat, lens, n)
-        elif lens in got and lens in FORK_LENSES:   # 親の会話で走ったレンズの 0 件は役の申告のまま
+        elif lens in got:
             row["failed"] = f"{said}（works の受け付け: fork の記録で所見 0 件を確かめた）"
             notes["empty"].append(lens)
-        elif lens in FORK_LENSES and row.get("invoked") is True:
+        elif row.get("invoked") is True:
             row["failed"] = f"{UNSEEN_TAG} {said}"
             notes["unseen"].append(lens)
             if mat is not None:

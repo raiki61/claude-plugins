@@ -8,8 +8,9 @@
 where＝材料の行の where の写し、why_outside＝目的の外とした理由）。写しの graph の型は欄を持てない（写しはバイト一致で縛られる）
 ので、querytest の例の欄と同じく役の型にだけ足し、受け付けが盤面へ渡す前に外して確かめる: where が盤面の材料の行（P1 の節の
 出力の where・text を持つ行と、今の周に積まれた依頼の行）のどれにも当たらなければ拒む。通れば当たった材料の行ごと盤面の根の
-FILE に周ごとに控え、判定の写し judgment.json に戻す。次の run の依頼（report.next_request）は控えた材料の行の全部の欄を、
-目的の外から運んだ印 MARK つきで載せる。この run では直さない。
+FILE に周ごとに控え、判定の写し judgment.json に戻す。次の run の依頼（report.next_request）は最後の周に控えた材料の行の全部の欄を、
+目的の外から運んだ印 MARK と下書きの印 draft・source つきで載せる（依頼の入口が拒むので、人が見直すまで次の run の目的に
+ならない）。この run では直さない。
 
 - FIELD・NODES・ROW_SCHEMA・with_field(node, schema): 欄の名・欄を持つ節・行の型・役の型に欄を足した写し
 - split(reply): （欄を外した返答の写し, 行の一覧）
@@ -29,7 +30,9 @@ NODES = ("p2.diagnose",)
 MIN_WHY = 10
 CARRY_KEYS = ("mechanism", "measured", "false_positive_if")   # 依頼の行の任意の欄（写しの RL の REQUEST_SCHEMA）
 MARK = "前の run の判定が凍結した目的の外として単位にしなかった所見を運んだ（この run の目的の内か、別の依頼に分けるかは判定が決める）"
-REPORT_HEAD = "判定が凍結した目的の外として単位にしなかった所見（次の run の依頼の下書きに材料の行の全部の欄で載せた）"
+REPORT_HEAD = ("判定が凍結した目的の外として単位にしなかった所見（次の run の依頼の下書きに材料の行の全部の欄で、下書きの印 draft・"
+               "source つきで載せた。依頼の入口が拒むので、次の run の目的に入れる行は印を消し、入れない行は消す）")
+DRAFT_SOURCE = "前の run の判定が目的の外とした所見"   # next_items の行の source の頭
 ROW_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["source", "where", "why_outside"],
     "properties": {
@@ -178,10 +181,12 @@ def restore(doc: dict, board_dir, rnd: int) -> dict:
 
 
 def _carried(board_dir) -> list:
-    """全部の周の (行, 材料の行) を周の順に、同じ材料の行（where・text）は 1 度だけ"""
+    """最後の周（数の大きい周）の (行, 材料の行)、同じ材料の行（where・text）は 1 度だけ。判定は周ごとに目的の外を決め直すので、
+    前の周に目的の外とした所見が後の周に単位になれば運ばない"""
     doc = _read(board_dir)
     seen, out = set(), []
-    for rnd in sorted(doc["rounds"], key=lambda k: int(k) if str(k).isdigit() else 0):
+    last = max(doc["rounds"], key=lambda k: int(k) if str(k).isdigit() else 0, default=None)
+    for rnd in [] if last is None else [last]:
         for r in doc["rounds"][rnd] or []:
             if not isinstance(r, dict):
                 continue
@@ -195,8 +200,9 @@ def _carried(board_dir) -> list:
 
 
 def next_items(board_dir) -> list:
-    """次の run の依頼の行: 控えた材料の行の where・text（尾に MARK と出どころと目的の外とした理由）と任意の欄。控えが読めなければ
-    その 1 行（読めない物を 0 件に見せない）"""
+    """次の run の依頼の行: 控えた材料の行の where・text（尾に MARK と出どころと目的の外とした理由）と任意の欄に、下書きの印
+    draft: true と出どころ source（DRAFT_SOURCE）を付けた物（依頼の入口 ghreads が拒むので、人が見直して印を消すまで次の run の
+    目的にならない。答えの下書きと同じ扱い）。控えが読めなければその 1 行（読めない物を 0 件に見せない。印は付けない）"""
     try:
         got = _carried(board_dir)
     except ValueError as e:
@@ -204,7 +210,8 @@ def next_items(board_dir) -> list:
     return [{"where": m["where"],
              "text": f"{m['text'].split(f'（{MARK}')[0]}（{MARK}。出どころ: {_squeeze(r.get('source'))}・目的の外とした理由: "
                      f"{_squeeze(r.get('why_outside'))}）",
-             **{k: m[k] for k in CARRY_KEYS if isinstance(m.get(k), str)}}
+             **{k: m[k] for k in CARRY_KEYS if isinstance(m.get(k), str)},
+             "draft": True, "source": f"{DRAFT_SOURCE}（{_squeeze(r.get('source'))}）"}
             for r, m in got]
 
 

@@ -1216,8 +1216,9 @@ class NextRequestCase(ReportBase):
         self.assertEqual(reds, [{"where": RED["log"], "text": f"{report.TESTS_TEXT}赤（ログを読む）"}])
 
     def test_out_of_purpose_rows_are_carried_and_named(self):
-        """判定が目的の外と名指した材料の行（outpurpose の控え）は、全部の欄のまま next-request.json の findings に載り、その依頼は
-        v1 の受け付けを通り、報告の冒頭 1 が次の run に渡す物の下に 1 件ずつ名指す（実の利用者の run f57a5374）"""
+        """判定が目的の外と名指した材料の行（outpurpose の控え）は、全部の欄のまま下書きの印（draft・source）つきで
+        next-request.json の findings に載り、依頼の入口は印のある行を拒み、印を消した依頼は v1 の受け付けを通り、報告の冒頭 1 が
+        次の run に渡す物の下に 1 件ずつ名指す（実の利用者の run f57a5374）"""
         import outpurpose
         self.begin()
         self.without_node_env()
@@ -1233,6 +1234,11 @@ class NextRequestCase(ReportBase):
         self.assertEqual({k: got[0][k] for k in ("mechanism", "measured", "false_positive_if")},
                          {k: row[k] for k in ("mechanism", "measured", "false_positive_if")})
         self.assertIn(outpurpose.MARK, got[0]["text"])
+        self.assertIs(got[0]["draft"], True)
+        import ghreads
+        with self.assertRaises(ValueError):
+            ghreads.request_parts({"findings": items})
+        items = [{k: v for k, v in i.items() if k not in ghreads.DRAFT_KEYS} for i in items]
         with tempfile.TemporaryDirectory(dir=linekit.work_home()) as d:
             self.assertEqual(accept.check_request(items, pathlib.Path(d), "次の run"), {"ok": True, "reason": ""})
         self.assertIn(outpurpose.REPORT_HEAD, h[H1])

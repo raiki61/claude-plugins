@@ -155,6 +155,17 @@ class RecoverCase(unittest.TestCase):
         self.assertEqual(out["findings"][2]["failed"], "起こしたが所見なし（差分を見た）")
         self.assertEqual(notes["empty"], [])
 
+    def test_fork_items_for_inline_lenses_do_not_fill_their_empty_rows(self):
+        """fork が /simplify の行に所見を書いても、親の会話で走った /simplify の空の行は埋めない（戻すのは FORK_LENSES だけ。
+        親の会話で走ったレンズの 0 件は役の申告のまま）"""
+        p = payload([ITEM])
+        p["findings"].append({"skill": "simplify", "items": [ITEM2]})
+        out, notes = diverted.recover(reply(), LENSES, [p])
+        self.assertEqual(out["findings"][2]["items"], [])
+        self.assertEqual(out["findings"][2]["failed"], "起こしたが所見なし（差分を見た）")
+        self.assertEqual(notes["recovered"], [{"lens": "/code-review", "count": 1}])
+        self.assertEqual(out["material"]["count"], 1, "戻した /code-review の 1 件だけを数える")
+
     def test_rows_with_items_and_inline_lenses_are_left_alone(self):
         out, notes = diverted.recover(reply(code_review_items=[ITEM2], failed=""), LENSES, [payload([ITEM])])
         self.assertEqual(out["findings"][0]["items"], [ITEM2], "役が受け取った本文を差し替えない")

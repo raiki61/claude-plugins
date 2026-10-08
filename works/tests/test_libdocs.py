@@ -329,6 +329,19 @@ class SharedCacheCase(Base):
         self.assertTrue(list((board.dir / "r1" / libdocs.CACHE_DIR).glob("requests@2.32.3*.json")),
                         "使った物は盤面の周の置き場にも写す（run の中で同じ物を読む）")
 
+    def test_cache_is_keyed_by_the_query_symbols(self):
+        """問い（query）は単位のファイルが使う名を持ち、Context7 は問いに合う断片を返す。名の違う問いの run は前の run の控えを
+        使わずに取り直し、同じ問いの run は使う（控えの名に問いの digest を入れる）"""
+        self.run_section("run1", ok_http(), self.T)
+        self.f = self.write("app.py", "from requests import Session, adapters\n")
+        http = ok_http()
+        self.run_section("run2", http, self.T + 60)
+        self.assertTrue([u for u in http.calls if "/v2/context" in u], "名の違う問いは取り直す")
+        again = FakeHttp()
+        _, text = self.run_section("run3", again, self.T + 120)
+        self.assertEqual(again.calls, [], "同じ問いは家の控えを使う")
+        self.assertIn("ほかの run の控えから 1 本", text)
+
     def test_shared_cache_expires_after_the_ttl(self):
         self.run_section("run1", ok_http(), self.T)
         http = ok_http()

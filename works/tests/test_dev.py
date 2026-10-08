@@ -661,6 +661,12 @@ class TestDevShell(unittest.TestCase):
             line = next(x for x in r.stdout.splitlines() if x.startswith("次の run の依頼の下書き"))
             self.assertIn("答えの下書き 1 件", line)
             self.assertIn("draft と source", line)
+            nxt.write_text(json.dumps({"findings": [{"where": "a.py:1", "text": "t", "draft": True, "source": "目的の外"}],
+                                       "prior_failures": []}), encoding="utf-8")
+            r = self._show_run(tmp, wt)
+            line = next(x for x in r.stdout.splitlines() if x.startswith("次の run の依頼の下書き"))
+            self.assertIn("目的の外とした所見の下書き 1 件", line)   # 判定が目的の外とした所見も人が見直すまで使えない
+            self.assertNotIn("答えの下書き", line)
 
     def test_archon_sh_installs_borrowed_skills(self):
         """archon.sh は exec の前に、選んだ物だけの設定を隔離した CLAUDE_CONFIG_DIR に組む（dev/toolset.py）。

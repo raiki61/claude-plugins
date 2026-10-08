@@ -354,6 +354,15 @@ class HermeticCase(unittest.TestCase):
                  for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if BARE_ENVIRON.search(line)]
         self.assertEqual(found, [], "親の環境を丸ごと子へ渡す（hermetic.child_env を使う）")
 
+    def test_hermetic_sh_drops_every_knob_the_dev_shells_read(self):
+        """試験の入口が . で読む tests/hermetic.sh は、dev の殻が読む利用の旗（WORKS_USE_*・WORKS_DOGFOOD_*・WORKS_FEATURES_*・
+        WORKS_DESIGN_*）を全部外す（外の run で立てた WORKS_USE_FEATURES_ON などが、既定を見る試験の子に継がれない）"""
+        names = sorted({m for p in sorted((TESTS.parent / "dev").glob("*.sh"))
+                        for m in re.findall(r"\$\{?(WORKS_(?:USE|DOGFOOD|FEATURES|DESIGN)_[A-Z0-9_]+)", p.read_text(encoding="utf-8"))})
+        self.assertIn("WORKS_USE_FEATURES_ON", names)
+        listed = set(re.findall(r"\bWORKS_[A-Z0-9_]+", (TESTS / "hermetic.sh").read_text(encoding="utf-8")))
+        self.assertEqual([n for n in names if n not in listed], [], "tests/hermetic.sh の unset の一覧に足す")
+
     def test_child_env_drops_names_set_by_the_run(self):
         hermetic = self._hermetic()
         leaked = {"WORKS_DEV_ADAPTER": "x", "WORKS_DEV_CLAUDE_VERSION": "9.9.9", "CLAUDE_CODE_ENTRYPOINT": "cli",

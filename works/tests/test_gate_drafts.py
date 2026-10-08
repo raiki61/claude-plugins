@@ -116,8 +116,10 @@ class DraftsCase(TP.GateBase):
         self.assertEqual(first["text"], f"continue: {REC['note']}（推す理由: {REC['why']}）")
         self.assertIn("recommend", first["source"])
         self.assertIn(TP.FACE["key"], second["question"])
-        self.assertIn(NO_NARROW, second["text"])
-        self.assertIn(WORLD, second["text"])
+        self.assertEqual(second["text"], "", "推しの無い行は答えを置かない（材料は note）")
+        self.assertIn(NO_NARROW, second["note"])
+        self.assertIn(WORLD, second["note"])
+        self.assertNotIn("note", first)
         self.assertIn("no_narrow", second["source"])
         self.assertIn("world", second["source"])
 
@@ -127,7 +129,24 @@ class DraftsCase(TP.GateBase):
         self.stopped(b, got)
         drafts = gatemarks.answer_drafts(b)
         self.assertEqual(len(drafts), 1)
-        self.assertIn("書いていない", drafts[0]["text"])
+        self.assertEqual(drafts[0]["text"], "")
+        self.assertIn("書いていない", drafts[0]["note"])
+
+    def test_placeholder_rows_do_not_become_answers_when_only_the_marks_are_deleted(self):
+        """推しの無い行（台帳の問いの選択肢だけ・関所の項目の案だけ）は text を空にし、材料を note に置く。人が draft と source だけを
+        消しても、依頼の入口が拒む（置き場の文が答えとして問いに当たらない）"""
+        self.unattended()
+        fork = {**TP.FORK, "reason": "どちらにも理由が在る", "options": ["例外", "空の値"]}
+        _, b = self.gate(questions=[fork], units=TP.UNITS)
+        drafts = gatemarks.answer_drafts(b)
+        self.assertEqual([d["question"] for d in drafts], [TP.FORK["key"]])
+        self.assertEqual(drafts[0]["text"], "")
+        self.assertIn("例外・空の値", drafts[0]["note"])
+        bare = {k: v for k, v in drafts[0].items() if k not in ghreads.DRAFT_KEYS}
+        with self.assertRaises(ValueError):
+            ghreads.request_parts({"findings": [], "answers": [bare]})
+        with self.assertRaises(ValueError):
+            ghreads.request_parts({"findings": [], "answers": [{k: v for k, v in bare.items() if k != "note"}]})
 
     def test_held_ledger_question_gets_its_push_as_draft_keyed_by_the_question(self):
         """無人の run は台帳の問いを関所に載せない。保留のままの fork は、key を question にした推しの下書きになる（見直して

@@ -585,12 +585,18 @@ def _squeeze(v) -> str:
 DRAFT_HEAD = "人の判断を待つ項目への答えの下書き"
 
 
-def _draft(question: str, text: str, source: str) -> dict:
-    return {"question": question, "text": text, "draft": True, "source": source}
+def _draft(question: str, text: str, source: str, note: str = "") -> dict:
+    """下書きの 1 行。推しの無い行は text を空にし、人が答えを書く材料を note に置く（draft・source だけを消しても、依頼の入口が
+    空の text と知らない欄 note で拒む。置き場の文が答えとして問いに当たらない）"""
+    row = {"question": question, "text": text, "draft": True, "source": source}
+    if note:
+        row["note"] = note
+    return row
 
 
 def _gate_draft(text: str, mark: dict, node: str) -> dict:
-    """関所の項目 1 つの下書き: 推し（recommend）が在ればその答え、無ければ狭めない案・世界の解（人が答えを書く材料）"""
+    """関所の項目 1 つの下書き: 推し（recommend）が在ればその答え、無ければ text を空にし、狭めない案・世界の解を note に置く
+    （人が答えを書く材料）"""
     who = named(node)
     rec = recommend_of(mark)
     if rec is not None:
@@ -598,9 +604,9 @@ def _gate_draft(text: str, mark: dict, node: str) -> dict:
     parts = [(NO_NARROW, "狭めない案", mark.get(NO_NARROW)), ("world", "世界の解", mark.get("world"))]
     parts = [(k, w, _squeeze(v)) for k, w, v in parts if _squeeze(v)]
     if parts:
-        return _draft(text, "（推しを役が書いていない。下の案から人が答えを書く）"
-                      + "／".join(f"{w}: {v}" for _, w, v in parts), f"{who}の行の {'・'.join(k for k, _, _ in parts)}")
-    return _draft(text, "（推しも狭めない案も世界の解も役が書いていない——人が答えを書く）", f"{who}の行（決め手の欄が無い）")
+        return _draft(text, "", f"{who}の行の {'・'.join(k for k, _, _ in parts)}",
+                      "推しを役が書いていない。下の案から人が答えを text に書く: " + "／".join(f"{w}: {v}" for _, w, v in parts))
+    return _draft(text, "", f"{who}の行（決め手の欄が無い）", "推しも狭めない案も世界の解も役が書いていない——人が答えを text に書く")
 
 
 def _ask_draft(q: dict) -> dict:
@@ -610,11 +616,12 @@ def _ask_draft(q: dict) -> dict:
     if got:
         return _draft(key, got[0], f"{ASK_HEAD} {key} の理由の推し（判定の役）")
     opts = "・".join(str(o) for o in q.get("options") or []) or "（無し）"
-    return _draft(key, f"（推しを判定の役が書いていない。選択肢: {opts}）", f"{ASK_HEAD} {key} の選択肢")
+    return _draft(key, "", f"{ASK_HEAD} {key} の選択肢", f"推しを判定の役が書いていない。選択肢から人が答えを text に書く: {opts}")
 
 
 def answer_drafts(b) -> list:
-    """無人の run が人の判断を待つ項目を残した時の答えの下書き [{question, text, draft: True, source}]（実の利用者の run ac9e02ab。
+    """無人の run が人の判断を待つ項目を残した時の答えの下書き [{question, text, draft: True, source, note?}]（実の利用者の run ac9e02ab。
+    推しの無い行は text が空で、材料が note に在る。
     人の居る run は関所で答えるので空）: 修正前の関所に無人の殻が stop を答えた周の項目ごとに 1 行（推しが在ればその答え、無ければ
     狭めない案・世界の解。入力 design_only の設計だけの行は除き、事前審査の壁打ちが止まった行は載せる。控えに当たらない項目は文の
     推しの尾を拾う）と、関所に載せずに保留のままの台帳の問いごとに 1 行（key と理由の推し。関所で止まらなかった run でも、保留の
@@ -643,8 +650,8 @@ def draft_line(drafts: list, next_file: str) -> str:
     if not drafts:
         return ""
     return (f"{DRAFT_HEAD}: {len(drafts)} 件——次の run の依頼の下書き{f' {next_file}' if next_file else ''} の answers に置いた"
-            "（draft: true・出どころ source つき。機械は答えていない。見直して、台帳の問いの行（question が問いの key）は採るなら draft と"
-            " source を消し、採らないなら行を消す。関所の項目の行（question が関所の項目の文）は次の run の関所の continue の一言の材料で、"
+            "（draft: true・出どころ source つき。機械は答えていない。推しの無い行は text が空で、材料は note に在る。見直して、台帳の"
+            "問いの行（question が問いの key）は採るなら draft と source（と note）を消して text を答えにし、採らないなら行を消す。関所の項目の行（question が関所の項目の文）は次の run の関所の continue の一言の材料で、"
             "依頼ではどの問いにも当たらないので、一言に写してから行を消す）")
 
 

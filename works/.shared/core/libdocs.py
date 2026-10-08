@@ -20,13 +20,14 @@ Context7 の口（2026-09-28 に https://context7.com/docs/api-guide で確か�
 - unit_files(repo, judgment_file, keys=None) -> (files, why): 判定の単位の字に現れる追跡中の file（impact.seeds_from_units）
 - notice(board) -> str | None: 429（枠切れ）の印が盤面に在れば人に見せる 1 行（報告の冒頭 report.head_entry が使う）。無ければ None
 - section(board, repo, files, *, get=None, env=None, budget=BUDGET, now=None) -> str: 指示書に貼る節。取れた物は盤面の今の周の
-  置き場 libdocs/<名>@<版>.json に控え（board.work）、前の周の控えも読む（同じ run の中は網に出ない）。枠切れ（429）で取らなかった物（1 本受けたら以後は問い合わせず、
+  置き場 libdocs/<名>@<版>-<問いの digest>.json に控え（board.work）、前の周の控えも読む（同じ run の中は網に出ない）。枠切れ（429）で取らなかった物（1 本受けたら以後は問い合わせず、
   節の TITLE の次の行にも書く）・取れなかった物・Context7 に無い物・版の合わない物・上限で取らない物・読めない file は節の頭に数と名前で書く（黙って落とさない）
 - run をまたぐ控え（env の SHARED_ENV が在る時だけ。置き場と長さの理由は定数の注記）: 取れた物と Context7 に無い物を取った時刻と
   一緒に <包みの家>/libdocs/ にも書き、同じ家の後の run は SHARED_TTL（7 日）の内なら網に出ずに使う（盤面の今の周にも写す）。
   429 を受けた時刻と鍵の有る無し（鍵の値は書かない）も書き、同じ家の後の run は鍵の有る無しが同じなら QUOTA_HOLD（24 時間）の内は
   問い合わせずに枠切れとして数える（そのために飛ばした物が出た run は盤面にも印を写す）
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -52,7 +53,7 @@ CACHE_DIR = "libdocs"                  # 盤面の周の置き場の下の控え
 # 利用の家ごとに分かれ、run を重ねても残り、切符（ticket.py）が役に書かせない場所なので、役が控えを書き換えて後の run の指示書に
 # 混ぜることはできない。env に無ければ（包みを外した run・試験）run をまたぐ控えは使わない（盤面の控えだけ）
 SHARED_ENV = "WORKS_ADAPTER_HOME"
-# 控えを使う長さ: 7 日。版を指した控え（<名>@<版>）の中身はその版の文書で、版が替われば鍵も替わる。版の無い控え（@any）は
+# 控えを使う長さ: 7 日。版を指した控え（<名>@<版>-<問いの digest>）の中身はその版の文書で、版が替われば鍵も替わる。版の無い控え（@any）は
 # Context7 の今の文書なので古びるが、1 日に何本も回す run の間で使い回すと匿名の月の枠を使い切らずに済み、週ごとに取り直せば
 # 古びは 1 週に収まる
 SHARED_TTL = 7 * 24 * 3600
@@ -368,7 +369,10 @@ def fetch(lib: dict, get, headers: dict) -> dict:
 
 # ---------------------------------------------------------------- 節
 def _cache_name(lib: dict) -> str:
-    return re.sub(r"[^A-Za-z0-9._@-]", "_", f"{lib['name']}@{lib['version'] or 'any'}") + ".json"
+    """控え（盤面の周・包みの家）の名: ライブラリの名と版に、問い（_query。単位のファイルが使う名を持つ）の digest を足した物
+    （Context7 は問いに合う断片を返すので、名の違う問いの控えを使い回さない）"""
+    digest = hashlib.sha256(_query(lib).encode("utf-8")).hexdigest()[:12]
+    return re.sub(r"[^A-Za-z0-9._@-]", "_", f"{lib['name']}@{lib['version'] or 'any'}") + f"-{digest}.json"
 
 
 def _cached(board, name: str):
