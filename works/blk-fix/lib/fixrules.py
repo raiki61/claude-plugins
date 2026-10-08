@@ -231,7 +231,7 @@ def _seat(seat: str, shape: str = seatkit.SHAPE) -> list:
 
 def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: str = "", shape: str = seatkit.SHAPE,
               held: str = "", ask: str = "", lanes: str = "", lane: str = "") -> list:
-    """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの今の文書の節（libdocs.section。空なら載せない）。
+    """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの文書の節（libdocs.section。空なら載せない）。
     seat は座（g3 は seat.section・g1 は seat.g1_section。空なら載せない）で、返答の欄の直前に置く。shape は座の形（理由の文）。
     held は 1 回目に受け付けた返答の控えの節（held_text。空なら載せない）で、brief の節の後に置く。
     ask は範囲の相談と事前の確かめの節（ask_text。空なら載せない）で、守ることの後に置く。
@@ -247,7 +247,7 @@ def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "", seat: 
             ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
             ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
             *([("ask", ask, ASK_WHY)] if ask else []),
-            *([("libdocs", libdocs, "機械が引いた（Context7。見つけた数と取れた数は節の頭）")] if libdocs else []),
+            *([("libdocs", libdocs, "機械が引いた（手元の版・公式・Context7。見つけた数と取れた数は節の頭）")] if libdocs else []),
             *_seat(seat, shape), *([("fix-lane", lane, ALWAYS + "（修正役の並べの枝の役）")] if lane else []),
             ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
 
@@ -386,7 +386,7 @@ def write_variants(prompt: pathlib.Path, repo, values: dict, build, iteration: i
 
 # ---------------------------------------------------------------- 節 fix-prep
 def lib_section(b, repo, values: dict) -> str:
-    """ライブラリの今の文書の節（libdocs.section）: 直す義務の単位のファイルと今の差分のファイルが使うライブラリ"""
+    """ライブラリの文書の節（libdocs.section）: 直す義務の単位のファイルと今の差分のファイルが使うライブラリ"""
     try:
         keys = set(json.loads(values.get("open_units") or "[]"))
     except (ValueError, TypeError):
@@ -731,11 +731,11 @@ def prep(board_dir, repo, values: dict, pass_: str = PASSES[0], green=frozenset(
     merged = lanes_merged(b) if pass_ == PASSES[0] and n == 1 else set()
     subs = dispatched(shape, mark, owed, set(green) | merged)
     if subs:
-        seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みと Context7 の引き（lib_section）より前に
+        seatkit.pinned()   # 写しの照合を、下請けのファイルの書き込みとライブラリの文書の引き（lib_section）より前に
         rows = g1_values(b, values, repo, subs, values.get("base_rev") or "", shape, ask=ask_sub)
         seat = seatkit.g1_section(rows, shape)
     elif seatkit.carries(mark, shape):
-        seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みと Context7 の引き（lib_section）より前に
+        seatkit.pinned()   # 写しの照合を、座の作業ファイルの書き込みとライブラリの文書の引き（lib_section）より前に
         seat = seatkit.section(mark, shape, implementer_values(b, values, repo, [k for k in owed if k not in merged]))
     docs = lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))

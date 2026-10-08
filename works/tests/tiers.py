@@ -79,7 +79,9 @@ FAST = frozenset({
     "test_script_io",       # 2 秒（python を 1 本起こすだけ。git は使わない）
     "test_tiers",           # 8 秒（偽の uv・枠の台本で run.sh を起こす）
     "test_versions",        # run ごとの版の控え: 一時の置き場に書くだけ・start.py を 1 本起こす（git なし）
-    "test_libdocs",         # Context7 の文書を機械が引く: 一時の置き場と偽の HTTP の口・偽の盤面（網・git・子のプロセスなし）
+    "test_libdocs",         # ライブラリの文書を機械が引く（手元の版・公式・Context7）: 一時の置き場と偽の HTTP の口・偽の盤面（網・子のプロセスなし。作業ツリーの一覧に git ls-files を起こす）
+    "test_libdocs_local",   # 手元の版を静的に読む: 一時の置き場の偽の .venv・node_modules を読むだけ（網・git・子のプロセスなし）
+    "test_libdocs_web",     # 公式の文書を引く: 偽の HTTP の口だけ（網・git・子のプロセスなし）
     "test_tool_parity",     # 役の道具が本線の run_by の定義より少なくないか: YAML と写しの graph を読むだけ
     "test_adapter_lane",    # 包みの旗 lane（並べの枝の役を単位の worktree で起こす）: 種の git は gitkit の型の写し・単位の worktree を 2 本切る・adapter.plan を直に呼ぶ（子のプロセスは git だけ）
     "test_adapter_no_turn", # 包みの子の終わりの種分け: 包みを子で起こし、偽の claude（一時の置き場の python）が決めた行を出す（git・Archon・決まった秒の待ちなし）
