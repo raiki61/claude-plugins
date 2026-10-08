@@ -2091,5 +2091,58 @@ class TestHerdrContinue(unittest.TestCase):
         self.assertEqual(len(hermetic.herdr_sockets(log)), 2)
 
 
+class TestReadsGuard(unittest.TestCase):
+    """lib.sh の読み出しの後始末 works_dev_reads_guard・works_dev_reads_settle を、殻を直に起こして見る（use.sh・dogfood.sh を通す
+    試験は TERM と set -e の筋だけなので、INT・HUP と settle の後の筋をここで縛る）"""
+
+    def setUp(self):
+        self.tmp = hermetic.tmpdir(self)
+        self.reads = self.tmp / "github-reads.json"
+        self.part = self.tmp / ".github-reads.json.123.tmp"
+
+    def sh(self, script):
+        """guard を張り、読み出しのファイルと ghreads._write の一時のファイルを置いてから script を回す"""
+        head = f'works_dev_reads_guard "{self.reads}"; echo 非公開の本文 >"{self.reads}"; echo 途中 >"{self.part}"; '
+        return subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh"; {head}{script}'], capture_output=True, text=True,
+                              encoding="utf-8", env=hermetic.child_env(DEV_DIR=str(DEV)))
+
+    def test_signal_discards_reads_and_reraises_same_signal(self):
+        """settle より前に INT・TERM・HUP を受けると、読み出しのファイルも一時のファイルも消し、同じ信号で落ち直す"""
+        import signal
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(sig=sig.name):
+                r = self.sh(f"kill -s {sig.name[3:]} $$; echo 届かない")
+                self.assertFalse(self.reads.exists(), r.stdout + r.stderr)
+                self.assertFalse(self.part.exists(), r.stdout + r.stderr)
+                self.assertEqual(r.returncode, -sig, r.stdout + r.stderr)
+                self.assertNotIn("届かない", r.stdout)
+
+    def test_set_e_failure_discards_reads(self):
+        """settle より前に set -e で落ちると、読み出しのファイルも一時のファイルも消し、終了コードは落ちた物のまま"""
+        r = self.sh("set -e; sh -c 'exit 5'; echo 届かない")
+        self.assertFalse(self.reads.exists(), r.stdout + r.stderr)
+        self.assertFalse(self.part.exists(), r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+
+    def test_settle_unnamed_keeps_reads_0600_and_names_it_once(self):
+        """settle 0（名指していない）の後は、殻が 0 以外で終わっても読み出しのファイルを 0600 で残し、そのパスと『続けないなら
+        消してよい』を 1 行で出す"""
+        r = self.sh(f'chmod 644 "{self.reads}"; works_dev_reads_settle 0; exit 3')
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertTrue(self.reads.exists(), r.stdout + r.stderr)
+        self.assertEqual(stat.S_IMODE(self.reads.stat().st_mode), 0o600)
+        named = [ln for ln in r.stdout.splitlines() if str(self.reads) in ln and "続けないなら消してよい" in ln]
+        self.assertEqual(len(named), 1, r.stdout)
+
+    def test_settle_named_is_silent_and_disarms_signals(self):
+        """settle 1（既に名指した）は黙り、その後の TERM では読み出しのファイルを消さない（終わり方は TERM のまま）"""
+        import signal
+        r = self.sh("works_dev_reads_settle 1; kill -s TERM $$; echo 届かない")
+        self.assertEqual(r.returncode, -signal.SIGTERM, r.stdout + r.stderr)
+        self.assertTrue(self.reads.exists(), r.stdout + r.stderr)
+        self.assertEqual(stat.S_IMODE(self.reads.stat().st_mode), 0o600)
+        self.assertEqual(r.stdout, "")
+
+
 if __name__ == "__main__":
     unittest.main()
