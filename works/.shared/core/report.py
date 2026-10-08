@@ -115,7 +115,6 @@ PRIOR_HEADING = "## 次の run に引き継ぐ落ちた理由"
 ACCEPT_WHERE = "受け付け"                  # prior_failures の受け付けの行の where の頭
 R2_REDESIGN = "R2 が redesign-needed"      # 検証器と独立の目が R2 の作り直しの行に付ける頭（findings から外し prior_failures にだけ載せる）
 NO_TURN_FILE = "no-turn-exits.json"   # 包みの終わりの記録の即時の死の行の写し（build が書く。起こし直しの行から辿る）
-NEXT_ORIGIN = "works:report"   # 次の run に渡す依頼の出どころ（accept.check_request の reason）
 TAIL_LINES = 20
 FINAL_GATE_ANSWER = "final-gate-answer.json"   # 最後の関所の答え {decision, text}（境の節 eyes が b.work に書く。P1 Task 26）
 FINAL_GATE_FILE = "final-gate.md"              # 最後の関所の文（書き手 line_edge.FINAL_GATE_FILE と同じ字。関所が開いた印）

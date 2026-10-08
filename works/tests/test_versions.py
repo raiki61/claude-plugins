@@ -29,7 +29,8 @@ def make_pack(base: pathlib.Path) -> pathlib.Path:
     (pack / ".shared" / "core").mkdir(parents=True)
     (pack / ".shared" / "core" / "COPIED_FROM").write_text("a1202d0  graphloops 0.21.0\nengine/x.py\n", encoding="utf-8")
     (pack / "archon-plugin.json").write_text("{}\n", encoding="utf-8")
-    (pack / "VERSION").write_text("0.2.0\n", encoding="utf-8")
+    (pack / ".claude-plugin").mkdir()
+    (pack / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "works", "version": "0.2.0"}), encoding="utf-8")
     (pack / versions.SOURCE_FILE).write_text(json.dumps({"rev": "f" * 40, "dirty": False, "from": "/src/works"}),
                                              encoding="utf-8")
     return pack
@@ -56,7 +57,7 @@ class VersionsCase(unittest.TestCase):
         self.assertEqual(doc["works"]["source"], {"rev": "f" * 40, "dirty": False, "from": "/src/works"})
         self.assertEqual(doc["works"]["version"], "0.2.0")
         self.assertRegex(doc["works"]["pack_sha256"], r"^[0-9a-f]{64}$")
-        self.assertEqual(doc["works"]["files"], 3)   # COPIED_FROM・archon-plugin.json・VERSION（出どころの控えは数えない）
+        self.assertEqual(doc["works"]["files"], 3)   # COPIED_FROM・archon-plugin.json・.claude-plugin/plugin.json（出どころの控えは数えない）
         self.assertEqual(doc["graphloops_copy"], "a1202d0  graphloops 0.21.0")
         self.assertEqual(doc["borrowed"], TOOLSET)
         self.assertEqual(doc["archon"], "v0.11.1")
@@ -82,6 +83,13 @@ class VersionsCase(unittest.TestCase):
         self.assertEqual(set(doc["unknown"]), {"works.source", "works.version", "graphloops_copy", "borrowed",
                                                "archon", "claude_code", "model"})
         self.assertEqual(doc["works"]["files"], 1)
+
+    def test_version_without_string_is_unknown(self):
+        """プラグインの宣言に version の文字列が無ければ null と理由（推測で埋めない）"""
+        (self.pack / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "works"}), encoding="utf-8")
+        doc = versions.snapshot(self.pack, self.env)
+        self.assertIsNone(doc["works"]["version"])
+        self.assertIn("works.version", doc["unknown"])
 
     def test_broken_side_files_are_unknown_not_errors(self):
         (self.pack / versions.SOURCE_FILE).write_text("{not json", encoding="utf-8")

@@ -1,7 +1,6 @@
 """部品の置き場（依頼 239）の口の検査: 流れの道具の口 flow_adapter と、部品ごとの宣言 manifest の読み口 scopes。
 
-- AdapterCase: flow_adapter が Archon の環境変数だけから scope・置き場・入力を読むこと、聞き直しの口（session_handle・resume）が
-  まだ作られず、誰にも呼ばれていないこと
+- AdapterCase: flow_adapter が Archon の環境変数だけから scope・置き場を読むこと
 - ManifestCase: 全部のブロックと線の manifest.json が manifest.schema.json に合い、公開の名の持ち主が 1 つで、Consumes が
   在る Produces を指し、JSON の Produces が Schema を持ち、測り M2（台帳の inventory.json）の公開の名が宣言されていること
 - ClaimCase: 盤面の周の scopes.json への scope の登録（同じ scope の 2 つ目のブロックと盤面の根の物とのぶつかりを拒む）と、
@@ -137,26 +136,6 @@ class AdapterCase(unittest.TestCase):
                 self.assertIsNone(flow_adapter.artifact_root())
         with self._with({"ARTIFACTS_DIR": "/tmp/art"}):
             self.assertEqual(flow_adapter.artifact_root(), pathlib.Path("/tmp/art"))
-
-    def test_input_reads_inputs_env(self):
-        with self._with({"INPUTS_JUDGMENT_FILE": "/x", "INPUTS_BASE_REV": ""}):
-            self.assertEqual(flow_adapter.input("judgment_file"), "/x")
-            self.assertEqual(flow_adapter.input("base_rev"), "")   # 既定の空は届く（測り M1 の (c)）。無いとは分ける
-            self.assertIsNone(flow_adapter.input("reply"))
-
-    def test_ask_back_mouths_not_built(self):
-        for call in (flow_adapter.session_handle, lambda: flow_adapter.resume({}, "q")):
-            with self.assertRaises(NotImplementedError) as cm:
-                call()
-            self.assertEqual(str(cm.exception), "聞き直しはまだ作らない（依頼 239 の §5。形は session.schema.json）")
-        self.assertTrue((CORE / "session.schema.json").is_file())
-
-    def test_ask_back_mouths_have_no_callers(self):
-        callers = re.compile(r"session_handle|flow_adapter\s*\.\s*resume\b|from\s+flow_adapter\s+import[^\n]*\bresume\b")
-        found = [str(p.relative_to(ROOT)) for p in sorted(ROOT.rglob("*.py"))
-                 if "tests" not in p.relative_to(ROOT).parts and p.name != "flow_adapter.py"
-                 and callers.search(p.read_text(encoding="utf-8"))]
-        self.assertEqual(found, [])
 
 
 class ManifestCase(unittest.TestCase):

@@ -47,6 +47,7 @@ from board import BoardGap, BoardMismatch, DiskBoard, NodeTable, graph_expanded,
 from engine.schema import validate_schema  # noqa: E402
 import engine.util as _util  # noqa: E402
 from engine.commands import _refuse_halted  # noqa: E402  （board.py と同じ入口の拒み。写しの engine の関数）
+from engine.role_run import _tail  # noqa: E402  （素材の detail に写すログの末尾。board.py と同じ写しの engine の関数）
 from engine.rules import cond_reads  # noqa: E402
 from engine.util import AnswerReject, Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
@@ -389,7 +390,6 @@ FINAL_GATES = ("always", "when_needed", "protected_only")   # 最後の人の関
 ADAPTER_MODES = ("", "optional")
 UNATTENDED_WORDS = ("", gatemarks.UNATTENDED)   # 入力 unattended（空は人の居る run。true は無人の殻 use.sh の WORKS_USE_UNATTENDED=1）
 DESIGN_ONLY_WORDS = ("", gatemarks.DESIGN_ONLY)   # 入力 design_only（空は今どおり。true は修正前の関所を必ず開ける設計だけの run）
-GATES = ("", "merge")
 # 入力 features_off が切る機能・features_on が入れる機能（持ち主の依頼 2026-10-07: 同じ依頼を機能を替えて回して比べる）。
 # 語は線の入力の語で、線がブロックへ on・off・auto の平の入力（start の出口の同じ名の欄）に写す。並びは語の順（控えと報告の並びも同じ）
 FEATURES = {
@@ -652,14 +652,6 @@ def board_rules():
 
 
 # ---------------------------------------------------------------- CI の節（p0.local_checks・p4.ci）
-TAIL_LINES = 20     # 素材の detail に写すログの末尾の行数（engine の role_run.TAIL_LINES と同じ値。private の _tail を import しない）
-TAIL_BYTES = 2000   # その上限（バイト。role_run.TAIL_BYTES と同じ）
-
-
-def _tail(data: bytes) -> str:
-    """ログの末尾（engine の role_run._tail と同じ切り方: 末尾 TAIL_LINES 行の、さらに末尾 TAIL_BYTES 文字）"""
-    text = data.decode("utf-8", "replace").rstrip()
-    return "\n".join(text.splitlines()[-TAIL_LINES:])[-TAIL_BYTES:]
 
 
 def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path, *, launched: dict | None = None,

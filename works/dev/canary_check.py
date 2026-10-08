@@ -419,8 +419,7 @@ def run_replies(launches_dir, board: pathlib.Path) -> list | None:
     cwd = ((state.get("inputs") or {}).get("cwd") if isinstance(state, dict) else None)
     if not isinstance(cwd, str) or not cwd or report._time(fixture.since(board, state.get("created"))) is None:
         return None
-    path = pathlib.Path(launches_dir).parent / adapter.REPLIES_DIR / f"{adapter.cwd_key(cwd)}.jsonl"
-    rows = _jsonl(path) if path.is_file() else []
+    rows = adapter.read_replies(cwd, pathlib.Path(launches_dir).parent)   # 無ければ []
     return report._since_created(types.SimpleNamespace(dir=board, state=state), rows)
 
 

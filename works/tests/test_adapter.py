@@ -815,11 +815,9 @@ class AdapterCase(unittest.TestCase):
             self.assertIsNotNone(at.tzinfo)   # 盤面の state.created（時差つき）と比べられる
             self.assertTrue(before.replace(microsecond=0) <= at <= after, at)
         self.assertEqual(ats, sorted(ats))
-        last = adapter.last_launch(self.e.cwd, "judge", self.e.home)
-        self.assertEqual(last, rows[2])
+        last = rows[2]   # 最後の判定役の行（再審の前の確かめ rejudge.session_ready が引く物）
         self.assertEqual(last["session"]["id"], self.e.session_id("judge"))
         self.assertNotEqual(last["session"]["id"], first)
-        self.assertIsNone(adapter.last_launch(self.e.cwd, "plan", self.e.home))
         self.assertEqual(rows[3]["session"]["from"], last["session"]["id"])
         self.assertNotIn("ts", rows[0])
 

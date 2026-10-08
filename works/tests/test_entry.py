@@ -709,7 +709,6 @@ class CheckInputsCase(StartCaseBase):
         self.assertEqual(entry.THICKNESS, ("自動", "軽量", "標準", "重厚"))
         self.assertEqual(entry.FINAL_GATES, ("always", "when_needed", "protected_only"))
         self.assertEqual(entry.ADAPTER_MODES, ("", "optional"))
-        self.assertEqual(entry.GATES, ("", "merge"))
 
     def test_request_relative_to_repo(self):
         """相対の依頼のパスは対象の根から（1 本目の intake と同じ）"""

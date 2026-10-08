@@ -527,7 +527,7 @@ def read_replies(cwd, home_dir=None) -> List[dict]:
     """replies_path の行（読めない行は飛ばす。ファイルが無ければ空）"""
     try:
         text = replies_path(cwd, home_dir).read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return []
     out = []
     for ln in text.splitlines():
@@ -585,12 +585,6 @@ def read_launches(cwd, home_dir=None) -> List[dict]:
         if isinstance(row, dict):
             out.append(row)
     return out
-
-
-def last_launch(cwd, node: str, home_dir=None) -> Optional[dict]:
-    """cwd で節 node を起こした最後の行（無ければ None）"""
-    rows = [r for r in read_launches(cwd, home_dir) if r.get("node") == node]
-    return rows[-1] if rows else None
 
 
 def read_session_id(path: pathlib.Path) -> Optional[str]:
