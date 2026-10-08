@@ -133,20 +133,21 @@ class Env:
 
 
 class MarkerCase(unittest.TestCase):
-    def test_marker_text_round_trip(self):
-        self.assertEqual(adapter.marker_text("judge"), "works-node: judge")
-        self.assertEqual(adapter.marker_text("rejudge", cont="judge"), "works-node: rejudge continue=judge")
+    def test_parse_marker_reads_node_marker_grammar(self):
+        """包みの印の読みは node_marker.parse の文法そのもの（旗は名の順）"""
         m = adapter.parse_marker("works-node: rejudge continue=judge")
         self.assertEqual((m.name, m.cont, m.flags), ("rejudge", "judge", ()))
         m = adapter.parse_marker("works-node: pr-check no-tree-write")
         self.assertEqual((m.name, m.cont, m.flags), ("pr-check", None, ("no-tree-write",)))
+        m = adapter.parse_marker("works-node: judge self-resume map")
+        self.assertEqual((m.name, m.cont, m.flags), ("judge", None, ("map", "self-resume")))
 
     def test_not_ours_is_none(self):
         for d in (None, "", "判定役の返答", 3, "works-nodes: x"):
             self.assertIsNone(adapter.parse_marker(d), d)
 
     def test_malformed_marker_is_bad(self):
-        # node_marker.parse（枝 wip/works-a2）が None を返す形は全部 BadMarker（包みは claude を起こさない）
+        # 頭 works-node: を持ち node_marker.parse が None を返す形は全部 BadMarker（包みは claude を起こさない。fail closed）
         for d in ("works-node:", "works-node: ", "works-node:judge", "works-node: a b=c", "works-node: judge continue=",
                   "works-node: ../x", "works-node: a continue=b continue=c", "works-node: Judge",
                   "works-node:  judge", "works-node: judge ", "works-node: judge  continue=x", "works-node: judge foo",
@@ -154,40 +155,6 @@ class MarkerCase(unittest.TestCase):
                   "works-node: judge\ncontinue=x"):
             with self.assertRaises(adapter.BadMarker, msg=repr(d)):
                 adapter.parse_marker(d)
-
-    def test_marker_grammar_matches_node_marker(self):
-        """枝 wip/works-a2 の node_marker.parse と、読める・読めないが同じ（引けなければ skip）"""
-        src = subprocess.run(["git", "-C", str(ROOT), "show", "wip/works-a2:works/.shared/core/node_marker.py"],
-                             capture_output=True, text=True, encoding="utf-8")
-        if src.returncode != 0:
-            self.skipTest("SKIP local-branch: wip/works-a2 を引けない: " + src.stderr.strip()[-200:])
-        ns = {}
-        exec(compile(src.stdout, "node_marker.py", "exec"), ns)
-        cases = ["works-node: judge", "works-node: rejudge continue=judge", "works-node: pr-check map",
-                 "works-node: x continue=y map", "works-node: map", "works-node: a-1 continue=b-2",
-                 "works-node:", "works-node: Judge", "works-node:  judge", "works-node: judge foo",
-                 "works-node: judge map map", "works-node: a_b", "works-node: judge ", "判定"]
-        for d in cases:
-            with self.subTest(d):
-                want = ns["parse"](d)
-                try:
-                    got = adapter.parse_marker(d)
-                except adapter.BadMarker:
-                    got = "bad"
-                if want is None:
-                    self.assertIn(got, (None, "bad"))
-                    self.assertEqual(got is None, not d.startswith("works-node:"))
-                else:
-                    self.assertEqual((got.name, got.cont, frozenset(got.flags)),
-                                     (want["name"], want["cont"], want["flags"]))
-
-    def test_flags_match_node_marker(self):
-        """包みの FLAGS は core の node_marker.FLAGS と同じ（印を作る側と読む側で旗がずれない）"""
-        sys.path.insert(0, str(CORE))
-        import node_marker
-        self.assertEqual(frozenset(adapter.FLAGS), node_marker.FLAGS)
-        m = adapter.parse_marker("works-node: ci no-tree-write")
-        self.assertEqual((m.name, m.flags), ("ci", ("no-tree-write",)))
 
     def test_marker_from_argv_both_spellings(self):
         a = ["--model", "opus", "--json-schema", schema("works-node: judge")]

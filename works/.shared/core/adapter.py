@@ -257,6 +257,7 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import fixshape
 import graphmap  # L1（工程の地図の部品。13 の差し込みの表の graph_map が読む）
+import node_marker  # L1（印の文法の正本）
 import replycontract  # L2（21 の返答の契約。写しの engine の型検査を使う）
 import tree_run
 import unittrees  # L1（単位の worktree の守りの参照の名。live_worktrees が下請けの書く所を見分ける）
@@ -271,7 +272,8 @@ MARK_PREFIX = "works-node:"
 SESSION_VALUE_FLAGS = ("--resume", "-r", "--session-id")
 SESSION_BARE_FLAGS = ("--fork-session", "--continue", "-c")
 
-_NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ
+_NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ（段の表の名の形）
+
 # 単位の切れ目で会話を切る節の印の名（1 の単位の切れ目。依頼 243 の 2）と、支度が今の単位の鍵を書く置き場（run ごとの置き場の下）。
 # TDD の輪の役 tdd・並べの後の順の輪の役 tdd-rest・並べの枝の役 tdd-lane-1..3（blk-fix の tddlanes.MAX_LANES と同じ数。試験が縛る）と
 # 修正役の並べの枝の役 fix-lane-1..3（blk-fix の fixlanes.MAX_LANES と同じ数。枝の中の項目が替わると会話を切る。旗 self-resume と一緒でも切る）
@@ -280,12 +282,7 @@ SESSION_KEYS_DIR = "session-keys"
 UNIT_KEY_SUFFIX = ".unit"   # sessions/<cwd の hash>/<節>.id の隣に、その会話で回した単位の鍵
 LANE_SUFFIX = ".lane"       # sessions/<cwd の hash>/<節>.id の隣に、旗 lane の起動の cwd（単位の worktree の実パス。6c）
 LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の worktree を書く置き場（盤面の下。共有の記録 tdd-*/**。6c）
-# node_marker.FLAGS と同じ。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
-# lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役。6c）。self-resume: SDK が会話を継ぐ起動は
-# この節自身の記録した会話を継ぐ（1）。fork: continue=X の起動を X の会話の写し（--fork-session）で起こし、X の会話に積まない（1。
-# 同時に走る枝の答えの節が同じ相手の会話を継ぐ時）。map: 13 の差し込みの表の工程の地図を足す。text-reply: 返答の型を返答の道具に
-# 任せず、本文で受けて確かめ、合わなければ同じ会話で出し直させる（21）
-FLAGS = ("no-tree-write", "isolated", "self-resume", "lane", "fork", "map", "text-reply")
+# 旗の語（文法と一覧の正本は node_marker.FLAGS。ここは包みが分かれる旗の名だけ）
 NO_TREE_WRITE = "no-tree-write"
 SELF_RESUME = "self-resume"   # 1 の旗 self-resume（SDK が会話を継ぐ起動は、この節自身の記録した会話を継ぐ）
 FORK = "fork"                 # 1 の旗 fork（continue=X を X の会話の写しで起こす。continue と一緒にだけ付く）
@@ -351,35 +348,16 @@ class Plan(NamedTuple):
     reply: Optional[dict] = None    # 21: 旗 text-reply の起動の節の schema（子には渡さない。包みが返答を確かめる）。ほかは None
 
 
-def marker_text(name: str, cont: Optional[str] = None, flags: Sequence[str] = ()) -> str:
-    """output_format の description に置く印の 1 行（node_marker.mark の description と同じ）"""
-    parts = [MARK_PREFIX, name] + ([f"continue={cont}"] if cont else []) + list(flags)
-    return " ".join(parts)
-
-
 def parse_marker(description) -> Optional[Marker]:
-    """description が印なら Marker、印の頭（`works-node:`）を持たなければ None。
-    頭を持つのに読めなければ BadMarker（包みは claude を起こさない）。文法は枝 wip/works-a2 の node_marker.parse と同じ:
-    `works-node: <名>[ continue=<名>][ <flag>…]`、名は [a-z0-9-]+、区切りは空白 1 つ、flag は FLAGS に在る物を 1 度ずつ"""
+    """description が印なら Marker、印の頭（`works-node:`）を持たなければ None。文法は node_marker.parse の 1 つ:
+    `works-node: <名>[ continue=<名>][ <flag>…]`。頭を持つのに読めなければ BadMarker（包みは claude を起こさない。fail closed）。
+    旗は並びの順を持たない（node_marker.parse は集合で返す）ので、名の順に並べる"""
     if not isinstance(description, str) or not description.startswith(MARK_PREFIX):
         return None
-    bad = BadMarker(f"節の印が読めない: {description!r}")
-    if not description.startswith(MARK_PREFIX + " "):
-        raise bad
-    words = description[len(MARK_PREFIX) + 1:].split(" ")
-    if not _NAME_RE.fullmatch(words[0]):
-        raise bad
-    cont, flags = None, []
-    for w in words[1:]:
-        if w.startswith("continue="):
-            if cont is not None or not _NAME_RE.fullmatch(w[len("continue="):]):
-                raise bad
-            cont = w[len("continue="):]
-        elif w in FLAGS and w not in flags:
-            flags.append(w)
-        else:
-            raise bad
-    return Marker(words[0], cont, tuple(flags))
+    got = node_marker.parse(description)
+    if got is None:
+        raise BadMarker(f"節の印が読めない: {description!r}")
+    return Marker(got["name"], got["cont"], tuple(sorted(got["flags"])))
 
 
 def find_opt(argv: Sequence[str], name: str) -> List[Tuple[int, int, str, bool]]:
