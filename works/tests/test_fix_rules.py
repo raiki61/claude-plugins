@@ -138,6 +138,25 @@ class TestSharedSource(unittest.TestCase):
                 self.assertIn("which_is_right", text)
                 self.assertIn("needs_context", text)
 
+    def test_handoff_to_a_human_goes_to_the_routed_fields(self):
+        """人に回す物（書き換えない方針の文書の食い違い・壊すと分かって通す物）は breaks.accepted に書く——機械が人に見せる一覧に
+        載せる欄（実の利用者の run 97fd532f: plan_faces を absorbed と答えて how に「人に回す」と書いた食い違いが人に届かなかった）。
+        決まりは組んだ修正役・TDD の輪の役の指示書の両方に載り、plan_faces の答え方の行も breaks.accepted を名指す"""
+        rule = "人に回す物は `breaks.accepted` に書け。"
+        sec = fixrules.sections(fixrules.SHARED)
+        self.assertIn(rule, sec["core-fix"])
+        self.assertEqual(sum(ln.count(rule) for ln in shared_lines()), 1, "正本に 1 か所だけ")
+        line = next(ln for ln in shared_lines() if rule in ln)
+        for w in ("方針の文書", "人に見せる一覧", "人に届かない"):
+            self.assertIn(w, line)
+        for text in (fixrules.fix_prompt(VALUES, kinds={}),
+                     fixrules.tdd_prompt({k: VALUES[k] for k in fixrules.TDD_VALUES}, "fix", "## 今の段", title="# t", kinds={})):
+            self.assertIn(rule, text)
+        # plan_faces は直す役の返答だけの欄なので、その答え方は直す役の決まり（返答の欄の節）に置く
+        faces = next(ln for ln in (BLK / "rules" / "direct.md").read_text(encoding="utf-8").splitlines() if ln.startswith("- `plan_faces`:"))
+        for w in ("人には届かない", "`breaks.accepted`"):
+            self.assertIn(w, faces)
+
     def test_every_rules_file_is_cut_into_sections(self):
         for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-ask", "fix-ask-sub", "fix-consult-resume", "fix-lane", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
                           (fixrules.PRINCIPLES, ["principles"]), (fixrules.BRIEF, ["brief-canon"]),

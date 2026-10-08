@@ -590,6 +590,94 @@ class ClaimedWithoutTableRowCase(unittest.TestCase):
         self.assertNotIn(self.KEY, self.gate_text())
 
 
+class HandoffCase(unittest.TestCase):
+    """修正役が人に回した物（実の利用者の run 97fd532f）: 修正の返答の changes[].breaks.accepted（壊すと分かって通す理由）は、
+    どの節も読まず人に届かなかった（ADR の食い違いを『人に回す』と書いた行が、関所にも台帳にも報告にも載らずに消えた）。報告の
+    冒頭 1・冒頭 3 行の決めてほしいこと・最後の関所に同じ行が出る。plan_faces の declared は写しが次の周の判定へ運ぶので数えない"""
+    ADR = "ADR-015 の本文は『keycloak だけは Recreate』のまま。方針の文書なので書き換えず、食い違いを人に回す。"
+    LOGGER = "警告の logger 名が 1 つに移る。出どころは警告の文で見分けられる"
+    REPLY = {"changes": [
+        {"unit_key": "deployment.yaml:spec.strategy:RollingUpdate", "breaks": {"how": "grep -n strategy", "result": "同じ型", "accepted": ADR}},
+        {"unit_key": "entrypoint.sh:trap", "breaks": {"how": "grep -rn trap", "result": "1 本だけ"}},
+        {"unit_key": "definitions.py:defs", "breaks": {"how": "grep -rn defs", "result": "緑", "accepted": "  "}},
+        {"unit_key": "conflict_retry.py:retry", "breaks": {"how": "grep -rn retry", "result": "緑", "accepted": LOGGER}}],
+        "plan_faces": [{"key": "adr015-drift", "handled": "absorbed", "how": "受容の台帳に 1 文足した。ADR は人に回す"},
+                       {"key": "readme-stale", "handled": "declared", "how": "誤検知: README は既に今の動きを述べている"}]}
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.b = types.SimpleNamespace(state={}, dir=pathlib.Path(self._tmp.name), record={"process": {}}, round=1, loop_state={},
+                                       output_of_round=lambda nid, n: {}, scope_root=pathlib.Path(self._tmp.name))
+        self.b.work = lambda name: self.b.dir / name
+        put_fix(self.b, self.REPLY)
+
+    def test_lines_name_accepted_breaks_only(self):
+        """accepted が空でない changes の行だけが 1 件 1 行で出る（accepted の無い・空白だけの行と plan_faces は出ない）"""
+        got = report.handoff_lines(self.b)
+        self.assertEqual(len(got), 2, got)
+        self.assertIn("deployment.yaml:spec.strategy:RollingUpdate", got[0])
+        self.assertIn(self.ADR, got[0])
+        self.assertIn("conflict_retry.py:retry", got[1])
+        self.assertIn(self.LOGGER, got[1])
+        text = "\n".join(got)
+        for gone in ("entrypoint.sh:trap", "definitions.py:defs", "adr015-drift", "readme-stale"):
+            self.assertNotIn(gone, text)
+
+    def test_unreadable_fix_has_no_lines(self):
+        """修正の返答を今の周に受けていない盤面は空（報告を落とさない）"""
+        self.b.state = {}
+        self.assertEqual(report.handoff_lines(self.b), [])
+
+    def head_text(self):
+        with mock.patch.object(report, "_stop_info", return_value=("", "", None)), \
+                mock.patch.object(report, "_latest", return_value=None), \
+                mock.patch.object(report, "_conflict_line", return_value=""), \
+                mock.patch.object(report, "_rejudge_changes", return_value=[]), \
+                mock.patch.object(report, "_premise_hypotheses", return_value=[]), \
+                mock.patch.object(report, "_pr_lines", return_value=[]):
+            return "\n".join(report.head_decisions(self.b, {}, tests=None))
+
+    def test_report_head_lists_them_under_one_heading(self):
+        text = self.head_text()
+        self.assertIn(f"{report.HANDOFF_HEAD}（2 件）:", text)
+        self.assertIn(self.ADR, text)
+        self.assertIn(self.LOGGER, text)
+
+    def test_head3_counts_them_as_decisions(self):
+        with mock.patch.object(report, "_asked", return_value=[]), mock.patch.object(gatemarks, "held_lines", return_value=[]):
+            got = report.head3(self.b, "round_limit")
+        self.assertEqual(got[1], gatemarks.DECIDE + "2 件——修正役が人に回した物 2 件（下の「1. 人が決めること」）")
+
+    def test_final_gate_opens_and_shows_them(self):
+        """最後の関所: when_needed で開ける理由に数え（食い違いの申し出と同じく、役だけで決めた代償は人が決める）、節に全部を並べる。
+        既定の protected_only では開ける理由にならない（報告の冒頭には並ぶ）"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge
+        green = report.Rest("緑", report.EyeCounts([], [], []), [])
+        self.assertEqual(line_edge._final_needs(self.b, green, "", [], "", [], []), [])
+        lines = report.handoff_lines(self.b)
+        self.assertEqual(line_edge._final_needs(self.b, green, "", [], "", [], [], handoffs=lines),
+                         ["修正役が人に回した物が在る（2 件）"])
+        with mock.patch.object(line_edge, "_eyes", return_value=line_edge.Eyes([], report.EyeCounts([], [], []))), \
+                mock.patch.object(line_edge.rejudge, "unsettled", return_value={"settled": True, "text": ""}), \
+                mock.patch.object(line_edge, "_guard", return_value=([], "", "", [])), \
+                mock.patch.object(line_edge.querytest, "unproven_lines", return_value=[]), \
+                mock.patch.object(line_edge.querytest, "closure_lines", return_value=[]), \
+                mock.patch.object(line_edge, "_final_text", return_value="本文\n"), \
+                mock.patch.object(line_edge, "_write_text"):
+            got = line_edge.final_edge(self.b, self._tmp.name, run_id="run-1", mode="when_needed",
+                                       tests={"ok": True, "green": True})
+            quiet = line_edge.final_edge(self.b, self._tmp.name, run_id="run-1", mode="protected_only",
+                                         tests={"ok": True, "green": True})
+        self.assertEqual(quiet, {})
+        text = got["gate_text"]
+        self.assertIn("修正役が人に回した物が在る（2 件）", text.splitlines()[0])
+        self.assertIn(f"## {report.HANDOFF_HEAD}（2 件", text)
+        self.assertIn(self.ADR, text)
+        self.assertIn(self.LOGGER, text)
+
+
 class NextRequestUnitRowsCase(unittest.TestCase):
     """修正の not_done と人に回した単位（ask_human と、案の直しを諦めた fix_plan_item の項目の単位の全部）は、next_request が
     単位の行を 1 つ持つ。検証器の『[block] 未解消: <key>』を残りからもう 1 行渡さない（同じ単位が次の run に 2 件の依頼で

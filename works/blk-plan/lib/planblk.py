@@ -195,14 +195,33 @@ ITEMS_RULE = ("項目の組み方: 項目をまとめるのは、単位が同じ
               "片方の直しがもう片方の直しの結果に依る時（先に直さないと直せない・試せない）だけ。同じファイルの別の所（別の関数・"
               "別のクラス・別のクラスに足すテスト）を触るだけでは項目をまとめる理由にならない——そういう単位は別々の項目に分けよ。"
               "写しの指示書の『1 つの案で複数の単位を閉じてよい（一撃の原理に沿うならそれが望ましい）』は、根を本当に共にする単位の話")
+# 既にある物を先に探す決まり（修正案の役の頭と事前審査の頭。実の利用者の run 97fd532f: 事前審査が描画の検査を求め、修正案が
+# 約 260 行のサブコマンドと試験の束・偽の道具を新設したが、同じ workflow に 2〜3 行で同じ仕事をする助け手が在り、どの文書も量らなかった。
+# 判定役・修正役の「既製の物で済まないかを先に確かめろ」を案と審査の段に伸ばす）
+REUSE_RULE = ("既にある物を先に探せ: 新しい機構（スクリプト・サブコマンド・助け手の関数・テストの仕掛け（偽の道具・試験の束など））を"
+              " adds に足す前に、案が触るファイルと、その兄弟（同じ workflow の別の job・step、同じモジュール・同じ置き場の別のファイル）から、"
+              "同じ仕事を既にしている助け手を Grep で探せ。在ればそれを使う案にし、新設しない。それでも新設するなら、その adds の行の"
+              " canonical を今どおり置くファイルのパス（新しいモジュールなら <パス>.py（新設。…））で始め、その後ろに、当たった物"
+              "（パスと行）と採らない理由を書け（当たらなかったなら、どこをどう探したか）。書いていない新設は事前審査が穴に挙げる")
+REUSE_REVIEW = ("既にある物を量ったかを見よ: adds の行が新しい機構（スクリプト・サブコマンド・助け手の関数・テストの仕掛け）なのに、"
+                "canonical に当たった既存の物と採らない理由（当たらなかったなら探し方）が無ければ、kind copy の穴に挙げよ。書いてあっても、"
+                "案が触るファイルとその兄弟（同じ workflow・同じモジュール）を自分でも Grep で探し、同じ仕事をする既存の助け手が在れば、"
+                "それを使う形を shrink か穴の why に書け。穴を閉じる形として新しい機構を求める前にも同じ所を探し、既存の助け手で閉じるなら"
+                "それを名指して求めよ")
+# 人に回す物は人の口へ（実の利用者の run 97fd532f: 契約のずれの穴の why に「ADR は人に回す」と書いたが、その種類の穴は関所に載らず、
+# 修正役の『人に回す』も人に届かなかった）。修正前の関所に載る種類は写しの rules の HUMAN_FACE_KINDS（regression・policy）
+HANDOFF_REVIEW = ("人に回す物は人の口で挙げよ: 穴の直しの一部に、直す側に任せず人が決める物（方針の文書・ADR の書き換えなど）が"
+                  "在るなら、why に「人に回す」と書くだけでなく、その分を kind policy・severity suggest の別の穴として挙げよ（fences に"
+                  " policy_doc。案の欠陥ではないので block にしない）——修正前の関所に載り、人が決める。ほかの kind の why に書いた回付は、"
+                  "どの関所にも載らない")
 HEAD = {
     "plan": ("お前は修正案の役（読むだけ）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch だけで、作業ツリーを 1 文字も変えてはいけない（受け付けは起こす前の"
              "作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の JSON Schema に合う JSON だけを返せ。"
-             "\n\n" + planmarks.HEAD + "\n\n" + ITEMS_RULE),
+             "\n\n" + planmarks.HEAD + "\n\n" + ITEMS_RULE + "\n\n" + REUSE_RULE),
     "plan-review": ("お前は修正案の事前審査の役（読むだけ。判定をした役とは別の目）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch と、"
                     "項目ごとの下請けを起こす Agent と、下請けが答えのファイル（盤面の外の run ごとの置き場）を書く Write だけで、作業ツリーを"
                     " 1 文字も変えてはいけない（受け付けは起こす前の作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の"
-                    " JSON Schema に合う JSON だけを返せ。"),
+                    " JSON Schema に合う JSON だけを返せ。\n\n" + REUSE_REVIEW + "\n\n" + HANDOFF_REVIEW),
 }
 
 
@@ -828,12 +847,13 @@ def _review_rules(b, main_prompt) -> str:
 
 
 def brief_head(b, main_prompt) -> str:
-    """下請けのファイルの共通の頭（全部の項目と相乗りの審査で同じバイト）: 役の定義・関所の項目の決め手・審査の決まり・判定者の
+    """下請けのファイルの共通の頭（全部の項目と相乗りの審査で同じバイト）: 役の定義・関所の項目の決め手・既にある物を量ったかと
+    人に回す物の挙げ方（REUSE_REVIEW・HANDOFF_REVIEW）・審査の決まり・判定者の
     見立て・独立設計（design_only）・答え方の型"""
     diag = (b.record.get("process") or {}).get("diagnosis") or {}
     framing = {k: diag[k] for k in ("framing", "one_shot") if k in diag}
     return "\n\n".join(x for x in (
-        BRIEF_TITLE, SUB_HEAD, gatemarks.HEAD[NODE_OF["plan-review"]], _review_rules(b, main_prompt),
+        BRIEF_TITLE, SUB_HEAD, gatemarks.HEAD[NODE_OF["plan-review"]], REUSE_REVIEW, HANDOFF_REVIEW, _review_rules(b, main_prompt),
         f"判定者の見立て: {json.dumps(framing, ensure_ascii=False, indent=1)}" if framing else "", design_only(b),
         SUB_FORMAT.format(schema=json.dumps(item_schema(), ensure_ascii=False))) if x)
 

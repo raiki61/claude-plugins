@@ -22,6 +22,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
   draft・source も持つ。印の在る行は依頼の入口が拒むので、人が見直すまで次の run の目的にならない）
 - next_doc(b, items, prior) -> next-request.json の中身 {findings, prior_failures, answers?}（answers は無人の run の答えの下書き）
 - prior_failures(b, left=None) -> この run で最後まで通らなかった受け付けと R2 の作り直しの理由 [{where, text}]（次の依頼の prior_failures）
+- handoff_lines(b) -> 修正役が人に回した物の行（breaks.accepted。冒頭 1・冒頭 3 行と最後の関所が同じ行を出す）
 - rejudge_lines(b) -> 決着した再審の結果の行（冒頭 1 と最後の関所の文が同じ行を出す）
 - branch_rows(b)・eye_ties(b) -> 差分の審査の穴と独立の目が場所を挙げた行の枝の名札の行（線の木の段 4a。冒頭 1 と最後の関所の文が同じ行を出す。穴も行も無ければ空）
 - verify_lines(b) -> 判定の単位の裏取りの行（周ごと。根本でない・証拠が無い・場所が違う・確かめられなかった単位と単位どうしの重複・
@@ -237,6 +238,23 @@ def _held_gap_lines(b) -> list:
 
 def _one_line(text) -> str:
     return " ".join(str(text).split())
+
+
+HANDOFF_HEAD = "修正役が人に回した物（壊すと分かって通した理由 breaks.accepted。役だけで決めた代償なので人が確かめる）"
+
+
+def handoff_lines(b) -> list:
+    """修正役が人に回した物（1 件 1 行。実の利用者の run 97fd532f）: 今の周の修正の返答（_fix）の changes[].breaks.accepted
+    （壊すと分かっていて通す理由。空白だけの行は除く）。役だけで決めた代償なのに読む節が無く、人に届かなかった（方針の文書の
+    食い違いを「人に回す」と書いた行が、関所にも問いの台帳にも報告にも載らずに消え、独立の目が台帳の外の回付として作り直しを
+    求めた）。報告の冒頭 1・冒頭 3 行の決めてほしいこと・最後の関所（開ける理由と節）が同じ行を出す。plan_faces の declared は
+    数えない（写しが次の周の判定へ運ぶ別の道を持ち、誤検知の反論・別案を採らない答えも含む）。返答が読めなければ空"""
+    out = []
+    for c in (_fix(b) or {}).get("changes") or []:
+        got = (c.get("breaks") or {}).get("accepted") if isinstance(c, dict) and isinstance(c.get("breaks"), dict) else None
+        if isinstance(got, str) and got.strip():
+            out.append(f"{c.get('unit_key')}: 壊すと分かって通した——{_one_line(got)}")
+    return out
 
 
 def _start_doc(b, start) -> dict:
@@ -741,12 +759,12 @@ def split_line(b) -> str:
 def head3(b, outcome: str, *, left: list | None = None, next_items: list | None = None) -> list:
     """報告の冒頭 3 行（gatemarks.head3）: 起きたこと＝結末（修正の段が単位を止めて持ち越したら、受けた単位と止めた単位の 1 文
     split_line を「。」でつなぐ）・決めてほしいこと＝冒頭 1 に並ぶ人が決める物の件数（盤面の問い・保留の
-    問い・人に回した食い違い・直しきれずに残った物・記録が通らないこと。無ければ 2 行目は次の run に渡す物の件数）・推し＝判定の役が
+    問い・人に回した食い違い・修正役が人に回した物（handoff_lines）・直しきれずに残った物・記録が通らないこと。無ければ 2 行目は次の run に渡す物の件数）・推し＝判定の役が
     問いの理由に書いた推し（機械は作らない）"""
     ph = b.state.get("pending_human") or {}
     held = gatemarks.held_lines(b)
     parts = [("人に聞いている問い", 1 if ph else 0), ("保留にしたままの問い", len(held)),
-             ("人に回した食い違いの申し出", len(_asked(b))),
+             ("人に回した食い違いの申し出", len(_asked(b))), ("修正役が人に回した物", len(handoff_lines(b))),
              ("直しきれずに残った物", len(left or []) if outcome == "round_limit" else 0),
              ("記録が検証器を通らないこと", 1 if outcome == "record_invalid" else 0)]
     parts = [(w, n) for w, n in parts if n]
@@ -763,7 +781,7 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     """冒頭 1（人が決めること）: 記録が関所を通らない時の検証器の末尾と痕跡・round_limit の時の残り（left＝residue の返り）の各行・
     clean が消したファイル・レンズ・仕組みの異常・残りの件数（always_rows。結末に依らず常に）・
     関所の答え（事前審査の関所と最後の関所）と読めなかった保留（gatemarks.unread_hold_lines）・事前審査の壁打ちの往復（converge.lines）・
-    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・判定の単位の裏取り（verify_lines）・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
+    人が止めた一言・最後のテストと修正前のテスト（entry.baseline_line）・盤面の問い・食い違いの申し出の件数と内訳（_conflict_line）・修正役が人に回した物（handoff_lines）・同じ run の中で直した修正案の項目（_amend_lines）・判定の役が保留にしたままの問い（gatemarks.held_lines）と答え方（gatemarks.ANSWER_HOW）・関所か依頼の answers で答えた問い（gatemarks.answered_lines）・どの問いにも当たらなかった依頼の答え（gatemarks.unmatched_answer_lines）・再審の問い・決着した再審の結果（rejudge_lines）・再審による単位の変化・前提で測り直せなかった依頼・判定の単位の裏取り（verify_lines）・独立設計が問いは立たないと返した根拠の名指しなし（_design_unanchored）・並行 PR の
     申し送りの下書きと外した範囲・次の run に渡す物の件数と、その下に判定が目的の外として単位にしなかった所見（outpurpose.report_lines）と
     無人の run の答えの下書きの件数（gatemarks.draft_line）。行の主語は平易な名で、盤面の節・記録の語は括弧に回す（gatemarks.named）"""
     lines = []
@@ -825,6 +843,10 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
         lines += [f"  - {x}" for x in done]
     lines += gatemarks.unmatched_answer_lines(b)
     lines.append(_conflict_line(b))
+    handoff = handoff_lines(b)
+    if handoff:
+        lines.append(f"{HANDOFF_HEAD}（{len(handoff)} 件）:")
+        lines += [f"  - {x}" for x in handoff]
     unproven = querytest.unproven_lines(b.dir)
     if unproven:
         lines.append(f"{querytest.UNPROVEN_HEAD}: {len(unproven)} 件")

@@ -634,6 +634,13 @@ def _conflict_text(asks: list) -> str:
     return "\n".join(lines + ["", ""])
 
 
+def _handoff_text(handoffs: list) -> str:
+    """最後の関所の文の節（修正役が人に回した物。report.handoff_lines の行を全部）"""
+    lines = [f"## {report.HANDOFF_HEAD}（{len(handoffs)} 件。通すのは人の continue だけ）", ""]
+    lines += [f"- {x}" for x in handoffs]
+    return "\n".join(lines + ["", ""])
+
+
 def _unproven_text(unproven: list) -> str:
     """最後の関所の文の節（判定者の問いを例で試していない単位。閉鎖の数え直しはその問いのまま）"""
     lines = [f"## {querytest.UNPROVEN_HEAD}（{len(unproven)} 件。閉鎖の数え直しは例で試していない問いのまま）", ""]
@@ -692,9 +699,11 @@ def _guard(b, repo) -> tuple:
     return rows, rev, err, asks
 
 
-def _final_needs(b, rest: report.Rest, objection: str, rows, err: str, asks: list, mismatched: list) -> list:
+def _final_needs(b, rest: report.Rest, objection: str, rows, err: str, asks: list, mismatched: list, *,
+                 handoffs: list = ()) -> list:
     """最後の関所を開ける理由（1 件 1 句）。when_needed で開くかはこの列の空でなさだけで決め、_final_head の 1 行目もこの列を
-    並べる（理由を足すのはここだけ）"""
+    並べる（理由を足すのはここだけ）。handoffs は修正役が人に回した物（report.handoff_lines。食い違いの申し出と同じく、役だけで
+    決めた代償は人が決める）"""
     why = []
     if err:
         why.append(f"{PROTECTED_UNKNOWN}（人の確かめが要る）")
@@ -704,6 +713,8 @@ def _final_needs(b, rest: report.Rest, objection: str, rows, err: str, asks: lis
         why.append(f"最後のテストが{rest.tests_word}")
     if asks:
         why.append(f"食い違いの申し出を人に回した（{len(asks)} 件）")
+    if handoffs:
+        why.append(f"修正役が人に回した物が在る（{len(handoffs)} 件）")
     if rest.counts.blocked:
         why.append(f"独立の目が阻害を返した（{'・'.join(e['name'] for e in rest.counts.blocked)}）")
     if mismatched:
@@ -734,7 +745,7 @@ def _final_head(b, head: str, why: list, guarded: bool) -> list:
 def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     """h-final（最後のテストと独立の目の後）: ask は final_gate always か、when_needed で最後のテストが緑でない（赤・環境で起こせなかった・
     走れなかった・走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）・独立の目が
-    阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る時。文は冒頭 3 行（_final_head。開けた理由・決めて
+    阻害を返した・修正の受け付けの数え直しが修正役の申告と合わない単位が在る・修正役が人に回した物（report.handoff_lines）が在る時。文は冒頭 3 行（_final_head。開けた理由・決めて
     ほしいこと・推し）で始まり、守りのファイルはその 1 行目で名指し、3 行の直後の最初の節と process.human_items の 1 行にもなる。
     開いた関所の文は、例で証明できない単位と、同じ run の中で直した修正案の項目（replan.lines）も並べる（開ける理由には数えない）。案の直しを諦めた fix_plan_item の単位は ask_human と
     同じ食い違いの申し出の行（conflict.human_lines）。文は b.work(FINAL_GATE_FILE) にも。残りは report.rest_outside_validator を 1 度だけ作り（検証器は
@@ -751,7 +762,8 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     # 申告と数え直しが合わない単位は、前は返答全体を拒んだ形なので関所を開ける。閉じていないだけの単位（修正役が remaining で
     # 残した）は前も通っていたので、見せるだけ
     mismatched = querytest.closure_lines(b, mismatched_only=True)
-    why = _final_needs(b, rest, objection, rows, err, asks, mismatched)
+    handoffs = report.handoff_lines(b)
+    why = _final_needs(b, rest, objection, rows, err, asks, mismatched, handoffs=handoffs)
     if (mode == "when_needed" and not why) or (mode == "protected_only" and not guarded):
         return {}
     unproven = querytest.unproven_lines(b.dir)   # 人に見せる印で、関所を開ける理由（why）には数えない
@@ -763,6 +775,7 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
         amend = [str(e)]
     text = ("\n".join(_final_head(b, head, why, guarded)) + "\n\n"
             + (_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
+            + (_handoff_text(handoffs) if handoffs else "")
             + (_closure_text(stuck, querytest.STUCK_HEAD) if stuck else "")
             + (_unproven_text(unproven) if unproven else "") + (_closure_text(closure) if closure else "")
             + (_closure_text(amend, replan.AMEND_HEAD) if amend else "")

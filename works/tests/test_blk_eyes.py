@@ -1348,6 +1348,13 @@ class YamlCase(unittest.TestCase):
                 self.assertNotIn("{{", text, "指示書を写さない（本文は engine の描画）")
         self.assertEqual({p.stem for p in (BLK / "commands").glob("*.md")}, set(eyes.ROLE_OF.values()))
 
+    def test_minimality_knows_where_handoffs_go(self):
+        """R1 の指示は、修正の返答の breaks.accepted の行が機械で人の口（報告の人が決めること・最後の関所）に
+        載ることを知る（役・段の語は使わない）——台帳に無いことだけで逃げ道と数えない（実の利用者の run 97fd532f の R1 の (2)）。中身で見るのは残す"""
+        text = (BLK / "commands" / "r1-minimality.md").read_text(encoding="utf-8")
+        for w in ("`breaks.accepted`", "人に見せる一覧", "台帳に無いことだけ", "中身で見よ"):
+            self.assertIn(w, text)
+
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
         self.assertEqual(set(fx), {"pass.stubs.yaml", "give-up.stubs.yaml"})

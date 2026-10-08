@@ -313,6 +313,38 @@ class ItemSplitCase(Base):
                   "同じファイルの別の所", "項目をまとめる理由にならない", "別々の項目に分けよ", "一撃の原理"):
             self.assertIn(w, planblk.ITEMS_RULE)
 
+    def test_plan_head_asks_to_search_existing_helpers_first(self):
+        """新しい機構を足す前に、触るファイルとその兄弟（同じ workflow・同じモジュール）から同じ仕事の既存の助け手を探し、
+        当たった物と採らない理由を案に残す（実の利用者の run 97fd532f: 同じ workflow の既存の助け手を量らずに約 260 行の
+        サブコマンドとテストの仕掛けを新設した）。修正案の頭にだけ載る"""
+        self.assertIn(planblk.REUSE_RULE, planblk.head("plan"))
+        self.assertNotIn(planblk.REUSE_RULE, planblk.head("plan-review"))
+        for w in ("スクリプト・サブコマンド・助け手の関数・テストの仕掛け", "案が触るファイルと、その兄弟", "同じ workflow",
+                  "同じモジュール", "canonical", "当たった物", "採らない理由"):
+            self.assertIn(w, planblk.REUSE_RULE)
+        # canonical の頭は置くパスのまま（機械が新しいモジュールの宣言を頭のパスで読む）。その後ろに量った記録を書く形が読める
+        self.assertIn("canonical を今どおり置くファイルのパス", planblk.REUSE_RULE)
+        import planmarks
+        with tempfile.TemporaryDirectory() as repo:
+            got = planmarks._new_module(pathlib.Path(repo), "deploy/scripts/guard.py（新設。同じ workflow の refute_render"
+                                        "（helm-chart-check.yml:333-348）は schema の違反を見分けられないので採らない）")
+        self.assertEqual(got, "deploy/scripts/guard.py")
+
+    def test_review_head_checks_the_existing_helper_record(self):
+        """事前審査の役（束ね役と項目ごとの下請けの両方）は、新しい機構の行に既存の助け手を量った記録が無ければ穴に挙げ、
+        穴を閉じる形として新しい機構を求める前にも同じ所を探す。人に回す物は人の関所に届く種類の穴で挙げる"""
+        for rule, words in ((planblk.REUSE_REVIEW, ("canonical", "kind copy", "兄弟", "新しい機構を求める前")),
+                            (planblk.HANDOFF_REVIEW, ("kind policy", "severity suggest", "policy_doc", "どの関所にも載らない"))):
+            with self.subTest(rule=rule[:20]):
+                self.assertIn(rule, planblk.head("plan-review"))
+                self.assertNotIn(rule, planblk.head("plan"))
+                for w in words:
+                    self.assertIn(w, rule)
+                b = types.SimpleNamespace(record={"process": {}})
+                with mock.patch.object(planblk, "_review_rules", return_value="審査の決まり"), \
+                        mock.patch.object(planblk, "design_only", return_value=""):
+                    self.assertIn(rule, planblk.brief_head(b, "main.md"))
+
     def test_verify_and_review_asks_do_not_merge_for_same_file(self):
         self.assertIn("別の所の関わり（同じファイルの別の所を触るだけ）は項目の並べ方の参考にだけ使い、それで項目をまとめない",
                       planblk.VERIFY_ASK)
