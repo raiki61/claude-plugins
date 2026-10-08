@@ -6,6 +6,14 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 判定の裏取り（`judge_verify`）を既定で回さず、修正案の事前審査の木（`review_tree`）を開いた項目が 2 つ以上の往復だけ使うようにした（持ち主の決め 2026-10-08）。理由は測り: 判定の裏取りは 27 単位の 11 run で後の段を 1 度も変えず、1 run に 0.6〜3 USD と 1〜2 分を足していた。事前審査の木は審査役 1 つの 2〜3 倍の費用で、審査役 1 つが見逃した本物の穴を 1 つも出さなかった。両方を切った組の測りでは費用が約 30%（2.6 USD）・時間が 2.3 分減った。事前審査は往復ごとに開いた項目（前の往復で閉じた・保留にした項目を除く）を数え、2 つ以上なら今どおり項目ごとの下請けと相乗りの審査、1 つ以下なら審査役 1 つが案の全体を審査する（1 往復目が木で、2 往復目に開いた項目が 1 つに減れば 2 往復目は審査役 1 つ）。報告の冒頭 2 の頭の行は on でない機能を `機能: judge_verify off・review_tree auto` のように並べる（前は `機能: 全部 on` か `切った機能: …`）
+
+### Added
+
+- ラインの入力 `features_on`（`use.sh` は `WORKS_USE_FEATURES_ON`、`dogfood.sh` は `WORKS_FEATURES_ON`）。`features_off` と同じ語で、既定で off・auto の機能を on にする（`features_on=judge_verify` で判定の裏取りを回す、`features_on=review_tree` で開いた項目の数に依らず事前審査を木にする）。名指した語が既定に勝ち、`features_off=review_tree` ならいつも審査役 1 つ。前からの `features_off=judge_verify` は既定と同じ off のまま受ける。同じ語を両方に名指す・知らない語は `start` が AI の前で止める。入力は start の控えと `versions.json` の `settings.features_on` に残り、呼び直しで替えれば止まる（固定材料から始める run は替えてよい）。修正案のブロックの入力 `review_tree` は語 `auto` も受ける
+
 ## [0.2.44] - 2026-10-08
 
 ### Fixed

@@ -70,6 +70,10 @@
 - 新しい FAST の試験 `tests/test_judge_verify.py`（偽の盤面と一時の置き場。git・子のプロセスなし）: 支度の go の決め（0・1・2 単位・止まった盤面）・下請けのファイルの中身（自分の単位だけ・共通の頭が同じバイト・答えの置き場）・まとめ（型の誤り・番号の誤り・答えの無い単位・相乗りの番号を key に戻す）・修正案の役の申し送りの節・報告の行。
 - YAML の形: blk-judge の節の並びと依存（`tests/test_blk_judge.py`）・道具の表（`tests/test_yaml_rules.py`・`tests/test_tool_parity.py`）・線の筋書きの stub（`tests/test_line_wiring.py`）を同じ commit で直す。重い段の線の試験（linekit・scriptline の見本、境の節の欄の一覧、修正案のブロックの入力）も同じ commit で直す（CI が回す）。
 
+## 既定を off にした（持ち主の決め 2026-10-08）
+
+測り: 27 単位の 11 run で、この段は後の段（修正案の項目の組み方・修正）を 1 度も変えず、1 run に 0.6〜3 USD と 1〜2 分を足した。事前審査の木（`2026-10-06-tree-line.md` の 2.3）と合わせて切った組の測りでは、費用が約 30%（2.6 USD）・時間が 2.3 分減った。よって線の既定でこの段を回さない（線の start の出口 `judge_verify` が既定で `off`）。ブロックと線の配線はそのまま残し、入力 `features_on=judge_verify`（`use.sh` は `WORKS_USE_FEATURES_ON`、`dogfood.sh` は `WORKS_FEATURES_ON`）で回せる。前からの入力 `features_off=judge_verify` は既定と同じ off のまま受ける。ブロックの入力 `verify` の空は今どおり on（ブロックの既定は変えず、線が off を渡す）。
+
 ## 残り
 
 - 本物の run で、束ね役が下請けを 1 つのメッセージに並べるか・下請けの時間と費用・`not_root` の申し送りで修正案の項目の組み方が変わるかを測る。
