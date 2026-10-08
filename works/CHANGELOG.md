@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.49] - 2026-10-08
+
 ### Added
 
 - canary に変更から入る依頼の語 `works/dev/canary.sh --request change` を足した。ほかの依頼の語はどれも依頼だけから始める（start の控え `r1/start.json` の `entry` が `request`）ので、局所レビューの役（`p1.local_review`。条件 `not_request_entry`）が 1 度も回らず、確かめ役 `canary_check.py` の (h) 記録のフックと (j) 返答の契約はいつも no で、本当の赤と見分けられなかった（今壊れていたのは確かめの見え方で、工場ではない）。`change` は `--request fix` の種と依頼で対象を作り、`calc.py:median` の docstring の 1 行の字を commit せずに変え、`use.sh start --base <種を写した commit>` で起こす（run は変更と依頼の両方から入る。`entry` が `both`）。手で同じ形を通した run e91112dd で (h)(j) とも yes だった。`canary_check.py --request change` の終了コードは (h)(j) だけで決め、yes だけを通す（(h) の attempted は text-reply の形でも fork のレンズの所見が届かなかったか確かめられなかったことなので通さない。(a)〜(e) は `--request fix` の確かめなので数えない）。依頼から始めた run で局所レビューの跡（受け付けの控え・`local-review` の起動）が無ければ、(h)(j) を no でなく `not_exercised` と出す（跡が在ればいつもの判じ）。殻の試験 `tests/test_canary_sh.py`（HEAVY。偽の `use.sh` で、対象に 1 行の未 commit の変更が在り `--base` が付くことを見る）を足した（本物の canary の run ではまだ確かめていない）
