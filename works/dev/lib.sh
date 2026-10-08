@@ -267,6 +267,9 @@ model = os.environ.get("WORKS_DEV_MODEL", "")
 model = shlex.quote(model) if model else " WORKS_MODEL_PINNED=" + shlex.quote(os.environ["MODEL_PINNED"])
 item = os.environ.get("WORKS_KEYCHAIN_ITEM", "")
 auth = "WORKS_KEYCHAIN_ITEM={} ".format(shlex.quote(item)) if item else ""
+# Context7 の鍵の keychain の項目の名（秘密ではない。値は起こし役が読む）も同じに載せ、続きの支度の節も同じ鍵で引く
+c7 = os.environ.get("WORKS_CONTEXT7_KEYCHAIN_ITEM", "")
+auth += "WORKS_CONTEXT7_KEYCHAIN_ITEM={} ".format(shlex.quote(c7)) if c7 else ""
 adapter = "WORKS_DEV_ADAPTER=1 " if os.environ.get("WORKS_DEV_ADAPTER") == "1" else ""
 answer = os.environ.get("WORKS_ANSWER_CMD", "")
 answer = "WORKS_ANSWER_CMD={} ".format(shlex.quote(answer)) if answer else ""

@@ -9,6 +9,11 @@
 
 keychain は利用者の HOME で読む（security はログイン keychain を $HOME 基準で探す）。値は標準出力・引数に出さない。
 
+Context7 の鍵（任意。設計 works/docs/plans/2026-10-08-libdocs-sources.md の 1 の 10）: exec は WORKS_CONTEXT7_KEYCHAIN_ITEM を
+名指していればその項目を同じく利用者の HOME で読み、子の環境の CONTEXT7_API_KEY にだけ置く（名指しが受け継いだ値より先）。読めなければ
+項目の名と理由の 1 行を標準エラーに出し、受け継いだ値（無ければ鍵なし）のまま起こす（Context7 は任意なので止めない）。名指しが
+無ければ受け継いだ CONTEXT7_API_KEY のまま。Archon v0.11.1 は script の節に env を継がせる（支度の節の libdocs が読む）。
+
   auth_launch.py check --user-home <path> --user-config <path か空> [--for <殻の名>]
       値を読んで捨て、出どころの名だけを標準出力に 1 行。無ければ標準エラーに案内を 1 行出して 2
   auth_launch.py exec --user-home <path> --user-config <path か空> -- <実行ファイル> <引数…>
@@ -97,6 +102,27 @@ def resolve(env, user_home, user_config, platform=sys.platform, runner=None):
     return None, None, "%s、Claude Code の keychain の項目 %s にも無い" % (note, " ".join(claude_code_items(user_config)))
 
 
+C7_ITEM = "WORKS_CONTEXT7_KEYCHAIN_ITEM"
+C7_KEY = "CONTEXT7_API_KEY"
+
+
+def context7_env(env, runner):
+    """(子に足す {CONTEXT7_API_KEY: 値} か {}, 標準エラーに出す 1 行か空)。値は 1 行にも返さない。security の起こし方は写しの
+    read_keychain と同じ（項目の値の形はトークンと違うので写しは使えない）"""
+    item = env.get(C7_ITEM)
+    if not item:
+        return {}, ""
+    rest = "受け継いだ %s のまま起こす" % C7_KEY if env.get(C7_KEY) else "Context7 は鍵なしで引く"
+    try:
+        p = runner(["security", "find-generic-password", "-s", item, "-w"], capture_output=True, encoding="utf-8", timeout=10)
+    except Exception as e:  # security が無い・落ちた・時間切れ
+        return {}, "Context7 の鍵の keychain の項目 %s を読めない（%s）。%s" % (item, type(e).__name__, rest)
+    value = (getattr(p, "stdout", "") or "").strip()
+    if not value or getattr(p, "returncode", 0) not in (0, None) or any(ch.isspace() for ch in value):
+        return {}, "Context7 の鍵の keychain の項目 %s が空か読めない。%s" % (item, rest)
+    return {C7_KEY: value}, "Context7 の鍵は keychain の項目 %s（%s）から拾う（値は出さない）" % (item, C7_ITEM)
+
+
 def child_env(env, got, named):
     """子の環境: 受けた環境（隔離した HOME・CLAUDE_CONFIG_DIR のまま）に認証の変数だけを足す。名指しで決めた時は、
     それより上に効く資格を外す（外さないと名指しが効かない）"""
@@ -133,7 +159,12 @@ def main(argv):
     if a.cmd == "check":
         print(name)
         return 0
-    os.execve(target[0], target, child_env(os.environ, got, bool(os.environ.get("WORKS_KEYCHAIN_ITEM"))))
+    c7, note = context7_env(os.environ, user_runner(a.user_home))
+    if note:
+        print("%s: %s" % (a.caller, note), file=sys.stderr)
+    out = child_env(os.environ, got, bool(os.environ.get("WORKS_KEYCHAIN_ITEM")))
+    out.update(c7)
+    os.execve(target[0], target, out)
 
 
 if __name__ == "__main__":
