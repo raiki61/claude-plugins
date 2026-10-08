@@ -17,7 +17,7 @@
 """
 import ast
 import contextlib
-import importlib.util
+import importlib
 import io
 import json
 import os
@@ -567,77 +567,6 @@ class SkipGateCase(unittest.TestCase):
                 self.assertEqual(tiers.main(["tiers.py", tier, "-k", "x"]), 0)
                 self.assertEqual(um.call_count, 1)
                 self.assertIs(um.call_args.kwargs.get("testRunner"), runner_cls)
-
-
-# Windows の os に無い POSIX のプロセスの API（Python の公式文書で Availability: Unix）
-POSIX_ONLY = ("geteuid", "killpg", "setsid", "getpgid", "getsid")
-
-
-@contextlib.contextmanager
-def without_posix_process_api():
-    """os から POSIX だけの API を外した間（Windows の os を模す）"""
-    saved = {n: getattr(os, n) for n in POSIX_ONLY if hasattr(os, n)}
-    for n in saved:
-        delattr(os, n)
-    try:
-        yield
-    finally:
-        for n, f in saved.items():
-            setattr(os, n, f)
-
-
-def load_fresh(name):
-    """tests/<name>.py を別の名前で読み込み直す（sys.modules の物を使わずに、モジュールの頭とクラスの定義を今の os で評価する）"""
-    spec = importlib.util.spec_from_file_location(f"_portability_{name}", TESTS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-class PortabilityCase(unittest.TestCase):
-    """macOS／POSIX の前提が無い OS（Linux・Windows）で、works の試験が読み込みで落ちず、できない物は能力の名前で見送る。
-    段の全部を 3 OS で回す前に、手元の macOS で os の API と /private/tmp の綴りを外して確かめる（読み込むだけで、木は起こさない）"""
-
-    def test_modules_load_without_posix_process_api(self):
-        bad = []
-        with without_posix_process_api():
-            for name in ("test_tiers", "test_tree_run", "test_adapter", "test_blk_tests_delta"):
-                try:
-                    load_fresh(name)
-                except Exception as e:   # noqa: BLE001 — 読み込みの失敗を全部集めて名指す
-                    bad.append(f"{name}: {type(e).__name__}: {e}")
-        self.assertEqual(bad, [], "POSIX のプロセスの API が無いと読み込みで落ちる")
-
-    def test_tree_run_cases_skip_as_process_group_without_killpg(self):
-        with without_posix_process_api():
-            cls = load_fresh("test_tree_run").TreeRunCase
-            if getattr(cls, "__unittest_skip__", False):
-                reason = cls.__unittest_skip_why__
-            else:
-                try:
-                    cls.setUpClass()
-                except unittest.SkipTest as e:
-                    reason = str(e)
-                else:
-                    self.fail("os.killpg が無くても TreeRunCase が見送られない（木を起こして落ちる）")
-        self.assertRegex(reason, r"^SKIP process-group: ")
-
-    def test_cwd_in_claude_tmp_does_not_skip_unnamed_without_private_tmp(self):
-        real = tempfile.mkdtemp
-
-        def mkdtemp(*args, **kwargs):
-            d = kwargs.get("dir", args[2] if len(args) > 2 else None)
-            if d is not None and str(d).startswith("/private/"):
-                raise FileNotFoundError(2, "No such file or directory", str(d))
-            return real(*args, **kwargs)
-
-        test_dev = load_fresh("test_dev")
-        result = unittest.TestResult()
-        with mock.patch.object(tempfile, "mkdtemp", mkdtemp):
-            test_dev.TestDevShell("test_archon_sh_refuses_cwd_in_claude_tmp").run(result)
-        self.assertEqual((result.errors, result.failures), ([], []))
-        for _, reason in result.skipped:
-            self.assertRegex(reason, tiers.SKIP_DECL)
 
 
 # 試験を走らせる run（dogfood.sh・use.sh・包み）が export する変数。試験の子に届くと、既定の振る舞いを見る試験が外の run に左右される
