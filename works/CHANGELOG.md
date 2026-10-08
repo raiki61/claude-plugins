@@ -6,10 +6,6 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
-### Fixed
-
-- 受け付け（`accept.py` の git と差分の切り出し）・修正の後始末（`leftovers.py`）の git の 120 秒、判定の問いの例の git grep（`querytest.py`）と単位の数え直し（`blk-fix/lib/unitrows.py`）の 60 秒の期限を外した（2026-10-09 の掃除）。根拠の無い期限で、新しい期限を足さない決まり（台帳 R4）と食い違っていた。止まった git はほかの所と同じく待つ。
-
 ### Changed
 
 - リポジトリのルートの柵 doc-symbols（文書が名指す定数の実在）を works に合わせて狭めた（2026-10-09 の掃除。この柵のために名を足すだけの commit が 15 本ほど在り、本物の食い違いは 1 件も捕まえていなかった）: 書いた日の名指しを残す `docs/plans/` と `CHANGELOG.md` は見ない。`WORKS_` で始まる名は works のコード（.py・.sh・.yaml）のどこかに字で在れば実在と見て、除外の表に 1 つずつ足さない。柵のためだけに置いていた代入の行（`dev/use.sh` の入力の窓口 5 つ・`dev/dogfood.sh` の機能の窓口 2 つ。どれも読む所は `${…:-}` の形）を消した。動きは変わらない。
@@ -23,6 +19,11 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 - 本物の AI でラインを 1 回回す開発の殻 `dev/real-run.sh` を消した（2026-10-09 の掃除。持ち主の了承済み）。同じ用は `dev/use.sh`（ほかのリポジトリを対象に回す）と `dev/canary.sh`（決まった種と依頼で回す）が持つ。起動の共通の口 `dev/launch.py env` の `--for=real-run.sh` と、それだけが使っていた包みの既定の読み方も消した。使い捨ての対象を作る `dev/mktarget.sh` と種 `dev/target-seed/` は `dev/check.sh` が使うので残す。
 - 受け付けの口 `accept.py` を本線の `gl.py` へ載せ替える日のための対応表（`.shared/core/gl_map.json`・`docs/gl-map.md`・`tests/test_gl_map.py`）を消した（2026-10-09 の掃除）。機械で読む物が無く、works は本線と別に育てる（持ち主の決め 2026-09-26）ので載せ替えの日を待たない。
 - run をまたいで拒否を集める開発の道具 `dev/report_rejects.py` とその試験を消した（2026-10-09 の掃除）。自分の試験のほかに使う所が無かった。
+- 前の版の盤面（start の控えに `features_on` の欄が無い）を呼び直した時の読み替えと、報告の冒頭 2 の前の版の控えの読み替え（入口の文が無い控えを「判定から（依頼 N 件）」と書く・`features_off` の欄の無い控えの断り）を消した（2026-10-09 の掃除）。run は start の時に写した works で回るので、run の道が前の版の盤面に会うことは無い。控えが無い run（start が控えを書く前に落ちた）の入口は「（控えが無い）」と出す。どの版の盤面も読む `entry.features_on_of`（canary_check が使う）と `adapter.features_off_at` は残す。
+
+### Fixed
+
+- 受け付け（`accept.py` の git と差分の切り出し）・修正の後始末（`leftovers.py`）の git の 120 秒、判定の問いの例の git grep（`querytest.py`）と単位の数え直し（`blk-fix/lib/unitrows.py`）の 60 秒の期限を外した（2026-10-09 の掃除）。根拠の無い期限で、新しい期限を足さない決まり（台帳 R4）と食い違っていた。止まった git はほかの所と同じく待つ。
 
 ## [0.2.51] - 2026-10-09
 

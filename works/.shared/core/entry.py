@@ -481,18 +481,15 @@ def features_part(off, on=()) -> str:
 
 def _resumed_features(prev: dict, off: list, on: list) -> list:
     """呼び直し（Archon の再開）で前の控えの切った機能・入れた機能と今の入力が違えば InputRefused（run の途中で比べの腕を黙って
-    替えない）。返りはこの run の入れた機能（features_on_of）。features_on の欄の無い前の版の控えは、今の入力の features_on が
-    空か前の版の全部 on と同じ語なら通す（前の版の run は features_on を渡さずに始めた）"""
+    替えない）。返りはこの run の入れた機能。run は start の時に写した works で回るので、控えは同じ版の start が書いた物"""
     was = prev.get(FEATURES_KEY) or []
     if list(was) != list(off):
         raise InputRefused(f"この盤面は {FEATURES_KEY}={','.join(was) or '空'} で始めた——呼び直しの {FEATURES_KEY}="
                            f"{','.join(off) or '空'} で機能を替えない（同じ入力で呼び直す）")
-    keep = features_on_of(prev)
-    if list(on) != sorted(keep) and (FEATURES_ON_KEY in prev or on):
-        began = (f"{FEATURES_ON_KEY}={','.join(keep) or '空'} で始めた" if FEATURES_ON_KEY in prev
-                 else f"前の版の盤面（{FEATURES_ON_KEY} の記録が無く、全部 on の既定で {','.join(keep) or '空'} を入れて動く）")
-        raise InputRefused(f"この盤面は{began}——呼び直しの {FEATURES_ON_KEY}={','.join(on) or '空'} で機能を替えない"
-                           "（同じ入力で呼び直す）")
+    keep = list(prev.get(FEATURES_ON_KEY) or [])
+    if list(on) != sorted(keep):
+        raise InputRefused(f"この盤面は {FEATURES_ON_KEY}={','.join(keep) or '空'} で始めた——呼び直しの {FEATURES_ON_KEY}="
+                           f"{','.join(on) or '空'} で機能を替えない（同じ入力で呼び直す）")
     return keep
 
 
@@ -1232,8 +1229,6 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
         on = _resumed_features(prev, inp[FEATURES_KEY], inp[FEATURES_ON_KEY])
         if fixshape.KEY not in prev:   # 前の版の盤面は鍵を足さない（fixshape.shape_at が af と読む）
             keep.pop(fixshape.KEY, None)
-        if FEATURES_ON_KEY not in prev:   # 前の版の盤面は鍵を足さない（features_on_of が全部 on の既定で読む）
-            keep.pop(FEATURES_ON_KEY, None)
     else:
         shape, shape_note = inp["fix_shape"], "" if _word(raw, "fix_shape") else "（既定）"
         on = inp[FEATURES_ON_KEY]
