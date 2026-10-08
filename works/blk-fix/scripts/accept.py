@@ -379,12 +379,12 @@ def last_settle(texts: list, reply: dict, board, base_rev, repo, state, parked: 
     return got, out
 
 
-def revert_units(board, base_rev, repo, files: set) -> str:
-    """止めた単位の足跡 files を段の頭の木（leftovers.head_tree。欄の無い古い盤面は修正前の版の木）に戻す。先に、その木から
+def revert_units(board, repo, files: set) -> str:
+    """止めた単位の足跡 files を段の頭の木（leftovers.head_tree）に戻す。先に、その木から
     今の作業ツリー（未追跡の新しいファイルも。一時の index で固めた木）への files の差分を盤面の fix-parked-<n>.patch に控える
     （戻した木に当てれば戻す前の姿になる）。返りは控えのパス"""
     b = entry.open_board(board, allow_halted=True)
-    head = leftovers.head_tree(board) or f"{writes.base_rev(b, base_rev)}^{{tree}}"
+    head = leftovers.head_tree(board)
     files = sorted(files)
     n = 1
     while b.work(f"{PARKED_PATCH}-{n}.patch").exists():
@@ -410,7 +410,7 @@ def park_units(settled, out: set, whole: dict, board, base_rev, repo, parked: se
     ask_human の裁定つきの申し出を積み（conflict.park）、trace に PARKED_OP。止めた単位と義務の外の単位（out）の行と、戻した
     パスの bash_writes の申告を外した返答で受け付けを頭から通し直し、その返りを返す"""
     b = entry.open_board(board)
-    patch = revert_units(board, base_rev, repo, settled.files)
+    patch = revert_units(board, repo, settled.files)
     for key, texts in settled.park.items():
         why = " / ".join(texts)
         conflict.park(b, [{"unit_key": key, "between": [], "why_both_cannot_hold": why, "which_is_right": conflict.UNKNOWN,

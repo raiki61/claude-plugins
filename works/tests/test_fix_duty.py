@@ -187,7 +187,7 @@ class TestAcceptExcused(unittest.TestCase):
         self.assertEqual((got["ok"], got["done"], got["changes"]), (True, True, []), got)
         self.assertEqual(self.parked, [self.MEAN])
         self.revert.assert_called_once()
-        self.assertEqual(self.revert.call_args.args[3], {"stats.py"}, "外れた単位の直しは戻さない")
+        self.assertEqual(self.revert.call_args.args[2], {"stats.py"}, "外れた単位の直しは戻さない")
         self.assertEqual(self.recounted, [[]])
 
     def test_key_outside_duty_and_excused_is_not_opened(self):
@@ -198,7 +198,7 @@ class TestAcceptExcused(unittest.TestCase):
         self.assertEqual((got["ok"], got["done"]), (True, True), got)
         self.assertEqual([c["unit_key"] for c in got["changes"]], [self.MEAN])
         self.assertEqual(self.parked, ["作り話の単位"])
-        self.assertEqual(self.revert.call_args.args[3], {"x.py"})
+        self.assertEqual(self.revert.call_args.args[2], {"x.py"})
 
     # 1 回目に受け付けた返答の控え（依頼 195i の 1）: 控えは役が書いた形（site の path・役の coverage）のまま残し、写しに渡す形
     # （unitrows.take が path を外し coverage を揃えた行）は欄 conflict.HANDED に別に置く。2 回目の段の数え直しは書いた形に当てる

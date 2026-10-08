@@ -748,7 +748,7 @@ class TestCopyRejectOfOneUnit(unittest.TestCase):
         self.assertEqual([r.get("decision") for r in rulings], ["ask_human"])
         self.assertIn("fix_closure=clean", rulings[0].get("text", ""), "人に回す裁定の文に、単位に結んだ拒否の文を載せる")
         revert.assert_called_once()
-        self.assertEqual(revert.call_args.args[3], {"clamp.py"}, "止めた単位の足跡だけを戻す（通した単位の直しは戻さない）")
+        self.assertEqual(revert.call_args.args[2], {"clamp.py"}, "止めた単位の足跡だけを戻す（通した単位の直しは戻さない）")
 
     def test_count_mismatch_phrase_matching_is_gone(self):
         # 閉鎖は前段の表（unitrows）が数え直しで決め、写しの拒否の文の句を照らして後から単位を外す継ぎ目は持たない
@@ -902,7 +902,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         self.assertEqual([r["unit_key"] for r in rows], [self.CLAMP])
         self.assertEqual([(k.get("ruling") or {}).get("decision") for _, k in self.parked], ["ask_human"])
         self.revert.assert_called_once()
-        self.assertEqual(self.revert.call_args.args[3], {"clamp.py", "test_clamp.py"},
+        self.assertEqual(self.revert.call_args.args[2], {"clamp.py", "test_clamp.py"},
                          "止めた単位の足跡だけを戻す（通した単位の直しは戻さない）")
 
     def test_third_red_test_bound_to_one_unit_parks_only_that_unit(self):
@@ -941,7 +941,7 @@ class TestThirdRejectParksBoundUnit(unittest.TestCase):
         self.assertEqual((got["ok"], got["done"], got["changes"]), (True, True, []), got)
         self.assertEqual(sorted(r["unit_key"] for rs, _ in self.parked for r in rs), sorted([self.MEAN, self.CLAMP]))
         self.assertIn(self.mod.parking.UNBOUND, self.parked[0][1]["ruling"]["text"], "結べなかった訳を文に残す")
-        self.assertEqual(self.revert.call_args.args[3], {"stats.py", "clamp.py", "test_clamp.py"})
+        self.assertEqual(self.revert.call_args.args[2], {"stats.py", "clamp.py", "test_clamp.py"})
 
     def test_third_not_opened_key_is_parked_alone(self):
         # 今の周に開いていない unit_key の行は、3 回目はその単位に結んで止める（ほかの単位は受ける）

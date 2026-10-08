@@ -57,7 +57,7 @@
 - human_lines(b): 最後の関所と報告に載せる ask_human の行（諦めた fix_plan_item の行も。案の直しの理由を末尾に添える）
 - 案の直しの状態（依頼 226。裁定 fix_plan_item の行の欄 REPLAN_STATE）: apply_rulings が WAITING に置き、set_replan の 1 か所だけが
   AMENDED（項目を直した。held_by_rulings が外さず直す義務に戻す）か GAVE_UP（諦めた。asked に入り ask_human の行として並ぶ）に
-  移す（trace の行 REPLAN_OP）。欄の無い前の形の行は WAITING と読む。読む口は replan_state(row)・waiting(b)・amended_keys(b)
+  移す（trace の行 REPLAN_OP）。読む口は replan_state(row)・waiting(b)・amended_keys(b)
 - 1 回目に受け付けた返答の控え（HELD_REPLY。待つ単位が在る間、受け付けが盤面に渡さずに置いた返答で、役の bash_writes を残す）:
   held_reply(b)（今の周に p3.fix を受ける前だけ読む）・accepted_units(b)（fix_duty が直す義務から外す）・held_writes(b)・
   with_held(b, reply, as_handed=)（2 回目の返答に単位ごとに合わせる）・handed(held)（盤面に渡す形）。控えの changes は役が書いた形
@@ -130,7 +130,7 @@ FIELDS_TAMPERED = f"承認済みの修正案の欄の控え（盤面の {planmar
 FIELDS_BROKEN = FIELDS_TAMPERED + "テストの変更の許しを引かずに止めた"   # 修正の段（by FIELDS_STOP_BY）の止めの文
 PARK_OP, RULE_OP = "conflict_parked", "conflict_ruled"   # trace の行
 # 案の直しの状態（裁定 REPLAN の行の欄。依頼 226）。WAITING → AMENDED か GAVE_UP の 2 つの移りだけ（set_replan）
-REPLAN_STATE = "replan"                 # 裁定の行の欄（欄の無い前の形の REPLAN の行は WAITING と読む）
+REPLAN_STATE = "replan"                 # 裁定の行の欄（apply_rulings が REPLAN の行に必ず置く）
 WAITING = "waiting"                     # 案の直しを待つ（単位は直す義務の外）
 AMENDED = "amended"                     # 項目を直した（単位は直す義務に戻る）
 GAVE_UP = "gave_up"                     # 諦めた（ask_human の行として最後の関所と次の run の依頼に届く）
@@ -425,11 +425,10 @@ def ruled_fix(b) -> list:
 
 
 def replan_state(row) -> str | None:
-    """裁定が fix_plan_item の行の案の直しの状態（欄 REPLAN_STATE。欄の無い前の形の行は WAITING）。ほかの裁定・裁いていない
-    行は None"""
+    """裁定が fix_plan_item の行の案の直しの状態（欄 REPLAN_STATE）。ほかの裁定・裁いていない行は None"""
     if (row.get("ruling") or {}).get("decision") != REPLAN:
         return None
-    return row.get(REPLAN_STATE) or WAITING
+    return row[REPLAN_STATE]
 
 
 def waiting(b) -> list:
@@ -751,11 +750,10 @@ def held_writes(b) -> list:
 
 
 def handed(held: dict) -> dict:
-    """控え（held_reply の 1 つ目）の盤面に渡す形: works だけの欄（bash_writes・HANDED）を外し、changes を渡す形の行（HANDED）に
-    した写し。HANDED の無い前の形の控えは changes が渡す形なので、そのまま"""
+    """控え（held_reply の 1 つ目）の盤面に渡す形: works だけの欄（bash_writes・HANDED）を外し、changes を渡す形の行（HANDED。
+    控えを書く blk-fix の受け付けが必ず置く）にした写し"""
     out = {k: v for k, v in held.items() if k not in _HELD_EXTRA}
-    if HANDED in held:
-        out["changes"] = list(held[HANDED])
+    out["changes"] = list(held[HANDED])
     return out
 
 

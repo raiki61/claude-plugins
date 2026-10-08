@@ -169,8 +169,10 @@ class HeldByRulingsCase(KindRowsCase):
     def test_one_rule_with_sorted_reasons(self):
         ruled = {"text": "裁きの文を十字以上で書く", "limits": [], "by": "x"}
         self.write_items([
-            {"id": "c1-1", "unit_key": KEY, "ruling": {**ruled, "decision": "fix_plan_item", "plan_items": [2]}},
-            {"id": "c1-2", "unit_key": OTHER, "ruling": {**ruled, "decision": "fix_plan_item", "plan_items": [1, 3]}},
+            {"id": "c1-1", "unit_key": KEY, "ruling": {**ruled, "decision": "fix_plan_item", "plan_items": [2]},
+             conflict.REPLAN_STATE: conflict.WAITING},
+            {"id": "c1-2", "unit_key": OTHER, "ruling": {**ruled, "decision": "fix_plan_item", "plan_items": [1, 3]},
+             conflict.REPLAN_STATE: conflict.WAITING},
             {"id": "c1-3", "unit_key": OTHER, "ruling": {**ruled, "decision": "ask_human"}},
             {"id": "c1-4", "unit_key": "u-code", "ruling": {**ruled, "decision": "fix_code_as"}},
             {"id": "c1-5", "unit_key": "u-open", "ruling": None}])
@@ -402,15 +404,6 @@ class TestReplanState(unittest.TestCase):
         self.assertEqual(b.traced, [])
         self.assertNotIn("replan_why", conflict.items(b)[1])
 
-    def test_row_without_state_reads_as_waiting(self):
-        b = fake_with_rows([row("c1-1", MEAN, "fix_plan_item")])    # この版の前の盤面の行（欄 replan が無い）
-        self.assertEqual(conflict.replan_state(conflict.items(b)[0]), "waiting")
-        self.assertEqual([r["id"] for r in conflict.waiting(b)], ["c1-1"])
-        self.assertEqual(conflict.asked(b), [])
-        self.assertIn(MEAN, conflict.held_by_rulings(b))
-        conflict.set_replan(b, ["c1-1"], conflict.AMENDED)
-        self.assertEqual(conflict.amended_keys(b), {MEAN})
-
 
 class TestHeldReply(unittest.TestCase):
     def test_accepted_units_leave_duty_but_not_board_owed(self):
@@ -465,13 +458,6 @@ class TestHeldReply(unittest.TestCase):
         self.assertEqual(got, {"changes": [board_row], "not_done": [], "fix_closure": {"status": "open"}},
                          "盤面に渡す形は渡した行で、works だけの欄（bash_writes・HANDED）を外す")
         self.assertEqual(conflict.accepted_units(b), {CLAMP})
-
-    def test_held_without_handed_rows_is_the_board_form(self):
-        """欄 HANDED の無い前の形の控え（changes が渡した形）は、そのまま盤面に渡す形"""
-        b = fake_with_rows([])
-        hold(b, {"changes": [clamp_row()], "not_done": [], "bash_writes": []})
-        self.assertEqual(conflict.handed(conflict.held_reply(b)[0]), {"changes": [clamp_row()], "not_done": []})
-        self.assertEqual(conflict.with_held(b, {"changes": []}, as_handed=True)["changes"], [clamp_row()])
 
     def test_broken_handed_rows_are_board_gap(self):
         b = fake_with_rows([])
