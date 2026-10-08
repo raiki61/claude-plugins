@@ -641,10 +641,10 @@ class PortabilityCase(unittest.TestCase):
 
 
 # 試験を走らせる run（dogfood.sh・use.sh・包み）が export する変数。試験の子に届くと、既定の振る舞いを見る試験が外の run に左右される
-LEAKY_ENV = {"WORKS_DEV_ADAPTER": "1", "WORKS_CONTEXT7_MCP": "on", "WORKS_CONTEXT7": "off"}
+LEAKY_ENV = {"WORKS_DEV_ADAPTER": "1", "WORKS_LIBDOCS_WEB": "off"}
 
 FAKE_UV_ENV = """#!/bin/sh
-for n in WORKS_DEV_ADAPTER WORKS_CONTEXT7_MCP WORKS_CONTEXT7; do
+for n in WORKS_DEV_ADAPTER WORKS_LIBDOCS_WEB; do
   eval "v=\\${$n-(unset)}"
   echo "$n=$v" >> "$FAKE_ENV_LOG"
 done

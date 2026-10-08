@@ -336,8 +336,7 @@ def sh_assigned(case, text, names):
 
 class Ledger(unittest.TestCase):
     """控えの形と版（設計書 2.3 の ledger）。書く時はいつも今の版、欄の無い古い控えは元の形として読み、知らない版は止める"""
-    LOAD_NAMES = ("WORKS_DEV_MODEL", "WORKS_MODEL_PINNED", "CLAUDE_BIN_PATH", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_ADAPTER",
-                  "WORKS_CONTEXT7_KEYCHAIN_ITEM")
+    LOAD_NAMES = ("WORKS_DEV_MODEL", "WORKS_MODEL_PINNED", "CLAUDE_BIN_PATH", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_ADAPTER")
 
     def setUp(self):
         self.dir = pathlib.Path(tempfile.mkdtemp())
@@ -360,11 +359,14 @@ class Ledger(unittest.TestCase):
         self.assertEqual(self.save(WRAP_REF="refs/works/wraps/from-env")["wrap_ref"], "")   # 環境からは読まない（旗だけ）
         self.assertEqual(doc["schema"], 1)
         self.assertEqual({k: doc[k] for k in ("run_id", "target", "model", "claude_bin", "keychain_item", "adapter",
-                                              "wrap_ref", "github_reads", "herdr_pane", "herdr_socket", "context7_keychain_item")},
+                                              "wrap_ref", "github_reads", "herdr_pane", "herdr_socket")},
                          {"run_id": "run-1", "target": "/t", "model": "", "claude_bin": "/c", "keychain_item": "item",
                           "adapter": "1", "wrap_ref": "refs/works/wraps/abc", "github_reads": "/h/reads/1.json",
-                          "herdr_pane": "pane-7", "herdr_socket": "/s/herdr.sock", "context7_keychain_item": "c7-item"})
-        self.assertNotIn("ctx7sk-secret", json.dumps(doc), "Context7 の鍵の値は控えに書かない（項目の名だけ）")
+                          "herdr_pane": "pane-7", "herdr_socket": "/s/herdr.sock"})
+        # Context7 はやめた（持ち主 2026-10-09）: 前の版の鍵の項目の名が env に残っていても控えに書かない
+        self.assertNotIn("context7_keychain_item", doc)
+        self.assertNotIn("c7-item", json.dumps(doc))
+        self.assertNotIn("ctx7sk-secret", json.dumps(doc))
         self.assertEqual(doc["model_resolved"], {"value": "opus", "from": "既定（WORKS_DEV_MODEL_DEFAULT）"})
         self.assertIsInstance(doc["started_at"], float)
         self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["run-1.json"])   # 途中の写しを残さない
@@ -423,16 +425,21 @@ class Ledger(unittest.TestCase):
         return sh_assigned(self, out, self.LOAD_NAMES)
 
     def test_load_pins_resolved_model_only_when_model_was_not_given(self):
-        self.save("default", WORKS_DEV_MODEL="", CLAUDE_BIN_PATH="/c d/claude", WORKS_KEYCHAIN_ITEM="it's", WORKS_DEV_ADAPTER="",
-                  WORKS_CONTEXT7_KEYCHAIN_ITEM="c7 item")
+        self.save("default", WORKS_DEV_MODEL="", CLAUDE_BIN_PATH="/c d/claude", WORKS_KEYCHAIN_ITEM="it's", WORKS_DEV_ADAPTER="")
         got = self.loaded("default")
         self.assertEqual(got, {"WORKS_DEV_MODEL": "", "WORKS_MODEL_PINNED": "opus", "CLAUDE_BIN_PATH": "/c d/claude",
-                               "WORKS_KEYCHAIN_ITEM": "it's", "WORKS_DEV_ADAPTER": "", "WORKS_CONTEXT7_KEYCHAIN_ITEM": "c7 item"})
+                               "WORKS_KEYCHAIN_ITEM": "it's", "WORKS_DEV_ADAPTER": ""})
         self.save("explicit", value="sonnet", origin="env WORKS_DEV_MODEL", WORKS_DEV_MODEL="sonnet")
         got = self.loaded("explicit")
         self.assertEqual((got["WORKS_DEV_MODEL"], got["WORKS_MODEL_PINNED"]), ("sonnet", "(unset)"))
-        self.assertEqual((got["CLAUDE_BIN_PATH"], got["WORKS_KEYCHAIN_ITEM"], got["WORKS_CONTEXT7_KEYCHAIN_ITEM"]),
-                         ("(unset)", "(unset)", "(unset)"))
+        self.assertEqual((got["CLAUDE_BIN_PATH"], got["WORKS_KEYCHAIN_ITEM"]), ("(unset)", "(unset)"))
+
+    def test_load_does_not_export_a_context7_item_of_an_older_ledger(self):
+        """前の版の控えに Context7 の鍵の項目の名（context7_keychain_item）が在っても、続きの殻に戻さない（読み飛ばすだけで止めない）"""
+        (self.dir / "c7.json").write_text(json.dumps({"schema": 1, "run_id": "c7", "model": "opus", "claude_bin": "/c",
+                                                      "context7_keychain_item": "c7-item"}))
+        got = self.loaded("c7")
+        self.assertEqual(got["CLAUDE_BIN_PATH"], "/c")
 
     def test_load_reads_old_ledger_without_schema(self):
         (self.dir / "old.json").write_text(json.dumps({"run_id": "old", "model": "", "claude_bin": "/c", "adapter": "1"}))
