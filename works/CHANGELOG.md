@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.48] - 2026-10-08
+
 ### Added
 
 - canary の確かめ役（`dev/canary_check.py`）に、読むだけの確かめ (j) 返答の契約を足した: 局所レビューの起動がどれも旗 `text-reply` で、返答の契約の記録が起動ごとに決めを持ち、返答の道具が残った跡（`kind: native`・その会話の `outputs.jsonl` の行）が無ければ yes。出し直しを使い切った・誤りの result・決めの無い起動・包みが拒んだ起動が在れば attempted、旗の無い起動・返答の道具の跡が在る・子を起こした起動が無いなら no。(h) 記録のフックは、局所レビューの起動が全部旗 `text-reply` の run では、フックが起きない形が正しいので、見ていないレンズが在っても no でなく attempted と言う
