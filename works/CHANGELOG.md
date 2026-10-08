@@ -6,6 +6,14 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- `use.sh start` が、`test_cmd` が対象の手元（元の clone）を走らせる形なら、Archon を起こさずに止まるようにした（終了コード 2。依頼の写し・TDD の実行器・pack の写し・包んだ commit を作る前）。止める形は、手元の在る物を絶対パスで指す `test_cmd`（`/手元/.venv/bin/pytest`・`cd /手元 && uv run pytest`・`pytest /手元/tests`・`PYTHONPATH=/手元/src …`・`make -C /手元 test` など。git が無視するかを問わない）と、対象を editable で入れた仮想環境を立てたまま起こし `uv run` で始まらない `test_cmd`。どちらも run の試験が worktree の直しでなく手元のコードを試すので、直しの正誤に関わらず緑になり得る（黙った偽の緑）。今までは `注意（test_cmd）` の行を出して起こしていた（0.2.41）。止めた時は `止める（test_cmd）` の行と、理由・書き直す形（`uv run pytest -q`）・止めの外し方の 1 行を標準エラーに出す。形を知った上でそのまま回すなら `WORKS_USE_ALLOW_TESTCMD=1` を前に付けて打ち直す（未設定・空・1 だけを受け、ほかの値は何かを作る前に拒む）。1 なら今までどおり同じ行を `注意（test_cmd）` で出して起こし、止めを外したことを 1 行出す。worktree で走らない形（git が無視するパスを相対で指す `.venv/bin/pytest` など。走れば落ちて分かる）は今までどおり `注意（test_cmd）` の行だけで止めない。知らせの殻 `dev/testcmd_check.py` は止める形が在れば終了コード 3 を返す（`--allow-checkout` で行の頭を `注意` にする）
+
+### Fixed
+
+- `use.sh start` の `test_cmd` の知らせ（`dev/testcmd_check.py`）が、所を変える形の後ろの本当のコマンドを見逃していたのを直した（手元の試しの git で確かめた）: `pushd <先> &&`・`cd -P <先> &&`（旗の付いた cd）・`sh -c '…'`・`bash -lc "…"` の中・`make -C`・`env -C`・`git -C`・`uv run --directory`・`npm --prefix`・`yarn --cwd`・`pnpm -C` などの所を変える旗（空白で分けても `=` に繋いでもよい）。今は cd と同じに先をパスとして見て、後ろの語をその先から読む。サブシェルの括弧の中の cd は、括弧を閉じたら戻す（`(cd sub) && .venv/bin/pytest` を `sub/.venv` と読み違えない）。`cd /手元 && uv run pytest` のように絶対パスで手元へ cd して相対で書いた試験（手元をまるごと試す形）と、`NAME=値`・`--旗=値` の値（`PYTHONPATH` の `:` 区切りも）で手元を指す形も、今は見る（上の止める形）。中のコマンドを隠す形（`-C` の無い `make test`・`npm test`・`tox`・試験の台本のファイルの中身・`eval` など）・変数・`~`・`$(…)` はまだ読まない（漏れの一覧は `dev/testcmd_check.py` の頭）
+
 ## [0.2.44] - 2026-10-08
 
 ### Fixed

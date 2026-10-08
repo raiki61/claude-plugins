@@ -45,8 +45,10 @@
 # - tdd_suite: 第 4 引数が在ればそのまま（空は輪を飛ばす）。無ければ test_cmd が pytest の 1 コマンド（前に uv run・poetry run・
 #   python3 -m を許す。; & | < > $ ` を含まない）の時だけ、その末尾に JUnit XML の書き先を足す実行器を <家>/suites/ に書いて渡す。
 #   それ以外は空（全部の単位を直に直す）にして 1 行で知らせる。test_cmd を省けば空（ラインの既定: 対象の宣言か CI）。
-# - test_cmd が run・単位の worktree で効かない形（対象の git が無視するパスを指す・対象を editable で入れた立てた仮想環境を掴む）なら、Archon を起こす前に
-#   「注意（test_cmd）」の行を出す（止めない。決まりは testcmd_check.py）。
+# - test_cmd が対象の手元（元の clone）を走らせる形（手元の在る物を絶対パスで指す・対象を editable で入れた立てた仮想環境を掴む）なら、
+#   直しの正誤に関わらず緑になり得るので、何かを写す前に「止める（test_cmd）」の行と理由の 1 行で止める（終了コード 2）。
+#   WORKS_USE_ALLOW_TESTCMD=1（未設定・空・1 だけを受ける）なら止めずに「注意（test_cmd）」の行を出して起こす。run・単位の worktree で
+#   走らない形（対象の git が無視するパスを相対で指す）は「注意（test_cmd）」の行だけ（止めない）。決まりは testcmd_check.py。
 # - 最後の関所は WORKS_USE_FINAL_GATE（既定 protected_only＝守りのファイルを触った時だけ・when_needed・always）。包みは既定で入れる（WORKS_DEV_ADAPTER=0 か空の明示で外し、
 #   adapter=optional と「包み無し」を出す）。入力 policy_md・gates・thickness・features_off は WORKS_USE_POLICY_MD・WORKS_USE_GATES・
 #   WORKS_USE_THICKNESS・WORKS_USE_FEATURES_OFF（空なら渡さない。features_off は切る機能の語のカンマ区切り。語は start が確かめる）。
@@ -117,6 +119,7 @@ WORKS_USE_FEATURES_OFF="${WORKS_USE_FEATURES_OFF:-}"
 WORKS_USE_FIX_FIXTURE="${WORKS_USE_FIX_FIXTURE:-}"
 WORKS_USE_WAIT_SECONDS="${WORKS_USE_WAIT_SECONDS:-540}"
 WORKS_USE_ALLOW_STOPPED="${WORKS_USE_ALLOW_STOPPED:-}"
+WORKS_USE_ALLOW_TESTCMD="${WORKS_USE_ALLOW_TESTCMD:-}"
 export WORKS_DEV_MODEL WORKS_DEV_ADAPTER WORKS_USE_SH
 # start の時の既定の釘は控えからだけ受ける（load_ledger が置く）。利用者の殻に残った値で既定を替えさせない
 unset WORKS_MODEL_PINNED
@@ -135,6 +138,10 @@ if [ "$CMD" = start ]; then
   case "${WORKS_USE_UNATTENDED:-}" in
     "" | 1) ;;
     *) refuse "WORKS_USE_UNATTENDED は 1（無人の run）か空（今どおり）。受けた値: ${WORKS_USE_UNATTENDED}" ;;
+  esac
+  case "$WORKS_USE_ALLOW_TESTCMD" in
+    "" | 1) ;;
+    *) refuse "WORKS_USE_ALLOW_TESTCMD は 1（対象の手元を走らせる test_cmd でも起こす）か空（止める）。受けた値: ${WORKS_USE_ALLOW_TESTCMD}" ;;
   esac
   # 固定材料のフォルダは打ったフォルダから絶対にする（ラインは相対を run の worktree の根から読むので、殻で解いて渡す）
   if [ -n "$WORKS_USE_FIX_FIXTURE" ]; then
@@ -670,6 +677,29 @@ elif got:
 esac
 
 # ---- start
+# run・単位の worktree は commit から切るので、対象の git が無視する物（.venv・node_modules など）が無い。test_cmd の形を
+# testcmd_check.py が分ける（決まりはそちら）: 対象の手元（元の clone）を走らせる形（絶対パスで手元を指す・対象を editable で
+# 入れた立てた仮想環境を掴む）は、直しの正誤に関わらず緑になり得るので、依頼の写し・実行器・pack の写しを作る前に止める（2）。
+# WORKS_USE_ALLOW_TESTCMD=1 なら「注意」の行を出して起こす。worktree で走らない形（相対の .venv など。走れば落ちて分かる）は
+# 「注意」の行だけで止めない。確かめの殻そのものが落ちたら 1 行出して進める（止めるのは形を名指せた時だけ）
+_tc_rc=0
+_tc_out="$(python3 -I "$DEV_DIR/testcmd_check.py" ${WORKS_USE_ALLOW_TESTCMD:+--allow-checkout} "$TARGET" "$TEST_CMD")" || _tc_rc=$?
+case "$_tc_rc" in
+  0) [ -z "$_tc_out" ] || printf '%s\n' "$_tc_out" ;;
+  3)
+    if [ "$WORKS_USE_ALLOW_TESTCMD" = 1 ]; then
+      printf '%s\n' "$_tc_out"
+      echo "WORKS_USE_ALLOW_TESTCMD=1 なので止めずに起こす（上の形は worktree の直しでなく対象の手元を試し得る）"
+    else
+      printf '%s\n' "$_tc_out" >&2
+      refuse "test_cmd が対象の手元（${TARGET}）を走らせる形なので、Archon を起こさずに止めた（run の試験が直しでなく手元のコードを試し、直しの正誤に関わらず緑になり得る）。worktree の中で環境を作り worktree の相対で書く形（例 uv run pytest -q。npm は npm ci && npm test）にして打ち直す。形を知った上でそのまま回すなら WORKS_USE_ALLOW_TESTCMD=1 を前に付けて打ち直す（works/README.md の「test_cmd と worktree」）"
+    fi
+    ;;
+  *)
+    [ -z "$_tc_out" ] || printf '%s\n' "$_tc_out"
+    echo "use.sh: test_cmd の形の確かめ（testcmd_check.py）が終了コード ${_tc_rc} で落ちた。確かめずに進める" >&2
+    ;;
+esac
 if [ -n "$WORKS_LAUNCH_ADAPTER_MODE" ]; then
   echo "包み無し（WORKS_DEV_ADAPTER=${WORKS_DEV_ADAPTER:-空}）: adapter=optional で回し、報告に出る"
 fi
@@ -709,10 +739,6 @@ else
   TDD_SUITE=""
   echo "TDD の輪を飛ばす（全部の単位を直に直す）: test_cmd が pytest の 1 コマンドでない。JUnit XML を第 1 引数に書く実行器を最後の引数 <tdd_suite> に渡せば輪を回す"
 fi
-# run・単位の worktree は commit から切るので、対象の git が無視する物（.venv・node_modules など）が無い。test_cmd がそれを指す・
-# 立てた仮想環境を掴む形なら 1 行ずつ知らせる（止めない。決まりは testcmd_check.py）
-python3 -I "$DEV_DIR/testcmd_check.py" "$TARGET" "$TEST_CMD" || true
-
 # 依頼の欄 pr・issue と --pr が名指した PR・issue を、Archon を起こす前に利用者の env（gh のログインが見える）のまま、対象の根を
 # cwd にして 1 回だけ読む（隔離した Archon の中からは非公開のリポジトリを読めない。設計書 2.8）。--pr の base・head が読めなければ
 # ここで止まる（包んだ参照も pack の写しもまだ作っていない）。名指しが無ければ何も書かない
