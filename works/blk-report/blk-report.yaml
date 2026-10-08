@@ -232,7 +232,7 @@ nodes:
     when: "$rp-route3.output.next == 'report-write'"
     loop_group:
       max_iterations: 3
-      fresh_context: false
+      fresh_context: false        # 書き手は同じ会話で出し直す（印の旗 self-resume）。中の初見の読み手は節の context: fresh
       until_bash: test $report-write-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
       nodes:
         - id: report-write-prep
@@ -265,7 +265,7 @@ nodes:
           idle_timeout: 1728000000
           # report_roles.output_format("report-write")（本文の型に印）を貼った物（tests/test_blk_report.py が一致を見る）
           output_format:
-            description: 'works-node: report-write'
+            description: 'works-node: report-write self-resume'
             type: object
             required: [text]
             additionalProperties: false
@@ -302,6 +302,9 @@ nodes:
           # 指示は commands/report-cold.md（初見の読み手の決まり）に書き手の頭を描いた本文を入れた物（支度が組む。写しを持たない）
           prompt: $report-write-cold-prep.output.prompt
           depends_on: [report-write, report-write-cold-prep]
+          # どの周も新しい会話（初見の読み手）。Archon の輪は直前の AI の節の会話を次の AI の節に継がせるので、書かないと書き手の
+          # 会話の続きで読み、1 回目から初見でなくなる（run f57a5374）。書き手は印の旗 self-resume で自分の会話に戻る
+          context: fresh
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: []           # 道具を一切持たない（本線の cold-reader の tools: []。貼られた本文だけを読む）
           mutates_checkout: false

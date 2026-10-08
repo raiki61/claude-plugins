@@ -14,7 +14,7 @@
   "blk-purpose/blk-purpose.yaml": "5d4ccd7cbaf8c680096b1fa9cd843f283e168e608ba59c5911d69ae82b400823",
   "blk-refix/blk-refix.yaml": "5f45883e108c4e625d03087412fd3ee4ba4344b8e64d09fa4148a8e7f0c703a1",
   "blk-rejudge/blk-rejudge.yaml": "539f1e4a310584d17bb3cf67a4e4f285911969a073637ab9ca9d1e9ac3c88b07",
-  "blk-report/blk-report.yaml": "bd08093ed532c2afbaff1c89f2e2f667bb296e7eac5c963f2ccd9270e7736566",
+  "blk-report/blk-report.yaml": "c0f3f9dba14ef544bcb9ee795d4323c7a82827a24168931e2355d8adc8205924",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "147d73c7390cadbe477bbb6bb3264630227bea75759564d0e4a8b9adaa40634e",
   "darkfactory/darkfactory.yaml": "ddf3ec5b3e94b3994c25803ecedecdf8f27a473f46b7004fd82e77f78fdde49d"
@@ -2250,6 +2250,9 @@
       {
        "deps": [
         "report-write-prep"
+       ],
+       "flags": [
+        "self-resume"
        ],
        "id": "report-write",
        "kind": "ai",

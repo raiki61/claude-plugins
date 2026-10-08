@@ -365,8 +365,8 @@
    "id": "wt3",
    "title": "Context7 から取れなかった物を盤面に控えない（次の周に取り直す。数で言う）",
    "file": ".shared/core/libdocs.py",
-   "old": "            if got[\"status\"] in (\"ok\", \"not_found\"):\n                board.work(",
-   "new": "            if True:\n                board.work(",
+   "old": "            if got[\"status\"] in (\"ok\", \"not_found\"):\n                keep(name, got)",
+   "new": "            if True:\n                keep(name, got)",
    "tests": {
     "tests/test_libdocs.py": [
      "SectionCase.test_failure_is_declared_by_number_and_not_cached"

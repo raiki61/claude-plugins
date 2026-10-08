@@ -110,7 +110,9 @@ def output_format(role) -> dict:
         return node_marker.mark(_accept.role_schema(NODE_OF[COLD]), role)
     nid = _node(role)
     schema = _accept.role_schema(nid) if nid == NODE_OF[COLD] else TEXT_SCHEMA
-    return node_marker.mark(schema, role)
+    # 書き手の輪には初見の読み手（context: fresh の新しい会話）が挟まり、Archon は次の周の書き手にその会話を継がせる。
+    # 旗 self-resume で包みが 2 周目から書き手自身の会話に戻す（adapter の 1）
+    return node_marker.mark(schema, role, flags=("self-resume",) if role == WRITE else ())
 
 
 def open_board(board_dir, *, allow_halted=False):
