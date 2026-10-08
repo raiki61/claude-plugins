@@ -894,6 +894,16 @@ def select_tests(m, fast=(), scope=None, all_modules=None, direct_only=False, na
             "modules": mods, "left": left}
 
 
+def _junit_module(case):
+    f = case.get("file")
+    if f:
+        return _mod(f)
+    for part in (case.get("classname") or "").split("."):
+        if TEST_NAME.match(part + ".py") or part.startswith("test_"):
+            return part
+    return None
+
+
 def tree_files(repo):
     """作業ツリーの file の一覧（追跡中と、無視されていない未追跡。submodule・symlink は除く）。git が使えなければ None"""
     try:
