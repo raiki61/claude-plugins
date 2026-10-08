@@ -1,8 +1,8 @@
 """works/dev/canary_check.py — canary の run（dev/canary.sh）が、狙った道を本当に通ったかを、終わった run の記録から出す（開発の殻。
 読むだけで何も書かない）。
 
-  python3 canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix|units|large] [--json]
-  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] [--request tdd|fix|units|large] [--json]
+  python3 canary_check.py <canary の置き場> [<run-id>] [--request tdd|fix|units|large|lanes2] [--json]
+  python3 canary_check.py --db <archon.db> --run <run-id> [--board <盤面>] [--diff <差分>] [--launches <置き場>] [--request tdd|fix|units|large|lanes2] [--json]
 
 置き場の形は canary.sh が作る物（home/archon-home/archon.db・home/runs/<run-id>.json・home/diffs/run-<id>.diff）。run-id を省けば
 home/runs の一番新しい控えの run。盤面は Archon の run の行の output_root の下の artifacts/runs/<id>/board（--board で替える）。
@@ -10,8 +10,8 @@ db は読むだけで開く（?mode=ro）。盤面と run ごとの置き場（�
 包みの起動の記録（adapter.py の launches。置き場の形では home/adapter/launches/、--db の形では --launches で名指す）も
 読むだけで、盤面の state.json の run の worktree（inputs.cwd）のファイルの、盤面を作った後の行だけをその run の物と見る。
 --request は canary.sh の --request と同じ語（tdd は既定の canary-request.json、fix は canary-request-fix.json、units は固定材料
-canary-fixture-units/ から始める run、large は測りの canary-request-large.json）で、終了コードだけを変える（fix なら (e) も yes で
-ないと 1、units は (f) だけ・large は (g) だけで決める）。出す物は同じ。
+canary-fixture-units/ から始める run、large は測りの canary-request-large.json、lanes2 は canary-request-lanes2.json）で、終了コードだけを
+変える（fix なら (e) も yes でないと 1、units は (f) だけ・large は (g) だけ・lanes2 は (j) だけで決める）。出す物は同じ。
 
 見る道（canary.sh の頭の (a)〜(d)）と、通ったと言う決まり:
 - (a) parallel（別のファイルの 2 項目以上の並べ）: no の時は、TDD の輪が振り分けの後に並べなかった理由（盤面の trace の
@@ -63,6 +63,11 @@ canary-fixture-units/ から始める run、large は測りの canary-request-la
   起きていない）。記録が在って戻せなかった・記録が読めないなら attempted、見ていない行が無ければ yes。控えが無ければ no
 - (i) cold_new（報告の初見の読み手の会話。読むだけで終了コードには数えない）: 包みの起動の記録のうち report-write-cold の起動が
   どれも新しい会話（session.mode が new）なら yes。書き手の会話を継いだ起動が在る・起動が無い・記録が読めないなら no
+- (j) lane_chain（修正役の並べの 1 本の枝が 2 つ以上の項目を順に直したか。canary-request-lanes2.json の狙い。run 97fd532f）: 植えた枝
+  （trace の fix_lanes_planted の items）のうち項目が 2 つ以上の枝と、締めの行（fix_lanes_settled の outcomes）の項目ごとの結末を出す。
+  通ったと言う決まり: 2 項目以上の枝が在り、その枝の 2 つ目からの項目が全部 merged（項目の頭から照らして当たった）。2 項目以上の枝が
+  無ければ no（植えた枝の項目か fix-fork の理由を添える）、在って 2 つ目からの項目が戻った・締めの行が無いなら attempted（戻った項目と
+  理由を名指す）
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
 tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から node_completed・node_failed まで）、AI の節の費用の和
@@ -70,7 +75,7 @@ tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から no
 取れない節の名と理由（Archon が costUsd を source unavailable で記録した節。和に入らないので、和は下限）、出来事の最初から
 最後までの分、差分が変えたファイル。
 
-終了コード: 0 = (a)(b)(c)（--request fix なら (e) も。--request units は (f) だけ・--request large は (g) だけ）が全部 yes・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・
+終了コード: 0 = (a)(b)(c)（--request fix なら (e) も。--request units は (f) だけ・--request large は (g) だけ・--request lanes2 は (j) だけ）が全部 yes・1 = どれかが yes でない・2 = 引数の誤り・db が開けない・
 run が無い（標準エラーに 1 行）。
 出力は辞書を書いた順（同じ入力なら同じ出力）。時刻は記録の物だけを使う。
 """
@@ -126,7 +131,7 @@ LAUNCHES = ("adapter", "launches")   # 利用の家の下の包みの起動の�
 CONFLICT_PHASE = "conflict"   # TDD の輪の呼びの段の語のうち、食い違いの申し出（tddloop の step が積む calls の phase）
 # canary.sh の --request の語と、終了コードを決める道（tdd は (a)〜(c)・fix は (e) も・units は (f) だけ）
 REQUESTS = {"tdd": ("a_parallel", "b_overlap", "c_consult"), "fix": ("a_parallel", "b_overlap", "c_consult", "e_fix_lanes"),
-            "units": ("f_item_units",), "large": ("g_measure",)}
+            "units": ("f_item_units",), "large": ("g_measure",), "lanes2": ("j_lane_chain",)}
 # 測り（(g)）の段: include（節の名の頭の <include>__）ごとの段。include の外の線の節（start・h-*・report など）は段 LINE_STAGE で、
 # run の全体に散るので分は区間の和。修正の include（FIX_SCOPES）の中は、さらに TDD の輪の段（TDD_TOP）と修正役の段（FIX_TOP）を
 # 外の輪の節の名で分けて出す
@@ -467,6 +472,35 @@ def fix_lane_run(trace: list, asks: list, fix_lane_nodes: dict, launches: list |
     return {"status": YES if yes else ATTEMPTED, "why": "・".join(facts)}, got
 
 
+def lane_chain(trace: list) -> tuple[dict, dict]:
+    """((j) の判じ {status, why}, 出す証拠 {chains: {枝: [項目]}, outcomes: [{item, lane, outcome, why}]})。植えた行が 2 度以上
+    在れば（修正の輪の後の周など）、2 項目以上の枝を持つ一番後の行と、その後の締めの行を見る"""
+    planted = [(k, r) for k, r in enumerate(trace) if r.get("op") == fixlanes.PLANTED_OP]
+    chained = [(k, r) for k, r in planted
+               if any(isinstance(v, list) and len(v) >= 2 for v in (r.get("items") or {}).values())]
+    if not chained:
+        seen = [f"{r.get('items')}" if r.get("lanes") else f"植えなかった（{r.get('why') or '理由の記録が無い'}）"
+                for _, r in planted]
+        return {"status": NO, "why": "項目が 2 つ以上の枝が無い（" + ("・".join(seen) or "fix-fork の行が無い") + "）"}, \
+            {"chains": {}, "outcomes": []}
+    at, row = chained[-1]
+    chains = {str(n): list(v) for n, v in (row.get("items") or {}).items() if isinstance(v, list) and len(v) >= 2}
+    settled = next((r for r in trace[at + 1:] if r.get("op") == fixlanes.SETTLED_OP), None)
+    outs = [{k: o.get(k) for k in ("item", "lane", "outcome", "why")} for o in (settled or {}).get("outcomes") or []
+            if isinstance(o, dict)]
+    got = {"chains": chains, "outcomes": outs}
+    if settled is None:
+        return {"status": ATTEMPTED, "why": f"2 項目以上の枝 {chains} を植えたが締めの行が無い"}, got
+    by = {(str(o.get("lane")), o.get("item")): o for o in outs}
+    later = [(n, i) for n, items in chains.items() for i in items[1:]]
+    bad = [(n, i, by.get((n, i)) or {}) for n, i in later if (by.get((n, i)) or {}).get("outcome") != fixlanes.MERGED]
+    facts = f"2 項目以上の枝 {chains}・締め merged {settled.get('merged') or []}・back {settled.get('back') or []}"
+    if bad:
+        return {"status": ATTEMPTED, "why": facts + "・2 つ目からの項目で当たらなかった物: " + "・".join(
+            f"枝 {n} の項目 {i}（{(o.get('outcome') or '結末の記録が無い')}: {(o.get('why') or '')[:200]}）" for n, i, o in bad)}, got
+    return {"status": YES, "why": facts + "・2 つ目からの項目は全部当たった"}, got
+
+
 def outcome(board: pathlib.Path) -> str:
     """報告（report.md）の冒頭の起きたことの行（gatemarks.HAPPENED）の括弧の結末の語（report.OUTCOMES）。報告が無い・読めなければ空"""
     try:
@@ -747,6 +781,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
     e, fix_run = fix_lane_run(trace, asks, fix_lane_nodes, launch_rows)
     h, hook = lens_hook(board, run_outputs(launches, board))
     i, cold = cold_launches(launch_rows)
+    j, chain = lane_chain(trace)
     f, units_run = item_units(board, items, trace, events)
     spent, done = spend(events), outcome(board)
     g, measured = measure(board, events, tdd_lanes=tdd_lanes_n, tdd_par=tdd_par, fix_lanes=fix_run["planted"], fix_par=fixl_par,
@@ -760,7 +795,8 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
         "report": str(board / report.REPORT_FILE) if (board / report.REPORT_FILE).is_file() else "",
         "features": {"a_parallel": a, "b_overlap": b, "c_consult": c,
                      "d_replan": {"status": YES if d[conflict.REPLAN_OP] or d[planmarks.AMEND_OP] else NO, "counts": d},
-                     "e_fix_lanes": e, "f_item_units": f, "g_measure": g, "h_record_output": h, "i_cold_new": i},
+                     "e_fix_lanes": e, "f_item_units": f, "g_measure": g, "h_record_output": h, "i_cold_new": i,
+                     "j_lane_chain": j},
         "plan_items": items,
         "planned_overlap": planned,
         "tdd_lanes": loops,
@@ -773,6 +809,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
         "lane_nodes": lane_nodes,
         "fix_lane_nodes": fix_lane_nodes,
         "fix_lane_run": fix_run,
+        "lane_chain": chain,
         "item_units": units_run,
         "measure": measured,
         "lens_hook": hook,
@@ -794,6 +831,7 @@ def summary_lines(got: dict) -> list:
     for r in got["fix_lane_run"]["answer_launches"]:
         out.append(f"  {r['node']} {r['mode'] or '?'}{' fork' if r['fork'] else ''} 元 {r['of'] or '?'}（{r['from'] or '?'} → "
                    f"{r['id'] or '?'}）")
+    out.append(f"(j) 枝の中の 2 つ目からの項目: {f['j_lane_chain']['status']} — {f['j_lane_chain']['why']}")
     out.append(f"(f) 1 つの項目の 2 つの単位: {f['f_item_units']['status']} — {f['f_item_units']['why']}")
     out.append(f"(h) 記録のフック: {f['h_record_output']['status']} — {f['h_record_output']['why']}")
     out.append(f"(i) 報告の初見の読み手の会話: {f['i_cold_new']['status']} — {f['i_cold_new']['why']}")

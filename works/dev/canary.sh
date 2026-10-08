@@ -1,5 +1,5 @@
 #!/bin/sh
-# works/dev/canary.sh [--build-only] [--request tdd|fix|units|large] [<置き場>]
+# works/dev/canary.sh [--build-only] [--request tdd|fix|units|large|lanes2] [<置き場>]
 #
 # canary: 決まった小さな対象（canary-seed/）と決まった依頼（--request tdd は canary-request.json（既定）・fix は
 # canary-request-fix.json）で、ライン darkfactory を本物の AI で 1 回回す
@@ -54,6 +54,15 @@
 #       （範囲の相談を起こさず、測りを並べの段に絞る）。全部 on の run は TDD の枝・修正役の枝が 2 本以上同時に走り結末 fixed で yes、
 #       切った run（features_off に tdd_lanes・fix_lanes）は枝を求めず結末 fixed で yes。canary_check.py は include ごとの段と、修正の
 #       include の中の TDD の輪の段・修正役の段の分と費用と枝の数を出す
+# --request lanes2（canary-seed-lanes2/ と canary-request-lanes2.json。run 97fd532f の直しの本物の確かめ）は、修正役の並べの 1 本の枝が 2 つ以上の
+# 項目を順に直す道を通す（ほかの依頼では枝ごとに項目は 1 つ）:
+#   (j) lane_chain: 種は canary-seed-large の振る舞いのバグを直した写しで、docstring の無い公開の関数が 4 つの別々のファイルに 1 つずつ
+#       （stats.py:mode・units.py:km_to_miles・money.py:split_even・slugs.py:slugify。どれもテストが振る舞いを確かめていて、先に落ちる
+#       テストが無い）。依頼の決め（canary）が 4 件を 4 項目にし、各項目の allowed_paths を自分のファイルだけ・out_of_scope をほかの
+#       3 件のファイルにさせる。枝は 3 本までなので 4 項目なら 1 本の枝が 2 項目を順に直し（fixlanes.assign）、後の項目の out_of_scope に
+#       前の項目が変えたファイルが在る。枝の確かめが項目ごとに項目の頭から照らせば後の項目も当たる（run 97fd532f は枝の base から照らした
+#       ので、後の項目が前の項目のファイルで拒まれ続けた）。計画役が項目を 3 つ以下にまとめれば 2 項目の枝は植わらない（no）。CHANGELOG は
+#       無い（範囲の相談を起こさない）
 # どの依頼の件も docstring と README の決まりで直し方が 1 つに決まる（端の振る舞いを人に聞く余地を残さない）。ラインは 1 周の run なので
 # （entry.start の stop_after_round=1。canary が決めた物ではない）、報告の「止めたか」は「周の締めの後で止めた」と出るのが普通の
 # 終わり。残り（検証器の阻害・独立の目の阻害など）が無ければ結末は fixed、在れば round_limit（2 周目は回らない）。
@@ -69,17 +78,17 @@
 #      人の関所では止まらずに報告まで進む。終わるまで戻らないので、呼び手は裏で起こす（run_in_background か detach.sh）。
 #   3. 戻ったら run id と、canary_check.py の行を出す。走っている間の run id と状態は、先頭に出す show の行で見る。
 # --build-only: 1 だけをして、2 の起動の行を出して終わる（認証も Archon も使わない）。
-# --request: 依頼の語（tdd・fix・units・large。既定 tdd）。test_cmd・手順は同じ（units は種と依頼が固定材料の物で、起動に
-# WORKS_USE_FIX_FIXTURE が付く。large は種が canary-seed-large）。3 の canary_check.py の行に同じ語を付ける（fix は (e) も終了コードに
-# 入れ、units は (f) だけ・large は (g) だけで決める）。WORKS_USE_FEATURES_OFF・WORKS_USE_FEATURES_ON は use.sh がそのまま読む（全部 off・
+# --request: 依頼の語（tdd・fix・units・large・lanes2。既定 tdd）。test_cmd・手順は同じ（units は種と依頼が固定材料の物で、起動に
+# WORKS_USE_FIX_FIXTURE が付く。large は種が canary-seed-large・lanes2 は canary-seed-lanes2）。3 の canary_check.py の行に同じ語を付ける（fix は (e) も終了コードに
+# 入れ、units は (f) だけ・large は (g) だけ・lanes2 は (j) だけで決める）。WORKS_USE_FEATURES_OFF・WORKS_USE_FEATURES_ON は use.sh がそのまま読む（全部 off・
 # 全部 on と比べる run。どちらも付けない run は既定）。
 # 認証は use.sh が WORKS_KEYCHAIN_ITEM の項目から拾う（値は出さない）。canary は名指しの項目だけで回すので、空なら何も作らずに止まる。
 # 模型は WORKS_DEV_MODEL（use.sh と同じ。ここでは埋めない）。WORKS_DEV_USE は use.sh の差し替え（試験が偽物を差す）。
-# 拒む（何も作らずに 1 行で終了コード 2）: 知らない旗・--request の語が tdd・fix・units・large のどれでもない・units の固定材料を使えない・置き場が Claude Code の一時フォルダか /tmp の下・置き場に前の repo・origin.git・home が在る・
+# 拒む（何も作らずに 1 行で終了コード 2）: 知らない旗・--request の語が tdd・fix・units・large・lanes2 のどれでもない・units の固定材料を使えない・置き場が Claude Code の一時フォルダか /tmp の下・置き場に前の repo・origin.git・home が在る・
 # python3 -I で pytest が読めない（隔離した家では利用者の site-packages が見えない）・WORKS_KEYCHAIN_ITEM が空（--build-only は見ない）。
 set -eu
 
-USAGE="usage: canary.sh [--build-only] [--request tdd|fix|units|large] [<置き場>]"
+USAGE="usage: canary.sh [--build-only] [--request tdd|fix|units|large|lanes2] [<置き場>]"
 BUILD_ONLY=""
 REQUEST_WORD=""
 while [ "$#" -gt 0 ]; do
@@ -129,7 +138,11 @@ case "$REQUEST_WORD" in
     SEED="$DEV_DIR/canary-seed-large"
     REQUEST="$DEV_DIR/canary-request-large.json"
     ;;
-  *) refuse "--request は tdd・fix・units・large のどれか（${REQUEST_WORD}）" ;;
+  lanes2)
+    SEED="$DEV_DIR/canary-seed-lanes2"
+    REQUEST="$DEV_DIR/canary-request-lanes2.json"
+    ;;
+  *) refuse "--request は tdd・fix・units・large・lanes2 のどれか（${REQUEST_WORD}）" ;;
 esac
 
 . "$DEV_DIR/guard.sh"

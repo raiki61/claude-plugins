@@ -1,0 +1,30 @@
+[
+ {
+  "where": "stats.py:mode",
+  "text": "mode に docstring が無く、help(stats.mode) に約束が出ない（README の決まり: 公開の関数は docstring に約束を書く）。今の振る舞い（一番多く現れる値を返し、同じ回数なら xs の中で先に現れた方を返す。空の xs は ValueError）は test_lib.py の TestStats の test_mode が確かめていて正しいので、振る舞いは変えずに docstring を足す。修正案の決め（canary）: 依頼の 4 件は別々のファイルの別々の関数なので、4 件をそれぞれ 1 つの項目にする。この項目の allowed_paths は stats.py だけにし、out_of_scope にはほかの 3 件のファイル（units.py・money.py・slugs.py）を 1 つずつ書く（ほかの件の直しをこの項目で触らない）",
+  "mechanism": "def mode の本体の頭に docstring の文が無い（同じファイルの mean・median には在る）",
+  "measured": "python3 -c 'import stats; print(stats.mode.__doc__)' が None を出した",
+  "false_positive_if": "mode が公開の関数でない（README の決まりの外）なら誤り（名は _ で始まらず、README は公開の関数の全部に docstring を求める）"
+ },
+ {
+  "where": "units.py:km_to_miles",
+  "text": "km_to_miles に docstring が無く、help(units.km_to_miles) に約束が出ない（README の決まり: 公開の関数は docstring に約束を書く）。今の振る舞い（キロメートル km を 1.609344 で割ってマイルにする）は test_lib.py の TestUnits の test_km_to_miles が確かめていて正しいので、振る舞いは変えずに docstring を足す。修正案の決め（canary）: 依頼の 4 件は別々のファイルの別々の関数なので、4 件をそれぞれ 1 つの項目にする。この項目の allowed_paths は units.py だけにし、out_of_scope にはほかの 3 件のファイル（stats.py・money.py・slugs.py）を 1 つずつ書く（ほかの件の直しをこの項目で触らない）",
+  "mechanism": "def km_to_miles の本体の頭に docstring の文が無い（同じファイルの c_to_f・f_to_c には在る）",
+  "measured": "python3 -c 'import units; print(units.km_to_miles.__doc__)' が None を出した",
+  "false_positive_if": "km_to_miles が公開の関数でない（README の決まりの外）なら誤り（名は _ で始まらず、README は公開の関数の全部に docstring を求める）"
+ },
+ {
+  "where": "money.py:split_even",
+  "text": "split_even に docstring が無く、help(money.split_even) に約束が出ない（README の決まり: 公開の関数は docstring に約束を書く）。今の振る舞い（total を n 個の整数に分け、和は total で差は 1 以内、余りは先頭から 1 ずつ配る。n が 0 以下なら ValueError）は test_lib.py の TestMoney の test_split_even_remainder_first・test_split_even_exact・test_split_even_more_parts_than_total・test_split_even_needs_parts が確かめていて正しいので、振る舞いは変えずに docstring を足す。修正案の決め（canary）: 依頼の 4 件は別々のファイルの別々の関数なので、4 件をそれぞれ 1 つの項目にする。この項目の allowed_paths は money.py だけにし、out_of_scope にはほかの 3 件のファイル（stats.py・units.py・slugs.py）を 1 つずつ書く（ほかの件の直しをこの項目で触らない）",
+  "mechanism": "def split_even の本体の頭に docstring の文が無い（同じファイルの format_yen には在る）",
+  "measured": "python3 -c 'import money; print(money.split_even.__doc__)' が None を出した",
+  "false_positive_if": "split_even が公開の関数でない（README の決まりの外）なら誤り（名は _ で始まらず、README は公開の関数の全部に docstring を求める）"
+ },
+ {
+  "where": "slugs.py:slugify",
+  "text": "slugify に docstring が無く、help(slugs.slugify) に約束が出ない（README の決まり: 公開の関数は docstring に約束を書く）。今の振る舞い（s を小文字にし、英数字でない字の連なりを - にして、頭と尾の - を取る）は test_lib.py の TestSlugs の test_slugify_words・test_slugify_trims が確かめていて正しいので、振る舞いは変えずに docstring を足す。修正案の決め（canary）: 依頼の 4 件は別々のファイルの別々の関数なので、4 件をそれぞれ 1 つの項目にする。この項目の allowed_paths は slugs.py だけにし、out_of_scope にはほかの 3 件のファイル（stats.py・units.py・money.py）を 1 つずつ書く（ほかの件の直しをこの項目で触らない）",
+  "mechanism": "def slugify の本体の頭に docstring の文が無い（同じファイルの join_path には在る）",
+  "measured": "python3 -c 'import slugs; print(slugs.slugify.__doc__)' が None を出した",
+  "false_positive_if": "slugify が公開の関数でない（README の決まりの外）なら誤り（名は _ で始まらず、README は公開の関数の全部に docstring を求める）"
+ }
+]
