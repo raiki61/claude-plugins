@@ -960,7 +960,7 @@ class TestFixPrep(BoardCase):
             code = rolekit.script_main(mod.run, tuple(n for n in mod.INPUTS if n not in mod.OPTIONAL))   # script の入口と同じ
         self.assertEqual(code, 2, err.getvalue())
         self.assertIn(rel, err.getvalue())
-        docs.assert_not_called()   # 照合は重い仕事（Context7 の引き）より前
+        docs.assert_not_called()   # 照合は重い仕事（ライブラリの文書の引き）より前
         b = entry.open_board(self.board)
         self.assertFalse(b.work(mod.fixrules.SEAT_BRIEFS).exists(), "照合は作業ファイルを書くより前")
         self.assertFalse(b.rd["instances"]["p3.fix"].get("launched_at"), "起こした印を置かない")

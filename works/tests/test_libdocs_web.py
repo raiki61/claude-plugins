@@ -129,14 +129,14 @@ class NodeCase(unittest.TestCase):
         self.assertIn("https://raw.githubusercontent.com/colinhacks/zod/v3.23.8/README.md", http.urls())
 
     def test_monorepo_directory_and_git_head(self):
-        lib = {"name": "@upstash/context7-sdk", "search": "@upstash/context7-sdk", "lang": "js", "uses": [], "version": None}
-        meta = {"name": "@upstash/context7-sdk", "version": "0.2.1", "gitHead": "abc1234",
-                "repository": {"type": "git", "url": "https://github.com/upstash/context7", "directory": "packages/sdk"}}
-        http = Http({"https://registry.npmjs.org/@upstash%2Fcontext7-sdk/latest": (200, meta),
-                     "https://raw.githubusercontent.com/upstash/context7/abc1234/packages/sdk/README.md": (200, "# SDK\n\nhi\n")})
+        lib = {"name": "@acme/tools-sdk", "search": "@acme/tools-sdk", "lang": "js", "uses": [], "version": None}
+        meta = {"name": "@acme/tools-sdk", "version": "0.2.1", "gitHead": "abc1234",
+                "repository": {"type": "git", "url": "https://github.com/acme/tools", "directory": "packages/sdk"}}
+        http = Http({"https://registry.npmjs.org/@acme%2Ftools-sdk/latest": (200, meta),
+                     "https://raw.githubusercontent.com/acme/tools/abc1234/packages/sdk/README.md": (200, "# SDK\n\nhi\n")})
         got = libdocs_web.fetch(lib, None, http)
         self.assertEqual(got["status"], "ok")
-        self.assertEqual(got["docs"][0]["url"], "https://raw.githubusercontent.com/upstash/context7/abc1234/packages/sdk/README.md")
+        self.assertEqual(got["docs"][0]["url"], "https://raw.githubusercontent.com/acme/tools/abc1234/packages/sdk/README.md")
         self.assertEqual(len(http.urls()), 4, "registry 1・tag 2・gitHead 1")
 
     def test_registry_readme_is_used_when_present(self):
