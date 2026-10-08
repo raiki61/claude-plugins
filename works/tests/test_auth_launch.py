@@ -6,6 +6,8 @@
   見ず、__pycache__ は .gitignore に隠れて git status に出ない）。tree_run.py の CLI と run_tests.py（とその import）の分は
   test_tree_run.py と test_blk_tests_delta.py が各々の写しで見る。共有の works/ はどの試験も見ない（別の実行の残り物で揺れる）。
   試験自身の import の分は各試験の頭の sys.dont_write_bytecode に任せ、試験では縛らない
+- Context7 の鍵（設計 works/docs/plans/2026-10-08-libdocs-sources.md の 1 の 10）: WORKS_CONTEXT7_KEYCHAIN_ITEM を名指せば、その項目を
+  利用者の HOME で読んで子（Archon）の環境の CONTEXT7_API_KEY にだけ置く（受け継いだ値より先）。読めなくても止めない。値は出さない
 security は偽の runner に差し替え、本物の keychain には触らない。
 """
 import os
@@ -119,6 +121,40 @@ class ChildEnv(unittest.TestCase):
         self.assertEqual(auth_launch.child_env(env, {"ANTHROPIC_API_KEY": "k"}, False), env)
 
 
+C7 = "ctx7sk-fake-for-test-0123"
+
+
+class Context7Key(unittest.TestCase):
+    def test_named_item_goes_to_the_child_env(self):
+        run = keychain({"c7-item": C7 + "\n"})
+        got, note = auth_launch.context7_env({"WORKS_CONTEXT7_KEYCHAIN_ITEM": "c7-item", "CONTEXT7_API_KEY": "inherited"}, run)
+        self.assertEqual(got, {"CONTEXT7_API_KEY": C7}, "名指しが受け継いだ値より先")
+        self.assertEqual(run.calls, ["c7-item"])
+        self.assertIn("c7-item", note)
+        self.assertNotIn(C7, note)
+
+    def test_without_a_name_the_inherited_key_stays(self):
+        run = keychain({"c7-item": C7})
+        got, note = auth_launch.context7_env({"CONTEXT7_API_KEY": "inherited"}, run)
+        self.assertEqual((got, note, run.calls), ({}, "", []))
+
+    def test_unreadable_item_does_not_stop_and_says_why(self):
+        for env, kept in (({"WORKS_CONTEXT7_KEYCHAIN_ITEM": "missing"}, "鍵なし"),
+                          ({"WORKS_CONTEXT7_KEYCHAIN_ITEM": "missing", "CONTEXT7_API_KEY": "inherited"}, "受け継いだ")):
+            with self.subTest(kept=kept):
+                got, note = auth_launch.context7_env(env, keychain({}))
+                self.assertEqual(got, {})
+                self.assertIn("missing", note)
+                self.assertIn(kept, note)
+                self.assertNotIn("inherited", note)
+
+        def boom(args, **kw):
+            raise OSError("no security")
+        got, note = auth_launch.context7_env({"WORKS_CONTEXT7_KEYCHAIN_ITEM": "x"}, boom)
+        self.assertEqual(got, {})
+        self.assertIn("OSError", note)
+
+
 class IsolatedLaunch(unittest.TestCase):
     def fake_security(self, tmp, service):
         bin_dir = tmp / "bin"
@@ -146,6 +182,31 @@ class IsolatedLaunch(unittest.TestCase):
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
         self.assertEqual(r.stdout.strip(), '{"CLAUDE_CODE_OAUTH_TOKEN": true, "ANTHROPIC_API_KEY": null, "HOME": "%s"}'
                          % (tmp / "iso"))
+        self.assertEqual((bin_dir / "security.home").read_text().strip(), str(tmp / "user"))
+
+    @unittest.skipUnless(sys.platform == "darwin", "SKIP macos: keychain の段は macOS だけ")
+    def test_exec_hands_the_context7_key_only_to_the_child(self):
+        """Context7 の鍵の項目を名指した exec は、子の環境の CONTEXT7_API_KEY にだけ値を置き、標準出力・標準エラーに値を出さない
+        （項目の名だけの 1 行）。security は利用者の HOME で起こす"""
+        tmp = hermetic.tmpdir(self)
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "security").write_text(
+            '#!/bin/sh\necho "$HOME" > "$0.home"\nprev=\nfor a in "$@"; do\n'
+            f'  if [ "$prev" = -s ] && [ "$a" = named ]; then echo {TOKEN}; exit 0; fi\n'
+            f'  if [ "$prev" = -s ] && [ "$a" = c7-item ]; then echo {C7}; exit 0; fi\n'
+            '  prev=$a\ndone\nexit 44\n')
+        (bin_dir / "security").chmod(0o755)
+        probe = "import os; print(os.environ.get('CONTEXT7_API_KEY') == %r)" % C7
+        env = hermetic.child_env(HOME=str(tmp / "iso"), PATH=str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
+                                 WORKS_KEYCHAIN_ITEM="named", WORKS_CONTEXT7_KEYCHAIN_ITEM="c7-item")
+        r = subprocess.run([sys.executable, "-I", str(CORE / "auth_launch.py"), "exec", "--for", "archon.sh",
+                            "--user-home", str(tmp / "user"), "--", sys.executable, "-I", "-c", probe],
+                           env=env, capture_output=True, text=True, encoding="utf-8", timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "True")
+        self.assertNotIn(C7, r.stdout + r.stderr)
+        self.assertIn("c7-item", r.stderr)
         self.assertEqual((bin_dir / "security.home").read_text().strip(), str(tmp / "user"))
 
     def test_exec_stops_with_howto_and_does_not_start_the_child(self):

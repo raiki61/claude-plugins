@@ -947,7 +947,7 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(got, planblk.head("plan", "", planblk.lib_section(b, self.repo)) + "\n\n" + want)
         # 種（stats.py・test_stats.py）は標準ライブラリとリポジトリの中の物だけ: 網に出ず、取らないことを書く
         self.assertIn(libdocs.TITLE, got)
-        self.assertIn("Context7 から取る物は無い（0 本）", got)
+        self.assertIn("ライブラリの文書を取る物は無い（0 本）", got)
         copy = (CORE / "gl-prompts" / "prompts" / "review-loop" / "p2.fix_plan.md").read_text(encoding="utf-8")
         self.assertIn(copy.splitlines()[0], got)                     # 本線の見出し「# P2-10 修正案」
         self.assertIn("この工程が在る理由", got)

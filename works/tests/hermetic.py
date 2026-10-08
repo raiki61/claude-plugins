@@ -20,7 +20,9 @@ import tempfile
 # HERDR_ は herdr の枠の中で試験を回すと、殻が控えに本物の枠とサーバを残して本物の herdr へ送る（枠の試験は名指しで渡す）
 DROPPED_PREFIXES = ("WORKS_DEV_", "CLAUDE_", "ARCHON_", "ANTHROPIC_", "HERDR_")
 DROPPED = frozenset({"CLAUDECODE", "GRAPHLOOPS_ENGINE_CHILD", "WORKS_CLAUDE_VERSION", "WORKS_ARCHON_VERSION",
-                     "WORKS_REAL_CLAUDE", "WORKS_ANSWER_CMD", "WORKS_KEYCHAIN_ITEM"})
+                     "WORKS_REAL_CLAUDE", "WORKS_ANSWER_CMD", "WORKS_KEYCHAIN_ITEM",
+                     # 利用者の Context7 の鍵とその keychain の項目の名（子が本物の keychain を読む・本物の鍵で網に出るのを防ぐ）
+                     "WORKS_CONTEXT7_KEYCHAIN_ITEM", "CONTEXT7_API_KEY"})
 
 
 def dropped(name: str) -> bool:

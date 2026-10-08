@@ -66,7 +66,9 @@ MOD = {
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
     "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None), "rolekit": (3, None), "report": (3, None),
     "impact": (3, None),      # 変更の周りの地図（役が共有して読む。地図はまだどのブロックにも配線しない。libdocs が import の読み取りを使う）
-    "libdocs": (3, None),     # ライブラリの今の文書（Context7）を支度の節が引いて指示書に貼る（blk-fix・blk-plan が使う）
+    "libdocs": (3, None),     # ライブラリの文書（手元の版・公式・Context7）を支度の節が引いて指示書に貼る（blk-fix・blk-plan が使う）
+    "libdocs_local": (3, None),  # 手元に入っている版のライブラリを静的に読む（libdocs が使う）
+    "libdocs_web": (3, None),    # 公式の文書を登録の要らない口で引く（libdocs が使う）
     "protect": (3, None),
     "writes": (3, None),      # 書き込みの出どころの突き合わせ（blk-fix・blk-refix の受け付けと報告が使う）
     "outpurpose": (3, None),  # 判定が凍結した目的の外として単位にしなかった材料の所見の欄・確かめ・控え・次の run の依頼の行（accept の役の型・blk-judge・報告が使う）

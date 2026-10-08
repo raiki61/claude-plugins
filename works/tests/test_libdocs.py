@@ -1,4 +1,4 @@
-"""ライブラリの今の文書（.shared/core/libdocs.py。Context7 の HTTP API を機械が引いて指示書に貼る）の検査。
+"""ライブラリの文書（.shared/core/libdocs.py。手元の版・公式・Context7 の 3 つの出どころを機械が引いて指示書に貼る）の検査。
 
 網には出ない（HTTP の口は偽物を渡す）。盤面は周の置き場（dir・work）だけを持つ偽物。
 - 見つけ方: 単位のファイルの import（Python・JS/TS）から標準ライブラリとリポジトリの中の物を除き、依存の宣言
@@ -10,9 +10,13 @@
   （test_quota_stops_later_calls_and_leads_the_section。報告の冒頭 2 の 1 行は test_report の test_context7_quota_line_in_head_entry）
 - 標準ライブラリだけの対象は何も取らず、取らないことを書く。WORKS_CONTEXT7=off も取らないことを書く
 - 組み立て: 修正役の指示書（fixrules.fix_prompt）と修正案の役の頭（planblk.head）に節が入る
+- 出どころ（SourcesCase。設計 works/docs/plans/2026-10-08-libdocs-sources.md）: 手元の版 → 公式 → Context7 の順に並べ、量の上限の
+  中で分ける。手元で読んだ版で公式と Context7 に問う。どこからも取れなかった物は名指して役に自分で引けと言う。off でも手元は読む。
+  公式の取れた物と見つからない物は盤面と家に控える（取れなかった物は控えない）。Context7 の鍵は Context7 の URL にだけ付ける
 """
 import json
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -64,7 +68,7 @@ class FakeHttp:
         self.calls.append(url)
         for key, (code, doc) in self.routes.items():
             if key in url:
-                return code, json.dumps(doc).encode()
+                return code, (doc if isinstance(doc, str) else json.dumps(doc)).encode()
         return 404, json.dumps({"error": "library_not_found", "message": "no"}).encode()
 
 
@@ -190,7 +194,8 @@ class SectionCase(Base):
         self.assertIn("requests（HTTP 429", text)
         self.assertIn("Context7 に無い 1 本", text)
         self.assertIn("flask", text)
-        self.assertFalse(list(self.board.dir.glob(f"r*/{libdocs.CACHE_DIR}/requests@*.json")), "失敗は控えない（次に取り直す）")
+        self.assertFalse([p for p in self.board.dir.glob(f"r*/{libdocs.CACHE_DIR}/requests@*.json")
+                          if not p.name.endswith(libdocs.OFFICIAL_SUFFIX)], "失敗は控えない（次に取り直す）")
 
     def test_quota_stops_later_calls_and_leads_the_section(self):
         f = self.write("app.py", "import requests\nimport flask\nimport yaml\n")
@@ -246,8 +251,168 @@ class SectionCase(Base):
             seen.append((url, dict(headers)))
             return ok_http()(url, headers)
         self.section([f], http)
-        self.assertTrue(all(h.get("Authorization") == "Bearer ctx7sk-test" for _, h in seen))
+        c7 = [h for u, h in seen if u.startswith(libdocs.API)]
+        self.assertTrue(c7)
+        self.assertTrue(all(h.get("Authorization") == "Bearer ctx7sk-test" for h in c7))
+        self.assertTrue([u for u, _ in seen if not u.startswith(libdocs.API)], "公式の口にも問う")
+        self.assertTrue(all("Authorization" not in h for u, h in seen if not u.startswith(libdocs.API)),
+                        "鍵は Context7 の URL にだけ付ける（公式の口に送らない）")
         self.assertTrue(all("ctx7sk" not in u for u, _ in seen))
+
+
+PYPI = {"info": {"name": "requests", "version": "2.32.3",
+                 "description": "# Requests\n\nHTTP for Humans.\n\n## Sessions\n\nUse `requests.Session` to keep cookies.\n",
+                 "project_urls": {"Documentation": "https://requests.readthedocs.io/en/latest/"}}}
+REQ_SP = ".venv/lib/python3.12/site-packages"
+
+
+class SourcesCase(Base):
+    """3 つの出どころ（手元の版・公式・Context7）を順に並べ、量の上限の中で合わせる"""
+
+    def install(self, base=None):
+        base = base or self.repo
+        sp = base / REQ_SP
+        (sp / "requests").mkdir(parents=True)
+        (sp / "requests" / "__init__.py").write_text(
+            'raise SystemExit("never import")\nfrom .sessions import Session\n', encoding="utf-8")
+        (sp / "requests" / "sessions.py").write_text(
+            'class Session:\n    """A Requests session (LOCAL DOCSTRING)."""\n\n    def mount(self, prefix, adapter):\n'
+            '        """Registers a connection adapter."""\n', encoding="utf-8")
+        (sp / "requests-2.32.3.dist-info").mkdir()
+        (sp / "requests-2.32.3.dist-info" / "METADATA").write_text("Name: requests\nVersion: 2.32.3\n", encoding="utf-8")
+
+    def all_http(self):
+        return FakeHttp({"/v2/libs/search": (200, SEARCH), "/v2/context": (200, CONTEXT),
+                         "pypi.org/pypi/requests/2.32.3/json": (200, PYPI)})
+
+    def test_detect_records_the_used_names(self):
+        f = self.write("app.py", "import requests\nfrom yaml import safe_load\nrequests.get('u')\n")
+        got = libdocs.detect(self.repo, [f])
+        self.assertEqual(got["libs"]["requests"]["uses"], ["requests.get"])
+        self.assertEqual(got["libs"]["yaml"]["uses"], ["yaml.safe_load"])
+        self.assertEqual(got["libs"]["requests"]["symbols"], [], "Context7 の問い（と控えの名）は今までどおり")
+        g = self.write("web/a.ts", "import { object } from 'zod';\n")
+        self.assertEqual(libdocs.detect(self.repo, [g])["libs"]["zod"]["uses"], ["object"])
+
+    def test_three_sources_in_order_with_the_installed_version(self):
+        self.install()
+        f = self.write("app.py", "from requests import Session\n")
+        http = self.all_http()
+        text = libdocs.section(self.board, self.repo, [f], get=http, env={})
+        local, official, c7 = (text.index("LOCAL DOCSTRING"), text.index("Use `requests.Session` to keep cookies"),
+                               text.index("s = requests.Session()"))
+        self.assertLess(local, official)
+        self.assertLess(official, c7)
+        self.assertIn("- 手元の版: 読めた 1 本（requests 2.32.3）", text)
+        self.assertIn("- 公式の文書: 取れた 1 本", text)
+        self.assertIn("/psf/requests/v2.32.3", text, "宣言が無くても手元の版で Context7 の版を指す")
+        self.assertIn("https://pypi.org/pypi/requests/2.32.3/json", http.calls)
+        self.assertIn(str(self.repo / REQ_SP / "requests" / "sessions.py"), text, "手元の断片の出典はファイル")
+        self.assertNotIn("- どこからも文書が無い", text)
+
+    def test_budget_is_shared_and_local_comes_first(self):
+        self.install()
+        f = self.write("app.py", "from requests import Session\n")
+        text = libdocs.section(self.board, self.repo, [f], get=self.all_http(), env={}, budget=60)
+        self.assertIn("LOCAL DOCSTRING", text)
+        self.assertNotIn("s = requests.Session()", text, "量の上限を超える分は後の出どころから切る")
+        m = re.search(r"貼った断片 \d+ 本・(\d+) トークン（予算 60。切った断片 (\d+) 本）", text)
+        self.assertIsNotNone(m, text)
+        self.assertLessEqual(int(m.group(1)), 60)
+        self.assertGreater(int(m.group(2)), 0)
+
+    def test_libraries_without_any_docs_are_named_for_the_roles(self):
+        f = self.write("app.py", "import requests\nimport flask\n")
+        text = libdocs.section(self.board, self.repo, [f], get=FakeHttp(), env={})
+        self.assertIn("- どこからも文書が無い: flask、requests", text)
+        self.assertIn("WebSearch・WebFetch", text)
+        self.assertIn("- 手元の版: 読めた 0 本／入っていない 2 本（flask、requests）", text)
+        self.assertIn("- 公式の文書: 取れた 0 本", text)
+        self.assertIn("見つからない 2 本（flask、requests）", text)
+
+    def test_installed_distribution_name_is_what_the_registry_is_asked(self):
+        """輸入の名と配る名が違い（import serial・配る名 pyserial）、宣言にも表 PY_DIST にも無い時、手元で読んだ配る名で PyPI に問う
+        （輸入の名で問うと別のプロジェクトの README を公式として貼る）"""
+        sp = self.repo / REQ_SP
+        (sp / "serial").mkdir(parents=True)
+        (sp / "serial" / "__init__.py").write_text('"""pySerial."""\n', encoding="utf-8")
+        (sp / "pyserial-3.5.dist-info").mkdir()
+        (sp / "pyserial-3.5.dist-info" / "METADATA").write_text("Name: pyserial\nVersion: 3.5\n", encoding="utf-8")
+        (sp / "pyserial-3.5.dist-info" / "top_level.txt").write_text("serial\n", encoding="utf-8")
+        f = self.write("app.py", "import serial\n")
+        http = FakeHttp()
+        libdocs.section(self.board, self.repo, [f], get=http, env={})
+        pypi = [u for u in http.calls if "pypi.org" in u]
+        self.assertEqual(pypi[0], "https://pypi.org/pypi/pyserial/3.5/json")
+        self.assertFalse([u for u in pypi if "/pypi/serial/" in u])
+
+    def test_switch_off_still_reads_the_installed_version(self):
+        self.install()
+        f = self.write("app.py", "from requests import Session\n")
+        http = FakeHttp()
+        text = libdocs.section(self.board, self.repo, [f], get=http, env={libdocs.ENV_SWITCH: "off"})
+        self.assertEqual(http.calls, [])
+        self.assertIn("LOCAL DOCSTRING", text)
+        self.assertIn(f"{libdocs.ENV_SWITCH}=off", text)
+        g = self.write("other.py", "import flask\n")
+        text = libdocs.section(self.board, self.repo, [g], get=http, env={libdocs.ENV_SWITCH: "off"})
+        self.assertIn("- どこからも文書が無い: flask（手元に入っていない。網には出ていない", text)
+        self.assertNotIn("公式と Context7 から取れなかった", text)
+
+    def test_official_docs_are_cached_on_the_board_and_in_the_home(self):
+        self.install()
+        f = self.write("app.py", "from requests import Session\n")
+        home = self.tmp / "home"
+        env = {libdocs.SHARED_ENV: str(home)}
+        libdocs.section(self.board, self.repo, [f], get=self.all_http(), env=env, now=1_800_000_000.0)
+        self.board.round = 2
+        http = FakeHttp()
+        text = libdocs.section(self.board, self.repo, [f], get=http, env=env, now=1_800_000_060.0)
+        self.assertEqual(http.calls, [], "次の周は盤面の控えを読む")
+        self.assertIn("Use `requests.Session` to keep cookies", text)
+        other = FakeBoard(self.tmp / "board2")
+        http = FakeHttp()
+        text = libdocs.section(other, self.repo, [f], get=http, env=env, now=1_800_000_120.0)
+        self.assertEqual(http.calls, [], "同じ家のほかの run は家の控えを読む")
+        self.assertIn("Use `requests.Session` to keep cookies", text)
+        self.assertTrue((home / libdocs.CACHE_DIR / ("requests@2.32.3" + libdocs.OFFICIAL_SUFFIX)).is_file())
+
+    def test_official_failure_is_not_cached(self):
+        f = self.write("app.py", "import requests\n")
+        text = libdocs.section(self.board, self.repo, [f], get=FakeHttp({"pypi.org": (503, {"m": "busy"})}), env={})
+        self.assertIn("取れなかった 1 本（requests: PyPI: HTTP 503）", text)
+        self.assertFalse(list(self.board.dir.glob(f"r*/{libdocs.CACHE_DIR}/*{libdocs.OFFICIAL_SUFFIX}")))
+
+    def test_declared_version_differs_from_the_installed_one(self):
+        self.install()
+        f = self.write("app.py", "from requests import Session\n")
+        self.write("requirements.txt", "requests==2.31.0\n")
+        text = libdocs.section(self.board, self.repo, [f], get=FakeHttp(), env={})
+        self.assertIn("requests: 宣言の版 2.31.0 と入っている版 2.32.3 が違う（入っている版で引いた）", text)
+
+    def test_record_keeps_the_version_read_and_no_doc_text(self):
+        self.install()
+        f = self.write("app.py", "from requests import Session\n")
+        libdocs.section(self.board, self.repo, [f], get=self.all_http(), env={})
+        rec = json.loads((self.board.dir / "r1" / libdocs.RECORD).read_text(encoding="utf-8"))
+        row = rec["rows"][0]
+        self.assertEqual(row["local"]["version"], "2.32.3")
+        self.assertEqual(row["official"]["status"], "ok")
+        self.assertNotIn("LOCAL DOCSTRING", json.dumps(rec))
+
+
+class RedirectCase(unittest.TestCase):
+    def test_redirects_keep_the_key_on_the_same_host_only_and_refuse_http(self):
+        import urllib.request
+        req = urllib.request.Request(libdocs.API + "/v2/libs/search", headers={"Authorization": "Bearer ctx7sk-k"})
+        h = libdocs.SafeRedirect()
+        other = h.redirect_request(req, None, 302, "Found", {}, "https://elsewhere.example/x")
+        self.assertNotIn("Authorization", other.headers, "host が替わる転送では鍵を落とす")
+        same = h.redirect_request(req, None, 302, "Found", {}, libdocs.API + "/v2/libs/search?x=1")
+        self.assertEqual(same.headers.get("Authorization"), "Bearer ctx7sk-k")
+        for url in ("http://elsewhere.example/x", "https://10.1.2.3/x"):
+            with self.subTest(url=url):
+                self.assertIsNone(h.redirect_request(req, None, 302, "Found", {}, url))
 
 
 class ComposerCase(Base):

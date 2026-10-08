@@ -3527,7 +3527,7 @@ EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "BASH_ENV", "CLAUDE_KEYCHAIN_S
                   # works の python が os.environ から・shell の殻が環境から読む環境変数（WORKS_ で始まる shell の
                   # 定数が在るので接頭辞では外さない）
                   "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_DEV_MODEL", "WORKS_GH", "WORKS_GOLDEN_OUT",
-                  "WORKS_KEYCHAIN_ITEM", "WORKS_MODEL_PINNED", "WORKS_REAL_CLAUDE", "WORKS_TDD_TIER",
+                  "WORKS_KEYCHAIN_ITEM", "WORKS_CONTEXT7_KEYCHAIN_ITEM", "WORKS_MODEL_PINNED", "WORKS_REAL_CLAUDE", "WORKS_TDD_TIER",
                   "WORKS_USE_FINAL_GATE", "WORKS_DOGFOOD_FINAL_GATE", "WORKS_USE_HOME", "WORKS_DEV_HOME",
                   # 包みが Bash の役の子に立てる run ごとの置き場（adapter.RUN_PLACE_ENV）と、向け直す・向け直さない外の道具の環境変数
                   "WORKS_RUN_PLACE", "UV_CACHE_DIR", "TMPDIR",

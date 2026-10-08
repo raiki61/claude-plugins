@@ -989,7 +989,7 @@ class HeadCase(ReportBase):
         libdocs.section(b, repo, ["app.py"], env={},
                         get=lambda url, headers: (429, b'{"error": "rate_limited", "message": "quota exceeded"}'))
         lines = report.head_entry(b, None)
-        self.assertTrue(any("ライブラリの文書は枠切れで取れていない" in x for x in lines), lines)
+        self.assertTrue(any(libdocs.QUOTA_NOTICE in x for x in lines), lines)
 
     def test_handover_drafts_and_downgrade(self):
         """p0.parallel_pr を任せ先で受けた盤面（conflicts 2 件・どちらも note つき・外した hunk 1 件）→ 冒頭 1 に 2 件の下書きと

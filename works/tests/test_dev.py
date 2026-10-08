@@ -1809,6 +1809,14 @@ class TestDevModelPin(unittest.TestCase):
         self.assertIn(f"WORKS_DEV_MODEL={probe} CLAUDE_BIN_PATH=/c ", out)
         self.assertNotIn("WORKS_MODEL_PINNED", out)
 
+    def test_continue_line_carries_the_context7_item_name_not_the_key(self):
+        """Context7 の鍵の keychain の項目で起こした run の続きの行は、項目の名だけを載せる（値は載せない）。控えから戻した殻
+        （load_ledger）でも同じ行になり、続きの支度の節も同じ鍵で引く"""
+        out = self.sh("works_dev_go /a.sh /x", WORKS_CONTEXT7_KEYCHAIN_ITEM="c7 item", CONTEXT7_API_KEY="ctx7sk-secret")
+        self.assertIn("WORKS_CONTEXT7_KEYCHAIN_ITEM='c7 item' ", out)
+        self.assertNotIn("ctx7sk-secret", out)
+        self.assertNotIn("WORKS_CONTEXT7_KEYCHAIN_ITEM", self.sh("works_dev_go /a.sh /x"))
+
 
 class TestHerdrContinue(unittest.TestCase):
     """lib.sh の続きの口 works_dev_continue と、run を起こした枠ごとの集計 works_dev_herdr_sync（偽の herdr・偽の Archon）"""

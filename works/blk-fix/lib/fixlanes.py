@@ -247,7 +247,7 @@ def _plant(b, repo: pathlib.Path, values: dict, cands, lanes, rest, shape) -> li
     trees = lanekit.plant(repo, ns, place, manifest, union)
     base = trees[ns[0]]["base"]
     by = {c["item"]: c for c in cands}
-    seat.pinned()   # 写しの照合を、項目のファイルの書き込みと Context7 の引き（lib_section）より前に
+    seat.pinned()   # 写しの照合を、項目のファイルの書き込みとライブラリの文書の引き（lib_section）より前に
     docs = fixrules.lib_section(b, repo, values)
     lang = rolekit.lang_line(b.state.get("inputs"))
     tdd_state = values.get("tdd_state") or ""

@@ -36,7 +36,7 @@ ALLOWED_NAMES = frozenset({"WORKS_DEV_HOME", "WORKS_STATE_ROOT", "WORKS_USE_HOME
                            "WORKS_DEV_ADAPTER", "WORKS_LAUNCH_ADAPTER_MODE"})
 # 控えから出す名と、結んだ run を渡す名。env の名とは分けて持つ（env が控えの名を出せないように）
 LEDGER_LOAD_NAMES = frozenset({"WORKS_DEV_MODEL", "WORKS_MODEL_PINNED", "CLAUDE_BIN_PATH", "WORKS_KEYCHAIN_ITEM",
-                               "WORKS_DEV_ADAPTER"})
+                               "WORKS_DEV_ADAPTER", "WORKS_CONTEXT7_KEYCHAIN_ITEM"})
 LEDGER_BIND_NAMES = frozenset({"WORKS_RUN_ROW", "WORKS_RUN_ID", "WORKS_RUN_STATUS"})
 LEDGER_SCHEMA = 1
 # 生きた run の状態（走っている・関所で待つ）。use.sh clean の拒みも ledger live でここを読む（一覧を 1 か所に）
@@ -235,7 +235,9 @@ def _ledger_write(opts, run_id, environ):
            "adapter": environ.get("WORKS_DEV_ADAPTER", ""), "started_at": time.time(),
            "wrap_ref": opts.get("wrap-ref", ""), "github_reads": opts.get("github-reads", ""),
            "herdr_pane": environ.get("HERDR_PANE_ID", "") if inside else "",
-           "herdr_socket": environ.get("HERDR_SOCKET_PATH", "") if inside else ""}
+           "herdr_socket": environ.get("HERDR_SOCKET_PATH", "") if inside else "",
+           # Context7 の鍵の keychain の項目の名（値は書かない。起こし役 auth_launch.py が読む）。別の殻の answer・stop も同じ鍵で起こす
+           "context7_keychain_item": environ.get("WORKS_CONTEXT7_KEYCHAIN_ITEM", "")}
     folder = opts["dir"]
     os.makedirs(folder, exist_ok=True)
     path = _ledger_path(folder, run_id)
@@ -304,7 +306,8 @@ def _ledger_load(opts, err):
     values = {}
     for name, value in (("WORKS_DEV_MODEL", doc.get("model")), ("WORKS_MODEL_PINNED", pinned),
                         ("CLAUDE_BIN_PATH", doc.get("claude_bin")), ("WORKS_KEYCHAIN_ITEM", doc.get("keychain_item")),
-                        ("WORKS_DEV_ADAPTER", doc.get("adapter"))):
+                        ("WORKS_DEV_ADAPTER", doc.get("adapter")),
+                        ("WORKS_CONTEXT7_KEYCHAIN_ITEM", doc.get("context7_keychain_item"))):
         # 模型の空は「start で明示しなかった」の控え。殻の値で埋めず、空のまま渡して archon.sh に start の時に解いた
         # 既定（model_resolved の value）で解かせる
         if isinstance(value, str) and (value or name in ("WORKS_DEV_ADAPTER", "WORKS_DEV_MODEL")):
