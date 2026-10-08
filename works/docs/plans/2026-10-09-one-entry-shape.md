@@ -102,6 +102,18 @@
 
 消す物: `add_pending_request`・`PENDING_WAIT_NODE`・`ENTRIES`・`_entry_words` の種の分け・`_drain` の中の積み・`conflict.change_only`（2 つとも）。
 
+## 2.5 入口ブロック（アーキの表し方。持ち主 2026-10-09「入口ブロックみたいなアーキ的に考えを表現するのもあり」）
+
+入口の変換を、ほかのブロック（blk-*）と同じ 1 つの部品として名指す。考え方を形に出し、後から入口を足す人が「どこに書けばよいか」で迷わないようにする。
+
+- 2 つの層に分ける:
+  - 外の殻（`dev/use.sh`・`dev/dogfood.sh`）: ホストでしかできない事だけを集める（手元の変更を commit に包む・鍵・ホストの gh の入口・隔離）。入口の解釈はしない。集めた生の事実を線の入力（`$INPUTS.*`）に渡すだけ
+  - 入口ブロック `blk-entry`（線の最初のブロック）: 今の線の `launch`（起動の関所）と `start`（`entry.start`）をこのブロックへ移し、生の入力を 1 つの入力の形に変える。入口の種類を知るのはこのブロックの中だけ
+- ブロックの出口の約束は `darkfactory/schemas/input.schema.json`（2 節の形）に 1 本で書く。今の `start.schema.json` の入力の欄はここへ寄せる
+- ほかのブロックは入口ブロックを知らない（ブロックの独立の決まり）。線の配線が出口の欄を各ブロックの入力へ渡し、各ブロックの入力の説明は形で書く（「差分が空か」「依頼の行が在るか」）
+- 流れの図（`docs/darkfactory-flow.md`）の全体の図の頭に「入口ブロック」の箱を置き、3 つの入口（依頼・変更・PR）がそこへ入って 1 本の線になる形で描く
+- 10 節の Task 2 の後に Task 2.5「入口ブロックへ移す」を置く（launch・start の節と entry.start の入口の解釈を blk-entry へ移す・input.schema.json・図）。振る舞いは Task 2 の後と同じで、試験は場所の移りを縛る物だけ足す
+
 ## 3. 分かれ目ごとの置き換え
 
 ### 3.1 写しの核（印を読む所。どれも変えない）
@@ -309,6 +321,10 @@ start → ci-checking → h-entry → speccing（blk-spec。when: $h-entry.outpu
 - [ ] 入れる: begin の引数、差し替え、start は `items=inp["items"] or None`・`diff_empty=input["diff"]["empty"]`、呼び直しは盤面の置き場の `r1/start.json` を begin の前に読んで `input` を使う。`_drain` から積みを消す。`line_edge` の h-mat の待ちの止めを消す。消す名を参照する物が残っていないことを `grep -rn "add_pending_request\|PENDING_WAIT_NODE\|ENTRIES\|_entry_words" works/` で見る
 - [ ] golden の盤面を作り直す（`state.works.begin` に `diff_empty`）
 - [ ] 回して緑。commit `refactor(works): 入口の種をやめ、依頼はいつも盤面を作る時に積み、印は入力の差分が空の時だけ立てる`
+
+### Task 2.5: 入口ブロックへ移す（2.5 節）
+
+- `launch`・`start` の節と入口の解釈を `blk-entry` へ移し、出口の約束 `darkfactory/schemas/input.schema.json` を書く。流れの図の頭に入口ブロックの箱を描く。振る舞いは Task 2 の後と同じ（場所の移りを縛る試験だけ足す）
 
 ### Task 3: 種を読んでいた所を中身で読む
 
