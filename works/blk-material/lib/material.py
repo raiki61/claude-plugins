@@ -14,10 +14,9 @@ p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle�
            p0.purpose がラインに無い盤面では、目的の欄を入力 purpose_file（blk-purpose の出口）か「目的の文が無い」の文で埋める
            （作らない。PURPOSE_MISSING）。道具を持たない役（PASTE）には本文そのものを prompt_text で渡す
 - take:    旗の役の包みの柵（adapter 空の run）→ 作業ツリーを route の姿と比べる →（p1.local_review だけ）fork のレンズ
-           （/code-review）が親の返答の道具に書いて親に届かなかった所見を包みの記録から戻す（.shared/core/diverted.py。戻せない
-           空の行は『見ていない』と書く）→ 必須のレンズの起動（_lens_gap）→ 盤面の done（写しの schema・post_check・
-           writes・check_record・settle）。拒否は material-rejects.json に積み、GIVE_UP_AFTER 回目で done・give_up
-           （輪を max_iterations で落とさない。R50）
+           （/code-review）の所見が届かなかった空の行を『見ていない』と書く（.shared/core/diverted.py）→ 必須のレンズの起動
+           （_lens_gap）→ 盤面の done（写しの schema・post_check・writes・check_record・settle）。拒否は material-rejects.json
+           に積み、GIVE_UP_AFTER 回目で done・give_up（輪を max_iterations で落とさない。R50）
 - collect: 出口。回した後も待っている節が在れば（3 回とも拒まれた）盤面を止めて ok: False（諦めた目は全部名指す）。
            本線の R3 の出口（snapshot と materials）を組む
 - 止まった盤面: 同じ波の 1 本の目が盤面を止めた（包みの柵）後は、並んで走る他の目の prep・take・refuse は盤面を書かずに
@@ -133,12 +132,12 @@ LENS_RETRY_NOTE = ("## 必須のレンズの呼び出しの失敗（works の受
                    "どれかのファイルが変わった周（ロジックでない変更でも）と 1 周目は `/simplify` を起こして `invoked: true` を書け。")
 # 写しの指示書と graph の note（/code-review に --comment も --fix も付けるな）の読み替え。包みの旗 text-reply の起動（この役の印。
 # .shared/core/adapter.py の頭の 21）では fork に返答の道具が無いので、/code-review は所見を本文で返す。返答の道具が残った形（包みを
-# 外した run など）では fork の所見は親に届かない（実測と拾い方は .shared/core/diverted.py の頭）ので、受け付けが包みの記録から戻す。
+# 外した run など）では fork の所見は親に届かない（実測は .shared/core/diverted.py の頭）ので、受け付けが空の行を『見ていない』と書く。
 # どちらの形でも役には起こし直させず、旗の綴りを args に書かせない
 LENS_FORK_NOTE = ("## /code-review の返り方（works の受け付けより。上の指示書の読み替え）\n\n"
                   "/code-review は別の会話（fork）で走る。所見を本文で返したら、それを /code-review の行の `items` に写せ"
                   "（どの所見も落とさない）。Skill の結果が『Skill execution completed』だけで所見の本文が無い時は、fork が所見を"
-                  "別の口（返答の道具）に書いた形で、所見は失われていない——works の受け付けが包みの記録からこの行へ戻す。"
+                  "別の口（返答の道具）に書いて親に届かなかった形で、works の受け付けがこの行を『見ていない』と報告に出す。"
                   "どちらでも /code-review を起こし直すな（同じ形で返り、時間だけ掛かる）。本文が無かった行は "
                   "`items` を空、`invoked: true` にして、`failed` に『本文が届かなかった』と渡した対象を書け"
                   "（『起こしたが所見なし』と書くな——見ていない物を 0 件に見せる）。\n\n"
@@ -394,15 +393,11 @@ def _skills(b, nid: str) -> list:
     return (inst or {}).get("skills") or b.graph["nodes"][nid].get("skills") or []
 
 
-def _recover(b, nid: str, role: str, reply: dict, repo) -> tuple:
-    """p1.local_review の返答に、fork のレンズ（/code-review）が親の返答の道具に書いて親に届かなかった所見を、包みの記録から
-    戻した写しと控えを返す（diverted.recover。戻せない空の行は『見ていない』と書く）。拾うのはこの周に起こした印より後に包みが
-    この役を起こした会話（拒まれて起こし直すと id が替わる）の行だけ。控えは受け付けが通った後に周の作業ファイルへ書く"""
-    since = (b.rd["instances"].get(nid) or {}).get("launched_at")
-    sessions = diverted.sessions_since(pathlib.Path(repo), role, since)
-    payloads = diverted.read_outputs(pathlib.Path(repo), sessions, since)
-    out, notes = diverted.recover(reply, _skills(b, nid), payloads)
-    return out, {"round": b.round, "sessions": sorted(sessions), "payloads": len(payloads), **notes}
+def _mark_unseen(b, nid: str, reply: dict) -> tuple:
+    """p1.local_review の返答の、fork のレンズ（/code-review）の所見が届かなかった空の行に『見ていない』の印を付けた写しと
+    控えを返す（diverted.mark_unseen）。控えは受け付けが通った後に周の作業ファイルへ書く"""
+    out, notes = diverted.mark_unseen(reply, _skills(b, nid))
+    return out, {"round": b.round, **notes}
 
 
 def _lens_gap(b, nid: str, reply: dict) -> tuple[str, bool] | None:
@@ -482,7 +477,7 @@ def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
                                    f"変えてはいけない（{'・'.join(moved)}）{who}")
         lens_note = None
         if nid == ROLES["local-review"]:
-            reply, lens_note = _recover(b, nid, role, reply, repo)
+            reply, lens_note = _mark_unseen(b, nid, reply)
         gap = _lens_gap(b, nid, reply) if nid == ROLES["local-review"] else None
         if gap:
             return _reject(b, nid, *gap)
@@ -490,7 +485,7 @@ def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
             b.done(nid, reply)
         except AnswerReject as e:
             return _reject(b, nid, str(e))
-        if lens_note is not None:   # 受け付けが通った返答の分だけ（拒んだ・諦めた回の『戻した』を報告に出さない）
+        if lens_note is not None:   # 受け付けが通った返答の分だけ（拒んだ・諦めた回の『見ていない』を報告に出さない）
             _write_json(b.work(diverted.LENS_FILE), lens_note)
     return {"ok": True, "done": True, "give_up": False, "stopped": False, "reason": "", "node": nid, "status": _status(reply)}
 

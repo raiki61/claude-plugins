@@ -58,7 +58,6 @@ MOD = {
     "graphmap": (1, None),    # 工程の地図（Archon の YAML から全体のグラフと節の居場所を組んで描く。works の物を何も知らない）
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "record-write": (2, None),   # 包みが足す書き込みの記録のフック（writes が読む記録を書く）
-    "record-output": (2, None),  # 包みが足す下請けの返答の記録のフック（diverted が読む記録を書く）
     "replycontract": (2, None),  # 包みの旗 text-reply の返答の契約（返答の形・本文の読みと型の検査・同じ会話での出し直し。adapter が使う）
     "no-post-bin/works-gh": (2, None),
     "fixshape": (2, None),    # 修正の形の語と盤面からの 1 つの読み口（包みが読む。標準ライブラリだけ）
@@ -75,7 +74,7 @@ MOD = {
     "querytest": (3, None),   # 判定・再審の class_query の問いを例（hits・misses）で試す（accept の役の型・blk-judge・rejudge・境の節が使う）
     "conflict": (3, None),    # 食い違いの申し出の控え・名指しの確かめ・写しの RL の _owed_units の差し替え（blk-fix と境の節と報告が使う）
     "design": (3, None),      # 修正の前に先に作る独立設計（r2.design）の支度・受け付け・控え・盤面への渡し（blk-plan・blk-eyes・境の節が使う）
-    "diverted": (3, None),    # 下請けの会話が親の返答の道具に書いた返答の拾い口（局所レビューの受け付けが /code-review の所見を戻し、報告が読む）
+    "diverted": (3, None),    # 局所レビューの fork のレンズの届かなかった空の行に「見ていない」の印を付ける口（受け付けが書き、報告が読む）
     "lens": (3, None),        # 修正の後のレンズの控え（盤面の今の周の lens.json。レンズのブロックが書き、差分の審査の支度と報告が読む）
     "structmark": (3, None),  # 構造のブロックの出口の控え（盤面の根の structure-state.json。境の節が書き、blk-plan・報告・最後の関所が読む）
     "rulebook": (3, None),    # 書く役の決まりの正本（writerules/common.md）と、節に切る・穴を埋める・形を描く口（blk-fix・blk-refix が使う）

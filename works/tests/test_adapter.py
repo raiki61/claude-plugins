@@ -553,12 +553,8 @@ class AdapterCase(unittest.TestCase):
         self.assertEqual(s["permissions"], {"deny": sdk["permissions"]["deny"]
                                             + adapter.no_post_rules(adapter.find_gh(os.environ["PATH"]))})
         self.assertEqual(s["hooks"]["Stop"], sdk["hooks"]["Stop"])
-        # 包みは下請けの返答の記録のフック（StructuredOutput。record-output.py）も足す（局所レビューの消えた所見を戻す元）
-        self.assertEqual([m["matcher"] for m in s["hooks"]["PostToolUse"]],
-                         ["Bash", "Read", "Edit|Write|NotebookEdit", "StructuredOutput"])
-        out = [h["command"] for m in s["hooks"]["PostToolUse"] if m["matcher"] == "StructuredOutput" for h in m["hooks"]]
-        self.assertEqual(len(out), 1)
-        self.assertIn("record-output.py", out[0])
+        # 包みが足すのは読んだ記録と書き込みの記録のフックだけ（下請けの返答の記録のフックは 2026-10-09 に外した）
+        self.assertEqual([m["matcher"] for m in s["hooks"]["PostToolUse"]], ["Bash", "Read", "Edit|Write|NotebookEdit"])
 
     def test_no_settings_gets_hook_only(self):
         # sandbox の無い節は SDK が --settings を付けない（〔包試〕の (f)）

@@ -6,7 +6,7 @@
 `--json-schema` と stdin の initialize の `jsonSchema` の両方で Claude Code に渡す（バンドルの transport と y_t の initialize）。
 Claude Code は schema を受けると道具 StructuredOutput を足し（argv に無ければ initialize の schema で足す。2.1.294 の
 『Init JSON schema』）、fork で走る skill（/code-review）はその道具を継いで所見をそこへ書いて終わるので、親の節に所見が
-届かなかった（0.2.46 の CHANGELOG。拾い戻しは diverted.py）。Archon は Claude を型を強いる provider と数えて出し直さず
+届かなかった（0.2.46 の CHANGELOG。届かなかった行の扱いは diverted.py）。Archon は Claude を型を強いる provider と数えて出し直さず
 （dag-executor の maxReasks が 0）、structured_output が無ければ節を落とす。
 
 **どうするか（包みの側）。** 旗の起動は argv の `--json-schema` と initialize の `jsonSchema` を外し（子にも fork にも返答の

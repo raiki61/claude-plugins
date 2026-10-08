@@ -66,7 +66,7 @@
 # --request change（canary-seed と canary-request-fix.json に、commit しない 1 行の変更を足す。変更から入る run の本物の確かめ）は、
 # ほかの依頼では通らない局所レビューの役（P1 の p1.local_review）を通す。ほかの依頼は依頼だけから始める（start の控えの entry が
 # request）ので、局所レビューは条件 not_request_entry で起きない（1 周の run は修正が入る前の周しか回らない）:
-#   (h) record_output・(j) text_reply: 種を 1 回 commit した上で、calc.py:median の docstring の 1 行の字（CHANGE_FROM を CHANGE_TO に。
+#   (h) lens_seen・(j) text_reply: 種を 1 回 commit した上で、calc.py:median の docstring の 1 行の字（CHANGE_FROM を CHANGE_TO に。
 #       振る舞いは変えない）を commit せずに変え、use.sh start に --base <その commit> を付ける。run は変更（その commit からの
 #       差分）と依頼の 2 件の両方から入り（start の控えの entry が both）、局所レビューの役が変更を見る。依頼の 2 件は fix と同じなので
 #       (a)〜(e) も通りうるが、それは --request fix の確かめで、この語の終了コードには数えない。手で通した run e91112dd（0.2.48）で

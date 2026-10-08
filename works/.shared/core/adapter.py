@@ -8,8 +8,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 
 1. **Read と書き込みのフック**: `--settings` の JSON に PostToolUse:Read のフック（同じ置き場の record-read.py）と、
    PostToolUse:Edit|Write|NotebookEdit のフック（record-write.py。書いた後の中身の sha を writes_path に残し、書く役の受け付けが
-   版からの変更と突き合わせる。.shared/core/writes.py）と、PostToolUse:StructuredOutput のフック（record-output.py。下請けの
-   会話——skill の fork——が親の節の返答の道具に書いた返答を残し、局所レビューの受け付けが消えた所見を戻す。.shared/core/diverted.py）を足す。
+   版からの変更と突き合わせる。.shared/core/writes.py）を足す。
    SDK は sandbox を持つ節にだけ `--settings {"sandbox":{…}}` を付けるので、在ればマージ（SDK の鍵は上書きしない）、
    無ければフックだけの `--settings` を足す。`--setting-sources`（SDK は `=` でつないで必ず渡す）と `--effort` は
    触らない（読んで起動の記録に残すだけ。launch_row）。`--model` は 19 の時だけ替え、ほかは読んで記録に残すだけ。
@@ -220,8 +219,7 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    終わった result（subtype が success でない・is_error）と、structured_output を既に持つ result（schema を外し損ねた形）は
    そのまま写す。持った result は 20 の見せ直しに渡さず（記録を書かない）、写す result の累計は子の全部の手の累計なので、
    Archon の引き算はこの起動の費用の全部になる。回ごとの決めを `replies/<cwd の hash>.jsonl` に 1 行（{at, pid, node, kind:
-   accepted|reasked|gave_up|error|native, turn, errors?}）残す。stdin・stdout が stream-json でない起動は起こさない（fail closed）。
-   PostToolUse:StructuredOutput のフック（1）はそのまま足す（外し損ねた時の拾い戻しと、跡の記録）
+   accepted|reasked|gave_up|error|native, turn, errors?}）残す。stdin・stdout が stream-json でない起動は起こさない（fail closed）
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
 変えない（stdin も中継しない。stdout は 16 のとおり同じバイトで写す）。見分けられない形
@@ -266,7 +264,6 @@ import unittrees  # L1（単位の worktree の守りの参照の名。live_work
 ENV_HOME = "WORKS_ADAPTER_HOME"
 WRITE_MATCHER = "Edit|Write|NotebookEdit"   # 書き込みの記録のフック（record-write.py）が掛かる道具
 WRITES_LOG = "writes.jsonl"
-OUTPUT_MATCHER = "StructuredOutput"   # 下請けの返答の記録のフック（record-output.py。拾うのは diverted.py）が掛かる道具
 ENV_REAL = "WORKS_REAL_CLAUDE"
 MARK_PREFIX = "works-node:"
 
@@ -635,14 +632,11 @@ def read_session_id(path: pathlib.Path) -> Optional[str]:
     return text if _ID_RE.match(text) else None
 
 
-def hook_settings(command: str, write_command: Optional[str] = None, *, output_command: Optional[str] = None) -> dict:
-    """足す設定。期限は足さない（Claude の既定のまま）。write_command が在れば書き込みの記録のフックも、output_command が
-    在れば下請けの返答の記録のフック（PostToolUse:StructuredOutput。record-output.py）も足す"""
+def hook_settings(command: str, write_command: Optional[str] = None) -> dict:
+    """足す設定。期限は足さない（Claude の既定のまま）。write_command が在れば書き込みの記録のフックも足す"""
     post = [{"matcher": "Read", "hooks": [{"type": "command", "command": command}]}]
     if write_command:
         post.append({"matcher": WRITE_MATCHER, "hooks": [{"type": "command", "command": write_command}]})
-    if output_command:
-        post.append({"matcher": OUTPUT_MATCHER, "hooks": [{"type": "command", "command": output_command}]})
     return {"hooks": {"PostToolUse": post}}
 
 
@@ -835,15 +829,14 @@ def with_run_place(doc: dict, tools: set, board_place: Optional[str], strict: Op
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
                no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None,
                repo: Sequence[str] = (), place: Optional[Tuple[Optional[str], Optional[bool], Sequence[str]]] = None,
-               tools_deny: Sequence[str] = (), lane: Sequence[str] = (),
-               output_command: Optional[str] = None) -> Tuple[List[str], dict]:
+               tools_deny: Sequence[str] = (), lane: Sequence[str] = ()) -> Tuple[List[str], dict]:
     """place は 17 の (board の隣の置き場, strict_network の値, 置き場が掛かってはいけない所)。省けば足さない。
     tools_deny は 18 の形ごとに拒む道具（空なら足さず、fence.shape_deny の鍵も持たない）。
     lane は 6c の単位の worktree の全部の綴り（SDK が sandbox の塊を渡した起動だけ allowWrite の後ろに足す）"""
     found = find_opt(argv, "--settings")
     if len(found) > 1:
         raise Unrecognised("--settings が 2 つ以上")
-    ours = hook_settings(command, write_command, output_command=output_command)
+    ours = hook_settings(command, write_command)
     doc = merge_settings(_load_settings(found[0][2]), ours) if found else ours
     n_write, n_deny = add_fences(doc, protected) if protected else (0, 0)
     fence = {"deny_write": n_write, "permissions_deny": n_deny}
@@ -1196,14 +1189,13 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
          protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None,
          run_place: Optional[Callable[[], Optional[str]]] = None,
-         board: Optional[Callable[[], Optional[str]]] = None, output_command: Optional[str] = None) -> Plan:
+         board: Optional[Callable[[], Optional[str]]] = None) -> Plan:
     """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みと、18 の切符の board の修正の形の控えの
     読み（fixshape.shape_at）だけ。書くのは旗 isolated と 17 の置き場の mkdir）。
     protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
     run_place は 17 の置き場（run_place_of の値。切符が無ければ None）を返す関数。protected と同じ切符の 1 回の読みを使う。
     board は 18 の切符の board（board_of の値。切符が無ければ None）を返す関数。同じ切符の 1 回の読みを使う。
-    write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。output_command は下請けの返答の
-    記録のフックのコマンド（包みが渡す。無ければ足さない）。
+    write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。
     env は起動の env（本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）。
     子の env の上書き（Plan.env）は印のある起動の全部に付く（15 の目印と 5 の口）"""
     argv = list(argv)
@@ -1343,7 +1335,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh,
                                 write_command, repo_deny(cwd),
                                 (board_place, strict, list(places or []) + [os.path.abspath(str(cwd))]) if run_place else None,
-                                tools_deny, spellings(lane) if lane is not None else (), output_command=output_command)
+                                tools_deny, spellings(lane) if lane is not None else ())
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     if own and NO_TREE_WRITE in marker.flags:
