@@ -1021,7 +1021,6 @@ nodes:
     when: "$h-tests.output.go == true"
     with:
       cmd: $start.output.test_cmd
-      mode: "final"
 
   # 独立の目を回すか（最後のテストの後・最後の関所の前。目が盤面で待っていれば go）。先に、修正の前に作った独立設計を盤面へ渡す
   - id: h-look

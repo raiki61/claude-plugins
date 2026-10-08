@@ -1,37 +1,29 @@
 name: blk-tests
 description: |
-  テストのブロック。対象リポジトリでテストのコマンドを 1 回走らせ、緑か赤かとログのパスを出す。ラインから include で使う。
-  赤でも節は通る（ok: true・green: false）——赤を人の関所に見せるのがこの段の仕事で、赤で run を止めない。
+  最後のテストのブロック（盤面の p4.ci）。対象リポジトリで宣言（.review-checks.json）と、在ればテストのコマンドを走らせ、
+  緑か赤かとログのパスを出す。ラインから include で使う。赤でも節は通る（ok: true・green: false）——赤を人の関所に見せるのが
+  この段の仕事で、赤で run を止めない。宣言が無く cmd も空なら by: role_needed（p4.ci は任せ先に落ちたまま待つ）。
 
 inputs:
   cmd:
     required: true
-    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行。自分のプロセスグループで走り、止めるときは木ごと止める）
-  mode:
-    default: plain
-    description: |
-      形。plain（既定。1 本目と線 C の mutgate の約束のまま。盤面を開かない）・mid・final（最後のテスト。盤面の p4.ci を
-      entry.run_ci で走らせる。宣言が無く cmd も空なら by: role_needed で、ラインが blk-ci を回す）。scripts/run_tests.py の冒頭
+    description: テストのコマンド（対象リポジトリの根で走らせる 1 行。空でよい——空なら宣言だけ。自分のプロセスグループで走り、止めるときは木ごと止める）
 
 returns: run
 outcome_field: ok
 
 nodes:
-  # scripts/run_tests.py がコマンドを対象リポジトリの根で bash に渡し、出力（標準出力と標準エラー）を盤面の tests.log に置く。
-  # 標準入力は閉じる（入力待ちで止まらない）。コマンドは本文に差し込まず環境変数 INPUTS_CMD で受け取る——値がシェルの記号を
-  # 含んでもデータのまま届く。空・空白だけなら節を落とす（何も走らせずに緑と言わない）。PYTHONDONTWRITEBYTECODE は、テストが
-  # 作業ツリーに __pycache__ を作って修正の差分に紛れ込むのを止める。
-  # コマンドは自分のプロセスグループで走り、run が止められたら（Ctrl-C・SIGTERM・期限・直下の親 uv の消失）テストが背景に起こした孫まで
-  # 木ごと止める（.shared/core/tree_run.py）。Archon は直下の子しか止めないので、孫が止めた後も作業ツリーに書き続けた（試作で実測）。
-  # テストのコマンドには uv run が足した物（PATH の頭の python の bin・VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH）を外した環境を渡す
-  # （外さないと python3 が uv の python を指して偽の赤になる）。
+  # scripts/run_tests.py が盤面の p4.ci を entry.run_ci で走らせる（宣言の段と cmd の段）。コマンドは本文に差し込まず環境変数
+  # INPUTS_CMD で受け取る——値がシェルの記号を含んでもデータのまま届く。テストは自分のプロセスグループで走り、run が止められたら
+  # （Ctrl-C・SIGTERM・期限・直下の親 uv の消失）テストが背景に起こした孫まで木ごと止める（.shared/core/tree_run.py）。Archon は
+  # 直下の子しか止めないので、孫が止めた後も作業ツリーに書き続けた（試作で実測）。テストのコマンドには uv run が足した物（PATH の頭の
+  # python の bin・VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH）を外した環境を渡す（外さないと python3 が uv の python を指して偽の赤になる）。
   # 木ごと止める殻を pack の中から引くため bash の節でなく script の節（bash の節は対象リポジトリで走り、pack の場所を知らない）
   - id: run
     script: run_tests
     runtime: uv
     with:
       cmd: $INPUTS.cmd
-      mode: $INPUTS.mode
     timeout: 1728000000
     output_format:
       type: object
@@ -41,11 +33,6 @@ nodes:
         ok: {type: boolean}
         green: {type: boolean}
         log: {type: string}
-        # plain で起こせない（broken）時だけ（tree_run.launch_kind）
-        launch: {type: string, enum: [broken]}
-        # plain の起こし方（起こす前に tree_run.command_argv で決めた値）。赤・緑とも載る
-        how: {type: string, enum: [direct, shell]}
-        # mid・final だけが足す欄（plain は出さない。1 本目の必須の欄は変えない）
         suites:
           type: array
           items:
@@ -57,8 +44,8 @@ nodes:
               exit: {type: [integer, "null"]}   # null は起こせなかった段（関所と報告は環境の失敗としてコードの赤と分けて出す）
               launch: {type: string, enum: [broken]}   # tree_run.launch_kind（clean・red の段には無い）
               how: {type: string, enum: [direct, shell]}   # 走った時の起こし方（宣言の段は direct。cmd・test_cmd の段は起こす前に tree_run.command_argv で決めた値）
-        by: {type: string, enum: [mid, engine, role, role_needed]}
-        # final で test_cmd が宣言の段と同じコマンドだった時、その段の名（1 度だけ走らせた）
+        by: {type: string, enum: [engine, role, role_needed]}
+        # test_cmd が宣言の段と同じコマンドだった時、その段の名（1 度だけ走らせた）
         test_cmd_same_as: {type: string}
-        # final で test_cmd を宣言の段と別に走らせた時、走った時の起こし方（run_ci の返り。読む時に規則で作り直さない）
+        # test_cmd を宣言の段と別に走らせた時、走った時の起こし方（run_ci の返り。読む時に規則で作り直さない）
         test_cmd_how: {type: string, enum: [direct, shell]}

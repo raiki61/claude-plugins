@@ -484,30 +484,6 @@ class TreeRunnerCase(StepCase):
         self.assertIn("no-such-command", mine[2]["error"])
         self.assertEqual(pathlib.Path(mine[0]["out"]), self.tmp / "mine" / "1.out")
 
-    def test_same_env_as_blk_tests(self):
-        """blk-tests の run_tests（線の CI）と tree_runner（engine_run の CI）は、同じ環境から同じ環境を子に渡す
-        （どちらも tree_run.outside_env。uv run の中の形: PATH の頭のこの python の bin・VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH）"""
-        art = self.tmp / "artifacts"
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("UV", "VIRTUAL_ENV", "INPUTS_"))}
-        env.update(PATH=os.pathsep.join([os.path.dirname(sys.executable), "/usr/bin", "/bin"]), UV_RUN_RECURSION_DEPTH="1",
-                   VIRTUAL_ENV=sys.prefix, UV_NO_CONFIG="1", ARTIFACTS_DIR=str(art), INPUTS_CMD="exec env")
-        env.pop("PYTHONDONTWRITEBYTECODE", None)
-        r = subprocess.run([sys.executable, str(HERE.parent / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.tmp),
-                           env=env, capture_output=True, text=True, encoding="utf-8")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        lines = (art / "board" / "tests.log").read_text(encoding="utf-8").splitlines()
-        self.assertEqual([i for i, ln in enumerate(lines) if ln.startswith("== 起こし方 ")], [0])
-        theirs = "\n".join(lines[1:])
-        with mock.patch.dict(os.environ, env, clear=True):
-            rows = tree_runner([{"name": "env", "argv": ["bash", "-c", "exec env"]}], self.tmp, self.tmp / "logs")
-        mine = pathlib.Path(rows[0]["out"]).read_text(encoding="utf-8")
-
-        def parse(text):
-            return dict(ln.split("=", 1) for ln in text.splitlines() if "=" in ln)
-        self.assertEqual(parse(mine), parse(theirs))
-        self.assertNotIn("VIRTUAL_ENV", parse(mine))
-        self.assertEqual(parse(mine)["PATH"], "/usr/bin" + os.pathsep + "/bin")
-
     def test_tree_runner_strips_uv_env(self):
         """VIRTUAL_ENV（uv が起こした環境）・UV_RUN_RECURSION_DEPTH が子に渡らない（台帳 R23 と同じ）"""
         env = {"VIRTUAL_ENV": sys.prefix, "UV_RUN_RECURSION_DEPTH": "1", "UV_NO_CONFIG": "1"}

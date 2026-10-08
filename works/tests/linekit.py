@@ -371,7 +371,7 @@ LINE_ORDER = [
               "policy_path": "$start.output.policy_path"}},
     _edge("h-tests", "tests", ["start", "h-refix", "refixing"]),
     {"id": "testing", "kind": "include", "block": "blk-tests", "depends_on": ["h-tests"],
-     "when": "$h-tests.output.go == true", "with": {"cmd": "$start.output.test_cmd", "mode": "final"}},
+     "when": "$h-tests.output.go == true", "with": {"cmd": "$start.output.test_cmd"}},
     _edge("h-look", "look", ["start", "h-tests", "testing"]),
     {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-look"], "when": "$h-look.output.go == true",
      "with": {"base_rev": "$start.output.base_rev", "skip_optional": "$h-redepth.output.skip"}},

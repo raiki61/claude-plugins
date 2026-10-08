@@ -13,12 +13,10 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import signal
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from unittest import mock
 
@@ -176,29 +174,6 @@ class TestDeltaSchema(unittest.TestCase):
 
 # ---------------------------------------------------------------- blk-tests
 class TestTestsBlock(RepoCase):
-    def cmd_env(self, cmd, mode=None):
-        # Archon の口と同じ: 節の with: が INPUTS_CMD（と INPUTS_MODE）に、盤面の置き場が ARTIFACTS_DIR に届く。
-        # mode=None は INPUTS_MODE を渡さない（線 C の mutgate の include の形）。
-        # PYTHONDONTWRITEBYTECODE は外す（スクリプトがテストのコマンドに立てるかを見るため）
-        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "PYTHONDONTWRITEBYTECODE"}
-        env.update(INPUTS_CMD=cmd, ARTIFACTS_DIR=str(self.artifacts))
-        if mode is not None:
-            env["INPUTS_MODE"] = mode
-        return env
-
-    def run_tests(self, cmd, rc=0, mode=None, script=ROOT / "blk-tests" / "scripts" / "run_tests.py"):
-        node = find_node(workflow("blk-tests")["nodes"], "run")
-        r = subprocess.run([sys.executable, str(script)], cwd=str(self.repo),
-                           env=self.cmd_env(cmd, mode), capture_output=True, text=True, encoding="utf-8", timeout=120)
-        if rc:
-            self.assertEqual(r.returncode, rc, r.stderr)
-            self.assertEqual(r.stdout, "")
-            return None
-        self.assertEqual(r.returncode, 0, r.stderr)
-        out = json.loads(r.stdout)
-        self.assertEqual(validate_schema(out, node["output_format"]), [])
-        return out
-
     def test_run_node_contract(self):
         wf = workflow("blk-tests")
         self.assertEqual(wf["returns"], "run")
@@ -208,170 +183,20 @@ class TestTestsBlock(RepoCase):
         # 木ごと止める殻を pack の中から引くので、パスを持たない bash の節ではなく名前付きの script の節
         self.assertEqual((node.get("script"), node.get("runtime")), ("run_tests", "uv"))
         self.assertNotIn("bash", node)
-        self.assertEqual(node["with"], {"cmd": "$INPUTS.cmd", "mode": "$INPUTS.mode"})
+        self.assertEqual(node["with"], {"cmd": "$INPUTS.cmd"})
         self.assertEqual(sorted(node["output_format"]["required"]), ["green", "log", "ok"])   # 1 本目の必須の欄のまま
-        # 形 mode は既定 plain（線 C の mutgate の include は with: に mode を書かない）。mid・final の欄は任意で足す（〔線A計〕T17）
-        self.assertEqual(wf["inputs"]["mode"].get("default"), "plain")
-        self.assertNotIn("required", wf["inputs"]["mode"])
+        # 形は最後のテストだけ（盤面を開かない plain と中の関所の mid は 2026-10-09 の整理で消した）
+        self.assertEqual(set(wf["inputs"]), {"cmd"})
         props = node["output_format"]["properties"]
-        self.assertEqual(props["by"], {"type": "string", "enum": ["mid", "engine", "role", "role_needed"]})
+        self.assertEqual(props["by"], {"type": "string", "enum": ["engine", "role", "role_needed"]})
         self.assertEqual(props["suites"]["type"], "array")
-
-    def test_green_command(self):
-        out = self.run_tests("python3 -c 'print(\"走った\")' && test -f stats.py")   # cwd は対象リポジトリ
-        self.assertEqual(out, {"ok": True, "green": True, "log": str(self.board / "tests.log"), "how": "shell"})
-        self.assertIn("走った", (self.board / "tests.log").read_text(encoding="utf-8"))
-
-    def test_command_runs_in_bash(self):
-        # 入口の説明のとおり bash が 1 行を走らせる（sh に無い [[ ]] が通る）
-        out = self.run_tests("[[ -f stats.py ]]")
-        self.assertEqual(out["green"], True)
-
-    def test_empty_command_fails_the_node(self):
-        # 何も走らせずに緑と言わない（空白だけも空と同じ）
-        for cmd in ("", "  \n"):
-            with self.subTest(cmd=cmd):
-                self.run_tests(cmd, rc=1)
-                self.assertFalse((self.board / "tests.log").exists())
-
-    def test_plain_mode_is_mutgate_contract(self):
-        # 線 C の mutgate は `include: blk-tests`・`with: {cmd}` だけで使う（盤面なし・INPUTS_MODE なし）。既定の形 plain は
-        # 1 本目のまま: 盤面を作らず（state.json が無い）、ログは <ARTIFACTS_DIR>/board/tests.log（線 C の筋書きの log の形）、
-        # 出口の必須の鍵は ok・green・log（裁定 TA4・審査 I1）で、任意の how は赤・緑とも載る。INPUTS_MODE に plain を明示しても、空でも同じ
-        for mode in (None, "plain", ""):
-            with self.subTest(mode=mode):
-                shutil.rmtree(self.board, ignore_errors=True)
-                out = self.run_tests("test -f stats.py", mode=mode)
-                self.assertEqual(out, {"ok": True, "green": True, "log": str(self.artifacts / "board" / "tests.log"), "how": "shell"})
-                self.assertEqual(sorted(p.name for p in self.board.iterdir()), ["tests.log"])
-                self.assertFalse((self.board / "state.json").exists())
-                out = self.run_tests("exit 1", mode=mode)
-                self.assertEqual(set(out), {"ok", "green", "log", "how"})
-                self.assertEqual((out["ok"], out["green"]), (True, False))
-
-    def test_plain_mode_empty_cmd_fails(self):
-        # plain で cmd が空なら 1 本目と同じく節を落とす（空の cmd を許すのは mid・final だけ）
-        for mode in (None, "plain"):
-            with self.subTest(mode=mode):
-                self.run_tests(" ", rc=1, mode=mode)
-                self.assertFalse(self.board.exists())
-
-    def test_unknown_mode_refused(self):
-        # 知らない形は回す側の配線の誤り（終了コード 2）。盤面もログも作らない
-        self.run_tests("true", rc=2, mode="middle")
-        self.assertFalse(self.board.exists())
 
     def test_inputs_constant(self):
         # 裁定 TA16: 読む INPUTS_* の名前の組を定数に持つ（Task 17 の試験が YAML の with: の鍵と突き合わせる）
-        self.assertEqual(load_run_tests().INPUTS, ("INPUTS_CMD", "INPUTS_MODE"))
-
-    def test_tests_leave_no_bytecode(self):
-        # 種の .gitignore が無くても、テストが作業ツリーに __pycache__ を作らない（修正の差分に紛れ込まない）
-        (self.repo / ".gitignore").unlink()
-        # pack の中は、共有の作業ツリーを見ると別の実行が残した __pycache__ を拾うので、この試験だけが持つ写しで起こして見る。
-        # run_tests.py は parents[2] / .shared / core を import するので、pack の並びを保って写す
-        pack = pathlib.Path(self._tmp.name) / "pack"
-        shutil.copytree(CORE, pack / ".shared" / "core", ignore=shutil.ignore_patterns("__pycache__"))
-        shutil.copytree(ROOT / "blk-tests", pack / "blk-tests", ignore=shutil.ignore_patterns("__pycache__"))
-        out = self.run_tests("python3 -m unittest -q test_stats", script=pack / "blk-tests" / "scripts" / "run_tests.py")
-        self.assertEqual((out["ok"], out["green"]), (True, False))   # 種はバグ入りで赤
-        self.assertEqual(list(self.repo.rglob("__pycache__")), [])
-        self.assertEqual(list(pack.rglob("__pycache__")), [])         # pack の写しの中にも作らない
-
-    def test_red_command_is_still_ok(self):
-        # 赤を人の関所に見せるのがこの段の仕事なので、赤でも節は通る。信号で死んだテストも赤
-        out = self.run_tests("echo 赤 >&2; exit 3")
-        self.assertEqual((out["ok"], out["green"]), (True, False))
-        self.assertIn("赤", (self.board / "tests.log").read_text(encoding="utf-8"))
-        out = self.run_tests("kill -SEGV $$")
-        self.assertEqual((out["ok"], out["green"]), (True, False))
-
-    def uv_run_tests(self, **extra_env):
-        """Archon と同じ形（`uv run <パス>`、cwd は対象リポジトリ。Archon 0.11.1 の script の節）で節のスクリプトを走らせ、
-        テストのコマンドから見えた python3・VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH・UV_NO_CONFIG と、uv の外の bash から見えた
-        python3 を返す。extra_env は uv run に渡す環境に足す（Archon の環境に利用者が立てた物の代わり）。
-        外の環境は uv の外の姿にする（このテスト自身が run.sh の uv run の中で走るので、uv が足した物を外して PATH を決め打つ）"""
-        uv = shutil.which("uv")
-        self.assertTrue(uv, "uv が無い")
-        cmd = ('echo "PY=$(command -v python3)"; echo "VENV=${VIRTUAL_ENV:-}"; echo "DEPTH=${UV_RUN_RECURSION_DEPTH:-}"; '
-               'echo "NOCONF=${UV_NO_CONFIG:-}"')
-        env = {k: v for k, v in self.cmd_env(cmd).items()
-               if k not in ("VIRTUAL_ENV", "UV", "UV_RUN_RECURSION_DEPTH", "UV_NO_CONFIG")}
-        env.update(PATH=f"{os.path.dirname(uv)}:/usr/bin:/bin", PYTHONDONTWRITEBYTECODE="1", **extra_env)   # Archon が立てる
-        outside = subprocess.run(["bash", "-c", "command -v python3"], env=env, capture_output=True, text=True, encoding="utf-8").stdout.strip()
-        r = subprocess.run([uv, "run", str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo), env=env,
-                           capture_output=True, text=True, encoding="utf-8", timeout=300)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout)["green"], True)
-        lines = (self.board / "tests.log").read_text().splitlines()
-        self.assertEqual([i for i, line in enumerate(lines) if line.startswith("== 起こし方 ")], [0])
-        seen = dict(line.split("=", 1) for line in lines[1:])
-        return seen, outside
-
-    def test_command_sees_outside_python_not_uvs(self):
-        # 節は uv run の中で走るが、テストのコマンドは uv が PATH の頭に足した python を掴まない（掴むと偽の赤になる）
-        seen, outside = self.uv_run_tests()
-        self.assertTrue(outside)
-        self.assertEqual(seen, {"PY": outside, "VENV": "", "DEPTH": "", "NOCONF": ""})
-
-    def test_command_does_not_inherit_target_project_venv(self):
-        # 対象が pyproject.toml を持っても、節のスクリプトは PEP 723 の塊で対象の .venv を使わない（test_script_headers）。
-        # 塊が外れて対象の .venv で起きた回にも、テストのコマンドには uv の VIRTUAL_ENV を渡さない
-        (self.repo / "pyproject.toml").write_text('[project]\nname = "seed"\nversion = "0"\nrequires-python = ">=3.9"\n')
-        seen, outside = self.uv_run_tests()
-        self.assertEqual(seen, {"PY": outside, "VENV": "", "DEPTH": "", "NOCONF": ""})
-
-    def test_command_reads_target_uv_config(self):
-        # 利用者が Archon の環境に UV_NO_CONFIG=1 を立てても、テストのコマンドには渡さない。渡すと対象の `uv run pytest` が
-        # 対象の [tool.uv]（私的な index など）を読まずに公開の PyPI から解決する（偽の赤と依存の取り違えの口）
-        seen, outside = self.uv_run_tests(UV_NO_CONFIG="1")
-        self.assertEqual(seen, {"PY": outside, "VENV": "", "DEPTH": "", "NOCONF": ""})
-        # uv run の外で起こされても外す
-        with mock.patch.dict(os.environ, UV_NO_CONFIG="1"):
-            out = self.run_tests('test -z "${UV_NO_CONFIG+x}"')
-        self.assertEqual((out["ok"], out["green"]), (True, True))
-
-    def test_stop_stops_the_test_tree(self):
-        # run を止めた（節のスクリプトが SIGTERM を受けた）ら、テストが背景に起こした孫まで止まり、後から作業ツリーに書かない
-        if not hasattr(os, "killpg"):
-            self.skipTest("SKIP process-group: この OS の os に killpg が無い（孫をプロセスのグループで見る）")
-        pidf, marker = self.artifacts / "pgid", self.repo / "late.txt"
-        cmd = f"echo $$ > {pidf}; sleep 300 & (sleep 3; echo late > {marker}) & wait"
-        p = subprocess.Popen([sys.executable, str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo),
-                             env=self.cmd_env(cmd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, text=True, encoding="utf-8")
-        try:
-            end = time.monotonic() + 10
-            while not (pidf.exists() and pidf.read_text().strip()) and time.monotonic() < end:
-                time.sleep(0.05)
-            pgid = int(pidf.read_text())
-            p.send_signal(signal.SIGTERM)
-            out, err = p.communicate(timeout=10)
-            self.assertEqual((p.returncode, out), (128 + signal.SIGTERM, ""))   # 止められた回は出口を出さない
-            self.assertIn("止められた", err)
-            end = time.monotonic() + 2
-            while time.monotonic() < end:
-                try:
-                    os.killpg(pgid, 0)
-                except ProcessLookupError:
-                    break
-                time.sleep(0.05)
-            else:
-                self.fail("テストの孫が残った")
-            time.sleep(4)
-            self.assertFalse(marker.exists(), "止めた後にテストの孫が書いた")
-        finally:   # 落ちた回も、このテストが起こした物だけを片付ける
-            if p.poll() is None:
-                p.kill()
-                p.wait()
-            try:
-                os.killpg(int(pidf.read_text()), signal.SIGKILL)
-            except (OSError, ValueError):
-                pass
+        self.assertEqual(load_run_tests().INPUTS, ("INPUTS_CMD",))
 
 
-
-# ---------------------------------------------------------------- blk-tests の明示の形 mid・final（仕様 3.5・裁定 TA4・TA5）
+# ---------------------------------------------------------------- blk-tests の最後のテスト（仕様 3.5・裁定 TA4・TA5）
 # 盤面は盤面の層の試験の道具（手本の盤面を p4.ci の手の前に戻す。読むだけ・import するだけ）で組み、節のスクリプトの main を
 # Archon と同じ環境変数で同じプロセスの中で呼ぶ。盤面は 1 本目のラインの本物の表で組み、本物の entry（Task 3 の open_board）で開く。
 # 偽物は Task 7 の run_ci・CiRefused だけ（この枝にまだ無い）: run_ci は Task 7 の約束（relaunch は 1 度だけ呼び直す・任せ先は
@@ -382,7 +207,6 @@ import entry as real_entry  # noqa: E402
 import test_board_engine_run as ER  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
 import linekit  # noqa: E402
-from engine import declared  # noqa: E402
 
 DECL_BROKEN = {"suite": []}
 
@@ -448,7 +272,7 @@ class TestTestsModes(ER.EngineRunCase):
     def reopen(self, b):
         return real_entry.open_board(b.dir, allow_halted=True)
 
-    def call(self, b, mode, cmd, run_ci=ref_run_ci, entry="real"):
+    def call(self, b, cmd, run_ci=ref_run_ci, entry="real"):
         """節のスクリプトの main を Archon と同じ環境変数で呼ぶ → (終了コード, 出口の dict か None, stderr)。
         entry は本物（Task 3 の open_board）。Task 7 の run_ci・CiRefused だけはこの枝に無いので偽物を足す。
         entry=None は entry が import できない時"""
@@ -459,7 +283,7 @@ class TestTestsModes(ER.EngineRunCase):
             opened.append(pathlib.Path(d))
             return real_open(d, **kw)
 
-        env = {"INPUTS_CMD": cmd, "INPUTS_MODE": mode, "ARTIFACTS_DIR": str(b.dir.parent)}
+        env = {"INPUTS_CMD": cmd, "ARTIFACTS_DIR": str(b.dir.parent)}
         out, err = io.StringIO(), io.StringIO()
         mod = load_run_tests()
         with contextlib.ExitStack() as stack:
@@ -482,83 +306,11 @@ class TestTestsModes(ER.EngineRunCase):
         self.assertEqual(text.count("\n"), 1)
         return rc, json.loads(text), err.getvalue()
 
-    # -- mid
-    def test_mid_runs_declared_suite_without_shell(self):
-        # 宣言の段を 1 つずつ shell を通さずに走らせる（argv の $・; はそのまま字で届く）。cmd は走らせない。盤面の節には書かない
-        steps = [{"name": "unit", "argv": ["python3", "-c", "import sys; print(sys.argv[1:])", "$HOME;", "|x"]},
-                 {"name": "lint", "argv": ["python3", "-c", "import sys; sys.exit(4)"]}]
-        b = self.mode_board(decl=steps)
-        before = ER.disk_bytes(b)
-        marker = self.repo(b) / "cmd-ran"
-        rc, out, err = self.call(b, "mid", f"touch {marker}")
-        self.assertEqual(rc, 0, err)
-        log, res = b.work("mid-tests.log"), b.work("mid-tests.json")
-        self.assertEqual(out, {"ok": True, "green": False, "log": str(log),
-                               "suites": [{"name": "unit", "exit": 0, "how": "direct"}, {"name": "lint", "exit": 4, "how": "direct"}],
-                               "by": "mid"})
-        self.assertIn("['$HOME;', '|x']", log.read_text(encoding="utf-8"))
-        self.assertFalse(marker.exists())
-        got = json.loads(res.read_text(encoding="utf-8"))
-        self.assertEqual({k: got[k] for k in ("by", "source", "green", "suites", "log", "sha")},
-                         {"by": "mid", "source": "declared", "green": False, "suites": out["suites"], "log": str(log),
-                          "sha": declared.steps_sha(steps)})
-        self.assertEqual(ER.disk_bytes(b), before)   # state・record・trace は 1 バイトも変わらない（process.checks も）
-        self.assertEqual(self.reopen(b).rd["instances"]["p4.ci"]["status"], "pending")
-
-    def test_mid_green_suite(self):
-        b = self.mode_board(decl=ER.GREEN)
-        rc, out, err = self.call(b, "mid", "")
-        self.assertEqual(rc, 0, err)
-        self.assertEqual((out["ok"], out["green"], out["suites"]), (True, True, [{"name": "suite", "exit": 0, "how": "direct"}]))
-
-    def test_mid_runs_cmd_when_no_declaration(self):
-        # 宣言が無ければ cmd を 1 本目と同じく bash で走らせる。赤でも ok: true
-        b = self.mode_board(decl=None)
-        before = ER.disk_bytes(b)
-        rc, out, err = self.call(b, "mid", "[[ -d . ]] && echo 赤 >&2; exit 3")
-        self.assertEqual(rc, 0, err)
-        log = b.work("mid-tests.log")
-        self.assertEqual(out, {"ok": True, "green": False, "log": str(log), "suites": [{"name": "cmd", "exit": 3, "how": "shell"}],
-                               "by": "mid"})
-        self.assertIn("赤", log.read_text(encoding="utf-8"))
-        self.assertEqual(json.loads(b.work("mid-tests.json").read_text(encoding="utf-8"))["source"], "cmd")
-        self.assertEqual(ER.disk_bytes(b), before)
-
-    def test_mid_broken_declaration_not_run(self):
-        # 在るのに読めない宣言は engine と同じく走らせない（cmd にも落とさない）。走れなかった回は green: false で理由を残す
-        b = self.mode_board(decl=DECL_BROKEN)
-        marker = self.repo(b) / "cmd-ran"
-        rc, out, err = self.call(b, "mid", f"touch {marker}")
-        self.assertEqual(rc, 0, err)
-        self.assertEqual((out["ok"], out["green"], out["suites"], out["by"]), (True, False, [], "mid"))
-        self.assertFalse(marker.exists())
-        got = json.loads(b.work("mid-tests.json").read_text(encoding="utf-8"))
-        self.assertEqual(got["source"], "none")
-        self.assertIn(ER.DECL, got["reason"])
-        self.assertIn(ER.DECL, pathlib.Path(out["log"]).read_text(encoding="utf-8"))
-
-    def test_mid_nothing_to_run(self):
-        # 宣言も cmd も無い（修正役が宣言を消した等）→ 走れなかった回として green: false・ok: true（中の関所に見せる）
-        b = self.mode_board(decl=None)
-        rc, out, err = self.call(b, "mid", "  ")
-        self.assertEqual(rc, 0, err)
-        self.assertEqual((out["ok"], out["green"], out["suites"]), (True, False, []))
-        self.assertTrue(json.loads(b.work("mid-tests.json").read_text(encoding="utf-8"))["reason"])
-
-    def test_mid_round_two(self):
-        # 周 2 の盤面でも作業ファイルは今の周の置き場（b.work）。周の番号を仮定しない（裁定 TA17）
-        b = self.mode_board(nth=1)
-        self.assertGreaterEqual(b.round, 2)
-        rc, out, err = self.call(b, "mid", "")
-        self.assertEqual(rc, 0, err)
-        self.assertEqual(out["log"], str(b.work("mid-tests.log")))
-        self.assertTrue(b.work("mid-tests.json").exists())
-
     # -- final
     def test_final_by_engine(self):
         # 宣言が在れば engine が走らせる（cmd は空でよい）。process.checks["p4.ci"].by == "engine"、green は素材の clean
         b = self.mode_board(decl=ER.GREEN)
-        rc, out, err = self.call(b, "final", "")
+        rc, out, err = self.call(b, "")
         self.assertEqual(rc, 0, err)
         self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, True, "engine", [{"name": "suite", "exit": 0, "how": "direct"}]))
         after = self.reopen(b)
@@ -567,7 +319,7 @@ class TestTestsModes(ER.EngineRunCase):
 
     def test_final_red_suite_is_ok(self):
         b = self.mode_board(decl=ER.RED)
-        rc, out, err = self.call(b, "final", "")
+        rc, out, err = self.call(b, "")
         self.assertEqual(rc, 0, err)
         self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, False, "engine", [{"name": "suite", "exit": 3, "how": "direct"}]))
 
@@ -585,7 +337,7 @@ class TestTestsModes(ER.EngineRunCase):
             return ref_run_ci(b, nid, test_cmd=test_cmd, runner=runner)
 
         b = self.mode_board(decl=ER.GREEN)
-        rc, out, err = self.call(b, "final", "", run_ci=spy)
+        rc, out, err = self.call(b, "", run_ci=spy)
         self.assertEqual(rc, 0, err)
         self.assertEqual(out["log"], seen["got"]["runs"][0]["out"])
         self.assertEqual(pathlib.Path(out["log"]).read_text(encoding="utf-8"), "1 passed\n")
@@ -595,7 +347,7 @@ class TestTestsModes(ER.EngineRunCase):
         for cmd, green, status in (("echo 走った", True, "clean"), ("echo 赤; exit 2", False, "found")):
             with self.subTest(cmd=cmd):
                 b = self.mode_board(decl=None)
-                rc, out, err = self.call(b, "final", cmd)
+                rc, out, err = self.call(b, cmd)
                 self.assertEqual(rc, 0, err)
                 self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, green, "role", []))
                 self.assertEqual(out["log"], str(b.work("tests.log")))
@@ -608,7 +360,7 @@ class TestTestsModes(ER.EngineRunCase):
         # 宣言が無く cmd も空 → 拒まない（裁定 R52）。run_ci の role_needed をそのまま出口の by に出し、緑と言わない。
         # p4.ci は任せ先に落ちたまま待ち、ラインが blk-ci（CI の任せ先の役）を回す。起こした印は置かない（blk-ci の prep が置く）
         b = self.mode_board(decl=None)
-        rc, out, err = self.call(b, "final", " ", run_ci=REAL_RUN_CI)
+        rc, out, err = self.call(b, " ", run_ci=REAL_RUN_CI)
         self.assertEqual(rc, 0, err)
         self.assertEqual(out, {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"})
         after = self.reopen(b)
@@ -628,7 +380,7 @@ class TestTestsModes(ER.EngineRunCase):
 
         b = self.mode_board(decl=ER.GREEN)
         self.assertEqual(b.record["materials"]["local_checks"]["status"], "clean", "前提: 修正前の素材は緑")
-        rc, out, err = self.call(b, "final", "", run_ci=fall)
+        rc, out, err = self.call(b, "", run_ci=fall)
         self.assertEqual(rc, 0, err)
         self.assertEqual((out["green"], out["by"], out["suites"], out["log"]), (False, "role_needed", [], ""))
         after = self.reopen(b)
@@ -641,7 +393,7 @@ class TestTestsModes(ER.EngineRunCase):
             raise CiRefused("宣言が計画の後に 2 度変わった")
 
         b = self.mode_board(decl=ER.GREEN)
-        rc, out, err = self.call(b, "final", "", run_ci=refuse)
+        rc, out, err = self.call(b, "", run_ci=refuse)
         self.assertEqual((rc, out), (1, None))
         self.assertIn("宣言が計画の後に 2 度変わった", err)
 
@@ -649,7 +401,7 @@ class TestTestsModes(ER.EngineRunCase):
         # final の後の盤面は独立の目（R1〜R4。表で blk-eyes の役）を待ち、目を渡すと p4.record と converge が済み、
         # stop_after_round で止まる（計画 P1 Task 33）
         b = self.mode_board(decl=ER.GREEN)
-        rc, out, err = self.call(b, "final", "")
+        rc, out, err = self.call(b, "")
         self.assertEqual(rc, 0, err)
         after = self.reopen(b)
         self.assertEqual(after.node_state("p4.assemble"), "done")
@@ -663,7 +415,7 @@ class TestTestsModes(ER.EngineRunCase):
     def test_final_round_two(self):
         b = self.mode_board(nth=1)
         self.assertGreaterEqual(b.round, 2)
-        rc, out, err = self.call(b, "final", "")
+        rc, out, err = self.call(b, "")
         self.assertEqual(rc, 0, err)
         after = self.reopen(b)
         self.assertEqual(out["log"], after.record["process"]["checks"]["p4.ci"]["runs"][0]["out"])
@@ -672,25 +424,31 @@ class TestTestsModes(ER.EngineRunCase):
 
     # -- 共通
     def test_exit_keeps_v1_fields(self):
-        # 出口は 1 本目の ok・green・log を全部残し、mid・final の時だけ suites・by を足す
-        for mode in ("mid", "final"):
-            with self.subTest(mode=mode):
-                b = self.mode_board()
-                rc, out, err = self.call(b, mode, "")
-                self.assertEqual(rc, 0, err)
-                self.assertEqual(set(out), {"ok", "green", "log", "suites", "by"})
-                self.assertTrue(all(set(s) == {"name", "exit", "how"} for s in out["suites"]))
+        # 出口は 1 本目の ok・green・log を全部残し、suites・by を足す
+        b = self.mode_board()
+        rc, out, err = self.call(b, "")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(set(out), {"ok", "green", "log", "suites", "by"})
+        self.assertTrue(all(set(s) == {"name", "exit", "how"} for s in out["suites"]))
 
-    def test_modes_need_entry(self):
-        # mid・final は盤面の口（entry）が要る。読めなければ回す側の誤り（終了コード 2）で、盤面を書かない
-        for mode in ("mid", "final"):
-            with self.subTest(mode=mode):
-                b = self.mode_board()
-                before = ER.disk_bytes(b)
-                rc, out, err = self.call(b, mode, "true", entry=None)
-                self.assertEqual((rc, out), (2, None))
-                self.assertIn("entry", err)
-                self.assertEqual(ER.disk_bytes(b), before)
+    def test_needs_entry(self):
+        # 盤面の口（entry）が要る。読めなければ回す側の誤り（終了コード 2）で、盤面を書かない
+        b = self.mode_board()
+        before = ER.disk_bytes(b)
+        rc, out, err = self.call(b, "true", entry=None)
+        self.assertEqual((rc, out), (2, None))
+        self.assertIn("entry", err)
+        self.assertEqual(ER.disk_bytes(b), before)
+
+    def test_stopped_run_exits_without_output(self):
+        # run が止められた（tree_run.Stopped）回は、テストの木を止め終えた後に出口を出さずに 128+信号で終わる
+        b = self.mode_board()
+
+        def stopped(*a, **k):
+            raise load_run_tests().tree_run.Stopped(signal.SIGTERM)
+        rc, out, err = self.call(b, "true", run_ci=stopped)
+        self.assertEqual((rc, out), (128 + signal.SIGTERM, None))
+        self.assertIn("止められた", err)
 
 # ---------------------------------------------------------------- blk-delta の支度・受け付け・出口（盤面の上。線 A Task 13）
 # 1 本目の cut・accept・collect（偽の盤面の fix.diff・delta-review.json）は盤面の機械の節と refix の口に替わった。1 本目の試験の

@@ -199,14 +199,6 @@ def _load_run_tests():
     return mod
 
 
-class _WorkBoard:
-    """run_mid が読む b.work だけを持つ盤面"""
-
-    def __init__(self, d):
-        self.d = pathlib.Path(d)
-
-    def work(self, name):
-        return self.d / name
 
 
 class LaunchKindCase(unittest.TestCase):
@@ -335,70 +327,6 @@ class LaunchKindCase(unittest.TestCase):
             out = mod.run_final(b, "x && y", run_ci=lambda *a, **k: {"by": "role", "log": "l", "how": "shell"})
         self.assertEqual((out["suites"], out["test_cmd_how"]), ([], "shell"))
 
-    def _plain(self, run, cmd="pytest"):
-        mod = _load_run_tests()
-        with mock.patch.object(mod.tree_run, "run", run):
-            try:
-                return mod.run_plain(cmd, self.tmp)
-            except OSError as e:
-                self.fail(f"コマンドを起こせない時に run_plain が例外で落ちた: {e!r}")
-
-    def test_plain_unlaunchable_direct_cmd_returns_launch_broken(self):
-        out = self._plain(mock.Mock(side_effect=FileNotFoundError("pytest")))
-        self.assertEqual((out["ok"], out["green"], out.get("launch"), out.get("how")), (True, False, "broken", "direct"))
-        self.assertIn(entry.tree_run.DIRECT_HINT, pathlib.Path(out["log"]).read_text(encoding="utf-8"))
-
-    def test_plain_exit_126_127_is_code_red_with_mutgate_keys(self):
-        for cmd in ("pytest", "pytest | tee out"):
-            for code in (126, 127):
-                with self.subTest(cmd=cmd, code=code):
-                    out = self._plain(mock.Mock(return_value=code), cmd)
-                    self.assertEqual((out["ok"], out["green"]), (True, False))
-                    self.assertEqual(set(out), {"ok", "green", "log", "how"})
-
-    def test_plain_code_red_keeps_mutgate_keys(self):
-        out = self._plain(mock.Mock(return_value=1))
-        self.assertEqual(set(out), {"ok", "green", "log", "how"})
-
-    def test_plain_red_and_green_carry_how_in_exit_and_log(self):
-        for cmd, argv, how in (("pytest", ["pytest"], "direct"), ("pytest | tee out", ["bash", "-c", "pytest | tee out"], "shell")):
-            for code in (0, 1):
-                with self.subTest(cmd=cmd, code=code):
-                    out = self._plain(mock.Mock(return_value=code), cmd)
-                    self.assertEqual((out.get("how"), "launch" in out), (how, False))
-                    head = pathlib.Path(out["log"]).read_text(encoding="utf-8").splitlines()[0]
-                    self.assertEqual(head, f"== 起こし方 {how}: {__import__('json').dumps(argv)}")
-
-    def test_mid_declared_step_log_names_how(self):
-        decl = {"sha": "s", "steps": [{"name": "unit", "argv": ["pytest", "-q"]}]}
-        out = self._mid(mock.Mock(return_value=0), decl=decl)
-        self.assertEqual(out["suites"], [{"name": "unit", "exit": 0, "how": "direct"}])
-        self.assertIn("unit（起こし方 direct）", pathlib.Path(out["log"]).read_text(encoding="utf-8"))
-
-    def _mid(self, run, decl=None):
-        mod = _load_run_tests()
-        from engine import declared
-        with mock.patch.object(mod.tree_run, "run", run), mock.patch.object(declared, "read", return_value=decl), \
-                mock.patch.object(mod, "_repo_root", return_value=self.tmp):
-            try:
-                return mod.run_mid(_WorkBoard(self.tmp), "pytest")
-            except OSError as e:
-                self.fail(f"コマンドを起こせない時に run_mid の cmd の道が例外で落ちた: {e!r}")
-
-    def test_mid_unlaunchable_direct_cmd_is_exit_none(self):
-        out = self._mid(mock.Mock(side_effect=FileNotFoundError("pytest")))
-        self.assertFalse(out["green"])
-        self.assertEqual(out["suites"][0]["exit"], None)
-        self.assertEqual(out["suites"][0].get("launch"), "broken")
-        self.assertEqual(__import__("json").loads((self.tmp / "mid-tests.json").read_text(encoding="utf-8"))["how"], "direct")
-
-    def test_mid_cmd_exit_127_is_code_red(self):
-        out = self._mid(mock.Mock(return_value=127))
-        self.assertFalse(out["green"])
-        self.assertEqual(out["suites"], [{"name": "cmd", "exit": 127, "how": "direct"}])
-        self.assertEqual(__import__("json").loads((self.tmp / "mid-tests.json").read_text(encoding="utf-8"))["how"], "direct")
-
-
 MISSING = "works-no-such-command-4f1c"
 
 
@@ -428,18 +356,6 @@ class LaunchProofCase(unittest.TestCase):
         script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         script.chmod(0o644)
         self.assertEqual(self._material("./t.sh")["status"], "not_run")
-
-    def test_plain_missing_command_returns_launch_broken(self):
-        out = _load_run_tests().run_plain(f"{MISSING} -q", self.tmp)
-        self.assertEqual((out["green"], out.get("launch")), (False, "broken"))
-
-    def test_mid_missing_command_returns_launch_broken(self):
-        mod = _load_run_tests()
-        from engine import declared
-        with mock.patch.object(declared, "read", return_value=None), mock.patch.object(mod, "_repo_root", return_value=self.tmp):
-            out = mod.run_mid(_WorkBoard(self.tmp), f"{MISSING} -q")
-        self.assertEqual(out["suites"][0].get("launch"), "broken")
-
 
 if __name__ == "__main__":
     unittest.main()

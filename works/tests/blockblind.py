@@ -40,8 +40,6 @@ BLOCK_KNOWN = {
     "blk-purpose/scripts/intake.py:blk-premises": (1, "docstring が入力を blk-premises の返答で述べる。" + LATER),
     "blk-refix/blk-refix.yaml:blk-delta": (1, "description が入力を blk-delta の穴で述べる。" + LATER),
     "blk-spec/lib/specblk.py:blk-rejudge": (1, "コメントが入口を blk-rejudge と比べる。" + LATER),
-    "blk-tests/blk-tests.yaml:blk-ci": (1, "description が後を blk-ci が回すと述べる。" + LATER),
-    "blk-tests/scripts/run_tests.py:blk-ci": (2, "docstring が後を blk-ci が回すと述べる。" + LATER),
 }
 
 FIX = ("ブロックはほかのブロック・役・段を知らない。入力・出口は形と約束で述べ、どのブロック・役が作ってどう繋ぐかは "
