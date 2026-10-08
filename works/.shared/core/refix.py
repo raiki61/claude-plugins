@@ -32,9 +32,8 @@ review<n>-brief.json・refix<n>-brief.json（役に見せる材料: graph がそ
 （deltamarks.fail_rows）も載せる。2 回目の往復には載せない）・手直しの役の指示書
 prompt-<節>.md（呼び手のブロックが組む）・修正の形 g3 の審査役の座 review<n>-seat.md（brief の seat_file。座の在る審査役は 1 回目だけ（seat.SEATS）で、g3 でない・
 座の無い役は空）。
-支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 回目の審査の 2 判定の控え delta-verdicts.json・1 本目の blk-delta が
-盤面の根に書いた delta-review.json・fix.diff・delta-snapshot.json）を先に消す——新しい審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が
-踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
+支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 回目の審査の 2 判定の控え delta-verdicts.json）を先に消す——新しい
+審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
 """
 import functools
 import json
@@ -81,8 +80,6 @@ DELTA_BY = "works:delta"
 # 手直しの段が盤面を止めた時の state.stop.by: 手直し・2 回目の審査の役が 3 回とも拒まれて輪を抜けた・手直しの支度が
 # 修正案の欄の控えの壊れを見た
 REFIX_BY = "works:refix"
-# 1 本目の blk-delta が盤面の scope の根に書いた物（2 本目は書かない。残っていれば前の試みの出力なので支度が消す）
-V1_OUTPUTS = (accept.DELTA_REVIEW_FILE, accept.DIFF_FILE, accept.SNAPSHOT_FILE)
 
 
 @functools.lru_cache(maxsize=1)
@@ -177,9 +174,9 @@ def _write_json(path: pathlib.Path, doc) -> pathlib.Path:
     return _write_text(path, json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
 
 
-def _drop_stale(b, *names, root=()):
-    """前の試みの自分の出力を消す（今の周の作業ファイルの names と、盤面の今の scope の根の root。accept.cut_delta の置き場）"""
-    for p in [b.work(x) for x in names] + [b.scope_root / x for x in root]:
+def _drop_stale(b, *names):
+    """前の試みの自分の出力を消す（今の周の作業ファイルの names）"""
+    for p in [b.work(x) for x in names]:
         p.unlink(missing_ok=True)
 
 
@@ -210,8 +207,7 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
             "[BRIEF_FILE]": str(b.work(brief_name)), "[GLOBAL_CONSTRAINTS]": pol["path"] or seat.NONE,
             "[REPORT_FILE]": _out_file(b, recount.FIX_NODE) or seat.NONE,
             "[BASE_SHA]": _cut_base(b) or seat.NONE, "[HEAD_SHA]": d.get("rev") or seat.NONE, "[DIFF_FILE]": d["file"]})
-    _drop_stale(b, brief_name, seat_name, f"reads-{role}.json", *((deltamarks.VERDICTS_FILE,) if n == 1 else ()),
-                root=V1_OUTPUTS if n == 1 else ())
+    _drop_stale(b, brief_name, seat_name, f"reads-{role}.json", *((deltamarks.VERDICTS_FILE,) if n == 1 else ()))
     seat_file = str(_write_text(b.work(seat_name), seat_text)) if seat_text else ""
     doc = {"node": p["review"], "diff_file": d["file"], "files": d.get("files") or [], "rev": d.get("rev"),
            "reads": _brief(b, p["review"]), "policy": pol, "seat_file": seat_file}

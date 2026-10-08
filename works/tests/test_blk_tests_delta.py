@@ -1030,13 +1030,11 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertLessEqual(set(yaml_collect["required"]), set(out))
 
     def test_cut_removes_stale_outputs(self):
-        """新しい審査の前に、前の試みの自分の出力（brief・reads-review.json、1 本目が盤面の根に書いた delta-review.json・
-        fix.diff・delta-snapshot.json）を消す。出口は盤面の今の周の返答だけを数え、前の審査の穴を数えない（自分食いの 1 本目の穴）"""
+        """新しい審査の前に、前の試みの自分の出力（brief・reads-review.json・2 判定の控え）を消す。出口は盤面の今の周の返答だけを数え、前の審査の穴を数えない（自分食いの 1 本目の穴）"""
         repo = self.fixed()
         b = real_entry.open_board(self.board)
         stale = {"faces": [{"key": f"前の審査の穴 {i}"} for i in range(5)], "checks": []}
-        planted = [self.board / name for name in ("delta-review.json", "fix.diff", "delta-snapshot.json")]
-        planted += [b.work("reads-review.json"), b.work("review1-brief.json"), b.work(deltamarks.VERDICTS_FILE)]
+        planted = [b.work("reads-review.json"), b.work("review1-brief.json"), b.work(deltamarks.VERDICTS_FILE)]
         for p in planted:
             p.write_text(json.dumps(stale, ensure_ascii=False), encoding="utf-8")
         got = refix.cut(self.board, 1, repo)

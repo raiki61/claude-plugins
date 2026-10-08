@@ -51,13 +51,12 @@ class TestGlMap(unittest.TestCase):
         for fn in sorted(public_functions(ACCEPT)):
             self.assertEqual(names.count(fn), 1, f"accept.{fn} の行が {names.count(fn)} 本")
 
-    def test_missing_four_named(self):
-        """本線の返答の足りない 4 つ: 依頼に依らない検査・注記を外す・判定の受け付け・差分を切る。"""
+    def test_missing_three_named(self):
+        """本線の返答の足りない 3 つ: 依頼に依らない検査・注記を外す・判定の受け付け。"""
         by = {r["works"]: r for r in load_map()}
         for works, word in (("accept.check_request", "依頼"),
                             ("accept.role_schema", "注記"),
-                            ("accept.check_judge", "判定"),
-                            ("accept.cut_delta", "差分")):
+                            ("accept.check_judge", "判定")):
             self.assertIn(works, by)
             self.assertEqual(by[works]["status"], "missing", works)
             self.assertIn(word, by[works]["note"], works)
@@ -95,9 +94,6 @@ class TestGlMap(unittest.TestCase):
         for r in rows:
             if r["status"] == "ready":
                 self.assertTrue(r["gl"].startswith("gl "), r)
-        by = {r["works"]: r for r in rows}
-        self.assertEqual(by["accept.check_fix"]["gl"], "gl accept p3.fix")
-        self.assertEqual(by["accept.check_delta"]["gl"], "gl accept p3.delta_review")
         self.assertTrue(any("d1b863f" in r["note"] for r in rows))
 
     def test_no_new_checks_in_accept(self):

@@ -18,12 +18,6 @@
     "note": "判定の受け付けは本線でまだ旧い形（judge_output、本線 d1b863f の rules:2783）。gl accept は旧い形を呼ばず called: false, form: legacy を返す（d1b863f gl.py:100-103）。3-6 の続き・3-8 待ち。入った後も作業ツリーの見張り・拒否文の名前向けの言い換え（NUMBER_HINTS）・open_units の数えと judgment.json の書き込みは works に残る。"
   },
   {
-    "works": "accept.check_fix",
-    "gl": "gl accept p3.fix",
-    "status": "ready",
-    "note": "見込み。3-6 で新しい形に移った（fix_plan_covers_units、本線 d1b863f の rules:3363。今は gl accept p2.fix_plan で呼べる）。p3.fix の本来の受け付け fix_covers_open_units（rules:2945）は旧い形で、3-8 で修正の出口を出来事の形にする時に替わる。本線の案は単位を番号 unit で指し、works は名前 unit_key で指す（名前も受けるよう頼むかは持ち主の判断）。"
-  },
-  {
     "works": "blk-fix/scripts/accept.py:check_unique_units",
     "gl": "",
     "status": "works-only",
@@ -46,18 +40,6 @@
     "gl": "",
     "status": "works-only",
     "note": "修正役が .archon/ の下（Archon の置き場。自分食いの run では線を動かしている pack の写し .archon/workflows/works/**）を changes[].files に申告した・修正役の前の控え（節 ignored-before の fix-ignored-before.json の archon）から中身を変えた返答を拒む（run 26: 修正役が元の works/** と写しを同じに直して申告し、assert-changed が落ちた）。本線は pack の写しを対象の作業ツリーに置かないので gl へ移さない。役の起こし方の側は切符（ticket.protected_paths）が役の worktree の .archon を守る"
-  },
-  {
-    "works": "accept.check_delta",
-    "gl": "gl accept p3.delta_review",
-    "status": "ready",
-    "note": "見込み。delta_review_output は本線 d1b863f で新しい形（rules:3422）で、今の gl で呼べる唯一の受け付け。gl は盤面の p3.fix_delta の出力の delta.files を読むので、差分を盤面で切った後に移す。3-5（27a818a）で DeltaPass.state_key が消えたため、今の accept.py は写し直した時に落ちる（今は壊れていない）。読むだけの役の見張り（delta-snapshot）は works に残す。"
-  },
-  {
-    "works": "accept.cut_delta",
-    "gl": "",
-    "status": "missing",
-    "note": "差分を切る段が gl に無い。機械の節 p3.fix_delta（fix_delta、本線 d1b863f の rules:1844）は旧い形で、gl machine は called: false（d1b863f gl.py:132-134）。3-8 待ち。本線は作業ツリーを一時 index で固めて rev を返し、置き場は fix-delta-r<周>.patch（works は fix.diff、rev を返さない）。盤面の層の settle で切れば gl を待たずに本線と同じ切り方になる。"
   },
   {
     "works": "accept.touched_files",
