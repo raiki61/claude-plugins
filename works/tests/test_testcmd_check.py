@@ -265,6 +265,38 @@ class TestCmdCheck(unittest.TestCase):
         self.assertEqual(len(lines), 1, lines)
         self.assertIn("test_cmd の build ", lines[0])
 
+    def test_absolute_reference_in_a_later_segment_stops(self):
+        """手元の絶対パスは、前の段が worktree の中に作ることが無いので、後ろの段（&&・;・| の後・後ろの段の sh -c の中）でも止める。
+        注意の形（相対で git が無視するパス）は今どおり最初の段だけ"""
+        r = self.repo
+        for cmd in (f"set -e; cd {r} && pytest", f"echo run && cd {r} && pytest", f"export CI=1 && cd {r} && pytest",
+                    f"npm ci && {r}/node_modules/.bin/jest", f"uv sync && {r}/.venv/bin/pytest",
+                    f"uv run true && {r}/.venv/bin/pytest", f"uv sync && PYTHONPATH={r} uv run pytest",
+                    f"uv sync && sh -c 'cd {r} && pytest'", f"uv sync && make -C {r} test"):
+            with self.subTest(cmd):
+                self.stops(cmd)
+        for cmd in (f"uv sync && pytest --junitxml {r}/x.xml", f"uv run pytest -q && echo ok > {r}/stats.py",
+                    "uv sync && .venv/bin/pytest"):
+            with self.subTest(cmd):
+                self.assertEqual(self.check(cmd), [])
+
+    def test_activated_virtualenv_looks_at_every_segment(self):
+        """立てた環境の判定は、cd だけの段と動かさない組み込み（echo・export など）を除く全部の段の頭を見る: 頭が uv（pip でなく
+        --active でもない）の段だけなら止めず、ほかの段（後ろの pytest・uv run --active・uv pip）が 1 つでも在れば止める"""
+        venv = self.repo.parent / "venvs" / "proj"
+        info = self._site(venv) / "stats-0.1.dist-info"
+        info.mkdir()
+        (info / "direct_url.json").write_text(json.dumps({"url": self.repo.as_uri(), "dir_info": {"editable": True}}))
+        env = dict(VIRTUAL_ENV=str(venv), PATH=f"{venv}/bin{os.pathsep}{os.environ.get('PATH', '')}")
+        for cmd in ("uv sync && uv run pytest -q", "uv sync --frozen; uv run pytest", "uv --directory sub run pytest",
+                    "export CI=1 && uv run pytest", "uv run pytest -q && echo ok", "cd sub && uv sync && uv run pytest"):
+            with self.subTest(cmd):
+                self.assertEqual(self.check(cmd, **env), [])
+        for cmd in ("uv run pytest && pytest", "uv run --active pytest", "uv pip install -e . && uv run pytest",
+                    "uv sync && python3 -m pytest", "uv sync && sh -c 'pytest -q'"):
+            with self.subTest(cmd):
+                self.assertEqual(len(self.stops(cmd, **env)), 1)
+
     def test_mixed_notes_stop_and_keep_the_warning(self):
         """止める形と注意の形が並べば、止める形の行だけが「止める」で、注意の行はそのまま"""
         venv = self.repo.parent / "venvs" / "proj"

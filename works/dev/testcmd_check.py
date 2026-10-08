@@ -6,17 +6,21 @@ run の worktree（Archon が --from の commit から切る）と単位の work
 対象の git が無視する物（.venv・node_modules・ビルドの出力・.env など）が無い。形は 2 つに分け、1 行ずつ標準出力へ出す:
 - 止める形（行の頭「止める（test_cmd）」。--allow-checkout なら「注意（test_cmd）」）: run の試験が worktree の直しでなく対象の手元
   （元の clone）を走らせ、直しの正誤に関わらず緑になり得る（黙った偽の緑）。
-  - 手元を絶対パスで指す語: 見る語（下）のうち絶対パスで、対象の根そのものか根の中の今在る物を指す物（git が無視するかを問わない。
-    cd /手元 && uv run pytest・/手元/.venv/bin/pytest・pytest /手元/tests・PYTHONPATH=/手元/src）と、絶対パスの cd の後の
-    相対の語のうち git が無視する物
+  - 手元を絶対パスで指す語: どの段でも（手元の絶対パスは前の段が worktree の中に作ることが無い。殻の -c の中の段も）、見る語（下）の
+    うち絶対パスで、対象の根そのものか根の中の今在る物を指す物（git が無視するかを問わない。cd /手元 && uv run pytest・
+    uv sync && /手元/.venv/bin/pytest・pytest /手元/tests・PYTHONPATH=/手元/src）と、最初の段の前の絶対パスの cd の後の相対の
+    語のうち git が無視する物
   - 立てた仮想環境: VIRTUAL_ENV が在り、その bin が PATH に在り、その環境に対象が editable で入っていて（site-packages の
-    *.dist-info/direct_url.json の editable の url か、*.pth の絶対パスの行が対象の根の中を指す）、test_cmd の最初の段が
-    （前の NAME=値 と env を除いて）`uv run` で始まらない。run の中の python・pytest は PATH のその環境を掴む（uv run は project の
-    .venv を使い VIRTUAL_ENV を見ない）。対象の入っていない環境（依存だけの環境・uv run の使い捨ての環境）は知らせない
+    *.dist-info/direct_url.json の editable の url か、*.pth の絶対パスの行が対象の根の中を指す）、test_cmd の段（殻の -c の中も。
+    前の NAME=値 と env を除く）のどれかが、組み込み（BUILTINS: cd・echo・export など）でも、頭が uv でサブコマンドが pip でなく
+    --active も無い段（uv run・uv sync など）でもない。run の中の python・pytest は PATH のその環境を掴む（uv run・uv sync は
+    project の .venv を使い VIRTUAL_ENV を見ない。uv run --active・uv pip は立てた環境を使う）。対象の入っていない環境（依存だけの
+    環境・uv run の使い捨ての環境）は知らせない
 - 注意の形（行の頭「注意（test_cmd）」）: 相対の語が、対象に今在り git が無視する物（git check-ignore。パスか、その上のどれかの段が
   無視されていれば無視）を指す。worktree に無いので走らない（落ちて分かる）
-見る語: test_cmd の最初の段（&&・||・;・|・& の前。後ろの段は前の段が worktree の中で作った物を使えるので見ない）の語（shlex で
-割る。割れなければ空白で割る）のうち、`/` を含み - で始まらない物と、= を含む語（NAME=値・--旗=値）の値を : で割った絶対パス。
+見る語: 段（&&・||・;・|・& で割る）の語（shlex で割る。割れなければ空白で割る）のうち、`/` を含み - で始まらない物と、= を含む語
+（NAME=値・--旗=値）の値を : で割った絶対パス。注意の形（相対の語）は最初の段だけを見る（後ろの段は前の段が worktree の中で作った
+物を使える）。
 所を変える形は辿る:
 - 前の段が `cd <先>`・`pushd <先>`（旗 -P・-L などは除く。後ろが && か ;）だけなら、所を変えるだけの段で、その次の段を最初の段とし、
   相対の語を cd の先から読む（cd sub && .venv/bin/pytest は sub/.venv/bin/pytest）。cd の先もパスとして見る（/ が無くても）。
@@ -38,7 +42,11 @@ git が無視するかは見ない（止める形の手元を絶対パスで指�
 - 中のコマンドを隠す形は読まない: make（-C の無い）・npm test・tox・nox・just などの台本・試験の殻のファイルの中身・
   sh <ファイル>・eval・xargs・find -exec。その中で手元を絶対パスで指しても見えない
 - 所を変える形のうち CHDIR_FLAGS の外の旗（uv run --project・cargo --manifest-path など）は、値が絶対パスで手元を指す時だけ
-  見る（相対の値は / が無ければ見ず、後ろの語も根から読む）。最初の段より後ろの段は見ない（前の段が作った物か読めない）
+  見る（相対の値は / が無ければ見ず、後ろの語も根から読む）。相対の語は最初の段より後ろの段では見ない（前の段が作った物か読めない）
+- 根の外への絶対パスの cd の後の相対の語（cd /手元の親 && 手元/.venv/bin/pytest）は読めない所として見ない。docker run -v /手元:/w
+  のように = でなく : で繋いだ値の中の手元は、語が在るパスでないので見ない
+- 立てた環境の判定で、uvx の段は uv の段として数えない（止める）。組み込みでない段は python を起こさなくても
+  止める（npm ci && uv run pytest も立てた環境で editable なら止める。止めを外せば今どおり起こす）
 - 対象が editable でなく普通に入った（写しを入れた）仮想環境は、絶対パスで指しても立てても editable の印が無いので、
   絶対パスの語としてだけ見る（立てた環境は知らせない）
 """
@@ -56,7 +64,7 @@ STOP_EXIT = 3   # 止める形が在る時の終了コード（--allow-checkout 
 HOW = "worktree の中で環境を作るコマンド（例 uv run pytest -q）にする（works/README.md の「test_cmd と worktree」）"
 SEPARATORS = ("&&", "||", ";", "|", "&")
 REDIRECTS = (">", ">>", ">|", "&>", "&>>", ">&", "<>")   # 後ろの語が書き先のリダイレクト（< の先は読むので見る）
-# 書き先を空白で分けた値に取る旗（よく使う物だけ。= で繋いだ値はどの旗も見ない）
+# 書き先を値に取る旗（よく使う物だけ。空白で分けた値も = で繋いだ値も見ない。ほかの旗の = の値は絶対パスだけ見る）
 OUTPUT_FLAGS = frozenset(("--junitxml", "--junit-xml", "--basetemp", "--html", "--report-log", "--result-log", "--alluredir",
                           "--cov-report", "--outputFile", "--coverageDirectory", "--output", "--output-file", "--outdir"))
 # 所を変える旗（値が所のフォルダで、同じ段の後ろの語をそこから読む）。道具の名（語の basename）ごと。同じ段に道具の語が在れば効く
@@ -66,6 +74,10 @@ CHDIR_FLAGS = {"make": ("-C", "--directory"), "gmake": ("-C", "--directory"), "e
 CD_WORDS = ("cd", "pushd")
 CD_OPTS = ("-P", "-L", "-e", "-@", "-n")   # cd・pushd の旗（値を取らない）
 SHELLS = ("sh", "bash", "zsh", "dash", "ksh")   # -c '<コマンド>' の中を同じ決まりで読む殻
+# 立てた環境の判定で見ない段の頭（所を変える・出すだけで python を起こさない殻の組み込み）
+BUILTINS = frozenset(("cd", "pushd", "popd", "echo", "printf", "true", "false", ":", "set", "export", "unset"))
+UV_COMMANDS = frozenset(("run", "sync", "pip", "lock", "add", "remove", "venv", "tool", "python", "build", "export", "tree",
+                         "init", "version", "cache", "self", "publish", "format"))
 _ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
@@ -190,7 +202,18 @@ def _path_words(root, cmd):
     書き先（リダイレクト > など の先・OUTPUT_FLAGS の旗の後ろの語と = の値）はコマンドが作るので見ない。所を変える旗
     （make -C など）の後ろの語は、その先から読む"""
     cds, words, at = _lead(root, cmd)
-    out = list(cds)
+    out = list(cds) + _scan(words, at, root)
+    seen, uniq = set(), []
+    for x in out:
+        if x not in seen:
+            seen.add(x)
+            uniq.append(x)
+    return uniq
+
+
+def _scan(words, at, root):
+    """1 つの段の語のうち見る物と、それを読む所の並び（_path_words の決まり。所を変える旗の後ろは読む所を移す）"""
+    out = []
     skip, chdir, tools = False, False, set()
     for w in words:
         if skip:
@@ -221,12 +244,31 @@ def _path_words(root, cmd):
             continue
         if "/" in w and not w.startswith("-"):
             out.append((w, at))
-    seen, uniq = set(), []
-    for x in out:
-        if x not in seen:
-            seen.add(x)
-            uniq.append(x)
-    return uniq
+    return out
+
+
+def _all_segments(cmd, depth=0):
+    """全部の段の語の並び。殻の -c の段は中のコマンドの段に開く（殻の前の NAME=値・env は別の段にする）"""
+    out = []
+    for words, _, _ in _segments(cmd)[0]:
+        inner = _shell_c(words) if depth < 4 else None
+        if inner is None:
+            out.append(words)
+            continue
+        if inner[0]:
+            out.append(inner[0])
+        out.extend(_all_segments(inner[1], depth + 1))
+    return out
+
+
+def _absolute_words(root, cmd):
+    """全部の段の、見る語のうち絶対パスの物（手元の絶対パスは前の段が worktree の中に作ることが無いので、段を問わない）"""
+    out = []
+    for words in _all_segments(cmd):
+        for w, _ in _scan(words, ("", None), root):
+            if os.path.isabs(w) and w not in out:
+                out.append(w)
+    return out
 
 
 def _under(root, path):
@@ -297,11 +339,12 @@ def path_notes(root, cmd):
     """パスの知らせ (止める形か, 文) の並び。対象の手元を絶対パスで指す語（根そのもの・追跡する物も。絶対パスの cd の後で git が
     無視する相対の語も）は止める形、git が無視するパスを相対で指す語は注意の形"""
     found = []
+    for w in _absolute_words(root, cmd):   # どの段でも、対象の手元の在る物を指す（無視するかを問わない）
+        rel = _inside_or_root(root, w)
+        if rel is not None and os.path.lexists(os.path.join(root, rel)):
+            found.append((w, True, None))
     for w, (at, base) in _path_words(root, cmd):
-        if os.path.isabs(w):
-            rel = _inside_or_root(root, w)
-            if rel is not None and os.path.lexists(os.path.join(root, rel)):   # 対象の手元の在る物を指す（無視するかを問わない）
-                found.append((w, True, None))
+        if os.path.isabs(w):   # 上で見た
             continue
         if at is None:   # 読めない cd の後の相対は見ない
             continue
@@ -356,6 +399,17 @@ def _editable_target(venv, root):
     return False
 
 
+def _venv_free(words):
+    """段が立てた環境を使わないか: 空・組み込み（BUILTINS）の段と、頭が uv で、サブコマンドが pip でなく --active も無い段
+    （uv run・uv sync は project の .venv を使い VIRTUAL_ENV を見ない）"""
+    if not words or words[0] in BUILTINS:
+        return True
+    if os.path.basename(words[0]) != "uv" or "--active" in words:
+        return False
+    sub = next((w for w in words[1:] if w in UV_COMMANDS), None)
+    return sub is not None and sub != "pip"
+
+
 def venv_notes(root, cmd, environ):
     venv = environ.get("VIRTUAL_ENV", "")
     if not venv:
@@ -363,8 +417,7 @@ def venv_notes(root, cmd, environ):
     bins = {os.path.normpath(p) for p in environ.get("PATH", "").split(os.pathsep) if p}
     if os.path.normpath(os.path.join(venv, "bin")) not in bins:
         return []
-    words = _strip_env(_lead(root, cmd)[1])
-    if words[:2] == ["uv", "run"] or not _editable_target(venv, root):
+    if all(_venv_free(_strip_env(words)) for words in _all_segments(cmd)) or not _editable_target(venv, root):
         return []
     return [(True, f"VIRTUAL_ENV（{venv}）を立てたまま起こし、対象がそこへ editable で入っている: run の中の test_cmd の python・"
                    f"pytest はその環境を PATH から掴み、worktree の直しでなく対象の手元のコードを試す（直しの正誤に関わらず緑になる）。{HOW}")]
