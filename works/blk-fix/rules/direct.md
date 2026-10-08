@@ -71,7 +71,7 @@
 - `root_or_symptom`: 判定役が名指した根に対して、この修正は根を塞いだか（root）症状を塞いだか（symptom）。**symptom なら why に「なぜ今それで止めるか」**（根に当てるのが機構の新設・共有面の拡大なら、そう書いて `rejudge_requested` に書け）
 - `bypass_tried`: **修正を残したまま、それを破りに行った入力と結果**。「修正を外したら赤くなった」は不在の検知であって完全性の証拠にならない。破れたら直してから出せ。破れなかったなら何を試したかを書け——「試していない」は書くな
 - `breaks`: この修正が壊しうる面を**機械で引け**（how＝同じ経路・同じ不変条件・同じ呼び順を共有する箇所を出すコマンド）。result にそこが今も動くことの確認（検査の実行・grep の結果）。壊すと分かっていて通すなら accepted に理由
-- `precedent`: 機構を足す・形を変える修正は、同じ問題を世の中がどう解いているかを一次情報（標準仕様・著名 OSS・公式ドキュメント）で確かめてから書け——problem・source・verdict（adopt＝そのまま採る／adapt＝手を入れて採る／does_not_apply＝当たらない／not_found＝見つからない）・reason。一次情報は WebSearch・WebFetch で自分で引け（本線の書く役と同じ道具。本線は Web の調べを investigator に任せて文脈を守るが、この役は Agent を持たないので、引くのは要るページに絞れ）。引いた物は出典（URL か文書と節）を source に書き、引いても当たらなければ not_found にして、何をどう探したかを searched に書け。判定の `precedents` の同じ単位の行をそのまま採ったなら from_judge_row: true と書き、verdict はその行の値、reason にどの行か（単位の key）を書けばよい。自前の機構を作るなら、世界の解が無い・使えない理由を reason に出典つきで書け
+- `precedent`: 機構を足す・形を変える修正は、同じ問題を世の中がどう解いているかを一次情報（標準仕様・著名 OSS・公式ドキュメント）で確かめてから書け——problem・source・verdict（adopt＝そのまま採る／adapt＝手を入れて採る／does_not_apply＝当たらない／not_found＝見つからない）・reason。一次情報は WebSearch・WebFetch で自分で引け（本線の書く役と同じ道具。本線は Web の調べを investigator に任せて文脈を守るが、この役の Agent は単位ごとの下請けを起こす口で、調べには使わないので、引くのは要るページに絞れ）。引いた物は出典（URL か文書と節）を source に書き、引いても当たらなければ not_found にして、何をどう探したかを searched に書け。判定の `precedents` の同じ単位の行をそのまま採ったなら from_judge_row: true と書き、verdict はその行の値、reason にどの行か（単位の key）を書けばよい。自前の機構を作るなら、世界の解が無い・使えない理由を reason に出典つきで書け
 
 ## 周の全体に書くこと
 

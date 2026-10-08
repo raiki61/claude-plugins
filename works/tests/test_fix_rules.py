@@ -585,6 +585,11 @@ class TestRoleNodes(unittest.TestCase):
                 self.assertEqual(mark["name"], rid, "包みが節の名で会話を分け、続きの起動で形を選ぶ")
         self.assertFalse((BLK / "commands").exists())
 
+    def test_direct_rules_agree_with_fix_tools(self):
+        """修正役の道の決まり（direct.md）は、節 fix の道具と食い違わない: 節は Agent を持つので「Agent を持たない」と書かない"""
+        self.assertIn("Agent", find_node(block()["nodes"], "fix")["allowed_tools"])
+        self.assertNotIn("Agent を持たない", (BLK / "rules" / "direct.md").read_text(encoding="utf-8"))
+
     def test_prep_nodes_pass_the_run_values(self):
         nodes = block()["nodes"]
         fp = find_node(nodes, "fix-prep")
