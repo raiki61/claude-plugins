@@ -495,7 +495,8 @@ class PrepCase(_Case):
         b = entry.open_board(bd)
         self.assertIn("お前は inspector。整合性の確認と、標準機構の迂回の検査を", text)
         self.assertIn(b.loop_state["diff_file"], text)
-        self.assertIn("返答はこの JSON Schema に合う JSON だけ", text)
+        # 返答の型は役の output_format（Archon が強いる）で渡る。旗 text-reply の無い役の指示書には schema の断りを貼らない
+        self.assertNotIn(material.rolekit.SCHEMA_NOTE.strip(), text)
         self.assertEqual((got["node"], got["attempt"], got["already"], got["prompt_text"]), ("p1.consistency_bypass", 1, False, ""))
         self.assertTrue(b.rd["instances"]["p1.consistency_bypass"].get("launched_at"))
 
@@ -505,7 +506,9 @@ class PrepCase(_Case):
         text = pathlib.Path(material.prep(bd, "local-review", repo, "")["prompt_file"]).read_text(encoding="utf-8")
         for e in board_mod.graph_expanded()["nodes"]["p1.local_review"]["skills"]:
             self.assertIn(e["skill"], text)
-        # fork の /code-review の返り方（受け付けが記録から戻す・起こし直させない・旗の綴りを args に書かせない）の読み替え
+        # 旗 text-reply の役（包みが schema を返答の道具に任せず本文で受ける）は、本文の JSON の断りと schema を貼る
+        self.assertIn(material.rolekit.SCHEMA_NOTE, text)
+        # fork の /code-review の返り方（届かなかった行は見ていないと書く・起こし直させない・旗の綴りを args に書かせない）の読み替え
         self.assertTrue(text.rstrip("\n").endswith(material.LENS_FORK_NOTE), text[-400:])
 
     def test_isolated_role_gets_pasted_prompt(self):

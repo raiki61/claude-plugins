@@ -415,7 +415,7 @@ class FrozenReadCase(unittest.TestCase):
 
     def rendered(self, nid, raw):
         b = type("B", (), {"nodes": {nid: {}}})()
-        with mock.patch.object(eyes.rolekit, "render_body", lambda b, n, prompts_dir: (raw, None)):
+        with mock.patch.object(eyes.rolekit, "render_body", lambda b, n, prompts_dir, schema_note: (raw, None)):
             return eyes.render(b, nid)
 
     def test_copy_still_says_git_show_in_the_four_eyes(self):
@@ -467,8 +467,9 @@ class PrepCase(_Case):
         self.assertIn(eyes.FROZEN_READ, text, "道具に無い git show でなく、版のまま止めた cwd を Read で読ませる")
         self.assertNotIn("git -C", text)
         self.assertIn(state(self.bd)["loop"]["diff_file"], text)
-        tail = text.rsplit("JSON Schema に合う JSON だけ", 1)[1]
-        self.assertIn('"same_content_at"', tail, "返す JSON Schema を後ろに付ける")
+        # 返答の型は役の output_format（Archon が強いる）で渡る。旗 text-reply の無い目の指示書には schema の断りを貼らない
+        self.assertNotIn(eyes.rolekit.SCHEMA_NOTE.strip(), text)
+        self.assertNotIn('"same_content_at"', text)
         inst = state(self.bd)["rounds"][-1]["instances"]["r1.comment_candidates"]
         self.assertTrue(inst.get("launched_at"), "起こした印を置く")
         # 別 plugin（pr-review-toolkit）の役の定義はこの試験の置き場に無い: 止めずに無いことを出口に残す（engine と同じ）

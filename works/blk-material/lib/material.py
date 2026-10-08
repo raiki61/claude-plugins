@@ -316,13 +316,16 @@ def _purpose(purpose_file: str) -> dict:
 
 def render(b, nid: str, purpose_file: str = "") -> str:
     """engine の emit_instance と同じ描き方の本文（rolekit.render_body。cap なし）。p0.purpose がラインに無い盤面では目的の欄を
-    _purpose で埋める。番号の控えは instance に置く。描けなければ BoardGap"""
+    _purpose で埋める。番号の控えは instance に置く。描けなければ BoardGap。
+    schema の断り（rolekit.SCHEMA_NOTE と graph の schema）は旗 text-reply の役（包みが返答の型を返答の道具に任せず本文で受ける）
+    にだけ貼る。ほかの役の返答の型は役の output_format（Archon が強いる）で渡る"""
     inst = _waiting(b, nid)
+    text_reply = any(ROLES[r] == nid and "text-reply" in f for r, f in FLAGS.items())
 
     def fill_purpose(ctx):
         if "p0.purpose" not in ctx["out"]:
             ctx["out"] = {**ctx["out"], "p0.purpose": _purpose(purpose_file)}
-    prompt, snap_ = rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY, ctx_hook=fill_purpose)
+    prompt, snap_ = rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY, ctx_hook=fill_purpose, schema_note=text_reply)
     if snap_ and inst.get("pointers") != snap_:
         inst["pointers"] = snap_
         b.save()
