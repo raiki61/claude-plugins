@@ -146,7 +146,8 @@ class TestChangedFrom(RepoCase):
         (self.repo / "NEW.md").write_text("後の項目の記録\n", encoding="utf-8")
         (self.repo / "GONE.md").unlink()
         self.assertEqual(writes.changed_from(self.repo, head), ["GONE.md", "NEW.md", "test_stats.py"])
-        tracked = subprocess.run(["git", "ls-files"], cwd=self.repo, capture_output=True, text=True, check=True).stdout.split()
+        tracked = subprocess.run(["git", "ls-files"], cwd=self.repo, capture_output=True, text=True, encoding="utf-8",
+                                 check=True).stdout.split()
         self.assertNotIn("NOTES.md", tracked, "本物の index は触らない")
 
     def test_untouched_files_are_not_changed_without_auto_refresh(self):
