@@ -68,6 +68,7 @@ FAST = frozenset({
     "test_fix_rules",       # R65: 修正の決まりの正本と 2 つの指示書の組み立てを、関数を直に呼んで見る（盤面・git・子のプロセスなし）
     "test_conflict_kinds",  # 申し出の種類と裁定 fix_plan_item: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
     "test_fix_units",       # 修正の受け付けの閉鎖の表と裁定の出どころ: 関数を直に呼ぶ・一時の置き場に書くだけ（盤面・git・子のプロセスなし）
+    "test_diverted",        # 下請けが親の返答の道具に書いた返答を拾う口: 一時の置き場のファイルと記録器を子で起こすだけ（git・盤面なし）
     "test_rolekit",         # P1 Task 13: 役の節の共通の口を偽の盤面と mock で見る（git・子のプロセスなし）
     "test_sp_skills",       # 借りる superpowers のスキルの一覧と無人の読み替え: borrow.json と md を読むだけ（git・子のプロセスなし）
     "test_seat",            # 借りたスキルの座: 216 の写しと seams.json を読むだけ（写しを一時の置き場に写す 1 本と、g1 の差分のコマンドを gitkit の型の写しで sh で走らせる 1 本を含む。盤面なし）

@@ -62,6 +62,7 @@ import adapter  # noqa: E402
 import conflict  # noqa: E402
 import converge  # noqa: E402
 import design  # noqa: E402
+import diverted  # noqa: E402
 import gatemarks  # noqa: E402
 import impact  # noqa: E402
 import libdocs  # noqa: E402
@@ -1666,7 +1667,8 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     if structure:
         body += ["## 構造の目", "", *[f"- {r}" for r in structure], ""]
     body += [PRIOR_HEADING, "", *[f"- {r}" for r in prior_lines(prior)], ""]
-    body += ["## 未確認のレンズ", "", *[f"- {r}" for r in lens.report_lines(b)], ""]
+    # 局所レビュー（P1）の fork のレンズの戻した・見ていない（diverted）を先に、修正の後のレンズ（lens）を後に
+    body += ["## 未確認のレンズ", "", *[f"- {r}" for r in [*diverted.report_lines(board_dir), *lens.report_lines(b)]], ""]
     body += ["## 仕組みの異常", "", *[r if r.startswith("  ") else f"- {r}" for r in anomaly_lines(b, full=True)], ""]
     body += ["## このラインに無い節", "", *[f"- {r}" for r in absent_lines(b)], ""]
     _write_text(rep_p, "\n".join(body))

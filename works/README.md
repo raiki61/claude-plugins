@@ -90,7 +90,7 @@ run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/ve
 
 - L0 写し: `.shared/core/graphloops`・`.shared/core/scripts`。works の物を何も知らない
 - L1 基礎: `tree_run`・`script_io`・`node_marker`・`graphmap`（工程の地図）
-- L2 包み: `adapter`・`ticket`・`claude-adapter`・`record-read.py`・`no-post-bin/works-gh`
+- L2 包み: `adapter`・`ticket`・`claude-adapter`・`record-read.py`・`record-write.py`・`record-output.py`・`no-post-bin/works-gh`
 - L3 盤面と受け付け: `board`・`accept`・`policy`・`entry`（共有の部分）・`halt`（止め札）・`refix`・`recount`
 - L4 ブロックの模块: 使うブロックが 1 つの模块（`ci_role`・`purpose`・`rejudge`・`prcheck`、`<blk>/lib/`）。持ち主のブロックとラインだけが使う
 - L5 ブロック: `blk-*/`。ほかのブロック・ライン・自分に付く include の id を知らない
@@ -132,6 +132,7 @@ AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` �
 - どの節の起動かは、役の `output_format` の一番上の `description` に置く印 `works-node: <節の名>[ continue=<継ぐ節の名>]` で見分ける。SDK がそれを argv の `--json-schema` に載せる。印の無い起動（Archon が run の題を作る `--tools ""` の起動など）は、下の網の閉じのほかは argv を 1 バイトも変えない。
 - 印のある起動には、`--settings` に PostToolUse:Read のフック（`.shared/core/record-read.py`。graphloops の写しで、書く先だけ替えた）を足す。SDK が渡した `--settings`（sandbox）の鍵は上書きしない。`--settings` が無い節にはフックだけの `--settings` を足す。`--setting-sources`・`--model` ほかの旗は触らない（CLAUDE.md を止めるのは YAML の `settingSources: [user]` と隔離した設定の柵 `dev/toolset.py`。`--model` は下の run の明示の模型の時だけ替える）。
 - 同じ `--settings` に PostToolUse:Edit|Write|NotebookEdit のフック（`.shared/core/record-write.py`）も足し、書いた後のファイルの sha を `<家>/reads/<cwd の hash>/writes.jsonl` に 1 行ずつ書く（包みが印のある起動の前に空のファイルを作る）。書く役の受け付け（blk-fix の `fix-accept`・`tdd-step`）は版からの変更をこの記録と返答の欄 `bash_writes`（Bash で書いたファイルのパスと理由）に突き合わせ、どちらも無い変更を拒む。射程は今の中身を編集の道具が書いたか申告したかまでで、Bash で書いた後に同じ中身を Edit で書き直した物は区別しない（出どころの全部は証さない）。手直しの役（blk-refix）の返答は写しの graph の形のまま申告の欄を持たないので、拒まずに報告に出す。記録のファイルが無い run（包みが無い起動）は突き合わせずに通し、報告に「書き込みの記録が無い run」の行を出す（`.shared/core/writes.py`）。
+- 同じ `--settings` に PostToolUse:StructuredOutput のフック（`.shared/core/record-output.py`）も足し、下請けの会話（skill の fork・Agent の子。フックの入力に `agent_id` が在る呼び出し）が親の節の返答の道具に書いた入力を `<家>/reads/<cwd の hash>/outputs.jsonl` に 1 行ずつ書く。組み込みの skill `code-review` は fork で走り、節の `--json-schema` が足す道具 StructuredOutput を継いで所見をそこへ書いて終わるので、親の Skill の結果は『Skill execution completed』だけになる（実測 2026-10-08: 利用者の run の fork 19 本の全部。本文で返せと args に書いても同じ）。局所レビューの受け付け（blk-material の take）がこの記録から、その役の会話のその周の分だけを読み、`/code-review` の空の行に所見を戻す（`.shared/core/diverted.py`）。戻せない空の行は「所見なし」でなく「見ていない」と書き、機械の報告の「未確認のレンズ」に出す（起こし直しても同じ形で落ちるので拒まない）。
 - 読んだ記録は `<家>/reads/<cwd の hash>/reads.jsonl` に、ファイルの sha と部分読みかを 1 行ずつ書く。形は graphloops のままなので engine の `hook_evidence` がそのまま読む。Claude の子の env には `ARTIFACTS_DIR` が来ないので、run は cwd（Archon が run ごとに切る worktree）で分ける。
 - 判定役（`works-node: judge`）は、包みが `--session-id=<uuid>` を足して起こし、id を `<家>/sessions/<cwd の hash>/judge.id` に書く。SDK が自分で `--resume`・`--session-id` を付けた起動はその id を記録する。
 - 再審（`works-node: rejudge continue=judge`。YAML の節は `context: fresh`）は、SDK の会話の旗を外して `--resume <judge の id>` で起こす（fork しない）。id が無ければ子を起こさず、1 行を出して終了コード 3 で止まる。ただし Archon はこれを落ちた起動として約 12 回起こし直すので、先に script の節で id が在るかを見る。節の費用の表示が判定役の分を重ねて数えないように、包みが result の累計を見せ直す（下の費用の見せ直し）。

@@ -8,6 +8,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Fixed
 
+- 素材集めの局所レビューで、汎用のレンズ `/code-review` の所見が毎回黙って消えていたのを直した（利用者の run f57a5374 で 10 件の所見が消え、うち 1 件は 2 run 後に阻害になった。利用者の 6 つの works の家の会話の記録で、`/code-review` の fork 19 本の全部が同じ形）。組み込みの skill `code-review` は fork（下請けの会話）で走り、節の `--json-schema` が足す道具 StructuredOutput を継いで、所見をそこへ書いて終わる。親の Skill の結果は『Skill execution completed』だけになり、役は `/code-review` の行を items 空で返し、受け付けは行が在れば通すので、「見たが所見なし」と同じ形で記録に入っていた（args に「本文で返せ」と書いて起こした 6 本も同じ形で落ちた）。今は包みが PostToolUse:StructuredOutput のフック（`.shared/core/record-output.py`）で下請けの中の呼び出しの入力（節の schema の検査を通った物）を残し、局所レビューの受け付けがその役の会話のその周の分を読んで、`/code-review` の空の行に所見を戻し、素材の数にも入れる（`.shared/core/diverted.py`）。戻せない空の行は「所見なし」でなく「見ていない」と行と素材に書き、機械の報告の「未確認のレンズ」に出す（起こし直しても同じ形で落ちるので拒まない）。局所レビューの指示書には、`/code-review` を起こし直さないこと、`--comment`・`--fix` の綴りを args に書かないこと（『--comment も --fix も付けない』の `--fix` が旗に取られた実測）を足した。フックが fork の中の StructuredOutput で起きることは、フックが下請けの中で `agent_id` 付きで起きる実測（Read・Write）からの見込みで、本物の run ではまだ確かめていない（起きなければ「見ていない」と出る）
 - 独立の目（R1 のコメントの削除候補・R1・R3・R4）の指示書が、版を `git -C <リポジトリ> show <版>:<パス>`・`git grep` で読めと言っていたのに、目の道具は Read・Grep・Glob だけで shell を持たないので打てなかった（R4 が読めなかったと申告した）のを直した。目の cwd の作業ツリーは入口で撮った版のまま止めてあり（受け付けが入口の写しと比べて変われば拒む）、描く時にその文を「cwd をそのまま Read・Grep・Glob で読め」に替える。目に shell は足さない。写しの指示書のファイルは変えず、替えたことは `gl-prompts/COPIED_FROM` の行に書いた
 
 ## [0.2.44] - 2026-10-08
