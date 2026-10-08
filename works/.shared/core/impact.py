@@ -11,14 +11,11 @@ AI に探させず、1 回作って使い回す（鍵 = rev・起点・作業ツ
   パスの形でない物）。diff=True なら rev と作業ツリーの差（未追跡を含む）の file も起点に足す。
   cache_dir を渡すと <cache_dir>/map-<鍵>.json に書き、同じ鍵なら読むだけ（stats.cache = "hit"）。file ごとの
   読み取りの結果は中身の sha で <cache_dir>/scan.json に持ち、中身の変わった file だけ読み直す（stats.scanned）。
-- render(m, budget=BUDGET) -> str: 指示書に貼る短い形（パス・数・当たりの行・丸ごとの関数の枠）。budget は字数で、
-  入らない物は数だけ言う。同じ地図なら同じ字（決まって同じ）
 - select_tests(m, fast=(), scope=None, all_modules=None, direct_only=False, named=()) -> dict: 回すテストのモジュール
   （速い段 ∪ 選んだ物）。all_tests_required なら全部（all_modules を渡せばその一覧、無ければ modules は None）。
   direct_only なら直に関わる試験（direct: 起点か深さ 1）と名指しの試験だけを選び、先の試験は left に残す。
   その時の全部は分からない物が直に関わる所に在る時だけで、深さ 2 以上の分からない物は far に理由の形で残す
 - direct(m, path) -> bool: 起点そのものか、起点から辺 1 本（深さ 1）で届いた file か
-- miss(m, junit, fast=(), scope=None) -> dict: 最後の一式で落ちたのに選んでいなかったテスト（地図の取りこぼし）
 - seeds_from_units(repo, units) -> list: 判定の単位の文（key・reason・class_query・prescriptions など全部の字）に
   現れる追跡中の file（パスそのものか、一意な basename）
 - py_imports(text) -> list | None: Python の file の import の一覧（地図の import の辺と同じ読み取り。libdocs が使う）
@@ -33,17 +30,9 @@ AI に探させず、1 回作って使い回す（鍵 = rev・起点・作業ツ
 - reverse_imports・tests・mentions・refs: reach の分類（パスの一覧）。mentions はコードの file、refs は
   YAML・JSON・MD などの設定と文書
 - unanalysable [{path, reason, line?, text?, in_neighbourhood}]・all_tests_required・all_tests_reasons
-- frames {path: changemap.framed_diff の 1 file 分}: diff=True の時の変わった file の枠（コードは関数まるごと git diff -W、
-  散文・設定は前後 changemap.PROSE_CONTEXT 行）
-- counts・not_seen・limits・heuristics・stats（stats だけはその回の値。描画には出さない）
+- counts・not_seen・limits・heuristics・stats（stats だけはその回の値）
 
-配線の口（まだ配線しない。指示書の組み立てを別の線が変えているため）:
-- 置き場: run の成果物の置き場の下の impact/（例 <ARTIFACTS_DIR>/impact/）を cache_dir にする。盤面の中に置くなら
-  盤面を開く口（entry）の予約の名前として足す（盤面は DiskBoard と entry の口でだけ書く決まり）
-- 修正役・計画役: 判定の units から seeds_from_units で起点を取り、map(diff=False) の render(budget=BUDGET) を指示書に貼り、
-  全文の JSON のパスを添える。修正の後の審査役は map(diff=True)（frames が付く）
-- テストの選び: select_tests(m, fast=速い段のモジュール, scope="works/tests/") の modules を -k で回す。run_all なら全部
-- 取りこぼし: 最後の一式の JUnit を miss に渡し、misses を run の記録に残す（数えるだけ。まだどこにも書かない）
+使い手: blk-fix（受け付け・TDD の輪・止める単位の結び。map と select_tests で回す試験を選ぶ）、libdocs・design・report、境の節。
 """
 import argparse
 import ast
@@ -54,12 +43,10 @@ import os
 import pathlib
 import re
 import sys
-import xml.etree.ElementTree as ET
 
 import changemap
 
 SCHEMA = "works-impact/1"
-MISS_SCHEMA = "works-impact-miss/1"
 ACCEPT_TRACE_OP = "fix_tests_selected"   # 修正の受け付けが選んだ試験を走らせた盤面の trace の行（書くのは blk-fix、読むのは最後の関所）
 ACCEPT_GATES_SKIPPED_OP = "fix_gates_skipped"   # 修正の受け付けの事後の関門の束が赤緑を確かめずに受けた回の盤面の trace の行（書くのは blk-fix、読むのは報告）
 
@@ -70,8 +57,6 @@ KEY_MIN = 4              # basename・拡張子を除いた名を鍵にする最
 SYMBOL_MIN = 8           # 起点の関数・クラスの名を鍵にする最短（_ を含む名は字数を問わない。含まない名は大文字も要る）
 NAME_HOPS = 3            # sys.path・動的 import の引数の名前を代入に辿る深さ
 MENTION_HOPS = 2         # 起点から辿る言及の辺の数の上限（import の辺は数えない）。超えた先は not_seen.beyond_mention_hops
-BUDGET = 6000            # render の既定の字数
-LINE_SHOW_MAX = 200      # render に出す 1 行の最大（超えた行は出さず、JSON に全文）
 
 PY_EXT = frozenset({"py", "pyi"})
 # パスで呼ばれる・読まれる物（中の言及を読めば依り先が分かる）。言及は先へ伸ばす
@@ -808,13 +793,6 @@ def _build(repo, rev, rev_sha, changed, seeds, diff, ix):
     reasons = sorted({f"{u['reason']}: {u['path']}" + (f":{u['line']}" if u.get("line") else "")
                       for u in unanalysable if u["in_neighbourhood"] and u["reason"] in UNANALYSABLE_TRIGGERS})
 
-    frames = {}
-    changed = [p for p in from_diff if p in ix.files and p not in ix.untracked]
-    if changed:
-        text = changemap.frame_diff(cwd=str(repo), rev=rev_sha, paths=changed)
-        if text is not None:
-            frames = changemap.framed_diff(text)
-
     by_reason = {}
     for u in unanalysable:
         by_reason[u["reason"]] = by_reason.get(u["reason"], 0) + 1
@@ -833,18 +811,15 @@ def _build(repo, rev, rev_sha, changed, seeds, diff, ix):
         "reverse_imports": reverse_imports, "tests": tests, "mentions": mentions, "refs": refs,
         "unanalysable": unanalysable,
         "all_tests_required": bool(reasons), "all_tests_reasons": reasons,
-        "frames": {p: frames[p] for p in sorted(frames)},
         "not_seen": {"unanalysable": dict(sorted(by_reason.items())),
                      "external_imports": sorted(mods.external),
                      "hit_lines_not_kept": cut,
                      "beyond_mention_hops": len(beyond),
                      "tests_beyond_mention_hops": sorted(p for p in beyond if is_test(p) == "module"),
                      "ambiguous_mentions": len(ambiguous),
-                     "untracked_not_framed": sorted(p for p in from_diff if p in ix.untracked),
                      "ignored_files": "git の無視（.gitignore）に当たる file は見ていない"},
         "limits": {"max_bytes": MAX_BYTES, "hits_keep": HITS_KEEP, "key_min": KEY_MIN, "symbol_min": SYMBOL_MIN,
-                   "name_hops": NAME_HOPS, "mention_hops": MENTION_HOPS, "frame_whole": changemap.FRAME_WHOLE,
-                   "fold_keep": changemap.FOLD_KEEP, "prose_context": changemap.PROSE_CONTEXT},
+                   "name_hops": NAME_HOPS, "mention_hops": MENTION_HOPS},
         "heuristics": HEURISTICS,
     }
 
@@ -882,110 +857,6 @@ def map(repo, rev="HEAD", seeds=(), diff=False, cache_dir=None):   # noqa: A001 
     return m
 
 
-# ---------------------------------------------------------------- 描画（指示書に貼る短い形）
-FOOTER = "（この描画で出していない: {n} 行。全部は JSON の地図に在る）"
-TOO_SMALL = "（予算に入らない。地図は JSON）"
-
-
-def render(m, budget=BUDGET):
-    """短い形。budget は字数。行は写すだけで、入らない物は数える（決まって同じ）"""
-    reserve = len(FOOTER.format(n=10 ** 6)) + 1
-    out, cut = [], 0
-
-    def room(line):
-        return sum(len(x) + 1 for x in out) + len(line) + 1 <= budget - reserve
-
-    def put(line):
-        nonlocal cut
-        if room(line):
-            out.append(line)
-            return True
-        cut += 1
-        return False
-
-    c = m["counts"]
-    head = [f"変更の周りの地図 {m['key'][:12]}（rev {m['rev'][:12]}。全文は JSON: {m.get('path') or '置き場なし'}）",
-            f"all_tests_required: {'true' if m['all_tests_required'] else 'false'}",
-            f"数: file {c['files']}・届いた {c['reached']}・逆 import {c['reverse_imports']}・テスト {c['tests']}"
-            f"・言及 {c['mentions']}・参照 {c['refs']}・読めない {c['unanalysable']}（近く {c['unanalysable_near']}）"]
-    if sum(len(x) + 1 for x in head) > budget - reserve:
-        return TOO_SMALL[:budget]
-    out.extend(head)
-    for r in m["all_tests_reasons"]:
-        put(f"  全部を回す理由: {r}")
-    seeds = m["seeds"]
-    put(f"起点: file {len(seeds['files'])}・名前 {len(seeds['names'])}・差分から {len(seeds['from_diff'])}")
-    for s in seeds["files"] + [f"名前 {n}" for n in seeds["names"]]:
-        put(f"  {s}")
-
-    edge_at = {(e["path"], e["dep"], e["kind"], e["key"]): e for e in m["edges"]}
-
-    def reason(p):
-        """p が届いた理由の辺（reach の parent）と、その当たりの行（LINE_SHOW_MAX を超える行は出さない）"""
-        par = m["reach"].get(p, {}).get("parent")
-        if not par:
-            return None
-        e = edge_at.get((p, par["from"], par["kind"], par["key"]))
-        shown = next(([ln, text] for ln, text in (e or {}).get("hits", []) if len(text) <= LINE_SHOW_MAX), None)
-        return par, shown
-
-    def section(title, paths):
-        nonlocal cut
-        if not paths:
-            return
-        if not put(f"{title} {len(paths)}:"):
-            cut += len(paths)
-            return
-        order = sorted(paths, key=lambda p: (m["reach"].get(p, {}).get("depth", 0), p))
-        for i, p in enumerate(order):
-            r = m["reach"].get(p, {})
-            mark = "・候補" if r.get("candidate") else ""
-            line = f"  {p}  深さ {r.get('depth', 0)}{mark}"
-            why = reason(p)
-            if why:
-                par, shown = why
-                line += f"  ← {par['from']}（{par['kind']} {par['key']}）"
-                if shown:
-                    line += f"  行 {shown[0]} | {shown[1]}"
-            if not put(line):
-                cut += len(order) - i - 1
-                return
-
-    section("テスト", m["tests"])
-    section("逆向きの import", m["reverse_imports"])
-    section("言及（字の一致。候補）", m["mentions"])
-    section("参照（設定・文書。候補）", m["refs"])
-    near = [u for u in m["unanalysable"] if u["in_neighbourhood"]]
-    if near:
-        put(f"読めない物（近く） {len(near)}:")
-        for u in near:
-            put(f"  {u['path']}{':' + str(u['line']) if u.get('line') else ''}  {u['reason']}")
-    ns = m["not_seen"]
-    put("見ていないもの: " + "・".join(f"{k} {v}" for k, v in ns["unanalysable"].items())
-        + f"・外の模块 {len(ns['external_imports'])}・残さなかった当たりの行 {ns['hit_lines_not_kept']}"
-        + f"・枠にしない未追跡 {len(ns['untracked_not_framed'])}・{ns['ignored_files']}")
-    if m.get("frames"):
-        put(f"変更の枠（{changemap.FRAME_NOTE}）:")
-        for p, info in m["frames"].items():
-            total = len(info["blocks"])
-            chosen = None
-            for k in range(total, 0, -1):
-                cap = sum(len(b) for b in info["blocks"][:k])
-                rows = [f"  === {p} {changemap.lang_tag(p)}"] + changemap.frame_lines(
-                    p, info, cap=cap, indent="  ", frame_cmd=f"git diff -W {m['rev'][:12]} --")
-                if sum(len(x) + 1 for x in out) + sum(len(x) + 1 for x in rows) <= budget - reserve:
-                    chosen = rows
-                    break
-            if chosen is None:
-                cut += 1 + sum(len(b) for b in info["blocks"])
-                continue
-            out.extend(chosen)
-    if cut:
-        out.append(FOOTER.format(n=cut))
-    return "\n".join(out)
-
-
-# ---------------------------------------------------------------- テストを選ぶ・取りこぼしを数える
 def _mod(name):
     return _stem(name) if "/" in name or name.endswith(".py") else name
 
@@ -1021,39 +892,6 @@ def select_tests(m, fast=(), scope=None, all_modules=None, direct_only=False, na
     return {"key": m["key"], "run_all": run_all, "reasons": reasons, "far": far, "selected": sel,
             "outside_scope": [t for t in m["tests"] if t not in sel and t not in left], "fast": sorted({_mod(f) for f in fast}),
             "modules": mods, "left": left}
-
-
-def _junit_module(case):
-    f = case.get("file")
-    if f:
-        return _mod(f)
-    for part in (case.get("classname") or "").split("."):
-        if TEST_NAME.match(part + ".py") or part.startswith("test_"):
-            return part
-    return None
-
-
-def miss(m, junit, fast=(), scope=None):
-    """JUnit（XML の字かパス）で落ちたテストのうち、選んでいなかった物。形は MISS_SCHEMA"""
-    text = junit if junit.lstrip().startswith("<") else pathlib.Path(junit).read_text(encoding="utf-8")
-    root = ET.fromstring(text)
-    sel = select_tests(m, fast=fast, scope=scope)
-    chosen = None if sel["run_all"] else set(sel["modules"] or [])
-    failed, misses, caught, unmapped = 0, [], [], []
-    for case in root.iter("testcase"):
-        if not any(ch.tag in ("failure", "error") for ch in case):
-            continue
-        failed += 1
-        tid = f"{case.get('classname') or ''}::{case.get('name') or ''}"
-        mod = _junit_module(case)
-        if mod is None:
-            unmapped.append({"test": tid, "why": "テストのモジュールが classname・file から分からない"})
-        elif chosen is None or mod in chosen:
-            caught.append(tid)
-        else:
-            misses.append({"test": tid, "module": mod, "file": case.get("file"), "reason": "not-selected"})
-    return {"schema": MISS_SCHEMA, "key": m["key"], "failed": failed, "run_all": sel["run_all"],
-            "misses": misses, "caught": caught, "unmapped": unmapped}
 
 
 def tree_files(repo):
@@ -1099,18 +937,10 @@ def main(argv=None):
     a.add_argument("--diff", action="store_true")
     a.add_argument("--cache")
     a.add_argument("--summary", action="store_true", help="数だけを出す")
-    r = sub.add_parser("render")
-    r.add_argument("map_json")
-    r.add_argument("--budget", type=int, default=BUDGET)
     s = sub.add_parser("select")
     s.add_argument("map_json")
     s.add_argument("--fast", default="")
     s.add_argument("--scope")
-    x = sub.add_parser("miss")
-    x.add_argument("map_json")
-    x.add_argument("junit")
-    x.add_argument("--fast", default="")
-    x.add_argument("--scope")
     ns = ap.parse_args(argv)
     if ns.cmd == "map":
         seeds = list(ns.seed)
@@ -1124,12 +954,7 @@ def main(argv=None):
         return 0
     m = json.loads(pathlib.Path(ns.map_json).read_text(encoding="utf-8"))
     fast = [f for f in ns.fast.split(",") if f] if getattr(ns, "fast", "") else []
-    if ns.cmd == "render":
-        print(render(m, budget=ns.budget))
-    elif ns.cmd == "select":
-        print(json.dumps(select_tests(m, fast=fast, scope=ns.scope), ensure_ascii=False, indent=1))
-    else:
-        print(json.dumps(miss(m, ns.junit, fast=fast, scope=ns.scope), ensure_ascii=False, indent=1))
+    print(json.dumps(select_tests(m, fast=fast, scope=ns.scope), ensure_ascii=False, indent=1))
     return 0
 
 
