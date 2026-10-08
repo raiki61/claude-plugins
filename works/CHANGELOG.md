@@ -6,6 +6,14 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 修正役と修正案の役の指示書に貼るライブラリの文書を、Context7 だけでなく 3 つの出どころから順に引くようにした（持ち主 2026-10-08「全部使う」。利用者の家では鍵なしの Context7 が run のたびに月の枠切れ（HTTP 429「Monthly quota exceeded. Create a free API key」）を返し、文書の節が空だった）。どれも登録なしで回る: (1) 手元の版——run の作業ツリーと、同じリポジトリの main の作業ツリーに入っている `.venv`・`venv`・`.tox/*`・`.nox/*`・`node_modules` を、単位のファイルの置き場から根まで上へ辿って探し（works は環境を作らない・入れない）、ライブラリを import せずに読んで、単位が使う名（from の名と、import した名の属性）の署名と説明を貼る（Python は `ast` で関数・class・公開のメソッドの署名と docstring、再輸出を辿る。JS/TS は `.d.ts` の宣言と前の `/** */`、無ければ README の頭）。環境の置き場は実パスが根の中の物だけ、読むのは置き場の中のファイルだけ（symlink で外を指す物は読まない）。読めた版を以後の版にし、宣言の版と違えば節に書く (2) 公式——PyPI の JSON の README（その版の `info.description`）と docs の場所の `llms.txt`、npm の registry と homepage の `llms.txt`（npm の版の文書は README を持たないので、repository が GitHub の時の版の tag・`gitHead` の commit の README）。送るのはライブラリの名・版と registry の答えに在った URL だけで、鍵は付けない。docs の場所と転送の先は https の公の host の名だけ（IP の字・localhost は不可。host が替わる転送では Context7 の鍵も落とす）。輸入の名と配る名が違えば、手元の dist-info の配る名で問う。取れた物と見つからない物は Context7 と同じく盤面と包みの家（7 日）に控える (3) Context7——今までどおり（鍵は Context7 の URL にだけ付ける）。量は今の 4000 トークンの中で、1 本のライブラリの分を手元 1/2・公式 1/4・Context7 の残りで分け、余りを手元 → 公式 → Context7 の順に埋める。節の題は「ライブラリの文書（手元の版・公式・Context7）」に替え、頭に出どころごとの数と名（読めた・入っていない・見つからない・取れなかった）と、どこからも取れなかったライブラリの名指し（役に WebSearch・WebFetch で自分で引けと言う）を出す。`WORKS_CONTEXT7=off` は今までどおり網に出ない（公式も引かない。手元は読む）。報告の冒頭の枠切れの 1 行は「Context7 は枠切れ。手元の版と公式の文書は別に引く」と言う。部品は `.shared/core/libdocs_local.py`・`.shared/core/libdocs_web.py`、設計は `docs/plans/2026-10-08-libdocs-sources.md`。偽の仮想環境・`node_modules` と偽の HTTP の口の試験で確かめた（本物の run ではまだ確かめていない）
+
+### Added
+
+- Context7 の鍵を macOS の keychain から拾えるようにした（`WORKS_CONTEXT7_KEYCHAIN_ITEM=<項目名>`。任意）。起こし役 `.shared/core/auth_launch.py` が Claude のトークンと同じく隔離の前の利用者の HOME で項目を読み、値を Archon の子の環境の `CONTEXT7_API_KEY` にだけ置く（名指しが受け継いだ env より先。値は標準出力・引数・控えに出さない）。読めなければ項目の名と理由の 1 行を出して、受け継いだ値か鍵なしで回る（Context7 は任意なので止めない）。名指しが無ければ今までどおり利用者の env の `CONTEXT7_API_KEY` を受け継ぐ。Archon v0.11.1 が script の節に env を継がせること（host の run は `{...process.env, ...節の env}`。起動の頭で消すのは対象の `.env` に在る名と Claude Code の目印だけ。`KEY` で終わる名の値は節の出力から伏せる）をその版の source で確かめた。項目の名は run の控え（`<家>/runs/<run-id>.json` の `context7_keychain_item`）と続き・答えの行に載り、別の殻の `answer`・`stop` も同じ鍵で起こす。試験の子の環境（`tests/hermetic.py`）は `CONTEXT7_API_KEY` と `WORKS_CONTEXT7_KEYCHAIN_ITEM` を外す
+
 ## [0.2.46] - 2026-10-08
 
 ### Changed

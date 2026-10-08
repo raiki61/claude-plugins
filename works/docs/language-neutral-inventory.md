@@ -196,8 +196,8 @@
 - 保つ強み: なし。
 - 中立の置き換え: 「`.review-checks.json` か CI の定義・README にある絞り方を使え」に替え、言語名を出さない。
 
-### 6-2 (A) ライブラリの文書（Context7）の見つけ方が Python と JS だけ — M
-- 場所: `.shared/core/libdocs.py:47-56`（`PY_SUFFIXES`・`JS_SUFFIXES`・`MANIFESTS`・`REQ_RE`・`PY_DIST`・`NODE_BUILTINS`・`JS_IMPORT`）, `libdocs.py:90-131`（`manifests`。pyproject・requirements・package.json）, `libdocs.py:137-171`（`_own_names`。`__init__.py`）, `libdocs.py:198-246`（`detect`）, `blk-fix/lib/fixrules.py:316-322`。
+### 6-2 (A) ライブラリの文書（手元の版・公式・Context7）の見つけ方と引き方が Python と JS だけ — M
+- 場所: `.shared/core/libdocs.py` の `PY_SUFFIXES`・`JS_SUFFIXES`・`MANIFESTS`・`REQ_RE`・`PY_DIST`・`NODE_BUILTINS`・`JS_IMPORT`・`manifests`（pyproject・requirements・package.json）・`_own_names`（`__init__.py`）・`detect`, `blk-fix/lib/fixrules.py` の `lib_section`。2026-10-08 に足した手元の版（`.shared/core/libdocs_local.py`。`.venv`・`site-packages`・`dist-info`・`node_modules`・`.d.ts`）と公式（`.shared/core/libdocs_web.py`。PyPI・npm の registry）も Python と JS/TS だけを知る（設計 `docs/plans/2026-10-08-libdocs-sources.md`）。
 - Go/TS/Rust/Java: TS は拾う。Go（go.mod）・Rust（Cargo.toml）・Java（pom.xml・build.gradle）は 0 件で、指示書に文書の節が出ない（黙って弱くなる。節の頭に数は出る）。
 - 保つ強み: なし。
 - 中立の置き換え: 依存の宣言のファイルを読んでライブラリを名指すのは、言語ごとの表そのもの。機械が先に引くのをやめて、修正役（Context7 の MCP を既に持つ）か、読むだけの支度役に「単位のファイルと依存の宣言を読み、引くライブラリと版を返せ」と頼む形にする。機械は返った名前が依存の宣言のファイルに字のまま在るかだけを確かめる。
