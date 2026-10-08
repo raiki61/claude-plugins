@@ -70,9 +70,6 @@ import writes  # noqa: E402
 PASS_KEYS = ("cut", "review", "owed", "fix", "state_key", "owed_key")
 REVIEW_ROLE = {1: "review", 2: "review2"}   # 審査役の名（印 works-node の名・reads-<役>.json）
 FIX_ROLE = {1: "refix", 2: "refix2"}        # 手直しの役の名
-# blk-refix の中の輪（T17 で YAML に書く。輪の中の id は全部の include をまたいで一意。台帳 R19）
-LOOPS = {"refix-loop": ("refix", "refix-accept"), "review2-loop": ("review2", "review2-accept"),
-         "refix2-loop": ("refix2", "refix2-accept")}
 # 読んだ証拠の節（reads.main_for の引数: 役・輪・節。Task 6 の reads.py の口。include の名は reads が今の scope から引く）
 READS = {"review": ("review", "delta-loop", "review"),
          "refix": ("refix", "refix-loop", "refix"),

@@ -186,7 +186,7 @@ class YamlCase(unittest.TestCase):
                 self.assertIn("本物には書けない", body)
                 self.assertIn("コードに無い赤", body)
                 self.assertIn("受け付け", body)
-                for hole in ci_role.HOLES:
+                for hole in ("node", "root", "copy", "tmp", "fallback"):   # 2 つの指示書が両方持つ穴（<<名>>）
                     self.assertIn(f"<<{hole}>>", body)
         self.assertIn("awaiting_human", (BLK / "prompts" / "p0.local_checks.md").read_text(encoding="utf-8"))
         self.assertIn("kind=awaiting・origin=local_checks", (BLK / "prompts" / "p4.ci.md").read_text(encoding="utf-8"))

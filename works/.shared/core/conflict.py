@@ -25,7 +25,7 @@
 - brief_cite_problem(key, cites, repo, briefs, what, field): brief を誤りと言う物（申し出 brief_vs_judgment・裁定 fix_plan_item の
   grounds）が、その単位の brief の行を名指すかの確かめ（1 つの決まり）
 - park(b, items, source=, ruling=None): 止めた単位を盤面の作業ファイルに積み、trace に 1 行（同じ申し出は積み増さない）
-- items(b)・unruled(b)・asked(b)・ruled_fix(b)・asked_keys(b)・replaced_queries(b)・counts(b)・
+- items(b)・unruled(b)・asked(b)・ruled_fix(b)・replaced_queries(b)・counts(b)・
   kind_counts(b): 読む口
 - held_by_rulings(b)・ruled_units(row): 直す義務から外す単位と理由。決まりは「直す裁定（FIX_DECISIONS）でない裁定は、それが外す
   単位（申し出の単位と、fix_plan_item ならその項目に載る単位の全部）を直させない」の 1 つ
@@ -47,7 +47,7 @@
   文で盤面を止めて BoardGap
 - ruled_test_doc(b): テストの変更の許し（承認済みの修正案の rewrite_tests と裁定 fix_test_scope の範囲。test_permits）が名指した
   テストのファイルを、守りのファイルの一覧（protect）の形にした物（最後の関所に出す）
-- fix_duty(b)・excused_units(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
+- fix_duty(b)・nothing_owed_but_excused(b): 直す義務と、そこから外れた単位と理由（答え待ちの fork・escalate の
   出どころ・depends と held_by_rulings）を 1 回で返す正本（blk-fix の受け付け・TDD の輪が読む）。義務が空で外れた単位が在れば空の
   changes を止めない（blk-fix の assert-changed と recount.collect）
 - ruled_limits(b, decisions=): 直す裁定の範囲 limits を (申し出の行, 範囲) で並べる唯一の読み口（test_permits と blk-fix の
@@ -424,10 +424,6 @@ def ruled_fix(b) -> list:
     return [i for i in items(b) if (i.get("ruling") or {}).get("decision") in FIX_DECISIONS]
 
 
-def asked_keys(b) -> set:
-    return {i["unit_key"] for i in asked(b)}
-
-
 def replan_state(row) -> str | None:
     """裁定が fix_plan_item の行の案の直しの状態（欄 REPLAN_STATE。欄の無い前の形の行は WAITING）。ほかの裁定・裁いていない
     行は None"""
@@ -690,7 +686,7 @@ NOTHING_OWED = ("直す義務の単位が残っていない——開いた単位
 def fix_duty(b) -> tuple:
     """(直す義務 owed_units_but_asked, 直す義務から外れた単位 {key: 理由})。外れた単位は、答えていない fork・escalate の問いの
     出どころ・depends（gatemarks.withheld_by。理由はそこが組にした問い）と、直す裁定でない裁定を受けた単位（held_by_rulings。
-    理由はその裁定）。owed と互いに素で、owed ∪ 外れた単位は gatemarks.fixable を覆う（写しの RL の _owed_units が外す fork の
+    理由はその裁定）。owed と互いに素で、owed ∪ 外れた単位は今の周に開いた単位（検証器の is_open）と関所で答えて戻した単位（gatemarks.returned）を覆う（写しの RL の _owed_units が外す fork の
     出どころは withheld か returned に在る。withheld は開いていない単位も含みうる）。1 単位が withheld と裁定の両方に当たれば
     裁定の理由。控えが読めなければ裁定の単位を外さない（owed_units_but_asked と同じ側）。
     1 回目に受け付けた返答の控え（held_reply）が在れば、その単位（accepted_units）を直す義務から引き、理由 ACCEPTED_WHY で外れた
@@ -779,13 +775,8 @@ def with_held(b, reply: dict, *, as_handed: bool = False) -> dict:
     return out
 
 
-def excused_units(b) -> dict:
-    """直す義務から外れた単位 {key: 理由}（fix_duty の 2 つ目）"""
-    return fix_duty(b)[1]
-
-
 def nothing_owed_but_excused(b) -> dict:
-    """直す義務（owed_units_but_asked）が空で、外れた単位（excused_units）が 1 件以上ある盤面なら外れた単位 {key: 理由}
+    """直す義務（owed_units_but_asked）が空で、外れた単位（fix_duty の 2 つ目）が 1 件以上ある盤面なら外れた単位 {key: 理由}
     （空の changes が正しい返答）。違う・読めなければ空（止める側。義務も外れた単位も無い退化した盤面も止める）"""
     try:
         owed, excused = fix_duty(b)

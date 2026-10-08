@@ -2,7 +2,7 @@
 
 直す義務（conflict.fix_duty の owed）は、担当のモジュール（gatemarks・conflict・recount・tddloop・report）が 1 か所で作る。その外の
 .py が、同じ関数の中で「単位が開いている（is_open）」と「答え待ちの問いで外す（問いの台帳の kind が fork・status が ASKING か
-escalate・裁定の decision が ask_human、か正本の部品 gatemarks.withheld・returned・asked_keys などの呼び）」を一緒に使えば、集合を作り直す
+escalate・裁定の decision が ask_human、か正本の部品 gatemarks.withheld・returned などの呼び）」を一緒に使えば、集合を作り直す
 式として赤にする（食い違いは試験に出るまで見えなかった）。
 
 - 走査の範囲は works の下の .py。tests・dev・fixtures と、写しの L0（.shared/core/graphloops・.shared/core/scripts）は見ない
@@ -24,7 +24,7 @@ OWNERS = frozenset({"gatemarks", "conflict", "recount", "tddloop", "report"})
 SKIP_DIRS = frozenset({"tests", "dev", "fixtures", "__pycache__"})
 SKIP_PREFIXES = ((".shared", "core", "graphloops"), (".shared", "core", "scripts"))
 OPEN_CALLS = frozenset({"is_open"})
-CANON_CALLS = frozenset({"withheld", "withheld_by", "returned", "asked_keys", "asks", "pending", "fixable", "fix_duty", "held_by_rulings"})
+CANON_CALLS = frozenset({"withheld", "withheld_by", "returned", "asks", "pending", "fix_duty", "held_by_rulings"})
 RAW_MARKS = ("'fork'", "'escalate'", "ASKING")
 
 # 今ある違反 {"<模块>:<関数>": 理由か直す依頼の番号}。走査が実際に挙げた物だけを、理由をつけて載せる

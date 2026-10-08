@@ -44,6 +44,9 @@ FIXED_DOC = '    """上限を超えた値は hi を返す"""\n'
 REFIXED_DOC = '    """下限を下回った値は lo を、上限を超えた値は hi を返す"""\n'
 REFIX_DIR = ROOT / "blk-refix"
 DELTA_DIR = ROOT / "blk-delta"
+# blk-refix の中の輪の役と受け付け（輪の中の id は全部の include をまたいで一意。台帳 R19）
+LOOPS = {"refix-loop": ("refix", "refix-accept"), "review2-loop": ("review2", "review2-accept"),
+         "refix2-loop": ("refix2", "refix2-accept")}
 
 
 def plan_reply() -> dict:
@@ -575,7 +578,7 @@ class RefixStaticCase(unittest.TestCase):
                 self.assertEqual({r for r in refs if not r.startswith(own + ".")} - set(allowed), set(), refs)
                 self.assertNotIn("{{", body)
         for n, role in refix.FIX_ROLE.items():
-            self.assertIn(role, [r for r, _ in refix.LOOPS.values()])
+            self.assertIn(role, [r for r, _ in LOOPS.values()])
 
     def test_pasted_policy_closes_prompt(self):
         """方針の本文を貼る読む役（review2.md）は、囲みを指示書の末尾に 1 つだけ置く（blk-judge の diagnose.md と
@@ -591,7 +594,7 @@ class RefixStaticCase(unittest.TestCase):
 
     def test_loop_ids_unique_across_blocks(self):
         """refix-loop・review2-loop・refix2-loop の中の id が他の全部のブロックの節の id と重ならない（台帳 R19）"""
-        mine = [x for r, a in refix.LOOPS.values() for x in (r, a)]
+        mine = [x for r, a in LOOPS.values() for x in (r, a)]
         self.assertEqual(len(mine), len(set(mine)))
         others = {}
         for y in sorted(ROOT.glob("*/*.yaml")):

@@ -1,7 +1,7 @@
 """直す義務と、そこから外れた単位の正本（conflict.fix_duty）と、それを読む修正の受け付け（blk-fix の fix-accept）。
 
 - fix_duty: 答え待ちの fork・escalate の出どころ・ask_human の単位・関所で答えて戻した単位を混ぜた盤面で、owed と excused は
-  互いに素で、合わせて修正役が書いてよい単位（gatemarks.fixable）を覆い、excused は問いの key・裁定の id を理由に持つ。
+  互いに素で、合わせて修正役が書いてよい単位（開いた単位と関所で答えて戻した単位）を覆い、excused は問いの key・裁定の id を理由に持つ。
   写しの RL と線 A の核の差し替えを偽の盤面に当てる（test_plan_gate と同じ口。盤面・git・子のプロセスなし）
 - 受け付け: excused の単位を changes に書いた返答は、NOT_OPENED と別の文で理由を名指して拒む。輪の最後の回は、その行を数えずに
   単位の行を changes から外し（直しは作業ツリーに残す。依頼 241）、ほかの単位に結んだ行の単位は止める（依頼 242）。
@@ -62,11 +62,12 @@ class TestFixDuty(GateBase):
         owed, excused = conflict.fix_duty(b)
         self.assertEqual(owed, {OTHER_UNIT, BACK_UNIT}, "関所で答えて戻した単位は義務に残る")
         self.assertEqual(owed & set(excused), set())
-        self.assertLessEqual(gatemarks.fixable(b), owed | set(excused))
+        V = b.rules.validator_module(b)
+        opened = {u["key"] for u in filter(V.is_open, b.record["units"])}
+        self.assertLessEqual(opened | gatemarks.returned(b), owed | set(excused), "開いた単位と戻した単位を覆う")
         self.assertIn(FORK["key"], excused[FORK_UNIT])
         self.assertIn(ESC["key"], excused[ESC_UNIT])
         self.assertIn("ask_human の裁定 c1-1", excused[ASKED_UNIT])
-        self.assertEqual(conflict.excused_units(b), excused)
         self.assertEqual(conflict.nothing_owed_but_excused(b), {}, "義務が残る盤面は空の changes を通さない")
 
     def test_excused_reason_reads_withheld_by_not_a_copy(self):
@@ -264,15 +265,14 @@ class TestAcceptReadsDuty(unittest.TestCase):
         spec.loader.exec_module(self.mod)
         self.board = mock.MagicMock()
 
-    def test_unit_keys_read_the_duty_not_fixable(self):
-        """fix_unit_keys は gatemarks.fixable でなく conflict.fix_duty の義務と外れた単位を返す"""
+    def test_unit_keys_read_the_duty(self):
+        """fix_unit_keys は conflict.fix_duty の義務と外れた単位を返す"""
         self.board.rd = {"instances": {self.mod.recount.FIX_NODE: {"status": "pending", "launched_at": "t", "pointers": None}}}
         self.board.deps_met.return_value = True
         self.board.nodes = {self.mod.recount.FIX_NODE: {}}
         reply = {"changes": [{"unit_key": self.MEAN}, {"unit_key": self.HELD}]}
         with mock.patch.object(self.mod.entry, "open_board", return_value=self.board), \
-                mock.patch.object(self.mod.conflict, "fix_duty", return_value=({self.MEAN}, {self.HELD: self.WHY})), \
-                mock.patch.object(gatemarks, "fixable", return_value={self.MEAN, self.HELD}):
+                mock.patch.object(self.mod.conflict, "fix_duty", return_value=({self.MEAN}, {self.HELD: self.WHY})):
             got = self.mod.fix_unit_keys(reply, pathlib.Path("/b"))
         self.assertEqual(got, ([self.MEAN, self.HELD], {self.MEAN}, {self.HELD: self.WHY}))
 
@@ -305,8 +305,6 @@ class TestAcceptReadsDuty(unittest.TestCase):
         with mock.patch.object(self.mod.entry, "open_board", return_value=self.board), \
                 mock.patch.object(self.mod.conflict, "owed_units_but_asked", return_value={self.MEAN}), \
                 mock.patch.object(self.mod.conflict, "held_by_rulings", return_value={}), \
-                mock.patch.object(self.mod.conflict, "asked_keys", return_value=set()), \
-                mock.patch.object(gatemarks, "fixable", return_value={self.MEAN, self.HELD}), \
                 mock.patch.object(self.mod.querytest, "judge_hits", return_value=None), \
                 mock.patch.object(self.mod.conflict, "problems_by_entry", create=True,
                                   side_effect=lambda items, **k: seen.update(k) or [(0, None, ["x"])]):

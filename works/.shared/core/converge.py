@@ -31,7 +31,6 @@ note_plan の無い控え（行に items が無い）は今までどおり全体
   ITEMS（項目ごとの判定の要約）も任意で足す。tree_split が外す・drop_fields が壁打ちの欄を全部外す。下請けの答えのファイルの
   当たりの答えの型は HITS_SCHEMA）
 - item_blocks(b, n): 項目 n が答える前の往復の block の key（受け付けが下請けの答えの resolved を確かめる）
-- face_items(b, faces): 名前に戻した face の key → 項目の番号（_attributed と同じ決まり）
 - prev_row(b, n)・answered_hits(b, n)・carried_notes(b): 前の往復のその項目の案の行・当たりの答えと、suggest の穴（往復の行の
   notes。項目を開き直さず、直しの役に参考として渡り、受け付けが後の往復の返答に引き継ぐ）
 - revise_section(b)・review_section(b)・stuck_reason(b)・lines(b): 指示書に足す文・関所の理由・報告の行（往復ごとの行は
@@ -467,14 +466,6 @@ def drop_fields(reply):
     if not isinstance(reply, dict):
         return reply
     return {k: v for k, v in reply.items() if k not in (RESOLVED, ITEMS, SYNERGY)}
-
-
-def face_items(b, faces: list) -> dict:
-    """名前に戻した face の key → 項目の番号（今の案の項目の控え。unit_keys が重なる項目、どれとも重ならなければ全部）"""
-    plan = read(b).get("plan") or []
-    rows = [{"unit_keys": it["unit_keys"]} for it in plan]
-    return {f.get("key"): [i + 1 for i in _attributed([str(k) for k in f.get("unit_keys") or []], rows)]
-            for f in faces if isinstance(f, dict)} if rows else {}
 
 
 # ---------------------------------------------------------------- 文
