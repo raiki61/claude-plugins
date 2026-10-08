@@ -1636,8 +1636,10 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     gate = gate_record(b)
     # 盤面が報告の役の節を出したか（表で role のラインだけ。いつ出るかは gate_record の docstring。stop_after_round で周を
     # 締めた 1 周の run でも出る）。待ちのままでも結末は替えない——報告の役の節の待ちは「終わっていない」ではない（計画 P1 Task 34）
-    # 途中で終わった run は機械の報告だけ（AI の報告の役は最後まで来た盤面を前提にする）
-    ai_go = AI_FIRST_NODE in b.ready() and interrupted is None
+    # 途中で終わった run は機械の報告だけ（AI の報告の役は最後まで来た盤面を前提にする）。
+    # 報告の頭の段を AI の報告のブロックがもう受けた（done）盤面も出した物に数える: Archon の resume はこの節を毎回回し直す
+    # （ラインの always_run）ので、値が替わると AI の報告のブロックが古いと数えられ、when: が偽で済んだ段ごと飛ばされる
+    ai_go = interrupted is None and (AI_FIRST_NODE in b.ready() or b.node_state(AI_FIRST_NODE) == "done")
     outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged, eyeing=eyeing)
     left = residue(b, gate, tests=tests, eyeing=eyeing)
     items = next_request(b, tests=tests, left=left)
