@@ -1,5 +1,7 @@
 # darkfactory 周の輪（線 B）Implementation Plan（盤面の層に載せ替え）
 
+> **棚上げ（2026-10-09）**: 線 B（周の輪の入口 `darkfactory-rounds`）は作らないまま棚に上げた。作るかは別に決める。この文書は当時の設計・計画のまま残し、書き直さない。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 下請けは全部 opus（台帳 Ruling R22）。
 
 > この計画の `works/.shared/core/rounds.py` は線 B の枝（wip/works-trackB）にだけ在り、main にはまだ合流していない。

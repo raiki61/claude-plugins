@@ -6,10 +6,11 @@ description: |
   出口は盤面の purpose.json のパスと、目的の文と出典。判定役はこの purpose_file を読む（graph の p2.diagnose の reads の
   out.p0.purpose.purpose_text。split・fork・resolved の判定に要る——graphloops で渡し忘れ、2 周空転した実測がある）。
   目的の審査 p0.purpose_review（出典が ③writer の要約 の時に別の会話の inspector が狭めていないかを見る。optional）は
-  このブロックに入れず、線 B の周の線が持つ。条件 purpose_review_due は 1 周目なら出典だけで決まるが、2 周目からの
-  走り直しは前の周の修正が触ったファイル（loop.prev_fix_files）と記録の目的監査（record.process.purpose_review）で決まり、
-  どちらも周の線の盤面にしか無い。once のこのブロックに入れると 1 周目の判定が残りの全周を縛る（写しの rules の
-  purpose_sources_changed の docstring の実測 2026-09-13）。依存の p1.worktree_before も周の線の機械の節。
+  このブロックに入れない（ラインがこのブロックの外で、盤面の条件 purpose_review_due が真の時に回す）。条件は 1 周目なら
+  出典だけで決まるが、2 周目からの走り直しは前の周の修正が触ったファイル（loop.prev_fix_files）と記録の目的監査
+  （record.process.purpose_review）で決まり、どちらも周を進める盤面にしか無い。once のこのブロックに入れると 1 周目の判定が
+  残りの全周を縛る（写しの rules の purpose_sources_changed の docstring の実測 2026-09-13）。依存の p1.worktree_before も
+  周の機械の節。
 
 inputs:
   request:

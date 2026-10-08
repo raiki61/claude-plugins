@@ -29,4 +29,4 @@ works の受け付けの口 `works/.shared/core/accept.py` を、本線 graphloo
 - 表は 3853b9a の `accept.py` を写した。本線は `wip/fn-shape` の d1b863f（gl.py 208 行）と、`wip/fn-shape2` の commit 前の差分（`gl request`・`gl exit --strip-notes`）を読んだ。
 - `wip/archon-pack` が足した 3 つ（`ignored_files`・`record_ignored`・`remove_new_ignored`）は、合流の時には `accept.py` から `blk-fix/scripts/leftovers.py` へ移っていた（0b851c8）。表では `blk-fix/scripts/leftovers.py:<関数>` の 3 行（`works-only`）に分けた。その後、構造の調べの V13 で模块を `.shared/core/leftovers.py` へ移し（`scripts/` の下の .py は全部スクリプトとして拾われるため）、表の行は `leftovers.<関数>` になった。
 - `wip/works-a27` が足した 2 つ（`tree_state`・`tree_change`。読むだけの任せ先の役の前後の作業ツリーの姿と違いの文。裁定 R47）は、`accept.py` の共通の部品として `works-only` の行に載せた。読むだけの役の確かめを 1 本にした時（R47）に足した `tree_moved` も同じ。
-- 線 B の行（`judge2.check`・`close.final_gate_reply`・`rounds_validator`）は、線 B が最後の共有の commit で足す。
+- 線 B の行（`judge2.check`・`close.final_gate_reply`・`rounds_validator`）は無い。線 B は棚上げ（2026-10-09）。

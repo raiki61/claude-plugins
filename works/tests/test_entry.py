@@ -2,7 +2,7 @@
 
 表は手で書き、ここで写しの graph と突き合わせる（盤面の層の縛り 1〜5 と、線 A の行の決まり）。行の決まりは線 A の仕様 4 節と
 持ち主の答え（2026-09-27）: p0.premises は役（blk-premises）、p0.parallel_pr は engine_run で任せ先は読むだけの役（blk-pr）、
-p2.rejudge は役（blk-rejudge。包みが判定役の会話を継ぐ）、p2.rejudge_third は absent（0.21.0 の規則で ready にならない）、p0.purpose は線 B が足すので absent、手厚さは標準だけ。
+p2.rejudge は役（blk-rejudge。包みが判定役の会話を継ぐ）、p2.rejudge_third は absent（0.21.0 の規則で ready にならない）、p0.purpose は役（blk-purpose）、手厚さは標準だけ。
 盤面を作る試験は linekit の種（dev/target-seed/）を使い捨ての家（linekit.work_home()）の下に置いて回す。
 """
 import contextlib
@@ -174,8 +174,8 @@ class TableCase(unittest.TestCase):
         self.assertEqual({n for n, g in GRAPH["nodes"].items() if g.get("pre") == "finalize"}, {"report"})
 
     def test_later_lines_name_their_line(self):
-        """線 B・線 C・R 系・別の入口の行は comes_with にその名"""
-        want = {"p2.history": "線 B", "p3.delta_gates": "線 C", "p4.final_gates": "線 C",
+        """周を重ねる入口・変異の検算・別の入口の行は comes_with にその名（線 B・線 C は棚上げと書く。2026-10-09）"""
+        want = {"p2.history": "棚上げ 2026-10-09", "p3.delta_gates": "棚上げ 2026-10-09", "p4.final_gates": "棚上げ 2026-10-09",
                 "spec.write": "darkfactory-spec"}
         for nid, name in want.items():
             with self.subTest(nid):

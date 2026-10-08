@@ -1,7 +1,7 @@
 """目的の文のブロック（blk-purpose。graph の節 p0.purpose）の検査。
 
 - YAML の口: 目的の役の節の output_format が写しの graph の型（role_schema("p0.purpose")）と同じか、良い返答の見本が
-  それを通るか。入口・出口・輪の形。目的の審査（p0.purpose_review）をこのブロックに入れず、線 B に任せると宣言しているか
+  それを通るか。入口・出口・輪の形。目的の審査（p0.purpose_review）をこのブロックに入れず、ブロックの外で回ると宣言しているか
 - 節の id が他のブロックの輪の中の節・ラインの include の id とぶつからないか（Ruling R17・R19）
 - つなぎのスクリプト: intake（依頼と前提の実測を確かめ、作業ツリーの写しを盤面に置く。拒めば終了コード 1）・
   accept（check_purpose を script_io で包む）・collect（盤面の purpose.json から出口を組む）を別のプロセスで回す
@@ -35,7 +35,7 @@ from engine.util import Reject  # noqa: E402
 
 DEADLINE = 1728000000
 GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
-PLANNED_INCLUDE_ID = "purposing"   # 線 B の周の線がこのブロックを include する id（rounds-spec-draft 2.2）
+PLANNED_INCLUDE_ID = "purposing"   # ラインがこのブロックを include する id（darkfactory.yaml の purposing）
 
 
 def load(name):
@@ -142,16 +142,18 @@ class YamlCase(unittest.TestCase):
         self.assertEqual((col["script"], col["runtime"], col["timeout"], col["depends_on"]),
                          ("collect", "uv", DEADLINE, ["purpose-loop"]))
 
-    def test_purpose_review_is_declared_for_track_b(self):
+    def test_purpose_review_is_declared_outside_the_block(self):
         # p0.purpose_review（出典が ③ の周に立つ別の目）はこのブロックに入れない。その宣言と理由を YAML に残す
         text = (BLK / "blk-purpose.yaml").read_text(encoding="utf-8")
         self.assertIn("p0.purpose_review", text)
         self.assertIn("purpose_review_due", text)
-        self.assertIn("線 B", text)
-        # 指示書も審査の今の状態（works に無い・線 B が持つ）を役に告げる。線 B が入った時に直し忘れればここで落ちる
+        self.assertIn("ブロックの外で", text)
+        # 審査はラインが回している（2026-10-09 の整理で、まだ無い・線 B が持つ、の古い文を外した）。指示書に戻さない
         prompt = (BLK / "commands" / "purpose.md").read_text(encoding="utf-8")
-        self.assertIn("works では今この審査はまだ無い", prompt)
-        self.assertIn("p0.purpose_review` は線 B", prompt)
+        for stale in ("審査はまだ無い", "線 B", "審査の後ろ盾が無い"):
+            with self.subTest(stale):
+                self.assertNotIn(stale, prompt)
+                self.assertNotIn(stale, text)
         ai = [n["id"] for n in self.y["nodes"] + [m for g in self.y["nodes"] if "loop_group" in g
                                                    for m in g["loop_group"]["nodes"]]
               if "command" in n or "prompt" in n]
