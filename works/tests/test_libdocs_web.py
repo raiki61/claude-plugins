@@ -5,7 +5,7 @@
 - JS: npm の registry（版つき、無ければ latest）の readme と homepage の llms*.txt。readme が無く手元にも README が無ければ、
   repository が GitHub の時だけ raw.githubusercontent.com の v<版>・<版> の tag の README.md
 - 送る URL はライブラリの名・版と registry の答えに在った URL だけ（使う名もコードの字も送らない）。鍵は付けない。https だけ
-- 断片: 文書を見出しで切り、使う名を含む節を先に、残りを文書の順に並べる
+- 断片には切らない（持ち主 2026-10-09。量の上限が無くなり、libdocs が文書を丸ごとファイルで盤面に控える）
 """
 import json
 import pathlib
@@ -161,21 +161,11 @@ class SafetyCase(unittest.TestCase):
                 self.assertFalse(libdocs_web.safe_url(url))
 
 
-class FragmentsCase(unittest.TestCase):
-    def test_sections_with_used_names_come_first(self):
-        docs = [{"kind": "readme", "url": "https://pypi.org/project/requests/2.32.3/", "text": README}]
-        got = libdocs_web.fragments(docs, ["requests.Session"])
-        self.assertEqual(got[0]["title"], "Sessions")
-        self.assertIn("requests.Session()", got[0]["text"])
-        self.assertEqual(got[0]["source"], "https://pypi.org/project/requests/2.32.3/")
-        self.assertEqual([g["title"] for g in got[1:]], ["Requests", "Installing"])
-        self.assertTrue(all(g["tokens"] > 0 for g in got))
-
-    def test_long_section_is_split(self):
-        text = "# Long\n\n" + "\n\n".join("para %d " % i + "y" * 300 for i in range(40))
-        got = libdocs_web.fragments([{"kind": "llms", "url": "https://x.example/llms.txt", "text": text}], [])
-        self.assertGreater(len(got), 1)
-        self.assertTrue(all(len(g["text"]) <= libdocs_web.CHUNK_MAX for g in got))
+class NoFragmentsCase(unittest.TestCase):
+    def test_docs_are_not_cut_into_fragments(self):
+        for name in ("fragments", "CHUNK_MAX"):
+            with self.subTest(name):
+                self.assertFalse(hasattr(libdocs_web, name))
 
 
 if __name__ == "__main__":

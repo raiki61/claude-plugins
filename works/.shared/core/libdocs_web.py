@@ -1,7 +1,7 @@
 """ライブラリの公式の文書を、登録の要らない口から引く（PyPI・npm の registry・docs の場所の llms.txt・GitHub の raw）。層 L3（共有）。
 
 持ち主 2026-10-08「全部使う」の 2 つめの出どころ（設計 works/docs/plans/2026-10-08-libdocs-sources.md）。支度の script の節が
-libdocs.section から呼ぶ。控え（盤面・包みの家）は libdocs が持つ。ここは引くことと、引いた文書を断片に切ることだけ。
+libdocs.section から呼ぶ。控え（盤面・包みの家）と文書のファイルは libdocs が持つ。ここは引くことだけ（断片には切らない）。
 
 引く物:
 - Python: PyPI の JSON（https://pypi.org/pypi/<名>/<版>/json。版が無い・その版が無ければ /pypi/<名>/json）の info.description
@@ -22,7 +22,6 @@ libdocs.section から呼ぶ。控え（盤面・包みの家）は libdocs が�
 口（標準ライブラリだけ。網は get(url, headers) -> (状態の番号, 本文) で差し替える。get の例外は取れなかった理由になる）:
 - safe_url(url) -> bool・https_site(url) -> str: 網に出してよい URL か・docs の場所に使える URL
 - fetch(lib, version, get) -> {status: ok|not_found|error, docs: [{kind: readme|llms, url, text}], error, note}
-- fragments(docs, uses) -> [{title, source, tokens, text}]: 見出しで切り、使う名（点の最後の段）を含む節を先に、残りを文書の順に
 """
 import ipaddress
 import json
@@ -34,7 +33,6 @@ NPM = "https://registry.npmjs.org"
 RAW = "https://raw.githubusercontent.com"
 HEADERS = {"User-Agent": "works-libdocs", "Accept": "*/*"}
 KEEP_CHARS = 400_000         # 控える文書 1 本の上限（字）
-CHUNK_MAX = 2400             # 断片 1 本の上限（字）
 CODE_HOSTS = ("github.com", "gitlab.com", "bitbucket.org", "pypi.org", "npmjs.com", "www.npmjs.com", "registry.npmjs.org")
 LLMS = ("llms-full.txt", "llms.txt")
 GITHUB = re.compile(r"(?:github\.com[/:]|^github:)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/#?].*)?$")
@@ -213,65 +211,3 @@ def fetch(lib: dict, version, get) -> dict:
         return _pypi(lib, version, get)
     except Exception as e:  # noqa: BLE001  取れなかった理由は節に出す（落とさない）
         return {"status": "error", "docs": [], "error": f"{type(e).__name__}: {e}"[:200], "note": ""}
-
-
-# ---------------------------------------------------------------- 断片
-HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
-RST_UNDER = re.compile(r"^([=\-~^\"'`#*+])\1{2,}\s*$")
-
-
-def _sections(text: str, fallback: str) -> list:
-    """[(見出し, 本文)]。markdown の # と、rst の下線の見出しで切る"""
-    lines = text.splitlines()
-    out, title, buf = [], fallback, []
-    i = 0
-    while i < len(lines):
-        ln = lines[i]
-        m = HEADING.match(ln)
-        rst = i + 1 < len(lines) and ln.strip() and RST_UNDER.match(lines[i + 1]) and len(lines[i + 1].strip()) >= len(ln.strip())
-        if m or rst:
-            if any(x.strip() for x in buf):
-                out.append((title, "\n".join(buf).strip()))
-            title, buf = (m.group(2) if m else ln.strip()), [ln] + ([] if m else [lines[i + 1]])
-            i += 1 if m else 2
-            continue
-        buf.append(ln)
-        i += 1
-    if any(x.strip() for x in buf):
-        out.append((title, "\n".join(buf).strip()))
-    return out
-
-
-def _split(body: str) -> list:
-    if len(body) <= CHUNK_MAX:
-        return [body]
-    out, cur = [], ""
-    for para in body.split("\n\n"):
-        while len(para) > CHUNK_MAX:
-            if cur:
-                out.append(cur)
-                cur = ""
-            out.append(para[:CHUNK_MAX])
-            para = para[CHUNK_MAX:]
-        if cur and len(cur) + 2 + len(para) > CHUNK_MAX:
-            out.append(cur)
-            cur = ""
-        cur = f"{cur}\n\n{para}" if cur else para
-    if cur:
-        out.append(cur)
-    return out
-
-
-def fragments(docs, uses) -> list:
-    """文書の断片（使う名を含む節を先に、残りを文書の順に）"""
-    names = [u.split(".")[-1] for u in uses or [] if u and u != "default"]
-    rxs = [re.compile(r"(?<![A-Za-z0-9_])" + re.escape(n) + r"(?![A-Za-z0-9_])") for n in dict.fromkeys(names)]
-    rows = []
-    for d in docs or []:
-        for title, body in _sections(d.get("text") or "", d.get("kind") or ""):
-            for chunk in _split(body):
-                hits = sum(1 for rx in rxs if rx.search(chunk))
-                rows.append((-hits if hits else 0, len(rows), {"title": title, "source": d.get("url") or "",
-                                                               "tokens": max(1, len(chunk) // 4), "text": chunk}))
-    rows.sort(key=lambda r: (r[0], r[1]))
-    return [r[2] for r in rows]

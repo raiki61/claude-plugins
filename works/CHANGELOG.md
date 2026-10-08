@@ -8,11 +8,12 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Changed
 
+- 修正役と修正案の役の指示書のライブラリの文書を、本文を貼る形からファイルで渡す形に変え、量の上限（4000 トークン）を消した（持ち主の決め 2026-10-09。上限は Context7 の口が tokens を求め、本文を指示書に貼っていたから在った）。機械は取れた文書（手元の版の署名と説明・公式の README と `llms.txt`）を、ライブラリごとに今の周の盤面の `libdocs/<名>@<版>/` に丸ごと書き（手元は `local-<中身の digest>.md`、公式は `official-<番>-<種>.md`）、指示書の節にはライブラリごとの名・入っている版・出どころ（手元の置き場か公式の URL）・ファイルのパスと、単位が使う名・公式の README の頭の 1 行だけを並べる。役は API の詳細が要る時にそのファイルを Read で読む（読むべき物には数えないので、読まなくても読んだ証拠の欠けにならない）。長い文書も切らずに控え、節の長さは文書の長さに依らない。どこからも取れなかったライブラリは今までどおり名指して役に自分で引かせる。公式の文書の run をまたぐ 7 日の控えは、網の問いを繰り返さないために残す。
 - ライブラリの文書の網の止めの名を `WORKS_CONTEXT7=off` から `WORKS_LIBDOCS_WEB=off` に替えた（Context7 をやめたので。止めるのは公式の文書の網で、手元の版は今までどおり読む）。前の名は効かない。
 
 ### Removed
 
-- Context7 をやめた（持ち主の決め 2026-10-09）。ライブラリの文書は、今までどおり手元の版（run の作業ツリーと main の作業ツリーに入っている版のコードを import せずに読んだ署名と説明）と公式（PyPI・npm の README と docs の場所の `llms.txt`）の 2 つから引き、修正役と修正案の役の指示書に貼る。役が自分で引く WebSearch・WebFetch もそのまま。消した物: (1) 指示書の節の 3 つめの出どころ（Context7 の HTTP API）と、その枠切れ（HTTP 429）の控え・run をまたぐ枠切れの印・報告の冒頭 2 の枠切れの 1 行。節の題は「ライブラリの文書（手元の版・公式）」になり、1 本のライブラリの分の取り分は手元 1/2・公式 1/4・Context7 の残りから、手元 1/2・公式の残り（1/2）に変えた（余りは手元 → 公式の順に埋める） (2) Context7 の鍵の受け渡し（起こし役 `auth_launch.py` が `WORKS_CONTEXT7_KEYCHAIN_ITEM` の keychain の項目を読んで子の `CONTEXT7_API_KEY` に置く口と、run の控え・続きの行の項目の名）。env に残っていても読まない (3) 役に貸す Context7 の MCP（包みが `WORKS_CONTEXT7_MCP=on` の時に web を持つ役へ `--mcp-config` で渡す口と、`dev/toolset.py` の kind "mcp"・`borrow.json` の行・隔離した設定の置き場の `works-mcp.json` を書く口）。前の版が置き場に残した `works-mcp.json` と、包みの家の `libdocs/` に残した Context7 の控えは、誰も読まないので消さずに置いておく。
+- Context7 をやめた（持ち主の決め 2026-10-09）。ライブラリの文書は、今までどおり手元の版（run の作業ツリーと main の作業ツリーに入っている版のコードを import せずに読んだ署名と説明）と公式（PyPI・npm の README と docs の場所の `llms.txt`）の 2 つから引き、修正役と修正案の役の指示書に貼る。役が自分で引く WebSearch・WebFetch もそのまま。消した物: (1) 指示書の節の 3 つめの出どころ（Context7 の HTTP API）と、その枠切れ（HTTP 429）の控え・run をまたぐ枠切れの印・報告の冒頭 2 の枠切れの 1 行。節の題は「ライブラリの文書（手元の版・公式）」になった（量の取り分は上の Changed のとおり上限ごと消した） (2) Context7 の鍵の受け渡し（起こし役 `auth_launch.py` が `WORKS_CONTEXT7_KEYCHAIN_ITEM` の keychain の項目を読んで子の `CONTEXT7_API_KEY` に置く口と、run の控え・続きの行の項目の名）。env に残っていても読まない (3) 役に貸す Context7 の MCP（包みが `WORKS_CONTEXT7_MCP=on` の時に web を持つ役へ `--mcp-config` で渡す口と、`dev/toolset.py` の kind "mcp"・`borrow.json` の行・隔離した設定の置き場の `works-mcp.json` を書く口）。前の版が置き場に残した `works-mcp.json` と、包みの家の `libdocs/` に残した Context7 の控えは、誰も読まないので消さずに置いておく。
 
 ## [0.2.50] - 2026-10-09
 

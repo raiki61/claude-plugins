@@ -148,7 +148,7 @@ class PythonCase(Base):
         titles = [f["title"] for f in got["fragments"]]
         self.assertEqual(titles, ["requests.get", "requests.Session"])
         self.assertTrue(all(f["source"].endswith((".py", ".pyi")) for f in got["fragments"]))
-        self.assertTrue(all(f["tokens"] > 0 for f in got["fragments"]))
+        self.assertTrue(all(set(f) == {"title", "source", "text"} for f in got["fragments"]), "量の数（tokens）は持たない")
 
     def test_dist_name_differs_from_import_name(self):
         self.venv()

@@ -18,7 +18,7 @@
 口（標準ライブラリだけ）:
 - roots(repo) -> [Path]: repo と、repo が git の作業ツリー（.git がファイル）なら main の作業ツリー（git を起こさない）
 - py_uses(text) -> {最上位の名: [点で繋いだ名]} | None（構文の誤り）。js_uses(text) -> {パッケージ: [名]}
-- read(roots, lib, files) -> {status: ok|absent|error, version, dist（Python だけ）, where, fragments: [{title, source, tokens, text}], note}
+- read(roots, lib, files) -> {status: ok|absent|error, version, dist（Python だけ）, where, fragments: [{title, source, text}], note}
   （lib は libdocs.detect の行: name・search・lang・uses。files は単位のファイルの根からの相対）
 """
 import ast
@@ -42,10 +42,6 @@ PY_ENV_GLOBS = (".tox", ".nox")
 
 def _norm(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
-
-
-def _tokens(text: str) -> int:
-    return max(1, len(text) // 4)
 
 
 # ---------------------------------------------------------------- 根と環境の置き場
@@ -381,7 +377,7 @@ def _py_fragment(title, node, path) -> dict:
     else:
         code = _render_def(node)
     text = f"```python\n{code}\n```"
-    return {"title": title, "source": str(path), "tokens": _tokens(text), "text": text}
+    return {"title": title, "source": str(path), "text": text}
 
 
 def _read_python(roots_, lib, files) -> dict | None:
@@ -410,8 +406,7 @@ def _read_python(roots_, lib, files) -> dict | None:
                 doc = _doc(tree) if tree is not None else ""
                 body = "\n\n".join(x for x in (summary, doc) if x) or "（説明は無い）"
                 text = f"{lib['name']}: {body}"
-                frags.append({"title": f"{lib['name']}（モジュールの説明）", "source": str(init), "tokens": _tokens(text),
-                              "text": text})
+                frags.append({"title": f"{lib['name']}（モジュールの説明）", "source": str(init), "text": text})
             note = ("手元の版に見つからない名: " + "、".join(missing)) if missing else ""
             return {"status": "ok", "version": version, "dist": dist_name, "where": str(env), "fragments": frags, "note": note}
     return None
@@ -510,7 +505,7 @@ def _js_fragments(files, uses) -> tuple:
             missing.append(name)
         else:
             body = f"```ts\n{hit[1]}\n```"
-            frags.append({"title": name, "source": str(hit[0]), "tokens": _tokens(body), "text": body})
+            frags.append({"title": name, "source": str(hit[0]), "text": body})
     return frags, missing
 
 
@@ -542,7 +537,7 @@ def _read_js(roots_, lib, files) -> dict | None:
         if not frags:
             src, text = _readme(pkg_dir, real)
             if text:
-                frags.append({"title": "README（頭）", "source": str(src), "tokens": _tokens(text), "text": text})
+                frags.append({"title": "README（頭）", "source": str(src), "text": text})
         notes = []
         if missing:
             notes.append("手元の版の型の宣言に見つからない名: " + "、".join(missing))

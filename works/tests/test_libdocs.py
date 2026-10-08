@@ -7,9 +7,12 @@
 - 数で言う: 取れなかった・見つからない・上限で取らない物は節の頭に数と名前で出す（黙って落とさない）
 - 標準ライブラリだけの対象は何も取らず、取らないことを書く。WORKS_LIBDOCS_WEB=off も網に出ないことを書く
 - 組み立て: 修正役の指示書（fixrules.fix_prompt）と修正案の役の頭（planblk.head）に節が入る
-- 出どころ（SourcesCase。設計 works/docs/plans/2026-10-08-libdocs-sources.md）: 手元の版 → 公式の順に並べ、量の上限の中で
-  分ける（1 本の分を手元 1/2・公式の残りで先に分ける）。手元で読んだ版で公式に問う。どこからも取れなかった物は名指して役に
-  自分で引けと言う。off でも手元は読む。公式の取れた物と見つからない物は盤面と家に控える（取れなかった物は控えない）
+- 出どころ（SourcesCase。設計 works/docs/plans/2026-10-08-libdocs-sources.md）: 手元の版 → 公式の順に並べる。手元で読んだ版で
+  公式に問う。どこからも取れなかった物は名指して役に自分で引けと言う。off でも手元は読む。公式の取れた物と見つからない物は
+  盤面と家に控える（取れなかった物は控えない）
+- 文書はファイルで渡す（FilesCase。持ち主 2026-10-09）: 量の上限（BUDGET）は無い。手元と公式の文書はライブラリごとに今の周の
+  libdocs/<名>@<版>/ にファイルで丸ごと控え、節にはライブラリごとの名・入っている版・出どころ・ファイルのパスと短い要点だけを
+  並べる（本文は貼らない）。役は要る時にそのファイルを Read で読む（読むべき物には数えない）
 - Context7 はやめた（持ち主 2026-10-09）: 網の問いは公式の口にだけ出る。前の版が家に残した Context7 の控え（問いの digest の名・
   名と版だけの名・枠切れの印 _quota.json）は読まない（NoContext7Case）
 """
@@ -46,6 +49,7 @@ PYPI = {"info": {"name": "requests", "version": "2.32.3",
                  "description": "# Requests\n\nHTTP for Humans.\n\n## Sessions\n\nUse `requests.Session` to keep cookies.\n",
                  "project_urls": {"Documentation": "https://requests.readthedocs.io/en/latest/"}}}
 PYPI_ROUTE = "pypi.org/pypi/requests/2.32.3/json"
+PYPI_PAGE = "https://pypi.org/project/requests/2.32.3/"
 REQ_SP = ".venv/lib/python3.12/site-packages"
 
 
@@ -84,6 +88,11 @@ class Base(unittest.TestCase):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
         return rel
+
+    def saved(self, name, board=None, rnd=1):
+        """今の周の libdocs/requests@2.32.3/ に控えたファイル（name は glob の形。local-*.md など）の字（無ければ None）"""
+        got = sorted(((board or self.board).dir / f"r{rnd}" / libdocs.CACHE_DIR / "requests@2.32.3").glob(name))
+        return got[0].read_text(encoding="utf-8") if got else None
 
     def install(self, base=None):
         base = base or self.repo
@@ -172,9 +181,9 @@ class SectionCase(Base):
         http = ok_http()
         text = self.section([f], http)
         self.assertTrue(text.startswith(libdocs.TITLE), text)
-        self.assertIn("Use `requests.Session` to keep cookies", text)
-        self.assertIn("出典: https://pypi.org/project/requests/2.32.3/", text)
         self.assertIn("- 公式の文書: 取れた 1 本", text)
+        self.assertIn(f"- 公式: {PYPI_PAGE} → ", text)
+        self.assertIn("Use `requests.Session` to keep cookies", self.saved("official-1-readme.md"))
         self.assertIn("https://" + PYPI_ROUTE, http.calls)
 
     def test_cache_hit_does_not_touch_the_network(self):
@@ -186,7 +195,7 @@ class SectionCase(Base):
         again = self.section([f], http)
         self.assertEqual(http.calls, [])
         self.assertIn("控えから 1 本（盤面 1 本・ほかの run 0 本）", again)
-        self.assertIn("Use `requests.Session` to keep cookies", again)
+        self.assertIn("Use `requests.Session` to keep cookies", self.saved("official-1-readme.md", rnd=2))
         self.assertTrue((self.board.dir / "r1" / libdocs.CACHE_DIR / ("requests@2.32.3" + libdocs.OFFICIAL_SUFFIX)).is_file())
 
     def test_network_error_is_declared(self):
@@ -225,40 +234,13 @@ class SourcesCase(Base):
         f = self.write("app.py", "from requests import Session\n")
         http = ok_http()
         text = libdocs.section(self.board, self.repo, [f], get=http, env={})
-        self.assertLess(text.index("LOCAL DOCSTRING"), text.index("Use `requests.Session` to keep cookies"))
+        self.assertLess(text.index("- 手元の版: " + str(self.repo / ".venv")), text.index(f"- 公式: {PYPI_PAGE}"))
+        self.assertIn("LOCAL DOCSTRING", self.saved("local-*.md"))
         self.assertIn("- 手元の版: 読めた 1 本（requests 2.32.3）", text)
         self.assertIn("- 公式の文書: 取れた 1 本", text)
         self.assertIn("https://" + PYPI_ROUTE, http.calls, "宣言が無くても手元の版で公式に問う")
-        self.assertIn(str(self.repo / REQ_SP / "requests" / "sessions.py"), text, "手元の断片の出典はファイル")
+        self.assertIn(str(self.repo / REQ_SP / "requests" / "sessions.py"), self.saved("local-*.md"), "手元の断片の出典はファイル")
         self.assertNotIn("- どこからも文書が無い", text)
-
-    def test_budget_is_split_half_local_and_the_rest_official(self):
-        """1 本の分を手元 1/2・公式の残り（1/2）で先に分け、余りを手元 → 公式の順に埋める"""
-        self.assertEqual(libdocs.SOURCES, ("local", "official"))
-
-        def frag(n, tokens):
-            return {"title": n, "source": n, "tokens": tokens, "text": n}
-        picked, used, cut = libdocs._allocate({"local": [frag("l1", 40), frag("l2", 40)], "official": [frag("o1", 45)]}, 100)
-        self.assertEqual([f["title"] for f in picked["local"]], ["l1"])
-        self.assertEqual([f["title"] for f in picked["official"]], ["o1"], "公式の取り分は 1/2（Context7 の分を持たない）")
-        self.assertEqual((used, cut), (85, 1))
-        picked, used, cut = libdocs._allocate({"local": [frag("l1", 40), frag("l2", 40)], "official": []}, 100)
-        self.assertEqual([f["title"] for f in picked["local"]], ["l1", "l2"], "公式が空なら余りを手元が使う")
-        self.assertEqual((used, cut), (80, 0))
-
-    def test_budget_caps_what_is_pasted(self):
-        """手元の断片（40 トークン）は手元の取り分（1/2）に入らなくても、公式の後の余りに入れば貼る。余りにも入らなければ切って数える"""
-        self.install()
-        f = self.write("app.py", "from requests import Session\n")
-        for budget, local_in, cut in ((60, True, 0), (50, False, 1)):
-            with self.subTest(budget=budget):
-                text = libdocs.section(FakeBoard(self.tmp / f"b{budget}"), self.repo, [f], get=ok_http(), env={}, budget=budget)
-                self.assertEqual("LOCAL DOCSTRING" in text, local_in)
-                self.assertIn("Use `requests.Session` to keep cookies", text)
-                m = re.search(r"貼った断片 \d+ 本・(\d+) トークン（予算 (\d+)。切った断片 (\d+) 本）", text)
-                self.assertIsNotNone(m, text)
-                self.assertLessEqual(int(m.group(1)), budget)
-                self.assertEqual(int(m.group(3)), cut)
 
     def test_libraries_without_any_docs_are_named_for_the_roles(self):
         f = self.write("app.py", "import requests\nimport flask\n")
@@ -291,7 +273,7 @@ class SourcesCase(Base):
         http = FakeHttp()
         text = libdocs.section(self.board, self.repo, [f], get=http, env={libdocs.ENV_SWITCH: "off"})
         self.assertEqual(http.calls, [])
-        self.assertIn("LOCAL DOCSTRING", text)
+        self.assertIn("LOCAL DOCSTRING", self.saved("local-*.md"))
         self.assertIn(f"{libdocs.ENV_SWITCH}=off", text)
         g = self.write("other.py", "import flask\n")
         text = libdocs.section(self.board, self.repo, [g], get=http, env={libdocs.ENV_SWITCH: "off"})
@@ -308,12 +290,12 @@ class SourcesCase(Base):
         http = FakeHttp()
         text = libdocs.section(self.board, self.repo, [f], get=http, env=env, now=1_800_000_060.0)
         self.assertEqual(http.calls, [], "次の周は盤面の控えを読む")
-        self.assertIn("Use `requests.Session` to keep cookies", text)
+        self.assertIn("Use `requests.Session` to keep cookies", self.saved("official-1-readme.md", rnd=2))
         other = FakeBoard(self.tmp / "board2")
         http = FakeHttp()
-        text = libdocs.section(other, self.repo, [f], get=http, env=env, now=1_800_000_120.0)
+        libdocs.section(other, self.repo, [f], get=http, env=env, now=1_800_000_120.0)
         self.assertEqual(http.calls, [], "同じ家のほかの run は家の控えを読む")
-        self.assertIn("Use `requests.Session` to keep cookies", text)
+        self.assertIn("Use `requests.Session` to keep cookies", self.saved("official-1-readme.md", board=other))
         self.assertTrue((home / libdocs.CACHE_DIR / ("requests@2.32.3" + libdocs.OFFICIAL_SUFFIX)).is_file())
 
     def test_official_failure_is_not_cached(self):
@@ -335,10 +317,69 @@ class SourcesCase(Base):
         libdocs.section(self.board, self.repo, [f], get=ok_http(), env={})
         rec = json.loads((self.board.dir / "r1" / libdocs.RECORD).read_text(encoding="utf-8"))
         row = rec["rows"][0]
-        self.assertEqual(sorted(row), ["lib", "local", "official"], "行は見つけた物と出どころごとの結果だけ")
+        self.assertEqual(sorted(row), ["files", "lib", "local", "official"], "行は見つけた物と出どころごとの結果と控えたファイル")
+        self.assertRegex(pathlib.Path(row["files"][0]).name, r"^local-[0-9a-f]{8}\.md$")
+        self.assertEqual(pathlib.Path(row["files"][1]).name, "official-1-readme.md")
         self.assertEqual(row["local"]["version"], "2.32.3")
         self.assertEqual(row["official"]["status"], "ok")
         self.assertNotIn("LOCAL DOCSTRING", json.dumps(rec))
+
+
+class FilesCase(Base):
+    """文書はファイルで渡す（持ち主 2026-10-09。量の上限は Context7 の口が tokens を求め、本文を指示書に貼っていたから在った）"""
+
+    def setUp(self):
+        super().setUp()
+        self.install()
+        self.f = self.write("app.py", "from requests import Session\nrequests.get('u')\n")
+
+    def test_no_budget(self):
+        for name in ("BUDGET", "SOURCES", "_allocate"):
+            with self.subTest(name):
+                self.assertFalse(hasattr(libdocs, name))
+        self.assertNotIn("budget", libdocs.section.__code__.co_varnames)
+
+    def test_section_lists_files_and_does_not_paste_the_text(self):
+        text = libdocs.section(self.board, self.repo, [self.f], get=ok_http(), env={})
+        self.assertNotIn("LOCAL DOCSTRING", text)
+        self.assertNotIn("Use `requests.Session` to keep cookies", text)
+        self.assertNotIn("トークン", text)
+        self.assertNotIn("予算", text)
+        local, = (self.board.dir / "r1" / libdocs.CACHE_DIR / "requests@2.32.3").glob("local-*.md")
+        official = self.board.dir / "r1" / libdocs.CACHE_DIR / "requests@2.32.3" / "official-1-readme.md"
+        block = text[text.index("### requests 2.32.3"):]
+        self.assertIn(f"- 手元の版: {self.repo / '.venv'} → {local}", block)
+        self.assertIn(f"- 公式: {PYPI_PAGE} → {official}", block)
+        self.assertIn("- 公式の要約: HTTP for Humans.", block, "安く取れる要点は数行だけ")
+        self.assertIn("requests.Session", block, "単位が使う名を並べる（ファイルの中を探す手がかり）")
+        self.assertIn("Read", text, "要る時にファイルを Read で読めと言う")
+        self.assertIn("控えたファイル 2 本", text)
+        self.assertIn("LOCAL DOCSTRING", local.read_text(encoding="utf-8"))
+        self.assertIn(str(self.repo / REQ_SP / "requests" / "sessions.py"), local.read_text(encoding="utf-8"))
+        self.assertIn(PYPI_PAGE, official.read_text(encoding="utf-8"), "公式のファイルは出典の URL を持つ")
+
+    def test_long_docs_are_saved_whole_and_the_section_stays_short(self):
+        body = "# Requests\n\nHTTP for Humans.\n\n" + "\n\n".join(f"## Part {i}\n\n" + "word " * 200 for i in range(60))
+        http = FakeHttp({PYPI_ROUTE: (200, {"info": {**PYPI["info"], "description": body}})})
+        text = libdocs.section(self.board, self.repo, [self.f], get=http, env={})
+        self.assertLess(len(text), 4000, "節は本文の長さに依らない")
+        self.assertIn("## Part 59", self.saved("official-1-readme.md"), "切らずに丸ごと控える")
+
+    def test_lanes_with_other_units_do_not_overwrite_each_other(self):
+        """並べの枝は同じ周の置き場を分け合う。単位が使う名が違えば手元のファイルは別の名で、互いに上書きしない"""
+        g = self.write("other.py", "from requests.sessions import Session\n")
+        a = libdocs.section(self.board, self.repo, [self.f], get=ok_http(), env={})
+        b = libdocs.section(self.board, self.repo, [g], get=ok_http(), env={})
+        files = sorted((self.board.dir / "r1" / libdocs.CACHE_DIR / "requests@2.32.3").glob("local-*.md"))
+        self.assertEqual(len(files), 2, files)
+        self.assertTrue(all(str(p) in a or str(p) in b for p in files))
+
+    def test_files_are_rewritten_in_each_round(self):
+        libdocs.section(self.board, self.repo, [self.f], get=ok_http(), env={})
+        self.board.round = 2
+        text = libdocs.section(self.board, self.repo, [self.f], get=FakeHttp(), env={})
+        self.assertIn(str(self.board.dir / "r2" / libdocs.CACHE_DIR / "requests@2.32.3" / "local-"), text)
+        self.assertIsNotNone(self.saved("official-1-readme.md", rnd=2), "前の周の控えから読んだ公式の文書も今の周に置く")
 
 
 class RedirectCase(unittest.TestCase):
@@ -433,7 +474,7 @@ class SharedCacheCase(HomeBase):
         board, text = self.run_section("run2", http, self.T + 3600)
         self.assertEqual(http.calls, [])
         self.assertIn("ほかの run 1 本", text)
-        self.assertIn("Use `requests.Session` to keep cookies", text)
+        self.assertIn("Use `requests.Session` to keep cookies", self.saved("official-1-readme.md", board=board))
         self.assertTrue((board.dir / "r1" / libdocs.CACHE_DIR / ("requests@2.32.3" + libdocs.OFFICIAL_SUFFIX)).is_file(),
                         "使った物は盤面の周の置き場にも写す（run の中で同じ物を読む）")
 
