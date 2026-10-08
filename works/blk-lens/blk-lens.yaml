@@ -39,13 +39,15 @@ nodes:
         prompt_silent_failure_hunter: {type: string}
 
   # レンズ pr-review-toolkit:silent-failure-hunter（黙った失敗）。前付けが core/agents に無いので、model・effort は
-  # 表 .shared/core/stage-models.json の値を段に書く（run の既定に頼らない）
+  # 表 .shared/core/stage-models.json の値を段に書く（run の既定に頼らない）。どの工程に組み込まれても、前に終わった AI の節の
+  # 会話を継がずに新しい会話で読む（context: fresh。輪の外の AI の節の決まり。tests/test_yaml_rules.py の SessionCase）
   - id: lens-silent-failure-hunter
     model: sonnet               # 読んで確かめる・まとめる役（前付けの無い役。表 .shared/core/stage-models.json の値で tests/test_tool_parity.py が縛る。WORKS_DEV_MODEL の明示で替わる。持ち主 2026-10-06）
     effort: medium              # 同じ表の effort（段に書かないと run の既定で黙って走る）
     command: lens-silent-failure-hunter
     depends_on: [lens-route]
     when: "$lens-route.output.silent_failure_hunter_go == true"
+    context: fresh
     settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
     allowed_tools: [Read, Grep, Glob]   # 読むだけ。定義（pr-review-toolkit）は全部の道具を持つが、子を起こす形はまとめ役に戻るので持たせない
     mutates_checkout: false

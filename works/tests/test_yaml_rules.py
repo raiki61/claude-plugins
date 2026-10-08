@@ -648,69 +648,138 @@ class RoleSessionCase(unittest.TestCase):
                                   f"{rid} の輪に別の会話を継ぐ節 {apart} が在るのに、役の印に旗 self-resume が無い")
 
 
-def loop_session_problems(nodes, where=""):
-    """輪の中に AI の節が 2 つ以上在る時の会話の取り違え（文の一覧。空なら緑）。
+def _run_order(nodes):
+    """節の並びを Archon の走る順に並べ替えた写し（depends_on の層の順。同じ層は書いた順。graph-plan.ts の planResolvedNodes）"""
+    ids = {n.get("id") for n in nodes}
+    deps = {n.get("id"): [d for d in n.get("depends_on") or [] if d in ids] for n in nodes}
+    depth = {}
 
-    Archon は輪の中の直前に終わった AI の節の会話を次の AI の節に継がせる（v0.11.1 の dag-executor の lastSequentialSession。
-    輪の中の節ごとの会話は持たない）。だから輪の頭の AI の節（役）の後ろに別の AI の節を置くと、その節は役の会話を継ぎ、
-    次の周の役はその節の会話を継ぐ。run f57a5374 では報告の書き手の輪の初見の読み手が 3 回とも書き手の会話の続きで起き
-    （1 回目から初見でない）、3 回目の pass は 3 秒で返った。決まり:
-    - 頭でない AI の節は、印 continue=<相手>（包みが SDK の会話を外して相手の会話を継ぐ）か context: fresh（Archon が新しい会話で
-      起こす）を持つ。毎周新しい会話の輪（fresh_context が真）でも、周の中では直前の AI の節の会話を継ぐので同じ
-    - 会話を継ぐ輪（fresh_context が偽）では、頭の AI の節が印に旗 self-resume（包みが 2 周目から自分の会話に戻す）か
-      continue=<相手> を持つ"""
+    def level(nid, seen=()):
+        if nid not in depth:
+            depth[nid] = 1 + max((level(d, (*seen, nid)) for d in deps.get(nid, []) if d not in seen), default=-1)
+        return depth[nid]
+    return sorted(nodes, key=lambda n: (level(n.get("id")), nodes.index(n)))
+
+
+def session_problems(nodes, where="", loop=None):
+    """AI の節が宣言していない会話を継ぐ所（文の一覧。空なら緑）。
+
+    Archon v0.11.1 は、直前に終わった AI の節の会話を次の AI の節に継がせる（dag-executor の lastSequentialSession）。
+    輪の中に限らず、script・bash の節を挟んでも続き、切れるのは節が 2 つ以上の層（並べ）・節の context: fresh・組み込んだ
+    ブロックの入口の節が AI の節の時だけ（dag-executor.ts:9783・10424-10437）。輪（loop_group）の 1 周目は外の会話を継がずに
+    新しい会話で始まり（:5069）、輪の節は終わっても会話を外へ渡さない（:5416 の出力に会話の id が無い）。だから決まり:
+    - 輪の外の AI の節は context: fresh（Archon が新しい会話で起こす）か印 continue=<相手>（包みが SDK の会話を外して相手の会話を継ぐ）
+      を持つ。今の層の形で前の会話が切れていても、ブロックの組み方・層の形が替われば黙って継ぐ（ブロックの入口の切れ目は、入口が
+      script の時には効かない）
+    - 輪の中で最初に走る AI の節（頭）は、1 周目は新しい会話で、2 周目からの続きは輪の fresh_context（書いて宣言する）が決める
+    - 輪の中の頭でない AI の節は continue=<相手> か context: fresh を持つ。毎周新しい会話の輪（fresh_context が真）でも、周の中では
+      直前の AI の節の会話を継ぐので同じ（run f57a5374 の報告の初見の読み手は、書き手の会話の続きで読んでいた）
+    - 会話を継ぐ輪（fresh_context が偽）に AI の節が 2 つ以上在れば、頭は印に旗 self-resume（包みが 2 周目から自分の会話に戻す）か
+      continue=<相手> か context: fresh を持つ（無いと次の周はほかの節の会話を継ぐ）
+    どの決まりも 1 本の YAML の中で閉じるので、ブロックを別の工程に組み込んでも成り立つ。頭は書いた順でなく走る順で決める"""
+    def words(m):
+        return str((m.get("output_format") or {}).get("description") or "").split(" ")[2:]
+
+    def cont(m):
+        return any(w.startswith("continue=") for w in words(m))
+
     out = []
-    for n in nodes or []:
-        if _kind(n) != "loop_group":
-            continue
-        g = n["loop_group"]
-        out += loop_session_problems(g.get("nodes"), f"{where}{n['id']}/")
-        ai = [m for m in g.get("nodes") or [] if _kind(m) in AI_KEYS]
-        if len(ai) < 2:
-            continue
-        words = lambda m: str((m.get("output_format") or {}).get("description") or "").split(" ")[2:]   # noqa: E731
-        cont = lambda m: any(w.startswith("continue=") for w in words(m))   # noqa: E731
+    ordered = _run_order(list(nodes or []))
+    ai = [m for m in ordered if _kind(m) in AI_KEYS]
+    if loop is None:
+        out += [f"{where}節 {m['id']}: 輪の外の AI の節が context: fresh も continue= も持たない（前に終わった AI の節の会話を継ぐ）"
+                for m in ai if not cont(m) and m.get("context") != "fresh"]
+    else:
+        g = loop["loop_group"]
+        lid = f"{where}{loop['id']}"
         for m in ai[1:]:
             if not cont(m) and m.get("context") != "fresh":
-                out.append(f"{where}{n['id']} の中の節 {m['id']}: 会話を継ぐ輪の頭でない AI の節が continue= も context: fresh も"
+                out.append(f"{lid} の中の節 {m['id']}: 輪の頭でない AI の節が continue= も context: fresh も"
                            f"持たない（頭の節 {ai[0]['id']} の会話を継ぐ）")
-        if not g.get("fresh_context") and not cont(ai[0]) and "self-resume" not in words(ai[0]):
-            out.append(f"{where}{n['id']} の中の節 {ai[0]['id']}: 会話を継ぐ輪にほかの AI の節が在るのに、頭の節の印に旗 self-resume "
+        if ai and not cont(ai[0]) and ai[0].get("context") != "fresh" and not isinstance(g.get("fresh_context"), bool):
+            out.append(f"{lid} の中の節 {ai[0]['id']}: 輪の頭の AI の節の会話を決める輪の fresh_context が書かれていない")
+        if (len(ai) > 1 and g.get("fresh_context") is False and not cont(ai[0]) and ai[0].get("context") != "fresh"
+                and "self-resume" not in words(ai[0])):
+            out.append(f"{lid} の中の節 {ai[0]['id']}: 会話を継ぐ輪にほかの AI の節が在るのに、頭の節の印に旗 self-resume "
                        f"も continue= も無い（次の周はほかの節の会話を継ぐ）")
+    for n in ordered:
+        if _kind(n) == "loop_group":
+            out += session_problems(n["loop_group"].get("nodes"), f"{where}{loop['id']}/" if loop else where, n)
     return out
 
 
-class LoopSessionCase(unittest.TestCase):
-    """輪の中の AI の節は、それぞれ意図した会話で起きる（loop_session_problems）"""
+class SessionCase(unittest.TestCase):
+    """AI の節は、宣言した会話で起きる（session_problems。輪の外も中も、ブロックをほかの工程に組み込んでも）"""
 
-    def test_pack_loops_keep_each_conversation(self):
+    def test_pack_ai_nodes_start_in_declared_conversation(self):
         for p in sorted(ROOT.glob("*/*.yaml")):
             with self.subTest(str(p.relative_to(ROOT))):
-                self.assertEqual(loop_session_problems(yaml.safe_load(p.read_text(encoding="utf-8")).get("nodes")), [])
+                self.assertEqual(session_problems(yaml.safe_load(p.read_text(encoding="utf-8")).get("nodes")), [])
+
+    def test_ai_node_outside_loop_without_declaration_is_red(self):
+        # 輪の外の AI の節は、前に在る AI の節の会話を Archon が継がせる（層の切れ目と context: fresh でしか切れない）
+        def doc(extra):
+            return yaml.safe_load("- {id: s, script: a}\n"
+                                  f"- {{id: a, prompt: x, depends_on: [s]{extra}}}\n")
+        self.assertEqual(session_problems(doc(", context: fresh")), [])
+        self.assertEqual(session_problems(doc(", output_format: {description: 'works-node: a continue=p'}")), [])
+        for extra in ("", ", context: shared", ", output_format: {description: 'works-node: a self-resume'}"):
+            with self.subTest(extra):
+                got = session_problems(doc(extra))
+                self.assertEqual(len(got), 1, got)
+                self.assertIn("節 a: 輪の外の AI の節が context: fresh も continue= も持たない", got[0])
+
+    def test_loop_head_is_the_first_to_run_not_the_first_written(self):
+        # 書いた順で頭を決めると、先に走る節（context: fresh）の会話を後の節が 1 周目から継ぐのを見落とす
+        doc = yaml.safe_load(
+            "- id: l\n  loop_group:\n    fresh_context: false\n    nodes:\n"
+            "      - {id: w, prompt: x, depends_on: [c], output_format: {description: 'works-node: w self-resume'}}\n"
+            "      - {id: c, prompt: y, context: fresh}\n")
+        got = session_problems(doc)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("l の中の節 w: 輪の頭でない AI の節が continue= も context: fresh も持たない", got[0])
+
+    def test_loop_head_needs_explicit_fresh_context(self):
+        # 輪の頭の会話（1 周目は新しい・2 周目からの続き）を決めるのは輪の fresh_context なので、書いて宣言させる
+        doc = yaml.safe_load("- id: l\n  loop_group:\n    nodes:\n      - {id: w, prompt: x}\n")
+        got = session_problems(doc)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("l の中の節 w: 輪の頭の AI の節の会話を決める輪の fresh_context が書かれていない", got[0])
+        doc[0]["loop_group"]["fresh_context"] = False
+        self.assertEqual(session_problems(doc), [])
+
+    def test_nested_loop_head_starts_fresh(self):
+        # 入れ子の輪は毎回 1 周目を新しい会話で起こし、輪の節は会話を外へ渡さない（dag-executor.ts:5069・5416）
+        doc = yaml.safe_load(
+            "- id: o\n  loop_group:\n    fresh_context: false\n    nodes:\n"
+            "      - {id: a, prompt: x}\n"
+            "      - id: i\n        depends_on: [a]\n        loop_group:\n          fresh_context: false\n"
+            "          nodes:\n            - {id: b, prompt: y}\n")
+        self.assertEqual(session_problems(doc), [])
 
     def test_second_ai_node_without_own_session_is_red(self):
         def doc(second, head="works-node: w self-resume"):
             return yaml.safe_load(
                 "- id: l\n  loop_group:\n    fresh_context: false\n    nodes:\n"
                 f"      - {{id: w, prompt: x, output_format: {{description: '{head}'}}}}\n"
-                f"      - {{id: c, prompt: y{second}}}\n")
-        self.assertEqual(loop_session_problems(doc(", context: fresh")), [])
-        self.assertEqual(loop_session_problems(doc(", output_format: {description: 'works-node: c continue=p'}")), [])
-        got = loop_session_problems(doc(""))
+                f"      - {{id: c, prompt: y, depends_on: [w]{second}}}\n")
+        self.assertEqual(session_problems(doc(", context: fresh")), [])
+        self.assertEqual(session_problems(doc(", output_format: {description: 'works-node: c continue=p'}")), [])
+        got = session_problems(doc(""))
         self.assertEqual(len(got), 1, got)
-        self.assertIn("l の中の節 c: 会話を継ぐ輪の頭でない AI の節が continue= も context: fresh も持たない", got[0])
-        got = loop_session_problems(doc(", context: fresh", head="works-node: w"))
+        self.assertIn("l の中の節 c: 輪の頭でない AI の節が continue= も context: fresh も持たない", got[0])
+        got = session_problems(doc(", context: fresh", head="works-node: w"))
         self.assertEqual(len(got), 1, got)
         self.assertIn("l の中の節 w: 会話を継ぐ輪にほかの AI の節が在るのに、頭の節の印に旗 self-resume も continue= も無い", got[0])
         # 毎周新しい会話の輪も、周の中では直前の AI の節の会話を継ぐ（dag-executor.ts:10813）ので頭でない節は見る。頭の節は毎周
         # 新しい会話なので旗を求めない
         fresh = doc("", head="works-node: w")
         fresh[0]["loop_group"]["fresh_context"] = True
-        got = loop_session_problems(fresh)
+        got = session_problems(fresh)
         self.assertEqual(len(got), 1, got)
-        self.assertIn("l の中の節 c: 会話を継ぐ輪の頭でない AI の節が continue= も context: fresh も持たない", got[0])
+        self.assertIn("l の中の節 c: 輪の頭でない AI の節が continue= も context: fresh も持たない", got[0])
         fresh[0]["loop_group"]["nodes"][1]["context"] = "fresh"
-        self.assertEqual(loop_session_problems(fresh), [])
+        self.assertEqual(session_problems(fresh), [])
 
 
 class MutatesCheckoutCase(unittest.TestCase):
