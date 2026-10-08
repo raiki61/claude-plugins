@@ -338,38 +338,14 @@
    }
   },
   {
-   "id": "wt1",
-   "title": "使用許諾が MIT・Apache-2.0・BSD の外の MCP を隔離した設定に入れない（Context7。持ち主 2026-09-28）",
-   "file": "dev/toolset.py",
-   "old": "        if lic not in LICENCES_OK:",
-   "new": "        if False:",
-   "tests": {
-    "tests/test_toolset.py": [
-     "McpCase.test_licence_not_ok_refuses_and_writes_nothing"
-    ]
-   }
-  },
-  {
-   "id": "wt2",
-   "title": "借りる MCP は web を持つ役の起動にだけ渡す（道具ゼロ・読むだけの目に web の口を開けない）",
-   "file": ".shared/core/adapter.py",
-   "old": "    if no_tools or WEB_TOOL not in _tools(argv):",
-   "new": "    if no_tools:",
-   "tests": {
-    "tests/test_adapter.py": [
-     "McpCase.test_roles_without_web_do_not"
-    ]
-   }
-  },
-  {
    "id": "wt3",
-   "title": "Context7 から取れなかった物を盤面に控えない（次の周に取り直す。数で言う）",
+   "title": "公式の文書の取れなかった物を盤面に控えない（次の周に取り直す。数で言う）",
    "file": ".shared/core/libdocs.py",
-   "old": "            if got[\"status\"] in (\"ok\", \"not_found\"):\n                keep(_name_for(lib, got[\"status\"]), got)",
-   "new": "            if True:\n                keep(_name_for(lib, got[\"status\"]), got)",
+   "old": "    if got[\"status\"] in (\"ok\", \"not_found\"):\n        keep(name, got)",
+   "new": "    if True:\n        keep(name, got)",
    "tests": {
     "tests/test_libdocs.py": [
-     "SectionCase.test_failure_is_declared_by_number_and_not_cached"
+     "SourcesCase.test_official_failure_is_not_cached"
     ]
    }
   },
@@ -382,18 +358,6 @@
    "tests": {
     "tests/test_tool_parity.py": [
      "ToolParityCase.test_each_role_has_at_least_the_mainline_tools"
-    ]
-   }
-  },
-  {
-   "id": "wt5",
-   "title": "借りる MCP は既定で役に渡さない（WORKS_CONTEXT7_MCP=on の時だけ。役の問いが対象のコードの字を外へ運びうる。controller の裁定 2026-09-28）",
-   "file": ".shared/core/adapter.py",
-   "old": "    if str(env.get(ENV_MCP, \"\")).strip().lower() != \"on\":",
-   "new": "    if False:",
-   "tests": {
-    "tests/test_adapter.py": [
-     "McpCase.test_off_by_default"
     ]
    }
   },
@@ -458,5 +422,18 @@
    }
   }
  ],
- "dropped": []
+ "dropped": [
+  {
+   "id": "wt1",
+   "why": "消した: 持ち主 2026-10-09 に Context7 をやめ、借りる MCP（toolset の kind \"mcp\"・包みの --mcp-config）を消したので、壊す字列も捕まえる試験も無い"
+  },
+  {
+   "id": "wt2",
+   "why": "消した: 持ち主 2026-10-09 に Context7 をやめ、借りる MCP（toolset の kind \"mcp\"・包みの --mcp-config）を消したので、壊す字列も捕まえる試験も無い"
+  },
+  {
+   "id": "wt5",
+   "why": "消した: 持ち主 2026-10-09 に Context7 をやめ、借りる MCP（toolset の kind \"mcp\"・包みの --mcp-config）を消したので、壊す字列も捕まえる試験も無い"
+  }
+ ]
 }

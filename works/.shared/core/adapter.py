@@ -111,14 +111,9 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    何もしない。読めない・指示書が 2 つ・指示書の中身が全文版とも包みの差分版とも違う時は指示書に触らない。選んだ版は
    起動の記録の `prompt`（{file, variant, rules_sha, iteration, full_sha, reason}）に残す（variants.json の無い起動は欄を持たない）
 
-10. **借りる MCP を渡す**（印のある起動だけ）: Archon の役の節は周りの MCP（利用者・プラグインの MCP）を読まない
-   （SDK が `--strict-mcp-config` を付ける。Archon v0.11.1 の providers/claude/provider.ts の strictMcpConfig）。開発の殻が
-   隔離した設定の置き場に書く `works-mcp.json`（dev/toolset.py が許す一覧 borrow.json の使用許諾を確かめて書く。Context7）を、
-   env の WORKS_CONTEXT7_MCP が on の時だけ（既定は渡さない。役が書く問いに対象のコードの字が載り、外のサービスへ出うるため。
-   controller の裁定 2026-09-28。持ち主が決めるまで安全側）、web を持つ起動（`--tools` に WebFetch が在る）にだけ
-   `--mcp-config=<ファイル>` で渡す（web を読む道具と同じ扱い。
-   道具ゼロ・web を持たない役には渡さない）。SDK が自分の `--mcp-config` を渡した起動は触らない。ファイルが読めない時は
-   渡さずに起動の記録の fence.mcp に理由を書く（足す物なので、渡せなくても役は起こす）
+10. 欠番（借りる MCP を渡す口だった。持ち主 2026-10-09 に Context7 をやめ、借りる MCP が無くなったので消した。Archon の役の節は
+   周りの MCP を読まない——SDK が `--strict-mcp-config` を付ける——ので、役は MCP を持たない。前の版の開発の殻が隔離した設定の
+   置き場に残した works-mcp.json は読まない）
 
 13. **system prompt の差し込みの表**（印のある起動だけ。ミドルウェア）: 表 INJECTORS の行（名・選び・作り・required）を決まった順に
    当て、選びが真の行の作りが返す塊を `--append-system-prompt` に 1 つの繋ぎ方で足す（SDK が渡した値の後ろに空行 1 つ、塊どうしも
@@ -303,9 +298,6 @@ MAP = "map"   # 13 の旗 map（工程の地図を system prompt に足す）
 TEXT_REPLY = "text-reply"   # 21 の旗 text-reply（返答の契約。replycontract.py）
 REPLIES_DIR = "replies"     # 21 の回ごとの記録 replies/<cwd の hash>.jsonl
 ISOLATED_PREFIX = "works-isolated-"
-MCP_FILE = "works-mcp.json"        # dev/toolset.py の MCP_FILE と同じ（隔離した設定の置き場の下）
-WEB_TOOL = "WebFetch"              # これを持つ起動にだけ借りる MCP を渡す
-ENV_MCP = "WORKS_CONTEXT7_MCP"     # on の時だけ借りる MCP を渡す（既定は渡さない）
 QUERY_RULE_SOURCE = pathlib.Path(__file__).resolve().parent / "agents" / "judge.md"   # 検索語の規律の正本（写し）
 QUERY_RULE_HEAD = "- **検索語に対象の名前を載せるな。**"
 QUERY_RULE_LEAD = ("外のサービスへ問い合わせる時の決まり（works の包みより。役への直の指示。Agent で子を起こすなら、子への指示に"
@@ -353,7 +345,7 @@ class Plan(NamedTuple):
     tools_empty: bool               # `--tools ""`（題の生成か、道具を持たない役）
     session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?, unit?}
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
-    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, mcp?, query_rule?, repo_deny?, shape_deny?}（フックを足した起動だけ）
+    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, query_rule?, repo_deny?, shape_deny?}（フックを足した起動だけ）
     env: Optional[dict] = None      # 子の env に上書きする物（印のある起動。ENGINE_CHILD_ENV と、5 の読むだけの gh の口）
     strict_net: Optional[bool] = None   # 網: True は strictAllowlist で閉じた起動、False は `*` の網、None は網の一覧が無い
     cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
@@ -1373,9 +1365,6 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             return _refuse(argv, node, cont, tools_empty, f"Git の外の置き場が Git の作業ツリーの中にある（{place}）")
         child_cwd = str(place)
         fence["isolated"] = child_cwd
-    mcp = mcp_config(out, env, tools_empty or ISOLATED in marker.flags)
-    if mcp is not None:
-        out, fence["mcp"] = mcp
     try:   # 13. system prompt の差し込みの表
         out, injected = inject(out, Launch(node, cont, marker.flags, frozenset(_tools(out)), tools_empty,
                                            board if board else (lambda: None), schema))
@@ -1536,29 +1525,6 @@ def _tools(argv: Sequence[str]) -> set:
         return {t for _, _, v, _ in find_opt(argv, "--tools") for t in re.split(r"[,\s]+", v) if t}
     except Unrecognised:
         return set()
-
-
-def mcp_config(argv: List[str], env, no_tools: bool) -> Optional[Tuple[List[str], dict]]:
-    """10. 借りる MCP のファイルを --mcp-config で足した argv と、起動の記録に書く fence.mcp。ファイルが無ければ None"""
-    cfg = env.get("CLAUDE_CONFIG_DIR")
-    path = pathlib.Path(cfg) / MCP_FILE if cfg else None
-    if path is None or not path.is_file():
-        return None
-    if str(env.get(ENV_MCP, "")).strip().lower() != "on":
-        return argv, {"skipped": f"既定では渡さない（{ENV_MCP}=on の時だけ渡す）"}
-    if no_tools or WEB_TOOL not in _tools(argv):
-        return argv, {"skipped": "web を持たない役（--tools に WebFetch が無い）には渡さない"}
-    try:
-        if find_opt(argv, "--mcp-config"):
-            return argv, {"skipped": "SDK が --mcp-config を渡した（混ぜない）"}
-    except Unrecognised:
-        return argv, {"skipped": "SDK の --mcp-config に値が無い"}
-    try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
-        servers = sorted(doc["mcpServers"])
-    except (OSError, ValueError, TypeError, KeyError) as e:
-        return argv, {"skipped": f"{path} が読めない（{type(e).__name__}）"}
-    return list(argv) + ["--mcp-config=" + str(path)], {"file": str(path), "servers": servers}
 
 
 def query_rule(path: pathlib.Path = QUERY_RULE_SOURCE) -> str:

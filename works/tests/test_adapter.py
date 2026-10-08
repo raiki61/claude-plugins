@@ -1473,10 +1473,9 @@ class IsolatedCase(unittest.TestCase):
 
 
 class McpCase(unittest.TestCase):
-    """10. 借りる MCP（Context7）: Archon の役の節は周りの MCP を読まない（--strict-mcp-config）。隔離した設定の置き場の
-    works-mcp.json（dev/toolset.py が使用許諾を確かめて書く）を、web を持つ（--tools に WebFetch が在る）印のある起動にだけ
-    --mcp-config で渡す。道具ゼロ・web を持たない役・SDK が自分の --mcp-config を渡した起動・印の無い起動には渡さない。
-    渡すのは env の WORKS_CONTEXT7_MCP=on の時だけ（既定は渡さない。役の書く問いが対象のコードの字を外へ運びうる。controller の裁定）"""
+    """10. は欠番（借りる MCP を渡す口。持ち主 2026-10-09 に Context7 をやめ、借りる MCP が無くなった）: 前の版の開発の殻が隔離した
+    設定の置き場に書いた works-mcp.json が残っていて、前の版の旗 WORKS_CONTEXT7_MCP=on が env に在っても、web を持つ役にも
+    --mcp-config を足さず、起動の記録に fence.mcp を書かない。SDK が自分で渡した --mcp-config はそのまま"""
 
     WEB = "Read,Grep,Glob,WebSearch,WebFetch"
 
@@ -1484,57 +1483,25 @@ class McpCase(unittest.TestCase):
         self.e = Env(self)
         self.cfg = self.e.tmp / "claude-config"
         self.cfg.mkdir()
-        self.file = self.cfg / adapter.MCP_FILE
-        self.file.write_text(json.dumps({"mcpServers": {"context7": {"type": "http", "url": "https://mcp.context7.com/mcp"}}}),
-                             encoding="utf-8")
+        (self.cfg / "works-mcp.json").write_text(
+            json.dumps({"mcpServers": {"context7": {"type": "http", "url": "https://mcp.context7.com/mcp"}}}), encoding="utf-8")
 
-    def run_(self, desc, tools, extra=(), switch="on"):
-        r = self.e.run(sdk_argv(desc, tools=tools, extra=extra), CLAUDE_CONFIG_DIR=str(self.cfg), WORKS_CONTEXT7_MCP=switch)
+    def run_(self, desc, tools, extra=()):
+        r = self.e.run(sdk_argv(desc, tools=tools, extra=extra), CLAUDE_CONFIG_DIR=str(self.cfg), WORKS_CONTEXT7_MCP="on")
         self.assertEqual(r.returncode, 0, r.stderr)
         return self.e.child()["argv"]
 
-    def test_web_role_gets_the_mcp_file(self):
+    def test_leftover_mcp_file_is_not_passed(self):
         argv = self.run_("works-node: judge", self.WEB)
-        self.assertEqual(opt(argv, "--mcp-config"), [str(self.file)])
+        self.assertEqual(opt(argv, "--mcp-config"), [])
         self.assertIn("--strict-mcp-config", argv)
-        self.assertEqual(self.e.launches()[-1]["fence"]["mcp"], {"file": str(self.file), "servers": ["context7"]})
-
-    def test_off_by_default(self):
-        for switch in (None, "", "off", "1", "yes"):
-            with self.subTest(switch=switch):
-                argv = self.run_("works-node: judge", self.WEB, switch=switch)
-                self.assertEqual(opt(argv, "--mcp-config"), [])
-                self.assertIn("WORKS_CONTEXT7_MCP=on", self.e.launches()[-1]["fence"]["mcp"]["skipped"])
-
-    def test_roles_without_web_do_not(self):
-        for desc, tools in (("works-node: review", "Read,Grep,Glob"), ("works-node: r2-design isolated", "")):
-            with self.subTest(desc):
-                if "isolated" in desc:
-                    git(self.e.cwd, "init", "-q")
-                argv = self.run_(desc, tools)
-                self.assertEqual(opt(argv, "--mcp-config"), [])
-                self.assertIn("web を持たない", self.e.launches()[-1]["fence"]["mcp"]["skipped"])
+        self.assertNotIn("mcp", self.e.launches()[-1]["fence"])
+        self.assertFalse(hasattr(adapter, "mcp_config"))
 
     def test_sdk_mcp_config_is_left_alone(self):
         argv = self.run_("works-node: judge", self.WEB, extra=("--mcp-config", '{"mcpServers":{"archon":{}}}'))
         self.assertEqual(opt(argv, "--mcp-config"), ['{"mcpServers":{"archon":{}}}'])
-        self.assertIn("--mcp-config", self.e.launches()[-1]["fence"]["mcp"]["skipped"])
-
-    def test_no_file_no_change(self):
-        self.file.unlink()
-        argv = self.run_("works-node: judge", self.WEB)
-        self.assertEqual(opt(argv, "--mcp-config"), [])
         self.assertNotIn("mcp", self.e.launches()[-1]["fence"])
-
-    def test_unreadable_file_is_declared_not_passed(self):
-        self.file.write_text("[]", encoding="utf-8")
-        argv = self.run_("works-node: judge", self.WEB)
-        self.assertEqual(opt(argv, "--mcp-config"), [])
-        self.assertIn("読めない", self.e.launches()[-1]["fence"]["mcp"]["skipped"])
-
-    def test_unmarked_launch_untouched(self):
-        argv = self.run_(None, self.WEB)
-        self.assertEqual(opt(argv, "--mcp-config"), [])
 
 
 class FencedLaunchCase(unittest.TestCase):

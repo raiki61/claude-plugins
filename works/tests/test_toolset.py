@@ -163,7 +163,6 @@ def plugin_version(src: pathlib.Path) -> str:
 
 
 PLUGINS = ("coldwrite", "pr-review-toolkit")   # 手元の marketplace に並ぶ名の順（sorted）
-CONTEXT7_URL = "https://mcp.context7.com/mcp"   # Context7 の MCP（upstash/context7 の README の手で入れる形。MIT）
 
 
 class Base(unittest.TestCase):
@@ -217,7 +216,7 @@ class BorrowListCase(unittest.TestCase):
         """借りる物は利用者が入れたプラグインの <名>@<marketplace> で名指し、入れるコマンドの marketplace の元（GitHub）を持つ。
         works が名前で頼る物（スキル・agent・hook）だけを並べる。写しを示す印（pinned）は無い"""
         b = toolset.load_borrow(ROOT)
-        self.assertEqual(sorted(b), ["coldwrite", "context7", "pr-review-toolkit", "superpowers"])
+        self.assertEqual(sorted(b), ["coldwrite", "pr-review-toolkit", "superpowers"])
         self.assertEqual(sorted(b["superpowers"]["skills"]), sorted(BORROW_SKILLS))
         want = {"superpowers": ("superpowers-marketplace", "obra/superpowers-marketplace"),
                 "coldwrite": ("raiki61", "raiki61/claude-plugins"),
@@ -422,10 +421,9 @@ class ResolveCase(unittest.TestCase):
         user = make_user_config(self.tmp / "user")
         chosen, versions = toolset.installed_sources(user, self.borrow)
         self.assertEqual(chosen, {n: installed_dir(user, n) for n in FAKE_INSTALLED if n != "superpowers"}
-                         | {"superpowers": VENDORED, "context7": self.borrow["context7"]["url"]})
+                         | {"superpowers": VENDORED})
         self.assertEqual(versions, {n: v for n, (_, v) in FAKE_INSTALLED.items() if n != "superpowers"}
-                         | {"superpowers": self.borrow["superpowers"]["pin"]["version"],
-                            "context7": self.borrow["context7"]["version"]})
+                         | {"superpowers": self.borrow["superpowers"]["pin"]["version"]})
 
     def test_project_rows_count_only_for_their_project(self):
         target = self.tmp / "target"
@@ -618,7 +616,7 @@ class InstallCase(Base):
             [f"skills/{n}/{f}" for n in BORROW_SKILLS for f in files_under(sp / "skills" / n)]
             + [f"works-parts/superpowers/{rel}" for rel in self.borrow["superpowers"]["parts"]]
             + [f"works-marketplace/{n}/{f}" for n, s in srcs.items() for f in plain_files(s)]
-            + ["works-marketplace/.claude-plugin/marketplace.json", "settings.json", ".works-toolset.json", toolset.MCP_FILE,
+            + ["works-marketplace/.claude-plugin/marketplace.json", "settings.json", ".works-toolset.json",
                "plugins/known_marketplaces.json", "plugins/installed_plugins.json"]
             + [f"plugins/cache/{MP}/{n}/{plugin_version(s)}/{f}" for n, s in srcs.items() for f in plain_files(s)])
         self.assertEqual(files_under(self.cfg), want)
@@ -643,12 +641,11 @@ class InstallCase(Base):
                          + [["plugin", "install", f"{n}@{MP}"] for n in PLUGINS])
         # 記録: 版は installed_plugins.json の行の物、source は利用者が入れた置き場（versions.json の borrowed に載る）。
         # superpowers は pin の版と写しのフォルダ
-        self.assertEqual(sorted(rec), ["coldwrite", "context7", "pr-review-toolkit", "superpowers"])
+        self.assertEqual(sorted(rec), ["coldwrite", "pr-review-toolkit", "superpowers"])
         self.assertEqual({k: (v["version"], v["source"], v["loaded"]) for k, v in rec.items()},
                          {n: (ver, str(installed_dir(self.user, n)), True) for n, (_, ver) in FAKE_INSTALLED.items()
                           if n != "superpowers"}
-                         | {"superpowers": (self.borrow["superpowers"]["pin"]["version"], str(VENDORED), True)}
-                         | {"context7": (self.borrow["context7"]["version"], self.borrow["context7"]["url"], True)})
+                         | {"superpowers": (self.borrow["superpowers"]["pin"]["version"], str(VENDORED), True)})
         self.assertEqual(json.loads((self.cfg / ".works-toolset.json").read_text()), rec)
         self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
 
@@ -1115,52 +1112,28 @@ if __name__ == "__main__":
 
 
 class McpCase(Base):
-    """借りる MCP（kind "mcp"。Context7）: 使用許諾が MIT・Apache-2.0・BSD の時だけ、隔離した設定の置き場の works-mcp.json に
-    載せる（Archon の役の節は周りの MCP を読まない——strictMcpConfig——ので、包みがこのファイルを --mcp-config で渡す）"""
+    """借りる MCP は無い（持ち主 2026-10-09 に Context7 をやめ、kind "mcp" の借りる物と works-mcp.json を書く口を消した）。前の版が
+    隔離した設定の置き場に書いた works-mcp.json は、Claude Code も包みも読まない物なので、柵は数えず、組むのも止めない（消しもしない）"""
 
-    def test_borrow_entry_is_the_remote_context7_server(self):
-        c7 = self.borrow["context7"]
-        self.assertEqual(c7["kind"], "mcp")
-        self.assertEqual(c7["transport"], "http")
-        self.assertEqual(c7["url"], CONTEXT7_URL)
-        self.assertEqual(c7["licence"], "MIT")
-        self.assertIn("upstash/context7", c7["source"])
+    def test_borrow_has_no_mcp(self):
+        self.assertNotIn("context7", self.borrow)
+        self.assertEqual({i["kind"] for i in self.borrow.values()}, {"skills", "plugin"})
+        self.assertFalse(hasattr(toolset, "MCP_FILE"))
 
-    def test_install_writes_the_mcp_file_when_licence_ok(self):
-        rec = self.install()
-        doc = json.loads((self.cfg / toolset.MCP_FILE).read_text())
-        self.assertEqual(doc, {"mcpServers": {"context7": {"type": "http", "url": CONTEXT7_URL}}})
-        self.assertEqual(rec["context7"]["source"], CONTEXT7_URL)
+    def test_kind_mcp_is_no_longer_known(self):
+        bad = {"context7": {"kind": "mcp", "transport": "http", "url": "https://mcp.context7.com/mcp", "licence": "MIT"}}
+        with self.assertRaises(toolset.ToolsetError) as cm:
+            toolset.installed_sources(self.tmp / "user", bad)
+        self.assertIn("kind 'mcp' を知らない（skills・plugin）", str(cm.exception))
+
+    def test_leftover_mcp_file_does_not_stop_install(self):
+        self.cfg.mkdir(parents=True, exist_ok=True)
+        left = self.cfg / "works-mcp.json"
+        left.write_text(json.dumps({"mcpServers": {"context7": {"type": "http", "url": "https://mcp.context7.com/mcp"}}}))
         self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
-
-    def test_licence_not_ok_refuses_and_writes_nothing(self):
-        for lic in ("SSPL-1.0", "", None, "proprietary"):
-            with self.subTest(lic):
-                bad = {"context7": dict(self.borrow["context7"], licence=lic)}   # 借りる物は MCP だけ（リポジトリの外の置き場に依らない）
-                with self.assertRaises(toolset.ToolsetError) as cm:
-                    toolset.install(self.cfg, {"context7": CONTEXT7_URL}, bad, claude_bin=str(self.claude), plugins=False)
-                self.assertIn("使用許諾", str(cm.exception))
-                self.assertFalse((self.cfg / toolset.MCP_FILE).exists())
-
-    def test_licence_ok_writes_the_file_without_other_borrowings(self):
-        good = {"context7": self.borrow["context7"]}
-        rec = toolset.install(self.cfg, {"context7": CONTEXT7_URL}, good, claude_bin=str(self.claude), plugins=False)
-        self.assertEqual(sorted(rec), ["context7"])
-        self.assertEqual(json.loads((self.cfg / toolset.MCP_FILE).read_text())["mcpServers"],
-                         {"context7": {"type": "http", "url": CONTEXT7_URL}})
-
-    def test_guard_refuses_unlisted_mcp_server(self):
-        (self.cfg / toolset.MCP_FILE).write_text(json.dumps({"mcpServers": {"context7": {"type": "http", "url": CONTEXT7_URL},
-                                                                          "evil": {"command": "sh"}}}))
-        self.assertEqual(toolset.guard(self.cfg, self.borrow), [f"{toolset.MCP_FILE} の MCP evil"])
-        (self.cfg / toolset.MCP_FILE).write_text("[]")
-        self.assertEqual(toolset.guard(self.cfg, self.borrow), [f"{toolset.MCP_FILE}（JSON の表として読めない）"])
-
-    def test_changed_url_is_rewritten(self):
-        self.install()
-        (self.cfg / toolset.MCP_FILE).write_text(json.dumps({"mcpServers": {"context7": {"type": "http", "url": "https://x.invalid"}}}))
-        self.install()
-        self.assertEqual(json.loads((self.cfg / toolset.MCP_FILE).read_text())["mcpServers"]["context7"]["url"], CONTEXT7_URL)
+        rec = self.install()
+        self.assertNotIn("context7", rec)
+        self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
 
 
 PIN_V = toolset.load_borrow(ROOT)["superpowers"]["pin"]["version"]    # 6.4.2
