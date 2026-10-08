@@ -21,6 +21,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 - 本物の AI でラインを 1 回回す開発の殻 `dev/real-run.sh` を消した（2026-10-09 の掃除。持ち主の了承済み）。同じ用は `dev/use.sh`（ほかのリポジトリを対象に回す）と `dev/canary.sh`（決まった種と依頼で回す）が持つ。起動の共通の口 `dev/launch.py env` の `--for=real-run.sh` と、それだけが使っていた包みの既定の読み方も消した。使い捨ての対象を作る `dev/mktarget.sh` と種 `dev/target-seed/` は `dev/check.sh` が使うので残す。
 - 受け付けの口 `accept.py` を本線の `gl.py` へ載せ替える日のための対応表（`.shared/core/gl_map.json`・`docs/gl-map.md`・`tests/test_gl_map.py`）を消した（2026-10-09 の掃除）。機械で読む物が無く、works は本線と別に育てる（持ち主の決め 2026-09-26）ので載せ替えの日を待たない。
+- run をまたいで拒否を集める開発の道具 `dev/report_rejects.py` とその試験を消した（2026-10-09 の掃除）。自分の試験のほかに使う所が無かった。
 
 ## [0.2.51] - 2026-10-09
 
