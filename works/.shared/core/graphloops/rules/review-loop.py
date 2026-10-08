@@ -3655,6 +3655,13 @@ POST_CHECKS = {"main_path_observed": main_path_observed, "external_rankings": ex
                "lane_receipt": lane_receipt, "final_gates_output": final_gates_output}
 
 
+# works の手直し: 走った節の役が、applies_cond が真でも『条件に当たらない』を名乗れるか（check_record が引く口）。
+# 写しは名乗れない（偽。機械が持つ事実と食い違う）。works は entry.CORE_OVERRIDES で差し替える——線 A の p0.base は機械が組み、
+# touches_* を判定せずに走らせる側に倒すので、その値だけから立つ applies_cond は機械の事実でない
+def role_judged_na(b, nid):
+    return False
+
+
 def check_record(b, nid=None):
     """素材と俯瞰の欄を、検証器の表（STATUS / REVIEW_STATUS）で done の時点に見る（写さず import）。
     あわせて役が書いた status を機械が既に持つ事実と突き合わせる——走った節の素材が not_applicable（applies_cond が
@@ -3684,7 +3691,7 @@ def check_record(b, nid=None):
             # （na_self_ok）——`ap is not None` で絞っていたとき、宣言の無い 11 節（うち回す側が 6）まで自己申告で
             # 素通りした。逆に全部拒むと、CI が存在しない対象や修正 0 件の周という正当な経路が落ちる（実測 2026-09-13）
             if st == "not_applicable":
-                if ap is not None and b.cond(ap)[0]:
+                if ap is not None and b.cond(ap)[0] and not role_judged_na(b, k):   # works の手直し: 役の判定を受ける口
                     errs.append(f"素材 '{mat}'（節 {k}）は applies_cond が真で走ったのに not_applicable——機械が持つ事実と食い違う")
                 elif ap is None and not n.get("na_self_ok"):
                     errs.append(f"素材 '{mat}'（節 {k}）は走ったのに not_applicable——この節は正当に名乗れる節として graph が"

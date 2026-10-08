@@ -420,7 +420,8 @@ def base_output(repo, base_rev: str) -> dict:
     - base_sha: base_rev の commit（空なら HEAD。台帳 R2）の 40 桁。method は「4 依頼者の名指し」
     - commits・merge_commit: git rev-list で base..HEAD を数える（merge の commit が 1 つでも在れば真）。intent_to_add は空
       （機械は git add -N をしない。未追跡の新規ファイルは版を固める worktree_snapshot が一時 index で載せる）
-    - touches_* の 4 つ: 全部 true（機械には判定できないので走らせる側に倒す。走らせない節は表の absent が理由を書く）
+    - touches_* の 4 つ: 全部 true（機械には判定できないので走らせる側に倒す。走らせない節は表の absent が理由を書く）。
+      倒した値は判定でないので、走ったゲートの検算の役の『条件外』は差し替え entry.role_judged_na_works が機械の印で照らして受ける
     - material: {status: found, count: commits, detail: "<版>（base_rev の名指し。空なら HEAD）"}
     base_rev がこのリポジトリの commit に引けなければ Reject（文に版の名前）。git は repo で呼ぶ（util.GIT_CWD は触らない）"""
     repo = pathlib.Path(repo)
