@@ -19,15 +19,20 @@ Context7 の口（2026-09-28 に https://context7.com/docs/api-guide で確か�
 - detect(repo, files) -> {libs, counts, unreadable}
 - unit_files(repo, judgment_file, keys=None) -> (files, why): 判定の単位の字に現れる追跡中の file（impact.seeds_from_units）
 - notice(board) -> str | None: 429（枠切れ）の印が盤面に在れば人に見せる 1 行（報告の冒頭 report.head_entry が使う）。無ければ None
-- section(board, repo, files, *, get=None, env=None, budget=BUDGET) -> str: 指示書に貼る節。取れた物は盤面の今の周の
+- section(board, repo, files, *, get=None, env=None, budget=BUDGET, now=None) -> str: 指示書に貼る節。取れた物は盤面の今の周の
   置き場 libdocs/<名>@<版>.json に控え（board.work）、前の周の控えも読む（同じ run の中は網に出ない）。枠切れ（429）で取らなかった物（1 本受けたら以後は問い合わせず、
   節の TITLE の次の行にも書く）・取れなかった物・Context7 に無い物・版の合わない物・上限で取らない物・読めない file は節の頭に数と名前で書く（黙って落とさない）
+- run をまたぐ控え（env の SHARED_ENV が在る時だけ。置き場と長さの理由は定数の注記）: 取れた物と Context7 に無い物を取った時刻と
+  一緒に <包みの家>/libdocs/ にも書き、同じ家の後の run は SHARED_TTL（7 日）の内なら網に出ずに使う（盤面の今の周にも写す）。
+  429 を受けた時刻も書き、同じ家の後の run は QUOTA_HOLD（24 時間）の内なら問い合わせずに枠切れとして数える（盤面にも印を写す）
 """
 import json
 import os
 import pathlib
 import re
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -41,7 +46,19 @@ ENV_SWITCH = "WORKS_CONTEXT7"          # off で網に出ない（出ないこ�
 BUDGET = 4000                          # 節に貼る断片の量の上限（Context7 の codeTokens・contentTokens の和）
 MAX_LIBS = 8                           # 1 回に引くライブラリの数の上限（超えた物は名前で言う）
 TITLE = "## ライブラリの今の文書（Context7）"
-CACHE_DIR = "libdocs"                  # 盤面の周の置き場の下の控え
+CACHE_DIR = "libdocs"                  # 盤面の周の置き場の下の控え（run をまたぐ控えも同じ名の置き場）
+# run をまたぐ控えの置き場: 包みの家（開発の殻 dev/archon.sh が利用の家ごとに export する WORKS_ADAPTER_HOME）の下の CACHE_DIR。
+# 利用の家ごとに分かれ、run を重ねても残り、切符（ticket.py）が役に書かせない場所なので、役が控えを書き換えて後の run の指示書に
+# 混ぜることはできない。env に無ければ（包みを外した run・試験）run をまたぐ控えは使わない（盤面の控えだけ）
+SHARED_ENV = "WORKS_ADAPTER_HOME"
+# 控えを使う長さ: 7 日。版を指した控え（<名>@<版>）の中身はその版の文書で、版が替われば鍵も替わる。版の無い控え（@any）は
+# Context7 の今の文書なので古びるが、1 日に何本も回す run の間で使い回すと匿名の月の枠を使い切らずに済み、週ごとに取り直せば
+# 古びは 1 週に収まる
+SHARED_TTL = 7 * 24 * 3600
+# 枠切れ（429）の印をほかの run に効かせる長さ: 24 時間。Context7 の答えは「Monthly quota exceeded」（月の枠）で、利用者の家では
+# 10 月 2 日から 8 日まで 4 つの run がどれも 1 本目で 429 を受けた。月の枠は 1 日の内には戻らない（戻るのは月の替わり目で、遅れても
+# 1 日）。短い間の上限の 429 でも、文書は役が WebSearch・WebFetch で補える。窓を過ぎた最初の run が 1 度だけ問い合わせ直す
+QUOTA_HOLD = 24 * 3600
 RECORD = "libdocs.json"                # 今の周の見つけた物と取れた物の控え
 SCHEMA = "works-libdocs/1"
 QUERY_MAX = 500                        # Context7 の query の上限（OpenAPI の maxLength）
@@ -365,13 +382,65 @@ def _cached(board, name: str):
     return None
 
 
-QUOTA_MARK = "_quota.json"            # 枠切れ（429）を受けた印。応答の控えでなく run の状態
+QUOTA_MARK = "_quota.json"            # 枠切れ（429）を受けた印。応答の控えでなく run の状態（run をまたぐ控えでは受けた時刻も持つ）
 QUOTA_NOTICE = ("ライブラリの文書は枠切れで取れていない（Context7 が HTTP 429 を返したので、この run では以後問い合わせない）")
 
 
 def _mark_quota(board, reason: str) -> None:
     board.work(f"{CACHE_DIR}/{QUOTA_MARK}").write_text(
         json.dumps({"schema": SCHEMA, "reason": reason}, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def shared_dir(env) -> pathlib.Path | None:
+    """run をまたぐ控えの置き場（SHARED_ENV の絶対パスの下の CACHE_DIR）。env に無い・相対なら None（使わない）"""
+    home = env.get(SHARED_ENV) or ""
+    return pathlib.Path(home) / CACHE_DIR if os.path.isabs(home) else None
+
+
+def _read_doc(path: pathlib.Path):
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) and doc.get("schema") == SCHEMA else None
+
+
+def _fresh(doc, now: float, span: float) -> bool:
+    at = doc.get("at")
+    return isinstance(at, (int, float)) and not isinstance(at, bool) and 0 <= now - at < span
+
+
+def _shared_get(sd, name: str, now: float):
+    """run をまたぐ控えの 1 本（ok か not_found で、SHARED_TTL の内の物）。無ければ None"""
+    doc = _read_doc(sd / name) if sd is not None else None
+    return doc if doc and doc.get("status") in ("ok", "not_found") and _fresh(doc, now, SHARED_TTL) else None
+
+
+def _shared_quota(sd, now: float):
+    """run をまたぐ枠切れの印（QUOTA_HOLD の内の物）。無ければ None"""
+    doc = _read_doc(sd / QUOTA_MARK) if sd is not None else None
+    return doc if doc and _fresh(doc, now, QUOTA_HOLD) else None
+
+
+def _shared_put(sd, name: str, doc: dict) -> str:
+    """run をまたぐ控えに書く（同じ家で同時に走る run と読み合うので、一時のファイルに書いて置き換える）。書けなければ理由の 1 行"""
+    try:
+        sd.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=sd, prefix=".tmp-", suffix=".json")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(doc, ensure_ascii=False, indent=1) + "\n")
+            os.replace(tmp, sd / name)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    except OSError as e:
+        return f"{name}: {type(e).__name__}: {e}"[:200]
+    return ""
+
+
+def _when(at: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(at))
 
 
 def notice(board) -> str | None:
@@ -407,12 +476,13 @@ def _names(rows, pick) -> str:
     return "、".join(pick(r) for r in rows)
 
 
-def section(board, repo, files, *, get=None, env=None, budget: int = BUDGET) -> str:
-    """指示書に貼る節（TITLE で始まる）。組めない時も節を返し、理由を書く"""
+def section(board, repo, files, *, get=None, env=None, budget: int = BUDGET, now: float | None = None) -> str:
+    """指示書に貼る節（TITLE で始まる）。組めない時も節を返し、理由を書く。now は run をまたぐ控えの時刻の比べ（既定は今）"""
     env = os.environ if env is None else env
     get = http_get if get is None else get
+    now = time.time() if now is None else now
     try:
-        text = _section(board, repo, files, get, env, budget)
+        text = _section(board, repo, files, get, env, budget, now)
         flag = notice(board)
         if flag:
             first, _, rest = text.partition("\n")
@@ -422,7 +492,7 @@ def section(board, repo, files, *, get=None, env=None, budget: int = BUDGET) -> 
         return f"{TITLE}\n\n組めなかった（{type(e).__name__}: {e}）。この節の文書は無い。"[:1000]
 
 
-def _section(board, repo, files, get, env, budget) -> str:
+def _section(board, repo, files, get, env, budget, now) -> str:
     head = [TITLE, "",
             "機械が Context7（https://context7.com）の HTTP API から取った、この単位のファイルが使うライブラリの今の文書の断片"
             "（出典つき）。Context7 の断片は各ライブラリの持ち主の文書を集めた物で、正しさの保証は無い——根拠にするなら出典を"
@@ -443,24 +513,42 @@ def _section(board, repo, files, get, env, budget) -> str:
     headers = {"User-Agent": "works-libdocs", "Accept": "application/json"}
     if env.get(ENV_KEY):
         headers["Authorization"] = f"Bearer {env[ENV_KEY]}"
-    rows, hits = [], 0
+    rows, hits, shared_hits, unshared = [], 0, 0, []
+    sd = shared_dir(env)
     halted = notice(board) is not None
+    held = None if halted else _shared_quota(sd, now)
+    if held is not None:   # 同じ家のほかの run が窓の内に枠切れを受けた。この run の盤面にも印を写す（報告の冒頭の 1 行が読む）
+        _mark_quota(board, f"ほかの run が {_when(held['at'])} に枠切れを受けた（{held.get('reason') or 'HTTP 429'}）。"
+                           f"{_when(held['at'] + QUOTA_HOLD)} まで問い合わせない")
+        halted = True
+
+    def keep(name, doc):
+        board.work(f"{CACHE_DIR}/{name}").write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+
+    def share(name, doc):
+        why = _shared_put(sd, name, doc) if sd is not None else ""
+        if why:
+            unshared.append(why)
     for k in take:
         lib = libs[k]
         name = _cache_name(lib)
         got = _cached(board, name)
         if got is not None:
             hits += 1
+        elif (got := _shared_get(sd, name, now)) is not None:
+            shared_hits += 1
+            keep(name, got)        # run の中の後の周は盤面の控えを読む（run の間に家の控えが替わっても同じ物）
         elif halted:
             got = {"schema": SCHEMA, "lib": lib, "status": "quota", "id": "", "version_note": "", "snippets": [],
                    "error": "問い合わせを飛ばした（この run は枠切れ）"}
         else:
-            got = {"schema": SCHEMA, "lib": lib, **fetch(lib, get, headers)}
+            got = {"schema": SCHEMA, "lib": lib, **fetch(lib, get, headers), "at": now}
             if got["status"] in ("ok", "not_found"):
-                board.work(f"{CACHE_DIR}/{name}").write_text(json.dumps(got, ensure_ascii=False, indent=1) + "\n",
-                                                            encoding="utf-8")
+                keep(name, got)
+                share(name, got)
             elif got["status"] == "quota":
                 _mark_quota(board, got["error"])
+                share(QUOTA_MARK, {"schema": SCHEMA, "reason": got["error"], "at": now})
                 halted = True
         rows.append({**got, "lib": lib})
     ok = [r for r in rows if r["status"] == "ok"]
@@ -470,7 +558,7 @@ def _section(board, repo, files, get, env, budget) -> str:
     vm = [r for r in rows if r.get("version_note")]
     parts, shown, used, cut = _render_docs(rows, budget)
     nums = (f"数: 見つけた {len(keys)} 本（単位のファイル {c['files']} 本の import {c['imports']}・宣言 {c['manifest']}。"
-            f"標準 {c['stdlib']}・リポジトリの中 {c['local']} は除いた）／取れた {len(ok)} 本（盤面の控えから {hits} 本）／"
+            f"標準 {c['stdlib']}・リポジトリの中 {c['local']} は除いた）／取れた {len(ok)} 本（盤面の控えから {hits} 本・ほかの run の控えから {shared_hits} 本）／"
             f"Context7 に無い {len(nf)} 本／枠切れで取らなかった {len(quota)} 本／取れなかった {len(err)} 本／版が合わない {len(vm)} 本／"
             f"上限 {MAX_LIBS} 本を超えて取らない {len(over)} 本{unread}")
     lines = head + ["", nums, f"貼った断片 {shown} 本・{used} トークン（予算 {budget}。切った断片 {cut} 本）"]
@@ -484,6 +572,8 @@ def _section(board, repo, files, get, env, budget) -> str:
         lines.append(f"- 版が合わない: {r['version_note']}")
     if over:
         lines.append("- 上限を超えて取らない: " + "、".join(over))
+    if unshared:
+        lines.append("- run をまたぐ控えに書けなかった（次の run は取り直す）: " + "、".join(unshared))
     record = board.work(RECORD)
     record.write_text(json.dumps({"schema": SCHEMA, "detect": det, "rows": [
         {k: v for k, v in r.items() if k != "snippets"} for r in rows], "over": over}, ensure_ascii=False, indent=1) + "\n",
