@@ -416,7 +416,7 @@ def features_on_of(doc: dict) -> list:
     if FEATURES_ON_KEY in doc:
         return list(doc.get(FEATURES_ON_KEY) or [])
     off = set(doc.get(FEATURES_KEY) or [])
-    return [k for k in FEATURE_DEFAULTS if k not in off]
+    return sorted(k for k in FEATURE_DEFAULTS if k not in off)
 
 
 def features_part(off, on=()) -> str:
@@ -434,7 +434,7 @@ def _resumed_features(prev: dict, off: list, on: list) -> list:
         raise InputRefused(f"この盤面は {FEATURES_KEY}={','.join(was) or '空'} で始めた——呼び直しの {FEATURES_KEY}="
                            f"{','.join(off) or '空'} で機能を替えない（同じ入力で呼び直す）")
     keep = features_on_of(prev)
-    if list(on) != keep and (FEATURES_ON_KEY in prev or on):
+    if list(on) != sorted(keep) and (FEATURES_ON_KEY in prev or on):
         began = (f"{FEATURES_ON_KEY}={','.join(keep) or '空'} で始めた" if FEATURES_ON_KEY in prev
                  else f"前の版の盤面（{FEATURES_ON_KEY} の記録が無く、全部 on の既定で {','.join(keep) or '空'} を入れて動く）")
         raise InputRefused(f"この盤面は{began}——呼び直しの {FEATURES_ON_KEY}={','.join(on) or '空'} で機能を替えない"
