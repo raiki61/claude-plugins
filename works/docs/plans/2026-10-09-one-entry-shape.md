@@ -266,6 +266,7 @@ start → ci-checking → h-entry → speccing（blk-spec。when: $h-entry.outpu
 
 - 写しの核（`works/.shared/core/graphloops/`）と台帳 `COPIED_FROM` は変えない。写しの振る舞いを替えるのは `entry.CORE_OVERRIDES` だけ
 - 後ろの段（盤面・ブロック・境の節・報告）は入力の形の中身（`diff.empty`・`requests`・`pr`・`spec`）だけを読む。`from` は表示だけに使う
+- 入口の種類を知るのは変換の層（`dev/use.sh`・`dev/dogfood.sh`・`entry.start`）だけ。Task 7 の終わりに、変換の層の外で入口の種類を見る分岐が残っていないかを機械で確かめる（`grep -rnE 'entry_words|\"entry\"|kind == \"(request|change|both)\"|from\b.*(pr|base|head)' works --include=*.py --include=*.yaml --include=*.sh` の当たりを 1 件ずつ見て、表示の外の分岐が 0 件。残すなら理由を計画に書く。持ち主 2026-10-09「入口を環境変数や引数に変換する層」）
 - 入力の形は最初の start で 1 度だけ作り、呼び直しは `r1/start.json` の `input` を読む（測り直さない）
 - 試験は日本語の docstring・`unittest`・今の helper（`tests/linekit.py`・`tests/gitkit.py`）。HEAVY の試験は手元で回さず CI に任せる（push して `gh run` で見る）
 - 版上げは最後の commit で、`VERSION_BUMP_STRICT=1` を手元でも（works の出荷の順）
