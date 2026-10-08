@@ -53,7 +53,7 @@
    "report.cold_check":       {"by": "role", "where": "blk-report", "reason": "道具を持たない初見の読み手が、報告の頭の本文だけを貼られて読む（本線 X3。注記であって門ではない）"},
    "report":                  {"by": "role", "where": "blk-report", "reason": "書き手が初見検査の詰まりを直して本文の全部を書く。検証器の関所は盤面の settle が踏み、機械の事実（ラインの機械の報告 report.md）は出口が字のまま付ける"},
    "p2.rejudge":              {"by": "role", "where": "blk-rejudge", "reason": "包みが判定役の会話を継ぐ（本線 3-6 の形。持ち主の答え 2026-09-27）"},
-   "p2.rejudge_third":        {"by": "role", "where": "blk-rejudge", "reason": "新しい会話の第三の目（持ち主の答え 2026-09-27）"},
+   "p2.rejudge_third":        {"by": "absent", "reason": "新しい会話の第三の目。写しの 0.21.0 の規則では再審は 1 周に 1 回で、この節は ready にならないので、blk-rejudge に段を持たない（2026-10-09 の整理で外した）", "comes_with": "写しの規則が第三の目を出すようになった時（blk-rejudge に段を足す）"},
    "spec.write":              {"by": "absent", "reason": "仕様から入る道は別の入口 darkfactory-spec（0.21.0 の flow=spec）。このラインは判定から入る", "comes_with": "別の入口 darkfactory-spec（未定）"},
    "spec.review":             {"by": "absent", "reason": "仕様から入る道は別の入口 darkfactory-spec（0.21.0 の flow=spec）。このラインは判定から入る", "comes_with": "別の入口 darkfactory-spec（未定）"},
    "spec.revise":             {"by": "absent", "reason": "仕様から入る道は別の入口 darkfactory-spec（0.21.0 の flow=spec）。このラインは判定から入る", "comes_with": "別の入口 darkfactory-spec（未定）"},

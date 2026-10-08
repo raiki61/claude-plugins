@@ -79,7 +79,6 @@ ROLE_KNOWN = {
     "blk-purpose/commands/purpose.md:判定役": (1, "目的の文の読み手を判定役として述べる。" + ROLE_LATER),
     "blk-refix/commands/review2.md:判定役": (1, "次の run の判定役を所与にする。" + ROLE_LATER),
     "blk-refix/commands/review2.md:関所": (1, "最後の人の関所が在る前提で述べる。" + ROLE_LATER),
-    "blk-rejudge/commands/rejudge-third.md:修正役": (1, "往復の相手を修正役として述べる。" + ROLE_LATER),
     "blk-rejudge/commands/rejudge.md:修正役": (1, "異議の出し手を修正役として述べる。" + ROLE_LATER),
 }
 

@@ -664,15 +664,13 @@ class LineRun:
         return {"ok": True, "files": ["stats.py"], "changes_file": "", "removed": {"count": 0, "file": ""}}
 
     def blk_rejudge(self):
-        """blk-rejudge の中の節の順（rj-snap → 段ごとに経路 rj-route<k> → 支度・役・受け付けの輪 → 出口 collect）を本物の口で回す。
+        """blk-rejudge の中の節の順（rj-snap → 経路 rj-route1 → 支度・役・受け付けの輪 → 出口 collect）を本物の口で回す。
         役の返答は replies[<役>]（無ければ盤面の今の単位をそのまま返して異議を退ける見本）。輪は受け付けの done で抜ける（R50）"""
         import entry
         import rejudge
         rejudge.snap(self.board, self.repo)
-        for _ in rejudge.passes():
-            r = rejudge.route(self.board, self.repo)
-            if not r["next"]:
-                continue
+        r = rejudge.route(self.board, self.repo)   # 段は 1 つ（第三の目の段はブロックに無い）
+        if r["next"]:
             for _ in range(rejudge.GIVE_UP_AFTER):
                 rejudge.prep(self.board, r["next"], self.repo)
                 units = entry.open_board(self.board).record.get("units") or []

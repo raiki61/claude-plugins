@@ -21,7 +21,7 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
   - 読む道具に web（WebSearch・WebFetch）を足す節（WEB_READERS。本線の run_by が judge か、読むだけの writer か、全部の道具を
     持つ定義を読むだけに狭めた目。書く道具と shell は持たない。tests/test_tool_parity.py が本線の道具以上かを見る）:
     blk-eyes の r1-minimality・premise-check・r1-comments、blk-judge の judge、blk-plan の plan・plan-revise、blk-rejudge の
-    rejudge・rejudge-third、blk-purpose の purpose、blk-report の report-items・report-write、blk-spec の spec-review
+    rejudge、blk-purpose の purpose、blk-report の report-items・report-write、blk-spec の spec-review
   - blk-plan/blk-plan.yaml の節 plan-review（事前審査の束ね役。線の木の段 1）: 読む道具と web に、項目ごとの下請けを起こす Agent と、
     下請けが答えのファイルを盤面の外に書く Write（作業ツリーは書かないので mutates_checkout: false を保つ。表の keep_checkout）
   - blk-judge/blk-judge.yaml の節 judge-verify（判定の裏取りの束ね役。線の木の段 3）: plan-review と同じ形（単位ごとの下請けを
@@ -117,7 +117,7 @@ WEB_READERS = (("blk-fix", "blk-fix.yaml", "rule"),   # 食い違いの裁定役
                ("blk-fix", "blk-fix.yaml", "plan-answer"), ("blk-fix", "blk-fix.yaml", "plan-answer-ruled"),
                # 修正役の並べの枝の範囲の相談の答えの節（修正案を書いた役の会話の写し。読むだけ。docs/plans/2026-10-07-fix-lane-nodes.md）
                *(("blk-fix", "blk-fix.yaml", f"plan-answer-lane-{n}") for n in (1, 2, 3)),
-               ("blk-rejudge", "blk-rejudge.yaml", "rejudge"), ("blk-rejudge", "blk-rejudge.yaml", "rejudge-third"),
+               ("blk-rejudge", "blk-rejudge.yaml", "rejudge"),
                ("blk-purpose", "blk-purpose.yaml", "purpose"), ("blk-report", "blk-report.yaml", "report-items"),
                ("blk-report", "blk-report.yaml", "report-write"), ("blk-spec", "blk-spec.yaml", "spec-review"))
 # 事前審査の束ね役（線の木の段 1）: 読む道具と web に、項目ごとの下請けを並べて起こす Agent と、下請けが答えのファイルを盤面の外の

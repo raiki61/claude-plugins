@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Removed
+
+- 再審のブロック `blk-rejudge` の第三の目の段（経路 `rj-route2` と輪 `rejudge-third-loop`・指示書 `commands/rejudge-third.md`）を消した（2026-10-09 の整理）。写しの規則（graphloops 0.21.0）では再審は 1 周に 1 回で、第三の目 `p2.rejudge_third` は ready にならず、実際の run でも 48 回とも na だった。ラインの節の表では `p2.rejudge_third` を absent（このラインに無い節）にし、報告の「このラインに無い節」に 1 つ増えて出る。規則が出すようになったら段を足す。
+
 ## [0.2.51] - 2026-10-09
 
 ### Changed

@@ -1639,34 +1639,6 @@ rejudge-accept:
   reason: ok p2.rejudge を受け付けた
   node: p2.rejudge
   verdict: 採る
-rejudging__rj-route2:
-  next: ''
-  node: ''
-  why: '再審の節が ready に無い（p2.rejudge: done・p2.rejudge_third: cond rejudge_exhausted: 今の周の異議に往復 1 回（上限 3））'
-  stopped: false
-rejudge-third-prep:
-  prompt_file: board/prompts/r1/p2.rejudge_third.md
-  attempt: 1
-  out_path: board/out/r1/p2.rejudge_third.json
-  node: p2.rejudge_third
-  already: false
-rejudge-third:
-  verdict: 退ける
-  new_facts: 往復を読み、争点を g からの直の呼び出しの有無に絞った。g の 12 行目は上限を通る共通経路を呼んでおり、直の呼び出しは無かった
-  reason: 回す側の根拠は現物で確かめられなかったので退ける
-  units:
-  - key: src/a.py:f — 上限が効かない経路がある
-    label: block
-  - key: src/b.py:g — 定数の重複
-    label: suggest
-    disposition: do-now
-rejudge-third-accept:
-  ok: true
-  done: true
-  give_up: false
-  reason: ok p2.rejudge_third を受け付けた
-  node: p2.rejudge_third
-  verdict: 退ける
 rejudging__collect:
   ok: true
   reason: ''

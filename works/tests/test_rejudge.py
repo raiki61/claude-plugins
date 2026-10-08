@@ -226,23 +226,15 @@ class RouteCase(_Case):
         got = rejudge.route(self.bd, self.repo)
         self.assertEqual((got["next"], got["stopped"]), ("", True), got)
 
-    def test_third_runs_when_board_says(self):
-        """規則が第三の目を出した盤面（往復を今の周の 3 にした盤面）では、会話を確かめずに rejudge-third を回す"""
+    def test_third_is_absent_in_the_line(self):
+        """規則が第三の目を出した盤面（往復を今の周の 3 にした盤面）でも、ラインの表で p2.rejudge_third は absent なので盤面が
+        省き、rejudge-third を回さない（段はブロックに無い。2026-10-09 の整理）。止めもしない"""
         self.board("exhausted", session=False)
         got = rejudge.route(self.bd, self.repo)
-        self.assertEqual((got["next"], got["stopped"]), ("rejudge-third", False), got)
+        self.assertEqual((got["next"], got["stopped"]), ("", False), got)
         self.assertNotIn("stop", kit.state(self.bd))
-        self.assertFalse(self.work(rejudge.SESSION_NAME).exists())
-        rejudge.snap(self.bd, self.repo)
-        got = rejudge.prep(self.bd, "rejudge-third", self.repo)
-        self.assertIn("第三の目", pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8"))
-        self.assertTrue(rejudge.take(self.bd, "p2.rejudge_third", load("rejudge_third_ok"), self.repo)["ok"])
-        self.assertIs(json.loads((pathlib.Path(self.bd) / "accept-last.json").read_text(encoding="utf-8"))
-                      ["rejudge_p2_rejudge_third"]["ok"], True)
-        rows = json.loads(self.work(rejudge.DIFF_NAME).read_text(encoding="utf-8"))
-        self.assertEqual([(r["pass"], r["verdict"]) for r in rows], [("rejudge-third", "退ける")])
-        out = rejudge.collect(self.bd)
-        self.assertEqual((out["ok"], out["passes"], out["verdicts"]), (True, 1, ["退ける"]), out)
+        import entry
+        self.assertEqual(entry.open_board(pathlib.Path(self.bd)).node_state("p2.rejudge_third"), "skipped")
 
 
 class RenderPrepCase(_Case):
