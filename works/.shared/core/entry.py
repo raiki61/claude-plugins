@@ -1158,7 +1158,9 @@ def _entry_words(kind: str, inp: dict) -> str:
 def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str, runner=None) -> dict:
     """ラインの入口。順:
     1. ghreads.load（殻が隔離の前に読んだ github_reads。再開では盤面の根の github.json を先に）→ check_inputs（拒めば盤面を
-       作らずに InputRefused）。盤面を作った後に ghreads.adopt が github_reads を盤面の根の github.json へ写して元を消す。
+       作らずに、拒んだ時に盤面（record.json）がまだ無ければ github_reads を消してから InputRefused。盤面が在る時の拒み＝呼び直しや、
+       固定材料の道で盤面を開いた後の拒みでは残す）。盤面を作った後に
+       ghreads.adopt が github_reads を盤面の根の github.json へ写して元を消す。
        入力 fix_fixture（固定材料）が在れば、ここから先は _start_from_fixture（取り込み → 盤面を開く → trace → 切符。begin と
        CI の輪を回さない）
     2. DiskBoard.begin（1 周の run。origin works/darkfactory・stop_after_round=1・board_hook.py の overrides・validator_runner）。
@@ -1183,28 +1185,40 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     board_dir = pathlib.Path(board_dir)
     reads_src = _word(raw, "github_reads")
     try:
-        reads = ghreads.load(board_dir, reads_src)
-    except (OSError, ValueError) as e:
-        raise InputRefused(f"隔離の前の読み出し（github_reads）を読めない（{type(e).__name__}: {e}）") from None
-    inp = check_inputs(raw, repo, reads=reads)
-    if inp["fix_fixture"]:
-        return _start_from_fixture(board_dir, repo, raw, inp, run_id=run_id)
-    change = inp.get("change")
-    kind = "both" if change and inp["items"] else "change" if change else "request"
-    table = load_table(LINE)
-    head_rev = _git(repo, "rev-parse", "HEAD") if change else ""
-    try:
-        b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=None if change else inp["items"], origin=ORIGIN,
-                               base_rev=inp.get("base_rev", ""), request_text=_request_text(inp),
-                               inputs={"gates": inp["gates"] or None, "policy_md": inp["policy_md"] or None,
-                                       **({"lang": inp["lang"]} if inp["lang"] else {})},
-                               stop_after_round=1, **open_kwargs(LINE, table))
-    except Reject as e:
-        raise InputRefused(f"盤面が入力を受けない: {e}") from None
+        try:
+            reads = ghreads.load(board_dir, reads_src)
+        except (OSError, ValueError) as e:
+            raise InputRefused(f"隔離の前の読み出し（github_reads）を読めない（{type(e).__name__}: {e}）") from None
+        inp = check_inputs(raw, repo, reads=reads)
+        if inp["fix_fixture"]:
+            return _start_from_fixture(board_dir, repo, raw, inp, run_id=run_id)
+        change = inp.get("change")
+        kind = "both" if change and inp["items"] else "change" if change else "request"
+        table = load_table(LINE)
+        head_rev = _git(repo, "rev-parse", "HEAD") if change else ""
+        try:
+            b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=None if change else inp["items"], origin=ORIGIN,
+                                   base_rev=inp.get("base_rev", ""), request_text=_request_text(inp),
+                                   inputs={"gates": inp["gates"] or None, "policy_md": inp["policy_md"] or None,
+                                           **({"lang": inp["lang"]} if inp["lang"] else {})},
+                                   stop_after_round=1, **open_kwargs(LINE, table))
+        except Reject as e:
+            raise InputRefused(f"盤面が入力を受けない: {e}") from None
+    except InputRefused as e:   # adopt より前の拒みは 1 か所のここで決まる。拒んだ時に盤面（record.json）が在れば run は生まれていて、元は唯一の写しなので残す
+        if reads_src and not (board_dir / "record.json").is_file():
+            try:
+                ghreads.discard_source(reads_src)
+            except OSError as err:
+                raise InputRefused(f"{e}（読み出し {reads_src} を消せなかった（{type(err).__name__}: {err}））") from None
+        raise
     try:
         ghreads.adopt(board_dir, reads_src)
+    except ghreads.DiscardFailed as e:   # 写しは盤面に在る。失敗は元の消去だけ（resume の adopt が盤面の写しを使って消し直す）
+        raise InputRefused(f"隔離の前の読み出し（github_reads）は盤面へ写した——元 {reads_src} を消せなかった"
+                           f"（{type(e.__cause__).__name__}: {e}）。resume で消し直すか、続けないなら消してよい") from None
     except OSError as e:
-        raise InputRefused(f"隔離の前の読み出し（github_reads）を盤面へ写せない（{type(e).__name__}: {e}）") from None
+        raise InputRefused(f"隔離の前の読み出し（github_reads）を盤面へ写せない（{type(e).__name__}: {e}）——元 {reads_src} は残した。"
+                           "resume で写し直すか、続けないなら消してよい") from None
     place_prior(board_dir, inp["prior_failures"])
     keep = _kept(inp)
     work = b.work(START_FILE)

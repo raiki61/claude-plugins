@@ -755,6 +755,8 @@ GITHUB_READS=""
 _reads="$WORKS_USE_HOME/reads/$STAMP.json"
 _pr=""
 case $CHANGE_INPUT in pr=*) _pr="${CHANGE_INPUT#pr=}" ;; esac
+# 読み出しのファイルは、結べるか名指すか（works_dev_reads_settle）まで、殻が落ちたら消す（lib.sh）
+works_dev_reads_guard "$_reads"
 python3 -I "$WORKS_DIR/.shared/core/ghreads.py" read --repo "$TARGET" --request "${REQUEST:--}" --pr "$_pr" --out "$_reads"
 if [ -f "$_reads" ]; then
   GITHUB_READS="$_reads"
@@ -834,6 +836,12 @@ if ! works_dev_ledger_bind use.sh "$ARCHON" "$TARGET" "$REQUEST"; then
       works_dev_launch ledger unbound-save --dir "$WORKS_USE_HOME/unbound" --target "$TARGET" --stamp "$STAMP" \
         --wrap-ref "$WRAP_REF" --github-reads "$GITHUB_READS")" || UNBOUND_UNREADABLE=1
   fi
+  # 下の 2 つの案内の行が読み出しを名指す（控えか手での外し方）。名指さない筋（起動が 0 以外・読めた一覧で候補 0 本）は settle が名指す
+  if [ -n "$UNBOUND_UNREADABLE" ] || [ -n "$UNBOUND_CANDIDATES" ]; then
+    works_dev_reads_settle 1
+  else
+    works_dev_reads_settle 0
+  fi
   if [ -n "$UNBOUND_UNREADABLE" ]; then
     # 失敗の理由は launch.py の行（rc 2 は一覧が読めない・控えの書き込みの失敗の両方）。案内は控えが現に在るかで分ける
     if [ -f "$UNBOUND_FILE" ]; then
@@ -848,18 +856,16 @@ if ! works_dev_ledger_bind use.sh "$ARCHON" "$TARGET" "$REQUEST"; then
     exit 1
   fi
   # 起動が落ちたか読めた一覧で候補が 0 本なら、控えを書けないので clean は包んだ基の参照を知らない。ここで外す（run が切った worktree の枝が
-  # 在ればその基はそこから届く）
+  # 在ればその基はそこから届く）。読み出しのファイルは終了コードにも候補の数にも依らず消さず、0600 で残して 1 行で名指す
+  # （結べないことは run が無いことと同じではない。works_dev_reads_settle）
   if [ -n "$WRAP_REF" ]; then
     git update-ref -d "$WRAP_REF"
     echo "包んだ基を守った参照を外した（どの run の控えにも結べないので）: ${WRAP_REF}"
   fi
-  if [ -n "$GITHUB_READS" ]; then
-    rm -f "$GITHUB_READS"
-    echo "隔離の前に読んだ読み出しのファイルを消した（どの run の控えにも結べないので）: ${GITHUB_READS}"
-  fi
   [ "$run_status" -ne 0 ] && exit "$run_status"
   exit 1
 fi
+works_dev_reads_settle 1   # 結べた（控えの github_reads が指す。clean が消す）
 RID="$WORKS_RUN_ID"
 BOUND="$WORKS_RUN_ROW"
 

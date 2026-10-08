@@ -20,7 +20,8 @@ exit 4）。だから殻が Archon を起こす前に、利用者の env のま�
   同じ行は 2 度足さない。id が無い・依頼の形が違えば ValueError（1 行）。殻からは `python3 -I ghreads.py carry-ci`
 - read(repo, request, pr, out) -> int: 名指した物を読んで out に置く。終了コード（0 以外は --pr の base・head が読めない時だけ）
 - load(board_dir, src) -> doc|None: 盤面の根の github.json を先に、無ければ src を読むだけ（盤面を作る前に入力を確かめる）
-- adopt(board_dir, src) -> doc|None: 盤面の根の github.json を先に使い、無ければ src を写して元を消す
+- discard_source(src): 読み出しの元 src を消す（無い・空の文字列は何もしない。盤面の github.json には触らない。OSError は呼び手へ）
+- adopt(board_dir, src) -> doc|None: 盤面の根の github.json を先に使い、無ければ src を写す。どちらでも src が在れば消す
 - 読み出しのファイルの形: {version, pr: {<番号>: {...}}, issue: {<番号>: {...}}}。読めない項は {status: unreadable, reason}。
   対象の remote に forge（PR を持つホスト。forge.py）が無くても、利用者が名指した項は gh で読む（GH_REPO・別の remote・自前の
   ドメインの GitHub Enterprise Server なら gh は読める。名指した物を黙って落とさない）。forge の無い対象で、gh も GitHub の
@@ -244,11 +245,22 @@ def _settle(got: dict, no_forge: str) -> dict:
 
 
 def _write(out: pathlib.Path, doc: dict) -> None:
-    """一時の名に書いて os.replace で一度に置く（途中の残りを作らない）"""
+    """一時の名に 0600 で作って書き、os.replace で一度に置く（途中の残りを作らない）。落ちたら一時の名を残さない。
+    読み出しは非公開の本文を持つので、umask に任せず、前から緩い権限で在った一時の名・out も 0600 で置き直す"""
+    data = (json.dumps(doc, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    os.replace(tmp, out)
+    tmp.unlink(missing_ok=True)
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(fd, "wb") as f:
+            if hasattr(os, "fchmod"):
+                os.fchmod(f.fileno(), 0o600)
+            f.write(data)
+        os.replace(tmp, out)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def read(repo, request: str, pr: str, out) -> int:
@@ -297,14 +309,30 @@ def load(board_dir, src):
     return json.loads(pathlib.Path(src).read_text(encoding="utf-8"))
 
 
+def discard_source(src) -> None:
+    """読み出しの元 src を消す（非公開の本文を持つ）。無い・空の文字列は何もしない。盤面の github.json には触らない。消せなければ
+    OSError を呼び手へ"""
+    if src:
+        pathlib.Path(src).unlink(missing_ok=True)
+
+
+class DiscardFailed(OSError):
+    """adopt が盤面へ写し終えた後に、元 src を消せなかった（写しの失敗ではない）。原因の OSError は __cause__"""
+
+
 def adopt(board_dir, src):
-    """盤面の根の github.json が在ればそれを返す（Archon の再開で呼び直された時）。無く src が在れば盤面へ写して src を消し、
-    写した物を返す。どちらも無ければ None。盤面の置き場は在ること（作るのは盤面の begin）"""
+    """盤面の根の github.json が在ればそれを返す（Archon の再開で呼び直された時）。無く src が在れば盤面へ写し、写した物を返す。
+    どちらでも src が在れば消す（写した後の unlink が落ちた run の呼び直しで src が残り続けない）。どちらも無ければ None。
+    写しの失敗は OSError のまま、写した後に元を消せなかった時は DiscardFailed（OSError の子）で呼び手へ。
+    盤面の置き場は在ること（作るのは盤面の begin）"""
     dest = pathlib.Path(board_dir) / BOARD_FILE
     doc = load(board_dir, src)
     if doc is not None and not dest.is_file():
         _write(dest, doc)
-        pathlib.Path(src).unlink()
+    try:
+        discard_source(src)
+    except OSError as e:
+        raise DiscardFailed(str(e)) from e
     return doc
 
 

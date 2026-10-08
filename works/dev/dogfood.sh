@@ -158,7 +158,10 @@ cp "$1" "$REQUEST"
 
 # 依頼の欄 pr・issue が名指した PR・issue を、clone の前に利用者の env（gh のログインが見える）のまま 1 回だけ読む（設計書 2.8）。
 # cwd は元のリポジトリ SRC（clone は origin を付け替えるので gh が GitHub のリポジトリを解けない）。名指しが無ければ何も書かない
+. "$DEV_DIR/lib.sh"
 GITHUB_READS=""
+# 読み出しのファイルは、結べるか名指すか（works_dev_reads_settle）まで、殻が落ちたら消す（lib.sh）
+works_dev_reads_guard "$DIR/github-reads.json"
 python3 -I "$WORKS_DIR/.shared/core/ghreads.py" read --repo "$SRC" --request "$REQUEST" --out "$DIR/github-reads.json"
 if [ -f "$DIR/github-reads.json" ]; then
   GITHUB_READS="$DIR/github-reads.json"
@@ -174,7 +177,6 @@ g -C "$REPO" remote remove origin   # 元のリポジトリの枝（refs/remotes
 g -C "$REPO" config user.email "works-dev@example.invalid"
 g -C "$REPO" config user.name "works-dev"
 
-. "$DEV_DIR/lib.sh"
 # 写すのは clone した HEAD の works/（元の作業ツリーの commit していない書き換え・未追跡は入れない）
 PACK_SRC="$REPO/${WORKS_DIR#"$SRC"/}"
 if [ ! -f "$PACK_SRC/archon-plugin.json" ]; then
@@ -214,15 +216,20 @@ sh "$ARCHON" "$@"
 run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
-# 起動が落ちた（start が盤面へ写して消すところまで行かない）時は、読み出しのファイル（非公開の本文を持つ）を <dir> に残さない
-if [ "$run_status" -ne 0 ] && [ -n "$GITHUB_READS" ]; then
-  rm -f "$GITHUB_READS"
-  echo "起動が落ちたので、隔離の前に読んだ読み出しのファイルを消した: ${GITHUB_READS}"
-fi
 
 # 起動が落ちても run が在れば続きの行を出す（控えと herdr の枠の集計も lib.sh の同じ口で）。終了コードは起動のまま（起動が 0 の時だけ show の結果）
 show_status=0
 works_dev_show_cmd "$DEV_DIR/dogfood.sh" "$ARCHON" "$DIR"
-works_dev_ledger_bind dogfood.sh "$ARCHON" "$REPO" "$REQUEST" show "$SRC" || show_status=$?
+# 結べたかは show の終了コードと混ぜない。結べない時（dogfood.sh には unbound/ の控えが無い）は、読み出しのファイルを終了コードに依らず
+# 消さずに 0600 で残して 1 行で名指す（works_dev_reads_settle）
+works_dev_ledger_bind dogfood.sh "$ARCHON" "$REPO" "$REQUEST" || show_status=$?
+if [ "$show_status" -eq 0 ]; then
+  works_dev_reads_settle 1
+  _show_rc=0
+  works_dev_show_synced dogfood.sh "$ARCHON" "$REPO" "$SRC" || _show_rc=$?
+  show_status=$_show_rc
+else
+  works_dev_reads_settle 0
+fi
 [ "$run_status" -ne 0 ] && exit "$run_status"
 exit "$show_status"

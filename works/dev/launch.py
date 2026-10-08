@@ -428,8 +428,9 @@ def _replace_json(path, doc):
 def _unbound_save(opts, stdin):
     # 結べなかった起動の run は起動の関所で生きていて、包んだ基と読み出しを使う（消すと承認した run が落ちる。2026-10-01）。
     # 結ばずに（設計書 2.3）候補と一緒に残し、use.sh clean が候補の run の片付けと一緒に消す。候補は生きた状態の物だけ（終わった
-    # 古い run を載せない）。読めた一覧で候補が 0 本なら何も書かずに空を返す（呼び手がその場で消す）。一覧が読めなければ生きた
-    # run が在るか分からないので消さず、候補の無い控え（unknown）に残して止める（clean と同じく迷ったら残す）
+    # 古い run を載せない）。読めた一覧で候補が 0 本なら何も書かずに空を返す（呼び手が包んだ基の参照をその場で外す。読み出しの
+    # ファイルは消さない。use.sh の works_dev_reads_settle が名指す）。一覧が読めなければ生きた run が在るか分からないので消さず、
+    # 候補の無い控え（unknown）に残して止める（clean と同じく迷ったら残す）
     here = os.path.realpath(opts["target"])
     doc = {"wrap_ref": opts.get("wrap-ref", ""), "github_reads": opts.get("github-reads", ""), "target": here}
     path = os.path.join(opts["dir"], opts["stamp"] + ".json")

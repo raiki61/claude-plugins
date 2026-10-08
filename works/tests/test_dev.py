@@ -40,6 +40,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1173,9 +1174,90 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(doc["issue"]["9"]["comments"][0]["body"], "課題のコメント")
             self.assertEqual({cwd for cwd, _ in gh_calls(gh_log)}, {str(src.resolve())})
 
+    def _named_gh(self, tmp):
+        """pr・issue を名指す依頼のファイルと、偽の gh（ログインが見える）の env（PATH の頭に bin を足す）"""
+        from test_ghreads import GH_ENV, fake_gh
+        request = tmp / "req.json"
+        request.write_text(json.dumps({"findings": [{"where": "x", "text": "y"}], "pr": [7], "issue": [9]}))
+        bin_, _, login = fake_gh(tmp)
+        env = {name: None for name in GH_ENV}
+        env.update(PATH=f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", GH_CONFIG_DIR=str(login))
+        return request, env
+
+    def assert_no_dogfood_reads(self, dog):
+        """<dir> に読み出しのファイルも、その一時のファイル（.github-reads.json.*.tmp）も無い"""
+        left = sorted(p.name for p in dog.iterdir() if p.name.startswith(("github-reads.json", ".github-reads.json"))) if dog.is_dir() else []
+        self.assertEqual(left, [])
+
     def test_dogfood_failed_launch_drops_reads_file(self):
-        """Archon の起動が 0 以外で終わった（start まで行かない）時は、隔離の前に読んだ読み出しのファイル（非公開の本文を持つ）を
-        <dir> に残さない。起動の終了コードはそのまま返す"""
+        """Archon の起動が 0 以外で終わり run を結べない（一覧が空）時も、隔離の前に読んだ読み出しのファイル（非公開の本文を持つ）を
+        終了コードで消さずに <dir> へ 0600 で残し、そのパスと『続けないなら消してよい』を 1 行で名指す（結べないことは run が無い
+        ことと同じではない）。起動の終了コードはそのまま返す"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            request, env = self._named_gh(tmp)
+            result, src, calls = self._dogfood(tmp, str(request), "true", str(tmp / "dog"), run_status=3,
+                                               runs_json='{"runs": []}', **env)
+            self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+            self.assertTrue((tmp / "github-reads-seen.json").exists(), "起動の時に読み出しのファイルが無い")
+            reads = tmp / "dog" / "github-reads.json"
+            self.assertTrue(reads.exists(), result.stdout)
+            self.assertEqual(stat.S_IMODE(reads.stat().st_mode), 0o600)
+            named = [ln for ln in result.stdout.splitlines() if str(reads) in ln and "続けないなら消してよい" in ln]
+            self.assertEqual(len(named), 1, result.stdout)
+
+    def test_dogfood_unbound_live_launch_keeps_reads_owner_only(self):
+        """起動が 0 で終わり run を結べない（一覧が空）dogfood.sh は、<dir>/github-reads.json を 0600 で残し、そのパスと『続けないなら
+        消してよい』を含む行をちょうど 1 行出し、終了コードは 1"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            request, env = self._named_gh(tmp)
+            result, src, calls = self._dogfood(tmp, str(request), "true", str(tmp / "dog"), runs_json='{"runs": []}', **env)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            reads = tmp / "dog" / "github-reads.json"
+            self.assertTrue(reads.exists(), result.stdout)
+            named = [ln for ln in result.stdout.splitlines() if str(reads) in ln and "続けないなら消してよい" in ln]
+            self.assertEqual(len(named), 1, result.stdout)
+            self.assertEqual(stat.S_IMODE(reads.stat().st_mode), 0o600)
+
+    def test_dogfood_term_during_launch_discards_reads_file(self):
+        """pr・issue を名指した dogfood.sh で、起動の最中に殻が TERM を受けると（settle より前に落ちる）、<dir>/github-reads.json も
+        一時のファイルも残らず、殻は後始末の後に同じ信号（TERM）で落ちる"""
+        import signal
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            request, env = self._named_gh(tmp)
+            wrap = tmp / "term-archon.sh"
+            wrap.write_text(
+                "#!/bin/sh\n"
+                'case "$1 $2" in "workflow run") kill -TERM $PPID ;; esac\n'
+                f'exec sh "{tmp / "fake-archon.sh"}" "$@"\n')
+            env["WORKS_DEV_ARCHON"] = str(wrap)
+            result, src, calls = self._dogfood(tmp, str(request), "true", str(tmp / "dog"), **env)
+            self.assert_no_dogfood_reads(tmp / "dog")
+            self.assertEqual(result.returncode, -signal.SIGTERM, result.stdout + result.stderr)
+
+    def test_dogfood_failure_before_launch_discards_reads_file(self):
+        """pr・issue を名指した dogfood.sh で、読み出しの後の clone が落ちると <dir>/github-reads.json が残らず、Archon は呼ばれない"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            request, env = self._named_gh(tmp)
+            bin_ = tmp / "broken-clone-bin"
+            bin_.mkdir()
+            (bin_ / "git").write_text(
+                "#!/bin/sh\n"
+                'for a in "$@"; do [ "$a" != clone ] || { echo "git: clone が壊れた" >&2; exit 1; }; done\n'
+                f'exec "{shutil.which("git")}" "$@"\n')
+            (bin_ / "git").chmod(0o755)
+            env["PATH"] = f"{bin_}{os.pathsep}{env['PATH']}"
+            result, src, calls = self._dogfood(tmp, str(request), "true", str(tmp / "dog"), **env)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assert_no_dogfood_reads(tmp / "dog")
+            self.assertEqual(calls, [])
+
+    def test_dogfood_start_refused_leaves_no_reads_file(self):
+        """pr・issue を名指した dogfood.sh で、Archon の中の線の start（本物の entry.start）が入力を拒んでも、
+        <dir>/github-reads.json が残らない"""
         from test_ghreads import GH_ENV, fake_gh
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
@@ -1184,9 +1266,31 @@ class TestDevShell(unittest.TestCase):
             bin_, _, login = fake_gh(tmp)
             env = {name: None for name in GH_ENV}
             env.update(PATH=f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", GH_CONFIG_DIR=str(login))
-            result, src, calls = self._dogfood(tmp, str(request), "true", str(tmp / "dog"), run_status=3, **env)
-            self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
-            self.assertTrue((tmp / "github-reads-seen.json").exists(), "起動の時に読み出しのファイルが無い")
+            core = ROOT / ".shared" / "core"
+            wrap = tmp / "wrap-archon.sh"
+            wrap.write_text(
+                "#!/bin/sh\n"
+                f'sh "{tmp / "fake-archon.sh"}" "$@"\n'
+                "rc=$?\n"
+                'case "$1 $2" in "workflow run") ;; *) exit "$rc" ;; esac\n'
+                "python3 - \"$@\" <<'EOF'\n"
+                "import pathlib, sys\n"
+                f"sys.path.insert(0, {str(core)!r})\n"
+                "import entry\n"
+                "src = next(a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('github_reads='))\n"
+                "raw = {'request': '', 'pr': '7', 'github_reads': src, 'test_cmd': '', 'thickness': '', 'gates': '',\n"
+                "       'final_gate': 'never-heard-of', 'adapter': '', 'policy_md': ''}\n"
+                "try:\n"
+                f"    entry.start(pathlib.Path({str(tmp / 'line-board')!r}), pathlib.Path.cwd(), raw, run_id='run-1')\n"
+                "except entry.InputRefused:\n"
+                "    pass\n"
+                "else:\n"
+                "    sys.exit('start が拒まなかった')\n"
+                "EOF\n"
+                'exit "$rc"\n')
+            result, src, calls = self._dogfood(tmp, str(request), "true", str(tmp / "dog"), WORKS_DEV_ARCHON=str(wrap), **env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(any(a.startswith("github_reads=") and a != "github_reads=" for a in calls[0]), calls[0])
             self.assertFalse((tmp / "dog" / "github-reads.json").exists())
 
     def test_dogfood_adapter_switch_falls_back_to_optional(self):
@@ -1878,6 +1982,17 @@ class TestHerdrContinue(unittest.TestCase):
                 got[fail] = (r.returncode, r.stdout, r.stderr)
         self.assertEqual(got[True], got[False])
         self.assertEqual(got[False][0], 4)
+
+    def test_continue_keeps_reads_guard_armed(self):
+        """読み出しの後始末（works_dev_reads_guard）を張った殻が TERM を受けると、読み出しのファイルは消え、続き中の印も残らず、
+        殻は後始末の後に同じ信号（TERM）で落ちる（終わり方は trap の無い時と同じ。works_dev_continue は通さない: continue は INT・TERM・HUP
+        の trap を自分で張って外すので、guard は settle まで continue を通らない並びで使う）"""
+        import signal
+        reads = self.tmp / "github-reads.json"
+        r, _ = self.sh(f'works_dev_reads_guard "{reads}"; echo 非公開の本文 >"{reads}"; kill -TERM $$; echo 届かない')
+        self.assertFalse(reads.exists(), r.stdout + r.stderr)
+        self.assertEqual(list(self.runs.glob("*.cont")), [])
+        self.assertEqual(r.returncode, -signal.SIGTERM, r.stdout + r.stderr)
 
     def test_continue_stopped_by_signal_clears_mark_and_reports_state(self):
         """続きを止められても（TERM）、続き中の印を外して run の今の状態を送り直す（working のまま残さない）"""
