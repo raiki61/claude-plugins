@@ -432,6 +432,18 @@ class ScopeFieldsCase(PlanFieldsCase):
                 self.assertTrue(any(x.startswith("plan[0].allowed_paths[0]") for x in got), got)
         self.assertEqual(planmarks.gaps({"plan": [item(allowed_paths=["stats.py", "docs/**/*.md"])]}, self.repo), [])
 
+    def test_glob_without_a_literal_character_is_a_whole_tree_allowance(self):
+        """字の無い glob（* と ? と [..] と / だけ）は全部に当たり得る丸ごとの許しなので拒む（**/?* は全部の段が * か ** でないが
+        全部のファイルに当たる。無人の run は範囲を広げるだけの案の直しを関所なしに通すので、ここで止める）。字の在る glob は通す"""
+        for g in ("**/?*", "?*", "?", "*/?", "**/[a-z]*", "[!.]*", "**/*?", "*/**/*", "[]]*"):
+            with self.subTest(g):
+                self.assertIn("丸ごと", planmarks.glob_problem(g) or "")
+                got = planmarks.gaps({"plan": [item(allowed_paths=[g])]}, self.repo)
+                self.assertTrue(any(x.startswith("plan[0].allowed_paths[0]") for x in got), got)
+        for g in ("*.py", "**/*.md", "src/**", "a?.py", "[ab].py", "docs/*", "**/test_*.py", "x", ".github/**"):
+            with self.subTest(g):
+                self.assertIsNone(planmarks.glob_problem(g))
+
     def test_gaps_out_of_scope_rows(self):
         bad = [{"glob": "../x.py", "why": "根の外は触らない（試験の材料）"}]
         got = planmarks.gaps({"plan": [item(out_of_scope=bad)]}, self.repo)

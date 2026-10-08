@@ -707,6 +707,24 @@ class TestUnattendedWiden(TripCase):
         self.assertEqual([{k: r[k] for k in ("round", "item", "units", "allowed_paths", "out_of_scope")} for r in self.widen_rows()],
                          [{"round": b.round, "item": 1, "units": [MEAN], "allowed_paths": ["README.md"], "out_of_scope": []}])
 
+    def test_whole_tree_glob_is_not_a_widen_only_change(self):
+        """字の無い glob（**/?* のような丸ごとの許し）を足した直しは、受け付けが拒み、受け付けを通らずに控えに載っても広げるだけと
+        数えずに聞く（無人の run は範囲を広げるだけの直しを関所なしに通す）"""
+        self.unattended()
+        it = _item(1)
+        it["allowed_paths"] = [*it["allowed_paths"], "**/?*"]
+        got = self.play_role("plan", {"plan": [it]})
+        self.assertFalse(got["ok"], got)
+        self.assertIn("丸ごと", got["reason"])
+        self.trip(new=wider_paths(), review=no_faces())
+        b = entry.open_board(self.board)
+        doc = self.trip_doc()
+        doc["items"][0]["new"]["allowed_paths"].append("**/?*")
+        b.work(replan.TRIP_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        got = replan.gate(b, run_id="r")
+        self.assertTrue(got["ask"])
+        self.assertIsNone(self.trip_doc()["items"][0]["widened"])
+
     def test_stopped_gate_writes_no_widen_row(self):
         """ほかの項目が関所を開け、無人の殻が stop と答えた（範囲を広げるだけの項目も諦めた）→ 広げたとは書かない"""
         self.unattended()
