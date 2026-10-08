@@ -21,7 +21,7 @@
    "new": "        elif f.startswith(b\"!! \"):",
    "tests": {
     "tests/test_accept.py": [
-     "TestDelta.test_snapshot_skips_cli_write_ledger"
+     "TestSnapshot.test_snapshot_skips_cli_write_ledger"
     ]
    }
   },
@@ -33,7 +33,7 @@
    "new": "    return True",
    "tests": {
     "tests/test_accept.py": [
-     "TestDelta.test_snapshot_skips_cli_write_ledger"
+     "TestSnapshot.test_snapshot_skips_cli_write_ledger"
     ]
    }
   },
@@ -45,7 +45,7 @@
    "new": "    return parts[:len(CLI_OWNED_PARTS)] == list(CLI_OWNED_PARTS)",
    "tests": {
     "tests/test_accept.py": [
-     "TestDelta.test_snapshot_skips_nested_cli_write_ledger"
+     "TestSnapshot.test_snapshot_skips_nested_cli_write_ledger"
     ]
    }
   },

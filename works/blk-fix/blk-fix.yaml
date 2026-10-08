@@ -155,8 +155,7 @@ nodes:
       fresh_context: false
       until_bash: test $tdd-step.output.done = true
       nodes:
-        # 指示書を組む（tddloop.prep → fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段・run の値）。next.md は
-        # full の写しで、隣に next.full.md・next.delta.md・next.variants.json（会話の続きの起動で包みが delta を選ぶ）
+        # 指示書を組む（tddloop.prep → fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段・run の値）を next.md に書く
         - id: tdd-prep
           script: tdd_prep
           runtime: uv
@@ -1533,8 +1532,7 @@ nodes:
       fresh_context: false
       until_bash: test $fix-accept.output.done = true   # 通った時か、3 回目の拒否で結べる単位を止めて通した時（max_iterations で落とさない。R50）
       nodes:
-        # 指示書を組み（fixrules.prep: 修正の決まりの正本・直す役の決まり・run の値。prompt_file は full の写しで、隣に .full.md・
-        # .delta.md・.variants.json）、起こした印を置く（盤面は印の無い返答を受けない）。
+        # 指示書を組み（fixrules.prep: 修正の決まりの正本・直す役の決まり・run の値）、起こした印を置く（盤面は印の無い返答を受けない）。
         # 同じ試行の出し直しなら、前の回の受け付けが書いた拒否の理由のファイルを指示書の 1 行目で名指す（理由の文は貼らない。R44）
         - id: fix-prep
           script: fix_prep
@@ -1554,14 +1552,13 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file, attempt, out_path, node, already, variants_file, iteration]
+            required: [prompt_file, attempt, out_path, node, already, iteration]
             properties:
-              prompt_file: {type: string}      # full の写し（役の節の 1 行が Read させる。包みの無い起動の既定）
+              prompt_file: {type: string}      # 組んだ指示書（役の節の 1 行が Read させる）
               attempt: {type: integer}
               out_path: {type: string}
               node: {type: string}
               already: {type: boolean}
-              variants_file: {type: string}    # 2 つの形の控え <名>.variants.json {full, delta, rules_sha, iteration, sections}
               iteration: {type: integer, minimum: 1}   # この周の輪の何回目か（fix-accept が 3 回目の拒否で done を立てる）
 
         - id: fix
@@ -1836,14 +1833,13 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [prompt_file, attempt, out_path, node, already, variants_file, iteration]
+            required: [prompt_file, attempt, out_path, node, already, iteration]
             properties:
               prompt_file: {type: string}
               attempt: {type: integer}
               out_path: {type: string}
               node: {type: string}
               already: {type: boolean}
-              variants_file: {type: string}
               iteration: {type: integer, minimum: 1}
 
         - id: fix-ruled

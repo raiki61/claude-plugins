@@ -5,8 +5,7 @@
 - 本線から来た決まりの句が正本に在る・「プロジェクトのテストを回せ」の文は RUN_TESTS と一字違わず（直した単位に絞る）・
   変更の種類ごとの直の証拠（決定 C8）が在る
 - 節を機械が選ぶ: 本線の核（直し方・守ること）はいつも、証拠の節は単位のファイルと差分に在る種類だけ、TDD の段の約束は今の段だけ
-- 2 つの形（持ち主 2026-09-28）: full（全部。prompt_file はこの写し）と delta（変わった物と決まりの sha256 の 1 行）を並べて書き、
-  控え <名>.variants.json を置く。1 回目の delta は full と同じ。どの節を載せたか・なぜかは各形の 1 行目の見出しに在る
+- 指示書は決まりを全部載せた 1 つの形（prompt_file）。どの節を載せたか・なぜかは 1 行目の見出しに在る
 - 組み立ては機械だけ（AI を通さない）で、同じ入力からはバイト単位で同じ。値の穴は全部埋まる
 - 2 つの役の節の指示は 1 行（組んだ指示書のファイルを Read で読め）で、commands/ の手書きの指示書は無い
 盤面・子のプロセスは使わない（組み立ての関数を直に呼ぶ。盤面の上の fix-prep は test_blk_fix、tdd-prep は test_blk_fix_tdd が見る）。
@@ -402,9 +401,7 @@ class TestCompose(unittest.TestCase):
         self.assertEqual(self.fix().encode(), self.fix().encode())
         self.assertEqual(self.fix().encode(), fixrules.fix_prompt(dict(reversed(list(VALUES.items())))).encode())
         self.assertEqual(self.tdd().encode(), self.tdd().encode())
-        prior = {"delivered": {"core-fix": "0"}}
-        self.assertEqual(self.fix(prior=prior, reject_file="/b/r-1.txt").encode(),
-                         self.fix(prior=prior, reject_file="/b/r-1.txt").encode())
+        self.assertEqual(self.fix(reject_file="/b/r-1.txt").encode(), self.fix(reject_file="/b/r-1.txt").encode())
         self.assertNotEqual(self.fix(), fixrules.fix_prompt({**VALUES, "plan_file": "/other"}))
 
     def test_reject_line_after_the_header(self):
@@ -420,11 +417,11 @@ class TestCompose(unittest.TestCase):
 
     def test_header_records_sections_and_why(self):
         h = header(self.fix(kinds={"code": "判定 stats.py"}))
-        self.assertEqual((h["role"], h["iteration"], h["mode"]), ("fix", 1, "full"))
+        self.assertEqual((h["role"], h["iteration"]), ("fix", 1))
         self.assertEqual([s["id"] for s in h["sections"]],
                          ["fix-head", "brief-canon", "core-fix", "evidence", "evidence-code", "core-conflict", "core-keep",
                           "fix-keep", "fix-reply"])
-        self.assertTrue(all(s["sent"] and s["why"] for s in h["sections"]))
+        self.assertTrue(all(s["why"] for s in h["sections"]))
         self.assertEqual(len(h["rules_sha"]), 64)
 
     def test_tdd_brief_after_title_before_reason(self):
@@ -434,48 +431,8 @@ class TestCompose(unittest.TestCase):
         self.assertLess(text.index("## 要求の正本（brief）"), text.index("前の回の返答を機械が拒んだ理由"))
 
 
-class TestDelta(unittest.TestCase):
-    """2 回目からの delta の形: 変わった物と、渡した決まりの sha256 の 1 行だけ"""
-
-    def first(self, kinds=None):
-        return fixrules.render("fix", 1, fixrules.fix_parts(VALUES, kinds), rules_file="/b/prompt-p3.fix.rules.md")
-
-    def test_second_iteration_carries_only_what_changed(self):
-        one = self.first()
-        two = fixrules.render("fix", 2, fixrules.fix_parts(VALUES), prior={"delivered": one["delivered"]},
-                              rules_file="/b/prompt-p3.fix.rules.md", reject_file="/b/reject-accept_fix-1.txt")
-        text = two["text"]
-        self.assertEqual(text.split("\n")[1], rolekit.REJECT_LINE.format(path="/b/reject-accept_fix-1.txt"))
-        self.assertIn(fixrules.RULES_SAME.format(sha=one["head"]["rules_sha"], path="/b/prompt-p3.fix.rules.md"), text)
-        for sec in fixrules.sections(fixrules.SHARED).values():
-            self.assertNotIn(sec, text)
-        h = header(text)
-        self.assertEqual((h["mode"], h["iteration"]), ("delta", 2))
-        self.assertFalse(any(s["sent"] for s in h["sections"]))
-        self.assertLess(len(text), len(one["text"]) // 5)
-
-    def test_added_kind_is_sent_once(self):
-        one = self.first(kinds={"code": "判定 stats.py"})
-        kinds = {"code": "判定 stats.py", "docs": "差分 README.md"}
-        two = fixrules.render("fix", 2, fixrules.fix_parts(VALUES, kinds), prior={"delivered": one["delivered"]},
-                              rules_file="/r.md")
-        self.assertIn(KIND_BULLET["docs"], two["text"])
-        self.assertNotIn(KIND_BULLET["code"], two["text"])
-        self.assertIn("決まりに下の節を足した", two["text"])
-        self.assertEqual([s["id"] for s in header(two["text"])["sections"] if s["sent"]], ["evidence-docs"])
-
-    def test_tdd_delta_keeps_the_current_phase(self):
-        one = fixrules.tdd_render(tdd_values(), "route", "## この段ですること\n\n振れ", title="# 1")
-        two = fixrules.tdd_render(tdd_values(), "test", PHASE_TEXT, title="# 2", reason="- 落ちない",
-                                  prior={"delivered": one["delivered"]}, rules_file="/r.md")["text"]
-        for s in ("# 2", "- 落ちない", PHASE_BULLET["test"], PHASE_TEXT, "決まりは、この会話で前の回までに渡した物"):
-            self.assertIn(s, two)
-        self.assertNotIn(fixrules.sections(fixrules.SHARED)["core-fix"], two)
-        self.assertNotIn(PHASE_BULLET["route"], two)
-
-
-class TestVariants(unittest.TestCase):
-    """支度の節が並べて書く 2 つの形と控え（prompt_file は full の写し。1 回目の delta は full と同じ）"""
+class TestWritePrompt(unittest.TestCase):
+    """支度の節が書く指示書（決まりを全部）と、この輪で渡した証拠の種類と回の控え（<名>.delivered.json）"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -491,62 +448,44 @@ class TestVariants(unittest.TestCase):
         self.prompt = self.dir / "prompt-p3.fix.md"
 
     def write(self, n, reject=""):
-        def build(kinds, prior, rules_file):
-            return fixrules.render("fix", n, fixrules.fix_parts(self.values, kinds), prior=prior, rules_file=rules_file,
-                                   reject_file=reject)
-        return fixrules.write_variants(self.prompt, None, self.values, build, n)
+        def build(kinds):
+            return fixrules.render("fix", n, fixrules.fix_parts(self.values, kinds), reject_file=reject)
+        fixrules.write_prompt(self.prompt, None, self.values, build, n)
+        return self.prompt.read_text(encoding="utf-8")
 
-    def files(self):
-        b = fixrules.beside
-        return (b(self.prompt, fixrules.FULL).read_text(encoding="utf-8"), b(self.prompt, fixrules.DELTA).read_text(encoding="utf-8"),
-                json.loads(b(self.prompt, fixrules.VARIANTS).read_text(encoding="utf-8")))
-
-    def test_first_iteration_delta_is_full_and_prompt_is_full(self):
-        got = self.write(1)
-        full, delta, side = self.files()
-        self.assertEqual(delta, full)
-        self.assertEqual(self.prompt.read_text(encoding="utf-8"), full, "既定は full（包みが無い起動）")
-        self.assertEqual(side, got)
-        self.assertEqual(set(side), {"full", "delta", "rules_sha", "iteration", "delta_is_full", "why", "sections"})
-        self.assertEqual((side["iteration"], side["delta_is_full"]), (1, True))
-        self.assertEqual(side["full"], str(fixrules.beside(self.prompt, fixrules.FULL)))
-        rules = fixrules.beside(self.prompt, fixrules.RULES).read_text(encoding="utf-8")
-        self.assertEqual(fixrules._sha(rules.rstrip("\n")), side["rules_sha"])
+    def test_first_iteration_writes_the_whole_prompt_only(self):
+        text = self.write(1)
+        self.assertIn(fixrules.sections(fixrules.SHARED)["core-fix"], text)
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()),
+                         ["judgment.json", "prompt-p3.fix.delivered.json", "prompt-p3.fix.md"], "全文版・差分版の控えを書かない")
+        ledger = json.loads(fixrules.beside(self.prompt, fixrules.DELIVERED).read_text(encoding="utf-8"))
+        self.assertEqual(ledger, {"kinds": ["code", "docs"], "iterations": [1]})
 
     def test_kinds_from_open_units_only(self):
         """判定の義務の単位のパス（class_query の paths と key の中のパス）から種類を選ぶ。義務でない単位（defer）は見ない"""
-        self.write(1)
-        full, _, side = self.files()
-        self.assertIn(KIND_BULLET["code"], full)
-        self.assertIn(KIND_BULLET["docs"], full)
-        self.assertNotIn(KIND_BULLET["config"], full)
-        self.assertNotIn(KIND_BULLET["prompts"], full)
-        why = {s["id"]: s["why"] for s in side["sections"]}
+        text = self.write(1)
+        self.assertIn(KIND_BULLET["code"], text)
+        self.assertIn(KIND_BULLET["docs"], text)
+        self.assertNotIn(KIND_BULLET["config"], text)
+        self.assertNotIn(KIND_BULLET["prompts"], text)
+        why = {s["id"]: s["why"] for s in header(text)["sections"]}
         self.assertIn("stats.py", why["evidence-code"])
 
-    def test_second_iteration_delta_with_sha_and_full_default(self):
+    def test_second_iteration_is_whole_and_keeps_kinds(self):
         self.write(1)
-        full1, _, side1 = self.files()
-        self.write(2, reject="/b/reject-accept_fix-1.txt")
-        full2, delta2, side2 = self.files()
-        self.assertEqual(self.prompt.read_text(encoding="utf-8"), full2, "既定は full のまま")
-        self.assertNotEqual(delta2, full2)
-        self.assertIn(side1["rules_sha"], delta2)
-        self.assertIn(str(fixrules.beside(self.prompt, fixrules.RULES)), delta2)
-        self.assertIn(rolekit.REJECT_LINE.format(path="/b/reject-accept_fix-1.txt"), delta2)
-        self.assertIn(fixrules.sections(fixrules.SHARED)["core-fix"], full2, "full は毎回全部")
-        self.assertNotIn(fixrules.sections(fixrules.SHARED)["core-fix"], delta2)
-        self.assertEqual((side2["iteration"], side2["delta_is_full"]), (2, False))
-        self.assertEqual(header(delta2)["mode"], "delta")
-        self.assertEqual(header(full2)["mode"], "full")
+        self.values["open_units"] = json.dumps(["stats.py mean: 分母"], ensure_ascii=False)
+        text = self.write(2, reject="/b/reject-accept_fix-1.txt")
+        self.assertIn(rolekit.REJECT_LINE.format(path="/b/reject-accept_fix-1.txt"), text)
+        self.assertIn(fixrules.sections(fixrules.SHARED)["core-fix"], text, "毎回全部")
+        self.assertIn(KIND_BULLET["docs"], text, "この輪で前に渡した種類は減らさない")
+        self.assertEqual(fixrules.iteration_next(self.prompt), 3)
 
     def test_unknown_kinds_fall_back_to_all(self):
         self.values["judgment_file"] = str(self.dir / "missing.json")
-        self.write(1)
-        full, _, side = self.files()
+        text = self.write(1)
         for b in KIND_BULLET.values():
-            self.assertIn(b, full)
-        self.assertTrue(all("全部載せる" in s["why"] for s in side["sections"] if s["id"].startswith("evidence-")))
+            self.assertIn(b, text)
+        self.assertTrue(all("全部載せる" in s["why"] for s in header(text)["sections"] if s["id"].startswith("evidence-")))
 
 
 class TestKinds(unittest.TestCase):
@@ -605,7 +544,7 @@ class TestRoleNodes(unittest.TestCase):
         ff = find_node(nodes, "fix-fork")
         self.assertEqual(ff["with"], {**{k: v for k, v in fp["with"].items() if k != "pass"}, "fix_lanes": "$INPUTS.fix_lanes"},
                          "並べの枝の支度は修正役の支度と同じ run の値と、並べの切り替えを読む")
-        self.assertIn("variants_file", fp["output_format"]["required"])
+        self.assertNotIn("variants_file", fp["output_format"]["properties"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
@@ -1027,11 +966,10 @@ class TestLangLine(unittest.TestCase):
 
     def test_every_writer_prompt_ends_with_the_lang_line(self):
         fix = rulebook.render("fix", 1, fixrules.fix_parts(VALUES), reject_file="/b/r-1.txt", lang=self.LINE)["text"]
-        delta = rulebook.render("fix", 2, fixrules.fix_parts(VALUES), prior={"delivered": {}}, lang=self.LINE)["text"]
         tdd = fixrules.tdd_render(tdd_values(), "fix", PHASE_TEXT, title=TITLE, lang=self.LINE)["text"]
         rule = fixrules.ruler_prompt({k: "/b/x" for k in fixrules.RULER_VALUES}, lang=self.LINE)
         refix = refixrules().build(1, {**REFIX_VALUES, "lang": self.LINE})
-        for name, text in (("fix", fix), ("delta", delta), ("tdd", tdd), ("rule", rule), ("refix", refix)):
+        for name, text in (("fix", fix), ("tdd", tdd), ("rule", rule), ("refix", refix)):
             with self.subTest(name):
                 self.assertTrue(text.endswith(self.LINE + "\n"), text[-200:])
         self.assertEqual(fix.split("\n")[1], rolekit.REJECT_LINE.format(path="/b/r-1.txt"))
@@ -1047,7 +985,7 @@ class TestLangLine(unittest.TestCase):
     def test_preps_take_the_lang_from_the_board(self):
         """支度（fixrules.prep・tddloop.prep・ruling.prep・refix.prep_fix）は盤面から言語の 1 行を取って渡す"""
         srcs = {"fix": (BLK / "lib" / "fixrules.py", "before=before, lang=lang)"),
-                "tdd": (BLK / "lib" / "tddloop.py", "rules_file=rules_file, lang=lang)"),
+                "tdd": (BLK / "lib" / "tddloop.py", "seat=seat_text, lang=lang)"),
                 "rule": (BLK / "lib" / "ruling.py", "lang=fixrules.lang_at(board_dir)"),
                 "refix": (CORE / "refix.py", '"lang": rolekit.lang_line(b.state.get("inputs"))')}
         for name, (path, needle) in srcs.items():

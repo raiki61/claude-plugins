@@ -200,8 +200,7 @@ class PrecheckCase(test_blk_fix.BoardCase):
         code, out, err = run_script("fix_prep", self.repo, self.prep_env())   # 続きの指示書
         self.assertEqual(code, 0, err)
         resumed = json.loads(out)
-        self.assertEqual((resumed["iteration"], resumed["variants_file"]), (first["iteration"], ""),
-                         "相談の周は受け付けの回に数えない")
+        self.assertEqual(resumed["iteration"], first["iteration"], "相談の周は受け付けの回に数えない")
         text = pathlib.Path(resumed["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn(checked["answer_file"], text)
         self.assertIn(first["prompt_file"], text)

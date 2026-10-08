@@ -377,8 +377,8 @@ class TestStart(LoopCase):
         self.assertEqual(git(self.repo, "status", "--porcelain"), "", "元の結末を取っても作業ツリーは変わらない")
 
     def test_prompt_is_composed_from_the_shared_rules(self):
-        """tdd-prep の指示書: 修正の決まりの正本の核・TDD の読み替え・今の段の約束（今の段だけ）・今の段の指示。next.md は full の
-        写しで、隣に full・delta・控え。2 回目の delta は変わった物と決まりの sha256 の 1 行だけ（正本の核を載せない）"""
+        """tdd-prep の指示書: 修正の決まりの正本の核・TDD の読み替え・今の段の約束（今の段だけ）・今の段の指示。next.md は毎回
+        決まりを全部載せる（全文版・差分版の控えは書かない）"""
         import fixrules
         core = fixrules.sections(fixrules.SHARED)["core-fix"]
         out = tddloop.prep(self.state, {"judgment_file": "/b/j.json"}, self.repo)
@@ -388,20 +388,14 @@ class TestStart(LoopCase):
                   "## この段ですること", "`/b/j.json`"):
             self.assertIn(s, full)
         self.assertNotIn("- **test**:", full, "今の段の約束だけ")
-        self.assertEqual(fixrules.beside(prompt, fixrules.FULL).read_text(encoding="utf-8"), full)
-        self.assertEqual(fixrules.beside(prompt, fixrules.DELTA).read_text(encoding="utf-8"), full, "1 回目の delta は full")
-        first = json.loads(fixrules.beside(prompt, fixrules.VARIANTS).read_text(encoding="utf-8"))
+        self.assertFalse(fixrules.beside(prompt, ".delta.md").exists(), "差分版を書かない")
         self.route()
         tddloop.prep(self.state, {"judgment_file": "/b/j.json"}, self.repo)
         full2 = prompt.read_text(encoding="utf-8")
-        delta2 = fixrules.beside(prompt, fixrules.DELTA).read_text(encoding="utf-8")
-        self.assertIn(core, full2, "既定（prompt_file）は full")
-        self.assertNotIn(core, delta2)
-        self.assertIn(first["rules_sha"], delta2)
+        self.assertIn(core, full2, "2 回目も決まりを全部")
         for s in ("- **test**:", "## この段ですること", "段 test"):
-            self.assertIn(s, delta2)
-        side = json.loads(fixrules.beside(prompt, fixrules.VARIANTS).read_text(encoding="utf-8"))
-        self.assertEqual((side["iteration"], side["delta_is_full"]), (2, False))
+            self.assertIn(s, full2)
+        self.assertEqual(fixrules.iteration_next(prompt), 3)
 
     def test_owed_units_are_conflict_fix_duty_not_the_is_open_list(self):
         """TDD が振り分ける義務は受け付けと同じ conflict.fix_duty の owed。渡された open_units（is_open）に無くても、関所で答えて

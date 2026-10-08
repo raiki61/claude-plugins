@@ -673,7 +673,7 @@ def _together_lines(st, k) -> list:
 
 def prep(state_file, values: dict | None = None, repo=None) -> dict:
     """節 tdd-prep。今の段の指示書を組み（fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段の約束・run の値）、状態の
-    置き場の next.md（full の写し）と隣の next.full.md・next.delta.md・next.variants.json に書き、{prompt_file} を返す。
+    置き場の next.md に書き、{prompt_file} を返す。
     values は fixrules.TDD_VALUES の run の値（義務の単位は状態の物を使う。欠けは空）。repo は差分から変更の種類を選ぶ根（None は見ない）。
     題の次に brief の節（planbrief.head_text）: 振り分けの段は直す義務の単位の全部、ほかの段は今の単位 1 つの brief。行の
     「単位」はその段で直す単位だけで、項目のほかの単位には「今は直すな」と添える。
@@ -727,13 +727,13 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     except ValueError as e:
         raise Broken(f"TDD の輪の座を組めない: {e}") from None
 
-    def build(kinds, prior, rules_file):
+    def build(kinds):
         try:
             return fixrules.tdd_render(vals, phase, "\n".join(lines), title=title, reason=st["reason"], kinds=kinds,
-                                       prior=prior, iteration=n, brief=brief, seat=seat_text, rules_file=rules_file, lang=lang)
+                                       iteration=n, brief=brief, seat=seat_text, lang=lang)
         except fixrules.Unfilled as e:
             raise Broken(f"TDD の輪の指示書を組めない: {e}")
-    fixrules.write_variants(path, repo, vals, build, n)
+    fixrules.write_prompt(path, repo, vals, build, n)
     key = f"{path.parent.name}:{phase if phase == 'route' else st['queue'][st['cur']]}"
     for node in UNIT_NODES:
         write_key(adapter.session_key_path(str(path.parent.parent), node), key)

@@ -111,7 +111,6 @@ fix-prep:
   out_path: board/out/r1/p3.fix.json
   node: p3.fix
   already: false
-  variants_file: board/r1/prompt-p3.fix.variants.json
   iteration: 1
 fix:
   changes:
@@ -211,7 +210,6 @@ fix-ruled-prep:
   out_path: board/out/r1/p3.fix.json
   node: p3.fix
   already: true
-  variants_file: board/r1/prompt-p3.fix-ruled.variants.json
   iteration: 1
 fix-ruled:
   changes:

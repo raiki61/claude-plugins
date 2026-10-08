@@ -10,8 +10,8 @@ INPUTS_POLICY_PATH・INPUTS_NOTES_FILE・INPUTS_SUMMARY_FILE（空でよい）�
 INPUTS_PASS（first か、裁定の後の 2 回目の ruled）。修正役の並べ（入力 fix_lanes）は修正の輪の前の節 fix-fork が持つ。2 回目の修正の段（依頼 226。ブロックの 2 度目の include）の指示書と
 数えと座の作業ファイルは、その include の名の置き場（scope）で 1 回目と分かれる。
 修正の決まりの正本・直す役の決まり・run の値を組み、
-盤面の今の周の prompt-p3_fix.md（full の写し）と隣の 2 つの形に書き、起こした印を置いて
-{prompt_file, attempt, out_path, node, already, variants_file} を 1 行出して 0。役はそのパスを Read する。
+盤面の今の周の prompt-p3_fix.md に書き、起こした印を置いて
+{prompt_file, attempt, out_path, node, already, iteration} を 1 行出して 0。役はそのパスを Read する。
 出し直しなら前の回の拒否の理由のファイルを指示書の頭で名指す（R44）。cwd（対象の worktree）の差分から変更の種類を選ぶ。
 環境変数の欠け・盤面が p3.fix を待っていない・思わぬ誤り: 標準エラーに 1 行出して 2（rolekit.script_main）。
 brief の控え（briefs.json）か修正案の欄の控え（plan-fields.json）が壊れている・凍結の印と食い違えば、盤面を止めて 2。

@@ -29,12 +29,6 @@ EMPTY = "（空）"
 HOLE = re.compile(r"<<([a-z_]+)>>")
 MARK = re.compile(r"^<!-- 節 ([a-z0-9-]+) -->$")
 HEADER = "<!-- works-prompt {} -->"
-WHY_FULL = "全部（包みが会話の続きと見ない起動の既定）"
-WHY_DELTA = "変わった物だけ（会話の続きの起動で包みが差し替える）"
-RULES_SAME = ("決まりは、この会話で前の回までに渡した物（sha256 {sha}）から変わっていない。この会話でまだ読んでいなければ、"
-              "先に {path} を Read で全部読め。")
-RULES_ADDED = ("決まりに下の節を足した（足した後の全体は sha256 {sha}。{path}）。ほかは、この会話で前の回までに渡した物から"
-               "変わっていない（この会話でまだ読んでいなければ、先に {path} を Read で全部読め）。")
 
 
 class Unfilled(ValueError):
@@ -105,24 +99,13 @@ def pick(values: dict, names: tuple) -> dict:
 
 
 # ---------------------------------------------------------------- 組み立て（純粋）
-def render(role: str, iteration: int, parts: list, *, prior=None, rules_file: str = "", before=(), after=(),
-           reject_file: str = "", lang: str = "") -> dict:
-    """1 つの形 {text, delivered, rules_text, head}。prior が None なら決まりの節を全部（full）、{delivered: {id: sha}} なら
-    まだ渡していない・中身が替わった節だけと RULES_SAME / RULES_ADDED の 1 行（delta）。delivered は渡した後の {id: sha}。
-    lang は言語の 1 行（rolekit.lang_line。空なら置かない）で、どの形にも末尾に置く。
+def render(role: str, iteration: int, parts: list, *, before=(), after=(), reject_file: str = "", lang: str = "") -> dict:
+    """指示書 {text, head}。決まりの節は全部載せる。head は 1 行目（HEADER）に書く機械の事実 {role, iteration, rules_sha（決まりの
+    本文の sha256）, sections: [{id, why}]}。lang は言語の 1 行（rolekit.lang_line。空なら置かない）で末尾に置く。
     並び: HEADER → [拒否の理由のファイルの 1 行] → before → 決まり → after → [言語の 1 行]"""
-    shas = {pid: sha(text) for pid, text, _ in parts}
     rules_text = join(text for _, text, _ in parts)
-    rules_sha = sha(rules_text)
-    old = None if prior is None else (prior.get("delivered") or {})
-    if old is None:
-        sent, body, mode, why = [pid for pid, _, _ in parts], [rules_text], "full", WHY_FULL
-    else:
-        sent = [pid for pid, _, _ in parts if old.get(pid) != shas[pid]]
-        line = (RULES_ADDED if sent else RULES_SAME).format(sha=rules_sha, path=rules_file or EMPTY)
-        body, mode, why = [line, join(text for pid, text, _ in parts if pid in sent)], "delta", WHY_DELTA
-    head = {"role": role, "iteration": iteration, "mode": mode, "why": why, "rules_sha": rules_sha, "rules_file": rules_file,
-            "sections": [{"id": pid, "why": w, "sent": pid in sent} for pid, _, w in parts]}
-    text = rolekit.compose([*before, *body, *after, lang], reject_file=reject_file)
+    head = {"role": role, "iteration": iteration, "rules_sha": sha(rules_text),
+            "sections": [{"id": pid, "why": w} for pid, _, w in parts]}
+    text = rolekit.compose([*before, rules_text, *after, lang], reject_file=reject_file)
     text = HEADER.format(json.dumps(head, ensure_ascii=False)) + "\n" + text.rstrip("\n") + "\n"
-    return {"text": text, "delivered": {**(old or {}), **shas}, "rules_text": rules_text, "head": head}
+    return {"text": text, "head": head}

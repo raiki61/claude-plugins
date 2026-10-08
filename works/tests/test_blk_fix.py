@@ -56,6 +56,12 @@ NO_SUITE_START = {"go": False, "reason": "テストの実行器（入力 tdd_sui
                   "state_file": "", "summary_file": ""}
 
 
+def prompt_head(text: str) -> dict:
+    """組んだ指示書の 1 行目（rulebook.HEADER）の機械の事実 {role, iteration, rules_sha, sections}"""
+    first = text.split("\n", 1)[0]
+    return json.loads(first[len("<!-- works-prompt "):-len(" -->")])
+
+
 def load(name):
     return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
 
@@ -761,23 +767,21 @@ class TestFixPrep(BoardCase):
         self.assertEqual((r["node"], r["attempt"], r["already"]), ("p3.fix", 1, False))
         self.assertTrue(b.rd["instances"]["p3.fix"].get("launched_at"), "起こした印を置く（盤面は印の無い返答を受けない）")
         prompt = pathlib.Path(r["prompt_file"])
-        full = fixrules.beside(prompt, fixrules.FULL).read_text(encoding="utf-8")
-        self.assertEqual(prompt.read_text(encoding="utf-8"), full, "既定は full")
-        self.assertEqual(fixrules.beside(prompt, fixrules.DELTA).read_text(encoding="utf-8"), full, "1 回目の delta は full")
+        full = prompt.read_text(encoding="utf-8")
+        self.assertNotIn("variants_file", r)
+        self.assertFalse(fixrules.beside(prompt, ".delta.md").exists(), "差分版を書かない")
         self.assertIn(fixrules.shared().split("\n## テストで")[0], full, "正本の核（直し方）が在る")
         self.assertIn(self.values()["judgment_file"], full)
-        side = json.loads(pathlib.Path(r["variants_file"]).read_text(encoding="utf-8"))
-        why = {s["id"]: s["why"] for s in side["sections"]}
+        why = {s["id"]: s["why"] for s in prompt_head(full)["sections"]}
         self.assertIn("stats.py", why["evidence-code"], "判定の単位のパスから種類を選んだ（機械の事実）")
         self.edit_tree(FIXED)
         self.assertTrue(self.accept(load("fix2_ok"))["ok"], "fix-prep の印の後に受け付けが通る")
 
-    def test_retry_names_the_reject_file_and_writes_delta(self):
+    def test_retry_names_the_reject_file_and_writes_the_whole_prompt(self):
         import fixrules
         self.fix_ready(launched=False)
         code, out, err = self.prep()
         self.assertEqual(code, 0, err)
-        first = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
         reason_file = self.reject_by_script()
         code, out, err = self.prep()
         self.assertEqual(code, 0, err)
@@ -786,15 +790,10 @@ class TestFixPrep(BoardCase):
         prompt = pathlib.Path(r["prompt_file"])
         line = rolekit_reject_line(reason_file)
         full = prompt.read_text(encoding="utf-8")
-        delta = fixrules.beside(prompt, fixrules.DELTA).read_text(encoding="utf-8")
         self.assertEqual(full.split("\n")[1], line, "理由の本文は貼らず、パスを見出しの次の 1 行で名指す（R44）")
-        self.assertEqual(delta.split("\n")[1], line)
         self.assertNotIn(pathlib.Path(reason_file).read_text(encoding="utf-8")[:40], full)
-        self.assertIn(first["rules_sha"], delta)
-        self.assertNotIn(fixrules.sections(fixrules.SHARED)["core-fix"], delta)
-        self.assertIn(fixrules.sections(fixrules.SHARED)["core-fix"], full)
-        side = json.loads(pathlib.Path(r["variants_file"]).read_text(encoding="utf-8"))
-        self.assertEqual((side["iteration"], side["delta_is_full"]), (2, False))
+        self.assertIn(fixrules.sections(fixrules.SHARED)["core-fix"], full, "出し直しも決まりを全部")
+        self.assertEqual((r["iteration"], prompt_head(full)["iteration"]), (2, 2))
 
     def test_same_inputs_same_bytes_on_the_board(self):
         """同じ盤面・同じ値で組み直すと、full はバイト単位で同じ"""
@@ -852,8 +851,7 @@ class TestFixPrep(BoardCase):
             self.assertIn(key, impl)
             self.assertIn(seat.G1_SUB_HEAD_OF.format(shape="g3"), impl)
             self.assertIn(str(b.work(f"g1-impl-{n}.md")), full)
-        side = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
-        ids = [s["id"] for s in side["sections"]]
+        ids = [s["id"] for s in prompt_head(pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8"))["sections"]]
         self.assertEqual(ids[ids.index("fix-reply") - 1], "seat")
 
     def test_g3_skips_units_the_loop_made_green(self):
@@ -913,8 +911,7 @@ class TestFixPrep(BoardCase):
         self.assertNotIn(seat.HEAD, full, "g3 の座は載せない")
         for f in (impl, review):
             self.assertIn(str(f), full)
-        side = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
-        ids = [s["id"] for s in side["sections"]]
+        ids = [s["id"] for s in prompt_head(pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8"))["sections"]]
         self.assertEqual(ids[ids.index("fix-reply") - 1], "seat")
 
     def test_g1_prep_without_briefs_is_one_item_on_the_judgment(self):
@@ -980,13 +977,13 @@ class TestFixPrep(BoardCase):
         self.assertIn("INPUTS_SUMMARY_FILE", err)
 
     def test_prep_puts_briefs_of_owed_units_on_top(self):
-        """修正案の欄の控えが在る盤面: full と delta の頭（直す役の決まりより前）で、直す義務の単位の brief を名指す"""
+        """修正案の欄の控えが在る盤面: 指示書の頭（直す役の決まりより前）で、直す義務の単位の brief を名指す"""
         self.fix_ready(launched=False)
         planmarks.save(self.board, entry.open_board(self.board).round, PLAN_FIELDS)
         code, out, err = self.prep()
         self.assertEqual(code, 0, err)
         r = json.loads(out)
-        for path in (r["prompt_file"], json.loads(pathlib.Path(r["variants_file"]).read_text(encoding="utf-8"))["delta"]):
+        for path in (r["prompt_file"],):
             text = pathlib.Path(path).read_text(encoding="utf-8")
             self.assertLess(text.index(planbrief.HEAD), text.index("# 修正（書く役の仕事）"))
             self.assertIn(str(entry.open_board(self.board).work("brief-1.md")), text)
