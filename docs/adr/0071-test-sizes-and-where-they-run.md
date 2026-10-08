@@ -23,7 +23,7 @@
 
 - **small**: 1 つのプロセスの中で終わる。子プロセス・sleep・網（socket）を使わない。ディスクは試験ごとの一時の置き場だけ。
 - **medium**: 1 台の機械の中で終わる。子プロセス・git・uv・localhost・偽の claude と偽の Archon・手本（golden）の再生・盤面を回す台本を使ってよい。外の網と本物の LLM は使わない。
-- **large**: 機械の外に出るか、お金がかかるか、結果が毎回変わる物。本物の Claude（LLM）・本物の Archon での実走（`works/dev/real-run.sh`・自分食い）・外の網（GitHub の API など）。
+- **large**: 機械の外に出るか、お金がかかるか、結果が毎回変わる物。本物の Claude（LLM）・本物の Archon での実走（`works/dev/use.sh`・`works/dev/canary.sh`・自分食い）・外の網（GitHub の API など）。
 - どの試験も大きさを宣言する。宣言の無い試験は赤にする（黙って既定の大きさに入れない）。small と宣言した試験が子プロセス・sleep・網を使ったら失敗にする（本流の `glharness.py` が子プロセスと sleep で既にしている形を、網にも広げる）。
 
 ### 3. 回す場所

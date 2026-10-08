@@ -16,7 +16,7 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 - archon.sh が、認証を使う実行で対象（cwd）の根を利用者の mise が信頼済みの時だけ（偽の mise の trust --show を隔離の前の
   HOME で読む）、run の worktree の置き場を MISE_TRUSTED_CONFIG_PATHS に足すこと（前の値は残す）。
 - lib.sh works_dev_show_run の差分が、周の中の commit で入った .gitignore に当たる追跡ファイルを足した行として載せること。
-- archon.sh・mktarget.sh・real-run.sh が、WORKS_DEV_HOME・対象・origin が Claude Code の一時フォルダ
+- archon.sh・mktarget.sh・dogfood.sh が、WORKS_DEV_HOME・対象・origin が Claude Code の一時フォルダ
   （/private/tmp/claude-* か /tmp/claude-*。サンドボックスの Bash がそこへ書ける穴）の下に解けるとき、
   何も作らずに 1 行の理由で終了コード 2 で止まること（symlink を辿った先で見る）。
 - dogfood.sh（このリポジトリ自身を対象にラインを回す）が、今の HEAD を clone して pack を枝 dogfood-base に commit し、
@@ -145,7 +145,7 @@ def fake_security(tmp, items=None, default=""):
     """偽の `security` を tmp/fake-bin に置き、殻の env に被せる上書き（PATH の先頭と印の HOME）と、呼ばれた時の
     `$HOME<TAB>引数` を 1 行ずつ足す記録のパスを返す。`-s <項目>` が items に在ればその値、無ければ default を返し、
     どちらも空なら項目の無い keychain と同じく 44 で終わる。偽物を置かない殻の試験は利用者の本物の keychain に届くので、
-    認証の前検を通る殻（archon.sh・dogfood.sh・real-run.sh）の試験はこれを通す"""
+    認証の前検を通る殻（archon.sh・dogfood.sh）の試験はこれを通す"""
     fake_bin = tmp / "fake-bin"
     fake_bin.mkdir(parents=True, exist_ok=True)
     log = tmp / "security-calls.txt"
@@ -466,7 +466,7 @@ class TestDevShell(unittest.TestCase):
 
     def test_archon_sh_pins_model_when_using_auth(self):
         """認証を使う実行は毎回、隔離した Archon の設定に模型（既定は guard.sh の値）を書き、題の生成の模型も揃える。
-        書かないと Claude CLI の既定の模型で黙って回る（real-run.sh を通さず archon.sh を直に打った時）。"""
+        書かないと Claude CLI の既定の模型で黙って回る（archon.sh を直に打った時）。"""
         default = hermetic.dev_model_default()
         result, config, seen = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -785,23 +785,6 @@ class TestDevShell(unittest.TestCase):
         self.assertIn("CLAUDE.md", result.stderr)
         self.assertIsNone(seen, "止めるべき所で Archon を起こした")
 
-    def test_real_run_stops_without_auth_before_making_target(self):
-        """real-run.sh（費用の掛かる実走）は、認証が無ければ対象を作る前に 1 行の案内で止まること。"""
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = pathlib.Path(tmp_str)
-            env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), **fake_security(tmp)[0])
-            for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
-                env.pop(name, None)
-            result = subprocess.run(
-                ["sh", str(DEV / "real-run.sh"), str(tmp / "target")],
-                capture_output=True, text=True, encoding="utf-8", env=env,
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
-            self.assertIn("WORKS_KEYCHAIN_ITEM", result.stderr)
-            self.assertFalse((tmp / "target").exists())
-            self.assertFalse((tmp / "dev-home").exists())   # 設定も書かない
-
     # ---- Claude Code の一時フォルダの下を拒む（サンドボックスの穴。設計書 7 節）
     HOLE = "/private/tmp/claude-works-guard-test-0/x"   # 作らない（拒むのは作る前）
 
@@ -852,37 +835,6 @@ class TestDevShell(unittest.TestCase):
         r = subprocess.run(["sh", str(DEV / "mktarget.sh"), self.HOLE], capture_output=True, text=True, encoding="utf-8",
                            env=self._env())
         self.assert_guarded(r, "/private/tmp/claude-works-guard-test-0")
-
-    def test_real_run_refuses_claude_tmp(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = pathlib.Path(tmp_str)
-            link = tmp / "link"
-            link.symlink_to("/private/tmp")
-            cases = {
-                "WORKS_DEV_HOME": ([str(tmp / "target")], {"WORKS_DEV_HOME": self.HOLE}),
-                "対象": ([self.HOLE], {"WORKS_DEV_HOME": str(tmp / "dev-home")}),
-                "対象（symlink の先）": ([str(link / "claude-works-guard-test-0" / "t")],
-                                        {"WORKS_DEV_HOME": str(tmp / "dev-home")}),
-                "既定の対象（TMPDIR）": ([], {"WORKS_DEV_HOME": str(tmp / "dev-home"),
-                                           "TMPDIR": "/private/tmp/claude-works-guard-test-0"}),
-            }
-            for why, (args, env) in cases.items():
-                with self.subTest(why):
-                    # 認証が在っても（偽のトークン）、拒むのは認証の確かめと対象を作るより前
-                    r = subprocess.run(["sh", str(DEV / "real-run.sh"), *args], capture_output=True, text=True, encoding="utf-8",
-                                       env=self._env(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", **env))
-                    self.assert_guarded(r, tmp / "target", tmp / "dev-home", "/private/tmp/claude-works-guard-test-0")
-                    self.assertNotIn("dummy-token-for-test", r.stdout + r.stderr)
-
-    def test_real_run_refuses_origin_in_claude_tmp(self):
-        # 対象は穴の外でも、origin（<対象>.origin.git）が穴の下の symlink に解けるなら拒む
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = pathlib.Path(tmp_str)
-            (tmp / "t.origin.git").symlink_to("/private/tmp/claude-works-guard-test-0")
-            r = subprocess.run(["sh", str(DEV / "real-run.sh"), str(tmp / "t")], capture_output=True, text=True, encoding="utf-8",
-                               env=self._env(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test",
-                                             WORKS_DEV_HOME=str(tmp / "dev-home")))
-            self.assert_guarded(r, tmp / "t", tmp / "dev-home")
 
     def _run_check(self, fail_on="", works_layout=None):
         """check.sh を偽の Archon（引数と cwd を記録し、引数に fail_on を含めば終了コード 1）で回す。
@@ -1107,49 +1059,6 @@ class TestDevShell(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("run id: run-2", result.stdout)
                 self.assertTrue((second_tmp / "dev-home" / "runs" / "run-2.json").exists())
-
-    def test_real_run_reused_dir_binds_only_this_launch_run(self):
-        """real-run.sh も、同じ <dir> を消して起こし直した時、依頼の写しの名が前の起動と重ならず、一覧に残る前の起動の run
-        （止まった・落ちた・取り消した）を候補にせずに、この起動の run 1 本に結べる（設計書 2.3）"""
-        for prior in ("paused", "failed", "cancelled"):
-            with self.subTest(prior=prior), tempfile.TemporaryDirectory() as tmp_str:
-                tmp = pathlib.Path(tmp_str)
-                security, _ = fake_security(tmp)
-                runs, current, log = tmp / "runs.json", tmp / "current-run", tmp / "calls.txt"
-                fake = tmp / "fake-archon.sh"
-                # workflow run はこの起動の run（current-run）の盤面 r1/start.json にだけ request= の値を残す
-                fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{runs}" ;; esac\n'
-                                'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
-                                f'printf \'%s\\n\' "$*" >> "{log}"\n'
-                                f'B="{tmp / "out" / "artifacts" / "runs"}/$(cat "{current}")/board/r1"; mkdir -p "$B"\n'
-                                'for a in "$@"; do case "$a" in request=*) printf \'{"request_file": "%s"}\' "${a#request=}" > "$B/start.json" ;; esac; done\n'
-                                'exit 0\n')
-                env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp),
-                                         CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
-                                         **security)
-                target = tmp / "target"
-                row = lambda i, status: {"id": i, "workflow_name": "darkfactory", "status": status,
-                                         "working_path": f"/wt/{i}", "output_root": str(tmp / "out")}
-                current.write_text("run-1")
-                runs.write_text(json.dumps({"runs": [row("run-1", "paused")]}))
-                first = subprocess.run(["sh", str(DEV / "real-run.sh"), str(target)],
-                                       capture_output=True, text=True, encoding="utf-8", env=env)
-                self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
-                self.assertIn("run id: run-1", first.stdout)
-                # 人が前の対象と origin を消して同じ <dir> で起こし直す（前の run は Archon の一覧に残る）
-                shutil.rmtree(target)
-                shutil.rmtree(tmp / "target.origin.git")
-                current.write_text("run-2")
-                runs.write_text(json.dumps({"runs": [row("run-2", "paused"), row("run-1", prior)]}))
-                second = subprocess.run(["sh", str(DEV / "real-run.sh"), str(target)],
-                                        capture_output=True, text=True, encoding="utf-8", env=env)
-                self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
-                self.assertIn("run id: run-2", second.stdout)
-                requests = [next(a.split("=", 1)[1] for a in line.split() if a.startswith("request="))
-                            for line in log.read_text().splitlines()]
-                self.assertEqual(len(requests), 2, requests)
-                self.assertNotEqual(*requests)
-                self.assertTrue((tmp / "dev-home" / "runs" / "run-2.json").exists())
 
     def test_dogfood_reads_named_pr_and_issue_from_source_before_clone(self):
         """依頼が {findings, pr, issue} で名指せば、clone の前に元のリポジトリ（GitHub を解ける remote を持つ物。clone は origin を
@@ -1561,140 +1470,70 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self._herdr_follows_continue_lines(tmp, result.stdout, "dogfood.sh")
 
-    def test_real_run_continue_lines_report_run_state_to_herdr_pane(self):
-        """real-run.sh も dogfood.sh と同じく、続きの行の後段（real-run.sh --show <dir> <run-id>）で herdr の枠の集計を run に追わせる"""
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = pathlib.Path(tmp_str)
-            fake_bin, _ = hermetic.fake_herdr(tmp)
-            security, _ = fake_security(tmp)
-            (tmp / "fake-bin" / "herdr").symlink_to(fake_bin / "herdr")
-            (tmp / "runs.json").write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
-                                                                 "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
-            fake = tmp / "fake-archon.sh"
-            # workflow run は run の盤面 r1/start.json に request= の値を残す（線の start と同じ。起動の後に結ぶ材料）
-            fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;; esac\n'
-                            'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
-                            f'B="{tmp / "out" / "artifacts" / "runs" / "run-1" / "board" / "r1"}"; mkdir -p "$B"\n'
-                            'for a in "$@"; do case "$a" in request=*) printf \'{"request_file": "%s"}\' "${a#request=}" > "$B/start.json" ;; esac; done\n'
-                            'exit 0\n')
-            env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp),
-                                     CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
-                                     HERDR_ENV="1", HERDR_PANE_ID="pane-7", **security)
-            result = subprocess.run(["sh", str(DEV / "real-run.sh"), str(tmp / "target")],
-                                    capture_output=True, text=True, encoding="utf-8", env=env)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn(f"real-run.sh --show {(tmp / 'target').resolve()} run-1", result.stdout)
-            self._herdr_follows_continue_lines(tmp, result.stdout, "real-run.sh")
-
     def test_show_reports_run_state_to_herdr_pane_once(self):
-        """dogfood.sh --show・real-run.sh --show は、起動の時の控え（herdr_pane）の枠へ、その run の今の状態で集計を 1 回だけ出し、
+        """dogfood.sh --show は、起動の時の控え（herdr_pane）の枠へ、その run の今の状態で集計を 1 回だけ出し、
         控えは書き直さない（paused→blocked・running→working・completed→release）"""
-        for shell in ("dogfood.sh", "real-run.sh"):
-            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as tmp_str:
-                tmp = pathlib.Path(tmp_str)
-                fake_bin, herdr_log = hermetic.fake_herdr(tmp)
-                target = tmp / "dog" / "repo" if shell == "dogfood.sh" else tmp / "target"
-                (target / ".git").mkdir(parents=True)
-                ledger = tmp / "dev-home" / "runs" / "run-1.json"
-                ledger.parent.mkdir(parents=True)
-                ledger.write_text(json.dumps({"run_id": "run-1", "target": str(target), "started_at": 1.0,
-                                              "herdr_pane": "pane-7"}))
-                runs = tmp / "runs.json"
-                fake = tmp / "fake-archon.sh"
-                fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{runs}" ;; esac\nexit 0\n')
-                env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
-                                         CLAUDE_BIN_PATH="/usr/bin/true", HERDR_ENV="1", HERDR_PANE_ID="pane-7",
-                                         PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
-                for status, want in (("paused", "pane report-agent pane-7 --source works-factory --agent works --state blocked"),
-                                     ("running", "pane report-agent pane-7 --source works-factory --agent works --state working"),
-                                     ("completed", "pane release-agent pane-7 --source works-factory --agent works")):
-                    runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": status,
-                                                          "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
-                    herdr_log.unlink(missing_ok=True)
-                    r = subprocess.run(["sh", str(DEV / shell), "--show", str(target.parent if shell == "dogfood.sh" else target),
-                                        "run-1"], capture_output=True, text=True, encoding="utf-8", env=env)
-                    self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-                    self.assertIn(f"状態: {status}", r.stdout)
-                    calls = herdr_log.read_text().splitlines() if herdr_log.exists() else []
-                    self.assertEqual(len(calls), 1, (status, calls))
-                    self.assertTrue(calls[0].startswith(want), calls)
-                self.assertEqual(json.loads(ledger.read_text())["started_at"], 1.0)
-
-    def test_show_exit_and_output_do_not_change_when_herdr_fails(self):
-        """herdr が失敗しても（サーバが居ない server_not_running・rc=1）、dogfood.sh --show・real-run.sh --show の終了コードと
-        出力は herdr が通る時と同じ（集計の失敗で run を止めない）"""
-        for shell in ("dogfood.sh", "real-run.sh"):
-            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as tmp_str:
-                tmp = pathlib.Path(tmp_str)
-                target = tmp / "dog" / "repo" if shell == "dogfood.sh" else tmp / "target"
-                (target / ".git").mkdir(parents=True)
-                ledger = tmp / "dev-home" / "runs" / "run-1.json"
-                ledger.parent.mkdir(parents=True)
-                ledger.write_text(json.dumps({"run_id": "run-1", "target": str(target), "started_at": 1.0,
-                                              "herdr_pane": "pane-7"}))
-                runs = tmp / "runs.json"
-                runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
-                                                      "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
-                fake = tmp / "fake-archon.sh"
-                fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{runs}" ;; esac\nexit 0\n')
-                got = {}
-                for fail in (False, True):
-                    (tmp / str(fail)).mkdir()
-                    fake_bin, herdr_log = hermetic.fake_herdr(tmp / str(fail), fail=fail)
-                    env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
-                                             CLAUDE_BIN_PATH="/usr/bin/true", HERDR_ENV="1", HERDR_PANE_ID="pane-7",
-                                             PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
-                    r = subprocess.run(["sh", str(DEV / shell), "--show",
-                                        str(target.parent if shell == "dogfood.sh" else target), "run-1"],
-                                       capture_output=True, text=True, encoding="utf-8", env=env)
-                    self.assertTrue(herdr_log.exists(), f"herdr が呼ばれていない（fail={fail}）")
-                    self.assertIn("--state blocked", herdr_log.read_text())
-                    got[fail] = (r.returncode, r.stdout)
-                self.assertEqual(got[False][0], 0, got[False][1])
-                self.assertEqual(got[True], got[False])
-
-    def test_real_run_outside_herdr_pane_never_calls_herdr(self):
-        """herdr の枠の外（HERDR_ENV が無い）で起こした run は、herdr が PATH に在っても起動の後にも --show にも herdr を呼ばず、
-        控えに枠を残さない。既定の家の根（XDG_STATE_HOME。setUpModule が試験の一時の置き場に向けた）には何も書かない"""
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
             fake_bin, herdr_log = hermetic.fake_herdr(tmp)
-            security, _ = fake_security(tmp)
-            (tmp / "fake-bin" / "herdr").symlink_to(fake_bin / "herdr")
-            (tmp / "runs.json").write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
-                                                                 "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
+            target = tmp / "dog" / "repo"
+            (target / ".git").mkdir(parents=True)
+            ledger = tmp / "dev-home" / "runs" / "run-1.json"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(json.dumps({"run_id": "run-1", "target": str(target), "started_at": 1.0,
+                                          "herdr_pane": "pane-7"}))
+            runs = tmp / "runs.json"
             fake = tmp / "fake-archon.sh"
-            # workflow run は run の盤面 r1/start.json に request= の値を残す（線の start と同じ。起動の後に結ぶ材料）
-            fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{tmp / "runs.json"}" ;; esac\n'
-                            'case "$1 $2" in "workflow run") ;; *) exit 0 ;; esac\n'
-                            f'B="{tmp / "out" / "artifacts" / "runs" / "run-1" / "board" / "r1"}"; mkdir -p "$B"\n'
-                            'for a in "$@"; do case "$a" in request=*) printf \'{"request_file": "%s"}\' "${a#request=}" > "$B/start.json" ;; esac; done\n'
-                            'exit 0\n')
-            env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp),
-                                     CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true",
-                                     **security)
-            env.pop("HERDR_ENV", None)
-            env.pop("HERDR_PANE_ID", None)
-            for args in ([str(tmp / "target")], ["--show", str(tmp / "target"), "run-1"]):
-                with self.subTest(args=args[0]):
-                    r = subprocess.run(["sh", str(DEV / "real-run.sh"), *args],
-                                       capture_output=True, text=True, encoding="utf-8", env=env)
-                    self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-                    self.assertFalse(herdr_log.exists(), herdr_log.read_text() if herdr_log.exists() else "")
-            self.assertEqual(json.loads((tmp / "dev-home" / "runs" / "run-1.json").read_text())["herdr_pane"], "")
-            self.assertEqual(os.listdir(os.environ["XDG_STATE_HOME"]), [])
+            fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{runs}" ;; esac\nexit 0\n')
+            env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
+                                     CLAUDE_BIN_PATH="/usr/bin/true", HERDR_ENV="1", HERDR_PANE_ID="pane-7",
+                                     PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
+            for status, want in (("paused", "pane report-agent pane-7 --source works-factory --agent works --state blocked"),
+                                 ("running", "pane report-agent pane-7 --source works-factory --agent works --state working"),
+                                 ("completed", "pane release-agent pane-7 --source works-factory --agent works")):
+                runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": status,
+                                                      "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
+                herdr_log.unlink(missing_ok=True)
+                r = subprocess.run(["sh", str(DEV / "dogfood.sh"), "--show", str(target.parent),
+                                    "run-1"], capture_output=True, text=True, encoding="utf-8", env=env)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertIn(f"状態: {status}", r.stdout)
+                calls = herdr_log.read_text().splitlines() if herdr_log.exists() else []
+                self.assertEqual(len(calls), 1, (status, calls))
+                self.assertTrue(calls[0].startswith(want), calls)
+            self.assertEqual(json.loads(ledger.read_text())["started_at"], 1.0)
 
-    def test_real_run_show_usage(self):
+    def test_show_exit_and_output_do_not_change_when_herdr_fails(self):
+        """herdr が失敗しても（サーバが居ない server_not_running・rc=1）、dogfood.sh --show の終了コードと
+        出力は herdr が通る時と同じ（集計の失敗で run を止めない）"""
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
-            for args in (["--show", str(tmp)], ["--show", str(tmp / "nothing"), "run-1"]):
-                with self.subTest(args=args):
-                    r = subprocess.run(["sh", str(DEV / "real-run.sh"), *args], capture_output=True, text=True,
-                                       encoding="utf-8", env=hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"),
-                                                                                CLAUDE_BIN_PATH="/usr/bin/true"))
-                    self.assertEqual(r.returncode, 2, r.stderr)
-                    self.assertIn("--show", r.stderr)
-                    self.assertFalse((tmp / "dev-home").exists())
+            target = tmp / "dog" / "repo"
+            (target / ".git").mkdir(parents=True)
+            ledger = tmp / "dev-home" / "runs" / "run-1.json"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(json.dumps({"run_id": "run-1", "target": str(target), "started_at": 1.0,
+                                          "herdr_pane": "pane-7"}))
+            runs = tmp / "runs.json"
+            runs.write_text(json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
+                                                  "working_path": "/wt/run-1", "output_root": str(tmp / "out")}]}))
+            fake = tmp / "fake-archon.sh"
+            fake.write_text(f'#!/bin/sh\ncase "$*" in "workflow runs --json") cat "{runs}" ;; esac\nexit 0\n')
+            got = {}
+            for fail in (False, True):
+                (tmp / str(fail)).mkdir()
+                fake_bin, herdr_log = hermetic.fake_herdr(tmp / str(fail), fail=fail)
+                env = hermetic.child_env(WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
+                                         CLAUDE_BIN_PATH="/usr/bin/true", HERDR_ENV="1", HERDR_PANE_ID="pane-7",
+                                         PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
+                r = subprocess.run(["sh", str(DEV / "dogfood.sh"), "--show",
+                                    str(target.parent), "run-1"],
+                                   capture_output=True, text=True, encoding="utf-8", env=env)
+                self.assertTrue(herdr_log.exists(), f"herdr が呼ばれていない（fail={fail}）")
+                self.assertIn("--state blocked", herdr_log.read_text())
+                got[fail] = (r.returncode, r.stdout)
+            self.assertEqual(got[False][0], 0, got[False][1])
+            self.assertEqual(got[True], got[False])
 
     def test_dogfood_token_only_names_variable_without_value(self):
         """トークンだけで起こしたら、値は出さずに CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つよう案内すること。"""
@@ -1782,24 +1621,6 @@ class TestDevShell(unittest.TestCase):
             self.assertIn((MARK_HOME, f"find-generic-password -s {service} -w"), security_calls(self.security_log))
             self.assertTrue(any(c[2:4] == ["workflow", "run"] for c in calls), calls)   # Archon まで届いた
 
-    def _real_run_keychain_only(self, which):
-        service, value, source = self.KEYCHAIN_ONLY[which]
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = pathlib.Path(tmp_str)
-            dev_home = tmp / "dev-home"
-            (dev_home / "bin").mkdir(parents=True)
-            (dev_home / "bin" / "archon-darwin-arm64").write_bytes(b"not the real archon binary")
-            fake, log = fake_security(tmp, {service: value})
-            env = hermetic.child_env(WORKS_DEV_HOME=str(dev_home), CLAUDE_BIN_PATH="/usr/bin/true", **fake)
-            result = subprocess.run(["sh", str(DEV / "real-run.sh"), str(tmp / "target")],
-                                    capture_output=True, text=True, encoding="utf-8", env=env)
-            self.assertNotIn("認証が無い", result.stderr)
-            self.assertIn((MARK_HOME, f"find-generic-password -s {service} -w"), security_calls(log))
-            # 前検を抜けて archon.sh まで届き、出どころの名の 1 行の後、中身の違う実行ファイルの sha256 の確かめで止まる
-            self.assertIn(f"認証は {source}", result.stderr)
-            self.assertIn("sha256", result.stderr)
-            self.assertNotIn("sk-ant-oat01-dummy-token-for-test", result.stdout + result.stderr)
-
     @unittest.skipUnless(sys.platform == "darwin", "SKIP macos: keychain の段は macOS だけ（auth_launch.py）")
     def test_dogfood_runs_with_derived_keychain_item_only(self):
         self._dogfood_keychain_only("derived")
@@ -1807,14 +1628,6 @@ class TestDevShell(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "darwin", "SKIP macos: keychain の段は macOS だけ（auth_launch.py）")
     def test_dogfood_runs_with_claude_code_keychain_only(self):
         self._dogfood_keychain_only("own")
-
-    @unittest.skipUnless(sys.platform == "darwin", "SKIP macos: keychain の段は macOS だけ（auth_launch.py）")
-    def test_real_run_passes_precheck_with_derived_keychain_item_only(self):
-        self._real_run_keychain_only("derived")
-
-    @unittest.skipUnless(sys.platform == "darwin", "SKIP macos: keychain の段は macOS だけ（auth_launch.py）")
-    def test_real_run_passes_precheck_with_claude_code_keychain_only(self):
-        self._real_run_keychain_only("own")
 
     def test_dogfood_refuses_claude_tmp(self):
         with tempfile.TemporaryDirectory() as tmp_str:

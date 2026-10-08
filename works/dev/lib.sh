@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# works/dev/lib.sh — mktarget.sh・real-run.sh・dogfood.sh が . で読む（単独では走らせない）
+# works/dev/lib.sh — mktarget.sh・dogfood.sh が . で読む（単独では走らせない）
 
 # works_dev_copy_pack <works の dir> <pack の dir>: works/ を project pack として写す。tests/・dev/・docs/ は除く
 # （Archon はドット始まりのフォルダと、直下に YAML の無いフォルダを工程として読まない）。
@@ -353,7 +353,7 @@ for r in runs if every else runs[:1]:
 }
 
 # works_dev_show_cmd <殻のパス> <archon を呼ぶ殻> <dir>: 続きの行の後ろに付ける口（<殻> --show <dir>。WORKS_DEV_SHOW_CMD）を export する。
-# dogfood.sh・real-run.sh が起動の後と --show で呼ぶ
+# dogfood.sh が起動の後と --show で呼ぶ
 works_dev_show_cmd() {
   WORKS_DEV_SHOW_CMD="$(SHELL_SH="$1" ARCHON_SH="$2" DIR="$3" python3 -c '
 import os, shlex
@@ -368,7 +368,7 @@ works_dev_id_status() {
   python3 -c 'import json, sys; r = json.load(sys.stdin); print("{}={}".format(r.get("id") or "", r.get("status") or ""))'
 }
 
-# works_dev_show_synced <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]: dogfood.sh・real-run.sh の起動の後と --show。
+# works_dev_show_synced <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]: dogfood.sh の起動の後と --show。
 # run の行（WORKS_RUN_ROW。無ければ WORKS_RUN_ID の run か一番新しい run）を 1 回だけ引き、works_dev_show_run で出し、
 # その状態で herdr の枠の集計（$WORKS_DEV_HOME/runs の控え）を出す。続きの行の後段（差分の書き直し）もここを通る。終了の値は
 # works_dev_show_run の値（集計の成否で変えない）。引けなければ 1 行の理由で 1
@@ -385,7 +385,7 @@ works_dev_show_synced() {
 }
 
 # works_dev_ledger_bind <呼び手> <archon を呼ぶ殻> <対象の dir> <この起動の依頼の写し> [show [<差分を取り込むリポジトリ>]]:
-# use.sh・dogfood.sh・real-run.sh の起動の後に run を結ぶ口（設計書 2.3）。run の一覧を 1 回引き、launch.py ledger bind が
+# use.sh・dogfood.sh の起動の後に run を結ぶ口（設計書 2.3）。run の一覧を 1 回引き、launch.py ledger bind が
 # 盤面の依頼がこの起動の写し（起動ごとに一意の絶対パス。依頼を省いた起動は GITHUB_READS の読み出しのファイル）と一致する run が
 # ちょうど 1 本の時だけ結んで控え（$WORKS_DEV_HOME/runs）を書き、WORKS_RUN_ROW・WORKS_RUN_ID・WORKS_RUN_STATUS を置く。5 つめに show を渡せば works_dev_show_synced に渡す（--show は控えを
 # 書き直さない。起動の時の started_at と herdr_pane を残す）。結べなければ一覧に触れず控えも続きの行も書かず、理由と候補の後に

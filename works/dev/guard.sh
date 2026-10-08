@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# works/dev/guard.sh — archon.sh・mktarget.sh・real-run.sh・dogfood.sh・use.sh が . で読む（単独では走らせない）
+# works/dev/guard.sh — archon.sh・mktarget.sh・dogfood.sh・use.sh が . で読む（単独では走らせない）
 #
 # Claude Code のサンドボックスは、自分の一時フォルダ（/private/tmp/claude-<uid>/。/tmp は macOS では /private/tmp への
 # symlink）への書き込みを Bash に許す。そこに開発の家（WORKS_DEV_HOME）・対象・origin を置くと、サンドボックスの中の
@@ -7,7 +7,7 @@
 
 # 全体の模型の既定。入口の殻は埋めず、埋めるのは archon.sh だけ（埋めると明示と既定が見分けられない）。
 # 環境から上書きさせない。続き（answer・show の行）は start の時に解いた既定を別の名 WORKS_MODEL_PINNED で渡し
-# （use.sh load_ledger・lib.sh works_dev_go だけが置く。入口の殻 use.sh・dogfood.sh・real-run.sh は起動の時に外し、
+# （use.sh load_ledger・lib.sh works_dev_go だけが置く。入口の殻 use.sh・dogfood.sh は起動の時に外し、
 # 利用者の殻に残った値を受けない）、archon.sh が読んで外す（run の途中で既定を解き直さない）。
 # works の YAML は AI の段の全部に model:・effort: を書く（持ち主 2026-10-06。tests/test_tool_parity.py が欠けを名指す）ので、
 # この既定が効くのは run の題（TITLE_GENERATION_MODEL）だけ。段の模型は替わらない。費用を先に取る（持ち主 2026-10-01）。

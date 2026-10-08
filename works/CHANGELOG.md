@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Removed
+
+- 本物の AI でラインを 1 回回す開発の殻 `dev/real-run.sh` を消した（2026-10-09 の掃除。持ち主の了承済み）。同じ用は `dev/use.sh`（ほかのリポジトリを対象に回す）と `dev/canary.sh`（決まった種と依頼で回す）が持つ。起動の共通の口 `dev/launch.py env` の `--for=real-run.sh` と、それだけが使っていた包みの既定の読み方も消した。使い捨ての対象を作る `dev/mktarget.sh` と種 `dev/target-seed/` は `dev/check.sh` が使うので残す。
+
 ## [0.2.51] - 2026-10-09
 
 ### Changed

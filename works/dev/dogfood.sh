@@ -37,7 +37,7 @@
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（ここでは埋めない。既定を解いて書くのは archon.sh）。
 # 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。
 # 認証の確かめの後・clone の前に 1 回、superpowers の手元と marketplace の一覧の版を写しと比べて知らせる（toolset.py newer。止めない）。
-# 開発の家の既定と CLAUDE_BIN_PATH は launch.py env が解き（real-run.sh と同じ）、隔離の前に渡す。
+# 開発の家の既定と CLAUDE_BIN_PATH は launch.py env が解き、隔離の前に渡す。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_dev.py が偽物を差す）。
 set -eu
 

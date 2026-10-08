@@ -3,7 +3,7 @@
 python3 -I works/dev/launch.py env --for=<殻> [--claude] [--show] [--target <解いた対象の根>] [--adapter <包みの実パス>]
 python3 -I works/dev/launch.py ledger save|load|list|bind|unbound-save|unbound-release|live …（下の LEDGER_USAGE）
 
-env: 殻 4 本（use.sh・dogfood.sh・real-run.sh・archon.sh）の家の既定・claude の解決・包みの既定とラインの入力 adapter の値
+env: 殻 3 本（use.sh・dogfood.sh・archon.sh）の家の既定・claude の解決・包みの既定とラインの入力 adapter の値
 （WORKS_LAUNCH_ADAPTER_MODE）を 1 か所で持ち、sh の代入の行で返す。--show は dogfood.sh --show の時だけ渡す。
 殻は guard.sh の works_dev_launch_env で 2 段に受ける（1 段の eval "$(…)" では部品の失敗が消える）。
 ledger: run の控え <置き場>/<run-id>.json の形（版の欄 schema）と、起動の後に run を結ぶ規則を 1 か所で持つ。save は書き、
@@ -45,7 +45,7 @@ LIVE_STATUSES = ("running", "paused", "pending")
 # works_dev_show_run（clean の行を勧めるか）が ledger done でここを読む。
 # failed は含めない（Archon の resume が前の worktree を使い直すので、次の use.sh start の sweep_old_runs まで残す）
 DONE_STATUSES = ("completed", "cancelled")
-USAGE = ("launch.py env --for=<use.sh|dogfood.sh|real-run.sh|archon.sh> [--claude] [--show] [--target <path>]"
+USAGE = ("launch.py env --for=<use.sh|dogfood.sh|archon.sh> [--claude] [--show] [--target <path>]"
          " [--adapter <path>]")
 LEDGER_USAGE = ("launch.py ledger save --dir <置き場> --run-id <id> --target <dir> --model-value <値> --model-from <出どころ>"
                 " [--wrap-ref <参照>] [--github-reads <読み出しのファイル>] | ledger list --dir <置き場> [--run-id <id>] | ledger load --dir <置き場> --run-id <id>"
@@ -117,10 +117,6 @@ def _adapter_default_on(environ, show):
     return {"WORKS_DEV_ADAPTER": value, **_adapter_mode(value)}
 
 
-def _adapter_inherit(environ, show):
-    return _adapter_mode(environ.get("WORKS_DEV_ADAPTER", ""))
-
-
 def _adapter_none(environ, show):
     return {}
 
@@ -129,7 +125,6 @@ def _adapter_none(environ, show):
 SHELL_DEFAULTS = {
     "use.sh": (_use_home, _claude, _adapter_default_on),
     "dogfood.sh": (_dev_home, _claude, _adapter_default_on),
-    "real-run.sh": (_dev_home, _claude, _adapter_inherit),
     "archon.sh": (_dev_home, _real_claude, _adapter_none),
 }
 
