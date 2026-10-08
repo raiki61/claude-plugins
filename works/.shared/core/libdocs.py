@@ -24,7 +24,8 @@ Context7 の口（2026-09-28 に https://context7.com/docs/api-guide で確か�
   節の TITLE の次の行にも書く）・取れなかった物・Context7 に無い物・版の合わない物・上限で取らない物・読めない file は節の頭に数と名前で書く（黙って落とさない）
 - run をまたぐ控え（env の SHARED_ENV が在る時だけ。置き場と長さの理由は定数の注記）: 取れた物と Context7 に無い物を取った時刻と
   一緒に <包みの家>/libdocs/ にも書き、同じ家の後の run は SHARED_TTL（7 日）の内なら網に出ずに使う（盤面の今の周にも写す）。
-  429 を受けた時刻も書き、同じ家の後の run は QUOTA_HOLD（24 時間）の内なら問い合わせずに枠切れとして数える（盤面にも印を写す）
+  429 を受けた時刻と鍵の有る無し（鍵の値は書かない）も書き、同じ家の後の run は鍵の有る無しが同じなら QUOTA_HOLD（24 時間）の内は
+  問い合わせずに枠切れとして数える（そのために飛ばした物が出た run は盤面にも印を写す）
 """
 import json
 import os
@@ -416,10 +417,10 @@ def _shared_get(sd, name: str, now: float):
     return doc if doc and doc.get("status") in ("ok", "not_found") and _fresh(doc, now, SHARED_TTL) else None
 
 
-def _shared_quota(sd, now: float):
-    """run をまたぐ枠切れの印（QUOTA_HOLD の内の物）。無ければ None"""
+def _shared_quota(sd, now: float, keyed: bool):
+    """run をまたぐ枠切れの印（QUOTA_HOLD の内の物で、鍵の有る無しが今の起動と同じ物。鍵の上限と匿名の上限は別）。無ければ None"""
     doc = _read_doc(sd / QUOTA_MARK) if sd is not None else None
-    return doc if doc and _fresh(doc, now, QUOTA_HOLD) else None
+    return doc if doc and _fresh(doc, now, QUOTA_HOLD) and doc.get("keyed") is keyed else None
 
 
 def _shared_put(sd, name: str, doc: dict) -> str:
@@ -513,14 +514,15 @@ def _section(board, repo, files, get, env, budget, now) -> str:
     headers = {"User-Agent": "works-libdocs", "Accept": "application/json"}
     if env.get(ENV_KEY):
         headers["Authorization"] = f"Bearer {env[ENV_KEY]}"
-    rows, hits, shared_hits, unshared = [], 0, 0, []
+    rows, hits, shared_hits, unshared, held_used = [], 0, 0, [], False
     sd = shared_dir(env)
+    keyed = bool(env.get(ENV_KEY))
     halted = notice(board) is not None
-    held = None if halted else _shared_quota(sd, now)
-    if held is not None:   # 同じ家のほかの run が窓の内に枠切れを受けた。この run の盤面にも印を写す（報告の冒頭の 1 行が読む）
-        _mark_quota(board, f"ほかの run が {_when(held['at'])} に枠切れを受けた（{held.get('reason') or 'HTTP 429'}）。"
-                           f"{_when(held['at'] + QUOTA_HOLD)} まで問い合わせない")
-        halted = True
+    held = None if halted else _shared_quota(sd, now, keyed)
+    # 同じ家のほかの run が窓の内に枠切れを受けた。網に出ずに飛ばした物が出た時だけ、この run の盤面にも印を写す（報告の冒頭の
+    # 1 行が読む。家の控えで全部取れた run には立てない）
+    held_why = (f"ほかの run が {_when(held['at'])} に枠切れを受けた（{held.get('reason') or 'HTTP 429'}）ので "
+                f"{_when(held['at'] + QUOTA_HOLD)} まで問い合わせない") if held is not None else ""
 
     def keep(name, doc):
         board.work(f"{CACHE_DIR}/{name}").write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
@@ -538,7 +540,10 @@ def _section(board, repo, files, get, env, budget, now) -> str:
         elif (got := _shared_get(sd, name, now)) is not None:
             shared_hits += 1
             keep(name, got)        # run の中の後の周は盤面の控えを読む（run の間に家の控えが替わっても同じ物）
-        elif halted:
+        elif halted or held is not None:
+            if not halted:
+                _mark_quota(board, held_why)
+                halted = held_used = True
             got = {"schema": SCHEMA, "lib": lib, "status": "quota", "id": "", "version_note": "", "snippets": [],
                    "error": "問い合わせを飛ばした（この run は枠切れ）"}
         else:
@@ -548,7 +553,7 @@ def _section(board, repo, files, get, env, budget, now) -> str:
                 share(name, got)
             elif got["status"] == "quota":
                 _mark_quota(board, got["error"])
-                share(QUOTA_MARK, {"schema": SCHEMA, "reason": got["error"], "at": now})
+                share(QUOTA_MARK, {"schema": SCHEMA, "reason": got["error"], "at": now, "keyed": keyed})
                 halted = True
         rows.append({**got, "lib": lib})
     ok = [r for r in rows if r["status"] == "ok"]
@@ -564,6 +569,8 @@ def _section(board, repo, files, get, env, budget, now) -> str:
     lines = head + ["", nums, f"貼った断片 {shown} 本・{used} トークン（予算 {budget}。切った断片 {cut} 本）"]
     if nf:
         lines.append("- Context7 に無い: " + _names(nf, lambda r: r["lib"]["search"]))
+    if held_used:
+        lines.append(f"- 枠切れの印: {held_why}")
     if quota:
         lines.append("- 枠切れで取らなかった: " + _names(quota, lambda r: f"{r['lib']['search']}（{r['error']}）"))
     if err:

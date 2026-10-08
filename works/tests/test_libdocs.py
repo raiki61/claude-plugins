@@ -302,9 +302,6 @@ class ComposerCase(Base):
         self.assertIn("判定の出力が盤面に無い", planblk.lib_section(self.board, self.repo))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 class SharedCacheCase(Base):
     """run をまたぐ控え（利用の家の包みの家 WORKS_ADAPTER_HOME の下 libdocs/）: 同じ家のほかの run が取った物を TTL の間は網に出ずに
     使い、枠切れ（429）の印も QUOTA_HOLD の間はほかの run に効かせる（run ごとに同じライブラリで枠を使い切っていた。利用者の家で
@@ -371,8 +368,36 @@ class SharedCacheCase(Base):
         self.assertEqual(held.calls, [], "窓の間はほかの run も網に出ない")
         self.assertEqual(text.splitlines()[1], libdocs.QUOTA_NOTICE)
         self.assertIn("枠切れで取らなかった 1 本", text)
+        self.assertIn("- 枠切れの印: ほかの run が ", text)
         self.assertIsNotNone(libdocs.notice(board), "盤面にも印を写す（報告の冒頭の 1 行が読む）")
         later = ok_http()
         _, text = self.run_section("run3", later, self.T + libdocs.QUOTA_HOLD + 1)
         self.assertTrue(later.calls, "窓を過ぎたら問い合わせ直す")
         self.assertIn("取れた 1 本", text)
+
+    def test_anonymous_quota_mark_does_not_hold_a_keyed_run(self):
+        quota = FakeHttp({"/v2/libs/search": (429, {"error": "Quota Exceeded", "message": "Monthly quota exceeded"})})
+        self.run_section("run1", quota, self.T)
+        self.env = {**self.env, libdocs.ENV_KEY: "ctx7sk-test"}
+        keyed = ok_http()
+        _, text = self.run_section("run2", keyed, self.T + 60)
+        self.assertTrue(keyed.calls, "鍵なしの枠切れは鍵の在る起動を止めない（上限が別）")
+        self.assertIn("取れた 1 本", text)
+        self.assertNotIn("ctx7sk", "".join(p.read_text(encoding="utf-8") for p in (self.home / libdocs.CACHE_DIR).glob("*.json")),
+                         "鍵の値は控えに書かない")
+
+    def test_quota_mark_does_not_flag_a_run_served_from_the_shared_cache(self):
+        self.run_section("run1", ok_http(), self.T)
+        quota = FakeHttp({"/v2/libs/search": (429, {"error": "Quota Exceeded", "message": "Monthly quota exceeded"})})
+        f2 = self.write("other.py", "import flask\n")
+        libdocs.section(FakeBoard(self.tmp / "run1b"), self.repo, [f2], get=quota, env=self.env, now=self.T + 10)
+        held = FakeHttp()
+        board, text = self.run_section("run2", held, self.T + 60)
+        self.assertEqual(held.calls, [])
+        self.assertIn("取れた 1 本", text)
+        self.assertIsNone(libdocs.notice(board), "家の控えで全部取れた run に枠切れの印を立てない")
+        self.assertNotIn(libdocs.QUOTA_NOTICE, text)
+
+
+if __name__ == "__main__":
+    unittest.main()
