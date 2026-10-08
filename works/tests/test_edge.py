@@ -49,9 +49,9 @@ SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
 OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
-            "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note", "purpose_file", "mat_go",
+            "pr_go", "premises_go", "purpose_go", "spec_go", "purpose_file", "mat_go",
             "structure_units_file", "ripple_file", "verify_file"}
-BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mat_go"}
+BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
 FACE = "clamp の上限の意味が変わる"
@@ -713,13 +713,6 @@ class EntryMidCase(EdgeBase):
         got = self.edge("entry")
         self.assertEqual((got["pr_go"], got["premises_go"]), (False, False))
 
-    def test_mid_is_slot(self):
-        """役が修正した盤面 → go True、runtime_go・holdout_go False、mid_note"""
-        self.fixed()
-        got = self.edge("mid")
-        self.assertEqual((got["go"], got["runtime_go"], got["holdout_go"]), (True, False, False))
-        self.assertEqual(got["mid_note"], line_edge.MID_NOTE)
-
     def test_slots_do_not_go(self):
         """異議の無い修正の直後: rejudge は再審の節が待っていないので go False。eyes は目が待っていないので go False"""
         self.fixed()
@@ -973,29 +966,28 @@ class GoCase(EdgeBase):
 
     def test_go_follows_board_ready(self):
         """線の順に進めた盤面で、各 at の go が盤面の ready の節で決まる（review → p3.delta_review、refix → p3.delta_fix、
-        tests → p4.ci、mid → 今の周の p3.fix を役が出した）"""
+        tests → p4.ci）"""
         self.planned()
         accept.write_board(self.board, design.DESIGN_FILE, linekit.reply("design_ok"))   # 修正案のブロックが独立設計も作った後
-        self.assertEqual([self.edge(at)["go"] for at in ("plan", "fix", "mid", "review", "refix", "tests")], [False] * 6)
+        self.assertEqual([self.edge(at)["go"] for at in ("plan", "fix", "review", "refix", "tests")], [False] * 5)
         self.fix_after_plan("")
-        self.assertEqual({at: self.edge(at)["go"] for at in ("fix", "mid", "review", "refix", "tests")},
-                         {"fix": False, "mid": True, "review": True, "refix": False, "tests": False})
+        self.assertEqual({at: self.edge(at)["go"] for at in ("fix", "review", "refix", "tests")},
+                         {"fix": False, "review": True, "refix": False, "tests": False})
         self.take("p3.delta_review", DELTA_REVIEW)
         self.assertEqual({at: self.edge(at)["go"] for at in ("review", "refix", "tests")},
                          {"review": False, "refix": True, "tests": False})
         self.take("p3.delta_fix", DELTA_FIX)
-        self.assertEqual({at: self.edge(at)["go"] for at in ("mid", "review", "refix", "tests")},
-                         {"mid": True, "review": False, "refix": False, "tests": True})
+        self.assertEqual({at: self.edge(at)["go"] for at in ("review", "refix", "tests")},
+                         {"review": False, "refix": False, "tests": True})
 
-    def test_mid_not_go_after_empty_fix(self):
-        """直す物の無い周で機械が空の返答を渡した（trace の by works:empty-fix）→ mid の go は False（p3.fix は done でも）"""
+    def test_review_not_go_after_empty_fix(self):
+        """直す物の無い周で機械が空の返答を渡した（trace の by works:empty-fix）→ 差分の審査は回さず、最後のテストへ"""
         self.judged("judge_no_fix")
-        self.assertFalse(self.edge("mid")["go"])
         self.take("p3.fix", entry.empty_fix_reply())
         b = entry.open_board(self.board)
         line_edge.trace_empty_fix(b)
         self.assertEqual(b.node_state("p3.fix"), "done")
-        self.assertFalse(self.edge("mid")["go"])
+        self.assertFalse(self.edge("review")["go"])
         self.assertTrue(self.edge("tests")["go"])
         rows = [r for r in trace_rows(self.board) if r.get("by") == line_edge.EMPTY_FIX_BY]
         self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
@@ -1098,7 +1090,6 @@ class PlanEdgeCase(EdgeBase):
         self.assertIn("p4.ci", b.ready())
         rows = [r for r in trace_rows(self.board) if r.get("by") == line_edge.EMPTY_FIX_BY]
         self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
-        self.assertFalse(self.edge("mid")["go"])
         again = self.edge("plan", judged=self.judge_exit("judge_no_fix"))   # Archon の再開で呼び直しても 2 度渡さない
         self.assertEqual((again["go"], again["stop"]), (True, False))
         self.assertEqual(len(self.done_rows("p3.fix")), 1)

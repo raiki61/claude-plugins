@@ -431,15 +431,15 @@ class FixtureEdgeCase(FixtureBase):
         got = self.edge("mat", board=new_board, repo=other)
         self.assertEqual((got["stop"], got["go"]), (False, False), got)
 
-    def test_mid_checks_adapter_on_fixture_board(self):
-        """固定材料の盤面で包みを求める run（adapter が空）に包みの起動の行が無い → 役が 1 つ起きた後の最初の境の節 h-mid で
+    def test_review_checks_adapter_on_fixture_board(self):
+        """固定材料の盤面で包みを求める run（adapter が空）に包みの起動の行が無い → 修正のブロックと再審の後の境の節 h-review で
         works:adapter として止める（h-judge では止めない）"""
         _, src = self.captured()
         other = self.clone_same_tree()
         new_board = self.tmp / "b2" / "art" / "board"
         self.adopt(src, other, new_board)
         self.assertFalse(self.edge("judge", board=new_board, repo=other, adapter_mode="")["stop"])
-        got = self.edge("mid", board=new_board, repo=other, adapter_mode="")
+        got = self.edge("review", board=new_board, repo=other, adapter_mode="")
         self.assertEqual((got["stop"], got["go"]), (True, False), got)
         stop = json.loads((new_board / "state.json").read_text(encoding="utf-8"))["stop"]
         self.assertEqual(stop["by"], line_edge.ADAPTER_BY)

@@ -17,7 +17,7 @@
   "blk-report/blk-report.yaml": "c0f3f9dba14ef544bcb9ee795d4323c7a82827a24168931e2355d8adc8205924",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "147d73c7390cadbe477bbb6bb3264630227bea75759564d0e4a8b9adaa40634e",
-  "darkfactory/darkfactory.yaml": "ddf3ec5b3e94b3994c25803ecedecdf8f27a473f46b7004fd82e77f78fdde49d"
+  "darkfactory/darkfactory.yaml": "85c3060413afd5331c8b4e9691edc5d4e53e473cc3355388626a6034b04c1549"
  },
  "version": 1,
  "workflows": {
@@ -2672,15 +2672,7 @@
      "deps": [
       "start",
       "h-rejudge",
-      "rejudging"
-     ],
-     "id": "h-mid",
-     "kind": "script"
-    },
-    {
-     "deps": [
-      "start",
-      "h-mid",
+      "rejudging",
       "h-depth"
      ],
      "id": "h-redepth",
@@ -2689,7 +2681,8 @@
     {
      "deps": [
       "start",
-      "h-mid",
+      "h-rejudge",
+      "rejudging",
       "h-redepth"
      ],
      "id": "h-review",

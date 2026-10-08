@@ -5,7 +5,7 @@ description: |
   起動の関所 → start（盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 目的の文 → 素材集め（P1 の目）→ 判定 →
   独立設計（R2 の設計の半分。目的だけから）と修正案と事前審査（設計と突き合わせる）→ 修正の前の人の関所（要る時だけ）→
   単位ごとの深さ（h-depth）→ 修正（TDD の輪）→（裁定が案の項目の誤りなら）案の直し → 案の直しの関所（要る時だけ）→ 2 回目の修正 → 判定への異議の再審（異議が在る時だけ）→
-  中の検査の枠 → 深さの上げ（h-redepth）→ 修正の後のレンズ（局所レビュー）→ 差分の審査 → 手直し →
+  深さの上げ（h-redepth）→ 修正の後のレンズ（局所レビュー）→ 差分の審査 → 手直し →
   最後のテスト → 独立の目 → 最後の人の関所（目の結果を載せる）→ 機械の報告 → AI の報告と初見の検査（盤面が報告の節を出した時）→ 出口。
   境の節（h-*。scripts/edge.py を at を替えて使う。いつも走る）が盤面の ready から次のブロックを回すかを決め、関所の答えと
   止め札を盤面へ渡す。when: と関所の文言は、いつも走る節（start・境の節）の欄だけを読む。
@@ -177,7 +177,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -196,9 +196,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -241,7 +238,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -260,9 +257,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -298,7 +292,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -317,9 +311,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -369,7 +360,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -388,9 +379,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -466,7 +454,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -485,9 +473,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -529,7 +514,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -548,9 +533,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -624,7 +606,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -643,9 +625,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -686,7 +665,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -705,9 +684,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -750,7 +726,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -769,9 +745,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -817,7 +790,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -836,9 +809,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -855,52 +825,6 @@ nodes:
       base_rev: $start.output.base_rev
       policy_paste: $start.output.policy_paste
 
-  # 中の検査の枠（C18。動かす確かめ・holdout・変異はこの版に無い。mid_note が報告に載る）
-  - id: h-mid
-    script: edge
-    runtime: uv
-    timeout: 1728000000
-    depends_on: [start, h-rejudge, rejudging]
-    trigger_rule: none_failed_min_one_success
-    with:
-      at: "mid"
-      judged: "null"
-      premised: "null"
-      gate: "null"
-      tests: "null"
-      adapter: $start.output.adapter
-      final_gate: $INPUTS.final_gate
-    output_format:
-      type: object
-      additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
-      properties:
-        ok: {type: boolean}
-        stop: {type: boolean}
-        go: {type: boolean}
-        ask: {type: boolean}
-        gate_text: {type: string}
-        judgment_file: {type: string}
-        open_units: {type: string}
-        plan_file: {type: string}
-        notes: {type: string}
-        notes_file: {type: string}
-        why: {type: string}
-        gate_file: {type: string}
-        premises_file: {type: string}
-        pr_go: {type: boolean}
-        premises_go: {type: boolean}
-        purpose_go: {type: boolean}
-        spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
-        purpose_file: {type: string}
-        mat_go: {type: boolean}
-        structure_units_file: {type: string}
-        ripple_file: {type: string}
-        verify_file: {type: string}
-
   # 修正の後の信号で深さを標準へ上げる（いつも走る。決め 4・5）。食い違いの申し出・止めた単位・答えていない問い・案の直し・再審。
   # 全部の単位が軽量のままなら、待っている差分の審査（p3.delta_review）を盤面で省き（h-review が差分の審査・レンズ・手直しを回さない）、
   # skip に省く理由を出してレンズ（skip）と独立の目（skip_optional）に平の入力で渡す（決め 6・9）。lines は機械の報告の冒頭 2
@@ -908,7 +832,7 @@ nodes:
     script: depth
     runtime: uv
     timeout: 1728000000
-    depends_on: [start, h-mid, h-depth]
+    depends_on: [start, h-rejudge, rejudging, h-depth]
     trigger_rule: none_failed_min_one_success
     with:
       at: "raise"
@@ -934,7 +858,7 @@ nodes:
     script: edge
     runtime: uv
     timeout: 1728000000
-    depends_on: [start, h-mid, h-redepth]
+    depends_on: [start, h-rejudge, rejudging, h-redepth]
     trigger_rule: none_failed_min_one_success
     with:
       at: "review"
@@ -947,7 +871,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -966,9 +890,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -1013,7 +934,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1032,9 +953,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -1070,7 +988,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1089,9 +1007,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -1126,7 +1041,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1145,9 +1060,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -1183,7 +1095,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1202,9 +1114,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -1247,7 +1156,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, purpose_file, mat_go, structure_units_file, ripple_file, verify_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1266,9 +1175,6 @@ nodes:
         premises_go: {type: boolean}
         purpose_go: {type: boolean}
         spec_go: {type: boolean}
-        runtime_go: {type: boolean}
-        holdout_go: {type: boolean}
-        mid_note: {type: string}
         purpose_file: {type: string}
         mat_go: {type: boolean}
         structure_units_file: {type: string}
@@ -1294,7 +1200,6 @@ nodes:
       judged: {from: $judging.output, if_skipped: null}
       tests: {from: $testing.output, if_skipped: null}
       start: {from: $start.output}
-      mid: {from: $h-mid.output, if_skipped: null}
       ci: {from: $ci-checking.output, if_skipped: null}
       eyes: {from: $h-eyes.output, if_skipped: null}
       eyeing: {from: $eyeing.output, if_skipped: null}

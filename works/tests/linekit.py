@@ -356,11 +356,10 @@ LINE_ORDER = [
     {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
      "when": "$h-rejudge.output.go == true",
      "with": {"base_rev": "$start.output.base_rev", "policy_paste": "$start.output.policy_paste"}},
-    _edge("h-mid", "mid", ["start", "h-rejudge", "rejudging"]),
-    _depth("h-redepth", "raise", ["start", "h-mid", "h-depth"],
+    _depth("h-redepth", "raise", ["start", "h-rejudge", "rejudging", "h-depth"],
            replanned={"from": "$h-replan.output.go", "if_skipped": False},
            rejudged={"from": "$h-rejudge.output.go", "if_skipped": False}),
-    _edge("h-review", "review", ["start", "h-mid", "h-redepth"]),
+    _edge("h-review", "review", ["start", "h-rejudge", "rejudging", "h-redepth"]),
     {"id": "lensing", "kind": "include", "block": "blk-lens", "depends_on": ["h-review"],
      "when": "$h-review.output.go == true", "with": {"skip": "$h-redepth.output.skip"}},
     {"id": "reviewing", "kind": "include", "block": "blk-delta", "depends_on": ["h-review", "lensing"], "trigger_rule": NFMOS,
@@ -384,7 +383,7 @@ LINE_ORDER = [
     {"id": "report", "kind": "script", "script": "report", "depends_on": ["start", "h-eyes", "eyeing"],
      "trigger_rule": ALL_DONE,
      "with": {"judged": _skippable("$judging.output"), "tests": _skippable("$testing.output"),
-              "start": {"from": "$start.output"}, "mid": _skippable("$h-mid.output"),
+              "start": {"from": "$start.output"},
               "ci": _skippable("$ci-checking.output"), "eyes": _skippable("$h-eyes.output"),
               "eyeing": _skippable("$eyeing.output"), "cleaned_runs": "$INPUTS.cleaned_runs",
               "depth": _skippable("$h-redepth.output")}},
@@ -825,7 +824,7 @@ class LineRun:
             elif nid == "report":
                 w = row["with"]
                 self.out[nid] = report.build(self.board.resolve(), judged=self._src(w["judged"]), tests=self._src(w["tests"]),
-                                             start=self._src(w["start"]), mid=self._src(w["mid"]), ci=self._src(w["ci"]),
+                                             start=self._src(w["start"]), ci=self._src(w["ci"]),
                                              run_id=RUN_ID, events=[],
                                              depth_lines=(self._src(w["depth"]) or {}).get("lines") or ())
                 self.trail.append(nid)

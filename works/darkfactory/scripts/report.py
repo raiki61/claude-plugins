@@ -9,7 +9,6 @@
 - INPUTS_JUDGED: 判定のブロックの出口（{ok, open_units, need_fix, judgment_file, one_shot}）
 - INPUTS_TESTS:  最後のテスト（blk-tests の final）の出口（{ok, green, log, …}）
 - INPUTS_START:  start の出口（無ければ盤面の r1 の start の控え）
-- INPUTS_MID:    境の節 h-mid の出口（{go, mid_note, …}。中の検査の枠の行）
 - INPUTS_CI:     CI の任せ先の役のブロック（blk-ci）の collect の出口（{ok, reason, note, …}。包み無しの知らせ）
 - INPUTS_EYES:   最後の境の節 h-eyes の出口（{go, …}）
 - INPUTS_EYEING: 独立の目のブロック（blk-eyes）の出口
@@ -39,7 +38,7 @@ import os  # noqa: E402
 import script_io  # noqa: E402
 
 # 裁定 TA16: 読む INPUTS_* の組（YAML の with: の鍵と突き合わせる）
-INPUTS = ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI", "INPUTS_EYES", "INPUTS_EYEING",
+INPUTS = ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_CI", "INPUTS_EYES", "INPUTS_EYEING",
           "INPUTS_CLEANED_RUNS", "INPUTS_DEPTH")
 CLEANED_RUNS = "INPUTS_CLEANED_RUNS"   # 文字列の入力（ほかは JSON）。無くても欠けに数えない
 DEPTH = "INPUTS_DEPTH"                 # 後から足した JSON の入力。無くても欠けに数えない
@@ -89,7 +88,7 @@ def main() -> int:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
     try:
-        judged, tests, start, mid, ci, eyes, eyeing = (_json_or_none(n) for n in INPUTS if n not in LATE)
+        judged, tests, start, ci, eyes, eyeing = (_json_or_none(n) for n in INPUTS if n not in LATE)
         depth = _json_or_none(DEPTH) if DEPTH in os.environ else None
     except Broken as e:
         print(f"report: {_line(e)}", file=sys.stderr)
@@ -105,7 +104,7 @@ def main() -> int:
             raise BoardGap(f"盤面 {board} が無い（start の前に落ちた run か、works の run でない）")
         events = reads.events_for(run_id)
         failed = reads.failed_nodes(events, after=AFTER_REPORT) or unreached(eyes, eyeing)
-        out = report.build(board.resolve(), judged=judged, tests=tests, start=start, mid=mid, ci=ci, run_id=run_id,
+        out = report.build(board.resolve(), judged=judged, tests=tests, start=start, ci=ci, run_id=run_id,
                            events=events, interrupted="" if failed else None, failed=failed,
                            retried=reads.retried_nodes(events, after=AFTER_REPORT), eyeing=eyeing,
                            cleaned_runs=" ".join(os.environ.get(CLEANED_RUNS, "").split()),

@@ -431,7 +431,7 @@ def hand_empty(found: list, board, base_rev, repo) -> dict:
     行を合わせる（conflict.with_held の as_handed。数え直しを通さないので控えの行は写しに渡す形。写しの義務は 1 回目の単位を
     引かない）。控えに changes が在れば、行の外の欄（fix_closure など。plan_faces と works だけの欄は除く）も控えの物にする（残る差分は 1 回目の直しだけなので、その返答が
     差分の全体を述べている）。合わせた changes が空の時だけ trace に
-    entry.trace_empty_fix の印（1 回目の単位の行が在れば役の直しを含むので、h-mid が差分の審査を飛ばさない）。
+    entry.trace_empty_fix の印（1 回目の単位の行が在れば役の直しを含むので印を付けない）。
     返りは写しの受け付けの返り。それも写しが受けなければ回す側の誤り（ValueError。入口が 2 にする）"""
     why = EMPTY_HANDED + " / ".join(t for _, t in reject_rows(found))
     b = entry.open_board(board)

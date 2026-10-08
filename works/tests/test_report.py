@@ -951,14 +951,6 @@ class HeadCase(ReportBase):
         p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
         self.assertNotIn("機能", report.head_entry(b, {})[0])
 
-    def test_mid_note_line(self):
-        """境の節 h-mid の出口の mid_note → 冒頭 2 に。出口が無ければ届いていないの行"""
-        self.judged()
-        b = entry.open_board(self.board)
-        note = "中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）"
-        self.assertIn(f"中の検査の枠: {note}", report.head_entry(b, None, mid={"go": True, "mid_note": note}))
-        self.assertTrue(any("届いていない" in x for x in report.head_entry(b, None, mid=None)))
-
     def test_cleaned_runs_line_in_head_entry(self):
         """use.sh start が起動の前に片付けた前の run（入力 cleaned_runs）は冒頭 2 に 1 行で出る。空なら行を出さない"""
         self.judged()
@@ -1403,7 +1395,7 @@ class NamesCase(unittest.TestCase):
 class ScriptCase(ReportBase):
     def run_script(self, art=None, **env_over):
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
-        env.update({"INPUTS_JUDGED": "null", "INPUTS_TESTS": "null", "INPUTS_START": "null", "INPUTS_MID": "null",
+        env.update({"INPUTS_JUDGED": "null", "INPUTS_TESTS": "null", "INPUTS_START": "null",
                     "INPUTS_CI": "null", "INPUTS_EYES": json.dumps({"go": False}), "INPUTS_EYEING": "null",
                     "ARTIFACTS_DIR": str(art or self.art), "WORKFLOW_ID": RUN_ID,
                     "PYTHONDONTWRITEBYTECODE": "1"})
@@ -1413,21 +1405,21 @@ class ScriptCase(ReportBase):
                               stdin=subprocess.DEVNULL, cwd=str(self.tmp))
 
     def test_script_one_line_and_inputs(self):
-        """INPUTS の組、1 行の JSON と 0（record_invalid も 0）、mid の mid_note が報告に"""
+        """INPUTS の組、1 行の JSON と 0（record_invalid も 0）。中の検査の枠の行はもう出さない"""
         self.judged()
         spec = importlib.util.spec_from_file_location("_report_script", SCRIPT)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        self.assertEqual(mod.INPUTS, ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI",
+        self.assertEqual(mod.INPUTS, ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_CI",
                                       "INPUTS_EYES", "INPUTS_EYEING", "INPUTS_CLEANED_RUNS", "INPUTS_DEPTH"))
         r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_TESTS=json.dumps(RED),
-                            INPUTS_MID=json.dumps({"go": False, "mid_note": "枠のみ"}), INPUTS_CI="")
+                            INPUTS_CI="")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(r.stdout.splitlines()), 1)
         out = json.loads(r.stdout)
         self.assertEqual(out["outcome"], "record_invalid")
         self.assertEqual(out["export_input"]["board_dir"], str(self.board.resolve()))
-        self.assertIn("中の検査の枠: 枠のみ", pathlib.Path(out["report_file"]).read_text(encoding="utf-8"))
+        self.assertNotIn("中の検査の枠", pathlib.Path(out["report_file"]).read_text(encoding="utf-8"))
 
     def test_script_cleaned_runs_reach_report(self):
         """入力 cleaned_runs（文字列。JSON でない）は報告の冒頭 2 に届く。前の版の with: で再開した run は渡さないので、無くても 0"""

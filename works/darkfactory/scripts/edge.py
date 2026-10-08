@@ -4,8 +4,7 @@
 # ///
 """境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1。並びは C18 の順: 計画 P1 Task 26）。中身は line_edge.edge
 （darkfactory/lib/line_edge.py）。ラインの中で at を替えて使う（h-entry・h-judge・h-plan・h-gate・h-fix・h-replan・h-regate・
-h-refit・h-rejudge・h-mid・
-h-review・h-refix・h-tests・h-look・h-final・h-eyes）。いつも走る節で、when: を持たない。
+h-refit・h-rejudge・h-review・h-refix・h-tests・h-look・h-final・h-eyes）。いつも走る節で、when: を持たない。
 
 読む環境変数（Archon が節の with: から渡す。どれも在ること）:
 - INPUTS_AT（line_edge.AT の語）・INPUTS_ADAPTER（start の adapter）・INPUTS_FINAL_GATE（ラインの入力 final_gate。空は always）

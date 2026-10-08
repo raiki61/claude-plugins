@@ -414,7 +414,7 @@ class LensWiringCase(unittest.TestCase):
 
 class DepthWiringCase(unittest.TestCase):
     """単位ごとの深さ（計画 2026-10-06-variable-depth の決め 8）: h-depth は h-fix の後・修正の前で決め、修正は h-depth を待つ。
-    h-redepth は h-mid の後・h-review の前で上げ、レンズと独立の目に省く理由（平の入力）を、機械の報告に行を渡す"""
+    h-redepth は再審（h-rejudge・rejudging）の後・h-review の前で上げ、レンズと独立の目に省く理由（平の入力）を、機械の報告に行を渡す"""
 
     def test_depth_nodes_wired(self):
         ids = [n["id"] for n in line()["nodes"]]
@@ -424,7 +424,7 @@ class DepthWiringCase(unittest.TestCase):
         self.assertEqual(node("fixing")["with"]["unit_depths"], "$h-depth.output.unit_depths")
         # 2 回目の修正は案の直しの後だけ走り、案の直しは全部の単位を標準へ上げる信号なので、深さを渡さない（全部が今どおり）
         self.assertNotIn("unit_depths", node("refitting")["with"])
-        self.assertLess(ids.index("h-mid"), ids.index("h-redepth"))
+        self.assertLess(ids.index("rejudging"), ids.index("h-redepth"))
         self.assertLess(ids.index("h-redepth"), ids.index("h-review"))
         self.assertIn("h-redepth", node("h-review")["depends_on"])
         self.assertEqual(node("lensing")["with"]["skip"], "$h-redepth.output.skip")

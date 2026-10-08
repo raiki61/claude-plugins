@@ -354,7 +354,7 @@ class BoardCase(unittest.TestCase):
         self.assertEqual(st["stop"]["by"], scopes.SCOPE_CHECK_BY)
         self.assertIn("refitting/r1/x.json", st["stop"]["reason"])
         self.assertEqual(self.window(d)["scope"], "")   # 窓は開いた節へ移る（後の開きが同じ誤りで落ち続けない）
-        with self.line("h-mid"):
+        with self.line("h-review"):
             entry.open_board(d)
         with self.scoped("reporting__report-write", block="blk-report"):   # 報告の節は止めた盤面を allow_halted で開ける
             self.assertTrue(entry.open_board(d, allow_halted=True).allow_halted)

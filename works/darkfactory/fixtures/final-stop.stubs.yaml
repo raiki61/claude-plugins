@@ -78,9 +78,6 @@ h-entry:
   premises_go: true
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -181,9 +178,6 @@ h-judge:
   premises_go: false
   purpose_go: true
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -225,9 +219,6 @@ h-mat:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: board/out/r1/p0.purpose.json
   mat_go: true
   structure_units_file: ''
@@ -693,9 +684,6 @@ h-plan:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: board/r1/structure-units.json
@@ -919,9 +907,6 @@ h-gate:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -945,9 +930,6 @@ h-fix:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1432,9 +1414,6 @@ h-replan:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1482,9 +1461,6 @@ h-regate:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1508,9 +1484,6 @@ h-refit:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1598,9 +1571,6 @@ h-rejudge:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1653,32 +1623,6 @@ rejudging__collect:
   unnamed_changed: []
   diff_file: board/r1/rejudge-diff.json
   reads_file: ''
-h-mid:
-  ok: true
-  stop: false
-  go: true
-  ask: false
-  gate_text: ''
-  judgment_file: board/judgment.json
-  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
-  why: ''
-  gate_file: ''
-  premises_file: ''
-  pr_go: false
-  premises_go: false
-  purpose_go: false
-  spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: '中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）'
-  purpose_file: ''
-  mat_go: false
-  structure_units_file: ''
-  ripple_file: ''
-  verify_file: ''
 h-review:
   ok: true
   stop: false
@@ -1697,9 +1641,6 @@ h-review:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1773,9 +1714,6 @@ h-refix:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1886,9 +1824,6 @@ h-tests:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1922,9 +1857,6 @@ h-look:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1948,9 +1880,6 @@ h-final:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -1974,9 +1903,6 @@ h-eyes:
   premises_go: false
   purpose_go: false
   spec_go: false
-  runtime_go: false
-  holdout_go: false
-  mid_note: ''
   purpose_file: ''
   mat_go: false
   structure_units_file: ''
@@ -2360,7 +2286,6 @@ fixture:
   - h-regate
   - h-refit
   - h-rejudge
-  - h-mid
   - h-review
   - lensing__lens-exit
   - reviewing__collect
