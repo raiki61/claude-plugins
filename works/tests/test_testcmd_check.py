@@ -37,14 +37,25 @@ class TestCmdCheck(unittest.TestCase):
         (self.repo / "node_modules" / ".bin").mkdir(parents=True)
         (self.repo / "node_modules" / ".bin" / "jest").write_text("#!/bin/sh\n")
 
-    def check(self, cmd, **env_kw):
+    def check(self, cmd, rc=0, allow=False, **env_kw):
+        """知らせの行（注意・止める の頭を除かずに）。rc は待つ終了コード（0 = 止める形が無い・3 = 止める形が在る）"""
         env = {k: v for k, v in os.environ.items() if k not in ("VIRTUAL_ENV",)}
         env.update(env_kw)
-        r = subprocess.run([sys.executable, "-I", str(TOOL), str(self.repo), cmd], capture_output=True, text=True,
-                           encoding="utf-8", env=env)
-        self.assertEqual(r.returncode, 0, r.stderr)
+        r = subprocess.run([sys.executable, "-I", str(TOOL), *(("--allow-checkout",) if allow else ()), str(self.repo), cmd],
+                           capture_output=True, text=True, encoding="utf-8", env=env)
+        self.assertEqual(r.returncode, rc, r.stdout + r.stderr)
         self.assertEqual(r.stderr, "")
         return r.stdout.splitlines()
+
+    def stops(self, cmd, **env_kw):
+        """止める形: 終了コード 3 で、どの行も「止める（test_cmd）」で始まり、止めを外せば同じ行が「注意（test_cmd）」で出て
+        終了コードは 3 のまま（殻が止めを外したことを 1 行出す材料）"""
+        lines = self.check(cmd, rc=3, **env_kw)
+        self.assertTrue(lines, cmd)
+        self.assertTrue(any(ln.startswith("止める（test_cmd）: ") for ln in lines), lines)
+        allowed = self.check(cmd, rc=3, allow=True, **env_kw)
+        self.assertEqual(allowed, [ln.replace("止める（test_cmd）: ", "注意（test_cmd）: ", 1) for ln in lines])
+        return lines
 
     def test_relative_ignored_path_is_named(self):
         for cmd, path in ((".venv/bin/python -m pytest -q", ".venv/bin/python"),
@@ -54,6 +65,7 @@ class TestCmdCheck(unittest.TestCase):
             with self.subTest(cmd):
                 lines = self.check(cmd)
                 self.assertEqual(len(lines), 1, lines)
+                self.assertTrue(lines[0].startswith("注意（test_cmd）: "), lines)
                 self.assertIn(path, lines[0])
                 self.assertIn("worktree に無い", lines[0])
 
@@ -81,13 +93,14 @@ class TestCmdCheck(unittest.TestCase):
         self.assertEqual(len(lines), 1, lines)
         self.assertIn("./node_modules/.bin/jest", lines[0])
 
-    def test_absolute_path_into_target_ignored_dir_is_named(self):
+    def test_absolute_path_into_target_ignored_dir_stops(self):
+        """対象の .venv を絶対パスで指す形は、worktree の直しでなく手元を試し得る（黙った偽の緑）ので止める"""
         link = self.repo.parent / "link"
         link.symlink_to(self.repo)
         for root in (self.repo, link):
             with self.subTest(root=str(root)):
                 cmd = f"{root}/.venv/bin/python -m pytest -q"
-                lines = self.check(cmd)
+                lines = self.stops(cmd)
                 self.assertEqual(len(lines), 1, lines)
                 self.assertIn(f"{root}/.venv/bin/python", lines[0])
                 self.assertIn("対象の手元", lines[0])
@@ -132,11 +145,11 @@ class TestCmdCheck(unittest.TestCase):
         (venv / "pytest").write_text("#!/bin/sh\n")
         for cmd in (f"cd {self.repo}/sub && .venv/bin/pytest", f"cd {self.repo} && cd sub && .venv/bin/pytest"):
             with self.subTest(cmd):
-                lines = self.check(cmd)
-                self.assertEqual(len(lines), 1, lines)
-                self.assertIn(f"{self.repo}/sub/.venv/bin/pytest", lines[0])
-                self.assertIn("対象の手元", lines[0])
-                self.assertNotIn("worktree に無い", lines[0])
+                lines = self.stops(cmd)
+                hit = [ln for ln in lines if f"{self.repo}/sub/.venv/bin/pytest" in ln]
+                self.assertEqual(len(hit), 1, lines)
+                self.assertIn("対象の手元", hit[0])
+                self.assertNotIn("worktree に無い", hit[0])
 
     def test_cd_then_uv_run_is_not_named_for_an_activated_virtualenv(self):
         venv = self.repo.parent / "venvs" / "proj"
@@ -145,7 +158,7 @@ class TestCmdCheck(unittest.TestCase):
         (info / "direct_url.json").write_text(json.dumps({"url": self.repo.as_uri(), "dir_info": {"editable": True}}))
         path = f"{venv}/bin{os.pathsep}{os.environ.get('PATH', '')}"
         self.assertEqual(self.check("cd sub && uv run pytest -q", VIRTUAL_ENV=str(venv), PATH=path), [])
-        self.assertEqual(len(self.check("cd sub && pytest -q", VIRTUAL_ENV=str(venv), PATH=path)), 1)
+        self.assertEqual(len(self.stops("cd sub && pytest -q", VIRTUAL_ENV=str(venv), PATH=path)), 1)
 
     def test_output_targets_are_not_named_even_when_a_previous_output_exists(self):
         """書き先（リダイレクトの先・書き先を取る旗の空白で分けた値）は、手元に前の出力が在っても名指さない（コマンドが作る）。
@@ -173,10 +186,11 @@ class TestCmdCheck(unittest.TestCase):
         info.mkdir()
         (info / "direct_url.json").write_text(json.dumps({"url": self.repo.as_uri(), "dir_info": {"editable": True}}))
         path = f"{venv}/bin{os.pathsep}{os.environ.get('PATH', '')}"
-        lines = self.check("pytest -q", VIRTUAL_ENV=str(venv), PATH=path)
+        lines = self.stops("pytest -q", VIRTUAL_ENV=str(venv), PATH=path)
         self.assertEqual(len(lines), 1, lines)
         self.assertIn(f"VIRTUAL_ENV（{venv}）", lines[0])
-        for cmd in ("uv run pytest -q", "UV_FROZEN=1 uv run pytest -q"):
+        for cmd in ("uv run pytest -q", "UV_FROZEN=1 uv run pytest -q", "env UV_FROZEN=1 uv run pytest -q",
+                    "sh -c 'uv run pytest -q'"):
             with self.subTest(cmd):
                 self.assertEqual(self.check(cmd, VIRTUAL_ENV=str(venv), PATH=path), [])
         self.assertEqual(self.check("pytest -q"), [])
@@ -185,7 +199,7 @@ class TestCmdCheck(unittest.TestCase):
         venv = self.repo / ".venv"
         (self._site(venv) / "_editable_impl_stats.pth").write_text(f"{self.repo}\n")
         path = f"{venv}/bin{os.pathsep}{os.environ.get('PATH', '')}"
-        self.assertEqual(len(self.check("python3 -m pytest -q", VIRTUAL_ENV=str(venv), PATH=path)), 1)
+        self.assertEqual(len(self.stops("python3 -m pytest -q", VIRTUAL_ENV=str(venv), PATH=path)), 1)
 
     def test_activated_virtualenv_without_target_is_quiet(self):
         """uv run の使い捨ての環境・依存だけの環境は対象の手元のコードを試さない（試験の殻が uv run の下で回る形もこれ）"""
@@ -196,6 +210,111 @@ class TestCmdCheck(unittest.TestCase):
         (info / "direct_url.json").write_text(json.dumps({"url": "https://example.invalid/pyyaml.whl"}))
         path = f"{venv}/bin{os.pathsep}{os.environ.get('PATH', '')}"
         self.assertEqual(self.check("pytest -q", VIRTUAL_ENV=str(venv), PATH=path), [])
+
+    def test_absolute_reference_to_the_checkout_stops(self):
+        """対象の手元（根そのもの・追跡するファイルも）を絶対パスで指す形は、run・単位の worktree からも手元を走らせる（直しの正誤に
+        関わらず緑になり得る）ので止める: cd・pushd の先・試験のパス・NAME= と --旗= の値（PYTHONPATH の : 区切りも）。
+        書き先の旗の値は見ない"""
+        (self.repo / "build").mkdir()
+        (self.repo / "build" / "x.xml").write_text("")
+        r = self.repo
+        for cmd in (f"cd {r} && uv run pytest -q", f"cd {r}; uv run pytest -q", f"pushd {r} && uv run pytest -q",
+                    f"cd -P {r} && uv run pytest -q", f"(cd {r} && uv run pytest -q)",
+                    f"uv run pytest -q {r}/test_stats.py", f"PYTHONPATH={r} uv run pytest -q",
+                    f"PYTHONPATH=/nowhere:{r} uv run pytest -q", f"uv run pytest --rootdir={r} -q"):
+            with self.subTest(cmd):
+                lines = self.stops(cmd)
+                self.assertIn("対象の手元", lines[0])
+        for cmd in (f"uv run pytest --junitxml={r}/build/x.xml", f"uv run pytest --junitxml {r}/build/x.xml",
+                    f"uv run pytest -q > {r}/build/x.xml", f"cd {r}/nowhere && uv run pytest", "cd /usr && ls"):
+            with self.subTest(cmd):
+                self.assertEqual(self.check(cmd), [])
+
+    def test_directory_changing_forms_are_followed(self):
+        """所を変える形（pushd・cd -P/-L・make -C・env -C・uv run --directory・npm --prefix・git -C・sh -c '…'・サブシェルの括弧）も
+        cd と同じに辿る: 所の先をパスとして見て、後ろの相対の語をその先から読む"""
+        venv = self.repo / "sub" / ".venv" / "bin"
+        venv.mkdir(parents=True)
+        (venv / "pytest").write_text("#!/bin/sh\n")
+        for cmd in ("pushd sub && .venv/bin/pytest -q", "cd -P sub && .venv/bin/pytest", "cd -L sub; .venv/bin/pytest",
+                    "(cd sub && .venv/bin/pytest)", "env -C sub .venv/bin/pytest", "env --chdir=sub .venv/bin/pytest",
+                    "sh -c 'cd sub && .venv/bin/pytest -q'", "bash -lc \"cd sub && .venv/bin/pytest\"",
+                    "uv run --directory sub .venv/bin/pytest"):
+            with self.subTest(cmd):
+                lines = self.check(cmd)
+                self.assertEqual(len(lines), 1, lines)
+                self.assertTrue(lines[0].startswith("注意（test_cmd）: "), lines)
+                self.assertIn("sub/.venv/bin/pytest", lines[0])
+        r = self.repo
+        for cmd in (f"make -C {r} test", f"make --directory={r} test", f"make --directory {r} test", f"env -C {r} pytest",
+                    f"uv run --directory {r} pytest", f"uv run --project {r} pytest", f"npm --prefix {r} test",
+                    f"git -C {r} status", f"sh -c 'cd {r} && uv run pytest'", f"bash -c '{r}/.venv/bin/pytest -q'",
+                    f"env FOO=1 bash -c 'make -C {r} test'"):
+            with self.subTest(cmd):
+                self.stops(cmd)
+        for cmd in ("make -C sub test", "env -C sub uv run pytest", "sh -c 'uv sync && .venv/bin/pytest'",
+                    "npm --prefix sub test"):
+            with self.subTest(cmd):
+                self.assertEqual(self.check(cmd), [])
+        lines = self.check("(cd sub) && .venv/bin/pytest")   # 括弧を閉じたら所は戻る: 根の .venv を読む
+        self.assertEqual(len(lines), 1, lines)
+        self.assertNotIn("sub/.venv", lines[0])
+        self.assertIn(".venv/bin/pytest", lines[0])
+        (self.repo / "build").mkdir()
+        lines = self.check("make -C build test")
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("test_cmd の build ", lines[0])
+
+    def test_absolute_reference_in_a_later_segment_stops(self):
+        """手元の絶対パスは、前の段が worktree の中に作ることが無いので、後ろの段（&&・;・| の後・後ろの段の sh -c の中）でも止める。
+        注意の形（相対で git が無視するパス）は今どおり最初の段だけ"""
+        r = self.repo
+        for cmd in (f"set -e; cd {r} && pytest", f"echo run && cd {r} && pytest", f"export CI=1 && cd {r} && pytest",
+                    f"npm ci && {r}/node_modules/.bin/jest", f"uv sync && {r}/.venv/bin/pytest",
+                    f"uv run true && {r}/.venv/bin/pytest", f"uv sync && PYTHONPATH={r} uv run pytest",
+                    f"uv sync && sh -c 'cd {r} && pytest'", f"uv sync && make -C {r} test"):
+            with self.subTest(cmd):
+                self.stops(cmd)
+        for cmd in (f"uv sync && pytest --junitxml {r}/x.xml", f"uv run pytest -q && echo ok > {r}/stats.py",
+                    "uv sync && .venv/bin/pytest"):
+            with self.subTest(cmd):
+                self.assertEqual(self.check(cmd), [])
+
+    def test_activated_virtualenv_looks_at_every_segment(self):
+        """立てた環境の判定は、cd だけの段と動かさない組み込み（echo・export など）を除く全部の段の頭を見る: 頭が uv（pip でなく
+        --active でもない）の段だけなら止めず、ほかの段（後ろの pytest・uv run --active・uv pip）が 1 つでも在れば止める"""
+        venv = self.repo.parent / "venvs" / "proj"
+        info = self._site(venv) / "stats-0.1.dist-info"
+        info.mkdir()
+        (info / "direct_url.json").write_text(json.dumps({"url": self.repo.as_uri(), "dir_info": {"editable": True}}))
+        env = dict(VIRTUAL_ENV=str(venv), PATH=f"{venv}/bin{os.pathsep}{os.environ.get('PATH', '')}")
+        for cmd in ("uv sync && uv run pytest -q", "uv sync --frozen; uv run pytest", "uv --directory sub run pytest",
+                    "export CI=1 && uv run pytest", "uv run pytest -q && echo ok", "cd sub && uv sync && uv run pytest"):
+            with self.subTest(cmd):
+                self.assertEqual(self.check(cmd, **env), [])
+        for cmd in ("uv run pytest && pytest", "uv run --active pytest", "uv pip install -e . && uv run pytest",
+                    "uv sync && python3 -m pytest", "uv sync && sh -c 'pytest -q'"):
+            with self.subTest(cmd):
+                self.assertEqual(len(self.stops(cmd, **env)), 1)
+
+    def test_mixed_notes_stop_and_keep_the_warning(self):
+        """止める形と注意の形が並べば、止める形の行だけが「止める」で、注意の行はそのまま"""
+        venv = self.repo.parent / "venvs" / "proj"
+        info = self._site(venv) / "stats-0.1.dist-info"
+        info.mkdir()
+        (info / "direct_url.json").write_text(json.dumps({"url": self.repo.as_uri(), "dir_info": {"editable": True}}))
+        path = f"{venv}/bin{os.pathsep}{os.environ.get('PATH', '')}"
+        lines = self.stops(".venv/bin/python -m pytest", VIRTUAL_ENV=str(venv), PATH=path)
+        self.assertEqual(len(lines), 2, lines)
+        self.assertTrue(lines[0].startswith("注意（test_cmd）: "), lines)
+        self.assertTrue(lines[1].startswith("止める（test_cmd）: "), lines)
+
+    def test_usage_errors(self):
+        for args in ((), ("--allow-checkout",), ("x",), ("--nope", "x", "y")):
+            with self.subTest(args):
+                r = subprocess.run([sys.executable, "-I", str(TOOL), *args], capture_output=True, text=True, encoding="utf-8")
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("usage", r.stderr)
 
     def test_empty_command_is_quiet(self):
         self.assertEqual(self.check(""), [])

@@ -1,31 +1,54 @@
-"""use.sh start が test_cmd を Archon に渡す前に、run の worktree と単位の worktree で効かない形を知らせる（止めない）。
+"""use.sh start が test_cmd を Archon に渡す前に、run の worktree と単位の worktree で効かない形を分けて知らせる。
 
-python3 -I works/dev/testcmd_check.py <対象の根> <test_cmd>
+python3 -I works/dev/testcmd_check.py [--allow-checkout] <対象の根> <test_cmd>
 
 run の worktree（Archon が --from の commit から切る）と単位の worktree（修正の段が run の worktree の今の姿の commit から切る）には、
-対象の git が無視する物（.venv・node_modules・ビルドの出力・.env など）が無い。知らせるのは 2 つ（どちらも 1 行ずつ標準出力へ）:
-- 語のパス: test_cmd の最初の段（&&・||・;・|・& の前。後ろの段は前の段が worktree の中で作った物を使えるので見ない）の語
-  （shlex で割る。割れなければ空白で割る。- で始まる旗と = を含む語は見ない）のうち、`/` を含み、対象の根の中を指し、対象に
-  今在り、git が無視する物（git check-ignore。パスか、その上のどれかの段が無視されていれば無視）。相対なら worktree に無いので
-  走らない。絶対なら対象の手元の環境を使い、対象をそこへ editable で入れていれば worktree の直しでなく対象の手元のコードを試す。
-  前の段が `cd <先>` だけ（後ろが && か ;）なら所を変えるだけの段で、その次の段を最初の段とし、相対の語を cd の先から読む
-  （cd sub && .venv/bin/pytest は sub/.venv/bin/pytest。絶対パスの cd の後は対象の手元を絶対パスで指す。cd の先もパスとして
-  見る）。書き先（リダイレクト >・>>・>|・&>・&>>・>&・<>
-  の後ろの語と、OUTPUT_FLAGS の旗の後ろの語）はコマンドが作るので、手元に前の出力が在っても見ない
-- 立てた仮想環境: VIRTUAL_ENV が在り、その bin が PATH に在り、その環境に対象が editable で入っていて（site-packages の
-  *.dist-info/direct_url.json の editable の url か、*.pth の絶対パスの行が対象の根の中を指す）、test_cmd の最初の段が
-  （前の NAME=値 を除いて）`uv run` で始まらない。run の中の python・pytest は PATH のその環境を掴む（uv run は project の
-  .venv を使い VIRTUAL_ENV を見ない）ので、worktree の直しでなく対象の手元のコードを試す。対象の入っていない環境（依存だけの
-  環境・uv run の使い捨ての環境）は知らせない
-終了コードはいつも 0（引数の数の誤りだけ 2）。git が効かなければ語のパスは見ない。標準ライブラリだけ・Python 3.9 の構文。
+対象の git が無視する物（.venv・node_modules・ビルドの出力・.env など）が無い。形は 2 つに分け、1 行ずつ標準出力へ出す:
+- 止める形（行の頭「止める（test_cmd）」。--allow-checkout なら「注意（test_cmd）」）: run の試験が worktree の直しでなく対象の手元
+  （元の clone）を走らせ、直しの正誤に関わらず緑になり得る（黙った偽の緑）。
+  - 手元を絶対パスで指す語: どの段でも（手元の絶対パスは前の段が worktree の中に作ることが無い。殻の -c の中の段も）、見る語（下）の
+    うち絶対パスで、対象の根そのものか根の中の今在る物を指す物（git が無視するかを問わない。cd /手元 && uv run pytest・
+    uv sync && /手元/.venv/bin/pytest・pytest /手元/tests・PYTHONPATH=/手元/src）と、最初の段の前の絶対パスの cd の後の相対の
+    語のうち git が無視する物
+  - 立てた仮想環境: VIRTUAL_ENV が在り、その bin が PATH に在り、その環境に対象が editable で入っていて（site-packages の
+    *.dist-info/direct_url.json の editable の url か、*.pth の絶対パスの行が対象の根の中を指す）、test_cmd の段（殻の -c の中も。
+    前の NAME=値 と env を除く）のどれかが、組み込み（BUILTINS: cd・echo・export など）でも、頭が uv でサブコマンドが pip でなく
+    --active も無い段（uv run・uv sync など）でもない。run の中の python・pytest は PATH のその環境を掴む（uv run・uv sync は
+    project の .venv を使い VIRTUAL_ENV を見ない。uv run --active・uv pip は立てた環境を使う）。対象の入っていない環境（依存だけの
+    環境・uv run の使い捨ての環境）は知らせない
+- 注意の形（行の頭「注意（test_cmd）」）: 相対の語が、対象に今在り git が無視する物（git check-ignore。パスか、その上のどれかの段が
+  無視されていれば無視）を指す。worktree に無いので走らない（落ちて分かる）
+見る語: 段（&&・||・;・|・& で割る）の語（shlex で割る。割れなければ空白で割る）のうち、`/` を含み - で始まらない物と、= を含む語
+（NAME=値・--旗=値）の値を : で割った絶対パス。注意の形（相対の語）は最初の段だけを見る（後ろの段は前の段が worktree の中で作った
+物を使える）。
+所を変える形は辿る:
+- 前の段が `cd <先>`・`pushd <先>`（旗 -P・-L などは除く。後ろが && か ;）だけなら、所を変えるだけの段で、その次の段を最初の段とし、
+  相対の語を cd の先から読む（cd sub && .venv/bin/pytest は sub/.venv/bin/pytest）。cd の先もパスとして見る（/ が無くても）。
+  サブシェルの括弧の中の cd は、括弧を閉じたら戻す
+- 最初の段が殻の -c（sh -c '…'・bash -lc "…"。前の NAME=値 と env は許す）なら、その中のコマンドを同じ決まりで読む
+- 所を変える旗（CHDIR_FLAGS: make -C・--directory、env -C・--chdir、git・ninja・go の -C、pnpm -C・--dir、npm --prefix、
+  yarn --cwd、uv --directory。同じ段にその道具の語が在る時だけ。値は空白で分けても = か -C に繋いでもよい）の値を cd の先と同じに
+  パスとして見て、同じ段の後ろの語をそこから読む
+書き先（リダイレクト >・>>・>|・&>・&>>・>&・<> の後ろの語と、OUTPUT_FLAGS の旗の後ろの語・= の値）はコマンドが作るので、
+手元に前の出力が在っても見ない。
+終了コード: 止める形が在れば 3（--allow-checkout でも 3。行の頭だけが替わる）、無ければ 0、引数の誤りは 2。git が効かなければ
+git が無視するかは見ない（止める形の手元を絶対パスで指す語は見る）。標準ライブラリだけ・Python 3.9 の構文。
 
-漏れ（知っていて塞がない物。知らせは止めないので、誤りは知らせの多すぎか少なすぎで、run は止まらない）:
+漏れ（知っていて塞がない物。止める形の漏れは run を止めずに偽の緑を通し、注意の形の漏れは知らせが多すぎるか少なすぎる）:
 - 書き先を空白で分けた値に取る旗のうち OUTPUT_FLAGS に無い物（-o build/x・道具ごとの旗）は、その値が手元に前の出力として在り
-  git が無視すれば名指す（旗が値を取るかは道具ごとに違い、一般には決まらない）。= で繋げば見ない
-- 所を変える形のうち辿るのは `cd <先>` だけの段だけ: pushd・cd -P・cd の先の $・~・`（読めない先の後の相対の語は見ない）・
-  sh -c '…'・make -C・npm --prefix・uv run --directory などの所は辿らず、相対の語を根から読む（見逃すか、根に同じ名の物が
-  在れば違うパスを名指す）
-- 変数・~・$(…) は展開しない。最初の段より後ろの段は見ない（前の段が作った物か読めない）
+  git が無視すれば名指す（旗が値を取るかは道具ごとに違い、一般には決まらない）。値が手元を指す絶対パスなら止める
+- 変数・~・$(…)・` は展開しない（cd の先がこれらなら後ろの相対の語は見ない）。run の中では HOME が利用の家へ隔離されるので、
+  ~・$HOME で手元を指す形は run の中で別の所を指して落ちる（偽の緑にはならない）
+- 中のコマンドを隠す形は読まない: make（-C の無い）・npm test・tox・nox・just などの台本・試験の殻のファイルの中身・
+  sh <ファイル>・eval・xargs・find -exec。その中で手元を絶対パスで指しても見えない
+- 所を変える形のうち CHDIR_FLAGS の外の旗（uv run --project・cargo --manifest-path など）は、値が絶対パスで手元を指す時だけ
+  見る（相対の値は / が無ければ見ず、後ろの語も根から読む）。相対の語は最初の段より後ろの段では見ない（前の段が作った物か読めない）
+- 根の外への絶対パスの cd の後の相対の語（cd /手元の親 && 手元/.venv/bin/pytest）は読めない所として見ない。docker run -v /手元:/w
+  のように = でなく : で繋いだ値の中の手元は、語が在るパスでないので見ない
+- 立てた環境の判定で、uvx の段は uv の段として数えない（止める）。組み込みでない段は python を起こさなくても
+  止める（npm ci && uv run pytest も立てた環境で editable なら止める。止めを外せば今どおり起こす）
+- 対象が editable でなく普通に入った（写しを入れた）仮想環境は、絶対パスで指しても立てても editable の印が無いので、
+  絶対パスの語としてだけ見る（立てた環境は知らせない）
 """
 import glob
 import json
@@ -36,40 +59,55 @@ import subprocess
 import sys
 from urllib.parse import unquote, urlparse
 
-USAGE = "usage: testcmd_check.py <対象の根> <test_cmd>"
+USAGE = "usage: testcmd_check.py [--allow-checkout] <対象の根> <test_cmd>"
+STOP_EXIT = 3   # 止める形が在る時の終了コード（--allow-checkout でも同じ。行の頭だけが「注意」になる）
 HOW = "worktree の中で環境を作るコマンド（例 uv run pytest -q）にする（works/README.md の「test_cmd と worktree」）"
 SEPARATORS = ("&&", "||", ";", "|", "&")
 REDIRECTS = (">", ">>", ">|", "&>", "&>>", ">&", "<>")   # 後ろの語が書き先のリダイレクト（< の先は読むので見る）
-# 書き先を空白で分けた値に取る旗（よく使う物だけ。= で繋いだ値はどの旗も見ない）
+# 書き先を値に取る旗（よく使う物だけ。空白で分けた値も = で繋いだ値も見ない。ほかの旗の = の値は絶対パスだけ見る）
 OUTPUT_FLAGS = frozenset(("--junitxml", "--junit-xml", "--basetemp", "--html", "--report-log", "--result-log", "--alluredir",
                           "--cov-report", "--outputFile", "--coverageDirectory", "--output", "--output-file", "--outdir"))
+# 所を変える旗（値が所のフォルダで、同じ段の後ろの語をそこから読む）。道具の名（語の basename）ごと。同じ段に道具の語が在れば効く
+CHDIR_FLAGS = {"make": ("-C", "--directory"), "gmake": ("-C", "--directory"), "env": ("-C", "--chdir"), "git": ("-C",),
+               "ninja": ("-C",), "go": ("-C",), "pnpm": ("-C", "--dir"), "npm": ("--prefix",), "yarn": ("--cwd",),
+               "uv": ("--directory",)}
+CD_WORDS = ("cd", "pushd")
+CD_OPTS = ("-P", "-L", "-e", "-@", "-n")   # cd・pushd の旗（値を取らない）
+SHELLS = ("sh", "bash", "zsh", "dash", "ksh")   # -c '<コマンド>' の中を同じ決まりで読む殻
+# 立てた環境の判定で見ない段の頭（所を変える・出すだけで python を起こさない殻の組み込み）
+BUILTINS = frozenset(("cd", "pushd", "popd", "echo", "printf", "true", "false", ":", "set", "export", "unset"))
+UV_COMMANDS = frozenset(("run", "sync", "pip", "lock", "add", "remove", "venv", "tool", "python", "build", "export", "tree",
+                         "init", "version", "cache", "self", "publish", "format"))
 _ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def _segments(cmd):
-    """段の語の並び（&&・||・;・|・& で割る。サブシェルの括弧は捨てる）と、段の間の区切りの並び。shlex で割れなければ空白で
-    割った全部を 1 段にする"""
+    """段の並び（&&・||・;・|・& で割る）と、段の間の区切りの並び。段は (語の並び, 前で開くサブシェルの数, 後ろで閉じる数)。
+    shlex で割れなければ空白で割った全部を 1 段にする"""
     try:
         lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
         lex.whitespace_split = True
         words = list(lex)
     except ValueError:
-        return [cmd.split()], []
-    segs, seps = [[]], []
+        return [(cmd.split(), 0, 0)], []
+    segs, seps = [[[], 0, 0]], []
     for w in words:
-        if w in ("(", ")"):
-            continue
-        if w in SEPARATORS:
-            segs.append([])
+        if w == "(":
+            segs[-1][1] += 1
+        elif w == ")":
+            segs[-1][2] += 1
+        elif w in SEPARATORS:
+            segs.append([[], 0, 0])
             seps.append(w)
         else:
-            segs[-1].append(w)
-    return segs, seps
+            segs[-1][0].append(w)
+    return [tuple(x) for x in segs], seps
 
 
 def _cd(root, cwd, target):
-    """cd の先の、根からの相対（"" は根）。読めない先（$・~・` を含む・- で始まる旗か cd -・前の所が読めない相対）と根の外は None"""
-    if target.startswith(("-", "~")) or "$" in target or "`" in target:
+    """cd の先の、根からの相対（"" は根）。読めない先（$・~・` を含む・- か + で始まる旗か cd -・前の所が読めない相対）と根の外は
+    None"""
+    if target.startswith(("-", "+", "~")) or "$" in target or "`" in target:
         return None
     if os.path.isabs(target):
         return "" if os.path.realpath(target) == root else _inside(root, target)
@@ -81,45 +119,156 @@ def _cd(root, cwd, target):
     return None if new == ".." or new.startswith(".." + os.sep) else new
 
 
-def _lead(root, cmd):
+def _move(root, at, target):
+    """読む所 at（根からの相対, 絶対パスの cd を通った時の絶対パス）から target へ所を変えた後の読む所"""
+    rel = _cd(root, at[0], target)
+    base = os.path.normpath(target) if os.path.isabs(target) else \
+        os.path.normpath(os.path.join(at[1], target)) if at[1] else None
+    return rel, base if rel is not None else None
+
+
+def _cd_target(words):
+    """cd・pushd だけの段（旗 -P などを除いて先が 1 語）なら先の語、そうでなければ None"""
+    if not words or words[0] not in CD_WORDS:
+        return None
+    rest = words[1:]
+    while rest and rest[0] in CD_OPTS:
+        rest = rest[1:]
+    return rest[0] if len(rest) == 1 else None
+
+
+def _strip_env(words):
+    """前の NAME=値 と、旗の無い env を除いた語の並び"""
+    while words and (_ASSIGN.match(words[0]) or words[0] == "env"):
+        words = words[1:]
+    return words
+
+
+def _shell_c(words):
+    """殻の -c の段（sh -c '<コマンド>'・bash -lc …。前の NAME=値 と env は許す）なら (殻の前の語, <コマンド>)、そうでなければ
+    None"""
+    rest = _strip_env(words)
+    if not rest or os.path.basename(rest[0]) not in SHELLS:
+        return None
+    i, found = 1, False
+    while i < len(rest) and rest[i].startswith("-") and not rest[i].startswith("--"):
+        found = found or "c" in rest[i][1:]
+        i += 1
+    if not found or i >= len(rest):
+        return None
+    return words[:len(words) - len(rest)], rest[i]
+
+
+def _lead(root, cmd, at=("", None), depth=0):
     """前の段の cd を辿った最初の段 ——（cd の先の語と、それを読む所の並び, 最初の段の語, 最初の段を読む所）。読む所は
-    (根からの相対（"" は根・None は読めない）, 絶対パスの cd を通った時のその所の絶対パス（通らなければ None）)。cd だけの段
-    （cd <先> の 2 語で、後ろが && か ;）は所を変えるだけで、次の段を最初の段とする"""
+    (根からの相対（"" は根・None は読めない）, 絶対パスの cd を通った時のその所の絶対パス（通らなければ None）)。cd・pushd だけの段
+    （後ろが && か ;）は所を変えるだけで、次の段を最初の段とする（サブシェルの括弧の中の cd は、括弧を閉じたら戻す）。最初の段が
+    殻の -c なら、その中のコマンドを同じ決まりで読む（殻の前の NAME=値 は最初の段の語に残す）"""
     segs, seps = _segments(cmd)
-    at, cds = ("", None), []
-    for i, words in enumerate(segs):
-        if len(words) == 2 and words[0] == "cd" and i < len(seps) and seps[i] in ("&&", ";"):
-            cds.append((words[1], at))
-            rel = _cd(root, at[0], words[1])
-            base = os.path.normpath(words[1]) if os.path.isabs(words[1]) else \
-                os.path.normpath(os.path.join(at[1], words[1])) if at[1] else None
-            at = (rel, base if rel is not None else None)
+    cds, stack = [], []
+    for i, (words, opens, closes) in enumerate(segs):
+        stack.extend([at] * opens)
+        target = _cd_target(words)
+        if target is not None and i < len(seps) and seps[i] in ("&&", ";"):
+            cds.append((target, at))
+            at = _move(root, at, target)
+            for _ in range(min(closes, len(stack))):
+                at = stack.pop()
             continue
+        inner = _shell_c(words) if depth < 4 else None
+        if inner is not None:
+            c2, w2, at2 = _lead(root, inner[1], at, depth + 1)
+            return cds + c2, inner[0] + w2, at2
         return cds, words, at
     return cds, [], at
 
 
+def _chdir_flag(word, tools):
+    """所を変える旗なら (旗, = か -C に繋いだ値か None)。同じ段に出た道具の語（tools）の旗だけ"""
+    flags = {f for t in tools for f in CHDIR_FLAGS[t]}
+    if word in flags:
+        return word, None
+    name, eq, val = word.partition("=")
+    if eq and name in flags and name.startswith("--"):
+        return name, val
+    if word.startswith("-C") and len(word) > 2 and "-C" in flags:
+        return "-C", word[2:]
+    return None
+
+
 def _path_words(root, cmd):
-    """見る語と、それを読む所の並び: cd の先（/ が無くてもパス）と、最初の段の語のうち / を含み、- で始まらず = を含まない物。
-    書き先（リダイレクト > など の先・OUTPUT_FLAGS の旗の後ろの語）はコマンドが作るので見ない"""
+    """見る語と、それを読む所の並び: cd・所を変える旗の先（/ が無くてもパス）と、最初の段の
+    語のうち / を含み、- で始まらず = を含まない物。= を含む語（NAME=値・--旗=値）は値を : で割った絶対パスだけを見る。
+    書き先（リダイレクト > など の先・OUTPUT_FLAGS の旗の後ろの語と = の値）はコマンドが作るので見ない。所を変える旗
+    （make -C など）の後ろの語は、その先から読む"""
     cds, words, at = _lead(root, cmd)
-    out = list(cds)
-    skip = False
-    for w in words:
-        if skip:
-            skip = False
-            continue
-        if w in REDIRECTS or w in OUTPUT_FLAGS:
-            skip = True
-            continue
-        if "/" in w and not w.startswith("-") and "=" not in w:
-            out.append((w, at))
+    out = list(cds) + _scan(words, at, root)
     seen, uniq = set(), []
     for x in out:
         if x not in seen:
             seen.add(x)
             uniq.append(x)
     return uniq
+
+
+def _scan(words, at, root):
+    """1 つの段の語のうち見る物と、それを読む所の並び（_path_words の決まり。所を変える旗の後ろは読む所を移す）"""
+    out = []
+    skip, chdir, tools = False, False, set()
+    for w in words:
+        if skip:
+            skip = False
+            continue
+        if chdir:
+            chdir = False
+            out.append((w, at))
+            at = _move(root, at, w)
+            continue
+        if w in REDIRECTS or w in OUTPUT_FLAGS:
+            skip = True
+            continue
+        if os.path.basename(w) in CHDIR_FLAGS and "=" not in w:
+            tools.add(os.path.basename(w))
+        flag = _chdir_flag(w, tools)
+        if flag is not None:
+            if flag[1] is None:
+                chdir = True
+            else:
+                out.append((flag[1], at))
+                at = _move(root, at, flag[1])
+            continue
+        if "=" in w:
+            name, _, val = w.partition("=")
+            if name not in OUTPUT_FLAGS:
+                out.extend((v, at) for v in val.split(os.pathsep) if os.path.isabs(v))
+            continue
+        if "/" in w and not w.startswith("-"):
+            out.append((w, at))
+    return out
+
+
+def _all_segments(cmd, depth=0):
+    """全部の段の語の並び。殻の -c の段は中のコマンドの段に開く（殻の前の NAME=値・env は別の段にする）"""
+    out = []
+    for words, _, _ in _segments(cmd)[0]:
+        inner = _shell_c(words) if depth < 4 else None
+        if inner is None:
+            out.append(words)
+            continue
+        if inner[0]:
+            out.append(inner[0])
+        out.extend(_all_segments(inner[1], depth + 1))
+    return out
+
+
+def _absolute_words(root, cmd):
+    """全部の段の、見る語のうち絶対パスの物（手元の絶対パスは前の段が worktree の中に作ることが無いので、段を問わない）"""
+    out = []
+    for words in _all_segments(cmd):
+        for w, _ in _scan(words, ("", None), root):
+            if os.path.isabs(w) and w not in out:
+                out.append(w)
+    return out
 
 
 def _under(root, path):
@@ -181,14 +330,25 @@ def _ignored(root, paths):
     return set().union(*(_ignored(root, [p]) for p in paths))
 
 
+def _inside_or_root(root, word):
+    """絶対パスの word が根そのものなら ""、根の中なら根からの相対、外なら None"""
+    return "" if os.path.realpath(word) == root else _inside(root, word)
+
+
 def path_notes(root, cmd):
+    """パスの知らせ (止める形か, 文) の並び。対象の手元を絶対パスで指す語（根そのもの・追跡する物も。絶対パスの cd の後で git が
+    無視する相対の語も）は止める形、git が無視するパスを相対で指す語は注意の形"""
     found = []
+    for w in _absolute_words(root, cmd):   # どの段でも、対象の手元の在る物を指す（無視するかを問わない）
+        rel = _inside_or_root(root, w)
+        if rel is not None and os.path.lexists(os.path.join(root, rel)):
+            found.append((w, True, None))
     for w, (at, base) in _path_words(root, cmd):
-        if os.path.isabs(w):
-            rel, shown, absolute = _inside(root, w), w, True
-        elif at is None:   # 読めない cd の後の相対は見ない
+        if os.path.isabs(w):   # 上で見た
             continue
-        elif base:   # 絶対パスの cd の後の相対は、対象の手元を絶対パスで指す
+        if at is None:   # 読めない cd の後の相対は見ない
+            continue
+        if base:   # 絶対パスの cd の後の相対は、対象の手元を絶対パスで指す
             rel, absolute = _inside(root, os.path.join(at, w)), True
             shown = f"{w}（cd の後の {os.path.normpath(os.path.join(base, w))}）"
         elif at == "":
@@ -198,17 +358,17 @@ def path_notes(root, cmd):
             shown = f"{w}（cd の後の {os.path.normpath(os.path.join(at, w))}）"
         if rel is not None and os.path.lexists(os.path.join(root, rel)):
             found.append((shown, absolute, _prefixes(root, rel)))
-    hit = _ignored(root, sorted({p for _, _, ps in found for p in ps}))
+    hit = _ignored(root, sorted({p for _, _, ps in found if ps for p in ps}))
     notes = []
     for w, absolute, ps in found:
-        if not hit.intersection(ps):
+        if ps is not None and not hit.intersection(ps):
             continue
         if absolute:
-            notes.append(f"test_cmd の {w} は対象の git が無視するパス: run・単位の worktree からも対象の手元の環境を使い、"
-                         f"対象をそこへ editable で入れていれば worktree の直しでなく対象の手元のコードを試す。{HOW}")
+            notes.append((True, f"test_cmd の {w} は対象の手元（{root}）を絶対パスで指す: run・単位の worktree からも手元の物を"
+                                f"使い、worktree の直しでなく対象の手元のコードを試し得る（直しの正誤に関わらず緑になる）。{HOW}"))
         else:
-            notes.append(f"test_cmd の {w} は対象の git が無視するパスで、run・単位の worktree に無い（commit から切るので"
-                         f"写らない。前の段で作らない限り走らない）。{HOW}")
+            notes.append((False, f"test_cmd の {w} は対象の git が無視するパスで、run・単位の worktree に無い（commit から切るので"
+                                 f"写らない。前の段で作らない限り走らない）。{HOW}"))
     return notes
 
 
@@ -239,6 +399,17 @@ def _editable_target(venv, root):
     return False
 
 
+def _venv_free(words):
+    """段が立てた環境を使わないか: 空・組み込み（BUILTINS）の段と、頭が uv で、サブコマンドが pip でなく --active も無い段
+    （uv run・uv sync は project の .venv を使い VIRTUAL_ENV を見ない）"""
+    if not words or words[0] in BUILTINS:
+        return True
+    if os.path.basename(words[0]) != "uv" or "--active" in words:
+        return False
+    sub = next((w for w in words[1:] if w in UV_COMMANDS), None)
+    return sub is not None and sub != "pip"
+
+
 def venv_notes(root, cmd, environ):
     venv = environ.get("VIRTUAL_ENV", "")
     if not venv:
@@ -246,25 +417,26 @@ def venv_notes(root, cmd, environ):
     bins = {os.path.normpath(p) for p in environ.get("PATH", "").split(os.pathsep) if p}
     if os.path.normpath(os.path.join(venv, "bin")) not in bins:
         return []
-    words = _lead(root, cmd)[1]
-    while words and _ASSIGN.match(words[0]):
-        words = words[1:]
-    if words[:2] == ["uv", "run"] or not _editable_target(venv, root):
+    if all(_venv_free(_strip_env(words)) for words in _all_segments(cmd)) or not _editable_target(venv, root):
         return []
-    return [f"VIRTUAL_ENV（{venv}）を立てたまま起こし、対象がそこへ editable で入っている: run の中の test_cmd の python・"
-            f"pytest はその環境を PATH から掴み、worktree の直しでなく対象の手元のコードを試す。{HOW}"]
+    return [(True, f"VIRTUAL_ENV（{venv}）を立てたまま起こし、対象がそこへ editable で入っている: run の中の test_cmd の python・"
+                   f"pytest はその環境を PATH から掴み、worktree の直しでなく対象の手元のコードを試す（直しの正誤に関わらず緑になる）。{HOW}")]
 
 
 def main(argv):
+    allow = bool(argv) and argv[0] == "--allow-checkout"
+    if allow:
+        argv = argv[1:]
     if len(argv) != 2:
         print(USAGE, file=sys.stderr)
         return 2
     root, cmd = os.path.realpath(argv[0]), argv[1].strip()
     if not cmd:
         return 0
-    for line in path_notes(root, cmd) + venv_notes(root, cmd, os.environ):
-        print(f"注意（test_cmd）: {line}")
-    return 0
+    notes = path_notes(root, cmd) + venv_notes(root, cmd, os.environ)
+    for stop, line in notes:
+        print(f"{'止める' if stop and not allow else '注意'}（test_cmd）: {line}")
+    return STOP_EXIT if any(stop for stop, _ in notes) else 0
 
 
 if __name__ == "__main__":

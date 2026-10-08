@@ -928,9 +928,9 @@ class UseShell(unittest.TestCase):
                 self.assertFalse(any(a.startswith("design_only=") and a != "design_only=true" for a in run), run)
 
     def test_start_refuses_switch_outside_one(self):
-        """WORKS_DESIGN_ONLY・WORKS_USE_UNATTENDED は未設定・空・1 だけを受け、ほかの値は家の下に何も作らず
+        """WORKS_DESIGN_ONLY・WORKS_USE_UNATTENDED・WORKS_USE_ALLOW_TESTCMD は未設定・空・1 だけを受け、ほかの値は家の下に何も作らず
         Archon も呼ばずに止まる（黙って捨てると設計だけ・無人のつもりの run が修正まで流れる・関所で人を待つ）"""
-        for name in ("WORKS_DESIGN_ONLY", "WORKS_USE_UNATTENDED"):
+        for name in ("WORKS_DESIGN_ONLY", "WORKS_USE_UNATTENDED", "WORKS_USE_ALLOW_TESTCMD"):
             for value in ("on", "true", "0"):
                 with self.subTest(name=name, value=value):
                     self.setUp()
@@ -1068,6 +1068,76 @@ class UseShell(unittest.TestCase):
         r = self.use("start", str(t), str(self.request), "uv run pytest -q", VIRTUAL_ENV=None)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("注意（test_cmd）", r.stdout)
+
+    def test_start_stops_on_test_cmd_that_runs_the_checkout(self):
+        """test_cmd が対象の手元（元の clone）を走らせる形（黙った偽の緑。決まりは test_testcmd_check）なら、start は Archon を
+        起こす前・家の下に何も写す前に止まる（終了コード 2。止めた理由の行と、書き直す形 uv run と止めを外す
+        WORKS_USE_ALLOW_TESTCMD=1 の行）。WORKS_USE_ALLOW_TESTCMD=1 なら今までどおり「注意」の行を出して起こし、止めを外したことを
+        1 行出す。注意だけの形（相対の .venv）は止めず、止めを外した行も出さない"""
+        t = self.target()
+        (t / ".venv" / "bin").mkdir(parents=True)
+        (t / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
+        with open(t / ".gitignore", "a", encoding="utf-8") as f:
+            f.write(".venv\n")
+        git(t, "commit", "-q", "-am", "ignore .venv")
+        for cmd in (f"{t}/.venv/bin/python -m pytest -q", f"cd {t} && uv run pytest -q"):
+            with self.subTest(cmd):
+                self.setUp()
+                r = self.use("start", str(t), str(self.request), cmd, VIRTUAL_ENV=None)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("止める（test_cmd）: ", r.stderr)
+                last = r.stderr.strip().splitlines()[-1]
+                self.assertTrue(last.startswith("use.sh: "), last)
+                for w in ("uv run pytest", "WORKS_USE_ALLOW_TESTCMD=1"):
+                    self.assertIn(w, last)
+                self.assertEqual(self.calls(), [])
+                self.assertFalse((self.home / "archon-home" / "workflows").exists())
+                for d in ("requests", "suites", "wraps"):
+                    self.assertFalse((self.home / d).exists(), d)
+                r = self.use("start", str(t), str(self.request), cmd, VIRTUAL_ENV=None, WORKS_USE_ALLOW_TESTCMD="1")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn("注意（test_cmd）: ", r.stdout)
+                self.assertNotIn("止める（test_cmd）", r.stdout + r.stderr)
+                self.assertIn("WORKS_USE_ALLOW_TESTCMD=1 なので止めずに起こす", r.stdout)
+                self.assertIn(f"test_cmd={cmd}", self.started())
+        r = self.use("start", str(t), str(self.request), ".venv/bin/python -m pytest -q", VIRTUAL_ENV=None,
+                     WORKS_USE_ALLOW_TESTCMD="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("注意（test_cmd）: ", r.stdout)
+        self.assertNotIn("止めずに起こす", r.stdout)
+
+    def test_start_stops_when_the_test_cmd_check_itself_fails(self):
+        """test_cmd の形の確かめ（testcmd_check.py）そのものが落ちた（0・3 の外の終了コード）なら、手元を走らせる形を除けないので
+        止める（終了コード 2。Archon を起こさず家の下に何も写さない。落ちた終了コードと WORKS_USE_ALLOW_TESTCMD=1 を名指す 1 行）。
+        WORKS_USE_ALLOW_TESTCMD=1 なら落ちたことを注意として出して起こす。落とすのは PATH の頭の python3 の包み（確かめの殻の
+        呼び出しだけを終了コード 1 で落とし、ほかは本物の python3 へ渡す）"""
+        import shutil as _sh
+        real = _sh.which("python3")
+        bin_ = self.tmp / "crash-bin"
+        bin_.mkdir()
+        (bin_ / "python3").write_text(
+            "#!/bin/sh\n"
+            'for a in "$@"; do case $a in */testcmd_check.py) echo "Traceback: boom" >&2; exit 1 ;; esac; done\n'
+            f'exec "{real}" "$@"\n')
+        (bin_ / "python3").chmod(0o755)
+        path = f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}"
+        t = self.target()
+        r = self.use("start", str(t), str(self.request), "uv run pytest -q", PATH=path, VIRTUAL_ENV=None)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        last = r.stderr.strip().splitlines()[-1]
+        self.assertTrue(last.startswith("use.sh: "), last)
+        for w in ("testcmd_check.py", "終了コード 1", "WORKS_USE_ALLOW_TESTCMD=1"):
+            self.assertIn(w, last)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.home / "archon-home" / "workflows").exists())
+        for d in ("requests", "suites", "wraps"):
+            self.assertFalse((self.home / d).exists(), d)
+        r = self.use("start", str(t), str(self.request), "uv run pytest -q", PATH=path, VIRTUAL_ENV=None,
+                     WORKS_USE_ALLOW_TESTCMD="1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("終了コード 1", r.stderr)
+        self.assertIn("WORKS_USE_ALLOW_TESTCMD=1 なので", r.stderr)
+        self.started()
 
     def test_start_final_gate_and_adapter(self):
         t = self.target()
