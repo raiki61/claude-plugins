@@ -511,7 +511,10 @@ class TestTddConflict(LoopCase):
         a, b = {"unit_key": "a"}, {"unit_key": "b"}
         out = {"go": True, "done": False, "phase": "test", "merged": 0, "back": 0, "conflicts": [a, b]}
         printed = []
-        with mock.patch.object(mod.tddlanes, "join", return_value=out), \
+        def join(*args, park, **kw):   # 積むのは締め（tddlanes.join）が出口を保存した後に渡された park で（積んでから出口から消す）
+            park(out["conflicts"])
+            return out
+        with mock.patch.object(mod.tddlanes, "join", side_effect=join), \
                 mock.patch.object(mod.entry, "open_board", return_value=mock.MagicMock()), \
                 mock.patch.object(mod.lanekit.conflict, "park") as park, \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(x[0])), \
