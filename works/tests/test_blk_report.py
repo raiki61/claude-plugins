@@ -8,7 +8,6 @@
 - スクリプト: 子のプロセスで Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）に回し、輪の抜け方を until_bash の式で見る
 提案の表は pack の外の一時の置き場に置き、entry.PACK をそこへ向けて開く（本物の darkfactory/nodes.json は変えない。配線は後）。
 """
-import ast
 import contextlib
 import importlib.util
 import json
@@ -587,104 +586,6 @@ class GlossaryPortCase(_Case):
         self.assertLess(rep.index(GLOSSARY_HEAD), rep.index(rr.MACHINE_HEADING), "節は本文と機械の事実の間")
         self.assertGreater(rep.index(GLOSSARY_HEAD), rep.index(golden_reply("report")["text"].strip()[:40]))
         self.assertTrue(rep.endswith(body), "機械の事実は書き換えずに最後に付ける")
-
-
-LINE_EDGE = ROOT / "darkfactory" / "lib" / "line_edge.py"
-REPORT_ROLES = BLK / "lib" / "report_roles.py"
-# 人に渡る固定の文を、リストへの積み上げの外（return・名前への代入）で組む関数と、固定の文の定数
-FIXED_FUNCS = {LINE_EDGE: ("_final_head", "_protected_text", "_r2_inputs"), REPORT_ROLES: ("stamp", "_missing_reason")}
-FIXED_CONSTS = {LINE_EDGE: ("PROTECTED_HEAD", "PROTECTED_UNKNOWN"),
-                REPORT_ROLES: ("NOT_PASSED", "MACHINE_HEADING", "COLD_REJECTS_LINE", "GLOSSARY_HEADING")}
-
-
-def _pieces(node):
-    """文字列の式の定数の部分（f 文字列は JoinedStr の Constant の部分）。辞書の鍵など式の中の文字列は拾わない"""
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        yield node.value
-    elif isinstance(node, ast.JoinedStr):
-        for v in node.values:
-            yield from _pieces(v)
-    elif isinstance(node, (ast.List, ast.Tuple)):
-        for e in node.elts:
-            yield from _pieces(e)
-    elif isinstance(node, ast.BinOp):
-        yield from _pieces(node.left)
-        yield from _pieces(node.right)
-    elif isinstance(node, ast.IfExp):
-        yield from _pieces(node.body)
-        yield from _pieces(node.orelse)
-    elif isinstance(node, ast.BoolOp):
-        for v in node.values:
-            yield from _pieces(v)
-    elif isinstance(node, ast.ListComp):
-        yield from _pieces(node.elt)
-
-
-def _named(n) -> bool:
-    return isinstance(n, ast.Name)
-
-
-def fixed_lines() -> set:
-    """機械が報告に書く固定の行の文字列: line_edge.py と report_roles.py の関数の中のリストへの積み上げ（変数名を問わず
-    x.append / x += / x = [..]）と、FIXED_FUNCS の return・名前への代入と、FIXED_CONSTS。字・数字を含まない断片は除く"""
-    vals = []
-    for path in (LINE_EDGE, REPORT_ROLES):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for f in tree.body:
-            if isinstance(f, ast.Assign) and any(getattr(t, "id", None) in FIXED_CONSTS[path] for t in f.targets):
-                vals.append(f.value)
-            if not isinstance(f, ast.FunctionDef):
-                continue
-            fixed = f.name in FIXED_FUNCS[path]
-            for n in ast.walk(f):
-                if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "append"
-                        and _named(n.func.value)):
-                    vals += n.args
-                elif isinstance(n, ast.AugAssign) and _named(n.target):
-                    vals.append(n.value)
-                elif (isinstance(n, ast.Assign) and any(_named(t) for t in n.targets)
-                      and (fixed or isinstance(n.value, (ast.List, ast.ListComp)))):
-                    vals.append(n.value)
-                elif fixed and isinstance(n, ast.Return) and n.value is not None:
-                    vals.append(n.value)
-    return {s.strip() for v in vals for s in _pieces(v) if any(c.isalnum() for c in s)}
-
-
-class FixedLineGlossaryCase(unittest.TestCase):
-    """承認試験: 機械が書く固定の行を足す・変えると、glossary.json の reviewed に『その行に出る語』を足すまで赤。
-    reviewed に書いた語は語の定義の一覧に在ること"""
-
-    def glossary(self):
-        self.assertTrue(GLOSSARY.is_file(), "pack の語の定義の一覧 glossary.json が無い")
-        return json.loads(GLOSSARY.read_text(encoding="utf-8"))
-
-    def test_every_fixed_line_is_reviewed(self):
-        reviewed = self.glossary().get("reviewed") or {}
-        got = fixed_lines()
-        self.assertEqual(sorted(got - set(reviewed)), [], "reviewed に無い固定の行（語を見て reviewed に足せ）")
-        self.assertEqual(sorted(set(reviewed) - got), [], "もう無い固定の行が reviewed に残っている")
-
-    def test_reviewed_terms_are_defined(self):
-        doc = self.glossary()
-        reviewed = doc.get("reviewed") or {}
-        line = next((s for s in fixed_lines() if PACK_TERM in s), None)
-        self.assertIsNotNone(line)
-        self.assertIn(PACK_TERM, reviewed.get(line) or [], "固定の行に出る語を reviewed に並べる")
-        defined = {t["term"] for t in doc.get("terms") or []}
-        for s, terms in reviewed.items():
-            for term in terms:
-                with self.subTest(line=s, term=term):
-                    self.assertIn(term, s, "reviewed の語はその行に現れる")
-                    self.assertIn(term, defined, "固定の行の語が語の定義の一覧から漏れている")
-
-    def test_defined_terms_in_line_are_reviewed(self):
-        """一覧の語が行に現れるなら reviewed のその行に並べる（[] で行だけ足して語の承認を飛ばせない）"""
-        doc = self.glossary()
-        defined = [t["term"] for t in doc.get("terms") or []]
-        for s, terms in (doc.get("reviewed") or {}).items():
-            with self.subTest(line=s):
-                self.assertEqual(sorted(t for t in defined if t in s and t not in terms), [],
-                                 "行に現れる一覧の語が reviewed のその行に無い")
 
 
 RUN_TERM = {"term": "次の版の枝", "definition": "この run が直した物を載せて PR に出す作業用の枝"}

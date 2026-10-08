@@ -83,7 +83,7 @@ COLD_MARK_NAME = "report-cold-unpassed.json"  # 今の周の作業ファイル: 
 COLD_UNPASSED = "cold_unpassed"         # count_round_rejects が書き手の節に並べる COLD_MARK_NAME の件数の鍵
 TERMS_NAME = "report-terms.json"        # 今の周の作業ファイル: 書き手が返した run ごとの語（{節: [{term, definition}]}）
 SNAPSHOT_PREFIX = "report-snapshot-"    # 書き手を起こす前の作業ツリーの写し（読むだけの役の比べ）
-# pack の語の定義の一覧（terms: [{term, definition}]）。reviewed は固定の行ごとに出る語の承認（tests/test_blk_report.py だけが読む）
+# pack の語の定義の一覧（terms: [{term, definition}]）
 GLOSSARY = _BLK / "glossary.json"
 GLOSSARY_HEADING = "## 語の定義（機械が付けた。本文の外）"
 CELL_REASON = ("表のセルに説明の文を入れない（書式の決まり: 表は状態・件数・日付など数語の値の一覧だけ。端末の表は列ごとに"
