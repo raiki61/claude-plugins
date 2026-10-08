@@ -666,7 +666,8 @@ def session_problems(nodes, where="", loop=None):
 
     Archon v0.11.1 は、直前に終わった AI の節の会話を次の AI の節に継がせる（dag-executor の lastSequentialSession）。
     輪の中に限らず、script・bash の節を挟んでも続き、切れるのは節が 2 つ以上の層（並べ）・節の context: fresh・組み込んだ
-    ブロックの入口の節が AI の節の時だけ（dag-executor.ts:9783・10424-10437）。輪（loop_group）の 1 周目は外の会話を継がずに
+    ブロックの入口の節が AI の節の時・provider が替わる時だけ（dag-executor.ts:9783・10424-10437）。context: fresh の節も、
+    終われば次の節に自分の会話を渡す（:10813）。輪（loop_group）の 1 周目は外の会話を継がずに
     新しい会話で始まり（:5069）、輪の節は終わっても会話を外へ渡さない（:5416 の出力に会話の id が無い）。だから決まり:
     - 輪の外の AI の節は context: fresh（Archon が新しい会話で起こす）か印 continue=<相手>（包みが SDK の会話を外して相手の会話を継ぐ）
       を持つ。今の層の形で前の会話が切れていても、ブロックの組み方・層の形が替われば黙って継ぐ（ブロックの入口の切れ目は、入口が
@@ -676,7 +677,10 @@ def session_problems(nodes, where="", loop=None):
       直前の AI の節の会話を継ぐので同じ（run f57a5374 の報告の初見の読み手は、書き手の会話の続きで読んでいた）
     - 会話を継ぐ輪（fresh_context が偽）に AI の節が 2 つ以上在れば、頭は印に旗 self-resume（包みが 2 周目から自分の会話に戻す）か
       continue=<相手> か context: fresh を持つ（無いと次の周はほかの節の会話を継ぐ）
-    どの決まりも 1 本の YAML の中で閉じるので、ブロックを別の工程に組み込んでも成り立つ。頭は書いた順でなく走る順で決める"""
+    輪の中の include は、展開された中の AI の節が会話を置くので、会話を置く節に数える（include が頭なら後ろの AI の節は頭でない）。
+    どの決まりも 1 本の YAML の中で閉じるので、ブロックを別の工程に組み込んでも成り立つ。頭は書いた順でなく走る順で決める。
+    Archon 自身の名指しの継ぎ（context: {resume: <節>}。fork が要り、輪の中では拒まれる）は works で使わないので通さない
+    （継ぐのは包みの continue= で宣言する）"""
     def words(m):
         return str((m.get("output_format") or {}).get("description") or "").split(" ")[2:]
 
@@ -692,14 +696,17 @@ def session_problems(nodes, where="", loop=None):
     else:
         g = loop["loop_group"]
         lid = f"{where}{loop['id']}"
+        # 輪の中の include は展開されて中の AI の節が会話を置くので、会話を置く節に数える（中の節の宣言はブロックの YAML で見る）
+        ai = [m for m in ordered if _kind(m) in AI_KEYS + ("include",)]
         for m in ai[1:]:
-            if not cont(m) and m.get("context") != "fresh":
+            if _kind(m) in AI_KEYS and not cont(m) and m.get("context") != "fresh":
                 out.append(f"{lid} の中の節 {m['id']}: 輪の頭でない AI の節が continue= も context: fresh も"
                            f"持たない（頭の節 {ai[0]['id']} の会話を継ぐ）")
-        if ai and not cont(ai[0]) and ai[0].get("context") != "fresh" and not isinstance(g.get("fresh_context"), bool):
+        if (ai and _kind(ai[0]) in AI_KEYS and not cont(ai[0]) and ai[0].get("context") != "fresh"
+                and not isinstance(g.get("fresh_context"), bool)):
             out.append(f"{lid} の中の節 {ai[0]['id']}: 輪の頭の AI の節の会話を決める輪の fresh_context が書かれていない")
-        if (len(ai) > 1 and g.get("fresh_context") is False and not cont(ai[0]) and ai[0].get("context") != "fresh"
-                and "self-resume" not in words(ai[0])):
+        if (len(ai) > 1 and _kind(ai[0]) in AI_KEYS and g.get("fresh_context") is False and not cont(ai[0])
+                and ai[0].get("context") != "fresh" and "self-resume" not in words(ai[0])):
             out.append(f"{lid} の中の節 {ai[0]['id']}: 会話を継ぐ輪にほかの AI の節が在るのに、頭の節の印に旗 self-resume "
                        f"も continue= も無い（次の周はほかの節の会話を継ぐ）")
     for n in ordered:
@@ -756,6 +763,26 @@ class SessionCase(unittest.TestCase):
             "      - id: i\n        depends_on: [a]\n        loop_group:\n          fresh_context: false\n"
             "          nodes:\n            - {id: b, prompt: y}\n")
         self.assertEqual(session_problems(doc), [])
+
+    def test_include_in_loop_body_passes_its_conversation_on(self):
+        # 輪の中の include は展開されて中の AI の節が会話を置く（context: fresh の節も、終われば次の節に会話を渡す。
+        # dag-executor.ts:10813）。ブロックの入口が script なら組み込みの切れ目も効かない
+        after = yaml.safe_load(
+            "- id: l\n  loop_group:\n    fresh_context: false\n    nodes:\n"
+            "      - {id: b, include: blk-x}\n"
+            "      - {id: w, prompt: x, depends_on: [b]}\n")
+        got = session_problems(after)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("l の中の節 w: 輪の頭でない AI の節が continue= も context: fresh も持たない（頭の節 b の会話を継ぐ）", got[0])
+        before = yaml.safe_load(
+            "- id: l\n  loop_group:\n    fresh_context: false\n    nodes:\n"
+            "      - {id: w, prompt: x}\n"
+            "      - {id: b, include: blk-x, depends_on: [w]}\n")
+        got = session_problems(before)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("l の中の節 w: 会話を継ぐ輪にほかの AI の節が在るのに、頭の節の印に旗 self-resume", got[0])
+        before[0]["loop_group"]["nodes"][0]["output_format"] = {"description": "works-node: w self-resume"}
+        self.assertEqual(session_problems(before), [])
 
     def test_second_ai_node_without_own_session_is_red(self):
         def doc(second, head="works-node: w self-resume"):
