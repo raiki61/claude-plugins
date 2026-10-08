@@ -342,6 +342,25 @@ class SharedCacheCase(Base):
         self.assertEqual(again.calls, [], "同じ問いは家の控えを使う")
         self.assertIn("ほかの run の控えから 1 本", text)
 
+    def test_not_found_is_kept_per_library_whatever_the_query(self):
+        """Context7 に無いライブラリは問いに依らない: 名の違う問いの run も、前の run の『無い』の控えを使って網に出ない（匿名の
+        枠を名の組ごとに使い直さない）。前の版の名だけの控えの ok は、問いを見ていないので使わない"""
+        self.run_section("run1", FakeHttp(), self.T)   # 何を問うても 404（Context7 に無い）
+        self.f = self.write("app.py", "from requests import Session, adapters\n")
+        http = FakeHttp()
+        _, text = self.run_section("run2", http, self.T + 60)
+        self.assertEqual(http.calls, [], "無いと分かったライブラリは問いが違っても問い直さない")
+        self.assertIn("Context7 に無い 1 本", text)
+        sd = self.home / libdocs.CACHE_DIR
+        for p in sd.glob("*.json"):
+            p.unlink()
+        old = {"schema": libdocs.SCHEMA, "lib": {}, "status": "ok", "id": "/psf/requests", "version_note": "",
+               "snippets": [], "at": self.T}
+        (sd / "requests@2.32.3.json").write_text(json.dumps(old), encoding="utf-8")
+        http = ok_http()
+        self.run_section("run3", http, self.T + 120)
+        self.assertTrue([u for u in http.calls if "/v2/context" in u], "問いを見ていない前の版の ok の控えは使わない")
+
     def test_shared_cache_expires_after_the_ttl(self):
         self.run_section("run1", ok_http(), self.T)
         http = ok_http()

@@ -340,6 +340,21 @@ class TestCmdCheck(unittest.TestCase):
         self.assertEqual(len(lines), 1, lines)
         self.assertIn("sub/.venv/bin/pytest", lines[0])
 
+    def test_backslash_newline_joins_the_lines(self):
+        """\ と改行は殻と同じに行を繋ぐ（段の区切りにしない）: uv run pytest \⏎ -q は 1 つの段で立てた環境を使わず、
+        bash -lc \⏎ '…' は殻の -c の中を読む。一重引用符の中の \ と改行は字のまま"""
+        venv = self.repo.parent / "venvs" / "proj"
+        self._editable_venv(venv)
+        env = dict(VIRTUAL_ENV=str(venv), PATH=f"{venv}/bin{os.pathsep}{os.environ.get('PATH', '')}")
+        for cmd in ("uv run pytest \\\n  -q", "uv sync && \\\n uv run pytest", "uv run \"pytest\" \\\n -q"):
+            with self.subTest(cmd):
+                self.assertEqual(self.check(cmd, **env), [])
+        self.assertEqual(len(self.stops("echo start \\\n && pytest -q", **env)), 1)
+        r = self.repo
+        for cmd in (f"bash -lc \\\n 'cd {r} && uv run pytest'", f"cd \\\n {r} && uv run pytest"):
+            with self.subTest(cmd):
+                self.stops(cmd)
+
     def test_shell_c_with_end_of_options_and_option_values(self):
         """殻の -c の前後の旗を飛ばして中を読む: -- （旗の終わり）・-o/+o/-O/+O とその値（-eo pipefail も）・--norc などの長い旗"""
         r = self.repo

@@ -20,7 +20,7 @@ Context7 の口（2026-09-28 に https://context7.com/docs/api-guide で確か�
 - unit_files(repo, judgment_file, keys=None) -> (files, why): 判定の単位の字に現れる追跡中の file（impact.seeds_from_units）
 - notice(board) -> str | None: 429（枠切れ）の印が盤面に在れば人に見せる 1 行（報告の冒頭 report.head_entry が使う）。無ければ None
 - section(board, repo, files, *, get=None, env=None, budget=BUDGET, now=None) -> str: 指示書に貼る節。取れた物は盤面の今の周の
-  置き場 libdocs/<名>@<版>-<問いの digest>.json に控え（board.work）、前の周の控えも読む（同じ run の中は網に出ない）。枠切れ（429）で取らなかった物（1 本受けたら以後は問い合わせず、
+  置き場 libdocs/<名>@<版>-<問いの digest>.json（Context7 に無い物は問いに依らないので libdocs/<名>@<版>.json）に控え（board.work）、前の周の控えも読む（同じ run の中は網に出ない）。枠切れ（429）で取らなかった物（1 本受けたら以後は問い合わせず、
   節の TITLE の次の行にも書く）・取れなかった物・Context7 に無い物・版の合わない物・上限で取らない物・読めない file は節の頭に数と名前で書く（黙って落とさない）
 - run をまたぐ控え（env の SHARED_ENV が在る時だけ。置き場と長さの理由は定数の注記）: 取れた物と Context7 に無い物を取った時刻と
   一緒に <包みの家>/libdocs/ にも書き、同じ家の後の run は SHARED_TTL（7 日）の内なら網に出ずに使う（盤面の今の周にも写す）。
@@ -368,21 +368,36 @@ def fetch(lib: dict, get, headers: dict) -> dict:
 
 
 # ---------------------------------------------------------------- 節
+def _lib_name(lib: dict) -> str:
+    """ライブラリの名と版だけの控えの名（Context7 に無い not_found の控え。無いことは問いに依らない）"""
+    return re.sub(r"[^A-Za-z0-9._@-]", "_", f"{lib['name']}@{lib['version'] or 'any'}") + ".json"
+
+
 def _cache_name(lib: dict) -> str:
-    """控え（盤面の周・包みの家）の名: ライブラリの名と版に、問い（_query。単位のファイルが使う名を持つ）の digest を足した物
-    （Context7 は問いに合う断片を返すので、名の違う問いの控えを使い回さない）"""
+    """取れた文書（ok）の控え（盤面の周・包みの家）の名: ライブラリの名と版に、問い（_query。単位のファイルが使う名を持つ）の
+    digest を足した物（Context7 は問いに合う断片を返すので、名の違う問いの控えを使い回さない）"""
     digest = hashlib.sha256(_query(lib).encode("utf-8")).hexdigest()[:12]
-    return re.sub(r"[^A-Za-z0-9._@-]", "_", f"{lib['name']}@{lib['version'] or 'any'}") + f"-{digest}.json"
+    return f"{_lib_name(lib)[:-len('.json')]}-{digest}.json"
 
 
-def _cached(board, name: str):
+def _cache_keys(lib: dict) -> tuple:
+    """((控えの名, 受ける状態) の並び): 問いの名の ok と、ライブラリの名の not_found（前の版の名だけの ok は問いを見ていないので
+    受けない）"""
+    return ((_cache_name(lib), ("ok",)), (_lib_name(lib), ("not_found",)))
+
+
+def _name_for(lib: dict, status: str) -> str:
+    return _lib_name(lib) if status == "not_found" else _cache_name(lib)
+
+
+def _cached(board, name: str, statuses=("ok", "not_found")):
     """一番新しい周の控え（scopes.all_rounds。scope の根に分かれた物も見る）"""
     for p in reversed(scopes.all_rounds(pathlib.Path(board.dir), f"{CACHE_DIR}/{name}")):
         try:
             doc = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if isinstance(doc, dict) and doc.get("schema") == SCHEMA and doc.get("status") in ("ok", "not_found"):
+        if isinstance(doc, dict) and doc.get("schema") == SCHEMA and doc.get("status") in statuses:
             return doc
     return None
 
@@ -415,10 +430,10 @@ def _fresh(doc, now: float, span: float) -> bool:
     return isinstance(at, (int, float)) and not isinstance(at, bool) and 0 <= now - at < span
 
 
-def _shared_get(sd, name: str, now: float):
-    """run をまたぐ控えの 1 本（ok か not_found で、SHARED_TTL の内の物）。無ければ None"""
+def _shared_get(sd, name: str, now: float, statuses=("ok", "not_found")):
+    """run をまたぐ控えの 1 本（statuses の状態で、SHARED_TTL の内の物）。無ければ None"""
     doc = _read_doc(sd / name) if sd is not None else None
-    return doc if doc and doc.get("status") in ("ok", "not_found") and _fresh(doc, now, SHARED_TTL) else None
+    return doc if doc and doc.get("status") in statuses and _fresh(doc, now, SHARED_TTL) else None
 
 
 def _shared_quota(sd, now: float, keyed: bool):
@@ -537,13 +552,14 @@ def _section(board, repo, files, get, env, budget, now) -> str:
             unshared.append(why)
     for k in take:
         lib = libs[k]
-        name = _cache_name(lib)
-        got = _cached(board, name)
+        got = next((d for d in (_cached(board, n, st) for n, st in _cache_keys(lib)) if d is not None), None)
+        shared = None if got is not None else \
+            next((d for d in (_shared_get(sd, n, now, st) for n, st in _cache_keys(lib)) if d is not None), None)
         if got is not None:
             hits += 1
-        elif (got := _shared_get(sd, name, now)) is not None:
+        elif (got := shared) is not None:
             shared_hits += 1
-            keep(name, got)        # run の中の後の周は盤面の控えを読む（run の間に家の控えが替わっても同じ物）
+            keep(_name_for(lib, got["status"]), got)   # run の中の後の周は盤面の控えを読む（run の間に家の控えが替わっても同じ物）
         elif halted or held is not None:
             if not halted:
                 _mark_quota(board, held_why)
@@ -553,8 +569,8 @@ def _section(board, repo, files, get, env, budget, now) -> str:
         else:
             got = {"schema": SCHEMA, "lib": lib, **fetch(lib, get, headers), "at": now}
             if got["status"] in ("ok", "not_found"):
-                keep(name, got)
-                share(name, got)
+                keep(_name_for(lib, got["status"]), got)
+                share(_name_for(lib, got["status"]), got)
             elif got["status"] == "quota":
                 _mark_quota(board, got["error"])
                 share(QUOTA_MARK, {"schema": SCHEMA, "reason": got["error"], "at": now, "keyed": keyed})

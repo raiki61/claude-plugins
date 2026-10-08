@@ -119,7 +119,7 @@ HEAD = ("修正案の項目の works の欄: 写しの指示書はこの欄を�
         "allowed_paths＝その項目で書いてよいパスの glob の並び（1 つ以上。作業ツリーの根からの相対・/ 区切り・** は段をまたぐ）。"
         "tests・rewrite_tests の id のファイルは書かなくても範囲に入り、out_of_scope の glob をそのファイルに当てた案は拒む。"
         "移す・消すファイルの元のパスも allowed_paths に書け。"
-        "** や * や **/* や **/?* のような字の無い（* と ? と [..] だけの）丸ごとの許しは拒む。"
+        "** や * や **/* や **/?* や **/*.* のような字の無い（* と ? と [..] と . だけの）丸ごとの許しは拒む。"
         "out_of_scope＝範囲の中でも触らない物 {glob, why} の並び（why は "
         f"{MIN_WHY} 字以上。無ければ空の並び）。修正の受け付けは差分をこの範囲と照らし、外れたら同じ brief で返す。"
         "機械は差分で次を探すので、adds の name は識別子（関数・欄・CLI・テストの名）で書き、新設の物の canonical には"
@@ -165,7 +165,7 @@ def climbs(norm: str) -> bool:
 def glob_problem(glob: str) -> str | None:
     """範囲の欄の glob（allowed_paths の行・out_of_scope の glob）の誤りの文。無ければ None。前後の空白・\\ の区切り・絶対パス
     （/・ドライブ文字・~ で始まる）・`..` の段で根の外へ上る・整えた形でない綴り（./x・a/../b・a//b）・字の無い glob（* と ? と
-    [..] と / だけ。**・*・**/*・**/?*・[a-z]* のような丸ごとの許し。全部のファイルに当たり得る）を拒む。整えずに拒む（差分のパスは整えた綴りなので、整えない綴りの glob は当たらない）。
+    [..] と / と . だけ。**・*・**/*・**/?*・[a-z]*・**/*.* のような丸ごとの許し。全部のファイルに当たり得る）を拒む。整えずに拒む（差分のパスは整えた綴りなので、整えない綴りの glob は当たらない）。
     ファイルの有無は見ない（新しく置くファイルも書く）"""
     if glob != glob.strip():
         return "前後に空白が在る（空白を外した、作業ツリーの根からの相対の glob にせよ）"
@@ -177,14 +177,14 @@ def glob_problem(glob: str) -> str | None:
     if climbs(norm):
         return "根の外か根そのものを指す（`..` の段で上らない、根からの相対の glob にせよ）"
     if not any(_literal(seg) for seg in norm.split("/")):
-        return "丸ごとの許し（字が無く * と ? と [..] だけの glob）は拒む。項目の直しが触るファイルかディレクトリまで狭めよ"
+        return "丸ごとの許し（字が無く * と ? と [..] と . だけの glob）は拒む。項目の直しが触るファイルかディレクトリまで狭めよ"
     if norm != glob.rstrip("/"):
         return f"整えた形でない（./・..・// を含む）。整えた形 {norm} で書け"
     return None
 
 
 def _literal(seg: str) -> bool:
-    """glob の 1 区切りに、* と ? と [..]（_segment と同じ読み）の外の字が在るか"""
+    """glob の 1 区切りに、* と ? と [..]（_segment と同じ読み）と . の外の字が在るか"""
     i = 0
     while i < len(seg):
         c = seg[i]
@@ -195,7 +195,7 @@ def _literal(seg: str) -> bool:
             if k > 0:
                 i = k + 1
                 continue
-        if c not in "*?":
+        if c not in "*?.":   # . だけの字（*.*・**/.*）は拡張子を持つ全部・隠しの全部に当たる
             return True
         i += 1
     return False

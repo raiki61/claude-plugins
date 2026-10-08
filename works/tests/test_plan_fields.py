@@ -433,9 +433,10 @@ class ScopeFieldsCase(PlanFieldsCase):
         self.assertEqual(planmarks.gaps({"plan": [item(allowed_paths=["stats.py", "docs/**/*.md"])]}, self.repo), [])
 
     def test_glob_without_a_literal_character_is_a_whole_tree_allowance(self):
-        """字の無い glob（* と ? と [..] と / だけ）は全部に当たり得る丸ごとの許しなので拒む（**/?* は全部の段が * か ** でないが
+        """字の無い glob（* と ? と [..] と / と . だけ）は全部に当たり得る丸ごとの許しなので拒む（**/?* は全部の段が * か ** でないが
         全部のファイルに当たる。無人の run は範囲を広げるだけの案の直しを関所なしに通すので、ここで止める）。字の在る glob は通す"""
-        for g in ("**/?*", "?*", "?", "*/?", "**/[a-z]*", "[!.]*", "**/*?", "*/**/*", "[]]*"):
+        for g in ("**/?*", "?*", "?", "*/?", "**/[a-z]*", "[!.]*", "**/*?", "*/**/*", "[]]*",
+                  "**/*.*", "*.*", "**/.*"):   # 字が . だけの glob も拡張子を持つ全部・隠しの全部に当たる
             with self.subTest(g):
                 self.assertIn("丸ごと", planmarks.glob_problem(g) or "")
                 got = planmarks.gaps({"plan": [item(allowed_paths=[g])]}, self.repo)

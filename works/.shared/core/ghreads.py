@@ -110,11 +110,13 @@ def _prior_failures(rows) -> list:
 
 def carry_ci(doc, ids) -> dict:
     """依頼 doc（findings の配列か object）に、CI が赤と言った試験の id の並び ids を prior_failures の行として足した object を
-    返す（doc は変えない）。id は前後の空白を落とし、空と重なりは捨てる。既に同じ行が在れば足さない。answers の答えの下書き
+    返す（doc は変えない）。id は前後の空白を落とし、空と重なりは捨てる。既に同じ行が在れば足さない。answers と findings の下書き
     （DRAFT_KEYS の在る行。前の run の報告が書き、人がまだ見直していない）は確かめずにそのまま残す（下書きは次の run の入口が拒む）"""
-    bare = doc
-    if isinstance(doc, dict) and isinstance(doc.get("answers"), list):
-        bare = {**doc, "answers": [a for a in doc["answers"] if not (isinstance(a, dict) and any(k in a for k in DRAFT_KEYS))]}
+    def drop(rows):
+        return [r for r in rows if not (isinstance(r, dict) and any(k in r for k in DRAFT_KEYS))]
+    bare = drop(doc) if isinstance(doc, list) else doc
+    if isinstance(doc, dict):
+        bare = {**doc, **{k: drop(doc[k]) for k in ("answers", "findings") if isinstance(doc.get(k), list)}}
     parts = request_parts(bare)
     got = list(dict.fromkeys(i.strip() for i in ids if isinstance(i, str) and i.strip()))
     if not got:

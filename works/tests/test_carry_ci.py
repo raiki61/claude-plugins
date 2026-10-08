@@ -34,6 +34,16 @@ class CarryCase(unittest.TestCase):
         self.assertIn(TID2, rows[2]["text"])
         self.assertEqual(ghreads.request_parts(got)["prior_failures"], rows)   # 依頼の型のまま
 
+    def test_draft_findings_are_kept_as_they_are(self):
+        """前の run の報告が下書きの印つきで運んだ目的の外の所見（findings の draft・source の行）でも止まらず、そのまま残す
+        （下書きは次の run の入口が拒む。審査の再現: carry-ci が exit 2 だった）"""
+        draft = {"where": "a.py:1", "text": "目的の外", "draft": True, "source": "前の run の判定が目的の外とした所見（x）"}
+        doc = {"findings": [{"where": "b.py:2", "text": "穴"}, draft], "prior_failures": []}
+        got = ghreads.carry_ci(doc, [TID])
+        self.assertEqual(got["findings"], doc["findings"])
+        self.assertEqual(len(got["prior_failures"]), 1)
+        self.assertEqual(ghreads.carry_ci([draft], [TID])["findings"], [draft])
+
     def test_same_id_twice_or_already_carried_is_one_row(self):
         once = ghreads.carry_ci({"findings": [], "prior_failures": []}, [TID, TID, f"  {TID}  ", ""])
         self.assertEqual(len(once["prior_failures"]), 1)

@@ -22,7 +22,7 @@ run の worktree（Archon が --from の commit から切る）と単位の work
     環境・uv run の使い捨ての環境）は知らせない
 - 注意の形（行の頭「注意（test_cmd）」）: 相対の語が、対象に今在り git が無視する物（git check-ignore。パスか、その上のどれかの段が
   無視されていれば無視）を指す。worktree に無いので走らない（落ちて分かる）
-見る語: 段（&&・||・;・|・& と改行で割る。改行は ; と同じ。&& などの後ろの改行は続き。# の注は行の終わりまで）の語（shlex で割る。割れなければ空白で割る）のうち、`/` を含み - で始まらない物と、= を含む語
+見る語: 段（&&・||・;・|・& と改行で割る。改行は ; と同じ。&& などの後ろの改行と \\ と改行は続き。# の注は行の終わりまで）の語（shlex で割る。割れなければ空白で割る）のうち、`/` を含み - で始まらない物と、= を含む語
 （NAME=値・--旗=値）の値を : で割った絶対パス。注意の形（相対の語）は最初の段だけを見る（後ろの段は前の段が worktree の中で作った
 物を使える）。
 所を変える形は辿る:
@@ -104,9 +104,27 @@ class _KeepNewline(io.StringIO):
         return self.read(len(rest) if end < 0 else end)
 
 
+def _join_lines(cmd):
+    """\\ と改行（行の続き）を殻と同じに消す（一重引用符の中は字のまま。二重引用符の中と外は消す）"""
+    out, i, quote = [], 0, None
+    while i < len(cmd):
+        c = cmd[i]
+        if c == "\\" and quote != "'" and i + 1 < len(cmd):
+            if cmd[i + 1] != "\n":
+                out.append(cmd[i:i + 2])
+            i += 2
+            continue
+        if c in "'\"":
+            quote = c if quote is None else None if quote == c else quote
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def _words(cmd):
-    """shlex の語の並び（改行は 1 語 "\n"。句読の連なりに挟まった改行も分ける）。割れなければ ValueError"""
-    lex = shlex.shlex(_KeepNewline(cmd), posix=True, punctuation_chars=PUNCT)
+    """shlex の語の並び（行の続き \\ と改行は先に消す。改行は 1 語 "\n"。句読の連なりに挟まった改行も分ける）。割れなければ
+    ValueError"""
+    lex = shlex.shlex(_KeepNewline(_join_lines(cmd)), posix=True, punctuation_chars=PUNCT)
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
     out = []

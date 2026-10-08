@@ -1,11 +1,11 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "次の run に渡す依頼の下書き next-request.json（盤面の根。書き手は core の report.build。依頼の object の形 {findings, prior_failures, answers?}。findings は直す穴（判定が凍結した目的の外として単位にしなかった材料の所見も含む）、prior_failures はこの run で最後まで通らなかった物で次の run の判定役と修正案の役に貼る注意、answers は無人の run が人の判断の所で止まった時だけの答えの下書き（draft: true と出どころ source つき。依頼の入口が拒むので人が見直してから使う）",
+ "title": "次の run に渡す依頼の下書き next-request.json（盤面の根。書き手は core の report.build。依頼の object の形 {findings, prior_failures, answers?}。findings は直す穴（判定が凍結した目的の外として単位にしなかった材料の所見は、最後の周の分を draft: true と出どころ source つきで載せる。依頼の入口が拒むので、人が見直して目的に入れる行は印を消し、入れない行は消す）、prior_failures はこの run で最後まで通らなかった物で次の run の判定役と修正案の役に貼る注意、answers は無人の run が人の判断の所で止まった時だけの答えの下書き（draft: true と出どころ source つき。推しの無い行は text が空で、材料は note。依頼の入口が拒むので人が見直してから使う）",
  "type": "object",
  "required": ["findings", "prior_failures"],
  "properties": {
-  "findings": {"type": "array", "items": {"type": "object", "properties": {"where": {"type": "string"}, "text": {"type": "string"}, "mechanism": {"type": "string"}, "measured": {"type": "string"}, "false_positive_if": {"type": "string"}}}},
-  "answers": {"type": "array", "items": {"type": "object", "required": ["question", "text", "draft", "source"], "properties": {"question": {"type": "string"}, "text": {"type": "string"}, "draft": {"const": true}, "source": {"type": "string"}}}},
+  "findings": {"type": "array", "items": {"type": "object", "properties": {"where": {"type": "string"}, "text": {"type": "string"}, "mechanism": {"type": "string"}, "measured": {"type": "string"}, "false_positive_if": {"type": "string"}, "draft": {"const": true}, "source": {"type": "string"}}}},
+  "answers": {"type": "array", "items": {"type": "object", "required": ["question", "text", "draft", "source"], "properties": {"question": {"type": "string"}, "text": {"type": "string"}, "draft": {"const": true}, "source": {"type": "string"}, "note": {"type": "string"}}}},
   "prior_failures": {"type": "array", "items": {"type": "object", "required": ["where", "text"], "properties": {"where": {"type": "string"}, "text": {"type": "string"}}}}
  }
 }
