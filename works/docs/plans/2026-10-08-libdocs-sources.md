@@ -3,6 +3,8 @@
 
 状態: 入れた（`.shared/core/libdocs.py`・`libdocs_local.py`・`libdocs_web.py`・`auth_launch.py` の Context7 の鍵）。残りは本物の run での確かめ（7 節）。
 
+> **2026-10-09 追記: Context7 はやめた（持ち主の決め）。** 3 つめの出どころ（Context7 の HTTP API）と、その鍵の受け渡し（`auth_launch.py` の keychain の項目・run の控えと続きの行の項目の名）、役に貸す Context7 の MCP（包みの `--mcp-config` と `dev/toolset.py` の kind "mcp"）を消した。ライブラリの文書は手元の版と公式の 2 つから引き続き引く。量の取り分は 1 本のライブラリの分を手元 1/2・公式の残り（1/2）で先に分け、余りを手元 → 公式の順に埋める。網の止めは `WORKS_LIBDOCS_WEB=off`（前の名 `WORKS_CONTEXT7=off` は効かない）。節の題は「ライブラリの文書（手元の版・公式）」。下の本文は 2026-10-08 の決めのまま残す（履歴）。
+
 ## 平たく言うと（3 行）
 
 - 修正役と修正案の役の指示書に貼るライブラリの文書を、Context7 だけでなく、run の中に入っている版のコード（手元）と、ライブラリの公式の文書（登録の要らない web）からも引く。

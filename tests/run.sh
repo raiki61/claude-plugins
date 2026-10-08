@@ -3522,7 +3522,7 @@ root = pathlib.Path(sys.argv[1])
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
 EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_", "INPUTS_")
 EXTERNAL_NAMES = {"PYTHONOPTIMIZE", "PYTHONPATH", "BASH_ENV", "CLAUDE_KEYCHAIN_SERVICE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
-                  # Archon が節と子に渡す環境変数・Archon の設定の環境変数・Context7 の鍵
+                  # Archon が節と子に渡す環境変数・Archon の設定の環境変数・やめた Context7 の鍵（変更の記録と前の設計書が名指す）
                   "ARTIFACTS_DIR", "WORKFLOW_ID", "ARCHON_NODE_EXECUTION", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
                   # works の python が os.environ から・shell の殻が環境から読む環境変数（WORKS_ で始まる shell の
                   # 定数が在るので接頭辞では外さない）
