@@ -12,7 +12,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ### Added
 
-- ラインの入力 `features_on`（`use.sh` は `WORKS_USE_FEATURES_ON`、`dogfood.sh` は `WORKS_FEATURES_ON`）。`features_off` と同じ語で、既定で off・auto の機能を on にする（`features_on=judge_verify` で判定の裏取りを回す、`features_on=review_tree` で開いた項目の数に依らず事前審査を木にする）。名指した語が既定に勝ち、`features_off=review_tree` ならいつも審査役 1 つ。前からの `features_off=judge_verify` は既定と同じ off のまま受ける。同じ語を両方に名指す・知らない語は `start` が AI の前で止める。入力は start の控えと `versions.json` の `settings.features_on` に残り、呼び直しで替えれば止まる（固定材料から始める run は替えてよい）。修正案のブロックの入力 `review_tree` は語 `auto` も受ける
+- ラインの入力 `features_on`（`use.sh` は `WORKS_USE_FEATURES_ON`、`dogfood.sh` は `WORKS_FEATURES_ON`）。`features_off` と同じ語で、既定で off・auto の機能を on にする（`features_on=judge_verify` で判定の裏取りを回す、`features_on=review_tree` で開いた項目の数に依らず事前審査を木にする）。名指した語が既定に勝ち、`features_off=review_tree` ならいつも審査役 1 つ。前からの `features_off=judge_verify` は既定と同じ off のまま受ける。同じ語を両方に名指す・知らない語は `start` が AI の前で止める。入力は start の控えと `versions.json` の `settings.features_on` に残り、呼び直しで替えれば止まる（固定材料から始める run は替えてよい。前の版で始めた run の呼び直しは前の版の既定の全部 on のまま続く）。start の控えは実効で off の機能（既定で off の機能を含む）も `features_cut` に持ち、包みの工程の地図はそれを読んで判定の裏取りを切った物として描く。修正案のブロックの入力 `review_tree` は語 `auto` も受ける
 
 ## [0.2.44] - 2026-10-08
 

@@ -731,8 +731,9 @@ def check_item(b, k: int, n: int, rip: dict, pre: list | None = None) -> tuple:
 
 
 def _tree_off(b, k: int, rip: dict) -> bool:
-    """項目の控えが無い・支度がこの往復の下請けのファイルを書いていない（入力 review_tree が off。tree_part が置き場 ITEMS_DIR を
-    作らない）・1 項目で覆っていない当たりが無く答えのファイルも無い案は木にしない（返答の全体が審査役 1 つの答え）"""
+    """項目の控えが無い・支度がこの往復の下請けのファイルを書いていない（入力 review_tree が off か、auto で開いた項目が
+    TREE_AUTO_MIN 未満の往復。tree_part が置き場 ITEMS_DIR を作らない）・1 項目で覆っていない当たりが無く答えのファイルも
+    無い案は木にしない（返答の全体が審査役 1 つの答え）"""
     plan = converge.read(b).get("plan")
     return (not plan or not b.work(ITEMS_DIR.format(k=k)).is_dir()
             or (len(plan) == 1 and converge.open_items(b) == [1] and not ripple.uncovered(rip, 1)
