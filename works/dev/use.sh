@@ -47,7 +47,8 @@
 #   それ以外は空（全部の単位を直に直す）にして 1 行で知らせる。test_cmd を省けば空（ラインの既定: 対象の宣言か CI）。
 # - test_cmd が対象の手元（元の clone）を走らせる形（手元の在る物を絶対パスで指す・対象を editable で入れた立てた仮想環境を掴む）なら、
 #   直しの正誤に関わらず緑になり得るので、何かを写す前に「止める（test_cmd）」の行と理由の 1 行で止める（終了コード 2）。
-#   WORKS_USE_ALLOW_TESTCMD=1（未設定・空・1 だけを受ける）なら止めずに「注意（test_cmd）」の行を出して起こす。run・単位の worktree で
+#   確かめの殻（testcmd_check.py）そのものが落ちた時も、形を除けないので同じに止める。
+#   WORKS_USE_ALLOW_TESTCMD=1（未設定・空・1 だけを受ける）なら止めずに「注意（test_cmd）」の行（落ちた時はその 1 行）を出して起こす。run・単位の worktree で
 #   走らない形（対象の git が無視するパスを相対で指す）は「注意（test_cmd）」の行だけ（止めない）。決まりは testcmd_check.py。
 # - 最後の関所は WORKS_USE_FINAL_GATE（既定 protected_only＝守りのファイルを触った時だけ・when_needed・always）。包みは既定で入れる（WORKS_DEV_ADAPTER=0 か空の明示で外し、
 #   adapter=optional と「包み無し」を出す）。入力 policy_md・gates・thickness・features_off は WORKS_USE_POLICY_MD・WORKS_USE_GATES・
@@ -681,7 +682,8 @@ esac
 # testcmd_check.py が分ける（決まりはそちら）: 対象の手元（元の clone）を走らせる形（絶対パスで手元を指す・対象を editable で
 # 入れた立てた仮想環境を掴む）は、直しの正誤に関わらず緑になり得るので、依頼の写し・実行器・pack の写しを作る前に止める（2）。
 # WORKS_USE_ALLOW_TESTCMD=1 なら「注意」の行を出して起こす。worktree で走らない形（相対の .venv など。走れば落ちて分かる）は
-# 「注意」の行だけで止めない。確かめの殻そのものが落ちたら 1 行出して進める（止めるのは形を名指せた時だけ）
+# 「注意」の行だけで止めない。確かめの殻そのものが落ちた（0・3 の外）時も、手元を走らせる形を除けないので止める（止めを外せば
+# 落ちたことを出して起こす）
 _tc_rc=0
 _tc_out="$(python3 -I "$DEV_DIR/testcmd_check.py" ${WORKS_USE_ALLOW_TESTCMD:+--allow-checkout} "$TARGET" "$TEST_CMD")" || _tc_rc=$?
 case "$_tc_rc" in
@@ -696,8 +698,13 @@ case "$_tc_rc" in
     fi
     ;;
   *)
-    [ -z "$_tc_out" ] || printf '%s\n' "$_tc_out"
-    echo "use.sh: test_cmd の形の確かめ（testcmd_check.py）が終了コード ${_tc_rc} で落ちた。確かめずに進める" >&2
+    # 確かめそのものが落ちた: 手元を走らせる形を除けないので、止める形と同じに止める（止めを外せば注意として出して起こす）
+    [ -z "$_tc_out" ] || printf '%s\n' "$_tc_out" >&2
+    if [ "$WORKS_USE_ALLOW_TESTCMD" = 1 ]; then
+      echo "use.sh: test_cmd の形の確かめ（testcmd_check.py）が終了コード ${_tc_rc} で落ちた。WORKS_USE_ALLOW_TESTCMD=1 なので確かめずに起こす" >&2
+    else
+      refuse "test_cmd の形の確かめ（testcmd_check.py）が終了コード ${_tc_rc} で落ち、対象の手元を走らせる形かを確かめられないので、Archon を起こさずに止めた（落ちた理由は上の行）。確かめずに回すなら WORKS_USE_ALLOW_TESTCMD=1 を前に付けて打ち直す"
+    fi
     ;;
 esac
 if [ -n "$WORKS_LAUNCH_ADAPTER_MODE" ]; then
