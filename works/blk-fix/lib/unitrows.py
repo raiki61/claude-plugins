@@ -109,15 +109,15 @@ def _bind(sites, cap, files, moved=None, declared=frozenset(), by_file=False):
             sorted(cover - hit), unchanged, bool(named) or not paths)
 
 
-def file_counts(how, root, rev=None, timeout=60):
+def file_counts(how, root, rev=None):
     """問いの当たりのファイルごとの数 ——（{パス: 件数}, ""）か（None, 理由）。count: files はファイル 1 本を 1 と数える。
     写しの _run_query の予算（count-budget.json）と控え（count-cache.json）は通らない（写しは rules-copy の下で works から載せられない）。
-    1 単位 1 回だけ走る"""
+    1 単位 1 回だけ走る。期限は付けない（写しの _grep の期限に None を渡す。台帳 R4）"""
     argv, why = _util.count_argv(how, rev)
     if why:
         return None, why
     # 引用符と 8 進に崩したパス（core.quotePath の既定）は site の path と一致しないので、生のパスで出させる
-    out, why = _util._grep([argv[0], "-c", "core.quotePath=false", *argv[1:]], str(root), timeout)
+    out, why = _util._grep([argv[0], "-c", "core.quotePath=false", *argv[1:]], str(root), None)
     if why:
         return None, why
     got = {}

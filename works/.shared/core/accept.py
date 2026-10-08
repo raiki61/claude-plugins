@@ -61,7 +61,6 @@ SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリ�
 DIFF_FILE = "fix.diff"                   # 修正の差分（cut_delta が書き、審査役が読む）
 DELTA_REVIEW_FILE = "delta-review.json"  # 受け付けた審査の返答（集める節が穴の数を数える）
 JUDGE_SNAPSHOT_FILE = "judge-snapshot.json"   # 判定役を起こす前（依頼の受け付けの時）の作業ツリー。形は SNAPSHOT_FILE と同じ
-GIT_TIMEOUT = 120
 RACY_NS = 2_000_000_000   # ファイルの時刻の細かさの上限（FAT の 2 秒）。これより新しい mtime は印だけでは信じない
 
 # 修正役の返答のうち、受け付けが読む欄だけの型（役の output_format は blk-fix が持つ。ここは読む欄が在るかだけを見る）
@@ -173,8 +172,8 @@ def role_schema(node: str, numbered: bool = False) -> dict:
 def _git(repo, *args, binary=False):
     """repo を cwd にして git を呼ぶ。失敗は Reject（受け付けは『分からない』を合格に倒さない）"""
     try:
-        r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired) as e:
+        r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL)
+    except OSError as e:
         raise Reject(f"git {' '.join(args)} を呼べない（{type(e).__name__}: {e}）")
     if r.returncode != 0:
         err = r.stderr.decode("utf-8", "replace").strip()[-300:]
@@ -489,8 +488,8 @@ def cut_delta(board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
             continue
         try:   # --no-index は差が在れば 1 で終わるので _git（0 以外は Reject）を通さない
             r = subprocess.run(["git", "-c", "core.quotePath=false", "diff", "--no-index", "--binary", "--no-ext-diff", "--", "/dev/null", name],
-                               cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT)
-        except (OSError, subprocess.TimeoutExpired) as e:
+                               cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL)
+        except OSError as e:
             raise Reject(f"git diff --no-index {name} を呼べない（{type(e).__name__}: {e}）")
         if r.returncode not in (0, 1):
             raise Reject(f"git diff --no-index {name} が失敗した（{r.stderr.decode('utf-8', 'replace').strip()[-300:]}）")
