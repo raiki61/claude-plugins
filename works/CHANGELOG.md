@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- 独立の目（R1 のコメントの削除候補・R1・R3・R4）の指示書が、版を `git -C <リポジトリ> show <版>:<パス>`・`git grep` で読めと言っていたのに、目の道具は Read・Grep・Glob だけで shell を持たないので打てなかった（R4 が読めなかったと申告した）のを直した。目の cwd の作業ツリーは入口で撮った版のまま止めてあり（受け付けが入口の写しと比べて変われば拒む）、描く時にその文を「cwd をそのまま Read・Grep・Glob で読め」に替える。目に shell は足さない。写しの指示書のファイルは変えず、替えたことは `gl-prompts/COPIED_FROM` の行に書いた
+
 ## [0.2.44] - 2026-10-08
 
 ### Fixed

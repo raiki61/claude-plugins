@@ -103,6 +103,16 @@ ROUTES_NAME = "eyes-routes.json"
 LANES_NAME = gatemarks.LANES_NAME      # 落ちた筋と、その文（最後の関所の目の行の下に並ぶ。読み手は gatemarks.fell_lanes）
 STOP_BY = "works:eyes"
 PROMPTS_COPY = rolekit.PROMPTS_COPY
+# 写しの目の指示書（r1.comment_candidates・r1.minimality・r3.coherence・r4.hidden_scope）は版を git show・git grep で読めと言うが、
+# 目の道具は Read・Grep・Glob だけで shell を持たない（実測: R4 が版を読めないと申告した）。目の cwd の作業ツリーは入口で撮った版の
+# まま止まっている（受け付けが入口の写し SNAPSHOT_NAME と今の姿を比べ、変われば拒む）ので、描く時にその文を FROZEN_READ に替える。
+# 写しの指示書は 1 バイトも変えない（gl-prompts/COPIED_FROM の注記。文が替われば tests/test_blk_eyes.py の FrozenReadCase が落ちる）
+GIT_SHOW_SENTENCE = ("**読むのは、この周に固定したリビジョン**であって、生きた作業ツリーの今の姿ではない。"
+                     "`git -C <リポジトリ> show <版>:<パス>` や `git -C <リポジトリ> grep <語> <版>` のように、版を指定して読め"
+                     "——同じ周のうちに実装者が直しても、あなたが見る現物は動かない。engine が根拠を数え直すときも同じ版を数える。")
+FROZEN_READ = ("**読むのは、この周に固定したリビジョン**。お前の cwd の作業ツリーは、その版のまま止めてある（お前を起こす前に"
+               "撮った姿と、受け付けが今の姿を比べる）。Read・Grep・Glob で cwd のファイルをそのまま読め——git や shell は"
+               "道具に無く、要らない。engine が根拠を数え直すときも同じ版を数える。")
 # 出口の欄（BLOCKS.md 3.3 の R11 の出口に、ブロックの回り方の欄を足した物。並びも固定）
 EXIT_FIELDS = ("ok", "reason", "complete", "asking", "stopped", "eyes", "gave_up", "after_fix", "open_units", "r1_refire",
                "r2_refire", "purpose_known", "purpose_unusable", "reviews", "premise", "premise_inputs", "retaken_for_reviews",
@@ -316,10 +326,11 @@ def route(board_dir, role, rnd, skip: str = "") -> dict:
 # ---------------------------------------------------------------- 描く
 def render(b, nid) -> str:
     """engine の emit_instance と同じ描き方（rolekit.render_body。reads に無い穴は描けない・cap なし・schema の断り）。
-    指示書は写しの graph、無ければ同じ commit から写した gl-prompts/。番号で指す一覧（pointers）を持つ節は描かない"""
+    指示書は写しの graph、無ければ同じ commit から写した gl-prompts/。番号で指す一覧（pointers）を持つ節は描かない。
+    版を git で読めという写しの文（GIT_SHOW_SENTENCE）は、止めた cwd を Read で読めという文（FROZEN_READ）に替える"""
     if b.nodes[nid].get("pointers"):
         raise BoardGap(f"{nid} は番号で指す一覧（pointers）を持つ——独立の目の描き方は持たない（写しを見直す）")
-    return rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY)[0]
+    return rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY)[0].replace(GIT_SHOW_SENTENCE, FROZEN_READ)
 
 
 def _lines(rows) -> str:
