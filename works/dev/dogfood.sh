@@ -32,7 +32,7 @@
 #   WORKS_FEATURES_ON は入れる機能（同じ語）: 空でなければ入力 features_on=<値> を渡す（既定で off の judge_verify・auto の
 #   review_tree を on にする。同じ語を WORKS_FEATURES_OFF にも書けば start が AI の前で止める）。未設定・空は渡さない（既定）。
 # 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
-# <dir> に前の回の repo・origin.git・github-reads.json か、前の版の固定名の写し request.json が在れば、何も書かずに止まる。
+# <dir> に前の回の repo・origin.git か、前の版の固定名の写し request.json が在れば、何も書かずに止まる。
 # 起動ごとの写し（requests/）は起動の記録で、残っていても次の起動を妨げない。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（ここでは埋めない。既定を解いて書くのは archon.sh）。
 # 認証は起こし役 .shared/core/auth_launch.py の check が拾う（順は起こし役が持つ。値は出さない）。
@@ -137,7 +137,7 @@ SRC="$(git -C "$WORKS_DIR" rev-parse --show-toplevel)"
 REV="$(git -C "$SRC" rev-parse HEAD)"
 
 if [ "$#" -ge 3 ]; then
-  for used in repo origin.git request.json github-reads.json; do
+  for used in repo origin.git request.json; do
     if [ -e "$3/$used" ] || [ -L "$3/$used" ]; then
       echo "dogfood.sh: <dir> に前の回の ${used} が在る（$3/${used}）。別の <dir> を使うか、要らなければ消す" >&2
       exit 2
@@ -156,16 +156,14 @@ mkdir -p "$DIR/requests"
 REQUEST="$DIR/requests/$(date +%Y%m%d-%H%M%S)-$$.json"
 cp "$1" "$REQUEST"
 
-# 依頼の欄 pr・issue が名指した PR・issue を、clone の前に利用者の env（gh のログインが見える）のまま 1 回だけ読む（設計書 2.8）。
-# cwd は元のリポジトリ SRC（clone は origin を付け替えるので gh が GitHub のリポジトリを解けない）。名指しが無ければ何も書かない
+# 依頼の欄 pr・issue が名指した PR・issue は、run の中の start が利用者の gh のログインを継いで読む（設計書 2.8）。clone は origin を
+# 付け替える（gh が GitHub のリポジトリを解けない）ので、元のリポジトリ SRC の remote（upstream が在ればそれ、無ければ origin。
+# forge.detect と同じ順）の URL を GH_REPO に置いて起こす（gh 2.96 は URL の形も受ける。2026-10-09 に確かめた）。利用者が置いた
+# GH_REPO は替えない。clone の remote は forge でないので、run の中で gh を打つのは名指しの読み出しだけ（並行 PR の確かめは条件外）
 . "$DEV_DIR/lib.sh"
-GITHUB_READS=""
-# 読み出しのファイルは、結べるか名指すか（works_dev_reads_settle）まで、殻が落ちたら消す（lib.sh）
-works_dev_reads_guard "$DIR/github-reads.json"
-python3 -I "$WORKS_DIR/.shared/core/ghreads.py" read --repo "$SRC" --request "$REQUEST" --out "$DIR/github-reads.json"
-if [ -f "$DIR/github-reads.json" ]; then
-  GITHUB_READS="$DIR/github-reads.json"
-  echo "名指した PR・issue を隔離の前に読んだ: ${GITHUB_READS}"
+if [ -z "${GH_REPO:-}" ]; then
+  GH_REPO="$(git -C "$SRC" remote get-url upstream 2>/dev/null || git -C "$SRC" remote get-url origin 2>/dev/null || true)"
+  [ -z "$GH_REPO" ] || export GH_REPO
 fi
 
 # 利用者の git の設定（署名・hook）に左右されないように、ここで打つ git は全部 hook と署名を切る
@@ -211,7 +209,6 @@ if [ -n "${WORKS_FIX_SHAPE:-}" ]; then set -- "$@" --input fix_shape="$WORKS_FIX
 if [ -n "${WORKS_FEATURES_OFF:-}" ]; then set -- "$@" --input features_off="$WORKS_FEATURES_OFF"; fi
 if [ -n "${WORKS_FEATURES_ON:-}" ]; then set -- "$@" --input features_on="$WORKS_FEATURES_ON"; fi
 if [ -n "$FIX_FIXTURE" ]; then set -- "$@" --input fix_fixture="$FIX_FIXTURE"; fi
-if [ -n "$GITHUB_READS" ]; then set -- "$@" --input github_reads="$GITHUB_READS"; fi
 sh "$ARCHON" "$@"
 run_status=$?
 set -e
@@ -220,16 +217,12 @@ echo "workflow run の終了コード: $run_status"
 # 起動が落ちても run が在れば続きの行を出す（控えと herdr の枠の集計も lib.sh の同じ口で）。終了コードは起動のまま（起動が 0 の時だけ show の結果）
 show_status=0
 works_dev_show_cmd "$DEV_DIR/dogfood.sh" "$ARCHON" "$DIR"
-# 結べたかは show の終了コードと混ぜない。結べない時（dogfood.sh には unbound/ の控えが無い）は、読み出しのファイルを終了コードに依らず
-# 消さずに 0600 で残して 1 行で名指す（works_dev_reads_settle）
+# 結べたかは show の終了コードと混ぜない
 works_dev_ledger_bind dogfood.sh "$ARCHON" "$REPO" "$REQUEST" || show_status=$?
 if [ "$show_status" -eq 0 ]; then
-  works_dev_reads_settle 1
   _show_rc=0
   works_dev_show_synced dogfood.sh "$ARCHON" "$REPO" "$SRC" || _show_rc=$?
   show_status=$_show_rc
-else
-  works_dev_reads_settle 0
 fi
 [ "$run_status" -ne 0 ] && exit "$run_status"
 exit "$show_status"

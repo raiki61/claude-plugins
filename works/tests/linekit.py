@@ -275,8 +275,7 @@ def _skippable(src):
 LINE_ORDER = [
     {"id": "launch", "kind": "approval"},
     {"id": "start", "kind": "script", "script": "start", "depends_on": ["launch"],
-     "with": {"request": "$INPUTS.request", "base": "$INPUTS.base", "pr": "$INPUTS.pr", "github_reads": "$INPUTS.github_reads",
-              "test_cmd": "$INPUTS.test_cmd", "thickness": "$INPUTS.thickness",
+     "with": {"request": "$INPUTS.request", "base": "$INPUTS.base", "pr": "$INPUTS.pr", "test_cmd": "$INPUTS.test_cmd", "thickness": "$INPUTS.thickness",
               "gates": "$INPUTS.gates", "final_gate": "$INPUTS.final_gate", "adapter": "$INPUTS.adapter",
               "policy_md": "$INPUTS.policy_md", "lang": "$INPUTS.lang", "unattended": "$INPUTS.unattended",
               "design_only": "$INPUTS.design_only", "fix_shape": "$INPUTS.fix_shape",

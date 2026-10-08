@@ -509,7 +509,7 @@ def check_inputs(raw: dict, repo: pathlib.Path, *, reads=None) -> dict:
     合わない、thickness が重厚・知らない値、final_gate・adapter・unattended・design_only・fix_shape・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書・固定材料のフォルダが無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
     p0.local_checks・p4.ci が任せ先の役に落ち、役がリポジトリを読んでテストの走らせ方を探す）。
-    相対のパス（依頼・方針の文書）は対象の根 repo から。reads は殻が隔離の前に読んだ写し（ghreads.load の返り。pr が読む）"""
+    相対のパス（依頼・方針の文書）は対象の根 repo から。reads は start が run の中で読んだ PR・issue（_github_reads の返り。pr が読む）"""
     repo = pathlib.Path(repo)
     thickness = _word(raw, "thickness") or THICKNESS_DEFAULT
     if thickness == "重厚":
@@ -590,8 +590,8 @@ def _merge_base(repo: pathlib.Path, ref: str) -> str:
 
 def _change_base(raw: dict, repo: pathlib.Path, reads=None):
     """変更の入口（base か pr）を解いて {base_rev, change} を返す。どちらも無ければ None。両方は拒む。
-    pr は gh を呼ばず、殻が隔離の前に読んだ写し reads（ghreads の読み出しのファイル）の pr[<番号>] を読む——Archon を直に起こした
-    run の中では利用者の gh のログインが見えないことがあり、入口の確かめを run の外の 1 回の読みに揃える（設計書 2.8）。写しに無い・読めなかった項・head が今の HEAD と違えば拒む（別の版を
+    pr は gh を呼ばず、start が run の中で読んだ読み出し reads（ghreads.read_named の返りか、再開では盤面の github.json）の
+    pr[<番号>] を読む（設計書 2.8）。読み出しに無い・読めなかった項・head が今の HEAD と違えば拒む（別の版を
     黙って見ない）。差分の根は GitHub が持つ base の版（baseRefOid）と HEAD の merge-base——fetch しないローカルの枝は古いことが
     あるので名前では引かない。change.text は PR の題と本文（目的の文の出典の PR 説明として盤面の依頼の文に渡す）"""
     base, pr = _word(raw, "base"), _word(raw, "pr")
@@ -605,10 +605,10 @@ def _change_base(raw: dict, repo: pathlib.Path, reads=None):
         raise InputRefused(f"pr={pr!r} は PR の番号でない")
     doc = ((reads or {}).get("pr") or {}).get(pr)
     if not isinstance(doc, dict) or not doc.get("baseRefOid") or not doc.get("headRefOid"):
-        why = (doc.get("reason") if isinstance(doc, dict) else "") or "隔離の前の読み出し（github_reads）にこの PR の base・head が無い"
-        why = " ".join(str(why).split())
-        raise InputRefused(f"PR #{pr} を読めない（{why}）——use.sh start --pr か ghreads.py read で読んでから"
-                           " --input github_reads で渡す")
+        why = " ".join(str((doc.get("reason") if isinstance(doc, dict) else "") or "読み出しにこの PR の base・head が無い").split())
+        if isinstance(doc, dict) and doc.get("status") == ghreads.NOT_APPLICABLE:   # forge の無い対象で gh も GitHub を見つけなかった
+            raise InputRefused(f"PR #{pr} の base・head を読めない——対象の remote に PR を持つホストが無い（{why}）。base を名指して回す")
+        raise InputRefused(f"PR #{pr} の base・head を読めない（{why}）——利用者の gh でログインしてから回す")
     head = _git(repo, "rev-parse", "HEAD")
     if doc["headRefOid"] != head:
         raise InputRefused(f"PR #{pr} の head {doc['headRefOid'][:12]} が対象の HEAD {head[:12]} と違う——PR の head を"
@@ -1146,6 +1146,47 @@ def _start_from_fixture(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, 
             "head_line": head}
 
 
+# 認証の要らない起動（開発の殻 dev/archon.sh。テスト・validate・workflow test）の印。この run の中の gh は利用者の gh の
+# ログインを継がない（dev/hostgh.py の口を置かない）ので、名指した PR・issue を読めない
+NO_AUTH_ENV = "WORKS_DEV_NO_AUTH"
+
+
+def _named(raw: dict, repo: pathlib.Path):
+    """入力 pr と依頼の欄 pr・issue が名指した (PR の番号の並び, issue の番号の並び)。依頼が読めない・形の外なら依頼の分は
+    無しにする（形の誤りは check_inputs が拒む）"""
+    pr = _word(raw, "pr")
+    prs, issues = ([int(pr)] if pr.isdigit() else []), []
+    rel = _word(raw, "request")
+    if rel:
+        path = pathlib.Path(rel) if pathlib.Path(rel).is_absolute() else repo / rel
+        try:
+            parts = request_parts(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, ValueError):
+            return prs, issues
+        prs, issues = list(dict.fromkeys(parts["pr"] + prs)), list(parts["issue"])
+    return prs, issues
+
+
+def _github_reads(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict):
+    """名指した PR・issue を run の中で gh で読んだ読み出し（ghreads.read_named。読めない項も記録して返す）。名指しが無ければ
+    None。盤面の根に github.json が在れば（Archon の再開）それを使い、読み直さない（run の中で同じ版を見る）。
+    認証の要らない起動（NO_AUTH_ENV）で名指せば、gh を呼ばずに 1 行で拒む（読めないと黙って記録しない）"""
+    try:
+        kept = ghreads.load_board(board_dir)
+    except (OSError, ValueError) as e:
+        raise InputRefused(f"盤面の {ghreads.BOARD_FILE} を読めない（{type(e).__name__}: {e}）") from None
+    if kept is not None:
+        return kept
+    prs, issues = _named(raw, repo)
+    if not prs and not issues:
+        return None
+    if os.environ.get(NO_AUTH_ENV) == "1":
+        named = "・".join([f"PR #{n}" for n in prs] + [f"issue #{n}" for n in issues])
+        raise InputRefused(f"{named} を名指したが、この run は {NO_AUTH_ENV}=1 で起こしたので run の中の gh が利用者のログインを"
+                           "継がず読めない——認証を使う起動（use.sh start・dogfood.sh）で回す")
+    return ghreads.read_named(repo, prs, issues)
+
+
 def _entry_words(kind: str, inp: dict) -> str:
     """頭の行の入口の文"""
     if kind == "request":
@@ -1157,10 +1198,8 @@ def _entry_words(kind: str, inp: dict) -> str:
 
 def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str, runner=None) -> dict:
     """ラインの入口。順:
-    1. ghreads.load（殻が隔離の前に読んだ github_reads。再開では盤面の根の github.json を先に）→ check_inputs（拒めば盤面を
-       作らずに、拒んだ時に盤面（record.json）がまだ無ければ github_reads を消してから InputRefused。盤面が在る時の拒み＝呼び直しや、
-       固定材料の道で盤面を開いた後の拒みでは残す）。盤面を作った後に
-       ghreads.adopt が github_reads を盤面の根の github.json へ写して元を消す。
+    1. _github_reads（名指した PR・issue を run の中で gh で読む。再開では盤面の根の github.json を先に）→ check_inputs（拒めば
+       盤面を作らずに InputRefused）。盤面を作った後に読み出しを盤面の根の github.json に置く。
        入力 fix_fixture（固定材料）が在れば、ここから先は _start_from_fixture（取り込み → 盤面を開く → trace → 切符。begin と
        CI の輪を回さない）
     2. DiskBoard.begin（1 周の run。origin works/darkfactory・stop_after_round=1・board_hook.py の overrides・validator_runner）。
@@ -1183,42 +1222,28 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     3 値——"pending" の run は、CI の役の後に resume_after_ci が測る"""
     repo = pathlib.Path(repo).resolve()
     board_dir = pathlib.Path(board_dir)
-    reads_src = _word(raw, "github_reads")
+    reads = _github_reads(board_dir, repo, raw)
+    inp = check_inputs(raw, repo, reads=reads)
+    if inp["fix_fixture"]:
+        return _start_from_fixture(board_dir, repo, raw, inp, run_id=run_id)
+    change = inp.get("change")
+    kind = "both" if change and inp["items"] else "change" if change else "request"
+    table = load_table(LINE)
+    head_rev = _git(repo, "rev-parse", "HEAD") if change else ""
     try:
+        b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=None if change else inp["items"], origin=ORIGIN,
+                               base_rev=inp.get("base_rev", ""), request_text=_request_text(inp),
+                               inputs={"gates": inp["gates"] or None, "policy_md": inp["policy_md"] or None,
+                                       **({"lang": inp["lang"]} if inp["lang"] else {})},
+                               stop_after_round=1, **open_kwargs(LINE, table))
+    except Reject as e:
+        raise InputRefused(f"盤面が入力を受けない: {e}") from None
+    if reads is not None and not (board_dir / ghreads.BOARD_FILE).is_file():
         try:
-            reads = ghreads.load(board_dir, reads_src)
-        except (OSError, ValueError) as e:
-            raise InputRefused(f"隔離の前の読み出し（github_reads）を読めない（{type(e).__name__}: {e}）") from None
-        inp = check_inputs(raw, repo, reads=reads)
-        if inp["fix_fixture"]:
-            return _start_from_fixture(board_dir, repo, raw, inp, run_id=run_id)
-        change = inp.get("change")
-        kind = "both" if change and inp["items"] else "change" if change else "request"
-        table = load_table(LINE)
-        head_rev = _git(repo, "rev-parse", "HEAD") if change else ""
-        try:
-            b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=None if change else inp["items"], origin=ORIGIN,
-                                   base_rev=inp.get("base_rev", ""), request_text=_request_text(inp),
-                                   inputs={"gates": inp["gates"] or None, "policy_md": inp["policy_md"] or None,
-                                           **({"lang": inp["lang"]} if inp["lang"] else {})},
-                                   stop_after_round=1, **open_kwargs(LINE, table))
-        except Reject as e:
-            raise InputRefused(f"盤面が入力を受けない: {e}") from None
-    except InputRefused as e:   # adopt より前の拒みは 1 か所のここで決まる。拒んだ時に盤面（record.json）が在れば run は生まれていて、元は唯一の写しなので残す
-        if reads_src and not (board_dir / "record.json").is_file():
-            try:
-                ghreads.discard_source(reads_src)
-            except OSError as err:
-                raise InputRefused(f"{e}（読み出し {reads_src} を消せなかった（{type(err).__name__}: {err}））") from None
-        raise
-    try:
-        ghreads.adopt(board_dir, reads_src)
-    except ghreads.DiscardFailed as e:   # 写しは盤面に在る。失敗は元の消去だけ（resume の adopt が盤面の写しを使って消し直す）
-        raise InputRefused(f"隔離の前の読み出し（github_reads）は盤面へ写した——元 {reads_src} を消せなかった"
-                           f"（{type(e.__cause__).__name__}: {e}）。resume で消し直すか、続けないなら消してよい") from None
-    except OSError as e:
-        raise InputRefused(f"隔離の前の読み出し（github_reads）を盤面へ写せない（{type(e).__name__}: {e}）——元 {reads_src} は残した。"
-                           "resume で写し直すか、続けないなら消してよい") from None
+            ghreads.place(board_dir, reads)
+        except OSError as e:
+            raise InputRefused(f"読んだ PR・issue を盤面の {ghreads.BOARD_FILE} に置けない（{type(e).__name__}: {e}）——"
+                               "resume で読み直す") from None
     place_prior(board_dir, inp["prior_failures"])
     keep = _kept(inp)
     work = b.work(START_FILE)

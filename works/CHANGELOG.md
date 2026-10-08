@@ -6,6 +6,14 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 依頼が名指した PR・issue（依頼の欄 `pr`・`issue` と `use.sh start --pr`）を、殻が Archon を起こす前に読んでファイルで渡す形をやめ、run の入口（start の節）が run の中で利用者の gh のログインを継いで読むようにした（2026-10-09 の掃除。持ち主が通した）。隔離の前に読んでいた理由（隔離した Archon の中から利用者の gh のログインが見えない）は、0.2.48 から認証を使う run の全部に利用者の gh の口（`dev/hostgh.py`）が置かれて無くなっていた。読んだ物は今までどおり盤面の根の `github.json`（0600）に置き、Archon の再開では読み直さない。`--pr` の base・head が読めない時に止まる所は、Archon を起こす前から run の start の節に移る（run は 1 本できて start で止まる。文は今までどおり「ログインしてから回す」か「base を名指して回す」）。依頼を `-` で省いた `--pr` の起動を run に結ぶ印は、読み出しのファイルから起動ごとに一意の印（ラインの入力 `launch_mark`。どの節も読まない）に替えた。`--base` だけの起動は今どおり結ばない。認証の要らない起動（`WORKS_DEV_NO_AUTH=1`。run の中の gh が利用者のログインを継がない）で PR・issue を名指せば、start が gh を呼ばずに「認証を使う起動で回す」の 1 行で止まる（読めないと黙って記録して進まない）。`dogfood.sh` は clone の origin を付け替えるので、元のリポジトリの remote（upstream が在ればそれ、無ければ origin）の URL を `GH_REPO` に置いて起こす（利用者が置いた `GH_REPO` は替えない）。
+
+### Removed
+
+- 隔離の前の読み出しのファイル（`use.sh` の `<家>/reads/<印>.json`・`dogfood.sh` の `<dir>/github-reads.json`）と、その後始末（0.2.50 の `lib.sh` の `works_dev_reads_guard`・`works_dev_reads_settle`、`ghreads.adopt`・`load`・`discard_source`）、殻の口 `ghreads.py read`、ラインの入力 `github_reads`、run の控えと結べない控えの欄 `github_reads` を消した（2026-10-09 の掃除。上の Changed の続き）。前の版が残した `<家>/reads/` の中身と控えの `github_reads` の欄は、今の版は読まず `clean` も消さない。要らなければ手で消してよい。
+
 ## [0.2.51] - 2026-10-09
 
 ### Changed

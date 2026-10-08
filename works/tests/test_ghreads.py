@@ -1,15 +1,14 @@
-"""名指した PR・issue を隔離の前に読む部品（.shared/core/ghreads.py）と、その写しを線の入口が使う所の検査（設計書 2.8）。
+"""名指した PR・issue を run の中で読む部品（.shared/core/ghreads.py の read_named）と、線の入口がそれを使う所の検査（設計書 2.8）。
 
 gh は偽物（fake_gh）。偽の gh は、利用者のログイン（GH_CONFIG_DIR・$XDG_CONFIG_HOME/gh・$HOME/.config/gh の hosts.yml）が
-見える時だけ非公開の中身を返し、見えない時は本物と同じく exit 4 で終わる。だから「隔離の前の env で読めば載り、隔離の後の
-env（HOME の差し替え）では読めない」を、本物の GitHub に触れずに縛れる。
+見える時だけ非公開の中身を返し、見えない時は本物と同じく exit 4 で終わる。run の中の gh は開発の殻（dev/hostgh.py の口）が
+利用者のログインを継がせるので、「ログインが見えれば載り、見えなければ読めないと記録する」を本物の GitHub に触れずに縛れる。
 
-- read（python3 -I ghreads.py read）: 依頼の欄 pr・issue と --pr を cwd＝対象の根で 1 回だけ読み、PR の本文・コメント・
-  レビュー・行コメントと issue の本文・コメントを書き先に置く。読めない項は status unreadable で残して 0。--pr の base・head が
-  読めない時だけ、書かずに 0 以外
-- adopt: 盤面の根の github.json を先に使い、無ければ渡されたファイルを写して元を消す
-- 線の入口: entry.check_inputs は gh を呼ばず、渡された写しの base・head を読む。entry.start は github_reads を盤面へ写す
-- ラインの入力 github_reads が start の節に渡る
+- read_named: 名指した PR の本文・コメント・レビュー・行コメントと issue の本文・コメントを、cwd＝対象の根で 1 回だけ読む。
+  読めない項は status unreadable で残す
+- 線の入口: entry.check_inputs は gh を呼ばず、渡された読み出しの base・head を読む。entry.start は名指しを run の中で読んで
+  盤面の根の github.json に置き、再開では盤面の写しを使う。WORKS_DEV_NO_AUTH=1 の run（利用者の gh を継がない）は 1 行で拒む
+- ラインは読み出しのファイルを受けない（入力 github_reads は無い）
 """
 import contextlib
 import importlib.util
@@ -91,8 +90,8 @@ def gh_calls(calls: pathlib.Path):
     return [line.split("\t", 1) for line in calls.read_text(encoding="utf-8").splitlines()] if calls.exists() else []
 
 
-class ReadCase(unittest.TestCase):
-    """python3 -I ghreads.py read を、偽の gh を PATH の頭に置いて別のプロセスで回す"""
+class ReadNamedCase(unittest.TestCase):
+    """ghreads.read_named を、偽の gh を PATH の頭に置いて同じプロセスで呼ぶ"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -105,36 +104,27 @@ class ReadCase(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.repo), "remote", "add", "origin", "git@github.com:o/r.git"], check=True,
                        capture_output=True)
         self.bin, self.calls, self.login = fake_gh(self.tmp)
-        self.out = self.tmp / "reads.json"
-        self.req = self.tmp / "req.json"
-        self.req.write_text(json.dumps({"findings": [ROW], "pr": [7], "issue": [9]}, ensure_ascii=False), encoding="utf-8")
 
-    def read(self, *args, logged_in=True):
-        env = hermetic.child_env(PATH=f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}", HOME=str(self.tmp / "home"))
-        for name in GH_ENV:
-            env.pop(name, None)
+    def read(self, prs, issues, logged_in=True):
+        env = {name: None for name in GH_ENV}
+        env.update(PATH=f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}", HOME=str(self.tmp / "home"))
         if logged_in:
             env["GH_CONFIG_DIR"] = str(self.login)
-        return subprocess.run([sys.executable, "-I", str(GHREADS), "read", "--repo", str(self.repo), *args,
-                               "--out", str(self.out)], capture_output=True, text=True, encoding="utf-8", env=env,
-                              cwd=str(self.tmp), timeout=60)
-
-    def doc(self):
-        self.assertTrue(self.out.exists(), "読み出しのファイルが書かれていない")
-        return json.loads(self.out.read_text(encoding="utf-8"))
+        with gh_env(env):
+            return ghreads.read_named(self.repo, prs, issues)
 
     def test_reads_named_pr_and_issue_with_user_login(self):
-        """隔離の前の env（利用者のログインが見える）で、依頼が名指した PR の本文・コメント・レビュー・行コメントと issue の
-        本文・コメントが載る。gh は対象の根を cwd にして呼び、行コメントは gh api --paginate の {owner}/{repo} で引く"""
-        r = self.read("--request", str(self.req))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        doc = self.doc()
+        """利用者のログインが見える env で、名指した PR の本文・コメント・レビュー・行コメントと issue の本文・コメントが載る。
+        gh は対象の根を cwd にして呼び、行コメントは gh api --paginate の {owner}/{repo} で引く"""
+        doc = self.read([7], [9])
+        self.assertEqual(doc["version"], ghreads.GITHUB_READS_VERSION)
         pr = doc["pr"]["7"]
         self.assertEqual((pr["title"], pr["body"]), ("非公開の題", "非公開の本文"))
+        self.assertEqual((pr["baseRefOid"], pr["headRefOid"]), ("b" * 40, "h" * 40))
         self.assertEqual([c["body"] for c in pr["comments"]], ["非公開のコメント"])
         self.assertEqual([c["body"] for c in pr["reviews"]], ["非公開のレビュー"])
         self.assertEqual([c["body"] for c in pr["review_comments"]], ["非公開の行コメント"])
-        self.assertNotEqual(pr.get("status"), "unreadable")
+        self.assertEqual(pr["status"], "ok")
         issue = doc["issue"]["9"]
         self.assertEqual((issue["title"], issue["body"]), ("課題の題", "課題の本文"))
         self.assertEqual([c["body"] for c in issue["comments"]], ["課題のコメント"])
@@ -143,88 +133,48 @@ class ReadCase(unittest.TestCase):
         self.assertEqual({cwd for cwd, _ in calls}, {str(self.repo)})
         self.assertTrue(any("repos/{owner}/{repo}/pulls/7/comments" in a and "--paginate" in a for _, a in calls), calls)
 
-    def test_isolated_login_marks_unreadable_and_goes_on(self):
-        """隔離の後の env（HOME を差し替えてログインが見えない。gh は exit 4）では、名指した項に status unreadable と 1 行の
-        理由を残して 0 で返る（依頼の欄の名指しでは run を止めない）"""
-        r = self.read("--request", str(self.req), logged_in=False)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        doc = self.doc()
+    def test_without_login_marks_unreadable(self):
+        """利用者のログインが見えない（gh は exit 4）と、名指した項に status unreadable と 1 行の理由を残す（止めない）"""
+        doc = self.read([7], [9], logged_in=False)
         for got in (doc["pr"]["7"], doc["issue"]["9"]):
             self.assertEqual(got["status"], "unreadable")
             self.assertEqual(set(got), {"status", "reason"})   # forge の在る対象: 欄 forge も内側の印 _no_host も無い
             self.assertTrue(got["reason"].strip())
             self.assertNotIn("\n", got["reason"])
-        self.assertNotIn("非公開", self.out.read_text(encoding="utf-8"))
+        self.assertNotIn("非公開", json.dumps(doc, ensure_ascii=False))
 
-    def test_cli_pr_is_read_and_unreadable_base_head_refuses(self):
-        """--pr の番号は base・head を読む。ログインが見えれば base・head が載り、見えなければ書かずに 0 以外で終わる"""
-        r = self.read("--request", "-", "--pr", "7")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual((self.doc()["pr"]["7"]["baseRefOid"], self.doc()["pr"]["7"]["headRefOid"]), ("b" * 40, "h" * 40))
-        self.out.unlink()
-        r = self.read("--request", "-", "--pr", "7", logged_in=False)
-        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertFalse(self.out.exists())
-        self.assertIn("7", r.stderr)
+    def test_file_reading_entry_is_gone(self):
+        """隔離の前に読んでファイルで渡す口（read の CLI・load・adopt・discard_source）は無い"""
+        for name in ("read", "load", "adopt", "discard_source", "DiscardFailed"):
+            self.assertFalse(hasattr(ghreads, name), name)
+        r = subprocess.run([sys.executable, "-I", str(GHREADS), "read", "--repo", str(self.repo), "--out", str(self.tmp / "x")],
+                           capture_output=True, text=True, encoding="utf-8", timeout=60)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertFalse((self.tmp / "x").exists())
 
 
-class AdoptCase(unittest.TestCase):
-    def test_adopt_copies_once_then_prefers_board_copy(self):
-        """盤面の根に github.json が無ければ渡されたファイルを写して元を消し、在れば（再開の時）元が無くても盤面の写しを使う。
-        何も渡されず盤面にも無ければ None"""
-        adopt = getattr(ghreads, "adopt", None)
-        self.assertIsNotNone(adopt, "ghreads.adopt が無い")
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = pathlib.Path(tmp_str)
-            board = tmp / "board"
-            board.mkdir()
-            src = tmp / "reads.json"
-            doc = {"version": 1, "pr": {"7": {"baseRefOid": "b" * 40, "headRefOid": "h" * 40}}, "issue": {}}
-            src.write_text(json.dumps(doc), encoding="utf-8")
-            self.assertEqual(adopt(board, str(src)), doc)
-            self.assertEqual(json.loads((board / "github.json").read_text(encoding="utf-8")), doc)
-            self.assertFalse(src.exists())
-            self.assertEqual(adopt(board, str(src)), doc)
-            other = tmp / "board2"
-            other.mkdir()
-            self.assertIsNone(adopt(other, ""))
-            self.assertFalse((other / "github.json").exists())
-
-    def test_discard_source_removes_file_and_tolerates_missing(self):
-        """discard_source(src) は在る src を消し、無い src・空の文字列では落ちずに何もしない。盤面の github.json には触らない"""
-        discard = getattr(ghreads, "discard_source", None)
-        self.assertIsNotNone(discard, "ghreads.discard_source が無い")
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = pathlib.Path(tmp_str)
-            board = tmp / "board"
-            board.mkdir()
-            kept = {"version": 1, "pr": {}, "issue": {}}
-            (board / "github.json").write_text(json.dumps(kept), encoding="utf-8")
-            src = tmp / "reads.json"
-            src.write_text("{}", encoding="utf-8")
-            discard(str(src))
-            self.assertFalse(src.exists())
-            discard(str(src))
-            discard("")
-            self.assertEqual(json.loads((board / "github.json").read_text(encoding="utf-8")), kept)
-
-    def test_adopt_discards_source_when_board_copy_exists(self):
-        """盤面の根に github.json が既に在り src も在る時（写した後で落ちた run の呼び直し）、adopt は盤面の写しを返し、src を消す"""
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = pathlib.Path(tmp_str)
-            board = tmp / "board"
-            board.mkdir()
-            doc = {"version": 1, "pr": {"7": {"title": "盤面の写し"}}, "issue": {}}
-            (board / "github.json").write_text(json.dumps(doc), encoding="utf-8")
-            src = tmp / "reads.json"
-            src.write_text(json.dumps({"version": 1, "pr": {}, "issue": {}}), encoding="utf-8")
-            self.assertEqual(ghreads.adopt(board, str(src)), doc)
-            self.assertFalse(src.exists())
+@contextlib.contextmanager
+def gh_env(values):
+    """os.environ に values を置く（None の名は外す）。抜ける時に元へ戻す"""
+    saved = {k: os.environ.get(k) for k in values}
+    try:
+        for k, v in values.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 class WriteCase(unittest.TestCase):
-    """ghreads._write は非公開の本文を持つ読み出しのファイルを、umask に依らず所有者だけの権限（0600）で置き、
-    書き込みが落ちても一時のファイルを残さない。adopt が盤面の github.json を書くのも同じ _write"""
+    """ghreads._write は非公開の本文を持つ読み出し（盤面の github.json。ghreads.place）を、umask に依らず所有者だけの権限
+    （0600）で置き、書き込みが落ちても一時のファイルを残さない"""
 
     DOC = {"version": 1, "pr": {"7": {"baseRefOid": "b" * 40, "headRefOid": "h" * 40, "body": "非公開の本文"}}, "issue": {}}
 
@@ -264,7 +214,7 @@ class WriteCase(unittest.TestCase):
 
 
 class EntryReadsCase(unittest.TestCase):
-    """entry.check_inputs の pr は gh を呼ばず、殻が隔離の前に読んだ写し（reads）の base・head を読む"""
+    """entry.check_inputs の pr は gh を呼ばず、start が run の中で読んだ物（reads）の base・head を読む"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -316,187 +266,128 @@ class EntryReadsCase(unittest.TestCase):
                     self.check(reads)
                 self.assertIn(words, str(cm.exception))
                 self.assertNotIn("\n", str(cm.exception))
+                self.assertNotIn("github_reads", str(cm.exception))   # 消えた入力を勧めない
         self.assertEqual(gh_calls(self.calls), [])
 
+    def test_pr_refusal_says_what_to_do(self):
+        """読めなかった PR の拒みは次の手を言う: gh が読めなかった → 利用者の gh でログインしてから。forge の無い対象で
+        条件外 → base を名指して回す"""
+        unreadable = {"version": 1, "pr": {"7": {"status": "unreadable", "reason": "gh pr が exit 4"}}, "issue": {}}
+        na = {"version": 1, "pr": {"7": {"status": "not_applicable", "reason": "no_forge: local_path（x）"}}, "issue": {}}
+        for reads, words in ((unreadable, "gh でログイン"), (na, "base を名指")):
+            with self.subTest(words):
+                with self.assertRaises(entry.InputRefused) as cm:
+                    self.check(reads)
+                self.assertIn(words, str(cm.exception))
+                self.assertIn(reads["pr"]["7"]["reason"], str(cm.exception))
 
-class StartAdoptCase(unittest.TestCase):
-    """entry.start はラインの入力 github_reads のファイルを盤面の根の github.json へ写して元を消し、再開では盤面の写しを使う"""
+
+class StartReadsCase(unittest.TestCase):
+    """entry.start は名指した PR・issue を run の中で gh で読んで盤面の根の github.json に置き、再開では盤面の写しを使う"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(dir=linekit.work_home())
         self.addCleanup(self._tmp.cleanup)
         self.tmp = pathlib.Path(self._tmp.name)
-        env = mock.patch.dict("os.environ", {"WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home")})
-        env.start()
-        self.addCleanup(env.stop)
+        self.bin, self.calls, self.login = fake_gh(self.tmp)
+        env = {name: None for name in GH_ENV}
+        env.update({"WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home"), entry.NO_AUTH_ENV: None,
+                    "PATH": f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}", "GH_CONFIG_DIR": str(self.login)})
+        ctx = gh_env(env)
+        ctx.__enter__()
+        self.addCleanup(ctx.__exit__, None, None, None)
 
-    def test_start_adopts_reads_and_resumes_from_board_copy(self):
-        repo = linekit.seed_repo(self.tmp / "repo", declared=True)
-        fork = linekit.git(repo, "rev-parse", "HEAD")
-        with (repo / "stats.py").open("a", encoding="utf-8") as f:
-            f.write("\n# 変更\n")
-        linekit.git(repo, "commit", "-q", "-am", "change")
-        head = linekit.git(repo, "rev-parse", "HEAD")
-        bin_, calls, _ = fake_gh(self.tmp)
-        env = mock.patch.dict("os.environ", {"PATH": f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}"})
-        env.start()
-        self.addCleanup(env.stop)
-        src = self.tmp / "reads.json"
-        doc = {"version": 1, "pr": {"7": {"baseRefOid": fork, "headRefOid": head, "title": "題", "body": "本文"}}, "issue": {}}
-        src.write_text(json.dumps(doc), encoding="utf-8")
-        board = self.tmp / "board"
-        raw = {"request": "", "pr": "7", "github_reads": str(src), "test_cmd": "", "thickness": "", "gates": "",
-               "final_gate": "", "adapter": "", "policy_md": ""}
-        for attempt in ("first", "resume"):
-            with self.subTest(attempt):
-                try:
-                    got = entry.start(board, repo, dict(raw), run_id="run-7")
-                except entry.InputRefused as e:
-                    self.fail(f"github_reads の写しで始められない: {e}")
-                self.assertTrue(got["ok"])
-                self.assertEqual(json.loads((board / "github.json").read_text(encoding="utf-8")), doc)
-                self.assertFalse(src.exists())
-        self.assertEqual(gh_calls(calls), [])
-
-    def ready(self, name="board", mode=None):
-        """PR #7 を名指す入力と、その読み出しのファイル。(対象, 盤面, 読み出しのファイル, 入力, 写しの中身)"""
+    def ready(self, name="board", head=None):
+        """PR #7 の head を HEAD にした対象と入力。(対象, 盤面, 入力)。偽の gh の PR #7 は base が種の commit"""
         repo = linekit.seed_repo(self.tmp / f"repo-{name}", declared=True)
         fork = linekit.git(repo, "rev-parse", "HEAD")
         with (repo / "stats.py").open("a", encoding="utf-8") as f:
             f.write("\n# 変更\n")
         linekit.git(repo, "commit", "-q", "-am", "change")
-        head = linekit.git(repo, "rev-parse", "HEAD")
-        src = self.tmp / f"reads-{name}.json"
-        doc = {"version": 1, "pr": {"7": {"baseRefOid": fork, "headRefOid": head, "title": "題", "body": "本文"}}, "issue": {}}
-        src.write_text(json.dumps(doc), encoding="utf-8")
-        if mode is not None:
-            src.chmod(mode)
-        raw = {"request": "", "pr": "7", "github_reads": str(src), "test_cmd": "", "thickness": "", "gates": "",
-               "final_gate": "", "adapter": "", "policy_md": ""}
-        return repo, self.tmp / name, src, raw, doc
+        self.bin, self.calls, self.login = fake_gh(self.tmp, base=fork, head=head or linekit.git(repo, "rev-parse", "HEAD"))
+        raw = {"request": "", "pr": "7", "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "",
+               "policy_md": ""}
+        return repo, self.tmp / name, raw
 
-    def test_start_refusal_before_adopt_discards_reads(self):
-        """最初の start が adopt より前に拒む 3 つの筋（github_reads が JSON でない・final_gate が知らない値・DiskBoard.begin の
-        Reject）は、InputRefused を出す前に github_reads のファイルを消し、盤面の github.json は作らない"""
-        def not_json(src, raw):
-            src.write_text("これは JSON でない", encoding="utf-8")
+    def test_start_reads_pr_inside_run_and_resumes_from_board_copy(self):
+        """pr を名指した start は run の中で gh を対象の根で呼び、盤面の根に github.json（0600）を置く。呼び直し（Archon の
+        再開）は盤面の写しを使い、gh を呼び直さない"""
+        repo, board, raw = self.ready()
+        for attempt in ("first", "resume"):
+            with self.subTest(attempt):
+                try:
+                    got = entry.start(board, repo, dict(raw), run_id="run-7")
+                except entry.InputRefused as e:
+                    self.fail(f"run の中で PR を読んで始められない: {e}")
+                self.assertTrue(got["ok"])
+                doc = json.loads((board / "github.json").read_text(encoding="utf-8"))
+                self.assertEqual(doc["pr"]["7"]["title"], "非公開の題")
+                self.assertEqual(stat.S_IMODE((board / "github.json").stat().st_mode), 0o600)
+                if attempt == "first":
+                    first = len(gh_calls(self.calls))
+                    self.assertGreater(first, 0)
+                    self.assertEqual({cwd for cwd, _ in gh_calls(self.calls)}, {str(repo.resolve())})
+                else:
+                    self.assertEqual(len(gh_calls(self.calls)), first, "再開で gh を呼び直した")
 
-        def unknown_gate(src, raw):
-            raw["final_gate"] = "never-heard-of"
-
-        for name, arrange in (("load", not_json), ("check_inputs", unknown_gate), ("begin", lambda src, raw: None)):
-            with self.subTest(name):
-                repo, board, src, raw, _ = self.ready(name=f"board-{name}")
-                arrange(src, raw)
-                # begin の筋だけ、入口の Reject を起こさせる（失敗の注入）
-                begin = (mock.patch.object(entry.DiskBoard, "begin", side_effect=entry.Reject("入口が受けない"))
-                         if name == "begin" else contextlib.nullcontext())
-                with begin, self.assertRaises(entry.InputRefused):
-                    entry.start(board, repo, raw, run_id="run-7")
-                self.assertFalse(src.exists(), "拒んだ start が読み出しのファイルを残した")
-                self.assertFalse((board / "github.json").exists())
-
-    def test_start_fixture_refusal_discards_reads(self):
-        """最初の start に fix_fixture（在るが中身の無い・取り込めないフォルダ）と github_reads を渡すと、固定材料の道の
-        InputRefused が出て、github_reads のファイルが消える"""
-        repo, board, src, raw, _ = self.ready()
-        fixture_dir = self.tmp / "fixture"
-        fixture_dir.mkdir()
-        raw["fix_fixture"] = str(fixture_dir)
-        with self.assertRaises(entry.InputRefused) as cm:
-            entry.start(board, repo, raw, run_id="run-7")
-        self.assertIn("固定材料", str(cm.exception))
-        self.assertFalse(src.exists(), "固定材料の道の拒みが読み出しのファイルを残した")
-        self.assertFalse((board / "record.json").exists())
-        self._fixture_refusal_after_board_opened_keeps_reads()
-
-    def _fixture_refusal_after_board_opened_keeps_reads(self):
-        """固定材料を取り込んで盤面（record.json）が開いた後に ticket.write が拒むと、読み出しのファイルは消えない（拒んだ時点で
-        盤面が在れば、その run の唯一の写しなので残す）"""
-        import test_fixture   # 取り込める固定材料の作り方（FixtureBase）を使う
-        base = test_fixture.FixtureBase("captured")
-        base.setUp()
-        self.addCleanup(base.doCleanups)
-        _, fixture_src = base.captured()
-        other = base.clone_same_tree()
-        board = base.tmp / "b2" / "board"
-        src = base.tmp / "reads.json"
-        src.write_text(json.dumps({"version": 1, "pr": {}, "issue": {}}), encoding="utf-8")
-        raw = {"request": str(base.tmp / "request.json"), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
-               "adapter": "", "policy_md": "", "fix_shape": "af", "fix_fixture": str(fixture_src), "github_reads": str(src)}
-        with mock.patch.object(entry.ticket, "write", side_effect=entry.ticket.TicketError("切符を書けない")):
-            with self.assertRaises(entry.InputRefused) as cm:
-                entry.start(board, other, raw, run_id="run-2")
-        self.assertIn("切符", str(cm.exception))
-        self.assertTrue((board / "record.json").is_file(), "盤面が開いていない（この試験の前提）")
-        self.assertTrue(src.exists(), "盤面が開いた後の拒みが読み出しのファイルを消した")
-
-    def test_start_resume_refusal_keeps_reads(self):
-        """1 回目の start が adopt の OSError で落ちて盤面と src が残った後、呼び直しの start が check_inputs で拒んでも src は
-        消えず、正しい入力での次の呼び直しは src から盤面へ写して通る"""
-        repo, board, src, raw, doc = self.ready()
-        with mock.patch.object(ghreads, "_write", side_effect=OSError("disk full")):
-            with self.assertRaises(entry.InputRefused) as cm:
-                entry.start(board, repo, dict(raw), run_id="run-7")
-        self.assertIn(str(src), str(cm.exception), "写せなかった時の拒みの文が残した元を名指さない")
-        self.assertTrue(src.exists())
-        self.assertFalse((board / "github.json").exists())
-        with self.assertRaises(entry.InputRefused):
-            entry.start(board, repo, {**raw, "final_gate": "never-heard-of"}, run_id="run-7")
-        self.assertTrue(src.exists(), "呼び直しの拒みが元の読み出しを消した")
-        got = entry.start(board, repo, dict(raw), run_id="run-7")
+    def test_start_reads_request_named_items(self):
+        """依頼の欄 pr・issue の名指しも run の中で読み、盤面の github.json に載る（読めない項は記録して進む）"""
+        repo, board, raw = self.ready()
+        req = self.tmp / "req.json"
+        req.write_text(json.dumps({"findings": [ROW], "pr": [7], "issue": [9, 11]}, ensure_ascii=False), encoding="utf-8")
+        got = entry.start(board, repo, {**raw, "pr": "", "request": str(req)}, run_id="run-r")
         self.assertTrue(got["ok"])
-        self.assertEqual(json.loads((board / "github.json").read_text(encoding="utf-8")), doc)
-        self.assertFalse(src.exists())
+        doc = json.loads((board / "github.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(doc["pr"]), ["7"])
+        self.assertEqual(doc["issue"]["9"]["title"], "課題の題")
+        self.assertEqual(doc["issue"]["11"]["status"], "unreadable")
 
-    def test_start_refusal_names_reads_it_could_not_discard(self):
-        """最初の start が adopt より前に拒んだ時に読み出しを消せなければ、拒みの文に元の拒みの理由と、消せなかった読み出しの
-        パスが 1 行で載る"""
-        repo, board, src, raw, _ = self.ready()
-        raw["final_gate"] = "never-heard-of"
-        with mock.patch.object(ghreads, "discard_source", create=True, side_effect=OSError("denied")):
+    def test_start_without_names_does_not_call_gh(self):
+        """名指しが無ければ gh を呼ばず、github.json も置かない"""
+        repo, board, raw = self.ready()
+        req = self.tmp / "plain.json"
+        req.write_text(json.dumps([ROW], ensure_ascii=False), encoding="utf-8")
+        entry.start(board, repo, {**raw, "pr": "", "request": str(req)}, run_id="run-n")
+        self.assertEqual(gh_calls(self.calls), [])
+        self.assertFalse((board / "github.json").exists())
+
+    def test_start_pr_unreadable_refuses_in_one_line(self):
+        """利用者の gh のログインが見えない run の --pr は、盤面を作らずに 1 行で拒む。GitHub の対象ならログインの案内、
+        forge の無い対象（gh も GitHub のホストを見つけない）なら base を名指す案内"""
+        repo, board, raw = self.ready()
+        with gh_env({"GH_CONFIG_DIR": None, "XDG_CONFIG_HOME": str(self.tmp / "no-login")}):
             with self.assertRaises(entry.InputRefused) as cm:
-                entry.start(board, repo, raw, run_id="run-7")
+                entry.start(self.tmp / "b-local", repo, dict(raw), run_id="run-l")
+        self.assertIn("base を名指", str(cm.exception))
+        linekit.git(repo, "remote", "add", "origin", "git@github.com:o/r.git")
+        with gh_env({"GH_CONFIG_DIR": None, "XDG_CONFIG_HOME": str(self.tmp / "no-login")}):
+            with self.assertRaises(entry.InputRefused) as cm:
+                entry.start(board, repo, dict(raw), run_id="run-u")
         text = str(cm.exception)
-        self.assertIn("never-heard-of", text)
-        self.assertIn("消せなかった", text)
-        self.assertIn(str(src), text)
+        self.assertIn("exit 4", text)
+        self.assertIn("gh でログイン", text)
         self.assertNotIn("\n", text)
+        self.assertFalse((board / "record.json").exists())
+        self.assertFalse((board / "github.json").exists())
 
-    def test_start_adopt_failure_keeps_source_and_names_it(self):
-        """adopt が OSError で落ちると、InputRefused の文が残した元のパスと『resume で写し直すか、続けないなら消してよい』を
-        名指し、元のファイルは 0o600 のまま残る"""
-        repo, board, src, raw, _ = self.ready(mode=0o600)
-        with mock.patch.object(ghreads, "_write", side_effect=OSError("disk full")):
-            with self.assertRaises(entry.InputRefused) as cm:
-                entry.start(board, repo, raw, run_id="run-7")
-        text = str(cm.exception)
-        self.assertIn(str(src), text)
-        self.assertIn("resume で写し直すか、続けないなら消してよい", text)
-        self.assertTrue(src.exists())
-        self.assertEqual(src.stat().st_mode & 0o777, 0o600)
-
-    def test_start_names_discard_failure_not_copy_failure(self):
-        """盤面へ写した後に元を消せなかった時、InputRefused の文は『写せない』と言わず、写したことと元を消せなかったことを名指す
-        （盤面の写しは在り、元は残る）"""
-        repo, board, src, raw, doc = self.ready()
-        real_unlink = pathlib.Path.unlink
-
-        def unlink(path, *a, **kw):   # 一時の名の後始末は通し、元 src の消去だけ落とす
-            if path == src:
-                raise PermissionError("denied")
-            return real_unlink(path, *a, **kw)
-
-        with mock.patch.object(pathlib.Path, "unlink", unlink):
-            with self.assertRaises(entry.InputRefused) as cm:
-                entry.start(board, repo, raw, run_id="run-7")
-        text = str(cm.exception)
-        self.assertNotIn("写せない", text)
-        self.assertIn("消せなかった", text)
-        self.assertIn(str(src), text)
-        self.assertIn("PermissionError", text)
-        self.assertEqual(json.loads((board / "github.json").read_text(encoding="utf-8")), doc)
-        self.assertTrue(src.exists())
+    def test_no_auth_run_refuses_named_items_in_one_line(self):
+        """WORKS_DEV_NO_AUTH=1 の run（利用者の gh を継がない）で PR・issue を名指すと、gh を呼ばずに 1 行で拒む（黙って
+        読めないと記録しない）。名指しの無い run は今どおり通る"""
+        repo, board, raw = self.ready()
+        req = self.tmp / "req.json"
+        req.write_text(json.dumps({"findings": [ROW], "issue": [9]}, ensure_ascii=False), encoding="utf-8")
+        with gh_env({entry.NO_AUTH_ENV: "1"}):
+            for name, given in (("pr", raw), ("issue", {**raw, "pr": "", "request": str(req)})):
+                with self.subTest(name):
+                    with self.assertRaises(entry.InputRefused) as cm:
+                        entry.start(self.tmp / f"b-{name}", repo, dict(given), run_id="run-x")
+                    text = str(cm.exception)
+                    self.assertIn(entry.NO_AUTH_ENV, text)
+                    self.assertNotIn("\n", text)
+            self.assertEqual(gh_calls(self.calls), [])
+            plain = self.tmp / "plain.json"
+            plain.write_text(json.dumps([ROW], ensure_ascii=False), encoding="utf-8")
+            self.assertTrue(entry.start(board, repo, {**raw, "pr": "", "request": str(plain)}, run_id="run-p")["ok"])
 
 
 def start_script():
@@ -507,18 +398,20 @@ def start_script():
 
 
 class LineWiringCase(unittest.TestCase):
-    def test_line_passes_github_reads_to_start(self):
-        """ラインの入力 github_reads（既定は空）が start の節の with に渡り、start.py が読む（後から足した入力なので OPTIONAL）。
-        器の LINE_ORDER の start も同じ鍵を渡す"""
+    def test_line_has_no_reads_file_input_and_declares_launch_mark(self):
+        """ラインは隔離の前の読み出しのファイルを受けない（入力 github_reads が無く、start.py も読まない）。殻が起動を run に
+        結ぶ印 launch_mark は入力に在り（Archon が run の metadata.inputs に残す）、どの節にも渡さない"""
         y = yaml.safe_load((ROOT / "darkfactory" / "darkfactory.yaml").read_text(encoding="utf-8"))
-        self.assertIn("github_reads", y.get("inputs") or {})
+        self.assertNotIn("github_reads", y.get("inputs") or {})
+        self.assertIn("launch_mark", y.get("inputs") or {})
         start = next(n for n in y["nodes"] if n.get("id") == "start")
-        self.assertEqual(start["with"].get("github_reads"), "$INPUTS.github_reads")
+        self.assertNotIn("github_reads", start["with"])
+        self.assertNotIn("launch_mark", json.dumps(y["nodes"], ensure_ascii=False))
         mod = start_script()
-        self.assertEqual(mod.INPUTS.get("INPUTS_GITHUB_READS"), "github_reads")
-        self.assertIn("INPUTS_GITHUB_READS", mod.OPTIONAL)
+        self.assertNotIn("INPUTS_GITHUB_READS", mod.INPUTS)
+        self.assertNotIn("INPUTS_GITHUB_READS", mod.OPTIONAL)
         order = next(r for r in linekit.LINE_ORDER if r["id"] == "start")
-        self.assertEqual(order["with"].get("github_reads"), "$INPUTS.github_reads")
+        self.assertNotIn("github_reads", order["with"])
 
 
 if __name__ == "__main__":

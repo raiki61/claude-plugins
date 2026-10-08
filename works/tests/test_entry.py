@@ -1243,12 +1243,17 @@ class ChangeEntryCase(StartCaseBase):
         self.assertEqual(entry.add_pending_request(entry.open_board(self.board)), "none")
 
     def test_start_object_request_and_change_adds_findings(self):
-        """依頼が {findings, pr, issue} の形でも、両方の入口で積むのは findings の行だけ（add_pending_request も同じ形を解く）"""
+        """依頼が {findings, pr, issue} の形でも、両方の入口で積むのは findings の行だけ（add_pending_request も同じ形を解く）。
+        名指した PR・issue は run の中で gh が読む（ここでは偽の gh。読めない項は記録して進む）"""
+        from test_ghreads import fake_gh
         repo, _ = self.changed_repo()
         rows = json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
         req = request_file(self.tmp / "req" / "obj.json", {"findings": rows, "pr": [3], "issue": [5]})
+        bin_, _, _ = fake_gh(self.tmp / "gh")
         try:
-            got = self.start(repo, self.raw(request=str(req), base="base"))
+            with mock.patch.dict("os.environ", {"PATH": f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}"}):
+                os.environ.pop(entry.NO_AUTH_ENV, None)
+                got = self.start(repo, self.raw(request=str(req), base="base"))
         except entry.InputRefused as e:
             self.fail(f"object の形の依頼を拒んだ: {e}")
         self.assertEqual(got["entry"], "both")

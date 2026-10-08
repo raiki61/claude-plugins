@@ -7,12 +7,13 @@ env: 殻 4 本（use.sh・dogfood.sh・real-run.sh・archon.sh）の家の既定
 （WORKS_LAUNCH_ADAPTER_MODE）を 1 か所で持ち、sh の代入の行で返す。--show は dogfood.sh --show の時だけ渡す。
 殻は guard.sh の works_dev_launch_env で 2 段に受ける（1 段の eval "$(…)" では部品の失敗が消える）。
 ledger: run の控え <置き場>/<run-id>.json の形（版の欄 schema）と、起動の後に run を結ぶ規則を 1 か所で持つ。save は書き、
-list は lib.sh works_dev_ledgers のタブ区切りの 5 欄で読み、load は use.sh が続きで Archon を起こす値を代入の行で返し、
-bind は標準入力の run の一覧から、盤面の依頼がこの起動の依頼の写しと一致する run がちょうど 1 本の時だけ結んで控えを書く。
-unbound-save は結べなかった起動の後に、標準入力の run の一覧の候補（依頼の写しも読み出しも持たない run のうち生きた状態の物）が
-在れば、起動が使う包んだ基と読み出しを候補と一緒に結べない控え <置き場>/<印>.json に書いて候補を空白区切りの 1 行で出す。
-unbound-release は候補にその run を持ちその対象の結べない控えを全部回り、控えごとにパス・包んだ基・読み出し・まだ生きている
-ほかの候補をタブ区切りの 1 行で出す（生きた候補が在れば包んだ基と読み出しは空にし、控えの候補からその run だけを外す）。live は状態が生きた状態（LIVE_STATUSES）、done は終わった状態（DONE_STATUSES）なら 1 を出す。
+list は lib.sh works_dev_ledgers のタブ区切りの 7 欄で読み、load は use.sh が続きで Archon を起こす値を代入の行で返し、
+bind は標準入力の run の一覧から、盤面の依頼がこの起動の依頼の写しと一致する（依頼を省いた起動は起動の印 --launch-mark が
+Archon の残した入力 launch_mark と一致する）run がちょうど 1 本の時だけ結んで控えを書く。
+unbound-save は結べなかった起動の後に、標準入力の run の一覧の候補（依頼の写しも起動の印も持たない run のうち生きた状態の物）が
+在れば、起動が使う包んだ基を候補と一緒に結べない控え <置き場>/<印>.json に書いて候補を空白区切りの 1 行で出す。
+unbound-release は候補にその run を持ちその対象の結べない控えを全部回り、控えごとにパス・包んだ基・まだ生きている
+ほかの候補をタブ区切りの 1 行で出す（生きた候補が在れば包んだ基は空にし、控えの候補からその run だけを外す）。live は状態が生きた状態（LIVE_STATUSES）、done は終わった状態（DONE_STATUSES）なら 1 を出す。
 代入の行を返す動詞の 1 行目は版の行 WORKS_LAUNCH_FORMAT=1。値は shlex.quote で囲み、名は動詞ごとの許した一覧に在る物だけを出す
 （shlex.quote は名を守らない）。
 claude が見つからなくても WORKS_LAUNCH_CLAUDE を空で返して 0 で終わる。止めるか・どの文言で止めるかは殻の今の場所が決める。
@@ -48,10 +49,10 @@ DONE_STATUSES = ("completed", "cancelled")
 USAGE = ("launch.py env --for=<use.sh|dogfood.sh|real-run.sh|archon.sh> [--claude] [--show] [--target <path>]"
          " [--adapter <path>]")
 LEDGER_USAGE = ("launch.py ledger save --dir <置き場> --run-id <id> --target <dir> --model-value <値> --model-from <出どころ>"
-                " [--wrap-ref <参照>] [--github-reads <読み出しのファイル>] | ledger list --dir <置き場> [--run-id <id>] | ledger load --dir <置き場> --run-id <id>"
+                " [--wrap-ref <参照>] | ledger list --dir <置き場> [--run-id <id>] | ledger load --dir <置き場> --run-id <id>"
                 " | ledger bind --for <呼び手> --dir <置き場> --target <dir> --request <依頼の写し> --model-value <値>"
-                " --model-from <出どころ> [--wrap-ref <参照>] [--github-reads <読み出しのファイル>]（標準入力に archon workflow runs --json）"
-                " | ledger unbound-save --dir <置き場> --target <dir> --stamp <印> [--wrap-ref <参照>] [--github-reads <読み出しのファイル>]"
+                " --model-from <出どころ> [--wrap-ref <参照>] [--launch-mark <起動の印>]（標準入力に archon workflow runs --json）"
+                " | ledger unbound-save --dir <置き場> --target <dir> --stamp <印> [--wrap-ref <参照>]"
                 "（標準入力に archon workflow runs --json） | ledger unbound-release --dir <置き場> --target <dir> --run-id <id>"
                 "（標準入力に archon workflow runs --json） | ledger live --status <状態> | ledger done --status <状態>")
 
@@ -173,11 +174,11 @@ def _assignments(values, allowed, export=False):
 
 
 LEDGER_OPTIONS = {
-    "save": ({"dir", "run-id", "target", "model-value", "model-from"}, {"wrap-ref", "github-reads"}),
+    "save": ({"dir", "run-id", "target", "model-value", "model-from"}, {"wrap-ref"}),
     "list": ({"dir"}, {"run-id"}),
     "load": ({"dir", "run-id"}, set()),
-    "bind": ({"for", "dir", "target", "request", "model-value", "model-from"}, {"wrap-ref", "github-reads"}),
-    "unbound-save": ({"dir", "target", "stamp"}, {"wrap-ref", "github-reads"}),
+    "bind": ({"for", "dir", "target", "request", "model-value", "model-from"}, {"wrap-ref", "launch-mark"}),
+    "unbound-save": ({"dir", "target", "stamp"}, {"wrap-ref"}),
     "unbound-release": ({"dir", "target", "run-id"}, set()),
     "live": ({"status"}, set()),
     "done": ({"status"}, set()),
@@ -226,14 +227,13 @@ def _ledger_read(path):
 
 
 def _ledger_write(opts, run_id, environ):
-    # 包んだ基の参照と隔離の前に読んだ読み出しのファイル（start が盤面へ写さなかった時に use.sh clean が消す）は殻の変数
-    # （export しない）なので旗で受ける
+    # 包んだ基の参照（use.sh clean が消す）は殻の変数（export しない）なので旗で受ける
     inside = environ.get("HERDR_ENV") == "1"   # herdr の枠の中で起こしたならその枠とサーバ（works_dev_herdr_sync が送る先）
     doc = {"schema": LEDGER_SCHEMA, "run_id": run_id, "target": opts["target"], "model": environ.get("WORKS_DEV_MODEL", ""),
            "model_resolved": {"value": opts["model-value"], "from": opts["model-from"]},
            "claude_bin": environ.get("CLAUDE_BIN_PATH", ""), "keychain_item": environ.get("WORKS_KEYCHAIN_ITEM", ""),
            "adapter": environ.get("WORKS_DEV_ADAPTER", ""), "started_at": time.time(),
-           "wrap_ref": opts.get("wrap-ref", ""), "github_reads": opts.get("github-reads", ""),
+           "wrap_ref": opts.get("wrap-ref", ""),
            "herdr_pane": environ.get("HERDR_PANE_ID", "") if inside else "",
            "herdr_socket": environ.get("HERDR_SOCKET_PATH", "") if inside else ""}
     folder = opts["dir"]
@@ -262,12 +262,10 @@ def _continuing(folder, run_id):
     return ""
 
 
-def _kept_paths(doc):
-    """控えの包んだ基の参照（refs/works/wraps/ の下の時だけ）と読み出しのファイル（.json の絶対パスの時だけ）。外れは空"""
-    s = lambda k: doc.get(k) if isinstance(doc.get(k), str) else ""
-    wrap = s("wrap_ref") if s("wrap_ref").startswith("refs/works/wraps/") else ""
-    reads = s("github_reads") if os.path.isabs(s("github_reads")) and s("github_reads").endswith(".json") else ""
-    return wrap, reads
+def _kept_wrap(doc):
+    """控えの包んだ基の参照（refs/works/wraps/ の下の時だけ）。外れは空"""
+    wrap = doc.get("wrap_ref") if isinstance(doc.get("wrap_ref"), str) else ""
+    return wrap if wrap.startswith("refs/works/wraps/") else ""
 
 
 def _ledger_list(opts):
@@ -283,11 +281,11 @@ def _ledger_list(opts):
         if doc is None:
             continue
         s = lambda k: doc.get(k) if isinstance(doc.get(k), str) else ""
-        wrap, reads = _kept_paths(doc)
+        wrap = _kept_wrap(doc)
         at = doc.get("started_at") if isinstance(doc.get("started_at"), (int, float)) else 0
         target = os.path.realpath(s("target")) if s("target") else ""
         lines.append("\t".join([doc["run_id"], target, repr(at), wrap, s("herdr_pane"), s("herdr_socket"),
-                                 _continuing(opts["dir"], doc["run_id"]), reads]) + "\n")
+                                 _continuing(opts["dir"], doc["run_id"])]) + "\n")
     return "".join(lines)
 
 
@@ -352,12 +350,12 @@ def _run_request(row):
     return None
 
 
-def _run_reads(row):
-    """run の読み出しのファイル（Archon が run に残した入力 metadata.inputs.github_reads）の realpath。無ければ None。
-    盤面は見ない（start が盤面へ写して元を消すので、起動の直後の入力だけが起動の時のパスを持つ）"""
+def _run_mark(row):
+    """run の起動の印（Archon が run に残した入力 metadata.inputs.launch_mark。use.sh が依頼を省いた --pr の起動に付ける）。
+    無ければ None"""
     inputs = _run_meta(row).get("inputs")
-    value = inputs.get("github_reads") if isinstance(inputs, dict) else None
-    return os.path.realpath(value) if isinstance(value, str) and value else None
+    value = inputs.get("launch_mark") if isinstance(inputs, dict) else None
+    return value if isinstance(value, str) and value else None
 
 
 def _runs_list(doc):
@@ -376,8 +374,8 @@ def _darkfactory_rows(stdin, here):
 
 
 def _unmarked(rows):
-    """結ぶ印（依頼の写しも読み出しのファイルも）を持たない run。印の無い起動の run はこの中に在る（推定では選ばない）"""
-    return [r for r in rows if _run_request(r) is None and _run_reads(r) is None]
+    """結ぶ印（依頼の写しも起動の印も）を持たない run。印の無い起動の run はこの中に在る（推定では選ばない）"""
+    return [r for r in rows if _run_request(r) is None and _run_mark(r) is None]
 
 
 def _ledger_bind(opts, environ, stdin):
@@ -393,13 +391,13 @@ def _ledger_bind(opts, environ, stdin):
     if opts["request"]:
         want, mark = os.path.realpath(opts["request"]), "依頼"
         mine = [r for r in rows if _run_request(r) == want]
-    elif opts.get("github-reads"):
-        # 依頼の写しの無い起動（変更だけ）でも、読み出しのファイルは起動ごとに一意（<家>/reads/<印>.json）なので、
-        # 推定でなく印で結ぶ（設計書 2.3）
-        want, mark = os.path.realpath(opts["github-reads"]), "読み出しのファイル"
-        mine = [r for r in rows if _run_reads(r) == want]
+    elif opts.get("launch-mark"):
+        # 依頼の写しの無い起動（--pr）でも、起動の印は起動ごとに一意（use.sh の <日時>-<pid>）なので、推定でなく印で結ぶ
+        # （設計書 2.3）
+        want, mark = opts["launch-mark"], "起動の印"
+        mine = [r for r in rows if _run_mark(r) == want]
     else:
-        # 依頼の写しも読み出しのファイルも無い起動（変更だけ）は目印が無いので結ばない（設計書 2.3。2026-10-01 の関所の答え）
+        # 依頼の写しも起動の印も無い起動（--base だけ）は目印が無いので結ばない（設計書 2.3。2026-10-01 の関所の答え）
         found = _unmarked(rows)
         raise Unbound(f"{caller}: 依頼の写しの無い起動（変更だけ）は run を結ばない。推定では選ばない{show(found)}")
     if len(mine) != 1:
@@ -423,13 +421,12 @@ def _replace_json(path, doc):
 
 
 def _unbound_save(opts, stdin):
-    # 結べなかった起動の run は起動の関所で生きていて、包んだ基と読み出しを使う（消すと承認した run が落ちる。2026-10-01）。
+    # 結べなかった起動の run は起動の関所で生きていて、包んだ基を使う（消すと承認した run が落ちる。2026-10-01）。
     # 結ばずに（設計書 2.3）候補と一緒に残し、use.sh clean が候補の run の片付けと一緒に消す。候補は生きた状態の物だけ（終わった
-    # 古い run を載せない）。読めた一覧で候補が 0 本なら何も書かずに空を返す（呼び手が包んだ基の参照をその場で外す。読み出しの
-    # ファイルは消さない。use.sh の works_dev_reads_settle が名指す）。一覧が読めなければ生きた run が在るか分からないので消さず、
-    # 候補の無い控え（unknown）に残して止める（clean と同じく迷ったら残す）
+    # 古い run を載せない）。読めた一覧で候補が 0 本なら何も書かずに空を返す（呼び手が包んだ基の参照をその場で外す）。一覧が
+    # 読めなければ生きた run が在るか分からないので消さず、候補の無い控え（unknown）に残して止める（clean と同じく迷ったら残す）
     here = os.path.realpath(opts["target"])
-    doc = {"wrap_ref": opts.get("wrap-ref", ""), "github_reads": opts.get("github-reads", ""), "target": here}
+    doc = {"wrap_ref": opts.get("wrap-ref", ""), "target": here}
     path = os.path.join(opts["dir"], opts["stamp"] + ".json")
     try:
         rows = _darkfactory_rows(stdin, here)
@@ -437,7 +434,7 @@ def _unbound_save(opts, stdin):
         os.makedirs(opts["dir"], exist_ok=True)
         _replace_json(path, dict(doc, candidates=[], unknown=True))
         raise Refused(f"archon workflow runs --json の出力が JSON として読めない（{e}）。生きた run が使うかもしれないので"
-                      f"包んだ基と読み出しは消さず、控え {path} に残した")
+                      f"包んだ基は消さず、控え {path} に残した")
     found = [r["id"] for r in _unmarked(rows)
              if isinstance(r.get("id"), str) and r["id"] and r.get("status") in LIVE_STATUSES]
     if not found:
@@ -448,7 +445,7 @@ def _unbound_save(opts, stdin):
 
 
 def _unbound_release(opts, stdin):
-    # clean <対象> <run-id> が呼ぶ。ほかの候補がまだ生きている間はその run が包んだ基と読み出しを使うかもしれないので返さず、
+    # clean <対象> <run-id> が呼ぶ。ほかの候補がまだ生きている間はその run が包んだ基を使うかもしれないので返さず、
     # 控えの候補からこの run だけを外して書き戻す。最後の候補の時だけ返す（消すのと控えを消すのは呼び手）。この run を候補に
     # 持つ控えは全部回り、控えごとに 1 行を出す（印の無い起動を並べると後の控えに前の run も載る）。候補の無い控え（unknown。
     # start が一覧を読めずに残した）は、この対象の生きた run が 1 本も無い時に返す（どの run の物か分からないので）。
@@ -470,17 +467,17 @@ def _unbound_release(opts, stdin):
             continue
         if doc.get("unknown") is True:
             if not live:
-                lines.append("\t".join((path, *_kept_paths(doc), "")) + "\n")
+                lines.append("\t".join((path, _kept_wrap(doc), "")) + "\n")
             continue
         if run_id not in doc["candidates"]:
             continue
         rest = [c for c in doc["candidates"] if c != run_id]
         alive = [c for c in rest if c in live]
         if not alive:
-            lines.append("\t".join((path, *_kept_paths(doc), "")) + "\n")
+            lines.append("\t".join((path, _kept_wrap(doc), "")) + "\n")
             continue
         _replace_json(path, dict(doc, candidates=rest))
-        lines.append("\t".join((path, "", "", " ".join(alive))) + "\n")
+        lines.append("\t".join((path, "", " ".join(alive))) + "\n")
     return "".join(lines)
 
 
