@@ -1149,6 +1149,76 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(got.returncode, 1)
         self.assertIn("包みの起動の記録が無い", json.loads(got.stdout)["features"]["e_fix_lanes"]["why"])
 
+    def lens_note(self, **notes):
+        """局所レビューの受け付けが周の作業ファイルに残す控え（diverted.LENS_FILE。material._recover の形）"""
+        write(self.board / "r1" / "local-review-lenses.json",
+              {"round": 1, "sessions": ["s1"], "payloads": 0, "recovered": [], "empty": [], "unseen": [], "unmatched": [],
+               **notes})
+
+    def outputs(self, *rows):
+        """包みの家の reads/<cwd の hash>/outputs.jsonl（record-output のフックが下請けの StructuredOutput を 1 行ずつ残す）"""
+        write(self.root / "home" / "adapter" / "reads" / adapter.cwd_key(WORKTREE) / "outputs.jsonl",
+              "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+
+    def test_record_output_hook_is_red_when_a_fork_lens_went_unseen_without_its_record(self):
+        """(h) 記録のフック: 局所レビューの控えが fork のレンズを『見ていない』（unseen）と書いたのに、この run の包みの記録
+        outputs.jsonl が無いなら no（フックが起きていない）。記録の行が在って戻せなかったなら attempted、戻した・0 件を確かめた・
+        見ていない行が無いなら yes。読むだけで、終了コードには数えない"""
+        self.fixer_run()
+        self.lens_note(unseen=["/code-review"])
+        got = self.run_tool(str(self.root), "--request", "fix", "--json")
+        self.assertEqual(got.returncode, 0, "(h) は終了コードに数えない")
+        h = json.loads(got.stdout)["features"]["h_record_output"]
+        self.assertEqual(h["status"], "no", h)
+        self.assertIn("outputs.jsonl", h["why"])
+        self.assertIn("/code-review", h["why"])
+        self.outputs({"ts": "2026-10-07T00:00:00+00:00", "session_id": "old", "agent_id": "a"})   # 盤面を作る前の行は数えない
+        self.assertEqual(json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]["status"], "no")
+        self.outputs({"ts": "2026-10-07T01:06:00+00:00", "session_id": "s1", "agent_id": "a", "input": {}})
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        self.assertEqual(h["status"], "attempted", h)
+        self.lens_note(recovered=[{"lens": "/code-review", "count": 3}])
+        doc = json.loads(self.run_tool(str(self.root), "--json").stdout)
+        self.assertEqual(doc["features"]["h_record_output"]["status"], "yes")
+        self.assertEqual(doc["lens_hook"]["recovered"], 3)
+        self.assertIn("(h) 記録のフック: yes", self.run_tool(str(self.root)).stdout)
+
+    def test_record_output_hook_without_lens_note_or_launches_is_said(self):
+        self.fixer_run()
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        self.assertEqual(h["status"], "no")
+        self.assertIn("local-review-lenses.json", h["why"])
+        self.lens_note(unseen=["/code-review"])
+        shutil.rmtree(self.root / "home" / "adapter")
+        h = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["h_record_output"]
+        self.assertEqual(h["status"], "attempted", "記録が読めなければ赤と言わない")
+        self.assertIn("読めない", h["why"])
+
+    def test_report_cold_reader_launches_are_new_sessions(self):
+        """(i) 報告の初見の読み手（report-write-cold）の起動は、どの回も新しい会話（包みの起動の記録の session.mode が new）。
+        書き手の会話を継いだ回が在れば no で名指す。起動が無い・記録が読めなければ no。終了コードには数えない"""
+        self.fixer_run()
+        path = self.root / "home" / "adapter" / "launches" / f"{adapter.cwd_key(WORKTREE)}.jsonl"
+        base = path.read_text(encoding="utf-8")
+        i = json.loads(self.run_tool(str(self.root), "--json").stdout)["features"]["i_cold_new"]
+        self.assertEqual(i["status"], "no")
+        self.assertIn("起動が無い", i["why"])
+        cold = [{"at": LATER, "node": "report-write-cold", "session": {"mode": "new", "id": f"c{n}"}} for n in (1, 2)]
+        path.write_text(base + "".join(json.dumps(r) + "\n" for r in cold), encoding="utf-8")
+        doc = json.loads(self.run_tool(str(self.root), "--json").stdout)
+        self.assertEqual(doc["features"]["i_cold_new"]["status"], "yes", doc["features"]["i_cold_new"])
+        self.assertEqual([r["mode"] for r in doc["cold_launches"]], ["new", "new"])
+        cold.append({"at": LATER, "node": "report-write-cold",
+                     "session": {"mode": "continued", "id": "w1", "of": "report-write", "from": "w1"}})
+        path.write_text(base + "".join(json.dumps(r) + "\n" for r in cold), encoding="utf-8")
+        got = self.run_tool(str(self.root), "--request", "fix", "--json")
+        self.assertEqual(got.returncode, 0, "(i) は終了コードに数えない")
+        i = json.loads(got.stdout)["features"]["i_cold_new"]
+        self.assertEqual(i["status"], "no")
+        self.assertIn("1/3", i["why"])
+        self.assertIn("continued", i["why"])
+        self.assertIn("(i) 報告の初見の読み手の会話: no", self.run_tool(str(self.root)).stdout)
+
     def test_fixer_union_counts_as_overlap(self):
         """修正役の締めの行の union（試験のファイルの挿しだけの合わせ）も (b) の yes"""
         make_db(self.db, self.out_root, [])

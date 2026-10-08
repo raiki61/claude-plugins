@@ -57,6 +57,12 @@ canary-fixture-units/ から始める run、large は測りの canary-request-la
   （並べの周の目録）と修正役の枝の数（fix_lanes_planted）と枝の輪の同時の最大、切った機能（start の控えの features_off）と機能ごとの実効の値（features。既定と全部 on を見分ける）、全体の分と
   費用（spend と同じ）。通ったと言う決まり: 結末が fixed で、切っていない枝の機能（tdd_lanes・fix_lanes）はどれも枝 2 本以上が
   同時に 2 本以上走った。報告の結末が無ければ no、ほかは attempted
+- (h) record_output（記録のフック。読むだけで終了コードには数えない）: 局所レビューの受け付けが周ごとに残す控え
+  （diverted.LENS_FILE）が fork のレンズを見ていない（unseen）と書いたのに、この run の包みの記録 outputs.jsonl（包みの家の
+  reads/<cwd の hash>/。record-output のフックが下請けの StructuredOutput を残す。盤面を作った後の行）が無ければ no（フックが
+  起きていない）。記録が在って戻せなかった・記録が読めないなら attempted、見ていない行が無ければ yes。控えが無ければ no
+- (i) cold_new（報告の初見の読み手の会話。読むだけで終了コードには数えない）: 包みの起動の記録のうち report-write-cold の起動が
+  どれも新しい会話（session.mode が new）なら yes。書き手の会話を継いだ起動が在る・起動が無い・記録が読めないなら no
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
 allowed_paths・テストのファイル・その項目の単位を持つ TDD の輪の枝が実際に変えたファイル（当てる時に控えた枝の差分
 tdd-<k>/lanes/item-<n>.patch）、節の同時の最大（node_started から node_completed・node_failed まで）、AI の節の費用の和
@@ -82,11 +88,12 @@ import types
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように（必ず import より前）
 
 PACK = pathlib.Path(__file__).resolve().parents[1]
-for _p in (PACK / "blk-fix" / "lib", PACK / ".shared" / "core"):
+for _p in (PACK / "blk-report" / "lib", PACK / "blk-fix" / "lib", PACK / ".shared" / "core"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
 import conflict  # noqa: E402  trace の行の語（ASKED_OP・PARK_OP・RULE_OP・REPLAN_OP）
+import diverted  # noqa: E402  局所レビューの控え（LENS_FILE）と包みの下請けの返答の記録の名（OUTPUTS_LOG）
 import fixlanes  # noqa: E402  修正役の並べの締めの trace の行の語（SETTLED_OP）・合わせの結末の語（MERGED）
 import gatemarks  # noqa: E402  報告の冒頭の起きたことの行の頭（HAPPENED）
 import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERED）
@@ -95,7 +102,9 @@ import fixture  # noqa: E402    包みの起動の記録を数え始める時刻
 import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
 import entry  # noqa: E402      機能ごとの実効の値（feature_words・features_on_of・features_part）
 import report  # noqa: E402    節の名の最後の語（_step_name）と費用の読み（_event_cost）
+import report_roles  # noqa: E402  報告の初見の読み手の節の名（WRITE_COLD）
 import ruling  # noqa: E402    裁定役の節の名（ROLE）
+import scopes  # noqa: E402    周の作業ファイルを全部の周と scope の根から集める（all_rounds）
 import tddlanes  # noqa: E402  合わせの結末の語（UNION・CLASH・SEMANTIC）
 
 YES, ATTEMPTED, NO = "yes", "attempted", "no"
@@ -362,6 +371,65 @@ def forked(launch: dict, planners: set) -> bool:
     X は consult.PEER（修正案の役）で、写しの元 from は修正案の役の会話の id のどれか"""
     return (launch["mode"] == "continued" and launch["fork"] and launch["of"] == consult.PEER and launch["from"] in planners
             and bool(launch["id"]) and launch["id"] != launch["from"])
+
+
+def run_outputs(launches_dir, board: pathlib.Path) -> list | None:
+    """包みの家の reads/<cwd の hash>/outputs.jsonl（record-output のフックが下請けの StructuredOutput を残す。diverted.log_path）の
+    うち、盤面を作った後の行（run_launches と同じ絞り方。行の時刻は ts）。家は起動の記録の置き場の親。置き場の名指しが無い・盤面の
+    cwd か時刻が読めない・その worktree の起動の記録が無いなら None（読めない）、ファイルが無ければ []（フックが 1 度も書いていない）"""
+    if launches_dir is None:
+        return None
+    state = _json(board / "state.json")
+    cwd = ((state.get("inputs") or {}).get("cwd") if isinstance(state, dict) else None)
+    if not isinstance(cwd, str) or not cwd or report._time(fixture.since(board, state.get("created"))) is None:
+        return None
+    if not (pathlib.Path(launches_dir) / f"{adapter.cwd_key(cwd)}.jsonl").is_file():   # 包みがこの worktree を起こした記録が無い:
+        return None                                                                       # 家が違うか読めない
+    path = pathlib.Path(launches_dir).parent / "reads" / adapter.cwd_key(cwd) / diverted.OUTPUTS_LOG
+    rows = [{**r, "at": r.get("ts")} for r in _jsonl(path)] if path.is_file() else []
+    return report._since_created(types.SimpleNamespace(dir=board, state=state), rows)
+
+
+def lens_hook(board: pathlib.Path, outputs: list | None) -> tuple[dict, dict]:
+    """((h) の判じ {status, why}, 出す証拠 {rounds, unseen, recovered, empty, outputs})。局所レビューの受け付けが周ごとに残す控え
+    （diverted.LENS_FILE）と、包みの記録 outputs.jsonl の行（run_outputs。None は読めない）を突き合わせる"""
+    docs = [d for d in (_json(p) for p in scopes.all_rounds(board, diverted.LENS_FILE)) if isinstance(d, dict)]
+    unseen = sorted({str(x) for d in docs for x in d.get("unseen") or []})
+    recovered = sum(r.get("count") or 0 for d in docs for r in d.get("recovered") or []
+                    if isinstance(r, dict) and isinstance(r.get("count"), int))
+    empty = sorted({str(x) for d in docs for x in d.get("empty") or []})
+    got = {"rounds": len(docs), "unseen": unseen, "recovered": recovered, "empty": empty,
+           "outputs": None if outputs is None else len(outputs)}
+    if not docs:
+        return {"status": NO, "why": f"局所レビューの控え（{diverted.LENS_FILE}）が無い（局所レビューを受け付けなかった）"}, got
+    if unseen and outputs is None:
+        return {"status": ATTEMPTED, "why": f"fork のレンズ {unseen} を見ていないと書いたが、包みの記録が読めない（置き場の形か "
+                                            "--launches で包みの家を名指す）"}, got
+    if unseen and not outputs:
+        return {"status": NO, "why": f"fork のレンズ {unseen} を見ていないと書いたのに、この run の包みの記録 "
+                                     f"{diverted.OUTPUTS_LOG} に行が無い（record-output のフックが起きていない）"}, got
+    if unseen:
+        return {"status": ATTEMPTED, "why": f"フックは起きた（記録の行 {len(outputs)}）が、fork のレンズ {unseen} の所見を戻せ"
+                                            "なかった"}, got
+    rows = "読めない" if outputs is None else len(outputs)
+    return {"status": YES, "why": f"見ていない fork のレンズは無い（戻した所見 {recovered} 件・0 件を確かめた {empty or '無し'}・"
+                                  f"記録の行 {rows}）"}, got
+
+
+def cold_launches(rows: list | None) -> tuple[dict, list]:
+    """((i) の判じ {status, why}, 報告の初見の読み手（report_roles.WRITE_COLD）の起動 [{mode, id, of, from}]（起動の順））"""
+    got = [{"mode": s.get("mode") or "", "id": s.get("id") or "", "of": s.get("of") or "", "from": s.get("from") or ""}
+           for s in (r.get("session") if isinstance(r.get("session"), dict) else {}
+                     for r in rows or [] if r.get("node") == report_roles.WRITE_COLD)]
+    if rows is None:
+        return {"status": NO, "why": "包みの起動の記録が無い（読めない）"}, got
+    if not got:
+        return {"status": NO, "why": f"{report_roles.WRITE_COLD} の起動が無い（報告の書き手の輪を回さなかった）"}, got
+    old = [r for r in got if r["mode"] != "new"]
+    if old:
+        return {"status": NO, "why": f"新しい会話でない起動 {len(old)}/{len(got)}（"
+                                     + "・".join(f"{r['mode'] or '?'} 元 {r['of'] or '?'}" for r in old) + "）"}, got
+    return {"status": YES, "why": f"{report_roles.WRITE_COLD} の起動 {len(got)} 本はどれも新しい会話"}, got
 
 
 def fix_lane_run(trace: list, asks: list, fix_lane_nodes: dict, launches: list | None) -> tuple[dict, dict]:
@@ -675,7 +743,10 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
         c = {"status": NO, "why": "相談の記録が無い"}
 
     d = {op: sum(1 for r in trace if r.get("op") == op) for op in REPLAN_OPS}
-    e, fix_run = fix_lane_run(trace, asks, fix_lane_nodes, run_launches(launches, board))
+    launch_rows = run_launches(launches, board)
+    e, fix_run = fix_lane_run(trace, asks, fix_lane_nodes, launch_rows)
+    h, hook = lens_hook(board, run_outputs(launches, board))
+    i, cold = cold_launches(launch_rows)
     f, units_run = item_units(board, items, trace, events)
     spent, done = spend(events), outcome(board)
     g, measured = measure(board, events, tdd_lanes=tdd_lanes_n, tdd_par=tdd_par, fix_lanes=fix_run["planted"], fix_par=fixl_par,
@@ -689,7 +760,7 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
         "report": str(board / report.REPORT_FILE) if (board / report.REPORT_FILE).is_file() else "",
         "features": {"a_parallel": a, "b_overlap": b, "c_consult": c,
                      "d_replan": {"status": YES if d[conflict.REPLAN_OP] or d[planmarks.AMEND_OP] else NO, "counts": d},
-                     "e_fix_lanes": e, "f_item_units": f, "g_measure": g},
+                     "e_fix_lanes": e, "f_item_units": f, "g_measure": g, "h_record_output": h, "i_cold_new": i},
         "plan_items": items,
         "planned_overlap": planned,
         "tdd_lanes": loops,
@@ -704,6 +775,8 @@ def check(run_id: str, row: dict, events: list, board: pathlib.Path, diff=None, 
         "fix_lane_run": fix_run,
         "item_units": units_run,
         "measure": measured,
+        "lens_hook": hook,
+        "cold_launches": cold,
         "nodes": node_peak(events),
         "spend": spent,
         "diff_files": changed,
@@ -722,6 +795,8 @@ def summary_lines(got: dict) -> list:
         out.append(f"  {r['node']} {r['mode'] or '?'}{' fork' if r['fork'] else ''} 元 {r['of'] or '?'}（{r['from'] or '?'} → "
                    f"{r['id'] or '?'}）")
     out.append(f"(f) 1 つの項目の 2 つの単位: {f['f_item_units']['status']} — {f['f_item_units']['why']}")
+    out.append(f"(h) 記録のフック: {f['h_record_output']['status']} — {f['h_record_output']['why']}")
+    out.append(f"(i) 報告の初見の読み手の会話: {f['i_cold_new']['status']} — {f['i_cold_new']['why']}")
     m = got["measure"]
     out.append(f"(g) 測り: {f['g_measure']['status']} — {f['g_measure']['why']}")
     out.append("  段ごと: " + ("・".join(f"{r['stage']} {r['minutes']} 分 {r['cost_usd']} USD" for r in m["stages"]) or "出来事が無い"))
