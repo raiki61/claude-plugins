@@ -10,22 +10,27 @@ run の worktree（Archon が --from の commit から切る）と単位の work
     うち絶対パスで、対象の根そのものか根の中の今在る物を指す物（git が無視するかを問わない。cd /手元 && uv run pytest・
     uv sync && /手元/.venv/bin/pytest・pytest /手元/tests・PYTHONPATH=/手元/src）と、最初の段の前の絶対パスの cd の後の相対の
     語のうち git が無視する物
-  - 立てた仮想環境: VIRTUAL_ENV が在り、その bin が PATH に在り、その環境に対象が editable で入っていて（site-packages の
+  - 対象の外の環境を絶対パスで指す語: どの段でも、見る語（下）のうち絶対パスで対象の外の物から上へ辿った仮想環境の根（印
+    VENV_MARKERS: pyvenv.cfg か conda-meta）に対象が editable で入っている（下の立てた環境と同じ印）（/venvs/proj/bin/pytest・
+    PATH=/venvs/proj/bin:$PATH pytest。virtualenvwrapper・poetry・conda の環境を VIRTUAL_ENV なしで指す形）
+  - 立てた仮想環境: VIRTUAL_ENV が在りその bin が PATH に在るか、起こした殻の PATH の段から上へ辿った仮想環境の根が在り（conda
+    activate は VIRTUAL_ENV を立てない）、その環境に対象が editable で入っていて（site-packages の
     *.dist-info/direct_url.json の editable の url か、*.pth の絶対パスの行が対象の根の中を指す）、test_cmd の段（殻の -c の中も。
     前の NAME=値 と env を除く）のどれかが、組み込み（BUILTINS: cd・echo・export など）でも、頭が uv でサブコマンドが pip でなく
-    --active も無い段（uv run・uv sync など）でもない。run の中の python・pytest は PATH のその環境を掴む（uv run・uv sync は
-    project の .venv を使い VIRTUAL_ENV を見ない。uv run --active・uv pip は立てた環境を使う）。対象の入っていない環境（依存だけの
+    --active も --no-project も無い段（uv run・uv sync など）でもない。run の中の python・pytest は PATH のその環境を掴む（uv run・
+    uv sync は project の .venv を使い VIRTUAL_ENV を見ない。uv run --active・uv run --no-project・uv pip は立てた環境を使う）。対象の入っていない環境（依存だけの
     環境・uv run の使い捨ての環境）は知らせない
 - 注意の形（行の頭「注意（test_cmd）」）: 相対の語が、対象に今在り git が無視する物（git check-ignore。パスか、その上のどれかの段が
   無視されていれば無視）を指す。worktree に無いので走らない（落ちて分かる）
-見る語: 段（&&・||・;・|・& で割る）の語（shlex で割る。割れなければ空白で割る）のうち、`/` を含み - で始まらない物と、= を含む語
+見る語: 段（&&・||・;・|・& と改行で割る。改行は ; と同じ。&& などの後ろの改行は続き。# の注は行の終わりまで）の語（shlex で割る。割れなければ空白で割る）のうち、`/` を含み - で始まらない物と、= を含む語
 （NAME=値・--旗=値）の値を : で割った絶対パス。注意の形（相対の語）は最初の段だけを見る（後ろの段は前の段が worktree の中で作った
 物を使える）。
 所を変える形は辿る:
 - 前の段が `cd <先>`・`pushd <先>`（旗 -P・-L などは除く。後ろが && か ;）だけなら、所を変えるだけの段で、その次の段を最初の段とし、
   相対の語を cd の先から読む（cd sub && .venv/bin/pytest は sub/.venv/bin/pytest）。cd の先もパスとして見る（/ が無くても）。
   サブシェルの括弧の中の cd は、括弧を閉じたら戻す
-- 最初の段が殻の -c（sh -c '…'・bash -lc "…"。前の NAME=値 と env は許す）なら、その中のコマンドを同じ決まりで読む
+- 最初の段が殻の -c（sh -c '…'・bash -lc "…"。前の NAME=値 と env は許す。旗の終わり --・値を取る -o/+o/-O/+O と
+  --rcfile・--init-file の値・ほかの長い旗は飛ばす）なら、その中のコマンドを同じ決まりで読む
 - 所を変える旗（CHDIR_FLAGS: make -C・--directory、env -C・--chdir、git・ninja・go の -C、pnpm -C・--dir、npm --prefix、
   yarn --cwd、uv --directory。同じ段にその道具の語が在る時だけ。値は空白で分けても = か -C に繋いでもよい）の値を cd の先と同じに
   パスとして見て、同じ段の後ろの語をそこから読む
@@ -49,8 +54,14 @@ git が無視するかは見ない（止める形の手元を絶対パスで指�
   止める（npm ci && uv run pytest も立てた環境で editable なら止める。止めを外せば今どおり起こす）
 - 対象が editable でなく普通に入った（写しを入れた）仮想環境は、絶対パスで指しても立てても editable の印が無いので、
   絶対パスの語としてだけ見る（立てた環境は知らせない）
+- 根の印（pyvenv.cfg・conda-meta）の無い入れ先（pip install --target の所・利用者の site-packages（pip install --user -e）・
+  素の python の site-packages）に editable で入れた対象は、PYTHONPATH= などで指しても、PATH から掴んでも見えない。対象の外の
+  環境を相対のパス（../venvs/proj/bin/pytest）・~・変数で指す形も辿らない（相対の語は根の中だけを見る）
+- 起こした殻の PATH の段から辿る環境は、PATH の前の段に同じ名のコマンドが在って run がそちらを掴む形でも止める（どのコマンドを
+  掴むかは段ごとに決まらない）
 """
 import glob
+import io
 import json
 import os
 import re
@@ -79,20 +90,52 @@ BUILTINS = frozenset(("cd", "pushd", "popd", "echo", "printf", "true", "false", 
 UV_COMMANDS = frozenset(("run", "sync", "pip", "lock", "add", "remove", "venv", "tool", "python", "build", "export", "tree",
                          "init", "version", "cache", "self", "publish", "format"))
 _ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+PUNCT = "();<>|&\n"   # shlex の句読（改行も。改行は ; と同じ段の区切り）
+SHELL_VALUE_OPTS = frozenset(("--rcfile", "--init-file"))   # 殻の長い旗のうち値を取る物
+VENV_MARKERS = ("pyvenv.cfg", "conda-meta")   # 仮想環境の根の印（venv・virtualenv・poetry・uv は pyvenv.cfg、conda は conda-meta）
+
+
+class _KeepNewline(io.StringIO):
+    """shlex の注（# の後）が行の終わりの改行まで食べないようにする流れ（改行は段の区切りなので残す）"""
+
+    def readline(self, size=-1):
+        rest = self.getvalue()[self.tell():]
+        end = rest.find("\n")
+        return self.read(len(rest) if end < 0 else end)
+
+
+def _words(cmd):
+    """shlex の語の並び（改行は 1 語 "\n"。句読の連なりに挟まった改行も分ける）。割れなければ ValueError"""
+    lex = shlex.shlex(_KeepNewline(cmd), posix=True, punctuation_chars=PUNCT)
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    out = []
+    for w in lex:
+        if "\n" in w and set(w) <= set(PUNCT):
+            for k, part in enumerate(w.split("\n")):
+                if k:
+                    out.append("\n")
+                if part:
+                    out.append(part)
+        else:
+            out.append(w)
+    return out
 
 
 def _segments(cmd):
-    """段の並び（&&・||・;・|・& で割る）と、段の間の区切りの並び。段は (語の並び, 前で開くサブシェルの数, 後ろで閉じる数)。
-    shlex で割れなければ空白で割った全部を 1 段にする"""
+    """段の並び（&&・||・;・|・& と改行で割る。改行は ; と数え、&& などの後ろ・空の行の改行は続きとして飛ばす）と、段の間の
+    区切りの並び。段は (語の並び, 前で開くサブシェルの数, 後ろで閉じる数)。shlex で割れなければ空白で割った全部を 1 段にする"""
     try:
-        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
-        lex.whitespace_split = True
-        words = list(lex)
+        words = _words(cmd)
     except ValueError:
         return [(cmd.split(), 0, 0)], []
     segs, seps = [[[], 0, 0]], []
     for w in words:
-        if w == "(":
+        if w == "\n":
+            if segs[-1][0] or segs[-1][2]:
+                segs.append([[], 0, 0])
+                seps.append(";")
+        elif w == "(":
             segs[-1][1] += 1
         elif w == ")":
             segs[-1][2] += 1
@@ -151,9 +194,19 @@ def _shell_c(words):
     if not rest or os.path.basename(rest[0]) not in SHELLS:
         return None
     i, found = 1, False
-    while i < len(rest) and rest[i].startswith("-") and not rest[i].startswith("--"):
-        found = found or "c" in rest[i][1:]
+    while i < len(rest):
+        w = rest[i]
         i += 1
+        if w == "--":   # 旗の終わり（bash -c -- '…'）
+            break
+        if w.startswith("--"):   # 長い旗（--norc・--login など。--rcfile <ファイル> は値も飛ばす）
+            i += w in SHELL_VALUE_OPTS
+            continue
+        if len(w) < 2 or w[0] not in "-+":
+            i -= 1
+            break
+        found = found or "c" in w[1:]
+        i += sum(ch in "oO" for ch in w[1:])   # -o pipefail・+o posix・-O extglob・-eo pipefail は値を取る
     if not found or i >= len(rest):
         return None
     return words[:len(words) - len(rest)], rest[i]
@@ -404,23 +457,63 @@ def _venv_free(words):
     （uv run・uv sync は project の .venv を使い VIRTUAL_ENV を見ない）"""
     if not words or words[0] in BUILTINS:
         return True
-    if os.path.basename(words[0]) != "uv" or "--active" in words:
+    if os.path.basename(words[0]) != "uv" or "--active" in words or "--no-project" in words:
         return False
     sub = next((w for w in words[1:] if w in UV_COMMANDS), None)
     return sub is not None and sub != "pip"
 
 
+def _venv_root(path):
+    """path そのものか、その上の段のうち仮想環境の根（VENV_MARKERS の印の在る所）。無ければ None（語そのものは解かない:
+    .venv/bin/python はリンクで、解くと外の python を指す）"""
+    p = os.path.normpath(path)
+    while True:
+        if any(os.path.lexists(os.path.join(p, m)) for m in VENV_MARKERS):
+            return p
+        parent = os.path.dirname(p)
+        if parent == p:
+            return None
+        p = parent
+
+
 def venv_notes(root, cmd, environ):
+    """立てた・指した環境の知らせ。対象の外の環境（対象の中の物は path_notes が手元を指す語として見る）のうち対象が editable で
+    入った物: (1) test_cmd の絶対パスの語（NAME=値・--旗=値 の値も。PATH= の段も）から上へ辿った環境の根は段を問わず止める
+    (2) 起こした殻の VIRTUAL_ENV（その bin が PATH に在る時）と、PATH の段から上へ辿った環境の根（conda activate のように
+    VIRTUAL_ENV を立てない形）は、test_cmd に立てた環境を使わない段（_venv_free）だけなら止めない"""
+    notes, seen = [], set()
+    for w in _absolute_words(root, cmd):
+        if _inside_or_root(root, w) is not None:   # 対象の中は path_notes が見る
+            continue
+        venv = _venv_root(w)
+        if venv is None or venv in seen or _within(root, os.path.realpath(venv)):
+            continue
+        seen.add(venv)
+        if _editable_target(venv, root):
+            notes.append((True, f"test_cmd の {w} は対象の外の仮想環境（{venv}）を指し、対象がそこへ editable で入っている: run の中の"
+                                f" test_cmd はその環境の python・pytest で、worktree の直しでなく対象の手元のコードを試す（直しの正誤に"
+                                f"関わらず緑になる）。{HOW}"))
+    if all(_venv_free(_strip_env(words)) for words in _all_segments(cmd)):
+        return notes
+    entries = [os.path.normpath(p) for p in environ.get("PATH", "").split(os.pathsep) if os.path.isabs(p)]
     venv = environ.get("VIRTUAL_ENV", "")
-    if not venv:
-        return []
-    bins = {os.path.normpath(p) for p in environ.get("PATH", "").split(os.pathsep) if p}
-    if os.path.normpath(os.path.join(venv, "bin")) not in bins:
-        return []
-    if all(_venv_free(_strip_env(words)) for words in _all_segments(cmd)) or not _editable_target(venv, root):
-        return []
-    return [(True, f"VIRTUAL_ENV（{venv}）を立てたまま起こし、対象がそこへ editable で入っている: run の中の test_cmd の python・"
-                   f"pytest はその環境を PATH から掴み、worktree の直しでなく対象の手元のコードを試す（直しの正誤に関わらず緑になる）。{HOW}")]
+    if venv and os.path.normpath(os.path.join(venv, "bin")) in entries:
+        venv = os.path.normpath(venv)
+        seen.add(venv)
+        if _editable_target(venv, root):
+            notes.append((True, f"VIRTUAL_ENV（{venv}）を立てたまま起こし、対象がそこへ editable で入っている: run の中の test_cmd の"
+                                f" python・pytest はその環境を PATH から掴み、worktree の直しでなく対象の手元のコードを試す（直しの正誤に"
+                                f"関わらず緑になる）。{HOW}"))
+    for entry in entries:
+        venv = _venv_root(entry)
+        if venv is None or venv in seen:
+            continue
+        seen.add(venv)
+        if _editable_target(venv, root):
+            notes.append((True, f"起こした殻の PATH の {entry} は仮想環境（{venv}）の中で、対象がそこへ editable で入っている: run の中の"
+                                f" test_cmd の python・pytest はその環境を PATH から掴み、worktree の直しでなく対象の手元のコードを試す"
+                                f"（直しの正誤に関わらず緑になる）。{HOW}"))
+    return notes
 
 
 def main(argv):

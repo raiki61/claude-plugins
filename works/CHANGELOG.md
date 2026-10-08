@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Fixed
+
+- `use.sh start` の `test_cmd` の止める形（`dev/testcmd_check.py`）が、対象の手元を試す形を黙って通していたのを直した（審査で見つけ、手元の試しの git と仮想環境の型で確かめた。今壊れていた: どれも終了コード 0 で Archon を起こし、直しの正誤に関わらず緑になり得た）: (1) 改行で並べた `test_cmd`（`echo start` の次の行に `pytest`）を 1 つの段と読み、組み込みの段として立てた環境を見逃していた。今は改行を `;` と同じ段の区切りに数える（`&&` などの後ろの改行は続き。`#` の注は行の終わりまで） (2) `bash -c -- '…'`・`bash -o pipefail -c '…'` の中を読まなかった。今は旗の終わり `--`・値を取る `-o`・`+o`・`-O` とその値・`--norc` などの長い旗を飛ばして中を読む (3) 対象を editable で入れた対象の外の仮想環境（virtualenvwrapper・poetry・conda）を `VIRTUAL_ENV` なしに絶対パスか `PATH=` で指す形（`/venvs/proj/bin/pytest`・`PATH=/venvs/proj/bin:$PATH pytest`）と、`conda activate` のように `VIRTUAL_ENV` を立てずに PATH へ入れた環境を見なかった。今は語と PATH の段から上へ辿って `pyvenv.cfg` か `conda-meta` の在る所を環境の根と読み、対象が editable で入っていれば止める (4) `uv run --no-project` を project の `.venv` を使う段と数えていた。今は `--active` と同じに立てた環境を使う段と数える。印の無い入れ先（`pip install --target`・`--user`）と相対のパス・`~` で指す外の環境はまだ見ない（漏れの一覧は `dev/testcmd_check.py` の頭）
+
 ## [0.2.45] - 2026-10-08
 
 ### Changed
