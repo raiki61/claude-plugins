@@ -361,7 +361,7 @@ LINE_ORDER = [
            rejudged={"from": "$h-rejudge.output.go", "if_skipped": False}),
     _edge("h-review", "review", ["start", "h-rejudge", "rejudging", "h-redepth"]),
     {"id": "lensing", "kind": "include", "block": "blk-lens", "depends_on": ["h-review"],
-     "when": "$h-review.output.go == true", "with": {"skip": "$h-redepth.output.skip"}},
+     "when": "$h-review.output.go == true", "with": {}},
     {"id": "reviewing", "kind": "include", "block": "blk-delta", "depends_on": ["h-review", "lensing"], "trigger_rule": NFMOS,
      "when": "$h-review.output.go == true", "with": {"base_rev": "$start.output.base_rev"}},
     _edge("h-refix", "refix", ["start", "h-review", "reviewing"]),
@@ -690,7 +690,7 @@ class LineRun:
             sys.path.insert(0, str(ROOT / "blk-lens" / "lib"))
         import lenses
         with mock.patch.dict(os.environ, lens_plugin(self.tmp)):
-            r = lenses.route(self.board, skip=(self.out.get("h-redepth") or {}).get("skip") or "")
+            r = lenses.route(self.board)
         env = {}
         for row in lenses.LENSES:
             node = f"lens-{row['lens']}"

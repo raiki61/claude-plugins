@@ -827,7 +827,7 @@ nodes:
 
   # 修正の後の信号で深さを標準へ上げる（いつも走る。決め 4・5）。食い違いの申し出・止めた単位・答えていない問い・案の直し・再審。
   # 全部の単位が軽量のままなら、待っている差分の審査（p3.delta_review）を盤面で省き（h-review が差分の審査・レンズ・手直しを回さない）、
-  # skip に省く理由を出してレンズ（skip）と独立の目（skip_optional）に平の入力で渡す（決め 6・9）。lines は機械の報告の冒頭 2
+  # skip に省く理由を出して独立の目（skip_optional）に平の入力で渡す（決め 6・9。レンズは h-review が回さないので渡さない）。lines は機械の報告の冒頭 2
   - id: h-redepth
     script: depth
     runtime: uv
@@ -897,14 +897,12 @@ nodes:
         verify_file: {type: string}
 
   # 修正の後のレンズ（修正が差分を作った run だけ）。集め役が終わらなければブロックの境が盤面を止め、後ろの境の節が stop する。
-  # 全部の単位が軽量の run は h-redepth の省く理由を渡し、レンズを起こさない（行と報告に理由が残る）
+  # 全部の単位が軽量の run は h-redepth が差分の審査を盤面で省くので、h-review の go が偽でレンズも回らない
   - id: lensing
     description: '修正の後の局所レビュー（レンズ）'
     include: blk-lens
     depends_on: [h-review]
     when: "$h-review.output.go == true"
-    with:
-      skip: $h-redepth.output.skip
 
   # 修正差分の審査（レンズの集め役を待つ。レンズの節が落ちても集め役は ok で終わるので走る）
   - id: reviewing

@@ -6,7 +6,7 @@
   "blk-eyes/blk-eyes.yaml": "529421d1256ab4372571db47dc048931ea420c7298f42b516dbd3e0a7c7ae2b7",
   "blk-fix/blk-fix.yaml": "918442aaf7022fe28e7a130da1f53c226e03630b84ca343ec72effbd868bc8b9",
   "blk-judge/blk-judge.yaml": "91c976d0678cd85a73948ac00be67c07e46f84de698b09a19f8f4e9d8adae133",
-  "blk-lens/blk-lens.yaml": "7ccf607bc1c0067e0628221ded92a715cb1f1568da802b11bb4df2c2326a167a",
+  "blk-lens/blk-lens.yaml": "fe7f42c097083bd466fde0c424a3a77b778419b2fb026950f34df6d31f88f466",
   "blk-material/blk-material.yaml": "0f64b8c19ee31353c01c19a622023e480b1e9755e422e36c74d93188cf89068e",
   "blk-plan/blk-plan.yaml": "14c25cbebe25bd42d784565d405c5bed75dfafe5295f4cf290d8f352f32a50b7",
   "blk-pr/blk-pr.yaml": "01ba32249cf73fbc37f900a5ede324c3f001a90d8886d6707899908da92dcdc2",
@@ -17,7 +17,7 @@
   "blk-report/blk-report.yaml": "c0f3f9dba14ef544bcb9ee795d4323c7a82827a24168931e2355d8adc8205924",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
-  "darkfactory/darkfactory.yaml": "a76de643c4fba9192712c25316d9c1ba826f92a3be9c7435b1211d8e1108ec56"
+  "darkfactory/darkfactory.yaml": "b4e878fdce960716c1f05bc1df47238c69518b48b9237c263902c0b94cec25df"
  },
  "version": 1,
  "workflows": {
@@ -2697,9 +2697,7 @@
      "kind": "call",
      "purpose": "修正の後の局所レビュー（レンズ）",
      "when": "$h-review.output.go == true",
-     "with": {
-      "skip": "$h-redepth.output.skip"
-     }
+     "with": {}
     },
     {
      "call": "blk-delta",

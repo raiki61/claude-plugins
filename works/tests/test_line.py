@@ -427,7 +427,7 @@ class DepthWiringCase(unittest.TestCase):
         self.assertLess(ids.index("rejudging"), ids.index("h-redepth"))
         self.assertLess(ids.index("h-redepth"), ids.index("h-review"))
         self.assertIn("h-redepth", node("h-review")["depends_on"])
-        self.assertEqual(node("lensing")["with"]["skip"], "$h-redepth.output.skip")
+        self.assertNotIn("with", node("lensing"))   # レンズは h-review が回す時だけ走るので、省く理由を渡さない
         self.assertEqual(node("eyeing")["with"]["skip_optional"], "$h-redepth.output.skip")
         self.assertEqual(node("report")["with"]["depth"], {"from": "$h-redepth.output", "if_skipped": None})
         import depth
