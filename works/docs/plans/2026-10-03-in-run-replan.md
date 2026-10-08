@@ -949,6 +949,15 @@ git commit -m "docs(works): fix_plan_item の意味を同じ run の案の直し
 
 ---
 
+## 持ち主の決定: 無人の run で範囲を広げるだけの直しは関所を飛ばす（2026-10-08）
+
+Task 7 の決まり（約束の欄が同じで人に聞く穴が無い直しだけを聞かずに通す）と Task 9 の「無人の run に特別な分かれを作らない」の上に、1 つだけ分かれを足した。canary の run 54d81ef1 は、計画役が `CHANGELOG.md` を `out_of_scope` に名指した項目を案の直しで外しただけなのに、無人の run が `replan-gate` で止まり、項目は直らずに終わった。
+
+- 決まり: 無人の run（start の控えの `unattended`。`gatemarks.unattended`）で、範囲の欄を持つ承認済みの項目と直した項目の違いが `allowed_paths` に足した行と `out_of_scope` から外した行だけ（どちらかが 1 行以上）で、事前審査が人に聞く種類の穴を挙げなければ、関所を開かずに直した項目で修正に戻る。決めるのはコード（`planmarks.widened(old, new)`。純粋。関所の決め手の欄を外した形で比べ、`contract_diff` と同じく `unit_keys`・`tests` の並べ替えと `rewrite_tests` の範囲 `limit` は数えない）。
+- 今どおり関所で止まる物: `rewrite_tests` を足した直し（テストを変えると「直った」の意味が変わるので人が見る）・ほかの欄（`red_kind`・テストの id・`behavior`・`adds`・`removes`・`narrows`・`approach`・`route`・`refactor`・`unit_keys` など、手段の欄も含む）を 1 つでも変えた直し・`allowed_paths` から外した・`out_of_scope` に足したか行を書き換えた直し・人に聞く種類の穴が在る直し。人の居る run は範囲を広げるだけの直しも今どおり聞く。手段の欄だけの直しを聞かずに通すのは前のまま。
+- 残す物: `replan.json` の行の欄 `widened`（`{allowed_paths: [足した glob], out_of_scope: [外した glob]}`）、盤面の trace の行 `replan_widened_unattended`（`{round, item, units, allowed_paths, out_of_scope}`。`answer` が項目を採った時だけ書く——ほかの項目が関所を開けて stop で諦めた時は書かない。再開で当て直しても 1 行）、報告の冒頭 1 と最後の関所の文の「同じ run の中で直した修正案の項目」の行（`直した——無人の run なので人に聞かずに範囲を広げた（allowed_paths に足した: …／out_of_scope から外した: …）`）。広げた範囲で作った差分は、後の差分の審査がいつもどおり見る。
+- 線（`darkfactory.yaml`）の節は変えない（`h-regate` の上のコメントだけ直した）。`h-regate` の `ask` が偽なら `replan-gate` は `when:` で飛び、`h-refit` は答え無しで聞かない項目を採る（前からの道）。
+
 ## この計画が扱わない物
 
 - (b)「案の段で誤りを機械で先に弾く」: 採らない（run 226 の ■6。誤りの種類ごとに検査が増え、`test_tiers` の決まりを 2 か所に書き、持ち越しの道も残る）。

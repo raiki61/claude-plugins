@@ -679,6 +679,117 @@ class TestGateRule(TripCase):
         self.assertEqual(replan.human_kinds(b), board.rules_module(pathlib.Path(b.state["graph"])).HUMAN_FACE_KINDS)
 
 
+class TestUnattendedWiden(TripCase):
+    """無人の run（start の控えの unattended）では、範囲を広げるだけの直し（planmarks.widened。allowed_paths に足す・out_of_scope
+    から外すだけ）を人に聞かずに通す。通した事は trace の行（WIDEN_OP）と報告の行に残す。rewrite_tests を足した・ほかの欄も
+    変えた・人に聞く穴が在る直しは今どおり聞く。人の居る run は今どおり聞く（持ち主 2026-10-08）"""
+
+    def unattended(self):
+        p = pathlib.Path(self.board) / "r1" / "start.json"
+        doc = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({**doc, "unattended": "true"}, ensure_ascii=False), encoding="utf-8")
+
+    def widen_rows(self):
+        return [r for r in report.trace_rows(entry.open_board(self.board, allow_halted=True), replan.WIDEN_OP)]
+
+    def test_widen_only_passes_without_asking(self):
+        self.unattended()
+        self.trip(new=wider_paths(), review=no_faces())
+        got = replan.gate(entry.open_board(self.board), run_id="r")
+        self.assertEqual((got["ask"], got["gate_file"]), (False, ""))
+        row = self.trip_doc()["items"][0]
+        self.assertEqual((row["contract_changed"], row["ask"]), (["allowed_paths"], False))
+        self.assertEqual(row["widened"], {"allowed_paths": ["README.md"], "out_of_scope": []})
+        self.assertEqual(self.widen_rows(), [], "trace は採った時（answer）に書く")
+        replan.answer(self.board, self.repo, None)
+        b = entry.open_board(self.board)
+        self.assertEqual([{k: r[k] for k in ("round", "item", "units", "allowed_paths", "out_of_scope")} for r in self.widen_rows()],
+                         [{"round": b.round, "item": 1, "units": [MEAN], "allowed_paths": ["README.md"], "out_of_scope": []}])
+
+    def test_stopped_gate_writes_no_widen_row(self):
+        """ほかの項目が関所を開け、無人の殻が stop と答えた（範囲を広げるだけの項目も諦めた）→ 広げたとは書かない"""
+        self.unattended()
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        got = replan.answer(self.board, self.repo, {"decision": "stop", "text": "無人の run: 人が決める関所に着いた"})
+        self.assertTrue(got["stop"])
+        self.assertEqual(self.widen_rows(), [])
+        self.assertTrue(replan.lines(entry.open_board(self.board, allow_halted=True))[0].endswith(
+            "直さずに諦めた: 人が関所 replan-gate で run を止めた: 無人の run: 人が決める関所に着いた"))
+
+    def test_widened_item_returns_to_fixing_and_is_reported(self):
+        self.unattended()
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        got = replan.answer(self.board, self.repo, None)
+        self.assertEqual((got["returned"], got["stop"]), ([MEAN], False))
+        b = entry.open_board(self.board)
+        self.assertIn("README.md", planmarks.approved_items(b)[0]["allowed_paths"])
+        self.assertEqual(conflict.replan_state(conflict.items(b)[0]), conflict.AMENDED)
+        self.assertEqual((b.record.get("process") or {}).get("human_items"), [], "人に聞いていない")
+        want = (f"案の項目 1（単位 {MEAN}）: 直した——無人の run なので人に聞かずに範囲を広げた"
+                "（allowed_paths に足した: README.md）")
+        self.assertEqual(replan.lines(b), [want])
+        heads = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        self.assertIn(f"  - {want}", heads)
+
+    def test_removed_out_of_scope_is_named(self):
+        self.unattended()
+        oos = [{"glob": "docs/**", "why": "文書は今回の直しの外に置く"}]
+        self.trip(new={**_item(1), "out_of_scope": []}, review=no_faces())
+        b = entry.open_board(self.board)
+        doc = self.trip_doc()
+        doc["items"][0]["old"]["out_of_scope"] = oos   # 承認済みの項目が out_of_scope を持っていた形
+        b.work(replan.TRIP_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.assertFalse(replan.gate(b, run_id="r")["ask"])
+        row = self.trip_doc()["items"][0]
+        self.assertEqual(row["widened"], {"allowed_paths": [], "out_of_scope": ["docs/**"]})
+        self.assertEqual(replan.answer(self.board, self.repo, None)["returned"], [MEAN])
+        self.assertEqual(replan.lines(entry.open_board(self.board)),
+                         [f"案の項目 1（単位 {MEAN}）: 直した——無人の run なので人に聞かずに範囲を広げた"
+                          "（out_of_scope から外した: docs/**）"])
+
+    def test_still_asks(self):
+        """rewrite_tests を足した・範囲のほかの欄も変えた・人に聞く穴が在る・人の居る run は今どおり聞く"""
+        rewrite = {"id": "test_stats.py::TestStats::test_mean_of_three", "behavior": "3 つの値の平均を返す",
+                   "old": "mean([1, 2, 3]) は 2", "new": "分母を len(xs) にした期待"}
+        red = red_kind_fixed()
+        cases = {
+            "rewrite_tests": ({**wider_paths(), "rewrite_tests": [rewrite]}, no_faces(), True),
+            "red_kind も": ({**red, "allowed_paths": wider_paths()["allowed_paths"]}, no_faces(), True),
+            "人に聞く穴": (wider_paths(), regression_face(), True),
+            "人の居る run": (wider_paths(), no_faces(), False),
+        }
+        for i, (name, (new, review, unattended)) in enumerate(cases.items()):
+            with self.subTest(name):
+                if i:
+                    self.setUp()
+                if unattended:
+                    self.unattended()
+                self.trip(new=new, review=review)
+                self.assertTrue(replan.gate(entry.open_board(self.board), run_id="r")["ask"])
+                self.assertIsNone(self.trip_doc()["items"][0].get("widened"))
+                self.assertEqual(self.widen_rows(), [])
+
+    def test_resume_writes_one_trace_row(self):
+        self.unattended()
+        self.trip(new=wider_paths(), review=no_faces())
+        replan.gate(entry.open_board(self.board), run_id="r")
+        doc = self.trip_doc()   # 関所の決まりの後・答えの前に落ちた再開（ask は在るが result は無い）
+        replan.gate(entry.open_board(self.board), run_id="r")
+        self.assertEqual(self.trip_doc()["items"], doc["items"])
+        first = replan.answer(self.board, self.repo, None)
+        self.assertEqual(replan.answer(self.board, self.repo, None), first)
+        doc = self.trip_doc()   # 答えの途中で落ちた再開（answered と result を書く前）
+        del doc["answered"]
+        for r in doc["items"]:
+            r["result"] = None
+        entry.open_board(self.board).work(replan.TRIP_FILE).write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(replan.answer(self.board, self.repo, None), first)
+        self.assertEqual(len(self.widen_rows()), 1)
+
+
 class TestAnswer(TripCase):
     """関所の答え（無い・continue・stop）を項目ごとに当て、採った項目を承認済みの案に差し替えて単位を直す義務に戻す"""
 

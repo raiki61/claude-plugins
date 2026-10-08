@@ -552,6 +552,74 @@ class TestContractFields(PlanFieldsCase):
         self.assertEqual(planmarks.contract_diff(item(), both), ["unit_keys", "out_of_scope"])
 
 
+class TestWidened(PlanFieldsCase):
+    """範囲を広げるだけの直しか（widened）: 違いが allowed_paths に足した行と out_of_scope から外した行だけの時だけ、足した glob と
+    外した glob を返す。ほかの欄（約束の欄も手段の欄も）が 1 つでも違えば・何も広げていなければ None（無人の run で関所を飛ばす決め手）"""
+
+    OOS = [{"glob": "docs/**", "why": "文書は今回の直しの外に置く"}, {"glob": "README.md", "why": "利用者向けの説明は触らない"}]
+
+    def test_added_allowed_paths(self):
+        got = planmarks.widened(item(), item(allowed_paths=["stats.py", "README.md", "lib/*.py"]))
+        self.assertEqual(got, {"allowed_paths": ["README.md", "lib/*.py"], "out_of_scope": []})
+
+    def test_removed_out_of_scope(self):
+        got = planmarks.widened(item(out_of_scope=self.OOS), item(out_of_scope=self.OOS[1:]))
+        self.assertEqual(got, {"allowed_paths": [], "out_of_scope": ["docs/**"]})
+
+    def test_both_at_once(self):
+        got = planmarks.widened(item(out_of_scope=self.OOS), item(allowed_paths=["stats.py", "docs/a.md"], out_of_scope=[]))
+        self.assertEqual(got, {"allowed_paths": ["docs/a.md"], "out_of_scope": ["docs/**", "README.md"]})
+
+    def test_narrowing_or_other_changes_are_none(self):
+        old = item(out_of_scope=self.OOS)
+        wide = {"allowed_paths": ["stats.py", "README.md"]}
+        red = copy.deepcopy(old["tests"])
+        red[0]["red_kind"] = "exception"
+        tid = copy.deepcopy(old["tests"])
+        tid[0]["id"] = "test_stats.py::TestStats::test_mean_of_two_values"
+        beh = copy.deepcopy(old["tests"])
+        beh[0]["behavior"] = "3 つの値の平均を返す"
+        cases = {
+            "allowed_paths を外した": {"allowed_paths": []},
+            "allowed_paths を差し替えた": {"allowed_paths": ["lib.py"]},
+            "out_of_scope を足した": {"out_of_scope": [*self.OOS, {"glob": "lib/**", "why": "lib は今回の直しの外"}]},
+            "out_of_scope の why を変えた": {"out_of_scope": [{**self.OOS[0], "why": "文書は別の依頼で直すので外"}, self.OOS[1]]},
+            "rewrite_tests を足した": {**wide, "rewrite_tests": [REWRITE]},
+            "red_kind も変えた": {**wide, "tests": red},
+            "テストの id も変えた": {**wide, "tests": tid},
+            "behavior も変えた": {**wide, "tests": beh},
+            "approach も変えた": {**wide, "approach": "z" * 20},
+            "adds も変えた": {**wide, "adds": [{"kind": "function", "name": "median", "canonical": "stats.py の median"}]},
+            "removes も変えた": {**wide, "removes": ["mean"]},
+            "narrows も変えた": {**wide, "narrows": [{"what": "空の列", "why": "空の列は例外のまま"}]},
+            "unit_keys も変えた": {**wide, "unit_keys": [MEAN, CLAMP]},
+            "route も変えた": {**wide, "route": "direct", "route_why": "z" * 20},
+            "refactor も変えた": {**wide, "refactor": {"declared": True, "why": "z" * 20}},
+            "何も変えない": {},
+        }
+        for name, over in cases.items():
+            with self.subTest(name):
+                self.assertIsNone(planmarks.widened(old, {**old, **copy.deepcopy(over)}))
+
+    def test_old_without_scope_is_none(self):
+        """範囲の欄の無い承認済みの項目（217 番の形の控え。範囲の縛りが無い）に allowed_paths を書いた直しは狭める物で、広げる物でない"""
+        old = item()
+        del old["allowed_paths"]
+        self.assertIsNone(planmarks.widened(old, item(allowed_paths=["stats.py", "README.md"])))
+
+    def test_order_and_rewrite_limit_do_not_count(self):
+        """unit_keys・tests の並べ替え・rewrite_tests の範囲 limit（凍結の控えが足す）は違いに数えない（contract_diff と同じ読み）"""
+        old = item(unit_keys=[MEAN, CLAMP], rewrite_tests=[{**REWRITE, "limit": "test_stats.py:12"}])
+        new = item(unit_keys=[CLAMP, MEAN], rewrite_tests=[REWRITE], allowed_paths=["stats.py", "README.md"])
+        self.assertEqual(planmarks.widened(old, new), {"allowed_paths": ["README.md"], "out_of_scope": []})
+
+    def test_pure(self):
+        old, new = item(out_of_scope=self.OOS), item(allowed_paths=["stats.py", "README.md"], out_of_scope=[])
+        before = copy.deepcopy((old, new))
+        planmarks.widened(old, new)
+        self.assertEqual((old, new), before)
+
+
 class TestAmend(PlanFieldsCase):
     """承認済みの項目の差し替え（amend）: 直した項目の欄の行を split で作り直し、核の欄を控えの amended に置いて凍結し直す"""
 
