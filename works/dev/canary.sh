@@ -1,5 +1,5 @@
 #!/bin/sh
-# works/dev/canary.sh [--build-only] [--request tdd|fix|units|large|lanes2] [<置き場>]
+# works/dev/canary.sh [--build-only] [--request tdd|fix|units|large|lanes2|change] [<置き場>]
 #
 # canary: 決まった小さな対象（canary-seed/）と決まった依頼（--request tdd は canary-request.json（既定）・fix は
 # canary-request-fix.json）で、ライン darkfactory を本物の AI で 1 回回す
@@ -63,6 +63,14 @@
 #       前の項目が変えたファイルが在る。枝の確かめが項目ごとに項目の頭から照らせば後の項目も当たる（run 97fd532f は枝の base から照らした
 #       ので、後の項目が前の項目のファイルで拒まれ続けた）。計画役が項目を 3 つ以下にまとめれば 2 項目の枝は植わらない（no）。CHANGELOG は
 #       無い（範囲の相談を起こさない）
+# --request change（canary-seed と canary-request-fix.json に、commit しない 1 行の変更を足す。変更から入る run の本物の確かめ）は、
+# ほかの依頼では通らない局所レビューの役（P1 の p1.local_review）を通す。ほかの依頼は依頼だけから始める（start の控えの entry が
+# request）ので、局所レビューは条件 not_request_entry で起きない（1 周の run は修正が入る前の周しか回らない）:
+#   (h) record_output・(j) text_reply: 種を 1 回 commit した上で、calc.py:median の docstring の 1 行の字（CHANGE_FROM を CHANGE_TO に。
+#       振る舞いは変えない）を commit せずに変え、use.sh start に --base <その commit> を付ける。run は変更（その commit からの
+#       差分）と依頼の 2 件の両方から入り（start の控えの entry が both）、局所レビューの役が変更を見る。依頼の 2 件は fix と同じなので
+#       (a)〜(e) も通りうるが、それは --request fix の確かめで、この語の終了コードには数えない。手で通した run e91112dd（0.2.48）で
+#       (h)(j) とも yes
 # どの依頼の件も docstring と README の決まりで直し方が 1 つに決まる（端の振る舞いを人に聞く余地を残さない）。ラインは 1 周の run なので
 # （entry.start の stop_after_round=1。canary が決めた物ではない）、報告の「止めたか」は「周の締めの後で止めた」と出るのが普通の
 # 終わり。残り（検証器の阻害・独立の目の阻害など）が無ければ結末は fixed、在れば round_limit（2 周目は回らない）。
@@ -78,17 +86,18 @@
 #      人の関所では止まらずに報告まで進む。終わるまで戻らないので、呼び手は裏で起こす（run_in_background か detach.sh）。
 #   3. 戻ったら run id と、canary_check.py の行を出す。走っている間の run id と状態は、先頭に出す show の行で見る。
 # --build-only: 1 だけをして、2 の起動の行を出して終わる（認証も Archon も使わない）。
-# --request: 依頼の語（tdd・fix・units・large・lanes2。既定 tdd）。test_cmd・手順は同じ（units は種と依頼が固定材料の物で、起動に
+# --request: 依頼の語（tdd・fix・units・large・lanes2・change。既定 tdd）。test_cmd・手順は同じ（units は種と依頼が固定材料の物で、起動に
 # WORKS_USE_FIX_FIXTURE が付く。large は種が canary-seed-large・lanes2 は canary-seed-lanes2）。3 の canary_check.py の行に同じ語を付ける（fix は (e) も終了コードに
-# 入れ、units は (f) だけ・large は (g) だけ・lanes2 は (k) だけで決める）。WORKS_USE_FEATURES_OFF・WORKS_USE_FEATURES_ON は use.sh がそのまま読む（全部 off・
-# 全部 on と比べる run。どちらも付けない run は既定）。
+# 入れ、units は (f) だけ・large は (g) だけ・lanes2 は (k) だけ・change は (h)(j) だけで決める）。change は種と依頼が fix の物で、1 の後に
+# calc.py の 1 行を commit せずに変え、2 の起動に --base <1 の commit> が付く（--build-only でも同じ対象を作り、起動の行に出す）。
+# WORKS_USE_FEATURES_OFF・WORKS_USE_FEATURES_ON は use.sh がそのまま読む（全部 off・全部 on と比べる run。どちらも付けない run は既定）。
 # 認証は use.sh が WORKS_KEYCHAIN_ITEM の項目から拾う（値は出さない）。canary は名指しの項目だけで回すので、空なら何も作らずに止まる。
 # 模型は WORKS_DEV_MODEL（use.sh と同じ。ここでは埋めない）。WORKS_DEV_USE は use.sh の差し替え（試験が偽物を差す）。
-# 拒む（何も作らずに 1 行で終了コード 2）: 知らない旗・--request の語が tdd・fix・units・large・lanes2 のどれでもない・units の固定材料を使えない・置き場が Claude Code の一時フォルダか /tmp の下・置き場に前の repo・origin.git・home が在る・
+# 拒む（何も作らずに 1 行で終了コード 2）: 知らない旗・--request の語が tdd・fix・units・large・lanes2・change のどれでもない・units の固定材料を使えない・change の変える字が種の calc.py にちょうど 1 つ無い・置き場が Claude Code の一時フォルダか /tmp の下・置き場に前の repo・origin.git・home が在る・
 # python3 -I で pytest が読めない（隔離した家では利用者の site-packages が見えない）・WORKS_KEYCHAIN_ITEM が空（--build-only は見ない）。
 set -eu
 
-USAGE="usage: canary.sh [--build-only] [--request tdd|fix|units|large|lanes2] [<置き場>]"
+USAGE="usage: canary.sh [--build-only] [--request tdd|fix|units|large|lanes2|change] [<置き場>]"
 BUILD_ONLY=""
 REQUEST_WORD=""
 while [ "$#" -gt 0 ]; do
@@ -124,6 +133,11 @@ refuse() {
 REQUEST_WORD="${REQUEST_WORD:-tdd}"
 SEED="$DEV_DIR/canary-seed"
 FIXTURE=""   # 固定材料（--request units）。空なら判定から始める
+CHANGE=""    # 1 なら commit しない 1 行の変更を足し、--base を付けて変更から入る（--request change）
+# --request change が種の CHANGE_FILE で変える字（calc.py:median の docstring の 1 行。sed の s/// に入れるので / や正規表現の字を持たない）
+CHANGE_FILE='calc.py'
+CHANGE_FROM='中央値（個数が偶数なら真ん中の 2 つの平均）'
+CHANGE_TO='中央値（個数が偶数なら、並べた真ん中の 2 つの平均）'
 case "$REQUEST_WORD" in
   tdd) REQUEST="$DEV_DIR/canary-request.json" ;;
   fix) REQUEST="$DEV_DIR/canary-request-fix.json" ;;
@@ -142,7 +156,11 @@ case "$REQUEST_WORD" in
     SEED="$DEV_DIR/canary-seed-lanes2"
     REQUEST="$DEV_DIR/canary-request-lanes2.json"
     ;;
-  *) refuse "--request は tdd・fix・units・large・lanes2 のどれか（${REQUEST_WORD}）" ;;
+  change)
+    REQUEST="$DEV_DIR/canary-request-fix.json"
+    CHANGE=1
+    ;;
+  *) refuse "--request は tdd・fix・units・large・lanes2・change のどれか（${REQUEST_WORD}）" ;;
 esac
 
 . "$DEV_DIR/guard.sh"
@@ -160,6 +178,9 @@ python3 -I -c "import pytest" 2>/dev/null ||
   refuse "python3 -I で pytest が読めない（test_cmd の ${TEST_CMD} は隔離した家で走るので、利用者の site-packages の pytest は見えない）。python3 の site-packages に pytest を入れる"
 if [ -n "$FIXTURE" ] && ! fixture_why="$(PYTHONDONTWRITEBYTECODE=1 python3 "$DEV_DIR/canary_fixture.py" check "$UNITS" 2>&1)"; then
   refuse "固定材料 ${UNITS} を使えない: $(printf '%s' "$fixture_why" | tr '\n' ' ')"
+fi
+if [ -n "$CHANGE" ] && [ "$(grep -cF "$CHANGE_FROM" "$SEED/$CHANGE_FILE")" != 1 ]; then
+  refuse "変える字が種の ${CHANGE_FILE} にちょうど 1 つ無い（${SEED}/${CHANGE_FILE}。canary.sh の CHANGE_FROM を種に合わせる）: ${CHANGE_FROM}"
 fi
 if [ -z "$BUILD_ONLY" ] && [ -z "${WORKS_KEYCHAIN_ITEM:-}" ]; then
   refuse "WORKS_KEYCHAIN_ITEM が空。canary は名指しの keychain の項目の認証で回す（例: WORKS_KEYCHAIN_ITEM=claude-code-oauth-p1 sh canary.sh）"
@@ -194,8 +215,18 @@ g -C "$REPO" push -q origin main
 g -C "$REPO" fetch -q origin
 g -C "$REPO" remote set-head origin main >/dev/null
 
+BASE_REV=""   # 変更から入る（--request change）なら、変更の土台の版（種を写した commit）
+if [ -n "$CHANGE" ]; then
+  BASE_REV="$(g -C "$REPO" rev-parse HEAD)"
+  # sed -i は GNU と BSD で旗が違うので、写しに書いてから元へ戻す（cat で戻してファイルの権限を変えない）
+  sed "s/${CHANGE_FROM}/${CHANGE_TO}/" "$REPO/$CHANGE_FILE" >"$REPO/$CHANGE_FILE.canary"
+  cat "$REPO/$CHANGE_FILE.canary" >"$REPO/$CHANGE_FILE"
+  rm -f "$REPO/$CHANGE_FILE.canary"
+  echo "変更から入る: ${CHANGE_FILE} の 1 行を commit せずに変えた（--base ${BASE_REV}）"
+fi
+
 echo "canary の置き場: ${ROOT}（対象 repo/・origin origin.git/・利用の家 home/）・依頼 ${REQUEST}（--request ${REQUEST_WORD}）"
-START="WORKS_USE_HOME=$HOME_DIR WORKS_USE_UNATTENDED=1${FIXTURE:+ WORKS_USE_FIX_FIXTURE=$FIXTURE} sh $USE_SH start $REPO $REQUEST \"$TEST_CMD\""
+START="WORKS_USE_HOME=$HOME_DIR WORKS_USE_UNATTENDED=1${FIXTURE:+ WORKS_USE_FIX_FIXTURE=$FIXTURE} sh $USE_SH start${BASE_REV:+ --base $BASE_REV} $REPO $REQUEST \"$TEST_CMD\""
 if [ -n "$BUILD_ONLY" ]; then
   echo "起動の行（--build-only なので起こさない。WORKS_KEYCHAIN_ITEM を前に付けて打つ）: ${START}"
   exit 0
@@ -210,8 +241,12 @@ else
   unset WORKS_USE_FIX_FIXTURE   # 利用者の殻に残った固定材料で、判定から始める canary を修正から始めない
 fi
 echo "走っている間の run id と状態: WORKS_USE_HOME=$HOME_DIR sh $USE_SH show $REPO"
+set -- "$REPO" "$REQUEST" "$TEST_CMD"
+if [ -n "$BASE_REV" ]; then
+  set -- --base "$BASE_REV" "$@"
+fi
 set +e
-sh "$USE_SH" start "$REPO" "$REQUEST" "$TEST_CMD"
+sh "$USE_SH" start "$@"
 run_status=$?
 set -e
 echo "use.sh start の終了コード: $run_status"
