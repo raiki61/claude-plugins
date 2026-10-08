@@ -24,6 +24,7 @@ Archon を起こす・golden を再生する・プロセスの木を起こす・
 写しで配るだけなら、試験ごとに作るに当たらない。段は使う物の形で分ける（決まっていて、読めば確かめられる）。
 fast は秒の上限ではない（負荷の高い機械では fast の中の git・子のプロセスも遅れる）。
 """
+import json
 import os
 import pathlib
 import re
@@ -122,11 +123,12 @@ FAST = frozenset({
 
 TIERS = ("fast", "heavy")
 
-# 組に配る重さの目安: 試験の数（def test_ の行）× 段の倍率。重い段の 1 本は git・子のプロセス・決まった秒の待ちを使うので
-# 速い段の 1 本より桁で重い（CI の全段 3431 本・4293 秒のうち、速い段は手元で数分）。モジュールごとの実測の秒が
-# 取れたら SECONDS に書き、在ればそちらを使う（走りの終わりに出る「モジュールごとの秒」の行から写す）
-HEAVY_FACTOR = 10
-SECONDS = {}
+# 組に配る重さ: CI で測ったモジュールごとの秒（tests/shard-seconds.json。測った日と run は同じファイルに書く）。記録に無い
+# モジュール（後で足した物）は、試験の数（def test_ の行）× 段ごとの 1 本の秒（同じファイルの per_test）。取り直すときは
+# 走りの終わりに出る「モジュールごとの秒」の行を写す
+_RECORD = json.loads((TESTS / "shard-seconds.json").read_text(encoding="utf-8"))
+SECONDS = dict(_RECORD["seconds"])
+PER_TEST = dict(_RECORD["per_test"])
 
 
 def weight(name):
@@ -134,7 +136,7 @@ def weight(name):
         return float(SECONDS[name])
     src = (TESTS / f"{name}.py").read_text(encoding="utf-8")
     n = max(1, len(re.findall(r"^\s*def test_", src, re.M)))
-    return float(n * (1 if name in FAST else HEAVY_FACTOR))
+    return n * float(PER_TEST["fast" if name in FAST else "heavy"])
 
 
 def shard_of(names, total):
@@ -196,21 +198,25 @@ class SkipGateResult(unittest.TextTestResult):
 
     skip_gate_failed = 0
 
-    def startTest(self, test):
-        self._works_t0 = time.monotonic()
-        super().startTest(test)
+    def startTestRun(self):
+        super().startTestRun()
+        self._works_last = time.monotonic()
 
     def stopTest(self, test):
+        # 前の試験の終わり（走りの頭）からの間をこの試験のモジュールに数える。setUpModule・setUpClass の秒が入る
+        # （前のクラスの tearDownClass の秒も次の試験に入る）
         super().stopTest(test)
+        now = time.monotonic()
         secs = getattr(self, "_works_secs", None)
         if secs is None:
             secs = self._works_secs = {}
         mod = type(test).__module__
-        secs[mod] = secs.get(mod, 0.0) + time.monotonic() - getattr(self, "_works_t0", time.monotonic())
+        secs[mod] = secs.get(mod, 0.0) + now - getattr(self, "_works_last", now)
+        self._works_last = now
 
     def printErrors(self):
         super().printErrors()
-        # モジュールごとの秒（setUpClass の秒は入らない）。組の重さの目安 SECONDS へ写す材料
+        # モジュールごとの秒（setUpModule・setUpClass の秒も入る）。組の重さ tests/shard-seconds.json へ写す材料
         secs = getattr(self, "_works_secs", {})
         if secs:
             self.stream.writeln("モジュールごとの秒: " + " ".join(

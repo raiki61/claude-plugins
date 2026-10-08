@@ -147,6 +147,50 @@ class ShardCase(unittest.TestCase):
         self.assertEqual(set().union(*parts), full)
         self.assertEqual(sum(len(p) for p in parts), len(set().union(*parts)))
 
+    def test_weight_is_recorded_seconds_with_per_test_fallback(self):
+        """組の重さは記録した実測の秒（tests/shard-seconds.json）。記録に無いモジュールは試験の数 × 段ごとの 1 本の秒"""
+        doc = json.loads((TESTS / "shard-seconds.json").read_text(encoding="utf-8"))
+        self.assertRegex(doc["measured"], r"^\d{4}-\d{2}-\d{2}$")
+        self.assertTrue(doc["runs"])
+        self.assertEqual(tiers.weight("test_script_contract"), float(doc["seconds"]["test_script_contract"]))
+        n = len(re.findall(r"^\s*def test_", (TESTS / "test_tiers.py").read_text(encoding="utf-8"), re.M))
+        with mock.patch.dict(tiers.SECONDS, clear=True):
+            self.assertAlmostEqual(tiers.weight("test_tiers"), n * doc["per_test"]["fast"])
+            self.assertAlmostEqual(tiers.weight("test_dev"),
+                                   len(re.findall(r"^\s*def test_", (TESTS / "test_dev.py").read_text(encoding="utf-8"), re.M))
+                                   * doc["per_test"]["heavy"])
+
+    def test_four_shards_balance_on_recorded_seconds(self):
+        """CI の 4 組を記録の秒で配ると、いちばん重い組が平均の 1.25 倍に収まる（1 組だけが 40 分かかった 0.2.47〜0.2.49 の形に戻さない）"""
+        seconds = json.loads((TESTS / "shard-seconds.json").read_text(encoding="utf-8"))["seconds"]
+        groups = tiers.shard_of(tiers.modules(), 4)
+        loads = [sum(float(seconds[m]) if m in seconds else tiers.weight(m) for m in g) for g in groups.values()]
+        self.assertLessEqual(max(loads), 1.25 * sum(loads) / len(loads), loads)
+
+    def test_module_seconds_include_class_setup(self):
+        """「モジュールごとの秒」は前の試験の終わりからの間をそのモジュールに数える（setUpClass・setUpModule の秒も入る。
+        入らないと test_script_contract の 16 分の setUpClass が組の重さから消える）"""
+        now = [0.0]
+
+        class A(unittest.TestCase):
+            def test_a(self):
+                pass
+
+        class B(unittest.TestCase):
+            def test_b(self):
+                pass
+        A.__module__, B.__module__ = "test_slow_setup", "test_quick"
+        result = tiers.SkipGateResult(io.StringIO(), True, 0)
+        with mock.patch.object(tiers.time, "monotonic", side_effect=lambda: now[0]):
+            for at, step in ((0.0, lambda: result.startTestRun()),
+                             (5.0, lambda: result.startTest(A("test_a"))),   # setUpClass の 5 秒の後
+                             (6.0, lambda: result.stopTest(A("test_a"))),
+                             (6.5, lambda: result.startTest(B("test_b"))),
+                             (7.0, lambda: result.stopTest(B("test_b")))):
+                now[0] = at
+                step()
+        self.assertEqual(result._works_secs, {"test_slow_setup": 6.0, "test_quick": 1.0})
+
     def test_env_form(self):
         self.assertIsNone(tiers.shard_env({}))
         self.assertIsNone(tiers.shard_env({"WORKS_SHARD": ""}))
