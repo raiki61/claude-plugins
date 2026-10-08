@@ -1,6 +1,8 @@
 <!-- coldwrite:skip: 測りの値は持ち主の機械の Archon の DB と盤面から写した物で、置き場は本文の「測った事実」に名指してある（初見の読み手が手元で検証できないのは測りの性質） -->
 # 単位ごとに工程の深さを変える（軽い単位は確かめを機械の決まりで省く）Implementation Plan
 
+状態: 入れた（works 0.2.31。`darkfactory/lib/depth.py`・blk-fix の入力 `unit_depths`）。残りは「上げ」の印をブロックの出口に出すことと測りの run（下の「blk-fix へのつなぎ目」）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 小さい修正依頼でも大きい依頼とほぼ同じ費用と時間が掛かる（下の「測った事実」）。そこで、判定が切った根本の単位ごとに、機械が形（触るファイルの数・受け入れのテストの数・約束の形のファイルを触るか・機械の確かめが在るか）から深さ（軽量か標準）を決め、修正の後の信号（食い違いの申し出・止めた単位・案の直し・再審・答えていない問い）が立てば標準へ上げる。標準は今の振る舞いそのもの。軽量で省いた物は報告の冒頭 2 に 1 行ずつ名指し、人が見落とさないようにする。

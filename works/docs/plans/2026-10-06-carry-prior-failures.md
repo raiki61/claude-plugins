@@ -1,5 +1,7 @@
 # run が前の run の落ちた理由を忘れる件を直す計画 Implementation Plan
 
+状態: 入れた（works 0.2.31。run の後の CI の赤の引き継ぎは 0.2.35）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 ## 何の計画か（初めて読む人向け）

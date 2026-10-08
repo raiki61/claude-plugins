@@ -1,5 +1,7 @@
 # 独立設計の材料を形式に依らず渡し、全体の地図をいつも渡し、問いが立たない根拠を実物で検算する（依頼 238）Implementation Plan
 
+状態: 入れた（works 0.2.26。merge 30666712）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 ## この文書の読み方（初めて読む人向け。本文の語はここで全部定める）

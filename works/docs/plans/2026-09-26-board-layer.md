@@ -1,5 +1,7 @@
 # 盤面の層（works の共通の土台）Implementation Plan
 
+状態: 入れた（works 0.2.0。`.shared/core/board.py` の `DiskBoard` と手本 `tests/boards/golden-a1202d0/`）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 下請けは全部 opus（台帳 Ruling R22）。
 
 **Goal:** 線 A・B・C が後から直さずに使える盤面の層を作る。graphloops の engine と同じ形の盤面をディスクに置き、写した engine の `Board` を継いだ `DiskBoard` が、engine と同じ控え（instance）を残して節を受け、engine と同じ順で機械の節を回し、engine が走らせる節（CI）を engine と同じ記録で走らせる。v1 の `accept.py` は振る舞いを変えずに偽の盤面から移す。
