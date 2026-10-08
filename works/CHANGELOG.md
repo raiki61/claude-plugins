@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.45] - 2026-10-08
+
 ### Changed
 
 - 無人の run（`WORKS_USE_UNATTENDED=1`）で、修正の段で案の項目の誤りと裁かれ同じ run の中で直した項目（案の直し）が範囲を広げるだけなら、案の直しの関所（`replan-gate`）を開かずに直した項目で修正に戻るようにした（持ち主の決定 2026-10-08）。前は無人の run がこの関所で止まり、項目は直らずに終わった（canary の run 54d81ef1 は、計画役が `CHANGELOG.md` を `out_of_scope` に名指した項目を案の直しで外しただけで止まった）。範囲を広げるだけとは、承認済みの項目との違いが `allowed_paths` に足した行と `out_of_scope` から外した行だけで、事前審査が人に聞く種類の穴（regression・policy）を挙げない直し。機械が欄を比べて決める（`planmarks.widened`。AI には決めさせない）。`rewrite_tests` を足した直し（テストを変えると「直った」の意味が変わる）・ほかの欄（`red_kind`・テストの id・`adds`・`removes`・`approach` など）も変えた直し・`allowed_paths` から外したか `out_of_scope` に足した直しは今どおり関所で止まる。人の居る run は範囲を広げるだけの直しも今どおり関所で聞く。聞かずに通した事は、盤面の trace の行 `replan_widened_unattended`（周・項目の番号・単位・足した glob・外した glob）と、報告の冒頭 1 と最後の関所の文の「同じ run の中で直した修正案の項目」の行（`直した——無人の run なので人に聞かずに範囲を広げた（allowed_paths に足した: …）`）に残る。広げた範囲で作った差分は後の差分の審査がいつもどおり見る。関数と盤面の試験で確かめた（本物の run ではまだ確かめていない）
