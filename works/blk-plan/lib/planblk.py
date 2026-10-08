@@ -37,8 +37,9 @@ p2.fix_plan）が案を直す。直しの役が起きるかは壁打ちの控え
             要約（converge.ITEMS）だけで、答えのファイルと食い違えば拒む。確かめを通らない項目は、出し直しの支度がその項目の下請けの
             ファイルにだけ機械の読める誤りの一覧（ERRORS_HEAD）を貼って起こし直させ、通った項目は起こし直さない。
             修正案と直しを受けたら項目を壁打ちの控えに置き（converge.note_plan）、直しの役が閉じた項目を変えたら拒む（CLOSED_REJECT）。
-            入力 review_tree が off（script_io.switch_on）なら支度は木の節（tree_part）を書かず、今の往復の下請けの置き場
-            （ITEMS_DIR）が無いので受け付けは木のまとめを飛ばす（_tree_off。審査役 1 つの返答をそのまま受ける）
+            入力 review_tree が off（script_io.switch_auto）なら支度は木の節（tree_part）を書かず、今の往復の下請けの置き場
+            （ITEMS_DIR）が無いので受け付けは木のまとめを飛ばす（_tree_off。審査役 1 つの返答をそのまま受ける）。auto なら
+            往復ごとに開いた項目が TREE_AUTO_MIN（2）以上の時だけ木にし、1 つ以下の往復は off と同じ道
 - 裏取りの申し送り: 入力 verify_file（判定の単位ごとの裏取りと単位どうしの相乗りの JSON。形は verify_part）が在れば、修正案の役の
             頭に貼る（verify_part）。単位は直す義務で申し送りでは減らないので、根本でないと出た単位も案から外させない
 - reads:    役の読んだ証拠（reads.collect）を今の周の reads-<役>.json に書き、その一覧を reads-plan-block.json に
@@ -108,6 +109,7 @@ RIPPLE_PASS = "ripple/pass-{k}.json"
 RIPPLE_LATEST = "ripple.json"           # 最後に作った項目ごとの一覧の写し（修正の段へ線が渡す。manifest の produces）
 RIPPLE_REPLAN = "ripple/replan.json"    # 案の直しの後に、直した項目で作り直した一覧（replan の collect が書く。manifest の produces ripple/**）
 ITEMS_DIR = "plan-review-items/pass-{k}"   # 事前審査の下請けのファイル（manifest の produces plan-review-items/**）
+TREE_AUTO_MIN = 2   # 入力 review_tree が auto の時、事前審査を木にする開いた項目の数の下限（1 項目以下は審査役 1 つ）
 # 下請けの答えのファイルの置き場（run ごとの置き場 adapter.run_place_of の今の scope の下。盤面の外——盤面は守る場所で役が書けない。
 # 受け付けが確かめたファイルは往復の控え plan-converge/pass-<k>/ に写す）
 ANSWERS_DIR = "plan-review/r{r}/pass-{k}"
@@ -864,6 +866,12 @@ def _errors_part(n: int, path: pathlib.Path, errs: list) -> str:
     return f"{ERRORS_HEAD}\n\n前の答え {path} を Read で読み、下の誤りだけを直して同じファイルに書き直せ。\n\n```json\n{doc}\n```"
 
 
+def _opened(b, rows: list) -> list:
+    """今の往復の事前審査が見る項目の番号（項目の控えが在れば開いた項目 converge.open_items、無ければ案の全部の項目）"""
+    plan = converge.read(b).get("plan")
+    return [n for n in (converge.open_items(b) if plan else range(1, len(rows) + 1)) if n <= len(rows)]
+
+
 def tree_part(b, main_prompt: pathlib.Path) -> str:
     """束ね役の頼みの節。開いた項目ごとの下請けのファイルと（項目が 2 つ以上なら）相乗りの審査のファイルを今の往復の
     ITEMS_DIR に書き、その置き場を並べる（下請けの答えの置き場 answers_dir も作る）。下請けのファイルは共通の頭（brief_head）と
@@ -878,7 +886,7 @@ def tree_part(b, main_prompt: pathlib.Path) -> str:
     folder.mkdir(parents=True, exist_ok=True)
     answers_dir(b, k).mkdir(parents=True, exist_ok=True)
     plan = converge.read(b).get("plan")
-    opened = [n for n in (converge.open_items(b) if plan else range(1, len(rows) + 1)) if n <= len(rows)]
+    opened = _opened(b, rows)
     head = brief_head(b, main_prompt)
     pre = precedent_plan(b, opened) if plan else {}
     done, todo, retry = [], [], False
@@ -957,9 +965,10 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", 
     道具ゼロなので指示書の本文を返し、commands/r2-design.md が直の参照で貼る）。直しの役は _revise_prep（replan では snap が
     go: false なので届かない）。replan なら core の replan.prep に、頭（head。修正案の頭は planmarks.HEAD を含む）と、事前審査
     なら独立設計の節だけ（design_only）を渡す。verify_file（判定の単位の裏取りの申し送り）は修正案の役の頭にだけ貼る（verify_part。
-    直しの役は修正案の役の会話の続きなので、もう読んでいる）。review_tree（入力の切り替えの語。空は on）が off なら事前審査の
-    指示書に木の節（tree_part）を載せない（審査役 1 つが案の全体を審査する。受け付けは _tree_off で木のまとめを飛ばす）"""
-    tree = script_io.switch_on(review_tree, "review_tree")   # 知らない語は役を問わず指示書を書く前に落とす
+    直しの役は修正案の役の会話の続きなので、もう読んでいる）。review_tree（入力の切り替えの語 on・off・auto。空は on）が off なら
+    事前審査の指示書に木の節（tree_part）を載せない（審査役 1 つが案の全体を審査する。受け付けは _tree_off で木のまとめを飛ばす）。
+    auto なら往復ごとに、開いた項目（_opened）が TREE_AUTO_MIN 以上の時だけ木の節を載せる"""
+    tree = script_io.switch_auto(review_tree, "review_tree")   # 知らない語は役を問わず指示書を書く前に落とす
     if role == REVISE_ROLE:
         return _revise_prep(board_dir)
     if role == DESIGN_ROLE:
@@ -975,6 +984,8 @@ def prep(board_dir, role: str, repo, excluded_file: str = "", replan: str = "", 
         if why:   # snap が先に止めて輪を飛ばすので、ここに届くのは配線の誤り。指示書を書かずに 2 で落とす（役を起こさせない）
             raise BoardGap(why)
     main = b.work(rolekit.prompt_name(nid))
+    if role == "plan-review" and tree is None:
+        tree = len(_opened(b, _item_rows(b))) >= TREE_AUTO_MIN
     part = "\n\n".join(x for x in ((design_section(b), converge.review_section(b), tree_part(b, main) if tree else "")
                                     if role == "plan-review"
                                     else (prior_part(b, role), structmark.plan_section(b.dir), plan_slots_section(b),

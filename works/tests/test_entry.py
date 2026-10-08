@@ -1372,12 +1372,12 @@ class ResumeCase(StartCaseBase):
 
     def test_features_off_reaches_exit_head_and_doc(self):
         """切る機能（入力 features_off）: 出口に機能ごとの on・off（線がブロックの切り替えの入力へ写す）、頭の行に切った機能、
-        控えに語の順の配列。呼び直しで替えれば拒み、同じなら通る。空は全部 on"""
+        控えに語の順の配列。呼び直しで替えれば拒み、同じなら通る"""
         repo = self.seed()
         first = self.start(repo, test_cmd=SEED_CMD, features_off="tdd_lanes judge_verify")
         self.assertEqual({k: first[k] for k in entry.FEATURES},
-                         {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "on", "tdd_lanes": "off"})
-        self.assertIn("切った機能: judge_verify・tdd_lanes", first["head_line"])
+                         {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "off"})
+        self.assertIn("機能: judge_verify off・review_tree auto・tdd_lanes off", first["head_line"])
         doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
         self.assertEqual(doc["features_off"], ["judge_verify", "tdd_lanes"])
         with self.assertRaises(entry.InputRefused) as cm:
@@ -1386,11 +1386,30 @@ class ResumeCase(StartCaseBase):
         again = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, features_off="judge_verify,tdd_lanes"), run_id="run-7")
         self.assertEqual(again["judge_verify"], "off")
 
-    def test_features_default_all_on(self):
+    def test_features_default_judge_verify_off_review_tree_auto(self):
+        """既定（持ち主の決め 2026-10-08）: 判定の裏取りは off・事前審査の木は auto・ほかは on。控えの features_on は空の配列"""
         repo = self.seed()
         got = self.start(repo, test_cmd=SEED_CMD)
-        self.assertEqual({k: got[k] for k in entry.FEATURES}, {k: "on" for k in entry.FEATURES})
-        self.assertIn("機能: 全部 on", got["head_line"])
+        self.assertEqual({k: got[k] for k in entry.FEATURES},
+                         {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "on"})
+        self.assertIn("機能: judge_verify off・review_tree auto", got["head_line"])
+        doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
+        self.assertEqual((doc["features_off"], doc["features_on"]), ([], []))
+
+    def test_features_on_turns_defaults_on_and_is_kept_on_resume(self):
+        """入れる機能（入力 features_on）: 既定の off・auto を on にし、控えに語の順の配列。呼び直しで替えれば拒む"""
+        repo = self.seed()
+        first = self.start(repo, test_cmd=SEED_CMD, features_on="review_tree,judge_verify")
+        self.assertEqual({k: first[k] for k in entry.FEATURES}, {k: "on" for k in entry.FEATURES})
+        self.assertIn("機能: 全部 on", first["head_line"])
+        doc = json.loads(entry.open_board(self.board).work(entry.START_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(doc["features_on"], ["judge_verify", "review_tree"])
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD), run_id="run-7")
+        self.assertIn("features_on", str(cm.exception))
+        again = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD, features_on="judge_verify review_tree"),
+                            run_id="run-7")
+        self.assertEqual(again["judge_verify"], "on")
 
     def test_resume_old_board_without_fix_shape_stays_af(self):
         """前の版で作った盤面（控えに fix_shape が無い）の呼び直し: 入力が空なら af のまま通り、控えに鍵を足さない。

@@ -41,7 +41,7 @@
 #       固定材料が壊れている・今の works の表・graph・置き場の版と違う（start が「固定材料と works の版が違う」で拒む）なら、
 #       canary_fixture.py check が名指し、何も作らずに止まる（写し直しは本物の run から canary_fixture.py build で。README の
 #       「canary」の節）。判定・修正案の役は起きないので、費用は修正から先の分だけ
-# --request large（canary-seed-large/ と canary-request-large.json。測りの run）は、全部 on と全部 off（WORKS_USE_FEATURES_OFF）で
+# --request large（canary-seed-large/ と canary-request-large.json。測りの run）は、全部 on（WORKS_USE_FEATURES_ON）と全部 off（WORKS_USE_FEATURES_OFF）で
 # 同じ依頼を回し、段ごとの時間と費用を並べて比べるための物:
 #   (g) 種は 5 つのモジュール（stats.py・textfmt.py・units.py・money.py・slugs.py）とテストの test_lib.py（モジュールごとのクラス）。
 #       依頼は 5 件で、振る舞いのバグ 3 件（stats.py:median・textfmt.py:pad_left・units.py:c_to_f。今のテストが突かない入力で
@@ -71,7 +71,8 @@
 # --build-only: 1 だけをして、2 の起動の行を出して終わる（認証も Archon も使わない）。
 # --request: 依頼の語（tdd・fix・units・large。既定 tdd）。test_cmd・手順は同じ（units は種と依頼が固定材料の物で、起動に
 # WORKS_USE_FIX_FIXTURE が付く。large は種が canary-seed-large）。3 の canary_check.py の行に同じ語を付ける（fix は (e) も終了コードに
-# 入れ、units は (f) だけ・large は (g) だけで決める）。WORKS_USE_FEATURES_OFF は use.sh がそのまま読む（全部 off と比べる run）。
+# 入れ、units は (f) だけ・large は (g) だけで決める）。WORKS_USE_FEATURES_OFF・WORKS_USE_FEATURES_ON は use.sh がそのまま読む（全部 off・
+# 全部 on と比べる run。どちらも付けない run は既定）。
 # 認証は use.sh が WORKS_KEYCHAIN_ITEM の項目から拾う（値は出さない）。canary は名指しの項目だけで回すので、空なら何も作らずに止まる。
 # 模型は WORKS_DEV_MODEL（use.sh と同じ。ここでは埋めない）。WORKS_DEV_USE は use.sh の差し替え（試験が偽物を差す）。
 # 拒む（何も作らずに 1 行で終了コード 2）: 知らない旗・--request の語が tdd・fix・units・large のどれでもない・units の固定材料を使えない・置き場が Claude Code の一時フォルダか /tmp の下・置き場に前の repo・origin.git・home が在る・

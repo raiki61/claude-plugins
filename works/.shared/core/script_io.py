@@ -25,6 +25,7 @@ $ が無くても、リンクの先や相対パスの cwd から現れうる）�
 （標準出力には何も出さない）。
 
 switch_on(value, name) は部品の切り替えの入力（on・off。空は on）を真偽に読む口（線が run ごとに機能を切って比べる。ほかの語は ValueError）。
+switch_auto(value, name) は自動を持つ切り替え（on・off・auto）を真・偽・None（auto）に読む口。
 
 ブロックのスクリプトは、次の前置きをそのまま写し、最後の 2 行の関数だけを替える:
 
@@ -73,6 +74,7 @@ ACCEPT_LAST = "accept-last.json"   # scope の根の受け付けの最後の結�
 
 
 SWITCH_ON, SWITCH_OFF = "on", "off"   # 部品の切り替えの入力の語（線が run ごとに機能を切る口。空は on）
+SWITCH_AUTO = "auto"                  # 自動を持つ切り替え（switch_auto）だけが受ける語（部品が自分の材料で on・off を決める）
 
 
 def switch_on(value, name: str) -> bool:
@@ -84,6 +86,17 @@ def switch_on(value, name: str) -> bool:
     if word == SWITCH_OFF:
         return False
     raise ValueError(f"入力 {name}={word!r} は {SWITCH_ON} か {SWITCH_OFF}（空は {SWITCH_ON}）")
+
+
+def switch_auto(value, name: str):
+    """自動を持つ部品の切り替えの入力（on・off・auto。空・None・文字列 null は on）を真・偽・None にする。None は auto
+    （部品が自分の材料で決める）。ほかの語は名を言って ValueError"""
+    word = "" if value is None else str(value).strip()
+    if word == SWITCH_AUTO:
+        return None
+    if word in ("", "null", SWITCH_ON, SWITCH_OFF):
+        return switch_on(word, name)
+    raise ValueError(f"入力 {name}={word!r} は {SWITCH_ON}・{SWITCH_OFF}・{SWITCH_AUTO} のどれか（空は {SWITCH_ON}）")
 
 
 def _emit(obj) -> None:

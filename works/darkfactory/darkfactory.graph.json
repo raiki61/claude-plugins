@@ -8,7 +8,7 @@
   "blk-judge/blk-judge.yaml": "074931df4ec94e77bf447eac37ff927175c666991f34c103951964929c066ad0",
   "blk-lens/blk-lens.yaml": "aff532b603cf8507c6387f946e243b4072cec7cd8fcc3974837da30d60b16dca",
   "blk-material/blk-material.yaml": "07cbe905d13a699aa217718cb86af7ea46ed9124f405760d2fd759165045e368",
-  "blk-plan/blk-plan.yaml": "d2eeb31722086fd0fc028cddfe665cdb72cc7d0f81bd12dd50511e7ee31dda06",
+  "blk-plan/blk-plan.yaml": "c81b4f02ed3d43a60d6c86af199bd1061be06cc825f75b13dddf5e2dbf785a92",
   "blk-pr/blk-pr.yaml": "01ba32249cf73fbc37f900a5ede324c3f001a90d8886d6707899908da92dcdc2",
   "blk-premises/blk-premises.yaml": "e2f74fbbb17a1a458e3c69a7f0527c5419568b3139c134ec028d1cbda811b6e7",
   "blk-purpose/blk-purpose.yaml": "5d4ccd7cbaf8c680096b1fa9cd843f283e168e608ba59c5911d69ae82b400823",
@@ -17,7 +17,7 @@
   "blk-report/blk-report.yaml": "bd08093ed532c2afbaff1c89f2e2f667bb296e7eac5c963f2ccd9270e7736566",
   "blk-structure/blk-structure.yaml": "163f355739887f26f0ee1ae9501e6eab03dfecb85c0fb2885f0152a2fc514d31",
   "blk-tests/blk-tests.yaml": "147d73c7390cadbe477bbb6bb3264630227bea75759564d0e4a8b9adaa40634e",
-  "darkfactory/darkfactory.yaml": "d63dc6fe7fa57aff914b932372a02c32e7bc1a361a07d067642ae319091cc67c"
+  "darkfactory/darkfactory.yaml": "46db4abd56be66af9c337d00c075d26aa2317a219322b021f27566fb9fa0c9a4"
  },
  "version": 1,
  "workflows": {
@@ -1752,7 +1752,7 @@
          "id": "plan-review",
          "kind": "ai",
          "marker": "plan-review",
-         "purpose": "事前審査の役（review_tree が on なら項目ごとの下請けと相乗りの審査）"
+         "purpose": "事前審査の役（review_tree が on か、auto で開いた項目が 2 つ以上なら項目ごとの下請けと相乗りの審査）"
         },
         {
          "deps": [

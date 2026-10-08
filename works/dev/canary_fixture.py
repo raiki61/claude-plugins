@@ -9,7 +9,7 @@
 - FIXTURE（fix-fixture/）: 元の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した物（.shared/core/fixture.py の固定材料。
   盤面の写し board/・盤面の外の写し outside/・控え fixture.json）。use.sh に WORKS_USE_FIX_FIXTURE で渡す
 取り込み（fixture.adopt）が見る物は、対象の HEAD^{tree} が控えの tree・依頼の文の sha256 が控えの物・start の控えの入力の欄が
-今の入力と同じ（fix_shape・run_id・request_file・fix_fixture・features_off を除く）・写しが控えのファイルの sha256 のとおり、と
+今の入力と同じ（fix_shape・run_id・request_file・fix_fixture・features_off・features_on を除く）・写しが控えのファイルの sha256 のとおり、と
 盤面を開く時の works の表・graph・置き場の版（entry.open_board）。種と依頼が元の run の物なので、今の canary-seed とは別に運ぶ。
 
 build: 置き場（canary.sh が作った物。home/archon-home/workspaces/*/*/artifacts/runs/<run-id>/fix-fixture と repo/）から 3 つを

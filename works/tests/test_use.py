@@ -748,11 +748,11 @@ class UseShell(unittest.TestCase):
         t = self.target()
         r = self.use("start", str(t), str(self.request), "true", "", WORKS_USE_FINAL_GATE="always",
                      WORKS_USE_POLICY_MD="/p/policy.md", WORKS_USE_GATES="merge", WORKS_USE_THICKNESS="x",
-                     WORKS_USE_FEATURES_OFF="judge_verify,tdd_lanes")
+                     WORKS_USE_FEATURES_OFF="judge_verify,tdd_lanes", WORKS_USE_FEATURES_ON="review_tree")
         self.assertEqual(r.returncode, 0, r.stderr)
         run = self.started()
         for want in ("final_gate=always", "policy_md=/p/policy.md", "gates=merge", "thickness=x",
-                     "features_off=judge_verify,tdd_lanes"):
+                     "features_off=judge_verify,tdd_lanes", "features_on=review_tree"):
             self.assertIn(want, run)
 
     def test_start_fix_fixture_passes_absolute_folder_or_refuses(self):

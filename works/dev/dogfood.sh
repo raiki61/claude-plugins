@@ -28,7 +28,8 @@
 #   フォルダかを確かめ、入力 fix_fixture=<絶対パス> を渡す（同じ木・同じ依頼の run を修正から始める）。無いフォルダは、何かを
 #   作る前に 1 行で止まる（終了コード 2）。未設定・空は渡さない。
 #   WORKS_FEATURES_OFF は切る機能（judge_verify・review_tree・tdd_lanes・fix_lanes・graph_map をカンマで区切った 1 行）: 空でなければ
-#   入力 features_off=<値> を渡す（語はラインの start が確かめ、知らない語は AI の前で止める）。未設定・空は渡さない（全部 on）。
+#   入力 features_off=<値> を渡す（語はラインの start が確かめ、知らない語は AI の前で止める）。未設定・空は渡さない（既定）。
+#   WORKS_FEATURES_ON は入れる機能（同じ語）で、入力 features_on=<値> を渡す（既定で off の judge_verify・auto の review_tree を on に）。
 # 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
 # <dir> に前の回の repo・origin.git・github-reads.json か、前の版の固定名の写し request.json が在れば、何も書かずに止まる。
 # 起動ごとの写し（requests/）は起動の記録で、残っていても次の起動を妨げない。
@@ -76,6 +77,7 @@ WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
 # 文書が名指す窓口は代入の行で持つ（名指しの柵 doc-symbols が定義として見る）
 WORKS_FEATURES_OFF="${WORKS_FEATURES_OFF:-}"
+WORKS_FEATURES_ON="${WORKS_FEATURES_ON:-}"
 export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER
 # 起こすのは start だけなので、start の時の既定の釘（続きの行だけが置く）は利用者の殻に残っていても受けない
 unset WORKS_MODEL_PINNED
@@ -204,6 +206,7 @@ set -- workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2"
 if [ "${WORKS_DESIGN_ONLY:-}" = 1 ]; then set -- "$@" --input design_only=true; fi
 if [ -n "${WORKS_FIX_SHAPE:-}" ]; then set -- "$@" --input fix_shape="$WORKS_FIX_SHAPE"; fi
 if [ -n "${WORKS_FEATURES_OFF:-}" ]; then set -- "$@" --input features_off="$WORKS_FEATURES_OFF"; fi
+if [ -n "${WORKS_FEATURES_ON:-}" ]; then set -- "$@" --input features_on="$WORKS_FEATURES_ON"; fi
 if [ -n "$FIX_FIXTURE" ]; then set -- "$@" --input fix_fixture="$FIX_FIXTURE"; fi
 if [ -n "$GITHUB_READS" ]; then set -- "$@" --input github_reads="$GITHUB_READS"; fi
 sh "$ARCHON" "$@"

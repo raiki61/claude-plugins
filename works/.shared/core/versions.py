@@ -14,7 +14,7 @@ run と同じ置き場 <ARTIFACTS_DIR>/versions.json に 1 つ書き、Archon �
   - archon・claude_code: env の WORKS_ARCHON_VERSION・WORKS_CLAUDE_VERSION（開発の殻 archon.sh が隔離の前に決めて渡す）
   - model: 全体の模型の要求 {value, from}。value は env の WORKS_DEV_MODEL（明示）か WORKS_MODEL_RESOLVED（archon.sh が
     既定を解いた値）、from は archon.sh が渡す出どころ WORKS_MODEL_FROM。節ごとの模型は包みの起動の記録（adapter.launch_row）
-  - settings: 呼び手が渡した run の設定の写し（中身は読まない。線の start は切った機能 {features_off: [語]} を渡す。
+  - settings: 呼び手が渡した run の設定の写し（中身は読まない。線の start は切る機能・入れる機能 {features_off: [語], features_on: [語]} を渡す。
     渡されなければ {}）。run どうしを比べる時に版・模型と並べて引く
   - 分からない値は null にし、unknown[鍵] に理由を書く（推測で埋めない・黙って落とさない）
 - write(artifacts_dir, doc) -> Path: <artifacts_dir>/versions.json に一時ファイルから os.replace で書く

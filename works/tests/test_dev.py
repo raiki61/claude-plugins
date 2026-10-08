@@ -1184,14 +1184,15 @@ class TestDevShell(unittest.TestCase):
         未設定・空では引数は今と同じ"""
         base = ["--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=optional",
                 "--input", "final_gate=always"]
-        for value, extra in ((None, []), ("", []), ("review_tree,fix_lanes", ["--input", "features_off=review_tree,fix_lanes"])):
-            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp_str:
-                tmp = pathlib.Path(tmp_str)
-                (tmp / "req.json").write_text("[]\n")
-                result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
-                                                   WORKS_DEV_ADAPTER="0", WORKS_FEATURES_OFF=value)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(calls[0][-(len(base) + len(extra)):], base + extra)
+        for env, value in (("WORKS_FEATURES_OFF", "features_off"), ("WORKS_FEATURES_ON", "features_on")):
+            for v, extra in ((None, []), ("", []), ("review_tree,fix_lanes", ["--input", f"{value}=review_tree,fix_lanes"])):
+                with self.subTest(env=env, value=v), tempfile.TemporaryDirectory() as tmp_str:
+                    tmp = pathlib.Path(tmp_str)
+                    (tmp / "req.json").write_text("[]\n")
+                    result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                                       WORKS_DEV_ADAPTER="0", **{env: v})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(calls[0][-(len(base) + len(extra)):], base + extra)
 
     def test_dogfood_fix_fixture_appends_input_only_when_asked(self):
         """WORKS_FIX_FIXTURE（固定材料のフォルダ）が空でなければ在るフォルダかを確かめ、ラインの引数に fix_fixture=<絶対パス> を

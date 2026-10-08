@@ -2202,6 +2202,54 @@ class TreeReviewCase(unittest.TestCase):
         got = self.ok("accept", role="plan-review", reply=json.dumps(linekit.reply("plan_review_ok"), ensure_ascii=False))
         self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
 
+    def test_review_tree_auto_two_open_items_is_tree(self):
+        """入力 review_tree が auto なら、開いた項目が 2 つ以上の往復だけ木にする（下請けのファイルと束ね役の頼みを書く）"""
+        self.ready()
+        self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        prep = self.ok("prep", role="plan-review", excluded_file="", review_tree="auto")
+        self.assertIn(planblk.AGG_HEAD, pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"))
+        folder = self.board_obj().work(planblk.ITEMS_DIR.format(k=1))
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["item-1.md", "item-2.md", "synergy.md"])
+
+    def test_review_tree_auto_one_item_plan_is_one_reviewer(self):
+        """auto で開いた項目が 1 つの案は木にせず、審査役 1 つが案の全体を審査する（off と同じ受け付け）"""
+        self.judged()
+        self.planned()
+        self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        prep = self.ok("prep", role="plan-review", excluded_file="", review_tree="auto")
+        self.assertNotIn(planblk.AGG_HEAD, pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"))
+        self.assertFalse(self.board_obj().work(planblk.ITEMS_DIR.format(k=1)).exists(), "下請けのファイルを書かない")
+        got = self.ok("accept", role="plan-review", reply=json.dumps(linekit.reply("plan_review_ok"), ensure_ascii=False))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+
+    def test_review_tree_auto_counts_open_items_per_pass(self):
+        """auto は往復ごとに開いた項目を数える: 2 項目の案の 1 往復目は木、項目 1 だけが開いた 2 往復目は審査役 1 つ"""
+        self.ready()
+        doc = self.ripple_doc()
+        self.write_answers(1, {1: self.answer(1, doc, faces=[MEAN_BLOCK]), 2: self.answer(2, doc)})
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        self.ok("prep", role="plan-review", excluded_file="", review_tree="auto")
+        _, got = self.round_of("plan-review", self.summary({1: [MEAN_BLOCK["key"]], 2: []}))
+        self.assertTrue(got.get("again"), got)
+        self.assertEqual(converge.open_items(self.board_obj()), [1])
+        answers = [{"key": MEAN_BLOCK["key"], "handled": "fixed", "how": "空の列を先に弾く手順を案に足した"}]
+        fixed = two_items()
+        fixed["plan"][0]["approach"] = "mean は空の列を先に弾き、分母を len(xs) に直す（定義どおり）"
+        self.assertTrue(self.ok("snap", role=planblk.REVISE_ROLE)["go"])
+        _, got = self.round_of(planblk.REVISE_ROLE, {**fixed, converge.ANSWERS: answers})
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        self.ripple_doc()
+        self.assertTrue(self.ok("snap", role="plan-review")["go"])
+        prep = self.ok("prep", role="plan-review", excluded_file="", review_tree="auto")
+        self.assertNotIn(planblk.AGG_HEAD, pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8"))
+        self.assertFalse(self.board_obj().work(planblk.ITEMS_DIR.format(k=2)).exists(), "2 往復目は下請けのファイルを書かない")
+        reply = {**linekit.reply("plan_review_ok"), converge.RESOLVED: [MEAN_BLOCK["key"]]}
+        got = self.ok("accept", role="plan-review", reply=json.dumps(reply, ensure_ascii=False))
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        self.assertEqual(converge.read(self.board_obj())["outcome"], converge.CLEAN)
+
     def test_review_tree_unknown_word_stops_prep(self):
         self.ready()
         self.ripple_doc()

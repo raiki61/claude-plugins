@@ -293,16 +293,17 @@ class FixtureStartCase(FixtureBase):
         self.assertEqual(fixshape.shape_at(new_board), "af")
 
     def test_start_from_fixture_may_switch_features(self):
-        """固定材料から始める run は切る機能（features_off）を写した run と替えてよい（腕と同じく今の値にする欄。修正の段の
+        """固定材料から始める run は切る機能・入れる機能（features_off・features_on）を写した run と替えてよい（腕と同じく今の値にする欄。修正の段の
         機能を切って同じ所から比べる）。出口と控えは今の値"""
         _, src = self.captured()
         other = self.clone_same_tree()
         new_board = self.tmp / "b3" / "board"
-        out = entry.start(new_board, other, {**self.raw(src), "features_off": "fix_lanes"}, run_id="run-3")
-        self.assertEqual((out["fix_lanes"], out["tdd_lanes"]), ("off", "on"))
-        self.assertIn("切った機能: fix_lanes", out["head_line"])
+        out = entry.start(new_board, other, {**self.raw(src), "features_off": "fix_lanes", "features_on": "judge_verify"},
+                          run_id="run-3")
+        self.assertEqual((out["fix_lanes"], out["tdd_lanes"], out["judge_verify"]), ("off", "on", "on"))
+        self.assertIn("機能: fix_lanes off・review_tree auto", out["head_line"])
         doc = json.loads((new_board / fixshape.START_REL).read_text(encoding="utf-8"))
-        self.assertEqual(doc["features_off"], ["fix_lanes"])
+        self.assertEqual((doc["features_off"], doc["features_on"]), (["fix_lanes"], ["judge_verify"]))
 
     def test_start_resume_with_fixture_skips_adopt(self):
         """Archon の呼び直し: 前の start の控えに fixture が在れば取り込み直さずに盤面を開いて続ける（空でない置き場で拒まない）"""

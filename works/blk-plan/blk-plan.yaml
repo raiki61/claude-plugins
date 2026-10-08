@@ -22,6 +22,7 @@ description: |
   項目は保留にしてほかの項目を柵まで進める。
   入力 verify_file（判定の単位の裏取りの申し送り）が在れば、修正案の役の指示書の頭に貼る（単位は直す義務のまま）。
   入力 review_tree が off なら事前審査の木を使わず、審査役 1 つが案の全体を審査する（項目が 1 つの案の木の外の道と同じ受け付け）。
+  auto なら往復ごとに、開いた項目が 2 つ以上の時だけ木にし、1 つ以下の往復は off と同じ道。
   出口 collect: {ok, plan_file, review_file, asks_human, gate_kinds, reads_file, gave_up, reason_file, ripple_file}。
   入力 replan の時は、波及の一覧の節は作らず、出口 collect が直した項目を差し替えた欄で一覧を作り直し（今の周の ripple/replan.json）、
   ripple_file に返す。
@@ -58,7 +59,8 @@ inputs:
   review_tree:
     default: ""
     description: >-
-      事前審査の項目ごとの木（束ね役が項目ごとの下請けと相乗りの審査の下請けを起こす形）を使うか。on（空も on。今どおり）か off。
+      事前審査の項目ごとの木（束ね役が項目ごとの下請けと相乗りの審査の下請けを起こす形）を使うか。on（空も on。今どおり）・off・
+      auto のどれか。auto なら往復ごとに開いた項目（前の往復で閉じた・保留にした項目を除く）を数え、2 つ以上なら on、1 つ以下なら off。
       off なら事前審査の支度が下請けのファイルと束ね役の頼みを書かず、審査役 1 つが案の全体を審査して返答の faces・shrink に
       そのまま書く（受け付けは木のまとめを飛ばし、返答を今どおりの写しの規則と壁打ちで受ける。項目の閉じ・保留は faces の
       単位から今どおり引く）。ほかの役の支度は読まない。ほかの語は支度が 2 で落ちる
@@ -700,7 +702,7 @@ nodes:
                     node: {type: string}
                     already: {type: boolean}
               - id: plan-review
-                description: '事前審査の役（review_tree が on なら項目ごとの下請けと相乗りの審査）'
+                description: '事前審査の役（review_tree が on か、auto で開いた項目が 2 つ以上なら項目ごとの下請けと相乗りの審査）'
                 model: opus                 # 役 judge の前付けの model（tests/test_tool_parity.py の RoleModelCase が縛る）
                 effort: high                # 役 judge の前付けの effort（段は前付けを読まない。tests/test_tool_parity.py の RoleModelCase が縛る）
                 prompt: 指示書 `$plan-review-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。

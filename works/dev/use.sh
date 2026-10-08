@@ -48,8 +48,9 @@
 # - test_cmd が run・単位の worktree で効かない形（対象の git が無視するパスを指す・対象を editable で入れた立てた仮想環境を掴む）なら、Archon を起こす前に
 #   「注意（test_cmd）」の行を出す（止めない。決まりは testcmd_check.py）。
 # - 最後の関所は WORKS_USE_FINAL_GATE（既定 protected_only＝守りのファイルを触った時だけ・when_needed・always）。包みは既定で入れる（WORKS_DEV_ADAPTER=0 か空の明示で外し、
-#   adapter=optional と「包み無し」を出す）。入力 policy_md・gates・thickness・features_off は WORKS_USE_POLICY_MD・WORKS_USE_GATES・
-#   WORKS_USE_THICKNESS・WORKS_USE_FEATURES_OFF（空なら渡さない。features_off は切る機能の語のカンマ区切り。語は start が確かめる）。
+#   adapter=optional と「包み無し」を出す）。入力 policy_md・gates・thickness・features_off・features_on は WORKS_USE_POLICY_MD・
+#   WORKS_USE_GATES・WORKS_USE_THICKNESS・WORKS_USE_FEATURES_OFF・WORKS_USE_FEATURES_ON（空なら渡さない。features_off・features_on は
+#   切る機能・入れる機能の語のカンマ区切り。既定で off の judge_verify・auto の review_tree を on にするのは features_on。語は start が確かめる）。
 #   WORKS_USE_FIX_FIXTURE は固定材料のフォルダ（前の run の h-fix が $ARTIFACTS_DIR/fix-fixture に写した物）: 空でなければ在るフォルダかを
 #   確かめ（無ければ何も作らずに 2）、入力 fix_fixture=<絶対パス> を渡す（相対は殻を打ったフォルダから。同じ木・同じ依頼・同じ入力の
 #   run を判定と修正案を作り直さずに修正から始める。合わなければラインの start が AI の前で止める）。WORKS_USE_UNATTENDED=1 は無人の run: 入力 unattended=true を渡し（判定の保留の
@@ -114,6 +115,7 @@ WORKS_USE_GATES="${WORKS_USE_GATES:-}"
 WORKS_USE_POLICY_MD="${WORKS_USE_POLICY_MD:-}"
 WORKS_USE_THICKNESS="${WORKS_USE_THICKNESS:-}"
 WORKS_USE_FEATURES_OFF="${WORKS_USE_FEATURES_OFF:-}"
+WORKS_USE_FEATURES_ON="${WORKS_USE_FEATURES_ON:-}"
 WORKS_USE_FIX_FIXTURE="${WORKS_USE_FIX_FIXTURE:-}"
 WORKS_USE_WAIT_SECONDS="${WORKS_USE_WAIT_SECONDS:-540}"
 WORKS_USE_ALLOW_STOPPED="${WORKS_USE_ALLOW_STOPPED:-}"
@@ -765,6 +767,7 @@ if [ -n "${WORKS_USE_POLICY_MD:-}" ]; then set -- "$@" --input policy_md="$WORKS
 if [ -n "${WORKS_USE_GATES:-}" ]; then set -- "$@" --input gates="$WORKS_USE_GATES"; fi
 if [ -n "${WORKS_USE_THICKNESS:-}" ]; then set -- "$@" --input thickness="$WORKS_USE_THICKNESS"; fi
 if [ -n "${WORKS_USE_FEATURES_OFF:-}" ]; then set -- "$@" --input features_off="$WORKS_USE_FEATURES_OFF"; fi
+if [ -n "${WORKS_USE_FEATURES_ON:-}" ]; then set -- "$@" --input features_on="$WORKS_USE_FEATURES_ON"; fi
 if [ -n "$WORKS_USE_FIX_FIXTURE" ]; then set -- "$@" --input fix_fixture="$WORKS_USE_FIX_FIXTURE"; fi
 # 無人の run は線にも知らせる（判定の保留の問いだけでは修正前の関所を開かず、問いを報告の冒頭へ。下の stop で修正を飛ばさない）
 if [ "${WORKS_USE_UNATTENDED:-}" = 1 ]; then set -- "$@" --input unattended=true; fi
