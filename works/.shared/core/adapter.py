@@ -56,9 +56,12 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    SIGINT・SIGTERM・SIGHUP を受けた時（か直下の親が替わった時）と claude が終わった後に、溜めた仲間ごと
    tree_run.stop_group（数え上げ→送る→数え直し。TERM → KILL_GRACE → KILL）で止める。信号で止めた時は LINGER 待ってから
    128+信号で抜ける（すぐ死ぬと Archon の run が running のまま固まる。試し P17）。上限は tree_run と同じ勘定。
-5. **印 no-post**（並行 PR の任せ先の役。切符に依らない）: gh は丸ごと拒み（permissions.deny の `Bash(gh:*)`・本物の gh の
-   絶対パスの全部の綴り・`Bash(git push:*)`）、読む 4 つの形（pr list・pr view・pr diff を -R 付きで、repo view <OWNER/REPO>）
-   だけを通す口 no-post-bin/works-gh を env の WORKS_GH で渡し、PATH の頭に同じ口を gh の名で置く（NO_POST_DENY の注記）。
+5. **読むだけの gh**（印のある起動の全部。旗 no-post の有無にも切符にも依らない。持ち主 2026-10-08）: run の中の gh は利用者の
+   ログインを継ぐ（開発の殻 dev/hostgh.py の gh の口）ので、どの役も GitHub へ書けないように、gh は丸ごと拒み（permissions.deny の
+   `Bash(gh:*)`・PATH の上の gh の絶対パスの全部の綴り・`Bash(git push:*)`）、読む 4 つの形（pr list・pr view・pr diff を -R 付きで、
+   repo view <OWNER/REPO>）だけを通す口 no-post-bin/works-gh を env の WORKS_GH で渡し、PATH の頭に同じ口を gh の名で置く
+   （NO_POST_DENY の注記）。旗 no-post は今は柵を足さない（印の文法と blk-pr の受け付けの読み物として残る）。これは事故の柵で、
+   堅い境ではない（役は利用者と同じ人で同じ keychain を持つ。本流の review-graph は隔離もしない）
 6. **旗 no-tree-write**（CI の任せ先の役。裁定 R56）: 役の sandbox は graphloops の任せ先と同じ allowWrite ['/']（依存の
    置き場・網を今までどおり使う）なので、本物の作業ツリーは包みが守る。役の cwd の worktree の根（`git rev-parse
    --show-toplevel`。全部の綴り）を 3 の柵（denyWrite・permissions.deny）に足す。SDK が sandbox の塊（enabled: true・
@@ -285,7 +288,7 @@ SESSION_KEYS_DIR = "session-keys"
 UNIT_KEY_SUFFIX = ".unit"   # sessions/<cwd の hash>/<節>.id の隣に、その会話で回した単位の鍵
 LANE_SUFFIX = ".lane"       # sessions/<cwd の hash>/<節>.id の隣に、旗 lane の起動の cwd（単位の worktree の実パス。6c）
 LANE_TREES_DIR = "tdd-lane-trees"   # 枝の支度が旗 lane の節の単位の worktree を書く置き場（盤面の下。共有の記録 tdd-*/**。6c）
-# node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
+# node_marker.FLAGS と同じ。no-post: 読むだけの役の印（gh の柵は今は印のある起動の全部に付く。5）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
 # lane: 包みが役を枝の単位の worktree を cwd に起こす（TDD の輪と修正役の並べの枝の役。6c）。self-resume: SDK が会話を継ぐ起動は
 # この節自身の記録した会話を継ぐ（1）。fork: continue=X の起動を X の会話の写し（--fork-session）で起こし、X の会話に積まない（1。
 # 同時に走る枝の答えの節が同じ相手の会話を継ぐ時）。map: 13 の差し込みの表の工程の地図を足す。text-reply: 返答の型を返答の道具に
@@ -313,7 +316,7 @@ ENGINE_CHILD_ENV = "GRAPHLOOPS_ENGINE_CHILD"
 NO_BG_ENV = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"   # Claude Code の背景の作業を切る（15 の後半）
 RUN_PLACE_NAME = "run-place"   # 切符の board の隣（run ごとの置き場。17）
 RUN_PLACE_ENV = {"UV_CACHE_DIR": "uv-cache", "WORKS_RUN_PLACE": ""}   # 子の env 名 → 置き場の下の相対（"" は置き場そのもの）。向け直す物はここだけ
-# 印 no-post（読むだけの役）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
+# 印のある起動の全部（5）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
 # 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
 # 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
 # gh の名で置き、前方一致をすり抜ける呼び方（command gh・xargs gh・sh -c "gh …"）も同じ一覧に通す。git push も拒む
@@ -351,7 +354,7 @@ class Plan(NamedTuple):
     session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?, unit?}
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
     fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?, mcp?, query_rule?, repo_deny?, shape_deny?}（フックを足した起動だけ）
-    env: Optional[dict] = None      # 子の env に上書きする物（印のある起動。ENGINE_CHILD_ENV と、no-post の口）
+    env: Optional[dict] = None      # 子の env に上書きする物（印のある起動。ENGINE_CHILD_ENV と、5 の読むだけの gh の口）
     strict_net: Optional[bool] = None   # 網: True は strictAllowlist で閉じた起動、False は `*` の網、None は網の一覧が無い
     cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
     model_declared: Optional[str] = None   # 19 で --model を替えた起動の、Archon が渡した段の宣言（替えなければ None）
@@ -705,7 +708,7 @@ def find_gh(path_env: str) -> List[str]:
 
 
 def no_post_rules(gh_paths: Sequence[str]) -> List[str]:
-    """no-post の起動の permissions.deny: NO_POST_DENY と、本物の gh の絶対パス（綴り・realpath・/private の別名の全部）"""
+    """印のある起動（5）の permissions.deny: NO_POST_DENY と、本物の gh の絶対パス（綴り・realpath・/private の別名の全部）"""
     rules = list(NO_POST_DENY)
     for g in gh_paths:
         for p in spellings(g):
@@ -715,11 +718,11 @@ def no_post_rules(gh_paths: Sequence[str]) -> List[str]:
     return rules
 
 
-def no_post_env(env, gh_paths: Sequence[str]) -> dict:
-    """no-post の起動の子の env の差し替え: PATH の頭に口の置き場、WORKS_GH（口）、WORKS_REAL_GH（口が起こす本物の gh）"""
+def no_post_env(env) -> dict:
+    """印のある起動（5）の子の env の差し替え: PATH の頭に口の置き場と、WORKS_GH（口）。口が起こす本物の gh は口が PATH から引く
+    （本物の gh のパスを env に置かない: run の中の本物の gh は利用者のログインを継ぐ口なので、役が env の値で打つ道を作らない）"""
     return {"PATH": str(NO_POST_BIN) + os.pathsep + env.get("PATH", ""),
             "WORKS_GH": str(NO_POST_BIN / "works-gh"),
-            "WORKS_REAL_GH": gh_paths[0] if gh_paths else "",
             "WORKS_GH_ACTIVE": ""}   # 外から漏れた口の輪止めの印で、役の口が全部拒まれないように空にする
 
 
@@ -1209,8 +1212,8 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     board は 18 の切符の board（board_of の値。切符が無ければ None）を返す関数。同じ切符の 1 回の読みを使う。
     write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。output_command は下請けの返答の
     記録のフックのコマンド（包みが渡す。無ければ足さない）。
-    env は起動の env（no-post の起動で本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）。
-    子の env の上書き（Plan.env）は印のある起動の全部に付く（15 の目印。no-post なら 5 の口も）"""
+    env は起動の env（本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）。
+    子の env の上書き（Plan.env）は印のある起動の全部に付く（15 の目印と 5 の口）"""
     argv = list(argv)
     tools_empty = _tools_empty(argv)
     unknown = None
@@ -1332,7 +1335,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
 
     # 2. Read のフックと柵。印のある起動は、柵を足せなければ起こさない（fail closed）
     env = os.environ if env is None else env
-    gh = find_gh(env.get("PATH", "")) if "no-post" in marker.flags else None
+    gh = find_gh(env.get("PATH", ""))   # 5. 印のある起動の全部（旗 no-post の有無に依らない）
     try:
         places = protected() if protected else None
         own = _no_tree_write_places(argv, cwd, places is not None) if NO_TREE_WRITE in marker.flags else []
@@ -1383,7 +1386,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         out, declared = with_run_model(out, node, env)
     except Unrecognised as e:
         return _refuse(argv, node, cont, tools_empty, f"run の明示の模型を段に当てられない（{e}）")
-    child_env = {**(no_post_env(env, gh) if gh is not None else {}), ENGINE_CHILD_ENV: "1", NO_BG_ENV: "1"}
+    child_env = {**no_post_env(env), ENGINE_CHILD_ENV: "1", NO_BG_ENV: "1"}
     if isinstance(fence.get("run_place"), str):   # 17。外から立っていた値は置き場の物に替わる（替えた名を記録に残す）
         child_env.update({k: os.path.join(fence["run_place"], rel).rstrip("/") for k, rel in RUN_PLACE_ENV.items()})
         replaced = sorted(k for k in RUN_PLACE_ENV if env.get(k) and env[k] != child_env[k])

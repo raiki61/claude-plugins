@@ -384,7 +384,7 @@ class ShapeCase(unittest.TestCase):
         gh, log = bindir / "gh", bindir / "gh.log"
         gh.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$FAKE_GH_LOG\"\n")
         gh.chmod(0o755)
-        env = hermetic.child_env(WORKS_REAL_GH=str(gh), FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
+        env = hermetic.child_env(PATH=f"{bindir}{os.pathsep}{os.path.dirname(sys.executable)}{os.pathsep}/usr/bin:/bin", FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
         env.pop("WORKS_GH_ACTIVE", None)
         shim = adapter.NO_POST_BIN / "works-gh"
         self.assertEqual({r for r in material.ROLES if "excludedCommands" in material.SANDBOX[material.POSTURE[r]]},
