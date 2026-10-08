@@ -1,8 +1,8 @@
 """読んだ証拠（.shared/core/reads.py。線 A Task 6。仕様 5.2・〔輪〕5.3）の検査。
 
 - 出どころは 2 つ: 包みの Read のフックの記録（<包みの家>/reads/<cwd の hash>/reads.jsonl。行は record-read.py を実物で起こして
-  書く）と、Archon の tool_called の出来事（tests/events/verbose-reads.json。tool_called の行は推測。_note）
-- 出来事の Read の形は P13（Task 18）で確かめるまで EVENTS_VERIFIED が偽。偽の間は出どころを unverified・各行の event を
+  書く）と、Archon の tool_called の出来事（tests/events/verbose-reads.json の見本と、実物の行 tests/events/db-rows-plan.json）
+- 出来事の Read の形は実物の行で確かめた（EVENTS_VERIFIED が真）。偽に戻した時は出どころを unverified・各行の event を
   null にし、missing はフックだけで決める（審査 I6）。受け付けの条件にはしない（全部 missing でも ok 真）
 - 包みの起動の記録（<包みの家>/launches/<cwd の hash>.jsonl。T5 の形）から、この run の役の起動を数える（adapter_seen）
 - ブロックの <役>-reads の節（blk-fix・blk-delta・blk-pr の scripts/reads.py）が main_for を通して 1 行を出す
@@ -188,15 +188,21 @@ class CollectTest(BoardCase):
         self.assertEqual(got["missing"], must)
         self.assertEqual(got["sources"], {"hook": False, "events": "verified"})
 
-    def test_events_unverified_until_p13(self):
-        self.assertIs(reads.EVENTS_VERIFIED, False)
-        brief, judged = self.doc("plan-brief.json"), self.doc("judged.json")
-        self.hook_read(brief)
-        got = self.collect("plan", PLAN, [brief, judged], events_with(self.docs))
+    def test_events_verified_by_real_rows(self):
+        """出来事の Read の形は実物の行（tests/events/db-rows-plan.json。canary の archon.db の行）で確かめた: 節の名は
+        <include>__<輪>.<節>、data.tool_name が Read・data.tool_input.file_path が読んだ絶対パス。EVENTS_VERIFIED は真で、
+        既定のまま verified と各行の event の真偽を書く"""
+        self.assertIs(reads.EVENTS_VERIFIED, True)
+        evs = json.loads((EVENTS / "db-rows-plan.json").read_text(encoding="utf-8")
+                         .replace("@REPO@", str(self.docs)).replace("@BOARD@", str(self.docs / "board")))["events"]
+        self.assertEqual(reads._read_paths(evs, PLAN), {os.path.realpath(self.docs / n) for n in (
+            "board/planning/r1/prompt-p2.fix_plan.md", "test_lib.py", "money.py", "slugs.py", "README.md")})
+        money, other = self.doc("money.py"), self.doc("not-read.md")
+        got = self.collect("plan", PLAN, [money, other], evs)
         doc = self.written(got)
-        self.assertEqual(doc["sources"], {"hook": True, "events": "unverified"})
-        self.assertEqual([r["event"] for r in doc["rows"]], [None, None], "未確認の出来事を「読んでいない」と書かない")
-        self.assertEqual(doc["missing"], [judged], "missing はフックだけで決まる")
+        self.assertEqual(doc["sources"], {"hook": False, "events": "verified"})
+        self.assertEqual([r["event"] for r in doc["rows"]], [True, False])
+        self.assertEqual(doc["missing"], [other], "出来事で読んだ物は missing にしない")
 
 
 class EventsForTest(unittest.TestCase):
@@ -322,7 +328,7 @@ class MainForTest(BoardCase):
             self.assertEqual(len(lines), 1, out)
             got = json.loads(lines[0])
             self.assertIs(got["ok"], True)
-            self.assertEqual(got["sources"], {"hook": False, "events": "unverified"})
+            self.assertEqual(got["sources"], {"hook": False, "events": "verified"})   # 偽の CLI の出来事（P13 の実物）に Read は無い
             self.assertEqual(pathlib.Path(got["reads_file"]).name, f"reads-{role}.json")
             doc = json.loads(pathlib.Path(got["reads_file"]).read_text(encoding="utf-8"))
             self.assertEqual(doc["role"], role)
@@ -336,7 +342,7 @@ class MainForTest(BoardCase):
         got = json.loads(out)
         self.assertEqual((got["sources"]["hook"], got["missing"]), (True, []))
         doc = json.loads(pathlib.Path(got["reads_file"]).read_text(encoding="utf-8"))
-        self.assertEqual(doc["rows"], [{"path": brief, "hook": "read", "event": None}])
+        self.assertEqual(doc["rows"], [{"path": brief, "hook": "read", "event": False}])   # 出来事に Read が無くてもフックで読んだ
 
     def test_main_for_missing_env_is_2(self):
         for name in ("ARTIFACTS_DIR", "WORKFLOW_ID", "INPUTS_MUST"):

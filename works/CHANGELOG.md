@@ -6,6 +6,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 機械の報告の「出来事: 未確認（P13）」の行と、費用の行ごとの「（欄の形は未確認）」をやめた（2026-10-09 の片付け）。読んだ証拠の Archon の出来事（`tool_called` の Read の行: 節の名 `<include>__<輪>.<節>`・`data.tool_name`・`data.tool_input.file_path`）と、節の費用の欄（`data.spend.costUsd` が `{source: provider, value}`）の形を、canary の run の `archon.db` の行で確かめた（見本は `tests/events/db-rows-plan.json`）。読んだ証拠は、包みのフックの記録に加えて出来事の Read も「読んだ」に数える（`reads-<役>.json` の `sources.events` が `verified`、各行の `event` が真偽）。前は出来事を取っても捨てていた。
+
 ### Removed
 
 - 報告のブロックの語の定義の一覧（`blk-report/glossary.json`）から、機械が書く固定の行ごとの語の承認の表 `reviewed` と、それを縛る試験（固定の行を足す・変えると `reviewed` に書き足すまで赤にする承認試験）を消した（2026-10-09 の片付け）。121 行のうち 73 行は語の無い `[]` で、この試験が新しい語を捕まえたことは 1 度も無く、固定の行を直すたびに赤になるだけだった（0.2.46 の CI を落とした）。語の一覧 `terms` と、run ごとの語の定義の節はそのまま。

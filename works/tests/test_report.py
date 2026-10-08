@@ -1361,7 +1361,7 @@ class HeadWhereDesignCase(unittest.TestCase):
 
 
 class CostCase(unittest.TestCase):
-    # 節の費用は data.spend.costUsd（Archon v0.11.1）。**推測**: 数が入る時の形は録った実物（tests/events）に 0 件で、有限の数と置いた
+    # 節の費用は data.spend.costUsd（Archon v0.11.1）。ここの見本は有限の数の形（実物の {source: provider, value} の形は test_cost_from_real_rows）
     EVENTS = [{"event_type": "node_completed", "step_name": "judging__judge-loop.judge", "data": {"spend": {"costUsd": 0.0284}}},
               {"event_type": "node_completed", "step_name": "rejudging__rj-loop.rejudge", "data": {"spend": {"costUsd": 0.0615}}},
               {"event_type": "node_started", "step_name": "x", "data": {"spend": {"costUsd": 9}}}]
@@ -1380,8 +1380,17 @@ class CostCase(unittest.TestCase):
         self.assertEqual(len(hit), 1, lines)
         self.assertIn("judge の会話を継いだ", hit[0])
         self.assertIn("累積かどうか未確認", hit[0])
-        self.assertIn("欄の形は未確認", hit[0])   # COST_FIELD_VERIFIED が偽の間
-        self.assertFalse(report.COST_FIELD_VERIFIED)
+        self.assertNotIn("欄の形は未確認", hit[0])   # 欄の形は実物で確かめた（test_cost_from_real_rows）
+        self.assertTrue(report.COST_FIELD_VERIFIED)
+
+    def test_cost_from_real_rows(self):
+        """節の費用の欄の実物（tests/events/db-rows-plan.json。canary の archon.db の node_completed）は
+        data.spend.costUsd = {source: provider, value: 数}。その値を節の費用に読み、「欄の形は未確認」を添えない"""
+        evs = json.loads((TESTS / "events" / "db-rows-plan.json").read_text(encoding="utf-8"))["events"]
+        self.assertEqual([(r["node"], r["reported"]) for r in report.cost_rows(evs, [])], [("plan", 0.2694523)])
+        lines = report.head_cost(None, RUN_ID, events=evs, launches=[])
+        self.assertTrue(any(x.startswith("費用 plan: 0.2694523 USD") for x in lines), lines)
+        self.assertFalse(any("欄の形は未確認" in x for x in lines), lines)
 
     def test_cost_unavailable_line(self):
         """events None → 費用の行が「取れない」の 1 行。費用の欄の無い出来事も 1 行"""

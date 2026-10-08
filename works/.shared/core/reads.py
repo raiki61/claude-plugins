@@ -12,11 +12,10 @@
    （盤面の中のファイルは run ごとにパスが違うので当たらない）。数え直し（recount）の wrote_refs_reads も同じ置き場を読む
    （entry.CORE_OVERRIDES）
 2. Archon の出来事: `json.loads($ARCHON_CLI_COMMAND) + ["workflow", "get", <run>, "--verbose", "--events", "--json"]` の
-   `events` の tool_called（役には偽れない）。`--verbose` が無いと events が出ない（〔試P: P13〕）。tool_called の行の形は
-   Archon v0.11.1 の dag-executor.ts が store に書く形（step_name・data.tool_name・data.tool_input）から写したが、AI の節で
-   まだ見ていない。P13 の AI の分（計画 Task 18）で確かめるまで EVENTS_VERIFIED は偽で、偽の間は出来事が取れても出どころを
-   "unverified"・各行の event を null にする（「読んでいない」と取り違えない。審査 I6）。P13 の結果で直すのは _read_paths と
-   node_path だけ
+   `events` の tool_called（役には偽れない）。`--verbose` が無いと events が出ない（〔試P: P13〕）。tool_called の行の形
+   （step_name `<include>__<輪>.<節>`・data.tool_name・data.tool_input.file_path）は、canary の run の archon.db の行で確かめた
+   （2026-10-09。見本は tests/events/db-rows-plan.json。CLI の出す行は DB の行と同じ列——P13）ので EVENTS_VERIFIED は真。
+   偽に戻すと、出来事が取れても出どころを "unverified"・各行の event を null にする（「読んでいない」と取り違えない。審査 I6）
 
 口:
 - events_for(run_id) -> list | None
@@ -50,7 +49,7 @@ import fixture  # noqa: E402
 import flow_adapter  # noqa: E402
 import script_io  # noqa: E402
 
-EVENTS_VERIFIED = False   # tool_called の Read の形を P13 の AI の分（Task 18）で確かめたら真にする
+EVENTS_VERIFIED = True   # tool_called の Read の形を実物の行で確かめた（tests/events/db-rows-plan.json。2026-10-09）
 HOOK_SEEN = ("read", "stale", "partial")   # フックで「読んだ跡が在る」状態（missing に数えない）
 CLI_ENV = "ARCHON_CLI_COMMAND"
 RUN_ENV = "WORKFLOW_ID"

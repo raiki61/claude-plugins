@@ -42,7 +42,7 @@ judge-verify.json）は書き手の模块（ライン・ブロック）を impor
 
 この版で持たない物（報告に書く）: 版の一覧の行（P1 Task 18・19 の works_version・書き出しの manifest が無い）、
 第三の目の「方針の岐路」の争点（写し a1202d0 の graph に欄が無い）。費用は書き出し（Task 19）の run_facts の代わりに
-Archon の出来事（節の data.spend.costUsd）と包みの起動の記録から組む（COST_FIELD_VERIFIED が偽の間は「欄の形は未確認」を添える）。
+Archon の出来事（節の data.spend.costUsd）と包みの起動の記録から組む（欄の形は実物で確かめた。COST_FIELD_VERIFIED が偽なら「欄の形は未確認」を添える）。
 報告は run の中で走るので run の和は読まず、合計は節の和を「途中」として出す。
 """
 import collections
@@ -101,10 +101,10 @@ UNIT_ROW_HEADS = ("[block] 未解消", "[suggest] do-now 未対応")   # 写し�
 EYES = ("R1", "R2", "R3", "R4")
 VALIDATOR_WHERE = "検証器の阻害"   # residue の行の where（次の run の依頼にも同じ字で渡す）
 EYES_WHERE = "独立の目"
-COST_FIELD_VERIFIED = False   # この pack の run の出来事の実物で P19 を撃ち、tests/events/ に見本を置いたら真にする
+COST_FIELD_VERIFIED = True   # 欄の形を canary の run の出来事の実物で確かめた（tests/events/db-rows-plan.json。2026-10-09）
 # 節の費用の欄（node_completed の data の下の道）。録った Archon v0.11.1 の実物（tests/events/verbose-*.json）に在る形。
 # 報告されなかった費用は {source: unavailable, reason} で、0 と混ぜない（Archon #3295・#3420）。報告された費用は Archon の
-# executionSpendSchema（packages/workflows/src/schemas/node-execution.ts）で {source: provider, value}。数が入る実物は録っていない
+# executionSpendSchema（packages/workflows/src/schemas/node-execution.ts）で {source: provider, value}（実物 tests/events/db-rows-plan.json）
 COST_FIELD = ("spend", "costUsd")
 COST_FIELD_NAME = "data." + ".".join(COST_FIELD)
 ARCHON_VERSION = "Archon v0.11.1"
