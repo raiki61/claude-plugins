@@ -16,7 +16,7 @@ description: |
   輪を抜け（裁定 R50）、r1.comment_candidates は省いて R1 の本体へ進み（表で skippable。graph: 取れなくても R1 を not_run に倒さない）、
   ほかの目は collect が盤面を止める。
   指示書は engine と同じ描き方で描いた graphloops の本文（prep が描き、commands/<役>.md が直の参照 1 つで貼る）。
-  ラインから include で使う（まだ配線しない。線 A の T17 / 線 B）。出口 eyes-collect は EXIT_FIELDS の並び（lib/eyes.py）。
+  ラインから include で使う（darkfactory の節 eyeing）。出口 eyes-collect は EXIT_FIELDS の並び（lib/eyes.py）。
 
 inputs:
   base_rev:
