@@ -131,6 +131,34 @@ class RepoCase(unittest.TestCase):
         return writes.check(reply or {}, self.repo, writes.changed(self.repo, self.rev), self.log, **kw)
 
 
+class TestChangedFrom(RepoCase):
+    """writes.changed_from: HEAD・index と違う木（修正役の並べの枝の項目の頭。tddloop.snapshot）からの変更。前の項目が作った
+    新しいファイル（index に無い）は、中身が同じなら変更でない"""
+
+    def test_changes_from_a_snapshot_tree(self):
+        (self.repo / "stats.py").write_text("前の項目\n", encoding="utf-8")
+        (self.repo / "NOTES.md").write_text("前の項目の記録\n", encoding="utf-8")
+        (self.repo / "GONE.md").write_text("前の項目が作り、後で消す\n", encoding="utf-8")
+        head = tddloop.snapshot(self.repo)
+        self.assertEqual(writes.changed_from(self.repo, head), [], "頭の木のままなら変更は無い")
+        self.assertEqual(writes.changed_from(self.repo, self.rev), writes.changed(self.repo, self.rev), "commit からは changed と同じ")
+        (self.repo / "test_stats.py").write_text("後の項目\n", encoding="utf-8")
+        (self.repo / "NEW.md").write_text("後の項目の記録\n", encoding="utf-8")
+        (self.repo / "GONE.md").unlink()
+        self.assertEqual(writes.changed_from(self.repo, head), ["GONE.md", "NEW.md", "test_stats.py"])
+        tracked = subprocess.run(["git", "ls-files"], cwd=self.repo, capture_output=True, text=True, check=True).stdout.split()
+        self.assertNotIn("NOTES.md", tracked, "本物の index は触らない")
+
+    def test_untouched_files_are_not_changed_without_auto_refresh(self):
+        """利用者の git 設定 diff.autoRefreshIndex=false でも、触っていないファイルを変わったと数えない（一時の index に stat が無い）"""
+        (self.repo / "NOTES.md").write_text("前の項目の記録\n", encoding="utf-8")
+        head = tddloop.snapshot(self.repo)
+        (self.repo / "stats.py").write_text("後の項目\n", encoding="utf-8")
+        env = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "diff.autoRefreshIndex", "GIT_CONFIG_VALUE_0": "false"}
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(writes.changed_from(self.repo, head), ["stats.py"])
+
+
 class TestProvenance(RepoCase):
     def test_bash_write_without_record_is_rejected(self):
         (self.repo / "stats.py").write_text("changed\n", encoding="utf-8")

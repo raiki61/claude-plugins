@@ -350,6 +350,96 @@ class TestChainedItems(LaneBoard):
         self.assertIsNone(__import__("consult").take(entry.open_board(self.board), "lane-1"), "渡した答えは 1 度だけ")
 
 
+class TestItemStartPoint(LaneBoard):
+    """1 本の枝の 2 つ目の項目は、その項目の頭（前の項目を受けた後の木。枝の控えの head）からの差分で照らす（run 97fd532f: 枝の base
+    から照らしたので、前の項目が変えたファイルが後の項目の out_of_scope に当たり、枝の 2・3 項目目が 19 回拒まれて 1 つも当たらなかった）。
+    項目 1 は追跡中の test_stats.py に行を足し、新しい NOTES.md を作る（項目 1 の範囲）。どちらも項目 2 の out_of_scope"""
+    F1 = {**FIELDS, "allowed_paths": ["stats.py", "test_stats.py", "NOTES.md"], "out_of_scope": []}
+    F2 = {**FIELDS, "allowed_paths": ["stats.py"], "out_of_scope": [{"glob": "NOTES.md", "why": "記録は項目 2 では触らない"},
+                                                             {"glob": "test_stats.py", "why": "試験は項目 2 では触らない"}]}
+
+    def setUp(self):
+        super().setUp()
+        b = entry.open_board(self.board)
+        planmarks.save(self.board, b.round, [self.F1, self.F2])
+        planbrief.cut_at(self.board)
+
+    def values(self):
+        return {**super().values(), "plan_session": "plan-session-id"}   # 範囲の相談の控え（事前の確かめの since）を書く
+
+    def first_item(self):
+        with mock.patch.object(fixlanes, "assign", return_value=([[1, 2], [2]], [])):
+            self.forked()
+        self.edit(1, MEAN_FIX)
+        tests = self.tree(1) / "test_stats.py"
+        tests.write_text(tests.read_text(encoding="utf-8") + "# 項目 1 の注記\n", encoding="utf-8")
+        notes = self.tree(1) / "NOTES.md"
+        notes.write_text("項目 1 の記録\n", encoding="utf-8")
+        self.record(tests)
+        self.record(notes)
+        reply = lane_reply(MEAN)
+        reply["changes"][0] = {**reply["changes"][0], "files": ["stats.py", "test_stats.py", "NOTES.md"]}
+        got = self.step(1, reply)
+        self.assertEqual((got["ok"], got["done"]), (True, False), got)
+        return self.state(1)
+
+    def config(self, n):
+        import consult
+        return consult.load_config(consult.place_of(self.board) / f"lane-{n}" / consult.CONFIG)
+
+    def test_second_item_is_checked_from_its_own_start(self):
+        st = self.first_item()
+        self.assertNotEqual(st["head"], st["base"], "項目 1 を受けた後の木が 2 つ目の項目の頭")
+        self.edit(1, CLAMP_FIX)
+        got = self.step(1, lane_reply(CLAMP))
+        self.assertEqual((got["ok"], got["done"], got["item"]), (True, True, 2), got.get("reason"))
+        st = self.state(1)
+        self.assertEqual([r["outcome"] for r in st["results"]], [fixlanes.ACCEPTED, fixlanes.ACCEPTED])
+        diff = unittrees.diff(self.tree(1), st["base"])
+        for part in ("return hi", "sum(xs) / len(xs)", "項目 1 の注記", "項目 1 の記録"):
+            self.assertIn(part, diff, "締めが当てる枝の差分は枝の base から両方の項目の直し")
+
+    def test_second_item_touching_its_own_out_of_scope_is_still_rejected(self):
+        self.first_item()
+        self.edit(1, CLAMP_FIX)
+        notes = self.tree(1) / "NOTES.md"
+        notes.write_text("項目 2 が書き足した\n", encoding="utf-8")
+        self.record(notes)
+        got = self.step(1, lane_reply(CLAMP))
+        self.assertFalse(got["ok"], got)
+        self.assertIn("NOTES.md は項目 2 の out_of_scope", got["reason"])
+        self.assertNotIn("test_stats.py は項目 2 の out_of_scope", got["reason"], "項目 1 が変えたファイルは照らさない")
+
+    def test_second_items_rules_and_review_name_the_earlier_item(self):
+        """2 つ目の項目の決まりと審査のファイルは、同じ枝の前の項目の直しが木と審査の差分に在ることを言う（審査役が前の項目の変更を
+        範囲の外と指摘して修正役が戻すと、項目の頭からの変更になって自分の out_of_scope に当たる）。1 つ目の項目には無い"""
+        with mock.patch.object(fixlanes, "assign", return_value=([[1, 2], [2]], [])):
+            self.forked()
+        first, second = self.state(1)["items"]
+        early = fixrules.LANE_EARLIER.format(items="1")
+        review = fixrules.REVIEW_EARLIER.format(items="1")
+        self.assertIn(early, pathlib.Path(second["rules"]).read_text(encoding="utf-8"))
+        self.assertIn(review, pathlib.Path(second["review"]).read_text(encoding="utf-8"))
+        self.assertNotIn(early, pathlib.Path(first["rules"]).read_text(encoding="utf-8"))
+        self.assertNotIn(review, pathlib.Path(first["review"]).read_text(encoding="utf-8"))
+
+    def test_precheck_and_resume_keep_the_item_start(self):
+        """事前の確かめ（役が Bash で回す factchecks.py）の控えの since は、2 つ目の項目の支度が項目の頭に替え、resume で支度が回し
+        直されても同じ"""
+        import factchecks
+        st = self.first_item()
+        self.assertEqual(self.config(1)["since"], st["base"], "切った時は枝の base")
+        fixlanes.lane_prep(self.board, 1)
+        self.assertEqual(self.config(1)["since"], st["head"])
+        fixlanes.lane_prep(self.board, 1)   # resume が支度を回し直した
+        self.assertEqual(self.config(1)["since"], st["head"])
+        self.assertEqual(self.state(1)["head"], st["head"])
+        self.edit(1, CLAMP_FIX)
+        got = factchecks.precheck(self.config(1), lane_reply(CLAMP))
+        self.assertTrue(got["ok"], got)
+        self.assertTrue(self.step(1, lane_reply(CLAMP))["ok"])
+
+
 class TestMade(LaneBoard):
     def test_runner_made_files_stay_out_of_the_patch(self):
         """枝の実行器が作ったファイル（記録が無い）は拒まず、差分にも入れない"""

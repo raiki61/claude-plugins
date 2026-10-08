@@ -12,7 +12,9 @@
   組の項目は修正役の輪が順に直す。枝の中の項目が替わると包みが新しい会話で起こす（支度が書く単位の鍵。adapter.KEYED_NODES）
 - 目録（MANIFEST）: 今の scope の周の作業ファイル {repo, base, place, union, expect, lanes: [{n, tree, git, state, items}], rest, why}
 - 枝の控え（LANE_STATE）: 今の scope の周の作業ファイル（盤面。役は書けない）{n, tree, git, base, head, items: [{item, units, brief,
-  rules, review, patch}], cur, tries, iterations, reason, done, note, results, claims, declared, tests}。head は今の項目の頭の木
+  rules, review, patch}], cur, tries, iterations, reason, done, note, results, claims, declared, tests, ask, ask_config}。head は今の項目の頭の
+  木（切った時は base の木。項目を受けた・諦めた後に取り直す）。枝の確かめの書き込みの出どころと範囲は head から照らす（同じ枝の前の
+  項目が変えたファイルを後の項目のせいにしない。run 97fd532f）。ask_config は範囲の相談の控え（事前の確かめの since を支度が head に揃える）
 - 項目の決まりのファイル（RULES_FILE）: 修正役の決まり（fixrules.fix_parts。この項目の単位・brief・座 implementer・範囲の相談）と
   枝の役の節（rules/direct.md の fix-lane）。項目の間は書き直さない。回ごとの指示書（NEXT_FILE）は今の回の拒否の理由と決まりの名指し
 - 結末（締め）: merged（枝の差分を当てた項目）・serial（戻した。修正役の輪が直す）。食い違いの申し出で止めた単位は盤面に積む
@@ -254,52 +256,55 @@ def _plant(b, repo: pathlib.Path, values: dict, cands, lanes, rest, shape) -> li
     rows = []
     for n, items in zip(ns, lanes):
         tree = pathlib.Path(trees[n]["tree"])
-        ask = _ask(b, repo, values, n, tree, base)
-        entries = [_item(b, repo, values, by[i], n, j, items[j:], tree, base, docs, lang, shape, ask, place)
+        ask, ask_config = _ask(b, repo, values, n, tree, base)
+        entries = [_item(b, repo, values, by[i], n, j, items[:j - 1], items[j:], tree, base, docs, lang, shape, ask, place)
                    for j, i in enumerate(items, 1)]
         tests = _tests_state(b, repo, tdd_state, n, tree, place)
         state = b.work(LANE_STATE.format(n=n))
         _write(state, {"n": n, "tree": str(tree), "git": trees[n]["git"], "base": base,
                        "head": tddloop.snapshot(tree), "items": entries, "cur": 0, "tries": 0, "iterations": 0, "reason": "",
-                       "done": False, "note": "", "results": [], "claims": [], "declared": [], "tests": tests, "ask": bool(ask)})
+                       "done": False, "note": "", "results": [], "claims": [], "declared": [], "tests": tests, "ask": bool(ask),
+                       "ask_config": ask_config})
         rows.append({"n": n, "tree": str(tree), "git": trees[n]["git"], "state": str(state), "items": list(items)})
     _write(manifest, {"repo": str(repo), "base": base, "place": str(place), "union": union, "expect": _expect(cands, lanes),
                       "lanes": rows, "rest": rest})
     return rows
 
 
-def _ask(b, repo, values: dict, n: int, tree: pathlib.Path, base: str) -> str:
-    """枝 n の範囲の相談と事前の確かめの節（fixrules.ask_text）。控えは run ごとの置き場の今の scope の相談の置き場の lane-<n>/ に書き、
-    repo は単位の worktree・log_repo は run の作業ツリー・since は枝の base（factchecks.precheck が枝の確かめと同じに照らす）。
-    相談の相手（plan_session）か承認済みの修正案の項目が無い run は空"""
+def _ask(b, repo, values: dict, n: int, tree: pathlib.Path, base: str) -> tuple:
+    """(枝 n の範囲の相談と事前の確かめの節（fixrules.ask_text）, 控えのパス)。控えは run ごとの置き場の今の scope の相談の置き場の
+    lane-<n>/ に書き、repo は単位の worktree・log_repo は run の作業ツリー・since は枝の base（factchecks.precheck が枝の確かめと同じに
+    照らす。項目が進めば支度が今の項目の頭に書き直す。_sync_since）。相談の相手（plan_session）か承認済みの修正案の項目が無い run は
+    ("", "")"""
     if not (values.get("plan_session") or "").strip():
-        return ""
+        return "", ""
     try:
         items = planmarks.approved_items(b)
     except (planmarks.FieldsBroken, BoardGap, OSError, ValueError):
         items = None
     if not items:
-        return ""
+        return "", ""
     doc = {"board": str(b.dir), "repo": str(tree), "log_repo": str(repo), "since": base, "scope": entry.peek_here(),
            "pass": PASS.format(n=n), "base_rev": values.get("base_rev") or "", "tdd_state": values.get("tdd_state") or "",
            "items": consult.items_doc(items)}
     path = consult.write_config(consult.place_of(b.dir) / f"lane-{n}", doc)
     ripple = (values.get("ripple_file") or "").strip()
-    return fixrules.ask_text(path, sys.executable) + (f"\n\n{fixrules.RIPPLE_LINE.format(path=ripple)}" if ripple else "")
+    return fixrules.ask_text(path, sys.executable) + (f"\n\n{fixrules.RIPPLE_LINE.format(path=ripple)}" if ripple else ""), str(path)
 
 
-def _item(b, repo, values, c, n, j, later, tree, base, docs, lang, shape, ask, place) -> dict:
-    """枝 n の j 番目の項目の決まりのファイルと審査役のファイルを書き、枝の控えの項目の行を返す"""
+def _item(b, repo, values, c, n, j, earlier, later, tree, base, docs, lang, shape, ask, place) -> dict:
+    """枝 n の j 番目の項目の決まりのファイルと審査役のファイルを書き、枝の控えの項目の行を返す。earlier・later は同じ枝の前・後の項目
+    （審査の差分は枝の base からなので、前の項目の直しも入ると決まりと審査のファイルに書く）"""
     units, item = c["units"], c["item"]
     vals = {**values, "open_units": json.dumps(units, ensure_ascii=False)}
     head = planbrief.head_text(planbrief.for_units(fixrules.briefs_or_halt(b), units), units)
     seat_text = seat.section("fix", shape, fixrules.implementer_values(b, vals, tree, units, BRIEFS_FILE.format(n=n, j=j)))
     patch = str(place / f"lane-{n}-{j}.patch")
     review = b.work(REVIEW_FILE.format(n=n, j=j))
-    review.write_text(fixrules.review_text(c["brief"], values, base, patch, shape, str(tree)), encoding="utf-8")
+    review.write_text(fixrules.review_text(c["brief"], values, base, patch, shape, str(tree), earlier), encoding="utf-8")
     lane = fixrules.lane_text({"item": str(item), "units": "・".join(units), "tree": str(tree), "run_tree": str(repo),
                                "diff_cmd": seat.g1_diff_cmd(base, patch, str(tree)), "review_file": str(review),
-                               "give_up": str(GIVE_UP_AFTER)}, later)
+                               "give_up": str(GIVE_UP_AFTER)}, later, earlier)
     title = f"# 修正役の並べの枝 {n} の {j} 番目の項目（修正案の項目 {item}）"
     text = fixrules.render("fix", 1, fixrules.fix_parts(vals, fixrules.kinds_now(vals, repo), docs, seat_text, shape, "", ask, "",
                                                         lane),
@@ -348,6 +353,7 @@ def lane_prep(board_dir, n) -> dict:
     if why:
         raise Broken(why)
     it = lst["items"][lst["cur"]]
+    _sync_since(lst)
     pass_ = PASS.format(n=n)
     got = consult.take(b, pass_)
     if got is not None:   # 範囲の相談の答えの後の回: 同じ会話の続きに答えのファイルを名指すだけ
@@ -357,6 +363,20 @@ def lane_prep(board_dir, n) -> dict:
         prompt.write_text(_next_text(lst, it), encoding="utf-8")
     lanekit.mark(b.dir, LANE_NODE.format(n=n), f"{entry.peek_here() or '-'}:r{b.round}:lane-{n}:item-{it['item']}", lst["tree"])
     return {"prompt_file": str(prompt), "go": True}
+
+
+def _sync_since(lst: dict) -> None:
+    """範囲の相談の控え（事前の確かめが読む）の since を今の項目の頭（lst の head）に揃える（項目が進んだ後と、resume で支度が回し
+    直された時。同じなら書かない）。控えが無い run は何もしない"""
+    path = lst.get("ask_config") or ""
+    if not path:
+        return
+    try:
+        doc = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise Broken(f"枝 {lst['n']} の範囲の相談の控えが読めない（{path}: {e}）") from None
+    if isinstance(doc, dict) and doc.get("since") != lst["head"]:
+        _write(path, {**doc, "since": lst["head"]})
 
 
 def _next_text(lst: dict, it: dict) -> str:
@@ -448,7 +468,8 @@ def check(b, lst: dict, it: dict, reply, repo: pathlib.Path, base_rev: str, tdd_
     if conflict.CONSULT_FIELD in reply:   # 相談の周でないのに consult を持つのは枠を使い切った後の頼み（consult.ask の spent）
         note(found, "consult", CONSULT_SPENT.format(n=consult.BUDGET))
         reply.pop(conflict.CONSULT_FIELD)
-    tree, since, made, units = pathlib.Path(lst["tree"]), lst["base"], _made(lst), list(it["units"])
+    # 書き込みの出どころと範囲は今の項目の頭から（同じ枝の前の項目が変えたファイルは、その項目の確かめが見た。run 97fd532f）
+    tree, since, made, units = pathlib.Path(lst["tree"]), lst.get("head") or lst["base"], _made(lst), list(it["units"])
     note(found, "frozen", factchecks.check_frozen(b.dir, tdd_state, tree, "first"))
     wrote = factchecks.check_writes(reply, b.dir, base_rev, tree, tdd_state, log_repo=repo, since=since, made=made)
     note(found, "writes", wrote["problems"])
@@ -471,8 +492,9 @@ def check(b, lst: dict, it: dict, reply, repo: pathlib.Path, base_rev: str, tdd_
                                            since=since, made=made)
     note(found, "scope", scope)
     if lst.get("tests"):
-        # 版は枝の base（切った時の run の作業ツリー）: 枝の差分に当たる試験だけを選び、枝の base で既に赤い試験を新しい赤に数えない
-        red, _ = tddloop.selected_problems(lst["tests"], tree, since)
+        # 版は枝の base（切った時の run の作業ツリー）: 枝の差分に当たる試験だけを選び、枝の base で既に赤い試験を新しい赤に数えない。
+        # 項目の頭でなく枝の base なのは、同じ枝の前の項目の直しに当たる試験も回すため（後の項目が前の項目の試験を赤にすれば拒む）
+        red, _ = tddloop.selected_problems(lst["tests"], tree, lst["base"])
         note(found, "tests", red)
     return found, reply, (items if not found else [])
 

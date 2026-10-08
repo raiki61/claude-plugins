@@ -23,6 +23,7 @@ import os
 import pathlib
 import posixpath
 import sys
+import tempfile
 import time
 
 sys.dont_write_bytecode = True
@@ -32,7 +33,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 import adapter  # noqa: E402
-from leftovers import git_names  # noqa: E402
+from leftovers import git, git_names  # noqa: E402
 
 FIELD = "bash_writes"
 MIN_WHY = 10
@@ -91,6 +92,25 @@ def changed(repo, rev: str) -> list:
     """版 rev からの変更（追跡中の差分と消した物、git が無視しない未追跡のファイル。リポジトリの根から）"""
     return sorted(set(git_names(repo, "diff", "--name-only", "--no-renames", rev, "--", ":/"))
                   | set(git_names(repo, "ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/")))
+
+
+def changed_from(repo, tree: str) -> list:
+    """木 tree（commit でも、作業ツリーの写しの木 leftovers.snapshot でもよい）からの変更。changed と同じ語（変えた・消した・git が
+    無視しない新しいファイル。根から）を、本物の index の代わりに tree を読んだ一時の index で取る。changed(repo, tree) は index に
+    無いファイルを全部新しいと数え、tree に在って index に無いファイルを消したと数えるので、HEAD・index と違う木（修正役の並べの枝の
+    項目の頭。前の項目が作ったファイルは index に無い）からは使えない。中身の比べは git に任せる（改行の変換などの filter も）。
+    git の物の置き場と本物の index には書かない（役の sandbox の中の事前の確かめでも回る）"""
+    with tempfile.TemporaryDirectory(prefix="works-writes-index-") as td:
+        env = {**os.environ, "GIT_INDEX_FILE": str(pathlib.Path(td) / "index")}
+        git(repo, "read-tree", tree, env=env)
+        # 一時の index は stat を持たない: 中身で比べて stat を埋める（利用者の diff.autoRefreshIndex=false でも触っていないファイルを
+        # 変わったと数えない。書くのは一時の index だけ）
+        git(repo, "update-index", "-q", "--refresh", env=env)
+
+        def names(*args):
+            return {os.fsdecode(n) for n in git(repo, args[0], "-z", *args[1:], text=False, env=env).split(b"\0") if n}
+        return sorted(names("diff", "--name-only", "--no-renames", "--", ":/")
+                      | names("ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/"))
 
 
 def _sha(path: str):

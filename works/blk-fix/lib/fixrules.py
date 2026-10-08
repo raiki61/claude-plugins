@@ -577,13 +577,19 @@ def g1_values(b, values: dict, repo, owed: list[str], base_rev: str, shape: str 
     return rows
 
 
-def review_text(brief: str, values: dict, base: str, patch: str, shape: str, tree: str | None = None) -> str:
+REVIEW_EARLIER = ("差分には同じ枝の前の項目 {items} の直し（機械の確かめを通って受けた物）も入る。この審査はこの項目の brief の分だけを"
+                  "見て、前の項目の変更を範囲の外や余分と指摘しない")
+
+
+def review_text(brief: str, values: dict, base: str, patch: str, shape: str, tree: str | None = None, earlier=()) -> str:
     """審査役の下請けのファイルの中身（216 の task-review の型。[BASE_SHA] は base、[DIFF_FILE] は patch。tree は修正役の並べの枝の
-    単位の worktree で、決まりの最後に seat.G1_TREE_RULE_OF を足す）"""
-    return seatkit.g1_prompt("task-review", {
+    単位の worktree で、決まりの最後に seat.G1_TREE_RULE_OF を足す。earlier は同じ枝の前の項目の番号（在れば REVIEW_EARLIER の 1 行を
+    足す。差分は枝の base からなので前の項目の直しも入る）"""
+    text = seatkit.g1_prompt("task-review", {
         "[BRIEF_FILE]": brief, "[GLOBAL_CONSTRAINTS]": values.get("policy_path") or G1_NO_POLICY,
         "[REPORT_FILE]": seatkit.G1_REPORT, "[BASE_SHA]": base, "[HEAD_SHA]": seatkit.G1_HEAD_SHA,
         "[DIFF_FILE]": patch}, shape, tree)
+    return text.rstrip("\n") + f"\n\n{REVIEW_EARLIER.format(items='・'.join(str(i) for i in earlier))}\n" if earlier else text
 
 
 def test_files(b, picked) -> list[str]:
@@ -642,13 +648,18 @@ def overlap_line(b) -> str:
 
 
 LANE_LATER = "- この枝の後の項目（今は手を付けるな。この項目が済んだ後に新しい会話で直す）: {items}"
+LANE_EARLIER = ("- この枝の前の項目（受けた直しが木に在り、審査の差分にも入る。機械の確かめはこの項目の頭からの変更だけを照らすので、"
+                "前の項目の変更は戻さない。審査がそれを指摘しても直さない）: {items}")
 
 
-def lane_text(values: dict, later=()) -> str:
+def lane_text(values: dict, later=(), earlier=()) -> str:
     """修正役の並べの枝の役の節（rules/direct.md の節 fix-lane を values で埋めた文。fixlanes が枝の項目の決まりのファイルに組む）。
-    later はこの枝の後の項目の番号（在れば LANE_LATER の 1 行を足す）"""
+    later はこの枝の後の項目の番号（在れば LANE_LATER の 1 行を足す）、earlier は前の項目の番号（在れば LANE_EARLIER の 1 行を足す）"""
     text = fill(sections(DIRECT)["fix-lane"], values).rstrip("\n")
-    return text + (f"\n{LANE_LATER.format(items='・'.join(str(i) for i in later))}" if later else "")
+    for row, items in ((LANE_EARLIER, earlier), (LANE_LATER, later)):
+        if items:
+            text += f"\n{row.format(items='・'.join(str(i) for i in items))}"
+    return text
 
 
 def _g1_task(brief: dict, owed: list[str]) -> str:
