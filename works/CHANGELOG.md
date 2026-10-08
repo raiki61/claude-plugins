@@ -24,6 +24,7 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 ### Fixed
 
 - 受け付け（`accept.py` の git と差分の切り出し）・修正の後始末（`leftovers.py`）の git の 120 秒、判定の問いの例の git grep（`querytest.py`）と単位の数え直し（`blk-fix/lib/unitrows.py`）の 60 秒の期限を外した（2026-10-09 の掃除）。根拠の無い期限で、新しい期限を足さない決まり（台帳 R4）と食い違っていた。止まった git はほかの所と同じく待つ。
+- 文書と注記の食い違いを直した（2026-10-09 の掃除）: 最後の関所の既定を入口ごとに書いた（`use.sh`・`canary.sh` は `protected_only`、`dogfood.sh` は `always`、ラインの入力を空で渡せば `always`。README は「要る時だけ」、スキルの手順書の一か所は「既定の `when_needed`」と書いていた）。流れの図の報告の箱の、次の run の依頼の下書きに運ぶ物を 3 つから今の全部に直した（正本は `report.next_request`）。sandbox の `allowedDomains: []` は Bash の網を閉じるだけで WebFetch・WebSearch を止めないことを README と YAML の注記に書いた。判定の裏取り（`blk-judge` の `verify`）と事前審査の木（`blk-plan` の `review_tree`）の入力の説明に、ラインから起こす時の既定（裏取りは off・木は auto）を書いた（「空も on。今どおり」とだけ書いていた）。
 
 ## [0.2.51] - 2026-10-09
 

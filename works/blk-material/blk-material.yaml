@@ -156,6 +156,8 @@ nodes:
           failIfUnavailable: true
           excludedCommands:
           - 'works-gh:*'
+          # allowedDomains: [] が閉じるのは sandbox の中の Bash の網だけ。WebFetch・WebSearch は止めない（web を止める鍵ではない。
+          # .shared/core/adapter.py の頭の 8）
           network:
             allowedDomains: []
         idle_timeout: 1728000000

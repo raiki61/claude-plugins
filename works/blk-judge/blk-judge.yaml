@@ -28,7 +28,8 @@ inputs:
   verify:
     default: ""
     description: >-
-      判定の裏取り（開いた単位ごとの裏取りと単位どうしの相乗りの下請け）を回すか。on（空も on。今どおり）か off。off なら
+      判定の裏取り（開いた単位ごとの裏取りと単位どうしの相乗りの下請け）を回すか。on（このブロックでは空も on）か off。
+      ラインから起こす時は start が機能の既定を渡す（judge_verify は既定で off。入力 features_on で on）。off なら
       支度が単位の数に依らず go 偽で束ね役を起こさず、申し送りを置かない（前の残りも消す）。ほかの語は支度が 2 で落ちる
 
 returns: collect
