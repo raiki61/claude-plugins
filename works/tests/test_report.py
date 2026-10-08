@@ -609,6 +609,13 @@ class HeadCase(ReportBase):
             self.assertIn(row, h[H1])
         self.assertIn("## 仕組みの異常\n\n- 宣言の外の読み（", text)
         self.assertIn("## 未確認のレンズ\n\n- レンズを走らせていない", text)
+        # 2026-10-09 の片付け: 末尾の「このラインに無い節」の節は出さない（冒頭 2 の 1 行が数と一覧の置き場を言う）。冒頭 4 の
+        # 仕組みの異常は 0 件の種を並べない（冒頭 1 の合計と「仕組みの異常」の節が言う）。残りが 0 件なら関所の例外の注記を付けない
+        self.assertNotIn("## このラインに無い節", text)
+        self.assertFalse(any(name in h[H4] for name, _, _ in report.ANOMALY_OPS), h[H4])
+        self.assertNotIn(report.NOT_RUN_GATE_NOTE, h[H1])
+        self.assertNotIn(report.NOT_RUN_GATE_NOTE, "\n".join(report.always_rows(b, left=[])))
+        self.assertIn(report.NOT_RUN_GATE_NOTE, "\n".join(report.always_rows(b, left=[{"where": "w", "text": "a"}])))
 
     def final_text(self, b, tests):
         """最後の関所の文を本物の作り手（line_edge._eyes と report.rest_outside_validator）が作った eyes・rest で組む"""
@@ -677,10 +684,11 @@ class HeadCase(ReportBase):
 
     def test_head_one_rest_row_names_the_not_run_exception_like_the_gate(self):
         """報告の冒頭 1 の残りの行（always_rows の left の枝）も、最後の関所の残りの行と同じ NOT_RUN_GATE_NOTE の一文で、走っていない目
-        （not_run）を関所では開ける理由に数えないことを名指す"""
+        （not_run）を関所では開ける理由に数えないことを名指す（走っていない目が在る時。残りが 0 件なら添えない）"""
         self.begin()
         self.without_node_env()
-        _, _, h = self.build()
+        eyeing = {"ok": True, "reason": "", "reviews": {**EYES_PASS, "R3": {"status": "not_run", "reason": "返答が無い"}}}
+        _, _, h = self.build(eyeing=eyeing)
         rest_rows = [x for x in h[H1].splitlines() if x.startswith("- 残り")]
         self.assertEqual(len(rest_rows), 1)
         self.assertIn(report.NOT_RUN_GATE_NOTE, rest_rows[0])
@@ -928,9 +936,9 @@ class HeadCase(ReportBase):
         b = entry.open_board(self.board)
         lines = report.head_entry(b, None)
         n = len(b.state["works"]["not_in_line"])
-        self.assertTrue(any(x.startswith(f"このラインに無い節: {n} 個") for x in lines), lines)
-        self.assertTrue(any(x.startswith("p2.history: ") for x in report.absent_lines(b)))
-        self.assertEqual(len(report.absent_lines(b)), n)
+        hit = [x for x in lines if x.startswith(f"このラインに無い節: {n} 個")]
+        self.assertEqual(len(hit), 1, lines)
+        self.assertNotIn("報告の末尾", hit[0], "末尾の一覧の節は無い（一覧は周の添え書きの not_in_line）")
         downs = report.declared_downgrades(b.table.line)
         self.assertTrue(any(x.startswith(f"下げている所: {len(downs)} 個") for x in lines))
         self.assertTrue(any(x.strip().startswith("- p0.parallel_pr:") and "review-graph" in x for x in lines))
@@ -1090,8 +1098,7 @@ class HeadCase(ReportBase):
         self.begin()
         self.without_node_env()
         zero = [x for x in report.head_reads(self.board, RUN_ID) if "宣言の外の読み" in x]
-        self.assertEqual(len(zero), 1, zero)
-        self.assertIn(": 0 件", zero[0])
+        self.assertEqual(zero, [], "0 件の種は冒頭 4 に並べない（冒頭 1 の合計と仕組みの異常の節が言う）")
         b = entry.open_board(self.board)
         b.trace(scopes.READ_OUTSIDE_OP, scope="fixing", paths=["planning/r1/y.md", "r1/x.json"])
         b.trace(scopes.READ_OUTSIDE_OP, scope="refitting", paths=["fixing/r1/a.md"])
@@ -1105,8 +1112,7 @@ class HeadCase(ReportBase):
         self.begin()
         self.without_node_env()
         zero = [x for x in report.head_reads(self.board, RUN_ID) if "必須の出力の欠け" in x]
-        self.assertEqual(len(zero), 1, zero)
-        self.assertIn(": 0 件", zero[0])
+        self.assertEqual(zero, [], "0 件の種は冒頭 4 に並べない")
         entry.open_board(self.board).trace(scopes.REQUIRED_MISSING_OP, scope="lensing", names=["r1/lens.json"])
         hit = [x for x in report.head_reads(self.board, RUN_ID) if "必須の出力の欠け" in x]
         self.assertEqual(len(hit), 1, hit)

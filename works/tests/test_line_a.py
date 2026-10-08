@@ -131,7 +131,7 @@ class LineCase(LineBase):
 
     def test_depth_light_skips_checks_and_names_them(self):
         """入力 thickness 軽量で全部の単位が軽量のまま（上げる信号が無い）なら、差分の審査（とその後のレンズ・手直し）と独立の目
-        R1〜R4 を盤面で省き（記録の reviews は skipped と理由。収束を止めない）、報告の冒頭 2 に「軽量で省いた」を 1 行ずつ名指す。
+        R1〜R4 を盤面で省き（記録の reviews は skipped と理由。収束を止めない）、報告の冒頭 2 に「軽量で省いた」の 1 行で名指す。
         結末は fixed のまま（持ち主の決定 2026-10-06）"""
         got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}},
                             inputs={"thickness": "軽量"})
@@ -151,8 +151,10 @@ class LineCase(LineBase):
             self.assertIn("軽量", rec["reviews"][name]["reason"])
         text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
         import depth
+        skipped = [x for x in text.splitlines() if x.startswith("- 軽量で省いた: ")]
+        self.assertEqual(len(skipped), 1, text)
         for what in depth.SKIPPED:
-            self.assertIn(f"軽量で省いた: {what}", text)
+            self.assertIn(what, skipped[0])
 
     def test_no_fix_path(self):
         """判定が直す物を残さない → 修正・審査・手直しは飛び、最後のテストは周を締めるので走る。結末 no_fix_needed。

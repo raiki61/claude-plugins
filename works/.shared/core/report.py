@@ -13,8 +13,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - decide_outcome(b, gate, *, tests=None, judged=None, eyeing=None) -> OUTCOMES の 1 つ
 - stop_outcome(b) -> 盤面の止めの (結末の語, by, 一言) か ()・stopped_run(board_dir) -> 当てる前に見る記録の止まり（記録が無いか読めなければ None）
 - head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None, cleaned_runs="")（冒頭 2）・head_stop(b, *, interrupted=None, failed=None, retried=None)（冒頭 3）・
-  head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)・
-  absent_lines(b)（末尾の「このラインに無い節」）
+  head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_models(board_dir, launches)・head_cost(board_dir, run_id, *, events, launches)
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from, base, aggregate}]
 - next_request(b, *, tests=None, left=None) -> 次の run に渡す依頼の findings [{where, text}]（依頼の型のまま。R2 の作り直しの行は除く。
@@ -30,7 +29,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - tests_word(b, tests)・eye_counts(b, reviews) -> EyeCounts(blocked, not_run, missing)・rest_outside_validator(b, *, tests, counts, exit_problem="") -> Rest(tests_word, counts, rows)
   （検証器の外の残りの数えの正本。最後の関所と冒頭 1・次の依頼が同じ口を読む。NOT_RUN_GATE_NOTE が not_run の例外の理由）
 - always_rows(b, left=None, *, rest=None) -> clean が消したファイル・レンズ・仕組みの異常・残りの件数の行（0 件も、
-  走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は rest を渡して数えられる分を言う。どちらも無い呼びは渡し忘れを名指す）・anomalies(b)・anomaly_lines(b, *, full=False)（仕組みの異常。報告の「仕組みの異常」の節）
+  走らせていない・調べていない・読めないも。冒頭 1 は left を渡し、最後の関所は rest を渡して数えられる分を言う。どちらも無い呼びは渡し忘れを名指す）・anomalies(b)・anomaly_lines(b, *, full=False, found_only=False)（仕組みの異常。報告の「仕組みの異常」の節）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
   failed=None, retried=None, eyeing=None, cleaned_runs="") -> dict（盤面を読む前に replan.close_at で、案の直しを待つ行を諦めた行にする）
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
@@ -409,10 +408,10 @@ def _tests_where(tests: dict) -> str:
     return str(tests.get("log") or "最後のテスト")
 
 
-NOT_RUN_GATE_NOTE = ("走っていない目（not_run）は目の判定でなく機械が書く欠け（返答が無い・止めた周）なので、最後の関所を開ける理由（阻害）には数えない。"
-                     "報告の冒頭 1 の残りには状態の表（REVIEW_STATUS）どおり数える")
-MISSING_GATE_NOTE = ("結果が無い目（missing）は阻害を返したのではなく判定が無い（記録を書く前の盤面・目を回さなかった線）ので、最後の関所を開ける理由（阻害）には数えない。"
-                     "代わりに関所の文の残りの行と報告の冒頭 1 の残り（fixed を名乗らせない）が『再実行の要あり』と名指す")
+# 走っていない目（not_run: 返答が無い・止めた周）と結果が無い目（missing: 目を回さなかった）は、目が阻害を返したのでないので
+# 最後の関所を開ける理由に数えない（冒頭 1 の残りには数え、fixed を名乗らせない）。残りの行に、その目が在る時だけ添える
+NOT_RUN_GATE_NOTE = "走っていない目（not_run）は阻害でないので最後の関所を開ける理由に数えない（残りには数える）"
+MISSING_GATE_NOTE = "結果が無い目（missing）も同じ（再実行の要あり）"
 
 
 def tests_word(b, tests) -> str:
@@ -1123,8 +1122,7 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: 
     lines = ["・".join(parts), f"決めた人: 関所の答え {humans} 件（record.process.human_items）"]
     absent = (b.state.get("works") or {}).get("not_in_line") or []
     note = b.dir / "rounds" / "works" / f"round-{b.round}.json"
-    lines.append(f"このラインに無い節: {len(absent)} 個（一覧: {note if note.is_file() else 'state.json の works.not_in_line'}。"
-                 "報告の末尾にも）")
+    lines.append(f"このラインに無い節: {len(absent)} 個（一覧: {note if note.is_file() else 'state.json の works.not_in_line'}）")
     fl = forge_line(b)
     if fl:
         lines.append(fl)
@@ -1146,13 +1144,6 @@ def forge_line(b) -> str:
     する確かめ（並行 PR）は条件外（not_applicable）と言う。GitHub の run・決めの無い盤面（前の版）は空"""
     why = forge.reason((getattr(b, "loop_state", None) or {}).get(forge.LOOP_KEY))
     return f"{FORGE_HEAD}: 無い——並行 PR の確かめは条件外（not_applicable。{why}）" if why else ""
-
-
-def absent_lines(b) -> list:
-    """報告の末尾の「このラインに無い節」の一覧（state.works.not_in_line。節と理由と、入る時の印）"""
-    rows = (b.state.get("works") or {}).get("not_in_line") or []
-    return [f"{r.get('node')}: {r.get('reason') or ''}" + (f"（入る時: {r['comes_with']}）" if r.get("comes_with") else "")
-            for r in rows if isinstance(r, dict)]
 
 
 def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, retried: list | None = None) -> list:
@@ -1195,7 +1186,7 @@ def head_stop(b, *, interrupted: str | None = None, failed: list | None = None, 
 def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
     """冒頭 4: 読んだ証拠（各役の reads-<役>.json）と包みの行。出来事が unverified なら「出来事: 未確認（P13）」。部品の窓の
     包み無し（adapter optional）の run は「包み無し」の行の横に CI の役の知らせ（blk の collect.note）。包みを通す run で起動の
-    記録が無ければ「包みが通っていない」。仕組みの異常の種別ごとの件数（anomaly_lines。0 件も、調べていなければ「調べていない」も）。包みの確かめで止めた盤面は
+    記録が無ければ「包みが通っていない」。仕組みの異常の種別ごとの件数（anomaly_lines。1 件以上の種別だけ。調べていなければ「調べていない」）。包みの確かめで止めた盤面は
     止めた理由。範囲の相談の行（plan_ask_lines）。会話を継いだ起動の数。起動の即時の失敗（包みの終わりの記録の no_turn。節ごとの回と、build が盤面に写した
     NO_TURN_FILE）。盤面を書かない"""
     board_dir = pathlib.Path(board_dir)
@@ -1227,7 +1218,7 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
         else:
             lines.append("包みが通っていない")
         lines += [f"  - {w}" for w in seen["whys"]]
-    lines += anomaly_lines(b)
+    lines += anomaly_lines(b, found_only=True)
     lines += gates_lines(b)
     lines += plan_ask_lines(b)
     by, reason, _ = _stop_info(b)
@@ -1277,15 +1268,18 @@ def anomalies(b) -> dict:
             "kinds": kinds}
 
 
-def anomaly_lines(b, *, full: bool = False) -> list:
-    """仕組みの異常の行（anomalies を文にするだけ）。冒頭 4 は種別ごとに 1 行（0 件も。所在は ANOMALY_SHOWN 件まで）、full なら
-    所在を 1 件 1 行で全件（仕組みの異常の節）。調べていなければ「調べていない」の 1 行"""
+def anomaly_lines(b, *, full: bool = False, found_only: bool = False) -> list:
+    """仕組みの異常の行（anomalies を文にするだけ）。種別ごとに 1 行（0 件も。所在は ANOMALY_SHOWN 件まで）、full なら
+    所在を 1 件 1 行で全件（仕組みの異常の節）。found_only なら 0 件の種別を並べない（冒頭 4。0 件は冒頭 1 の合計と
+    仕組みの異常の節が言う）。調べていなければ「調べていない」の 1 行"""
     a = anomalies(b)
     if not a["examined"]:
         return ["仕組みの異常: 調べていない（盤面の trace.jsonl が無い・読めない）"]
     lines = []
     for name, _, note in ANOMALY_OPS:
         k = a["kinds"][name]
+        if found_only and not k["count"]:
+            continue
         shown = k["where"] if full else k["where"][:ANOMALY_SHOWN]
         if full:
             lines += [f"{name}（{note}）: {k['count']} 件", *[f"  - {w}" for w in shown]]
@@ -1389,14 +1383,16 @@ def always_rows(b, left: list | None = None, *, rest: Rest | None = None) -> lis
         rows.append(f"仕組みの異常: 合計 {a['total']} 件（" + "・".join(f"{n} {k['count']}" for n, k in a["kinds"].items()) + "。所在の全件は仕組みの異常の節）"
                     + (f"。壊れた行 {a['skipped']} 行を飛ばした" if a["skipped"] else ""))
     if left is not None:
-        rows.append(f"残り: {len(left)} 件（検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}")
+        rows.append(f"残り: {len(left)} 件（検証器の阻害・最後のテストが緑でない・独立の目の阻害と走っていない目と結果が無い目）"
+                    + (f"。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}" if left else ""))
     if rest is not None:
         def counted(found, tail=""):
             return f"{len(found)} 件（{'・'.join(e['name'] for e in found) or '無し'}{tail}）"
         rows.append(f"残り（最後の関所で数えられる分）: 独立の目の阻害 {counted(rest.counts.blocked)}・走っていない目 {counted(rest.counts.not_run)}・"
                     f"結果が無い目 {counted(rest.counts.missing, '。阻害 0 件ではなく判定が無い')}・最後のテスト: {rest.tests_word}。"
                     f"数えられる分の合計 {len(rest.rows)} 件（目の 3 つの欄と、最後のテストが緑でなければその 1 件）。"
-                    f"検証器の阻害は最後の関所では数えない（報告の冒頭 1 の残りは検証器の箇条も数え、目の阻害は重なる）。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}")
+                    "検証器の阻害は最後の関所では数えない（報告の冒頭 1 の残りは検証器の箇条も数え、目の阻害は重なる）"
+                    + (f"。{NOT_RUN_GATE_NOTE}。{MISSING_GATE_NOTE}" if rest.counts.not_run or rest.counts.missing else ""))
     if left is None and rest is None:
         rows.append("残り: 数えを渡されていない（always_rows に left も rest も無い——呼び元の渡し忘れで、0 件ではない）")
     return rows
@@ -1703,7 +1699,6 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     # 局所レビュー（P1）の fork のレンズの戻した・見ていない（diverted）を先に、修正の後のレンズ（lens）を後に
     body += ["## 未確認のレンズ", "", *[f"- {r}" for r in [*diverted.report_lines(board_dir), *lens.report_lines(b)]], ""]
     body += ["## 仕組みの異常", "", *[r if r.startswith("  ") else f"- {r}" for r in anomaly_lines(b, full=True)], ""]
-    body += ["## このラインに無い節", "", *[f"- {r}" for r in absent_lines(b)], ""]
     _write_text(rep_p, "\n".join(body))
     green = isinstance(tests, dict) and tests.get("ok") is True and tests.get("green") is True
     return {**_finish_fields(b, judged, outcome), "report_file": str(rep_p), "next_request_file": str(req_p),
