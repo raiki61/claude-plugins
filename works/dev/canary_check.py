@@ -54,7 +54,7 @@ canary-fixture-units/ から始める run、large は測りの canary-request-la
   include の外の線の節は line）の分（段の節の node_started の最初から終わりの最後まで。line は節の区間の和）と AI の節の費用の和、
   修正の include の中の TDD の輪の段（外の輪の節が tdd-start・tdd-loop・tdd-fork・tdd-lane-loop-<n>・tdd-join・tdd-rest-loop）と
   修正役の段（fix-fork・fix-loop・fix-lane-loop-<n>・fix-join・conflict-check・rule-loop・fix-ruled-loop）の分と費用、TDD の輪の枝の数
-  （並べの周の目録）と修正役の枝の数（fix_lanes_planted）と枝の輪の同時の最大、切った機能（start の控えの features_off）、全体の分と
+  （並べの周の目録）と修正役の枝の数（fix_lanes_planted）と枝の輪の同時の最大、切った機能（start の控えの features_off）と機能ごとの実効の値（features。既定と全部 on を見分ける）、全体の分と
   費用（spend と同じ）。通ったと言う決まり: 結末が fixed で、切っていない枝の機能（tdd_lanes・fix_lanes）はどれも枝 2 本以上が
   同時に 2 本以上走った。報告の結末が無ければ no、ほかは attempted
 ほか: 報告の冒頭の結末の語（fixed・round_limit など）、修正案の項目（盤面の plan-fields.json。番号は 1 始まりの並び）ごとの
@@ -93,6 +93,7 @@ import consult  # noqa: E402    範囲の相談の行の status の語（ANSWERE
 import adapter  # noqa: E402    包みの起動の記録の置き場（cwd_key）と旗の語（FORK）
 import fixture  # noqa: E402    包みの起動の記録を数え始める時刻（since）
 import planmarks  # noqa: E402  修正案の欄の控え（FIELDS_FILE・AMEND_OP）
+import entry  # noqa: E402      機能ごとの実効の値（feature_words・features_on_of・features_part）
 import report  # noqa: E402    節の名の最後の語（_step_name）と費用の読み（_event_cost）
 import ruling  # noqa: E402    裁定役の節の名（ROLE）
 import tddlanes  # noqa: E402  合わせの結末の語（UNION・CLASH・SEMANTIC）
@@ -566,12 +567,20 @@ def features_off(board: pathlib.Path) -> list:
     return [w for w in got if isinstance(w, str)] if isinstance(got, list) else []
 
 
+def features_on(board: pathlib.Path) -> list:
+    """start の控えの入れた機能の語（entry.features_on_of。features_on の欄の無い前の版の控えは前の版の既定の全部 on）"""
+    doc = _json(board / "r1" / "start.json")
+    got = entry.features_on_of(doc) if isinstance(doc, dict) else []
+    return [w for w in got if isinstance(w, str)] if isinstance(got, list) else []
+
+
 def measure(board: pathlib.Path, events: list, *, tdd_lanes: int, tdd_par: int, fix_lanes: int, fix_par: int, spent: dict,
             done: str) -> tuple[dict, dict]:
-    """((g) の判じ {status, why}, 出す証拠 {features_off, stages, tdd, fix, total})。stages は include ごとの段、tdd・fix は修正の
+    """((g) の判じ {status, why}, 出す証拠 {features_off, features, stages, tdd, fix, total})。features は機能ごとの実効の値
+    （on・off・auto。既定の run と全部 on の run を見分ける）。stages は include ごとの段、tdd・fix は修正の
     include の中の TDD の輪の段・修正役の段の分と費用の和（refitting の同じ段も足す）と枝の数・枝の輪の同時の最大。total は spend の
     分と費用。全部 on と全部 off の run を並べて比べるための物"""
-    off = features_off(board)
+    off, on = features_off(board), features_on(board)
     rows, parts = stages(events), stages(events, part_of)
 
     def part(kind, lanes, par):
@@ -579,9 +588,9 @@ def measure(board: pathlib.Path, events: list, *, tdd_lanes: int, tdd_par: int, 
         return {"minutes": round(sum(r["minutes"] for r in sel), 1), "cost_usd": round(sum(r["cost_usd"] for r in sel), 4),
                 "lanes": lanes, "parallel": par}
 
-    got = {"features_off": off, "stages": rows, "tdd": part("tdd", tdd_lanes, tdd_par), "fix": part("fix", fix_lanes, fix_par),
+    got = {"features_off": off, "features": entry.feature_words(off, on), "stages": rows, "tdd": part("tdd", tdd_lanes, tdd_par), "fix": part("fix", fix_lanes, fix_par),
            "total": {"minutes": spent["minutes"], "cost_usd": spent["cost_usd"]}}
-    facts = [f"結末 {done or '無い'}", f"切った機能 {'・'.join(off) or '無い'}",
+    facts = [f"結末 {done or '無い'}", f"切った機能 {'・'.join(off) or '無い'}", entry.features_part(off, on),
              f"TDD の輪の枝 {tdd_lanes} 本・同時 {tdd_par}", f"修正役の枝 {fix_lanes} 本・同時 {fix_par}"]
     if not done:
         return {"status": NO, "why": "報告の結末が無い・" + "・".join(facts[1:])}, got

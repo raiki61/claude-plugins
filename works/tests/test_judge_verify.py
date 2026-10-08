@@ -100,7 +100,7 @@ class PrepCase(Base):
         self.assertFalse(self.b.work(jv.VERIFY_FILE).exists())
 
     def test_verify_off_does_not_go_and_clears(self):
-        """入力 verify が off（線の features_off の judge_verify）なら、開いた単位が 2 つ以上でも go 偽で、前の残りの申し送りを
+        """入力 verify が off（線の既定。features_off の judge_verify でも off）なら、開いた単位が 2 つ以上でも go 偽で、前の残りの申し送りを
         消し、trace に OFF_OP の 1 行を書く。空と on は今どおり go"""
         two = judgment(unit(KEY1), unit(KEY2))
         stale = self.b.work(jv.VERIFY_FILE)

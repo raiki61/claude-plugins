@@ -1231,8 +1231,9 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(f["status"], "no")
         self.assertIn("TDD の輪の状態が無い", f["why"])
 
-    def large_run(self, *, off=(), tdd_lanes=3, fix_lanes=2, outcome="fixed"):
-        """--request large の形の run（全部 on は TDD の枝 3 本・修正役の枝 2 本。off は切った機能の語）"""
+    def large_run(self, *, off=(), on=None, tdd_lanes=3, fix_lanes=2, outcome="fixed"):
+        """--request large の形の run（全部 on は TDD の枝 3 本・修正役の枝 2 本。off・on は切った・入れた機能の語。on が None なら
+        控えに features_on の欄を置かない＝前の版の run）"""
         tdd_top = [*node("fixing__tdd-start", 100, 102, kind="exec"), *node("fixing__tdd-loop", 102, 130, usd=None, kind="loop_group"),
                    *node("fixing__tdd-loop.tdd", 103, 129, usd=0.5), *node("fixing__tdd-fork", 130, 131, kind="exec")]
         lanes = [e for n in range(1, tdd_lanes + 1) for e in lane(n, 131 + n, 300 - n * 10, usd=1.0)] if tdd_lanes else []
@@ -1248,7 +1249,8 @@ class CheckTest(unittest.TestCase):
         make_board(self.board, lanes=rows if tdd_lanes else None,
                    planted=[{"lanes": fix_lanes, "items": {str(n): [n + 3] for n in range(1, fix_lanes + 1)}}],
                    report=f"起きたこと: x（{outcome}）\n" if outcome else None)
-        write(self.board / "r1" / "start.json", {"features_off": list(off)})
+        write(self.board / "r1" / "start.json",
+              {"features_off": list(off)} if on is None else {"features_off": list(off), "features_on": list(on)})
         write(self.root / "home" / "runs" / f"{RUN}.json", {})
 
     def test_large_measures_stage_time_cost_and_lanes(self):
@@ -1271,6 +1273,22 @@ class CheckTest(unittest.TestCase):
         self.assertIn("(g) 測り: yes", text)
         self.assertIn("段ごと: judging 1.0 分 2.0 USD・planning 0.6 分 1.0 USD・fixing 5.0 分 4.7 USD・line 0.2 分 0.25 USD", text)
         self.assertIn("TDD の輪の段 3.5 分 3.5 USD（枝 3 本・同時 3）・修正役の段 1.5 分 1.2 USD（枝 2 本・同時 2）", text)
+
+    def test_large_tells_default_from_all_on(self):
+        """既定の run（判定の裏取りは off・事前審査の木は auto）と全部 on の run（features_on に judge_verify・review_tree）を
+        証拠の機能ごとの値で見分ける（features_off はどちらも空）。前の版の控え（features_on の欄が無い）は全部 on"""
+        self.large_run(on=[])   # 盤面と db は 1 度だけ作り、控えだけを書き替えて比べる
+        for on, want, words in (([], {"judge_verify": "off", "review_tree": "auto"}, "機能: judge_verify off・review_tree auto"),
+                                (["judge_verify", "review_tree"], {"judge_verify": "on", "review_tree": "on"}, "機能: 全部 on"),
+                                (None, {"judge_verify": "on", "review_tree": "on"}, "機能: 全部 on")):
+            with self.subTest(on=on):
+                write(self.board / "r1" / "start.json",
+                      {"features_off": []} if on is None else {"features_off": [], "features_on": on})
+                doc = json.loads(self.run_tool(str(self.root), "--request", "large", "--json").stdout)
+                m = doc["measure"]
+                self.assertEqual(m["features_off"], [])
+                self.assertEqual({k: m["features"][k] for k in want}, want)
+                self.assertIn(words, doc["features"]["g_measure"]["why"])
 
     def test_large_all_off_needs_no_lanes(self):
         """全部 off（features_off に tdd_lanes・fix_lanes）の run は枝を求めず、結末 fixed なら yes（全部 on と並べて比べる側）"""

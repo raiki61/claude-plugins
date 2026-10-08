@@ -1063,7 +1063,7 @@ def declared_downgrades(line: str, *, pack: pathlib.Path = PACK) -> list:
 
 
 def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: str = "", depth_lines=()) -> list:
-    """冒頭 2: 入口・段・gates・最後の関所の形・包み・切った機能（入力 features_off）・決めた人（関所の答えの数）・このラインに無い節の数と一覧のパス・下げている所・
+    """冒頭 2: 入口・段・gates・最後の関所の形・包み・機能の on でない物（入力 features_off・features_on と既定）・決めた人（関所の答えの数）・このラインに無い節の数と一覧のパス・下げている所・
     線が渡した深さの行（depth_lines。単位ごとの深さと、軽量で省いた物。渡されなければ出さない）・
     中の検査の枠の行（境の節の mid_note）・ライブラリの文書の枠切れの 1 行（印が在る時だけ。libdocs.notice）・起動の前に
     片付けた前の run の 1 行（入力 cleaned_runs。空なら出さない）"""
@@ -1078,11 +1078,12 @@ def head_entry(b, start: dict | None, *, mid: dict | None = None, cleaned_runs: 
     if s.get("final_gate"):
         parts.append(f"最後の関所: {s['final_gate']}")
     parts.append(f"包み: {'optional（包み無し）' if s.get('adapter') == 'optional' else '通す'}")
-    # 切った機能（入力 features_off）は start の控えの欄（start の出口は機能ごとの on・off だけを持つ）。欄の無い控えは
-    # この版より前の run で、語を出さない
+    # 機能（入力 features_off・features_on）は start の控えの欄（start の出口は機能ごとの on・off・auto だけを持つ）。
+    # features_off の欄の無い控えはそれより前の版の run で、語を出さない（features_on の欄だけ無い控えは前の版の全部 on の既定。
+    # entry.features_on_of）
     feats = s if entry.FEATURES_KEY in s else _start_doc(b, None)
     if entry.FEATURES_KEY in feats:
-        parts.append(entry.features_part(feats.get(entry.FEATURES_KEY) or []))
+        parts.append(entry.features_part(feats.get(entry.FEATURES_KEY) or [], entry.features_on_of(feats)))
     humans = len((b.record.get("process") or {}).get("human_items") or [])
     lines = ["・".join(parts), f"決めた人: 関所の答え {humans} 件（record.process.human_items）"]
     absent = (b.state.get("works") or {}).get("not_in_line") or []

@@ -7,13 +7,14 @@
 読む環境変数（Archon が節の with: から渡す。どれも在ること。値の空は既定の意味）:
 - INPUTS_REQUEST（依頼のファイル。相対なら cwd＝対象の根から）・INPUTS_TEST_CMD・INPUTS_THICKNESS・INPUTS_GATES・
   INPUTS_FINAL_GATE・INPUTS_ADAPTER・INPUTS_POLICY_MD（INPUTS_LANG・INPUTS_BASE・INPUTS_PR・INPUTS_GITHUB_READS・INPUTS_UNATTENDED・
-  INPUTS_DESIGN_ONLY・INPUTS_FIX_SHAPE・INPUTS_FIX_FIXTURE・INPUTS_FEATURES_OFF は無くてよい。
+  INPUTS_DESIGN_ONLY・INPUTS_FIX_SHAPE・INPUTS_FIX_FIXTURE・INPUTS_FEATURES_OFF・INPUTS_FEATURES_ON は無くてよい。
   LANG は報告の言語で、無いのは空＝依頼文の言語。BASE・PR は変更の入口で、無いのは空＝名指さない。GITHUB_READS は殻が隔離の
   前に読んだ PR・issue のファイルで、無いのは空＝読んだ物が無い。FIX_SHAPE は修正の形で、無いのは空＝既定の g3。前の版の盤面の呼び直しでは af のまま。FIX_FIXTURE は固定材料のフォルダで、
-  無いのは空＝盤面を新しく作る。FEATURES_OFF は切る機能の語で、無いのは空＝全部 on）
+  無いのは空＝盤面を新しく作る。FEATURES_OFF・FEATURES_ON は切る機能・入れる機能の語で、無いのは空＝既定（entry.FEATURE_DEFAULTS））
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（切符の run_id。空も欠け）
 版の控え: 入力を確かめる前（拒む run でも）に <ARTIFACTS_DIR>/versions.json を書く（versions.snapshot。盤面の外）。
-設定の写し settings に切る機能 {features_off: [語]}（入力の語を区切って重ねずに並べた物。知らない語も字のまま。確かめは start）を載せる。
+設定の写し settings に切る機能・入れる機能 {features_off: [語], features_on: [語]}（入力の語を区切って重ねずに並べた物。知らない語も
+字のまま。確かめは start）を載せる。
 書けなくても run は止めず、標準エラーに 1 行出す
 出口:
 - 通れば entry.start の結果を 1 行の JSON で出して 0
@@ -38,10 +39,11 @@ INPUTS = {"INPUTS_REQUEST": "request", "INPUTS_BASE": "base", "INPUTS_PR": "pr",
           "INPUTS_TEST_CMD": "test_cmd", "INPUTS_THICKNESS": "thickness", "INPUTS_GATES": "gates",
           "INPUTS_FINAL_GATE": "final_gate", "INPUTS_ADAPTER": "adapter", "INPUTS_POLICY_MD": "policy_md", "INPUTS_LANG": "lang",
           "INPUTS_UNATTENDED": "unattended", "INPUTS_DESIGN_ONLY": "design_only", "INPUTS_FIX_SHAPE": "fix_shape",
-          "INPUTS_FIX_FIXTURE": "fix_fixture", "INPUTS_FEATURES_OFF": "features_off"}
+          "INPUTS_FIX_FIXTURE": "fix_fixture", "INPUTS_FEATURES_OFF": "features_off", "INPUTS_FEATURES_ON": "features_on"}
 # 無くても欠けに数えない入力（後から足した入力。前の版の with: で再開した run は渡さない。無いのは空と同じ）
 OPTIONAL = frozenset({"INPUTS_LANG", "INPUTS_BASE", "INPUTS_PR", "INPUTS_GITHUB_READS", "INPUTS_UNATTENDED",
-                      "INPUTS_DESIGN_ONLY", "INPUTS_FIX_SHAPE", "INPUTS_FIX_FIXTURE", "INPUTS_FEATURES_OFF"})
+                      "INPUTS_DESIGN_ONLY", "INPUTS_FIX_SHAPE", "INPUTS_FIX_FIXTURE", "INPUTS_FEATURES_OFF",
+                      "INPUTS_FEATURES_ON"})
 RUN_ID_ENV = "WORKFLOW_ID"
 NON_EMPTY = (script_io.ARTIFACTS_ENV, RUN_ID_ENV)
 
@@ -52,8 +54,8 @@ def _line(text) -> str:
 
 def _settings() -> dict:
     """版の控えの settings（入力を確かめる前に書くので、entry を引かずに区切るだけ。区切りは entry.features_off と同じ）"""
-    raw = os.environ.get("INPUTS_FEATURES_OFF", "")
-    return {"features_off": sorted({w for w in re.split(r"[\s,、・]+", raw) if w})}
+    return {key: sorted({w for w in re.split(r"[\s,、・]+", os.environ.get(env, "")) if w})
+            for key, env in (("features_off", "INPUTS_FEATURES_OFF"), ("features_on", "INPUTS_FEATURES_ON"))}
 
 
 def main() -> int:

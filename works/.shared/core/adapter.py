@@ -130,8 +130,9 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    - graph_map（required でない。印に旗 map を持つ起動だけ。持ち主 2026-10-07: 節ごとに選ぶ）: 工程の地図（同じ置き場の
      graphmap。全体のグラフと、この節の会話の席の ★ と、後の流れ）。地図の元は pack の入口（archon-plugin.json の entrypoints）の
      YAML の隣の <stem>.graph.json（作る時に開発の道具 dev/graphmap_build.py が書く。包みは YAML を読まない）。印を持つ元がちょうど 1 本で、元の
-     YAML の sha が今と同じ時だけ足す。切符の盤面の start の控え（fixshape.START_REL）の features_off に graph_map が在る run は
-     足さない。控えが無い・切符が無い起動は切り替えの分からない地図（[needs …] を残す）。設計 docs/plans/2026-10-07-graph-map.md
+     YAML の sha が今と同じ時だけ足す。切符の盤面の start の控え（fixshape.START_REL）の実効で off の機能（features_cut。既定で
+     off の機能を含む。欄の無い前の版の控えは features_off）に graph_map が在る run は足さず、ほかの語は地図が切った物として
+     描く。控えが無い・切符が無い起動は切り替えの分からない地図（[needs …] を残す）。設計 docs/plans/2026-10-07-graph-map.md
    経路は argv: SDK 0.3.282 は system prompt を stdin の initialize で渡すが、Claude Code 2.1.283 は initialize が
    appendSystemPrompt を持つ時だけ argv の値を置き換え、systemPrompt の置き換え（SDK の既定は []）とは別に append を末尾に足す
    （本体の initialize の受けと system prompt の組み立てで確かめた）。works の YAML は systemPrompt を持たないので、initialize に
@@ -1502,6 +1503,7 @@ def query_rule(path: pathlib.Path = QUERY_RULE_SOURCE) -> str:
 # fence.<名> = {skipped: 理由} を残して塊を足さずに起こす（足す物なので）。塊を 1 つも作らない起動は argv を替えない
 MAP_FEATURE = "graph_map"      # 入力 features_off で工程の地図を切る語（entry.FEATURES と同じ。test_graphmap が縛る）
 FEATURES_KEY = "features_off"  # start の控え（fixshape.START_REL）の切った機能の欄（entry.FEATURES_KEY と同じ）
+FEATURES_CUT_KEY = "features_cut"  # 同じ控えの実効で off の機能の欄（既定で off の機能を含む。entry.FEATURES_CUT_KEY と同じ）
 PACK = pathlib.Path(__file__).resolve().parents[2]   # works/（.shared/core/adapter.py の 2 つ上）。地図の元は入口の YAML の隣
 
 
@@ -1544,7 +1546,8 @@ def query_rule_block(launch: Launch) -> Block:
 
 
 def features_off_at(board_dir: str) -> Optional[List[str]]:
-    """盤面の start の控えの切った機能の語。控えが無ければ None（start の前）。読めない・形が違えば ValueError"""
+    """盤面の start の控えの実効で off の機能の語（欄 FEATURES_CUT_KEY。既定で off の機能を含む。欄の無い前の版の控えは、
+    その版の既定が全部 on なので切った機能の欄 FEATURES_KEY）。控えが無ければ None（start の前）。読めない・形が違えば ValueError"""
     path = pathlib.Path(board_dir) / fixshape.START_REL
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
@@ -1552,9 +1555,10 @@ def features_off_at(board_dir: str) -> Optional[List[str]]:
         return None
     except (OSError, ValueError) as e:
         raise ValueError(f"start の控え {path} が読めない（{type(e).__name__}）") from None
-    off = doc.get(FEATURES_KEY, []) if isinstance(doc, dict) else None
+    key = FEATURES_CUT_KEY if isinstance(doc, dict) and FEATURES_CUT_KEY in doc else FEATURES_KEY
+    off = doc.get(key, []) if isinstance(doc, dict) else None
     if not (isinstance(off, list) and all(isinstance(w, str) for w in off)):
-        raise ValueError(f"start の控え {path} の {FEATURES_KEY} が語の配列でない")
+        raise ValueError(f"start の控え {path} の {key} が語の配列でない")
     return off
 
 

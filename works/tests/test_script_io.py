@@ -252,6 +252,22 @@ class SwitchCase(unittest.TestCase):
                 script_io.switch_on(word, "tdd_lanes")
             self.assertIn("tdd_lanes", str(cm.exception))
 
+    def test_auto_words(self):
+        """自動の語 auto も受ける切り替え（switch_auto）: on・空は真、off は偽、auto は None（呼び手が自分の材料で決める）。
+        ほかの語は名と 3 つの語を言って ValueError"""
+        for word in ("", None, "null", "on"):
+            with self.subTest(word=word):
+                self.assertIs(script_io.switch_auto(word, "x"), True)
+        self.assertIs(script_io.switch_auto("off", "x"), False)
+        self.assertIsNone(script_io.switch_auto(" auto ", "x"))
+        for word in ("AUTO", "false"):
+            with self.subTest(word=word), self.assertRaises(ValueError) as cm:
+                script_io.switch_auto(word, "review_tree")
+            self.assertIn("review_tree", str(cm.exception))
+            self.assertIn(script_io.SWITCH_AUTO, str(cm.exception))
+        with self.assertRaises(ValueError):   # 自動を持たない切り替えは auto を受けない
+            script_io.switch_on("auto", "tdd_lanes")
+
 
 class PreambleCase(unittest.TestCase):
     """docstring に書いた前置きを、ブロックの形（<pack>/blk-x/scripts/accept.py）に置いて別のプロセスで回す"""

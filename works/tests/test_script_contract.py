@@ -204,7 +204,8 @@ def scenarios(tmp: pathlib.Path) -> dict:
         # 受け付けの拒む出口を誰も通らなくなる。計画 2026-10-06-variable-depth）
         # origin は GitHub の形で偽の gh が交差を返す（並行 PR の任せ先の役 blk-pr も回る。github）
         "full": dict(replies=full, edits={**edits, "refix": refix_edit}, bad_first=ai_keys(), github=True,
-                     inputs={"tdd_suite": str(suite), "thickness": depth.STANDARD}, gates={"policy-gate": {"decision": "continue", "text": "$x `y` \"z\""}}),
+                     # 判定の裏取りは既定で off なので、入力 features_on で入れて裏取りの節（束ね役・まとめ）も回す
+                     inputs={"tdd_suite": str(suite), "thickness": depth.STANDARD, "features_on": "judge_verify"}, gates={"policy-gate": {"decision": "continue", "text": "$x `y` \"z\""}}),
         "ci-final-stop": dict(replies={**line_replies(), "ci": linekit.reply("ci_found")}, edits=edits, declared=False,
                               bad_first={"blk-ci/ci", "blk-report/report-items", "blk-report/report-cold", "blk-report/report-write"},
                               gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}}),

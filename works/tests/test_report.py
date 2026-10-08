@@ -935,11 +935,18 @@ class HeadCase(ReportBase):
         控えに欄が無い run（この版より前）は語を出さない"""
         self.judged()
         b = entry.open_board(self.board)
-        self.assertIn("・機能: 全部 on", report.head_entry(b, {})[0])   # entry.start は控えに空の配列を書く
+        self.assertIn("・機能: judge_verify off・review_tree auto", report.head_entry(b, {})[0])   # 控えは空の配列（既定）
         p = self.board / "r1" / entry.START_FILE
         doc = json.loads(p.read_text(encoding="utf-8"))
+        p.write_text(json.dumps({**doc, "features_off": ["tdd_lanes"], "features_on": ["judge_verify"]}, ensure_ascii=False),
+                     encoding="utf-8")
+        self.assertIn("・機能: review_tree auto・tdd_lanes off", report.head_entry(b, {"tdd_lanes": "off"})[0])
+        doc.pop("features_on", None)
         p.write_text(json.dumps({**doc, "features_off": ["judge_verify", "tdd_lanes"]}, ensure_ascii=False), encoding="utf-8")
-        self.assertIn("・切った機能: judge_verify・tdd_lanes", report.head_entry(b, {"tdd_lanes": "off"})[0])
+        # features_on の欄の無い控えは前の版の run（その版の既定は全部 on）。切った語だけが off
+        line = report.head_entry(b, {})[0]
+        self.assertIn("・機能: judge_verify off・tdd_lanes off", line)
+        self.assertNotIn("review_tree", line)
         doc.pop("features_off")
         p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
         self.assertNotIn("機能", report.head_entry(b, {})[0])

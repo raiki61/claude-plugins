@@ -145,9 +145,9 @@ class InputNamesCase(unittest.TestCase):
             given = {"test_cmd": "x", "thickness": "標準", "gates": "merge", "final_gate": "when_needed", "adapter": "optional",
                      "policy_md": "policy.md", "lang": "English", "base": "main", "pr": "7", "unattended": "true",
                      "design_only": "true", "fix_shape": "af", "fix_fixture": "fx",
-                     "features_off": "tdd_lanes, judge_verify"}
+                     "features_off": "tdd_lanes, judge_verify", "features_on": "review_tree judge_verify"}
             want = {**given, "policy_md": str(repo / "policy.md"), "fix_fixture": str(repo / "fx"),
-                    "features_off": ["judge_verify", "tdd_lanes"]}
+                    "features_off": ["judge_verify", "tdd_lanes"], "features_on": ["judge_verify", "review_tree"]}
             self.assertEqual(set(given) | CHANGE_INPUTS, names - {"request"} - START_ONLY, "start.py の名に、渡す値を決めていない名がある")
             base = entry.check_inputs({"request": "req.json"}, repo)
             self.assertEqual(set(base), (names - {"request"} - CHANGE_INPUTS - START_ONLY) | READ_FROM_REQUEST)
@@ -185,8 +185,11 @@ class InputNamesCase(unittest.TestCase):
 
 
 class FeaturesOffCase(unittest.TestCase):
-    """切る機能（入力 features_off。持ち主の依頼 2026-10-07: 同じ依頼を全部 on と切った形で回して比べる）: check_inputs が語を
-    確かめて語の順の配列にし、start の出口の機能ごとの on・off（entry.feature_words）を線がブロックの切り替えの入力へ写す"""
+    """切る機能と入れる機能（入力 features_off・features_on。持ち主の依頼 2026-10-07: 同じ依頼を機能を替えて回して比べる）:
+    check_inputs が語を確かめて語の順の配列にし、start の出口の機能ごとの on・off・auto（entry.feature_words）を線がブロックの
+    切り替えの入力へ写す。既定は持ち主の決め 2026-10-08（測りで後の段を変えなかった判定の裏取りは off・事前審査の木は開いた項目が
+    2 つ以上の往復だけ＝auto・ほかは on）。名指した語は既定に勝ち、同じ語を両方に名指せば拒む"""
+    DEFAULTS = {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "on"}
     # 機能 → (線の節, ブロックの入力の名)（ブロックは on・off の平の入力だけを受け、線の語を知らない）
     WIRING = {"judge_verify": [("judging", "verify")],
               "review_tree": [("planning", "review_tree"), ("replanning", "review_tree")],
@@ -194,49 +197,99 @@ class FeaturesOffCase(unittest.TestCase):
               "fix_lanes": [("fixing", "fix_lanes"), ("refitting", "fix_lanes")],
               "graph_map": []}   # 工程の地図はブロックへ写さず、包みが start の控えを読む（adapter.graph_map_block）
 
-    def check(self, word):
+    def check(self, word, key="features_off", **more):
         with tempfile.TemporaryDirectory() as tmp:
             repo = pathlib.Path(tmp)
             (repo / "req.json").write_text(json.dumps([{"where": "a.py", "text": "直す"}]), encoding="utf-8")
-            raw = {"request": "req.json"} if word is None else {"request": "req.json", "features_off": word}
-            return entry.check_inputs(raw, repo)["features_off"]
+            raw = {"request": "req.json", **more} if word is None else {"request": "req.json", key: word, **more}
+            return entry.check_inputs(raw, repo)[key]
 
-    def test_default_is_all_on(self):
+    def test_default_judge_verify_off_review_tree_auto(self):
         self.assertEqual(self.check(None), [])
         self.assertEqual(self.check("  "), [])
-        self.assertEqual(entry.feature_words([]), {k: "on" for k in entry.FEATURES})
-        self.assertEqual(entry.features_part([]), "機能: 全部 on")
+        self.assertEqual(self.check(None, "features_on"), [])
+        self.assertEqual(entry.feature_words([]), self.DEFAULTS)
+        self.assertEqual(entry.feature_words([], []), self.DEFAULTS)
+        self.assertEqual(entry.features_part([]), "機能: judge_verify off・review_tree auto")
 
     def test_words_are_split_sorted_and_deduplicated(self):
         self.assertEqual(self.check("tdd_lanes,judge_verify tdd_lanes、fix_lanes"), ["fix_lanes", "judge_verify", "tdd_lanes"])
+        self.assertEqual(self.check("review_tree,judge_verify review_tree", "features_on"), ["judge_verify", "review_tree"])
         got = entry.feature_words(["review_tree"])
-        self.assertEqual(got, {"fix_lanes": "on", "graph_map": "on", "judge_verify": "on", "review_tree": "off", "tdd_lanes": "on"})
-        self.assertEqual(entry.features_part(["judge_verify", "review_tree"]), "切った機能: judge_verify・review_tree")
+        self.assertEqual(got, {**self.DEFAULTS, "review_tree": "off"})
+        self.assertEqual(entry.features_part(["judge_verify", "review_tree"]), "機能: judge_verify off・review_tree off")
+
+    def test_old_off_words_still_mean_off(self):
+        """前からの入力 features_off=judge_verify（既定と同じ off）は拒まずに off のまま"""
+        self.assertEqual(self.check("judge_verify"), ["judge_verify"])
+        self.assertEqual(entry.feature_words(["judge_verify"])["judge_verify"], "off")
+
+    def test_named_words_beat_defaults(self):
+        """features_on は既定の off・auto を on にし、features_off は既定の auto を off にする（名指した語が既定に勝つ）"""
+        got = entry.feature_words([], ["judge_verify", "review_tree"])
+        self.assertEqual(got, {k: "on" for k in entry.FEATURES})
+        self.assertEqual(entry.features_part([], ["judge_verify", "review_tree"]), "機能: 全部 on")
+        self.assertEqual(entry.feature_words(["tdd_lanes"], ["judge_verify"]),
+                         {**self.DEFAULTS, "judge_verify": "on", "tdd_lanes": "off"})
+        self.assertEqual(entry.features_part(["tdd_lanes"], ["judge_verify"]), "機能: review_tree auto・tdd_lanes off")
+        self.assertEqual(entry.feature_words([], ["fix_lanes"]), self.DEFAULTS)   # 既定で on の語を入れても同じ
+
+    def test_same_word_in_both_is_refused(self):
+        with self.assertRaises(entry.InputRefused) as cm:
+            self.check("judge_verify,tdd_lanes", features_on="judge_verify")
+        self.assertIn("features_on", str(cm.exception))
+        self.assertIn("features_off", str(cm.exception))
+        self.assertIn("judge_verify", str(cm.exception))
+        self.assertNotIn("tdd_lanes", str(cm.exception))
 
     def test_unknown_word_is_refused_before_the_board(self):
-        with self.assertRaises(entry.InputRefused) as cm:
-            self.check("judge_verify,hole_labels")
-        self.assertIn("hole_labels", str(cm.exception))
-        self.assertIn("judge_verify", str(cm.exception))   # 切れる語を並べる
+        for key in ("features_off", "features_on"):
+            with self.subTest(key), self.assertRaises(entry.InputRefused) as cm:
+                self.check("judge_verify,hole_labels", key)
+            self.assertIn(key, str(cm.exception))
+            self.assertIn("hole_labels", str(cm.exception))
+            self.assertIn("judge_verify", str(cm.exception))   # 名指せる語を並べる
+
+    def test_resume_old_board_keeps_all_on(self):
+        """features_on の欄の無い前の版の控え（その版の既定は全部 on）を呼び直すと、既定で off・auto の機能は on のまま続く
+        （腕を黙って替えない）。入力の features_on は空か、前の版の全部 on と同じ語だけを受ける"""
+        old = {"features_off": ["tdd_lanes"]}
+        self.assertEqual(entry.features_on_of(old), ["judge_verify", "review_tree"])
+        self.assertEqual(entry.features_on_of({"features_off": ["judge_verify"]}), ["review_tree"])
+        self.assertEqual(entry.features_on_of({"features_off": [], "features_on": []}), [])
+        self.assertEqual(entry._resumed_features(old, ["tdd_lanes"], []), ["judge_verify", "review_tree"])
+        self.assertEqual(entry._resumed_features(old, ["tdd_lanes"], ["judge_verify", "review_tree"]),
+                         ["judge_verify", "review_tree"])
+        with self.assertRaises(entry.InputRefused):
+            entry._resumed_features(old, ["tdd_lanes"], ["judge_verify"])
+        self.assertEqual(entry.features_cut([], []), ["judge_verify"])
+        self.assertEqual(entry.features_cut(["tdd_lanes"], ["judge_verify"]), ["tdd_lanes"])
 
     def test_resume_with_other_features_is_refused(self):
-        """呼び直しで切る機能を替えない（前の版の控えは全部 on の run）"""
-        entry._resumed_features({"features_off": ["tdd_lanes"]}, ["tdd_lanes"])
-        entry._resumed_features({}, [])
-        for prev, now in (({"features_off": ["tdd_lanes"]}, []), ({}, ["fix_lanes"])):
-            with self.subTest(prev=prev, now=now), self.assertRaises(entry.InputRefused):
-                entry._resumed_features(prev, now)
+        """呼び直しで切る機能・入れる機能を替えない（features_on の欄の無い前の版の控えは features_on が空の run）"""
+        entry._resumed_features({"features_off": ["tdd_lanes"]}, ["tdd_lanes"], [])
+        entry._resumed_features({}, [], [])
+        entry._resumed_features({"features_off": [], "features_on": ["judge_verify"]}, [], ["judge_verify"])
+        for prev, off, on in (({"features_off": ["tdd_lanes"]}, [], []), ({}, ["fix_lanes"], []),
+                              ({"features_off": [], "features_on": ["judge_verify"]}, [], []),
+                              ({"features_off": [], "features_on": []}, [], ["review_tree"]),
+                              ({"features_off": []}, [], ["review_tree"])):
+            with self.subTest(prev=prev, off=off, on=on), self.assertRaises(entry.InputRefused) as cm:
+                entry._resumed_features(prev, off, on)
+            self.assertIn("features_o", str(cm.exception))
 
     def test_line_wires_each_feature_to_a_block_switch(self):
         doc = line()
         nodes = {n["id"]: n for n in doc["nodes"]}
-        self.assertEqual(doc["inputs"]["features_off"].get("default"), "")
-        self.assertEqual(nodes["start"]["with"]["features_off"], "$INPUTS.features_off")
+        for key in ("features_off", "features_on"):
+            self.assertEqual(doc["inputs"][key].get("default"), "")
+            self.assertEqual(nodes["start"]["with"][key], f"$INPUTS.{key}")
         props = nodes["start"]["output_format"]["properties"]
         self.assertEqual(set(self.WIRING), set(entry.FEATURES))
         for name in entry.FEATURES:
             with self.subTest(name):
-                self.assertEqual(props[name], {"type": "string", "enum": ["on", "off"]})
+                words = ["on", "off", "auto"] if self.DEFAULTS[name] == "auto" else ["on", "off"]
+                self.assertEqual(props[name], {"type": "string", "enum": words})
                 for nid, key in self.WIRING[name]:
                     self.assertEqual(nodes[nid]["with"].get(key), f"$start.output.{name}", f"{nid}.{key}")
                     block = load(ROOT / nodes[nid]["include"] / f"{nodes[nid]['include']}.yaml")
@@ -246,6 +299,7 @@ class FeaturesOffCase(unittest.TestCase):
         """固定材料から始める run は切る機能を替えて比べてよい（腕と同じく今の値にする欄）"""
         import fixture
         self.assertIn("features_off", fixture.CURRENT)
+        self.assertIn("features_on", fixture.CURRENT)
 
 
 class LangInputCase(unittest.TestCase):

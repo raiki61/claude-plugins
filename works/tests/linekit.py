@@ -280,7 +280,8 @@ LINE_ORDER = [
               "gates": "$INPUTS.gates", "final_gate": "$INPUTS.final_gate", "adapter": "$INPUTS.adapter",
               "policy_md": "$INPUTS.policy_md", "lang": "$INPUTS.lang", "unattended": "$INPUTS.unattended",
               "design_only": "$INPUTS.design_only", "fix_shape": "$INPUTS.fix_shape",
-              "fix_fixture": "$INPUTS.fix_fixture", "features_off": "$INPUTS.features_off"}},
+              "fix_fixture": "$INPUTS.fix_fixture", "features_off": "$INPUTS.features_off",
+              "features_on": "$INPUTS.features_on"}},
     {"id": "ci-checking", "kind": "include", "block": "blk-ci", "depends_on": ["start"],
      "when": "$start.output.ci_role_go == true",
      "with": {"node": "p0.local_checks", "base_rev": "$start.output.base_rev"}},
@@ -568,7 +569,7 @@ class LineRun:
                 if got["done"]:
                     break
         # 判定の根を開く（線の木の段 3）: 支度 → go なら束ね役（replies["judge-verify"]（盤面を受ける関数）か見本 verify_answers）→ まとめ
-        # 線は裏取りの切り替えに start の出口の judge_verify（入力 features_off）を渡す
+        # 線は裏取りの切り替えに start の出口の judge_verify（既定で off。入力 features_on・features_off）を渡す
         if judgeverify.prep(self.board, self.repo, verify=(self.out.get("start") or {}).get("judge_verify", ""))["go"]:
             answer = self.replies.get("judge-verify", verify_answers)
             if callable(answer):
@@ -597,7 +598,7 @@ class LineRun:
             return
         for _ in range(planblk.GIVE_UP_AFTER):
             # 線は修正案のブロックの支度に h-plan の verify_file（判定の単位の裏取りの申し送り。線の木の段 3）を渡す
-            # 事前審査の木の切り替えは start の出口の review_tree（入力 features_off）
+            # 事前審査の木の切り替えは start の出口の review_tree（既定で auto。入力 features_on・features_off）
             planblk.prep(self.board, role, self.repo, verify_file=(self.out.get("h-plan") or {}).get("verify_file", ""),
                          review_tree=(self.out.get("start") or {}).get("review_tree", ""))
             if planblk.accept_reply(self.board, role, json.dumps(body(), ensure_ascii=False), self.repo)["done"]:

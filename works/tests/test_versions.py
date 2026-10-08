@@ -134,7 +134,7 @@ class StartWritesVersionsCase(unittest.TestCase):
             self.assertEqual(doc["run_id"], "run-v-1")
             self.assertEqual(doc["archon"], "v0.11.1")
             self.assertEqual(doc["works"]["pack_sha256"], versions.pack_digest(ROOT))
-            self.assertEqual(doc["settings"], {"features_off": []})   # 入力 features_off が無いのは全部 on
+            self.assertEqual(doc["settings"], {"features_off": [], "features_on": []})   # 入力 features_off・features_on が無いのは既定
 
     def test_start_records_features_off_before_checking(self):
         """切る機能（入力 features_off）は区切って重ねずに語の順で settings に載る。確かめる前に書くので、知らない語の
@@ -148,12 +148,14 @@ class StartWritesVersionsCase(unittest.TestCase):
             env.update({"INPUTS_REQUEST": str(tmp / "no-such-request.json"), "INPUTS_TEST_CMD": "true",
                         "INPUTS_THICKNESS": "", "INPUTS_GATES": "", "INPUTS_FINAL_GATE": "", "INPUTS_ADAPTER": "",
                         "INPUTS_POLICY_MD": "", "INPUTS_FEATURES_OFF": "tdd_lanes, judge_verify,tdd_lanes no_such",
+                        "INPUTS_FEATURES_ON": "review_tree、judge_verify",
                         "ARTIFACTS_DIR": str(art), "WORKFLOW_ID": "run-v-2", "PYTHONDONTWRITEBYTECODE": "1"})
             r = subprocess.run([sys.executable, str(ROOT / "darkfactory" / "scripts" / "start.py")], cwd=cwd, env=env,
                                capture_output=True, text=True, encoding="utf-8")
             self.assertNotEqual(r.returncode, 0, r.stdout)
             doc = json.loads((art / versions.FILE).read_text(encoding="utf-8"))
-            self.assertEqual(doc["settings"], {"features_off": ["judge_verify", "no_such", "tdd_lanes"]})
+            self.assertEqual(doc["settings"], {"features_off": ["judge_verify", "no_such", "tdd_lanes"],
+                                               "features_on": ["judge_verify", "review_tree"]})
 
 
 class SnapshotModelCase(unittest.TestCase):

@@ -471,6 +471,7 @@ class RealLineCase(unittest.TestCase):
     def test_feature_word_and_constants_agree(self):
         self.assertIn(adapter.MAP_FEATURE, entry.FEATURES)
         self.assertEqual(adapter.FEATURES_KEY, entry.FEATURES_KEY)
+        self.assertEqual(adapter.FEATURES_CUT_KEY, entry.FEATURES_CUT_KEY)
         self.assertIn(adapter.MAP, node_marker.FLAGS)
         self.assertEqual(frozenset(adapter.FLAGS), node_marker.FLAGS)
 
@@ -488,8 +489,9 @@ class InjectCase(unittest.TestCase):
         self.board = self.tmp / "board"
         (self.board / "r1").mkdir(parents=True)
 
-    def start_doc(self, off):
-        (self.board / "r1" / "start.json").write_text(json.dumps({"features_off": off}), encoding="utf-8")
+    def start_doc(self, off, cut=None):
+        doc = {"features_off": off} if cut is None else {"features_off": off, "features_cut": cut}
+        (self.board / "r1" / "start.json").write_text(json.dumps(doc), encoding="utf-8")
 
     def plan(self, marker, tools=WEB, extra=(), board=True):
         schema = json.dumps({"type": "object", "description": marker, "properties": {}})
@@ -541,6 +543,16 @@ class InjectCase(unittest.TestCase):
         self.assertEqual(p.mode, "merged", p.why)
         self.assertEqual(p.fence["graph_map"], {"skipped": "入力 features_off の graph_map で切った run"})
         self.assertNotIn("# 工程の地図", self.appended(p)[0])
+
+    def test_default_off_features_reach_the_map(self):
+        """start の控えの実効で off の機能（features_cut。既定で off の judge_verify を含む）を地図が切った物として描く。
+        欄の無い前の版の控えは features_off だけ（前の版の既定は全部 on）"""
+        self.start_doc([], cut=["judge_verify"])
+        self.assertIn("(off: verify)", self.appended(self.plan("works-node: plan map"))[0])
+        self.start_doc([])
+        self.assertNotIn("(off: verify)", self.appended(self.plan("works-node: plan map"))[0])
+        self.start_doc([], cut=["graph_map"])
+        self.assertIn("skipped", self.plan("works-node: plan map").fence["graph_map"])
 
     def test_run_switches_reach_the_map(self):
         self.start_doc(["tdd_lanes"])
