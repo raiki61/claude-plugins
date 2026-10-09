@@ -12,7 +12,7 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
   見ない。直す義務の単位（conflict.owed_units_but_asked）を 1 つも名指さない項目も見ない（最後の回に ask_human に止めて直しを
   戻した単位のテストを、通し直しで抜けに数えない。見なかった項目と単位は skipped に OUT_OF_DUTY で残す）。行には項目の単位
   （unit_keys）を載せ、拒否の文にも書く（最後の回の受け付けが行を unit_key で単位に結んで止められる）。base の木は一時の git worktree（--detach。フックは切る）に作り、今の木で
-  base から変わったテストのファイル（tddloop.TEST_FILE の名）と名指しのファイルだけを写して走らせる。今の木で走らせて出来た
+  base から変わったテストのファイル（tddloop.is_test_file: 名指しのパスか名の慣習）と名指しのファイルだけを写して走らせる。今の木で走らせて出来た
   ファイルは消す（書き込みの出どころの突き合わせに載せない）。base の木の結末は名指しごとの鍵（base の版・実行器・名指し・その
   テストのファイルと写す conftest.py の今の中身。_base_keys）で盤面の根の周の置き場の BASE_CACHE に残し、控えに無い名指しだけを
   base の木で走らせる（base は run の中で動かないので、受け付けの回・最後の回の通し直し・2 回目の修正の段をまたいで使い回す。
@@ -20,7 +20,7 @@ TDD の輪の中にだけ在った 2 つの関門を、base（修正前の版。
   実行器に出来れば、ここで now の一式を名指しだけに絞れる）。実行器（入力 tdd_suite）が無ければ帳面の skipped に NO_SUITE。
   実行器が走らない・base の木を作れない時も skipped に理由（拒まない。輪の実行器が走らない時と同じく、回す側の事情で
   受け付けの回数を使わない）
-- test_edits: base から今の木で変わったテストのファイル（tddloop.TEST_FILE の名）のうち、base に在ったテストの関数
+- test_edits: base から今の木で変わったテストのファイル（tddloop.is_test_file: 修正案の受け入れのテスト・書き換えの名指しのパスか名の慣習）のうち、base に在ったテストの関数
   （tddloop.test_functions）の源が変わった・消えた物（tddloop.unnamed_edits）。許すのはテストの変更の許し（conflict.test_permits）の
   行だけ: 承認済みの修正案の rewrite_tests の id（行の test）と、範囲の相談の合意・裁定 fix_test_scope の範囲（裁定は裁定の後の
   受け付けだけ）の中だけを変えた関数。案の直しの単位の行は見ない（前の輪が足したテストは base に無く、ここでは照らさない）。範囲の読みは輪の凍結の検査（tddloop.frozen_problems）と同じ: 1 行の指しの .py はその行を
@@ -85,7 +85,7 @@ def problems(board_dir, repo, base_rev: str, suite: str, attempt: int, *, pass_:
         got, why = _red_green(repo, rev, suite, tests, b.work(f"{RUN}-{pass_}-{attempt}"), _base_cache(b))
         rows += got
         gaps += why
-    rows += _test_edits(b, repo, rev, pass_ == "ruled" or conflict.second_pass(b))
+    rows += _test_edits(b, repo, rev, pass_ == "ruled" or conflict.second_pass(b), [t["id"] for t in tests])
     _record(b, _mark(pass_, attempt), rows, gaps)
     return rows
 
@@ -164,9 +164,10 @@ def _accept_tests(b, fields) -> tuple[list[dict], list[str]]:
     return list(out.values()), why
 
 
-def _test_files(repo, rev: str, tree: str) -> list[str]:
-    """base から木 tree で変わったテストのファイル（tddloop.TEST_FILE の名）"""
-    return [f for f in tddloop.touched(repo, rev, tree) if tddloop.TEST_FILE.match(posixpath.basename(f))]
+def _test_files(repo, rev: str, tree: str, ids=()) -> list[str]:
+    """base から木 tree で変わったテストのファイル（tddloop.is_test_file。宣言は名指し ids のパス）"""
+    declared = {tddloop.id_path(i) for i in ids}
+    return [f for f in tddloop.touched(repo, rev, tree) if tddloop.is_test_file(f, declared)]
 
 
 def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: pathlib.Path, cache: pathlib.Path) -> tuple[list, list]:
@@ -181,7 +182,7 @@ def _red_green(repo: pathlib.Path, rev: str, suite: str, tests: list, work: path
         tddloop.restore_paths(repo, tree, tddloop.touched(repo, tree, tddloop.snapshot(repo)))   # 走らせて出来た物を消す
     if now is None:
         return [], [f"{NO_RUN}（今の木で実行器が走らない: {'; '.join(why)}）"]
-    copy = sorted(set(_test_files(repo, rev, tree)) | {posixpath.normpath(i.partition("::")[0]) for i in ids})
+    copy = sorted(set(_test_files(repo, rev, tree, ids)) | {tddloop.id_path(i) for i in ids})
     keys = _base_keys(repo, rev, suite, ids, copy)
     seen = tddloop.load_json(cache, {})
     need = [i for i in ids if keys[i] not in seen]
@@ -221,7 +222,7 @@ def _base_keys(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list) 
             sorted(tddloop.hashes(repo, [f for f in copy if posixpath.basename(f) == "conftest.py"]).items())]
     out = {}
     for i in ids:
-        f = posixpath.normpath(i.partition("::")[0])
+        f = tddloop.id_path(i)
         raw = json.dumps([*head, i, tddloop.hashes(repo, [f])[f]], ensure_ascii=False)
         out[i] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return out
@@ -265,8 +266,10 @@ def _base_run(repo: pathlib.Path, rev: str, suite: str, ids: list, copy: list, w
         shutil.rmtree(td, ignore_errors=True)
 
 
-def _test_edits(b, repo: pathlib.Path, rev: str, ruled: bool) -> list[dict]:
-    files = _test_files(repo, rev, tddloop.snapshot(repo))
+def _test_edits(b, repo: pathlib.Path, rev: str, ruled: bool, ids=()) -> list[dict]:
+    """ids は修正案の受け入れのテストの名指し（そのパスもテストのファイルと見る。書き換えの名指しのパスも同じ）"""
+    named = [r["id"] for r in planmarks.rewrites(b) if isinstance(r.get("id"), str)]   # テストのファイルの宣言（許しではない）
+    files = _test_files(repo, rev, tddloop.snapshot(repo), [*ids, *named])
     if not files:
         return []
     permits = conflict.test_permits(b, rulings=ruled)   # テストの変更の許しの唯一の元（keep-essence の 3）

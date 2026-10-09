@@ -7,3 +7,6 @@ works/.shared/borrow/superpowers/** -text
 # canary の固定材料（works/dev/canary_fixture.py build が作る。手で書かない）はバイトのまま持つ。改行の変換で控え fixture.json の
 # ファイルごとの sha256・種の写しの木の hash・依頼の sha256 がずれないように変換しない
 works/dev/canary-fixture-units/** -text linguist-generated
+# works の写しの台帳（COPIED_FROM.<名>。拡張子が写しの名なので、試験の選び works/.shared/core/impact.py が読めないコードと
+# 見ないように文書と宣言する）
+works/.shared/core/COPIED_FROM.* linguist-documentation

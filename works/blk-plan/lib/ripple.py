@@ -28,13 +28,13 @@ _CORE = pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
+import impact  # noqa: E402  （.shared/core。テストのファイルの名の慣習 is_test の正本）
 import planmarks  # noqa: E402
 
 # 当たりのファイルがこの数を超える名は数だけ（run 195g の一番広い本物の波及は edge.py の入力の組を共有する 17 の節と試験で、
 # それは全部並べる。境は段 1 の run の当たりの数を見て直す。設計の 7 の 3）
 COMMON_FILES = 25
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_TEST_DIRS = ("tests", "test")
 _TEST_NAME = re.compile(r"^(test_|Test[A-Z_])")   # 試験の関数・クラスの名（足す試験の名で、呼び出し元を引く名でない）
 # 呼び出し元でない文書と生成物（当たりに数えない小さな一覧）: 設計書・古い文書の置き場（段の並びがパスのどこに在っても）と、
 # Archon の pack の写し（.archon/。dogfood が作り直す物）。README など振る舞いを書く文書は契約のずれの元なので数える
@@ -86,10 +86,8 @@ def _git_grep(repo: pathlib.Path, name: str) -> list[tuple[str, int]]:
 
 
 def is_test(path: str) -> bool:
-    parts = pathlib.PurePosixPath(path).parts
-    base = parts[-1] if parts else ""
-    return (any(p in _TEST_DIRS for p in parts[:-1]) or base.startswith("test_") or "_test." in base
-            or ".test." in base or ".spec." in base)
+    """試験の側のファイルか（テストのモジュールか、テストのフォルダの下の支え。名の慣習は impact.is_test の 1 か所）"""
+    return impact.is_test(path) is not None
 
 
 def _test_id(repo: pathlib.Path, path: str, line: int, cache: dict) -> str:

@@ -432,6 +432,18 @@ class TestTestEdits(FixGatesCase):
                 self.assertEqual(got, [] if ok else [("test_edits", THREE_ID)])
 
 
+class TestTestFilesDeclared(FixGatesCase):
+    def test_declared_path_counts_as_test_file(self):
+        """名の慣習に当たらないファイルも、受け入れのテスト・書き換えの名指しのパスならテストのファイル（写す・凍結の照らし）"""
+        self.ready_with_fields(direct_fields())
+        (self.repo / "checks.py").write_text("def test_x():\n    pass\n", encoding="utf-8")
+        (self.repo / "calc_test.go").write_text("package calc\n", encoding="utf-8")
+        tree = fixgates.tddloop.snapshot(self.repo)
+        self.assertEqual(fixgates._test_files(self.repo, self.base, tree), ["calc_test.go"])
+        self.assertEqual(sorted(fixgates._test_files(self.repo, self.base, tree, ["./checks.py::test_x"])),
+                         ["calc_test.go", "checks.py"])
+
+
 class TestLedgerAndText(FixGatesCase):
     def test_ledger_marks_the_attempt_and_does_not_repeat_rows(self):
         """帳面の行は受け付けの回の印（pass・attempt）を持つ。最後の回の通し直しで同じ回に 2 度走っても行は 1 度だけ（preflight F23）"""
