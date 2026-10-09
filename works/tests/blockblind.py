@@ -27,9 +27,7 @@ LATER = "2026-09-28 の依頼で固定。別の run で入力を形と約束で�
 
 # 今ある破れ（減らす方向にだけ変える）: "<works からのパス>:<相手の名>" → (行の数, 理由)
 BLOCK_KNOWN = {
-    ".shared/core/ci_role.py:blk-tests": (2, "docstring と拒否の文が開く条件を blk-tests の final で述べる。" + LATER),
     ".shared/core/purpose.py:blk-premises": (1, "docstring が入力を blk-premises の返答で述べる。" + LATER),
-    "blk-ci/blk-ci.yaml:blk-tests": (1, "description が回す条件を blk-tests の final で述べる。" + LATER),
     "blk-delta/blk-delta.yaml:blk-refix": (1, "コメントが受け付けの欄を blk-refix と比べる。" + LATER),
     "blk-fix/blk-fix.yaml:blk-judge": (2, "inputs の description が入力を blk-judge の出口で述べる。" + LATER),
     "blk-judge/lib/judgebrief.py:blk-material": (1, "docstring が止めた節を blk-material で述べる。" + LATER),

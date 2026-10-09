@@ -73,9 +73,10 @@ import structmark  # noqa: E402
 # 人が止まれる所は最後の人の関所 final-gate。P1-R3）。when: と関所の文は境の節の欄だけを読み、go は盤面の ready から決める（TA1）。
 # rejudge は修正役の異議の再審を回すかを決める（計画 P1 Task 31）。look は最後のテストの後に独立の目を回すかを決め、eyes は
 # 独立の目と最後の関所の後に関所の答えを受ける（人は目の結果を見てから答える。本線の r4.human_gate と同じ順。名 h-eyes は前の並びのまま）
-# replan・regate・refit は修正の段の後・再審の前の案の直し（依頼 226。1 run に 1 回）
+# replan・regate・refit は修正の段の後・再審の前の案の直し（依頼 226。1 run に 1 回）。ci は最後のテストの後に、p4.ci が
+# 任せ先に落ちて待っていれば（test_cmd も宣言も無い run）任せ先の CI の役のブロックを回すかを決める
 AT = ("entry", "judge", "mat", "plan", "gate", "fix", "replan", "regate", "refit", "rejudge", "review", "refix", "tests",
-      "look", "final", "eyes")
+      "ci", "look", "final", "eyes")
 GO_NODE = {"plan": "p2.fix_plan", "fix": "p3.fix", "review": "p3.delta_review", "refix": "p3.delta_fix", "tests": "p4.ci"}
 GATE_AT = ("fix", "refit", "eyes")   # 関所の答えを受ける境の節（fix は policy-gate、refit は replan-gate、eyes は final-gate）
 GATE_GO = ("approve", "continue")    # approve は continue と、reject は stop と同じ（台帳 R32）
@@ -90,7 +91,7 @@ FINAL_GATE_BY = "human:final-gate"           # final-gate の stop・reject の 
 FINAL_GATE_STOP_NOTE = "最後の関所で止めた"  # final-gate の stop・reject に一言が無い時の理由
 FINAL_GATE_KIND = "final_gate"               # process.human_items の行の kinds
 ENDED_BY = "stop_after_round"                # 1 周の run が周を締めた後の盤面の halted.by（最後のテストの後の普通の終わり）
-ENDED_AT = ("look", "final", "eyes")         # 周を締めた後に来る境の節（ENDED_BY の盤面を止めたと読まない）
+ENDED_AT = ("ci", "look", "final", "eyes")   # 周を締めた後に来る境の節（ENDED_BY の盤面を止めたと読まない）
 STOP_AFTER_END_OP = "stop_after_round_end"   # 周を締めた盤面に止める答え・止め札が来た印の trace の行（b.stop は拒まれる）
 PROTECTED_BY = "works:protected"              # 守りのファイルの行の node（human_items）と、答えの無いまま止めた by
 PROTECTED_KIND = "protected_files"            # その行の kinds
@@ -1034,6 +1035,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        （go は再審の節が待っているか。判定役の会話を確かめられなければ止める）。replan: go は replan.material の go（案の直しを
        待つ行が在り、今の周の p3.fix をまだ受けていない）。regate: replan.gate の ask・gate_text・gate_file（今の周の replan.json が
        無ければ何もせず ask 偽）。refit: refit_edge（関所が開かなかった周も答え None で当てる）。
+       ci: go は p4.ci が任せ先に落ちて待っている（entry.role_waits。start の ci_role_go と同じ口）。
        review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。review は先に、固定材料から始めた盤面
        （fixture.adopted）なら包みの確かめ（_adapter_guard。通らなければ止める）。
        final: final_edge（final_gate と最後のテストの出口 tests と独立の目の判定から ask と文）。
@@ -1123,6 +1125,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     if at in ("look", "eyes"):
         return {**out, **eyes_edge(b)}
+    if at == "ci":
+        return {**out, "go": entry.role_waits(b, GO_NODE["tests"])}
     if at == "review" and fixture.adopted(board_dir) is not None:   # 固定材料の盤面で役が起きた後の境の節（h-judge は回した）
         stopped = _adapter_guard(b, board_dir, repo, run_id=run_id, adapter_mode=adapter_mode)
         if stopped:

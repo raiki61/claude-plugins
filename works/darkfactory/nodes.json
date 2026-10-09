@@ -35,7 +35,7 @@
    "p3.delta_fix2":           {"by": "role", "where": "blk-refix"},
    "p3.gates_cut":            {"by": "builtin"},
    "p3.delta_gates":          {"by": "absent", "reason": "変異の検算（ゲートの線）はこのラインに無い", "comes_with": "変異の検算を作る時（線 C は棚上げ 2026-10-09）"},
-   "p4.ci":                   {"by": "engine_run", "fallback": "machine", "where": "blk-tests", "reason": "blk-tests の mode: final が run_engine で走らせる。任せ先に落ちたら、test_cmd が在れば final がそれを走らせた素材を渡し、test_cmd も空なら final の by が role_needed で、ラインが blk-ci（CI の任せ先の役）を node: p4.ci で回す（裁定 R52）"},
+   "p4.ci":                   {"by": "engine_run", "fallback": "machine", "where": "blk-tests", "reason": "blk-tests が run_engine で走らせる。任せ先に落ちたら、test_cmd が在ればそれを走らせた素材を渡し、test_cmd も空なら by が role_needed で p4.ci は任せ先を待ったまま抜け、境の節 h-ci の go（entry.role_waits）が真でラインが blk-ci（CI の任せ先の役）を node: p4.ci で回す（ci-final。裁定 R52）"},
    "p4.scalars":              {"by": "builtin"},
    "p4.assemble":             {"by": "builtin"},
    "r1.comment_candidates":   {"by": "role", "where": "blk-eyes", "skippable": true, "reason": "blk-eyes の読むだけの役（comment-analyzer）。3 回とも受け付けで拒まれたら省いて r1.minimality へ進む（graph の does: 取れなくても R1 の verdict を not_run に倒さない。graph で optional）"},

@@ -14,6 +14,10 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 - 考えの住処の柵の既知の漏れのうち、コードの重なりを住処へ寄せた: 読んだ証拠の置き場の名は `reads` の口（`evidence_name`・`index_name`・`is_index`・`EVIDENCE_GLOB`）から、止め札の名は `halt.STOP_FILE`、宣言のファイルの名は `scopes.MANIFEST`、食い違いの申し出の欄の名は `conflict` の定数から引く。core とブロックの docstring・コメント・YAML の説明・誤りの文は境の節の名を書かず、柵は `h-<語>` の形の全部を見る。run の動きは変わらない。
 
+### Fixed
+
+- テストのコマンドも宣言（`.review-checks.json`）も無い run で、最後のテスト（盤面の p4.ci）が任せ先の役に落ちても、線がその役を回していなかった（今までの run では当たっていない。当たれば p4.ci が待ったままで独立の目が出ず、周が締まらずに報告が record_invalid になる）。線に境の節 `h-ci`（最後のテストの後。go は p4.ci が任せ先を待つ時だけ）と、任せ先の CI の役のブロックの 2 度目の include `ci-final`（node: p4.ci）を足し、`h-look` がそれを待つ。「CI の節が任せ先を待っているか」の判定は `entry.role_waits` 1 か所にまとめ、start の `ci_role_go`・`h-ci`・ブロックの入口（`ci_role`）が同じ口を読む。
+
 ## [0.2.52] - 2026-10-09
 
 ### Changed

@@ -139,10 +139,11 @@ class EdgeBase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
-    def started(self):
+    def started(self, *, declared=True):
         """start の後の盤面（p0.premises が待つ）。種は remote を持たない（forge の無い run）ので、並行 PR の節は機械が条件外にし
-        （任せ先の役を起こさない）、渡す物は無い"""
-        self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
+        （任せ先の役を起こさない）、渡す物は無い。declared が偽なら種にテストの宣言を置かず（test_cmd も空）、修正前の CI の節
+        p0.local_checks は任せ先の役を待つ（start の ci_role_go）"""
+        self.repo = linekit.seed_repo(self.tmp / "repo", declared=declared)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True)
         req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
@@ -150,7 +151,8 @@ class EdgeBase(unittest.TestCase):
         self.board = self.art / "board"
         raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "", "policy_md": ""}
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
-        self.assertEqual(entry.open_board(self.board).node_state("p0.parallel_pr"), "na")
+        if declared:   # 宣言の無い種は p0.parallel_pr が p0.local_checks（任せ先の役を待つ）の後に出る
+            self.assertEqual(entry.open_board(self.board).node_state("p0.parallel_pr"), "na")
 
     def premised(self):
         """前提の役と目的の文まで受けた盤面（p2.diagnose が待つ）"""
@@ -978,6 +980,39 @@ class GoCase(EdgeBase):
         self.take("p3.delta_fix", DELTA_FIX)
         self.assertEqual({at: self.edge(at)["go"] for at in ("review", "refix", "tests")},
                          {"review": False, "refix": False, "tests": True})
+        # 最後のテストの前: p4.ci は ready でも任せ先に落ちていないので、任せ先の CI の役は回さない
+        self.assertFalse(self.edge("ci")["go"])
+        self.assertEqual(entry.run_ci(entry.open_board(self.board), "p4.ci", test_cmd="")["by"], "engine")
+        self.assertFalse(self.edge("ci")["go"])   # engine が宣言を走らせて渡した
+
+    def test_ci_go_when_final_test_falls_to_role(self):
+        """テストのコマンドも宣言も無い run: 最後のテスト（p4.ci）が任せ先に落ちて待つ間だけ at ci の go が真（線が任せ先の CI の
+        役のブロックを p4.ci で回す）。役が渡した後は偽"""
+        import ci_role
+        self.started(declared=False)
+        b = entry.open_board(self.board)
+        self.assertTrue(entry.role_waits(b, "p0.local_checks"))
+        self.assertFalse(self.edge("ci")["go"])   # 修正前の CI の節は start の ci_role_go が回す（at ci の仕事でない）
+        self.take("p0.local_checks", linekit.reply("ci_found"))
+        entry.resume_after_ci(entry.open_board(self.board))
+        self.assertEqual(entry.open_board(self.board).node_state("p0.parallel_pr"), "na")
+        self.take("p0.premises", {"constraints": []})
+        linekit.pre_judge(self.board, self.repo)
+        self.take("p2.diagnose", linekit.reply("judge_ok"))
+        self.take("p2.fix_plan", plan_reply())
+        self.take("p2.plan_review", linekit.reply("plan_review_regression"))
+        accept.write_board(self.board, design.DESIGN_FILE, linekit.reply("design_ok"))
+        self.fix_after_plan("")
+        self.take("p3.delta_review", DELTA_REVIEW)
+        self.take("p3.delta_fix", DELTA_FIX)
+        self.assertEqual((self.edge("tests")["go"], self.edge("ci")["go"]), (True, False))
+        self.assertEqual(entry.run_ci(entry.open_board(self.board), "p4.ci", test_cmd="")["by"], "role_needed")
+        self.assertTrue(self.edge("ci")["go"])
+        self.assertTrue(entry.role_waits(entry.open_board(self.board), "p4.ci"))
+        ci_role.snapshot(self.board, "p4.ci", self.repo)
+        ci_role.prep(self.board, "p4.ci", self.repo)
+        self.assertTrue(ci_role.take(self.board, "p4.ci", linekit.reply("ci_found"), self.repo, "optional")["ok"])
+        self.assertFalse(self.edge("ci")["go"])
 
     def test_review_not_go_after_empty_fix(self):
         """直す物の無い周で機械が空の返答を渡した（trace の by works:empty-fix）→ 差分の審査は回さず、最後のテストへ"""

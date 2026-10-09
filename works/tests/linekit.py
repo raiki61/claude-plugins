@@ -366,7 +366,11 @@ LINE_ORDER = [
     _edge("h-tests", "tests", ["start", "h-refix", "refixing"]),
     {"id": "testing", "kind": "include", "block": "blk-tests", "depends_on": ["h-tests"],
      "when": "$h-tests.output.go == true", "with": {"cmd": "$start.output.test_cmd"}},
-    _edge("h-look", "look", ["start", "h-tests", "testing"]),
+    # 最後のテストが任せ先に落ちた（test_cmd も宣言も無い）時だけ、任せ先の CI の役のブロックが p4.ci を渡す
+    _edge("h-ci", "ci", ["start", "h-tests", "testing"]),
+    {"id": "ci-final", "kind": "include", "block": "blk-ci", "depends_on": ["h-ci"], "when": "$h-ci.output.go == true",
+     "with": {"node": "p4.ci"}},
+    _edge("h-look", "look", ["start", "h-tests", "testing", "h-ci", "ci-final"]),
     {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-look"], "when": "$h-look.output.go == true",
      "with": {"skip_optional": "$h-redepth.output.skip"}},
     _edge("h-final", "final", ["start", "h-tests", "testing", "h-look", "eyeing"], tests=_skippable("$testing.output")),
@@ -405,10 +409,11 @@ class LineRun:
     包みを通さずに回す）。呼び手の inputs はその上に重ねる。役の返答は replies[役]、役が作業ツリーに当てる変更は edits[役]（repo を受ける関数）、関所の答えは
     gates[関所]（無ければ continue・空の一言）、stop_at の境の節の前に止め札を置く。sessions なら start の後に包みの家へ
     判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run。無ければ包みを通らない run と同じ）。request は依頼の
-    ファイルに書く中身（JSON の値。無ければ種の request_ok.json）"""
+    ファイルに書く中身（JSON の値。無ければ種の request_ok.json）。declared が偽なら種にテストの宣言を置かない（test_cmd も
+    空なら CI の節が任せ先に落ち、任せ先の CI の役のブロック blk-ci が回る。役の返答は replies["ci"]、無ければ ci_found）"""
 
     def __init__(self, tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False, request=None,
-                 github=False):
+                 github=False, declared=True):
         import entry  # noqa: F401  （.shared/core は頭で sys.path に足してある）
         self.tmp = pathlib.Path(tmp)
         self.replies, self.gates, self.edits = replies, gates or {}, edits or {}
@@ -416,7 +421,9 @@ class LineRun:
         self.inputs = {**{k: "" for k in start_with if k != "request"}, "adapter": "optional", **(inputs or {})}
         self.stop_at = stop_at
         self.sessions = sessions
-        self.repo = seed_repo(self.tmp / "repo", declared=True)
+        self.repo = seed_repo(self.tmp / "repo", declared=declared)
+        self.row = None        # 回している線の行（include の with: を読むブロックの口が使う）
+        self.ci_nodes = []     # blk-ci が渡した CI の節（回した順）
         # github なら origin を GitHub の形にして交差する偽の gh を置く（並行 PR の任せ先の役 blk-pr が回る run）。無ければ種は
         # remote を持たず forge の無い run（並行 PR は機械が条件外にし、blk-pr は回らない）
         self.path = github_crossing(self.repo, self.tmp) if github else None
@@ -462,6 +469,22 @@ class LineRun:
         if not got["ok"]:
             raise AssertionError(got["reason"])
         return prcheck.collect(self.board)
+
+    def blk_ci(self):
+        """blk-ci の中の節の順（ci-fence → ci-snap → 支度・受け付けの輪 → 出口 collect）を ci_role の口で回す。節は線の行の
+        with: の node。役の返答は replies["ci"]（無ければ ci_found の見本）"""
+        import ci_role
+        node = self.row["with"]["node"]
+        fence = ci_role.fence(self.board, node, self.repo)
+        if fence["go"]:
+            ci_role.snapshot(self.board, node, self.repo)
+            for _ in range(ci_role.GIVE_UP_AFTER):
+                ci_role.prep(self.board, node, self.repo)
+                if ci_role.take(self.board, node, self.replies.get("ci", reply("ci_found")), self.repo,
+                                fence["adapter"])["done"]:
+                    break
+        self.ci_nodes.append(node)
+        return ci_role.collect(self.board, node, fence["adapter"])
 
     def blk_premises(self):
         f = self._file("premises.json", self.replies.get("premises", {"constraints": []}))
@@ -728,6 +751,8 @@ class LineRun:
         ci = entry.run_ci(b, "p4.ci", test_cmd=self.out["start"]["test_cmd"])
         b.settle()
         b = entry.open_board(self.board, allow_halted=True)
+        if ci["by"] == "role_needed":   # blk-tests の run_final と同じ: 素材はまだ修正前の物なので読まない
+            return {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"}
         mat = ((b.record.get("materials") or {}).get("local_checks") or {})
         return {"ok": True, "green": mat.get("status") == "clean", "log": ci["log"], "suites": [], "by": ci["by"]}
 
@@ -766,7 +791,7 @@ class LineRun:
         import halt
         import line_edge
         import report
-        blocks = {"blk-pr": self.blk_pr, "blk-premises": self.blk_premises, "blk-purpose": self.blk_purpose,
+        blocks = {"blk-ci": self.blk_ci, "blk-pr": self.blk_pr, "blk-premises": self.blk_premises, "blk-purpose": self.blk_purpose,
                   "blk-judge": self.blk_judge, "blk-plan": self.blk_plan, "blk-fix": self.blk_fix, "blk-lens": self.blk_lens,
                   "blk-delta": self.blk_delta,
                   "blk-refix": self.blk_refix, "blk-tests": self.blk_tests, "blk-eyes": self.blk_eyes,
@@ -774,6 +799,7 @@ class LineRun:
                   "blk-structure": self.blk_structure}
         for row in LINE_ORDER:
             nid = row["id"]
+            self.row = row
             if nid == "launch":
                 self.trail.append(nid)
             elif nid == "start":
@@ -829,12 +855,12 @@ class LineRun:
         rep = self.out["result"]
         return {"outcome": rep["outcome"], "report": rep, "board_dir": self.board, "trail": self.trail, "out": self.out,
                 "eyes_roles": self.eyes_roles, "mat_roles": self.mat_roles, "judge_brief": self.judge_brief,
-                "judge_takes": self.judge_takes, "rejudge_roles": self.rejudge_roles}
+                "judge_takes": self.judge_takes, "rejudge_roles": self.rejudge_roles, "ci_nodes": self.ci_nodes}
 
 
 def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False, request=None,
-             github=False) -> dict:
+             github=False, declared=True) -> dict:
     """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles, mat_roles, judge_brief, judge_takes,
-    rejudge_roles}"""
+    rejudge_roles, ci_nodes}"""
     return LineRun(tmp, replies=replies, gates=gates, inputs=inputs, stop_at=stop_at, edits=edits, sessions=sessions,
-                   request=request, github=github).run()
+                   request=request, github=github, declared=declared).run()

@@ -300,6 +300,34 @@ class LineCase(LineBase):
         section = text.split("## 未確認のレンズ", 1)[1].split("\n## ", 1)[0]
         self.assertEqual(section.strip(), "- レンズを走らせていない（控えが無い）")
 
+    def test_no_test_command_final_test_by_ci_role(self):
+        """テストのコマンドも宣言も無い run: 修正前（p0.local_checks）と最後のテスト（p4.ci）の両方を任せ先の CI の役のブロックが
+        渡し、最後のテストの後に独立の目と最後の関所が回って報告が fixed（前は p4.ci が任せ先を待ったまま目が出ず、周が締まらずに
+        record_invalid だった）。最後のテストの緑赤は役が p4.ci に渡した素材から読む"""
+        clean = {"material": {"status": "clean", "count": 0, "checked": "写しの上で python3 -m unittest test_stats: exit 0"}}
+        got = self.run_line(replies={**replies(), "ci": clean}, declared=False,
+                            gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}})
+        self.order_ok(got["trail"])
+        self.assertEqual(got["ci_nodes"], ["p0.local_checks", "p4.ci"])
+        self.assertEqual(got["out"]["testing"]["by"], "role_needed")
+        self.assertIs(got["out"]["h-ci"]["go"], True)
+        self.assertEqual((got["out"]["ci-final"]["ok"], got["out"]["ci-final"]["status"]), (True, "clean"))
+        for nid in ("ci-checking", "testing", "ci-final", "eyeing", "final-gate"):
+            self.assertIn(nid, got["trail"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertEqual(b.node_state("p4.ci"), "done")
+        self.assertEqual(b.record["process"]["checks"]["p4.ci"]["by"], "role")
+        text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
+        self.assertEqual(got["outcome"], "fixed", text)
+        self.assertIn("任せ先の CI の役 blk-ci が選んだ一式（素材の status clean）", text)
+
+    def test_declared_run_skips_ci_final(self):
+        """宣言の在る run は最後のテストを engine が走らせるので、境の節 h-ci の go は偽で任せ先の CI の役は回らない"""
+        got = self.run_line(gates={"policy-gate": {"decision": "continue", "text": "clamp の上限は hi でよい"}})
+        self.assertIs(got["out"]["h-ci"]["go"], False)
+        self.assertNotIn("ci-final", got["trail"])
+        self.assertEqual(got["ci_nodes"], [])
+
     def test_premises_before_judge(self):
         """前提の実測は判定より前で、判定の入口の premises_file は盤面の p0.premises の出力"""
         got = self.run_line()

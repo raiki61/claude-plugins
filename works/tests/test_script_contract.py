@@ -7,7 +7,8 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 ここでは tests/scriptline.py が線 darkfactory を YAML のとおりに本物のスクリプトで回し（役と関所だけを見本で置き換える）、
 起こした全部の script の節の標準出力を節の output_format に当てる。筋書きは出口の道を分ける:
 - full: 全部の役の 1 回目を拒ませ（受け付けの拒否の出口）、TDD の輪（実行器あり・全部 direct）・2 回目の差分の審査を通す
-- ci-final-stop: テストの宣言が無い種（CI の任せ先の役 blk-ci）・最後の関所の stop（AI の報告のブロックが走る）
+- ci-final-stop: テストの宣言が無い種（CI の任せ先の役 blk-ci が修正前の p0.local_checks と、最後のテストの後に p4.ci を渡す）・
+  最後の関所の stop（AI の報告のブロックが走る）
 - give-up: 修正案の役が 3 回とも拒まれて諦める（盤面が止まり、残りは飛んで報告だけが走る）
 - material-give-up: 素材集めの役が 3 回とも拒まれて諦める（run 30）。判定の支度が止まった盤面を見て判定役を起こさず、報告まで届く
 - fix-give-up・unchanged-file: 修正の輪が 3 回とも拒まれる・申告したファイルが変わっていない（run 26）→ assert-changed が
@@ -286,6 +287,16 @@ class ScriptContractCase(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(got["completed"], got["failure"])
                 self.assertEqual(got["out"]["result"]["outcome"], OUTCOMES[name])
+
+    def test_no_test_command_final_test_by_ci_role(self):
+        """テストのコマンドも宣言も無い種（ci-final-stop）: 最後のテストが任せ先に落ち、境の節 h-ci の go で任せ先の CI の役の
+        ブロックが 2 度目（ci-final。節 p4.ci）に回り、その後に独立の目が回る（前は p4.ci が待ったままで目が出なかった）"""
+        got = self.got["ci-final-stop"]
+        collected = [r["out"]["node"] for r in got["runs"] if (r["block"], r["node"]) == ("blk-ci", "collect")]
+        self.assertEqual(collected, ["p0.local_checks", "p4.ci"])
+        trail = got["trail"]
+        self.assertLess(trail.index("darkfactory/testing"), trail.index("darkfactory/ci-final"))
+        self.assertLess(trail.index("darkfactory/ci-final"), trail.index("darkfactory/eyeing"))
 
     def test_stop_before_judge_reaches_report(self):
         """素材集めが諦めて盤面を止めた（run 30）: 判定役は起きず（judge-brief が go 偽）、境の節と報告と出口が走る。
