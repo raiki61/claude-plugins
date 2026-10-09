@@ -6,6 +6,9 @@
   null にし、missing はフックだけで決める（審査 I6）。受け付けの条件にはしない（全部 missing でも ok 真）
 - 包みの起動の記録（<包みの家>/launches/<cwd の hash>.jsonl。T5 の形）から、この run の役の起動を数える（adapter_seen）
 - ブロックの <役>-reads の節（blk-fix・blk-delta・blk-pr の scripts/reads.py）が main_for を通して 1 行を出す
+- 役が web を引いた記録（web_fetches・web_searches）: 節の tool_called の WebFetch の URL と WebSearch の問いを、出来事の順に重ねず
+  並べる。行の形は実物の行（tests/events/db-rows-web.json。run 167e14c3 の archon.db の行）で確かめた（WEB_EVENTS_VERIFIED）。
+  collect は読んだ証拠に web の欄として書く（出来事が無い・形を確かめていない時は null。「引かなかった」と取り違えない）
 盤面は本物の darkfactory の表で linekit の種から entry.start で 1 回だけ作る（クラスに 1 回。git と子のプロセスを使うので heavy）
 """
 import fnmatch
@@ -39,7 +42,23 @@ import hermetic  # noqa: E402
 
 PLAN = reads.node_path("planning", "plan-loop", "plan")
 FIX = reads.node_path("fixing", "fix-loop", "fix")
+JUDGE = reads.node_path("judging", "judge-loop", "judge")
+REVIEW = reads.node_path("planning", "converge-loop.plan-review-loop", "plan-review")
+REVIEW_URLS = ["https://github.com/obra/superpowers/blob/main/skills/test-driven-development/SKILL.md",
+               "https://github.com/jstemmer/go-junit-report/issues/105",
+               "https://github.com/pytest-dev/pytest/discussions/7950",
+               "https://github.com/jstemmer/go-junit-report/tree/master/testdata",
+               "https://raw.githubusercontent.com/jstemmer/go-junit-report/master/testdata/013-report.xml"]
+JUDGE_QUERIES = ['superpowers test-driven-development SKILL.md "Verify RED" fails for expected reason',
+                 "JUnit XML report difference between failure and error element",
+                 "go-junit-report build failed package compile error testcase output"]
 CLI_TAIL = ["workflow", "get", "run-6", "--verbose", "--events", "--json"]
+
+
+def web_rows(repo) -> list:
+    """実物の行（run 167e14c3 の役の web の tool_called。@REPO@ を repo に差し替える）"""
+    text = (EVENTS / "db-rows-web.json").read_text(encoding="utf-8").replace("@REPO@", str(repo))
+    return json.loads(text)["events"]
 
 
 def events_with(repo) -> list:
@@ -204,6 +223,56 @@ class CollectTest(BoardCase):
         self.assertEqual(doc["sources"], {"hook": False, "events": "verified"})
         self.assertEqual([r["event"] for r in doc["rows"]], [True, False])
         self.assertEqual(doc["missing"], [other], "出来事で読んだ物は missing にしない")
+
+    def test_collect_records_web_of_node(self):
+        """読んだ証拠に、その節が web で取得した URL と検索の問いを書く（後で抜き書きを照らすため）。読むべき物の行と missing は
+        web で変わらない。出来事が無ければ web は null（引かなかったのか分からない）"""
+        must = self.doc("plan.md")
+        evs = web_rows(self.docs)
+        doc = self.written(self.collect("plan-review", REVIEW, [must], evs))
+        self.assertEqual(doc["web"], {"fetches": REVIEW_URLS, "searches": ['go-junit-report "[build failed]" testcase classname']})
+        self.assertEqual(doc["rows"], [{"path": must, "hook": "none", "event": False}])
+        self.assertEqual(doc["missing"], [must])
+        self.assertEqual(self.written(self.collect("judge", JUDGE, [must], evs))["web"], {"fetches": [], "searches": JUDGE_QUERIES})
+        self.assertIsNone(self.written(self.collect("plan-review", REVIEW, [must], None))["web"])
+        with mock.patch.object(reads, "WEB_EVENTS_VERIFIED", False):
+            self.assertIsNone(self.written(self.collect("plan-review", REVIEW, [must], evs))["web"])
+
+
+class WebTest(unittest.TestCase):
+    """役が web を引いた記録（盤面を使わない。関数を直に呼ぶ）"""
+
+    def test_web_fetches_from_real_rows(self):
+        """実物の行: 事前審査の役は WebFetch を 8 回呼び、URL は 5 つ（同じ URL を開き直した分は重ねない。出来事の順）。
+        判定役はこの run で WebFetch を呼んでいない"""
+        self.assertIs(reads.WEB_EVENTS_VERIFIED, True)
+        evs = web_rows("/repo")
+        self.assertEqual(reads.tool_count(evs, REVIEW, "WebFetch"), 8)
+        self.assertEqual(reads.web_fetches(evs, REVIEW), REVIEW_URLS)
+        self.assertEqual(reads.web_fetches(evs, JUDGE), [])
+
+    def test_web_searches_from_real_rows(self):
+        evs = web_rows("/repo")
+        self.assertEqual(reads.web_searches(evs, JUDGE), JUDGE_QUERIES)
+        self.assertEqual(reads.web_searches(evs, REVIEW), ['go-junit-report "[build failed]" testcase classname'])
+        self.assertEqual(reads.web_searches(evs, PLAN),
+                         ['Archon workflow YAML node "when" condition output field missing evaluates'])
+
+    def test_no_events_returns_empty(self):
+        for evs in (None, []):
+            with self.subTest(evs=evs):
+                self.assertEqual(reads.web_fetches(evs, REVIEW), [])
+                self.assertEqual(reads.web_searches(evs, JUDGE), [])
+
+    def test_outer_loop_prefix_and_bad_inputs(self):
+        """外の輪の頭が付いた節も数え、URL・問いが文字列でない・空の行は落とす（Read の行は web に数えない）"""
+        def ev(step, tool, **inp):
+            return {"event_type": "tool_called", "step_name": step, "data": {"tool_name": tool, "tool_input": inp}}
+        evs = [ev("rounds." + REVIEW, "WebFetch", url="https://a.example/x", prompt="p"), ev(REVIEW, "WebFetch", url=""),
+               ev(REVIEW, "WebFetch", url=3), ev(REVIEW, "WebFetch"), ev(REVIEW, "Read", file_path="/x"),
+               ev(REVIEW, "WebSearch", query="  "), ev(REVIEW, "WebSearch", query="q"), "壊れた行"]
+        self.assertEqual(reads.web_fetches(evs, REVIEW), ["https://a.example/x"])
+        self.assertEqual(reads.web_searches(evs, REVIEW), ["q"])
 
 
 class EventsForTest(unittest.TestCase):

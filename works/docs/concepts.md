@@ -111,7 +111,7 @@ works の用語（全体は `README.md` と `docs/darkfactory-flow.md`）のう�
 ### `reads` 読んだ証拠
 
 - 状態: 住処あり
-- 住処: `.shared/core/reads.py`（集める口と、盤面の置き場の名の口 `evidence_name`（役ごとの証拠）・`index_name`（集めた側の索引）・`is_index`・`EVIDENCE_GLOB`。置き場の名を使う所はこの口から引く。引けない所は柵の表の既知の漏れ）
+- 住処: `.shared/core/reads.py`（集める口と、盤面の置き場の名の口 `evidence_name`（役ごとの証拠）・`index_name`（集めた側の索引）・`is_index`・`EVIDENCE_GLOB`。置き場の名を使う所はこの口から引く。引けない所は柵の表の既知の漏れ。役が web を引いた記録 `web_fetches`（取得した URL）・`web_searches`（検索の問い）も出来事から引き、証拠の欄 `web` に書く）
 - 約束: `.shared/core/reads.schema.json`
 - 知ってよい所: 住処・包み `.shared/core/adapter.py`（読んだ記録の置き場）・Read のフックの殻 `.shared/core/record-read.py`・各ブロックの口 `blk-*/scripts/reads.py`（`blk-delta`・`blk-fix`・`blk-plan`・`blk-pr`・`blk-refix`）・それらの宣言 `blk-*/manifest.json`
 

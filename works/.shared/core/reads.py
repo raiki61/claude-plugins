@@ -16,6 +16,9 @@
    （step_name `<include>__<輪>.<節>`・data.tool_name・data.tool_input.file_path）は、canary の run の archon.db の行で確かめた
    （2026-10-09。見本は tests/events/db-rows-plan.json。CLI の出す行は DB の行と同じ列——P13）ので EVENTS_VERIFIED は真。
    偽に戻すと、出来事が取れても出どころを "unverified"・各行の event を null にする（「読んでいない」と取り違えない。審査 I6）
+   役が web を引いた記録も同じ出来事から引く: tool_called の data.tool_name が WebFetch の data.tool_input.url と、WebSearch の
+   data.tool_input.query。行の形は run 167e14c3 の archon.db の行で確かめた（2026-10-09。見本は tests/events/db-rows-web.json）ので
+   WEB_EVENTS_VERIFIED は真。偽に戻すと読んだ証拠の web の欄を null にする（「引かなかった」と取り違えない）
 
 口:
 - events_for(run_id) -> list | None
@@ -24,9 +27,12 @@
 - node_path(include, loop, node) -> str
 - tool_count(events, node_path, tool) -> int・tool_inputs(events, node_path, tool) -> [tool_input]（節の道具の呼びの数と入力。
   事前審査の束ね役の下請けの数と型を測る）
+- web_fetches(events, node_path) -> [URL]・web_searches(events, node_path) -> [問い]（節が WebFetch で取得した URL と WebSearch の
+  問い。出来事の順で重ねない。events が無ければ []。世界の解の段が、抜き書きの URL を役が本当に取得したかを照らす）
 - node_here(loop, node) -> str（今の script が居る include の名 flow_adapter.current_scope で組んだ node_path）
 - evidence_name(role)・index_name(owner)・is_index(name)・EVIDENCE_GLOB（盤面の読んだ証拠の置き場の名の口）
-- collect(board_dir, role, node_path, must_read, events, *, repo=None) -> {ok: True, sources, missing, reads_file}
+- collect(board_dir, role, node_path, must_read, events, *, repo=None) -> {ok: True, sources, missing, reads_file}（読んだ証拠の
+  ファイルには節の web の記録 web も書く）
 - adapter_seen(board_dir, run_id, *, repo=None) -> {seen, merged, passthrough, whys}
 - main_for(role, loop, node) -> int（ブロックの `<役>-reads` の節のスクリプトの入口。include の名は flow_adapter.current_scope）
 """
@@ -51,6 +57,7 @@ import flow_adapter  # noqa: E402
 import script_io  # noqa: E402
 
 EVENTS_VERIFIED = True   # tool_called の Read の形を実物の行で確かめた（tests/events/db-rows-plan.json。2026-10-09）
+WEB_EVENTS_VERIFIED = True   # tool_called の WebFetch・WebSearch の形を実物の行で確かめた（tests/events/db-rows-web.json。2026-10-09）
 HOOK_SEEN = ("read", "stale", "partial")   # フックで「読んだ跡が在る」状態（missing に数えない）
 CLI_ENV = "ARCHON_CLI_COMMAND"
 RUN_ENV = "WORKFLOW_ID"
@@ -179,6 +186,22 @@ def tool_inputs(events, node_path: str, tool: str) -> list:
             for d in _steps(events, node_path) if d.get("tool_name") == tool]
 
 
+def _web_inputs(events, node_path: str, tool: str, key: str) -> list:
+    """節 node_path の道具 tool の呼びの tool_input[key]（空白だけでない文字列。出来事の順で重ねない）"""
+    vals = (inp.get(key) for inp in tool_inputs(events, node_path, tool))
+    return list(dict.fromkeys(v for v in vals if isinstance(v, str) and v.strip()))
+
+
+def web_fetches(events, node_path: str) -> list:
+    """節 node_path が WebFetch で取得した URL（出来事の順で重ねない。events が無ければ []）"""
+    return _web_inputs(events, node_path, "WebFetch", "url")
+
+
+def web_searches(events, node_path: str) -> list:
+    """節 node_path が WebSearch で引いた問い（出来事の順で重ねない。events が無ければ []）"""
+    return _web_inputs(events, node_path, "WebSearch", "query")
+
+
 def _read_paths(events, node_path: str) -> set:
     """events のうち節 node_path の tool_called の Read が読んだファイル（realpath の集合）。周の輪（線 B）の中に置いた
     include は `rounds.` のような外の輪の頭が付くので、名前が node_path と同じか `.<node_path>` で終わる行を数える。
@@ -214,7 +237,9 @@ def collect(board_dir, role: str, node_path: str, must_read: list, events, *, re
     - sources.hook: 包みのフックの記録（repo の reads.jsonl）が在るか。sources.events: events が None なら "none"、
       EVENTS_VERIFIED が偽なら "unverified"（各行の event は None）、真なら "verified"（各行の event は真偽）
     - missing: フックで read・stale・partial のどれでもなく、verified の出来事でも読んでいないパス
-    - 相対のパスは repo（省けば cwd。役の worktree）に解決して測る。行の path は渡された綴りのまま"""
+    - 相対のパスは repo（省けば cwd。役の worktree）に解決して測る。行の path は渡された綴りのまま
+    - web: 節が web で取得した URL と検索の問い {fetches, searches}（web_fetches・web_searches）。events が None か
+      WEB_EVENTS_VERIFIED が偽なら null。読むべき物の行と missing には数えない"""
     repo = pathlib.Path(repo) if repo is not None else pathlib.Path.cwd()
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
     sink = adapter.reads_dir(repo)
@@ -236,7 +261,9 @@ def collect(board_dir, role: str, node_path: str, must_read: list, events, *, re
             missing.append(p)
     sources = {"hook": hook_on, "events": ev_src}
     out = b.work(evidence_name(role))
-    _write_json(out, {"role": role, "node_path": node_path, "rows": rows, "sources": sources, "missing": missing})
+    web = (None if events is None or not WEB_EVENTS_VERIFIED
+           else {"fetches": web_fetches(events, node_path), "searches": web_searches(events, node_path)})
+    _write_json(out, {"role": role, "node_path": node_path, "rows": rows, "sources": sources, "missing": missing, "web": web})
     return {"ok": True, "sources": sources, "missing": missing, "reads_file": str(out)}
 
 

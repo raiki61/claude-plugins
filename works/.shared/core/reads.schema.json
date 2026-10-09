@@ -10,6 +10,10 @@
            "properties": {"path": {"type": "string"}, "hook": {"type": "string"}, "event": {"type": ["boolean", "null"]}}}},
   "sources": {"type": "object", "required": ["hook", "events"],
               "properties": {"hook": {"type": "boolean"}, "events": {"type": "string", "enum": ["none", "unverified", "verified"]}}},
-  "missing": {"type": "array", "items": {"type": "string"}}
+  "missing": {"type": "array", "items": {"type": "string"}},
+  "web": {"description": "節が web で取得した URL（WebFetch）と検索の問い（WebSearch）。出来事が無い・形を確かめていない時は null。前の版の証拠には無い",
+          "type": ["object", "null"], "required": ["fetches", "searches"],
+          "properties": {"fetches": {"type": "array", "items": {"type": "string"}},
+                         "searches": {"type": "array", "items": {"type": "string"}}}}
  }
 }

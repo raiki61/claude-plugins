@@ -1,0 +1,237 @@
+{
+ "_note": "2026-10-09 に run 167e14c3（Archon v0.11.1。世界の解の段の計画 docs/plans/2026-10-09-world-solution.md の 1 節の run）の archon.db の remote_agent_workflow_events から、役が web を引いた tool_called の行を全部（判定役 judging__judge-loop.judge の WebSearch 3 本・修正案の役 planning__plan-loop.plan の WebSearch 1 本・事前審査の役 planning__converge-loop.plan-review-loop.plan-review の WebFetch 8 本と WebSearch 1 本）と、比べのための判定役の Read の行 1 本を写した（data は JSON を解いた形。ARCHON_CLI_COMMAND の workflow get --verbose --events --json が返す行と同じ列——tests/events/verbose-p13.json）。この run の判定役は WebFetch を呼んでいない。run の作業ツリーのパスは @REPO@ に伏せた。tool_called の WebFetch の行の形（data.tool_name・data.tool_input.url・data.tool_input.prompt）と WebSearch の行の形（data.tool_input.query）の実物",
+ "events": [
+  {
+   "id": "be91b289-322c-4d1a-8053-954c05142c27",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 170,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "judging__judge-loop.judge",
+   "data": {
+    "tool_name": "Read",
+    "tool_input": {
+     "file_path": "@REPO@/works/docs/plans/2026-10-09-lang-neutral-red.md"
+    },
+    "tool_call_id": "toolu_01UspjjDRhMDFFVyLSC1pyFU"
+   },
+   "created_at": "2026-10-09 10:16:33"
+  },
+  {
+   "id": "ac88ba5e-4ab5-4e20-b4aa-749f135b0aec",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 252,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "judging__judge-loop.judge",
+   "data": {
+    "tool_name": "WebSearch",
+    "tool_input": {
+     "query": "superpowers test-driven-development SKILL.md \"Verify RED\" fails for expected reason"
+    },
+    "tool_call_id": "toolu_01HjCnx7NL8Z1hVG9NrS6CvM"
+   },
+   "created_at": "2026-10-09 10:19:17"
+  },
+  {
+   "id": "7c807616-986a-4509-85c8-d6c501514a9c",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 253,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "judging__judge-loop.judge",
+   "data": {
+    "tool_name": "WebSearch",
+    "tool_input": {
+     "query": "JUnit XML report difference between failure and error element"
+    },
+    "tool_call_id": "toolu_013yPcFDmK3KeyDzVnm37dWp"
+   },
+   "created_at": "2026-10-09 10:19:17"
+  },
+  {
+   "id": "89597363-8657-4118-a1ff-33c44dc9d2ec",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 262,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "judging__judge-loop.judge",
+   "data": {
+    "tool_name": "WebSearch",
+    "tool_input": {
+     "query": "go-junit-report build failed package compile error testcase output"
+    },
+    "tool_call_id": "toolu_01H27ZLPWycB5yyoGHFd32o3"
+   },
+   "created_at": "2026-10-09 10:21:06"
+  },
+  {
+   "id": "5a9b3310-32d1-454a-9c8e-15e94acf241f",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 562,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__plan-loop.plan",
+   "data": {
+    "tool_name": "WebSearch",
+    "tool_input": {
+     "query": "Archon workflow YAML node \"when\" condition output field missing evaluates"
+    },
+    "tool_call_id": "toolu_01LxmHt7ewQh45cSPmgDrx5z"
+   },
+   "created_at": "2026-10-09 10:35:37"
+  },
+  {
+   "id": "b4167aaa-f433-407a-bedd-90bb222daf6a",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 910,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__converge-loop.plan-review-loop.plan-review",
+   "data": {
+    "tool_name": "WebFetch",
+    "tool_input": {
+     "url": "https://github.com/obra/superpowers/blob/main/skills/test-driven-development/SKILL.md",
+     "prompt": "Quote verbatim the \"Verify RED\" section: what must be confirmed about how the test fails (feature missing vs typos, errors vs failures)."
+    },
+    "tool_call_id": "toolu_018k3ybZmhokDLDNjBYdQr5t"
+   },
+   "created_at": "2026-10-09 10:46:59"
+  },
+  {
+   "id": "b51f47af-3f33-47d3-83b7-ec4652566afd",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 1060,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__converge-loop.plan-review-loop.plan-review",
+   "data": {
+    "tool_name": "WebFetch",
+    "tool_input": {
+     "url": "https://github.com/jstemmer/go-junit-report/issues/105",
+     "prompt": "How does go-junit-report v2 represent build failures in the JUnit XML? Give the testcase name and classname attributes used for build failures, quoting any XML example."
+    },
+    "tool_call_id": "toolu_01JbmuG6iVMQr5nRnhCouog7"
+   },
+   "created_at": "2026-10-09 10:56:12"
+  },
+  {
+   "id": "42ae9e87-f586-4897-bad7-3c991363ffd0",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 1062,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__converge-loop.plan-review-loop.plan-review",
+   "data": {
+    "tool_name": "WebSearch",
+    "tool_input": {
+     "query": "go-junit-report \"[build failed]\" testcase classname"
+    },
+    "tool_call_id": "toolu_01J52C8h3kUvj2XpRBgVghYC"
+   },
+   "created_at": "2026-10-09 10:56:18"
+  },
+  {
+   "id": "007fa193-200f-4384-812b-3b36ce6bf3b4",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 1086,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__converge-loop.plan-review-loop.plan-review",
+   "data": {
+    "tool_name": "WebFetch",
+    "tool_input": {
+     "url": "https://github.com/obra/superpowers/blob/main/skills/test-driven-development/SKILL.md",
+     "prompt": "Quote the Verify RED section text exactly, especially anything about failing because the feature is missing vs typos, and errors vs failures."
+    },
+    "tool_call_id": "toolu_01RMcYe6UpUxstPGRQppenbG"
+   },
+   "created_at": "2026-10-09 10:57:56"
+  },
+  {
+   "id": "8398764b-da05-4a12-b588-d7550934ea4d",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 1231,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__converge-loop.plan-review-loop.plan-review",
+   "data": {
+    "tool_name": "WebFetch",
+    "tool_input": {
+     "url": "https://github.com/jstemmer/go-junit-report/issues/105",
+     "prompt": "What does this issue say about how build failures / runtime errors are reported in JUnit XML (error vs failure elements) in v2?"
+    },
+    "tool_call_id": "toolu_01WFmHuFNinBsdRJ25LdgcV4"
+   },
+   "created_at": "2026-10-09 11:08:17"
+  },
+  {
+   "id": "1b39a576-d598-49ea-89fd-9a8d1e0dcc59",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 1232,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__converge-loop.plan-review-loop.plan-review",
+   "data": {
+    "tool_name": "WebFetch",
+    "tool_input": {
+     "url": "https://github.com/pytest-dev/pytest/discussions/7950",
+     "prompt": "What does this discussion say about pytest's distinction between failure and error in test results / junit xml?"
+    },
+    "tool_call_id": "toolu_017YcdnQuMjDFJGhVpaM8apf"
+   },
+   "created_at": "2026-10-09 11:08:18"
+  },
+  {
+   "id": "9638cd2d-19e0-4478-ac0c-601286597451",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 1235,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__converge-loop.plan-review-loop.plan-review",
+   "data": {
+    "tool_name": "WebFetch",
+    "tool_input": {
+     "url": "https://github.com/obra/superpowers/blob/main/skills/test-driven-development/SKILL.md",
+     "prompt": "Quote the 'Verify RED' section verbatim: what must be confirmed (fails not errors, fails because feature missing, not typos)?"
+    },
+    "tool_call_id": "toolu_01QP7SpQRnT5bSTpy3WEBWkb"
+   },
+   "created_at": "2026-10-09 11:08:27"
+  },
+  {
+   "id": "9ceaabe5-1dd1-48e2-9797-ab0d684fe42d",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 1239,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__converge-loop.plan-review-loop.plan-review",
+   "data": {
+    "tool_name": "WebFetch",
+    "tool_input": {
+     "url": "https://github.com/jstemmer/go-junit-report/tree/master/testdata",
+     "prompt": "List the file names in this directory that relate to build failures / build errors."
+    },
+    "tool_call_id": "toolu_019c5AtU37VJVVVgnNScVho8"
+   },
+   "created_at": "2026-10-09 11:09:59"
+  },
+  {
+   "id": "5ebd3809-e76c-4527-bf28-d8dcfafa36fc",
+   "workflow_run_id": "167e14c3-7ba7-46c0-b79b-58af6a10ebdf",
+   "event_order": 1241,
+   "event_type": "tool_called",
+   "step_index": null,
+   "step_name": "planning__converge-loop.plan-review-loop.plan-review",
+   "data": {
+    "tool_name": "WebFetch",
+    "tool_input": {
+     "url": "https://raw.githubusercontent.com/jstemmer/go-junit-report/master/testdata/013-report.xml",
+     "prompt": "Show the full XML content verbatim, especially testcase name/classname and error elements for build failures."
+    },
+    "tool_call_id": "toolu_01S9cpT7udtSvT652TDqXfsH"
+   },
+   "created_at": "2026-10-09 11:10:05"
+  }
+ ]
+}
