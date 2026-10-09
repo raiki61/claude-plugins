@@ -381,7 +381,7 @@ class TestReplanState(unittest.TestCase):
         """keep-essence の 3: 許す元（修正案の rewrite_tests・範囲の相談の合意・裁定 fix_test_scope・案の直しで直した項目）を読むのは
         conflict.test_permits の 1 か所。凍結の検査・事後の関門・範囲の照らしはその行を読み、元を直に読まない"""
         root = pathlib.Path(conflict.__file__).resolve().parents[2]
-        direct = re.compile(r"\b(?:planmarks\.rewrites|amended_keys)\(")
+        direct = re.compile(r"\b(?:planmarks\.rewrites|amended_keys|agreed_permits|ruled_limits)\(")
         found = [f"{p.relative_to(root)}:{i}" for p in sorted(root.rglob("*.py"))
                  if p.relative_to(root).parts[0] != "tests" and p.name not in ("conflict.py", "planmarks.py")
                  for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if direct.search(line)]

@@ -12,7 +12,7 @@
                              組み立て（prompt）で指示書を書き、印を置く
 - accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる。手直しは先に修正案の項目の
                              範囲で変更を照らして外れを拒み（planrange.check_paths。修正の段と同じ決まり）、書き込みの
-                             記録と突き合わせ、記録の無い変更を盤面の trace に残す）。1 回目の審査は準拠と品質の 2 判定の欄
+                             記録と申告（欄 bash_writes）に突き合わせ、どちらにも無い変更を拒む）。1 回目の審査は準拠と品質の 2 判定の欄
                              （deltamarks）を承認済みの修正案の項目（_plan_items）と照らし、欠けと誤りは盤面へ渡さずに拒み、
                              通れば欄を外して渡し、受けた時だけ欄を今の周の delta-verdicts.json に控える
 - main_accept_review・main_accept_fix: 受け付けのスクリプトの入口（rolekit.main_accept。3 回目の拒否で done・give_up。R50）
@@ -36,6 +36,7 @@ prompt-<節>.md（呼び手のブロックが組む）・審査役の座 review<
 支度は前の試みの自分の出力（brief・指示書・reads-<役>.json・1 回目の審査の 2 判定の控え delta-verdicts.json）を先に消す——新しい
 審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
 """
+import copy
 import functools
 import json
 import os
@@ -82,8 +83,9 @@ DELTA_BY = "works:delta"
 # 修正案の欄の控えの壊れを見た
 REFIX_BY = "works:refix"
 # 手直しの変更が承認済みの修正案の項目の範囲から外れた時の拒否の頭（planrange.check_paths の行を続ける。修正の段と同じ決まり）
-SCOPE_REJECT = ("手直しが承認済みの修正案の項目の範囲から外れた（項目の範囲の外で変えてよいのは材料の ruled_paths だけ。外れた変更を"
-                "戻して返答を丸ごと出し直せ。範囲の外が要る穴は直さずに declared で残し、how に理由を書け）: ")
+SCOPE_REJECT = ("手直しが承認済みの修正案の項目の範囲から外れた（項目の範囲の外で変えてよいのは、材料の ruled_paths と、範囲の相談で"
+                "合意したパス・テストの変更の許しのパスだけ。外れた変更を戻して返答を丸ごと出し直せ。試験を回して出来たファイル"
+                "（キャッシュ・結果の XML）も消せ。範囲の外が要る穴は直さずに declared で残し、how に理由を書け）: ")
 
 
 @functools.lru_cache(maxsize=1)
@@ -110,12 +112,16 @@ def snapshot_name(n: int) -> str:
 
 
 def output_format(role: str) -> dict:
-    """役の節の output_format（T17 で YAML に貼る値。TA20）: mark(role_schema(節), 役の名)"""
+    """役の節の output_format（T17 で YAML に貼る値。TA20）: mark(role_schema(節), 役の名)。書く役（手直し）には works の欄
+    bash_writes（Bash で書いたファイルの申告。writes.BASH_WRITES_SCHEMA）を足す（受け付けが盤面へ渡す前に外す。修正の段の書く役と同じ）"""
     node = {**{r: _pass(n)["review"] for n, r in REVIEW_ROLE.items()},
             **{r: _pass(n)["fix"] for n, r in FIX_ROLE.items()}}.get(role)
     if node is None:
         raise BoardGap(f"役 {role!r} は差分の往復の役でない（{sorted(REVIEW_ROLE.values()) + sorted(FIX_ROLE.values())}）")
-    return node_marker.mark(accept.role_schema(node), role)
+    fmt = node_marker.mark(accept.role_schema(node), role)
+    if role in FIX_ROLE.values():
+        fmt["properties"][writes.FIELD] = copy.deepcopy(writes.BASH_WRITES_SCHEMA)
+    return fmt
 
 
 # ---------------------------------------------------------------- 盤面の読み
@@ -396,9 +402,9 @@ def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pa
     """n 回目の手直しの役の返答（書く役）。entry.take の返り。先に、版 base_rev からの変更のうち修正の段が触ったファイル（修正の
     差分の files。その段の受け付けが照らした）の外を、承認済みの修正案の項目の範囲で照らす（planrange.check_paths。修正の段と
     同じ決まり。この役は単位を申告しないので全部の項目の範囲の和と out_of_scope で見る。修正案の範囲の欄が無い run は照らさない）。
-    外れが在れば盤面へ渡さずに {ok: False, reason}（同じ会話で直させる）。次に変更を書き込みの記録と突き合わせ、記録の無い変更を
-    盤面の trace に残す（writes.check の strict=False。起点は盤面の review_rev。この役の返答の形は写しの graph の schema のままで
-    申告の欄 bash_writes を持たないので、Bash で書いた正しい変更を申告できない。拒まずに報告に出す）"""
+    外れが在れば盤面へ渡さずに {ok: False, reason}（同じ会話で直させる）。次に変更を書き込みの記録（Edit・Write）と申告（欄
+    bash_writes）に突き合わせ（writes.check。起点は盤面の review_rev）、どちらにも無い変更を拒む（keep-essence の 5。修正の段と同じ）。
+    通れば欄 bash_writes を外した返答を盤面に渡し、記録の無い run は知らせを trace に残す"""
     b = entry.open_board(board)
     rev = writes.base_rev(b, base_rev)
     paths = writes.changed(repo, rev)
@@ -406,7 +412,9 @@ def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pa
     bad, _note = planrange.check_paths(b, [p for p in paths if p not in fixed], ruled=True, by=REFIX_BY)
     if bad:
         return {"ok": False, "reason": SCOPE_REJECT + "\n" + "\n".join(f"  - {x}" for x in bad)}
-    got = writes.check(reply, repo, paths, writes.sink(repo), strict=False)
+    got = writes.check(reply, repo, paths, writes.sink(repo))
+    if got["problems"]:
+        return {"ok": False, "reason": "\n".join(got["problems"])}
     out = entry.take(board, _pass(n)["fix"], got["reply"], repo)
     if out.get("ok") is True:   # 受けた時だけ（拒否では盤面を前のままにする）
         writes.trace(entry.open_board(board, allow_halted=True), FIX_ROLE[n], got)

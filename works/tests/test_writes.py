@@ -5,8 +5,8 @@
 - 記録器: Edit・Write・NotebookEdit で 1 行（書いた後の sha）、ほかの道具・置き場の無い起動は 1 バイトも書かない
 - 突き合わせ: 記録も申告も無い変更（追跡中・未追跡・消した物）を拒む。記録の後に中身が変わった物も拒む。理由つきの申告は通し、
   記録に残す（後ろの受け付けが同じ申告を求めない）。.archon/ の下は数えない。記録の無い run は知らせつきで通す
-- 書く役の返答の形: blk-fix の書く役（tdd・fix・fix-ruled）は欄 bash_writes を持つ。blk-refix の手直しの役は写しの graph の
-  schema のままで、記録の無い変更は拒まずに残す（strict=False）
+- 書く役の返答の形: blk-fix の書く役（tdd・fix・fix-ruled）と blk-refix の手直しの役（refix・refix2）は欄 bash_writes を持ち、
+  受け付けは記録も申告も無い変更を拒む（strict）
 - TDD の輪の段と受け付けの選んだ試験: 記録の無い書き込みで段を拒む。元で赤でなかった試験の赤だけを返す
 """
 import hashlib
@@ -331,10 +331,20 @@ class TestReplyShape(unittest.TestCase):
         for fmt in (recount.FIX_OUTPUT_FORMAT, recount.RULED_OUTPUT_FORMAT):
             self.assertEqual(fmt["properties"]["bash_writes"], writes.BASH_WRITES_SCHEMA)
 
-    def test_refix_accept_reports_without_rejecting(self):
-        """手直しの役の返答は写しの graph の schema のまま（申告の欄が無い）ので、受け付けは strict=False で呼ぶ"""
+    def test_refix_writer_nodes_accept_bash_writes_and_reject_unrecorded(self):
+        """keep-essence の 5 の例外を消す: 手直しの役（refix・refix2）も欄 bash_writes を持ち（写しの graph の型に works の欄を足す。
+        受け付けが盤面へ渡す前に外す）、受け付けは記録も申告も無い変更を拒む（strict）"""
+        import refix
+        doc = yaml.safe_load((ROOT / "blk-refix" / "blk-refix.yaml").read_text(encoding="utf-8"))
+        seen = []
+        for n in _nodes(doc["nodes"]):
+            if {"Edit", "Write", "Bash"} <= set(n.get("allowed_tools") or []):
+                seen.append(n["id"])
+                self.assertEqual(n["output_format"]["properties"].get("bash_writes"), writes.BASH_WRITES_SCHEMA, n["id"])
+                self.assertEqual(n["output_format"], refix.output_format(n["id"]), n["id"])
+        self.assertEqual(seen, ["refix", "refix2"])
         src = (CORE / "refix.py").read_text(encoding="utf-8")
-        self.assertIn("writes.sink(repo), strict=False)", src)
+        self.assertNotIn("strict=False", src)
         self.assertIn("writes.trace(", src)
 
 
