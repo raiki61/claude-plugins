@@ -2,7 +2,6 @@
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "title": "目的の役が目的の文から分けた依頼の解き方 purpose-means.json（盤面の根。書き手は core の worldmark.write_means。依頼が解き方を示さなければ置かない。世界の解の段の入力に写る）",
  "type": "object",
- "additionalProperties": false,
  "required": ["means"],
  "properties": {
   "means": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}

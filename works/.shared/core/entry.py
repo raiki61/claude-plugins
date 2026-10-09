@@ -414,6 +414,7 @@ SPEC_WORDS = ("", SPEC_ON)   # 入力 spec（空は仕様の段を挟まない�
 SPEC_FLOW = "spec"           # 仕様の段を挟む run の盤面の inputs.flow（写しの核の唯一の選び口。本流の --input flow=spec と同じ）
 # 入力 features_off が切る機能・features_on が入れる機能（持ち主の依頼 2026-10-07: 同じ依頼を機能を替えて回して比べる）。
 # 語は線の入力の語で、線がブロックへ on・off・auto の平の入力（start の出口の同じ名の欄）に写す。並びは語の順（控えと報告の並びも同じ）
+WORLD_FEATURE = "world"   # 世界の解の段の機能の語（ブロックへは写さず、線の境の節が始めの記録を cut_of で読む）
 FEATURES = {
     "fix_lanes": "修正役の並べの枝（範囲の在る項目を修正の輪の前の枝の輪で単位の worktree ごとに同時に直す。切ると項目を作業ツリーで順に直す）",
     "graph_map": "工程の地図（印の旗 map の役の system prompt に、包みが全体のグラフとその役の居場所を足す。切ると足さない。"
@@ -422,6 +423,8 @@ FEATURES = {
     "review_tree": "事前審査の項目ごとの木（項目ごとの下請けと相乗りの審査。切ると審査役 1 つが案の全体を審査する。既定は auto＝"
                    "開いた項目が 2 つ以上の往復だけ木）",
     "tdd_lanes": "TDD の輪の並べの周（枝ごとの worktree で枝の単位を同時に直す。切ると単位を順に回す）",
+    WORLD_FEATURE: "世界の解の段（目的の後・判定の前に 1 回、依頼の行を問題の類に言い直して世の中の定石を集め、依頼の解き方と比べる。"
+             "切ると段を回さず、判定・修正案・関所は世界の解の行なしで進む。ブロックへは写さず、境の節が始めの記録を読む）",
 }
 # 名指さない機能の既定（持ち主の決め 2026-10-08。測り: 判定の裏取りは 27 単位の 11 run で後の段を 1 度も変えず 1 run に
 # 0.6〜3 USD と 1〜2 分、事前審査の木は審査役 1 つの 2〜3 倍の費用で審査役 1 つが見逃した本物の穴を出さなかった）。ほかの機能は on。
@@ -484,6 +487,13 @@ def feature_words(off, on=()) -> dict:
 def features_cut(off, on=()) -> list:
     """実効で off の機能の語（語の順。start の控えの FEATURES_CUT_KEY）"""
     return [k for k, v in feature_words(off, on).items() if v == script_io.SWITCH_OFF]
+
+
+def cut_of(doc: dict) -> set:
+    """start の控え doc の実効で off の機能（欄 FEATURES_CUT_KEY。欄の無い前の版の控えは、前の版の既定が全部 on なので
+    features_off の語だけ）"""
+    key = FEATURES_CUT_KEY if isinstance(doc, dict) and FEATURES_CUT_KEY in doc else FEATURES_KEY
+    return set((doc or {}).get(key) or []) if isinstance(doc, dict) else set()
 
 
 def features_on_of(doc: dict) -> list:

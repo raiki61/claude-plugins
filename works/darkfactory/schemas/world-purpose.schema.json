@@ -1,0 +1,10 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "世界の解の段の入力の目的の文 r<N>/world-purpose.json（書き手は line_edge の h-mat。目的の文と、目的の役が分けた依頼の解き方）",
+ "type": "object",
+ "required": ["purpose_text", "means"],
+ "properties": {
+  "purpose_text": {"type": "string"},
+  "means": {"type": "array", "items": {"type": "string", "minLength": 1}}
+ }
+}

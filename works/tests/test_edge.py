@@ -50,8 +50,8 @@ RUN_ID = "run-7"
 OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
             "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go",
-            "structure_units_file", "ripple_file", "verify_file"}
-BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go"}
+            "structure_units_file", "ripple_file", "verify_file", "world_go", "world_purpose_file"}
+BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "mat_go", "world_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
 FACE = "clamp の上限の意味が変わる"
@@ -140,7 +140,7 @@ class EdgeBase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
-    def started(self, *, declared=True):
+    def started(self, *, declared=True, features_off=""):
         """start の後の盤面（p0.premises が待つ）。種は remote を持たない（forge の無い run）ので、並行 PR の節は機械が条件外にし
         （任せ先の役を起こさない）、渡す物は無い。declared が偽なら種にテストの宣言を置かず（test_cmd も空）、修正前の CI の節
         p0.local_checks は任せ先の役を待つ（start の ci_role_go）"""
@@ -150,7 +150,8 @@ class EdgeBase(unittest.TestCase):
         req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
         self.art = self.tmp / "art"
         self.board = self.art / "board"
-        raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "", "policy_md": ""}
+        raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "", "policy_md": "",
+               "features_off": features_off}
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
         if declared:   # 宣言の無い種は p0.parallel_pr が p0.local_checks（任せ先の役を待つ）の後に出る
             self.assertEqual(entry.open_board(self.board).node_state("p0.parallel_pr"), "na")
@@ -1158,6 +1159,27 @@ class PlanEdgeCase(EdgeBase):
             self.assertEqual(set(r), {"id", "paths", "summary"})
             self.assertIsInstance(r["summary"], str)
 
+    def test_structure_unit_summary_carries_world_note(self):
+        """世界の解の行の where が単位のパスと重なれば、h-plan は単位の要約 summary の尾にその行の要点（worldmark.unit_note）を足す
+        （構造の目の入力の契約は 3 つのまま。計画 world-solution の W7・5.3 節の 3）"""
+        import worldmark
+        self.premised()
+        row = {"finding": 1, "where": "stats.py", "class_id": "w-mean", "problem": "平均の分母をどう決めるか",
+               "activity": "統計の関数を書く", "practice": "算術平均は個数で割る", "sources": [], "applies": "mean の直し",
+               "not_applies": "", "versus": {"proposed": "", "verdict": "none", "challenge": ""}, "basis": "knowledge",
+               "cached": False}
+        wf = self.tmp / "world-out" / worldmark.WORLD_FILE
+        wf.parent.mkdir(parents=True)
+        wf.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+        worldmark.write(self.board, status="ok", reason="", world_file=str(wf), classes=1, cached=0, skipped=0, dropped=0)
+        got = self.edge("plan", judged=self.judge_exit())
+        rows = json.loads(pathlib.Path(got["structure_units_file"]).read_text(encoding="utf-8"))
+        note = worldmark.unit_note([row], ["stats.py"])
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(note)
+        for r in rows:
+            self.assertTrue(r["summary"].endswith(note), r["summary"])
+
     def test_plan_hands_verify_notes(self):
         """go の h-plan は判定のブロックが今の周に置いた単位の裏取りの申し送り（judge-verify.json）を verify_file で返す（無ければ空。
         線の木の段 3）"""
@@ -1302,9 +1324,9 @@ class JudgeEdgeCase(EdgeBase):
 class MatEyesEdgeCase(EdgeBase):
     """h-mat（目的の文を盤面へ渡す・P1 の目を回すか）と h-eyes（独立の目を回すか）。計画 P1 Task 32・33"""
 
-    def before_purpose(self):
+    def before_purpose(self, features_off=""):
         """前提まで受けた盤面（p0.purpose が待つ）"""
-        self.started()
+        self.started(features_off=features_off)
         self.take("p0.premises", {"constraints": []})
         self.assertIn("p0.purpose", entry.open_board(self.board).ready())
 
@@ -1322,6 +1344,35 @@ class MatEyesEdgeCase(EdgeBase):
         self.assertEqual(b.node_state("p0.purpose"), "done")
         self.assertEqual(len([r for r in trace_rows(self.board, "done") if r.get("instance") == "p0.purpose"]), 1)
         self.assertEqual(got["mat_go"], any(b.table.nodes[n].where == "blk-material" for n in b.ready()))
+
+    def test_world_stage_due_once_after_purpose(self):
+        """目的の文を渡した h-mat は、世界の解の段を回す（world_go）と、段の入力の目的の文のファイル（{purpose_text, means}。
+        means は目的の役が分けた依頼の解き方）を出す。段の控えが盤面の根に在れば回さない（run に 1 回。計画 world-solution の W7）"""
+        import purpose
+        import worldmark
+        self.before_purpose()
+        means = ["生のログを読むだけの役を足して判じさせる"]
+        got = purpose.check_purpose({**linekit.reply("purpose_ok"), "means": means}, self.board, "", self.repo)
+        self.assertTrue(got["ok"], got)
+        got = self.edge("mat")
+        self.assertIs(got.get("world_go"), True, got)
+        doc = json.loads(pathlib.Path(got["world_purpose_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(doc, {"purpose_text": linekit.reply("purpose_ok")["purpose_text"], "means": means})
+        worldmark.write(self.board, status="ok", reason="", world_file="", classes=0, cached=0, skipped=0, dropped=0)
+        got = self.edge("mat")
+        self.assertEqual((got.get("world_go"), got.get("world_purpose_file")), (False, ""))
+
+    def test_feature_world_off_skips_block_and_reports_it(self):
+        """入力 features_off の world で切った run は、h-mat が世界の解の段を回さず（world_go 偽）、切ったことは start の控えの
+        頭の行（報告の冒頭 2 と同じ機能の語）に残る"""
+        import purpose
+        import startrec
+        self.before_purpose(features_off="world")
+        self.assertTrue(purpose.check_purpose(linekit.reply("purpose_ok"), self.board, "", self.repo)["ok"])
+        got = self.edge("mat")
+        self.assertEqual((got["go"], got.get("world_go"), got.get("world_purpose_file")), (True, False, ""), got)
+        self.assertIn("world off", startrec.read(self.board)["head_line"])
+        self.assertIn("world off", entry.features_part(["world"]))
 
     def test_mat_without_purpose_stops(self):
         """目的の文が盤面の根に無い → stop、by works:purpose、判定へ進まない"""
@@ -1356,6 +1407,50 @@ class MatEyesEdgeCase(EdgeBase):
         halt.place(self.board, "止め札の試し", "test")
         got = self.edge("eyes")
         self.assertEqual((got["go"], got["stop"]), (False, True))
+
+
+class WorldEdgeCase(unittest.TestCase):
+    """世界の解の境 h-world（line_edge.world_edge）: 世界の解のブロックの出口を盤面の根の控え（worldmark）に写す。段が落ちても
+    線を止めない（status failed と理由）。段を回さない周（h-mat の world_go が偽）は控えを書かない"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.board = pathlib.Path(self._tmp.name) / "board"
+        self.board.mkdir()
+
+    def exit(self, **kw):
+        import worldmark
+        wf = self.board.parent / "out" / worldmark.WORLD_FILE
+        wf.parent.mkdir(exist_ok=True)
+        wf.write_text("", encoding="utf-8")
+        return {"ok": True, "world_file": str(wf), "status": "ok", "reason": "", "classes": 2, "cached": 1, "skipped": 0,
+                "dropped": 3, **kw}
+
+    def test_ok_exit_written_to_state(self):
+        import worldmark
+        got = line_edge.world_edge(self.board, self.exit(), True)
+        self.assertEqual((got["ok"], got["status"]), (True, "ok"), got)
+        st = worldmark.read(self.board)
+        self.assertEqual((st["status"], st["classes"], st["cached"], st["dropped"]), ("ok", 2, 1, 3))
+        self.assertEqual(got["world_file"], st["world_file"])
+
+    def test_not_due_writes_nothing(self):
+        import worldmark
+        got = line_edge.world_edge(self.board, None, False)
+        self.assertEqual((got["ok"], got["status"]), (True, "skipped"))
+        self.assertIsNone(worldmark.read(self.board))
+
+    def test_failed_or_missing_block_never_stops_the_line(self):
+        import worldmark
+        got = line_edge.world_edge(self.board, None, True)
+        self.assertEqual((got["ok"], got["status"]), (True, "failed"))
+        self.assertEqual(worldmark.read(self.board)["status"], "failed")
+        got = line_edge.world_edge(self.board, self.exit(status="failed", reason="言い直す役が 3 回拒まれた", ok=False), True)
+        self.assertEqual(got["status"], "failed")
+        self.assertIn("言い直す役が 3 回拒まれた", worldmark.read(self.board)["reason"])
+        got = line_edge.world_edge(self.board, self.exit(world_file=str(self.board / "none.jsonl")), True)
+        self.assertEqual(got["status"], "failed")
 
 
 class DesignHandCase(EdgeBase):

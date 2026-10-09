@@ -142,6 +142,34 @@ class TableWiringCase(unittest.TestCase):
             self.assertTrue(why.strip(), f"NOT_WIRED_YET の {nid} に理由が無い")
 
 
+class WorldWiringCase(unittest.TestCase):
+    """世界の解の段（計画 world-solution の W7・5.1 節）: 目的の後・判定の前に 1 回だけ"""
+
+    def test_world_block_between_purpose_and_judge(self):
+        """blk-world は線に include 1 つで入り、目的の文を渡す h-mat の後（h-mat の world_go が真の周だけ。入力は依頼と、h-mat が
+        組んだ目的の文のファイル）・判定の前に在る。その後の境 h-world（script・all_done・飛ばされた段は null で受ける）が控えを
+        書き、判定は h-world を待つ"""
+        nodes = line()["nodes"]
+        ids = [n["id"] for n in nodes]
+        got = [n for n in nodes if n.get("include") == "blk-world"]
+        self.assertEqual(len(got), 1, "blk-world の include が 1 つでない")
+        w = got[0]
+        self.assertLess(ids.index("purposing"), ids.index(w["id"]))
+        self.assertLess(ids.index("h-mat"), ids.index(w["id"]))
+        self.assertLess(ids.index(w["id"]), ids.index("judging"))
+        self.assertEqual(w.get("depends_on"), ["h-mat"])
+        self.assertEqual(w.get("when"), "$h-mat.output.world_go == true")
+        self.assertEqual(w.get("with"), {"request": "$INPUTS.request", "purpose_file": "$h-mat.output.world_purpose_file"})
+        edge = next((n for n in nodes if n["id"] == "h-world"), None)
+        self.assertIsNotNone(edge, "世界の解の境 h-world が無い")
+        self.assertEqual(edge.get("script"), "world")
+        self.assertEqual(set(edge.get("depends_on") or []), {"h-mat", w["id"]})
+        self.assertEqual(edge.get("trigger_rule"), "all_done")
+        self.assertIn({"from": f"${w['id']}.output", "if_skipped": None}, list((edge.get("with") or {}).values()))
+        self.assertLess(ids.index("h-world"), ids.index("judging"))
+        self.assertIn("h-world", next(n for n in nodes if n["id"] == "judging")["depends_on"])
+
+
 class FixtureStubKeysCase(unittest.TestCase):
     def test_fixtures_found(self):
         """筋書きの glob が空なら下の突き合わせは何も見ない"""

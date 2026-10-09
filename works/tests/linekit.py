@@ -309,10 +309,16 @@ LINE_ORDER = [
      "with": {"request": "$INPUTS.request", "constraints_file": "$h-judge.output.premises_file",
               "base_rev": "$entering.output.base_rev", "pr_file": "$entering.output.pr_file"}},
     _edge("h-mat", "mat", ["entering", "h-judge", "purposing"]),
+    {"id": "worlding", "kind": "include", "block": "blk-world", "depends_on": ["h-mat"],
+     "when": "$h-mat.output.world_go == true",
+     "with": {"request": "$INPUTS.request", "purpose_file": "$h-mat.output.world_purpose_file"}},
+    {"id": "h-world", "kind": "script", "script": "world", "depends_on": ["h-mat", "worlding"], "trigger_rule": ALL_DONE,
+     "with": {"worlded": _skippable("$worlding.output"),
+              "world_go": {"from": "$h-mat.output.world_go", "if_skipped": False}}},
     {"id": "gathering", "kind": "include", "block": "blk-material", "depends_on": ["h-mat"],
      "when": "$h-mat.output.mat_go == true",
      "with": {"adapter": "$entering.output.adapter"}},
-    {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat", "gathering"], "trigger_rule": NFMOS,
+    {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat", "gathering", "h-world"], "trigger_rule": NFMOS,
      "when": "$h-mat.output.go == true",
      "with": {"request": "$INPUTS.request", "base_rev": "$entering.output.base_rev",
               "policy_paste": "$entering.output.policy_paste", "premises_file": "$h-judge.output.premises_file",
@@ -697,6 +703,17 @@ class LineRun:
         b = json.dumps(run("stage_b"), ensure_ascii=False) if a["after"] else "null"
         return run("collect", **files, eye_due=json.dumps(a["eye"]), eye=eye, after_due=json.dumps(a["after"]), after=b)
 
+    def blk_world(self):
+        """blk-world の出口（collect の形）。行は replies["world"]（世界の解の行の並び。無ければ行の無い段）を行のファイルに書いた物。
+        中の役（言い直す・集める・判断する）と照らしは test_blk_world が見る"""
+        import worldmark
+        rows = self.replies.get("world") or []
+        p = self.tmp / "exits" / "world" / worldmark.WORLD_FILE
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        return {"ok": True, "world_file": str(p), "status": "ok", "reason": "", "classes": len(rows), "cached": 0,
+                "skipped": 0, "dropped": 0}
+
     def blk_fix(self):
         self._edit("fix")
         self.take("p3.fix", self.replies["fix"])
@@ -821,7 +838,7 @@ class LineRun:
                   "blk-delta": self.blk_delta,
                   "blk-refix": self.blk_refix, "blk-tests": self.blk_tests, "blk-eyes": self.blk_eyes,
                   "blk-report": self.blk_report, "blk-material": self.blk_material, "blk-rejudge": self.blk_rejudge,
-                  "blk-structure": self.blk_structure}
+                  "blk-structure": self.blk_structure, "blk-world": self.blk_world}
         for row in LINE_ORDER:
             nid = row["id"]
             self.row = row
@@ -846,6 +863,10 @@ class LineRun:
                                            tdd_suite=self.inputs.get("tdd_suite") or "",
                                            replanned=(self.out.get("h-replan") or {}).get("go") is True,
                                            rejudged=(self.out.get("h-rejudge") or {}).get("go") is True)
+                self.trail.append(nid)
+            elif nid == "h-world":
+                self.out[nid] = line_edge.world_edge(self.board, self._src(row["with"]["worlded"]),
+                                                     (self.out.get("h-mat") or {}).get("world_go") is True)
                 self.trail.append(nid)
             elif nid == "h-structure":
                 self.out[nid] = line_edge.structure_edge(self.board, self._src(row["with"]["structured"]),

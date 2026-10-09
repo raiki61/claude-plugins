@@ -86,6 +86,17 @@ class Files(unittest.TestCase):
         (self.dir / worldmark.STATE_FILE).write_text(json.dumps({"status": "odd"}), encoding="utf-8")
         self.assertIsNone(worldmark.read(self.dir))
 
+    def test_write_then_read_and_board_rows(self):
+        """線の境が書く控え（write）を read が読み、board_rows はその行を返す（控えが無い・落ちた・行が読めない周は []）"""
+        self.assertEqual(worldmark.board_rows(self.dir), [])
+        p = self.put([row()])
+        worldmark.write(self.dir, status="ok", reason="", world_file=str(p), classes=1, cached=0, skipped=2, dropped=3)
+        got = worldmark.read(self.dir)
+        self.assertEqual((got["status"], got["world_file"], got["skipped"], got["dropped"]), ("ok", str(p), 2, 3))
+        self.assertEqual([r["class_id"] for r in worldmark.board_rows(self.dir)], ["w1"])
+        worldmark.write(self.dir, status="failed", reason="段が落ちた", world_file="", classes=0, cached=0, skipped=0, dropped=0)
+        self.assertEqual(worldmark.board_rows(self.dir), [])
+
     def test_report_lines(self):
         p = self.put([row(), row(finding=2, class_id="w2", basis="knowledge", sources=[], cached=False)])
         (self.dir / worldmark.STATE_FILE).write_text(json.dumps(

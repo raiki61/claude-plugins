@@ -3,7 +3,7 @@
  "sources": {
   "blk-ci/blk-ci.yaml": "270bfa0f6ab706eaff76881e57164c0ac6c2e2edcc9fa6ccbc5c71b2c68dc361",
   "blk-delta/blk-delta.yaml": "f4973396a8bc98b352eda5b295a86f87a7785245397d42aa2dd623278c63fa11",
-  "blk-entry/blk-entry.yaml": "de839e107ef31c7dc7821d2d788706f98ab85fcc12d13f5fba8a3e04dbf6dfb6",
+  "blk-entry/blk-entry.yaml": "c28e4b7209157ddaa3d349ae3d661a9d91accebdad268d58987369506deeb995",
   "blk-eyes/blk-eyes.yaml": "0e8fe22a21be92f7aa3157e785169161a30bc46ceae988155672724165946e12",
   "blk-fix/blk-fix.yaml": "0578feecd3f9da777993d8b1390715670f1c47d921a91494be5661433fe3cc8d",
   "blk-judge/blk-judge.yaml": "72fe79cc510ba7159a8c76854219d74778dcb3ed2d5ceaa4a479a9979cf6fd5d",
@@ -12,14 +12,15 @@
   "blk-plan/blk-plan.yaml": "0845dd919fe31bc8b55a1583cbf3a66e1255c052e8d8113cb1b1ffb64ffef687",
   "blk-pr/blk-pr.yaml": "4b4ed37065fbbe9486fed3e9849a57b90fae7fe7d55b2bddf3e4f7242637dfd8",
   "blk-premises/blk-premises.yaml": "41c3da4174fb5cfce8313f90acbfd6c0a8be46500fd724975ed094acc0d8de14",
-  "blk-purpose/blk-purpose.yaml": "380ae202e851952d54cdd02f0684f51dab23fc7d774ad95b3bf9219c81a68cbf",
+  "blk-purpose/blk-purpose.yaml": "8b97922464f08978bfbf454384671bf37e1d8918bdba55c16c3c3782e306e6fa",
   "blk-refix/blk-refix.yaml": "94f44741c2ff1771d01d6a91770d2946eb9df22acb0f99b5a69fd12c6b1db528",
   "blk-rejudge/blk-rejudge.yaml": "a4434d7f611296b537b705e856dbbffc01f7c7884760a4a4247b4ab421afeda1",
   "blk-report/blk-report.yaml": "156e7ecac6a7abd92467c164ed4705d2383c8d9d643d21976fcf57b926eaf43c",
   "blk-spec/blk-spec.yaml": "ee1fce070b20c1e639bc36e8b322cd303bb9ad7bc468804eb1db994d599f7d72",
   "blk-structure/blk-structure.yaml": "b288e8fa0004680608a1b3408b7d1081ff431734af3b73bac8eeafb4fd940d6f",
   "blk-tests/blk-tests.yaml": "9452b340354af90c01694291b0c1d11104b89b7e1023159a613e2c865c80c42a",
-  "darkfactory/darkfactory.yaml": "cb278ace47dda00de4ad7e0a21a5d8be8030008fc3a8b5c1f7c19a5d441c6ed5"
+  "blk-world/blk-world.yaml": "afa59a40343615d2d85f34f42855e2eedd3f3660591609687571e3edd83172d5",
+  "darkfactory/darkfactory.yaml": "643da104a55349a720168c4add8d53fba848b299ebbc6d03f300df7204882d1a"
  },
  "version": 1,
  "workflows": {
@@ -2423,6 +2424,121 @@
     }
    ]
   },
+  "blk-world": {
+   "nodes": [
+    {
+     "deps": [],
+     "id": "world-intake",
+     "kind": "script"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "world-classes-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "world-classes-prep"
+       ],
+       "flags": [
+        "isolated"
+       ],
+       "id": "world-classes",
+       "kind": "ai",
+       "marker": "world-classes"
+      },
+      {
+       "deps": [
+        "world-classes"
+       ],
+       "id": "world-classes-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "world-intake"
+     ],
+     "id": "world-classes-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$world-intake.output.due == true"
+    },
+    {
+     "deps": [
+      "world-intake",
+      "world-classes-loop"
+     ],
+     "id": "world-cache",
+     "kind": "script"
+    },
+    {
+     "deps": [
+      "world-cache"
+     ],
+     "id": "world-collect",
+     "kind": "ai",
+     "marker": "world-collect",
+     "when": "$world-cache.output.collect_due == true"
+    },
+    {
+     "deps": [
+      "world-cache",
+      "world-collect"
+     ],
+     "id": "world-verify",
+     "kind": "script",
+     "when": "$world-cache.output.judge_due == true"
+    },
+    {
+     "body": [
+      {
+       "deps": [],
+       "id": "world-judge-prep",
+       "kind": "script"
+      },
+      {
+       "deps": [
+        "world-judge-prep"
+       ],
+       "flags": [
+        "isolated"
+       ],
+       "id": "world-judge",
+       "kind": "ai",
+       "marker": "world-judge"
+      },
+      {
+       "deps": [
+        "world-judge"
+       ],
+       "id": "world-judge-accept",
+       "kind": "script"
+      }
+     ],
+     "deps": [
+      "world-verify"
+     ],
+     "id": "world-judge-loop",
+     "kind": "loop",
+     "max": 3,
+     "when": "$world-cache.output.judge_due == true"
+    },
+    {
+     "deps": [
+      "world-intake",
+      "world-classes-loop",
+      "world-cache",
+      "world-collect",
+      "world-verify",
+      "world-judge-loop"
+     ],
+     "id": "collect",
+     "kind": "script"
+    }
+   ]
+  },
   "darkfactory": {
    "nodes": [
     {
@@ -2555,6 +2671,28 @@
      "kind": "script"
     },
     {
+     "call": "blk-world",
+     "deps": [
+      "h-mat"
+     ],
+     "id": "worlding",
+     "kind": "call",
+     "purpose": "依頼の行を問題の類に言い直し、世の中の定石を集めて依頼の解き方と比べる",
+     "when": "$h-mat.output.world_go == true",
+     "with": {
+      "purpose_file": "$h-mat.output.world_purpose_file",
+      "request": "$INPUTS.request"
+     }
+    },
+    {
+     "deps": [
+      "h-mat",
+      "worlding"
+     ],
+     "id": "h-world",
+     "kind": "script"
+    },
+    {
      "call": "blk-material",
      "deps": [
       "h-mat"
@@ -2571,7 +2709,8 @@
      "call": "blk-judge",
      "deps": [
       "h-mat",
-      "gathering"
+      "gathering",
+      "h-world"
      ],
      "id": "judging",
      "kind": "call",

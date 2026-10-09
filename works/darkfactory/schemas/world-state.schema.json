@@ -1,0 +1,15 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "世界の解のブロックの出口の控え world-state.json（盤面の根。書き手は core の worldmark.write。判定の支度・修正案の頭・関所・報告が読む）",
+ "type": "object",
+ "required": ["status", "reason", "world_file", "classes", "cached", "skipped", "dropped"],
+ "properties": {
+  "status": {"type": "string", "enum": ["ok", "failed"]},
+  "reason": {"type": "string"},
+  "world_file": {"type": "string"},
+  "classes": {"type": "integer", "minimum": 0},
+  "cached": {"type": "integer", "minimum": 0},
+  "skipped": {"type": "integer", "minimum": 0},
+  "dropped": {"type": "integer", "minimum": 0}
+ }
+}

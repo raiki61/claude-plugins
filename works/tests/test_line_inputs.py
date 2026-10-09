@@ -236,6 +236,9 @@ UNREAD_OUTPUTS = {
                   "spec_file", "tests"},
                  "仕様の段は固めた仕様を盤面の record.process.spec に置き、受け入れ条件は判定への依頼として盤面に積む（写しの核の "
                  "spec.freeze）。後ろの節は盤面から読み、出口は run の記録と人の確かめに残すだけ"),
+    "world": ({"ok", "reason", "status", "world_file"},
+              "世界の解の境 h-world は順の結び目（判定の段が depends_on で待つ）。控えは盤面の world-state.json で、出口は run の"
+              "記録に残すだけ"),
     "structure": ({"design_file", "ok", "reason", "status", "wall_s"},
                   "構造の境 h-structure は順の結び目（修正案の段が depends_on で待つ）。控えは盤面の structure-state.json で、出口は "
                   "run の記録に残すだけ"),
@@ -323,18 +326,30 @@ class OutputNamesCase(unittest.TestCase):
             self.assertTrue(why.strip(), k)
 
 
+class WorldReadersCase(unittest.TestCase):
+    def test_world_output_has_readers(self):
+        """世界の解のブロックの出口の欄は全部、線の境（丸ごと受けて控えに写す）が読む（読み手の無い欄の表に載せない）。境の
+        出口は順の結び目で、控えは盤面の根に在る（構造の境と同じ）"""
+        includes = {n.get("include") for n in line()["nodes"]}
+        self.assertIn("blk-world", includes)
+        self.assertNotIn("blk-world", UNREAD_OUTPUTS)
+        self.assertIn("world", UNREAD_OUTPUTS)
+
+
 class FeaturesOffCase(unittest.TestCase):
     """切る機能と入れる機能（入力 features_off・features_on。持ち主の依頼 2026-10-07: 同じ依頼を機能を替えて回して比べる）:
     check_inputs が語を確かめて語の順の配列にし、start の出口の機能ごとの on・off・auto（entry.feature_words）を線がブロックの
     切り替えの入力へ写す。既定は持ち主の決め 2026-10-08（測りで後の段を変えなかった判定の裏取りは off・事前審査の木は開いた項目が
     2 つ以上の往復だけ＝auto・ほかは on）。名指した語は既定に勝ち、同じ語を両方に名指せば拒む"""
-    DEFAULTS = {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "on"}
+    DEFAULTS = {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "on",
+                "world": "on"}
     # 機能 → (線の節, ブロックの入力の名)（ブロックは on・off の平の入力だけを受け、線の語を知らない）
     WIRING = {"judge_verify": [("judging", "verify")],
               "review_tree": [("planning", "review_tree"), ("replanning", "review_tree")],
               "tdd_lanes": [("fixing", "tdd_lanes"), ("refitting", "tdd_lanes")],
               "fix_lanes": [("fixing", "fix_lanes"), ("refitting", "fix_lanes")],
-              "graph_map": []}   # 工程の地図はブロックへ写さず、包みが start の控えを読む（adapter.graph_map_block）
+              "graph_map": [],   # 工程の地図はブロックへ写さず、包みが start の控えを読む（adapter.graph_map_block）
+              "world": []}       # 世界の解の段はブロックへ写さず、境の節 h-mat が始めの記録を読んで段を回すかを決める（entry.cut_of）
 
     def check(self, word, key="features_off", **more):
         with tempfile.TemporaryDirectory() as tmp:

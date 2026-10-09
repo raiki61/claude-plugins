@@ -2,7 +2,7 @@ name: darkfactory
 description: |
   ダークファクトリーのライン（C18 の順。P1 計画 Task 28・29）。人の修正依頼を、盤面（graphloops の review-loop の写しの
   graph と規則。works/.shared/core/board.py）の上で 1 周回す:
-  入口のブロック（起動の関所 → 入口の入力を 1 つの形に揃え、盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 目的の文 → 素材集め（P1 の目）→ 判定 →
+  入口のブロック（起動の関所 → 入口の入力を 1 つの形に揃え、盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 目的の文 → 世界の解の段（run で 1 回）と素材集め（P1 の目）→ 判定 →
   独立設計（R2 の設計の半分。目的だけから）と修正案と事前審査（設計と突き合わせる）→ 修正の前の人の関所（要る時だけ）→
   単位ごとの深さ（h-depth）→ 修正（TDD の輪）→（裁定が案の項目の誤りなら）案の直し → 案の直しの関所（要る時だけ）→ 2 回目の修正 → 判定への異議の再審（異議が在る時だけ）→
   深さの上げ（h-redepth）→ 修正の後のレンズ（局所レビュー）→ 差分の審査 → 手直し →
@@ -61,7 +61,8 @@ inputs:
       切ると単位の裏取りと相乗りの下請けを起こさず、修正案の役に申し送りを貼らない。既定で off）・review_tree（事前審査の
       項目ごとの木。切ると審査役 1 つが案の全体を審査する。既定の auto は開いた項目が 2 つ以上の往復だけ木）・tdd_lanes（TDD の
       輪の並べの周。切ると tdd の単位を順に回す）・fix_lanes（修正役の並べの枝。切ると項目を作業ツリーで順に直す）・graph_map（工程の地図。
-      切ると包みが旗 map の役の system prompt に地図を足さない）。知らない語は start が
+      切ると包みが旗 map の役の system prompt に地図を足さない）・world（世界の解の段。切ると判定の前に依頼の解き方を世の中の
+      定石と比べず、判定・修正案・関所は世界の解の行なしで進む）。知らない語は start が
       AI の前で拒む。start が機能ごとの on・off・auto を出口に出し、線がブロックの切り替えの入力へ写す。切った機能は start の控え・
       版の控え versions.json の settings・報告の冒頭 2 に残る。呼び直しで替えれば止める（固定材料の run は替えてよい）
   features_on:
@@ -142,7 +143,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -165,6 +166,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 仕様の段（任意。入力 spec=on の run だけ。入口の種類に依らない）: 判定の前に、仕様の書き手が要件と受け入れ条件のテストを書き、
   # 別の目が審査し、人が関所 spec-gate で承認する。承認すると受け入れ条件を判定への依頼として積む（写しの核の spec.freeze）
@@ -194,7 +197,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -217,6 +220,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 並行 PR の任せ先（engine が 1〜5 段を済ませられなかった・交差が在った時だけ）
   - id: pr-checking
@@ -253,7 +258,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -276,6 +281,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 目的の文（p0.purpose が待っている時。前提の実測の後に 1 度。判定と独立の目の R1・R2 が読む）
   - id: purposing
@@ -306,7 +313,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -329,6 +336,42 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
+
+  # 世界の解の段（計画 docs/plans/2026-10-09-world-solution.md の 5.1 節）。目的の文を盤面へ渡した後・判定の前に run で 1 回（h-mat の
+  # world_go。入力 features_off の world で切った run・控えが既に在る周は回さない）。入力は依頼と、h-mat が目的の文と目的の役が
+  # 分けた依頼の解き方から組んだ目的の文のファイル。素材集めと並んで走る
+  - id: worlding
+    description: '依頼の行を問題の類に言い直し、世の中の定石を集めて依頼の解き方と比べる'
+    include: blk-world
+    depends_on: [h-mat]
+    when: "$h-mat.output.world_go == true"
+    with:
+      request: $INPUTS.request
+      purpose_file: $h-mat.output.world_purpose_file
+
+  # 世界の解の境。世界の解のブロックが落ちても走り（all_done）、出口を盤面の根の控え（core の worldmark）にする。落ちた周は
+  # status failed で、判定・修正案・関所は世界の解の行なしで進む（段は線を止めない）。段を回さない周（h-mat の world_go が偽・
+  # h-mat が飛ばされた周）は控えを書かずに status skipped で抜ける。判定はこの節を待つ
+  - id: h-world
+    script: world
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [h-mat, worlding]
+    trigger_rule: all_done
+    with:
+      worlded: {from: $worlding.output, if_skipped: null}
+      world_go: {from: $h-mat.output.world_go, if_skipped: false}
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, status, reason, world_file]
+      properties:
+        ok: {type: boolean}
+        status: {type: string, enum: [ok, failed, skipped]}
+        reason: {type: string}
+        world_file: {type: string}
 
   # P1 の目と素材集め（前の決定の読み出し・目的の審査・P1 の 9 本。どれを回すかは盤面の条件。判定から入る 1 周目の P1 は na）
   - id: gathering
@@ -343,7 +386,7 @@ nodes:
   - id: judging
     description: '依頼を根本の単位にまとめる判定（直す義務の元）'
     include: blk-judge
-    depends_on: [h-mat, gathering]
+    depends_on: [h-mat, gathering, h-world]
     trigger_rule: none_failed_min_one_success
     when: "$h-mat.output.go == true"
     with:
@@ -370,7 +413,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -393,6 +436,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 判定の単位が名指すファイルを機械で実測する（構造のブロック）。h-plan が契約の形に写した単位のファイルを受ける
   - id: structuring
@@ -458,7 +503,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -481,6 +526,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 修正の前の人の関所（要る時だけ）。approve・continue は通す、stop・reject は止める（R32）
   - id: policy-gate
@@ -516,7 +563,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -539,6 +586,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 単位ごとの深さを決める（いつも走る。計画 docs/plans/2026-10-06-variable-depth.md の決め 3・8）。直す義務の単位ごとに、修正案の
   # 項目の欄の形（触るファイル・テストの数・約束の形のファイル。配線だけの単位は約束の形に数えない）と機械の確かめの有無から軽量か標準を決め、盤面の根の depth.json に
@@ -606,7 +655,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -629,6 +678,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 同じ run の中の案の直し（blk-plan の 2 度目の include。replan の口: 修正案と事前審査の役は fix_plan_item と裁かれた項目だけを
   # 直し・審査し、盤面の節へ渡さずに今の周の replan.json に置く）
@@ -659,7 +710,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -682,6 +733,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 案の直しの関所（要る時だけ）。approve・continue は直した項目を使って修正に戻る、stop・reject は run を止める
   - id: replan-gate
@@ -718,7 +771,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -741,6 +794,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 2 回目の修正の段（blk-fix の 2 度目の include。指示書・拒否の理由・読んだ証拠は include の名 refitting の置き場（scope）で
   # 1 回目と分かれ、直す義務は案を直して戻った単位だけ。1 回目に受け付けた行は機械が合わせて盤面に渡す）
@@ -780,7 +835,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -803,6 +858,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 同じ周の再審（判定役の会話の続きで異議を考え直す。p4.ci は再審の節を待つので、回さないと最後のテストが出ない）
   - id: rejudging
@@ -856,7 +913,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -879,6 +936,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 修正の後のレンズ（修正が差分を作った run だけ）。集め役が終わらなければブロックの境が盤面を止め、後ろの境の節が stop する。
   # 全部の単位が軽量の run は h-redepth が差分の審査を盤面で省くので、h-review の go が偽でレンズも回らない
@@ -915,7 +974,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -938,6 +997,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 差分の審査の後の手直し（2 往復まで）
   - id: refixing
@@ -967,7 +1028,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -990,6 +1051,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 最後のテスト（盤面の p4.ci。graphloops と同じく修正と手直しの全部の後）
   - id: testing
@@ -1018,7 +1081,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1041,6 +1104,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 最後のテストの任せ先の役（CI の任せ先の役のブロックの 2 度目の include。ci-checking と同じ形で節だけ p4.ci。裁定 R52）。
   # 渡した素材を最後の関所と報告が読む（entry.role_ci_status）
@@ -1098,7 +1163,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1121,6 +1186,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 独立の目（R1〜R4。修正と最後のテストの後の、書き手と別の目）。結果は最後の関所の文に載る。r4.human_gate が人に聞けば止めずに
   # 抜け、問いは関所の文に載り、報告が needs_human と問いを次の run へ渡す
@@ -1149,7 +1216,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1172,6 +1239,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # 最後の人の関所。continue・approve は報告へ、stop・reject は止めて報告へ
   - id: final-gate
@@ -1208,7 +1277,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, mat_go, structure_units_file, ripple_file, verify_file, world_go, world_purpose_file]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -1231,6 +1300,8 @@ nodes:
         structure_units_file: {type: string}
         ripple_file: {type: string}
         verify_file: {type: string}
+        world_go: {type: boolean}
+        world_purpose_file: {type: string}
 
   # いつも走る機械の報告。report.md と次の run の依頼の下書き next-request.json（{findings, prior_failures}）と、この run で最後まで
   # 通らなかった物 prior-failures.json。ai_report_go は盤面が報告の役の節を出したか。

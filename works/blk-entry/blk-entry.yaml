@@ -128,5 +128,6 @@ nodes:
         judge_verify: {type: string, enum: ["on", "off"]}
         review_tree: {type: string, enum: ["on", "off", "auto"]}   # 既定の auto はブロックが開いた項目の数で決める
         tdd_lanes: {type: string, enum: ["on", "off"]}
+        world: {type: string, enum: ["on", "off"]}          # ブロックへは写さない（線の境の節が始めの記録の実効で off の機能を読む）
         ci_role_go: {type: boolean}
         head_line: {type: string}

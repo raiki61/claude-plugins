@@ -15,6 +15,8 @@ knowledge の行は、頭の節・単位の要点・関所の行・報告に NOT
 落とした抜き書き）。段の時間は持たない（流れの道具の出来事から作れる値は控えに持ち直さない）。
 
 - rows(path)・read(board_dir): 行（読めない・形が違えば ValueError）と控え（無い・読めない・形が違えば None）
+- write(board_dir, …)・board_rows(board_dir): 控えを書く（線の境）・控えが指す行（無い・落ちた・読めない周は []。盤面の根から
+  読む判定の支度・修正案の頭・関所が使う）
 - where_paths(where): 場所の字のパスの形の語（行の番号の尾を落とす）
 - section(world_file): 判定・修正案・事前審査の頭に貼る節（行が無ければ ""）
 - unit_note(rows, paths): 単位のパスと類の where が重なる行の要点（無ければ ""）
@@ -100,6 +102,26 @@ def read(board_dir) -> dict | None:
     except (OSError, UnicodeDecodeError, ValueError):
         return None
     return doc if isinstance(doc, dict) and doc.get("status") in STATES else None
+
+
+def write(board_dir, *, status: str, reason: str, world_file: str, classes, cached, skipped, dropped) -> pathlib.Path:
+    """控えを盤面の根に書く（線の境が 1 回。書けなければ OSError。受ける側が理由にして返す）"""
+    path = pathlib.Path(board_dir) / STATE_FILE
+    doc = {"status": status, "reason": reason, "world_file": world_file, "classes": classes, "cached": cached,
+           "skipped": skipped, "dropped": dropped}
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    return path
+
+
+def board_rows(board_dir) -> list:
+    """盤面の根の控えが指す行（控えが無い・落ちた周・行のファイルが空か読めない周は []。拒まない）"""
+    st = read(board_dir)
+    if st is None or st["status"] != "ok" or not st.get("world_file"):
+        return []
+    try:
+        return rows(st["world_file"])
+    except ValueError:
+        return []
 
 
 def where_paths(where) -> list:

@@ -9,11 +9,14 @@
   {"name": "out-of-purpose.json"},
   {"name": "rejects-r2.design.json"},
   {"name": "purpose.json"},
+  {"name": "purpose-means.json"},
   {"name": "lens.json"}
  ],
  "produces": [
   {"name": "structure-state.json", "format": "json", "schema": "schemas/structure-state.schema.json", "at": "root"},
   {"name": "structure-units.json", "format": "json", "schema": "schemas/structure-units.schema.json"},
+  {"name": "world-state.json", "format": "json", "schema": "schemas/world-state.schema.json", "at": "root"},
+  {"name": "world-purpose.json", "format": "json", "schema": "schemas/world-purpose.schema.json"},
   {"name": "judged.json", "format": "json", "schema": "schemas/judged.schema.json"},
   {"name": "gate.md", "format": "md"},
   {"name": "human-notes.md", "format": "md"},

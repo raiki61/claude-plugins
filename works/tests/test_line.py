@@ -198,12 +198,12 @@ class LineShapeCase(unittest.TestCase):
     def test_join_after_skippable_has_trigger_rule(self):
         """when: を持つ節に依る節は trigger_rule: none_failed_min_one_success（前の段が飛ばされても走る）。機械の報告 report と
         出口 result だけは all_done（上流の節が落ちた run でも報告を残し、AI の報告のブロックが落ちても機械の報告で出口を出す）。
-        構造の境 h-structure も all_done（任意の上流の構造のブロックの落ちを受けて印を書く）"""
+        構造の境 h-structure と世界の解の境 h-world も all_done（任意の上流のブロックの落ちを受けて印を書く）"""
         skippable = {n["id"] for n in line()["nodes"] if "when" in n}
         for n in line()["nodes"]:
             if set(n.get("depends_on") or []) & skippable:
                 with self.subTest(n["id"]):
-                    want = linekit.ALL_DONE if n["id"] in ("report", "result", "h-structure") else linekit.NFMOS
+                    want = linekit.ALL_DONE if n["id"] in ("report", "result", "h-structure", "h-world") else linekit.NFMOS
                     self.assertEqual(n.get("trigger_rule"), want)
 
     def test_gates_have_reject_and_text_by_path(self):

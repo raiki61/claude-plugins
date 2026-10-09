@@ -97,6 +97,8 @@ h-entry:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 speccing__write-route: {go: true, node: spec.write, why: spec.write が ready}
 write-prep:
   prompt_file: board/prompts/r1/spec.write.md
@@ -180,6 +182,8 @@ h-spec:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 pr-checking__pr-snap:
   ok: true
   snapshot_file: board/r1/pr-snapshot.json
@@ -279,6 +283,8 @@ h-judge:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 purposing__intake: {ok: true, reason: "", request: "", constraints_file: ""}
 purpose:
   purpose_text: stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞い（算術平均・上限を超えた値は上限に収める）に直し、test_stats.py の赤 2 件を緑にする
@@ -319,6 +325,82 @@ h-mat:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
+# 世界の解の段（計画 world-solution の W7。この筋書きでは h-mat の world_go が偽で回らない。stub は standard と同じ）: 依頼の 1 行を言い直す役が 1 回で問題の類にし、集める役が抜き書きを返し、照らしが 1 つ
+# 残し、判断する役が依頼の解き方を示さない行（verdict none）を 1 回で返す。輪の中の節の鍵は名前空間なし
+worlding__world-intake:
+  due: true
+  findings: 2
+  reason: ''
+world-classes-prep:
+  prompt: （言い直す役の描いた指示書）
+  prompt_file: world/classes-prompt-1.md
+  attempt: 1
+world-classes:
+  classes:
+  - finding: 1
+    class_id: ''
+    problem: 数の並びの平均を返す関数が、定義どおりの値を返すようにどう直すか
+    activity: 統計の関数の直し
+    proposed: ''
+    queries:
+    - arithmetic mean definition divide by count
+    wording: false
+world-classes-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  attempt: 1
+worlding__world-cache:
+  collect_due: true
+  judge_due: true
+  prompt: （集める役の描いた指示書）
+worlding__world-collect:
+  excerpts:
+  - class: w-0123456789ab
+    url: https://example.org/guide/mean
+    excerpt: The arithmetic mean is the sum of the values divided by the number of values.
+worlding__world-verify:
+  kept: 1
+  dropped: 0
+  offline: false
+world-judge-prep:
+  prompt: （判断する役の描いた指示書）
+  prompt_file: world/judge-prompt-1.md
+  attempt: 1
+world-judge:
+  rows:
+  - finding: 1
+    practice: 算術平均は値の和を個数で割る
+    sources:
+    - x1
+    applies: 平均の関数の直し
+    not_applies: ''
+    verdict: none
+    challenge: ''
+    basis: web
+world-judge-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  attempt: 1
+worlding__collect:
+  ok: true
+  world_file: world/world.jsonl
+  status: ok
+  reason: ''
+  classes: 1
+  cached: 0
+  skipped: 0
+  dropped: 0
+h-world:
+  ok: true
+  status: skipped
+  reason: 世界の解の段を回さない周
+  world_file: ''
 gathering__mat-route:
   ok: true
   stopped: false
@@ -751,6 +833,8 @@ h-plan:
   structure_units_file: board/r1/structure-units.json
   ripple_file: ''
   verify_file: board/r1/judge-verify.json
+  world_go: false
+  world_purpose_file: ''
 structuring__stage-a:
   structure_file: structure/structure.json
   design_file: structure/design.jsonl
@@ -977,6 +1061,8 @@ h-gate:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 h-fix:
   ok: true
   stop: false
@@ -999,6 +1085,8 @@ h-fix:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 fixing__ignored-before:
   ok: true
   count: 0
@@ -1428,6 +1516,8 @@ h-replan:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 replanning__r2-design-snap:
   ok: true
   go: true
@@ -1474,6 +1564,8 @@ h-regate:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 h-refit:
   ok: true
   stop: false
@@ -1496,6 +1588,8 @@ h-refit:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 refitting__ignored-before:
   ok: true
   count: 0
@@ -1582,6 +1676,8 @@ h-rejudge:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 rejudging__rj-snap:
   ok: true
   snapshot_file: board/r1/rejudge-snapshot.json
@@ -1651,6 +1747,8 @@ h-review:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 lensing__lens-route:
   ok: true
   why: ''
@@ -1725,6 +1823,8 @@ h-refix:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 refixing__refix-prep:
   ok: true
   owed: 1
@@ -1834,6 +1934,8 @@ h-tests:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 testing__run:
   ok: true
   green: true
@@ -1866,6 +1968,8 @@ h-ci:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 # 最後のテストの任せ先の役（ci-final。h-ci の go が偽なので飛ぶ。stub は節が走りうるので置く）
 ci-final__ci-fence:
   go: true
@@ -1925,6 +2029,8 @@ h-look:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 h-final:
   ok: true
   stop: false
@@ -1962,6 +2068,8 @@ h-final:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 h-eyes:
   ok: true
   stop: false
@@ -1984,6 +2092,8 @@ h-eyes:
   structure_units_file: ''
   ripple_file: ''
   verify_file: ''
+  world_go: false
+  world_purpose_file: ''
 eyeing__eyes-enter:
   ok: true
   round: 1

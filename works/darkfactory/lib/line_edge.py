@@ -1,5 +1,5 @@
 """境の節の中身（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4。並びは C18 の順: 計画 P1 Task 26・P1-R3・P1-R4）。
-ライン darkfactory の模块（層 L6。裁定 R59）で、使うのは darkfactory/scripts/edge.py と structure.py だけ。止め札そのもの（置く・読む）は共有の
+ライン darkfactory の模块（層 L6。裁定 R59）で、使うのは darkfactory/scripts/edge.py と structure.py・world.py・after.py だけ。止め札そのもの（置く・読む）は共有の
 .shared/core/halt.py。
 
 - edge(board_dir, at, repo, …): 境の節（darkfactory/scripts/edge.py の中身）。止め札・関所の答え・次のブロックを盤面から決める
@@ -18,6 +18,9 @@
   独立設計（design.due）のどちらかを blk-plan で起こす周
 - structure_edge(board_dir, structured): h-structure（構造の境の節。darkfactory/scripts/structure.py の中身）。構造のブロックの出口を
   確かめ、盤面の根の控え（core の structmark）を書く。planning はこの節を待つ
+- world_edge(board_dir, worlded, due): h-world（世界の解の境の節。darkfactory/scripts/world.py の中身。計画 world-solution の W7）。
+  世界の解のブロックの出口を確かめ、盤面の根の控え（core の worldmark）を書く。判定はこの節を待ち、判定の支度・修正案の頭・関所は
+  控えから行を読む。段が落ちても線を止めない
 - after_edge(board_dir, measured): 直しの後の構造の境（darkfactory/scripts/after.py の中身。計画 2026-10-09-clean-whole の
   Task 2.5）。直しの後に 2 度目に差し込んだ構造のブロックの出口（after.json）に、修正案の外れの訳（planmarks.deviations）を
   足して盤面の根の控え（structmark.write_after）を書く。報告・最後の関所・独立の目の頭・結末の残りがその控えを読む
@@ -73,6 +76,7 @@ import scopes  # noqa: E402
 import startrec  # noqa: E402  （始めの記録の読み口）
 import stopby  # noqa: E402  （L1。止めの理由の住処）
 import structmark  # noqa: E402
+import worldmark  # noqa: E402  （世界の解の行と控えの住処）
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
 # いつも走る script の節 1 本（darkfactory/scripts/edge.py）を、ラインの中で at を替えて使う。並びは C18 の順（中の関所は無い。
@@ -128,7 +132,10 @@ STRUCTURE_UNITS_OP = "structure_units_dropped"   # 対象の根からの相対�
 EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", "judgment_file": "", "open_units": "",
          "plan_file": "", "notes": "", "notes_file": "", "why": "", "gate_file": "", "premises_file": "",
          "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False, "mat_go": False,
-         "structure_units_file": "", "ripple_file": "", "verify_file": ""}
+         "structure_units_file": "", "ripple_file": "", "verify_file": "", "world_go": False, "world_purpose_file": ""}
+# 世界の解の段の入力の目的の文のファイル {purpose_text, means}（b.work。h-mat が目的の文と目的の役が分けた依頼の解き方から組み、
+# include の with: purpose_file が読む。ブロックの入力の形に写すのは線の側のここ 1 か所）
+WORLD_PURPOSE_FILE = "world-purpose.json"
 # 修正案のブロックが今の周に置く波及の一覧（その manifest の produces。h-fix・h-refit が修正の段へパスで渡す。線の木の段 1）
 RIPPLE_FILE = "ripple.json"
 RIPPLE_REPLAN_FILE = "ripple/replan.json"   # 同じブロックの 2 度目の include（案の直し）が直した項目で作り直した一覧（同じ produces ripple/**）
@@ -350,7 +357,8 @@ def _unit_file_paths(u: dict, repo) -> tuple:
 
 def structure_units(b, carried: dict, repo) -> str:
     """判定の直す義務の単位（carried の judgment_file・open_units）を blk-structure の入力の契約 {id, paths, summary} に写して
-    b.work(STRUCTURE_UNITS_FILE) に書き、そのパスを返す。paths が 1 本も残らない単位は写さない（stage_a.read_units は 1 行でも
+    b.work(STRUCTURE_UNITS_FILE) に書き、そのパスを返す。summary は単位の reason で、尾に単位のパスと重なる世界の解の行の要点
+    （worldmark.unit_note。盤面の根の控えが指す行）を足す。paths が 1 本も残らない単位は写さない（stage_a.read_units は 1 行でも
     paths が空ならファイル全体を落とす）。写さなかった単位と捨てたパスは trace の STRUCTURE_UNITS_OP の 1 行に残す"""
     try:
         doc = json.loads(pathlib.Path(carried["judgment_file"]).read_text(encoding="utf-8"))
@@ -358,6 +366,7 @@ def structure_units(b, carried: dict, repo) -> str:
     except (OSError, ValueError, TypeError):
         doc, keys = {}, set()
     rows, skipped, dropped = [], [], []
+    world = worldmark.board_rows(b.dir)
     for u in (doc.get("units") if isinstance(doc, dict) else None) or []:
         if not isinstance(u, dict) or u.get("key") not in keys:
             continue
@@ -366,8 +375,9 @@ def structure_units(b, carried: dict, repo) -> str:
         if not paths:
             skipped.append(u["key"])
             continue
-        reason = u.get("reason")
-        rows.append({"id": u["key"], "paths": paths, "summary": reason if isinstance(reason, str) else ""})
+        reason = u.get("reason") if isinstance(u.get("reason"), str) else ""
+        note = worldmark.unit_note(world, paths)   # 単位のパスと類の where が重なる世界の解の行の要点（無ければ ""）
+        rows.append({"id": u["key"], "paths": paths, "summary": f"{reason} {note}".strip() if note else reason})
     if skipped or dropped:
         b.trace(STRUCTURE_UNITS_OP, units=skipped, paths=dropped, round=b.round)
     _write_json(b.work(STRUCTURE_UNITS_FILE), rows)
@@ -410,6 +420,37 @@ def structure_edge(board_dir, structured, plan_go=True) -> dict:
     except OSError as e:
         status, why = "failed", (why + "。" if why else "") + f"構造のブロックの控えを書けない: {e}"
     return {"ok": True, "status": status, "reason": why, "design_file": design_file, "wall_s": wall}
+
+
+WORLD_COUNTS = ("classes", "cached", "skipped", "dropped")   # 世界の解のブロックの出口の数の欄（控えにそのまま写す）
+
+
+def world_edge(board_dir, worlded, due=True) -> dict:
+    """h-world: 世界の解のブロックの出口 worlded（飛ばされた・落ちた周は None）を確かめ、盤面の根の控え（worldmark.write）を書く。
+    段の落ち・自分の読み書きの失敗も節の失敗にせず status failed と理由で返す（線を止めない。判定・修正案・関所は行なしで進む）。
+    段を回さない周（due が偽: h-mat の world_go が偽か、h-mat が飛ばされた）は控えを書かずに status skipped（run に 1 回の段の
+    控えを、回さない周が上書きしない）"""
+    if due is False:
+        return {"ok": True, "status": "skipped", "reason": "世界の解の段を回さない周", "world_file": ""}
+    got = worlded if isinstance(worlded, dict) else {}
+    world_file = str(got.get("world_file") or "")
+    if not isinstance(worlded, dict):
+        why = "世界の解のブロックの節が落ちたか走らなかった（出口が無い）"
+    elif got.get("status") != "ok":
+        why = f"世界の解のブロックが status: {got.get('status') or '無し'} で抜けた" + (f"（{got['reason']}）" if got.get("reason") else "")
+    else:
+        why = ""
+        try:
+            worldmark.rows(world_file)
+        except ValueError as e:
+            why = str(e)
+    status = "failed" if why else "ok"
+    counts = {k: got[k] if isinstance(got.get(k), int) else 0 for k in WORLD_COUNTS}
+    try:
+        worldmark.write(board_dir, status=status, reason=why, world_file=world_file if status == "ok" else "", **counts)
+    except OSError as e:
+        status, why = "failed", (why + "。" if why else "") + f"世界の解の段の控えを書けない: {e}"
+    return {"ok": True, "status": status, "reason": why, "world_file": world_file if status == "ok" else ""}
 
 
 def after_edge(board_dir, measured) -> dict:
@@ -945,7 +986,9 @@ def mat_edge(b, board_dir, repo) -> dict:
        stop。済んでいれば渡さない（Archon の再開で呼び直しても同じ）。na（条件）なら渡さない
     2. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか。
        今の周の判定（p2.diagnose）が既に済んだ盤面
-       （固定材料から始めた run）は go 偽（判定の支度は待っていない p2.diagnose を線の順の誤りとして拒む）"""
+       （固定材料から始めた run）は go 偽（判定の支度は待っていない p2.diagnose を線の順の誤りとして拒む）
+    3. world_go は世界の解の段（判定の前に run で 1 回）を回すか（_world_due）。回す周は段の入力の目的の文のファイル
+       world_purpose_file を今の周の作業の置き場に組む"""
     board_dir = pathlib.Path(board_dir)
     row = b.table.nodes.get(PURPOSE_NODE) if b.table is not None else None
     if row is not None and row.by == "role" and b.node_state(PURPOSE_NODE) == "pending" and not _done_this_round(b, PURPOSE_NODE):
@@ -962,7 +1005,25 @@ def mat_edge(b, board_dir, repo) -> dict:
             entry.open_board(board_dir).stop(reason, by=stopby.PURPOSE)
             return {"stop": True, "go": False, "why": reason}
         b = entry.open_board(board_dir)
-    return {"go": not _done_this_round(b, DIAGNOSE_NODE), "mat_go": bool(_role_ready(b, MAT_BLOCK))}
+    go = not _done_this_round(b, DIAGNOSE_NODE)
+    return {"go": go, "mat_go": bool(_role_ready(b, MAT_BLOCK)), **_world_due(b, board_dir, go)}
+
+
+def _world_due(b, board_dir: pathlib.Path, go: bool) -> dict:
+    """{world_go, world_purpose_file}: 判定へ進む周で、入力 features_off の world で切っておらず、盤面の根に世界の解の段の控えが
+    まだ無ければ（run で 1 回。呼び直し・次の周は控えが在るので回さない）回す。回す周は目的の文と、目的の役が分けた依頼の解き方
+    （worldmark.means_of）を段の入力の形 {purpose_text, means} にして b.work(WORLD_PURPOSE_FILE) に書く。目的の文が読めなければ
+    回さない（目的の文の無い盤面は上で止めている）"""
+    no = {"world_go": False, "world_purpose_file": ""}
+    if not go or entry.WORLD_FEATURE in entry.cut_of(startrec.read(board_dir)) or worldmark.read(board_dir) is not None:
+        return no
+    try:
+        _, doc = purpose.read_purpose(board_dir)
+    except Reject:
+        return no
+    p = b.work(WORLD_PURPOSE_FILE)
+    _write_json(p, {"purpose_text": doc["purpose_text"], "means": worldmark.means_of(board_dir)})
+    return {"world_go": True, "world_purpose_file": str(p)}
 
 
 def rejudge_edge(board_dir, repo) -> dict:
