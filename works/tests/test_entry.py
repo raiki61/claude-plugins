@@ -1445,7 +1445,8 @@ class ResumeCase(StartCaseBase):
         repo = self.seed()
         first = self.start(repo, test_cmd=SEED_CMD, features_off="tdd_lanes judge_verify")
         self.assertEqual({k: first[k] for k in entry.FEATURES},
-                         {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "off"})
+                         {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "off",
+                          "world": "on"})
         self.assertIn("機能: judge_verify off・review_tree auto・tdd_lanes off", first["head_line"])
         doc = json.loads(entry.open_board(self.board).work(startrec.NAME).read_text(encoding="utf-8"))
         self.assertEqual(doc["features_off"], ["judge_verify", "tdd_lanes"])
@@ -1460,7 +1461,8 @@ class ResumeCase(StartCaseBase):
         repo = self.seed()
         got = self.start(repo, test_cmd=SEED_CMD)
         self.assertEqual({k: got[k] for k in entry.FEATURES},
-                         {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "on"})
+                         {"fix_lanes": "on", "graph_map": "on", "judge_verify": "off", "review_tree": "auto", "tdd_lanes": "on",
+                          "world": "on"})
         self.assertIn("機能: judge_verify off・review_tree auto", got["head_line"])
         doc = json.loads(entry.open_board(self.board).work(startrec.NAME).read_text(encoding="utf-8"))
         self.assertEqual((doc["features_off"], doc["features_on"]), ([], []))
