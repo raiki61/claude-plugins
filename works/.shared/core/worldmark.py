@@ -28,7 +28,7 @@ knowledge の行は、頭の節・単位の要点・関所の行・報告に NOT
   （修正案の範囲の照らしの住処の口を呼び手が渡す。ここから import すると関所の決め手の住処との輪になる）
 - world_ok(answer, row, own_sources, cite_ok): 関所の軸「世界の解か」（答えの要らない行・従う・依頼の外の出どころで訳の立つ外れ。
   web で確かめていない行（knowledge）は従う答えだけが揃い、外れは人に聞く——計画の 5.5 節「知識だけの定石に従うのは自明側、外れは人へ」）
-- gate_line(row, answer)・report_lines(board_dir): 関所の項目と報告の行
+- gate_line(row, answer)・report_lines(board_dir): 関所の項目と報告の節「世界の解」の行（控えから使った類は FROM_CACHE で名指す）
 
 依頼の解き方（足し欄 means。計画の W6・5.3 節の 1）: 目的の役は目的の文に解き方を書かず、依頼が示した解き方（手段）を役の型の
 足し欄 MEANS に分ける。足す・外す・置くの手順は住処 marks（種 means）に任せ、欄の意味（型・読んだ後の使い方）をここが持つ。
@@ -51,6 +51,7 @@ SAME, DIFFERS, NONE = VERDICTS
 BASES = ("web", "knowledge")
 WEB, KNOWLEDGE = BASES
 NOT_WEB = "web で確かめていない"
+FROM_CACHE = "（前の run の控えから使った類）"   # 報告の行で、run をまたぐ控えの定石を使った類を名指す
 FIELDS = ("finding", "where", "class_id", "problem", "activity", "practice", "sources", "applies", "not_applies", "versus",
           "basis", "cached")
 VERSUS_FIELDS = ("proposed", "verdict", "challenge")
@@ -316,7 +317,8 @@ def report_lines(board_dir) -> list:
         got = rows(st.get("world_file") or "") if st.get("world_file") else []
     except ValueError as e:
         return [f"- 世界の解の行が読めない: {e}"]
-    out = [f"- 類 {r['class_id']}（依頼の行 {r['finding']}）: {r['practice']}{_mark(r)}（{_versus(r)}）" for r in got]
+    out = [f"- 類 {r['class_id']}（依頼の行 {r['finding']}）: {r['practice']}{_mark(r)}{FROM_CACHE if r.get('cached') is True else ''}"
+           f"（{_versus(r)}）" for r in got]
     out.append(f"- 類 {st.get('classes', len(got))}・控えから使った類 {st.get('cached', 0)}・飛ばした行 {st.get('skipped', 0)}"
                f"・落とした抜き書き {st.get('dropped', 0)}")
     return out
