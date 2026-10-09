@@ -193,9 +193,8 @@ set +e
 # 修正の段の TDD の輪の実行器（この clone の works/dev/tdd-suite.sh。WORKS_DOGFOOD_TDD_SUITE を空にすれば輪を飛ばす）。
 # 包みを外した run は adapter=optional（launch.py env の WORKS_LAUNCH_ADAPTER_MODE）で回す（h-judge が包みの無い run を止めないように。報告に出る）
 TDD_SUITE="${WORKS_DOGFOOD_TDD_SUITE-works/dev/tdd-suite.sh}"
-set -- workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2" \
-  --input tdd_suite="$TDD_SUITE" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE" --input final_gate="${WORKS_DOGFOOD_FINAL_GATE:-always}" \
-  --input launch_mark="$LAUNCH_MARK"
+set -- workflow run darkfactory --input request="$REQUEST" --input launch_mark="$LAUNCH_MARK" --input test_cmd="$2" \
+  --input tdd_suite="$TDD_SUITE" --input adapter="$WORKS_LAUNCH_ADAPTER_MODE" --input final_gate="${WORKS_DOGFOOD_FINAL_GATE:-always}"
 if [ "${WORKS_DESIGN_ONLY:-}" = 1 ]; then set -- "$@" --input design_only=true; fi
 if [ -n "${WORKS_FEATURES_OFF:-}" ]; then set -- "$@" --input features_off="$WORKS_FEATURES_OFF"; fi
 if [ -n "${WORKS_FEATURES_ON:-}" ]; then set -- "$@" --input features_on="$WORKS_FEATURES_ON"; fi
