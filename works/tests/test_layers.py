@@ -56,6 +56,7 @@ MOD = {
     "carry": (1, None),       # 次の run への持ち越しの住処（依頼の容器の形・下書きの印・前の失敗の置き場・約束の Schema。写しの engine の型検査だけを読む）
     "flow_adapter": (1, None),  # 流れの道具（Archon）に触る口（依頼 239。scope・置き場・入力・聞き直しの口。works の物を何も知らない）
     "unittrees": (1, None),   # 修正の単位ごとの小さい git worktree（切る・差分・当てる・片付け。works の物を何も知らない）
+    "cite": (1, None),        # 名指しと決め手の出どころが現物に在るかの照らし（conflict と gatemarks が読む。標準ライブラリだけ）
     "marks": (1, None),       # 返答の足し欄の住処（役の型に欄を足す・返答から外す・盤面の控えの置き場と読み書き。標準ライブラリだけ）
     "graphmap": (1, None),    # 工程の地図（Archon の YAML から全体のグラフと節の居場所を組んで描く。works の物を何も知らない）
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),

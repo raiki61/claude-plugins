@@ -79,6 +79,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 import board as _board  # noqa: E402
+import cite  # noqa: E402
 import gatemarks  # noqa: E402
 import planmarks  # noqa: E402  （planmarks は conflict・entry を読まないので輪にならない）
 import scopes  # noqa: E402
@@ -158,7 +159,7 @@ LATE_REPLAN_PROMISE = ("案の項目そのものが誤りと裁いたが、こ�
                        "行にし、最後の人の関所で人が決める。changes に書くな。この段までに直した項目の単位の直しは作業ツリーに"
                        "そのまま残す（戻すな・触るな。最後の人の関所で人が見る）")   # 2 回目の修正の段で新しく fix_plan_item と裁いた行（状態 WAITING）の約束（write_rulings）
 _HELD_ROWS = ("changes", "not_done")    # 控えと返答を単位で合わせる欄
-CITE = re.compile(r"^(?P<path>.+?):(?P<a>[1-9][0-9]*)(?:-(?P<b>[1-9][0-9]*))?$")
+CITE = cite.CITE   # 名指しの形の住処は core の cite（関所の決め手の照らしも同じ物を使う）
 
 ITEM_SCHEMA = {
     "type": "object",
@@ -240,40 +241,12 @@ def change_only(board_dir) -> bool:
     return start_doc(board_dir).get("entry") == "change"
 
 
-def _inside(p: pathlib.Path, root: pathlib.Path) -> bool:
-    try:
-        p.relative_to(root)
-        return True
-    except ValueError:
-        return False
+_inside = cite.inside
 
 
-def cite_problem(cite, repo, roots=()) -> str:
-    """名指し `<パス>:<行>` か `<パス>:<行>-<行>` の確かめ（通れば空）。相対のパスは作業ツリーの根から（外と .git は拒む）、
-    絶対のパスは作業ツリーの中か roots（依頼のファイル・盤面の置き場）の中だけ。ファイルが在り、行がその中に在る"""
-    if not isinstance(cite, str):
-        return f"名指し {cite!r} が文字列でない"
-    m = CITE.match(cite.strip())
-    if not m:
-        return f"名指し {cite!r} が <パス>:<行> の形でない（例 tests/test_x.py:12・src/x.py:30-34・依頼のファイルの絶対パス:3）"
-    a, b = int(m["a"]), int(m["b"] or m["a"])
-    if b < a:
-        return f"名指し {cite!r} の行の範囲が逆"
-    repo = pathlib.Path(repo).resolve()
-    raw = pathlib.Path(m["path"])
-    p = (raw if raw.is_absolute() else repo / raw).resolve()
-    allowed = [repo] + [pathlib.Path(r).resolve() for r in roots if r]
-    if not any(p == r or _inside(p, r) for r in allowed) or _inside(p, repo / ".git"):
-        return f"名指し {cite!r} のパスが作業ツリー・依頼のファイル・盤面の外"
-    if not p.is_file():
-        return f"名指し {cite!r} のファイルが無い"
-    try:
-        n = len(p.read_text(encoding="utf-8", errors="replace").splitlines())
-    except OSError as e:
-        return f"名指し {cite!r} のファイルが読めない（{type(e).__name__}）"
-    if b > n:
-        return f"名指し {cite!r} の行がファイルに無い（{n} 行しか無い）"
-    return ""
+def cite_problem(cite_, repo, roots=()) -> str:
+    """名指し `<パス>:<行>` か `<パス>:<行>-<行>` の確かめ（通れば空。中身は core の cite.problem）"""
+    return cite.problem(cite_, repo, roots)
 
 
 def _correct_problem(it, try_query) -> str:

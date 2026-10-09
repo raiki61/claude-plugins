@@ -25,7 +25,10 @@ import report  # noqa: E402
 from engine.rules import registry  # noqa: E402
 
 NARROW = {"what": "空の列の mean", "why": "空の列の平均は 0 割りの例外のまま"}
-DECIDED = {"decided_by": "依頼の本文: 空の列の mean は今までどおり例外でよい", "undecided_because": "", "fences": []}
+# 決め手の出どころは現物に在る物（URL・パス:行・依頼の引用「…」・設計の決定の記録のパス）。世界の解は world か URL の決め手
+URL = "https://docs.python.org/3/library/statistics.html#statistics.mean"
+DECIDED = {"decided_by": f"{URL} の定義（空の列は StatisticsError）", "undecided_because": "", "fences": [],
+           "world": "Python 公式の statistics.mean は空の列で例外を投げる"}
 FACE = {"key": "clamp の上限の意味が変わる", "unit_keys": ["u"], "kind": "regression", "where": "stats.py clamp",
         "why": "上限を超えた値に lo を返す今の振る舞いに頼る呼び手が在れば結果が変わる", "severity": "block"}
 
@@ -36,7 +39,7 @@ class GateBase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.tmp = pathlib.Path(self._tmp.name)
 
-    def gate(self, narrows=(), faces=(), questions=(), units=(), materials=None):
+    def gate(self, narrows=(), faces=(), questions=(), units=(), materials=None, unattended=False):
         """差し替えを当てた写しの RL で p2.human_gate を回す。(返り, 偽の盤面)。materials は記録の素材 {名: {status, reason}}"""
         outs = {"p2.fix_plan": {"plan": [{"unit_keys": ["u"], "narrows": list(narrows)}]},
                 "p2.plan_review": {"faces": list(faces)}}
@@ -51,6 +54,9 @@ class GateBase(unittest.TestCase):
         holder = types.SimpleNamespace(rules=board.rules_module(), state=b.state)
         board.DiskBoard._apply_overrides(holder, entry.CORE_OVERRIDES)
         b.rules = holder.rules
+        if unattended:
+            (self.tmp / gatemarks.START_FILE).parent.mkdir(parents=True, exist_ok=True)
+            (self.tmp / gatemarks.START_FILE).write_text(json.dumps({"unattended": gatemarks.UNATTENDED}), encoding="utf-8")
         return registry(holder.rules, "BUILTINS")["human_gate"](b, "p2.human_gate"), b
 
 
@@ -80,7 +86,7 @@ class PlanGateCase(GateBase):
         """人に回す行は、役が書いた世界の解の 1 文を項目の尾に載せる（書いていなければそう出す。欄の無い行には付けない）"""
         world = "rjsf と JSON Forms はどちらも見せ方を UI schema に分ける（https://jsonforms.io/faq/）が、置き場は決めていない"
         for mark, tail in (({**DECIDED, "undecided_because": "置き場が割れる", "world": world}, f"（世界の解: {world}）"),
-                           ({**DECIDED, "undecided_because": "置き場が割れる"}, "（世界の解: 役が書いていない）")):
+                           ({**DECIDED, "undecided_because": "置き場が割れる", "world": ""}, "（世界の解: 役が書いていない）")):
             with self.subTest(tail=tail):
                 got, _ = self.gate(narrows=[{**NARROW, **mark}])
                 self.assertTrue(got["ask"]["items"][0].endswith(tail), got["ask"]["items"])
@@ -94,6 +100,88 @@ class PlanGateCase(GateBase):
         self.assertEqual(len(got["ask"]["items"]), 1)
         self.assertIn("負の上限の clamp", got["ask"]["items"][0])
         self.assertEqual([p["by"] for p in b.state["works"].get("gate_passes") or []], ["decided"])
+
+
+ROUTE_UP = {"unit_id": "u", "verdict": "汚れる", "faces": [2], "evidence": ["/units/0/measure"], "reason": "責務が割れる",
+            "chosen": "判定の式を report に 1 つ置く", "chosen_reason": "読み手が 1 つになる",
+            "rejected": [{"option": "境の節に写す", "cost": "知る場所が 2 つになる"}],
+            "route": "人に上げる", "route_reason": "人の前の決定が 2 つの置き場を別々に推している",
+            "undecided_because": "人の前の決定が 2 つの置き場を別々に推している"}
+
+
+class FourAxesCase(GateBase):
+    """関所に載せずにグラフの中で決めてよいかは、自明（決め手の出どころが現物に在る）・世界の解（world か URL の決め手）・汚くない
+    （その単位の構造の目の行が人に上げる行でない）・やりすぎでない（柵の印が無く、修正案の単位の外を名指さない）の 4 つが全部揃う時だけ。
+    人がいる run も無人の run も同じ（持ち主 2026-10-09 の決め 1。計画 2026-10-09-clean-whole の Task 2.6）"""
+
+    def put_rows(self, *rows):
+        import structmark
+        design = self.tmp / "design.jsonl"
+        design.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        structmark.write(self.tmp, status="ok", reason="", design_file=str(design), wall_s=0)
+
+    def test_decided_by_must_exist(self):
+        mark = {**DECIDED, "decided_by": "docs/adr/0099-nope.md:3 の決め"}
+        got, b = self.gate(narrows=[{**NARROW, **mark}])
+        self.assertEqual(got.get("decision"), "ask", got)
+        self.assertIn("決め手の出どころが現物に無い", got["ask"]["items"][0])
+        self.assertEqual(b.state["works"].get("gate_passes") or [], [])
+
+    def test_decided_by_url_passes(self):
+        got, _ = self.gate(narrows=[{**NARROW, **DECIDED}])
+        self.assertEqual(got, {"ok": True})
+
+    def test_decided_by_file_line_passes(self):
+        (self.tmp / "docs").mkdir()
+        (self.tmp / "docs" / "0002-keep.md").write_text("# 決め\n\n空の列は例外のまま\n", encoding="utf-8")
+        mark = {**DECIDED, "decided_by": "docs/0002-keep.md:3（人の前の決定）"}
+        got, _ = self.gate(narrows=[{**NARROW, **mark}])
+        self.assertEqual(got, {"ok": True})
+
+    def test_no_world_asks(self):
+        (self.tmp / "keep.md").write_text("空の列は例外のまま\n", encoding="utf-8")
+        got, _ = self.gate(narrows=[{**NARROW, **DECIDED, "decided_by": "keep.md:1", "world": ""}])
+        self.assertEqual(got.get("decision"), "ask", got)
+        self.assertIn("世界の解", got["ask"]["items"][0])
+
+    def test_face_outside_plan_units_asks(self):
+        got, _ = self.gate(faces=[{**FACE, **DECIDED, "unit_keys": ["別の単位"]}])
+        self.assertEqual(got.get("decision"), "ask", got)
+        self.assertIn("修正案の単位の外", got["ask"]["items"][0])
+
+    def test_eye_route_up_becomes_gate_item(self):
+        """構造の目が人に上げた行は修正前の関所の項目になる（推し＝chosen・捨てた案と代償＝rejected）。その単位の決め手の行は
+        聞かずに通さない（汚くないの軸が揃わない）。無人の run でも同じ（止まって答えの下書きを残す）"""
+        self.put_rows(ROUTE_UP)
+        for unattended in (False, True):
+            with self.subTest(unattended=unattended):
+                got, _ = self.gate(narrows=[{**NARROW, **DECIDED}], unattended=unattended)
+                self.assertEqual(got.get("decision"), "ask", got)
+                items = got["ask"]["items"]
+                design = [x for x in items if x.startswith(gatemarks.DESIGN_HEAD)]
+                self.assertEqual(len(design), 1, items)
+                for want in (ROUTE_UP["undecided_because"], ROUTE_UP["chosen"], "境の節に写す", "知る場所が 2 つになる"):
+                    self.assertIn(want, design[0])
+                self.assertIn(gatemarks.DESIGN_KIND, got["ask"]["kinds"])
+                self.assertTrue(any("構造の目" in x and NARROW["what"] in x for x in items), items)
+
+    def test_request_quote_must_be_in_request(self):
+        """依頼の引用「…」は依頼の文に字のまま在る時だけ出どころになる"""
+        req = self.tmp / "request.json"
+        req.write_text(json.dumps({"findings": [{"where": "stats.py", "text": "空の列の mean は今までどおり例外でよい"}]},
+                                  ensure_ascii=False), encoding="utf-8")
+        (self.tmp / gatemarks.START_FILE).parent.mkdir(parents=True, exist_ok=True)
+        (self.tmp / gatemarks.START_FILE).write_text(json.dumps({"request_file": str(req)}), encoding="utf-8")
+        ok = {**DECIDED, "decided_by": "依頼の本文「空の列の mean は今までどおり例外でよい」"}
+        self.assertEqual(self.gate(narrows=[{**NARROW, **ok}])[0], {"ok": True})
+        bad = {**DECIDED, "decided_by": "依頼の本文「空の列は 0 を返す」"}
+        got, _ = self.gate(narrows=[{**NARROW, **bad}])
+        self.assertIn("依頼の文に無い", got["ask"]["items"][0])
+
+    def test_clean_route_rows_do_not_block(self):
+        self.put_rows({**ROUTE_UP, "route": "自分で決める", "route_reason": "決め手で決まる", "undecided_because": ""})
+        got, _ = self.gate(narrows=[{**NARROW, **DECIDED}])
+        self.assertEqual(got, {"ok": True})
 
 
 FORK_UNIT = "stats.py mean: 空の列の扱いが決まらない"

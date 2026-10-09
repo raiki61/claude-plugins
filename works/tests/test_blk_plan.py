@@ -789,8 +789,8 @@ class ScriptCase(unittest.TestCase):
 
     def test_plan_narrows_decided_passes_gate(self):
         """決め手の出どころが在り undecided_because が空で柵の印の無い狭めは、人に聞かずに通り、出どころつきで盤面に残る"""
-        decided = [{**NARROWS[0], "decided_by": "依頼の本文: 空の列の mean は今までどおり例外でよい", "undecided_because": "",
-                    "fences": []}]
+        decided = [{**NARROWS[0], "decided_by": "https://docs.python.org/3/library/statistics.html#statistics.mean の定義",
+                    "undecided_because": "", "fences": [], "world": "Python 公式の statistics.mean は空の列で例外を投げる"}]
         got, out = self.gate_after(decided)
         self.assertFalse(got["asking"], got)
         self.assertEqual((out["ok"], out["asks_human"]), (True, False))
@@ -877,8 +877,8 @@ class ScriptCase(unittest.TestCase):
     def test_plan_review_regression_decided_passes_gate(self):
         """事前審査の regression の穴も、決め手が在り柵の印が無ければ人に聞かない"""
         review = suggest_regression()
-        review["faces"][0].update({"decided_by": "依頼の本文: clamp は上限を超えたら hi を返す", "undecided_because": "",
-                                   "fences": []})
+        review["faces"][0].update({"decided_by": "https://en.cppreference.com/w/cpp/algorithm/clamp の定義（上限を超えたら hi）",
+                                   "undecided_because": "", "fences": [], "world": "C++ の std::clamp は上限を超えた値に hi を返す"})
         got, out = self.gate_after([], review)
         self.assertFalse(got["asking"], got)
         self.assertIs(out["asks_human"], False)
