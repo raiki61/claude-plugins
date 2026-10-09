@@ -1053,6 +1053,7 @@ class TestFixPhaseFreezesNonPythonTests(ContractCase):
             other = pathlib.Path(repo) / "stats_test.go"
             if not other.exists():
                 other.write_text(OTHER_GO, encoding="utf-8")
+                (pathlib.Path(repo) / "KeySpec.java").write_text("class KeySpec { int v = 1; }\n", encoding="utf-8")
             return orig(board_dir, repo, *a, **k)
         with mock.patch.object(tddloop, "start", start):
             super().setUp()
@@ -1065,6 +1066,13 @@ class TestFixPhaseFreezesNonPythonTests(ContractCase):
         got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py", "stats_test.go"], "what": "上限の枝で hi を返す"})
         self.assertFalse(got["ok"], got)
         self.assertIn("stats_test.go", got["reason"])
+
+    def test_fix_phase_edit_of_spec_named_implementation_passes(self):
+        """名の尾が Spec でもテストのフォルダの外の実装（KeySpec.java）は凍らせない（直しの段で直してよい）"""
+        self.red()
+        self.edit("KeySpec.java", "int v = 1;", "int v = 2;")
+        got = self.step({"phase": "fix", "unit_key": CLAMP, "files": ["stats.py", "KeySpec.java"], "what": "上限の枝で hi を返す"})
+        self.assertTrue(got["ok"], got)
 
     def test_fix_phase_append_to_non_python_test_passes(self):
         self.red()
@@ -1188,7 +1196,7 @@ class TestTestFileIdentity(unittest.TestCase):
     def test_declared_test_file_counts(self):
         self.assertTrue(tddloop.is_test_file("checks/verify.py", {"checks/verify.py"}), "慣習に当たらない名も宣言なら")
         self.assertFalse(tddloop.is_test_file("checks/verify.py", set()))
-        for path in ("test_stats.py", "x_test.py", "conftest.py", "pkg/calc_test.go", "src/FooTest.java"):
+        for path in ("test_stats.py", "x_test.py", "conftest.py", "pkg/calc_test.go", "src/test/java/FooTest.java"):
             with self.subTest(path=path):
                 self.assertTrue(tddloop.is_test_file(path, set()))
         self.assertFalse(tddloop.is_test_file("stats.py", set()))

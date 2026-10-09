@@ -65,7 +65,7 @@ PATHREF_EXT = frozenset({"sh", "bash", "zsh", "bats", "yml", "yaml", "json", "js
 PATHREF_NAMES = frozenset({"makefile", "gnumakefile", "dockerfile", "justfile"})
 # 文書・データ。言及は拾うが先へは伸ばさない（実行されない）
 DOC_EXT = frozenset({"md", "markdown", "txt", "rst", "adoc", "csv", "lock", "html", "htm", "xml", "svg", "patch",
-                     "diff", "log", "example", "sample", "tsv", "jsonl", "ndjson"})
+                     "diff", "log", "example", "sample", "tsv", "jsonl", "ndjson", "po", "pot", "snap"})
 # import を読まない言語のコード（依る側を字の一致でしか辿れない。近くに在れば全部を回す）。この表は届いた先を先へ伸ばすかの
 # 目安で、言語の見分けには使わない: 表に無い拡張子も、文書の表（DOC_EXT）に無ければ同じく読めないコードと見る（_lang）
 OTHER_CODE_EXT = frozenset({"js", "jsx", "mjs", "cjs", "ts", "tsx", "go", "rb", "rs", "java", "kt", "kts", "scala", "c",
@@ -76,10 +76,14 @@ REF_EXT = PATHREF_EXT - {"sh", "bash", "zsh", "bats", "mk"} | DOC_EXT
 TEST_DIRS = frozenset({"tests", "test", "__tests__", "spec"})
 TEST_NAME = re.compile(r"(^test_.*\.py$|.*_test\.(py|go)$|.*\.bats$|.*\.(test|spec)\.[jt]sx?$|.*-(case|suite)\.(py|sh)$"
                        r"|^conftest\.py$)")
-# テストの実行器が自分で探す名の形（拡張子を除いた名の語の頭・尾。pytest の python_files・go test・Jest の testMatch・RSpec・
-# Maven の surefire と failsafe・xUnit の命名）。言語ごとの表でなく名の形 1 つで、文書・設定の拡張子（DOC_EXT・PATHREF_EXT）には当てない
-# 名に点を足した形は .test・.spec の尾だけ（test_x.json.gz のような控えのデータを数えない）
-TEST_STEM = re.compile(r"^(test_[^.]+|[^.]+_(test|spec)|.+\.(test|spec)|[^.]*[a-z0-9](Test|Tests|Spec|IT))$")
+# テストの実行器が探す名の形（拡張子を除いた名の語の頭・尾。go test の *_test・Jest の testMatch の *.test・*.spec・C や
+# Ruby の test_*）。言語ごとの表でなく名の形で、Python（PY_EXT。実行器の形は TEST_NAME の pytest の python_files）と文書・設定
+# （DOC_EXT・PATHREF_EXT）には当てない。名に点を足した形は .test・.spec の尾だけ（test_x.json.gz のような控えのデータを数えない）
+TEST_STEM = re.compile(r"^(test_[^.]+|[^.]+_test|.+\.(test|spec))$")
+# 語の尾の慣習（Maven・Gradle の *Test・*Tests・*IT、RSpec の *_spec、Spock・ScalaTest の *Spec、XCTest の *Tests）は実装の名
+# （KeySpec・job_spec・AbTest）とも重なるので、テストのフォルダ（TEST_DIRS か名が .Tests・.Test で終わる物。大文字小文字を
+# 問わない）の下だけで数える
+TEST_TAIL = re.compile(r"^([^.]+_spec|[^.]*[A-Za-z0-9](Test|Tests|Spec)|[^.]*[a-z0-9]IT)$")
 # 拡張子を除いた名で呼ばれる物（YAML の script の値・include の値・名で起こすスクリプト）。JSON などの名は節の id と重なるので見ない
 STEM_EXT = frozenset({"py", "sh", "bash", "zsh", "bats", "yml", "yaml"})
 # project の根の印（名の言及を同じ project の中に限る。無いリポジトリは全体が 1 つの project）
@@ -106,11 +110,12 @@ HEURISTICS = [
     "点の付いた模块名の言及（module）は Python でない file だけ（python -m など。Python の file は import の読み取りが正）。"
     "stem は py（import で読まれていない物＝スクリプト）・シェル・YAML の file だけ。同じ名の file が複数あり、言及した file と"
     "共有するフォルダが 1 段も無ければ、どれとも決めない（not_seen.ambiguous_mentions に数える）",
-    "テストのモジュールは名前の型（test_*.py・*_test.py・*.bats・*.test.js・*-case.py など）と、文書・設定でない file の名の"
-    "語の頭・尾の慣習（test_*・*_test・*_spec・*.spec・*.test・*Test・*Tests・*Spec・*IT）。tests/ の下の他は支え",
+    "テストのモジュールは名前の型（test_*.py・*_test.py・*.bats・*.test.js・*-case.py など）と、Python・文書・設定でない file の"
+    "名の慣習（test_*・*_test・*.test・*.spec。*_spec・*Test・*Tests・*Spec・*IT はテストのフォルダの下だけ）。tests/ の下の他は支え",
     "動的 import（import_module・__import__・spec_from_file_location・runpy・exec など）は、引数の字が追跡中の"
     "file 名・フォルダ名に当たれば言及で辿れるとみなし、当たらなければ読めない物に数える",
-    "文書と見るのは文書・データの拡張子と、拡張子の無い名・ドットで始まる設定の名だけ。ほかの拡張子は言語を問わず読めないコード",
+    "文書と見るのは文書・データの拡張子と、拡張子の無い名・ドットで始まる設定の名と、git の属性 linguist-documentation で"
+    "文書と宣言した物だけ。ほかの拡張子は言語を問わず読めないコード",
     "起点とその届いた先（近く）に読めない物（分からない言語・Python の構文の誤り・字の当たらない動的 import・"
     "大きすぎる file・シンボリックリンク）が在れば all_tests_required（分からないなら全部を回す）",
 ]
@@ -151,12 +156,17 @@ def _code_sha():
 
 
 def is_test(path):
-    """"module"（回すテスト）・"support"（テストのフォルダの下の他の file）・None。module は名の型（TEST_NAME）か、文書でも
-    設定でもない拡張子の file の名の慣習（TEST_STEM）"""
+    """"module"（回すテスト）・"support"（テストのフォルダの下の他の file）・None。module は名の型（TEST_NAME）か、Python でも
+    文書でも設定でもない拡張子の file の名の慣習（TEST_STEM。語の尾の TEST_TAIL はテストのフォルダの下だけ）"""
     base = _base(path)
     ext = _ext(path)
-    if TEST_NAME.match(base) or (ext and ext not in DOC_EXT | PATHREF_EXT and TEST_STEM.match(_stem(path))):
+    if TEST_NAME.match(base):
         return "module"
+    if ext and ext not in PY_EXT | DOC_EXT | PATHREF_EXT:
+        stem = _stem(path)
+        if TEST_STEM.match(stem) or (TEST_TAIL.match(stem) and any(
+                part.lower() in TEST_DIRS or part.lower().endswith((".tests", ".test")) for part in path.split("/")[:-1])):
+            return "module"
     if any(part in TEST_DIRS for part in path.split("/")[:-1]):
         return "support"
     return None
@@ -166,7 +176,7 @@ def _lang(path, rec):
     """file の種類: python・pathref・doc・binary・unknown（分からない言語）。文書と見るのは文書・データの拡張子（DOC_EXT）と、
     拡張子の無い名（LICENSE など。シバンが在ればスクリプト）・ドットで始まり他に点の無い名（.gitignore などの設定）だけ。
     ほかの拡張子は言語を問わず読めないコード（unknown。近くに在れば全部を回す）——表に無い言語を文書と見て、試験を何も選ばない
-    形にしない（分からない＝全部を回す）"""
+    形にしない（分からない＝全部を回す）。unknown のうち git の属性で文書と宣言した物は _Index が doc に直す（_declared_docs）"""
     if rec.get("bin"):
         return "binary"
     ext = _ext(path)
@@ -179,6 +189,21 @@ def _lang(path, rec):
     if not ext or ext in DOC_EXT or (base.startswith(".") and base.count(".") == 1):
         return "doc"
     return "unknown"
+
+
+DOC_ATTR = "linguist-documentation"   # git の属性で文書と宣言する事実上の標準（GitHub Linguist）
+ATTR_CHUNK = 500                      # git check-attr に 1 回で渡すパスの数
+
+
+def _declared_docs(repo, paths):
+    """paths のうち、git の属性 DOC_ATTR が立つ物（.gitattributes で文書と宣言した物。表に無い拡張子の控え・台帳を、対象が自分の
+    言葉で文書と言える口）。git が読めなければ空"""
+    out = []
+    for i in range(0, len(paths), ATTR_CHUNK):
+        got = _git(repo, "check-attr", "-z", DOC_ATTR, "--", *paths[i:i + ATTR_CHUNK]) or ""
+        parts = got.split("\0")
+        out += [parts[j] for j in range(0, len(parts) - 2, 3) if parts[j + 2] in ("set", "true")]
+    return out
 
 
 # ---------------------------------------------------------------- file ごとの読み取り（中身だけに依る。sha で使い回す）
@@ -419,6 +444,8 @@ class _Index:
             if not rec.get("bin") and not rec.get("large"):
                 self.data[path] = data   # 当たりの行はハッシュを取った同じ中身から取る（読み直すと鍵と中身がずれうる）
         self.lang = {p: _lang(p, self.cache[s]) for p, s in self.files.items()} if self.scan else {}
+        for p in _declared_docs(self.repo, [p for p, lang in self.lang.items() if lang == "unknown"]):
+            self.lang[p] = "doc"
         self.by_base, self.by_stem = {}, {}
         for p in self.files:
             self.by_base.setdefault(_base(p), []).append(p)

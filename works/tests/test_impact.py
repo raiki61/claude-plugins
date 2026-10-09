@@ -194,13 +194,18 @@ class TestIsTest(unittest.TestCase):
     def test_is_test_by_cross_ecosystem_convention(self):
         # テストの実行器が自分で探す名の形（語の頭・尾）。言語の表でなく名の形 1 つで、文書・設定の拡張子には当てない
         for path in ("src/test/java/FooTest.java", "spec/foo_spec.rb", "src/foo_test.zig", "Calc.Tests/FooTests.cs",
-                     "src/FooSpec.scala", "it/FooIT.java", "web/foo.test.ts", "web/foo.spec.js", "pkg/calc_test.go",
+                     "src/test/scala/FooSpec.scala", "src/test/java/FooIT.java", "web/foo.test.ts", "web/foo.spec.js",
+                     "pkg/calc_test.go", "Tests/AppTests/APITests.swift", "src/test/java/UUIDTest.java",
                      "tests/test_core.py", "tests/core_test.py", "conftest.py", "t/x-case.py", "t/y.bats"):
             with self.subTest(path=path):
                 self.assertEqual(impact.is_test(path), "module")
         for path in ("data/test_data.json", "docs/test_notes.md", "conf/test_ci.yml", "src/Contest.java",
                      "src/latest.go", "scripts/run_tests.sh", "src/attest.rs",
-                     "tests/boards/steps/test_awaiting.json.gz"):
+                     "tests/boards/steps/test_awaiting.json.gz",
+                     # 語の尾の慣習（Spec・Test・IT）はテストのフォルダの下だけ（実装の KeySpec・job_spec・AbTest を数えない）
+                     "src/main/java/KeySpec.java", "pkg/job_spec.go", "src/AbTest.java", "web/ApiSpec.ts",
+                     # Python は実行器の慣習（TEST_NAME。pytest の python_files）だけ: 実装の tensor_spec.py・FooTest.py は数えない
+                     "pkg/tensor_spec.py", "tests/FooTest.py"):
             with self.subTest(path=path):
                 self.assertNotEqual(impact.is_test(path), "module")
 
@@ -223,9 +228,27 @@ class UnanalysableCase(RepoCase):
         sel = impact.select_tests(m, all_modules=["test_a"])
         self.assertTrue(sel["run_all"])
 
+    def test_python_spec_module_keeps_mention_edges(self):
+        # 実装の x_spec.py は試験のモジュールでない（言及の辺を持ち、それを走らせる殻の試験が選ばれる）
+        self.write("pkg/job_spec.py", "def build_job():\n    return 1\n")
+        self.write("scripts/go.sh", "#!/bin/sh\npython3 pkg/job_spec.py\n")
+        self.write("tests/go.bats", "@test go { sh scripts/go.sh; }\n")
+        m = self.map(["pkg/job_spec.py"])
+        self.assertIn("tests/go.bats", m["tests"])
+        self.assertNotIn("pkg/job_spec.py", m["tests"])
+
+    def test_linguist_documentation_attribute_marks_doc(self):
+        # 表に無い拡張子でも、git の属性 linguist-documentation（GitHub Linguist の事実上の標準）で文書と宣言した物は文書
+        self.write("ledger/COPIED_FROM.calc", "pkg/core.py  upstream/core.py\n")
+        m = self.map(["ledger/COPIED_FROM.calc"])
+        self.assertTrue(m["all_tests_required"], "宣言が無ければ読めないコード")
+        self.write(".gitattributes", "ledger/COPIED_FROM.* linguist-documentation\n")
+        m = self.map(["ledger/COPIED_FROM.calc"])
+        self.assertFalse(m["all_tests_required"], m["all_tests_reasons"])
+
     def test_known_doc_and_dotfile_stay_doc(self):
         # 文書・データの拡張子、ドットで始まる設定の名、拡張子もシバンも無い名は今どおり文書（全部を回さない）
-        for rel in ("notes/plan.md", "data/rows.jsonl", "conf/.gitignore", "LICENSE"):
+        for rel in ("notes/plan.md", "data/rows.jsonl", "conf/.gitignore", "LICENSE", "locale/ja.po", "__snapshots__/a.snap"):
             with self.subTest(rel=rel):
                 self.write(rel, "plain words only\n")
                 m = self.map([rel])

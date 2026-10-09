@@ -997,8 +997,8 @@ def declared_test_files(st) -> set[str]:
 
 
 def is_test_file(path: str, declared) -> bool:
-    """テストのファイルか: 宣言（declared_test_files）に在るか、名の慣習（impact.is_test の module。テストの実行器が自分で探す名の
-    形で、言語の表でない）に当たるか。実装のファイルの test* 関数は凍らせない。純粋"""
+    """テストのファイルか: 宣言（declared_test_files）に在るか、名の慣習（impact.is_test の module。テストの実行器が探す名の
+    形で、言語の表でない。語の尾の形はテストのフォルダの下だけ）に当たるか。どちらにも当たらない実装のファイルは凍らせない。純粋"""
     return posixpath.normpath(path) in declared or impact.is_test(path) == "module"
 
 
@@ -1018,10 +1018,11 @@ def _cut_lines(repo, tree: str, files: list[str]) -> list[str]:
     if not there:
         return []
     out = []
-    for line in git(repo, "diff-tree", "-r", "--numstat", "--no-renames", tree, snapshot(repo), "--", *there).splitlines():
-        _added, deleted, path = line.split("\t", 2)
-        if deleted != "0":
-            out.append(path)
+    for row in git(repo, "diff-tree", "-r", "-z", "--numstat", "--no-renames", tree, snapshot(repo), "--", *there).split("\0"):
+        if row.count("\t") >= 2:
+            _added, deleted, path = row.split("\t", 2)
+            if deleted != "0":
+                out.append(path)
     return sorted(out)
 
 
