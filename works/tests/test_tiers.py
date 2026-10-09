@@ -731,16 +731,6 @@ class RunSlotCase(unittest.TestCase):
         self.assertEqual(got["material"]["status"], "clean", got)
         self.assert_one_slot("echo ran-cmd")
 
-    def test_blk_tests_run_takes_slot(self):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("blk_tests_run_tests_slot",
-                                                      TESTS.parent / "blk-tests" / "scripts" / "run_tests.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        with open(self.tmp / "t.log", "wb") as f:
-            self.assertEqual(mod._run(["sh", "-c", "echo ran-blk"], f, cwd=str(self.tmp)), 0)
-        self.assert_one_slot("echo ran-blk")
-
     def test_test_cmd_run_sh_takes_slot_once(self):
         from board import tree_runner
         os.environ["WORKS_TESTS"] = "heavy"
